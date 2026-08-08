@@ -2317,18 +2317,29 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
           }
         }
       }
-      idxLineHtml = '<span class="term-pop-idx-name" style="display:block;margin-top:4px;font-size:12px;color:var(--text-2)">📊 ' + _idxPrefix + _idxRetPart + '</span>';
+      idxLineHtml = '<span class="term-pop-idx-name">📊 ' + _idxPrefix + _idxRetPart + '</span>';
     }
+    var etfMetaHtml = "";
     var etfHtml = "";
     var _popDate = el.getAttribute("data-date");
     var _popEtfKey = (idx && _popDate && _sigEtfCache[idx + "|" + _popDate]) ? (idx + "|" + _popDate) : idx;
     if (idx && _sigEtfCache[_popEtfKey] && _sigEtfCache[_popEtfKey].length) {
       var _top = _topEtfByScore(_sigEtfCache[_popEtfKey]);
       if (_top && _top.name && _top.code) {
-        // 2026-08-05 名称(代码)后追加至今盈亏（top1 的，有数据才显）
+        var _isSelf = _top.match_method === "self";
+        // 2026-08-08 第二行 etfMetaHtml: 灯+档位+跟踪分+相似度+体量(由重到轻)
+        // self: 蓝灯+强关联+本体就是ETF+体量; 非self: 复用 _etfMatchTags(已含灯+档位+跟踪分+相似度+体量,无ETF代码)
+        if (_isSelf) {
+          var _selfMeta = '<span class="etf-light etf-light-self"></span> 强关联 本体就是ETF';
+          if (typeof _top.amount === "number") _selfMeta += " " + _top.amount + "亿";
+          etfMetaHtml = '<span class="term-pop-etf-meta">' + _selfMeta + '</span>';
+        } else {
+          etfMetaHtml = '<span class="term-pop-etf-meta">' + _etfMatchTags(_top).trim() + '</span>';
+        }
+        // 2026-08-08 第三行 etfHtml: ETF名(代码)+至今盈亏(格式和第一行 idxLineHtml 统一: 图标+名(代码)+±X%)
         var _pnlText = _etfPnlText(_top.etf_since_return, _top.etf_price_diff);
         var _pnlInner = _pnlText ? ' <span style="color:' + _etfPnlColor(_top.etf_since_return) + '">' + _pnlText + '</span>' : "";
-        etfHtml = '<span class="term-pop-etf">🔗 ' + _esc(_top.name) + '(' + _esc(_top.code) + ')' + _etfMatchTags(_top) + _pnlInner + '</span>';
+        etfHtml = '<span class="term-pop-etf">🔗 ' + _esc(_top.name) + '(' + _esc(_top.code) + ')' + _pnlInner + '</span>';
       }
     }
     if (sigType) {
@@ -2344,12 +2355,12 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         if (idxName && (p === idxName || p === idx || p.startsWith(idxName + " ("))) return '<b class="term-pop-idx' + (isNdx ? ' term-pop-idx-ndx' : '') + '">' + _esc(p) + '</b>';
         return _esc(p);
       }).join(" · ");
-      if (locateHtml || idxLineHtml || etfHtml) html += locateHtml + idxLineHtml + etfHtml;
+      if (locateHtml || idxLineHtml || etfMetaHtml || etfHtml) html += locateHtml + idxLineHtml + etfMetaHtml + etfHtml;
       pop.innerHTML = html;
     } else {
       // 汪汪队 chip（无 sigType 仅 data-idx）：text 纯文本 escape 后追加 locate span（有 data-idx 时）
-      if (locateHtml || idxLineHtml || etfHtml) {
-        pop.innerHTML = _esc(text) + locateHtml + idxLineHtml + etfHtml;
+      if (locateHtml || idxLineHtml || etfMetaHtml || etfHtml) {
+        pop.innerHTML = _esc(text) + locateHtml + idxLineHtml + etfMetaHtml + etfHtml;
       } else {
         pop.textContent = text;
       }
