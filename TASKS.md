@@ -1521,3 +1521,14 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - **mootdx skip list 已评估完(非在跑,summary记错)**:T9一部分,低价值可选,7-8永久失败code(158006/159077/159083/512420/561390/561810/561890)省214s/天,82%已覆盖,记录待办不优先。a0ab agent不存在
 - **待用户验证**:ETF信号灯显示效果(信号灯颜色/档位跟踪分/体量)/P2-13玻璃拟态/P2-10通知按钮CLS
 - **待用户决策**:P2-14(分时SVG)/P2-15(offshore 147MB)/mootdx skip list(低价值可选)/pipeline优化(P0+P1+P2降59%等定做哪些)
+
+### 会话状态(2026-08-08 13:25,ETF降权批次+移动端hoverpop+走势卡上下行+至今盈亏修复 全上线✓)
+- **ETF降权批次 ✅上线**(commit 89ce938b5 + main 5615967db + 数据 a48f23640):n30-59 sqrt折扣+lowconf估算灯+至今盈亏基准日+⚠️近似标记说明+hoverpop z-index。§0验 overview.json 510910 track_low_confidence=True
+- **移动端 hoverpop 超屏修复 ✅上线**(commit 230b48d6c):@media revert min(260px)+删 white-space/flex-wrap(第一次 c976d1dbe 效果更差重做)
+- **走势卡上下两行布局 ✅上线**(commit 230b48d6c):h3 路径 _appendEtfLinkTag 创建 .etf-link-row target=etfRow,etf-tag/etf-tag-pnl 入下行
+- **首页技术信号 hoverpop 去"自YYYYMMDD" ✅上线**(commit 230b48d6c):L2430 _pnlFull 回退 _pnlText(term-pop 首页信号 cell 触发,走势卡 .etf-popup 保留"自")
+- **板块分化走势卡 ETF 换行 ✅上线**(commit 9af604cc4 + reviewer PASS):_appendEtfLinkTag L15213 加 else if(sparkName) 分支 + _appendBackupChipRow L699 else 加 .etf-link-row 检查
+- **self ETF 511260 etf_since_return 永久None ✅上线**(commit 9af604cc4 + reviewer PASS):queries.py L527 match_method=="self" 用 _load_close_map 取 index_daily close(511260=cgb_10y_etf 数据在 index_daily 不在 etf_daily)。§0验 511260 18条 16有值/2None(今日信号)
+- **etf-tag-pnl(至今盈亏)不显示 ✅上线+用户确认显示**(origin/main a3b9f9cca + sw a43):根因 _sigEtfCache 只 overview tab 填充(_renderSignalGrid L1667),market tab 走势卡不填 -> _appendEtfLinkTag L15231 合并失败 -> _top0Text 空 -> etf-tag-pnl 不生成。**非230b48d6c重构副作用**(重构前后合并+pnl生成代码相同)。修复:_ensureSigEtfCacheFromOverview helper(L1500,从 overview signals_today.etfs 填 _sigEtfCache 不覆盖已有 if 判断)+renderAStock L11239/renderHK L11321 前调用。§0验线上 app.min.js 含 _ensureSigEtfCacheFromOverview + sw a43 + 用户确认走势卡+板块分化至今盈亏显示✓。**reviewer 18:05 cron c952ecd1 事后复查**(配额15:02恢复,避14-18高峰§17)
+- **⚠️429配额超限**:实施agent a4d9b30ec88f0eb1c 13:17 429失败(配额15:02重置),但其代码改动已完成上线(a3b9f9cca)。配额恢复前不派agent
+- **待用户决策**:top1稳定性机制(延迟纳入track_n<90排后+后端stable_top1滞回3天,调研完成待实施)/今日信号None(csi_930986最新信号今日tag/popup None是设计,可改善)
