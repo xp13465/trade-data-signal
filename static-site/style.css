@@ -1689,7 +1689,7 @@ main { padding: 16px 24px; }
 .etf-light-approx { background: #d97706; }         /* 橙 - approx 近似标准色(track_index warn/manual_fallback) */
 .etf-light-weak { background: #b08968; }     /* 暗橙 - none 弱(独立实色, 区别于approx) */
 .etf-light-nodata { background: var(--text-3); opacity: 0.35; }  /* 灰灭灯 - null 无数据 */
-.etf-light-lowconf { background: color-mix(in srgb, var(--primary) 25%, var(--text-3)); border: 1.5px dashed var(--text-3); box-sizing: border-box; }  /* 灰蓝虚线 - lowconf 估算(降权分,N<60) */
+.etf-light-lowconf { border: 1px dashed currentColor; box-sizing: border-box; }  /* 虚线修饰类 - lowconf 估算(降权分,N=30-59),叠加档位灯不覆盖background */
 .etf-pop-type { font-size: 9px; color: var(--text-3); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px; line-height: 14px; }
 /* 2026-08-05 ETF 至今盈亏：popup 候选行内盈亏 + tag 后盈亏 + hoverpop 内联盈亏（红涨绿跌内联 color） */
 .etf-pop-pnl { margin-left: 8px; font-size: 10px; font-weight: 600; white-space: nowrap; }

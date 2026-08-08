@@ -1540,21 +1540,24 @@ function _gradeLabel(grade) {
 // track_tier absent(旧数据未含)时回退 grade 映射，保持向后兼容
 function _etfLightInfo(etf) {
   if (!etf) return { cls: "etf-light-nodata", label: "无数据" };
-  if (etf.match_method === "self") return { cls: "etf-light-self", label: "强关联" };
-  var _t = etf.track_tier;
-  if (_t === "strong") return { cls: "etf-light-strong", label: "强关联" };
-  if (_t === "related") return { cls: "etf-light-related", label: "相关" };
-  // 问题3+5: track_low_confidence=true(共同交易日30-59,降权分) -> 估算灯(灰蓝虚线), 放 approx 前
-  // 3档拆分: low_confidence=true(30-59天降权)->估算灯 / track_tier=null(N<30或score<30)->极弱灰灯 / none(30-49真弱)->弱暗橙
-  if (etf.track_low_confidence === true) return { cls: "etf-light-lowconf", label: "估算" };
-  if (_t === "approx") return { cls: "etf-light-approx", label: "近似" };
-  if (_t === "none") return { cls: "etf-light-weak", label: "弱" };
-  // track_tier=null(N<30完全无数据 或 score<30极弱) -> 极弱灰灯; low_confidence=true 已被上方分支捕获
-  if (_t === null) return { cls: "etf-light-nodata", label: "极弱" };
-  // _t undefined(旧数据无 track_tier) -> 回退 grade 映射
-  if (etf.grade === "excellent") return { cls: "etf-light-strong", label: "强关联" };
-  if (etf.grade === "good" && etf.match_method !== "manual_fallback") return { cls: "etf-light-related", label: "相关" };
-  return { cls: "etf-light-approx", label: "近似" };
+  var cls, label;
+  if (etf.match_method === "self") { cls = "etf-light-self"; label = "强关联"; }
+  else {
+    var _t = etf.track_tier;
+    if (_t === "strong") { cls = "etf-light-strong"; label = "强关联"; }
+    else if (_t === "related") { cls = "etf-light-related"; label = "相关"; }
+    else if (_t === "approx") { cls = "etf-light-approx"; label = "近似"; }
+    else if (_t === "none") { cls = "etf-light-weak"; label = "弱"; }
+    // track_tier=null(N<30完全无数据 或 score<30极弱) -> 极弱灰灯
+    else if (_t === null) { cls = "etf-light-nodata"; label = "极弱"; }
+    // _t undefined(旧数据无 track_tier) -> 回退 grade 映射
+    else if (etf.grade === "excellent") { cls = "etf-light-strong"; label = "强关联"; }
+    else if (etf.grade === "good" && etf.match_method !== "manual_fallback") { cls = "etf-light-related"; label = "相关"; }
+    else { cls = "etf-light-approx"; label = "近似"; }
+  }
+  // low_confidence(N=30-59降权): 档位灯基础上加虚线修饰+估算标注,不替换档位
+  if (etf.track_low_confidence === true) { cls += ' etf-light-lowconf'; label += '(估算)'; }
+  return { cls: cls, label: label };
 }
 // D1b: match_method -> 中文来源标签(hover tooltip 用)
 function _etfSrcLabel(mm) {
@@ -2176,7 +2179,6 @@ function _etfLightHelpHTML() {
     + '<li><span class="etf-light etf-light-approx"></span> <b>橙</b> approx 近似 - track_score 50-59,有跟踪ETF但误差较大(统一橙色)</li>'
     + '<li><span class="etf-light etf-light-weak"></span> <b>暗橙</b> none 弱 - track_score 30-49,来源间接误差大</li>'
     + '<li><span class="etf-light etf-light-nodata"></span> <b>灰灭灯</b> - 极弱/无跟踪(track_score&lt;30 或 N&lt;30,非 lowconf)</li>'
-    + '<li><span class="etf-light etf-light-lowconf"></span> <b>灰蓝虚线</b> lowconf 估算 - track_low_confidence=true(共同交易日N=30-59,降权分),数据不足但已估算</li>'
     + '</ul>'
   );
   // 2. 跟踪分 track_score
@@ -2189,7 +2191,7 @@ function _etfLightHelpHTML() {
     + '<li><b>roll_std 滚动标准差</b> 15% - 30交易日滚动TE序列的std,越低越好</li>'
     + '<li><b>IR 信息比率</b> 15% - mean(收益差)×252/(std×√252),|IR|越接近0越好</li>'
     + '</ul>'
-    + '<p style="margin-top:4px;color:var(--text-3)">归一化: 4项百分位rank(防异常值拉伸) + IR分段函数(|IR|≤0.5满分, 正&gt;0.5斜率80轻惩罚, 负&lt;-0.5斜率200重惩罚)。阈值: ≥75 strong / 60-74 related / 50-59 approx / 30-49 none / &lt;30 灰灭。共同交易日 N=30-59 降权(track_score=null + track_low_confidence=true,灰蓝虚线估算灯); N&lt;30 完全无数据(track_score=null + track_tier=null,灰灭灯)。</p>'
+    + '<p style="margin-top:4px;color:var(--text-3)">归一化: 4项百分位rank(防异常值拉伸) + IR分段函数(|IR|≤0.5满分, 正&gt;0.5斜率80轻惩罚, 负&lt;-0.5斜率200重惩罚)。阈值: ≥75 strong / 60-74 related / 50-59 approx / 30-49 none / &lt;30 灰灭。共同交易日 N=30-59 降权(track_score=降权值 + track_low_confidence=true,档位灯加虚线修饰+估算标注); N&lt;30 完全无数据(track_score=null + track_tier=null,灰灭灯)。</p>'
   );
   // 3. 相似度 similarity
   var b3 = _blk('相似度 similarity',
@@ -2217,20 +2219,21 @@ function _etfLightHelpHTML() {
     + '<li><b>strong 强关联</b> - track_score≥75 或 self 本体 -> 蓝/绿灯 -> 筛选档1强关联ETF</li>'
     + '<li><b>related 相关</b> - track_score 60-74 -> 草绿灯 -> 筛选档2相关ETF</li>'
     + '<li><b>approx 近似</b> - track_score 50-59 -> 橙灯(统一橙色,不按 match_method 细分) -> 筛选档3有近似ETF</li>'
-    + '<li><b>none 弱 / null 极弱</b> - track_score 30-49 -> 暗橙灯(真弱); track_score&lt;30 或 N&lt;30 -> 灰灭灯(track_tier=null,有ETF但数据不足/极弱) -> 同归筛选档4有跟踪ETF; track_low_confidence=true(N=30-59降权) -> 灰蓝虚线估算灯</li>'
+    + '<li><b>none 弱 / null 极弱</b> - track_score 30-49 -> 暗橙灯(真弱); track_score&lt;30 或 N&lt;30 -> 灰灭灯(track_tier=null,有ETF但数据不足/极弱) -> 同归筛选档4有跟踪ETF</li>'
     + '<li><b>概念无ETF</b> - 无匹配ETF的概念标的(如部分综合指数) -> 筛选档5概念无ETF</li>'
     + '</ul>'
     + '<p style="margin-top:4px;color:var(--text-3)">筛选5档: 档1强关联ETF(self/strong) / 档2相关ETF(related 60-74) / 档3有近似ETF(approx 50-59) / 档4有跟踪ETF(none弱+null极弱,有ETF但误差大/数据不足) / 档5概念无ETF(无匹配)。回退规则(track_score 缺失时): grade=excellent->strong / grade=good(非手动兜底)->related / 其余->有跟踪ETF(档4弱)</p>'
+    + '<p style="margin-top:6px;color:var(--text-3)">估算标注: track_low_confidence=true(共同交易日N=30-59,降权分)的ETF在其 track_tier 档位灯上以虚线修饰+label加(估算)(如"近似(估算)"),数据不足但已估算(track_score为降权值,非null)。</p>'
   );
-  // 6. ⚠️近似标记(增强型ETF) + 估算灯说明
-  var b6 = _blk('⚠️近似标记(增强型ETF) & 估算灯',
+  // 6. ⚠️近似标记(增强型ETF) + 估算标注说明
+  var b6 = _blk('⚠️近似标记(增强型ETF) & 估算标注',
     '<p>ETF 名称含"增强"字样的为<b>增强型ETF</b>,基金经理可主动偏离指数持仓以追求超额收益,故前端加 ⚠️近似 标记提示。注意两个"近似"是不同概念:</p>'
     + _ul
     + '<li><b>track_tier="approx"</b> = 跟踪误差档位(track_score 50-59),显橙灯</li>'
     + '<li><b>approx 布尔字段</b> = 增强型ETF标记(名称含"增强"),显 ⚠️近似 文字</li>'
     + '</ul>'
     + '<p style="margin-top:4px;color:var(--text-3)">例: 562810(增强型) + track_tier=approx -&gt; ⚠️近似 + 橙灯; 159943(非增强型) + track_tier=approx -&gt; 只橙灯无 ⚠️ 标记。两者可同时出现(增强型且跟踪误差大)或单独出现。</p>'
-    + '<p style="margin-top:6px"><span class="etf-light etf-light-lowconf"></span> <b>估算灯(灰蓝虚线)</b>: track_low_confidence=true 时亮,表示共同交易日 N=30-59,track_score 为降权估算值(非精确评分),可信度较低。</p>'
+    + '<p style="margin-top:6px"><b>估算标注(虚线修饰)</b>: track_low_confidence=true(共同交易日N=30-59,降权分)的ETF在其档位灯上叠加虚线边框+label加(估算),track_score 为降权估算值(非null,非精确评分),可信度较低。</p>'
   );
   return '<div style="border-top:1px solid var(--border);margin:16px 0 12px;padding-top:12px">'
     + '<h4 style="margin:0 0 10px;font-size:15px;color:var(--text-1)">ETF信号灯 & 跟踪指标说明</h4>'
