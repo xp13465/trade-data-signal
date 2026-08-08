@@ -244,6 +244,14 @@ except Exception as e:
     print(f"[warn] gen_schedule_stats 刷新失败(读旧 schedule_stats.json): {e}", file=sys.stderr)
 
 STALE_EXIT_THRESHOLD = timedelta(hours=24)
+
+# 执行耗时阈值(R2迁移72h监控 2026-08-08): 移到循环外避免每次迭代重建(L2)
+DUR_THRESHOLDS = {
+    "intraday_snapshot": 600,   # 10min
+    "update_all": 1800,         # 30min
+    "backfill_evening": 1800,   # 30min
+    "us_stock_morning": 900,    # 15min
+}
 if STATS_FILE.exists():
     try:
         with open(STATS_FILE, encoding="utf-8") as f:
@@ -355,13 +363,7 @@ if STATS_FILE.exists():
             # update_all ~11min正常 >1800s(30min)告警; backfill ~22min >1800s(30min)告警;
             # us_stock_morning ~10min >900s(15min)告警。
             # 只检查最近 24h 内完成的任务(stale 不重复告警,同 exit/log_anomaly 逻辑)。
-            # 恢复检测: dur 降回阈值内 -> key 未 seen -> L416 恢复循环自动发恢复邮件。
-            DUR_THRESHOLDS = {
-                "intraday_snapshot": 600,   # 10min
-                "update_all": 1800,         # 30min
-                "backfill_evening": 1800,   # 30min
-                "us_stock_morning": 900,    # 15min
-            }
+            # 恢复检测: dur 降回阈值内 -> key 未 seen -> L476 恢复循环自动发恢复邮件。
             _dur = s.get("last_duration_sec")
             _dur_task = s.get("task")
             if _dur is not None and _dur_task in DUR_THRESHOLDS:
@@ -407,8 +409,8 @@ if STATS_FILE.exists():
 #    alert_state 去重（与 exit!=0 / log_anomaly 路径对称）：
 #      key=`{label}|not_loaded`，首次发 SEVERE + 写 state active + seen_keys_this_run 标记，
 #      已 active = suppress 不重发，恢复（seen 但 not_loaded 消失）发恢复邮件。
-#    插入位置选在恢复检测(L295)之前：alert_state 修改需在 L312 save 之前完成，
-#    seen_keys_this_run 标记需在 L295 恢复检测之前完成（否则 launchctl key 未 seen 被误报恢复）。
+#    插入位置选在恢复检测(L476)之前：alert_state 修改需在 L509 save 之前完成，
+#    seen_keys_this_run 标记需在 L476 恢复检测之前完成（否则 launchctl key 未 seen 被误报恢复）。
 LAUNCHCTL_LABELS = [
     "com.trade.update-all",
     "com.trade.backfill-evening",
@@ -474,9 +476,11 @@ for _label in LAUNCHCTL_LABELS:
 for _key, _info in list(alert_state.items()):
     if _info.get("status") != "active":
         continue
-    if _key == "overview_lag_3domain":
-        # overview 时效滞后的去重+恢复由 L546 overview 检查块内联处理
+    if _key == "overview_lag_3domain" or _key.startswith("r2_"):
+        # overview 时效滞后的去重+恢复由 overview 检查块内联处理
         # （该块在恢复检测循环之后运行，不能复用此循环，否则未 seen 被误报恢复）
+        # R2 keys(r2_unreachable/r2_overview_lag/r2_intraday_lag)同理: R2检查块在
+        # 恢复循环之后运行, 由 R2块内联处理恢复(C1修复: 否则每15min 2封邮件)
         continue
     if _key not in seen_keys_this_run:
         if _key.startswith("missed|"):
@@ -637,7 +641,7 @@ try:
                     f"last_alerted={_existing.get('last_alerted')}, 不重发"
                 )
         else:
-            # 时效恢复: was active -> resolved, 发恢复邮件(内联, 不复用 L416 恢复循环
+            # 时效恢复: was active -> resolved, 发恢复邮件(内联, 不复用 L476 恢复循环
             # 因 overview 检查在恢复循环之后运行, 复用会被误报恢复)
             _existing = alert_state.get(dedup_key)
             if _existing is not None and _existing.get("status") == "active":
@@ -652,7 +656,7 @@ try:
                     f"[recovery] overview 时效滞后已恢复 "
                     f"(首次发现: {_existing.get('first_seen')})"
                 )
-        # overview 检查在 save_alert_state(L443) 之后运行, 需补存防状态丢失
+        # overview 检查在 save_alert_state(L509) 之后运行, 需补存防状态丢失
         save_alert_state(alert_state)
 except Exception as e:
     print(f"[warn] 线上 overview.json 时效检查失败: {e}", file=sys.stderr)
@@ -668,7 +672,7 @@ except Exception as e:
 #    与现有 overview_lag_3domain(Worker路径 ss.fx8.store) 对称, 两层独立检查:
 #      R2直连stale + Worker路径stale = upload_r2 断(根因在R2上传)
 #      R2直连fresh + Worker路径stale = CF cache purge 失效(根因在Worker缓存)
-#    恢复检测: 内联处理(此块在 L416 恢复循环之后运行, 不能复用该循环)。
+#    恢复检测: 内联处理(此块在 L476 恢复循环之后运行, 不能复用该循环)。
 try:
     R2_BASE = "https://ssd.fx8.store"
 
@@ -742,13 +746,14 @@ try:
             print(f"[recovery] R2 直连不可达已恢复 "
                   f"(首次发现: {_ex_r2u.get('first_seen')})")
 
-        # overview collected_at 时效
+        # overview collected_at 时效 (M1: 非交易日跳过, 对齐 overview_lag_3domain 只交易日;
+        # 原非交易时段24h阈值致周五20:35->周六24h+1min误报持续到周一)
         ov_collected_r2 = ov_data_r2.get("collected_at") or ""
         ov_dt_r2 = _parse_flexible_ts(ov_collected_r2)
-        if ov_dt_r2:
+        if ov_dt_r2 and _is_today_trading:
             ov_lag_r2 = NOW - ov_dt_r2
             ov_lag_min_r2 = int(ov_lag_r2.total_seconds() // 60)
-            # 交易日盘中 20min(同 overview_lag_3domain), 非交易时段 24h(防周末断链)
+            # 交易日盘中 20min(同 overview_lag_3domain), 交易日非盘中 24h(防盘后断链)
             ov_thresh_r2 = timedelta(minutes=20) if is_r2_trading_window else timedelta(hours=24)
             if ov_lag_r2 > ov_thresh_r2:
                 _r2_ov_key = "r2_overview_lag"
@@ -833,7 +838,7 @@ try:
                         print(f"[recovery] R2 intraday 时效滞后已恢复 "
                               f"(首次发现: {_ex_r2id.get('first_seen')})")
 
-    # R2 检查在 save_alert_state(L443/L598) 之后运行, 需补存防状态丢失
+    # R2 检查在 save_alert_state(L509/L660) 之后运行, 需补存防状态丢失
     save_alert_state(alert_state)
 except Exception as e:
     print(f"[warn] R2 直连时效检查失败: {e}", file=sys.stderr)
