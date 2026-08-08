@@ -1595,8 +1595,8 @@ function _signalTiers(it) {
   return Math.min(...it.etfs.map(_etfTier));
 }
 // 2026-08-08 灯统一: 列表灯改用个体 top1 口径(_topEtfByScore + _etfLightInfo),
-// 与 hoverpop(L2325)/cellHtml tooltip(L1794) 完全一致, 消除分组口径(tier3 首个 ETF _etfApproxCls)多色遗留
-// _signalTiers 仍供筛选按钮(L1693 过滤 / L1918 计数)使用, 此处不再引用
+// 与 hoverpop(L2320)/cellHtml tooltip(L1789) 完全一致, 消除分组口径(tier3 首个 ETF _etfApproxCls)多色遗留
+// _signalTiers 仍供筛选按钮(L1688 过滤 / L1913 计数)使用, 此处不再引用
 // null 守卫: 无 etfs / top1 为 null -> _etfLightInfo(null) 返灰灯 etf-light-nodata
 function _signalLightInfo(it) {
   if (!it || !it.etfs || !it.etfs.length) return { cls: "etf-light-nodata", label: "无数据" };
@@ -1782,8 +1782,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         var _idxCodeAttr = _sigIdxCode ? ` data-idx-code="${_escAttr(_sigIdxCode)}"` : "";
         // 2026-08-07 今日信号 since_return=null -> 未结算标记，hoverpop 显示灰字提示"今日信号未结算（收盘后更新）"
         var _idxUnsettledAttr = (it.since_return == null) ? ` data-idx-unsettled="1"` : "";
-        // 2026-08-08 方案A: 列表灯用信号分组口径(_signalLightInfo), 强关联组全绿/蓝, 相关草绿, 近似多色
-        // tooltip 保留 top1 ETF 详情(来源/分级/相似度/跟踪分), 档位字段用分组口径(_sigLight.label 非 top1 tier)
+        // 2026-08-08 列表灯用个体 top1 口径(_signalLightInfo=_topEtfByScore+_etfLightInfo), 与 hoverpop 一致
+        // tooltip 保留 top1 ETF 详情(来源/分级/相似度/跟踪分), 档位字段用 _sigLight.label(个体 top1 口径)
         // 列表名/代码回指数(需求2真实意图: 原列表加灯, 名/代码都是指数的, ETF详情只在灯tooltip/popup看)
         // 布局: 信号名 灯(●) [⚠] 评级 ☑️/✖️ 指数名(代码)
         var _etfTop = _topEtfByScore(it.etfs);
