@@ -1571,3 +1571,10 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - **2 reviewer PASS**(通知再次丢失,进度文件兜底):staticdata reviewer(ac0ed8a07 18:02完成)+etf-tag-pnl reviewer(a8b63704 18:13完成)都PASS,SendMessage未送达主控,查/tmp/agent-progress-*.md查到结论。staticdata PASS(feed.xml+deploy.sh rsync源无回归)+etf-tag-pnl PASS(_sigEtfCache影响面/时序/兜底/smoke全PASS,2项smoke FAIL是checklist路径过时非本次改动)
 - **deploy.sh staticdata rsync源 fix ✅cherry-pick到main**(79f9d81bc,b75ab0965在feat):L559 rsync源 GIT_REPO->REPO(trade-data数据生成处),staticdata备份不再依赖空目录trade/static-site/data/
 - **派gz-cleanup agent**(a77eca635aa29767c,18:20):用户确认"全量迁移+清理.gz"。任务:①清理.gz生成逻辑4处(export.py GZ_THRESHOLD+rglob/intraday_snapshot.sh 8个.gz/upload_r2.py *.json.gz pattern/deploy.sh .gz防御)②删本地852个.gz(127MB)③清R2 .gz ④staticdata rsync去exclude全量迁移。C级,改完push feat→reviewer→主控cherry-pick。进度文件/tmp/agent-progress-gz-cleanup.md
+
+### 会话状态(2026-08-08 18:40,通知机制落档校正+§18犯错积累节)
+- **用户校正**:cron 10m是兜底非标准方案,标准方案待找SendMessage丢失根因+迭代。撤回之前把cron当标配落档(治标当治本)
+- **§11/§16/§2三处cron定位改回兜底非标准**+加标准方案待找根因(两假设:①agent没调SendMessage sm_use=0 ②调了harness没送达;验证:agent完成查jsonl grep SendMessage)
+- **新增§18犯错积累与防重犯**(7条犯错+防重犯条款):①通知丢失不设cron+把兜底当标准 ②DB方案理解反复3次 ③架构偏差exclude偏离全量 ④.gz凭memory断定 ⑤agent误报trade/trade-data ⑥cherry-pick干扰后台agent ⑦hoverpop试错
+- commit db692ecd0 push feat。CLAUDE.md上main延后(gz-cleanup在改deploy.sh等4文件,切分支干扰)
+- gz-cleanup agent(a77eca635aa29767c)后台跑中,cron fe562b43兜底
