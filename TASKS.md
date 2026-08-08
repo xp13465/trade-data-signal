@@ -1578,3 +1578,8 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - **新增§18犯错积累与防重犯**(7条犯错+防重犯条款):①通知丢失不设cron+把兜底当标准 ②DB方案理解反复3次 ③架构偏差exclude偏离全量 ④.gz凭memory断定 ⑤agent误报trade/trade-data ⑥cherry-pick干扰后台agent ⑦hoverpop试错
 - commit db692ecd0 push feat。CLAUDE.md上main延后(gz-cleanup在改deploy.sh等4文件,切分支干扰)
 - gz-cleanup agent(a77eca635aa29767c)后台跑中,cron fe562b43兜底
+
+### 会话状态(2026-08-08 18:55,gz-cleanup完成✅+§0验收通过+派reviewer+根因数据点)
+- **gz-cleanup 完成**(agent SendMessage 通知送达✅):commit 27e34cdf1 push feat(.gz 4处清理+删本地852+清R2 675+staticdata全量853)+ staticdata 4ad04a1(288files)。§0验收:deploy.sh .gz=0 / rsync exclude去 / export.py GZ_THRESHOLD=0 / 本地.gz=0+0 / staticdata递归853。全通过
+- **根因数据点**(§11标准方案调研):查 gz-cleanup jsonl 确认 agent 调了 SendMessage(CALL#1 to=main),返回 `{"success":true,"message":"Message queued for the main conversation's next turn"}`,本次送达✅。说明 SendMessage 机制本身工作,之前丢不是总失效。待下次有 jsonl 对比:之前 reviewer 是没调还是 queued 没投递
+- **派 reviewer**(aadd8c78d76b0c021):C级广涉及面,查影响面(deploy.sh 被 launchd 调 / upload_r2 被多脚本调)+ 前端 tryGz=false + staticdata rsync 逻辑 + P0 smoke。cron 1baf1866 兜底。PASS->主控 cherry-pick 27e34cdf1 到 main
