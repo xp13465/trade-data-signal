@@ -697,8 +697,11 @@ function _appendBackupChipRow(cardEl, id) {
     else h3.after(row);
   }
   else {
+    // 2026-08-08 fix: 板块分化卡有 .etf-link-row 时,chip-row 插其后保持 [spark-head][etf-link-row][chip-row]
+    var _etfLinkRow = cardEl.querySelector(".etf-link-row");
     var head = cardEl.querySelector(".spark-head");
-    if (head) head.after(row);
+    if (_etfLinkRow) _etfLinkRow.after(row);
+    else if (head) head.after(row);
     else cardEl.appendChild(row);
   }
   // 未缓存：触发异步加载
@@ -15206,6 +15209,15 @@ function _appendEtfLinkTag(cardEl, indexId, etfs, signals) {
     var etfRow = document.createElement("div");
     etfRow.className = "etf-link-row";
     h3.after(etfRow);
+    target = etfRow;
+  } else if (sparkName) {
+    // 2026-08-08 fix: 板块分化走 spark-name 路径(行业网格卡无 h3),也建 .etf-link-row
+    // 保持 [spark-head][etf-link-row][chip-row] 顺序,ETF tag 不再 inline 塞 spark-name
+    var etfRow = document.createElement("div");
+    etfRow.className = "etf-link-row";
+    var head = cardEl.querySelector(".spark-head");
+    if (head) head.after(etfRow);
+    else sparkName.after(etfRow);
     target = etfRow;
   }
   // 2026-07-20 灰色兜底：无 ETF 时生成灰色占位符（用户要求：不能空白，否则用户以为坏了）
