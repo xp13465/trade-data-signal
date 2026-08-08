@@ -1583,3 +1583,9 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - **gz-cleanup 完成**(agent SendMessage 通知送达✅):commit 27e34cdf1 push feat(.gz 4处清理+删本地852+清R2 675+staticdata全量853)+ staticdata 4ad04a1(288files)。§0验收:deploy.sh .gz=0 / rsync exclude去 / export.py GZ_THRESHOLD=0 / 本地.gz=0+0 / staticdata递归853。全通过
 - **根因数据点**(§11标准方案调研):查 gz-cleanup jsonl 确认 agent 调了 SendMessage(CALL#1 to=main),返回 `{"success":true,"message":"Message queued for the main conversation's next turn"}`,本次送达✅。说明 SendMessage 机制本身工作,之前丢不是总失效。待下次有 jsonl 对比:之前 reviewer 是没调还是 queued 没投递
 - **派 reviewer**(aadd8c78d76b0c021):C级广涉及面,查影响面(deploy.sh 被 launchd 调 / upload_r2 被多脚本调)+ 前端 tryGz=false + staticdata rsync 逻辑 + P0 smoke。cron 1baf1866 兜底。PASS->主控 cherry-pick 27e34cdf1 到 main
+
+### 会话状态(2026-08-08 19:00,gz-cleanup ✅上线main)
+- reviewer PASS(影响面全查清+P0 smoke全PASS,SendMessage第2次连续送达✅)
+- cherry-pick 27e34cdf1->main(9ad78ba68,4脚本)+ CLAUDE.md sync(f5be4cdec,§11校正+§18犯错积累)
+- §0验上线:overview date=20260808+signals 286 / overview.json.gz 404(R2已清)/ feed.xml 200 / intraday collected_at 昨日20:35(周六)。全通过
+- **通知机制根因数据点**:gz-cleanup+reviewer 连续2次 SendMessage 送达✅。查 jsonl 确认 agent 调了 SendMessage 返回 success queued。SendMessage 机制工作,之前2 reviewer 丢待对比更多数据点(可能 agent 类型/完成时点差异)
