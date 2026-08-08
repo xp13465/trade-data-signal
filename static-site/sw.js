@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260808-a36';  // bump a35->a36: 走势图top1统一track_score(_topEtfByScore)
+const CACHE_VERSION = 'v6-20260808-a37';  // bump a36->a37: 灯统一列表=hoverpop口径(_topEtfByScore+_etfLightInfo个体top1)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
