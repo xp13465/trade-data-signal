@@ -1625,6 +1625,11 @@ main { padding: 16px 24px; }
   background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
   padding: 4px 0; box-shadow: 0 4px 12px var(--shadow-strong);
   font-size: 11px; white-space: nowrap; max-height: 320px; overflow-y: auto; min-width: 260px;
+  max-width: calc(100vw - 16px);
+}
+@media (max-width: 640px) {
+  .etf-popup { min-width: 0; max-width: calc(100vw - 16px); white-space: normal; }
+  .etf-pop-row { flex-wrap: wrap; }
 }
 .etf-popup::before {
   content: "";
