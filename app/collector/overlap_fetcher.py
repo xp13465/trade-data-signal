@@ -98,6 +98,19 @@ TOP_N_ETFS = 5      # 最终每概念输出 Top-5 ETF
 MIN_INTERSECTION = 3
 
 
+# ===== 3. 第4层：ETF持仓重叠匹配 =====
+# 通过 ak.stock_fund_stock_holder(symbol) 反向查找持有概念成分股的ETF。
+# 绕过 INDEX_POOL 限制，直接发现持有概念股的ETF（如量子科技 -> 央企科技/通信ETF）。
+# 季频数据（基金季报披露），缓存7天避免重复采集。
+
+# 持仓重叠阈值
+MIN_OVERLAP_HOLDINGS = 2   # 至少持有2只概念股
+TOP_N_HOLDINGS_ETFS = 12   # 每概念输出Top-12 ETF（track_score 后续重排，多给候选）
+# 缓存路径（data/ 不入 git，CLAUDE.md §8）
+HOLDINGS_CACHE_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "holdings_overlap_cache.json"
+HOLDINGS_CACHE_TTL = 7 * 24 * 3600  # 7天（季频数据，7天缓存安全）
+
+
 def fetch_concept_cons(bk_code: str) -> set[str]:
     """push2delay 拿东财概念板块成分股，自动翻页。
 
@@ -273,6 +286,272 @@ def match_overlap(df, df_by_code: dict, excl_mask) -> dict[str, list[dict]]:
     dt = time.time() - t0
     n_nonempty = sum(1 for v in result.values() if v)
     print(f"  [overlap] 完成: {n_nonempty}/{len(result)} 概念非空, 耗时 {dt:.1f}s")
+    return result
+
+
+def _load_holdings_cache() -> dict:
+    """加载持仓反查缓存。返回 {stock_code: {holders: [...], cached_at: timestamp}}。"""
+    if not HOLDINGS_CACHE_PATH.exists():
+        return {}
+    try:
+        with open(HOLDINGS_CACHE_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_holdings_cache(cache: dict) -> None:
+    """保存持仓反查缓存。"""
+    try:
+        HOLDINGS_CACHE_PATH.write_text(
+            json.dumps(cache, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        print(f"  [holdings] ⚠ 缓存保存失败: {e}")
+
+
+def _fetch_stock_holders(symbol: str, cache: dict) -> list[dict]:
+    """查持有指定股票的基金（含ETF），带7天缓存。
+
+    返回 [{fund_code, fund_name, hold_pct, report_date}, ...]
+    缓存命中直接返回；未命中调 ak.stock_fund_stock_holder 并缓存结果。
+    "No tables found" 是永久错误（无基金持仓数据），不重试直接返空。
+    其他异常（网络超时等）重试1次。
+    """
+    cached = cache.get(symbol)
+    if cached and isinstance(cached, dict):
+        cached_at = cached.get("cached_at", 0)
+        if time.time() - cached_at < HOLDINGS_CACHE_TTL:
+            return cached.get("holders", [])
+
+    holders: list[dict] = []
+    for attempt in range(2):  # 重试1次
+        try:
+            df = ak.stock_fund_stock_holder(symbol=symbol)
+            if df is None or len(df) == 0:
+                break
+            for _, row in df.iterrows():
+                fund_code = str(row.get("基金代码", "")).zfill(6)
+                if not fund_code or fund_code == "000000":
+                    continue
+                fund_name = str(row.get("基金名称", ""))
+                try:
+                    hold_pct = float(row.get("占净值比例", 0))
+                except (TypeError, ValueError):
+                    hold_pct = 0.0
+                report_date = str(row.get("截止日期", ""))
+                holders.append({
+                    "fund_code": fund_code,
+                    "fund_name": fund_name,
+                    "hold_pct": hold_pct,
+                    "report_date": report_date,
+                })
+            break
+        except Exception as e:
+            # "No tables found" = 无基金持仓数据（永久错误），不重试
+            if "No tables found" in str(e):
+                break
+            if attempt == 0:
+                time.sleep(1)
+                continue
+            print(f"    [holdings] ⚠ {symbol} 反查失败: {e}")
+
+    cache[symbol] = {"cached_at": time.time(), "holders": holders}
+    return holders
+
+
+def match_holdings_overlap(
+    thsc_ids: list[str],
+    df_by_code: dict,
+    track_idx_map: dict[str, dict] | None = None,
+) -> dict[str, list[dict]]:
+    """第4层：ETF持仓重叠匹配。
+
+    对指定 thsc 概念，通过 ak.stock_fund_stock_holder 反向查找持有概念成分股的ETF。
+    绕过 INDEX_POOL 限制，直接发现持有概念股的ETF（如量子科技 -> 央企科技/通信ETF）。
+
+    算法：
+      1. 采概念成分股（复用 fetch_concept_cons）
+      2. 每只成分股调 ak.stock_fund_stock_holder 反查持有它的基金
+      3. 过滤ETF代码（51/15/56/58开头为场内ETF）+ 排除跨境/债券等非主题ETF
+      4. 按ETF聚合 overlap_count(持有几只概念股) + max_hold_pct(最高持仓占比)
+      5. MIN_OVERLAP>=2 过滤（至少持有2只概念股）
+      6. 综合分 = max_hold_pct * overlap_count 降序排（兼顾集中度和广度）
+      7. track_idx_map 去重：同 track_index_name 只保留综合分最高的（防3只电信ETF占3席）
+
+    参数:
+      thsc_ids: 需要跑第4层的概念ID列表（1-3层<3只ETF的概念）
+      df_by_code: {etf_code: row}（build_board_etf_map.py 预计算，用于取 ETF 名称/成交额）
+      track_idx_map: {etf_code: {track_index, ...}}（fundf10 缓存，用于按跟踪指数去重；None 跳过去重）
+
+    返回:
+      {thsc_id: [{code, name, amount, approx, overlap_count, max_hold_pct, match_method}]}
+    """
+    if not thsc_ids:
+        return {}
+
+    t0 = time.time()
+    cache = _load_holdings_cache()
+    cache_new = 0
+
+    result: dict[str, list[dict]] = {}
+
+    for thsc_id in thsc_ids:
+        info = CONCEPT_BK_MAP.get(thsc_id)
+        if not info:
+            result[thsc_id] = []
+            continue
+
+        bk_code = info["bk"]
+        concept_name = info["name"]
+
+        # Step 1: 采概念成分股
+        concept_stocks = fetch_concept_cons(bk_code)
+        if not concept_stocks:
+            print(f"    [holdings] {thsc_id} {concept_name}: 无成分股,跳过")
+            result[thsc_id] = []
+            continue
+
+        print(f"    [holdings] {thsc_id} {concept_name}: {len(concept_stocks)}只成分股, 开始反查持仓ETF")
+
+        # Step 2: 每只成分股反查持仓，聚合ETF
+        # etf_agg: {etf_code -> {overlap_count, max_hold_pct, fund_name}}
+        etf_agg: dict[str, dict] = {}
+        sorted_stocks = sorted(concept_stocks)
+        for i, stock_code in enumerate(sorted_stocks):
+            # 缓存命中计数
+            was_cached = stock_code in cache and isinstance(cache[stock_code], dict) \
+                and time.time() - cache[stock_code].get("cached_at", 0) < HOLDINGS_CACHE_TTL
+            if not was_cached:
+                cache_new += 1
+
+            holders = _fetch_stock_holders(stock_code, cache)
+            if not holders:
+                continue
+
+            # 同一stock内按fund_code去重，取max hold_pct
+            # （API可能返回多行同ETF，如不同披露期/份额类别）
+            stock_etf_best: dict[str, tuple[float, str]] = {}  # code -> (hold_pct, name)
+            for h in holders:
+                fc = h["fund_code"]
+                # 过滤ETF代码（51/15/56/58开头为场内ETF）
+                if not (fc.startswith("51") or fc.startswith("15")
+                        or fc.startswith("56") or fc.startswith("58")):
+                    continue
+                # 排除非行业主题ETF（跨境/债券/商品等）
+                fn = h["fund_name"]
+                if any(ex in fn for ex in EXCLUDE):
+                    continue
+                hp = h["hold_pct"]
+                if fc not in stock_etf_best or hp > stock_etf_best[fc][0]:
+                    stock_etf_best[fc] = (hp, fn)
+
+            # 聚合到全局ETF统计
+            for fc, (hp, fn) in stock_etf_best.items():
+                if fc not in etf_agg:
+                    # ETF名称优先用 df_by_code 实时值
+                    r = df_by_code.get(fc) if df_by_code else None
+                    if r is not None:
+                        try:
+                            etf_name = str(r["名称"])
+                        except (KeyError, TypeError):
+                            etf_name = fn
+                    else:
+                        etf_name = fn
+                    etf_agg[fc] = {
+                        "overlap_count": 0,
+                        "max_hold_pct": 0.0,
+                        "fund_name": etf_name,
+                    }
+                etf_agg[fc]["overlap_count"] += 1
+                if hp > etf_agg[fc]["max_hold_pct"]:
+                    etf_agg[fc]["max_hold_pct"] = hp
+
+            if (i + 1) % 10 == 0:
+                print(f"      ... {i+1}/{len(sorted_stocks)} stocks processed")
+
+            time.sleep(0.2)  # 限流防封
+
+        # Step 3: MIN_OVERLAP>=2 过滤 + 降序排
+        # 综合分 = max_hold_pct * overlap_count（兼顾持仓集中度和持仓广度，
+        # 避免"中证1000 overlap=25 但 pct=0.3%"宽基ETF压过"央企科技 overlap=10 pct=9.59%"主题ETF）
+        etf_list = [
+            (code, v) for code, v in etf_agg.items()
+            if v["overlap_count"] >= MIN_OVERLAP_HOLDINGS
+        ]
+        etf_list.sort(
+            key=lambda x: x[1]["max_hold_pct"] * x[1]["overlap_count"],
+            reverse=True,
+        )
+
+        # Step 3b: track_index 去重（同跟踪指数只保留综合分最高的）
+        # 防"3只电信主题ETF占3席"挤压其他主题ETF（大数据/央企科技/通信设备等）
+        seen_track_idx: set[str] = set()
+        etf_deduped: list[tuple[str, dict]] = []
+        for code, v in etf_list:
+            tin = ""
+            if track_idx_map:
+                ti_info = track_idx_map.get(code)
+                if ti_info:
+                    tin = ti_info.get("track_index", "") or ""
+            if tin and tin in seen_track_idx:
+                continue  # 同 track_index 已有更高分ETF，跳过
+            if tin:
+                seen_track_idx.add(tin)
+            etf_deduped.append((code, v))
+
+        # Step 4: 构建返回条目（Top-N）
+        etfs = []
+        for code, v in etf_deduped[:TOP_N_HOLDINGS_ETFS]:
+            r = df_by_code.get(code) if df_by_code else None
+            if r is not None:
+                try:
+                    rname = str(r["名称"])
+                    amount = round(float(r["成交额"]) / 1e8, 2)
+                except (TypeError, ValueError, KeyError):
+                    rname = v["fund_name"]
+                    amount = 0.0
+            else:
+                rname = v["fund_name"]
+                amount = 0.0
+            # track_index_name 从 track_idx_map 取（若有）
+            tin = ""
+            if track_idx_map:
+                ti_info = track_idx_map.get(code)
+                if ti_info:
+                    tin = ti_info.get("track_index", "") or ""
+            entry = {
+                "code": code,
+                "name": rname,
+                "amount": amount,
+                "approx": True,  # 持仓重叠匹配，approx=true
+                "overlap_count": v["overlap_count"],
+                "max_hold_pct": round(v["max_hold_pct"], 4),
+                "match_method": "holdings_overlap",
+            }
+            if tin:
+                entry["track_index_name"] = tin
+            etfs.append(entry)
+
+        result[thsc_id] = etfs
+        top_str = ", ".join(
+            f"{e['code']}({e['name']},n={e['overlap_count']},pct={e['max_hold_pct']}%)"
+            for e in etfs[:3]
+        )
+        print(f"    [holdings] {thsc_id} {concept_name}: {len(etfs)}只ETF -> {top_str}")
+
+        # 每概念完成后保存缓存（防中途 kill 丢失已采集数据）
+        if cache_new > 0:
+            _save_holdings_cache(cache)
+
+    # 最终缓存统计
+    if cache_new > 0:
+        print(f"  [holdings] 缓存更新: {cache_new} 只股票新采集, 共 {len(cache)} 只缓存")
+
+    dt = time.time() - t0
+    n_nonempty = sum(1 for v in result.values() if v)
+    print(f"  [holdings] 完成: {n_nonempty}/{len(result)} 概念非空, 耗时 {dt:.1f}s")
     return result
 
 

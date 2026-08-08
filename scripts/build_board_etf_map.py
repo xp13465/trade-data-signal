@@ -24,6 +24,7 @@ ROOT = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(ROOT))
 from app.collector.fetchers import load_config
 from app.collector.overlap_fetcher import match_overlap as _overlap_match
+from app.collector.overlap_fetcher import match_holdings_overlap as _holdings_match
 
 OUT = ROOT / "data" / "board_etf_map.json"
 
@@ -1406,6 +1407,36 @@ def main():
         if added:
             print(f"  [kw叠加] {iid}: 新增 {added} 只（已有 {len(out.get(iid, [])) - added}）")
 
+    # 第4层：ETF持仓重叠匹配（只跑1-3层<6只ETF的 thsc 概念）
+    # 通过 ak.stock_fund_stock_holder 反向查找持有概念成分股的ETF，绕过 INDEX_POOL 限制。
+    # 性能优化：已有足量ETF（>=6只）的概念跳过第4层；首次跑~10min（5概念×~50股），7天缓存后~1-2min。
+    # 阈值<6非<3：thsc_300830量子科技 Layer2 匹配5只通信ETF（同主题不够多样），
+    # Layer4 补充大数据/央企科技/云计算等不同主题ETF。
+    # 综合分=max_hold_pct*overlap_count 排序 + track_index 去重（同跟踪指数只保留最高分）。
+    holdings_candidates = [
+        iid for iid in board_ids
+        if iid.startswith("thsc_") and len(out.get(iid, [])) < 6
+    ]
+    if holdings_candidates:
+        print(f"\n持仓重叠算法（第4层）：对 {len(holdings_candidates)} 个 1-3层<6只ETF 的 thsc 概念叠加匹配")
+        try:
+            holdings_result = _holdings_match(holdings_candidates, df_by_code, track_idx_map)
+            for iid, etfs in holdings_result.items():
+                if not etfs:
+                    continue
+                existing_codes = {e["code"] for e in out.get(iid, [])}
+                added = 0
+                for e in etfs:
+                    if e["code"] not in existing_codes:
+                        e.setdefault("approx", True)
+                        out.setdefault(iid, []).append(e)
+                        existing_codes.add(e["code"])
+                        added += 1
+                if added:
+                    print(f"  [holdings叠加] {iid}: 新增 {added} 只（已有 {len(out.get(iid, [])) - added}）")
+        except Exception as e:
+            print(f"  [holdings] ⚠ 持仓重叠算法异常,保留前3层结果: {e}")
+
     # 记录留空板块
     for iid in board_ids:
         if not out.get(iid):
@@ -1577,7 +1608,7 @@ def main():
             print(f"  {name_by_id.get(iid, iid):<16} {e['code']} {e['name']} ({e['amount']}亿){extra} <{method}>{tin_tag}{ts_tag} [{ft}]")
 
     # 匹配方式统计（行业/概念）
-    method_cnt = {"track_index": 0, "overlap": 0, "kw": 0, "empty": 0}
+    method_cnt = {"track_index": 0, "overlap": 0, "kw": 0, "holdings_overlap": 0, "empty": 0}
     for iid in board_ids:
         etfs = out.get(iid, [])
         if not etfs:
@@ -1589,6 +1620,7 @@ def main():
     print(f"  track_index 精准: {method_cnt['track_index']}")
     print(f"  overlap 成分股: {method_cnt['overlap']}")
     print(f"  kw 名称兜底: {method_cnt['kw']}")
+    print(f"  holdings 持仓重叠: {method_cnt.get('holdings_overlap', 0)}")
     print(f"  留空: {method_cnt['empty']}")
 
 
