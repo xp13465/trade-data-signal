@@ -1594,18 +1594,13 @@ function _signalTiers(it) {
   if (!it || !it.etfs || !it.etfs.length) return 4;
   return Math.min(...it.etfs.map(_etfTier));
 }
-// 2026-08-08 方案A: 列表灯用信号分组口径(_signalTiers), 强关联组全绿/蓝, 相关草绿, 近似多色
-// 与 cellHtml 个体灯(_etfLightInfo 用 etfs[0])区分: 此灯代表信号所属分组档位
+// 2026-08-08 灯统一: 列表灯改用个体 top1 口径(_topEtfByScore + _etfLightInfo),
+// 与 hoverpop(L2325)/cellHtml tooltip(L1794) 完全一致, 消除分组口径(tier3 首个 ETF _etfApproxCls)多色遗留
+// _signalTiers 仍供筛选按钮(L1693 过滤 / L1918 计数)使用, 此处不再引用
+// null 守卫: 无 etfs / top1 为 null -> _etfLightInfo(null) 返灰灯 etf-light-nodata
 function _signalLightInfo(it) {
-  var _tier = _signalTiers(it);
-  if (_tier === 4) return { cls: "etf-light-nodata", label: "无数据" };
-  if (_tier === 1) {
-    var _hasSelf = it.etfs.some(function(e) { return e.match_method === "self"; });
-    return { cls: _hasSelf ? "etf-light-self" : "etf-light-strong", label: "强关联" };
-  }
-  if (_tier === 2) return { cls: "etf-light-related", label: "相关" };
-  var _bestApprox = it.etfs.find(function(e) { return _etfTier(e) === 3; }) || it.etfs[0];
-  return { cls: _etfApproxCls(_bestApprox), label: "近似" };
+  if (!it || !it.etfs || !it.etfs.length) return { cls: "etf-light-nodata", label: "无数据" };
+  return _etfLightInfo(_topEtfByScore(it.etfs));
 }
 
 // 2026-08-08 top1 用跟踪分降序(和 popup L15178 候选列表排序口径一致), 最相似(max_err)≠跟踪最好
