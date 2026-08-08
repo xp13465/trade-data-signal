@@ -267,7 +267,7 @@ run_r2_upload() {
   return "$rc"
 }
 
-echo "-> 上传 lab/trade_sim/index/industry/public_fund/offshore_fund/etf_score/data-large 到 R2 ..." | tee -a "$LOG"
+echo "-> 上传 lab/trade_sim/index/industry/public_fund/offshore_fund/etf_score/data-large/all-data 到 R2 ..." | tee -a "$LOG"
 run_r2_upload "upload-lab" upload-lab || echo "⚠ upload-lab 失败/超时,继续部署" | tee -a "$LOG"
 run_r2_upload "upload-trade-sim" upload-trade-sim || echo "⚠ upload-trade-sim 失败/超时,继续部署" | tee -a "$LOG"
 run_r2_upload "upload-trade-sim-json" upload-trade-sim-json || echo "⚠ upload-trade-sim-json 失败/超时,继续部署" | tee -a "$LOG"
@@ -277,6 +277,7 @@ run_r2_upload "upload-public-fund" upload-public-fund || echo "⚠ upload-public
 run_r2_upload "upload-offshore-fund" upload-offshore-fund || echo "⚠ upload-offshore-fund 失败/超时,继续部署" | tee -a "$LOG"
 run_r2_upload "upload-etf-score" upload-etf-score || echo "⚠ upload-etf-score 失败/超时,继续部署" | tee -a "$LOG"
 run_r2_upload "upload-data-large" upload-data-large || echo "⚠ upload-data-large 失败/超时,继续部署" | tee -a "$LOG"
+run_r2_upload "upload-all-data" upload-all-data || echo "⚠ upload-all-data 失败/超时,继续部署" | tee -a "$LOG"
 
 # 2. git add 静态数据 + min JS（精确文件列表，根治通配带入残留旧文件）
 # 2026-07-20 intraday 回退事故根因：原 `git add static-site/data/` 目录级通配会带入
