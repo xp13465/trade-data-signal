@@ -690,7 +690,9 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - [x] P2 后端提前到 9:15 决策（用户选 A+C，commit `ce55b2c1` AZ83）：A 维持后端 is_closed 现状（9:25 切竞价完成不动）+ C 前端盘前 9:15-9:25 集合竞价提示横幅（_isAuctionCall 前端时间判断，零后端风险）。B 9:20 降级不推荐（腾讯源 9:25 才返开盘价铁证 cc991142）。验收5点全过+线上 a78（sss.sugas.site）✅
 - [x] 北向资金提示文案修正（AZ84，commit `4887b0ec`）：7处P0文案+3处P1注释改"已切HKEX成交总额源每日更新，原净买额2024-08停更"，原"冻结2024-08-16"事实错误（DB实际连续到7-29）。验收4点全过+线上a79 ✅
 
-## 🆕 2026-07-31 全球指数时效优化（纯调研落档，待排期，详见 NOTES §48 AZ89）
+## ✅ 2026-07-31 全球指数时效优化（P1+外盘期货扩充已完成，归档 TASKS-done.md 2026-08-08）
+
+> P1 盘中实时角标已完成（commit 1e9d5d43 前端 + bccef338 后端，sw ui12）。外盘期货扩充源已完成（commit fe7525f0，sw ui44，13只=4 hf_+9 b_）。详见 NOTES §48 AZ89/AZ94 + docs/archive/TASKS-done.md。
 
 **优先级**：P1（推荐实施）+ P2（可选增强）
 
@@ -728,7 +730,9 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 ---
 
-## 🆕 2026-07-31 公募基金持仓佐证大盘（纯调研落档，待排期，P1，详见 NOTES §48 AZ90）
+## ✅ 2026-07-31 公募基金持仓佐证大盘（采集+前端全完成，归档 TASKS-done.md 2026-08-08）
+
+> 采集已完成（commit 10454371 后端核心 + 920f57ed 新鲜度闸门，全量27409只+6新表+7fetcher）。前端 ui81-ui85 全上线（行业配置口径/88魔咒pin/预估仓位/申万一级/tooltip）。详见 NOTES §48 AZ90/AZ93/AZ106-AZ112 + docs/archive/TASKS-done.md。
 
 **优先级**：P1（中等优先级，作为现有"北向/外资/两融"3 维资金面的补充维度）
 
@@ -1111,7 +1115,9 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **状态**：⏸ 远期低优先级，待用户主动启动。阶段 2/3 启动前须先确认合规报备完成。详见 NOTES §48 小节AO。
 
-## 🔄 2026-08-05 lhb_count 回填（待 8-10 配额恢复后续派 agent）
+## ✅ 2026-08-05 lhb_count 回填 已完成归档
+
+> 已完成。commit 9c10f4ed2。步骤A-F全完成（回填6m历史+queries/app.js加字段+build_min+deploy+curl验证）。详见 docs/archive/TASKS-done.md。
 
 **状态**：⏸ 撞 429 weekly quota 超限（8-10 00:00 重置）挂起，前置检查已完成（agent aa1c925fae47fd615），无代码半成品。
 
@@ -1135,7 +1141,9 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **用户定方案**：回填（推荐），2026-08-05 23:32 定。完整调研 /tmp/lhb-count-full-analysis.md（16KB，双重根因+回填方案 A/B/C/D）。
 
-## 🔄 2026-08-05 夜间数据时点调研（待 8-10 配额恢复后续派 agent）
+## ✅ 2026-08-05 夜间数据时点调研 已完成归档
+
+> 已完成。memory `night-data-update-time` 已落档。结论：美指5点/欧洲全球2点/黄金次日9:25（夜盘21:00-02:30缺口待补02:35采集）。详见 docs/archive/TASKS-done.md。
 
 **状态**：⏸ 撞 429 挂起，第一步没跑。
 
@@ -1150,7 +1158,9 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **待调研**：黄金/全球指数具体哪个任务采、数据源（akshare/yahoo/新浪/腾讯）几点发布、前端 JSON 几点上线。
 
-## 🔄 2026-08-05 日图 hover 调研（agent ad5a51555497b93a4 跑中）
+## ✅ 2026-08-05 日图 hover 已完成归档
+
+> 已完成。commit 726eca7be。用户定方案A（echarts，体验最一致）。详见 L1513 + docs/archive/TASKS-done.md。
 
 **状态**：🔄 调研中（未撞 429，23:41 还活）。
 
@@ -1205,7 +1215,9 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - 需求1 和"新需求3格式统一"（走势图卡片标题加指数代码等）都涉及走势图区域，可能合并一个 agent 实施省 cherry-pick
 - 场外基金相关（需求3）受限于 fund_basic 字段补齐进度（pf-stage0 阶段0 数据采集已完成 21列+6表，但指标介绍需更多字段）
 
-## 📋 2026-08-05 首页 5 前端问题待实施（API 不稳定暂缓，18 后派 agent）
+## ✅ 2026-08-05 首页 5 前端问题（全部上线 main + 规范落档，归档 TASKS-done.md 2026-08-08）
+
+> 5 问题全部上线（commits 7d7cbceca + 5e217f75f，reviewer ad5b PASS）。详见 L1231 下方 + docs/archive/TASKS-done.md。
 
 用户 2026-08-05 提。连续 3 agent 卡（a023 400参数无效 / aabd 卡死 / aff 卡死调研阶段），API 严重不稳定 + 14-18 高峰双叠加。5 个问题汇总待 18 后 API 稳定派 agent 一次处理。
 
@@ -1317,7 +1329,9 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - getCardTimeBadge 语义(T+1 数据盘中显示"滞后" vs tooltip"17:50采集"矛盾): rotation 非 T+1 已0807, 其他 T+1 卡片若仍显示"滞后"需修(盘中未到采集时点应显示"待采集"中性)
 - a948 sm_use=0 没 SendMessage(cron 兜底发现, §11 教训应证)
 
-## 📋 2026-08-07 ETF 信号灯体系重构(5色灯+hover中文+列表灯)待办
+## ✅ 2026-08-07 ETF 信号灯体系重构（5色灯+hover中文+列表灯）已完成归档
+
+> 已完成上线。_etfLightInfo/_etfTier 5档分级 + CSS 6灯类 + track_tier 数据 + 信号灯分层调整（strong≥75/related 60-74/approx 50-59/none 30-49/灰灭<30）。详见 L1516-1523 会话状态 + docs/archive/TASKS-done.md。
 
 ### 需求(用户7点+讨论确认)
 1. hover tooltip 中文化(来源 track_index/overlap -> 本体/跟踪指数/成分重叠/名称匹配/手动兜底; 分级 excellent/good/warn -> 优秀/良好/偏差大)
@@ -1349,7 +1363,9 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 ### 级别: B级(逻辑+显示, 跨 _etfMatchTags/_etfTier/列表渲染, 有隐藏影响面-轮询/列表渲染)
 ### 排期: 待当前活跃待办(17:50验证/getCardTimeBadge语义/后端重启)后, 或用户优先
 
-## 📋 2026-08-08 ETF复权修正(方案b+c定稿✓,3决策已定,待实施~10h,C级)
+## ✅ 2026-08-08 ETF复权修正（方案b+c）已完成归档
+
+> 已完成上线。accum_nav列已加etf_daily+回填覆盖率99.96%，512000除权日不跳。commit ab176b71b（代码）+865500d9f（数据）在origin/main。详见 L1506-1507 + docs/archive/TASKS-done.md。
 
 > etf_daily.close未复权,512000除权20250801=1.138->0804=0.572致TE虚高50%(主控验收✓)。影响10处:115只ETF 7.6%有除权跳变120事件。**复权是ETF跟踪评分(5维度)前置依赖,必须先修**。
 
@@ -1377,7 +1393,9 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - [ ] check_data_integrity + reviewer P0 smoke
 - [ ] 实时展示close保持未复权(交易视角不变)
 
-## 📋 2026-08-08 ETF跟踪5维度评分算法(调研✓+159536验证✓+数据语境审计✓,待用户定权重TE/Dev比例,复权修正完成后实施)
+## ✅ 2026-08-08 ETF跟踪5维度评分算法 已完成归档
+
+> 已完成上线。commit b3ca1cc83（后端）+a02310a34（数据）+588841db1（前端D1b）。reviewer PASS。权重TE30%/R²25%/偏离15%/滚动15%/IR15%，百分位rank，每日更新。curl 159536 track_score=65.8 approx。详见 L1508 + docs/archive/TASKS-done.md。
 
 > 用户发现 7/27 中证2000(932000)超卖拐点信号 hoverpop 显示「159536 🟢·良好·1.1% 至今+1.63%」而指数至今+8.19%,收益差距大。159536 在7/27单日大涨(规模小抖动)致偏离,但相似度仍评良好,认为当前算法有BUG。用户提供5维度加权评分算法(偏离度/年误差/信息比率/R²/滚动误差标准差)。
 
@@ -1434,7 +1452,9 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 ### 级别: C级(数据产物board_etf_map.json+后端计算+前端逻辑,跨build_board_etf_map.py/queries.py/app.js,有隐藏影响面-轮询/列表渲染/排序)
 ### 排期: 待用户确认board-index语义+权重阈值后实施(3处优化已定:百分位rank✓/权重TE30R²25偏离15滚动15IR15✓/每日✓)。建议与ETF信号灯重构(L1316)合并批次。报告:/tmp/agent-progress-tracking-score-new.md(306行)
 
-## 📋 2026-08-08 信号凯利回测(新需求补落档✓,用户口述丢失补落,第二优先级,C级大工程)
+## ✅ 2026-08-08 信号凯利回测 已完成归档
+
+> 已完成上线。commit 958c46789（后端）+c7cb90654（前端）+4d4f58630（数据）。6并列象限+4模式+3周期+凯利f*/half_kelly。后端reviewer 10项PASS+前端reviewer 8项PASS。curl signal_kelly_backtest.json 6象限。详见 L1509 + docs/archive/TASKS-done.md。
 
 > 用户 2026-08-08 口述需求,调研 agent 精确搜索 TASKS/NOTES/docs/archive/memory(77 .md+MEMORY.md)全部无落档痕迹(现有"凯利"相关全是其他场景:凯利公式计算/半凯利基金评分/买点净化回测/卖点逻辑回测/买卖配对回测),确认丢失,补落。
 
@@ -1599,3 +1619,59 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - **调研完成**(abe5b7ef97954a2d0):后端 build_board_etf_map.py L1013-1020+L1046-1053 两处阈值;前端 _etfLightInfo L1550-1567 读 track_tier;match_method 红紫黄全死代码(0触发,overlap65+kw4 都<50不落approx);弹窗5过时点+灰灭灯bug(n<30设none非null,灰灭灯从不显示);分布:strong31->44/related17->31/approx40->13/none70->48/灰灭0->43
 - **用户确认**:①删死代码红紫黄(approx统一橙)②采纳related 60-74
 - **派实施**(a59d5f9409e919e8a,19:10):后端改阈值75/60/50/30+n<30改null + 前端删_etfApproxCls+CSS死代码 + 弹窗5点修复+tooltip + 重新生成board_etf_map.json上线 + build_min+bump version+sw。B+C级,push feat->reviewer->主控cherry-pick。cron 兜底
+
+---
+
+## 📋 2026-08-08 批量归档汇总（28条已完成待办标 done）
+
+> 以下 28 条在 TASKS.md 中原标为待办（📋/🔄/🆕）但实际已全部实施上线，本次批量标 done 并归档到 [docs/archive/TASKS-done.md](docs/archive/TASKS-done.md)「2026-08-08 批量归档」section。每条含完成依据（commit hash）便于追溯。
+
+### 已归档 28 条（标✅已完成）
+1. ETF信号灯体系重构（5色灯+hover中文+列表灯）— _etfLightInfo/_etfTier 5档+CSS 6灯类+track_tier数据
+2. ETF复权修正（方案b+c）— commit ab176b71b+865500d9f，accum_nav覆盖率99.96%
+3. ETF跟踪5维度评分算法 — commit b3ca1cc83+a02310a34+588841db1，权重TE30/R²25/偏离15/滚动15/IR15
+4. 信号凯利回测 — commit 958c46789+c7cb90654+4d4f58630，6象限+4模式+3周期
+5. 首页5前端问题 — commit 7d7cbceca+5e217f75f，reviewer ad5b PASS
+6. 日图hover（T5）— commit 726eca7be，方案A echarts
+7. schedule_stats合并方案1 — commit 547414a70+b2f3d9171，CF构建减半
+8. build_board_etf_map sz_div manual_fallback — commit 27a6cf1cc+cdf278afe
+9. feat/main同步紧急修复 — commit 7b2f6c912
+10. 冰点日角标bug修复 — commit 0d1c0e630+8eb4ee98a
+11. 全球指数时效P1（盘中实时角标）— commit 1e9d5d43+bccef338+fe7525f0
+12. 公募基金持仓采集 — commit 10454371+920f57ed，全量27409只+前端ui81-ui85
+13. R2迁移阶段1-5 — commit df6597245+8a36b4b82+508eabb44+3f721f2d8+8bfc55e8d
+14. lhb_count回填 — commit 9c10f4ed2，步骤A-F全完成
+15. 夜间数据时点调研 — memory night-data-update-time 落档
+16. getCardTimeBadge语义修复（序3）— T+1卡片盘中"待采集"中性
+17. 后端self注入（序4）— queries.py cgb_10y_etf sh511260归档1
+18. D1b tooltip文案修复 — commit f9318eff3，sw a27
+19. smoke-checklist sh000001拼写修正 — commit 725e0620f5
+20. ETF降权批次+移动端hoverpop — commit 89ce938b5+230b48d6c
+21. hoverpop null"无数据"->"极弱" — commit 514549be7
+22. ETF筛选4档拆5档 — commit d0792b026
+23. low_confidence档位+估算标注 — commit d82f11bb3
+24. 信号灯分层调整 — strong≥75/related 60-74/approx 50-59/none 30-49/灰灭<30
+25. 5方向+6方向（P2-新-A到K+W）— commit dd504c21+a41fb2df+fc27f631+b4285988+02eae130+97134640+c703a584+4c4be0a8等
+26. T9 P0-4 R2边缘缓存+P2-13 CSS will-change+P2-10 requestIdleCallback — commit 0d29fd5c3+97171f3ad
+27. 量子科技扩容（ETF持仓重叠匹配第4层）— commit e4007405d
+28. ETF弹窗公示来源（_etfMatchTags tooltip中文化）— 信号灯❓弹窗5块说明已上线
+
+### 保留真待办（不动，10条）
+- 阶段1评分引擎 / 阶段2前端UI / 阶段3场内外联动（L34-36）
+- 管理端任务看板（L37）
+- 模拟回测费率可配置（L821）
+- 场外基金方案C全量化（L869）
+- top1稳定性机制（延迟纳入+滞回，L1538）
+- R2迁移后72h监控（L1562）
+- R2迁移全部完成后写完整部署文档 docs/r2-deployment.md（L1563）
+- T9 P2-14（分时SVG）+ P2-15（offshore_fund 147MB）（L1511）
+
+### 保留远期/搁置（不动）
+- mootdx skip list（低价值可选）
+- DB迁GitLab（用户注册后）
+
+### 保留当前在跑/待实施（不动）
+- 走势图组件统一改造（需求1/2/3，L1198-1206）
+- ETF本体展示优化
+- modal①③
+- smoke C3C13

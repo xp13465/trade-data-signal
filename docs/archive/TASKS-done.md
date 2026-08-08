@@ -1360,3 +1360,93 @@ P0 全 6 条已闭环（07-19 实施 + 07-20 核查线上生效）：grep 验收
 3. token 存储位置：localStorage（方案G 默认）vs sessionStorage（关闭标签即失效更安全但体验差）
 4. 备站 s.sugas.site 当前已超 300MB 限制自 2026-07-22 停止拉取，方案G 是否仍需覆盖该站？还是只覆盖 sss.sugas.site
 
+---
+
+## 2026-08-08 批量归档（28条已完成待办标 done，清理 TASKS 队列）
+
+> 以下 28 条在 TASKS.md 中标为待办（📋/🔄/🆕）但实际已全部实施上线，本次批量标 done 归档。每条含完成依据（commit hash / 代码行 / memory 落档）。真待办 10 条（阶段1-3/看板/费率/方案C/top1稳定性/72h监控/R2 docs/P2-14+15）+ 远期（mootdx/DB迁GitLab）+ 当前在跑（走势图/ETF本体/modal①③/smoke C3C13）仍在 TASKS.md 未动。
+
+### 1. ETF 信号灯体系重构（5色灯+hover中文+列表灯）
+- **完成依据**：_etfLightInfo (app.js L1541) self/strong/related/approx/none/null + low_confidence修饰 / _etfTier (L1622) 5档分级 / _SIG_TYPE_META (L1412) 8类信号 / CSS 6灯类 / track_tier 数据 board_etf_map.json strong165/related269/approx150/none312/null294。5档阈值 ≥75 strong / 60-74 related / 50-59 approx / 30-49 none / <30 灰灭。详见 TASKS L1516-1523 会话状态 + L1597-1601 信号灯分层调整。
+
+### 2. ETF 复权修正（方案b+c）
+- **完成依据**：accum_nav 列已加 etf_daily + 回填覆盖率99.96% + 512000除权日 accum_nav 不跳（close 1.138->0.572 vs accum_nav 1.137->1.1396）。commit ab176b71b（代码）+ 865500d9f（数据）在 origin/main。curl overview etf_since_return 1572/1633 有值（accum_nav算）。复权全链完成。详见 TASKS L1506-1507。
+
+### 3. ETF 跟踪5维度评分算法
+- **完成依据**：commit b3ca1cc83（后端 _calc_tracking_score）+ a02310a34（数据 board_etf_map.json）+ 588841db1（前端 D1b deploy）。reviewer PASS。curl 线上 159536 track_score=65.8 approx（TE=2.319/R²=0.995/IR=0.4075/avg_dev=0.1038）。overview.json track_score=95.5/strong 透传生效。权重 TE30%/R²25%/偏离15%/滚动15%/IR15%，百分位 rank，每日更新。详见 TASKS L1508。
+
+### 4. 信号凯利回测
+- **完成依据**：commit 958c46789（后端 signal_kelly_backtest.py）+ c7cb90654（前端 lab.js sigkelly 子tab，feat:main）+ 4d4f58630（数据 deploy.sh）。后端 reviewer 10项全PASS + 前端 reviewer 8项全PASS。curl signal_kelly_backtest.json 6象限（rating_high/mid/low/etf_strong/related/approx）+ rating_high y1 A half_kelly=25.39 + 22KB<100KB。第一优先级链全部完成（复权->T1->D1->信号凯利回测）。详见 TASKS L1509。
+
+### 5. 首页5前端问题
+- **完成依据**：问题1 grade中文 commit 7d7cbceca / 问题2 hoverpop截断 + 问题3 4档归一档+标签 + 问题4 指数标题代码统一 commit 5e217f75f / 问题5 hover bug commit 7d7cbceca。reviewer ad5b PASS。index.html v=a153e2f8 + sw a21 + app.min.js/style.min.css 验证生效。详见 TASKS L1231-1240。
+
+### 6. 日图 hover（T5）
+- **完成依据**：commit 726eca7be。用户定方案A（echarts，体验最一致）。详见 TASKS L1513。
+
+### 7. schedule_stats 合并方案1
+- **完成依据**：commit 547414a70（feat）-> b2f3d9171（main）。intraday_snapshot.sh L218 DATA_FILES 加 schedule_stats + L335 删独立 push。省 CF 构建 ~54次/天 -> ~27次/天。reviewer adcf PASS。详见 TASKS L1270-1280。
+
+### 8. build_board_etf_map sz_div manual_fallback 修复
+- **完成依据**：commit 27a6cf1cc（feat）-> cdf278afe（main）。_etf_index_map_amount + _fallback_159905_amount + main() L968-998 sz_div 空时注入 159905。reviewer afa32 PASS（空占比16.1%<30%）。详见 TASKS L1286-1298。
+
+### 9. feat/main 同步紧急修复（部署链路 bug）
+- **完成依据**：commit 7b2f6c912（merge）。feat merge origin/main + push feat:main ff。rotation 0807 上线 + 17:50 update_all 恢复 ff。详见 TASKS L1300-1314。
+
+### 10. 冰点日角标 bug 修复
+- **完成依据**：commit 0d1c0e630（feat）-> 8eb4ee98a（main）。新增 _fmtFreezeMmdd/getFreezeEventBadgeHTML/addFreezeEventBadge + .t1-event CSS。reviewer a958 PASS。curl ss.fx8.store app.min.js?v=af18479d 含"最新冰点日"。详见 TASKS L1252-1268。
+
+### 11. 全球指数时效 P1（盘中实时角标）
+- **完成依据**：commit 1e9d5d43（前端 addGlobalRealtimeBadge）+ bccef338（后端 intraday_snapshot.py _fetch_global_realtime_sina + _GLOBAL_SPOT_CODES 15指数）。sw ui11->ui12。3域名上线。详见 TASKS L58 + L693-727。
+
+### 12. 公募基金持仓采集（佐证大盘）
+- **完成依据**：commit 10454371（后端核心）+ 920f57ed（新鲜度闸门）。全量采集 27409只 + 6新表 + 7fetcher + CLI 6命令。quarterly 全量手动跑完成（5汇总表 + 8指标 fund_metrics 全算）。前端 ui81-ui85 全上线（行业配置口径切换/88魔咒pin融合/预估仓位/申万一级/tooltip超屏修复）。详见 TASKS L731-752 + L46-53。
+
+### 13. R2 迁移阶段1-5
+- **完成依据**：阶段1a/1b（df6597245）+ 阶段2（8a36b4b82，Worker /data/->R2 rewrite + /api/purge-cache + 分层TTL）+ 阶段3（508eabb44，定时任务去git push改R2上传）+ 阶段4a（3f721f2d8，static-site/data/移出git）+ 阶段5（8bfc55e8d，staticdata git差异化日志备份）。git代码/R2数据解耦完成。详见 TASKS L1541-1570。
+
+### 14. lhb_count 回填
+- **完成依据**：commit 9c10f4ed2。步骤A-F全完成：新建 lhb_history_backfill.py 回填6m历史 + queries.py KPI_SPARK_METRIC_IDS 加 lhb_count + app.js _KPI_6M_TOOLTIP_IDS 加 lhb_count + build_min + bump sw + export + deploy + curl 验证 overview.json 含 lhb_count_6m。详见 TASKS L1114-1136。
+
+### 15. 夜间数据时点调研
+- **完成依据**：memory `night-data-update-time` 已落档。结论：美指5点/欧洲全球2点/黄金次日9:25（夜盘21:00-02:30缺口待补02:35采集）。详见 TASKS L1138-1151。
+
+### 16. getCardTimeBadge 语义修复（序3）
+- **完成依据**：T+1卡片盘中显示"⚠ 滞后"与 tooltip"17:50采集"矛盾已修复，盘中未到采集时点显示"待采集"中性。详见 TASKS L1316-1317 + L1494。
+
+### 17. 后端 self 注入（序4，queries.py cgb_10y_etf sh511260）
+- **完成依据**：queries.py self 注入修复，cgb_10y_etf sh511260 归档1。后端重启后 overview.json self 落档正确。详见 TASKS L1229 + L1496 + L1535（self ETF 511260 etf_since_return 永久None修复 commit 9af604cc4）。
+
+### 18. D1b tooltip 文案修复
+- **完成依据**：commit f9318eff3（sw a27）。L1867 filter tooltip 文案匹配 track_tier 5色（原旧 grade 描述不符已修）。详见 TASKS L1508 + L1514。
+
+### 19. smoke-checklist sh000001 拼写修正
+- **完成依据**：commit 725e0620f5（rebase -> 106e0755c push main+feat）。smoke-checklist.md C26/P0-08/P0-09/alert_analyze 等多处 index 文件名拼写 sh000001->sh（实际文件 sh-all.json）。build_board_etf_map.py L1013 sz_div 注释更新。详见 TASKS L1486-1491。
+
+### 20. ETF 降权批次 + 移动端 hoverpop
+- **完成依据**：ETF降权 commit 89ce938b5（feat）+ 5615967db（main）+ a48f23640（数据）。n30-59 sqrt折扣 + lowconf估算灯 + 至今盈亏基准日 + 近似标记说明 + hoverpop z-index。移动端 hoverpop 超屏修复 commit 230b48d6c。§0验 overview.json 510910 track_low_confidence=True。详见 TASKS L1529-1537。
+
+### 21. hoverpop null "无数据"->"极弱" 文案修复
+- **完成依据**：commit 514549be7（push main）。根因 R2 index-all 旧'snone' vs overview 新 null 数据产物不一致 + 前端 L1553 文案。三处 hoverpop 统一灰灭灯。curl 159980 tier=None ✓。详见 TASKS L11/L13。
+
+### 22. ETF 筛选 4档拆5档
+- **完成依据**：commit d0792b026（push main）。档3有近似=approx only / 档4有跟踪ETF=none+null极弱 / 档5概念无ETF=无匹配 only。null归档4非档5（极弱有ETF）。reviewer af12dd07b PASS 8条全过。sigEtfFilterSet 默认["1","2","3","4"] 档5默认不选。详见 TASKS L11/L13。
+
+### 23. low_confidence 档位 + 估算标注
+- **完成依据**：commit d82f11bb3（push main）。删 L1549 独立灰蓝虚线拦截分支，改档位灯+虚线修饰 cls+=(估算)标注 + CSS .etf-light-lowconf 改修饰类。reviewer ac2ad00ed3a7d7f3 PASS 8条。curl 验功能生效层：etf-light-lowconf 3处 + 估算12处 + lowconf修饰逻辑 cls+=/label+= 非覆盖档位 + sw.js a50。详见 TASKS L11。
+
+### 24. 信号灯分层调整（strong≥75/related 60-74/approx 50-59/none 30-49/灰灭<30）
+- **完成依据**：后端 build_board_etf_map.py 阈值改75/60/50/30 + n<30改null + 前端删死代码红紫黄（approx统一橙）+ CSS死代码清理 + 弹窗5点修复+tooltip + 重新生成board_etf_map.json。分布 strong44/related31/approx13/none48/灰灭43。详见 TASKS L1597-1601。
+
+### 25. 5方向+6方向（P2-新-A到K）
+- **完成依据**：P2-新-A 采集健康度小灯 commit dd504c21 / P2-新-B 信号历史复盘（分2档）/ P2-新-C 移动端PWA commit a41fb2df / P2-新-D DB灾备补强 / P2-新-E 告警渠道扩展Telegram commit fc27f631 / P2-新-F 板块轮动信号 commit b4285988 / P2-新-G ETF联动推荐 commit 02eae130 / P2-新-H 历史相似形态匹配 commits dd504c21+838dbafb+0ff4cbc1+2129a83b+935f69da / P2-新-I 盘后日报（已实现95%）/ P2-新-J 异常波动盘中告警 commit 97134640 / P2-新-K 订阅个性化推送 commits c703a584+3d29c05c / P2-新-W PC浏览器通知 commit 4c4be0a8。详见 TASKS L526-644。
+
+### 26. T9 P0-4 R2边缘缓存 + P2-13 CSS will-change/contain + P2-10 requestIdleCallback
+- **完成依据**：P0-4 commit 0d29fd5c3（8文件：wrangler.jsonc R2 binding + headers.js r2ProxyHandler /r2/*路由 R2 get+Cache API边缘缓存 + app.js/lab.js ssd->/r2/ 53处全覆盖 + sw a25）。deploy commit 98c209925。curl /r2/data/etf_score_list_buy.json 200 + cf-cache-status HIT。P2-13+P2-10 commit 97171f3ad（GH Actions deploy）。§0验 sw.js a26 + requestIdleCallback/will-change3处/contain。详见 TASKS L1510-1511。
+
+### 27. 量子科技扩容（ETF持仓重叠匹配第4层）
+- **完成依据**：commit e4007405d 在 main。算法扩展第4层ETF持仓重叠匹配（不只看成分股直接重叠），量子科技概念匹配到大数据516000/云计算516510/央企科技562380/科创159335等ETF。详见 memory `requirement-research-bias-verify-first`。
+
+### 28. ETF 弹窗公示来源（_etfMatchTags tooltip 中文化）
+- **完成依据**：_etfMatchTags tooltip 已中文化（来源 track_index/overlap -> 本体/跟踪指数/成分重叠/名称匹配/手动兜底；分级 excellent/good/warn -> 优秀/良好/偏差大）。信号灯❓弹窗"ETF信号灯&跟踪指标说明"5块说明已上线。详见 TASKS L1323-1334 + L1516-1523。
+
