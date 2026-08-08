@@ -1686,7 +1686,11 @@ main { padding: 16px 24px; }
 /* 2026-08-05 信号 cell ETF 筛选行（cell tag 已删，筛选按钮保留）
    2026-08-06 删 color:var(--text-3) 让整行继承深色 text-1，和 byType 行一致；选中态 .sig-acc-filter-active 不受影响 */
 /* 2026-08-06 hoverpop 内主ETF 名称(代码)段（_initTermPop.show 注入，和 .term-pop-locate 协调）*/
+/* 2026-08-08 3行布局: 第一行(.term-pop-idx-name)第三行(.term-pop-etf)格式统一对齐(图标+名(代码)+±X%) */
+.term-pop-idx-name { display: block; margin-top: 4px; font-size: 12px; color: var(--text-2); }
 .term-pop-etf { display: block; margin-top: 4px; font-size: 12px; color: var(--primary); white-space: normal; word-break: break-word; }
+/* 2026-08-08 第二行 ETF meta(灯+档位+跟踪分+相似度+体量): 独立样式, 稍暗(text-3) */
+.term-pop-etf-meta { display: block; margin-top: 2px; font-size: 12px; color: var(--text-3); white-space: normal; word-break: break-word; }
 
 /* F2：行业资金流 / 成交额 / 换手率 mini sparklines */
 .industry-cell { padding: 8px 10px; }

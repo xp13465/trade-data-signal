@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260808-a32';  // bump a31->a32: ETF展示顺序调整(档位：跟踪分->grade max_err%->体量亿,self也显档位)
+const CACHE_VERSION = 'v6-20260808-a33';  // bump a32->a33: hoverpop完整数据3行布局(ETF行拆meta+ETF两行, self补amount)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

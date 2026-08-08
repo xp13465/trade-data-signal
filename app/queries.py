@@ -416,6 +416,14 @@ def overview(conn, cfg):
             _sym = _meta["symbol"]
             _code = _sym[2:] if _sym[:2] in ("sh", "sz", "bj") else _sym
             _s["etfs"] = [{"code": _code, "name": _meta.get("name") or _code, "match_method": "self"}]
+            # 2026-08-08 self ETF 体量：查 index_daily 最新非空 amount(元)，转亿注入 etfs[0]["amount"]
+            # index_daily.amount 单位=元（如 cgb_10y_etf 3976292387≈39.76亿）；无数据则不注入(前端降级不显体量)
+            _self_amt = conn.execute(
+                "SELECT amount FROM index_daily WHERE index_id=? AND amount IS NOT NULL ORDER BY date DESC LIMIT 1",
+                (_s["index_id"],),
+            ).fetchone()
+            if _self_amt and _self_amt["amount"]:
+                _s["etfs"][0]["amount"] = round(_self_amt["amount"] / 1e8, 2)
         else:
             _s["etfs"] = [dict(_e) for _e in (etf_for(_s["index_id"]).get("etfs") or [])]
     # 信号至今盈亏（方案B后端算）：为每条信号算 since_return（至今涨跌%）+ since_correct（对错）。
