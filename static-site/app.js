@@ -1579,8 +1579,8 @@ function _etfMatchTags(etf) {
   var _light = _etfLightInfo(etf);
   var _lightHtml = '<span class="etf-light ' + _light.cls + '"></span>';
   var _grade = "";
-  // 2026-08-08 移动端精简: 等级标签(强关联/相关/近似)始终显示, 跟踪分+grade细节包 .etf-pop-detail
-  // CSS @media (max-width:768px) 隐藏 .etf-pop-detail, PC 保持原样(等级标签：跟踪分82·优秀0.5%)
+  // 2026-08-08 方案3: 移动端显等级标签+追踪分数字(去"跟踪分"文字前缀), 省略号兜底; PC保持原样
+  // _tierLabel 始终显示; _scoreNum 仅移动端显示(纯数字无"跟踪分"前缀); _details 仅PC显示(完整"：跟踪分82·优秀0.5%")
   var _tierLabel = _light.label;
   var _details = [];
   // 档位：跟踪分(档位次重,跟踪分第三,全角：连; self 也显档位"强关联")
@@ -1605,15 +1605,16 @@ function _etfMatchTags(etf) {
   if (_tierLabel) _titleParts.push("档位: " + _tierLabel);
   var _title = _titleParts.join(" · ");
   var _cls = _grade ? 'etf-match-tag etf-pop-grade-' + _grade : 'etf-match-tag';
-  // 移动端精简: _tierLabel 始终显示, _details 包 .etf-pop-detail 移动端 display:none 隐藏
+  // 方案3: _tierLabel 始终显示; _scoreNum 仅移动端显(纯数字去"跟踪分"前缀); _details 仅PC显(完整带前缀+grade)
   var _tierHtml = _tierLabel ? " " + _tierLabel : "";
+  var _scoreNumHtml = (typeof etf.track_score === "number") ? '<span class="etf-pop-score-num"> ' + Math.round(etf.track_score) + "</span>" : "";
   var _detailHtml = "";
   if (_details.length) {
     var _prefix = _tierLabel ? (typeof etf.track_score === "number" ? "" : "·") : " ";
     _detailHtml = '<span class="etf-pop-detail">' + _prefix + _details.join("·") + "</span>";
   }
   // data-no-pop: 排除 _initTermPop 全局 mouseover 捕获 [title] 弹 .term-pop 重渲染致 hoverpop 关闭的 bug
-  return ' <span class="' + _cls + '" data-no-pop="" title="' + _title + '">' + _lightHtml + _tierHtml + _detailHtml + "</span>";
+  return ' <span class="' + _cls + '" data-no-pop="" title="' + _title + '">' + _lightHtml + _tierHtml + _scoreNumHtml + _detailHtml + "</span>";
 }
 
 // 2026-08-05 ETF 档位分类（单选改多选拆4档）：按 etf 质量分档，供筛选按钮多选 toggle
