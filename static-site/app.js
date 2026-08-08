@@ -15143,9 +15143,9 @@ function _appendEtfLinkTag(cardEl, indexId, etfs, signals) {
   var tag = target.querySelector(".etf-tag");
   if (!tag) return;
   if (isBuy) tag.classList.add("etf-tag-buy-signal");
-  // 2026-07-28 近似标注：首位 ETF approx=true 时加"⚠近似"标注（如 sh 用上证50近似上证指数，非精准跟踪）
-  // 首位 = etfs[0]（board_etf_map 候选，与回测chip首位一致；approx 优先 false 排序由后端 _pick_first_etf 保证）
-  var top0 = etfs[0];
+  // 2026-07-28 近似标注：top1 ETF approx=true 时加"⚠近似"标注（如 sh 用上证50近似上证指数，非精准跟踪）
+  // top1 = _topEtfByScore（track_score 降序, 与 popup/hoverpop/cellHtml 一致），非 board_etf_map[0](max_err 升序)
+  var top0 = _topEtfByScore(etfs);
   if (top0 && top0.approx) {
     tag.classList.add("etf-tag-approx");
     tag.insertAdjacentHTML("beforeend", '<span class="etf-approx-mark">⚠近似</span>');
@@ -15156,7 +15156,8 @@ function _appendEtfLinkTag(cardEl, indexId, etfs, signals) {
   // task2：传 isBuy + latestDate，popup 标题行显示红黄判定 + 最近信号日期
   _bindEtfPopup(target, etfs, isBuy, latestDate);
   // 2026-08-05 tag 后追加 top1 至今盈亏（有数据才显，走势图弹窗+指数卡均生效）
-  var _top0 = etfs[0];
+  // top1 = _topEtfByScore（track_score 降序），与 tag 展示/approx 标注一致
+  var _top0 = _topEtfByScore(etfs);
   var _top0Text = _top0 ? _etfPnlText(_top0.etf_since_return, _top0.etf_price_diff) : "";
   if (_top0Text) {
     tag.insertAdjacentHTML("afterend", '<span class="etf-tag-pnl" style="color:' + _etfPnlColor(_top0.etf_since_return) + '">' + _top0Text + '</span>');
@@ -15168,7 +15169,8 @@ function _appendEtfLinkTag(cardEl, indexId, etfs, signals) {
 // 匹配不到（etfs 为空）则不渲染，避免硬塞"代理"ETF 误导用户。
 function _renderEtfTag(etfs) {
   if (!etfs || !etfs.length) return "";
-  const top = etfs[0];
+  var top = _topEtfByScore(etfs);
+  if (!top) return "";
   const more = etfs.length > 1 ? `<span class="etf-more">+${etfs.length - 1}</span>` : "";
   // task1 C根治：无 title -- 避免 _initTermPop 全局 mouseover 捕获 [title] 弹 .term-pop(z:9999 fixed) 盖住 .etf-popup(z:100 absolute)
   // task1 D止血：data-no-pop 双保险，即使后续误加 title 也被 _initTermPop L1475 显式排除
@@ -15233,7 +15235,7 @@ function _bindEtfPopup(cell, etfs, isBuy, latestDate) {
       openByClick = popup.style.display !== "block";  // 基于 display 同步状态
       popup.style.display = openByClick ? "block" : "none";
     } else {
-      _copyEtfCode(tag, etfs[0].code);  // PC：复制 top1（popup 已 hover 显示）
+      _copyEtfCode(tag, _topEtfByScore(etfs).code);  // PC：复制 top1（track_score 降序，与 tag 展示一致）
     }
   });
   popup.querySelectorAll(".etf-pop-row").forEach((row) => {
