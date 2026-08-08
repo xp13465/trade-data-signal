@@ -37,7 +37,7 @@ const CACHE_RULES = [
     match: p =>
       p === '/' || p === '/index.html' ||
       /^\/trade_sim_/.test(p) ||
-      p === '/data/feed.xml',
+      p === '/data/feed.xml' || p === '/feed.xml',
     cc: 'no-store, max-age=0',
   },
   // 2.5) 盘中高频实时数据(overview/intraday_snapshot): no-store 彻底禁CF edge缓存
@@ -243,7 +243,14 @@ export default {
     if (url.pathname.startsWith('/data/') && url.pathname.endsWith('.json')) {
       return dataRewriteHandler(request, env, ctx, url);
     }
-    const response = await env.ASSETS.fetch(request);
+    // /feed.xml -> /data/feed.xml 内部重写（RSS 阅读器兼容 /feed.xml 约定路径）
+    // feed.xml 实际在 static-site/data/feed.xml，/feed.xml 不对应任何静态文件。
+    // 内部重写（非 301 redirect）让 /feed.xml 直接返回 200 + feed 内容。
+    let assetRequest = request;
+    if (url.pathname === '/feed.xml') {
+      assetRequest = new Request(new URL('/data/feed.xml', url), request);
+    }
+    const response = await env.ASSETS.fetch(assetRequest);
     // 复制原响应 headers（保留 ETag / Content-Type / CF-Cache-Status 等），覆盖 Cache-Control，附加安全头
     const headers = new Headers(response.headers);
     headers.set('Cache-Control', cacheControlFor(url.pathname));
