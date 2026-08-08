@@ -1589,3 +1589,9 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - cherry-pick 27e34cdf1->main(9ad78ba68,4脚本)+ CLAUDE.md sync(f5be4cdec,§11校正+§18犯错积累)
 - §0验上线:overview date=20260808+signals 286 / overview.json.gz 404(R2已清)/ feed.xml 200 / intraday collected_at 昨日20:35(周六)。全通过
 - **通知机制根因数据点**:gz-cleanup+reviewer 连续2次 SendMessage 送达✅。查 jsonl 确认 agent 调了 SendMessage 返回 success queued。SendMessage 机制工作,之前2 reviewer 丢待对比更多数据点(可能 agent 类型/完成时点差异)
+
+### 会话状态(2026-08-08 19:10,信号灯分层调整+弹窗修复 派实施中)
+- **用户提2问题**:①弹窗"ETF信号灯&跟踪指标说明"文字过时(还提紫=overlap,但信号灯已统一无紫色)②跟踪分重新分层(strong≥75/related 60-74/approx 50-59/none 30-49/灰灭<30)
+- **调研完成**(abe5b7ef97954a2d0):后端 build_board_etf_map.py L1013-1020+L1046-1053 两处阈值;前端 _etfLightInfo L1550-1567 读 track_tier;match_method 红紫黄全死代码(0触发,overlap65+kw4 都<50不落approx);弹窗5过时点+灰灭灯bug(n<30设none非null,灰灭灯从不显示);分布:strong31->44/related17->31/approx40->13/none70->48/灰灭0->43
+- **用户确认**:①删死代码红紫黄(approx统一橙)②采纳related 60-74
+- **派实施**(a59d5f9409e919e8a,19:10):后端改阈值75/60/50/30+n<30改null + 前端删_etfApproxCls+CSS死代码 + 弹窗5点修复+tooltip + 重新生成board_etf_map.json上线 + build_min+bump version+sw。B+C级,push feat->reviewer->主控cherry-pick。cron 兜底
