@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a76';  // bump a75->a76: 凯利"最大持仓动用资金收益率"列改名"总收益率"+正红负绿配色
+const CACHE_VERSION = 'v6-20260809-a77';  // bump a76->a77: 信号凯利组比较水印标签(TOP1/分化/淘汰+辅助风险/优势小字)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

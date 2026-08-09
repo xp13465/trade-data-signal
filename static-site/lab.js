@@ -7086,6 +7086,46 @@ function _renderSigKellyQuadrants(host, data, period) {
   });
 }
 
+// 组内 ABCD 最终盈亏(total_profit)比较水印
+// kind: top1(全>0) / out(全≤0淘汰) / mix(有正有负分化); X=最高tp方案字母
+// 辅助(仅top1/mix态,描述最高方案): 风险橙(高仓/样本少)+优势绿(高胜率/低回撤/高夏普)
+function _sigKellyWatermark(pdata) {
+  const modes = ["A", "B", "C", "D"];
+  const items = modes.map(m => {
+    const r = pdata[m];
+    if (!r) return null;
+    return { m, tp: r.total_profit || 0, hk: (r.half_kelly == null ? 0 : r.half_kelly), n: r.n || 0,
+             wr: (r.win_rate == null ? 0 : r.win_rate), md: (r.max_drawdown_pct == null ? 999 : r.max_drawdown_pct), sh: (r.sharpe == null ? 0 : r.sharpe) };
+  }).filter(Boolean);
+  if (items.length < 2) return null;
+  const pos = items.filter(x => x.tp > 0);
+  const hasNeg = items.some(x => x.tp <= 0);
+  let kind;
+  if (pos.length === 0) kind = "out";
+  else if (hasNeg) kind = "mix";
+  else kind = "top1";
+  const top = items.slice().sort((a, b) => b.tp - a.tp)[0];
+  const auxRisk = [], auxGood = [];
+  if (kind !== "out") {
+    if (top.hk >= 60) auxRisk.push("高仓");
+    if (top.n < 100) auxRisk.push("样本少");
+    if (top.wr >= 0.5) auxGood.push("高胜率");
+    if (top.md <= 15) auxGood.push("低回撤");
+    if (top.sh >= 1.0) auxGood.push("高夏普");
+  }
+  const kindText = { top1: "TOP1", out: "淘汰", mix: "分化" }[kind];
+  const mainText = kind === "out" ? "淘汰" : `${kindText}·${top.m}`;
+  let auxHtml = "";
+  if (kind !== "out") {
+    if (auxRisk.length) auxHtml += `<span class="lab-sigkelly-wm-aux lab-sigkelly-wm-aux-risk">${auxRisk.join("/")}</span>`;
+    if (auxGood.length) auxHtml += `<span class="lab-sigkelly-wm-aux lab-sigkelly-wm-aux-good">${auxGood.join("/")}</span>`;
+  }
+  const text = auxHtml ? `${mainText}${auxHtml}` : mainText;
+  const auxAll = [...auxRisk, ...auxGood];
+  const title = `${kindText}·${top.m} | 盈亏${top.tp.toFixed(0)}` + (auxAll.length ? ` | ${auxAll.join("/")}` : "");
+  return { kind, text, title };
+}
+
 // 单象限卡片: 4模式表格(A固定10天/B3%/C5%/D7%止盈) + 详情展开 + 跟单指引
 // 单象限卡片: 4模式宽表(A固定10天/B3%/C5%/D7%止盈) + 跟单指引
 // 主表+进阶表合并为一张宽表(14列),details 折叠已移除常显;最大持仓显笔数+资金
@@ -7139,8 +7179,10 @@ function _renderSigKellyCard(qk, q, period) {
         `<td>${sh}</td><td>${md}</td><td>${cm}</td>` +
       `</tr>`;
   }
+  const wm = _sigKellyWatermark(pdata);
   return (
     `<div class="lab-sigkelly-card">` +
+      (wm ? `<div class="lab-sigkelly-wm lab-sigkelly-wm-${wm.kind}" title="${wm.title}">${wm.text}</div>` : ``) +
       `<div class="lab-sigkelly-card-head">` +
         `<div class="lab-sigkelly-card-name">${q.label || qk}</div>` +
         `<div class="lab-sigkelly-card-desc">${q.desc || ""}</div>` +
