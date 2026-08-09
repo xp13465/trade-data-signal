@@ -3561,6 +3561,17 @@ main { padding: 16px 24px; }
 .trade-sim-modal-body .sim-flow { background: var(--bg-card); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 14px; color: var(--text-1); box-shadow: 0 1px 3px var(--shadow); border-left: 3px solid var(--primary); }
 /* 回测标的 + 费率明细信息条（2026-07-20）：modal 详情顶部明确标注 ETF 代码/名称 + 完整费率, 区分 ETF 替代 vs 纯指数 */
 .trade-sim-modal-body .sim-info-bar { background: var(--bg-card); border-radius: 8px; padding: 8px 14px; margin-bottom: 12px; font-size: 12px; color: var(--text-2); line-height: 1.6; box-shadow: 0 1px 3px var(--shadow); border-left: 3px solid var(--primary); }
+/* 费率客调控件 (同凯利模式, 6档预设+5参数自定义) */
+.trade-sim-modal-body .sim-fee-bar { background: var(--bg-card); border-radius: 8px; padding: 8px 14px; margin-bottom: 12px; box-shadow: 0 1px 3px var(--shadow); }
+.trade-sim-modal-body .sim-fee-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; width: 100%; }
+.trade-sim-modal-body .sim-fee-label { font-size: 12px; font-weight: 700; color: var(--text-2); white-space: nowrap; }
+.trade-sim-modal-body .sim-fee-btn { font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-3); cursor: pointer; white-space: nowrap; transition: all 0.15s; }
+.trade-sim-modal-body .sim-fee-btn:hover { border-color: var(--accent, var(--primary, #3b82f6)); color: var(--text-1); }
+.trade-sim-modal-body .sim-fee-btn.active { background: var(--accent, var(--primary, #3b82f6)); color: #fff; border-color: var(--accent, var(--primary, #3b82f6)); }
+.trade-sim-modal-body .sim-fee-hint { font-size: 10px; color: var(--text-4); margin-left: 4px; }
+.trade-sim-modal-body .sim-fee-custom { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; width: 100%; font-size: 11px; color: var(--text-3); padding: 4px 0; }
+.trade-sim-modal-body .sim-fee-custom label { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+.trade-sim-modal-body .sim-fee-custom .lab-input { padding: 1px 4px; font-size: 11px; height: 22px; }
 .trade-sim-modal-body .sim-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
 .trade-sim-modal-body .sim-card { background: var(--bg-card); border-radius: 8px; padding: 14px 16px; box-shadow: 0 1px 3px var(--shadow); }
 .trade-sim-modal-body .sim-card .k { display: block; font-size: 12px; color: var(--text-3); margin-bottom: 4px; }

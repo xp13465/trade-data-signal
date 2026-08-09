@@ -18216,6 +18216,9 @@ async function _tradeSimOpenModal(indexId, openView) {
     loadingFull: false,
     cmpSortCol: -1,    // 对比表当前排序列索引（-1=未排序，保持原始顺序）
     cmpSortDir: 'desc', // 当前排序方向 'asc'|'desc'
+    feePreset: null,   // 费率客调: 预设档 key (初始化在 _tradeSimModalRender 中从 sd 读取)
+    feeParams: null,   // 费率客调: 5参数 {commission_rate, min_commission, slippage, transfer_fee_rate_sh, stamp_duty_rate}
+    feeRecomputed: null, // 费率客调: 重算数据 (null=用原始数据)
   };
   var body = ov.querySelector('.trade-sim-modal-body');
   body.innerHTML = '<div class="trade-sim-loading"><span class="sim-spinner"></span>加载回测中…</div>';
@@ -18476,12 +18479,18 @@ function _tradeSimCmpSortRows(rows, colIdx, dir) {
   });
 }
 
-function _tradeSimComparisonTableHTML(sd, win) {
+function _tradeSimComparisonTableHTML(sd, win, recomputedData) {
   var rows = [];
   var paths = sd.paths, scenarios = sd.scenarios;
   for (var pi = 0; pi < paths.length; pi++) {
     for (var si = 0; si < scenarios.length; si++) {
-      var s = sd.data[win][paths[pi]][scenarios[si]].summary;
+      var s;
+      // 费率客调: 如有重算数据则用重算 summary
+      if (recomputedData && recomputedData.data[win] && recomputedData.data[win][paths[pi]] && recomputedData.data[win][paths[pi]][scenarios[si]]) {
+        s = recomputedData.data[win][paths[pi]][scenarios[si]].summary;
+      } else {
+        s = sd.data[win][paths[pi]][scenarios[si]].summary;
+      }
       rows.push({
         path: paths[pi], sig: scenarios[si],
         final_total: s.final_total,
@@ -18586,6 +18595,514 @@ function _tradeSimPanelHTML(winData, fullNode, indexName, initCap, gradId, etfCo
   return cards + equitySvg + detailHTML;
 }
 
+// === 模拟回测费率客调(5参数, 同凯利模式) ===
+// 复用凯利费率模型: commission_rate / min_commission / slippage / transfer_fee_rate_sh / stamp_duty_rate
+// 前端重算: replay ledger with new fees, recompute summary + equity_curve + rounds + open_positions
+// trade_sim 由 simulate_trade.py 生成, ledger.close = 原始收盘价(round 2位) 可直接用于重算
+
+// 费率预设(同凯利 KELLY_FEE_PRESETS, app.js 独立定义因 lab.js 懒加载不保证已注入)
+var _SIM_FEE_PRESETS = [
+  { key: "zero",      label: "0%剥离",    commission_rate: 0,       min_commission: 0,   slippage: 0,     transfer_fee_rate_sh: 0,       stamp_duty_rate: 0,      desc: "看纯信号alpha",           shortcut: "0" },
+  { key: "etf_def",   label: "ETF默认",   commission_rate: 0.0003,  min_commission: 5,   slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0,      desc: "万3 最低5 当前",          shortcut: "1" },
+  { key: "etf_main",  label: "ETF主流",   commission_rate: 0.00005, min_commission: 0.1, slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0,      desc: "万0.5 最低0.1",           shortcut: "2" },
+  { key: "etf_cheap", label: "ETF最便宜", commission_rate: 0.00001, min_commission: 0,   slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0,      desc: "万0.1 免5",               shortcut: "3" },
+  { key: "stock_def", label: "股票默认",  commission_rate: 0.0005,  min_commission: 5,   slippage: 0.002, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0.0005, desc: "万5 印花税万5 对比",       shortcut: "4" },
+  { key: "custom",    label: "自定义",    desc: "5参数任意组合",                                                                shortcut: "C" },
+];
+
+// 沪市 ETF 判断(复用 simulate_trade.py _is_sh_etf 逻辑)
+function _simIsShEtf(etfCode) {
+  if (!etfCode) return false;
+  return String(etfCode).startsWith("51") || String(etfCode).startsWith("58");
+}
+
+// 买入扣费(复用 simulate_trade.py _buy_with_fees 逻辑)
+function _simBuyWithFees(budget, close, etfCode, fp) {
+  var buyPrice = close * (1 + fp.slippage);
+  if (buyPrice <= 0) return { buyPrice: 0, shares: 0, commission: 0, transferFee: 0 };
+  var sh = _simIsShEtf(etfCode) ? fp.transfer_fee_rate_sh : 0;
+  var shares = budget / (buyPrice * (1 + fp.commission_rate + sh));
+  var gross = shares * buyPrice;
+  var comm = gross * fp.commission_rate;
+  if (comm < fp.min_commission) {
+    shares = (budget - fp.min_commission) / (buyPrice * (1 + sh));
+    gross = shares * buyPrice;
+    comm = fp.min_commission;
+  }
+  var transferFee = gross * sh;
+  return { buyPrice: buyPrice, shares: shares, commission: comm, transferFee: transferFee };
+}
+
+// 卖出扣费(复用 simulate_trade.py _sell_with_fees 逻辑 + 印花税)
+function _simSellWithFees(shares, close, etfCode, fp) {
+  var sellPrice = close * (1 - fp.slippage);
+  var sellAmount = shares * sellPrice;
+  var comm = Math.max(sellAmount * fp.commission_rate, fp.min_commission);
+  var sh = _simIsShEtf(etfCode) ? fp.transfer_fee_rate_sh : 0;
+  var transferFee = sellAmount * sh;
+  var stampDuty = sellAmount * (fp.stamp_duty_rate || 0);
+  var net = sellAmount - comm - transferFee - stampDuty;
+  return { sellPrice: sellPrice, sellAmount: sellAmount, commission: comm, transferFee: transferFee, stampDuty: stampDuty, net: net };
+}
+
+// Replay ledger with new fees -> recompute summary + equity_curve + ledger + rounds + open_positions
+// 3路径: 买固定1w+卖清仓(逐笔卖, sell_all) / 全仓进出(all_in) / 固定1w FIFO(fifo)
+function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfCode, fp, pathLabel, origSummary, origSlippage) {
+  if (!ledger || !ledger.length) return null;
+  var isAllIn = pathLabel.indexOf('全仓') >= 0;
+  var isFifo = pathLabel.indexOf('FIFO') >= 0;
+  var cash = initCap;
+  var positions = []; // {date, close, shares}
+  var totalShares = 0;
+  var newLedger = [];
+  var equityCurve = [{ date: ledger[0].date, value: initCap }];
+  var totalAssetsPeak = initCap, totalAssetsPeakDate = null;
+  var maxHolding = 0, maxHoldingDate = null, maxHoldingTotal = 0;
+  var drawdownPeak = initCap, maxDrawdown = 0, maxDrawdownDate = null;
+  var roundDrawdowns = [];
+  var buyCount = 0, sellCount = 0;
+
+  for (var i = 0; i < ledger.length; i++) {
+    var e = ledger[i];
+    var close = e.close;
+    var isBuy = e.shares_traded > 0;
+    var isSell = e.shares_traded < 0;
+
+    if (isBuy) {
+      buyCount++;
+      var budget = isAllIn ? cash : posSize;
+      if (budget <= 0) continue;
+      var br = _simBuyWithFees(budget, close, etfCode, fp);
+      cash -= budget;
+      positions.push({ date: e.date, close: close, shares: br.shares });
+      totalShares += br.shares;
+      var hv = totalShares * close;
+      var ta = cash + hv;
+      newLedger.push({
+        date: e.date, close: close, prev_close: e.prev_close, index_chg_pct: e.index_chg_pct,
+        op: e.op, amount: Math.round(budget * 100) / 100, shares_traded: Math.round(br.shares * 10000) / 10000,
+        total_shares: Math.round(totalShares * 10000) / 10000, holdings_value: Math.round(hv * 100) / 100,
+        holdings_cost_before: e.holdings_cost_before, holdings_cost_after: e.holdings_cost_after,
+        total_assets: Math.round(ta * 100) / 100, return_pct: Math.round((ta - initCap) / initCap * 10000) / 100
+      });
+      equityCurve.push({ date: e.date, value: Math.round(ta * 100) / 100 });
+      if (hv > maxHolding) { maxHolding = hv; maxHoldingDate = e.date; maxHoldingTotal = ta; }
+      if (ta > totalAssetsPeak) { totalAssetsPeak = ta; totalAssetsPeakDate = e.date; }
+    } else if (isSell) {
+      sellCount++;
+      if (isFifo) {
+        // FIFO: sell oldest position only
+        if (positions.length === 0) continue;
+        var pos = positions.shift();
+        var sr = _simSellWithFees(pos.shares, close, etfCode, fp);
+        cash += sr.net;
+        totalShares -= pos.shares;
+        var hv2 = totalShares * close, ta2 = cash + hv2;
+        newLedger.push({
+          date: e.date, close: close, prev_close: e.prev_close, index_chg_pct: e.index_chg_pct,
+          op: e.op, amount: Math.round(sr.net * 100) / 100, shares_traded: -Math.round(pos.shares * 10000) / 10000,
+          total_shares: Math.round(totalShares * 10000) / 10000, holdings_value: Math.round(hv2 * 100) / 100,
+          holdings_cost_before: e.holdings_cost_before, holdings_cost_after: e.holdings_cost_after,
+          total_assets: Math.round(ta2 * 100) / 100, return_pct: Math.round((ta2 - initCap) / initCap * 10000) / 100
+        });
+        equityCurve.push({ date: e.date, value: Math.round(ta2 * 100) / 100 });
+        if (ta2 > totalAssetsPeak) { totalAssetsPeak = ta2; totalAssetsPeakDate = e.date; }
+      } else {
+        // Sell ALL (path 0 sell_all + path 1 all_in): sell each position separately (per-position commission)
+        var totalNet = 0, totalSharesSold = 0;
+        while (positions.length > 0) {
+          var posA = positions.shift();
+          var srA = _simSellWithFees(posA.shares, close, etfCode, fp);
+          cash += srA.net;
+          totalNet += srA.net;
+          totalSharesSold += posA.shares;
+        }
+        totalShares = 0;
+        var hv3 = 0, ta3 = cash;
+        newLedger.push({
+          date: e.date, close: close, prev_close: e.prev_close, index_chg_pct: e.index_chg_pct,
+          op: e.op, amount: Math.round(totalNet * 100) / 100, shares_traded: -Math.round(totalSharesSold * 10000) / 10000,
+          total_shares: 0, holdings_value: 0,
+          holdings_cost_before: e.holdings_cost_before, holdings_cost_after: 0,
+          total_assets: Math.round(ta3 * 100) / 100, return_pct: Math.round((ta3 - initCap) / initCap * 10000) / 100
+        });
+        equityCurve.push({ date: e.date, value: Math.round(ta3 * 100) / 100 });
+        if (ta3 > totalAssetsPeak) { totalAssetsPeak = ta3; totalAssetsPeakDate = e.date; }
+      }
+    }
+
+    // Drawdown tracking (after each entry)
+    var curTa = cash + totalShares * close;
+    if (curTa > drawdownPeak) drawdownPeak = curTa;
+    var dd = drawdownPeak > 0 ? (drawdownPeak - curTa) / drawdownPeak * 100 : 0;
+    if (dd > maxDrawdown) { maxDrawdown = dd; maxDrawdownDate = e.date; }
+    roundDrawdowns.push(dd);
+  }
+
+  // Final total (include open positions valued at last close)
+  var lastClose = ledger.length ? ledger[ledger.length - 1].close : 0;
+  var finalHoldings = totalShares * lastClose;
+  var finalTotal = cash + finalHoldings;
+  var totalReturn = finalTotal - initCap;
+  var totalReturnPct = totalReturn / initCap * 100;
+
+  // Recompute rounds
+  var newRounds = _simRecomputeRounds(rounds, posSize, etfCode, fp, isAllIn, initCap, origSlippage);
+
+  // Win/loss stats from recomputed rounds
+  var winRounds = newRounds.filter(function(r) { return r.profit > 0; });
+  var loseRounds = newRounds.filter(function(r) { return r.profit < 0; });
+  var winCount = winRounds.length, loseCount = loseRounds.length;
+  var winRate = newRounds.length > 0 ? winCount / newRounds.length * 100 : 0;
+  var avgWinPct = winCount > 0 ? winRounds.reduce(function(s, r) { return s + r.pct; }, 0) / winCount : 0;
+  var avgLossPct = loseCount > 0 ? loseRounds.reduce(function(s, r) { return s + r.pct; }, 0) / loseCount : 0;
+  var avgPlRatio = avgLossPct !== 0 ? Math.abs(avgWinPct / avgLossPct) : null;
+
+  // Max win/lose streak
+  var maxWinStreak = 0, maxLoseStreak = 0, curWin = 0, curLose = 0;
+  for (var ri = 0; ri < newRounds.length; ri++) {
+    if (newRounds[ri].profit > 0) { curWin++; curLose = 0; maxWinStreak = Math.max(maxWinStreak, curWin); }
+    else if (newRounds[ri].profit < 0) { curLose++; curWin = 0; maxLoseStreak = Math.max(maxLoseStreak, curLose); }
+    else { curWin = 0; curLose = 0; }
+  }
+
+  // Drawdown median & trimmed mean
+  var medianDd = 0, trimmedMeanDd = 0;
+  if (roundDrawdowns.length > 0) {
+    var sortedDds = roundDrawdowns.slice().sort(function(a, b) { return a - b; });
+    var n = sortedDds.length;
+    medianDd = n % 2 === 1 ? sortedDds[Math.floor(n / 2)] : (sortedDds[n / 2 - 1] + sortedDds[n / 2]) / 2;
+    var trimN = Math.max(1, Math.floor(n * 0.1));
+    if (n > 2 * trimN) {
+      var trimmed = sortedDds.slice(trimN, n - trimN);
+      trimmedMeanDd = trimmed.reduce(function(s, v) { return s + v; }, 0) / trimmed.length;
+    } else {
+      trimmedMeanDd = sortedDds.reduce(function(s, v) { return s + v; }, 0) / n;
+    }
+  }
+
+  // Sharpe (from equity_curve, same as backend: mean/std × sqrt(252))
+  var dailyRets = [];
+  for (var si = 1; si < equityCurve.length; si++) {
+    var prevV = equityCurve[si - 1].value;
+    if (prevV > 0) dailyRets.push((equityCurve[si].value - prevV) / prevV);
+  }
+  var sharpe = 0;
+  if (dailyRets.length >= 2) {
+    var meanR = dailyRets.reduce(function(s, v) { return s + v; }, 0) / dailyRets.length;
+    var varR = dailyRets.reduce(function(s, v) { return s + (v - meanR) * (v - meanR); }, 0) / (dailyRets.length - 1);
+    var stdR = Math.sqrt(varR);
+    sharpe = stdR > 0 ? meanR / stdR * Math.sqrt(252) : 0;
+  }
+
+  // Years (from original summary, fee-independent)
+  var years = origSummary.years || 1;
+  // Annualized
+  var annualized = 0;
+  if (years > 0 && initCap > 0 && finalTotal > 0) {
+    annualized = (Math.pow(finalTotal / initCap, 1 / years) - 1) * 100;
+  }
+
+  // Recompute open_positions (remaining positions valued at last close)
+  var newOpenPositions = [];
+  if (positions.length > 0 && openPositions && openPositions.length > 0) {
+    for (var oi = 0; oi < positions.length && oi < openPositions.length; oi++) {
+      var np = positions[oi];
+      var op = openPositions[oi];
+      var currentValue = np.shares * lastClose;
+      var pct = np.close > 0 ? (lastClose - np.close) / np.close * 100 : 0;
+      var buyBudget = isAllIn ? initCap : posSize;
+      var profit = currentValue - buyBudget;
+      newOpenPositions.push({
+        buy_date: np.date, buy_close: np.close, shares: Math.round(np.shares * 10000) / 10000,
+        pct: Math.round(pct * 100) / 100, current_value: Math.round(currentValue * 100) / 100,
+        profit: Math.round(profit * 100) / 100
+      });
+    }
+  }
+
+  // Build summary (keep structural fields from original, recompute financial fields)
+  var newSummary = Object.assign({}, origSummary, {
+    final_total: Math.round(finalTotal * 100) / 100,
+    final_cash: Math.round(cash * 100) / 100,
+    final_holdings: Math.round(finalHoldings * 100) / 100,
+    total_return: Math.round(totalReturn * 100) / 100,
+    total_return_pct: Math.round(totalReturnPct * 100) / 100,
+    annualized: Math.round(annualized * 10) / 10,
+    sharpe: Math.round(sharpe * 100) / 100,
+    total_assets_peak: Math.round(totalAssetsPeak * 100) / 100,
+    total_assets_peak_date: totalAssetsPeakDate || 'N/A',
+    max_holding: Math.round(maxHolding * 100) / 100,
+    max_holding_date: maxHoldingDate || 'N/A',
+    max_holding_pct: maxHoldingTotal > 0 ? Math.round(maxHolding / maxHoldingTotal * 1000) / 10 : 0,
+    max_drawdown: Math.round(maxDrawdown * 100) / 100,
+    max_drawdown_date: maxDrawdownDate || 'N/A',
+    median_drawdown: Math.round(medianDd * 100) / 100,
+    trimmed_mean_drawdown: Math.round(trimmedMeanDd * 100) / 100,
+    win_rate: Math.round(winRate * 100) / 100,
+    win_count: winCount, lose_count: loseCount,
+    avg_win_pct: Math.round(avgWinPct * 100) / 100,
+    avg_loss_pct: Math.round(avgLossPct * 100) / 100,
+    avg_pl_ratio: avgPlRatio !== null ? Math.round(avgPlRatio * 100) / 100 : null,
+    max_win_streak: maxWinStreak, max_lose_streak: maxLoseStreak,
+    total_rounds: newRounds.length, open_count: positions.length,
+    buy_count: buyCount, sell_count: sellCount,
+  });
+
+  return { summary: newSummary, equity_curve: equityCurve, ledger: newLedger, rounds: newRounds, open_positions: newOpenPositions };
+}
+
+// Recompute rounds with new fees (restore raw close from buy_close/sell_close via origSlippage)
+function _simRecomputeRounds(rounds, posSize, etfCode, fp, isAllIn, initCap, origSlippage) {
+  if (!rounds || !rounds.length) return [];
+  var newRounds = [];
+  var cash = initCap;
+  for (var i = 0; i < rounds.length; i++) {
+    var r = rounds[i];
+    var rawCloseSell = r.sell_close / (1 - origSlippage);
+    var newSubRounds = null;
+    var totalAmountIn = 0, totalAmountOut = 0, totalProfit = 0;
+
+    if (r._sub_rounds && r._sub_rounds.length > 0) {
+      newSubRounds = [];
+      for (var j = 0; j < r._sub_rounds.length; j++) {
+        var sr0 = r._sub_rounds[j];
+        var rawCloseBuy = sr0.buy_close / (1 + origSlippage);
+        var subBudget = posSize;
+        var subBr = _simBuyWithFees(subBudget, rawCloseBuy, etfCode, fp);
+        var subSr = _simSellWithFees(subBr.shares, rawCloseSell, etfCode, fp);
+        var subProfit = subSr.net - subBudget;
+        var subPct = subBr.buyPrice > 0 ? (subSr.sellPrice - subBr.buyPrice) / subBr.buyPrice * 100 : 0;
+        newSubRounds.push({
+          buy_date: sr0.buy_date, buy_close: Math.round(subBr.buyPrice * 100) / 100,
+          sell_date: sr0.sell_date, sell_close: Math.round(subSr.sellPrice * 100) / 100,
+          hold_days: sr0.hold_days, pct: Math.round(subPct * 100) / 100,
+          amount_in: subBudget, amount_out: Math.round(subSr.net * 100) / 100,
+          profit: Math.round(subProfit * 100) / 100
+        });
+        totalAmountIn += subBudget;
+        totalAmountOut += subSr.net;
+        totalProfit += subProfit;
+      }
+    } else {
+      // Single buy-sell round (path 1 all_in or path 2 FIFO)
+      var rawCloseBuy = r.buy_close / (1 + origSlippage);
+      var budget = isAllIn ? cash : posSize;
+      var br = _simBuyWithFees(budget, rawCloseBuy, etfCode, fp);
+      var sr = _simSellWithFees(br.shares, rawCloseSell, etfCode, fp);
+      var profit = sr.net - budget;
+      var pct = br.buyPrice > 0 ? (sr.sellPrice - br.buyPrice) / br.buyPrice * 100 : 0;
+      totalAmountIn = budget;
+      totalAmountOut = sr.net;
+      totalProfit = profit;
+      if (isAllIn) cash = sr.net;
+    }
+
+    var firstBuyClose = newSubRounds ? newSubRounds[0].buy_close : 0;
+    var firstSellClose = newSubRounds ? newSubRounds[0].sell_close : 0;
+    var roundPct = totalAmountIn > 0 ? (totalAmountOut - totalAmountIn) / totalAmountIn * 100 : 0;
+    newRounds.push({
+      buy_date: r.buy_date, buy_close: firstBuyClose || r.buy_close,
+      sell_date: r.sell_date, sell_close: firstSellClose || r.sell_close,
+      hold_days: r.hold_days,
+      pct: Math.round(roundPct * 100) / 100,
+      amount_in: Math.round(totalAmountIn * 100) / 100,
+      amount_out: Math.round(totalAmountOut * 100) / 100,
+      profit: Math.round(totalProfit * 100) / 100,
+      _sub_rounds: newSubRounds && newSubRounds.length > 1 ? newSubRounds : undefined
+    });
+  }
+  return newRounds;
+}
+
+// Apply fee recompute to all paths×scenarios for current window
+async function _simApplyFeeRecompute(feeParams) {
+  var m = _tradeSimState;
+  if (!m || !m.statsData) return null;
+  var sd = m.statsData;
+  var win = m.win;
+  var etfCode = sd.etf_code;
+  var initCap = sd.initial_capital || 100000;
+  var posSize = sd.position_size || 10000;
+  var origSlippage = sd.slippage || 0.001;
+
+  // Load full data if not loaded
+  if (!m.fullLoaded) {
+    try {
+      m.fullData = _tradeSimFullCache[m.indexId] || await _simFetchFull(m.indexId);
+      _tradeSimFullCache[m.indexId] = m.fullData;
+      m.fullLoaded = true;
+    } catch (e) {
+      console.error('[trade_sim] full data load failed for fee recompute:', e);
+      return null;
+    }
+  }
+  var fullData = m.fullData;
+  if (!fullData || !fullData.data || !fullData.data[win]) return null;
+
+  var result = { data: {} };
+  result.data[win] = {};
+  for (var pi = 0; pi < sd.paths.length; pi++) {
+    var pathLabel = sd.paths[pi];
+    result.data[win][pathLabel] = {};
+    for (var si = 0; si < sd.scenarios.length; si++) {
+      var scenLabel = sd.scenarios[si];
+      var origNode = sd.data[win][pathLabel] && sd.data[win][pathLabel][scenLabel];
+      var fullNode = fullData.data[win][pathLabel] && fullData.data[win][pathLabel][scenLabel];
+      if (!origNode || !fullNode) { result.data[win][pathLabel][scenLabel] = null; continue; }
+      result.data[win][pathLabel][scenLabel] = _simRecomputeNode(
+        fullNode.ledger, fullNode.rounds, fullNode.open_positions,
+        initCap, posSize, etfCode, feeParams, pathLabel, origNode.summary, origSlippage
+      );
+    }
+  }
+  return result;
+}
+
+// Fetch full JSON (wrapper for lazy load during fee recompute)
+async function _simFetchFull(indexId) {
+  return await fetchJSON('https://ss.fx8.store/r2/trade_sim_data/trade_sim_' + encodeURIComponent(indexId) + '_full.json');
+}
+
+// Fee change handler
+async function _simOnFeeChange(presetKey) {
+  var m = _tradeSimState;
+  if (!m || !m.statsData) return;
+  var sd = m.statsData;
+  m.feePreset = presetKey;
+  if (presetKey === 'custom') {
+    m.feeParams = _simReadCustomParams();
+  } else {
+    var preset = _SIM_FEE_PRESETS.find(function(p) { return p.key === presetKey; });
+    if (preset) {
+      m.feeParams = {
+        commission_rate: preset.commission_rate, min_commission: preset.min_commission,
+        slippage: preset.slippage, transfer_fee_rate_sh: preset.transfer_fee_rate_sh,
+        stamp_duty_rate: preset.stamp_duty_rate,
+      };
+    }
+  }
+  // Show loading in content area
+  var ov = _tradeSimOverlay;
+  if (ov) {
+    var content = ov.querySelector('.sim-path-group');
+    if (content) content.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3)">⏳ 加载交易数据重算费率…</div>';
+  }
+  var result = await _simApplyFeeRecompute(m.feeParams);
+  if (result) {
+    m.feeRecomputed = result;
+  } else {
+    m.feePreset = 'etf_def';
+    m.feeParams = {
+      commission_rate: sd.commission_rate || 0.0003, min_commission: sd.min_commission || 5,
+      slippage: sd.slippage || 0.001, transfer_fee_rate_sh: sd.transfer_fee_rate_sh || 0.00001,
+      stamp_duty_rate: sd.stamp_duty_rate || 0,
+    };
+    m.feeRecomputed = null;
+  }
+  if (ov) _tradeSimModalRender(ov);
+}
+
+// Form change handler (custom input, preserve input focus)
+async function _simOnFormChange() {
+  var m = _tradeSimState;
+  if (!m || !m.statsData) return;
+  m.feePreset = 'custom';
+  m.feeParams = _simReadCustomParams();
+  var ov = _tradeSimOverlay;
+  if (ov) {
+    var body = ov.querySelector('.trade-sim-modal-body');
+    if (body) {
+      body.querySelectorAll('.sim-fee-btn').forEach(function(btn) {
+        btn.classList.toggle('active', btn.dataset.fee === 'custom');
+      });
+      var content = body.querySelector('.sim-path-group');
+      if (content) content.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3)">⏳ 重算费率中…</div>';
+    }
+  }
+  var result = await _simApplyFeeRecompute(m.feeParams);
+  if (result) m.feeRecomputed = result;
+  else m.feeRecomputed = null;
+  if (ov) _tradeSimModalRender(ov);
+}
+
+// Read custom fee params from input fields
+function _simReadCustomParams() {
+  var m = _tradeSimState;
+  var sd = m && m.statsData;
+  var defaults = {
+    commission_rate: sd ? sd.commission_rate || 0.0003 : 0.0003,
+    min_commission: sd ? sd.min_commission || 5 : 5,
+    slippage: sd ? sd.slippage || 0.001 : 0.001,
+    transfer_fee_rate_sh: sd ? sd.transfer_fee_rate_sh || 0.00001 : 0.00001,
+    stamp_duty_rate: 0,
+  };
+  var body = _tradeSimOverlay ? _tradeSimOverlay.querySelector('.trade-sim-modal-body') : null;
+  if (!body) return defaults;
+  function val(cls) {
+    var el = body.querySelector(cls);
+    return el ? (parseFloat(el.value) || 0) : 0;
+  }
+  return {
+    commission_rate: val('.sim-fee-input-comm') / 10000,
+    min_commission: val('.sim-fee-input-min'),
+    slippage: val('.sim-fee-input-slip') / 1000,
+    transfer_fee_rate_sh: val('.sim-fee-input-transfer') / 10000,
+    stamp_duty_rate: val('.sim-fee-input-stamp') / 10000,
+  };
+}
+
+// Fee bar HTML (6档预设 + 5参数自定义输入, 同凯利模式)
+function _simFeeBarHTML(sd) {
+  var m = _tradeSimState;
+  var curFee = (m && m.feePreset) || 'etf_def';
+  var feeBtnsHTML = _SIM_FEE_PRESETS.map(function(p) {
+    var active = p.key === curFee ? ' active' : '';
+    return '<button type="button" class="sim-fee-btn' + active + '" data-fee="' + p.key + '" title="' + (p.desc || '') + '">' + p.shortcut + ':' + p.label + '</button>';
+  }).join('');
+  var fp = (m && m.feeParams) || {
+    commission_rate: sd.commission_rate || 0.0003, min_commission: sd.min_commission || 5,
+    slippage: sd.slippage || 0.001, transfer_fee_rate_sh: sd.transfer_fee_rate_sh || 0.00001,
+    stamp_duty_rate: sd.stamp_duty_rate || 0,
+  };
+  var commVal = fp.commission_rate != null ? (fp.commission_rate * 10000).toString() : '3';
+  var minVal = fp.min_commission != null ? fp.min_commission.toString() : '5';
+  var slipVal = fp.slippage != null ? (fp.slippage * 1000).toString() : '1';
+  var transferVal = fp.transfer_fee_rate_sh != null ? (fp.transfer_fee_rate_sh * 10000).toString() : '0.1';
+  var stampVal = fp.stamp_duty_rate != null ? (fp.stamp_duty_rate * 10000).toString() : '0';
+  var customHTML = '<div class="sim-fee-custom">' +
+      '<label>佣金:万分之<input type="number" class="lab-input sim-fee-input-comm" value="' + commVal + '" step="0.01" min="0" style="width:48px"></label>' +
+      '<label>最低:<input type="number" class="lab-input sim-fee-input-min" value="' + minVal + '" step="0.1" min="0" style="width:42px">元</label>' +
+      '<label>滑点:千分之<input type="number" class="lab-input sim-fee-input-slip" value="' + slipVal + '" step="0.1" min="0" style="width:42px"></label>' +
+      '<label>过户费:万分之<input type="number" class="lab-input sim-fee-input-transfer" value="' + transferVal + '" step="0.01" min="0" style="width:42px">(沪)</label>' +
+      '<label>印花税:万分之<input type="number" class="lab-input sim-fee-input-stamp" value="' + stampVal + '" step="0.01" min="0" style="width:42px">(卖)</label>' +
+    '</div>';
+  return '<div class="sim-fee-bar">' +
+    '<div class="sim-fee-row">' +
+      '<span class="sim-fee-label">费率:</span>' +
+      feeBtnsHTML +
+      '<span class="sim-fee-hint">快捷键 0-4+C</span>' +
+    '</div>' +
+    customHTML +
+    '</div>';
+}
+
+// 费率客调快捷键 0-4+C (trade_sim modal 打开时生效)
+document.addEventListener("keydown", function(e) {
+  if (!_tradeSimOverlay || !_tradeSimOverlay.classList.contains('show')) return;
+  var tag = (e.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select") return;
+  if (e.target.isContentEditable) return;
+  var key = e.key.toUpperCase();
+  if (key >= "0" && key <= "4") {
+    e.preventDefault();
+    _simOnFeeChange(_SIM_FEE_PRESETS[+key].key);
+  } else if (key === "C") {
+    e.preventDefault();
+    _simOnFeeChange("custom");
+  }
+});
+
 function _tradeSimModalRender(ov) {
   var m = _tradeSimState;
   if (!m || !m.statsData) return;
@@ -18597,6 +19114,15 @@ function _tradeSimModalRender(ov) {
   var scenLabel = sd.scenarios[scenIdx];
   var indexName = sd.index_name;
   var initCap = sd.initial_capital || 100000;
+  // Initialize fee params from stats data (default = original backend fees)
+  if (!m.feeParams) {
+    m.feePreset = 'etf_def';
+    m.feeParams = {
+      commission_rate: sd.commission_rate || 0.0003, min_commission: sd.min_commission || 5,
+      slippage: sd.slippage || 0.001, transfer_fee_rate_sh: sd.transfer_fee_rate_sh || 0.00001,
+      stamp_duty_rate: sd.stamp_duty_rate || 0,
+    };
+  }
   // 2026-07-20 infoBar: 回测标的 + 费率明细（modal 详情明确标注 ETF 代码/名称 + 完整费率, 区分 ETF 替代 vs 纯指数）
   // 2026-07-28 统一：sd.etf_name/etf_approx 由 simulate_trade.py 从 board_etf_map 首位写入；
   // _etfName 优先 sd.etf_name，fallback _TRADE_SIM_ETF_NAMES 硬编码（旧 JSON 无 etf_name 时兜底）；
@@ -18604,19 +19130,32 @@ function _tradeSimModalRender(ov) {
   var etfCode = sd.etf_code;
   var _etfName = etfCode ? (sd.etf_name || _TRADE_SIM_ETF_NAMES[etfCode]) : null;
   var _isApprox = !!(etfCode && sd.etf_approx);
-  var _commRate = sd.commission_rate != null ? ('佣金万' + (sd.commission_rate * 10000).toFixed(1).replace(/\.0$/, '')) : '佣金万3';
-  var _slipRate = sd.slippage != null ? ('滑点千' + (sd.slippage * 1000).toFixed(1).replace(/\.0$/, '')) : '滑点千1';
-  var _transferFee = sd.transfer_fee_rate_sh != null ? ('沪市过户费万' + (sd.transfer_fee_rate_sh * 10000).toFixed(1).replace(/\.0$/, '')) : '沪市过户费万0.1';
-  var _minComm = sd.min_commission != null ? ('最低' + sd.min_commission + '元/笔') : '最低5元/笔';
+  // infoBar 费率明细: 用当前 feeParams (费率客调后实时更新) 非 sd 原始费率
+  var _fp = m.feeParams;
+  var _commRate = '佣金万' + (_fp.commission_rate * 10000).toFixed(1).replace(/\.0$/, '');
+  var _slipRate = '滑点千' + (_fp.slippage * 1000).toFixed(1).replace(/\.0$/, '');
+  var _transferFee = '沪市过户费万' + (_fp.transfer_fee_rate_sh * 10000).toFixed(1).replace(/\.0$/, '');
+  var _minComm = '最低' + _fp.min_commission + '元/笔';
+  var _stampDuty = _fp.stamp_duty_rate > 0 ? ' + 印花税万' + (_fp.stamp_duty_rate * 10000).toFixed(1).replace(/\.0$/, '') : '';
   var _targetText = etfCode
     ? '回测标的: ETF ' + etfCode + '（' + (_etfName || 'ETF') + (_isApprox ? ', 近似替代' + indexName : '') + '）· 信号在指数生成, 成交在 ETF'
     : '回测标的: ' + indexName + '（纯指数模拟, 无 ETF 替代）';
   var _feeText = etfCode
-    ? '费率: ' + _commRate + ' + ' + _slipRate + ' + ' + _transferFee + '（' + _minComm + '）'
-    : '费率: ' + _commRate + ' + ' + _slipRate + '（纯指数模拟, 无过户费）';
+    ? '费率: ' + _commRate + ' + ' + _slipRate + ' + ' + _transferFee + '（' + _minComm + '）' + _stampDuty
+    : '费率: ' + _commRate + ' + ' + _slipRate + '（纯指数模拟, 无过户费）' + _stampDuty;
   var infoBar = '<div class="sim-info-bar">' + _targetText + ' ｜ ' + _feeText + '</div>';
   var winData = sd.data[win][pathLabel][scenLabel];
   var fullNode = (m.fullLoaded && m.fullData && m.fullData.data[win] && m.fullData.data[win][pathLabel] && m.fullData.data[win][pathLabel][scenLabel]) || null;
+  // 费率客调: 如有重算数据则覆盖 winData/fullNode
+  if (m.feeRecomputed && m.feeRecomputed.data[win] && m.feeRecomputed.data[win][pathLabel] && m.feeRecomputed.data[win][pathLabel][scenLabel]) {
+    var rc = m.feeRecomputed.data[win][pathLabel][scenLabel];
+    if (rc) {
+      winData = { summary: rc.summary, equity_curve: rc.equity_curve };
+      if (fullNode) {
+        fullNode = { ledger: rc.ledger, rounds: rc.rounds, open_positions: rc.open_positions };
+      }
+    }
+  }
   var winLabel = '';
   for (var i = 0; i < _TRADE_SIM_WIN_DEFS.length; i++) {
     if (_TRADE_SIM_WIN_DEFS[i].k === win) { winLabel = _TRADE_SIM_WIN_DEFS[i].l; break; }
@@ -18684,7 +19223,7 @@ function _tradeSimModalRender(ov) {
     }).join('') + '</div>' +
     '<span class="lab-win-bar-cur">' + winLabel + '</span>' +
     '</div>';
-  var cmpTable = _tradeSimComparisonTableHTML(sd, win);
+  var cmpTable = _tradeSimComparisonTableHTML(sd, win, m.feeRecomputed);
   var mainTabs = '<div class="sim-main-tabs">' + sd.paths.map(function (p, i) {
     return '<button class="sim-main-tab' + (i === pathIdx ? ' active' : '') + '" data-path="' + i + '">' + _t.tsText(p) + '</button>';
   }).join('') + '</div>';
@@ -18693,19 +19232,38 @@ function _tradeSimModalRender(ov) {
   }).join('') + '</div>';
   var gradId = 'tradeSimGrad_' + win + '_' + pathIdx + '_' + scenIdx;
   var panel = _tradeSimPanelHTML(winData, fullNode, indexName, initCap, gradId, etfCode);
-  body.innerHTML = viewTabs + infoBar + winBar + cmpTable + mainTabs + '<div class="sim-path-group active">' + subTabs + panel + '</div>';
+  var feeBar = _simFeeBarHTML(sd);
+  body.innerHTML = viewTabs + infoBar + feeBar + winBar + cmpTable + mainTabs + '<div class="sim-path-group active">' + subTabs + panel + '</div>';
   // 绑定视图切换（A10）+ 窗口切换
   body.querySelectorAll('.sim-view-tab[data-view]').forEach(function (btn) {
     btn.onclick = function () { m.view = btn.dataset.view; _tradeSimModalRender(ov); };
   });
   body.querySelectorAll('.lab-win-tab[data-win]').forEach(function (btn) {
-    btn.onclick = function () { m.win = btn.dataset.win; _tradeSimModalRender(ov); };
+    btn.onclick = async function () {
+      m.win = btn.dataset.win;
+      // 费率客调激活时切窗口需重算新窗口数据
+      if (m.feeRecomputed && m.feePreset && m.feePreset !== 'etf_def') {
+        var content = ov.querySelector('.sim-path-group');
+        if (content) content.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3)">⏳ 重算费率中…</div>';
+        var result = await _simApplyFeeRecompute(m.feeParams);
+        m.feeRecomputed = result || null;
+      }
+      _tradeSimModalRender(ov);
+    };
   });
   body.querySelectorAll('.sim-main-tab').forEach(function (btn) {
     btn.onclick = function () { m.path = parseInt(btn.dataset.path); _tradeSimModalRender(ov); };
   });
   body.querySelectorAll('.sim-sub-tab').forEach(function (btn) {
     btn.onclick = function () { m.scenario = parseInt(btn.dataset.sig); _tradeSimModalRender(ov); };
+  });
+  // 费率预设按钮
+  body.querySelectorAll('.sim-fee-btn').forEach(function (btn) {
+    btn.onclick = function () { _simOnFeeChange(btn.dataset.fee); };
+  });
+  // 费率自定义输入
+  body.querySelectorAll('.sim-fee-custom input').forEach(function (inp) {
+    inp.onchange = function () { _simOnFormChange(); };
   });
   // 对比表列标题点击排序：同列=切方向，不同列=换列+用该列默认方向
   body.querySelectorAll('.sim-cmp-table th[data-cmp-col]').forEach(function (th) {
