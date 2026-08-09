@@ -679,6 +679,26 @@ def purge_cache(r2_keys, cache_prefix="/"):
     else:
         print(f"⚠ Cache purge 部分失败: {failed_batches}/{total_batches} 批失败, "
               f"已 purged {total_purged}/{total_keys} keys（edge cache 部分残留）")
+        # 告警（防轰炸）：通知管理员 cache purge 部分失败，edge cache 残留致前端可能读旧数据。
+        # dedup_key=purge_batch_fail 跨进程去重（check_dedup/update_dedup 持久化到
+        # data/notify_dedup.json），一次 deploy 跑多个 upload 命令 30min 内只告警一次。
+        try:
+            sys.path.insert(0, str(ROOT / "scripts"))
+            import notify  # noqa: E402
+            _dedup_key = "purge_batch_fail"
+            _dedup_window = 1800  # 30min 内不重复告警
+            if not notify.check_dedup(_dedup_key, _dedup_window):
+                notify.send(
+                    "[告警] Cache purge 部分失败 edge cache 残留",
+                    f"upload_r2.py cache purge 部分失败: {failed_batches}/{total_batches} 批失败, "
+                    f"已 purged {total_purged}/{total_keys} keys。CF edge cache 部分残留, "
+                    f"前端可能读到旧数据。请查 upload_r2 日志看失败批次详情（HTTP status/异常）。"
+                    f"（R2 审计 P2-1: 分批 purge 失败告警）",
+                    from_prefix="[告警]",
+                )
+                notify.update_dedup(_dedup_key)
+        except Exception as e:
+            print(f"⚠ notify 告警发送失败（不阻塞）：{e}")
 
 
 def cmd_upload_all_data():
