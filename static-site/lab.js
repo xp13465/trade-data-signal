@@ -7184,7 +7184,8 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
     ? rawTrades.filter((t) => t[fields.indexOf("buy_date")] >= cutoff)
     : rawTrades.slice();
 
-  // 渲染 modal
+  // 渲染 modal(新开弹窗重置到第 1 页)
+  state._sigKellyTradePage = 1;
   _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabel, period, quadKey, modeKey);
 }
 
@@ -7194,12 +7195,15 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
   // 排序/筛选状态
   if (!state._sigKellyTradeSort) state._sigKellyTradeSort = { key: "buy_date", dir: -1 };
   if (!state._sigKellyTradeFilter) state._sigKellyTradeFilter = { etf: "", profit: "all" };
+  if (!state._sigKellyTradePage) state._sigKellyTradePage = 1;
   const sort = state._sigKellyTradeSort;
   const filter = state._sigKellyTradeFilter;
 
   const colDefs = [
+    { key: "index_id", label: "触发信号", sortable: true },
     { key: "buy_date", label: "买入日", sortable: true },
     { key: "sell_date", label: "卖出日", sortable: true },
+    { key: "track_score", label: "ETF关系", sortable: true },
     { key: "etf_code", label: "代码", sortable: true },
     { key: "etf_name", label: "ETF名称", sortable: true },
     { key: "buy_price", label: "买价", sortable: true },
@@ -7246,25 +7250,50 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       return `<th class="lab-sigkelly-trades-th" data-key="${c.key}">${c.label}${arrow}</th>`;
     }).join("");
 
+    // 分页: 每页 50 行
+    const perPage = 50;
+    const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
+    if (state._sigKellyTradePage > totalPages) state._sigKellyTradePage = totalPages;
+    if (state._sigKellyTradePage < 1) state._sigKellyTradePage = 1;
+    const page = state._sigKellyTradePage;
+    const pageRows = filtered.slice((page - 1) * perPage, page * perPage);
+
     let tbodyHTML = "";
-    const maxRows = 500; // 限制渲染行数防卡顿
-    const showRows = filtered.slice(0, maxRows);
-    for (const t of showRows) {
-      const pf = t[fIdx.profit] || 0;
-      const rp = t[fIdx.return_pct] || 0;
-      const pfCls = pf >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
-      tbodyHTML += `<tr>` +
-        `<td>${t[fIdx.buy_date]}</td><td>${t[fIdx.sell_date]}</td>` +
-        `<td>${t[fIdx.etf_code]}</td><td class="lab-sigkelly-trades-etfname">${t[fIdx.etf_name]}</td>` +
-        `<td>${(+t[fIdx.buy_price]).toFixed(4)}</td><td>${(+t[fIdx.sell_price]).toFixed(4)}</td>` +
-        `<td>${(+t[fIdx.shares]).toFixed(2)}</td>` +
-        `<td class="${pfCls}">${(pf >= 0 ? "+" : "") + pf.toFixed(2)}</td>` +
-        `<td class="${pfCls}">${(rp >= 0 ? "+" : "") + rp.toFixed(2)}%</td>` +
-        `<td>${t[fIdx.hold_days]}</td><td>${t[fIdx.sell_reason]}</td>` +
-      `</tr>`;
-    }
-    if (filtered.length > maxRows) {
-      tbodyHTML += `<tr><td colspan="11" class="lab-sigkelly-trades-more">仅显示前 ${maxRows} 笔(共 ${filtered.length} 笔),请用筛选缩小范围</td></tr>`;
+    if (pageRows.length === 0) {
+      tbodyHTML = `<tr><td colspan="13" class="lab-sigkelly-trades-more">无符合条件的交易记录</td></tr>`;
+    } else {
+      for (const t of pageRows) {
+        const pf = t[fIdx.profit] || 0;
+        const rp = t[fIdx.return_pct] || 0;
+        const pfCls = pf >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
+        // 触发信号列: 指数名 + 信号标签
+        const iid = t[fIdx.index_id] || "";
+        const sig = t[fIdx.signal] || "";
+        const sigCell = indexIdToName(iid) + '<br><span class="lab-sigkelly-siglabel">' + signalLabel({ signal: sig }) + '</span>';
+        // ETF关系列: 信号灯圆点 + 档位标签 + 跟踪分
+        const etfRel = (function () {
+          const etf = {
+            match_method: t[fIdx.match_method],
+            track_tier: t[fIdx.track_tier],
+            track_score: t[fIdx.track_score],
+            track_low_confidence: t[fIdx.track_low_confidence],
+          };
+          const light = _etfLightInfo(etf);
+          const scoreStr = (typeof etf.track_score === "number") ? Math.round(etf.track_score) : "-";
+          return '<span class="etf-light ' + light.cls + '"></span> ' + light.label + ' ' + scoreStr;
+        })();
+        tbodyHTML += `<tr>` +
+          `<td class="lab-sigkelly-trades-sigcell">${sigCell}</td>` +
+          `<td>${t[fIdx.buy_date]}</td><td>${t[fIdx.sell_date]}</td>` +
+          `<td class="lab-sigkelly-trades-etfrel">${etfRel}</td>` +
+          `<td>${t[fIdx.etf_code]}</td><td class="lab-sigkelly-trades-etfname">${t[fIdx.etf_name]}</td>` +
+          `<td>${(+t[fIdx.buy_price]).toFixed(4)}</td><td>${(+t[fIdx.sell_price]).toFixed(4)}</td>` +
+          `<td>${(+t[fIdx.shares]).toFixed(2)}</td>` +
+          `<td class="${pfCls}">${(pf >= 0 ? "+" : "") + pf.toFixed(2)}</td>` +
+          `<td class="${pfCls}">${(rp >= 0 ? "+" : "") + rp.toFixed(2)}%</td>` +
+          `<td>${t[fIdx.hold_days]}</td><td>${t[fIdx.sell_reason]}</td>` +
+        `</tr>`;
+      }
     }
 
     overlay.innerHTML =
@@ -7293,6 +7322,11 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
             `<tbody>${tbodyHTML}</tbody>` +
           `</table>` +
         `</div>` +
+        `<div class="lab-sigkelly-modal-pagination">` +
+          `<button type="button" class="lab-sigkelly-page-prev" ${page <= 1 ? "disabled" : ""}>‹ 上一页</button>` +
+          `<span class="lab-sigkelly-page-info">第 ${page} / ${totalPages} 页(共 ${filtered.length} 笔)</span>` +
+          `<button type="button" class="lab-sigkelly-page-next" ${page >= totalPages ? "disabled" : ""}>下一页 ›</button>` +
+        `</div>` +
       `</div>`;
 
     // 关闭
@@ -7304,6 +7338,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
         const key = th.dataset.key;
         if (sort.key === key) sort.dir = -sort.dir;
         else { sort.key = key; sort.dir = -1; }
+        state._sigKellyTradePage = 1;
         _render();
       };
     });
@@ -7315,6 +7350,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       etfInput.oninput = () => {
         filter.etf = etfInput.value;
         const selStart = etfInput.selectionStart;
+        state._sigKellyTradePage = 1;
         _render();
         const newInput = overlay.querySelector(".lab-sigkelly-filter-etf");
         if (newInput) {
@@ -7325,7 +7361,16 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     }
     const profitSel = overlay.querySelector(".lab-sigkelly-filter-profit");
     if (profitSel) {
-      profitSel.onchange = () => { filter.profit = profitSel.value; _render(); };
+      profitSel.onchange = () => { filter.profit = profitSel.value; state._sigKellyTradePage = 1; _render(); };
+    }
+    // 分页
+    const prevBtn = overlay.querySelector(".lab-sigkelly-page-prev");
+    if (prevBtn) {
+      prevBtn.onclick = () => { if (state._sigKellyTradePage > 1) { state._sigKellyTradePage--; _render(); } };
+    }
+    const nextBtn = overlay.querySelector(".lab-sigkelly-page-next");
+    if (nextBtn) {
+      nextBtn.onclick = () => { state._sigKellyTradePage++; _render(); };
     }
   }
 

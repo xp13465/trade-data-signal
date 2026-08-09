@@ -1443,10 +1443,10 @@
 .lab-sigkelly-wide-table th { white-space: nowrap; }
 .lab-sigkelly-mc { white-space: nowrap; }
 .lab-sigkelly-mc-n { color: var(--primary); font-size: 12px; }
-.lab-sigkelly-pos { color: #52c41a; font-weight: 600; }
-.lab-sigkelly-neg { color: #d4380d; font-weight: 600; }
-[data-theme="dark"] .lab-sigkelly-pos, [data-theme="redgold"] .lab-sigkelly-pos { color: #73d13d; }
-[data-theme="dark"] .lab-sigkelly-neg, [data-theme="redgold"] .lab-sigkelly-neg { color: #ff9c9a; }
+.lab-sigkelly-pos { color: #d4380d; font-weight: 600; }
+.lab-sigkelly-neg { color: #52c41a; font-weight: 600; }
+[data-theme="dark"] .lab-sigkelly-pos, [data-theme="redgold"] .lab-sigkelly-pos { color: #ff9c9a; }
+[data-theme="dark"] .lab-sigkelly-neg, [data-theme="redgold"] .lab-sigkelly-neg { color: #73d13d; }
 
 /* 跟单指引 */
 .lab-sigkelly-guidance { margin-top: 8px; padding: 6px 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; font-size: 11px; line-height: 1.6; color: var(--text-3); }
@@ -1476,6 +1476,13 @@
 .lab-sigkelly-trades-table th:hover { color: var(--primary); }
 .lab-sigkelly-trades-etfname { text-align: left !important; }
 .lab-sigkelly-trades-more { text-align: center; color: var(--text-4); padding: 8px; font-size: 11px; }
+.lab-sigkelly-modal-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-3); }
+.lab-sigkelly-modal-pagination button { background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; padding: 4px 12px; font-size: 12px; color: var(--text-2); cursor: pointer; }
+.lab-sigkelly-modal-pagination button:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+.lab-sigkelly-modal-pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+.lab-sigkelly-trades-sigcell { white-space: normal !important; line-height: 1.4; text-align: left !important; }
+.lab-sigkelly-siglabel { font-size: 11px; color: var(--text-3); }
+.lab-sigkelly-trades-etfrel { white-space: nowrap; }
 @media (max-width: 760px) {
   .lab-sigkelly-modal { max-width: 100%; max-height: 95vh; }
   .lab-sigkelly-trades-table { font-size: 11px; }

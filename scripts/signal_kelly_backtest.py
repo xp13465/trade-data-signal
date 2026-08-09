@@ -109,7 +109,10 @@ def _build_best_etf(etf_map):
             continue
         top = max(scored, key=lambda c: c["track_score"])
         best[iid] = {"code": top["code"], "track_tier": top.get("track_tier", "none"),
-                     "name": top.get("name", "")}
+                     "name": top.get("name", ""),
+                     "track_score": top.get("track_score"),
+                     "match_method": top.get("match_method"),
+                     "track_low_confidence": top.get("track_low_confidence")}
     return best
 
 
@@ -163,12 +166,15 @@ def _batch_load_etf_prices(etf_codes):
 
 # ── 回测 ──────────────────────────────────────────────────────────────────────
 
-def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, stop_profit):
+def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, stop_profit,
+                  index_id=None, signal=None, track_tier=None, track_score=None,
+                  match_method=None, track_low_confidence=None):
     """单笔信号回测: 信号日买入 1000 元, 持有期内止盈或满 HOLD_DAYS 卖出。
 
     prices: 该 ETF 的 {date: accum_nav} 字典(已由调用方从 price_map 取出)。
-    返回 dict {signal_date, buy_date, sell_date, etf_code, etf_name, buy_price,
-              sell_price, shares, profit, return_pct, hold_days, sell_reason}
+    返回 dict {signal_date, index_id, signal, buy_date, sell_date, etf_code, etf_name,
+              track_tier, track_score, match_method, track_low_confidence,
+              buy_price, sell_price, shares, profit, return_pct, hold_days, sell_reason}
     或 None(数据不足跳过)。
     """
     if not prices:
@@ -211,10 +217,16 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
 
     return {
         "signal_date": signal_date,
+        "index_id": index_id,
+        "signal": signal,
         "buy_date": signal_date,
         "sell_date": sell_date,
         "etf_code": etf_code,
         "etf_name": etf_name,
+        "track_tier": track_tier,
+        "track_score": track_score,
+        "match_method": match_method,
+        "track_low_confidence": track_low_confidence,
         "buy_price": round(buy_price, 6),
         "sell_price": round(sell_price, 6),
         "shares": round(shares, 6),
@@ -538,7 +550,9 @@ def compute():
         sdates = sorted_dates_map.get(etf_code, [])
         any_valid = False
         for mode_key, mode_def in SELL_MODES.items():
-            result = _backtest_one(date, prices, sdates, etf_code, be["name"], mode_def["stop_profit"])
+            result = _backtest_one(date, prices, sdates, etf_code, be["name"], mode_def["stop_profit"],
+                                   iid, sig, be.get("track_tier"), be.get("track_score"),
+                                   be.get("match_method"), be.get("track_low_confidence"))
             if result is None:
                 continue  # 数据不足(信号日无价格/未来不足10天)
             any_valid = True
@@ -577,7 +591,8 @@ def compute():
     }
 
     # trades 列文件(列式存储, 每 quadrant x mode 存 all 周期全量, 前端按 cutoff 过滤 y1/y3)
-    TRADE_FIELDS = ["signal_date", "buy_date", "sell_date", "etf_code", "etf_name",
+    TRADE_FIELDS = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name",
+                    "track_tier", "track_score", "match_method", "track_low_confidence",
                     "buy_price", "sell_price", "shares", "profit", "return_pct",
                     "hold_days", "sell_reason"]
     trades_output = {
