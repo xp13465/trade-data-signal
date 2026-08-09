@@ -7901,7 +7901,7 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
       `</tr>`;
   }
   const wm = _sigKellyWatermark(pdata);
-  // 卡间比较水印(左上角): 蓝星综合最佳 + 紫菱最稳定, 不撞现有右上角三态水印
+  // 卡间比较水印(标题行右侧): 蓝星综合最佳 + 紫菱最稳定, 不撞现有右上角三态水印
   let cwmHtml = "";
   if (cardCmp && (cardCmp.isBest || cardCmp.isStable)) {
     let badges = "";
@@ -7911,10 +7911,9 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
   }
   return (
     `<div class="lab-sigkelly-card">` +
-      cwmHtml +
       (wm ? `<div class="lab-sigkelly-wm lab-sigkelly-wm-${wm.kind}" data-wm="1"><span class="lab-sigkelly-wm-badge">${wm.text}</span><div class="lab-sigkelly-wm-pop-wrap" style="display:none">${_sigKellyWmPopupHtml(wm)}</div></div>` : ``) +
       `<div class="lab-sigkelly-card-head">` +
-        `<div class="lab-sigkelly-card-name">${q.label || qk}</div>` +
+        `<div class="lab-sigkelly-card-name"><span>${q.label || qk}</span>` + cwmHtml + `</div>` +
         `<div class="lab-sigkelly-card-desc">${q.desc || ""}` +
         (hasGuide
           ? ` <span class="lab-sigkelly-guide-trigger" data-guide="1">卖出模式说明❓` +

@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a86';  // bump a85->a86: 费率客调预设档改为快捷输入填入表单(表单始终显示+onchange重算)
+const CACHE_VERSION = 'v6-20260809-a87';  // bump a86->a87: 卡间比较水印(cwm)从absolute左上角移到card-name标题行右侧flex,不再撞标题
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

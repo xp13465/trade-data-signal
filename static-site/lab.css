@@ -1447,14 +1447,14 @@
 [data-theme="dark"] .lab-sigkelly-wm-aux-good, [data-theme="redgold"] .lab-sigkelly-wm-aux-good { color: #95de64; }
 @media (max-width: 760px) { .lab-sigkelly-wm { font-size: 10px; padding: 1px 6px; top: 4px; right: 6px; } }
 
-/* 卡间比较水印(左上角, 蓝/紫色系, 不撞现有右上角金/橙/灰三态) */
-.lab-sigkelly-cwm { position: absolute; top: 6px; left: 8px; z-index: 2; pointer-events: auto; cursor: help; display: flex; gap: 4px; }
+/* 卡间比较水印(标题行右侧, 蓝/紫色系, 不撞现有右上角金/橙/灰三态) */
+.lab-sigkelly-cwm { position: relative; z-index: 2; pointer-events: auto; cursor: help; display: flex; gap: 4px; flex-shrink: 0; margin-left: auto; }
 .lab-sigkelly-cwm-badge { opacity: 0.9; padding: 2px 7px; border-radius: 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; line-height: 1.3; white-space: nowrap; }
 .lab-sigkelly-cwm-best { background: rgba(29,78,216,0.14); color: #1d4ed8; border: 1px solid rgba(29,78,216,0.4); }
 .lab-sigkelly-cwm-stable { background: rgba(124,58,237,0.14); color: #7c3aed; border: 1px solid rgba(124,58,237,0.4); }
 [data-theme="dark"] .lab-sigkelly-cwm-best, [data-theme="redgold"] .lab-sigkelly-cwm-best { color: #7da8ff; background: rgba(59,130,246,0.18); border-color: rgba(59,130,246,0.45); }
 [data-theme="dark"] .lab-sigkelly-cwm-stable, [data-theme="redgold"] .lab-sigkelly-cwm-stable { color: #b899ff; background: rgba(139,92,246,0.18); border-color: rgba(139,92,246,0.45); }
-@media (max-width: 760px) { .lab-sigkelly-cwm { top: 4px; left: 6px; } .lab-sigkelly-cwm-badge { font-size: 10px; padding: 1px 6px; } }
+@media (max-width: 760px) { .lab-sigkelly-cwm-badge { font-size: 10px; padding: 1px 6px; } .lab-sigkelly-card-name { padding-right: 32px; } }
 
 /* 组比较水印 hoverpop */
 .lab-sigkelly-wm-pop-wrap { position: absolute; z-index: 50; left: 0; top: 100%; margin-top: 4px; display: none; }
@@ -1480,7 +1480,7 @@
 [data-theme="dark"] .lab-sigkelly-wm-cmp-hi, [data-theme="redgold"] .lab-sigkelly-wm-cmp-hi { background: rgba(240,185,11,0.14); }
 @media (max-width: 760px) { .lab-sigkelly-wm-pop { width: min(248px, calc(100vw - 16px)); font-size: 10.5px; padding: 7px 9px; } }
 .lab-sigkelly-card-head { margin-bottom: 8px; }
-.lab-sigkelly-card-name { font-size: 14px; font-weight: 700; color: var(--text-1); }
+.lab-sigkelly-card-name { font-size: 14px; font-weight: 700; color: var(--text-1); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 48px; }
 .lab-sigkelly-card-desc { font-size: 11px; color: var(--text-3); margin-top: 2px; }
 .lab-sigkelly-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .lab-sigkelly-table th, .lab-sigkelly-table td { padding: 5px 6px; text-align: center; border-bottom: 1px solid var(--border); white-space: nowrap; }
