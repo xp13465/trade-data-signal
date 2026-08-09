@@ -280,7 +280,7 @@ def _calendar_days(d1, d2):
 def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, stop_profit,
                   index_id=None, signal=None, track_tier=None, track_score=None,
                   match_method=None, track_low_confidence=None, today=None, hold_days=HOLD_DAYS,
-                  market_state=None):
+                  market_state=None, rating=None):
     """单笔信号回测: 信号日买入 1000 元, 持有期内止盈或满 hold_days 卖出。
 
     prices: 该 ETF 的 {date: accum_nav} 字典(已由调用方从 price_map 取出)。
@@ -290,7 +290,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
     返回 dict {signal_date, index_id, signal, buy_date, sell_date, etf_code, etf_name,
               track_tier, track_score, match_method, track_low_confidence,
               buy_price, sell_price, shares, profit, return_pct, hold_days, sell_reason,
-              current_price, market_state}
+              current_price, market_state, rating}
     或 None(信号日无价格/买入失败/持仓中无当前价)。
 
     持仓中trade: 信号日后不足 hold_days 个交易日时, 不丢弃, 按当前价预估盈亏
@@ -356,6 +356,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
             "sell_reason": "持有中",
             "current_price": round(current_nav, 6),
             "market_state": market_state,
+            "rating": rating,
         }
 
     # 模式 A/E/F: 最后一天卖出(不止盈); 模式 B/C/D: 逐日检查止盈
@@ -398,6 +399,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
         "sell_reason": sell_reason,
         "current_price": 0,
         "market_state": market_state,
+        "rating": rating,
     }
 
 
@@ -753,7 +755,7 @@ def compute():
             result = _backtest_one(date, prices, sdates, etf_code, be["name"], mode_def["stop_profit"],
                                    iid, sig, be.get("track_tier"), be.get("track_score"),
                                    be.get("match_method"), be.get("track_low_confidence"),
-                                   today=today_str, hold_days=mode_def["hold_days"], market_state=ms)
+                                   today=today_str, hold_days=mode_def["hold_days"], market_state=ms, rating=rating)
             if result is None:
                 continue  # 数据不足(信号日无价格/未来不足 hold_days 天)
             any_valid = True
@@ -805,7 +807,7 @@ def compute():
     TRADE_FIELDS = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name",
                     "track_tier", "track_score", "match_method", "track_low_confidence",
                     "buy_price", "sell_price", "shares", "profit", "return_pct",
-                    "hold_days", "sell_reason", "current_price", "market_state"]
+                    "hold_days", "sell_reason", "current_price", "market_state", "rating"]
     trades_output = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "buy_amount": BUY_AMOUNT,
