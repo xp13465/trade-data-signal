@@ -904,6 +904,10 @@
   gap: 0;
   margin-bottom: 12px;
   border-bottom: 2px solid var(--border);
+  position: sticky;   /* 吸顶第2层：叠加在顶部 tab 栏(.tabs)下方 */
+  top: var(--tab-h, 41px);
+  z-index: 45;
+  background: var(--bg-card);
 }
 .lab-subnav-tab {
   padding: 8px 18px;
@@ -931,6 +935,10 @@
   margin-top: -6px;
   padding-left: 16px;
   border-bottom: 1px solid var(--border);
+  position: sticky;   /* 吸顶第3层：叠加在 tab 栏 + 二级 nav 下方 */
+  top: calc(var(--tab-h, 41px) + var(--lab-subnav-h, 40px));
+  z-index: 44;
+  background: var(--bg-card);
 }
 .lab-subnav-child .lab-subnav-tab {
   padding: 6px 14px;
@@ -1404,13 +1412,13 @@
 
 /* === 信号凯利回测 (sigkelly): 6象限 x 4模式 x 3周期 === */
 .lab-sigkelly-wrap { display: flex; flex-direction: column; gap: 12px; }
-.lab-sigkelly-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.lab-sigkelly-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; position: sticky; top: calc(var(--tab-h, 41px) + var(--lab-subnav-h, 40px) + var(--lab-subnav-child-h, 40px)); z-index: 43; background: var(--bg-card); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
 .lab-sigkelly-periods { display: flex; gap: 4px; flex-wrap: wrap; }
 .lab-sigkelly-params { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--text-3); align-items: center; }
 .lab-sigkelly-gen { color: var(--text-4); font-size: 11px; }
 .lab-sigkelly-group { margin-bottom: 14px; }
 .lab-sigkelly-group-title { font-size: 14px; font-weight: 700; color: var(--text-1); margin: 6px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
-.lab-sigkelly-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 850px), 1fr)); gap: 12px; }
+.lab-sigkelly-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 700px), 1fr)); gap: 12px; }
 .lab-sigkelly-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; min-width: 0; }
 .lab-sigkelly-card-head { margin-bottom: 8px; }
 .lab-sigkelly-card-name { font-size: 14px; font-weight: 700; color: var(--text-1); }

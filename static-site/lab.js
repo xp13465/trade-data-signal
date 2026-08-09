@@ -3576,6 +3576,26 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// 量策略实验室 2/3 级 nav 实际高度写 CSS 变量 --lab-subnav-h / --lab-subnav-child-h（兜底 40px），
+// 供 .lab-subnav-child / .lab-sigkelly-bar sticky top 层层叠加用（--tab-h 由 app.js initStickyOffset 量）。
+let _labStickyResizeBound = false;
+function labStickyOffset() {
+  const set = () => {
+    const subnav = document.querySelector('.lab-subnav');
+    if (subnav) document.documentElement.style.setProperty('--lab-subnav-h', subnav.offsetHeight + 'px');
+    const child = document.querySelector('.lab-subnav-child');
+    if (child) document.documentElement.style.setProperty('--lab-subnav-child-h', child.offsetHeight + 'px');
+  };
+  set();
+  // DOM 刚 append，下一帧再量一次兜底（字体/布局异步未定形时首测可能偏）
+  requestAnimationFrame(set);
+  if (!_labStickyResizeBound) {
+    _labStickyResizeBound = true;
+    window.addEventListener('resize', set);
+    window.addEventListener('load', set);
+  }
+}
+
 // 渲染策略实验主入口（分区tab + 卡片列表 / 详情页）
 // === 二级导航（单一信号实验 / 融合信号实验）===
 function _renderLabSubNav() {
@@ -3668,6 +3688,8 @@ function _renderLabSubNav() {
     });
     content.appendChild(childNav);
   }
+  // 2/3 级 nav 已渲染（含 sigkelly 所在的 custom 父 tab 三级子 nav），量高度写 CSS 变量供 sticky top 叠加
+  labStickyOffset();
 }
 
 // === 融合信号列表页（阶段一：仅展示元数据，不跑回测）===

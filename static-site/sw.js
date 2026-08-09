@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a72';  // bump a71->a72: 凯利卡片grid minmax 380->850(1440屏1列不挤)
+const CACHE_VERSION = 'v6-20260809-a73';  // bump a72->a73: 策略实验室3层tab吸顶修复+第4层凯利时间窗口吸顶+凯利卡片grid 850->700+移除body overflow-x恢复全站sticky
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

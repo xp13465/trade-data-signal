@@ -123,7 +123,6 @@
 html { scrollbar-gutter: stable; overflow-x: hidden; }
 body {
   margin: 0;
-  overflow-x: hidden;
   font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
   background: var(--bg-page);
   color: var(--text-1);
@@ -215,11 +214,14 @@ header h1 { font-size: 18px; margin: 0; }
   z-index: 50;
   box-shadow: 0 1px 3px var(--shadow);
 }
-/* 关闭导航吸顶：tab 栏 / 二级 tab 栏 / 规则条 / 行业锚点条回归文档流（方便截图） */
+/* 关闭导航吸顶：tab 栏 / 二级 tab 栏 / 规则条 / 行业锚点条 / 策略实验室2-3级子nav 回归文档流（方便截图） */
 .nav-no-sticky .tabs,
 .nav-no-sticky .subtab-bar,
 .nav-no-sticky .rule-bar,
-.nav-no-sticky .industry-anchor-bar { position: static; }
+.nav-no-sticky .industry-anchor-bar,
+.nav-no-sticky .lab-subnav,
+.nav-no-sticky .lab-subnav-child,
+.nav-no-sticky .lab-sigkelly-bar { position: static; }
 .tabs > button {   /* 仅直接子（tab 按钮），不影响 .periods 内的周期按钮 */
   padding: 10px 18px;
   border: none;
@@ -3268,7 +3270,7 @@ main { padding: 16px 24px; }
   .h5-topbar { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 8px; }
   .h5-topbar-left { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; overflow: hidden; }
   .h5-tab-name { font-size: 15px; font-weight: 600; color: var(--text-1); white-space: nowrap; }
-  .h5-meta { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .h5-meta { display: flex; align-items: center; gap: 4px; flex-shrink: 0; min-width: 0; overflow: hidden; }
   .pc-collect-time { display: none; }
   .h5-collect-time { display: inline; font-size: 10px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
