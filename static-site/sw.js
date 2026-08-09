@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a62';  // bump a61->a62: 信号文案前缀"点信号"->"的信号"(用户纠正)
+const CACHE_VERSION = 'v6-20260809-a63';  // bump a62->a63: 凯利回测卡片改宽表(合并主+进阶表)+最大持仓显笔数+资金,移除对比矩阵视图
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
