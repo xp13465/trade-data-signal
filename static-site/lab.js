@@ -7282,6 +7282,27 @@ async function _kellyOnFeeChange(presetKey) {
   _renderSigKellyQuadrants(host, state.labSigKellyData, state.labSigKellyPeriod);
 }
 
+// 费率输入框 change: 读取表单值重算(不重渲染 bar, 保留输入焦点)
+async function _kellyOnFormChange() {
+  state.labSigKellyFeePreset = "custom";
+  state.labSigKellyFeeParams = _kellyReadCustomParams();
+  var bar = document.querySelector(".lab-sigkelly-bar");
+  var host = document.querySelector(".lab-sigkelly-host");
+  if (!bar || !host || !state.labSigKellyData) return;
+  // 更新预设按钮 active 状态(仅切换 class, 不重渲染 bar 保留输入焦点)
+  bar.querySelectorAll(".lab-sigkelly-fee-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.fee === "custom");
+  });
+  host.innerHTML = '<div class="lab-custom-loading">⏳ 加载交易数据重算费率…</div>';
+  var stats = await _kellyApplyFeeRecompute(state.labSigKellyFeeParams);
+  if (stats) {
+    state.labSigKellyFeeStats = stats;
+  } else {
+    state.labSigKellyFeeStats = null;
+  }
+  _renderSigKellyQuadrants(host, state.labSigKellyData, state.labSigKellyPeriod);
+}
+
 // 读取自定义费率输入框值
 function _kellyReadCustomParams() {
   var bar = document.querySelector(".lab-sigkelly-bar");
@@ -7412,24 +7433,20 @@ function _renderSigKellyBar(bar, data, period) {
     const title = p.desc || "";
     return `<button type="button" class="lab-sigkelly-fee-btn${active}" data-fee="${p.key}" title="${title}">${p.shortcut}:${p.label}</button>`;
   }).join("");
-  // 自定义输入区(仅 custom 档显示)
-  const isCustom = curFee === "custom";
+  // 费率输入区(始终显示: 预设档=快捷填入表单, 自定义档=手输任意值)
   const fp = state.labSigKellyFeeParams || {};
   const commVal = fp.commission_rate != null ? (fp.commission_rate * 10000).toString() : "3";
   const minVal = fp.min_commission != null ? fp.min_commission.toString() : "5";
   const slipVal = fp.slippage != null ? (fp.slippage * 1000).toString() : "1";
   const transferVal = fp.transfer_fee_rate_sh != null ? (fp.transfer_fee_rate_sh * 10000).toString() : "0.1";
   const stampVal = fp.stamp_duty_rate != null ? (fp.stamp_duty_rate * 10000).toString() : "0";
-  const customHTML = isCustom
-    ? `<div class="lab-sigkelly-fee-custom">` +
-        `<label>佣金:<input type="number" class="lab-input lab-sigkelly-fee-input-comm" value="${commVal}" step="0.01" min="0" style="width:48px">万</label>` +
-        `<label>最低:<input type="number" class="lab-input lab-sigkelly-fee-input-min" value="${minVal}" step="0.1" min="0" style="width:42px">元</label>` +
-        `<label>滑点:<input type="number" class="lab-input lab-sigkelly-fee-input-slip" value="${slipVal}" step="0.1" min="0" style="width:42px">千</label>` +
-        `<label>过户费:<input type="number" class="lab-input lab-sigkelly-fee-input-transfer" value="${transferVal}" step="0.01" min="0" style="width:42px">万(沪)</label>` +
-        `<label>印花税:<input type="number" class="lab-input lab-sigkelly-fee-input-stamp" value="${stampVal}" step="0.01" min="0" style="width:42px">万(卖)</label>` +
-        `<button type="button" class="lab-sigkelly-fee-apply">应用</button>` +
-      `</div>`
-    : "";
+  const customHTML = `<div class="lab-sigkelly-fee-custom">` +
+      `<label>佣金:<input type="number" class="lab-input lab-sigkelly-fee-input-comm" value="${commVal}" step="0.01" min="0" style="width:48px">万</label>` +
+      `<label>最低:<input type="number" class="lab-input lab-sigkelly-fee-input-min" value="${minVal}" step="0.1" min="0" style="width:42px">元</label>` +
+      `<label>滑点:<input type="number" class="lab-input lab-sigkelly-fee-input-slip" value="${slipVal}" step="0.1" min="0" style="width:42px">千</label>` +
+      `<label>过户费:<input type="number" class="lab-input lab-sigkelly-fee-input-transfer" value="${transferVal}" step="0.01" min="0" style="width:42px">万(沪)</label>` +
+      `<label>印花税:<input type="number" class="lab-input lab-sigkelly-fee-input-stamp" value="${stampVal}" step="0.01" min="0" style="width:42px">万(卖)</label>` +
+    `</div>`;
   bar.innerHTML =
     `<div class="lab-sigkelly-periods">${tabsHTML}</div>` +
     `<div class="lab-sigkelly-params">` +
@@ -7457,11 +7474,10 @@ function _renderSigKellyBar(bar, data, period) {
   bar.querySelectorAll(".lab-sigkelly-fee-btn").forEach((btn) => {
     btn.onclick = () => { _kellyOnFeeChange(btn.dataset.fee); };
   });
-  // 自定义应用按钮
-  const applyBtn = bar.querySelector(".lab-sigkelly-fee-apply");
-  if (applyBtn) {
-    applyBtn.onclick = () => { _kellyOnFeeChange("custom"); };
-  }
+  // 费率输入框 change -> 读取表单值重算(切自定义档, 不重渲染 bar 保留输入焦点)
+  bar.querySelectorAll(".lab-sigkelly-fee-custom input").forEach((inp) => {
+    inp.onchange = () => { _kellyOnFormChange(); };
+  });
 }
 
 // 16象限卡片网格(4组: 评级3 + ETF4 + 信号类型4 + 指数大类5)
