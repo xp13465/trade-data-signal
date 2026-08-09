@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a83';  // bump a82->a83: 凯利回测费率客调(6档预设+快捷键0-4+C+方案A前端重算)
+const CACHE_VERSION = 'v6-20260809-a84';  // bump a83->a84: 费率消耗列(总费率消耗+每笔费率消耗,随档切换实时更新)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

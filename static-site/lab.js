@@ -7025,7 +7025,11 @@ function _kellyRecomputeTrade(tradeArr, fIdx, feeParams, buyAmount) {
   var netNew = sellAmountNew - commSell - transferFeeSell - stampDuty;
   var profitNew = netNew - buyAmount;
   var returnPctNew = profitNew / buyAmount * 100;
-  return { profit: Math.round(profitNew * 10000) / 10000, return_pct: Math.round(returnPctNew * 10000) / 10000 };
+  // 费率消耗 = 毛收益(0%费率) - 含费收益(精确关系: 含费profit = 毛profit - 费率消耗)
+  var shares0 = buyAmount / closeBuy;
+  var profit0 = shares0 * closeSell - buyAmount;
+  var feeCost = profit0 - profitNew;
+  return { profit: Math.round(profitNew * 10000) / 10000, return_pct: Math.round(returnPctNew * 10000) / 10000, fee_cost: Math.round(feeCost * 10000) / 10000 };
 }
 
 // 凯利公式(复用 signal_kelly_backtest.py _compute_kelly)
@@ -7115,7 +7119,7 @@ function _kellyComputeStats(trades, periodKey, buyAmount) {
       max_single_win: 0, max_single_loss: 0, win_streak_max: 0, lose_streak_max: 0,
       total_invest: 0, total_profit: 0, total_return_pct: 0, max_concurrent: 0, max_concurrent_capital: 0,
       return_pct_max_holding: 0, annualized_return: 0, sharpe: 0, max_drawdown: 0, max_drawdown_pct: 0, calmar: 0,
-      holding_count: 0, holding_capital: 0 };
+      holding_count: 0, holding_capital: 0, total_fee_cost: 0 };
   }
   var wins = [], losses = [];
   for (var i = 0; i < trades.length; i++) {
@@ -7177,6 +7181,7 @@ function _kellyComputeStats(trades, periodKey, buyAmount) {
     annualized_return: annualized, sharpe: sharpe,
     max_drawdown: dd.abs, max_drawdown_pct: dd.pct, calmar: calmar,
     holding_count: holdingCount, holding_capital: holdingCapital,
+    total_fee_cost: Math.round(trades.reduce(function (s, t) { return s + (t.fee_cost || 0); }, 0) * 10000) / 10000,
   };
 }
 
@@ -7227,7 +7232,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
           : rawTrades.slice();
         var recomputed = trades.map(function (t) {
           var r = _kellyRecomputeTrade(t, fIdx, feeParams, buyAmount);
-          return { profit: r.profit, return_pct: r.return_pct,
+          return { profit: r.profit, return_pct: r.return_pct, fee_cost: r.fee_cost,
                    buy_date: t[fIdx.buy_date] || "", sell_date: t[fIdx.sell_date] || "",
                    hold_days: t[fIdx.hold_days] || 0 };
         });
@@ -7258,26 +7263,23 @@ async function _kellyOnFeeChange(presetKey) {
   var bar = document.querySelector(".lab-sigkelly-bar");
   var host = document.querySelector(".lab-sigkelly-host");
   if (!bar || !host || !state.labSigKellyData) return;
-  if (presetKey === "etf_def") {
-    state.labSigKellyFeeStats = null;
-    _renderSigKellyBar(bar, state.labSigKellyData, state.labSigKellyPeriod);
-    _renderSigKellyQuadrants(host, state.labSigKellyData, state.labSigKellyPeriod);
+  // 始终重算(含默认档)以获取费率消耗列
+  host.innerHTML = '<div class="lab-custom-loading">⏳ 加载交易数据重算费率…</div>';
+  _renderSigKellyBar(bar, state.labSigKellyData, state.labSigKellyPeriod);
+  var stats = await _kellyApplyFeeRecompute(state.labSigKellyFeeParams);
+  if (stats) {
+    state.labSigKellyFeeStats = stats;
   } else {
-    host.innerHTML = '<div class="lab-custom-loading">⏳ 加载交易数据重算费率…</div>';
-    _renderSigKellyBar(bar, state.labSigKellyData, state.labSigKellyPeriod);
-    var stats = await _kellyApplyFeeRecompute(state.labSigKellyFeeParams);
-    if (stats) {
-      state.labSigKellyFeeStats = stats;
-    } else {
-      state.labSigKellyFeePreset = "etf_def";
-      state.labSigKellyFeeParams = {
-        commission_rate: 0.0003, min_commission: 5, slippage: 0.001,
-        transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0,
-      };
-    }
-    _renderSigKellyBar(bar, state.labSigKellyData, state.labSigKellyPeriod);
-    _renderSigKellyQuadrants(host, state.labSigKellyData, state.labSigKellyPeriod);
+    // 加载失败: 回退原始stats(无费率消耗列)
+    state.labSigKellyFeePreset = "etf_def";
+    state.labSigKellyFeeParams = {
+      commission_rate: 0.0003, min_commission: 5, slippage: 0.001,
+      transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0,
+    };
+    state.labSigKellyFeeStats = null;
   }
+  _renderSigKellyBar(bar, state.labSigKellyData, state.labSigKellyPeriod);
+  _renderSigKellyQuadrants(host, state.labSigKellyData, state.labSigKellyPeriod);
 }
 
 // 读取自定义费率输入框值
@@ -7376,6 +7378,8 @@ async function renderSigKellyLab() {
 
   _renderSigKellyBar(bar, data, period);
   _renderSigKellyQuadrants(host, data, period);
+  // 触发初始重算(加载trades.json获取费率消耗列)
+  _kellyOnFeeChange(state.labSigKellyFeePreset);
 }
 
 // 从 state.labSigKellyData.config.sell_modes 动态获取卖出模式标签(去硬编码 ABCD)
@@ -7697,7 +7701,7 @@ function _renderSigKellyCard(qk, q, period) {
   for (const m of modes) {
     const r = pdata[m];
     if (!r) {
-      rows += `<tr><td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span></td><td colspan="13" class="lab-sigkelly-empty">无数据</td></tr>`;
+      rows += `<tr><td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span></td><td colspan="14" class="lab-sigkelly-empty">无数据</td></tr>`;
       continue;
     }
     const hk = (r.half_kelly == null) ? 0 : r.half_kelly;
@@ -7712,6 +7716,9 @@ function _renderSigKellyCard(qk, q, period) {
     // 进阶指标(原 details 折叠表,现合并进主表)
     const tp = r.total_profit || 0;
     const tpStr = (tp >= 0 ? "+" : "") + tp.toFixed(0);
+    // 费率消耗(总): 该象限x周期x模式下所有笔费率消耗求和,随费率档切换实时更新
+    const fc = r.total_fee_cost;
+    const fcStr = (fc != null) ? "-" + fc.toFixed(0) : "-";
     // 最大持仓收益率 = 最终盈亏 / 峰值占用资金
     const rmhVal = r.return_pct_max_holding;
     const rmh = rmhVal != null ? rmhVal.toFixed(2) + "%" : "-";
@@ -7733,6 +7740,7 @@ function _renderSigKellyCard(qk, q, period) {
         `<td class="lab-sigkelly-hk"><span class="lab-kelly-tier ${tierCls}">${hk.toFixed(1)}%</span><span class="lab-sigkelly-tier">${tier}</span></td>` +
         `<td>${wr}</td><td>${plStr}</td><td>${mr}</td><td>${nStr}</td>` +
         `<td class="${tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${tpStr}</td>` +
+        `<td class="lab-sigkelly-neg lab-sigkelly-fee">${fcStr}</td>` +
         `<td class="lab-sigkelly-rmh ${rmhVal == null ? "" : (rmhVal >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg")}">${rmh}</td><td class="lab-sigkelly-mc">${mcStr}</td><td class="lab-sigkelly-holding">${hcStr}</td><td>${ann}</td>` +
         `<td>${sh}</td><td>${md}</td><td>${cm}</td>` +
       `</tr>`;
@@ -7757,7 +7765,7 @@ function _renderSigKellyCard(qk, q, period) {
       `</div>` +
       `<div class="lab-sigkelly-table-scroll">` +
       `<table class="lab-sigkelly-table lab-sigkelly-wide-table">` +
-        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th><th>最终盈亏</th><th>最大持仓<br>（动用资金）<br>收益率</th><th>最大持仓</th><th>持仓中</th><th>年化</th><th>夏普</th><th>最大回撤</th><th>卡尔玛</th></tr></thead>` +
+        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th><th>最终盈亏</th><th>费率消耗</th><th>最大持仓<br>（动用资金）<br>收益率</th><th>最大持仓</th><th>持仓中</th><th>年化</th><th>夏普</th><th>最大回撤</th><th>卡尔玛</th></tr></thead>` +
         `<tbody>${rows}</tbody>` +
       `</table>` +
       `</div>` +
@@ -7817,23 +7825,26 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
     ? rawTrades.filter((t) => t[fields.indexOf("buy_date")] >= cutoff)
     : rawTrades.slice();
 
-  // 费率客调: 非默认档时重算每笔 trade 的 profit/return_pct
-  if (state.labSigKellyFeePreset && state.labSigKellyFeePreset !== "etf_def" && state.labSigKellyFeeParams) {
+  // 始终重算(含默认档)以获取费率消耗: 重算 profit/return_pct/fee_cost
+  {
     const _fIdx = {};
     fields.forEach((f, i) => { _fIdx[f] = i; });
     const _buyAmount = td.buy_amount || (cfg.buy_amount) || 10000;
+    const feeParams = state.labSigKellyFeeParams || { commission_rate: 0.0003, min_commission: 5, slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0 };
     trades = trades.map((t) => {
-      const r = _kellyRecomputeTrade(t, _fIdx, state.labSigKellyFeeParams, _buyAmount);
+      const r = _kellyRecomputeTrade(t, _fIdx, feeParams, _buyAmount);
       const newT = t.slice();
       newT[_fIdx.profit] = r.profit;
       newT[_fIdx.return_pct] = r.return_pct;
+      newT.push(r.fee_cost); // fee_cost 作为额外元素追加到数组末尾
       return newT;
     });
   }
+  var extFields = fields.concat(["fee_cost"]);
 
   // 渲染 modal(新开弹窗重置到第 1 页)
   state._sigKellyTradePage = 1;
-  _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabel, period, quadKey, modeKey);
+  _renderSigKellyTradesModal(overlay, trades, extFields, quadLabel, modeLabel, period, quadKey, modeKey);
 }
 
 function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabel, period, quadKey, modeKey) {
@@ -7858,6 +7869,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     { key: "shares", label: "份额", sortable: true },
     { key: "profit", label: "盈亏(元)", sortable: true },
     { key: "return_pct", label: "收益率", sortable: true },
+    { key: "fee_cost", label: "费率消耗", sortable: true },
     { key: "hold_days", label: "持有天", sortable: true },
     { key: "sell_reason", label: "卖出原因", sortable: true },
   ];
@@ -7890,6 +7902,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     const filtered = _applyFilter();
     const winCount = trades.filter((t) => t[fIdx.profit] > 0).length;
     const totalProfit = trades.reduce((s, t) => s + (t[fIdx.profit] || 0), 0);
+    const totalFeeCost = trades.reduce((s, t) => s + (t[fIdx.fee_cost] || 0), 0);
     const holdingCount = trades.filter((t) => !t[fIdx.sell_date]).length;
 
     let thHTML = colDefs.map((c) => {
@@ -7908,7 +7921,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
 
     let tbodyHTML = "";
     if (pageRows.length === 0) {
-      tbodyHTML = `<tr><td colspan="13" class="lab-sigkelly-trades-more">无符合条件的交易记录</td></tr>`;
+      tbodyHTML = `<tr><td colspan="14" class="lab-sigkelly-trades-more">无符合条件的交易记录</td></tr>`;
     } else {
       for (const t of pageRows) {
         const pf = t[fIdx.profit] || 0;
@@ -7957,6 +7970,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
           `<td>${(+t[fIdx.buy_price]).toFixed(4)}</td>${sellPriceCell}` +
           `<td>${(+t[fIdx.shares]).toFixed(2)}</td>` +
           profitCell + returnCell +
+          `<td class="lab-sigkelly-neg lab-sigkelly-fee">${(t[fIdx.fee_cost] != null ? "-" + (+t[fIdx.fee_cost]).toFixed(2) : "-")}</td>` +
           `<td>${t[fIdx.hold_days]}</td>${reasonCell}` +
         `</tr>`;
       }
@@ -7974,6 +7988,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
           `<span>盈利 ${winCount} / 亏损 ${trades.length - winCount}</span>` +
           `<span>胜率 ${trades.length ? (winCount / trades.length * 100).toFixed(1) : 0}%</span>` +
           `<span>总盈亏 ${(totalProfit >= 0 ? "+" : "") + totalProfit.toFixed(0)} 元</span>` +
+          `<span class="lab-sigkelly-neg">费率消耗 -${totalFeeCost.toFixed(0)} 元</span>` +
           (holdingCount > 0 ? `<span class="lab-sigkelly-holding-stat">含 ${holdingCount} 笔预估</span>` : "") +
         `</div>` +
         `<div class="lab-sigkelly-modal-filters">` +
