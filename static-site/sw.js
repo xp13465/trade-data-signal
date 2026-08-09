@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a71';  // bump a70->a71: 凯利回测持仓中trade(预估盈亏计入统计+持仓中列+持仓中行渲染)
+const CACHE_VERSION = 'v6-20260809-a72';  // bump a71->a72: 凯利卡片grid minmax 380->850(1440屏1列不挤)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
