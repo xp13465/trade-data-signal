@@ -410,7 +410,7 @@ def cmd_upload_index():
     intraday_snapshot 盘中会重写本地 index/{iid}-all.json，deploy.sh 调本命令同步 R2。
     """
     idx_dir = STATIC_DIR / "data/index"
-    ok, total, failed_rels, _ = _upload_glob(idx_dir, ["*.json"], "index")
+    ok, total, failed_rels, uploaded_keys = _upload_glob(idx_dir, ["*.json"], "index")
     if total == 0:
         sys.exit(f"无 index json: {idx_dir}")
     if ok != total:
@@ -418,6 +418,10 @@ def cmd_upload_index():
         # 格式: FAILED_FILES: rel1, rel2, ... (rel 是相对 static-site/data/index/ 的路径)
         print(f"FAILED_FILES: {', '.join(failed_rels)}")
         sys.exit(1)
+    # 清 CF 边缘缓存(同 cmd_upload_industry 模式):uploaded_keys 含 "index/" 前缀,
+    # cache_prefix="/r2/" -> "/r2/index/{id}-all.json" 匹配 r2ProxyHandler cacheKey。
+    # 不用 "/r2/index/" 否则双 index 致 purge 无效。
+    purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
 def cmd_upload_industry():
@@ -554,6 +558,7 @@ def cmd_upload_data_large():
         print(f"⚠ 无 >{LARGE_THRESHOLD // 1024}KB 的顶层 .json: {data_dir}")
         return
     ok = 0
+    uploaded_keys = []
     total = len(files)
     for i, f in enumerate(files, 1):
         key = f"data/{f.name}"
@@ -563,12 +568,17 @@ def cmd_upload_data_large():
             status, data = s3_request("PUT", key, payload)
             if status == 200:
                 ok += 1
+                uploaded_keys.append(key)
                 print(f"[{i}/{total}] ✓ {f.name} ({size // 1024}KB)")
             else:
                 print(f"[{i}/{total}] ✗ {f.name} status={status} {data[:200]}")
         except Exception as e:
             print(f"[{i}/{total}] ✗ {f.name} 异常({type(e).__name__}: {e})")
     print(f"共上传 {ok}/{total} -> {PUBLIC}/data/")
+    # 清 CF 边缘缓存(同 cmd_upload_industry 模式):uploaded_keys 含 "data/" 前缀,
+    # cache_prefix="/r2/" -> "/r2/data/{name}" 匹配 r2ProxyHandler cacheKey。
+    # 不用 "/r2/data/" 否则双 data 致 purge 无效。
+    purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
 def purge_cache(r2_keys, cache_prefix="/"):
