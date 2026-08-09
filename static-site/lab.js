@@ -7097,16 +7097,18 @@ function _kellyMaxDrawdown(trades, buyAmount) {
   return { abs: Math.round(maxDdAbs * 10000) / 10000, pct: Math.round(pct * 10000) / 10000 };
 }
 
-// 年化收益率(复用 _annualized_return)
-function _kellyAnnualizedReturn(totalReturnPct, periodKey, trades) {
-  var r = totalReturnPct / 100;
+// 年化收益率(复用 _annualized_return, D修正: 基于峰值资金收益率开方非平均化)
+// r = return_pct_max_holding / 100 (峰值资金收益率=总盈亏/峰值占用资金*100)
+// 负收益 r<=-1 返回0(无法开方)
+function _kellyAnnualizedReturn(returnPctMaxHolding, periodKey, trades) {
+  var r = returnPctMaxHolding / 100;
   if (r <= -1) return 0;
-  if (periodKey === "y1") return Math.round(totalReturnPct * 10000) / 10000;
+  if (periodKey === "y1") return Math.round(returnPctMaxHolding * 10000) / 10000;
   if (periodKey === "y3") return Math.round((Math.pow(1 + r, 1 / 3) - 1) * 100 * 10000) / 10000;
   if (periodKey === "y5") return Math.round((Math.pow(1 + r, 1 / 5) - 1) * 100 * 10000) / 10000;
   if (periodKey === "y10") return Math.round((Math.pow(1 + r, 1 / 10) - 1) * 100 * 10000) / 10000;
   var years = _kellyYearsFromTrades(trades);
-  if (years <= 0) return Math.round(totalReturnPct * 10000) / 10000;
+  if (years <= 0) return Math.round(returnPctMaxHolding * 10000) / 10000;
   return Math.round((Math.pow(1 + r, 1 / years) - 1) * 100 * 10000) / 10000;
 }
 
@@ -7151,7 +7153,7 @@ function _kellyComputeStats(trades, periodKey, buyAmount) {
   var maxConc = _kellyMaxConcurrent(trades);
   var maxConcurrentCapital = maxConc * buyAmount;
   var returnPctMaxHolding = maxConcurrentCapital > 0 ? Math.round(totalProfit / maxConcurrentCapital * 100 * 10000) / 10000 : 0;
-  var annualized = _kellyAnnualizedReturn(totalReturnPct, periodKey, trades);
+  var annualized = _kellyAnnualizedReturn(returnPctMaxHolding, periodKey, trades);
   // 夏普
   var returns = trades.map(function (t) { return t.return_pct; });
   var sharpe = 0;
@@ -7220,6 +7222,8 @@ async function _kellyApplyFeeRecompute(feeParams) {
   var periods = (data.config && data.config.periods) || { y1: "近1年", y3: "近3年", all: "全部" };
   var sellModes = (data.config && data.config.sell_modes) || {};
   var result = {};
+  // 降亏过滤toggle(正交叠加: filter交易集 vs 费率改profit, 独立不互斥)
+  var filters = state.labSigKellyFilters || { excludeAux: false, marketTiming: false };
   for (var qk in quadMeta) {
     result[qk] = {};
     for (var periodKey in periods) {
@@ -7227,9 +7231,13 @@ async function _kellyApplyFeeRecompute(feeParams) {
       result[qk][periodKey] = {};
       for (var modeKey in sellModes) {
         var rawTrades = (quads[qk] || {})[modeKey] || [];
-        var trades = (cutoff && cutoff !== "0")
-          ? rawTrades.filter(function (t) { return (t[fIdx.buy_date] || "") >= cutoff; })
-          : rawTrades.slice();
+        // 过滤: 周期cutoff + 降亏toggle(排除buy_aux + MA60择时)
+        var trades = rawTrades.filter(function (t) {
+          if (cutoff && cutoff !== "0" && (t[fIdx.buy_date] || "") < cutoff) return false;
+          if (filters.excludeAux && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_aux") return false;
+          if (filters.marketTiming && fIdx.market_state != null && t[fIdx.market_state] !== true) return false;
+          return true;
+        });
         var recomputed = trades.map(function (t) {
           var r = _kellyRecomputeTrade(t, fIdx, feeParams, buyAmount);
           return { profit: r.profit, return_pct: r.return_pct, fee_cost: r.fee_cost,
@@ -7320,6 +7328,21 @@ function _kellyReadCustomParams() {
   };
 }
 
+// 降亏过滤toggle切换处理(仿_kellyOnFeeChange, 但不改费率只过滤交易集)
+// toggle改交易集合(filter) vs 费率改profit(recompute), 正交叠加不互斥
+async function _kellyOnFilterChange() {
+  var host = document.querySelector(".lab-sigkelly-host");
+  if (!host || !state.labSigKellyData) return;
+  host.innerHTML = '<div class="lab-custom-loading">⏳ 过滤交易数据重算…</div>';
+  var stats = await _kellyApplyFeeRecompute(state.labSigKellyFeeParams);
+  if (stats) {
+    state.labSigKellyFeeStats = stats;
+  } else {
+    state.labSigKellyFeeStats = null;
+  }
+  _renderSigKellyQuadrants(host, state.labSigKellyData, state.labSigKellyPeriod);
+}
+
 // 当前费率标签
 function _kellyFeeLabel() {
   var preset = KELLY_FEE_PRESETS.find(function (p) { return p.key === state.labSigKellyFeePreset; });
@@ -7396,6 +7419,8 @@ async function renderSigKellyLab() {
     state.labSigKellyFeePreset = "etf_def";
     state.labSigKellyFeeParams = { commission_rate: 0.0003, min_commission: 5, slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0 };
   }
+  // 降亏过滤toggle state(默认关闭, 显示原始全量数据)
+  if (!state.labSigKellyFilters) state.labSigKellyFilters = { excludeAux: false, marketTiming: false };
 
   _renderSigKellyBar(bar, data, period);
   _renderSigKellyQuadrants(host, data, period);
@@ -7447,6 +7472,14 @@ function _renderSigKellyBar(bar, data, period) {
       `<label>过户费:<input type="number" class="lab-input lab-sigkelly-fee-input-transfer" value="${transferVal}" step="0.01" min="0" style="width:42px">万(沪)</label>` +
       `<label>印花税:<input type="number" class="lab-input lab-sigkelly-fee-input-stamp" value="${stampVal}" step="0.01" min="0" style="width:42px">万(卖)</label>` +
     `</div>`;
+  // 降亏过滤toggle(2个独立checkbox可组合, 开启后过滤交易集重算所有指标)
+  const _filters = state.labSigKellyFilters || { excludeAux: false, marketTiming: false };
+  const toggleHTML = `<div class="lab-sigkelly-toggle-row">` +
+      `<span class="lab-sigkelly-toggle-label">降亏过滤:</span>` +
+      `<label class="lab-sigkelly-toggle"><input type="checkbox" class="lab-sigkelly-toggle-aux"${_filters.excludeAux ? " checked" : ""}> 排除辅关注(buy_aux)</label>` +
+      `<label class="lab-sigkelly-toggle"><input type="checkbox" class="lab-sigkelly-toggle-mkt"${_filters.marketTiming ? " checked" : ""}> MA60大盘择时(仅A股类)</label>` +
+      `<span class="lab-sigkelly-toggle-hint">独立/组合开启,实时过滤重算</span>` +
+    `</div>`;
   bar.innerHTML =
     `<div class="lab-sigkelly-periods">${tabsHTML}</div>` +
     `<div class="lab-sigkelly-params">` +
@@ -7458,7 +7491,8 @@ function _renderSigKellyBar(bar, data, period) {
       feeBtnsHTML +
       `<span class="lab-sigkelly-fee-hint">快捷键 0-4+C</span>` +
     `</div>` +
-    customHTML;
+    customHTML +
+    toggleHTML;
   // 周期切换
   bar.querySelectorAll(".lab-sigkelly-period-btn").forEach((btn) => {
     btn.onclick = () => {
@@ -7478,6 +7512,19 @@ function _renderSigKellyBar(bar, data, period) {
   bar.querySelectorAll(".lab-sigkelly-fee-custom input").forEach((inp) => {
     inp.onchange = () => { _kellyOnFormChange(); };
   });
+  // 降亏过滤toggle: 2个独立checkbox, 切换后过滤交易集重算
+  var auxCb = bar.querySelector(".lab-sigkelly-toggle-aux");
+  var mktCb = bar.querySelector(".lab-sigkelly-toggle-mkt");
+  if (auxCb) auxCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = { excludeAux: false, marketTiming: false };
+    state.labSigKellyFilters.excludeAux = auxCb.checked;
+    _kellyOnFilterChange();
+  };
+  if (mktCb) mktCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = { excludeAux: false, marketTiming: false };
+    state.labSigKellyFilters.marketTiming = mktCb.checked;
+    _kellyOnFilterChange();
+  };
 }
 
 // 16象限卡片网格(4组: 评级3 + ETF4 + 信号类型4 + 指数大类5)
@@ -7832,6 +7879,7 @@ function _sigKellyCwmPopupHtml(cmp) {
       `<div class="lab-sigkelly-wm-sec">` +
         `<div class="lab-sigkelly-wm-sub">计算口径</div>` +
         `<div class="lab-sigkelly-wm-li">卡级指标 = 卡内6模式(A-F)均值, 先过滤 n&lt;30 模式防小样本虚高</div>` +
+        `<div class="lab-sigkelly-wm-li">年化 = 峰值资金收益率(总盈亏/峰值持仓资金)开方, 非平均化收益率</div>` +
         `<div class="lab-sigkelly-wm-li">全局 min-max 归一化: 16张卡跨组互比, 每指标归一到 0~1</div>` +
         `<div class="lab-sigkelly-wm-li">越小越好指标(最大回撤)反转归一化</div>` +
         `<div class="lab-sigkelly-wm-li">每周期选综合分最高1张 + 稳定分最高1张, 可同一张卡兼得</div>` +
@@ -7874,7 +7922,7 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
     // 费率消耗(总): 该象限x周期x模式下所有笔费率消耗求和,随费率档切换实时更新
     const fc = r.total_fee_cost;
     const fcStr = (fc != null) ? "-" + fc.toFixed(0) : "-";
-    // 最大持仓收益率 = 最终盈亏 / 峰值占用资金
+    // 峰值资金收益率 = 最终盈亏 / 峰值占用资金 (前移到最终盈亏后面, 突出展示)
     const rmhVal = r.return_pct_max_holding;
     const rmh = rmhVal != null ? rmhVal.toFixed(2) + "%" : "-";
     // 最大持仓: 笔数(max_concurrent) + 资金(max_concurrent_capital),笔数加粗显眼
@@ -7894,9 +7942,10 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
         `<td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span></td>` +
         `<td class="lab-sigkelly-hk"><span class="lab-kelly-tier ${tierCls}">${hk.toFixed(1)}%</span><span class="lab-sigkelly-tier">${tier}</span></td>` +
         `<td>${wr}</td><td>${plStr}</td><td>${mr}</td><td>${nStr}</td>` +
-        `<td class="${tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${tpStr}</td>` +
+        `<td class="lab-sigkelly-tp-hl ${tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${tpStr}元</td>` +
+        `<td class="lab-sigkelly-rmh ${rmhVal == null ? "" : (rmhVal >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg")}" title="=总盈亏/峰值同时持仓资金,随回测周期增长">${rmh}</td>` +
         `<td class="lab-sigkelly-neg lab-sigkelly-fee">${fcStr}</td>` +
-        `<td class="lab-sigkelly-rmh ${rmhVal == null ? "" : (rmhVal >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg")}">${rmh}</td><td class="lab-sigkelly-mc">${mcStr}</td><td class="lab-sigkelly-holding">${hcStr}</td><td>${ann}</td>` +
+        `<td class="lab-sigkelly-mc">${mcStr}</td><td class="lab-sigkelly-holding">${hcStr}</td><td>${ann}</td>` +
         `<td>${sh}</td><td>${md}</td><td>${cm}</td>` +
       `</tr>`;
   }
@@ -7928,7 +7977,7 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
       `</div>` +
       `<div class="lab-sigkelly-table-scroll">` +
       `<table class="lab-sigkelly-table lab-sigkelly-wide-table">` +
-        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th><th>最终盈亏</th><th>费率消耗</th><th>最大持仓<br>（动用资金）<br>收益率</th><th>最大持仓</th><th>持仓中</th><th>年化</th><th>夏普</th><th>最大回撤</th><th>卡尔玛</th></tr></thead>` +
+        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th><th>最终盈亏<br>(元)</th><th title="=总盈亏/峰值同时持仓资金,随回测周期增长">峰值资金<br>收益率</th><th>费率消耗</th><th>最大持仓</th><th>持仓中</th><th>年化</th><th>夏普</th><th>最大回撤</th><th>卡尔玛</th></tr></thead>` +
         `<tbody>${rows}</tbody>` +
       `</table>` +
       `</div>` +
@@ -7982,16 +8031,20 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   const td = state.labSigKellyTradesData;
   const fields = td.fields || ["signal_date", "buy_date", "sell_date", "etf_code", "etf_name", "buy_price", "sell_price", "shares", "profit", "return_pct", "hold_days", "sell_reason"];
   const rawTrades = (td.quadrants || {})[quadKey]?.[modeKey] || [];
+  const _fIdx = {};
+  fields.forEach((f, i) => { _fIdx[f] = i; });
 
-  // 按周期过滤(buy_date >= cutoff)
-  let trades = (cutoff && cutoff !== "0")
-    ? rawTrades.filter((t) => t[fields.indexOf("buy_date")] >= cutoff)
-    : rawTrades.slice();
+  // 按周期 + 降亏toggle过滤(与卡片统计一致, §22数据一致性)
+  var _filters = state.labSigKellyFilters || { excludeAux: false, marketTiming: false };
+  let trades = rawTrades.filter(function (t) {
+    if (cutoff && cutoff !== "0" && (t[_fIdx.buy_date] || "") < cutoff) return false;
+    if (_filters.excludeAux && _fIdx.signal != null && (t[_fIdx.signal] || "") === "buy_aux") return false;
+    if (_filters.marketTiming && _fIdx.market_state != null && t[_fIdx.market_state] !== true) return false;
+    return true;
+  });
 
   // 始终重算(含默认档)以获取费率消耗: 重算 profit/return_pct/fee_cost
   {
-    const _fIdx = {};
-    fields.forEach((f, i) => { _fIdx[f] = i; });
     const _buyAmount = td.buy_amount || (cfg.buy_amount) || 10000;
     const feeParams = state.labSigKellyFeeParams || { commission_rate: 0.0003, min_commission: 5, slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0 };
     trades = trades.map((t) => {

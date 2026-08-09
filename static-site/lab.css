@@ -1428,6 +1428,13 @@
 .lab-sigkelly-fee-apply { font-size: 11px; padding: 2px 10px; border: 1px solid var(--accent, #3b82f6); border-radius: 4px; background: var(--accent, #3b82f6); color: #fff; cursor: pointer; }
 .lab-sigkelly-fee-apply:hover { opacity: 0.85; }
 .lab-sigkelly-fee { font-size: 11px; white-space: nowrap; }
+.lab-sigkelly-tp-hl { font-size: 13px; font-weight: 700; white-space: nowrap; }
+.lab-sigkelly-rmh { white-space: nowrap; }
+.lab-sigkelly-toggle-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; width: 100%; padding: 4px 0; border-top: 1px dashed var(--border); margin-top: 2px; }
+.lab-sigkelly-toggle-label { font-size: 12px; font-weight: 700; color: var(--text-2); white-space: nowrap; }
+.lab-sigkelly-toggle { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--text-3); cursor: pointer; white-space: nowrap; }
+.lab-sigkelly-toggle input { cursor: pointer; }
+.lab-sigkelly-toggle-hint { font-size: 10px; color: var(--text-4); margin-left: 4px; }
 .lab-sigkelly-group { margin-bottom: 14px; }
 .lab-sigkelly-group-title { font-size: 14px; font-weight: 700; color: var(--text-1); margin: 6px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
 .lab-sigkelly-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 700px), 1fr)); gap: 12px; }

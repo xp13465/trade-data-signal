@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a87';  // bump a86->a87: 卡间比较水印(cwm)从absolute左上角移到card-name标题行右侧flex,不再撞标题
+const CACHE_VERSION = 'v6-20260809-a88';  // bump a87->a88: 凯利回测D修正年化(峰值资金收益率开方)+A突出total_profit元+B前移峰值资金收益率+降亏2toggle(排除buy_aux+MA60择时)+§21公示
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
