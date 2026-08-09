@@ -1692,9 +1692,11 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - modal①③
 - smoke C3C13
 
-### 会话状态(2026-08-09,R2审计完成✅+purge-fix✅push feat待reviewer+凯利UI调研中)
-- **R2 P1/P2审计完成**（ae7ba76dcd3f2c093）：3项已修§0确认（P1-1 159335一致/P2-3 headers生效）+4项未修给方案，详见 NOTES §48 小节BB 八。
-- **purge-fix✅上线main**（ea64df512）：分批purge每批30 keys修复CF Worker超时500。reviewer(a1e870e2bcb2bcbb7) PASS（6边界✓+smoke 134/134无500+upload逻辑未破坏），周日13:36周末休市push feat:main fast-forward。
-- **凯利UI调研**（af7efd1871bf5689b）：响应式1列+总投入改最大持仓方案，调研中。
-- **⚠️R2未修项待办**（待用户定优先级，方案见NOTES §48 八）：①P1-2 simulate_trade调度(update_lab.sh插--all+rsync+R2,~20行) ②P2-1 purge分批告警(else分支加notify,~10行,与purge-fix协调) ③P2-2 校验覆盖(check_data_integrity加3函数+check_r2_consistency独立脚本,~140行) ④P1-3/P2-4暂不做。
-- **在跑agent**：kelly-ui-research(af7efd1871bf5689b,cron c0abe43f)。purge-reviewer✅PASS已清cron。
+### 会话状态(2026-08-09,凯利持仓中+CSS grid✅上线main,无在跑agent)
+- **5实施commit✅上线main**（9c8c83e57）：P2-1 purge告警/凯利UI/P1-2 simulate_trade/P2-2校验/最大持仓收益率列。
+- **R2审计✅**：3修确认+4未修方案（P1-2/P2-1/P2-2已上线，P1-3/P2-4暂不做），详见 NOTES §48 八。
+- **凯利弹窗4改动✅上线main**（846bc3f35）：触发信号列+A股配色(赢红亏绿)+ETF关系列+分页50行。
+- **凯利持仓中交易✅上线main**（c6f7ac83c，reviewer a77444c10 PASS 7项+§0验：lab.min.js持仓中/持有中/预估字符串+sw a72+R2 holding_count=8+持仓中trade 32笔 sell_date空 current_price=1.4887+预估profit计入total不隔离 269.89+13087.82==13357.70）：_backtest_one不丢弃不足持仓期trade+预估不隔离计入统计+卡片持仓中列+弹窗持仓中渲染+含N笔预估标注。口径用户定：不隔离+透明标注。
+- **CSS grid 850✅上线main**（6cf19d113，主控A级自改，SendMessage加任务没送达§11不可靠）：L1413 380->850，1440屏1列/1920屏2列/手机1列无横滚条。
+- **reviewer 3轻微观察(非FAIL)**：①hold_days自然日(持仓中)vs交易日(已平仓)有意设计 ②卖价列排序值≠显示值(轻微UX) ③部署时序已push对齐。
+- **在跑agent**：无。

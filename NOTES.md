@@ -8420,3 +8420,32 @@ board_etf_map.json(2b含similarity/max_err/grade/fund_type) -> queries.py etf_fo
   - **P2-2 校验覆盖不足 [P2 工作量中]**：缺 4 项（track_score 三版本一致性 / etf_since_return 存在性 / R2 产物一致性 / trade_sim 时效性）。方案：check_data_integrity.py 加 3 函数（check_trade_sim_indices mtime 滞后 ~15 行 / check_etf_since_return 非null占比>90% ~20 行 / check_track_score_consistency 三处容差 ±1.0 ~30 行 防 159335 类事故）+ check_r2_consistency.py 独立脚本（curl local vs R2 vs CF ~80 行）。~60 行 + ~80 行。
   - **P1-3 基线动态 / P2-4 R2 metadata [暂不做]**：P1-3 百分位 rank 固有特性（候选集变则排名变），固定化 ROI 低，跨文件一致性(P1-1已修)比基线稳定重要；P2-4 Worker 层已设 Cache-Control（P0 no-store+分层 TTL），R2 metadata 仅影响 ssd 直链大文件，锦上添花非必需。
 - **优先级**：P1-2 > P2-1 > P2-2 > P1-3/P2-4 暂不做。
+
+## §48 小节BC：2026-08-09 凯利弹窗4改动+持仓中交易+CSS grid 全上线✅
+
+### 一、凯利弹窗4改动（846bc3f35✅上线main）
+- 触发信号列（最前）+ ETF关系列（代码前，信号灯/档位/跟踪分）+ A股配色（赢红亏绿 pos=#d4380d红 neg=#52c41a绿）+ 分页50行/页
+- 后端 signal_kelly_backtest.py：_backtest_one存index_id/signal + _build_best_etf保留track_score/match_method/track_low_confidence+track_tier，TRADE_FIELDS加6字段
+- reviewer af5c849d8 PASS 6项，§0验 lab.min.js"下一页"+sw a70+R2 trades新6字段有值
+
+### 二、凯利持仓中交易（c6f7ac83c✅上线main，reviewer a77444c10 PASS 7项）
+- **口径（用户定）**：预估盈亏**不隔离**（计入胜率/盈亏比/凯利/total_profit/总收益率/最大持仓收益率）+ 弹窗顶部标注"含N笔预估"透明。用户论据：持仓中trade仅38笔/50692=0.07%数据量小+每天跑刷新，不隔离害处小。
+- **根因**：_backtest_one L196-197 `if len(future_dates) < HOLD_DAYS: return None` 直接丢弃不足10交易日trade（~38笔最近10日）。改为返回持仓中trade（sell_date=""/current_price=当前价/sell_reason="持有中"/hold_days=自然日/预估profit+return_pct用_sell_with_fees算）。
+- **后端**：_compute_stats加holding_count+holding_capital（仅计数不隔离）；_max_concurrent/_max_drawdown哨兵日期处理空sell_date；TRADE_FIELDS加current_price；调用点传today=max(sorted_dates)
+- **前端**：卡片加"持仓中"列；弹窗持仓中trade特殊渲染（持仓中标签/当前价+预估/预估前缀虚线斜体/持有中X天）；统计行"含N笔预估"；持仓中trade排前buy_date降序
+- **§0验数据层**：R2 backtest.json rating_mid all A holding_count=8 total_profit=13357.7043（含预估）；trades.json rating_mid持仓中32笔 sell_date空 current_price=1.4887 profit=67.47；**不隔离验证** 269.89(持仓中)+13087.82(已平仓)==13357.70✓
+- **公示§21**：purpose-notes.js补持仓中说明
+
+### 三、CSS grid 850（6cf19d113✅上线main，主控A级自改）
+- **起因**：用户反馈1440屏凯利卡片仍1行3列太挤，要求min-width 850约束塞不下自动换行
+- **改动**：lab.css L1413 `.lab-sigkelly-grid` grid minmax `min(100%,380px)`->`min(100%,850px)`，auto-fill保留。1440屏1列(850*2=1700>1440)/1920屏2列/手机1列无横滚条
+- **教训**：SendMessage给持仓中agent加CSS任务没送达（§11 SendMessage~1.9%不可靠），agent没改L1413仍380。主控§0发现后A级自改+重新build+sw a72。**防重犯：A级小改动不放SendMessage补充，要么放初始prompt要么主控自做**
+
+### 四、reviewer 3轻微观察（非FAIL）
+1. hold_days单位不一致：持仓中自然日（用户要"持有X天"好理解）vs已平仓交易日，有意设计
+2. 卖价列排序值≠显示值：持仓中trade卖价列显示"当前价+预估"排序用current_price，轻微UX可后续优化
+3. 部署时序：数据R2先上代码CF后push，已push对齐
+
+### 五、上线commit链（2026-08-09）
+- 846bc3f35 凯利弹窗4改动 / c6f7ac83c 凯利持仓中交易 / 6cf19d113 CSS grid 850
+- 全部reviewer PASS + §0验功能生效层（lab.min.js字符串+lab.min.css 850+sw a72+R2数据层）+ CF主站确认
