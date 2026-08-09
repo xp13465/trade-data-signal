@@ -2213,13 +2213,13 @@ function _etfLightHelpHTML() {
   var b2 = _blk('跟踪分 track_score',
     '<p>基于<b>日收益率序列</b>的5维度加权评分(0-100),捕捉全路径偏离(弥补相似度只看起点终点的缺陷):</p>'
     + _ul
-    + '<li><b>TE 跟踪误差</b> 30% - std(日收益差)×√252×100,越低越好</li>'
-    + '<li><b>R² 决定系数</b> 25% - corr(ETF,指数)²,越高越好</li>'
+    + '<li><b>TE 跟踪误差</b> 直接30%/间接36% - std(日收益差)×√252×100,越低越好</li>'
+    + '<li><b>R² 决定系数</b> 直接25%/间接34% - corr(ETF,指数)²,越高越好</li>'
     + '<li><b>avg_dev 平均偏离</b> 15% - mean(|日收益差|)×100,越低越好</li>'
     + '<li><b>roll_std 滚动标准差</b> 15% - 30交易日滚动TE序列的std,越低越好</li>'
-    + '<li><b>IR 信息比率</b> 15% - mean(收益差)×252/(std×√252),|IR|越接近0越好</li>'
+    + '<li><b>IR 信息比率</b> 直接15%/间接0% - mean(收益差)×252/(std×√252),|IR|越接近0越好</li>'
     + '</ul>'
-    + '<p style="margin-top:4px;color:var(--text-3)">归一化: 4项百分位rank(防异常值拉伸) + IR分段函数(|IR|≤0.5满分, 正&gt;0.5斜率80轻惩罚, 负&lt;-0.5斜率200重惩罚)。阈值: ≥75 strong / 60-74 related / 50-59 approx / 30-49 none / &lt;30 灰灭。共同交易日 N=30-59 降权(track_score=降权值 + track_low_confidence=true,档位灯加虚线修饰+估算标注); N&lt;30 完全无数据(track_score=null + track_tier=null,灰灭灯)。</p>'
+    + '<p style="margin-top:4px;color:var(--text-3)">权重按匹配方式分层: <b>直接匹配</b>(track_index,ETF纯跟踪该指数)TE30%/R²25%/avg_dev15%/roll_std15%/IR15%; <b>间接匹配</b>(holdings_overlap/overlap/sum_pct/kw等,ETF持仓/关键词关联非纯跟踪)IR权重0%转移给R²(+9%)和TE(+6%),因IR对间接匹配无意义(ETF非纯跟踪指数,IR反映主动偏离非跟踪误差)。归一化: 4项百分位rank(防异常值拉伸) + IR分段函数(|IR|≤0.5满分, 正&gt;0.5斜率80轻惩罚, 负&lt;-0.5斜率200重惩罚)。阈值: ≥75 strong / 60-74 related / 50-59 approx / 30-49 none / &lt;30 灰灭。共同交易日 N=30-59 降权(track_score=降权值 + track_low_confidence=true,档位灯加虚线修饰+估算标注); N&lt;30 完全无数据(track_score=null + track_tier=null,灰灭灯)。</p>'
   );
   // 3. 相似度 similarity
   var b3 = _blk('相似度 similarity',
