@@ -140,8 +140,14 @@ async function r2ProxyHandler(request, env, ctx, url) {
 // Cache API 边缘缓存 + 分层 TTL + /api/purge-cache 主动清除（上传新数据后调）。
 // 和 /r2/ 代理区分：/data/ 是前端原生 URL rewrite（0 改动），/r2/ 保留给大 range 直链。
 function dataCacheTtl(pathname) {
-  // HIGH_FREQ 60s：盘中高频更新（overview/intraday_snapshot/boot/notifications/summary 等）
-  if (/^\/data\/(?:overview|intraday_snapshot|boot|notifications|summary|summary_history|schedule_stats|alert)\.json$/.test(pathname)) return 60;
+  // NO_CACHE(ttl=0)：盘中高频关键文件，不查不写 edge cache，每次回源 R2。
+  //   根治 R2 迁移后 PURGE_SECRET 手动部署丢失致 edge cache 旧版(max-age=14400)4h 残留事故(2026-08-09)：
+  //   overview/intraday_snapshot/board_etf_map 是数据一致性核心文件，stale 不可接受。
+  //   ttl=0 时 dataRewriteHandler 跳过 caches.default.match/put，即使 purge 失败也不留旧版。
+  //   代价 ~50ms R2 回源/次，盘中用户量小可接受。
+  if (/^\/data\/(?:overview|intraday_snapshot|board_etf_map)\.json$/.test(pathname)) return 0;
+  // HIGH_FREQ 60s：盘中高频更新（boot/notifications/summary 等；overview/intraday_snapshot 已拆到 NO_CACHE）
+  if (/^\/data\/(?:boot|notifications|summary|summary_history|schedule_stats|alert)\.json$/.test(pathname)) return 60;
   // HIGH_FREQ 60s：盘中 15min 更新的 K 线小周期（-1m/-3m/-6m/-1y）
   if (/-(?:1m|3m|6m|1y)\.json$/.test(pathname)) return 60;
   // HIGH_FREQ 60s：其他盘中实时数据
@@ -155,10 +161,16 @@ function dataCacheTtl(pathname) {
 async function dataRewriteHandler(request, env, ctx, url) {
   const pathname = url.pathname;
   const key = decodeURIComponent(pathname.slice(1)); // "/data/overview.json" -> "data/overview.json"
-  // 1. 边缘缓存命中（key 用 pathname 剥离 query，?_=Date.now() 不影响命中）
+  const ttl = dataCacheTtl(pathname);
+  // ttl=0 (HIGH_FREQ 关键文件): 不查不写 edge cache，每次回源 R2，防 PURGE 失败残留旧版(2026-08-09 事故根治)。
+  const noEdgeCache = ttl === 0;
+  const cc = noEdgeCache ? 'no-store, max-age=0' : `public, max-age=${ttl}`;
   const cacheKey = new Request(url.origin + pathname);
-  const cached = await caches.default.match(cacheKey);
-  if (cached) return cached;
+  // 1. 边缘缓存命中（key 用 pathname 剥离 query，?_=Date.now() 不影响命中；noEdgeCache 跳过）
+  if (!noEdgeCache) {
+    const cached = await caches.default.match(cacheKey);
+    if (cached) return cached;
+  }
   // 2. R2 读取，404/错误回退 ASSETS（静态文件兜底）
   let response;
   try {
@@ -167,8 +179,7 @@ async function dataRewriteHandler(request, env, ctx, url) {
       const headers = new Headers();
       object.writeHttpMetadata(headers);
       headers.set('etag', object.httpEtag);
-      const ttl = dataCacheTtl(pathname);
-      headers.set('Cache-Control', `public, max-age=${ttl}`);
+      headers.set('Cache-Control', cc);
       for (const [k, v] of Object.entries(SECURITY_HEADERS)) headers.set(k, v);
       response = new Response(object.body, { headers });
     }
@@ -179,8 +190,7 @@ async function dataRewriteHandler(request, env, ctx, url) {
     // R2 404 或错误：回退 ASSETS 静态文件（如 fund_score_top.json R2 key 在 fund_score/ 前缀）
     const assetsResponse = await env.ASSETS.fetch(request);
     const headers = new Headers(assetsResponse.headers);
-    const ttl = dataCacheTtl(pathname);
-    headers.set('Cache-Control', `public, max-age=${ttl}`);
+    headers.set('Cache-Control', cc);
     for (const [k, v] of Object.entries(SECURITY_HEADERS)) headers.set(k, v);
     response = new Response(assetsResponse.body, {
       status: assetsResponse.status,
@@ -188,8 +198,8 @@ async function dataRewriteHandler(request, env, ctx, url) {
       headers,
     });
   }
-  // 3. 写边缘缓存（后台，不阻塞响应；只缓存 200 响应）
-  if (response.status === 200) {
+  // 3. 写边缘缓存（后台，不阻塞响应；只缓存 200 响应；noEdgeCache 跳过防旧版残留）
+  if (response.status === 200 && !noEdgeCache) {
     ctx.waitUntil(caches.default.put(cacheKey, response.clone()));
   }
   return response;

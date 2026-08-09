@@ -32,6 +32,15 @@ NAME="${1:-all}"   # 可选 pipeline 名（pipeline.sh 持锁调用时传入；�
 
 mkdir -p "$LOGDIR"
 
+# 加载 .env（PURGE_SECRET 等 Worker 凭证）到环境，确保手动跑 deploy.sh 时子进程
+# （upload_r2.py / export.py）能读到 PURGE_SECRET 调 /api/purge-cache 清 edge cache。
+# 根治 2026-08-09 手动部署丢失 PURGE_SECRET 致 edge cache 不清、前端读旧版 4h 事故。
+# set -a 自动 export；.env 内变量（R2_*/PURGE_SECRET）launchd/环境未预设，source 不冲突。
+set -a
+[ -f "$GIT_REPO/.env" ] && . "$GIT_REPO/.env"
+[ -f "$REPO/.env" ] && . "$REPO/.env"
+set +a
+
 echo "=== deploy.sh 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
 
 # 0. 时段闸门：交易日盘中 09:30-15:30 拒跑全量 export+deploy（防覆盖 intraday 实时版，事故 94c79041 根因）

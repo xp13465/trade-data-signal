@@ -596,6 +596,22 @@ def purge_cache(r2_keys, cache_prefix="/"):
     secret = os.environ.get("PURGE_SECRET", "")
     if not secret:
         print("⚠ PURGE_SECRET 未设，跳过 cache purge（Worker /api/purge-cache 会 403）")
+        # 告警（不静默跳过）：通知管理员 PURGE_SECRET 丢失，edge cache 未清将致前端读旧数据。
+        # 同一进程只告警一次（一次 deploy 跑多个 upload 命令，避免邮件轰炸）。
+        if not getattr(purge_cache, "_warned", False):
+            purge_cache._warned = True
+            try:
+                sys.path.insert(0, str(ROOT / "scripts"))
+                import notify  # noqa: E402
+                notify.send(
+                    "[告警] PURGE_SECRET 未设 cache purge 跳过",
+                    "PURGE_SECRET 未设，upload_r2.py 跳过 /api/purge-cache，CF edge cache 旧版将残留至自然过期，"
+                    "前端可能读到旧数据。请检查 trade/.env 与 trade-data/.env 是否含 PURGE_SECRET。"
+                    "（根治 2026-08-09 手动部署丢失 PURGE_SECRET 致 edge cache 不清事故）",
+                    from_prefix="[告警]",
+                )
+            except Exception as e:
+                print(f"⚠ notify 告警发送失败（不阻塞）：{e}")
         return
     cache_keys = [cache_prefix + k for k in r2_keys]  # 如 "/data/x" 或 "/r2/industry/x"
     body = json.dumps({"secret": secret, "keys": cache_keys}).encode()
