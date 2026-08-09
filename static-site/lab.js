@@ -7466,11 +7466,11 @@ function _renderSigKellyBar(bar, data, period) {
   const transferVal = fp.transfer_fee_rate_sh != null ? (fp.transfer_fee_rate_sh * 10000).toString() : "0.1";
   const stampVal = fp.stamp_duty_rate != null ? (fp.stamp_duty_rate * 10000).toString() : "0";
   const customHTML = `<div class="lab-sigkelly-fee-custom">` +
-      `<label>佣金:<input type="number" class="lab-input lab-sigkelly-fee-input-comm" value="${commVal}" step="0.01" min="0" style="width:48px">万</label>` +
+      `<label>佣金:万分之<input type="number" class="lab-input lab-sigkelly-fee-input-comm" value="${commVal}" step="0.01" min="0" style="width:48px"></label>` +
       `<label>最低:<input type="number" class="lab-input lab-sigkelly-fee-input-min" value="${minVal}" step="0.1" min="0" style="width:42px">元</label>` +
-      `<label>滑点:<input type="number" class="lab-input lab-sigkelly-fee-input-slip" value="${slipVal}" step="0.1" min="0" style="width:42px">千</label>` +
-      `<label>过户费:<input type="number" class="lab-input lab-sigkelly-fee-input-transfer" value="${transferVal}" step="0.01" min="0" style="width:42px">万(沪)</label>` +
-      `<label>印花税:<input type="number" class="lab-input lab-sigkelly-fee-input-stamp" value="${stampVal}" step="0.01" min="0" style="width:42px">万(卖)</label>` +
+      `<label>滑点:千分之<input type="number" class="lab-input lab-sigkelly-fee-input-slip" value="${slipVal}" step="0.1" min="0" style="width:42px"></label>` +
+      `<label>过户费:万分之<input type="number" class="lab-input lab-sigkelly-fee-input-transfer" value="${transferVal}" step="0.01" min="0" style="width:42px">(沪)</label>` +
+      `<label>印花税:万分之<input type="number" class="lab-input lab-sigkelly-fee-input-stamp" value="${stampVal}" step="0.01" min="0" style="width:42px">(卖)</label>` +
     `</div>`;
   // 降亏过滤toggle(2个独立checkbox可组合, 开启后过滤交易集重算所有指标)
   const _filters = state.labSigKellyFilters || { excludeAux: false, marketTiming: false };
@@ -7962,7 +7962,7 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
     `<div class="lab-sigkelly-card">` +
       (wm ? `<div class="lab-sigkelly-wm lab-sigkelly-wm-${wm.kind}" data-wm="1"><span class="lab-sigkelly-wm-badge">${wm.text}</span><div class="lab-sigkelly-wm-pop-wrap" style="display:none">${_sigKellyWmPopupHtml(wm)}</div></div>` : ``) +
       `<div class="lab-sigkelly-card-head">` +
-        `<div class="lab-sigkelly-card-name"><span>${q.label || qk}</span>` + cwmHtml + `</div>` +
+        `<div class="lab-sigkelly-card-name"><span>${q.label || qk}</span></div>` +
         `<div class="lab-sigkelly-card-desc">${q.desc || ""}` +
         (hasGuide
           ? ` <span class="lab-sigkelly-guide-trigger" data-guide="1">卖出模式说明❓` +
@@ -7975,6 +7975,7 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
           : ``) +
         `</div>` +
       `</div>` +
+      (cwmHtml ? `<div class="lab-sigkelly-cwm-row">` + cwmHtml + `</div>` : ``) +
       `<div class="lab-sigkelly-table-scroll">` +
       `<table class="lab-sigkelly-table lab-sigkelly-wide-table">` +
         `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th><th>最终盈亏<br>(元)</th><th title="=总盈亏/峰值同时持仓资金,随回测周期增长">峰值资金<br>收益率</th><th>费率消耗</th><th>最大持仓</th><th>持仓中</th><th>年化</th><th>夏普</th><th>最大回撤</th><th>卡尔玛</th></tr></thead>` +
