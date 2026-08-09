@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a74';  // bump a73->a74: 凯利卡片表头"最大持仓（动用资金）收益率"拆3行缩短列宽防横滚条
+const CACHE_VERSION = 'v6-20260809-a75';  // bump a74->a75: 凯利卡片删"总收益率"列(总使用资金收益率不符直觉)+表头拆3行防横滚
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
