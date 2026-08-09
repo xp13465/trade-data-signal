@@ -676,8 +676,12 @@ function _chipRowClassName(id, sd) {
 }
 // 在 chart-card 的 h3 之后插入独立 chip-row 容器（标题下换行单独一行展示）。
 // SIM_INDICES 之外的指数不显示；已缓存数据同步渲染，未缓存先占位再异步 fetch+patch。
+// 跳转定位滚动期间置 true,抑制 chip-row 懒加载插入,防 cell 长高致绝对位置漂移、scroll 落点偏短
+var _locateScrolling = false;
 function _appendBackupChipRow(cardEl, id) {
   if (!SIM_INDICES.has(id)) return;
+  if (_locateScrolling) return; // 定位滚动中暂停插入 chip-row
+  if (cardEl.querySelector('.signal-chip-row[data-chip-id="' + id + '"]')) return; // 防重复插入(定位补插/IO 重复触发)
   var cachedSd = _tradeSimStatsCache[id];
   var html = _backupSignalChipRender(cachedSd, id);
   var row = document.createElement("div");
@@ -706,6 +710,20 @@ function _appendBackupChipRow(cardEl, id) {
   }
   // 未缓存：触发异步加载
   if (!_tradeSimStatsCache[id]) _backupSignalChipLoad(id);
+}
+// 定位结束后补插视口内 cell 的 chip-row(定位期间被 _locateScrolling 抑制,IO 未 unobserve 但已 intersecting 元素不会重新触发)
+function _flushVisibleChipRows() {
+  var cells = document.querySelectorAll(".industry-cell");
+  var vh = window.innerHeight || document.documentElement.clientHeight;
+  for (var i = 0; i < cells.length; i++) {
+    var cell = cells[i];
+    if (cell.querySelector(".signal-chip-row")) continue;
+    var r = cell.getBoundingClientRect();
+    if (r.bottom > -300 && r.top < vh + 300) {
+      var cid = (cell.id || "").replace(/^industry-cell-/, "");
+      if (cid && typeof SIM_INDICES !== "undefined" && SIM_INDICES.has(cid)) _appendBackupChipRow(cell, cid);
+    }
+  }
 }
 async function _backupSignalChipLoad(id) {
   if (_backupChipLoading[id]) return;
@@ -2549,6 +2567,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
     if (!loc || !loc.tab) return;
     hideNow();
     state.tab = loc.tab;
+    state.industrySearch = ""; // 清残留搜索词,防过滤掉目标卡致 cardEl=null 不滚动
     if (loc.tab === "market") {
       state.subtab = loc.subtab || "a-stock";
     } else if (loc.tab === "sentiment") {
@@ -2561,6 +2580,8 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
     if (tabBtn) tabBtn.classList.add("active");
     if (typeof updateH5Topbar === "function") updateH5Topbar();
     // renderTab 异步完成后滚动 + 高亮卡片
+    // 定位滚动期间抑制 IO chip-row 懒加载,防布局漂移致 scroll 落点偏短(停在上方卡)
+    _locateScrolling = true;
     if (typeof renderTab === "function") {
       renderTab().then(function () {
         setTimeout(function () {
@@ -2569,12 +2590,23 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
           var cardEl = document.getElementById("idx-card-" + bareId) ||
                        document.getElementById("industry-cell-" + bareId);
           if (cardEl && cardEl.scrollIntoView) {
-            cardEl.scrollIntoView({ behavior: "smooth", block: "center" });
+            // 瞬时滚动(非 smooth):长距离+异步布局页 smooth 目标坐标一次性算不更新,会停在过时坐标
+            cardEl.scrollIntoView({ behavior: "auto", block: "center" });
             cardEl.classList.add("idx-card-locate-flash");
             setTimeout(function () { cardEl.classList.remove("idx-card-locate-flash"); }, 2000);
+            // 800ms 后校正重滚一次(chip-row 漂移已稳定),再恢复 IO 懒加载 + 补插视口内 chip-row
+            setTimeout(function () {
+              cardEl.scrollIntoView({ behavior: "auto", block: "center" });
+              _locateScrolling = false;
+              if (typeof _flushVisibleChipRows === "function") _flushVisibleChipRows();
+            }, 800);
+          } else {
+            _locateScrolling = false;
           }
         }, 200);
-      }).catch(function () {});
+      }).catch(function () { _locateScrolling = false; });
+    } else {
+      _locateScrolling = false;
     }
   }, true);
   pop.addEventListener("mouseenter", function () { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } });
@@ -15589,6 +15621,8 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     const _io = new IntersectionObserver((entries) => {
       for (const e of entries) {
         if (e.isIntersecting) {
+          // 定位滚动期间暂停 chip-row 插入且不 unobserve,保留观察待定位结束后 _flushVisibleChipRows 补插(防布局漂移)
+          if (_locateScrolling) continue;
           _preloadIndDetail(id, idx);
           _appendBackupChipRow(cell, id);
           _io.unobserve(e.target);
