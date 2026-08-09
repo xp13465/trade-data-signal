@@ -125,6 +125,11 @@ MIN_INTERSECTION = 3
 # 持仓重叠阈值
 MIN_OVERLAP_HOLDINGS = 2   # 至少持有2只概念股
 TOP_N_HOLDINGS_ETFS = 12   # 每概念输出Top-12 ETF（track_score 后续重排，多给候选）
+# 第5层 e：sum_pct（概念暴露度）阈值
+# sum_hold_pct = ETF 持仓中概念成分股总占比（跨股求和），反映整体概念暴露度
+# 和 d 层(max_hold_pct×overlap_count 偏向单只高占比)互补，覆盖"分散持多只/单只不高/合计高"的 ETF
+MIN_SUM_PCT = 15.0         # sum_hold_pct >= 15% 才纳入 e 层候选
+TOP_N_SUM_PCT_ETFS = 12    # e 层每概念输出 Top-12（和 d 层同规模）
 # 缓存路径（data/ 不入 git，CLAUDE.md §8）
 HOLDINGS_CACHE_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "holdings_overlap_cache.json"
 HOLDINGS_CACHE_TTL = 7 * 24 * 3600  # 7天（季频数据，7天缓存安全）
@@ -385,7 +390,7 @@ def match_holdings_overlap(
     df_by_code: dict,
     track_idx_map: dict[str, dict] | None = None,
 ) -> dict[str, list[dict]]:
-    """第4层：ETF持仓重叠匹配。
+    """第4层(d)+第5层(e)：ETF持仓重叠匹配。
 
     对指定概念/宽基指数，通过 ak.stock_fund_stock_holder 反向查找持有成分股的ETF。
     绕过 INDEX_POOL 限制，直接发现持有成分股的ETF（如量子科技 -> 央企科技/通信ETF）。
@@ -394,22 +399,24 @@ def match_holdings_overlap(
       - thsc 概念：CONCEPT_BK_MAP 映射 -> fetch_concept_cons(东财BK板块成分股)
       - 宽基指数：BROAD_INDEX_CONST_MAP 映射 -> fetch_index_cons(ak.index_stock_cons)
 
-    算法：
+    算法（d+e 双来源，共享持仓数据，各自独立排序选候选）：
       1. 采概念成分股（复用 fetch_concept_cons）
       2. 每只成分股调 ak.stock_fund_stock_holder 反查持有它的基金
       3. 过滤ETF代码（51/15/56/58开头为场内ETF）+ 排除跨境/债券等非主题ETF
-      4. 按ETF聚合 overlap_count(持有几只概念股) + max_hold_pct(最高持仓占比)
+      4. 按ETF聚合 overlap_count + max_hold_pct + sum_hold_pct(概念暴露度=跨股持仓占比求和)
       5. MIN_OVERLAP>=2 过滤（至少持有2只概念股）
-      6. 综合分 = max_hold_pct * overlap_count 降序排（兼顾集中度和广度）
-      7. track_idx_map 去重：同 track_index_name 只保留综合分最高的（防3只电信ETF占3席）
+      d层: 综合分 = max_hold_pct × overlap_count 降序排（兼顾集中度和广度）
+      e层: sum_hold_pct 降序排（概念暴露度，覆盖"分散持多只/单只不高/合计高"的ETF如159335）
+      6. track_idx_map 去重：同 track_index_name 只保留最高分（d层优先，e层排除d层已选track_index）
 
     参数:
-      thsc_ids: 需要跑第4层的指数ID列表（thsc概念或宽基，1-3层<6只ETF的指数）
+      thsc_ids: 需要跑第4/5层的指数ID列表（thsc概念或宽基，1-3层<6只ETF的指数）
       df_by_code: {etf_code: row}（build_board_etf_map.py 预计算，用于取 ETF 名称/成交额）
       track_idx_map: {etf_code: {track_index, ...}}（fundf10 缓存，用于按跟踪指数去重；None 跳过去重）
 
     返回:
-      {thsc_id: [{code, name, amount, approx, overlap_count, max_hold_pct, match_method}]}
+      {thsc_id: [{code, name, amount, approx, overlap_count, max_hold_pct, sum_hold_pct, match_method}]}
+      match_method: "holdings_overlap"(d层) 或 "sum_pct"(e层)
     """
     if not thsc_ids:
         return {}
@@ -491,11 +498,13 @@ def match_holdings_overlap(
                     etf_agg[fc] = {
                         "overlap_count": 0,
                         "max_hold_pct": 0.0,
+                        "sum_hold_pct": 0.0,
                         "fund_name": etf_name,
                     }
                 etf_agg[fc]["overlap_count"] += 1
                 if hp > etf_agg[fc]["max_hold_pct"]:
                     etf_agg[fc]["max_hold_pct"] = hp
+                etf_agg[fc]["sum_hold_pct"] += hp  # e层: 概念暴露度=跨股持仓占比求和
 
             if (i + 1) % 10 == 0:
                 print(f"      ... {i+1}/{len(sorted_stocks)} stocks processed")
@@ -530,7 +539,11 @@ def match_holdings_overlap(
                 seen_track_idx.add(tin)
             etf_deduped.append((code, v))
 
-        # Step 4: 构建返回条目（Top-N）
+        # Step 4: 构建返回条目（d 层 Top-N + e 层 Top-N 合并）
+        # d 层：max_hold_pct × overlap_count 降序，track_index 去重，Top-12
+        # e 层：sum_hold_pct 降序（概念暴露度），MIN_SUM_PCT 过滤，track_index 去重（含 d 层已选），Top-12
+        # e 层只添加 d 层未选中的 ETF（同 code 不重复），作为第5层独立来源
+        d_codes: set[str] = set()
         etfs = []
         for code, v in etf_deduped[:TOP_N_HOLDINGS_ETFS]:
             r = df_by_code.get(code) if df_by_code else None
@@ -557,18 +570,84 @@ def match_holdings_overlap(
                 "approx": True,  # 持仓重叠匹配，approx=true
                 "overlap_count": v["overlap_count"],
                 "max_hold_pct": round(v["max_hold_pct"], 4),
+                "sum_hold_pct": round(v["sum_hold_pct"], 4),
                 "match_method": "holdings_overlap",
             }
             if tin:
                 entry["track_index_name"] = tin
             etfs.append(entry)
+            d_codes.add(code)
+
+        # Step 4b: e 层（sum_pct 概念暴露度）独立来源
+        # 从 etf_list（已 MIN_OVERLAP 过滤）中排除 d 层已选，按 sum_hold_pct 降序
+        e_candidates = [
+            (code, v) for code, v in etf_list
+            if code not in d_codes and v["sum_hold_pct"] >= MIN_SUM_PCT
+        ]
+        e_candidates.sort(key=lambda x: x[1]["sum_hold_pct"], reverse=True)
+        # track_index 去重：重建 seen_track_idx 只含 d 层实际入选 Top-12 的 track_index
+        # （原 seen_track_idx 含 etf_deduped 全量，会误拦 d 层未入选但 e 层应补的 ETF 如 159335）
+        seen_track_idx = set()
+        for code in d_codes:
+            if track_idx_map:
+                ti_info = track_idx_map.get(code)
+                if ti_info:
+                    tin_d = ti_info.get("track_index", "") or ""
+                    if tin_d:
+                        seen_track_idx.add(tin_d)
+        e_deduped: list[tuple[str, dict]] = []
+        for code, v in e_candidates:
+            tin = ""
+            if track_idx_map:
+                ti_info = track_idx_map.get(code)
+                if ti_info:
+                    tin = ti_info.get("track_index", "") or ""
+            if tin and tin in seen_track_idx:
+                continue  # 同 track_index 已有 d 层 ETF，跳过
+            if tin:
+                seen_track_idx.add(tin)
+            e_deduped.append((code, v))
+
+        e_added = 0
+        for code, v in e_deduped[:TOP_N_SUM_PCT_ETFS]:
+            r = df_by_code.get(code) if df_by_code else None
+            if r is not None:
+                try:
+                    rname = str(r["名称"])
+                    amount = round(float(r["成交额"]) / 1e8, 2)
+                except (TypeError, ValueError, KeyError):
+                    rname = v["fund_name"]
+                    amount = 0.0
+            else:
+                rname = v["fund_name"]
+                amount = 0.0
+            tin = ""
+            if track_idx_map:
+                ti_info = track_idx_map.get(code)
+                if ti_info:
+                    tin = ti_info.get("track_index", "") or ""
+            entry = {
+                "code": code,
+                "name": rname,
+                "amount": amount,
+                "approx": True,
+                "overlap_count": v["overlap_count"],
+                "max_hold_pct": round(v["max_hold_pct"], 4),
+                "sum_hold_pct": round(v["sum_hold_pct"], 4),
+                "match_method": "sum_pct",
+            }
+            if tin:
+                entry["track_index_name"] = tin
+            etfs.append(entry)
+            e_added += 1
 
         result[thsc_id] = etfs
         top_str = ", ".join(
             f"{e['code']}({e['name']},n={e['overlap_count']},pct={e['max_hold_pct']}%)"
             for e in etfs[:3]
         )
-        print(f"    [holdings] {thsc_id} {concept_name}: {len(etfs)}只ETF -> {top_str}")
+        e_str = f" + e层{e_added}只" if e_added else ""
+        print(f"    [holdings] {thsc_id} {concept_name}: {len(etfs)}只ETF{e_str} -> {top_str}")
 
         # 每概念完成后保存缓存（防中途 kill 丢失已采集数据）
         if cache_new > 0:

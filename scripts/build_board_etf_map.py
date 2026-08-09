@@ -1349,9 +1349,10 @@ def main():
 
     out: dict = {"_meta": {"source": "akshare fund_etf_spot_em + fundf10 track_index",
                            "sort_by": "track_score(降序,跟踪分最高在前; None排最后); LOF净值取自fund_open_fund_info_em",
-                           "match_method": "全量叠加: track_index_code(base) + track_index_name + overlap + kw + holdings_overlap 合并去重, 按track_score降序排",
+                           "match_method": "全量叠加: track_index_code(base) + track_index_name + overlap + kw + holdings_overlap(d) + sum_pct(e) 合并去重, 按track_score降序排",
                            "similarity_fields": "similarity(1-max_err/100) / max_err(5周期最大误差%) / grade(excellent<1%/good<5%/warn>=5%) / fund_type(etf|lof)",
-                           "note": "宽基全量改造: 所有指数(行业/概念/宽基/红利/港股)统一 a+b+c+d 全量,不分层; "
+                           "note": "宽基全量改造: 所有指数(行业/概念/宽基/红利/港股)统一 a+b+c+d+e 全量,不分层; "
+                                   "e层=sum_pct概念暴露度(跨股持仓占比求和),和d层(max×count)独立排序各产Top12候选,"
                                    "候选列表含所有来源匹配ETF+LOF; 按track_score降序排序; "
                                    "行业/概念ETF跟踪中证/国证指数非申万/同花顺精准跟踪,grade=good/warn属正常"}}
     empty_boards = []
@@ -1383,14 +1384,15 @@ def main():
         if etfs_:
             print(f"  {name_by_id.get(iid_, iid_):<10} {len(etfs_)} 只 ETF [base]")
 
-    # ── 行业/概念/宽基匹配（全量多来源叠加：track_index + overlap + KW + holdings 合并去重）──
-    # 宽基全量改造：所有指数统一 a+b+c+d，不分层(宽基track_index单一/行业概念全量的分层取消)。
-    # 四层来源（优先级递减，同一ETF多来源命中取最优来源标记）：
+    # ── 行业/概念/宽基匹配（全量多来源叠加：track_index + overlap + KW + holdings(d+e) 合并去重）──
+    # 宽基全量改造：所有指数统一 a+b+c+d+e，不分层(宽基track_index单一/行业概念全量的分层取消)。
+    # 五层来源（优先级递减，同一ETF多来源命中取最优来源标记）：
     #   0. track_index_code 精准匹配（宽基base，_build_index_etf_map_auto，已在上方注入）
     #   1. track_index_name 关键词匹配（fundf10 抓取的 ETF 跟踪指数名，最精准）
     #   2. overlap 成分股重叠（thsc 概念用东财BK成分股∩指数成分股Jaccard重叠度）
     #   3. KW 名称子串匹配（ETF名称关键词，精度最差，兜底补充）
-    #   4. holdings_overlap ETF持仓重叠（thsc概念用东财BK成分股/宽基用index_stock_cons反查持仓ETF）
+    #   4. holdings_overlap ETF持仓重叠（d层: max_hold_pct×overlap_count 综合分排序）
+    #   5. sum_pct 概念暴露度（e层: sum_hold_pct 跨股持仓占比求和，覆盖"分散持多只/合计高"的ETF）
     # 合并规则：后层只添加前层未匹配到的ETF（同code不覆盖），保留最优来源的match_method。
 
     # 第1层：track_index_name 关键词匹配（所有 board_id，merge 到宽基base上）
@@ -1482,10 +1484,11 @@ def main():
         if added:
             print(f"  [kw叠加] {iid}: 新增 {added} 只（已有 {len(out.get(iid, [])) - added}）")
 
-    # 第4层：ETF持仓重叠匹配（跑1-3层<6只ETF的 board_id，含宽基）
-    # 宽基全量改造：去掉 thsc_ 限制，宽基(sz/csi_div/sz_div/hscei等<6只ETF)也跑第4层。
+    # 第4+5层：ETF持仓重叠匹配（d层 max×count + e层 sum_pct，跑1-3层<6只ETF的 board_id，含宽基）
+    # 宽基全量改造：去掉 thsc_ 限制，宽基(sz/csi_div/sz_div/hscei等<6只ETF)也跑第4+5层。
     # thsc 概念用 CONCEPT_BK_MAP(东财BK成分股)，宽基用 BROAD_INDEX_CONST_MAP(index_stock_cons)。
-    # 性能优化：已有足量ETF（>=6只）的指数跳过第4层；宽基 sh(7)/hs300(40)/csi500(35)等跳过。
+    # d层: max_hold_pct×overlap_count 综合分排序 Top-12; e层: sum_hold_pct 概念暴露度排序 Top-12(>=15%)
+    # 性能优化：已有足量ETF（>=6只）的指数跳过；宽基 sh(7)/hs300(40)/csi500(35)等跳过。
     # 首次跑宽基 sz(500股)~4min + csi_div(100股)~1min，7天缓存后~1-2min。
     holdings_candidates = [
         iid for iid in board_ids
@@ -1667,7 +1670,7 @@ def main():
             print(f"  {name_by_id.get(iid, iid):<16} {e['code']} {e['name']} ({e['amount']}亿){extra} <{method}>{tin_tag}{ts_tag} [{ft}]")
 
     # 匹配方式统计（行业/概念/宽基统一）
-    method_cnt = {"track_index": 0, "overlap": 0, "kw": 0, "holdings_overlap": 0, "manual_fallback": 0, "empty": 0}
+    method_cnt = {"track_index": 0, "overlap": 0, "kw": 0, "holdings_overlap": 0, "sum_pct": 0, "manual_fallback": 0, "empty": 0}
     for iid in board_ids:
         etfs = out.get(iid, [])
         if not etfs:
@@ -1679,7 +1682,8 @@ def main():
     print(f"  track_index 精准: {method_cnt['track_index']}")
     print(f"  overlap 成分股: {method_cnt['overlap']}")
     print(f"  kw 名称兜底: {method_cnt['kw']}")
-    print(f"  holdings 持仓重叠: {method_cnt.get('holdings_overlap', 0)}")
+    print(f"  holdings 持仓重叠(d层): {method_cnt.get('holdings_overlap', 0)}")
+    print(f"  sum_pct 概念暴露度(e层): {method_cnt.get('sum_pct', 0)}")
     print(f"  manual_fallback: {method_cnt.get('manual_fallback', 0)}")
     print(f"  留空: {method_cnt['empty']}")
 
