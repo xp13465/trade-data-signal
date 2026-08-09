@@ -676,11 +676,11 @@ function _chipRowClassName(id, sd) {
 }
 // 在 chart-card 的 h3 之后插入独立 chip-row 容器（标题下换行单独一行展示）。
 // SIM_INDICES 之外的指数不显示；已缓存数据同步渲染，未缓存先占位再异步 fetch+patch。
-// 跳转定位滚动期间置 true,抑制 chip-row 懒加载插入,防 cell 长高致绝对位置漂移、scroll 落点偏短
+// 跳转定位滚动期间置 true,抑制 IO 懒加载回调路径(L15625 continue)的 chip-row 插入,防 cell 长高致绝对位置漂移、scroll 落点偏短。
+// 注意:直接调用路径(renderOne L4165 同步渲染)不抑制--该路径在 scroll 前完成渲染无漂移;若抑制会导致 A股/港股/全球指数卡 chip-row 永久缺失(指数卡无 IO observer 不补插)。
 var _locateScrolling = false;
 function _appendBackupChipRow(cardEl, id) {
   if (!SIM_INDICES.has(id)) return;
-  if (_locateScrolling) return; // 定位滚动中暂停插入 chip-row
   if (cardEl.querySelector('.signal-chip-row[data-chip-id="' + id + '"]')) return; // 防重复插入(定位补插/IO 重复触发)
   var cachedSd = _tradeSimStatsCache[id];
   var html = _backupSignalChipRender(cachedSd, id);
@@ -15621,9 +15621,10 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     const _io = new IntersectionObserver((entries) => {
       for (const e of entries) {
         if (e.isIntersecting) {
+          // B2 detail 预加载:即使定位滚动中也执行(LOW-1:避免行业卡 tooltip 降级用内联数据非 detail.json)
+          _preloadIndDetail(id, idx);
           // 定位滚动期间暂停 chip-row 插入且不 unobserve,保留观察待定位结束后 _flushVisibleChipRows 补插(防布局漂移)
           if (_locateScrolling) continue;
-          _preloadIndDetail(id, idx);
           _appendBackupChipRow(cell, id);
           _io.unobserve(e.target);
         }
