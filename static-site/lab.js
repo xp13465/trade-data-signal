@@ -7467,6 +7467,9 @@ function _renderSigKellyBar(bar, data, period) {
 // 16象限卡片网格(4组: 评级3 + ETF4 + 信号类型4 + 指数大类5)
 function _renderSigKellyQuadrants(host, data, period) {
   const quads = data.quadrants || {};
+  const feeStats = state.labSigKellyFeeStats;
+  // 卡间比较水印: 全局16张卡互比, 选综合最佳(蓝星)+最稳定(紫菱), 随周期/费率切换实时重算
+  const cmp = _sigKellyCardComparison(quads, period, feeStats);
   const groups = [
     { title: "按信号评级分组(10d score 评级)", keys: ["rating_high", "rating_mid", "rating_low"] },
     { title: "按 ETF 跟踪评分分组(track_tier 归类)", keys: ["etf_strong", "etf_related", "etf_approx", "etf_has_track"] },
@@ -7481,7 +7484,7 @@ function _renderSigKellyQuadrants(host, data, period) {
     for (const qk of g.keys) {
       const q = quads[qk];
       if (!q) continue;
-      html += _renderSigKellyCard(qk, q, period);
+      html += _renderSigKellyCard(qk, q, period, cmp.map[qk] || null);
     }
     html += `</div></div>`;
   }
@@ -7509,7 +7512,8 @@ function _renderSigKellyQuadrants(host, data, period) {
 // 绑定水印 hoverpop 事件(桌面 hover / 移动端 tap 切换)
 function _bindSigKellyWmPop(host) {
   const isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
-  host.querySelectorAll('.lab-sigkelly-wm[data-wm="1"]').forEach((wmEl) => {
+  // 绑定卡内三态水印 + 卡间比较水印(共用同一套 hover/click 逻辑)
+  const bindWmEl = (wmEl) => {
     const pop = wmEl.querySelector(".lab-sigkelly-wm-pop-wrap");
     if (!pop) return;
     let openByClick = false;
@@ -7524,12 +7528,14 @@ function _bindSigKellyWmPop(host) {
         if (openByClick) show(); else hide();
       }
     });
-  });
+  };
+  host.querySelectorAll('.lab-sigkelly-wm[data-wm="1"]').forEach(bindWmEl);
+  host.querySelectorAll('.lab-sigkelly-cwm[data-cwm="1"]').forEach(bindWmEl);
   // 移动端: 点别处/滚动关闭所有水印 pop(全局绑一次)
   if (isTouch && !document._sigKellyWmDocBound) {
     document._sigKellyWmDocBound = true;
     document.addEventListener("click", (e) => {
-      if (e.target.closest && e.target.closest(".lab-sigkelly-wm")) return;
+      if (e.target.closest && (e.target.closest(".lab-sigkelly-wm") || e.target.closest(".lab-sigkelly-cwm"))) return;
       document.querySelectorAll(".lab-sigkelly-wm-pop-wrap").forEach((p) => {
         if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; }
       });
@@ -7686,9 +7692,142 @@ function _positionSigKellyWmPop(wmEl, pop) {
   pop.style.left = left + "px";
 }
 
+// 卡间比较水印(全局16张卡互比): 每周期选1综合最佳(蓝星)+1最稳定(紫菱)
+// 用户选选项C(全局+比率折中): 仅用比率指标(胜率/年化/夏普,不受n影响)+排除n<30+全局min-max归一化
+// 综合分 = 胜率35% + 年化35% + 夏普30% (排除盈亏比,因受n累积影响)
+// 稳定分 = (1-最大回撤)40% + 胜率30% + 夏普30% (无std用sharpe替代)
+// 卡级指标 = 6模式(A-F)均值, 过滤n<30模式防小样本虚高
+function _sigKellyCardComparison(quads, period, feeStats) {
+  const allKeys = [
+    "rating_high", "rating_mid", "rating_low",
+    "etf_strong", "etf_related", "etf_approx", "etf_has_track",
+    "sig_main", "sig_aux", "sig_special", "sig_backup",
+    "mkt_a", "mkt_hk", "mkt_global", "mkt_industry", "mkt_concept"
+  ];
+  const cards = [];
+  for (const qk of allKeys) {
+    const q = quads[qk];
+    if (!q) continue;
+    const periods = q.periods || {};
+    const pdata = (feeStats && feeStats[qk] && feeStats[qk][period]) ? feeStats[qk][period] : (periods[period] || {});
+    const modes = Object.keys(pdata);
+    // 过滤 n<30 的模式
+    const validModes = modes.filter((m) => {
+      const r = pdata[m];
+      return r && r.n != null && r.n >= 30;
+    });
+    if (validModes.length === 0) { cards.push({ qk, skip: true }); continue; }
+    // 卡级指标 = 有效模式均值
+    const avg = (field) => {
+      let sum = 0, cnt = 0;
+      for (const m of validModes) {
+        const v = pdata[m][field];
+        if (v != null) { sum += v; cnt++; }
+      }
+      return cnt > 0 ? sum / cnt : null;
+    };
+    cards.push({
+      qk, skip: false,
+      winRate: avg("win_rate"), annRet: avg("annualized_return"),
+      sharpe: avg("sharpe"), maxDD: avg("max_drawdown_pct"),
+      modeCount: validModes.length
+    });
+  }
+  const validCards = cards.filter((c) => !c.skip);
+  if (validCards.length < 2) return { best: null, stable: null, map: {} };
+  // 全局 min-max 归一化
+  const normField = (arr, field, invert) => {
+    const vals = arr.map((c) => c[field]).filter((v) => v != null);
+    if (vals.length === 0) return {};
+    const mn = Math.min(...vals), mx = Math.max(...vals);
+    const res = {};
+    for (const c of arr) {
+      if (c[field] == null || mx === mn) { res[c.qk] = 0.5; continue; }
+      res[c.qk] = invert ? (mx - c[field]) / (mx - mn) : (c[field] - mn) / (mx - mn);
+    }
+    return res;
+  };
+  const wrN = normField(validCards, "winRate", false);
+  const annN = normField(validCards, "annRet", false);
+  const shN = normField(validCards, "sharpe", false);
+  const mdN = normField(validCards, "maxDD", true); // 越小越好, 反转
+  // 算分
+  for (const c of validCards) {
+    c.wrN = wrN[c.qk] != null ? wrN[c.qk] : 0.5;
+    c.annN = annN[c.qk] != null ? annN[c.qk] : 0.5;
+    c.shN = shN[c.qk] != null ? shN[c.qk] : 0.5;
+    c.mdN = mdN[c.qk] != null ? mdN[c.qk] : 0.5;
+    // 综合分 = 胜率35% + 年化35% + 夏普30%
+    c.bestScore = c.wrN * 0.35 + c.annN * 0.35 + c.shN * 0.30;
+    // 稳定分 = (1-最大回撤)40% + 胜率30% + 夏普30%
+    c.stableScore = c.mdN * 0.40 + c.wrN * 0.30 + c.shN * 0.30;
+  }
+  const sortedBest = validCards.slice().sort((a, b) => b.bestScore - a.bestScore);
+  const sortedStable = validCards.slice().sort((a, b) => b.stableScore - a.stableScore);
+  const best = sortedBest[0], stable = sortedStable[0];
+  const bestRank = {}, stableRank = {};
+  sortedBest.forEach((c, i) => { bestRank[c.qk] = i + 1; });
+  sortedStable.forEach((c, i) => { stableRank[c.qk] = i + 1; });
+  const map = {};
+  for (const c of validCards) {
+    map[c.qk] = {
+      isBest: c === best,
+      isStable: c === stable,
+      bestScore: c.bestScore,
+      stableScore: c.stableScore,
+      bestRank: bestRank[c.qk],
+      stableRank: stableRank[c.qk],
+      total: validCards.length,
+      winRate: c.winRate, annRet: c.annRet, sharpe: c.sharpe, maxDD: c.maxDD,
+      modeCount: c.modeCount
+    };
+  }
+  return { best, stable, map };
+}
+
+// 卡间比较水印 hoverpop: 评级公式说明(§21公示同步) + 该卡全局排名+得分
+function _sigKellyCwmPopupHtml(cmp) {
+  const wrStr = cmp.winRate != null ? (cmp.winRate * 100).toFixed(1) + "%" : "-";
+  const annStr = cmp.annRet != null ? cmp.annRet.toFixed(2) + "%" : "-";
+  const shStr = cmp.sharpe != null ? cmp.sharpe.toFixed(2) : "-";
+  const mdStr = cmp.maxDD != null ? cmp.maxDD.toFixed(2) + "%" : "-";
+  let cardSec = "";
+  if (cmp.isBest || cmp.isStable) {
+    const bestTag = cmp.isBest ? ' <span class="lab-sigkelly-wm-aux lab-sigkelly-wm-aux-good">综合最佳</span>' : "";
+    const stableTag = cmp.isStable ? ' <span class="lab-sigkelly-wm-aux lab-sigkelly-wm-aux-good">最稳定</span>' : "";
+    cardSec =
+      `<div class="lab-sigkelly-wm-sec">` +
+        `<div class="lab-sigkelly-wm-sub">本卡成绩(全局${cmp.total}张卡互比)</div>` +
+        `<div class="lab-sigkelly-wm-li">综合分: <b>${cmp.bestScore.toFixed(3)}</b> · 全局第 <b>${cmp.bestRank}</b>/${cmp.total}${bestTag}</div>` +
+        `<div class="lab-sigkelly-wm-li">稳定分: <b>${cmp.stableScore.toFixed(3)}</b> · 全局第 <b>${cmp.stableRank}</b>/${cmp.total}${stableTag}</div>` +
+        `<div class="lab-sigkelly-wm-li">胜率 ${wrStr} · 年化 ${annStr} · 夏普 ${shStr} · 最大回撤 ${mdStr} · 有效模式 ${cmp.modeCount}/6</div>` +
+      `</div>`;
+  }
+  return (
+    `<div class="lab-sigkelly-wm-pop">` +
+      `<div class="lab-sigkelly-wm-pop-title">卡间比较水印说明</div>` +
+      `<div class="lab-sigkelly-wm-sec">` +
+        `<div class="lab-sigkelly-wm-sub">评级公式</div>` +
+        `<div class="lab-sigkelly-wm-li"><b>★综合最佳</b>: 综合分 = 胜率&times;35% + 年化收益&times;35% + 夏普&times;30%</div>` +
+        `<div class="lab-sigkelly-wm-li lab-sigkelly-wm-li-x">排除盈亏比(受样本数累积影响), 仅用比率指标</div>` +
+        `<div class="lab-sigkelly-wm-li"><b>◆最稳定</b>: 稳定分 = (1-最大回撤)&times;40% + 胜率&times;30% + 夏普&times;30%</div>` +
+        `<div class="lab-sigkelly-wm-li lab-sigkelly-wm-li-x">夏普替代收益波动率(无std字段), 夏普高=风险调整收益好=稳定</div>` +
+      `</div>` +
+      `<div class="lab-sigkelly-wm-sec">` +
+        `<div class="lab-sigkelly-wm-sub">计算口径</div>` +
+        `<div class="lab-sigkelly-wm-li">卡级指标 = 卡内6模式(A-F)均值, 先过滤 n&lt;30 模式防小样本虚高</div>` +
+        `<div class="lab-sigkelly-wm-li">全局 min-max 归一化: 16张卡跨组互比, 每指标归一到 0~1</div>` +
+        `<div class="lab-sigkelly-wm-li">越小越好指标(最大回撤)反转归一化</div>` +
+        `<div class="lab-sigkelly-wm-li">每周期选综合分最高1张 + 稳定分最高1张, 可同一张卡兼得</div>` +
+      `</div>` +
+      cardSec +
+    `</div>`
+  );
+}
+
 // 单象限卡片: 各卖出模式宽表(动态从 sell_modes 读取) + 跟单指引
 // 主表+进阶表合并为一张宽表(14列),details 折叠已移除常显;最大持仓显笔数+资金
-function _renderSigKellyCard(qk, q, period) {
+function _renderSigKellyCard(qk, q, period, cardCmp) {
   const periods = q.periods || {};
   // 费率客调: 如果有重算stats,用重算值替换原始stats(结构一致)
   const feeStats = state.labSigKellyFeeStats;
@@ -7746,8 +7885,17 @@ function _renderSigKellyCard(qk, q, period) {
       `</tr>`;
   }
   const wm = _sigKellyWatermark(pdata);
+  // 卡间比较水印(左上角): 蓝星综合最佳 + 紫菱最稳定, 不撞现有右上角三态水印
+  let cwmHtml = "";
+  if (cardCmp && (cardCmp.isBest || cardCmp.isStable)) {
+    let badges = "";
+    if (cardCmp.isBest) badges += `<span class="lab-sigkelly-cwm-badge lab-sigkelly-cwm-best">★综合最佳</span>`;
+    if (cardCmp.isStable) badges += `<span class="lab-sigkelly-cwm-badge lab-sigkelly-cwm-stable">◆最稳定</span>`;
+    cwmHtml = `<div class="lab-sigkelly-cwm" data-cwm="1">${badges}<div class="lab-sigkelly-wm-pop-wrap lab-sigkelly-cwm-pop-wrap" style="display:none">${_sigKellyCwmPopupHtml(cardCmp)}</div></div>`;
+  }
   return (
     `<div class="lab-sigkelly-card">` +
+      cwmHtml +
       (wm ? `<div class="lab-sigkelly-wm lab-sigkelly-wm-${wm.kind}" data-wm="1"><span class="lab-sigkelly-wm-badge">${wm.text}</span><div class="lab-sigkelly-wm-pop-wrap" style="display:none">${_sigKellyWmPopupHtml(wm)}</div></div>` : ``) +
       `<div class="lab-sigkelly-card-head">` +
         `<div class="lab-sigkelly-card-name">${q.label || qk}</div>` +

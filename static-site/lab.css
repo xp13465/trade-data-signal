@@ -1446,6 +1446,16 @@
 [data-theme="dark"] .lab-sigkelly-wm-aux-risk, [data-theme="redgold"] .lab-sigkelly-wm-aux-risk { color: #ffb070; }
 [data-theme="dark"] .lab-sigkelly-wm-aux-good, [data-theme="redgold"] .lab-sigkelly-wm-aux-good { color: #95de64; }
 @media (max-width: 760px) { .lab-sigkelly-wm { font-size: 10px; padding: 1px 6px; top: 4px; right: 6px; } }
+
+/* 卡间比较水印(左上角, 蓝/紫色系, 不撞现有右上角金/橙/灰三态) */
+.lab-sigkelly-cwm { position: absolute; top: 6px; left: 8px; z-index: 2; pointer-events: auto; cursor: help; display: flex; gap: 4px; }
+.lab-sigkelly-cwm-badge { opacity: 0.9; padding: 2px 7px; border-radius: 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; line-height: 1.3; white-space: nowrap; }
+.lab-sigkelly-cwm-best { background: rgba(29,78,216,0.14); color: #1d4ed8; border: 1px solid rgba(29,78,216,0.4); }
+.lab-sigkelly-cwm-stable { background: rgba(124,58,237,0.14); color: #7c3aed; border: 1px solid rgba(124,58,237,0.4); }
+[data-theme="dark"] .lab-sigkelly-cwm-best, [data-theme="redgold"] .lab-sigkelly-cwm-best { color: #7da8ff; background: rgba(59,130,246,0.18); border-color: rgba(59,130,246,0.45); }
+[data-theme="dark"] .lab-sigkelly-cwm-stable, [data-theme="redgold"] .lab-sigkelly-cwm-stable { color: #b899ff; background: rgba(139,92,246,0.18); border-color: rgba(139,92,246,0.45); }
+@media (max-width: 760px) { .lab-sigkelly-cwm { top: 4px; left: 6px; } .lab-sigkelly-cwm-badge { font-size: 10px; padding: 1px 6px; } }
+
 /* 组比较水印 hoverpop */
 .lab-sigkelly-wm-pop-wrap { position: absolute; z-index: 50; left: 0; top: 100%; margin-top: 4px; display: none; }
 .lab-sigkelly-wm-pop-wrap::before { content: ""; position: absolute; top: -4px; left: 0; right: 0; height: 4px; }

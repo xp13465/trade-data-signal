@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a84';  // bump a83->a84: 费率消耗列(总费率消耗+每笔费率消耗,随档切换实时更新)
+const CACHE_VERSION = 'v6-20260809-a85';  // bump a84->a85: 卡间比较水印(蓝★综合最佳+紫◆最稳定,全局16卡互比,左上角不撞现有三态)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
