@@ -1493,10 +1493,14 @@
 [data-theme="dark"] .lab-sigkelly-pos, [data-theme="redgold"] .lab-sigkelly-pos { color: #ff9c9a; }
 [data-theme="dark"] .lab-sigkelly-neg, [data-theme="redgold"] .lab-sigkelly-neg { color: #73d13d; }
 
-/* 跟单指引 */
-.lab-sigkelly-guidance { margin-top: 8px; padding: 6px 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; font-size: 11px; line-height: 1.6; color: var(--text-3); }
+/* 卖出模式说明 hoverpop(跟单指引从常驻 div 改 hover 弹出) */
+.lab-sigkelly-guide-trigger { font-size: 11px; color: var(--text-3); cursor: help; position: relative; border-bottom: 1px dashed var(--text-4); white-space: nowrap; }
+.lab-sigkelly-guide-trigger:hover { color: var(--text-1); }
+.lab-sigkelly-guide-pop-wrap { position: absolute; z-index: 50; left: 0; top: 100%; margin-top: 4px; display: none; }
+.lab-sigkelly-guide-pop-wrap::before { content: ""; position: absolute; top: -4px; left: 0; right: 0; height: 4px; }
 .lab-sigkelly-guide-item { padding: 1px 0; }
 .lab-sigkelly-guide-item b { color: var(--text-2); }
+@media (max-width: 760px) { .lab-sigkelly-guide-trigger { font-size: 10.5px; } }
 
 /* 可点击交易行 */
 .lab-sigkelly-trade-row { cursor: pointer; transition: background 0.15s; }

@@ -7100,6 +7100,8 @@ function _renderSigKellyQuadrants(host, data, period) {
   });
   // 组比较水印 hoverpop: 悬停/点击 badge 弹说明
   _bindSigKellyWmPop(host);
+  // 卖出模式说明 hoverpop: 悬停/点击"卖出模式说明❓"入口弹 A-F 说明
+  _bindSigKellyGuidePop(host);
 }
 
 // 绑定水印 hoverpop 事件(桌面 hover / 移动端 tap 切换)
@@ -7132,6 +7134,42 @@ function _bindSigKellyWmPop(host) {
     }, true);
     window.addEventListener("scroll", () => {
       document.querySelectorAll(".lab-sigkelly-wm-pop-wrap").forEach((p) => {
+        if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; }
+      });
+    }, { passive: true, capture: true });
+  }
+}
+
+// 绑定卖出模式说明 hoverpop(桌面 hover / 移动端 tap 切换), 复用水印 pop 的定位+关闭逻辑
+function _bindSigKellyGuidePop(host) {
+  const isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
+  host.querySelectorAll('.lab-sigkelly-guide-trigger[data-guide="1"]').forEach((trig) => {
+    const pop = trig.querySelector(".lab-sigkelly-guide-pop-wrap");
+    if (!pop) return;
+    let openByClick = false;
+    const show = () => { pop.style.display = "block"; _positionSigKellyWmPop(trig, pop); };
+    const hide = () => { pop.style.display = "none"; pop.style.left = ""; };
+    trig.addEventListener("mouseenter", () => { if (!openByClick) show(); });
+    trig.addEventListener("mouseleave", () => { if (!openByClick) hide(); });
+    trig.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (isTouch) {
+        openByClick = pop.style.display !== "block";
+        if (openByClick) show(); else hide();
+      }
+    });
+  });
+  // 移动端: 点别处/滚动关闭所有说明 pop(全局绑一次)
+  if (isTouch && !document._sigKellyGuideDocBound) {
+    document._sigKellyGuideDocBound = true;
+    document.addEventListener("click", (e) => {
+      if (e.target.closest && e.target.closest(".lab-sigkelly-guide-trigger")) return;
+      document.querySelectorAll(".lab-sigkelly-guide-pop-wrap").forEach((p) => {
+        if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; }
+      });
+    }, true);
+    window.addEventListener("scroll", () => {
+      document.querySelectorAll(".lab-sigkelly-guide-pop-wrap").forEach((p) => {
         if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; }
       });
     }, { passive: true, capture: true });
@@ -7254,6 +7292,7 @@ function _renderSigKellyCard(qk, q, period) {
   const modes = _sigKellyModeKeys();
   const modeLabels = _sigKellyModeLabels();
   const guidance = q.guidance || {};
+  const hasGuide = modes.some((m) => guidance[m]);
   let rows = "";
   for (const m of modes) {
     const r = pdata[m];
@@ -7304,16 +7343,23 @@ function _renderSigKellyCard(qk, q, period) {
       (wm ? `<div class="lab-sigkelly-wm lab-sigkelly-wm-${wm.kind}" data-wm="1"><span class="lab-sigkelly-wm-badge">${wm.text}</span><div class="lab-sigkelly-wm-pop-wrap" style="display:none">${_sigKellyWmPopupHtml(wm)}</div></div>` : ``) +
       `<div class="lab-sigkelly-card-head">` +
         `<div class="lab-sigkelly-card-name">${q.label || qk}</div>` +
-        `<div class="lab-sigkelly-card-desc">${q.desc || ""}</div>` +
+        `<div class="lab-sigkelly-card-desc">${q.desc || ""}` +
+        (hasGuide
+          ? ` <span class="lab-sigkelly-guide-trigger" data-guide="1">卖出模式说明❓` +
+              `<div class="lab-sigkelly-guide-pop-wrap" style="display:none">` +
+                `<div class="lab-sigkelly-wm-pop"><div class="lab-sigkelly-wm-pop-title">卖出模式说明</div>` +
+                modes.filter((m) => guidance[m]).map((m) => `<div class="lab-sigkelly-guide-item"><b>${m}:</b> ${guidance[m]}</div>`).join("") +
+                `</div>` +
+              `</div>` +
+            `</span>`
+          : ``) +
+        `</div>` +
       `</div>` +
       `<div class="lab-sigkelly-table-scroll">` +
       `<table class="lab-sigkelly-table lab-sigkelly-wide-table">` +
         `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th><th>最终盈亏</th><th>最大持仓<br>（动用资金）<br>收益率</th><th>最大持仓</th><th>持仓中</th><th>年化</th><th>夏普</th><th>最大回撤</th><th>卡尔玛</th></tr></thead>` +
         `<tbody>${rows}</tbody>` +
       `</table>` +
-      `</div>` +
-      `<div class="lab-sigkelly-guidance">` +
-        modes.filter((m) => guidance[m]).map((m) => `<div class="lab-sigkelly-guide-item"><b>${m}:</b> ${guidance[m]}</div>`).join("") +
       `</div>` +
     `</div>`
   );
