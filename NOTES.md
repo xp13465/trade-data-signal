@@ -8370,3 +8370,43 @@ board_etf_map.json(2b含similarity/max_err/grade/fund_type) -> queries.py etf_fo
 
 ### 五、待办
 - ①~~DB迁GitLab~~取消→**DB方案A定(不进git,只R2 signal-backup异地备份+本地双副本,sqlite二进制git diff无价值,GitLab需手机验证)** ②72h监控(阶段3-5已完成可启动)③docs/r2-deployment.md(R2部署文档8章节)④site-deployment.md R2部分补完整(当前标注迁移中)⑤reviewer P2清理(阶段3 4个P2+阶段4a 3个P2+阶段5 reviewer待出P2)
+
+## §48 小节BB：2026-08-08 晚 算法公示规范+方案A评估+三版本不同步根因+159335修复+凯利布局根因+R2回归审计（落档会话）
+
+### 一、§21 算法改动同步公示文案规范（已落档 CLAUDE.md commit 44166e13b push feat）
+- 算法逻辑改必须同步前端公示文案，验收必查公示同步。之前 CLAUDE.md 没这条规范，本次补上。
+- 触发场景：方案A 改 track_score 触发此规范（算法改了 track_score 权重，公示文案需同步）。
+- 历史教训：之前算法公示老版本与实施不同步（算法已改但前端公示文案还是旧版权重描述）。
+- 规范要点：算法改动（权重/公式/阈值/分级口径）→ 前端公示文案（弹窗/about/tooltip）必须同步更新 → 验收必查公示同步（grep 公示文案权重值与代码一致）。
+
+### 二、方案A评估结论（agent a6df2c061 完成，进度文件 /tmp/agent-progress-rank-optimize-eval.md）
+- **方案**：按 match_method 分层 IR 权重。间接匹配（holdings_overlap/sum_pct/overlap/kw）IR 权重 0% 转 R²+9%/TE+6%；直接匹配（track_index）保持 IR 15%。
+- **效果**：8/127 概念 top1 变化（6.3%），6 正 1 微弱负（-0.03% 纳斯达克100 几乎持平），平均 +4.84%，102 直接匹配概念不受影响。
+- **量子科技案例**：516630（return -0.15%）→ 159586（return +8.41%，概念指数 9.9% 更接近）。
+- **用户确认实施**，方案A实施 agent a935f4faab2656e2f 在跑。
+- **caveat**：原始基线含 16 个 LOF NaN 扰乱排序，幅度可能有偏差但方向准确（ir_s 主导）。
+
+### 三、三版本不同步根因（agent a348ba19f+a8592695 查清）
+- **三版本现状**：index detail R2 停版本2（29只，516000=42.6 第一）/ board_etf_map 版本3（27只，516630=35.2 第一）/ overview 版本1（16只）。
+- **根因**：d36126194（e层扩容）后跑 build_board_etf_map 生成版本3，但 deploy.sh/export.py 不含 simulate_trade，index detail 没联动重算停版本2。用户前端 hoverpop 读 index detail（R2 版本2）非 overview，所以看 43/516000 第一。
+- **不是缓存问题，是上线流程不完整**。根治 = deploy.sh 加 simulate_trade 联动步骤（aacfd843 在给方案）。
+
+### 四、159335 盈亏修复（agent a8592695 完成）
+- overview 线上 159335 return=2.33 已确认（ss.fx8.store/data/overview.json thsc_300830=27 ETFs）。
+- 但 index detail 仍版本2（用户前端数据源），需方案A实施 agent 重跑 simulate_trade 同步。
+- 2 个 null（519644/519929 场外基金无收盘价）非 bug。
+
+### 五、凯利布局根因+方案C（agent a7ed684d 完成，实施 ac71de961531182b7 在跑）
+- **根因**：.lab-sigkelly-card grid item 缺 min-width:0，14 列表格 intrinsic ~800px/卡，3列×800px=2400px 溢出视口（第3卡不见/第2卡截断）。
+- **方案C**：auto-fill + minmax(380px,1fr) + min-width:0，实施中。
+- commit 49c1f85ba 改 14 列宽表时遗漏 min-width:0。
+
+### 六、R2 新架构回归审计进行中
+- **aacfd843**（R2 一致性根治，5 方案）：①PURGE_SECRET 持久化 ②dataRewriteHandler 高频文件 no-store ③R2 上传失败阻断 ④board_etf_map 联动 overview ⑤edge cache purge 兜底。
+- **aaaeee58897b04b71**（端到端回归审计 5 维度）：生成链路/fetch 链路/多文件一致性/缓存策略/校验覆盖。
+- **a26cdf292774e1649**（查 R2 上线报告有无+算法公示位置）。
+- 审计完成落档 docs/ 为正式检查报告。
+
+### 七、当前在跑 agent 清单 + 活跃 cron
+- **在跑 agent**：a935f4faab2656e2f（方案A实施）/ aacfd843（R2一致性）/ aaaeee58897b04b71（R2审计）/ ac71de961531182b7（凯利修复）/ a26cdf292774e1649（R2报告+算法公示调研）。
+- **活跃 cron**：25864dd1（方案A）/ 62831903（R2一致性）/ cc17d336（R2审计）/ 7a2ef6b1（凯利）/ f7458571（R2报告调研）。
