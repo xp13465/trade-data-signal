@@ -15414,7 +15414,7 @@ function _bindEtfPopup(cell, etfs, isBuy, latestDate, sig, anchorSig) {
       _typeText = (_tl && _sl && _tl !== _sl) ? (_tl + "·" + _sl) : (_tl || _sl || "");
     }
     var _sigPrefix = anchorSig
-      ? (latestDate.slice(4,6) + "-" + latestDate.slice(6,8) + "点信号")
+      ? (latestDate.slice(4,6) + "-" + latestDate.slice(6,8) + "的信号")
       : "最近信号";
     sigLine = isBuy
       ? `<div class="etf-pop-sig etf-pop-sig-buy">${_sigPrefix} ${_typeText}(${latestDate})</div>`

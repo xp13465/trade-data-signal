@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a61';  // bump a60->a61: 信号文案分入口前缀(首页弹窗"{MM-DD}点信号"/指数表现"最近信号")+去"("前空格
+const CACHE_VERSION = 'v6-20260809-a62';  // bump a61->a62: 信号文案前缀"点信号"->"的信号"(用户纠正)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
