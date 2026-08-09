@@ -18647,7 +18647,7 @@ function _simSellWithFees(shares, close, etfCode, fp) {
 
 // Replay ledger with new fees -> recompute summary + equity_curve + ledger + rounds + open_positions
 // 3路径: 买固定1w+卖清仓(逐笔卖, sell_all) / 全仓进出(all_in) / 固定1w FIFO(fifo)
-function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfCode, fp, pathLabel, origSummary, origSlippage) {
+function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfCode, fp, pathLabel, origSummary, origSlippage, winStartDate, signalFirstDate, signalLastDate) {
   if (!ledger || !ledger.length) return null;
   var isAllIn = pathLabel.indexOf('全仓') >= 0;
   var isFifo = pathLabel.indexOf('FIFO') >= 0;
@@ -18655,7 +18655,12 @@ function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfC
   var positions = []; // {date, close, shares}
   var totalShares = 0;
   var newLedger = [];
-  var equityCurve = [{ date: ledger[0].date, value: initCap }];
+  // equity_curve start: backend uses w_start (if not None) or first_buy_date or last_date
+  // w_start is None when winStartDate === signalFirstDate (all window or window too early)
+  var equityStartDate = (winStartDate && signalFirstDate && winStartDate !== signalFirstDate)
+    ? winStartDate
+    : ledger[0].date;
+  var equityCurve = [{ date: equityStartDate, value: initCap }];
   var totalAssetsPeak = initCap, totalAssetsPeakDate = null;
   var maxHolding = 0, maxHoldingDate = null, maxHoldingTotal = 0;
   var drawdownPeak = initCap, maxDrawdown = 0, maxDrawdownDate = null;
@@ -18674,7 +18679,7 @@ function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfC
       if (budget <= 0) continue;
       var br = _simBuyWithFees(budget, close, etfCode, fp);
       cash -= budget;
-      positions.push({ date: e.date, close: close, shares: br.shares });
+      positions.push({ date: e.date, close: br.buyPrice, shares: br.shares });
       totalShares += br.shares;
       var hv = totalShares * close;
       var ta = cash + hv;
@@ -18740,11 +18745,34 @@ function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfC
   }
 
   // Final total (include open positions valued at last close)
-  var lastClose = ledger.length ? ledger[ledger.length - 1].close : 0;
+  // Derive last_close (last signal's close) for accurate final_total
+  // Backend uses last_close (last signal's close) which isn't in JSON
+  // Strategy: if last ledger entry is on signal_last_date, use its close (exact);
+  // otherwise derive from origSummary.final_holdings / origTotalShares (approximate)
+  var lastLedgerDate = ledger.length ? ledger[ledger.length - 1].date : null;
+  var lastClose;
+  if (lastLedgerDate && signalLastDate && lastLedgerDate === signalLastDate) {
+    lastClose = ledger[ledger.length - 1].close;
+  } else if (openPositions && openPositions.length > 0) {
+    var origTotalShares = 0;
+    for (var osi = 0; osi < openPositions.length; osi++) origTotalShares += openPositions[osi].shares;
+    if (origTotalShares > 0 && origSummary.final_holdings != null) {
+      lastClose = origSummary.final_holdings / origTotalShares;
+    } else {
+      lastClose = ledger.length ? ledger[ledger.length - 1].close : 0;
+    }
+  } else {
+    lastClose = ledger.length ? ledger[ledger.length - 1].close : 0;
+  }
   var finalHoldings = totalShares * lastClose;
   var finalTotal = cash + finalHoldings;
   var totalReturn = finalTotal - initCap;
   var totalReturnPct = totalReturn / initCap * 100;
+
+  // Add equity_curve end point at signal_last_date (matching backend: last_date with final_total)
+  if (signalLastDate && (equityCurve.length === 0 || equityCurve[equityCurve.length - 1].date !== signalLastDate)) {
+    equityCurve.push({ date: signalLastDate, value: Math.round(finalTotal * 100) / 100 });
+  }
 
   // Recompute rounds
   var newRounds = _simRecomputeRounds(rounds, posSize, etfCode, fp, isAllIn, initCap, origSlippage);
@@ -18814,7 +18842,7 @@ function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfC
       var buyBudget = isAllIn ? initCap : posSize;
       var profit = currentValue - buyBudget;
       newOpenPositions.push({
-        buy_date: np.date, buy_close: np.close, shares: Math.round(np.shares * 10000) / 10000,
+        buy_date: np.date, buy_close: Math.round(np.close * 100) / 100, shares: Math.round(np.shares * 10000) / 10000,
         pct: Math.round(pct * 100) / 100, current_value: Math.round(currentValue * 100) / 100,
         profit: Math.round(profit * 100) / 100
       });
@@ -18898,18 +18926,25 @@ function _simRecomputeRounds(rounds, posSize, etfCode, fp, isAllIn, initCap, ori
       if (isAllIn) cash = sr.net;
     }
 
-    var firstBuyClose = newSubRounds ? newSubRounds[0].buy_close : 0;
-    var firstSellClose = newSubRounds ? newSubRounds[0].sell_close : 0;
+    // Backend: parent round buy_close = round(sum(sold buy_close)/len(sold), 2) (average)
+    // sell_close = same for all sub_rounds (same sell date/close), use first
+    var avgBuyClose = 0, firstSellClose = 0;
+    if (newSubRounds && newSubRounds.length > 0) {
+      var sumBuyClose = 0;
+      for (var sbi = 0; sbi < newSubRounds.length; sbi++) sumBuyClose += newSubRounds[sbi].buy_close;
+      avgBuyClose = Math.round(sumBuyClose / newSubRounds.length * 100) / 100;
+      firstSellClose = newSubRounds[0].sell_close;
+    }
     var roundPct = totalAmountIn > 0 ? (totalAmountOut - totalAmountIn) / totalAmountIn * 100 : 0;
     newRounds.push({
-      buy_date: r.buy_date, buy_close: firstBuyClose || r.buy_close,
+      buy_date: r.buy_date, buy_close: avgBuyClose || r.buy_close,
       sell_date: r.sell_date, sell_close: firstSellClose || r.sell_close,
       hold_days: r.hold_days,
       pct: Math.round(roundPct * 100) / 100,
       amount_in: Math.round(totalAmountIn * 100) / 100,
       amount_out: Math.round(totalAmountOut * 100) / 100,
       profit: Math.round(totalProfit * 100) / 100,
-      _sub_rounds: newSubRounds && newSubRounds.length > 1 ? newSubRounds : undefined
+      _sub_rounds: newSubRounds || undefined
     });
   }
   return newRounds;
@@ -18929,7 +18964,7 @@ async function _simApplyFeeRecompute(feeParams) {
   // Load full data if not loaded
   if (!m.fullLoaded) {
     try {
-      m.fullData = _tradeSimFullCache[m.indexId] || await _simFetchFull(m.indexId);
+      m.fullData = _tradeSimFullCache[m.indexId] || await _tradeSimFetchFull(m.indexId);
       _tradeSimFullCache[m.indexId] = m.fullData;
       m.fullLoaded = true;
     } catch (e) {
@@ -18942,6 +18977,16 @@ async function _simApplyFeeRecompute(feeParams) {
 
   var result = { data: {} };
   result.data[win] = {};
+  // Find window start/end dates for equity_curve construction (matching backend)
+  var winMeta = null;
+  if (sd.windows) {
+    for (var wmi = 0; wmi < sd.windows.length; wmi++) {
+      if (sd.windows[wmi].k === win) { winMeta = sd.windows[wmi]; break; }
+    }
+  }
+  var winStartDate = winMeta ? winMeta.s : null;
+  var signalFirstDate = sd.signal_first_date || null;
+  var signalLastDate = sd.signal_last_date || null;
   for (var pi = 0; pi < sd.paths.length; pi++) {
     var pathLabel = sd.paths[pi];
     result.data[win][pathLabel] = {};
@@ -18952,16 +18997,12 @@ async function _simApplyFeeRecompute(feeParams) {
       if (!origNode || !fullNode) { result.data[win][pathLabel][scenLabel] = null; continue; }
       result.data[win][pathLabel][scenLabel] = _simRecomputeNode(
         fullNode.ledger, fullNode.rounds, fullNode.open_positions,
-        initCap, posSize, etfCode, feeParams, pathLabel, origNode.summary, origSlippage
+        initCap, posSize, etfCode, feeParams, pathLabel, origNode.summary, origSlippage,
+        winStartDate, signalFirstDate, signalLastDate
       );
     }
   }
   return result;
-}
-
-// Fetch full JSON (wrapper for lazy load during fee recompute)
-async function _simFetchFull(indexId) {
-  return await fetchJSON('https://ss.fx8.store/r2/trade_sim_data/trade_sim_' + encodeURIComponent(indexId) + '_full.json');
 }
 
 // Fee change handler
@@ -19144,6 +19185,7 @@ function _tradeSimModalRender(ov) {
     ? '费率: ' + _commRate + ' + ' + _slipRate + ' + ' + _transferFee + '（' + _minComm + '）' + _stampDuty
     : '费率: ' + _commRate + ' + ' + _slipRate + '（纯指数模拟, 无过户费）' + _stampDuty;
   var infoBar = '<div class="sim-info-bar">' + _targetText + ' ｜ ' + _feeText + '</div>';
+  var purposeNote = (typeof PURPOSE_NOTES !== 'undefined' && PURPOSE_NOTES["trade_sim"]) ? '<div class="purpose-note">' + PURPOSE_NOTES["trade_sim"] + '</div>' : '';
   var winData = sd.data[win][pathLabel][scenLabel];
   var fullNode = (m.fullLoaded && m.fullData && m.fullData.data[win] && m.fullData.data[win][pathLabel] && m.fullData.data[win][pathLabel][scenLabel]) || null;
   // 费率客调: 如有重算数据则覆盖 winData/fullNode
@@ -19233,7 +19275,7 @@ function _tradeSimModalRender(ov) {
   var gradId = 'tradeSimGrad_' + win + '_' + pathIdx + '_' + scenIdx;
   var panel = _tradeSimPanelHTML(winData, fullNode, indexName, initCap, gradId, etfCode);
   var feeBar = _simFeeBarHTML(sd);
-  body.innerHTML = viewTabs + infoBar + feeBar + winBar + cmpTable + mainTabs + '<div class="sim-path-group active">' + subTabs + panel + '</div>';
+  body.innerHTML = viewTabs + infoBar + purposeNote + feeBar + winBar + cmpTable + mainTabs + '<div class="sim-path-group active">' + subTabs + panel + '</div>';
   // 绑定视图切换（A10）+ 窗口切换
   body.querySelectorAll('.sim-view-tab[data-view]').forEach(function (btn) {
     btn.onclick = function () { m.view = btn.dataset.view; _tradeSimModalRender(ov); };

@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260810-a93';  // bump a92->a93: 模拟回测(trade_sim)费率5参数客调(同凯利模式),6档预设+自定义+快捷键0-4+C,前端replay ledger重算
+const CACHE_VERSION = 'v6-20260810-a94';  // bump a93->a94: reviewer FAIL fix - open_positions buy_close=br.buyPrice, equity_curve起点+末点, rounds buy_close平均值, _sub_rounds保留, trade_sim费率公示
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
