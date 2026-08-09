@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a59';  // bump a58->a59: 凯利回测#1 ETF筛选焦点丢失修复(_render后re-query新节点focus)+#2 signal_kelly_trades防双上传
+const CACHE_VERSION = 'v6-20260809-a60';  // bump a59->a60: 走势图弹窗相关ETF信号文案改"信号 {类型·子描述} (日期)"动态渲染
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

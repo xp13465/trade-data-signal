@@ -15333,7 +15333,7 @@ function _appendEtfLinkTag(cardEl, indexId, etfs, signals, anchorSig) {
   }
   // 绑定 popup：top1 点击复制 + 悬浮弹全部候选（按成交额降序，每行可复制）
   // task2：传 isBuy + latestDate，popup 标题行显示红黄判定 + 最近信号日期
-  _bindEtfPopup(target, etfs, isBuy, latestDate);
+  _bindEtfPopup(target, etfs, isBuy, latestDate, latest);
   // 2026-08-05 tag 后追加 top1 至今盈亏（有数据才显，走势图弹窗+指数卡均生效）
   // top1 = _topEtfByScore（track_score 降序），与 tag 展示/approx 标注一致
   // 2026-08-08 文案扩充：弹窗(传 anchorSig=信号本身)显"MM-DD的类别·子描述 至今 +X% (+Y)"；
@@ -15392,7 +15392,7 @@ function _positionEtfPopup(tag, popup) {
   popup.style.left = left + "px";
 }
 
-function _bindEtfPopup(cell, etfs, isBuy, latestDate) {
+function _bindEtfPopup(cell, etfs, isBuy, latestDate, sig) {
   if (!etfs || !etfs.length) return;
   const tag = cell.querySelector(".etf-tag");
   if (!tag) return;
@@ -15400,11 +15400,21 @@ function _bindEtfPopup(cell, etfs, isBuy, latestDate) {
   popup.className = "etf-popup";
   // task2：标题行下加红黄判定 + 最近信号日期，措辞明确"最近一条信号"非"当前"
   // 原 tag title 措辞"当前有买点信号"误导（实际=最新一条不限时间）；buy 类含 buy/buy_aux/buy_special/buy_special_filtered/buy_backup
+  // 2026-08-08：sigLine 改"信号 {类型·子描述} (日期)"动态渲染（如"信号 辅关注·下轨拐点 (20260729)"），
+  // 复用 _SIG_TYPE_META(typeLabel) + signalLabel(子描述) 同款逻辑（与 L15348-15353 pnl 文案一致）。
   var sigLine = "";
   if (latestDate) {
+    var _typeText = "";
+    if (sig) {
+      var _tk = (sig.reason || '').includes('波段减仓') ? 'band_sell' : (sig.signal === 'buy_special_filtered' ? 'buy_special' : sig.signal);
+      var _tm = _SIG_TYPE_META.find(m => m.key === _tk);
+      var _tl = _tm ? _t(_tm.labelKey) : (sig.signal || '');
+      var _sl = signalLabel(sig);
+      _typeText = (_tl && _sl && _tl !== _sl) ? (_tl + "·" + _sl) : (_tl || _sl || "");
+    }
     sigLine = isBuy
-      ? `<div class="etf-pop-sig etf-pop-sig-buy">🔴 最近买类信号(${latestDate})</div>`
-      : `<div class="etf-pop-sig etf-pop-sig-no">` + _t("etf_no_buy") + `(${latestDate})</div>`;
+      ? `<div class="etf-pop-sig etf-pop-sig-buy">信号 ${_typeText} (${latestDate})</div>`
+      : `<div class="etf-pop-sig etf-pop-sig-no">信号 ${_typeText} (${latestDate})</div>`;
     // 问题1: 明确关联信号日与盈亏, 提示候选行盈亏为自该信号日起至今
     sigLine += '<div style="font-size:11px;color:var(--text-3);padding:2px 0">以下盈亏 = 自该信号日起至今</div>';
   }
