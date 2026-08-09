@@ -17,7 +17,7 @@
 ## 2. 监管+loop(主控只派发,不亲自干活)
 - 主控只做三件事:①派发任务(含目标+约束+验收口径)②收子 agent 总结③逐字验证关键结论(grep/SQL/读代码,不信 agent 报告)
 - **调研/定位/分析问题也派子 agent**,不只派"实施"。主上下文不做 grep/Read/方案分析这些"调研活"
-- 用 Agent 工具派子 agent(**必须 `run_in_background: true`** + **派完立即 CronCreate 兜底**,见 §11;SendMessage 通知会丢,cron 兜底查进度文件 DONE+jsonl mtime 防傻等。标准方案待找根因迭代,见 §11)
+- 用 Agent 工具派子 agent(**必须 `run_in_background: true`** + **派完立即 CronCreate 兜底**,见 §11;SendMessage 通知会丢,cron 兜底查进度文件 DONE+jsonl mtime 防傻等。L0 notify.py 直达已实施,见 §11)
 - **派完立即返回控制权给用户,进入监工待命**——正文只交代"派了什么任务",然后停,不自己占着主控跑长任务。用户随时能插话更新需求,优先响应。同步 Agent 调用(不加 run_in_background)= 阻塞主控 ing 状态 = 用户插不上嘴 = 违规
 - 子 agent fresh context 跑,保持主上下文整洁省 token
 - 不问 yes/no("要我跑吗""要不要更新文档""要不要验"类自己定),自行验收连轴转
@@ -92,10 +92,10 @@
 - 绝不能 `git restore data/sentiment.db` / `git checkout -- data/sentiment.db`(若不慎重新 add)
 
 ## 11. 子agent卡死/429处理(主动轮询+唤醒+重派读遗留)
-- **通知机制三层:L1 SendMessage(主通道)+ L2 进度文件 DONE(证据)+ L3 cron 兜底**(2026-08-05 定,2026-08-08 校正定位):①agent prompt 末尾要求完成时 `SendMessage to: 'main', summary: '完成', message: '<结论摘要+关键验收点>'` + 进度文件写 `## DONE <结论>`(L1+L2)②**L3 cron 兜底**(派 agent 后立即设,不设=傻等):`durable:true`,每15分钟 `3,18,33,48`,prompt 查 `## DONE` + `stat -L` jsonl mtime(>600s 卡死)。DONE->落档 TASKS+推进;卡死->resume/重派;运行中->极简报。agent 处理完 CronDelete。2026-07-21 定10分钟(原3分钟太频繁),2026-08-08 用户改15分钟(省cron调用)
-- ⚠️ **cron 是兜底非标准方案**(2026-08-08 用户校正):15分钟才发现太慢,治标。**标准方案=找 SendMessage 丢失根因(见下)+ 迭代**,当前未完美靠积累。曾把 cron 当"标配"落档是错的(治标当治本)
-- ⚠️ **标准方案待找根因**(2026-08-08 定):SendMessage 丢失率近100%常态(8/8 2 reviewer ac0ed8a07/a8b63704+8/6 3 agent 全丢)。两假设:①agent 没调 SendMessage(sm_use=0 违规)②调了 harness 没送达。**验证:agent 完成时立即 grep SendMessage 查 jsonl** 区分。①则强化 prompt 或改 StructuredOutput 返回作完成信号;②则 harness 限制只能兜底+积累迭代。每次丢通知记录(agent类型/完成时点/主控状态)找规律
-- ✅ **稳定方案=主动通知,非兜底查(2026-08-08 用户定+调研结论 a47a7510)**:用户原话"兜底查既成本高还不及时,从主动通知入手"。**调研根因**:①SendMessage丢失率~100%(7%agent没调sm_use=0 + 调了没送达:231 enqueue仅154送达)②**主控消息队列是瓶颈**(680 enqueue仅313 dequeue=54%丢失,队列溢出旧消息remove,cron轮询消息竞争队列空间加剧)③task-notification agent stop_reason=end_turn触发含<result>结论(interrupt/429/killed不触发)④StructuredOutput不可行(Agent工具不支持schema)。**推荐方案**:①[最优]agent完成调notify.py(邮件/Telegram直达用户,绕过主控队列)+end_turn触发task-notification带result(备份)②[增强]launchd WatchPaths监听进度文件变化触发notify.py③[保留]cron15分钟兜底(最后保险)。实施:agent prompt加"完成调notify.py+end_turn退出",notify.py支持agent调用。调研完成待实施
+- **通知机制四层:L0 notify.py 直达(主方案)+ L1 SendMessage(备份)+ L2 进度文件 DONE(证据)+ L3 cron 兜底**(2026-08-05 定,2026-08-09 升级 L0):①agent prompt 末尾要求完成时 `python3 scripts/notify.py --agent-done <名> '<结论摘要>'` 发邮件直达用户(L0 主方案,绕过主控队列)+ `SendMessage to: 'main', summary: '完成', message: '<结论摘要+关键验收点>'`(L1 备份)+ 进度文件写 `## DONE <结论>`(L2 证据)②**L3 cron 兜底**(派 agent 后立即设,不设=傻等):`durable:true`,每15分钟 `3,18,33,48`,prompt 查 `## DONE` + `stat -L` jsonl mtime(>600s 卡死)。DONE->落档 TASKS+推进;卡死->resume/重派;运行中->极简报。agent 处理完 CronDelete。2026-07-21 定10分钟(原3分钟太频繁),2026-08-08 用户改15分钟(省cron调用)
+- ⚠️ **cron 是兜底非主方案**(2026-08-08 用户校正,2026-08-09 L0 已实施):15分钟才发现太慢,治标。**L0 notify.py 直达已实施(主方案)**,cron 仍保留作最后保险。曾把 cron 当"标配"落档是错的(治标当治本),现已升级 L0 主动通知
+- ⚠️ **标准方案=主动通知(2026-08-09 已实施)**:SendMessage 丢失率近100%常态(8/8 2 reviewer ac0ed8a07/a8b63704+8/6 3 agent 全丢)。根因=主控消息队列瓶颈(680 enqueue 仅 313 dequeue=54% 丢失,队列溢出旧消息 remove,cron 轮询消息竞争队列空间)。**已实施 L0 notify.py 直达**:agent 完成调 `python3 scripts/notify.py --agent-done <名> <摘要>` 发邮件绕过主控队列,5min 去重防轰炸(see §16)。cron 兜底仍保留(L3 最后保险)。SendMessage 仍丢失率高但作 L1 备份
+- ✅ **稳定方案=主动通知,非兜底查(2026-08-08 用户定+调研结论 a47a7510,2026-08-09 已实施)**:用户原话"兜底查既成本高还不及时,从主动通知入手"。**调研根因**:①SendMessage丢失率~100%(7%agent没调sm_use=0 + 调了没送达:231 enqueue仅154送达)②**主控消息队列是瓶颈**(680 enqueue仅313 dequeue=54%丢失,队列溢出旧消息remove,cron轮询消息竞争队列空间加剧)③task-notification agent stop_reason=end_turn触发含<result>结论(interrupt/429/killed不触发)④StructuredOutput不可行(Agent工具不支持schema)。**推荐方案**:①[最优]agent完成调notify.py(邮件/Telegram直达用户,绕过主控队列)+end_turn触发task-notification带result(备份)②[增强]launchd WatchPaths监听进度文件变化触发notify.py③[保留]cron15分钟兜底(最后保险)。**已实施①**:notify.py 加 `notify_agent_done()` 函数 + CLI `--agent-done` 支持,agent prompt 规范加完成通知指令(§16)。Telegram 未配置暂仅邮件
 - ⚠️ **2026-08-08 教训(cron 不设致傻等+状态不一致)**:§11 原把 cron 描述为"极端丢时才用"兜底,致派 agent 后不设 cron(CronList 空)纯等 SendMessage->傻等+用户来问+状态不一致。修复:派 agent 同步设 cron 兜底(虽非标准但必设防傻等),同时找根因迭代标准方案
 - 派agent的prompt要求写进度文件:**每完成一步立即echo**(每个grep/Edit都回写,不是每大步骤;2026-07-15 a194f曾只写"开始"641秒不回写致盲区),echo到 `/tmp/agent-progress-<名>.md`,主控Bash查(轻量不overflow),不依赖jsonl(大)/通知(会丢)/返回(可能429空)任一渠道
 - **卡死**(jsonl mtime>900秒没动,15分钟轮询阈值):先SendMessage试唤醒原会话(成本低,agent可能卡在长工具如grep/curl没退出,SendMessage排队等它下轮处理),下次轮询(15分钟)仍卡死=进程已死,重派新会话
@@ -172,16 +172,17 @@
 - **角色可兼任**:小任务一个 agent 调研+实施;大任务拆多角色(实施->reviewer->测试流水线)
 
 ### 通知与兜底机制(§11 细节,本节总览)
-- **L1 主动通知**:agent 完成 `SendMessage to: 'main'`(harness 自动送达,但**丢失率近 100% 常态,不可单靠**)+ 进度文件写 `## DONE <结论>`(L2)。prompt 末尾要求这两个动作
+- **L0 notify.py 直达(主方案,2026-08-09 实施)**:agent 完成时调 `python3 scripts/notify.py --agent-done <名> <结论摘要>` 发邮件直达用户,绕过主控消息队列(SendMessage 丢失率~100% 根因=主控队列瓶颈 680 enqueue 仅 313 dequeue=54% 丢失)。5min 去重防 agent 反复 came to rest 轰炸。Telegram 未配置时仅邮件。agent prompt 末尾要求此动作
+- **L1 SendMessage(备份)**:agent 完成 `SendMessage to: 'main'`(harness 自动送达,但**丢失率近 100% 常态,不可单靠**)+ 进度文件写 `## DONE <结论>`(L2)。prompt 末尾要求这两个动作
 - **L2 进度文件**:agent 每步 echo 回写 `/tmp/agent-progress-<名>.md`(每个 grep/Edit 都回写,非每大步骤),完成写 `## DONE <结论>`,主控 Bash 查(轻量不 overflow)
-- **L3 cron 兜底**(2026-08-08,非标准方案是兜底):派 agent 后立即 CronCreate(`durable:true`,每15分钟 `3,18,33,48` 避 :00/:30),prompt 查进度文件 `## DONE` + `stat -L` jsonl mtime(非 .output symlink,symlink mtime 不准会误判卡死)。DONE->落档 TASKS+推进;卡死->resume/重派;运行中->极简报。agent 处理完 CronDelete。**不设 cron 纯等 SendMessage=傻等**(8/8 教训)。⚠️ cron 是兜底非标准方案,标准方案=找 SendMessage 丢失根因+迭代(见 §11)
+- **L3 cron 兜底**(2026-08-08,兜底非主方案):派 agent 后立即 CronCreate(`durable:true`,每15分钟 `3,18,33,48` 避 :00/:30),prompt 查进度文件 `## DONE` + `stat -L` jsonl mtime(非 .output symlink,symlink mtime 不准会误判卡死)。DONE->落档 TASKS+推进;卡死->resume/重派;运行中->极简报。agent 处理完 CronDelete。**不设 cron 纯等 SendMessage=傻等**(8/8 教训)。L0 notify.py 直达已实施(主方案),cron 仍保留作最后保险(见 §11)
 - **卡死**(jsonl mtime>900秒没动):先 SendMessage 唤醒原会话(成本低,可能卡在长工具没退出)-> 下次轮询仍卡死=进程已死,重派新会话读遗留(`/tmp/agent-progress-*` + 工作区半成品)接着做,避免从头返工
 - **429 配额失败**:配额恢复后**优先 SendMessage resume 原会话**(保留上下文比重派高效);resume 不响应/状态乱才重派。底线:不重复犯错(曾误判 429 原会话终止重派从头,浪费已查上下文)
 - **came to rest**(agent 完成一阶段停了等指令,非卡死非429):可随时 SendMessage 推进,不严格等480秒
 - **默认持久化**(§7):CronCreate 默认 durable:true;长任务进度落 git(`.superpowers/sdd/progress.md` 或 NOTES/TASKS)非 /tmp(/tmp 重启丢)
 
 ### agent prompt 写作规范
-- **必含**:目标 + 约束(引用 CLAUDE.md 章节不重复全文,§4 减 token)+ 验收口径 + 上线流程(如适用)+ 进度文件路径 + 完成时 SendMessage to 'main'
+- **必含**:目标 + 约束(引用 CLAUDE.md 章节不重复全文,§4 减 token)+ 验收口径 + 上线流程(如适用)+ 进度文件路径 + 完成时四层通知(见 §11):①`python3 scripts/notify.py --agent-done <名> '<结论摘要>'` 发邮件直达用户(L0 主方案,绕过主控队列)②end_turn 退出触发 task-notification 带 result(harness 自动,备份)③`SendMessage to: 'main', summary: '完成', message: '<结论摘要>'`(L1 备份)④进度文件写 `## DONE <结论>`(L2 证据)
 - **约束引用**:"见 §8/§14" 而非重述全文;只写本次任务特有约束
 - **禁止图片操作**(§13):模型只文本,Read 图片触发 400 终止 agent;需视觉验证用文字+ASCII 示意图或让用户看
 - commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
@@ -205,7 +206,7 @@
   5. agent 误报 trade/trade-data 混淆未识破(防:agent 关键结论 §0 验,尤其路径/文件数类)
   6. cherry-pick 撞冲突 + 干扰后台 agent(防:切分支/checkout 前 CronList + 查后台 agent 是否改文件)
   7. hoverpop 方案试错(防:方案先调研充分再实施,不边试边改)
-- **通知丢失标准方案(迭代中)**:见 §11。cron 兜底,标准方案=找 SendMessage 丢失根因(两假设 + 查 jsonl 验证)+ 积累场景迭代。当前未完美
+- **通知丢失标准方案(已实施 L0)**:见 §11。L0 notify.py 直达(agent完成调 `python3 scripts/notify.py --agent-done <名> <摘要>` 发邮件绕过主控队列,5min去重),cron 兜底保留作最后保险
 - **2026-08-08 会话级总结追加(ETF信号灯+hoverpop+lowconf+拆档阶段,5条新过错)**:
   8. ETF拆档 null 归属理解错(根因:主控把 null/N<30 极弱归入"概念无ETF"档,但"概念无ETF"=真无任何ETF匹配,null/N<30=有ETF但数据不足算出极弱分,两者语义不同;用户纠正 null 有ETF算得出分应归"有跟踪ETF"档。防:归属/分类前复述口径让用户确认,不靠语义猜测"无数据=无ETF")
   9. hoverpop"无数据"调研误判(根因:调研agent说"signal-tier没铺到hoverpop用老逻辑",实际前端三处都已用_etfLightInfo接track_tier,真因是数据产物不一致(R2 index-all旧'none' vs overview新null)+前端文案L1553 null->"无数据"应"极弱"。防:调研下结论前深入到数据产物层验证(R2旧版vs新版字段值差异),不只看代码逻辑分支;调研结论"没铺到/老逻辑"类要 grep 验证再报)

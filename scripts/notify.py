@@ -12,6 +12,8 @@
 用法（CLI）:
   notify.py <subject> <body> [--severe] [--alert-issue <issue> [--alert-log <path>]]
              [--from-prefix <prefix>] [--dry-run]
+  notify.py --agent-done <name> <summary> [--dry-run]
+             （agent 完成通知：发邮件直达用户绕过主控队列，5min 去重防轰炸）
 
   --severe          2026-07-20 改造：仅用于 write_alert 语义标记（SEVERE_PREFIX 已置空串，
                     subject 前缀由调用方控制，统一 [告警]/[完成]/[恢复] 模板）。
@@ -373,16 +375,68 @@ def update_dedup(key: str) -> None:
         print(f"[notify][dedup] 更新失败(不影响本次发送)：{e}", file=sys.stderr)
 
 
+def notify_agent_done(agent_name: str, summary: str, dry_run: bool = False) -> dict:
+    """agent 完成通知：发邮件(+Telegram 若配置)直达用户，绕过主控消息队列。
+
+    主控消息队列瓶颈（680 enqueue 仅 313 dequeue=54% 丢失）致 SendMessage/
+    task-notification 丢失率高。本函数直接调 send() 发邮件/TG 到用户，不经过主控队列。
+
+    去重：同一 agent 5 分钟(300s)内不重复发（dedup_key=agent_done_<name>），
+    防 agent 反复 came to rest 多次完成通知轰炸。
+
+    参数：
+      agent_name: agent 名称（如 "notify-research"）
+      summary: 完成结论摘要（纯文本，会转 HTML 发送）
+      dry_run: True 只 print 不真发
+
+    返回 {"email": bool, "telegram": bool}（suppress 时额外含 "suppressed": True）。
+    """
+    dedup_key = f"agent_done_{agent_name}"
+    dedup_window = 300  # 5 分钟内同一 agent 不重复发
+
+    # 去重检查
+    if not dry_run and check_dedup(dedup_key, dedup_window):
+        print(f"[notify][agent-done] suppress {agent_name} 5min 内已发过", file=sys.stderr)
+        return {"email": False, "telegram": False, "suppressed": True}
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    subject = f"\U0001f916 agent {agent_name} 完成"
+    body = f"""<div style="font-family: monospace; white-space: pre-wrap;">
+<b>\U0001f916 Agent 完成通知</b>
+时间：{now}
+Agent：{agent_name}
+
+结论摘要：
+{summary}
+
+---
+本通知由 notify.py notify_agent_done() 直发，绕过主控消息队列。
+</div>"""
+
+    results = send(subject, body, dry_run=dry_run, from_prefix="[完成]")
+
+    # 发送后更新 dedup（无论成败，已尝试即更新）
+    if not dry_run:
+        update_dedup(dedup_key)
+
+    return results
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="update_all 监控通知（邮件 + Telegram + alerts 文件）"
     )
-    parser.add_argument("subject", help="主题")
-    parser.add_argument("body", help="正文（HTML，邮件原样发送；Telegram 转纯文本）")
+    parser.add_argument("subject", help="主题（--agent-done 模式下为结论摘要）")
+    parser.add_argument("body", nargs="?", default="", help="正文（HTML，邮件原样发送；Telegram 转纯文本）。"
+                        "--agent-done 模式下可省略")
     parser.add_argument("--severe", action="store_true",
                         help="严重标记：用于 write_alert 语义（2026-07-20 改造：不再修改 subject 前缀）")
     parser.add_argument("--alert-issue", help="写 data/alerts/latest.md，值为问题一句话")
     parser.add_argument("--alert-log", help="配合 --alert-issue，日志文件路径")
+    parser.add_argument("--agent-done", metavar="NAME", default=None,
+                        help="agent 完成通知模式：NAME=agent 名，subject=结论摘要。"
+                             "发邮件(+TG)直达用户绕过主控队列，5min 去重防轰炸。"
+                             "用于解决 SendMessage/task-notification 丢失率高的问题")
     parser.add_argument("--dedup-key", help="去重 key：同 key 在 --dedup-window 秒内不重发（suppress 静默退出 0）。"
                         "用于 intraday 等 15min 周期任务防 R2 偶发失败轰炸（写入 data/notify_dedup.json）")
     parser.add_argument("--dedup-window", type=int, default=1800, help="去重窗口秒数（默认 1800=30min）")
@@ -391,6 +445,20 @@ def main(argv: list[str] | None = None) -> int:
                         help="邮件发件人名前缀（如 [告警]/[完成]/[恢复]）；"
                              "None/空=默认 '信号实验室监控'，非空 -> '<prefix> 信号实验室'")
     args = parser.parse_args(argv)
+
+    # agent 完成通知模式：subject=结论摘要，直达用户绕过主控队列
+    if args.agent_done:
+        results = notify_agent_done(args.agent_done, args.subject, dry_run=args.dry_run)
+        if results.get("suppressed"):
+            return 0
+        ok = [ch for ch, v in results.items() if v]
+        fail = [ch for ch, v in results.items() if not v and ch != "suppressed"]
+        if ok:
+            print(f"[notify][agent-done] 汇总：已发出 {'/'.join(ok)}"
+                  + (f"（未发出：{'/'.join(fail)}）" if fail else ""), file=sys.stderr)
+        else:
+            print(f"[notify][agent-done] 汇总：全部渠道未发出（{'/'.join(fail) or '无渠道'}）", file=sys.stderr)
+        return 0
 
     # 去重检查：window 内已告警过则 suppress 静默退出（返回 0，不阻塞调用方）
     # dry-run 不走去重（测试用，需看到发送日志）
