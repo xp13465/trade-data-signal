@@ -7115,7 +7115,8 @@ function _renderSigKellyCard(qk, q, period) {
     const tp = r.total_profit || 0;
     const tpStr = (tp >= 0 ? "+" : "") + tp.toFixed(0);
     // 最大持仓收益率 = 最终盈亏 / 峰值占用资金
-    const rmh = r.return_pct_max_holding != null ? r.return_pct_max_holding.toFixed(2) + "%" : "-";
+    const rmhVal = r.return_pct_max_holding;
+    const rmh = rmhVal != null ? rmhVal.toFixed(2) + "%" : "-";
     // 最大持仓: 笔数(max_concurrent) + 资金(max_concurrent_capital),笔数加粗显眼
     const mc = r.max_concurrent || 0;
     const mcc = r.max_concurrent_capital || 0;
@@ -7134,7 +7135,7 @@ function _renderSigKellyCard(qk, q, period) {
         `<td class="lab-sigkelly-hk"><span class="lab-kelly-tier ${tierCls}">${hk.toFixed(1)}%</span><span class="lab-sigkelly-tier">${tier}</span></td>` +
         `<td>${wr}</td><td>${plStr}</td><td>${mr}</td><td>${nStr}</td>` +
         `<td class="${tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${tpStr}</td>` +
-        `<td class="lab-sigkelly-rmh">${rmh}</td><td class="lab-sigkelly-mc">${mcStr}</td><td class="lab-sigkelly-holding">${hcStr}</td><td>${ann}</td>` +
+        `<td class="lab-sigkelly-rmh ${rmhVal == null ? "" : (rmhVal >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg")}">${rmh}</td><td class="lab-sigkelly-mc">${mcStr}</td><td class="lab-sigkelly-holding">${hcStr}</td><td>${ann}</td>` +
         `<td>${sh}</td><td>${md}</td><td>${cm}</td>` +
       `</tr>`;
   }
@@ -7146,7 +7147,7 @@ function _renderSigKellyCard(qk, q, period) {
       `</div>` +
       `<div class="lab-sigkelly-table-scroll">` +
       `<table class="lab-sigkelly-table lab-sigkelly-wide-table">` +
-        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th><th>最终盈亏</th><th>最大持仓<br>（动用资金）<br>收益率</th><th>最大持仓</th><th>持仓中</th><th>年化</th><th>夏普</th><th>最大回撤</th><th>卡尔玛</th></tr></thead>` +
+        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th><th>最终盈亏</th><th>总收益率</th><th>最大持仓</th><th>持仓中</th><th>年化</th><th>夏普</th><th>最大回撤</th><th>卡尔玛</th></tr></thead>` +
         `<tbody>${rows}</tbody>` +
       `</table>` +
       `</div>` +
