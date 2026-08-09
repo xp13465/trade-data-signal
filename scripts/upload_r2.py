@@ -16,7 +16,7 @@
   python3 scripts/upload_r2.py upload-claude-backup [path] # Claude 自我备份 tar.gz -> signal-backup/claude-backup/
   python3 scripts/upload_r2.py download-db <name> [dir]   # 下载最新备份(解压后.db路径到stdout)
 """
-import os, sys, re, hashlib, hmac, http.client, datetime, ssl, json
+import os, sys, re, hashlib, hmac, http.client, datetime, ssl, json, time
 from pathlib import Path
 from urllib.parse import urlparse, quote
 
@@ -592,6 +592,11 @@ def purge_cache(r2_keys, cache_prefix="/"):
     故 keyPath 需与 Handler 写缓存时 cacheKey 的 pathname 一致（含 /r2/ 前缀）。
     读 PURGE_SECRET env var（trade-data/.env）。Worker 侧需 wrangler secret put PURGE_SECRET。
     失败不中断上传流程（purge 是次要操作，上传是主要操作）。
+
+    分批 purge（2026-08-09 定）：Worker purgeCacheHandler 串行 await caches.default.delete
+    遍历所有 keys，一次性发 400+ keys 致 Worker 超时 500（CPU/wall time 限制）。
+    分批发送，每批 PURGE_BATCH_SIZE 个 keys，批间 sleep PURGE_BATCH_SLEEP 秒，
+    每批独立 POST 请求，避免单请求 key 数过多触发 Worker 超时。
     """
     secret = os.environ.get("PURGE_SECRET", "")
     if not secret:
@@ -613,22 +618,67 @@ def purge_cache(r2_keys, cache_prefix="/"):
             except Exception as e:
                 print(f"⚠ notify 告警发送失败（不阻塞）：{e}")
         return
+
     cache_keys = [cache_prefix + k for k in r2_keys]  # 如 "/data/x" 或 "/r2/industry/x"
-    body = json.dumps({"secret": secret, "keys": cache_keys}).encode()
-    conn = http.client.HTTPSConnection("ss.fx8.store", timeout=10, context=_CTX)
-    try:
-        conn.request("POST", "/api/purge-cache", body=body,
-                     headers={"Content-Type": "application/json"})
-        resp = conn.getresponse()
-        data = resp.read().decode()
-        if resp.status == 200:
-            print(f"✓ Cache purged: {data}")
-        else:
-            print(f"⚠ Cache purge failed: {resp.status} {data[:200]}")
-    except Exception as e:
-        print(f"⚠ Cache purge 异常: {type(e).__name__}: {e}")
-    finally:
-        conn.close()
+    if not cache_keys:
+        print("ℹ 无需 purge 的 cache keys（空列表）")
+        return
+
+    # 分批 purge：每批 N 个 keys，避免单请求 key 数过多致 Worker 超时 500。
+    # Worker purgeCacheHandler 串行 await caches.default.delete，400+ keys 超 Worker 时限。
+    # 实测手动 purge 3 keys 成功(200 purged=3)，400+ 一次性 purge 超时 500。
+    PURGE_BATCH_SIZE = 30   # 每批 keys 数（20-50 安全区间，避免 Worker 超时）
+    PURGE_BATCH_SLEEP = 0.5  # 批间 sleep 秒（避免连续 POST 撞 CF 限流）
+
+    total_keys = len(cache_keys)
+    batches = [cache_keys[i:i + PURGE_BATCH_SIZE]
+               for i in range(0, total_keys, PURGE_BATCH_SIZE)]
+    total_batches = len(batches)
+    total_purged = 0
+    failed_batches = 0
+
+    print(f"→ Cache purge 分批: {total_keys} keys / {total_batches} 批 "
+          f"(每批 {PURGE_BATCH_SIZE} keys, 间隔 {PURGE_BATCH_SLEEP}s)")
+
+    for idx, batch in enumerate(batches, 1):
+        body = json.dumps({"secret": secret, "keys": batch}).encode()
+        conn = http.client.HTTPSConnection("ss.fx8.store", timeout=30, context=_CTX)
+        try:
+            conn.request("POST", "/api/purge-cache", body=body,
+                         headers={"Content-Type": "application/json"})
+            resp = conn.getresponse()
+            data = resp.read().decode()
+            if resp.status == 200:
+                # 解析 {purged: N, total: M} 累计进度
+                try:
+                    j = json.loads(data)
+                    purged = j.get("purged", len(batch))
+                except Exception:
+                    purged = len(batch)
+                total_purged += purged
+                print(f"  ✓ 批次 {idx}/{total_batches}: purged={purged} "
+                      f"(累计 {total_purged}/{total_keys})")
+            else:
+                failed_batches += 1
+                print(f"  ⚠ 批次 {idx}/{total_batches} failed: "
+                      f"{resp.status} {data[:200]}")
+        except Exception as e:
+            failed_batches += 1
+            print(f"  ⚠ 批次 {idx}/{total_batches} 异常: "
+                  f"{type(e).__name__}: {e}")
+        finally:
+            conn.close()
+        # 批间 sleep（最后一批不 sleep）
+        if idx < total_batches:
+            time.sleep(PURGE_BATCH_SLEEP)
+
+    # 汇总
+    if failed_batches == 0:
+        print(f"✓ Cache purge 完成: 全部 {total_batches} 批成功, "
+              f"共 purged {total_purged}/{total_keys} keys")
+    else:
+        print(f"⚠ Cache purge 部分失败: {failed_batches}/{total_batches} 批失败, "
+              f"已 purged {total_purged}/{total_keys} keys（edge cache 部分残留）")
 
 
 def cmd_upload_all_data():
