@@ -494,8 +494,13 @@ def check_signal_kelly_backtest(data_dir: Path) -> CheckResult:
     if not isinstance(quadrants, dict):
         return _fail(name, "无 quadrants 字段或不是 dict")
 
-    expected_quads = {"rating_high", "rating_mid", "rating_low",
-                      "etf_strong", "etf_related", "etf_approx", "etf_has_track"}
+    # 16 象限: 同步 QUADRANT_META (scripts/signal_kelly_backtest.py L71)，新增象限时此处同步
+    expected_quads = {
+        "rating_high", "rating_mid", "rating_low",                       # 评级档 (3)
+        "etf_strong", "etf_related", "etf_approx", "etf_has_track",      # ETF 跟踪档 (4)
+        "sig_main", "sig_aux", "sig_special", "sig_backup",              # 信号类型 (4)
+        "mkt_a", "mkt_hk", "mkt_global", "mkt_industry", "mkt_concept",  # 指数大类 (5)
+    }
     missing = expected_quads - set(quadrants.keys())
     if missing:
         return _fail(name, f"缺少象限: {missing}")

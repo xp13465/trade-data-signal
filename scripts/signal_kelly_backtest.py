@@ -467,7 +467,7 @@ def _annualized_return(total_return_pct, period_key, trades):
 
 
 def _guidance(quad_key, mode_key):
-    """跟单操作指引: 看到X信号 -> 信号日收盘买1000元Y类型ETF -> 持有Z天或W%止盈卖出。"""
+    """跟单操作指引: 看到X信号 -> 信号日收盘买10000元Y类型ETF -> 持有Z天或W%止盈卖出。"""
     quad_label = QUADRANT_META[quad_key]["label"]
     mode_def = SELL_MODES[mode_key]
     hd = mode_def["hold_days"]
@@ -805,7 +805,7 @@ def main():
     trades_path = args.trades_output or os.path.join(os.path.dirname(output_path), "signal_kelly_trades.json")
 
     print("=" * 60)
-    print("信号凯利回测: 7象限 × 6模式 × 5周期")
+    print("信号凯利回测: 16象限 × 6模式 × 5周期")
     print(f"ROOT = {ROOT}")
     print(f"输出 = {output_path}")
     print(f"交易记录 = {trades_path}")
