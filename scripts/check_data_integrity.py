@@ -477,9 +477,10 @@ def check_etf_index_map(repo_data_dir: Path) -> CheckResult:
 
 
 def check_signal_kelly_backtest(data_dir: Path) -> CheckResult:
-    """校验 signal_kelly_backtest.json：7象限×5周期×6模式=210组合完整。
+    """校验 signal_kelly_backtest.json：象限×5周期×6模式组合完整。
 
     事故场景：脚本异常/ETF价格缺失 -> quadrants 为空或组合不完整 -> 前端 lab tab 全空。
+    象限数随版本演进(7->16, 2026-08-09 加信号类型4+指数大类5)，动态计算非硬编码。
     """
     name = "signal_kelly_backtest"
     path = data_dir / "signal_kelly_backtest.json"
@@ -499,12 +500,14 @@ def check_signal_kelly_backtest(data_dir: Path) -> CheckResult:
     if missing:
         return _fail(name, f"缺少象限: {missing}")
 
-    # 验证 7×5×6=210 组合完整 + 非零象限有样本
+    # 验证 所有象限×5周期×6模式组合完整 + 非零象限有样本
     total_n = 0
     empty_quads = []
+    n_quads = 0
     for qk, qv in quadrants.items():
         if not isinstance(qv, dict) or "periods" not in qv:
             return _fail(name, f"象限 {qk} 结构异常")
+        n_quads += 1
         periods = qv["periods"]
         if not isinstance(periods, dict) or set(periods.keys()) != {"y1", "y3", "y5", "y10", "all"}:
             return _fail(name, f"象限 {qk} 周期不完整: {set(periods.keys()) if isinstance(periods, dict) else 'N/A'}")
@@ -522,7 +525,8 @@ def check_signal_kelly_backtest(data_dir: Path) -> CheckResult:
     if total_n == 0:
         return _fail(name, "所有象限所有组合样本数=0（脚本异常或数据缺失）")
 
-    msg = f"210组合完整, all/A 总样本={total_n}"
+    n_combos = n_quads * 5 * 6
+    msg = f"{n_quads}象限×5周期×6模式={n_combos}组合完整, all/A 总样本={total_n}"
     if empty_quads:
         msg += f", 零样本象限: {empty_quads}"
     return _ok(name, msg)

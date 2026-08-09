@@ -7049,7 +7049,7 @@ function _renderSigKellyBar(bar, data, period) {
   bar.innerHTML =
     `<div class="lab-sigkelly-periods">${tabsHTML}</div>` +
     `<div class="lab-sigkelly-params">` +
-      `<span>买${cfg.buy_amount || 1000}元 · 卖出模式 ${modeStr}</span>` +
+      `<span>买${cfg.buy_amount || 10000}元 · 卖出模式 ${modeStr}</span>` +
       `<span class="lab-sigkelly-gen">📅 生成: ${data.generated_at || "-"}</span>` +
     `</div>`;
   bar.querySelectorAll(".lab-sigkelly-period-btn").forEach((btn) => {
@@ -7064,12 +7064,14 @@ function _renderSigKellyBar(bar, data, period) {
   });
 }
 
-// 6象限卡片网格(2组: 评级3 + ETF3)
+// 16象限卡片网格(4组: 评级3 + ETF4 + 信号类型4 + 指数大类5)
 function _renderSigKellyQuadrants(host, data, period) {
   const quads = data.quadrants || {};
   const groups = [
     { title: "按信号评级分组(10d score 评级)", keys: ["rating_high", "rating_mid", "rating_low"] },
     { title: "按 ETF 跟踪评分分组(track_tier 归类)", keys: ["etf_strong", "etf_related", "etf_approx", "etf_has_track"] },
+    { title: "按信号类型分组(主/辅/追/备关注)", keys: ["sig_main", "sig_aux", "sig_special", "sig_backup"] },
+    { title: "按指数大类分组(宽基/港股/全球/行业/概念)", keys: ["mkt_a", "mkt_hk", "mkt_global", "mkt_industry", "mkt_concept"] },
   ];
   let html = "";
   for (const g of groups) {

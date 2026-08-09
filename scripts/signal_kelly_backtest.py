@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""信号凯利回测 - 7 象限 × 6 卖出模式 × 5 周期。
+"""信号凯利回测 - 16 象限 × 6 卖出模式 × 5 周期。
 
 对每条买信号(buy/buy_aux/buy_special/buy_backup),买入该信号对应指数的 track_score
-第一名 ETF(1000 元,含费率),按 6 种卖出模式(A=固定10天 / B=3% / C=5% / D=7% 止盈或满期;
+第一名 ETF(10000 元,含费率),按 6 种卖出模式(A=固定10天 / B=3% / C=5% / D=7% 止盈或满期;
 E=持有5天 / F=持有15天 不止盈)各自卖出,统计胜率/盈亏比/凯利 f*。
 
-7 并列象限(非交叉,同一信号可同时归两组):
+16 并列象限(非交叉,同一信号可同时归多组):
   - 评级 3 象限: rating_high/mid/low (按 signal_stats 10d score ≥0.75/≥0.55/<0.55)
   - ETF 归类 4 象限: etf_strong/related/approx/has_track (按第一名 ETF track_tier;
     track_tier=none 即 track_score<50 但有跟踪 ETF 的信号归 etf_has_track)
   - track_score=None(数据不足 n<30)的信号不纳入 ETF 归类,但纳入评级(若有 score)
+  - 信号类型 4 象限: sig_main/buy, sig_aux/buy_aux, sig_special/buy_special, sig_backup/buy_backup
+  - 指数大类 5 象限: mkt_a(A股宽基) / mkt_hk(港股) / mkt_global(全球) / mkt_industry(申万行业) / mkt_concept(概念)
 
 5 周期: y1(近 1 年) / y3(近 3 年) / y5(近 5 年) / y10(近 10 年) / all(全部)
 
@@ -26,6 +28,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import yaml
+
 # ── 路径 ──────────────────────────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  # trade/scripts/
 ROOT = os.path.dirname(SCRIPT_DIR)                        # trade/
@@ -40,7 +44,7 @@ from simulate_trade import (  # noqa: E402
 from app.db import get_conn  # noqa: E402
 
 # ── 常量 ──────────────────────────────────────────────────────────────────────
-BUY_AMOUNT = 1000          # 每笔买入金额(元)
+BUY_AMOUNT = 10000         # 每笔买入金额(元) -- 1000->10000 降低最低佣金占比(往返费率~1%->~0.3%)
 HOLD_DAYS = 10             # 默认最大持有交易日(ABCD 模式用; E=5/F=15 per-mode 覆盖)
 BUY_SIGNALS = ("buy", "buy_aux", "buy_special", "buy_backup")
 
@@ -65,13 +69,44 @@ RATING_HIGH = 0.75
 RATING_MID = 0.55
 
 QUADRANT_META = {
+    # 评级 3 象限(互斥,覆盖全体有 score 的信号)
     "rating_high":   {"label": "高评级信号", "desc": "技术参考点综合把握度 score≥0.75"},
     "rating_mid":    {"label": "中评级信号", "desc": "0.55≤score<0.75"},
     "rating_low":    {"label": "低评级信号", "desc": "score<0.55"},
+    # ETF 归类 4 象限(评级的子集, track_score=None 不入)
     "etf_strong":    {"label": "强关联ETF",  "desc": "track_tier=strong (track_score≥75)"},
     "etf_related":   {"label": "相关ETF",    "desc": "track_tier=related (60-74)"},
     "etf_approx":    {"label": "近似ETF",    "desc": "track_tier=approx (50-59)"},
     "etf_has_track": {"label": "有跟踪ETF",  "desc": "track_tier=none (track_score<50,有ETF但跟踪较弱)"},
+    # 信号类型 4 象限(按 signal 字段, 互斥覆盖全体买信号)
+    "sig_main":      {"label": "主关注",     "desc": "buy 主关注核心买入信号"},
+    "sig_aux":       {"label": "辅关注",     "desc": "buy_aux 辅助买入信号"},
+    "sig_special":   {"label": "追关注",     "desc": "buy_special 追涨信号"},
+    "sig_backup":    {"label": "备关注",     "desc": "buy_backup 备选信号"},
+    # 指数大类 5 象限(按 indicators.yaml market 字段, 互斥覆盖全体有 ETF 映射的信号)
+    "mkt_a":         {"label": "A股宽基/红利", "desc": "market=a (上证/深证/沪深300/中证500/创业板/科创/北证/红利等)"},
+    "mkt_hk":        {"label": "港股",       "desc": "market in (hk,hk_industry) (恒生/恒生科技/恒生国企/港股板块)"},
+    "mkt_global":    {"label": "全球/欧美/国债", "desc": "market=global (道琼斯/纳指/标普/国债等)"},
+    "mkt_industry":  {"label": "申万行业",   "desc": "market=industry (31个申万一级行业)"},
+    "mkt_concept":   {"label": "概念/主题",   "desc": "market=concept (同花顺/中证概念主题)"},
+}
+
+# signal 字段 -> 信号类型象限 key
+SIG_QUAD_MAP = {
+    "buy": "sig_main",
+    "buy_aux": "sig_aux",
+    "buy_special": "sig_special",
+    "buy_backup": "sig_backup",
+}
+
+# indicators.yaml market 字段 -> 指数大类象限 key
+MARKET_QUAD_MAP = {
+    "a": "mkt_a",
+    "hk": "mkt_hk",
+    "hk_industry": "mkt_hk",  # 港股板块归入港股大类
+    "global": "mkt_global",
+    "industry": "mkt_industry",
+    "concept": "mkt_concept",
 }
 
 
@@ -96,6 +131,25 @@ def _load_board_etf_map():
         raise FileNotFoundError(f"board_etf_map.json 未找到: {p}")
     with open(p, encoding="utf-8") as f:
         return json.load(f)
+
+
+def _load_market_map():
+    """读 config/indicators.yaml -> {index_id: market}。
+
+    用于按指数大类(mkt_a/hk/global/industry/concept)重新分桶。
+    """
+    cfg_path = os.path.join(ROOT, "config", "indicators.yaml")
+    if not os.path.exists(cfg_path):
+        raise FileNotFoundError(f"indicators.yaml 未找到: {cfg_path}")
+    with open(cfg_path, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    market_map = {}
+    for item in (cfg or {}).get("indices", []):
+        iid = item.get("id")
+        market = item.get("market")
+        if iid and market:
+            market_map[iid] = market
+    return market_map
 
 
 def _build_best_etf(etf_map):
@@ -566,6 +620,10 @@ def compute():
     best_etf = _build_best_etf(etf_map)
     print(f"   {len(best_etf)} 个指数有 track_score 第一名 ETF")
 
+    print("-> 加载 indicators.yaml 市场分类 ...", flush=True)
+    market_map = _load_market_map()
+    print(f"   {len(market_map)} 个指数有 market 分类")
+
     # 2. 读买信号
     print("-> 读 signal_daily 买信号 ...", flush=True)
     conn = get_conn()
@@ -645,6 +703,15 @@ def compute():
             # 归入 ETF 归类象限(如有)
             if etf_quad:
                 quadrants[f"etf_{etf_quad}"][mode_key].append(result)
+            # 归入信号类型象限(按 signal 字段, 互斥覆盖全体)
+            sig_quad = SIG_QUAD_MAP.get(sig)
+            if sig_quad:
+                quadrants[sig_quad][mode_key].append(result)
+            # 归入指数大类象限(按 indicators.yaml market 字段)
+            market = market_map.get(iid)
+            mkt_quad = MARKET_QUAD_MAP.get(market)
+            if mkt_quad:
+                quadrants[mkt_quad][mode_key].append(result)
 
         if any_valid:
             classified += 1
@@ -670,6 +737,8 @@ def compute():
             "min_commission": MIN_COMMISSION,
             "transfer_fee_rate_sh": TRANSFER_FEE_RATE_SH,
             "buy_signals": list(BUY_SIGNALS),
+            "signal_type_quads": SIG_QUAD_MAP,
+            "market_quads": MARKET_QUAD_MAP,
         },
         "quadrants": {},
     }

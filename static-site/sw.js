@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a81';  // bump a80->a81: 凯利回测卡"卖出模式说明"从常驻div改hoverpop弹出
+const CACHE_VERSION = 'v6-20260809-a82';  // bump a81->a82: 凯利回测费率调整(1000->10000) + 信号类型×指数大类新分组(16象限)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
