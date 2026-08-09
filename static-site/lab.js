@@ -7077,7 +7077,7 @@ function _renderSigKellyCard(qk, q, period) {
   for (const m of modes) {
     const r = pdata[m];
     if (!r) {
-      rows += `<tr><td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span></td><td colspan="13" class="lab-sigkelly-empty">无数据</td></tr>`;
+      rows += `<tr><td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span></td><td colspan="12" class="lab-sigkelly-empty">无数据</td></tr>`;
       continue;
     }
     const hk = (r.half_kelly == null) ? 0 : r.half_kelly;
@@ -7090,7 +7090,6 @@ function _renderSigKellyCard(qk, q, period) {
     const wr = (r.win_rate == null) ? "-" : (r.win_rate * 100).toFixed(1) + "%";
     const mr = (r.mean_return == null) ? "-" : r.mean_return.toFixed(2) + "%";
     // 进阶指标(原 details 折叠表,现合并进主表)
-    const ti = r.total_invest || 0;
     const tp = r.total_profit || 0;
     const tpStr = (tp >= 0 ? "+" : "") + tp.toFixed(0);
     const trp = r.total_return_pct != null ? r.total_return_pct.toFixed(2) + "%" : "-";
@@ -7107,7 +7106,6 @@ function _renderSigKellyCard(qk, q, period) {
         `<td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span></td>` +
         `<td class="lab-sigkelly-hk"><span class="lab-kelly-tier ${tierCls}">${hk.toFixed(1)}%</span><span class="lab-sigkelly-tier">${tier}</span></td>` +
         `<td>${wr}</td><td>${plStr}</td><td>${mr}</td><td>${nStr}</td>` +
-        `<td>${ti}</td>` +
         `<td class="${tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${tpStr}</td>` +
         `<td>${trp}</td><td class="lab-sigkelly-mc">${mcStr}</td><td>${ann}</td>` +
         `<td>${sh}</td><td>${md}</td><td>${cm}</td>` +
@@ -7121,7 +7119,7 @@ function _renderSigKellyCard(qk, q, period) {
       `</div>` +
       `<div class="lab-sigkelly-table-scroll">` +
       `<table class="lab-sigkelly-table lab-sigkelly-wide-table">` +
-        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th><th>总投入</th><th>最终盈亏</th><th>总收益率</th><th>最大持仓</th><th>年化</th><th>夏普</th><th>最大回撤</th><th>卡尔玛</th></tr></thead>` +
+        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th><th>最终盈亏</th><th>总收益率</th><th>最大持仓</th><th>年化</th><th>夏普</th><th>最大回撤</th><th>卡尔玛</th></tr></thead>` +
         `<tbody>${rows}</tbody>` +
       `</table>` +
       `</div>` +

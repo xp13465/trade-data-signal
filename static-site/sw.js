@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a67';  // bump a66->a67: §21 track_score公示文案同步方案A(IR权重按match_method分层:直接IR15%/间接IR0%转R²+TE)
+const CACHE_VERSION = 'v6-20260809-a68';  // bump a67->a68: 凯利回测tab UI(布局修复 minmax min(100%,380px) 窄屏不溢出 + 删总投入列)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

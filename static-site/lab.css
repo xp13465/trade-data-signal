@@ -1410,7 +1410,7 @@
 .lab-sigkelly-gen { color: var(--text-4); font-size: 11px; }
 .lab-sigkelly-group { margin-bottom: 14px; }
 .lab-sigkelly-group-title { font-size: 14px; font-weight: 700; color: var(--text-1); margin: 6px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
-.lab-sigkelly-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; }
+.lab-sigkelly-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 12px; }
 .lab-sigkelly-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; min-width: 0; }
 .lab-sigkelly-card-head { margin-bottom: 8px; }
 .lab-sigkelly-card-name { font-size: 14px; font-weight: 700; color: var(--text-1); }
