@@ -1416,6 +1416,17 @@
 .lab-sigkelly-periods { display: flex; gap: 4px; flex-wrap: wrap; }
 .lab-sigkelly-params { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--text-3); align-items: center; }
 .lab-sigkelly-gen { color: var(--text-4); font-size: 11px; }
+.lab-sigkelly-fee-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; width: 100%; }
+.lab-sigkelly-fee-label { font-size: 12px; font-weight: 700; color: var(--text-2); white-space: nowrap; }
+.lab-sigkelly-fee-btn { font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-3); cursor: pointer; white-space: nowrap; transition: all 0.15s; }
+.lab-sigkelly-fee-btn:hover { border-color: var(--accent, #3b82f6); color: var(--text-1); }
+.lab-sigkelly-fee-btn.active { background: var(--accent, #3b82f6); color: #fff; border-color: var(--accent, #3b82f6); }
+.lab-sigkelly-fee-hint { font-size: 10px; color: var(--text-4); margin-left: 4px; }
+.lab-sigkelly-fee-custom { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; width: 100%; font-size: 11px; color: var(--text-3); padding: 4px 0; }
+.lab-sigkelly-fee-custom label { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+.lab-sigkelly-fee-custom .lab-input { padding: 1px 4px; font-size: 11px; height: 22px; }
+.lab-sigkelly-fee-apply { font-size: 11px; padding: 2px 10px; border: 1px solid var(--accent, #3b82f6); border-radius: 4px; background: var(--accent, #3b82f6); color: #fff; cursor: pointer; }
+.lab-sigkelly-fee-apply:hover { opacity: 0.85; }
 .lab-sigkelly-group { margin-bottom: 14px; }
 .lab-sigkelly-group-title { font-size: 14px; font-weight: 700; color: var(--text-1); margin: 6px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
 .lab-sigkelly-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 700px), 1fr)); gap: 12px; }

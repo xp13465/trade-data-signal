@@ -6972,6 +6972,356 @@ document.querySelectorAll("button[data-tab]").forEach((b) => {
   }
 });
 
+// === 凯利回测费率客调(方案A: 前端完整重算) ===
+// docs/kelly-fee-adjust.md §2 + docs/kelly-fee-presets.md §4.3
+// 原始后端费率(生成 trades.json 时所用): SLIPPAGE=0.001, 用于还原 close 价格
+const KELLY_ORIG_SLIPPAGE = 0.001;
+const KELLY_FEE_PRESETS = [
+  { key: "zero",      label: "0%剥离",    commission_rate: 0,       min_commission: 0,   slippage: 0,     transfer_fee_rate_sh: 0,       stamp_duty_rate: 0,      desc: "看纯信号alpha",           shortcut: "0" },
+  { key: "etf_def",   label: "ETF默认",   commission_rate: 0.0003,  min_commission: 5,   slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0,      desc: "万3 最低5 当前",          shortcut: "1" },
+  { key: "etf_main",  label: "ETF主流",   commission_rate: 0.00005, min_commission: 0.1, slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0,      desc: "万0.5 最低0.1",           shortcut: "2" },
+  { key: "etf_cheap", label: "ETF最便宜", commission_rate: 0.00001, min_commission: 0,   slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0,      desc: "万0.1 免5",               shortcut: "3" },
+  { key: "stock_def", label: "股票默认",  commission_rate: 0.0005,  min_commission: 5,   slippage: 0.002, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0.0005, desc: "万5 印花税万5 对比",       shortcut: "4" },
+  { key: "custom",    label: "自定义",    desc: "5参数任意组合",                                                                shortcut: "C" },
+];
+
+// 沪市 ETF 判断(复用 simulate_trade.py _is_sh_etf 逻辑)
+function _kellyIsShEtf(etfCode) {
+  if (!etfCode) return false;
+  return etfCode.startsWith("51") || etfCode.startsWith("58");
+}
+
+// 方案A: 按新费率重算单笔 trade 的 profit/return_pct(docs/kelly-fee-adjust.md §2.3)
+function _kellyRecomputeTrade(tradeArr, fIdx, feeParams, buyAmount) {
+  const bp = tradeArr[fIdx.buy_price] || 0;
+  const sp = tradeArr[fIdx.sell_price] || 0;
+  const cp = tradeArr[fIdx.current_price] || 0;
+  const ec = tradeArr[fIdx.etf_code] || "";
+  const sellDate = tradeArr[fIdx.sell_date] || "";
+  if (bp <= 0) return { profit: 0, return_pct: 0 };
+  // 还原无滑点收盘价(用原始 SLIPPAGE=0.001 还原)
+  const closeBuy = bp / (1 + KELLY_ORIG_SLIPPAGE);
+  const closeSell = sellDate ? (sp / (1 - KELLY_ORIG_SLIPPAGE)) : cp;
+  var c = feeParams.commission_rate, s = feeParams.slippage, minC = feeParams.min_commission;
+  var sh = _kellyIsShEtf(ec) ? feeParams.transfer_fee_rate_sh : 0;
+  var stamp = feeParams.stamp_duty_rate;
+  // 买入(复用 _buy_with_fees 逻辑)
+  var buyPriceNew = closeBuy * (1 + s);
+  if (buyPriceNew <= 0) return { profit: 0, return_pct: 0 };
+  var sharesNew = buyAmount / (buyPriceNew * (1 + c + sh));
+  var grossNew = sharesNew * buyPriceNew;
+  var commBuy = grossNew * c;
+  if (commBuy < minC) {
+    sharesNew = (buyAmount - minC) / (buyPriceNew * (1 + sh));
+    grossNew = sharesNew * buyPriceNew;
+    commBuy = minC;
+  }
+  // 卖出(复用 _sell_with_fees 逻辑 + 印花税)
+  var sellPriceNew = closeSell * (1 - s);
+  var sellAmountNew = sharesNew * sellPriceNew;
+  var commSell = Math.max(sellAmountNew * c, minC);
+  var transferFeeSell = sellAmountNew * sh;
+  var stampDuty = sellAmountNew * stamp;
+  var netNew = sellAmountNew - commSell - transferFeeSell - stampDuty;
+  var profitNew = netNew - buyAmount;
+  var returnPctNew = profitNew / buyAmount * 100;
+  return { profit: Math.round(profitNew * 10000) / 10000, return_pct: Math.round(returnPctNew * 10000) / 10000 };
+}
+
+// 凯利公式(复用 signal_kelly_backtest.py _compute_kelly)
+function _kellyComputeKelly(winRate, plRatio) {
+  var p = winRate, q = 1 - p, b = (plRatio && plRatio > 0) ? plRatio : 0;
+  var fStar = b > 0 ? (p - q / b) : 0;
+  fStar = Math.max(0, Math.min(1, fStar));
+  var halfKelly = fStar / 2 * 100;
+  halfKelly = Math.max(0, Math.min(90, halfKelly));
+  var tier = halfKelly < 30 ? "保守" : halfKelly < 60 ? "均衡" : "激进";
+  return { f_star: Math.round(fStar * 10000) / 10000, half_kelly: Math.round(halfKelly * 100) / 100, kelly_tier: tier };
+}
+
+// 最大同时持仓(复用 _max_concurrent, 扫描线, 同日先买后卖=保守)
+function _kellyMaxConcurrent(trades) {
+  if (!trades.length) return 0;
+  var SENTINEL = "99999999", events = [];
+  for (var i = 0; i < trades.length; i++) {
+    events.push({ d: trades[i].buy_date, t: 0 });
+    events.push({ d: trades[i].sell_date || SENTINEL, t: 1 });
+  }
+  events.sort(function (a, b) { return a.d < b.d ? -1 : a.d > b.d ? 1 : a.t - b.t; });
+  var cur = 0, maxConc = 0;
+  for (var i = 0; i < events.length; i++) {
+    if (events[i].t === 0) { cur++; if (cur > maxConc) maxConc = cur; } else cur--;
+  }
+  return maxConc;
+}
+
+// 日期差天数(YYYYMMDD 字符串)
+function _kellyDateDiffDays(d1, d2) {
+  try {
+    var dd1 = new Date(+d1.slice(0, 4), +d1.slice(4, 6) - 1, +d1.slice(6, 8));
+    var dd2 = new Date(+d2.slice(0, 4), +d2.slice(4, 6) - 1, +d2.slice(6, 8));
+    return Math.max(Math.round((dd2 - dd1) / 86400000), 0);
+  } catch (e) { return 0; }
+}
+
+// 从 trade 跨度算年数(复用 _years_from_trades)
+function _kellyYearsFromTrades(trades) {
+  if (!trades.length) return 1.0;
+  var dates = trades.map(function (t) { return t.buy_date; });
+  var dMin = dates.reduce(function (a, b) { return a < b ? a : b; });
+  var dMax = dates.reduce(function (a, b) { return a > b ? a : b; });
+  var days = _kellyDateDiffDays(dMin, dMax);
+  return Math.max(days / 365.25, 1.0 / 365.25);
+}
+
+// 最大回撤(复用 _max_drawdown)
+function _kellyMaxDrawdown(trades, buyAmount) {
+  if (!trades.length) return { abs: 0, pct: 0 };
+  var sorted = trades.slice().sort(function (a, b) {
+    var da = a.sell_date || "99999999", db = b.sell_date || "99999999";
+    return da < db ? -1 : da > db ? 1 : 0;
+  });
+  var cumulative = 0, peak = 0, maxDdAbs = 0;
+  for (var i = 0; i < sorted.length; i++) {
+    cumulative += sorted[i].profit;
+    if (cumulative > peak) peak = cumulative;
+    var dd = peak - cumulative;
+    if (dd > maxDdAbs) maxDdAbs = dd;
+  }
+  var totalInvest = trades.length * buyAmount;
+  var pct = totalInvest > 0 ? maxDdAbs / totalInvest * 100 : 0;
+  return { abs: Math.round(maxDdAbs * 10000) / 10000, pct: Math.round(pct * 10000) / 10000 };
+}
+
+// 年化收益率(复用 _annualized_return)
+function _kellyAnnualizedReturn(totalReturnPct, periodKey, trades) {
+  var r = totalReturnPct / 100;
+  if (r <= -1) return 0;
+  if (periodKey === "y1") return Math.round(totalReturnPct * 10000) / 10000;
+  if (periodKey === "y3") return Math.round((Math.pow(1 + r, 1 / 3) - 1) * 100 * 10000) / 10000;
+  if (periodKey === "y5") return Math.round((Math.pow(1 + r, 1 / 5) - 1) * 100 * 10000) / 10000;
+  if (periodKey === "y10") return Math.round((Math.pow(1 + r, 1 / 10) - 1) * 100 * 10000) / 10000;
+  var years = _kellyYearsFromTrades(trades);
+  if (years <= 0) return Math.round(totalReturnPct * 10000) / 10000;
+  return Math.round((Math.pow(1 + r, 1 / years) - 1) * 100 * 10000) / 10000;
+}
+
+// 完整统计计算(复用 _compute_stats, ~120行)
+function _kellyComputeStats(trades, periodKey, buyAmount) {
+  var n = trades.length;
+  if (n === 0) {
+    return { n: 0, win_count: 0, lose_count: 0, win_rate: 0, pl_ratio: null,
+      mean_return: 0, total_return: 0, avg_hold_days: 0, kelly_f: 0, half_kelly: 0, kelly_tier: "保守",
+      max_single_win: 0, max_single_loss: 0, win_streak_max: 0, lose_streak_max: 0,
+      total_invest: 0, total_profit: 0, total_return_pct: 0, max_concurrent: 0, max_concurrent_capital: 0,
+      return_pct_max_holding: 0, annualized_return: 0, sharpe: 0, max_drawdown: 0, max_drawdown_pct: 0, calmar: 0,
+      holding_count: 0, holding_capital: 0 };
+  }
+  var wins = [], losses = [];
+  for (var i = 0; i < trades.length; i++) {
+    if (trades[i].profit > 0) wins.push(trades[i]); else losses.push(trades[i]);
+  }
+  var winCount = wins.length, loseCount = losses.length, winRate = winCount / n;
+  var avgWin = winCount ? wins.reduce(function (s, t) { return s + t.return_pct; }, 0) / winCount : 0;
+  var avgLossAbs = loseCount ? Math.abs(losses.reduce(function (s, t) { return s + t.return_pct; }, 0) / loseCount) : 0;
+  var plRatio;
+  if (loseCount > 0 && avgLossAbs > 0) plRatio = avgWin / avgLossAbs;
+  else if (winCount > 0 && loseCount === 0) plRatio = 999.0;
+  else plRatio = null;
+  var meanReturn = trades.reduce(function (s, t) { return s + t.return_pct; }, 0) / n;
+  var totalReturn = trades.reduce(function (s, t) { return s + t.profit; }, 0) / buyAmount * 100;
+  var avgHold = trades.reduce(function (s, t) { return s + t.hold_days; }, 0) / n;
+  var kelly = _kellyComputeKelly(winRate, plRatio);
+  var maxWin = trades.reduce(function (m, t) { return Math.max(m, t.return_pct); }, 0);
+  var maxLoss = trades.reduce(function (m, t) { return Math.min(m, t.return_pct); }, 0);
+  // 连胜连败(按 buy_date 排序)
+  var sortedTrades = trades.slice().sort(function (a, b) { return a.buy_date < b.buy_date ? -1 : 1; });
+  var winStreak = 0, loseStreak = 0, maxWinStreak = 0, maxLoseStreak = 0;
+  for (var i = 0; i < sortedTrades.length; i++) {
+    if (sortedTrades[i].profit > 0) { winStreak++; loseStreak = 0; maxWinStreak = Math.max(maxWinStreak, winStreak); }
+    else { loseStreak++; winStreak = 0; maxLoseStreak = Math.max(maxLoseStreak, loseStreak); }
+  }
+  var totalInvest = n * buyAmount;
+  var totalProfit = Math.round(trades.reduce(function (s, t) { return s + t.profit; }, 0) * 10000) / 10000;
+  var totalReturnPct = totalInvest > 0 ? Math.round(totalProfit / totalInvest * 100 * 10000) / 10000 : 0;
+  var maxConc = _kellyMaxConcurrent(trades);
+  var maxConcurrentCapital = maxConc * buyAmount;
+  var returnPctMaxHolding = maxConcurrentCapital > 0 ? Math.round(totalProfit / maxConcurrentCapital * 100 * 10000) / 10000 : 0;
+  var annualized = _kellyAnnualizedReturn(totalReturnPct, periodKey, trades);
+  // 夏普
+  var returns = trades.map(function (t) { return t.return_pct; });
+  var sharpe = 0;
+  if (n > 1) {
+    var mean = returns.reduce(function (s, x) { return s + x; }, 0) / n;
+    var variance = returns.reduce(function (s, x) { return s + Math.pow(x - mean, 2); }, 0) / (n - 1);
+    var std = Math.sqrt(variance);
+    sharpe = std > 0 ? Math.round(mean / std * 10000) / 10000 : 0;
+  }
+  var dd = _kellyMaxDrawdown(trades, buyAmount);
+  var calmar = dd.pct > 0 ? Math.round(annualized / dd.pct * 10000) / 10000 : 0;
+  var holdingCount = trades.filter(function (t) { return !t.sell_date; }).length;
+  var holdingCapital = holdingCount * buyAmount;
+  return {
+    n: n, win_count: winCount, lose_count: loseCount,
+    win_rate: Math.round(winRate * 10000) / 10000,
+    pl_ratio: plRatio != null ? Math.round(plRatio * 100) / 100 : null,
+    mean_return: Math.round(meanReturn * 10000) / 10000,
+    total_return: Math.round(totalReturn * 10000) / 10000,
+    avg_hold_days: Math.round(avgHold * 100) / 100,
+    kelly_f: kelly.f_star, half_kelly: kelly.half_kelly, kelly_tier: kelly.kelly_tier,
+    max_single_win: Math.round(maxWin * 10000) / 10000, max_single_loss: Math.round(maxLoss * 10000) / 10000,
+    win_streak_max: maxWinStreak, lose_streak_max: maxLoseStreak,
+    total_invest: totalInvest, total_profit: totalProfit, total_return_pct: totalReturnPct,
+    max_concurrent: maxConc, max_concurrent_capital: maxConcurrentCapital,
+    return_pct_max_holding: returnPctMaxHolding,
+    annualized_return: annualized, sharpe: sharpe,
+    max_drawdown: dd.abs, max_drawdown_pct: dd.pct, calmar: calmar,
+    holding_count: holdingCount, holding_capital: holdingCapital,
+  };
+}
+
+// 加载 trades.json 并重算所有 quadrant x period x mode 统计(方案A)
+async function _kellyApplyFeeRecompute(feeParams) {
+  var data = state.labSigKellyData;
+  if (!data || !data.quadrants) return null;
+  // 加载 trades.json(如果未加载, 复用 modal 的 R2+CF 兜底逻辑)
+  if (!state.labSigKellyTradesData) {
+    var v = _labCustomCacheBust();
+    var r2Url = "https://ssd.fx8.store/data/signal_kelly_trades.json?v=" + v;
+    var cfUrl = "./data/signal_kelly_trades.json?v=" + v;
+    try {
+      try {
+        var resp = await fetch(r2Url);
+        if (!resp.ok) throw new Error("R2 " + resp.status);
+        state.labSigKellyTradesData = await resp.json();
+      } catch (e) {
+        var resp2 = await fetch(cfUrl);
+        if (!resp2.ok) throw new Error("CF " + resp2.status);
+        state.labSigKellyTradesData = await resp2.json();
+      }
+    } catch (e) {
+      console.error("[sigkelly] trades.json load failed:", e);
+      return null;
+    }
+  }
+  var td = state.labSigKellyTradesData;
+  var fields = td.fields || [];
+  var fIdx = {};
+  fields.forEach(function (f, i) { fIdx[f] = i; });
+  var buyAmount = td.buy_amount || (data.config && data.config.buy_amount) || 10000;
+  var cutoffs = (data.config && data.config.period_cutoffs) || {};
+  var quads = td.quadrants || {};
+  var quadMeta = data.quadrants || {};
+  var periods = (data.config && data.config.periods) || { y1: "近1年", y3: "近3年", all: "全部" };
+  var sellModes = (data.config && data.config.sell_modes) || {};
+  var result = {};
+  for (var qk in quadMeta) {
+    result[qk] = {};
+    for (var periodKey in periods) {
+      var cutoff = cutoffs[periodKey] || "0";
+      result[qk][periodKey] = {};
+      for (var modeKey in sellModes) {
+        var rawTrades = (quads[qk] || {})[modeKey] || [];
+        var trades = (cutoff && cutoff !== "0")
+          ? rawTrades.filter(function (t) { return (t[fIdx.buy_date] || "") >= cutoff; })
+          : rawTrades.slice();
+        var recomputed = trades.map(function (t) {
+          var r = _kellyRecomputeTrade(t, fIdx, feeParams, buyAmount);
+          return { profit: r.profit, return_pct: r.return_pct,
+                   buy_date: t[fIdx.buy_date] || "", sell_date: t[fIdx.sell_date] || "",
+                   hold_days: t[fIdx.hold_days] || 0 };
+        });
+        result[qk][periodKey][modeKey] = _kellyComputeStats(recomputed, periodKey, buyAmount);
+      }
+    }
+  }
+  return result;
+}
+
+// 费率切换处理
+async function _kellyOnFeeChange(presetKey) {
+  if (!state.labSigKellyFeePreset) state.labSigKellyFeePreset = "etf_def";
+  state.labSigKellyFeePreset = presetKey;
+  // 更新 feeParams
+  if (presetKey === "custom") {
+    state.labSigKellyFeeParams = _kellyReadCustomParams();
+  } else {
+    var preset = KELLY_FEE_PRESETS.find(function (p) { return p.key === presetKey; });
+    if (preset) {
+      state.labSigKellyFeeParams = {
+        commission_rate: preset.commission_rate, min_commission: preset.min_commission,
+        slippage: preset.slippage, transfer_fee_rate_sh: preset.transfer_fee_rate_sh,
+        stamp_duty_rate: preset.stamp_duty_rate,
+      };
+    }
+  }
+  var bar = document.querySelector(".lab-sigkelly-bar");
+  var host = document.querySelector(".lab-sigkelly-host");
+  if (!bar || !host || !state.labSigKellyData) return;
+  if (presetKey === "etf_def") {
+    state.labSigKellyFeeStats = null;
+    _renderSigKellyBar(bar, state.labSigKellyData, state.labSigKellyPeriod);
+    _renderSigKellyQuadrants(host, state.labSigKellyData, state.labSigKellyPeriod);
+  } else {
+    host.innerHTML = '<div class="lab-custom-loading">⏳ 加载交易数据重算费率…</div>';
+    _renderSigKellyBar(bar, state.labSigKellyData, state.labSigKellyPeriod);
+    var stats = await _kellyApplyFeeRecompute(state.labSigKellyFeeParams);
+    if (stats) {
+      state.labSigKellyFeeStats = stats;
+    } else {
+      state.labSigKellyFeePreset = "etf_def";
+      state.labSigKellyFeeParams = {
+        commission_rate: 0.0003, min_commission: 5, slippage: 0.001,
+        transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0,
+      };
+    }
+    _renderSigKellyBar(bar, state.labSigKellyData, state.labSigKellyPeriod);
+    _renderSigKellyQuadrants(host, state.labSigKellyData, state.labSigKellyPeriod);
+  }
+}
+
+// 读取自定义费率输入框值
+function _kellyReadCustomParams() {
+  var bar = document.querySelector(".lab-sigkelly-bar");
+  if (!bar) return { commission_rate: 0.0003, min_commission: 5, slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0 };
+  function val(cls) {
+    var el = bar.querySelector(cls);
+    return el ? (parseFloat(el.value) || 0) : 0;
+  }
+  return {
+    commission_rate: val(".lab-sigkelly-fee-input-comm") / 10000,
+    min_commission: val(".lab-sigkelly-fee-input-min"),
+    slippage: val(".lab-sigkelly-fee-input-slip") / 1000,
+    transfer_fee_rate_sh: val(".lab-sigkelly-fee-input-transfer") / 10000,
+    stamp_duty_rate: val(".lab-sigkelly-fee-input-stamp") / 10000,
+  };
+}
+
+// 当前费率标签
+function _kellyFeeLabel() {
+  var preset = KELLY_FEE_PRESETS.find(function (p) { return p.key === state.labSigKellyFeePreset; });
+  return preset ? preset.label : "ETF默认";
+}
+
+// 费率客调快捷键 0-4+C(输入框聚焦时禁用,modal打开时禁用)
+document.addEventListener("keydown", (e) => {
+  if (state.labSubMode !== "sigkelly") return;
+  var tag = (e.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select") return;
+  if (e.target.isContentEditable) return;
+  // modal 打开时不响应(避免与 modal 内交互冲突)
+  var modalEl = document.getElementById("lab-sigkelly-trades-overlay");
+  if (modalEl && modalEl.style.display !== "none") return;
+  var key = e.key.toUpperCase();
+  if (key >= "0" && key <= "4") {
+    e.preventDefault();
+    _kellyOnFeeChange(KELLY_FEE_PRESETS[+key].key);
+  } else if (key === "C") {
+    e.preventDefault();
+    _kellyOnFeeChange("custom");
+  }
+});
+
 // === 信号凯利回测(sigkelly):6象限(3评级+3 ETF归类) x 4模式 x 3周期 半凯利仓位回测 ===
 // 数据: ./data/signal_kelly_backtest.json (后端 signal_kelly_backtest.py 生成, <100KB 走 CF Workers)
 // 布局: 顶部说明 + 周期切换tab(y1/y3/all) + 评级3卡 + ETF3卡(每卡4模式表格) + 底部色标
@@ -7018,6 +7368,11 @@ async function renderSigKellyLab() {
   // 默认周期 y1(对比矩阵已移除,卡片视图常驻,主表+进阶表合并为一张宽表)
   if (!state.labSigKellyPeriod) state.labSigKellyPeriod = "y1";
   const period = state.labSigKellyPeriod;
+  // 初始化费率客调state(默认ETF档=当前后端费率)
+  if (!state.labSigKellyFeePreset) {
+    state.labSigKellyFeePreset = "etf_def";
+    state.labSigKellyFeeParams = { commission_rate: 0.0003, min_commission: 5, slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0 };
+  }
 
   _renderSigKellyBar(bar, data, period);
   _renderSigKellyQuadrants(host, data, period);
@@ -7037,7 +7392,7 @@ function _sigKellyModeKeys() {
   return Object.keys(sm);
 }
 
-// 周期切换条 + 回测参数展示(对比矩阵视图已移除,卡片视图常驻)
+// 周期切换条 + 回测参数展示 + 费率客调控件(6档预设+自定义5参数+快捷键0-4+C)
 function _renderSigKellyBar(bar, data, period) {
   const cfg = data.config || {};
   const periods = cfg.periods || { y1: "近1年", y3: "近3年", all: "全部" };
@@ -7046,12 +7401,44 @@ function _renderSigKellyBar(bar, data, period) {
   ).join("");
   const modes = cfg.sell_modes || {};
   const modeStr = Object.keys(modes).map((k) => modes[k] ? `${k}:${modes[k].label}` : k).join(" · ");
+  // 费率预设按钮
+  const curFee = state.labSigKellyFeePreset || "etf_def";
+  const feeBtnsHTML = KELLY_FEE_PRESETS.map((p) => {
+    const active = p.key === curFee ? " active" : "";
+    const title = p.desc || "";
+    return `<button type="button" class="lab-sigkelly-fee-btn${active}" data-fee="${p.key}" title="${title}">${p.shortcut}:${p.label}</button>`;
+  }).join("");
+  // 自定义输入区(仅 custom 档显示)
+  const isCustom = curFee === "custom";
+  const fp = state.labSigKellyFeeParams || {};
+  const commVal = fp.commission_rate != null ? (fp.commission_rate * 10000).toString() : "3";
+  const minVal = fp.min_commission != null ? fp.min_commission.toString() : "5";
+  const slipVal = fp.slippage != null ? (fp.slippage * 1000).toString() : "1";
+  const transferVal = fp.transfer_fee_rate_sh != null ? (fp.transfer_fee_rate_sh * 10000).toString() : "0.1";
+  const stampVal = fp.stamp_duty_rate != null ? (fp.stamp_duty_rate * 10000).toString() : "0";
+  const customHTML = isCustom
+    ? `<div class="lab-sigkelly-fee-custom">` +
+        `<label>佣金:<input type="number" class="lab-input lab-sigkelly-fee-input-comm" value="${commVal}" step="0.01" min="0" style="width:48px">万</label>` +
+        `<label>最低:<input type="number" class="lab-input lab-sigkelly-fee-input-min" value="${minVal}" step="0.1" min="0" style="width:42px">元</label>` +
+        `<label>滑点:<input type="number" class="lab-input lab-sigkelly-fee-input-slip" value="${slipVal}" step="0.1" min="0" style="width:42px">千</label>` +
+        `<label>过户费:<input type="number" class="lab-input lab-sigkelly-fee-input-transfer" value="${transferVal}" step="0.01" min="0" style="width:42px">万(沪)</label>` +
+        `<label>印花税:<input type="number" class="lab-input lab-sigkelly-fee-input-stamp" value="${stampVal}" step="0.01" min="0" style="width:42px">万(卖)</label>` +
+        `<button type="button" class="lab-sigkelly-fee-apply">应用</button>` +
+      `</div>`
+    : "";
   bar.innerHTML =
     `<div class="lab-sigkelly-periods">${tabsHTML}</div>` +
     `<div class="lab-sigkelly-params">` +
       `<span>买${cfg.buy_amount || 10000}元 · 卖出模式 ${modeStr}</span>` +
       `<span class="lab-sigkelly-gen">📅 生成: ${data.generated_at || "-"}</span>` +
-    `</div>`;
+    `</div>` +
+    `<div class="lab-sigkelly-fee-row">` +
+      `<span class="lab-sigkelly-fee-label">费率:</span>` +
+      feeBtnsHTML +
+      `<span class="lab-sigkelly-fee-hint">快捷键 0-4+C</span>` +
+    `</div>` +
+    customHTML;
+  // 周期切换
   bar.querySelectorAll(".lab-sigkelly-period-btn").forEach((btn) => {
     btn.onclick = () => {
       state.labSigKellyPeriod = btn.dataset.period;
@@ -7062,6 +7449,15 @@ function _renderSigKellyBar(bar, data, period) {
       }
     };
   });
+  // 费率预设按钮
+  bar.querySelectorAll(".lab-sigkelly-fee-btn").forEach((btn) => {
+    btn.onclick = () => { _kellyOnFeeChange(btn.dataset.fee); };
+  });
+  // 自定义应用按钮
+  const applyBtn = bar.querySelector(".lab-sigkelly-fee-apply");
+  if (applyBtn) {
+    applyBtn.onclick = () => { _kellyOnFeeChange("custom"); };
+  }
 }
 
 // 16象限卡片网格(4组: 评级3 + ETF4 + 信号类型4 + 指数大类5)
@@ -7290,7 +7686,9 @@ function _positionSigKellyWmPop(wmEl, pop) {
 // 主表+进阶表合并为一张宽表(14列),details 折叠已移除常显;最大持仓显笔数+资金
 function _renderSigKellyCard(qk, q, period) {
   const periods = q.periods || {};
-  const pdata = periods[period] || {};
+  // 费率客调: 如果有重算stats,用重算值替换原始stats(结构一致)
+  const feeStats = state.labSigKellyFeeStats;
+  const pdata = (feeStats && feeStats[qk] && feeStats[qk][period]) ? feeStats[qk][period] : (periods[period] || {});
   const modes = _sigKellyModeKeys();
   const modeLabels = _sigKellyModeLabels();
   const guidance = q.guidance || {};
@@ -7418,6 +7816,20 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   let trades = (cutoff && cutoff !== "0")
     ? rawTrades.filter((t) => t[fields.indexOf("buy_date")] >= cutoff)
     : rawTrades.slice();
+
+  // 费率客调: 非默认档时重算每笔 trade 的 profit/return_pct
+  if (state.labSigKellyFeePreset && state.labSigKellyFeePreset !== "etf_def" && state.labSigKellyFeeParams) {
+    const _fIdx = {};
+    fields.forEach((f, i) => { _fIdx[f] = i; });
+    const _buyAmount = td.buy_amount || (cfg.buy_amount) || 10000;
+    trades = trades.map((t) => {
+      const r = _kellyRecomputeTrade(t, _fIdx, state.labSigKellyFeeParams, _buyAmount);
+      const newT = t.slice();
+      newT[_fIdx.profit] = r.profit;
+      newT[_fIdx.return_pct] = r.return_pct;
+      return newT;
+    });
+  }
 
   // 渲染 modal(新开弹窗重置到第 1 页)
   state._sigKellyTradePage = 1;
@@ -7550,10 +7962,11 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       }
     }
 
+    const feeLabel = (state.labSigKellyFeePreset && state.labSigKellyFeePreset !== "etf_def") ? ` · 费率:${_kellyFeeLabel()}` : "";
     overlay.innerHTML =
       `<div class="lab-sigkelly-modal">` +
         `<div class="lab-sigkelly-modal-head">` +
-          `<div class="lab-sigkelly-modal-title">📋 交易记录 · ${quadLabel} · ${modeLabel} · ${period}</div>` +
+          `<div class="lab-sigkelly-modal-title">📋 交易记录 · ${quadLabel} · ${modeLabel} · ${period}${feeLabel}</div>` +
           `<button type="button" class="lab-sigkelly-modal-close" title="关闭">✕</button>` +
         `</div>` +
         `<div class="lab-sigkelly-modal-stats">` +
