@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""信号凯利回测 - 6 象限 × 4 卖出模式 × 5 周期。
+"""信号凯利回测 - 7 象限 × 6 卖出模式 × 5 周期。
 
 对每条买信号(buy/buy_aux/buy_special/buy_backup),买入该信号对应指数的 track_score
-第一名 ETF(1000 元,含费率),按 4 种卖出模式(固定 10 天 / 3% / 5% / 7% 止盈或满 10 天)
-各自卖出,统计胜率/盈亏比/凯利 f*。
+第一名 ETF(1000 元,含费率),按 6 种卖出模式(A=固定10天 / B=3% / C=5% / D=7% 止盈或满期;
+E=持有5天 / F=持有15天 不止盈)各自卖出,统计胜率/盈亏比/凯利 f*。
 
-6 并列象限(非交叉,同一信号可同时归两组):
+7 并列象限(非交叉,同一信号可同时归两组):
   - 评级 3 象限: rating_high/mid/low (按 signal_stats 10d score ≥0.75/≥0.55/<0.55)
-  - ETF 归类 3 象限: etf_strong/related/approx (按第一名 ETF track_tier)
-  - track_tier=none/no_score 的信号不纳入 ETF 归类,但纳入评级(若有 score)
+  - ETF 归类 4 象限: etf_strong/related/approx/has_track (按第一名 ETF track_tier;
+    track_tier=none 即 track_score<50 但有跟踪 ETF 的信号归 etf_has_track)
+  - track_score=None(数据不足 n<30)的信号不纳入 ETF 归类,但纳入评级(若有 score)
 
 5 周期: y1(近 1 年) / y3(近 3 年) / y5(近 5 年) / y10(近 10 年) / all(全部)
 
@@ -40,14 +41,16 @@ from app.db import get_conn  # noqa: E402
 
 # ── 常量 ──────────────────────────────────────────────────────────────────────
 BUY_AMOUNT = 1000          # 每笔买入金额(元)
-HOLD_DAYS = 10             # 最大持有交易日
+HOLD_DAYS = 10             # 默认最大持有交易日(ABCD 模式用; E=5/F=15 per-mode 覆盖)
 BUY_SIGNALS = ("buy", "buy_aux", "buy_special", "buy_backup")
 
 SELL_MODES = {
-    "A": {"label": "固定10天", "stop_profit": None},
-    "B": {"label": "3%止盈", "stop_profit": 0.03},
-    "C": {"label": "5%止盈", "stop_profit": 0.05},
-    "D": {"label": "7%止盈", "stop_profit": 0.07},
+    "A": {"label": "固定10天", "hold_days": 10, "stop_profit": None},
+    "B": {"label": "3%止盈",   "hold_days": 10, "stop_profit": 0.03},
+    "C": {"label": "5%止盈",   "hold_days": 10, "stop_profit": 0.05},
+    "D": {"label": "7%止盈",   "hold_days": 10, "stop_profit": 0.07},
+    "E": {"label": "持有5天",  "hold_days": 5,  "stop_profit": None},
+    "F": {"label": "持有15天", "hold_days": 15, "stop_profit": None},
 }
 
 PERIODS = {
@@ -62,12 +65,13 @@ RATING_HIGH = 0.75
 RATING_MID = 0.55
 
 QUADRANT_META = {
-    "rating_high":  {"label": "高评级信号", "desc": "技术参考点综合把握度 score≥0.75"},
-    "rating_mid":   {"label": "中评级信号", "desc": "0.55≤score<0.75"},
-    "rating_low":   {"label": "低评级信号", "desc": "score<0.55"},
-    "etf_strong":   {"label": "强关联ETF", "desc": "track_tier=strong (track_score≥80)"},
-    "etf_related":  {"label": "相关ETF",   "desc": "track_tier=related (70-79)"},
-    "etf_approx":   {"label": "近似ETF",   "desc": "track_tier=approx (50-69)"},
+    "rating_high":   {"label": "高评级信号", "desc": "技术参考点综合把握度 score≥0.75"},
+    "rating_mid":    {"label": "中评级信号", "desc": "0.55≤score<0.75"},
+    "rating_low":    {"label": "低评级信号", "desc": "score<0.55"},
+    "etf_strong":    {"label": "强关联ETF",  "desc": "track_tier=strong (track_score≥75)"},
+    "etf_related":   {"label": "相关ETF",    "desc": "track_tier=related (60-74)"},
+    "etf_approx":    {"label": "近似ETF",    "desc": "track_tier=approx (50-59)"},
+    "etf_has_track": {"label": "有跟踪ETF",  "desc": "track_tier=none (track_score<50,有ETF但跟踪较弱)"},
 }
 
 
@@ -178,18 +182,19 @@ def _calendar_days(d1, d2):
 
 def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, stop_profit,
                   index_id=None, signal=None, track_tier=None, track_score=None,
-                  match_method=None, track_low_confidence=None, today=None):
-    """单笔信号回测: 信号日买入 1000 元, 持有期内止盈或满 HOLD_DAYS 卖出。
+                  match_method=None, track_low_confidence=None, today=None, hold_days=HOLD_DAYS):
+    """单笔信号回测: 信号日买入 1000 元, 持有期内止盈或满 hold_days 卖出。
 
     prices: 该 ETF 的 {date: accum_nav} 字典(已由调用方从 price_map 取出)。
     today: 全局最新数据日(YYYYMMDD), 用于持仓中trade预估; None 时回退本ETF最后日期。
+    hold_days: 最大持有交易日(per-mode, A/B/C/D=10, E=5, F=15)。
     返回 dict {signal_date, index_id, signal, buy_date, sell_date, etf_code, etf_name,
               track_tier, track_score, match_method, track_low_confidence,
               buy_price, sell_price, shares, profit, return_pct, hold_days, sell_reason,
               current_price}
     或 None(信号日无价格/买入失败/持仓中无当前价)。
 
-    持仓中trade: 信号日后不足 HOLD_DAYS 个交易日时, 不丢弃, 按当前价预估盈亏
+    持仓中trade: 信号日后不足 hold_days 个交易日时, 不丢弃, 按当前价预估盈亏
     (sell_date="", sell_price=0, current_price=当前价, sell_reason="持有中"),
     预估 profit 正常计入统计(不隔离), 详见 _compute_stats 的 holding_count。
     """
@@ -205,13 +210,13 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
     if shares <= 0:
         return None
 
-    # 用 bisect 找未来 HOLD_DAYS 个交易日
+    # 用 bisect 找未来 hold_days 个交易日
     dates = sorted_dates_list
     idx = bisect.bisect_right(dates, signal_date)
-    future_dates = dates[idx:idx + HOLD_DAYS]
+    future_dates = dates[idx:idx + hold_days]
 
-    # 持仓中: 未来不足 HOLD_DAYS 个交易日, 按当前价预估盈亏(不丢弃, 含未实现综合表现)
-    if len(future_dates) < HOLD_DAYS:
+    # 持仓中: 未来不足 hold_days 个交易日, 按当前价预估盈亏(不丢弃, 含未实现综合表现)
+    if len(future_dates) < hold_days:
         ref_today = today if today else (dates[-1] if dates else None)
         current_nav = prices.get(ref_today) if ref_today else None
         price_date = ref_today  # current_nav 实际取值日期(回退时下方更新为 dates[-1])
@@ -226,7 +231,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
         # hold_days 用交易日口径(与已卖出 L264 一致): price_date 在 future_dates 的序号+1.
         # 修复: 原用 _calendar_days(signal_date, ref_today) 按全局 today 算自然日, 但
         # current_price 可能回退到本 ETF 滞后日期(如 7/28), 两者不匹配致 hold_days 虚高
-        # (如显示 18 天, 实际仅 6 个交易日). 改跟踪 price_date + 交易日口径, 不超 HOLD_DAYS.
+        # (如显示 18 天, 实际仅 6 个交易日). 改跟踪 price_date + 交易日口径, 不超 hold_days.
         try:
             hold = future_dates.index(price_date) + 1
         except ValueError:
@@ -253,8 +258,8 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
             "current_price": round(current_nav, 6),
         }
 
-    # 模式 A: 最后一天卖出; 模式 B/C/D: 逐日检查止盈
-    sell_date = future_dates[-1]  # 默认最后一天(D+10)
+    # 模式 A/E/F: 最后一天卖出(不止盈); 模式 B/C/D: 逐日检查止盈
+    sell_date = future_dates[-1]  # 默认最后一天(D+hold_days)
     sell_reason = "到期"
     if stop_profit is not None:
         for d in future_dates:
@@ -411,11 +416,12 @@ def _guidance(quad_key, mode_key):
     """跟单操作指引: 看到X信号 -> 信号日收盘买1000元Y类型ETF -> 持有Z天或W%止盈卖出。"""
     quad_label = QUADRANT_META[quad_key]["label"]
     mode_def = SELL_MODES[mode_key]
+    hd = mode_def["hold_days"]
     if mode_def["stop_profit"] is None:
-        sell_str = f"持有{HOLD_DAYS}天到期卖出"
+        sell_str = f"持有{hd}天到期卖出"
     else:
         pct = int(mode_def["stop_profit"] * 100)
-        sell_str = f"持有至{pct}%止盈或{HOLD_DAYS}天到期卖出"
+        sell_str = f"持有至{pct}%止盈或{hd}天到期卖出"
     return f"看到{quad_label} → 信号日收盘买{BUY_AMOUNT}元匹配ETF → {sell_str}"
 
 
@@ -587,11 +593,14 @@ def compute():
     if today_str:
         print(f"   全局最新数据日 today={today_str}")
 
-    # 4. 逐信号分类 + 4 模式回测
+    # 4. 逐信号分类 + 6 模式回测
     # quadrants[quad_key][mode_key] = [trade, ...]
     quadrants = {qk: {mk: [] for mk in SELL_MODES} for qk in QUADRANT_META}
     skipped_no_etf = skipped_no_score = skipped_no_price = 0
     classified = 0
+
+    # ETF track_tier -> 象限后缀映射(none -> has_track, 有ETF但跟踪较弱也纳入)
+    etf_quad_map = {"strong": "strong", "related": "related", "approx": "approx", "none": "has_track"}
 
     for date, iid, sig in buy_rows:
         be = best_etf.get(iid)
@@ -616,10 +625,10 @@ def compute():
         else:
             rating = "low"
 
-        # ETF 归类(只 strong/related/approx)
-        etf_quad = tier if tier in ("strong", "related", "approx") else None
+        # ETF 归类(strong/related/approx/has_track; track_score=None 的 tier 不映射)
+        etf_quad = etf_quad_map.get(tier)
 
-        # 4 模式回测
+        # 6 模式回测
         prices = price_map.get(etf_code, {})
         sdates = sorted_dates_map.get(etf_code, [])
         any_valid = False
@@ -627,9 +636,9 @@ def compute():
             result = _backtest_one(date, prices, sdates, etf_code, be["name"], mode_def["stop_profit"],
                                    iid, sig, be.get("track_tier"), be.get("track_score"),
                                    be.get("match_method"), be.get("track_low_confidence"),
-                                   today=today_str)
+                                   today=today_str, hold_days=mode_def["hold_days"])
             if result is None:
-                continue  # 数据不足(信号日无价格/未来不足10天)
+                continue  # 数据不足(信号日无价格/未来不足 hold_days 天)
             any_valid = True
             # 归入评级象限
             quadrants[f"rating_{rating}"][mode_key].append(result)
@@ -655,7 +664,7 @@ def compute():
             "periods": {k: v["label"] for k, v in PERIODS.items()},
             "period_cutoffs": {k: v["cutoff"] for k, v in PERIODS.items()},
             "rating_thresholds": {"high": RATING_HIGH, "mid": RATING_MID},
-            "etf_tiers": ["strong", "related", "approx"],
+            "etf_tiers": ["strong", "related", "approx", "none"],
             "commission_rate": COMMISSION_RATE,
             "slippage": SLIPPAGE,
             "min_commission": MIN_COMMISSION,
@@ -727,7 +736,7 @@ def main():
     trades_path = args.trades_output or os.path.join(os.path.dirname(output_path), "signal_kelly_trades.json")
 
     print("=" * 60)
-    print("信号凯利回测: 6象限 × 4模式 × 5周期")
+    print("信号凯利回测: 7象限 × 6模式 × 5周期")
     print(f"ROOT = {ROOT}")
     print(f"输出 = {output_path}")
     print(f"交易记录 = {trades_path}")

@@ -7023,6 +7023,20 @@ async function renderSigKellyLab() {
   _renderSigKellyQuadrants(host, data, period);
 }
 
+// 从 state.labSigKellyData.config.sell_modes 动态获取卖出模式标签(去硬编码 ABCD)
+function _sigKellyModeLabels() {
+  const sm = (state.labSigKellyData && state.labSigKellyData.config && state.labSigKellyData.config.sell_modes) || {};
+  const labels = {};
+  Object.keys(sm).forEach((k) => { labels[k] = sm[k] ? sm[k].label : k; });
+  return labels;
+}
+
+// 从 state.labSigKellyData.config.sell_modes 动态获取卖出模式列表(去硬编码 ABCD)
+function _sigKellyModeKeys() {
+  const sm = (state.labSigKellyData && state.labSigKellyData.config && state.labSigKellyData.config.sell_modes) || {};
+  return Object.keys(sm);
+}
+
 // 周期切换条 + 回测参数展示(对比矩阵视图已移除,卡片视图常驻)
 function _renderSigKellyBar(bar, data, period) {
   const cfg = data.config || {};
@@ -7031,11 +7045,11 @@ function _renderSigKellyBar(bar, data, period) {
     `<button type="button" class="lab-subnav-tab lab-sigkelly-period-btn${k === period ? " active" : ""}" data-period="${k}">${periods[k]}</button>`
   ).join("");
   const modes = cfg.sell_modes || {};
-  const modeStr = ["A", "B", "C", "D"].map((k) => modes[k] ? `${k}:${modes[k].label}` : k).join(" · ");
+  const modeStr = Object.keys(modes).map((k) => modes[k] ? `${k}:${modes[k].label}` : k).join(" · ");
   bar.innerHTML =
     `<div class="lab-sigkelly-periods">${tabsHTML}</div>` +
     `<div class="lab-sigkelly-params">` +
-      `<span>买${cfg.buy_amount || 1000}元 · 持有${cfg.hold_days || 10}天 · 卖出模式 ${modeStr}</span>` +
+      `<span>买${cfg.buy_amount || 1000}元 · 卖出模式 ${modeStr}</span>` +
       `<span class="lab-sigkelly-gen">📅 生成: ${data.generated_at || "-"}</span>` +
     `</div>`;
   bar.querySelectorAll(".lab-sigkelly-period-btn").forEach((btn) => {
@@ -7055,7 +7069,7 @@ function _renderSigKellyQuadrants(host, data, period) {
   const quads = data.quadrants || {};
   const groups = [
     { title: "按信号评级分组(10d score 评级)", keys: ["rating_high", "rating_mid", "rating_low"] },
-    { title: "按 ETF 跟踪评分分组(track_tier 归类)", keys: ["etf_strong", "etf_related", "etf_approx"] },
+    { title: "按 ETF 跟踪评分分组(track_tier 归类)", keys: ["etf_strong", "etf_related", "etf_approx", "etf_has_track"] },
   ];
   let html = "";
   for (const g of groups) {
@@ -7124,11 +7138,11 @@ function _bindSigKellyWmPop(host) {
   }
 }
 
-// 组内 ABCD 最终盈亏(total_profit)比较水印
+// 组内各卖出模式最终盈亏(total_profit)比较水印
 // kind: top1(全>0) / out(全≤0淘汰) / mix(有正有负分化); X=最高tp方案字母
 // 辅助(仅top1/mix态,描述最高方案): 风险橙(高仓/样本少)+优势绿(高胜率/低回撤/高夏普)
 function _sigKellyWatermark(pdata) {
-  const modes = ["A", "B", "C", "D"];
+  const modes = Object.keys(pdata);
   const items = modes.map(m => {
     const r = pdata[m];
     if (!r) return null;
@@ -7161,15 +7175,15 @@ function _sigKellyWatermark(pdata) {
   const text = auxHtml ? `${mainText}${auxHtml}` : mainText;
   const auxAll = [...auxRisk, ...auxGood];
   const title = `${kindText}·${top.m} | 盈亏${top.tp.toFixed(0)}` + (auxAll.length ? ` | ${auxAll.join("/")}` : "");
-  // items 供 hoverpop 渲染 ABCD 盈亏对比; auxRisk/auxGood 供辅助标签说明; top=最高方案
+  // items 供 hoverpop 渲染各模式盈亏对比; auxRisk/auxGood 供辅助标签说明; top=最高方案
   return { kind, text, title, items, auxRisk, auxGood, top };
 }
 
-// 组比较水印 hoverpop: 悬停水印 badge 弹出说明(三态定义+ABCD含义+盈亏对比+辅助标签)
+// 组比较水印 hoverpop: 悬停水印 badge 弹出说明(三态定义+卖出模式含义+盈亏对比+辅助标签)
 // wm = _sigKellyWatermark 返回值(含 items/auxRisk/auxGood/top)
 function _sigKellyWmPopupHtml(wm) {
-  const modeLabels = { A: "固定10天", B: "3%止盈", C: "5%止盈", D: "7%止盈" };
-  // 本组 ABCD 最终盈亏对比(正红负绿,与表格 lab-sigkelly-pos/neg 一致)
+  const modeLabels = _sigKellyModeLabels();
+  // 本组各模式最终盈亏对比(正红负绿,与表格 lab-sigkelly-pos/neg 一致)
   const cmpRows = wm.items.map((it) => {
     const tpStr = (it.tp >= 0 ? "+" : "") + it.tp.toFixed(0);
     const cls = it.tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
@@ -7192,22 +7206,29 @@ function _sigKellyWmPopupHtml(wm) {
         `<div class="lab-sigkelly-wm-legend">标签含义: 高仓=半凯利仓位≥60% / 样本少=交易笔数&lt;100 / 高胜率=胜率≥50% / 低回撤=最大回撤≤15% / 高夏普=夏普≥1.0</div>` +
       `</div>`;
   }
+  // 卖出模式含义(动态从 sell_modes 生成,不止盈模式标注"不止盈")
+  const _sm = (state.labSigKellyData && state.labSigKellyData.config && state.labSigKellyData.config.sell_modes) || {};
+  const modeDesc = Object.keys(_sm).map((k) => {
+    const d = _sm[k];
+    if (!d) return k;
+    return d.stop_profit == null ? `${k}=${d.label}(不止盈)` : `${k}=${d.label}`;
+  }).join(" · ");
   return (
     `<div class="lab-sigkelly-wm-pop">` +
       `<div class="lab-sigkelly-wm-pop-title">组比较水印说明</div>` +
       `<div class="lab-sigkelly-wm-sec">` +
         `<div class="lab-sigkelly-wm-sub">三态定义</div>` +
-        `<div class="lab-sigkelly-wm-li"><b>TOP1·X</b>: 四方案最终盈亏全为正,X 为最高方案</div>` +
+        `<div class="lab-sigkelly-wm-li"><b>TOP1·X</b>: 各方案最终盈亏全为正,X 为最高方案</div>` +
         `<div class="lab-sigkelly-wm-li"><b>分化·X</b>: 有正有负,X 为最高方案</div>` +
-        `<div class="lab-sigkelly-wm-li"><b>淘汰</b>: 四方案最终盈亏全≤0</div>` +
-        `<div class="lab-sigkelly-wm-li lab-sigkelly-wm-li-x">X = 本组 ABCD 中最终盈亏最高的方案字母</div>` +
+        `<div class="lab-sigkelly-wm-li"><b>淘汰</b>: 各方案最终盈亏全≤0</div>` +
+        `<div class="lab-sigkelly-wm-li lab-sigkelly-wm-li-x">X = 本组各卖出模式中最终盈亏最高的方案字母</div>` +
       `</div>` +
       `<div class="lab-sigkelly-wm-sec">` +
-        `<div class="lab-sigkelly-wm-sub">ABCD 含义(卖出止盈档位)</div>` +
-        `<div class="lab-sigkelly-wm-li">A=固定10天(不止盈) · B=3%止盈 · C=5%止盈 · D=7%止盈</div>` +
+        `<div class="lab-sigkelly-wm-sub">卖出模式含义</div>` +
+        `<div class="lab-sigkelly-wm-li">${modeDesc}</div>` +
       `</div>` +
       `<div class="lab-sigkelly-wm-sec">` +
-        `<div class="lab-sigkelly-wm-sub">本组 ABCD 最终盈亏对比</div>` +
+        `<div class="lab-sigkelly-wm-sub">本组各模式最终盈亏对比</div>` +
         `<div class="lab-sigkelly-wm-cmp">${cmpRows}</div>` +
       `</div>` +
       auxHtml +
@@ -7225,14 +7246,13 @@ function _positionSigKellyWmPop(wmEl, pop) {
   pop.style.left = left + "px";
 }
 
-// 单象限卡片: 4模式表格(A固定10天/B3%/C5%/D7%止盈) + 详情展开 + 跟单指引
-// 单象限卡片: 4模式宽表(A固定10天/B3%/C5%/D7%止盈) + 跟单指引
+// 单象限卡片: 各卖出模式宽表(动态从 sell_modes 读取) + 跟单指引
 // 主表+进阶表合并为一张宽表(14列),details 折叠已移除常显;最大持仓显笔数+资金
 function _renderSigKellyCard(qk, q, period) {
   const periods = q.periods || {};
   const pdata = periods[period] || {};
-  const modes = ["A", "B", "C", "D"];
-  const modeLabels = { A: "固定10天", B: "3%止盈", C: "5%止盈", D: "7%止盈" };
+  const modes = _sigKellyModeKeys();
+  const modeLabels = _sigKellyModeLabels();
   const guidance = q.guidance || {};
   let rows = "";
   for (const m of modes) {

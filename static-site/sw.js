@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a78';  // bump a77->a78: 凯利水印hoverpop(悬停水印弹出三态定义+ABCD盈亏对比+辅助标签说明)
+const CACHE_VERSION = 'v6-20260809-a79';  // bump a78->a79: 凯利E/F卖出模式(持有5/15天)+etf_has_track档+lab.js去硬编码动态读sell_modes
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
