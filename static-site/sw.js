@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260810-a91';  // bump a90->a91: 降亏toggle加 data-no-pop 跳过 _initTermPop JS term-pop，修 double-tooltip 冲突（保留 CSS ::after tooltip）
+const CACHE_VERSION = 'v6-20260810-a92';  // bump a91->a92: 降亏4toggle加2新(排除3+5月季节性+排除rating=low低评级),4toggle独立可组合filter叠加
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
