@@ -17,8 +17,10 @@
 #   [9/12]  lab_cost_compare 手续费对比（static-site/data/lab_cost_compare.json，顶层）
 #   [10/12] lab_param_scan 参数敏感扫描（static-site/data/lab_param_scan.json，顶层）
 #   [11/12] lab_short_symmetry 多空对称（static-site/data/lab_short_symmetry.json，顶层）
+#   [11.5/12] simulate_trade --all（static-site/data/trade_sim/ 全品种 JSON + trade_sim_indices.json）
 #   [12/12] simulate_trade --html（static-site/trade_sim.html，sh 旧版静态 HTML 兜底入口）
 #   -> upload_r2.py upload-lab 刷 R2 上线（lab/ 子目录 65 文件）
+#   -> upload_r2.py upload-trade-sim-json 刷 R2 trade_sim JSON（trade_sim/ 子目录 + trade_sim_indices.json）
 #   -> git push 顶层 lab_*.json + trade_sim.html（static-site/data/ 4 顶层 + static-site/ 根 trade_sim.html 走 deploy）
 #
 # P1-7 修复（2026-07-21）：原脚本只跑 lab_simulate + lab_retest，漏跑 lab_matrix 和
@@ -210,6 +212,19 @@ else
   echo "✓ 多空对称完成" | tee -a "$LOG"
 fi
 
+# [11.5/12] simulate_trade --all（生成全品种JSON: trade_sim_{index}_stats.json + _full.json + trade_sim_indices.json）
+# 2026-08-09 补：原 update_lab.sh 只跑 --html(HTML兜底)，JSON 模式无调度致 trade_sim JSON 滞后。
+# --all 批量生成 167 品种 5 窗口回测 JSON（写 static-site/data/trade_sim/ + trade_sim_indices.json），
+# 失败不阻塞(同现有模式)。
+echo "-> [11.5/12] simulate_trade --all（全品种JSON回测）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/simulate_trade.py" --all 2>&1 | tee -a "$LOG"
+RC_TSJ=${PIPESTATUS[0]:-1}
+if [ "$RC_TSJ" -ne 0 ]; then
+  echo "⚠ simulate_trade --all 失败（退出码 ${RC_TSJ}），trade_sim JSON 可能过期" | tee -a "$LOG"
+else
+  echo "✓ trade_sim JSON 全品种生成完成" | tee -a "$LOG"
+fi
+
 # [12/12] simulate_trade --html（生成 static-site/trade_sim.html，sh 旧版静态 HTML 兜底入口）
 # 2026-07-29 纳入 update_lab.sh：原手动跑，现每日自动重生。
 # --output 指定生成 static-site/trade_sim.html（git tracked，走 git deploy）；
@@ -252,6 +267,13 @@ if [ "$REPO" != "/Users/linhuichen/code/trade" ] && [ -d "$TRADE_LAB" ]; then
     cp "$REPO/static-site/trade_sim.html" "/Users/linhuichen/code/trade/static-site/trade_sim.html"
     echo "✓ 同步 trade_sim.html $REPO -> trade/（供 git deploy 读取）" | tee -a "$LOG"
   fi
+  # D) 同步 trade_sim/ 子目录 + trade_sim_indices.json -> upload_r2 读取
+  #    2026-08-09 补：simulate_trade --all 生成 JSON 需同步到 trade/ 供 upload-trade-sim-json 上传 R2
+  rsync -a "$REPO/static-site/data/trade_sim/" "$TRADE_DATA/trade_sim/"
+  echo "✓ 同步 trade_sim/ 子目录 $REPO -> trade/（供 upload_r2 读取）" | tee -a "$LOG"
+  if [ -f "$REPO/static-site/data/trade_sim_indices.json" ]; then
+    cp "$REPO/static-site/data/trade_sim_indices.json" "$TRADE_DATA/trade_sim_indices.json"
+  fi
 fi
 
 # A) upload_r2 刷 R2（lab/ 子目录 65 文件）
@@ -268,6 +290,23 @@ if [ "$R2_RC" -ne 0 ]; then
     --dedup-key update_lab_r2_upload_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
 else
   echo "✓ R2 上传完成" | tee -a "$LOG"
+fi
+
+# upload-trade-sim-json: 上传 trade_sim JSON 到 R2（含自动 purge）
+# 2026-08-09 补：simulate_trade --all 生成的 JSON 需上传 R2 供前端走势卡/策略实验室读取。
+echo "-> upload_r2.py upload-trade-sim-json（刷 R2 trade_sim JSON）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/upload_r2.py" upload-trade-sim-json 2>&1 | tee -a "$LOG"
+R2_TSJ_RC=${PIPESTATUS[0]:-1}
+if [ "$R2_TSJ_RC" -ne 0 ]; then
+  echo "⚠ upload-trade-sim-json 失败（退出码 ${R2_TSJ_RC}），trade_sim R2 可能过期" | tee -a "$LOG"
+  ALERT_TIME=$(date '+%m-%d %H:%M')
+  "$PY" "$REPO/scripts/notify.py" \
+    "[告警] update_lab trade_sim R2上传失败 ${ALERT_TIME}" \
+    "upload-trade-sim-json 失败(退出码 ${R2_TSJ_RC})，trade_sim R2 可能过期，需手动补刷: bash scripts/upload_r2.py upload-trade-sim-json<br>日志: $LOG" \
+    --severe --from-prefix "[告警]" \
+    --dedup-key update_lab_tradesim_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+else
+  echo "✓ trade_sim JSON R2 上传完成" | tee -a "$LOG"
 fi
 
 # B) 上传顶层 lab_*.json 到 R2（阶段3：去 git push 数据，前端走 R2）
@@ -377,7 +416,7 @@ END_TS=$(date +%s)
 ELAPSED=$((END_TS - START_TS))
 ELAPSED_MIN=$((ELAPSED / 60))
 echo "=== update_lab.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 耗时 ${ELAPSED}s（${ELAPSED_MIN}min）===" | tee -a "$LOG"
-echo "退出码汇总: sim=$RC1 fusion=$RC2 matrix=$RC3 fusion_matrix=$RC4 retest=$RC5 honors=$RC_HONORS backtest=$RC6 abl=$RC_ABL cc=$RC_CC ps=$RC_PS ss=$RC_SS ts=$RC_TS r2=$R2_RC lab_r2=$LAB_R2_RC git_tl=$GIT_DEPLOY_RC" | tee -a "$LOG"
+echo "退出码汇总: sim=$RC1 fusion=$RC2 matrix=$RC3 fusion_matrix=$RC4 retest=$RC5 honors=$RC_HONORS backtest=$RC6 abl=$RC_ABL cc=$RC_CC ps=$RC_PS ss=$RC_SS tsj=$RC_TSJ ts=$RC_TS r2=$R2_RC tradesim_r2=$R2_TSJ_RC lab_r2=$LAB_R2_RC git_tl=$GIT_DEPLOY_RC" | tee -a "$LOG"
 
 # 刷新 schedule_stats.json（2026-07-24 方案A根治：从 deploy.sh:72 移到此处，在"结束"行后调用，
 # gen_stats 能读到完整"开始+结束"对，正确配对当前任务 exit/dur，不再 pending null）
