@@ -101,7 +101,7 @@
 |---|---|---|
 | `/Users/linhuichen/code/trade` | 主代码仓库（前端+后端+脚本+Worker配置） | git@github.com:xp13465/trade-data-signal.git |
 | `/Users/linhuichen/code/trade-data` | 采集运行目录（DB+日志+.venv+.env），通过 symlink 复用 trade 的代码 | 无 git init（不独立 commit，采集后 rsync 到 trade 上线） |
-| `staticdata`（规划中） | 数据备份仓库（DB + static-site/data 静态产物备份） | git@github.com:xp13465/trade-data-signal-staticdata.git |
+| `staticdata` | 差异化日志备份仓库（DB 本地 rsync + 配置脱敏 + 小 JSON 差异跟踪，详见 [§10.4](#104-静态数据备份仓库staticdata)） | git@github.com:xp13465/trade-data-signal-staticdata.git |
 
 **trade-data 的 symlink 结构**（关键：uvicorn cwd 必须 trade-data/）：
 

@@ -257,7 +257,7 @@ R2 迁移阶段 3 后，定时任务去 git push 数据改 R2 上传 + purge_cac
 
 ### 5.1 deploy.sh（全量部署）
 
-`scripts/deploy.sh` L263-278 调 `run_r2_upload` 跑 10 个 R2 上传命令：
+`scripts/deploy.sh` L243-255 调 `run_r2_upload` 跑 10 个 R2 上传命令：
 
 ```
 upload-lab / upload-trade-sim / upload-trade-sim-json / upload-index /
@@ -298,7 +298,7 @@ upload-data-large / upload-all-data
 
 `git@github.com:xp13465/trade-data-signal-staticdata.git`，本地路径 `/Users/linhuichen/code/trade-data-signal-staticdata`。
 
-### 6.2 deploy.sh 自动备份（L516-564）
+### 6.2 deploy.sh 自动备份（L496-548）
 
 每次 deploy 后（best-effort，失败不阻塞 deploy）：
 
