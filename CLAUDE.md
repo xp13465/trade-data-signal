@@ -264,7 +264,14 @@
   - **§20 完善引导**(正向持续):把"怎么做对"沉淀进 `docs/agent-quickstart.md`,面向**子 agent fresh context 读**--§18/§19 主控读得到但子 agent fresh context 不读全文,§20 是子 agent 真正会读的速查入口
   - 一句话:**§18 防错 / §19 总结 / §20 引导对**,§20 把 §18/§19 的教训转成子 agent 可直接执行的 step
 - **持续性**:每次绕弯路都完善,`docs/agent-quickstart.md` 越来越全,子 agent 直接用不绕弯路;§19 会话级总结时必查本次绕弯路,有则完善 `docs/agent-quickstart.md`(总结 agent 的产出之一)
-- **派 agent 时引用**(§16 agent prompt 规范延伸):主控派子 agent prompt 引用"见 docs/agent-quickstart.md <对应任务类型>",子 agent fresh context 读速查快速上手,不重复调研已知流程;若该任务类型速查尚未写,子 agent 完成后补写(把本次"怎么做对"沉淀,触发 §20 动作②)
+- **派 agent 时引用**(§16 agent prompt 规范延伸):主控派子 agent prompt 引用“见 docs/agent-quickstart.md <对应任务类型>”,子 agent fresh context 读速查快速上手,不重复调研已知流程;若该任务类型速查尚未写,子 agent 完成后补写(把本次“怎么做对”沉淀,触发 §20 动作②)
+
+## 21. 算法改动同步公示文案(2026-08-08 定,防算法公示与实施不同步)
+- **核心一句话:改算法逻辑必须同步改前端算法公示文案**。算法公示(前端展示的算法说明/公式/规则解释)是用户理解算法的依据,算法改了公示不改=用户看老规则误导,且修复成本高(发现成本+返工)
+- **触发**:任何改 track_score/评分/权重/分段函数/匹配规则等算法逻辑的改动(build_board_etf_map.py/queries.py/simulate_trade.py 等后端算法),必须 grep 前端算法公示文案同步更新
+- **算法公示文案位置**:app.js/lab.js 中 track_score/跟踪分/算法/TE/R²/IR/权重/百分位/match_method 等相关说明文字(弹窗/tooltip/策略实验室公式展示)。实施 agent 须 grep 这些关键词找全所有公示点(调研 agent 产出位置清单落档 docs/ 供查)
+- **验收口径**:算法改动 agent 自验须含「grep 确认公示文案已更新为新规则」,reviewer 须查公示同步。算法改了公示没改=验收不通过
+- **历史教训**:之前出现过算法公示老版本和实施规则不同步(算法改了公示没改,用户看老规则),修复需重新定位所有公示点+更新+重新上线,发现成本+返工成本高。本规范防丢失忘记,下次算法改动必读
 
 ## 验收铁律
 逐字验证关键结论(grep/SQL/读代码),不信 agent 报告。报“完成”不等于真完成。
