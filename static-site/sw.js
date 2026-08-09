@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260810-a90';  // bump a89->a90: 降亏toggle(excludeAux/marketTiming)加hover逻辑说明tooltip
+const CACHE_VERSION = 'v6-20260810-a91';  // bump a90->a91: 降亏toggle加 data-no-pop 跳过 _initTermPop JS term-pop，修 double-tooltip 冲突（保留 CSS ::after tooltip）
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

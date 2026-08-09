@@ -7476,8 +7476,8 @@ function _renderSigKellyBar(bar, data, period) {
   const _filters = state.labSigKellyFilters || { excludeAux: false, marketTiming: false };
   const toggleHTML = `<div class="lab-sigkelly-toggle-row">` +
       `<span class="lab-sigkelly-toggle-label">降亏过滤:</span>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-tip="排除 buy_aux（辅关注）信号：历史净亏损 -33K 元，是唯一净负信号类型（胜率 48%），排除后总收益 +10%、亏损总额 -37%，零成本增收。"><input type="checkbox" class="lab-sigkelly-toggle-aux"${_filters.excludeAux ? " checked" : ""}> 排除辅关注(buy_aux) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-tip="MA60 大盘择时（仅 A 股类 a/concept/industry）：沪深300 在 60 日均线之上才进场（多头），之下跳过避熊市。2022+2023 熊市减亏约 83%（基准 -104K -> -18K）。港股/全球标 true 不过滤。后端 _load_market_state 读 hs300 MA60 注入 market_state 字段。"><input type="checkbox" class="lab-sigkelly-toggle-mkt"${_filters.marketTiming ? " checked" : ""}> MA60大盘择时(仅A股类) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 buy_aux（辅关注）信号：历史净亏损 -33K 元，是唯一净负信号类型（胜率 48%），排除后总收益 +10%、亏损总额 -37%，零成本增收。"><input type="checkbox" class="lab-sigkelly-toggle-aux"${_filters.excludeAux ? " checked" : ""}> 排除辅关注(buy_aux) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="MA60 大盘择时（仅 A 股类 a/concept/industry）：沪深300 在 60 日均线之上才进场（多头），之下跳过避熊市。2022+2023 熊市减亏约 83%（基准 -104K -> -18K）。港股/全球标 true 不过滤。后端 _load_market_state 读 hs300 MA60 注入 market_state 字段。"><input type="checkbox" class="lab-sigkelly-toggle-mkt"${_filters.marketTiming ? " checked" : ""}> MA60大盘择时(仅A股类) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<span class="lab-sigkelly-toggle-hint">独立/组合开启,实时过滤重算</span>` +
     `</div>`;
   bar.innerHTML =
