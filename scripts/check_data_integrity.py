@@ -39,6 +39,14 @@ AMOUNT_FORECAST_FAIL = 50000        # amount_forecast > 50000 亿 = FAIL（9.52 
 STALE_DAYS_WARN = 3                 # date 滞后 >3 天 = WARN（日频数据可能停更）
 STALE_DAYS_FAIL = 7                 # date 滞后 >7 天 = FAIL
 
+# track_score 三版本一致性容差（防 159335 类三版本不一致事故，§22 数据一致性铁律）
+# board_etf_map vs overview signal vs index detail 三处同 ETF track_score 容差 ±1.0
+# 超容差 = 不同 build 产物混用，>=2 指数不一致 = FAIL
+TRACK_SCORE_TOLERANCE = 1.0
+# etf_since_return 非 null 占比阈值（走势卡 ETF 至今盈亏注入失败拦截）
+ETF_SINCE_RETURN_FAIL_RATIO = 0.90  # <90% = FAIL（后端注入失败）
+ETF_SINCE_RETURN_WARN_RATIO = 0.95  # <95% = WARN
+
 # 关键文件清单（存在性校验）
 # static-site/data/ 下的部署产物 + data/ 下的构建依赖
 KEY_FILES_STATIC = [
@@ -520,6 +528,170 @@ def check_signal_kelly_backtest(data_dir: Path) -> CheckResult:
     return _ok(name, msg)
 
 
+def check_trade_sim_indices(data_dir: Path) -> CheckResult:
+    """校验 trade_sim_indices.json：存在 + 非滞后（trade_sim JSON 无调度致滞后拦截）。
+
+    事故场景：simulate_trade --all 无自动调度 -> trade_sim JSON 停在旧日期 ->
+    前端走势卡/策略实验室读旧回测数据。文件内容是 index_id 字符串列表无 date 字段，
+    用文件 mtime 判断滞后。
+    """
+    name = "trade_sim_indices"
+    path = data_dir / "trade_sim_indices.json"
+    data, err = _load_json(path)
+    if err:
+        return _fail(name, err)
+    if not isinstance(data, list):
+        return _fail(name, f"trade_sim_indices.json 不是 list: {type(data).__name__}")
+    if not data:
+        return _fail(name, "trade_sim_indices.json 是空 list（无回测品种）")
+
+    # mtime 滞后校验（list 内容是 index_id 字符串，无 date 字段，用文件 mtime）
+    try:
+        mtime_dt = datetime.fromtimestamp(path.stat().st_mtime)
+        days = (datetime.now() - mtime_dt).days
+    except OSError as e:
+        return _warn(name, f"无法读取文件 mtime: {e}")
+    if days > STALE_DAYS_FAIL:
+        return _fail(name, f"trade_sim_indices.json mtime 滞后 {days} 天 > {STALE_DAYS_FAIL} 天"
+                     f"（trade_sim JSON 无调度，回测数据过期）")
+    if days > STALE_DAYS_WARN:
+        return _warn(name, f"trade_sim_indices.json mtime 滞后 {days} 天 > {STALE_DAYS_WARN} 天")
+    return _ok(name, f"{len(data)} 个品种, mtime 滞后 {days} 天")
+
+
+def check_etf_since_return(data_dir: Path) -> CheckResult:
+    """校验 overview.json signals_today etfs 的 etf_since_return 非 null 占比。
+
+    事故场景：后端注入失败 -> 走势卡 ETF 至今盈亏全 null。
+    """
+    name = "etf_since_return"
+    path = data_dir / "overview.json"
+    data, err = _load_json(path)
+    if err:
+        return _fail(name, err)
+    if not isinstance(data, dict):
+        return _fail(name, f"overview.json 不是 dict: {type(data).__name__}")
+
+    signals = data.get("signals_today")
+    if not isinstance(signals, list):
+        return _warn(name, "overview.json 无 signals_today list")
+
+    total = 0
+    nonnull = 0
+    for s in signals:
+        if not isinstance(s, dict):
+            continue
+        etfs = s.get("etfs")
+        if not isinstance(etfs, list):
+            continue
+        for e in etfs:
+            if isinstance(e, dict) and e.get("code"):
+                total += 1
+                if e.get("etf_since_return") is not None:
+                    nonnull += 1
+
+    if total == 0:
+        return _warn(name, "signals_today 中无 ETF 条目（无法计算占比）")
+
+    ratio = nonnull / total
+    if ratio < ETF_SINCE_RETURN_FAIL_RATIO:
+        return _fail(name, f"etf_since_return 非 null 占比 {ratio:.1%} ({nonnull}/{total}) < "
+                     f"{ETF_SINCE_RETURN_FAIL_RATIO:.0%}（后端注入失败，走势卡 ETF 至今盈亏全 null）")
+    if ratio < ETF_SINCE_RETURN_WARN_RATIO:
+        return _warn(name, f"etf_since_return 非 null 占比 {ratio:.1%} ({nonnull}/{total}) < "
+                     f"{ETF_SINCE_RETURN_WARN_RATIO:.0%}")
+    return _ok(name, f"非 null 占比 {ratio:.1%} ({nonnull}/{total})")
+
+
+def check_track_score_consistency(data_dir: Path, repo_data_dir: Path) -> CheckResult:
+    """校验 track_score 三版本一致性：board_etf_map vs overview signal vs index detail。
+
+    事故场景：overview 用旧 board_etf_map 致 track_score 不一致（159335 三版本不一致事故，
+    §22 数据一致性铁律）。三处同 ETF track_score 容差 ±TRACK_SCORE_TOLERANCE，超容差 = 不同
+    build 产物混用。5 个样本指数中 >=2 不一致 = FAIL，>=1 = WARN。
+    """
+    name = "track_score_consistency"
+    # 1. board_etf_map.json
+    bmap, err = _load_json(repo_data_dir / "board_etf_map.json")
+    if err:
+        return _fail(name, f"无法读 board_etf_map: {err}")
+    if not isinstance(bmap, dict):
+        return _fail(name, f"board_etf_map.json 不是 dict: {type(bmap).__name__}")
+
+    # 2. overview.json -> index_id -> {code: track_score}
+    ov, ov_err = _load_json(data_dir / "overview.json")
+    ov_scores: dict[str, dict[str, float]] = {}
+    if not ov_err and isinstance(ov, dict):
+        for s in ov.get("signals_today") or []:
+            if not isinstance(s, dict):
+                continue
+            idx = s.get("index_id")
+            etfs = s.get("etfs")
+            if not idx or not isinstance(etfs, list):
+                continue
+            m = ov_scores.setdefault(idx, {})
+            for e in etfs:
+                if isinstance(e, dict) and e.get("code") and e.get("track_score") is not None:
+                    try:
+                        m[e["code"]] = float(e["track_score"])
+                    except (TypeError, ValueError):
+                        pass
+
+    # 选 5 个有 ETF 的指数（broad 优先）
+    sample_indices = []
+    candidate_keys = BROAD_INDICES + [k for k in bmap
+                                      if k not in BROAD_INDICES and not k.startswith("_")]
+    for idx in candidate_keys:
+        if len(sample_indices) >= 5:
+            break
+        etfs = bmap.get(idx)
+        if not (isinstance(etfs, list) and etfs and isinstance(etfs[0], dict)
+                and etfs[0].get("code")):
+            continue
+        ts = etfs[0].get("track_score")
+        if ts is None:
+            continue
+        try:
+            sample_indices.append((idx, etfs[0]["code"], float(ts)))
+        except (TypeError, ValueError):
+            pass
+
+    if not sample_indices:
+        return _warn(name, "board_etf_map 中无可用 top1 ETF track_score（无法比对）")
+
+    inconsistent = []
+    for idx, code, bmap_score in sample_indices:
+        scores = [bmap_score]
+        # overview signal
+        if code in ov_scores.get(idx, {}):
+            scores.append(ov_scores[idx][code])
+        # index detail
+        detail_path = data_dir / "index" / f"{idx}-all.json"
+        detail, d_err = _load_json(detail_path)
+        if not d_err and isinstance(detail, dict):
+            for e in detail.get("etfs") or []:
+                if isinstance(e, dict) and e.get("code") == code and e.get("track_score") is not None:
+                    try:
+                        scores.append(float(e["track_score"]))
+                    except (TypeError, ValueError):
+                        pass
+                    break
+        diff = max(scores) - min(scores)
+        if diff > TRACK_SCORE_TOLERANCE:
+            inconsistent.append((idx, code, scores, round(diff, 2)))
+
+    if len(inconsistent) >= 2:
+        detail = "; ".join(f"{i}/{c} scores={s} diff={d}" for i, c, s, d in inconsistent)
+        return _fail(name, f"{len(inconsistent)} 个指数 track_score 三版本不一致"
+                     f"(容差±{TRACK_SCORE_TOLERANCE}): {detail}")
+    if len(inconsistent) == 1:
+        idx, code, scores, diff = inconsistent[0]
+        return _warn(name, f"{idx}/{code} track_score 不一致 scores={scores} diff={diff}"
+                     f" (容差±{TRACK_SCORE_TOLERANCE})")
+    return _ok(name, f"{len(sample_indices)} 个指数 top1 ETF track_score 三版本一致"
+               f"(容差±{TRACK_SCORE_TOLERANCE})")
+
+
 # ── 关键文件存在性校验 ────────────────────────────────────────────────────────
 
 def check_key_files(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
@@ -547,10 +719,10 @@ def check_key_files(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
 # ── 全量校验编排 ──────────────────────────────────────────────────────────────
 
 def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
-    """运行全部 11 个校验函数 + 关键文件存在性校验。"""
+    """运行全部 14 个校验函数 + 关键文件存在性校验。"""
     results = []
 
-    # 11 个校验函数
+    # 14 个校验函数
     results.append(check_board_etf_map(repo_data_dir))
     results.append(check_overview(data_dir))
     results.append(check_boot(data_dir))
@@ -563,6 +735,9 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     results.append(check_a_stock(data_dir))
     results.append(check_etf_index_map(repo_data_dir))
     results.append(check_signal_kelly_backtest(data_dir))
+    results.append(check_trade_sim_indices(data_dir))
+    results.append(check_etf_since_return(data_dir))
+    results.append(check_track_score_consistency(data_dir, repo_data_dir))
 
     # 关键文件存在性
     results.extend(check_key_files(data_dir, repo_data_dir))
