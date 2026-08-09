@@ -10,10 +10,18 @@
 冰点等)。字段以实际为准,缺字段优雅跳过。
 
 用法:
-  python scripts/daily_summary_email.py              # 当日
-  python scripts/daily_summary_email.py 20260720     # 指定日期 YYYYMMDD
-  python scripts/daily_summary_email.py --dry-run    # 生成正文打印到 stdout,不发
-  python scripts/daily_summary_email.py 20260720 --dry-run
+  python scripts/daily_summary_email.py                          # 当日 main 模式(向后兼容)
+  python scripts/daily_summary_email.py 20260720                 # 指定日期 main 模式
+  python scripts/daily_summary_email.py --dry-run                # main 模式打印不发
+  python scripts/daily_summary_email.py --mode supplement        # 当日 supplement 模式
+  python scripts/daily_summary_email.py --mode supplement --dry-run
+
+模式说明(拆分 C 方案):
+  main(默认):T日盘后情绪速递 -- 恐贪/情绪/涨跌/成交额/板块/冰点等,不含期货/汪汪队/公募。
+             17:50 由 update_all.sh 调用(summary_history.json 已就绪)。
+  supplement:T日补充速递 -- 期货风向 + 汪汪队 + 公募基金段。
+             20:30 独立 launchd plist 调用(20:05 期货 backfill + 20:07 ETF backfill 后数据就绪)。
+             内置交易日闸门(非交易日跳过)。
 
 == 调度集成说明 ==
 方案A(推荐):在 scripts/update_all.sh 末尾(backup_db.sh 调用之前)加一行:
@@ -144,7 +152,7 @@ def ind_names(arr, n=3) -> str:
 
 # ---------------------------------------------------------------- 正文生成
 def build_subject(it: dict) -> str:
-    """邮件主题:[收盘速递] 2026-07-20 周日 | 恐贪35.8 恐惧 | 情绪低迷。"""
+    """邮件主题:[情绪速递·T日盘后] 2026-07-20 周日 | 恐贪35.8 恐惧 | 情绪低迷。"""
     date_str = it.get("date", "")
     fg = it.get("fear_greed_value")
     fg_label = it.get("fear_greed_label") or ""
@@ -156,7 +164,14 @@ def build_subject(it: dict) -> str:
     if fg_label:
         parts[0] = f"恐贪{fg_str} {fg_label}"
     sent_part = f" | {sent_label}" if sent_label else ""
-    return f"[收盘速递] {iso_date(date_str)}{wd_str} | {' '.join(parts)}{sent_part}"
+    return f"[情绪速递·T日盘后] {iso_date(date_str)}{wd_str} | {' '.join(parts)}{sent_part}"
+
+
+def build_supplement_subject(date: str) -> str:
+    """补充速递邮件主题:[补充速递·T日] 2026-07-20 周日 | 期货/汪汪队/公募。"""
+    wd = weekday_cn(date)
+    wd_str = f" {wd}" if wd else ""
+    return f"[补充速递·T日] {iso_date(date)}{wd_str} | 期货/汪汪队/公募"
 
 
 def build_text(it: dict, subs: list[dict] | None = None, extras: dict | None = None) -> str:
@@ -164,7 +179,7 @@ def build_text(it: dict, subs: list[dict] | None = None, extras: dict | None = N
     date_str = it.get("date", "")
     lines = []
     lines.append("=" * 44)
-    lines.append(f"  A股收盘情绪速递 · {iso_date(date_str)} {weekday_cn(date_str)}")
+    lines.append(f"  A股情绪速递 · T日盘后 · {iso_date(date_str)} {weekday_cn(date_str)}")
     lines.append("=" * 44)
 
     # 恐贪 + 情绪分
@@ -370,8 +385,8 @@ def build_html(it: dict, subs: list[dict] | None = None, extras: dict | None = N
     subs_html = build_subs_html(subs) if subs else ""
 
     return f"""<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1d2129;max-width:560px;">
-<h2 style="margin:0 0 4px 0;color:#1d2129;">A股收盘情绪速递</h2>
-<p style="margin:0 0 12px 0;color:#86909c;font-size:13px;">{iso_date(date_str)} {weekday_cn(date_str)}</p>
+<h2 style="margin:0 0 4px 0;color:#1d2129;">A股情绪速递</h2>
+<p style="margin:0 0 12px 0;color:#86909c;font-size:13px;">T日盘后 · {iso_date(date_str)} {weekday_cn(date_str)}</p>
 <table style="border-collapse:collapse;margin-bottom:4px;">{table_rows}</table>
 {freeze_html}
 {section_html}
@@ -763,7 +778,7 @@ def build_nt_text(d: dict) -> str:
         parts.append(f"量{d['n_volume']}")
     summary = " ".join(parts) if parts else "无信号"
     res_tag = " | 🐾共振" if d.get("is_resonance") else ""
-    lines = ["", "-" * 44, f"汪汪队信号（数据日期 {d.get('data_date', '-')} T-1）："]
+    lines = ["", "-" * 44, f"汪汪队信号（数据日期 {d.get('data_date', '-')}）："]
     lines.append(f"  {summary}{res_tag}")
     net = d.get("net_share", 0)
     net_s = f"+{net:.2f}" if isinstance(net, (int, float)) and net >= 0 else (f"{net:.2f}" if isinstance(net, (int, float)) else "-")
@@ -817,7 +832,7 @@ def build_nt_html(d: dict) -> str:
         )
     return (
         f'<h3 style="margin:16px 0 6px 0;color:#1d2129;font-size:14px;">🐶 汪汪队信号'
-        f'<span style="color:#86909c;font-size:12px;font-weight:normal;">（数据日期 {_esc(d.get("data_date","-"))} T-1）</span></h3>'
+        f'<span style="color:#86909c;font-size:12px;font-weight:normal;">（数据日期 {_esc(d.get("data_date","-"))}）</span></h3>'
         f'<div style="margin:4px 0 8px 0;font-size:13px;">{summary}{res_tag}'
         f' <span style="color:#4e5969;margin-left:12px;">净申购 {_esc(net_s)}亿份'
         f' | 增持{d.get("n_inc",0)}只 减持{d.get("n_dec",0)}只</span></div>'
@@ -985,6 +1000,67 @@ def build_pf_html(d: dict) -> str:
     )
 
 
+# ---------------------------------------------------------------- 补充速递正文(main 拆分 C 方案)
+def _is_trading_day() -> bool:
+    """检查是否交易日(supplement 模式闸门)。导入失败默认 True(不阻塞)。"""
+    try:
+        if str(REPO) not in sys.path:
+            sys.path.insert(0, str(REPO))
+        from app.calendar import is_trading_day
+        return is_trading_day()
+    except Exception:
+        return True
+
+
+def build_supplement_text(date: str, extras: dict) -> str:
+    """补充速递纯文本正文:只含期货/汪汪队/公募三段。"""
+    lines = []
+    lines.append("=" * 44)
+    lines.append(f"  A股补充速递 · T日 · {iso_date(date)} {weekday_cn(date)}")
+    lines.append("  期货风向 / 汪汪队 / 公募基金")
+    lines.append("=" * 44)
+    if extras:
+        fut = extras.get("futures")
+        if fut:
+            seg = build_futures_text(fut)
+            if seg:
+                lines.append(seg)
+        nt = extras.get("nt")
+        if nt:
+            seg = build_nt_text(nt)
+            if seg:
+                lines.append(seg)
+        pf = extras.get("pf")
+        if pf:
+            seg = build_pf_text(pf)
+            if seg:
+                lines.append(seg)
+    lines.append("-" * 44)
+    lines.append(f"由 {SITE_NAME} 自动发送 · {SITE_DOMAIN}")
+    return "\n".join(lines)
+
+
+def build_supplement_html(date: str, extras: dict) -> str:
+    """补充速递 HTML 正文:只含期货/汪汪队/公募三段。"""
+    extra_html = ""
+    if extras:
+        fut = extras.get("futures")
+        if fut:
+            extra_html += build_futures_html(fut)
+        nt = extras.get("nt")
+        if nt:
+            extra_html += build_nt_html(nt)
+        pf = extras.get("pf")
+        if pf:
+            extra_html += build_pf_html(pf)
+    return f"""<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1d2129;max-width:560px;">
+<h2 style="margin:0 0 4px 0;color:#1d2129;">A股补充速递</h2>
+<p style="margin:0 0 12px 0;color:#86909c;font-size:13px;">T日 期货/汪汪队/公募 · {iso_date(date)} {weekday_cn(date)}</p>
+{extra_html}
+<p style="color:#c9cdd4;font-size:11px;margin-top:16px;">-- 由 {SITE_NAME} 自动发送 · {SITE_DOMAIN}</p>
+</body></html>"""
+
+
 # ---------------------------------------------------------------- 邮件发送
 def load_email_config() -> dict | None:
     """读 config/email.json。不存在/解析失败返回 None。不泄露密码。"""
@@ -1010,11 +1086,12 @@ def _resolve_recipients(cfg: dict, user: str) -> list[str]:
     return tos or [user]
 
 
-def send_email(cfg: dict, subject: str, text_body: str, html_body: str) -> bool:
+def send_email(cfg: dict, subject: str, text_body: str, html_body: str, from_tag: str = "情绪速递") -> bool:
     """SMTP SSL 发邮件(MIMEMultipart alternative:纯文本 + HTML)。
 
     password 仅用于连接,绝不输出。发送失败只 log 不抛。
     返回 True=发出(或配置缺失跳过算 False),False=未发。
+    from_tag 控制发件人显示名前缀(情绪速递/补充速递)。
     """
     smtp = cfg.get("smtp", "smtp.163.com")
     port = int(cfg.get("port", 465))
@@ -1028,7 +1105,7 @@ def send_email(cfg: dict, subject: str, text_body: str, html_body: str) -> bool:
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = formataddr((f"[收盘速递] {SITE_NAME}", user))
+    msg["From"] = formataddr((f"[{from_tag}] {SITE_NAME}", user))
     msg["To"] = ", ".join(to_list)
     msg["Date"] = formatdate(localtime=True)
     msg.attach(MIMEText(text_body, "plain", "utf-8"))
@@ -1046,35 +1123,23 @@ def send_email(cfg: dict, subject: str, text_body: str, html_body: str) -> bool:
 
 
 # ---------------------------------------------------------------- main
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="每日收盘情绪速递邮件")
-    parser.add_argument("date", nargs="?", help="日期 YYYYMMDD(默认当日)")
-    parser.add_argument("--dry-run", action="store_true", help="生成正文打印到 stdout,不发邮件")
-    args = parser.parse_args(argv)
-
-    date = args.date or datetime.now().strftime("%Y%m%d")
-    log.info("=== daily_summary_email 开始,日期:%s%s ===", date, " [dry-run]" if args.dry_run else "")
-
+def _run_main(date: str, dry_run: bool) -> int:
+    """main 模式:T日盘后情绪速递(恐贪/情绪/涨跌/成交额/板块/冰点),不含期货/汪汪队/公募。"""
     it = load_summary_item(date)
     if it is None:
         log.info("日期 %s 无 summary_history 数据(非交易日或数据未生成),跳过不发邮件", date)
-        if args.dry_run:
+        if dry_run:
             print(f"[dry-run] 日期 {date} 无数据,容错跳过(证明容错生效)")
         return 0
 
     subject = build_subject(it)
     # 加载订阅列表（文件缺失/解析失败返回空列表，不阻塞）
     subs = load_subscriptions()
-    # 加载方案B 融合段（期货风向 / 汪汪队 / 公募基金），各段独立缺失不阻塞
-    extras = {
-        "futures": load_futures_brief(),
-        "nt": load_nt_brief(),
-        "pf": load_public_fund_brief(),
-    }
-    text_body = build_text(it, subs, extras)
-    html_body = build_html(it, subs, extras)
+    # main 模式:不含期货/汪汪队/公募段(extras=None)
+    text_body = build_text(it, subs, None)
+    html_body = build_html(it, subs, None)
 
-    if args.dry_run:
+    if dry_run:
         print("===== 邮件主题 =====")
         print(subject)
         print("===== 纯文本正文 =====")
@@ -1085,11 +1150,69 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = load_email_config()
     if cfg is None:
-        # 配置缺失也算正常退出(不阻塞调度)
         return 0
 
-    send_email(cfg, subject, text_body, html_body)
+    send_email(cfg, subject, text_body, html_body, from_tag="情绪速递")
     return 0
+
+
+def _run_supplement(date: str, dry_run: bool) -> int:
+    """supplement 模式:T日补充速递(期货风向/汪汪队/公募基金),20:30 发送。"""
+    # 非交易日闸门(独立 plist 调用,不像 main 靠 update_all 闸门)
+    if not _is_trading_day():
+        log.info("supplement 模式:非交易日,跳过不发邮件")
+        if dry_run:
+            print(f"[dry-run] 日期 {date} 非交易日,supplement 跳过")
+        return 0
+
+    # 加载三段(各段独立缺失不阻塞)
+    extras = {
+        "futures": load_futures_brief(),
+        "nt": load_nt_brief(),
+        "pf": load_public_fund_brief(),
+    }
+    if not any(extras.values()):
+        log.info("supplement 模式:期货/汪汪队/公募数据均缺失,跳过不发邮件")
+        if dry_run:
+            print(f"[dry-run] 日期 {date} supplement 模式:三段数据均缺失,容错跳过")
+        return 0
+
+    subject = build_supplement_subject(date)
+    text_body = build_supplement_text(date, extras)
+    html_body = build_supplement_html(date, extras)
+
+    if dry_run:
+        print("===== 邮件主题 =====")
+        print(subject)
+        print("===== 纯文本正文 =====")
+        print(text_body)
+        print("===== HTML 正文 =====")
+        print(html_body)
+        return 0
+
+    cfg = load_email_config()
+    if cfg is None:
+        return 0
+
+    send_email(cfg, subject, text_body, html_body, from_tag="补充速递")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="每日收盘情绪速递邮件")
+    parser.add_argument("date", nargs="?", help="日期 YYYYMMDD(默认当日)")
+    parser.add_argument("--dry-run", action="store_true", help="生成正文打印到 stdout,不发邮件")
+    parser.add_argument("--mode", choices=["main", "supplement"], default="main",
+                        help="main=T日盘后情绪速递(默认,向后兼容);supplement=T日期货/汪汪队/公募补充速递")
+    args = parser.parse_args(argv)
+
+    date = args.date or datetime.now().strftime("%Y%m%d")
+    log.info("=== daily_summary_email 开始,日期:%s 模式:%s%s ===",
+             date, args.mode, " [dry-run]" if args.dry_run else "")
+
+    if args.mode == "supplement":
+        return _run_supplement(date, args.dry_run)
+    return _run_main(date, args.dry_run)
 
 
 if __name__ == "__main__":

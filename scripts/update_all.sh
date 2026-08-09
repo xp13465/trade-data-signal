@@ -233,16 +233,17 @@ else
   "$PY" "$REPO/scripts/notify.py" "[完成] update_all ${ELAPSED_MIN}min ${MM_DD_HM}" "$NOTIFY_BODY" --from-prefix "[完成]" || true
 fi
 
-# D10 每日收盘情绪速递邮件（summary_history.json 已由 pipeline deploy 生成就绪）。
+# D10 每日收盘情绪速递邮件 main 模式（T日盘后情绪:恐贪/情绪/涨跌/成交额/板块/冰点）。
+# summary_history.json 已由 pipeline deploy 生成就绪;不含期货/汪汪队/公募(那些走 20:30 supplement)。
 # 失败不阻塞主流程：调 notify.py 告警，退出码仍以 RC_CORE 为准。
 # 非交易日已在上方 exit 0 不会走到这；脚本内部对无数据日期也优雅跳过。
-echo "-> daily_summary_email 收盘速递邮件 ..." | tee -a "$LOG"
-if "$PY" "$REPO/scripts/daily_summary_email.py" >> "$LOG" 2>&1; then
-  echo "  ✓ 收盘速递邮件已处理" | tee -a "$LOG"
+echo "-> daily_summary_email 情绪速递邮件(main) ..." | tee -a "$LOG"
+if "$PY" "$REPO/scripts/daily_summary_email.py" --mode main >> "$LOG" 2>&1; then
+  echo "  ✓ 情绪速递邮件已处理" | tee -a "$LOG"
 else
   _DSE_RC=$?
   echo "⚠ daily_summary_email 失败(不阻塞主流程) rc=$_DSE_RC" | tee -a "$LOG"
-  "$PY" "$REPO/scripts/notify.py" "[告警] 收盘速递邮件失败 ${MM_DD_HM}" \
+  "$PY" "$REPO/scripts/notify.py" "[告警] 情绪速递邮件失败 ${MM_DD_HM}" \
     "daily_summary_email 退出码 $_DSE_RC<br>日志: $LOG" --from-prefix "[告警]" || true
 fi
 
