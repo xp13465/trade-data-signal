@@ -488,19 +488,19 @@ def _max_drawdown(trades):
     return round(max_dd_abs, 4), round(pct, 4)
 
 
-def _annualized_return(cumulative_return_pct, period_key, trades):
-    """年化收益率(%)。基于累积收益率开方(D修正)。
+def _annualized_return(return_pct_max_holding, period_key, trades):
+    """年化收益率(%)。基于峰值资金收益率开方(D修正)。
 
-    cumulative_return_pct = sum(profit)/BUY_AMOUNT*100 (累积收益率, 非平均化)。
-    y1=cumulative_return_pct; y3=(1+r)^(1/3)-1; y5=(1+r)^(1/5)-1;
+    return_pct_max_holding = total_profit/峰值占用资金*100 (峰值资金收益率, 非平均化)。
+    y1=return_pct_max_holding; y3=(1+r)^(1/3)-1; y5=(1+r)^(1/5)-1;
     y10=(1+r)^(1/10)-1; all=(1+r)^(1/years)-1。
-    r=cumulative_return_pct/100。负收益 r<=-1 时返回0(无法开方)。
+    r=return_pct_max_holding/100。负收益 r<=-1 时返回0(无法开方)。
     """
-    r = cumulative_return_pct / 100.0
+    r = return_pct_max_holding / 100.0
     if r <= -1:
         return 0.0
     if period_key == "y1":
-        return round(cumulative_return_pct, 4)
+        return round(return_pct_max_holding, 4)
     elif period_key == "y3":
         return round(((1 + r) ** (1.0 / 3) - 1) * 100, 4)
     elif period_key == "y5":
@@ -510,7 +510,7 @@ def _annualized_return(cumulative_return_pct, period_key, trades):
     else:  # all
         years = _years_from_trades(trades)
         if years <= 0:
-            return round(cumulative_return_pct, 4)
+            return round(return_pct_max_holding, 4)
         return round(((1 + r) ** (1.0 / years) - 1) * 100, 4)
 
 
@@ -596,8 +596,8 @@ def _compute_stats(trades, period_key="all"):
     max_concurrent_capital = max_conc * BUY_AMOUNT
     # 最大持仓收益率 = 最终盈亏 / 峰值占用资金
     return_pct_max_holding = round(total_profit / max_concurrent_capital * 100, 4) if max_concurrent_capital > 0 else 0
-    # 年化收益(D修正: 基于累积收益率 total_return 开方, 非平均化 total_return_pct)
-    annualized = _annualized_return(total_return, period_key, trades)
+    # 年化收益(D修正: 基于峰值资金收益率 return_pct_max_holding 开方, 非平均化 total_return_pct)
+    annualized = _annualized_return(return_pct_max_holding, period_key, trades)
     # 夏普比率(无风险利率0, per-trade)
     returns = [t["return_pct"] for t in trades]
     if n > 1:
