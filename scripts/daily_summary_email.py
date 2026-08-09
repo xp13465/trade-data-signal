@@ -57,6 +57,14 @@ REPO = Path(__file__).absolute().parent.parent
 SUMMARY_SRC = REPO / "static-site" / "data" / "summary_history.json"
 SUBSCRIPTIONS_SRC = REPO / "config" / "subscriptions.json"
 EMAIL_CONFIG = REPO / "config" / "email.json"
+# 方案B 融合段数据源（均读 static-site/data/ JSON，不碰根 data/ 下文件）
+FUTURES_SRC = REPO / "static-site" / "data" / "futures.json"
+FUTURES_CONCLUSION_SRC = REPO / "static-site" / "data" / "futures_acc_conclusion.json"
+NT_SRC = REPO / "static-site" / "data" / "etf_national_team-1m.json"
+PF_SUMMARY_SRC = REPO / "static-site" / "data" / "public_fund_summary.json"
+PF_ESTIMATE_SRC = REPO / "static-site" / "data" / "public_fund_position_estimate.json"
+PF_BACKTEST_SRC = REPO / "static-site" / "data" / "public_fund_position_backtest.json"
+PF_TOP20_SRC = REPO / "static-site" / "data" / "public_fund_top20.json"
 SITE_NAME = "信号实验室"
 SITE_DOMAIN = "s.sugas.site"
 
@@ -151,7 +159,7 @@ def build_subject(it: dict) -> str:
     return f"[收盘速递] {iso_date(date_str)}{wd_str} | {' '.join(parts)}{sent_part}"
 
 
-def build_text(it: dict, subs: list[dict] | None = None) -> str:
+def build_text(it: dict, subs: list[dict] | None = None, extras: dict | None = None) -> str:
     """生成纯文本正文(ASCII 示意格式)。"""
     date_str = it.get("date", "")
     lines = []
@@ -230,6 +238,24 @@ def build_text(it: dict, subs: list[dict] | None = None) -> str:
     if summary:
         lines.append("摘要:" + str(summary))
 
+    # 方案B 融合段（期货风向 / 汪汪队 / 公募基金），缺数据优雅跳过
+    if extras:
+        fut = extras.get("futures")
+        if fut:
+            seg = build_futures_text(fut)
+            if seg:
+                lines.append(seg)
+        nt = extras.get("nt")
+        if nt:
+            seg = build_nt_text(nt)
+            if seg:
+                lines.append(seg)
+        pf = extras.get("pf")
+        if pf:
+            seg = build_pf_text(pf)
+            if seg:
+                lines.append(seg)
+
     # 订阅列表段（失败/无订阅则跳过，不阻塞）
     if subs:
         subs_seg = build_subs_text(subs)
@@ -241,7 +267,7 @@ def build_text(it: dict, subs: list[dict] | None = None) -> str:
     return "\n".join(lines)
 
 
-def build_html(it: dict, subs: list[dict] | None = None) -> str:
+def build_html(it: dict, subs: list[dict] | None = None, extras: dict | None = None) -> str:
     """生成简单 HTML 正文(内联 style,禁图片/外部资源/外部 URL)。"""
     date_str = it.get("date", "")
     rows = []  # (label, value)
@@ -327,6 +353,19 @@ def build_html(it: dict, subs: list[dict] | None = None) -> str:
             f'{_esc(summary)}</div>'
         )
 
+    # 方案B 融合段（期货风向 / 汪汪队 / 公募基金），缺数据优雅跳过
+    extra_html = ""
+    if extras:
+        fut = extras.get("futures")
+        if fut:
+            extra_html += build_futures_html(fut)
+        nt = extras.get("nt")
+        if nt:
+            extra_html += build_nt_html(nt)
+        pf = extras.get("pf")
+        if pf:
+            extra_html += build_pf_html(pf)
+
     # 订阅列表段（失败/无订阅则跳过，不阻塞）
     subs_html = build_subs_html(subs) if subs else ""
 
@@ -337,6 +376,7 @@ def build_html(it: dict, subs: list[dict] | None = None) -> str:
 {freeze_html}
 {section_html}
 {summary_html}
+{extra_html}
 {subs_html}
 <p style="color:#c9cdd4;font-size:11px;margin-top:16px;">-- 由 {SITE_NAME} 自动发送 · {SITE_DOMAIN}</p>
 </body></html>"""
@@ -457,6 +497,494 @@ def build_subs_html(subs: list[dict]) -> str:
     )
 
 
+# ---------------------------------------------------------------- 通用 JSON 读取
+def _load_json_safe(path: Path) -> dict | list | None:
+    """安全读 JSON：文件缺失/解析失败返回 None（调用方优雅跳过该段）。"""
+    if not path.exists():
+        log.info("%s 不存在，跳过对应段", path.name)
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("%s 解析失败，跳过对应段：%s", path.name, e)
+        return None
+
+
+# ---------------------------------------------------------------- 段1 期货风向
+# (conclusion_key, futures_key, 展示标签)
+_FUT_ROLES = [
+    ("机构前20", "机构(前20)", "机构前20"),
+    ("中信期货", "中信期货", "中信期货"),
+    ("国泰君安", "国泰君安", "国泰君安"),
+]
+
+
+def _dir_cn(d) -> str:
+    """long/short -> 多/空。"""
+    return {"long": "多", "short": "空"}.get(str(d) if d is not None else "", d or "-")
+
+
+def _bet_mark(net_dir, ret) -> str:
+    """次日验证对错标记。long+涨=对，short+跌=对。"""
+    if ret is None:
+        return "-"
+    if net_dir == "long":
+        return "✓" if ret > 0 else "✗"
+    if net_dir == "short":
+        return "✓" if ret < 0 else "✗"
+    return "-"
+
+
+def load_futures_brief() -> dict | None:
+    """读 futures.json + futures_acc_conclusion.json，汇总期货风向段数据。
+
+    返回 None=数据缺失（跳过该段）。
+    """
+    fj = _load_json_safe(FUTURES_SRC)
+    cj = _load_json_safe(FUTURES_CONCLUSION_SRC)
+    if not isinstance(fj, dict) or not isinstance(cj, dict):
+        return None
+    acc = fj.get("accuracy") or {}
+    bet = fj.get("latest_bet") or {}
+    state = cj.get("current_state") or {}
+    conclusions = cj.get("conclusions") or []
+    roles = []
+    for ck, fk, label in _FUT_ROLES:
+        st = state.get(ck) or {}
+        ac = acc.get(fk) or {}
+        bt = bet.get(fk) or {}
+        roles.append({
+            "label": label,
+            "accuracy": st.get("accuracy"),
+            "dominant_dir": st.get("dominant_dir"),
+            "streak_days": st.get("streak_days"),
+            "streak_type": st.get("streak_type"),
+            "net_direction": ac.get("net_direction"),  # 当日方向
+            "bet_direction": bt.get("net_direction"),  # 验证日下注方向
+            "bet_return": bt.get("actual_return"),     # 次日实际涨幅
+            "bet_date": bt.get("date"),
+        })
+    triggered = [c for c in conclusions if isinstance(c, dict) and c.get("triggered")]
+    return {
+        "futures_date": (fj.get("summary") or {}).get("date"),
+        "as_of_date": cj.get("as_of_date"),
+        "roles": roles,
+        "triggered": triggered,
+    }
+
+
+def build_futures_text(d: dict) -> str:
+    """期货风向纯文本段。"""
+    lines = ["", "-" * 44, f"期货风向（数据日期 {d.get('futures_date') or d.get('as_of_date') or '-'}）："]
+    for r in d.get("roles", []):
+        acc = r.get("accuracy")
+        ddir = r.get("dominant_dir") or "-"
+        stk = r.get("streak_type") or "-"
+        sdays = r.get("streak_days")
+        net = _dir_cn(r.get("net_direction"))
+        acc_s = f"{acc:.1f}%" if isinstance(acc, (int, float)) else "-"
+        sd_s = f"{sdays}" if sdays is not None else "-"
+        lines.append(f"  {r['label']}  准确率{acc_s} {ddir}连续{sd_s}日 | 当日: {net}")
+    tg = d.get("triggered") or []
+    if tg:
+        parts = []
+        for c in tg:
+            sig = c.get("signal", "")
+            stats = c.get("stats", "")
+            act = c.get("action", "")
+            parts.append(f"{sig}({stats})->{act}")
+        lines.append("  触发规律: " + "；".join(parts))
+    # 次日验证
+    bet_parts = []
+    for r in d.get("roles", []):
+        bd = r.get("bet_direction")
+        br = r.get("bet_return")
+        if bd is None:
+            continue
+        mark = _bet_mark(bd, br)
+        ret_s = fmt_pct(br) if br is not None else "NA"
+        bet_parts.append(f"{r['label']} {_dir_cn(bd)} 实涨{ret_s} {mark}")
+    if bet_parts:
+        bdate = d.get("roles", [{}])[0].get("bet_date") if d.get("roles") else None
+        lines.append(f"  次日验证({bdate or '-'}): " + " | ".join(bet_parts))
+    return "\n".join(lines)
+
+
+def build_futures_html(d: dict) -> str:
+    """期货风向 HTML 段（内联 style）。"""
+    rows_html = ""
+    for r in d.get("roles", []):
+        acc = r.get("accuracy")
+        acc_s = f"{acc:.1f}%" if isinstance(acc, (int, float)) else "-"
+        ddir = _esc(r.get("dominant_dir") or "-")
+        stk = _esc(r.get("streak_type") or "-")
+        sdays = r.get("streak_days")
+        sd_s = str(sdays) if sdays is not None else "-"
+        net = _esc(_dir_cn(r.get("net_direction")))
+        rows_html += (
+            f'<tr><td style="padding:4px 10px;color:#4e5969;font-size:13px;">{_esc(r["label"])}</td>'
+            f'<td style="padding:4px 10px;font-size:13px;">准确率<b>{_esc(acc_s)}</b> '
+            f'{ddir}连续{sd_s}日</td>'
+            f'<td style="padding:4px 10px;font-size:13px;color:#86909c;">当日:{net}</td></tr>'
+        )
+    tg_html = ""
+    tg = d.get("triggered") or []
+    if tg:
+        items = []
+        for c in tg:
+            items.append(
+                f'<div style="margin:2px 0;"><b style="color:#d4380d;">{_esc(c.get("signal",""))}</b>'
+                f'<span style="color:#86909c;"> ({_esc(c.get("stats",""))})</span>'
+                f' -> {_esc(c.get("action",""))}</div>'
+            )
+        tg_html = (
+            f'<div style="margin:8px 0;font-size:12px;line-height:1.7;">'
+            f'<span style="color:#86909c;">触发规律：</span>'
+            + "".join(items) + '</div>'
+        )
+    bet_html = ""
+    bet_parts = []
+    for r in d.get("roles", []):
+        bd = r.get("bet_direction")
+        br = r.get("bet_return")
+        if bd is None:
+            continue
+        mark = _bet_mark(bd, br)
+        mark_color = "#2e8b57" if mark == "✓" else "#e6492e"
+        ret_s = fmt_pct(br) if br is not None else "NA"
+        bet_parts.append(
+            f'{_esc(r["label"])} {_esc(_dir_cn(bd))} 实涨{_esc(ret_s)} '
+            f'<span style="color:{mark_color};font-weight:600;">{mark}</span>'
+        )
+    if bet_parts:
+        bdate = d.get("roles", [{}])[0].get("bet_date") if d.get("roles") else None
+        bet_html = (
+            f'<div style="margin:8px 0;font-size:12px;color:#4e5969;">'
+            f'次日验证({_esc(bdate or "-")}): {" | ".join(bet_parts)}</div>'
+        )
+    return (
+        f'<h3 style="margin:16px 0 6px 0;color:#1d2129;font-size:14px;">📈 期货风向'
+        f'<span style="color:#86909c;font-size:12px;font-weight:normal;">（数据日期 {_esc(d.get("futures_date") or d.get("as_of_date") or "-")}）</span></h3>'
+        f'<table style="border-collapse:collapse;margin-bottom:4px;">{rows_html}</table>'
+        f'{tg_html}{bet_html}'
+    )
+
+
+# ---------------------------------------------------------------- 段2 汪汪队信号
+# 共振阈值（与 check_nt_signals.py THR 一致）
+_NT_THR = {"surge": 2, "outflow": 2, "volume": 3}
+_NT_SIG_LABEL = {"share_surge": "进", "share_outflow": "出", "volume_surge": "量"}
+_NT_SIG_COLOR = {"share_surge": "#e6492e", "share_outflow": "#2e8b57", "volume_surge": "#ff9800"}
+
+
+def load_nt_brief() -> dict | None:
+    """读 etf_national_team-1m.json，取最新数据日信号 + 共振。
+
+    ETF 份额 T+1 发布，最新数据日通常为 T-1。无信号返回 None（省略该段）。
+    """
+    nj = _load_json_safe(NT_SRC)
+    if not isinstance(nj, dict):
+        return None
+    etfs = nj.get("etfs") or []
+    if not etfs:
+        return None
+    # 找最新数据日
+    all_dates = set()
+    for e in etfs:
+        for dd in e.get("daily") or []:
+            if dd.get("date"):
+                all_dates.add(dd["date"])
+    if not all_dates:
+        return None
+    latest = max(all_dates)
+    # 收集当日信号 + 份额变动
+    sig_etfs = []  # [{code,name,signals:[{type,share_change,amount_ratio,intensity,note}],share_change_yi}]
+    net_share = 0.0
+    n_inc = n_dec = 0
+    for e in etfs:
+        for dd in e.get("daily") or []:
+            if dd.get("date") != latest:
+                continue
+            scy = dd.get("share_change_yi")
+            if isinstance(scy, (int, float)):
+                net_share += scy
+                if scy > 0:
+                    n_inc += 1
+                elif scy < 0:
+                    n_dec += 1
+            sigs = dd.get("signals") or []
+            if sigs:
+                sig_etfs.append({
+                    "code": e.get("code", ""),
+                    "name": e.get("name", ""),
+                    "signals": sigs,
+                    "share_change_yi": scy,
+                })
+            break  # 每只 etf 当日只一条 daily
+    if not sig_etfs:
+        return None  # 当日无信号 -> 省略该段
+    # 共振判断
+    codes_by_type = {"share_surge": set(), "share_outflow": set(), "volume_surge": set()}
+    for s in sig_etfs:
+        for sg in s["signals"]:
+            t = sg.get("type")
+            if t in codes_by_type:
+                codes_by_type[t].add(s["code"])
+    n_surge = len(codes_by_type["share_surge"])
+    n_outflow = len(codes_by_type["share_outflow"])
+    n_volume = len(codes_by_type["volume_surge"])
+    is_res = n_surge >= _NT_THR["surge"] or n_outflow >= _NT_THR["outflow"] or n_volume >= _NT_THR["volume"]
+    # 信号 ETF top3（按最大 intensity 绝对值排序）
+    def _max_abs_intensity(s):
+        vals = [abs(sg.get("intensity") or 0) for sg in s.get("signals", [])]
+        return max(vals) if vals else 0
+    sig_etfs.sort(key=_max_abs_intensity, reverse=True)
+    return {
+        "data_date": latest,
+        "n_surge": n_surge,
+        "n_outflow": n_outflow,
+        "n_volume": n_volume,
+        "is_resonance": is_res,
+        "net_share": net_share,
+        "n_inc": n_inc,
+        "n_dec": n_dec,
+        "top_etfs": sig_etfs[:3],
+    }
+
+
+def build_nt_text(d: dict) -> str:
+    """汪汪队信号纯文本段。"""
+    parts = []
+    if d["n_surge"]:
+        parts.append(f"进{d['n_surge']}")
+    if d["n_outflow"]:
+        parts.append(f"出{d['n_outflow']}")
+    if d["n_volume"]:
+        parts.append(f"量{d['n_volume']}")
+    summary = " ".join(parts) if parts else "无信号"
+    res_tag = " | 🐾共振" if d.get("is_resonance") else ""
+    lines = ["", "-" * 44, f"汪汪队信号（数据日期 {d.get('data_date', '-')} T-1）："]
+    lines.append(f"  {summary}{res_tag}")
+    net = d.get("net_share", 0)
+    net_s = f"+{net:.2f}" if isinstance(net, (int, float)) and net >= 0 else (f"{net:.2f}" if isinstance(net, (int, float)) else "-")
+    lines.append(f"  净申购份额 {net_s}亿份 | 增持{d.get('n_inc', 0)}只 减持{d.get('n_dec', 0)}只")
+    etf_strs = []
+    for s in d.get("top_etfs", []):
+        types = "/".join(_NT_SIG_LABEL.get(sg.get("type"), sg.get("type", "")) for sg in s.get("signals", []))
+        scy = s.get("share_change_yi")
+        scy_s = f"+{scy:.2f}" if isinstance(scy, (int, float)) and scy >= 0 else (f"{scy:.2f}" if isinstance(scy, (int, float)) else "-")
+        # 量比取该 etf 信号里最大 amount_ratio
+        ratios = [sg.get("amount_ratio") for sg in s.get("signals", []) if sg.get("amount_ratio") is not None]
+        ratio_s = f"{max(ratios):.2f}倍" if ratios else ""
+        etf_strs.append(f"{s.get('code','')} {s.get('name','')} {types} {scy_s}亿份 {ratio_s}".strip())
+    if etf_strs:
+        lines.append("  信号ETF: " + " | ".join(etf_strs))
+    return "\n".join(lines)
+
+
+def build_nt_html(d: dict) -> str:
+    """汪汪队信号 HTML 段。"""
+    parts = []
+    if d["n_surge"]:
+        parts.append(f'<span style="color:#e6492e;">进{d["n_surge"]}</span>')
+    if d["n_outflow"]:
+        parts.append(f'<span style="color:#2e8b57;">出{d["n_outflow"]}</span>')
+    if d["n_volume"]:
+        parts.append(f'<span style="color:#ff9800;">量{d["n_volume"]}</span>')
+    summary = " ".join(parts) if parts else "无信号"
+    res_tag = ' <span style="color:#b8860b;font-weight:600;">🐾共振</span>' if d.get("is_resonance") else ""
+    net = d.get("net_share", 0)
+    net_s = f"+{net:.2f}" if isinstance(net, (int, float)) and net >= 0 else (f"{net:.2f}" if isinstance(net, (int, float)) else "-")
+    rows = ""
+    for s in d.get("top_etfs", []):
+        types = []
+        for sg in s.get("signals", []):
+            t = sg.get("type", "")
+            lbl = _NT_SIG_LABEL.get(t, t)
+            color = _NT_SIG_COLOR.get(t, "#1d2129")
+            types.append(f'<span style="color:{color};font-weight:600;">{lbl}</span>')
+        types_s = "/".join(types) if types else ""
+        scy = s.get("share_change_yi")
+        scy_s = f"+{scy:.2f}" if isinstance(scy, (int, float)) and scy >= 0 else (f"{scy:.2f}" if isinstance(scy, (int, float)) else "-")
+        ratios = [sg.get("amount_ratio") for sg in s.get("signals", []) if sg.get("amount_ratio") is not None]
+        ratio_s = f"{max(ratios):.2f}倍" if ratios else ""
+        rows += (
+            f'<tr><td style="padding:4px 10px;font-size:13px;"><b>{_esc(s.get("code",""))}</b> '
+            f'{_esc(s.get("name",""))}</td>'
+            f'<td style="padding:4px 10px;font-size:13px;">{types_s}</td>'
+            f'<td style="padding:4px 10px;font-size:13px;text-align:right;">{_esc(scy_s)}亿份</td>'
+            f'<td style="padding:4px 10px;font-size:13px;text-align:right;color:#86909c;">{_esc(ratio_s)}</td></tr>'
+        )
+    return (
+        f'<h3 style="margin:16px 0 6px 0;color:#1d2129;font-size:14px;">🐶 汪汪队信号'
+        f'<span style="color:#86909c;font-size:12px;font-weight:normal;">（数据日期 {_esc(d.get("data_date","-"))} T-1）</span></h3>'
+        f'<div style="margin:4px 0 8px 0;font-size:13px;">{summary}{res_tag}'
+        f' <span style="color:#4e5969;margin-left:12px;">净申购 {_esc(net_s)}亿份'
+        f' | 增持{d.get("n_inc",0)}只 减持{d.get("n_dec",0)}只</span></div>'
+        f'<table style="border-collapse:collapse;margin-bottom:4px;">{rows}</table>'
+    )
+
+
+# ---------------------------------------------------------------- 段3 公募基金
+def _metric_by_id(metrics: list, mid: str) -> dict:
+    """从 metrics 数组按 metric_id 取项。"""
+    for m in metrics or []:
+        if isinstance(m, dict) and m.get("metric_id") == mid:
+            return m
+    return {}
+
+
+def load_public_fund_brief() -> dict | None:
+    """读公募基金 4 个 JSON，汇总 88 魔咒 + 仓位 + 申赎 + 调仓段数据。"""
+    sj = _load_json_safe(PF_SUMMARY_SRC)
+    ej = _load_json_safe(PF_ESTIMATE_SRC)
+    bj = _load_json_safe(PF_BACKTEST_SRC)
+    tj = _load_json_safe(PF_TOP20_SRC)
+    if not isinstance(sj, dict):
+        return None
+    metrics = sj.get("metrics") or []
+    avg_pos = _metric_by_id(metrics, "avg_position").get("metric_value")
+    conc = _metric_by_id(metrics, "concentration_herfindahl").get("metric_value")
+    nr = _metric_by_id(metrics, "net_redeem_ratio")
+    nr_val = nr.get("metric_value")
+    nr_detail = nr.get("detail") or {}
+    pcr = _metric_by_id(metrics, "position_change_ratio").get("metric_value")
+    # 预估仓位
+    est = None
+    if isinstance(ej, dict):
+        est = ((ej.get("current") or {}).get("position_estimate"))
+        est_date = (ej.get("current") or {}).get("date")
+    else:
+        est_date = None
+    # 88 魔咒
+    zone = pct = bpos = spell88 = dip80 = None
+    if isinstance(bj, dict):
+        cur = bj.get("current") or {}
+        zone = cur.get("zone")
+        pct = cur.get("percentile")
+        bpos = cur.get("position")
+        stats = bj.get("stats") or {}
+        spell88 = (stats.get("spell_88") or {}).get("win_rate")
+        dip80 = (stats.get("dip_80") or {}).get("win_rate")
+    # Top20 调仓（按 change_pct 排序，大幅加仓 + 大幅减仓各 top3）
+    top20 = []
+    if isinstance(tj, dict):
+        raw = tj.get("top20") or []
+        valid = [t for t in raw if isinstance(t, dict) and t.get("change_pct") is not None]
+        sorted_gain = sorted(valid, key=lambda x: x["change_pct"], reverse=True)
+        sorted_loss = sorted(valid, key=lambda x: x["change_pct"])
+        top20 = {"gains": sorted_gain[:3], "losses": sorted_loss[:3]}
+    return {
+        "avg_position": avg_pos,
+        "concentration": conc,
+        "net_redeem_ratio": nr_val,
+        "net_purchase_share": nr_detail.get("net_purchase_share"),
+        "position_change": pcr,
+        "estimate": est,
+        "estimate_date": est_date,
+        "zone": zone,
+        "percentile": pct,
+        "backtest_position": bpos,
+        "spell88_win": spell88,
+        "dip80_win": dip80,
+        "top20": top20,
+    }
+
+
+def build_pf_text(d: dict) -> str:
+    """公募基金纯文本段。"""
+    lines = ["", "-" * 44, "公募基金："]
+    # 88 魔咒
+    zone = d.get("zone") or "-"
+    est = d.get("estimate")
+    est_s = f"{est:.2f}%" if isinstance(est, (int, float)) else "-"
+    pct = d.get("percentile")
+    pct_s = f"{pct*100:.1f}%" if isinstance(pct, (int, float)) else "-"
+    s88 = d.get("spell88_win")
+    s88_s = f"{s88*100:.1f}%" if isinstance(s88, (int, float)) else "-"
+    d80 = d.get("dip80_win")
+    d80_s = f"{d80*100:.1f}%" if isinstance(d80, (int, float)) else "-"
+    lines.append(f"  88魔咒: 预估仓位{est_s} 处{zone}区(历史{pct_s}分位) | 88魔咒后30日胜率{s88_s} 80抄底后30日胜率{d80_s}")
+    # 仓位 + 抱团度
+    avg = d.get("avg_position")
+    avg_s = f"{avg:.2f}%" if isinstance(avg, (int, float)) else "-"
+    pcr = d.get("position_change")
+    pcr_s = f"{pcr:+.2f}pp" if isinstance(pcr, (int, float)) else "-"
+    conc = d.get("concentration")
+    conc_s = f"{conc:.4f}" if isinstance(conc, (int, float)) else "-"
+    lines.append(f"  平均仓位{avg_s} 仓位变化{pcr_s} | 抱团度{conc_s}")
+    # 净申赎
+    nr = d.get("net_redeem_ratio")
+    nr_s = f"{nr:+.2f}%" if isinstance(nr, (int, float)) else "-"
+    nps = d.get("net_purchase_share")
+    nps_s = f"{abs(nps):.0f}亿" if isinstance(nps, (int, float)) else "-"
+    direction = "净申购" if isinstance(nps, (int, float)) and nps > 0 else "净赎回"
+    lines.append(f"  净申赎{nr_s}({direction}{nps_s})")
+    # Top20 调仓
+    t20 = d.get("top20") or {}
+    gains = t20.get("gains") or []
+    losses = t20.get("losses") or []
+    if gains or losses:
+        g_s = "、".join(f"{g.get('stock_name','')}{g.get('change_pct',0):+.1f}%" for g in gains)
+        l_s = "、".join(f"{l.get('stock_name','')}{l.get('change_pct',0):+.1f}%" for l in losses)
+        lines.append(f"  Top20调仓: 大幅加仓 {g_s} | 大幅减仓 {l_s}")
+    return "\n".join(lines)
+
+
+def build_pf_html(d: dict) -> str:
+    """公募基金 HTML 段。"""
+    zone = _esc(d.get("zone") or "-")
+    est = d.get("estimate")
+    est_s = f"{est:.2f}%" if isinstance(est, (int, float)) else "-"
+    pct = d.get("percentile")
+    pct_s = f"{pct*100:.1f}%" if isinstance(pct, (int, float)) else "-"
+    s88 = d.get("spell88_win")
+    s88_s = f"{s88*100:.1f}%" if isinstance(s88, (int, float)) else "-"
+    d80 = d.get("dip80_win")
+    d80_s = f"{d80*100:.1f}%" if isinstance(d80, (int, float)) else "-"
+    avg = d.get("avg_position")
+    avg_s = f"{avg:.2f}%" if isinstance(avg, (int, float)) else "-"
+    pcr = d.get("position_change")
+    pcr_s = f"{pcr:+.2f}pp" if isinstance(pcr, (int, float)) else "-"
+    conc = d.get("concentration")
+    conc_s = f"{conc:.4f}" if isinstance(conc, (int, float)) else "-"
+    nr = d.get("net_redeem_ratio")
+    nr_s = f"{nr:+.2f}%" if isinstance(nr, (int, float)) else "-"
+    nps = d.get("net_purchase_share")
+    nps_s = f"{abs(nps):.0f}亿" if isinstance(nps, (int, float)) else "-"
+    direction = "净申购" if isinstance(nps, (int, float)) and nps > 0 else "净赎回"
+    nr_color = "#e6492e" if (isinstance(nps, (int, float)) and nps > 0) else "#2e8b57"
+    t20 = d.get("top20") or {}
+    gains = t20.get("gains") or []
+    losses = t20.get("losses") or []
+    t20_html = ""
+    if gains or losses:
+        g_items = "、".join(
+            f'{_esc(g.get("stock_name",""))}<span style="color:#e6492e;">{g.get("change_pct",0):+.1f}%</span>'
+            for g in gains
+        )
+        l_items = "、".join(
+            f'{_esc(l.get("stock_name",""))}<span style="color:#2e8b57;">{l.get("change_pct",0):+.1f}%</span>'
+            for l in losses
+        )
+        t20_html = (
+            f'<div style="margin:8px 0;font-size:12px;line-height:1.8;">'
+            f'<span style="color:#86909c;">Top20调仓：</span>'
+            f'<span style="color:#4e5969;">大幅加仓</span> {g_items}'
+            f' <span style="color:#4e5969;margin-left:8px;">大幅减仓</span> {l_items}</div>'
+        )
+    return (
+        f'<h3 style="margin:16px 0 6px 0;color:#1d2129;font-size:14px;">💰 公募基金</h3>'
+        f'<div style="margin:4px 0;font-size:13px;line-height:1.8;">'
+        f'<b style="color:#d4380d;">88魔咒</b>: 预估仓位<b>{_esc(est_s)}</b> 处{zone}区'
+        f'(历史{pct_s}分位) | 88魔咒后30日胜率{_esc(s88_s)} 80抄底后30日胜率{_esc(d80_s)}<br>'
+        f'平均仓位<b>{_esc(avg_s)}</b> 仓位变化{_esc(pcr_s)} | 抱团度{_esc(conc_s)} | '
+        f'净申赎<span style="color:{nr_color};">{_esc(nr_s)}</span>'
+        f'({_esc(direction)}{_esc(nps_s)})</div>'
+        f'{t20_html}'
+    )
+
+
 # ---------------------------------------------------------------- 邮件发送
 def load_email_config() -> dict | None:
     """读 config/email.json。不存在/解析失败返回 None。不泄露密码。"""
@@ -537,8 +1065,14 @@ def main(argv: list[str] | None = None) -> int:
     subject = build_subject(it)
     # 加载订阅列表（文件缺失/解析失败返回空列表，不阻塞）
     subs = load_subscriptions()
-    text_body = build_text(it, subs)
-    html_body = build_html(it, subs)
+    # 加载方案B 融合段（期货风向 / 汪汪队 / 公募基金），各段独立缺失不阻塞
+    extras = {
+        "futures": load_futures_brief(),
+        "nt": load_nt_brief(),
+        "pf": load_public_fund_brief(),
+    }
+    text_body = build_text(it, subs, extras)
+    html_body = build_html(it, subs, extras)
 
     if args.dry_run:
         print("===== 邮件主题 =====")
