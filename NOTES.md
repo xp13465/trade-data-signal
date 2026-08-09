@@ -8449,3 +8449,31 @@ board_etf_map.json(2b含similarity/max_err/grade/fund_type) -> queries.py etf_fo
 ### 五、上线commit链（2026-08-09）
 - 846bc3f35 凯利弹窗4改动 / c6f7ac83c 凯利持仓中交易 / 6cf19d113 CSS grid 850
 - 全部reviewer PASS + §0验功能生效层（lab.min.js字符串+lab.min.css 850+sw a72+R2数据层）+ CF主站确认
+
+## §48 小节BD：2026-08-09 策略实验室3层tab吸顶修复+第4层凯利时间窗口吸顶+grid 850->700 上线✅（3af0668cd）
+
+### 一、起因（用户反馈，历史回归非最近损坏）
+- 用户验证凯利回测时想让"近1年/近3年"时间窗口吸顶，发现策略实验室3层tab（1层策略实验/2层自定义分析/3层信号凯利回测）全无吸顶效果。**历史回归**（用户很久没关注，非最近改坏），+新需求加第4层时间窗口吸顶
+- 用户确认修复方案后，实施期间追加"grid min-width 850改700"
+
+### 二、根因1：全站sticky失效（body overflow-x:hidden）
+- **根因**：commit 91c12ef5a 给 `body` 加了 `overflow-x:hidden`，使 body 成为滚动容器，破坏所有 `position:sticky` 的相对上下文（sticky 相对最近滚动祖先定位，body 成滚动容器后全站 sticky 失效）
+- **修复**：移除 body 的 overflow-x:hidden（style.css L125-126 + index.html critical-css 两处同步）；**保留 html L123 `overflow-x:hidden`**（视口层，不破坏 sticky 上下文）；加 `.h5-meta{min-width:0;overflow:hidden}` 兜底防移动端横向滚动（移除 body overflow 后的防御）
+- **验证**：style.min.css overflow-x:hidden 只命中 `}html{scrollbar-gutter:stable;overflow-x:hidden`（body 无）✓
+
+### 三、根因2：lab 2/3/4层从未设sticky
+- **2层** `.lab-subnav`：`position:sticky; top:var(--tab-h,41px); z-index:45; background:var(--bg-card)`
+- **3层** `.lab-subnav-child`：`position:sticky; top:calc(var(--tab-h,41px)+var(--lab-subnav-h,40px)); z-index:44`
+- **4层** `.lab-sigkelly-bar`：`position:sticky; top:calc(var(--tab-h,41px)+var(--lab-subnav-h,40px)+var(--lab-subnav-child-h,40px)); z-index:43; border-bottom:1px solid var(--border)`
+- top 层层叠加（tab 41px + 2层高 + 3层高），z-index 递减（50>45>44>43），background 三皮肤适配
+- **JS** `labStickyOffset()`：测量 `.lab-subnav`/`.lab-subnav-child` 实际高度写 `--lab-subnav-h`/`--lab-subnav-child-h` CSS 变量（兜底40px），在 `_renderLabSubNav` 末尾调用 + requestAnimationFrame + resize/load 监听重测
+- **nav-no-sticky 一致**：style.css+critical-css+style.min.css 三处 `.nav-no-sticky` 列表都扩展含 `.lab-subnav/.lab-subnav-child/.lab-sigkelly-bar`（移动端不吸顶）
+
+### 四、grid 850->700（用户实施期间改口）
+- lab.css L1421 `.lab-sigkelly-grid` minmax `min(100%,850px)`->`min(100%,700px)`，auto-fill 保留。1440屏 2列（700*2=1400<1440）
+
+### 五、上线验证（reviewer ab7a8ce4c PASS 6项 + 主控§0）
+- reviewer 6项：根因1全站影响 / lab 2-3-4层sticky / grid 700 / build三步 / P0 smoke数据层 / nav-no-sticky一致
+- **§0验上线点**：push 3af0668cd fast-forward main ✓ + style.min.css body无overflow-x(只html) ✓ + lab.min.css sticky 5处+`min(100%,700px)` ✓ + sw.js a73 ✓
+- 周日休市无intraday撞车，push feat备份+main一步到位
+- **教训**：body 加 overflow-x:hidden 会破坏全站 sticky（CSS sticky 相对最近滚动祖先），改 sticky 失效先查祖级 overflow；html overflow-x:hidden 安全（视口层）
