@@ -7308,7 +7308,7 @@ function _renderSigKellyCard(qk, q, period) {
       `</div>` +
       `<div class="lab-sigkelly-table-scroll">` +
       `<table class="lab-sigkelly-table lab-sigkelly-wide-table">` +
-        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th><th>最终盈亏</th><th>总收益率</th><th>最大持仓</th><th>持仓中</th><th>年化</th><th>夏普</th><th>最大回撤</th><th>卡尔玛</th></tr></thead>` +
+        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th><th>最终盈亏</th><th>最大持仓<br>（动用资金）<br>收益率</th><th>最大持仓</th><th>持仓中</th><th>年化</th><th>夏普</th><th>最大回撤</th><th>卡尔玛</th></tr></thead>` +
         `<tbody>${rows}</tbody>` +
       `</table>` +
       `</div>` +

@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a79';  // bump a78->a79: 凯利E/F卖出模式(持有5/15天)+etf_has_track档+lab.js去硬编码动态读sell_modes
+const CACHE_VERSION = 'v6-20260809-a80';  // bump a79->a80: 凯利宽表"总收益率"表头恢复"最大持仓(动用资金)收益率"(回退6f354db16误改名)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
