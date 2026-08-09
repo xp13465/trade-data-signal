@@ -357,6 +357,7 @@ def _compute_stats(trades, period_key="all"):
             "win_streak_max": 0, "lose_streak_max": 0,
             "total_invest": 0, "total_profit": 0, "total_return_pct": 0,
             "max_concurrent": 0, "max_concurrent_capital": 0,
+            "return_pct_max_holding": 0,
             "annualized_return": 0, "sharpe": 0,
             "max_drawdown": 0, "max_drawdown_pct": 0, "calmar": 0,
         }
@@ -409,6 +410,8 @@ def _compute_stats(trades, period_key="all"):
     # 最大同时持仓资金占用
     max_conc = _max_concurrent(trades)
     max_concurrent_capital = max_conc * BUY_AMOUNT
+    # 最大持仓收益率 = 最终盈亏 / 峰值占用资金
+    return_pct_max_holding = round(total_profit / max_concurrent_capital * 100, 4) if max_concurrent_capital > 0 else 0
     # 年化收益
     annualized = _annualized_return(total_return_pct, period_key, trades)
     # 夏普比率(无风险利率0, per-trade)
@@ -446,6 +449,7 @@ def _compute_stats(trades, period_key="all"):
         "total_return_pct": total_return_pct,
         "max_concurrent": max_conc,
         "max_concurrent_capital": max_concurrent_capital,
+        "return_pct_max_holding": return_pct_max_holding,
         "annualized_return": annualized,
         "sharpe": sharpe,
         "max_drawdown": max_dd_abs,
