@@ -7084,6 +7084,44 @@ function _renderSigKellyQuadrants(host, data, period) {
       _openSigKellyTradesModal(row.dataset.quad, row.dataset.mode, row.dataset.period);
     };
   });
+  // 组比较水印 hoverpop: 悬停/点击 badge 弹说明
+  _bindSigKellyWmPop(host);
+}
+
+// 绑定水印 hoverpop 事件(桌面 hover / 移动端 tap 切换)
+function _bindSigKellyWmPop(host) {
+  const isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
+  host.querySelectorAll('.lab-sigkelly-wm[data-wm="1"]').forEach((wmEl) => {
+    const pop = wmEl.querySelector(".lab-sigkelly-wm-pop-wrap");
+    if (!pop) return;
+    let openByClick = false;
+    const show = () => { pop.style.display = "block"; _positionSigKellyWmPop(wmEl, pop); };
+    const hide = () => { pop.style.display = "none"; pop.style.left = ""; };
+    wmEl.addEventListener("mouseenter", () => { if (!openByClick) show(); });
+    wmEl.addEventListener("mouseleave", () => { if (!openByClick) hide(); });
+    wmEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (isTouch) {
+        openByClick = pop.style.display !== "block";
+        if (openByClick) show(); else hide();
+      }
+    });
+  });
+  // 移动端: 点别处/滚动关闭所有水印 pop(全局绑一次)
+  if (isTouch && !document._sigKellyWmDocBound) {
+    document._sigKellyWmDocBound = true;
+    document.addEventListener("click", (e) => {
+      if (e.target.closest && e.target.closest(".lab-sigkelly-wm")) return;
+      document.querySelectorAll(".lab-sigkelly-wm-pop-wrap").forEach((p) => {
+        if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; }
+      });
+    }, true);
+    window.addEventListener("scroll", () => {
+      document.querySelectorAll(".lab-sigkelly-wm-pop-wrap").forEach((p) => {
+        if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; }
+      });
+    }, { passive: true, capture: true });
+  }
 }
 
 // 组内 ABCD 最终盈亏(total_profit)比较水印
@@ -7123,7 +7161,68 @@ function _sigKellyWatermark(pdata) {
   const text = auxHtml ? `${mainText}${auxHtml}` : mainText;
   const auxAll = [...auxRisk, ...auxGood];
   const title = `${kindText}·${top.m} | 盈亏${top.tp.toFixed(0)}` + (auxAll.length ? ` | ${auxAll.join("/")}` : "");
-  return { kind, text, title };
+  // items 供 hoverpop 渲染 ABCD 盈亏对比; auxRisk/auxGood 供辅助标签说明; top=最高方案
+  return { kind, text, title, items, auxRisk, auxGood, top };
+}
+
+// 组比较水印 hoverpop: 悬停水印 badge 弹出说明(三态定义+ABCD含义+盈亏对比+辅助标签)
+// wm = _sigKellyWatermark 返回值(含 items/auxRisk/auxGood/top)
+function _sigKellyWmPopupHtml(wm) {
+  const modeLabels = { A: "固定10天", B: "3%止盈", C: "5%止盈", D: "7%止盈" };
+  // 本组 ABCD 最终盈亏对比(正红负绿,与表格 lab-sigkelly-pos/neg 一致)
+  const cmpRows = wm.items.map((it) => {
+    const tpStr = (it.tp >= 0 ? "+" : "") + it.tp.toFixed(0);
+    const cls = it.tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
+    const hi = (wm.top && it.m === wm.top.m) ? " lab-sigkelly-wm-cmp-hi" : "";
+    return `<div class="lab-sigkelly-wm-cmp-row${hi}"><span class="lab-sigkelly-wm-cmp-m">${it.m}</span><span class="lab-sigkelly-wm-cmp-lbl">${modeLabels[it.m] || ""}</span><span class="${cls}">${tpStr}</span></div>`;
+  }).join("");
+  // 辅助标签说明(仅 top1/mix 显示当前命中标签 + 全量图例)
+  let auxHtml = "";
+  if (wm.kind !== "out") {
+    const hitRisk = wm.auxRisk.length
+      ? wm.auxRisk.map((a) => `<span class="lab-sigkelly-wm-aux lab-sigkelly-wm-aux-risk">${a}</span>`).join("")
+      : '<span class="lab-sigkelly-wm-aux-none">无</span>';
+    const hitGood = wm.auxGood.length
+      ? wm.auxGood.map((a) => `<span class="lab-sigkelly-wm-aux lab-sigkelly-wm-aux-good">${a}</span>`).join("")
+      : '<span class="lab-sigkelly-wm-aux-none">无</span>';
+    auxHtml =
+      `<div class="lab-sigkelly-wm-sec">` +
+        `<div class="lab-sigkelly-wm-sub">本组最高方案(${wm.top.m})命中标签</div>` +
+        `<div class="lab-sigkelly-wm-aux-hit">风险: ${hitRisk} · 优势: ${hitGood}</div>` +
+        `<div class="lab-sigkelly-wm-legend">标签含义: 高仓=半凯利仓位≥60% / 样本少=交易笔数&lt;100 / 高胜率=胜率≥50% / 低回撤=最大回撤≤15% / 高夏普=夏普≥1.0</div>` +
+      `</div>`;
+  }
+  return (
+    `<div class="lab-sigkelly-wm-pop">` +
+      `<div class="lab-sigkelly-wm-pop-title">组比较水印说明</div>` +
+      `<div class="lab-sigkelly-wm-sec">` +
+        `<div class="lab-sigkelly-wm-sub">三态定义</div>` +
+        `<div class="lab-sigkelly-wm-li"><b>TOP1·X</b>: 四方案最终盈亏全为正,X 为最高方案</div>` +
+        `<div class="lab-sigkelly-wm-li"><b>分化·X</b>: 有正有负,X 为最高方案</div>` +
+        `<div class="lab-sigkelly-wm-li"><b>淘汰</b>: 四方案最终盈亏全≤0</div>` +
+        `<div class="lab-sigkelly-wm-li lab-sigkelly-wm-li-x">X = 本组 ABCD 中最终盈亏最高的方案字母</div>` +
+      `</div>` +
+      `<div class="lab-sigkelly-wm-sec">` +
+        `<div class="lab-sigkelly-wm-sub">ABCD 含义(卖出止盈档位)</div>` +
+        `<div class="lab-sigkelly-wm-li">A=固定10天(不止盈) · B=3%止盈 · C=5%止盈 · D=7%止盈</div>` +
+      `</div>` +
+      `<div class="lab-sigkelly-wm-sec">` +
+        `<div class="lab-sigkelly-wm-sub">本组 ABCD 最终盈亏对比</div>` +
+        `<div class="lab-sigkelly-wm-cmp">${cmpRows}</div>` +
+      `</div>` +
+      auxHtml +
+    `</div>`
+  );
+}
+
+// 定位水印 hoverpop: 水印下方右对齐, 仅水平边界检测(top:100% 由 CSS 提供, 与 etf-popup 同模式)
+function _positionSigKellyWmPop(wmEl, pop) {
+  var pw = pop.offsetWidth;
+  var wmRect = wmEl.getBoundingClientRect();
+  // left 相对 wm(默认0=对齐wm左缘); 右越界左移(负值), 但不超左边界
+  var left = Math.min(0, window.innerWidth - 8 - pw - wmRect.left);
+  left = Math.max(left, 8 - wmRect.left);
+  pop.style.left = left + "px";
 }
 
 // 单象限卡片: 4模式表格(A固定10天/B3%/C5%/D7%止盈) + 详情展开 + 跟单指引
@@ -7182,7 +7281,7 @@ function _renderSigKellyCard(qk, q, period) {
   const wm = _sigKellyWatermark(pdata);
   return (
     `<div class="lab-sigkelly-card">` +
-      (wm ? `<div class="lab-sigkelly-wm lab-sigkelly-wm-${wm.kind}" title="${wm.title}">${wm.text}</div>` : ``) +
+      (wm ? `<div class="lab-sigkelly-wm lab-sigkelly-wm-${wm.kind}" data-wm="1"><span class="lab-sigkelly-wm-badge">${wm.text}</span><div class="lab-sigkelly-wm-pop-wrap" style="display:none">${_sigKellyWmPopupHtml(wm)}</div></div>` : ``) +
       `<div class="lab-sigkelly-card-head">` +
         `<div class="lab-sigkelly-card-name">${q.label || qk}</div>` +
         `<div class="lab-sigkelly-card-desc">${q.desc || ""}</div>` +

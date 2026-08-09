@@ -1420,7 +1420,8 @@
 .lab-sigkelly-group-title { font-size: 14px; font-weight: 700; color: var(--text-1); margin: 6px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
 .lab-sigkelly-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 700px), 1fr)); gap: 12px; }
 .lab-sigkelly-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; min-width: 0; position: relative; }
-.lab-sigkelly-wm { position: absolute; top: 6px; right: 8px; z-index: 2; pointer-events: none; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 8px; opacity: 0.82; letter-spacing: 0.5px; line-height: 1.3; }
+.lab-sigkelly-wm { position: absolute; top: 6px; right: 8px; z-index: 2; pointer-events: auto; cursor: help; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 8px; letter-spacing: 0.5px; line-height: 1.3; }
+.lab-sigkelly-wm-badge { opacity: 0.82; }
 .lab-sigkelly-wm-top1 { background: rgba(212,160,23,0.16); color: #b8860b; border: 1px solid rgba(184,134,11,0.4); }
 .lab-sigkelly-wm-out { background: rgba(100,116,139,0.16); color: #64748b; border: 1px solid rgba(100,116,139,0.4); }
 .lab-sigkelly-wm-mix { background: rgba(234,88,12,0.16); color: #ea580c; border: 1px solid rgba(234,88,12,0.4); }
@@ -1433,6 +1434,29 @@
 [data-theme="dark"] .lab-sigkelly-wm-aux-risk, [data-theme="redgold"] .lab-sigkelly-wm-aux-risk { color: #ffb070; }
 [data-theme="dark"] .lab-sigkelly-wm-aux-good, [data-theme="redgold"] .lab-sigkelly-wm-aux-good { color: #95de64; }
 @media (max-width: 760px) { .lab-sigkelly-wm { font-size: 10px; padding: 1px 6px; top: 4px; right: 6px; } }
+/* 组比较水印 hoverpop */
+.lab-sigkelly-wm-pop-wrap { position: absolute; z-index: 50; left: 0; top: 100%; margin-top: 4px; display: none; }
+.lab-sigkelly-wm-pop-wrap::before { content: ""; position: absolute; top: -4px; left: 0; right: 0; height: 4px; }
+.lab-sigkelly-wm-pop { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; box-shadow: 0 4px 16px var(--shadow-strong); font-size: 11px; line-height: 1.5; color: var(--text-2); width: 248px; max-width: calc(100vw - 16px); white-space: normal; }
+.lab-sigkelly-wm-pop-title { font-size: 12px; font-weight: 700; color: var(--text-1); margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.lab-sigkelly-wm-sec { margin-bottom: 6px; }
+.lab-sigkelly-wm-sec:last-child { margin-bottom: 0; }
+.lab-sigkelly-wm-sub { font-weight: 600; color: var(--text-1); margin-bottom: 2px; font-size: 11px; }
+.lab-sigkelly-wm-li { color: var(--text-3); padding: 1px 0; }
+.lab-sigkelly-wm-li b { color: var(--text-2); }
+.lab-sigkelly-wm-li-x { color: var(--text-2); margin-top: 2px; font-style: italic; }
+.lab-sigkelly-wm-cmp { border: 1px solid var(--border); border-radius: 6px; padding: 2px 4px; }
+.lab-sigkelly-wm-cmp-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.lab-sigkelly-wm-cmp-row + .lab-sigkelly-wm-cmp-row { border-top: 1px solid var(--border); }
+.lab-sigkelly-wm-cmp-m { font-weight: 700; color: var(--text-1); width: 12px; }
+.lab-sigkelly-wm-cmp-lbl { color: var(--text-3); flex: 1; font-size: 10px; }
+.lab-sigkelly-wm-cmp-row > span:last-child { font-weight: 600; margin-left: auto; }
+.lab-sigkelly-wm-cmp-hi { background: rgba(212,160,23,0.10); }
+.lab-sigkelly-wm-aux-hit { padding: 2px 0; color: var(--text-2); }
+.lab-sigkelly-wm-aux-none { color: var(--text-3); font-size: 10px; }
+.lab-sigkelly-wm-legend { color: var(--text-3); font-size: 10px; margin-top: 4px; line-height: 1.4; }
+[data-theme="dark"] .lab-sigkelly-wm-cmp-hi, [data-theme="redgold"] .lab-sigkelly-wm-cmp-hi { background: rgba(240,185,11,0.14); }
+@media (max-width: 760px) { .lab-sigkelly-wm-pop { width: min(248px, calc(100vw - 16px)); font-size: 10.5px; padding: 7px 9px; } }
 .lab-sigkelly-card-head { margin-bottom: 8px; }
 .lab-sigkelly-card-name { font-size: 14px; font-weight: 700; color: var(--text-1); }
 .lab-sigkelly-card-desc { font-size: 11px; color: var(--text-3); margin-top: 2px; }
