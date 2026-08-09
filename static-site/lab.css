@@ -1435,6 +1435,12 @@
 .lab-sigkelly-toggle { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--text-3); cursor: pointer; white-space: nowrap; }
 .lab-sigkelly-toggle input { cursor: pointer; }
 .lab-sigkelly-toggle-hint { font-size: 10px; color: var(--text-4); margin-left: 4px; }
+.lab-sigkelly-toggle-tip { font-size: 10px; color: var(--text-4); cursor: help; margin-left: 1px; }
+/* 降亏过滤 toggle hover 说明 tooltip (CSS 纯实现, hover/focus-within 触发, 复用 wm-pop 视觉变量) */
+.lab-sigkelly-toggle[data-tip] { position: relative; }
+.lab-sigkelly-toggle[data-tip]::before { content: ""; position: absolute; top: 100%; left: 0; right: 0; height: 6px; }
+.lab-sigkelly-toggle[data-tip]::after { content: attr(data-tip); position: absolute; top: 100%; left: 0; margin-top: 6px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; box-shadow: 0 4px 16px var(--shadow-strong); font-size: 11px; line-height: 1.55; color: var(--text-2); width: 270px; max-width: calc(100vw - 16px); white-space: normal; text-align: left; z-index: 60; opacity: 0; visibility: hidden; transition: opacity 0.15s; }
+.lab-sigkelly-toggle[data-tip]:hover::after, .lab-sigkelly-toggle[data-tip]:focus-within::after { opacity: 1; visibility: visible; }
 .lab-sigkelly-group { margin-bottom: 14px; }
 .lab-sigkelly-group-title { font-size: 14px; font-weight: 700; color: var(--text-1); margin: 6px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
 .lab-sigkelly-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 700px), 1fr)); gap: 12px; }

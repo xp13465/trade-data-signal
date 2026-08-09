@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a89';  // bump a88->a89: 费率格式改万分之/千分之(文字在前)+cwm水印移到标题下方独立行(不撞右上角三态)
+const CACHE_VERSION = 'v6-20260810-a90';  // bump a89->a90: 降亏toggle(excludeAux/marketTiming)加hover逻辑说明tooltip
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
