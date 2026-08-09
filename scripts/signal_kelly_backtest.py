@@ -214,14 +214,23 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
     if len(future_dates) < HOLD_DAYS:
         ref_today = today if today else (dates[-1] if dates else None)
         current_nav = prices.get(ref_today) if ref_today else None
+        price_date = ref_today  # current_nav 实际取值日期(回退时下方更新为 dates[-1])
         if current_nav is None and dates:
             current_nav = prices.get(dates[-1])  # 回退到本ETF最后日期
+            price_date = dates[-1]
         if current_nav is None or current_nav <= 0:
             return None  # 无当前价, 无法预估
         _sp, _sell_amount, _comm2, _tf2, net = _sell_with_fees(shares, current_nav, etf_code)
         profit = net - BUY_AMOUNT
         return_pct = profit / BUY_AMOUNT * 100
-        hold = _calendar_days(signal_date, ref_today)
+        # hold_days 用交易日口径(与已卖出 L264 一致): price_date 在 future_dates 的序号+1.
+        # 修复: 原用 _calendar_days(signal_date, ref_today) 按全局 today 算自然日, 但
+        # current_price 可能回退到本 ETF 滞后日期(如 7/28), 两者不匹配致 hold_days 虚高
+        # (如显示 18 天, 实际仅 6 个交易日). 改跟踪 price_date + 交易日口径, 不超 HOLD_DAYS.
+        try:
+            hold = future_dates.index(price_date) + 1
+        except ValueError:
+            hold = 0  # price_date == signal_date(当天买入, 无后续交易日)
         return {
             "signal_date": signal_date,
             "index_id": index_id,
