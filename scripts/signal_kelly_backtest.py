@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""信号凯利回测 - 6 象限 × 4 卖出模式 × 3 周期。
+"""信号凯利回测 - 6 象限 × 4 卖出模式 × 5 周期。
 
 对每条买信号(buy/buy_aux/buy_special/buy_backup),买入该信号对应指数的 track_score
 第一名 ETF(1000 元,含费率),按 4 种卖出模式(固定 10 天 / 3% / 5% / 7% 止盈或满 10 天)
@@ -10,7 +10,7 @@
   - ETF 归类 3 象限: etf_strong/related/approx (按第一名 ETF track_tier)
   - track_tier=none/no_score 的信号不纳入 ETF 归类,但纳入评级(若有 score)
 
-3 周期: y1(近 1 年) / y3(近 3 年) / all(全部)
+5 周期: y1(近 1 年) / y3(近 3 年) / y5(近 5 年) / y10(近 10 年) / all(全部)
 
 用法:
   python3 scripts/signal_kelly_backtest.py                     # 默认输出 static-site/data/
@@ -53,6 +53,8 @@ SELL_MODES = {
 PERIODS = {
     "y1":  {"label": "近1年", "cutoff": None},  # 运行时动态算
     "y3":  {"label": "近3年", "cutoff": None},
+    "y5":  {"label": "近5年", "cutoff": None},
+    "y10": {"label": "近10年", "cutoff": None},
     "all": {"label": "全部", "cutoff": "0"},
 }
 
@@ -308,7 +310,8 @@ def _max_drawdown(trades):
 def _annualized_return(total_return_pct, period_key, trades):
     """年化收益率(%)。
 
-    y1=total_return_pct; y3=(1+r)^(1/3)-1; all=(1+r)^(1/years)-1。
+    y1=total_return_pct; y3=(1+r)^(1/3)-1; y5=(1+r)^(1/5)-1;
+    y10=(1+r)^(1/10)-1; all=(1+r)^(1/years)-1。
     r=total_return_pct/100。负收益 r<-1 时返回0(无法开方)。
     """
     r = total_return_pct / 100.0
@@ -318,6 +321,10 @@ def _annualized_return(total_return_pct, period_key, trades):
         return round(total_return_pct, 4)
     elif period_key == "y3":
         return round(((1 + r) ** (1.0 / 3) - 1) * 100, 4)
+    elif period_key == "y5":
+        return round(((1 + r) ** (1.0 / 5) - 1) * 100, 4)
+    elif period_key == "y10":
+        return round(((1 + r) ** (1.0 / 10) - 1) * 100, 4)
     else:  # all
         years = _years_from_trades(trades)
         if years <= 0:
@@ -455,6 +462,8 @@ def compute():
     today = datetime.now()
     PERIODS["y1"]["cutoff"] = (today - timedelta(days=365)).strftime("%Y%m%d")
     PERIODS["y3"]["cutoff"] = (today - timedelta(days=365 * 3)).strftime("%Y%m%d")
+    PERIODS["y5"]["cutoff"] = (today - timedelta(days=365 * 5)).strftime("%Y%m%d")
+    PERIODS["y10"]["cutoff"] = (today - timedelta(days=365 * 10)).strftime("%Y%m%d")
 
     # 1. 加载数据
     print("-> 加载 signal_stats.json ...", flush=True)
@@ -624,7 +633,7 @@ def main():
     trades_path = args.trades_output or os.path.join(os.path.dirname(output_path), "signal_kelly_trades.json")
 
     print("=" * 60)
-    print("信号凯利回测: 6象限 × 4模式 × 3周期")
+    print("信号凯利回测: 6象限 × 4模式 × 5周期")
     print(f"ROOT = {ROOT}")
     print(f"输出 = {output_path}")
     print(f"交易记录 = {trades_path}")

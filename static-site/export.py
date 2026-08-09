@@ -908,7 +908,7 @@ def main():
     counts["signal_stats.json"] = write_json(DATA_DIR / "signal_stats.json", _get_stats())
     print(f"  signal_stats.json ({counts['signal_stats.json']} bytes)")
 
-    # 7.9.2 signal_kelly_backtest（信号凯利回测: 6象限×4模式×3周期, 读 signal_stats+board_etf_map+etf_daily）
+    # 7.9.2 signal_kelly_backtest（信号凯利回测: 6象限×4模式×5周期, 读 signal_stats+board_etf_map+etf_daily）
     # 独立脚本 scripts/signal_kelly_backtest.py, subprocess 调用(隔离 import 副作用)。
     # 失败不阻塞 export(前端 fallback null); signal_stats.json 刚写入, 脚本优先读 static-site/data/ 版。
     # 生成两个文件: signal_kelly_backtest.json(统计,~40KB,CF Workers) + signal_kelly_trades.json(交易记录,~6MB,R2)
