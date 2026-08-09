@@ -68,6 +68,10 @@ PERIODS = {
 RATING_HIGH = 0.75
 RATING_MID = 0.55
 
+# 大盘择时(MA60)过滤 - 降亏toggle后端注入
+MARKET_FILTER_MA_WINDOW = 60
+A_STOCK_MARKETS = {"a", "concept", "industry"}  # 仅A股类按大盘择时, hk/global标true不过滤
+
 QUADRANT_META = {
     # 评级 3 象限(互斥,覆盖全体有 score 的信号)
     "rating_high":   {"label": "高评级信号", "desc": "技术参考点综合把握度 score≥0.75"},
@@ -150,6 +154,45 @@ def _load_market_map():
         if iid and market:
             market_map[iid] = market
     return market_map
+
+
+def _load_market_state(conn):
+    """加载沪深300日频, 计算 MA60, 返回 (state, dates)。
+
+    state: {date: True(多头 close>MA60)/False(空头)}; dates: 排序日期列表(供 bisect)。
+    无 hs300 数据时返回 ({}, []), _is_market_bull 保守返回 True(不过滤)。
+    """
+    rows = conn.execute(
+        "SELECT date, close FROM index_daily WHERE index_id='hs300' "
+        "AND close IS NOT NULL ORDER BY date"
+    ).fetchall()
+    if not rows:
+        print("  ⚠ hs300 数据为空, 大盘择时过滤不生效", file=sys.stderr)
+        return {}, []
+    dates = [r[0] for r in rows]
+    closes = [r[1] for r in rows]
+    ma_window = MARKET_FILTER_MA_WINDOW
+    state = {}
+    for i in range(ma_window - 1, len(dates)):
+        ma = sum(closes[i - ma_window + 1 : i + 1]) / ma_window
+        state[dates[i]] = closes[i] > ma
+    return state, dates
+
+
+def _is_market_bull(signal_date, market_state, market_dates):
+    """判断信号日的大盘状态。查找 <= signal_date 的最近有 MA60 状态的交易日。
+
+    无数据时返回 True(保守不过滤)。
+    """
+    if not market_state:
+        return True
+    idx = bisect.bisect_right(market_dates, signal_date) - 1
+    while idx >= 0:
+        d = market_dates[idx]
+        if d in market_state:
+            return market_state[d]
+        idx -= 1
+    return True
 
 
 def _build_best_etf(etf_map):
@@ -236,16 +279,18 @@ def _calendar_days(d1, d2):
 
 def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, stop_profit,
                   index_id=None, signal=None, track_tier=None, track_score=None,
-                  match_method=None, track_low_confidence=None, today=None, hold_days=HOLD_DAYS):
+                  match_method=None, track_low_confidence=None, today=None, hold_days=HOLD_DAYS,
+                  market_state=None):
     """单笔信号回测: 信号日买入 1000 元, 持有期内止盈或满 hold_days 卖出。
 
     prices: 该 ETF 的 {date: accum_nav} 字典(已由调用方从 price_map 取出)。
     today: 全局最新数据日(YYYYMMDD), 用于持仓中trade预估; None 时回退本ETF最后日期。
     hold_days: 最大持有交易日(per-mode, A/B/C/D=10, E=5, F=15)。
+    market_state: 大盘择时状态(True=多头进场允许/False=空头跳过过滤; 非A股类标True)。
     返回 dict {signal_date, index_id, signal, buy_date, sell_date, etf_code, etf_name,
               track_tier, track_score, match_method, track_low_confidence,
               buy_price, sell_price, shares, profit, return_pct, hold_days, sell_reason,
-              current_price}
+              current_price, market_state}
     或 None(信号日无价格/买入失败/持仓中无当前价)。
 
     持仓中trade: 信号日后不足 hold_days 个交易日时, 不丢弃, 按当前价预估盈亏
@@ -310,6 +355,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
             "hold_days": hold,
             "sell_reason": "持有中",
             "current_price": round(current_nav, 6),
+            "market_state": market_state,
         }
 
     # 模式 A/E/F: 最后一天卖出(不止盈); 模式 B/C/D: 逐日检查止盈
@@ -351,6 +397,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
         "hold_days": hold,
         "sell_reason": sell_reason,
         "current_price": 0,
+        "market_state": market_state,
     }
 
 
@@ -441,18 +488,19 @@ def _max_drawdown(trades):
     return round(max_dd_abs, 4), round(pct, 4)
 
 
-def _annualized_return(total_return_pct, period_key, trades):
-    """年化收益率(%)。
+def _annualized_return(cumulative_return_pct, period_key, trades):
+    """年化收益率(%)。基于累积收益率开方(D修正)。
 
-    y1=total_return_pct; y3=(1+r)^(1/3)-1; y5=(1+r)^(1/5)-1;
+    cumulative_return_pct = sum(profit)/BUY_AMOUNT*100 (累积收益率, 非平均化)。
+    y1=cumulative_return_pct; y3=(1+r)^(1/3)-1; y5=(1+r)^(1/5)-1;
     y10=(1+r)^(1/10)-1; all=(1+r)^(1/years)-1。
-    r=total_return_pct/100。负收益 r<-1 时返回0(无法开方)。
+    r=cumulative_return_pct/100。负收益 r<=-1 时返回0(无法开方)。
     """
-    r = total_return_pct / 100.0
+    r = cumulative_return_pct / 100.0
     if r <= -1:
         return 0.0
     if period_key == "y1":
-        return round(total_return_pct, 4)
+        return round(cumulative_return_pct, 4)
     elif period_key == "y3":
         return round(((1 + r) ** (1.0 / 3) - 1) * 100, 4)
     elif period_key == "y5":
@@ -462,7 +510,7 @@ def _annualized_return(total_return_pct, period_key, trades):
     else:  # all
         years = _years_from_trades(trades)
         if years <= 0:
-            return round(total_return_pct, 4)
+            return round(cumulative_return_pct, 4)
         return round(((1 + r) ** (1.0 / years) - 1) * 100, 4)
 
 
@@ -548,8 +596,8 @@ def _compute_stats(trades, period_key="all"):
     max_concurrent_capital = max_conc * BUY_AMOUNT
     # 最大持仓收益率 = 最终盈亏 / 峰值占用资金
     return_pct_max_holding = round(total_profit / max_concurrent_capital * 100, 4) if max_concurrent_capital > 0 else 0
-    # 年化收益
-    annualized = _annualized_return(total_return_pct, period_key, trades)
+    # 年化收益(D修正: 基于累积收益率 total_return 开方, 非平均化 total_return_pct)
+    annualized = _annualized_return(total_return, period_key, trades)
     # 夏普比率(无风险利率0, per-trade)
     returns = [t["return_pct"] for t in trades]
     if n > 1:
@@ -632,6 +680,10 @@ def compute():
         f"WHERE signal IN ({','.join('?' * len(BUY_SIGNALS))}) ORDER BY date",
         BUY_SIGNALS,
     ).fetchall()
+    # 加载沪深300 MA60 大盘择时状态(降亏toggle后端注入)
+    print("-> 加载 hs300 MA60 大盘择时状态 ...", flush=True)
+    market_state, market_dates = _load_market_state(conn)
+    print(f"   {len(market_state)} 个交易日有 MA60 状态")
     conn.close()
     print(f"   {len(buy_rows)} 条买信号")
 
@@ -686,6 +738,13 @@ def compute():
         # ETF 归类(strong/related/approx/has_track; track_score=None 的 tier 不映射)
         etf_quad = etf_quad_map.get(tier)
 
+        # 大盘择时 market_state: A股类(a/concept/industry)按hs300 MA60实际状态, 非A股类标True不过滤
+        market = market_map.get(iid)
+        if market in A_STOCK_MARKETS:
+            ms = _is_market_bull(date, market_state, market_dates)
+        else:
+            ms = True
+
         # 6 模式回测
         prices = price_map.get(etf_code, {})
         sdates = sorted_dates_map.get(etf_code, [])
@@ -694,7 +753,7 @@ def compute():
             result = _backtest_one(date, prices, sdates, etf_code, be["name"], mode_def["stop_profit"],
                                    iid, sig, be.get("track_tier"), be.get("track_score"),
                                    be.get("match_method"), be.get("track_low_confidence"),
-                                   today=today_str, hold_days=mode_def["hold_days"])
+                                   today=today_str, hold_days=mode_def["hold_days"], market_state=ms)
             if result is None:
                 continue  # 数据不足(信号日无价格/未来不足 hold_days 天)
             any_valid = True
@@ -707,8 +766,7 @@ def compute():
             sig_quad = SIG_QUAD_MAP.get(sig)
             if sig_quad:
                 quadrants[sig_quad][mode_key].append(result)
-            # 归入指数大类象限(按 indicators.yaml market 字段)
-            market = market_map.get(iid)
+            # 归入指数大类象限(按 indicators.yaml market 字段, market 已在循环外算)
             mkt_quad = MARKET_QUAD_MAP.get(market)
             if mkt_quad:
                 quadrants[mkt_quad][mode_key].append(result)
@@ -747,7 +805,7 @@ def compute():
     TRADE_FIELDS = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name",
                     "track_tier", "track_score", "match_method", "track_low_confidence",
                     "buy_price", "sell_price", "shares", "profit", "return_pct",
-                    "hold_days", "sell_reason", "current_price"]
+                    "hold_days", "sell_reason", "current_price", "market_state"]
     trades_output = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "buy_amount": BUY_AMOUNT,
