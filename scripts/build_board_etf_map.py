@@ -932,6 +932,12 @@ def _enrich_with_similarity(
 # 阈值：≥80 strong / 70-79 related / 50-69 approx / <50或None none
 # ───────────────────────────────────────────────────────────────────
 TRACK_WEIGHTS = {"te": 0.30, "r2": 0.25, "avg_dev": 0.15, "roll_std": 0.15, "ir": 0.15}
+# 方案A(2026-08-09): 间接匹配ETF的IR权重分层
+# 直接匹配(track_index)=ETF真正跟踪该指数,IR可信->用TRACK_WEIGHTS(IR15%原样)
+# 间接匹配(overlap/kw/holdings_overlap/sum_pct/kw_global/manual_fallback)=通过成分股/持仓/名称
+# 间接关联,IR可能反映其他指数跟踪质量(如516630跟踪云计算指数IR好但和量子科技概念无关)
+# ->IR权重0%,重分配到R²(+9%->34%)和TE(+6%->36%),avg_dev/roll_std不变
+TRACK_WEIGHTS_INDIRECT = {"te": 0.36, "r2": 0.34, "avg_dev": 0.15, "roll_std": 0.15, "ir": 0.0}
 
 
 def _calc_tracking_metrics(
@@ -1155,10 +1161,13 @@ def _enrich_with_tracking_score(
             roll_std_score = _pct_score(roll_std_vals, m["roll_std"], lower_better=True)
             ir_score = _ir_score(m["ir"])
 
-            composite = (te_score * TRACK_WEIGHTS["te"] + r2_score * TRACK_WEIGHTS["r2"]
-                         + avg_dev_score * TRACK_WEIGHTS["avg_dev"]
-                         + roll_std_score * TRACK_WEIGHTS["roll_std"]
-                         + ir_score * TRACK_WEIGHTS["ir"])
+            # 方案A(2026-08-09): IR权重按match_method分层
+            # 直接匹配(track_index)用TRACK_WEIGHTS(IR15%); 间接匹配用TRACK_WEIGHTS_INDIRECT(IR0%)
+            w = TRACK_WEIGHTS if c.get("match_method") == "track_index" else TRACK_WEIGHTS_INDIRECT
+            composite = (te_score * w["te"] + r2_score * w["r2"]
+                         + avg_dev_score * w["avg_dev"]
+                         + roll_std_score * w["roll_std"]
+                         + ir_score * w["ir"])
 
             if composite >= 75:
                 tier = "strong"
