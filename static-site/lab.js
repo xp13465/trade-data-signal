@@ -7077,7 +7077,7 @@ function _renderSigKellyCard(qk, q, period) {
   for (const m of modes) {
     const r = pdata[m];
     if (!r) {
-      rows += `<tr><td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span></td><td colspan="13" class="lab-sigkelly-empty">无数据</td></tr>`;
+      rows += `<tr><td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span></td><td colspan="14" class="lab-sigkelly-empty">无数据</td></tr>`;
       continue;
     }
     const hk = (r.half_kelly == null) ? 0 : r.half_kelly;
@@ -7099,6 +7099,10 @@ function _renderSigKellyCard(qk, q, period) {
     const mc = r.max_concurrent || 0;
     const mcc = r.max_concurrent_capital || 0;
     const mcStr = mc ? `<b class="lab-sigkelly-mc-n">${mc}</b>笔 / ${(mcc >= 10000 ? (mcc / 10000).toFixed(1) + "万" : mcc)}` : "-";
+    // 持仓中: 笔数(holding_count) + 占用资金(holding_capital),预估盈亏已计入统计
+    const hc = r.holding_count || 0;
+    const hcap = r.holding_capital || 0;
+    const hcStr = hc ? `<b class="lab-sigkelly-hc-n">${hc}</b>笔 / ${(hcap >= 10000 ? (hcap / 10000).toFixed(1) + "万" : hcap)}` : "-";
     const ann = r.annualized_return != null ? r.annualized_return.toFixed(2) + "%" : "-";
     const sh = r.sharpe != null ? r.sharpe.toFixed(2) : "-";
     const md = r.max_drawdown_pct != null ? r.max_drawdown_pct.toFixed(2) + "%" : "-";
@@ -7109,7 +7113,7 @@ function _renderSigKellyCard(qk, q, period) {
         `<td class="lab-sigkelly-hk"><span class="lab-kelly-tier ${tierCls}">${hk.toFixed(1)}%</span><span class="lab-sigkelly-tier">${tier}</span></td>` +
         `<td>${wr}</td><td>${plStr}</td><td>${mr}</td><td>${nStr}</td>` +
         `<td class="${tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${tpStr}</td>` +
-        `<td>${trp}</td><td class="lab-sigkelly-rmh">${rmh}</td><td class="lab-sigkelly-mc">${mcStr}</td><td>${ann}</td>` +
+        `<td>${trp}</td><td class="lab-sigkelly-rmh">${rmh}</td><td class="lab-sigkelly-mc">${mcStr}</td><td class="lab-sigkelly-holding">${hcStr}</td><td>${ann}</td>` +
         `<td>${sh}</td><td>${md}</td><td>${cm}</td>` +
       `</tr>`;
   }
@@ -7121,7 +7125,7 @@ function _renderSigKellyCard(qk, q, period) {
       `</div>` +
       `<div class="lab-sigkelly-table-scroll">` +
       `<table class="lab-sigkelly-table lab-sigkelly-wide-table">` +
-        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th><th>最终盈亏</th><th>总收益率</th><th>最大持仓（动用资金）收益率</th><th>最大持仓</th><th>年化</th><th>夏普</th><th>最大回撤</th><th>卡尔玛</th></tr></thead>` +
+        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th><th>最终盈亏</th><th>总收益率</th><th>最大持仓（动用资金）收益率</th><th>最大持仓</th><th>持仓中</th><th>年化</th><th>夏普</th><th>最大回撤</th><th>卡尔玛</th></tr></thead>` +
         `<tbody>${rows}</tbody>` +
       `</table>` +
       `</div>` +
@@ -7243,6 +7247,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     const filtered = _applyFilter();
     const winCount = trades.filter((t) => t[fIdx.profit] > 0).length;
     const totalProfit = trades.reduce((s, t) => s + (t[fIdx.profit] || 0), 0);
+    const holdingCount = trades.filter((t) => !t[fIdx.sell_date]).length;
 
     let thHTML = colDefs.map((c) => {
       const isSorted = sort.key === c.key;
@@ -7266,6 +7271,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
         const pf = t[fIdx.profit] || 0;
         const rp = t[fIdx.return_pct] || 0;
         const pfCls = pf >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
+        const isHolding = !t[fIdx.sell_date]; // 持仓中trade(sell_date 空, 预估盈亏)
         // 触发信号列: 指数名 + 信号标签
         const iid = t[fIdx.index_id] || "";
         const sig = t[fIdx.signal] || "";
@@ -7282,16 +7288,33 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
           const scoreStr = (typeof etf.track_score === "number") ? Math.round(etf.track_score) : "-";
           return '<span class="etf-light ' + light.cls + '"></span> ' + light.label + ' ' + scoreStr;
         })();
-        tbodyHTML += `<tr>` +
+        // 持仓中trade 特殊渲染: 卖出日=持仓中标签 / 卖价=当前价+预估 / 收益率=预估前缀+虚线斜体 / 原因=持有中X天
+        const sellDateCell = isHolding
+          ? `<td><span class="lab-sigkelly-holding-tag">持仓中</span></td>`
+          : `<td>${t[fIdx.sell_date]}</td>`;
+        const _cpIdx = fIdx.current_price;
+        const sellPriceCell = isHolding
+          ? `<td class="lab-sigkelly-est">${(+(_cpIdx != null ? t[_cpIdx] : 0)).toFixed(4)}<span class="lab-sigkelly-est-tag">预估</span></td>`
+          : `<td>${(+t[fIdx.sell_price]).toFixed(4)}</td>`;
+        const profitCell = isHolding
+          ? `<td class="${pfCls} lab-sigkelly-est">${(pf >= 0 ? "+" : "") + pf.toFixed(2)}</td>`
+          : `<td class="${pfCls}">${(pf >= 0 ? "+" : "") + pf.toFixed(2)}</td>`;
+        const returnCell = isHolding
+          ? `<td class="${pfCls} lab-sigkelly-est">预估${(rp >= 0 ? "+" : "") + rp.toFixed(2)}%</td>`
+          : `<td class="${pfCls}">${(rp >= 0 ? "+" : "") + rp.toFixed(2)}%</td>`;
+        const reasonCell = isHolding
+          ? `<td>${t[fIdx.sell_reason] || "持有中"} ${t[fIdx.hold_days]}天</td>`
+          : `<td>${t[fIdx.sell_reason]}</td>`;
+        const rowCls = isHolding ? "lab-sigkelly-holding-row" : "";
+        tbodyHTML += `<tr class="${rowCls}">` +
           `<td class="lab-sigkelly-trades-sigcell">${sigCell}</td>` +
-          `<td>${t[fIdx.buy_date]}</td><td>${t[fIdx.sell_date]}</td>` +
+          `<td>${t[fIdx.buy_date]}</td>${sellDateCell}` +
           `<td class="lab-sigkelly-trades-etfrel">${etfRel}</td>` +
           `<td>${t[fIdx.etf_code]}</td><td class="lab-sigkelly-trades-etfname">${t[fIdx.etf_name]}</td>` +
-          `<td>${(+t[fIdx.buy_price]).toFixed(4)}</td><td>${(+t[fIdx.sell_price]).toFixed(4)}</td>` +
+          `<td>${(+t[fIdx.buy_price]).toFixed(4)}</td>${sellPriceCell}` +
           `<td>${(+t[fIdx.shares]).toFixed(2)}</td>` +
-          `<td class="${pfCls}">${(pf >= 0 ? "+" : "") + pf.toFixed(2)}</td>` +
-          `<td class="${pfCls}">${(rp >= 0 ? "+" : "") + rp.toFixed(2)}%</td>` +
-          `<td>${t[fIdx.hold_days]}</td><td>${t[fIdx.sell_reason]}</td>` +
+          profitCell + returnCell +
+          `<td>${t[fIdx.hold_days]}</td>${reasonCell}` +
         `</tr>`;
       }
     }
@@ -7307,6 +7330,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
           `<span>盈利 ${winCount} / 亏损 ${trades.length - winCount}</span>` +
           `<span>胜率 ${trades.length ? (winCount / trades.length * 100).toFixed(1) : 0}%</span>` +
           `<span>总盈亏 ${(totalProfit >= 0 ? "+" : "") + totalProfit.toFixed(0)} 元</span>` +
+          (holdingCount > 0 ? `<span class="lab-sigkelly-holding-stat">含 ${holdingCount} 笔预估</span>` : "") +
         `</div>` +
         `<div class="lab-sigkelly-modal-filters">` +
           `<input type="text" class="lab-input lab-sigkelly-filter-etf" placeholder="筛选ETF名称/代码…" value="${filter.etf}">` +

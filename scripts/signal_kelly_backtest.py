@@ -166,16 +166,32 @@ def _batch_load_etf_prices(etf_codes):
 
 # ── 回测 ──────────────────────────────────────────────────────────────────────
 
+def _calendar_days(d1, d2):
+    """两个 YYYYMMDD 日期字符串间的自然日天数(max 0)。"""
+    try:
+        dd1 = datetime.strptime(d1, "%Y%m%d")
+        dd2 = datetime.strptime(d2, "%Y%m%d")
+        return max((dd2 - dd1).days, 0)
+    except (ValueError, TypeError):
+        return 0
+
+
 def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, stop_profit,
                   index_id=None, signal=None, track_tier=None, track_score=None,
-                  match_method=None, track_low_confidence=None):
+                  match_method=None, track_low_confidence=None, today=None):
     """单笔信号回测: 信号日买入 1000 元, 持有期内止盈或满 HOLD_DAYS 卖出。
 
     prices: 该 ETF 的 {date: accum_nav} 字典(已由调用方从 price_map 取出)。
+    today: 全局最新数据日(YYYYMMDD), 用于持仓中trade预估; None 时回退本ETF最后日期。
     返回 dict {signal_date, index_id, signal, buy_date, sell_date, etf_code, etf_name,
               track_tier, track_score, match_method, track_low_confidence,
-              buy_price, sell_price, shares, profit, return_pct, hold_days, sell_reason}
-    或 None(数据不足跳过)。
+              buy_price, sell_price, shares, profit, return_pct, hold_days, sell_reason,
+              current_price}
+    或 None(信号日无价格/买入失败/持仓中无当前价)。
+
+    持仓中trade: 信号日后不足 HOLD_DAYS 个交易日时, 不丢弃, 按当前价预估盈亏
+    (sell_date="", sell_price=0, current_price=当前价, sell_reason="持有中"),
+    预估 profit 正常计入统计(不隔离), 详见 _compute_stats 的 holding_count。
     """
     if not prices:
         return None
@@ -193,8 +209,40 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
     dates = sorted_dates_list
     idx = bisect.bisect_right(dates, signal_date)
     future_dates = dates[idx:idx + HOLD_DAYS]
+
+    # 持仓中: 未来不足 HOLD_DAYS 个交易日, 按当前价预估盈亏(不丢弃, 含未实现综合表现)
     if len(future_dates) < HOLD_DAYS:
-        return None  # 未来不足 HOLD_DAYS 天, 交易未完成
+        ref_today = today if today else (dates[-1] if dates else None)
+        current_nav = prices.get(ref_today) if ref_today else None
+        if current_nav is None and dates:
+            current_nav = prices.get(dates[-1])  # 回退到本ETF最后日期
+        if current_nav is None or current_nav <= 0:
+            return None  # 无当前价, 无法预估
+        _sp, _sell_amount, _comm2, _tf2, net = _sell_with_fees(shares, current_nav, etf_code)
+        profit = net - BUY_AMOUNT
+        return_pct = profit / BUY_AMOUNT * 100
+        hold = _calendar_days(signal_date, ref_today)
+        return {
+            "signal_date": signal_date,
+            "index_id": index_id,
+            "signal": signal,
+            "buy_date": signal_date,
+            "sell_date": "",
+            "etf_code": etf_code,
+            "etf_name": etf_name,
+            "track_tier": track_tier,
+            "track_score": track_score,
+            "match_method": match_method,
+            "track_low_confidence": track_low_confidence,
+            "buy_price": round(buy_price, 6),
+            "sell_price": 0,
+            "shares": round(shares, 6),
+            "profit": round(profit, 4),
+            "return_pct": round(return_pct, 4),
+            "hold_days": hold,
+            "sell_reason": "持有中",
+            "current_price": round(current_nav, 6),
+        }
 
     # 模式 A: 最后一天卖出; 模式 B/C/D: 逐日检查止盈
     sell_date = future_dates[-1]  # 默认最后一天(D+10)
@@ -234,6 +282,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
         "return_pct": round(return_pct, 4),
         "hold_days": hold,
         "sell_reason": sell_reason,
+        "current_price": 0,
     }
 
 
@@ -266,13 +315,17 @@ def _compute_kelly(win_rate, pl_ratio):
 
 
 def _max_concurrent(trades):
-    """最大同时持仓笔数: 按 buy_date/sell_date 区间重叠算(扫描线, 同日先买后卖=保守)。"""
+    """最大同时持仓笔数: 按 buy_date/sell_date 区间重叠算(扫描线, 同日先买后卖=保守)。
+
+    持仓中trade(sell_date 空)视为至今仍持有, 用远期哨兵日期 "99999999"。
+    """
     if not trades:
         return 0
+    _SENTINEL = "99999999"
     events = []
     for t in trades:
         events.append((t["buy_date"], 0))   # 0=buy, 先处理(保守, 同日买入算占用)
-        events.append((t["sell_date"], 1))  # 1=sell, 后处理
+        events.append((t.get("sell_date") or _SENTINEL, 1))  # 1=sell, 后处理; 持仓中->远期
     events.sort()
     cur = max_conc = 0
     for _date, etype in events:
@@ -303,7 +356,8 @@ def _max_drawdown(trades):
     """
     if not trades:
         return 0.0, 0.0
-    sorted_t = sorted(trades, key=lambda t: t["sell_date"])
+    # 持仓中trade(sell_date 空)排到时序末尾(预估盈亏在"现在"实现)
+    sorted_t = sorted(trades, key=lambda t: t.get("sell_date") or "99999999")
     cumulative = 0.0
     peak = 0.0
     max_dd_abs = 0.0
@@ -372,6 +426,7 @@ def _compute_stats(trades, period_key="all"):
             "return_pct_max_holding": 0,
             "annualized_return": 0, "sharpe": 0,
             "max_drawdown": 0, "max_drawdown_pct": 0, "calmar": 0,
+            "holding_count": 0, "holding_capital": 0,
         }
 
     wins = [t for t in trades if t["profit"] > 0]
@@ -439,6 +494,9 @@ def _compute_stats(trades, period_key="all"):
     max_dd_abs, max_dd_pct = _max_drawdown(trades)
     # 卡尔玛比率
     calmar = round(annualized / max_dd_pct, 4) if max_dd_pct > 0 else 0
+    # 持仓中trade计数(预估盈亏已计入上面 total_profit/胜率/凯利等, 不隔离; 此处仅计数+标注)
+    holding_count = sum(1 for t in trades if not t.get("sell_date"))
+    holding_capital = holding_count * BUY_AMOUNT
 
     return {
         "n": n,
@@ -467,6 +525,8 @@ def _compute_stats(trades, period_key="all"):
         "max_drawdown": max_dd_abs,
         "max_drawdown_pct": max_dd_pct,
         "calmar": calmar,
+        "holding_count": holding_count,
+        "holding_capital": holding_capital,
     }
 
 
@@ -513,6 +573,11 @@ def compute():
     total_price_rows = sum(len(v) for v in price_map.values())
     print(f"   {total_price_rows} 行价格数据")
 
+    # 全局最新数据日(所有ETF最后日期的最大值), 用于持仓中trade预估当前价
+    today_str = max((ds[-1] for ds in sorted_dates_map.values() if ds), default=None)
+    if today_str:
+        print(f"   全局最新数据日 today={today_str}")
+
     # 4. 逐信号分类 + 4 模式回测
     # quadrants[quad_key][mode_key] = [trade, ...]
     quadrants = {qk: {mk: [] for mk in SELL_MODES} for qk in QUADRANT_META}
@@ -552,7 +617,8 @@ def compute():
         for mode_key, mode_def in SELL_MODES.items():
             result = _backtest_one(date, prices, sdates, etf_code, be["name"], mode_def["stop_profit"],
                                    iid, sig, be.get("track_tier"), be.get("track_score"),
-                                   be.get("match_method"), be.get("track_low_confidence"))
+                                   be.get("match_method"), be.get("track_low_confidence"),
+                                   today=today_str)
             if result is None:
                 continue  # 数据不足(信号日无价格/未来不足10天)
             any_valid = True
@@ -594,7 +660,7 @@ def compute():
     TRADE_FIELDS = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name",
                     "track_tier", "track_score", "match_method", "track_low_confidence",
                     "buy_price", "sell_price", "shares", "profit", "return_pct",
-                    "hold_days", "sell_reason"]
+                    "hold_days", "sell_reason", "current_price"]
     trades_output = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "buy_amount": BUY_AMOUNT,
