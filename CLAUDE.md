@@ -234,6 +234,12 @@
 - **2026-08-09 追加(量子科技3展示位数据不一致)**:
   - 过错:层B concepts.json R2未更新(方案A重跑board_etf_map时 concepts 的 upload-industry 遗漏),本地新版(159586)没上传R2,线上R2旧版(516630);层A stable_top1滞回 count=2 未切换(设计行为明天自动),term-pop 优先滞回标记(516630)非分数第一(159586)。3展示位(概念列表top1/相关ETF hoverpop/首页信号hoverpop)看到不一致数据
   - 防重犯:①更新必N处同步(数据一致性铁律§22)②算法改动重跑时列所有依赖数据产物(含concepts.json)逐个确认重跑+同步static-site+R2三步(§18已有教训重申)③滞回切换时确认3展示位(overview stable_top1+board_etf_map hysteresis+concepts)同步切换
+- **2026-08-09 追加(凯利回测系列4条过错+§0证伪查错文件)**:
+  14. D修正 annualized 口径判断偏差(根因:主控 prompt 指定用 total_return 总盈亏/单笔本金 开方,y1=258.78% 年化 258% 明显不合理--固定金额非复利,总盈亏/单笔本金=平均×笔数非真实收益率。用户定改 return_pct_max_holding 峰值资金收益率开方 y1≈3.04% y10≈1.37% 合理。commits 2686adf80 错->4c6d50917 修。防:指定计算口径前先验算典型值合理性,年化>100% 或负值应警觉查口径定义,不直接实施不合理口径;同§18教训⑦模式"方案先充分调研再实施"的口径版--口径也要验算非只方案)
+  15. 前端改 agent 漏做2个追加 A级小改(根因:SendMessage 追加费率格式+卡间水印布局2任务给运行中 agent,送达率低~1.9%(§11)agent commit 前没处理,需另开 commit b4ac948ab 补做。防:追加任务给运行中 agent 不只靠 SendMessage,主控在 agent commit 前主动确认追加任务是否处理;或追加任务等当前 commit 后派新 agent 不追加到运行中 agent;同§11 SendMessage 不可靠的延伸--追加任务=改规格,应走"停旧派新"或"commit后新派"非SendMessage)
+  16. 数据没上线 R2(根因:backfill 0d6fe0edd 没 upload signal_kelly(backtest/trades.json),CF 404 用户访问看不到。backfill 不跑 signal_kelly_backtest.py(独立脚本无 launchd)+export.py upload_r2 没传 signal_kelly。防:新数据类别上线后确认上传链路完整三步:①export.py upload_r2 清单含该类别②launchd 定时覆盖或 deploy.sh 含③backfill 补跑上传;独立脚本(无 launchd)的 backfill 手动补跑上传 R2;同§18"算法改动重跑数据产物列清单逐个确认重跑+同步static-site+R2三步"的上线链路版)
+  17. §0 证伪查错文件(根因:前次 agent 说"CF edge 缓存 industry-all-concepts.json",主控 §0 跟着查错文件,实际走势图读 thsc_300830-all.json。§0 验收信 agent 说的文件名没 grep 前端渲染逻辑确认实际读哪个。防:§0 证伪前先 grep 前端渲染逻辑(fetch/dataUrl/fetchJSON)确认实际读哪个文件,不跟 agent 说的文件名查;§0 验收文件类结论时独立确认文件路径非信 agent 报告;同§18教训⑤"agent关键结论§0验"的延伸--文件名/路径类结论也要独立验非信agent)
+- **token浪费(8/9凯利阶段)**:①D修正返工(第一次 total_return 错->第二次 return_pct_max_holding 修,应指定口径前验算数值合理性一次到位,同§18教训⑦模式)②SendMessage 追加任务漏做致另开 commit 补做(应追加任务不靠 SendMessage 或 commit 前确认,同§11)③数据没上线 R2 致紧急派 agent 修(应上线链路确认完整,同§18"重跑数据产物列清单")④8/9 全天100+ subagent(虽多数 justified 并行不冲突,token 消耗大,非紧急可适当控制并发数)
 
 ## 19. 自我成长机制(2026-08-08 定,每天总结+定期review防重犯)
 用户定:慢慢积累迭代完美,每天总结过错+token浪费+解决方案落档防重犯。memory文件持久但内容会过时需定期review。
