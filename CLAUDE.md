@@ -17,7 +17,7 @@
 ## 2. 监管+loop(主控只派发,不亲自干活)
 - 主控只做三件事:①派发任务(含目标+约束+验收口径)②收子 agent 总结③逐字验证关键结论(grep/SQL/读代码,不信 agent 报告)
 - **调研/定位/分析问题也派子 agent**,不只派"实施"。主上下文不做 grep/Read/方案分析这些"调研活"
-- 用 Agent 工具派子 agent(**必须 `run_in_background: true`** + **派完立即 CronCreate 兜底**,见 §11;SendMessage 通知会丢,cron 兜底查进度文件 DONE+jsonl mtime 防傻等。L0 notify.py 直达已实施,见 §11)
+- 用 Agent 工具派子 agent(**必须 `run_in_background: true`** + **派完立即 CronCreate 兜底**,见 §11;SendMessage 通知会丢,cron 兜底查进度文件 DONE+jsonl mtime 防傻等。cron 兜底查进度文件 DONE+jsonl mtime 防傻等(架构限制下最优,见 §11))
 - **派完立即返回控制权给用户,进入监工待命**——正文只交代"派了什么任务",然后停,不自己占着主控跑长任务。用户随时能插话更新需求,优先响应。同步 Agent 调用(不加 run_in_background)= 阻塞主控 ing 状态 = 用户插不上嘴 = 违规
 - 子 agent fresh context 跑,保持主上下文整洁省 token
 - 不问 yes/no("要我跑吗""要不要更新文档""要不要验"类自己定),自行验收连轴转
@@ -92,11 +92,11 @@
 - 绝不能 `git restore data/sentiment.db` / `git checkout -- data/sentiment.db`(若不慎重新 add)
 
 ## 11. 子agent卡死/429处理(主动轮询+唤醒+重派读遗留)
-- **通知机制四层:L0 notify.py 直达(主方案)+ L1 SendMessage(备份)+ L2 进度文件 DONE(证据)+ L3 cron 兜底**(2026-08-05 定,2026-08-09 升级 L0):①agent prompt 末尾要求完成时 `python3 scripts/notify.py --agent-done <名> '<结论摘要>'` 发邮件直达用户(L0 主方案,绕过主控队列)+ `SendMessage to: 'main', summary: '完成', message: '<结论摘要+关键验收点>'`(L1 备份)+ 进度文件写 `## DONE <结论>`(L2 证据)②**L3 cron 兜底**(派 agent 后立即设,不设=傻等):`durable:true`,每15分钟 `3,18,33,48`,prompt 查 `## DONE` + `stat -L` jsonl mtime(>600s 卡死)。DONE->落档 TASKS+推进;卡死->resume/重派;运行中->极简报。agent 处理完 CronDelete。2026-07-21 定10分钟(原3分钟太频繁),2026-08-08 用户改15分钟(省cron调用)
-- ⚠️ **cron 是兜底非主方案**(2026-08-08 用户校正,2026-08-09 L0 已实施):15分钟才发现太慢,治标。**L0 notify.py 直达已实施(主方案)**,cron 仍保留作最后保险。曾把 cron 当"标配"落档是错的(治标当治本),现已升级 L0 主动通知
-- ⚠️ **标准方案=主动通知(2026-08-09 已实施)**:SendMessage 丢失率近100%常态(8/8 2 reviewer ac0ed8a07/a8b63704+8/6 3 agent 全丢)。根因=主控消息队列瓶颈(680 enqueue 仅 313 dequeue=54% 丢失,队列溢出旧消息 remove,cron 轮询消息竞争队列空间)。**已实施 L0 notify.py 直达**:agent 完成调 `python3 scripts/notify.py --agent-done <名> <摘要>` 发邮件绕过主控队列,5min 去重防轰炸(see §16)。cron 兜底仍保留(L3 最后保险)。SendMessage 仍丢失率高但作 L1 备份
-- ✅ **稳定方案=主动通知,非兜底查(2026-08-08 用户定+调研结论 a47a7510,2026-08-09 已实施)**:用户原话"兜底查既成本高还不及时,从主动通知入手"。**调研根因**:①SendMessage丢失率~100%(7%agent没调sm_use=0 + 调了没送达:231 enqueue仅154送达)②**主控消息队列是瓶颈**(680 enqueue仅313 dequeue=54%丢失,队列溢出旧消息remove,cron轮询消息竞争队列空间加剧)③task-notification agent stop_reason=end_turn触发含<result>结论(interrupt/429/killed不触发)④StructuredOutput不可行(Agent工具不支持schema)。**推荐方案**:①[最优]agent完成调notify.py(邮件/Telegram直达用户,绕过主控队列)+end_turn触发task-notification带result(备份)②[增强]launchd WatchPaths监听进度文件变化触发notify.py③[保留]cron15分钟兜底(最后保险)。**已实施①**:notify.py 加 `notify_agent_done()` 函数 + CLI `--agent-done` 支持,agent prompt 规范加完成通知指令(§16)。Telegram 未配置暂仅邮件
-- ⚠️ **2026-08-08 教训(cron 不设致傻等+状态不一致)**:§11 原把 cron 描述为"极端丢时才用"兜底,致派 agent 后不设 cron(CronList 空)纯等 SendMessage->傻等+用户来问+状态不一致。修复:派 agent 同步设 cron 兜底(虽非标准但必设防傻等),同时找根因迭代标准方案
+- **通知机制四层:cron 兜底为主(架构限制下最优)+ SendMessage/task-notification 补充(有时送达更快但不可靠)+ 进度文件 DONE(证据)+ notify.py 邮件只重要节点**(2026-08-05 定,2026-08-09 调研穷尽修正,见下):harness 架构下无"子agent完成结论可靠送达主控 session"的完美主动通知方案(调研 ae65 穷尽)。①**cron 兜底为主**(派 agent 后立即设,不设=傻等):`durable:true`,每15分钟 `3,18,33,48`,prompt 查 `## DONE` + `stat -L` jsonl mtime(>900s 卡死)。DONE->落档 TASKS+推进;卡死->resume/重派;运行中->极简报。agent 处理完 CronDelete。2026-07-21 定10分钟(原3分钟太频繁),2026-08-08 用户改15分钟(省cron调用) ②SendMessage/task-notification 为补充(走同一队列,不可靠) ③进度文件写 `## DONE <结论>`(证据) ④notify.py 邮件只重要节点(上线完成/生产异常/需用户介入),非每 agent 完成
+- ⚠️ **harness 架构硬限制(2026-08-09 调研 ae65 穷尽)**:harness 层无"子agent完成结论可靠送达主控 session"的完美主动通知方案。根因=消息队列"单消息注入清除其余"设计(注入一条会清空队列其余消息)+ task-notification 优先级 later + 多子agent同时完成互相竞争(96%丢)。具体:①SendMessage 送达率~1.9%、task-notification ~12%,都走同一队列不可靠 ②SubagentStop hook 的 additionalContext 注入子 agent 非主控 ③无 CLI 命令向运行中 session 注入消息
+- ⚠️ **根本矛盾**:不阻塞(用户随时插话,§2)+ 主动可靠通知主控 = harness 架构下不可兼得。notify.py 通知用户转告=用户否定("靠我在通知你这个方案比兜底还糟",依赖用户比 cron 兜底还糟)
+- ✅ **cron 兜底是架构限制下最优残余**(不阻塞前提下主控自主唯一可靠):15min 延迟 + token 成本是代价,但无完美主动通知方案时是唯一可靠路径。实际维持原样(派 agent 立即设 cron 兜底防傻等)。notify.py 邮件降级为只重要节点(上线完成/生产异常/需用户介入),非每 agent 完成。曾误判"notify.py 邮件主方案/L0 直达"为标准方案并实施,调研穷尽后推翻(2026-08-09 修正)
+- ⚠️ **2026-08-08 教训(cron 不设致傻等+状态不一致)**:曾把 cron 当"极端丢时才用"兜底,致派 agent 后不设 cron(CronList 空)纯等 SendMessage->傻等+用户来问+状态不一致。修复:派 agent 同步设 cron 兜底(必设防傻等)。cron 是架构限制下最优残余,不是"治标待替代"
 - 派agent的prompt要求写进度文件:**每完成一步立即echo**(每个grep/Edit都回写,不是每大步骤;2026-07-15 a194f曾只写"开始"641秒不回写致盲区),echo到 `/tmp/agent-progress-<名>.md`,主控Bash查(轻量不overflow),不依赖jsonl(大)/通知(会丢)/返回(可能429空)任一渠道
 - **卡死**(jsonl mtime>900秒没动,15分钟轮询阈值):先SendMessage试唤醒原会话(成本低,agent可能卡在长工具如grep/curl没退出,SendMessage排队等它下轮处理),下次轮询(15分钟)仍卡死=进程已死,重派新会话
 - **429配额失败**:agent came to rest(退出运行)但task-id保留,配额恢复后**优先SendMessage resume原会话**(保留上下文比重派从头高效);resume不响应/状态乱才重派新会话。**2026-07-15教训(底线:不重复犯错)**:曾误判"429原会话已终止无法resume只能重派"(a194f 429后重派afe9从头跑,浪费a194f已查的32 tool_use上下文),实际task-notification note明说"can resume",429和卡死都优先resume--**配额恢复后第一动作是SendMessage resume原会话,不是重派**
@@ -172,17 +172,17 @@
 - **角色可兼任**:小任务一个 agent 调研+实施;大任务拆多角色(实施->reviewer->测试流水线)
 
 ### 通知与兜底机制(§11 细节,本节总览)
-- **L0 notify.py 直达(主方案,2026-08-09 实施)**:agent 完成时调 `python3 scripts/notify.py --agent-done <名> <结论摘要>` 发邮件直达用户,绕过主控消息队列(SendMessage 丢失率~100% 根因=主控队列瓶颈 680 enqueue 仅 313 dequeue=54% 丢失)。5min 去重防 agent 反复 came to rest 轰炸。Telegram 未配置时仅邮件。agent prompt 末尾要求此动作
-- **L1 SendMessage(备份)**:agent 完成 `SendMessage to: 'main'`(harness 自动送达,但**丢失率近 100% 常态,不可单靠**)+ 进度文件写 `## DONE <结论>`(L2)。prompt 末尾要求这两个动作
+- **cron 兜底为主(架构限制下最优,2026-08-09 调研穷尽)**:派 agent 后立即 CronCreate 兜底,这是不阻塞前提下主控自主唯一可靠路径(SendMessage~1.9%/task-notification~12% 送达率都走队列不可靠,无完美主动通知主控方案,见 §11)
+- **SendMessage/task-notification(补充,有时送达更快但不可靠)**:agent 完成 `SendMessage to: 'main'`,走消息队列(单消息注入清除其余设计,~1.9% 送达率,不可单靠)+ 进度文件写 `## DONE <结论>`(证据)。prompt 末尾要求这两个动作
 - **L2 进度文件**:agent 每步 echo 回写 `/tmp/agent-progress-<名>.md`(每个 grep/Edit 都回写,非每大步骤),完成写 `## DONE <结论>`,主控 Bash 查(轻量不 overflow)
-- **L3 cron 兜底**(2026-08-08,兜底非主方案):派 agent 后立即 CronCreate(`durable:true`,每15分钟 `3,18,33,48` 避 :00/:30),prompt 查进度文件 `## DONE` + `stat -L` jsonl mtime(非 .output symlink,symlink mtime 不准会误判卡死)。DONE->落档 TASKS+推进;卡死->resume/重派;运行中->极简报。agent 处理完 CronDelete。**不设 cron 纯等 SendMessage=傻等**(8/8 教训)。L0 notify.py 直达已实施(主方案),cron 仍保留作最后保险(见 §11)
+- **cron 兜底(架构限制下最优,见 §11)**:派 agent 后立即 CronCreate(`durable:true`,每15分钟 `3,18,33,48` 避 :00/:30),prompt 查进度文件 `## DONE` + `stat -L` jsonl mtime(非 .output symlink,symlink mtime 不准会误判卡死)。DONE->落档 TASKS+推进;卡死->resume/重派;运行中->极简报。agent 处理完 CronDelete。**不设 cron 纯等 SendMessage=傻等**(8/8 教训)。notify.py 邮件只重要节点(上线完成/生产异常/需用户介入),非每 agent 完成
 - **卡死**(jsonl mtime>900秒没动):先 SendMessage 唤醒原会话(成本低,可能卡在长工具没退出)-> 下次轮询仍卡死=进程已死,重派新会话读遗留(`/tmp/agent-progress-*` + 工作区半成品)接着做,避免从头返工
 - **429 配额失败**:配额恢复后**优先 SendMessage resume 原会话**(保留上下文比重派高效);resume 不响应/状态乱才重派。底线:不重复犯错(曾误判 429 原会话终止重派从头,浪费已查上下文)
 - **came to rest**(agent 完成一阶段停了等指令,非卡死非429):可随时 SendMessage 推进,不严格等480秒
 - **默认持久化**(§7):CronCreate 默认 durable:true;长任务进度落 git(`.superpowers/sdd/progress.md` 或 NOTES/TASKS)非 /tmp(/tmp 重启丢)
 
 ### agent prompt 写作规范
-- **必含**:目标 + 约束(引用 CLAUDE.md 章节不重复全文,§4 减 token)+ 验收口径 + 上线流程(如适用)+ 进度文件路径 + 完成时四层通知(见 §11):①`python3 scripts/notify.py --agent-done <名> '<结论摘要>'` 发邮件直达用户(L0 主方案,绕过主控队列)②end_turn 退出触发 task-notification 带 result(harness 自动,备份)③`SendMessage to: 'main', summary: '完成', message: '<结论摘要>'`(L1 备份)④进度文件写 `## DONE <结论>`(L2 证据)
+- **必含**:目标 + 约束(引用 CLAUDE.md 章节不重复全文,§4 减 token)+ 验收口径 + 上线流程(如适用)+ 进度文件路径 + 完成时通知(见 §11,架构限制下 cron 兜底为主):①`SendMessage to: 'main', summary: '完成', message: '<结论摘要>'`(补充,不可靠)②end_turn 退出触发 task-notification 带 result(harness 自动,补充)③进度文件写 `## DONE <结论>`(证据)④重要节点(上线完成/生产异常/需用户介入)调 `python3 scripts/notify.py --agent-done <名> '<结论摘要>'` 发邮件(非每 agent 完成)
 - **约束引用**:"见 §8/§14" 而非重述全文;只写本次任务特有约束
 - **禁止图片操作**(§13):模型只文本,Read 图片触发 400 终止 agent;需视觉验证用文字+ASCII 示意图或让用户看
 - commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
@@ -199,14 +199,14 @@
 ## 18. 犯错积累与防重犯(2026-08-08 起,每次犯错追加)
 用户定:慢慢积累经验迭代完美。每次犯错记录于此 + 防重犯条款,不重犯同类。
 - **2026-08-08 犯错 7 条**:
-  1. 通知丢失不设 cron 傻等 + 把兜底当标准方案落档(§11 校正:cron 兜底非标准,标准方案找根因迭代)
+  1. 通知丢失不设 cron 傻等(§11:cron 兜底必设防傻等;2026-08-09 调研穷尽无完美主动通知主控方案,cron 兜底是架构限制下最优残余)
   2. DB 方案理解反复 3 次纠正(防:关键决策前复述理解让用户确认,不臆断不反复)
   3. 架构偏差 exclude 偏离全量本意(防:用户说"全量/全部"不擅自 exclude/清理,先确认)
   4. .gz 断定不严谨凭 memory(防:断定前验证,memory 可能过时,不凭记忆断定)
   5. agent 误报 trade/trade-data 混淆未识破(防:agent 关键结论 §0 验,尤其路径/文件数类)
   6. cherry-pick 撞冲突 + 干扰后台 agent(防:切分支/checkout 前 CronList + 查后台 agent 是否改文件)
   7. hoverpop 方案试错(防:方案先调研充分再实施,不边试边改)
-- **通知丢失标准方案(已实施 L0)**:见 §11。L0 notify.py 直达(agent完成调 `python3 scripts/notify.py --agent-done <名> <摘要>` 发邮件绕过主控队列,5min去重),cron 兜底保留作最后保险
+- **通知机制(2026-08-09 调研穷尽修正)**:见 §11。harness 架构硬限制无完美主动通知主控方案(SendMessage~1.9%/task-notification~12% 都走队列不可靠,队列"单消息注入清除其余"+多agent竞争96%丢;SubagentStop hook 注入子agent非主控;无CLI向运行中session注入),cron 兜底是架构限制下最优残余(不阻塞前提下主控自主唯一可靠),notify.py 邮件降级只重要节点。曾误判 notify.py 主方案并实施后推翻
 - **2026-08-08 会话级总结追加(ETF信号灯+hoverpop+lowconf+拆档阶段,5条新过错)**:
   8. ETF拆档 null 归属理解错(根因:主控把 null/N<30 极弱归入"概念无ETF"档,但"概念无ETF"=真无任何ETF匹配,null/N<30=有ETF但数据不足算出极弱分,两者语义不同;用户纠正 null 有ETF算得出分应归"有跟踪ETF"档。防:归属/分类前复述口径让用户确认,不靠语义猜测"无数据=无ETF")
   9. hoverpop"无数据"调研误判(根因:调研agent说"signal-tier没铺到hoverpop用老逻辑",实际前端三处都已用_etfLightInfo接track_tier,真因是数据产物不一致(R2 index-all旧'none' vs overview新null)+前端文案L1553 null->"无数据"应"极弱"。防:调研下结论前深入到数据产物层验证(R2旧版vs新版字段值差异),不只看代码逻辑分支;调研结论"没铺到/老逻辑"类要 grep 验证再报)
@@ -216,7 +216,7 @@
   13. 量子科技调研误判"0量子ETF/不可改善"(根因:调研agent只用了当前算法匹配范围——name+track_index搜"量子"无结果+overlap只看成分股直接重叠,断定"全市场0只量子ETF/不可改善"。但用户用同花顺(第三方平台)搜到多个相关ETF(大数据516000/云计算516510/央企科技562380/科创159335),真因是算法只看成分股直接重叠不看ETF持仓重叠。第二次调研才找到根因+方案(第4层ETF持仓重叠匹配)。防:调研"无/0/不可改善"类结论,不只验证当前算法覆盖范围,要换方法/换数据源(第三方平台如同花顺概念搜索)+考虑不同关联维度(持仓重叠 vs 成分重叠),不轻断"不可改善";调研结论里列"已验证哪些方法/数据源"便于主控判断充分性)
 - **token浪费(本阶段)**:①hoverpop信号灯问题重复调研(第一次误判"没铺到老逻辑"第二次才找真因数据产物不一致,应一次调研到位:代码+数据产物同查)②移动端hoverpop修复试错返工(第一次white-space:normal+flex-wrap:wrap效果更差布局错乱,方案应先充分验证移动端窄屏实际效果再实施,不靠推理)③多次429配额耗尽(L6411信号灯分层/L6506 reviewer/L6507 push告警调研,月配额耗尽致全agent终止;§17高峰期多个agent并发消耗大,防:高峰期控制并发agent数,非紧急推迟到18后)④量子科技调研重复(第一次断"0/不可改善"过早,第二次才找到持仓重叠根因+方案,同①模式复发:调研"不可改善"结论过早致二次调研,应一次调研到位:换方法/换数据源+多关联维度同查)
 - **每日归纳(2026-08-08 全天 13 条过错,按主题分组,不删减只归类)**:
-  - 通知机制(1条):①不设cron傻等+兜底当标准方案(§11已校正)
+  - 通知机制(1条):①不设cron傻等(§11:cron兜底必设;2026-08-09穷尽无完美主动通知主控方案,cron为架构限制下最优残余)
   - 理解/口径偏差(3条):②DB方案反复3次⑧ETF拆档null归属⑪需求2加未要求改动(共性:关键决策/归属/需求前复述确认,不臆断不扩展)
   - 调研不充分/误判(4条):④.gz凭memory断定⑨hoverpop调研误判⑫至今盈亏方向偏差⑬量子科技"0/不可改善"误判(共性:下结论前验证数据产物层/换方法换数据源/对准UI位置,不只看当前算法范围)
   - 架构/全量(1条):③exclude偏离全量(防:用户说全量不擅自exclude)
@@ -231,6 +231,9 @@
 - **2026-08-08 追加(方案A board_etf_map数据产物遗漏+reviewer误报,印证回归检查不完整)**:
   - 过错:①方案A agent 改 build_board_etf_map.py 代码(TRACK_WEIGHTS_INDIRECT)也重跑了生成新 board_etf_map.json(源文件trade-data/data/已是159586),但**build_board_etf_map.py写ROOT/data/(用.absolute()非.resolve()),export.py不复制board_etf_map到static-site/data/,data/->static-site/data/复制步骤遗漏**,两处static-site旧版516630+R2旧版 ②reviewer验"local board_etf_map=159586"误报,实际local static-site=516630(reviewer没真读上线文件,信agent自验或验了源文件trade-data/data/而非static-site上线文件) ③主控§0 curl board_etf_map才发现(overview 159586但board_etf_map 516630不一致),非等用户发现
   - 防重犯:①算法改动重跑数据产物时,列所有依赖该算法的数据产物清单(board_etf_map/overview/index detail/trade_sim)逐个确认**重跑+同步到static-site/data/+上传R2**三步完整,不只重跑 ②build_board_etf_map.py写ROOT/data/需手动cp到static-site/data/(export.py不复制它,data/->static-site/data/是独立步骤,memory export-output-path-sync衍生陷阱) ③reviewer验数据产物必须真读上线文件(static-site/data/或R2/CF)非源文件或agent自验,reviewer prompt明确"curl local static-site+R2+CF三处验具体字段值" ④主控§0不只验主路径(overview),验所有相关数据产物三版本一致(overview vs board_etf_map vs index detail) ⑤agent自验+reviewer+主控§0三层都需真验文件内容,任一层信结论不验文件=漏洞
+- **2026-08-09 追加(量子科技3展示位数据不一致)**:
+  - 过错:层B concepts.json R2未更新(方案A重跑board_etf_map时 concepts 的 upload-industry 遗漏),本地新版(159586)没上传R2,线上R2旧版(516630);层A stable_top1滞回 count=2 未切换(设计行为明天自动),term-pop 优先滞回标记(516630)非分数第一(159586)。3展示位(概念列表top1/相关ETF hoverpop/首页信号hoverpop)看到不一致数据
+  - 防重犯:①更新必N处同步(数据一致性铁律§22)②算法改动重跑时列所有依赖数据产物(含concepts.json)逐个确认重跑+同步static-site+R2三步(§18已有教训重申)③滞回切换时确认3展示位(overview stable_top1+board_etf_map hysteresis+concepts)同步切换
 
 ## 19. 自我成长机制(2026-08-08 定,每天总结+定期review防重犯)
 用户定:慢慢积累迭代完美,每天总结过错+token浪费+解决方案落档防重犯。memory文件持久但内容会过时需定期review。
@@ -278,6 +281,13 @@
 - **算法公示文案位置**:app.js/lab.js 中 track_score/跟踪分/算法/TE/R²/IR/权重/百分位/match_method 等相关说明文字(弹窗/tooltip/策略实验室公式展示)。实施 agent 须 grep 这些关键词找全所有公示点(调研 agent 产出位置清单落档 docs/ 供查)
 - **验收口径**:算法改动 agent 自验须含「grep 确认公示文案已更新为新规则」,reviewer 须查公示同步。算法改了公示没改=验收不通过
 - **历史教训**:之前出现过算法公示老版本和实施规则不同步(算法改了公示没改,用户看老规则),修复需重新定位所有公示点+更新+重新上线,发现成本+返工成本高。本规范防丢失忘记,下次算法改动必读
+
+## 22. 数据一致性铁律(2026-08-09 定,用户视角多展示位必须一致)
+- **核心一句话:用户在N个展示位看到的数据必须统一**。不管内部层级(overview.json/board_etf_map.json/concepts.json),用户看到N处必须一致。只有一致才是最好的解释,文件不一致或缓存不一致都会产生误解
+- **用户原则(2026-08-09 用户原话)**:"不管层级 我的理解是。作为用户 3个展示位看到的数据一定要统一。比如不能存在文件不一致or 缓存不一致。都会产生误解。只有一致才是最好的解释。你的所有策略都只决定更新频率or排序。但是一旦更新肯定是3处一起同步"
+- **所有策略只决定何时更新or如何排序**:stable_top1滞回/排序/更新频率等策略只决定更新时机或排序,**一旦更新必须N文件+N缓存(R2/CF)同步**。不能文件不一致(一个新版一个旧版)or 缓存不一致(R2新CF旧)
+- **机制**:export/deploy 时校验N文件版本一致(关键字段如量子top1/stable_top1),不一致阻断或告警。算法改动重跑数据产物时,列所有依赖该数据产物清单逐个确认重跑+同步static-site+R2三步(§18 已有教训)
+- **与 §15/§18 互参**:§15 是"改坏老功能"回归复查,本条是"用户视角多展示位一致性"铁律,§18 记具体犯错(2026-08-09 量子科技3展示位不一致)。三者互补:§15 防改坏、§22 防不一致、§18 记教训
 
 ## 验收铁律
 逐字验证关键结论(grep/SQL/读代码),不信 agent 报告。报“完成”不等于真完成。
