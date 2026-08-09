@@ -1159,6 +1159,10 @@ def index_detail(conn, cfg, index_id, start, end, *, cache=None, stats_all_dict=
             _self = _self_etf_for(index_id, cfg, conn)
             if _self:
                 result["etfs"] = _self["etfs"]
+        # 注入 etf_since_return + etf_price_diff（对齐 overview/a_stock 口径，
+        # 否则 index detail JSON 的 etfs 全 None，走势卡弹窗盈亏缺失）
+        if result.get("etfs"):
+            _enrich_etfs_since_return(conn, {index_id: result})
     return result
 
 
