@@ -1691,3 +1691,10 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - ETF本体展示优化
 - modal①③
 - smoke C3C13
+
+### 会话状态(2026-08-09,R2审计完成✅+purge-fix✅push feat待reviewer+凯利UI调研中)
+- **R2 P1/P2审计完成**（ae7ba76dcd3f2c093）：3项已修§0确认（P1-1 159335一致/P2-3 headers生效）+4项未修给方案，详见 NOTES §48 小节BB 八。
+- **purge-fix✅上线main**（ea64df512）：分批purge每批30 keys修复CF Worker超时500。reviewer(a1e870e2bcb2bcbb7) PASS（6边界✓+smoke 134/134无500+upload逻辑未破坏），周日13:36周末休市push feat:main fast-forward。
+- **凯利UI调研**（af7efd1871bf5689b）：响应式1列+总投入改最大持仓方案，调研中。
+- **⚠️R2未修项待办**（待用户定优先级，方案见NOTES §48 八）：①P1-2 simulate_trade调度(update_lab.sh插--all+rsync+R2,~20行) ②P2-1 purge分批告警(else分支加notify,~10行,与purge-fix协调) ③P2-2 校验覆盖(check_data_integrity加3函数+check_r2_consistency独立脚本,~140行) ④P1-3/P2-4暂不做。
+- **在跑agent**：kelly-ui-research(af7efd1871bf5689b,cron c0abe43f)。purge-reviewer✅PASS已清cron。

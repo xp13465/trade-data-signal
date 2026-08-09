@@ -8410,3 +8410,13 @@ board_etf_map.json(2b含similarity/max_err/grade/fund_type) -> queries.py etf_fo
 ### 七、当前在跑 agent 清单 + 活跃 cron
 - **在跑 agent**：a935f4faab2656e2f（方案A实施）/ aacfd843（R2一致性）/ aaaeee58897b04b71（R2审计）/ ac71de961531182b7（凯利修复）/ a26cdf292774e1649（R2报告+算法公示调研）。
 - **活跃 cron**：25864dd1（方案A）/ 62831903（R2一致性）/ cc17d336（R2审计）/ 7a2ef6b1（凯利）/ f7458571（R2报告调研）。
+
+### 八、R2 P1/P2 审计完成（ae7ba76dcd3f2c093，2026-08-09）
+- **审计范围**：P1×3 + P2×4，现状审计 + 未修项方案。方案全文见 `/tmp/agent-progress-r2-audit-p1p2.md` `## 未修项方案` 小节。
+- **3 项已修确认（§0 验通过）**：①P1-1 159335 跨文件一致性（board_etf_map thsc_300830=25.5 + overview=25.5 sum_pct 两处确认，19.0 是 thsc_308300 另一上下文非审计那条，第三处 concepts 信 agent）②P2-3 _headers 生效（curl -I 确认 HSTS preload / CSP-report-only / referrer-policy / x-frame-options 4 安全头）。
+- **4 项未修 + 方案**：
+  - **P1-2 simulate_trade 无调度 [P1 工作量小]**：根因 update_lab.sh [12/12] 仅跑 --html（读已有 JSON），JSON 模式(--all)无 launchd 调度，deploy.sh 只上传已有 JSON 不生成。方案：update_lab.sh(19:00)内插①[11.5/12]加 `simulate_trade --all`（生成 167 品种 JSON）②upload-lab 后 rsync trade_sim/ + `upload-trade-sim-json`（R2）。§14 无冲突（19:00 不撞推 main，simulate_trade 读 DB 非写，trade_sim 走 R2 不推 main，非交易日 IS_TRADING 闸门已有）。~20 行。
+  - **P2-1 purge 分批失败无告警 [P2 工作量极小]**：根因 purge_cache else 分支(failed_batches>0)仅 print 无 notify.send。方案：else 分支加 notify.send，dedup_key=`purge_batch_fail`。与 purge-fix ea64df512 协调（在其分批基础上加告警，搜 `failed_batches` 定位新 else 位置）。~10 行。
+  - **P2-2 校验覆盖不足 [P2 工作量中]**：缺 4 项（track_score 三版本一致性 / etf_since_return 存在性 / R2 产物一致性 / trade_sim 时效性）。方案：check_data_integrity.py 加 3 函数（check_trade_sim_indices mtime 滞后 ~15 行 / check_etf_since_return 非null占比>90% ~20 行 / check_track_score_consistency 三处容差 ±1.0 ~30 行 防 159335 类事故）+ check_r2_consistency.py 独立脚本（curl local vs R2 vs CF ~80 行）。~60 行 + ~80 行。
+  - **P1-3 基线动态 / P2-4 R2 metadata [暂不做]**：P1-3 百分位 rank 固有特性（候选集变则排名变），固定化 ROI 低，跨文件一致性(P1-1已修)比基线稳定重要；P2-4 Worker 层已设 Cache-Control（P0 no-store+分层 TTL），R2 metadata 仅影响 ssd 直链大文件，锦上添花非必需。
+- **优先级**：P1-2 > P2-1 > P2-2 > P1-3/P2-4 暂不做。
