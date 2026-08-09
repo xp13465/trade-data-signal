@@ -60,7 +60,7 @@
 - ⚠️ `ss.fx8.store`(CF Workers 主站)支持 `_headers`(CSP/HSTS preload/nosniff/X-Frame/Permissions-Policy)+ br 压缩,已上线;`s.sugas.site`/maozi.io(MaoziYun/3.17.0 非 Cloudflare)`_headers` 不生效,MaoziYun 自带 HSTS + meta referrer 兜底。`_headers` 配置在 CF 主站已生效,不再'未来迁移'(2026-07-22 更新:wrangler.jsonc Workers 已绑定 ss.fx8.store 主站)
 - ⚠️ **force-with-lease / force push 是最后手段,不是首选**(2026-07-20 gz 方案B agent 违规致 intraday 回退事故,见 NOTES §48 小节S 事故记录):non-fast-forward 时优先 `git fetch + git rebase origin/main + 重试 push`(deploy.sh L141-160 内置此机制),rebase 失败 abort 退出等人工处理。**agent 不得擅自 force-with-lease / force push,尤其推 main**;确需强推须主控确认
 - ⚠️ **deploy.sh `git add static-site/data/` 通配会带入工作区残留旧文件**(2026-07-20 事故根因):跑 deploy.sh 前确认工作区无旧版实时数据文件(尤其 `intraday_snapshot.json`,由 intraday-snapshot 定时任务独立 push,不被全量 deploy 带入);export.py 不生成 intraday_snapshot.json,工作区里的旧版会被通配带入 commit 覆盖线上新版
-- ⚠️ **盘中(09:30-15:30)不跑全量 export + deploy**:全量 export + deploy 限定 15:35 后(收盘后),盘中只跑 intraday-snapshot 定时任务推 intraday_snapshot.json。agent 接"跑全量 export"任务须先确认时点,盘中拒绝或等收盘(撞 intraday-snapshot 定时任务推 main = 互相覆盖事故)
+- ⚠️ **交易日盘中(09:30-15:30)不跑全量 export + deploy**:全量 export + deploy 限定交易日 15:35 后(收盘后);**周末/节假日休市例外:intraday-snapshot 不推数据无撞车风险,可随时跑不等盘后**(2026-08-09 教训:曾误让用户等盘后,用户提醒周末不开盘)。盘中只跑 intraday-snapshot 定时任务推 intraday_snapshot.json。agent 接"跑全量 export"任务须先确认**是否交易日**+时点,交易日盘中拒绝或等收盘,休市直接跑(撞 intraday-snapshot 定时任务推 main = 互相覆盖事故)
 - ⚠️ **agent 推理“X 文件在 Y commit 里”前先核对**(2026-07-20 事故误判):用 `git show --stat <commit>` 或 `git log -- <file>` 确认文件实际是否在 commit 里、是哪个时点版本,不靠“Y commit 是 Z 时点跑的所以含 Z 时点数据”推理
 - ⚠️ **验上线验功能生效层非代码在 main**(2026-08-05 教训):代码在 main + 版本号上线 ≠ 功能生效。说“已上线”前 curl JSON 验数据层(字段有值/无旧字段残留)+ 让用户确认显示。教训:判断预估成交额已上线但 amount_forecast={} 空对象后端没写数值;信号过滤代码在 main 但 overview.json 旧版 signals_today 还有 s.sentiment_cyb
 
@@ -125,7 +125,7 @@
 - **核心一句话:生产稳定性是 P0 第一要素**。项目已上线生产(ss.fx8.store/sss.sugas.site/s.sugas.site + ssd.fx8.store R2),定时任务撞车会导致线上数据覆盖事故/DB锁/用户看到错误数据,是不可逆生产故障
 - **任务冲突检查不应由用户提醒才做**。每次派任务/设 cron/推 main 前**必须主动查 launchd 定时任务清单**(`launchctl list | grep trade` + 查 plist `StartCalendarInterval`),列当日盘后任务时点,确认新任务不撞,并**主动给用户时点建议**(不等用户问"会不会冲突")
 - **核心冲突类型**:① 推 main(intraday-snapshot 15:35/20:35 + update-all 17:50 + deploy)vs 另一推 main = 互相覆盖事故(§8 已有 2026-07-20 gz方案B事故) ② 写 DB(评分/采集)vs 同 DB 任务 = DB锁/progress撞 ③ 采集脚本并发 = 限流空转
-- **盘后定时任务时点(15:35/16:00/17:50/20:35/22:00)不推 main 不写 public_fund.db**;**盘中(09:30-15:30)不跑全量 export+deploy**(§8 已有)
+- **盘后定时任务时点(15:35/16:00/17:50/20:35/22:00)不推 main 不写 public_fund.db**;**交易日盘中(09:30-15:30)不跑全量 export+deploy**(§8 已有,休市可随时跑)
 - **安全窗口:23:00 后**无推 main/评分/采集任务(3:17 weekly 周日才跑,5:00 us-stock-morning 不写 public_fund.db),大型实施任务放此窗口
 - **agent 自己 push feat:main 也要避开**盘后定时任务时点,不只 cron 任务。agent prompt 须写明"避开 15:35/16:00/17:50/20:35 push main,撞 intraday-snapshot/update-all 推 main = 互相覆盖事故"
 - **盘中 push 前端代码 main 也避开 intraday-snapshot 每10分钟时点**(:25/:35/:45/:55/:05/:15,09:25-15:02 共27次推 intraday_snapshot.json 到 main)。agent 改 app.js/style.css 后 push feat:main 虽改不同文件 rebase 能合并,但 git push 竞争 non-ff 重试有风险,尽量错开。**盘中 push main 选 :00/:10/:20/:30/:40/:50 之外的安全分钟,或等盘后 23:00+ 窗口**
