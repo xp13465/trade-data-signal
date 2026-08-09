@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a65';  // bump a64->a65: 跳转定位 MEDIUM-1(删_appendBackupChipRow内全局抑制,只保留IO continue守卫,指数卡chip-row不再缺失)+LOW-1(IO preload不跳过)
+const CACHE_VERSION = 'v6-20260809-a66';  // bump a65->a66: 凯利卡片grid改auto-fill+minmax自适应列数+card加min-width:0,删冗余media query,修小屏溢出
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
