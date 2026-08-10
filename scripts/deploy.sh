@@ -57,9 +57,9 @@ if [ "$IS_TRADING" = "1" ] && [ "$CURRENT_HM" -ge 0930 ] && [ "$CURRENT_HM" -le 
 fi
 
 # 0.5 fetch origin main（后续 unmerged 检查 + rebase 需要）
-# R2 阶段4a 后 static-site/data/ 全量移出 git（仅 feed.xml tracked），
+# R2 阶段4a 后 static-site/data/ 全量移出 git（含 feed.xml，2026-08-10 也走 R2），
 # 原 checkout intraday_snapshot/notifications.json 防通配带入已无效（文件 gitignored），
-# DATA_FILES 改精确列表（feed.xml + min JS/CSS）不再通配 add，无残留带入风险。
+# DATA_FILES 改精确列表（min JS/CSS）不再通配 add，无残留带入风险。
 git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
 
 # 0.7 兜底：清理工作区残留 unmerged 状态（2026-07-31 根治，方案B 双保险）
@@ -68,7 +68,7 @@ git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
 # （730 信号 R2 已上线但 CF Workers ss.fx8.store / GH Pages sss.sugas.site 没拿到 730）。
 # 此兜底在 fetch 后 export 前检测：static-site/data/* 的 unmerged 强制 reset HEAD + checkout origin/main 清理；
 # 非数据文件 unmerged 则 exit 1 报警不继续（避免吞代码冲突）。
-# R2 阶段4a 后 static-site/data/ 仅 feed.xml tracked，*.json 全 gitignored 不可能 unmerged。
+# R2 阶段4a 后 static-site/data/ 全 gitignored（含 feed.xml 2026-08-10 走 R2），不可能 unmerged。
 UNMERGED=$(git -C "$GIT_REPO" diff --name-only --diff-filter=U 2>/dev/null)
 if [ -n "$UNMERGED" ]; then
   NON_DATA_UNMERGED=""
@@ -262,18 +262,20 @@ run_r2_upload "upload-offshore-fund" upload-offshore-fund || { echo "⚠ upload-
 run_r2_upload "upload-etf-score" upload-etf-score || { echo "⚠ upload-etf-score 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-score"; }
 run_r2_upload "upload-data-large" upload-data-large || { echo "⚠ upload-data-large 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-data-large"; }
 run_r2_upload "upload-all-data" upload-all-data || { echo "⚠ upload-all-data 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-all-data"; }
+# feed.xml 走 R2（2026-08-10）：gen_rss 生成的 RSS 上传到 R2 data/feed.xml，不再 git push
+run_r2_upload "upload-feed" upload-data-files feed.xml || { echo "⚠ upload feed.xml 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-feed"; }
 if [ -n "$R2_FAIL" ]; then
   "$PY" "$REPO/scripts/notify.py" "[告警] deploy R2上传失败" "deploy.sh R2 上传失败:$R2_FAIL<br>前端可能读旧数据，需手动补刷: bash scripts/upload_r2.py upload-all-data<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_r2_upload_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
 fi
 
-# 2. git add min JS/CSS + feed.xml（阶段3：数据走 R2，只 push 代码 + RSS）
+# 2. git add min JS/CSS（阶段3：数据走 R2，只 push 代码）
 # 原数据 JSON 已由上面 R2 上传（upload-all-data 等）推到 R2，不再 git push。
-# static-site/data/ 仍 tracked，R2 故障时可手动 git add + push 兜底。
-# 保留 push：min JS/CSS（代码，build_min.py 生成）+ feed.xml（RSS，gen_rss.py 生成，非 JSON 不走 R2）。
-echo "-> git add min JS/CSS + feed.xml（阶段3：数据走 R2，只 push 代码）..." | tee -a "$LOG"
+# feed.xml 也走 R2（2026-08-10）：gen_rss 生成后 upload-data-files 上传 R2，不再 git push。
+# 保留 push：min JS/CSS（代码，build_min.py 生成）。
+echo "-> git add min JS/CSS（阶段3：数据走 R2，只 push 代码）..." | tee -a "$LOG"
 DATA_FILES=()
-# min JS/CSS（build_min.py 生成的全部 6 个 min 文件 + feed.xml）
-DATA_FILES+=("static-site/data/feed.xml" \
+# min JS/CSS（build_min.py 生成的全部 6 个 min 文件）
+DATA_FILES+=( \
   "static-site/app.min.js" "static-site/lab.min.js" \
   "static-site/common.min.js" "static-site/purpose-notes.min.js" \
   "static-site/style.min.css" "static-site/lab.min.css")

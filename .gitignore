@@ -182,11 +182,10 @@ static-site/data/offshore_fund*.json.gz
 
 # R2 阶段4a（2026-08-08）：static-site/data/ 全量移出 git，R2 为唯一数据来源。
 # 阶段1-3 已上线（定时任务去 git push 数据改 R2，前端走 R2 Worker rewrite）。
-# 保留 feed.xml（RSS 不走 R2，必须留 git）。
+# feed.xml 也走 R2（2026-08-10）：Worker /feed.xml 重写走 R2，和其他 data 产物一致。
 # 本地文件保留（git rm --cached 不删本地），仅脱离 git 跟踪。
 # 上方各 static-site/data/ 细分规则（lab/index/industry/trade_sim/大range JSON 等）被此 catch-all 覆盖，保留作历史记录。
 static-site/data/*
-!static-site/data/feed.xml
 
 # 运行时数据产物/状态(本地保留不推)
 /data/board_etf_map.json

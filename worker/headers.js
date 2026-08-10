@@ -147,7 +147,8 @@ function dataCacheTtl(pathname) {
   //   代价 ~50ms R2 回源/次，盘中用户量小可接受。
   if (/^\/data\/(?:overview|intraday_snapshot|board_etf_map)\.json$/.test(pathname)) return 0;
   // HIGH_FREQ 60s：盘中高频更新（boot/notifications/summary 等；overview/intraday_snapshot 已拆到 NO_CACHE）
-  if (/^\/data\/(?:boot|notifications|summary|summary_history|schedule_stats|alert)\.json$/.test(pathname)) return 60;
+  // feed.xml（RSS）：收盘后更新，盘中 RSS 阅读器可能轮询，60s 平衡时效与回源成本。
+  if (/^\/data\/(?:boot|notifications|summary|summary_history|schedule_stats|alert)\.json$/.test(pathname) || pathname === '/data/feed.xml') return 60;
   // HIGH_FREQ 60s：盘中 15min 更新的 K 线小周期（-1m/-3m/-6m/-1y）
   if (/-(?:1m|3m|6m|1y)\.json$/.test(pathname)) return 60;
   // HIGH_FREQ 60s：其他盘中实时数据
@@ -249,18 +250,19 @@ export default {
       }
       return subscribeHandler(request, env);
     }
-    // /data/*.json -> R2 rewrite（阶段2：数据层全走 R2 binding，前端 URL 0 改动）
-    if (url.pathname.startsWith('/data/') && url.pathname.endsWith('.json')) {
+    // /data/*.json + /data/feed.xml -> R2 rewrite（阶段2：数据层全走 R2 binding，前端 URL 0 改动）
+    // feed.xml 走 R2（2026-08-10）：RSS 从 git 移出，和其他 data 产物一致，404 回退 ASSETS 兜底。
+    if (url.pathname.startsWith('/data/') && (url.pathname.endsWith('.json') || url.pathname === '/data/feed.xml')) {
       return dataRewriteHandler(request, env, ctx, url);
     }
-    // /feed.xml -> /data/feed.xml 内部重写（RSS 阅读器兼容 /feed.xml 约定路径）
-    // feed.xml 实际在 static-site/data/feed.xml，/feed.xml 不对应任何静态文件。
-    // 内部重写（非 301 redirect）让 /feed.xml 直接返回 200 + feed 内容。
-    let assetRequest = request;
+    // /feed.xml -> /data/feed.xml 走 R2（RSS 阅读器兼容 /feed.xml 约定路径）
+    // 内部重写（非 301 redirect）后走 dataRewriteHandler（R2 优先 + 404 回退 ASSETS 兜底）。
+    // cacheKey 统一为 /data/feed.xml，purge 只需清一个 key。feed.xml 走 R2 不再依赖 git 部署。
     if (url.pathname === '/feed.xml') {
-      assetRequest = new Request(new URL('/data/feed.xml', url), request);
+      const feedUrl = new URL('/data/feed.xml', url);
+      return dataRewriteHandler(new Request(feedUrl, request), env, ctx, feedUrl);
     }
-    const response = await env.ASSETS.fetch(assetRequest);
+    const response = await env.ASSETS.fetch(request);
     // 复制原响应 headers（保留 ETag / Content-Type / CF-Cache-Status 等），覆盖 Cache-Control，附加安全头
     const headers = new Headers(response.headers);
     headers.set('Cache-Control', cacheControlFor(url.pathname));
