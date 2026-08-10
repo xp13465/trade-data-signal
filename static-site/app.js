@@ -9506,12 +9506,12 @@ async function renderOverview() {
     _syncKpiResetBtn();
     if (_applyKpiCollapse) _applyKpiCollapse(); // 排序重置后按当前断点重算可见卡数
   });
-  // KPI 展开/收起按钮 (2026-08-10): 点击逻辑在 cards 入 DOM 后绑定(见 _applyKpiCollapse 定义处)
+  // KPI 展开/收起按钮 (2026-08-11): 移到折叠临界位置(卡区末尾, 参照 A股"更多指标"按钮, 用户反馈原顶部位置移动端不友好)。
+  // 点击逻辑在 cards 入 DOM 后绑定(见 _applyKpiCollapse 定义处), 按钮 appendChild 在 cards 之后(见 L9564)。
   const kpiToggleBtn = document.createElement("button");
-  kpiToggleBtn.className = "kpi-toggle-btn";
+  kpiToggleBtn.className = "kpi-more-toggle";
   kpiToggleBtn.type = "button";
   kpiToggleBtn.textContent = "展开全部卡片";
-  kpiHead.appendChild(kpiToggleBtn);
   kpiHead.appendChild(resetBtn);
   _syncKpiResetBtn();
   content.appendChild(kpiHead);
@@ -9561,6 +9561,8 @@ async function renderOverview() {
   }
 
   content.appendChild(cards);
+  // 展开/收起按钮放在卡区末尾=折叠临界位置(收起时显示在裁剪边界下, 展开后显示全部卡下方), 参照 A股"更多指标"按钮位置
+  content.appendChild(kpiToggleBtn);
 
   // ---- KPI 卡展开/收起 (2026-08-10): PC 默认1行/移动默认4行, 点"展开全部卡片"显示全部, 再点"收起"收回 ----
   // 断点与全站一致: matchMedia(max-width:768px)=移动端(4行), 否则 PC(1行)。不破坏自动排序(纯显示层控制)。
@@ -9588,7 +9590,7 @@ async function renderOverview() {
     if (!items.length) return;
     const maxH = _kpiCollapsedMaxHeight();
     const needBtn = maxH != null; // 卡数 ≤ 断点行数阈值时不出按钮
-    kpiToggleBtn.style.display = needBtn ? "" : "none";
+    kpiToggleBtn.style.display = needBtn ? "block" : "none"; // 显式 block(参照 more-toggle), 防 CSS display:none 覆盖
     if (_kpiExpanded || !needBtn) {
       cards.classList.remove("kpi-collapsed");
       cards.style.maxHeight = "";

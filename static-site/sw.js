@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260810-a114';  // bump a113->a114: KPI卡区展开/收起切换按钮(PC默认1行/移动默认4行)
+const CACHE_VERSION = 'v6-20260811-a115';  // bump a114->a115: KPI展开/收起按钮移到折叠临界位置(卡区末尾, 参照A股"更多指标")
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
