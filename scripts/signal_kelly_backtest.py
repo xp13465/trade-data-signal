@@ -62,13 +62,17 @@ SELL_MODES = {
     "E": {"label": "持有5天",  "hold_days": 5,  "stop_profit": None},
     "F": {"label": "持有15天", "hold_days": 15, "stop_profit": None},
     # G/H/I: 信号驱动卖出(每笔交易查对应指数后续 sell/sell_stop_loss 信号, 无则持有至回测结束)
+    # desc=短说明(前端 modeDesc 用); guidance_desc=完整跟单文案(_guidance 用, 与 desc 同源一处维护)
     "G": {"label": "卖出信号",   "hold_days": None, "stop_profit": None, "signal": True,
-          "sell_types": ("sell",), "desc": "指数卖出信号触发"},
+          "sell_types": ("sell",), "desc": "指数卖出信号触发",
+          "guidance_desc": "对应指数卖出信号(sell)触发卖出，无信号则持有至回测结束"},
     "H": {"label": "卖出+追止损", "hold_days": None, "stop_profit": None, "signal": True,
-          "sell_types": ("sell", "sell_stop_loss"), "desc": "卖出或追止损信号触发"},
+          "sell_types": ("sell", "sell_stop_loss"), "desc": "卖出或追止损信号触发",
+          "guidance_desc": "对应指数卖出信号(sell)或追止损信号(sell_stop_loss)任一触发卖出"},
     "I": {"label": "追关注加追止损", "hold_days": None, "stop_profit": None, "signal": True,
           "sell_types": ("sell",), "special_sell_types": ("sell", "sell_stop_loss"),
-          "desc": "追关注额外受追止损约束"},
+          "desc": "追关注额外受追止损约束",
+          "guidance_desc": "对应指数卖出信号(sell)触发卖出；追关注(buy_special)交易额外受追止损信号(sell_stop_loss)约束"},
 }
 
 PERIODS = {
@@ -440,11 +444,14 @@ def _backtest_signal_sell(signal_date, prices, dates, etf_code, sell_mode, signa
     卖出价 = 信号日当日 ETF 收盘价(accum_nav)。sell_signals 为该指数 [(date, signal)] 按日期排序。
     返回与 _backtest_one 同结构 dict, 或 None(无当前价无法预估)。
     """
-    # 决定该笔交易的卖出信号类型集合
-    if sell_mode == "H" or (sell_mode == "I" and signal == "buy_special"):
-        sell_types = ("sell", "sell_stop_loss")
-    else:  # G, 或 I 的非追关注交易
-        sell_types = ("sell",)
+    # 决定该笔交易的卖出信号类型集合: 读 SELL_MODES 配置(G=sell / H=sell+sell_stop_loss /
+    # I=buy_special 追关注用 special_sell_types, 其他用 sell_types), 不硬编码模式逻辑
+    mode_def = SELL_MODES[sell_mode]
+    special_types = mode_def.get("special_sell_types")
+    if signal == "buy_special" and special_types:
+        sell_types = special_types
+    else:
+        sell_types = mode_def.get("sell_types") or ("sell",)
 
     # 找买入日之后第一个匹配卖出信号日(要求该 ETF 当日有价格可卖出)
     sell_date = None
@@ -650,13 +657,8 @@ def _guidance(quad_key, mode_key):
     quad_label = QUADRANT_META[quad_key]["label"]
     mode_def = SELL_MODES[mode_key]
     if mode_def.get("signal"):
-        # G/H/I: 信号驱动卖出(对应指数后续信号触发, 无则持有至回测结束)
-        desc_map = {
-            "G": "对应指数卖出信号(sell)触发卖出，无信号则持有至回测结束",
-            "H": "对应指数卖出信号(sell)或追止损信号(sell_stop_loss)任一触发卖出",
-            "I": "对应指数卖出信号(sell)触发卖出；追关注(buy_special)交易额外受追止损信号(sell_stop_loss)约束",
-        }
-        sell_str = desc_map[mode_key]
+        # G/H/I: 信号驱动卖出, 完整文案从 SELL_MODES guidance_desc 读(与 desc 同源一处维护, 新加模式不漏)
+        sell_str = mode_def.get("guidance_desc") or mode_def.get("desc") or "信号触发卖出"
         return f"看到{quad_label} → 信号日收盘买{BUY_AMOUNT}元匹配ETF → {sell_str}"
     hd = mode_def["hold_days"]
     if mode_def["stop_profit"] is None:

@@ -8166,7 +8166,7 @@ function _positionSigKellyWmPop(wmEl, pop) {
 // 用户选选项C(全局+比率折中): 仅用比率指标(胜率/年化/夏普,不受n影响)+排除n<30+全局min-max归一化
 // 综合分 = 胜率35% + 年化35% + 夏普30% (排除盈亏比,因受n累积影响)
 // 稳定分 = (1-最大回撤)40% + 胜率30% + 夏普30% (无std用sharpe替代)
-// 卡级指标 = 6模式(A-F)均值, 过滤n<30模式防小样本虚高
+// 卡级指标 = N模式均值(动态读 config.sell_modes, A-I 9模式), 过滤n<30模式防小样本虚高
 function _sigKellyCardComparison(quads, period, feeStats) {
   const allKeys = [
     "rating_high", "rating_mid", "rating_low",
@@ -8200,7 +8200,8 @@ function _sigKellyCardComparison(quads, period, feeStats) {
       qk, skip: false,
       winRate: avg("win_rate"), annRet: avg("annualized_return"),
       sharpe: avg("sharpe"), maxDD: avg("max_drawdown_pct"),
-      modeCount: validModes.length
+      modeCount: validModes.length,   // 有效模式数(过滤 n>=30)
+      totalModes: modes.length        // 总模式数(动态, A-I 9模式)
     });
   }
   const validCards = cards.filter((c) => !c.skip);
@@ -8249,7 +8250,7 @@ function _sigKellyCardComparison(quads, period, feeStats) {
       stableRank: stableRank[c.qk],
       total: validCards.length,
       winRate: c.winRate, annRet: c.annRet, sharpe: c.sharpe, maxDD: c.maxDD,
-      modeCount: c.modeCount
+      modeCount: c.modeCount, totalModes: c.totalModes
     };
   }
   return { best, stable, map };
@@ -8270,7 +8271,7 @@ function _sigKellyCwmPopupHtml(cmp) {
         `<div class="lab-sigkelly-wm-sub">本卡成绩(全局${cmp.total}张卡互比)</div>` +
         `<div class="lab-sigkelly-wm-li">综合分: <b>${cmp.bestScore.toFixed(3)}</b> · 全局第 <b>${cmp.bestRank}</b>/${cmp.total}${bestTag}</div>` +
         `<div class="lab-sigkelly-wm-li">稳定分: <b>${cmp.stableScore.toFixed(3)}</b> · 全局第 <b>${cmp.stableRank}</b>/${cmp.total}${stableTag}</div>` +
-        `<div class="lab-sigkelly-wm-li">胜率 ${wrStr} · 年化 ${annStr} · 夏普 ${shStr} · 最大回撤 ${mdStr} · 有效模式 ${cmp.modeCount}/6</div>` +
+        `<div class="lab-sigkelly-wm-li">胜率 ${wrStr} · 年化 ${annStr} · 夏普 ${shStr} · 最大回撤 ${mdStr} · 有效模式 ${cmp.modeCount}/${cmp.totalModes}</div>` +
       `</div>`;
   }
   return (
@@ -8285,7 +8286,7 @@ function _sigKellyCwmPopupHtml(cmp) {
       `</div>` +
       `<div class="lab-sigkelly-wm-sec">` +
         `<div class="lab-sigkelly-wm-sub">计算口径</div>` +
-        `<div class="lab-sigkelly-wm-li">卡级指标 = 卡内6模式(A-F)均值, 先过滤 n&lt;30 模式防小样本虚高</div>` +
+        `<div class="lab-sigkelly-wm-li">卡级指标 = 卡内${cmp.totalModes}模式均值(动态读 sell_modes), 先过滤 n&lt;30 模式防小样本虚高</div>` +
         `<div class="lab-sigkelly-wm-li">年化 = 峰值资金收益率(总盈亏/峰值持仓资金)开方, 非平均化收益率</div>` +
         `<div class="lab-sigkelly-wm-li">全局 min-max 归一化: 16张卡跨组互比, 每指标归一到 0~1</div>` +
         `<div class="lab-sigkelly-wm-li">越小越好指标(最大回撤)反转归一化</div>` +
