@@ -84,36 +84,36 @@
 ## 🏗️ 系统架构
 
 ```
-                    ┌─────────────────────────────────────────────────┐
-                    │                  采集层（多源互备）                │
-                    │  mootdx(TCP)  BaoStock  腾讯  东财  同花顺  申万  │
-                    │  中证指数  HKEX/CCASS  CFFEX  cninfo  美指/黄金   │
-                    └───────────────────┬─────────────────────────────┘
-                                        │  launchd 定时调度
-        ┌───────────────────────────────┼───────────────────────────────┐
-        │  17:50 update_all 并行流水线   │  盘中每10min intraday 快照       │  盘后 export+deploy
-        │  (core/width/futures/stock)   │  (R2 实时,不推 main)            │  (静态 JSON 产物)
-        └───────────────────────────────┼───────────────────────────────┘
-                                        ▼
-                    ┌─────────────────────────────────────────────────┐
-                    │              存储层（R2 / CF Static Assets）       │
-                    │  全量品种/大range历史序列 → R2 桶 ssd.fx8.store     │
-                    │  小状态文件 → CF Workers Static Assets            │
-                    └───────────────────┬─────────────────────────────┘
-                                        │  git push main → CF 自动 deploy
-                    ┌───────────────────▼─────────────────────────────┐
-                    │               前端层（多端一致）                    │
-                    │  主站 ss.fx8.store  CF Workers (br压缩+_headers)  │
-                    │  备站 sss.sugas.site  GitHub Pages                │
-                    │  备站 s.sugas.site   MaoziYun                     │
-                    │  dataUrl: -all/5y/3y 大文件直连 R2                 │
-                    └─────────────────────────────────────────────────┘
-                                        │
-                    ┌───────────────────▼─────────────────────────────┐
-                    │              浏览器端（SPA + SW）                  │
-                    │  原生JS + ECharts · Service Worker 版本化缓存      │
-                    │  PWA · 4主题 · 分时1min自愈轮询 · 通知             │
-                    └─────────────────────────────────────────────────┘
+                    ┌─────────────────────────────────────────────────────┐
+                    │                 采集层（多源互备）                  │
+                    │   mootdx(TCP)  BaoStock  腾讯  东财  同花顺  申万   │
+                    │   中证指数  HKEX/CCASS  CFFEX  cninfo  美指/黄金    │
+                    └─────────────────────────────────────────────────────┘
+                                               │  launchd 定时调度
+        ┌─────────────────────────────┬───────────────────────────┬────────────────────┐
+        │ 17:50 update_all 并行流水线 │ 盘中每10min intraday 快照 │ 盘后 export+deploy │
+        │ (core/width/futures/stock)  │    (R2 实时,不推 main)    │  (静态 JSON 产物)  │
+        └─────────────────────────────┴───────────────────────────┴────────────────────┘
+                                               ▼
+                    ┌─────────────────────────────────────────────────────┐
+                    │           存储层（R2 / CF Static Assets）           │
+                    │   全量品种/大range历史序列 → R2 桶 ssd.fx8.store    │
+                    │        小状态文件 → CF Workers Static Assets        │
+                    └─────────────────────────────────────────────────────┘
+                                               │  git push main → CF 自动 deploy
+                    ┌──────────────────────────▼──────────────────────────┐
+                    │                 前端层（多端一致）                  │
+                    │   主站 ss.fx8.store  CF Workers (br压缩+_headers)   │
+                    │          备站 sss.sugas.site  GitHub Pages          │
+                    │            备站 s.sugas.site   MaoziYun             │
+                    │          dataUrl: -all/5y/3y 大文件直连 R2          │
+                    └─────────────────────────────────────────────────────┘
+                                               │
+                    ┌──────────────────────────▼──────────────────────────┐
+                    │                浏览器端（SPA + SW）                 │
+                    │    原生JS + ECharts · Service Worker 版本化缓存     │
+                    │        PWA · 4主题 · 分时1min自愈轮询 · 通知        │
+                    └─────────────────────────────────────────────────────┘
 ```
 
 **数据流**：多源采集（防单源封禁，互备降并发）→ SQLite 主库（`sentiment.db` / `etf_national_team.db`）→
@@ -276,16 +276,16 @@ launchctl load ~/Library/LaunchAgents/com.trade.sentiment.plist
 
 ```
 app/
-├── collector/      # 采集层（mootdx/baostock/腾讯/东财 多源互备 + em_get 防封）
-├── compute/        # 计算层（signals 买卖点 / sentiment 情绪分 / cross 跨市场分）
-├── queries.py      # 共享查询层（22 函数 DRY，main.py/export.py 共用）
-├── db.py           # SQLite schema
-└── main.py         # FastAPI 端点（挂载 static-site/ 到根 /，/api/* 读 DB）
-static-site/        # 前端（Cloudflare Workers 部署；FastAPI 动态版挂载根 /）
+├── collector/          # 采集层（mootdx/baostock/腾讯/东财 多源互备 + em_get 防封）
+├── compute/            # 计算层（signals 买卖点 / sentiment 情绪分 / cross 跨市场分）
+├── queries.py          # 共享查询层（22 函数 DRY，main.py/export.py 共用）
+├── db.py               # SQLite schema
+└── main.py             # FastAPI 端点（挂载 static-site/ 到根 /，/api/* 读 DB）
+static-site/            # 前端（Cloudflare Workers 部署；FastAPI 动态版挂载根 /）
 config/indicators.yaml  # 指标注册表（增删改这里）
-scripts/            # 采集/部署/一键更新/构建压缩脚本
-launchd/            # macOS 定时任务 plist
-docs/               # 文档（数据字典/数据源/数据挖掘文献/回测分析/许可声明）
+scripts/                # 采集/部署/一键更新/构建压缩脚本
+launchd/                # macOS 定时任务 plist
+docs/                   # 文档（数据字典/数据源/数据挖掘文献/回测分析/许可声明）
 ```
 
 **详细文档**：

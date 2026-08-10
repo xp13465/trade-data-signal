@@ -77,9 +77,12 @@
 
 ---
 
-## ③ 用户推荐学习站点
+## ③ 用户推荐学习站点（2 个）
 
-**未找到具体站点名/URL**（已检索：历轮全部 13 份 kelly 文档 + memory 目录 + NOTES.md/TASKS.md + git log commit message，均无"用户推荐的 2 个学习站点"记录）。**标注：需用户补充。**
+| 站点名 | URL | 用途 | 在项目哪里借鉴 |
+|--------|-----|------|---------------|
+| TradingAgents（原版） | <https://github.com/tauricresearch/tradingagents> | 多 agent 交易系统实现逻辑，供借鉴「多 agent 分析架构」 | README「参考与致敬」→「🤖 多 Agent 协作模式（traderagent 启发）」段 |
+| TradingAgents-CN（中文改版） | <https://github.com/hsliuping/TradingAgents-CN> | 除实现逻辑外更多国内可落地实施，供借鉴「国内 A 股落地做法」 | README「参考与致敬」→「🤖 多 Agent 协作模式（traderagent 启发）」段 |
 
 ---
 
