@@ -8807,7 +8807,7 @@ async function renderOverview() {
         const snapBadge = `<span class="summary-snap-tag" style="color:#e6a23c">⏰ ${_lunch ? "午休小结" : "盘中动态小结"}</span>`;
         const _tLabel = _lunch ? "13:00复牌" : `更新于 ${_intradayDynamicTime || hhmm}`;
         const _pulse = '<span class="dyn-pulse" id="banner-pulse"><span class="dyn-pulse-dot"></span>1min</span>';
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap)}</div>`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-ai-btn" title="查看每日AI预测与历史命中">🤖 AI 预测</button><button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap)}</div>`;
         _bannerRenderCtx = { el: banner, s: null, snap, type: "intraday" };
       } else {
         // 收盘后/同日：原逻辑（标题用 summary.generated_at，chips 用 summary+snap 同日覆盖）
@@ -8842,12 +8842,14 @@ async function renderOverview() {
         const sentimentBadge = s.sentiment_label ? `<span class="summary-fg-tag">${s.sentiment_label}</span>` : "";
         // 情绪标签+恐贪标签移到第二行(与 summary-meta 同行),行1只留日期标题
         const titleTags = (sentimentBadge || fgBadge || freezeBadge) ? `${sentimentBadge}${fgBadge}${freezeBadge}` : "";
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span>${titleTags ? `<span class="summary-title-tags">${titleTags}</span>` : ""}<span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span>${titleTags ? `<span class="summary-title-tags">${titleTags}</span>` : ""}<span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-ai-btn" title="查看每日AI预测与历史命中">🤖 AI 预测</button><button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
         _bannerRenderCtx = { el: banner, s, snap, type: "summary" };
       }
       content.insertBefore(banner, content.firstChild);
       const histBtn = banner.querySelector(".summary-history-btn");
       if (histBtn) histBtn.addEventListener("click", openSummaryHistoryModal);
+      const aiBtn = banner.querySelector(".summary-ai-btn");
+      if (aiBtn) aiBtn.addEventListener("click", openDailyBriefModal);
       // P0-2 多指数共振冰点：≥3 个宽基情绪分同时冰点(<20)时，横幅转红 + 共振聚合提示
       // 数据来自 overview today.scores（6 宽基：上证50/沪深300/中证500/中证1000/创业板/科创50情绪分）
       const _BROAD_SENT_IDS = ["sentiment_sz50", "sentiment_hs300", "sentiment_csi500", "sentiment_csi1000", "sentiment_cyb", "sentiment_kc50"];
@@ -18104,6 +18106,188 @@ function openSummaryHistoryModal() {
 
 function closeSummaryHistoryModal() {
   const modal = document.getElementById("summaryHistoryModal");
+  if (modal) modal.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+// ---- 每日AI预测弹窗（横幅"🤖 AI 预测"按钮触发；复用历史收盘分析组件/分页样式，不加新交互）----
+// 数据源 static-site/data/daily_brief_history.json（后端 gen_daily_brief.py 归档，90天滚动 + 次日 hit 回填 + 命中率 stats）
+let _dailyBriefState = { page: 0, limit: 30, total: 0, cache: null };
+
+function _dailyBriefModalEl() {
+  let modal = document.getElementById("dailyBriefModal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "dailyBriefModal";
+  modal.className = "rule-modal hidden";
+  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body summary-history-body"><div class="rule-modal-header"><h3>🤖 每日AI预测</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content"><div class="daily-brief-stats"></div><div class="summary-history-info"></div><div class="summary-history-list"></div><div class="summary-history-pager"><button class="sh-prev">‹ 上一页</button><div class="sh-pages"></div><button class="sh-next">下一页 ›</button></div></div></div>';
+  document.body.appendChild(modal);
+  modal.querySelector(".rule-modal-overlay").addEventListener("click", closeDailyBriefModal);
+  modal.querySelector(".rule-modal-close").addEventListener("click", closeDailyBriefModal);
+  modal.querySelector(".sh-prev").addEventListener("click", () => {
+    if (_dailyBriefState.page > 0) { _dailyBriefState.page--; _loadDailyBriefPage(); }
+  });
+  modal.querySelector(".sh-next").addEventListener("click", () => {
+    const maxPage = Math.max(0, Math.ceil(_dailyBriefState.total / _dailyBriefState.limit) - 1);
+    if (_dailyBriefState.page < maxPage) { _dailyBriefState.page++; _loadDailyBriefPage(); }
+  });
+  return modal;
+}
+
+function _dbDirLabel(d) {
+  if (d === "up") return "📈 偏强";
+  if (d === "down") return "📉 偏弱";
+  return "➖ 震荡";
+}
+
+function _dbHitHtml(meta) {
+  const hit = (meta && meta.hit) || {};
+  if (hit.direction === true) return '<span class="db-hit db-hit-win">✅ 命中</span>';
+  if (hit.direction === false) return '<span class="db-hit db-hit-lose">❌ 未中</span>';
+  return '<span class="db-hit db-hit-pending">⏳ 待回填</span>';
+}
+
+function _dbActualHtml(meta) {
+  const hit = (meta && meta.hit) || {};
+  if (hit.actual_sh_pct != null) {
+    const pct = hit.actual_sh_pct;
+    const sign = pct >= 0 ? "+" : "";
+    const color = pct >= 0 ? "#e6492e" : "#2e8b57";
+    return `<span class="db-actual" style="color:${color}">次日上证 ${sign}${pct.toFixed(2)}%</span>`;
+  }
+  return '<span class="db-actual">次日待回填</span>';
+}
+
+// 单条历史预测：首行日期+方向断言+命中标记+次日实际涨跌，点开某日展开=预测内容+meta断言(watch_list/risk_items)
+function _dailyBriefItemHtml(it) {
+  const meta = it.meta || {};
+  const dateRaw = it.date || meta.date || "";
+  const date = dateRaw.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
+  const watchList = (meta.watch_list || []).map((w) => w.name || w.index_id).join("、");
+  const riskItems = (meta.risk_items || []).join("、");
+  const t = it.text || {};
+  let watchLine = "";
+  if (t.watch || watchList) {
+    watchLine = `<p class="db-line"><span class="db-k">关注</span>${_esc(t.watch || "")}${watchList ? `<span class="db-watch">【${_esc(watchList)}】</span>` : ""}</p>`;
+  }
+  let riskLine = "";
+  if (t.risk || riskItems) {
+    riskLine = `<p class="db-line"><span class="db-k">风险</span>${_esc(t.risk || "")}${riskItems ? `<span class="db-risk">【${_esc(riskItems)}】</span>` : ""}</p>`;
+  }
+  const note = t.note || it.disclaimer || "";
+  return `<div class="summary-history-item db-item" data-date="${_escAttr(dateRaw)}">
+    <div class="sh-date"><span class="db-dir">${_dbDirLabel(meta.direction)}</span><span class="sh-label">${_esc(date)}</span>${_dbHitHtml(meta)}${_dbActualHtml(meta)}<span class="db-expand-hint">点击展开 ▼</span></div>
+    <div class="db-detail hidden">
+      <p class="db-line"><span class="db-k">复盘</span>${_esc(t.review || "")}</p>
+      <p class="db-line"><span class="db-k">趋势</span>${_esc(t.trend || "")}</p>
+      ${watchLine}
+      ${riskLine}
+      ${note ? `<p class="db-note">${_esc(note)}</p>` : ""}
+    </div>
+  </div>`;
+}
+
+async function _loadDailyBriefPage() {
+  const modal = _dailyBriefModalEl();
+  const list = modal.querySelector(".summary-history-list");
+  list.innerHTML = '<div class="summary-history-loading">加载中…</div>';
+  const { page, limit } = _dailyBriefState;
+  // 静态站：一次性加载 daily_brief_history.json，本地分页（与历史收盘分析同法，无后端 API）
+  if (!_dailyBriefState.cache) {
+    let brief = null;
+    try {
+      brief = await fetchJSON("./data/daily_brief_history.json");
+    } catch (e) {
+      list.innerHTML = `<div class="summary-history-empty">加载失败：${e}</div>`;
+      return;
+    }
+    _dailyBriefState.cache = (brief && brief.items) || [];
+    _dailyBriefState.total = (brief && brief.total) || _dailyBriefState.cache.length;
+    _renderDailyBriefStats(brief);
+  }
+  const offset = page * limit;
+  const items = _dailyBriefState.cache.slice(offset, offset + limit);
+  list.innerHTML = items.map(_dailyBriefItemHtml).join("") || '<div class="summary-history-empty">暂无历史预测数据</div>';
+  list.scrollTop = 0;
+  // 点开某日=展开预测内容+meta断言（事件委托，列表重渲染后仍可点）
+  list.querySelectorAll(".db-item").forEach((el) => {
+    el.addEventListener("click", () => {
+      const detail = el.querySelector(".db-detail");
+      if (!detail) return;
+      const isHidden = detail.classList.toggle("hidden");
+      const hint = el.querySelector(".db-expand-hint");
+      if (hint) hint.textContent = isHidden ? "点击展开 ▼" : "点击收起 ▲";
+    });
+  });
+  _renderDailyBriefPager(modal);
+}
+
+// 顶部近30日命中率（读后端 history stats，P0-1 meta 机检次日回填）
+function _renderDailyBriefStats(brief) {
+  const modal = _dailyBriefModalEl();
+  const el = modal.querySelector(".daily-brief-stats");
+  const stats = (brief && brief.stats) || {};
+  const s30 = stats["30d"] || {};
+  const s90 = stats["90d"] || {};
+  const rate = (x) => (x && x.hit_rate != null) ? `${(x.hit_rate * 100).toFixed(0)}%` : "--";
+  el.innerHTML =
+    '<div class="db-stats-box">' +
+      '<span class="db-stats-title">📊 AI预测命中率（meta机检，次日回填）</span>' +
+      `<span class="db-stats-item">近30日：<b>${s30 && s30.n ? `${s30.hit}/${s30.n}（${rate(s30)}）` : "暂无样本"}</b></span>` +
+      `<span class="db-stats-item">近90日：<b>${s90 && s90.n ? `${s90.hit}/${s90.n}（${rate(s90)}）` : "暂无样本"}</b></span>` +
+      '<span class="db-stats-how">AI每日盘后基于当日收盘数据（行情/资金/情绪/信号胜率等）生成复盘·趋势·关注·风险四段预测，meta结构化断言方向/关注标的/风险点，次日机检回填实际涨跌判定命中；命中率仅为历史统计，不构成投资建议。</span>' +
+    '</div>';
+}
+
+// 分页器：与历史收盘分析同款（上一页/下一页 + 页码按钮 + 顶部 info 行）
+function _renderDailyBriefPager(modal) {
+  const { page, limit, total } = _dailyBriefState;
+  const maxPage = Math.max(0, Math.ceil(total / limit) - 1);
+  const pageCount = maxPage + 1;
+  const info = modal.querySelector(".summary-history-info");
+  info.textContent = total > 0 ? `共 ${total} 条记录 · 第 ${page + 1} / ${pageCount} 页` : "";
+  const prev = modal.querySelector(".sh-prev");
+  const next = modal.querySelector(".sh-next");
+  prev.disabled = page <= 0;
+  next.disabled = page >= maxPage;
+  const pagesEl = modal.querySelector(".sh-pages");
+  let btns = [];
+  if (pageCount <= 7) {
+    for (let i = 0; i < pageCount; i++) btns.push(i);
+  } else {
+    btns.push(0);
+    if (page > 2) btns.push(-1);
+    for (let i = Math.max(1, page - 1); i <= Math.min(pageCount - 2, page + 1); i++) btns.push(i);
+    if (page < pageCount - 3) btns.push(-2);
+    btns.push(pageCount - 1);
+  }
+  pagesEl.innerHTML = btns.map((i) =>
+    i < 0
+      ? '<span class="sh-ellipsis">…</span>'
+      : `<button class="sh-page-btn${i === page ? " active" : ""}" data-page="${i}">${i + 1}</button>`
+  ).join("");
+  pagesEl.querySelectorAll(".sh-page-btn").forEach((b) => {
+    b.addEventListener("click", () => {
+      const p = +b.dataset.page;
+      if (p !== _dailyBriefState.page) {
+        _dailyBriefState.page = p;
+        _loadDailyBriefPage();
+      }
+    });
+  });
+}
+
+function openDailyBriefModal() {
+  _dailyBriefState.page = 0;
+  _dailyBriefState.total = 0;
+  _dailyBriefState.cache = null;
+  _dailyBriefModalEl().classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  _loadDailyBriefPage();
+}
+
+function closeDailyBriefModal() {
+  const modal = document.getElementById("dailyBriefModal");
   if (modal) modal.classList.add("hidden");
   document.body.style.overflow = "";
 }

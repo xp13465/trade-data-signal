@@ -2941,6 +2941,19 @@ main { padding: 16px 24px; }
   cursor: pointer;
 }
 .summary-history-btn:hover { background: var(--primary-hover); }
+/* 每日AI预测按钮（与"📜 更多"并排，紫罗兰 AI 色区分） */
+.summary-ai-btn {
+  flex-shrink: 0;
+  margin-left: 8px;
+  background: #7c4dff;
+  color: #fff;
+  border: none;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  cursor: pointer;
+}
+.summary-ai-btn:hover { background: #5e35b1; }
 
 /* ---- 历史收盘分析弹窗（宽度与"买卖点策略说明"弹窗一致） ---- */
 .summary-history-body { max-width: 820px; }
@@ -3055,6 +3068,89 @@ main { padding: 16px 24px; }
   color: var(--text-3);
   padding: 30px 0;
   font-size: 13px;
+}
+
+/* ---- 每日AI预测弹窗（复用 summary-history 结构/分页，仅新增内容样式） ---- */
+.daily-brief-stats { margin-bottom: 10px; }
+.db-stats-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  font-size: 12.5px;
+  padding: 8px 12px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-2);
+}
+.db-stats-title { font-weight: 600; color: var(--text-1); }
+.db-stats-item b { color: #7c4dff; }
+.db-stats-how {
+  flex: 1 1 100%;
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.6;
+  border-top: 1px dashed var(--border);
+  padding-top: 6px;
+  margin-top: 2px;
+}
+.db-item { cursor: pointer; transition: border-color 0.15s; }
+.db-item:hover { border-color: #7c4dff; }
+.db-dir {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: #ede7f6;
+  color: #5e35b1;
+}
+.db-hit {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  font-weight: 600;
+}
+.db-hit-win { background: #e8f5e9; color: #2e7d32; }
+.db-hit-lose { background: #fdecea; color: #c62828; }
+.db-hit-pending { background: var(--bg-hover); color: var(--text-3); }
+.db-actual {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: var(--bg-hover);
+  color: var(--text-2);
+}
+.db-expand-hint { font-size: 11px; color: var(--text-3); margin-left: auto; }
+.db-detail {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.db-detail.hidden { display: none; }
+.db-line { font-size: 13px; color: var(--text-1); line-height: 1.7; margin: 0; }
+.db-k {
+  font-weight: 600;
+  color: #7c4dff;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+.db-watch, .db-risk {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  margin-left: 4px;
+}
+.db-watch { background: #e8f5e9; color: #2e7d32; }
+.db-risk { background: #fdecea; color: #c62828; }
+.db-note {
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.6;
+  margin: 2px 0 0;
 }
 
 /* ---- 大盘位置感卡片 ---- */
@@ -3394,6 +3490,8 @@ main { padding: 16px 24px; }
   .summary-title { flex: 0 1 auto; min-width: 0; }
   .summary-title-text { font-size: 14px; font-weight: 600; }
   .summary-meta { flex-wrap: nowrap; flex-shrink: 0; order: 1; }   /* order:1 排在 title(0) 之后 titleTags(2) 之前 */
+  /* 移动端横幅两按钮(AI预测+更多)缩字号防溢出 */
+  .summary-ai-btn, .summary-history-btn { padding: 2px 7px; font-size: 11px; margin-left: 5px; }
   .summary-title-tags { flex: 0 0 100%; margin-top: 2px; order: 2; }   /* order:2 排到 meta 之后,避免 DOM 顺序 title->titleTags->meta 时 titleTags 100% 把 meta 挤到行3;视觉顺序 title->meta->titleTags,行1 title+meta 同行,行2 titleTags 独占 */
   .summary-time-label { display: none; }
 

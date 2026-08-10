@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260811-a121';  // bump a120->a121: reviewer P2修复—purpose-notes降亏计数17->29+sentiment-siglist加overflow-y
+const CACHE_VERSION = 'v6-20260811-a122';  // bump a121->a122: 每日AI预测前端展示（首页并排+历史分页反查+命中率）
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
