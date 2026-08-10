@@ -3658,6 +3658,17 @@ function dataUrl(filename) {
   return _R2_LARGE_RANGE_RE.test(filename) ? _R2_DATA_BASE + filename : "./data/" + filename;
 }
 async function fetchJSON(url) {
+  // 主动域名策略(2026-08-11 备站主动域名方案A): 备站(sss.sugas.site/s.sugas.site 等非主站非本地)首次加载
+  // 即把 ./data/* 直接重写为主站 /data/ rewrite, 不等 404 探测再 fallback(现状每请求慢一拍)。
+  // 主站/localhost 同源不变; 大 range(-all/-5y/-3y) 已在 dataUrl() L3658 直链 _R2_DATA_BASE(/r2/ 代理),
+  // 不以 ./data/ 开头不被重写。_isMainSite() 仅判 ss.fx8.store(auth 语义 _authApiBase 依赖), 新写 _isBackupSite 不破坏其语义。
+  const _isBackupSite = !_isMainSite() && !/^localhost$|^127\.0\.0\.1$/.test(location.hostname);
+  // _isDataReq 在重写前捕获原始 ./data/ 请求标记: 重写后备用 fallback 块(网络抖动兜底)只对原本是 ./data/ 的请求生效,
+  // 不误伤备站的 R2 直链(大 range)/外链(它们失败仍直接抛错, 与原行为一致)
+  const _isDataReq = url.startsWith("./data/");
+  if (_isBackupSite && _isDataReq) {
+    url = _R2_FALLBACK_BASE + url.slice("./data/".length);
+  }
   // 1. 结果缓存命中（时效敏感 URL 跳过，确保盘中快照实时性）
   if (!_NO_CACHE_URLS.test(url)) {
     const rc = _resultCache.get(url);
@@ -3729,8 +3740,12 @@ async function fetchJSON(url) {
       // 备用站 R2 兜底（2026-08-11 方案A+B）：./data/*.json 失败(404/网络/CORS/超时) -> 主站 /data/ rewrite 兜底。
       // 仅 ./data/ 前缀触发（备站无 Worker 路由全 404），跳过 /api/* 与外链；主站有 rewrite 不会失败零影响。
       // 方案B：首挂 abort(15s) 不连带杀兜底——兜底用独立 controller+独立 15s 超时；再加 1 次退避重试(500ms)防单次抖动。
-      if (url.startsWith("./data/")) {
-        const _r2Url = _R2_FALLBACK_BASE + _base.slice("./data/".length) + _bustQuery;
+      if (_isDataReq) {
+        // 主动域名衔接: 备站 url 已被重写为主站绝对 URL(不以 ./data/ 开头)时, _r2Url 即同一 URL+同一 cache-busting,
+        // 500ms 退避重试 1 次作网络抖动/单次 404 兜底; 主站/本地仍为 ./data/ 前缀时重构主站 /data/ 兜底 URL
+        const _r2Url = url.startsWith("./data/")
+          ? _R2_FALLBACK_BASE + _base.slice("./data/".length) + _bustQuery
+          : _fetchUrl;
         console.warn("[fetchJSON] ./data/ failed, fallback to R2: " + url + " -> " + _r2Url, e?.message || e);
         for (let i = 0; i < 2; i++) {
           const fc = new AbortController();
