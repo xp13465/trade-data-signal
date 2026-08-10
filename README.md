@@ -61,6 +61,7 @@
 ### 🚦 信号灯 + 降亏过滤 toggle
 - 信号列表信号灯统一配色（分级档位 + 低置信灰蓝虚线），hover 显示减亏/损盈/比值三项
 - **降亏过滤开关**：数据挖掘发现的"系统性亏损特征组合"一键 toggle（详见「参考与致敬」段）
+- **组合降亏预设宏（2026-08-11 新增）**：3 个命名组合（年末季节 / 稳健核心 / 最大化降亏），点击组合自动勾选成员 toggle、过滤仍走成员谓词并集（幂等可叠加，多组合=成员并集 OR）；组合勾选态由成员派生（全勾=勾选/部分=半选），hover 显示组合并集口径指标（年末季节 6.50 / 稳健核心 5.95 / 最大化降亏 4 toggle 之上边际 +14.2 万），成员选择依据国外特征选择/组合方法论（IV/WoE、mRMR、RFE、Lasso、López de Prado 特征聚类等，见「参考与致敬」段）
 
 ### 📊 市场宽度 / 🏭 行业轮动 / 🏦 期货机构持仓
 - 涨跌家数、涨停/跌停、连板高度、炸板率、封板率、腾落线、52 周新高新低
@@ -177,6 +178,24 @@
 > - [`docs/kelly-mining-literature.md`](docs/kelly-mining-literature.md) — 文献/方法论/方案引导速查（fresh context agent 复用）
 > - [`docs/kelly-loss-mining-v3.md`](docs/kelly-loss-mining-v3.md) / [`-v4.md`](docs/kelly-loss-mining-v4.md) — 各轮完整推导与候选清单
 > - 方法论也受 **"信号过滤 = 训练分类器预测信号质量，过滤低质量信号即减亏"** 这一交易行业共识启发（Kissell《Machine Learning Techniques》; Zhang & Pinsky 策略-分类模型类比）
+
+### 📐 组合降亏（特征选择 / 组合方法论，2026-08-11 新增）
+
+**用途**：`策略实验室` 凯利回测的「组合降亏预设宏」——把已有降亏 toggle 打包成命名组合（年末季节/稳健核心/最大化降亏），成员选择与组合验证复用国外特征选择/组合方法论（详见 [`docs/kelly-combo-signal-research.md`](docs/kelly-combo-signal-research.md) 调研 + [`docs/kelly-combo-round3-verify.md`](docs/kelly-combo-round3-verify.md) 数据验证）。组合=成员 toggle 的打包宏，过滤仍走成员谓词并集（零新增过滤逻辑、幂等可叠加、组合勾选态由成员派生），满足「用户视角 N 展示位数据一致」铁律。
+
+| 方法 | 致敬来源 | 本项目用在哪 |
+|---|---|---|
+| **IV 信息值 / WoE（评分卡）** | Siddiqi《Credit Risk Scorecards》(Wiley, 2006)，FICO 评分卡标准 | 比值（降亏%/损盈%）= 本项目"亏损组 vs 盈利组偏斜强度"的 WoE/IV 交易版，按比值排序选成员 |
+| **mRMR 最小冗余最大相关** | Peng, Long & Ding (IEEE TPAMI, 2005) | 组合成员两两 Jaccard 重叠率 <40% 判据（低重叠=去相关互补） |
+| **RFE 递归特征消除** | Guyon et al. (Machine Learning, 2002) | 组合成员逐一 drop 验证边际贡献（v4 Closed Itemset 去冗余已实现） |
+| **Lasso / Elastic Net（L1 稀疏）** | Tibshirani (JRSS-B, 1996)；Zou & Hastie (JRSS-B, 2005) | 若未来做"成员加权评分"式组合，Lasso 给成员稀疏权重 |
+| **特征聚类 + 多重共线性** | López de Prado《Advances in Financial Machine Learning》(Wiley, 2018) Ch.8 | 组合成员先做交易集重叠聚类（同簇只留最强代表），直接决定"进组合/排除谁"；重要性须 OOS 算、高相关特征先正交化 |
+| **DSR / PBO 防过拟合度量** | Bailey & López de Prado (JPM 2014 / JCF 2017) | 1502 itemset 挖掘后组合选择的多重试验惩罚（本项目用 maxSh+4 窗口近似） |
+| **多重检验校正（t>3 / FDR）** | Harvey, Liu & Zhu (RFS 2016)；Benjamini & Hochberg (JRSS-B 1995) | 成员进组合阈值比单次检验更严（4 窗口全>2 + maxSh<0.6 双门槛） |
+| **alpha 组合收缩** | Kakushadze《101 Formulaic Alphas》(2016) | 标志高度相关时组合权重应收缩→组合选低相关成员 |
+| **低相关因子分散组合** | Asness, Frazzini, Israel & Moskowitz (JPM 2014) | 组合跨独立经济逻辑线（11/12 月末、纯非五月、广谱 Greedy），不堆叠同逻辑标志 |
+| **Walk-forward 滚动验证** | Pardo《The Evaluation and Optimization of Trading Strategies》(Wiley, 1992/2008) | 组合评估标准流程：t-1 年选成员、t 年验证（pre2025 选样/2025+ 验证两段全 >2 才稳） |
+| **决策集互斥规则集** | Lakkaraju, Bach & Leskovec (KDD 2016) | 组合优先低重叠成员（决策集宽松版），现用并集幂等无害 |
 
 ### 🤖 多 Agent 协作模式（traderagent 启发）
 

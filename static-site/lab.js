@@ -7853,6 +7853,55 @@ function _sigKellyModeKeys() {
 }
 
 // 周期切换条 + 回测参数展示 + 费率客调控件(6档预设+自定义5参数+快捷键0-4+C)
+// ===== 组合降亏「预设宏」(2026-08-11 用户定: 1+2+3全要,按需选择,组合可叠加=成员并集OR) =====
+// 组合=一组成员toggle的命名打包,点击组合→勾选/取消其全部成员toggle;过滤仍走成员toggle各自谓词并集(_kellyPassesFadeFilters零改动)
+// 天然幂等(并集OR语义,成员重叠不重复过滤)+单一事实来源(state.labSigKellyFilters只有成员开关,组合勾选态是派生的)→满足§22数据一致性
+// 成员/组合指标均为部署9模式数据(round3-verify 2026-08-11; 5月系管理/年初+周中数据不支持未实施)
+var _kellyComboPresets = {
+  // 年末季节 = n2+n3+v4d (并集standalone 6.50/+29万, 4窗口全>2最稳健, maxSh0.35, wf两段>2)
+  yearEnd: {
+    label: "年末季节",
+    tip: "组合「年末季节」(n2+n3+v4d): 并集standalone比值6.50(减亏3.06%/损盈0.47%)/净+29.0万,4窗口全>2(y1 14.33/y3 9.72/y10 7.14/all 6.50),maxSh0.35,walk-forward两段>2--最稳健组合。成员(部署9模式):n2 11月+追关注+行业 11.89/+13.6万 / n3 11月+追关注+周一 6.33/+16.6万 / v4d 12月+周二+辅关注+低分 4.66/+3.4万。经济逻辑=年末止损潮。⚠live4之上边际仅+2.9万(11月边际75%被A45覆盖)。可叠加其他组合=成员并集OR,幂等无害。",
+    members: [
+      { k: "n2NovSpecialIndustry", cls: "lab-sigkelly-toggle-n2" },
+      { k: "n3NovSpecialMon", cls: "lab-sigkelly-toggle-n3" },
+      { k: "v4d", cls: "lab-sigkelly-toggle-v4d" }
+    ]
+  },
+  // 稳健核心 = 仅r8 (5.95/+30.8万; v4c/v4b部署数据净负已剔除勿含)
+  stableCore: {
+    label: "稳健核心",
+    tip: "组合「稳健核心」(仅r8): 纯非五月3稳定R8,standalone比值5.95/+30.8万,2021-2026连续6年全正,完全避开5月shift争议,损盈最低之一。注:r8≡n1∪n2∪n3恒等;v4c/v4b部署9模式数据净负已剔除不在此组合。可叠加其他组合=成员并集OR,幂等无害。",
+    members: [
+      { k: "r8PureNonMay", cls: "lab-sigkelly-toggle-r8" }
+    ]
+  },
+  // 最大化降亏 = greedy15 (live4之上边际+14.2万全场最大; standalone 1.90<2标注风险)
+  maxLossCut: {
+    label: "最大化降亏",
+    tip: "组合「最大化降亏」(greedy15): 15step并集广谱过滤(减亏28.4%/损盈15.0%),现有4 toggle全开之上边际+14.2万(全场最大,n=585比值5.88)---适合4 toggle全开为常态的叠加增强。⚠风险标注:standalone比值1.90<2、损盈14.97%>10%上限、2025单年r0.83(净-72.8万)、maxSh2.77(2026单年+58万主导)--独立使用不达标,勿单开此组合。可叠加其他组合=成员并集OR,幂等无害。",
+    members: [
+      { k: "greedy15", cls: "lab-sigkelly-toggle-greedy15" }
+    ]
+  }
+};
+
+// 刷新组合checkbox三态(派生: 全成员勾选=checked, 部分=indeterminate半选, 无=空); 成员toggle/组合改动后调用
+function _kellyRefreshComboStates(bar) {
+  var filters = state.labSigKellyFilters || _kellyDefaultFilters();
+  for (var ck in _kellyComboPresets) {
+    var cb = bar.querySelector(".lab-sigkelly-toggle-combo-" + ck);
+    if (!cb) continue;
+    var members = _kellyComboPresets[ck].members;
+    var allOn = true, anyOn = false;
+    for (var i = 0; i < members.length; i++) {
+      if (filters[members[i].k]) anyOn = true; else allOn = false;
+    }
+    cb.checked = allOn;
+    cb.indeterminate = !allOn && anyOn;
+  }
+}
+
 function _renderSigKellyBar(bar, data, period) {
   const cfg = data.config || {};
   const periods = cfg.periods || { y1: "近1年", y3: "近3年", all: "全部" };
@@ -7882,10 +7931,17 @@ function _renderSigKellyBar(bar, data, period) {
       `<label>过户费:万分之<input type="number" class="lab-input lab-sigkelly-fee-input-transfer" value="${transferVal}" step="0.01" min="0" style="width:42px">(沪)</label>` +
       `<label>印花税:万分之<input type="number" class="lab-input lab-sigkelly-fee-input-stamp" value="${stampVal}" step="0.01" min="0" style="width:42px">(卖)</label>` +
     `</div>`;
-  // 降亏过滤toggle(17个独立checkbox可组合, 开启后过滤交易集重算所有指标, 按比值倒序)
+  // 降亏过滤toggle(29个独立checkbox可组合, 开启后过滤交易集重算所有指标, 按比值倒序)
   const _filters = state.labSigKellyFilters || _kellyDefaultFilters();
+  // 组合降亏「预设宏」(3个, 2026-08-11新增): 组合checkbox勾选态由成员toggle派生
+  const comboHTML = Object.keys(_kellyComboPresets).map((ck) => {
+    const cp = _kellyComboPresets[ck];
+    const allOn = cp.members.every((m) => _filters[m.k]);
+    return `<label class="lab-sigkelly-toggle lab-sigkelly-toggle-combo" tabindex="0" data-no-pop="" data-tip="${cp.tip}"><input type="checkbox" class="lab-sigkelly-toggle-combo lab-sigkelly-toggle-combo-${ck}"${allOn ? " checked" : ""}> ${cp.label} <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>`;
+  }).join("");
   const toggleHTML = `<div class="lab-sigkelly-toggle-row">` +
       `<span class="lab-sigkelly-toggle-label">降亏过滤:</span>` +
+      `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">组合降亏(预设宏·可叠加)</span>` + comboHTML + `</div>` +
       `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">round3 11月系(2026-08-10验证)</span>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="A45(11月中旬+下旬+追关注): 排除11日及以后(buy_date日≥11)的buy_special追关注交易。减亏5.54%/损盈0.96%/比值5.75。净增收+49.9万元(全场候选最大)。覆盖11月80%的special交易。叠加现有4 toggle之上边际+10.7万(比值7.87)。⚠含11月下旬(2024+零交易,近年贡献主要来自中旬)。"><input type="checkbox" class="lab-sigkelly-toggle-a45"${_filters.a45NovMidLateSpecial ? " checked" : ""}> A45 11月中下旬+追关注(5.75) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="A5(11月中旬+追关注): 排除11日-20日(中旬)的buy_special追关注交易。减亏3.62%/损盈0.66%/比值5.49。净增收+31.9万元。最稳候选:2016-2025连续有交易无空窗,4窗口(y2/y3/y5/y10)全>2。叠加现有4 toggle之上边际+7.7万(比值6.45)。注意:A5为A45(11月中下旬)的子集,同时开启A45时A5不再新增过滤。"><input type="checkbox" class="lab-sigkelly-toggle-a5"${_filters.a5NovMidSpecial ? " checked" : ""}> A5 11月中旬+追关注(5.49) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
@@ -8142,6 +8198,35 @@ function _renderSigKellyBar(bar, data, period) {
     state.labSigKellyFilters.a45NovMidLateSpecial = a45Cb.checked;
     _kellyOnFilterChange();
   };
+  // 组合降亏「预设宏」(2026-08-11用户定: 1+2+3全要,按需选择,组合可叠加=成员并集OR):
+  // 点击组合→勾选/取消全部成员toggle, 过滤零改动(成员谓词并集), 幂等+§22一致; 组合勾选态由成员派生(不新增第三份过滤状态)
+  for (var comboKey in _kellyComboPresets) {
+    (function (ck) {
+      var comboCb = bar.querySelector(".lab-sigkelly-toggle-combo-" + ck);
+      if (!comboCb) return;
+      comboCb.onchange = function () {
+        if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+        var members = _kellyComboPresets[ck].members;
+        for (var i = 0; i < members.length; i++) {
+          state.labSigKellyFilters[members[i].k] = comboCb.checked;
+          var mb = bar.querySelector("." + members[i].cls);
+          if (mb) mb.checked = comboCb.checked;
+        }
+        _kellyRefreshComboStates(bar);
+        _kellyOnFilterChange();
+      };
+    })(comboKey);
+  }
+  // 成员toggle改动→刷新组合三态(事件委托, 捕获toggle区内所有checkbox change; 组合自身change跳过)
+  var _kellyToggleRow = bar.querySelector(".lab-sigkelly-toggle-row");
+  if (_kellyToggleRow) {
+    _kellyToggleRow.addEventListener("change", function (e) {
+      var t = e.target;
+      if (t && t.classList && !t.classList.contains("lab-sigkelly-toggle-combo")) _kellyRefreshComboStates(bar);
+    });
+  }
+  // 首渲染同步组合三态(部分成员勾选→组合半选 indeterminate)
+  _kellyRefreshComboStates(bar);
 }
 
 // 16象限卡片网格(4组: 评级3 + ETF4 + 信号类型4 + 指数大类5)
