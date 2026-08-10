@@ -20,7 +20,10 @@ data/mootdx_daily.db-wal
 data/mootdx_daily.db-shm
 
 # 本地状态/日志/进度
-data/logs/
+data/logs
+data/logs.old*/
+# DB 归档打包产物(开源 Release 上传源,本地保留不进 git)
+data/release/
 data/alerts/
 data/backups/
 data/baostock_logs/

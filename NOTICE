@@ -1,0 +1,47 @@
+NOTICE
+======
+
+本项目（trade-data-signal / tdsignal）由多个组成部分构成，授权情况各不相同：
+
+1. 代码（app/ scripts/ static-site/ 的 .py/.js/.css/.html 等）
+   以 MIT License 授权，见 LICENSE。
+
+2. 数据集（static-site/data/ 及 data/manifest.json 索引的 JSON 数据产物，
+   以及 GitHub Release 上的数据库归档包）
+   以 Creative Commons Attribution 4.0 International (CC BY 4.0) 授权，
+   完整授权文本见 DATA_LICENSE。
+
+第三方原始数据声明
+------------------
+
+本仓库中部分数据由本项目**从第三方公开渠道采集、整理、加工**而来，
+而非本项目原创。包括但不限于以下数据来源：
+
+- 东方财富（Eastmoney，含 push2 行情接口、em_get）
+- 腾讯财经（qt.gtimg.cn）
+- 同花顺（iFind / iwencai）
+- 新浪财经（hq.sinajs.cn）
+- BaoStock（baostock.com）
+- akshare（聚合数据接口库）
+- mootdx（通达信 TCP 行情协议）
+- 中金所（CFFEX，股指期货持仓数据）
+- 上交所（SSE）/ 深交所（SZSE）
+- 港交所（HKEX / CCASS，港股通、股权持有人数据）
+- 申万宏源行业指数（SW）
+- 中证指数公司（CSI）
+- 巨潮资讯网（cninfo，基金定期报告）
+- 公开基金公告数据
+
+这些第三方数据/接口的原始版权、许可与使用条款属于其各自的权利人，
+**本仓库的授权（MIT / CC BY 4.0）不覆盖第三方原始数据的版权，也不
+转授第三方原始数据的任何权利**。使用本仓库数据时，请自行遵守相应
+第三方来源的条款（尤其涉及行情数据的展示、转发、商用限制时）。
+
+本仓库**衍生加工的数据**（评分、信号、回测统计、情绪指数、板块映射等）
+为本项目原创加工产物，按 CC BY 4.0 授权。
+
+第三方商标（如 "Creative Commons"、"BaoStock" 等）不属于本仓库授权范围，
+保留其各自权利人的权利。
+
+免责声明：本仓库数据仅供学习研究，不构成任何投资建议。数据可能存在
+延迟、错误或缺失，请以官方披露为准。
