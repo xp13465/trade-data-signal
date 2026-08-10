@@ -7507,7 +7507,8 @@ async function _kellyApplyFeeRecompute(feeParams) {
   // 加载 trades.json(如果未加载, 复用 modal 的 R2+CF 兜底逻辑)
   if (!state.labSigKellyTradesData) {
     var v = _labCustomCacheBust();
-    var r2Url = "https://ssd.fx8.store/data/signal_kelly_trades.json?v=" + v;
+    // 2026-08-11 备站修复: ssd 公开桶直链无 ACAO 备站 CORS 挂, 改走主站 /data/ rewrite(ACAO:*, 与 fetchJSON 兜底 _R2_FALLBACK_BASE 一致)
+    var r2Url = "https://ss.fx8.store/data/signal_kelly_trades.json?v=" + v;
     var cfUrl = "./data/signal_kelly_trades.json?v=" + v;
     try {
       try {
@@ -8628,7 +8629,7 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   // 懒加载 trades JSON(>1MB 走 R2, CF 兜底)
   if (!state.labSigKellyTradesData) {
     const v = _labCustomCacheBust();
-    const r2Url = `https://ssd.fx8.store/data/signal_kelly_trades.json?v=${v}`;
+    const r2Url = `https://ss.fx8.store/data/signal_kelly_trades.json?v=${v}`;
     const cfUrl = `./data/signal_kelly_trades.json?v=${v}`;
     try {
       try {

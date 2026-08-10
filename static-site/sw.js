@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260811-a119';  // bump a118->a119: 凯利降亏过滤新增 round3 11月系 A45(11月中下旬+追关注)+A5(11月中旬+追关注) 2 toggle(17个)
+const CACHE_VERSION = 'v6-20260811-a120';  // bump a119->a120: 备站修复 signal_kelly_trades.json 直链改走主站 /data/ rewrite(ACAO, 修凯利交易记录/费率重算备站 CORS 挂)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

@@ -113,7 +113,12 @@ async function r2ProxyHandler(request, env, ctx, url) {
   // 1. 边缘缓存命中（key 用 pathname 剥离 query，?_=Date.now() 不影响命中）
   const cacheKey = new Request(url.origin + url.pathname);
   const cached = await caches.default.match(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    // 2026-08-11 补: 旧缓存响应(ACAO 部署前写入)可能缺 ACAO 头, 返回前补上, 根治"部署改头后 1h 内旧缓存缺 ACAO 备站跨域挂"
+    const h = new Headers(cached.headers);
+    h.set('Access-Control-Allow-Origin', '*');
+    return new Response(cached.body, { status: cached.status, statusText: cached.statusText, headers: h });
+  }
   // 2. R2 读取
   let object;
   try {
@@ -172,7 +177,12 @@ async function dataRewriteHandler(request, env, ctx, url) {
   // 1. 边缘缓存命中（key 用 pathname 剥离 query，?_=Date.now() 不影响命中；noEdgeCache 跳过）
   if (!noEdgeCache) {
     const cached = await caches.default.match(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      // 2026-08-11 补（同 r2ProxyHandler）：旧缓存响应可能缺 ACAO 头, 返回前补上, 防"部署改头 1h 内旧缓存缺 ACAO 备站跨域挂"
+      const h = new Headers(cached.headers);
+      h.set('Access-Control-Allow-Origin', '*');
+      return new Response(cached.body, { status: cached.status, statusText: cached.statusText, headers: h });
+    }
   }
   // 2. R2 读取，404/错误回退 ASSETS（静态文件兜底）
   let response;
