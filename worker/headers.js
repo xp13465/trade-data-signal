@@ -123,10 +123,12 @@ async function r2ProxyHandler(request, env, ctx, url) {
   }
   if (!object) return new Response('Not Found', { status: 404 });
   // 3. 构造响应（边缘缓存 1h）
+  // 2026-08-11 方案A：加 ACAO:* ——备站(GH Pages/MaoziYun)跨域直读主站 /r2/ 走势图(如 -all.json)，修复 CORS 阻断缺口
   const headers = new Headers();
   object.writeHttpMetadata(headers);
   headers.set('etag', object.httpEtag);
   headers.set('Cache-Control', 'public, max-age=3600');
+  headers.set('Access-Control-Allow-Origin', '*');
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) headers.set(k, v);
   const response = new Response(object.body, { headers });
   // 4. 写边缘缓存（后台，不阻塞响应）
@@ -181,6 +183,8 @@ async function dataRewriteHandler(request, env, ctx, url) {
       object.writeHttpMetadata(headers);
       headers.set('etag', object.httpEtag);
       headers.set('Cache-Control', cc);
+      // 2026-08-11 方案A：加 ACAO:* ——备站兜底改走主站 /data/ rewrite 需跨域读，同源请求不受影响
+      headers.set('Access-Control-Allow-Origin', '*');
       for (const [k, v] of Object.entries(SECURITY_HEADERS)) headers.set(k, v);
       response = new Response(object.body, { headers });
     }
@@ -192,6 +196,8 @@ async function dataRewriteHandler(request, env, ctx, url) {
     const assetsResponse = await env.ASSETS.fetch(request);
     const headers = new Headers(assetsResponse.headers);
     headers.set('Cache-Control', cc);
+    // 2026-08-11 方案A：ASSETS 回退响应同样加 ACAO:*，保证兜底路径跨域一致
+    headers.set('Access-Control-Allow-Origin', '*');
     for (const [k, v] of Object.entries(SECURITY_HEADERS)) headers.set(k, v);
     response = new Response(assetsResponse.body, {
       status: assetsResponse.status,

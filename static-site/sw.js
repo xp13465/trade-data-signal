@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260811-a116';  // bump a115->a116: KPI展开/收起按钮加 margin-bottom 拉开下方距离(归属KPI卡区)
+const CACHE_VERSION = 'v6-20260811-a117';  // bump a116->a117: 备站闪加载修复 方案A(兜底改走主站/data/+CORS)+方案B(首挂abort不杀兜底+R2退避重试)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
