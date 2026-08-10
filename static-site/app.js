@@ -6300,6 +6300,7 @@ let _intradayFailCount = 0;
 let _intradayRefreshTimer = null;
 let _intradayLastFetch = 0;
 let _intradayActive = false;
+let _intradayRefreshInProgress = false; // S4 fix: in-flight标志,心跳判"定时器丢失"时排除in-flight窗口(防误判重启致renderCtx丢失→intraday永久死亡)
 let _intradayRenderCtx = null; // { sparkGrid, snap }
 let _intradayVisBound = false;
 
@@ -7027,6 +7028,7 @@ function _startIntradayRefresh() {
 // 停止刷新（切tab/收盘时调用）
 function _stopIntradayRefresh() {
   _intradayActive = false;
+  _intradayRefreshInProgress = false; // S4 fix: 切tab/收盘时同步清in-flight标志
   _intradayRenderCtx = null;
   _bannerRenderCtx = null; // 横幅已随 tab 切换移除，置空避免操作已分离 DOM
   if (_intradayRefreshTimer) { clearTimeout(_intradayRefreshTimer); _intradayRefreshTimer = null; }
@@ -7059,6 +7061,8 @@ async function _doIntradayRefresh() {
   if (_isLunchPause()) { _scheduleNextRefresh(); return; }
   const ctx = _intradayRenderCtx;
   _intradayLastFetch = Date.now();
+  _intradayRefreshInProgress = true; // S4 fix: 标记in-flight,心跳据此排除合法null窗口
+  try {
   // 刷新snap检查是否收盘（2s超时避免阻塞）
   _intradaySnapPromise = null;
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 2000))]); } catch (e) {}
@@ -7092,6 +7096,9 @@ async function _doIntradayRefresh() {
   const anyOk = results.length > 0 ? results.some((r) => r) : (dynResult && dynResult.ok);
   if (anyOk) {
     _intradayFailCount = 0;
+    // S3 fix: 恢复后隐藏降频通知(原仅失败显示不隐藏,降频重试可恢复后通知残留误导)
+    const notice = ctx.sparkGrid.parentElement.querySelector(".intraday-notice");
+    if (notice) notice.style.display = "none";
   } else {
     _intradayFailCount++;
     if (_intradayFailCount >= INTRADAY_MAX_FAILS) {
@@ -7100,6 +7107,9 @@ async function _doIntradayRefresh() {
       // S3: 不return永久停,降频5min兜底重试(7x24自愈,网络恢复后failCount归零恢复1min)
       console.warn('[intraday] 连续失败'+_intradayFailCount+'次,降频'+(INTRADAY_DEGRADED_MS/1000)+'s重试中');
     }
+  }
+  } finally {
+    _intradayRefreshInProgress = false; // S4 fix: 无论成功/异常都清in-flight标志
   }
   _scheduleNextRefresh();
 }
@@ -7125,7 +7135,8 @@ function _intradayHeartbeatCheck() {
   let reason = "";
   if (!_intradayActive) {
     needRestart = true; reason = "intraday未活跃";
-  } else if (_intradayRefreshTimer === null) {
+  } else if (_intradayRefreshTimer === null && !_intradayRefreshInProgress) {
+    // S4 fix: 排除in-flight窗口(_doIntradayRefresh执行期间timer合法为null),仅真正丢失才重启
     needRestart = true; reason = "定时器丢失";
   } else if (now - _intradayLastFetch > 5 * 60 * 1000) {
     needRestart = true; reason = "最近刷新超5min(" + Math.round((now - _intradayLastFetch) / 1000) + "s)";
@@ -7135,7 +7146,10 @@ function _intradayHeartbeatCheck() {
     // 清可能毒化的in-flight再重启(配合S2/S5)
     _inflightMinute.clear();
     _inflightBatchP = null;
+    // S4 fix C方案: _startIntradayRefresh内_stopIntradayRefresh会置空renderCtx,保存恢复避免_doIntradayRefresh早退致永久死亡
+    const _savedRenderCtx = _intradayRenderCtx;
     _startIntradayRefresh(); // 重置failCount=0 + 重排定时器
+    if (_savedRenderCtx) _intradayRenderCtx = _savedRenderCtx;
     _doIntradayRefresh();    // 立即刷新一轮(fire-and-forget,自身会_scheduleNextRefresh)
   }
 }
