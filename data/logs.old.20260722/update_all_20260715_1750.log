@@ -1,398 +1,0 @@
-=== update_all.sh 开始 2026-07-15 17:50:06 ===
-交易日判断: IS_TRADING=1 FORCE=0
--> 并发启动 pipeline: core / width / futures / turnover / stock_daily(后台)
-  PID: core=53941 width=53942 futures=53943 turnover=53944 stock_daily=53945(后台不等)
-=== pipeline[core] 开始 2026-07-15 17:50:07 steps=metrics,indices,industry_extras ===
-=== pipeline[futures] 开始 2026-07-15 17:50:07 steps=futures ===
-=== pipeline[width] 开始 2026-07-15 17:50:07 steps=mootdx,industry_width,width_history ===
-=== pipeline[stock_daily] 开始 2026-07-15 17:50:07 steps=stock_daily ===
-=== pipeline[turnover] 开始 2026-07-15 17:50:07 steps=turnover ===
--> [width] 采集 steps=mootdx,industry_width,width_history ...
--> [core] 采集 steps=metrics,indices,industry_extras ...
--> [stock_daily] 采集 steps=stock_daily ...
--> [turnover] 采集 steps=turnover ...
--> [futures] 采集 steps=futures ...
-=== 采集 20260715 完成 (steps=['stock_daily']): ok=0 fail=0 ===
-  [  ok] stock_daily                skip (no progress yet, run `stock_daily full` manually)
-Please wait for a moment:   0%|          | 0/70 [00:00<?, ?it/s]/Users/linhuichen/code/trade/scripts/pipeline.sh: line 54: COLLECT_RC�: unbound variable
-=== pipeline[stock_daily] 结束 2026-07-15 17:50:09 collect=0 deploy=0 ===
-2026-07-15 17:50:09,336 - mootdx - INFO - [-] 选择最快的服务器...
-[futures_position] 20260715: collected 15 variety-role combos across roles (top20, 中信期货, 国泰君安)
-=== 采集 20260715 完成 (steps=['futures']): ok=2 fail=0 ===
-  [  ok] futures_position           collected 20260715
-  [  ok] futures_accuracy           45 rows
-Please wait for a moment:   1%|▏         | 1/70 [00:00<00:39,  1.74it/s]/Users/linhuichen/code/trade/scripts/pipeline.sh: line 54: COLLECT_RC�: unbound variable
--> [futures] 等待 deploy 锁（串行化 git）...
-Please wait for a moment:   3%|▎         | 2/70 [00:00<00:21,  3.20it/s]Please wait for a moment:   4%|▍         | 3/70 [00:00<00:15,  4.31it/s]Please wait for a moment:   6%|▌         | 4/70 [00:00<00:12,  5.15it/s]Please wait for a moment:   7%|▋         | 5/70 [00:01<00:18,  3.48it/s]Please wait for a moment:   9%|▊         | 6/70 [00:01<00:15,  4.23it/s]Please wait for a moment:  10%|█         | 7/70 [00:01<00:12,  4.98it/s]Please wait for a moment:  11%|█▏        | 8/70 [00:01<00:10,  5.74it/s]Please wait for a moment:  13%|█▎        | 9/70 [00:01<00:09,  6.26it/s]Please wait for a moment:  14%|█▍        | 10/70 [00:02<00:09,  6.57it/s]Please wait for a moment:  16%|█▌        | 11/70 [00:02<00:09,  6.12it/s]login success!
-  [3/5072] 000004: empty
-Please wait for a moment:  17%|█▋        | 12/70 [00:02<00:13,  4.34it/s]  [1278/5072] 002808: empty
-Please wait for a moment:  19%|█▊        | 13/70 [00:03<00:30,  1.85it/s]  [1523/5072] 300029: empty
-Please wait for a moment:  20%|██        | 14/70 [00:04<00:31,  1.79it/s]Please wait for a moment:  21%|██▏       | 15/70 [00:04<00:24,  2.20it/s]Please wait for a moment:  23%|██▎       | 16/70 [00:04<00:21,  2.56it/s]Please wait for a moment:  24%|██▍       | 17/70 [00:05<00:17,  3.07it/s]Please wait for a moment:  26%|██▌       | 18/70 [00:05<00:14,  3.56it/s]Please wait for a moment:  27%|██▋       | 19/70 [00:05<00:13,  3.82it/s]Please wait for a moment:  29%|██▊       | 20/70 [00:05<00:11,  4.25it/s]Please wait for a moment:  30%|███       | 21/70 [00:05<00:10,  4.84it/s]Please wait for a moment:  31%|███▏      | 22/70 [00:06<00:09,  5.10it/s]Please wait for a moment:  33%|███▎      | 23/70 [00:06<00:09,  5.06it/s]Please wait for a moment:  34%|███▍      | 24/70 [00:06<00:08,  5.30it/s][turnover] 增量模式：从 daily_metric 末尾 20260715 +1 -> 20260716
-[turnover] loading baostock turnover 20260716..20260715 ...
-[turnover] no data, abort
-=== 采集 20260715 完成 (steps=['turnover']): ok=0 fail=3 ===
-  [fail] baostock_turnover          +0 rows, 0 ok/3 fail (5072 codes)
-  [  ok] turnover_dist              skip (no turnover data)
-/Users/linhuichen/code/trade/scripts/pipeline.sh: line 54: COLLECT_RC�: unbound variable
--> [turnover] 等待 deploy 锁（串行化 git）...
-Please wait for a moment:  36%|███▌      | 25/70 [00:06<00:08,  5.55it/s]Please wait for a moment:  37%|███▋      | 26/70 [00:06<00:07,  5.68it/s]Please wait for a moment:  39%|███▊      | 27/70 [00:06<00:07,  6.14it/s]Please wait for a moment:  40%|████      | 28/70 [00:07<00:11,  3.71it/s]Please wait for a moment:  41%|████▏     | 29/70 [00:07<00:09,  4.46it/s]Please wait for a moment:  43%|████▎     | 30/70 [00:07<00:07,  5.14it/s]Please wait for a moment:  44%|████▍     | 31/70 [00:07<00:06,  5.84it/s]Please wait for a moment:  46%|████▌     | 32/70 [00:07<00:06,  6.21it/s]Please wait for a moment:  47%|████▋     | 33/70 [00:07<00:05,  6.71it/s]Please wait for a moment:  49%|████▊     | 34/70 [00:08<00:05,  6.97it/s]Please wait for a moment:  50%|█████     | 35/70 [00:08<00:05,  6.74it/s]Please wait for a moment:  51%|█████▏    | 36/70 [00:08<00:05,  6.74it/s]Please wait for a moment:  53%|█████▎    | 37/70 [00:08<00:08,  3.85it/s]Please wait for a moment:  54%|█████▍    | 38/70 [00:09<00:06,  4.61it/s]Please wait for a moment:  56%|█████▌    | 39/70 [00:09<00:12,  2.45it/s]Please wait for a moment:  57%|█████▋    | 40/70 [00:10<00:12,  2.39it/s]Please wait for a moment:  59%|█████▊    | 41/70 [00:10<00:12,  2.27it/s]Please wait for a moment:  60%|██████    | 42/70 [00:10<00:09,  2.92it/s]Please wait for a moment:  61%|██████▏   | 43/70 [00:11<00:13,  2.07it/s]Please wait for a moment:  63%|██████▎   | 44/70 [00:11<00:09,  2.67it/s]Please wait for a moment:  64%|██████▍   | 45/70 [00:12<00:07,  3.35it/s]Please wait for a moment:  66%|██████▌   | 46/70 [00:12<00:05,  4.10it/s]Please wait for a moment:  67%|██████▋   | 47/70 [00:12<00:07,  3.16it/s]Please wait for a moment:  69%|██████▊   | 48/70 [00:12<00:05,  3.90it/s]Please wait for a moment:  70%|███████   | 49/70 [00:12<00:04,  4.67it/s]Please wait for a moment:  71%|███████▏  | 50/70 [00:12<00:03,  5.39it/s]Please wait for a moment:  73%|███████▎  | 51/70 [00:13<00:03,  6.09it/s]Please wait for a moment:  74%|███████▍  | 52/70 [00:13<00:02,  6.70it/s]Please wait for a moment:  76%|███████▌  | 53/70 [00:13<00:04,  3.79it/s]Please wait for a moment:  77%|███████▋  | 54/70 [00:13<00:03,  4.48it/s]Please wait for a moment:  79%|███████▊  | 55/70 [00:14<00:04,  3.38it/s]Please wait for a moment:  80%|████████  | 56/70 [00:14<00:03,  4.15it/s]Please wait for a moment:  81%|████████▏ | 57/70 [00:14<00:02,  4.92it/s]Please wait for a moment:  83%|████████▎ | 58/70 [00:14<00:02,  5.59it/s]Please wait for a moment:  84%|████████▍ | 59/70 [00:14<00:01,  6.16it/s]Please wait for a moment:  86%|████████▌ | 60/70 [00:14<00:01,  6.53it/s]Please wait for a moment:  87%|████████▋ | 61/70 [00:15<00:01,  6.98it/s]Please wait for a moment:  89%|████████▊ | 62/70 [00:15<00:01,  6.97it/s]Please wait for a moment:  90%|█████████ | 63/70 [00:15<00:00,  7.25it/s]Please wait for a moment:  91%|█████████▏| 64/70 [00:15<00:01,  4.04it/s]Please wait for a moment:  93%|█████████▎| 65/70 [00:15<00:01,  4.79it/s]Please wait for a moment:  94%|█████████▍| 66/70 [00:16<00:01,  3.36it/s]Please wait for a moment:  96%|█████████▌| 67/70 [00:16<00:00,  4.07it/s]Please wait for a moment:  97%|█████████▋| 68/70 [00:16<00:00,  4.69it/s]Please wait for a moment:  99%|█████████▊| 69/70 [00:17<00:00,  3.39it/s]                                                                           0%|          | 0/3 [00:00<?, ?it/s] 33%|███▎      | 1/3 [00:00<00:00,  3.51it/s] 67%|██████▋   | 2/3 [00:00<00:00,  3.53it/s]100%|██████████| 3/3 [00:00<00:00,  2.87it/s]                                             === pipeline[futures] 结束 2026-07-15 17:50:39 collect=0 deploy=0 ===
-=== pipeline[turnover] 结束 2026-07-15 17:51:03 collect=0 deploy=0 ===
-  0%|          | 0/3 [00:00<?, ?it/s] 33%|███▎      | 1/3 [00:00<00:00,  5.25it/s] 67%|██████▋   | 2/3 [00:00<00:00,  6.10it/s]100%|██████████| 3/3 [00:00<00:00,  5.77it/s]                                               0%|          | 0/13 [00:00<?, ?it/s]  8%|▊         | 1/13 [00:00<00:01,  8.00it/s] 15%|█▌        | 2/13 [00:00<00:01,  8.52it/s] 23%|██▎       | 3/13 [00:00<00:01,  8.20it/s] 31%|███       | 4/13 [00:00<00:01,  8.18it/s] 38%|███▊      | 5/13 [00:00<00:00,  8.07it/s] 46%|████▌     | 6/13 [00:00<00:01,  6.15it/s] 54%|█████▍    | 7/13 [00:01<00:00,  6.01it/s] 62%|██████▏   | 8/13 [00:01<00:00,  5.98it/s] 69%|██████▉   | 9/13 [00:01<00:00,  5.33it/s] 77%|███████▋  | 10/13 [00:01<00:00,  4.96it/s] 85%|████████▍ | 11/13 [00:01<00:00,  5.44it/s] 92%|█████████▏| 12/13 [00:01<00:00,  6.02it/s]                                                 [100/5203] 000516: ok +1 (last=20260715) | elapsed 74s, 1.3/s, ETA 3792s
-  [200/5203] 000669: ok +1 (last=20260715) | elapsed 90s, 2.2/s, ETA 2255s
-  [300/5203] 000820: ok +1 (last=20260715) | elapsed 106s, 2.8/s, ETA 1734s
-  [400/5203] 000978: ok +1 (last=20260715) | elapsed 122s, 3.3/s, ETA 1467s
-  [500/5203] 001338: ok +1 (last=20260715) | elapsed 135s, 3.7/s, ETA 1274s
-  [600/5203] 002072: ok +1 (last=20260715) | elapsed 149s, 4.0/s, ETA 1146s
-  [700/5203] 002178: ok +1 (last=20260715) | elapsed 165s, 4.2/s, ETA 1063s
-  [800/5203] 002283: ok +1 (last=20260715) | elapsed 183s, 4.4/s, ETA 1005s
-  0%|          | 0/19 [00:00<?, ?it/s]  5%|▌         | 1/19 [00:00<00:02,  6.03it/s] 11%|█         | 2/19 [00:00<00:02,  5.94it/s] 21%|██        | 4/19 [00:00<00:01,  7.72it/s] 26%|██▋       | 5/19 [00:00<00:01,  7.75it/s]                                                [900/5203] 002389: ok +1 (last=20260715) | elapsed 199s, 4.5/s, ETA 954s
-  0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  5.03it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]                                       0%|          | 0/3 [00:00<?, ?it/s] 33%|███▎      | 1/3 [00:00<00:00,  3.07it/s] 67%|██████▋   | 2/3 [00:00<00:00,  3.00it/s]100%|██████████| 3/3 [00:00<00:00,  4.17it/s]                                               [1000/5203] 002498: ok +1 (last=20260715) | elapsed 220s, 4.5/s, ETA 925s
-  0%|          | 0/39 [00:00<?, ?it/s]  3%|▎         | 1/39 [00:00<00:05,  7.22it/s]  5%|▌         | 2/39 [00:00<00:04,  7.59it/s]  8%|▊         | 3/39 [00:01<00:21,  1.69it/s] 10%|█         | 4/39 [00:01<00:14,  2.45it/s] 13%|█▎        | 5/39 [00:01<00:10,  3.24it/s] 15%|█▌        | 6/39 [00:01<00:08,  3.93it/s] 18%|█▊        | 7/39 [00:01<00:07,  4.52it/s] 21%|██        | 8/39 [00:02<00:06,  5.05it/s] 23%|██▎       | 9/39 [00:02<00:05,  5.91it/s] 26%|██▌       | 10/39 [00:02<00:04,  6.12it/s] 28%|██▊       | 11/39 [00:02<00:04,  6.50it/s] 31%|███       | 12/39 [00:02<00:03,  7.10it/s] 33%|███▎      | 13/39 [00:02<00:03,  7.57it/s] 36%|███▌      | 14/39 [00:02<00:03,  7.89it/s] 38%|███▊      | 15/39 [00:02<00:03,  7.48it/s] 44%|████▎     | 17/39 [00:03<00:02,  8.43it/s] 49%|████▊     | 19/39 [00:03<00:02,  8.29it/s] 51%|█████▏    | 20/39 [00:03<00:02,  7.72it/s] 54%|█████▍    | 21/39 [00:03<00:02,  8.04it/s] 56%|█████▋    | 22/39 [00:03<00:02,  6.92it/s] 59%|█████▉    | 23/39 [00:04<00:02,  6.81it/s] 64%|██████▍   | 25/39 [00:04<00:01,  7.92it/s] 67%|██████▋   | 26/39 [00:04<00:01,  7.69it/s] 69%|██████▉   | 27/39 [00:04<00:01,  7.35it/s] 72%|███████▏  | 28/39 [00:04<00:01,  7.12it/s] 74%|███████▍  | 29/39 [00:04<00:01,  6.57it/s] 77%|███████▋  | 30/39 [00:05<00:01,  6.25it/s] 79%|███████▉  | 31/39 [00:05<00:01,  6.39it/s] 82%|████████▏ | 32/39 [00:05<00:01,  6.84it/s] 85%|████████▍ | 33/39 [00:05<00:00,  7.36it/s] 87%|████████▋ | 34/39 [00:06<00:01,  3.73it/s] 90%|████████▉ | 35/39 [00:06<00:00,  4.13it/s] 92%|█████████▏| 36/39 [00:06<00:00,  4.75it/s] 95%|█████████▍| 37/39 [00:06<00:00,  5.30it/s] 97%|█████████▋| 38/39 [00:06<00:00,  5.74it/s]100%|██████████| 39/39 [00:06<00:00,  6.46it/s]                                                 0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  7.26it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.16it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.62it/s]100%|██████████| 2/2 [00:00<00:00,  9.37it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.74it/s]100%|██████████| 2/2 [00:00<00:00,  9.15it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.66it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.58it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.71it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.53it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 10.42it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.11it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 10.34it/s]                                               [1100/5203] 002606: ok +1 (last=20260715) | elapsed 237s, 4.6/s, ETA 884s
-  0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 10.50it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.29it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.28it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.07it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 10.81it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  7.53it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.49it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.03it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.19it/s]100%|██████████| 2/2 [00:00<00:00,  9.61it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.76it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.18it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  7.87it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  1.57it/s]100%|██████████| 2/2 [00:00<00:00,  3.11it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.35it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.81it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.94it/s]100%|██████████| 2/2 [00:00<00:00,  9.96it/s]                                               [校验] 9 个核心 A 股指数今日(20260715)齐全 ✓
-  [校验] 31 个申万行业指数缺今日 20260715 -> 申万 trend API 补采
-    - sw_801010 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801030 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801040 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801050 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801080 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801880 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801110 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801120 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801130 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801140 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801150 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801160 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801170 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801180 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801200 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801210 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801780 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801790 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801230 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801710 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801720 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801730 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801890 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801740 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801750 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801760 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801770 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801950 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801960 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801970 申万源故障/同花顺当日未发布，下次定时任务再补
-    - sw_801980 申万源故障/同花顺当日未发布，下次定时任务再补
-  [校验] 港股+全球指数(7个) 最新日期检查完成
-  0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00,  4.52it/s]                                               ind_flow_sw_801150 ok (68.09亿, ths)
-  ind_flow_sw_801120 ok (41.01亿, ths)
-  ind_flow_sw_801760 ok (31.03亿, ths)
-  ind_flow_sw_801980 ok (2.00亿, ths)
-  ind_flow_sw_801790 ok (87.66亿, ths)
-  ind_flow_sw_801200 ok (9.55亿, ths)
-  ind_flow_sw_801880 ok (13.13亿, ths)
-  ind_flow_sw_801950 ok (3.29亿, ths)
-  ind_flow_sw_801010 ok (13.52亿, ths)
-  ind_flow_sw_801210 ok (1.26亿, ths)
-  ind_flow_sw_801030 ok (-29.77亿, ths)
-  ind_flow_sw_801040 ok (3.86亿, ths)
-  ind_flow_sw_801110 ok (14.27亿, ths)
-  ind_flow_sw_801170 ok (14.03亿, ths)
-  ind_flow_sw_801130 ok (-1.46亿, ths)
-  ind_flow_sw_801140 ok (-2.68亿, ths)
-  ind_flow_sw_801780 ok (51.23亿, ths)
-  ind_flow_sw_801750 ok (-17.00亿, ths)
-  ind_flow_sw_801180 ok (2.40亿, ths)
-  ind_flow_sw_801160 ok (6.77亿, ths)
-  ind_flow_sw_801890 ok (-37.32亿, ths)
-  ind_flow_sw_801720 ok (4.23亿, ths)
-  ind_flow_sw_801970 ok (-5.53亿, ths)
-  ind_flow_sw_801230 ok (-5.76亿, ths)
-  ind_flow_sw_801710 ok (-14.29亿, ths)
-  ind_flow_sw_801730 ok (-82.00亿, ths)
-  ind_flow_sw_801740 ok (-42.76亿, ths)
-  ind_flow_sw_801770 ok (-91.50亿, ths)
-  ind_flow_sw_801050 ok (-90.21亿, ths)
-  ind_flow_sw_801960 ok (-8.67亿, ths)
-  ind_flow_sw_801080 ok (-316.92亿, ths)
-  [资金流] 同花顺 31/31 行业到位 (ok (31/31 SW mapped))
-  [1200/5203] 002717: ok +1 (last=20260715) | elapsed 251s, 4.8/s, ETA 837s
-  [1/31] ind_turn_sw_801010 FAIL: kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK0433&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
-  [2/31] ind_turn_sw_801030 FAIL: kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK1206&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
-  [1300/5203] 002831: ok +1 (last=20260715) | elapsed 267s, 4.9/s, ETA 801s
-  [3/31] ind_turn_sw_801040 FAIL: kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK0479&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
-  ⚠ 连续3个换手率失败(东财封IP),提前结束剩余28个
-=== 行业资金流/换手率采集完成: ok=31 fail=3 ===
-=== 采集 20260715 完成 (steps=['metrics', 'indices', 'industry_extras']): ok=107 fail=73 ===
-  [  ok] a_width_up_count           3350
-  [  ok] a_width_down_count         2098
-  [  ok] a_width_zt_count           72
-  [  ok] a_width_dt_count           31
-  [  ok] a_width_max_lianban        4
-  [  ok] a_width_zhaban_rate        0.2258
-  [  ok] a_width_daban_premium      1.812
-  [fail] a_width_zb_count           disabled
-  [fail] a_width_seal_rate          disabled
-  [  ok] a_fund_north               2264 rows
-  [  ok] a_fund_margin              1324 rows
-  [fail] a_fund_main                direct:market_fund_flow error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/fflow/daykline/get?lmt=0&klt=101&secid=1.000001&secid2=0.399001&fields1=f1%2Cf2%2Cf3%2Cf7&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61%2Cf62%2Cf63%2Cf64%2Cf65&ut=b2884a393a59ad64002292a3e90d46a5 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
-  [  ok] a_qvix_300                 1575 rows
-  [  ok] a_qvix_1000                807 rows
-  [  ok] a_amount                   2.587e+04
-  [  ok] a_turnover_rate            0.51
-  [fail] a_turnover_mean            disabled
-  [fail] a_turnover_median          disabled
-  [fail] a_turnover_p90             disabled
-  [fail] a_turnover_p10             disabled
-  [fail] a_turnover_gt5_pct         disabled
-  [  ok] a_div_yield                5228 rows
-  [  ok] hk_south                   2670 rows
-  [  ok] usdcnh                     485 rows
-  [  ok] gold                       4509 rows
-  [  ok] oil                        2014 rows
-  [  ok] wti_oil                    7691 rows
-  [  ok] comex_silver               2589 rows
-  [  ok] cn10y                      2499 rows
-  [  ok] us10y                      2635 rows
-  [  ok] lhb_count                  96
-  [  ok] lhb_inst_net               11.46
-  [  ok] unlock_amount              4265
-  [  ok] unlock_count               4
-  [  ok] ipo_count                  1
-  [  ok] ipo_amount                 17.6
-  [  ok] cov_count                  1034
-  [  ok] cov_premium_median         31.09
-  [  ok] sh                         8682 rows
-  [  ok] sz                         8589 rows
-  [  ok] hs300                      5949 rows
-  [  ok] sz50                       5471 rows
-  [  ok] csi500                     5228 rows
-  [  ok] csi1000                    2855 rows
-  [  ok] cyb                        3913 rows
-  [  ok] kc50                       1582 rows
-  [  ok] bj50                       1019 rows
-  [  ok] csi_div                    4015 rows
-  [  ok] div_lowvol                 4015 rows
-  [  ok] sz_div                     4971 rows
-  [  ok] hsi                        3172 rows
-  [  ok] hstech                     1449 rows
-  [  ok] hscei                      3172 rows
-  [  ok] us_dji                     5669 rows
-  [  ok] us_ixic                    5667 rows
-  [  ok] us_spx                     5670 rows
-  [  ok] us_ndx                     3118 rows
-  [fail] sw_801010                  no SW history to anchor sw_801010
-  [fail] sw_801030                  no SW history to anchor sw_801030
-  [fail] sw_801040                  no SW history to anchor sw_801040
-  [fail] sw_801050                  no SW history to anchor sw_801050
-  [fail] sw_801080                  no SW history to anchor sw_801080
-  [fail] sw_801880                  no SW history to anchor sw_801880
-  [fail] sw_801110                  no SW history to anchor sw_801110
-  [fail] sw_801120                  no SW history to anchor sw_801120
-  [fail] sw_801130                  no SW history to anchor sw_801130
-  [fail] sw_801140                  no SW history to anchor sw_801140
-  [fail] sw_801150                  no SW history to anchor sw_801150
-  [fail] sw_801160                  no SW history to anchor sw_801160
-  [fail] sw_801170                  no SW history to anchor sw_801170
-  [fail] sw_801180                  no SW history to anchor sw_801180
-  [fail] sw_801200                  no SW history to anchor sw_801200
-  [fail] sw_801210                  no SW history to anchor sw_801210
-  [fail] sw_801780                  no SW history to anchor sw_801780
-  [fail] sw_801790                  no SW history to anchor sw_801790
-  [fail] sw_801230                  no SW history to anchor sw_801230
-  [fail] sw_801710                  no SW history to anchor sw_801710
-  [fail] sw_801720                  no SW history to anchor sw_801720
-  [fail] sw_801730                  no SW history to anchor sw_801730
-  [fail] sw_801890                  no SW history to anchor sw_801890
-  [fail] sw_801740                  no SW history to anchor sw_801740
-  [fail] sw_801750                  no SW history to anchor sw_801750
-  [fail] sw_801760                  no SW history to anchor sw_801760
-  [fail] sw_801770                  no SW history to anchor sw_801770
-  [fail] sw_801950                  no SW history to anchor sw_801950
-  [fail] sw_801960                  no SW history to anchor sw_801960
-  [fail] sw_801970                  no SW history to anchor sw_801970
-  [fail] sw_801980                  no SW history to anchor sw_801980
-  [  ok] thsc_300816                267 rows
-  [  ok] thsc_309119                267 rows
-  [  ok] thsc_308700                267 rows
-  [  ok] thsc_309049                267 rows
-  [  ok] thsc_301085                267 rows
-  [  ok] thsc_307940                267 rows
-  [  ok] thsc_302035                267 rows
-  [  ok] thsc_309068                267 rows
-  [  ok] thsc_308828                267 rows
-  [  ok] thsc_309020                267 rows
-  [  ok] thsc_309060                267 rows
-  [  ok] thsc_300008                267 rows
-  [  ok] thsc_301079                267 rows
-  [  ok] thsc_300733                267 rows
-  [  ok] thsc_306380                267 rows
-  [  ok] thsc_308294                267 rows
-  [  ok] thsc_309115                267 rows
-  [  ok] thsc_308014                267 rows
-  [  ok] thsc_300082                267 rows
-  [  ok] thsc_300830                267 rows
-  [  ok] thsc_308725                267 rows
-  [  ok] thsc_308300                267 rows
-  [  ok] thsc_309113                267 rows
-  [  ok] thsc_308491                267 rows
-  [  ok] thsc_308870                267 rows
-  [  ok] thsc_308752                267 rows
-  [  ok] thsc_309128                267 rows
-  [fail] sw_801010                  申万源故障且同花顺当日未发布
-  [fail] sw_801030                  申万源故障且同花顺当日未发布
-  [fail] sw_801040                  申万源故障且同花顺当日未发布
-  [fail] sw_801050                  申万源故障且同花顺当日未发布
-  [fail] sw_801080                  申万源故障且同花顺当日未发布
-  [fail] sw_801880                  申万源故障且同花顺当日未发布
-  [fail] sw_801110                  申万源故障且同花顺当日未发布
-  [fail] sw_801120                  申万源故障且同花顺当日未发布
-  [fail] sw_801130                  申万源故障且同花顺当日未发布
-  [fail] sw_801140                  申万源故障且同花顺当日未发布
-  [fail] sw_801150                  申万源故障且同花顺当日未发布
-  [fail] sw_801160                  申万源故障且同花顺当日未发布
-  [fail] sw_801170                  申万源故障且同花顺当日未发布
-  [fail] sw_801180                  申万源故障且同花顺当日未发布
-  [fail] sw_801200                  申万源故障且同花顺当日未发布
-  [fail] sw_801210                  申万源故障且同花顺当日未发布
-  [fail] sw_801780                  申万源故障且同花顺当日未发布
-  [fail] sw_801790                  申万源故障且同花顺当日未发布
-  [fail] sw_801230                  申万源故障且同花顺当日未发布
-  [fail] sw_801710                  申万源故障且同花顺当日未发布
-  [fail] sw_801720                  申万源故障且同花顺当日未发布
-  [fail] sw_801730                  申万源故障且同花顺当日未发布
-  [fail] sw_801890                  申万源故障且同花顺当日未发布
-  [fail] sw_801740                  申万源故障且同花顺当日未发布
-  [fail] sw_801750                  申万源故障且同花顺当日未发布
-  [fail] sw_801760                  申万源故障且同花顺当日未发布
-  [fail] sw_801770                  申万源故障且同花顺当日未发布
-  [fail] sw_801950                  申万源故障且同花顺当日未发布
-  [fail] sw_801960                  申万源故障且同花顺当日未发布
-  [fail] sw_801970                  申万源故障且同花顺当日未发布
-  [fail] sw_801980                  申万源故障且同花顺当日未发布
-  [  ok] ind_flow_sw_801150         68.09亿 (ths)
-  [  ok] ind_flow_sw_801120         41.01亿 (ths)
-  [  ok] ind_flow_sw_801760         31.03亿 (ths)
-  [  ok] ind_flow_sw_801980         2.00亿 (ths)
-  [  ok] ind_flow_sw_801790         87.66亿 (ths)
-  [  ok] ind_flow_sw_801200         9.55亿 (ths)
-  [  ok] ind_flow_sw_801880         13.13亿 (ths)
-  [  ok] ind_flow_sw_801950         3.29亿 (ths)
-  [  ok] ind_flow_sw_801010         13.52亿 (ths)
-  [  ok] ind_flow_sw_801210         1.26亿 (ths)
-  [  ok] ind_flow_sw_801030         -29.77亿 (ths)
-  [  ok] ind_flow_sw_801040         3.86亿 (ths)
-  [  ok] ind_flow_sw_801110         14.27亿 (ths)
-  [  ok] ind_flow_sw_801170         14.03亿 (ths)
-  [  ok] ind_flow_sw_801130         -1.46亿 (ths)
-  [  ok] ind_flow_sw_801140         -2.68亿 (ths)
-  [  ok] ind_flow_sw_801780         51.23亿 (ths)
-  [  ok] ind_flow_sw_801750         -17.00亿 (ths)
-  [  ok] ind_flow_sw_801180         2.40亿 (ths)
-  [  ok] ind_flow_sw_801160         6.77亿 (ths)
-  [  ok] ind_flow_sw_801890         -37.32亿 (ths)
-  [  ok] ind_flow_sw_801720         4.23亿 (ths)
-  [  ok] ind_flow_sw_801970         -5.53亿 (ths)
-  [  ok] ind_flow_sw_801230         -5.76亿 (ths)
-  [  ok] ind_flow_sw_801710         -14.29亿 (ths)
-  [  ok] ind_flow_sw_801730         -82.00亿 (ths)
-  [  ok] ind_flow_sw_801740         -42.76亿 (ths)
-  [  ok] ind_flow_sw_801770         -91.50亿 (ths)
-  [  ok] ind_flow_sw_801050         -90.21亿 (ths)
-  [  ok] ind_flow_sw_801960         -8.67亿 (ths)
-  [  ok] ind_flow_sw_801080         -316.92亿 (ths)
-  [fail] ind_turn_sw_801010         kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK0433&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
-  [fail] ind_turn_sw_801030         kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK1206&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
-  [fail] ind_turn_sw_801040         kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK0479&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
-  [skip] industry_extras            连续3换手率失败(东财封IP),跳过剩余28
-/Users/linhuichen/code/trade/scripts/pipeline.sh: line 54: COLLECT_RC�: unbound variable
--> [core] compute_runner ...
-  [1400/5203] 002940: ok +1 (last=20260715) | elapsed 280s, 5.0/s, ETA 761s
-[volume_ratio] 计算完成: 2557 天, 写入 10215 条 metric
-=== 计算完成: §4情绪分=2548天  sz50=5457天  hs300=5935天  csi500=5214天  csi1000=2841天  cyb=3900天  kc50=1568天  §6跨市场=4653天  买卖点=14667个  派生公式=2363行  AD Line=10228行  量比=2557天  位置感=24行  恐贪指数=4486天  买卖点stats=92品种(106373B)  新高新低=43410行  均线排列=25869行  板块轮动=3行 ===
--> [core] 等待 deploy 锁（串行化 git）...
-  [1500/5203] 300004: ok +1 (last=20260715) | elapsed 292s, 5.1/s, ETA 720s
-  [1600/5203] 300113: ok +1 (last=20260715) | elapsed 306s, 5.2/s, ETA 689s
-=== pipeline[core] 结束 2026-07-15 17:55:27 collect=0 deploy=0 ===
-  [1700/5203] 300222: ok +1 (last=20260715) | elapsed 321s, 5.3/s, ETA 662s
-  [1800/5203] 300331: ok +1 (last=20260715) | elapsed 337s, 5.3/s, ETA 637s
-  [1900/5203] 300442: ok +1 (last=20260715) | elapsed 353s, 5.4/s, ETA 613s
-  [2000/5203] 300546: ok +1 (last=20260715) | elapsed 370s, 5.4/s, ETA 592s
-  [2100/5203] 300649: ok +1 (last=20260715) | elapsed 387s, 5.4/s, ETA 572s
-  [2200/5203] 300756: ok +1 (last=20260715) | elapsed 403s, 5.5/s, ETA 551s
-  [2300/5203] 300859: ok +1 (last=20260715) | elapsed 419s, 5.5/s, ETA 529s
-  [2400/5203] 300965: ok +1 (last=20260715) | elapsed 436s, 5.5/s, ETA 509s
-  [2500/5203] 301071: ok +1 (last=20260715) | elapsed 451s, 5.5/s, ETA 488s
-  [2600/5203] 301189: ok +1 (last=20260715) | elapsed 466s, 5.6/s, ETA 467s
-  [2700/5203] 301310: ok +1 (last=20260715) | elapsed 480s, 5.6/s, ETA 445s
-  [2800/5203] 301507: ok +1 (last=20260715) | elapsed 491s, 5.7/s, ETA 421s
-  [2900/5203] 600008: ok +1 (last=20260715) | elapsed 498s, 5.8/s, ETA 396s
-  [3000/5203] 600141: ok +1 (last=20260715) | elapsed 514s, 5.8/s, ETA 377s
-  [3100/5203] 600276: ok +1 (last=20260715) | elapsed 530s, 5.8/s, ETA 360s
-  [3200/5203] 600409: ok +1 (last=20260715) | elapsed 546s, 5.9/s, ETA 342s
-  [3300/5203] 600556: ok +1 (last=20260715) | elapsed 562s, 5.9/s, ETA 324s
-  [3400/5203] 600679: ok +1 (last=20260715) | elapsed 578s, 5.9/s, ETA 307s
-  [3500/5203] 600797: ok +1 (last=20260715) | elapsed 594s, 5.9/s, ETA 289s
-  [3600/5203] 600935: ok +1 (last=20260715) | elapsed 611s, 5.9/s, ETA 272s
-  [3700/5203] 601155: ok +1 (last=20260715) | elapsed 632s, 5.9/s, ETA 257s
-  [3800/5203] 601727: ok +1 (last=20260715) | elapsed 658s, 5.8/s, ETA 243s
-  [3900/5203] 603035: ok +1 (last=20260715) | elapsed 681s, 5.7/s, ETA 227s
-  [4000/5203] 603161: ok +1 (last=20260715) | elapsed 696s, 5.8/s, ETA 209s
-  [4100/5203] 603285: ok +1 (last=20260715) | elapsed 710s, 5.8/s, ETA 191s
-  [4200/5203] 603429: ok +1 (last=20260715) | elapsed 725s, 5.8/s, ETA 173s
-  [4300/5203] 603668: ok +1 (last=20260715) | elapsed 742s, 5.8/s, ETA 156s
-  [4400/5203] 603866: ok +1 (last=20260715) | elapsed 759s, 5.8/s, ETA 138s
-  [4500/5203] 605066: ok +1 (last=20260715) | elapsed 775s, 5.8/s, ETA 121s
-  [4600/5203] 688007: ok +1 (last=20260715) | elapsed 795s, 5.8/s, ETA 104s
-  [4700/5203] 688120: ok +1 (last=20260715) | elapsed 816s, 5.8/s, ETA 87s
-  [4800/5203] 688234: ok +1 (last=20260715) | elapsed 831s, 5.8/s, ETA 70s
-  [4900/5203] 688355: ok +1 (last=20260715) | elapsed 846s, 5.8/s, ETA 52s
-  [5000/5203] 688519: ok +1 (last=20260715) | elapsed 860s, 5.8/s, ETA 35s
-  [5100/5203] 688652: ok +1 (last=20260715) | elapsed 873s, 5.8/s, ETA 18s
-  [5200/5203] 688819: ok +1 (last=20260715) | elapsed 885s, 5.9/s, ETA 1s
-=== batch done: ok=5200 fail=3 rows=5200 processed=5203 elapsed=885s ===
-[F3-recent] 465 rows (31 ind × 15 dates, since 20260625)
-[D2-recent] 22 trading days (20260615~20260715), zt total=1982, dt total=551, zb total=914, up total=50687
-[D2-recent] wrote: {'written': 130, 'protected_akshare_dates': 8, 'dry_run': False}
-=== 采集 20260715 完成 (steps=['mootdx', 'industry_width', 'width_history']): ok=5200 fail=3 ===
-  [fail] mootdx_daily               +5200 rows, 5200 ok/3 fail (5203 codes)
-  [  ok] industry_width             +465 rows recent
-  [  ok] width_history              +22 days recent
-/Users/linhuichen/code/trade/scripts/pipeline.sh: line 54: COLLECT_RC�: unbound variable
--> [width] compute_runner ...
-[volume_ratio] 计算完成: 2557 天, 写入 10215 条 metric
-=== 计算完成: §4情绪分=2548天  sz50=5457天  hs300=5935天  csi500=5214天  csi1000=2841天  cyb=3900天  kc50=1568天  §6跨市场=4653天  买卖点=14667个  派生公式=2363行  AD Line=10228行  量比=2557天  位置感=24行  恐贪指数=4486天  买卖点stats=92品种(106373B)  新高新低=43410行  均线排列=25869行  板块轮动=3行 ===
--> [width] 等待 deploy 锁（串行化 git）...
-=== pipeline[width] 结束 2026-07-15 18:05:39 collect=0 deploy=0 ===
-pipeline 退出码: core=0 width=0 futures=0 turnover=0 (stock_daily PID=53945 仍在后台)
--> check_signals.sh ...
-=== check_signals.sh 开始 2026-07-15 18:05:39 ===
-查询日期参数：（今天）
-日志：/Users/linhuichen/code/trade/data/logs/check_signals_20260715_1805.log
-
-2026-07-15 18:05:39 [INFO] === check_signals 开始，查询日期：20260715 ===
-2026-07-15 18:05:39 [INFO] 今日（20260715）无买卖点信号，不发邮件
-
-=== check_signals.sh 结束 2026-07-15 18:05:39 退出码=0 ===
--> intraday_snapshot 采集 ...
-[intraday] 开始采集盘中实时快照 2026-07-15 18:05:39
-  0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 13.05it/s]                                             [intraday] 快照完成：12 指数（9 A 股 + 3 港股） / 31 行业 (收盘快照)，0.8s -> intraday_snapshot.json
-  [intraday] index_daily 反哺完成：12 条（来源：实时快照，港股含成交额）
-Please wait for a moment:   0%|          | 0/70 [00:00<?, ?it/s]Please wait for a moment:   1%|▏         | 1/70 [00:00<00:09,  7.11it/s]Please wait for a moment:   3%|▎         | 2/70 [00:00<00:09,  7.17it/s]Please wait for a moment:   4%|▍         | 3/70 [00:00<00:09,  7.36it/s]Please wait for a moment:   6%|▌         | 4/70 [00:00<00:08,  7.75it/s]Please wait for a moment:   7%|▋         | 5/70 [00:00<00:08,  7.84it/s]Please wait for a moment:   9%|▊         | 6/70 [00:00<00:08,  7.83it/s]Please wait for a moment:  10%|█         | 7/70 [00:00<00:08,  7.77it/s]Please wait for a moment:  11%|█▏        | 8/70 [00:01<00:07,  7.81it/s]Please wait for a moment:  13%|█▎        | 9/70 [00:01<00:07,  7.96it/s]Please wait for a moment:  14%|█▍        | 10/70 [00:01<00:07,  7.87it/s]Please wait for a moment:  16%|█▌        | 11/70 [00:01<00:07,  7.87it/s]Please wait for a moment:  17%|█▋        | 12/70 [00:01<00:07,  7.86it/s]Please wait for a moment:  19%|█▊        | 13/70 [00:01<00:07,  7.77it/s]Please wait for a moment:  20%|██        | 14/70 [00:01<00:07,  7.97it/s]Please wait for a moment:  21%|██▏       | 15/70 [00:01<00:06,  8.00it/s]Please wait for a moment:  23%|██▎       | 16/70 [00:02<00:08,  6.60it/s]Please wait for a moment:  24%|██▍       | 17/70 [00:02<00:08,  6.27it/s]Please wait for a moment:  26%|██▌       | 18/70 [00:02<00:09,  5.71it/s]Please wait for a moment:  27%|██▋       | 19/70 [00:03<00:16,  3.16it/s]Please wait for a moment:  29%|██▊       | 20/70 [00:03<00:13,  3.85it/s]Please wait for a moment:  30%|███       | 21/70 [00:03<00:10,  4.62it/s]Please wait for a moment:  31%|███▏      | 22/70 [00:03<00:09,  5.30it/s]Please wait for a moment:  33%|███▎      | 23/70 [00:03<00:07,  5.90it/s]Please wait for a moment:  34%|███▍      | 24/70 [00:04<00:12,  3.59it/s]Please wait for a moment:  36%|███▌      | 25/70 [00:04<00:10,  4.24it/s]Please wait for a moment:  37%|███▋      | 26/70 [00:04<00:08,  4.91it/s]Please wait for a moment:  39%|███▊      | 27/70 [00:04<00:07,  5.54it/s]Please wait for a moment:  40%|████      | 28/70 [00:04<00:06,  6.06it/s]Please wait for a moment:  41%|████▏     | 29/70 [00:04<00:06,  6.53it/s]Please wait for a moment:  43%|████▎     | 30/70 [00:04<00:05,  6.85it/s]Please wait for a moment:  44%|████▍     | 31/70 [00:05<00:05,  7.09it/s]Please wait for a moment:  46%|████▌     | 32/70 [00:05<00:05,  7.37it/s]Please wait for a moment:  47%|████▋     | 33/70 [00:05<00:05,  7.37it/s]Please wait for a moment:  49%|████▊     | 34/70 [00:05<00:04,  7.43it/s]Please wait for a moment:  50%|█████     | 35/70 [00:05<00:04,  7.40it/s]Please wait for a moment:  51%|█████▏    | 36/70 [00:05<00:04,  7.53it/s]Please wait for a moment:  53%|█████▎    | 37/70 [00:05<00:04,  7.65it/s]Please wait for a moment:  54%|█████▍    | 38/70 [00:06<00:04,  7.65it/s]Please wait for a moment:  56%|█████▌    | 39/70 [00:06<00:04,  7.70it/s]Please wait for a moment:  57%|█████▋    | 40/70 [00:06<00:03,  7.74it/s]Please wait for a moment:  59%|█████▊    | 41/70 [00:06<00:03,  7.79it/s]Please wait for a moment:  60%|██████    | 42/70 [00:06<00:03,  7.91it/s]Please wait for a moment:  61%|██████▏   | 43/70 [00:06<00:03,  7.93it/s]Please wait for a moment:  63%|██████▎   | 44/70 [00:06<00:03,  8.05it/s]Please wait for a moment:  64%|██████▍   | 45/70 [00:06<00:03,  7.91it/s]Please wait for a moment:  66%|██████▌   | 46/70 [00:07<00:03,  7.95it/s]Please wait for a moment:  67%|██████▋   | 47/70 [00:07<00:02,  8.13it/s]Please wait for a moment:  69%|██████▊   | 48/70 [00:07<00:02,  8.08it/s]Please wait for a moment:  70%|███████   | 49/70 [00:07<00:02,  7.96it/s]Please wait for a moment:  71%|███████▏  | 50/70 [00:07<00:02,  8.00it/s]Please wait for a moment:  73%|███████▎  | 51/70 [00:07<00:02,  8.07it/s]Please wait for a moment:  74%|███████▍  | 52/70 [00:07<00:02,  7.82it/s]Please wait for a moment:  76%|███████▌  | 53/70 [00:07<00:02,  7.77it/s]Please wait for a moment:  77%|███████▋  | 54/70 [00:08<00:02,  7.81it/s]Please wait for a moment:  79%|███████▊  | 55/70 [00:08<00:01,  7.96it/s]Please wait for a moment:  80%|████████  | 56/70 [00:08<00:01,  8.05it/s]Please wait for a moment:  81%|████████▏ | 57/70 [00:08<00:01,  7.84it/s]Please wait for a moment:  83%|████████▎ | 58/70 [00:08<00:01,  7.70it/s]Please wait for a moment:  84%|████████▍ | 59/70 [00:08<00:01,  7.73it/s]Please wait for a moment:  86%|████████▌ | 60/70 [00:08<00:01,  7.82it/s]Please wait for a moment:  87%|████████▋ | 61/70 [00:08<00:01,  7.67it/s]Please wait for a moment:  89%|████████▊ | 62/70 [00:09<00:01,  4.14it/s]Please wait for a moment:  90%|█████████ | 63/70 [00:09<00:01,  4.83it/s]Please wait for a moment:  91%|█████████▏| 64/70 [00:09<00:01,  5.44it/s]Please wait for a moment:  93%|█████████▎| 65/70 [00:10<00:01,  3.42it/s]Please wait for a moment:  94%|█████████▍| 66/70 [00:10<00:00,  4.08it/s]Please wait for a moment:  96%|█████████▌| 67/70 [00:10<00:00,  3.14it/s]Please wait for a moment:  97%|█████████▋| 68/70 [00:11<00:00,  2.67it/s]Please wait for a moment:  99%|█████████▊| 69/70 [00:11<00:00,  3.31it/s]                                                                           [intraday] spot: up=3350 down=2098 amount=25868亿 (11.7s)
-  [intraday] zt_pool: zt=72 max_lianban=4 (0.1s)
-  [intraday] dt_pool: dt=31 (0.6s)
-  [intraday] zhaban_pool: zhaban=21 zt=72 rate=0.2258 (0.7s)
-  [intraday] volume_ratio 重算完成（基于盘中 a_amount）
-  [intraday] width 指标采集完成：8 项
-  [intraday] index_daily 行业反哺完成：31 条（含 net_inflow）
-  [intraday] sentiment_sz50: 5457天, 末日=20260715=59.5
-  [intraday] sentiment_hs300: 5935天, 末日=20260715=33.45
-  [intraday] sentiment_csi500: 5214天, 末日=20260715=25.34
-  [intraday] sentiment_csi1000: 2841天, 末日=20260715=24.4
-  [intraday] sentiment_cyb: 3900天, 末日=20260715=27.86
-  [intraday] sentiment_kc50: 1568天, 末日=20260715=24.57
-  [intraday] fear_greed 重算: 4486天, 末日=20260715=37.51
-  [intraday] a_sentiment: 2548天, 末日=20260715=60.68
-  [intraday] cross_market: 4653天, 末日=20260715=45.82
-  [intraday] 静态 JSON dump 完成：overview + sentiment×5 + index detail×12 + hk×7 + a-stock×7 + global×7
-[intraday] 反哺+width+重算+export 完成（12 指数 + 31 行业反哺 + 8 width 指标）
-=== update_all.sh 结束 2026-07-15 18:06:01 ===
-core=0 width=0 futures=0 turnover=0 check_signals=0
