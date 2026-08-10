@@ -998,8 +998,17 @@
    仅覆盖 padding/margin/font-size/line-height 为 lab 小字号,background/border/border-radius/color 继承基准 */
 .purpose-note.lab-sm {
   padding: 10px 14px; margin-bottom: 10px;
-  font-size: 12.5px; line-height: 1.6;
+  font-size: 13px; line-height: 1.7;
 }
+/* 可折叠 purpose-note (details/summary, 长文案折叠避免占屏) */
+.purpose-note-collapse { padding: 10px 14px; margin-bottom: 10px; }
+.purpose-note-summary { cursor: pointer; font-weight: 700; font-size: 13px; color: var(--text-1); line-height: 1.7; list-style: none; }
+.purpose-note-summary::-webkit-details-marker { display: none; }
+.purpose-note-summary::before { content: "▸ "; display: inline-block; transition: transform 0.15s; color: var(--text-3); }
+.purpose-note-collapse[open] > .purpose-note-summary::before { transform: rotate(90deg); }
+.purpose-note-body { margin-top: 8px; }
+.purpose-note-body p { margin: 0 0 8px; font-size: 13px; line-height: 1.7; color: var(--text-1); }
+.purpose-note-body p:last-child { margin-bottom: 0; }
 
 /* 实验室策略详情：指标释义折叠块（散户白话，复用凯利折叠风格） */
 .indicator-explain {
@@ -1416,7 +1425,7 @@
 .lab-sigkelly-periods { display: flex; gap: 4px; flex-wrap: wrap; }
 .lab-sigkelly-params { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--text-3); align-items: center; }
 .lab-sigkelly-gen { color: var(--text-4); font-size: 11px; }
-.lab-sigkelly-fee-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; width: 100%; }
+.lab-sigkelly-fee-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 6px; width: 100%; }
 .lab-sigkelly-fee-label { font-size: 12px; font-weight: 700; color: var(--text-2); white-space: nowrap; }
 .lab-sigkelly-fee-btn { font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-3); cursor: pointer; white-space: nowrap; transition: all 0.15s; }
 .lab-sigkelly-fee-btn:hover { border-color: var(--accent, #3b82f6); color: var(--text-1); }
@@ -1430,12 +1439,13 @@
 .lab-sigkelly-fee { font-size: 11px; white-space: nowrap; }
 .lab-sigkelly-tp-hl { font-size: 13px; font-weight: 700; white-space: nowrap; }
 .lab-sigkelly-rmh { white-space: nowrap; }
-.lab-sigkelly-toggle-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; width: 100%; padding: 4px 0; border-top: 1px dashed var(--border); margin-top: 2px; }
+.lab-sigkelly-toggle-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 10px; width: 100%; padding: 4px 0; border-top: 1px dashed var(--border); margin-top: 2px; }
 .lab-sigkelly-toggle-label { font-size: 12px; font-weight: 700; color: var(--text-2); white-space: nowrap; }
 .lab-sigkelly-toggle { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--text-3); cursor: pointer; white-space: nowrap; }
 .lab-sigkelly-toggle input { cursor: pointer; }
 .lab-sigkelly-toggle-hint { font-size: 10px; color: var(--text-4); margin-left: 4px; }
 .lab-sigkelly-toggle-tier { font-size: 10px; font-weight: 600; color: var(--text-4); white-space: nowrap; padding: 0 4px; border-left: 2px solid var(--border); margin-left: 2px; }
+.lab-sigkelly-toggle-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; width: 100%; padding: 4px 6px; background: var(--bg-hover, rgba(0,0,0,0.02)); border-radius: 4px; }
 .lab-sigkelly-toggle-tip { font-size: 10px; color: var(--text-4); cursor: help; margin-left: 1px; }
 /* 降亏过滤 toggle hover 说明 tooltip (CSS 纯实现, hover/focus-within 触发, 复用 wm-pop 视觉变量) */
 .lab-sigkelly-toggle[data-tip] { position: relative; }
@@ -1589,7 +1599,7 @@
 }
 
 /* === 双AI对比展示区(三份文档折叠默认收起) === */
-.lab-sigkelly-ai-review { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.lab-sigkelly-ai-review { margin: 10px 0 0 0; display: flex; flex-direction: column; gap: 8px; }
 .lab-sigkelly-review {
   border: 1px solid var(--border); border-radius: 8px; padding: 0; overflow: hidden;
   background: var(--bg-card);

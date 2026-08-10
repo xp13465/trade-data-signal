@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260810-a104';  // bump a103->a104: v4降亏标志三梯队全量上线(12新toggle,总27)
+const CACHE_VERSION = 'v6-20260810-a105';  // bump a104->a105: 凯利UI优化(AI报告details移wrapper层+purpose-note折叠拆段+toggle按tier分组+V4-J tooltip极低价)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
