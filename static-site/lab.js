@@ -7236,7 +7236,13 @@ function _kellyDefaultFilters() {
     n5MayVlow: false, n6MidMay: false, r10May6NonMay: false,
     // 现有标志(比值<3, 按比值倒序: 2.52>2.31>2.11>1.38>1.24>1.14)
     excludeAuxCross: false, excludeSpecialBear: false, excludeMonth: false,
-    excludeAux: false, marketTiming: false, excludeRatingLow: false
+    excludeAux: false, marketTiming: false, excludeRatingLow: false,
+    // v4新标志(第一梯队: Greedy-7组合/V4-C简化/V4-B)
+    greedy7: false, v4cSimple: false, v4b: false,
+    // v4新标志(第二梯队: Greedy-10组合/V4-D/V4-J/V4-I)
+    greedy10: false, v4d: false, v4j: false, v4i: false,
+    // v4新标志(第三梯队,附监控: Greedy-15组合/V4-F/V4-G/V4-M/V4-K)
+    greedy15: false, v4f: false, v4g: false, v4m: false, v4k: false
   };
 }
 
@@ -7305,7 +7311,9 @@ async function _kellyApplyFeeRecompute(feeParams) {
           if (filters.excludeSpecialBear && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_state != null && t[fIdx.market_state] === false) return false;
           // v3新9 toggle(比值>3, 按比值倒序: 10.06>6.63>5.87>5.24>4.67>4.18>4.02>3.35>3.31)
           var _v3On = filters.n1MarTueHigh || filters.n2NovSpecialIndustry || filters.r8PureNonMay || filters.n3NovSpecialMon || filters.n4AMay || filters.r7MayReinforced || filters.n5MayVlow || filters.n6MidMay || filters.r10May6NonMay;
-          if (_v3On) {
+          // v4新12 toggle(三梯队全量上线)
+          var _v4On = filters.greedy7 || filters.greedy10 || filters.greedy15 || filters.v4cSimple || filters.v4b || filters.v4d || filters.v4j || filters.v4i || filters.v4f || filters.v4g || filters.v4m || filters.v4k;
+          if (_v3On || _v4On) {
             var _bd3 = String(t[fIdx.buy_date] || "");
             var _mm3 = _bd3.substring(4, 6);
             var _sig3 = fIdx.signal != null ? String(t[fIdx.signal] || "") : "";
@@ -7317,24 +7325,96 @@ async function _kellyApplyFeeRecompute(feeParams) {
               var _dims3 = _tradeDims[_dk3] || {};
               _mktD3 = _dims3.mkt || ""; _ratD3 = _dims3.rating || "";
             }
-            // N1: 3月+周三+高价ETF, 比值10.06, 7/7年全亏
-            if (filters.n1MarTueHigh && _mm3 === "03" && _wd3 === 2 && _bpb3 === "high") return false;
-            // N2: 11月+追关注+行业指数, 比值6.63
-            if (filters.n2NovSpecialIndustry && _sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") return false;
-            // R8: 纯非五月3稳定(N1∪N2∪N3), 比值5.87, 6年全正
-            if (filters.r8PureNonMay && ((_mm3 === "03" && _wd3 === 2 && _bpb3 === "high") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0))) return false;
-            // N3: 11月+追关注+周一, 比值5.24
-            if (filters.n3NovSpecialMon && _sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0) return false;
-            // N4: A股指数+5月, 比值4.67(5月系最稳)
-            if (filters.n4AMay && _mktD3 === "a" && _mm3 === "05") return false;
-            // R7: 5月强化+3非五月(N4∪N6∪N5∪N1∪N2∪N3), 比值4.18, 损盈1.73%最surgical
-            if (filters.r7MayReinforced && ((_mktD3 === "a" && _mm3 === "05") || (_ratD3 === "mid" && _mm3 === "05") || (_mm3 === "05" && _bpb3 === "vlow") || (_mm3 === "03" && _wd3 === 2 && _bpb3 === "high") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0))) return false;
-            // N5: 5月+低价ETF, 比值4.02(附监控,2026占66%)
-            if (filters.n5MayVlow && _mm3 === "05" && _bpb3 === "vlow") return false;
-            // N6: mid评级+5月, 比值3.35(附监控,2026占71%)
-            if (filters.n6MidMay && _ratD3 === "mid" && _mm3 === "05") return false;
-            // R10: 5月+6非五月组件(5月整体∪N1∪N2∪N3∪11月追关注低价∪3月追关注行业∪3月周三辅关注), 比值3.31, 净+676k全场最大
-            if (filters.r10May6NonMay && (_mm3 === "05" || (_mm3 === "03" && _wd3 === 2 && _bpb3 === "high") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0) || (_sig3 === "buy_special" && _mm3 === "11" && _bpb3 === "low") || (_sig3 === "buy_special" && _mm3 === "03" && _mktD3 === "industry") || (_mm3 === "03" && _wd3 === 2 && _sig3 === "buy_aux"))) return false;
+            // v4新增维度变量
+            var _ts3 = fIdx.track_score != null ? Number(t[fIdx.track_score]) : 999; // ts_bin<50
+            var _etfD3 = fIdx.track_tier != null ? String(t[fIdx.track_tier] || "") : ""; // etf_dim
+            var _q3 = _mm3 ? Math.ceil(parseInt(_mm3, 10) / 3) : 0; // buy_quarter 1-4
+            // v3新9 toggle
+            if (_v3On) {
+              // N1: 3月+周三+高价ETF, 比值10.06, 7/7年全亏
+              if (filters.n1MarTueHigh && _mm3 === "03" && _wd3 === 2 && _bpb3 === "high") return false;
+              // N2: 11月+追关注+行业指数, 比值6.63
+              if (filters.n2NovSpecialIndustry && _sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") return false;
+              // R8: 纯非五月3稳定(N1∪N2∪N3), 比值5.87, 6年全正
+              if (filters.r8PureNonMay && ((_mm3 === "03" && _wd3 === 2 && _bpb3 === "high") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0))) return false;
+              // N3: 11月+追关注+周一, 比值5.24
+              if (filters.n3NovSpecialMon && _sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0) return false;
+              // N4: A股指数+5月, 比值4.67(5月系最稳)
+              if (filters.n4AMay && _mktD3 === "a" && _mm3 === "05") return false;
+              // R7: 5月强化+3非五月(N4∪N6∪N5∪N1∪N2∪N3), 比值4.18, 损盈1.73%最surgical
+              if (filters.r7MayReinforced && ((_mktD3 === "a" && _mm3 === "05") || (_ratD3 === "mid" && _mm3 === "05") || (_mm3 === "05" && _bpb3 === "vlow") || (_mm3 === "03" && _wd3 === 2 && _bpb3 === "high") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0))) return false;
+              // N5: 5月+低价ETF, 比值4.02(附监控,2026占66%)
+              if (filters.n5MayVlow && _mm3 === "05" && _bpb3 === "vlow") return false;
+              // N6: mid评级+5月, 比值3.35(附监控,2026占71%)
+              if (filters.n6MidMay && _ratD3 === "mid" && _mm3 === "05") return false;
+              // R10: 5月+6非五月组件(5月整体∪N1∪N2∪N3∪11月追关注低价∪3月追关注行业∪3月周三辅关注), 比值3.31, 净+676k全场最大
+              if (filters.r10May6NonMay && (_mm3 === "05" || (_mm3 === "03" && _wd3 === 2 && _bpb3 === "high") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0) || (_sig3 === "buy_special" && _mm3 === "11" && _bpb3 === "low") || (_sig3 === "buy_special" && _mm3 === "03" && _mktD3 === "industry") || (_mm3 === "03" && _wd3 === 2 && _sig3 === "buy_aux"))) return false;
+            }
+            // === v4 新标志(三梯队全量上线, 12 toggle) ===
+            if (_v4On) {
+              // 第一梯队
+              // V4-C简化: 3月+周三+辅关注(去低分), 比值7.84, 净+11.3万
+              if (filters.v4cSimple && _mm3 === "03" && _wd3 === 2 && _sig3 === "buy_aux") return false;
+              // V4-B: A股+5月+追关注+related, 比值53.96, 6年全正
+              if (filters.v4b && _mktD3 === "a" && _mm3 === "05" && _sig3 === "buy_special" && _etfD3 === "related") return false;
+              // Greedy-7: 7step并集, 比值3.15, 净+100.7万, maxSh0.28
+              if (filters.greedy7 && (
+                (_sig3 === "buy_special" && _mm3 === "05") ||
+                (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "concept") ||
+                (_sig3 === "buy_special" && _mm3 === "03") ||
+                (_sig3 === "buy_aux" && _mm3 === "01") ||
+                (_q3 === 2 && _bpb3 === "vlow" && _sig3 === "buy_aux" && _mktD3 === "concept") ||
+                (_sig3 === "buy" && _mm3 === "01") ||
+                (_mm3 === "03" && _wd3 === 2 && _mktD3 === "concept" && _ratD3 === "low")
+              )) return false;
+              // 第二梯队
+              // V4-D: 12月+周二+辅关注+低分, 比值12.20, 5年全正
+              if (filters.v4d && _mm3 === "12" && _wd3 === 1 && _sig3 === "buy_aux" && _ts3 < 50) return false;
+              // V4-J: 5月+vlow+追关注, 比值15.55, 5年全正(maxSh 66%->40%)
+              if (filters.v4j && _mm3 === "05" && _bpb3 === "vlow" && _sig3 === "buy_special") return false;
+              // V4-I: 追关注+5月+概念+周一, 比值27.04
+              if (filters.v4i && _sig3 === "buy_special" && _mm3 === "05" && _mktD3 === "concept" && _wd3 === 0) return false;
+              // Greedy-10: 10step并集(=Greedy-7+step8-10), 比值3.06, 净+123万
+              if (filters.greedy10 && (
+                (_sig3 === "buy_special" && _mm3 === "05") ||
+                (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "concept") ||
+                (_sig3 === "buy_special" && _mm3 === "03") ||
+                (_sig3 === "buy_aux" && _mm3 === "01") ||
+                (_q3 === 2 && _bpb3 === "vlow" && _sig3 === "buy_aux" && _mktD3 === "concept") ||
+                (_sig3 === "buy" && _mm3 === "01") ||
+                (_mm3 === "03" && _wd3 === 2 && _mktD3 === "concept" && _ratD3 === "low") ||
+                (_sig3 === "buy_aux" && _mm3 === "12" && _ts3 < 50) ||
+                (_mm3 === "06" && _bpb3 === "vlow" && _ratD3 === "low") ||
+                (_sig3 === "buy_aux" && _mm3 === "05")
+              )) return false;
+              // 第三梯队(附监控)
+              // V4-F: 6月+周三+主关注+related, 比值999 JEP, ⚠n=60太小
+              if (filters.v4f && _sig3 === "buy" && _mm3 === "06" && _wd3 === 2 && _etfD3 === "related") return false;
+              // V4-G: 全球+Q1+辅关注+低评级, 比值6.25, ⚠近年才转亏
+              if (filters.v4g && _mktD3 === "global" && _q3 === 1 && _sig3 === "buy_aux" && _ratD3 === "low") return false;
+              // V4-M: 9月+周三+追关注, 比值115.56, ⚠只3年数据
+              if (filters.v4m && _sig3 === "buy_special" && _mm3 === "09" && _wd3 === 2) return false;
+              // V4-K: 1月+主关注+高价, 比值10.11, ⚠有子集盈利年
+              if (filters.v4k && _sig3 === "buy" && _mm3 === "01" && _bpb3 === "high") return false;
+              // Greedy-15: 15step并集(=Greedy-10+step11-15), 比值3.29, 净+149万, 损盈9.84%
+              if (filters.greedy15 && (
+                (_sig3 === "buy_special" && _mm3 === "05") ||
+                (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "concept") ||
+                (_sig3 === "buy_special" && _mm3 === "03") ||
+                (_sig3 === "buy_aux" && _mm3 === "01") ||
+                (_q3 === 2 && _bpb3 === "vlow" && _sig3 === "buy_aux" && _mktD3 === "concept") ||
+                (_sig3 === "buy" && _mm3 === "01") ||
+                (_mm3 === "03" && _wd3 === 2 && _mktD3 === "concept" && _ratD3 === "low") ||
+                (_sig3 === "buy_aux" && _mm3 === "12" && _ts3 < 50) ||
+                (_mm3 === "06" && _bpb3 === "vlow" && _ratD3 === "low") ||
+                (_sig3 === "buy_aux" && _mm3 === "05") ||
+                (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") ||
+                (_mm3 === "04" && _wd3 === 1 && _mktD3 === "concept" && _ts3 < 50) ||
+                (_mktD3 === "global" && _q3 === 1 && _sig3 === "buy_aux" && _ratD3 === "low") ||
+                (_mm3 === "01" && _bpb3 === "low" && _sig3 === "buy_special" && _mktD3 === "concept") ||
+                (_sig3 === "buy_special" && _mm3 === "09" && _wd3 === 2)
+              )) return false;
+            }
           }
           return true;
         });
@@ -7586,6 +7666,21 @@ function _renderSigKellyBar(bar, data, period) {
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除5月+低价ETF的交易。减亏1.85%/损盈0.46%/比值4.02。净增收+9.51万元。⚠️附监控:2026年占全历史净影响66%，过拟合风险最高。2021-2023连续3年子集盈利。每年6月监控5月表现，转盈则暂停。"><input type="checkbox" class="lab-sigkelly-toggle-n5"${_filters.n5MayVlow ? " checked" : ""}> 5月+低价(4.02)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除mid评级+5月的交易。减亏2.19%/损盈0.65%/比值3.35。净增收+10.20万元。⚠️附监控:2026年占全历史净影响71%，2021大额子集盈利-1.74万。每年6月监控5月表现，转盈则暂停。"><input type="checkbox" class="lab-sigkelly-toggle-n6"${_filters.n6MidMay ? " checked" : ""}> mid+5月(3.35)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除5月+6稳定非五月组件的并集(5月整体+N1+N2+N3+11月追关注低价+3月追关注行业+3月周三辅关注)。减亏14.63%/损盈4.42%/比值3.31。净增收+67.65万元(全场最大)。PF 1.285→1.439。三条独立季节+信号线重叠少。2021-2022子集盈利(5月shift痕迹)。"><input type="checkbox" class="lab-sigkelly-toggle-r10"${_filters.r10May6NonMay ? " checked" : ""}> 5月+6非五月R10(3.31) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<span class="lab-sigkelly-toggle-tier">v4新标志(三梯队,4方法挖掘)</span>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除Greedy-7组合(7step并集):追关注+5月/追关注+11月+概念/追关注+3月/辅关注+1月/Q2+低价+辅关注+概念/主关注+1月/3月+周三+概念+低评级。减亏22.5%/损盈7.16%/比值3.15。净增收+100.7万元。PF1.285->1.540。maxSh0.28远低于⑦⑧的66%/71%,7条独立亏损逻辑线,近年不失效。"><input type="checkbox" class="lab-sigkelly-toggle-greedy7"${_filters.greedy7 ? " checked" : ""}> Greedy-7组合(3.15) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-C简化(3月+周三+辅关注,去低分冗余)。比值7.84。净增收+11.3万元。4窗口极稳(y1/y3/y10均>7),覆盖366笔。是v3 N1(3月+周三+高价)的信号维度变体,可叠加。"><input type="checkbox" class="lab-sigkelly-toggle-v4csimple"${_filters.v4cSimple ? " checked" : ""}> V4-C简化(7.84) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-B(A股+5月+追关注+related)。比值53.96。净增收+4.01万元。6年全正,maxSh0.37最低,n=210充足。5月系中最稳。"><input type="checkbox" class="lab-sigkelly-toggle-v4b"${_filters.v4b ? " checked" : ""}> V4-B(53.96) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<span class="lab-sigkelly-toggle-tier">第二梯队</span>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除Greedy-10组合(10step并集=Greedy-7+step8-10)。减亏28.0%/损盈9.16%/比值3.06。净增收+123.0万元。PF1.285->1.623。maxSh0.28。损盈9.16%接近10%上限。"><input type="checkbox" class="lab-sigkelly-toggle-greedy10"${_filters.greedy10 ? " checked" : ""}> Greedy-10组合(3.06) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-D(12月+周二+辅关注+低分)。比值12.20。净增收+3.92万元。5年全正(2020-2024),maxSh0.46。经济逻辑最强(年末止损潮)。n=102,近1年无数据(12月未到)。"><input type="checkbox" class="lab-sigkelly-toggle-v4d"${_filters.v4d ? " checked" : ""}> V4-D(12.20) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-J(5月+低价+追关注)。比值15.55。净增收+6.29万元。5年全正,maxSh0.40。是⑦n5(5月+低价,maxSh66%)的细化版,加追关注后maxSh从66%降到40%,过拟合风险显著降低。"><input type="checkbox" class="lab-sigkelly-toggle-v4j"${_filters.v4j ? " checked" : ""}> V4-J(15.55) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-I(追关注+5月+概念+周一)。比值27.04。净增收+5.37万元。4年全正,y3=29.7。maxSh0.57接近阈值。"><input type="checkbox" class="lab-sigkelly-toggle-v4i"${_filters.v4i ? " checked" : ""}> V4-I(27.04) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<span class="lab-sigkelly-toggle-tier">第三梯队(附监控)</span>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除Greedy-15组合(15step并集=Greedy-10+step11-15)。减亏32.4%/损盈9.84%/比值3.29。净增收+149.0万元。PF1.285->1.713。maxSh0.28。损盈9.84%接近10%上限。含step11=现有N2、step13=V4-G、step15=V4-M,同时开启幂等无害。"><input type="checkbox" class="lab-sigkelly-toggle-greedy15"${_filters.greedy15 ? " checked" : ""}> Greedy-15组合(3.29) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-F(6月+周三+主关注+related)。比值999(JEP)。净增收+2.47万元。⚠n=60太小,只3年数据,JEP ratio=999虚高。每年6月检查,子集转盈则暂停。"><input type="checkbox" class="lab-sigkelly-toggle-v4f"${_filters.v4f ? " checked" : ""}> V4-F(999)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-G(全球+Q1+辅关注+低评级)。比值6.25。净增收+5.64万元。maxSh0.34。⚠近年才转亏:2023-2024子集实际盈利,2025-2026才大亏,可能是市场结构变化。观察2年再决定。"><input type="checkbox" class="lab-sigkelly-toggle-v4g"${_filters.v4g ? " checked" : ""}> V4-G(6.25)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-M(9月+周三+追关注)。比值115.56。净增收+5.24万元。⚠只3年数据(2021/2024/2026),ratio=115.56虚高。数据不足,每年检查。"><input type="checkbox" class="lab-sigkelly-toggle-v4m"${_filters.v4m ? " checked" : ""}> V4-M(115.56)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-K(1月+主关注+高价)。比值10.11。净增收+4.08万元。maxSh0.49。⚠有子集盈利年(2017/2025),3/5年净正非全正,稳定性不足。"><input type="checkbox" class="lab-sigkelly-toggle-v4k"${_filters.v4k ? " checked" : ""}> V4-K(10.11)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<span class="lab-sigkelly-toggle-tier">比值&lt;3(广谱过滤)</span>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 buy_aux 信号在3/5月进场的交易（交叉标志）。减亏 7.3% / 损盈 2.9% / 比值 2.52（全场最高）。净增收 +25.8万元。最外科手术式标志，双条件交集更稳定。"><input type="checkbox" class="lab-sigkelly-toggle-auxcross"${_filters.excludeAuxCross ? " checked" : ""}> 辅关注×3/5月交叉(2.52) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 buy_special（追关注）信号在MA60熊市的交易（交叉标志）。减亏 8.3% / 损盈 3.6% / 比值 2.31。净增收 +26.5万元。追涨信号在熊市是经典反模式（追涨被套），buy_special整体净正但在熊市净亏。"><input type="checkbox" class="lab-sigkelly-toggle-specialbear"${_filters.excludeSpecialBear ? " checked" : ""}> 追关注×熊市交叉(2.31) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
@@ -7681,6 +7776,82 @@ function _renderSigKellyBar(bar, data, period) {
   if (r10Cb) r10Cb.onchange = function () {
     if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
     state.labSigKellyFilters.r10May6NonMay = r10Cb.checked;
+    _kellyOnFilterChange();
+  };
+  // v4新12 toggle(三梯队全量上线)
+  // 第一梯队
+  var greedy7Cb = bar.querySelector(".lab-sigkelly-toggle-greedy7");
+  if (greedy7Cb) greedy7Cb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.greedy7 = greedy7Cb.checked;
+    _kellyOnFilterChange();
+  };
+  var v4cSimpleCb = bar.querySelector(".lab-sigkelly-toggle-v4csimple");
+  if (v4cSimpleCb) v4cSimpleCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.v4cSimple = v4cSimpleCb.checked;
+    _kellyOnFilterChange();
+  };
+  var v4bCb = bar.querySelector(".lab-sigkelly-toggle-v4b");
+  if (v4bCb) v4bCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.v4b = v4bCb.checked;
+    _kellyOnFilterChange();
+  };
+  // 第二梯队
+  var greedy10Cb = bar.querySelector(".lab-sigkelly-toggle-greedy10");
+  if (greedy10Cb) greedy10Cb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.greedy10 = greedy10Cb.checked;
+    _kellyOnFilterChange();
+  };
+  var v4dCb = bar.querySelector(".lab-sigkelly-toggle-v4d");
+  if (v4dCb) v4dCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.v4d = v4dCb.checked;
+    _kellyOnFilterChange();
+  };
+  var v4jCb = bar.querySelector(".lab-sigkelly-toggle-v4j");
+  if (v4jCb) v4jCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.v4j = v4jCb.checked;
+    _kellyOnFilterChange();
+  };
+  var v4iCb = bar.querySelector(".lab-sigkelly-toggle-v4i");
+  if (v4iCb) v4iCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.v4i = v4iCb.checked;
+    _kellyOnFilterChange();
+  };
+  // 第三梯队(附监控)
+  var greedy15Cb = bar.querySelector(".lab-sigkelly-toggle-greedy15");
+  if (greedy15Cb) greedy15Cb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.greedy15 = greedy15Cb.checked;
+    _kellyOnFilterChange();
+  };
+  var v4fCb = bar.querySelector(".lab-sigkelly-toggle-v4f");
+  if (v4fCb) v4fCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.v4f = v4fCb.checked;
+    _kellyOnFilterChange();
+  };
+  var v4gCb = bar.querySelector(".lab-sigkelly-toggle-v4g");
+  if (v4gCb) v4gCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.v4g = v4gCb.checked;
+    _kellyOnFilterChange();
+  };
+  var v4mCb = bar.querySelector(".lab-sigkelly-toggle-v4m");
+  if (v4mCb) v4mCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.v4m = v4mCb.checked;
+    _kellyOnFilterChange();
+  };
+  var v4kCb = bar.querySelector(".lab-sigkelly-toggle-v4k");
+  if (v4kCb) v4kCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.v4k = v4kCb.checked;
     _kellyOnFilterChange();
   };
   // 现有6 toggle(比值<3)
