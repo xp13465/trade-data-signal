@@ -799,6 +799,35 @@ def upload_to_r2(repo: Path, no_upload: bool) -> None:
         print(f"⚠ R2 上传异常(不阻塞): {e}")
 
 
+# ── staticdata 同步(数据仓库留档/复原,防 deploy 外生成器留旧版)──────────
+def staticdata_sync(repo: Path, no_upload: bool) -> None:
+    """同步 daily_brief*.json 到 staticdata 数据仓库(trade-data-signal-staticdata)。
+
+    背景: staticdata 同步原依赖 deploy.sh 每次 deploy 后全量 rsync;但本脚本是 deploy
+    外独立生成器(只写 static-site/data/ + R2 上传,不跑 deploy.sh) → staticdata 留旧版
+    直到下次 deploy(同步时机缺口,见 docs/staticdata-daily-brief-sync.md §二)。
+    这里调 scripts/staticdata_sync.sh(daily-brief 触发名),脚本内部持 /tmp/trade_deploy.lock
+    阻塞防与 deploy.sh staticdata 段并发写同一 git 仓库,best-effort 失败不阻塞本流程。
+    必须传 REPO=repo(同 upload_to_r2,防 static-site 路径解析到 trade/ 非本脚本写入目录)。"""
+    if no_upload:
+        return
+    env = dict(os.environ)
+    env.setdefault("REPO", str(repo))
+    try:
+        r = subprocess.run(
+            ["bash", str(repo / "scripts/staticdata_sync.sh"), "daily-brief",
+             BRIEF_FILE, HISTORY_FILE],
+            cwd=str(repo), env=env, timeout=600, capture_output=True, check=False)
+        out = (r.stdout or b"").decode("utf-8", errors="replace").strip()
+        err = (r.stderr or b"").decode("utf-8", errors="replace").strip()
+        if r.returncode == 0 and out:
+            print(f"[staticdata] {out.splitlines()[-1]}")
+        elif r.returncode != 0:
+            print(f"⚠ staticdata 同步 rc={r.returncode} {out[-300:] if out else ''} {err[-300:] if err else ''}")
+    except Exception as e:
+        print(f"⚠ staticdata 同步异常(不阻塞): {e}")
+
+
 # ── 已知偏差(P2-2 阶段1:从 history 统计偏差注入 prompt)──────────────────
 def compute_known_bias(history: list[dict]) -> str:
     if not history:
@@ -925,6 +954,8 @@ def main() -> int:
 
     # R2 上传
     upload_to_r2(repo, args.no_upload)
+    # staticdata 同步(数据仓库留档,防 deploy 外生成器留旧版;best-effort)
+    staticdata_sync(repo, args.no_upload)
     log(f"完成 version={version} date={date}")
     return 0
 

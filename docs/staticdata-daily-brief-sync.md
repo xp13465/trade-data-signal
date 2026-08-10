@@ -58,7 +58,7 @@
 ### 原则
 凡 static-site/data 下数据产物,除超大文件外都应进 staticdata。daily_brief 是每日 2KB 级小文件,进 staticdata 完全合理,且与 R2 双份不冲突(§8.1:小文件走 CF/staticdata 差异日志,R2 是公开分发,两不冲突)。
 
-### 1. 核心改动:gen_daily_brief.py 生成后追加 staticdata 同步(推荐)
+### 1. 核心改动:gen_daily_brief.py 生成后追加 staticdata 同步(推荐) ✅ 已实施(2026-08-11)
 在 `scripts/gen_daily_brief.py`:
 - **改动点**: 在 `upload_to_r2(repo, args.no_upload)`(L927)之后,追加 `staticdata_sync(repo, args.no_upload)` 调用。
 - **新函数**(仿 upload_to_r2 L778-799 模式,放其后):
@@ -67,13 +67,13 @@
   3. 可选:调 `gen_data_manifest.py` 刷新 manifest.json 一并 commit(保证 fetch_data.sh 一键复原索引新鲜)
 - **同时覆盖手动 CLI 与定时调度两条路径**(schedule_enabled=true 的 17:50 定时跑也会触发)。
 
-### 2. 通用化:抽 scripts/staticdata_sync.sh(建议,防同类再漏)
+### 2. 通用化:抽 scripts/staticdata_sync.sh(建议,防同类再漏) ✅ 已实施(2026-08-11)
 把 §四-1 的 cp+commit+push 抽成 `scripts/staticdata_sync.sh`(入参:文件列表 或 无参=全量 rsync 同 deploy.sh L529;持 `/tmp/trade_deploy.lock`;best-effort;commit message 带触发名)。daily_brief 及未来所有「写 static-site/data + R2 但未跑 deploy.sh」的生成器都调用它。deploy.sh L507-558 可后续重构复用它(可选,不阻塞)。
 
-### 3. 历史数据补同步(一次性)
+### 3. 历史数据补同步(一次性) ✅ 已实施(2026-08-11)
 把当前 `static-site/data/daily_brief.json` + `daily_brief_history.json` cp 到 staticdata/data/ + git commit + push(即直接跑一次 §四-1/2 的同步),把 8/11 02:41 真实版补进 staticdata 提交历史。
 
-### 4. 同类新数据类别排查(实施时同步做)
+### 4. 同类新数据类别排查(实施时同步做) ✅ 已落档(2026-08-11)
 - **排查口径**: 枚举 `scripts/` 下所有「写 static-site/data/ + 调 upload_r2 但不调 deploy.sh」的生成器(gen_daily_brief.py / gen_schedule_stats.py 等),逐个确认是否缺 staticdata 同步,缺则套用 §四-2 的 staticdata_sync.sh。
 - **防再漏落档**: 新数据类别上线 checklist 增加一条——「写 static-site/data 的生成器必须同时接 ①R2 上传 ②staticdata 同步(或跑 deploy.sh)」。
 
@@ -88,3 +88,12 @@
 3. **R2 不受影响**: curl `https://ssd.fx8.store/data/daily_brief.json` 仍是线上最新版(同步只是追加,不动 R2)。
 4. **幂等**: 重跑一次 gen_daily_brief.py 或 staticdata_sync.sh,`git -C staticdata status --short` 无新变更(无变更跳过 commit,同 deploy.sh L538 逻辑)。
 5. **manifest**: 若启用自动刷新,`grep -c daily_brief ~/code/trade-data-signal-staticdata/manifest.json` ≥2 且 generated_at 是本次时间。
+
+## 六、实施记录(2026-08-11 通用化落地)
+
+- **`scripts/staticdata_sync.sh`(新)**: 通用 staticdata 同步脚本。持 `/tmp/trade_deploy.lock`(阻塞,与 deploy.sh/pipeline 串行化防并发写同一 git 仓库);参数 `<trigger> [--all] [--manifest] [file1.json ...]`(trigger=commit message 触发名,默认全量 rsync);best-effort 失败不阻塞调用方(退出码恒 0);幂等无变更跳过 commit;`REPO/GIT_REPO/STATICDATA_REPO/PY` 环境变量可覆盖。`--manifest` 可选刷新 staticdata 仓库根 manifest.json 一并 commit(默认不刷)。
+- **`scripts/gen_daily_brief.py`**: 新增 `staticdata_sync(repo, no_upload)`(仿 upload_to_r2 模式,传 `REPO=repo` 防路径错位),在 `upload_to_r2` 之后调用 → 生成后同步 `daily_brief.json` + `daily_brief_history.json` 到 staticdata(覆盖手动 CLI 与 schedule 定时两条路径)。`--no-upload` 同时跳过 R2 与 staticdata。
+- **历史数据补同步**: 2026-08-11 02:41 真实版已被当日 03:15 public-fund deploy 顺带收录(staticdata git 7d547e8),当前两仓库 daily_brief*.json 内容一致,无需单独补。
+- **新数据类别上线 checklist**: 已补 CLAUDE.md §8.1(新数据类别必接 ①R2 上传 ②staticdata 同步或跑 deploy.sh)。
+- **自验记录**: bash -n + py_compile 通过;真实幂等运行(无变更跳过 commit 不 push);临时仓库 4 项测试通过(files 模式 cp+commit / --all 全量 rsync / --manifest 刷新 / push 失败 best-effort 退出 0)。未破坏 deploy.sh(不改其 staticdata 段,仅共享锁串行化)。
+- **同类排查(§四-4)**: gen_schedule_stats.py 由 deploy.sh 在 export.py 后调用(部署内刷新,deploy 锁内安全),非 deploy 外独立生成器,无此缺口,不需接 staticdata_sync;alert 类随 deploy。后续新增「写 static-site/data + 调 upload_r2 但不跑 deploy.sh」的生成器,套用 §四-2 的 staticdata_sync.sh 即可。

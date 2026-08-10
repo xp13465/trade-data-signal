@@ -73,6 +73,7 @@
 - **前端 dataUrl R2 fallback**:大 range 历史序列 `-(all|5y|3y).json$` 走 R2 `data/` 前缀;其他 R2 类别(industry/index/trade_sim/public_fund)用硬编码 `https://ssd.fx8.store/{prefix}/` URL(和 dataUrl 同模式,不扩展 `_R2_LARGE_RANGE_RE` 避免语义混淆)
 - **本地留引用**:upload_r2 上传后不删本地 `static-site/data/`,CF Workers 兜底+本地开发;大文件可 `.gitignore` 移出 git(本地仍留),和 a-stock-all.json 等同策略
 - **上线流程**:export.py 生成 JSON -> 末尾自动跑 R2 上传(EXPORT_SKIP_R2=1 跳过,deploy.sh 自己跑)-> git push 触发 CF deploy -> 前端 fetch(大 range 走 R2 直链,小文件走 CF)
+- **新数据类别上线 checklist(2026-08-11 定)**:写 `static-site/data/` 的生成器必须同时接 ①R2 上传(upload_r2 清单或 export 自动) ②staticdata 同步(**scripts/staticdata_sync.sh** 或跑 deploy.sh 覆盖)。尤其「只写 static-site/data + 调 upload_r2 但不跑 deploy.sh」的独立生成器(如 gen_daily_brief.py),缺 staticdata 会留旧版直到下次 deploy(同步时机缺口,机制见 docs/staticdata-daily-brief-sync.md)
 - **判断 checklist(扫描 agent 用)**:①该类别是否有 upload-{prefix} 命令? ②前端 fetch 是否用 R2 URL 或 dataUrl 走 R2? ③upload-data-large exclude 是否含该前缀(防双副本)? 三条齐全=架构合规
 
 ## 9. 单版前端铁律(2026-07-15 web/ 弃用)
