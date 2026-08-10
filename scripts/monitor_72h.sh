@@ -100,6 +100,18 @@ elif _is_before_open:
 else:
     LAST_TRADING_DAY = TODAY
 
+# alert.json 仅 17:50 update_all 更新，交易日17:50前是上一交易日数据（正常）
+# 周一盘前 alert.json=周五 但 09:25后 LAST_TRADING_DAY=TODAY(周一) -> 需单独判断
+# 否则 S5/stale_alert 检查误报(alert.json date=周五 非 TODAY/LAST_TRADING_DAY)
+_is_before_update_all = _is_today_trading and _now_hm_calc < "1750"
+if _is_before_update_all:
+    # 交易日17:50前：alert.json date 应为上一交易日
+    _prev_offset = 3 if _td.weekday() == 0 else 1
+    ALERT_EXPECTED_DATE = (_td - timedelta(days=_prev_offset)).strftime("%Y%m%d")
+else:
+    # 17:50后 or 非交易日：alert.json date 应为最近交易日
+    ALERT_EXPECTED_DATE = LAST_TRADING_DAY
+
 alerts = []
 recoveries = []
 alert_state = {}
@@ -538,10 +550,11 @@ if _al_err_s5 or not _al_online:
 else:
     _s5_fails = []
     # 盘后 date 应今日，盘中可能昨日(正常)
+    # alert.json 仅17:50 update_all 更新，交易日17:50前是上一交易日数据（正常）
     _al_date = str(_al_online.get("date", ""))
     _yesterday = (NOW.date() - timedelta(days=1)).strftime("%Y%m%d")
-    if _al_date not in (TODAY, LAST_TRADING_DAY, _yesterday):
-        _s5_fails.append(f"date={_al_date} 非今日/昨日/最近交易日")
+    if _al_date not in (TODAY, LAST_TRADING_DAY, _yesterday, ALERT_EXPECTED_DATE):
+        _s5_fails.append(f"date={_al_date} 非今日/昨日/最近交易日/预期alert日期")
     if _al_online.get("high", {}).get("score") is None:
         _s5_fails.append("high.score 为 null")
     if _s5_fails:
@@ -641,18 +654,20 @@ if _ov_online and not _ov_err_s1:
     else:
         check_recovery(_dedup_ov)
 
-# alert.json date 滞后（>2天=SEVERE，盘中可能昨日正常；盘前/非交易日 LAST_TRADING_DAY 不算滞后）
+# alert.json date 滞后（>3天=SEVERE，盘中可能昨日正常；盘前/非交易日 LAST_TRADING_DAY 不算滞后）
+# alert.json 仅17:50 update_all 更新，交易日17:50前是上一交易日数据（正常，周一盘前周五=3天不算滞后）
 if _al_online and not _al_err_s5:
     _al_date_str = str(_al_online.get("date", ""))
     _dedup_al = "stale_alert_date"
-    if _al_date_str == LAST_TRADING_DAY:
+    if _al_date_str in (LAST_TRADING_DAY, ALERT_EXPECTED_DATE):
         check_recovery(_dedup_al)
     else:
         try:
             _al_dt = datetime.strptime(_al_date_str, "%Y%m%d")
             _al_age = (NOW.date() - _al_dt.date()).days
-            if _al_age > 2:
-                check_and_alert(_dedup_al, f"alert.json date={_al_date_str} 滞后{_al_age}天(>2天)",
+            # 周末跨度大（周五->周一=3天），>3天才算真滞后
+            if _al_age > 3:
+                check_and_alert(_dedup_al, f"alert.json date={_al_date_str} 滞后{_al_age}天(>3天)",
                                 keyword="stale_alert", line_sample=f"date={_al_date_str} age={_al_age}d")
             else:
                 check_recovery(_dedup_al)

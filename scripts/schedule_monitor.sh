@@ -476,11 +476,15 @@ for _label in LAUNCHCTL_LABELS:
 for _key, _info in list(alert_state.items()):
     if _info.get("status") != "active":
         continue
-    if _key == "overview_lag_3domain" or _key.startswith("r2_"):
+    if _key == "overview_lag_3domain" or _key.startswith("r2_") or _key.startswith("72h_"):
         # overview 时效滞后的去重+恢复由 overview 检查块内联处理
         # （该块在恢复检测循环之后运行，不能复用此循环，否则未 seen 被误报恢复）
         # R2 keys(r2_unreachable/r2_overview_lag/r2_intraday_lag)同理: R2检查块在
         # 恢复循环之后运行, 由 R2块内联处理恢复(C1修复: 否则每15min 2封邮件)
+        # 72h_ keys 由 monitor_72h.sh 独立管理(自己的恢复检测循环 L689-705),
+        # schedule_monitor 不检查 72h 条件(sw_version/S5/stale_alert), 不应对其做
+        # 恢复检测 -- 否则 72h_ active key 不在 seen_keys_this_run 被误判"已恢复"
+        # -> :15/:45 误恢复 + :10/:40 72h重报 = 振荡(2026-08-10 修复)
         continue
     if _key not in seen_keys_this_run:
         if _key.startswith("missed|"):
