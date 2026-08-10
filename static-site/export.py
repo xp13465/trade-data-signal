@@ -724,8 +724,32 @@ def write_json(path: Path, data):
 # scripts/simulate_trade.py 生成（非 export.py）；二者容错读取，失败则 null（前端 fallback fetch）。
 # 时序：17:50 update_all 跑完 pipeline+export_alert 后，alert.json/intraday_snapshot.json 均是当日最新；
 #       23:00+ 跑 export.py 时 boot.json 读到的 11 个 JSON 均是当日最新。
+# 站点统一配置框架(P0, 2026-08-11)：额外写 boot["config"] = config/site.yaml 的前端可见子集，
+#   零额外请求下发前端（_siteConfig 单例读取，优先级 localStorage > boot.config > 代码内置默认）。
+def load_site_config() -> dict:
+    """读 config/site.yaml 的前端可见子集,供 boot.json 的 config key 下发。
+
+    缺失/解析失败返回 {}（前端 _siteConfig 有代码内置默认兜底，不阻断 export）。
+    ROOT/config 在 trade-data 下是 symlink → trade/config，两仓库运行均可读。
+    """
+    try:
+        import yaml
+    except ImportError:
+        print("  [warn] site.yaml 下发需 pyyaml(.venv 安装),跳过 config key", flush=True)
+        return {}
+    path = ROOT / "config" / "site.yaml"
+    try:
+        cfg = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return {}
+    except Exception as e:  # noqa: BLE001 - 解析失败不阻断 export
+        print(f"  [warn] site.yaml 解析失败({e}),config key 不下发", flush=True)
+        return {}
+    return cfg if isinstance(cfg, dict) else {}
+
+
 def export_boot():
-    """合并首屏 11 个小 JSON 到 boot.json，供前端首屏单 fetch 分发。"""
+    """合并首屏 11 个小 JSON + config/site.yaml config key 到 boot.json。"""
     # (字段名, 文件名) — 字段名用 JSON 文件名去 .json 后缀
     boot_files = [
         ("overview", "overview.json"),
@@ -758,6 +782,9 @@ def export_boot():
         "files": [f for _, f in boot_files],
         "missing": missing,
     }
+    # 站点统一配置框架(P0, 2026-08-11)：config/site.yaml 前端可见子集 → boot.config
+    # 前端 _siteConfig 单例读取（localStorage 用户选择 > boot.config 远程默认 > 代码内置默认）
+    boot["config"] = load_site_config()
     boot_size = write_json(DATA_DIR / "boot.json", boot)
     print(f"  boot.json ({boot_size} bytes, 合并 {len(boot_files)} 个首屏 JSON"
           f"{f', 缺失: {missing}' if missing else ''})")

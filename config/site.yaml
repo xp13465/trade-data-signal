@@ -1,0 +1,23 @@
+# ============ 站点统一配置框架 (P0, 2026-08-11 用户定) ============
+# 用户直接改此文件 → export.py 写入 boot.json 的 config key(零额外请求) → 前端 _siteConfig 单例读取。
+# 优先级: localStorage 用户选择 > 远程配置默认(boot.json config) > 代码内置默认。
+# 改默认值 = 改此文件 → 跑 static-site/export.py + deploy.sh 推数据上线, 不需改代码细节。
+# 参考 config/daily_brief.yaml 的"配置驱动"模式(用户 2026-08-11 定)。
+# 首批只接 2 个消费者(charts.lightweight + intraday.default_mode), 存量开关按需逐个迁移。
+
+# ── 走势图 ──────────────────────────────────────────────────────
+# charts.lightweight: 走势图默认渲染器(为 P1 canvas 轻量走势图铺路)
+#   true  = 默认走轻量走势图(性能优先; P0 阶段 = ETF评分弹窗近30日走势用轻量 SVG 渲染)
+#   false = 默认走 echarts 完整版(回归兜底, 改回 true 即恢复轻量)
+# 用户可在"皮肤弹窗 → ⚡ 走势图渲染"切换/localStorage 覆盖, 配置只定"默认"。
+charts:
+  lightweight: true
+
+# ── 分时图三态 ──────────────────────────────────────────────────
+# intraday.default_mode: 分时图三态默认(用户无 localStorage 记忆时生效)
+#   auto          = 现有时段自动逻辑(交易日盘中9:30-15:00 仅分时 / 盘后 全展开 / 其他 仅日图)
+#   collapsed     = 强制默认 仅日图
+#   intraday-only = 强制默认 仅分时
+#   expanded      = 强制默认 全展开
+intraday:
+  default_mode: auto

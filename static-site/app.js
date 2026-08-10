@@ -3791,6 +3791,58 @@ async function fetchJSON(url) {
 // ad_line/volume_ratio/new_high_low/trade_sim_indices，首屏单 fetch 分发到各模块。
 // intraday_snapshot 仍单独 fetch（盘中实时性，fetchIntradaySnapshot 获取最新覆盖 boot 初始值）。
 // 各模块优先读 _bootData，boot 失败则 fallback 独立 fetch（原行为，保证健壮）。
+
+// ============ 站点统一配置框架 (P0, 2026-08-11 用户定) ============
+// 配置源: config/site.yaml -> export.py 写入 boot.json 的 config key(零额外请求, P1-8 合并模式)。
+// 前端 _siteConfig 单例: 优先级 localStorage 用户选择 > boot.config 远程默认 > 代码内置默认。
+// 读取 API: siteCfg(key, codeDefault), 如 siteCfg('charts.lightweight', true)。
+// 首批只接 2 个消费者: charts.lightweight(走势图轻量默认) + intraday.default_mode(分时三态默认)。
+// 存量开关(tryGz/轮询间隔/三态默认等)按需逐个迁移, 不一次改遍(避免大 diff 回归)。
+const _SITE_CONFIG_DEFAULTS = {
+  "charts.lightweight": true,
+  "intraday.default_mode": "auto",
+};
+let _siteConfigRemote = {};   // boot.json config 合并(远程配置默认)
+function _mergeSiteConfig(cfg) {
+  if (cfg && typeof cfg === "object") {
+    _siteConfigRemote = Object.assign({}, _siteConfigRemote, cfg);
+  }
+}
+function _siteCfgLocal(key) {
+  try { return localStorage.getItem("sitecfg:" + key); } catch (e) { return null; }
+}
+function _setSiteCfgLocal(key, val) {
+  try {
+    if (val === null || val === undefined) localStorage.removeItem("sitecfg:" + key);
+    else localStorage.setItem("sitecfg:" + key, String(val));
+  } catch (e) {}
+}
+// siteCfg(key, codeDefault): 返回当前生效配置(localStorage 用户选择 > boot.config 远程默认 > codeDefault 代码默认)
+function siteCfg(key, codeDefault) {
+  const _codeDef = (codeDefault === undefined)
+    ? (_SITE_CONFIG_DEFAULTS[key] === undefined ? null : _SITE_CONFIG_DEFAULTS[key])
+    : codeDefault;
+  const _local = _siteCfgLocal(key);
+  if (_local !== null && _local !== "") {
+    if (typeof _codeDef === "boolean") return _local === "true";
+    if (typeof _codeDef === "number") {
+      const _n = Number(_local);
+      return Number.isNaN(_n) ? _codeDef : _n;
+    }
+    return _local;
+  }
+  // 深取远程配置默认: 'charts.lightweight' -> _siteConfigRemote.charts.lightweight
+  let _cur = _siteConfigRemote;
+  if (_cur && typeof _cur === "object") {
+    const _parts = key.split(".");
+    for (let _i = 0; _i < _parts.length; _i++) {
+      if (_cur && typeof _cur === "object" && _parts[_i] in _cur) _cur = _cur[_parts[_i]];
+      else { _cur = undefined; break; }
+    }
+    if (_cur !== undefined && _cur !== null) return _cur;
+  }
+  return _codeDef;
+}
 let _bootPromise = null;
 let _bootData = null;
 function fetchBoot() {
@@ -3800,6 +3852,8 @@ function fetchBoot() {
       const boot = await fetchJSON("./data/boot.json");
       if (boot) {
         _bootData = boot;
+        // 站点统一配置框架(P0): boot.config(config/site.yaml) 合并进 _siteConfig 远程默认
+        if (boot.config) _mergeSiteConfig(boot.config);
         // 分发到 state/缓存（各模块优先读 boot，fallback fetch）
         // 方案A(2026-08-06): boot.json 盘中不重新生成时, boot.overview 可能是昨夜旧版
         // (a_amount=昨日全天值). date < 今日(北京时间)则不存缓存, 让 renderOverview 独立
@@ -7013,16 +7067,23 @@ function renderIntradaySection(sparkGrid, snap) {
     }
   } catch (e) {}
   if (mode !== "collapsed" && mode !== "intraday-only" && mode !== "expanded") {
-    // 新默认: 复用 _bjTimeMin/_bjDayOfWeek(北京时间 UTC+8 判断, 周末=非交易日, 节假日前端难判按周末兜底)
-    const _bjMin = _bjTimeMin();
-    const _dow = _bjDayOfWeek();
-    const _isWeekday = _dow >= 1 && _dow <= 5; // 周一-周五兜底(节假日误显无害, 收盘后无新数据自然恢复)
-    if (_isWeekday && _bjMin >= 9 * 60 + 30 && _bjMin < 15 * 60) {
-      mode = "intraday-only";   // 盘中(9:30-15:00 含午休) -> 仅分时
-    } else if (_isWeekday && _bjMin >= 15 * 60) {
-      mode = "expanded";        // 盘后(15:00 后) -> 全展开
+    // 站点统一配置框架(P0, 2026-08-11): intraday.default_mode 配置默认可覆盖时段自动逻辑
+    //   auto(默认) = 现有时段判断; collapsed/intraday-only/expanded = 强制默认三态之一
+    const _cfgMode = siteCfg("intraday.default_mode", "auto");
+    if (_cfgMode === "collapsed" || _cfgMode === "intraday-only" || _cfgMode === "expanded") {
+      mode = _cfgMode;
     } else {
-      mode = "collapsed";       // 非交易日 / 盘前 9:30 前 -> 仅日图
+      // 新默认: 复用 _bjTimeMin/_bjDayOfWeek(北京时间 UTC+8 判断, 周末=非交易日, 节假日前端难判按周末兜底)
+      const _bjMin = _bjTimeMin();
+      const _dow = _bjDayOfWeek();
+      const _isWeekday = _dow >= 1 && _dow <= 5; // 周一-周五兜底(节假日误显无害, 收盘后无新数据自然恢复)
+      if (_isWeekday && _bjMin >= 9 * 60 + 30 && _bjMin < 15 * 60) {
+        mode = "intraday-only";   // 盘中(9:30-15:00 含午休) -> 仅分时
+      } else if (_isWeekday && _bjMin >= 15 * 60) {
+        mode = "expanded";        // 盘后(15:00 后) -> 全展开
+      } else {
+        mode = "collapsed";       // 非交易日 / 盘前 9:30 前 -> 仅日图
+      }
     }
   }
 
@@ -16569,6 +16630,37 @@ function _etfSparkline(ohlc, w, h) {
     + '</svg>';
 }
 
+// 轻量走势图(站点配置 charts.lightweight=true 时 ETF 评分弹窗近30日走势用, P0 2026-08-11)。
+// 复用 _etfSparkline 的 close 折线思路放大到弹窗尺寸 + 首末日期标签 + 原生 <title> tooltip,
+// 零 echarts 依赖(P1 canvas 版的前身); 配置 false 回 echarts 完整版(带 hover tooltip)。
+// ohlc 格式 [[date,o,h,l,c],...] 升序; 数据<2点返空串。涨红跌绿(#e6492e/#2e8b57 数据语义色)。
+function _etfTrendLiteHTML(ohlc) {
+  if (!ohlc || ohlc.length < 2) return "";
+  const _vals = ohlc.map((d) => d[4]).filter((v) => v != null);
+  if (_vals.length < 2) return "";
+  const _dates = ohlc.map((d) => d[0]);
+  const _W = 640, _H = 180, _PL = 8, _PR = 8, _PT = 12, _PB = 20;
+  const _min = Math.min.apply(null, _vals), _max = Math.max.apply(null, _vals);
+  const _range = _max - _min || 1;
+  const _n = _vals.length;
+  const _iw = _W - _PL - _PR, _ih = _H - _PT - _PB;
+  const _px = (i) => _PL + (i / (_n - 1)) * _iw;
+  const _py = (v) => _PT + _ih - ((v - _min) / _range) * _ih;
+  const _pts = _vals.map((v, i) => _px(i).toFixed(1) + "," + _py(v).toFixed(1)).join(" ");
+  const _isUp = _vals[_n - 1] >= _vals[0];
+  const _stroke = _isUp ? "#e6492e" : "#2e8b57";
+  const _area = (_PT + _ih).toFixed(1);
+  const _tip = "近30日 收盘 " + _vals[0] + " → " + _vals[_n - 1] + (_isUp ? " ↑" : " ↓");
+  const _yLabel = (_H - 6);
+  return '<svg class="etf-trend-lite" width="100%" height="' + _H + '" viewBox="0 0 ' + _W + ' ' + _H + '" preserveAspectRatio="none" role="img" aria-label="近30日走势">'
+    + '<polygon points="' + _pts + ' ' + _px(_n - 1).toFixed(1) + ',' + _area + ' ' + _px(0).toFixed(1) + ',' + _area + '" fill="' + _stroke + '" opacity="0.12"/>'
+    + '<polyline points="' + _pts + '" fill="none" stroke="' + _stroke + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><title>' + _tip + '</title></polyline>'
+    + '<circle cx="' + _px(_n - 1).toFixed(1) + '" cy="' + _py(_vals[_n - 1]).toFixed(1) + '" r="3" fill="' + _stroke + '"/>'
+    + '<text x="' + _PL + '" y="' + _yLabel + '" font-size="11" style="fill:var(--text-3)">' + fmtDate(_dates[0]) + '</text>'
+    + '<text x="' + (_W - _PR) + '" y="' + _yLabel + '" font-size="11" text-anchor="end" style="fill:var(--text-3)">' + fmtDate(_dates[_n - 1]) + '</text>'
+    + '</svg>';
+}
+
 // 5档分档(2026-07-25 C2三分类): 强卖出/卖出/持有观察/买入/强买入
 // 阈值基于 score 分布:
 //   sell side(过热~96只): score>=75=强卖出, <75=卖出
@@ -16900,13 +16992,18 @@ function openEtfScoreDetailModal(code) {
   // 2026-08-06 需求1：近30日走势图区块（复用卡片 sparkline 数据源 e.ohlc 放大到弹窗 echarts）。
   // e.ohlc = [[date,o,h,l,c],...] 近30交易日升序（etf_score_list_{buy,sell,hold}.json 字段）。
   // 放 headHTML 后（决策头后先看走势再看手数/卖出/置信度），echarts line+areaStyle，涨红跌绿跟主题。
+  // 站点统一配置框架(P0, 2026-08-11): charts.lightweight=true(默认) 走轻量 SVG 渲染(_etfTrendLiteHTML),
+  //   false 回 echarts 完整版(带 hover tooltip)。用户可在皮肤弹窗 ⚡ 走势图渲染 切换/localStorage 覆盖。
+  const _liteTrend = !!siteCfg("charts.lightweight", true);
   const trendHTML = (e.ohlc && e.ohlc.length >= 2)
-    ? `<div class="lab-custom-score-card lab-custom-block-gap"><div class="lab-custom-section-title">📈 近30日走势</div><div id="etfTrendChart" style="height:200px"></div></div>`
+    ? (_liteTrend
+        ? `<div class="lab-custom-score-card lab-custom-block-gap"><div class="lab-custom-section-title">📈 近30日走势</div>${_etfTrendLiteHTML(e.ohlc)}</div>`
+        : `<div class="lab-custom-score-card lab-custom-block-gap"><div class="lab-custom-section-title">📈 近30日走势</div><div id="etfTrendChart" style="height:200px"></div></div>`)
     : "";
 
   body.innerHTML = headHTML + trendHTML + actionHTML + confHTML + dimsHTML + histHTML + threshHTML + footerHTML;
 
-  // 需求1：echarts init 近30日走势（body.innerHTML 设置后容器存在才 init）
+  // 需求1：echarts init 近30日走势（body.innerHTML 设置后容器存在才 init；轻量 SVG 版无 #etfTrendChart 容器自然跳过）
   if (trendHTML) {
     const _trendEl = body.querySelector("#etfTrendChart");
     if (_trendEl && typeof echarts !== "undefined") {
@@ -20476,6 +20573,22 @@ function initThemeSwitcher() {
           '<span class="theme-check">✓</span>' +
         '</button>' +
       '</div>' +
+      '<div class="theme-divider"></div>' +
+      '<h4 class="theme-section-title">⚡ 走势图渲染</h4>' +
+      '<div class="compliance-options chart-render-options">' +
+        '<button class="theme-option chart-render-option" data-chart-lite="1">' +
+          '<span class="compliance-icon">⚡</span>' +
+          '<span class="theme-info"><span class="theme-name">轻量（默认）</span>' +
+          '<span class="theme-desc">轻量走势图，性能优先</span></span>' +
+          '<span class="theme-check">✓</span>' +
+        '</button>' +
+        '<button class="theme-option chart-render-option" data-chart-lite="0">' +
+          '<span class="compliance-icon">📈</span>' +
+          '<span class="theme-info"><span class="theme-name">完整版</span>' +
+          '<span class="theme-desc">echarts 完整走势图</span></span>' +
+          '<span class="theme-check">✓</span>' +
+        '</button>' +
+      '</div>' +
     '</div>';
   document.body.appendChild(modal);
 
@@ -20512,10 +20625,18 @@ function initThemeSwitcher() {
       opt.classList.toggle("active", opt.dataset.complianceMode === cur);
     });
   }
+  // 走势图渲染(⚡ 轻量/📈 完整)高亮: 站点配置 charts.lightweight(用户 localStorage 覆盖优先)
+  function renderChartLiteActive() {
+    var lite = !!siteCfg("charts.lightweight", true);
+    modal.querySelectorAll(".chart-render-option").forEach(function (opt) {
+      opt.classList.toggle("active", (opt.dataset.chartLite === "1") === lite);
+    });
+  }
   document.querySelectorAll(".theme-btn").forEach(function (b) {
     b.addEventListener("click", function () {
       renderActive();
       renderComplianceActive();
+      renderChartLiteActive();
       modal.classList.remove("hidden");
     });
   });
@@ -20526,7 +20647,13 @@ function initThemeSwitcher() {
     }
     var opt = e.target.closest(".theme-option");
     if (opt) {
-      if (opt.classList.contains("compliance-option")) {
+      if (opt.classList.contains("chart-render-option")) {
+        // 走势图渲染开关: 存 localStorage(sitecfg:charts.lightweight) 覆盖远程默认, 即时重渲染
+        var _liteVal = opt.dataset.chartLite === "1";
+        _setSiteCfgLocal("charts.lightweight", _liteVal ? "true" : "false");
+        renderChartLiteActive();
+        if (typeof _renderEtfScoreBody === "function") _renderEtfScoreBody();
+      } else if (opt.classList.contains("compliance-option")) {
         // 合规开关：即时生效（切字典重渲染），不自动关弹窗，用户可继续切皮肤或手动关闭
         // gating：完整版（off）为登录特权 hasPrivilege("detailed_view")，未登录弹提示+登录入口不切换
         var _mode = opt.dataset.complianceMode;

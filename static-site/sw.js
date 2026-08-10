@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260811-a124';  // bump a123->a124: 组合降亏预设宏(年末季节/稳健核心/最大化降亏) 3个组合checkbox + purpose-notes组合公示
+const CACHE_VERSION = 'v6-20260811-a125';  // bump a124->a125: 站点统一配置框架P0(_siteConfig单例+boot.json config+走势图轻量默认+intraday三态默认配置化)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
