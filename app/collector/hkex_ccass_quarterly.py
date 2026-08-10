@@ -325,6 +325,10 @@ def _current_slot():
     """
     slot = os.environ.get("BACKFILL_SLOT", "").strip()
     if slot:
+        # 归一：02:xx 小时段（如 launchd 延迟补跑注入 0205）统一算 02:00 强制重算槽，
+        # 防 mac 睡眠唤醒后延迟执行丢失 02:00 槽的每日自纠正
+        if slot.startswith("02"):
+            return "0200"
         return slot
     h = _dt.datetime.now().hour
     if h == 2:
