@@ -18232,6 +18232,18 @@ async function _tradeSimOpenModal(indexId, openView) {
     return;
   }
   _tradeSimModalRender(ov);
+  // 始终重算(含默认档)以获取费率消耗列 (同凯利L7278: 默认档也重算显示费率消耗)
+  var _m = _tradeSimState;
+  if (_m && _m.view === 'backtest') {
+    (async function () {
+      var result = await _simApplyFeeRecompute(_m.feeParams);
+      if (_tradeSimState !== _m || _m.view !== 'backtest') return;
+      if (result) {
+        _m.feeRecomputed = result;
+        _tradeSimModalRender(ov);
+      }
+    })();
+  }
 }
 
 // 渲染净值曲线 SVG（照搬 simulate_trade._equity_svg，主题色用 CSS 变量）
@@ -18307,6 +18319,7 @@ function _tradeSimCardsHTML(s, initCap, etfCode) {
     '<div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">' + s.max_win_streak + ' 轮 / ' + s.max_lose_streak + ' 轮</span></div>' +
     '<div class="sim-card"><span class="k" title="平均每笔盈利÷平均每笔亏损。>1=赚的时候比亏的时候赚得多。">平均盈亏比</span><span class="v">' + _tradeSimFmtNum(s.avg_pl_ratio) + '（均盈' + _tradeSimFmtNum(s.avg_win_pct) + '% / 均亏' + _tradeSimFmtNum(s.avg_loss_pct) + '%）</span></div>' +
     '<div class="sim-card"><span class="k">配对情况</span><span class="v">' + s.total_rounds + '笔成对 · ' + s.open_count + '笔未平仓</span></div>' +
+    '<div class="sim-card"><span class="k" title="所有交易产生的佣金+过户费+印花税之和。买=佣金+过户费,卖=佣金+过户费+印花税。切费率档实时更新。">费率消耗</span><span class="v" style="color:var(--text-3)">' + (s.total_fee_cost != null ? _tradeSimFmtNum(s.total_fee_cost) + ' 元' : '-') + '<div class="sub">佣金+过户费+印花税</div></span></div>' +
     '</div>';
 }
 
@@ -18346,6 +18359,8 @@ function _tradeSimLedgerHTML(ledger, indexName, etfCode) {
     if (sharesTrd > 0) amtStr = _tradeSimFmtNum(amt) + ' <span style="font-size:10px;color:var(--text-3)">(←' + sharesTrd.toFixed(2) + '股)</span>';
     else if (sharesTrd < 0) amtStr = _tradeSimFmtNum(amt) + ' <span style="font-size:10px;color:var(--text-3)">(' + Math.abs(sharesTrd).toFixed(2) + '股->)</span>';
     else amtStr = _tradeSimFmtNum(amt);
+    var feeCost = entry.fee_cost;
+    var feeStr = (feeCost != null) ? '<span style="color:var(--text-3)">' + feeCost.toFixed(2) + '</span>' : '<span style="color:var(--text-3)">-</span>';
     return '<tr>' +
       '<td>' + (j + 1) + '</td>' +
       '<td>' + entry.date + '</td>' +
@@ -18358,12 +18373,13 @@ function _tradeSimLedgerHTML(ledger, indexName, etfCode) {
       '<td>' + hvStr + '</td>' +
       '<td>' + _tradeSimFmtNum(entry.total_assets) + '</td>' +
       '<td style="color:' + pctColor + ';font-weight:600">' + pctStr + '</td>' +
+      '<td>' + feeStr + '</td>' +
       '</tr>';
   }).join('');
   return '<h3 style="margin:20px 0 2px;font-size:15px;">📒 交易记录清单' + (etfCode ? ' · ETF ' + etfCode : '') + '（' + ledger.length + ' 笔，按时间轴）</h3>' +
     '<p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">' + _t('trade_sim_buy_hint_prefix') + _priceColName + _t('trade_sim_buy_hint_suffix') + '</p>' +
     '<div class="sim-table-wrap"><table><thead><tr>' +
-    '<th>#</th><th>日期</th><th>' + _priceColName + '收盘</th><th>较上条涨跌</th><th>操作</th><th>交易金额</th><th>份额变动</th><th>持仓份额</th><th>持仓市值</th><th>当前总资产</th><th>累计收益率</th>' +
+    '<th>#</th><th>日期</th><th>' + _priceColName + '收盘</th><th>较上条涨跌</th><th>操作</th><th>交易金额</th><th>份额变动</th><th>持仓份额</th><th>持仓市值</th><th>当前总资产</th><th>累计收益率</th><th title="该笔交易产生的费率(买=佣金+过户费,卖=佣金+过户费+印花税)">费率消耗</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 }
 
@@ -18450,7 +18466,8 @@ var _TRADE_SIM_CMP_COLS = [
   { key: 'median_drawdown', label: '回撤中位数', type: 'num', defaultDir: 'asc', title: '' },
   { key: 'trimmed_mean_drawdown', label: '回撤去极均值', type: 'num', defaultDir: 'asc', title: '' },
   { key: 'win_rate', label: '胜率', type: 'num', defaultDir: 'desc', title: '盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。' },
-  { key: 'total_ops', label: '交易笔数', type: 'num', defaultDir: 'desc', title: '' }
+  { key: 'total_ops', label: '交易笔数', type: 'num', defaultDir: 'desc', title: '' },
+  { key: 'total_fee_cost', label: '费率消耗', type: 'num', defaultDir: 'asc', title: '所有交易产生的佣金+过户费+印花税之和。买=佣金+过户费,卖=佣金+过户费+印花税。切费率档实时更新。' }
 ];
 
 // 按 colIdx/dir 对 rows 排序。null/NaN/非数值 视为"无数据"恒排末尾，不受 dir 影响。
@@ -18501,6 +18518,7 @@ function _tradeSimComparisonTableHTML(sd, win, recomputedData) {
         trimmed_mean_drawdown: s.trimmed_mean_drawdown,
         win_rate: s.win_rate,
         total_ops: s.buy_count + s.sell_count,
+        total_fee_cost: s.total_fee_cost,
       });
     }
   }
@@ -18526,6 +18544,10 @@ function _tradeSimComparisonTableHTML(sd, win, recomputedData) {
   var worstTrimmedDd = Math.max.apply(null, rows.map(function (r) { return r.trimmed_mean_drawdown; }));
   var worstWin = Math.min.apply(null, rows.map(function (r) { return r.win_rate; }));
   var worstOps = Math.min.apply(null, rows.map(function (r) { return r.total_ops; }));
+  // 费率消耗 best/worst (null 安全: 原始数据无 total_fee_cost 时跳过)
+  var _feeVals = rows.map(function (r) { return r.total_fee_cost; }).filter(function (v) { return typeof v === 'number' && isFinite(v); });
+  var bestFeeCost = _feeVals.length ? Math.min.apply(null, _feeVals) : null;
+  var worstFeeCost = _feeVals.length ? Math.max.apply(null, _feeVals) : null;
   function cmpCell(val, best, worst, isPct, signed) {
     var isBest = Math.abs(val - best) < 0.001;
     var isWorst = Math.abs(val - worst) < 0.001;
@@ -18555,6 +18577,7 @@ function _tradeSimComparisonTableHTML(sd, win, recomputedData) {
       '<td>' + cmpCell(r.trimmed_mean_drawdown, bestTrimmedDd, worstTrimmedDd, true, false) + '</td>' +
       '<td>' + cmpCell(r.win_rate, bestWin, worstWin, true, false) + '</td>' +
       '<td>' + cmpCell(r.total_ops, bestOps, worstOps, false, false) + ' 次</td>' +
+      '<td>' + (r.total_fee_cost != null ? cmpCell(r.total_fee_cost, bestFeeCost, worstFeeCost, false, false) + ' 元' : '<span style="color:var(--text-3)">-</span>') + '</td>' +
       '</tr>';
   }).join('');
   // 表头：th 可点击切换排序，当前列显示 ▲(升序)/▼(降序)，其他列显示 ⇅(可排序提示)
@@ -18666,6 +18689,7 @@ function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfC
   var drawdownPeak = initCap, maxDrawdown = 0, maxDrawdownDate = null;
   var roundDrawdowns = [];
   var buyCount = 0, sellCount = 0;
+  var totalFeeCost = 0; // 费率消耗累计(佣金+过户费+印花税), 同凯利 fee_cost 模式
 
   for (var i = 0; i < ledger.length; i++) {
     var e = ledger[i];
@@ -18678,6 +18702,8 @@ function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfC
       var budget = isAllIn ? cash : posSize;
       if (budget <= 0) continue;
       var br = _simBuyWithFees(budget, close, etfCode, fp);
+      var buyFeeCost = br.commission + br.transferFee; // 买fee=佣金+过户费
+      totalFeeCost += buyFeeCost;
       cash -= budget;
       positions.push({ date: e.date, close: br.buyPrice, shares: br.shares });
       totalShares += br.shares;
@@ -18688,7 +18714,8 @@ function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfC
         op: e.op, amount: Math.round(budget * 100) / 100, shares_traded: Math.round(br.shares * 10000) / 10000,
         total_shares: Math.round(totalShares * 10000) / 10000, holdings_value: Math.round(hv * 100) / 100,
         holdings_cost_before: e.holdings_cost_before, holdings_cost_after: e.holdings_cost_after,
-        total_assets: Math.round(ta * 100) / 100, return_pct: Math.round((ta - initCap) / initCap * 10000) / 100
+        total_assets: Math.round(ta * 100) / 100, return_pct: Math.round((ta - initCap) / initCap * 10000) / 100,
+        fee_cost: Math.round(buyFeeCost * 10000) / 10000
       });
       equityCurve.push({ date: e.date, value: Math.round(ta * 100) / 100 });
       if (hv > maxHolding) { maxHolding = hv; maxHoldingDate = e.date; maxHoldingTotal = ta; }
@@ -18700,6 +18727,8 @@ function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfC
         if (positions.length === 0) continue;
         var pos = positions.shift();
         var sr = _simSellWithFees(pos.shares, close, etfCode, fp);
+        var sellFeeCost = sr.commission + sr.transferFee + sr.stampDuty; // 卖fee=佣金+过户费+印花税
+        totalFeeCost += sellFeeCost;
         cash += sr.net;
         totalShares -= pos.shares;
         var hv2 = totalShares * close, ta2 = cash + hv2;
@@ -18708,20 +18737,23 @@ function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfC
           op: e.op, amount: Math.round(sr.net * 100) / 100, shares_traded: -Math.round(pos.shares * 10000) / 10000,
           total_shares: Math.round(totalShares * 10000) / 10000, holdings_value: Math.round(hv2 * 100) / 100,
           holdings_cost_before: e.holdings_cost_before, holdings_cost_after: e.holdings_cost_after,
-          total_assets: Math.round(ta2 * 100) / 100, return_pct: Math.round((ta2 - initCap) / initCap * 10000) / 100
+          total_assets: Math.round(ta2 * 100) / 100, return_pct: Math.round((ta2 - initCap) / initCap * 10000) / 100,
+          fee_cost: Math.round(sellFeeCost * 10000) / 10000
         });
         equityCurve.push({ date: e.date, value: Math.round(ta2 * 100) / 100 });
         if (ta2 > totalAssetsPeak) { totalAssetsPeak = ta2; totalAssetsPeakDate = e.date; }
       } else {
         // Sell ALL (path 0 sell_all + path 1 all_in): sell each position separately (per-position commission)
-        var totalNet = 0, totalSharesSold = 0;
+        var totalNet = 0, totalSharesSold = 0, totalSellFeeCost = 0;
         while (positions.length > 0) {
           var posA = positions.shift();
           var srA = _simSellWithFees(posA.shares, close, etfCode, fp);
           cash += srA.net;
           totalNet += srA.net;
           totalSharesSold += posA.shares;
+          totalSellFeeCost += srA.commission + srA.transferFee + srA.stampDuty; // 卖fee=佣金+过户费+印花税
         }
+        totalFeeCost += totalSellFeeCost;
         totalShares = 0;
         var hv3 = 0, ta3 = cash;
         newLedger.push({
@@ -18729,7 +18761,8 @@ function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfC
           op: e.op, amount: Math.round(totalNet * 100) / 100, shares_traded: -Math.round(totalSharesSold * 10000) / 10000,
           total_shares: 0, holdings_value: 0,
           holdings_cost_before: e.holdings_cost_before, holdings_cost_after: 0,
-          total_assets: Math.round(ta3 * 100) / 100, return_pct: Math.round((ta3 - initCap) / initCap * 10000) / 100
+          total_assets: Math.round(ta3 * 100) / 100, return_pct: Math.round((ta3 - initCap) / initCap * 10000) / 100,
+          fee_cost: Math.round(totalSellFeeCost * 10000) / 10000
         });
         equityCurve.push({ date: e.date, value: Math.round(ta3 * 100) / 100 });
         if (ta3 > totalAssetsPeak) { totalAssetsPeak = ta3; totalAssetsPeakDate = e.date; }
@@ -18875,6 +18908,7 @@ function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfC
     max_win_streak: maxWinStreak, max_lose_streak: maxLoseStreak,
     total_rounds: newRounds.length, open_count: positions.length,
     buy_count: buyCount, sell_count: sellCount,
+    total_fee_cost: Math.round(totalFeeCost * 100) / 100, // 费率消耗(佣金+过户费+印花税之和), 同凯利 total_fee_cost
   });
 
   return { summary: newSummary, equity_curve: equityCurve, ledger: newLedger, rounds: newRounds, open_positions: newOpenPositions };
@@ -19283,8 +19317,8 @@ function _tradeSimModalRender(ov) {
   body.querySelectorAll('.lab-win-tab[data-win]').forEach(function (btn) {
     btn.onclick = async function () {
       m.win = btn.dataset.win;
-      // 费率客调激活时切窗口需重算新窗口数据
-      if (m.feeRecomputed && m.feePreset && m.feePreset !== 'etf_def') {
+      // 费率客调: 切窗口需重算新窗口数据(始终重算含默认档, 以获取费率消耗列, 同凯利L7278)
+      if (m.feeRecomputed) {
         var content = ov.querySelector('.sim-path-group');
         if (content) content.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3)">⏳ 重算费率中…</div>';
         var result = await _simApplyFeeRecompute(m.feeParams);
