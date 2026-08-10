@@ -3648,6 +3648,11 @@ const _CACHE_TTL = 5 * 60 * 1000; // 历史类数据缓存 5 分钟
 // 匹配 -(all|5y|3y).json 结尾 -> R2；其余 -> 本地 ./data/。
 const _R2_DATA_BASE = "https://ss.fx8.store/r2/data/";
 const _R2_LARGE_RANGE_RE = /-(?:all|5y|3y)\.json$/;
+// 备用站 R2 兜底（2026-08-10）：sss.sugas.site(GitHub Pages)/s.sugas.site(MaoziYun) 纯静态无 Worker
+// /data/*.json rewrite（R2 迁移阶段4a 后 static-site/data/ 移出 git，备站 ./data/ 全 404）。
+// ./data/* 请求失败时 fallback R2 公开桶直链 https://ssd.fx8.store/data/（独立域名无边缘缓存，无保鲜问题）。
+// 主站 ss.fx8.store 有 Worker rewrite 正常读 R2，不会触发，零影响。
+const _R2_FALLBACK_BASE = "https://ssd.fx8.store/data/";
 function dataUrl(filename) {
   return _R2_LARGE_RANGE_RE.test(filename) ? _R2_DATA_BASE + filename : "./data/" + filename;
 }
@@ -3718,6 +3723,15 @@ async function fetchJSON(url) {
       if (gzUrl && !(e && e.name === "AbortError")) {
         console.warn("[fetchJSON] .gz failed, fallback to .json: " + url, e?.message || e);
         resp = await doFetch(_fetchUrl);
+        return await resp.json();
+      }
+      // 备用站 R2 兜底（2026-08-10）：./data/*.json 失败(404/网络/CORS/超时外) -> R2 公开桶直链重试一次。
+      // 仅 ./data/ 前缀触发（备站无 Worker 路由全 404），跳过 /api/* 与外链；主站有 rewrite 不会失败零影响。
+      // 用 _base(去 query)+_bustQuery 保持与主路径一致的 cache-busting 语义；超时(AbortError)不重试（避免再挂 15s）。
+      if (url.startsWith("./data/") && !(e && e.name === "AbortError")) {
+        const _r2Url = _R2_FALLBACK_BASE + _base.slice("./data/".length) + _bustQuery;
+        console.warn("[fetchJSON] ./data/ failed, fallback to R2: " + url + " -> " + _r2Url, e?.message || e);
+        resp = await doFetch(_r2Url);
         return await resp.json();
       }
       throw e;

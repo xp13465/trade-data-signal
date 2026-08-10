@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260810-a112';  // bump a111->a112: 量子跳转聚焦优化(等渲染轮询+稳定布局重滚+偏差校正闭环+高亮30s)
+const CACHE_VERSION = 'v6-20260810-a113';  // bump a112->a113: 备用站数据404修复(fetchJSON ./data/ R2兜底 ssd.fx8.store)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
