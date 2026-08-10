@@ -103,13 +103,17 @@ else:
 # alert.json 仅 17:50 update_all 更新，交易日17:50前是上一交易日数据（正常）
 # 周一盘前 alert.json=周五 但 09:25后 LAST_TRADING_DAY=TODAY(周一) -> 需单独判断
 # 否则 S5/stale_alert 检查误报(alert.json date=周五 非 TODAY/LAST_TRADING_DAY)
-_is_before_update_all = _is_today_trading and _now_hm_calc < "1750"
+# 2026-08-10 误报根因补丁: update_all 17:50 启动后生成+推送 alert.json 耗时~55min(实测 8/10
+# dur=3242s, 18:44 完成)。17:50-19:00 窗口内 alert.json 仍是上一交易日数据(正常), 尤其周一
+# 上一交易日=周五(_yesterday=周日覆盖不到) -> 18:10/18:40 假 SEVERE。阈值 1750->1900 把该
+# 窗口归入"预期上一交易日"(update_all 最晚 ~18:45 完成, 19:00 后仍旧数据才判真滞后)。
+_is_before_update_all = _is_today_trading and _now_hm_calc < "1900"
 if _is_before_update_all:
-    # 交易日17:50前：alert.json date 应为上一交易日
+    # 交易日19:00前(含 update_all 在途窗口 17:50-~18:45)：alert.json date 应为上一交易日
     _prev_offset = 3 if _td.weekday() == 0 else 1
     ALERT_EXPECTED_DATE = (_td - timedelta(days=_prev_offset)).strftime("%Y%m%d")
 else:
-    # 17:50后 or 非交易日：alert.json date 应为最近交易日
+    # 19:00后 or 非交易日：alert.json date 应为最近交易日
     ALERT_EXPECTED_DATE = LAST_TRADING_DAY
 
 alerts = []

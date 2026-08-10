@@ -563,6 +563,7 @@ def parse_ai_output(raw: dict | None, data: dict, date: str) -> dict | None:
         "risk": str(text.get("risk") or "").strip(),
     }
     # 数据锚定:watch_list 只保留注入数据中存在的 index_id(P1-8)
+    # 强制校验注入集合(P1-2 reviewer 复核:injected_ids 曾只定义未使用,AI 编造 index_id 会直进展示)
     injected_ids = {
         x.get("index_id") for x in (data.get("signals_today") or [])
     } | {x.get("index_id") for x in (data.get("signal_stats_buy_top") or [])}
@@ -571,7 +572,7 @@ def parse_ai_output(raw: dict | None, data: dict, date: str) -> dict | None:
         if not isinstance(w, dict):
             continue
         iid = str(w.get("index_id") or "").strip()
-        if not iid:
+        if not iid or iid not in injected_ids:
             continue
         watch_list.append({
             "index_id": iid,
@@ -646,7 +647,8 @@ def backfill_hits(history: list[dict], db_path: Path, today: str) -> None:
     today=本次生成日期,只回填 date < today 的条目,避免回填"未来"。"""
     if not history:
         return
-    pending = [it for it in history if not (it.get("meta", {}).get("hit", {}).get("direction"))]
+    # 只回填未判定条目(hit.direction is None);miss=False 也算已判定,避免每次重跑重扫(P2-1)
+    pending = [it for it in history if (it.get("meta", {}).get("hit", {}).get("direction") is None)]
     if not pending:
         return
     # 一次性加载 index_daily sh 全表(date->pct_change)
@@ -665,7 +667,7 @@ def backfill_hits(history: list[dict], db_path: Path, today: str) -> None:
     for it in history:
         meta = it.setdefault("meta", {})
         hit = meta.setdefault("hit", {})
-        if hit.get("direction") or not dates:
+        if hit.get("direction") is not None or not dates:
             continue
         bdate = it.get("date") or meta.get("date")
         if not bdate or bdate >= today:
@@ -747,8 +749,10 @@ def log_cost(repo: Path, cfg: dict, date: str, version: str, usage: dict | None,
     with open(p, "a", encoding="utf-8") as f:
         f.write(line)
     # 月度汇总 + 超阈值告警
+    # 日志首列 date 格式 YYYYMMDD(20260810 无横线),month 用 %Y-%m 是 2026-08 有横线,
+    # 直接 startswith(month) 恒 False 致月度累计恒0(P1-1 reviewer 复核 bug)。
     try:
-        month = _dt.datetime.now().strftime("%Y-%m")
+        month = _dt.datetime.now().strftime("%Y-%m").replace("-", "")  # -> "202608"
         total = 0.0
         for ln in p.read_text(encoding="utf-8").splitlines():
             parts = ln.split("\t")

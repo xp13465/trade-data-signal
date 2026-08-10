@@ -19,8 +19,9 @@ if [ ! -f "$CFG" ]; then
   exit 0
 fi
 
-# 读 schedule_enabled(yaml 简单 grep,值在行首)
-SCHED=$(grep -E '^schedule_enabled:' "$CFG" | head -1 | sed -E 's/^schedule_enabled:[[:space:]]*//' | tr -d ' ')
+# 读 schedule_enabled(yaml 简单 grep,值在行首;去行尾注释/空格加固,防 `true #注释` 误判)
+SCHED=$(grep -E '^schedule_enabled:' "$CFG" | head -1 \
+  | sed -E 's/^schedule_enabled:[[:space:]]*//' | sed -E 's/[[:space:]]*#.*$//' | tr -d ' ')
 if [ "$SCHED" != "true" ]; then
   echo "[run_daily_brief] schedule_enabled=$SCHED(非 true),定时调度拦截,跳过(手动 CLI 仍可跑)" | tee -a "$LOG"
   exit 0

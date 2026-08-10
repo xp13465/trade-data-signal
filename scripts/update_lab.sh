@@ -345,7 +345,10 @@ else
 fi
 # 总是 push（幂等：有未 push commit 就推，无则 up-to-date）
 echo "-> git push trade_sim.html ..." | tee -a "$LOG"
-git -C "$GIT_REPO" push origin main 2>&1 | tee -a "$LOG"
+# 2026-08-10 修复: 原 push origin main 推本地 main ref(落后 origin/main 时 non-ff 失败)，
+# 改 push origin HEAD:main(推当前分支 tip, 与 deploy.sh L302 一致)。commit 落在当前分支,
+# HEAD:main 保证 trade_sim.html 变更到达 main; 本地 main 是否落后无关。
+git -C "$GIT_REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
 PUSH_RC=${PIPESTATUS[0]:-1}
 if [ "$PUSH_RC" -ne 0 ]; then
   echo "⚠ git push 失败（退出码 ${PUSH_RC}），尝试 fetch + rebase 重试..." | tee -a "$LOG"
@@ -360,7 +363,7 @@ if [ "$PUSH_RC" -ne 0 ]; then
     echo "✓ rebase 前已 stash 全仓库 tracked M + untracked 文件（stash@{0}）" | tee -a "$LOG"
   fi
   if git -C "$GIT_REPO" rebase origin/main 2>&1 | tee -a "$LOG"; then
-    git -C "$GIT_REPO" push origin main 2>&1 | tee -a "$LOG"
+    git -C "$GIT_REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
     PUSH2_RC=${PIPESTATUS[0]:-1}
     # pop stash（恢复工作区改动，数据文件冲突自动解决，复用 deploy.sh pop_rebase_stash 机制）
     if [ "$LAB_STASHED" = "1" ]; then
@@ -425,3 +428,13 @@ echo "退出码汇总: sim=$RC1 fusion=$RC2 matrix=$RC3 fusion_matrix=$RC4 retes
 
 # 独立 push schedule_stats.json 到 main（2026-07-30 方案C+R2：gen_stats 后立即 push 绕过 deploy.sh 时序）
 bash "$REPO/scripts/push_schedule_stats.sh" || echo "⚠ push_schedule_stats 失败" | tee -a "$LOG"
+
+# 2026-08-10 修复: git deploy(trade_sim.html push) 失败必须传播非零退出。
+# 原脚本末尾为 summary echo, 无论 GIT_DEPLOY_RC 多少都 exit=0, 监控 exit!=0 路径漏报,
+# 只靠 log 关键词(error: failed to push)抓(2026-08-10 lab_auto 误报邮件 exit=0 场景)。
+# 传播后 schedule_monitor 的 exit!=0 路径也能捕获, 双路径兜底。
+if [ "$GIT_DEPLOY_RC" -ne 0 ]; then
+  echo "⚠ git deploy(trade_sim.html push) 失败(退出码 ${GIT_DEPLOY_RC})，返回非零退出供监控 exit!=0 捕获" | tee -a "$LOG"
+  exit 1
+fi
+exit 0
