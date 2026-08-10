@@ -18319,7 +18319,7 @@ function _tradeSimCardsHTML(s, initCap, etfCode) {
     '<div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">' + s.max_win_streak + ' 轮 / ' + s.max_lose_streak + ' 轮</span></div>' +
     '<div class="sim-card"><span class="k" title="平均每笔盈利÷平均每笔亏损。>1=赚的时候比亏的时候赚得多。">平均盈亏比</span><span class="v">' + _tradeSimFmtNum(s.avg_pl_ratio) + '（均盈' + _tradeSimFmtNum(s.avg_win_pct) + '% / 均亏' + _tradeSimFmtNum(s.avg_loss_pct) + '%）</span></div>' +
     '<div class="sim-card"><span class="k">配对情况</span><span class="v">' + s.total_rounds + '笔成对 · ' + s.open_count + '笔未平仓</span></div>' +
-    '<div class="sim-card"><span class="k" title="所有交易产生的佣金+过户费+印花税之和。买=佣金+过户费,卖=佣金+过户费+印花税。切费率档实时更新。">费率消耗</span><span class="v" style="color:var(--text-3)">' + (s.total_fee_cost != null ? _tradeSimFmtNum(s.total_fee_cost) + ' 元' : '-') + '<div class="sub">佣金+过户费+印花税</div></span></div>' +
+    '<div class="sim-card"><span class="k" title="所有交易产生的佣金+过户费+印花税之和。买=佣金+过户费,卖=佣金+过户费+印花税。切费率档实时更新。">费率消耗</span><span class="v sim-fee-cost">' + (s.total_fee_cost != null ? _tradeSimFmtNum(s.total_fee_cost) + ' 元' : '-') + '<div class="sub">佣金+过户费+印花税</div></span></div>' +
     '</div>';
 }
 
@@ -18360,7 +18360,7 @@ function _tradeSimLedgerHTML(ledger, indexName, etfCode) {
     else if (sharesTrd < 0) amtStr = _tradeSimFmtNum(amt) + ' <span style="font-size:10px;color:var(--text-3)">(' + Math.abs(sharesTrd).toFixed(2) + '股->)</span>';
     else amtStr = _tradeSimFmtNum(amt);
     var feeCost = entry.fee_cost;
-    var feeStr = (feeCost != null) ? '<span style="color:var(--text-3)">' + feeCost.toFixed(2) + '</span>' : '<span style="color:var(--text-3)">-</span>';
+    var feeStr = (feeCost != null) ? '<span class="sim-fee-cost">' + feeCost.toFixed(2) + '</span>' : '<span style="color:var(--text-3)">-</span>';
     return '<tr>' +
       '<td>' + (j + 1) + '</td>' +
       '<td>' + entry.date + '</td>' +
@@ -18577,7 +18577,7 @@ function _tradeSimComparisonTableHTML(sd, win, recomputedData) {
       '<td>' + cmpCell(r.trimmed_mean_drawdown, bestTrimmedDd, worstTrimmedDd, true, false) + '</td>' +
       '<td>' + cmpCell(r.win_rate, bestWin, worstWin, true, false) + '</td>' +
       '<td>' + cmpCell(r.total_ops, bestOps, worstOps, false, false) + ' 次</td>' +
-      '<td>' + (r.total_fee_cost != null ? cmpCell(r.total_fee_cost, bestFeeCost, worstFeeCost, false, false) + ' 元' : '<span style="color:var(--text-3)">-</span>') + '</td>' +
+      '<td class="sim-fee-cost">' + (r.total_fee_cost != null ? cmpCell(r.total_fee_cost, bestFeeCost, worstFeeCost, false, false) + ' 元' : '<span style="color:var(--text-3)">-</span>') + '</td>' +
       '</tr>';
   }).join('');
   // 表头：th 可点击切换排序，当前列显示 ▲(升序)/▼(降序)，其他列显示 ⇅(可排序提示)

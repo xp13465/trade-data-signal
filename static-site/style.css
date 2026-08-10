@@ -3577,6 +3577,9 @@ main { padding: 16px 24px; }
 .trade-sim-modal-body .sim-card .k { display: block; font-size: 12px; color: var(--text-3); margin-bottom: 4px; }
 .trade-sim-modal-body .sim-card .v { display: block; font-size: 16px; font-weight: 600; }
 .trade-sim-modal-body .sim-card .sub { font-size: 11px; color: var(--text-3); font-weight: 400; margin-top: 2px; }
+/* 费率消耗=扣钱,绿色(同凯利亏损绿 .lab-sigkelly-neg): light #52c41a / dark+redgold #73d13d */
+.sim-fee-cost { color: #52c41a; font-weight: 600; }
+[data-theme="dark"] .sim-fee-cost, [data-theme="redgold"] .sim-fee-cost { color: #73d13d; }
 .trade-sim-modal-body .sim-table-wrap { overflow-x: auto; background: var(--bg-card); border-radius: 8px; box-shadow: 0 1px 3px var(--shadow); padding: 8px; }
 .trade-sim-modal-body .sim-table-wrap table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .trade-sim-modal-body .sim-table-wrap th { background: var(--bg-hover); padding: 10px 12px; text-align: left; font-weight: 600; color: var(--text-2); white-space: nowrap; border-bottom: 1px solid var(--border); }

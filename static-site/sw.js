@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260810-a95';  // bump a94->a95: 模拟回测费率消耗显示(费率消耗卡片+交易记录列+对比表列+默认档始终重算)
+const CACHE_VERSION = 'v6-20260810-a96';  // bump a95->a96: 模拟回测费率消耗配色改绿色(同凯利亏损绿,3处灰->绿)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
