@@ -3376,12 +3376,12 @@ function statsHint(stats, strategy, indexId) {
     buy: "RSI上穿30·超卖拐头(均值回归)",
     buy_aux: "布林下轨回归(左侧布局)",
     buy_special: "唐奇安上轨突破(趋势跟随)",
-    buy_special_filtered: "追关注(h5过滤预览)",
+    buy_special_filtered: _t("buy_special") + "(h5过滤预览)",
     buy_backup: "Supertrend翻多(趋势反转)",
     sell: "MA60多头+MACD死叉(止盈调整)",
-    sell_stop_loss: "ATR×3.5止损(趋势破位)",
-    band_hold: "国债波段仓管·持有(无超买超卖)",
-    band_sell: "国债波段仓管·减仓(触超买锁利润)",
+    sell_stop_loss: "ATR×3.5" + _t("word_stop_loss") + "(趋势破位)",
+    band_hold: "国债波段仓管·" + _t("band_hold") + "(无超买超卖)",
+    band_sell: "国债波段仓管·" + _t("word_band_reduce") + "(触超买锁利润)",
   };
   // 国债品种信号排序: band 体系主信号(band_hold/band_sell/buy_aux/sell_stop_loss)排前, buy_special 排后标"次要·参考"
   const _sigOrder = _isCgb
@@ -4261,26 +4261,26 @@ function ruleContentHtml() {
       <h4><span class="rule-dot rule-dot-buy"></span>超卖反弹参考点</h4>
 
       <div class="rule-card rule-card-buy">
-        <div class="rule-card-head"><span class="rule-badge badge-buy">主关注</span> 超卖反弹（RSI 指标）</div>
+        <div class="rule-card-head"><span class="rule-badge badge-buy">${_t("type_buy")}</span> 超卖反弹（RSI 指标）</div>
         <p>当市场<b>短期跌过头了</b>，开始反弹时，作为技术信号参考（超卖反弹）。</p>
         <table class="rule-table">
           <tr><td class="rule-td-label">含义</td><td>RSI 指标跌到 30 以下（超卖区），然后回升到 30 以上 —— 说明抛压衰竭、买方开始进场</td></tr>
           <tr><td class="rule-td-label">触发</td><td>前一日 RSI ≤ 30，当日回升到 30 以上</td></tr>
-          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-buy">红色</span> 图表上标记为「关注」</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-buy">红色</span> 图表上标记为「${_t("buy_short")}」</td></tr>
           <tr><td class="rule-td-label">胜率</td><td>近 3 年 10 日内盈亏比 <b>1.13</b></td></tr>
           <tr><td class="rule-td-label">特殊</td><td><b>科创50、电力设备、传媒</b> 这 3 个品种波动更大，阈值收紧到 25（RSI ≤ 25 才算超卖），更早捕捉反弹</td></tr>
         </table>
       </div>
 
       <div class="rule-card rule-card-aux">
-        <div class="rule-card-head"><span class="rule-badge badge-aux">辅关注</span> 超卖反弹（布林带下轨）</div>
-        <p>价格<b>跌破布林带下轨后弹回来</b>，也是超卖反弹信号，与主关注互补。</p>
+        <div class="rule-card-head"><span class="rule-badge badge-aux">${_t("buy_aux")}</span> 超卖反弹（布林带下轨）</div>
+        <p>价格<b>跌破布林带下轨后弹回来</b>，也是超卖反弹信号，与${_t("type_buy")}互补。</p>
         <table class="rule-table">
           <tr><td class="rule-td-label">含义</td><td>布林带下轨 = 近 20 日均价 - 2 倍标准差，跌破后收回 = 极端超卖后的反弹</td></tr>
           <tr><td class="rule-td-label">触发</td><td>前一日收盘价跌破布林下轨，当日回升到下轨之上</td></tr>
-          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-aux">粉紫</span> 图表上标记为「辅关注」</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-aux">粉紫</span> 图表上标记为「${_t("buy_aux")}」</td></tr>
           <tr><td class="rule-td-label">胜率</td><td>近 3 年 10 日内盈亏比 <b>1.18</b></td></tr>
-          <tr><td class="rule-td-label">去重</td><td>如果同一天主关注和辅关注同时触发，只保留主关注（不重复标记）</td></tr>
+          <tr><td class="rule-td-label">去重</td><td>如果同一天${_t("type_buy")}和${_t("buy_aux")}同时触发，只保留${_t("type_buy")}（不重复标记）</td></tr>
         </table>
       </div>
     </div>
@@ -4289,13 +4289,13 @@ function ruleContentHtml() {
       <h4><span class="rule-dot rule-dot-sell"></span>趋势转弱参考点</h4>
 
       <div class="rule-card rule-card-sell">
-        <div class="rule-card-head"><span class="rule-badge badge-sell">风险提醒</span> 趋势转弱参考 · 收益兑现调整提示（非风险指令）</div>
+        <div class="rule-card-head"><span class="rule-badge badge-sell">${_t("sell_short")}</span> 趋势转弱参考 · 收益兑现调整提示（非风险指令）</div>
         <p>价格从<b>近期高点回落</b>，且动量转弱时，作为技术信号参考（趋势转弱）。三个条件<b>同时满足</b>才触发：</p>
         <table class="rule-table">
           <tr><td class="rule-td-label">① 价格回落</td><td>从近 20 个交易日的<b>最高价</b>回落超过 <b>5%</b>（用最高价而非收盘价，更能捕捉盘中真实高点）</td></tr>
           <tr><td class="rule-td-label">② 趋势过滤</td><td>收盘价仍在 <b>60 日均线</b> 之上（只在多头趋势中提示风险，下跌趋势中不制造噪音）</td></tr>
           <tr><td class="rule-td-label">③ 动量确认</td><td><b>MACD 死叉</b> —— 短期动量线（DIF）下穿长期动量线（DEA），确认上涨动能减弱</td></tr>
-          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-sell">绿色</span> 图表上标记为「风险提醒」</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-sell">绿色</span> 图表上标记为「${_t("sell_short")}」</td></tr>
           <tr><td class="rule-td-label">胜率</td><td>近 3 年 10 日走弱概率 <b>55%</b>（接近随机，非高胜率反向信号）</td></tr>
         </table>
         <p class="rule-note">⚠️ <b>重要</b>：这是收益兑现调整提示，<b>不是风险信号</b>。在单边上涨市中可能出现假信号（趋势跟踪类指标的固有代价）。震荡/下跌市中收益兑现提示更有效。</p>
@@ -4303,39 +4303,39 @@ function ruleContentHtml() {
     </div>
 
     <div class="rule-section">
-      <h4><span class="rule-dot rule-dot-special"></span>追关注与风控参考点</h4>
+      <h4><span class="rule-dot rule-dot-special"></span>${_t("buy_special")}与${_t("word_stop_loss")}参考点</h4>
 
       <div class="rule-card rule-card-special">
-        <div class="rule-card-head"><span class="rule-badge badge-special">追关注</span> 上轨突破（唐奇安 20 日）</div>
+        <div class="rule-card-head"><span class="rule-badge badge-special">${_t("buy_special")}</span> 上轨突破（唐奇安 20 日）</div>
         <p>唐奇安 20 日上轨突破 + 5 日确认。<b>趋势跟随</b>思路，突破后惯性上行。</p>
         <table class="rule-table">
           <tr><td class="rule-td-label">含义</td><td>收盘价突破近 20 日最高价（不含当日），5 日内确认有效</td></tr>
-          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-special">金色</span> 图表上标记为「追关注」</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-special">金色</span> 图表上标记为「${_t("buy_special")}」</td></tr>
           <tr><td class="rule-td-label">回测持有期建议</td><td>5d 胜率59.65%/均值+0.87%/回撤2.65%；10d 60.24%/+1.66%/4.26%（<b>风险调整最优</b>）；30d 59.06%/+3.44%（<b>分水岭</b>，风险/收益拐点）；90d 60.83%/+9.42%/回撤16.53%（<b>纯收益最优</b>，但回撤大）</td></tr>
         </table>
-        <p class="rule-note">⚠️ <b>趋势跟踪策略</b>：低胜率靠大盈拉均值，区别于主关注/辅关注的均值回归（高胜率小赚）。必须配「追风控|警示」控制风险，0 套牢。</p>
+        <p class="rule-note">⚠️ <b>趋势跟踪策略</b>：低胜率靠大盈拉均值，区别于${_t("type_buy")}/${_t("buy_aux")}的均值回归（高胜率小赚）。必须配「${_t("sell_stop_loss")}」控制风险，0 套牢。</p>
       </div>
 
       <div class="rule-card rule-card-stop-loss">
-        <div class="rule-card-head"><span class="rule-badge badge-stop-loss">追风控|警示</span> ATR×3.5 风控</div>
+        <div class="rule-card-head"><span class="rule-badge badge-stop-loss">${_t("sell_stop_loss")}</span> ATR×3.5 风控</div>
         <p>价格跌破 <b>ATR×3.5 动态风控线</b>（底层规则从唐奇安20日下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频）。趋势反转下行最后防线。</p>
         <table class="rule-table">
           <tr><td class="rule-td-label">含义</td><td>ATR（平均真实波幅）×3.5 作为风控距离，波动大时风控宽、波动小时风控窄，自适应市场节奏</td></tr>
-          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-stop-loss">蓝色</span> 图表上标记为「追风控|警示」</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-stop-loss">蓝色</span> 图表上标记为「${_t("sell_stop_loss")}」</td></tr>
           <tr><td class="rule-td-label">回测对比</td><td>现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原唐奇安20日（胜率44.33%/均值+1.56%，2008股灾-10.5%最差）。2026-07-21 调 ATR×3.5 降频后 hs300 触发 -18%/5日胜率 49.58%->50.23%</td></tr>
         </table>
-        <p class="rule-note">⚠️ <b>最后防线</b>：跌破即防范风险，趋势反转下行。与「风险」共振时调整信号更强。蓝色与风险绿色区分。</p>
+        <p class="rule-note">⚠️ <b>最后防线</b>：跌破即防范风险，趋势反转下行。与「${_t("sell_short")}」共振时调整信号更强。蓝色与风险绿色区分。</p>
       </div>
 
       <div class="rule-card rule-card-backup">
-        <div class="rule-card-head"><span class="rule-badge badge-backup">备关注</span> 超级趋势翻多（ATR×3 + 3 日确认）</div>
-        <p>超级趋势(Supertrend) ATR×3 翻多 + 3 日二次确认，<b>趋势反转确认</b>。与追关注（唐奇安突破）互补，作为趋势类信号的备选参考。</p>
+        <div class="rule-card-head"><span class="rule-badge badge-backup">${_t("buy_backup")}</span> 超级趋势翻多（ATR×3 + 3 日确认）</div>
+        <p>超级趋势(Supertrend) ATR×3 翻多 + 3 日二次确认，<b>趋势反转确认</b>。与${_t("buy_special")}（唐奇安突破）互补，作为趋势类信号的备选参考。</p>
         <table class="rule-table">
           <tr><td class="rule-td-label">含义</td><td>Supertrend 指标翻多（ATR×3 乘数），3 日内二次确认有效，过滤诱多</td></tr>
-          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-backup">紫色</span> 图表上标记为「备关注」</td></tr>
-          <tr><td class="rule-td-label">稳健性</td><td>弱于追关注（唐奇安突破），仅供参考不单独决策</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-backup">紫色</span> 图表上标记为「${_t("buy_backup")}」</td></tr>
+          <tr><td class="rule-td-label">稳健性</td><td>弱于${_t("buy_special")}（唐奇安突破），仅供参考不单独决策</td></tr>
         </table>
-        <p class="rule-note">⚠️ <b>稳健性弱于追关注</b>。配套：仅供参考不单独决策，需结合主关注/辅关注/追关注；诱多风险已用 3 日二次确认过滤。</p>
+        <p class="rule-note">⚠️ <b>稳健性弱于${_t("buy_special")}</b>。配套：仅供参考不单独决策，需结合${_t("type_buy")}/${_t("buy_aux")}/${_t("buy_special")}；诱多风险已用 3 日二次确认过滤。</p>
       </div>
     </div>
 
@@ -4343,45 +4343,45 @@ function ruleContentHtml() {
       <h4><span class="rule-dot rule-dot-band-hold"></span>国债波段仓位管理参考点</h4>
 
       <div class="rule-card rule-card-band-hold">
-        <div class="rule-card-head"><span class="rule-badge badge-band-hold">波段持有</span> 国债仓位维持（无超买超卖）</div>
-        <p>国债三品种波段仓位管理策略·<b>波段持有状态</b>。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1卖点(趋势转弱风险)对国债完全失效（sell=0 无理由）的问题。</p>
+        <div class="rule-card-head"><span class="rule-badge badge-band-hold">${_t("band_hold")}</span> 国债仓位维持（无超买超卖）</div>
+        <p>国债三品种波段仓位管理策略·<b>${_t("band_hold")}状态</b>。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1卖点(趋势转弱风险)对国债完全失效（sell=0 无理由）的问题。</p>
         <table class="rule-table">
           <tr><td class="rule-td-label">含义</td><td>国债专属动态仓位管理·维持仓位动作（非清仓卖出卖点，非静态 sell）</td></tr>
           <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-band-hold">橙色</span> 仓位条维持 + 图钉</td></tr>
           <tr><td class="rule-td-label">回测依据</td><td>cgb_idx 降风险(回撤-10.4%-&gt;-4.8%,夏普2.80-&gt;3.58)；cgb_10y_etf 放宽双赢(夏普1.31-&gt;1.52)；cgb_10y_future 双赢(年化1.30%-&gt;1.63%,夏普0.42-&gt;1.58)</td></tr>
         </table>
-        <p class="rule-note">⚠️ <b>国债专属动态仓位管理</b>（非静态 sell，非清仓卖出卖点）。四动作联动：减仓(草绿#8bc34a仓位条+图钉头,触超买减20-30%)/接回(buy_aux粉紫,超卖回归接回)/止损(sell_stop_loss蓝,趋势破位清仓卖出)/波段持有(band_hold橙,无超买超卖维持仓位)。研究参考，不构成投资建议。</p>
+        <p class="rule-note">⚠️ <b>国债专属动态仓位管理</b>（非静态 sell，非清仓卖出卖点）。四动作联动：${_t("word_band_reduce")}(草绿#8bc34a仓位条+图钉头,触超买减20-30%)/接回(buy_aux粉紫,超卖回归接回)/${_t("word_stop_loss")}(sell_stop_loss蓝,趋势破位清仓卖出)/${_t("band_hold")}(band_hold橙,无超买超卖维持仓位)。研究参考，不构成投资建议。</p>
       </div>
 
       <div class="rule-card rule-card-band-sell">
-        <div class="rule-card-head"><span class="rule-badge badge-band-sell">波段调整</span> 国债减仓（触超买锁利润）</div>
-        <p>国债波段仓位管理策略·<b>减仓动作</b>。触发超买条件(bias20&gt;0.3% AND RSI&gt;rsi_high OR close≥布林上轨)时减仓 20-30% 锁利润。与风险提醒区分：减仓非清仓卖出，体现"没卖重"。</p>
+        <div class="rule-card-head"><span class="rule-badge badge-band-sell">${_t("type_band_sell")}</span> 国债${_t("word_band_reduce")}（触超买锁利润）</div>
+        <p>国债波段仓位管理策略·<b>${_t("word_band_reduce")}动作</b>。触发超买条件(bias20&gt;0.3% AND RSI&gt;rsi_high OR close≥布林上轨)时${_t("word_band_reduce")} 20-30% 锁利润。与${_t("sell_short")}区分：${_t("word_band_reduce")}非清仓卖出，体现"没卖重"。</p>
         <table class="rule-table">
-          <tr><td class="rule-td-label">含义</td><td>国债专属减仓动作（减仓 20-30%，非清仓卖出退出）</td></tr>
-          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-band-sell">草绿色</span> 仓位条减少 100%-&gt;80%/70% + 图钉头（与风险提醒绿 #2e8b57 区分）</td></tr>
-          <tr><td class="rule-td-label">触发</td><td>bias20&gt;0.3% AND RSI&gt;rsi_high OR close≥布林上轨，减仓 20-30%</td></tr>
+          <tr><td class="rule-td-label">含义</td><td>国债专属${_t("word_band_reduce")}动作（${_t("word_band_reduce")} 20-30%，非清仓卖出退出）</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-band-sell">草绿色</span> 仓位条减少 100%-&gt;80%/70% + 图钉头（与${_t("sell_short")}绿 #2e8b57 区分）</td></tr>
+          <tr><td class="rule-td-label">触发</td><td>bias20&gt;0.3% AND RSI&gt;rsi_high OR close≥布林上轨，${_t("word_band_reduce")} 20-30%</td></tr>
         </table>
-        <p class="rule-note">⚠️ <b>国债专属减仓动作</b>(草绿#8bc34a仓位条减少 100%-&gt;80%/70%)。触超买减仓 20-30%，非清仓卖出退出。与止损(sell_stop_loss蓝,趋势破位清仓卖出)区分：减仓是主动锁利润，止损是被动防范。研究参考，不构成投资建议。</p>
+        <p class="rule-note">⚠️ <b>国债专属${_t("word_band_reduce")}动作</b>(草绿#8bc34a仓位条减少 100%-&gt;80%/70%)。触超买${_t("word_band_reduce")} 20-30%，非清仓卖出退出。与${_t("word_stop_loss")}(sell_stop_loss蓝,趋势破位清仓卖出)区分：${_t("word_band_reduce")}是主动锁利润，${_t("word_stop_loss")}是被动防范。研究参考，不构成投资建议。</p>
       </div>
     </div>
 
     <div class="rule-section">
       <h4><span class="rule-dot rule-dot-read"></span>如何解读信号</h4>
 
-      <p class="rule-subtitle">盈亏标注（风险提醒颜色含义）</p>
+      <p class="rule-subtitle">盈亏标注（${_t("sell_short")}颜色含义）</p>
       <table class="rule-table rule-table-color">
         <tr>
           <td><span class="rule-dot-sm rule-dot-profit"></span> <b>绿色 = 收益兑现</b></td>
           <td><span class="rule-dot-sm rule-dot-profit"></span> <b>绿色 = 趋势转弱</b></td>
         </tr>
         <tr>
-          <td>风险提醒价格 &gt; 前一个关注点价格<br><span class="muted">→ 历史多为收益兑现/调整情形</span></td>
-          <td>风险提醒价格 &le; 前一个关注点价格 / 附近无前关注参考<br><span class="muted">-> 含前关注失效/无前关注点，统一落趋势转弱（非操作建议）</span></td>
+          <td>${_t("sell_short")}价格 &gt; 前一个${_t("buy_long")}价格<br><span class="muted">→ 历史多为收益兑现/调整情形</span></td>
+          <td>${_t("sell_short")}价格 &le; 前一个${_t("buy_long")}价格 / 附近无前${_t("buy_short")}参考<br><span class="muted">-> 含前${_t("buy_short")}失效/无前${_t("buy_long")}，统一落趋势转弱（非操作建议）</span></td>
         </tr>
       </table>
 
       <p class="rule-subtitle">pin「盈亏X%」标签来源</p>
-      <p class="muted">风险提醒图钉上的「盈亏X%」标签 = sell 信号 reason 中「vs前买+X%」的<b>单次配对实现涨幅</b>（该风险提醒 vs 前一个关注点的实际涨跌），<b>非统计期望值</b>。悬停提示的「盈亏比Y」才是历史统计值。二者勿混。</p>
+      <p class="muted">${_t("sell_short")}图钉上的「盈亏X%」标签 = sell 信号 reason 中「vs前买+X%」的<b>单次配对实现涨幅</b>（该${_t("sell_short")} vs 前一个${_t("buy_long")}的实际涨跌），<b>非统计期望值</b>。悬停提示的「盈亏比Y」才是历史统计值。二者勿混。</p>
 
       <p class="rule-subtitle">情绪背景标签</p>
       <p class="muted">趋势转弱参考点会附带当前市场情绪分，帮你判断「技术拐点 + 情绪背景」的强弱：</p>
@@ -4396,18 +4396,18 @@ function ruleContentHtml() {
       </table>
 
       <p class="rule-subtitle">超卖反弹参考点示例</p>
-      <div class="rule-example"><span class="muted">主关注：</span>RSI上穿30(29→34), 情绪=8[冰点]</div>
-      <div class="rule-example"><span class="muted">辅关注：</span>布林下轨回归(下轨3852,收盘3870), RSI=41, 情绪=47[偏冷]</div>
+      <div class="rule-example"><span class="muted">${_t("type_buy")}：</span>RSI上穿30(29→34), 情绪=8[冰点]</div>
+      <div class="rule-example"><span class="muted">${_t("buy_aux")}：</span>布林下轨回归(下轨3852,收盘3870), RSI=41, 情绪=47[偏冷]</div>
 
       <p class="rule-subtitle">趋势转弱参考点示例</p>
-      <div class="rule-example"><span class="muted">风险提醒：</span>20日高回落5%(高4259→阈4046,收盘4028), RSI=40, 情绪=53[中性], MA60=4000[趋势过滤], MACD=死叉确认, 较前关注+2.30%[收益兑现]</div>
+      <div class="rule-example"><span class="muted">${_t("sell_short")}：</span>20日高回落5%(高4259→阈4046,收盘4028), RSI=40, 情绪=53[中性], MA60=4000[趋势过滤], MACD=死叉确认, 较前关注+2.30%[收益兑现]</div>
     </div>
 
     <div class="rule-section rule-section-sm">
       <h4><span class="rule-dot rule-dot-stat"></span>当前信号统计</h4>
       <table class="rule-table rule-table-stat">
-        <tr><td class="rule-td-label">主关注</td><td><b>3,673</b> 个</td><td class="rule-td-label">辅关注</td><td><b>3,918</b> 个</td></tr>
-        <tr><td class="rule-td-label">风险提醒</td><td><b>3,185</b> 个</td><td class="rule-td-label">风险/关注比</td><td><b>0.42</b>（风险/关注平衡）</td></tr>
+        <tr><td class="rule-td-label">${_t("type_buy")}</td><td><b>3,673</b> 个</td><td class="rule-td-label">${_t("buy_aux")}</td><td><b>3,918</b> 个</td></tr>
+        <tr><td class="rule-td-label">${_t("sell_short")}</td><td><b>3,185</b> 个</td><td class="rule-td-label">风险/关注比</td><td><b>0.42</b>（风险/关注平衡）</td></tr>
       </table>
     </div>
 
@@ -4438,29 +4438,43 @@ function initRuleButton() {
   const overlay = modal.querySelector('.rule-modal-overlay');
   const closeBtn = modal.querySelector('.rule-modal-close');
 
+  // 频率统计加载（open 和 refreshContent 共用）
+  const loadFreqStats = (freqDiv) => {
+    freqDiv.innerHTML = '<div class="hint-loading">加载中…</div>';
+    fetchJSON("./data/signal_freq.json").then((freq) => {
+      if (freq) {
+        const labels = { buy: _t("buy_long"), buy_aux: _t("buy_aux"), buy_special: _t("buy_special"), buy_special_filtered: _t("buy_special_filtered_long"), buy_backup: _t("buy_backup"), sell: _t("sell_long"), sell_stop_loss: _t("sell_stop_loss") , band_hold: _t("band_hold") };
+        const cls = { buy: "buy", buy_aux: "buy-aux", buy_special: "buy-special", buy_special_filtered: "buy-special-filtered", buy_backup: "buy-backup", sell: "sell", sell_stop_loss: "sell-stop-loss" , band_hold: "band-hold" };
+        let html = '<div class="hint-header">📅 全品种信号频率汇总</div><div class="hint-blocks">';
+        for (const sig of ["buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "band_hold", "sell", "sell_stop_loss"]) {
+          const f = freq[sig];
+          if (!f || !f.total_count) continue;
+          html += `<div class="hint-row"><span class="hint-sig ${cls[sig]}">${labels[sig]}</span><span class="hint-stat">今年 <b>${f.year_count}</b> 次</span><span class="hint-stat">总计 <b>${f.total_count}</b> 次</span><span class="hint-stat">月均 <b>${f.monthly_avg}</b> 次</span>${f.active_months ? `<span class="hint-stat muted">今年${f.active_months}月均</span>` : ""}</div>`;
+        }
+        html += '</div>';
+        freqDiv.innerHTML = html;
+      }
+    }).catch(() => {});
+  };
+
   const open = () => {
     modal.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
     const freqDiv = modal.querySelector('.rule-freq-stats');
-    if (freqDiv) {
-      freqDiv.innerHTML = '<div class="hint-loading">加载中…</div>';
-      fetchJSON("./data/signal_freq.json").then((freq) => {
-        if (freq) {
-          const labels = { buy: _t("buy_long"), buy_aux: _t("buy_aux"), buy_special: _t("buy_special"), buy_special_filtered: _t("buy_special_filtered_long"), buy_backup: _t("buy_backup"), sell: _t("sell_long"), sell_stop_loss: _t("sell_stop_loss") , band_hold: _t("band_hold") };
-          const cls = { buy: "buy", buy_aux: "buy-aux", buy_special: "buy-special", buy_special_filtered: "buy-special-filtered", buy_backup: "buy-backup", sell: "sell", sell_stop_loss: "sell-stop-loss" , band_hold: "band-hold" };
-          let html = '<div class="hint-header">📅 全品种信号频率汇总</div><div class="hint-blocks">';
-          for (const sig of ["buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "band_hold", "sell", "sell_stop_loss"]) {
-            const f = freq[sig];
-            if (!f || !f.total_count) continue;
-            html += `<div class="hint-row"><span class="hint-sig ${cls[sig]}">${labels[sig]}</span><span class="hint-stat">今年 <b>${f.year_count}</b> 次</span><span class="hint-stat">总计 <b>${f.total_count}</b> 次</span><span class="hint-stat">月均 <b>${f.monthly_avg}</b> 次</span>${f.active_months ? `<span class="hint-stat muted">今年${f.active_months}月均</span>` : ""}</div>`;
-          }
-          html += '</div>';
-          freqDiv.innerHTML = html;
-        }
-      }).catch(() => {});
-    }
+    if (freqDiv) loadFreqStats(freqDiv);
   };
   const close = () => { modal.classList.add('hidden'); document.body.style.overflow = ''; };
+
+  // 2026-08-08 切换合规/完整模式时重渲染弹窗内容（modal 是独立 overlay 不在 tab 内，renderTab 不触及）
+  const refreshContent = () => {
+    var contentEl = modal.querySelector('.rule-modal-content');
+    if (contentEl) contentEl.innerHTML = ruleContentHtml();
+    var titleEl = modal.querySelector('.rule-modal-header h3');
+    if (titleEl) titleEl.innerHTML = '&#128203; ' + _t("rule_modal_title");
+    var freqDiv = modal.querySelector('.rule-freq-stats');
+    if (freqDiv) loadFreqStats(freqDiv);
+  };
+  window._refreshRuleModal = refreshContent;
 
   btn.addEventListener('click', open);
   overlay.addEventListener('click', close);
@@ -20641,6 +20655,11 @@ function applyCompliance(mode) {
     // 2026-07-20 修复：切换合规/完整模式时重渲染已打开的 trade_sim modal（modal 是独立 overlay 不在 tab 内，renderTab 不触及）
     if (typeof _tradeSimOverlay !== 'undefined' && _tradeSimOverlay && _tradeSimOverlay.classList.contains('show') && typeof _tradeSimModalRender === 'function') {
       try { _tradeSimModalRender(_tradeSimOverlay); } catch (e) {}
+    }
+    // 2026-08-08 修复：切换合规/完整模式时重渲染已打开的规则说明 modal（modal 是独立 overlay 不在 tab 内，renderTab 不触及）
+    var _ruleModal = document.querySelector('.rule-modal:not(.hidden)');
+    if (_ruleModal && typeof window._refreshRuleModal === 'function') {
+      try { window._refreshRuleModal(); } catch (e) {}
     }
   });
 }

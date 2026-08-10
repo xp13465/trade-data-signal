@@ -140,7 +140,9 @@
       fund_score_sort_stability: "稳定性评分 高->低",
       // 任务6+7(2026-07-20): 国债冲突提示 + 次要参考标注(非交易指令词,两版同文案)
       treasury_conflict_hint: "国债走波段仓位管理，波段调整优先；追关注为通用趋势信号，国债上参考意义有限",
-      treasury_buy_special_minor: "次要·参考"
+      treasury_buy_special_minor: "次要·参考",
+      // lab.js 凯利卡间比较分组标题
+      lab_group_by_sig_type: "按信号类型分组(主/辅/追/备关注)"
     },
     // 完整版（🛡️ off）：用户点按钮切回的完整买卖点版本
     original: {
@@ -156,7 +158,7 @@
       buy_long: "买点",
       sell_long: "卖点",
       type_buy: "主买",
-      type_sell_stop_loss: "追止损",
+      type_sell_stop_loss: "追止损|卖",
       type_band_sell: "波段减仓",
       detail_buy_name: "主买 · 超卖拐点",
       detail_buy_aux_name: "辅买 · 下轨拐点",
@@ -208,7 +210,7 @@
       position_reduce_prefix: "减仓",
       position_stop_loss_clear: "止损清仓",
       sig_meta_stop_loss_name: "追止损|卖 · ATR止损",
-      sig_meta_stop_loss_label: "追止损卖",
+      sig_meta_stop_loss_label: "追止损|卖",
       weak_no_buypoint: "暂无优质买点推荐",
       buypoint_path_label: "该买点+路径",
       subscribe_title: "订阅该指数信号（有买卖点时推送邮件/Telegram）",
@@ -259,8 +261,10 @@
       fund_score_sort_drawdown: "回撤评分 高->低",
       fund_score_sort_stability: "稳定性评分 高->低",
       // 任务6+7(2026-07-20): 国债冲突提示 + 次要参考标注(非交易指令词,两版同文案)
-      treasury_conflict_hint: "国债走波段仓位管理，波段调整优先；追关注为通用趋势信号，国债上参考意义有限",
-      treasury_buy_special_minor: "次要·参考"
+      treasury_conflict_hint: "国债走波段仓位管理，波段减仓优先；追买为通用趋势信号，国债上参考意义有限",
+      treasury_buy_special_minor: "次要·参考",
+      // lab.js 凯利卡间比较分组标题
+      lab_group_by_sig_type: "按信号类型分组(主/辅/追/备买)"
     }
   };
 

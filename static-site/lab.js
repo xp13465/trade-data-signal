@@ -7942,7 +7942,7 @@ function _renderSigKellyQuadrants(host, data, period) {
   const groups = [
     { title: "按信号评级分组(10d score 评级)", keys: ["rating_high", "rating_mid", "rating_low"] },
     { title: "按 ETF 跟踪评分分组(track_tier 归类)", keys: ["etf_strong", "etf_related", "etf_approx", "etf_has_track"] },
-    { title: "按信号类型分组(主/辅/追/备关注)", keys: ["sig_main", "sig_aux", "sig_special", "sig_backup"] },
+    { title: _t("lab_group_by_sig_type"), keys: ["sig_main", "sig_aux", "sig_special", "sig_backup"] },
     { title: "按指数大类分组(宽基/港股/全球/行业/概念)", keys: ["mkt_a", "mkt_hk", "mkt_global", "mkt_industry", "mkt_concept"] },
   ];
   let html = "";
