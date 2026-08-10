@@ -1587,3 +1587,61 @@
   .lab-sigkelly-trades-table { font-size: 11px; }
   .lab-sigkelly-trades-table th, .lab-sigkelly-trades-table td { padding: 3px 4px; }
 }
+
+/* === 双AI对比展示区(三份文档折叠默认收起) === */
+.lab-sigkelly-ai-review { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.lab-sigkelly-review {
+  border: 1px solid var(--border); border-radius: 8px; padding: 0; overflow: hidden;
+  background: var(--bg-card);
+}
+.lab-sigkelly-review-summary {
+  cursor: pointer; list-style: none; font-weight: 700; font-size: 14px;
+  color: var(--text-1); padding: 10px 14px; display: flex; align-items: center; gap: 8px;
+  user-select: none; transition: background 0.15s;
+}
+.lab-sigkelly-review-summary::-webkit-details-marker { display: none; }
+.lab-sigkelly-review-summary::before {
+  content: "▶"; font-size: 10px; color: var(--text-3); transition: transform 0.2s; flex-shrink: 0;
+}
+.lab-sigkelly-review[open] > .lab-sigkelly-review-summary::before { transform: rotate(90deg); }
+.lab-sigkelly-review-summary:hover { background: var(--bg-hover); }
+.lab-sigkelly-review-hint { font-size: 12px; font-weight: 400; color: var(--text-3); }
+/* markdown 渲染内容样式 */
+.lab-sigkelly-review-body {
+  padding: 0 14px 14px; font-size: 13px; line-height: 1.75; color: var(--text-2);
+  max-height: 70vh; overflow-y: auto;
+}
+.lab-sigkelly-review-body h1, .lab-sigkelly-review-body h2, .lab-sigkelly-review-body h3,
+.lab-sigkelly-review-body h4 { color: var(--text-1); font-weight: 600; margin: 16px 0 8px; }
+.lab-sigkelly-review-body h1 { font-size: 17px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.lab-sigkelly-review-body h2 { font-size: 15px; }
+.lab-sigkelly-review-body h3 { font-size: 14px; }
+.lab-sigkelly-review-body h4 { font-size: 13px; }
+.lab-sigkelly-review-body p { margin: 6px 0; }
+.lab-sigkelly-review-body ul, .lab-sigkelly-review-body ol { margin: 6px 0; padding-left: 22px; }
+.lab-sigkelly-review-body li { margin: 3px 0; }
+.lab-sigkelly-review-body blockquote {
+  margin: 8px 0; padding: 6px 12px; border-left: 3px solid var(--primary);
+  background: var(--bg-hover); border-radius: 0 4px 4px 0; color: var(--text-3); font-size: 12px;
+}
+.lab-sigkelly-review-body code {
+  font-family: 'SF Mono', 'Consolas', monospace; font-size: 12px;
+  background: var(--bg-hover); padding: 1px 5px; border-radius: 3px; color: var(--text-1);
+}
+.lab-sigkelly-review-body pre { margin: 8px 0; overflow-x: auto; }
+.lab-sigkelly-review-body pre code { background: var(--bg-hover); padding: 8px 12px; display: block; border-radius: 4px; }
+.lab-sigkelly-review-body table {
+  width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0; display: block; overflow-x: auto;
+}
+.lab-sigkelly-review-body th {
+  background: var(--bg-hover); padding: 5px 8px; text-align: left; font-weight: 600;
+  color: var(--text-1); white-space: nowrap; border-bottom: 2px solid var(--border);
+}
+.lab-sigkelly-review-body td { padding: 4px 8px; border-bottom: 1px solid var(--bg-hover); white-space: nowrap; }
+.lab-sigkelly-review-body tr:nth-child(even) td { background: rgba(0,0,0,0.02); }
+.lab-sigkelly-review-body hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+.lab-sigkelly-review-body strong { color: var(--text-1); font-weight: 600; }
+.lab-sigkelly-review-body a { color: var(--primary); text-decoration: none; }
+.lab-sigkelly-review-body a:hover { text-decoration: underline; }
+[data-theme="dark"] .lab-sigkelly-review-body tr:nth-child(even) td,
+[data-theme="redgold"] .lab-sigkelly-review-body tr:nth-child(even) td { background: rgba(255,255,255,0.04); }

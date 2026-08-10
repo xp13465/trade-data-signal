@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260810-a102';  // bump a101->a102: N1降亏toggle标签修正 周二->周三(weekday==2=周三非周二,mining脚本映射误标)
+const CACHE_VERSION = 'v6-20260810-a103';  // bump a102->a103: 凯利回测页加双AI对比展示区(三份文档details折叠)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
@@ -25,6 +25,7 @@ const PRECACHE_URLS = [
   './app.min.js',
   './common.min.js',
   './purpose-notes.min.js',
+  './kelly-review-notes.min.js',
   './qr.js',
   './manifest.json',
   './favicon.svg',

@@ -23,7 +23,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 BASE = os.path.dirname(os.path.dirname(__file__))
-ASSETS = ["style.min.css", "common.min.js", "purpose-notes.min.js", "app.min.js", "lab.min.css", "lab.min.js", "qr.js", "vendor/echarts.min.js"]
+ASSETS = ["style.min.css", "common.min.js", "purpose-notes.min.js", "kelly-review-notes.min.js", "app.min.js", "lab.min.css", "lab.min.js", "qr.js", "vendor/echarts.min.js"]
 
 # 显式 Asia/Shanghai 时区，根治日期逻辑隐患：
 # datetime.now() 不带 tz 时取系统本地时区，若系统 TZ 配错或脚本在 UTC 环境(如某些 CI/Launchd

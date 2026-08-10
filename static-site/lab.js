@@ -7758,6 +7758,26 @@ function _renderSigKellyQuadrants(host, data, period) {
       `<span class="lab-kelly-tier lab-kelly-conservative">保守 <30%</span>` +
       `<span class="lab-sigkelly-note">⚠️ 样本量 n<100 统计意义弱,仅供参考,非投资建议。半凯利=凯利比例/2(更保守)。</span>` +
     `</div>`;
+  // 双AI对比展示区(三份文档折叠默认收起, comparison置顶)
+  if (typeof KELLY_REVIEW_NOTES !== 'undefined' && KELLY_REVIEW_NOTES) {
+    var _aiReviews = [
+      { key: 'comparison', title: '双AI对比', hint: 'Claude vs DeepSeek 结论差异对比(核心)' },
+      { key: 'comprehensive', title: '主控综合结论', hint: 'Claude 4部分:评价/推荐/改造/降亏过滤' },
+      { key: 'deepseek', title: 'DeepSeek独立分析', hint: 'DeepSeek 6章节独立分析' },
+    ];
+    html += '<div class="lab-sigkelly-ai-review">';
+    for (var i = 0; i < _aiReviews.length; i++) {
+      var r = _aiReviews[i];
+      var content = KELLY_REVIEW_NOTES[r.key] || '';
+      if (!content) continue;
+      html += '<details class="lab-sigkelly-review">';
+      html += '<summary class="lab-sigkelly-review-summary">' + r.title +
+              ' <span class="lab-sigkelly-review-hint">' + r.hint + '</span></summary>';
+      html += '<div class="lab-sigkelly-review-body">' + content + '</div>';
+      html += '</details>';
+    }
+    html += '</div>';
+  }
   host.innerHTML = html;
   // 交易记录行点击 -> 弹窗
   host.querySelectorAll(".lab-sigkelly-trade-row").forEach((row) => {
