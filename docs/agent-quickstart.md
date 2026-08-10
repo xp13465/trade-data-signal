@@ -4,7 +4,7 @@
 > 本文档是各类任务的**总览引导 + step-by-step**。数据上线详细见 [docs/data-deploy-quickstart.md](data-deploy-quickstart.md)（数据产物改动走那里，本文只引用不重复）。
 > 深度架构文档：[docs/site-deployment.md](site-deployment.md)（站点架构+从零重建）、[docs/r2-deployment.md](r2-deployment.md)（R2 数据层）、[docs/smoke-checklist.md](smoke-checklist.md)（P0 主功能回归清单）。
 >
-> 最后更新：2026-08-08。硬规范见 `CLAUDE.md`，本文只摘任务执行相关要点，约束引用章节号不重述全文。
+> 最后更新：2026-08-11（补 curl token 坑 + §H 叠加边际）。硬规范见 `CLAUDE.md`，本文只摘任务执行相关要点，约束引用章节号不重述全文。
 
 ---
 
@@ -308,6 +308,7 @@ curl -s https://ssd.fx8.store/data/xxx.json | python3 -c "import sys,json;print(
 
 ### 上线 / 时段
 
+- **curl 带认证头诊断禁止 -v/-i**：`curl -sv -H "Authorization: Bearer <token>"` 会把 token 值打印进输出泄漏到会话（2026-08-10 DB Release agent 泄漏 GITHUB_TOKEN 教训，§18 教训 22）。用 `curl -sS -w '%{http_code}'` 或只打 body；token 从 `.env` 读不硬编码不 echo。
 - **盘中（09:30-15:30）不跑全量 export+deploy**：全量 deploy 会 `git add` 通配带入旧 `intraday_snapshot.json` 覆盖线上实时版（事故根因）。盘中只跑 intraday-snapshot 定时任务。deploy.sh L37-49 内置时段闸门拒跑（force 可绕过）。
 - **盘后定时任务时点不推 main**：`15:35 / 16:00 / 17:50 / 20:35 / 22:00`，撞 intraday-snapshot/update-all 推 main = 互相覆盖事故。安全窗口 `23:00+`。
 - **改 app.js 必 bump sw.js CACHE_VERSION**：否则旧 Service Worker CacheFirst 缓存旧 `app.min.js`，用户硬刷后退回旧数据。三步（build_min + bump_asset_version + bump sw.js）缺一不可。
@@ -402,7 +403,7 @@ cd /Users/linhuichen/code/trade-data && /Users/linhuichen/code/trade/.venv/bin/u
 2. **识别数据维度盲区**：对比数据源全部字段 vs 历轮实际挖过的字段。历轮最大发现来自盲区（market_state 已注入部署版但从未挖过）。未覆盖字段=优先挖掘目标。
 3. **换方法换数据源不轻断"不可改善"**：一个算法挖不出≠无标志，换方法/换数据源/换关联维度验证后再下结论。
 4. **候选清单 + 比值口径 >2 过滤**：比值=降亏%/损盈%（=Lift-1），>2 满意 >3 更佳；低比值保留备选迭代淘汰；排除会"砍牛利润"的标志（如 low 评级 -810k）。
-5. **回测验证 + 4 窗口稳定性**：y1/y3/y10/all，比值>2 + maxSh<0.60 + neg 年占比 + 逐年表现（防 5 月 shift 过拟合）；净影响必须为正。
+5. **回测验证 + 4 窗口稳定性 + 叠加边际**：y1/y3/y10/all，比值>2 + maxSh<0.60 + neg 年占比 + 逐年表现（防 5 月 shift 过拟合）；净影响必须为正；**且必须算叠加现有 toggle 的边际贡献**——standalone 比值高≠推荐，被现有 toggle 完全覆盖时边际=0 不推荐（如第三轮 A1/A2/A3 比值 4-10 但边际=0；A45 叠加边际 +107k 才推荐；现有 toggle 已砍 87.9% 亏损时新候选只在残余 12% 里再砍 ~1pp，§18 经验③）。
 6. **产出数据报告供用户选**：候选表格（降亏%/损盈%/比值/净影响/逐年稳定性/推荐度），用户 veto/增删，不替用户硬选。
 7. **算法/逻辑改动上线遵守 §21**：grep `purpose-notes.js` + app.js/lab.js 算法公示文案同步更新（prompt 要列具体 grep 动作+文件名，不能只引章节号）。
 
