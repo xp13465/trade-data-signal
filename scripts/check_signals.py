@@ -486,6 +486,8 @@ def _signal_emoji(sig_type: str) -> str:
         return "🟪"
     if sig_type == "sell":
         return "🟢"
+    if sig_type == "sell_stop_loss":
+        return "🟢"
     if sig_type == "band_hold":
         return "⚪"
     return "⚪"
@@ -545,7 +547,7 @@ def _detect_sell_fade(idx: str, intraday_sig: str, closing_sigs: set[str],
 
     判定：
       - 严格消失（红 red）：盘中推 (X, sell*) 收盘无 X 任何 sell*
-        （closing_sigs 空 / 仅 band_hold 中性 / 转 buy* 均视为 sell 消失）
+        （closing_sigs 空 / 仅 band_hold 中性 视为 sell 消失；转 buy* 归橙档）
       - 由卖转买（橙 orange）：收盘有 (X, buy*)
       - 减弱（黄 yellow）：收盘仍有 sell* 但更弱（如追止损卖->卖）
       - 同级/更强保留：不警示
@@ -834,6 +836,74 @@ def _build_timeline_html(timeline: list[dict], name_map: dict[str, str]) -> str:
     )
 
 
+def _build_fade_detail_html(fade_alerts: list[dict], timeline: list[dict],
+                            name_map: dict[str, str], now_hm: str) -> str:
+    """盘中 fade 通知的时间线详情（2026-08-10 用户增量：盘中模式也读时间线）。
+
+    盘中模式（--intraday）信号消失发通知时，附上该信号当日在 signal_intraday_log
+    里的出现细节（产生时间/通知时间），让用户不用翻历史邮件就知道来龙去脉。
+    与收盘全貌时间线（_build_timeline_html）分离：只展示 fade 中的信号。
+
+    timeline 为按 fade alert (index_id, signal) 过滤后的当日时间线子集，每项含
+      appear_time（首次出现=产生/推送时点）/ last_time（最后出现后消失）/ reason。
+    """
+    rows_html = []
+    for a in fade_alerts:
+        name = index_id_to_name(a["index_id"], name_map)
+        label = _signal_label(a["intraday_signal"])
+        emoji = _signal_emoji(a["intraday_signal"])
+        matches = [t for t in timeline
+                   if t["index_id"] == a["index_id"] and t["signal"] == a["intraday_signal"]]
+        if matches:
+            m = matches[0]
+            reason = (m.get("reason") or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            # "14:55 出现 → 15:02 消失"：appear_time=产生(通知)时间, last_time=最后出现, 本轮检测消失
+            status = f'<b>{m["last_time"]}</b> 后消失（本轮 {now_hm} 检测）'
+            rows_html.append(
+                f'<tr style="border-bottom:1px solid #d9f7be;background:#f6ffed;">'
+                f'<td style="padding:7px 10px;">{emoji} <b>{name}</b></td>'
+                f'<td style="padding:7px 10px;font-size:12px;">{label}</td>'
+                f'<td style="padding:7px 10px;font-size:12px;"><b>{m["appear_time"]}</b></td>'
+                f'<td style="padding:7px 10px;font-size:12px;color:#389e0d;">{status}</td>'
+                f'<td style="padding:7px 10px;font-size:12px;color:#4e5969;">{reason}</td>'
+                f'</tr>'
+            )
+        else:
+            # 时间线无该信号记录（log 缺失/早于记录起点）：退化只展示 fade 状态
+            reason = (a.get("closing_status") or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            rows_html.append(
+                f'<tr style="border-bottom:1px solid #f2f3f5;">'
+                f'<td style="padding:7px 10px;">{emoji} <b>{name}</b></td>'
+                f'<td style="padding:7px 10px;font-size:12px;">{label}</td>'
+                f'<td style="padding:7px 10px;font-size:12px;">-</td>'
+                f'<td style="padding:7px 10px;font-size:12px;color:#389e0d;">本轮检测消失</td>'
+                f'<td style="padding:7px 10px;font-size:12px;color:#4e5969;">{reason}</td>'
+                f'</tr>'
+            )
+    rows = "\n".join(rows_html)
+    n = len(fade_alerts)
+    return (
+        '<div style="background:#f6ffed;border:1px solid #b7eb8f;border-radius:6px;'
+        'padding:12px 16px;margin:0 0 14px 0;">'
+        '<div style="font-weight:700;color:#389e0d;font-size:15px;margin-bottom:6px;">'
+        f'🕐 信号消失详情 · 盘中时间线（{n} 条）</div>'
+        '<p style="margin:0 0 10px 0;color:#237804;font-size:13px;line-height:1.6;">'
+        '以下为盘中已推送但本轮消失/变化的信号，附其当日出现细节（产生/通知时间 → 消失时点），'
+        '免去翻历史邮件：<b>出现(通知)时间</b>=盘中首次出现并推送通知的时点，'
+        '<b>消失时间</b>=最后出现后本轮重算不再出现的时点。</p>'
+        '<table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;">'
+        '<thead><tr style="background:#f6ffed;text-align:left;">'
+        '<th style="padding:7px 10px;border-bottom:2px solid #b7eb8f;">品种</th>'
+        '<th style="padding:7px 10px;border-bottom:2px solid #b7eb8f;">信号</th>'
+        '<th style="padding:7px 10px;border-bottom:2px solid #b7eb8f;">出现(通知)时间</th>'
+        '<th style="padding:7px 10px;border-bottom:2px solid #b7eb8f;">消失时间</th>'
+        '<th style="padding:7px 10px;border-bottom:2px solid #b7eb8f;">触发条件</th>'
+        '</tr></thead><tbody>'
+        f'{rows}'
+        '</tbody></table></div>'
+    )
+
+
 def _group_signals(signals: list[dict]) -> dict[str, list[dict]]:
     """按 signal 类型分组（含 SIGNAL_ORDER 全部类型 + 未知类型兜底）。"""
     groups: dict[str, list[dict]] = {k: [] for k in SIGNAL_ORDER}
@@ -850,6 +920,7 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
                 intraday: bool = False,
                 fade_alerts: list[dict] | None = None,
                 timeline: list[dict] | None = None,
+                fade_timeline: list[dict] | None = None,
                 subject_signals: list[dict] | None = None) -> tuple[str, str]:
     """构建邮件主题 + HTML 正文。返回 (subject, html_body)。
 
@@ -857,7 +928,10 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
     收盘后 17:50 update_all 仍发最终版）。默认 False（收盘/历史回测用）。
 
     timeline（2026-08-10 需求2）：收盘全过程复现时间线，非 intraday 时传入，
-      渲染"每个信号几点出现/几点消失"表格。
+      渲染"每个信号几点出现/几点消失"表格（当天全貌）。
+    fade_timeline（2026-08-10 用户增量）：盘中模式 fade 通知时传入，附该信号
+      当日在 signal_intraday_log 的出现细节（产生/通知时间 → 消失时点），
+      与收盘全貌 timeline 分离。
     subject_signals：主题信号摘要用全量（收盘时间线邮件在 dedup 后 signals 可能为空，
       但当日实际有信号，主题用当日全量 signals 展示，表体仍为 signals 去重结果）。
     """
@@ -889,9 +963,17 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
     title_prefix = "盘中实时·" if intraday else ""
     # fade-detect 警示存在时主题加 ⚠️ 前缀（2026-07-23 P1-新-A）；时间线存在时加 🕐 前缀
     fade_prefix = "⚠️ " if fade_alerts else ""
-    timeline_prefix = "🕐 " if timeline else ""
+    timeline_prefix = "🕐 " if (timeline or fade_timeline) else ""
+    if parts:
+        parts_str = "  " + " | ".join(parts)
+    elif timeline or fade_timeline:
+        # P2-3：时间线/盘中 fade 详情存在但当日信号空（信号均已消失）时，
+        # 主题不再显示"无信号"（与时间线内容矛盾），改为"信号均已消失（见时间线）"。
+        parts_str = "  信号均已消失（见时间线）"
+    else:
+        parts_str = "  无信号"
     subject = (f"{fade_prefix}{timeline_prefix}[{title_prefix}买卖点信号] {date}"
-               f"  {' | '.join(parts) if parts else '无信号'}")
+               f"{parts_str}")
 
     # === HTML 正文 ===
     # intraday 风险提示横幅：盘中快照非最终，信号可能随行情变化，收盘后 17:50 发最终版
@@ -914,14 +996,20 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
     if fade_alerts:
         html_parts.append(_build_fade_banner(fade_alerts, name_map, intraday=intraday))
 
+    # 盘中 fade 通知的时间线详情（2026-08-10 用户增量）：附 fade 信号前面的出现细节
+    # （产生/通知时间 → 消失时点），免去翻历史邮件。仅盘中模式 fade_timeline 传入。
+    if fade_timeline:
+        html_parts.append(_build_fade_detail_html(
+            fade_alerts or [], fade_timeline, name_map, datetime.now().strftime("%H:%M")))
+
     # 收盘全过程复现时间线（需求2 方案A，2026-08-10）：盘中每轮重算记录，
     # 收盘邮件展示每个信号几点出现/几点消失。放 fade 横幅之后、信号表之前。
     if timeline:
         html_parts.append(_build_timeline_html(timeline, name_map))
 
     if n_total == 0:
-        if timeline:
-            html_parts.append('<p style="color:#86909c;">今日无新买卖点信号（已全部推送），完整生命周期见上方时间线表格。</p>')
+        if timeline or fade_timeline:
+            html_parts.append('<p style="color:#86909c;">今日无新买卖点信号（已全部推送/消失），完整生命周期见上方时间线表格。</p>')
         else:
             html_parts.append('<p style="color:#86909c;">今日无买卖点信号。</p>')
     else:
@@ -1066,11 +1154,26 @@ def main(argv: list[str] | None = None) -> int:
         else:
             fade_alerts_for_email = fade_alerts
 
-    # 收盘全过程复现时间线（需求2 方案A，2026-08-10）：读 signal_intraday_log 当日记录
-    # （intraday_snapshot._recompute_signals 每轮追加），生成"信号几点出现/几点消失"。
-    # 仅收盘模式（非 intraday）展示；盘中模式每轮在跑，时间线意义不大。
+    # 时间线读取（signal_intraday_log → "信号几点出现/几点消失"），盘中/收盘两模式分离：
+    # 收盘模式（非 intraday）：读当日全量时间线，展示当天全貌（需求2 方案A，2026-08-10）。
+    # 盘中模式（--intraday，2026-08-10 用户增量）：仅当有 fade 警示要发邮件时读时间线，
+    #   过滤出 fade 信号的出现细节（产生/通知时间 → 消失时点），附在 fade 通知邮件里；
+    #   无 fade 要发邮件时不读（省 DB 查询，10min 一轮）。
     timeline: list[dict] = []
-    if not args.intraday:
+    fade_timeline: list[dict] = []
+    if args.intraday:
+        if fade_alerts_for_email:
+            try:
+                intraday_timeline = load_signal_intraday_timeline(date)
+            except Exception as e:  # noqa: BLE001
+                log.warning("signal_intraday_log 时间线读取失败（不阻断）：%s", e)
+                intraday_timeline = []
+            fade_keys = {(a["index_id"], a["intraday_signal"]) for a in fade_alerts_for_email}
+            fade_timeline = [t for t in intraday_timeline
+                             if (t["index_id"], t["signal"]) in fade_keys]
+            log.info("盘中 fade 通知：读时间线 %d 条，匹配 fade 信号 %d 条",
+                     len(intraday_timeline), len(fade_timeline))
+    else:
         try:
             timeline = load_signal_intraday_timeline(date)
         except Exception as e:  # noqa: BLE001
@@ -1139,7 +1242,8 @@ def main(argv: list[str] | None = None) -> int:
     subject_signals = signals if timeline else None
     subject, body = build_email(date, signals_to_send, name_map,
                                 intraday=args.intraday, fade_alerts=fade_alerts_for_email,
-                                timeline=timeline, subject_signals=subject_signals)
+                                timeline=timeline, fade_timeline=fade_timeline,
+                                subject_signals=subject_signals)
     # 始终打印邮件内容（便于日志/调试/未配置场景查看）
     log.info("===== 邮件主题 =====")
     log.info("%s", subject)
