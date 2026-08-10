@@ -7223,7 +7223,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
   var sellModes = (data.config && data.config.sell_modes) || {};
   var result = {};
   // 降亏过滤toggle(正交叠加: filter交易集 vs 费率改profit, 独立不互斥)
-  var filters = state.labSigKellyFilters || { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false };
+  var filters = state.labSigKellyFilters || { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false, excludeAuxCross: false, excludeSpecialBear: false };
   for (var qk in quadMeta) {
     result[qk] = {};
     for (var periodKey in periods) {
@@ -7240,6 +7240,10 @@ async function _kellyApplyFeeRecompute(feeParams) {
           if (filters.excludeMonth && fIdx.buy_date != null) { var _mm = (t[fIdx.buy_date] || "").substring(4, 6); if (_mm === "03" || _mm === "05") return false; }
           // 排除rating=low(低评级最大亏损源)
           if (filters.excludeRatingLow && fIdx.rating != null && t[fIdx.rating] === "low") return false;
+          // 排除buy_aux+03/05月交叉(最外科手术式降亏标志, 比值2.52)
+          if (filters.excludeAuxCross && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_aux" && fIdx.buy_date != null) { var _mmX = (t[fIdx.buy_date] || "").substring(4, 6); if (_mmX === "03" || _mmX === "05") return false; }
+          // 排除buy_special追关注+MA60熊市(追涨信号在熊市是雷区, 比值2.31)
+          if (filters.excludeSpecialBear && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_state != null && t[fIdx.market_state] === false) return false;
           return true;
         });
         var recomputed = trades.map(function (t) {
@@ -7424,7 +7428,7 @@ async function renderSigKellyLab() {
     state.labSigKellyFeeParams = { commission_rate: 0.0003, min_commission: 5, slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0 };
   }
   // 降亏过滤toggle state(默认关闭, 显示原始全量数据)
-  if (!state.labSigKellyFilters) state.labSigKellyFilters = { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false };
+  if (!state.labSigKellyFilters) state.labSigKellyFilters = { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false, excludeAuxCross: false, excludeSpecialBear: false };
 
   _renderSigKellyBar(bar, data, period);
   _renderSigKellyQuadrants(host, data, period);
@@ -7477,13 +7481,15 @@ function _renderSigKellyBar(bar, data, period) {
       `<label>印花税:万分之<input type="number" class="lab-input lab-sigkelly-fee-input-stamp" value="${stampVal}" step="0.01" min="0" style="width:42px">(卖)</label>` +
     `</div>`;
   // 降亏过滤toggle(4个独立checkbox可组合, 开启后过滤交易集重算所有指标)
-  const _filters = state.labSigKellyFilters || { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false };
+  const _filters = state.labSigKellyFilters || { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false, excludeAuxCross: false, excludeSpecialBear: false };
   const toggleHTML = `<div class="lab-sigkelly-toggle-row">` +
       `<span class="lab-sigkelly-toggle-label">降亏过滤:</span>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 buy_aux（辅关注）信号：历史净亏损 -33K 元，是唯一净负信号类型（胜率 48%），排除后总收益 +10%、亏损总额 -37%，零成本增收。"><input type="checkbox" class="lab-sigkelly-toggle-aux"${_filters.excludeAux ? " checked" : ""}> 排除辅关注(buy_aux) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="MA60 大盘择时（仅 A 股类 a/concept/industry）：沪深300 在 60 日均线之上才进场（多头），之下跳过避熊市。2022+2023 熊市减亏约 83%（基准 -104K -> -18K）。港股/全球标 true 不过滤。后端 _load_market_state 读 hs300 MA60 注入 market_state 字段。"><input type="checkbox" class="lab-sigkelly-toggle-mkt"${_filters.marketTiming ? " checked" : ""}> MA60大盘择时(仅A股类) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="季节性过滤。历史6年3/5月亏多盈少，系统性不强可能过拟合。组合aux+MA60+3 5月减亏73%净保留116%"><input type="checkbox" class="lab-sigkelly-toggle-month"${_filters.excludeMonth ? " checked" : ""}> 排除3+5月(季节性) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="低评分信号是最大亏损源(占79%)，排除降亏显著但剩样本少可能过拟合"><input type="checkbox" class="lab-sigkelly-toggle-rating"${_filters.excludeRatingLow ? " checked" : ""}> 排除低评级(rating=low) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 buy_aux（辅关注）信号。减亏 34.5%（253.6万元）/ 损盈 25.0%（238.7万元）/ 比值 1.38。净增收 +14.8万元。唯一净负信号类型（胜率48%），系统性最强。"><input type="checkbox" class="lab-sigkelly-toggle-aux"${_filters.excludeAux ? " checked" : ""}> 排除辅关注(buy_aux) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="MA60 大盘择时（仅A股类 a/concept/industry）：沪深300在60日均线之上才进场。减亏 47.0%（345.6万元）/ 损盈 37.8%（360.5万元）/ 比值 1.24。净影响 -14.9万元（降亏强但损盈更多，全模式净负）。港股/全球标 true 不过滤。"><input type="checkbox" class="lab-sigkelly-toggle-mkt"${_filters.marketTiming ? " checked" : ""}> MA60大盘择时(仅A股类) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="季节性过滤，排除3月和5月进场的交易。减亏 18.4% / 损盈 8.7% / 比值 2.11。净增收 +52.8万元。历史6年3/5月亏多盈少，05月近年shift（2024-2026转亏），附过拟合提示。"><input type="checkbox" class="lab-sigkelly-toggle-month"${_filters.excludeMonth ? " checked" : ""}> 排除3+5月(季节性) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 rating=low 低评级信号。减亏 82.3%（605.4万元）/ 损盈 72.0%（686.4万元）/ 比值 1.14。净影响 -81.0万元（最大破坏）。低评级是周期性盈利群体（2025牛市+901k），砍掉损净利。"><input type="checkbox" class="lab-sigkelly-toggle-rating"${_filters.excludeRatingLow ? " checked" : ""}> 排除低评级(rating=low) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 buy_aux 信号在3/5月进场的交易（交叉标志）。减亏 7.3% / 损盈 2.9% / 比值 2.52（全场最高）。净增收 +25.8万元。最外科手术式标志，双条件交集更稳定。"><input type="checkbox" class="lab-sigkelly-toggle-auxcross"${_filters.excludeAuxCross ? " checked" : ""}> 辅关注×3/5月交叉 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 buy_special（追关注）信号在MA60熊市的交易（交叉标志）。减亏 8.3% / 损盈 3.6% / 比值 2.31。净增收 +26.5万元。追涨信号在熊市是经典反模式（追涨被套），buy_special整体净正但在熊市净亏。"><input type="checkbox" class="lab-sigkelly-toggle-specialbear"${_filters.excludeSpecialBear ? " checked" : ""}> 追关注×熊市交叉 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<span class="lab-sigkelly-toggle-hint">独立/组合开启,实时过滤重算</span>` +
     `</div>`;
   bar.innerHTML =
@@ -7522,27 +7528,41 @@ function _renderSigKellyBar(bar, data, period) {
   var auxCb = bar.querySelector(".lab-sigkelly-toggle-aux");
   var mktCb = bar.querySelector(".lab-sigkelly-toggle-mkt");
   if (auxCb) auxCb.onchange = function () {
-    if (!state.labSigKellyFilters) state.labSigKellyFilters = { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false };
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false, excludeAuxCross: false, excludeSpecialBear: false };
     state.labSigKellyFilters.excludeAux = auxCb.checked;
     _kellyOnFilterChange();
   };
   if (mktCb) mktCb.onchange = function () {
-    if (!state.labSigKellyFilters) state.labSigKellyFilters = { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false };
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false, excludeAuxCross: false, excludeSpecialBear: false };
     state.labSigKellyFilters.marketTiming = mktCb.checked;
     _kellyOnFilterChange();
   };
   // 排除3+5月(季节性)
   var monCb = bar.querySelector(".lab-sigkelly-toggle-month");
   if (monCb) monCb.onchange = function () {
-    if (!state.labSigKellyFilters) state.labSigKellyFilters = { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false };
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false, excludeAuxCross: false, excludeSpecialBear: false };
     state.labSigKellyFilters.excludeMonth = monCb.checked;
     _kellyOnFilterChange();
   };
   // 排除低评级(rating=low)
   var ratingCb = bar.querySelector(".lab-sigkelly-toggle-rating");
   if (ratingCb) ratingCb.onchange = function () {
-    if (!state.labSigKellyFilters) state.labSigKellyFilters = { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false };
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false, excludeAuxCross: false, excludeSpecialBear: false };
     state.labSigKellyFilters.excludeRatingLow = ratingCb.checked;
+    _kellyOnFilterChange();
+  };
+  // 辅关注×3/5月交叉(排除buy_aux在3/5月)
+  var auxCrossCb = bar.querySelector(".lab-sigkelly-toggle-auxcross");
+  if (auxCrossCb) auxCrossCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false, excludeAuxCross: false, excludeSpecialBear: false };
+    state.labSigKellyFilters.excludeAuxCross = auxCrossCb.checked;
+    _kellyOnFilterChange();
+  };
+  // 追关注×熊市交叉(排除buy_special在MA60熊市)
+  var specialBearCb = bar.querySelector(".lab-sigkelly-toggle-specialbear");
+  if (specialBearCb) specialBearCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false, excludeAuxCross: false, excludeSpecialBear: false };
+    state.labSigKellyFilters.excludeSpecialBear = specialBearCb.checked;
     _kellyOnFilterChange();
   };
 }
@@ -8056,7 +8076,7 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   fields.forEach((f, i) => { _fIdx[f] = i; });
 
   // 按周期 + 降亏toggle过滤(与卡片统计一致, §22数据一致性)
-  var _filters = state.labSigKellyFilters || { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false };
+  var _filters = state.labSigKellyFilters || { excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false, excludeAuxCross: false, excludeSpecialBear: false };
   let trades = rawTrades.filter(function (t) {
     if (cutoff && cutoff !== "0" && (t[_fIdx.buy_date] || "") < cutoff) return false;
     if (_filters.excludeAux && _fIdx.signal != null && (t[_fIdx.signal] || "") === "buy_aux") return false;
@@ -8065,6 +8085,10 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
     if (_filters.excludeMonth && _fIdx.buy_date != null) { var _mm2 = (t[_fIdx.buy_date] || "").substring(4, 6); if (_mm2 === "03" || _mm2 === "05") return false; }
     // 排除rating=low(低评级最大亏损源)
     if (_filters.excludeRatingLow && _fIdx.rating != null && t[_fIdx.rating] === "low") return false;
+    // 排除buy_aux+03/05月交叉(最外科手术式降亏标志, 比值2.52)
+    if (_filters.excludeAuxCross && _fIdx.signal != null && (t[_fIdx.signal] || "") === "buy_aux" && _fIdx.buy_date != null) { var _mm3 = (t[_fIdx.buy_date] || "").substring(4, 6); if (_mm3 === "03" || _mm3 === "05") return false; }
+    // 排除buy_special追关注+MA60熊市(追涨信号在熊市是雷区, 比值2.31)
+    if (_filters.excludeSpecialBear && _fIdx.signal != null && (t[_fIdx.signal] || "") === "buy_special" && _fIdx.market_state != null && t[_fIdx.market_state] === false) return false;
     return true;
   });
 
