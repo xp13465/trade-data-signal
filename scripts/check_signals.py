@@ -103,7 +103,7 @@ SIGNAL_LABELS = {
 SIGNAL_ORDER = ["buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss", "band_hold"]
 
 # === fade-detect 盘中信号收盘消失警示（2026-07-23 P1-新-A）===
-# buy 系列强度排序（强->弱），用于"降级"判定；sell 系列消失不警示（对已卖出用户利好）
+# buy 系列强度排序（强->弱），用于"降级"判定。
 BUY_STRENGTH = {
     "buy": 4,
     "buy_special": 3,
@@ -111,6 +111,13 @@ BUY_STRENGTH = {
     "buy_backup": 1,
 }
 SELL_TYPES = {"sell", "sell_stop_loss"}
+# sell 系列强度排序（强->弱）：追止损卖 > 卖。2026-08-10 加：sell 信号消失也检测+通知
+# （用户反馈：14:56 收到波段减仓邮件，15:02 收盘重算后信号消失但无通知，希望提前知晓）。
+# sell 消失语义特殊（价格回落不再超买=利好方向），文案设计为"减仓条件解除"，非简单"信号消失"。
+SELL_STRENGTH = {
+    "sell_stop_loss": 2,
+    "sell": 1,
+}
 
 # fade 警示档位 -> (emoji, 中文标签, 主色)
 FADE_LEVEL_INFO = {
@@ -180,8 +187,9 @@ def save_signal_notified(data: dict[str, list[list[str]]]) -> None:
 
 
 # AZ54 P1-4 盘中 fade-detect 去重（2026-07-29）：同日同 index_id|level 只推一次。
-# 格式 {date_str: {"index_id|level": iso_timestamp}}，仅当日保留（清理旧日期）。
+# 格式 {date_str: {"index_id|level|kind": iso_timestamp}}，仅当日保留（清理旧日期）。
 # 仅 intraday 模式使用（10min 一轮频繁，需去重防轰炸）；收盘模式跑一次无需去重。
+# 2026-08-10：key 加 kind(buy/sell)，防同日同 index 的 buy fade 与 sell fade 撞 key 漏推。
 FADE_NOTIFIED_PATH = REPO / "data" / "fade_notified.json"
 
 
@@ -204,7 +212,7 @@ def filter_fade_alerts_intraday(alerts: list[dict], date: str) -> list[dict]:
     now = datetime.now().isoformat()
     new_alerts: list[dict] = []
     for a in alerts:
-        key = f"{a['index_id']}|{a['level']}"
+        key = f"{a['index_id']}|{a['level']}|{a.get('kind', 'buy')}"
         if key in today_set:
             continue
         today_set[key] = now
@@ -500,16 +508,82 @@ def _format_stats_line(stats_entry: dict | None) -> str | None:
     )
 
 
+def _detect_buy_fade(idx: str, intraday_sig: str, closing_sigs: set[str],
+                     closing_buy_sigs: set[str], closing_sell_sigs: set[str]) -> dict | None:
+    """buy 系列 fade 判定（原逻辑，2026-07-23 P1-新-A）。返回 alert dict 或 None（不警示）。"""
+    if not closing_sigs:
+        return {"index_id": idx, "intraday_signal": intraday_sig,
+                "closing_signals": sorted(closing_sigs), "kind": "buy",
+                "level": "red", "closing_status": "无任何信号",
+                "suggestion": "信号消失，建议人工复核行情"}
+    if closing_sell_sigs:
+        sell_labels = "、".join(_signal_label(s) for s in sorted(closing_sell_sigs))
+        return {"index_id": idx, "intraday_signal": intraday_sig,
+                "closing_signals": sorted(closing_sigs), "kind": "buy",
+                "level": "orange", "closing_status": f"出现卖出信号（{sell_labels}）",
+                "suggestion": "由买转卖，建议谨慎评估"}
+    if closing_buy_sigs:
+        intraday_strength = BUY_STRENGTH[intraday_sig]
+        max_closing_strength = max(BUY_STRENGTH[s] for s in closing_buy_sigs)
+        if max_closing_strength < intraday_strength:
+            buy_labels = "、".join(_signal_label(s) for s in sorted(closing_buy_sigs))
+            return {"index_id": idx, "intraday_signal": intraday_sig,
+                    "closing_signals": sorted(closing_sigs), "kind": "buy",
+                    "level": "yellow", "closing_status": f"降级为 {buy_labels}",
+                    "suggestion": "信号强度减弱，关注后续走势"}
+        return None  # 同级或升级，不警示
+    return None  # 收盘有信号但既非 buy 也非 sell（理论不会到这里，兜底）
+
+
+def _detect_sell_fade(idx: str, intraday_sig: str, closing_sigs: set[str],
+                      closing_buy_sigs: set[str], closing_sell_sigs: set[str]) -> dict | None:
+    """sell 系列 fade 判定（2026-08-10 加，需求1）。
+
+    sell 消失语义特殊：卖出/减仓信号消失 = 价格回落不再超买 = 利好方向
+    （减仓条件解除），非"风险信号消失"。文案明确"减仓条件解除"，避免误导
+    用户以为风险解除。盘中严格消失归 red 档（盘中 red 档才推邮件，见 main）。
+
+    判定：
+      - 严格消失（红 red）：盘中推 (X, sell*) 收盘无 X 任何 sell*
+        （closing_sigs 空 / 仅 band_hold 中性 / 转 buy* 均视为 sell 消失）
+      - 由卖转买（橙 orange）：收盘有 (X, buy*)
+      - 减弱（黄 yellow）：收盘仍有 sell* 但更弱（如追止损卖->卖）
+      - 同级/更强保留：不警示
+    """
+    if closing_sell_sigs:
+        intraday_strength = SELL_STRENGTH[intraday_sig]
+        max_closing_strength = max(SELL_STRENGTH[s] for s in closing_sell_sigs)
+        if max_closing_strength < intraday_strength:
+            sell_labels = "、".join(_signal_label(s) for s in sorted(closing_sell_sigs))
+            return {"index_id": idx, "intraday_signal": intraday_sig,
+                    "closing_signals": sorted(closing_sigs), "kind": "sell",
+                    "level": "yellow", "closing_status": f"卖出信号减弱为 {sell_labels}",
+                    "suggestion": "卖出压力减轻，减仓紧迫度下降"}
+        return None  # 同级或更强 sell 保留，不警示
+    if closing_buy_sigs:
+        buy_labels = "、".join(_signal_label(s) for s in sorted(closing_buy_sigs))
+        return {"index_id": idx, "intraday_signal": intraday_sig,
+                "closing_signals": sorted(closing_sigs), "kind": "sell",
+                "level": "orange", "closing_status": f"转为买入信号（{buy_labels}）",
+                "suggestion": "由卖转买，行情或反转向上"}
+    # 收盘无 sell 也无 buy（含仅 band_hold 中性）：卖出信号消失 = 价格回落，减仓条件解除
+    return {"index_id": idx, "intraday_signal": intraday_sig,
+            "closing_signals": sorted(closing_sigs), "kind": "sell",
+            "level": "red", "closing_status": "卖出信号已消失（价格回落，减仓条件解除）",
+            "suggestion": "卖出/减仓压力缓解；已减仓可关注回落后的接回机会"}
+
+
 def detect_fade(
     notified_entries: list[list[str]],
     closing_signals: list[tuple[str, str]] | list[dict],
 ) -> list[dict]:
     """检测盘中推送信号收盘是否消失/变化（fade-detect，2026-07-23 P1-新-A）。
 
-    只对 buy 系列警示（buy/buy_aux/buy_special/buy_backup）；
-    sell 系列消失不警示（对已卖出用户利好）。
+    buy 系列：严格消失/类型变化/降级保留三档警示（原有）。
+    sell 系列（2026-08-10 加，需求1）：卖出/减仓信号消失也警示，语义为
+      "减仓条件解除（价格回落）"，文案与 buy 消失区分，避免误导。
 
-    三档判定：
+    三档判定（buy）：
       - 严格消失（红 red）：盘中推 (X, buy*) 收盘 signal_daily 无 X 任何信号
       - 类型变化（橙 orange）：盘中推 (X, buy*) 收盘有 (X, sell*)
       - 降级保留（黄 yellow）：盘中推 (X, buy*) 收盘有更弱的 buy*
@@ -522,7 +596,7 @@ def detect_fade(
 
     Returns:
       fade_alerts list[dict]，每项含
-        index_id / intraday_signal / closing_signals(list) /
+        index_id / intraday_signal / closing_signals(list) / kind(buy/sell) /
         closing_status(str 中文) / level(red/orange/yellow) / suggestion(str)
     """
     # 收盘信号按 index_id 聚合为 set
@@ -541,45 +615,21 @@ def detect_fade(
         if not entry or len(entry) < 2:
             continue
         idx, intraday_sig = entry[0], entry[1]
-        # sell 系列不警示
-        if intraday_sig not in BUY_STRENGTH:
+        # 只跟踪 buy* / sell*（band_hold 中性信号不跟踪）
+        if intraday_sig not in BUY_STRENGTH and intraday_sig not in SELL_TYPES:
             continue
         closing_sigs = closing_by_idx.get(idx, set())
         closing_buy_sigs = {s for s in closing_sigs if s in BUY_STRENGTH}
         closing_sell_sigs = {s for s in closing_sigs if s in SELL_TYPES}
 
-        if not closing_sigs:
-            level = "red"
-            closing_status = "无任何信号"
-            suggestion = "信号消失，建议人工复核行情"
-        elif closing_sell_sigs:
-            level = "orange"
-            sell_labels = "、".join(_signal_label(s) for s in sorted(closing_sell_sigs))
-            closing_status = f"出现卖出信号（{sell_labels}）"
-            suggestion = "由买转卖，建议谨慎评估"
-        elif closing_buy_sigs:
-            intraday_strength = BUY_STRENGTH[intraday_sig]
-            max_closing_strength = max(BUY_STRENGTH[s] for s in closing_buy_sigs)
-            if max_closing_strength < intraday_strength:
-                level = "yellow"
-                buy_labels = "、".join(_signal_label(s) for s in sorted(closing_buy_sigs))
-                closing_status = f"降级为 {buy_labels}"
-                suggestion = "信号强度减弱，关注后续走势"
-            else:
-                # 同级或升级，不警示
-                continue
+        if intraday_sig in SELL_TYPES:
+            alert = _detect_sell_fade(idx, intraday_sig, closing_sigs,
+                                      closing_buy_sigs, closing_sell_sigs)
         else:
-            # 收盘有信号但既非 buy 也非 sell（理论不会到这里，保留兜底）
-            continue
-
-        fade_alerts.append({
-            "index_id": idx,
-            "intraday_signal": intraday_sig,
-            "closing_signals": sorted(closing_sigs),
-            "closing_status": closing_status,
-            "level": level,
-            "suggestion": suggestion,
-        })
+            alert = _detect_buy_fade(idx, intraday_sig, closing_sigs,
+                                     closing_buy_sigs, closing_sell_sigs)
+        if alert is not None:
+            fade_alerts.append(alert)
     return fade_alerts
 
 
@@ -625,65 +675,167 @@ def run_fade_detect(date: str, closing_signals: list[dict],
 
 def _build_fade_banner(fade_alerts: list[dict], name_map: dict[str, str],
                        intraday: bool = False) -> str:
-    """构建 fade 警示横幅 HTML（红/橙/黄三档表格）。
+    """构建 fade 警示横幅 HTML（红/橙/黄三档表格 + sell 行绿色系）。
 
     intraday=True 时文案用"本轮消失"（盘中实时模式），False 用"收盘消失"（收盘模式）。
     AZ54 P1-4（2026-07-29）：盘中模式文案区分。
+    2026-08-10（需求1）：sell 系列 fade（卖出信号消失=减仓条件解除，利好方向）用
+      绿色系整行渲染 + 专属文案，与 buy 消失（风险信号）的红色系区分，避免误导。
+      全为 sell fade 时横幅整体转绿色标题"卖出/减仓信号解除"。
     """
     rows_html = []
+    has_sell = any(a.get("kind") == "sell" for a in fade_alerts)
     for a in fade_alerts:
-        emoji, level_label, _ = FADE_LEVEL_INFO.get(
-            a["level"], ("⚪", a["level"], "#86909c"))
         name = index_id_to_name(a["index_id"], name_map)
         intraday_label = _signal_label(a["intraday_signal"])
+        if a.get("kind") == "sell":
+            emoji, row_bg, row_border, sugg_color = "💚", "#f6ffed", "#d9f7be", "#389e0d"
+        else:
+            emoji, _, _ = FADE_LEVEL_INFO.get(a["level"], ("⚪", a["level"], "#86909c"))
+            row_bg, row_border, sugg_color = "#fff1f0", "#ffe7e6", "#cf1322"
         rows_html.append(
-            f'<tr style="border-bottom:1px solid #ffe7e6;">'
+            f'<tr style="border-bottom:1px solid {row_border};background:{row_bg};">'
             f'<td style="padding:8px 10px;">{emoji} <b>{name}</b></td>'
             f'<td style="padding:8px 10px;font-size:12px;">{intraday_label}</td>'
             f'<td style="padding:8px 10px;font-size:12px;color:#4e5969;">{a["closing_status"]}</td>'
-            f'<td style="padding:8px 10px;font-size:12px;color:#4e5969;">{a["suggestion"]}</td>'
+            f'<td style="padding:8px 10px;font-size:12px;color:{sugg_color};">{a["suggestion"]}</td>'
             f'</tr>'
         )
     rows = "\n".join(rows_html)
     n = len(fade_alerts)
-    if intraday:
-        title = f'⚠️ 盘中信号本轮消失警示（{n} 条）'
-        desc = '以下信号此前已推送，但本轮状态变化或消失，请重点关注：'
-        status_header = "本轮状态"
+    mode_label = "本轮" if intraday else "收盘"
+    all_sell = has_sell and all(a.get("kind") == "sell" for a in fade_alerts)
+    if all_sell:
+        title = f'✅ 卖出/减仓信号{mode_label}解除（{n} 条）'
+        desc = ('以下卖出/减仓信号盘中已推送，但状态消失或减弱（价格回落不再超买，'
+                '减仓条件解除，属利好方向而非风险解除）：')
+        banner_bg, banner_border, title_color, desc_color = "#f6ffed", "#95de64", "#389e0d", "#237804"
     else:
-        title = f'⚠️ 盘中信号收盘消失警示（{n} 条）'
-        desc = '以下信号盘中已推送，但收盘后状态变化或消失，请重点关注：'
-        status_header = "收盘状态"
+        title = f'⚠️ 盘中信号{mode_label}消失警示（{n} 条）'
+        desc = '以下信号盘中已推送，但状态变化或消失，请重点关注：'
+        if has_sell:
+            desc += '（绿色行=卖出信号消失，属减仓条件解除，非风险信号）'
+        banner_bg, banner_border, title_color, desc_color = "#fff1f0", "#ffa39e", "#cf1322", "#a8071a"
+    status_header = "本轮状态" if intraday else "收盘状态"
     return (
-        '<div style="background:#fff1f0;border:2px solid #ffa39e;border-radius:6px;'
+        f'<div style="background:{banner_bg};border:2px solid {banner_border};border-radius:6px;'
         'padding:12px 16px;margin:0 0 14px 0;">'
-        f'<div style="font-weight:700;color:#cf1322;font-size:15px;margin-bottom:6px;">'
+        f'<div style="font-weight:700;color:{title_color};font-size:15px;margin-bottom:6px;">'
         f'{title}</div>'
-        '<p style="margin:0 0 10px 0;color:#a8071a;font-size:13px;line-height:1.6;">'
+        f'<p style="margin:0 0 10px 0;color:{desc_color};font-size:13px;line-height:1.6;">'
         f'{desc}</p>'
         '<table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;">'
-        '<thead><tr style="background:#ffe7e6;text-align:left;">'
-        '<th style="padding:8px 10px;border-bottom:2px solid #ffa39e;">品种</th>'
-        '<th style="padding:8px 10px;border-bottom:2px solid #ffa39e;">盘中信号</th>'
-        f'<th style="padding:8px 10px;border-bottom:2px solid #ffa39e;">{status_header}</th>'
-        '<th style="padding:8px 10px;border-bottom:2px solid #ffa39e;">建议操作</th>'
+        f'<thead><tr style="background:{banner_bg};text-align:left;">'
+        f'<th style="padding:8px 10px;border-bottom:2px solid {banner_border};">品种</th>'
+        f'<th style="padding:8px 10px;border-bottom:2px solid {banner_border};">盘中信号</th>'
+        f'<th style="padding:8px 10px;border-bottom:2px solid {banner_border};">{status_header}</th>'
+        f'<th style="padding:8px 10px;border-bottom:2px solid {banner_border};">建议操作</th>'
         '</tr></thead><tbody>'
         f'{rows}'
         '</tbody></table></div>'
     )
 
 
-def build_email(date: str, signals: list[dict], name_map: dict[str, str],
-                intraday: bool = False,
-                fade_alerts: list[dict] | None = None) -> tuple[str, str]:
-    """构建邮件主题 + HTML 正文。返回 (subject, html_body)。
+def load_signal_intraday_timeline(date: str) -> list[dict]:
+    """读 signal_intraday_log 当日记录，生成每个 (index_id, signal) 的出现/消失时间线。
 
-    intraday=True 时邮件标注【盘中实时】+ 风险提示横幅（盘中快照非最终，
-    收盘后 17:50 update_all 仍发最终版）。默认 False（收盘/历史回测用）。
+    intraday_snapshot._recompute_signals 每轮重算后追加当日信号 + HH:MM 时间戳
+    （方案A，2026-08-10）。返回 list[dict]，按出现时间排序，每项含:
+      index_id / signal / appear_time / last_time / persists(bool) / reason
+    persists=True=在最后轮（最后出现时间）仍存在，即持续到收盘；
+    persists=False=盘中已消失（最后出现后下一轮重算不再出现）。
+    无记录返回 []。
     """
-    stats = load_signal_stats()
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT time, index_id, signal, reason FROM signal_intraday_log "
+            "WHERE date = ? ORDER BY time, index_id, signal",
+            (date,),
+        ).fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        return []
+    last_round_time = rows[-1]["time"]
+    last_round_pairs = {(r["index_id"], r["signal"]) for r in rows if r["time"] == last_round_time}
+    by_key: dict[tuple[str, str], dict] = {}
+    for r in rows:
+        key = (r["index_id"], r["signal"])
+        e = by_key.setdefault(key, {
+            "index_id": r["index_id"], "signal": r["signal"],
+            "appear_time": r["time"], "last_time": r["time"], "reason": r["reason"] or "",
+        })
+        e["last_time"] = r["time"]  # 时间升序，后出现的覆盖 = 最后出现
+        if not e["reason"] and r["reason"]:
+            e["reason"] = r["reason"]
+    out = []
+    for key, e in by_key.items():
+        out.append({
+            "index_id": e["index_id"],
+            "signal": e["signal"],
+            "appear_time": e["appear_time"],
+            "last_time": e["last_time"],
+            "persists": key in last_round_pairs,
+            "reason": e["reason"],
+        })
+    out.sort(key=lambda x: (x["appear_time"], x["index_id"]))
+    return out
 
-    # 按 signal 类型分组（buy / buy_aux / buy_special / buy_backup / sell / sell_stop_loss）
+
+def _build_timeline_html(timeline: list[dict], name_map: dict[str, str]) -> str:
+    """构建当日信号时间线表格 HTML（收盘全过程复现，需求2 方案A）。
+
+    每个信号显示 出现时间 / 状态（持续到收盘 或 消失）：
+      - 持续到收盘（绿）：最后轮重算仍在
+      - 盘中消失（橙/绿按信号类型）：sell 消失=减仓条件解除（绿，利好），buy 消失=风险（橙）
+    """
+    rows_html = []
+    for t in timeline:
+        name = index_id_to_name(t["index_id"], name_map)
+        label = _signal_label(t["signal"])
+        emoji = _signal_emoji(t["signal"])
+        reason = (t["reason"] or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        if t["persists"]:
+            status = '<span style="color:#2e8b57;"><b>持续到收盘</b></span>'
+        elif t["signal"] in SELL_TYPES:
+            status = f'<span style="color:#389e0d;">{t["last_time"]} 后消失（减仓条件解除）</span>'
+        else:
+            status = f'<span style="color:#d4380d;">{t["last_time"]} 后消失</span>'
+        rows_html.append(
+            f'<tr style="border-bottom:1px solid #f2f3f5;">'
+            f'<td style="padding:7px 10px;">{emoji} <b>{name}</b></td>'
+            f'<td style="padding:7px 10px;font-size:12px;">{label}</td>'
+            f'<td style="padding:7px 10px;font-size:12px;"><b>{t["appear_time"]}</b></td>'
+            f'<td style="padding:7px 10px;font-size:12px;">{status}</td>'
+            f'<td style="padding:7px 10px;font-size:12px;color:#4e5969;">{reason}</td>'
+            f'</tr>'
+        )
+    rows = "\n".join(rows_html)
+    return (
+        '<div style="background:#f0f5ff;border:1px solid #adc6ff;border-radius:6px;'
+        'padding:12px 16px;margin:0 0 14px 0;">'
+        '<div style="font-weight:700;color:#1d39c4;font-size:15px;margin-bottom:6px;">'
+        f'🕐 当日信号时间线（{len(timeline)} 条）</div>'
+        '<p style="margin:0 0 10px 0;color:#597ef7;font-size:13px;line-height:1.6;">'
+        '盘中每轮重算实时记录：每个信号几点出现、几点消失（消失=该时点后重算不再出现）。'
+        '<b>持续到收盘</b>=最后轮重算仍在；绿色=减仓条件解除（利好），橙色=信号消失（注意）。'
+        '</p>'
+        '<table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;">'
+        '<thead><tr style="background:#f0f5ff;text-align:left;">'
+        '<th style="padding:7px 10px;border-bottom:2px solid #adc6ff;">品种</th>'
+        '<th style="padding:7px 10px;border-bottom:2px solid #adc6ff;">信号</th>'
+        '<th style="padding:7px 10px;border-bottom:2px solid #adc6ff;">出现时间</th>'
+        '<th style="padding:7px 10px;border-bottom:2px solid #adc6ff;">状态</th>'
+        '<th style="padding:7px 10px;border-bottom:2px solid #adc6ff;">触发条件</th>'
+        '</tr></thead><tbody>'
+        f'{rows}'
+        '</tbody></table></div>'
+    )
+
+
+def _group_signals(signals: list[dict]) -> dict[str, list[dict]]:
+    """按 signal 类型分组（含 SIGNAL_ORDER 全部类型 + 未知类型兜底）。"""
     groups: dict[str, list[dict]] = {k: [] for k in SIGNAL_ORDER}
     for s in signals:
         sig = s["signal"]
@@ -691,6 +843,29 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
             groups[sig].append(s)
         else:
             groups.setdefault(sig, []).append(s)
+    return groups
+
+
+def build_email(date: str, signals: list[dict], name_map: dict[str, str],
+                intraday: bool = False,
+                fade_alerts: list[dict] | None = None,
+                timeline: list[dict] | None = None,
+                subject_signals: list[dict] | None = None) -> tuple[str, str]:
+    """构建邮件主题 + HTML 正文。返回 (subject, html_body)。
+
+    intraday=True 时邮件标注【盘中实时】+ 风险提示横幅（盘中快照非最终，
+    收盘后 17:50 update_all 仍发最终版）。默认 False（收盘/历史回测用）。
+
+    timeline（2026-08-10 需求2）：收盘全过程复现时间线，非 intraday 时传入，
+      渲染"每个信号几点出现/几点消失"表格。
+    subject_signals：主题信号摘要用全量（收盘时间线邮件在 dedup 后 signals 可能为空，
+      但当日实际有信号，主题用当日全量 signals 展示，表体仍为 signals 去重结果）。
+    """
+    stats = load_signal_stats()
+
+    # 按 signal 类型分组（buy / buy_aux / buy_special / buy_backup / sell / sell_stop_loss）
+    groups = _group_signals(signals)
+    subj_groups = _group_signals(subject_signals) if subject_signals is not None else groups
 
     n_total = len(signals)
     n_buy = len(groups["buy"])
@@ -702,18 +877,21 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
     n_hold = len(groups["band_hold"])
 
     # === 标题：信号类型 + 品种摘要 ===
+    # 主题信号摘要：收盘时间线邮件用当日全量（subject_signals），表体仍为 signals（去重结果）
     parts = []
     for sig_type in SIGNAL_ORDER:
-        g = groups[sig_type]
+        g = subj_groups[sig_type]
         label = _signal_label(sig_type)
         if g:
             summary = _summary_names(g, name_map, limit=3)
             parts.append(f"{label}×{len(g)} {summary}")
     # intraday 标注【盘中实时】前缀，收盘/历史不加（保持原"最终版"语义）
     title_prefix = "盘中实时·" if intraday else ""
-    # fade-detect 警示存在时主题加 ⚠️ 前缀（2026-07-23 P1-新-A）
+    # fade-detect 警示存在时主题加 ⚠️ 前缀（2026-07-23 P1-新-A）；时间线存在时加 🕐 前缀
     fade_prefix = "⚠️ " if fade_alerts else ""
-    subject = f"{fade_prefix}[{title_prefix}买卖点信号] {date}  {' | '.join(parts) if parts else '无信号'}"
+    timeline_prefix = "🕐 " if timeline else ""
+    subject = (f"{fade_prefix}{timeline_prefix}[{title_prefix}买卖点信号] {date}"
+               f"  {' | '.join(parts) if parts else '无信号'}")
 
     # === HTML 正文 ===
     # intraday 风险提示横幅：盘中快照非最终，信号可能随行情变化，收盘后 17:50 发最终版
@@ -736,8 +914,16 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
     if fade_alerts:
         html_parts.append(_build_fade_banner(fade_alerts, name_map, intraday=intraday))
 
+    # 收盘全过程复现时间线（需求2 方案A，2026-08-10）：盘中每轮重算记录，
+    # 收盘邮件展示每个信号几点出现/几点消失。放 fade 横幅之后、信号表之前。
+    if timeline:
+        html_parts.append(_build_timeline_html(timeline, name_map))
+
     if n_total == 0:
-        html_parts.append('<p style="color:#86909c;">今日无买卖点信号。</p>')
+        if timeline:
+            html_parts.append('<p style="color:#86909c;">今日无新买卖点信号（已全部推送），完整生命周期见上方时间线表格。</p>')
+        else:
+            html_parts.append('<p style="color:#86909c;">今日无买卖点信号。</p>')
     else:
         # 信号表格
         html_parts.append("""<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;">
@@ -880,12 +1066,23 @@ def main(argv: list[str] | None = None) -> int:
         else:
             fade_alerts_for_email = fade_alerts
 
+    # 收盘全过程复现时间线（需求2 方案A，2026-08-10）：读 signal_intraday_log 当日记录
+    # （intraday_snapshot._recompute_signals 每轮追加），生成"信号几点出现/几点消失"。
+    # 仅收盘模式（非 intraday）展示；盘中模式每轮在跑，时间线意义不大。
+    timeline: list[dict] = []
+    if not args.intraday:
+        try:
+            timeline = load_signal_intraday_timeline(date)
+        except Exception as e:  # noqa: BLE001
+            log.warning("signal_intraday_log 时间线读取失败（不阻断）：%s", e)
+            timeline = []
+
     # 方案B（2026-07-28 用户定）：补充完整展示所有信号状态（含 band_hold 波段持有），
     # 不再过滤 band_hold。SIGNAL_ORDER 已含 band_hold（第7类），邮件表格/统计/主题均展示。
     # 原 2026-07-28 盘中 bug（2 个 band_hold 致"共2信号但类型全0/表格空/主题无信号"矛盾）
     # 通过 SIGNAL_ORDER 加 band_hold 自然修复，不需过滤。
 
-    if not signals and not fade_alerts_for_email:
+    if not signals and not fade_alerts_for_email and not timeline:
         log.info("今日（%s）无买卖点信号且无 fade 警示（red 档），不发邮件", date)
         return 0
 
@@ -927,14 +1124,22 @@ def main(argv: list[str] | None = None) -> int:
             "去重模式：当日 %d 信号，新 %d / 已通知 %d", len(signals), len(signals_to_send), n_dup
         )
         if not signals_to_send:
+            extra = []
             if fade_alerts_for_email:
-                log.info("无新信号（已去重），但有 %d 条 fade 警示（red 档），仍发 fade 警示邮件",
-                         len(fade_alerts_for_email))
+                extra.append(f"{len(fade_alerts_for_email)} 条 fade 警示")
+            if timeline:
+                extra.append(f"{len(timeline)} 条信号时间线")
+            if extra:
+                log.info("无新信号（已去重），但有 %s，仍发邮件", " + ".join(extra))
             else:
                 log.info("无新信号（已去重），不发邮件")
                 return 0
+    # 收盘时间线邮件：主题用当日全量 signals（dedup 后 signals_to_send 可能为空但当日有信号），
+    # 表体仍为 signals_to_send（去重结果），完整生命周期见时间线表格。
+    subject_signals = signals if timeline else None
     subject, body = build_email(date, signals_to_send, name_map,
-                                intraday=args.intraday, fade_alerts=fade_alerts_for_email)
+                                intraday=args.intraday, fade_alerts=fade_alerts_for_email,
+                                timeline=timeline, subject_signals=subject_signals)
     # 始终打印邮件内容（便于日志/调试/未配置场景查看）
     log.info("===== 邮件主题 =====")
     log.info("%s", subject)

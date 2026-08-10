@@ -158,6 +158,20 @@ CREATE TABLE IF NOT EXISTS intraday_snapshot (
   us_futures TEXT,
   global_realtime TEXT
 );
+
+-- 盘中信号生命周期日志（2026-08-10 加）：intraday_snapshot._recompute_signals 每轮
+-- 重算后追加当日 (time, index_id, signal, reason) 快照（HH:MM 时间戳），
+-- 供收盘邮件（check_signals.py 收盘模式）生成"每个信号几点出现/几点消失"时间线。
+-- 每轮 append 不覆盖（signal_daily 是 DELETE+INSERT 覆盖只存最终态，本表保留过程历史）。
+CREATE TABLE IF NOT EXISTS signal_intraday_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  date TEXT NOT NULL,
+  time TEXT NOT NULL,
+  index_id TEXT NOT NULL,
+  signal TEXT NOT NULL,
+  reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_signal_intraday_log_date ON signal_intraday_log(date);
 """
 
 

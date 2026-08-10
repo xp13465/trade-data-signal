@@ -1720,6 +1720,33 @@ def _recompute_scores() -> None:
         print(f"  [intraday] cross_market 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
 
+def _log_signal_intraday(sigs: list[tuple]) -> int:
+    """把当日信号追加到 signal_intraday_log（盘中每轮重算后记录，供收盘邮件时间线）。
+
+    sigs 为 signals.compute() 返回的全历史 (date, index_id, signal, reason) 元组，
+    只取 date==today 的当日信号 + 当前 HH:MM 时间戳 append（每轮重算保留过程历史，
+    收盘邮件据此生成"每个信号几点出现/几点消失"时间线，见 check_signals.py）。
+    失败不阻断（记录是增强，不影响 signal_daily / signal_stats）。
+    """
+    today = datetime.now().strftime("%Y%m%d")
+    now = datetime.now().strftime("%H:%M")
+    today_rows = [(today, now, iid, sig, reason)
+                  for (d, iid, sig, reason) in sigs if d == today]
+    if not today_rows:
+        return 0
+    conn = get_conn()
+    try:
+        conn.executemany(
+            "INSERT INTO signal_intraday_log (date, time, index_id, signal, reason) "
+            "VALUES (?,?,?,?,?)",
+            today_rows,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return len(today_rows)
+
+
 def _recompute_signals() -> None:
     """反哺+重算 scores 后，重算买卖点信号(signal_daily) + 回测 stats(signal_stats.json)。
 
@@ -1741,6 +1768,15 @@ def _recompute_signals() -> None:
     except Exception as e:  # noqa: BLE001
         print(f"  [intraday] signals 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
         return  # signals 失败则 signal_stats 无意义（signal_daily 未更新）
+
+    # 收盘全过程复现（方案A）：每轮重算后把当日信号+时间戳追加到 signal_intraday_log，
+    # 供收盘邮件生成"信号几点出现/几点消失"时间线。失败不阻断。
+    try:
+        n_log = _log_signal_intraday(sigs)
+        if n_log:
+            print(f"  [intraday] signal_intraday_log 记录 {n_log} 条（{datetime.now():%H:%M}）", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] signal_intraday_log 记录失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
     try:
         stats = signal_stats.compute()
