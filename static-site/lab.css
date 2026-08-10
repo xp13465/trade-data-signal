@@ -1435,6 +1435,7 @@
 .lab-sigkelly-toggle { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--text-3); cursor: pointer; white-space: nowrap; }
 .lab-sigkelly-toggle input { cursor: pointer; }
 .lab-sigkelly-toggle-hint { font-size: 10px; color: var(--text-4); margin-left: 4px; }
+.lab-sigkelly-toggle-tier { font-size: 10px; font-weight: 600; color: var(--text-4); white-space: nowrap; padding: 0 4px; border-left: 2px solid var(--border); margin-left: 2px; }
 .lab-sigkelly-toggle-tip { font-size: 10px; color: var(--text-4); cursor: help; margin-left: 1px; }
 /* 降亏过滤 toggle hover 说明 tooltip (CSS 纯实现, hover/focus-within 触发, 复用 wm-pop 视觉变量) */
 .lab-sigkelly-toggle[data-tip] { position: relative; }
