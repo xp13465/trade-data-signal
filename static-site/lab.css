@@ -1427,14 +1427,14 @@
 .lab-sigkelly-gen { color: var(--text-4); font-size: 11px; }
 .lab-sigkelly-fee-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 6px; width: 100%; }
 .lab-sigkelly-fee-label { font-size: 12px; font-weight: 700; color: var(--text-2); white-space: nowrap; }
-.lab-sigkelly-fee-btn { font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-3); cursor: pointer; white-space: nowrap; transition: all 0.15s; }
-.lab-sigkelly-fee-btn:hover { border-color: var(--accent, #3b82f6); color: var(--text-1); }
-.lab-sigkelly-fee-btn.active { background: var(--accent, #3b82f6); color: #fff; border-color: var(--accent, #3b82f6); }
-.lab-sigkelly-fee-hint { font-size: 10px; color: var(--text-4); margin-left: 4px; }
+.lab-sigkelly-fee-btn { font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-2); cursor: pointer; white-space: nowrap; transition: all 0.15s; }
+.lab-sigkelly-fee-btn:hover { border-color: var(--primary); color: var(--text-1); }
+.lab-sigkelly-fee-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.lab-sigkelly-fee-hint { font-size: 10px; color: var(--text-3); margin-left: 4px; }
 .lab-sigkelly-fee-custom { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; width: 100%; font-size: 11px; color: var(--text-3); padding: 4px 0; }
 .lab-sigkelly-fee-custom label { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
 .lab-sigkelly-fee-custom .lab-input { padding: 1px 4px; font-size: 11px; height: 22px; }
-.lab-sigkelly-fee-apply { font-size: 11px; padding: 2px 10px; border: 1px solid var(--accent, #3b82f6); border-radius: 4px; background: var(--accent, #3b82f6); color: #fff; cursor: pointer; }
+.lab-sigkelly-fee-apply { font-size: 11px; padding: 2px 10px; border: 1px solid var(--primary); border-radius: 4px; background: var(--primary); color: #fff; cursor: pointer; }
 .lab-sigkelly-fee-apply:hover { opacity: 0.85; }
 .lab-sigkelly-fee { font-size: 11px; white-space: nowrap; }
 .lab-sigkelly-tp-hl { font-size: 13px; font-weight: 700; white-space: nowrap; }
@@ -1444,7 +1444,7 @@
 .lab-sigkelly-toggle { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--text-3); cursor: pointer; white-space: nowrap; }
 .lab-sigkelly-toggle input { cursor: pointer; }
 .lab-sigkelly-toggle-hint { font-size: 10px; color: var(--text-4); margin-left: 4px; }
-.lab-sigkelly-toggle-tier { font-size: 10px; font-weight: 600; color: var(--text-4); white-space: nowrap; padding: 0 4px; border-left: 2px solid var(--border); margin-left: 2px; }
+.lab-sigkelly-toggle-tier { font-size: 11px; font-weight: 700; color: var(--primary); white-space: nowrap; padding: 0 4px; border-left: 2px solid var(--primary); margin-left: 2px; }
 .lab-sigkelly-toggle-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; width: 100%; padding: 4px 6px; background: var(--bg-hover, rgba(0,0,0,0.02)); border-radius: 4px; }
 .lab-sigkelly-toggle-tip { font-size: 10px; color: var(--text-4); cursor: help; margin-left: 1px; }
 /* 降亏过滤 toggle hover 说明 tooltip (CSS 纯实现, hover/focus-within 触发, 复用 wm-pop 视觉变量) */
