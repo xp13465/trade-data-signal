@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260811-a120';  // bump a119->a120: 备站修复 signal_kelly_trades.json 直链改走主站 /data/ rewrite(ACAO, 修凯利交易记录/费率重算备站 CORS 挂)
+const CACHE_VERSION = 'v6-20260811-a121';  // bump a120->a121: reviewer P2修复—purpose-notes降亏计数17->29+sentiment-siglist加overflow-y
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
