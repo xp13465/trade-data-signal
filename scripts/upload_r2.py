@@ -114,6 +114,7 @@ _CONTENT_TYPE_MAP = {
     ".json": "application/json; charset=utf-8",
     ".js": "application/javascript; charset=utf-8",
     ".css": "text/css; charset=utf-8",
+    ".xml": "application/rss+xml; charset=utf-8",
     ".gz": "application/gzip",
 }
 
