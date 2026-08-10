@@ -550,8 +550,55 @@ def _bet_mark(net_dir, ret) -> str:
     return "-"
 
 
+def _signed_int(v) -> str:
+    """净加数值 -> '+4026' / '-5588'；None 返回 '-'。"""
+    if v is None:
+        return "-"
+    sign = "+" if v >= 0 else ""
+    if isinstance(v, float) and not v.is_integer():
+        return f"{sign}{v:.1f}"
+    return f"{sign}{v:.0f}"
+
+
+def _ih_date_cn(v) -> str:
+    """'20260810' -> '08-10'；异常原样返回。"""
+    s = str(v or "")
+    return f"{s[4:6]}-{s[6:8]}" if len(s) >= 8 else (s or "-")
+
+
+def _fut_plain_warning(r: dict) -> str:
+    """散户白话预警一行：结合当日方向/净加大小/15日同向率生成。"""
+    label = r.get("label") or "-"
+    row = r.get("ih_row") or {}
+    date_s = _ih_date_cn(row.get("date"))
+    tc = row.get("total_chg")
+    d = row.get("citic_dir")
+    fr = r.get("follow_ratio")
+    d_cn = _dir_cn(d)
+    bias = "偏乐观" if d == "多" else ("偏谨慎(偏空)" if d == "空" else "方向中性")
+    if isinstance(tc, (int, float)):
+        tc_s = _signed_int(tc)
+        force = "、净加力度较大" if tc >= 5000 else ("、净减力度较大" if tc <= -5000 else "")
+    else:
+        tc_s, force = "-", ""
+    if isinstance(fr, (int, float)):
+        fr_s = f"{fr:.1f}%"
+        fr_note = "，同向率较高" if fr >= 70 else ("，同向率中等" if fr >= 50 else "，同向率偏低(参考有限)")
+    else:
+        fr_s, fr_note = "-", ""
+    return (f"{label} {date_s} 当日净加 {tc_s} 手{force}、方向{d_cn}，"
+            f"15 日同向 {fr_s}{fr_note} —— {label}资金{bias}，仅供参考")
+
+
+# conclusion_key -> futures.json 中 {role}_ih_detail 的前缀
+_IH_KEY = {"机构前20": "inst", "中信期货": "citic", "国泰君安": "guotai"}
+
+
 def load_futures_brief() -> dict | None:
     """读 futures.json + futures_acc_conclusion.json，汇总期货风向段数据。
+
+    当日方向/净加明细改读 {role}_ih_detail.details[-1]（动态当日净加方向），
+    弃用 accuracy[role].net_direction（静态综合净持仓方向，语义不同易误导）。
 
     返回 None=数据缺失（跳过该段）。
     """
@@ -559,22 +606,25 @@ def load_futures_brief() -> dict | None:
     cj = _load_json_safe(FUTURES_CONCLUSION_SRC)
     if not isinstance(fj, dict) or not isinstance(cj, dict):
         return None
-    acc = fj.get("accuracy") or {}
     bet = fj.get("latest_bet") or {}
     state = cj.get("current_state") or {}
     conclusions = cj.get("conclusions") or []
     roles = []
     for ck, fk, label in _FUT_ROLES:
         st = state.get(ck) or {}
-        ac = acc.get(fk) or {}
         bt = bet.get(fk) or {}
+        # 当日净加明细: {role}_ih_detail.details[-1]（ih=上证50/if=沪深300/ic=中证500/im=中证1000）
+        ih = fj.get(f"{_IH_KEY.get(ck, 'inst')}_ih_detail") or {}
+        dets = ih.get("details") or []
+        ih_row = dets[-1] if dets else {}
         roles.append({
             "label": label,
             "accuracy": st.get("accuracy"),
             "dominant_dir": st.get("dominant_dir"),
             "streak_days": st.get("streak_days"),
             "streak_type": st.get("streak_type"),
-            "net_direction": ac.get("net_direction"),  # 当日方向
+            "ih_row": ih_row,                        # 当日 {date,ih_chg,if_chg,ic_chg,im_chg,total_chg,citic_dir}
+            "follow_ratio": ih.get("follow_ratio"),  # 15日同向% = same_count/total
             "bet_direction": bt.get("net_direction"),  # 验证日下注方向
             "bet_return": bt.get("actual_return"),     # 次日实际涨幅
             "bet_date": bt.get("date"),
@@ -589,17 +639,41 @@ def load_futures_brief() -> dict | None:
 
 
 def build_futures_text(d: dict) -> str:
-    """期货风向纯文本段。"""
+    """期货风向纯文本段：白话预警 + 各机构当日净加明细表。"""
+    roles = d.get("roles") or []
     lines = ["", "-" * 44, f"期货风向（数据日期 {d.get('futures_date') or d.get('as_of_date') or '-'}）："]
-    for r in d.get("roles", []):
+    # 顶部白话预警
+    if roles:
+        lines.append("")
+        lines.append("📌 白话解读：")
+        for r in roles:
+            if r.get("ih_row"):
+                lines.append("  " + _fut_plain_warning(r))
+    # 各机构当日净加明细表
+    for r in roles:
         acc = r.get("accuracy")
         ddir = r.get("dominant_dir") or "-"
-        stk = r.get("streak_type") or "-"
         sdays = r.get("streak_days")
-        net = _dir_cn(r.get("net_direction"))
+        fr = r.get("follow_ratio")
         acc_s = f"{acc:.1f}%" if isinstance(acc, (int, float)) else "-"
         sd_s = f"{sdays}" if sdays is not None else "-"
-        lines.append(f"  {r['label']}  准确率{acc_s} {ddir}连续{sd_s}日 | 当日: {net}")
+        fr_s = f"{fr:.1f}%" if isinstance(fr, (int, float)) else "-"
+        row = r.get("ih_row") or {}
+        head = f"  {r['label']}  准确率{acc_s} {ddir}连续{sd_s}日 | 15日同向{fr_s}"
+        if row:
+            date_s = _ih_date_cn(row.get("date"))
+            cells = [
+                f"上证50 {_signed_int(row.get('ih_chg'))}",
+                f"沪深300 {_signed_int(row.get('if_chg'))}",
+                f"中证500 {_signed_int(row.get('ic_chg'))}",
+                f"中证1000 {_signed_int(row.get('im_chg'))}",
+                f"合计 {_signed_int(row.get('total_chg'))}",
+                f"方向 {_dir_cn(row.get('citic_dir'))}",
+            ]
+            lines.append(head)
+            lines.append(f"    {date_s}: " + " | ".join(cells))
+        else:
+            lines.append(head + " | 当日: 无数据")
     tg = d.get("triggered") or []
     if tg:
         parts = []
@@ -626,22 +700,78 @@ def build_futures_text(d: dict) -> str:
 
 
 def build_futures_html(d: dict) -> str:
-    """期货风向 HTML 段（内联 style）。"""
+    """期货风向 HTML 段（内联 style）：白话预警 + 当日净加明细表。"""
+    roles = d.get("roles") or []
+    # 顶部白话预警
+    warn_html = ""
+    if roles:
+        warn_items = []
+        for r in roles:
+            if r.get("ih_row"):
+                warn_items.append(
+                    f'<div style="margin:2px 0;">{_esc(_fut_plain_warning(r))}</div>')
+        if warn_items:
+            warn_html = (
+                '<div style="margin:6px 0;padding:8px 10px;background:#fff7e6;'
+                'border-left:3px solid #fa8c16;border-radius:4px;font-size:12px;'
+                'color:#873800;line-height:1.7;">'
+                '<b style="color:#d46b08;">📌 白话解读：</b>' + "".join(warn_items) + '</div>'
+            )
+    # 当日净加明细表
     rows_html = ""
-    for r in d.get("roles", []):
-        acc = r.get("accuracy")
-        acc_s = f"{acc:.1f}%" if isinstance(acc, (int, float)) else "-"
-        ddir = _esc(r.get("dominant_dir") or "-")
-        stk = _esc(r.get("streak_type") or "-")
-        sdays = r.get("streak_days")
-        sd_s = str(sdays) if sdays is not None else "-"
-        net = _esc(_dir_cn(r.get("net_direction")))
-        rows_html += (
-            f'<tr><td style="padding:4px 10px;color:#4e5969;font-size:13px;">{_esc(r["label"])}</td>'
-            f'<td style="padding:4px 10px;font-size:13px;">准确率<b>{_esc(acc_s)}</b> '
-            f'{ddir}连续{sd_s}日</td>'
-            f'<td style="padding:4px 10px;font-size:13px;color:#86909c;">当日:{net}</td></tr>'
+    if roles:
+        rows_html = (
+            '<tr style="background:#f7f8fa;">'
+            '<th style="padding:5px 8px;font-size:12px;color:#86909c;">机构/日期</th>'
+            '<th style="padding:5px 8px;font-size:12px;color:#86909c;">上证50净加</th>'
+            '<th style="padding:5px 8px;font-size:12px;color:#86909c;">沪深300净加</th>'
+            '<th style="padding:5px 8px;font-size:12px;color:#86909c;">中证500净加</th>'
+            '<th style="padding:5px 8px;font-size:12px;color:#86909c;">中证1000净加</th>'
+            '<th style="padding:5px 8px;font-size:12px;color:#86909c;">合计净加</th>'
+            '<th style="padding:5px 8px;font-size:12px;color:#86909c;">方向</th>'
+            '<th style="padding:5px 8px;font-size:12px;color:#86909c;">15日同向%</th>'
+            '</tr>'
         )
+        for r in roles:
+            row = r.get("ih_row") or {}
+            fr = r.get("follow_ratio")
+            fr_s = f"{fr:.1f}" if isinstance(fr, (int, float)) else "-"
+            if not row:
+                rows_html += (
+                    f'<tr><td style="padding:5px 8px;font-size:12px;">{_esc(r["label"])}</td>'
+                    f'<td colspan="7" style="padding:5px 8px;font-size:12px;color:#86909c;">当日无数据</td></tr>'
+                )
+                continue
+            date_s = _ih_date_cn(row.get("date"))
+            citic = row.get("citic_dir")
+            d_cn = _dir_cn(citic)
+            d_color = "#e6492e" if citic == "多" else ("#2e8b57" if citic == "空" else "#86909c")
+            rows_html += (
+                f'<tr style="border-bottom:1px solid #f2f3f5;">'
+                f'<td style="padding:5px 8px;font-size:12px;color:#4e5969;">{_esc(r["label"])}<br/>'
+                f'<span style="color:#86909c;">{date_s}</span></td>'
+                f'<td style="padding:5px 8px;font-size:12px;text-align:right;">{_signed_int(row.get("ih_chg"))}</td>'
+                f'<td style="padding:5px 8px;font-size:12px;text-align:right;">{_signed_int(row.get("if_chg"))}</td>'
+                f'<td style="padding:5px 8px;font-size:12px;text-align:right;">{_signed_int(row.get("ic_chg"))}</td>'
+                f'<td style="padding:5px 8px;font-size:12px;text-align:right;">{_signed_int(row.get("im_chg"))}</td>'
+                f'<td style="padding:5px 8px;font-size:12px;text-align:right;font-weight:600;">{_signed_int(row.get("total_chg"))}</td>'
+                f'<td style="padding:5px 8px;font-size:12px;text-align:center;font-weight:600;color:{d_color};">{_esc(d_cn)}</td>'
+                f'<td style="padding:5px 8px;font-size:12px;text-align:right;">{_esc(fr_s)}%</td></tr>'
+            )
+        # 准确率/连续信息备注行
+        info_bits = []
+        for r in roles:
+            acc = r.get("accuracy")
+            acc_s = f"{acc:.1f}%" if isinstance(acc, (int, float)) else "-"
+            ddir = _esc(r.get("dominant_dir") or "-")
+            sdays = r.get("streak_days")
+            sd_s = str(sdays) if sdays is not None else "-"
+            info_bits.append(f"{_esc(r['label'])} 准确率{_esc(acc_s)} {ddir}连续{sd_s}日")
+        if info_bits:
+            rows_html += (
+                f'<tr><td colspan="8" style="padding:4px 8px;font-size:11px;color:#86909c;">'
+                + " | ".join(info_bits) + '</td></tr>'
+            )
     tg_html = ""
     tg = d.get("triggered") or []
     if tg:
@@ -680,6 +810,7 @@ def build_futures_html(d: dict) -> str:
     return (
         f'<h3 style="margin:16px 0 6px 0;color:#1d2129;font-size:14px;">📈 期货风向'
         f'<span style="color:#86909c;font-size:12px;font-weight:normal;">（数据日期 {_esc(d.get("futures_date") or d.get("as_of_date") or "-")}）</span></h3>'
+        f'{warn_html}'
         f'<table style="border-collapse:collapse;margin-bottom:4px;">{rows_html}</table>'
         f'{tg_html}{bet_html}'
     )
@@ -906,9 +1037,75 @@ def load_public_fund_brief() -> dict | None:
     }
 
 
+def _pf_plain_notes(d: dict) -> dict:
+    """公募段每项黑话的白话翻译（只加注释，不改数据口径）。返回 {88/position/redeem: 白话行}。"""
+    notes = {}
+    pct = d.get("percentile")
+    s88 = d.get("spell88_win")
+    d80 = d.get("dip80_win")
+    if isinstance(pct, (int, float)):
+        pct_s = f"{pct*100:.0f}%"
+        s88_s = f"{s88*100:.0f}%" if isinstance(s88, (int, float)) else "-"
+        d80_s = f"{d80*100:.0f}%" if isinstance(d80, (int, float)) else "-"
+        if pct >= 0.8:
+            tip = (f"仓位处历史高位（约{pct_s}分位）≈接近满仓，历史上这么高的位置后 30 日上涨概率"
+                   f"仅约{s88_s}（俗称 88 魔咒），追高需谨慎")
+        elif pct <= 0.2:
+            tip = (f"仓位处历史低位（约{pct_s}分位），历史上低位后 30 日胜率约{d80_s}"
+                   f"（80 抄底），可关注低位机会")
+        else:
+            tip = f"仓位处历史约{pct_s}分位，方向中性，留意后续仓位变化"
+        notes["88"] = tip
+    avg = d.get("avg_position")
+    pcr = d.get("position_change")
+    conc = d.get("concentration")
+    if isinstance(avg, (int, float)):
+        avg_s = f"{avg:.1f}%"
+        pcr_s = f"{pcr:+.1f}个百分点" if isinstance(pcr, (int, float)) else "-"
+        lvl = "接近满仓" if avg >= 90 else ("偏高" if avg >= 80 else "中性")
+        conc_s = f"{conc:.4f}" if isinstance(conc, (int, float)) else "-"
+        notes["position"] = (f"公募整体仓位{avg_s}（{lvl}），本期{pcr_s}（正=加仓/负=减仓）；"
+                             f"抱团度{conc_s}：数值越高说明持仓越集中（抱团越紧），越低越分散")
+    nps = d.get("net_purchase_share")
+    if isinstance(nps, (int, float)):
+        dircn = "净申购" if nps > 0 else "净赎回"
+        feel = "资金在进、情绪偏积极" if nps > 0 else "资金在撤、情绪偏谨慎"
+        notes["redeem"] = f"本期{dircn}{abs(nps):.0f}亿份：{feel}，短期资金面偏{'积极' if nps > 0 else '谨慎'}"
+    return notes
+
+
+def _pf_plain_summary(d: dict) -> str:
+    """公募段段末 1 句散户向白话解读结论（不含前缀，渲染时加）。"""
+    avg = d.get("avg_position")
+    pct = d.get("percentile")
+    s88 = d.get("spell88_win")
+    nps = d.get("net_purchase_share")
+    if not isinstance(pct, (int, float)):
+        return ""
+    bits = []
+    if isinstance(avg, (int, float)):
+        bits.append(f"当前公募整体仓位约{avg:.1f}%")
+    if pct >= 0.8:
+        bits.append(f"处历史约{pct*100:.0f}%分位（高位）")
+        if isinstance(s88, (int, float)):
+            bits.append(f"历史上高位后 30 日上涨概率仅约{s88*100:.0f}%（88 魔咒）")
+    elif pct <= 0.2:
+        bits.append(f"处历史约{pct*100:.0f}%分位（低位），历史低位后 30 日胜率较高（80 抄底）")
+    else:
+        bits.append(f"处历史约{pct*100:.0f}%分位（中位）")
+    if isinstance(nps, (int, float)) and nps < 0:
+        bits.append(f"本期净赎回{abs(nps):.0f}亿份")
+    if pct >= 0.8:
+        bits.append("短期需谨慎，仓位重的可考虑适当降一点")
+    elif pct <= 0.2:
+        bits.append("可关注低位布局机会")
+    return "；".join(bits) + "（仅供参考）"
+
+
 def build_pf_text(d: dict) -> str:
-    """公募基金纯文本段。"""
+    """公募基金纯文本段（白话化：每项加白话注释 + 段末白话解读）。"""
     lines = ["", "-" * 44, "公募基金："]
+    notes = _pf_plain_notes(d)
     # 88 魔咒
     zone = d.get("zone") or "-"
     est = d.get("estimate")
@@ -920,6 +1117,8 @@ def build_pf_text(d: dict) -> str:
     d80 = d.get("dip80_win")
     d80_s = f"{d80*100:.1f}%" if isinstance(d80, (int, float)) else "-"
     lines.append(f"  88魔咒: 预估仓位{est_s} 处{zone}区(历史{pct_s}分位) | 88魔咒后30日胜率{s88_s} 80抄底后30日胜率{d80_s}")
+    if notes.get("88"):
+        lines.append("    白话: " + notes["88"])
     # 仓位 + 抱团度
     avg = d.get("avg_position")
     avg_s = f"{avg:.2f}%" if isinstance(avg, (int, float)) else "-"
@@ -928,6 +1127,8 @@ def build_pf_text(d: dict) -> str:
     conc = d.get("concentration")
     conc_s = f"{conc:.4f}" if isinstance(conc, (int, float)) else "-"
     lines.append(f"  平均仓位{avg_s} 仓位变化{pcr_s} | 抱团度{conc_s}")
+    if notes.get("position"):
+        lines.append("    白话: " + notes["position"])
     # 净申赎
     nr = d.get("net_redeem_ratio")
     nr_s = f"{nr:+.2f}%" if isinstance(nr, (int, float)) else "-"
@@ -935,6 +1136,8 @@ def build_pf_text(d: dict) -> str:
     nps_s = f"{abs(nps):.0f}亿" if isinstance(nps, (int, float)) else "-"
     direction = "净申购" if isinstance(nps, (int, float)) and nps > 0 else "净赎回"
     lines.append(f"  净申赎{nr_s}({direction}{nps_s})")
+    if notes.get("redeem"):
+        lines.append("    白话: " + notes["redeem"])
     # Top20 调仓
     t20 = d.get("top20") or {}
     gains = t20.get("gains") or []
@@ -943,11 +1146,16 @@ def build_pf_text(d: dict) -> str:
         g_s = "、".join(f"{g.get('stock_name','')}{g.get('change_pct',0):+.1f}%" for g in gains)
         l_s = "、".join(f"{l.get('stock_name','')}{l.get('change_pct',0):+.1f}%" for l in losses)
         lines.append(f"  Top20调仓: 大幅加仓 {g_s} | 大幅减仓 {l_s}")
+    # 段末白话解读
+    summ = _pf_plain_summary(d)
+    if summ:
+        lines.append("")
+        lines.append("  📌 白话解读: " + summ)
     return "\n".join(lines)
 
 
 def build_pf_html(d: dict) -> str:
-    """公募基金 HTML 段。"""
+    """公募基金 HTML 段（白话化：每项白话注释 + 段末白话解读块）。"""
     zone = _esc(d.get("zone") or "-")
     est = d.get("estimate")
     est_s = f"{est:.2f}%" if isinstance(est, (int, float)) else "-"
@@ -969,6 +1177,30 @@ def build_pf_html(d: dict) -> str:
     nps_s = f"{abs(nps):.0f}亿" if isinstance(nps, (int, float)) else "-"
     direction = "净申购" if isinstance(nps, (int, float)) and nps > 0 else "净赎回"
     nr_color = "#e6492e" if (isinstance(nps, (int, float)) and nps > 0) else "#2e8b57"
+    # 每项白话注释
+    notes = _pf_plain_notes(d)
+    notes_html = ""
+    note_items = []
+    for k in ("88", "position", "redeem"):
+        if notes.get(k):
+            note_items.append(
+                f'<div style="margin:2px 0;"><span style="color:#d46b08;font-weight:600;">白话：</span>'
+                f'{_esc(notes[k])}</div>')
+    if note_items:
+        notes_html = (
+            '<div style="margin:6px 0;font-size:12px;color:#4e5969;line-height:1.7;">'
+            + "".join(note_items) + '</div>'
+        )
+    # 段末白话解读块
+    summ = _pf_plain_summary(d)
+    summ_html = ""
+    if summ:
+        summ_html = (
+            '<div style="margin:6px 0;padding:8px 10px;background:#fff7e6;'
+            'border-left:3px solid #fa8c16;border-radius:4px;font-size:12px;'
+            'color:#873800;line-height:1.7;">'
+            f'<b style="color:#d46b08;">📌 白话解读：</b>{_esc(summ)}</div>'
+        )
     t20 = d.get("top20") or {}
     gains = t20.get("gains") or []
     losses = t20.get("losses") or []
@@ -996,7 +1228,9 @@ def build_pf_html(d: dict) -> str:
         f'平均仓位<b>{_esc(avg_s)}</b> 仓位变化{_esc(pcr_s)} | 抱团度{_esc(conc_s)} | '
         f'净申赎<span style="color:{nr_color};">{_esc(nr_s)}</span>'
         f'({_esc(direction)}{_esc(nps_s)})</div>'
+        f'{notes_html}'
         f'{t20_html}'
+        f'{summ_html}'
     )
 
 
