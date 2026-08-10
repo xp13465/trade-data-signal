@@ -143,15 +143,66 @@ def save_alert_state(state):
 
 alert_state = load_alert_state()
 
+# 通知分级(2026-08-10): 自愈类(curl超时/版本传播/等待update_all)连续N次仍异常才通知,
+# 严重类(数据404/损坏/DB错)首次即通知。N=2 = 60min(30min频率×2), 过滤5-30min自愈问题。
+SELF_HEAL_THRESHOLD = 2
 
-def check_and_alert(dedup_key, message, keyword="", line_sample=""):
-    """检查异常并去重告警。key 自动加 72h_ 前缀避免与 schedule_monitor 冲突。
-    首次发现/恢复后再次出现 = 发 SEVERE + 写 state active；
+
+def check_and_alert(dedup_key, message, keyword="", line_sample="", tier="severe"):
+    """检查异常并去重告警（通知分级）。key 自动加 72h_ 前缀避免与 schedule_monitor 冲突。
+
+    tier='severe'(默认): 首次发现/恢复后再次出现 = 立即发 SEVERE + 写 state active。
+    tier='self_heal': 首次写 pending(不发通知), 连续 SELF_HEAL_THRESHOLD 次仍异常才升级 active+通知。
+      若 pending 期间自愈 = 静默恢复(不发恢复邮件,因为没发过告警)。
+      severe 检测覆盖 pending key = 立即升级(数据真错不等延迟)。
     已 active = suppress 不重发。返回 True 表示新告警（需发通知）。"""
     full_key = f"72h_{dedup_key}"
     seen_keys_this_run.add(full_key)
     existing = alert_state.get(full_key)
-    if existing is None or existing.get("status") != "active":
+
+    # 已 active(已通知过): suppress 不重发, 无论 tier
+    if existing is not None and existing.get("status") == "active":
+        print(f"[suppress] {dedup_key} 持续中, last_alerted={existing.get('last_alerted')}, 不重发")
+        return False
+
+    # severe 覆盖 pending: 数据真错不等延迟, 立即升级
+    if tier == "severe" and existing is not None and existing.get("status") == "pending":
+        alerts.append(f"SEVERE: {message}")
+        existing["status"] = "active"
+        existing["last_alerted"] = NOW_STR
+        existing["tier"] = "severe"
+        print(f"[severe override] {dedup_key} 自愈类升级为严重(首次发现: {existing.get('first_seen')}), 立即通知")
+        return True
+
+    if tier == "self_heal":
+        if existing is None or existing.get("status") == "recovered":
+            # 首次发现(自愈类): pending, 不通知
+            alert_state[full_key] = {
+                "status": "pending",
+                "first_seen": NOW_STR,
+                "last_alerted": None,
+                "consecutive_count": 1,
+                "keyword": keyword or dedup_key,
+                "line_sample": line_sample,
+                "tier": "self_heal",
+            }
+            print(f"[self_heal pending] {dedup_key} 首次发现(自愈类), 连续1/{SELF_HEAL_THRESHOLD}, 暂不通知")
+            return False
+        elif existing.get("status") == "pending":
+            count = existing.get("consecutive_count", 0) + 1
+            if count >= SELF_HEAL_THRESHOLD:
+                # 连续N次仍异常: 升级 active + 通知
+                alerts.append(f"SEVERE: {message}")
+                existing["status"] = "active"
+                existing["last_alerted"] = NOW_STR
+                existing["consecutive_count"] = count
+                print(f"[self_heal escalated] {dedup_key} 连续{count}次仍异常, 发送告警")
+                return True
+            else:
+                existing["consecutive_count"] = count
+                print(f"[self_heal pending] {dedup_key} 连续{count}/{SELF_HEAL_THRESHOLD}, 暂不通知")
+                return False
+    else:  # severe
         alerts.append(f"SEVERE: {message}")
         alert_state[full_key] = {
             "status": "active",
@@ -159,18 +210,20 @@ def check_and_alert(dedup_key, message, keyword="", line_sample=""):
             "last_alerted": NOW_STR,
             "keyword": keyword or dedup_key,
             "line_sample": line_sample,
+            "tier": "severe",
         }
         return True
-    else:
-        print(f"[suppress] {dedup_key} 持续中, last_alerted={existing.get('last_alerted')}, 不重发")
-        return False
 
 
 def check_recovery(dedup_key):
-    """检查异常是否恢复。返回 True 表示刚恢复（需发通知）。"""
+    """检查异常是否恢复（通知分级）。
+    active(已通知过) = 发恢复邮件; pending(自愈类未通知过) = 静默恢复不发邮件。
+    返回 True 表示刚恢复且需发通知（仅 active->recovered）。"""
     full_key = f"72h_{dedup_key}"
     existing = alert_state.get(full_key)
-    if existing is not None and existing.get("status") == "active":
+    if existing is None:
+        return False
+    if existing.get("status") == "active":
         recoveries.append({
             "task": dedup_key,
             "keyword": existing.get("keyword", dedup_key),
@@ -180,6 +233,12 @@ def check_recovery(dedup_key):
         existing["last_recovered"] = NOW_STR
         print(f"[recovery] {dedup_key} 异常已消失 (首次发现: {existing.get('first_seen')})")
         return True
+    elif existing.get("status") == "pending":
+        # 自愈类 pending(未通知过): 静默恢复, 不发恢复邮件
+        existing["status"] = "recovered"
+        existing["last_recovered"] = NOW_STR
+        print(f"[silent recovery] {dedup_key} 自愈类异常已消失(未通知过, 不发恢复邮件)")
+        return False
     return False
 
 
@@ -224,6 +283,7 @@ for _label in PF_LABELS:
         f"public_fund 任务 {_label} 未加载，需 launchctl bootstrap 恢复",
         keyword="not_loaded",
         line_sample=f"launchctl print gui/{os.getuid()}/{_label} 未加载",
+        tier="self_heal",
     )
 
 # 日频 public_fund 任务 log 时效检查（仅交易日检查，非交易日跳过避免误报）
@@ -352,6 +412,7 @@ for _prefix, _url, _dedup, _desc, _check_fn in R2_CHECKS:
             f"now<{NOW_STR}> (upload_r2 链路可能断)",
             keyword=f"r2_{_prefix}_fail",
             line_sample=_err,
+            tier="self_heal",
         )
     elif not _check_fn(_data):
         check_and_alert(
@@ -429,6 +490,7 @@ try:
                 f"now<{NOW_STR}> (push 失败或 CF cache 未 purge)",
                 keyword="sw_version_mismatch",
                 line_sample=f"local={_local_version} online={_online_version}",
+                tier="self_heal",
             )
         else:
             check_recovery(_dedup)
@@ -453,6 +515,7 @@ try:
                 f"now<{NOW_STR}> (线上数据滞后)",
                 keyword="overview_date_mismatch",
                 line_sample=f"local_date={_local_date} online_date={_online_date}",
+                tier="self_heal",
             )
         else:
             check_recovery(_dedup)
@@ -468,7 +531,7 @@ _ov_online, _ov_err_s1 = curl_json("https://ss.fx8.store/data/overview.json")
 _dedup_s1 = "p0_smoke_s1_overview"
 if _ov_err_s1 or not _ov_online:
     check_and_alert(_dedup_s1, f"P0-S1 overview.json 不可达/解析失败 err<{_ov_err_s1}>",
-                    keyword="p0_s1_fail", line_sample=str(_ov_err_s1))
+                    keyword="p0_s1_fail", line_sample=str(_ov_err_s1), tier="self_heal")
 else:
     _s1_fails = []
     if _ov_online.get("date") not in (TODAY, LAST_TRADING_DAY):
@@ -491,7 +554,7 @@ _id_online, _id_err_s2 = curl_json("https://ss.fx8.store/data/intraday_snapshot.
 _dedup_s2 = "p0_smoke_s2_intraday"
 if _id_err_s2 or not _id_online:
     check_and_alert(_dedup_s2, f"P0-S2 intraday_snapshot 不可达/解析失败 err<{_id_err_s2}>",
-                    keyword="p0_s2_fail", line_sample=str(_id_err_s2))
+                    keyword="p0_s2_fail", line_sample=str(_id_err_s2), tier="self_heal")
 else:
     _s2_fails = []
     _ca = str(_id_online.get("collected_at", ""))
@@ -514,7 +577,7 @@ _idx_online, _idx_err_s3 = curl_json(f"{R2_BASE}/index/sh-all.json")
 _dedup_s3 = "p0_smoke_s3_index_etfs"
 if _idx_err_s3 or not _idx_online:
     check_and_alert(_dedup_s3, f"P0-S3 index sh-all.json 不可达 err<{_idx_err_s3}>",
-                    keyword="p0_s3_fail", line_sample=str(_idx_err_s3))
+                    keyword="p0_s3_fail", line_sample=str(_idx_err_s3), tier="self_heal")
 else:
     _etfs = _idx_online.get("etfs", [])
     if not _etfs:
@@ -546,7 +609,7 @@ _al_online, _al_err_s5 = curl_json("https://ss.fx8.store/data/alert.json")
 _dedup_s5 = "p0_smoke_s5_alert"
 if _al_err_s5 or not _al_online:
     check_and_alert(_dedup_s5, f"P0-S5 alert.json 不可达 err<{_al_err_s5}>",
-                    keyword="p0_s5_fail", line_sample=str(_al_err_s5))
+                    keyword="p0_s5_fail", line_sample=str(_al_err_s5), tier="self_heal")
 else:
     _s5_fails = []
     # 盘后 date 应今日，盘中可能昨日(正常)
@@ -558,8 +621,10 @@ else:
     if _al_online.get("high", {}).get("score") is None:
         _s5_fails.append("high.score 为 null")
     if _s5_fails:
+        # 通知分级: high.score null = 严重(数据真错), 仅date问题 = 自愈(等待17:50 update_all)
+        _s5_tier = "severe" if any("high.score" in f for f in _s5_fails) else "self_heal"
         check_and_alert(_dedup_s5, f"P0-S5 alert 异常: {'; '.join(_s5_fails)}",
-                        keyword="p0_s5_fail", line_sample="; ".join(_s5_fails))
+                        keyword="p0_s5_fail", line_sample="; ".join(_s5_fails), tier=_s5_tier)
     else:
         check_recovery(_dedup_s5)
         print("[ok] P0-S5 alert OK")
@@ -569,7 +634,7 @@ _boot_online, _boot_err_s6 = curl_json("https://ss.fx8.store/data/boot.json")
 _dedup_s6 = "p0_smoke_s6_boot"
 if _boot_err_s6 or not _boot_online:
     check_and_alert(_dedup_s6, f"P0-S6 boot.json 不可达 err<{_boot_err_s6}>",
-                    keyword="p0_s6_fail", line_sample=str(_boot_err_s6))
+                    keyword="p0_s6_fail", line_sample=str(_boot_err_s6), tier="self_heal")
 else:
     _s6_fails = []
     _boot_ov = _boot_online.get("overview", {})
@@ -590,7 +655,7 @@ _tsi_online, _tsi_err_s7 = curl_json("https://ss.fx8.store/data/trade_sim_indice
 _dedup_s7 = "p0_smoke_s7_trade_sim"
 if _tsi_err_s7 or not _tsi_online:
     check_and_alert(_dedup_s7, f"P0-S7 trade_sim_indices.json 不可达 err<{_tsi_err_s7}>",
-                    keyword="p0_s7_fail", line_sample=str(_tsi_err_s7))
+                    keyword="p0_s7_fail", line_sample=str(_tsi_err_s7), tier="self_heal")
 else:
     _tsi_len = len(_tsi_online) if isinstance(_tsi_online, list) else 0
     if _tsi_len < 100:
@@ -605,7 +670,7 @@ _ntf_online, _ntf_err_s8 = curl_json("https://ss.fx8.store/data/notifications.js
 _dedup_s8 = "p0_smoke_s8_notifications"
 if _ntf_err_s8 or not _ntf_online:
     check_and_alert(_dedup_s8, f"P0-S8 notifications.json 不可达 err<{_ntf_err_s8}>",
-                    keyword="p0_s8_fail", line_sample=str(_ntf_err_s8))
+                    keyword="p0_s8_fail", line_sample=str(_ntf_err_s8), tier="self_heal")
 else:
     if _ntf_online.get("date") not in (TODAY, LAST_TRADING_DAY):
         check_and_alert(_dedup_s8, f"P0-S8 notifications.date={_ntf_online.get('date')} != 今日/最近交易日({TODAY}/{LAST_TRADING_DAY})",
@@ -623,7 +688,7 @@ _sk_data, _sk_err = curl_json(f"{R2_BASE}/data/signal_kelly_backtest.json")
 _dedup_sk = "signal_kelly_stale_formula"
 if _sk_err or not _sk_data:
     check_and_alert(_dedup_sk, f"signal_kelly_backtest.json 不可达 err<{_sk_err}>",
-                    keyword="sk_unreachable", line_sample=str(_sk_err))
+                    keyword="sk_unreachable", line_sample=str(_sk_err), tier="self_heal")
 else:
     _quadrants = _sk_data.get("quadrants", {})
     _rh = _quadrants.get("rating_high", {}) if isinstance(_quadrants, dict) else {}
@@ -668,7 +733,8 @@ if _al_online and not _al_err_s5:
             # 周末跨度大（周五->周一=3天），>3天才算真滞后
             if _al_age > 3:
                 check_and_alert(_dedup_al, f"alert.json date={_al_date_str} 滞后{_al_age}天(>3天)",
-                                keyword="stale_alert", line_sample=f"date={_al_date_str} age={_al_age}d")
+                                keyword="stale_alert", line_sample=f"date={_al_date_str} age={_al_age}d",
+                                tier="self_heal")
             else:
                 check_recovery(_dedup_al)
         except ValueError:
@@ -679,7 +745,7 @@ _ad_online, _ad_err = curl_json("https://ss.fx8.store/data/ad_line.json")
 _dedup_ad = "stale_ad_line"
 if _ad_err or not _ad_online:
     check_and_alert(_dedup_ad, f"ad_line.json 不可达 err<{_ad_err}>",
-                    keyword="ad_unreachable", line_sample=str(_ad_err))
+                    keyword="ad_unreachable", line_sample=str(_ad_err), tier="self_heal")
 else:
     _ad_data = _ad_online.get("data", [])
     if isinstance(_ad_data, list) and _ad_data:
@@ -704,20 +770,27 @@ else:
 for _key, _info in list(alert_state.items()):
     if not _key.startswith("72h_"):
         continue  # 只处理 72h 前缀的 key，不碰 schedule_monitor 的
-    if _info.get("status") != "active":
+    if _info.get("status") not in ("active", "pending"):
         continue
     if _key not in seen_keys_this_run:
-        # 未 seen = 异常已消失，发恢复邮件
+        # 未 seen = 异常已消失
         _short_key = _key.replace("72h_", "")
-        _kw = _info.get("keyword", _short_key)
-        recoveries.append({
-            "task": _short_key,
-            "keyword": _kw,
-            "first_seen": _info.get("first_seen", "?"),
-        })
-        _info["status"] = "recovered"
-        _info["last_recovered"] = NOW_STR
-        print(f"[recovery] {_short_key} 异常已消失 (首次发现: {_info.get('first_seen')})")
+        if _info.get("status") == "pending":
+            # 自愈类 pending(未通知过): 静默恢复, 不发恢复邮件
+            _info["status"] = "recovered"
+            _info["last_recovered"] = NOW_STR
+            print(f"[silent recovery] {_short_key} 自愈类异常已消失(未通知过)")
+        else:
+            # active(已通知过): 发恢复邮件
+            _kw = _info.get("keyword", _short_key)
+            recoveries.append({
+                "task": _short_key,
+                "keyword": _kw,
+                "first_seen": _info.get("first_seen", "?"),
+            })
+            _info["status"] = "recovered"
+            _info["last_recovered"] = NOW_STR
+            print(f"[recovery] {_short_key} 异常已消失 (首次发现: {_info.get('first_seen')})")
 
 save_alert_state(alert_state)
 

@@ -160,6 +160,10 @@ def save_alert_state(state):
 alert_state = load_alert_state()
 seen_keys_this_run = set()  # 本次运行仍存在的异常 key(防误报恢复)
 
+# 通知分级(2026-08-10): 自愈类(not_loaded/r2_unreachable 等可被 self_heal.sh/网络自愈)
+# 连续N次仍异常才通知, 严重类(漏跑/exit失败/数据错)首次即通知。N=2 = 30min(15min频率×2)。
+SELF_HEAL_THRESHOLD = 2
+
 # 1) 漏跑检查：对每个任务的每个计划时点，若 now 落在 [sch, sch+30min] 窗口内
 #    且 last_run < sch（任务在该计划时点之后没跑过）= 漏跑
 #    非交易日跳过 trading_day_only 任务(避免周末误报: etf 等非交易日脚本不启动,
@@ -444,24 +448,37 @@ def launchctl_loaded(label):
 
 for _label in LAUNCHCTL_LABELS:
     if launchctl_loaded(_label):
-        continue  # 已加载，不 add seen（让恢复检测处理 active->recovered）
+        continue  # 已加载，不 add seen（让恢复检测处理 active/pending->recovered）
     dedup_key = f"{_label}|not_loaded"
     seen_keys_this_run.add(dedup_key)
     _existing = alert_state.get(dedup_key)
-    if _existing is None or _existing.get("status") != "active":
-        # 首次发现 或 恢复后再次出现 = 发 SEVERE + 写 state
-        alerts.append(
-            f"SEVERE: {_label} 未加载，需 launchctl bootstrap "
-            f"~/Library/LaunchAgents/{_label}.plist 恢复"
-        )
+    # 通知分级(2026-08-10): not_loaded 可被 self_heal.sh 自动恢复, 连续N次才通知
+    if _existing is None or _existing.get("status") == "recovered":
         alert_state[dedup_key] = {
-            "status": "active",
+            "status": "pending",
             "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
-            "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+            "last_alerted": None,
+            "consecutive_count": 1,
             "keyword": "not_loaded",
             "line_sample": f"launchctl print gui/{os.getuid()}/{_label} 未加载",
+            "tier": "self_heal",
         }
-    else:
+        print(f"[self_heal pending] {_label} 未加载(自愈类), 连续1/{SELF_HEAL_THRESHOLD}, 暂不通知")
+    elif _existing.get("status") == "pending":
+        _nl_count = _existing.get("consecutive_count", 0) + 1
+        if _nl_count >= SELF_HEAL_THRESHOLD:
+            alerts.append(
+                f"SEVERE: {_label} 未加载，需 launchctl bootstrap "
+                f"~/Library/LaunchAgents/{_label}.plist 恢复"
+            )
+            _existing["status"] = "active"
+            _existing["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+            _existing["consecutive_count"] = _nl_count
+            print(f"[self_heal escalated] {_label} 连续{_nl_count}次未加载, 发送告警")
+        else:
+            _existing["consecutive_count"] = _nl_count
+            print(f"[self_heal pending] {_label} 连续{_nl_count}/{SELF_HEAL_THRESHOLD}次未加载, 暂不通知")
+    elif _existing.get("status") == "active":
         # 已 active = 抑制不重发,只 log
         print(
             f"[suppress] {_label} 未加载持续中, "
@@ -474,6 +491,16 @@ for _label in LAUNCHCTL_LABELS:
 # 自更新), 跨日(日期<今天)静默清理(昨天漏跑 key 今天不检查了)。
 # 同日窗口外未 seen 保持 active(任务可能真漏跑未补, 等 next day 跨日清理)。
 for _key, _info in list(alert_state.items()):
+    # 通知分级(2026-08-10): pending(自愈类未通知) 未 seen = 静默恢复(不发恢复邮件)
+    if _info.get("status") == "pending":
+        # r2_/72h_ 有自己的 inline 恢复检测, 不在此处理
+        if _key.startswith("r2_") or _key.startswith("72h_"):
+            continue
+        if _key not in seen_keys_this_run:
+            _info["status"] = "recovered"
+            _info["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+            print(f"[silent recovery] {_key} 自愈类异常已消失(未通知过)")
+        continue
     if _info.get("status") != "active":
         continue
     if _key == "overview_lag_3domain" or _key.startswith("r2_") or _key.startswith("72h_"):
@@ -721,34 +748,52 @@ try:
         _r2_key = "r2_unreachable"
         seen_keys_this_run.add(_r2_key)
         _ex_r2 = alert_state.get(_r2_key)
-        if _ex_r2 is None or _ex_r2.get("status") != "active":
-            alerts.append(
-                f"SEVERE: R2 直连不可达 ssd.fx8.store/data/overview.json "
-                f"error<{ov_err_r2}> now<{NOW.strftime('%Y-%m-%d %H:%M:%S')}> "
-                f"(R2桶/网络故障, upload_r2 链路断)"
-            )
+        if _ex_r2 is None or _ex_r2.get("status") == "recovered":
             alert_state[_r2_key] = {
-                "status": "active",
+                "status": "pending",
                 "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
-                "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                "last_alerted": None,
+                "consecutive_count": 1,
                 "keyword": "r2_unreachable",
                 "line_sample": ov_err_r2,
+                "tier": "self_heal",
             }
-        else:
+            print(f"[self_heal pending] R2 直连不可达(自愈类), 连续1/{SELF_HEAL_THRESHOLD}, 暂不通知")
+        elif _ex_r2.get("status") == "pending":
+            _r2_count = _ex_r2.get("consecutive_count", 0) + 1
+            if _r2_count >= SELF_HEAL_THRESHOLD:
+                alerts.append(
+                    f"SEVERE: R2 直连不可达 ssd.fx8.store/data/overview.json "
+                    f"error<{ov_err_r2}> now<{NOW.strftime('%Y-%m-%d %H:%M:%S')}> "
+                    f"(R2桶/网络故障, upload_r2 链路断)"
+                )
+                _ex_r2["status"] = "active"
+                _ex_r2["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                _ex_r2["consecutive_count"] = _r2_count
+                print(f"[self_heal escalated] R2 直连不可达连续{_r2_count}次, 发送告警")
+            else:
+                _ex_r2["consecutive_count"] = _r2_count
+                print(f"[self_heal pending] R2 直连不可达, 连续{_r2_count}/{SELF_HEAL_THRESHOLD}, 暂不通知")
+        elif _ex_r2.get("status") == "active":
             print(f"[suppress] R2 直连不可达持续中, "
                   f"last_alerted={_ex_r2.get('last_alerted')}, 不重发")
     else:
         # R2 可达 -> 恢复检测(r2_unreachable)
         _ex_r2u = alert_state.get("r2_unreachable")
-        if _ex_r2u is not None and _ex_r2u.get("status") == "active":
-            recoveries.append({
-                "task": "r2_unreachable", "keyword": "r2_unreachable",
-                "first_seen": _ex_r2u.get("first_seen", "?"),
-            })
-            _ex_r2u["status"] = "recovered"
-            _ex_r2u["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
-            print(f"[recovery] R2 直连不可达已恢复 "
-                  f"(首次发现: {_ex_r2u.get('first_seen')})")
+        if _ex_r2u is not None:
+            if _ex_r2u.get("status") == "active":
+                recoveries.append({
+                    "task": "r2_unreachable", "keyword": "r2_unreachable",
+                    "first_seen": _ex_r2u.get("first_seen", "?"),
+                })
+                _ex_r2u["status"] = "recovered"
+                _ex_r2u["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                print(f"[recovery] R2 直连不可达已恢复 "
+                      f"(首次发现: {_ex_r2u.get('first_seen')})")
+            elif _ex_r2u.get("status") == "pending":
+                _ex_r2u["status"] = "recovered"
+                _ex_r2u["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                print(f"[silent recovery] R2 直连不可达已恢复(未通知过)")
 
         # overview collected_at 时效 (M1: 非交易日跳过, 对齐 overview_lag_3domain 只交易日;
         # 原非交易时段24h阈值致周五20:35->周六24h+1min误报持续到周一)
