@@ -187,37 +187,28 @@ scripts/            # 采集/部署/一键更新脚本
 | 北向资金季度净买额 | 季度（2024-08 港交所新规改季度披露，CCASS 季度末+20 天后发布） |
 | ETF 持有人结构 | 半年（cninfo 年报/半年报 PDF，滞后 2-3 月） |
 
-### 一键获取全量数据（开源完整化）
+### 🌐 数据开源（全量数据在独立数据仓库）
 
-前端页面只需按需拉取单个 JSON；**研究/复现/离线使用**时可一键复原全部数据集：
+本看板**代码 MIT 开源**；每日盘后产出的**全量数据在独立数据开源仓库**
+[trade-data-signal-staticdata](https://github.com/xp13465/trade-data-signal-staticdata)（数据开源门面）：
 
-```bash
-git clone https://github.com/xp13465/trade-data-signal.git
-cd trade-data-signal
-bash fetch_data.sh        # 按 data/manifest.json 下载全部 JSON（约 1GB，可重复跑，已下载的文件自动跳过）
-```
+- **JSON 数据产物**（857 个文件 / 约 943MB）：情绪指数 / A股宽度 / 港股 / 全球 / 行业概念 / ETF 国家队 / 44 指数全历史 等，
+  在 R2 公开桶 `https://ssd.fx8.store/` 直链下载，无鉴权、无需 API key
+- **原始 SQLite 数据库**：`sentiment.db` / `etf_national_team.db` / `stock_daily.db` / `public_fund.db`
+  打包 tar.gz 挂在数据仓库 GitHub [Releases](https://github.com/xp13465/trade-data-signal-staticdata/releases)
+- **授权**：[CC BY 4.0](https://github.com/xp13465/trade-data-signal-staticdata/blob/main/DATA_LICENSE)，第三方声明见数据仓库 [NOTICE](https://github.com/xp13465/trade-data-signal-staticdata/blob/main/NOTICE)
 
-- **`data/manifest.json`**：全部 JSON 数据产物的索引清单，每项包含
-  `path`（相对 `static-site/data/` 的相对路径）、`url`（直链下载地址）、`size`、`sha256`（完整性校验）。
-  由 `scripts/gen_data_manifest.py` 生成（export 后重跑可更新 sha256）。
-- **下载源**：R2 公开桶 `https://ssd.fx8.store/`（Cloudflare R2 CDN，全量 JSON 镜像，无鉴权直链）。
-  大 range 历史文件（`*-{all,5y,3y}.json`）与行业/概念拆分文件也走 R2 对应前缀。
-- **数据库归档（可选）**：原始 SQLite 数据库（`sentiment.db` / `etf_national_team.db` /
-  `stock_daily.db` / `public_fund.db`，合计约 2.4GB）打包为 tar.gz 挂在
-  GitHub Releases（见下方 Release 链接）；manifest.json 的 `databases` 字段含下载 URL 与 sha256，
-  需要完整原始库时再下载，普通 JSON 使用无需数据库。
-- **数据文件清单与格式**：见 [docs/data-dictionary.md](docs/data-dictionary.md)（字段说明）
-  与 [docs/data-sources.md](docs/data-sources.md)（数据源与采集时点）。
-
-> R2 直链示例：`curl -o overview.json https://ssd.fx8.store/data/overview.json`
-
-**数据库归档（可选）**：原始 SQLite 库（`sentiment.db` / `etf_national_team.db` / `stock_daily.db` /
-`public_fund.db`）打包为 tar.gz（合计约 690MB）挂在 GitHub Releases（tag `db-archive-*`），
-URL 与 sha256 见 `data/manifest.json` 的 `databases` 字段。维护者发布命令：
+**研究 / 复现 / 离线使用**时一键复原全部数据集：
 
 ```bash
-bash scripts/release_db.sh   # 需本机 gh CLI 已登录;或按脚本内提示用 GITHUB_TOKEN + curl
+git clone https://github.com/xp13465/trade-data-signal-staticdata.git
+cd trade-data-signal-staticdata
+bash fetch_data.sh        # 按 manifest.json 从 R2 下载全部 JSON（约 1GB，可重复跑，已下载自动跳过）
 ```
+
+- 数据清单 `manifest.json`（含 `url` / `size` / `sha256` 校验）与还原脚本 `fetch_data.sh` 均在数据仓库
+- 在线按需拉取单个文件（无需 clone）：`curl -o overview.json https://ssd.fx8.store/data/overview.json`
+- 数据文件清单与格式：见 [docs/data-dictionary.md](docs/data-dictionary.md)（字段说明）与 [docs/data-sources.md](docs/data-sources.md)（数据源与采集时点）
 
 ---
 
@@ -228,8 +219,10 @@ bash scripts/release_db.sh   # 需本机 gh CLI 已登录;或按脚本内提示�
 ## 📄 License
 
 - **代码**：[MIT](LICENSE)（`app/` / `scripts/` / `static-site/` 的 `.py` / `.js` / `.css` / `.html` 等）
-- **数据集**：[CC BY 4.0](DATA_LICENSE)（`static-site/data/` 下的 `.json` 产物、`data/manifest.json` 索引的数据、GitHub Release 上的数据库归档，可共享/改编/商用，需署名）
-- **第三方声明**：[NOTICE](NOTICE)（原始行情来自第三方公开数据源，本仓库授权不覆盖第三方原始数据版权）
+- **数据集**：[CC BY 4.0](https://github.com/xp13465/trade-data-signal-staticdata/blob/main/DATA_LICENSE)
+  —— 全量数据（JSON 产物 + 原始 SQLite 数据库）授权声明在**数据开源仓库**
+  [trade-data-signal-staticdata](https://github.com/xp13465/trade-data-signal-staticdata)
+- **第三方声明**：见数据仓库 [NOTICE](https://github.com/xp13465/trade-data-signal-staticdata/blob/main/NOTICE)
 - 简述版见 [docs/LICENSE-data.md](docs/LICENSE-data.md)
 
 数据来源均为公开免费数据源（akshare / mootdx / BaoStock / HKEX / CCASS / 东财 / 同花顺 / 申万 / 中证指数公司 / 新浪 / 腾讯 / CFFEX / cninfo），详见 [docs/data-sources.md](docs/data-sources.md)。
