@@ -637,11 +637,12 @@ main { padding: 16px 24px; }
   text-overflow: clip;
 }
 .term-pop-locate--modal:hover { color: var(--primary); border-color: var(--primary); }
-/* 定位跳转后目标卡片高亮闪烁 2s（背景扫一下主色） */
-.idx-card-locate-flash { animation: idx-card-flash 2s ease-out; }
+/* 定位跳转后目标卡片高亮 30s(2026-08-10 用户确认:2s 一闪而过看不清;快速扫主色后常驻浅色底,高亮应用到补滚校正后最终命中卡) */
+.idx-card-locate-flash { animation: idx-card-flash 30s ease-out forwards; }
 @keyframes idx-card-flash {
-  0%, 100% { background: transparent; }
-  30% { background: var(--primary); }
+  0%, 2% { background: transparent; }
+  4% { background: var(--primary); }
+  10%, 100% { background: color-mix(in srgb, var(--primary) 15%, transparent); }
 }
 /* B：卡片底部 muted 白话小字（最晦涩术语常驻解释，区别于橙色 chart-hint） */
 .term-plain {

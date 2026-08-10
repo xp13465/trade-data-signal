@@ -2584,26 +2584,51 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
     _locateScrolling = true;
     if (typeof renderTab === "function") {
       renderTab().then(function () {
-        setTimeout(function () {
-          // 优先找 idx-card-{id}（A股/港股/全球/全球extras），其次 industry-cell-{id}（行业）
-          var bareId = locateIdx.replace(/^(g|s)\./, "");
-          var cardEl = document.getElementById("idx-card-" + bareId) ||
-                       document.getElementById("industry-cell-" + bareId);
-          if (cardEl && cardEl.scrollIntoView) {
-            // 瞬时滚动(非 smooth):长距离+异步布局页 smooth 目标坐标一次性算不更新,会停在过时坐标
-            cardEl.scrollIntoView({ behavior: "auto", block: "center" });
-            cardEl.classList.add("idx-card-locate-flash");
-            setTimeout(function () { cardEl.classList.remove("idx-card-locate-flash"); }, 2000);
-            // 800ms 后校正重滚一次(chip-row 漂移已稳定),再恢复 IO 懒加载 + 补插视口内 chip-row
-            setTimeout(function () {
-              cardEl.scrollIntoView({ behavior: "auto", block: "center" });
-              _locateScrolling = false;
-              if (typeof _flushVisibleChipRows === "function") _flushVisibleChipRows();
-            }, 800);
-          } else {
-            _locateScrolling = false;
+        var bareId = locateIdx.replace(/^(g|s)\./, "");
+        // 优先找 idx-card-{id}（A股/港股/全球/全球extras），其次 industry-cell-{id}（行业）
+        var _findCard = function () {
+          var el = document.getElementById("idx-card-" + bareId) ||
+                   document.getElementById("industry-cell-" + bareId);
+          return (el && el.scrollIntoView) ? el : null;
+        };
+        // ③ 校验-校正闭环:滚动后测目标卡中心 vs 视口中心,偏差>80px 补滚,最多 3 次兜后续异步布局增长
+        var _alignCenter = function (cardEl, attempt, onFinal) {
+          if (cardEl && cardEl.scrollIntoView) cardEl.scrollIntoView({ behavior: "auto", block: "center" });
+          var rect = cardEl ? cardEl.getBoundingClientRect() : null;
+          var dev = rect ? Math.abs((rect.top + rect.height / 2) - window.innerHeight / 2) : Infinity;
+          if (dev > 80 && attempt < 3) {
+            setTimeout(function () { _alignCenter(cardEl, attempt + 1, onFinal); }, 300);
+            return;
           }
-        }, 200);
+          if (onFinal) onFinal(cardEl);
+        };
+        var _doLocate = function (cardEl) {
+          // 先做首次滚动,用户能立即看到落位(瞬时滚动,非 smooth:长距离+异步布局页 smooth 目标坐标一次性算不更新)
+          if (cardEl && cardEl.scrollIntoView) cardEl.scrollIntoView({ behavior: "auto", block: "center" });
+          // ② 稳定布局重滚(修正原 800ms 先滚后 flush 的错序):先恢复 IO 懒加载 + 补插视口内 chip-row,
+          //    再等异步 chip stats 替换占位行落定(350ms),最后滚动 + 偏差校正闭环
+          _locateScrolling = false;
+          if (typeof _flushVisibleChipRows === "function") _flushVisibleChipRows();
+          setTimeout(function () {
+            _alignCenter(cardEl, 1, function (finalEl) {
+              // ④ 高亮 30s(用户确认:2s 一闪而过看不清),应用到补滚校正后最终命中卡
+              if (finalEl) {
+                finalEl.classList.add("idx-card-locate-flash");
+                setTimeout(function () { finalEl.classList.remove("idx-card-locate-flash"); }, 30000);
+              }
+            });
+          }, 350);
+        };
+        // ① 等渲染轮询:目标卡未渲染时每 100ms 重试,上限 ~5s(覆盖 renderIndustry 异常/异步追加盲区),超时放弃
+        var waited = 0;
+        var _start = function () {
+          var cardEl = _findCard();
+          if (cardEl) { _doLocate(cardEl); return; }
+          if (waited >= 5000) { _locateScrolling = false; return; }  // 超时放弃,恢复 IO 懒加载
+          waited += 100;
+          setTimeout(_start, 100);
+        };
+        _start();
       }).catch(function () { _locateScrolling = false; });
     } else {
       _locateScrolling = false;

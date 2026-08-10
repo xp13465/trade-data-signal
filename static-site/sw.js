@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260810-a111';  // bump a110->a111: reviewer P1 fix 卡间比较水印分母动态+6模式文案改N模式
+const CACHE_VERSION = 'v6-20260810-a112';  // bump a111->a112: 量子跳转聚焦优化(等渲染轮询+稳定布局重滚+偏差校正闭环+高亮30s)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
