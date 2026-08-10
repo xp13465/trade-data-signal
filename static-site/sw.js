@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260810-a97';  // bump a96->a97: 降亏toggle hoverpop显示减亏/损盈/比值 + 2新交叉标志(辅关注×3/5月+追关注×熊市)
+const CACHE_VERSION = 'v6-20260810-a98';  // bump a96->a97: 降亏toggle hoverpop显示减亏/损盈/比值 + 2新交叉标志(辅关注×3/5月+追关注×熊市)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

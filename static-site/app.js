@@ -6291,6 +6291,8 @@ const _INTRADAY_INDICES = [
 const INTRADAY_REFRESH_MS = 1 * 60 * 1000; // 1分钟(匹配腾讯分钟线更新节奏)
 const INTRADAY_MAX_FAILS = 6; // 连续失败6次暂停(渐进退避: 1min->2min->4min->8min上限)
 const INTRADAY_BACKOFF_CAP_MS = 8 * 60 * 1000; // 退避上限8min
+const INTRADAY_DEGRADED_MS = 5 * 60 * 1000; // S3: 连续失败达上限后降频兜底重试5min(非永久停,7x24自愈)
+const INTRADAY_FETCH_TIMEOUT_MS = 8000; // S1: 分时fetch超时8s(同fetchJSON 15s,分时数据轻量用更短)
 
 // 分时fetch in-flight去重（同URL并发只发一次，复用Promise）
 const _inflightMinute = new Map();
@@ -6329,10 +6331,13 @@ async function fetchTencentMinute(code) {
   const p = (async () => {
     const path = "/api/qt/stock/trends2/get?secid=" + secid + "&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&iscr=0&ndays=1";
     for (let hi = 0; hi < _EM_HOSTS.length; hi++) {
+      // S1: AbortController+8s超时,防fetch卡死致await永不返回定时器链断(参考fetchJSON L3666)
+      const _ctrl = new AbortController();
+      const _tmr = setTimeout(() => _ctrl.abort(), INTRADAY_FETCH_TIMEOUT_MS);
       try {
         // cache-busting: 加 _=Date.now() + cache:no-store，绕过浏览器/CDN HTTP缓存拿1min最新
         const url = "https://" + _EM_HOSTS[hi] + path + "&_=" + Date.now();
-        const resp = await fetch(url, { cache: 'no-store' });
+        const resp = await fetch(url, { cache: 'no-store', signal: _ctrl.signal });
         if (!resp.ok) continue;
         const json = await resp.json();
         if (!json || json.rc !== 0 || !json.data || !json.data.trends) continue;
@@ -6357,12 +6362,20 @@ async function fetchTencentMinute(code) {
         const pct = preClose && curPrice ? ((curPrice - preClose) / preClose) * 100 : null;
         const date = (String(d.trends[0] || "").split(",")[0] || "").split(" ")[0] || "";
         return { name, price: curPrice, preClose, pct, date, points };
-      } catch (e) { continue; }
+      } catch (e) {
+        // S9: 日志便于定位(超时/网络错/CORS)
+        console.warn('[intraday] fetch失败', code, _EM_HOSTS[hi], (e && e.name === 'AbortError') ? '超时'+INTRADAY_FETCH_TIMEOUT_MS+'ms' : (e && e.message));
+        continue;
+      } finally {
+        clearTimeout(_tmr);
+      }
     }
     return null;
   })();
   _inflightMinute.set(cacheKey, p);
-  p.finally(() => _inflightMinute.delete(cacheKey));
+  // S2: 超时兜底清理,防fetch卡死finally不触发致entry毒化后续请求(15s强制删)
+  const _emCleanup = setTimeout(() => { _inflightMinute.delete(cacheKey); }, 15000);
+  p.finally(() => { _inflightMinute.delete(cacheKey); clearTimeout(_emCleanup); });
   return p;
 }
 
@@ -6384,10 +6397,13 @@ async function fetchQQMinute(code) {
   const p = (async () => {
     for (let hi = 0; hi < _QQ_HOSTS.length; hi++) {
       const host = _QQ_HOSTS[hi];
+      // S1: AbortController+8s超时,防fetch卡死(同fetchTencentMinute)
+      const _ctrl = new AbortController();
+      const _tmr = setTimeout(() => _ctrl.abort(), INTRADAY_FETCH_TIMEOUT_MS);
       try {
         // cache-busting: 加 _=Date.now() + cache:no-store, 绕过浏览器/CDN HTTP缓存拿1min最新
         const url = "https://" + host + _QQ_PATH + qqCode + "&_=" + Date.now();
-        const resp = await fetch(url, { cache: 'no-store' });
+        const resp = await fetch(url, { cache: 'no-store', signal: _ctrl.signal });
         if (!resp.ok) continue;
         const json = await resp.json();
         if (!json || json.code !== 0 || !json.data) continue;
@@ -6414,12 +6430,20 @@ async function fetchQQMinute(code) {
         const name = d.title || d.name || "";
         // 腾讯无 preClose, 返回 null 由调用方从 _snapPreClose(snap, id) 补 + 重算 pct
         return { name, price: curPrice, preClose: null, pct: null, date, points };
-      } catch (e) { continue; }
+      } catch (e) {
+        // S9: 日志便于定位
+        console.warn('[intraday] fetch失败', code, host, (e && e.name === 'AbortError') ? '超时'+INTRADAY_FETCH_TIMEOUT_MS+'ms' : (e && e.message));
+        continue;
+      } finally {
+        clearTimeout(_tmr);
+      }
     }
     return null;
   })();
   _inflightMinute.set(cacheKey, p);
-  p.finally(() => _inflightMinute.delete(cacheKey));
+  // S2: 超时兜底清理(同上,防毒化)
+  const _qqCleanup = setTimeout(() => { _inflightMinute.delete(cacheKey); }, 15000);
+  p.finally(() => { _inflightMinute.delete(cacheKey); clearTimeout(_qqCleanup); });
   return p;
 }
 
@@ -6436,9 +6460,12 @@ const _batchMinuteCache = new Map(); // code -> result（批量拉取后填充�
 async function fetchTHSBatchMinute(thsCodes) {
   if (!thsCodes || !thsCodes.length) return { results: {}, ok: false };
   const codes = thsCodes.slice(0, 10); // 同花顺批量上限 10 只
+  // S1: AbortController+8s超时,防fetch卡死(同fetchTencentMinute/fetchQQMinute)
+  const _ctrl = new AbortController();
+  const _tmr = setTimeout(() => _ctrl.abort(), INTRADAY_FETCH_TIMEOUT_MS);
   try {
     const url = "https://d.10jqka.com.cn/v6/time/" + codes.join(",") + "/last.js?_=" + Date.now();
-    const resp = await fetch(url, { cache: 'no-store' });
+    const resp = await fetch(url, { cache: 'no-store', signal: _ctrl.signal });
     if (!resp.ok) return { results: {}, ok: false };
     const text = await resp.text();
     // JSONP 包装: quotebridge_v6_time_{codes_with_underscore}_last({...})
@@ -6475,7 +6502,11 @@ async function fetchTHSBatchMinute(thsCodes) {
     }
     return { results, ok: Object.keys(results).length > 0 };
   } catch (e) {
+    // S9: 日志便于定位
+    console.warn('[intraday] 同花顺批量fetch失败', codes.join(','), (e && e.name === 'AbortError') ? '超时'+INTRADAY_FETCH_TIMEOUT_MS+'ms' : (e && e.message));
     return { results: {}, ok: false };
+  } finally {
+    clearTimeout(_tmr);
   }
 }
 
@@ -6656,7 +6687,9 @@ async function _fetchDynamicPcts(ids, snap) {
     }
     return { results, ok: Object.keys(results).length > 0 };
   })();
-  _inflightBatchP.finally(() => { _inflightBatchP = null; });
+  // S2: 超时兜底清理,防fetch卡死finally不触发致_inflightBatchP毒化后续所有请求(15s强制清)
+  const _batchCleanup = setTimeout(() => { _inflightBatchP = null; }, 15000);
+  _inflightBatchP.finally(() => { _inflightBatchP = null; clearTimeout(_batchCleanup); });
   return _inflightBatchP;
 }
 
@@ -6973,7 +7006,7 @@ function renderIntradaySection(sparkGrid, snap) {
   // 连续失败暂停提示（隐藏，3次失败时显示）
   const notice = document.createElement("div");
   notice.className = "intraday-notice";
-  notice.textContent = "⚠ 实时拉取连续失败，已暂停刷新。可刷新页面重试。";
+  notice.textContent = "⚠ 实时拉取异常，已降频重试中，网络恢复后自动恢复。";
   notice.style.display = "none";
   sparkGrid.parentElement.insertBefore(notice, sparkGrid.nextSibling);
 }
@@ -7003,10 +7036,12 @@ function _stopIntradayRefresh() {
 // 渐进退避: 失败时间隔翻倍(1min->2min->4min->8min上限), 成功重置为1min
 function _scheduleNextRefresh() {
   if (!_intradayActive) return;
-  if (_intradayFailCount >= INTRADAY_MAX_FAILS) return;
+  // S3: 去掉"failCount>=MAX直接return永久停",改为降频兜底重试(7x24自愈)
   if (_intradayRefreshTimer) clearTimeout(_intradayRefreshTimer);
-  // 退避: failCount=0正常1min, 1->2min, 2->4min, 3+->8min上限
-  const _delay = Math.min(INTRADAY_REFRESH_MS * Math.pow(2, _intradayFailCount), INTRADAY_BACKOFF_CAP_MS);
+  // 退避: failCount=0正常1min, 1->2min, 2->4min, 3-5->8min上限; 6+降频5min兜底
+  const _delay = _intradayFailCount >= INTRADAY_MAX_FAILS
+    ? INTRADAY_DEGRADED_MS
+    : Math.min(INTRADAY_REFRESH_MS * Math.pow(2, _intradayFailCount), INTRADAY_BACKOFF_CAP_MS);
   _intradayRefreshTimer = setTimeout(() => {
     _intradayRefreshTimer = null;
     if (!_intradayActive) return;
@@ -7062,7 +7097,8 @@ async function _doIntradayRefresh() {
     if (_intradayFailCount >= INTRADAY_MAX_FAILS) {
       const notice = ctx.sparkGrid.parentElement.querySelector(".intraday-notice");
       if (notice) notice.style.display = "";
-      return; // 暂停刷新，不再调度
+      // S3: 不return永久停,降频5min兜底重试(7x24自愈,网络恢复后failCount归零恢复1min)
+      console.warn('[intraday] 连续失败'+_intradayFailCount+'次,降频'+(INTRADAY_DEGRADED_MS/1000)+'s重试中');
     }
   }
   _scheduleNextRefresh();
@@ -7071,7 +7107,37 @@ async function _doIntradayRefresh() {
 // visibilitychange：切回tab立即刷新（方案B: 用户切回说明在看，不论距上次多久）
 function _onIntradayVisChange() {
   if (document.hidden || !_intradayActive) return;
+  // S5: 切回前台先清可能卡死的in-flight,再刷新(防毒化Promise卡死,配合S2双保险)
+  _inflightMinute.clear();
+  _inflightBatchP = null;
   _doIntradayRefresh();
+}
+
+// S4: overview轮询心跳检查intraday是否存活,死则重启(7x24自愈,用户不切tab也能救)
+// overview 3min轮询作为"看门狗":检测intraday定时器是否丢失/最近刷新超时,异常则重启
+function _intradayHeartbeatCheck() {
+  const snap = state.intradaySnapshot;
+  if (!snap || snap.is_closed !== false) return; // 只盘中检查
+  if (!_intradayRenderCtx || !_intradayRenderCtx.sparkGrid) return; // intraday不在当前视图(切tab了)
+  if (_isLunchPause()) return; // 午休正常跳过请求,不误判
+  const now = Date.now();
+  let needRestart = false;
+  let reason = "";
+  if (!_intradayActive) {
+    needRestart = true; reason = "intraday未活跃";
+  } else if (_intradayRefreshTimer === null) {
+    needRestart = true; reason = "定时器丢失";
+  } else if (now - _intradayLastFetch > 5 * 60 * 1000) {
+    needRestart = true; reason = "最近刷新超5min(" + Math.round((now - _intradayLastFetch) / 1000) + "s)";
+  }
+  if (needRestart) {
+    console.info('[intraday] 心跳检测异常,重启轮询: ' + reason);
+    // 清可能毒化的in-flight再重启(配合S2/S5)
+    _inflightMinute.clear();
+    _inflightBatchP = null;
+    _startIntradayRefresh(); // 重置failCount=0 + 重排定时器
+    _doIntradayRefresh();    // 立即刷新一轮(fire-and-forget,自身会_scheduleNextRefresh)
+  }
 }
 
 // ============ 盘中 overview 自适应轮询(预测后端推完时刻 + 3min兜底) ============
@@ -7271,6 +7337,8 @@ async function _doOverviewRefresh() {
   // 命中(新历史)或超时(窗口已过)都重算预测: 命中->用新历史预测下一轮; 超时->清空走低频兜底
   _recomputeOverviewPrediction();
   _scheduleNextOverviewRefresh();
+  // S4: overview心跳救intraday(3min轮询检查1min轮询是否存活,死则重启)
+  _intradayHeartbeatCheck();
   } finally {
     _inOverviewRefresh = false;
     _updateRefreshDebug();
