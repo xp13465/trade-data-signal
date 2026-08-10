@@ -240,20 +240,25 @@
   16. 数据没上线 R2(根因:backfill 0d6fe0edd 没 upload signal_kelly(backtest/trades.json),CF 404 用户访问看不到。backfill 不跑 signal_kelly_backtest.py(独立脚本无 launchd)+export.py upload_r2 没传 signal_kelly。防:新数据类别上线后确认上传链路完整三步:①export.py upload_r2 清单含该类别②launchd 定时覆盖或 deploy.sh 含③backfill 补跑上传;独立脚本(无 launchd)的 backfill 手动补跑上传 R2;同§18"算法改动重跑数据产物列清单逐个确认重跑+同步static-site+R2三步"的上线链路版)
   17. §0 证伪查错文件(根因:前次 agent 说"CF edge 缓存 industry-all-concepts.json",主控 §0 跟着查错文件,实际走势图读 thsc_300830-all.json。§0 验收信 agent 说的文件名没 grep 前端渲染逻辑确认实际读哪个。防:§0 证伪前先 grep 前端渲染逻辑(fetch/dataUrl/fetchJSON)确认实际读哪个文件,不跟 agent 说的文件名查;§0 验收文件类结论时独立确认文件路径非信 agent 报告;同§18教训⑤"agent关键结论§0验"的延伸--文件名/路径类结论也要独立验非信agent)
 - **token浪费(8/9凯利阶段)**:①D修正返工(第一次 total_return 错->第二次 return_pct_max_holding 修,应指定口径前验算数值合理性一次到位,同§18教训⑦模式)②SendMessage 追加任务漏做致另开 commit 补做(应追加任务不靠 SendMessage 或 commit 前确认,同§11)③数据没上线 R2 致紧急派 agent 修(应上线链路确认完整,同§18"重跑数据产物列清单")④8/9 全天100+ subagent(虽多数 justified 并行不冲突,token 消耗大,非紧急可适当控制并发数)
+- **经验(非过错,8/9凯利回测+R2阶段,记录防绕路)**:
+  ① R2 purge_cache 分批避 CF Worker 超时 500(commit ea64df512):一次性发400+ keys 致 Worker CPU/wall time 超限->500,改分批每批30 keys(PURGE_BATCH_SIZE,20-50安全区间)+批间 sleep 0.5s 避 CF 限流,400+ keys->14批每批30 keys 远在 Worker 时限内。适用:所有 R2 purge cache 场景(数据更新后清 CF edge 缓存),不能一次性全量 purge
+  ② 持仓 hold_days 改交易日口径修复虚高(commit 9cba7ca42):hold_days 用自然日含周末致虚高,改交易日口径+跟踪 price_date。适用:所有"持有天数"类计算(回测/统计),用交易日非自然日
+  ③ check_data_integrity 加3校验 + 新建 check_r2_consistency.py(commit 1d5fe3ccc):数据完整性校验扩展(3新规则)+ R2 审计脚本(本地 vs R2 一致性)。适用:数据产物改动后跑 check_data_integrity(deploy 前置)+ 定期跑 check_r2_consistency 审计 R2
+  ④ 凯利回测卡间比较水印设计(蓝★综合最佳+紫◆最稳定,全局16卡互比,commit ff56d9b71):跨卡片全局互比而非单卡内比较,用颜色+符号双标识。适用:UI 多卡比较场景,全局互比+双标识设计
 - **2026-08-10 追加(降亏4toggle+模拟回测费率客调阶段,2条新过错+经验)**:
   18. §21算法公示gap复发(根因:模拟回测费率5参数实施agent 963ba3881 没更新 purpose-notes.js 的算法公示文案,reviewer FAIL catch(problem 4)。同会话降亏4toggle agent c818fddd3 正确更新了 purpose-notes.js(§21同步),但费率agent没--同会话两agent一做一不做,说明 fresh context agent 不主动读§21全文,主控 prompt 未对费率agent显式要求 grep 公示点。防重犯:算法/逻辑改动 agent prompt 必含显式动作"§21:grep purpose-notes.js + app.js/lab.js 所有算法说明文案,同步更新新规则,漏=验收不过";不只引用"见§21",要列出具体 grep 动作+文件名(purpose-notes.js);fresh context agent 不读 CLAUDE.md 全文,§21规范需在 prompt 转成具体可执行动作)
   19. 前端重算与后端算法对齐不完整(根因:费率5参数实施agent移植凯利费率模型框架到 trade_sim 前端 replay 重算,但3处没逐字段对齐后端算法:①open_positions.buy_close 存 br.buyPrice(含滑点买价)非原始close,后端 buy_price=close*(1+slippage) ②equity_curve 起点应用窗口起点(w_start)非 ledger[0].date,末点应加{date:signal_last_date,value:finalTotal} ③rounds.buy_close 应用 sold 的 buy_close 平均值非首个 sub_round 值。reviewer FAIL catch 3 bug,fix 0e024896f。防重犯:前端重算类实施(replay/recompute/前端复算后端逻辑),自验须逐字段对比后端 JSON 输出--取一个 signal 的 trade_sim/sigkelly JSON,前端 replay 后逐字段对比 open_positions/rounds/equity_curve/summary 各字段值,不只对比 summary 总计;prompt 要求"自验:取一个 signal JSON,前端 replay 后逐字段对比后端输出,列对比表,不一致项列差值")
-  - 经验(非过错,记录防绕路):①GitHub Actions deploy 需约90s,curl 验上线 sleep 90 非15(首次 sleep 15 curl 到旧版 SW a91 非 a92)②Edit 工具匹配含 em dash(U+2014)或特殊字符的行会失败(3次匹配失败),改用 `sed -i '' 'Nc\替换内容'` 行号替换(memory appjs-em-dash-edit 已有 em dash 记录,补充 sed fallback)③reviewer FAIL 后§0验2点(positions.push+purpose-notes)合规(§0允许 FAIL 时亲自确认再回滚/修),非违规--主控本会话较守规:全程派 background agent + §0验1-2点 + cron 兜底,未亲干调研/实施
+  - 经验(非过错,记录防绕路):①GitHub Actions deploy 需约90s,curl 验上线 sleep 90 非15(首次 sleep 15 curl 到旧版 SW a91 非 a92)②Edit 工具匹配含 em dash(U+2014)或特殊字符的行会失败(3次匹配失败),改用 `sed -i '' 'Nc\替换内容'` 行号替换(memory appjs-em-dash-edit 已有 em dash 记录,补充 sed fallback)③reviewer FAIL 后§0验2点(positions.push+purpose-notes)合规(§0允许 FAIL 时亲自确认再回滚/修),非违规--主控本会话较守规:全程派 background agent + §0验1-2点 + cron 兜底,未亲干调研/实施 ④intraday 走 R2 不推 main 后,盘中 push 代码 main 不用避 intraday 时点(commit 4fb1a88e9,已落§14/§16):R2 迁移后 intraday_snapshot 走 R2 不推 main,盘中 push 代码 main 改不同文件 rebase 能合不撞车。适用:盘中需 push 前端代码 main 时避 update_all(17:50)即可,不用避 intraday 每10分钟时点 ⑤分时图 1min 轮询自愈机制(S1-S5+S9,commit d2a97108b):5阶段自愈--S1 fetch 加 AbortController 8s 超时防卡死 / S2 inflight 去重 Map+15s 兜底清理防毒化 / S3 6次失败不永久停改降频5min兜底重试(7x24自愈) / S4 overview 3min 轮询心跳唤起 intraday(定时器丢失/刷新超5min则重启) / S5 visibilitychange 切回前台清 in-flight。适用:所有定时轮询类前端机制,fetch 必加超时+inflight去重+失败降频不永久停+心跳唤起+切前台清inflight ⑥决策树/子群发现数据挖掘方法论(commit 7ada31c57):手写CART决策树+beam search子群+关联规则+多维交叉,超越人工2特征穷举(最高2.52)找到78个比值>3标志(单标志最高10.06,3月+周二+高价ETF 7/7年全亏)。适用:多特征组合优化场景(降亏标志/参数寻优),用决策树找高纯度叶节点=高比值标志,非人工穷举
   - token浪费:reviewer FAIL 5问题致 fix+复审 extra round。但这是 reviewer 系统设计正常工作(catch bugs before 上线,§15),非浪费。可优化:实施agent自验更充分(逐字段对比后端)可减少 reviewer catch 的问题数,但 reviewer 存在的意义就是 catch agent 自验漏的,不需追求 agent 自验100%
 
 ## 19. 自我成长机制(2026-08-08 定,每天总结+定期review防重犯)
 用户定:慢慢积累迭代完美,每天总结过错+token浪费+解决方案落档防重犯。memory文件持久但内容会过时需定期review。
 
 ### 机制(用户选:会话级+每日cron兜底+每周memory review)
-1. **会话级总结**(主流程,会话结束前/大阶段/上线后必做):派 agent 总结本次①过错(违规§2亲干/§4自问自答/§11不设cron/§15不派reviewer/§14不查定时 + 误判 + 返工)②token浪费(亲干调研/重复grep/长盘算/无效agent/重复确认/§17高峰派agent)③解决方案(防重犯条款,具体可执行如"派agent后立即设cron")。落档 §18 追加 + memory 更新(feedback类 Why+How to apply)
-2. **每日cron兜底**(durable,23:30 安全窗口):会话开时派agent归纳当天§18/memory+会话日志,更新§18防重犯条款。会话关不触发下次补。⚠️cron 7天过期需续设
+1. **会话级总结**(主流程,会话结束前/大阶段/上线后必做):派 agent 总结本次①过错(违规§2亲干/§4自问自答/§11不设cron/§15不派reviewer/§14不查定时 + 误判 + 返工)②token浪费(亲干调研/重复grep/长盘算/无效agent/重复确认/§17高峰派agent)③解决方案(防重犯条款,具体可执行如"派agent后立即设cron")④经验类归纳(非过错的好经验/绕路经验/方法论/架构洞察,含场景+怎么用),转 §18 经验条目或 §20 docs/agent-quickstart.md 快速上手 step。落档 §18 追加 + memory 更新(feedback类 Why+How to apply)
+2. **每日cron兜底**(durable,23:30 安全窗口):会话开时派agent归纳当天§18/memory+会话日志,更新§18防重犯条款+经验条目(不只归纳过错,也归纳非过错经验/方法论/架构洞察)。会话关不触发下次补。⚠️cron 7天过期需续设
 3. **memory周review**(每周日23:00+):派agent review memory全部文件:删过时(文件/字段/规范变化,验证后删)+合并重复+更新MEMORY.md索引
-4. **总结复核 agent**(独立 fresh context,总结完成后派,会话级/每日/每周总结都派,2026-08-08 用户定):git log 可查总结前后差异,复核 agent 读总结前原文(git show 旧版 CLAUDE.md §18 / memory 旧版)+ 总结后新版,逐条检查:①核心点保留(§18 核心条款/根因/场景未删,删过时事实不删教训)②中心思想未跑偏(§18="不重犯同类",防重犯条款具体可执行非泛泛)③非为总结而总结(归纳非删减非凑数,有实质提炼非形式总结)④非为省token省token(不该删的不删,token 节省是归纳副产品非目标)。发现问题->回退(git revert)/修正重做。这是"总结核心点保留"原则的执行保障:光有原则不够,独立复核兜底。git log 让复核可验(对比总结前后差异)
+4. **总结复核 agent**(独立 fresh context,总结完成后派,会话级/每日/每周总结都派,2026-08-08 用户定):git log 可查总结前后差异,复核 agent 读总结前原文(git show 旧版 CLAUDE.md §18 / memory 旧版)+ 总结后新版,逐条检查:①核心点保留(§18 核心条款/根因/场景未删,删过时事实不删教训;经验条目也保留非只过错)②中心思想未跑偏(§18="不重犯同类+经验积累成长",防重犯条款具体可执行非泛泛)③非为总结而总结(归纳非删减非凑数,有实质提炼非形式总结)④非为省token省token(不该删的不删,token 节省是归纳副产品非目标)⑤经验类已归纳(非过错的好经验/方法论/架构洞察有落档,不只归纳过错)。发现问题->回退(git revert)/修正重做。这是"总结核心点保留"原则的执行保障:光有原则不够,独立复核兜底。git log 让复核可验(对比总结前后差异)
 
 ### memory有效期
 - 文件持久(磁盘不过期),内容会过时(项目变化后没更新)。加载:MEMORY.md索引每次会话全加载(一行一条),具体文件按recall相关性加载(非全量)。备份:每天3:17 claude-self-daily-backup(保留30天)。重要结论落NOTES/TASKS git(§7)不只memory
@@ -262,7 +267,7 @@
 - 会话级总结是主控职责,会话结束前必做,派agent不亲干
 - 防重犯条款具体可执行(如"X场景做Y"),不泛泛
 - §18即时记+§19归纳解决方案配合
-- **总结核心点保留(防跑偏,2026-08-08 用户补)**:总结是归纳不是删减,多次总结后不能忘中心思想跑偏(类比 compact 总结后忘东西)。①防重犯条款保持具体可执行(如"派agent后立即设cron"),不简化成泛泛("注意设cron") ②过错记录含根因(为什么错),不只留"错了" ③memory review 删过时事实(文件/字段/规范变了),不删教训(教训永远有效) ④归纳只合并同类+提炼解决方案,不删原有核心条款/场景/根因 ⑤定期校准:§18 中心思想="不重犯同类",归纳不能变流水账丢目标。总结 agent prompt 须明确"保留原有核心点,只归纳不删减"
+- **总结核心点保留(防跑偏,2026-08-08 用户补)**:总结是归纳不是删减,多次总结后不能忘中心思想跑偏(类比 compact 总结后忘东西)。①防重犯条款保持具体可执行(如"派agent后立即设cron"),不简化成泛泛("注意设cron") ②过错记录含根因(为什么错),不只留"错了" ③memory review 删过时事实(文件/字段/规范变了),不删教训(教训永远有效) ④归纳只合并同类+提炼解决方案,不删原有核心条款/场景/根因 ⑤经验条目也保留(非过错的好经验/方法论/架构洞察,含场景+怎么用,不只记过错) ⑥定期校准:§18 中心思想="不重犯同类+经验积累成长",归纳不能变流水账丢目标。总结 agent prompt 须明确"保留原有核心点+经验条目,只归纳不删减"
 - **总结自查 + 复核两层(2026-08-08 用户补)**:总结产出后必派独立复核 agent(fresh context)按机制第4条检查,复核 PASS 才算总结完成(会话级/每日/每周总结都派)。git log 查总结前后差异(总结前原文 git show 旧版取)。不为总结而总结,不为省token省token,中心思想不能偏,核心点不能丢。定期总结自查后还要有人复核--总结 agent 自己查(自查)+ 复核 agent 独立查(复核)两层兜底
 
 ## 20. 快速上手引导持续完善机制(2026-08-08 定,绕弯路后完善引导)
@@ -274,15 +279,16 @@
   ② 试错返工:方案未充分调研就实施致返工(§18 教训⑦ hoverpop/移动端)
   ③ 误解口径/方向偏差:调研下结论前未验证(§18 教训⑧⑨⑪⑫,如"无/0/不可改善"过早断定、调研跳到生成层不对准 UI 位置)
   ④ 子 agent 重新发现已知的坑:§18 已记录但 fresh context 不知道(子 agent 不读 §18 全文,速查文档是它真正会读的入口)
+  ⑤ 经验类(非过错的好经验/方法论/架构洞察):§18 经验条目里的可操作经验(如 R2 purge 分批/自愈机制设计/决策树挖掘方法论),转成子 agent 可直接执行的 step
 - **动作**:
   ① 识别:主控或子 agent 识别"这次绕弯路解决的问题,下次子 agent 不应重复"
   ② 完善 `docs/agent-quickstart.md` 对应任务类型部分:记录"这类任务怎么直接做对"的标准 step(含验收口径)+ 常见坑速查(链接 §18 对应教训条目,不重述根因)
   ③ commit 进 git(§7 落档写保障;只放 memory 不算数)
 - **和 §18/§19 配合(三者互补,不重复)**:
-  - **§18 记过错**(反向防重犯):每次犯错即时追加,含根因+防重犯条款,面向主控读
-  - **§19 每天总结**(横向归纳):会话级/每日/每周归纳过错+token浪费+解决方案,提炼防重犯条款,面向主控读
-  - **§20 完善引导**(正向持续):把"怎么做对"沉淀进 `docs/agent-quickstart.md`,面向**子 agent fresh context 读**--§18/§19 主控读得到但子 agent fresh context 不读全文,§20 是子 agent 真正会读的速查入口
-  - 一句话:**§18 防错 / §19 总结 / §20 引导对**,§20 把 §18/§19 的教训转成子 agent 可直接执行的 step
+  - **§18 记过错+经验**(反向防重犯+正向经验积累):每次犯错即时追加含根因+防重犯条款;非过错的好经验/方法论/架构洞察也记于此("经验(非过错)"条目,含场景+怎么用)。面向主控读
+  - **§19 每天总结**(横向归纳):会话级/每日/每周归纳过错+token浪费+解决方案+经验类,提炼防重犯条款+经验条目,面向主控读
+  - **§20 完善引导**(正向持续):把"怎么做对"沉淀进 `docs/agent-quickstart.md`,面向**子 agent fresh context 读**--§18/§19 主控读得到但子 agent fresh context 不读全文,§20 是子 agent 真正会读的速查入口。经验类(§18 经验条目)也转成 step
+  - 一句话:**§18 防错+记经验 / §19 总结过错+经验 / §20 引导对**,§20 把 §18/§19 的教训+经验转成子 agent 可直接执行的 step
 - **持续性**:每次绕弯路都完善,`docs/agent-quickstart.md` 越来越全,子 agent 直接用不绕弯路;§19 会话级总结时必查本次绕弯路,有则完善 `docs/agent-quickstart.md`(总结 agent 的产出之一)
 - **派 agent 时引用**(§16 agent prompt 规范延伸):主控派子 agent prompt 引用“见 docs/agent-quickstart.md <对应任务类型>”,子 agent fresh context 读速查快速上手,不重复调研已知流程;若该任务类型速查尚未写,子 agent 完成后补写(把本次“怎么做对”沉淀,触发 §20 动作②)
 

@@ -57,6 +57,7 @@
 2. 跑 export 生成 JSON（cwd 注意 §9：读 DB 用 `trade-data/`，但写 JSON 输出路径要同步回 `trade/`）。
 3. 跑 `upload_r2.py` 推 R2（按类别选命令，见下表）。**新类别优先按前缀建独立命令，不依赖 1MB 阈值**（§8.1）。
 4. purge cache（Worker `/api/purge-cache` 或等 CF edge 刷新；CF Static Assets 无视 Cache-Control 靠部署自动 purge，R2 走 Worker 代理的需主动 purge）。
+   - **purge_cache 必分批**（§18 经验① ea64df512）：一次性发 400+ keys 致 CF Worker CPU/wall time 超限 -> 500 error。每批 30 keys（PURGE_BATCH_SIZE，20-50 安全区间）+ 批间 sleep 0.5s 避 CF 限流。`upload_r2.py` 已内置分批逻辑，手动 purge 也须分批。
 5. curl 3 域名 + R2 直链验证数据层（见 [§E](#e-上线验证)）。
 
 ### upload_r2.py 命令速查
@@ -332,6 +333,24 @@ curl -s https://ssd.fx8.store/data/xxx.json | python3 -c "import sys,json;print(
 - **SendMessage 丢失率高**：完成时 SendMessage to 'main' + 进度文件 `## DONE` 两件事都做。主控有 cron 兜底查进度文件，但别依赖通知单渠道。
 - **worktree isolation SendMessage 不送达**：worktree sidechain agent SendMessage queued success 但不送达主控 session（harness 限制），必配 cron 兜底。
 - **中途改口径停旧派新**：主控改口径/方向会停旧 agent 派新 agent 带全新规格。子 agent 收到"非用户确认"系统提示拒绝大重构是正常的（SendMessage resume 触发），改派新 agent 初始 prompt 绕过。
+
+### 前端轮询 / 定时器自愈（§18 经验⑤ d2a97108b）
+
+实现定时轮询类前端机制（如分时图 1min 刷新）时，5 个自愈要素缺一不可：
+
+1. **fetch 加 AbortController 超时**（8s）：防 await 永不返回卡死定时器链。
+2. **inflight 去重 Map + 兜底清理**（15s）：防卡死 finally 不触发毒化后续请求。
+3. **失败不永久停，改降频兜底重试**（6次失败 -> 5min 降频，7x24 自愈）：网络恢复自动恢复 1min。
+4. **心跳唤起**（overview 3min 轮询检查 intraday 定时器是否丢失，丢失则重启）：防定时器被异常杀死后永久死亡。
+5. **visibilitychange 切回前台清 in-flight**：防后台 Promise 毒化前台请求。
+
+### 数据挖掘 / 多特征组合优化（§18 经验⑥ 7ada31c57）
+
+多特征组合优化场景（降亏标志/参数寻优/规则发现），用决策树找高纯度叶节点，非人工穷举：
+
+- **手写 CART 决策树 + beam search 子群发现 + 关联规则 + 多维交叉**：超越人工 2 特征穷举（最高比值 2.52），找到 78 个比值>3 标志（单标志最高 10.06）。
+- **关键**：决策树叶节点纯度 = 标志有效性（高纯度亏损叶 = 高比值降亏标志）。
+- **产出文档**：`docs/kelly-loss-mining-v3.md`（v3 决策树挖掘）、`docs/kelly-loss-mining-methods.md`（方法论调研）。
 
 ---
 
