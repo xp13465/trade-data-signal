@@ -888,6 +888,18 @@ main { padding: 16px 24px; }
 .sig-item b.freeze-val { color: #2563eb; }
 .sig-day-row.today-row { background: #fff4ec; border-radius: 6px; }
 .sig-day-row.today-row .sig-day-date { color: #e6492e; font-weight: 600; }
+/* 市场温度顶行：热力图 + 情绪分买卖点信号列表 同排同高（flex stretch 自动等高） */
+.sentiment-heat-row { display: flex; gap: 12px; align-items: stretch; }
+.sentiment-heat-row .chart-card { flex: 1 1 0; min-width: 0; margin-bottom: 0; }
+.sentiment-heat-row .chart-card:first-child { flex: 1.4 1 0; } /* 热力图略宽 */
+.sentiment-siglist-card { display: flex; flex-direction: column; }
+.sentiment-siglist-card .sentiment-siglist { flex: 1 1 auto; max-height: 220px; }
+/* 情绪分信号列表在窄卡内 2 列（首页全宽 4 列在窄卡太挤），移动端整卡堆叠后保持 2 列可读 */
+.sentiment-siglist-card .sig-items { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 768px) {
+  .sentiment-heat-row { flex-direction: column; }
+  .sentiment-heat-row .chart-card { flex: 1 1 auto; }
+}
 /* 买卖点卡片可点击：弹窗展示走势图+信号 */
 .sig-clickable { cursor: pointer; transition: background 0.12s; border-radius: 4px; padding: 1px 3px; margin: -1px -3px; }
 .sig-clickable:hover { background: var(--primary-bg); }

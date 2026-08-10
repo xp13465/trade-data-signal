@@ -14350,8 +14350,12 @@ async function renderSentimentMarketTemp(container) {
   const stats = r.stats || {};
   const strat = r.strategy || {};
 
-  // 冰点/过热热力图（一眼全局，放最前面）
-  renderSentimentHeatmap(r, snap, container);
+  // 冰点/过热热力图 + 情绪分买卖点信号列表（同排同高，一眼全局放最前面）
+  const heatRow = document.createElement("div");
+  heatRow.className = "sentiment-heat-row";
+  renderSentimentHeatmap(r, snap, heatRow);
+  renderSentimentSignalList(heatRow, r, snap);
+  container.appendChild(heatRow);
 
   // 情绪图表区套 .indices-grid 3列网格(与A股/港股/全球同布局)，每张图+组成因子配对一个 grid cell
   const cardGrid = document.createElement("div");
@@ -14662,6 +14666,64 @@ function renderSentimentHeatmap(r, snap, container) {
       emphasis: { itemStyle: { borderColor: cssVar("--text-1"), borderWidth: 1 } },
     }],
   }));
+}
+
+// 情绪分买卖点信号列表：市场温度模块专属。首页 signals_today 已过滤 s.* 情绪分信号
+// (app/queries.py L529-531 方案B 2026-07-20：情绪分是0-100衍生指标非可交易标的、无ETF参考，
+// 只在首页信号列表排除；signal_daily 表保留 s.* 记录，sentiment JSON 的 r.signals 可按 index 查)。
+// 此列表从 sentiment JSON 的 r.signals 单独展示纯情绪分买卖点信号(a_sentiment/跨市场/恐贪/6宽基)，
+// 格式对齐首页信号列表(.sig-day-row/.sig-items/.sig-item)，点击复用首页 .sig-clickable 弹窗
+// (s.* index 走 sentiment-all.json 走势+买卖点标注，见 openSignalChartModal s. 分支)。
+function renderSentimentSignalList(host, r, snap) {
+  const sig = r.signals || {};
+  const all = [];
+  for (const k of Object.keys(sig)) {
+    const arr = sig[k];
+    if (!Array.isArray(arr)) continue;
+    for (const s of arr) all.push(s);
+  }
+  if (!all.length) return;
+  // 近 15 个日期（对齐首页 signals_today 窗口口径），新日期在前
+  const dates = [...new Set(all.map((s) => s.date))].sort((a, b) => (a < b ? 1 : -1));
+  const recentDates = dates.slice(0, 15);
+  const recentSet = new Set(recentDates);
+  const byDate = {};
+  for (const s of all) {
+    if (!recentSet.has(s.date)) continue;
+    (byDate[s.date] = byDate[s.date] || []).push(s);
+  }
+  const div = document.createElement("div");
+  div.className = "chart-card sentiment-siglist-card";
+  div.innerHTML = `<h3>🧭 情绪分买卖点信号<span class="chart-latest"> · 近 ${recentDates.length} 日</span>${termTip("市场温度专属：首页信号列表已过滤情绪分信号(情绪分是0-100衍生指标非可交易标的、无ETF参考)，此列表单独展示9类情绪分(a_sentiment/跨市场/恐贪/6宽基)的买卖点信号作情绪拐点逆向参考。红=卖(高位回落)、紫=辅买(下轨拐点)、绿=买(超卖拐点)。点击查看走势+标注。")}</h3>`;
+  const list = document.createElement("div");
+  list.className = "signal-grid sentiment-siglist";
+  div.appendChild(list);
+  host.appendChild(div);
+  let rows = "";
+  for (const dt of recentDates) {
+    const items = byDate[dt];
+    if (!items || !items.length) continue;
+    // 组内按信号优先级排（买>辅买>卖），与首页一致
+    const ord = { buy: 0, buy_aux: 1, sell: 2 };
+    items.sort((a, b) => (ord[a.signal] ?? 9) - (ord[b.signal] ?? 9));
+    const cells = items.map((s) => {
+      const _label = signalLabel(s);
+      const _name = indexIdToName(s.index_id);
+      const _titleParts = [_label, _name];
+      if (s.reason) _titleParts.push(s.reason);
+      _titleParts.push("点击查看走势图");
+      return `<span class="sig-item sig-clickable" data-idx="${s.index_id}" data-sig="${s.signal}" data-date="${s.date}" title="${_titleParts.join(" · ")}"><b class="${s.signal}">${_label}</b> <span class="sig-idx-name">${_name}</span></span>`;
+    }).join("");
+    rows += `<div class="sig-day-row"><span class="sig-day-date">${fmtDate(dt)}</span><div class="sig-items">${cells}</div></div>`;
+  }
+  list.innerHTML = rows;
+  // 点击弹窗：复用首页 .sig-clickable 委托（s.* 走 sentiment-all.json 走势+买卖点标注）
+  div.addEventListener("click", (e) => {
+    const item = e.target.closest(".sig-clickable");
+    if (!item) return;
+    e.preventDefault();
+    openSignalChartModal(item.dataset.idx, item.dataset.sig, item.dataset.date, undefined, "3m");
+  });
 }
 
 // 期货机构持仓：净持仓比例折线图 + 方向准确率表格
