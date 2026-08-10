@@ -174,9 +174,66 @@ def build_supplement_subject(date: str) -> str:
     return f"[补充速递·T日] {iso_date(date)}{wd_str} | 期货/汪汪队/公募"
 
 
+def _main_plain_notes(it: dict) -> dict:
+    """主邮件段黑话白话注释（恐贪/均线多空/新高新低/领涨，只加注释不改数据口径）。
+
+    返回 {fear_greed/ma/nh_nl/top: 白话行}，缺失字段自动跳过。
+    """
+    notes = {}
+    # 恐贪指数
+    fg = it.get("fear_greed_value")
+    fg_label = it.get("fear_greed_label")
+    if isinstance(fg, (int, float)):
+        lbl = f"（{fg_label}）" if fg_label else ""
+        if fg >= 70:
+            tip = f"恐贪指数 {fg:.0f} 分{lbl}：市场情绪偏贪婪、赚钱效应强，但越是高位越要防追高"
+        elif fg <= 30:
+            tip = f"恐贪指数 {fg:.0f} 分{lbl}：市场情绪偏恐惧、观望浓，往往对应中期低位区域"
+        else:
+            tip = f"恐贪指数 {fg:.0f} 分{lbl}：情绪中性、多空拉锯，方向待选择"
+        notes["fear_greed"] = tip
+    # 均线多空
+    mab, mas = it.get("ma_bullish"), it.get("ma_bearish")
+    if isinstance(mab, (int, float)) and isinstance(mas, (int, float)):
+        total = mab + mas
+        if total > 0:
+            ratio = mab / total
+            if ratio >= 0.6:
+                tip = f"均线多空 多{mab}/空{mas}：约 {ratio*100:.0f}% 个股站上均线，多头占优、趋势偏强"
+            elif ratio <= 0.4:
+                tip = f"均线多空 多{mab}/空{mas}：仅约 {ratio*100:.0f}% 个股站上均线，空头占优、趋势偏弱"
+            else:
+                tip = f"均线多空 多{mab}/空{mas}：多空大致均衡，方向未明"
+        else:
+            tip = f"均线多空 多{mab}/空{mas}：今日无站上/跌破均线样本，参考有限"
+        notes["ma"] = tip
+    # 新高新低
+    nh, nl = it.get("nh_count"), it.get("nl_count")
+    if isinstance(nh, (int, float)) and isinstance(nl, (int, float)):
+        if nh > nl:
+            tip = f"新高{nh}/新低{nl}：创新高个股多于创新低，强势股占优、市场偏强"
+        elif nl > nh:
+            tip = f"新高{nh}/新低{nl}：创新低个股多于创新高，弱势股增多、市场偏弱"
+        else:
+            tip = f"新高{nh}/新低{nl}：创新高与创新低个股相当，分化不明显"
+        notes["nh_nl"] = tip
+    # 领涨板块
+    top = it.get("top_industries")
+    if top:
+        names = ind_names(top)
+        t0 = top[0].get("pct_change")
+        pct_s = f"{t0:+.1f}%" if isinstance(t0, (int, float)) else ""
+        notes["top"] = (
+            f"领涨板块 {names}：今日资金集中在{pct_s}的热门方向，"
+            "短线跟随热点注意别追高、防轮动"
+        )
+    return notes
+
+
 def build_text(it: dict, subs: list[dict] | None = None, extras: dict | None = None) -> str:
     """生成纯文本正文(ASCII 示意格式)。"""
     date_str = it.get("date", "")
+    notes = _main_plain_notes(it)
     lines = []
     lines.append("=" * 44)
     lines.append(f"  A股情绪速递 · T日盘后 · {iso_date(date_str)} {weekday_cn(date_str)}")
@@ -194,6 +251,8 @@ def build_text(it: dict, subs: list[dict] | None = None, extras: dict | None = N
         seg.append(f"情绪分:{ss:.1f}" + (f"({slabel})" if slabel else ""))
     if seg:
         lines.append(" | ".join(seg))
+    if notes.get("fear_greed"):
+        lines.append("    白话: " + notes["fear_greed"])
 
     # 上证
     sh_pct = it.get("sh_pct")
@@ -234,6 +293,10 @@ def build_text(it: dict, subs: list[dict] | None = None, extras: dict | None = N
         mk2.append(f"均线 多{mab} / 空{mas}")
     if mk2:
         lines.append(" | ".join(mk2))
+    if notes.get("ma"):
+        lines.append("    白话: " + notes["ma"])
+    if notes.get("nh_nl"):
+        lines.append("    白话: " + notes["nh_nl"])
 
     # 冰点
     if it.get("is_freeze") and it.get("freeze_info"):
@@ -244,6 +307,8 @@ def build_text(it: dict, subs: list[dict] | None = None, extras: dict | None = N
     bot = ind_names(it.get("bottom_industries"))
     if top:
         lines.append(f"领涨:{top}")
+    if notes.get("top"):
+        lines.append("    白话: " + notes["top"])
     if bot:
         lines.append(f"领跌:{bot}")
 
@@ -350,6 +415,21 @@ def build_html(it: dict, subs: list[dict] | None = None, extras: dict | None = N
             f'<td style="padding:6px 12px;font-size:13px;font-weight:600;">{value}</td></tr>'
         )
 
+    # 恐贪/均线多空/新高新低/领涨 白话注释块（只加注释，不改数据口径）
+    notes = _main_plain_notes(it)
+    notes_html = ""
+    note_items = []
+    for k in ("fear_greed", "ma", "nh_nl", "top"):
+        if notes.get(k):
+            note_items.append(
+                f'<div style="margin:2px 0;"><span style="color:#d46b08;font-weight:600;">白话：</span>'
+                f'{_esc(notes[k])}</div>')
+    if note_items:
+        notes_html = (
+            '<div style="margin:6px 0;font-size:12px;color:#4e5969;line-height:1.7;">'
+            + "".join(note_items) + '</div>'
+        )
+
     section_html = ""
     if top or bot:
         sec = ['<div style="margin:12px 0;font-size:13px;line-height:1.8;">']
@@ -388,6 +468,7 @@ def build_html(it: dict, subs: list[dict] | None = None, extras: dict | None = N
 <h2 style="margin:0 0 4px 0;color:#1d2129;">A股情绪速递</h2>
 <p style="margin:0 0 12px 0;color:#86909c;font-size:13px;">T日盘后 · {iso_date(date_str)} {weekday_cn(date_str)}</p>
 <table style="border-collapse:collapse;margin-bottom:4px;">{table_rows}</table>
+{notes_html}
 {freeze_html}
 {section_html}
 {summary_html}
@@ -898,8 +979,73 @@ def load_nt_brief() -> dict | None:
     }
 
 
+def _nt_plain_notes(d: dict) -> dict:
+    """汪汪队段黑话白话注释（图例/共振/净申购，只加注释不改数据口径）。
+
+    返回 {legend/resonance/net: 白话行}。
+    """
+    notes = {}
+    n_surge = d.get("n_surge", 0)
+    n_outflow = d.get("n_outflow", 0)
+    n_volume = d.get("n_volume", 0)
+    if n_surge or n_outflow or n_volume:
+        bits = []
+        if n_surge:
+            bits.append(f"进{n_surge}=有{n_surge}只ETF份额被国家队增持（资金在进）")
+        if n_outflow:
+            bits.append(f"出{n_outflow}=有{n_outflow}只ETF份额被减持（资金在撤）")
+        if n_volume:
+            bits.append(f"量{n_volume}=有{n_volume}只ETF成交额异常放大（交投活跃）")
+        notes["legend"] = "；".join(bits)
+    if d.get("is_resonance"):
+        notes["resonance"] = "🐾共振：多只ETF同向出现同类信号，方向一致、信号可信度更高"
+    net = d.get("net_share")
+    if isinstance(net, (int, float)):
+        if net > 0:
+            notes["net"] = f"净申购{net:.2f}亿份：国家队资金整体在进场，情绪偏积极"
+        elif net < 0:
+            notes["net"] = f"净申购{abs(net):.2f}亿份（净赎回）：国家队资金整体在撤，情绪偏谨慎"
+        else:
+            notes["net"] = "净申购0亿份：资金进出平衡，信号有限"
+    return notes
+
+
+def _nt_etf_plain(s: dict) -> str:
+    """单只ETF信号白话（含义+直觉），供信号ETF每行/每行注释用。"""
+    tips = []
+    for sg in s.get("signals", []):
+        t = sg.get("type", "")
+        if t == "share_surge":
+            tips.append("份额增持=资金在进")
+        elif t == "share_outflow":
+            tips.append("份额减持=资金在撤")
+        elif t == "volume_surge":
+            tips.append("成交放量=交投活跃")
+    return "；".join(tips)
+
+
+def _nt_plain_summary(d: dict) -> str:
+    """汪汪队段段末 1 句散户向白话解读结论（不含前缀，渲染时加）。"""
+    net = d.get("net_share")
+    n_surge = d.get("n_surge", 0)
+    n_outflow = d.get("n_outflow", 0)
+    bits = []
+    if d.get("is_resonance"):
+        bits.append("多只ETF同向共振，方向较明确")
+    if isinstance(net, (int, float)):
+        if net > 0:
+            bits.append("国家队资金净流入，情绪偏积极")
+        elif net < 0:
+            bits.append("国家队资金净流出，情绪偏谨慎")
+    if n_outflow > 0 and n_outflow >= n_surge:
+        bits.append("减持多于增持，留意防守")
+    if not bits:
+        return ""
+    return "；".join(bits) + "（仅供参考，ETF份额数据T+1发布）"
+
+
 def build_nt_text(d: dict) -> str:
-    """汪汪队信号纯文本段。"""
+    """汪汪队信号纯文本段（白话化：图例/共振/净申购/每ETF注释 + 段末白话解读）。"""
     parts = []
     if d["n_surge"]:
         parts.append(f"进{d['n_surge']}")
@@ -909,11 +1055,18 @@ def build_nt_text(d: dict) -> str:
         parts.append(f"量{d['n_volume']}")
     summary = " ".join(parts) if parts else "无信号"
     res_tag = " | 🐾共振" if d.get("is_resonance") else ""
+    notes = _nt_plain_notes(d)
     lines = ["", "-" * 44, f"汪汪队信号（数据日期 {d.get('data_date', '-')}）："]
     lines.append(f"  {summary}{res_tag}")
+    if notes.get("legend"):
+        lines.append("    白话: " + notes["legend"])
+    if notes.get("resonance"):
+        lines.append("    白话: " + notes["resonance"])
     net = d.get("net_share", 0)
     net_s = f"+{net:.2f}" if isinstance(net, (int, float)) and net >= 0 else (f"{net:.2f}" if isinstance(net, (int, float)) else "-")
     lines.append(f"  净申购份额 {net_s}亿份 | 增持{d.get('n_inc', 0)}只 减持{d.get('n_dec', 0)}只")
+    if notes.get("net"):
+        lines.append("    白话: " + notes["net"])
     etf_strs = []
     for s in d.get("top_etfs", []):
         types = "/".join(_NT_SIG_LABEL.get(sg.get("type"), sg.get("type", "")) for sg in s.get("signals", []))
@@ -922,14 +1075,20 @@ def build_nt_text(d: dict) -> str:
         # 量比取该 etf 信号里最大 amount_ratio
         ratios = [sg.get("amount_ratio") for sg in s.get("signals", []) if sg.get("amount_ratio") is not None]
         ratio_s = f"{max(ratios):.2f}倍" if ratios else ""
-        etf_strs.append(f"{s.get('code','')} {s.get('name','')} {types} {scy_s}亿份 {ratio_s}".strip())
+        plain = _nt_etf_plain(s)
+        etf_strs.append(f"{s.get('code','')} {s.get('name','')} {types} {scy_s}亿份 {ratio_s}" + (f"（{plain}）" if plain else ""))
     if etf_strs:
         lines.append("  信号ETF: " + " | ".join(etf_strs))
+    # 段末白话解读
+    summ = _nt_plain_summary(d)
+    if summ:
+        lines.append("")
+        lines.append("  📌 白话解读: " + summ)
     return "\n".join(lines)
 
 
 def build_nt_html(d: dict) -> str:
-    """汪汪队信号 HTML 段。"""
+    """汪汪队信号 HTML 段（白话化：图例/共振/净申购注释 + 每ETF白话 + 段末白话解读）。"""
     parts = []
     if d["n_surge"]:
         parts.append(f'<span style="color:#e6492e;">进{d["n_surge"]}</span>')
@@ -941,6 +1100,21 @@ def build_nt_html(d: dict) -> str:
     res_tag = ' <span style="color:#b8860b;font-weight:600;">🐾共振</span>' if d.get("is_resonance") else ""
     net = d.get("net_share", 0)
     net_s = f"+{net:.2f}" if isinstance(net, (int, float)) and net >= 0 else (f"{net:.2f}" if isinstance(net, (int, float)) else "-")
+    # 图例/共振/净申购白话注释块
+    notes = _nt_plain_notes(d)
+    notes_html = ""
+    note_items = []
+    for k in ("legend", "resonance", "net"):
+        if notes.get(k):
+            note_items.append(
+                f'<div style="margin:2px 0;"><span style="color:#d46b08;font-weight:600;">白话：</span>'
+                f'{_esc(notes[k])}</div>')
+    if note_items:
+        notes_html = (
+            '<div style="margin:6px 0;font-size:12px;color:#4e5969;line-height:1.7;">'
+            + "".join(note_items) + '</div>'
+        )
+    # 每 ETF 白话（挂在名称下小字）
     rows = ""
     for s in d.get("top_etfs", []):
         types = []
@@ -954,12 +1128,24 @@ def build_nt_html(d: dict) -> str:
         scy_s = f"+{scy:.2f}" if isinstance(scy, (int, float)) and scy >= 0 else (f"{scy:.2f}" if isinstance(scy, (int, float)) else "-")
         ratios = [sg.get("amount_ratio") for sg in s.get("signals", []) if sg.get("amount_ratio") is not None]
         ratio_s = f"{max(ratios):.2f}倍" if ratios else ""
+        plain = _nt_etf_plain(s)
+        plain_html = f'<br/><span style="color:#86909c;font-size:11px;">{_esc(plain)}</span>' if plain else ""
         rows += (
             f'<tr><td style="padding:4px 10px;font-size:13px;"><b>{_esc(s.get("code",""))}</b> '
-            f'{_esc(s.get("name",""))}</td>'
+            f'{_esc(s.get("name",""))}{plain_html}</td>'
             f'<td style="padding:4px 10px;font-size:13px;">{types_s}</td>'
             f'<td style="padding:4px 10px;font-size:13px;text-align:right;">{_esc(scy_s)}亿份</td>'
             f'<td style="padding:4px 10px;font-size:13px;text-align:right;color:#86909c;">{_esc(ratio_s)}</td></tr>'
+        )
+    # 段末白话解读块
+    summ = _nt_plain_summary(d)
+    summ_html = ""
+    if summ:
+        summ_html = (
+            '<div style="margin:6px 0;padding:8px 10px;background:#fff7e6;'
+            'border-left:3px solid #fa8c16;border-radius:4px;font-size:12px;'
+            'color:#873800;line-height:1.7;">'
+            f'<b style="color:#d46b08;">📌 白话解读：</b>{_esc(summ)}</div>'
         )
     return (
         f'<h3 style="margin:16px 0 6px 0;color:#1d2129;font-size:14px;">🐶 汪汪队信号'
@@ -967,7 +1153,9 @@ def build_nt_html(d: dict) -> str:
         f'<div style="margin:4px 0 8px 0;font-size:13px;">{summary}{res_tag}'
         f' <span style="color:#4e5969;margin-left:12px;">净申购 {_esc(net_s)}亿份'
         f' | 增持{d.get("n_inc",0)}只 减持{d.get("n_dec",0)}只</span></div>'
+        f'{notes_html}'
         f'<table style="border-collapse:collapse;margin-bottom:4px;">{rows}</table>'
+        f'{summ_html}'
     )
 
 
