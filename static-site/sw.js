@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260810-a101';  // bump a100->a101: 降亏9新v3 toggle(比值>3)+现有6 toggle=15 toggle按比值倒序展示+dimension lookup+purpose-notes公示同步
+const CACHE_VERSION = 'v6-20260810-a102';  // bump a101->a102: N1降亏toggle标签修正 周二->周三(weekday==2=周三非周二,mining脚本映射误标)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

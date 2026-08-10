@@ -7317,7 +7317,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
               var _dims3 = _tradeDims[_dk3] || {};
               _mktD3 = _dims3.mkt || ""; _ratD3 = _dims3.rating || "";
             }
-            // N1: 3月+周二+高价ETF, 比值10.06, 7/7年全亏
+            // N1: 3月+周三+高价ETF, 比值10.06, 7/7年全亏
             if (filters.n1MarTueHigh && _mm3 === "03" && _wd3 === 2 && _bpb3 === "high") return false;
             // N2: 11月+追关注+行业指数, 比值6.63
             if (filters.n2NovSpecialIndustry && _sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") return false;
@@ -7333,7 +7333,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
             if (filters.n5MayVlow && _mm3 === "05" && _bpb3 === "vlow") return false;
             // N6: mid评级+5月, 比值3.35(附监控,2026占71%)
             if (filters.n6MidMay && _ratD3 === "mid" && _mm3 === "05") return false;
-            // R10: 5月+6非五月组件(5月整体∪N1∪N2∪N3∪11月追关注低价∪3月追关注行业∪3月周二辅关注), 比值3.31, 净+676k全场最大
+            // R10: 5月+6非五月组件(5月整体∪N1∪N2∪N3∪11月追关注低价∪3月追关注行业∪3月周三辅关注), 比值3.31, 净+676k全场最大
             if (filters.r10May6NonMay && (_mm3 === "05" || (_mm3 === "03" && _wd3 === 2 && _bpb3 === "high") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0) || (_sig3 === "buy_special" && _mm3 === "11" && _bpb3 === "low") || (_sig3 === "buy_special" && _mm3 === "03" && _mktD3 === "industry") || (_mm3 === "03" && _wd3 === 2 && _sig3 === "buy_aux"))) return false;
           }
           return true;
@@ -7577,7 +7577,7 @@ function _renderSigKellyBar(bar, data, period) {
   const toggleHTML = `<div class="lab-sigkelly-toggle-row">` +
       `<span class="lab-sigkelly-toggle-label">降亏过滤:</span>` +
       `<span class="lab-sigkelly-toggle-tier">比值&gt;3(高性价比)</span>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除3月+周二+高价ETF的交易。减亏0.89%/损盈0.09%/比值10.06(全场最高)。净增收+5.85万元。7/7年全亏(2017-2026)，无单年主导，稳定性最强单标志。"><input type="checkbox" class="lab-sigkelly-toggle-n1"${_filters.n1MarTueHigh ? " checked" : ""}> 3月+周二+高价(10.06) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除3月+周三+高价ETF的交易。减亏0.89%/损盈0.09%/比值10.06(全场最高)。净增收+5.85万元。7/7年全亏(2017-2026)，无单年主导，稳定性最强单标志。"><input type="checkbox" class="lab-sigkelly-toggle-n1"${_filters.n1MarTueHigh ? " checked" : ""}> 3月+周三+高价(10.06) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除11月+追关注+行业指数的交易。减亏1.10%/损盈0.17%/比值6.63。净增收+6.72万元。7/9年亏，近年(2023/2025)大亏回归。年末追涨在行业轮动中被套。"><input type="checkbox" class="lab-sigkelly-toggle-n2"${_filters.n2NovSpecialIndustry ? " checked" : ""}> 11月+追关注+行业(6.63) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除纯非五月3稳定组件(N1+N2+N3并集)。减亏3.19%/损盈0.54%/比值5.87。净增收+18.85万元。2021-2026连续6年全正，完全避开5月shift争议，损盈最低之一。与5月标志零重叠，可作独立补充。"><input type="checkbox" class="lab-sigkelly-toggle-r8"${_filters.r8PureNonMay ? " checked" : ""}> 纯非五月3稳定R8(5.87) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除11月+追关注+周一的交易。减亏1.55%/损盈0.30%/比值5.24。净增收+8.87万元。8/10年亏，n=474样本充足。周末消息面消化后的追涨易被套。"><input type="checkbox" class="lab-sigkelly-toggle-n3"${_filters.n3NovSpecialMon ? " checked" : ""}> 11月+追关注+周一(5.24) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
@@ -7585,7 +7585,7 @@ function _renderSigKellyBar(bar, data, period) {
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除5月强化(A股/mid/低价)+3稳定非五月(N1+N2+N3)的并集。减亏7.21%/损盈1.73%/比值4.18。净增收+37.75万元。损盈最低(最surgical)，近1/3年比值>9。含5月，2021子集盈利-1.78万。"><input type="checkbox" class="lab-sigkelly-toggle-r7"${_filters.r7MayReinforced ? " checked" : ""}> 5月强化+3非五月R7(4.18) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除5月+低价ETF的交易。减亏1.85%/损盈0.46%/比值4.02。净增收+9.51万元。⚠️附监控:2026年占全历史净影响66%，过拟合风险最高。2021-2023连续3年子集盈利。每年6月监控5月表现，转盈则暂停。"><input type="checkbox" class="lab-sigkelly-toggle-n5"${_filters.n5MayVlow ? " checked" : ""}> 5月+低价(4.02)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除mid评级+5月的交易。减亏2.19%/损盈0.65%/比值3.35。净增收+10.20万元。⚠️附监控:2026年占全历史净影响71%，2021大额子集盈利-1.74万。每年6月监控5月表现，转盈则暂停。"><input type="checkbox" class="lab-sigkelly-toggle-n6"${_filters.n6MidMay ? " checked" : ""}> mid+5月(3.35)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除5月+6稳定非五月组件的并集(5月整体+N1+N2+N3+11月追关注低价+3月追关注行业+3月周二辅关注)。减亏14.63%/损盈4.42%/比值3.31。净增收+67.65万元(全场最大)。PF 1.285→1.439。三条独立季节+信号线重叠少。2021-2022子集盈利(5月shift痕迹)。"><input type="checkbox" class="lab-sigkelly-toggle-r10"${_filters.r10May6NonMay ? " checked" : ""}> 5月+6非五月R10(3.31) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除5月+6稳定非五月组件的并集(5月整体+N1+N2+N3+11月追关注低价+3月追关注行业+3月周三辅关注)。减亏14.63%/损盈4.42%/比值3.31。净增收+67.65万元(全场最大)。PF 1.285→1.439。三条独立季节+信号线重叠少。2021-2022子集盈利(5月shift痕迹)。"><input type="checkbox" class="lab-sigkelly-toggle-r10"${_filters.r10May6NonMay ? " checked" : ""}> 5月+6非五月R10(3.31) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<span class="lab-sigkelly-toggle-tier">比值&lt;3(广谱过滤)</span>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 buy_aux 信号在3/5月进场的交易（交叉标志）。减亏 7.3% / 损盈 2.9% / 比值 2.52（全场最高）。净增收 +25.8万元。最外科手术式标志，双条件交集更稳定。"><input type="checkbox" class="lab-sigkelly-toggle-auxcross"${_filters.excludeAuxCross ? " checked" : ""}> 辅关注×3/5月交叉(2.52) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 buy_special（追关注）信号在MA60熊市的交易（交叉标志）。减亏 8.3% / 损盈 3.6% / 比值 2.31。净增收 +26.5万元。追涨信号在熊市是经典反模式（追涨被套），buy_special整体净正但在熊市净亏。"><input type="checkbox" class="lab-sigkelly-toggle-specialbear"${_filters.excludeSpecialBear ? " checked" : ""}> 追关注×熊市交叉(2.31) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
