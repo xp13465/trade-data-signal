@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260810-a109';  // bump a108->a109: 信号显示名统一+策略说明弹窗跟随精简/完整版切换
+const CACHE_VERSION = 'v6-20260810-a110';  // bump a109->a110: 凯利回测新增 G/H/I 信号驱动卖出模式(后端+lab.js+purpose-notes)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

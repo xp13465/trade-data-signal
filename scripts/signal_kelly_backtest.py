@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""信号凯利回测 - 16 象限 × 6 卖出模式 × 5 周期。
+"""信号凯利回测 - 16 象限 × 9 卖出模式 × 5 周期。
 
 对每条买信号(buy/buy_aux/buy_special/buy_backup),买入该信号对应指数的 track_score
-第一名 ETF(10000 元,含费率),按 6 种卖出模式(A=固定10天 / B=3% / C=5% / D=7% 止盈或满期;
-E=持有5天 / F=持有15天 不止盈)各自卖出,统计胜率/盈亏比/凯利 f*。
+第一名 ETF(10000 元,含费率),按 9 种卖出模式(A=固定10天 / B=3% / C=5% / D=7% 止盈或满期;
+E=持有5天 / F=持有15天 不止盈 / G=卖出信号 / H=卖出+追止损 / I=追关注加追止损)各自卖出,
+统计胜率/盈亏比/凯利 f*。
+
+G/H/I 为信号驱动卖出(移植 simulate_trade.py sell_types 机制到每笔交易独立):
+  G: 对应指数后续第一个 sell 信号日卖出, 无 sell 信号则持有至回测结束
+  H: sell OR sell_stop_loss 任一信号(取最早日)触发卖出
+  I: G 的基础上, buy_special(追关注)交易额外受 sell_stop_loss 约束(即追关注用 H 逻辑)
 
 16 并列象限(非交叉,同一信号可同时归多组):
   - 评级 3 象限: rating_high/mid/low (按 signal_stats 10d score ≥0.75/≥0.55/<0.55)
@@ -55,6 +61,14 @@ SELL_MODES = {
     "D": {"label": "7%止盈",   "hold_days": 10, "stop_profit": 0.07},
     "E": {"label": "持有5天",  "hold_days": 5,  "stop_profit": None},
     "F": {"label": "持有15天", "hold_days": 15, "stop_profit": None},
+    # G/H/I: 信号驱动卖出(每笔交易查对应指数后续 sell/sell_stop_loss 信号, 无则持有至回测结束)
+    "G": {"label": "卖出信号",   "hold_days": None, "stop_profit": None, "signal": True,
+          "sell_types": ("sell",), "desc": "指数卖出信号触发"},
+    "H": {"label": "卖出+追止损", "hold_days": None, "stop_profit": None, "signal": True,
+          "sell_types": ("sell", "sell_stop_loss"), "desc": "卖出或追止损信号触发"},
+    "I": {"label": "追关注加追止损", "hold_days": None, "stop_profit": None, "signal": True,
+          "sell_types": ("sell",), "special_sell_types": ("sell", "sell_stop_loss"),
+          "desc": "追关注额外受追止损约束"},
 }
 
 PERIODS = {
@@ -280,13 +294,15 @@ def _calendar_days(d1, d2):
 def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, stop_profit,
                   index_id=None, signal=None, track_tier=None, track_score=None,
                   match_method=None, track_low_confidence=None, today=None, hold_days=HOLD_DAYS,
-                  market_state=None, rating=None):
+                  market_state=None, rating=None, sell_mode=None, sell_signals=None):
     """单笔信号回测: 信号日买入 1000 元, 持有期内止盈或满 hold_days 卖出。
 
     prices: 该 ETF 的 {date: accum_nav} 字典(已由调用方从 price_map 取出)。
     today: 全局最新数据日(YYYYMMDD), 用于持仓中trade预估; None 时回退本ETF最后日期。
-    hold_days: 最大持有交易日(per-mode, A/B/C/D=10, E=5, F=15)。
+    hold_days: 最大持有交易日(per-mode, A/B/C/D=10, E=5, F=15; G/H/I=None 信号驱动不用)。
     market_state: 大盘择时状态(True=多头进场允许/False=空头跳过过滤; 非A股类标True)。
+    sell_mode: 卖出模式 key(A-I), G/H/I 走信号驱动卖出分支。
+    sell_signals: 该指数 [(date, signal)] 按日期排序的卖出信号时间线(G/H/I 用, 可能为 [])。
     返回 dict {signal_date, index_id, signal, buy_date, sell_date, etf_code, etf_name,
               track_tier, track_score, match_method, track_low_confidence,
               buy_price, sell_price, shares, profit, return_pct, hold_days, sell_reason,
@@ -312,6 +328,16 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
     # 用 bisect 找未来 hold_days 个交易日
     dates = sorted_dates_list
     idx = bisect.bisect_right(dates, signal_date)
+
+    # 模式 G/H/I: 信号驱动卖出(每笔交易查对应指数后续 sell/sell_stop_loss 信号, 无则持有至回测结束)。
+    # 置于 future_dates 之前: G/H/I 的 hold_days=None, 不参与固定持有日切片。
+    if sell_mode in ("G", "H", "I"):
+        return _backtest_signal_sell(
+            signal_date, prices, dates, etf_code, sell_mode, signal, sell_signals, today,
+            index_id, etf_name, track_tier, track_score, match_method, track_low_confidence,
+            market_state, rating, buy_price, shares,
+        )
+
     future_dates = dates[idx:idx + hold_days]
 
     # 持仓中: 未来不足 hold_days 个交易日, 按当前价预估盈亏(不丢弃, 含未实现综合表现)
@@ -378,6 +404,109 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
     return_pct = profit / BUY_AMOUNT * 100
     hold = future_dates.index(sell_date) + 1  # D+1=1, ..., D+10=10
 
+    return {
+        "signal_date": signal_date,
+        "index_id": index_id,
+        "signal": signal,
+        "buy_date": signal_date,
+        "sell_date": sell_date,
+        "etf_code": etf_code,
+        "etf_name": etf_name,
+        "track_tier": track_tier,
+        "track_score": track_score,
+        "match_method": match_method,
+        "track_low_confidence": track_low_confidence,
+        "buy_price": round(buy_price, 6),
+        "sell_price": round(sell_price, 6),
+        "shares": round(shares, 6),
+        "profit": round(profit, 4),
+        "return_pct": round(return_pct, 4),
+        "hold_days": hold,
+        "sell_reason": sell_reason,
+        "current_price": 0,
+        "market_state": market_state,
+        "rating": rating,
+    }
+
+
+def _backtest_signal_sell(signal_date, prices, dates, etf_code, sell_mode, signal, sell_signals,
+                          today, index_id, etf_name, track_tier, track_score, match_method,
+                          track_low_confidence, market_state, rating, buy_price, shares):
+    """模式 G/H/I 信号驱动卖出(每笔交易独立, 混合指数回测)。
+
+    G: 对应指数后续第一个 sell 信号日卖出, 无 sell 信号则持有至回测结束。
+    H: sell OR sell_stop_loss 任一信号(取最早日)触发卖出。
+    I: buy_special(追关注)交易用 H 逻辑, 其他交易用 G 逻辑。
+    卖出价 = 信号日当日 ETF 收盘价(accum_nav)。sell_signals 为该指数 [(date, signal)] 按日期排序。
+    返回与 _backtest_one 同结构 dict, 或 None(无当前价无法预估)。
+    """
+    # 决定该笔交易的卖出信号类型集合
+    if sell_mode == "H" or (sell_mode == "I" and signal == "buy_special"):
+        sell_types = ("sell", "sell_stop_loss")
+    else:  # G, 或 I 的非追关注交易
+        sell_types = ("sell",)
+
+    # 找买入日之后第一个匹配卖出信号日(要求该 ETF 当日有价格可卖出)
+    sell_date = None
+    sell_reason = None
+    for d, sig in (sell_signals or []):
+        if d <= signal_date or sig not in sell_types:
+            continue
+        if prices.get(d):
+            sell_date = d
+            sell_reason = "追止损卖出" if sig == "sell_stop_loss" else "卖出信号"
+            break
+
+    if sell_date is None:
+        # 无匹配卖出信号: 持有至回测结束, 按当前价预估盈亏(复用持仓中口径)
+        ref_today = today if today else (dates[-1] if dates else None)
+        current_nav = prices.get(ref_today) if ref_today else None
+        price_date = ref_today
+        if current_nav is None and dates:
+            current_nav = prices.get(dates[-1])
+            price_date = dates[-1]
+        if current_nav is None or current_nav <= 0:
+            return None
+        _sp, _sell_amount, _comm2, _tf2, net = _sell_with_fees(shares, current_nav, etf_code)
+        profit = net - BUY_AMOUNT
+        return_pct = profit / BUY_AMOUNT * 100
+        try:
+            hold = dates.index(price_date) - dates.index(signal_date)
+        except ValueError:
+            hold = 0  # price_date == signal_date(无后续交易日)
+        return {
+            "signal_date": signal_date,
+            "index_id": index_id,
+            "signal": signal,
+            "buy_date": signal_date,
+            "sell_date": "",
+            "etf_code": etf_code,
+            "etf_name": etf_name,
+            "track_tier": track_tier,
+            "track_score": track_score,
+            "match_method": match_method,
+            "track_low_confidence": track_low_confidence,
+            "buy_price": round(buy_price, 6),
+            "sell_price": 0,
+            "shares": round(shares, 6),
+            "profit": round(profit, 4),
+            "return_pct": round(return_pct, 4),
+            "hold_days": hold,
+            "sell_reason": "持有中",
+            "current_price": round(current_nav, 6),
+            "market_state": market_state,
+            "rating": rating,
+        }
+
+    # 有匹配卖出信号日: 当日收盘卖出
+    sell_nav = prices[sell_date]
+    sell_price, _sell_amount, _comm2, _tf2, net = _sell_with_fees(shares, sell_nav, etf_code)
+    profit = net - BUY_AMOUNT
+    return_pct = profit / BUY_AMOUNT * 100
+    try:
+        hold = dates.index(sell_date) - dates.index(signal_date)
+    except ValueError:
+        hold = 1
     return {
         "signal_date": signal_date,
         "index_id": index_id,
@@ -517,9 +646,18 @@ def _annualized_return(return_pct_max_holding, period_key, trades):
 
 
 def _guidance(quad_key, mode_key):
-    """跟单操作指引: 看到X信号 -> 信号日收盘买10000元Y类型ETF -> 持有Z天或W%止盈卖出。"""
+    """跟单操作指引: 看到X信号 -> 信号日收盘买10000元Y类型ETF -> 按模式卖出。"""
     quad_label = QUADRANT_META[quad_key]["label"]
     mode_def = SELL_MODES[mode_key]
+    if mode_def.get("signal"):
+        # G/H/I: 信号驱动卖出(对应指数后续信号触发, 无则持有至回测结束)
+        desc_map = {
+            "G": "对应指数卖出信号(sell)触发卖出，无信号则持有至回测结束",
+            "H": "对应指数卖出信号(sell)或追止损信号(sell_stop_loss)任一触发卖出",
+            "I": "对应指数卖出信号(sell)触发卖出；追关注(buy_special)交易额外受追止损信号(sell_stop_loss)约束",
+        }
+        sell_str = desc_map[mode_key]
+        return f"看到{quad_label} → 信号日收盘买{BUY_AMOUNT}元匹配ETF → {sell_str}"
     hd = mode_def["hold_days"]
     if mode_def["stop_profit"] is None:
         sell_str = f"持有{hd}天到期卖出"
@@ -682,6 +820,14 @@ def compute():
         f"WHERE signal IN ({','.join('?' * len(BUY_SIGNALS))}) ORDER BY date",
         BUY_SIGNALS,
     ).fetchall()
+    # 读卖出信号(sell/sell_stop_loss)时间线, 供 G/H/I 信号驱动卖出模式按指数查后续信号
+    sell_rows = conn.execute(
+        "SELECT date, index_id, signal FROM signal_daily "
+        "WHERE signal IN ('sell','sell_stop_loss') ORDER BY index_id, date"
+    ).fetchall()
+    sell_timeline = {}
+    for _d, _iid, _sig in sell_rows:
+        sell_timeline.setdefault(_iid, []).append((_d, _sig))
     # 加载沪深300 MA60 大盘择时状态(降亏toggle后端注入)
     print("-> 加载 hs300 MA60 大盘择时状态 ...", flush=True)
     market_state, market_dates = _load_market_state(conn)
@@ -747,15 +893,17 @@ def compute():
         else:
             ms = True
 
-        # 6 模式回测
+        # 9 模式回测(A-F 固定规则 + G/H/I 信号驱动)
         prices = price_map.get(etf_code, {})
         sdates = sorted_dates_map.get(etf_code, [])
+        sell_signals = sell_timeline.get(iid, [])  # 该指数卖出信号时间线(G/H/I 用)
         any_valid = False
         for mode_key, mode_def in SELL_MODES.items():
             result = _backtest_one(date, prices, sdates, etf_code, be["name"], mode_def["stop_profit"],
                                    iid, sig, be.get("track_tier"), be.get("track_score"),
                                    be.get("match_method"), be.get("track_low_confidence"),
-                                   today=today_str, hold_days=mode_def["hold_days"], market_state=ms, rating=rating)
+                                   today=today_str, hold_days=mode_def["hold_days"], market_state=ms, rating=rating,
+                                   sell_mode=mode_key, sell_signals=sell_signals)
             if result is None:
                 continue  # 数据不足(信号日无价格/未来不足 hold_days 天)
             any_valid = True
@@ -865,7 +1013,7 @@ def main():
     trades_path = args.trades_output or os.path.join(os.path.dirname(output_path), "signal_kelly_trades.json")
 
     print("=" * 60)
-    print("信号凯利回测: 16象限 × 6模式 × 5周期")
+    print("信号凯利回测: 16象限 × 9模式 × 5周期")
     print(f"ROOT = {ROOT}")
     print(f"输出 = {output_path}")
     print(f"交易记录 = {trades_path}")

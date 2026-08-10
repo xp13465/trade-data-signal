@@ -8126,7 +8126,8 @@ function _sigKellyWmPopupHtml(wm) {
   const modeDesc = Object.keys(_sm).map((k) => {
     const d = _sm[k];
     if (!d) return k;
-    return d.stop_profit == null ? `${k}=${d.label}(不止盈)` : `${k}=${d.label}`;
+    // G/H/I 信号驱动模式有 desc, 用 desc 替代"不止盈"标注(它们非止盈类, 是信号触发)
+    return d.desc ? `${k}=${d.label}(${d.desc})` : (d.stop_profit == null ? `${k}=${d.label}(不止盈)` : `${k}=${d.label}`);
   }).join(" · ");
   return (
     `<div class="lab-sigkelly-wm-pop">` +
