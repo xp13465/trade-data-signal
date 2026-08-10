@@ -7585,12 +7585,12 @@ async function renderSigKellyLab() {
     var _aiHtml = '<div class="lab-sigkelly-ai-review">';
     for (var i = 0; i < _aiReviews.length; i++) {
       var r = _aiReviews[i];
-      var content = KELLY_REVIEW_NOTES[r.key] || '';
-      if (!content) continue;
+      let _aiContent = KELLY_REVIEW_NOTES[r.key] || '';
+      if (!_aiContent) continue;
       _aiHtml += '<details class="lab-sigkelly-review">';
       _aiHtml += '<summary class="lab-sigkelly-review-summary">' + r.title +
               ' <span class="lab-sigkelly-review-hint">' + r.hint + '</span></summary>';
-      _aiHtml += '<div class="lab-sigkelly-review-body">' + content + '</div>';
+      _aiHtml += '<div class="lab-sigkelly-review-body">' + _aiContent + '</div>';
       _aiHtml += '</details>';
     }
     _aiHtml += '</div>';
