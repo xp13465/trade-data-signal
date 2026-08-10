@@ -1707,5 +1707,13 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - **降亏4toggle前端✅完成**(c818fddd3 feat,不push main等reviewer)：lab.js加2新toggle(排除3+5月季节性+排除rating=low低评级),data-no-pop+data-tip CSS tooltip。两处filter点(主路径_kellyApplyFeeRecompute L7240/7242+明细路径_renderSigKellyQuadrants L8065/8067)各加2 if,4toggle独立AND叠加默认全关闭=基准。null安全(fIdx.buy_date/rating!=null降级)。state默认对象8处+4checkbox绑定。purpose-notes.js §21算法公示2->4toggle。§9三步(sw a91->a92+lab.min.js?v=1cc6d9f0)。§0验✓L7240/7242(buy_date substring(4,6)∈{03,05}+rating==="low"+null降级)+L7485/7486(2新toggle HTML data-no-pop)+sw a92。
 - **降亏4toggle✅上线main**(c818fddd3,reviewer a6e1510567b759681 PASS 9项+主控curl验上线)：lab.min.js含"排除3+5月"/"排除低评级"+sw.js a92(a91->a92)+index.html?v=1cc6d9f0。两处filter点(_kellyApplyFeeRecompute L7240/7242主路径+_openSigKellyTradesModal L8060明细路径)4toggle独立AND叠加默认全关闭=基准+null安全(buy_date/rating!=null降级)。§0验上线点全OK(push hash在main+curl功能生效层)。
 - **72h监控运行中**：com.trade.monitor-72h launchd(Minute=10/40 每30min),8/13自停。5类覆盖(采集/上传R2/发布/功能稳定/功能及时)。public-fund-full已bootstrap加载✓。
-- **待办串行**：①模拟回测费率5参数✅上线main(0e024896f)。问题3 drawdown Option 3近似标注当前可接受,Option 1前端加载price_map根治独立任务待用户定。②§19会话级总结✅完成(复核PASS 4标准,§18追加过错18 §21算法公示grep+过错19前端重算对齐后端逐字段对比+memory frontend-replay-align-backend)。
-- **main HEAD**：0e024896f(模拟回测费率5参数+降亏4toggle+72h监控+rating后端+hover toggle+tooltip-fix+docs)。feat=main同步。
+- **待办串行**：①模拟回测费率消耗配色改绿色✅上线main(ee15ba93a,sim-fee-cost 3处+#52c41a+sw a96)。②降亏toggle hoverpop+2新标志实施中(aeebb2d11bb5d6fbf,buy_aux+03/05月交叉+buy_special熊市+6toggle hoverpop显示减亏/损盈/比值)。③分时图自愈调研中(a52e4f65fe5c1d52f)。④问题3 drawdown Option 1独立任务待用户定。⑤§19会话级总结✅完成。
+- **main HEAD**：bc773076f(费率消耗显示+模拟回测费率5参数+降亏4toggle+72h监控+rating后端+hover toggle+tooltip-fix+docs)。feat=main同步。
+
+### 会话状态(2026-08-10,凯利v4三梯队✅上线main+UI优化实施中)
+- **双AI对比报告3份✅上线main**(87ce81e13)：docs/kelly-backtest-comparison.md(对比)+comprehensive-review.md(主控)+deepseek-review.md(DeepSeek)三份独立+页面展示区(ff69aaaa6 legend后details折叠,kelly-review-notes.js 93KB)+reviewer PASS(KELLY_REVIEW_NOTES容错)
+- **v4三梯队12新toggle✅上线main**(d227cc1ca,总27toggle)：3 Greedy组合(greedy7/10/15嵌套15⊃10⊃7)+9单标志(v4b/cSimple/d/f/g/i/j/k/m),toggle全前端lab.js filter,后端无改。维度变量_ts3/_etfD3/_q3。§21公示同步(purpose-notes含12toggle+4方法+Greedy嵌套)。sw a103->a104
+- **v4 reviewer PASS**(a5246aabd65ae3444)：12 toggle filter正确+v3无回归+三域名上线(sw a104+"Greedy-7组合")+P0 smoke全正常。1 minor(V4-J tooltip"低价"应"极低价")+3 cosmetic,non-blocking。V4-J tooltip修归入UI优化
+- **UI优化✅上线main**(04929b1fc UI+54955ca5a N5fix,reviewer a41d2e1ba59eac331 PASS 8项):需求1 details移位置(方案B wrapper层,不随重渲染重建)+需求2 purpose-notes拆段(\n\n)+details折叠(只lab.sigkelly不影响其他模块)+toggle按5tier分组+费率行gap6+V4-J/N5 tooltip"极低价"统一vlow口径。reviewer观察N5标签"低价"应"极低价"(V4-J引用n5"极低价"与N5"低价"不一致),主控A级顺手修3处sed(lab.js注释+toggle+purpose-notes)+build+push main。sw a104->a105(UI)->a106(N5)。§0验上线✅:ss.fx8.store+sss.sugas.site sw a106+lab.min.js"5月+极低价"x1
+- **活跃cron**：6d45e0b5(每日23:33)+e7d1803b(周日23:03)+d19d2388(4:07)
+- **main HEAD**：54955ca5a(N5标签极低价)。feat/iframe-theme-follow=main同步
