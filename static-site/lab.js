@@ -7491,12 +7491,14 @@ async function _kellyRunRecompute(host, loadingHtml, onResult, onDone) {
   _kellyRecomputeBusy = true;
   do {
     _kellyRecomputePending = false;
-    host.innerHTML = loadingHtml;
+    // 2026-08-11 交互优化: 不整卡清空(卡片保持挂载, 半透明+顶部细条 loading), 便于对照打勾前后数值
+    host.classList.add("lab-custom-host--loading");
     await _kellyNextPaint();
     var stats = await _kellyApplyFeeRecompute(state.labSigKellyFeeParams);
     onResult(stats);
   } while (_kellyRecomputePending);
   _kellyRecomputeBusy = false;
+  host.classList.remove("lab-custom-host--loading");
   onDone(host);
 }
 
@@ -7651,7 +7653,7 @@ async function _kellyOnFeeChange(presetKey) {
     },
     function () {
       _renderSigKellyBar(bar, state.labSigKellyData, state.labSigKellyPeriod);
-      _renderSigKellyQuadrants(host, state.labSigKellyData, state.labSigKellyPeriod);
+      _updateSigKellyQuadrantsInPlace(host, state.labSigKellyData, state.labSigKellyPeriod);
     }
   );
 }
@@ -7677,7 +7679,7 @@ async function _kellyOnFormChange() {
         state.labSigKellyFeeStats = null;
       }
     },
-    function () { _renderSigKellyQuadrants(host, state.labSigKellyData, state.labSigKellyPeriod); }
+    function () { _updateSigKellyQuadrantsInPlace(host, state.labSigKellyData, state.labSigKellyPeriod); }
   );
 }
 
@@ -7713,7 +7715,7 @@ async function _kellyOnFilterChange() {
         state.labSigKellyFeeStats = null;
       }
     },
-    function () { _renderSigKellyQuadrants(host, state.labSigKellyData, state.labSigKellyPeriod); }
+    function () { _updateSigKellyQuadrantsInPlace(host, state.labSigKellyData, state.labSigKellyPeriod); }
   );
 }
 
@@ -8262,6 +8264,11 @@ function _renderSigKellyQuadrants(host, data, period) {
       `<span class="lab-sigkelly-note">⚠️ 样本量 n<100 统计意义弱,仅供参考,非投资建议。半凯利=凯利比例/2(更保守)。</span>` +
     `</div>`;
   host.innerHTML = html;
+  _bindSigKellyCardEvents(host);
+}
+
+// 绑定卡内事件(行点击弹交易记录modal + 水印hoverpop + 卖出模式说明hoverpop); 整建/就地更新共用
+function _bindSigKellyCardEvents(host) {
   // 交易记录行点击 -> 弹窗
   host.querySelectorAll(".lab-sigkelly-trade-row").forEach((row) => {
     row.onclick = () => {
@@ -8272,6 +8279,21 @@ function _renderSigKellyQuadrants(host, data, period) {
   _bindSigKellyWmPop(host);
   // 卖出模式说明 hoverpop: 悬停/点击"卖出模式说明❓"入口弹 A-F 说明
   _bindSigKellyGuidePop(host);
+}
+
+// 卡片级就地更新(2026-08-11 交互优化): 卡片保持挂载, 仅就地替换变化的卡片DOM, 不触碰 group/grid 容器
+// 用于 toggle/费率变化后的增量刷新; 首次渲染与周期切换仍走 _renderSigKellyQuadrants(整建)
+function _updateSigKellyQuadrantsInPlace(host, data, period) {
+  const quads = data.quadrants || {};
+  const feeStats = state.labSigKellyFeeStats;
+  const cmp = _sigKellyCardComparison(quads, period, feeStats);
+  host.querySelectorAll(".lab-sigkelly-card[data-quad]").forEach((oldEl) => {
+    const qk = oldEl.getAttribute("data-quad");
+    const q = quads[qk];
+    if (!q) return;
+    oldEl.outerHTML = _renderSigKellyCard(qk, q, period, cmp.map[qk] || null);
+  });
+  _bindSigKellyCardEvents(host);
 }
 
 // 绑定水印 hoverpop 事件(桌面 hover / 移动端 tap 切换)
@@ -8663,7 +8685,7 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
     cwmHtml = `<div class="lab-sigkelly-cwm" data-cwm="1">${badges}<div class="lab-sigkelly-wm-pop-wrap lab-sigkelly-cwm-pop-wrap" style="display:none">${_sigKellyCwmPopupHtml(cardCmp)}</div></div>`;
   }
   return (
-    `<div class="lab-sigkelly-card">` +
+    `<div class="lab-sigkelly-card" data-quad="${qk}">` +
       (wm ? `<div class="lab-sigkelly-wm lab-sigkelly-wm-${wm.kind}" data-wm="1"><span class="lab-sigkelly-wm-badge">${wm.text}</span><div class="lab-sigkelly-wm-pop-wrap" style="display:none">${_sigKellyWmPopupHtml(wm)}</div></div>` : ``) +
       `<div class="lab-sigkelly-card-head">` +
         `<div class="lab-sigkelly-card-name"><span>${q.label || qk}</span></div>` +

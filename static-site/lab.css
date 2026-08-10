@@ -1421,6 +1421,8 @@
 
 /* === 信号凯利回测 (sigkelly): 6象限 x 4模式 x 3周期 === */
 .lab-sigkelly-wrap { display: flex; flex-direction: column; gap: 12px; }
+/* 2026-08-11 交互优化: sigkelly host 复用 .lab-custom-host--loading(旧内容半透明+顶部细条), 需 position:relative 作 ::before 定位基准 */
+.lab-sigkelly-host { position: relative; }
 .lab-sigkelly-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; position: sticky; top: calc(var(--tab-h, 41px) + var(--lab-subnav-h, 40px) + var(--lab-subnav-child-h, 40px)); z-index: 43; background: var(--bg-card); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
 .lab-sigkelly-periods { display: flex; gap: 4px; flex-wrap: wrap; }
 .lab-sigkelly-params { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--text-3); align-items: center; }
