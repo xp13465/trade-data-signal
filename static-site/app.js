@@ -4820,6 +4820,11 @@ const KPI_HISTORY_SOURCE = {
 };
 let _kpiDetailCharts = [];
 
+// KPI 卡展开/收起(2026-08-10): 用户展开态跨 re-render 保留(会话级, 默认收起)。
+// PC(≥769px)默认收起只显示1行, 移动(≤768px)默认显示4行; 点"展开全部卡片"显示全部, 再点"收起"收回。
+let _kpiExpanded = false;
+let _kpiApplyCollapse = null;  // 当前活跃 render 的收起应用函数(供全局 resize 跨断点复用)
+
 function _kpiDetailModalEl() {
   let modal = document.getElementById("kpiDetailModal");
   if (modal) return modal;
@@ -9499,7 +9504,14 @@ async function renderOverview() {
     try { localStorage.removeItem("kpiCustomOrder"); } catch (_) {}
     _reorderKpiDom(_kpiDefaultOrderIds());
     _syncKpiResetBtn();
+    if (_applyKpiCollapse) _applyKpiCollapse(); // 排序重置后按当前断点重算可见卡数
   });
+  // KPI 展开/收起按钮 (2026-08-10): 点击逻辑在 cards 入 DOM 后绑定(见 _applyKpiCollapse 定义处)
+  const kpiToggleBtn = document.createElement("button");
+  kpiToggleBtn.className = "kpi-toggle-btn";
+  kpiToggleBtn.type = "button";
+  kpiToggleBtn.textContent = "展开全部卡片";
+  kpiHead.appendChild(kpiToggleBtn);
   kpiHead.appendChild(resetBtn);
   _syncKpiResetBtn();
   content.appendChild(kpiHead);
@@ -9544,10 +9556,60 @@ async function renderOverview() {
       const ids = Array.from(cards.querySelectorAll(".card.kpi[data-kpi-key]")).map(x => x.dataset.kpiKey);
       try { localStorage.setItem("kpiCustomOrder", JSON.stringify(ids)); } catch (_) {}
       _syncKpiResetBtn();
+      if (_applyKpiCollapse) _applyKpiCollapse(); // 拖拽重排后重算裁剪高度
     });
   }
 
   content.appendChild(cards);
+
+  // ---- KPI 卡展开/收起 (2026-08-10): PC 默认1行/移动默认4行, 点"展开全部卡片"显示全部, 再点"收起"收回 ----
+  // 断点与全站一致: matchMedia(max-width:768px)=移动端(4行), 否则 PC(1行)。不破坏自动排序(纯显示层控制)。
+  // 方式: 容器 max-height+overflow:hidden 裁剪超出行(不动单卡 display, echarts sparkline 保持真实尺寸, hover/动画不受影响)。
+  // 折叠态下卡仍参与 flex 布局(getBoundingClientRect.top 是真实布局位置, 裁剪纯视觉), 行边界测量稳定;
+  // 每行卡数只由容器宽+min-width(150px)决定, 裁剪不改变布局。
+  const _kpiCollapsedMaxHeight = () => {
+    const items = Array.from(cards.querySelectorAll(".card.kpi"));
+    if (!items.length) return null;
+    const limitRows = window.matchMedia("(max-width: 768px)").matches ? 4 : 1;
+    const cTop = cards.getBoundingClientRect().top;
+    let rowIdx = 0, lastTop = null;
+    for (const el of items) {
+      const top = el.getBoundingClientRect().top;
+      if (lastTop === null || Math.abs(top - lastTop) > 2) {
+        rowIdx++;
+        lastTop = top;
+        if (rowIdx === limitRows + 1) return top - cTop; // 第 limitRows+1 行首卡上边=可见区底(12px gap 作最后行 shadow 缓冲)
+      }
+    }
+    return null; // 总行数 ≤ limitRows, 无需折叠
+  };
+  const _applyKpiCollapse = () => {
+    const items = Array.from(cards.querySelectorAll(".card.kpi"));
+    if (!items.length) return;
+    const maxH = _kpiCollapsedMaxHeight();
+    const needBtn = maxH != null; // 卡数 ≤ 断点行数阈值时不出按钮
+    kpiToggleBtn.style.display = needBtn ? "" : "none";
+    if (_kpiExpanded || !needBtn) {
+      cards.classList.remove("kpi-collapsed");
+      cards.style.maxHeight = "";
+      kpiToggleBtn.textContent = "收起";
+    } else {
+      cards.classList.add("kpi-collapsed");
+      cards.style.maxHeight = maxH + "px";
+      kpiToggleBtn.textContent = "展开全部卡片";
+    }
+  };
+  kpiToggleBtn.addEventListener("click", () => {
+    _kpiExpanded = !_kpiExpanded;
+    _applyKpiCollapse();
+  });
+  _applyKpiCollapse();
+  // 全局 resize 复用当前 render 的收起逻辑(resize 跨断点: 展开态保持展开, 收起态按当前断点行数)
+  _kpiApplyCollapse = _applyKpiCollapse;
+  if (!window._kpiCollapseResizeBound) {
+    window._kpiCollapseResizeBound = true;
+    window.addEventListener("resize", () => { if (_kpiApplyCollapse) _kpiApplyCollapse(); });
+  }
 
   // 指数 sparkline 网格
   await loadEcharts();   // 方案A: sparkline 改 echarts 需就绪；亦为后续 lineChart(恐贪/A股情绪分)+盘中分时图(renderIntradaySection)就绪

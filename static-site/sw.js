@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260810-a113';  // bump a112->a113: 备用站数据404修复(fetchJSON ./data/ R2兜底 ssd.fx8.store)
+const CACHE_VERSION = 'v6-20260810-a114';  // bump a113->a114: KPI卡区展开/收起切换按钮(PC默认1行/移动默认4行)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
