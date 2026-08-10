@@ -247,6 +247,12 @@ else
     "daily_summary_email 退出码 $_DSE_RC<br>日志: $LOG" --from-prefix "[告警]" || true
 fi
 
+# daily_brief 每日AI预测（第一阶段后端：单 prompt 主链路 + 双配置开关 + 机检回测 + 合规 + 归档）。
+# 入口 run_daily_brief.sh 读 config/daily_brief.yaml schedule_enabled:
+#   false(默认)=拦截不自动跑,主控/用户手动 python3 scripts/gen_daily_brief.py 始终可跑;
+#   true=每天盘后自动跑。失败不阻塞主流程(内部已降级规则版/minimal,不抛错)。
+bash "$REPO/scripts/run_daily_brief.sh" 2>&1 | tee -a "$LOG"
+
 # 每日 DB 热备 + R2 异地备份（update_all 跑完后 DB 已是最新，此时备份最稳）。
 # 失败不影响 update_all 退出码（RC_CORE 保持看板状态）。
 bash "$REPO/scripts/backup_db.sh" || echo "⚠ backup_db 失败(不影响update_all) rc=$?"

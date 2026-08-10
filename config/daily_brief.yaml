@@ -1,0 +1,34 @@
+# daily_brief 每日AI预测 配置(第一阶段,单 prompt 主链路)
+# 用户改此文件即可控制,与代码解耦。生成脚本 scripts/gen_daily_brief.py 读此配置。
+
+# ── 调度开关(用户 2026-08-10 定,默认关闭)──────────────────────────────
+#   false = 不自动跑:update_all 定时入口(run_daily_brief.sh)被拦截,
+#           主控/用户手动 `python3 scripts/gen_daily_brief.py` 始终可跑
+#   true  = 每天自动跑:update_all.sh 17:50 盘后管线自动调用 run_daily_brief.sh
+schedule_enabled: false
+
+# ── 合规开关(默认开启)─────────────────────────────────────────────────
+#   true  = prompt 禁指令词(买入/卖出/加仓/建仓/仓位等黑名单,只允许 关注/警惕/观察/留意)
+#           + 生成后正则脱敏兜底 + 免责声明行(对外安全)
+#   false = 不禁输出更直观(自用)
+compliance_enabled: true
+
+# ── deepseek 调用参数 ─────────────────────────────────────────────────
+model: deepseek-chat          # 默认模型(env DEEPSEEK_MODEL 可覆盖)
+timeout_seconds: 60           # 单次 API 超时
+max_retries: 2                # 超时/5xx/429 重试次数(429 退避 2^n 秒)
+temperature: 0.4              # 生成确定性
+
+# ── 输出 ──────────────────────────────────────────────────────────────
+max_watch_items: 5            # 明日关注标的条数上限
+# 免责声明行(输出 meta.disclaimer + text.note 末尾)。{date} 被替换为预测日期。
+disclaimer: "AI 生成,研究用途,不构成投资建议。基于 {date} 收盘数据,历史命中率不代表未来。"
+
+# ── 成本监控(P2-1)─────────────────────────────────────────────────────
+cost_log: data/daily_brief_cost.log      # 每次调用 token/费用 追加日志(相对 repo 根)
+input_price_per_million: 2.0             # ¥/百万 input tokens(deepseek-chat 参考价)
+output_price_per_million: 8.0            # ¥/百万 output tokens
+monthly_warn_yuan: 20.0                  # 月度累计费用超此阈值 -> notify.py 告警
+
+# ── 月度回顾反思(P2-2,阶段1 骨架:数据采集+偏差注入 prompt)────────────
+review_enabled: true          # 生成时把 history 近30日方向偏差统计注入 prompt 的"已知偏差"字段
