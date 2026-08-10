@@ -1755,6 +1755,7 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - **备站多模块数据异常→全面调研在跑**(a346149a681c80a73,cron 20b188fb,用户 01:30 报:公募基金 tab 暂无数据/指数表现加载失败刷新无用/凯利回测 signal_kelly_backtest.json Failed to fetch/信号实验配对排行加载失败/诸如此类还有很多;用户定:先全面调研异常模块清单+根因再修,修完整+自测+排查同类,不草率说修好):**首个根因已确认=static-site/data 完全移出 git(.gitignore L188-191 全 catch-all,仅 feed.xml 跟踪)后 GitHub Pages 备站 sss.sugas.site 无任何 data JSON**,待验证 R2 覆盖/fallback 链/主站 /data/ 各模块状态码,出完整清单+修复方案(三方向:R2 上传链路/备站数据通道/前端 fallback)
 - **修 bug 三铁律规范落档✅**(96e82e301 in feat,用户定"每个修复bug的核心要修好修完整以及自测完成,不只图快说啥修啥,不调研是否还有其他同类错误"):①修完整(修前全面调研同类错误面,不听用户报 1 个只修 1 个)②自测完成(修完全面自测列清单不草率)③排查同类(同根因/同链路/同通道其他文件自查)。验收:修 bug agent 自验含同类错误面清单+逐项自测,reviewer 查同类覆盖
 - **市场温度情绪分买卖点信号列表已派**(a2b45fbab59a5edc4,cron 6baa446e,用户新需求"先凭经验做出一版我验收后提修改意见"):首页信号列表已过滤盘面问测/市场温度里情绪分买卖点信号,在市场温度"🔥 指数情绪冰点/过热热力图"同位置同高度新增情绪分信号列表,格式参考首页信号格式
+- **备用站 A+B reviewer PASS✅**(ac1ace04f425a8540,862e3a86d):P1 无代码问题,7 项全验(PASS 主站零影响/方案B 逻辑正确/worker ACAO:* 线上生效/§9 三步完整/check_data_integrity 27ok 1warn/§22 兜底改走主站同源一致优于旧 ssd 直链)+**P2 复验通过**(sss.sugas.site GH Pages deploy flapping 已稳定,3 次采样全 8a479c75+a117)。非 P1 观察项留档:①lab.js L7496/L8600 两处 ssd.fx8.store 硬编码直链(signal_kelly_trades.json)未随方案A迁移,备站 modal 走旧 DYNAMIC 慢路径→**交备站全面调研(20b188fb)覆盖** ②主站 ./data/ 真缺失文件 3 次同 URL 请求最坏 45.5s 挂起(罕见失败路径可接受)③兜底 abort 外层 .catch "timeout (15s)" 日志误导+_headers CSP connect-src 残留 ssd(Report-Only 无影响)
 - **main HEAD**：cb5da14c4(邮件白话化)。feat/iframe-theme-follow=main 同步
 
 ### 每日总结(2026-08-10,§19 cron 触发,agent 完成+复核)
