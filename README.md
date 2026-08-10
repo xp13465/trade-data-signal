@@ -13,7 +13,7 @@
 ```
 
 **一句话**：免费数据源 + 情绪指数 + ETF 评分 + 凯利仓位回测 + 数据挖掘降亏过滤 + AI 每日速递，
-一个把「数据采集 → 计算 → 可视化 → 交易信号 → 信号质量挖掘 → AI 解读」全链路打通的开源 A股看板。
+一个把「数据采集 → 计算 → 可视化 → 交易信号 → 信号质量挖掘 → AI 解读 → 自动交易执行」全链路打通的开源 A股看板。
 
 ![market-status](https://img.shields.io/badge/语言-中文-brightgreen)
 ![python](https://img.shields.io/badge/Python-3.11-3776AB)
@@ -34,8 +34,6 @@
 - <https://sss.sugas.site/>（GitHub Pages）
 - <https://s.sugas.site/>（MaoziYun，300MB 总大小限制）
 - <https://ssd.fx8.store/>（R2 CDN，大 JSON 产物）
-
-⚠️ 旧域 `tdsignal-ujpzw01zm.maozi.io` / `s.aisusu.cn` 已撤 DNS 不可达。
 
 ![市场温度看板 · tdsignal](static-site/og.png)
 
@@ -114,10 +112,17 @@
                     │    原生JS + ECharts · Service Worker 版本化缓存     │
                     │        PWA · 4主题 · 分时1min自愈轮询 · 通知        │
                     └─────────────────────────────────────────────────────┘
+                                               │  交易信号（可选接执行）
+                    ┌──────────────────────────▼──────────────────────────┐
+                    │       自动交易执行（可选 · 独立仓库 thsautoorder）    │
+                    │      easytrader 二次开发 · 验证码识别 · API 队列监听  │
+                    │        看板交易信号 → 自动下单（程序化需备案）        │
+                    └─────────────────────────────────────────────────────┘
 ```
 
 **数据流**：多源采集（防单源封禁，互备降并发）→ SQLite 主库（`sentiment.db` / `etf_national_team.db`）→
 指标计算 → 静态 JSON 产物 → R2/CF 分发 → 前端渲染；小文件走 CF，大文件走 R2 直链，`manifest.json + sha256` 全程可校验。
+前端展示的交易信号可接**自动交易执行**（可选，easytrader 二次开发 → [thsautoorder](https://github.com/xp13465/thsautoorder)，独立仓库）。
 
 ---
 
@@ -130,6 +135,7 @@
 | 前端 | 原生 JS + ECharts（分时/恐贪/评分弹窗/信号卡/策略实验室）+ Service Worker + PWA，`build_min.py` 压缩 + 版本号破缓存 |
 | 存储 | Cloudflare Workers（主站）+ R2 对象存储（全量品种/大 range 历史序列）+ GitHub Pages / MaoziYun（备站） |
 | AI | DeepSeek（每日速递白话生成 + 邮件白话化） |
+| 交易执行 | easytrader 二次开发 → [thsautoorder](https://github.com/xp13465/thsautoorder)（独立仓库）：验证码识别 / API 接口队列监听 / 可用性提升 |
 | 调度 | macOS launchd：17:50 主采集并行流水线 / 盘中每 10min intraday 快照 / 盘后 export+deploy / futures/lhb/rzhb/etf-national-team/backfill/lab-auto/schedule-monitor |
 | 部署 | GH Actions deploy-cf.yml + wrangler deploy（加速 20min→1-2min），push main 自动上线 |
 
@@ -151,7 +157,7 @@
 
 | 方法 | 致敬来源 | 本项目用在哪 |
 |---|---|---|
-| **子群发现 Subgroup Discovery** | Lavrac/Flach/Kavsek《Adapting classification rule induction to subgroup discovery》(2002)；Atzmueller (2015) 综述；pysubgroup WRAccQF | v3 找高纯度"亏损显著过代表"子群，支撑"比值>2 高纯度子群"路线 |
+| **子群发现 Subgroup Discovery** | Lavrac/Flach/Kavsek《Adapting classification rule induction to subgroup discovery》(2002)；Atzmueller (2015) 综述；[pysubgroup](https://github.com/flemmerich/pysubgroup) WRAccQF | v3 找高纯度"亏损显著过代表"子群，支撑"比值>2 高纯度子群"路线 |
 | **决策树 CART** | Breiman et al. (1984)；手写多路分裂（非 sklearn） | v3 路径提取 = 规则，路径亏损率 = 规则纯度 |
 | **Beam Search** | 子群发现精炼启发式 (Valmarska/Lavrač/Fürnkranz 2017) | v3 子群候选搜索（depth4 beam30） |
 | **对比集挖掘 Contrast Set Mining** | Webb et al.; growth rate = supp_loss/supp_gain | v4 找"亏损组显著过代表"条件集（1-4 itemset 主路线） |
@@ -174,7 +180,7 @@
 
 **用途**：本项目用**多 agent 分工做开发协作**——调研 agent（只读定位根因）→ 实施 agent（写码）→
 reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent，配 cron 兜底轮询 + 进度文件回写，
-借鉴 **traderagent 风格的多智能体团队模式**（分析师/研究员/交易员/风控分工协作）来组织工程流水线：
+借鉴 **traderagent 风格的多智能体团队模式**（[原版 tradingagents](https://github.com/tauricresearch/tradingagents) / [中文改版 TradingAgents-CN](https://github.com/hsliuping/TradingAgents-CN)，分析师/研究员/交易员/风控分工协作）来组织工程流水线：
 - 数据产品线：采集 agent（多源互备）→ 计算 agent → 上线 agent（deploy 三站验证）
 - 开发质量线：实施 → reviewer（独立 review 防改坏老功能）→ 主控逐字验收
 - 复盘线：总结 agent（过错/经验沉淀）→ 复核 agent（独立复核防总结跑偏）
@@ -183,8 +189,16 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 
 ### 🧠 AI 预测与解读（DeepSeek）
 
-**用途**：`每日速递` 邮件 —— 收盘后由 DeepSeek 生成 **daily_brief 白话解读**（情绪拐点 + 信号汇总 + 合规 gating），
+**用途**：`每日速递` 邮件 —— 收盘后由 [DeepSeek](https://platform.deepseek.com/) 生成 **daily_brief 白话解读**（情绪拐点 + 信号汇总 + 合规 gating），
 邮件正文对 **期货风向 / 公募基金** 做白话化改写，让"机器算出来的数字"变成"人读得懂的话"。
+
+### 🔁 自动交易执行（easytrader → thsautoorder）
+
+**用途**：把看板交易信号接上真实下单执行（**可选独立模块**，不进主站点运行链路）。基于开源库
+[easytrader](https://github.com/shidenggui/easytrader)（MIT，模拟操作同花顺等客户端 + miniQMT 官方接口模式）做二次开发，
+产出独立仓库 [thsautoorder](https://github.com/xp13465/thsautoorder) 独立迭代。二次开发点：**验证码识别**（登录稳定性）、
+**API 接口队列监听**（看板信号 → 下单指令）、**可用性提升**（客户端版本变化自愈）。
+> ⚠️ 合规：程序化交易（含低频）须备案，未备案即交易 = 违规（详见 NOTES.md 调研）。本看板只出信号不自动下单，自动执行模块独立可选。
 
 ### 📚 公开数据源致谢
 
@@ -195,6 +209,7 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 | [mootdx](https://github.com/mootdx/mootdx) | 全 A 股 TCP 日线（历史 10 年回溯） | 开源库 |
 | [BaoStock](https://github.com/baostock) | 指数/日线校验与补采（8/10 指数 + kc50 兜底） | 开源库 |
 | [akshare](https://github.com/akfamily/akshare) | 东财/新浪/腾讯行情统一接口 | 开源库 |
+| [a-stock-data](https://github.com/simonlin1212/a-stock-data) | 策略实验室回测信号生成（`scripts/lab/*.py` runtime import `gen_buy_signals` / `gen_sell_signals`）+ 采集层东财防封 / 腾讯行情实现参考其 SKILL.md | 开源仓库（代码复用） |
 | 腾讯行情 / 东财 push2 | 盘中分时批量实时 + 主力资金 | 公开接口 |
 | 同花顺 | 概念板块/行情批量 | 公开接口 |
 | 申万宏源 / 中证指数公司 | 行业分类与指数行情 | 公开数据 |
