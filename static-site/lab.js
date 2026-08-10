@@ -7238,9 +7238,11 @@ function _kellyBuildTradeDims(td, fIdx) {
   }
   return dims;
 }
-// 降亏过滤默认state(15 toggle, 默认全false=基准)
+// 降亏过滤默认state(17 toggle, 默认全false=基准)
 function _kellyDefaultFilters() {
   return {
+    // round3新候选(11月系, 2026-08-10 verify验证: A45 5.75>A5 5.49)
+    a5NovMidSpecial: false, a45NovMidLateSpecial: false,
     // v3新标志(比值>3, 按比值倒序: 10.06>6.63>5.87>5.24>4.67>4.18>4.02>3.35>3.31)
     n1MarTueHigh: false, n2NovSpecialIndustry: false, r8PureNonMay: false,
     n3NovSpecialMon: false, n4AMay: false, r7MayReinforced: false,
@@ -7298,6 +7300,7 @@ function _kellySameTradeArray(a, b) {
 function _kellyTradeFeatures(t, fIdx, _tradeDims) {
   var bd = String(t[fIdx.buy_date] || "");
   var mm = bd.substring(4, 6);
+  var dd = parseInt(bd.substring(6, 8), 10) || 0; // 日(round3 A5/A45 11月中旬/中下旬范围)
   var sig = fIdx.signal != null ? String(t[fIdx.signal] || "") : "";
   var wd = _kellyBuyWeekday(bd);
   var bpb = fIdx.buy_price != null ? _kellyBuypriceBin(t[fIdx.buy_price]) : "";
@@ -7310,12 +7313,14 @@ function _kellyTradeFeatures(t, fIdx, _tradeDims) {
   var ts = fIdx.track_score != null ? Number(t[fIdx.track_score]) : 999;
   var etfD = fIdx.track_tier != null ? String(t[fIdx.track_tier] || "") : "";
   var q = mm ? Math.ceil(parseInt(mm, 10) / 3) : 0;
-  return { mm: mm, sig: sig, wd: wd, bpb: bpb, mktD: mktD, ratD: ratD, ts: ts, etfD: etfD, q: q };
+  return { mm: mm, dd: dd, sig: sig, wd: wd, bpb: bpb, mktD: mktD, ratD: ratD, ts: ts, etfD: etfD, q: q };
 }
 
 // 月门控: 每个v3/v4谓词都有月或季度约束(逐条核对), 该trade月份不可能匹配任何活跃toggle则直接通过,
 // 跳过昂贵的weekday/quintile/维度特征计算(单toggle点击如n1MarTueHigh只匹配03月, 11/12交易直接跳过)
 var _kellyMonthMask = {
+  a5NovMidSpecial: 1 << 10,                         // 11
+  a45NovMidLateSpecial: 1 << 10,                    // 11
   n1MarTueHigh: 1 << 2,                             // 03
   n2NovSpecialIndustry: 1 << 10,                    // 11
   r8PureNonMay: (1 << 2) | (1 << 10),               // 03,11
@@ -7361,7 +7366,9 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
   var _v3On = filters.n1MarTueHigh || filters.n2NovSpecialIndustry || filters.r8PureNonMay || filters.n3NovSpecialMon || filters.n4AMay || filters.r7MayReinforced || filters.n5MayVlow || filters.n6MidMay || filters.r10May6NonMay;
   // v4新12 toggle(三梯队全量上线)
   var _v4On = filters.greedy7 || filters.greedy10 || filters.greedy15 || filters.v4cSimple || filters.v4b || filters.v4d || filters.v4j || filters.v4i || filters.v4f || filters.v4g || filters.v4m || filters.v4k;
-  if (_v3On || _v4On) {
+  // round3新2 toggle(11月系, 2026-08-10 verify验证: A45 5.75 / A5 5.49)
+  var _r3On = filters.a5NovMidSpecial || filters.a45NovMidLateSpecial;
+  if (_v3On || _v4On || _r3On) {
     // 月门控: 该trade月份不在任何活跃toggle的月集合内 => 不可能命中任何谓词, 直接通过(跳过昂贵特征)
     if (monthMask) {
       var _mmG = (t[fIdx.buy_date] || "").substring(4, 6);
@@ -7371,7 +7378,7 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
     // ② 特征惰性预计算缓存: 每个trade的weekday/quintile/维度key只算一次, 后续O(1)查表
     var feats = featCache.get(t);
     if (!feats) { feats = _kellyTradeFeatures(t, fIdx, _tradeDims); featCache.set(t, feats); }
-    var _mm3 = feats.mm, _sig3 = feats.sig, _wd3 = feats.wd, _bpb3 = feats.bpb;
+    var _mm3 = feats.mm, _dd3 = feats.dd, _sig3 = feats.sig, _wd3 = feats.wd, _bpb3 = feats.bpb;
     var _mktD3 = feats.mktD, _ratD3 = feats.ratD, _ts3 = feats.ts, _etfD3 = feats.etfD, _q3 = feats.q;
     // v3新9 toggle
     if (_v3On) {
@@ -7458,6 +7465,13 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
         (_mm3 === "01" && _bpb3 === "low" && _sig3 === "buy_special" && _mktD3 === "concept") ||
         (_sig3 === "buy_special" && _mm3 === "09" && _wd3 === 2)
       )) return false;
+    }
+    // === round3 新候选(11月系, 2026-08-10 verify验证) ===
+    if (_r3On) {
+      // A5: 11月中旬(11-20日)+追关注(buy_special), 比值5.49, 最稳(2016-2025连续有交易无空窗)
+      if (filters.a5NovMidSpecial && _sig3 === "buy_special" && _mm3 === "11" && _dd3 >= 11 && _dd3 <= 20) return false;
+      // A45: 11月中旬+下旬(11日及以后)+追关注(buy_special), 比值5.75, 净影响最大(+49.9万)
+      if (filters.a45NovMidLateSpecial && _sig3 === "buy_special" && _mm3 === "11" && _dd3 >= 11) return false;
     }
   }
   return true;
@@ -7867,10 +7881,14 @@ function _renderSigKellyBar(bar, data, period) {
       `<label>过户费:万分之<input type="number" class="lab-input lab-sigkelly-fee-input-transfer" value="${transferVal}" step="0.01" min="0" style="width:42px">(沪)</label>` +
       `<label>印花税:万分之<input type="number" class="lab-input lab-sigkelly-fee-input-stamp" value="${stampVal}" step="0.01" min="0" style="width:42px">(卖)</label>` +
     `</div>`;
-  // 降亏过滤toggle(15个独立checkbox可组合, 开启后过滤交易集重算所有指标, 按比值倒序)
+  // 降亏过滤toggle(17个独立checkbox可组合, 开启后过滤交易集重算所有指标, 按比值倒序)
   const _filters = state.labSigKellyFilters || _kellyDefaultFilters();
   const toggleHTML = `<div class="lab-sigkelly-toggle-row">` +
       `<span class="lab-sigkelly-toggle-label">降亏过滤:</span>` +
+      `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">round3 11月系(2026-08-10验证)</span>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="A45(11月中旬+下旬+追关注): 排除11日及以后(buy_date日≥11)的buy_special追关注交易。减亏5.54%/损盈0.96%/比值5.75。净增收+49.9万元(全场候选最大)。覆盖11月80%的special交易。叠加现有4 toggle之上边际+10.7万(比值7.87)。⚠含11月下旬(2024+零交易,近年贡献主要来自中旬)。"><input type="checkbox" class="lab-sigkelly-toggle-a45"${_filters.a45NovMidLateSpecial ? " checked" : ""}> A45 11月中下旬+追关注(5.75) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="A5(11月中旬+追关注): 排除11日-20日(中旬)的buy_special追关注交易。减亏3.62%/损盈0.66%/比值5.49。净增收+31.9万元。最稳候选:2016-2025连续有交易无空窗,4窗口(y2/y3/y5/y10)全>2。叠加现有4 toggle之上边际+7.7万(比值6.45)。注意:A5为A45(11月中下旬)的子集,同时开启A45时A5不再新增过滤。"><input type="checkbox" class="lab-sigkelly-toggle-a5"${_filters.a5NovMidSpecial ? " checked" : ""}> A5 11月中旬+追关注(5.49) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `</div>` +
       `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">比值&gt;3(高性价比)</span>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除3月+周三+高价ETF的交易。减亏0.89%/损盈0.09%/比值10.06(全场最高)。净增收+5.85万元。7/7年全亏(2017-2026)，无单年主导，稳定性最强单标志。"><input type="checkbox" class="lab-sigkelly-toggle-n1"${_filters.n1MarTueHigh ? " checked" : ""}> 3月+周三+高价(10.06) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除11月+追关注+行业指数的交易。减亏1.10%/损盈0.17%/比值6.63。净增收+6.72万元。7/9年亏，近年(2023/2025)大亏回归。年末追涨在行业轮动中被套。"><input type="checkbox" class="lab-sigkelly-toggle-n2"${_filters.n2NovSpecialIndustry ? " checked" : ""}> 11月+追关注+行业(6.63) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
@@ -7937,7 +7955,7 @@ function _renderSigKellyBar(bar, data, period) {
   bar.querySelectorAll(".lab-sigkelly-fee-custom input").forEach((inp) => {
     inp.onchange = () => { _kellyOnFormChange(); };
   });
-  // 降亏过滤toggle: 15个独立checkbox(CSS class选择器,功能与顺序解耦), 切换后过滤交易集重算(按比值倒序)
+  // 降亏过滤toggle: 17个独立checkbox(CSS class选择器,功能与顺序解耦), 切换后过滤交易集重算(按比值倒序)
   // v3新9 toggle(比值>3)
   var n1Cb = bar.querySelector(".lab-sigkelly-toggle-n1");
   if (n1Cb) n1Cb.onchange = function () {
@@ -8108,6 +8126,19 @@ function _renderSigKellyBar(bar, data, period) {
   if (ratingCb) ratingCb.onchange = function () {
     if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
     state.labSigKellyFilters.excludeRatingLow = ratingCb.checked;
+    _kellyOnFilterChange();
+  };
+  // round3新候选(11月系): A5 11月中旬+追关注 / A45 11月中下旬+追关注
+  var a5Cb = bar.querySelector(".lab-sigkelly-toggle-a5");
+  if (a5Cb) a5Cb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.a5NovMidSpecial = a5Cb.checked;
+    _kellyOnFilterChange();
+  };
+  var a45Cb = bar.querySelector(".lab-sigkelly-toggle-a45");
+  if (a45Cb) a45Cb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.a45NovMidLateSpecial = a45Cb.checked;
     _kellyOnFilterChange();
   };
 }
@@ -8642,6 +8673,14 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
     if (_filters.excludeAuxCross && _fIdx.signal != null && (t[_fIdx.signal] || "") === "buy_aux" && _fIdx.buy_date != null) { var _mm3 = (t[_fIdx.buy_date] || "").substring(4, 6); if (_mm3 === "03" || _mm3 === "05") return false; }
     // 排除buy_special追关注+MA60熊市(追涨信号在熊市是雷区, 比值2.31)
     if (_filters.excludeSpecialBear && _fIdx.signal != null && (t[_fIdx.signal] || "") === "buy_special" && _fIdx.market_state != null && t[_fIdx.market_state] === false) return false;
+    // round3新候选(11月系, 2026-08-10 verify验证): A5 11月中旬+追关注 / A45 11月中下旬+追关注
+    if ((_filters.a5NovMidSpecial || _filters.a45NovMidLateSpecial) && _fIdx.signal != null && (t[_fIdx.signal] || "") === "buy_special" && _fIdx.buy_date != null) {
+      var _bdR3 = String(t[_fIdx.buy_date] || "");
+      var _mmR3 = _bdR3.substring(4, 6);
+      var _ddR3 = parseInt(_bdR3.substring(6, 8), 10) || 0;
+      if (_mmR3 === "11" && _filters.a5NovMidSpecial && _ddR3 >= 11 && _ddR3 <= 20) return false;
+      if (_mmR3 === "11" && _filters.a45NovMidLateSpecial && _ddR3 >= 11) return false;
+    }
     // v3新9 toggle(比值>3, 按比值倒序)
     var _v3On2 = _filters.n1MarTueHigh || _filters.n2NovSpecialIndustry || _filters.r8PureNonMay || _filters.n3NovSpecialMon || _filters.n4AMay || _filters.r7MayReinforced || _filters.n5MayVlow || _filters.n6MidMay || _filters.r10May6NonMay;
     if (_v3On2) {
