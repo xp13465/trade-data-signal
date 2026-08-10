@@ -889,7 +889,7 @@ main { padding: 16px 24px; }
 .sig-day-row.today-row { background: #fff4ec; border-radius: 6px; }
 .sig-day-row.today-row .sig-day-date { color: #e6492e; font-weight: 600; }
 /* 市场温度顶行：热力图 + 情绪分买卖点信号列表 同排同高（flex stretch 自动等高） */
-.sentiment-heat-row { display: flex; gap: 12px; align-items: stretch; }
+.sentiment-heat-row { display: flex; gap: 12px; align-items: stretch; margin-bottom: 16px; }
 .sentiment-heat-row .chart-card { flex: 1 1 0; min-width: 0; margin-bottom: 0; }
 .sentiment-heat-row .chart-card:first-child { flex: 1.4 1 0; } /* 热力图略宽 */
 .sentiment-siglist-card { display: flex; flex-direction: column; }
