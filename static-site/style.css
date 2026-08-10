@@ -1349,7 +1349,8 @@ main { padding: 16px 24px; }
 .kpi-reset-btn { font-size: 12px; color: var(--text-3); background: none; border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
 .kpi-reset-btn:hover { color: var(--primary); border-color: var(--primary); }
 /* KPI 展开/收起按钮(2026-08-11): 移至折叠临界位置(卡区末尾), 参照 A股"更多指标"按钮全宽虚线样式; 显隐由 JS 显式 display 控制 */
-.kpi-more-toggle { display: none; width: 100%; padding: 8px; margin-top: 8px; border: 1px dashed var(--border-strong); border-radius: 6px; background: var(--bg-hover); color: var(--text-3); cursor: pointer; font-size: 13px; }
+/* margin-top:8px 贴紧 KPI 卡区底部 + margin-bottom:14px 拉开下方内容距离, 避免按钮视觉上"挂在下面区块" */
+.kpi-more-toggle { display: none; width: 100%; padding: 8px; margin-top: 8px; margin-bottom: 14px; border: 1px dashed var(--border-strong); border-radius: 6px; background: var(--bg-hover); color: var(--text-3); cursor: pointer; font-size: 13px; }
 .kpi-more-toggle:hover { color: var(--text-1); border-color: var(--primary); background: var(--bg-active); }
 /* 收起态裁剪超出行(容器 max-height+overflow:hidden, 不动单卡 display, echarts sparkline 保持真实尺寸) */
 .cards.kpi-row.kpi-collapsed { overflow: hidden; }
