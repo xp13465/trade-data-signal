@@ -1,0 +1,3 @@
+[submodule "easytrader_deploy"]
+	path = easytrader_deploy
+	url = https://github.com/xp13465/thsautoorder.git

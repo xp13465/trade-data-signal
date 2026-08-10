@@ -199,6 +199,7 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 [easytrader](https://github.com/shidenggui/easytrader)（MIT，模拟操作同花顺等客户端 + miniQMT 官方接口模式）做二次开发，
 产出独立仓库 [thsautoorder](https://github.com/xp13465/thsautoorder) 独立迭代。二次开发点：**验证码识别**（登录稳定性）、
 **API 接口队列监听**（看板信号 → 下单指令）、**可用性提升**（客户端版本变化自愈）。
+> 📦 本仓库以 **git submodule** 方式关联 thsautoorder：`easytrader_deploy/` 目录 = submodule，指向 `https://github.com/xp13465/thsautoorder`（自动跟随新仓库迭代）。**git clone 本项目需加 `--recurse-submodules`** 才会拉取该子模块；已 clone 的项目用 `git submodule update --init` 补拉。
 > ⚠️ 合规：程序化交易（含低频）须备案，未备案即交易 = 违规（详见 NOTES.md 调研）。本看板只出信号不自动下单，自动执行模块独立可选。
 
 ### 📚 公开数据源致谢
