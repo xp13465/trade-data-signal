@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """check_data_integrity.py - 数据产物校验脚本
 
-校验 static-site/data/ + data/ 下的关键 JSON 产物，拦截 4 类线上事故：
+校验 static-site/data/ + data/ 下的关键 JSON 产物 + 主库关键指标行，拦截线上事故：
 1. board_etf_map 空数组占比过高（"全部无 ETF"事故，etf_index_map.json 丢失致 broad 指数全空）
 2. boot.json 嵌的 overview.date 与 overview.json.date 不一致（"成交额显示昨日值"事故）
 3. intraday_snapshot amount_forecast 异常爆炸（"9.52 万亿/15 万亿"事故）
 4. 关键文件不存在（etf_index_map.json 丢了 / boot.json 丢了 等）
+5. a_fund_north_quarterly 最新季度行存在（CCASS 季度闸门/采集异常致指标缺失/滞后时静默）
 
 用法:
   python scripts/check_data_integrity.py                     # 全量校验
@@ -28,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -618,6 +620,86 @@ def check_etf_since_return(data_dir: Path) -> CheckResult:
     return _ok(name, f"非 null 占比 {ratio:.1%} ({nonnull}/{total})")
 
 
+def _find_sentiment_db() -> Path | None:
+    """定位主库 sentiment.db（daily_metric 写入端同库）。
+
+    优先 trade-data/data/sentiment.db（launchd 写端 cwd=REPO=trade-data，最新主库），
+    回退 trade/data/sentiment.db（镜像）。找不到返回 None。
+    """
+    for c in (
+        Path("/Users/linhuichen/code/trade-data/data/sentiment.db"),
+        Path("/Users/linhuichen/code/trade/data/sentiment.db"),
+    ):
+        if c.exists():
+            return c
+    return None
+
+
+def _latest_published_quarter_end(today: datetime) -> datetime | None:
+    """返回最近已发布的季度末（季度末 + 20 天 <= 今天），与 hkex_ccass_quarterly._quarter_end_dates 同口径。
+
+    发布规则：CCASS 季度末后约 20 天才发布（实测 6/30 数据 7/15 发布）。
+    """
+    y, m = today.year, today.month
+    for _ in range(8):
+        if m <= 3:
+            qe = datetime(y - 1, 12, 31)
+        elif m <= 6:
+            qe = datetime(y, 3, 31)
+        elif m <= 9:
+            qe = datetime(y, 6, 30)
+        else:
+            qe = datetime(y, 9, 30)
+        if qe + timedelta(days=20) <= today:
+            return qe
+        if m <= 3:
+            y, m = y - 1, 12
+        elif m <= 6:
+            y, m = y, 3
+        elif m <= 9:
+            y, m = y, 6
+        else:
+            y, m = y, 9
+    return None
+
+
+def check_a_fund_north_quarterly() -> CheckResult:
+    """校验主库 daily_metric 的 a_fund_north_quarterly 最新季度行存在。
+
+    事故场景：季度闸门/采集异常（CCASS 爬取失败/写穿缓存被杀）致指标缺失或冻结时静默——
+    前端北向季度指标卡显示旧值/空。期望最新行 date = 最近已发布季度末（季度末+20 天 < 今天），
+    缺失或滞后 = FAIL（闸门每天 16:35/21:00 跳过、02:00 强制重算，正常应始终有当季行）。
+    """
+    name = "a_fund_north_quarterly"
+    db = _find_sentiment_db()
+    if db is None:
+        return _warn(name, "sentiment.db 未找到，无法校验 a_fund_north_quarterly")
+    try:
+        conn = sqlite3.connect(str(db), timeout=5.0)
+        row = conn.execute(
+            "SELECT date, value FROM daily_metric "
+            "WHERE metric_id='a_fund_north_quarterly' AND value IS NOT NULL "
+            "ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+    except Exception as e:
+        return _fail(name, f"读 sentiment.db 失败: {e}")
+
+    expected = _latest_published_quarter_end(datetime.now())
+    if expected is None:
+        return _warn(name, "无法确定最近已发布季度末")
+    expected_str = expected.strftime("%Y%m%d")
+
+    if not row:
+        return _fail(name, f"daily_metric 无 a_fund_north_quarterly 非空行"
+                     f"（季度采集异常/闸门冻结，应至少存在最近已发布季度末 {expected_str}）")
+    rdate, rval = row
+    if rdate == expected_str:
+        return _ok(name, f"最新季度行存在 date={rdate} value={rval:.2f} 亿")
+    return _fail(name, f"最新季度行 date={rdate} != 期望 {expected_str}"
+                 f"（季度闸门/采集异常致指标滞后，应 02:00 强制重算补回）")
+
+
 def check_track_score_consistency(data_dir: Path, repo_data_dir: Path) -> CheckResult:
     """校验 track_score 三版本一致性：board_etf_map vs overview signal vs index detail。
 
@@ -734,10 +816,10 @@ def check_key_files(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
 # ── 全量校验编排 ──────────────────────────────────────────────────────────────
 
 def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
-    """运行全部 14 个校验函数 + 关键文件存在性校验。"""
+    """运行全部 15 个校验函数 + 关键文件存在性校验。"""
     results = []
 
-    # 14 个校验函数
+    # 15 个校验函数
     results.append(check_board_etf_map(repo_data_dir))
     results.append(check_overview(data_dir))
     results.append(check_boot(data_dir))
@@ -753,6 +835,7 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     results.append(check_trade_sim_indices(data_dir))
     results.append(check_etf_since_return(data_dir))
     results.append(check_track_score_consistency(data_dir, repo_data_dir))
+    results.append(check_a_fund_north_quarterly())
 
     # 关键文件存在性
     results.extend(check_key_files(data_dir, repo_data_dir))

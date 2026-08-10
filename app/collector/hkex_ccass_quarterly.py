@@ -17,6 +17,7 @@
 """
 import datetime as _dt
 import json
+import os
 import re as _re
 import time as _time
 
@@ -34,6 +35,17 @@ _QUARTER_END_MONTHS = [(3, 31), (6, 30), (9, 30), (12, 31)]
 
 # 收盘价缓存库：mootdx_daily_raw / baostock_daily_raw（本模块只读 + 写 baostock_daily_raw 写穿缓存）
 _STOCK_DB_PATH = "/Users/linhuichen/code/trade-data/data/stock_daily.db"
+
+# 写穿缓存分批大小：每取到 N 只批量 ON CONFLICT 写一次 baostock_daily_raw。
+# 硬时限(alarm)中途被杀也缓存了已取部分，下槽续用（自我修复），
+# 避免"全量 ~4000 只循环结束后才写 1 次、被杀 = 0 只缓存"的指标停更回归。
+_WRITE_BACK_BATCH = 200
+
+# 硬时限(重算路径 SIGALRM)时长，按槽位区分：
+# - 02:00 槽：3600s（1h）。该槽强制重算，慢网络 ~35-58min 能跑完（兑现"兜底补跑"语义）
+# - 16:35/21:00 槽 + update_all(17:50) 等：600s（10min）。季度闸门命中即跳过，防慢/挂卡死
+_ALARM_RECOMPUTE = 3600
+_ALARM_GATE = 600
 
 # 数据行解析正则（预编译提速）
 _CCASS_ROW_RE = _re.compile(
@@ -154,6 +166,9 @@ def _write_back_baostock_prices(prices, date_ymd):
     INSERT ... ON CONFLICT DO UPDATE 幂等：重复写同 code+date 只更新 close，
     不会重复插入也不覆盖其他已有字段。
     写失败不影响主流程（prices 已在内存，CCASS 反算继续用）。
+
+    调用方（_fetch_close_prices_baostock）每 _WRITE_BACK_BATCH 只调一次（分批写回）：
+    alarm 中途被杀也缓存了已取部分，下槽续用。
     """
     if not prices:
         return
@@ -187,8 +202,9 @@ def _fetch_close_prices_baostock(a_codes, date_str):
     （晚间延迟放大 0.5-0.9s/只 × 4000 只 ≈ 35-58min 已接近 launchd ExitTimeOut 7200s，
     baostock 全挂时 75s+ × 4000 更会超时被 SIGTERM 丢数据）。函数开头设全局 socket
     默认超时 15s（覆盖 login + 每只 query），finally 恢复原值不影响其他模块。
-    写穿缓存（方案①）：取到的历史收盘价写回 stock_daily.db 的 baostock_daily_raw
+    写穿缓存（方案①）：取到的历史收盘价分批写回 stock_daily.db 的 baostock_daily_raw
     对应行（date=该季末日），首轮慢、次轮 _fetch_close_prices_db 本地命中变秒级。
+    分批（每 _WRITE_BACK_BATCH 只）写：硬时限被杀也缓存已取部分，下槽续用（自我修复）。
     """
     import socket
     import baostock as bs
@@ -206,9 +222,11 @@ def _fetch_close_prices_baostock(a_codes, date_str):
 
         # 日期格式转换
         d_iso = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}" if len(date_str) == 8 else date_str
+        _db_date = d_iso.replace("-", "")
 
         prices = {}
-        for code in a_codes:
+        pending = {}  # 本批待写穿缓存 {code: close}
+        for i, code in enumerate(a_codes, start=1):
             # A 股代码转 baostock 代码（sh.6XXXXX / sz.0XXXXX / sz.3XXXXX）
             if code.startswith(("6", "9")):
                 bs_code = f"sh.{code}"
@@ -227,15 +245,23 @@ def _fetch_close_prices_baostock(a_codes, date_str):
                         row = rs.get_row_data()
                         if row and len(row) >= 2 and row[1]:
                             try:
-                                prices[code] = float(row[1])
+                                close = float(row[1])
+                                prices[code] = close
+                                pending[code] = close
                                 break
                             except ValueError:
                                 continue
             except Exception:
                 continue  # 单只失败跳过
+            # 写穿缓存分批写回：每 _WRITE_BACK_BATCH 只写一次，alarm 中途被杀也缓存已取部分
+            # （下槽续用，自我修复），避免"全量循环结束后才写 1 次、被杀=0 只缓存"的停更回归
+            if pending and i % _WRITE_BACK_BATCH == 0:
+                _write_back_baostock_prices(pending, _db_date)
+                pending = {}
 
-        # 写穿缓存：取到的历史收盘价写回 baostock_daily_raw（首轮慢、次轮本地命中秒级）
-        _write_back_baostock_prices(prices, d_iso.replace("-", ""))
+        # 尾部不足一批的写回
+        if pending:
+            _write_back_baostock_prices(pending, _db_date)
 
         return prices
     finally:
@@ -287,7 +313,27 @@ def _fetch_close_prices_db(a_codes, date_str):
 
 def _hard_timeout_handler(signum, frame):  # noqa: ARG001
     """SIGALRM 硬时限处理器：超时抛 TimeoutError，调用方捕获后跳过本槽。"""
-    raise TimeoutError("a_fund_north_quarterly 硬时限超时(10min)，跳过本槽")
+    raise TimeoutError("a_fund_north_quarterly 硬时限超时，跳过本槽")
+
+
+def _current_slot():
+    """返回当前槽位标识，用于区分 02:00 强制重算槽与 16:35/21:00 闸门槽。
+
+    优先读 backfill_metrics.sh 注入的 BACKFILL_SLOT（按 launchd 当前时刻写入，精确）；
+    无注入时（update_all 17:50 / 手动跑）按当前小时推断。
+    返回 '0200' / '1635' / '2100' / 'other'。
+    """
+    slot = os.environ.get("BACKFILL_SLOT", "").strip()
+    if slot:
+        return slot
+    h = _dt.datetime.now().hour
+    if h == 2:
+        return "0200"
+    if h == 16:
+        return "1635"
+    if h == 21:
+        return "2100"
+    return "other"
 
 
 def _latest_quarter_value(q_curr):
@@ -326,32 +372,41 @@ def fetch_north_fund_ccass_quarterly(n_quarters=2):
     默认 n_quarters=2（只算最新季度 Q2 vs Q1），baostock 拿价 ~4000 只 * 0.1s ≈ 7 分钟。
     若需更多历史对比，调大 n_quarters（每增 1 个对比 +7 分钟）。
 
-    季度闸门（主修，2026-08-10）：a_fund_north_quarterly 只在"季度末+20 天新季度发布"时
-    才变，DB 已有最新季度行 → 直接返回，跳过重爬 CCASS + baostock 逐只取价。每日
-    02:00/16:35/21:00 三槽 + update_all 17:50 全省掉 7-35min 尾部（update_all 8/10 同指标
-    33min 超 1800s 告警根因，本闸门对 backfill-evening 与 update_all 两任务都生效）。
-    硬时限保险：重算路径加 ~10min SIGALRM 上限，超时跳过本槽（返回已算结果/空，
-    16:35/21:00 槽跳过后由 02:00 槽 7200s ExitTimeOut 兜底补跑，防 baostock 慢/挂时
-    4000 只 × 单只耗时超 ExitTimeOut 被 SIGTERM 丢数据）。
+    季度闸门 + 按槽位硬时限（主修，2026-08-10，reviewer FAIL 整改）：
+    - 16:35/21:00 槽（+ update_all 17:50）：季度闸门生效——a_fund_north_quarterly 只在
+      "季度末+20 天新季度发布"时才变，DB 已有最新季度行 → 直接返回，跳过重爬 CCASS +
+      baostock 逐只取价，省掉 7-35min 尾部（update_all 8/10 同指标 33min 超 1800s 告警根因）。
+      重算路径硬时限 600s（10min），防 baostock 慢/挂卡死
+    - 02:00 槽：强制重算（不闸门）——每日自纠正（P2：首算瞬态坏值不冻结到下季度）+ 兑现
+      "兜底补跑"语义（16:35/21:00 被杀的慢网络场景在此补算）。硬时限 3600s（1h），
+      慢网络 ~35-58min 能跑完；就算仍超时被杀，写穿缓存已分批（每 _WRITE_BACK_BATCH 只）
+      写回部分进度，次日 02:00 续用缓存，不会指标停更
     """
     quarters = _quarter_end_dates(n=n_quarters)
     if len(quarters) < 2:
         return []  # 不足两个季度无法算差
 
-    # 季度闸门：默认 n_quarters=2 只产 1 行 (quarters[0], value)，DB 已有则直接返回
-    if n_quarters <= 2:
+    # 槽位判定：02:00 强制重算；其他槽（16:35/21:00/update_all 17:50）季度闸门
+    slot = _current_slot()
+    force_recompute = (slot == "0200")
+    alarm_seconds = _ALARM_RECOMPUTE if force_recompute else _ALARM_GATE
+
+    # 季度闸门：仅非 02:00 槽生效（默认 n_quarters=2 只产 1 行 (quarters[0], value)，
+    # DB 已有则直接返回；02:00 强制重算走每日自纠正，坏值不被冻结）
+    if n_quarters <= 2 and not force_recompute:
         q_gate = quarters[0].strftime("%Y%m%d")
         v_existing = _latest_quarter_value(q_gate)
         if v_existing is not None:
             return [(q_gate, v_existing)]
 
-    # 硬时限保险：重算路径（CCASS 爬取 + baostock 逐只取价）加 10min 上限
+    # 硬时限保险：重算路径（CCASS 爬取 + baostock 逐只取价）上限
+    # 02:00 强制重算槽 3600s(1h)；其他槽 600s(闸门命中即跳过，防卡死)
     import signal as _signal
     _prev_alrm = None
     _alarm_armed = False
     try:
         _prev_alrm = _signal.signal(_signal.SIGALRM, _hard_timeout_handler)
-        _signal.alarm(600)
+        _signal.alarm(alarm_seconds)
         _alarm_armed = True
     except Exception:
         pass  # 非主线程/信号不可用：跳过硬时限（socket 15s 超时逐只兜底）
@@ -417,9 +472,11 @@ def fetch_north_fund_ccass_quarterly(n_quarters=2):
             rows.append((q_curr, net_buy_yi))
         return rows
     except TimeoutError:
-        # 硬时限超时：跳过本槽（返回已算结果，通常为空），02:00 槽 7200s 兜底补跑
-        print("[a_fund_north_quarterly] 硬时限 10min 超时，跳过本槽，02:00 槽兜底补跑",
-              flush=True)
+        # 硬时限超时：跳过本槽（返回已算结果，通常为空）。
+        # 16:35/21:00 槽被杀 -> 当晚 02:00 强制重算 + 3600s alarm 兜底补跑；
+        # 02:00 槽被杀 -> 写穿缓存已分批（每 _WRITE_BACK_BATCH 只）写回部分进度，次日同槽续用
+        print(f"[a_fund_north_quarterly] 硬时限 {alarm_seconds}s 超时，跳过本槽 "
+              f"(slot={slot})，02:00 槽兜底补跑", flush=True)
         return []
     finally:
         if _alarm_armed:

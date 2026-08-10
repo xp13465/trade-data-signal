@@ -16,6 +16,12 @@ mkdir -p "$REPO/data/logs"
 
 echo "=== backfill_metrics.sh 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
 
+# 3 槽位(16:35/21:00/02:00)同一脚本：按当前时刻注入槽位标识给 direct 采集。
+# CCASS 季度指标(hkex_ccass_quarterly)据此区分：02:00 强制重算+3600s alarm(每日自纠正+兜底)，
+# 16:35/21:00 季度闸门+600s alarm(有最新季度行跳过，省 7-35min 尾部)。update_all(17:50)无此 env
+# 默认闸门+600s。
+export BACKFILL_SLOT="$(date +%H%M)"
+
 # 1) 补采缺失指数（原 backfill_indices.sh 逻辑：index_backfill.main 校验 + 多源补采 + 重算情绪分）
 "$REPO/.venv/bin/python" -c "from app.collector.index_backfill import main; main()" 2>&1 | tee -a "$LOG"
 
