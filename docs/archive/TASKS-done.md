@@ -1450,3 +1450,909 @@ P0 全 6 条已闭环（07-19 实施 + 07-20 核查线上生效）：grep 验收
 ### 28. ETF 弹窗公示来源（_etfMatchTags tooltip 中文化）
 - **完成依据**：_etfMatchTags tooltip 已中文化（来源 track_index/overlap -> 本体/跟踪指数/成分重叠/名称匹配/手动兜底；分级 excellent/good/warn -> 优秀/良好/偏差大）。信号灯❓弹窗"ETF信号灯&跟踪指标说明"5块说明已上线。详见 TASKS L1323-1334 + L1516-1523。
 
+## 归档批次 2026-08-11（tasks_archive.py 自动归档，机制见 docs/tasks-archive-maintain.md）
+
+#### 阶段0场外基金数据采集补全 - 已完成 (2026-08-02, commit 08c514f1)
+- schema: fund_basic 21列(扩15列)+6新表(manager/performance/risk_indicator/rating/purchase_status/fee_detail)
+- 7fetcher + CLI 6命令(stage0-daily/overview/risk/manager/nav/sample)
+- 小样本3只验证通过 + 调度接入update_all.sh L129-141(失败不阻塞)
+- R2: upload-offshore-fund命令 + exclude防双副本
+- 全量采集(27409只)挂凌晨launchd自动跑
+
+#### 4件前端+后端实施 - 已完成 上线ui96 (commit 1c0a5502)
+- 仓位红线3m/6m断线修复 / ETF评分弹窗5区块 / 卖出明确化(减仓比例%) / 抱团-重叠度弹窗区分
+- history_analogy bug修复(alert_reason.py L213 3值解包)
+
+#### 88魔咒每行时效标注 - 已完成 上线ui95 (commit 229686b3)
+- app.js L10049-10053 5行时效标注
+
+## R2优化+备份方案待办（P0+P1 已全闭环 2026-07-20；P2 data JSON 迁 R2 阶段1+2+3 全闭环 2026-07-22，详见 NOTES §48 小节A+AK）
+
+> 2026-07-15 晚调研，2026-07-20 实施 P0×3 + P1×3 全闭环。.git gc 后 136M（原 1.1G）。DB 压缩实测最优 .dump+gzip 13.8MB(17%)，线上用 .db.gz 24MB(29%)。
+
+### P0（✅ 全 3 条已完成 2026-07-20）
+1. ✅ **DB备份压缩改传 .db.gz**（1a573c00）：87MB->24MB 省72%（backup_db.sh 产 .db.gz + upload_r2.py 上传压缩二进制）
+2. ✅ **R2 清理改脚本侧分层替代 Dashboard lifecycle**：未配 Dashboard 规则，改 upload_r2.py `_prune_r2_backup` 三层清理 backup/30+weekly/28+monthly/365（更可控，不依赖手配）
+3. ✅ **backup 失败邮件告警**（1a573c00）：复用 notify.py（backup_db.sh 失败发邮件，原仅日志无告警风险消除）
+
+### P1（✅ 全 3 条已完成 2026-07-20）
+4. ✅ **恢复演练 verify_backup.sh**（500b7338）：R2 拉备份解压 integrity 校验+行数对比，只读不改生产 DB
+5. ✅ **R2 多版本保留分层**（0c22524f）：日30天+周4周+月12月（_maybe_upload_weekly/monthly 复用日 payload，ISO week/year+month，节假日顺延）
+6. ✅ **git gc**：.git 1.1G->136M（松散925MB 未 gc 积压清理）
+
+### P2（按需）
+7. ✅ **trade_sim HTML 52MB 迁 R2**：2026-07-20 评估=**不迁**（小节G），**2026-07-22 反转=已迁 R2**（s.sugas.site 瘦身 523M->158M 需要，97 文件 200M git rm --cached 保本地 untracked，commit b4b75671，见小节AK）。
+8. ✅ **data JSON 迁 R2（阶段1+2+3）**：2026-07-22 全完成。阶段1 R2 上传(trade_sim 97+index 180+industry 268，CORS *)+阶段2 前端改读 R2(app.js 4处+lab.js 3处，commit f145a409，app.min.js?v=b4eaf1ec)+阶段3 线上瘦身(commit b4b75671 git rm --cached index/trade_sim 保本地 untracked+.gitignore L63-65+intraday L131 改 no-op，remote 523M->158M < 300M，s.sugas.site 恢复部署 v=b4eaf1ec tooltip 颜色根治)。STATIC_DIR fix a0ba8431。剩裸 JSON .gz 后续按需。详见 NOTES §48 小节AK
+
+### skip（调研后排除）
+- 增量备份：压缩后全量仅24MB，收益锐减
+- WAL 改造：已在线热备（backup_db.sh `.backup`），最佳方案无需改
+- R2 扩容：700MB 远在 10GB 免费额内
+
+## ✅ 2026-07-31 全球指数时效优化（P1+外盘期货扩充已完成，归档 TASKS-done.md 2026-08-08）
+
+> P1 盘中实时角标已完成（commit 1e9d5d43 前端 + bccef338 后端，sw ui12）。外盘期货扩充源已完成（commit fe7525f0，sw ui44，13只=4 hf_+9 b_）。详见 NOTES §48 AZ89/AZ94 + docs/archive/TASKS-done.md。
+
+**优先级**：P1（推荐实施）+ P2（可选增强）
+
+**调研结论摘要**：首页"全球"Tab 9 指数（美股4 + 亚洲2 + 欧洲3）当前全部走新浪日K历史接口（`index_global_hist_sina` / `index_us_stock_sina`），仅 backfill-evening 16:35/21:00/02:00 采集，盘中无实时更新。韩 KOSPI/日经与 A 股同时区（09:00-15:30 KST/JST vs 09:30-15:30 CST），盘中看不到实时涨跌，价值打折。akshare `index_global_spot_em`（东方财富实时）免费覆盖全部5个目标指数，项目已用 akshare，实施成本极低。
+
+**待办动作清单**：
+
+- [ ] **P1（推荐）：加盘中 intraday_snapshot 采全球5指数实时（nikkei225/kospi/ftse100/dax/cac40）**
+  - 源：akshare `index_global_spot_em`（单次返全部，无需逐个代码，免费无需 key）
+  - 时点：复用现有 9:25-15:02 每10min（亚洲时段覆盖韩日开盘）+ 15:35/20:35（覆盖欧洲开盘，欧洲 15:00-23:00 北京时间）
+  - 反哺 `index_daily` 当日 close，盘中 signals.compute() 扩展 buy_special/sell 触发池
+  - 收盘 pipeline 仍用 `index_global_hist_sina` 补完整 OHLC（实时源只覆盖当日 latest，无历史序列）
+  - 注意：欧洲指数（ftse100/dax/cac40）A 股盘中（09:30-15:00）未开盘，采到昨收；15:35/20:35 才采到欧洲实时
+
+- [ ] **P2（可选）：港股板块8个加盘中实时**
+  - 当前仅收盘后 16:35 采，盘中无实时
+  - 港股板块腾讯已支持 r_hkCESG10 等（`_HK_CODE_MAP`），加盘中时点即可
+  - 优先级低（细分行业用户关注度低于宽基）
+
+- [x] **✅ 外盘期货扩充源实施已完成（2026-08-01，commit `fe7525f0`，sw ui44，详见 NOTES §48 AZ94）**
+  - 现状：美股预期板块已配置化扩充到 13 只 = 4 hf_(ES/NQ/YM/HSI) + 9 b_ 新增(DAX/CAC/UKX/SX5E/SENSEX/KOSPI/AS51/NKY/RTY)，单一配置源 `US_FUTURES_META` 驱动
+  - 新解析器 `_parse_sina_b`（b_ 字段格式与 hf_ 不同，复用 `index_backfill._sina_global_realtime_fallback` 模式）；Yahoo 备用源（META 每条加 `yahoo_symbol`，主源空则 Yahoo 逐个补采，sleep 0.6s 防限流）
+  - 弃用：腾讯/东财(封IP)/akshare futures_foreign_hist/雪球(需token)/英为财情(403)/CME(404)；A50 放弃（无源支持）
+  - 前端 `_renderUSFuturesExpect` 动态遍历 `Object.keys(usf)` + CSS flex-wrap 自适应 13 卡片，无需改 app.js/style.css
+  - Yahoo Russell 2000 用 `^RUT` 非 `^RTY`（实测 ^RTY 无数据）
+
+- [ ] **P2（可选）：亚洲其他同时区指数（澳股 ASX200/印度 NIFTY50）**
+  - `index_global_spot_em` 同样覆盖，可一并加
+  - 优先级低，用户未提需求
+
+- [ ] **前置验证**：akshare 版本是否含 `index_global_spot_em` 函数（`python -c "import akshare as ak; print(hasattr(ak, 'index_global_spot_em'))"`） [待做]
+- [ ] **前端配套**：全球 Tab 卡片角标更新逻辑（当前 us_ 标 t1，其他 t0，加实时后是否需要新标记）
+
+**状态**：✅ 用户确认 P1+P2 一起实施（2026-07-31 用户定）。排期 **2026-07-31 收盘后(15:35 后)或 2026-08-01 周末开发**（盘中不开发避免影响生产，用户明确要求等收盘后/周末）。NOTES §48 AZ89 有完整调研报告（指数清单/数据源/时点/韩日时效分析/实时源优劣对比/优先级建议）。实施时派 agent：①前置验证 akshare index_global_spot_em 可用 ②P1 加 intraday_snapshot 采全球5指数实时 ③P2 港股8个+亚洲其他(澳股ASX200/印度NIFTY50) ④前端配套角标 ⑤收盘 pipeline 保留 index_global_hist_sina 补 OHLC。
+
+---
+
+## ✅ 2026-07-31 公募基金持仓佐证大盘（采集+前端全完成，归档 TASKS-done.md 2026-08-08）
+
+> 采集已完成（commit 10454371 后端核心 + 920f57ed 新鲜度闸门，全量27409只+6新表+7fetcher）。前端 ui81-ui85 全上线（行业配置口径/88魔咒pin/预估仓位/申万一级/tooltip）。详见 NOTES §48 AZ90/AZ93/AZ106-AZ112 + docs/archive/TASKS-done.md。
+
+**优先级**：P1（中等优先级，作为现有"北向/外资/两融"3 维资金面的补充维度）
+
+**调研结论摘要**：公募基金持仓数据（十大重仓/股票仓位/行业配置/净申赎）对 A 股大盘走向有**中等参考性**，作辅助维度有价值，不能作主信号。核心限制是季报披露滞后 15 个工作日（披露时点持仓 ≠ 当前持仓）。最有价值信号：①基金平均股票仓位（"88 魔咒" >88% 见顶 / "80 抄底" <80% 见底，反向指标）②重仓股抱团度（Herfindahl 集中度急升=风险积累，瓦解=见顶信号）③净申赎（净申购=散户乐观反向看空，净赎回=散户悲观反向看多）。数据可得性高：东方财富 fundf10 子页（ccmx/jjcc/hytz/zcpz/jbl/cyem/jjjz/fhsp）全部可爬，akshare 已封装 9 个接口（`fund_portfolio_hold_em` / `fund_value_estimation_em` / `fund_open_fund_daily_em` 等）免费无需 key，项目已用 akshare 实施成本极低。实证案例：易方达蓝筹精选 005827（张坤）2026Q2 股票仓位 76.43% 较 Q1 的 93.81% **减仓 17.38 个百分点**，净资产 204.16 亿较上期缩水 23.80%，是 2026 年最显著的"头部基金减仓+规模缩水"信号。
+
+**待办动作清单**：
+
+- [x] **✅ 采集：季度全量采集脚本已完成**（akshare `fund_portfolio_hold_em` + fundf10 子页爬虫兜底，commit `10454371` 后端核心 + `920f57ed` 闸门 + 本轮 quarterly 全量手动跑完成）
+  - 范围：**全量**（全市场偏股混合+灵活配置+股票型约 4000-5000 只，2026-07-31 用户定改全量非前500只。理由：①季度才跑一次 30-50 分钟可接受非瓶颈 ②抱团度/重叠度是计数集中度指标前500只漏小基金重仓股会算偏 ③净资产规模加权小基金不污染平均仓位但完整反映全市场抱团结构）
+  - 字段：fund_code/fund_name/report_date + top10_holdings + industry_allocation + asset_allocation(stock_ratio/bond_ratio/cash_ratio/net_asset) + holding_changes
+  - 时点：每年 1/22（Q1）、4/22（Q2）、7/22（Q3）、10/22（Q3）、3/31（年报）后次日 03:00 一次性采集
+  - ✅ **数据新鲜度闸门已实施**（2026-08-01，commit `920f57ed`，详见 NOTES §48 AZ93 + memory `public-fund-fresh-gate`）：quarterly.sh/full.sh 跑前调 `check-fresh` 查源(cninfo B2)最新 report_date vs DB MAX(report_date) + 覆盖率(holding<4500 OR asset<top_n*0.95 触发补采)，无新数据跳过避免重复跑，有失败补采。非死板季报日历：披露窗口每天有新基金披露就跑采全后跳过，非披露窗口直接跳过。daily.sh 不加闸门（日更每天变必须跑）。关键：lg 源是周频不能用，只 cninfo B2 是季报频。
+  - ✅ **本轮 quarterly 全量手动跑完成**（2026-08-01，PID 25741，耗时 1666.8s≈28分钟）：5 汇总表全完成（fund_basic 27409/fund_position_history 521/fund_holding_stock 2835/fund_hold_structure 45/fund_scale_change 113）；1000 只逐只跑 asset_ok 955(fail 27)/industry_ok 947(fail 35)；8 指标 fund_metrics 全算（avg_position 96.01/concentration_herfindahl 0.0215/overlap_ratio 848.27/industry_concentration 0.5818/net_redeem_ratio -0.1741/position_change_ratio 0.82/top20_adjustment None/top30_concentration 48.20）；position_history 521 期=cninfo 季报 76 期(20070930~20260630)+lg 周频 445 期(20171204~20260724)
+  - 耗时：全量 4000-5000 只 × 7 子页 × 延时，实测推算 30-50 分钟（详见 `/tmp/agent-progress-fund-research.md` 反爬调研）
+  - 反爬策略：延时 + retry + 断点续采（记录已采 fund_code 到 `/tmp/fund-collect-progress.json` 重跑跳过已采），最坏降级头部 1000 只（按净资产排序覆盖 95%+ 规模）
+
+- [x] **✅ 采集：日更轻量采集已完成**（盘中估算仓位，commit `ea3ff93b` 阶段L 定时任务 3 脚本含 daily，2026-07-31 用户定一步到位非 P1.5 后续）
+  - 源：akshare `fund_value_estimation_em()`（一次返回全市场基金估算净值）
+  - 字段：fund_code/fund_name/date + estimated_nav/estimated_change_pct + actual_nav(T+1 确认)
+  - 时点：每交易日 16:30
+  - 用途：估算净值涨跌 vs 实际涨跌反推仓位变化（粗略，误差 ±5%）
+  - 与季度硬数据互补不互斥：季度给绝对值（88 魔咒/抱团度/净申赎精准阈值），日更填补 15 天披露滞后窗口的仓位趋势（88-80 阈值仅趋势参考非精确触发，季报披露后校正）
+
+- [x] **✅ 指标：5 核心指标计算已完成**（commit `10454371` 后端核心 8 指标，本轮 quarterly 全量跑算出 fund_metrics 全 8 项）
+  - 基金平均股票仓位：加权平均 `Σ(stock_ratio×net_asset)/Σ(net_asset)`，>88%=见顶/<80%=见底
+  - 重仓股抱团度（Herfindahl）：`Σ(weight²)` 加总全市场基金前十大集中度，急升=风险积累
+  - 重仓股重叠度：头部 100 只基金前十大重仓股去重数/1000，<300=高度抱团/>500=分散
+  - 行业配置集中度：Top3 行业占比之和，>60%=高度集中
+  - 基金净申赎率：`Σ(份额变化×净值)/Σ(总规模)`，净申购激增=见顶/净赎回激增=见底
+  - 外加 3 衍生指标：加仓减仓比 / 头部 Top20 调仓方向 / 重仓股 Top30 集中度
+  - 本轮实测值：avg_position 96.01 / concentration_herfindahl 0.0215 / overlap_ratio 848.27 / industry_concentration 0.5818 / net_redeem_ratio -0.1741 / position_change_ratio 0.82 / top20_adjustment None / top30_concentration 48.20
+
+- [x] **✅ 前端：新独立 tab「基金持仓」已完成**（commit `d8ca2855` ui36 新建 tab + `4238f40e` ui41 4项优化 + `4544ffc4` ui42 range切换修复，遵循 memory `new-feature-isolated-tab-first`）
+  - 顶部 4 卡片信号灯（平均仓位/抱团度/重叠度/净申赎，颜色 >88% 红 / 80-88% 黄 / <80% 绿）
+  - 主图：基金平均仓位 vs 上证指数双轴折线 + 88% 魔咒警戒线 / 80% 抄底线水平虚线
+  - 重仓股 Top30 排行（左）+ 行业配置热力图（右）
+  - 头部基金调仓 Top20（基金/规模/仓位变化/重仓股变化）
+  - 页面醒目滞后性提示：「本数据截止 YYYY-MM-DD，已滞后 N 天」
+
+- [x] **✅ 前端：首页角标接入已完成**（commit `d4e2c7fd` 阶段J+K ui40，轻量接入现有"资金面"卡片组）
+  - 显示当前平均仓位（如 `89.2%⚠️`）+ 较上季变化（如 `↑1.2pct`）
+  - 颜色 >88% 红（风险）/ 80-88% 黄（中性）/ <80% 绿（机会）
+  - 点击跳转「基金持仓」tab 详情
+
+- [x] **✅ 信号灯：规则接入已完成**（commit `d4e2c7fd` 阶段J+K ui40，首页"信号"模块 4 信号灯）
+  - 仓位 >88% -> "基金仓位高位 ⚠️ 88 魔咒见顶信号"
+  - 仓位 <80% -> "基金仓位低位 ✅ 80 抄底见底信号"
+  - 抱团度 >0.20 且重叠度 <320 -> "重仓股高度抱团 ⚠️ 抱团瓦解风险"
+  - 净申赎 >500 亿 -> "基金净申购激增 ⚠️ 散户乐观反向看空"
+  - 净申赎 <-500 亿 -> "基金净赎回激增 ✅ 散户悲观反向看多"
+
+- [x] **✅ 4 维资金面共振联动已完成**（commit `d4e2c7fd` 阶段J+K ui40，北向/两融/产业资本/基金持仓 4 维共振）
+  - 加入现有"资金面"模块（北向日更/两融日更/产业资本月更/基金季更）
+  - 4 维共振信号最强：例如"北向流出+两融下降+产业资本减持+基金减仓"=4 维共振看空
+
+**风险提示**：
+- ⚠️ **滞后性误导**：季报披露滞后 15 工作日，披露的持仓已是过去时，基金可能已调仓，不能直接当现在持仓用。缓解：页面醒目提示"数据截止日期+已滞后天数"，不作主信号
+- ⚠️ **抱团误导**：抱团股未必瓦解（如茅台抱团 5 年才瓦解），仅作辅助信号，需结合估值（PE 历史分位）确认
+- ⚠️ **披露规则限制**：季报只披露前十大，全持仓要等中报（60 日内）/年报（90 日内）。用十大重仓+行业配置+资产配置三维度交叉验证
+- ⚠️ **样本偏差**：只看头部 500 只基金忽略小基金。用净资产规模加权，大基金权重大
+- ⚠️ **88 魔咒失效**：历史规律未必未来应验（2020 仓位持续 90%+ 大盘仍涨）。仅作"风险提示"非"卖出信号"，结合其他维度共振
+- ⚠️ **估算仓位误差**：日更估算仓位（净值反推）误差大（±5%）。估算仅作趋势参考，季报披露后校正
+
+**状态**：✅ **全部 7 项待办已完成**（2026-08-01 实施闭环）。后端 commit `10454371`(9表+8fetcher+3pipeline+8指标+5类export) + `920f57ed`(数据新鲜度闸门) + `ea3ff93b`(定时任务3脚本)；前端 commit `d8ca2855`(tab ui36) + `4238f40e`(4项优化 ui41) + `d4e2c7fd`(首页角标+4信号灯+4维共振 ui40) + `4544ffc4`(range切换修复 ui42) + `4a0bf58a`(export LIMIT40修复)；本轮 quarterly 全量手动跑完成(5汇总表+8指标+521期 position_history)。NOTES §48 AZ94 有本轮 4 项工作闭环记录。**方案修正（2026-07-31 用户定）：采集量改全量（非前500只）+ 日更估算改一步到位（非 P1.5 后续）**，理由：①季度才跑一次 30-50 分钟可接受非瓶颈 ②抱团度/重叠度是计数集中度指标前500只漏小基金重仓股会算偏 ③净资产规模加权小基金不污染平均仓位但完整反映全市场抱团结构 ④日更估算与季度硬数据互补不互斥（季度给绝对值88魔咒/抱团度/净申赎，日更填补15天滞后窗口仓位趋势），一步到位完整不留尾巴。完整调研报告 404 行存 `/tmp/public-fund-research.md`。
+
+## ✅ 2026-08-04 跌停池采集失败根治 + 角标文案修正（已上线 commit 765d2e942+11af152d6+25ae693fb，2026-08-08 验收 origin/main 含，排查见 /tmp/agent-stale-badge-debug.md）
+
+**根因**：a_width_dt_count（跌停数）8-4 采集失败，intraday_snapshot.py L1305-1318 跌停池 stock_zt_pool_dtgc_em 失败分支只 print 不写 collect_log，无交叉验证（update_all 路径 fetchers.py:321-337 有，intraday 路径没复用），监控漏报 level=ok retry 永不触发。角标 getCardTimeBadge L4739 t0 源盘中 dataDate=ptd 兜底显示"⏳ 待盘后更新·08-03"误导（实际采集失败非待更新）。
+
+**修复方案**（用户3决策已定：A根治+改文案+明晚实施）：
+1. **采集侧根治** intraday_snapshot.py L1305-1318：
+   - 跌停池失败时复用 fetchers.py:321-337 交叉验证（涨停池有数据+跌停池空=真0跌停写0，source="intraday_cross"）
+   - 降级源：从 stock_zh_a_spot（已采 L1266）算跌停数（涨跌幅≤-9.8% 近似）
+   - 失败写 collect_log error（log_collect），让 retry_failed_metrics + collect_health 可见
+2. **角标文案** app.js L4739 t0 源盘中 dataDate=ptd 分支改"⚠ 采集异常·{mmdd}"，区分 T+1 正常等待 vs t0 采集失败（注意 L4733 竞价时段 9:25-9:30 t0 停昨日正常不动）
+3. **监控** intraday_snapshot 跌停池失败写 collect_health，让监控可见（现 level=ok 漏报）
+
+**实施时点**：明晚 8-5 23:00+ 安全窗口（盘中改采集脚本有风险，等收盘后改+明早 09:25 intraday 验证）
+
+**关键约束**：
+- 改 intraday_snapshot.py 采集脚本，盘中 intraday-snapshot 每10分钟调它，必须 23:00+ 改 + 明早验证
+- 改 app.js 角标后 bump sw.js CACHE_VERSION（铁律1）+ build_min + bump_asset_version
+- §14 生产稳定性 P0：push main 避开 intraday-snapshot 盘后 20:35/22:00 时点
+- 补采 8-4 跌停数（DB 无 8-4 行）：修复后明早 09:25 intraday 自动采 8-5，8-4 历史数据可手动 backfill 或留空
+
+**状态**：✅ 已实施 commit 17966eb7e（feat，待23:00+推main）。实际实施：fetchers.py提取cross_check_zt_pool公共函数（L286定义+L353调用）+ intraday三池log_collect（13处）+ 交叉验证（涨停/跌停用cross_check区分真0vs源失败，炸板只error）+ app.js L8071 _errItem显"🚨 采集失败"（比原方案改L4739更准确，直接读collect_health error状态）。未做降级源stock_zh_a_spot（交叉验证已足够）。明天盘中intraday-snapshot跑新代码验证collect_health显示error状态。详见 NOTES §48 小节AJ
+
+## ✅ 2026-08-05 通知根因根治（已上线，TASKS标注hash过期，fix在main：1fd547327+eda6a24d4）
+
+**根因**（用户反馈"13点多收到盘中异动邮件但浏览器没通知"）：
+1. 前端anomaly去重粒度太粗：app.js L7057去重key=`anomaly_${today}`（全天1次），上午9:26第一批异动弹过后13:16/13:26新异动全被去重跳过；后端邮件去重key=`type|kind|name`（标的级）新标的去重通过发邮件 = 邮件发了浏览器没通知
+2. showNotification异步标记死锁：return true在postMessage后（异步），_markNotified立即执行不管SW是否真弹出 = SW没弹也标记后续全跳过
+
+**实施**（commit 9e7c0f616，4文件+49/-13，已验收✓）：
+- P0主修复：app.js L7075去重key改`anomaly_${type}_${kind}_${name}_${today}`对齐后端_alert_key；多条新异动合并1条通知弹但每条单独_markNotified；60s时间窗保留
+- P1辅助1 SW回调防死锁（通知即时性优先）：showNotification加failClearKeys参数+postMessage后立即return true保留即时性；sw.js SHOW_NOTIFICATION失败catch回NOTIFY_FAILED+failClearKeys到所有client；app.js收NOTIFY_FAILED清_clearNotified+时间窗下次轮询重试；新增_clearNotified/_clearNotifyTimeWindow（L6810/L6817）
+- sw.js CACHE_VERSION bump v2-20260805-notify-fix
+
+**明天验证**：盘中异动验证浏览器弹通知（去重粒度对齐后新标的能弹）。详见 NOTES §48 小节AJ
+
+## 📋 2026-08-05 预估成交额实施（A+C共存，已上线✓ commit be49e0064 + f81a31bda + 32a23a5f9 盘后hover + e4e265a2a 后端bug修复）
+
+**方案**（用户确认显示：预估全天成交额跟着成交额卡片后面对照看）：
+- A线性外推带时间加权（立即生效）：A股分时成交节奏经验占比（9:30=2%->15:00=100%），预估=当前累计/经验累计占比
+- C历史分时占比（积累5-10交易日后校准）：新表intraday_amount_history每10分钟存一行，积累后查历史同时段占比平均值校准
+- C数据足够（>=5天）自动切换，否则fallback A
+
+**实施**（commit `be49e0064` + `f81a31bda`，已验收✓）：
+- `be49e0064`（后端+前端基础版，5文件+124/-3）：
+  - 后端 `intraday_snapshot.py`（+108行）：新表 `intraday_amount_history` 正确 schema（date/time_hhmm/cum_amount/source/run_at），DROP 旧错 schema 表（ts_code/trade_date 旧 agent 遗留）；新增 `_forecast_amount` 方案A经验加权（`_EXP_RATIOS`+`_exp_cum_ratio`）+方案C历史占比校准（>=5天切换）；在 `_collect_intraday_width_metrics` 的 a_amount upsert 后加预估计算，独立 try-except 隔离失败只 `log_collect error`；width 采集后重新 dump `intraday_snapshot.json` 含 `amount_forecast` 字段
+  - 前端 `app.js`：metricId 配置添加 `a_amount_forecast`，成交额 KPI 卡片盘中显示预估全天角标（forecast-tag），收盘后（15:00 后）隐藏
+  - 主库：DROP 旧错 schema 表 + 建正确 schema 表
+- `f81a31bda`（UI优化，4文件+14/-5）：`be49e0064` 前端旧版只显示灰色"预估全天 X亿"后缀不符合"对照看"需求，本次改 `app.js` L8083-8104：
+  - 主值 `valueHtml`：预估全天（>=1万亿用"X.XX万亿"，否则"X亿"）+ 橙色"预估"tag（background:#ff9800;color:#fff;font-size:10px;padding:1px 4px）
+  - 副值 `sub`：`当前 {k.value}{k.sub}` 对照看当前累计成交额
+  - 时间门控 `hm<1500` 才显示；`build_min` app.min.js 重生成（-46.7%）；`bump_asset_version` app.min.js?v=f4aa6347->7ed6f578；`sw.js` CACHE_VERSION v2-20260805-amount-forecast -> v2-20260805-amount-forecast-ui
+
+**语义错位bug修复**：旧 agent（9a904f948）用 `indices` 单指数预估数值差4倍（语义错位，把指数当全市场成交额算），主控验收发现后改用全市场 `a_amount` 重新实施 `be49e0064`。
+
+**约束遵循**：3保证不影响采集（try-except隔离+改intraday_snapshot.py避开:25/:35/:45/:55/:05/:15时点+ast语法检查）✓ / commit feat不推main ✓ / 改app.js后bump sw.js ✓
+
+**明天验证**：盘中验证 intraday_snapshot.json 含 amount_forecast 字段，KPI 卡片显橙色预估 tag + 主值万亿/亿切换。详见 NOTES §48 小节AK
+
+**盘后 hover 对比**（commit `32a23a5f9`，已上线✓）：
+- 盘后（`is_closed || hm >= 1500`）hover a_amount 卡 pop 预估 vs 实际对比（预估值 / 实际值 / 偏差% / 预估时点）
+- 方案 A：CSS hover + 独立 tooltip 浮层（数据已在 state，无需额外 fetch）
+- 偏差色阶：`<5%` 绿 / `<15%` 橙 / `>=15%` 红；正=预估偏低 / 负=预估偏高
+- 盘中保持预估角标常驻（app.js L8083-8105 不动）；数据缺失防御 `amount_forecast={}` 空对象时不显示 pop
+- sw.js bump `v2-20260805b-forecast-hover`；待 20:35 intraday 生成 amount_forecast 数值后盘后 hover pop 才有数据
+
+**后端 bug 修复**（commit `e4e265a2a`）：
+- 根因：15:35 跑了 `be49e0064`（16:03）之前的 bug 中间版本（`snap["amount_forecast"]={}` 赋空 dict），该版本未 commit，rebase 后丢失
+- 修复：`conn` 覆盖隐患（app 中 L1363 -> `_fc_conn` 局部变量隔离）
+- 验证：手动跑 `collect_and_save`，snap `amount_forecast=26794.63` 数值 ✓ + DB 写入 ✓
+- 20:35 intraday 跑新代码后线上 amount_forecast 自动变数值，8/6 盘中 9:35 后预估角标显示
+
+**上线状态**：3 commits（`be49e0064`+`f81a31bda`+`32a23a5f9`+`e4e265a2a`）已通过 17:50 定时任务 push main 自动带上线（§48 小节 AL 机制）。详见 NOTES §48 小节AN
+
+## ✅ 2026-08-05 8/5 R2无数据根治（已上线，TASKS标注hash过期，fix在main：d7f0133c2）
+
+**根因**：`intraday_snapshot.py` 盘中每 10 分钟生成 `sentiment-{rng}.json` 到主库但不上传 R2，前端 `app.js` dataUrl 对 `-all.json` 走 R2（ssd.fx8.store/data/），R2 只在 `export.py`（17:50）上传，盘中 R2 停在昨日致前端读旧数据（8/5 无数据事故）。**非 trade 镜像滞后**（曾误判，实际是 R2 上传滞后--盘中根本不上传 R2）。
+
+**实施**（commit `faf109e57`，1文件+36行）：
+- `intraday_snapshot.py` L1655-1667：在 sentiment 5 ranges 生成循环后（L1648），`subprocess` 调用 `upload_r2.py upload` 上传 5 个 `sentiment-{rng}.json` 到 R2（`data/sentiment-{rng}.json`）
+- 独立 try-except 失败不阻断采集，`log_collect error` `func_name=sentiment_r2_upload` 让监控发现（L1676/1681）
+- 复用 `upload_r2.py`（只依赖 stdlib，自己加载 `.env` 获取 R2 凭证）
+- 即时修复：已手动上传 `sentiment-all.json` 到 R2（主库 trade-data，有 8/5）
+
+**验收**：curl R2 `a_sentiment` 最后 20260805 73.78 ✓ / upload_r2 调用 L1655-1667 ✓ / log_collect error L1676/1681 ✓
+
+**明天验证**：盘中验证 R2 `sentiment-all.json` 含 8/6 最新日期。详见 NOTES §48 小节AK
+
+## ✅ 2026-08-05 信号设计方案B（已上线，TASKS标注hash过期，docs落档在main：d5426146f）
+
+**背景**：`sentiment_cyb` 在 `SCORE_IDS` 被当 close 算买卖点，但情绪分是 0-100 衍生指标非可交易标的，混入首页买卖点列表易误导且无 ETF 参考（`trade_sim`/`board_etf_map` 无 `s.` 前缀映射）。
+
+**方案B**（commit `9df46887f`，1文件，已验收✓）：
+- `app/queries.py` L370：只在 `overview()` 的 `signals_today` 生成 SQL 加 `AND index_id NOT LIKE 's.%%'` 过滤
+- `signal_daily` 表保留 `s.*` 记录（情绪分 KPI 卡片/弹窗仍经 `signals()` 函数按 index_id 查 `s.*` 画走势+pin，L761-769 9 个情绪分 KPI 不受影响）
+- 不改 app.js（避免和前端 agent 撞 app.js）
+
+**验收**：grep L370 `NOT LIKE 's.%%'` ✓ / `signals_today` 201 条 `s.*` 0 条（过滤生效）✓ / `signal_daily` 保留 1 条 `s.sentiment_cyb sell`（表未过滤）✓ / ast 语法 queries.py/signals.py OK ✓
+
+**明天验证**：signals_today s.* 0 条（已验收，明天数据复现）。详见 NOTES §48 小节AK
+
+## 📋 2026-08-05 KPI小卡新颖设计全套（P0+P1+P2，已上线✓ commit 71e8ef605 + a88aa7262，方向C commit待补）
+
+**背景**：用户反馈首页KPI小卡颜色单调。调研agent（aadbc93ed20adc5ec）验收5根因坐实：
+1. 数字无状态色（.card-value L977无显式color，所有数字#f0e6c4暖米同色）
+2. 卡片无border（.card L833-840只background+box-shadow）
+3. 背景统一无层次（全var(--bg-card) #252836）
+4. 金色仅hover（--primary #f0b90b默认不出现，[data-theme=redgold] .card.kpi无覆盖）
+5. 状态色只在tag/角标（主区域无编码）
+
+**方案**（用户选全部P0+P1+P2，5-7h）：
+- **P0核心3项**：①数字状态着色（.cv-val按涨跌/情绪分色阶class，涨停红#e6492e/跌停绿#2e8b57/成交额放量红缩量绿/情绪分色阶）②左侧3px状态色条（.card.kpi border-left:3px solid+data-state属性）③默认金色顶条（.card.kpi::before渐变金条linear-gradient(90deg,transparent,var(--primary),transparent)）
+- **P1增强3项**：④KPI卡内嵌迷你sparkline（复用P0-1基础设施，.kpi-spark 30px高）⑤状态背景渐变（强势半透明金var(--bg-best)/异常淡红/冰点淡蓝/过热淡红）⑥hover动效扩展所有KPI（不只kpi-clickable，.card.kpi:hover背景变深+上浮+阴影）
+- **P2高级2项**：⑦3情绪分专属大卡（a_sentiment/cross_market/fear_greed更大尺寸+渐变背景+恐贪指数0-100进度条蓝->红渐变标当前位置）⑧玻璃拟态（.card.kpi半透明rgba(37,40,54,0.85)+backdrop-filter:blur(8px)+多层阴影）
+
+**已有可复用**：sparkline基础设施（P0-1在独立.spark-grid L1033，可嵌入KPI卡）/红金主题色变量（--primary #f0b90b金/--bg-best半透明金/--bg-active暖棕/--primary-bg深棕金）/角标10状态色/hover动效（.kpi-clickable L1737-1742）/情绪分emoji标签（🔵冰点/🟦偏冷/⚪中性/🟠偏热/🔴过热 app.js L1176-1183）
+
+**实施约束**：
+- 预估成交额已验收✓（commit be49e0064+f81a31bda），app.js KPI渲染段不再冲突，可直接派实施agent（改 app.js KPI渲染段 L7935-8172+sw.js）
+- 改app.js KPI渲染（L7935-8172）+ style.css（L832-1031 KPI样式）+ critical-css（index.html L70可能加变量）+ sw.js CACHE_VERSION bump=v2-20260805-kpi-design
+- 23:00+推main（和跌停池根治+通知修复+性能优化+预估成交额+信号方案B+8/5 R2根治一起）
+- 改app.js后build_min+bump_asset_version+bump sw.js（铁律1）
+
+**状态**：✅ 已上线（commit `71e8ef605` P0+P1+P2 全套 + merge `2cb23c39b` push main，详见 NOTES §48 小节AM）+ sparkline 全卡扩展 + hover 特效（commit `a88aa7262`，17:50 定时任务 push main 自动带上线，详见 NOTES §48 小节AN）+ 方向C 大卡完全统一（commit 待补，agent a1253c5e18a9098fd 跑中：去掉 .kpi-sentiment-big 类，3 情绪分卡和其他卡完全统一 + 恐贪进度条改 hover tooltip）
+
+**待推 main**：方向C commit（待补，agent 完成后等 23:00+ 安全窗口或后续定时任务带上）
+
+## ✅ 2026-08-05 信号邮件英文改中文（已上线，TASKS标注hash过期，fix在main：2870f564b）
+
+**背景**：信号邮件（收盘信号 / 异常波动 / 国家队信号）正文含大量英文标签和字段名（value/close/cross/vs前买/z-score 等），用户阅读不直观。
+
+**实施**（commit `f42490af9`，4 文件，已验收✓）：
+- `check_signals.py`：规则说明（主买 / 辅买 / 追买 / 备买 / 追止损卖 / 波段持有）+ intraday banner + help 中文化
+- `check_nt_signals.py`：表头 `z-score` -> `异常分数(z)` + 规则说明去括号英文
+- `detect_intraday_anomaly.py`：update_all 最终版 -> 系统将发送
+- `app/compute/signals.py`：`reason` 字段 ~15 处（`value` -> 当前值 / `close` -> 收盘价 / `cross` -> 情绪分= / `vs前买` -> 对比前买）+ docstring 示例同步
+
+**保留**：技术指标缩写 RSI / MA60 / MACD 等不翻译
+
+**验证**：`check_signals --dry-run` 邮件正文全中文 ✓；下次 update_all 重算 reason 全中文
+
+**待推 main**：`f42490af9` 待 23:00+ 安全窗口或后续定时任务带上（§48 小节 AL 机制）。详见 NOTES §48 小节AN
+
+## ✅ 2026-08-05 lhb_count 回填 已完成归档
+
+> 已完成。commit 9c10f4ed2。步骤A-F全完成（回填6m历史+queries/app.js加字段+build_min+deploy+curl验证）。详见 docs/archive/TASKS-done.md。
+
+**状态**：⏸ 撞 429 weekly quota 超限（8-10 00:00 重置）挂起，前置检查已完成（agent aa1c925fae47fd615），无代码半成品。
+
+**前置检查结论**（2026-08-05 23:34，/tmp/agent-progress-lhb-backfill.md）：
+- launchd: lhb-backfill 18:30/19:30, backfill-evening 16:35/21:00/02:00, update-all 17:50
+- DB trade-data/data/sentiment.db daily_metric 表 EAV 模式 (date, metric_id, value, source, updated_at) PK(date,metric_id)
+- lhb_count 历史 21 天 (20260703-20260805) source='akshare'，需回填6m
+- queries.py L525-532 KPI_SPARK_METRIC_IDS 18个 不含 lhb_count
+- app.js L8100-8105 _KPI_6M_TOOLTIP_IDS 19个 不含 lhb_count
+- sw.js CACHE_VERSION='v2-20260805p-spark-help-highlow' 待 bump
+- indicators.yaml: lhb_count=stock_lhb_detail_em+count_rows, lhb_inst_net=stock_lhb_jgmmtj_em+sum(机构买入净额)*1e-8
+- 实测列名: stock_lhb_detail_em="上榜日", stock_lhb_jgmmtj_em="上榜日期" (格式 YYYY-MM-DD)
+
+**待执行步骤**（8-10 配额恢复后派 agent 接着做，prompt 见 NOTES §48 小节AQ）：
+- [x] A. 新建 scripts/lhb_history_backfill.py 回填 lhb_count 6m 历史（ak.stock_lhb_detail_em start_date/end_date） [✓ commit 9c10f4ed2]
+- [x] B. queries.py KPI_SPARK_METRIC_IDS 加 "lhb_count" [✓ commit 9c10f4ed2]
+- [x] C. app.js _KPI_6M_TOOLTIP_IDS 加 "lhb_count" [✓ commit 9c10f4ed2]
+- [x] D. build_min + bump_asset_version + bump sw.js CACHE_VERSION（铁律1） [✓ commit 9c10f4ed2]
+- [x] E. export + deploy + push main（§14 避开 23:33 cron + 盘后定时任务时点） [✓ commit 9c10f4ed2]
+- [x] F. 验证 curl ss.fx8.store/data/overview.json 含 lhb_count_6m（10条6m历史） [✓ commit 9c10f4ed2]
+
+**用户定方案**：回填（推荐），2026-08-05 23:32 定。完整调研 /tmp/lhb-count-full-analysis.md（16KB，双重根因+回填方案 A/B/C/D）。
+
+## ✅ 2026-08-05 夜间数据时点调研 已完成归档
+
+> 已完成。memory `night-data-update-time` 已落档。结论：美指5点/欧洲全球2点/黄金次日9:25（夜盘21:00-02:30缺口待补02:35采集）。详见 docs/archive/TASKS-done.md。
+
+**状态**：⏸ 撞 429 挂起，第一步没跑。
+
+**用户问**：黄金和全球指数（夜间开盘）数据最早什么时候更新，是早上5点吗。
+
+**已知 launchd 凌晨时点**（主控查清，精确数据源待调研）：
+- 02:00 backfill-evening（回填，黄金2:30收盘 02:00采不全）
+- 01:43-02:47 pf-stage0-*（公募基金净值，非夜间盘）
+- 03:17 pf-score-weekly（周日）
+- 05:00 us-stock-morning（美股早晨，昨晚美股4:00北京收盘后5点采最稳）
+- 17:50 update-all（盘后全量）
+
+**待调研**：黄金/全球指数具体哪个任务采、数据源（akshare/yahoo/新浪/腾讯）几点发布、前端 JSON 几点上线。
+
+## ✅ 2026-08-05 日图 hover 已完成归档
+
+> 已完成。commit 726eca7be。用户定方案A（echarts，体验最一致）。详见 L1513 + docs/archive/TASKS-done.md。
+
+**状态**：🔄 调研中（未撞 429，23:41 还活）。
+
+**用户反馈**：分时图趋势线 hover 有对应时间点数据提示，日图曲线 hover 没效果，要一样 hover 有对应日期数据。
+
+**已定位方向**（agent grep 到的代码）：
+- 日图 = ntIndexSparkline 生成的纯 SVG 缩略图（app.js L9393），无 hover 交互
+- 分时图 = echarts（有 tooltip trigger:axis + formatter）
+- 根因方向：日图 SVG 无 tooltip，需加 hover 交互或改 echarts tooltip
+
+**待结论**：根因 + 哪个图 + 实施方案，agent 完成时 SendMessage to 'main' 通知。
+
+### 日图 hover 决策（2026-08-05 23:45 用户定）
+**用户定方案A（echarts，体验最一致）**，非推荐方案B。代价接受：P0-3 首屏优化回退（11 个 echarts.init +200~500ms）。
+
+**实施方案A**（8-10 配额恢复后派 agent）：
+- 日图 ntIndexSparkline (app.js L9367-9399) 改 echarts line chart
+- 复用行业 spark-cell tooltip 配置 (app.js L14677, trigger:axis + formatter 显示日期+收盘+涨跌%)
+- 删原生 <title> 标签 + <circle r=4> 命中区域
+- 同步改 KPI 卡 sparkline (L8326) 同函数同问题
+- 不改：行业 spark-cell（已 echarts 有 tooltip）、分时图 echarts（已有 tooltip）
+- build_min + bump_asset_version + bump sw.js CACHE_VERSION + export + deploy + push main
+
+**调研报告** /tmp/agent-progress-daily-chart-hover.md（agent ad5a51555497b93a4 完成）。
+
+## ✅ 2026-08-05 首页 5 前端问题（全部上线 main + 规范落档，归档 TASKS-done.md 2026-08-08）
+
+> 5 问题全部上线（commits 7d7cbceca + 5e217f75f，reviewer ad5b PASS）。详见 L1231 下方 + docs/archive/TASKS-done.md。
+
+用户 2026-08-05 提。连续 3 agent 卡（a023 400参数无效 / aabd 卡死 / aff 卡死调研阶段），API 严重不稳定 + 14-18 高峰双叠加。5 个问题汇总待 18 后 API 稳定派 agent 一次处理。
+
+### 问题清单
+1. **grade 英文->中文**：excellent->优秀 / good->良好 / warn->偏差大。所有显示点统一改（hoverpop etf-pop-grade 标签 + 弹窗 + 筛选器）。需确认 `_gradeLabel` 函数（app.js L1500 附近）已存在与否（a1b16b 加的或既有），统一调用。
+2. **hoverpop 至今收益截断**：首页信号 hoverpop 里至今收益省略号截断。style.css 去 `text-overflow:ellipsis` + `white-space:nowrap` 改 normal 换行 + 加大 hoverpop 宽度（如 320->400px）。
+3. **4档归一档+标签完整**：用户 AskUserQuestion 定"归一档(最佳档,不重复)"方案。`_signalTiers` 改返回单最佳档：有档1归1/无则有档2归2/无则有档3归3/无ETF归4，过滤改归档N显示，计数各档独立不重叠。标签改回完整"强关联ETF/相关ETF/有近似ETF/概念无ETF"（app.js L1776-1782 _etfFilterRow + L9277-9288 click handler + _signalTiers 函数）。跨档重复根因：etfs 跨多档命中任一即显示，归一档后每标的归最佳档。
+4. **指数走势图标题代码统一**：A股指数已加 `_idxCodeTag`（b7e0b96c1），板块分化/港股板块/全球指数 chart title 没加，需统一。grep `_idxCodeTag` 使用点 + 板块分化/港股/全球 chart title 渲染处补加。
+5. **hoverpop ETF标签 hover 关闭 bug**：首页指数 hoverpop 里"相关etf后至今前面的绿灯 *warn12.9%"，鼠标放上去整个 hover 关闭。mouse event 问题，需调研 hoverpop mouseenter/mouseleave 绑定（可能 mouseleave 范围误判或 ETF 标签 span 触发 mouseleave）。
+
+### 实施约束
+- 5 问题可合并一个 agent 实施（都改 app.js/style.css，省 cherry-pick）
+- 实施后 build_min + bump_asset_version + bump sw.js CACHE_VERSION（当前 a19->a20）+ reviewer 通过 + push main
+- 避开盘后定时任务时点（15:35/16:00/17:50/20:35/22:00）+ intraday 每10分钟（:25/:35/:45/:55/:05/:15）。安全窗口 23:00+ 或午休 11:35-12:55
+- §15 派 reviewer agent 通过才 push main
+
+### 关联状态
+- main: 33d41d499（6d3f56c82 ETF 4档多选已上线，但语义问题需改归一档）
+- feat: 6d3f56c82
+- 工作区 M scripts/build_board_etf_map.py（_etf_index_map_amount 新函数，ETF manual fallback amount 修复，待盘后 15:35+ commit + 跑脚本 + deploy）
+- 后端重启加载 queries.py self 注入（cgb_10y_etf sh511260 归档1，当前 overview.json 无 self 落档4 误判）
+
+## ✅ 2026-08-07 首页 5 前端问题全部上线 + 规范落档
+
+### 5 问题(全部 ✓ 上线 main + ss.fx8.store 验证生效)
+- 问题1 grade 中文: ✓ main 7d7cbceca + ss.fx8.store(优秀/良好/偏差大 生效)
+- 问题2 hoverpop 截断: ✓ main 5e217f75f + 验证(style max-width 400px + term-pop-etf normal)
+- 问题3 4档归一档+标签: ✓ main 5e217f75f + 验证(_signalTiers Math.min 归一档 + 强关联ETF/相关ETF/有近似ETF/概念无ETF)
+- 问题4 指数标题代码统一: ✓ main 5e217f75f + 验证(_idxCodeTag 全球+板块)
+- 问题5 hover bug: ✓ main 7d7cbceca + 验证(data-no-pop 生效)
+- reviewer ad5b PASS(问题2+3+4 逐项验证,无回归)
+- index.html v=a153e2f8 + sw a21 + app.min.js/style.min.css 验证生效(§8 验功能生效层)
+
+### 规范落档(全部 ✓ 上线 main)
+- CLAUDE.md §15 改动分级+小问题口子(A级主控改不派reviewer/打包派agent/B级逻辑/C级数据): main 8379e0e50
+- CLAUDE.md 9条教训(compact恢复5步/验功能生效层/bump sw/min验证字符串/export路径同步/worktree不送达/改口径停旧派新/resume拒绝/API别卡死): main 1ee7ba450
+- claude-work-mode/ 拆分(通用 CLAUDE.md 245行 + 项目专项 PROJECT-SPECIFIC.md 133行 + README): main a91da1941
+
+### 剩余待办
+- aaf6 schedule_stats 合并方案1: 待盘后 15:35+ 实施(intraday_snapshot.sh L335 删独立 push + L217 DATA_FILES 加 schedule_stats,省~27次/天盘中CF构建)。C级定时任务脚本,需reviewer+smoke+盘后窗口
+- build_board_etf_map.py M(_etf_index_map_amount): 待盘后 commit + 跑脚本生成 board_etf_map.json + deploy
+- 后端重启 queries.py self 注入(cgb_10y_etf sh511260 归档1,当前 overview.json 无 self 落档4 误判)
+
+## ✅ 2026-08-07 冰点日角标 bug 修复上线
+
+### Bug
+freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误报"⚠ 滞后·08-03"(实际数据新鲜 overview date=今日,8/4-8/7 恐贪回升>20 无冰点属正常)。
+
+### 修复(方案A专用中性角标)
+- 新增 helper: _fmtFreezeMmdd/getFreezeEventBadgeHTML/addFreezeEventBadge + refreshCardTimeBadges freeze 分支 + .t1-event CSS(中性蓝#3b6ea5)
+- 角标"📅 最新冰点日·08-03" + hover缘由(冰点值16.13<20+此后无新冰点恐贪回升>20+数据更新至今日+非采集异常)
+- recent_freeze 空(120日无冰点)回退 addCardTimeBadge 绿色(无回归LOW-1)
+- commit 0d1c0e630 push feat -> cherry-pick main 8eb4ee98a push main
+- reviewer a958 PASS(7项+P0 smoke+min回归)
+- 上线验证: ss.fx8.store app.min.js?v=af18479d 含"最新冰点日"+t1-event ✓
+
+### reviewer 发现(待办)
+- smoke-checklist.md P0-08 ETF id 拼写错误(写 sh000001,实际文件用短id sh-all.json/hs300-all.json),非本次改动,待修
+- INFO(非阻塞): 边界场景首屏recent_freeze非空后轮询变空,角标保留旧冰点日(原代码同样不更新且会误报,新行为更优)
+- trivial: L5215注释措辞略不准(代码正确)
+
+## ✅ 2026-08-07 schedule_stats 合并方案1 上线
+
+### 改动(intraday_snapshot.sh,commit 547414a70 feat -> b2f3d9171 main)
+- L218 DATA_FILES 加 schedule_stats(.json+.gz)
+- L335 删独立 push_schedule_stats.sh 调用
+- L328 gen_schedule_stats 保留(刷新本地)
+- 省 CF 构建: 盘中每10min 2次 push -> 1次,~54次/天 -> ~27次/天减半
+- schedule_stats 滞后一轮(10min盘中/25min-1h盘后),前端 modal 按需读无感知
+- reviewer adcf PASS(10项+check_data_integrity 23ok/0fail)
+- 20:35 intraday 运行新版(盘后验证)
+- 路径: trade-data/scripts symlink -> trade/scripts, git 在 trade/
+
+### 待办(可选)
+- deploy.sh L412 注释"schedule_stats.json 有独立 push_schedule_stats.sh 兜底"对 intraday 路径略过时(intraday 不再用),但泛指仍成立(11个其他脚本用),reviewer 说可不改
+- 20:35 后 curl ss.fx8.store/data/schedule_stats.json 验证 intraday last_run(滞后一轮)
+
+## ✅ 2026-08-07 build_board_etf_map sz_div manual_fallback 修复
+
+### 改动(commit 27a6cf1cc feat -> cdf278afe main)
+- _etf_index_map_amount (L365) + _fallback_159905_amount (L384): ETF manual fallback amount 直读 etf_index_map.json(不过滤 status)
+- main() L968-998: sz_div 空时注入 159905(红利ETF工银,399324,manual_fallback,0.35亿,grade=good,sim=0.966)
+- 159905 manual_fallback 归档3(近似),不误归强关联/相关(_etfTier L1539 判定正确)
+- reviewer afa32 PASS(8项+check_data_integrity 23ok/0fail,空占比16.1%<30%)
+- ⚠️ agent a65a 违规 push main(C级未 reviewer 就 push cdf278afe),代码无缺陷不回滚
+- 前端生效: 17:50 update-all 跑 build_board_etf_map.py(重生成 board_etf_map.json)+ export.py(重生成 index/sz_div-all.json 含 etfs)后 deploy 生效
+
+### 待办
+- 17:50 deploy 后 curl ss.fx8.store/data/index/sz_div-all.json 验 etfs 含 159905(生效验证,验功能生效层非代码在main)
+- L1013-1014 注释"sz_div 主动留空"略过时(sz_div 已有 manual_fallback),可选更新(Minor nit)
+
+## ✅ 2026-08-07 feat/main 同步紧急修复(部署链路 bug)
+
+### Bug
+- feat/iframe-theme-follow 领先 origin/main 52 commit, deploy.sh 从 feat 跑推 main non-ff 失败(rebase 撞 config/indicators.yaml + build_board_etf_map.py abort)
+- 所有靠 deploy.sh 推的盘后数据(rotation/public-fund/update_all 17:50)推不上 main, 线上卡昨日(板块轮动0806)
+- 根因: feat 含功能 commit(459df7293 路B-E组6 等)未合并 main, deploy.sh push HEAD:main non-ff
+
+### 修复(a948, commit 7b2f6c912 merge)
+- feat merge origin/main + push feat:main ff(让 main=feat)
+- 冲突: config/indicators.yaml + build_board_etf_map.py feat==main 无diff(rebase不撞)
+- feat/main 同步(双向 count=0), rotation 0807 上线(ss.fx8.store latest.date=20260807), 17:50 update_all 恢复 ff
+
+### 影响(feat 功能 commit 上 main)
+- 459df7293 路B-E组6 新增科创板芯片指数 sse_000685(reviewer PASS)上 main
+- 之前 cherry-pick 的功能 commit(问题1-5/冰点/build_board_etf/schedule_stats) feat 原版也上 main(同内容 git 识别)
+
+### 待办
+- getCardTimeBadge 语义(T+1 数据盘中显示"滞后" vs tooltip"17:50采集"矛盾): rotation 非 T+1 已0807, 其他 T+1 卡片若仍显示"滞后"需修(盘中未到采集时点应显示"待采集"中性)
+- a948 sm_use=0 没 SendMessage(cron 兜底发现, §11 教训应证)
+
+## ✅ 2026-08-07 ETF 信号灯体系重构（5色灯+hover中文+列表灯）已完成归档
+
+> 已完成上线。_etfLightInfo/_etfTier 5档分级 + CSS 6灯类 + track_tier 数据 + 信号灯分层调整（strong≥75/related 60-74/approx 50-59/none 30-49/灰灭<30）。详见 L1516-1523 会话状态 + docs/archive/TASKS-done.md。
+
+### 需求(用户7点+讨论确认)
+1. hover tooltip 中文化(来源 track_index/overlap -> 本体/跟踪指数/成分重叠/名称匹配/手动兜底; 分级 excellent/good/warn -> 优秀/良好/偏差大)
+2. 信号灯在列表体现(不只 hoverpop), 布局: 信号名 灯 评级(低☑️) ETF名 代码; 优秀/相似度% 放灯 hover 不显列表
+3. 颜色5色按档+相似度(去紫🟣/黄🟡):
+   - 🔵 蓝 = self 本体无误差(强关联)
+   - 🟢 绿 = track_index 可靠(强关联, excellent/good 归档1)
+   - 草绿(🟢+透明度) = track_index 相关(归档2)
+   - 🟠 橙 = 有近似 仅供参考警示(归档3, track_index warn/manual_fallback/overlap/name_match/kw)
+   - ⚫ 灰 = 概念无ETF(归档4, 灭灯占位行对齐)
+4. 相似度放灯 hover 不外露列表
+5. 偏差大(track_index warn)归橙(非绿, 落有近似ETF)
+6. self 蓝色加至今盈亏(格式统一)
+7. hover 中文 + 去紫(overlap 按相似度归绿/草绿/橙)
+
+### 实施(B级 UI 重构, 跨 _etfMatchTags/_etfTier/列表渲染)
+- 重构 _etfMatchTags(app.js L1516): 5色灯(蓝/绿/草绿=绿+opacity/橙/灰) + hover tooltip 中文(来源+分级+相似度+至今盈亏)
+- 重构列表渲染: 灯在列表体现(信号名+灯+评级+ETF名+代码), 优秀/相似度% 放灯 hover
+- 去掉 🟣 overlap / 🟠 manual_fallback(旧) / 🟡 name_match 颜色(按相似度归绿/草绿/橙)
+- name_match/kw 归橙(统一有近似档; 若需单独黄后续调)
+- CSS .etf-match-tag 5色 + 草绿 opacity + ⚫灰灭灯占位
+- 概念无ETF ⚫ 灰灭灯占位(保持行对齐)
+
+### 有近似档多色临时标记(用户定 2026-08-07)
+- 🟠 橙 = 标准色(track_index warn/manual_fallback)
+- 🔴/🟣/🟡 = name_match/overlap 等其他 match_method 临时标记色,保留区分,用户看到后决定如何进一步归类
+- 即有近似档不统一归橙,保留 match_method 颜色区分待后续归类
+
+### 级别: B级(逻辑+显示, 跨 _etfMatchTags/_etfTier/列表渲染, 有隐藏影响面-轮询/列表渲染)
+### 排期: 待当前活跃待办(17:50验证/getCardTimeBadge语义/后端重启)后, 或用户优先
+
+## ✅ 2026-08-08 ETF复权修正（方案b+c）已完成归档
+
+> 已完成上线。accum_nav列已加etf_daily+回填覆盖率99.96%，512000除权日不跳。commit ab176b71b（代码）+865500d9f（数据）在origin/main。详见 L1506-1507 + docs/archive/TASKS-done.md。
+
+> etf_daily.close未复权,512000除权20250801=1.138->0804=0.572致TE虚高50%(主控验收✓)。影响10处:115只ETF 7.6%有除权跳变120事件。**复权是ETF跟踪评分(5维度)前置依赖,必须先修**。
+
+### 方案b+c(调研报告 /tmp/agent-progress-etf-adjust.md 202行)
+- **采accum_nav**:`fund_open_fund_info_em(symbol, indicator='累计净值走势')` 已复权不跳(159915 08-01=2.6351->0804=2.6483连续✓主控验收),0.2s/只,7类ETF全覆盖。fund_etf_hist_em(东财)被封/fund_etf_hist_sina不支持adjust/mootdx不复权,均排除。
+- **计算层按需用**:收益率类(TE/IR/R²/相似度/since_return/RSI/BB)用accum_nav;OHLC类(trade_sim/Donchian/ATR)用前复权系数adj(t)=r(t)/r(latest)调整close;实时展示保持未复权(交易视角)。
+- **3决策(用户2026-08-08定)**:①TE基准=accum_nav vs指数(基金跟踪能力剔除折溢价)②存储=etf_daily加accum_nav列(SQLite ALTER ADD COLUMN O(1)不锁表)③sparkline=前复权OHLC(历史连续不误导)。
+
+### 影响面10处(主控grep确认export RSI/BB用close✓)
+- 高5(必须复权):build_board_etf_map相似度_calc_returns / 新评分_calc_tracking_score(TE虚高50%) / queries.etf_since_return / alert_score技术指标(RSI/BB假信号) / export_etf_score_list(RSI+BB+ATR)
+- 中3(需复权):simulate_trade回测成交价 / lab.js / app.js涨跌幅波动率
+- 低1(可选):sparkline K线 ｜ 无1:alert_match(只用amount)
+
+### 工时~10h + 回填窗口
+- 采集回填2h(1520只*0.2s≈5min写DB,避20:07 etf-national-team同库写锁)+计算层7文件6h+测试2h
+- 回填窗口:周六23:00-06:00 / 周日06:00-20:00(避20:05/20:07/22:00/03:00/02:00定时任务)
+
+### 级别:C级(数据产物etf_daily加列+回填+计算层7文件,有隐藏影响面-所有用close算收益处)
+### 排期:待实施。复权是ETF跟踪评分L1348前置,先复权再评分+信号灯L1316合并批次。建议周六23:00+或周日下午启动(10h分阶段:采集回填->计算层->测试)
+### 验收点(实施后)
+- [ ] accum_nav除权日不跳(159915已验✓,512000回填后复验1.1370->1.1396)
+- [ ] etf_daily加accum_nav列+1520只回填(覆盖率≥92%)
+- [ ] 10处计算层改用accum_nav/前复权(grep无遗漏用未复权close算收益)
+- [ ] 159536 TE用accum_nav不虚高(对比未复权TE 10.6%)
+- [ ] check_data_integrity + reviewer P0 smoke
+- [ ] 实时展示close保持未复权(交易视角不变)
+
+## ✅ 2026-08-08 ETF跟踪5维度评分算法 已完成归档
+
+> 已完成上线。commit b3ca1cc83（后端）+a02310a34（数据）+588841db1（前端D1b）。reviewer PASS。权重TE30%/R²25%/偏离15%/滚动15%/IR15%，百分位rank，每日更新。curl 159536 track_score=65.8 approx。详见 L1508 + docs/archive/TASKS-done.md。
+
+> 用户发现 7/27 中证2000(932000)超卖拐点信号 hoverpop 显示「159536 🟢·良好·1.1% 至今+1.63%」而指数至今+8.19%,收益差距大。159536 在7/27单日大涨(规模小抖动)致偏离,但相似度仍评良好,认为当前算法有BUG。用户提供5维度加权评分算法(偏离度/年误差/信息比率/R²/滚动误差标准差)。
+
+### 调研结论(进度文件 /tmp/agent-progress-similarity-current.md + /tmp/agent-progress-tracking-score-new.md 完整7章报告)
+- **当前算法缺陷已坐实**: `scripts/build_board_etf_map.py` L680-770 `_calc_similarity()` 算5周期(ret_5d/20d/60d/ytd/1y)**累计收益差**取max(L559 PERIODS),只看起点终点,中间路径完全不敏感。grade:<1%excellent/<5%good/≥5%warn;数据源index_daily(sentiment.db)+etf_daily(etf_national_team.db)。159536的V型尖刺(7/27 ETF+9.96% vs 指数+3.52%/7/28 ETF-7.20% vs 指数-1.70%)在累计里抵消,max_err=1.12%(ret_60d)骗过算法评"良好";since_return base踩7/27尖刺高点致至今+1.63% vs 指数+8.19% GAP6.56%。
+- **新算法可行✓**: 用**日收益率序列**(非累计)算5项指标(avg_dev/TE/IR/R²/roll_std),捕捉全路径偏离,V型尖刺会拉高avg_dev/TE/roll_std降级。**159536实测score=65.3->track_tier=approx(从good降级)✓**,V型尖刺被roll_std(稳定性51.0)+TE(60.7)抓出。主控§0验收:159536在board csi_932000(native中证2000)对比,similarity=0.9888/max_err=1.1237/grade=good与报告一致,新65.3基于native对比准确。
+- **数据齐备✓零新采集**: 复用etf_daily表(1520只ETF,20050223-20260807)+index_daily表(158指数)+board_etf_map.json(1140对ETF-板块指数)。92%(1051对)≥60共同交易日全5项可算,8%(89对)降级(≥30天算avg_dev+R²两项,余标None)。
+- **计算极快✓**: 实测全量1140对6.3s(加载1.1s+计算5.2s),单线程pandas/numpy,无需多进程。
+- **接入简单✓**: 扩board_etf_map.json每ETF加track_score/track_tier/track_avg_dev/track_te/track_ir/track_r2/track_roll_std/track_n字段;queries.py透传(裁剪只留track_score+track_tier减体积);前端_etfMatchTags并列展示(🟢·良好·1.1%·跟踪85)+排序改track_score降序+_etfTier改track_tier。走现有deploy(CF Static Assets,无R2无新cron无新upload)。
+- **工时~13h(1.5-2天)**: 后端_calc_tracking_score()4h+数据产物1h+前端4h+归类2h+测试上线2h。
+
+### 3处优化已定✅(用户2026-08-08确认按主控推荐:rank✓/权重TE30方案✓/每日✓;board-index语义按推荐接受)
+1. **归一化**: 用户原min-max → agent建议**百分位rank**(防一个跨境ETF TE=40%拉大range致其他挤中段失区分度;跨ETF相对比较比绝对阈值公平,因board-index语境绝对TE天然偏高)。主控推荐采纳。
+2. **权重**: 用户原 偏离25/年误差25/IR25/R²15/滚动10 → agent建议 **TE30/R²25/偏离15/滚动15/IR15**(TE提主指标;IR降权因语义冲突-正IR对投资者好但对跟踪是系统性偏离,用|IR|且cap±5)。**✅已定(用户2026-08-08确认按推荐)**:agent实测分布合理(13.4%strong/13.6%related/23.7%approx/49.3%none);avg_dev降15%因TE提主指标后避免与TE重复衡量偏离,IR降15%因语义冲突用|IR|且cap±5。
+3. **更新频率**: 用户原每周 → agent建议**每日**(集成进build_board_etf_map.py,deploy.sh L101每日跑,6.3s无压力,数据更新鲜零新cron零运维)。主控推荐采纳。
+
+### 设计决策:board-index语义(待用户确认)
+- 新评分对比board板块指数(非ETF自身跟踪指数),因 index_daily 仅158只指数无中证全指农牧渔等ETF native指数。
+- native在的(如159536对中证2000)对比准确;native不在的用board sw指数近似TE天然偏高(中位8%)49%落none正常(board代表性本就有限)。
+- 纯native需大幅扩展 index_daily 采集(大工程不推荐)。**推荐接受board-index语义**。
+
+### 数据语境审计结论(2026-08-08 track_index audit,进度文件 /tmp/agent-progress-track-index-audit.md)
+- **1140对分类实锤**: 自身跟踪591对(52%,broad_self182+csi_gz_self234+csi_gz_mixed_self175)/ 板块重叠514对(45%,sw_/thsc_编制方不同)/ 相关指数35对(3%,A50/A500子串误匹配)。approx=True不区分自身vs板块(L544统一设True)。
+- **⚠️ 2%年TE阈值过严(推翻原硬阈值)**: 10只自身跟踪ETF TE年化全>2%(2.4-10.6%,510300vs hs300=3.17%/159915vs cyb=2.40%最低仍超/159536vs中证2000=10.6%小盘难复制),因管理费/采样复制/未复权close含溢折价噪声。**avg_dev≤0.2%是更好自身跟踪分类器**(自身<0.2%除中证2000,板块重叠>0.3%)。
+- **⚠️ 未复权陷阱(实施必修,主控已验收✓)**: etf_daily.close未复权,512000除权20250801=1.138->20250804=0.572致TE虚高50%。**TE计算必须用前复权价或NAV**,否则除权日跳变污染TE。
+- **track_index_code齐备度极低**: etf_index_map.json 1571只仅181只(11.5%)有track_index_code(gen_etf_index_map.py只匹配14宽基/红利/港股);补采track_index_name->code映射仅28%覆盖(864/1200 track指数名不在config)。自身跟踪native TE覆盖受限。
+- **修正方案**: 自身跟踪591对(52%)用avg_dev≤0.2%分类器+native TE(须前复权);板块重叠514对(45%)用rank相对排序(TE天然3-33%不作绝对阈值);2%TE硬阈值降为参考非准入门槛。
+
+### 归类阈值推荐配置(实测,用户veto)
+- 权重: TE30%/R²25%/avg_dev15%/roll_std15%/|IR|15%
+- 阈值: ≥80 strong(强关联,对应旧excellent<1%)/ 70-79 related(相关,旧good1-5%)/ 50-69 approx(近似,旧warn5-10%)/ <50或None none(旧warn>10%)
+- 分布(实测1140对): 13.4% strong / 13.6% related / 23.7% approx / 49.3% none
+- 归档映射: strong=excellent档1 / related=good档2 / approx=warn档3 / none档3
+- self→strong tier1(不变)/ manual_fallback→none tier3(不变)/ 数据不足(n<60)→track_score=None灰标"数据不足"
+- 新旧共存: 旧similarity保留展示,新track_score做排序+归类
+
+### 与ETF信号灯重构(L1316)协调
+- track_score独立于match_method,作**数值补充非来源替代**,不破坏信号灯5色体系(蓝/绿/草绿/橙/灰)
+- _etfTier改用track_tier后,信号灯4档(强关联/相关/近似/概念)语义不变,只是分类依据从grade换track_tier
+- 可与ETF信号灯重构(L1316)合并一个agent批次实施(都改_etfMatchTags/_etfTier,省cherry-pick)
+
+### 关键验收点(实施后)
+- [ ] 159536 track_score<70(approx/none)非"良好",验证新算法抓出V型尖刺(原型已验证65.3✓,此为生产确认)
+- [ ] 1140对中≥1051对(92%)track_score非None
+- [ ] 全量计算<10s(实测6.3s)
+- [ ] board_etf_map.json<700KB
+- [ ] 前端_etfMatchTags同时显旧标签(🟢·良好·1.1%)+新评分(跟踪85)
+- [ ] 排序按track_score降序
+- [ ] curl overview.json含track_score字段
+- [ ] sw.js CACHE_VERSION bump
+- [ ] TE计算用前复权价或NAV(512000除权20250801=1.138->0804=0.572不污染TE,主控已验收跳变✓)
+- [ ] 自身跟踪591对用avg_dev≤0.2%分类(非2%TE硬阈值,2%TE全超过严),板块重叠514对用rank排序
+
+### 级别: C级(数据产物board_etf_map.json+后端计算+前端逻辑,跨build_board_etf_map.py/queries.py/app.js,有隐藏影响面-轮询/列表渲染/排序)
+### 排期: 待用户确认board-index语义+权重阈值后实施(3处优化已定:百分位rank✓/权重TE30R²25偏离15滚动15IR15✓/每日✓)。建议与ETF信号灯重构(L1316)合并批次。报告:/tmp/agent-progress-tracking-score-new.md(306行)
+
+## ✅ 2026-08-08 信号凯利回测 已完成归档
+
+> 已完成上线。commit 958c46789（后端）+c7cb90654（前端）+4d4f58630（数据）。6并列象限+4模式+3周期+凯利f*/half_kelly。后端reviewer 10项PASS+前端reviewer 8项PASS。curl signal_kelly_backtest.json 6象限。详见 L1509 + docs/archive/TASKS-done.md。
+
+> 用户 2026-08-08 口述需求,调研 agent 精确搜索 TASKS/NOTES/docs/archive/memory(77 .md+MEMORY.md)全部无落档痕迹(现有"凯利"相关全是其他场景:凯利公式计算/半凯利基金评分/买点净化回测/卖点逻辑回测/买卖配对回测),确认丢失,补落。
+
+### 需求(用户口述,主控理解)
+- **背景**:近期技术参考点会自动出交易信号,且可评级为高/中/低。基于凯利公式+历史模拟回测推算,信号出现后10天收益比5天/15天更高,故卖出逻辑暂不考虑卖信号,改用固定持有期/止盈。
+- **目标**:针对所有历史信号,按高/中/低3评级分别做买入卖出回测,对比不同评级信号的可靠度。
+- **买入逻辑**:信号触发 -> 固定买1000元 -> 买该信号最匹配的ETF(用现有ETF匹配逻辑);若无匹配ETF则不买(跳过)。
+- **测试象限(共6象限并列,非交叉,2026-08-08 用户扩展)**:
+  - 信号评级维度:高 / 中 / 低(3 象限)
+  - ETF 跟踪归类维度:强关联 / 相关 / 近似(track_tier: strong/related/approx,3 象限)
+  - 共 6 象限并列各自统计可靠度(3+3,非 3×3 交叉)
+  - **执行顺序灵活(用户定)**:若信号评级 3 象限先跑完而 ETF 归类档位未完善,则 ETF 归类 3 象限后接(2 截断分两段跑);若 ETF 归类 3 档位提前完善(D1 完成),则 6 象限一起跑
+- **卖出4模式**(分别回测,用户2026-08-08确认):
+  - 模式A:固定持有10天后卖出。
+  - 模式B:盈利达3%即卖出;满10天未达3%也卖出(不管盈亏)。
+  - 模式C:盈利达5%即卖出;满10天未达5%也卖出。
+  - 模式D:盈利达7%即卖出;满10天未达7%也卖出。
+  - 共4组回测[A/B/C/D] × 3评级(高/中/低) × 3周期(1年/3年/全部)
+- **测试周期**:近1年/近3年/全部(同模拟回测 trade_sim 周期)。
+- **展示位置**:策略实验室 -> 自定义分析 -> 新建「信号凯利回测」tab。
+
+### 已确认点(2026-08-08 用户确认)
+- **3/5/7% = 3个独立止盈阈值**:模式B/C/D 分别用 3%/5%/7%,各跑一组回测(参数扫描),非阶梯递进。卖出共4模式(A固定10天 + B3% + C5% + D7%)。
+
+### 依赖(已有可复用)
+- **D1 ETF跟踪评分(前置依赖,2026-08-08 用户澄清)**:D1完成后能找到每个信号"最靠谱的第一名ETF"(track_score最高),信号凯利回测买入用此最靠谱ETF。故信号凯利回测排在D1之后(第一优先级链尾),非与T9并列
+- 信号评级(高/中/低):AZ85 commit 27b365be 首页技术参考点按 type 分类评级已有
+- ETF匹配逻辑:现有 _etfMatchTags/board_etf_map 匹配(D1升级为按track_score选最靠谱)
+- trade_sim 周期框架:近1年/3年/全部周期回测可复用
+- 信号历史数据:etf_signal 表(技术参考点信号)
+- **ETF归类象限依赖(2026-08-08 用户新增)**:D1 新权重(TE30方案)做好后,完善 track_tier 3档位划分(strong≥80/related 70-79/approx 50-69 阈值,基于新权重实测分布调优)。信号评级象限只需 track_score 第一名,ETF归类象限需 track_tier 归类完善
+
+### 级别/工时/排期
+- **级别**:C级大工程(后端回测引擎+数据产物+前端策略实验室新tab)
+- **工时**:待调研估算
+- **优先级**:第一优先级链尾(复权->T1->D1->**信号凯利回测**),依赖D1找靠谱ETF;T9为独立第二优先级
+- **排期**:待D1完成后实施。卖出4模式已确认,无需再等用户确认。
+
+### 验收点(待方案设计后补)
+- [ ] 待需求确认+方案设计后定
+
+## 📋 2026-08-08 凌晨 会话收尾(序1验证✅ + 序2上线✅ + 序345串行定 + 相似度调研派其他会话)
+
+### 序1 验证完成 ✅(部署链路 bug 修复确认)
+- rotation latest.date=20260807 上线 + git log 今晚 20-21 点数据 commit(schedule/backfill/futures/intraday/etf-national-team)全在 origin/main -> 部署链路恢复
+- 线上 sz_div-all.json(--resolve CF IP 验,ssd DNS 本地 dig 干扰走 DoH 确认 A 记录 104.21.46.172/172.67.168.203)含 159905(红利ETF工银,manual_fallback,grade=good,similarity=0.9672,amount=0.35)-> build_board_etf sz_div fallback 上线生效
+- ssd.fx8.store DNS 正常(DoH 权威确认,本地 dig UDP 查不到是国内 DNS 干扰非线上问题)
+
+### 序2 A级小改打包上线 ✅(commit 725e0620f5 rebase -> 106e0755c push main+feat)
+- smoke-checklist.md: C26(L95-96)/P0-08(L413)/P0-09(L420)/alert_analyze(L432)/L687/P0-08 FAIL 示例(L634)多处 index 文件名拼写 sh000001->sh(实际文件 sh-all.json / alert_analyze_sh.json,不存在 sh000001-all.json)
+- build_board_etf_map.py L1013: sz_div 注释从"主动留空"更新为"已有 manual_fallback 兜底注入 159905 红利ETF工银"
+- deploy.sh L412 注释不改(reviewer 判断泛指仍成立,11 个其他脚本用)
+- L498 trade_sim_data 路径不存在,需调研正确命名,留待后续(Minor)
+- pre-commit lint 全通过(bash -n + py_compile + 全角括号扫描);force-with-lease push feat 覆盖旧版 c6520d5d5(内容已在 main 无丢失)
+
+### 序345 串行安排(2026-08-08 用户定)
+1. **序3 getCardTimeBadge 语义修复**(B级,app.js):T+1 卡片盘中显示"⚠ 滞后"与 tooltip"17:50采集"矛盾,盘中未到采集时点应显示"待采集"中性。有隐藏影响面(refreshCardTimeBadges 轮询),派 agent+reviewer(查影响面+相关 smoke)
+2. **序5 ETF 信号灯体系重构**(B级大,app.js):5色灯(蓝/绿/草绿=绿+opacity/橙/灰)+ hover tooltip 中文 + 列表灯 + 相似度放 hover + self 蓝加盈亏 + 去紫 overlap 临时多色标记。详见上方 L1316-1346 落档。派 agent+reviewer,可分批
+3. **序4 后端重启 queries.py self 注入**(C级,等 23:00+ 盘后窗口):cgb_10y_etf sh511260 归档1,当前 overview.json 无 self 落档4 误判。派 agent+reviewer+check_data_integrity
+- 串行原因:序3+5 都改 app.js 避撞 build/push;序4 C级需盘后 export+deploy 窗口(23:00+)
+
+### 相似度算法调研(2026-08-08,用户派其他会话做,本会话不参与)
+- 用户发现 159536(中证2000ETF汇添富)相似度 BUG:727 至今指数 +8.19% vs ETF +1.63%(差6.56%),但相似度显示良好 1.1%。根因疑 727 单日大涨(规模小抖动),当前算法(max_err 单日最大误差分档 excellent<1%/good1-5%/warn>5%)未充分反映累计偏离/误差稳定性/走势同步性
+- 用户提新 5 维度综合评分算法:日均跟踪偏离度25% / 年跟踪误差25% / 信息比率25% / 决定系数R²15% / 滚动误差标准差10%,归一化0-100分排序,暴力穷举所有ETF第1名可用,用评分重新归类强关联/相关/近似,每周周末定期更新
+- **本会话调研 agent ad25795e7e4b189c4 已停(用户派其他会话做)**,等用户那边调研结果回来再落档 NOTES §48 + 实施待办
+- 当前相似度(max_err)轻量保留,与新评分共存方案待定
+
+### 会话状态(2026-08-08 05:25,用户睡了,连轴转自主推进中,cron 731cd218 每10分钟监控。P0-4✅上线,接T9剩余)
+- **复权阶段1 ✅完成验收**:accum_nav列已加etf_daily+回填,覆盖率99.96%,512000除权日accum_nav不跳✓(close 1.138->0.572腰斩 vs accum_nav 1.137->1.1396)。进度文件 /tmp/agent-progress-etf-adjust-stage1.md
+- **T1 复权阶段2/3 ✅上线**:reviewer PASS + deploy完成(02:00 backfill帮推main,commit ab176b71b代码+865500d9f数据在origin/main)。主控§0验上线点✓:push hash在main + curl overview etf_since_return 1572/1633有值(accum_nav算)。复权全链完成✅
+- **D1a ETF跟踪5维度评分 后端 ✅reviewer PASS ✅deploy上线**:commit b3ca1cc83(代码)+a02310a34(数据)。reviewer PASS(算法逐行验✓+影响面干净✓+smoke无回归✓+check_data_integrity 23ok✓)。deploy✓:§0 curl 线上确认 LIVE 159536 track_score=65.8 approx(TE=2.319/R²=0.995/IR=0.4075/avg_dev=0.1038)。**65.8 approx主控定夺正确**:①159536在csi_932000(中证2000)下14只ETF中track_score最高=中证2000最匹配ETF✓(符合信号凯利回测"找靠谱第一名ETF"=每指数track_score最高,不依赖tier绝对值)②tier=approx是全样本(1334)绝对跟踪质量,中证2000成分股2000只跟踪难,最优也approx(宽基TE<0.5%拉高基准),合理③87.0 strong是旧样本(1304)rank基准过时,样本变化(1334)rank重算致65.8非bug,绝对指标两版一致④tier语义=全样本绝对跟踪质量(非同指数排名),符合"强关联/相关/近似"=ETF跟踪紧密度。**D1b前端+信号灯 ✅reviewer PASS 待deploy**:commit bf6ad2cfe(push feat)。reviewer PASS(三步✓sw.js a23+build_min+bump_asset_version / 影响面无破坏✓_etfMatchTags 2调用者+_etfTier 2调用者返回值设计意图 / graceful fallback✓track_tier absent回退grade / 数据流闭环✓board_etf_map->queries透传->export重跑 / CSS5色✓ / smoke OK✓)。3 Minor不阻塞:①L1867 filter tooltip仍用旧grade描述(deploy后与track_tier逻辑不符,**后续A级小修**,攒其他A级一起deploy)②popup标题pre-deploy略不准(deploy后自修)③_etfLightInfo null返nodata vs _etfTier null回退grade(backend不设null非实际)。**✅deploy上线**:commit 588841db1(push main)。§0验✓overview.json track_score=95.5/strong(透传生效)+app.min.js etf-light+中文+sw.js a23+不回归。**D1整体完成✅**(D1a后端+D1b前端)。⚠️etf_national_team_backfill卡死(mootdx海外不可达21:44后无动静,不推main不冲突,后续kill处理)
+- **信号凯利回测 调研✅完成 方案审✅通过 待D1b deploy完成派实施**:调研方案 /tmp/agent-progress-signal-kelly-research.md(588行)。方案:6并列象限(3评级rating_high/mid/low按10d score≥0.75/≥0.55/<0.55 + 3 ETF归类etf_strong/related/approx按track_tier,并列非交叉同一信号可归两组,track_tier=none不纳入ETF归类但纳入评级)+ 4模式(A固定10交易日/B3%/C5%/D7%止盈或10天)+ 3周期(y1/y3/all)+ 凯利f*/half_kelly。后端scripts/signal_kelly_backtest.py(复用simulate_trade费率+accum_nav+public_fund凯利,ETF第一名按track_score降序新建非_pick_first_etf)+ 前端lab.js sigkelly子tab(3处改动:_CUSTOM_CHILDREN+renderSignalLab分派+renderSigKellyLab)+ JSON signal_kelly_backtest.json<100KB。**主控审✓**:6并列象限符合用户需求/ETF第一名track_score符合D1/评级10d score同首页角标/accum_nav复权/费率复用。评级用当前score(signal_stats类型级历史统计非时变,非单信号未来函数,合理)。风险:近1年样本少2597/ETF归类覆盖55%指数strong仅16/1000元小单费率0.72%。**后端✅完成+reviewer✅PASS**:commit 958c46789。reviewer 10项全PASS(6象限分类阈值0.75/0.55同首页角标+并列非交叉+track_tier=none 2387纳入评级不纳入ETF / ETF第一名track_score降序 / 4模式持有期A10>D9.12>C8.42>B7.26 / 费率复用simulate_trade round-trip-1.2% / 凯利f*=0.5079 half_kelly=25.39%精确 / accum_nav复权bisect / 3周期y1<y3<all单调 / 集成export subprocess+deploy.sh DATA_FILES+check_data_integrity 72组合 / 样本17%数据真实 / smoke 24ok)。低优先级设计说明非bug(收盘价买入假设/1000元小单费率1%/无止损/accum_nav未过滤<=0)。**前端reviewer✅PASS**:8项全PASS(影响面additive无回归老aiwarn/aiscore正常 / 渲染6×4×3+色标+n<100警示+kelly_tier前后端一致 / 三步a24+build_min+bump_asset_version / fetch+graceful fallback错误提示重试 / CSS响应式3->2->1+dark/redgold / min字符串验证 / smoke P0-10/P0-17 OK旧版无回归 / deploy前后无break)。**✅deploy上线**:代码c7cb90654(feat:main)+数据4d4f58630(deploy.sh)。§0验✓signal_kelly_backtest.json 6象限(rating_high/mid/low/etf_strong/related/approx)+rating_high y1 A half_kelly=25.39(n=44/win_rate=0.5909/kelly_tier=保守)+22KB<100KB+lab.min.js sigkelly+sw.js a24+overview不回归+check_data_integrity 24ok。后端+前端+数据三层上线生效。**第一优先级链全部完成✅**(复权->T1->D1a+D1b->信号凯利回测)。遗留:①D1b Minor1 tooltip L1867文案不符(A级小修,攒后续)②etf_national_team_backfill卡死6h+(需kill,独立不阻塞)③信号凯利收盘价买入假设等低优先级标注(非bug)
+- **T9 全站性能 调研✅完成 方案审✓ P0-4实施在跑**:16瓶颈大部分已完成(P0-1/2/3✓renderTab不await+etf_score拆3JSON+sparkline改SVG / P1✓boot.json合并+preconnect+fetchBoot请求数22->2 / P1-5 notify故意不暂停即时性优先)。**唯一P0待做P0-4 R2边缘缓存**(R2直链DYNAMIC二次请求~1s无缓存)。待做8项优先级:P0-4>P2-15(offshore_fund 136MB 0引用)>P2-13(CSS will-change)>P2-14(分时SVG)>P2-12(sticky)>P2-10(requestIdleCallback)>P2-11/16重新评估。**主控定夺3决策**:①P0-4方案A自主定(Worker代理+R2 binding+Cache API边缘缓存1h,终极可控缓存§5;B方案Cache-Control快但不可控)②P2-15 offshore_fund暂缓待用户定(场外基金未来功能pf-stage0,删vs移R2需确认业务方向)③P2-10短期requestIdleCallback自主定。**P0-4✅reviewer PASS + ✅deploy上线**:commit 0d29fd5c3(8文件:wrangler.jsonc r2_buckets binding R2_BUCKET signal-data+headers.js r2ProxyHandler /r2/*路由 R2 get+Cache API边缘缓存+cacheKey剥离query+ctx.waitUntil后台写+404/502兜底+CSP同源删ssd+app.js/lab.js ssd->/r2/ 53处全覆盖+index.html删preconnect+sw.js a25+build_min+bump_asset_version)。reviewer✅PASS 8项全过。**deploy✓**:push feat:main commit 98c209925(rebase到25c32801d schedule_stats后,GH Actions wrangler deploy原子Worker+Static Assets,05:22凌晨安全窗口避定时任务)。**§0验✓**:①curl /r2/data/etf_score_list_buy.json 200(Worker部署+R2 binding生效)②cf-cache-status HIT+age累加(Cache API边缘缓存生效不回源R2;0.6s=中国->AMS网络延迟非回源,对比原ssd DYNAMIC~1s每次回源,目标达成)③/r2/lab/lab_backtest.json 200(R2多前缀binding可读)④overview/data/200不回归。**P0-4上线成功✓**。Minor:max-age=14400(4h)非reviewer说1h(R2对象自带cache-control透传CF边缘按4h缓存;数据低频更新4h可接受,不影响避免回源目标)
+- **连轴转链**:复权✅ -> T1✅ -> D1✅(a+b) -> 信号凯利回测✅ | T9: P0-4✅上线 + 评估✅完成 + **P2-13+P2-10✅上线**(commit 97171f3ad,GH Actions deploy,§0验✓sw.js a26+app.min.js v=8338c536+style.min.css v=368e0df0+首页200不回归+min字符串验证requestIdleCallback/will-change3处/contain;reviewer PASS 2低风险待用户验证:backdrop-filter玻璃拟态视觉+initNotifyButton通知按钮延迟CLS)。P2-12跳过(observer已优化,sticky高风险低收益)。**⚠️P2-14(分时SVG)留用户确认**:核心功能+T9方案有误(ntIndexSparkline是deferred echarts非纯SVG,改纯SVG需新建生成器+tooltip降级)+用户睡觉无法视觉确认。**⚠️P2-15(offshore_fund 147MB 0前端引用)留用户确认**:路线图决策(①删+停采集杀pf-stage0管线 ②加新鲜度闸门省3.5s export ③保持现状147MB仅本地R2),场外基金是未来功能pf-stage0。P2-11/16评估✅完成:P2-11跳过(大盘echarts非首屏P0-3已解决+SVG高复杂度丢tooltip/dataZoom)/P2-16东财跳过(开发者已定不换源L414/L452+ind_turn_sw零前端引用)+mootdx skip list低价值可选(7-8永久失败code 158006/159077/159083/512420/561390/561810/561890省214s/天,82%已覆盖,记录待办不优先)。**T9全部16项评估完成,主要性能项✅上线(P0-4+P2-13+P2-10),剩P2-14/P2-15待用户决策+mootdx低优先级可选**
+- **cron监控**:731cd218 每10分钟(7,17,27,37,47,57)durable,查在跑agent进度mtime+DONE,完成验收+派下一个,卡死SendMessage唤醒/重派
+- T5 日图hover:✅已实施(commit 726eca7be),从待办移除
+- **连轴转可自主工作全部完成**:第一链✅(复权->T1->D1->信号凯利)+ T9主要性能项✅上线(P0-4 R2边缘缓存+P2-13 CSS will-change/contain+P2-10 requestIdleCallback)+ D1b Minor1 tooltip✅上线(f9318eff3 sw a27,文案匹配track_tier 5色)+ backfill卡死kill。**剩待用户决策**:P2-14(分时SVG,核心功能T9方案有误需重设计+视觉确认)/P2-15(offshore 147MB 0前端引用,路线图:删pf-stage0管线vs保持vs新鲜度闸门)/mootdx skip list(低价值可选省214s/天)。**待用户验证**:P2-13 backdrop-filter玻璃拟态在contain:paint下视觉+P2-10 initNotifyButton通知按钮延迟CLS。feat文档commit已push
+
+### 会话状态(2026-08-08 09:40,用户醒来反馈ETF信号灯口径统一,5项全上线✓)
+- **ETF信号灯口径统一与展示优化 5项全上线✓**(用户逐个反馈,主控派agent实施+§0验收):
+  1. 列表灯方案A分组口径(_signalLightInfo,分组min所有ETF tier=最佳跟踪质量)commit `729162300`
+  2. 统一 track_score top1(hoverpop+cellHtml用_topEtfByScore,和popup一致)commit `40958ec8f`
+  3. 列表回指数名/代码(_idxName/_sigIdxCode,需求2理解修正)commit `729162300`
+  4. CSS辅助色去opacity commit `729162300`
+  5. 展示顺序 档位：跟踪分->相似度->体量(_etfMatchTags,由重到轻)commit `ac365c67e` sw a32
+- **§0验上线✓**:三域名 sw.js=a32(带bust;不带bust CF edge滞后拿a31正常,等分钟级传播)+app.min.js '：跟踪分'=1。展示规则:信号灯(最重)->档位强关联：跟踪分83(次重+第三)->良好1.4%(相似度辅助)->8.37亿(体量辅助)
+- **口径错配根因回顾**:分组用_signalTiers(min所有ETF tier=跟踪质量)vs 灯用it.etfs[0](max_err升序=相似价格走势)。最相似≠跟踪最好。典型:560590 sim99.1%最高但track_score55.1 approx;560010纯被动track_score83.9 strong。统一用track_score后hoverpop=560010绿(强关联)✓
+- **mootdx skip list 已评估完(非在跑,summary记错)**:T9一部分,低价值可选,7-8永久失败code(158006/159077/159083/512420/561390/561810/561890)省214s/天,82%已覆盖,记录待办不优先。a0ab agent不存在
+- **待用户验证**:ETF信号灯显示效果(信号灯颜色/档位跟踪分/体量)/P2-13玻璃拟态/P2-10通知按钮CLS
+- **待用户决策**:P2-14(分时SVG)/P2-15(offshore 147MB)/mootdx skip list(低价值可选)/pipeline优化(P0+P1+P2降59%等定做哪些)
+
+### 会话状态(2026-08-08 13:25,ETF降权批次+移动端hoverpop+走势卡上下行+至今盈亏修复 全上线✓)
+- **ETF降权批次 ✅上线**(commit 89ce938b5 + main 5615967db + 数据 a48f23640):n30-59 sqrt折扣+lowconf估算灯+至今盈亏基准日+⚠️近似标记说明+hoverpop z-index。§0验 overview.json 510910 track_low_confidence=True
+- **移动端 hoverpop 超屏修复 ✅上线**(commit 230b48d6c):@media revert min(260px)+删 white-space/flex-wrap(第一次 c976d1dbe 效果更差重做)
+- **走势卡上下两行布局 ✅上线**(commit 230b48d6c):h3 路径 _appendEtfLinkTag 创建 .etf-link-row target=etfRow,etf-tag/etf-tag-pnl 入下行
+- **首页技术信号 hoverpop 去"自YYYYMMDD" ✅上线**(commit 230b48d6c):L2430 _pnlFull 回退 _pnlText(term-pop 首页信号 cell 触发,走势卡 .etf-popup 保留"自")
+- **板块分化走势卡 ETF 换行 ✅上线**(commit 9af604cc4 + reviewer PASS):_appendEtfLinkTag L15213 加 else if(sparkName) 分支 + _appendBackupChipRow L699 else 加 .etf-link-row 检查
+- **self ETF 511260 etf_since_return 永久None ✅上线**(commit 9af604cc4 + reviewer PASS):queries.py L527 match_method=="self" 用 _load_close_map 取 index_daily close(511260=cgb_10y_etf 数据在 index_daily 不在 etf_daily)。§0验 511260 18条 16有值/2None(今日信号)
+- **etf-tag-pnl(至今盈亏)不显示 ✅上线+用户确认显示**(origin/main a3b9f9cca + sw a43):根因 _sigEtfCache 只 overview tab 填充(_renderSignalGrid L1667),market tab 走势卡不填 -> _appendEtfLinkTag L15231 合并失败 -> _top0Text 空 -> etf-tag-pnl 不生成。**非230b48d6c重构副作用**(重构前后合并+pnl生成代码相同)。修复:_ensureSigEtfCacheFromOverview helper(L1500,从 overview signals_today.etfs 填 _sigEtfCache 不覆盖已有 if 判断)+renderAStock L11239/renderHK L11321 前调用。§0验线上 app.min.js 含 _ensureSigEtfCacheFromOverview + sw a43 + 用户确认走势卡+板块分化至今盈亏显示✓。**reviewer 18:05 cron c952ecd1 事后复查**(配额15:02恢复,避14-18高峰§17)
+- **⚠️429配额超限**:实施agent a4d9b30ec88f0eb1c 13:17 429失败(配额15:02重置),但其代码改动已完成上线(a3b9f9cca)。配额恢复前不派agent
+- **待用户决策**:top1稳定性机制(延迟纳入track_n<90排后+后端stable_top1滞回3天,调研完成待实施)/今日信号None(csi_930986最新信号今日tag/popup None是设计,可改善)
+- **🆕R2数据层全量迁移(用户定方向,调研✅完成 阶段1a实施中)**:git代码/R2数据解耦。调研agent ac13ded24d01e48ae。现状git tracked 267文件18.4MB+大文件已R2(index/industry/lab/trade_sim等)。方案5阶段2天:①upload-all-data双写(2h,阶段1a现在做 upload_r2+deploy,1b盘后做intraday)②Worker /data/->R2 rewrite+/api/purge-cache+分层TTL(4h,核心,0前端改动,Worker截获/data/*.json转R2)③定时任务去git push改R2(6h,intraday/deploy/push_stats/update_lab)④.gitignore移数据+git瘦身18MB(2h)⑤staticdata git仓库日频备份23:00(2h)。决策点(用户确认):Worker rewrite非前端URL改/高频60s+purge/不上传.gz/**staticdata每次deploy后备份(盘后deploy.sh末尾rsync+commit+push,用户定非日频,盘中intraday数据在R2实时git backup盘后快照)**。关键风险:阶段2->3切换窗口(Worker rewrite验证生效才删git push,双写过渡)。关键文件:worker/headers.js(L108-135 /r2/代理无purge)/scripts/upload_r2.py(10命令)/scripts/deploy.sh(L281-352 DATA_FILES+L270-279 R2命令)/scripts/intraday_snapshot.sh(L190-313 git push)/static-site/app.js(dataUrl L3578-3582+35fetch点)。用户已建staticdata仓库git@github.com:xp13465/trade-data-signal-staticdata.git。进度文件/tmp/agent-progress-r2-migration-research.md(调研)+/tmp/agent-progress-r2-stage1a.md(实施1a)
+
+### 会话状态(2026-08-08 15:30,R2迁移阶段1a✅ 阶段1b实施中)
+- **R2迁移阶段1a ✅完成**(cc594371e push feat/iframe-theme-follow,未push main):upload_r2.py 加 cmd_upload_all_data(L553)+_upload_glob exclude_fn参数(L266/L283)+deploy.sh L280 run_r2_upload upload-all-data 双写。§0验 R2 data/ 全量200(overview/intraday_snapshot/boot/alert/schedule_stats)+命令注册(L553/L868)+deploy.sh调用(L280)
+- **R2迁移阶段1b 实施中**(agent a5a38a7e01acda627,15:30派,取消原定15:40 cron db623935--用户指出不需等10min,改代码vs15:35旧版跑不冲突):intraday_snapshot.sh加R2双写(git push保留)。agent先调研intraday生成哪些文件,决定加upload-intraday精准命令vs复用upload-all-data。约束:只push feat不push main(避15:35/16:00/17:50/20:35定时push main竞争),测试只跑upload_r2.py不跑整个intraday_snapshot.sh(避撞15:35定时任务)。进度文件/tmp/agent-progress-r2-stage1b.md。完成SendMessage to main
+- **wrangler secret PURGE_SECRET**:等阶段2 agent一起做(生成密钥+存.env+用户wrangler put一次配齐避免不一致)。用户确认"等你"
+
+### 会话状态(2026-08-09 01:58,compact后续,用户睡了连轴转。凯利回测改进✅完成待reviewer+走势卡至今盈亏修复实施中)
+- **凯利回测改进 ✅完成**(commit 62782142b,10files 660insertions,未push):A3进阶指标(夏普/最大回撤/卡尔玛/总投入/总盈亏/总收益率/最大并发资金/年化)+B1全存trades(signal_kelly_trades.json 5.98MB 50312笔走R2 upload-data-large)+C3对比矩阵热力+交易记录弹窗。改 signal_kelly_backtest.py+export.py+lab.js+sw.js。自验py_compile/node-c/check_data_integrity全过。**reviewer agent a4d32863d91e41bb6在跑**(cron 6ec68c80),不跑export避撞走势卡queries.py
+- **走势卡至今盈亏修复 实施中**(agent a593ba2bd5b189415,cron ffc0110c):Layer2+3根治。调研三层根因(§0验:renderGlobal app.js L11415不调_ensureSigEtfCacheFromOverview✓)+hstech/us_dji/cac40信号窗口外+global-all/hk-all.json etfs无etf_since_return。根治:后端global_market/hk算etf_since_return嵌入etfs+前端_appendEtfLinkTag优先从etfs读。改app.js+queries.py,不碰lab.js(和凯利回测并行)。未push
+- **等**:reviewer凯利PASS+走势卡修复完成->统一deploy(凯利回测sigkelly+走势卡global/hk)+push main+curl验证。安全窗口凌晨
+- **待办**:kospi无ETF(用户defer后续排查)/intraday_snapshot.sh L170 cosmetic(1LOW)/远期3(DB迁GitLab/P2-14分时SVG/mootdx skip list)
+- **reviewer c952ecd1 18:05**:etf-tag-pnl事后复查(_ensureSigEtfCacheFromOverview影响面+P0 smoke),避14-18高峰§17
+- **待1b完成**:reviewer+1a+1b一起push main(避定时任务时点),20:35 intraday跑新版双写验证
+- **R2迁移阶段1a+1b ✅上线 main**(df6597245):cherry-pick 1a(ce9d170aa)+1b(df6597245)到main(temp分支r2-stage1-push,避checkout main碰DB§10),reviewer PASS(5项全PASS+2非阻断建议:upload-intraday失败告警/boot.json冗余优化,阶段2前补)。功能生效:17:50 deploy跑1a双写/20:35 intraday跑1b,cron a462575e 20:43验线上R2
+- **R2迁移阶段2 实施中**(agent a8c867bbd51d850a0,15:50派,用户定无视18点高峰§17):Worker /data/->R2 rewrite+/api/purge-cache+分层TTL(60s/600s/3600s)+upload_r2.py purge_cache+PURGE_SECRET密钥存trade-data/.env。需用户wrangler secret put(阶段2 agent给命令)。reviewer后push main触发deploy。进度文件/tmp/agent-progress-r2-stage2.md
+- **R2迁移阶段2 ✅上线 main**(8a36b4b82,含阶段2 3b56bcb04+docs 8a36b4b82 cherry-pick到main):worker/headers.js dataRewriteHandler(/data/*.json->R2+ASSETS fallback)+dataCacheTtl分层TTL(60s/600s/3600s)+purgeCacheHandler(POST /api/purge-cache)+upload_r2.py purge_cache。Worker本地wrangler deploy Version b5431906+PURGE_SECRET已wrangler secret put。§0验 main 8a36b4b82 + /data/overview.json 200 max-age=60。**P0 GH Actions覆盖风险已解除**(main有阶段2,17:50 update_all deploy触发deploy-cf deploy main新Worker含/data/rewrite,不回滚)。reviewer 7项:1/2/4/7 PASS,3 P1(overview/intraday no-store回退dataCacheTtl 60s设计意图变化但实际可接受),5 P2(max-age=14400 CF edge serve header误导实际TTL正确非bug),6 P0(已解决)。P1/P2非阻断记录后续优化。另:reviewer报index/sh000001-all.json R2 404(数据缺失非阶段2引入,后续查)
+- **R2迁移阶段3 ✅上线main**(508eabb44,2026-08-08 16:37):定时任务去git push数据改R2上传+purge_cache+notify告警。reviewer PASS(无P0/P1,4个P2告警不一致阶段4补齐)。§0验收通过(deploy.sh DATA_FILES只留minJS/CSS+feed.xml,intraday去git push改upload-intraday,upload_r2.py加upload-data-files)。功能生效待工作日开盘实测(72h监控)。4个P2:update_lab无notify/gold_night缺--dedup-key/deploy.sh checkout dead code/intraday schedule_stats无notify
+- **R2迁移阶段4a ✅上线main**(3f721f2d8,2026-08-08 16:55):static-site/data/移出git(.gitignore catch-all `static-site/data/*`+`!feed.xml`,git rm --cached 266文件保留feed.xml)。board_etf_map.json补传R2(前置)。reviewer PASS(无P0/P1,3个P2死代码/daily_metric 404/checkout静默失败)。§0验上线通过(overview date=20260808 collected_at今日/board_etf_map 200/alert 200/schedule_stats 200,Worker rewrite走R2正常)。push main触发GH Actions deploy(ASSETS移除data/,Worker rewrite走R2)。Phase 4b瘦身暂不做(17GB历史force push风险高,移出后.git不增长)。灾备4层分工落地
+- **阶段5 灾备4层分工最终方案**(用户2026-08-08定):
+  ①**trade git(主仓库)**=代码(app/scripts/static-site源码,不含data/)
+  ②**staticdata git(新)**=**差异日志**(每次deploy后commit+push记录变化)=DB原件(3个sentiment.db/etf_national_team.db/public_fund.db**不压缩**,git delta追踪每日变化)+配置(.env.example/wrangler.jsonc/launchd plist不含密钥)+**小JSON**(脚本生成的小文件,git diff追踪)。体量小
+  ③**R2 signal-backup私有桶**=**备份快照压缩**(全量恢复用)=DB等重要文件gz,分层backup/30+weekly/28+monthly/365
+  ④**R2 signal-data公开桶(ssd.fx8.store)**=**线上静态资源分发**(前端fetch)=所有线上用的静态资源(小JSON+大文件index/industry/lab/trade_sim)。体量大于staticdata更全面
+  **脚本生成文件去向规则**:小文件→staticdata git(差异日志)+R2公开桶(分发)两处;大文件→只R2公开桶(不进staticdata,体量大git不适合)
+  互补不重复:staticdata看变化历史(git diff),signal-backup恢复全量(解压快照),R2公开桶线上分发
+- **阶段5 ✅上线main**(8bfc55e8d deploy.sh,2026-08-08 17:33 cherry-pick f015dd8e0到main temp分支push-stage5):reviewer PASS(17:29:33 REVIEW COMPLETE)。§0验收deploy.sh L526-534 staticdata备份块在main(rsync DB原件到staticdata/db/不进git+STATICDATA_REPO+commit+push staticdata best-effort)。staticdata GitHub 6894d9e(配置.env.example脱敏+wrangler+23 plist脱敏+小JSON 35文件+.gitignore排除DB+大文件+.gz)。**DB暂排除(GitHub 100MB限制),后续迁GitLab**
+- **DB备份方案A ✅定(不进git)**(用户2026-08-08定):DB原件(sentiment 125MB/etf_nt 179MB/public_fund 2.2GB)超GitHub 100MB限制,GitLab需手机验证用户没有,其他托管(Gitee/Bitbucket)也100MB限制。且sqlite二进制git diff只"Binary files differ"无差异化日志价值。**DB只靠R2 signal-backup私有桶异地备份**(gz分层30daily+28weekly+365monthly全量恢复)+本地双副本(trade/data主库+staticdata/db rsync,同Mac防误删不防硬盘挂)。GitLab待办取消。可选增强(方案B):关键业务表dump可读SQL进staticdata git真差异化日志,后续按需
+- **阶段2稳定观察**:用户确认首页正常✅(功能生效已验)+reviewer smoke(/data/文件全200)。**周末非交易日定时任务跑空(intraday跳/update_all deploy跑空数据旧),取消a462575e 20:43 cron(验时间新无意义),不等定时任务验证,抓紧周末做阶段3-5**。周一盘后验intraday双写。阶段3不阻塞(旧版git push兜底)
+- **⚠️待办:迁移后72h监控**(用户2026-08-08定,阶段3-5完成后启动):复用现有监控能力+加R2时效+修复闭环。监控维度:①日志(scan_log_anomaly抓异常:exit=0不可信/shell语法错误/吞异常,memory monitor-log-anomaly-blindspot+monitor-blindspot-exit0-syntax-error)②告警邮件(notify.py alert_state.json去重)③执行耗时(dur字段,intraday/upload-intraday/upload-all-data耗时超阈值告警)④周末定时任务正常(update_all 17:50 deploy跑新版去git push/backfill/intraday跳)⑤工作日开盘采集上传(intraday 09:25-15:02双写R2+采集)⑥数据时效(R2 /data/*.json时间新,盘中intraday<15min,CF cache purge生效)。**修复闭环**:告警邮件->主控cron定期查告警(alert_state.json/schedule_stats.json)或用户通知->派agent及时修正。方式:现有schedule_monitor+self_heal(launchd持久不依赖会话)+阶段3 R2上传失败notify告警+扩展schedule_monitor加R2时效检查。72h时间线:周六阶段3-5完成+周末任务/周日任务+R2/周一开盘intraday双写+采集+时效。阶段3-5完成后派agent实施72h监控
+- **⚠️待办:R2迁移全部完成后写完整部署文档**(docs/r2-deployment.md,用户2026-08-08定):方便他人用git代码项目重建。含①架构总览(git代码/R2数据解耦,staticdata备份仓库)②R2 binding配置(wrangler.jsonc R2_BUCKET->signal-data)③Worker /data/rewrite+/api/purge-cache+分层TTL(worker/headers.js)④upload_r2.py命令清单(upload-all-data/upload-intraday/upload-index等10命令)⑤定时任务双写(intraday_snapshot.sh L263+deploy.sh L280)⑥staticdata git备份(每次deploy后)⑦重建步骤(git clone代码+创建R2 bucket signal-data+wrangler secret put PURGE_SECRET+wrangler deploy+配launchd定时任务+首次upload-all-data填充R2)⑧排障(CF cache purge/R2 404/Worker路由)。阶段5完成后写
+- **站点部署文档 ✅完成**(commit 97b525690 push feat,agent a5fa9a005e95e08cc):docs/site-deployment.md(12章+2附录1060行)。现有 static-site/DEPLOY.md(7/8过时引用已删web/)+docs/backup-restore.md(仅DB),无完整文档故新建。覆盖架构/仓库/依赖/DB/R2(迁移中8处标注)/CF/多域名/launchd(24任务)/重建步骤/灾备镜像/排障/验证。灾备重建可行性高(代码->GitHub/DB->R2三层/小JSON->git/大JSON->R2/配置->.example)。R2部分阶段5后补完整。**待push main**(等阶段2 reviewer,一起cherry-pick)【阶段2-5已上线main,站点文档97b525690待确认是否已随cherry-pick上线】
+
+### 会话状态(2026-08-09 02:50,第4层持仓重叠✅完成+宽基全量进行中+28条归档审计✅)
+- **第4层ETF持仓重叠 ✅完成**(commit 7e3628da6,feat/iframe-theme-follow不push):agent aff05e97实施。量子科技thsc_300830从[]空->12只ETFs,命中用户参考516000大数据/515880通信/516630云计算(覆盖516510)/562380央企科技。match_holdings_overlap(ak.stock_fund_stock_holder反查stock->持有它的ETF)+build_board_etf_map.py第4层集成(threshold<6只ETF的概念才跑,track_idx去重,综合分=max_hold_pct*overlap_count避免宽基ETF压主题ETF,7天缓存)。行业概念含第4层,**宽基sh/sz/hs300仍track_index单源**(待扩充)
+- **28条归档审计 ✅完成**(agent a97b921c):逐条git show核对commit message vs归档描述。**除第27量子科技(已纠正b9f2eb546)外无其他严重错标**。5条轻微(无commit引用但功能存在:第15/16/24/28+第25条B/D/I完成依据偏弱)。cron 163f514b已删。§0验PASS(e4007405d commit message确认只三层无第4层)
+- **宽基全量 ✅完成**(commit 9e0c88e7c push feat,agent a32f1c84b 429终止但任务实质完成):所有指数统一a+b+c+d不分层。§0验PASS:sh8/sz4/hs300 58全track_index无误匹配(KW过滤L94-106精确KW+TRACK_INDEX_KW include/exclude生效),第4层保留(thsc_300830 12只holdings_overlap),check_data_integrity 23ok/1warn/0fail。宽基track_index扩展(sh7->8/sz2->4/hs300 40->58)。**reviewer待06:12**(配额429 reset 06:08:30,cron 5d76378e一次性自动派reviewer+push main上线,避定时任务时点)
+- **Kelly回测前提链路**:a+b+c全量叠加(e4007405d)✅+跟踪分排序+稳定性(52ec310dd)✅+第4层d持仓重叠(7e3628da6,行业概念)✅+宽基全量一视同仁(进行中)->重跑board_etf_map完整->Kelly回测重跑才准
+- **其他待办**:走势卡至今盈亏修复(567be9b24+1d9477eea)待push feat+main/Kelly回测(62782142b+1a8d37c88)暂缓等前提完成/文案"最近买卖信号"->"信号 辅关注·下轨拐点(日期)"B级小逻辑app.js L15406待改/KOSPI无ETF defer/§19会话级总结待做
+
+### 会话状态(2026-08-08 17:35,R2迁移阶段1a-5+hoverpop+iOS icon 全上线✅,3 agent通知丢失用进度文件兜底)
+- **hoverpop方案3 ✅上线main**(09a599f76,含方案1 df918e4f2+回退8b447addf cherry-pick到main temp分支push-hoverpop-ios):移动端信号灯文案精简(等级标签始终显+追踪分数字 span.etf-pop-score-num 仅移动端显纯数字去"跟踪分"前缀+_details仅PC显完整文案+省略号兜底 max-width:7em overflow:hidden text-overflow:ellipsis),PC保持原样。reviewer PASS。§0验上线 app.min.js etf-pop-score-num 计数=1
+- **iOS apple-touch-icon ✅上线main**(9e38712ea):从favicon.ico重新生成180x180(43195 bytes,旧12948)+index.html L22 ?v=9d27c273 破缓存+sw.js CACHE_VERSION a45->a46(v6-20260808-a46)。§0验上线 apple-touch-icon 43195 bytes+sw.js a46。**⚠️已添加主屏幕的需删除重添加获取新icon(iOS Safari缓存旧版,版本号破HTML link缓存但已装PWA的icon缓存独立)**
+- **阶段5 ✅上线main**(8bfc55e8d):见上条
+- **R2迁移阶段1a-5 全部上线main**:阶段1a/1b(df6597245)+阶段2(8a36b4b82)+阶段3(508eabb44)+阶段4a(3f721f2d8)+阶段5(8bfc55e8d)。git代码/R2数据解耦完成,static-site/data/移出git走R2唯一数据来源,定时任务去git push改R2上传+purge_cache+notify,staticdata git差异化日志备份
+- **3 agent完成通知丢失**(用户反馈"没那么多agent再跑,是不是又丢通知了"):hoverpop reviewer(acbdac78)+iOS icon(a1d8cbef)+阶段5 reviewer(aa70e93c5)完成SendMessage未送达主控,用进度文件兜底确认状态(§11 进度文件+stat-L mtime机制生效)。教训:通知丢失不丢工作,进度文件是可靠兜底
+- **⚠️待办**:①DB迁GitLab(用户注册后)②72h监控(阶段3-5已完成,可启动)③docs/r2-deployment.md(R2部署文档8章节)④site-deployment.md R2部分补完整(当前标注迁移中)⑤reviewer P2清理(阶段3 4个P2告警不一致+阶段4a 3个P2死代码+阶段5 reviewer待出P2)
+
+### 会话状态(2026-08-08 18:20,reviewer PASS→cherry-pick staticdata fix→派gz-cleanup agent)
+- **2 reviewer PASS**(通知再次丢失,进度文件兜底):staticdata reviewer(ac0ed8a07 18:02完成)+etf-tag-pnl reviewer(a8b63704 18:13完成)都PASS,SendMessage未送达主控,查/tmp/agent-progress-*.md查到结论。staticdata PASS(feed.xml+deploy.sh rsync源无回归)+etf-tag-pnl PASS(_sigEtfCache影响面/时序/兜底/smoke全PASS,2项smoke FAIL是checklist路径过时非本次改动)
+- **deploy.sh staticdata rsync源 fix ✅cherry-pick到main**(79f9d81bc,b75ab0965在feat):L559 rsync源 GIT_REPO->REPO(trade-data数据生成处),staticdata备份不再依赖空目录trade/static-site/data/
+- **派gz-cleanup agent**(a77eca635aa29767c,18:20):用户确认"全量迁移+清理.gz"。任务:①清理.gz生成逻辑4处(export.py GZ_THRESHOLD+rglob/intraday_snapshot.sh 8个.gz/upload_r2.py *.json.gz pattern/deploy.sh .gz防御)②删本地852个.gz(127MB)③清R2 .gz ④staticdata rsync去exclude全量迁移。C级,改完push feat→reviewer→主控cherry-pick。进度文件/tmp/agent-progress-gz-cleanup.md
+
+### 会话状态(2026-08-08 18:40,通知机制落档校正+§18犯错积累节)
+- **用户校正**:cron 10m是兜底非标准方案,标准方案待找SendMessage丢失根因+迭代。撤回之前把cron当标配落档(治标当治本)
+- **§11/§16/§2三处cron定位改回兜底非标准**+加标准方案待找根因(两假设:①agent没调SendMessage sm_use=0 ②调了harness没送达;验证:agent完成查jsonl grep SendMessage)
+- **新增§18犯错积累与防重犯**(7条犯错+防重犯条款):①通知丢失不设cron+把兜底当标准 ②DB方案理解反复3次 ③架构偏差exclude偏离全量 ④.gz凭memory断定 ⑤agent误报trade/trade-data ⑥cherry-pick干扰后台agent ⑦hoverpop试错
+- commit db692ecd0 push feat。CLAUDE.md上main延后(gz-cleanup在改deploy.sh等4文件,切分支干扰)
+- gz-cleanup agent(a77eca635aa29767c)后台跑中,cron fe562b43兜底
+
+### 会话状态(2026-08-08 18:55,gz-cleanup完成✅+§0验收通过+派reviewer+根因数据点)
+- **gz-cleanup 完成**(agent SendMessage 通知送达✅):commit 27e34cdf1 push feat(.gz 4处清理+删本地852+清R2 675+staticdata全量853)+ staticdata 4ad04a1(288files)。§0验收:deploy.sh .gz=0 / rsync exclude去 / export.py GZ_THRESHOLD=0 / 本地.gz=0+0 / staticdata递归853。全通过
+- **根因数据点**(§11标准方案调研):查 gz-cleanup jsonl 确认 agent 调了 SendMessage(CALL#1 to=main),返回 `{"success":true,"message":"Message queued for the main conversation's next turn"}`,本次送达✅。说明 SendMessage 机制本身工作,之前丢不是总失效。待下次有 jsonl 对比:之前 reviewer 是没调还是 queued 没投递
+- **派 reviewer**(aadd8c78d76b0c021):C级广涉及面,查影响面(deploy.sh 被 launchd 调 / upload_r2 被多脚本调)+ 前端 tryGz=false + staticdata rsync 逻辑 + P0 smoke。cron 1baf1866 兜底。PASS->主控 cherry-pick 27e34cdf1 到 main
+
+### 会话状态(2026-08-08 19:00,gz-cleanup ✅上线main)
+- reviewer PASS(影响面全查清+P0 smoke全PASS,SendMessage第2次连续送达✅)
+- cherry-pick 27e34cdf1->main(9ad78ba68,4脚本)+ CLAUDE.md sync(f5be4cdec,§11校正+§18犯错积累)
+- §0验上线:overview date=20260808+signals 286 / overview.json.gz 404(R2已清)/ feed.xml 200 / intraday collected_at 昨日20:35(周六)。全通过
+- **通知机制根因数据点**:gz-cleanup+reviewer 连续2次 SendMessage 送达✅。查 jsonl 确认 agent 调了 SendMessage 返回 success queued。SendMessage 机制工作,之前2 reviewer 丢待对比更多数据点(可能 agent 类型/完成时点差异)
+
+### 会话状态(2026-08-08 19:10,信号灯分层调整+弹窗修复 派实施中)
+- **用户提2问题**:①弹窗"ETF信号灯&跟踪指标说明"文字过时(还提紫=overlap,但信号灯已统一无紫色)②跟踪分重新分层(strong≥75/related 60-74/approx 50-59/none 30-49/灰灭<30)
+- **调研完成**(abe5b7ef97954a2d0):后端 build_board_etf_map.py L1013-1020+L1046-1053 两处阈值;前端 _etfLightInfo L1550-1567 读 track_tier;match_method 红紫黄全死代码(0触发,overlap65+kw4 都<50不落approx);弹窗5过时点+灰灭灯bug(n<30设none非null,灰灭灯从不显示);分布:strong31->44/related17->31/approx40->13/none70->48/灰灭0->43
+- **用户确认**:①删死代码红紫黄(approx统一橙)②采纳related 60-74
+- **派实施**(a59d5f9409e919e8a,19:10):后端改阈值75/60/50/30+n<30改null + 前端删_etfApproxCls+CSS死代码 + 弹窗5点修复+tooltip + 重新生成board_etf_map.json上线 + build_min+bump version+sw。B+C级,push feat->reviewer->主控cherry-pick。cron 兜底
+
+---
+
+## 📋 2026-08-08 批量归档汇总（28条已完成待办标 done）
+
+> 以下 28 条在 TASKS.md 中原标为待办（📋/🔄/🆕）但实际已全部实施上线，本次批量标 done 并归档到 [docs/archive/TASKS-done.md](docs/archive/TASKS-done.md)「2026-08-08 批量归档」section。每条含完成依据（commit hash）便于追溯。
+
+### 已归档 28 条（标✅已完成）
+1. ETF信号灯体系重构（5色灯+hover中文+列表灯）— _etfLightInfo/_etfTier 5档+CSS 6灯类+track_tier数据
+2. ETF复权修正（方案b+c）— commit ab176b71b+865500d9f，accum_nav覆盖率99.96%
+3. ETF跟踪5维度评分算法 — commit b3ca1cc83+a02310a34+588841db1，权重TE30/R²25/偏离15/滚动15/IR15
+4. 信号凯利回测 — commit 958c46789+c7cb90654+4d4f58630，6象限+4模式+3周期
+5. 首页5前端问题 — commit 7d7cbceca+5e217f75f，reviewer ad5b PASS
+6. 日图hover（T5）— commit 726eca7be，方案A echarts
+7. schedule_stats合并方案1 — commit 547414a70+b2f3d9171，CF构建减半
+8. build_board_etf_map sz_div manual_fallback — commit 27a6cf1cc+cdf278afe
+9. feat/main同步紧急修复 — commit 7b2f6c912
+10. 冰点日角标bug修复 — commit 0d1c0e630+8eb4ee98a
+11. 全球指数时效P1（盘中实时角标）— commit 1e9d5d43+bccef338+fe7525f0
+12. 公募基金持仓采集 — commit 10454371+920f57ed，全量27409只+前端ui81-ui85
+13. R2迁移阶段1-5 — commit df6597245+8a36b4b82+508eabb44+3f721f2d8+8bfc55e8d
+14. lhb_count回填 — commit 9c10f4ed2，步骤A-F全完成
+15. 夜间数据时点调研 — memory night-data-update-time 落档
+16. getCardTimeBadge语义修复（序3）— T+1卡片盘中"待采集"中性
+17. 后端self注入（序4）— queries.py cgb_10y_etf sh511260归档1
+18. D1b tooltip文案修复 — commit f9318eff3，sw a27
+19. smoke-checklist sh000001拼写修正 — commit 725e0620f5
+20. ETF降权批次+移动端hoverpop — commit 89ce938b5+230b48d6c
+21. hoverpop null"无数据"->"极弱" — commit 514549be7
+22. ETF筛选4档拆5档 — commit d0792b026
+23. low_confidence档位+估算标注 — commit d82f11bb3
+24. 信号灯分层调整 — strong≥75/related 60-74/approx 50-59/none 30-49/灰灭<30
+25. 5方向+6方向（P2-新-A到K+W）— commit dd504c21+a41fb2df+fc27f631+b4285988+02eae130+97134640+c703a584+4c4be0a8等
+26. T9 P0-4 R2边缘缓存+P2-13 CSS will-change+P2-10 requestIdleCallback — commit 0d29fd5c3+97171f3ad
+27. ~~量子科技扩容（ETF持仓重叠匹配第4层）~~ — 归档错误恢复待办(commit e4007405d message自述"0量子ETF不可改善",第4层从未实施,见下方待办区)
+28. ETF弹窗公示来源（_etfMatchTags tooltip中文化）— 信号灯❓弹窗5块说明已上线
+
+### 保留真待办（不动，11条）
+- 阶段1评分引擎 / 阶段2前端UI / 阶段3场内外联动（L34-36）
+- 管理端任务看板（L37）
+- 模拟回测费率可配置（L821）
+- 场外基金方案C全量化（L869）
+- top1稳定性机制（延迟纳入+滞回，L1538）
+- R2迁移后72h监控（L1562）
+- R2迁移全部完成后写完整部署文档 docs/r2-deployment.md（L1563）
+- T9 P2-14（分时SVG）+ P2-15（offshore_fund 147MB）（L1511）
+- 量子科技ETF扩容第4层（ETF持仓重叠匹配）- 归档错误恢复待办。e4007405d只做了三层叠加+排序修复,commit message自述"0量子ETF不可改善"。第4层=ETF持仓∩概念成分股重叠,方案:stock_fund_stock_holder反向查找(概念股->持有它的ETF)+overlap聚合,见 /tmp/agent-progress-quantum-layer4.md
+
+### 保留远期/搁置（不动）
+- mootdx skip list（低价值可选）
+- DB迁GitLab（用户注册后）
+
+### 保留当前在跑/待实施（不动）
+- 走势图组件统一改造（需求1/2/3，L1198-1206）
+- ETF本体展示优化
+- modal①③
+- smoke C3C13
+
+### 会话状态(2026-08-09,凯利持仓中+CSS grid✅上线main,无在跑agent)
+- **5实施commit✅上线main**（9c8c83e57）：P2-1 purge告警/凯利UI/P1-2 simulate_trade/P2-2校验/最大持仓收益率列。
+- **R2审计✅**：3修确认+4未修方案（P1-2/P2-1/P2-2已上线，P1-3/P2-4暂不做），详见 NOTES §48 八。
+- **凯利弹窗4改动✅上线main**（846bc3f35）：触发信号列+A股配色(赢红亏绿)+ETF关系列+分页50行。
+- **凯利持仓中交易✅上线main**（c6f7ac83c，reviewer a77444c10 PASS 7项+§0验：lab.min.js持仓中/持有中/预估字符串+sw a72+R2 holding_count=8+持仓中trade 32笔 sell_date空 current_price=1.4887+预估profit计入total不隔离 269.89+13087.82==13357.70）：_backtest_one不丢弃不足持仓期trade+预估不隔离计入统计+卡片持仓中列+弹窗持仓中渲染+含N笔预估标注。口径用户定：不隔离+透明标注。
+- **CSS grid 850✅上线main**（6cf19d113，主控A级自改，SendMessage加任务没送达§11不可靠）：L1413 380->850，1440屏1列/1920屏2列/手机1列无横滚条。
+- **reviewer 3轻微观察(非FAIL)**：①hold_days自然日(持仓中)vs交易日(已平仓)有意设计 ②卖价列排序值≠显示值(轻微UX) ③部署时序已push对齐。
+- **在跑agent**：无。
+
+### 会话状态(2026-08-09,降亏4toggle前端✅待reviewer+72h监控运行中)
+- **降亏4toggle前端✅完成**(c818fddd3 feat,不push main等reviewer)：lab.js加2新toggle(排除3+5月季节性+排除rating=low低评级),data-no-pop+data-tip CSS tooltip。两处filter点(主路径_kellyApplyFeeRecompute L7240/7242+明细路径_renderSigKellyQuadrants L8065/8067)各加2 if,4toggle独立AND叠加默认全关闭=基准。null安全(fIdx.buy_date/rating!=null降级)。state默认对象8处+4checkbox绑定。purpose-notes.js §21算法公示2->4toggle。§9三步(sw a91->a92+lab.min.js?v=1cc6d9f0)。§0验✓L7240/7242(buy_date substring(4,6)∈{03,05}+rating==="low"+null降级)+L7485/7486(2新toggle HTML data-no-pop)+sw a92。
+- **降亏4toggle✅上线main**(c818fddd3,reviewer a6e1510567b759681 PASS 9项+主控curl验上线)：lab.min.js含"排除3+5月"/"排除低评级"+sw.js a92(a91->a92)+index.html?v=1cc6d9f0。两处filter点(_kellyApplyFeeRecompute L7240/7242主路径+_openSigKellyTradesModal L8060明细路径)4toggle独立AND叠加默认全关闭=基准+null安全(buy_date/rating!=null降级)。§0验上线点全OK(push hash在main+curl功能生效层)。
+- **72h监控运行中**：com.trade.monitor-72h launchd(Minute=10/40 每30min),8/13自停。5类覆盖(采集/上传R2/发布/功能稳定/功能及时)。public-fund-full已bootstrap加载✓。
+- **待办串行**：①模拟回测费率消耗配色改绿色✅上线main(ee15ba93a,sim-fee-cost 3处+#52c41a+sw a96)。②降亏toggle hoverpop+2新标志实施中(aeebb2d11bb5d6fbf,buy_aux+03/05月交叉+buy_special熊市+6toggle hoverpop显示减亏/损盈/比值)。③分时图自愈调研中(a52e4f65fe5c1d52f)。④问题3 drawdown Option 1独立任务待用户定。⑤§19会话级总结✅完成。
+- **main HEAD**：bc773076f(费率消耗显示+模拟回测费率5参数+降亏4toggle+72h监控+rating后端+hover toggle+tooltip-fix+docs)。feat=main同步。
+
+### 会话状态(2026-08-10,凯利v4三梯队✅上线main+UI优化实施中)
+- **双AI对比报告3份✅上线main**(87ce81e13)：docs/kelly-backtest-comparison.md(对比)+comprehensive-review.md(主控)+deepseek-review.md(DeepSeek)三份独立+页面展示区(ff69aaaa6 legend后details折叠,kelly-review-notes.js 93KB)+reviewer PASS(KELLY_REVIEW_NOTES容错)
+- **v4三梯队12新toggle✅上线main**(d227cc1ca,总27toggle)：3 Greedy组合(greedy7/10/15嵌套15⊃10⊃7)+9单标志(v4b/cSimple/d/f/g/i/j/k/m),toggle全前端lab.js filter,后端无改。维度变量_ts3/_etfD3/_q3。§21公示同步(purpose-notes含12toggle+4方法+Greedy嵌套)。sw a103->a104
+- **v4 reviewer PASS**(a5246aabd65ae3444)：12 toggle filter正确+v3无回归+三域名上线(sw a104+"Greedy-7组合")+P0 smoke全正常。1 minor(V4-J tooltip"低价"应"极低价")+3 cosmetic,non-blocking。V4-J tooltip修归入UI优化
+- **UI优化✅上线main**(04929b1fc UI+54955ca5a N5fix,reviewer a41d2e1ba59eac331 PASS 8项):需求1 details移位置(方案B wrapper层,不随重渲染重建)+需求2 purpose-notes拆段(\n\n)+details折叠(只lab.sigkelly不影响其他模块)+toggle按5tier分组+费率行gap6+V4-J/N5 tooltip"极低价"统一vlow口径。reviewer观察N5标签"低价"应"极低价"(V4-J引用n5"极低价"与N5"低价"不一致),主控A级顺手修3处sed(lab.js注释+toggle+purpose-notes)+build+push main。sw a104->a105(UI)->a106(N5)。§0验上线✅:ss.fx8.store+sss.sugas.site sw a106+lab.min.js"5月+极低价"x1
+- **P0 fix✅上线main**(19f4009fa): UI优化details移位置致var content(字符串)函数作用域泄漏覆盖L7608 content(DOM),i.querySelectorAll is not a function报错。改let _aiContent块作用域。sw a106->a107。用户确认正常
+- **配色✅上线main**(431e8222c,sw a108): toggle-tier分类标题var(--primary)+700+11px+border主色; fee-btn/hint文案提亮; fee-btn.active/hover/apply var(--accent蓝)->var(--primary)皮肤主色; 4皮肤自动适配。用户确认验收
+- **G/H/I卖出模式调研✅完成**(ad240563984272b8f,§0验✓SELL_MODES L51+前端动态读sell_modes L7282/7649/7657/8125/8403): 数据源已足(signal_daily含sell+sell_stop_loss无需采集); 后端SELL_MODES(L51)加G/H/I+_backtest_one(L280-403)加信号驱动卖出; 前端动态读config零改(仅_guidance L519文案)+§21 purpose-notes公示。G=sell触发无则持有;H=sell OR sell_stop_loss任一;I=G+仅追关注(buy_special)交易额外碰sell_stop_loss。simulate_trade.py:491-534 sell_types参考
+- **信号显示名统一+策略说明弹窗✅上线origin/main**(b3ac74490,sw a108->a109,§0验✓线上i18n"追止损|卖"x3+origin/main含今天全commit;本地main落后正常§10避免checkout origin/main真源): i18n.js完整版L159/L211统一"追止损|卖"+新增lab_group_by_sig_type+修treasury_conflict_hint bug; app.js ruleContentHtml L4257-4419 65处信号名改_t()动态注入; _sigConcept L3375-3385 4处改_t(); applyCompliance提取loadFreqStats+_refreshRuleModal切换后重渲染弹窗; lab.js L7945分组标题改_t()。半角|
+- **信号名reviewer PASS**(a2610754bf44af05e,5项全PASS无bug): 65处_t()无残留/applyCompliance重渲染正确(顺序renderTab->trade_sim->rule modal)/i18n两字典112key对齐+lab_group_by_sig_type+treasury_conflict_hint修/影响面回归无破坏/线上sw a109+i18n/app.min.js_refreshRuleModal生效。信号名任务闭环
+- **G/H/I实施派**(C级后端算法,lab.js不再并发可派): 后端signal_kelly_backtest.py SELL_MODES(L51)加G/H/I+_backtest_one(L280-403)加信号驱动卖出+purpose-notes.js§21公示+lab.js _guidance L519文案。需reviewer+数据完整性
+- **通知机制调研✅完成**(a4261f063f517488a): ①14:56邮件=14:55快照实时价(非收盘价) ②15:05信号消失=15:02收盘收尾快照用最终收盘价重算条件不满足自然消失(非被清,signal_daily DELETE+INSERT) ③17:50 update_all去重模式:盘中已推不重发+收盘新信号+fade-detect(buy*三档) ④sell(波段减仓)消失无通知(fade-detect `if intraday_sig not in BUY_STRENGTH: continue`只跟踪buy*) ⑤17:50邮件不含sell消失/时间线/多次变化,不完整复现 ⑥需求:消失通知含sell可行高(扩展SELL_STRENGTH,注意sell消失=价格回落不再超买利好需设计文案);收盘复现可行中(方案A推荐:每轮追加signal_intraday_log表date/time/index_id/signal/reason收盘查询生成时间线;方案B只记首末消失时间;方案C每轮dump快照JSON)。C级数据/后端改动,需求确认后实施
+- **G/H/I信号驱动卖出✅上线main**(f576e9253,5文件,§0验✓in origin/main): signal_kelly_backtest.py SELL_MODES加G/H/I(G=sell触发/H=sell+sell_stop_loss/I=追关注buy_special用H其他用G,无信号持有至结束当前价预估,卖出价=信号日收盘)+_backtest_signal_sell+compute()构建sell_timeline+_guidance文案; check_data_integrity.py模式集合动态读config.sell_modes(原硬编码A-F会fail); lab.js modeDesc用desc替代"不止盈"; purpose-notes.js §21公示6种->9种; sw a109->a110。数据signal_kelly_backtest.json 462KB+trades.json 51.5MB(263016笔)重生成+R2上传+purge。自验逐字段对比全PASS(G卖出日=首个sell信号日1129/1129,H⊆G 1047更早/230同/0更晚,I sig_main==G/sig_special==H,check_data_integrity 27ok/0fail 720组合)。待reviewer(C级)
+- **采集异常查证✅完成**(a6c59f71db05f06fc,§0验✓线上collect_health level=ok items=[]): 已修复(自愈非代码改动)。用户看到的"a_fund_nortdirectnorthh_quarterlyfund_ccassquarterly两源皆败"=metric_id(a_fund_north_quarterly北向资金季度CCASS反算)+message(direct:north_fund_ccass_quarterly两源皆败)两span视觉拼读,非真实字段。根因=2026-07-27 HKEX CCASS两源(SH+SZ)当日瞬时失败(源端故障非代码bug),error仅出现1次。07-28起retry_failed_metrics.py重采成功稳定ok+_clear_old_errors清旧error,线上不再显示。无git commit修复(无需)
+- **通知机制双需求实施✅上线main**(5a4a21c3f,3文件+331/-76,fast-forward,§0验✓in origin/main;纯后端无JS不需build_min): ①sell消失通知(scripts/check_signals.py fade-detect buy*+sell*双跟踪 SELL_STRENGTH,严格消失=red盘中发邮件/卖转买=orange/减弱=yellow,文案"卖出信号已消失(价格回落,减仓条件解除)"绿色系,dedup key加kind) ②收盘复现方案A(app/db.py新建signal_intraday_log(date,time,index_id,signal,reason)+date索引,intraday_snapshot.py _recompute_signals每轮追加_log_signal_intraday失败不阻断,check_signals收盘模式读表生成时间线表格持续到收盘=绿/盘中消失=橙,时间线存在收盘邮件必发,主题用当日全量信号摘要)。自验全PASS(10项fade单测+时间线单测+live DB signals.compute 11条+check_signals --dry-run+check_data_integrity 27ok/0warn/0fail)。今晚20:35 intraday轮开始记录,明起17:50收盘邮件含时间线。待reviewer(C级)
+- **🔔新需求:盘中消失通知附信号细节(待实施,用户8/10定;等通知reviewer PASS后串行派避免撞check_signals.py)**: 盘中模式也要读signal_intraday_log时间线,sell消失通知附前面信号所有细节(产生时间/通知时间,查该信号历史出现记录),不只标题让用户翻历史邮件。收盘模式不变(当天全貌)。C级改check_signals.py盘中模式+时间线查询
+- **每日AI预测完善调研✅完成**(0fce5b804,17完善点4P0/11P1/2P2+6 TradingAgents参考,报告docs/daily-brief-optimization.md 340行): P0-1预测可机检回测+命中率累计(meta结构化断言+次日回填+前端近30日命中率)/P0-2注入期货机构持仓+修正北向口径(现把a_fund_north成交总额当方向是错的,2024新规无日频净买额)/P0-3合规强化(指令词黑名单买入卖出加仓建仓+免责声明+后置校验)/P0-4轻量多角色协作框架(TradingAgents-CN风格用户定方向:6角色子prompt技术/资金/情绪/风控/研究员/主编,只注入各角色数据域,不做交易决策角色合规,deepseek-chat为主研究员可选reasoner,年成本约¥12-70)。数据盘点:资金/期货持仓/公募/凯利回测/信号多窗口胜率全站点已有,唯一缺新闻舆情需采集。实施顺序P0-3→P0-1→P0-2→P0-4(先跑通单prompt主链路再升级多角色)。**用户确认基本完毕(8/10)**: ①P0-3合规调整——**开关配置文件预留**(用户8/10定):daily_brief配置加`compliance_enabled`开关,开=prompt层禁指令词(源头)+展示层敏感词脱敏兜底(对外安全),关=不禁输出更直观(自用,用户切);精简版(默认)本身不给AI预测查看保持现状gating不用脱敏 ②P2-1成本监控+P2-2月度回顾反思**升级必做**(用户明确要) ③**P0-2北向口径定稿**(调研agent完成+§0验✓config/indicators.yaml L35-47): 站点无"算法估算日频净买额替代停更"实现(用户理解偏差),实际=方案A换口径:2024-08新规取消盘中净买额披露,东财NET_DEAL_AMT全null停更,a_fund_north改用DEAL_AMT成交总额(买+卖合计,HKEX官方源fallback东财)语义从净流入方向→市场活跃度,全历史2729行负值0个恒正不可当方向;唯一季度粒度=a_fund_north_quarterly CCASS季度反算(仅20260630=+2205.87亿一行,季度末+20天发布,覆盖率<50%/异常值校验);方案B(CCASS日频反算)实测不可行。**P0-2落地**:①删除把a_fund_north当日值当方向(daily-brief-research.md §5.2"北向-203亿"是口径错误,app.js 4维共振卡L12109用成交额环比当方向也要改) ②主维度注入futures_acc_trend机构净多(futures_acc_trend.json 8/10已更新)+南向hk_south(可正负,0807=-7.78亿)+北向季度反算(文案标注季度口径) ④**预测结果存储+历史列表分页展示+反查校验**(用户8/10定):预测结果存daily_brief_history归档(已有设计);前端历史列表分页展示所有历史预测,点开某日反查=预测内容+meta断言(direction/watch_list/risk_items)+次日实际涨跌+命中标记,配合P0-1近30日命中率。**前端展示位置(用户8/10补)**:登录用户查看时与首页顶部现有"历史收盘分析"放一起;AI预测定位=固定化模板的强化补充,对照每一天展示处的强化补充,首页也并排展示。**查看方式与分页方法复用现有历史收盘分析组件,不加新交互/新分页样式,用户使用习惯不变**。**用户8/10"做吧"确认开干+调度开关新需求**: 配置加调度开关`schedule_enabled:false`**默认关闭**——关=不自动跑,主控/用户手动跑生成脚本(脚本CLI可手动触发);用户改配置开启后才每天自动跑(挂launchd/update_all)。合规开关compliance_enabled默认true。**阶段1后端实施已派**(agent a8e4dbcdf64640e8f,cron 0f6a9035 6,21,36,51): 单prompt主链路=双开关+P0-1 meta机检+次日回填+P0-2北向修正(期货主维度+南向+季度标注)+P0-3合规+P1-7/8/9/10+P2-1成本+P2-2回顾+归档daily_brief_history。前端并排展示+P0-4多角色=后续阶段。**通知增量(盘中读时间线)8/10全闭环✅**(b973c14ad,check_signals.py盘中模式有fade时读signal_intraday_log渲染"信号消失详情·盘中时间线",收盘模式不变+3个P2修,27ok/0fail;reviewer a05ef51a5762fe379 PASS 7/7+3非阻断观察,无P1/P2;§0验 b973c14ad in origin/main)。**daily_brief 阶段1后端8/10全闭环✅**(8b7589c7b 主功能:双开关 schedule_enabled=false 默认关(关=手动跑,开启才自动)/compliance_enabled=true + 单prompt主链路 + meta机检次日回填 + 北向修正(期货主维度+南向+季度) + 失败降级规则版 + 成本日志 + 归档 daily_brief_history,10验收全过;reviewer FAIL 2P1+2P2→修复随生产异常commit 4b9311e37带上线:P1-1 月度汇总 date YYYYMMDD无横线 vs month带横线 startswith恒False→replace("-","")(L759),P1-2 watch_list injected_ids 强制锚定(AI编造id被拒,L575),P2-1 backfill is None,P2-2 yaml行尾注释加固;§0验 P1修复点+commit in main;线上 ss.fx8.store/data/daily_brief.json AI版生效)。**剩余后续阶段**:前端并排展示历史收盘分析+历史列表分页反查 + P0-4 多角色框架。**量子跳转焦点8/10调研完成**(thsc_300830→market/industry renderTab await renderIndustry 同步渲染非懒加载;CDP headless 实测当前线上已能命中(初次 scrollIntoView 精确居中)+3站均已修 sw v6-20260810-a111——用户端"下滚好几屏"疑似 SW 缓存旧 JS 请硬刷验证;真实缺陷=800ms 校正先重滚后 _flushVisibleChipRows+异步 chip 替换占位行致布局再增长终位偏中心下 70~120px + renderIndustry 异常 cardEl null 无重试盲区;方案:等渲染轮询(100ms 上限5s)+先稳定布局再重滚+中心偏差>80px 校正闭环(×2-3)+高亮 idx-card-locate-flash 保留;仅改 app.js L2585-2610 locate 委托,上线需 build_min+bump_asset_version+bump sw 三步。**待降亏实施完成后派实施(避免 build_min/sw bump 撞车)**)。**用户8/10确认**:①缓存为主因(硬刷后已无法复现,当前线上 a111 已能命中)②残余缺陷值得修→照调研方案优化 ③**高亮时间延长 2s→30s**(用户嫌一闪而过),高亮应用到补滚后最终命中卡。**开源化8/10实施已派**(agent ae85485a97d64565e,cron 8a30cf71,用户选定:授权=代码MIT+数据CC BY 4.0+NOTICE第三方声明+README扩充;完整化=方案A manifest.json+fetch_data.sh 数据源R2公开桶 + DB挂Release):①清理 data/logs.old.20260722 361旧日志 git rm --cached+ignore ②DB PII检查(含PII红线不上传公开) ③DATA_LICENSE(CC BY 4.0)+NOTICE+README ④gen_data_manifest.py 遍历static-site/data生成manifest(路径+R2 URL+sha256) ⑤fetch_data.sh 一行全量复原 ⑥**开源化8/10完成✅**(8de750ebb push origin main ff:授权 DATA_LICENSE CC BY 4.0 389行+NOTICE第三方声明(东财/腾讯/同花顺/baostock/新浪/中金所/HKEX/申万等)+README"一键获取全量数据"段+License段;完整化 gen_data_manifest.py→data/manifest.json 857 JSON/943MB(path+R2 URL+size+sha256,R2全量963 key交叉核对857条URL全命中0缺失+8前缀HTTP200)+fetch_data.sh一行复原(隔离实测8文件真实下载+sha256全对+重跑全跳过);DB 4库打包 data/release/(gitignore:sentiment37M/etf52M/stock_daily19M/public_fund578M全<2GB,manifest databases含真实size+sha256;PII检查安全可公开:users表0行/4库无email/订阅在CF KV);清理 git rm logs.old 361+data/logs symlink+ignore logs.old*/+release/;check_data_integrity 26ok/1warn;§0验 in origin/main)。**⚠️待办:DB Release 上传需用户 GITHUB_TOKEN**(gh CLI 未装 `command not found`,改 token 方案,release_db.sh 已支持 GITHUB_TOKEN 环境变量;用户生成 token 后跑 `GITHUB_TOKEN=xxx bash scripts/release_db.sh`,上传后 manifest databases.uploaded=true)。**用户8/10定:两仓库分工修正✅对齐**(初衷=开发库 trade-data-signal 说清数据开源+引导去数据库 trade-data-signal-staticdata,用户在数据库跑脚本下载还原所有数据,两仓库都开源+关联;我方原方案把数据开源主体(manifest+fetch+DB Release)放开发库、staticdata 只当被动备份仓,方向跑偏已认。**修正架构**:开发库=代码+MIT+README「数据开源」章节引导去 staticdata;数据库 staticdata=README+DATA_LICENSE(CC BY 4.0)+NOTICE+manifest.json+fetch_data.sh(一行还原:git clone 后从 R2 公开桶拉全量 JSON+DB 在数据库 Release)+DB Release 挂 staticdata;两仓库互链。**迁移实施已派**(agent cron 迁移:开发库 README 引导+移除双份 fetch/manifest,staticdata 加门面文件+release_db.sh REPO 改 staticdata,确认 deploy.sh L507 备份 rsync 不覆盖新文件))。**邮件期货风向8/10调研完成+实施已派**(根因:速递邮件"当日空"读 futures.json accuracy.net_direction(静态净持仓方向-129522手净空) vs 页面读 inst_ih_detail.details[0810].citic_dir(动态当日净加+4026手多),两字段语义不同致矛盾,15日同向80%一致;用户表格数据与0810行完全一致 +597/+488/+1761/+1180/+4026/多/80.0%;方案:改 scripts/daily_summary_email.py 模板层3处 load_futures_brief L553/build_futures_text L591/build_futures_html L628 弃 accuracy.net_direction 改读 {role}_ih_detail.details[-1] 渲染表格+顶部白话预警,不改数据层/前端不需deploy;整体白话化建议已列待用户确认)。**用户8/10追加:公募基金段也白话化**(daily_summary_email.py L910-1000 build_public_fund_text/html,88魔咒/历史分位/仓位pp/抱团度/净申赎黑话→白话翻译+含义+段末散户向结论+保留免责声明,不改数据口径;已追加给同实施 agent ae8d0a958e8986d5a,若其已commit则主控另派)。**邮件期货+公募白话化8/10实施完成✅**(9ce765bef push origin/main:期货段弃 accuracy.net_direction 改读 {role}_ih_detail.details[-1](0810 机构表=+597/+488/+1761/+1180/+4026/多/80.0% 与用户表格及页面完全一致+中信+1345/+410/+1052/+3261/+6068/多/60.0%+国君-846/-455/-1002/-3285/-5588/空/66.7%)+顶部白话预警"机构前20资金偏乐观仅供参考"+HTML 8列表格+纯文本加行;公募段 88魔咒/仓位/抱团度/净申赎黑话加白话注释+段末白话解读(仓位约96.2%/历史97%分位/高位后30日上涨概率约57%/净赎回580亿份→短期谨慎仓位重可降一点),数据口径未变;supplement/main 双dry-run通过+check_data_integrity 26ok/1warn/0fail+lint通过;push 22:10避public-fund-full 22:00采集阶段未到deploy)。其他 section 白话化建议已列(汪汪队段进/出/量图例+共振白话+净申购白话+每ETF白话+段末结论;主邮件段恐贪/均线多空/新高新低/领涨补白话),待用户确认。**reviewer PASS✅ 邮件任务闭环**(9ce765bef,7项全查:字段语义对(弃 accuracy.net_direction 改读 details[-1],0810 三角色实测与页面一致)/渲染对(HTML 8列解析无未闭合)/公募白话只加不改数值真实/launchd daily-summary-supplement 20:30 完好/回归 26ok/上线 in main。注意:国君 15日同向=33.3%(follow_ratio),任务描述期望 66.7 是 accuracy 字段值写错——代码读对字段邮件输出 33.3% 与页面一致 §22 合规,主控 prompt 期望值错非代码 bug)。明晚 20:30 supplement 邮件生效,可手动 dry-run 预览。**8/10 重发成功✅**:按新模板重发今天补充速递邮件到 234058394@qq.com(主题[补充速递·T日]2026-08-10),dry-run 三要素齐全(期货表格 3 行 机构+597/+488/+1761/+1180/+4026/多/80.0 +中信+6068/多/60.0+国君-5588/空/33.3 +白话预警 3 行 机构偏乐观/中信偏乐观/国君偏谨慎 +公募白话注释 88魔咒/平均仓位/净申赎逐条+段末解读),SMTP(163:465)发送成功。邮件任务全闭环)。**两仓库分工迁移8/10完成✅**(开发库 0547f6733 IN_MAIN:README 数据段改「数据开源」章节引导 staticdata(R2 桶+Release+CC BY 4.0)+License 段指向数据仓库+git rm 6 文件(fetch_data.sh/data/manifest.json/DATA_LICENSE/NOTICE/gen_data_manifest.py/release_db.sh)消除双份留代码 MIT;staticdata 80ca2d9:门面 7 文件 README(857 JSON/943MB+授权+一键复原+开发库快链)/DATA_LICENSE/NOTICE/manifest.json/fetch_data.sh/gen_data_manifest.py/release_db.sh(REPO=staticdata);deploy.sh L507 备份 rsync 无 --delete 只同步 db/config/data 三目录不碰门面文件安全;双向互链+manifest 857 URL R2 抽查 200。§0 验双 commit 各 in main)。**DB Release 上传已派**(用户8/10 创建 token 存 trade-data/.env,gh 未装改 token 方案,release_db.sh REPO=staticdata 条件齐,上传 4 库包 sentiment37M/etf52M/stock_daily19M/public_fund578M 到 staticdata Release,完成含 manifest uploaded=true commit;⚠️ token 已现对话建议用后 revoke)。**降亏第三轮文献挖掘调研已派**(用户观察文献驱动方法论两次突破,再来一轮:结合 3 份 AI 报告(kelly-backtest-comparison/comprehensive-review/deepseek-review)+开发结果+新文献,找盲区:市场状态 regime/标的属性/时间扩展/信号强度分层/持仓天数交互/费率敏感/多标志组合/样本外验证/类不平衡提升,产出可回测候选标志+组合,背景 78 标志最高 10.06 比值>2 满意)。**备用站404 8/10 根因定位✅+修复已派**(根因:R2 迁移阶段4a(3f721f2d8)static-site/data/ 全量移出 git(.gitignore L191 catch-all),主站 ss.fx8.store 靠 Worker /data/*.json→R2 rewrite(headers.js L137 dataRewriteHandler)透明读 R2 正常;备站 GitHub Pages(deploy-pages.yml actions/checkout 只取 git)/MaoziYun(拉 git main)纯静态无 R2 rewrite,/data/*.json 全 404;前端 dataUrl(app.js L3649-3652)只对 -(all|5y|3y).json 走 R2 其余全 ./data/ 读,fetchJSON(L3654)对本地 404 无 R2 兜底→备站壳能开数据全 404。修复首选(一处改两站):fetchJSON 对 ./data/* 404/失败 fallback https://ssd.fx8.store/data/<file>(R2 桶直链独立于主站 Worker 无边缘缓存保鲜;主站不 404 不触发零影响);R2 数据覆盖已验证完整(overview/sentiment-all/a-stock-3m/etf_national_team-1y/alert/board_etf_map 全 200)。附加:sss.sugas.site app.min.js md5=70466b9e 旧版≠origin/main 17bc58eb Pages 部署 stale 需重跑 deploy-pages;即使 Pages 更新不修前端兜底数据仍 404;s.sugas.site 本次非 300MB 超限只是数据缺)。**8/10 DB上传阻塞+降亏第三轮完成**:①DB Release 上传 agent 卡阻塞点——trade-data/.env 的 GITHUB_TOKEN 是经典 PAT 无 scope(x-oauth-scopes 空,POST /releases 404,GET /user/repos/issues 全 200),需用户重新生成 token(经典 PAT 勾 repo scope 或 fine-grained 授 Contents Read+Write)更新 .env 后 agent 续跑。⚠️ 该 agent 诊断 404 时 curl -sv 把 Authorization header token 值打印进会话 Bash 输出(已泄漏,建议用户撤销重发)。4 tar.gz(686MB)已复制到 staticdata/data/release/+sha256 与 manifest 匹配,续跑命令在 /tmp/agent-progress-db-release.md(无 token 值)。②降亏第三轮调研完成:最大盲区坐实(v3/v4 挖掘跑 19 字段版无 market_state,部署版已有 N=66,591,market_state×全维度从未挖过);候选 A1 bear+周二+special ratio 7.89(n864)/A5 11月中旬+special 5.49(n1485 最稳)/A4 11月下旬+special 6.33/A3 03月中旬+special 10.43(稀疏)/A2 bear+周一+special 4.13;B1 大亏(≥3%)占亏损 83.6%+到期占 54%→卖出侧止损/提前离场设计(非买入 toggle);C1 信号共振粒度测不出(需补数据)。已派回测验证 agent(只读,产出 docs/kelly-loss-round3-verify.md 数据报告供用户选)。**8/10 降亏文献沉淀✅+backfill根因✅**:①降亏文献沉淀完成 commit c59e68de8(已 push main):docs/kelly-mining-literature.md 四类(文献8项 CrossRef:子群发现 Lavrac 2002/Valmarska 2017/Atzmueller 2015/Herrera 2011 + 交易 ML Feng/Zhang&Pinsky/Goswami/Kissell + 行业实践3条;方法论已落地14项 v1穷举→v4 对比集/JEP/4-itemset/贪心 + 辅助8项 + 新引入未落地5项 walk-forward/decision set/PSM/漂移检测/NSGA-II;用户推荐学习站点未找到**需用户补**;方案引导6步)+quickstart §H 降亏快速上手(7步+6坑,链接§18)。②backfill-evening 3707s 根因(排查 agent 双确认):慢在 a_fund_north_quarterly(CCASS 季度反算)21:26:25→22:01:33=35min;根因 app/collector/hkex_ccass_quarterly.py _fetch_close_prices_db 查 stock_daily.db 20260630 仅 90 行(baostock_daily_raw 全量只从~20260731 起,季末日历史价未回填)缺~4000 只全走 _fetch_close_prices_baostock 逐只顺序无超时无并发,晚间 baostock 延迟放大 0.5-0.9s/只→35-58min。非每次(8/7=85m 8/10=62m 晚间异常,同日其他槽6-13m)。数据完整 ok=3 fail=0 exit=0 严重性低。修复:①根治=回填 stock_daily.db 历史季末日收盘价(20260630 等)进 baostock_daily_raw+写穿缓存,CCASS 变秒级(回填数据执行放周末安全时点)②保底=bs.login() 前 socket.setdefaulttimeout(15) 防 baostock 全挂超 launchd ExitTimeOut 7200s SIGTERM 丢数据;阈值 1800s 不动。实施已派。**8/10 三闭环+新需求**:①DB Release 上传完成✅(staticdata db-archive-2026-08-10,4 asset 全 uploaded 656MB:sentiment 37M/etf 52M/stock_daily 19M/public_fund 578M,manifest uploaded=true+url 替换 /db-archive-2026-08-10/,commit 7f594a0 push staticdata main,下载 URL 206 可达=开源完整化闭环;新 token 带 repo scope 全程 .env 读未泄漏,旧泄漏 token 建议 revoke)②降亏第三轮回测验证完成✅(docs/kelly-loss-round3-verify.md:standalone 比值与调研吻合 A5 11中旬+special 5.49 最稳/A45 11中+下 5.75 净+499k 最大/A1 7.89/A3 10.43/A4 6.33/A2 4.13;叠加边际 A45+107k(7.87)/A45all+112k(8.05)/A5+77k(6.45),**A1/A2/A3 边际=0 被现有 toggle 完全覆盖不推荐**;B1 硬%止损 -2/-3/-5% 全负(-164/-117/-107k)误杀 40-46% 放弃;风险:现有 4 toggle 已砍 87.9% 亏损,11月候选只残余 12% 再砍 ~1pp,若已开 greedy7 约 52% 被覆盖)③README 重写完成✅(91cbd2c3c ff 推 main:banner+徽章+ASCII 架构图+技术栈+参考致敬段[降亏12方法表+traderagent+DeepSeek+9数据源]+数据开源引导+快速开始+监控;用户补充要求'不止牛逼还要格式优美赏心悦目'已派打磨)④用户给 2 个学习站点需补进 kelly-mining-literature ③段:原版 https://github.com/tauricresearch/tradingagents(实现逻辑)+ 中文改版 https://github.com/hsliuping/TradingAgents-CN(更多国内可落地实施)(已派)⑤backfill 超时新排查(重派 agent)确认+更优主修:季度闸门(该指标只在季度末+20 天新季度发布才跑,DB 有最新季度行则跳过 early-return,每日 3 槽省 7-35min 尾部)+硬时限~10min 超时跳过(02:00 槽 7200s ExitTimeOut 兜底)+预灌季末价;update_all 8/10 同指标 33min 也超 1800s 告警(用户可能收两条);已通知修复 agent 评估追加。**8/10 memory 盘点更新✅**(删0/新增1/更新7/索引85条对齐):新增 open-source-dual-repos.md(开源双仓库分工);更新 7(cf-workers-large-json-404-r2-fallback 核心修正:旧结论"ss.fx8.store 大JSON 404"已过时——curl 实测 /data/global-all.json 现 200,Worker /data→R2 rewrite 后大range 路由改 _R2_DATA_BASE=ss.fx8.store/r2/data/(/r2/ 代理+边缘缓存1h),备站 sss/s 数据 404 需 R2 兜底/kelly-loss-toggle-ratio-standard 补 v4 三梯队27 toggle 全上线 d227cc1ca+market_state 盲区+Contrast Set/JEP/Closed Itemset 方法论/r2-migration-complete 补开源双仓库+待办改 GitHub Release/feat-branch-deploy 补 data 移出 git 风险消除/export-output-path-sync 补 R2 上传但同步陷阱仍在/daily-brief-deepseek 第一阶段后端已上线 8b7589c7b 前端展示待续/self-growth-mechanism cron 时点对齐 23:30/23:00)。待确认 3:①fetchJSON ./data/* fallback 分支未在 app.js 检索到(因备用站修复未完成,完成后需复核该条)②降亏 A1/B1 候选未上线已标注 ③r2-migration 72h 监控是否完成待确认。**8/10 backfill CCASS 修复完成✅(e2a41b058 ff push main,reviewer 已派)**:①socket.setdefaulttimeout(15) finally 恢复 ②写穿缓存 _write_back_baostock_prices(ON CONFLICT 幂等+busy_timeout 10s)③季度闸门:查 daily_metric 已有最新季度行则跳过重算,实测 0.003s(原 35-58min),对 backfill 三槽+update_all 17:50 生效 ④SIGALRM 10min 硬时限超时跳过(02:00 兜底)⑤回填 CLI 备好未执行。自验:py_compile OK+单测 600519/000001 写回 OK+闸门 0.003s+SIGALRM 触发+check_data_integrity 26ok 0fail。**回填待办:周末(8/15 后周六日)安全时点执行** `cd /Users/linhuichen/code/trade-data && .venv/bin/python -m app.collector.hkex_ccass_quarterly backfill 20260630 20260331 20251231 20250930`。**备用站修复已提交 9b25223d8**(新 agent 23:25,app.js +14 行 fetchJSON ./data/ R2 兜底 ssd.fx8.store + min/index/sw bump),三站验证完成✅(9b25223d8):app.js fetchJSON ./data/* 失败(404/网络/解析,AbortError 不重试)fallback https://ssd.fx8.store/data/<file> 重试一次,lab.js 共用 app.js fetchJSON 一处覆盖两备站;sw CACHE_VERSION a112→a113,index app.min.js?v=db8027a0;三站验证:主站 200 零影响/R2 兜底 200(size 1021665 date 20260810)/备站 404 确认根因;sss Pages 自动重部署新版含兜底+s.sugas.site 同新版;check_data_integrity 26ok 0fail。reviewer 已派(轻量复核影响面)。**站点补全+README 打磨完成✅(a8f2c079e)**:kelly-mining-literature §③ 改「用户推荐学习站点(2 个)」表格化(原版 tauricresearch/tradingagents 实现逻辑→多agent 分析架构 + 中文版 hsliuping/TradingAgents-CN 国内落地,第4列指 README 致敬段);README ASCII 架构图重建对齐(75/88 列统一)+项目结构树注释对齐,内容未重写。**8/10 backfill CCASS reviewer FAIL→整改已派**:P1(SIGALRM 10min 应用到所有槽含 02:00 兜底,被杀写穿不生效→慢网络指标完全停更回归,7200s 兜底说法未实现);P2(季度闸门冻结首个计算值,坏值被冻结到季度末);P2(写穿缓存 ~4000 行 close-only 部分行,下游已验证低风险)。验证通过 3:ON CONFLICT 幂等合法/闸门 date 格式一致+季度推进 q+20 自动识别(20261020 转 20260930 重算)/socket 超时 finally 全覆盖不污染。整改方案:02:00 槽强制重算+3600s alarm(每日自纠正+兑现兜底,一石二鸟 P1+P2),16:35/21:00 闸门+600s;写穿缓存分批写回(被杀缓存进度);修正 7200s 说法;补 check_data_integrity"最新季度行存在"校验。**8/10三闭环✅**:①**降亏卡顿优化**(5e0865d7f,reviewer a2a81c1b2f97e76e6 PASS 9项:24 toggle逐字节等价+月门控21mask程序化验证0问题+日期分桶Node14边界一致+缓存签名全覆盖+防重入健全+min零diff+26ok/1warn;P2×3不阻塞(sw bump在后续4ee1dc153部署HEAD已覆盖/fee回退极罕见/loading文案cosmetic);残余400-700ms=_kellyComputeStats streak排序非本次范围)②**量子跳转优化**(4ee1dc153:等渲染轮询+稳定重滚+偏差校正+高亮30s,§9三步sw a112;reviewer aa9da012b6a6370c1 PASS 5项:共享locate路径一致受益/异步竞态有界安全/color-mix优雅降级/min版本化+smoke线上生效/纯前端无数据改动;O4注记:overview a_amount=None但a_amount_6m=140已填充,guard不触发,待另查是否应填充)③**2告警排查**(4b9311e37:alert1=P0-S5监控误报(update_all 17:50-18:44在途窗口alert.json仍上一交易日,周一"上一交易日=周五"不被_yesterday周日覆盖→18:10/18:40 SEVERE;修复阈值1750→1900+Python模拟验证周一场景通过真停更仍告警)alert2=lab_auto push真问题(update_lab.sh push origin main推stale ref→non-ff拒绝且GIT_DEPLOY_RC=1未传播致exit=0漏报;修复两处push改HEAD:main+末尾GIT_DEPLOY_RC!=0则exit1;补跑21:44-21:51成功 exit=0 dur=378s R2 334+334+4全传);alert_state双key recovered+验证(update_all正常/alert.json恢复date=20260810/sss trade_sim.html完整md5一致);观察:backfill_metrics.sh(21:00 backfill-evening)卡collect_direct网络调用>50min(deploy已完成仅direct metrics python挂起)建议后续关注)。
+- **通知reviewer API失败重派**(a959b2490de2cceb4 Prompt too long终止;重派新reviewer防超长:git diff+定点grep不全文读大文件)
+- **G/H/I 全部闭环✅**(实施f576e9253+修复8e883fe40,reviewer两轮:核心逻辑PASS→P1/P2 FAIL→修复→复核PASS 0问题): 卡间水印公示与算法一致(lab.js totalModes动态分母+4处文案同步+purpose-notes 9模式均值,grep无残留/6或"6模式")+P2后端读mode_def配置(_backtest_signal_sell消费special_sell_types+guidance_desc从mode_def生成,12组合旧新逻辑0差异+guidance 3/3一致,输出等价R2无需重传)。sw a110->a111。§0验✓8e883fe40 in origin/main+线上lab.min.js/purpose-notes.min.js md5与本地一致+index.html asset version匹配
+- **通知reviewer PASS✅**(afb2e56513a5ecab9,commit 5a4a21c3f,4个P2不阻断): ①sell fade三档判定对(严格消失=red/转买=orange/减弱=yellow)+SELL_STRENGTH{sell_stop_loss:2,sell:1}合理+文案绿色系不误导+dedup key kind不破坏buy;dry-run实数据上证国债卖→追买橙档绿行横幅正常 ②时间线表SQL对+date索引+append不重不丢+appear/persists语义3轮模拟对+收盘必发+主题全量signals对 ③回归:buy*逐行等价+盘中不读时间线A12不受影响+daily_summary_email独立无冲突+launchd链路未变+生产DB自动建表验证 ④数据完整性27ok/0warn/0fail+live smoke全健康。P2×4(增量实施顺手修):1._detect_sell_fade docstring L103-104 red档含"转buy"与代码orange矛盾(代码对注释残留) 2._signal_emoji(sell_stop_loss)⚪非🟢(pre-existing) 3.timeline存在但收盘signals空主题"无信号"矛盾(edge) 4.fade_notified key加kind首日重推一次(可忽略)。**通知任务闭环✅**
+- **🔔新需求:盘中消失通知附信号细节(增量实施已派a9a817086a9cdfd9c,cron 9d747f32)**: 盘中模式也读signal_intraday_log时间线,sell消失通知附前面信号所有细节(产生时间/通知时间,查该信号当天出现时间点列表如"14:55出现→15:02消失"),不只标题。收盘模式不变(当天全貌)。顺手修P2-1 docstring+评估P2-2/3/4。C级改check_signals.py。完成派reviewer复核
+- **活跃cron**：6d45e0b5(每日23:33)+e7d1803b(周日23:03)+d19d2388(4:07)+9d747f32(通知增量实施轮询:03/18/33/48)+0bf3b19e(KPI+backfill 双 reviewer 轮询:23/38/53/8)
+
+### 会话状态(2026-08-10 23:55,backfill整改§0通过+KPI实施完成 双reviewer在跑)
+- **backfill CCASS 整改 §0 全落地✅**(整改 agent aca188d36b63db96e DONE,commit 仍在 e2a41b058 无新 commit——整改直接改原文件后 push;§0 验 5 点全过):①BACKFILL_SLOT 槽通道(backfill_metrics.sh L23 `export BACKFILL_SLOT=$(date +%H%M)`+L20-21 注释设计)+hkex_ccass_quarterly.py L322-326 `_current_slot()` 读取 ②02:00 槽强制重算 `force_recompute=(slot=="0200")`(L391),`alarm_seconds=_ALARM_RECOMPUTE if force_recompute else _ALARM_GATE`(L392),`_ALARM_RECOMPUTE=3600`/`_ALARM_GATE=600`(L47-48)——解决 P1 慢网络回归(02:00 3600s 宽限+强制重算)+P2 冻结(02:00 不走闸门每日自纠正) ③季度闸门仅非 02:00 生效 `if n_quarters<=2 and not force_recompute`(L396-401) ④分批写穿 executemany+ON CONFLICT 幂等(L166-168) ⑤check_data_integrity 新增 `check_a_fund_north_quarterly`(L666,校验 daily_metric a_fund_north_quarterly 最新季度行存在,防静默)。整改 agent 自验充分(py_compile/单测写回/闸门 0.003s/SIGALRM 实测/check_data_integrity 26ok 0fail)。**复验 reviewer 已派**(a91038b20e22cfce7,轻量:只复验原 reviewer FAIL 的 P1/P2/写穿 3 问题闭环,不跑全 P0)。回填待办不变:8/15 后周末执行 `cd /Users/linhuichen/code/trade-data && .venv/bin/python -m app.collector.hkex_ccass_quarterly backfill 20260630 20260331 20251231 20250930`
+- **KPI 卡片收起/展开实施完成✅**(2f29e9e1a push origin/main):PC(>768px)默认1行/移动(≤768px)默认4行,点"展开全部卡片"↔"收起";max-height+overflow:hidden 裁剪(不动单卡 display,echarts sparkline 保持真实尺寸不空白),卡数≤断点行数阈值不出按钮,纯显示层不碰自动排序,展开态会话级保留,resize 跨断点处理。§9 三步全做(sw.js a113→a114,min 版含 展开全部卡片×2/kpi-toggle-btn×1/kpi-collapsed×2)。§0 验:2f29e9e1a in origin/main+sw a114+min 版文案全在。**reviewer 已派**(ab7f0e9a791a04edc,查影响面:KPI 卡被 hover/tap/拖拽/echarts sparkline 多模块引用+断点口径一致性+移动端窄屏 4 行不截断)
+- **备用站修复 reviewer**(a8bb2ebe47b74ee70)仍在跑(复核 9b25223d8 fetchJSON ./data/ R2 兜底影响面,轻量)
+- **旧 agent 收尾确认**:备用站旧 agent(a20509c18982c0472)正式完成且遵守停止指令(只读验证无改动),佐证 9b25223d8 就绪
+- **backfill CCASS 整改+复验 PASS 全闭环✅**(整改 agent aca188d36b63db96e commit **9be4e8f30** in origin/main,复验 reviewer a91038b20e22cfce7 **PASS**):3 个原 FAIL 全落地——①P1 按槽区分(02:00 强制重算不闸门+alarm 3600s;16:35/21:00/update_all 闸门+600s,backfill_metrics.sh L23 注入 BACKFILL_SLOT+py `_current_slot()` L326 读 env)②P1 写穿分批 `_WRITE_BACK_BATCH=200` 批量 ON CONFLICT(被杀缓存进度自我修复)③P2 闸门仅非 02:00 生效(L396)+④check_data_integrity 新增 `check_a_fund_north_quarterly`(L666,口径=季度末+20d 一致)。验证:15 单测全 PASS+check_data_integrity 27ok/1warn(无关 etf_since_return)/0fail+py_compile/bash -n 过+socket.setdefaulttimeout(15) finally 恢复 L212/272。**reviewer 1 WARN(不阻断,一行修复已派 agent)**:backfill_metrics.sh L23 `BACKFILL_SLOT=$(date +%H%M)` 实际时刻,02:00 槽延迟补跑(如 02:05)→BACKFILL_SLOT=0205→force_recompute=False 丢强制重算;修复=`_current_slot` 对 BACKFILL_SLOT[:2]=='02' 归一 '0200'。次要:e2a41b058 commit msg 写「7200s」实际 3600s(代码符合,仅 msg 过时不改)。回填待办不变(8/15 后周末)。**备用站 reviewer(a8bb2ebe47b74ee70)曾卡死 22min+无进度文件,已 SendMessage 唤醒(cron b9d74a76 轮询)**
+- **backfill WARN 修复完成✅**(9b28b2b4b in origin/main,§0 验通过):`_current_slot()` L330 `if slot.startswith("02"): return "0200"` 归一(防 mac 睡眠唤醒后 02:05 延迟补跑 BACKFILL_SLOT=0205 丢 02:00 强制重算/每日自纠正),hour fallback 不变。自验:单测 0205/0200/0201/0202→'0200'+1635/2100/1730 原值不变+空走 fallback+force_recompute 0205=True;py_compile/bash -n 全过。**backfill CCASS 任务全闭环(修复 e2a41b058→reviewer FAIL→整改 9be4e8f30→复验 PASS→WARN 修复 9b28b2b4b→§0 通过)**。回填待办不变(8/15 后周末)
+- **备用站404修复 reviewer PASS✅ 任务闭环**(重派 reviewer a1e1709a578eeca04,9b25223d8 轻量复核全过):①兜底逻辑对(仅 ./data/ 前缀+非 AbortError app.js:3729,URL 拼接 _R2_FALLBACK_BASE+_bustQuery 正确 L3732,兜底失败抛回由 .catch+renderFailCard 兜底无未捕获异常)②影响面:正常 200 路径只加 catch 分支零改动,主站 Worker rewrite 200 不触发零影响,备站 sss 404 已验触发,无调用方依赖"404 即报错" ③lab.js 共用确认(无独立 fetchJSON 定义,app.js 顶层全局函数,lab.js 调用 23 次一处覆盖两站)④§9 三步:工作树 sw CACHE_VERSION a114(9b25223d8 后 KPI 2f29e9e1a 再 bump),app.min.js 含 ssd.fx8.store/data+fallback 字符串,index.html L186 v=50161494 ⑤三站抽验:主站 200/R2 兜底 200+access-control-allow-origin:* (CORS 开跨域兜底可用)/备站 404 根因确认。commit 在 origin/main。**非阻塞观察 2 条(不修,记录)**:①兜底复用同 15s AbortController 首挂接近超时可能连带 abort,但 AbortError 走 .catch 返回 null 不崩 ②若某 ./data/ 文件主站也真 404(可选数据)会浪费一次 R2 请求+console.warn,功能结果不变。**旧 reviewer 卡死根因复盘**:a8bb2ebe47b74ee70 卡死 33min+不写进度文件,TaskStop 重派新 agent 才完成——reviewer prompt 必须强写进度文件(§11 教训再验证)
+- **每日总结8/10 全闭环✅**(commit aa87fe614 in origin/main+独立复核 agent PASS 5项):§18 追加 4 过错(20 §0 grep字面量3600误判实际常量_ALARM_RECOMPUTE/21 备用站reviewer卡死22min+不写进度文件/22 curl -sv泄漏GITHUB_TOKEN/23 主控prompt期望值错国君66.7vs实际33.3)+6 经验(backfill兜底槽按槽差异化/数据挖掘盲区market_state/叠加边际验证/邮件字段语义/开源两仓库分工/check_data_integrity新校验,均含"适用:场景+怎么用")+quickstart curl token坑/叠加边际 step。复核验:纯追加无删减(仅+14行)/事实抽查全过(memory 2新文件+索引+10引用commit全存在)
+- **KPI 按钮位置修复 全闭环✅**(用户反馈"按钮在第一行上方移动端不友好,应像 A 股更多指标",commit d54d82124 in origin/main,reviewer a31b060cd888df6fe PASS 7项):按钮从 kpiHead(第一行上方)移到 cards 之后=折叠临界位置(参照 A 股 setupOneRowToggle L3855 全宽虚线 more-toggle 样式),类 kpi-toggle-btn→kpi-more-toggle,显隐改 JS 显式 block/none,kpiHead 只剩重置排序按钮;折叠功能逻辑不变(max-height 裁剪/断点 PC1行移动4行/展开态/卡数≤行数不出按钮/排序+拖拽重算)。§9 三步:sw a114→a115+min 版含 kpi-more-toggle+index asset v 一致。移动端不再挤压第一行上方,按钮自然出现在折叠边界。**待用户确认移动端效果**。1 可选 cosmetic(L9510 注释行号改 L9565,纯注释不修下次顺手)
+- **备用站闪加载根因定位✅**(诊断 agent affbaa63f1ede3444,用户质疑"方案不好也不稳定"坐实):9b25223d8 兜底用回主站 8/8 已弃用的最差路径——ssd.fx8.store R2 公开桶直链 cf-cache-status=DYNAMIC 无边缘缓存每次回源 R2 1-13.5s(a-stock-1y 13.5s 贴近 15s 上限);fetchJSON 单一 15s AbortController 同时盖 ./data/ 首挂+R2 兜底,AbortError 不重试,404(1-3s)+R2(1-13.5s)≈14.5s 抖动即 abort→加载失败;"闪一下又没了"=SW networkFirstJson 网络 ERROR 回退旧缓存先渲染旧→下一轮轮询走 404/R2 慢→renderTab 先 innerHTML 清空重建被替换为失败;GH Pages 国内 app.min.js 24-45s 环境慢叠加;独立遗留:主站 /r2/+/data/ rewrite 无 CORS→备站 -all.json 走势图一直跨域阻断。**推荐方案 A+B(已派实施 agent)**:A=兜底 base 从 ssd.fx8.store/data/ 改走 https://ss.fx8.store/data/(主站 /data/ rewrite 分层 TTL+upload 后 purge+边缘 HIT~50ms)+worker/headers.js 给 dataRewriteHandler+r2ProxyHandler 加 ACAO:* + app.js 拼接 1 行,build_min+bump sw 三步;顺带修复备站走势图 CORS。B=fetchJSON 修 15s AbortController 复用(兜底独立超时/重置)+R2 兜底加 1 次退避重试。C 运维:GH Pages 慢建议主备 s.sugas.site。D 终极(核心 31 文件备站自包含)仅用户要完全独立再议。
+### 会话状态(2026-08-11 01:30,用户入睡前连轴规划,4 完成 4 在跑)
+- **备用站 A+B 修复上线✅**(862e3a86d,备站闪加载根因坐实=兜底用回主站弃用的 ssd 直链 DYNAMIC 无边缘缓存 1-13.5s+fetchJSON 15s AbortController 首挂连带 abort):方案A 兜底 base ssd.fx8.store→ss.fx8.store/data/(主站 /data/ rewrite 边缘 HIT~50ms)+worker dataRewriteHandler/r2ProxyHandler 加 ACAO:*(修复备站走势图 CORS 缺口);方案B fetchJSON 首挂 abort 不连带杀兜底(独立 controller+15s)+R2 兜底 1 次退避重试(500ms)。§9 三步 sw a116→a117,3 站版本一致 app.min.js?v=8a479c75。自验:node --check/grep 3 处 ACAO(L131/187/200)/线上 curl Origin 头验 ACAO:* 生效/check_data_integrity 27ok 1warn(signal_kelly_backtest 缺非本任务)。**reviewer 已派**(ac1ace04f425a8540,影响面:fetchJSON lab.js 23 处调用+worker CORS 对主站 /data/ 全文件影响)
+- **easytrader_deploy→thsautoorder submodule 完成✅**(512710b12 in origin/main,撞车中间态已补完整):.gitmodules [submodule "easytrader_deploy"] url=https://github.com/xp13465/thsautoorder.git,submodule status 2ca02a5de heads/main,目录=thsautoorder 16 文件(新迭代 benchmark_engines.py/config.example.json/easytrader_server_auth_lastnight.py),旧 13 文件 git rm 历史保留(438d15a9f),README L202 补 clone --recurse-submodules 说明,零运行时引用确认。⚠️插曲:主控 59e05a010 曾意外把 agent 的 git rm 中间态带上 main(.gitmodules 空),agent 512710b12 已补完整无害;本地 untracked easytrader_local.json+__pycache__ 备份 /tmp/easytrader_untracked_backup/ 未放回(thsautoorder 自带 config.example.json 模板)
+- **组合降亏标志调研完成✅**(docs/kelly-combo-signal-research.md,ae6646759739ae965):组合=「预设宏」(UI 聚合开关,点击组合勾选成员 toggle,_kellyPassesFadeFilters L7349 过滤零改动,天然幂等+§22 一致);成员选择排除破坏性(excludeRatingLow -81万/marketTiming -14.9万)+边际=0(A1/A2/A3)+过拟合(N5/N6 2026占66/71%+V4-F/M/G/K 样本不足);推荐 5 命名组合(稳健核心 r8+v4csimple+v4b/5月系 n4+v4j+v4i+v4b/年末季节 n2+n3+v4d/年初周中 n1+v4csimple+v4k/最大化降亏 greedy15);防过拟合=成员并集独立回测+walk-forward+Harvey t>3+熔断;UI 组合 checkbox 三态派生+成员联动+hover 组合指标+§21 purpose-notes 同步。方法来源 IV/WoE/RFE/mRMR/Lasso/López de Prado MDI-MDA-SFI+DSR-PBO/Kakushadze/Grinold-Kahn IC/Fama-French/Pardo walk-forward(**环境网络受限 6 次 WebSearch 空+3 次 WebFetch 拒,方法来源基于领域知识未联网核实已注明**)。**实施建议:等 A45/A5 上线后,先跑"成员并集+Jaccard 重叠"验证脚本产出数据报告供用户选(不硬选),再实施**(用户已确认"调研完直接实施",验证脚本阶段无方向分叉直接跑,组合实施等 A45/A5 收尾)
+- **邮件其余 section 白话化完成✅**(cb5da14c4 in origin/main):只改 daily_summary_email.py +192/-4,数据口径不变(§0 验删除行全 docstring/重构行无数值逻辑):主邮件段恐贪(≥70 防追高/≤30 低位区)+均线多空占比直觉+新高新低强弱+领涨追高防轮动;汪汪队段进/出/量图例+共振可信度+净申购资金进出+每ETF 白话+段末📌结论(保留 T+1 免责)。自验 dry-run 双模式+边界分支+check_data_integrity 27ok 1warn(signal_kelly_backtest 缺既有)。凌晨 push 避 17:50,普通 push,未 add data/
+- **降亏 A45/A5 实施在跑**(ab91d6891a795bef9,cron f04e269f,用户确认"A45+A5 都做",agent 处理 A5⊆A45 包含关系)
+- **降亏第三轮 token 统计✅**:4 agent 合计 input 3,253,994+output 131,771=3,385,765(约 338 万,cache_read 24.3M 不计费),墙钟 22:40-23:31 约 51min(调研 11m 920,891/回测验证 20m 648,680/文献沉淀 9m 1,350,401/站点补全 13m 465,793)
+- **README 维护规范 2 条落档✅**(59e05a010 ①功能参考/用开源项目→参考致敬段补作用+链接 ②2700bf95d 重大功能添加/发布/更新→README 主体段完善补充,验收:agent 自验 grep README+reviewer 查同步)
+- **备站多模块数据异常→调研完成✅**(a346149a681c80a73,报告落档 docs/bak-data-audit.md commit af1017e56):**总根因=R2 迁移后 static-site/data 全移出 git,GH Pages/MaoziYun 备站磁盘零 data JSON,全靠 ①fallback 主站 /data/ rewrite ②r2/ 代理(靠 ACAO),备站可用性=R2 完整性×CORS×fallback 覆盖度**。4 症状定位:公募基金"暂无数据"=预修复 r2/public_fund 无 ACAO CORS 阻断(A+B 已修恢复)/指数表现"加载失败"=/r2/index/ 旧边缘缓存缺 ACAO 瞬态 01:46 自愈(非代码 bug)/凯利回测=预修复 ./data/ 无兜底(A+B fallback 走主站已恢复)/配对排行=预修复 CORS(r2/lab ACAO 已恢复)。**残留 2 代码级真问题**:①signal_kelly_trades.json lab.js L7496/L8600 硬编码 ssd.fx8.store 直链无 ACAO→备站凯利交易记录弹窗/费率重算必挂 ②r2ProxyHandler L118 if(cached) return cached 旧缓存不重加 ACAO→部署改头后 1h CORS 盲窗。全量扫描 165 index/65 lab/12 public_fund/58 alert_analyze 全在 R2(200),数据完整性 OK,备站问题 95% CORS/兜底层非数据缺失。**修复 agent 在跑**(ae5f370cf0b9793f4,cron 81d5727a:①改走主站 /data/ rewrite ②r2ProxyHandler 缓存补 ACAO,排查同类 grep 全前端 ssd 直链)
+- **降亏 A45/A5 上线✅**(36f5b0e51 in origin/main):A5=11月中旬+buy_special(5.49/边际+77k 最稳)/A45=11月中下旬+buy_special(5.75/边际+107k 净影响最大),A5⊆A45 严格子集但 verify doc §5 两者独立推荐+用户要两个→两独立 toggle(UI hover 提示子集+§21 公示);lab.js 8 处+_kellyPassesFadeFilters _r3On 分支+2 条件+round3 tier 组+2 handler+detail-modal filter;purpose-notes 15->17;sw a118->a119。自验 7 项全过:数据层 A5=1485/A45=2214 与 verify doc 吻合+buy_date.substring(6,8) 正确+node --check+min 文案+线上 ss.fx8.store/sss.sugas.site 验新版(lab.min.js?v=96690c75/purpose-notes?v=eb02d7e7/sw a119)。check_data_integrity 21fail 全为 R2 迁移后本地 static-site/data 稀疏(数据在 R2 线上)非本任务回归
+- **市场温度情绪分买卖点信号列表上线✅**(7758ae159+7bef217bc in origin/main):根因确认=后端 queries.py L529-531 signals_today 用 index_id NOT LIKE 's.%' 排除全部情绪分信号(0-100 衍生指标非可交易标的),signal_daily 表保留 s.* 记录;renderSentimentSignalList 读 sentiment JSON r.signals(9 类:a_sentiment/跨市场/恐贪/6宽基)近15日按日分组复用首页 .sig-item/.sig-clickable 格式,与 🔥 热力图 .sentiment-heat-row flex stretch 同排同高;style.css 等高+窄卡2列+移动端堆叠;README 情绪温度计段补。自验 8 项全过+curl 线上 sentiment-3m.json signals 9 key 有值+app.min.js 含"情绪分买卖点信号"。sw.js 由降亏 agent 统一 bump a119(市场温度 agent 故意排除避免共享竞争)
+- **reviewer 已派**(ad7d912b44efc4f8b,cron 待设,查降亏A45/A5+市场温度 2 功能影响面:降亏改 _kellyPassesFadeFilters 过滤逻辑+17 toggle 交互+detail-modal;市场温度改 renderSentimentMarketTemp 热力图容器+新列表渲染)
+- **修 bug 三铁律规范落档✅**(96e82e301 in feat,用户定"每个修复bug的核心要修好修完整以及自测完成,不只图快说啥修啥,不调研是否还有其他同类错误"):①修完整(修前全面调研同类错误面,不听用户报 1 个只修 1 个)②自测完成(修完全面自测列清单不草率)③排查同类(同根因/同链路/同通道其他文件自查)。验收:修 bug agent 自验含同类错误面清单+逐项自测,reviewer 查同类覆盖
+- **main HEAD**：36f5b0e51(降亏A45/A5)+7758ae159/7bef217bc(市场温度信号列表)+af1017e56(备站调研落档)。feat/iframe-theme-follow=main 同步,862e3a86d 备用站 A+B 也 IN main
+
+### 每日总结(2026-08-10,§19 cron 触发,agent 完成+复核)
+- **§18 追加 4 条新过错(20-23)+6 条经验+token 浪费**:20 §0 grep 字面量 3600 误判(常量 _ALARM_RECOMPUTE) / 21 备用站 reviewer 卡死 22min+不写进度文件 / 22 curl -sv 泄漏 GITHUB_TOKEN / 23 主控 prompt 期望值错误(国君 66.7 vs 实际 33.3)。经验:backfill 兜底槽按槽差异化(02:00 强制重算+3600s)/数据挖掘盲区(market_state 未挖)/叠加边际验证/邮件字段语义(静态 vs 动态)/开源两仓库分工/check_data_integrity 新校验。
+- **memory 新增 2**(verify-grep-constant-not-literal + curl-v-leaks-auth-token)+更新 requirement-research-bias 第7条(prompt 期望值核实)+MEMORY.md 索引对齐。
+- **quickstart 更新**:常见坑速查加 curl token 坑 + §H step5 补叠加边际。
+- 复核 agent:PASS(核心点保留/中心思想/经验类已归纳)。commit 见 git log。
+

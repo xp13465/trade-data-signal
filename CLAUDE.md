@@ -51,6 +51,7 @@
 - 不要把规范/决策只放 memory（memory 读快但非持久化，落档才是写保障）
 - **NOTES.md/TASKS.md 已拆分历史章节**(2026-07-21):历史章节(§1-§47,2026-07-06~07-20)归档到 `docs/archive/NOTES-history.md`;已完成项(22任务全done+晚续3及更早交接状态+综合AI风险预警P1/P2/P4全闭环)归档到 `docs/archive/TASKS-done.md`。主文件只保留 §48 近期章节+晚续4活跃待办+工作约定+R2/全站性能待办。查历史在此二档
 - **任务/cron 默认持久化(2026-08-04 用户定)**："任何事我都希望默认持久化，会话和 memory 不可靠"。CronCreate 默认 `durable:true`(写 .claude/scheduled_tasks.json,会话关了不丢,重启补跑 missed 一次性任务);进度文件优先进 git(`.superpowers/sdd/progress.md` 或 NOTES/TASKS 会话状态小节)而非 `/tmp`(/tmp 重启丢);任务状态/待办/决策/验收结论落 NOTES/TASKS commit git,不只放 memory 或口头报。任何不依赖会话内存或 session-only cron 才算数,落盘+落 git 是默认
+- **TASKS 定期归档+完成度校验(2026-08-11 建立)**：TASKS.md 膨胀(曾 429KB)靠 `python3 scripts/tasks_archive.py`(归档已完成小节到 docs/archive/TASKS-done.md + 压缩会话状态超长行 + 待办保护,幂等原子写) + `python3 scripts/tasks_verify.py`(校验 commit hash 是否在 origin/main + 功能词 grep,产出 docs/archive/tasks-verify-report-<date>.md,3 类清单:①悬空hash但功能在main/需人工 ②漏标 ③状态超前)。每周六 23:45 cron(id e4569e0f)自动跑,也可手动。`#### 待办` 锚点+活跃待办必保留(feishu_ws_listener 在其后插 `- [ ] (飞书...)`,兼容不可破坏),归档块内 `- [ ]` 自动并入锚点小节防丢待办(2026-08-08 量子科技第4层丢失教训)。机制详见 docs/tasks-archive-maintain.md。约束:只改 TASKS.md/docs/CLAUDE.md/scripts,不 commit 不 push(主控统一),长行用 python 逐行禁 grep 全文
 
 ## 8. 改完必须推送
 - 每次改完 commit + push feat + merge main + push main(不推=白干,别人无法验收)
@@ -64,6 +65,7 @@
 - ⚠️ **交易日盘中(09:30-15:30)不跑全量 export + deploy**:全量 export + deploy 限定交易日 15:35 后(收盘后);**周末/节假日休市例外:intraday-snapshot 不推数据无撞车风险,可随时跑不等盘后**(2026-08-09 教训:曾误让用户等盘后,用户提醒周末不开盘)。盘中 intraday-snapshot 走 R2 上传不推 main(2026-08-10 R2迁移阶段3 commit 508eabb44)。agent 接"跑全量 export"任务须先确认**是否交易日**+时点,交易日盘中拒绝或等收盘(防全量 export 覆盖 R2 实时数据,非避 push main),休市直接跑
 - ⚠️ **agent 推理“X 文件在 Y commit 里”前先核对**(2026-07-20 事故误判):用 `git show --stat <commit>` 或 `git log -- <file>` 确认文件实际是否在 commit 里、是哪个时点版本,不靠“Y commit 是 Z 时点跑的所以含 Z 时点数据”推理
 - ⚠️ **验上线验功能生效层非代码在 main**(2026-08-05 教训):代码在 main + 版本号上线 ≠ 功能生效。说“已上线”前 curl JSON 验数据层(字段有值/无旧字段残留)+ 让用户确认显示。教训:判断预估成交额已上线但 amount_forecast={} 空对象后端没写数值;信号过滤代码在 main 但 overview.json 旧版 signals_today 还有 s.sentiment_cyb
+- ⚠️ **"功能 done"三查清单(2026-08-11 AI 预测前端漏上线教训补)**:验收任何功能"已上线/done"必须三查齐:①main 链含 commit(git log origin/main 含 hash)②数据层生效(curl 线上 JSON 字段有值/无旧字段残留)③**前端展示层上线(curl 线上 app.min.js/lab.js 含新功能 class/中文字符串)**。只验 ①② 不验 ③ = 前端代码写了但从未 commit main+上线,用户看不到新功能(2026-08-11 AI 预测辩论详情/今日要点:数据层 ai-multi+reviewer 验本地 min 产物 PASS,但前端代码一直在工作区未 commit,main 上 app.js 0 处新代码,线上 app.min.js 0 处,用户看不到)。**reviewer 验的是本地 min 产物 ≠ 前端上线**,reviewer PASS 后主控 §0 必须补验 ③(curl 线上前端产物)。提交/标记 done 前先 grep 线上前端产物确认
 
 ### 8.1 R2 存储架构准则(2026-08-01 定,按数据类别不按大小)
 - **R2 是存储架构的结构决策,不按单文件大小临时判断**。新数据类别从第一天就走 R2 架构(upload_r2 清单+前端 dataUrl R2 fallback),不等变大才补
