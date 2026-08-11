@@ -1853,10 +1853,10 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         if (_posCapKeptSet && isToday) {
           if (_posCapKeptSet.has(it)) {
             posCapCls = " sig-poscap-kept";
-            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="仓位控制过滤开启(K=${_posCapK}): 按 跟踪分↓→评级→信号类型→买入日 当日排序前${_posCapK}名, 建议执行">建议执行</sup>`;
+            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="仓位控制过滤开启(K=${_posCapK}): 按 跟踪分↓→评级→信号类型→买入日 当日排序前${_posCapK}名, 建议执行（按指数级 top-K 展示，与回测每ETF粒度有差异）">建议执行</sup>`;
           } else {
             posCapCls = " sig-poscap-excluded";
-            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="仓位控制过滤开启(K=${_posCapK}): 当日只建议执行最优${_posCapK}个, 本信号未进入, 当日已满">当日已满</sup>`;
+            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="仓位控制过滤开启(K=${_posCapK}): 当日只建议执行最优${_posCapK}个, 本信号未进入, 当日已满（按指数级 top-K 展示，与回测每ETF粒度有差异）">当日已满</sup>`;
           }
         }
         // 评分尾缀：技术参考点综合把握度（10d 窗口 score）
@@ -11319,7 +11319,7 @@ function _lwSVG(cfg) {
               const c0 = _perColor(_idx[rs2], ser.data[_idx[rs2]]);
               while (re + 1 < _idx.length && _perColor(_idx[re + 1], ser.data[_idx[re + 1]]) === c0) re++;
               if (re === rs2) {
-                s += '<circle cx="' + xs[_idx[rs2]].toFixed(1) + '" cy="' + ys[_idx[rs2]].toFixed(1) + '" r="' + (ser.symbolR || 2) + '" fill="' + c0 + '"' + (ser.opacity != null ? ' fill-opacity="' + ser.opacity + '"' : "") + '/>';
+                if (ser.symbolR) s += '<circle cx="' + xs[_idx[rs2]].toFixed(1) + '" cy="' + ys[_idx[rs2]].toFixed(1) + '" r="' + ser.symbolR + '" fill="' + c0 + '"' + (ser.opacity != null ? ' fill-opacity="' + ser.opacity + '"' : "") + '/>';
               } else {
                 let d = "M " + xs[_idx[rs2]].toFixed(1) + " " + ys[_idx[rs2]].toFixed(1);
                 for (let k = rs2 + 1; k <= re; k++) d += " L " + xs[_idx[k]].toFixed(1) + " " + ys[_idx[k]].toFixed(1);
@@ -11340,7 +11340,7 @@ function _lwSVG(cfg) {
             const c2 = (i < _b) ? perColor(i + 1, ser.data[i + 1]) : c1;
             if (i === _b || c1 !== c2) {
               if (i === rs2) {
-                s += '<circle cx="' + xs[i].toFixed(1) + '" cy="' + ys[i].toFixed(1) + '" r="' + (ser.symbolR || 2) + '" fill="' + c1 + '"' + (ser.opacity != null ? ' fill-opacity="' + ser.opacity + '"' : "") + '/>';
+                if (ser.symbolR) s += '<circle cx="' + xs[i].toFixed(1) + '" cy="' + ys[i].toFixed(1) + '" r="' + ser.symbolR + '" fill="' + c1 + '"' + (ser.opacity != null ? ' fill-opacity="' + ser.opacity + '"' : "") + '/>';
               } else {
                 const d = _lwLineD(xs, ys, rs2, i, ser.smooth !== false);
                 s += '<path d="' + d + '" fill="none" stroke="' + c1 + '" stroke-width="' + (ser.width || 1.5) + '"' + _dashAttr + _opacityAttr + ' stroke-linejoin="round" stroke-linecap="round"/>';
@@ -11732,7 +11732,7 @@ function _lwBind(wrap, cfg) {
     _pt = svg.querySelector(".lw-hover-pt");
   };
   _render();
-  const _show = (i) => {
+  const _show = (i, clientY) => {
     if (_cursor) { _cursor.setAttribute("x1", _px(i).toFixed(1)); _cursor.setAttribute("x2", _px(i).toFixed(1)); _cursor.setAttribute("opacity", "0.9"); }
     if (_pt) _pt.setAttribute("opacity", "0");
     if (tip) {
@@ -11745,7 +11745,8 @@ function _lwBind(wrap, cfg) {
       const ratioW = _W / (svgRect.width || 1);
       const ratioH = _h / (svgRect.height || 1);
       const cssX = _px(i) / ratioW;
-      const cssY = (PT + _ih / 2) / ratioH + (svgRect.top - wrapRect.top);
+      // tooltip 跟随鼠标 y(echarts axis tooltip 跟随数据点/鼠标), 缺省回退垂直中部
+      const cssY = (clientY != null) ? (clientY - wrapRect.top) : ((PT + _ih / 2) / ratioH + (svgRect.top - wrapRect.top));
       const tipW = tip.offsetWidth || 80;
       const tipH = tip.offsetHeight || 36;
       let left = cssX - tipW / 2;
@@ -12021,7 +12022,7 @@ function _lwLineCard(title, series, opts, hint, container, height) {
     ys: [{ splitLine: true }],
     legend: [{ name: seriesName, color: (opts && opts._lwColor) || "#5b8ff9" }],
     series: [{
-      type: "line", data: vals, color: (opts && opts._lwColor) || "#5b8ff9", width: 1.5, smooth: true,
+      type: "line", data: vals, color: (opts && opts._lwColor) || "#5b8ff9", width: 1.5, smooth: true, connectNulls: true,
       itemColor: (opts && opts._lwColorFn) || null,
       markLine: (opts && opts._lwMarkLine) || [],
     }],

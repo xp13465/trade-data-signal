@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260812-a146';  // bump a145->a146: positionCap reviewer FAIL 修复(逐桶缓存校验amountMode/组合建议静态口径标注/弹窗谓词改调共享含v4/空态colspan15)
+const CACHE_VERSION = 'v6-20260812-a147';  // bump a146->a147: 首页SVG化外观1:1复刻(dataZoom滑条+滚轮缩放/边界留白boundaryGap/零基/轴字号12/pin改小+金晕/legend换行/双柱对称)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
