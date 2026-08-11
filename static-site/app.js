@@ -16715,11 +16715,7 @@ function _etfTrendSVG(ohlc, w) {
     const gy = _py(tv);
     s += '<line x1="' + PL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - PR) + '" y2="' + gy.toFixed(1) + '" stroke="var(--border)"/>';
   }
-  // 垂直网格(category 边界, 每 5 槽一条弱化, 对齐 echarts 类别间竖线)
-  for (let b = 0.5; b < _n - 0.5; b += 5) {
-    const gx = PL + (b / (_n - 1)) * (W - PL - PR);
-    s += '<line x1="' + gx.toFixed(1) + '" y1="' + PT + '" x2="' + gx.toFixed(1) + '" y2="' + _baseY + '" stroke="var(--border)"/>';
-  }
+  // (无垂直网格: echarts xAxis.splitLine 默认 show:false 无竖线, 对齐"样子完全一样"铁律, reviewer a2c9cdb6 FAIL P1-1)
   // y 轴: 轴线 + 刻度 + 数字标签(fontSize 10, 色 = echarts axisLabel 主题色)
   s += '<line x1="' + PL + '" y1="' + PT + '" x2="' + PL + '" y2="' + _baseY + '" stroke="var(--border-strong)"/>';
   const _stepD = _step >= 1 ? 0 : Math.min(4, Math.ceil(-Math.log10(_step)));
@@ -16729,12 +16725,8 @@ function _etfTrendSVG(ohlc, w) {
     s += '<text x="' + (PL - 8) + '" y="' + (gy + 3.5).toFixed(1) + '" font-size="10" text-anchor="end" style="fill:var(--text-1)">'
       + Number(tv).toFixed(_stepD) + '</text>';
   }
-  // x 轴: 轴线 + 每点刻度 + 6 个日期标签(fontSize 10, 对齐 echarts interval auto)
+  // x 轴: 轴线 + 仅标签位置刻度(~6 根, 对齐 echarts interval auto, reviewer a2c9cdb6 FAIL P1-2) + 6 个日期标签(fontSize 10)
   s += '<line x1="' + PL + '" y1="' + _baseY + '" x2="' + (W - PR) + '" y2="' + _baseY + '" stroke="var(--border-strong)"/>';
-  for (let i = 0; i < _n; i++) {
-    const x = _px(i);
-    s += '<line x1="' + x.toFixed(1) + '" y1="' + _baseY + '" x2="' + x.toFixed(1) + '" y2="' + (_baseY + 4) + '" stroke="var(--border-strong)"/>';
-  }
   const _di = [];
   for (let k = 0; k <= 5; k++) _di.push(Math.round(k * (_n - 1) / 5));
   const _labelIdx = _di.filter((v, i) => _di.indexOf(v) === i);
@@ -16742,6 +16734,7 @@ function _etfTrendSVG(ohlc, w) {
     const x = _px(i);
     const anchor = i === 0 ? 'text-anchor="start"' : (i === _n - 1 ? 'text-anchor="end"' : 'text-anchor="middle"');
     const tx = i === 0 ? x + 2 : (i === _n - 1 ? x - 2 : x);
+    s += '<line x1="' + x.toFixed(1) + '" y1="' + _baseY + '" x2="' + x.toFixed(1) + '" y2="' + (_baseY + 4) + '" stroke="var(--border-strong)"/>';
     s += '<text x="' + tx.toFixed(1) + '" y="' + (H - 8) + '" font-size="10" ' + anchor + ' style="fill:var(--text-1)">' + fmtDate(_dates[i]) + '</text>';
   }
   // 面积 + 平滑折线(线宽 1.5) + 每点 r2 小圆(对齐 echarts symbolSize 4) + hover 十字线/高亮点
