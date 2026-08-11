@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260811-a132';  // bump a131->a132: purpose-notes §21公示 J1/J2 数值同步全局基准口径(2.31/0.49+4.95/1.10),修复reviewer FAIL §22/§21
+const CACHE_VERSION = 'v6-20260811-a133';  // bump a132->a133: 分时图盘前打开页面全天不更新修复(_intradayRenderCtx 移出 if(!isClosed) 块外,盘前记录ctx→开盘心跳重启轮询)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

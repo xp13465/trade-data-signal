@@ -7145,9 +7145,13 @@ function renderIntradaySection(sparkGrid, snap) {
   applyMode(mode);
 
   // 盘中启动1分钟动态刷新（无论何种状态，badge/chips 都需刷新）
+  // [fix 2026-08-11] 盘前也记录 ctx: 盘前 snap.is_closed=true 时轮询不启动(避免盘前浪费请求),
+  // 但 _intradayRenderCtx 必须在 if(!isClosed) 块外记录——否则盘前打开页面 ctx 保持 null,
+  // 开盘后唯一救活路径 _intradayHeartbeatCheck L7282 因 ctx=null 直接 return, 分时轮询全天永不启动。
+  // 块外记录后: 开盘后 overview 心跳检测 _intradayActive=false 即走 S4 fix C方案重启轮询。
+  _intradayRenderCtx = { sparkGrid, snap };
   if (!isClosed) {
     _startIntradayRefresh();
-    _intradayRenderCtx = { sparkGrid, snap };
     // 立即跑一次：刷新后用腾讯实时价立即更新曲线+底部spark-foot+角标时间，
     // 不等 _scheduleNextRefresh 的1min首次延迟（否则底部+角标卡 renderOverview 旧snap 1min）。
     // _doIntradayRefresh 末尾会 _scheduleNextRefresh 清掉 _startIntradayRefresh 设的1min timer 并重设，不重复调度；
