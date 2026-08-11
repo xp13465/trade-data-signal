@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260811-a129';  // bump a128->a129: 凯利1月调整组合(J1 1月中旬+mid评级+J2 1月中旬+追关注)+新2 toggle
+const CACHE_VERSION = 'v6-20260811-a130';  // bump a129->a130: 凯利1月调整组合(J1/J2) tooltip 减亏损盈数值修正(全局基准口径)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
