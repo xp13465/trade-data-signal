@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260812-a142';  // bump a141->a142: 凯利区组合使用建议+全信号表(最后结果)置顶(真实回测, all伪象限实时)
+const CACHE_VERSION = 'v6-20260812-a143';  // bump a142->a143: 凯利区样式合群(组合建议对齐AI报告db-*风格) + 全信号表按年窗口增长表右移与卡横向并排(消除右侧空白)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

@@ -8370,13 +8370,15 @@ function _sigKellyAllSignalGroupHtml(period) {
     `<div class="lab-sigkelly-group lab-sigkelly-all-group">` +
       `<div class="lab-sigkelly-group-title">📌 全信号表（最后结果 · 全量信号融合）<span class="lab-sigkelly-all-badge">最后结果</span></div>` +
       `<div class="lab-sigkelly-all-desc">总建议口径：全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）。下表实时随上方降亏组合勾选 / 费率档 / 周期切换联动。年份窗口表为全周期口径（非当前周期窗口）。</div>` +
-      `<div class="lab-sigkelly-grid">${cardHtml}</div>` +
-      `<div class="lab-sigkelly-all-yearly lab-sigkelly-all-yearly-block">` +
-        `<div class="lab-sigkelly-all-sub">按年窗口增长（全信号 · 当前降亏组合实时）</div>` +
-        `<div class="lab-sigkelly-table-scroll"><table class="lab-sigkelly-table lab-sigkelly-yearly-table">` +
-          `<thead><tr><th>年份</th><th>笔数</th><th>净盈亏(元)</th><th>累计(元)</th><th>胜率</th></tr></thead>` +
-          `<tbody>${yRows}</tbody>` +
-        `</table></div>` +
+      `<div class="lab-sigkelly-all-main">` +
+        `<div class="lab-sigkelly-all-card">${cardHtml}</div>` +
+        `<div class="lab-sigkelly-all-yearly lab-sigkelly-all-yearly-block">` +
+          `<div class="lab-sigkelly-all-sub">按年窗口增长（全信号 · 当前降亏组合实时）</div>` +
+          `<div class="lab-sigkelly-table-scroll"><table class="lab-sigkelly-table lab-sigkelly-yearly-table">` +
+            `<thead><tr><th>年份</th><th>笔数</th><th>净盈亏(元)</th><th>累计(元)</th><th>胜率</th></tr></thead>` +
+            `<tbody>${yRows}</tbody>` +
+          `</table></div>` +
+        `</div>` +
       `</div>` +
     `</div>`
   );
