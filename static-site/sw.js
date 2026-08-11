@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260811-a140';  // bump a139->a140: AI预测dailyBrief补齐(🎯今日要点+多角色讨论详情+公示文案修正)
+const CACHE_VERSION = 'v6-20260812-a141';  // bump a140->a141: SVG P1 Step① 首页sparkline批轻量SVG(消灭~39 echarts.init, 提速200-500ms)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

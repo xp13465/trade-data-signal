@@ -10493,15 +10493,47 @@ function ntSparkline(daily, w, h) {
 // 返回占位 div，由 _flushNtSpark() 统一 init（KPI 卡 HTML 字符串构建时 DOM 尚未插入，需延后 init）。
 var _ntSparkPending = new Map();
 var _ntSparkSeq = 0;
+// P1 Step①(2026-08-12): 首页 sparkline 批(KPI 卡 ~27 + 指数 spark-cell ~11, 共 ~39 实例)从 echarts 换轻量 SVG。
+// 开关 charts.lightweight(siteCfg, 默认 true): true=轻量 SVG(零 echarts.init, 首屏提速 -200~500ms), false=回退 echarts。
+// 外观对等(§16): 几何与 _etfTrendGeom 同口径(echarts value scale:true nice extent, P0 已对真实 echarts 验证),
+// 边距=原 echarts grid{left:1,right:1,top:2,bottom:2}, 无轴无网格无标签无点符号(symbol:none), 平滑曲线宽1.5
+// + 面积 opacity0.12, 涨跌色同源(红涨绿跌), hover 垂直十字线(axisPointer 对等) + 浮层 tooltip(日期+收盘+涨跌%)。
 function ntIndexSparkline(closes, dates, color, w, h) {
   if (!closes || closes.length < 2) return "";
   var sid = "nt-spark-" + (++_ntSparkSeq);
-  _ntSparkPending.set(sid, { closes: closes, dates: dates || [], color: color, w: w || 300, h: h || 72 });
-  return '<div class="nt-spark-ech" data-sid="' + sid + '" style="width:100%;height:' + (h || 72) + 'px"></div>';
+  var ww = w || 300, hh = h || 72;
+  var _lite = !!siteCfg("charts.lightweight", true);
+  _ntSparkMeta.set(sid, { closes: closes, dates: dates || [], color: color, w: ww, h: hh });
+  // 长期会话 prune: 只留还在 DOM 的 sid(防 map 无限膨胀, live 重渲染只需当前 DOM 数据)
+  if (_ntSparkMeta.size > 300) {
+    for (var _s of _ntSparkMeta.keys()) {
+      if (!document.querySelector('[data-sid="' + _s + '"]')) _ntSparkMeta.delete(_s);
+    }
+  }
+  _ntSparkPending.set(sid, { closes: closes, dates: dates || [], color: color, w: ww, h: hh, lite: _lite });
+  if (_lite) {
+    // 初帧 viewBox 宽=参考宽, _ntSparkBind 绑定即按实测宽校正(同 _etfTrendLiteBind, P0 2026-08-11)
+    return '<div class="nt-spark-lite" data-sid="' + sid + '" style="position:relative;height:' + hh + 'px">'
+      + '<svg class="idx-spark nt-spark-svg" width="100%" height="' + hh + '" viewBox="0 0 ' + ww + ' ' + hh + '" preserveAspectRatio="none">'
+      + _ntSparkSVG(closes, dates, color, ww, hh)
+      + '</svg>'
+      + '<div class="nt-spark-tip" style="' + _ntSparkTipStyle() + '"></div>'
+      + '</div>';
+  }
+  return '<div class="nt-spark-ech" data-sid="' + sid + '" style="width:100%;height:' + hh + 'px"></div>';
 }
 // 统一 init 所有待渲染 nt-spark echarts 实例（renderOverview KPI 卡 + 指数 spark-cell 循环结束后调）。
 // tooltip 配置复用行业 spark-cell (trigger:axis + formatter 显示日期+收盘+涨跌%)。
 function _flushNtSpark() {
+  // P1 Step①: 轻量 SVG sparkline 绑定 hover(KPI 卡 + 指数 spark-cell 统一入口, 零 echarts 依赖)
+  document.querySelectorAll(".nt-spark-lite").forEach(function (el) {
+    var sid = el.getAttribute("data-sid");
+    var p = _ntSparkPending.get(sid);
+    if (!p) return;
+    _ntSparkPending.delete(sid);
+    var svg = el.querySelector("svg.nt-spark-svg");
+    if (svg) _ntSparkBind(svg, p.closes, p.dates, p.color, p.w, p.h);
+  });
   if (typeof echarts === "undefined") return;
   document.querySelectorAll(".nt-spark-ech").forEach(function (el) {
     var sid = el.getAttribute("data-sid");
@@ -10538,6 +10570,160 @@ function _flushNtSpark() {
     }));
     charts.push(inst);
   });
+}
+
+// ===== P1 Step①(2026-08-12): 首页 sparkline 轻量 SVG 几何/绘制/hover =====
+// 原 echarts nt-spark 配置(外观对等基准): grid{left:1,right:1,top:2,bottom:2} + xAxis category
+// (无轴无网格无标签) + yAxis value scale:true + line smooth:true symbol:none lineStyle宽1.5
+// + areaStyle opacity0.12 + tooltip trigger:axis(日期+收盘2位+涨跌%2位) + axisPointer 垂直十字线。
+// 几何与 _etfTrendGeom 同口径(IntervalScale scale:true nice extent, P0 已对真实 echarts 验证)，
+// 仅边距(1/1/2/2)+高度可变(W/H 按容器)。数据先 Number() 转换(同原 echarts 路径 L10514: null→0)。
+var _ntSparkMeta = new Map();   // sid -> {closes,dates,color,w,h}(live 重渲染用, 与 DOM 同步清理)
+function _ntSparkTipStyle() {
+  // tooltip 浮层 = echarts withTheme tooltip 视觉对等(背景/边框/文字/圆角/阴影, 随皮肤 CSS var)
+  return "position:absolute;display:none;background:var(--bg-card);color:var(--text-1);"
+    + "border:1px solid var(--border-strong);border-radius:4px;padding:5px 10px;font-size:13px;"
+    + "line-height:1.5;white-space:nowrap;pointer-events:none;z-index:60;"
+    + "box-shadow:0 2px 10px rgba(0,0,0,0.15);";
+}
+function _ntSparkGeom(closes, dates, w, h) {
+  const W = w || 300, H = h || 72, PL = 1, PR = 1, PT = 2, PB = 2;
+  const _vals = (closes || []).map((v) => Number(v));
+  const _dates = dates || [];
+  const _n = _vals.length;
+  const _iw = W - PL - PR, _ih = H - PT - PB;
+  const _valid = [];
+  for (let i = 0; i < _n; i++) if (_vals[i] != null && !isNaN(_vals[i])) _valid.push(_vals[i]);
+  let _rawMin = _valid.length ? Math.min.apply(null, _valid) : 0;
+  let _rawMax = _valid.length ? Math.max.apply(null, _valid) : 1;
+  let extMin = _rawMin, extMax = _rawMax;
+  if (extMin === extMax) {
+    if (extMin !== 0) { const _s = Math.abs(extMin); extMax += _s / 2; extMin -= _s / 2; }
+    else extMax = 1;
+  }
+  const _span = extMax - extMin;
+  const _step = _niceNumber(_span / 5, true);
+  const _prec = _intervalPrecision(_step);
+  let _niceMin = _roundTo(_prec, Math.ceil(extMin / _step) * _step);
+  let _niceMax = _roundTo(_prec, Math.floor(extMax / _step) * _step);
+  _niceMin = Math.max(Math.min(_niceMin, extMax), extMin);
+  _niceMax = Math.max(Math.min(_niceMax, extMax), extMin);
+  if (_niceMin > _niceMax) _niceMin = _niceMax;
+  const _yMin = _roundTo(_prec, Math.floor(extMin / _step) * _step);
+  const _yMax = _roundTo(_prec, Math.ceil(extMax / _step) * _step);
+  const _unitW = _iw / _n;
+  const _px = (i) => PL + (i + 0.5) * _unitW;   // category 半格内缩(同 echarts dataToCoord)
+  const _py = (v) => PT + _ih - ((v - _yMin) / ((_yMax - _yMin) || 1)) * _ih;
+  return { W, H, PL, PR, PT, PB, _n, _vals, _dates, _iw, _ih, _unitW, _yMin, _yMax, _px, _py };
+}
+function _ntSparkSVG(closes, dates, color, w, h) {
+  const g = _ntSparkGeom(closes, dates, w, h);
+  const { H, PB, _n, _vals, _px, _py } = g;
+  if (_n < 2) return "";
+  const _axisY = H - PB;
+  // 平滑曲线(catmull-rom → cubic bezier, 对齐 echarts smooth:true, 同 _etfTrendSVG) + 面积(闭合到网格底)
+  let _d = "M " + _px(0).toFixed(1) + " " + _py(_vals[0]).toFixed(1);
+  for (let i = 0; i < _n - 1; i++) {
+    const _p0 = { x: _px(Math.max(0, i - 1)), y: _py(_vals[Math.max(0, i - 1)]) };
+    const _p1 = { x: _px(i), y: _py(_vals[i]) };
+    const _p2 = { x: _px(i + 1), y: _py(_vals[i + 1]) };
+    const _p3 = { x: _px(Math.min(_n - 1, i + 2)), y: _py(_vals[Math.min(_n - 1, i + 2)]) };
+    const _c1x = _p1.x + (_p2.x - _p0.x) / 6, _c1y = _p1.y + (_p2.y - _p0.y) / 6;
+    const _c2x = _p2.x - (_p3.x - _p1.x) / 6, _c2y = _p2.y - (_p3.y - _p1.y) / 6;
+    _d += " C " + _c1x.toFixed(1) + " " + _c1y.toFixed(1) + " " + _c2x.toFixed(1) + " " + _c2y.toFixed(1)
+      + " " + _px(i + 1).toFixed(1) + " " + _py(_vals[i + 1]).toFixed(1);
+  }
+  const _areaPath = _d + " L " + _px(_n - 1).toFixed(1) + " " + _axisY.toFixed(1)
+    + " L " + _px(0).toFixed(1) + " " + _axisY.toFixed(1) + " Z";
+  let s = "";
+  s += '<path d="' + _areaPath + '" fill="' + color + '" opacity="0.12"/>';
+  s += '<path d="' + _d + '" fill="none" stroke="' + color + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>';
+  // hover 垂直十字线(初始隐藏, 对齐 echarts axisPointer 随皮肤轴线色 var(--border-strong))
+  s += '<line class="nt-spark-cursor" x1="0" y1="' + g.PT + '" x2="0" y2="' + _axisY + '" stroke="var(--border-strong)" stroke-width="1" opacity="0"/>';
+  return s;
+}
+function _ntSparkBind(svg, closes, dates, color, w, h) {
+  if (!svg) return;
+  const _wrap = svg.parentElement;
+  if (!_wrap) return;
+  const _H = h || 72;
+  const _rect = svg.getBoundingClientRect();
+  const _W = Math.round((_rect && _rect.width) || w || 300);
+  svg.setAttribute("viewBox", "0 0 " + _W + " " + _H);
+  svg.innerHTML = _ntSparkSVG(closes, dates, color, _W, _H);
+  const g = _ntSparkGeom(closes, dates, _W, _H);
+  const { PL, PT, _n, _vals, _dates, _px, _py } = g;
+  const _cursor = svg.querySelector(".nt-spark-cursor");
+  const _tip = _wrap.querySelector(".nt-spark-tip");
+  // tooltip 内容 = 原 echarts formatter 完全同口径(L10550-10563: 日期+收盘2位+涨跌%2位)
+  const _tipHtml = (i) => {
+    const _d = _dates[i] || "";
+    const _v = _vals[i];
+    if (_v == null || isNaN(_v)) return _d + "<br/>-";
+    const _lines = [_d, "收盘 " + Number(_v).toFixed(2)];
+    if (i > 0 && _vals[i - 1] != null && !isNaN(Number(_vals[i - 1]))) {
+      const _pct = (Number(_v) - Number(_vals[i - 1])) / Number(_vals[i - 1]) * 100;
+      _lines.push("涨跌 " + (_pct >= 0 ? "+" : "") + _pct.toFixed(2) + "%");
+    }
+    return _lines.join("<br/>");
+  };
+  const _show = (i) => {
+    if (_cursor) {
+      _cursor.setAttribute("x1", _px(i).toFixed(1));
+      _cursor.setAttribute("x2", _px(i).toFixed(1));
+      _cursor.setAttribute("opacity", "0.9");
+    }
+    if (_tip) {
+      _tip.innerHTML = _tipHtml(i);
+      _tip.style.display = "block";
+      const _svgRect = svg.getBoundingClientRect();
+      const _wrapRect = _wrap.getBoundingClientRect();
+      const _ratioW = _W / (_svgRect.width || 1);
+      const _ratioH = _H / (_svgRect.height || 1);
+      const _cssX = _px(i) / _ratioW;
+      const _yy = (_vals[i] != null && !isNaN(_vals[i])) ? _py(_vals[i]) : (PT + (g._ih || 100) / 2);
+      const _cssY = _yy / _ratioH + (_svgRect.top - _wrapRect.top);
+      const _tipW = _tip.offsetWidth || 80;
+      const _tipH = _tip.offsetHeight || 36;
+      let _left = _cssX - _tipW / 2;
+      if (_left < 0) _left = 0;
+      if (_left + _tipW > _svgRect.width) _left = _svgRect.width - _tipW;
+      let _top = _cssY - _tipH - 12;
+      if (_top < 0) _top = _cssY + 14;
+      _tip.style.left = _left.toFixed(1) + "px";
+      _tip.style.top = _top.toFixed(1) + "px";
+    }
+  };
+  const _hide = () => {
+    if (_cursor) _cursor.setAttribute("opacity", "0");
+    if (_tip) _tip.style.display = "none";
+  };
+  svg.addEventListener("mousemove", (e) => {
+    const _rect = svg.getBoundingClientRect();
+    if (!_rect.width || !_rect.height) return;
+    const _ratioW = _W / _rect.width;
+    const _vx = (e.clientX - _rect.left) * _ratioW;
+    let _i = Math.round((_vx - PL) / g._unitW - 0.5);
+    if (_i < 0) _i = 0;
+    if (_i > _n - 1) _i = _n - 1;
+    _show(_i);
+  });
+  svg.addEventListener("mouseleave", _hide);
+}
+// P1 Step①: charts.lightweight 切换(皮肤弹窗 ⚡ 走势图渲染 点击)时实时重渲染首页 sparkline(KPI + 指数)。
+// 数据取 _ntSparkMeta(sid), 定位旧容器后整块重生成 + _flushNtSpark 统一绑定/init(lite<->echarts 双向)。
+function _reRenderHomeSpark() {
+  if (!_ntSparkMeta.size) return;
+  for (const _sid of Array.from(_ntSparkMeta.keys())) {
+    const _old = document.querySelector('[data-sid="' + _sid + '"]');
+    if (!_old || !_old.parentElement) { _ntSparkMeta.delete(_sid); continue; }
+    const _m = _ntSparkMeta.get(_sid);
+    if (typeof echarts !== "undefined") _disposeContainerCharts(_old.parentElement); // 旧 echarts 实例释放
+    _ntSparkPending.delete(_sid);
+    const _html = ntIndexSparkline(_m.closes, _m.dates, _m.color, _m.w, _m.h);
+    _old.parentElement.innerHTML = _html;
+  }
+  _flushNtSpark();
 }
 
 // 首页🐶卡片7天总况：堆叠迷你柱状图（红进/绿出/橙量），柱底标MM-DD，金点=共振日
@@ -21031,6 +21217,8 @@ function initThemeSwitcher() {
         _setSiteCfgLocal("charts.lightweight", _liteVal ? "true" : "false");
         renderChartLiteActive();
         if (typeof _renderEtfScoreBody === "function") _renderEtfScoreBody();
+        // P1 Step①(2026-08-12): 首页 sparkline(KPI + 指数 ~39 卡)同步实时重渲染(轻量/完整切换即时生效)
+        if (typeof _reRenderHomeSpark === "function") _reRenderHomeSpark();
       } else if (opt.classList.contains("compliance-option")) {
         // 合规开关：即时生效（切字典重渲染），不自动关弹窗，用户可继续切皮肤或手动关闭
         // gating：完整版（off）为登录特权 hasPrivilege("detailed_view")，未登录弹提示+登录入口不切换
