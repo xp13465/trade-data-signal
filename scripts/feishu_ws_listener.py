@@ -18,6 +18,11 @@ data/feishu_requests/<ts>-<message_id>.json（含 ts/sender/chat_id/msg_type/con
   （body 带 reply_to_message_id=msg.message_id，飞书引用回复；用户连续发多条时每条
   都能看到对应「收到」回执）。文案「已收到需求…，主控 1 分钟内开始处理」。best-effort，
   发送失败仅 log 不阻塞落盘。
+- 跨群转发：告警群/报告群的**人类用户**消息（无论有无需求前缀）自动抄送一份到开发群
+  （agent_done），文案带来源标记（[转自告警群]/[转自报告群]），供开发群查完整聊天记录。
+  防循环铁律：只转发 sender_type=='user'（人类用户），bot 自己（sender_type=='app'）发的
+  告警/回执/转发消息一律不转发；取不到 sender_type 宁可不转发。message_id 进程内 Set +
+  jsonl 落盘去重，SDK 重推不重复转发。转发 best-effort，失败仅 log 不阻塞落盘。
 
 用法:
   python scripts/feishu_ws_listener.py [--once] [--no-ssl-workaround]
@@ -46,6 +51,9 @@ CACERT_PATH = Path("/Users/linhuichen/code/trade-data/data/feishu_cacert.pem")
 # 收到回执：飞书 open.feishu.cn（中国版域名）+ tenant_access_token 缓存（2h 有效，过期前 120s 刷新复用）
 FEISHU_API_BASE = "https://open.feishu.cn"
 _FEISHU_TOKEN_CACHE: dict = {"token": None, "expire_at": 0.0}
+# 跨群转发去重：进程内 Set + 落盘 jsonl（SDK 长连接 at-least-once 可能重推，防重复转发）
+FORWARD_DEDUP_PATH = REPO / "data" / "feishu_requests" / "forwarded_message_ids.jsonl"
+_FORWARDED_IDS: set = set()
 
 
 def log(msg: str) -> None:
@@ -279,12 +287,114 @@ def _match_prefix(content: str, prefixes: list[str]) -> bool:
     return False
 
 
+def _sender_type(data) -> str:
+    """取事件发送者类型（lark-oapi EventSender.sender_type：user=人类用户 / app=应用(bot 自己) /
+    system=系统）。取不到返回 ''（宁可不转发，防循环）。"""
+    try:
+        return str(getattr(data.event.sender, "sender_type", "") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _load_forwarded_ids(path: Path) -> set:
+    """启动时从 jsonl 加载已转发 message_id 去重集合（进程重启不重发）。"""
+    ids: set = set()
+    if not path or not path.exists():
+        return ids
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                mid = json.loads(line).get("message_id")
+            except Exception:  # noqa: BLE001
+                mid = line
+            if mid:
+                ids.add(str(mid))
+    except Exception as e:  # noqa: BLE001
+        log(f"转发去重加载失败（不阻塞）：{e}")
+    return ids
+
+
+def _mark_forwarded(message_id: str, path: Path, forwarded_ids: set,
+                    max_size: int = 20000) -> None:
+    """转发成功后标记去重（进程内 Set + 追加 jsonl）。集合超上限时清最旧一半防无限增长。"""
+    if not message_id or message_id in forwarded_ids:
+        return
+    forwarded_ids.add(message_id)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"message_id": message_id, "ts": int(time.time())},
+                               ensure_ascii=False) + "\n")
+    except Exception as e:  # noqa: BLE001
+        log(f"转发去重落盘失败（不影响转发）：{e}")
+    if len(forwarded_ids) > max_size:
+        # 防无限增长：清最旧一半（jsonl 已持久化，进程内只作热查）
+        for old in list(forwarded_ids)[:max_size // 2]:
+            forwarded_ids.discard(old)
+
+
+def maybe_forward_user_message(data, chat_id: str, content: str,
+                               chat_map: dict | None = None,
+                               forwarded_ids: set | None = None,
+                               dedup_path: Path | None = None) -> bool:
+    """跨群转发：告警群/报告群的**人类用户**消息自动抄送一份到开发群（agent_done）。
+
+    - 只转发 sender_type=='user'（人类用户）；bot 自己（sender_type=='app'）、系统消息、其他
+      应用一律不转发（防循环——bot 发到告警/报告群的告警/回执/转发也会触发 receive_v1 事件）。
+    - 取不到 sender_type 宁可不转发（防循环优先）。
+    - 开发群消息不转发（已在群里）；其他群不转发。
+    - message_id 去重（进程内 Set + jsonl 落盘），SDK 重推不重复转发。
+    - best-effort：转发失败仅 log 不抛异常不阻塞落盘。
+    返回 True=已转发成功。"""
+    if chat_map is None:
+        chat_map = {}
+    if forwarded_ids is None:
+        forwarded_ids = _FORWARDED_IDS
+    if dedup_path is None:
+        dedup_path = FORWARD_DEDUP_PATH
+    alert_id = str(chat_map.get("alert") or "")
+    report_id = str(chat_map.get("report") or "")
+    dev_id = str(chat_map.get("agent_done") or "")
+    if not dev_id:
+        log("转发：未配置 agent_done 开发群 chat_id，跳过转发")
+        return False
+    if chat_id == alert_id:
+        source_name = "告警群"
+    elif chat_id == report_id:
+        source_name = "报告群"
+    else:
+        return False  # 开发群/其他群不转发（开发群消息已在群里）
+    if _sender_type(data) != "user":
+        log(f"转发：sender_type={_sender_type(data)!r} 非人类用户，不转发（防循环）chat_id={chat_id}")
+        return False
+    msg_id = str(getattr(data.event.message, "message_id", "") or "")
+    if msg_id and msg_id in forwarded_ids:
+        log(f"转发：message_id={msg_id} 已转发过，去重跳过")
+        return False
+    text = f"[转自{source_name}] {content}"
+    ok = send_receipt(dev_id, text)
+    if ok:
+        _mark_forwarded(msg_id, dedup_path, forwarded_ids)
+        log(f"转发成功：{source_name} -> 开发群 message_id={msg_id} content={content[:60]}")
+    else:
+        log(f"转发失败（best-effort 不阻塞）：{source_name} -> 开发群 message_id={msg_id}")
+    return ok
+
+
 def process_event(data, whitelist: set, prefixes: list[str],
-                  inbox_dir: Path, once: bool = False) -> str | None:
+                  inbox_dir: Path, once: bool = False,
+                  chat_map: dict | None = None,
+                  forwarded_ids: set | None = None,
+                  dedup_path: Path | None = None) -> str | None:
     """处理一条 im.message.receive_v1 事件（模块级，便于测试）。
 
     白名单需求群：免前缀直接当需求落盘；其他群：保留前缀过滤（全角/半角冒号都认）。
     合法需求落盘 inbox_dir/<ts>-<message_id>.json。
+    跨群转发：告警群/报告群的用户消息抄送开发群（见 maybe_forward_user_message），与落盘
+    解耦——用户问询不一定带需求前缀，无论是否落盘都转发；bot 自己的消息不转发（防循环）。
     返回落盘文件名（未落盘返回 None）。once=True 且落盘后调用方退出。"""
     try:
         msg = data.event.message
@@ -294,6 +404,9 @@ def process_event(data, whitelist: set, prefixes: list[str],
         if not content:
             log("跳过空内容消息")
             return None
+        # 跨群转发（best-effort，失败不阻塞落盘）：在前缀过滤之前执行，保证用户问询（无前缀）也转发
+        maybe_forward_user_message(data, chat_id, content, chat_map=chat_map,
+                                   forwarded_ids=forwarded_ids, dedup_path=dedup_path)
         # 非白名单群必须带需求前缀才接收（白名单需求群免前缀直接落盘）
         if chat_id not in whitelist and not _match_prefix(content, prefixes):
             log(f"跳过非需求消息（非白名单群且无需求前缀）：chat_id={chat_id} content={content[:60]}")
@@ -336,10 +449,18 @@ def run_listener(app_id: str, app_secret: str, cfg: dict, once: bool = False) ->
     inbox_dir = Path(str(receive.get("inbox_dir", "data/feishu_requests")))
     if not inbox_dir.is_absolute():
         inbox_dir = REPO / inbox_dir
+    # 跨群转发：三群 chat_ids（alert/report/agent_done）+ 启动时加载去重集合
+    chat_map = {str(k): str(v) for k, v in (cfg.get("chat_ids") or {}).items() if v}
+    dedup_path = FORWARD_DEDUP_PATH
+    forwarded_ids = _load_forwarded_ids(dedup_path)
     log(f"监听配置：白名单群 {len(whitelist)} 个，前缀 {prefixes}，落盘 {inbox_dir}")
+    log(f"跨群转发配置：alert={chat_map.get('alert')} report={chat_map.get('report')} "
+        f"agent_done={chat_map.get('agent_done')}，已载入去重 {len(forwarded_ids)} 条")
 
     def handle(data) -> None:  # P2ImMessageReceiveV1
-        process_event(data, whitelist, prefixes, inbox_dir, once=once)
+        process_event(data, whitelist, prefixes, inbox_dir, once=once,
+                      chat_map=chat_map, forwarded_ids=forwarded_ids,
+                      dedup_path=dedup_path)
 
     client = build_ws_client(app_id, app_secret, handle)
     if client is None:

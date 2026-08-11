@@ -29,12 +29,22 @@ sys.path.insert(0, str(ROOT))
 import feishu_ws_listener as fwl  # noqa: E402
 
 WHITELIST = {"oc_98a49be023582358fa6cec24749907b5"}
+ALERT_CHAT = "oc_7d8d3eb6b322ddeb6b8e3c53519fae7e"
+REPORT_CHAT = "oc_edd9ac6dbe07303bed6f30d44b19604c"
+DEV_CHAT = "oc_98a49be023582358fa6cec24749907b5"
+CHAT_MAP = {"alert": ALERT_CHAT, "report": REPORT_CHAT, "agent_done": DEV_CHAT}
 
 
 def fake_event(chat_id="oc_whitelist",
                content_text="需求：测试收到回执功能，验证落盘后触发回执",
-               create_time="1750000000000", message_id="om_test123"):
-    """构造 im.message.receive_v1 事件（白名单群，免前缀接收）。"""
+               create_time="1750000000000", message_id="om_test123",
+               sender_type=None):
+    """构造 im.message.receive_v1 事件（白名单群，免前缀接收）。
+
+    sender_type: user=人类用户 / app=应用(bot 自己)；None=事件里无 sender_type 字段。"""
+    sender = SimpleNamespace(sender_id=SimpleNamespace(open_id="ou_test"))
+    if sender_type is not None:
+        sender.sender_type = sender_type
     return SimpleNamespace(
         event=SimpleNamespace(
             message=SimpleNamespace(
@@ -44,7 +54,7 @@ def fake_event(chat_id="oc_whitelist",
                 create_time=create_time,
                 message_id=message_id,
             ),
-            sender=SimpleNamespace(sender_id=SimpleNamespace(open_id="ou_test")),
+            sender=sender,
         )
     )
 
@@ -145,6 +155,96 @@ class ProcessEventReceiptTests(unittest.TestCase):
             self.assertIsNone(fn)
             self.assertEqual(list(inbox.glob("*.json")), [])
             send_mock.assert_not_called()
+
+
+class CrossGroupForwardTests(unittest.TestCase):
+    """跨群转发用例：告警群/报告群用户消息抄送开发群 + 防循环 + 去重。"""
+
+    def _run(self, event, chat_map=CHAT_MAP, forwarded_ids=None,
+             prefixes=("需求:",)):
+        with tempfile.TemporaryDirectory() as td:
+            inbox = Path(td)
+            with patch.object(fwl, "send_receipt") as send_mock:
+                if forwarded_ids is None:
+                    forwarded_ids = set()
+                fn = fwl.process_event(
+                    event, whitelist=WHITELIST, prefixes=list(prefixes),
+                    inbox_dir=inbox, chat_map=chat_map,
+                    forwarded_ids=forwarded_ids,
+                    dedup_path=Path(td) / "dedup.jsonl")
+            return fn, send_mock
+
+    def test_alert_user_message_forwarded_to_dev_group(self):
+        """① 告警群用户消息→转发到开发群且带 [转自告警群]。无前缀用户问询也转发。"""
+        content = "这个告警怎么回事？"
+        fn, send_mock = self._run(
+            fake_event(chat_id=ALERT_CHAT, content_text=content, sender_type="user",
+                       message_id="om_alert1"))
+        send_mock.assert_called_once()
+        chat_id, text = send_mock.call_args[0]
+        self.assertEqual(chat_id, DEV_CHAT)
+        self.assertEqual(text, f"[转自告警群] {content}")
+        # 无需求前缀且非白名单：不落盘（只转发）
+        self.assertIsNone(fn)
+
+    def test_report_user_message_forwarded_to_dev_group(self):
+        """② 报告群用户消息→转发到开发群且带 [转自报告群]。"""
+        content = "今天的报告结论是什么？"
+        fn, send_mock = self._run(
+            fake_event(chat_id=REPORT_CHAT, content_text=content, sender_type="user",
+                       message_id="om_report1"))
+        send_mock.assert_called_once()
+        chat_id, text = send_mock.call_args[0]
+        self.assertEqual(chat_id, DEV_CHAT)
+        self.assertEqual(text, f"[转自报告群] {content}")
+        self.assertIsNone(fn)
+
+    def test_bot_own_message_not_forwarded(self):
+        """③ bot 自己发的消息（sender_type=app）→不转发（防循环）。"""
+        # bot 在告警群发告警/回执也会触发 receive_v1 事件，sender_type=app，绝不能转发成循环
+        fn, send_mock = self._run(
+            fake_event(chat_id=ALERT_CHAT, content_text="SEVERE 告警：xx 异常",
+                       sender_type="app", message_id="om_bot1"))
+        send_mock.assert_not_called()
+        self.assertIsNone(fn)  # 无前缀 + 非白名单：也不落盘
+
+    def test_sender_type_missing_not_forwarded(self):
+        """sender_type 取不到（None）→宁可不转发（防循环优先）。"""
+        fn, send_mock = self._run(
+            fake_event(chat_id=REPORT_CHAT, content_text="无法判定发送者类型",
+                       sender_type=None, message_id="om_nost"))
+        send_mock.assert_not_called()
+
+    def test_dev_group_message_not_forwarded(self):
+        """④ 开发群消息→不转发（已在群里）。"""
+        content = "需求：开发群里的新需求"
+        fn, send_mock = self._run(
+            fake_event(chat_id=DEV_CHAT, content_text=content, sender_type="user",
+                       message_id="om_dev1"))
+        send_mock.assert_called_once()
+        chat_id, text = send_mock.call_args[0]
+        self.assertEqual(chat_id, DEV_CHAT)  # 只回执，不转发
+        self.assertNotIn("[转自", text)
+        self.assertIn("已收到需求", text)
+
+    def test_dedup_same_message_id_only_forward_once(self):
+        """⑤ 去重：同一 message_id 二次事件→只转发一次。"""
+        content = "重复推送也要只转发一次"
+        dedup = set()
+        fn1, send_mock1 = self._run(
+            fake_event(chat_id=ALERT_CHAT, content_text=content, sender_type="user",
+                       message_id="om_dup1"),
+            forwarded_ids=dedup)
+        # 第二次事件（SDK at-least-once 重推）：同一 message_id
+        fn2, send_mock2 = self._run(
+            fake_event(chat_id=ALERT_CHAT, content_text=content, sender_type="user",
+                       message_id="om_dup1"),
+            forwarded_ids=dedup)
+        # 第一次转发 1 次；第二次去重跳过不转发
+        send_mock1.assert_called_once()
+        send_mock2.assert_not_called()
+        self.assertEqual(len(dedup), 1)
+        self.assertIn("om_dup1", dedup)
 
 
 if __name__ == "__main__":
