@@ -10449,7 +10449,7 @@ async function renderOverview() {
       appendPlainTip(_adDiv.parentElement, "AD线持续上行=多数股票在涨，大盘涨势健康");
       addCardTimeBadge(_adDiv.parentElement, adDates.length ? adDates[adDates.length - 1] : "", snap, "t0");
       _lwSetup(_adDiv, {
-        h: 210, pl: 55, pr: 55, pt: 35, pb: 35,
+        h: 210, pl: 55, pr: 55, pt: 35, pb: 44,
         boundaryGap: true,
         dataZoom: true,
         xLabels: adDates, xFmt: (v) => v,
@@ -10521,7 +10521,7 @@ async function renderOverview() {
       appendPlainTip(_vrDiv.parentElement, "量比>1.5为明显放量，<0.5为明显缩量");
       addCardTimeBadge(_vrDiv.parentElement, vrDates.length ? vrDates[vrDates.length - 1] : "", snap, "t0");
       _lwSetup(_vrDiv, {
-        h: 300, pl: 55, pr: 20, pt: 35, pb: 35,
+        h: 300, pl: 55, pr: 20, pt: 35, pb: 44,
         boundaryGap: true,
         dataZoom: true,
         xLabels: vrDates, xFmt: (v) => v,
@@ -10586,7 +10586,7 @@ async function renderOverview() {
       const _nhlNl = nhlData.map(d => d.nl_52w);
       const _nhlNet = nhlData.map(d => d.nhnl_52w);
       _lwSetup(_nhlDiv, {
-        h: 196, pl: 55, pr: 55, pt: 35, pb: 35,
+        h: 196, pl: 55, pr: 55, pt: 35, pb: 44,
         boundaryGap: true,
         dataZoom: true,
         xLabels: nhlDates, xFmt: (v) => v,
@@ -11256,9 +11256,10 @@ function _lwSVG(cfg) {
       s += '<line x1="' + tx.toFixed(1) + '" y1="' + _baseY + '" x2="' + tx.toFixed(1) + '" y2="' + (_axisY + 5) + '" stroke="var(--border-strong)"/>';
     }
   }
-  // x 标签 baseline: dataZoom 图底部有 slider(占 H-26..H-8, 后绘制盖住标签), 需上移清出滑块顶沿。
-  // 仅 pb<41(如 6 图 pb35)触发; KPI(pb45)/信号弹窗(pb50) 留位足够不位移, 非 dataZoom 图(市场宽度 pb35)无 slider 不位移。
-  const _xLabelY = cfg.dataZoom ? Math.min(_axisY + 8 + 3.5, H - 31.5) : (_axisY + 8 + 3.5);
+  // x 标签 baseline(fix3 撤销 fix2 上移): 固定公式 = 轴线 H-PB 下 11.5px。6 个 dataZoom 图 pb 已提至 44,
+  // 轴(H-44)到 slider 顶沿(H-26)间隙 18px 放下 12px 字(glyph ≈ H-42.5..H-30), 标签完全落在轴线下、slider 上。
+  // fix2 曾 Math.min(axisY+8+3.5, H-31.5) 上移 8px, 致 glyph 上沿高出轴线 5.5px 压进绘图区(P1-1 回归, 已撤销)。
+  const _xLabelY = _axisY + 8 + 3.5;
   for (let i = _i0; i <= _i1; i += _xStep) {
     const x = _px(i);
     s += '<text x="' + x.toFixed(1) + '" y="' + _xLabelY.toFixed(1) + '" font-size="' + _axFont + '" text-anchor="middle" style="fill:var(--text-1)">' + _xFmt(cfg.xLabels[i]) + '</text>';
@@ -11695,7 +11696,7 @@ function _lwHTML(cfg) {
     + "border:1px solid var(--border-strong);border-radius:4px;padding:5px 10px;font-size:13px;"
     + "line-height:1.5;white-space:nowrap;pointer-events:none;z-index:60;box-shadow:0 2px 10px rgba(0,0,0,0.15);";
   return '<div class="lw-wrap" style="position:relative;height:' + h + 'px">'
-    + '<svg class="lw-svg" width="100%" height="' + h + '" viewBox="0 0 640 ' + h + '" preserveAspectRatio="none" role="img" style="touch-action:pan-y">' // touch-action:pan-y: 图表上竖向滑动=页面滚动不变, 禁浏览器页级 pinch 缩放以便 dataZoom 双指 pinch 接管(_lwBind)
+    + '<svg class="lw-svg" width="100%" height="' + h + '" viewBox="0 0 640 ' + h + '" preserveAspectRatio="none" role="img" style="' + (cfg.dataZoom ? "touch-action:pan-y" : "") + '">' // touch-action:pan-y 仅 dataZoom 图: 竖向滑动=页面滚动不变, 禁浏览器页级 pinch 缩放以便双指 pinch 接管(_lwBind); 非 dataZoom 图(市场宽度等)不抑制页级 pinch(fix3 P2-2)
     + _lwSVG(Object.assign({}, cfg, { w: 640 }))
     + '</svg>'
     + '<div class="lw-tip" style="' + _tipStyle + '"></div>'
@@ -11852,7 +11853,7 @@ function _lwBind(wrap, cfg) {
       const anchor = _clampF((cx - PL) / _iw);
       const z0 = cfg.zoomStart, z1 = cfg.zoomEnd;
       const anchorData = z0 + (z1 - z0) * anchor;
-      const size = Math.min(1, (z1 - z0) * (d / _pinch.d0));
+      const size = Math.min(1, (z1 - z0) * (_pinch.d0 / d));   // fix3(P2-1): 方向反转 — 张开(d↑)→size↓→窗口缩窄=放大(与平台惯例/echarts 一致); fix2 曾 d/d0 张开=缩出
       let ns = anchorData - anchor * size;
       let ne = ns + size;
       if (ns < 0) { ne -= ns; ns = 0; }
@@ -12078,7 +12079,7 @@ function _lwLineCard(title, series, opts, hint, container, height) {
   const div = _lwCardShell(title, height || 300, hint, container);
   const seriesName = stripHtml(title);
   const liteCfg = {
-    h: height || 300, pl: 55, pr: 20, pt: 35, pb: 35,
+    h: height || 300, pl: 55, pr: 20, pt: 35, pb: 44,
     boundaryGap: true,
     dataZoom: true,
     xLabels: dates, xFmt: (v) => v,
