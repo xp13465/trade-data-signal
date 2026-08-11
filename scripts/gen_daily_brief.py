@@ -58,6 +58,17 @@ except ImportError:  # pragma: no cover
 ROOT = Path(__file__).resolve().parent.parent
 MAIN_REPO = Path("/Users/linhuichen/code/trade-data")  # launchd 主库/主数据(与 update_all.sh REPO 一致)
 
+# ── 通知(2026-08-11 追加需求):邮件+飞书报告群 ──────────────────────────────
+# import notify(多渠道统一出口)前把 scripts/ 放 sys.path,与 check_signals.py 同款。
+sys.path.insert(0, str(ROOT / "scripts"))
+import notify  # noqa: E402
+import html as _html
+
+
+def _html_esc(s) -> str:
+    """HTML 转义(通知邮件用;页面展示由前端 _esc 处理,此处只发邮件)。"""
+    return _html.escape(str(s), quote=True)
+
 
 # ── 合规:指令词黑名单(P0-3)───────────────────────────────────────────────
 # 证券合规红线=投资建议指令词。只允许"关注/警惕/观察/留意"类表述。
@@ -588,6 +599,7 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
         '  "confidence": 0-100整数(把握度), "confidence_reason": "1句把握度理由",\n'
         '  "watch_list": [{"index_id": "...", "name": "...", "win_rate": 0.75}],\n'
         '  "risk_items": ["..."],\n'
+        '  "highlights": ["2-4条今日要点,每条≤40字,提炼方向+最重要关注与风险,供页面🎯高亮"],\n'
         '  "text": {"review": "...", "trend": "...", "watch": "...", "risk": "..."}\n'
         "}\n"
         "规则:\n"
@@ -598,6 +610,8 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
         "confidence_reason 用 1 句话说明把握度依据(如:量价均多但资金面分歧较大)。\n"
         "2. watch_list 明日关注标的 1-5 个,必须引用注入数据中真实存在的 index_id/name,可带参考胜率。\n"
         "3. risk_items 3-5 条风险点,引用注入数据(alert 预警维度/资金面/波动率/南向)。\n"
+        "3b. highlights 2-4 条今日要点(每条≤40字):从方向/把握度/最重要关注/最重要风险中提炼最关键的 2-4 条,"
+        "供页面\"🎯今日要点\"高亮展示;精炼概括,不与 watch_list/risk_items 逐条重复。\n"
         "4. 每条论断必须引用注入数据的具体数值或信号名(如:恐贪54/涨跌4067:1391/QVIX_300=19.6)。禁止编造不在注入数据里的指标或数值。\n"
         "4b.【信号口径红线】引用卖/买信号数量时,必须区分两类:真实指数可交易信号"
         "(summary.tradable_buy_count/tradable_sell_count,指数走势触发,可交易标的)与"
@@ -742,6 +756,12 @@ def parse_ai_output(raw: dict | None, data: dict, date: str) -> dict | None:
             "win_rate": round(float(w.get("win_rate") or 0), 3) if w.get("win_rate") is not None else None,
         })
     risk_items = [str(r)[:80] for r in (parsed.get("risk_items") or [])[:5] if str(r).strip()]
+    # 今日要点(高亮重点,页面🎯区块): AI 输出 2-4 条,每条≤40字;缺失由 _ensure_highlights 兜底提炼
+    highlights = []
+    for h in (parsed.get("highlights") or [])[:4]:
+        s = str(h).strip().replace("\n", " ")
+        if s:
+            highlights.append(s[:40])
     return {
         "meta": {
             "date": date,
@@ -751,6 +771,7 @@ def parse_ai_output(raw: dict | None, data: dict, date: str) -> dict | None:
             "confidence_reason": confidence_reason,
             "watch_list": watch_list,
             "risk_items": risk_items,
+            "highlights": highlights,
             "hit": {"direction": None, "actual_sh_pct": None, "actual_direction": None},
         },
         "text": text,
@@ -941,6 +962,7 @@ def build_editor_messages(role_results: dict, researcher: dict | None, date: str
         '  "confidence": 0-100整数(把握度), "confidence_reason": "1句把握度理由",\n'
         '  "watch_list": [{"index_id": "...", "name": "...", "win_rate": 0.75}],\n'
         '  "risk_items": ["..."],\n'
+        '  "highlights": ["2-4条今日要点,每条≤40字,提炼方向+最重要关注与风险,供页面🎯高亮"],\n'
         '  "text": {"review": "...", "trend": "...", "watch": "...", "risk": "..."}\n'
         "}\n"
         "规则:\n"
@@ -951,6 +973,8 @@ def build_editor_messages(role_results: dict, researcher: dict | None, date: str
         "confidence_reason 用 1 句话说明把握度依据(如:多空论据均较充分但资金面分歧较大)。\n"
         "2. watch_list 明日关注标的 1-5 个,必须引用注入数据中真实存在的 index_id/name(数据锚定列表),可带参考胜率。\n"
         "3. risk_items 3-5 条风险点,引用各角色论据(alert 预警/资金面/波动率/南向/情绪极端)。\n"
+        "3b. highlights 2-4 条今日要点(每条≤40字):从方向/把握度/最重要关注/最重要风险中提炼最关键的 2-4 条,"
+        "供页面\"🎯今日要点\"高亮展示;精炼概括,不与 watch_list/risk_items 逐条重复。\n"
         "4. text.review(今日复盘,约120字)、text.trend(趋势研判,约100字)、text.watch(明日关注,约100字)、"
         "text.risk(风险点,约80字),总长 ≤400 字。每段要体现多角色融合:技术/资金/情绪/风控各至少一处。\n"
         "5. 每条论断引用具体数值或信号名,禁止编造。\n"
@@ -1358,6 +1382,188 @@ def run_multi_agent(date: str, data: dict, cfg: dict, log) -> tuple[dict | None,
     return parsed, total_usage
 
 
+def _ensure_highlights(meta: dict) -> None:
+    """确保 meta.highlights 非空(高亮区块非空壳):AI 未输出时从 meta 各字段提炼兜底。
+    覆盖 rule/minimal 降级版 + AI 遗漏 highlights 的情况。
+    """
+    if meta.get("highlights"):
+        return
+    out: list[str] = []
+    d = {"up": "偏强/看涨", "down": "偏弱/看跌", "flat": "震荡"}.get(meta.get("direction"))
+    conf = meta.get("confidence")
+    if conf is not None:
+        try:
+            conf = max(0, min(100, int(round(float(conf)))))
+        except (TypeError, ValueError):
+            conf = None
+    if d:
+        out.append(f"明日方向{d},把握度 {conf if conf is not None else '--'}/100")
+    wl = meta.get("watch_list") or []
+    if wl:
+        name = (wl[0].get("name") or wl[0].get("index_id") or "").strip()
+        if name:
+            out.append(f"明日重点关注 {name}")
+    ri = meta.get("risk_items") or []
+    if ri:
+        out.append(f"留意风险: {str(ri[0])[:30]}")
+    meta["highlights"] = [x[:40] for x in out[:4]] or ["AI 预测生成,以正文为准"]
+
+
+def notify_daily_brief(brief: dict, cfg: dict, log, dry_run: bool = False) -> dict | None:
+    """生成成功后发 邮件+飞书报告群(2026-08-11 追加需求,完整版:先总结再细讲)。
+
+    编排结构(邮件 HTML 与飞书 post 一致,§22 与页面同数据源):
+      【总结段·开头】direction 方向 / confidence 信心 / highlights 今日要点 /
+                    debate.lean 多空结论 + debate.summary 一句话结论
+      【细讲段·后面】逐维度素材: watch_list 关注标的 / risk_items 风险项 /
+                    trend 趋势 / confidence_reason 把握度理由 / review 复盘 +
+                    多空辩论过程(meta.debate bull[]/bear[] 论据 + lean/confidence)
+                    + 四角色结论 roles
+    飞书 post 富文本(仅 report 报告群生效),A股红涨绿跌: 🔴偏强/🟢偏弱/⚪震荡(与平台信号灯一致)。
+    防重复: 同日(date)只发一次,dedup key=daily_brief_notify_<date>,window=86400(notify_dedup.json)。
+    失败不阻塞主流程(try/except 记日志)。dry_run=True 只校验参数不真发(自验用)。
+    开关: config/daily_brief.yaml notify_enabled。
+    """
+    try:
+        if not cfg.get("notify_enabled", True):
+            log("通知开关 notify_enabled=false,跳过")
+            return None
+        meta = brief.get("meta") or {}
+        text = brief.get("text") or {}
+        date = meta.get("date") or ""
+        if not date:
+            log("通知: 无 date,跳过")
+            return None
+        direction = meta.get("direction")
+        dir_label = {"up": "🔴 偏强", "down": "🟢 偏弱", "flat": "⚪ 震荡"}.get(direction, "➖ 震荡")
+        conf = meta.get("confidence")
+        conf_s = f"{conf}/100" if conf is not None else "--"
+        conf_reason = str(meta.get("confidence_reason") or "").strip()
+        highlights = meta.get("highlights") or []
+        roles = meta.get("roles") or {}
+        debate = meta.get("debate") or {}
+        version = meta.get("version") or ""
+        lean = {"up": "偏多", "down": "偏空", "flat": "震荡"}.get(debate.get("lean"), debate.get("lean") or "")
+        dconf = debate.get("confidence")
+        dconf_s = f"{round(float(dconf) * 100):.0f}%" if isinstance(dconf, (int, float)) else ""
+        bull = [str(x) for x in (debate.get("bull") or [])]
+        bear = [str(x) for x in (debate.get("bear") or [])]
+        debate_sum = str(debate.get("summary") or "").strip()
+        watch_names = "、".join(
+            (w.get("name") or w.get("index_id") or "") for w in (meta.get("watch_list") or []) if w)
+        risk_items = [str(r) for r in (meta.get("risk_items") or [])]
+        subject = f"📊 AI预测 {date}:{dir_label}（把握度 {conf_s}）"
+
+        # ═══ 总结段(开头): 方向/信心/要点/多空结论 ═══
+        sum_lines = [f"明日方向: <b>{_html_esc(dir_label)}</b> · 把握度: <b>{conf_s}</b>"]
+        if lean:
+            sum_lines.append(f"多空结论: {_html_esc(lean)}{(' · 置信度 ' + dconf_s) if dconf_s else ''}")
+        if debate_sum:
+            sum_lines.append(f"一句话结论: {_html_esc(debate_sum)}")
+        hl_html = "".join(f"<li>{_html_esc(x)}</li>" for x in highlights[:4])
+        sum_html = (
+            "<div style=\"background:#eef7ff;border-left:4px solid #2196f3;padding:8px 12px;margin:8px 0;\">"
+            "<b>📌 总结</b>"
+            + "".join(f"<p style=\"margin:4px 0;\">{x}</p>" for x in sum_lines)
+            + (f"<ul style=\"margin:6px 0 0;padding-left:20px;\">{hl_html}</ul>" if hl_html else "")
+            + "</div>"
+        )
+
+        # ═══ 细讲段(后面): 逐维度素材 + 多空辩论过程 ═══
+        detail_parts: list[str] = []
+        if conf_reason:
+            detail_parts.append(f"<p style=\"margin:4px 0;\"><b>把握度理由:</b> {_html_esc(conf_reason)}</p>")
+        if watch_names:
+            detail_parts.append(f"<p style=\"margin:4px 0;\"><b>关注标的:</b> {_html_esc(watch_names)}</p>")
+        if risk_items:
+            detail_parts.append(f"<p style=\"margin:4px 0;\"><b>风险项:</b> {_html_esc('；'.join(risk_items))}</p>")
+        if text.get("trend"):
+            detail_parts.append(f"<p style=\"margin:4px 0;\"><b>趋势:</b> {_html_esc(text.get('trend'))}</p>")
+        if text.get("review"):
+            detail_parts.append(f"<p style=\"margin:4px 0;\"><b>复盘:</b> {_html_esc(text.get('review'))}</p>")
+        if text.get("watch"):
+            detail_parts.append(f"<p style=\"margin:4px 0;\"><b>关注(正文):</b> {_html_esc(text.get('watch'))}</p>")
+        if text.get("risk"):
+            detail_parts.append(f"<p style=\"margin:4px 0;\"><b>风险(正文):</b> {_html_esc(text.get('risk'))}</p>")
+        # 多空辩论过程(bull/bear + lean/confidence)
+        debate_parts: list[str] = []
+        for x in bull:
+            debate_parts.append(f"<p style=\"margin:4px 0;color:#c62828;\">🔴 多头: {_html_esc(x)}</p>")
+        for x in bear:
+            debate_parts.append(f"<p style=\"margin:4px 0;color:#2e7d32;\">🟢 空头: {_html_esc(x)}</p>")
+        if debate_parts:
+            head = (f"<h3 style=\"margin:12px 0 4px;\">⚖️ 多空辩论过程"
+                    f"{(' · ' + _html_esc(lean)) if lean else ''}{(' · 置信度 ' + dconf_s) if dconf_s else ''}</h3>")
+            detail_parts.append(head + "".join(debate_parts))
+        # 四角色结论(素材上下文)
+        if roles:
+            role_items = "".join(
+                f"<li><b>{_html_esc(k)}</b>: {_html_esc(str(v))}</li>" for k, v in roles.items())
+            detail_parts.append(
+                f"<h3 style=\"margin:12px 0 4px;\">🤔 四角色结论</h3>"
+                f"<ul style=\"margin:6px 0;padding-left:20px;\">{role_items}</ul>")
+        detail_html = "<h3 style=\"margin:12px 0 4px;\">📋 细讲</h3>" + "".join(detail_parts)
+
+        body = (
+            "<div style=\"font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;"
+            "max-width:640px;margin:0 auto;color:#222;line-height:1.7;\">"
+            f"<h2 style=\"margin-bottom:4px;\">🤖 每日AI预测（{date} 收盘）</h2>"
+            f"{sum_html}{detail_html}"
+            f"<p style=\"font-size:12px;color:#999;margin-top:12px;\">{_html_esc(brief.get('disclaimer') or '')}</p>"
+            "</div>"
+        )
+
+        # ═══ 飞书 post(先总结再细讲,A股红涨绿跌) ═══
+        lines: list[list[dict]] = [[notify.post_md(f"**{subject}**")]]
+        lines.append([notify.post_md("📌 **总结**")])
+        for h in highlights[:4]:
+            lines.append([notify.post_text(f"🎯 {h}")])
+        if lean:
+            lines.append([notify.post_text(f"⚖️ 多空结论: {lean}{(' · 置信度 ' + dconf_s) if dconf_s else ''}")])
+        if debate_sum:
+            lines.append([notify.post_text(f"一句话: {debate_sum[:60]}")])
+        lines.append([notify.post_md("📋 **细讲**")])
+        if conf_reason:
+            lines.append([notify.post_text(f"把握度理由: {conf_reason[:60]}")])
+        if watch_names:
+            lines.append([notify.post_text(f"关注标的: {watch_names[:60]}")])
+        if risk_items:
+            lines.append([notify.post_text(f"风险项: {'；'.join(risk_items)[:60]}")])
+        if text.get("trend"):
+            lines.append([notify.post_text(f"趋势: {str(text['trend'])[:60]}")])
+        if bull or bear:
+            lines.append([notify.post_md("⚖️ **多空辩论过程**")])
+            for x in bull[:3]:
+                lines.append([notify.post_text(f"🔴 多头: {x[:50]}")])
+            for x in bear[:3]:
+                lines.append([notify.post_text(f"🟢 空头: {x[:50]}")])
+        if roles:
+            lines.append([notify.post_md("🤔 **四角色结论**")])
+            for k, v in roles.items():
+                lines.append([notify.post_text(f"· {k}: {str(v)[:50]}")])
+        if len(lines) > notify.FEISHU_POST_MAX_ROWS:
+            n_omit = len(lines) - notify.FEISHU_POST_MAX_ROWS
+            lines = lines[:notify.FEISHU_POST_MAX_ROWS] + [
+                [notify.post_text(f"… 其余 {n_omit} 行省略，完整见邮件/页面")]]
+        lines.append([notify.post_text("免责: AI 生成,研究用途,不构成投资建议")])
+        feishu_post = notify.build_feishu_post(subject, lines)
+
+        # 同日(date)只发一次(notify.py dedup,data/notify_dedup.json)
+        dedup_key = f"daily_brief_notify_{date}"
+        if not dry_run and notify.check_dedup(dedup_key, 86400):
+            log(f"通知已发过(date={date}),同日去重跳过")
+            return {"dedup": True}
+        results = notify.send(subject, body, from_prefix="[AI预测]", feishu_group="report",
+                              feishu_post=feishu_post, dry_run=dry_run)
+        if not dry_run:
+            notify.update_dedup(dedup_key)
+        log(f"AI预测通知发送完成 version={version} 渠道={results}")
+        return results
+    except Exception as e:  # noqa: BLE001
+        log(f"⚠ AI预测通知失败(不阻塞): {e}")
+        return None
+
+
 # ── 主流程 ───────────────────────────────────────────────────────────────
 def main() -> int:
     ap = argparse.ArgumentParser(description="每日AI预测(daily_brief)生成脚本")
@@ -1367,6 +1573,8 @@ def main() -> int:
     ap.add_argument("--no-upload", action="store_true", help="跳过 R2 上传")
     ap.add_argument("--multi", action="store_true",
                     help="多角色协作式编排(6角色,并行;配置 daily_brief.yaml multi_agent_enabled 亦可开启)")
+    ap.add_argument("--notify-dry-run", action="store_true",
+                    help="通知只校验参数不真发(dry-run,自验用;仍跑完整生成)")
     args = ap.parse_args()
 
     load_env()
@@ -1502,12 +1710,17 @@ def main() -> int:
             version = "minimal"
     if version == "rule":
         brief["meta"]["version"] = "rule"
+    # 高亮重点兜底:AI/规则/最小版都保证 meta.highlights 非空(高亮区块非空壳)
+    _ensure_highlights(brief["meta"])
 
     # 合规脱敏 + 免责(在 meta 回填前完成 text 层)
     for k in ("review", "trend", "watch", "risk"):
         brief["text"][k] = scrub_text(brief["text"].get(k, ""), cfg)
     # meta.risk_items 也用户可见(AI 弹窗逐字展示),同样过合规脱敏(P0-3)
     brief["meta"]["risk_items"] = [scrub_text(str(r), cfg) for r in brief["meta"].get("risk_items") or []]
+    # meta.highlights 也用户可见(页面🎯今日要点,前端 _dbHighlightsHtml 逐字展示),
+    # 同样过合规脱敏(AI 输出+_ensure_highlights 兜底提炼都在此统一 scrub)(P2-1)
+    brief["meta"]["highlights"] = [scrub_text(str(x), cfg) for x in brief["meta"].get("highlights") or []]
     if version in ("ai", "ai-multi") and cfg.get("compliance_enabled"):
         _remains = [w for w in FORBIDDEN_WORDS if any(w in (brief["text"][k] or "") for k in ("review", "trend", "watch", "risk"))]
         if _remains:
@@ -1519,6 +1732,12 @@ def main() -> int:
     stats = write_outputs(static_dir, brief, cfg)
     timings["write"] = round(time.time() - tw, 2)
     log(f"写 {static_dir / BRIEF_FILE} + history({len(history)}条) hit_stats={stats}")
+
+    # 生成成功通知(2026-08-11 追加需求):邮件+飞书报告群,同日去重,失败不阻塞
+    # --mock/--rule-only 是开发/自验 flag:跳过通知,防发"MOCK 测试数据"给真实用户
+    # + 写 daily_brief_notify_<date> dedup key 阻断同日 20:40 真实生成的通知(P1-1)
+    if not args.mock and not args.rule_only:
+        notify_daily_brief(brief, cfg, log, dry_run=args.notify_dry_run)
 
     # 成本日志
     log_cost(repo, cfg, date, version, usage, ok=(version in ("ai", "ai-multi")))
