@@ -16742,7 +16742,11 @@ function _etfTrendGeom(ohlc, w) {
   const _unitW = _iw / _n;
   const _px = (i) => PL + (i + 0.5) * _unitW;
   const _py = (v) => PT + _ih - ((v - _yMin) / (_yMax - _yMin)) * _ih;
-  return { W, H, PL, PR, PT, PB, _n, _vals, _dates, _iw, _ih, _unitW, _yMin, _yMax, _step, _prec, _ticks, _px, _py };
+  // 末点可能为 null(echarts null 断线, 无 connectNulls), 涨跌色基准=最后一个有效值,
+  // 防 null>=num 恒 false 致"末点 null 涨跌色反"误判绿(P2-3, 2026-08-11)。
+  let _lastV = null;
+  for (let i = _n - 1; i >= 0; i--) { const v = _vals[i]; if (v != null && !isNaN(v)) { _lastV = v; break; } }
+  return { W, H, PL, PR, PT, PB, _n, _vals, _dates, _iw, _ih, _unitW, _yMin, _yMax, _step, _prec, _ticks, _px, _py, _lastV };
 }
 
 // SVG 内容构建(网格/坐标轴/标签/平滑曲线/面积/每点符号/hover 元素)。
@@ -16750,7 +16754,7 @@ function _etfTrendSVG(ohlc, w) {
   const g = _etfTrendGeom(ohlc, w);
   const { W, H, PL, PR, PT, PB, _n, _vals, _dates, _px, _py, _ticks, _prec, _unitW } = g;
   if (_n < 2) return "";
-  const _isUp = _vals[_n - 1] >= _vals[0];
+  const _isUp = g._lastV != null && g._lastV >= _vals[0];
   const _stroke = _isUp ? "#e6492e" : "#2e8b57";
   const _axisY = H - PB;              // 面积闭合底 = x 轴线(网格下边 175)
   const _baseY = _crisp(_axisY);      // 1px 线用 crisp(175.5, 对齐 zrender)
@@ -16852,7 +16856,7 @@ function _etfTrendLiteBind(svg, ohlc) {
   svg.innerHTML = _etfTrendSVG(ohlc, _W);
   const g = _etfTrendGeom(ohlc, _W);
   const { PL, PT, _n, _vals, _dates, _px, _py } = g;
-  const _isUp = _vals[_n - 1] >= _vals[0];
+  const _isUp = g._lastV != null && g._lastV >= _vals[0];
   const _stroke = _isUp ? "#e6492e" : "#2e8b57";
   const _cursor = svg.querySelector(".etf-trend-cursor");
   const _pt = svg.querySelector(".etf-trend-hover-pt");
@@ -17265,7 +17269,10 @@ function openEtfScoreDetailModal(code) {
     if (_trendEl && typeof echarts !== "undefined") {
       const _dates = e.ohlc.map((d) => d[0]);
       const _closes = e.ohlc.map((d) => d[4]);
-      const _isUp = _closes[_closes.length - 1] >= _closes[0];
+      // 末点可能为 null, 涨跌色基准=最后一个有效值(与轻量 SVG 版 _lastV 同口径, P2-3)
+      let _lastC = null;
+      for (let i = _closes.length - 1; i >= 0; i--) { const v = _closes[i]; if (v != null && !isNaN(v)) { _lastC = v; break; } }
+      const _isUp = _lastC != null && _lastC >= _closes[0];
       const _trendColor = _isUp ? "#e6492e" : "#2e8b57";
       try {
         _etfTrendChart = echarts.init(_trendEl);
