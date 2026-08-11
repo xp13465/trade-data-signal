@@ -3672,6 +3672,7 @@ function _lwSignalLiteCfg(title, data, markData, opts) {
   }
   return {
     h: 300, pl: 55, pr: 20, pt: 30, pb: 50,
+    dataZoom: true,
     xLabels: dates, xFmt: (v) => v,
     ys: [{ scale: true, splitNumber: 5 }],
     series: [{
@@ -10447,6 +10448,7 @@ async function renderOverview() {
       addCardTimeBadge(_adDiv.parentElement, adDates.length ? adDates[adDates.length - 1] : "", snap, "t0");
       _lwSetup(_adDiv, {
         h: 210, pl: 55, pr: 55, pt: 35, pb: 35,
+        dataZoom: true,
         xLabels: adDates, xFmt: (v) => v,
         gridAxis: 1, // 右轴(腾落线) splitLine, 左轴(涨跌比) splitLine:false
         ys: [
@@ -10517,6 +10519,7 @@ async function renderOverview() {
       addCardTimeBadge(_vrDiv.parentElement, vrDates.length ? vrDates[vrDates.length - 1] : "", snap, "t0");
       _lwSetup(_vrDiv, {
         h: 300, pl: 55, pr: 20, pt: 35, pb: 35,
+        dataZoom: true,
         xLabels: vrDates, xFmt: (v) => v,
         ys: [{ name: "亿元", zeroBased: true, formatter: (v) => (v / 10000).toFixed(1) + "万" }],
         legend: [
@@ -10580,6 +10583,7 @@ async function renderOverview() {
       const _nhlNet = nhlData.map(d => d.nhnl_52w);
       _lwSetup(_nhlDiv, {
         h: 196, pl: 55, pr: 55, pt: 35, pb: 35,
+        dataZoom: true,
         xLabels: nhlDates, xFmt: (v) => v,
         gridAxis: 1, // 右轴(净新高) splitLine, 左轴(家数) splitLine:false
         ys: [
@@ -11137,6 +11141,7 @@ function _lwColorScale(stops, min, max, v) {
   return "rgb(" + pc[0] + "," + pc[1] + "," + pc[2] + ")";
 }
 // 主 SVG 构建(网格/轴线/标签/legend/series/markLine/markPoints)。
+let _lwZClipSeq = 0; // dataZoom 缩放时 markLine/markArea 超窗裁剪 clipPath id 序号
 function _lwSVG(cfg) {
   if (cfg.heatmap) return _lwHeatmapSVG(cfg);
   const W = cfg.w || 640, H = cfg.h || 300;
@@ -11146,8 +11151,11 @@ function _lwSVG(cfg) {
   const _iw = W - PL - PR, _ih = H - PT - PB;
   const _n = (cfg.xLabels || []).length;
   if (!_n) return "";
-  const _unitW = bg ? (_iw / _n) : (_iw / Math.max(1, _n - 1));
-  const _px = bg ? ((i) => PL + (i + 0.5) * _unitW) : ((i) => PL + i * _unitW);
+  const _i0 = (cfg.zoomStart != null) ? Math.max(0, Math.round(cfg.zoomStart * _n)) : 0;
+  const _i1 = (cfg.zoomEnd != null) ? Math.max(_i0, Math.min(_n - 1, Math.round(cfg.zoomEnd * _n) - 1)) : (_n - 1);
+  const _nView = _i1 - _i0 + 1;
+  const _unitW = bg ? (_iw / _nView) : (_iw / Math.max(1, _nView - 1));
+  const _px = bg ? ((i) => PL + (i - _i0 + 0.5) * _unitW) : ((i) => PL + (i - _i0) * _unitW);
   // y 轴 extent(每轴独立, 从该轴 series 收集值; stack 系列取累积顶 = 面积上沿)
   const nAxis = Math.max(1, cfg.ys ? cfg.ys.length : 1);
   const axes = [];
@@ -11161,10 +11169,13 @@ function _lwSVG(cfg) {
         if (!stackCum[s.stack]) stackCum[s.stack] = new Float64Array(sd.length);
         for (let i = 0; i < sd.length; i++) {
           const v = sd[i];
-          if (v != null && !isNaN(v)) { stackCum[s.stack][i] += Number(v); vals.push(stackCum[s.stack][i]); }
+          if (v != null && !isNaN(v)) {
+            stackCum[s.stack][i] += Number(v);
+            if (i >= _i0 && i <= _i1) vals.push(stackCum[s.stack][i]);   // 缩放只按可见窗口算 extent
+          }
         }
       } else {
-        for (const v of sd) vals.push(v);
+        for (let i = _i0; i <= _i1 && i < sd.length; i++) { const v = sd[i]; vals.push(v); }
       }
     }
     const ya = cfg.ys && cfg.ys[ai];
@@ -11179,17 +11190,18 @@ function _lwSVG(cfg) {
   const _baseY = _crisp(_axisY);
   const _xFmt = cfg.xFmt || ((v) => fmtDate(v));
   let s = "";
-  // SVG defs: 信号 pin 拼色 linearGradient(多信号同日 pin, 复刻 echarts _ntMultiColor)
+  // SVG defs: 信号 pin 拼色 linearGradient(多信号同日 pin, 复刻 echarts _ntMultiColor) + 缩放裁剪 clipPath
   const _grads = cfg.gradients || [];
-  if (_grads.length) {
-    s += "<defs>";
-    for (const g of _grads) {
-      s += '<linearGradient id="' + g.id + '" x1="0" y1="0" x2="0" y2="1">';
-      for (const st of g.stops) s += '<stop offset="' + (st[0] * 100).toFixed(1) + '%" stop-color="' + st[1] + '"/>';
-      s += "</linearGradient>";
-    }
-    s += "</defs>";
+  const _clipId = (cfg.dataZoom ? "lwzc" + (++_lwZClipSeq) : "");   // 缩放后 markLine/markArea 超窗裁剪
+  const _clipAttr = _clipId ? ' clip-path="url(#' + _clipId + ')"' : "";
+  let _defs = "";
+  for (const g of _grads) {
+    _defs += '<linearGradient id="' + g.id + '" x1="0" y1="0" x2="0" y2="1">';
+    for (const st of g.stops) _defs += '<stop offset="' + (st[0] * 100).toFixed(1) + '%" stop-color="' + st[1] + '"/>';
+    _defs += "</linearGradient>";
   }
+  if (_clipId) _defs += '<clipPath id="' + _clipId + '"><rect x="' + PL + '" y="' + PT + '" width="' + _iw + '" height="' + _ih + '"/></clipPath>';
+  if (_defs) s += "<defs>" + _defs + "</defs>";
   // 水平网格线(取 splitLine 轴的 ticks, echarts yAxis splitLine 默认每轴画, 双轴时仅设一轴 splitLine:false)
   const gridAxisIdx = cfg.gridAxis != null ? cfg.gridAxis : 0;
   const gridAx = axes[gridAxisIdx];
@@ -11227,14 +11239,14 @@ function _lwSVG(cfg) {
   }
   // x 轴: 轴线 + 刻度(边界含末边, echarts alignWithLabel:false) + 标签(自动间隔, 半格中心/boundaryGap=false 点位)
   s += '<line x1="' + PL + '" y1="' + _baseY + '" x2="' + (W - PR) + '" y2="' + _baseY + '" stroke="var(--border-strong)"/>';
-  const _xStep = cfg.xStep != null ? cfg.xStep : _etfXStep(_n, _iw);
+  const _xStep = cfg.xStep != null ? cfg.xStep : _etfXStep(_nView, _iw);
   if (bg) {
-    for (let i = 0; i <= _n; i += _xStep) {
-      const tx = _crisp(PL + i * _unitW);
+    for (let i = _i0; i <= _i1 + 1; i += _xStep) {
+      const tx = _crisp(PL + (i - _i0) * _unitW);
       s += '<line x1="' + tx.toFixed(1) + '" y1="' + _baseY + '" x2="' + tx.toFixed(1) + '" y2="' + (_axisY + 5) + '" stroke="var(--border-strong)"/>';
     }
   }
-  for (let i = 0; i < _n; i += _xStep) {
+  for (let i = _i0; i <= _i1; i += _xStep) {
     const x = _px(i);
     s += '<text x="' + x.toFixed(1) + '" y="' + (_axisY + 8 + 3.5).toFixed(1) + '" font-size="10" text-anchor="middle" style="fill:var(--text-1)">' + _xFmt(cfg.xLabels[i]) + '</text>';
   }
@@ -11243,10 +11255,10 @@ function _lwSVG(cfg) {
     const ai = ser.yIndex || 0;
     const n = _n;
     const xs = [], ys = [];
-    for (let i = 0; i < n; i++) {
-      xs.push(_px(i));
+    for (let i = _i0; i <= _i1; i++) {
+      xs[i] = _px(i);
       const v = ser.data && ser.data[i];
-      ys.push(v == null || isNaN(v) ? null : _py(ai, Number(v)));
+      ys[i] = (v == null || isNaN(v)) ? null : _py(ai, Number(v));
     }
     const _stroke = ser.color;
     const _dashAttr = ser.dash ? ' stroke-dasharray="' + ser.dash + '"' : "";
@@ -11267,11 +11279,11 @@ function _lwSVG(cfg) {
       }
       continue;
     }
-    // line/stack: 按非 null 连续段构建(echarts 默认无 connectNulls, null 处断)
+    // line/stack: 按非 null 连续段构建(echarts 默认无 connectNulls, null 处断; 缩放窗口内裁剪)
     const _runs = [];
     let _rs = -1;
-    for (let i = 0; i <= n; i++) {
-      const ok = i < n && ys[i] != null;
+    for (let i = _i0; i <= _i1 + 1; i++) {
+      const ok = i <= _i1 && ys[i] != null;
       if (ok && _rs < 0) _rs = i;
       else if (!ok && _rs >= 0) { _runs.push([_rs, i - 1]); _rs = -1; }
     }
@@ -11279,7 +11291,7 @@ function _lwSVG(cfg) {
       if (ser.connectNulls) {
         // echarts connectNulls:true: null 点跳过但前后非 null 相连(整条线跨空, KPI/信号弹窗用; 含 visualMap 分段色)
         const _idx = [];
-        for (let i = 0; i < n; i++) if (ys[i] != null) _idx.push(i);
+        for (let i = _i0; i <= _i1; i++) if (ys[i] != null) _idx.push(i);
         const _perColor = typeof ser.itemColor === "function" ? ser.itemColor : null;
         if (_idx.length) {
           if (!_perColor) {
@@ -11342,7 +11354,9 @@ function _lwSVG(cfg) {
       // markLine(阈值虚线; ml.x1 非空 = 线段连接两点, 如 KPI 成交额盘中段连接最后收盘->首个盘中)
       for (const ml of (ser.markLine || [])) {
         if (ml.x1 != null) {
-          s += '<line x1="' + _px(ml.x1).toFixed(1) + '" y1="' + _py(ai, ml.y1).toFixed(1) + '" x2="' + _px(ml.x2).toFixed(1) + '" y2="' + _py(ai, ml.y2).toFixed(1) + '" stroke="' + (ml.color || "var(--text-3)") + '" stroke-width="' + (ml.width || 1) + '" stroke-opacity="' + (ml.opacity != null ? ml.opacity : 1) + '"' + (ml.dashed !== false ? ' stroke-dasharray="4 3"' : "") + '/>';
+          const _in1 = ml.x1 >= _i0 && ml.x1 <= _i1, _in2 = ml.x2 >= _i0 && ml.x2 <= _i1;
+          if (!_in1 && !_in2) continue;
+          s += '<line x1="' + _px(ml.x1).toFixed(1) + '" y1="' + _py(ai, ml.y1).toFixed(1) + '" x2="' + _px(ml.x2).toFixed(1) + '" y2="' + _py(ai, ml.y2).toFixed(1) + '" stroke="' + (ml.color || "var(--text-3)") + '" stroke-width="' + (ml.width || 1) + '" stroke-opacity="' + (ml.opacity != null ? ml.opacity : 1) + '"' + (ml.dashed !== false ? ' stroke-dasharray="4 3"' : "") + _clipAttr + '/>';
           continue;
         }
         const my = _py(ai, ml.y);
@@ -11358,8 +11372,9 @@ function _lwSVG(cfg) {
       // markArea(区间色带, 如分时午休)
       if (ser.markArea && ser.markArea.length) {
         for (const ma of ser.markArea) {
+          if (ma.i1 < _i0 || ma.i0 > _i1) continue;
           const x0 = _px(ma.i0), x1 = _px(ma.i1);
-          s += '<rect x="' + x0.toFixed(1) + '" y="' + PT + '" width="' + Math.max(0, (x1 - x0)).toFixed(1) + '" height="' + _ih.toFixed(1) + '" fill="' + (ma.color || "rgba(128,128,128,0.08)") + '"/>';
+          s += '<rect x="' + x0.toFixed(1) + '" y="' + PT + '" width="' + Math.max(0, (x1 - x0)).toFixed(1) + '" height="' + _ih.toFixed(1) + '" fill="' + (ma.color || "rgba(128,128,128,0.08)") + '"' + _clipAttr + '/>';
           if (ma.label) {
             s += '<text x="' + ((x0 + x1) / 2).toFixed(1) + '" y="' + (PT + 12) + '" font-size="9" text-anchor="middle" style="fill:var(--text-4)">' + ma.label + '</text>';
           }
@@ -11396,6 +11411,7 @@ function _lwSVG(cfg) {
     // markPoints(图钉/信号点/圆点, 画在 line 上; 支持 pin 形/渐变/描边/透明度/偏移/内嵌 label/多行)
     if (ser.markPoints && ser.markPoints.length) {
       for (const mp of ser.markPoints) {
+        if (mp.i < _i0 || mp.i > _i1) continue;
         const x = _px(mp.i);
         const y = (mp.y != null ? _py(ai, mp.y) : _axisY) + (mp.dy || 0);
         const r = mp.r || 3;
@@ -11431,6 +11447,20 @@ function _lwSVG(cfg) {
         }
       }
     }
+  }
+  // dataZoom bottom slider(复刻 echarts: height18 bottom8, 双段轨道+左右手柄; 背景 --bg-card/边框 --border-strong)
+  if (cfg.dataZoom) {
+    const _slY = H - 26, _slH = 18;
+    const _h0x = PL + (cfg.zoomStart || 0) * _iw;
+    const _h1x = PL + (cfg.zoomEnd != null ? cfg.zoomEnd : 1) * _iw;
+    s += '<g class="lw-dz">';
+    s += '<rect x="' + PL + '" y="' + _slY + '" width="' + _iw + '" height="' + _slH + '" fill="var(--bg-card)" stroke="var(--border-strong)" stroke-width="1" rx="2"/>';
+    s += '<rect x="' + PL + '" y="' + _slY + '" width="' + Math.max(0, (_h0x - PL)).toFixed(1) + '" height="' + _slH + '" fill="rgba(0,0,0,0.12)"/>';
+    s += '<rect x="' + Math.min(PL + _iw, _h1x).toFixed(1) + '" y="' + _slY + '" width="' + Math.max(0, (PL + _iw - _h1x)).toFixed(1) + '" height="' + _slH + '" fill="rgba(0,0,0,0.12)"/>';
+    s += '<rect x="' + _h0x.toFixed(1) + '" y="' + _slY + '" width="' + Math.max(0, (_h1x - _h0x)).toFixed(1) + '" height="' + _slH + '" fill="var(--border-strong)" opacity="0.35"/>';
+    s += '<rect x="' + (_h0x - 4).toFixed(1) + '" y="' + (_slY + 1) + '" width="8" height="' + (_slH - 2) + '" fill="var(--bg-card)" stroke="var(--border-strong)" stroke-width="1" rx="1"/>';
+    s += '<rect x="' + (_h1x - 4).toFixed(1) + '" y="' + (_slY + 1) + '" width="8" height="' + (_slH - 2) + '" fill="var(--bg-card)" stroke="var(--border-strong)" stroke-width="1" rx="1"/>';
+    s += '</g>';
   }
   // hover 元素(十字线+高亮点+命中感应区)
   s += '<line class="lw-cursor" x1="0" y1="' + PT + '" x2="0" y2="' + _baseY + '" stroke="var(--border-strong)" stroke-width="1" opacity="0"/>';
@@ -11669,17 +11699,28 @@ function _lwBind(wrap, cfg) {
   const _W = Math.round((rect && rect.width) || 640);
   const _h = cfg.h || 300;
   svg.setAttribute("viewBox", "0 0 " + _W + " " + _h);
-  svg.innerHTML = _lwSVG(Object.assign({}, cfg, { w: _W }));
-  // 重算几何(与 _lwSVG 同口径)
   const PL = cfg.pl != null ? cfg.pl : 55, PR = cfg.pr != null ? cfg.pr : 20;
   const PT = cfg.pt != null ? cfg.pt : 30, PB = cfg.pb != null ? cfg.pb : 35;
   const bg = !!cfg.boundaryGap;
   const _iw = _W - PL - PR, _ih = _h - PT - PB;
-  const _unitW = bg ? (_iw / _n) : (_iw / Math.max(1, _n - 1));
-  const _px = bg ? ((i) => PL + (i + 0.5) * _unitW) : ((i) => PL + i * _unitW);
   const _xFmt = cfg.xFmt || ((v) => fmtDate(v));
-  const _cursor = svg.querySelector(".lw-cursor");
-  const _pt = svg.querySelector(".lw-hover-pt");
+  // 几何随 dataZoom 窗口动态重算(与 _lwSVG 同口径), 缩放后 hover 仍准
+  let _i0 = 0, _i1 = _n - 1, _nView = _n, _unitW = _iw / Math.max(1, _n - 1), _px = (i) => PL + i * _unitW;
+  const _recalc = () => {
+    _i0 = (cfg.zoomStart != null) ? Math.max(0, Math.round(cfg.zoomStart * _n)) : 0;
+    _i1 = (cfg.zoomEnd != null) ? Math.max(_i0, Math.min(_n - 1, Math.round(cfg.zoomEnd * _n) - 1)) : (_n - 1);
+    _nView = _i1 - _i0 + 1;
+    _unitW = bg ? (_iw / _nView) : (_iw / Math.max(1, _nView - 1));
+    _px = bg ? ((i) => PL + (i - _i0 + 0.5) * _unitW) : ((i) => PL + (i - _i0) * _unitW);
+  };
+  _recalc();
+  let _cursor = null, _pt = null;
+  const _render = () => {
+    svg.innerHTML = _lwSVG(Object.assign({}, cfg, { w: _W }));
+    _cursor = svg.querySelector(".lw-cursor");
+    _pt = svg.querySelector(".lw-hover-pt");
+  };
+  _render();
   const _show = (i) => {
     if (_cursor) { _cursor.setAttribute("x1", _px(i).toFixed(1)); _cursor.setAttribute("x2", _px(i).toFixed(1)); _cursor.setAttribute("opacity", "0.9"); }
     if (_pt) _pt.setAttribute("opacity", "0");
@@ -11713,14 +11754,94 @@ function _lwBind(wrap, cfg) {
   svg.addEventListener("mousemove", (e) => {
     const r = svg.getBoundingClientRect();
     if (!r.width || !r.height) return;
-    const ratioW = _W / r.width;
-    const vx = (e.clientX - r.left) * ratioW;
+    const ratioW = _W / r.width, ratioH = _h / r.height;
+    const vx = (e.clientX - r.left) * ratioW, vy = (e.clientY - r.top) * ratioH;
+    if (vy < PT || vy >= PT + _ih || vx < PL || vx > PL + _iw) { _hide(); return; }   // 仅绘图区 hover(不遮 slider)
     let i = bg ? Math.round((vx - PL) / _unitW - 0.5) : Math.round((vx - PL) / _unitW);
-    if (i < 0) i = 0;
-    if (i > _n - 1) i = _n - 1;
-    _show(i);
+    i = Math.max(0, Math.min(_nView - 1, i));
+    _show(i + _i0, e.clientY);
   });
   svg.addEventListener("mouseleave", _hide);
+  // ---- dataZoom: inside 滚轮以鼠标为锚缩放 + 底部 slider 拖拽(复刻 echarts, 事件委托 svg 上) ----
+  if (cfg.dataZoom) {
+    if (cfg.zoomStart == null) cfg.zoomStart = 0;
+    if (cfg.zoomEnd == null) cfg.zoomEnd = 1;
+    const _dzY = _h - 26, _dzH = 18;   // slider bottom:8 height:18(与 _lwSVG 渲染同坐标)
+    const _clampF = (v) => Math.max(0, Math.min(1, v));
+    const _applyZoom = (s, e) => {
+      const _min = 0.05;
+      if (e - s < _min) { const c = (s + e) / 2; s = c - _min / 2; e = c + _min / 2; }
+      if (s < 0) { e -= s; s = 0; }
+      if (e > 1) { s -= (e - 1); e = 1; }
+      if (s < 0) s = 0;
+      if (e > 1) e = 1;
+      cfg.zoomStart = s; cfg.zoomEnd = e;
+      _recalc();
+      _render();
+    };
+    svg.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const r = svg.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      const vx = (e.clientX - r.left) * (_W / r.width);
+      const anchor = _clampF((vx - PL) / _iw);
+      const z0 = cfg.zoomStart, z1 = cfg.zoomEnd;
+      const anchorData = z0 + (z1 - z0) * anchor;
+      const size = Math.min(1, (z1 - z0) * (e.deltaY > 0 ? 1.3 : 1 / 1.3));
+      let ns = anchorData - anchor * size;
+      let ne = ns + size;
+      if (ns < 0) { ne -= ns; ns = 0; }
+      if (ne > 1) { ns -= (ne - 1); ne = 1; }
+      _applyZoom(Math.max(0, ns), ne);
+    }, { passive: false });
+    let _dzDrag = null, _dzStartX = 0, _dzStartZoom = [0, 1];
+    const _dzViewX = (e) => {
+      const r = svg.getBoundingClientRect();
+      return (e.clientX - r.left) * (_W / (r.width || 1));
+    };
+    const _dzOnMove = (e) => {
+      if (!_dzDrag) return;
+      const frac = _clampF((_dzViewX(e) - PL) / _iw);
+      const [s0, e0] = _dzStartZoom;
+      const _minS = 0.03;
+      if (_dzDrag === "h0") _applyZoom(Math.min(frac, e0 - _minS), e0);
+      else if (_dzDrag === "h1") _applyZoom(s0, Math.max(frac, s0 + _minS));
+      else if (_dzDrag === "pan") {
+        const d = (_dzViewX(e) - _dzStartX) / _iw;
+        let ns = s0 + d, ne = e0 + d;
+        if (ns < 0) { ne -= ns; ns = 0; }
+        if (ne > 1) { ns -= (ne - 1); ne = 1; }
+        _applyZoom(ns, ne);
+      }
+      e.preventDefault();
+    };
+    const _dzOnUp = () => {
+      _dzDrag = null;
+      window.removeEventListener("mousemove", _dzOnMove);
+      window.removeEventListener("mouseup", _dzOnUp);
+    };
+    svg.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      const r = svg.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      const vx = (e.clientX - r.left) * (_W / r.width);
+      const vy = (e.clientY - r.top) * (_h / r.height);
+      if (vy < _dzY - 2 || vy > _dzY + _dzH + 2) return;   // 不在 slider 区域
+      const s = cfg.zoomStart, e0 = cfg.zoomEnd;
+      const h0 = PL + s * _iw, h1 = PL + e0 * _iw;
+      _dzStartX = vx;
+      _dzStartZoom = [s, e0];
+      if (Math.abs(vx - h0) <= 6) _dzDrag = "h0";
+      else if (Math.abs(vx - h1) <= 6) _dzDrag = "h1";
+      else if (vx > h0 && vx < h1) _dzDrag = "pan";
+      else if (vx < h0) _dzDrag = "h0";
+      else _dzDrag = "h1";
+      window.addEventListener("mousemove", _dzOnMove);
+      window.addEventListener("mouseup", _dzOnUp);
+      _dzOnMove(e);   // jump 情形(点击未选中轨道)立即移动最近手柄
+      e.preventDefault();
+    });
+  }
 }
 // 注册 + 渲染入口: 容器内换 lite SVG(默认) / 回退 echarts(echartsFn 重建实例)。返回容器。
 // 注册进 _lwRenderers 供 ⚡ 开关 _reRenderHomeCharts() 即时重渲染(双向 dispose 旧实例)。
@@ -11843,6 +11964,7 @@ function _kpiLiteCfg(result, dates, _estimates, _unit) {
   else if (typeof result.yLabel === "string") yFmt = (v) => String(result.yLabel).replace("{value}", String(Number(v).toFixed(0)));
   return {
     h: 380, pl: 65, pr: 25, pt: 35, pb: 45,
+    dataZoom: true,
     xLabels: dates, xFmt: (v) => v,
     ys: [{ scale: true, splitNumber: 5, formatter: yFmt }],
     legend: legend,
@@ -11881,6 +12003,7 @@ function _lwLineCard(title, series, opts, hint, container, height) {
   const seriesName = stripHtml(title);
   const liteCfg = {
     h: height || 300, pl: 55, pr: 20, pt: 35, pb: 35,
+    dataZoom: true,
     xLabels: dates, xFmt: (v) => v,
     ys: [{ splitLine: true }],
     legend: [{ name: seriesName, color: (opts && opts._lwColor) || "#5b8ff9" }],
