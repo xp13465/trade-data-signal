@@ -102,6 +102,12 @@ SIGNAL_LABELS = {
 # 邮件表格展示所有信号状态（含当前持有），不再过滤 band_hold。
 SIGNAL_ORDER = ["buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss", "band_hold"]
 
+# 飞书 post 版（报告群）触发条件摘要截断长度（超长省略，防冗长；完整条件在邮件）
+FEISHU_POST_REASON_MAX = 32
+# 飞书 post 版买入/卖出/持有分组（买绿/卖红/持有灰，与邮件红买绿卖相反——飞书用国际惯例色）
+FEISHU_POST_BUY_TYPES = ["buy", "buy_aux", "buy_special", "buy_backup"]
+FEISHU_POST_SELL_TYPES = ["sell", "sell_stop_loss"]
+
 # === fade-detect 盘中信号收盘消失警示（2026-07-23 P1-新-A）===
 # buy 系列强度排序（强->弱），用于"降级"判定。
 BUY_STRENGTH = {
@@ -371,11 +377,13 @@ def push_subscriptions(all_signals: list[dict], name_map: dict[str, str],
         # 构建专属邮件（复用 build_email，只含该订阅关心的信号）
         subject, body = build_email(date, new_signals, name_map, intraday=intraday)
         subject = f"[订阅:{sub_name}] {subject}"
+        # 飞书 post 富文本（订阅推送也走 report 群，3 群差异化同全局推送）
+        feishu_post = build_feishu_post(subject, new_signals, name_map, intraday=intraday)
         email = (sub.get("email") or "").strip() or None
         chat_id = (sub.get("telegram_chat_id") or "").strip() or None
         try:
             results = notify.send_to(subject, body, email=email, chat_id=chat_id, dry_run=dry_run,
-                                     from_prefix="[买卖点信号]")
+                                     from_prefix="[买卖点信号]", feishu_post=feishu_post)
         except Exception as e:  # noqa: BLE001
             log.error("订阅 %s(%s) 推送异常：%s（不阻塞其他订阅）", sub_name, sub_id, e)
             continue
@@ -987,7 +995,7 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
             '（如辅买信号消失/重现）。此为快照非最终，<b>收盘后 17:50 仍发送最终版邮件</b>，'
             '请以收盘最终版为准。</div>'
         )
-    html_parts = [f"""<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1d2129;max-width:720px;">
+    html_parts = [f"""<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">{notify.MOBILE_EMAIL_CSS}</head><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1d2129;max-width:720px;">
 <h2 style="margin:0 0 8px 0;color:#1d2129;">{h2_title}</h2>
 <p style="margin:0 0 16px 0;color:#86909c;font-size:13px;">{date} · 共 <b>{n_total}</b> 个信号（主买 {n_buy} / 辅买 {n_aux} / 追买 {n_special} / 备买 {n_backup} / 卖 {n_sell} / 追止损卖 {n_stop_loss} / 波段持有 {n_hold}）</p>
 {intraday_banner}"""]
@@ -1082,6 +1090,104 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
 
     body = "\n".join(html_parts)
     return subject, body
+
+
+def _signal_post_row(s: dict, name_map: dict[str, str], stats: dict,
+                     sig_type: str) -> list[dict]:
+    """单个信号 -> 飞书 post 一行（类型/品种/触发条件摘要/凯利建议）。
+
+    精简为一行：`{emoji} {类型} {品种} | {触发条件摘要}` + 凯利建议（若有）；
+    触发条件截断 FEISHU_POST_REASON_MAX 字符（完整在邮件）。
+    """
+    name = index_id_to_name(s["index_id"], name_map)
+    label = _signal_label(sig_type)
+    # post 版 emoji 与分组色一致（买绿/卖红/持有灰），彩色语义用 emoji 前缀实现
+    # （飞书 post text 标签不支持 style.color，实测 230001；见 notify.py 注释）
+    if sig_type in FEISHU_POST_BUY_TYPES:
+        emoji = "🟢"
+    elif sig_type in FEISHU_POST_SELL_TYPES:
+        emoji = "🔴"
+    else:
+        emoji = "⚪"
+    reason = (s["reason"] or "").replace("\n", " ").replace("\r", " ").strip()
+    if len(reason) > FEISHU_POST_REASON_MAX:
+        reason = reason[:FEISHU_POST_REASON_MAX].rstrip() + "…"
+    row_text = f"{emoji} {label} {name}"
+    if reason:
+        row_text += f" | {reason}"
+    # 凯利建议（复用邮件口径：10d 统计 win_rate/pl，样本≥10 才算）
+    sub = stats.get(s["index_id"], {}).get(sig_type, {}).get("10d")
+    wr = sub.get("win_rate") if sub else None
+    pl = sub.get("pl") if sub else None
+    n_s = sub.get("n") if sub else None
+    if wr is not None and pl is not None and n_s is not None and n_s >= 10:
+        kelly = calc_kelly(wr, pl)
+        kelly_s = f"建议{kelly * 100:.0f}%" if kelly > 0 else "不建议入场"
+        row_text += f" | 胜率{(wr or 0) * 100:.0f}% 盈亏比{pl:.2f} {kelly_s}"
+    return [notify.post_text(row_text)]
+
+
+def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str],
+                      intraday: bool = False,
+                      fade_alerts: list[dict] | None = None) -> dict:
+    """构建飞书 post 富文本（报告群版，notify.send(feishu_post=...) 用）。
+
+    按 buy(买)/sell(卖)/hold(波段持有) 分组：买绿/卖红/持有灰（彩色 emoji 前缀实现，
+    飞书 post text 不支持 style.color，见 notify.py 注释）；分组表头用 md **加粗**。
+    每个信号一行精简（类型/品种/触发条件摘要/凯利建议），不冗长；触发条件截断
+    FEISHU_POST_REASON_MAX 字符；规则说明省略为一行指引（完整在邮件）。
+    超行数上限 notify.FEISHU_POST_MAX_ROWS 时省略尾部（信息量优先，防超长）。
+    """
+    stats = load_signal_stats()
+    groups = _group_signals(signals)
+    n_buy = sum(len(groups[t]) for t in FEISHU_POST_BUY_TYPES)
+    n_sell = sum(len(groups[t]) for t in FEISHU_POST_SELL_TYPES)
+    n_hold = len(groups["band_hold"])
+
+    lines: list[list[dict]] = []
+
+    # 买入分组（🟢）
+    if n_buy:
+        sub = (f"（主买{len(groups['buy'])} 辅买{len(groups['buy_aux'])} "
+               f"追买{len(groups['buy_special'])} 备买{len(groups['buy_backup'])}）")
+        lines.append([notify.post_md(f"🟢 **买入信号**{sub}")])
+        for sig_type in FEISHU_POST_BUY_TYPES:
+            for s in groups[sig_type]:
+                lines.append(_signal_post_row(s, name_map, stats, sig_type))
+    # 卖出分组（🔴）
+    if n_sell:
+        sub = f"（卖{len(groups['sell'])} 追止损卖{len(groups['sell_stop_loss'])}）"
+        lines.append([notify.post_md(f"🔴 **卖出信号**{sub}")])
+        for sig_type in FEISHU_POST_SELL_TYPES:
+            for s in groups[sig_type]:
+                lines.append(_signal_post_row(s, name_map, stats, sig_type))
+    # 波段持有（⚪）
+    if n_hold:
+        lines.append([notify.post_md(f"⚪ **波段持有**（{n_hold}）")])
+        for s in groups["band_hold"]:
+            lines.append(_signal_post_row(s, name_map, stats, "band_hold"))
+
+    # fade 警示一行概要（盘中 fade 通知/收盘含消失信号时，红/橙档）
+    if fade_alerts:
+        fade_n = len(fade_alerts)
+        names = "、".join(index_id_to_name(a["index_id"], name_map) for a in fade_alerts[:5])
+        suffix = "等" if fade_n > 5 else ""
+        lines.append([notify.post_md(f"⚠️ **信号消失/变化 {fade_n} 条**：{names}{suffix}（详见邮件）")])
+
+    # 超行数上限省略尾部（信息量优先：保留分组标题+前 N 行，省略明细行）
+    if len(lines) > notify.FEISHU_POST_MAX_ROWS:
+        n_omit = len(lines) - notify.FEISHU_POST_MAX_ROWS
+        lines = lines[:notify.FEISHU_POST_MAX_ROWS] + [
+            [notify.post_text(f"… 其余 {n_omit} 条省略，详见邮件")]
+        ]
+
+    # 规则说明省略为一行指引（完整在邮件；飞书 post 不支持折叠，故精简）
+    lines.append([notify.post_text("📋 完整规则与免责见邮件 · 以收盘最终版为准")])
+
+    title = subject.replace("[", "").replace("]", "").strip()
+    if not title.startswith("📊"):
+        title = "📊 " + title
+    return notify.build_feishu_post(title, lines)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1244,6 +1350,10 @@ def main(argv: list[str] | None = None) -> int:
                                 intraday=args.intraday, fade_alerts=fade_alerts_for_email,
                                 timeline=timeline, fade_timeline=fade_timeline,
                                 subject_signals=subject_signals)
+    # 飞书 post 富文本（报告群版）：buy/sell 分组 + 彩色，替代 _html_to_text 拍平成纯文本
+    feishu_post = build_feishu_post(subject, signals_to_send, name_map,
+                                    intraday=args.intraday,
+                                    fade_alerts=fade_alerts_for_email)
     # 始终打印邮件内容（便于日志/调试/未配置场景查看）
     log.info("===== 邮件主题 =====")
     log.info("%s", subject)
@@ -1258,7 +1368,8 @@ def main(argv: list[str] | None = None) -> int:
     # 任一渠道成功即视为通知已发出 -> 继续更新 signal_notified.json（标记已通知）。
     # 全部渠道未发出（未配置/失败）-> 不更新去重记录，下次重试。
     try:
-        results = notify.send(subject, body, from_prefix="[买卖点信号]")
+        results = notify.send(subject, body, from_prefix="[买卖点信号]",
+                              feishu_post=feishu_post)
     except Exception as e:  # noqa: BLE001
         log.error("✗ 通知发送异常：%s（不阻塞流程）", e)
         return 2

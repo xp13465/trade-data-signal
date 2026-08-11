@@ -57,6 +57,12 @@ SIG_COLOR = {  # 邮件表格用色（与前端 pin 配色一致）
 # 展示顺序：进 -> 出 -> 量
 SIG_ORDER = ["share_surge", "share_outflow", "volume_surge"]
 
+# 飞书 post 版（报告群）备注摘要截断长度（超长省略，完整在邮件）
+FEISHU_POST_NOTE_MAX = 40
+# 进/出/量 -> 彩色 emoji（与 SIG_COLOR 语义一致：进=红/出=绿/量=橙；
+# 飞书 post text 不支持 style.color，用 emoji 前缀实现，见 notify.py 注释）
+FEISHU_POST_EMOJI = {"share_surge": "🔴", "share_outflow": "🟢", "volume_surge": "🟠"}
+
 # 跨日去重（2026-07-30 根治每晚重复发旧 etf 邮件）：
 # etf_national_team backfill 每晚跑都读 MAX(date) 信号，7-21~7-29 无新信号时反复发 7-20 旧邮件。
 # 格式 {date_str(YYYYMMDD): [[etf_code, signal_type], ...]}，7 天自动清理旧记录。
@@ -226,7 +232,7 @@ def build_email(data_date: str, signals: list[dict], agg: dict) -> tuple[str, st
             f'{"、".join(res_types)}只宽基ETF同日同步异动，疑似汪汪队集中操作。</span></div>'
         )
 
-    html_parts = [f"""<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1d2129;max-width:720px;">
+    html_parts = [f"""<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">{notify.MOBILE_EMAIL_CSS}</head><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1d2129;max-width:720px;">
 <h2 style="margin:0 0 8px 0;color:#1d2129;">🐶 汪汪队信号 - ETF汪汪队资金动向</h2>
 <p style="margin:0 0 16px 0;color:#86909c;font-size:13px;">数据日期 {label} · 共 <b>{len(signals)}</b> 个信号（进 {n_surge} / 出 {n_outflow} / 量 {n_volume}）</p>
 {res_banner}"""]
@@ -288,6 +294,67 @@ ETF份额为T+1数据（交易所盘后次日发布），20:07采集通常到T-1
     return subject, body
 
 
+def build_feishu_post(subject: str, signals: list[dict], agg: dict) -> dict:
+    """构建飞书 post 富文本（报告群版，notify.send(feishu_post=...) 用）。
+
+    按 进(share_surge,🔴红)/出(share_outflow,🟢绿)/量(volume_surge,🟠橙) 分组
+    （FEISHU_POST_EMOJI 映射 SIG_COLOR 语义：进=资金进场红/出=资金离场绿/量=放量橙；
+    飞书 post text 不支持 style.color，用 emoji 前缀实现，见 notify.py 注释），
+    分组表头用 md **加粗**；每 ETF 一行精简（名称/代码/份额变动/量比/z分/备注摘要），
+    共振时首行 🐾 加粗高亮。超行数上限 notify.FEISHU_POST_MAX_ROWS 时省略尾部（防超长）。
+    """
+    lines: list[list[dict]] = []
+
+    # 共振加粗高亮（首行）
+    if agg.get("is_resonance"):
+        res_types = []
+        if agg.get("resonance", {}).get("surge"):
+            res_types.append(f"进≥{THR['surge']}只")
+        if agg.get("resonance", {}).get("outflow"):
+            res_types.append(f"出≥{THR['outflow']}只")
+        if agg.get("resonance", {}).get("volume"):
+            res_types.append(f"量≥{THR['volume']}只")
+        lines.append([notify.post_md(f"🐾 **汪汪队共振！**（{'、'.join(res_types)}宽基同日同步异动）")])
+
+    for sig_type in SIG_ORDER:
+        grp = [s for s in signals if s["signal_type"] == sig_type]
+        if not grp:
+            continue
+        lbl = SIG_LABEL.get(sig_type, sig_type)
+        emoji = FEISHU_POST_EMOJI.get(sig_type, "⚪")
+        lines.append([notify.post_md(f"{emoji} **{lbl} · {len(grp)} 只**")])
+        for s in grp:
+            name = _etf_name(s["etf_code"])
+            note = (s["note"] or "").replace("\n", " ").replace("\r", " ").strip()
+            if len(note) > FEISHU_POST_NOTE_MAX:
+                note = note[:FEISHU_POST_NOTE_MAX].rstrip() + "…"
+            parts = [f"{name} {s['etf_code']}", f"份额{_share_yi(s['share_change'])}亿"]
+            ratio = s["amount_ratio"]
+            z = s["intensity"]
+            if ratio is not None:
+                parts.append(f"量比{ratio:.2f}")
+            if z is not None:
+                parts.append(f"z{z:.2f}")
+            if note:
+                parts.append(note)
+            lines.append([notify.post_text(" · ".join(parts))])
+
+    # 超行数上限省略尾部（信息量优先：保留分组标题+前 N 行，省略明细行）
+    if len(lines) > notify.FEISHU_POST_MAX_ROWS:
+        n_omit = len(lines) - notify.FEISHU_POST_MAX_ROWS
+        lines = lines[:notify.FEISHU_POST_MAX_ROWS] + [
+            [notify.post_text(f"… 其余 {n_omit} 条省略，详见邮件")]
+        ]
+
+    # 规则/免责精简为一行（完整在邮件；ETF份额 T+1 提示保留）
+    lines.append([notify.post_text("📋 份额 T+1 数据 · 完整规则与免责见邮件")])
+
+    title = subject.replace("[", "").replace("]", "").strip()
+    if not title.startswith("🐶"):
+        title = "🐶 " + title
+    return notify.build_feishu_post(title, lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="检测汪汪队(ETF汪汪队)当日信号 + 共振 + 发邮件")
     parser.add_argument("--date", help="查询日期 YYYYMMDD（默认最新数据日）")
@@ -330,6 +397,8 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     subject, body = build_email(data_date, signals_to_send, agg)
+    # 飞书 post 富文本（报告群版）：进/出/量分组 + 彩色，替代 _html_to_text 拍平成纯文本
+    feishu_post = build_feishu_post(subject, signals_to_send, agg)
     log.info("===== 邮件主题 =====")
     log.info("%s", subject)
     log.info("===== 邮件正文 =====")
@@ -341,7 +410,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # 多渠道分发（邮件 + Telegram）：notify.send 统一出口，各渠道失败不互相阻塞
     try:
-        results = notify.send(subject, body)
+        results = notify.send(subject, body, feishu_post=feishu_post)
     except Exception as e:  # noqa: BLE001
         log.error("✗ 通知发送异常：%s（不阻塞流程）", e)
         return 2

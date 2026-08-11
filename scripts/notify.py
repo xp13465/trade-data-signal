@@ -80,6 +80,15 @@ TG_TEXT_LIMIT = 4096
 # 飞书 text 消息单条长度上限（约 1-2K 量级，取保守 2000；超长截断）
 FEISHU_TEXT_LIMIT = 2000
 
+# 飞书 post 富文本（msg_type=post）行数上限：超出省略尾部（信息量优先，防超长半截）。
+# 报告群买卖点/汪汪队信号 post 版按此截断（20 行 × ~70 字符 ≈ 1400 字符，远低于 2000）。
+FEISHU_POST_MAX_ROWS = 20
+
+# ⚠️ 飞书 post 文本色实测结论（2026-08-11）：im/v1/messages 的 post text 标签**不支持**
+# style.color（任何色名/hex 都报 230001 invalid message content，实测验证）。
+# 彩色语义改用【彩色 emoji 前缀 + md 加粗表头】实现（🟢买/🔴卖/⚪持有，md 支持 **加粗**）。
+# 后续若飞书 API 开放 style 支持，再恢复 post_text 的 color 参数。
+
 # 飞书 tenant_access_token 缓存（2h 有效，过期前 120s 刷新复用）
 _FEISHU_TOKEN_CACHE: dict = {"token": None, "expire_at": 0.0}
 # 飞书 open.feishu.cn（中国版域名）
@@ -88,6 +97,20 @@ FEISHU_API_BASE = "https://open.feishu.cn"
 # SEVERE_PREFIX 保留空串（2026-07-20 改造：由调用方在 subject 表达严重程度，统一 [告警] 前缀）。
 # --severe 标记仍用于 write_alert 写 data/alerts/latest.md（独立于 subject 前缀）。
 SEVERE_PREFIX = ""
+
+# 邮件移动端适配 CSS（@media max-width:600px）：表格转块级（thead 隐藏、tr 卡片、td 全宽）
+# + 字号缩 + 列宽弹性 + 长文本换行。修手机预览错位（build_email 原 body max-width:720px +
+# 固定列宽 48/56/130px 在窄屏溢出）。check_signals.py / check_nt_signals.py 的 build_email
+# <head> 里引用本常量（同一段 CSS 两脚本共用，改一处生效）。
+MOBILE_EMAIL_CSS = """<style>
+@media (max-width:600px){
+  body{max-width:100% !important;padding:10px !important;font-size:13px !important;}
+  table{width:100% !important;font-size:12px !important;}
+  thead{display:none !important;}
+  tr{display:block !important;margin:0 0 10px 0 !important;border:1px solid #e5e6eb !important;border-radius:8px !important;}
+  td{display:block !important;width:100% !important;box-sizing:border-box !important;padding:5px 10px !important;text-align:left !important;border:none !important;word-wrap:break-word !important;overflow-wrap:break-word !important;white-space:normal !important;}
+}
+</style>"""
 
 
 def load_email_config() -> dict | None:
@@ -130,6 +153,54 @@ def _html_to_text(html: str) -> str:
                 .replace("&gt;", ">").replace("&nbsp;", " "))
     text = re.sub(r"\n{3,}", "\n\n", text)  # 折叠多余空行
     return text.strip()
+
+
+# ── 飞书 post 富文本（msg_type=post，报告群信号消息用）──────────────────────────
+# 飞书官方规范：post 消息 content（app 模式 im/v1/messages）= {"zh_cn": {"title": ...,
+# "content": [...]}}（实测无 post 外层包；webhook 模式才需 {"post": ...} 外层）。
+# content 为二维数组：外层=行，内层=该行的 tag 列表（text/md/a/at/img 等）。
+# - text 标签：纯文本，可选 un_escape（\n 换行生效）；**不支持 style.color**（见上方实测注释）。
+# - md 标签：markdown（**加粗**/`行内码`/[链接](url)，表头/高亮用）。
+# - a 标签：链接。
+# 对比 text 消息：post 支持分组/加粗表头/链接/彩色 emoji，表格不再被 _html_to_text
+# 拍平成 ' | ' 纯文本（用户反馈"毫无格式、冗长、可读性差"的根因）。
+
+
+def post_text(text: str, href: str | None = None, un_escape: bool = False) -> dict:
+    """构建飞书 post 富文本的一个 text 标签（见 build_feishu_post）。
+
+    注意：本 API 的 post text 标签不支持 style.color（实测 230001），彩色语义用
+    彩色 emoji 前缀（如 🟢 买入/🔴 卖出/⚪ 持有）实现，见 build_feishu_post 调用方。
+    href: 非空时输出 a 链接标签（{tag:a, text, href}）。
+    un_escape: True 时 text 内 \\n 换行生效（post 默认按字面渲染，\\n 不换行）。
+    """
+    if href:
+        return {"tag": "a", "text": str(text), "href": href}
+    tag = {"tag": "text", "text": str(text)}
+    if un_escape:
+        tag["un_escape"] = True
+    return tag
+
+
+def post_md(text: str) -> dict:
+    """构建飞书 post 富文本的一个 md（markdown）标签：支持 **加粗**/`行内码`/[链接](url)。
+
+    分组表头用（如 "🟢 **买入信号**（主买1 辅买1）"），渲染比 text 醒目。
+    """
+    return {"tag": "md", "text": str(text)}
+
+
+def build_feishu_post(title: str, lines: list[list[dict]]) -> dict:
+    """构建飞书 post 富文本 content（zh_cn 版，app 模式直接作 content 传 im/v1/messages）。
+
+    结构（飞书官方规范）：
+      {"zh_cn": {"title": <标题>, "content": [[{tag:...}, ...], ...]}}
+    - title: 消息标题（顶部大字，建议 ≤200 字符）
+    - lines: 行列表，每行 = tag 列表（post_text()/post_md() 产出），行内可多 tag 混排
+
+    send_feishu(feishu_post=本返回值) 即以 post 富文本发送（仅 report 群生效）。
+    """
+    return {"zh_cn": {"title": str(title), "content": [list(line) for line in lines]}}
 
 
 def send_telegram(subject: str, body: str, dry_run: bool = False,
@@ -324,8 +395,15 @@ def _get_tenant_access_token() -> str | None:
 
 
 def _send_feishu_api(chat_id: str, subject: str, text: str,
-                     reply_to_message_id: str | None = None) -> bool:
-    """飞书应用模式发送：POST im/v1/messages?receive_id_type=chat_id（text 消息）。
+                     reply_to_message_id: str | None = None,
+                     msg_type: str = "text",
+                     content: dict | None = None) -> bool:
+    """飞书应用模式发送：POST im/v1/messages?receive_id_type=chat_id。
+
+    默认 msg_type=text（content=None 时用 text 构建 {"text": text}，向后兼容）；
+    msg_type="post" 时 content 传 build_feishu_post 的 {"zh_cn": ...}（富文本，直接作
+    content，实测加 {"post": ...} 外层会报 230001 invalid message content）。
+    content 是消息内容 dict，序列化成 JSON 字符串放 body["content"]（im/v1/messages 规范）。
 
     reply_to_message_id 非空时 body 加 "reply_to_message_id"（飞书引用回复，回复挂靠在
     指定原消息下方，任务状态可挂靠追踪；参数名与 feishu_ws_listener.send_receipt 同款）。
@@ -334,8 +412,10 @@ def _send_feishu_api(chat_id: str, subject: str, text: str,
     if not token:
         return False
     url = f"{FEISHU_API_BASE}/open-apis/im/v1/messages?receive_id_type=chat_id"
-    content = json.dumps({"text": text}, ensure_ascii=False)
-    body = {"receive_id": chat_id, "msg_type": "text", "content": content}
+    if content is None:
+        content = {"text": text}
+    content_json = json.dumps(content, ensure_ascii=False)
+    body = {"receive_id": chat_id, "msg_type": msg_type, "content": content_json}
     if reply_to_message_id:
         body["reply_to_message_id"] = reply_to_message_id
     payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -354,9 +434,21 @@ def _send_feishu_api(chat_id: str, subject: str, text: str,
     return False
 
 
-def _send_feishu_webhook(url: str, subject: str, text: str) -> bool:
-    """飞书 webhook 模式发送（阶段1自定义机器人备用）：POST 群机器人 webhook。"""
-    payload = json.dumps({"msg_type": "text", "content": {"text": text}},
+def _send_feishu_webhook(url: str, subject: str, text: str,
+                         msg_type: str = "text",
+                         content: dict | None = None) -> bool:
+    """飞书 webhook 模式发送（阶段1自定义机器人备用）：POST 群机器人 webhook。
+
+    默认 msg_type=text（content=None 时用 text 构建 {"text": text}）。
+    msg_type="post" 时 content 传 build_feishu_post 的 {"zh_cn": ...}，webhook 规范要求
+    外层包 {"post": ...}（与 app 模式 im/v1/messages 的 content=直接 zh_cn 不同，
+    见 send_feishu 注释）；webhook 的 content 是对象非 JSON 字符串。
+    """
+    if content is None:
+        content = {"text": text}
+    if msg_type == "post":
+        content = {"post": content}
+    payload = json.dumps({"msg_type": msg_type, "content": content},
                          ensure_ascii=False).encode("utf-8")
     headers = {"Content-Type": "application/json; charset=utf-8"}
     try:
@@ -391,13 +483,18 @@ def _resolve_feishu_chat_key(subject: str, from_prefix: str | None,
 def send_feishu(subject: str, body: str, chat_key: str | None = None,
                 dry_run: bool = False, severe: bool = False,
                 from_prefix: str | None = None,
-                reply_to_message_id: str | None = None) -> bool:
+                reply_to_message_id: str | None = None,
+                feishu_post: dict | None = None) -> bool:
     """发飞书群消息（自建应用 im/v1/messages 或 webhook 模式）。
 
     chat_key 显式指定（alert/agent_done/report）；None 时按 _resolve_feishu_chat_key
     自动映射。配置缺失/enabled=false/占位符 -> 静默跳过（同 Telegram 未配置口径）。
     发送失败只 print 警告不抛异常（不阻塞调用方/不阻塞邮件）。
     返回 True 表示发出（或 dry_run 模拟成功），False 表示未发/失败。
+
+    feishu_post（3 群差异化）：仅 report 群生效——非空时用 post 富文本发送
+      （build_feishu_post 产出，买卖点/汪汪队信号消息用，买绿/卖红/持有灰分组+彩色标题）。
+      alert/agent_done 群忽略 feishu_post 保持简短 text（可读性已够，不破坏现有格式）。
 
     reply_to_message_id（引用回复）：非空时应用模式 body 加 reply_to_message_id，
     把消息作为对指定消息 ID 的引用回复发送（挂靠原消息下追踪）。webhook 模式不支持
@@ -415,15 +512,26 @@ def send_feishu(subject: str, body: str, chat_key: str | None = None,
     if not chat_id:
         print(f"[notify] feishu 群 {chat_key} 未配置 chat_id，跳过发送", file=sys.stderr)
         return False
-    text = f"{subject}\n\n{_html_to_text(body)}"
-    if len(text) > FEISHU_TEXT_LIMIT:
-        text = text[: FEISHU_TEXT_LIMIT - 30] + "\n…(已截断)"
+    # 消息内容：report 群 + feishu_post 非空 -> post 富文本；否则 text（_html_to_text 拍平）。
+    # 注意：im/v1/messages（app 模式）的 post content = {"zh_cn": {...}} 直接传（无 post 外层包，
+    # 实测加 {"post": ...} 外层会报 230001 invalid message content）；webhook 模式才需 post 外层包
+    # （_send_feishu_webhook 内部处理）。build_feishu_post 已返回 {"zh_cn": ...}。
+    msg_type, content = "text", None
+    if feishu_post and chat_key == "report":
+        msg_type, content = "post", feishu_post
+        log_text = f"{subject}\n\n[post 富文本 {len(feishu_post.get('zh_cn', {}).get('content', []))} 行]"
+    else:
+        log_text = f"{subject}\n\n{_html_to_text(body)}"
+        if len(log_text) > FEISHU_TEXT_LIMIT:
+            # 保留头部（信息量优先：subject+正文开头），截尾部
+            log_text = log_text[: FEISHU_TEXT_LIMIT - 30] + "\n…(已截断)"
     if dry_run:
         print(f"[notify][dry-run] feishu group={chat_key} chat_id={chat_id}", file=sys.stderr)
         if reply_to_message_id:
             print(f"[notify][dry-run] feishu reply_to_message_id={reply_to_message_id}",
                   file=sys.stderr)
-        print(f"[notify][dry-run] feishu text(前200)=\n{text[:200]}", file=sys.stderr)
+        print(f"[notify][dry-run] feishu msg_type={msg_type} text(前200)=\n{log_text[:200]}",
+              file=sys.stderr)
         return True
     mode = str(cfg.get("mode", "app") or "app").lower()
     if mode == "webhook":
@@ -433,9 +541,11 @@ def send_feishu(subject: str, body: str, chat_key: str | None = None,
                   file=sys.stderr)
             return False
         # webhook 模式不支持引用回复（im/v1/messages 专属能力），忽略 reply_to_message_id
-        return _send_feishu_webhook(url, subject, text)
-    return _send_feishu_api(chat_id, subject, text,
-                            reply_to_message_id=reply_to_message_id)
+        return _send_feishu_webhook(url, subject, log_text,
+                                    msg_type=msg_type, content=content)
+    return _send_feishu_api(chat_id, subject, log_text,
+                            reply_to_message_id=reply_to_message_id,
+                            msg_type=msg_type, content=content)
 
 
 def _send_email(subject: str, body: str, dry_run: bool = False,
@@ -500,7 +610,8 @@ def _send_email(subject: str, body: str, dry_run: bool = False,
 def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
          from_prefix: str | None = None, feishu_group: str | None = None,
          feishu_only: bool = False,
-         reply_to_message_id: str | None = None) -> dict:
+         reply_to_message_id: str | None = None,
+         feishu_post: dict | None = None) -> dict:
     """多渠道分发通知（邮件 + Telegram + 飞书）。各渠道独立失败不互相阻塞。
 
     先邮件后 Telegram 再飞书，任一渠道失败不影响其他。返回聚合结果：
@@ -517,6 +628,8 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     feishu_only：True 时只发飞书（跳过邮件/Telegram），调试用。
     reply_to_message_id（引用回复）：仅飞书应用模式生效，透传给 send_feishu -> _send_feishu_api，
       body 加 reply_to_message_id 回复挂靠原消息；email/telegram 忽略此参数。
+    feishu_post（2026-08-11 飞书格式模板）：post 富文本数据（build_feishu_post 产出）。
+      仅 report 群生效（买卖点/汪汪队信号消息用），alert/agent_done 群忽略保持 text。
     邮件兜底保留：飞书失败不阻塞、邮件照发（SEVERE 告警邮件始终发，防飞书故障无通知）。
     """
     if severe:
@@ -525,14 +638,16 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     tg_ok = send_telegram(subject, body, dry_run=dry_run) if not feishu_only else False
     fs_ok = send_feishu(subject, body, chat_key=feishu_group, dry_run=dry_run,
                         severe=severe, from_prefix=from_prefix,
-                        reply_to_message_id=reply_to_message_id)
+                        reply_to_message_id=reply_to_message_id,
+                        feishu_post=feishu_post)
     return {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok}
 
 
 def send_to(subject: str, body: str, email: str | None = None,
             chat_id: str | None = None, dry_run: bool = False,
             from_prefix: str | None = None, feishu_group: str | None = None,
-            feishu_only: bool = False) -> dict:
+            feishu_only: bool = False,
+            feishu_post: dict | None = None) -> dict:
     """A12 订阅推送：指定收件人（email/chat_id）多渠道分发。
 
     与 send() 区别：send() 用 config 全局 to/chat_id（单一管理员）；
@@ -543,11 +658,14 @@ def send_to(subject: str, body: str, email: str | None = None,
     返回 {"email": bool, "telegram": bool, "feishu": bool}。
     from_prefix：邮件发件人名前缀（None=默认 "信号实验室监控"）。
     feishu_group：飞书群 key（None=按前缀自动映射，订阅信号推送默认进 report 报告群）。
+    feishu_post（2026-08-11 飞书格式模板）：post 富文本数据（build_feishu_post 产出），
+      仅 report 群生效，alert/agent_done 群忽略保持 text。
     """
     email_ok = _send_email(subject, body, dry_run=dry_run, to=email, from_prefix=from_prefix) if email and not feishu_only else False
     tg_ok = send_telegram(subject, body, dry_run=dry_run, chat_id=chat_id) if chat_id and not feishu_only else False
     fs_ok = send_feishu(subject, body, chat_key=feishu_group, dry_run=dry_run,
-                        severe=False, from_prefix=from_prefix)
+                        severe=False, from_prefix=from_prefix,
+                        feishu_post=feishu_post)
     return {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok}
 
 
