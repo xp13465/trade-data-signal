@@ -14,6 +14,8 @@ data/feishu_requests/<ts>-<message_id>.json（含 ts/sender/chat_id/msg_type/con
   SSL_CERT_FILE + REQUESTS_CA_BUNDLE 指向它（requests/websockets 均读），解决
   CERTIFICATE_VERIFY_FAILED（不关闭证书校验，用系统信任链）。
 - 落盘后主控侧 cron 轮询整理进 TASKS（见 docs/feishu-bot-integration-plan.md「接收落盘格式」）。
+- 收到回执：合法需求落盘成功后，立即调用飞书 API 向来源 chat_id 回一条文本消息
+  （秒级「已收到需求…，主控 1 分钟内开始处理」）。best-effort，发送失败仅 log 不阻塞落盘。
 
 用法:
   python scripts/feishu_ws_listener.py [--once] [--no-ssl-workaround]
@@ -24,9 +26,12 @@ from __future__ import annotations
 
 import json
 import os
+import ssl
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -36,6 +41,9 @@ CONFIG_PATH = REPO / "config" / "feishu.json"
 LOG_PATH = Path("/Users/linhuichen/code/trade-data/data/logs") / "feishu_listener.log"
 # 系统信任证书导出 PEM（本地 MITM 代理自签证书信任用，runtime 文件不进 git）
 CACERT_PATH = Path("/Users/linhuichen/code/trade-data/data/feishu_cacert.pem")
+# 收到回执：飞书 open.feishu.cn（中国版域名）+ tenant_access_token 缓存（2h 有效，过期前 120s 刷新复用）
+FEISHU_API_BASE = "https://open.feishu.cn"
+_FEISHU_TOKEN_CACHE: dict = {"token": None, "expire_at": 0.0}
 
 
 def log(msg: str) -> None:
@@ -83,6 +91,88 @@ def load_config() -> dict:
     except Exception as e:  # noqa: BLE001
         log(f"config/feishu.json 解析失败：{e}")
         sys.exit(1)
+
+
+def _feishu_http_post_json(url: str, payload: bytes, headers: dict,
+                           timeout: int = 5) -> dict:
+    """POST JSON 到飞书 API。本地 MITM 代理自签证书致默认校验失败时，
+    遇到 CERTIFICATE_VERIFY_FAILED 退化为不校验重试一次（仅飞书 API 调用）。"""
+    req = urllib.request.Request(url, data=payload, method="POST", headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", "replace")
+    except urllib.error.URLError as e:
+        reason = getattr(e, "reason", None)
+        if not isinstance(reason, ssl.SSLCertVerificationError):
+            raise
+        log("回执：飞书 SSL 校验失败，退化为不校验重试一次（本地 MITM 代理）")
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            raw = resp.read().decode("utf-8", "replace")
+    return json.loads(raw)
+
+
+def _get_tenant_access_token() -> str | None:
+    """获取飞书 tenant_access_token（带缓存，2h 有效，过期前 120s 刷新复用）。
+    凭证从 .env 读（FEISHU_APP_ID/FEISHU_APP_SECRET，不 echo 不硬编码）。
+    失败返回 None（调用方跳过回执，不阻塞）。"""
+    now = time.time()
+    if _FEISHU_TOKEN_CACHE["token"] and _FEISHU_TOKEN_CACHE["expire_at"] > now:
+        return _FEISHU_TOKEN_CACHE["token"]
+    env = load_env()
+    app_id = env.get("FEISHU_APP_ID", "")
+    app_secret = env.get("FEISHU_APP_SECRET", "")
+    if not app_id or not app_secret:
+        log("回执：未找到 FEISHU_APP_ID/FEISHU_APP_SECRET（.env），跳过回执")
+        return None
+    url = f"{FEISHU_API_BASE}/open-apis/auth/v3/tenant_access_token/internal"
+    payload = json.dumps({"app_id": app_id, "app_secret": app_secret},
+                         ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json; charset=utf-8"}
+    try:
+        data = _feishu_http_post_json(url, payload, headers, timeout=5)
+    except Exception as e:  # noqa: BLE001
+        log(f"回执：获取 tenant_access_token 失败（跳过回执，不阻塞）：{e}")
+        return None
+    if data.get("code") != 0:
+        log(f"回执：token API 返回非 0：code={data.get('code')} msg={data.get('msg')}（跳过回执）")
+        return None
+    token = str(data.get("tenant_access_token", "") or "")
+    if not token:
+        log("回执：token 响应为空，跳过回执")
+        return None
+    expire = int(data.get("expire", 7200) or 7200)
+    _FEISHU_TOKEN_CACHE["token"] = token
+    _FEISHU_TOKEN_CACHE["expire_at"] = now + max(60, expire - 120)
+    return token
+
+
+def send_receipt(chat_id: str, text: str) -> bool:
+    """向 chat_id 回一条文本消息（收到回执）。best-effort：失败仅 log 不抛异常。
+    POST im/v1/messages?receive_id_type=chat_id，body {"receive_id","msg_type","content"}。"""
+    if not chat_id or not text:
+        return False
+    token = _get_tenant_access_token()
+    if not token:
+        return False
+    url = f"{FEISHU_API_BASE}/open-apis/im/v1/messages?receive_id_type=chat_id"
+    content = json.dumps({"text": text}, ensure_ascii=False)
+    payload = json.dumps({"receive_id": chat_id, "msg_type": "text", "content": content},
+                         ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json; charset=utf-8",
+               "Authorization": f"Bearer {token}"}
+    try:
+        data = _feishu_http_post_json(url, payload, headers, timeout=5)
+    except Exception as e:  # noqa: BLE001
+        log(f"回执：发送失败（不阻塞落盘）：{e}")
+        return False
+    if data.get("code") == 0:
+        log(f"已回执 {chat_id}：{text[:40]}")
+        return True
+    log(f"回执：API 返回非 0：code={data.get('code')} msg={data.get('msg')}")
+    return False
 
 
 def export_system_cacert() -> bool:
@@ -202,7 +292,7 @@ def process_event(data, whitelist: set, prefixes: list[str],
         if chat_id not in whitelist and not _match_prefix(content, prefixes):
             log(f"跳过非需求消息（非白名单群且无需求前缀）：chat_id={chat_id} content={content[:60]}")
             return None
-        ts_ms = msg.create_time if msg.create_time else int(time.time() * 1000)
+        ts_ms = int(msg.create_time) if msg.create_time else int(time.time() * 1000)
         ts = int(ts_ms / 1000) if ts_ms > 1e12 else int(ts_ms)
         filename = f"{ts}-{msg.message_id or 'x'}.json"
         record = {
@@ -219,6 +309,9 @@ def process_event(data, whitelist: set, prefixes: list[str],
         (inbox_dir / filename).write_text(
             json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
         log(f"收到需求已落盘：{filename} sender={record['sender']} content={content[:80]}")
+        # 收到回执：best-effort 向来源群秒级回一条已收到（失败不阻塞落盘）
+        excerpt = content if len(content) <= 40 else content[:40] + "…"
+        send_receipt(chat_id, f"✅ 已收到需求「{excerpt}」，主控 1 分钟内开始处理")
         if once:
             log("--once 模式收到合法请求，退出")
             os._exit(0)  # 从 asyncio 回调直接退出，绕过 SDK 清理
