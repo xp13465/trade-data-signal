@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260812-a145';  // bump a144->a145: 凯利仓位控制过滤 positionCap(K 1-4)+每日资金池等分口径+交易页当日 top-K 建议执行/当日已满灰显
+const CACHE_VERSION = 'v6-20260812-a146';  // bump a145->a146: positionCap reviewer FAIL 修复(逐桶缓存校验amountMode/组合建议静态口径标注/弹窗谓词改调共享含v4/空态colspan15)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
