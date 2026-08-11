@@ -7255,7 +7255,9 @@ function _kellyDefaultFilters() {
     // v4新标志(第二梯队: Greedy-10组合/V4-D/V4-J/V4-I)
     greedy10: false, v4d: false, v4j: false, v4i: false,
     // v4新标志(第三梯队,附监控: Greedy-15组合/V4-F/V4-G/V4-M/V4-K)
-    greedy15: false, v4f: false, v4g: false, v4m: false, v4k: false
+    greedy15: false, v4f: false, v4g: false, v4m: false, v4k: false,
+    // 1月调整(2026-08-11 元素级重组验证: 1月中旬(11-20日)+mid评级 / 1月中旬+追关注; 1月上旬=盈利口袋明确排除)
+    janMidRating: false, janMidSpecial: false
   };
 }
 
@@ -7341,7 +7343,9 @@ var _kellyMonthMask = {
   v4g: (1 << 0) | (1 << 1) | (1 << 2),              // q1=01,02,03
   v4m: 1 << 8,                                      // 09
   v4k: 1 << 0,                                      // 01
-  greedy15: (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 8) | (1 << 10) | (1 << 11) // greedy10+q1+09
+  greedy15: (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 8) | (1 << 10) | (1 << 11), // greedy10+q1+09
+  janMidRating: 1 << 0,                             // 01
+  janMidSpecial: 1 << 0                             // 01
 };
 function _kellyActiveMonthMask(filters) {
   var mask = 0;
@@ -7368,7 +7372,9 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
   var _v4On = filters.greedy7 || filters.greedy10 || filters.greedy15 || filters.v4cSimple || filters.v4b || filters.v4d || filters.v4j || filters.v4i || filters.v4f || filters.v4g || filters.v4m || filters.v4k;
   // round3新2 toggle(11月系, 2026-08-10 verify验证: A45 5.75 / A5 5.49)
   var _r3On = filters.a5NovMidSpecial || filters.a45NovMidLateSpecial;
-  if (_v3On || _v4On || _r3On) {
+  // 1月调整2 toggle(2026-08-11 元素级重组: 1月中旬(11-20日)+mid评级 / 1月中旬+追关注)
+  var _janOn = filters.janMidRating || filters.janMidSpecial;
+  if (_v3On || _v4On || _r3On || _janOn) {
     // 月门控: 该trade月份不在任何活跃toggle的月集合内 => 不可能命中任何谓词, 直接通过(跳过昂贵特征)
     if (monthMask) {
       var _mmG = (t[fIdx.buy_date] || "").substring(4, 6);
@@ -7472,6 +7478,14 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
       if (filters.a5NovMidSpecial && _sig3 === "buy_special" && _mm3 === "11" && _dd3 >= 11 && _dd3 <= 20) return false;
       // A45: 11月中旬+下旬(11日及以后)+追关注(buy_special), 比值5.75, 净影响最大(+49.9万)
       if (filters.a45NovMidLateSpecial && _sig3 === "buy_special" && _mm3 === "11" && _dd3 >= 11) return false;
+    }
+    // === 1月调整(2026-08-11 元素级重组挖掘, 部署9模式数据验证 docs/kelly-jan-adjust-combo-verify.md) ===
+    // 只做1月中旬(11-20日): 1月上旬(1-10日)=盈利口袋(全负-56万)明确排除, 不做1月全月(早段亏损稀释)
+    if (_janOn) {
+      // J1: 1月中旬(11-20日)+mid评级, standalone比值4.71/净+18.7万, 4窗口全>2, 与现有标志90%不重叠, ⚠maxSh0.62略超0.60(2026单年主导)附监控
+      if (filters.janMidRating && _mm3 === "01" && _dd3 >= 11 && _dd3 <= 20 && _ratD3 === "mid") return false;
+      // J2: 1月中旬(11-20日)+追关注(buy_special), standalone比值4.49/净+38.9万, 4窗口全>2, 覆盖更广但maxSh0.79更差
+      if (filters.janMidSpecial && _sig3 === "buy_special" && _mm3 === "01" && _dd3 >= 11 && _dd3 <= 20) return false;
     }
   }
   return true;
@@ -7885,6 +7899,16 @@ var _kellyComboPresets = {
     members: [
       { k: "greedy15", cls: "lab-sigkelly-toggle-greedy15" }
     ]
+  },
+  // 1月调整 = janMidRating(1月中旬+mid评级) + janMidSpecial(1月中旬+追关注) (2026-08-11 元素级重组挖掘)
+  // 只做1月中旬(11-20日): 1月上旬=盈利口袋(全负-56万)不可动; 两成员重叠~96%(mid⊂special), 偏好surgical开J1, 偏好覆盖开J2
+  janAdjust: {
+    label: "1月调整",
+    tip: "组合「1月调整」(J1 1月中旬+mid评级 + J2 1月中旬+追关注): 元素级重组挖掘的1月真空地带(用户'摘取要素交叉成新标志'直接产出,18,047组合扫描唯一新边际)。J1 standalone比值4.71/净+18.7万/4窗口全>2/与现有标志90%不重叠/live4+现有之上边际+14.4万(n=1,026);J2覆盖更广(2,565笔)比值4.49/净+38.9万但maxSh0.79更差。只做1月中旬(11-20日):1月上旬(1-10日)=盈利口袋(全负-56万)明确排除,不做1月全月(早段亏损稀释)。⚠J1 maxSh0.62略超0.60阈值(2026单年占62%,全局大亏年系统性特征),每年1月后检查1月中旬子集是否转盈。可叠加其他组合=成员并集OR,幂等无害。",
+    members: [
+      { k: "janMidRating", cls: "lab-sigkelly-toggle-janmidrating" },
+      { k: "janMidSpecial", cls: "lab-sigkelly-toggle-janmidspecial" }
+    ]
   }
 };
 
@@ -7933,9 +7957,9 @@ function _renderSigKellyBar(bar, data, period) {
       `<label>过户费:万分之<input type="number" class="lab-input lab-sigkelly-fee-input-transfer" value="${transferVal}" step="0.01" min="0" style="width:42px">(沪)</label>` +
       `<label>印花税:万分之<input type="number" class="lab-input lab-sigkelly-fee-input-stamp" value="${stampVal}" step="0.01" min="0" style="width:42px">(卖)</label>` +
     `</div>`;
-  // 降亏过滤toggle(29个独立checkbox可组合, 开启后过滤交易集重算所有指标, 按比值倒序)
+  // 降亏过滤toggle(31个独立checkbox可组合, 开启后过滤交易集重算所有指标, 按比值倒序)
   const _filters = state.labSigKellyFilters || _kellyDefaultFilters();
-  // 组合降亏「预设宏」(3个, 2026-08-11新增): 组合checkbox勾选态由成员toggle派生
+  // 组合降亏「预设宏」(4个, 2026-08-11新增): 组合checkbox勾选态由成员toggle派生
   const comboHTML = Object.keys(_kellyComboPresets).map((ck) => {
     const cp = _kellyComboPresets[ck];
     const allOn = cp.members.every((m) => _filters[m.k]);
@@ -7947,6 +7971,10 @@ function _renderSigKellyBar(bar, data, period) {
       `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">round3 11月系(2026-08-10验证)</span>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="A45(11月中旬+下旬+追关注): 排除11日及以后(buy_date日≥11)的buy_special追关注交易。减亏5.54%/损盈0.96%/比值5.75。净增收+49.9万元(全场候选最大)。覆盖11月80%的special交易。叠加现有4 toggle之上边际+10.7万(比值7.87)。⚠含11月下旬(2024+零交易,近年贡献主要来自中旬)。"><input type="checkbox" class="lab-sigkelly-toggle-a45"${_filters.a45NovMidLateSpecial ? " checked" : ""}> A45 11月中下旬+追关注(5.75) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="A5(11月中旬+追关注): 排除11日-20日(中旬)的buy_special追关注交易。减亏3.62%/损盈0.66%/比值5.49。净增收+31.9万元。最稳候选:2016-2025连续有交易无空窗,4窗口(y2/y3/y5/y10)全>2。叠加现有4 toggle之上边际+7.7万(比值6.45)。注意:A5为A45(11月中下旬)的子集,同时开启A45时A5不再新增过滤。"><input type="checkbox" class="lab-sigkelly-toggle-a5"${_filters.a5NovMidSpecial ? " checked" : ""}> A5 11月中旬+追关注(5.49) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `</div>` +
+      `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">1月调整(元素级重组·2026-08-11)</span>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="J1(1月中旬+mid评级): 排除buy_date在11-20日(中旬)且rating=mid的1月交易。standalone减亏3.58%/损盈0.76%/比值4.71,净增收+18.7万,4窗口全>2(y1 4.0/y3 4.0/y5 4.2/y10 4.7),与现有标志90%不重叠,live4+现有之上边际+14.4万(n=1,026)。⚠附监控:maxSh0.62略超0.60(2026单年占净影响62%,全局大亏年系统性特征),每年1月后检查1月中旬子集是否转盈。只做中旬:1月上旬=盈利口袋(全负-56万)不可动。"><input type="checkbox" class="lab-sigkelly-toggle-janmidrating"${_filters.janMidRating ? " checked" : ""}> J1 1月中旬+mid评级(4.71)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="J2(1月中旬+追关注): 排除buy_date在11-20日(中旬)的buy_special追关注1月交易。standalone减亏6.83%/损盈1.52%/比值4.49,净增收+38.9万,4窗口全>2(y1 4.9/y3 4.6/y10 4.5),live4+现有之上边际+14.4万(n=1,098)。覆盖更广(2,565笔vs J1 1,134)但⚠maxSh0.79更差(2026更主导)。J2含J1约96%(J1为J2中mid评级的子集),偏好surgical开J1,偏好覆盖开J2,同时开幂等无害。只做中旬:1月上旬=盈利口袋(全负-56万)不可动。"><input type="checkbox" class="lab-sigkelly-toggle-janmidspecial"${_filters.janMidSpecial ? " checked" : ""}> J2 1月中旬+追关注(4.49)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `</div>` +
       `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">比值&gt;3(高性价比)</span>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除3月+周三+高价ETF的交易。减亏0.89%/损盈0.09%/比值10.06(全场最高)。净增收+5.85万元。7/7年全亏(2017-2026)，无单年主导，稳定性最强单标志。"><input type="checkbox" class="lab-sigkelly-toggle-n1"${_filters.n1MarTueHigh ? " checked" : ""}> 3月+周三+高价(10.06) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
@@ -8198,6 +8226,19 @@ function _renderSigKellyBar(bar, data, period) {
   if (a45Cb) a45Cb.onchange = function () {
     if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
     state.labSigKellyFilters.a45NovMidLateSpecial = a45Cb.checked;
+    _kellyOnFilterChange();
+  };
+  // 1月调整新2 toggle(2026-08-11 元素级重组): J1 1月中旬+mid评级 / J2 1月中旬+追关注
+  var janMidRatingCb = bar.querySelector(".lab-sigkelly-toggle-janmidrating");
+  if (janMidRatingCb) janMidRatingCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.janMidRating = janMidRatingCb.checked;
+    _kellyOnFilterChange();
+  };
+  var janMidSpecialCb = bar.querySelector(".lab-sigkelly-toggle-janmidspecial");
+  if (janMidSpecialCb) janMidSpecialCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.janMidSpecial = janMidSpecialCb.checked;
     _kellyOnFilterChange();
   };
   // 组合降亏「预设宏」(2026-08-11用户定: 1+2+3全要,按需选择,组合可叠加=成员并集OR):
@@ -8788,6 +8829,16 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
       var _ddR3 = parseInt(_bdR3.substring(6, 8), 10) || 0;
       if (_mmR3 === "11" && _filters.a5NovMidSpecial && _ddR3 >= 11 && _ddR3 <= 20) return false;
       if (_mmR3 === "11" && _filters.a45NovMidLateSpecial && _ddR3 >= 11) return false;
+    }
+    // 1月调整(2026-08-11 元素级重组): J1 1月中旬(11-20日)+mid评级 / J2 1月中旬+追关注; 只做中旬(1月上旬=盈利口袋不可动)
+    if ((_filters.janMidRating || _filters.janMidSpecial) && _fIdx.buy_date != null) {
+      var _bdJ = String(t[_fIdx.buy_date] || "");
+      var _mmJ = _bdJ.substring(4, 6);
+      var _ddJ = parseInt(_bdJ.substring(6, 8), 10) || 0;
+      if (_mmJ === "01" && _ddJ >= 11 && _ddJ <= 20) {
+        if (_filters.janMidSpecial && _fIdx.signal != null && (t[_fIdx.signal] || "") === "buy_special") return false;
+        if (_filters.janMidRating && _fIdx.rating != null && t[_fIdx.rating] === "mid") return false;
+      }
     }
     // v3新9 toggle(比值>3, 按比值倒序)
     var _v3On2 = _filters.n1MarTueHigh || _filters.n2NovSpecialIndustry || _filters.r8PureNonMay || _filters.n3NovSpecialMon || _filters.n4AMay || _filters.r7MayReinforced || _filters.n5MayVlow || _filters.n6MidMay || _filters.r10May6NonMay;
