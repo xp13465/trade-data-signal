@@ -14,10 +14,14 @@ data/feishu_requests/<ts>-<message_id>.json（含 ts/sender/chat_id/msg_type/con
   SSL_CERT_FILE + REQUESTS_CA_BUNDLE 指向它（requests/websockets 均读），解决
   CERTIFICATE_VERIFY_FAILED（不关闭证书校验，用系统信任链）。
 - 落盘后主控侧 cron 轮询整理进 TASKS（见 docs/feishu-bot-integration-plan.md「接收落盘格式」）。
-- 收到回执：合法需求落盘成功后，立即调用飞书 API **引用回复**用户那条具体消息
-  （body 带 reply_to_message_id=msg.message_id，飞书引用回复；用户连续发多条时每条
-  都能看到对应「收到」回执）。文案「已收到需求…，主控 1 分钟内开始处理」。best-effort，
-  发送失败仅 log 不阻塞落盘。
+- 需求自动进待办 + 即时回执（2026-08-11 起主控零轮询）：合法需求落盘成功后，listener
+  自己完成 ①追加待办到 TASKS.md `#### 待办` 小节（一行 `- [ ] (飞书 YYYY-MM-DD HH:MM) <摘要>`，
+  git 落档持久化，主控开工/compact 恢复读 TASKS 即看到）②调 notify.py 发即时回执到开发群
+  （agent_done=用户提需求所在群，**引用回复**用户那条具体消息 body 带
+  reply_to_message_id=msg.message_id，文案「✅ 已收到你的需求：…，已纳入待办，主控将跟进
+  处理」）。两动作均 best-effort：失败仅 log 不阻塞监听/落盘；notify 不可用时回执退化用
+  send_receipt 直接回用户所在群。防重复：同一 message_id 只自动处理一次（进程内 Set +
+  jsonl + 启动时载入历史 *.processed.json，SDK at-least-once 重推不重复进 TASKS/回执）。
 - 跨群转发：报告群（report）的**人类用户**消息自动抄送一份到开发群（agent_done），带
   [转自报告群] 标记；告警群（alert）的**人类用户**消息默认**不抄送**开发群（多为计划任务
   执行告警/恢复类问询，应留运维群），仅当带需求前缀（需求:/t:，全角/半角冒号都认，复用
@@ -189,6 +193,157 @@ def send_receipt(chat_id: str, text: str, message_id: str | None = None) -> bool
         return True
     log(f"回执：API 返回非 0：code={data.get('code')} msg={data.get('msg')}")
     return False
+
+
+# ── 需求自动进待办 + 即时回执（2026-08-11 起主控零轮询）─────────────────────────
+# TASKS.md 待办锚点：`#### 待办` 小节（插入点=锚点行后）。TASKS.md 含 42KB 超长行，
+# 禁止 grep/打印超长行——本模块用 python 逐行读写，超长行原样透传不解析。
+TASKS_PATH = REPO / "TASKS.md"
+TASKS_TODO_ANCHOR = "#### 待办"
+# 需求自动进待办+回执去重：进程内 Set + jsonl 落盘（SDK 长连接 at-least-once 可能重推，
+# 防同一消息重复进 TASKS/重复回执；启动时同时载入历史 *.processed.json 防重复处理旧消息）
+AUTODONE_DEDUP_PATH = REPO / "data" / "feishu_requests" / "autodone_message_ids.jsonl"
+_AUTODONE_IDS: set = set()
+# notify.py（统一通知出口）懒加载：import 失败不中断监听（回执退化为 send_receipt 直接回）
+_NOTIFY: object | None = None
+_NOTIFY_IMPORT_TRIED = False
+
+
+def _get_notify():
+    """懒加载 notify.py（统一通知出口，与 check_signals.py 同款 import notify）。
+    失败返回 None（回执退化为 send_receipt 直接回用户所在群，不中断监听）。"""
+    global _NOTIFY, _NOTIFY_IMPORT_TRIED
+    if _NOTIFY_IMPORT_TRIED:
+        return _NOTIFY
+    _NOTIFY_IMPORT_TRIED = True
+    try:
+        sys.path.insert(0, str(REPO / "scripts"))
+        import notify  # noqa: PLC0415
+        _NOTIFY = notify
+    except Exception as e:  # noqa: BLE001
+        log(f"回执：import notify 失败（退化 send_receipt 直接回用户群）：{e}")
+        _NOTIFY = None
+    return _NOTIFY
+
+
+def summarize(content: str, limit: int = 80) -> str:
+    """需求原文摘要：压平换行/多余空白为单行，截断到 limit 字符（超长加省略号）。"""
+    text = " ".join((content or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+def append_todo_to_tasks(excerpt: str, ts: int | None = None) -> bool:
+    """在 TASKS.md `#### 待办` 小节锚点行后插入一行 `- [ ] (飞书 YYYY-MM-DD HH:MM) <摘要>`。
+
+    只追加不破坏：逐行读文件（42KB 超长行不解析不打印，原样透传），定位锚点行索引后在其
+    后面插入新行，临时文件 + os.replace 原子写回。best-effort：失败仅 log 不抛异常。
+    返回 True=成功插入。"""
+    try:
+        if not TASKS_PATH.exists():
+            log(f"进待办：TASKS.md 不存在（{TASKS_PATH}），跳过")
+            return False
+        ts_iso = (datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+                  if ts else datetime.now().strftime("%Y-%m-%d %H:%M"))
+        new_line = f"- [ ] (飞书 {ts_iso}) {excerpt}"
+        lines = TASKS_PATH.read_text(encoding="utf-8").splitlines()
+        anchor_idx = next((i for i, ln in enumerate(lines)
+                           if ln.strip() == TASKS_TODO_ANCHOR), None)
+        if anchor_idx is None:
+            log(f"进待办：TASKS.md 未找到锚点 {TASKS_TODO_ANCHOR!r}，跳过（不往文件末尾乱插）")
+            return False
+        new_lines = lines[: anchor_idx + 1] + [new_line] + lines[anchor_idx + 1:]
+        tmp = TASKS_PATH.with_name(TASKS_PATH.name + ".tmp")
+        tmp.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        os.replace(tmp, TASKS_PATH)
+        log(f"进待办：已插入 -> {new_line}")
+        return True
+    except Exception as e:  # noqa: BLE001
+        log(f"进待办：写入 TASKS.md 失败（不阻塞监听）：{e}")
+        return False
+
+
+def _load_autodone_ids(inbox_dir: Path) -> set:
+    """启动时载入已自动处理 message_id 去重集合：autodone jsonl + 历史 *.processed.json。
+    防止 SDK 重推重复进 TASKS，也防止旧 cron 已整理过的消息（*.processed.json）被重复整理。"""
+    ids: set = set()
+    if AUTODONE_DEDUP_PATH.exists():
+        try:
+            for line in AUTODONE_DEDUP_PATH.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    mid = json.loads(line).get("message_id")
+                except Exception:  # noqa: BLE001
+                    mid = line
+                if mid:
+                    ids.add(str(mid))
+        except Exception as e:  # noqa: BLE001
+            log(f"自动处理去重加载失败（不阻塞）：{e}")
+    if inbox_dir and inbox_dir.exists():
+        try:
+            for p in inbox_dir.glob("*.processed.json"):
+                try:
+                    rec = json.loads(p.read_text(encoding="utf-8"))
+                    mid = rec.get("message_id")
+                except Exception:  # noqa: BLE001
+                    mid = ""
+                if not mid:
+                    # 文件名 <ts>-<mid>.processed.json 兜底取 mid
+                    name = p.name
+                    mid = name.rsplit("-", 1)[-1].replace(".processed.json", "")
+                if mid:
+                    ids.add(str(mid))
+        except Exception as e:  # noqa: BLE001
+            log(f"自动处理去重：扫描 *.processed.json 失败（不阻塞）：{e}")
+    return ids
+
+
+def _mark_autodone(message_id: str, path: Path | None = None,
+                   autodone_ids: set | None = None, max_size: int = 20000) -> None:
+    """自动处理成功标记去重（进程内 Set + 追加 jsonl），防 SDK 重推重复进 TASKS/回执。
+    集合超上限时清最旧一半防无限增长。"""
+    if not message_id:
+        return
+    if autodone_ids is None:
+        autodone_ids = _AUTODONE_IDS
+    if message_id in autodone_ids:
+        return
+    autodone_ids.add(message_id)
+    try:
+        path = path or AUTODONE_DEDUP_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"message_id": message_id, "ts": int(time.time())},
+                               ensure_ascii=False) + "\n")
+    except Exception as e:  # noqa: BLE001
+        log(f"自动处理去重落盘失败（不影响本次处理）：{e}")
+    if len(autodone_ids) > max_size:
+        for old in list(autodone_ids)[: max_size // 2]:
+            autodone_ids.discard(old)
+
+
+def send_requirement_receipt(chat_id: str, excerpt: str,
+                             message_id: str | None = None) -> bool:
+    """需求即时回执：notify.py 发飞书到开发群（agent_done=用户提需求所在群），引用回复用户消息。
+
+    文案「✅ 已收到你的需求：<摘要>，已纳入待办，主控将跟进处理」。best-effort：失败仅 log
+    不抛异常；notify 不可用/发送失败时退化为现有 send_receipt 直接回用户所在群（双保险）。"""
+    text = f"✅ 已收到你的需求：{excerpt}，已纳入待办，主控将跟进处理"
+    ntf = _get_notify()
+    if ntf is not None:
+        try:
+            ok = ntf.send_feishu("需求已收到(飞书)", text, chat_key="agent_done",
+                                 reply_to_message_id=message_id)
+            if ok:
+                log(f"回执：notify 发开发群 agent_done 成功（reply_to={message_id or '否'}）")
+                return True
+            log("回执：notify 飞书发送失败，退化用 send_receipt 直接回用户群")
+        except Exception as e:  # noqa: BLE001
+            log(f"回执：notify 调用异常（退化 send_receipt 直接回用户群）：{e}")
+    return send_receipt(chat_id, text, message_id=message_id)
 
 
 def export_system_cacert() -> bool:
@@ -402,15 +557,27 @@ def process_event(data, whitelist: set, prefixes: list[str],
                   inbox_dir: Path, once: bool = False,
                   chat_map: dict | None = None,
                   forwarded_ids: set | None = None,
-                  dedup_path: Path | None = None) -> str | None:
+                  dedup_path: Path | None = None,
+                  autodone_ids: set | None = None,
+                  autodone_path: Path | None = None) -> str | None:
     """处理一条 im.message.receive_v1 事件（模块级，便于测试）。
 
     白名单需求群：免前缀直接当需求落盘；其他群：保留前缀过滤（全角/半角冒号都认）。
     合法需求落盘 inbox_dir/<ts>-<message_id>.json。
+    落盘后追加两个动作（2026-08-11 起主控零轮询，不再等 cron 扫描整理）：
+      ① append_todo_to_tasks：追加一行 `- [ ] (飞书 YYYY-MM-DD HH:MM) <摘要>` 到
+         TASKS.md `#### 待办` 小节（git 落档持久化）
+      ② send_requirement_receipt：notify.py 发即时回执到开发群（引用回复用户消息）
     跨群转发：报告群用户消息抄送开发群；告警群用户消息仅带需求前缀才抄送开发群（见
     maybe_forward_user_message），与落盘解耦——用户问询不一定带需求前缀，无论是否落盘都
     转发（告警群无前缀用户消息除外）；bot 自己的消息不转发（防循环）。
+    防重复：同一 message_id 只自动处理一次（autodone_ids 进程内 Set + jsonl +
+    历史 *.processed.json 载入），SDK at-least-once 重推不重复进 TASKS/回执。
     返回落盘文件名（未落盘返回 None）。once=True 且落盘后调用方退出。"""
+    if autodone_ids is None:
+        autodone_ids = _AUTODONE_IDS
+    if autodone_path is None:
+        autodone_path = AUTODONE_DEDUP_PATH
     try:
         msg = data.event.message
         chat_id = str(msg.chat_id or "")
@@ -445,10 +612,17 @@ def process_event(data, whitelist: set, prefixes: list[str],
         (inbox_dir / filename).write_text(
             json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
         log(f"收到需求已落盘：{filename} sender={record['sender']} content={content[:80]}")
-        # 收到回执：best-effort 引用回复用户那条具体消息，秒级回一条已收到（失败不阻塞落盘）
-        excerpt = content if len(content) <= 40 else content[:40] + "…"
-        send_receipt(chat_id, f"✅ 已收到需求「{excerpt}」，主控 1 分钟内开始处理",
-                     message_id=msg.message_id)
+        # 需求自动进待办 + 即时回执（2026-08-11 起主控零轮询）：listener 收到需求自己完成
+        # 落盘+进TASKS+回执，不再等主控 cron 扫描整理。best-effort，失败仅 log 不阻塞监听。
+        msg_id_str = str(msg.message_id or "")
+        if msg_id_str and msg_id_str in autodone_ids:
+            log(f"自动处理：message_id={msg_id_str} 已处理过，去重跳过（不重复进 TASKS/回执）")
+        else:
+            excerpt = summarize(content)
+            append_todo_to_tasks(excerpt, ts)            # 1) 追加待办到 TASKS.md 待办小节
+            send_requirement_receipt(chat_id, excerpt,   # 2) 即时回执（notify 发开发群，引用回复）
+                                     message_id=msg_id_str or None)
+            _mark_autodone(msg_id_str, path=autodone_path, autodone_ids=autodone_ids)
         if once:
             log("--once 模式收到合法请求，退出")
             os._exit(0)  # 从 asyncio 回调直接退出，绕过 SDK 清理
@@ -470,14 +644,18 @@ def run_listener(app_id: str, app_secret: str, cfg: dict, once: bool = False) ->
     chat_map = {str(k): str(v) for k, v in (cfg.get("chat_ids") or {}).items() if v}
     dedup_path = FORWARD_DEDUP_PATH
     forwarded_ids = _load_forwarded_ids(dedup_path)
+    autodone_ids = _load_autodone_ids(inbox_dir)
     log(f"监听配置：白名单群 {len(whitelist)} 个，前缀 {prefixes}，落盘 {inbox_dir}")
     log(f"跨群转发配置：alert={chat_map.get('alert')} report={chat_map.get('report')} "
         f"agent_done={chat_map.get('agent_done')}，已载入去重 {len(forwarded_ids)} 条")
+    log(f"需求自动处理：已载入去重 {len(autodone_ids)} 条（含历史 *.processed.json），"
+        f"合法需求将自动进 TASKS.md 待办 + notify 即时回执开发群")
 
     def handle(data) -> None:  # P2ImMessageReceiveV1
         process_event(data, whitelist, prefixes, inbox_dir, once=once,
                       chat_map=chat_map, forwarded_ids=forwarded_ids,
-                      dedup_path=dedup_path)
+                      dedup_path=dedup_path,
+                      autodone_ids=autodone_ids, autodone_path=AUTODONE_DEDUP_PATH)
 
     client = build_ws_client(app_id, app_secret, handle)
     if client is None:
