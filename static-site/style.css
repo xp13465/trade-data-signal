@@ -3166,6 +3166,22 @@ main { padding: 16px 24px; }
   line-height: 1.6;
   margin: 2px 0 0;
 }
+/* 把握度四档徽标(2026-08-11): 高70-100/中55-70/低30-55/看不清0-30。
+   用 rgba 半透明底随皮肤自适应(light/dark/redgold 通用), 与 .db-dir/.db-hit 同款式 */
+.db-conf {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.db-conf-high { background: rgba(46, 139, 87, 0.16); color: #2e8b57; }
+.db-conf-mid { background: rgba(124, 77, 255, 0.14); color: #7c4dff; }
+.db-conf-low { background: rgba(230, 126, 34, 0.16); color: #c87a1a; }
+.db-conf-none { background: var(--bg-hover); color: var(--text-3); }
+.db-conf-reason { font-size: 12px; color: var(--text-2); margin-left: 6px; }
+.db-stats-sched { color: var(--text-2); }
+.db-stats-sched .db-conf { margin-left: 4px; }
 
 /* ---- 大盘位置感卡片 ---- */
 .position-card { padding: 16px; }

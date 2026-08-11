@@ -14,8 +14,10 @@ data/feishu_requests/<ts>-<message_id>.json（含 ts/sender/chat_id/msg_type/con
   SSL_CERT_FILE + REQUESTS_CA_BUNDLE 指向它（requests/websockets 均读），解决
   CERTIFICATE_VERIFY_FAILED（不关闭证书校验，用系统信任链）。
 - 落盘后主控侧 cron 轮询整理进 TASKS（见 docs/feishu-bot-integration-plan.md「接收落盘格式」）。
-- 收到回执：合法需求落盘成功后，立即调用飞书 API 向来源 chat_id 回一条文本消息
-  （秒级「已收到需求…，主控 1 分钟内开始处理」）。best-effort，发送失败仅 log 不阻塞落盘。
+- 收到回执：合法需求落盘成功后，立即调用飞书 API **引用回复**用户那条具体消息
+  （body 带 reply_to_message_id=msg.message_id，飞书引用回复；用户连续发多条时每条
+  都能看到对应「收到」回执）。文案「已收到需求…，主控 1 分钟内开始处理」。best-effort，
+  发送失败仅 log 不阻塞落盘。
 
 用法:
   python scripts/feishu_ws_listener.py [--once] [--no-ssl-workaround]
@@ -149,9 +151,11 @@ def _get_tenant_access_token() -> str | None:
     return token
 
 
-def send_receipt(chat_id: str, text: str) -> bool:
+def send_receipt(chat_id: str, text: str, message_id: str | None = None) -> bool:
     """向 chat_id 回一条文本消息（收到回执）。best-effort：失败仅 log 不抛异常。
-    POST im/v1/messages?receive_id_type=chat_id，body {"receive_id","msg_type","content"}。"""
+    POST im/v1/messages?receive_id_type=chat_id，body {"receive_id","msg_type","content"}。
+    传入 message_id 时 body 加 "reply_to_message_id"（飞书引用回复，回复用户发的那条具体消息，
+    用户连续发多条时每条都能看到对应「收到」回执）。"""
     if not chat_id or not text:
         return False
     token = _get_tenant_access_token()
@@ -159,8 +163,10 @@ def send_receipt(chat_id: str, text: str) -> bool:
         return False
     url = f"{FEISHU_API_BASE}/open-apis/im/v1/messages?receive_id_type=chat_id"
     content = json.dumps({"text": text}, ensure_ascii=False)
-    payload = json.dumps({"receive_id": chat_id, "msg_type": "text", "content": content},
-                         ensure_ascii=False).encode("utf-8")
+    body = {"receive_id": chat_id, "msg_type": "text", "content": content}
+    if message_id:
+        body["reply_to_message_id"] = message_id
+    payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
     headers = {"Content-Type": "application/json; charset=utf-8",
                "Authorization": f"Bearer {token}"}
     try:
@@ -169,7 +175,7 @@ def send_receipt(chat_id: str, text: str) -> bool:
         log(f"回执：发送失败（不阻塞落盘）：{e}")
         return False
     if data.get("code") == 0:
-        log(f"已回执 {chat_id}：{text[:40]}")
+        log(f"已回执 {chat_id}（reply_to={message_id or '否'}）：{text[:40]}")
         return True
     log(f"回执：API 返回非 0：code={data.get('code')} msg={data.get('msg')}")
     return False
@@ -309,9 +315,10 @@ def process_event(data, whitelist: set, prefixes: list[str],
         (inbox_dir / filename).write_text(
             json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
         log(f"收到需求已落盘：{filename} sender={record['sender']} content={content[:80]}")
-        # 收到回执：best-effort 向来源群秒级回一条已收到（失败不阻塞落盘）
+        # 收到回执：best-effort 引用回复用户那条具体消息，秒级回一条已收到（失败不阻塞落盘）
         excerpt = content if len(content) <= 40 else content[:40] + "…"
-        send_receipt(chat_id, f"✅ 已收到需求「{excerpt}」，主控 1 分钟内开始处理")
+        send_receipt(chat_id, f"✅ 已收到需求「{excerpt}」，主控 1 分钟内开始处理",
+                     message_id=msg.message_id)
         if once:
             log("--once 模式收到合法请求，退出")
             os._exit(0)  # 从 asyncio 回调直接退出，绕过 SDK 清理

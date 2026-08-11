@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260811-a137';  // bump a136->a137: 视觉对等reviewer FAIL修复(P1-1删SVG垂直网格线/P1-2x刻度改仅6标签位置,对齐echarts参考版)
+const CACHE_VERSION = 'v6-20260811-a138';  // bump a137->a138: 轻量走势图SVG逐像素对齐echarts(y轴nice算法/x轴动态间隔/带宽刻度)+AI预测把握度四档徽标+每日20:40公示
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

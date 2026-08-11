@@ -8895,7 +8895,7 @@ async function renderOverview() {
         const snapBadge = `<span class="summary-snap-tag" style="color:#e6a23c">⏰ ${_lunch ? "午休小结" : "盘中动态小结"}</span>`;
         const _tLabel = _lunch ? "13:00复牌" : `更新于 ${_intradayDynamicTime || hhmm}`;
         const _pulse = '<span class="dyn-pulse" id="banner-pulse"><span class="dyn-pulse-dot"></span>1min</span>';
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中">🤖 AI 预测</button><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap)}</div>`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中（每日 20:40 更新）">🤖 AI 预测</button><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap)}</div>`;
         _bannerRenderCtx = { el: banner, s: null, snap, type: "intraday" };
       } else {
         // 收盘后/同日：原逻辑（标题用 summary.generated_at，chips 用 summary+snap 同日覆盖）
@@ -8930,7 +8930,7 @@ async function renderOverview() {
         const sentimentBadge = s.sentiment_label ? `<span class="summary-fg-tag">${s.sentiment_label}</span>` : "";
         // 情绪标签+恐贪标签移到第二行(与 summary-meta 同行),行1只留日期标题
         const titleTags = (sentimentBadge || fgBadge || freezeBadge) ? `${sentimentBadge}${fgBadge}${freezeBadge}` : "";
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中">🤖 AI 预测</button>${titleTags ? `<span class="summary-title-tags">${titleTags}</span>` : ""}<span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中（每日 20:40 更新）">🤖 AI 预测</button>${titleTags ? `<span class="summary-title-tags">${titleTags}</span>` : ""}<span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
         _bannerRenderCtx = { el: banner, s, snap, type: "summary" };
       }
       content.insertBefore(banner, content.firstChild);
@@ -16654,93 +16654,162 @@ function _etfSparkline(ohlc, w, h) {
 // 零 echarts 依赖(不 init 实例); 保留完整 hover 交互(十字线+高亮点+浮层 tooltip)。
 // ohlc 格式 [[date,o,h,l,c],...] 升序; 数据<2点返空串。涨红跌绿(#e6492e/#2e8b57 数据语义色)。
 
-// 共享几何: nice-number 轴范围(5 分格留白, 对齐 echarts scale:true) + 坐标映射(像素=viewBox 单位)。
+// ===== 轻量走势图几何: 与 echarts 5.5.0 完全同口径(2026-08-11 用真实 echarts.min.js node 跑
+// 7 组样本逐组核对, tick 值/标签精度/带宽位置全一致) =====
+// y 轴 = IntervalScale.calcNiceTicks(splitNumber=5)+calcNiceExtent+getTicks(false);
+// x 轴 = category 半格内缩 + calculateCategoryInterval 自动标签间隔;
+// 点符号 symbolSize 4 = 半径 2; null 值保留(echarts _closes=ohlc.map(d=>d[4]) 不过滤)。
+// echarts nice(val, round): 阈值 1.5/2.5/4/7 -> 1/2/3/5/10 × 10^k(浮点敏感, 0.15→f=1.4999...<1.5→0.1)
+function _niceNumber(val, round) {
+  const _exp10 = Math.pow(10, Math.floor(Math.log(val) / Math.LN10));
+  const _f = val / _exp10;
+  let _nf;
+  if (round) {
+    if (_f < 1.5) _nf = 1; else if (_f < 2.5) _nf = 2; else if (_f < 4) _nf = 3; else if (_f < 7) _nf = 5; else _nf = 10;
+  } else {
+    if (_f < 1) _nf = 1; else if (_f < 2) _nf = 2; else if (_f < 3) _nf = 3; else if (_f < 5) _nf = 5; else _nf = 10;
+  }
+  return _nf * _exp10;
+}
+function _getPrecision(val) {
+  let _e = 1, _c = 0;
+  while (Math.round(val * _e) / _e !== val) { _e *= 10; _c++; if (_c > 10) break; }
+  return _c;
+}
+function _roundTo(prec, x) { return +x.toFixed(prec); }
+function _intervalPrecision(iv) { return _getPrecision(iv) + 2; }
+// zrender SVG 路径坐标 crisp: 先就近取 0.5 步进(148.3333→148.5), 整数值再 +0.5 对齐像素中心(95→95.5)。
+// 实测 echarts s2 网格线: 175.5/148.5/121.5/95.5/68.5/41.5/15.5(标签不 crisp 保持 148.3333)。
+function _crisp(v) {
+  const _r = Math.round(v * 2) / 2;
+  return (_r % 1 === 0) ? _r + 0.5 : _r;
+}
+// echarts calculateCategoryInterval: 标签宽×1.3(最小7)/带宽 -> floor -> step=interval+1
+// 标签宽用 canvas measureText("MM-DD", 10px sans-serif) 实测, 与 echarts zrender 同浏览器同字体
+function _etfXStep(n, iw) {
+  let _labelW = 28;
+  try {
+    const _c = document.createElement("canvas");
+    const _ctx = _c.getContext && _c.getContext("2d");
+    if (_ctx && _ctx.measureText) { _ctx.font = "10px sans-serif"; _labelW = _ctx.measureText("MM-DD").width || 28; }
+  } catch (_e) { /* 降级默认 28 */ }
+  const _unitW = iw / n;
+  const _maxW = Math.max(_labelW * 1.3, 7);
+  return Math.max(0, Math.floor(_maxW / _unitW)) + 1;
+}
+// 共享几何: 对齐 echarts scale:true 的轴范围 + 坐标映射(像素=viewBox 单位)。
 function _etfTrendGeom(ohlc, w) {
-  const _pts = ohlc.filter((d) => d && d[4] != null);
-  const _vals = _pts.map((d) => d[4]);
-  const _dates = _pts.map((d) => d[0]);
+  // 与 echarts 完全同口径: _vals 保留 null(echarts _closes=ohlc.map(d=>d[4]) 不过滤), n=全部点数
+  const _vals = ohlc.map((d) => (d ? d[4] : null));
+  const _dates = ohlc.map((d) => (d ? d[0] : null));
   const _n = _vals.length;
   const W = w || 640, H = 200, PL = 50, PR = 15, PT = 15, PB = 25;
   const _iw = W - PL - PR, _ih = H - PT - PB;
-  const _rawMin = Math.min.apply(null, _vals), _rawMax = Math.max.apply(null, _vals);
-  const _rawRng = _rawMax - _rawMin;
-  let _yMin, _yMax, _step;
-  if (_rawRng === 0) {
-    _step = Math.abs(_rawMax) || 1;
-    if (_step < 1e-9) _step = 1;
-    _yMin = _rawMax - _step; _yMax = _rawMax + _step;
-  } else {
-    // 1/2/5 × 10^k 取整步长(对齐 echarts nice-number 分度)
-    const _p = Math.pow(10, Math.floor(Math.log10(_rawRng / 4)));
-    const _f = (_rawRng / 4) / _p;
-    let _sf = 10;
-    if (_f <= 1) _sf = 1; else if (_f <= 2) _sf = 2; else if (_f <= 5) _sf = 5;
-    _step = _sf * _p;
-    _yMin = Math.floor(_rawMin / _step) * _step;
-    _yMax = Math.ceil(_rawMax / _step) * _step;
-    if (_yMax - _yMin < _step * 2) _yMax = _yMin + _step * 2;
+  // 值域按有效值(echarts scale:true 无效值不参与 extent)
+  const _valid = [];
+  for (let i = 0; i < _n; i++) if (_vals[i] != null && !isNaN(_vals[i])) _valid.push(_vals[i]);
+  let _rawMin = _valid.length ? Math.min.apply(null, _valid) : 0;
+  let _rawMax = _valid.length ? Math.max.apply(null, _valid) : 1;
+  // IntervalScale.calcNiceExtent: 相等展开(非0各半 / 0→[0,1])
+  let extMin = _rawMin, extMax = _rawMax;
+  if (extMin === extMax) {
+    if (extMin !== 0) { const _s = Math.abs(extMin); extMax += _s / 2; extMin -= _s / 2; }
+    else extMax = 1;
   }
+  // interval=nice(span/5, true); intervalPrecision=getPrecision(iv)+2
+  const _span = extMax - extMin;
+  const _step = _niceNumber(_span / 5, true);
+  const _prec = _intervalPrecision(_step);
+  // niceTickExtent=[round(ceil(min/iv)*iv), round(floor(max/iv)*iv)] + fixExtent clamp
+  let _niceMin = _roundTo(_prec, Math.ceil(extMin / _step) * _step);
+  let _niceMax = _roundTo(_prec, Math.floor(extMax / _step) * _step);
+  _niceMin = Math.max(Math.min(_niceMin, extMax), extMin);
+  _niceMax = Math.max(Math.min(_niceMax, extMax), extMin);
+  if (_niceMin > _niceMax) _niceMin = _niceMax;
+  // 轴 extent=[floor(min/iv)*iv, ceil(max/iv)*iv](像素映射 + getTicks 边推都用它)
+  const _yMin = _roundTo(_prec, Math.floor(extMin / _step) * _step);
+  const _yMax = _roundTo(_prec, Math.ceil(extMax / _step) * _step);
+  // IntervalScale.getTicks(false): yMin<niceMin 推 yMin; niceMin..niceMax 步进; yMax>末tick 推 yMax
   const _ticks = [];
-  for (let _tv = _yMin; _tv <= _yMax + _step / 1e6; _tv += _step) _ticks.push(Number(_tv.toFixed(10)));
-  const _px = (i) => PL + (i / (_n - 1)) * _iw;
+  if (_yMin < _niceMin) _ticks.push(_yMin);
+  for (let _tv = _niceMin; _tv <= _niceMax + _step / 1e6; _tv = _roundTo(_prec, _tv + _step)) {
+    _ticks.push(_roundTo(_prec, _tv));
+    if (_ticks.length > 10000) break;
+  }
+  const _lastT = _ticks.length ? _ticks[_ticks.length - 1] : _niceMax;
+  if (_yMax > _lastT) _ticks.push(_yMax);
+  // category 半格内缩: _px(i)=PL+(i+0.5)*unitW(echarts category 轴 dataToCoord)
+  const _unitW = _iw / _n;
+  const _px = (i) => PL + (i + 0.5) * _unitW;
   const _py = (v) => PT + _ih - ((v - _yMin) / (_yMax - _yMin)) * _ih;
-  return { W, H, PL, PR, PT, PB, _n, _vals, _dates, _iw, _ih, _yMin, _yMax, _step, _ticks, _px, _py };
+  return { W, H, PL, PR, PT, PB, _n, _vals, _dates, _iw, _ih, _unitW, _yMin, _yMax, _step, _prec, _ticks, _px, _py };
 }
 
 // SVG 内容构建(网格/坐标轴/标签/平滑曲线/面积/每点符号/hover 元素)。
 function _etfTrendSVG(ohlc, w) {
   const g = _etfTrendGeom(ohlc, w);
-  const { W, H, PL, PR, PT, PB, _n, _vals, _dates, _px, _py, _ticks, _step } = g;
+  const { W, H, PL, PR, PT, PB, _n, _vals, _dates, _px, _py, _ticks, _prec, _unitW } = g;
   if (_n < 2) return "";
   const _isUp = _vals[_n - 1] >= _vals[0];
   const _stroke = _isUp ? "#e6492e" : "#2e8b57";
-  const _baseY = H - PB;
-  // 平滑曲线(catmull-rom → cubic bezier, 对齐 echarts smooth:true) + 面积闭合
-  let _line = "M " + _px(0).toFixed(1) + " " + _py(_vals[0]).toFixed(1);
-  for (let i = 0; i < _n - 1; i++) {
-    const p0 = { x: _px(Math.max(0, i - 1)), y: _py(_vals[Math.max(0, i - 1)]) };
-    const p1 = { x: _px(i), y: _py(_vals[i]) };
-    const p2 = { x: _px(i + 1), y: _py(_vals[i + 1]) };
-    const p3 = { x: _px(Math.min(_n - 1, i + 2)), y: _py(_vals[Math.min(_n - 1, i + 2)]) };
-    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
-    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
-    _line += " C " + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1)
-      + " " + _px(i + 1).toFixed(1) + " " + _py(_vals[i + 1]).toFixed(1);
-  }
-  const _areaPath = _line + " L " + _px(_n - 1).toFixed(1) + " " + _baseY.toFixed(1)
-    + " L " + _px(0).toFixed(1) + " " + _baseY.toFixed(1) + " Z";
+  const _axisY = H - PB;              // 面积闭合底 = x 轴线(网格下边 175)
+  const _baseY = _crisp(_axisY);      // 1px 线用 crisp(175.5, 对齐 zrender)
   let s = "";
-  // 水平网格线(5 分格, var(--border) = echarts splitLine 主题色)
+  // 水平网格线(每 y tick 一根, 对齐 echarts splitLine; 与 x 轴线同位的底网格线先画, x 轴线后叠)
   for (const tv of _ticks) {
-    const gy = _py(tv);
+    const gy = _crisp(_py(tv));
     s += '<line x1="' + PL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - PR) + '" y2="' + gy.toFixed(1) + '" stroke="var(--border)"/>';
   }
-  // (无垂直网格: echarts xAxis.splitLine 默认 show:false 无竖线, 对齐"样子完全一样"铁律, reviewer a2c9cdb6 FAIL P1-1)
-  // y 轴: 轴线 + 刻度 + 数字标签(fontSize 10, 色 = echarts axisLabel 主题色)
-  s += '<line x1="' + PL + '" y1="' + PT + '" x2="' + PL + '" y2="' + _baseY + '" stroke="var(--border-strong)"/>';
-  const _stepD = _step >= 1 ? 0 : Math.min(4, Math.ceil(-Math.log10(_step)));
+  // (无垂直网格: echarts xAxis.splitLine 默认 show:false 无竖线, 对齐"样子完全一样"铁律)
+  // y 轴: 轴线(echarts value axis 默认无小刻度, 只有标签) + 数字标签(fontSize 10, 每值最简精度)
+  s += '<line x1="' + PL + '" y1="' + (PT - 1) + '" x2="' + PL + '" y2="' + (_axisY + 1) + '" stroke="var(--border-strong)"/>';
   for (const tv of _ticks) {
     const gy = _py(tv);
-    s += '<line x1="' + (PL - 4) + '" y1="' + gy.toFixed(1) + '" x2="' + PL + '" y2="' + gy.toFixed(1) + '" stroke="var(--border-strong)"/>';
     s += '<text x="' + (PL - 8) + '" y="' + (gy + 3.5).toFixed(1) + '" font-size="10" text-anchor="end" style="fill:var(--text-1)">'
-      + Number(tv).toFixed(_stepD) + '</text>';
+      + Number(tv).toFixed(_getPrecision(tv)) + '</text>';
   }
-  // x 轴: 轴线 + 仅标签位置刻度(~6 根, 对齐 echarts interval auto, reviewer a2c9cdb6 FAIL P1-2) + 6 个日期标签(fontSize 10)
+  // x 轴: 轴线(与底网格线同位叠画) + 刻度(带宽边界 PL+i*unitW, i=0..n 含末边, echarts category
+  // axisTick 默认 alignWithLabel:false) + 日期标签(带宽中心, echarts category 半格内缩 +
+  // calculateCategoryInterval 自动间隔 step=_etfXStep, 无强制首尾标签, 全 middle 锚点)
   s += '<line x1="' + PL + '" y1="' + _baseY + '" x2="' + (W - PR) + '" y2="' + _baseY + '" stroke="var(--border-strong)"/>';
-  const _di = [];
-  for (let k = 0; k <= 5; k++) _di.push(Math.round(k * (_n - 1) / 5));
-  const _labelIdx = _di.filter((v, i) => _di.indexOf(v) === i);
-  for (const i of _labelIdx) {
-    const x = _px(i);
-    const anchor = i === 0 ? 'text-anchor="start"' : (i === _n - 1 ? 'text-anchor="end"' : 'text-anchor="middle"');
-    const tx = i === 0 ? x + 2 : (i === _n - 1 ? x - 2 : x);
-    s += '<line x1="' + x.toFixed(1) + '" y1="' + _baseY + '" x2="' + x.toFixed(1) + '" y2="' + (_baseY + 4) + '" stroke="var(--border-strong)"/>';
-    s += '<text x="' + tx.toFixed(1) + '" y="' + (H - 8) + '" font-size="10" ' + anchor + ' style="fill:var(--text-1)">' + fmtDate(_dates[i]) + '</text>';
+  const _xStep = _etfXStep(_n, g._iw);
+  for (let i = 0; i <= _n; i += _xStep) {
+    const tx = _crisp(PL + i * _unitW);
+    s += '<line x1="' + tx.toFixed(1) + '" y1="' + _baseY + '" x2="' + tx.toFixed(1) + '" y2="' + (_axisY + 5) + '" stroke="var(--border-strong)"/>';
   }
-  // 面积 + 平滑折线(线宽 1.5) + 每点 r2 小圆(对齐 echarts symbolSize 4) + hover 十字线/高亮点
-  s += '<path d="' + _areaPath + '" fill="' + _stroke + '" opacity="0.12"/>';
-  s += '<path d="' + _line + '" fill="none" stroke="' + _stroke + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>';
+  for (let i = 0; i < _n; i += _xStep) {
+    const x = _px(i);
+    s += '<text x="' + x.toFixed(1) + '" y="' + (_axisY + 8 + 3.5).toFixed(1) + '" font-size="10" text-anchor="middle" style="fill:var(--text-1)">' + fmtDate(_dates[i]) + '</text>';
+  }
+  // 面积 + 平滑折线(线宽 1.5): 按非 null 连续段分别构建(echarts 无 connectNulls, null 处断线断面积)
+  let _runStart = -1;
+  const _runs = [];
+  for (let i = 0; i <= _n; i++) {
+    const _ok = i < _n && _vals[i] != null && !isNaN(_vals[i]);
+    if (_ok && _runStart < 0) _runStart = i;
+    else if (!_ok && _runStart >= 0) { _runs.push([_runStart, i - 1]); _runStart = -1; }
+  }
+  for (const [_a, _b] of _runs) {
+    // catmull-rom → cubic bezier(段内邻点, 段首尾夹持, 对齐 echarts smooth:true)
+    let _d = "M " + _px(_a).toFixed(1) + " " + _py(_vals[_a]).toFixed(1);
+    for (let i = _a; i < _b; i++) {
+      const p0 = { x: _px(Math.max(_a, i - 1)), y: _py(_vals[Math.max(_a, i - 1)]) };
+      const p1 = { x: _px(i), y: _py(_vals[i]) };
+      const p2 = { x: _px(i + 1), y: _py(_vals[i + 1]) };
+      const p3 = { x: _px(Math.min(_b, i + 2)), y: _py(_vals[Math.min(_b, i + 2)]) };
+      const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+      const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+      _d += " C " + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1)
+        + " " + _px(i + 1).toFixed(1) + " " + _py(_vals[i + 1]).toFixed(1);
+    }
+    const _areaPath = _d + " L " + _px(_b).toFixed(1) + " " + _axisY.toFixed(1)
+      + " L " + _px(_a).toFixed(1) + " " + _axisY.toFixed(1) + " Z";
+    s += '<path d="' + _areaPath + '" fill="' + _stroke + '" opacity="0.12"/>';
+    s += '<path d="' + _d + '" fill="none" stroke="' + _stroke + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>';
+  }
+  // 每点 r2 小圆(echarts symbolSize 4 = 半径 2; null 点不画) + hover 十字线/高亮点
   for (let i = 0; i < _n; i++) {
+    if (_vals[i] == null || isNaN(_vals[i])) continue;
     s += '<circle cx="' + _px(i).toFixed(1) + '" cy="' + _py(_vals[i]).toFixed(1) + '" r="2" fill="' + _stroke + '"/>';
   }
   s += '<line class="etf-trend-cursor" x1="0" y1="' + PT + '" x2="0" y2="' + _baseY + '" stroke="var(--border-strong)" stroke-width="1" opacity="0"/>';
@@ -16794,20 +16863,27 @@ function _etfTrendLiteBind(svg, ohlc) {
       _cursor.setAttribute("x2", _px(i).toFixed(1));
       _cursor.setAttribute("opacity", "0.9");
     }
+    const _v = _vals[i];
     if (_pt) {
-      _pt.setAttribute("cx", _px(i).toFixed(1));
-      _pt.setAttribute("cy", _py(_vals[i]).toFixed(1));
-      _pt.setAttribute("opacity", "0.9");
+      if (_v == null || isNaN(_v)) {
+        // null 值点无 y(echarts 该点无 symbol), 只留十字线+浮层
+        _pt.setAttribute("opacity", "0");
+      } else {
+        _pt.setAttribute("cx", _px(i).toFixed(1));
+        _pt.setAttribute("cy", _py(_v).toFixed(1));
+        _pt.setAttribute("opacity", "0.9");
+      }
     }
     if (_tip) {
-      _tip.innerHTML = fmtDate(_dates[i]) + "<br/>收盘 " + (_vals[i] != null ? Number(_vals[i]).toFixed(3) : "-");
+      _tip.innerHTML = fmtDate(_dates[i]) + "<br/>收盘 " + (_v != null ? Number(_v).toFixed(3) : "-");
       _tip.style.display = "block";
       const svgRect = svg.getBoundingClientRect();
       const wrapRect = _wrap.getBoundingClientRect();
       const ratioW = _W / (svgRect.width || 1);
       const ratioH = 200 / (svgRect.height || 1);
       const cssX = _px(i) / ratioW;
-      const cssY = _py(_vals[i]) / ratioH + (svgRect.top - wrapRect.top);
+      const _yy = (_v != null && !isNaN(_v)) ? _py(_v) : (PT + (g._ih || 100) / 2);
+      const cssY = _yy / ratioH + (svgRect.top - wrapRect.top);
       const tipW = _tip.offsetWidth || 80;
       const tipH = _tip.offsetHeight || 36;
       let left = cssX - tipW / 2;
@@ -16829,7 +16905,8 @@ function _etfTrendLiteBind(svg, ohlc) {
     if (!rect.width || !rect.height) return;
     const ratioW = _W / rect.width;
     const vx = (e.clientX - rect.left) * ratioW;
-    let i = Math.round(((vx - PL) / g._iw) * (_n - 1));
+    // 对齐新几何(半格内缩): 带宽 g._unitW, 反解索引 i = (vx-PL)/unitW - 0.5
+    let i = Math.round((vx - PL) / g._unitW - 0.5);
     if (i < 0) i = 0;
     if (i > _n - 1) i = _n - 1;
     _show(i);
@@ -18331,7 +18408,7 @@ function _summaryHistoryItemHtml(s, briefByDate) {
   const it = (briefByDate && s.date) ? briefByDate[s.date] : null;
   if (it) {
     const meta = it.meta || {};
-    aiBlock = `<div class="sh-ai-brief"><div class="sh-ai-brief-head"><span class="db-dir">${_dbDirLabel(meta.direction)}</span><span class="sh-ai-brief-title">🤖 AI预测</span>${_dbHitHtml(meta)}${_dbActualHtml(meta)}</div>${_dbBriefDetailHtml(it)}</div>`;
+    aiBlock = `<div class="sh-ai-brief"><div class="sh-ai-brief-head"><span class="db-dir">${_dbDirLabel(meta.direction)}</span><span class="sh-ai-brief-title">🤖 AI预测</span>${_dbConfidenceBadge(meta)}${_dbHitHtml(meta)}${_dbActualHtml(meta)}</div>${_dbBriefDetailHtml(it)}</div>`;
   }
   return `<div class="summary-history-item"><div class="sh-date">${date} <span class="sh-label">${s.sentiment_label || ""}</span>${fg}${freeze}</div>${renderSummaryChips(s, null)}${aiBlock}</div>`;
 }
@@ -18429,7 +18506,7 @@ function closeSummaryHistoryModal() {
 
 // ---- 每日AI预测弹窗（横幅"🤖 AI 预测"按钮触发；复用历史收盘分析组件/分页样式，不加新交互）----
 // 数据源 static-site/data/daily_brief_history.json（后端 gen_daily_brief.py 归档，90天滚动 + 次日 hit 回填 + 命中率 stats）
-let _dailyBriefState = { page: 0, limit: 30, total: 0, cache: null };
+let _dailyBriefState = { page: 0, limit: 30, total: 0, cache: null, cacheBrief: null, todayBrief: null, todayFetched: false };
 
 function _dailyBriefModalEl() {
   let modal = document.getElementById("dailyBriefModal");
@@ -18475,6 +18552,28 @@ function _dbActualHtml(meta) {
   return '<span class="db-actual">次日待回填</span>';
 }
 
+// 把握度(confidence 0-100)梯度: 高70-100 / 中55-70 / 低30-55 / 看不清0-30。
+// 数据源: 新版 meta.confidence(0-100 整数, 后端已 clamp 缺省50) + meta.confidence_reason(≤120字);
+// 旧版(810 前) meta.debate.confidence(0-1 浮点)×100 兜底; 都没有=返回 null 不显示(降级不破)。
+// §22 一致性: 弹窗条目/历史收盘分析/今日概览三处都走本函数+_dbConfidenceBadge 同一字段。
+function _dbConfidence(meta) {
+  meta = meta || {};
+  let pct = meta.confidence;
+  if (pct == null && meta.debate && typeof meta.debate.confidence === "number") pct = meta.debate.confidence * 100;
+  if (pct == null || isNaN(pct)) return null;
+  pct = Math.max(0, Math.min(100, Math.round(pct)));
+  const level = pct >= 70 ? "high" : pct >= 55 ? "mid" : pct >= 30 ? "low" : "none";
+  const label = pct >= 70 ? "高" : pct >= 55 ? "中" : pct >= 30 ? "低" : "看不清";
+  const reason = meta.confidence_reason
+    || (pct >= 70 ? "多空辩论收敛一致" : pct >= 55 ? "多空分歧尚可" : pct >= 30 ? "多空分歧较大" : "多空严重分歧,方向难判");
+  return { pct, level, label, reason };
+}
+function _dbConfidenceBadge(meta) {
+  const c = _dbConfidence(meta);
+  if (!c) return "";
+  return `<span class="db-conf db-conf-${c.level}">把握度${c.label} ${c.pct}</span>`;
+}
+
 // 复用:AI 预测内容块(复盘/趋势/关注/风险四段 + meta 断言 watch_list/risk_items + 免责)。
 // 供 AI 预测弹窗详情、历史收盘分析弹窗结合展示共用，保证两处渲染一致。
 function _dbBriefDetailHtml(it) {
@@ -18491,7 +18590,9 @@ function _dbBriefDetailHtml(it) {
     riskLine = `<p class="db-line"><span class="db-k">风险</span>${_esc(t.risk || "")}${riskItems ? `<span class="db-risk">【${_esc(riskItems)}】</span>` : ""}</p>`;
   }
   const note = t.note || it.disclaimer || "";
-  return `<p class="db-line"><span class="db-k">复盘</span>${_esc(t.review || "")}</p>
+  const conf = _dbConfidence(meta);
+  return `${conf ? `<p class="db-line"><span class="db-k">把握度</span>${_dbConfidenceBadge(meta)}<span class="db-conf-reason">${_esc(conf.reason)}</span></p>` : ""}
+      <p class="db-line"><span class="db-k">复盘</span>${_esc(t.review || "")}</p>
       <p class="db-line"><span class="db-k">趋势</span>${_esc(t.trend || "")}</p>
       ${watchLine}
       ${riskLine}
@@ -18505,7 +18606,7 @@ function _dailyBriefItemHtml(it) {
   const dateRaw = it.date || meta.date || "";
   const date = dateRaw.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
   return `<div class="summary-history-item db-item" data-date="${_escAttr(dateRaw)}">
-    <div class="sh-date"><span class="db-dir">${_dbDirLabel(meta.direction)}</span><span class="sh-label">${_esc(date)}</span>${_dbHitHtml(meta)}${_dbActualHtml(meta)}<span class="db-expand-hint">点击收起 ▲</span></div>
+    <div class="sh-date"><span class="db-dir">${_dbDirLabel(meta.direction)}</span>${_dbConfidenceBadge(meta)}<span class="sh-label">${_esc(date)}</span>${_dbHitHtml(meta)}${_dbActualHtml(meta)}<span class="db-expand-hint">点击收起 ▲</span></div>
     <div class="db-detail">
       ${_dbBriefDetailHtml(it)}
     </div>
@@ -18528,7 +18629,17 @@ async function _loadDailyBriefPage() {
     }
     _dailyBriefState.cache = (brief && brief.items) || [];
     _dailyBriefState.total = (brief && brief.total) || _dailyBriefState.cache.length;
+    _dailyBriefState.cacheBrief = brief;
     _renderDailyBriefStats(brief);
+  }
+  // 今日预测公示(每日 20:40 更新 + 数据生成时间 + 今日把握度): 只取一次, 失败静默不阻塞历史列表
+  if (!_dailyBriefState.todayFetched) {
+    _dailyBriefState.todayFetched = true;
+    try {
+      const todayBrief = await fetchJSON("./data/daily_brief.json");
+      _dailyBriefState.todayBrief = todayBrief || null;
+      _renderDailyBriefStats(_dailyBriefState.cacheBrief);
+    } catch (e) { /* 今日预测未生成/加载失败: 公示行降级隐藏, 不阻塞 */ }
   }
   const offset = page * limit;
   const items = _dailyBriefState.cache.slice(offset, offset + limit);
@@ -18555,12 +18666,17 @@ function _renderDailyBriefStats(brief) {
   const s30 = stats["30d"] || {};
   const s90 = stats["90d"] || {};
   const rate = (x) => (x && x.hit_rate != null) ? `${(x.hit_rate * 100).toFixed(0)}%` : "--";
+  // 公示行: 每日 20:40 更新(后端 20:40 定时生成) + 数据生成时间 + 今日把握度(读 daily_brief.json meta, §22 同字段)
+  const tb = _dailyBriefState.todayBrief;
+  const genAt = (tb && tb.generated_at) ? `（数据生成 ${_esc(String(tb.generated_at).slice(0, 16))}）` : "";
+  const todayConf = (tb && tb.meta) ? _dbConfidenceBadge(tb.meta) : "";
   el.innerHTML =
     '<div class="db-stats-box">' +
       '<span class="db-stats-title">📊 AI预测命中率（meta机检，次日回填）</span>' +
+      `<span class="db-stats-item db-stats-sched">🕗 每日 20:40 更新${genAt}${todayConf ? ` · 今日${todayConf}` : ""}</span>` +
       `<span class="db-stats-item">近30日：<b>${s30 && s30.n ? `${s30.hit}/${s30.n}（${rate(s30)}）` : "暂无样本"}</b></span>` +
       `<span class="db-stats-item">近90日：<b>${s90 && s90.n ? `${s90.hit}/${s90.n}（${rate(s90)}）` : "暂无样本"}</b></span>` +
-      '<span class="db-stats-how">AI每日盘后基于当日收盘数据，由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测；meta结构化断言方向/关注标的/风险点，次日机检回填实际涨跌判定命中。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。命中率仅为历史统计，不构成投资建议。</span>' +
+      '<span class="db-stats-how">AI每日盘后基于当日收盘数据，由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测；meta结构化断言方向/关注标的/风险点，次日机检回填实际涨跌判定命中。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30（把握度低时方向更倾向震荡，仅参考）。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。命中率仅为历史统计，不构成投资建议。</span>' +
     '</div>';
 }
 

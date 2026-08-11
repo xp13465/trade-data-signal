@@ -80,7 +80,7 @@
 
 ### 🤖 飞书机器人通知（2026-08-11 新增，通知分级到 3 群 + 群内提需求）
 - **发送链路**：`notify.py` 新增飞书渠道（企业自建应用 `tenant_access_token` + `im/v1/messages` API），按通知类别路由到 3 群——**运维群**（SEVERE 告警 + 计划任务异常）/ **开发群**（agent 完成通知）/ **报告群**（收盘分析 + 盘中信号 + 小时级节点），`--feishu-group` 可显式覆盖，`--feishu-only` 调试单渠道
-- **接收链路**：`feishu_ws_listener.py` 长连接常驻（lark-oapi WS Client + launchd KeepAlive，免公网回调），订阅 `im.message.receive_v1`，白名单群 + `需求:`/`t:` 前缀过滤后落盘 `data/feishu_requests/`，主控 cron 轮询整理进 TASKS 待办（补齐 harness 无可靠入向通知的空缺）；落盘成功后**立即秒级回执**「已收到需求…，主控 1 分钟内开始处理」（best-effort，发送失败不阻塞落盘）
+- **接收链路**：`feishu_ws_listener.py` 长连接常驻（lark-oapi WS Client + launchd KeepAlive，免公网回调），订阅 `im.message.receive_v1`，白名单群 + `需求:`/`t:` 前缀过滤后落盘 `data/feishu_requests/`，主控 cron 轮询整理进 TASKS 待办（补齐 harness 无可靠入向通知的空缺）；落盘成功后**立即秒级回执**「已收到需求…，主控 1 分钟内开始处理」（引用回复用户那条具体消息 reply_to_message_id，best-effort，发送失败不阻塞落盘）
 - **邮件兜底保留**：飞书失败不阻塞邮件（best-effort），SEVERE 告警邮件始终发（防飞书故障无通知）
 - 实现见 [`docs/feishu-bot-integration-plan.md`](docs/feishu-bot-integration-plan.md)，飞书开放平台能力见「参考与致敬」段
 
