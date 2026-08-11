@@ -18,11 +18,13 @@ data/feishu_requests/<ts>-<message_id>.json（含 ts/sender/chat_id/msg_type/con
   （body 带 reply_to_message_id=msg.message_id，飞书引用回复；用户连续发多条时每条
   都能看到对应「收到」回执）。文案「已收到需求…，主控 1 分钟内开始处理」。best-effort，
   发送失败仅 log 不阻塞落盘。
-- 跨群转发：告警群/报告群的**人类用户**消息（无论有无需求前缀）自动抄送一份到开发群
-  （agent_done），文案带来源标记（[转自告警群]/[转自报告群]），供开发群查完整聊天记录。
-  防循环铁律：只转发 sender_type=='user'（人类用户），bot 自己（sender_type=='app'）发的
-  告警/回执/转发消息一律不转发；取不到 sender_type 宁可不转发。message_id 进程内 Set +
-  jsonl 落盘去重，SDK 重推不重复转发。转发 best-effort，失败仅 log 不阻塞落盘。
+- 跨群转发：报告群（report）的**人类用户**消息自动抄送一份到开发群（agent_done），带
+  [转自报告群] 标记；告警群（alert）的**人类用户**消息默认**不抄送**开发群（多为计划任务
+  执行告警/恢复类问询，应留运维群），仅当带需求前缀（需求:/t:，全角/半角冒号都认，复用
+  _match_prefix）才抄送并带 [转自告警群] 标记。防循环铁律：只转发 sender_type=='user'
+  （人类用户），bot 自己（sender_type=='app'）发的告警/回执/转发消息一律不转发；取不到
+  sender_type 宁可不转发。message_id 进程内 Set + jsonl 落盘去重，SDK 重推不重复转发。
+  转发 best-effort，失败仅 log 不阻塞落盘。
 
 用法:
   python scripts/feishu_ws_listener.py [--once] [--no-ssl-workaround]
@@ -339,13 +341,19 @@ def _mark_forwarded(message_id: str, path: Path, forwarded_ids: set,
 def maybe_forward_user_message(data, chat_id: str, content: str,
                                chat_map: dict | None = None,
                                forwarded_ids: set | None = None,
-                               dedup_path: Path | None = None) -> bool:
-    """跨群转发：告警群/报告群的**人类用户**消息自动抄送一份到开发群（agent_done）。
+                               dedup_path: Path | None = None,
+                               prefixes: list | None = None) -> bool:
+    """跨群转发：报告群用户消息抄送开发群；告警群仅带需求前缀的用户消息抄送开发群。
 
     - 只转发 sender_type=='user'（人类用户）；bot 自己（sender_type=='app'）、系统消息、其他
       应用一律不转发（防循环——bot 发到告警/报告群的告警/回执/转发也会触发 receive_v1 事件）。
-    - 取不到 sender_type 宁可不转发（防循环优先）。
+    - 告警群（alert）来源的人类用户消息默认**不转发**开发群——告警群里用户消息几乎都是
+      "计划任务执行告警/恢复"类问询（如"处理好了吗/自愈了吗"），应留运维群不抄送开发群；
+      **仅当**消息带需求前缀（需求:/t:，全角/半角冒号都认，复用 _match_prefix）才转发开发群
+      （带 [转自告警群] 标记）。
+    - 报告群（report）来源的人类用户消息照常转发开发群（带 [转自报告群] 标记）。
     - 开发群消息不转发（已在群里）；其他群不转发。
+    - 取不到 sender_type 宁可不转发（防循环优先）。
     - message_id 去重（进程内 Set + jsonl 落盘），SDK 重推不重复转发。
     - best-effort：转发失败仅 log 不抛异常不阻塞落盘。
     返回 True=已转发成功。"""
@@ -370,6 +378,12 @@ def maybe_forward_user_message(data, chat_id: str, content: str,
     if _sender_type(data) != "user":
         log(f"转发：sender_type={_sender_type(data)!r} 非人类用户，不转发（防循环）chat_id={chat_id}")
         return False
+    # 告警群来源的人类用户消息默认不抄送开发群（多为计划任务执行告警/恢复类问询）；
+    # 仅当带需求前缀（需求:/t:，全角/半角冒号都认，复用 _match_prefix）才转发开发群
+    if chat_id == alert_id and not _match_prefix(content, list(prefixes or [])):
+        log(f"转发：告警群用户消息无需求前缀，不抄送开发群（计划任务执行告警/恢复类留运维群）"
+            f"chat_id={chat_id} content={content[:60]}")
+        return False
     msg_id = str(getattr(data.event.message, "message_id", "") or "")
     if msg_id and msg_id in forwarded_ids:
         log(f"转发：message_id={msg_id} 已转发过，去重跳过")
@@ -393,8 +407,9 @@ def process_event(data, whitelist: set, prefixes: list[str],
 
     白名单需求群：免前缀直接当需求落盘；其他群：保留前缀过滤（全角/半角冒号都认）。
     合法需求落盘 inbox_dir/<ts>-<message_id>.json。
-    跨群转发：告警群/报告群的用户消息抄送开发群（见 maybe_forward_user_message），与落盘
-    解耦——用户问询不一定带需求前缀，无论是否落盘都转发；bot 自己的消息不转发（防循环）。
+    跨群转发：报告群用户消息抄送开发群；告警群用户消息仅带需求前缀才抄送开发群（见
+    maybe_forward_user_message），与落盘解耦——用户问询不一定带需求前缀，无论是否落盘都
+    转发（告警群无前缀用户消息除外）；bot 自己的消息不转发（防循环）。
     返回落盘文件名（未落盘返回 None）。once=True 且落盘后调用方退出。"""
     try:
         msg = data.event.message
@@ -405,8 +420,10 @@ def process_event(data, whitelist: set, prefixes: list[str],
             log("跳过空内容消息")
             return None
         # 跨群转发（best-effort，失败不阻塞落盘）：在前缀过滤之前执行，保证用户问询（无前缀）也转发
+        # （告警群无前缀用户消息除外：计划任务执行告警/恢复类问询不抄送开发群，见 maybe_forward_user_message）
         maybe_forward_user_message(data, chat_id, content, chat_map=chat_map,
-                                   forwarded_ids=forwarded_ids, dedup_path=dedup_path)
+                                   forwarded_ids=forwarded_ids, dedup_path=dedup_path,
+                                   prefixes=prefixes)
         # 非白名单群必须带需求前缀才接收（白名单需求群免前缀直接落盘）
         if chat_id not in whitelist and not _match_prefix(content, prefixes):
             log(f"跳过非需求消息（非白名单群且无需求前缀）：chat_id={chat_id} content={content[:60]}")

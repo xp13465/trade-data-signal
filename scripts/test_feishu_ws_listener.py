@@ -11,6 +11,9 @@
 4. test_process_event_writes_inbox_and_sends_receipt —— process_event 落盘成功后调用
    send_receipt 向来源 chat_id 引用回复（传 msg.message_id），文案含需求原文前 40 字 +
    主控处理提示。
+CrossGroupForwardTests —— 跨群转发：报告群用户消息→开发群；告警群用户消息**仅带需求前缀**
+   才转发（无前缀计划任务执行告警/恢复类问询不抄送）；bot 自己（app）/sender_type 缺失不转
+   发（防循环）；同 message_id 去重只转发一次。
 
 运行：python3 scripts/test_feishu_ws_listener.py（标准库 unittest，无外部依赖）
 """
@@ -174,21 +177,32 @@ class CrossGroupForwardTests(unittest.TestCase):
                     dedup_path=Path(td) / "dedup.jsonl")
             return fn, send_mock
 
-    def test_alert_user_message_forwarded_to_dev_group(self):
-        """① 告警群用户消息→转发到开发群且带 [转自告警群]。无前缀用户问询也转发。"""
+    def test_alert_user_message_without_prefix_not_forwarded(self):
+        """① 告警群用户消息无需求前缀→不转发开发群（计划任务执行告警/恢复类问询留运维群）。"""
         content = "这个告警怎么回事？"
         fn, send_mock = self._run(
             fake_event(chat_id=ALERT_CHAT, content_text=content, sender_type="user",
                        message_id="om_alert1"))
-        send_mock.assert_called_once()
-        chat_id, text = send_mock.call_args[0]
-        self.assertEqual(chat_id, DEV_CHAT)
-        self.assertEqual(text, f"[转自告警群] {content}")
-        # 无需求前缀且非白名单：不落盘（只转发）
+        send_mock.assert_not_called()  # 不转发开发群
         self.assertIsNone(fn)
 
+    def test_alert_user_message_with_demand_prefix_forwarded(self):
+        """② 告警群用户消息带"需求:"前缀→转发到开发群且带 [转自告警群]。"""
+        content = "需求：告警群里提的新开发需求"
+        fn, send_mock = self._run(
+            fake_event(chat_id=ALERT_CHAT, content_text=content, sender_type="user",
+                       message_id="om_alert2"))
+        # 转发 1 次到开发群 + 回执 1 次（带需求前缀且非白名单=合法需求，落盘回执）
+        self.assertEqual(send_mock.call_count, 2)
+        forward_calls = [c for c in send_mock.call_args_list
+                         if c.args[0] == DEV_CHAT and c.args[1].startswith("[转自告警群]")]
+        self.assertEqual(len(forward_calls), 1)
+        self.assertEqual(forward_calls[0].args[1], f"[转自告警群] {content}")
+        # 带需求前缀：落盘为合法需求（非 None）
+        self.assertIsNotNone(fn)
+
     def test_report_user_message_forwarded_to_dev_group(self):
-        """② 报告群用户消息→转发到开发群且带 [转自报告群]。"""
+        """③ 报告群用户消息→转发到开发群且带 [转自报告群]。"""
         content = "今天的报告结论是什么？"
         fn, send_mock = self._run(
             fake_event(chat_id=REPORT_CHAT, content_text=content, sender_type="user",
@@ -200,7 +214,7 @@ class CrossGroupForwardTests(unittest.TestCase):
         self.assertIsNone(fn)
 
     def test_bot_own_message_not_forwarded(self):
-        """③ bot 自己发的消息（sender_type=app）→不转发（防循环）。"""
+        """④ bot 自己发的消息（sender_type=app）→不转发（防循环）。"""
         # bot 在告警群发告警/回执也会触发 receive_v1 事件，sender_type=app，绝不能转发成循环
         fn, send_mock = self._run(
             fake_event(chat_id=ALERT_CHAT, content_text="SEVERE 告警：xx 异常",
@@ -216,7 +230,7 @@ class CrossGroupForwardTests(unittest.TestCase):
         send_mock.assert_not_called()
 
     def test_dev_group_message_not_forwarded(self):
-        """④ 开发群消息→不转发（已在群里）。"""
+        """⑤ 开发群消息→不转发（已在群里）。"""
         content = "需求：开发群里的新需求"
         fn, send_mock = self._run(
             fake_event(chat_id=DEV_CHAT, content_text=content, sender_type="user",
@@ -228,16 +242,16 @@ class CrossGroupForwardTests(unittest.TestCase):
         self.assertIn("已收到需求", text)
 
     def test_dedup_same_message_id_only_forward_once(self):
-        """⑤ 去重：同一 message_id 二次事件→只转发一次。"""
+        """⑥ 去重：同一 message_id 二次事件→只转发一次。（用报告群：无条件转发，测去重语义）"""
         content = "重复推送也要只转发一次"
         dedup = set()
         fn1, send_mock1 = self._run(
-            fake_event(chat_id=ALERT_CHAT, content_text=content, sender_type="user",
+            fake_event(chat_id=REPORT_CHAT, content_text=content, sender_type="user",
                        message_id="om_dup1"),
             forwarded_ids=dedup)
         # 第二次事件（SDK at-least-once 重推）：同一 message_id
         fn2, send_mock2 = self._run(
-            fake_event(chat_id=ALERT_CHAT, content_text=content, sender_type="user",
+            fake_event(chat_id=REPORT_CHAT, content_text=content, sender_type="user",
                        message_id="om_dup1"),
             forwarded_ids=dedup)
         # 第一次转发 1 次；第二次去重跳过不转发
