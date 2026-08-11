@@ -11468,7 +11468,7 @@ function _lwSVG(cfg) {
     const _slY = H - 26, _slH = 18;
     const _h0x = PL + (cfg.zoomStart || 0) * _iw;
     const _h1x = PL + (cfg.zoomEnd != null ? cfg.zoomEnd : 1) * _iw;
-    s += '<g class="lw-dz">';
+    s += '<g class="lw-dz" style="touch-action:none">';   // touch-action:none: slider 区触摸不滚动页面/不页缩放, 供 pointer 拖拽+pinch 接管
     s += '<rect x="' + PL + '" y="' + _slY + '" width="' + _iw + '" height="' + _slH + '" fill="var(--bg-card)" stroke="var(--border-strong)" stroke-width="1" rx="2"/>';
     s += '<rect x="' + PL + '" y="' + _slY + '" width="' + Math.max(0, (_h0x - PL)).toFixed(1) + '" height="' + _slH + '" fill="rgba(0,0,0,0.12)"/>';
     s += '<rect x="' + Math.min(PL + _iw, _h1x).toFixed(1) + '" y="' + _slY + '" width="' + Math.max(0, (PL + _iw - _h1x)).toFixed(1) + '" height="' + _slH + '" fill="rgba(0,0,0,0.12)"/>';
@@ -11695,7 +11695,7 @@ function _lwHTML(cfg) {
     + "border:1px solid var(--border-strong);border-radius:4px;padding:5px 10px;font-size:13px;"
     + "line-height:1.5;white-space:nowrap;pointer-events:none;z-index:60;box-shadow:0 2px 10px rgba(0,0,0,0.15);";
   return '<div class="lw-wrap" style="position:relative;height:' + h + 'px">'
-    + '<svg class="lw-svg" width="100%" height="' + h + '" viewBox="0 0 640 ' + h + '" preserveAspectRatio="none" role="img">'
+    + '<svg class="lw-svg" width="100%" height="' + h + '" viewBox="0 0 640 ' + h + '" preserveAspectRatio="none" role="img" style="touch-action:pan-y">' // touch-action:pan-y: 图表上竖向滑动=页面滚动不变, 禁浏览器页级 pinch 缩放以便 dataZoom 双指 pinch 接管(_lwBind)
     + _lwSVG(Object.assign({}, cfg, { w: 640 }))
     + '</svg>'
     + '<div class="lw-tip" style="' + _tipStyle + '"></div>'
@@ -11778,12 +11778,16 @@ function _lwBind(wrap, cfg) {
     _show(i + _i0, e.clientY);
   });
   svg.addEventListener("mouseleave", _hide);
-  // ---- dataZoom: inside 滚轮以鼠标为锚缩放 + 底部 slider 拖拽(复刻 echarts, 事件委托 svg 上) ----
+  // ---- dataZoom: inside 滚轮以鼠标为锚缩放 + 双指 pinch 缩放(iOS/触屏) + 底部 slider 拖拽(复刻 echarts, 事件委托 svg 上) ----
+  // 支持事件类型: mouse 滚轮 + pointer 事件(pointerdown/pointermove/pointerup, 天然覆盖鼠标+触摸单指拖拽,
+  // setPointerCapture 保证滑出 svg 不丢事件) + touch 双指 pinch(两指距离比映射滚轮缩放, iOS Safari 无 wheel 的缩放入口;
+  // 依赖 svg touch-action:pan-y 禁浏览器页级 pinch 缩放 + slider 区 touch-action:none 禁滚动)。
   if (cfg.dataZoom) {
     if (cfg.zoomStart == null) cfg.zoomStart = 0;
     if (cfg.zoomEnd == null) cfg.zoomEnd = 1;
     const _dzY = _h - 26, _dzH = 18;   // slider bottom:8 height:18(与 _lwSVG 渲染同坐标)
     const _clampF = (v) => Math.max(0, Math.min(1, v));
+    let _pinch = null;   // 双指 pinch 状态: {p1:{x,y,id}, p2:{x,y,id}|null, d0:起始指距}
     const _applyZoom = (s, e) => {
       const _min = 0.05;
       if (e - s < _min) { const c = (s + e) / 2; s = c - _min / 2; e = c + _min / 2; }
@@ -11797,6 +11801,7 @@ function _lwBind(wrap, cfg) {
     };
     svg.addEventListener("wheel", (e) => {
       e.preventDefault();
+      if (_pinch && _pinch.p2) return;   // 双指 pinch 已由 pointer 事件处理, 跳过 Android 合成 ctrl+wheel 防双倍缩放
       const r = svg.getBoundingClientRect();
       if (!r.width || !r.height) return;
       const vx = (e.clientX - r.left) * (_W / r.width);
@@ -11810,7 +11815,9 @@ function _lwBind(wrap, cfg) {
       if (ne > 1) { ns -= (ne - 1); ne = 1; }
       _applyZoom(Math.max(0, ns), ne);
     }, { passive: false });
-    let _dzDrag = null, _dzStartX = 0, _dzStartZoom = [0, 1];
+    let _dzDrag = null, _dzPointerId = null, _dzStartX = 0, _dzStartZoom = [0, 1];
+    const _pinchPt = (e) => ({ x: e.clientX, y: e.clientY });
+    const _pinchDist = () => (_pinch && _pinch.p2) ? Math.hypot(_pinch.p1.x - _pinch.p2.x, _pinch.p1.y - _pinch.p2.y) : 0;
     const _dzViewX = (e) => {
       const r = svg.getBoundingClientRect();
       return (e.clientX - r.left) * (_W / (r.width || 1));
@@ -11833,16 +11840,45 @@ function _lwBind(wrap, cfg) {
     };
     const _dzOnUp = () => {
       _dzDrag = null;
-      window.removeEventListener("mousemove", _dzOnMove);
-      window.removeEventListener("mouseup", _dzOnUp);
+      if (_dzPointerId != null) { try { svg.releasePointerCapture(_dzPointerId); } catch (_e) {} _dzPointerId = null; }
     };
-    svg.addEventListener("mousedown", (e) => {
-      if (e.button !== 0) return;
+    const _dzPinchZoom = (e) => {
+      // 两指距离比 → 等效滚轮缩放(锚点=两指中点, 保持中点数据点不动); 每次 move 更新基准距实现连续手感
+      const d = _pinchDist();
+      if (!(d > 0) || !(_pinch.d0 > 0)) return;
+      const r = svg.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      const cx = (((_pinch.p1.x + _pinch.p2.x) / 2) - r.left) * (_W / r.width);
+      const anchor = _clampF((cx - PL) / _iw);
+      const z0 = cfg.zoomStart, z1 = cfg.zoomEnd;
+      const anchorData = z0 + (z1 - z0) * anchor;
+      const size = Math.min(1, (z1 - z0) * (d / _pinch.d0));
+      let ns = anchorData - anchor * size;
+      let ne = ns + size;
+      if (ns < 0) { ne -= ns; ns = 0; }
+      if (ne > 1) { ns -= (ne - 1); ne = 1; }
+      _applyZoom(Math.max(0, ns), ne);
+      _pinch.d0 = d;
+    };
+    svg.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;   // 仅鼠标左键; 触摸 pointer button 恒 0
       const r = svg.getBoundingClientRect();
       if (!r.width || !r.height) return;
       const vx = (e.clientX - r.left) * (_W / r.width);
       const vy = (e.clientY - r.top) * (_h / r.height);
-      if (vy < _dzY - 2 || vy > _dzY + _dzH + 2) return;   // 不在 slider 区域
+      if (e.pointerType === "touch") {
+        if (_pinch) {   // 已有第一指: 第二指落下成 pinch(取消单指拖拽)
+          if (_pinch.p2 == null && _pinch.p1.id !== e.pointerId) {
+            _pinch.p2 = _pinchPt(e);
+            _pinch.d0 = Math.max(20, _pinchDist());
+            if (_dzDrag) _dzOnUp();
+          }
+          return;
+        }
+        // 第一指: 记录为 pinch 起点候选; 落点在 slider 区域则同时作为单指拖拽
+        _pinch = { p1: _pinchPt(e), p2: null, d0: 0 };
+        if (vy < _dzY - 2 || vy > _dzY + _dzH + 2) return;   // 不在 slider 区域: 只等双指 pinch, 不启动拖拽
+      } else if (vy < _dzY - 2 || vy > _dzY + _dzH + 2) return;   // 鼠标不在 slider 区域
       const s = cfg.zoomStart, e0 = cfg.zoomEnd;
       const h0 = PL + s * _iw, h1 = PL + e0 * _iw;
       _dzStartX = vx;
@@ -11852,11 +11888,34 @@ function _lwBind(wrap, cfg) {
       else if (vx > h0 && vx < h1) _dzDrag = "pan";
       else if (vx < h0) _dzDrag = "h0";
       else _dzDrag = "h1";
-      window.addEventListener("mousemove", _dzOnMove);
-      window.addEventListener("mouseup", _dzOnUp);
+      _dzPointerId = e.pointerId;
+      try { svg.setPointerCapture(e.pointerId); } catch (_e) {}
       _dzOnMove(e);   // jump 情形(点击未选中轨道)立即移动最近手柄
       e.preventDefault();
     });
+    svg.addEventListener("pointermove", (e) => {
+      if (_pinch && _pinch.p1.id === e.pointerId) {
+        _pinch.p1 = _pinchPt(e);
+        if (_pinch.p2) { _dzPinchZoom(e); e.preventDefault(); return; }
+      } else if (_pinch && _pinch.p2 && _pinch.p2.id === e.pointerId) {
+        _pinch.p2 = _pinchPt(e);
+        _dzPinchZoom(e);
+        e.preventDefault();
+        return;
+      }
+      _dzOnMove(e);   // 单指: 拖拽或仅跟踪 pinch 起点
+    });
+    const _dzOnPointerEnd = (e) => {
+      if (_pinch && (_pinch.p1.id === e.pointerId || (_pinch.p2 && _pinch.p2.id === e.pointerId))) {
+        if (_pinch.p1.id === e.pointerId) _pinch = null;
+        else _pinch.p2 = null;
+        if (!_pinch || !_pinch.p2) _dzOnUp();   // 单指(含 touch 拖拽结束)/pinch 收尾: 清拖拽+释放捕获
+        return;
+      }
+      _dzOnUp();
+    };
+    svg.addEventListener("pointerup", _dzOnPointerEnd);
+    svg.addEventListener("pointercancel", _dzOnPointerEnd);
   }
 }
 // 注册 + 渲染入口: 容器内换 lite SVG(默认) / 回退 echarts(echartsFn 重建实例)。返回容器。
