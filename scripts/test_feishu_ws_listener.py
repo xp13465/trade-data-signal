@@ -42,10 +42,12 @@ CHAT_MAP = {"alert": ALERT_CHAT, "report": REPORT_CHAT, "agent_done": DEV_CHAT}
 def fake_event(chat_id="oc_whitelist",
                content_text="需求：测试收到回执功能，验证落盘后触发回执",
                create_time="1750000000000", message_id="om_test123",
-               sender_type=None):
+               sender_type="user"):
     """构造 im.message.receive_v1 事件（白名单群，免前缀接收）。
 
-    sender_type: user=人类用户 / app=应用(bot 自己)；None=事件里无 sender_type 字段。"""
+    sender_type: user=人类用户（默认）/ app=应用(bot 自己)；None=事件里无 sender_type 字段。
+    P1-4 防循环护栏（2026-08-11）：listener 只处理 sender_type=='user'，故人类用户消息
+    fixture 默认 user；app/None 用例显式传值测护栏。"""
     sender = SimpleNamespace(sender_id=SimpleNamespace(open_id="ou_test"))
     if sender_type is not None:
         sender.sender_type = sender_type
@@ -515,6 +517,134 @@ class CrossGroupForwardTests(unittest.TestCase):
         send_mock2.assert_not_called()
         self.assertEqual(len(dedup), 1)
         self.assertIn("om_dup1", dedup)
+
+
+class StabilityFixTests(unittest.TestCase):
+    """2026-08-11 稳定性修复（P0-1/P1-2/P1-4）专项自测。"""
+
+    # ── P1-4 防循环护栏 ──
+    def test_whitelist_bot_message_not_recorded(self):
+        """P1-4：白名单（开发群）bot 自己消息（sender_type=app）不落盘（防循环）。"""
+        with tempfile.TemporaryDirectory() as td:
+            inbox = Path(td) / "inbox"
+            with patch.object(fwl, "append_todo_to_tasks") as todo_mock, \
+                 patch.object(fwl, "send_requirement_receipt") as receipt_mock:
+                fn = fwl.process_event(
+                    fake_event(chat_id=DEV_CHAT, content_text="✅ 已收到你的需求：xx",
+                               sender_type="app", message_id="om_bot_whitelist"),
+                    whitelist=WHITELIST, prefixes=["需求:"], inbox_dir=inbox)
+            self.assertIsNone(fn)
+            self.assertEqual(list(inbox.glob("*.json")), [])
+            todo_mock.assert_not_called()
+            receipt_mock.assert_not_called()
+
+    # ── P1-2 报告群意图过滤 ──
+    def test_report_chitchat_not_recorded_but_forwarded(self):
+        """P1-2：报告群纯闲聊→转发开发群但不落盘不进待办。"""
+        content = "哈哈"
+        with tempfile.TemporaryDirectory() as td:
+            inbox = Path(td) / "inbox"
+            with patch.object(fwl, "send_receipt") as send_mock, \
+                 patch.object(fwl, "append_todo_to_tasks") as todo_mock, \
+                 patch.object(fwl, "send_requirement_receipt") as receipt_mock, \
+                 patch.object(fwl, "AUTODONE_DEDUP_PATH", Path(td) / "autodone.jsonl"):
+                fn = fwl.process_event(
+                    fake_event(chat_id=REPORT_CHAT, content_text=content, sender_type="user",
+                               message_id="om_chitchat"),
+                    whitelist=WHITELIST, prefixes=["需求:"], inbox_dir=inbox,
+                    chat_map=CHAT_MAP)
+            self.assertIsNone(fn)  # 不落盘
+            # 仍转发开发群
+            send_mock.assert_called_once()
+            self.assertEqual(send_mock.call_args[0][0], DEV_CHAT)
+            self.assertIn("[转自报告群]", send_mock.call_args[0][1])
+            todo_mock.assert_not_called()  # 不进待办
+            receipt_mock.assert_not_called()  # 不回执
+
+    def test_report_real_question_recorded(self):
+        """P1-2：报告群真需求（含疑问）→落盘进待办+回执（保守：不确定按真需求）。"""
+        content = "今天哪些指数表现最好？帮我总结一下"
+        with tempfile.TemporaryDirectory() as td:
+            inbox = Path(td) / "inbox"
+            with patch.object(fwl, "send_receipt") as send_mock, \
+                 patch.object(fwl, "append_todo_to_tasks") as todo_mock, \
+                 patch.object(fwl, "send_requirement_receipt") as receipt_mock, \
+                 patch.object(fwl, "AUTODONE_DEDUP_PATH", Path(td) / "autodone.jsonl"):
+                fn = fwl.process_event(
+                    fake_event(chat_id=REPORT_CHAT, content_text=content, sender_type="user",
+                               message_id="om_realq"),
+                    whitelist=WHITELIST, prefixes=["需求:"], inbox_dir=inbox,
+                    chat_map=CHAT_MAP)
+            self.assertIsNotNone(fn)  # 落盘
+            todo_mock.assert_called_once()  # 进待办
+            receipt_mock.assert_called_once()  # 回执
+
+    def test_report_medium_length_no_signal_recorded(self):
+        """P1-2：报告群不确定消息（长度>4 且无闲聊词）→按真需求落盘（宁可多记不丢真需求）。"""
+        content = "这个模块感觉有问题需要确认一下逻辑"
+        with tempfile.TemporaryDirectory() as td:
+            inbox = Path(td) / "inbox"
+            with patch.object(fwl, "send_receipt") as send_mock, \
+                 patch.object(fwl, "append_todo_to_tasks") as todo_mock, \
+                 patch.object(fwl, "send_requirement_receipt") as receipt_mock, \
+                 patch.object(fwl, "AUTODONE_DEDUP_PATH", Path(td) / "autodone.jsonl"):
+                fn = fwl.process_event(
+                    fake_event(chat_id=REPORT_CHAT, content_text=content, sender_type="user",
+                               message_id="om_medium"),
+                    whitelist=WHITELIST, prefixes=["需求:"], inbox_dir=inbox,
+                    chat_map=CHAT_MAP)
+            self.assertIsNotNone(fn)
+            todo_mock.assert_called_once()
+
+    # ── P0-1 异常不静默丢 ──
+    def _fake_msg(self, create_time="1750000000000", message_id="om_t"):
+        return SimpleNamespace(
+            chat_id=DEV_CHAT, message_type="text",
+            content=json.dumps({"text": "需求：漏收测试"}, ensure_ascii=False),
+            create_time=create_time, message_id=message_id)
+
+    def test_save_record_with_retry_nontransient_error_persists_pending(self):
+        """P0-1：不可重试解析异常（create_time 非数字，旧版 TypeError 同类）→落盘 pending 不静默丢。"""
+        with tempfile.TemporaryDirectory() as td:
+            inbox = Path(td) / "inbox"
+            with patch.object(fwl, "_persist_pending") as pending_mock:
+                record, filename = fwl._save_record_with_retry(
+                    self._fake_msg(create_time="not-a-number"), DEV_CHAT, "text",
+                    "需求：漏收测试", inbox)
+            self.assertIsNone(record)
+            self.assertIsNone(filename)
+            pending_mock.assert_called_once()  # 已 fallback：落盘 pending + 告警
+
+    def test_persist_pending_writes_file_and_alerts(self):
+        """P0-1：_persist_pending 落盘 *.pending.json（pending 标记+错误）+ 告警（首次不限频）。"""
+        with tempfile.TemporaryDirectory() as td:
+            inbox = Path(td) / "inbox"
+            with patch.object(fwl, "_PENDING_ALERT_LOCK", {"ts": 0.0}), \
+                 patch.object(fwl, "_alert_process_failure") as alert_mock:
+                fwl._persist_pending(self._fake_msg(message_id="om_pending1"), DEV_CHAT,
+                                     "text", "需求：漏收测试", inbox, "ValueError: bad")
+            pending = list(inbox.glob("*.pending.json"))
+            self.assertEqual(len(pending), 1)
+            rec = json.loads(pending[0].read_text(encoding="utf-8"))
+            self.assertEqual(rec["message_id"], "om_pending1")
+            self.assertTrue(rec["pending"])
+            self.assertIn("ValueError", rec["error"])
+            alert_mock.assert_called_once()  # 告警运维群
+
+    def test_save_record_with_retry_retries_then_persists(self):
+        """P0-1：可重试异常（文件 IO 瞬时失败）→退避重试；重试耗尽→落盘 pending。"""
+        with tempfile.TemporaryDirectory() as td:
+            # inbox 路径是个文件：mkdir 抛 FileExistsError（OSError 子类=可重试），3 次后 fallback
+            inbox = Path(td) / "inbox"
+            inbox.write_text("i am a file", encoding="utf-8")
+            with patch.object(fwl, "_persist_pending") as pending_mock, \
+                 patch.object(fwl.time, "sleep") as sleep_mock, \
+                 patch.object(fwl.time, "time", return_value=1786000000):
+                record, filename = fwl._save_record_with_retry(
+                    self._fake_msg(message_id="om_ioerr"), DEV_CHAT, "text", "x", inbox)
+            self.assertIsNone(record)
+            self.assertEqual(sleep_mock.call_count, 2)  # 3 次尝试间 2 次退避 sleep
+            pending_mock.assert_called_once()
 
 
 if __name__ == "__main__":

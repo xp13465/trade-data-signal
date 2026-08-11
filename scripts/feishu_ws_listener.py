@@ -30,6 +30,12 @@ data/feishu_requests/<ts>-<message_id>.json（含 ts/sender/chat_id/msg_type/con
   sender_type=='user'（人类用户），bot 自己（sender_type=='app'）发的告警/回执/转发消息
   一律不转发；取不到 sender_type 宁可不转发。message_id 进程内 Set + jsonl 落盘去重，
   SDK 重推不重复转发。转发 best-effort，失败仅 log 不阻塞落盘。
+- 稳定性修复（2026-08-11，P0/P1/P2）：①P0-1 处理异常分级——可重试（瞬时 IO）退避重试，
+  不可重试/重试耗尽落盘 *.pending.json + notify 告警运维群（severe），绝不静默丢消息；
+  ②P0-2 启动自动补拉断线/重启窗口漏收消息（scripts/feishu_missed_fetch.py，TASKS㉟）；
+  ③P1-4 防循环护栏：全链路只处理 sender_type=='user'（含白名单免前缀落盘路径）；
+  ④P1-2 报告群纯闲聊转发开发群但不落盘不进待办（保守：不确定按真需求）；
+  ⑤P2 回执有限重试 + TASKS.md append 文件锁（fcntl.flock）。
 
 用法:
   python scripts/feishu_ws_listener.py [--once] [--no-ssl-workaround]
@@ -38,6 +44,7 @@ data/feishu_requests/<ts>-<message_id>.json（含 ts/sender/chat_id/msg_type/con
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import ssl
@@ -166,11 +173,18 @@ def _get_tenant_access_token() -> str | None:
     return token
 
 
+# 发送/落盘有限重试（P0-1/P2）：3 次指数退避（1s/3s/7s），重试瞬时错误不重试确定性错误
+_SEND_ATTEMPTS = 3
+# 落盘/文件 IO 可重试异常（瞬时磁盘/权限类；解析类 TypeError/ValueError 为确定性错误不重试）
+_RETRYABLE_SAVE_EXC = (OSError, IOError, TimeoutError, ConnectionError)
+
+
 def send_receipt(chat_id: str, text: str, message_id: str | None = None) -> bool:
     """向 chat_id 回一条文本消息（收到回执）。best-effort：失败仅 log 不抛异常。
     POST im/v1/messages?receive_id_type=chat_id，body {"receive_id","msg_type","content"}。
     传入 message_id 时 body 加 "reply_to_message_id"（飞书引用回复，回复用户发的那条具体消息，
-    用户连续发多条时每条都能看到对应「收到」回执）。"""
+    用户连续发多条时每条都能看到对应「收到」回执）。
+    P2：发送失败有限重试（3 次指数退避，重试瞬时网络/服务端错误，不重试确定性错误）。"""
     if not chat_id or not text:
         return False
     token = _get_tenant_access_token()
@@ -184,15 +198,36 @@ def send_receipt(chat_id: str, text: str, message_id: str | None = None) -> bool
     payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
     headers = {"Content-Type": "application/json; charset=utf-8",
                "Authorization": f"Bearer {token}"}
-    try:
-        data = _feishu_http_post_json(url, payload, headers, timeout=5)
-    except Exception as e:  # noqa: BLE001
-        log(f"回执：发送失败（不阻塞落盘）：{e}")
+    # 服务端瞬时错误码（可重试）：飞书网关/服务端系统错误
+    retryable_codes = {99999, 9999, 10001, 10002}
+    last_err = ""
+    for attempt in range(_SEND_ATTEMPTS):
+        try:
+            data = _feishu_http_post_json(url, payload, headers, timeout=5)
+        except Exception as e:  # noqa: BLE001
+            last_err = str(e)
+            if attempt < _SEND_ATTEMPTS - 1:
+                wait = float(2 ** attempt + attempt)
+                log(f"回执：发送失败（第{attempt + 1}/{_SEND_ATTEMPTS}次，{wait}s 后重试）：{e}")
+                time.sleep(wait)
+                continue
+            log(f"回执：发送失败重试耗尽（不阻塞落盘）：{e}")
+            return False
+        if data.get("code") == 0:
+            log(f"已回执 {chat_id}（reply_to={message_id or '否'}）：{text[:40]}")
+            return True
+        code = data.get("code")
+        if code in retryable_codes and attempt < _SEND_ATTEMPTS - 1:
+            last_err = f"code={code} msg={data.get('msg')}"
+            wait = float(2 ** attempt + attempt)
+            log(f"回执：API 瞬时错误（第{attempt + 1}/{_SEND_ATTEMPTS}次，{wait}s 后重试）："
+                f"code={code} msg={data.get('msg')}")
+            time.sleep(wait)
+            continue
+        last_err = f"code={code} msg={data.get('msg')}"
+        log(f"回执：API 返回非 0：code={code} msg={data.get('msg')}（subject 不重试）")
         return False
-    if data.get("code") == 0:
-        log(f"已回执 {chat_id}（reply_to={message_id or '否'}）：{text[:40]}")
-        return True
-    log(f"回执：API 返回非 0：code={data.get('code')} msg={data.get('msg')}")
+    log(f"回执：发送失败（重试耗尽）：{last_err}")
     return False
 
 
@@ -241,25 +276,30 @@ def append_todo_to_tasks(excerpt: str, ts: int | None = None) -> bool:
     只追加不破坏：逐行读文件（42KB 超长行不解析不打印，原样透传），定位锚点行索引后在其
     后面插入新行，临时文件 + os.replace 原子写回。best-effort：失败仅 log 不抛异常。
     返回 True=成功插入。"""
+    # TASKS.md append 文件锁（P2：并发竞态防护）：fcntl.flock 独占锁串行化"读-改-写-原子替换"，
+    # 防主控/其他 agent 并发编辑 TASKS.md 时读旧版覆盖丢行。锁文件用固定路径（不同进程同一把锁）。
+    lock_path = Path("/tmp/tasks_append_feishu.lock")
     try:
-        if not TASKS_PATH.exists():
-            log(f"进待办：TASKS.md 不存在（{TASKS_PATH}），跳过")
-            return False
-        ts_iso = (datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
-                  if ts else datetime.now().strftime("%Y-%m-%d %H:%M"))
-        new_line = f"- [ ] (飞书 {ts_iso}) {excerpt}"
-        lines = TASKS_PATH.read_text(encoding="utf-8").splitlines()
-        anchor_idx = next((i for i, ln in enumerate(lines)
-                           if ln.strip() == TASKS_TODO_ANCHOR), None)
-        if anchor_idx is None:
-            log(f"进待办：TASKS.md 未找到锚点 {TASKS_TODO_ANCHOR!r}，跳过（不往文件末尾乱插）")
-            return False
-        new_lines = lines[: anchor_idx + 1] + [new_line] + lines[anchor_idx + 1:]
-        tmp = TASKS_PATH.with_name(TASKS_PATH.name + ".tmp")
-        tmp.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-        os.replace(tmp, TASKS_PATH)
-        log(f"进待办：已插入 -> {new_line}")
-        return True
+        with open(lock_path, "w", encoding="utf-8") as lock_f:
+            fcntl.flock(lock_f, fcntl.LOCK_EX)
+            if not TASKS_PATH.exists():
+                log(f"进待办：TASKS.md 不存在（{TASKS_PATH}），跳过")
+                return False
+            ts_iso = (datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+                      if ts else datetime.now().strftime("%Y-%m-%d %H:%M"))
+            new_line = f"- [ ] (飞书 {ts_iso}) {excerpt}"
+            lines = TASKS_PATH.read_text(encoding="utf-8").splitlines()
+            anchor_idx = next((i for i, ln in enumerate(lines)
+                               if ln.strip() == TASKS_TODO_ANCHOR), None)
+            if anchor_idx is None:
+                log(f"进待办：TASKS.md 未找到锚点 {TASKS_TODO_ANCHOR!r}，跳过（不往文件末尾乱插）")
+                return False
+            new_lines = lines[: anchor_idx + 1] + [new_line] + lines[anchor_idx + 1:]
+            tmp = TASKS_PATH.with_name(TASKS_PATH.name + ".tmp")
+            tmp.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+            os.replace(tmp, TASKS_PATH)
+            log(f"进待办：已插入 -> {new_line}")
+            return True
     except Exception as e:  # noqa: BLE001
         log(f"进待办：写入 TASKS.md 失败（不阻塞监听）：{e}")
         return False
@@ -554,6 +594,137 @@ def maybe_forward_user_message(data, chat_id: str, content: str,
     return ok
 
 
+# ── P1-2 报告群轻量意图过滤 + P0-1 异常分级（2026-08-11 稳定性修复）───────────────
+# 报告群纯闲聊（转发开发群但不落盘不进待办）判定：保守——只有明确"无需求信号 + 超短句"才判闲聊，
+# 不确定一律按真需求处理（宁可多记不丢真需求）。
+_CHITCHAT_WORDS = ("哈哈", "呵呵", "好的", "好滴", "收到", "明白", "了解了", "是的", "嗯嗯",
+                   "哦哦", "知道了", "感谢", "谢谢", "辛苦", "没问题", "搞定", "了解")
+_QUESTION_WORDS = ("怎么", "如何", "为什么", "为啥", "啥", "什么", "哪", "是否", "能不能",
+                   "可不可以", "能不能帮", "帮忙", "帮我", "需要", "希望", "请", "要", "做",
+                   "修", "查", "看", "更新", "加", "优化", "处理", "支持", "同步", "回执",
+                   "待办", "问题", "报错", "失败", "异常", "漏", "丢", "没", "不能", "不行",
+                   "回复", "看看", "分析", "总结", "写", "发", "测", "试", "验证", "补")
+
+
+def is_chitchat(content: str) -> bool:
+    """轻量意图判断：返回 True=纯闲聊（不落盘不进待办，仍可转发开发群）。
+
+    规则（保守，不确定一律按真需求）：
+    - 空/超短句（<=4 字符）且无任何需求信号 → 闲聊
+    - 含疑问/祈使/具体诉求词（？/?/疑问词/关键词）→ 真需求
+    - 其余不确定 → 非闲聊（按真需求处理）
+    """
+    text = (content or "").strip()
+    if not text:
+        return True
+    if "？" in text or "?" in text:
+        return False
+    if any(w in text for w in _QUESTION_WORDS):
+        return False
+    if len(text) <= 4:
+        return True
+    return False
+
+
+def _save_record_with_retry(msg, chat_id: str, msg_type: str, content: str,
+                            inbox_dir: Path, sender: str = ""):
+    """解析消息元数据 + 落盘（P0-1：异常绝不静默丢）。
+
+    - 可重试异常（文件 IO 瞬时失败）→ 有限次退避重试（3 次）
+    - 不可重试异常（解析类 TypeError/ValueError 等确定性错误）或重试耗尽
+      → 落盘 *.pending.json 标记待补处理 + notify 告警运维群（severe）
+    返回 (record, filename)；异常已 fallback 时返回 (None, None)。"""
+    attempts = 3
+    for attempt in range(attempts):
+        try:
+            ts_ms = int(msg.create_time) if getattr(msg, "create_time", None) else int(time.time() * 1000)
+            ts = int(ts_ms / 1000) if ts_ms > 1e12 else int(ts_ms)
+            filename = f"{ts}-{msg.message_id or 'x'}.json"
+            record = {
+                "ts": ts,
+                "ts_iso": datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S"),
+                "sender": sender,
+                "chat_id": chat_id,
+                "msg_type": msg_type,
+                "content": content,
+                "message_id": msg.message_id,
+                "raw_content": str(msg.content or ""),
+            }
+            inbox_dir.mkdir(parents=True, exist_ok=True)
+            (inbox_dir / filename).write_text(
+                json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+            return record, filename
+        except _RETRYABLE_SAVE_EXC as e:
+            if attempt < attempts - 1:
+                backoff = 1 + 2 * attempt
+                log(f"落盘可重试异常（第{attempt + 1}/{attempts}次，{backoff}s 后重试）：{e}")
+                time.sleep(backoff)
+                continue
+            _persist_pending(msg, chat_id, msg_type, content, inbox_dir, str(e))
+            return None, None
+        except Exception as e:  # noqa: BLE001
+            _persist_pending(msg, chat_id, msg_type, content, inbox_dir, str(e))
+            return None, None
+    return None, None
+
+
+# 异常告警限频：同进程 10min 内最多 1 条，防异常风暴轰炸运维群
+_PENDING_ALERT_LOCK: dict = {"ts": 0.0}
+
+
+def _persist_pending(msg, chat_id: str, msg_type: str, content: str,
+                     inbox_dir: Path, error: str) -> None:
+    """异常消息不静默丢：落盘 *.pending.json（pending 标记+错误信息）+ 告警运维群。
+
+    pending 文件是证据 + 补拉线索：feishu_missed_fetch.py 会从飞书 API 按 message_id 补拉
+    该消息（因为长连接丢的消息 API 拉回可找），落盘为正常记录。"""
+    try:
+        ts = int(time.time())
+        mid = str(getattr(msg, "message_id", "") or "x")
+        filename = f"{ts}-{mid}.pending.json"
+        rec = {
+            "ts": ts,
+            "ts_iso": datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S"),
+            "chat_id": chat_id,
+            "msg_type": msg_type,
+            "content": content,
+            "message_id": mid,
+            "raw_content": str(getattr(msg, "content", "") or ""),
+            "pending": True,
+            "pending_reason": "process_event_exception",
+            "error": str(error)[:500],
+        }
+        inbox_dir.mkdir(parents=True, exist_ok=True)
+        (inbox_dir / filename).write_text(
+            json.dumps(rec, ensure_ascii=False, indent=2), encoding="utf-8")
+        log(f"⚠ 处理消息异常已落盘 pending（待 missed_fetch 补拉）：{filename} error={error}")
+    except Exception as e2:  # noqa: BLE001
+        log(f"⚠ 异常消息落盘 pending 也失败（仅日志兜底）：{e2}")
+    _alert_process_failure(error, content)
+
+
+def _alert_process_failure(error: str, content: str) -> None:
+    """异常消息告警运维群（severe），10min 限频防风暴。best-effort：失败仅 log。"""
+    now = time.time()
+    if now - _PENDING_ALERT_LOCK["ts"] < 600:
+        return
+    _PENDING_ALERT_LOCK["ts"] = now
+    ntf = _get_notify()
+    if ntf is None:
+        log(f"⚠ 处理消息异常（notify 不可用，仅日志+pending 落盘）：{error} content={content[:50]}")
+        return
+    try:
+        ntf.send_feishu(
+            "[告警] 飞书消息处理异常",
+            f"listener process_event 异常：{error}\n\n消息内容：{content[:200]}\n\n"
+            f"已落盘 pending，feishu_missed_fetch 将自动补拉，不丢消息。",
+            chat_key="alert",
+        )
+        log("已告警运维群：飞书消息处理异常（10min 限频）")
+    except Exception as e:  # noqa: BLE001
+        log(f"⚠ 异常消息告警失败（不阻塞）：{e}")
+
+
 def process_event(data, whitelist: set, prefixes: list[str],
                   inbox_dir: Path, once: bool = False,
                   chat_map: dict | None = None,
@@ -588,37 +759,39 @@ def process_event(data, whitelist: set, prefixes: list[str],
         if not content:
             log("跳过空内容消息")
             return None
+        # P1-4 防循环护栏：只处理人类用户消息（bot 自己/系统/其他应用消息一律不落盘不转发）。
+        # 转发路径原有 sender_type=='user' 护栏，白名单（开发群）免前缀落盘路径补上同款护栏。
+        if _sender_type(data) != "user":
+            log(f"跳过非人类用户消息（防循环护栏）：chat_id={chat_id} "
+                f"sender_type={_sender_type(data)!r} content={content[:50]}")
+            return None
         # 跨群转发（best-effort，失败不阻塞落盘）：在前缀过滤之前执行，保证用户问询（无前缀）也转发
         # （告警群无前缀用户消息除外：计划任务执行告警/恢复类问询不抄送开发群，见 maybe_forward_user_message）
         forwarded = maybe_forward_user_message(
             data, chat_id, content, chat_map=chat_map,
             forwarded_ids=forwarded_ids, dedup_path=dedup_path,
             prefixes=prefixes)
+        # P1-2 报告群意图过滤（2026-08-11）：报告群纯闲聊→仍转发开发群但不落盘不进待办；
+        # 保守——不确定一律按真需求处理（宁可多记不丢真需求）。带需求前缀的永远接收。
+        report_id = str((chat_map or {}).get("report") or "")
+        is_report = (chat_id == report_id and chat_id not in whitelist)
+        if is_report and not _match_prefix(content, prefixes) and is_chitchat(content):
+            log(f"报告群闲聊不落盘（已转发开发群，不进待办）：chat_id={chat_id} content={content[:60]}")
+            return None
         # 非白名单群必须带需求前缀才接收（白名单需求群免前缀直接落盘）；
-        # 报告群人类用户消息（已跨群转发）也落盘进待办+回执，保证用户回复反馈不被丢
-        # （2026-08-11 fix：用户报告群回复"这个是监控的 应该发给运维群"此前仅转发开发群，
-        #  未落盘/未进 TASKS/未回执，用户感知"未被处理"）
+        # 报告群人类用户消息已由上面意图过滤接管（转发+真需求落盘进待办+回执，不丢反馈）
         if (chat_id not in whitelist and not _match_prefix(content, prefixes)
-                and not forwarded):
+                and not is_report and not forwarded):
             log(f"跳过非需求消息（非白名单群且无需求前缀）：chat_id={chat_id} content={content[:60]}")
             return None
-        ts_ms = int(msg.create_time) if msg.create_time else int(time.time() * 1000)
-        ts = int(ts_ms / 1000) if ts_ms > 1e12 else int(ts_ms)
-        filename = f"{ts}-{msg.message_id or 'x'}.json"
-        record = {
-            "ts": ts,
-            "ts_iso": datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S"),
-            "sender": sender_id(data),
-            "chat_id": chat_id,
-            "msg_type": msg_type,
-            "content": content,
-            "message_id": msg.message_id,
-            "raw_content": str(msg.content or ""),
-        }
-        inbox_dir.mkdir(parents=True, exist_ok=True)
-        (inbox_dir / filename).write_text(
-            json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+        # P0-1 核心落盘：解析+写入带有限重试/异常分级（可重试瞬时 IO 错误→退避重试；
+        # 不可重试/重试耗尽→落盘 pending + 告警运维群，绝不静默丢）。返回 None 表示已 fallback。
+        record, filename = _save_record_with_retry(
+            msg, chat_id, msg_type, content, inbox_dir, sender=sender_id(data))
+        if record is None:
+            return None
         log(f"收到需求已落盘：{filename} sender={record['sender']} content={content[:80]}")
+        ts = int(record["ts"])
         # 需求自动进待办 + 即时回执（2026-08-11 起主控零轮询）：listener 收到需求自己完成
         # 落盘+进TASKS+回执，不再等主控 cron 扫描整理。best-effort，失败仅 log 不阻塞监听。
         msg_id_str = str(msg.message_id or "")
@@ -635,8 +808,40 @@ def process_event(data, whitelist: set, prefixes: list[str],
             os._exit(0)  # 从 asyncio 回调直接退出，绕过 SDK 清理
         return filename
     except Exception as e:  # noqa: BLE001
-        log(f"处理消息异常：{e}")
+        # P0-1 最终兜底：任何漏网异常（核心逻辑已各自分级处理，此处兜底）绝不静默丢——
+        # 落盘 pending + 告警，与 _persist_pending 同款行为
+        try:
+            _persist_pending(data.event.message, str(getattr(data.event.message, "chat_id", "") or ""),
+                             str(getattr(data.event.message, "message_type", "") or ""),
+                             content_plain(str(getattr(data.event.message, "content", "") or ""),
+                                           str(getattr(data.event.message, "message_type", "") or "")),
+                             inbox_dir, str(e))
+        except Exception as e2:  # noqa: BLE001
+            log(f"⚠ 最终兜底落盘 pending 失败：{e2}")
         return None
+
+
+def _run_startup_missed_fetch(inbox_dir: Path) -> None:
+    """启动时自动补拉漏收消息（P0-2/TASKS㉟）。best-effort：失败仅 log 不阻塞监听。
+
+    调用 feishu_missed_fetch.run_fetch 拉断线/重启窗口（上次检查点→现在，默认上限 24h）
+    丢失的群消息，补落盘+进 TASKS 待办。启动场景不发回执（避免大窗口批量回执轰炸开发群；
+    主控看到 TASKS 待办会跟进回复用户）。"""
+    try:
+        sys.path.insert(0, str(REPO / "scripts"))
+        import feishu_missed_fetch as _mf  # noqa: PLC0415
+        summary = _mf.run_fetch(repo=REPO, default_window_h=2, dry_run=False,
+                                with_receipt=False, inbox_dir_override=inbox_dir)
+        if summary:
+            recovered = sum(v.get("recovered", 0) for v in summary.values())
+            if recovered:
+                log(f"启动补拉漏收消息：共补拉 {recovered} 条（{summary}）")
+            else:
+                log(f"启动补拉漏收消息：无新漏收（{summary}）")
+        else:
+            log("启动补拉漏收消息：未执行（无可用群/无权限/异常），不阻塞监听")
+    except Exception as e:  # noqa: BLE001
+        log(f"启动补拉漏收消息异常（best-effort 不阻塞监听）：{e}")
 
 
 def run_listener(app_id: str, app_secret: str, cfg: dict, once: bool = False) -> int:
@@ -657,6 +862,9 @@ def run_listener(app_id: str, app_secret: str, cfg: dict, once: bool = False) ->
         f"agent_done={chat_map.get('agent_done')}，已载入去重 {len(forwarded_ids)} 条")
     log(f"需求自动处理：已载入去重 {len(autodone_ids)} 条（含历史 *.processed.json），"
         f"合法需求将自动进 TASKS.md 待办 + notify 即时回执开发群")
+    # P0-2（TASKS㉟）：启动时自动补拉断线/重启窗口漏收消息（best-effort，不阻塞监听）。
+    # 长连接断线/重启窗口内飞书不补推，本步用 API 拉回窗口消息对比已落盘去重，补落盘+进TASKS。
+    _run_startup_missed_fetch(inbox_dir)
 
     def handle(data) -> None:  # P2ImMessageReceiveV1
         process_event(data, whitelist, prefixes, inbox_dir, once=once,

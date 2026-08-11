@@ -558,5 +558,38 @@ else
   echo "⚠ staticdata 仓库不存在($STATICDATA_REPO),跳过备份" | tee -a "$LOG"
 fi
 
+# === feishu listener 重启（P2 关键，2026-08-11 稳定性修复）===
+# 代码 commit 后 listener 跑旧代码直到手动重启（曾 6966c4501 commit/23:09 才重启）。
+# 方案：feishu 相关脚本（listener/补拉/notify）mtime 比上次重启标记新 → 自动 kickstart 重启
+# 长连接进程（启动时自带 missed_fetch 补拉重启窗口漏收，不丢消息）。只对代码变更重启，
+# 避免每次数据 deploy 都重启长连接（§14 生产稳定性：不必要重启最小化）。
+_FEISHU_LISTENER_LABEL="com.trade.feishu-listener"
+_FEISHU_RESTART_MARKER="${TMPDIR:-/tmp}/feishu_listener_restarted"
+_FEISHU_SCRIPTS=(
+  "$GIT_REPO/scripts/feishu_ws_listener.py"
+  "$GIT_REPO/scripts/feishu_missed_fetch.py"
+  "$GIT_REPO/scripts/notify.py"
+)
+_FEISHU_NEED_RESTART=0
+for _f in "${_FEISHU_SCRIPTS[@]}"; do
+  if [ -f "$_f" ] && { [ ! -f "$_FEISHU_RESTART_MARKER" ] || [ "$_f" -nt "$_FEISHU_RESTART_MARKER" ]; }; then
+    _FEISHU_NEED_RESTART=1
+  fi
+done
+if [ "$_FEISHU_NEED_RESTART" = "1" ]; then
+  if launchctl list 2>/dev/null | grep -q "$_FEISHU_LISTENER_LABEL"; then
+    echo "→ feishu listener 代码有变更，重启 listener（启动自动补拉漏收，不丢消息）..." | tee -a "$LOG"
+    launchctl kickstart -k "gui/$(id -u)/$_FEISHU_LISTENER_LABEL" 2>&1 | tee -a "$LOG" || {
+      echo "⚠ feishu listener 重启失败（不阻塞 deploy，注意手动重启）" | tee -a "$LOG"
+    }
+    touch "$_FEISHU_RESTART_MARKER"
+  else
+    echo "→ feishu listener 未运行（launchd 未加载？），跳过重启（KeepAlive 会拉起）" | tee -a "$LOG"
+    touch "$_FEISHU_RESTART_MARKER"
+  fi
+else
+  echo "→ feishu listener 无代码变更，跳过重启" | tee -a "$LOG"
+fi
+
 echo "=== deploy.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 ===" | tee -a "$LOG"
 exit 0

@@ -84,6 +84,19 @@ FEISHU_TEXT_LIMIT = 2000
 # 报告群买卖点/汪汪队信号 post 版按此截断（20 行 × ~70 字符 ≈ 1400 字符，远低于 2000）。
 FEISHU_POST_MAX_ROWS = 20
 
+# P1-1（2026-08-11 稳定性修复）：飞书发送有限重试 3 次（指数退避 1s/3s/7s）。
+# 网络瞬时错误（URLError/HTTP 5xx）与飞书服务端瞬时错误码重试；确定性错误（4xx/
+# token 无效/内容非法等）不重试。防止偶发网络抖动/服务端瞬时错误导致消息永久不发。
+_FEISHU_SEND_ATTEMPTS = 3
+_FEISHU_RETRYABLE_CODES = {99999, 9999, 10001, 10002}
+
+
+def _feishu_backoff(attempt: int) -> float:
+    """指数退避：attempt=0->1s, 1->3s, 2->7s。返回 sleep 秒数。"""
+    secs = float(2 ** attempt + attempt)  # 1, 3, 7
+    time.sleep(secs)
+    return secs
+
 # ⚠️ 飞书 post 文本色实测结论（2026-08-11）：im/v1/messages 的 post text 标签**不支持**
 # style.color（任何色名/hex 都报 230001 invalid message content，实测验证）。
 # 彩色语义改用【彩色 emoji 前缀 + md 加粗表头】实现（🔴买/🟢卖/⚪持有，A股红涨绿跌与平台信号灯一致，md 支持 **加粗**）。
@@ -407,6 +420,11 @@ def _send_feishu_api(chat_id: str, subject: str, text: str,
 
     reply_to_message_id 非空时 body 加 "reply_to_message_id"（飞书引用回复，回复挂靠在
     指定原消息下方，任务状态可挂靠追踪；参数名与 feishu_ws_listener.send_receipt 同款）。
+
+    P1-1（2026-08-11 稳定性修复）：有限重试（3 次指数退避 1s/3s/7s）——网络瞬时错误
+    （URLError/HTTP 5xx）与飞书服务端瞬时错误码（99999/9999/10001/10002）重试；
+    确定性错误（4xx / token 无效 / 内容非法等）不重试直接返回失败。
+    对外签名保持不变（hooks 抄送 agent 可能复用）。
     """
     token = _get_tenant_access_token()
     if not token:
@@ -421,16 +439,45 @@ def _send_feishu_api(chat_id: str, subject: str, text: str,
     payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
     headers = {"Content-Type": "application/json; charset=utf-8",
                "Authorization": f"Bearer {token}"}
-    try:
-        data = _feishu_http_post_json(url, payload, headers)
-    except Exception as e:  # noqa: BLE001
-        print(f"[notify] Feishu 发送失败（不阻塞）：{e}", file=sys.stderr)
+    last_err = ""
+    for attempt in range(_FEISHU_SEND_ATTEMPTS):
+        try:
+            data = _feishu_http_post_json(url, payload, headers)
+        except urllib.error.HTTPError as e:
+            if e.code >= 500 and attempt < _FEISHU_SEND_ATTEMPTS - 1:
+                last_err = f"HTTP {e.code}"
+                wait = float(2 ** attempt + attempt)
+                print(f"[notify] Feishu 发送 HTTP {e.code}（第{attempt + 1}/{_FEISHU_SEND_ATTEMPTS}次，"
+                      f"{wait}s 后重试）：{subject}", file=sys.stderr)
+                time.sleep(wait)
+                continue
+            print(f"[notify] Feishu 发送失败（HTTP {e.code}，不重试）：{subject}", file=sys.stderr)
+            return False
+        except Exception as e:  # noqa: BLE001
+            last_err = str(e)
+            if attempt < _FEISHU_SEND_ATTEMPTS - 1:
+                wait = float(2 ** attempt + attempt)
+                print(f"[notify] Feishu 发送失败（第{attempt + 1}/{_FEISHU_SEND_ATTEMPTS}次，"
+                      f"{wait}s 后重试）：{e}", file=sys.stderr)
+                time.sleep(wait)
+                continue
+            print(f"[notify] Feishu 发送失败重试耗尽（不阻塞）：{e}", file=sys.stderr)
+            return False
+        code = data.get("code")
+        if code == 0:
+            print(f"[notify] Feishu 已发送至 {chat_id}：{subject}", file=sys.stderr)
+            return True
+        if code in _FEISHU_RETRYABLE_CODES and attempt < _FEISHU_SEND_ATTEMPTS - 1:
+            last_err = f"code={code} msg={data.get('msg')}"
+            wait = float(2 ** attempt + attempt)
+            print(f"[notify] Feishu 瞬时错误码 {code}（第{attempt + 1}/{_FEISHU_SEND_ATTEMPTS}次，"
+                  f"{wait}s 后重试）：{subject}", file=sys.stderr)
+            time.sleep(wait)
+            continue
+        print(f"[notify] Feishu API 返回非 0：code={code} msg={data.get('msg')}"
+              f"（subject={subject}，不重试）", file=sys.stderr)
         return False
-    if data.get("code") == 0:
-        print(f"[notify] Feishu 已发送至 {chat_id}：{subject}", file=sys.stderr)
-        return True
-    print(f"[notify] Feishu API 返回非 0：code={data.get('code')} "
-          f"msg={data.get('msg')}（subject={subject}）", file=sys.stderr)
+    print(f"[notify] Feishu 发送失败（重试耗尽）：{last_err}（subject={subject}）", file=sys.stderr)
     return False
 
 
@@ -746,11 +793,12 @@ def check_dedup(key: str, window: int) -> bool:
 
 
 def update_dedup(key: str) -> None:
-    """发送后更新 dedup_key 的 last_alerted 为当前时间（无论发送成败，已尝试即更新）。
+    """发送**成功**后更新 dedup_key 的 last_alerted 为当前时间。
 
-    防止发送失败（SMTP 错误等）时每周期重试轰炸：发送失败本身是另一层问题，
-    schedule_monitor 不感知 notify.py 调用（intraday exit 0 只要 git push 成功），
-    故 notify.py 自管去重，尝试发送即更新 last_alerted，window 内不再重试。
+    P1-1（2026-08-11 稳定性修复）：语义改为"发送成功才更新"——调用方须在确认至少一个
+    渠道发送成功后才调用本函数；发送失败不更新 dedup，下次调用可重发（原"无论成败已尝试
+    即更新"在偶发发送失败时会导致该消息永久不发，已改）。本函数只管写状态，成功与否由
+    调用方判定。
     """
     if not key:
         return
@@ -821,8 +869,8 @@ Agent：{agent_name}
                    feishu_group=feishu_group or "agent_done",
                    reply_to_message_id=reply_to_message_id)
 
-    # 发送后更新 dedup（无论成败，已尝试即更新）
-    if not dry_run:
+    # P1-1：发送成功才更新 dedup（失败不标记，下次可重发——避免偶发失败致该消息永久不发）
+    if not dry_run and any(results.values()):
         update_dedup(dedup_key)
 
     return results
@@ -894,8 +942,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(f"[notify] 汇总：全部渠道未发出（{'/'.join(fail) or '无渠道'}）", file=sys.stderr)
 
-    # 发送后更新 dedup（无论成败，已尝试即更新，防发送失败时每周期重试轰炸）
-    if args.dedup_key and not args.dry_run:
+    # P1-1：发送成功才更新 dedup（失败不标记，下次可重发——避免偶发失败致该消息永久不发）
+    if args.dedup_key and not args.dry_run and ok:
         update_dedup(args.dedup_key)
 
     if args.alert_issue:
