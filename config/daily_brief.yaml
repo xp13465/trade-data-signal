@@ -1,11 +1,12 @@
 # daily_brief 每日AI预测 配置(第一阶段,单 prompt 主链路)
 # 用户改此文件即可控制,与代码解耦。生成脚本 scripts/gen_daily_brief.py 读此配置。
 
-# ── 调度开关(用户 2026-08-10 定,默认关闭)──────────────────────────────
-#   false = 不自动跑:update_all 定时入口(run_daily_brief.sh)被拦截,
+# ── 调度开关(用户 2026-08-10 定,默认关闭;2026-08-11 开启:独立 plist 20:40)──
+#   false = 不自动跑:独立 launchd plist(com.trade.daily-brief)入口被拦截,
 #           主控/用户手动 `python3 scripts/gen_daily_brief.py` 始终可跑
-#   true  = 每天自动跑:update_all.sh 17:50 盘后管线自动调用 run_daily_brief.sh
-schedule_enabled: false
+#   true  = 每天自动跑:com.trade.daily-brief 20:40 独立 plist 调 run_daily_brief.sh
+#           (update_all.sh 17:50 挂载已注释,一天一次 20:40,避 20:35 intraday-snapshot)
+schedule_enabled: true
 
 # ── 合规开关(默认开启)─────────────────────────────────────────────────
 #   true  = prompt 禁指令词(买入/卖出/加仓/建仓/仓位等黑名单,只允许 关注/警惕/观察/留意)
