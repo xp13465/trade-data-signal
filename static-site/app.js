@@ -16666,13 +16666,95 @@ function _etfTrendLiteHTML(ohlc) {
   const _area = (_PT + _ih).toFixed(1);
   const _tip = "近30日 收盘 " + _vals[0] + " → " + _vals[_n - 1] + (_isUp ? " ↑" : " ↓");
   const _yLabel = (_H - 6);
-  return '<svg class="etf-trend-lite" width="100%" height="' + _H + '" viewBox="0 0 ' + _W + ' ' + _H + '" preserveAspectRatio="none" role="img" aria-label="近30日走势">'
+  // 轻量版逐点 hover(2026-08-11 补, 恢复完整交互不阉割功能): 容器 position:relative 供浮层绝对定位,
+  // SVG 内置隐藏十字线 + hover 高亮点, 容器尾部空 tooltip div(事件绑定在 _etfTrendLiteBind)。
+  const _tipStyle = "position:absolute;display:none;background:rgba(0,0,0,0.75);color:#fff;border-radius:6px;padding:4px 9px;font-size:11px;line-height:1.5;white-space:nowrap;pointer-events:none;z-index:60;box-shadow:0 2px 10px rgba(0,0,0,0.25);";
+  return '<div class="etf-trend-wrap" style="position:relative">'
+    + '<svg class="etf-trend-lite" width="100%" height="' + _H + '" viewBox="0 0 ' + _W + ' ' + _H + '" preserveAspectRatio="none" role="img" aria-label="近30日走势">'
     + '<polygon points="' + _pts + ' ' + _px(_n - 1).toFixed(1) + ',' + _area + ' ' + _px(0).toFixed(1) + ',' + _area + '" fill="' + _stroke + '" opacity="0.12"/>'
     + '<polyline points="' + _pts + '" fill="none" stroke="' + _stroke + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><title>' + _tip + '</title></polyline>'
+    + '<line class="etf-trend-cursor" x1="0" y1="' + _PT + '" x2="0" y2="' + _area + '" stroke="' + _stroke + '" stroke-width="1" stroke-dasharray="3,3" opacity="0"/>'
+    + '<circle class="etf-trend-hover-pt" r="4" fill="' + _stroke + '" opacity="0"/>'
     + '<circle cx="' + _px(_n - 1).toFixed(1) + '" cy="' + _py(_vals[_n - 1]).toFixed(1) + '" r="3" fill="' + _stroke + '"/>'
     + '<text x="' + _PL + '" y="' + _yLabel + '" font-size="11" style="fill:var(--text-3)">' + fmtDate(_dates[0]) + '</text>'
     + '<text x="' + (_W - _PR) + '" y="' + _yLabel + '" font-size="11" text-anchor="end" style="fill:var(--text-3)">' + fmtDate(_dates[_n - 1]) + '</text>'
-    + '</svg>';
+    + '</svg>'
+    + '<div class="etf-trend-tip" style="' + _tipStyle + '"></div>'
+    + '</div>';
+}
+
+// 轻量版逐点 hover 交互(2026-08-11 补, 零 echarts 依赖 = 纯 DOM/SVG + 原生事件)。
+// mousemove 定位最近数据点 -> 垂直十字线 + 点高亮 + 浮层 tooltip(日期+收盘), mouseleave 隐藏。
+// 坐标映射: svg width=100% + preserveAspectRatio="none" 横向拉伸, 用 getBoundingClientRect 换算
+//   cssX -> viewBox x(cssX * _W / rect.width), 再反解最近 index; 高度 180 固定 1:1 无需换算。
+function _etfTrendLiteBind(svg, ohlc) {
+  if (!svg) return;
+  const _wrap = svg.parentElement;
+  if (!_wrap) return;
+  const _points = ohlc.filter((d) => d && d[4] != null);
+  const _vals = _points.map((d) => d[4]);
+  const _dates = _points.map((d) => d[0]);
+  const _n = _vals.length;
+  if (_n < 2) return;
+  const _W = 640, _PL = 8, _PR = 8, _PT = 12, _H = 180;
+  const _iw = _W - _PL - _PR;
+  const _ih = _H - _PT - 20;
+  const _min = Math.min.apply(null, _vals), _max = Math.max.apply(null, _vals);
+  const _range = _max - _min || 1;
+  const _px = (i) => _PL + (i / (_n - 1)) * _iw;
+  const _py = (v) => _PT + _ih - ((v - _min) / _range) * _ih;
+  const _isUp = _vals[_n - 1] >= _vals[0];
+  const _stroke = _isUp ? "#e6492e" : "#2e8b57";
+  const _cursor = svg.querySelector(".etf-trend-cursor");
+  const _pt = svg.querySelector(".etf-trend-hover-pt");
+  const _tip = _wrap.querySelector(".etf-trend-tip");
+  const _show = (i) => {
+    if (_cursor) {
+      _cursor.setAttribute("x1", _px(i).toFixed(1));
+      _cursor.setAttribute("x2", _px(i).toFixed(1));
+      _cursor.setAttribute("opacity", "0.9");
+    }
+    if (_pt) {
+      _pt.setAttribute("cx", _px(i).toFixed(1));
+      _pt.setAttribute("cy", _py(_vals[i]).toFixed(1));
+      _pt.setAttribute("opacity", "0.9");
+    }
+    if (_tip) {
+      _tip.innerHTML = fmtDate(_dates[i]) + "<br/>收盘 " + (_vals[i] != null ? Number(_vals[i]).toFixed(3) : "-");
+      _tip.style.display = "block";
+      const svgRect = svg.getBoundingClientRect();
+      const wrapRect = _wrap.getBoundingClientRect();
+      const ratioW = _W / (svgRect.width || 1);
+      const ratioH = _H / (svgRect.height || 1);
+      const cssX = _px(i) / ratioW;
+      const cssY = _py(_vals[i]) / ratioH + (svgRect.top - wrapRect.top);
+      const tipW = _tip.offsetWidth || 80;
+      const tipH = _tip.offsetHeight || 36;
+      let left = cssX - tipW / 2;
+      if (left < 0) left = 0;
+      if (left + tipW > svgRect.width) left = svgRect.width - tipW;
+      let top = cssY - tipH - 12;
+      if (top < 0) top = cssY + 14; // 顶部溢出翻转到点下方
+      _tip.style.left = left.toFixed(1) + "px";
+      _tip.style.top = top.toFixed(1) + "px";
+    }
+  };
+  const _hide = () => {
+    if (_cursor) _cursor.setAttribute("opacity", "0");
+    if (_pt) _pt.setAttribute("opacity", "0");
+    if (_tip) _tip.style.display = "none";
+  };
+  svg.addEventListener("mousemove", (e) => {
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const ratioW = _W / rect.width;
+    const vx = (e.clientX - rect.left) * ratioW;
+    let i = Math.round(((vx - _PL) / _iw) * (_n - 1));
+    if (i < 0) i = 0;
+    if (i > _n - 1) i = _n - 1;
+    _show(i);
+  });
+  svg.addEventListener("mouseleave", _hide);
 }
 
 // 5档分档(2026-07-25 C2三分类): 强卖出/卖出/持有观察/买入/强买入
@@ -17019,6 +17101,9 @@ function openEtfScoreDetailModal(code) {
 
   // 需求1：echarts init 近30日走势（body.innerHTML 设置后容器存在才 init；轻量 SVG 版无 #etfTrendChart 容器自然跳过）
   if (trendHTML) {
+    // 轻量 SVG 版补逐点 hover(2026-08-11, 零 echarts 依赖): 十字线 + 点高亮 + 浮层 tooltip
+    const _liteSvg = body.querySelector(".etf-trend-lite");
+    if (_liteSvg && e.ohlc) _etfTrendLiteBind(_liteSvg, e.ohlc);
     const _trendEl = body.querySelector("#etfTrendChart");
     if (_trendEl && typeof echarts !== "undefined") {
       const _dates = e.ohlc.map((d) => d[0]);
