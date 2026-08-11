@@ -146,6 +146,27 @@ if ! "$PY" "$REPO/scripts/upload_r2.py" upload-intraday 2>&1 | tee -a "$LOG"; th
   "$PY" "$REPO/scripts/notify.py" "[告警] intraday R2上传失败 ${ALERT_TIME}" "intraday 数据(overview/intraday_snapshot/a-stock等)未推 R2，前端将读旧数据，需手动补刷: bash scripts/upload_r2.py upload-intraday<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key intraday_upload_intraday_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
 fi
 
+# 2.53) 同步 intraday 盘中数据到 staticdata 数据仓库（灾备第2层差异日志/留档）
+#       R2 迁移阶段3 后本脚本只 upload_r2 不再 git push，漏了 staticdata 同步
+#       -> staticdata 仓库 intraday_snapshot.json 停在昨日 20:35，盘中每 10 分钟
+#       新数据 5 小时空窗不落档（违反 §8.1 checklist「写 static-site/data 的生成器
+#       必须同时接 ①R2 上传 ②staticdata 同步」）。用户已确认盘中每 10 分钟同步。
+#       文件列表与 upload-intraday 清单一致（intraday 盘中实际更新的小 json），
+#       非 --all 全量（避免拖慢高频任务+引入无关文件）。staticdata_sync.sh 内部
+#       持 /tmp/trade_deploy.lock 阻塞（与 deploy 串行化）+ best-effort 失败不阻塞，
+#       无需额外 try/catch。放 R2 上传成功后（R2 失败也不重复告警）。
+echo "-> 同步 intraday 数据到 staticdata 仓库（灾备留档）..." | tee -a "$LOG"
+bash "$GIT_REPO/scripts/staticdata_sync.sh" intraday \
+  intraday_snapshot.json overview.json summary.json summary_history.json \
+  notifications.json boot.json schedule_stats.json \
+  a-stock-3m.json a-stock-6m.json a-stock-1y.json \
+  hk-3m.json hk-6m.json hk-1y.json \
+  global-3m.json global-6m.json global-1y.json \
+  sentiment-3m.json sentiment-6m.json sentiment-1y.json \
+  etf_national_team-1m.json etf_national_team-3m.json \
+  etf_national_team-6m.json etf_national_team-1y.json 2>&1 | tee -a "$LOG" || \
+  echo "⚠ staticdata 同步失败(不阻塞快照)" | tee -a "$LOG"
+
 # 2.55) A11 异常波动盘中告警（R2同步后；失败不阻塞快照）
 #       借鉴 alert_score.py L5 量能异动模式，检测急涨急跌(±3/5/7%)/放量(5日均×2)/突破(20日高低点)。
 #       同日同标的去重(data/anomaly_notified.json)，通过 notify.py 发盘中提示邮件。
