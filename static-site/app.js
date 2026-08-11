@@ -3567,23 +3567,96 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
   return c;
 }
 
+// 信号 markData(_buildSignalMarkData 输出) → 轻量 markPoints + gradients(拼色 linearGradient)。
+// 外观对等 echarts markPoint: 单信号=pin 形(圆顶+下三角) r13≈symbolSize34; 多信号=拼色 pin r20≈52
+// + 金描边 + 白 label 多行; band_hold=小圆点半透明偏移下方(反pin, 无 label); 最新值 circle=圆点+label 内嵌。
+function _lwSignalMarkPoints(markData, dates) {
+  const out = [], grads = [];
+  let gi = 0;
+  for (const m of markData || []) {
+    const i = dates.indexOf(m.coord[0]);
+    if (i < 0 || m.coord[1] == null) continue;
+    const y = m.coord[1], is = m.itemStyle || {};
+    if (m.symbol === "circle") {
+      const _band = m.label && m.label.show === false;
+      if (_band) {
+        out.push({ i, y, r: (m.symbolSize || 6) / 2, color: is.color, dy: (m.symbolOffset && m.symbolOffset[1]) || 20, opacity: is.opacity != null ? is.opacity : 0.5 });
+      } else {
+        const c = is.color || "#ffd700";
+        out.push({ i, y, r: (m.symbolSize || 6) / 2, color: c, labelInside: true, label: m.value, labelColor: (m.label && m.label.color) || _autoLabelColor(c), fontSize: (m.label && m.label.fontSize) || 11 });
+      }
+    } else if (is.color && typeof is.color === "object" && is.color.colorStops) {
+      const gid = "sig-grad-" + (++gi);
+      grads.push({ id: gid, stops: is.color.colorStops.map((st) => [st.offset, st.color]) });
+      const _lab = (m.label && m.label.formatter) || m.value;
+      out.push({ i, y, pin: true, r: 20, gradient: { id: gid }, borderColor: is.borderColor || "#ffd700", borderWidth: is.borderWidth || 3, label: _lab, labelColor: (m.label && m.label.color) || "#fff", fontSize: (m.label && m.label.fontSize) || 11, multiLine: String(_lab).indexOf("\n") >= 0 });
+    } else {
+      const c = is.color || "#ffd700";
+      out.push({ i, y, pin: true, r: 13, color: c, label: m.value, labelColor: (m.label && m.label.color) || _autoLabelColor(c), fontSize: 11 });
+    }
+  }
+  return { markPoints: out, gradients: grads };
+}
+// 信号弹窗 lite cfg 构建(外观对等原 echarts valueChartWithSignals): 单序列 value 折线 + 信号 pin + tooltip。
+// visualMap pieces(情绪分分段色) → _lwColorFn(与恐贪/A股情绪分同款口径); 无 visualMap(首页信号弹窗) 用 echarts 默认首色。
+function _lwSignalLiteCfg(title, data, markData, opts) {
+  const dates = (data || []).map((d) => d.date);
+  const vals = (data || []).map((d) => d.value);
+  const mp = _lwSignalMarkPoints(markData, dates);
+  const _pieces = opts && opts.visualMap && opts.visualMap.pieces;
+  let _colorFn = null;
+  if (_pieces && _pieces.length) {
+    _colorFn = (i, v) => {
+      for (const p of _pieces) {
+        const lo = (p.gt != null ? v > p.gt : (p.gte != null ? v >= p.gte : true));
+        const hi = (p.lte != null ? v <= p.lte : (p.lt != null ? v < p.lt : true));
+        if (lo && hi) return p.color;
+      }
+      return "#5470c6";
+    };
+  }
+  return {
+    h: 300, pl: 55, pr: 20, pt: 30, pb: 50,
+    xLabels: dates, xFmt: (v) => v,
+    ys: [{ scale: true, splitNumber: 5 }],
+    series: [{
+      type: "line", data: vals, color: "#5470c6", width: 1.5, smooth: true, connectNulls: true,
+      itemColor: _colorFn,
+      markPoints: mp.markPoints,
+    }],
+    gradients: mp.gradients,
+    tipFn: (i, xLabel) => {
+      const dt = xLabel;
+      const p = (data || []).find((x) => x.date === dt);
+      let tip = fmtDate(dt);
+      if (p && p.value != null) tip += "<br/>" + Number(p.value).toFixed(2);
+      const marks = (markData || []).filter((m) => m.coord[0] === dt && m.reason);
+      for (const m of marks) {
+        if (Array.isArray(m.tipColors) && Array.isArray(m.tipLabels)) {
+          const dots = m.tipColors.map((c, i) => '<b style="color:' + c + '">●</b>' + (m.tipLabels[i] || "")).join("+");
+          tip += "<br/>" + dots + " " + _fmtReasonWithBand(m.reason);
+        } else {
+          const mc = typeof m.itemStyle.color === "string" ? m.itemStyle.color : "#ffd700";
+          tip += '<br/><b style="color:' + mc + '">● ' + m.value + "</b> " + _fmtReasonWithBand(m.reason);
+        }
+      }
+      return tip;
+    },
+  };
+}
 // 单序列 value 折线 + 买卖点 markPoint（B 扩展：指标/情绪分用，数据是 [{date,value}]）
 // 与 indexChart 区别：数据结构是 value 单序列（无 close/high），量级差异大（gold 100-1249 /
 // cn10y 1.5-4 / usdcnh 680-722），用通用折线 + markPoint。opts 透传 visualMap 等（cross_market 用）。
 function valueChartWithSignals(title, data, signals, opts, stats, strategy, indexId, container = content, chartArr = charts) {
   const sigs = signals || [];
   const hint = statsHint(stats, strategy, indexId);
-  const c = mkCard(title, 300, hint, container, chartArr);
-  // 模拟回测按钮：注入 h3 末尾排在❓后（与 indexChart 一致，挪出策略区块）
-  _prependSimBtn(c.getDom().parentElement, indexId);
-  // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
-  _bindFreqPopupToHintRows(c.getDom().parentElement, stats);
   // 4色买点拼色 pin（同日多买点合并1个拼色 pin，参照汪汪队），卖绿独立 pin
   const _dataMap = {}; for (const p of data) _dataMap[p.date] = p;
   const markData = _buildSignalMarkData(sigs, (date) => {
     const p = _dataMap[date]; return p ? p.value : null;
   });
-  c.setOption(withTheme({
+  // echarts 版 setOption 配置(两种模式共享: lite 开关 false 回退重建时复用)
+  const _sigSetOption = (c) => c.setOption(withTheme({
     tooltip: {
       trigger: "axis",
       // P0-3: hover 信号日时追加完整 reason
@@ -3627,6 +3700,64 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
     }],
     ...opts,
   }));
+  // 轻量 SVG 模式(默认): _lwCardShell(等价 mkCard 但不在建卡时立即 echarts.init) + _lwSetup 注册
+  // _lwRenderers(⚡ 开关可即时重渲染; 开关 false 时经 echartsFn 回退重建 echarts 不空白)。
+  // 返回 {getDom, card, resize, getOption, setOption} 兼容全部调用方
+  // (L4848 信号弹窗 getDom / L13028 extras getDom / sentiment subtab getOption+setOption+resize+height)。
+  if (siteCfg("charts.lightweight", true)) {
+    const div = _lwCardShell(title, 300, hint, container);
+    const card = div.parentElement;
+    _prependSimBtn(card, indexId);
+    _bindFreqPopupToHintRows(card, stats);
+    const liteCfg = _lwSignalLiteCfg(title, data, markData, opts);
+    _lwSetup(div, liteCfg, (container) => {
+      const inst = echarts.init(container);
+      _sigSetOption(inst);
+      if (chartArr) chartArr.push(inst);
+    });
+    return {
+      getDom: () => div,
+      card: card,
+      resize: () => { const fn = _lwRenderers.get(div); if (fn) { try { fn(); } catch (e) {} } },
+      // getOption 返回信号 markData(恐贪调用方读 markPoint.data 合并最新值圆点再 setOption 回写)
+      getOption: () => ({ series: [{ markPoint: { data: markData } }] }),
+      // setOption 合并 markPoint.data(信号 pin+最新值圆点) + markLine(阈值线) 到 lite cfg 并重渲染
+      setOption: (opt) => {
+        if (!opt || !opt.series || !opt.series[0]) return;
+        const _s0 = opt.series[0];
+        const _dates = (data || []).map((d) => d.date);
+        if (_s0.markPoint && Array.isArray(_s0.markPoint.data)) {
+          const mp = _lwSignalMarkPoints(_s0.markPoint.data, _dates);
+          liteCfg.series[0].markPoints = mp.markPoints;
+          liteCfg.gradients = mp.gradients;
+        }
+        if (_s0.markLine && Array.isArray(_s0.markLine.data)) {
+          const ml = [];
+          for (const d of _s0.markLine.data) {
+            if (d.yAxis == null) continue;
+            const pos = d.label && d.label.position;
+            ml.push({
+              y: d.yAxis,
+              color: (d.lineStyle && d.lineStyle.color) || "var(--text-3)",
+              label: d.label ? d.label.formatter : undefined,
+              pos: pos && pos.indexOf("End") >= 0 ? "end" : "start",
+              fontSize: (d.label && d.label.fontSize) || 10,
+            });
+          }
+          liteCfg.series[0].markLine = ml;
+        }
+        const fn = _lwRenderers.get(div);
+        if (fn) { try { fn(); } catch (e) {} }
+      },
+    };
+  }
+  // echarts 模式(开关 false 回退原实现)
+  const c = mkCard(title, 300, hint, container, chartArr);
+  // 模拟回测按钮：注入 h3 末尾排在❓后（与 indexChart 一致，挪出策略区块）
+  _prependSimBtn(c.getDom().parentElement, indexId);
+  // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
+  _bindFreqPopupToHintRows(c.getDom().parentElement, stats);
+  _sigSetOption(c);
   return c;
 }
 
@@ -5187,9 +5318,7 @@ async function openKpiDetailModal(kpiId, period = "3m") {
     const hintHtml = result.hint ? `<div class="chart-hint">${result.hint}</div>` : "";
     chartCard.innerHTML = `<h3>${cardTitle}走势${suffix}${noteHtml}</h3>${hintHtml}<div class="chart" style="height:380px"></div>`;
     body.appendChild(chartCard);
-    const chart = echarts.init(chartCard.querySelector(".chart"));
-    _kpiDetailCharts.push(chart);
-
+    const chartEl = chartCard.querySelector(".chart");
     const dates = [...new Set(result.series.flatMap(s => (s.data || []).map(d => d.date)))].sort();
     const seriesOpt = result.series.map((s, idx) => {
       // P0-1: 补了预估点的 series 加灰色"预估"markPoint（与信号弹窗 estimate pin 风格一致）
@@ -5221,30 +5350,35 @@ async function openKpiDetailModal(kpiId, period = "3m") {
     });
     // tooltip formatter：从 yLabel "{value}亿" 提取单位后缀；series 名含"盘中"标注"盘中半日值"
     const _unit = result.yLabel ? (String(result.yLabel).match(/\{value\}([\s\S]*)/) || [])[1] || "" : "";
-    chart.setOption(withTheme({
-      tooltip: {
-        trigger: "axis",
-        formatter: (params) => {
-          if (!Array.isArray(params) || !params.length) return "";
-          const lines = [fmtDate(params[0].axisValueLabel || params[0].name)];
-          for (const p of params) {
-            if (p.value == null) continue;
-            const isHalfDay = p.seriesName && p.seriesName.indexOf("盘中") >= 0;
-            const val = typeof p.value === "number" ? p.value.toFixed(2) : p.value;
-            lines.push(`${p.marker}${p.seriesName}: ${val}${_unit}${isHalfDay ? " (盘中半日值)" : ""}`);
-          }
-          return lines.join("<br/>");
+    // P1 Step②(2026-08-12): KPI 详情走势图 lite-aware(_lwSetup, 外观对等原 echarts 多系列+visualMap+markLine+预估pin)
+    _lwSetup(chartEl, _kpiLiteCfg(result, dates, _estimates, _unit), (container) => {
+      const chart = echarts.init(container);
+      _kpiDetailCharts.push(chart);
+      chart.setOption(withTheme({
+        tooltip: {
+          trigger: "axis",
+          formatter: (params) => {
+            if (!Array.isArray(params) || !params.length) return "";
+            const lines = [fmtDate(params[0].axisValueLabel || params[0].name)];
+            for (const p of params) {
+              if (p.value == null) continue;
+              const isHalfDay = p.seriesName && p.seriesName.indexOf("盘中") >= 0;
+              const val = typeof p.value === "number" ? p.value.toFixed(2) : p.value;
+              lines.push(`${p.marker}${p.seriesName}: ${val}${_unit}${isHalfDay ? " (盘中半日值)" : ""}`);
+            }
+            return lines.join("<br/>");
+          },
         },
-      },
-      legend: { top: 0, type: "scroll" },
-      grid: { left: 65, right: 25, top: 35, bottom: 45 },
-      xAxis: { type: "category", data: dates },
-      yAxis: { type: "value", scale: true, axisLabel: result.yLabel ? { formatter: result.yLabel } : undefined },
-      dataZoom: dzOpts(),
-      series: seriesOpt,
-      ...(result.visualMap ? { visualMap: result.visualMap } : {}),
-    }));
-    requestAnimationFrame(() => chart.resize());
+        legend: { top: 0, type: "scroll" },
+        grid: { left: 65, right: 25, top: 35, bottom: 45 },
+        xAxis: { type: "category", data: dates },
+        yAxis: { type: "value", scale: true, axisLabel: result.yLabel ? { formatter: result.yLabel } : undefined },
+        dataZoom: dzOpts(),
+        series: seriesOpt,
+        ...(result.visualMap ? { visualMap: result.visualMap } : {}),
+      }));
+      requestAnimationFrame(() => chart.resize());
+    });
   } catch (e) {
     renderErrorState(body, e, () => openKpiDetailModal(kpiId, period));
   }
@@ -6970,10 +7104,6 @@ function _renderIntradayChart(container, code, preClose, snapTime) {
         if (t) _intradayDynamicTime = t;
       }
     }
-    // dispose 旧实例避免内存泄漏
-    const old = echarts.getInstanceByDom(container);
-    if (old) { old.dispose(); const i = charts.indexOf(old); if (i >= 0) charts.splice(i, 1); }
-    container.innerHTML = "";
     const pc = preClose || result.preClose;
     const lastPrice = result.points[result.points.length - 1].price;
     const up = pc != null ? lastPrice >= pc : true;
@@ -6986,55 +7116,80 @@ function _renderIntradayChart(container, code, preClose, snapTime) {
       if (p.time < "13:00") morningLast = p.time;
       else if (!afternoonFirst) { afternoonFirst = p.time; break; }
     }
-    const markAreaData = (morningLast && afternoonFirst && morningLast !== afternoonFirst)
-      ? [[{ xAxis: morningLast }, { xAxis: afternoonFirst }]] : [];
-    const chart = echarts.init(container);
-    chart.setOption(withTheme({
-      grid: { left: 38, right: 6, top: 8, bottom: 18 },
-      xAxis: {
-        type: "category", data: times, boundaryGap: false,
-        axisLabel: { interval: Math.max(1, Math.floor(times.length / 4)), fontSize: 10 },
-      },
-      yAxis: {
-        type: "value", scale: true, splitNumber: 2,
-        axisLabel: { fontSize: 10, formatter: (v) => v.toFixed(0) },
-      },
-      tooltip: {
-        trigger: "axis",
-        formatter: (p) => {
-          if (!p[0]) return "";
-          const price = p[0].value != null ? Number(p[0].value) : NaN;
-          let line = p[0].axisValue + "<br/>" + (isNaN(price) ? "-" : price.toFixed(2));
-          if (pc != null && !isNaN(price)) {
-            const diff = price - pc;
-            const pct = (diff / pc) * 100;
-            const up = diff >= 0;
-            const color = up ? "#e6492e" : "#2e8b57";
-            const sign = up ? "+" : "";
-            line += `<br/><span style="color:${color}">涨跌 ${sign}${diff.toFixed(2)}</span>`;
-            line += `<br/><span style="color:${color}">幅度 ${sign}${pct.toFixed(2)}%</span>`;
-          }
-          return line;
-        },
-      },
+    const _mi0 = times.indexOf(morningLast), _mi1 = times.indexOf(afternoonFirst);
+    const _lwMA = (_mi0 >= 0 && _mi1 > _mi0) ? [{ i0: _mi0, i1: _mi1, color: "rgba(128,128,128,0.08)", label: "午休" }] : [];
+    const _lwML = pc != null ? [{ y: pc, color: cssVar("--text-3"), label: "昨收", pos: "end", fontSize: 9, width: 1 }] : [];
+    // P1 Step②(2026-08-12): 分时图 lite-aware(_lwSetup, 外观对等原 echarts line+markLine昨收+markArea午休, boundaryGap:false)
+    _lwSetup(container, {
+      h: container.offsetHeight || 100, pl: 38, pr: 6, pt: 8, pb: 18,
+      boundaryGap: false,
+      xLabels: times, xFmt: (v) => v, xStep: Math.max(1, Math.floor(times.length / 4)),
+      ys: [{ scale: true, splitNumber: 2, formatter: (v) => Number(v).toFixed(0) }],
       series: [{
-        type: "line", data: prices, symbol: "none", connectNulls: false,
-        lineStyle: { color, width: 1.2 }, areaStyle: { color, opacity: 0.1 },
-        // 昨收基准横虚线
-        markLine: pc != null ? {
-          symbol: "none", silent: true,
-          lineStyle: { type: "dashed", color: cssVar("--text-3"), width: 1 },
-          data: [{ yAxis: pc, label: { formatter: "昨收", position: "end", fontSize: 9, color: cssVar("--text-3") } }],
-        } : undefined,
-        // 午休灰色横条标注
-        markArea: markAreaData.length ? {
-          silent: true, itemStyle: { color: "rgba(128,128,128,0.08)" },
-          label: { show: true, position: "insideTop", formatter: "午休", fontSize: 9, color: cssVar("--text-4") },
-          data: markAreaData,
-        } : undefined,
+        type: "line", data: prices, color: color, width: 1.2, smooth: false,
+        areaOpacity: 0.1, markLine: _lwML, markArea: _lwMA,
       }],
-    }));
-    charts.push(chart);
+      tipFn: (i) => {
+        const price = prices[i];
+        let line = times[i] + "<br/>" + (price == null || isNaN(price) ? "-" : Number(price).toFixed(2));
+        if (pc != null && price != null && !isNaN(price)) {
+          const diff = price - pc;
+          const pct = (diff / pc) * 100;
+          const u2 = diff >= 0;
+          const c2 = u2 ? "#e6492e" : "#2e8b57";
+          const sign = u2 ? "+" : "";
+          line += `<br/><span style="color:${c2}">涨跌 ${sign}${diff.toFixed(2)}</span>`;
+          line += `<br/><span style="color:${c2}">幅度 ${sign}${pct.toFixed(2)}%</span>`;
+        }
+        return line;
+      },
+    }, (container2) => {
+      const chart = echarts.init(container2);
+      chart.setOption(withTheme({
+        grid: { left: 38, right: 6, top: 8, bottom: 18 },
+        xAxis: {
+          type: "category", data: times, boundaryGap: false,
+          axisLabel: { interval: Math.max(1, Math.floor(times.length / 4)), fontSize: 10 },
+        },
+        yAxis: {
+          type: "value", scale: true, splitNumber: 2,
+          axisLabel: { fontSize: 10, formatter: (v) => v.toFixed(0) },
+        },
+        tooltip: {
+          trigger: "axis",
+          formatter: (p) => {
+            if (!p[0]) return "";
+            const price = p[0].value != null ? Number(p[0].value) : NaN;
+            let line = p[0].axisValue + "<br/>" + (isNaN(price) ? "-" : price.toFixed(2));
+            if (pc != null && !isNaN(price)) {
+              const diff = price - pc;
+              const pct = (diff / pc) * 100;
+              const up = diff >= 0;
+              const color = up ? "#e6492e" : "#2e8b57";
+              const sign = up ? "+" : "";
+              line += `<br/><span style="color:${color}">涨跌 ${sign}${diff.toFixed(2)}</span>`;
+              line += `<br/><span style="color:${color}">幅度 ${sign}${pct.toFixed(2)}%</span>`;
+            }
+            return line;
+          },
+        },
+        series: [{
+          type: "line", data: prices, symbol: "none", connectNulls: false,
+          lineStyle: { color, width: 1.2 }, areaStyle: { color, opacity: 0.1 },
+          markLine: pc != null ? {
+            symbol: "none", silent: true,
+            lineStyle: { type: "dashed", color: cssVar("--text-3"), width: 1 },
+            data: [{ yAxis: pc, label: { formatter: "昨收", position: "end", fontSize: 9, color: cssVar("--text-3") } }],
+          } : undefined,
+          markArea: (_mi0 >= 0 && _mi1 > _mi0) ? {
+            silent: true, itemStyle: { color: "rgba(128,128,128,0.08)" },
+            label: { show: true, position: "insideTop", formatter: "午休", fontSize: 9, color: cssVar("--text-4") },
+            data: [[{ xAxis: morningLast }, { xAxis: afternoonFirst }]],
+          } : undefined,
+        }],
+      }));
+      charts.push(chart);
+    });
     return true;
   }).catch(() => { _renderIntradayFail(container, snapTime); return false; });
 }
@@ -9770,7 +9925,22 @@ async function renderOverview() {
   // 左列：恐贪指数折线（近 6 月，visualMap 分段着色）
   if (r.fear_greed_6m && r.fear_greed_6m.length) {
     const fg6 = r.fear_greed_6m.map((d) => ({ date: d.date, value: d.value }));
-    const fgChart = lineChart("😐 恐贪指数（近 6 月）" + termTip("综合5类市场情绪算的0-100温度计，越低越恐惧越高越贪婪") + latestSuffix(fg6), fg6, {
+    // P1 Step②(2026-08-12): 恐贪指数 lite-aware(_lwLineCard, 外观对等原 lineChart+visualMap+markLine)
+    const fgColor = (v) => {
+      if (v == null || isNaN(v)) return "#86909c";
+      if (v <= 25) return "#42a5f5";
+      if (v <= 40) return "#4fc3f7";
+      if (v <= 60) return "#86909c";
+      if (v <= 75) return "#e6a23c";
+      return "#e6492e";
+    };
+    const fgChart = _lwLineCard("😐 恐贪指数（近 6 月）" + termTip("综合5类市场情绪算的0-100温度计，越低越恐惧越高越贪婪") + latestSuffix(fg6), fg6, {
+      _lwColor: "#86909c",
+      _lwColorFn: (i, v) => fgColor(v),
+      _lwMarkLine: [
+        { y: 25, color: "#42a5f5", label: "冰点" },
+        { y: 75, color: "#e6492e", label: "过热" },
+      ],
       visualMap: {
         show: false,
         pieces: [
@@ -9783,17 +9953,8 @@ async function renderOverview() {
         dimension: 1,
       },
     }, null, colA1);
-    if (fgChart) {
-      // 冰点(≤25)/过热(≥75)阈值虚线（与盘面温测 tab 恐贪图一致）
-      fgChart.setOption({ series: [{ markLine: {
-        silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
-        data: [
-          { yAxis: 25, lineStyle: { color: "#42a5f5" }, label: { formatter: "冰点", color: "#42a5f5", position: "insideStartTop", fontSize: 10 } },
-          { yAxis: 75, lineStyle: { color: "#e6492e" }, label: { formatter: "过热", color: "#e6492e", position: "insideStartTop", fontSize: 10 } },
-        ],
-      } }] });
-      addCardTimeBadge(fgChart.getDom().parentElement, fg6.length ? fg6[fg6.length - 1].date : "", snap, "t0");
-    }
+    // 冰点(≤25)/过热(≥75)阈值虚线（与盘面温测 tab 恐贪图一致）
+    if (fgChart) addCardTimeBadge(fgChart.card, fg6.length ? fg6[fg6.length - 1].date : "", snap, "t0");
   }
 
   // 左列：恐贪分项条（8 项情绪分等权 = 恐贪指数；分项解释总分构成，紧贴恐贪折线）
@@ -9835,7 +9996,22 @@ async function renderOverview() {
   // 左列：A股综合情绪分折线（近 6 月）
   if (r.a_sentiment_6m && r.a_sentiment_6m.length) {
     const as6 = r.a_sentiment_6m.map((d) => ({ date: d.date, value: d.value }));
-    const asChart = lineChart("A股综合情绪分（近 6 月）" + termTip("综合多项指标算的0-100情绪分，≤20冰点≥80过热") + latestSuffix(as6), as6, {
+    // P1 Step②: A股综合情绪分 lite-aware(_lwLineCard, 外观对等原 lineChart+visualMap+markLine)
+    const asColor = (v) => {
+      if (v == null || isNaN(v)) return "#86909c";
+      if (v <= 20) return "#42a5f5";
+      if (v <= 40) return "#4fc3f7";
+      if (v <= 60) return "#86909c";
+      if (v <= 80) return "#e6a23c";
+      return "#e6492e";
+    };
+    const asChart = _lwLineCard("A股综合情绪分（近 6 月）" + termTip("综合多项指标算的0-100情绪分，≤20冰点≥80过热") + latestSuffix(as6), as6, {
+      _lwColor: "#86909c",
+      _lwColorFn: (i, v) => asColor(v),
+      _lwMarkLine: [
+        { y: 20, color: "#42a5f5", label: "20" },
+        { y: 80, color: "#e6492e", label: "80" },
+      ],
       visualMap: {
         show: false,
         pieces: [
@@ -9850,19 +10026,12 @@ async function renderOverview() {
     }, null, colA1);
     if (asChart) {
       // 冰点(≤20)/过热(≥80)阈值虚线（情绪分口径，与盘面温测 tab 一致）
-      asChart.setOption({ series: [{ markLine: {
-        silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
-        data: [
-          { yAxis: 20, lineStyle: { color: "#42a5f5" }, label: { formatter: "20", color: "#42a5f5", position: "insideStartTop", fontSize: 10 } },
-          { yAxis: 80, lineStyle: { color: "#e6492e" }, label: { formatter: "80", color: "#e6492e", position: "insideStartTop", fontSize: 10 } },
-        ],
-      } }] });
-      addCardTimeBadge(asChart.getDom().parentElement, as6.length ? as6[as6.length - 1].date : "", snap, "t0");
+      addCardTimeBadge(asChart.card, as6.length ? as6[as6.length - 1].date : "", snap, "t0");
       // 图表高度减一点(300->250)，给下方历史位置3行腾空间
-      const _ovChartDiv = asChart.getDom();
-      if (_ovChartDiv) { _ovChartDiv.style.height = '250px'; asChart.resize(); }
+      _lwSetHeight(asChart.div, 250);
       // 历史位置3行(候选2/3/4)合并进本卡图表下方：overview.json 无1年时序，独立 fetch 近1年+6月
-      appendHistoryPos(asChart.getDom().parentElement);
+      // _lwLineCard 返回 {card, div}（card=.chart-card, div=.chart 容器），非 echarts 实例无 getDom()
+      appendHistoryPos(asChart.card);
     }
   }
 
@@ -10040,29 +10209,65 @@ async function renderOverview() {
     const wUpV = (w.up.find((x) => x.date === wLast) || {}).value;
     const wDnV = (w.down.find((x) => x.date === wLast) || {}).value;
     const wSuffix = wLast ? `<span class="chart-latest"> · ${fmtDate(wLast)} 涨${wUpV != null ? wUpV : "-"} 跌${wDnV != null ? wDnV : "-"}</span>` : "";
-    const wc = mkCard("市场宽度（涨跌家数，近 1 月）" + termTip("上涨家数占比反映市场广度，普涨时宽度大") + wSuffix + termTip(_WIDTH_CALIBER_TIP), 182, null, colB1);
-    wc.getDom().closest(".chart-card").classList.add("chart-card--no-stretch"); // 图表缩30%后容器配套缩小(ui119)
-    appendPlainTip(wc, "上涨家数远多于下跌=普涨行情；两者接近=市场分化");
-    addCardTimeBadge(wc.getDom().parentElement, wLast, snap, "t0");
-    wc.setOption(withTheme({
-      tooltip: { trigger: "axis" },
-      legend: { top: 0, data: ["上涨家数", "下跌家数"] },
-      grid: { left: 55, right: 20, top: 35, bottom: 35 },
-      xAxis: { type: "category", data: wDates },
-      yAxis: { type: "value" },
-      series: [
-        { name: "上涨家数", type: "line", stack: "width", symbol: "none", areaStyle: {}, color: "#e6492e",
-          data: wDates.map((d) => { const p = w.up.find((x) => x.date === d); return p ? p.value : null; }) },
-        { name: "下跌家数", type: "line", stack: "width", symbol: "none", areaStyle: {}, color: "#2e8b57",
-          data: wDates.map((d) => { const p = w.down.find((x) => x.date === d); return p ? p.value : null; }) },
+    // P1 Step②(2026-08-12): 市场宽度 lite-aware(多系列堆叠面积, 外观对等原 mkCard+setOption stack area)
+    const _wUpData = wDates.map((d) => { const p = w.up.find((x) => x.date === d); return p ? p.value : null; });
+    const _wDnData = wDates.map((d) => { const p = w.down.find((x) => x.date === d); return p ? p.value : null; });
+    const _wDiv = _lwCardShell("市场宽度（涨跌家数，近 1 月）" + termTip("上涨家数占比反映市场广度，普涨时宽度大") + wSuffix + termTip(_WIDTH_CALIBER_TIP), 182, null, colB1);
+    _wDiv.parentElement.classList.add("chart-card--no-stretch"); // 图表缩30%后容器配套缩小(ui119)
+    appendPlainTip(_wDiv.parentElement, "上涨家数远多于下跌=普涨行情；两者接近=市场分化");
+    addCardTimeBadge(_wDiv.parentElement, wLast, snap, "t0");
+    _lwSetup(_wDiv, {
+      h: 182, pl: 55, pr: 20, pt: 35, pb: 35,
+      xLabels: wDates, xFmt: (v) => v,
+      ys: [{ splitLine: true }],
+      legend: [
+        { name: "上涨家数", color: "#e6492e" },
+        { name: "下跌家数", color: "#2e8b57" },
       ],
-    }));
+      series: [
+        { type: "stack", stack: "width", data: _wUpData, color: "#e6492e", width: 1.5, smooth: true, areaOpacity: 0.6 },
+        { type: "stack", stack: "width", data: _wDnData, color: "#2e8b57", width: 1.5, smooth: true, areaOpacity: 0.6 },
+      ],
+      tipFn: (i) => {
+        const up = _wUpData[i], dn = _wDnData[i];
+        return wDates[i] + "<br/>上涨家数：" + (up == null || isNaN(up) ? "-" : up) + "<br/>下跌家数：" + (dn == null || isNaN(dn) ? "-" : dn);
+      },
+    }, (container) => {
+      const inst = echarts.init(container);
+      inst.setOption(withTheme({
+        tooltip: { trigger: "axis" },
+        legend: { top: 0, data: ["上涨家数", "下跌家数"] },
+        grid: { left: 55, right: 20, top: 35, bottom: 35 },
+        xAxis: { type: "category", data: wDates },
+        yAxis: { type: "value" },
+        series: [
+          { name: "上涨家数", type: "line", stack: "width", symbol: "none", areaStyle: {}, color: "#e6492e", data: _wUpData },
+          { name: "下跌家数", type: "line", stack: "width", symbol: "none", areaStyle: {}, color: "#2e8b57", data: _wDnData },
+        ],
+      }));
+      charts.push(inst);
+    });
   }
 
   // 左列：跨市场综合评分折线（近 6 月）
   if (r.cross_market_6m && r.cross_market_6m.length) {
     const cm6 = r.cross_market_6m.map((d) => ({ date: d.date, value: d.value }));
-    const cmChart = lineChart("跨市场综合评分（近 6 月）" + termTip("综合A股/港股/美股等多市场算的0-100分，≤20偏冷≥80偏热") + latestSuffix(cm6), cm6, {
+    // P1 Step②(2026-08-12): 跨市场综合评分 lite-aware(_lwLineCard, 外观对等原 lineChart+visualMap+markLine)
+    const cmColor = (v) => {
+      if (v == null || isNaN(v)) return "#86909c";
+      if (v <= 20) return "#42a5f5";
+      if (v <= 40) return "#4fc3f7";
+      if (v <= 60) return "#86909c";
+      if (v <= 80) return "#e6a23c";
+      return "#e6492e";
+    };
+    const cmChart = _lwLineCard("跨市场综合评分（近 6 月）" + termTip("综合A股/港股/美股等多市场算的0-100分，≤20偏冷≥80偏热") + latestSuffix(cm6), cm6, {
+      _lwColor: "#86909c",
+      _lwColorFn: (i, v) => cmColor(v),
+      _lwMarkLine: [
+        { y: 20, color: "#42a5f5", label: "20" },
+        { y: 80, color: "#e6492e", label: "80" },
+      ],
       visualMap: {
         show: false,
         pieces: [
@@ -10076,16 +10281,9 @@ async function renderOverview() {
       },
     }, null, colB1, 210);
     if (cmChart) {
-      cmChart.getDom().closest(".chart-card").classList.add("chart-card--no-stretch"); // 图表缩30%后容器配套缩小(ui119)
+      cmChart.card.classList.add("chart-card--no-stretch"); // 图表缩30%后容器配套缩小(ui119)
       // 冰点(≤20)/过热(≥80)阈值虚线（情绪分口径，与盘面温测 tab 一致）
-      cmChart.setOption({ series: [{ markLine: {
-        silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
-        data: [
-          { yAxis: 20, lineStyle: { color: "#42a5f5" }, label: { formatter: "20", color: "#42a5f5", position: "insideStartTop", fontSize: 10 } },
-          { yAxis: 80, lineStyle: { color: "#e6492e" }, label: { formatter: "80", color: "#e6492e", position: "insideStartTop", fontSize: 10 } },
-        ],
-      } }] });
-      addCardTimeBadge(cmChart.getDom().parentElement, cm6.length ? cm6[cm6.length - 1].date : "", snap, "t0");
+      addCardTimeBadge(cmChart.card, cm6.length ? cm6[cm6.length - 1].date : "", snap, "t0");
     }
   }
 
@@ -10187,26 +10385,55 @@ async function renderOverview() {
         { name: "腾落线", data: adData.map(d => ({ date: d.date, value: d.ad_line })), label: "腾落线" },
         { name: "腾落线MA20", data: adData.map(d => ({ date: d.date, value: d.ad_line_ma20 })), label: "MA20" },
       ];
-      const adc = mkCard("📊 腾落线（AD Line）" + termTip("腾落线=累积每日上涨家数-下跌家数。持续上升=广度健康(多数股票涨),与指数背离常预示拐点。累计值绝对值无意义,看趋势。") + latestSuffixMulti(adSeries), 210, null, colC1);
-      adc.getDom().closest(".chart-card").classList.add("chart-card--no-stretch"); // 图表缩30%后容器配套缩小(ui119)
-      appendPlainTip(adc, "AD线持续上行=多数股票在涨，大盘涨势健康");
-      addCardTimeBadge(adc.getDom().parentElement, adDates.length ? adDates[adDates.length - 1] : "", snap, "t0");
-      adc.setOption(withTheme({
-        tooltip: { trigger: "axis" },
-        legend: { top: 0, data: ["涨跌家数比", "腾落线", "腾落线MA20"] },
-        grid: { left: 55, right: 55, top: 35, bottom: 35 },
-        xAxis: { type: "category", data: adDates },
-        yAxis: [
-          { type: "value", name: "涨跌比", axisLabel: { formatter: v => v.toFixed(2) }, splitLine: { show: false } },
-          { type: "value", name: "腾落线" },
+      // P1 Step②(2026-08-12): AD Line lite-aware(双 y 轴 bar+2线, 外观对等原 mkCard+setOption)
+      const _adDiv = _lwCardShell("📊 腾落线（AD Line）" + termTip("腾落线=累积每日上涨家数-下跌家数。持续上升=广度健康(多数股票涨),与指数背离常预示拐点。累计值绝对值无意义,看趋势。") + latestSuffixMulti(adSeries), 210, null, colC1);
+      _adDiv.parentElement.classList.add("chart-card--no-stretch"); // 图表缩30%后容器配套缩小(ui119)
+      appendPlainTip(_adDiv.parentElement, "AD线持续上行=多数股票在涨，大盘涨势健康");
+      addCardTimeBadge(_adDiv.parentElement, adDates.length ? adDates[adDates.length - 1] : "", snap, "t0");
+      _lwSetup(_adDiv, {
+        h: 210, pl: 55, pr: 55, pt: 35, pb: 35,
+        xLabels: adDates, xFmt: (v) => v,
+        gridAxis: 1, // 右轴(腾落线) splitLine, 左轴(涨跌比) splitLine:false
+        ys: [
+          { formatter: (v) => Number(v).toFixed(2), zeroBased: true, splitLine: false, name: "涨跌比" },
+          { name: "腾落线" },
         ],
-        dataZoom: dzOpts(),
+        legend: [
+          { name: "涨跌家数比", color: "#e6492e" },
+          { name: "腾落线", color: "#5b8ff9" },
+          { name: "腾落线MA20", color: "#f6bd16" },
+        ],
         series: [
-          { name: "涨跌家数比", type: "bar", yAxisIndex: 0, data: ratioData.map((v, i) => ({ value: v, itemStyle: { color: ratioColors[i] } })), barWidth: "60%" },
-          { name: "腾落线", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: adLineData, lineStyle: { color: "#5b8ff9", width: 1.5 } },
-          { name: "腾落线MA20", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: adMA20, lineStyle: { color: "#f6bd16", width: 1.5, type: "dashed" } },
+          { type: "bar", yIndex: 0, data: ratioData, itemColor: (i, v) => ratioColors[i], color: "#e6492e", barWidth: "60%" },
+          { type: "line", yIndex: 1, data: adLineData, color: "#5b8ff9", width: 1.5, smooth: true },
+          { type: "line", yIndex: 1, data: adMA20, color: "#f6bd16", width: 1.5, smooth: true, dash: "4 3" },
         ],
-      }));
+        tipFn: (i) => {
+          const r = ratioData[i], al = adLineData[i], ma = adMA20[i];
+          return adDates[i] + "<br/>涨跌家数比：" + (r == null || isNaN(r) ? "-" : Number(r).toFixed(2))
+            + "<br/>腾落线：" + (al == null || isNaN(al) ? "-" : al)
+            + "<br/>腾落线MA20：" + (ma == null || isNaN(ma) ? "-" : ma);
+        },
+      }, (container) => {
+        const inst = echarts.init(container);
+        inst.setOption(withTheme({
+          tooltip: { trigger: "axis" },
+          legend: { top: 0, data: ["涨跌家数比", "腾落线", "腾落线MA20"] },
+          grid: { left: 55, right: 55, top: 35, bottom: 35 },
+          xAxis: { type: "category", data: adDates },
+          yAxis: [
+            { type: "value", name: "涨跌比", axisLabel: { formatter: v => v.toFixed(2) }, splitLine: { show: false } },
+            { type: "value", name: "腾落线" },
+          ],
+          dataZoom: dzOpts(),
+          series: [
+            { name: "涨跌家数比", type: "bar", yAxisIndex: 0, data: ratioData.map((v, i) => ({ value: v, itemStyle: { color: ratioColors[i] } })), barWidth: "60%" },
+            { name: "腾落线", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: adLineData, lineStyle: { color: "#5b8ff9", width: 1.5 } },
+            { name: "腾落线MA20", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: adMA20, lineStyle: { color: "#f6bd16", width: 1.5, type: "dashed" } },
+          ],
+        }));
+        charts.push(inst);
+      });
     } else {
       renderFailCard(colC1, "📊 腾落线（AD Line）");
     }
@@ -10229,25 +10456,48 @@ async function renderOverview() {
         { name: "MA5", data: vrData.map(d => ({ date: d.date, value: d.ma5 })), label: "MA5" },
         { name: "MA20", data: vrData.map(d => ({ date: d.date, value: d.ma20 })), label: "MA20" },
       ];
-      const vrc = mkCard("📈 成交额与量比（近 120 日）" + termTip("量比=当日成交额/前5日均量。>1.5=放量(交投活跃),<0.7=缩量(清淡)。放量伴随涨跌更可信。") + latestSuffixMulti(vrSeries), 300, null, colC2);
-      appendPlainTip(vrc, "量比>1.5为明显放量，<0.5为明显缩量");
-      addCardTimeBadge(vrc.getDom().parentElement, vrDates.length ? vrDates[vrDates.length - 1] : "", snap, "t0");
-      vrc.setOption(withTheme({
-        tooltip: { trigger: "axis", formatter: function(params) {
-          const d = vrData[params[0].dataIndex];
-          return `<b>${d.date}</b><br/>成交额: ${(d.amount || 0).toFixed(0)} 亿<br/>MA5: ${(d.ma5 || 0).toFixed(0)} 亿<br/>MA20: ${(d.ma20 || 0).toFixed(0)} 亿<br/>量比: ${(d.ratio || 0).toFixed(2)}x<br/>信号: ${d.signal || "正常"}`;
-        }},
-        legend: { top: 0, data: ["成交额", "MA5", "MA20"] },
-        grid: { left: 55, right: 20, top: 35, bottom: 35 },
-        xAxis: { type: "category", data: vrDates },
-        yAxis: { type: "value", name: "亿元", axisLabel: { color: cssVar("--text-1"), formatter: v => (v / 10000).toFixed(1) + "万" }, nameTextStyle: { color: cssVar("--text-1") } },
-        dataZoom: dzOpts(),
-        series: [
-          { name: "成交额", type: "bar", data: vrAmount.map((v, i) => ({ value: v, itemStyle: { color: vrColors[i] } })), barWidth: "60%" },
-          { name: "MA5", type: "line", symbol: "none", smooth: true, data: vrMA5, lineStyle: { color: "#f6bd16", width: 1.5 } },
-          { name: "MA20", type: "line", symbol: "none", smooth: true, data: vrMA20, lineStyle: { color: "#5b8ff9", width: 1.5, type: "dashed" } },
+      // P1 Step②(2026-08-12): 成交额与量比 lite-aware(单 y bar+2线, 外观对等原 mkCard+setOption)
+      const _vrDiv = _lwCardShell("📈 成交额与量比（近 120 日）" + termTip("量比=当日成交额/前5日均量。>1.5=放量(交投活跃),<0.7=缩量(清淡)。放量伴随涨跌更可信。") + latestSuffixMulti(vrSeries), 300, null, colC2);
+      appendPlainTip(_vrDiv.parentElement, "量比>1.5为明显放量，<0.5为明显缩量");
+      addCardTimeBadge(_vrDiv.parentElement, vrDates.length ? vrDates[vrDates.length - 1] : "", snap, "t0");
+      _lwSetup(_vrDiv, {
+        h: 300, pl: 55, pr: 20, pt: 35, pb: 35,
+        xLabels: vrDates, xFmt: (v) => v,
+        ys: [{ name: "亿元", zeroBased: true, formatter: (v) => (v / 10000).toFixed(1) + "万" }],
+        legend: [
+          { name: "成交额", color: "#e6492e" },
+          { name: "MA5", color: "#f6bd16" },
+          { name: "MA20", color: "#5b8ff9" },
         ],
-      }));
+        series: [
+          { type: "bar", data: vrAmount, itemColor: (i, v) => vrColors[i], color: "#e6492e", barWidth: "60%" },
+          { type: "line", data: vrMA5, color: "#f6bd16", width: 1.5, smooth: true },
+          { type: "line", data: vrMA20, color: "#5b8ff9", width: 1.5, smooth: true, dash: "4 3" },
+        ],
+        tipFn: (i) => {
+          const d = vrData[i] || {};
+          return `<b>${d.date || ""}</b><br/>成交额: ${(d.amount || 0).toFixed(0)} 亿<br/>MA5: ${(d.ma5 || 0).toFixed(0)} 亿<br/>MA20: ${(d.ma20 || 0).toFixed(0)} 亿<br/>量比: ${(d.ratio || 0).toFixed(2)}x<br/>信号: ${d.signal || "正常"}`;
+        },
+      }, (container) => {
+        const inst = echarts.init(container);
+        inst.setOption(withTheme({
+          tooltip: { trigger: "axis", formatter: function(params) {
+            const d = vrData[params[0].dataIndex];
+            return `<b>${d.date}</b><br/>成交额: ${(d.amount || 0).toFixed(0)} 亿<br/>MA5: ${(d.ma5 || 0).toFixed(0)} 亿<br/>MA20: ${(d.ma20 || 0).toFixed(0)} 亿<br/>量比: ${(d.ratio || 0).toFixed(2)}x<br/>信号: ${d.signal || "正常"}`;
+          }},
+          legend: { top: 0, data: ["成交额", "MA5", "MA20"] },
+          grid: { left: 55, right: 20, top: 35, bottom: 35 },
+          xAxis: { type: "category", data: vrDates },
+          yAxis: { type: "value", name: "亿元", axisLabel: { color: cssVar("--text-1"), formatter: v => (v / 10000).toFixed(1) + "万" }, nameTextStyle: { color: cssVar("--text-1") } },
+          dataZoom: dzOpts(),
+          series: [
+            { name: "成交额", type: "bar", data: vrAmount.map((v, i) => ({ value: v, itemStyle: { color: vrColors[i] } })), barWidth: "60%" },
+            { name: "MA5", type: "line", symbol: "none", smooth: true, data: vrMA5, lineStyle: { color: "#f6bd16", width: 1.5 } },
+            { name: "MA20", type: "line", symbol: "none", smooth: true, data: vrMA20, lineStyle: { color: "#5b8ff9", width: 1.5, type: "dashed" } },
+          ],
+        }));
+        charts.push(inst);
+      });
     } else {
       renderFailCard(colC2, "📈 成交额与量比");
     }
@@ -10265,26 +10515,58 @@ async function renderOverview() {
         { name: "52周新低", data: nhlData.map(d => ({ date: d.date, value: d.nl_52w })), label: "新低" },
         { name: "净新高", data: nhlData.map(d => ({ date: d.date, value: d.nhnl_52w })), label: "净新高" },
       ];
-      const nhlCard = mkCard("🔬 新高新低家数（52 周）" + termTip("近52周创新高/新低的股票家数，新高多=强势新低多=弱势") + latestSuffixMulti(nhlSeries), 196, null, colC1);
-      nhlCard.getDom().closest(".chart-card").classList.add("chart-card--no-stretch"); // 图表缩30%后容器配套缩小(ui119)
-      appendPlainTip(nhlCard, "新高多于新低=市场偏强；新低多于新高=市场偏弱");
-      addCardTimeBadge(nhlCard.getDom().parentElement, nhlDates.length ? nhlDates[nhlDates.length - 1] : "", snap, "t0");
-      nhlCard.setOption(withTheme({
-        tooltip: { trigger: "axis" },
-        legend: { top: 0, data: ["52周新高", "52周新低", "净新高"] },
-        grid: { left: 55, right: 55, top: 35, bottom: 35 },
-        xAxis: { type: "category", data: nhlDates },
-        yAxis: [
-          { type: "value", name: "家数", splitLine: { show: false } },
-          { type: "value", name: "净新高" },
+      // P1 Step②(2026-08-12): 新高新低 lite-aware(双 y 2bar+线, 外观对等原 mkCard+setOption, barOffset 复刻并排)
+      const _nhlDiv = _lwCardShell("🔬 新高新低家数（52 周）" + termTip("近52周创新高/新低的股票家数，新高多=强势新低多=弱势") + latestSuffixMulti(nhlSeries), 196, null, colC1);
+      _nhlDiv.parentElement.classList.add("chart-card--no-stretch"); // 图表缩30%后容器配套缩小(ui119)
+      appendPlainTip(_nhlDiv.parentElement, "新高多于新低=市场偏强；新低多于新高=市场偏弱");
+      addCardTimeBadge(_nhlDiv.parentElement, nhlDates.length ? nhlDates[nhlDates.length - 1] : "", snap, "t0");
+      const _nhlNh = nhlData.map(d => d.nh_52w);
+      const _nhlNl = nhlData.map(d => d.nl_52w);
+      const _nhlNet = nhlData.map(d => d.nhnl_52w);
+      _lwSetup(_nhlDiv, {
+        h: 196, pl: 55, pr: 55, pt: 35, pb: 35,
+        xLabels: nhlDates, xFmt: (v) => v,
+        gridAxis: 1, // 右轴(净新高) splitLine, 左轴(家数) splitLine:false
+        ys: [
+          { name: "家数", zeroBased: true, splitLine: false },
+          { name: "净新高" },
         ],
-        dataZoom: dzOpts(),
+        legend: [
+          { name: "52周新高", color: "#e6492e" },
+          { name: "52周新低", color: "#2e8b57" },
+          { name: "净新高", color: "#5b8ff9" },
+        ],
         series: [
-          { name: "52周新高", type: "bar", yAxisIndex: 0, data: nhlData.map(d => d.nh_52w), itemStyle: { color: "#e6492e" }, barWidth: "40%" },
-          { name: "52周新低", type: "bar", yAxisIndex: 0, data: nhlData.map(d => d.nl_52w), itemStyle: { color: "#2e8b57" }, barWidth: "40%" },
-          { name: "净新高", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: nhlData.map(d => d.nhnl_52w), lineStyle: { color: "#5b8ff9", width: 1.5 } },
+          { type: "bar", yIndex: 0, data: _nhlNh, color: "#e6492e", barWidth: "40%", barOffset: -0.3 },
+          { type: "bar", yIndex: 0, data: _nhlNl, color: "#2e8b57", barWidth: "40%", barOffset: 0.22 },
+          { type: "line", yIndex: 1, data: _nhlNet, color: "#5b8ff9", width: 1.5, smooth: true },
         ],
-      }));
+        tipFn: (i) => {
+          const nh = _nhlNh[i], nl = _nhlNl[i], net = _nhlNet[i];
+          return nhlDates[i] + "<br/>52周新高：" + (nh == null || isNaN(nh) ? "-" : nh)
+            + "<br/>52周新低：" + (nl == null || isNaN(nl) ? "-" : nl)
+            + "<br/>净新高：" + (net == null || isNaN(net) ? "-" : net);
+        },
+      }, (container) => {
+        const inst = echarts.init(container);
+        inst.setOption(withTheme({
+          tooltip: { trigger: "axis" },
+          legend: { top: 0, data: ["52周新高", "52周新低", "净新高"] },
+          grid: { left: 55, right: 55, top: 35, bottom: 35 },
+          xAxis: { type: "category", data: nhlDates },
+          yAxis: [
+            { type: "value", name: "家数", splitLine: { show: false } },
+            { type: "value", name: "净新高" },
+          ],
+          dataZoom: dzOpts(),
+          series: [
+            { name: "52周新高", type: "bar", yAxisIndex: 0, data: nhlData.map(d => d.nh_52w), itemStyle: { color: "#e6492e" }, barWidth: "40%" },
+            { name: "52周新低", type: "bar", yAxisIndex: 0, data: nhlData.map(d => d.nl_52w), itemStyle: { color: "#2e8b57" }, barWidth: "40%" },
+            { name: "净新高", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: nhlData.map(d => d.nhnl_52w), lineStyle: { color: "#5b8ff9", width: 1.5 } },
+          ],
+        }));
+        charts.push(inst);
+      });
       // 最新日的指数级详情（8 个指数是否创 52周/20日新高新低）
       const latest = nhlData[nhlData.length - 1];
       if (latest && latest.details && latest.details.length) {
@@ -10724,6 +11006,853 @@ function _reRenderHomeSpark() {
     _old.parentElement.innerHTML = _html;
   }
   _flushNtSpark();
+}
+
+// ===== 通用轻量图表引擎(2026-08-12): 首页剩余 echarts 全量→SVG =====
+// 覆盖 renderOverview 常驻图(恐贪/情绪分/跨市场/市场宽度/AD线/成交额/新高新低/行业热力图)
+// + 首页弹窗(KPI 详情/信号弹窗) + 分时图。开关 charts.lightweight(siteCfg, 默认 true) 同 P1。
+// 几何与 _etfTrendGeom 完全同口径(value scale:true nice extent + category 半格内缩 + crisp,
+// P0 已对真实 echarts 逐组验证); 外观(网格/轴线/标签/线宽/面积透明度/涨跌色/visualMap 分段色)
+// 逐项对齐原 echarts 配置。零 echarts 依赖, hover 十字线+浮层 tooltip 同 _etfTrendLiteBind。
+// cfg 结构: {h,pl,pr,pt,pb, boundaryGap, xLabels, xFmt, ys:[{formatter,splitNumber,zeroBased,
+//   splitLine,side,name}], legend:[{name,color}], series:[{type,yIndex,color,width,smooth,
+//   areaOpacity,stack,data,itemColor,markLine:[],markPoints:[]}], tipFn(i,xLabel)->html}
+function _lwValueExtent(vals, splitNumber, zeroBased) {
+  const _valid = [];
+  for (const v of vals) if (v != null && !isNaN(v)) _valid.push(v);
+  let _rawMin = zeroBased ? 0 : (_valid.length ? Math.min.apply(null, _valid) : 0);
+  let _rawMax = _valid.length ? Math.max.apply(null, _valid) : (zeroBased ? 1 : 1);
+  if (zeroBased && _rawMax < 0) _rawMax = 0;
+  let extMin = _rawMin, extMax = _rawMax;
+  if (extMin === extMax) {
+    if (extMin !== 0) { const _s = Math.abs(extMin); extMax += _s / 2; extMin -= _s / 2; }
+    else extMax = 1;
+  }
+  const _span = extMax - extMin;
+  const _step = _niceNumber(_span / (splitNumber || 5), true);
+  const _prec = _intervalPrecision(_step);
+  let _niceMin = _roundTo(_prec, Math.ceil(extMin / _step) * _step);
+  let _niceMax = _roundTo(_prec, Math.floor(extMax / _step) * _step);
+  _niceMin = Math.max(Math.min(_niceMin, extMax), extMin);
+  _niceMax = Math.max(Math.min(_niceMax, extMax), extMin);
+  if (_niceMin > _niceMax) _niceMin = _niceMax;
+  const _yMin = _roundTo(_prec, Math.floor(extMin / _step) * _step);
+  const _yMax = _roundTo(_prec, Math.ceil(extMax / _step) * _step);
+  const _ticks = [];
+  if (_yMin < _niceMin) _ticks.push(_yMin);
+  for (let _tv = _niceMin; _tv <= _niceMax + _step / 1e6; _tv = _roundTo(_prec, _tv + _step)) {
+    _ticks.push(_roundTo(_prec, _tv));
+    if (_ticks.length > 10000) break;
+  }
+  const _lastT = _ticks.length ? _ticks[_ticks.length - 1] : _niceMax;
+  if (_yMax > _lastT) _ticks.push(_yMax);
+  return { yMin: _yMin, yMax: _yMax, step: _step, prec: _prec, ticks: _ticks };
+}
+// 平滑折线 path(echarts smooth:true catmull-rom→cubic bezier, 与 _etfTrendSVG 同算法)。
+function _lwLineD(xs, ys, i0, i1, smooth) {
+  let d = "M " + xs[i0].toFixed(1) + " " + ys[i0].toFixed(1);
+  if (!smooth) {
+    for (let i = i0 + 1; i <= i1; i++) d += " L " + xs[i].toFixed(1) + " " + ys[i].toFixed(1);
+    return d;
+  }
+  for (let i = i0; i < i1; i++) {
+    const p0 = { x: xs[Math.max(i0, i - 1)], y: ys[Math.max(i0, i - 1)] };
+    const p1 = { x: xs[i], y: ys[i] };
+    const p2 = { x: xs[i + 1], y: ys[i + 1] };
+    const p3 = { x: xs[Math.min(i1, i + 2)], y: ys[Math.min(i1, i + 2)] };
+    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+    d += " C " + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1)
+      + " " + xs[i + 1].toFixed(1) + " " + ys[i + 1].toFixed(1);
+  }
+  return d;
+}
+// visualMap 线性插值(echarts inRange colors min..max 渐变, 5 段颜色线性插值)。
+function _lwColorScale(stops, min, max, v) {
+  if (v == null || isNaN(v)) return "transparent";
+  if (min === max) return stops[Math.floor(stops.length / 2)];
+  const t = Math.max(0, Math.min(1, (v - min) / (max - min)));
+  const seg = t * (stops.length - 1);
+  const i0 = Math.floor(seg), frac = seg - i0;
+  if (i0 >= stops.length - 1) return stops[stops.length - 1];
+  const a = stops[i0], b = stops[i0 + 1];
+  const pa = [parseInt(a.slice(1, 3), 16), parseInt(a.slice(3, 5), 16), parseInt(a.slice(5, 7), 16)];
+  const pb = [parseInt(b.slice(1, 3), 16), parseInt(b.slice(3, 5), 16), parseInt(b.slice(5, 7), 16)];
+  const pc = pa.map((x, i) => Math.round(x + (pb[i] - x) * frac));
+  return "rgb(" + pc[0] + "," + pc[1] + "," + pc[2] + ")";
+}
+// 主 SVG 构建(网格/轴线/标签/legend/series/markLine/markPoints)。
+function _lwSVG(cfg) {
+  if (cfg.heatmap) return _lwHeatmapSVG(cfg);
+  const W = cfg.w || 640, H = cfg.h || 300;
+  const PL = cfg.pl != null ? cfg.pl : 55, PR = cfg.pr != null ? cfg.pr : 20;
+  const PT = cfg.pt != null ? cfg.pt : 30, PB = cfg.pb != null ? cfg.pb : 35;
+  const bg = !!cfg.boundaryGap;
+  const _iw = W - PL - PR, _ih = H - PT - PB;
+  const _n = (cfg.xLabels || []).length;
+  if (!_n) return "";
+  const _unitW = bg ? (_iw / _n) : (_iw / Math.max(1, _n - 1));
+  const _px = bg ? ((i) => PL + (i + 0.5) * _unitW) : ((i) => PL + i * _unitW);
+  // y 轴 extent(每轴独立, 从该轴 series 收集值; stack 系列取累积顶 = 面积上沿)
+  const nAxis = Math.max(1, cfg.ys ? cfg.ys.length : 1);
+  const axes = [];
+  for (let ai = 0; ai < nAxis; ai++) {
+    const vals = [];
+    const stackCum = {}; // 按 stack 键累积(与渲染分支同顺序, 保证 extent 覆盖面积顶)
+    for (const s of cfg.series || []) {
+      if ((s.yIndex || 0) !== ai) continue;
+      const sd = s.data || [];
+      if (s.type === "stack" && s.stack) {
+        if (!stackCum[s.stack]) stackCum[s.stack] = new Float64Array(sd.length);
+        for (let i = 0; i < sd.length; i++) {
+          const v = sd[i];
+          if (v != null && !isNaN(v)) { stackCum[s.stack][i] += Number(v); vals.push(stackCum[s.stack][i]); }
+        }
+      } else {
+        for (const v of sd) vals.push(v);
+      }
+    }
+    const ya = cfg.ys && cfg.ys[ai];
+    const ext = _lwValueExtent(vals, ya && ya.splitNumber, ya && ya.zeroBased);
+    axes.push(ext);
+  }
+  const _py = (ai, v) => {
+    const ax = axes[ai] || axes[0];
+    return PT + _ih - ((v - ax.yMin) / ((ax.yMax - ax.yMin) || 1)) * _ih;
+  };
+  const _axisY = H - PB;
+  const _baseY = _crisp(_axisY);
+  const _xFmt = cfg.xFmt || ((v) => fmtDate(v));
+  let s = "";
+  // SVG defs: 信号 pin 拼色 linearGradient(多信号同日 pin, 复刻 echarts _ntMultiColor)
+  const _grads = cfg.gradients || [];
+  if (_grads.length) {
+    s += "<defs>";
+    for (const g of _grads) {
+      s += '<linearGradient id="' + g.id + '" x1="0" y1="0" x2="0" y2="1">';
+      for (const st of g.stops) s += '<stop offset="' + (st[0] * 100).toFixed(1) + '%" stop-color="' + st[1] + '"/>';
+      s += "</linearGradient>";
+    }
+    s += "</defs>";
+  }
+  // 水平网格线(取 splitLine 轴的 ticks, echarts yAxis splitLine 默认每轴画, 双轴时仅设一轴 splitLine:false)
+  const gridAxisIdx = cfg.gridAxis != null ? cfg.gridAxis : 0;
+  const gridAx = axes[gridAxisIdx];
+  if (cfg.gridH !== false && gridAx) {
+    for (const tv of gridAx.ticks) {
+      const gy = _crisp(_py(gridAxisIdx, tv));
+      s += '<line x1="' + PL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - PR) + '" y2="' + gy.toFixed(1) + '" stroke="var(--border)"/>';
+    }
+  }
+  // y 轴轴线 + 标签 + name(左轴标签 PL-8 anchor end; 右轴 W-PR+8 anchor start)
+  for (let ai = 0; ai < nAxis; ai++) {
+    const ax = axes[ai];
+    const ya = (cfg.ys && cfg.ys[ai]) || {};
+    const side = ya.side || (ai === 0 ? "left" : "right");
+    if (ya.axisLine !== false) {
+      s += '<line x1="' + (side === "left" ? PL : W - PR) + '" y1="' + (PT - 1) + '" x2="' + (side === "left" ? PL : W - PR) + '" y2="' + (_axisY + 1) + '" stroke="var(--border-strong)"/>';
+    }
+    if (ya.name) {
+      s += '<text x="' + (side === "left" ? PL + 4 : W - PR - 4) + '" y="' + (PT - 4) + '" font-size="11" text-anchor="' + (side === "left" ? "start" : "end") + '" style="fill:var(--text-1)">' + ya.name + '</text>';
+    }
+    for (const tv of ax.ticks) {
+      const gy = _py(ai, tv);
+      const lbl = ya.formatter ? ya.formatter(tv) : Number(tv).toFixed(_getPrecision(tv));
+      s += '<text x="' + (side === "left" ? (PL - 8) : (W - PR + 8)) + '" y="' + (gy + 3.5).toFixed(1) + '" font-size="10" text-anchor="' + (side === "left" ? "end" : "start") + '" style="fill:var(--text-1)">' + lbl + '</text>';
+    }
+  }
+  // legend(top:0 对齐 echarts legend, 画在 PT 留白区上沿)
+  if (cfg.legend && cfg.legend.length) {
+    let lx = PL;
+    for (const it of cfg.legend) {
+      s += '<line x1="' + lx + '" y1="' + (PT - 14) + '" x2="' + (lx + 10) + '" y2="' + (PT - 14) + '" stroke="' + it.color + '" stroke-width="2"/>';
+      s += '<text x="' + (lx + 14) + '" y="' + (PT - 10) + '" font-size="11" style="fill:var(--text-1)">' + it.name + '</text>';
+      lx += 14 + 8 + String(it.name).length * 11 + 18;
+    }
+  }
+  // x 轴: 轴线 + 刻度(边界含末边, echarts alignWithLabel:false) + 标签(自动间隔, 半格中心/boundaryGap=false 点位)
+  s += '<line x1="' + PL + '" y1="' + _baseY + '" x2="' + (W - PR) + '" y2="' + _baseY + '" stroke="var(--border-strong)"/>';
+  const _xStep = cfg.xStep != null ? cfg.xStep : _etfXStep(_n, _iw);
+  if (bg) {
+    for (let i = 0; i <= _n; i += _xStep) {
+      const tx = _crisp(PL + i * _unitW);
+      s += '<line x1="' + tx.toFixed(1) + '" y1="' + _baseY + '" x2="' + tx.toFixed(1) + '" y2="' + (_axisY + 5) + '" stroke="var(--border-strong)"/>';
+    }
+  }
+  for (let i = 0; i < _n; i += _xStep) {
+    const x = _px(i);
+    s += '<text x="' + x.toFixed(1) + '" y="' + (_axisY + 8 + 3.5).toFixed(1) + '" font-size="10" text-anchor="middle" style="fill:var(--text-1)">' + _xFmt(cfg.xLabels[i]) + '</text>';
+  }
+  // series(顺序: stack area 先底后顶, bar, line)
+  for (const ser of cfg.series || []) {
+    const ai = ser.yIndex || 0;
+    const n = _n;
+    const xs = [], ys = [];
+    for (let i = 0; i < n; i++) {
+      xs.push(_px(i));
+      const v = ser.data && ser.data[i];
+      ys.push(v == null || isNaN(v) ? null : _py(ai, Number(v)));
+    }
+    const _stroke = ser.color;
+    const _dashAttr = ser.dash ? ' stroke-dasharray="' + ser.dash + '"' : "";
+    const _opacityAttr = ser.opacity != null ? ' stroke-opacity="' + ser.opacity + '"' : "";
+    if (ser.type === "bar") {
+      let bw = ser.barWidth;
+      if (bw == null) bw = Math.min(24, _unitW * (ser.barWidthRatio != null ? ser.barWidthRatio : 0.6));
+      else if (typeof bw === "string" && bw.indexOf("%") >= 0) bw = _unitW * (parseFloat(bw) / 100);
+      // barOffset: 相对类别中心偏移(占 _unitW 比例), 复刻 echarts 同轴多 bar 并排(default barGap 30% of bar width)
+      const _off = ser.barOffset != null ? ser.barOffset * _unitW : 0;
+      for (let i = 0; i < n; i++) {
+        const v = ser.data && ser.data[i];
+        if (v == null || isNaN(v)) continue;
+        const y0 = _py(ai, 0), y1 = _py(ai, Number(v));
+        const top = Math.min(y0, y1), bh = Math.abs(y1 - y0);
+        const col = ser.itemColor ? ser.itemColor(i, Number(v)) : _stroke;
+        s += '<rect x="' + (xs[i] + _off - bw / 2).toFixed(1) + '" y="' + top.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(0.5, bh).toFixed(1) + '" fill="' + col + '"/>';
+      }
+      continue;
+    }
+    // line/stack: 按非 null 连续段构建(echarts 默认无 connectNulls, null 处断)
+    const _runs = [];
+    let _rs = -1;
+    for (let i = 0; i <= n; i++) {
+      const ok = i < n && ys[i] != null;
+      if (ok && _rs < 0) _rs = i;
+      else if (!ok && _rs >= 0) { _runs.push([_rs, i - 1]); _rs = -1; }
+    }
+    if (ser.type === "line") {
+      if (ser.connectNulls) {
+        // echarts connectNulls:true: null 点跳过但前后非 null 相连(整条线跨空, KPI/信号弹窗用; 含 visualMap 分段色)
+        const _idx = [];
+        for (let i = 0; i < n; i++) if (ys[i] != null) _idx.push(i);
+        const _perColor = typeof ser.itemColor === "function" ? ser.itemColor : null;
+        if (_idx.length) {
+          if (!_perColor) {
+            let d = "M " + xs[_idx[0]].toFixed(1) + " " + ys[_idx[0]].toFixed(1);
+            for (let k = 1; k < _idx.length; k++) d += " L " + xs[_idx[k]].toFixed(1) + " " + ys[_idx[k]].toFixed(1);
+            if (ser.areaOpacity != null) {
+              const _ap = d + " L " + xs[_idx[_idx.length - 1]].toFixed(1) + " " + _axisY.toFixed(1) + " L " + xs[_idx[0]].toFixed(1) + " " + _axisY.toFixed(1) + " Z";
+              s += '<path d="' + _ap + '" fill="' + _stroke + '" opacity="' + ser.areaOpacity + '"/>';
+            }
+            s += '<path d="' + d + '" fill="none" stroke="' + _stroke + '" stroke-width="' + (ser.width || 1.5) + '"' + _dashAttr + _opacityAttr + ' stroke-linejoin="round" stroke-linecap="round"/>';
+          } else {
+            let rs2 = 0;
+            while (rs2 < _idx.length) {
+              let re = rs2;
+              const c0 = _perColor(_idx[rs2], ser.data[_idx[rs2]]);
+              while (re + 1 < _idx.length && _perColor(_idx[re + 1], ser.data[_idx[re + 1]]) === c0) re++;
+              if (re === rs2) {
+                s += '<circle cx="' + xs[_idx[rs2]].toFixed(1) + '" cy="' + ys[_idx[rs2]].toFixed(1) + '" r="' + (ser.symbolR || 2) + '" fill="' + c0 + '"' + (ser.opacity != null ? ' fill-opacity="' + ser.opacity + '"' : "") + '/>';
+              } else {
+                let d = "M " + xs[_idx[rs2]].toFixed(1) + " " + ys[_idx[rs2]].toFixed(1);
+                for (let k = rs2 + 1; k <= re; k++) d += " L " + xs[_idx[k]].toFixed(1) + " " + ys[_idx[k]].toFixed(1);
+                s += '<path d="' + d + '" fill="none" stroke="' + c0 + '" stroke-width="' + (ser.width || 1.5) + '"' + _dashAttr + _opacityAttr + ' stroke-linejoin="round" stroke-linecap="round"/>';
+              }
+              rs2 = re + 1;
+            }
+          }
+        }
+      } else {
+        for (const [_a, _b] of _runs) {
+        // visualMap 分段着色: 同色连续段各自平滑路径(echarts 按 segment 分色)
+        const perColor = typeof ser.itemColor === "function" ? ser.itemColor : null;
+        if (perColor) {
+          let rs2 = _a;
+          for (let i = _a; i <= _b; i++) {
+            const c1 = perColor(i, ser.data[i]);
+            const c2 = (i < _b) ? perColor(i + 1, ser.data[i + 1]) : c1;
+            if (i === _b || c1 !== c2) {
+              if (i === rs2) {
+                s += '<circle cx="' + xs[i].toFixed(1) + '" cy="' + ys[i].toFixed(1) + '" r="' + (ser.symbolR || 2) + '" fill="' + c1 + '"' + (ser.opacity != null ? ' fill-opacity="' + ser.opacity + '"' : "") + '/>';
+              } else {
+                const d = _lwLineD(xs, ys, rs2, i, ser.smooth !== false);
+                s += '<path d="' + d + '" fill="none" stroke="' + c1 + '" stroke-width="' + (ser.width || 1.5) + '"' + _dashAttr + _opacityAttr + ' stroke-linejoin="round" stroke-linecap="round"/>';
+              }
+              rs2 = i + 1;
+            }
+          }
+          continue;
+        }
+        const d = _lwLineD(xs, ys, _a, _b, ser.smooth !== false);
+        if (ser.areaOpacity != null) {
+          const _areaPath = d + " L " + xs[_b].toFixed(1) + " " + _axisY.toFixed(1) + " L " + xs[_a].toFixed(1) + " " + _axisY.toFixed(1) + " Z";
+          s += '<path d="' + _areaPath + '" fill="' + _stroke + '" opacity="' + ser.areaOpacity + '"/>';
+        }
+        s += '<path d="' + d + '" fill="none" stroke="' + _stroke + '" stroke-width="' + (ser.width || 1.5) + '"' + _dashAttr + _opacityAttr + ' stroke-linejoin="round" stroke-linecap="round"/>';
+        if (ser.symbolR) {
+          for (let i = _a; i <= _b; i++) s += '<circle cx="' + xs[i].toFixed(1) + '" cy="' + ys[i].toFixed(1) + '" r="' + ser.symbolR + '" fill="' + _stroke + '"' + (ser.opacity != null ? ' fill-opacity="' + ser.opacity + '"' : "") + '/>';
+        }
+      }
+      }
+      // markLine(阈值虚线; ml.x1 非空 = 线段连接两点, 如 KPI 成交额盘中段连接最后收盘->首个盘中)
+      for (const ml of (ser.markLine || [])) {
+        if (ml.x1 != null) {
+          s += '<line x1="' + _px(ml.x1).toFixed(1) + '" y1="' + _py(ai, ml.y1).toFixed(1) + '" x2="' + _px(ml.x2).toFixed(1) + '" y2="' + _py(ai, ml.y2).toFixed(1) + '" stroke="' + (ml.color || "var(--text-3)") + '" stroke-width="' + (ml.width || 1) + '" stroke-opacity="' + (ml.opacity != null ? ml.opacity : 1) + '"' + (ml.dashed !== false ? ' stroke-dasharray="4 3"' : "") + '/>';
+          continue;
+        }
+        const my = _py(ai, ml.y);
+        const cy = _crisp(my);
+        const dashed = ml.dashed !== false;
+        s += '<line x1="' + PL + '" y1="' + cy.toFixed(1) + '" x2="' + (W - PR) + '" y2="' + cy.toFixed(1) + '" stroke="' + (ml.color || "var(--text-3)") + '" stroke-width="' + (ml.width || 1) + '"' + (dashed ? ' stroke-dasharray="4 3"' : "") + '/>';
+        if (ml.label) {
+          const lx = ml.pos === "end" ? (W - PR) : PL;
+          const anch = ml.pos === "end" ? "end" : "start";
+          s += '<text x="' + lx + '" y="' + (my - 3).toFixed(1) + '" font-size="' + (ml.fontSize || 10) + '" text-anchor="' + anch + '" style="fill:' + (ml.color || "var(--text-3)") + '">' + ml.label + '</text>';
+        }
+      }
+      // markArea(区间色带, 如分时午休)
+      if (ser.markArea && ser.markArea.length) {
+        for (const ma of ser.markArea) {
+          const x0 = _px(ma.i0), x1 = _px(ma.i1);
+          s += '<rect x="' + x0.toFixed(1) + '" y="' + PT + '" width="' + Math.max(0, (x1 - x0)).toFixed(1) + '" height="' + _ih.toFixed(1) + '" fill="' + (ma.color || "rgba(128,128,128,0.08)") + '"/>';
+          if (ma.label) {
+            s += '<text x="' + ((x0 + x1) / 2).toFixed(1) + '" y="' + (PT + 12) + '" font-size="9" text-anchor="middle" style="fill:var(--text-4)">' + ma.label + '</text>';
+          }
+        }
+      }
+    } else if (ser.type === "stack") {
+      // 堆叠面积(line 叠, echarts stack): 引擎按 stack 键自动累积(series 顺序=底→顶), 面积=本系列线→前累积顶
+      if (ser.stack && !cfg._stackCum) cfg._stackCum = {};
+      const cum = ser.stack && cfg._stackCum ? (cfg._stackCum[ser.stack] || (cfg._stackCum[ser.stack] = new Float64Array(n))) : null;
+      for (const [_a, _b] of _runs) {
+        const d = _lwLineD(xs, ys, _a, _b, ser.smooth !== false);
+        let areaD = d;
+        if (cum) {
+          const t0 = (ser.data[_b] != null && !isNaN(ser.data[_b])) ? Number(ser.data[_b]) : 0;
+          const t1 = (ser.data[_a] != null && !isNaN(ser.data[_a])) ? Number(ser.data[_a]) : 0;
+          const cy0 = _py(ai, cum[_b] + t0);
+          const cy1 = _py(ai, cum[_a] + t1);
+          areaD = d + " L " + xs[_b].toFixed(1) + " " + cy0.toFixed(1) + " L " + xs[_a].toFixed(1) + " " + cy1.toFixed(1) + " Z";
+        } else {
+          const closeY = _py(ai, 0);
+          areaD = d + " L " + xs[_b].toFixed(1) + " " + closeY.toFixed(1) + " L " + xs[_a].toFixed(1) + " " + closeY.toFixed(1) + " Z";
+        }
+        s += '<path d="' + areaD + '" fill="' + _stroke + '" opacity="' + (ser.areaOpacity != null ? ser.areaOpacity : 0.6) + '"/>';
+        s += '<path d="' + d + '" fill="none" stroke="' + _stroke + '" stroke-width="' + (ser.width || 1.5) + '"' + _dashAttr + _opacityAttr + ' stroke-linejoin="round" stroke-linecap="round"/>';
+      }
+      // 累积本系列到该 stack 键(供下一系列作底)
+      if (cum) {
+        for (let i = 0; i < n; i++) {
+          const v = ser.data && ser.data[i];
+          if (v != null && !isNaN(v)) cum[i] += Number(v);
+        }
+      }
+    }
+    // markPoints(图钉/信号点/圆点, 画在 line 上; 支持 pin 形/渐变/描边/透明度/偏移/内嵌 label/多行)
+    if (ser.markPoints && ser.markPoints.length) {
+      for (const mp of ser.markPoints) {
+        const x = _px(mp.i);
+        const y = (mp.y != null ? _py(ai, mp.y) : _axisY) + (mp.dy || 0);
+        const r = mp.r || 3;
+        const _fill = mp.gradient ? "url(#" + mp.gradient.id + ")" : (mp.color || "var(--text-1)");
+        const _stroke = mp.borderColor ? ' stroke="' + mp.borderColor + '" stroke-width="' + (mp.borderWidth || 3) + '"' : "";
+        const _fo = mp.opacity != null ? ' fill-opacity="' + mp.opacity + '"' : "";
+        if (mp.pin) {
+          // echarts 'pin' 形(圆顶+下三角指向数据点): label 居中在圆内; 三角尖对准数据点 (x,y)
+          const cy = y - 2 * r;
+          s += '<path d="M ' + (x - r * 0.8).toFixed(1) + ' ' + (y - r).toFixed(1) + ' L ' + (x + r * 0.8).toFixed(1) + ' ' + (y - r).toFixed(1) + ' L ' + x.toFixed(1) + ' ' + y.toFixed(1) + ' Z" fill="' + _fill + '"' + _stroke + _fo + '/>';
+          s += '<circle cx="' + x.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' + r + '" fill="' + _fill + '"' + _stroke + _fo + '/>';
+          if (mp.label) {
+            if (mp.multiLine) {
+              const lines = String(mp.label).split("\n");
+              const _lh = 13;
+              const _start = cy + ((lines.length - 1) * _lh) / 2 - 4;
+              s += '<text x="' + x.toFixed(1) + '" y="' + _start.toFixed(1) + '" font-size="' + (mp.fontSize || 11) + '" text-anchor="middle" style="fill:' + (mp.labelColor || "#fff") + '">';
+              for (let li = 0; li < lines.length; li++) s += '<tspan x="' + x.toFixed(1) + '" dy="' + (li === 0 ? 0 : _lh) + '">' + lines[li] + "</tspan>";
+              s += "</text>";
+            } else {
+              s += '<text x="' + x.toFixed(1) + '" y="' + (cy + 3.5).toFixed(1) + '" font-size="' + (mp.fontSize || 11) + '" text-anchor="middle" style="fill:' + (mp.labelColor || "var(--text-1)") + '">' + mp.label + "</text>";
+            }
+          }
+        } else {
+          s += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + r + '" fill="' + _fill + '"' + _stroke + _fo + '/>';
+          if (mp.label) {
+            if (mp.labelInside) {
+              s += '<text x="' + x.toFixed(1) + '" y="' + (y + 3.5).toFixed(1) + '" font-size="' + (mp.fontSize || 10) + '" text-anchor="middle" style="fill:' + (mp.labelColor || "var(--text-1)") + '">' + mp.label + "</text>";
+            } else {
+              s += '<text x="' + (x + 6).toFixed(1) + '" y="' + (y - 4).toFixed(1) + '" font-size="' + (mp.fontSize || 10) + '" style="fill:' + (mp.labelColor || "var(--text-1)") + '">' + mp.label + "</text>";
+            }
+          }
+        }
+      }
+    }
+  }
+  // hover 元素(十字线+高亮点+命中感应区)
+  s += '<line class="lw-cursor" x1="0" y1="' + PT + '" x2="0" y2="' + _baseY + '" stroke="var(--border-strong)" stroke-width="1" opacity="0"/>';
+  s += '<circle class="lw-hover-pt" r="4" opacity="0"/>';
+  s += '<rect class="lw-hit" x="' + PL + '" y="' + PT + '" width="' + _iw + '" height="' + _ih + '" fill="transparent"/>';
+  return s;
+}
+// ---- 行业热力图(heatmap) 轻量 SVG 渲染: cfg.heatmap = {xLabels, yCats, data:[[ci,ri,v]], min,max,
+//      colors(绿→灰→红 5停), sorted(渲染序 heatmap 对象, tooltip 用), label:{show,fontSize,formatter},
+//      legendText:[左,右]}。外观对等原 echarts heatmap(格子+格内数值+行分隔+底部渐变条)。----
+function _lwHex2Rgb(hex) {
+  const h = hex.replace("#", "");
+  return [parseInt(h.substr(0, 2), 16), parseInt(h.substr(2, 2), 16), parseInt(h.substr(4, 2), 16)];
+}
+function _lwColorLerp(c1, c2, t) {
+  const a = _lwHex2Rgb(c1), b = _lwHex2Rgb(c2);
+  const r = Math.round(a[0] + (b[0] - a[0]) * t), g = Math.round(a[1] + (b[1] - a[1]) * t), bl = Math.round(a[2] + (b[2] - a[2]) * t);
+  return "rgb(" + r + "," + g + "," + bl + ")";
+}
+// t in [0,1] -> 5 停 colors 分段插值(echarts visualMap inRange 同款)
+function _lwHmColor(colors, t) {
+  if (!colors || !colors.length) return "rgba(128,128,128,0.2)";
+  if (colors.length === 1) return colors[0];
+  const p = Math.max(0, Math.min(1, t)) * (colors.length - 1);
+  const i = Math.min(colors.length - 2, Math.floor(p));
+  return _lwColorLerp(colors[i], colors[i + 1], p - i);
+}
+function _lwHeatmapSVG(cfg) {
+  const W = cfg.w || 640, H = cfg.h || 280;
+  const PL = cfg.pl != null ? cfg.pl : 56, PR = cfg.pr != null ? cfg.pr : 16;
+  const PT = cfg.pt != null ? cfg.pt : 24, PB = cfg.pb != null ? cfg.pb : 60;
+  const hm = cfg.heatmap;
+  const names = hm.xLabels || [], yCats = hm.yCats || [];
+  const nCol = names.length, nRow = yCats.length;
+  if (!nCol || !nRow) return "";
+  const _iw = W - PL - PR, _ih = H - PT - PB;
+  const cellW = _iw / nCol, cellH = _ih / nRow;
+  const cmin = hm.min != null ? hm.min : -5, cmax = hm.max != null ? hm.max : 5;
+  const colors = hm.colors || ["#2e8b57", "#a8d8b9", "#f2f3f5", "#f5b6a8", "#e6492e"];
+  let s = "";
+  // 行分隔线(上下+每行之间, 对齐 echarts splitArea 效果用 var(--border))
+  for (let r = 0; r <= nRow; r++) {
+    const gy = _crisp(PT + r * cellH);
+    s += '<line x1="' + PL + '" y1="' + gy + '" x2="' + (W - PR) + '" y2="' + gy + '" stroke="var(--border)"/>';
+  }
+  // 列分隔线(轻)
+  for (let c = 0; c <= nCol; c++) {
+    const gx = _crisp(PL + c * cellW);
+    s += '<line x1="' + gx + '" y1="' + PT + '" x2="' + gx + '" y2="' + (PT + _ih) + '" stroke="var(--border)"/>';
+  }
+  // y 行标签(左, fontSize 11)
+  for (let r = 0; r < nRow; r++) {
+    s += '<text x="' + (PL - 8) + '" y="' + (PT + r * cellH + cellH / 2 + 3.5).toFixed(1) + '" font-size="11" text-anchor="end" style="fill:var(--text-1)">' + yCats[r] + '</text>';
+  }
+  // 色块 + 格内数值(echarts label formatter toFixed(1), null 显示 "-")
+  const _lv = (v) => (v == null || isNaN(v) ? -1 : ((v - cmin) / (cmax - cmin || 1)));
+  for (const pt of hm.data || []) {
+    const ci = pt[0], ri = pt[1], v = pt[2];
+    if (ci < 0 || ci >= nCol || ri < 0 || ri >= nRow) continue;
+    const x0 = PL + ci * cellW, y0 = PT + ri * cellH;
+    const fill = (v == null || isNaN(v)) ? "rgba(128,128,128,0.10)" : _lwHmColor(colors, _lv(v));
+    s += '<rect x="' + (x0 + 0.5).toFixed(1) + '" y="' + (y0 + 0.5).toFixed(1) + '" width="' + (cellW - 1).toFixed(1) + '" height="' + (cellH - 1).toFixed(1) + '" fill="' + fill + '"/>';
+    if (hm.label && hm.label.show !== false && v != null && !isNaN(v)) {
+      const _ltxt = hm.label.formatter ? hm.label.formatter(v) : String(v);
+      s += '<text x="' + (x0 + cellW / 2).toFixed(1) + '" y="' + (y0 + cellH / 2 + 3).toFixed(1) + '" font-size="' + (hm.label.fontSize || 9) + '" text-anchor="middle" style="fill:#333">' + _ltxt + '</text>';
+    }
+  }
+  // x 行业标签(interval 0 全显, 不旋转, 对齐 echarts interval:0)
+  for (let c = 0; c < nCol; c++) {
+    const x = PL + c * cellW + cellW / 2;
+    s += '<text x="' + x.toFixed(1) + '" y="' + (H - PB + 14).toFixed(1) + '" font-size="10" text-anchor="middle" style="fill:var(--text-1)">' + names[c] + '</text>';
+  }
+  // 底部渐变条(visualMap 色条: 左 +5% 右 -5%, 与 echarts inRange 5 停同色)
+  const legW = Math.min(150, _iw * 0.6), legH = 8;
+  const legX = (W - legW) / 2, legY = H - PB + 20;
+  const _seg = 24;
+  for (let k = 0; k < _seg; k++) {
+    s += '<rect x="' + (legX + k * (legW / _seg)).toFixed(1) + '" y="' + legY + '" width="' + (legW / _seg + 0.6).toFixed(1) + '" height="' + legH + '" fill="' + _lwHmColor(colors, k / (_seg - 1)) + '"/>';
+  }
+  const _legTxt = hm.legendText || ["+5%", "-5%"];
+  s += '<text x="' + (legX - 2) + '" y="' + (legY + legH / 2 + 3.5).toFixed(1) + '" font-size="10" text-anchor="end" style="fill:var(--text-1)">' + _legTxt[0] + '</text>';
+  s += '<text x="' + (legX + legW + 2) + '" y="' + (legY + legH / 2 + 3.5).toFixed(1) + '" font-size="10" text-anchor="start" style="fill:var(--text-1)">' + _legTxt[1] + '</text>';
+  // hover 命中区(整图)
+  s += '<rect class="lw-hit" x="' + PL + '" y="' + PT + '" width="' + _iw + '" height="' + _ih + '" fill="transparent"/>';
+  return s;
+}
+function _lwHeatmapBind(wrap, cfg) {
+  if (!wrap) return;
+  const svg = wrap.querySelector(".lw-svg");
+  const tip = wrap.querySelector(".lw-tip");
+  if (!svg) return;
+  const hm = cfg.heatmap;
+  const names = hm.xLabels || [], yCats = hm.yCats || [];
+  const nCol = names.length, nRow = yCats.length;
+  if (!nCol || !nRow) return;
+  const rect = svg.getBoundingClientRect();
+  const _W = Math.round((rect && rect.width) || 640);
+  const _h = cfg.h || 280;
+  svg.setAttribute("viewBox", "0 0 " + _W + " " + _h);
+  svg.innerHTML = _lwHeatmapSVG(Object.assign({}, cfg, { w: _W }));
+  const PL = cfg.pl != null ? cfg.pl : 56, PR = cfg.pr != null ? cfg.pr : 16;
+  const PT = cfg.pt != null ? cfg.pt : 24, PB = cfg.pb != null ? cfg.pb : 60;
+  const _iw = _W - PL - PR, _ih = _h - PT - PB;
+  const cellW = _iw / nCol, cellH = _ih / nRow;
+  // 值查询表(ci_ri -> v)
+  const vmap = {};
+  for (const pt of (hm.data || [])) vmap[pt[0] + "_" + pt[1]] = pt[2];
+  const _show = (ci, ri) => {
+    if (!tip) return;
+    const v = vmap[ci + "_" + ri];
+    const h = (hm.sorted && hm.sorted[ci]) || {};
+    let html = (names[ci] || "") + "<br/>" + (yCats[ri] || "") + "：" + (v == null || isNaN(v) ? "-" : v + "%");
+    if (h && h.net_inflow != null) {
+      const fc = h.net_inflow >= 0 ? "#e6492e" : "#2e8b57";
+      const fs = h.net_inflow >= 0 ? "+" : "";
+      html += "<br/>净流入：<span style='color:" + fc + "'>" + fs + h.net_inflow.toFixed(1) + "亿</span>";
+    }
+    if (h && h.lead_stock) html += "<br/>领涨：" + h.lead_stock;
+    tip.innerHTML = html;
+    tip.style.display = "block";
+    const svgRect = svg.getBoundingClientRect();
+    const wrapRect = wrap.getBoundingClientRect();
+    const ratioW = _W / (svgRect.width || 1), ratioH = _h / (svgRect.height || 1);
+    const cssX = (PL + ci * cellW + cellW / 2) / ratioW;
+    const cssY = (PT + ri * cellH + cellH / 2) / ratioH + (svgRect.top - wrapRect.top);
+    const tipW = tip.offsetWidth || 90, tipH = tip.offsetHeight || 40;
+    let left = cssX - tipW / 2;
+    if (left < 0) left = 0;
+    if (left + tipW > svgRect.width) left = svgRect.width - tipW;
+    let top = cssY - tipH - 10;
+    if (top < 0) top = cssY + 12;
+    tip.style.left = left.toFixed(1) + "px";
+    tip.style.top = top.toFixed(1) + "px";
+  };
+  const _hide = () => { if (tip) tip.style.display = "none"; };
+  svg.addEventListener("mousemove", (e) => {
+    const r = svg.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const ratioW = _W / r.width, ratioH = _h / r.height;
+    const vx = (e.clientX - r.left) * ratioW, vy = (e.clientY - r.top) * ratioH;
+    if (vx < PL || vx >= PL + _iw || vy < PT || vy >= PT + _ih) { _hide(); return; }
+    const ci = Math.min(nCol - 1, Math.floor((vx - PL) / cellW));
+    const ri = Math.min(nRow - 1, Math.floor((vy - PT) / cellH));
+    _show(ci, ri);
+  });
+  svg.addEventListener("mouseleave", _hide);
+}
+// 行业热力图 lite-aware setup: 读 state.heatmapRange 重建 cfg 渲染(注册 _lwRenderers 供 ⚡ 重渲染),
+// echarts 模式复用原 _heatmapSetOption 逻辑。toggle 按钮就地重渲染(不整页重渲染丢滚动位置)。
+function _lwHeatmapSetup(chartDiv, heatmap, toggleBtnsEl) {
+  const _hmState = { range: state.heatmapRange || "all" };
+  const _build = () => {
+    const rangeMode = _hmState.range;
+    const sortBy = rangeMode === "5d" ? "pct_5d" : rangeMode === "1d" ? "pct_1d" : null;
+    const sorted = sortBy
+      ? [...heatmap].sort((a, b) => (b[sortBy] ?? -999) - (a[sortBy] ?? -999))
+      : [...heatmap].sort((a, b) => {
+          const avgA = ((a.pct_1d ?? 0) + (a.pct_5d ?? 0)) / 2;
+          const avgB = ((b.pct_1d ?? 0) + (b.pct_5d ?? 0)) / 2;
+          return avgB - avgA;
+        });
+    const names = sorted.map((h) => h.name.replace(/^SW\s/, ""));
+    const yCats = rangeMode === "1d" ? ["近 1 日"] : rangeMode === "5d" ? ["近 5 日"] : ["近 1 日", "近 5 日"];
+    const yIdxs = rangeMode === "1d" ? [0] : rangeMode === "5d" ? [1] : [0, 1];
+    const data = [];
+    sorted.forEach((h, i) => {
+      for (let yi = 0; yi < yIdxs.length; yi++) {
+        const v = yIdxs[yi] === 0 ? h.pct_1d : h.pct_5d;
+        data.push([i, yi, v == null ? null : Number(v.toFixed(2))]);
+      }
+    });
+    return {
+      h: 280, pl: 56, pr: 16, pt: 24, pb: 60,
+      heatmap: {
+        xLabels: names, yCats: yCats, data: data, min: -5, max: 5,
+        colors: ["#2e8b57", "#a8d8b9", "#f2f3f5", "#f5b6a8", "#e6492e"],
+        label: { show: true, fontSize: 9, formatter: (v) => v.toFixed(1) },
+        legendText: ["+5%", "-5%"],
+        sorted: sorted,
+      },
+    };
+  };
+  const render = () => {
+    if (typeof echarts !== "undefined") {
+      const old = echarts.getInstanceByDom(chartDiv);
+      if (old) { old.dispose(); const i = charts.indexOf(old); if (i >= 0) charts.splice(i, 1); }
+    }
+    chartDiv.innerHTML = "";
+    if (siteCfg("charts.lightweight", true)) {
+      const cfg = _build();
+      chartDiv.innerHTML = _lwHTML(cfg);
+      _lwBind(chartDiv, cfg);
+    } else if (typeof echarts !== "undefined") {
+      const c = echarts.init(chartDiv);
+      charts.push(c);
+      _heatmapSetOption(c, heatmap, toggleBtnsEl);
+    }
+  };
+  _lwRenderers.set(chartDiv, render);
+  if (toggleBtnsEl) {
+    toggleBtnsEl.querySelectorAll("button").forEach((b) => {
+      b.onclick = () => {
+        _hmState.range = b.dataset.hr;
+        state.heatmapRange = b.dataset.hr;
+        toggleBtnsEl.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x.dataset.hr === b.dataset.hr));
+        render();
+      };
+    });
+  }
+  render();
+  return chartDiv;
+}
+// 轻量版整体 HTML(容器 + SVG + tooltip 浮层)。初帧 viewBox 宽 640 参考, _lwBind 按实测宽校正。
+function _lwHTML(cfg) {
+  const h = cfg.h || 300;
+  const _tipStyle = "position:absolute;display:none;background:var(--bg-card);color:var(--text-1);"
+    + "border:1px solid var(--border-strong);border-radius:4px;padding:5px 10px;font-size:13px;"
+    + "line-height:1.5;white-space:nowrap;pointer-events:none;z-index:60;box-shadow:0 2px 10px rgba(0,0,0,0.15);";
+  return '<div class="lw-wrap" style="position:relative;height:' + h + 'px">'
+    + '<svg class="lw-svg" width="100%" height="' + h + '" viewBox="0 0 640 ' + h + '" preserveAspectRatio="none" role="img">'
+    + _lwSVG(Object.assign({}, cfg, { w: 640 }))
+    + '</svg>'
+    + '<div class="lw-tip" style="' + _tipStyle + '"></div>'
+    + '</div>';
+}
+// 轻量版 hover: 十字线 + 高亮点 + 浮层 tooltip(cfg.tipFn(i, xLabel) 返回 html)。heatmap 走专用绑定。
+function _lwBind(wrap, cfg) {
+  if (!wrap) return;
+  if (cfg.heatmap) { _lwHeatmapBind(wrap, cfg); return; }
+  const svg = wrap.querySelector(".lw-svg");
+  const tip = wrap.querySelector(".lw-tip");
+  if (!svg) return;
+  const _n = (cfg.xLabels || []).length;
+  if (_n < 1) return;
+  const rect = svg.getBoundingClientRect();
+  const _W = Math.round((rect && rect.width) || 640);
+  const _h = cfg.h || 300;
+  svg.setAttribute("viewBox", "0 0 " + _W + " " + _h);
+  svg.innerHTML = _lwSVG(Object.assign({}, cfg, { w: _W }));
+  // 重算几何(与 _lwSVG 同口径)
+  const PL = cfg.pl != null ? cfg.pl : 55, PR = cfg.pr != null ? cfg.pr : 20;
+  const PT = cfg.pt != null ? cfg.pt : 30, PB = cfg.pb != null ? cfg.pb : 35;
+  const bg = !!cfg.boundaryGap;
+  const _iw = _W - PL - PR, _ih = _h - PT - PB;
+  const _unitW = bg ? (_iw / _n) : (_iw / Math.max(1, _n - 1));
+  const _px = bg ? ((i) => PL + (i + 0.5) * _unitW) : ((i) => PL + i * _unitW);
+  const _xFmt = cfg.xFmt || ((v) => fmtDate(v));
+  const _cursor = svg.querySelector(".lw-cursor");
+  const _pt = svg.querySelector(".lw-hover-pt");
+  const _show = (i) => {
+    if (_cursor) { _cursor.setAttribute("x1", _px(i).toFixed(1)); _cursor.setAttribute("x2", _px(i).toFixed(1)); _cursor.setAttribute("opacity", "0.9"); }
+    if (_pt) _pt.setAttribute("opacity", "0");
+    if (tip) {
+      const html = cfg.tipFn ? cfg.tipFn(i, _xFmt(cfg.xLabels[i])) : (_xFmt(cfg.xLabels[i]));
+      if (html == null || html === "") { tip.style.display = "none"; return; }
+      tip.innerHTML = html;
+      tip.style.display = "block";
+      const svgRect = svg.getBoundingClientRect();
+      const wrapRect = wrap.getBoundingClientRect();
+      const ratioW = _W / (svgRect.width || 1);
+      const ratioH = _h / (svgRect.height || 1);
+      const cssX = _px(i) / ratioW;
+      const cssY = (PT + _ih / 2) / ratioH + (svgRect.top - wrapRect.top);
+      const tipW = tip.offsetWidth || 80;
+      const tipH = tip.offsetHeight || 36;
+      let left = cssX - tipW / 2;
+      if (left < 0) left = 0;
+      if (left + tipW > svgRect.width) left = svgRect.width - tipW;
+      let top = cssY - tipH - 12;
+      if (top < 0) top = cssY + 14;
+      tip.style.left = left.toFixed(1) + "px";
+      tip.style.top = top.toFixed(1) + "px";
+    }
+  };
+  const _hide = () => {
+    if (_cursor) _cursor.setAttribute("opacity", "0");
+    if (_pt) _pt.setAttribute("opacity", "0");
+    if (tip) tip.style.display = "none";
+  };
+  svg.addEventListener("mousemove", (e) => {
+    const r = svg.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const ratioW = _W / r.width;
+    const vx = (e.clientX - r.left) * ratioW;
+    let i = bg ? Math.round((vx - PL) / _unitW - 0.5) : Math.round((vx - PL) / _unitW);
+    if (i < 0) i = 0;
+    if (i > _n - 1) i = _n - 1;
+    _show(i);
+  });
+  svg.addEventListener("mouseleave", _hide);
+}
+// 注册 + 渲染入口: 容器内换 lite SVG(默认) / 回退 echarts(echartsFn 重建实例)。返回容器。
+// 注册进 _lwRenderers 供 ⚡ 开关 _reRenderHomeCharts() 即时重渲染(双向 dispose 旧实例)。
+const _lwRenderers = new Map();
+const _lwCfgMap = new WeakMap(); // container -> cfg(供外部改尺寸后重渲染)
+function _lwSetup(container, cfg, echartsFn) {
+  if (!container) return container;
+  _lwCfgMap.set(container, cfg);
+  const render = () => {
+    const _lite = !!siteCfg("charts.lightweight", true);
+    if (typeof echarts !== "undefined") {
+      const old = echarts.getInstanceByDom(container);
+      if (old) {
+        old.dispose();
+        const i = charts.indexOf(old); if (i >= 0) charts.splice(i, 1);
+        if (typeof _kpiDetailCharts !== "undefined") { const j = _kpiDetailCharts.indexOf(old); if (j >= 0) _kpiDetailCharts.splice(j, 1); }
+        if (typeof _signalModalCharts !== "undefined") { const k = _signalModalCharts.indexOf(old); if (k >= 0) _signalModalCharts.splice(k, 1); }
+      }
+    }
+    container.innerHTML = "";
+    if (_lite) {
+      // 高度取实测(响应式容器, 如分时图 desktop 100px / mobile 80px), 兜底 cfg.h
+      const _hMeas = (container.offsetHeight || cfg.h || 300);
+      const liteCfg = Object.assign({}, cfg, { h: _hMeas });
+      container.innerHTML = _lwHTML(liteCfg);
+      _lwBind(container, liteCfg);
+    } else if (typeof echarts !== "undefined" && echartsFn) {
+      echartsFn(container);
+    }
+  };
+  _lwRenderers.set(container, render);
+  render();
+  return container;
+}
+// 改 lite 图表高度(等价原 echarts 改 grid 高度+resize): 同步容器 style + cfg.h + 重渲染。
+function _lwSetHeight(container, h) {
+  if (!container) return;
+  const cfg = _lwCfgMap.get(container);
+  if (cfg) cfg.h = h;
+  container.style.height = h + "px";
+  const fn = _lwRenderers.get(container);
+  if (fn) { try { fn(); } catch (e) {} }
+}
+// ⚡ 开关(皮肤弹窗 走势图渲染)即时重渲染首页全部已接轻量图(KPI sparkline + 常驻图 + 弹窗内图)。
+function _reRenderHomeCharts() {
+  for (const [container, fn] of Array.from(_lwRenderers.entries())) {
+    if (container && container.isConnected) { try { fn(); } catch (e) {} }
+    else _lwRenderers.delete(container);
+  }
+  if (typeof _reRenderHomeSpark === "function") _reRenderHomeSpark();
+  if (typeof _renderEtfScoreBody === "function") _renderEtfScoreBody();
+}
+// KPI 详情弹窗走势图 lite cfg 构建: 外观对等原 echarts 多系列(s.color/dash/opacity/symbol/areaStyle/markLine
+// 阈值+线段/visualMap 分段色/预估灰色 pin/tooltip 口径)。connectNulls:true(跨 null 相连)。
+function _kpiLiteCfg(result, dates, _estimates, _unit) {
+  const series = [], legend = [];
+  for (let idx = 0; idx < (result.series || []).length; idx++) {
+    const s = result.series[idx];
+    const name = s.name || "";
+    const dataArr = dates.map((d) => { const p = (s.data || []).find((x) => x.date === d); return p ? p.value : null; });
+    const color = s.color || "#5b8ff9";
+    const ls = s.lineStyle || {};
+    const opacity = (ls.opacity != null ? ls.opacity : (s.itemStyle && s.itemStyle.opacity != null ? s.itemStyle.opacity : undefined));
+    const ser = {
+      type: "line", data: dataArr, color: color,
+      width: (ls.width != null ? ls.width : 1.5), smooth: true,
+      dash: ls.type === "dashed" ? "4 3" : undefined,
+      opacity: opacity,
+      symbolR: s.symbol === "circle" ? ((s.symbolSize != null ? s.symbolSize : 6) / 2) : undefined,
+      connectNulls: true,
+      markLine: [], markPoints: [],
+    };
+    if (s.areaStyle) ser.areaOpacity = (s.areaStyle.opacity != null ? s.areaStyle.opacity : 0.6);
+    // markLine(阈值 {yAxis,label} 或 线段 [[{coord:[date,val]},{coord:[date,val]}]] )
+    if (s.markLine && Array.isArray(s.markLine.data)) {
+      for (const m of s.markLine.data) {
+        if (Array.isArray(m) && m[0] && m[1] && m[0].coord && m[1].coord) {
+          ser.markLine.push({
+            x1: dates.indexOf(m[0].coord[0]), y1: m[0].coord[1],
+            x2: dates.indexOf(m[1].coord[0]), y2: m[1].coord[1],
+            color: (s.markLine.lineStyle && s.markLine.lineStyle.color) || color,
+            opacity: (s.markLine.lineStyle && s.markLine.lineStyle.opacity != null) ? s.markLine.lineStyle.opacity : 0.5,
+          });
+        } else if (m.yAxis != null) {
+          const ml = s.markLine.lineStyle || {};
+          ser.markLine.push({
+            y: m.yAxis,
+            color: (m.lineStyle && m.lineStyle.color) || ml.color || "var(--text-3)",
+            label: m.label ? m.label.formatter : undefined,
+            pos: (m.label && m.label.position === "end") ? "end" : "start",
+            fontSize: (m.label && m.label.fontSize) || 10,
+          });
+        }
+      }
+    }
+    // visualMap 分段着色(仅无固定色 series, 如情绪分)
+    if (result.visualMap && result.visualMap.pieces && s.color == null) {
+      const _pieces = result.visualMap.pieces;
+      ser.itemColor = (i, v) => {
+        for (const p of _pieces) {
+          const lo = (p.gt != null ? v > p.gt : (p.gte != null ? v >= p.gte : true));
+          const hi = (p.lte != null ? v <= p.lte : (p.lt != null ? v < p.lt : true));
+          if (lo && hi) return p.color;
+        }
+        return color;
+      };
+    }
+    legend.push({ name: name, color: color });
+    series.push(ser);
+  }
+  // 预估灰色 pin(补 T 日预估点, 附到对应 series)
+  for (const est of (_estimates || [])) {
+    const i = dates.indexOf(est.date);
+    if (i < 0 || !series[est.seriesIdx]) continue;
+    series[est.seriesIdx].markPoints.push({ i: i, y: est.value, color: "#909399", r: 4, label: "预估", labelColor: "#909399", fontSize: 10 });
+  }
+  // y 轴 formatter(yLabel: "{value}亿" 字符串模板 或 函数)
+  let yFmt;
+  if (typeof result.yLabel === "function") yFmt = result.yLabel;
+  else if (typeof result.yLabel === "string") yFmt = (v) => String(result.yLabel).replace("{value}", String(Number(v).toFixed(0)));
+  return {
+    h: 380, pl: 65, pr: 25, pt: 35, pb: 45,
+    xLabels: dates, xFmt: (v) => v,
+    ys: [{ scale: true, splitNumber: 5, formatter: yFmt }],
+    legend: legend,
+    series: series,
+    tipFn: (i) => {
+      const lines = [fmtDate(dates[i])];
+      for (let idx = 0; idx < series.length; idx++) {
+        const pv = series[idx].data[i];
+        if (pv == null || isNaN(pv)) continue;
+        const isHalfDay = (result.series[idx].name || "").indexOf("盘中") >= 0;
+        const marker = '<span style="display:inline-block;width:8px;height:2px;background:' + series[idx].color + ';margin-right:4px;vertical-align:middle"></span>';
+        lines.push(marker + result.series[idx].name + ": " + Number(pv).toFixed(2) + (_unit || "") + (isHalfDay ? " (盘中半日值)" : ""));
+      }
+      return lines.join("<br/>");
+    },
+  };
+}
+
+// 首页图表卡壳(等价 mkCard 但零 echarts init; lite 模式 SVG 渲染, echarts 模式由 _lwSetup 建实例)。
+// 返回 .chart div(其 parentElement = .chart-card, 供 addCardTimeBadge/classList 使用)。
+function _lwCardShell(title, height, hint, container) {
+  const div = document.createElement("div");
+  div.className = "chart-card";
+  const hintHtml = hint ? `<div class="chart-hint">${hint}</div>` : "";
+  div.innerHTML = `<h3>${title}</h3>${hintHtml}<div class="chart" style="height:${height || 300}px"></div>`;
+  container.appendChild(div);
+  return div.querySelector(".chart");
+}
+// 首页通用折线卡(lite-aware 版 lineChart, 单系列 [{date,value}]): 等价原 lineChart(title,series,opts,...)
+// + 外部追加 setOption(markLine)。opts 透传 echarts 版(visualMap 等); opts._lwMarkLine 轻量阈值虚线。
+// 返回 {card, div} (card=外卡 div=chart容器)。
+function _lwLineCard(title, series, opts, hint, container, height) {
+  const dates = (series || []).map((d) => d.date);
+  const vals = (series || []).map((d) => d.value);
+  const div = _lwCardShell(title, height || 300, hint, container);
+  const seriesName = stripHtml(title);
+  const liteCfg = {
+    h: height || 300, pl: 55, pr: 20, pt: 35, pb: 35,
+    xLabels: dates, xFmt: (v) => v,
+    ys: [{ splitLine: true }],
+    legend: [{ name: seriesName, color: (opts && opts._lwColor) || "#5b8ff9" }],
+    series: [{
+      type: "line", data: vals, color: (opts && opts._lwColor) || "#5b8ff9", width: 1.5, smooth: true,
+      itemColor: (opts && opts._lwColorFn) || null,
+      markLine: (opts && opts._lwMarkLine) || [],
+    }],
+    tipFn: (i) => { const v = vals[i]; return dates[i] + "<br/>" + (v == null || isNaN(v) ? "-" : Number(v).toFixed(2)); },
+  };
+  _lwSetup(div, liteCfg, (container) => {
+    const inst = echarts.init(container);
+    inst.setOption(withTheme(Object.assign({
+      tooltip: { trigger: "axis" },
+      legend: { top: 0, type: "scroll" },
+      grid: { left: 55, right: 20, top: 35, bottom: 35 },
+      xAxis: { type: "category", data: dates },
+      yAxis: { type: "value", scale: true },
+      dataZoom: dzOpts(),
+      series: [{ name: seriesName, type: "line", smooth: true, symbol: "none", connectNulls: true, data: vals, lineStyle: { width: 1.5 } }],
+    }, opts || {})));
+    if (opts && opts._lwMarkLine && opts._lwMarkLine.length) {
+      inst.setOption({ series: [{ markLine: { silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 }, data: opts._lwMarkLine.map((m) => ({ yAxis: m.y, lineStyle: { color: m.color }, label: { formatter: m.label, color: m.color, position: "insideStartTop", fontSize: m.fontSize || 10 } })) } }] });
+    }
+    charts.push(inst);
+  });
+  return { card: div.parentElement, div: div };
 }
 
 // 首页🐶卡片7天总况：堆叠迷你柱状图（红进/绿出/橙量），柱底标MM-DD，金点=共振日
@@ -15664,15 +16793,11 @@ function renderIndustryHeatmap(heatmap, title, containerOverride) {
     .map(([k, label]) => `<button type="button" data-hr="${k}">${label}</button>`).join("");
   div.innerHTML = `<h3 class="with-toggle"><span>${title || "申万一级行业涨跌幅热力图"}</span><span class="heatmap-toggle">${toggleBtns}</span></h3><div class="chart" style="height:280px"></div>`;
   ctn.appendChild(div);
-  const c = echarts.init(div.querySelector(".chart"));
-  charts.push(c);
   const toggleBtnsEl = div.querySelector(".heatmap-toggle");
-  // 切换按钮：就地重画该热力图（不调 renderTab，避免整页重渲染丢滚动位置）
-  _heatmapSetOption(c, heatmap, toggleBtnsEl);
-  div.querySelectorAll(".heatmap-toggle button").forEach((b) => {
-    b.onclick = () => { state.heatmapRange = b.dataset.hr; _heatmapSetOption(c, heatmap, toggleBtnsEl); };
-  });
-  return c;
+  // P1 Step②(2026-08-12): 热力图 lite-aware(_lwHeatmapSetup, 外观对等原 heatmap+visualMap+切换)
+  const chartEl = div.querySelector(".chart");
+  _lwHeatmapSetup(chartEl, heatmap, toggleBtnsEl);
+  return { getDom: () => chartEl }; // 调用方只取 getDom().parentElement 挂角标
 }
 
 // 热力图按 state.heatmapRange 计算 setOption 数据并应用到实例 c，同步按钮 active 态
@@ -21216,9 +22341,8 @@ function initThemeSwitcher() {
         var _liteVal = opt.dataset.chartLite === "1";
         _setSiteCfgLocal("charts.lightweight", _liteVal ? "true" : "false");
         renderChartLiteActive();
-        if (typeof _renderEtfScoreBody === "function") _renderEtfScoreBody();
-        // P1 Step①(2026-08-12): 首页 sparkline(KPI + 指数 ~39 卡)同步实时重渲染(轻量/完整切换即时生效)
-        if (typeof _reRenderHomeSpark === "function") _reRenderHomeSpark();
+        // P1 Step②(2026-08-12): 首页全部已接轻量图即时重渲染(ETF评分弹窗走势 + sparkline ~39 卡 + 常驻图/热力图/分时图/弹窗图)
+        if (typeof _reRenderHomeCharts === "function") _reRenderHomeCharts();
       } else if (opt.classList.contains("compliance-option")) {
         // 合规开关：即时生效（切字典重渲染），不自动关弹窗，用户可继续切皮肤或手动关闭
         // gating：完整版（off）为登录特权 hasPrivilege("detailed_view")，未登录弹提示+登录入口不切换
