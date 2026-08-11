@@ -362,14 +362,16 @@ def _send_feishu_webhook(url: str, subject: str, text: str) -> bool:
 
 def _resolve_feishu_chat_key(subject: str, from_prefix: str | None,
                              severe: bool) -> str:
-    """按通知类别路由飞书群：severe/[告警] -> alert 群；[完成]/[恢复] -> agent_done 群；
-    其余（收盘分析/盘中信号/小时级节点/买卖点信号等）-> report 群。"""
+    """按通知类别路由飞书群：severe/[告警]/[恢复] -> alert 群；[完成] -> agent_done 群；
+    其余（收盘分析/盘中信号/小时级节点/买卖点信号等）-> report 群。
+
+    [恢复] 与 [告警] 成对（异常发生/恢复闭环），同走 alert 告警群，让运维看到完整闭环。"""
     if severe:
         return "alert"
     hay = f"{from_prefix or ''} {subject}"
-    if "[告警]" in hay:
+    if "[告警]" in hay or "[恢复]" in hay:
         return "alert"
-    if "[完成]" in hay or "[恢复]" in hay:
+    if "[完成]" in hay:
         return "agent_done"
     return "report"
 
