@@ -86,7 +86,7 @@ FEISHU_POST_MAX_ROWS = 20
 
 # ⚠️ 飞书 post 文本色实测结论（2026-08-11）：im/v1/messages 的 post text 标签**不支持**
 # style.color（任何色名/hex 都报 230001 invalid message content，实测验证）。
-# 彩色语义改用【彩色 emoji 前缀 + md 加粗表头】实现（🟢买/🔴卖/⚪持有，md 支持 **加粗**）。
+# 彩色语义改用【彩色 emoji 前缀 + md 加粗表头】实现（🔴买/🟢卖/⚪持有，A股红涨绿跌与平台信号灯一致，md 支持 **加粗**）。
 # 后续若飞书 API 开放 style 支持，再恢复 post_text 的 color 参数。
 
 # 飞书 tenant_access_token 缓存（2h 有效，过期前 120s 刷新复用）
@@ -170,7 +170,7 @@ def post_text(text: str, href: str | None = None, un_escape: bool = False) -> di
     """构建飞书 post 富文本的一个 text 标签（见 build_feishu_post）。
 
     注意：本 API 的 post text 标签不支持 style.color（实测 230001），彩色语义用
-    彩色 emoji 前缀（如 🟢 买入/🔴 卖出/⚪ 持有）实现，见 build_feishu_post 调用方。
+    彩色 emoji 前缀（如 🔴 买入/🟢 卖出/⚪ 持有，A股红涨绿跌与平台信号灯一致）实现，见 build_feishu_post 调用方。
     href: 非空时输出 a 链接标签（{tag:a, text, href}）。
     un_escape: True 时 text 内 \\n 换行生效（post 默认按字面渲染，\\n 不换行）。
     """
@@ -493,7 +493,7 @@ def send_feishu(subject: str, body: str, chat_key: str | None = None,
     返回 True 表示发出（或 dry_run 模拟成功），False 表示未发/失败。
 
     feishu_post（3 群差异化）：仅 report 群生效——非空时用 post 富文本发送
-      （build_feishu_post 产出，买卖点/汪汪队信号消息用，买绿/卖红/持有灰分组+彩色标题）。
+      （build_feishu_post 产出，买卖点/汪汪队信号消息用，买红/卖绿/持有灰分组+彩色标题，A股红涨绿跌约定）。
       alert/agent_done 群忽略 feishu_post 保持简短 text（可读性已够，不破坏现有格式）。
 
     reply_to_message_id（引用回复）：非空时应用模式 body 加 reply_to_message_id，

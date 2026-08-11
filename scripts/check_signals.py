@@ -104,7 +104,7 @@ SIGNAL_ORDER = ["buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_sto
 
 # 飞书 post 版（报告群）触发条件摘要截断长度（超长省略，防冗长；完整条件在邮件）
 FEISHU_POST_REASON_MAX = 32
-# 飞书 post 版买入/卖出/持有分组（买绿/卖红/持有灰，与邮件红买绿卖相反——飞书用国际惯例色）
+# 飞书 post 版买入/卖出/持有分组（买红/卖绿/持有灰，A股红涨绿跌约定，与邮件/平台信号灯一致）
 FEISHU_POST_BUY_TYPES = ["buy", "buy_aux", "buy_special", "buy_backup"]
 FEISHU_POST_SELL_TYPES = ["sell", "sell_stop_loss"]
 
@@ -1101,12 +1101,13 @@ def _signal_post_row(s: dict, name_map: dict[str, str], stats: dict,
     """
     name = index_id_to_name(s["index_id"], name_map)
     label = _signal_label(sig_type)
-    # post 版 emoji 与分组色一致（买绿/卖红/持有灰），彩色语义用 emoji 前缀实现
+    # post 版 emoji 与分组色一致（买红/卖绿/持有灰，A股红涨绿跌约定，与平台信号灯
+    # buy 红 #e6492e / sell 绿 #2e8b57 一致），彩色语义用 emoji 前缀实现
     # （飞书 post text 标签不支持 style.color，实测 230001；见 notify.py 注释）
     if sig_type in FEISHU_POST_BUY_TYPES:
-        emoji = "🟢"
-    elif sig_type in FEISHU_POST_SELL_TYPES:
         emoji = "🔴"
+    elif sig_type in FEISHU_POST_SELL_TYPES:
+        emoji = "🟢"
     else:
         emoji = "⚪"
     reason = (s["reason"] or "").replace("\n", " ").replace("\r", " ").strip()
@@ -1132,7 +1133,7 @@ def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str
                       fade_alerts: list[dict] | None = None) -> dict:
     """构建飞书 post 富文本（报告群版，notify.send(feishu_post=...) 用）。
 
-    按 buy(买)/sell(卖)/hold(波段持有) 分组：买绿/卖红/持有灰（彩色 emoji 前缀实现，
+    按 buy(买)/sell(卖)/hold(波段持有) 分组：买红/卖绿/持有灰（彩色 emoji 前缀实现，
     飞书 post text 不支持 style.color，见 notify.py 注释）；分组表头用 md **加粗**。
     每个信号一行精简（类型/品种/触发条件摘要/凯利建议），不冗长；触发条件截断
     FEISHU_POST_REASON_MAX 字符；规则说明省略为一行指引（完整在邮件）。
@@ -1146,18 +1147,18 @@ def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str
 
     lines: list[list[dict]] = []
 
-    # 买入分组（🟢）
+    # 买入分组（🔴 A股红=买，与平台信号灯 buy 红 #e6492e 一致）
     if n_buy:
         sub = (f"（主买{len(groups['buy'])} 辅买{len(groups['buy_aux'])} "
                f"追买{len(groups['buy_special'])} 备买{len(groups['buy_backup'])}）")
-        lines.append([notify.post_md(f"🟢 **买入信号**{sub}")])
+        lines.append([notify.post_md(f"🔴 **买入信号**{sub}")])
         for sig_type in FEISHU_POST_BUY_TYPES:
             for s in groups[sig_type]:
                 lines.append(_signal_post_row(s, name_map, stats, sig_type))
-    # 卖出分组（🔴）
+    # 卖出分组（🟢 A股绿=卖，与平台信号灯 sell 绿 #2e8b57 一致）
     if n_sell:
         sub = f"（卖{len(groups['sell'])} 追止损卖{len(groups['sell_stop_loss'])}）"
-        lines.append([notify.post_md(f"🔴 **卖出信号**{sub}")])
+        lines.append([notify.post_md(f"🟢 **卖出信号**{sub}")])
         for sig_type in FEISHU_POST_SELL_TYPES:
             for s in groups[sig_type]:
                 lines.append(_signal_post_row(s, name_map, stats, sig_type))

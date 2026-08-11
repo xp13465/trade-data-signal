@@ -6,7 +6,7 @@
 2) send_feishu(feishu_post=...) report 群 -> msg_type=post（捕获请求 body 验证 content 结构）
 3) 3 群差异化：alert/agent_done 群忽略 feishu_post 保持 text（不破坏现有格式）
 4) 无 feishu_post 时仍走 text（回归，现有 alert 消息不受影响）
-5) check_signals.build_feishu_post 买卖分组（买绿/卖红/持有灰）+ 触发条件截断
+5) check_signals.build_feishu_post 买卖分组（买红/卖绿/持有灰）+ 触发条件截断
 6) check_signals.build_email 邮件 HTML 含 @media (max-width:600px) 移动端适配
 
 跑法：cd scripts && python3 -m unittest test_feishu_post -v
@@ -145,17 +145,17 @@ class SendFeishuPostTest(unittest.TestCase):
 
 class CheckSignalsPostTest(unittest.TestCase):
     def test_build_feishu_post_groups_and_colors(self):
-        """买卖分组（彩色 emoji 前缀 买绿/卖红/持有灰）+ 分组表头 md 加粗 + 触发条件截断。"""
+        """买卖分组（彩色 emoji 前缀 买红/卖绿/持有灰）+ 分组表头 md 加粗 + 触发条件截断。"""
         post = check_signals.build_feishu_post(
             "[买卖点信号] 20260811 主买×1 | 卖×1 | 持有×1", SAMPLE_SIGNALS, NAME_MAP)
         lines = post["zh_cn"]["content"]
         texts = [" | ".join(t.get("text", "") for t in line) for line in lines]
         joined = "\n".join(texts)
-        self.assertIn("🟢 **买入信号**", joined)   # md 加粗分组表头 + 绿 emoji
-        self.assertIn("🔴 **卖出信号**", joined)   # 卖红
+        self.assertIn("🔴 **买入信号**", joined)   # md 加粗分组表头 + 红 emoji(A股红=买)
+        self.assertIn("🟢 **卖出信号**", joined)   # 卖绿
         self.assertIn("⚪ **波段持有**", joined)   # 持有灰
-        self.assertIn("🟢 主买 沪深300", joined)   # 买行绿 emoji 前缀
-        self.assertIn("🔴 卖 中证500", joined)     # 卖行红 emoji 前缀
+        self.assertIn("🔴 主买 沪深300", joined)   # 买行红 emoji 前缀
+        self.assertIn("🟢 卖 中证500", joined)     # 卖行绿 emoji 前缀
         # 触发条件截断（FEISHU_POST_REASON_MAX=32）：长 reason 以 … 结尾
         buy_row = [t["text"] for t in lines[1]]
         self.assertTrue(any(t.endswith("…") for t in buy_row))
