@@ -15,9 +15,12 @@
 同一条只抄一次（Stop 会多次触发，必须去重）。
 防并发重复：fcntl.flock 对指纹文件加排它锁，串行化读写（Stop/UserPromptSubmit 可能并发触发）。
 
-子 agent 会话不抄送（2026-08-12）：项目级 hooks 在子 agent 会话中同样触发，
-若不加判断会把子 agent 输入/输出误抄送。判定用环境变量 CLAUDE_CODE_CHILD_SESSION=1
-（子 agent 进程才有，主控会话无），有则直接 exit 0 跳过（见 main() 开头）。
+子 agent 会话不抄送（2026-08-12 修复）：项目级 hooks 在子 agent 会话中同样触发，
+若不加判断会把子 agent 输入/输出误抄送。判定用环境变量 AI_AGENT 后缀：
+主控 hook 子进程=claude-code_2-1-224_harness，子 agent hook 子进程=claude-code_2-1-224_agent，
+AI_AGENT.endswith("_agent") 则 exit 0 跳过（见 main() 开头）。
+⚠️ 不能用 CHILD_SESSION 环境变量判定（Claude Code 2.1.224 给主控 hook 子进程也注入=1，
+曾致主控抄送停摆，commit e79c23d69 事故，详见 docs/feishu-hook-stall-diagnosis.md）。
 
 任何异常必须 exit 0 —— hook 失败不能中断 Claude Code 主流程。
 发送复用 scripts/notify.py 的 send_feishu（agent_done 开发群），密钥从
@@ -195,14 +198,15 @@ def handle_assistant(data: dict) -> int:
 
 # ---------------------------------------------------------------- 入口
 def main(argv) -> int:
-    # 子 agent 会话不抄送（2026-08-12 修复 bug）：
+    # 子 agent 会话不抄送（2026-08-12 修复 bug，依据诊断实测 docs/feishu-hook-stall-diagnosis.md）：
     # 项目级 hooks 在子 agent（Agent 工具派出的独立会话）中同样被加载并触发，
     # 若不拦截会把子 agent 的输入（任务 prompt）误当用户消息抄送飞书（用户已反馈）。
-    # 区分标志：子 agent 进程带 CLAUDE_CODE_CHILD_SESSION=1，主控会话无此标志
-    # （实测：子 agent env 有 CLAUDE_CODE_CHILD_SESSION=1 + AI_AGENT=claude-code_2-1-224_agent，
-    #   主控 claude 进程 env 无）。hook 作为该会话的子进程继承此 env，可直接读取。
+    # 区分标志（实测 2026-08-12 01:10 /tmp/feishu_hook_capture.log）：
+    #   主控会话 hook 子进程 AI_AGENT=claude-code_2-1-224_harness（不跳过）
+    #   子 agent hook 子进程  AI_AGENT=claude-code_2-1-224_agent（跳过）
+    # ⚠️ 不能用 CHILD_SESSION 判定（主控 hook 子进程也被注入=1，曾致停摆事故）。
     # 主控会话逐条实时抄送完全不受影响。异常也 exit 0 不阻塞 Claude Code。
-    if os.environ.get("CLAUDE_CODE_CHILD_SESSION") == "1":
+    if os.environ.get("AI_AGENT", "").endswith("_agent"):
         return 0
     mode = argv[1] if len(argv) > 1 else ""
     try:
