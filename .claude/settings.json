@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/linhuichen/code/trade/scripts/feishu_chat_hook.py user"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/linhuichen/code/trade/scripts/feishu_chat_hook.py assistant"
+          }
+        ]
+      }
+    ]
+  }
+}
