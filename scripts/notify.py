@@ -16,8 +16,13 @@
 用法（CLI）:
   notify.py <subject> <body> [--severe] [--alert-issue <issue> [--alert-log <path>]]
              [--from-prefix <prefix>] [--dry-run] [--feishu-group <key>] [--feishu-only]
+             [--reply-to-message-id <id>]
   notify.py --agent-done <name> <summary> [--dry-run]
              （agent 完成通知：发邮件直达用户绕过主控队列，5min 去重防轰炸；飞书固定发开发群）
+
+  --reply-to-message-id  飞书引用回复：body 加 reply_to_message_id，把消息作为对指定
+                    消息 ID 的引用回复发送（回复挂靠在原消息下方，任务状态可挂靠追踪）。
+                    仅飞书应用模式（im/v1/messages）生效，email/telegram 忽略此参数。
 
   --severe          2026-07-20 改造：仅用于 write_alert 语义标记（SEVERE_PREFIX 已置空串，
                     subject 前缀由调用方控制，统一 [告警]/[完成]/[恢复] 模板）。
@@ -318,15 +323,22 @@ def _get_tenant_access_token() -> str | None:
     return token
 
 
-def _send_feishu_api(chat_id: str, subject: str, text: str) -> bool:
-    """飞书应用模式发送：POST im/v1/messages?receive_id_type=chat_id（text 消息）。"""
+def _send_feishu_api(chat_id: str, subject: str, text: str,
+                     reply_to_message_id: str | None = None) -> bool:
+    """飞书应用模式发送：POST im/v1/messages?receive_id_type=chat_id（text 消息）。
+
+    reply_to_message_id 非空时 body 加 "reply_to_message_id"（飞书引用回复，回复挂靠在
+    指定原消息下方，任务状态可挂靠追踪；参数名与 feishu_ws_listener.send_receipt 同款）。
+    """
     token = _get_tenant_access_token()
     if not token:
         return False
     url = f"{FEISHU_API_BASE}/open-apis/im/v1/messages?receive_id_type=chat_id"
     content = json.dumps({"text": text}, ensure_ascii=False)
-    payload = json.dumps({"receive_id": chat_id, "msg_type": "text", "content": content},
-                         ensure_ascii=False).encode("utf-8")
+    body = {"receive_id": chat_id, "msg_type": "text", "content": content}
+    if reply_to_message_id:
+        body["reply_to_message_id"] = reply_to_message_id
+    payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
     headers = {"Content-Type": "application/json; charset=utf-8",
                "Authorization": f"Bearer {token}"}
     try:
@@ -378,13 +390,18 @@ def _resolve_feishu_chat_key(subject: str, from_prefix: str | None,
 
 def send_feishu(subject: str, body: str, chat_key: str | None = None,
                 dry_run: bool = False, severe: bool = False,
-                from_prefix: str | None = None) -> bool:
+                from_prefix: str | None = None,
+                reply_to_message_id: str | None = None) -> bool:
     """发飞书群消息（自建应用 im/v1/messages 或 webhook 模式）。
 
     chat_key 显式指定（alert/agent_done/report）；None 时按 _resolve_feishu_chat_key
     自动映射。配置缺失/enabled=false/占位符 -> 静默跳过（同 Telegram 未配置口径）。
     发送失败只 print 警告不抛异常（不阻塞调用方/不阻塞邮件）。
     返回 True 表示发出（或 dry_run 模拟成功），False 表示未发/失败。
+
+    reply_to_message_id（引用回复）：非空时应用模式 body 加 reply_to_message_id，
+    把消息作为对指定消息 ID 的引用回复发送（挂靠原消息下追踪）。webhook 模式不支持
+    引用回复（im/v1/messages 专属能力），忽略此参数。email/telegram 忽略此参数。
     """
     cfg = load_feishu_config()
     if cfg is None:
@@ -403,6 +420,9 @@ def send_feishu(subject: str, body: str, chat_key: str | None = None,
         text = text[: FEISHU_TEXT_LIMIT - 30] + "\n…(已截断)"
     if dry_run:
         print(f"[notify][dry-run] feishu group={chat_key} chat_id={chat_id}", file=sys.stderr)
+        if reply_to_message_id:
+            print(f"[notify][dry-run] feishu reply_to_message_id={reply_to_message_id}",
+                  file=sys.stderr)
         print(f"[notify][dry-run] feishu text(前200)=\n{text[:200]}", file=sys.stderr)
         return True
     mode = str(cfg.get("mode", "app") or "app").lower()
@@ -412,8 +432,10 @@ def send_feishu(subject: str, body: str, chat_key: str | None = None,
             print(f"[notify] feishu webhook 模式但群 {chat_key} 未配置 webhook_urls，跳过",
                   file=sys.stderr)
             return False
+        # webhook 模式不支持引用回复（im/v1/messages 专属能力），忽略 reply_to_message_id
         return _send_feishu_webhook(url, subject, text)
-    return _send_feishu_api(chat_id, subject, text)
+    return _send_feishu_api(chat_id, subject, text,
+                            reply_to_message_id=reply_to_message_id)
 
 
 def _send_email(subject: str, body: str, dry_run: bool = False,
@@ -477,7 +499,8 @@ def _send_email(subject: str, body: str, dry_run: bool = False,
 
 def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
          from_prefix: str | None = None, feishu_group: str | None = None,
-         feishu_only: bool = False) -> dict:
+         feishu_only: bool = False,
+         reply_to_message_id: str | None = None) -> dict:
     """多渠道分发通知（邮件 + Telegram + 飞书）。各渠道独立失败不互相阻塞。
 
     先邮件后 Telegram 再飞书，任一渠道失败不影响其他。返回聚合结果：
@@ -492,6 +515,8 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     feishu_group：飞书群 key 显式覆盖自动路由（alert/agent_done/report）；None=按
       severe/[告警]/[完成]/[恢复] 自动映射（见 _resolve_feishu_chat_key）。
     feishu_only：True 时只发飞书（跳过邮件/Telegram），调试用。
+    reply_to_message_id（引用回复）：仅飞书应用模式生效，透传给 send_feishu -> _send_feishu_api，
+      body 加 reply_to_message_id 回复挂靠原消息；email/telegram 忽略此参数。
     邮件兜底保留：飞书失败不阻塞、邮件照发（SEVERE 告警邮件始终发，防飞书故障无通知）。
     """
     if severe:
@@ -499,7 +524,8 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     email_ok = _send_email(subject, body, dry_run=dry_run, from_prefix=from_prefix) if not feishu_only else False
     tg_ok = send_telegram(subject, body, dry_run=dry_run) if not feishu_only else False
     fs_ok = send_feishu(subject, body, chat_key=feishu_group, dry_run=dry_run,
-                        severe=severe, from_prefix=from_prefix)
+                        severe=severe, from_prefix=from_prefix,
+                        reply_to_message_id=reply_to_message_id)
     return {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok}
 
 
@@ -626,7 +652,8 @@ def update_dedup(key: str) -> None:
 
 
 def notify_agent_done(agent_name: str, summary: str, dry_run: bool = False,
-                      feishu_group: str | None = None) -> dict:
+                      feishu_group: str | None = None,
+                      reply_to_message_id: str | None = None) -> dict:
     """agent 完成通知：发邮件(+Telegram+飞书 若配置)直达用户，绕过主控消息队列。
 
     主控消息队列瓶颈（680 enqueue 仅 313 dequeue=54% 丢失）致 SendMessage/
@@ -668,7 +695,8 @@ Agent：{agent_name}
 </div>"""
 
     results = send(subject, body, dry_run=dry_run, from_prefix="[完成]",
-                   feishu_group=feishu_group or "agent_done")
+                   feishu_group=feishu_group or "agent_done",
+                   reply_to_message_id=reply_to_message_id)
 
     # 发送后更新 dedup（无论成败，已尝试即更新）
     if not dry_run:
@@ -704,12 +732,17 @@ def main(argv: list[str] | None = None) -> int:
                              " / report=报告群。默认按 severe/[告警]/[完成]/[恢复] 自动映射")
     parser.add_argument("--feishu-only", action="store_true",
                         help="调试用：只发飞书（跳过邮件/Telegram）")
+    parser.add_argument("--reply-to-message-id", default=None, metavar="ID",
+                        help="飞书引用回复：把消息作为对指定消息 ID 的引用回复发送"
+                             "（body 加 reply_to_message_id，回复挂靠在原消息下方，"
+                             "任务状态可挂靠追踪）。仅飞书应用模式生效，email/telegram 忽略")
     args = parser.parse_args(argv)
 
     # agent 完成通知模式：subject=结论摘要，直达用户绕过主控队列
     if args.agent_done:
         results = notify_agent_done(args.agent_done, args.subject, dry_run=args.dry_run,
-                                    feishu_group=args.feishu_group)
+                                    feishu_group=args.feishu_group,
+                                    reply_to_message_id=args.reply_to_message_id)
         if results.get("suppressed"):
             return 0
         ok = [ch for ch, v in results.items() if v]
@@ -728,7 +761,8 @@ def main(argv: list[str] | None = None) -> int:
 
     results = send(args.subject, args.body, severe=args.severe, dry_run=args.dry_run,
                    from_prefix=args.from_prefix, feishu_group=args.feishu_group,
-                   feishu_only=args.feishu_only)
+                   feishu_only=args.feishu_only,
+                   reply_to_message_id=args.reply_to_message_id)
     ok = [ch for ch, v in results.items() if v]
     fail = [ch for ch, v in results.items() if not v]
     if ok:
