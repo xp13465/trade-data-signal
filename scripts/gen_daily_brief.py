@@ -1164,8 +1164,12 @@ def _history_stats(history: list[dict]) -> dict:
     return {"30d": _calc(30), "90d": _calc(90)}
 
 
-def write_outputs(static_dir: Path, brief: dict, cfg: dict) -> dict:
-    """写 daily_brief.json + 归档 history + 返回 stats。"""
+def write_outputs(static_dir: Path, brief: dict, cfg: dict, history: list | None = None) -> dict:
+    """写 daily_brief.json + 归档 history + 返回 stats。
+
+    history: 可选,已回填的 history(由主流程 backfill_hits 就地回填后传入)。
+    传入时不从磁盘重载,避免 write_outputs 内部 _load_history 重载丢弃 backfill_hits
+    的回填改动(2026-08-12 修复: 回填改动此前从未落盘,commit 8b7589c7b 引入)。"""
     static_dir.mkdir(parents=True, exist_ok=True)
     date = brief["meta"]["date"]
     disclaimer = cfg.get("disclaimer", "").replace("{date}", date)
@@ -1175,8 +1179,9 @@ def write_outputs(static_dir: Path, brief: dict, cfg: dict) -> dict:
     # text.note 末尾追加免责(展示层)
     brief["text"]["note"] = disclaimer
 
-    # 归档
-    history = _load_history(static_dir)
+    # 归档(传入已回填 history 时不重载,保留 backfill_hits 就地回填的改动)
+    if history is None:
+        history = _load_history(static_dir)
     # 删除同 date 旧条目(幂等重跑)
     history = [it for it in history if (it.get("date") or it.get("meta", {}).get("date")) != date]
     item = {
@@ -1726,10 +1731,10 @@ def main() -> int:
         if _remains:
             log(f"⚠ 合规校验仍有指令词残留: {_remains}(已在 scrub 阶段处理)")
 
-    # 回填上一日 hit + 写输出
+    # 回填上一日 hit + 写输出(传入已回填 history,防 write_outputs 重载丢弃回填)
     backfill_hits(history, db_path, date)
     tw = time.time()
-    stats = write_outputs(static_dir, brief, cfg)
+    stats = write_outputs(static_dir, brief, cfg, history)
     timings["write"] = round(time.time() - tw, 2)
     log(f"写 {static_dir / BRIEF_FILE} + history({len(history)}条) hit_stats={stats}")
 
