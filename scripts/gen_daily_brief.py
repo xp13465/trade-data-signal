@@ -300,20 +300,128 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
     d["signal_stats_buy_top"] = buy_rank[:10]
 
     # 期货机构净多(P0-2 主维度) + 结论
+    # 2026-08-11 审计缺口#1修复: export 实际产出结构为
+    #   {dates:[...], series:{系列名:[{date,accuracy,follow_ratio,dominant_dir,...}]}, latest:{date,roles}}。
+    #   旧代码期望扁平 {dates, 系列:[数值list]} 结构,isinstance(v,list) 对 series(dict) 全跳过 → 注入恒空。
+    #   现适配实际结构: 取各系列近 5 日 follow_ratio(同向比例=机构净多方向强度)序列 + 当日 latest.roles。
     ft = _read_json(static_dir / "futures_acc_trend.json") or {}
-    dates = ft.get("dates") or []
-    series = ft.get("series") or ft
-    if dates:
-        # 取最近 3 个交易日的净多趋势(结构: {dates:[...], ...series})
+    series_map = ft.get("series") or {}
+    if isinstance(series_map, dict) and series_map:
         trend_tail = {}
-        for k, v in ft.items():
-            if k in ("dates",) or not isinstance(v, list) or len(v) != len(dates):
+        for name, rows in series_map.items():
+            if not isinstance(rows, list) or not rows:
                 continue
-            trend_tail[k] = {"date": dates[-1], "last": round(v[-1], 2) if v[-1] is not None else None,
-                             "d5_chg": round(v[-1] - v[-5], 2) if len(v) >= 5 and v[-1] is not None and v[-5] is not None else None}
+            recent = rows[-5:]
+            trend_tail[name] = {
+                "last": {
+                    "date": recent[-1].get("date"),
+                    "follow_ratio": recent[-1].get("follow_ratio"),
+                    "dominant_dir": recent[-1].get("dominant_dir"),
+                    "accuracy": recent[-1].get("accuracy"),
+                },
+                "trend": [
+                    {"date": r.get("date"), "follow_ratio": r.get("follow_ratio"),
+                     "dominant_dir": r.get("dominant_dir")} for r in recent
+                ],
+                "d5_chg": (round(recent[-1]["follow_ratio"] - recent[-5]["follow_ratio"], 2)
+                           if len(recent) >= 5 and recent[-1].get("follow_ratio") is not None
+                           and recent[-5].get("follow_ratio") is not None else None),
+            }
         d["futures_acc_trend_tail"] = trend_tail
+    latest = ft.get("latest") or {}
+    if isinstance(latest, dict) and latest.get("roles"):
+        d["futures_acc_trend_latest"] = latest  # {date, prev_date, roles:{系列:{follow_ratio,dominant_dir,accuracy,...}}}
     fc = _read_json(static_dir / "futures_acc_conclusion.json") or {}
     d["futures_acc_conclusion"] = fc.get("current_state") or {}
+
+    # ── 机构风向(inst_ih_detail 席位净加仓 15 日 + 准确率,审计缺口#2 注入)──
+    # 数据源: futures.json 是 /api/futures 路由的 export(export.py 消费 app/queries.py 产出),
+    #   含 citic_ih_detail(中信期货)/inst_ih_detail(机构top20)/guotai_ih_detail(国泰君安) 三角色
+    #   4品种(IH/IF/IC/IM)合计净加仓 total_chg vs 上证综指次日涨跌 next_return 的 15 日统计。
+    futures = _read_json(static_dir / "futures.json") or {}
+    inst_ih = {}
+    for key, label in (("citic_ih_detail", "中信期货"), ("inst_ih_detail", "机构top20"),
+                       ("guotai_ih_detail", "国泰君安")):
+        det = futures.get(key) or {}
+        if not det:
+            continue
+        inst_ih[label] = {
+            "dominant_dir": det.get("dominant_dir"),
+            "accuracy": det.get("accuracy"),
+            "follow_ratio": det.get("follow_ratio"),
+            "total_days": det.get("total"),
+            "sample": f"{det.get('sample_start')}~{det.get('sample_end')}",
+            "recent": [
+                {"date": x.get("date"), "total_chg": x.get("total_chg"),
+                 "dir": x.get("citic_dir"), "next_return": x.get("next_return"),
+                 "correct": x.get("correct")}
+                for x in (det.get("details") or [])[-5:]
+            ],
+        }
+    d["inst_ih_trend"] = inst_ih  # 机构风向: 中信/机构top20/国泰君安 席位净加仓 15 日趋势 + 准确率
+    d["inst_ih_note"] = (
+        "口径说明: inst_ih_trend 为期货席位机构风向(中信期货/机构top20/国泰君安 三角色)4品种"
+        "(IH/IF/IC/IM)合计净加仓 total_chg(手) vs 上证综指次日涨跌 next_return(%) 的15日统计:"
+        "dominant_dir=主导方向(同向=净加仓方向与次日涨跌一致,逆向=相反), accuracy=15日准确率,"
+        "follow_ratio=同向比例。recent 为最近5日逐日 total_chg/next_return/correct。"
+        "机构净加仓方向是资金风向的重要参考。"
+    )
+
+    # ── ETF 汪汪队(etf_national_team,审计缺口#3 注入)──
+    # 数据源: overview.json nt_signals_today(当日异动信号)+ etf_national_team-1m.json(12只跟踪ETF日份额)
+    #   + etf_national_team_quarterly.json(季报机构持仓占比 inst_hold_pct)。
+    nt = ov.get("nt_signals_today") or {}
+    d["etf_national_team"] = {
+        "date": nt.get("date"),
+        "n_surge": nt.get("n_surge"),
+        "n_outflow": nt.get("n_outflow"),
+        "n_volume": nt.get("n_volume"),
+        "is_resonance": nt.get("is_resonance"),
+        "signals": [
+            {"code": s.get("code"), "name": s.get("name"), "type": s.get("type"),
+             "label": s.get("label"), "share_change_yi": s.get("share_change_yi"),
+             "intensity": s.get("intensity"), "note": (s.get("note") or "")[:80]}
+            for s in (nt.get("signals") or [])[:10]
+        ],
+        "recent_7d": nt.get("recent"),
+    }
+    nt_etfs = (_read_json(static_dir / "etf_national_team-1m.json") or {}).get("etfs") or []
+    d["etf_national_team_share"] = []
+    for e in nt_etfs[:12]:
+        daily = e.get("daily") or []
+        if not daily:
+            continue
+        d["etf_national_team_share"].append({
+            "code": e.get("code"), "name": e.get("name"), "index": e.get("index"),
+            "last_share_change_yi": daily[-1].get("share_change_yi"),
+            "last5": [
+                {"date": x.get("date"),
+                 "share_change_pct": round(x["share_change_pct"], 2) if x.get("share_change_pct") is not None else None,
+                 "share_change_yi": x.get("share_change_yi")}
+                for x in daily[-5:]
+            ],
+        })
+    q_etfs = (_read_json(static_dir / "etf_national_team_quarterly.json") or {}).get("etfs") or []
+    d["etf_national_team_holders"] = []
+    for e in q_etfs[:12]:
+        hist = e.get("history") or []
+        if not hist:
+            continue
+        last = hist[-1]
+        d["etf_national_team_holders"].append({
+            "code": e.get("code"), "name": e.get("name"), "index": e.get("index"),
+            "report_date": last.get("report_date"),
+            "inst_hold_pct": last.get("inst_hold_pct"),
+            "retail_hold_pct": last.get("retail_hold_pct"),
+        })
+    d["etf_national_team_note"] = (
+        "口径说明: etf_national_team 为ETF汪汪队(国家队/机构护盘资金)跟踪: signals=当日异动信号"
+        "(type share_outflow 份额流出 / volume_surge 放量), share_change_yi=份额变化(亿份),"
+        "intensity=异动强度, n_surge/n_outflow/n_volume=各类异动数量, is_resonance=多信号共振标志,"
+        "recent_7d=近7日异动统计; etf_national_team_share=12只跟踪ETF近5日份额变化%(share_change_pct)"
+        "与当日份额变化亿份(share_change_yi),正=资金流入增持; etf_national_team_holders=季报机构持仓占比"
+        "(inst_hold_pct 机构占比,高=机构/国家队主导)。汪汪队增持/异动是护盘与资金面支撑信号。"
+    )
 
     # ── DB(daily_metric / score_daily / index_daily) ──
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=15)
@@ -497,6 +605,12 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
         "0-100 衍生指标,非可交易标的,仅情绪参考)。情绪分信号必须标注'情绪分信号',"
         "不得表述为'卖信号 N 个'或'买信号 N 个';只有真实指数可交易信号才能称为"
         "'卖信号/买信号 N 个'。\n"
+        "4c.【资金/护盘数据源】资金面可参考: inst_ih_trend(期货席位机构风向,中信/机构top20/"
+        "国泰君安 15日净加仓 total_chg 方向+准确率 accuracy+主导方向 dominant_dir,见 inst_ih_note 口径)、"
+        "futures_acc_trend_tail(机构净多变化 follow_ratio 同向比例趋势)+futures_acc_trend_latest(当日最新)、"
+        "etf_national_team(ETF汪汪队异动信号+份额变化 share_change_yi+is_resonance 共振,见 "
+        "etf_national_team_note 口径)+etf_national_team_share(12只跟踪ETF近5日份额变化)。"
+        "这些是机构/护盘资金态度的重要证据,应在 trend/risk 中引用具体数值。\n"
         "5. text.review(今日复盘,约80字)、text.trend(趋势研判,约60字)、text.watch(明日关注,约80字)、text.risk(风险点,约60字),总长 ≤300 字。\n"
         "6. 只做\"关注/观察/警惕/留意/注意/谨慎\"表述,给出方向和风险即可,不做任何交易指令。\n"
         "7. 当前北京时间 " + now_str + ",数据截至 " + date + " 收盘。忽略任何 " + date + " 之后发生的事件、消息或数据(那些尚未发生,不得当作已知信息使用)。输出需标注\"基于 " + date + " 收盘数据\"。\n"
@@ -671,7 +785,10 @@ def split_domains(d: dict) -> dict:
         "fund": {
             "funds": funds,
             "futures_acc_trend_tail": d.get("futures_acc_trend_tail"),
+            "futures_acc_trend_latest": d.get("futures_acc_trend_latest"),
             "futures_acc_conclusion": d.get("futures_acc_conclusion"),
+            "inst_ih_trend": d.get("inst_ih_trend"),
+            "inst_ih_note": d.get("inst_ih_note"),
             "north_quarterly": d.get("north_quarterly"),
             "funds_note": d.get("funds_note"),
         },
@@ -689,6 +806,9 @@ def split_domains(d: dict) -> dict:
                 "a_rotation_5d", "a_rotation_10d", "a_rotation_20d",
                 "a_rotation_concept_5d", "a_width_fengban_rate",
                 "a_width_max_lianban", "a_width_zhaban_rate")},
+            "etf_national_team": d.get("etf_national_team"),
+            "etf_national_team_share": d.get("etf_national_team_share"),
+            "etf_national_team_note": d.get("etf_national_team_note"),
         },
         "risk": {
             "alert": d.get("alert"),
@@ -886,6 +1006,64 @@ BRIEF_FILE = "daily_brief.json"
 HISTORY_LIMIT = 90
 HIT_THRESHOLD = 0.1  # 涨跌幅 >0.1% 才算 up/down,否则 flat
 
+# ── 结构化运行日志(2026-08-11 审计缺口#4)────────────────────────────────
+#   双写: a) static-site/data/daily_brief_run_log.json(随 daily_brief.json 一起 R2 上传+staticdata 同步,前端可读)
+#          b) data/logs/daily_brief_run.log(tab 分隔追加行,schedule_monitor grep 用)
+#   cost.log 只记 token/费用,run_log 是全流程结构化日志,是扩展不是替换。
+RUN_LOG_FILE = "daily_brief_run_log.json"
+RUN_LOG_TEXT = "daily_brief_run.log"
+RUN_LOG_LIMIT = 30
+
+
+def _run_cost(usage: dict | None, cfg: dict) -> float:
+    """与 log_cost 同口径的调用费用(¥)。"""
+    pt = (usage or {}).get("prompt_tokens") or 0
+    ct = (usage or {}).get("completion_tokens") or 0
+    return (pt / 1e6) * float(cfg.get("input_price_per_million", 2.0)) + \
+           (ct / 1e6) * float(cfg.get("output_price_per_million", 8.0))
+
+
+def write_run_log(repo: Path, static_dir: Path, cfg: dict, entry: dict) -> None:
+    """结构化运行日志双写(best-effort,失败不阻塞主流程)。
+
+    entry 字段: date/ts/version/direction/confidence/watch_count/risk_count
+      + timings{load_data,build_prompt,call_api,parse,write,r2,staticdata}
+      + data_sources{各数据源数据量} + freshness{数据新鲜度} + ai{model,tokens,cost} + output{各段字数}。
+    """
+    entry.setdefault("ts", _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    # b) tab 分隔追加行
+    try:
+        p = repo / "data" / "logs" / RUN_LOG_TEXT
+        p.parent.mkdir(parents=True, exist_ok=True)
+        ai = entry.get("ai") or {}
+        line = "\t".join([
+            str(entry.get("date", "")), entry["ts"], str(entry.get("version", "")),
+            str(entry.get("direction", "")), str(entry.get("confidence", "")),
+            str(ai.get("prompt_tokens", "")), str(ai.get("completion_tokens", "")),
+            str(round(ai.get("cost", 0.0), 4)),
+            json.dumps(entry.get("timings") or {}, ensure_ascii=False),
+            json.dumps(entry.get("data_sources") or {}, ensure_ascii=False),
+            json.dumps(entry.get("freshness") or {}, ensure_ascii=False),
+        ]) + "\n"
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception:
+        pass
+    # a) run_log.json 最近 N 次数组(读旧->头插->截断->写回)
+    try:
+        items: list = []
+        pj = static_dir / RUN_LOG_FILE
+        if pj.exists():
+            prev = _read_json(pj) or {}
+            items = (prev.get("items") or []) if isinstance(prev, dict) else []
+        items.insert(0, entry)
+        items = items[:RUN_LOG_LIMIT]
+        (static_dir / RUN_LOG_FILE).write_text(
+            json.dumps({"items": items, "total": len(items), "limit": RUN_LOG_LIMIT},
+                       ensure_ascii=False, indent=1), encoding="utf-8")
+    except Exception:
+        pass
+
 
 def _load_history(static_dir: Path) -> list[dict]:
     p = static_dir / HISTORY_FILE
@@ -1042,18 +1220,20 @@ def log_cost(repo: Path, cfg: dict, date: str, version: str, usage: dict | None,
 
 
 # ── R2 上传(数据走 R2,上传后前端可读)─────────────────────────────────────
-def upload_to_r2(repo: Path, no_upload: bool) -> None:
+def upload_to_r2(repo: Path, no_upload: bool, files: list[str] | None = None) -> None:
     """上传 daily_brief*.json 到 R2 data/ 前缀 + purge edge cache。
     必须传 REPO=repo 给 upload_r2.py,否则其 STATIC_DIR 解析到 trade/ 而非本脚本写入的 trade-data/,
-    会读空目录或旧文件导致 R2 内容错位(export-output-path-sync 同源陷阱)。"""
+    会读空目录或旧文件导致 R2 内容错位(export-output-path-sync 同源陷阱)。
+    files: 要上传的文件列表(默认主数据 3 件);run_log 在 write_run_log 后单独传(见 main)。"""
     if no_upload:
         return
+    files = files if files is not None else [BRIEF_FILE, HISTORY_FILE, RUN_LOG_FILE]
     env = dict(os.environ)
     env.setdefault("REPO", str(repo))
     try:
         r = subprocess.run(
             [str(repo / ".venv/bin/python"), str(repo / "scripts/upload_r2.py"),
-             "upload-data-files", BRIEF_FILE, HISTORY_FILE],
+             "upload-data-files"] + files,
             cwd=str(repo), env=env, timeout=120, capture_output=True, check=False)
         out = (r.stdout or b"").decode("utf-8", errors="replace").strip()
         err = (r.stderr or b"").decode("utf-8", errors="replace").strip()
@@ -1066,7 +1246,7 @@ def upload_to_r2(repo: Path, no_upload: bool) -> None:
 
 
 # ── staticdata 同步(数据仓库留档/复原,防 deploy 外生成器留旧版)──────────
-def staticdata_sync(repo: Path, no_upload: bool) -> None:
+def staticdata_sync(repo: Path, no_upload: bool, files: list[str] | None = None) -> None:
     """同步 daily_brief*.json 到 staticdata 数据仓库(trade-data-signal-staticdata)。
 
     背景: staticdata 同步原依赖 deploy.sh 每次 deploy 后全量 rsync;但本脚本是 deploy
@@ -1074,15 +1254,16 @@ def staticdata_sync(repo: Path, no_upload: bool) -> None:
     直到下次 deploy(同步时机缺口,见 docs/staticdata-daily-brief-sync.md §二)。
     这里调 scripts/staticdata_sync.sh(daily-brief 触发名),脚本内部持 /tmp/trade_deploy.lock
     阻塞防与 deploy.sh staticdata 段并发写同一 git 仓库,best-effort 失败不阻塞本流程。
-    必须传 REPO=repo(同 upload_to_r2,防 static-site 路径解析到 trade/ 非本脚本写入目录)。"""
+    必须传 REPO=repo(同 upload_to_r2,防 static-site 路径解析到 trade/ 非本脚本写入目录)。
+    files: 要同步的文件列表(默认主数据 3 件);run_log 在 write_run_log 后单独同步(见 main)。"""
     if no_upload:
         return
+    files = files if files is not None else [BRIEF_FILE, HISTORY_FILE, RUN_LOG_FILE]
     env = dict(os.environ)
     env.setdefault("REPO", str(repo))
     try:
         r = subprocess.run(
-            ["bash", str(repo / "scripts/staticdata_sync.sh"), "daily-brief",
-             BRIEF_FILE, HISTORY_FILE],
+            ["bash", str(repo / "scripts/staticdata_sync.sh"), "daily-brief"] + files,
             cwd=str(repo), env=env, timeout=600, capture_output=True, check=False)
         out = (r.stdout or b"").decode("utf-8", errors="replace").strip()
         err = (r.stderr or b"").decode("utf-8", errors="replace").strip()
@@ -1204,9 +1385,31 @@ def main() -> int:
 
     log(f"repo={repo} date={date} db={db_path.name} compliance={cfg.get('compliance_enabled')}")
 
+    # 运行日志:每步耗时 + 数据源数据量 + 数据新鲜度(run_log 审计缺口#4)
+    timings: dict = {}
+    t0 = time.time()
     # 数据注入
     data = load_data(static_dir, db_path, date)
+    timings["load_data"] = round(time.time() - t0, 2)
     history = _load_history(static_dir)
+
+    # 数据源数据量(供 run_log + 监控)
+    data_sources = {
+        "signals_today": len(data.get("signals_today") or []),
+        "signal_stats_buy_top": len(data.get("signal_stats_buy_top") or []),
+        "futures_acc_trend_series": len(data.get("futures_acc_trend_tail") or {}),
+        "inst_ih_trend_roles": len(data.get("inst_ih_trend") or {}),
+        "etf_national_team_share": len(data.get("etf_national_team_share") or []),
+        "etf_nt_signals": len((data.get("etf_national_team") or {}).get("signals") or []),
+        "summary_fields": len(data.get("summary") or {}),
+    }
+    # 数据新鲜度(各数据源日期是否=今日;None=数据缺失)
+    _inst_ih_first = next(iter((data.get("inst_ih_trend") or {}).values()), None)
+    freshness = {
+        "futures_date": (data.get("futures_acc_trend_latest") or {}).get("date"),
+        "etf_nt_date": (data.get("etf_national_team") or {}).get("date"),
+        "inst_ih_last_date": ((_inst_ih_first or {}).get("recent") or [{}])[-1].get("date"),
+    }
 
     # 成本/失败链状态
     usage = None
@@ -1217,21 +1420,33 @@ def main() -> int:
         # 主链路:AI 生成。多角色编排优先(--multi 或配置开关),失败降级单 prompt 主链路(保底不破)。
         if args.multi or cfg.get("multi_agent_enabled", False):
             log("走多角色协作式编排(6角色)")
+            tc = time.time()
             _multi_brief, _multi_usage = run_multi_agent(date, data, cfg, log)
+            timings["call_api"] = round(time.time() - tc, 2)
             if _multi_brief:
                 usage = _multi_brief.pop("_usage", None)
                 brief = _multi_brief
                 version = "ai-multi"
+                timings.setdefault("build_prompt", 0)  # 多角色:prompt 构建在 run_multi_agent 内
+                timings.setdefault("parse", 0)
                 log(f"多角色AI生成成功 direction={brief['meta']['direction']} "
                     f"watch={len(brief['meta']['watch_list'])} roles={len(brief['meta'].get('roles') or {})}")
             else:
+                timings.setdefault("build_prompt", 0)
+                timings.setdefault("parse", 0)
                 log("多角色编排失败,降级单 prompt 主链路")
         if brief is None:
             known_bias = compute_known_bias(history) if cfg.get("review_enabled") else ""
+            tb = time.time()
             messages = build_prompt(date, data, cfg, known_bias)
+            timings["build_prompt"] = round(time.time() - tb, 2)
+            tc = time.time()
             raw = call_deepseek(messages, cfg, log)
+            timings["call_api"] = round(time.time() - tc, 2)
             if raw:
+                tp = time.time()
                 parsed = parse_ai_output(raw, data, date)
+                timings["parse"] = round(time.time() - tp, 2)
                 if parsed:
                     usage = parsed.pop("_usage", None)
                     brief = parsed
@@ -1243,6 +1458,9 @@ def main() -> int:
                 log("AI 调用失败/无返回,降级规则版")
                 version = "rule"
     elif args.mock:
+        timings.setdefault("build_prompt", 0)
+        timings.setdefault("call_api", 0)
+        timings.setdefault("parse", 0)
         # mock:模拟 AI 成功(测试主链路,不真调 API)
         brief = {
             "meta": {
@@ -1264,6 +1482,9 @@ def main() -> int:
         version = "ai"
         log("MOCK 模式(不真调 deepseek)")
     elif args.rule_only:
+        timings.setdefault("build_prompt", 0)
+        timings.setdefault("call_api", 0)
+        timings.setdefault("parse", 0)
         version = "rule"
         log("--rule-only: 强制走规则版")
 
@@ -1294,16 +1515,54 @@ def main() -> int:
 
     # 回填上一日 hit + 写输出
     backfill_hits(history, db_path, date)
+    tw = time.time()
     stats = write_outputs(static_dir, brief, cfg)
+    timings["write"] = round(time.time() - tw, 2)
     log(f"写 {static_dir / BRIEF_FILE} + history({len(history)}条) hit_stats={stats}")
 
     # 成本日志
     log_cost(repo, cfg, date, version, usage, ok=(version in ("ai", "ai-multi")))
 
-    # R2 上传
-    upload_to_r2(repo, args.no_upload)
+    # R2 上传(主数据 2 件;run_log 在 write_run_log 后单独传,保证本 run 的 run_log 随本 run 上线)
+    tu = time.time()
+    upload_to_r2(repo, args.no_upload, files=[BRIEF_FILE, HISTORY_FILE])
+    timings["r2"] = round(time.time() - tu, 2)
     # staticdata 同步(数据仓库留档,防 deploy 外生成器留旧版;best-effort)
-    staticdata_sync(repo, args.no_upload)
+    ts2 = time.time()
+    staticdata_sync(repo, args.no_upload, files=[BRIEF_FILE, HISTORY_FILE])
+    timings["staticdata"] = round(time.time() - ts2, 2)
+
+    # 结构化运行日志双写(run_log 审计缺口#4: 每步耗时+数据量+新鲜度+AI参数+输出摘要)
+    run_entry = {
+        "date": date,
+        "version": version,
+        "direction": brief["meta"].get("direction"),
+        "confidence": brief["meta"].get("confidence"),
+        "watch_count": len(brief["meta"].get("watch_list") or []),
+        "risk_count": len(brief["meta"].get("risk_items") or []),
+        "timings": timings,
+        "data_sources": data_sources,
+        "freshness": freshness,
+        "ai": {
+            "model": cfg.get("model", "deepseek-chat"),
+            "prompt_tokens": (usage or {}).get("prompt_tokens") or 0,
+            "completion_tokens": (usage or {}).get("completion_tokens") or 0,
+            "cost": round(_run_cost(usage, cfg), 4),
+        },
+        "output": {
+            "review_len": len(brief["text"].get("review") or ""),
+            "trend_len": len(brief["text"].get("trend") or ""),
+            "watch_len": len(brief["text"].get("watch") or ""),
+            "risk_len": len(brief["text"].get("risk") or ""),
+        },
+    }
+    write_run_log(repo, static_dir, cfg, run_entry)
+    log(f"运行日志已双写: {static_dir / RUN_LOG_FILE} + {repo / 'data' / 'logs' / RUN_LOG_TEXT}")
+
+    # run_log 单独随本 run 上线(R2 + staticdata;upload_r2 对不存在文件自动跳过,幂等)
+    upload_to_r2(repo, args.no_upload, files=[RUN_LOG_FILE])
+    staticdata_sync(repo, args.no_upload, files=[RUN_LOG_FILE])
+
     log(f"完成 version={version} date={date}")
     return 0
 
