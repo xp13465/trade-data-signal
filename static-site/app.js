@@ -3623,8 +3623,8 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
 }
 
 // 信号 markData(_buildSignalMarkData 输出) → 轻量 markPoints + gradients(拼色 linearGradient)。
-// 外观对等 echarts markPoint: 单信号=pin 形(圆顶+下三角) r13≈symbolSize34; 多信号=拼色 pin r20≈52
-// + 金描边 + 白 label 多行; band_hold=小圆点半透明偏移下方(反pin, 无 label); 最新值 circle=圆点+label 内嵌。
+// 外观对等 echarts markPoint: 单信号=pin 形(圆顶+下三角) r11≈symbolSize34(总高~34); 多信号=拼色 pin r17≈52
+// + 金描边 + 金光晕(shadowBlur8 近似) + 白 label 多行; band_hold=小圆点半透明偏移下方(反pin, 无 label); 最新值 circle=圆点+label 内嵌。
 function _lwSignalMarkPoints(markData, dates) {
   const out = [], grads = [];
   let gi = 0;
@@ -3644,10 +3644,10 @@ function _lwSignalMarkPoints(markData, dates) {
       const gid = "sig-grad-" + (++gi);
       grads.push({ id: gid, stops: is.color.colorStops.map((st) => [st.offset, st.color]) });
       const _lab = (m.label && m.label.formatter) || m.value;
-      out.push({ i, y, pin: true, r: 20, gradient: { id: gid }, borderColor: is.borderColor || "#ffd700", borderWidth: is.borderWidth || 3, label: _lab, labelColor: (m.label && m.label.color) || "#fff", fontSize: (m.label && m.label.fontSize) || 11, multiLine: String(_lab).indexOf("\n") >= 0 });
+      out.push({ i, y, pin: true, r: 17, gradient: { id: gid }, borderColor: is.borderColor || "#ffd700", borderWidth: is.borderWidth || 3, glow: is.borderColor || "#ffd700", label: _lab, labelColor: (m.label && m.label.color) || "#fff", fontSize: (m.label && m.label.fontSize) || 11, multiLine: String(_lab).indexOf("\n") >= 0 });
     } else {
       const c = is.color || "#ffd700";
-      out.push({ i, y, pin: true, r: 13, color: c, label: m.value, labelColor: (m.label && m.label.color) || _autoLabelColor(c), fontSize: 11 });
+      out.push({ i, y, pin: true, r: 11, color: c, label: m.value, labelColor: (m.label && m.label.color) || _autoLabelColor(c), fontSize: 11 });
     }
   }
   return { markPoints: out, gradients: grads };
@@ -7179,7 +7179,7 @@ function _renderIntradayChart(container, code, preClose, snapTime) {
     // P1 Step②(2026-08-12): 分时图 lite-aware(_lwSetup, 外观对等原 echarts line+markLine昨收+markArea午休, boundaryGap:false)
     _lwSetup(container, {
       h: container.offsetHeight || 100, pl: 38, pr: 6, pt: 8, pb: 18,
-      boundaryGap: false,
+      boundaryGap: false, axisFontSize: 10,   // 分时轴标签原版显式 10px, 不随 _lwSVG 默认 12
       xLabels: times, xFmt: (v) => v, xStep: Math.max(1, Math.floor(times.length / 4)),
       ys: [{ scale: true, splitNumber: 2, formatter: (v) => Number(v).toFixed(0) }],
       series: [{
@@ -10466,7 +10466,7 @@ async function renderOverview() {
         series: [
           { type: "bar", yIndex: 0, data: ratioData, itemColor: (i, v) => ratioColors[i], color: "#e6492e", barWidth: "60%" },
           { type: "line", yIndex: 1, data: adLineData, color: "#5b8ff9", width: 1.5, smooth: true },
-          { type: "line", yIndex: 1, data: adMA20, color: "#f6bd16", width: 1.5, smooth: true, dash: "4 3" },
+          { type: "line", yIndex: 1, data: adMA20, color: "#f6bd16", width: 1.5, smooth: true, dash: "5 5" },
         ],
         tipFn: (i) => {
           const r = ratioData[i], al = adLineData[i], ma = adMA20[i];
@@ -10534,7 +10534,7 @@ async function renderOverview() {
         series: [
           { type: "bar", data: vrAmount, itemColor: (i, v) => vrColors[i], color: "#e6492e", barWidth: "60%" },
           { type: "line", data: vrMA5, color: "#f6bd16", width: 1.5, smooth: true },
-          { type: "line", data: vrMA20, color: "#5b8ff9", width: 1.5, smooth: true, dash: "4 3" },
+          { type: "line", data: vrMA20, color: "#5b8ff9", width: 1.5, smooth: true, dash: "5 5" },
         ],
         tipFn: (i) => {
           const d = vrData[i] || {};
@@ -10601,8 +10601,8 @@ async function renderOverview() {
           { name: "净新高", color: "#5b8ff9" },
         ],
         series: [
-          { type: "bar", yIndex: 0, data: _nhlNh, color: "#e6492e", barWidth: "40%", barOffset: -0.3 },
-          { type: "bar", yIndex: 0, data: _nhlNl, color: "#2e8b57", barWidth: "40%", barOffset: 0.22 },
+          { type: "bar", yIndex: 0, data: _nhlNh, color: "#e6492e", barWidth: "40%", barOffset: -0.26 },
+          { type: "bar", yIndex: 0, data: _nhlNl, color: "#2e8b57", barWidth: "40%", barOffset: 0.26 },
           { type: "line", yIndex: 1, data: _nhlNet, color: "#5b8ff9", width: 1.5, smooth: true },
         ],
         tipFn: (i) => {
@@ -11156,6 +11156,8 @@ function _lwSVG(cfg) {
   const _iw = W - PL - PR, _ih = H - PT - PB;
   const _n = (cfg.xLabels || []).length;
   if (!_n) return "";
+  const _axFont = cfg.axisFontSize || 12;   // 轴/name/legend 字号(echarts 默认12; 分时图显式10)
+  // dataZoom 时间窗口裁剪(复刻 echarts inside+slider): zoomStart/zoomEnd ∈[0,1] → 数据 index 窗口
   const _i0 = (cfg.zoomStart != null) ? Math.max(0, Math.round(cfg.zoomStart * _n)) : 0;
   const _i1 = (cfg.zoomEnd != null) ? Math.max(_i0, Math.min(_n - 1, Math.round(cfg.zoomEnd * _n) - 1)) : (_n - 1);
   const _nView = _i1 - _i0 + 1;
@@ -11225,26 +11227,29 @@ function _lwSVG(cfg) {
       s += '<line x1="' + (side === "left" ? PL : W - PR) + '" y1="' + (PT - 1) + '" x2="' + (side === "left" ? PL : W - PR) + '" y2="' + (_axisY + 1) + '" stroke="var(--border-strong)"/>';
     }
     if (ya.name) {
-      s += '<text x="' + (side === "left" ? PL + 4 : W - PR - 4) + '" y="' + (PT - 4) + '" font-size="11" text-anchor="' + (side === "left" ? "start" : "end") + '" style="fill:var(--text-1)">' + ya.name + '</text>';
+      s += '<text x="' + (side === "left" ? PL + 4 : W - PR - 4) + '" y="' + (PT - 4) + '" font-size="' + _axFont + '" text-anchor="' + (side === "left" ? "start" : "end") + '" style="fill:var(--text-1)">' + ya.name + '</text>';
     }
     for (const tv of ax.ticks) {
       const gy = _py(ai, tv);
       const lbl = ya.formatter ? ya.formatter(tv) : Number(tv).toFixed(_getPrecision(tv));
-      s += '<text x="' + (side === "left" ? (PL - 8) : (W - PR + 8)) + '" y="' + (gy + 3.5).toFixed(1) + '" font-size="10" text-anchor="' + (side === "left" ? "end" : "start") + '" style="fill:var(--text-1)">' + lbl + '</text>';
+      s += '<text x="' + (side === "left" ? (PL - 8) : (W - PR + 8)) + '" y="' + (gy + 3.5).toFixed(1) + '" font-size="' + _axFont + '" text-anchor="' + (side === "left" ? "end" : "start") + '" style="fill:var(--text-1)">' + lbl + '</text>';
     }
   }
   // legend(top:0 对齐 echarts legend, 画在 PT 留白区上沿)
   if (cfg.legend && cfg.legend.length) {
-    let lx = PL;
+    let lx = PL, ly = PT - 14;
+    const _lwMax = W - PR;
     for (const it of cfg.legend) {
-      s += '<line x1="' + lx + '" y1="' + (PT - 14) + '" x2="' + (lx + 10) + '" y2="' + (PT - 14) + '" stroke="' + it.color + '" stroke-width="2"/>';
-      s += '<text x="' + (lx + 14) + '" y="' + (PT - 10) + '" font-size="11" style="fill:var(--text-1)">' + it.name + '</text>';
-      lx += 14 + 8 + String(it.name).length * 11 + 18;
+      const _itemW = 14 + 8 + String(it.name).length * _axFont + 18;
+      if (lx + _itemW > _lwMax && lx > PL) { lx = PL; ly += 16; }   // 多系列换行不溢出右缘(对齐 echarts legend 滚动/换行)
+      s += '<line x1="' + lx + '" y1="' + ly + '" x2="' + (lx + 10) + '" y2="' + ly + '" stroke="' + it.color + '" stroke-width="2"/>';
+      s += '<text x="' + (lx + 14) + '" y="' + (ly + 4) + '" font-size="' + _axFont + '" style="fill:var(--text-1)">' + it.name + '</text>';
+      lx += _itemW;
     }
   }
   // x 轴: 轴线 + 刻度(边界含末边, echarts alignWithLabel:false) + 标签(自动间隔, 半格中心/boundaryGap=false 点位)
   s += '<line x1="' + PL + '" y1="' + _baseY + '" x2="' + (W - PR) + '" y2="' + _baseY + '" stroke="var(--border-strong)"/>';
-  const _xStep = cfg.xStep != null ? cfg.xStep : _etfXStep(_nView, _iw);
+  const _xStep = cfg.xStep != null ? cfg.xStep : _etfXStep(_nView, _iw, _axFont);
   if (bg) {
     for (let i = _i0; i <= _i1 + 1; i += _xStep) {
       const tx = _crisp(PL + (i - _i0) * _unitW);
@@ -11253,7 +11258,7 @@ function _lwSVG(cfg) {
   }
   for (let i = _i0; i <= _i1; i += _xStep) {
     const x = _px(i);
-    s += '<text x="' + x.toFixed(1) + '" y="' + (_axisY + 8 + 3.5).toFixed(1) + '" font-size="10" text-anchor="middle" style="fill:var(--text-1)">' + _xFmt(cfg.xLabels[i]) + '</text>';
+    s += '<text x="' + x.toFixed(1) + '" y="' + (_axisY + 8 + 3.5).toFixed(1) + '" font-size="' + _axFont + '" text-anchor="middle" style="fill:var(--text-1)">' + _xFmt(cfg.xLabels[i]) + '</text>';
   }
   // series(顺序: stack area 先底后顶, bar, line)
   for (const ser of cfg.series || []) {
@@ -11361,13 +11366,13 @@ function _lwSVG(cfg) {
         if (ml.x1 != null) {
           const _in1 = ml.x1 >= _i0 && ml.x1 <= _i1, _in2 = ml.x2 >= _i0 && ml.x2 <= _i1;
           if (!_in1 && !_in2) continue;
-          s += '<line x1="' + _px(ml.x1).toFixed(1) + '" y1="' + _py(ai, ml.y1).toFixed(1) + '" x2="' + _px(ml.x2).toFixed(1) + '" y2="' + _py(ai, ml.y2).toFixed(1) + '" stroke="' + (ml.color || "var(--text-3)") + '" stroke-width="' + (ml.width || 1) + '" stroke-opacity="' + (ml.opacity != null ? ml.opacity : 1) + '"' + (ml.dashed !== false ? ' stroke-dasharray="4 3"' : "") + _clipAttr + '/>';
+          s += '<line x1="' + _px(ml.x1).toFixed(1) + '" y1="' + _py(ai, ml.y1).toFixed(1) + '" x2="' + _px(ml.x2).toFixed(1) + '" y2="' + _py(ai, ml.y2).toFixed(1) + '" stroke="' + (ml.color || "var(--text-3)") + '" stroke-width="' + (ml.width || 1.5) + '" stroke-opacity="' + (ml.opacity != null ? ml.opacity : 1) + '"' + (ml.dashed !== false ? ' stroke-dasharray="5 5"' : "") + _clipAttr + '/>';
           continue;
         }
         const my = _py(ai, ml.y);
         const cy = _crisp(my);
         const dashed = ml.dashed !== false;
-        s += '<line x1="' + PL + '" y1="' + cy.toFixed(1) + '" x2="' + (W - PR) + '" y2="' + cy.toFixed(1) + '" stroke="' + (ml.color || "var(--text-3)") + '" stroke-width="' + (ml.width || 1) + '"' + (dashed ? ' stroke-dasharray="4 3"' : "") + '/>';
+        s += '<line x1="' + PL + '" y1="' + cy.toFixed(1) + '" x2="' + (W - PR) + '" y2="' + cy.toFixed(1) + '" stroke="' + (ml.color || "var(--text-3)") + '" stroke-width="' + (ml.width || 1.5) + '"' + (dashed ? ' stroke-dasharray="5 5"' : "") + '/>';
         if (ml.label) {
           const lx = ml.pos === "end" ? (W - PR) : PL;
           const anch = ml.pos === "end" ? "end" : "start";
@@ -11426,6 +11431,7 @@ function _lwSVG(cfg) {
         if (mp.pin) {
           // echarts 'pin' 形(圆顶+下三角指向数据点): label 居中在圆内; 三角尖对准数据点 (x,y)
           const cy = y - 2 * r;
+          if (mp.glow) s += '<circle cx="' + x.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' + (r * 1.45).toFixed(1) + '" fill="' + mp.glow + '" opacity="0.35"/>';   // 金描边光晕(shadowBlur8 rgba(255,215,0,.6) 近似)
           s += '<path d="M ' + (x - r * 0.8).toFixed(1) + ' ' + (y - r).toFixed(1) + ' L ' + (x + r * 0.8).toFixed(1) + ' ' + (y - r).toFixed(1) + ' L ' + x.toFixed(1) + ' ' + y.toFixed(1) + ' Z" fill="' + _fill + '"' + _stroke + _fo + '/>';
           s += '<circle cx="' + x.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' + r + '" fill="' + _fill + '"' + _stroke + _fo + '/>';
           if (mp.label) {
@@ -11913,7 +11919,7 @@ function _kpiLiteCfg(result, dates, _estimates, _unit) {
     const ser = {
       type: "line", data: dataArr, color: color,
       width: (ls.width != null ? ls.width : 1.5), smooth: true,
-      dash: ls.type === "dashed" ? "4 3" : undefined,
+      dash: ls.type === "dashed" ? "5 5" : undefined,
       opacity: opacity,
       symbolR: s.symbol === "circle" ? ((s.symbolSize != null ? s.symbolSize : 6) / 2) : undefined,
       connectNulls: true,
@@ -18181,13 +18187,14 @@ function _crisp(v) {
   return (_r % 1 === 0) ? _r + 0.5 : _r;
 }
 // echarts calculateCategoryInterval: 标签宽×1.3(最小7)/带宽 -> floor -> step=interval+1
-// 标签宽用 canvas measureText("MM-DD", 10px sans-serif) 实测, 与 echarts zrender 同浏览器同字体
-function _etfXStep(n, iw) {
+// 标签宽用 canvas measureText("MM-DD", fs px sans-serif) 实测, 与 echarts zrender 同浏览器同字体。
+// fs 默认 10 保持 ETF 走势图(_etfTrendSVG)原间隔; _lwSVG 传 axisFontSize(默认 12)。
+function _etfXStep(n, iw, fs) {
   let _labelW = 28;
   try {
     const _c = document.createElement("canvas");
     const _ctx = _c.getContext && _c.getContext("2d");
-    if (_ctx && _ctx.measureText) { _ctx.font = "10px sans-serif"; _labelW = _ctx.measureText("MM-DD").width || 28; }
+    if (_ctx && _ctx.measureText) { _ctx.font = (fs || 10) + "px sans-serif"; _labelW = _ctx.measureText("MM-DD").width || 28; }
   } catch (_e) { /* 降级默认 28 */ }
   const _unitW = iw / n;
   const _maxW = Math.max(_labelW * 1.3, 7);
