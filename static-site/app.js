@@ -16645,64 +16645,151 @@ function _etfSparkline(ohlc, w, h) {
 }
 
 // 轻量走势图(站点配置 charts.lightweight=true 时 ETF 评分弹窗近30日走势用, P0 2026-08-11)。
-// 复用 _etfSparkline 的 close 折线思路放大到弹窗尺寸 + 首末日期标签 + 原生 <title> tooltip,
-// 零 echarts 依赖(P1 canvas 版的前身); 配置 false 回 echarts 完整版(带 hover tooltip)。
+// 2026-08-11 视觉对等(方案B, 主控确认): 轻量 SVG 逐项复刻 echarts 完整版外观——高度200、
+// 边距 grid{left:50,right:15,top:15,bottom:25}、y轴刻度+轴线+数字标签(fontSize10)、多点日期、
+// 水平网格线、平滑曲线(smooth 等效)、每点 r2 小圆、线宽1.5、nice-number 轴范围留白、tooltip 随皮肤。
+// 颜色两版同源: echarts setOption 包 withTheme() 读 --text-1/--border-strong/--border/--bg-card
+// (chartThemeOpts), SVG 直接引用同一批 CSS 变量, 任何皮肤下两版逐项一致。
+// 几何: viewBox 宽=绑定时刻实测渲染宽(边距即真实像素, 对齐 echarts grid), 高 200; preserveAspectRatio=none。
+// 零 echarts 依赖(不 init 实例); 保留完整 hover 交互(十字线+高亮点+浮层 tooltip)。
 // ohlc 格式 [[date,o,h,l,c],...] 升序; 数据<2点返空串。涨红跌绿(#e6492e/#2e8b57 数据语义色)。
+
+// 共享几何: nice-number 轴范围(5 分格留白, 对齐 echarts scale:true) + 坐标映射(像素=viewBox 单位)。
+function _etfTrendGeom(ohlc, w) {
+  const _pts = ohlc.filter((d) => d && d[4] != null);
+  const _vals = _pts.map((d) => d[4]);
+  const _dates = _pts.map((d) => d[0]);
+  const _n = _vals.length;
+  const W = w || 640, H = 200, PL = 50, PR = 15, PT = 15, PB = 25;
+  const _iw = W - PL - PR, _ih = H - PT - PB;
+  const _rawMin = Math.min.apply(null, _vals), _rawMax = Math.max.apply(null, _vals);
+  const _rawRng = _rawMax - _rawMin;
+  let _yMin, _yMax, _step;
+  if (_rawRng === 0) {
+    _step = Math.abs(_rawMax) || 1;
+    if (_step < 1e-9) _step = 1;
+    _yMin = _rawMax - _step; _yMax = _rawMax + _step;
+  } else {
+    // 1/2/5 × 10^k 取整步长(对齐 echarts nice-number 分度)
+    const _p = Math.pow(10, Math.floor(Math.log10(_rawRng / 4)));
+    const _f = (_rawRng / 4) / _p;
+    let _sf = 10;
+    if (_f <= 1) _sf = 1; else if (_f <= 2) _sf = 2; else if (_f <= 5) _sf = 5;
+    _step = _sf * _p;
+    _yMin = Math.floor(_rawMin / _step) * _step;
+    _yMax = Math.ceil(_rawMax / _step) * _step;
+    if (_yMax - _yMin < _step * 2) _yMax = _yMin + _step * 2;
+  }
+  const _ticks = [];
+  for (let _tv = _yMin; _tv <= _yMax + _step / 1e6; _tv += _step) _ticks.push(Number(_tv.toFixed(10)));
+  const _px = (i) => PL + (i / (_n - 1)) * _iw;
+  const _py = (v) => PT + _ih - ((v - _yMin) / (_yMax - _yMin)) * _ih;
+  return { W, H, PL, PR, PT, PB, _n, _vals, _dates, _iw, _ih, _yMin, _yMax, _step, _ticks, _px, _py };
+}
+
+// SVG 内容构建(网格/坐标轴/标签/平滑曲线/面积/每点符号/hover 元素)。
+function _etfTrendSVG(ohlc, w) {
+  const g = _etfTrendGeom(ohlc, w);
+  const { W, H, PL, PR, PT, PB, _n, _vals, _dates, _px, _py, _ticks, _step } = g;
+  if (_n < 2) return "";
+  const _isUp = _vals[_n - 1] >= _vals[0];
+  const _stroke = _isUp ? "#e6492e" : "#2e8b57";
+  const _baseY = H - PB;
+  // 平滑曲线(catmull-rom → cubic bezier, 对齐 echarts smooth:true) + 面积闭合
+  let _line = "M " + _px(0).toFixed(1) + " " + _py(_vals[0]).toFixed(1);
+  for (let i = 0; i < _n - 1; i++) {
+    const p0 = { x: _px(Math.max(0, i - 1)), y: _py(_vals[Math.max(0, i - 1)]) };
+    const p1 = { x: _px(i), y: _py(_vals[i]) };
+    const p2 = { x: _px(i + 1), y: _py(_vals[i + 1]) };
+    const p3 = { x: _px(Math.min(_n - 1, i + 2)), y: _py(_vals[Math.min(_n - 1, i + 2)]) };
+    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+    _line += " C " + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1)
+      + " " + _px(i + 1).toFixed(1) + " " + _py(_vals[i + 1]).toFixed(1);
+  }
+  const _areaPath = _line + " L " + _px(_n - 1).toFixed(1) + " " + _baseY.toFixed(1)
+    + " L " + _px(0).toFixed(1) + " " + _baseY.toFixed(1) + " Z";
+  let s = "";
+  // 水平网格线(5 分格, var(--border) = echarts splitLine 主题色)
+  for (const tv of _ticks) {
+    const gy = _py(tv);
+    s += '<line x1="' + PL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - PR) + '" y2="' + gy.toFixed(1) + '" stroke="var(--border)"/>';
+  }
+  // 垂直网格(category 边界, 每 5 槽一条弱化, 对齐 echarts 类别间竖线)
+  for (let b = 0.5; b < _n - 0.5; b += 5) {
+    const gx = PL + (b / (_n - 1)) * (W - PL - PR);
+    s += '<line x1="' + gx.toFixed(1) + '" y1="' + PT + '" x2="' + gx.toFixed(1) + '" y2="' + _baseY + '" stroke="var(--border)"/>';
+  }
+  // y 轴: 轴线 + 刻度 + 数字标签(fontSize 10, 色 = echarts axisLabel 主题色)
+  s += '<line x1="' + PL + '" y1="' + PT + '" x2="' + PL + '" y2="' + _baseY + '" stroke="var(--border-strong)"/>';
+  const _stepD = _step >= 1 ? 0 : Math.min(4, Math.ceil(-Math.log10(_step)));
+  for (const tv of _ticks) {
+    const gy = _py(tv);
+    s += '<line x1="' + (PL - 4) + '" y1="' + gy.toFixed(1) + '" x2="' + PL + '" y2="' + gy.toFixed(1) + '" stroke="var(--border-strong)"/>';
+    s += '<text x="' + (PL - 8) + '" y="' + (gy + 3.5).toFixed(1) + '" font-size="10" text-anchor="end" style="fill:var(--text-1)">'
+      + Number(tv).toFixed(_stepD) + '</text>';
+  }
+  // x 轴: 轴线 + 每点刻度 + 6 个日期标签(fontSize 10, 对齐 echarts interval auto)
+  s += '<line x1="' + PL + '" y1="' + _baseY + '" x2="' + (W - PR) + '" y2="' + _baseY + '" stroke="var(--border-strong)"/>';
+  for (let i = 0; i < _n; i++) {
+    const x = _px(i);
+    s += '<line x1="' + x.toFixed(1) + '" y1="' + _baseY + '" x2="' + x.toFixed(1) + '" y2="' + (_baseY + 4) + '" stroke="var(--border-strong)"/>';
+  }
+  const _di = [];
+  for (let k = 0; k <= 5; k++) _di.push(Math.round(k * (_n - 1) / 5));
+  const _labelIdx = _di.filter((v, i) => _di.indexOf(v) === i);
+  for (const i of _labelIdx) {
+    const x = _px(i);
+    const anchor = i === 0 ? 'text-anchor="start"' : (i === _n - 1 ? 'text-anchor="end"' : 'text-anchor="middle"');
+    const tx = i === 0 ? x + 2 : (i === _n - 1 ? x - 2 : x);
+    s += '<text x="' + tx.toFixed(1) + '" y="' + (H - 8) + '" font-size="10" ' + anchor + ' style="fill:var(--text-1)">' + fmtDate(_dates[i]) + '</text>';
+  }
+  // 面积 + 平滑折线(线宽 1.5) + 每点 r2 小圆(对齐 echarts symbolSize 4) + hover 十字线/高亮点
+  s += '<path d="' + _areaPath + '" fill="' + _stroke + '" opacity="0.12"/>';
+  s += '<path d="' + _line + '" fill="none" stroke="' + _stroke + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>';
+  for (let i = 0; i < _n; i++) {
+    s += '<circle cx="' + _px(i).toFixed(1) + '" cy="' + _py(_vals[i]).toFixed(1) + '" r="2" fill="' + _stroke + '"/>';
+  }
+  s += '<line class="etf-trend-cursor" x1="0" y1="' + PT + '" x2="0" y2="' + _baseY + '" stroke="var(--border-strong)" stroke-width="1" opacity="0"/>';
+  s += '<circle class="etf-trend-hover-pt" r="4" fill="' + _stroke + '" opacity="0"/>';
+  return s;
+}
+
+// 轻量版整体 HTML(容器 + SVG + tooltip 浮层)。初帧 viewBox 宽 640 参考, _etfTrendLiteBind 绑定即按实测宽校正。
 function _etfTrendLiteHTML(ohlc) {
   if (!ohlc || ohlc.length < 2) return "";
   const _vals = ohlc.map((d) => d[4]).filter((v) => v != null);
   if (_vals.length < 2) return "";
-  const _dates = ohlc.map((d) => d[0]);
-  const _W = 640, _H = 180, _PL = 8, _PR = 8, _PT = 12, _PB = 20;
-  const _min = Math.min.apply(null, _vals), _max = Math.max.apply(null, _vals);
-  const _range = _max - _min || 1;
-  const _n = _vals.length;
-  const _iw = _W - _PL - _PR, _ih = _H - _PT - _PB;
-  const _px = (i) => _PL + (i / (_n - 1)) * _iw;
-  const _py = (v) => _PT + _ih - ((v - _min) / _range) * _ih;
-  const _pts = _vals.map((v, i) => _px(i).toFixed(1) + "," + _py(v).toFixed(1)).join(" ");
-  const _isUp = _vals[_n - 1] >= _vals[0];
-  const _stroke = _isUp ? "#e6492e" : "#2e8b57";
-  const _area = (_PT + _ih).toFixed(1);
-  const _tip = "近30日 收盘 " + _vals[0] + " → " + _vals[_n - 1] + (_isUp ? " ↑" : " ↓");
-  const _yLabel = (_H - 6);
-  // 轻量版逐点 hover(2026-08-11 补, 恢复完整交互不阉割功能): 容器 position:relative 供浮层绝对定位,
-  // SVG 内置隐藏十字线 + hover 高亮点, 容器尾部空 tooltip div(事件绑定在 _etfTrendLiteBind)。
-  const _tipStyle = "position:absolute;display:none;background:rgba(0,0,0,0.75);color:#fff;border-radius:6px;padding:4px 9px;font-size:11px;line-height:1.5;white-space:nowrap;pointer-events:none;z-index:60;box-shadow:0 2px 10px rgba(0,0,0,0.25);";
+  // tooltip 随皮肤(对齐 echarts withTheme: 底 --bg-card / 边 --border-strong / 字 --text-1)
+  const _tipStyle = "position:absolute;display:none;background:var(--bg-card);color:var(--text-1);"
+    + "border:1px solid var(--border-strong);border-radius:4px;padding:5px 10px;font-size:13px;"
+    + "line-height:1.5;white-space:nowrap;pointer-events:none;z-index:60;box-shadow:0 2px 10px rgba(0,0,0,0.15);";
   return '<div class="etf-trend-wrap" style="position:relative">'
-    + '<svg class="etf-trend-lite" width="100%" height="' + _H + '" viewBox="0 0 ' + _W + ' ' + _H + '" preserveAspectRatio="none" role="img" aria-label="近30日走势">'
-    + '<polygon points="' + _pts + ' ' + _px(_n - 1).toFixed(1) + ',' + _area + ' ' + _px(0).toFixed(1) + ',' + _area + '" fill="' + _stroke + '" opacity="0.12"/>'
-    + '<polyline points="' + _pts + '" fill="none" stroke="' + _stroke + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><title>' + _tip + '</title></polyline>'
-    + '<line class="etf-trend-cursor" x1="0" y1="' + _PT + '" x2="0" y2="' + _area + '" stroke="' + _stroke + '" stroke-width="1" stroke-dasharray="3,3" opacity="0"/>'
-    + '<circle class="etf-trend-hover-pt" r="4" fill="' + _stroke + '" opacity="0"/>'
-    + '<circle cx="' + _px(_n - 1).toFixed(1) + '" cy="' + _py(_vals[_n - 1]).toFixed(1) + '" r="3" fill="' + _stroke + '"/>'
-    + '<text x="' + _PL + '" y="' + _yLabel + '" font-size="11" style="fill:var(--text-3)">' + fmtDate(_dates[0]) + '</text>'
-    + '<text x="' + (_W - _PR) + '" y="' + _yLabel + '" font-size="11" text-anchor="end" style="fill:var(--text-3)">' + fmtDate(_dates[_n - 1]) + '</text>'
+    + '<svg class="etf-trend-lite" width="100%" height="200" viewBox="0 0 640 200" preserveAspectRatio="none" role="img" aria-label="近30日走势">'
+    + _etfTrendSVG(ohlc, 640)
     + '</svg>'
     + '<div class="etf-trend-tip" style="' + _tipStyle + '"></div>'
     + '</div>';
 }
 
 // 轻量版逐点 hover 交互(2026-08-11 补, 零 echarts 依赖 = 纯 DOM/SVG + 原生事件)。
-// mousemove 定位最近数据点 -> 垂直十字线 + 点高亮 + 浮层 tooltip(日期+收盘), mouseleave 隐藏。
-// 坐标映射: svg width=100% + preserveAspectRatio="none" 横向拉伸, 用 getBoundingClientRect 换算
-//   cssX -> viewBox x(cssX * _W / rect.width), 再反解最近 index; 高度 180 固定 1:1 无需换算。
+// mousemove 定位最近数据点 -> 垂直十字线(实线, 随皮肤轴线色 var(--border-strong), 对齐 echarts axisPointer)
+// + 点高亮 + 浮层 tooltip(日期+收盘), mouseleave 隐藏。
+// 绑定时刻实测渲染宽 -> 以真实像素为 viewBox 宽重生成 SVG 几何(边距=真实像素, 对齐 echarts grid,
+// 解决 preserveAspectRatio=none 下 viewBox 单位随宽缩放致边距对不上的问题)。
 function _etfTrendLiteBind(svg, ohlc) {
   if (!svg) return;
   const _wrap = svg.parentElement;
   if (!_wrap) return;
   const _points = ohlc.filter((d) => d && d[4] != null);
-  const _vals = _points.map((d) => d[4]);
-  const _dates = _points.map((d) => d[0]);
-  const _n = _vals.length;
-  if (_n < 2) return;
-  const _W = 640, _PL = 8, _PR = 8, _PT = 12, _H = 180;
-  const _iw = _W - _PL - _PR;
-  const _ih = _H - _PT - 20;
-  const _min = Math.min.apply(null, _vals), _max = Math.max.apply(null, _vals);
-  const _range = _max - _min || 1;
-  const _px = (i) => _PL + (i / (_n - 1)) * _iw;
-  const _py = (v) => _PT + _ih - ((v - _min) / _range) * _ih;
+  if (_points.length < 2) return;
+  // 实测渲染宽 -> viewBox 宽 = 真实像素(1:1 无拉伸), 重生成几何
+  const _rect = svg.getBoundingClientRect();
+  const _W = Math.round((_rect && _rect.width) || 640);
+  svg.setAttribute("viewBox", "0 0 " + _W + " 200");
+  svg.innerHTML = _etfTrendSVG(ohlc, _W);
+  const g = _etfTrendGeom(ohlc, _W);
+  const { PL, PT, _n, _vals, _dates, _px, _py } = g;
   const _isUp = _vals[_n - 1] >= _vals[0];
   const _stroke = _isUp ? "#e6492e" : "#2e8b57";
   const _cursor = svg.querySelector(".etf-trend-cursor");
@@ -16725,7 +16812,7 @@ function _etfTrendLiteBind(svg, ohlc) {
       const svgRect = svg.getBoundingClientRect();
       const wrapRect = _wrap.getBoundingClientRect();
       const ratioW = _W / (svgRect.width || 1);
-      const ratioH = _H / (svgRect.height || 1);
+      const ratioH = 200 / (svgRect.height || 1);
       const cssX = _px(i) / ratioW;
       const cssY = _py(_vals[i]) / ratioH + (svgRect.top - wrapRect.top);
       const tipW = _tip.offsetWidth || 80;
@@ -16749,7 +16836,7 @@ function _etfTrendLiteBind(svg, ohlc) {
     if (!rect.width || !rect.height) return;
     const ratioW = _W / rect.width;
     const vx = (e.clientX - rect.left) * ratioW;
-    let i = Math.round(((vx - _PL) / _iw) * (_n - 1));
+    let i = Math.round(((vx - PL) / g._iw) * (_n - 1));
     if (i < 0) i = 0;
     if (i > _n - 1) i = _n - 1;
     _show(i);
@@ -17112,7 +17199,12 @@ function openEtfScoreDetailModal(code) {
       const _trendColor = _isUp ? "#e6492e" : "#2e8b57";
       try {
         _etfTrendChart = echarts.init(_trendEl);
-        _etfTrendChart.setOption({
+        // 视觉对等(方案B, 2026-08-11): setOption 包 withTheme() 让 echarts 版随皮肤——轴线/网格/坐标字
+        // /tooltip 读 --text-1/--border-strong/--border/--bg-card(chartThemeOpts), 与轻量 SVG 版引用
+        // 同一批 CSS 变量同源配色, 任何皮肤下两版逐项一致。入全局 charts 注册表 -> 切皮肤 rethemeCharts
+        // 也覆盖(与 SVG 的 var() 自动跟随一致); 弹窗关闭 _disposeContainerCharts 自动 dispose+splice 无泄漏。
+        if (charts.indexOf(_etfTrendChart) < 0) charts.push(_etfTrendChart);
+        _etfTrendChart.setOption(withTheme({
           tooltip: {
             trigger: "axis",
             formatter: (p) => {
@@ -17122,6 +17214,8 @@ function openEtfScoreDetailModal(code) {
             },
           },
           grid: { left: 50, right: 15, top: 15, bottom: 25 },
+          // 十字线实线随皮肤轴线色(与 SVG hover 十字线 var(--border-strong) 同源)
+          axisPointer: { type: "line", lineStyle: { color: cssVar("--border-strong") } },
           xAxis: { type: "category", data: _dates, axisLabel: { fontSize: 10, formatter: (v) => fmtDate(v) } },
           yAxis: { type: "value", scale: true, axisLabel: { fontSize: 10 } },
           series: [{
@@ -17131,7 +17225,7 @@ function openEtfScoreDetailModal(code) {
             itemStyle: { color: _trendColor },
             areaStyle: { color: _isUp ? "rgba(230,73,46,0.12)" : "rgba(46,139,87,0.12)" },
           }],
-        });
+        }));
         // 弹窗 resize 时同步（modal 已 display，requestAnimationFrame 确保 DOM 布局完成）
         requestAnimationFrame(() => _etfTrendChart && _etfTrendChart.resize());
       } catch (_e) { /* echarts init 失败不阻塞弹窗其余区块 */ }
