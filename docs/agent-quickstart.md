@@ -4,7 +4,7 @@
 > 本文档是各类任务的**总览引导 + step-by-step**。数据上线详细见 [docs/data-deploy-quickstart.md](data-deploy-quickstart.md)（数据产物改动走那里，本文只引用不重复）。
 > 深度架构文档：[docs/site-deployment.md](site-deployment.md)（站点架构+从零重建）、[docs/r2-deployment.md](r2-deployment.md)（R2 数据层）、[docs/smoke-checklist.md](smoke-checklist.md)（P0 主功能回归清单）。
 >
-> 最后更新：2026-08-11（补 curl token 坑 + §H 叠加边际）。硬规范见 `CLAUDE.md`，本文只摘任务执行相关要点，约束引用章节号不重述全文。
+> 最后更新：2026-08-12（补 §I 飞书 hooks 0 token 抄送 + 需求拆解防误派 + §21 公示同步坑）。硬规范见 `CLAUDE.md`，本文只摘任务执行相关要点，约束引用章节号不重述全文。
 
 ---
 
@@ -322,6 +322,8 @@ curl -s https://ssd.fx8.store/data/xxx.json | python3 -c "import sys,json;print(
 - **改体系遍历所有分支**：grep 所有 `return`/分支，不只改主路径。
 - **"X 分钟更新"查 launchd plist 非脚本注释**：注释易过时。
 - **commit 时间戳 ≠ 触发时点**：commit 时间戳是 deploy 完成打标签非任务触发。判断任务是否跑看 launchd log 文件存在性，非 commit 时间。
+- **需求先拆解再派 agent（防误派方向）**：接"分析/建议+新增视图"类核心需求，先列需求拆解清单（要回答什么问题+要新增什么视图+用哪份数据回测）再派 agent；不把相关增量功能当核心需求实施（2026-08-11 误派 J1/J2 当核心需求教训，核心需求实为降亏组合建议+全信号表，§18 教训24）。
+- **数值/算法口径改动必同步全站公示点**：修一个数值要 grep 全站同一数值所有出现处（purpose-notes.js+app.js/lab.js 算法公示文案）同步改，不只 tooltip/实施点（§18 教训25 §21 复发）。
 
 ### git 操作
 
@@ -416,6 +418,36 @@ cd /Users/linhuichen/code/trade-data && /Users/linhuichen/code/trade/.venv/bin/u
 - **前端重算对齐后端**：前端 replay/recompute 须逐字段对比后端 JSON，不只 summary；取一个 signal JSON 前端重放后逐字段对比（§18 教训 19，memory `frontend-replay-align-backend`）
 - **数据一致性**：算法改动重跑数据产物时列全部依赖清单，重跑+同步 static-site+R2 三步完整（§22 + §18）
 - **收益口径**：return_pct_max_holding 是唯一随窗口累积指标（非 total_return，固定金额非复利），年化>100% 或负值要警觉口径定义（§18 教训 14）
+
+---
+
+## I. 飞书 hooks/抄送类任务（0 token 抄送，§18 经验① 2d1b9206e）
+
+> 做"自动抄送会话/消息到飞书群"或"外部消息→主控"链路，先看本节的 0 token 方案，别用 cron 轮询/子agent 转发（占主会话上下文+不实时）。
+
+### 0 token 抄送：hooks 层实现（直接做对 step）
+
+1. `.claude/settings.json` 挂两个 hook（项目级，对主会话+子agent 都生效）：
+   - `UserPromptSubmit` → `python3 scripts/feishu_chat_hook.py user`（抄用户输入）
+   - `Stop` → `python3 scripts/feishu_chat_hook.py assistant`（抄 assistant 回复）
+2. 脚本内：user 模式读 stdin 的 prompt；assistant 模式读 `transcript_path` 最后一条 assistant 文本（env 里取）。调 `notify.send_feishu`（复用 notify.py 密钥，不硬编码）。
+3. **全程不经过 LLM = 0 token**；任何异常 `exit 0` 不阻塞 Claude Code。
+4. 指纹文件 + flock 去重，防 Stop 多次触发重复抄送（hook 每回复可能触发多次）。
+5. 自验：发一条真实消息看开发群收到；查指纹文件 mtime 有记录 = 已生效。
+
+### 两个必踩坑
+
+- **项目级 hook 对子 agent 同样触发**：子 agent 在同一项目目录跑也加载 UserPromptSubmit/Stop，子 agent 收到的任务 prompt 会被当"用户输入"抄送（用户会发现"子agent的输入也当成我的输入抄送"）。做"处理用户输入"的 hook/脚本必须区分主会话 vs 子 agent（如 transcript_path 判断），上线后主动验证子 agent 场景不误触发（§18 教训27）。
+- **判断"已生效"看运行证据非推断**：别凭"还差用户确认才生效"推断。查指纹/日志文件 mtime（如 `/tmp/feishu_hook_sent.txt` 有运行记录）+ 实际发送记录 + curl 线上（§18 教训26）。
+
+### 外部消息→主控（listener 自动处理，02bd47f8f）
+
+listener 收到需求**自动 落盘 `data/feishu_requests/` + 进 TASKS 待办 + notify 即时回执**，主控只消费落盘文件、零轮询。凡是"外部消息→主控"链路尽量这样做，不要主控 1min 轮询。
+
+### 通知架构方向（§18 经验②③）
+
+- 子agent 中间层转发不可行（1 分钟轮询=每天 1440 次模型回合，物理跟不上+token爆炸）。
+- 本版 claude 2.1.224 有 `TaskCompleted` hook（后台任务完成时确定性触发），是 cron 兜底轮询之外的可能替代方向（待验证）。
 
 ---
 
