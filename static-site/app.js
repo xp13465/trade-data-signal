@@ -14431,9 +14431,11 @@ async function renderSentimentMarketTemp(container) {
   // 冰点/过热热力图 + 情绪分买卖点信号列表（同排同高，一眼全局放最前面）
   const heatRow = document.createElement("div");
   heatRow.className = "sentiment-heat-row";
+  // 2026-08-11 F12根因修复: 先挂载再 init(原 appendChild 在后致 echarts.init 于脱离文档元素 0 宽 canvas 空白,
+  // 仅 resize 触发时才恢复, 备站隐私窗口全新刷新无 resize 暴露)
+  container.appendChild(heatRow);
   renderSentimentHeatmap(r, snap, heatRow);
   renderSentimentSignalList(heatRow, r, snap);
-  container.appendChild(heatRow);
 
   // 情绪图表区套 .indices-grid 3列网格(与A股/港股/全球同布局)，每张图+组成因子配对一个 grid cell
   const cardGrid = document.createElement("div");
