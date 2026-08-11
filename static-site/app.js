@@ -18583,6 +18583,38 @@ function _dbConfidenceBadge(meta) {
 
 // 复用:AI 预测内容块(复盘/趋势/关注/风险四段 + meta 断言 watch_list/risk_items + 免责)。
 // 供 AI 预测弹窗详情、历史收盘分析弹窗结合展示共用，保证两处渲染一致。
+// 2026-08-11 补齐:①🎯今日要点高亮区块(meta.highlights,后端 _ensure_highlights 兜底非空)
+//   ②多角色讨论折叠面板(meta.roles 四角色结论 + meta.debate 研究员多空辩论 bull/bear/lean/confidence/summary;
+//   旧单prompt 数据无 roles/debate 时优雅降级不渲染不报错)。
+function _dbHighlightsHtml(meta) {
+  const hl = (meta && meta.highlights) || [];
+  if (!hl || !hl.length) return "";
+  return `<div class="db-highlights"><div class="db-highlights-title">🎯 今日要点</div><ul>${hl.map((h) => `<li>${_esc(h)}</li>`).join("")}</ul></div>`;
+}
+function _dbRolesHtml(meta) {
+  const roles = (meta && meta.roles) || {};
+  const keys = Object.keys(roles);
+  if (!keys.length) return "";
+  const label = { tech: "技术面", fund: "资金面", sentiment: "情绪面", risk: "风控" };
+  return `<div class="db-debate-roles"><div class="db-debate-sub">🤔 四角色结论</div>${keys.map((k) =>
+    `<div class="db-role"><span class="db-role-k">${_esc(label[k] || k)}</span><span class="db-role-v">${_esc(roles[k])}</span></div>`
+  ).join("")}</div>`;
+}
+function _dbDebateHtml(meta) {
+  const d = (meta && meta.debate) || {};
+  if (!d || (!d.bull && !d.bear && !d.summary)) return "";
+  const bull = (d.bull || []).map((x) => `<li>${_esc(x)}</li>`).join("");
+  const bear = (d.bear || []).map((x) => `<li>${_esc(x)}</li>`).join("");
+  const lean = d.lean ? _dbDirLabel(d.lean) : "";
+  let conf = "";
+  if (typeof d.confidence === "number") conf = `<span class="db-debate-conf">置信度 ${Math.round(d.confidence * 100)}%</span>`;
+  return `<div class="db-debate-content">
+    <div class="db-debate-sub">⚖️ 研究员多空辩论${lean ? ` · ${lean}` : ""}${conf}</div>
+    ${bull ? `<div class="db-debate-side db-debate-bull"><b>多头论据</b><ul>${bull}</ul></div>` : ""}
+    ${bear ? `<div class="db-debate-side db-debate-bear"><b>空头论据</b><ul>${bear}</ul></div>` : ""}
+    ${d.summary ? `<p class="db-debate-sum">融合结论：${_esc(d.summary)}</p>` : ""}
+  </div>`;
+}
 function _dbBriefDetailHtml(it) {
   const meta = it.meta || {};
   const t = it.text || {};
@@ -18598,11 +18630,19 @@ function _dbBriefDetailHtml(it) {
   }
   const note = t.note || it.disclaimer || "";
   const conf = _dbConfidence(meta);
-  return `${conf ? `<p class="db-line"><span class="db-k">把握度</span>${_dbConfidenceBadge(meta)}<span class="db-conf-reason">${_esc(conf.reason)}</span></p>` : ""}
+  const highlightsHtml = _dbHighlightsHtml(meta);
+  const rolesHtml = _dbRolesHtml(meta);
+  const debateHtml = _dbDebateHtml(meta);
+  let debateBlock = "";
+  if (rolesHtml || debateHtml) {
+    debateBlock = `<details class="db-debate-wrap"><summary class="db-debate-toggle">🧠 多角色讨论详情<span class="db-debate-arrow">▾</span></summary><div class="db-debate-body">${rolesHtml}${debateHtml}</div></details>`;
+  }
+  return `${highlightsHtml}${conf ? `<p class="db-line"><span class="db-k">把握度</span>${_dbConfidenceBadge(meta)}<span class="db-conf-reason">${_esc(conf.reason)}</span></p>` : ""}
       <p class="db-line"><span class="db-k">复盘</span>${_esc(t.review || "")}</p>
       <p class="db-line"><span class="db-k">趋势</span>${_esc(t.trend || "")}</p>
       ${watchLine}
       ${riskLine}
+      ${debateBlock}
       ${note ? `<p class="db-note">${_esc(note)}</p>` : ""}`;
 }
 
@@ -18654,7 +18694,9 @@ async function _loadDailyBriefPage() {
   list.scrollTop = 0;
   // 点开某日=展开预测内容+meta断言（事件委托，列表重渲染后仍可点）
   list.querySelectorAll(".db-item").forEach((el) => {
-    el.addEventListener("click", () => {
+    el.addEventListener("click", (ev) => {
+      // 点击多角色讨论折叠面板(<details>/<summary>)不触发整条收起(2026-08-11 补齐辩论入口)
+      if (ev.target && ev.target.closest && ev.target.closest(".db-debate-wrap")) return;
       const detail = el.querySelector(".db-detail");
       if (!detail) return;
       const isHidden = detail.classList.toggle("hidden");
@@ -18683,7 +18725,7 @@ function _renderDailyBriefStats(brief) {
       `<span class="db-stats-item db-stats-sched">🕗 每日 20:40 更新${genAt}${todayConf ? ` · 今日${todayConf}` : ""}</span>` +
       `<span class="db-stats-item">近30日：<b>${s30 && s30.n ? `${s30.hit}/${s30.n}（${rate(s30)}）` : "暂无样本"}</b></span>` +
       `<span class="db-stats-item">近90日：<b>${s90 && s90.n ? `${s90.hit}/${s90.n}（${rate(s90)}）` : "暂无样本"}</b></span>` +
-      '<span class="db-stats-how">AI每日盘后基于当日收盘数据，由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测；meta结构化断言方向/关注标的/风险点，次日机检回填实际涨跌判定命中。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30（把握度低时方向更倾向震荡，仅参考）。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。命中率仅为历史统计，不构成投资建议。</span>' +
+      '<span class="db-stats-how">AI每日盘后基于当日收盘数据，默认由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测 + 🎯今日要点 + 多角色讨论（展开可看四角色结论与多空辩论）；任一环节失败自动降级单模型生成兜底。meta结构化断言方向/关注标的/风险点，次日机检回填实际涨跌判定命中。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30（把握度低时方向更倾向震荡，仅参考）。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。命中率仅为历史统计，不构成投资建议。</span>' +
     '</div>';
 }
 

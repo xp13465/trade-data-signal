@@ -3182,6 +3182,56 @@ main { padding: 16px 24px; }
 .db-conf-reason { font-size: 12px; color: var(--text-2); margin-left: 6px; }
 .db-stats-sched { color: var(--text-2); }
 .db-stats-sched .db-conf { margin-left: 4px; }
+/* ---- AI预测 高亮重点 + 多角色讨论 (2026-08-11 补齐) ----
+   高亮:🎯今日要点 琥珀色左条醒目块;辩论:折叠面板(details)四角色结论+多空辩论。
+   多空论据配色 A股红涨绿跌: 多头红 #c62828 / 空头绿 #2e7d32(与平台信号灯一致)。 */
+.db-highlights {
+  margin: 2px 0 4px;
+  padding: 8px 12px;
+  background: linear-gradient(90deg, rgba(255, 183, 77, 0.16), rgba(255, 183, 77, 0.05));
+  border-left: 3px solid #ffb300;
+  border-radius: 6px;
+}
+.db-highlights-title { font-weight: 700; color: #c87a1a; font-size: 13px; margin-bottom: 4px; }
+.db-highlights ul { margin: 0; padding-left: 18px; }
+.db-highlights li { font-size: 13px; color: var(--text-1); line-height: 1.7; }
+.db-debate-wrap {
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-hover);
+}
+.db-debate-toggle {
+  list-style: none;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #7c4dff;
+  padding: 7px 10px;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.db-debate-toggle::-webkit-details-marker { display: none; }
+.db-debate-arrow { margin-left: auto; font-size: 11px; color: var(--text-3); transition: transform 0.15s; }
+.db-debate-wrap[open] .db-debate-arrow { transform: rotate(180deg); }
+.db-debate-body { padding: 0 10px 10px; display: flex; flex-direction: column; gap: 8px; }
+.db-debate-roles, .db-debate-content { display: flex; flex-direction: column; gap: 4px; }
+.db-debate-sub { font-size: 12px; font-weight: 700; color: var(--text-1); margin: 4px 0 2px; }
+.db-role { display: flex; gap: 6px; font-size: 12.5px; line-height: 1.6; }
+.db-role-k { flex-shrink: 0; font-weight: 600; color: #7c4dff; min-width: 44px; }
+.db-role-v { color: var(--text-2); }
+.db-debate-side { font-size: 12.5px; line-height: 1.65; }
+.db-debate-side b { font-size: 12px; }
+.db-debate-bull { color: var(--text-2); }
+.db-debate-bear { color: var(--text-2); }
+.db-debate-bull ul, .db-debate-bear ul { margin: 2px 0 0; padding-left: 18px; }
+.db-debate-side li { margin: 2px 0; }
+.db-debate-bull li::marker { color: #c62828; }
+.db-debate-bear li::marker { color: #2e7d32; }
+.db-debate-sum { font-size: 12.5px; color: var(--text-1); margin: 2px 0 0; }
+.db-debate-conf { font-size: 11px; font-weight: 600; color: var(--text-2); }
 
 /* ---- 大盘位置感卡片 ---- */
 .position-card { padding: 16px; }

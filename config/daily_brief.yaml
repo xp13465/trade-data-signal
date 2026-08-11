@@ -22,12 +22,19 @@ temperature: 0.4              # 生成确定性
 
 # ── 多角色协作式编排(P0-4,2026-08-11 实施,见 docs/ai-predict-multiagent-plan.md)──
 #   6 角色: ①技术面 ②资金面 ③情绪面 ④风控(并行) -> ⑤研究员(多空辩论,串行) -> ⑥主编组装。
-#   每角色只喂自己数据域;任一环节失败降级单 prompt 主链路(保底不破)。输出结构不变(前端零改动)。
-#   验证质量后再把 multi_agent_enabled 开 true(也可每次 CLI 加 --multi 临时走)。
-multi_agent_enabled: false    # false=单 prompt 主链路(默认);true=--multi 时走 6 角色编排
+#   每角色只喂自己数据域;任一环节失败降级单 prompt 主链路(保底不破)。
+#   2026-08-11 起生产开启(launchd plist 也带 --multi 双保险);任一生效即走 6 角色编排。
+#   false = 单 prompt 主链路(默认);true = 每次生成(含 launchd)走 6 角色编排。
+multi_agent_enabled: true     # 生产=多角色(技术/资金/情绪/风控->研究员多空辩论->主编组装)
 researcher_model: deepseek-chat  # ⑤研究员模型:deepseek-chat(V3)/deepseek-reasoner(R1 深度辩论,P1-11)
 multi_agent_timeout_seconds: 90  # 单角色调用超时
 max_role_retries: 1              # 角色失败重试次数(4 角色并行,失败过多降级单 prompt)
+
+# ── 生成后通知(2026-08-11 追加需求:完整版 先总结再细讲)─────────────────────
+#   生成成功(含 --multi 版)后发 邮件+飞书报告群(notify.py,post 富文本+A股红涨绿跌)。
+#   编排: 【总结段】方向/信心/高亮要点/多空结论+一句话 → 【细讲段】关注/风险/趋势/把握度理由 + 多空辩论过程(bull/bear)。
+#   同日(date)只发一次(dedup key=daily_brief_notify_<date>,window=86400);失败不阻塞主流程。
+notify_enabled: true          # true=生成后邮件+飞书报告群通知;false=关闭
 
 # ── 输出 ──────────────────────────────────────────────────────────────
 max_watch_items: 5            # 明日关注标的条数上限
