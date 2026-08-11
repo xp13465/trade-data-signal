@@ -891,7 +891,7 @@ main { padding: 16px 24px; }
 /* 市场温度顶行：热力图 + 情绪分买卖点信号列表 同排同高（flex stretch 自动等高） */
 .sentiment-heat-row { display: flex; gap: 12px; align-items: stretch; margin-bottom: 16px; }
 .sentiment-heat-row .chart-card { flex: 1 1 0; min-width: 0; margin-bottom: 0; }
-.sentiment-heat-row .chart-card:first-child { flex: 1.4 1 0; } /* 热力图略宽 */
+.sentiment-heat-row .chart-card:first-child { flex: 0 1 58.33%; } /* 热力图略宽;grow:0+basis固定→唯1子元素(信号列表未append时)不再吃满100%行宽,echarts.init测宽即正确(8/11热力图溢出根因修复);58.33%=1.4/2.4 与双卡比例一致 */
 .sentiment-siglist-card { display: flex; flex-direction: column; }
 .sentiment-siglist-card .sentiment-siglist { flex: 1 1 auto; max-height: 220px; overflow-y: auto; }
 /* 情绪分信号列表在窄卡内 2 列（首页全宽 4 列在窄卡太挤），移动端整卡堆叠后保持 2 列可读 */
@@ -899,6 +899,8 @@ main { padding: 16px 24px; }
 @media (max-width: 768px) {
   .sentiment-heat-row { flex-direction: column; }
   .sentiment-heat-row .chart-card { flex: 1 1 auto; }
+  /* 覆盖上方 :first-child flex:0 1 58.33%(特异度高),移动端整卡堆叠保持全宽现状 */
+  .sentiment-heat-row .chart-card:first-child { flex: 1.4 1 0; }
 }
 /* 买卖点卡片可点击：弹窗展示走势图+信号 */
 .sig-clickable { cursor: pointer; transition: background 0.12s; border-radius: 4px; padding: 1px 3px; margin: -1px -3px; }
