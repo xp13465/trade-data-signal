@@ -2,6 +2,7 @@
 
 > 本节为 CLAUDE.md §18 犯错积累与防重犯(2026-08-08 起)原文全量快照,由 CLAUDE.md 整理提炼(去重12+提炼8+归档3大件)归档。
 > 原文出处:CLAUDE.md L205-287(归档前版本,commit 见 git log)。CLAUDE.md 现保留索引+防重犯精华,索引能反向追到此原文。
+> 反向追踪:文件末尾附「防重犯锚点索引」块(L01-L27 过错锚点 + E01-E22 经验锚点,每行含归档行号),根 CLAUDE.md §18 索引表逐行对锚点 id,`grep -c '^L[0-9]'` == 27 = 零丢失校验锚。
 > 归档日期:2026-08-12
 
 ---
@@ -89,3 +90,66 @@
     ④ 飞书 listener 需求自动处理(commit 02bd47f8f,主控零轮询):listener 收到需求自动 落盘 data/feishu_requests/ + 进 TASKS 待办 + notify 即时回执给来源群,主控不再 1min 轮询飞书(25/25 单测+真 TASKS 插入验证)。适用:任何"外部消息→主控"链路,尽量在 listener/脚本层自动落盘+回执,主控只消费落盘文件,消除轮询噪音
     ⑤ 用户"全信号表"需求视图方法论(拆分测试 vs 最终结果):用户把降亏回测拆成 4 组合宏+独立 toggle(各象限细节调试用),但最后要"全亮信号融合"的最终结果表(正常人一定全亮信号都看)——多因子/多开关系统,用户需要"拆分调试视图(各象限细节)+结果视图(全融合最终收益)"双视图,别只做其中一种
     ⑥ 并发实验结论已在 §16④ 落档,不重复(并发非瓶颈,文件漂移/工具循环/API慢才是);TASKS 归档+完成度校验已在 §7 落档(commit bdef31aeb,曾 429KB 靠 tasks_archive.py+tasks_verify.py 周度自动校验)——此二条仅记引用不重复展开
+
+---
+
+## 防重犯锚点索引(2026-08-12 建立,根 CLAUDE.md §18 索引表反向追原文用)
+
+> 用法:命中场景 → 读根 CLAUDE.md §18 索引表 → grep 锚点 id → 读本文件对应行号原文(含根因+场景+防重犯)。
+> 零丢失校验锚:`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-2026-08.md` 应 == 根 CLAUDE.md §18 过错索引表行数(27),一致=零丢失。
+> 注意:本文件行号会随未来编辑漂移,追到后若行号对不上按锚点 id 关键词 grep 定位。
+
+### 过错锚点(27 条,与根索引表 #1-27 一一对应)
+
+L01 | 通知丢失不设cron傻等 → 防重犯:§11 cron兜底必设 | archive:L12
+L02 | DB方案理解反复3次 → 关键决策前复述确认 | archive:L13
+L03 | exclude偏离全量本意 → 全量不擅自exclude先确认 | archive:L14
+L04 | .gz凭memory断定 → 断定前验证 | archive:L15
+L05 | trade/trade-data混淆 → agent关键结论§0验(路径/文件数类) | archive:L16
+L06 | cherry-pick撞冲突 → 切分支前CronList+查后台agent | archive:L17
+L07 | hoverpop方案试错 → 方案先调研再实施 | archive:L18
+L08 | ETF拆档null归属 → 归属/分类前复述口径确认 | archive:L21
+L09 | hoverpop"无数据"误判 → 下结论前验数据产物层(R2旧vs新版) | archive:L22
+L10 | lowconf灰蓝过时规则 → 改灯体系遍历所有return/分支 | archive:L23
+L11 | 需求2加未要求改动 → 不擅自扩展需求(→§23.3) | archive:L24
+L12 | 至今盈亏方向偏差 → 调研先对准UI位置(grep渲染层) | archive:L25
+L13 | 量子"0/不可改善"误判 → 换方法/数据源+多关联维度 | archive:L26
+L14 | annualized口径判断偏差 → 指定口径前验算典型值合理性 | archive:L48
+L15 | 追加A级小改漏做 → 追加任务不靠SendMessage(→§11) | archive:L49
+L16 | 数据没上线R2 → 新类别上线链路三步(→§22) | archive:L50
+L17 | §0证伪查错文件 → §0证伪前grep前端渲染逻辑确认读哪个文件(→§8三查) | archive:L51
+L18 | §21算法公示gap复发(已复发2次) → §21强化款:prompt显式列grep动作+文件名 | archive:L59
+L19 | 前端重算不对齐后端 → replay逐字段对比后端JSON(→memory frontend-replay-align-backend) | archive:L60
+L20 | §0 grep字面量漏常量 → memory verify-grep-constant-not-literal | archive:L64
+L21 | reviewer卡死无进度文件 → prompt显式"每步echo进度文件"(→§11) | archive:L65
+L22 | curl -sv泄漏token → memory curl-v-leaks-auth-token | archive:L66
+L23 | prompt期望数值错误 → 期望值先核实来源 | archive:L67
+L24 | 核心需求方向偏差(误派J1/J2) → 需求拆解清单+复述确认(→§23.3) | archive:L80
+L25 | J1/J2 §21公示复发(已复发2次) → §21强化款 | archive:L81
+L26 | hooks误报"还没生效" → 判断生效先查运行证据 | archive:L82
+L27 | hooks子agent输入也抄送 → hooks区分主会话vs子agent | archive:L83
+
+### 经验锚点(22 条,非过错,适用场景;对应根索引表经验 1-22)
+
+E01 | R2 purge_cache分批避超时500(每批30+batch sleep) | archive:L54
+E02 | 持仓hold_days改交易日口径 | archive:L55
+E03 | check_data_integrity+check_r2_consistency | archive:L56
+E04 | 凯利卡间比较水印(蓝★+紫◆全局互比) | archive:L57
+E05 | GitHub Actions deploy约90s,curl验上线sleep 90 | archive:L61
+E06 | Edit含em dash行失败用sed行号替换 | archive:L61
+E07 | reviewer FAIL后§0验2点合规(§0允许FAIL时亲自确认) | archive:L61
+E08 | intraday走R2后盘中push代码不避intraday | archive:L61
+E09 | 分时1min轮询自愈(S1-S5+S9) | archive:L61
+E10 | 决策树/子群数据挖掘方法论 | archive:L61
+E11 | 兜底槽按槽差异化(BACKFILL_SLOT env通道) | archive:L69
+E12 | 数据挖掘盲区发现方法论(字段覆盖) | archive:L70
+E13 | 新toggle评估用"叠加边际" | archive:L71
+E14 | 邮件期货风向字段语义修正(静态vs动态) | archive:L72
+E15 | 开源化两仓库分工(数据主体放staticdata仓) | archive:L73
+E16 | check_data_integrity"该有的数据在不在"校验 | archive:L74
+E17 | 0 token抄送方案(hooks,2d1b9206e) | archive:L86
+E18 | TaskCompleted hook发现(2.1.224) | archive:L87
+E19 | 通知架构方案A子agent中间层不可行 | archive:L88
+E20 | 飞书listener需求自动处理(02bd47f8f) | archive:L89
+E21 | "全信号表"双视图方法论 | archive:L90
+E22 | 并发实验/TASKS归档仅记引用(已落§16④/§7) | archive:L91
