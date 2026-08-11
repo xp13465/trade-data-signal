@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260811-a131';  // bump a130->a131: 热力图溢出修复 style.min.css 0a1dc86e 破缓存(894 flex 0 1 58.33% + 903 移动端 override)
+const CACHE_VERSION = 'v6-20260811-a132';  // bump a131->a132: purpose-notes §21公示 J1/J2 数值同步全局基准口径(2.31/0.49+4.95/1.10),修复reviewer FAIL §22/§21
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
