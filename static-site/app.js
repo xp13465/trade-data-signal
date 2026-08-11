@@ -11256,9 +11256,12 @@ function _lwSVG(cfg) {
       s += '<line x1="' + tx.toFixed(1) + '" y1="' + _baseY + '" x2="' + tx.toFixed(1) + '" y2="' + (_axisY + 5) + '" stroke="var(--border-strong)"/>';
     }
   }
+  // x 标签 baseline: dataZoom 图底部有 slider(占 H-26..H-8, 后绘制盖住标签), 需上移清出滑块顶沿。
+  // 仅 pb<41(如 6 图 pb35)触发; KPI(pb45)/信号弹窗(pb50) 留位足够不位移, 非 dataZoom 图(市场宽度 pb35)无 slider 不位移。
+  const _xLabelY = cfg.dataZoom ? Math.min(_axisY + 8 + 3.5, H - 31.5) : (_axisY + 8 + 3.5);
   for (let i = _i0; i <= _i1; i += _xStep) {
     const x = _px(i);
-    s += '<text x="' + x.toFixed(1) + '" y="' + (_axisY + 8 + 3.5).toFixed(1) + '" font-size="' + _axFont + '" text-anchor="middle" style="fill:var(--text-1)">' + _xFmt(cfg.xLabels[i]) + '</text>';
+    s += '<text x="' + x.toFixed(1) + '" y="' + _xLabelY.toFixed(1) + '" font-size="' + _axFont + '" text-anchor="middle" style="fill:var(--text-1)">' + _xFmt(cfg.xLabels[i]) + '</text>';
   }
   // series(顺序: stack area 先底后顶, bar, line)
   for (const ser of cfg.series || []) {
@@ -11279,7 +11282,8 @@ function _lwSVG(cfg) {
       else if (typeof bw === "string" && bw.indexOf("%") >= 0) bw = _unitW * (parseFloat(bw) / 100);
       // barOffset: 相对类别中心偏移(占 _unitW 比例), 复刻 echarts 同轴多 bar 并排(default barGap 30% of bar width)
       const _off = ser.barOffset != null ? ser.barOffset * _unitW : 0;
-      for (let i = 0; i < n; i++) {
+      // 窗口限 _i0.._i1(窗外柱不绘制; 避免依赖 x="NaN" 的 SVG 错误几何处理, xs 仅填窗内)
+      for (let i = _i0; i <= _i1; i++) {
         const v = ser.data && ser.data[i];
         if (v == null || isNaN(v)) continue;
         const y0 = _py(ai, 0), y1 = _py(ai, Number(v));
