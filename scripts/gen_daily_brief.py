@@ -434,6 +434,8 @@ def generate_rule_brief(date: str, data: dict, cfg: dict) -> dict:
             "date": date,
             "version": "rule",
             "direction": direction,
+            "confidence": 50,
+            "confidence_reason": "规则版(非AI),无把握度评分,默认中等",
             "watch_list": watch_list,
             "risk_items": risk_items,
             "hit": {"direction": None, "actual_sh_pct": None, "actual_direction": None},
@@ -450,6 +452,8 @@ def generate_minimal_brief(date: str, data: dict) -> dict:
             "date": date,
             "version": "minimal",
             "direction": "flat",
+            "confidence": 50,
+            "confidence_reason": "数据不足(最小版),默认中等",
             "watch_list": [],
             "risk_items": [],
             "hit": {"direction": None, "actual_sh_pct": None, "actual_direction": None},
@@ -473,12 +477,17 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
         "不要输出任何 JSON 外的说明文字。JSON 结构固定为:\n"
         "{\n"
         '  "direction": "up|down|flat",\n'
+        '  "confidence": 0-100整数(把握度), "confidence_reason": "1句把握度理由",\n'
         '  "watch_list": [{"index_id": "...", "name": "...", "win_rate": 0.75}],\n'
         '  "risk_items": ["..."],\n'
         '  "text": {"review": "...", "trend": "...", "watch": "...", "risk": "..."}\n'
         "}\n"
         "规则:\n"
         "1. direction 是下一个交易日的A股方向研判:up=偏强/看涨,down=偏弱/看跌,flat=震荡/看不清。拿不准就 flat,不硬猜方向。\n"
+        "1b. confidence 给本次预测的整体把握度(0-100整数),基于论据充分性/分歧度/数据支持度:"
+        "论据充分且信号一致=高把握 70-100;论据较足但有分歧=中等 55-70;论据不足或数据支持弱=低把握 30-55;"
+        "方向看不清/数据缺失=0-30。把握度低时 direction 更倾向 flat,不硬猜。"
+        "confidence_reason 用 1 句话说明把握度依据(如:量价均多但资金面分歧较大)。\n"
         "2. watch_list 明日关注标的 1-5 个,必须引用注入数据中真实存在的 index_id/name,可带参考胜率。\n"
         "3. risk_items 3-5 条风险点,引用注入数据(alert 预警维度/资金面/波动率/南向)。\n"
         "4. 每条论断必须引用注入数据的具体数值或信号名(如:恐贪54/涨跌4067:1391/QVIX_300=19.6)。禁止编造不在注入数据里的指标或数值。\n"
@@ -586,6 +595,14 @@ def parse_ai_output(raw: dict | None, data: dict, date: str) -> dict | None:
     direction = parsed.get("direction")
     if direction not in ("up", "down", "flat"):
         direction = "flat"
+    # 把握度 confidence(0-100 整数,与 direction 并列):主编/单 prompt 输出。
+    # 类型/范围校验:非数字缺省默认 50;越界 clamp 到 0-100;confidence_reason 截断防超长。
+    try:
+        confidence = int(round(float(parsed.get("confidence"))))
+    except (TypeError, ValueError):
+        confidence = 50
+    confidence = max(0, min(100, confidence))
+    confidence_reason = str(parsed.get("confidence_reason") or "").strip()[:120]
     text = parsed.get("text") or {}
     text = {
         "review": str(text.get("review") or "").strip(),
@@ -616,6 +633,8 @@ def parse_ai_output(raw: dict | None, data: dict, date: str) -> dict | None:
             "date": date,
             "version": "ai",
             "direction": direction,
+            "confidence": confidence,
+            "confidence_reason": confidence_reason,
             "watch_list": watch_list,
             "risk_items": risk_items,
             "hit": {"direction": None, "actual_sh_pct": None, "actual_direction": None},
@@ -799,12 +818,17 @@ def build_editor_messages(role_results: dict, researcher: dict | None, date: str
         "不要输出任何 JSON 外的说明文字。JSON 结构固定为:\n"
         "{\n"
         '  "direction": "up|down|flat",\n'
+        '  "confidence": 0-100整数(把握度), "confidence_reason": "1句把握度理由",\n'
         '  "watch_list": [{"index_id": "...", "name": "...", "win_rate": 0.75}],\n'
         '  "risk_items": ["..."],\n'
         '  "text": {"review": "...", "trend": "...", "watch": "...", "risk": "..."}\n'
         "}\n"
         "规则:\n"
         "1. direction 是下一交易日A股方向研判:up=偏强/看涨,down=偏弱/看跌,flat=震荡/看不清。拿不准就 flat。\n"
+        "1b. confidence 给本次预测的整体把握度(0-100整数),基于多空辩论收敛结果——多空论据充分性/分歧度/数据支持度:"
+        "论据充分且多空分歧小=高把握 70-100;论据较足但存在分歧=中等 55-70;论据不足或数据支持弱=低把握 30-55;"
+        "方向看不清/数据缺失=0-30。把握度低时 direction 更倾向 flat,不硬猜。"
+        "confidence_reason 用 1 句话说明把握度依据(如:多空论据均较充分但资金面分歧较大)。\n"
         "2. watch_list 明日关注标的 1-5 个,必须引用注入数据中真实存在的 index_id/name(数据锚定列表),可带参考胜率。\n"
         "3. risk_items 3-5 条风险点,引用各角色论据(alert 预警/资金面/波动率/南向/情绪极端)。\n"
         "4. text.review(今日复盘,约120字)、text.trend(趋势研判,约100字)、text.watch(明日关注,约100字)、"
@@ -1223,6 +1247,8 @@ def main() -> int:
         brief = {
             "meta": {
                 "date": date, "version": "ai", "direction": "up",
+                "confidence": 75,
+                "confidence_reason": "MOCK 测试数据",
                 "watch_list": [{"index_id": "hs300", "name": "沪深300", "win_rate": 0.65}],
                 "risk_items": ["均线转弱预警", "主力净流出"],
                 "hit": {"direction": None, "actual_sh_pct": None, "actual_direction": None},
