@@ -1,6 +1,6 @@
-# 📊 市场温度看板 · tdsignal
+# 📊 信号实验室 · tdsignal
 
-> **多源 A股情绪看板** —— 把散落各处的情绪值、涨跌家数、连板高度、买卖点信号、ETF 评分、策略实验室汇总到一处，
+> **A股/港股/全球盘后复盘情绪数据看板** —— 把散落各处的情绪值、涨跌家数、连板高度、买卖点信号、ETF 评分、策略实验室汇总到一处，
 > 攒成历史序列，用**数据挖掘**从数千笔回测交易中反推出"降亏过滤标志"，每日用 **AI** 生成白话速递，
 > 辅助判断市场情绪拐点与买卖时机。
 
@@ -13,7 +13,7 @@
 ```
 
 **一句话**：免费数据源 + 情绪指数 + ETF 评分 + 凯利仓位回测 + 数据挖掘降亏过滤 + AI 每日速递，
-一个把「数据采集 → 计算 → 可视化 → 交易信号 → 信号质量挖掘 → AI 解读 → 自动交易执行」全链路打通的开源 A股看板。
+一个把「数据采集 → 计算 → 可视化 → 交易信号 → 信号质量挖掘 → AI 解读 → 自动交易执行」全链路打通的开源情绪数据看板。
 
 ![market-status](https://img.shields.io/badge/语言-中文-brightgreen)
 ![python](https://img.shields.io/badge/Python-3.11-3776AB)
@@ -35,9 +35,9 @@
 - <https://s.sugas.site/>（MaoziYun，300MB 总大小限制）
 - <https://ssd.fx8.store/>（R2 CDN，大 JSON 产物）
 
-![市场温度看板 · tdsignal](static-site/og.png)
+![信号实验室 · tdsignal](static-site/og.png)
 
-`trade-data-signal` / `tdsignal` / `tdsignal-ujpzw01zm`
+`trade-data-signal` / `tdsignal`
 
 ---
 
