@@ -79,6 +79,6 @@ if os.environ.get("AI_AGENT", "").endswith("_agent"):
   2. 真实子进程端到端：子agent env→rc=0 指纹 34→34 无发送；主控 env→rc=0 **真发飞书成功**（notify 日志 "Feishu 已发送至 oc_98a49be…：👤 用户"）指纹 34→35。
   3. 真实 env 证据：本实施 agent（子agent）进程实测 `AI_AGENT=claude-code_2-1-224_agent` + `CLAUDE_CODE_CHILD_SESSION=1`（两变量都在，佐证诊断结论）。
   4. `grep -c CLAUDE_CODE_CHILD_SESSION scripts/feishu_chat_hook.py` = 0（旧判定完全移除）。
-- **上线 commit**：见 git log（2026-08-12，commit message `fix(feishu-hook)` 系列）。
+- **上线 commit**：`6089f7913`（2026-08-12，commit message `fix(feishu-hook): 抄送停摆修复 — 子agent判定改 AI_AGENT.endswith(_agent)`；本报告同 commit 上线）。
 - **兜底补抄**：诊断确认 `feishu_missed_fetch.py` 只做飞书→本地方向补拉，不反向补抄主控→飞书方向漏抄；本次停摆期漏抄（00:15:53 后 20+ 条）**不回补**，修复后新消息自然恢复抄送。
 - **待办（未实施，诊断标"可选增强"，需主控确认）**：hook 心跳自检——指纹文件 mtime 超过阈值（如 30min 无新写入且会话活跃）告警，防静默停摆再次发生。本次未擅自扩展实施。
