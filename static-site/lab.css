@@ -1530,6 +1530,36 @@
 .lab-sigkelly-legend-label { font-weight: 600; color: var(--text-2); }
 .lab-sigkelly-note { color: var(--text-4); font-size: 11px; flex-basis: 100%; }
 
+/* 组合使用建议面板(静态) + 全信号表(最后结果) */
+.lab-sigkelly-advice { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; }
+.lab-sigkelly-advice-title { font-size: 14px; font-weight: 700; color: var(--text-1); margin-bottom: 6px; }
+.lab-sigkelly-advice-details { border-top: 1px solid var(--border); padding: 8px 0 2px; }
+.lab-sigkelly-advice-details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-2); padding: 3px 0; }
+.lab-sigkelly-advice-details summary:hover { color: var(--primary); }
+.lab-sigkelly-advice-body { padding: 6px 0 4px; }
+.lab-sigkelly-advice-verdict { font-size: 12.5px; color: var(--text-2); margin-bottom: 6px; }
+.lab-sigkelly-advice-verdict b { color: #389e0d; }
+[data-theme="dark"] .lab-sigkelly-advice-verdict b, [data-theme="redgold"] .lab-sigkelly-advice-verdict b { color: #95de64; }
+.lab-sigkelly-advice-table { margin: 4px 0 6px; }
+.lab-sigkelly-advice-hl td { background: rgba(212,160,23,0.12); }
+[data-theme="dark"] .lab-sigkelly-advice-hl td, [data-theme="redgold"] .lab-sigkelly-advice-hl td { background: rgba(240,185,11,0.14); }
+.lab-sigkelly-advice-li { font-size: 12px; color: var(--text-3); line-height: 1.7; padding: 1px 0; }
+.lab-sigkelly-advice-li b { color: var(--text-2); }
+.lab-sigkelly-advice-warn { color: #d4380d; }
+[data-theme="dark"] .lab-sigkelly-advice-warn, [data-theme="redgold"] .lab-sigkelly-advice-warn { color: #ff9c9a; }
+.lab-sigkelly-advice-note { color: var(--text-4); font-size: 11.5px; font-style: italic; }
+.lab-sigkelly-all-group { border: 1px solid rgba(212,160,23,0.35); border-radius: 8px; padding: 10px 12px 12px; margin-bottom: 14px; background: linear-gradient(180deg, rgba(212,160,23,0.06), rgba(212,160,23,0.01)); }
+[data-theme="dark"] .lab-sigkelly-all-group, [data-theme="redgold"] .lab-sigkelly-all-group { border-color: rgba(240,185,11,0.40); background: linear-gradient(180deg, rgba(240,185,11,0.08), rgba(240,185,11,0.02)); }
+.lab-sigkelly-all-badge { margin-left: 8px; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 10px; background: rgba(212,160,23,0.18); color: #b8860b; border: 1px solid rgba(184,134,11,0.4); vertical-align: 1px; }
+[data-theme="dark"] .lab-sigkelly-all-badge, [data-theme="redgold"] .lab-sigkelly-all-badge { color: #ffd666; background: rgba(240,185,11,0.20); border-color: rgba(240,185,11,0.45); }
+.lab-sigkelly-all-desc { font-size: 12px; color: var(--text-3); line-height: 1.7; margin-bottom: 8px; }
+.lab-sigkelly-all-loading { text-align: center; padding: 16px 0; color: var(--text-3); }
+.lab-sigkelly-all-yearly-block { margin-top: 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+.lab-sigkelly-all-sub { font-size: 13px; font-weight: 600; color: var(--text-1); margin-bottom: 6px; }
+.lab-sigkelly-yearly-table { font-size: 12px; }
+.lab-sigkelly-yearly-table th, .lab-sigkelly-yearly-table td { padding: 4px 10px; }
+.lab-sigkelly-yearly-table td { white-space: nowrap; }
+
 /* 宽表横向滚动(主表+进阶表合并为一张14列宽表,details 折叠已移除) */
 .lab-sigkelly-table-scroll { overflow-x: auto; margin-top: 2px; -webkit-overflow-scrolling: touch; }
 .lab-sigkelly-wide-table { font-size: 11px; }

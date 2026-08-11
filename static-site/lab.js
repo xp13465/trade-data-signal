@@ -7551,8 +7551,17 @@ async function _kellyApplyFeeRecompute(feeParams) {
   var cutoffs = (data.config && data.config.period_cutoffs) || {};
   var quads = td.quadrants || {};
   var quadMeta = data.quadrants || {};
+  quadMeta.all = { label: "全信号", desc: "评级高低分区并集(rating_high+mid+low 互斥全量), 全量信号不拆分, 按最新降亏组合实时预估" };
   var periods = (data.config && data.config.periods) || { y1: "近1年", y3: "近3年", all: "全部" };
   var sellModes = (data.config && data.config.sell_modes) || {};
+  // 全信号伪象限「all」: rating_high+mid+low 分区并集(互斥全量覆盖 = 全量信号不拆分), 供「最后结果」全信号表实时计算(随toggle/费率/周期变化)
+  var quadsAll = {};
+  var _qAllRatingKeys = ["rating_high", "rating_mid", "rating_low"];
+  for (var _qmk in sellModes) {
+    var _qa = [];
+    _qAllRatingKeys.forEach(function (_rk) { var _qq = (quads[_rk] || {})[_qmk] || []; _qa = _qa.concat(_qq); });
+    quadsAll[_qmk] = _qa;
+  }
   // 降亏过滤toggle(正交叠加: filter交易集 vs 费率改profit, 独立不互斥)
   var filters = state.labSigKellyFilters || _kellyDefaultFilters();
   // v3标志需维度查找map(mkt_dim/rating_dim不在trade数组内,编码在quadrant key里)
@@ -7576,7 +7585,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
     var toggledByMode = {};
     var monthMask = _kellyActiveMonthMask(filters);
     for (var modeKey in sellModes) {
-      var rawTrades = (quads[qk] || {})[modeKey] || [];
+      var rawTrades = (qk === "all") ? (quadsAll[modeKey] || []) : ((quads[qk] || {})[modeKey] || []);
       toggledByMode[modeKey] = rawTrades.filter(function (t) {
         return _kellyPassesFadeFilters(t, fIdx, filters, _kellyTradeFeatureCache, _tradeDims, monthMask);
       });
@@ -7621,6 +7630,30 @@ async function _kellyApplyFeeRecompute(feeParams) {
         _kellyBucketStatsCache.set(bKey, { feeSig: feeSig, toggled: toggled, stats: statsByPeriod });
       }
       for (var periodKey in periods) result[qk][periodKey][modeKey] = statsByPeriod[periodKey];
+    }
+    // 全信号伪象限: 按年聚合(「最后结果」表用, 全周期口径非当前period窗口, 与toggle/费率联动)
+    if (qk === "all") {
+      var yearlyMap = {};
+      for (var _ymk in sellModes) {
+        var _yt = toggledByMode[_ymk];
+        for (var _yi = 0; _yi < _yt.length; _yi++) {
+          var _t2 = _yt[_yi];
+          var _yr = (_t2[fIdx.buy_date] || "").substring(0, 4);
+          if (!_yr) continue;
+          var _c2 = _kellyRecomputeCache.get(_t2);
+          if (!_c2 || _c2.sig !== feeSig) {
+            var _rr2 = _kellyRecomputeTrade(_t2, fIdx, feeParams, buyAmount);
+            _c2 = { sig: feeSig, r: _rr2 };
+            _kellyRecomputeCache.set(_t2, _c2);
+          }
+          var _yk = yearlyMap[_yr];
+          if (!_yk) { _yk = yearlyMap[_yr] = { profit: 0, n: 0, wins: 0, loss: 0 }; }
+          _yk.profit += _c2.r.profit;
+          _yk.n++;
+          if (_c2.r.profit > 0) _yk.wins++; else _yk.loss++;
+        }
+      }
+      result.allYearly = yearlyMap;
     }
   }
   _kellyStatsCacheKey = cacheKey;
@@ -8273,6 +8306,82 @@ function _renderSigKellyBar(bar, data, period) {
 }
 
 // 16象限卡片网格(4组: 评级3 + ETF4 + 信号类型4 + 指数大类5)
+// ===== 组合使用建议 + 全信号表(最后结果) =====
+// 静态建议面板: 数字来自真实回测(复刻 _kellyPassesFadeFilters/_kellyComputeStats 的 Python 管线跑部署数据66,726笔),
+// 详见 docs/kelly-combo-usage-advice.md; 口径=4组合全开(年末季节+稳健核心+最大化降亏+1月调整), 数据更新需同步
+function _kellyComboAdviceHtml() {
+  return (
+    `<div class="lab-sigkelly-advice">` +
+      `<div class="lab-sigkelly-advice-title">🎯 降亏组合使用建议（真实回测 · 4 组合全开口径 · 全信号 66,726 笔）</div>` +
+      `<details class="lab-sigkelly-advice-details">` +
+        `<summary>① 4 个组合全开怎么样？（年末季节 + 稳健核心 + 最大化降亏 + 1月调整）</summary>` +
+        `<div class="lab-sigkelly-advice-body">` +
+          `<div class="lab-sigkelly-advice-verdict"><b>结论：好</b>，数据支持你的体感——保留 76% 交易（50,661/66,726）仍充分分散，但净利不降反升、胜率 +5pt、最大回撤减半。</div>` +
+          `<table class="lab-sigkelly-table lab-sigkelly-advice-table"><thead><tr><th>口径</th><th>样本</th><th>净盈亏(元)</th><th>胜率</th><th>盈亏比</th><th>峰值资金收益率</th><th>年化</th><th>最大回撤</th></tr></thead><tbody>` +
+            `<tr><td>不降亏（原始）</td><td>66,726</td><td>+10,336,571</td><td>53.5%</td><td>1.55</td><td>26.20%</td><td>1.51%</td><td>0.19%</td></tr>` +
+            `<tr class="lab-sigkelly-advice-hl"><td><b>4 组合全开</b></td><td>50,661</td><td><b>+10,867,390</b></td><td>58.5%</td><td>1.59</td><td>30.74%</td><td>1.75%</td><td>0.10%</td></tr>` +
+          `</tbody></table>` +
+          `<div class="lab-sigkelly-advice-li">· 按年窗口增长确认：2019 起累计持续增长（2019 +57万 → 2020 +118万 → 2021 +145万 → 2022 +192万 → 2023 +144万[回撤] → 2024 +429万 → 2025 +986万 → 2026 +1,087万）。</div>` +
+          `<div class="lab-sigkelly-advice-li">· 各组合叠加边际（4 组合全开 vs 去一）：<b>1月调整 +33.6万</b>（最大）＞ 最大化降亏 +21.8万 ＞ 稳健核心 +0.6万 ＞ 年末季节 +0（成员被 greedy15/J2 完全覆盖，冗余但无害）。</div>` +
+          `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-warn">· 注意点：① 2023 仍是亏损年（-48.0万，2/4/8月大亏，4 类信号全负，属市场性弱年，组合无法完全消除）；② 再叠加现有 4 toggle 胜率升到 67.4% 但净利从 +1,087万 降到 +301万（只留 13% 交易），是「更保守但利润大幅收缩」的取舍；③ 1月调整 J1/J2 单年主导，需每年 1 月后监控。</div>` +
+        `</div>` +
+      `</details>` +
+      `<details class="lab-sigkelly-advice-details">` +
+        `<summary>② 分投资习惯怎么用？＋总建议</summary>` +
+        `<div class="lab-sigkelly-advice-body">` +
+          `<table class="lab-sigkelly-table lab-sigkelly-advice-table"><thead><tr><th>投资习惯</th><th>建议</th><th>真实回测数据</th></tr></thead><tbody>` +
+            `<tr><td>追高/趋势型</td><td>追关注信号只做牛市（MA60 之上），熊市追涨坚决回避</td><td>牛市 n=19,323 净 <b>+490万</b> 胜率60.5% 盈亏比1.94；熊市 n=1,908 净 -16.3万 胜率41.7% 盈亏比0.97（亏损区）</td></tr>` +
+            `<tr><td>短线型</td><td>短持模式 A(10天)/E(5天)/B/C/D(止盈) 快进快出</td><td>净 +30万~+77万，年化 1.11~1.82%；E(5天)最薄仅 +30万，A(固定10天)优于 E</td></tr>` +
+            `<tr><td>长线型</td><td>长持/信号驱动 F(15天)/G(卖出信号)/I(追关注+追止损)</td><td><b>G 净 +322万</b>（胜率64.1% 年化1.84%）；I +264万；F +104万（年化1.98%最高）</td></tr>` +
+            `<tr><td>保守型</td><td>只做高评级信号（rating=high）</td><td>n=531 胜率 <b>70.6%</b> 盈亏比 <b>2.88</b> 年化 <b>2.80%</b>（质量最优但样本少，宜与广谱组合）</td></tr>` +
+            `<tr class="lab-sigkelly-advice-hl"><td><b>总建议</b></td><td><b>全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）</b></td><td>全信号 G 模式 n=5,629 净 <b>+322万</b> 胜率64.1% 年化1.84%，按年窗口持续增长（2023 年近持平非负）</td></tr>` +
+          `</tbody></table>` +
+          `<div class="lab-sigkelly-advice-li">总建议依据：G 模式（指数卖出信号触发离场）最贴近交易页面的信号驱动跟单方法，且是全信号 9 模式里净利最高、胜率最高、按年增长最稳的退出方式；叠加 4 组合降亏后胜率从 61.2% 进一步提升到 64.1%。</div>` +
+          `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">下方「最后结果」全信号表即按总建议口径实时计算（随降亏组合勾选 / 费率档 / 周期切换联动）。</div>` +
+        `</div>` +
+      `</details>` +
+    `</div>`
+  );
+}
+
+// 全信号表(最后结果): 全信号「all」伪象限卡(实时随toggle/费率/周期) + 按年窗口增长表
+function _sigKellyAllSignalGroupHtml(period) {
+  const feeStats = state.labSigKellyFeeStats;
+  if (!feeStats || !feeStats.all) {
+    return `<div class="lab-sigkelly-group lab-sigkelly-all-group"><div class="lab-sigkelly-group-title">📌 全信号表（最后结果 · 全量信号融合）<span class="lab-sigkelly-all-badge">最后结果</span></div><div class="lab-custom-loading lab-sigkelly-all-loading">⏳ 计算中…</div></div>`;
+  }
+  const allMeta = { label: "全信号", desc: "评级高低分区并集（互斥全量覆盖），全量信号不拆分，实时反映当前降亏组合勾选 / 费率 / 周期", periods: {} };
+  const cardHtml = _renderSigKellyCard("all", allMeta, period, null);
+  const yearly = feeStats.allYearly || {};
+  const years = Object.keys(yearly).sort();
+  let yRows = "";
+  let yCum = 0;
+  for (const y of years) {
+    const v = yearly[y];
+    yCum += v.profit;
+    const wr = v.n ? (v.wins / v.n * 100).toFixed(1) + "%" : "-";
+    const profStr = (v.profit >= 0 ? "+" : "") + v.profit.toFixed(0);
+    const cumStr = (yCum >= 0 ? "+" : "") + yCum.toFixed(0);
+    const yCls = v.profit >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
+    const yCumCls = yCum >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
+    yRows += `<tr><td>${y}</td><td>${v.n}</td><td class="${yCls}">${profStr}元</td><td class="${yCumCls}">${cumStr}元</td><td>${wr}</td></tr>`;
+  }
+  return (
+    `<div class="lab-sigkelly-group lab-sigkelly-all-group">` +
+      `<div class="lab-sigkelly-group-title">📌 全信号表（最后结果 · 全量信号融合）<span class="lab-sigkelly-all-badge">最后结果</span></div>` +
+      `<div class="lab-sigkelly-all-desc">总建议口径：全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）。下表实时随上方降亏组合勾选 / 费率档 / 周期切换联动。年份窗口表为全周期口径（非当前周期窗口）。</div>` +
+      `<div class="lab-sigkelly-grid">${cardHtml}</div>` +
+      `<div class="lab-sigkelly-all-yearly lab-sigkelly-all-yearly-block">` +
+        `<div class="lab-sigkelly-all-sub">按年窗口增长（全信号 · 当前降亏组合实时）</div>` +
+        `<div class="lab-sigkelly-table-scroll"><table class="lab-sigkelly-table lab-sigkelly-yearly-table">` +
+          `<thead><tr><th>年份</th><th>笔数</th><th>净盈亏(元)</th><th>累计(元)</th><th>胜率</th></tr></thead>` +
+          `<tbody>${yRows}</tbody>` +
+        `</table></div>` +
+      `</div>` +
+    `</div>`
+  );
+}
+
 function _renderSigKellyQuadrants(host, data, period) {
   const quads = data.quadrants || {};
   const feeStats = state.labSigKellyFeeStats;
@@ -8284,7 +8393,8 @@ function _renderSigKellyQuadrants(host, data, period) {
     { title: _t("lab_group_by_sig_type"), keys: ["sig_main", "sig_aux", "sig_special", "sig_backup"] },
     { title: "按指数大类分组(宽基/港股/全球/行业/概念)", keys: ["mkt_a", "mkt_hk", "mkt_global", "mkt_industry", "mkt_concept"] },
   ];
-  let html = "";
+  // 组合使用建议(静态) + 全信号表(最后结果, 实时), 置顶于16卡分组前
+  let html = _kellyComboAdviceHtml() + _sigKellyAllSignalGroupHtml(period);
   for (const g of groups) {
     html += `<div class="lab-sigkelly-group">`;
     html += `<div class="lab-sigkelly-group-title">${g.title}</div>`;
@@ -8334,6 +8444,9 @@ function _updateSigKellyQuadrantsInPlace(host, data, period) {
     if (!q) return;
     oldEl.outerHTML = _renderSigKellyCard(qk, q, period, cmp.map[qk] || null);
   });
+  // 全信号表(最后结果)整体就地刷新: "all"伪象限不在 data.quadrants, 单独整组替换(含卡+按年表, 实时联动)
+  const _allGroupEl = host.querySelector(".lab-sigkelly-all-group");
+  if (_allGroupEl) _allGroupEl.outerHTML = _sigKellyAllSignalGroupHtml(period);
   _bindSigKellyCardEvents(host);
 }
 
@@ -8798,7 +8911,17 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
 
   const td = state.labSigKellyTradesData;
   const fields = td.fields || ["signal_date", "buy_date", "sell_date", "etf_code", "etf_name", "buy_price", "sell_price", "shares", "profit", "return_pct", "hold_days", "sell_reason"];
-  const rawTrades = (td.quadrants || {})[quadKey]?.[modeKey] || [];
+  // 全信号伪象限「all」= rating_high+mid+low 并集(与卡片统计一致, §22数据一致性)
+  let rawTrades;
+  if (quadKey === "all") {
+    rawTrades = [];
+    ["rating_high", "rating_mid", "rating_low"].forEach((_rk) => {
+      const _qq = (td.quadrants || {})[_rk]?.[modeKey] || [];
+      rawTrades = rawTrades.concat(_qq);
+    });
+  } else {
+    rawTrades = (td.quadrants || {})[quadKey]?.[modeKey] || [];
+  }
   const _fIdx = {};
   fields.forEach((f, i) => { _fIdx[f] = i; });
 
