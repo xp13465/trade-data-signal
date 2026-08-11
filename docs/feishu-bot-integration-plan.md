@@ -1,10 +1,11 @@
-# 飞书机器人接入方案（调研落档）
+# 飞书机器人接入方案（调研落档 + 实施结果）
 
-> 状态：调研完成，未实施（只读不改代码）。产出方案供后续实施阶段使用。
-> 调研日期：2026-08-11
+> 状态：调研 + 实施完成（2026-08-11）。阶段 1 发送 + 阶段 2 接收均已落地并实测。
+> 调研日期：2026-08-11；实施日期：2026-08-11（commit 见 git log docs/feishu-bot-integration-plan.md）。
 > 说明：本环境 WebSearch/WebFetch 被网络策略拦截（open.feishu.cn/github.com 均无法抓取），
-> 以下基于对飞书开放平台既有能力的知识撰写。配置时**以开发者后台实际显示为准**，
-> 文中权限名/SDK API 名给了主用名，如有出入按后台为准微调。
+> 以下基于对飞书开放平台既有能力的知识撰写，**实测为准**。文中权限名/API 名以实际调用成功为准。
+> 用户已完成平台配置：自建应用已建（凭证存 trade-data/.env 的 FEISHU_APP_ID/FEISHU_APP_SECRET）+
+> 已建 3 群并拉应用进群 + 权限/发布/事件订阅长连接已配好。
 
 ---
 
@@ -296,3 +297,98 @@
 
 8. **入向消息 → 主控的持久化**
    - 需求落盘 `data/feishu_requests/`（runtime，不进 git）+ cron 整理进 **TASKS.md（git 落档）**，符合 §7 默认持久化。只落 /tmp 会丢（§7 教训）。
+
+---
+
+## §六 实施结果（2026-08-11）
+
+> 阶段 1（发送）+ 阶段 2（接收）一并实施完成，3 群实测发送成功，接收长连接已连上飞书 WS。
+
+### 6.1 实际落地清单
+
+| 项 | 落地 | 说明 |
+|---|---|---|
+| 发送渠道 | `scripts/notify.py` 新增 `send_feishu()` + `_get_tenant_access_token()`（token 缓存 2h，过期前 120s 刷新） | tenant_access_token + `POST /open-apis/im/v1/messages?receive_id_type=chat_id`（msg_type=text，content 为 `{"text":...}` JSON 转义） |
+| 配置 | `config/feishu.json`（gitignore）+ `config/feishu.json.example`（模板） | 群映射 `chat_ids: {alert, agent_done, report}` + receive 段（白名单/前缀/落盘目录） |
+| 凭证 | `.env` 的 `FEISHU_APP_ID`/`FEISHU_APP_SECRET`（trade-data/.env），notify 从 .env 读不硬编码不 echo | config 也可显式覆盖（占位符检测） |
+| 3 群 chat_id | 通过 `im.chat.list` API 按群名匹配获取，已填 config | 见 6.2 |
+| 接收进程 | `scripts/feishu_ws_listener.py`（lark-oapi `ws.Client` 长连接）+ launchd `com.trade.feishu-listener`（KeepAlive 常驻） | 订阅 `im.message.receive_v1`，白名单群 + 前缀过滤落盘 |
+| 邮件兜底 | 保留（send() 邮件始终先发，飞书失败不阻塞） | SEVERE 告警邮件始终发，防飞书故障无通知 |
+| README/文档 | README 功能亮点+参考致谢段补充；本文档实施结果+接收落盘格式 | §18/§21 同步 |
+
+### 6.2 3 群 chat_id（im.chat.list 实测，2026-08-11）
+
+| 群名（后台） | key | chat_id | 内容 |
+|---|---|---|---|
+| 信号实验室-运维群 | `alert` | `oc_7d8d3eb6b322ddeb6b8e3c53519fae7e` | SEVERE 告警类（notify.py --severe 22 处）+ 计划任务异常 |
+| 信号实验室-开发群 | `agent_done` | `oc_98a49be023582358fa6cec24749907b5` | agent 完成通知（--agent-done / notify_agent_done）+ 用户提需求（接收白名单） |
+| 信号实验室，报告群 | `report` | `oc_edd9ac6dbe07303bed6f30d44b19604c` | 每日收盘分析 + 盘中信号 + 小时级节点 |
+
+> 群名「报告群」在后台显示为「信号实验室，报告群」（含中文逗号），匹配时按前缀「信号实验室」识别。
+
+### 6.3 notify.py 群路由规则（默认，可用 --feishu-group 覆盖）
+
+| 条件（优先级从高到低） | 目标群 |
+|---|---|
+| `--severe` 或 subject/from_prefix 含 `[告警]` | `alert`（运维群） |
+| subject/from_prefix 含 `[完成]` 或 `[恢复]` | `agent_done`（开发群） |
+| 其余（收盘分析/盘中信号/买卖点信号/小时级节点） | `report`（报告群） |
+
+- CLI 新增：`--feishu-group <alert|agent_done|report>`（显式覆盖）、`--feishu-only`（调试只发飞书）。
+- `notify_agent_done()` 固定走 `agent_done` 群（feishu_group 可覆盖）。
+- `send()`/`send_to()` 返回值扩为 `{"email":bool,"telegram":bool,"feishu":bool}`；调用点零改动自动切飞书（22/34 都走 notify.py CLI）。
+
+### 6.4 实测记录（2026-08-11）
+
+- **发送**：3 群各发 1 条 `--feishu-only` 测试消息，均 `[notify] Feishu 已发送至 oc_xxx` 成功（用户群内可见）：
+  - 运维群：[告警] 飞书接入测试(运维群)
+  - 开发群：[完成] 飞书接入测试(开发群)
+  - 报告群：[报告] 飞书接入测试(报告群)
+- **接收**：`feishu_ws_listener.py` 以 launchd 常驻，日志确认 `connected to wss://msg-frontier.feishu.cn/ws/v2?...`（飞书长连接已建立）；单测验证白名单+前缀过滤+落盘逻辑全过（合法需求落盘 / 无前缀闲聊跳过 / 非白名单群跳过 / post 富文本解析）。
+- **接收 E2E 需用户在开发群发「需求: xxx」实测**（应用收不到自己发的消息），落盘后主控 cron 整理进 TASKS。
+- **本地 SSL 环境**：本机 MITM 代理自签证书致 Python 默认校验失败，notify.py 发送遇 `CERTIFICATE_VERIFY_FAILED` 自动退化不校验重试一次（仅飞书 API）；listener 启动时 `security` 导出系统信任证书 PEM，设 `SSL_CERT_FILE`+`REQUESTS_CA_BUNDLE` 解决（用系统信任链，非关闭校验）。
+
+### 6.5 接收落盘格式（主控读取指引）
+
+`feishu_ws_listener.py` 收到白名单群 + 前缀（`需求:`/`t:`）匹配的消息，落盘 `data/feishu_requests/<ts>-<message_id>.json`（gitignore，不进 git），每文件：
+
+```json
+{
+  "ts": 1723352400,
+  "ts_iso": "2026-08-11 16:00:00",
+  "sender": "ou_xxx",           // 发送人 open_id/user_id
+  "chat_id": "oc_98a49be023582358fa6cec24749907b5",
+  "msg_type": "text",
+  "content": "需求: 做一个小功能",   // 明文（text 取 {"text":...}，post 拼 text 节点）
+  "message_id": "om_xxx",
+  "raw_content": "{\"text\":\"需求: 做一个小功能\"}"
+}
+```
+
+**主控侧处理**（§2.2 方式 A，主控负责设）：cron 兜底每 15min 扫 `data/feishu_requests/` 新文件 → 把 `content`（去掉前缀）整理追加进 `TASKS.md` 待办（git 落档持久化）→ 已处理文件标记/移动（如改名 `*.consumed` 或移到 `data/feishu_requests/processed/`）。主控开工/compact 恢复读 TASKS 即看到需求。
+
+### 6.6 依赖与版本（实测）
+
+- `.venv` python3.11，`lark-oapi` 需 **>=1.1**（`lark_oapi.ws` 才存在；实测 1.0.5 无 ws 模块，升到 1.5.5 有 `lark_oapi.ws.Client`；1.5.5 无 `lark_oapi.adapter.ws` 路径）。`websockets`（SDK 依赖）16.0 已装。
+- SDK `ws.Client(app_id, app_secret, event_handler, log_level, domain, auto_reconnect)`，`EventDispatcherHandler.builder("","").register_p2_im_message_receive_v1(handler).build()`。
+- 事件模型：`data.event.message.{chat_id,message_type,content,create_time,message_id}` / `data.event.sender.sender_id.{user_id,open_id}`。
+- 本地 MITM 证书 workaround：listener 启动 `security find-certificate -a -p` 导系统证书（3 段）→ `trade-data/data/feishu_cacert.pem`（runtime 不进 git）→ 设 env。`--no-ssl-workaround` 可跳过（纯净网络环境）。
+
+### 6.7 手动测试命令（用户侧）
+
+```bash
+# 发送自测（--feishu-only 只发飞书不扰邮件）
+cd /Users/linhuichen/code/trade
+.venv/bin/python scripts/notify.py "[告警] 测试" "运维群测试" --severe --feishu-only
+.venv/bin/python scripts/notify.py --feishu-group agent_done "开发群测试" --feishu-only
+.venv/bin/python scripts/notify.py --feishu-group report "报告群测试" --feishu-only
+
+# 接收 E2E（在开发群发消息，确认落盘）
+# 1) 飞书开发群发：需求: 测试某功能
+# 2) 查日志：tail -5 /Users/linhuichen/code/trade-data/data/logs/feishu_listener.log
+# 3) 查落盘：ls -t /Users/linhuichen/code/trade/data/feishu_requests/ | head
+
+# listener 手动启动（launchd 已常驻，无需手动；停止/重启）
+launchctl kickstart -k gui/$(id -u)/com.trade.feishu-listener   # 重启
+launchctl bootout gui/$(id -u)/com.trade.feishu-listener         # 停止
+```

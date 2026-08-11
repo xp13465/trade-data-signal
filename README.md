@@ -78,6 +78,12 @@
 - **历史收盘分析结合 AI 预测**：弹窗内每日收盘分析下方并排展示对应日期 AI 预测（方向断言+把握度+四段解读+命中标记），AI 预测弹窗默认展开预测内容
 - 邮件正文**白话化**：期货风向 + 公募基金解读，非模板套话
 
+### 🤖 飞书机器人通知（2026-08-11 新增，通知分级到 3 群 + 群内提需求）
+- **发送链路**：`notify.py` 新增飞书渠道（企业自建应用 `tenant_access_token` + `im/v1/messages` API），按通知类别路由到 3 群——**运维群**（SEVERE 告警 + 计划任务异常）/ **开发群**（agent 完成通知）/ **报告群**（收盘分析 + 盘中信号 + 小时级节点），`--feishu-group` 可显式覆盖，`--feishu-only` 调试单渠道
+- **接收链路**：`feishu_ws_listener.py` 长连接常驻（lark-oapi WS Client + launchd KeepAlive，免公网回调），订阅 `im.message.receive_v1`，白名单群 + `需求:`/`t:` 前缀过滤后落盘 `data/feishu_requests/`，主控 cron 轮询整理进 TASKS 待办（补齐 harness 无可靠入向通知的空缺）
+- **邮件兜底保留**：飞书失败不阻塞邮件（best-effort），SEVERE 告警邮件始终发（防飞书故障无通知）
+- 实现见 [`docs/feishu-bot-integration-plan.md`](docs/feishu-bot-integration-plan.md)，飞书开放平台能力见「参考与致敬」段
+
 ### 📱 体验与扩展
 - 盘中**分时多源批量实时**（同花顺批量 + 东财 push2delay2，3 请求根治降并发，1 分钟自愈轮询机制）
 - **PWA 移动端**（可安装 + 离线缓存 + iOS 安全区 + 通知面板）
@@ -246,6 +252,17 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 | cninfo | 公募基金 / ETF 持有人结构 | 公开数据 |
 
 > 数据源细节、采集时点与合规说明见 [`docs/data-sources.md`](docs/data-sources.md)。
+
+### 🤖 飞书开放平台（lark-oapi）
+
+**用途**：`notify.py` 飞书发送渠道 + `feishu_ws_listener.py` 长连接接收进程（企业自建应用收发一体）。
+
+| 能力 | 致敬来源 | 本项目用在哪 |
+|---|---|---|
+| **飞书开放平台**（自建应用） | [飞书开放平台](https://open.feishu.cn)（中国版域名 open.feishu.cn） | 发消息 API `im/v1/messages`（tenant_access_token 鉴权）+ 长连接事件订阅 `im.message.receive_v1`；应用进 3 群按 chat_id 分组路由 |
+| **lark-oapi 官方 SDK** | [lark-oapi](https://github.com/larksuite/oapi-sdk-python)（官方 Python SDK） | `feishu_ws_listener.py` 用 `lark_oapi.ws.Client`（WS 长连接，SDK 自带断线重连）收群消息，事件分发器 `EventDispatcherHandler.register_p2_im_message_receive_v1` |
+
+> 完整实现、3 群映射与接收落盘格式见 [`docs/feishu-bot-integration-plan.md`](docs/feishu-bot-integration-plan.md)。
 
 ---
 

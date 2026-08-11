@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
-"""notify.py - update_all 监控通知工具（多渠道：邮件 + Telegram + alerts 文件）。
+"""notify.py - update_all 监控通知工具（多渠道：邮件 + Telegram + 飞书 + alerts 文件）。
 
-多渠道分发（send()）：先邮件后 Telegram，各渠道独立失败不互相阻塞，返回聚合结果
-{"email": bool, "telegram": bool}。
+多渠道分发（send()）：先邮件后 Telegram 再飞书，各渠道独立失败不互相阻塞，返回聚合结果
+{"email": bool, "telegram": bool, "feishu": bool}。
 
 - 邮件：复用 config/email.json（字段：smtp/port/user/password/to，SMTP SSL，163->QQ）。
 - Telegram：读 config/telegram.json（bot_token/chat_id/api_base，POST Bot API sendMessage；
   国内 GFW 不可达时 api_base 设 CF Workers 反代 URL，详见 telegram.json.example）。
+- 飞书：读 config/feishu.json（app_id/app_secret 从 .env 读 FEISHU_APP_ID/FEISHU_APP_SECRET，
+  三群 chat_id 映射 alert=运维群/agent_done=开发群/report=报告群，tenant_access_token +
+  im/v1/messages API，详见 feishu.json.example 与 docs/feishu-bot-integration-plan.md）。
 - 严重告警额外写 data/alerts/latest.md（覆盖式记最新一次严重），供下轮 Claude 开工优先排查。
+- 邮件兜底保留：飞书失败不阻塞邮件（best-effort），SEVERE 告警邮件始终发（防飞书故障无通知）。
 
 用法（CLI）:
   notify.py <subject> <body> [--severe] [--alert-issue <issue> [--alert-log <path>]]
-             [--from-prefix <prefix>] [--dry-run]
+             [--from-prefix <prefix>] [--dry-run] [--feishu-group <key>] [--feishu-only]
   notify.py --agent-done <name> <summary> [--dry-run]
-             （agent 完成通知：发邮件直达用户绕过主控队列，5min 去重防轰炸）
+             （agent 完成通知：发邮件直达用户绕过主控队列，5min 去重防轰炸；飞书固定发开发群）
 
   --severe          2026-07-20 改造：仅用于 write_alert 语义标记（SEVERE_PREFIX 已置空串，
                     subject 前缀由调用方控制，统一 [告警]/[完成]/[恢复] 模板）。
@@ -21,6 +25,8 @@
   --alert-log       配合 --alert-issue，记录日志文件路径
   --from-prefix     邮件发件人名前缀（如 [告警] -> "From: [告警] 信号实验室 <user>"）。
                     默认 None 时用 "信号实验室监控"。
+  --feishu-group    飞书群 key 显式覆盖（alert/agent_done/report）
+  --feishu-only     只发飞书（跳过邮件/Telegram），调试用
   --dry-run         不真发，只 print 到 stderr（自验用）
 
 各渠道发送失败只 print 警告不抛异常（不阻塞调用方，update_all 末尾 || true 双保险）。
@@ -31,7 +37,9 @@ import argparse
 import json
 import re
 import smtplib
+import ssl
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -42,6 +50,7 @@ from pathlib import Path
 REPO = Path(__file__).absolute().parent.parent
 EMAIL_CONFIG = REPO / "config" / "email.json"
 TELEGRAM_CONFIG = REPO / "config" / "telegram.json"
+FEISHU_CONFIG = REPO / "config" / "feishu.json"
 ALERTS_DIR = REPO / "data" / "alerts"
 ALERTS_FILE = ALERTS_DIR / "latest.md"
 # notify.py 去重文件(独立于 schedule_monitor 的 alert_state.json,互不污染)。
@@ -56,8 +65,20 @@ PLACEHOLDER_PASSWORD = "<填163邮箱SMTP授权码，非登录密码>"
 PLACEHOLDER_TG_TOKEN = "YOUR_BOT_TOKEN"
 PLACEHOLDER_TG_CHAT = "YOUR_CHAT_ID"
 
+# feishu.json.example 中的占位值，识别后跳过实际发送（app_id/app_secret 优先从 .env 读）
+PLACEHOLDER_FEISHU_ID = "cli_xxx"
+PLACEHOLDER_FEISHU_SECRET = "YOUR_APP_SECRET"
+
 # Telegram Bot API sendMessage 单条文本上限 4096 字符
 TG_TEXT_LIMIT = 4096
+
+# 飞书 text 消息单条长度上限（约 1-2K 量级，取保守 2000；超长截断）
+FEISHU_TEXT_LIMIT = 2000
+
+# 飞书 tenant_access_token 缓存（2h 有效，过期前 120s 刷新复用）
+_FEISHU_TOKEN_CACHE: dict = {"token": None, "expire_at": 0.0}
+# 飞书 open.feishu.cn（中国版域名）
+FEISHU_API_BASE = "https://open.feishu.cn"
 
 # SEVERE_PREFIX 保留空串（2026-07-20 改造：由调用方在 subject 表达严重程度，统一 [告警] 前缀）。
 # --severe 标记仍用于 write_alert 写 data/alerts/latest.md（独立于 subject 前缀）。
@@ -177,6 +198,222 @@ def send_telegram(subject: str, body: str, dry_run: bool = False,
         return False
 
 
+# ── 飞书渠道（自建应用 tenant_access_token + im/v1/messages API）────────────────
+# 配置 config/feishu.json（gitignore，feishu.json.example 模板）。app_id/app_secret 默认从
+# .env 读（FEISHU_APP_ID/FEISHU_APP_SECRET，存 /Users/linhuichen/code/trade-data/.env），
+# 也可在 config/feishu.json 显式覆盖。三群映射：alert=运维群(SEVERE告警+计划任务异常) /
+# agent_done=开发群(agent完成+用户提需求) / report=报告群(收盘分析+盘中信号+小时级节点)。
+# 邮件兜底保留：飞书失败不阻塞邮件（best-effort），SEVERE 告警邮件始终发（防飞书故障无通知）。
+
+
+def load_feishu_config() -> dict | None:
+    """读 config/feishu.json。不存在/解析失败返回 None（=未配置，静默跳过）。"""
+    if not FEISHU_CONFIG.exists():
+        return None
+    try:
+        return json.loads(FEISHU_CONFIG.read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify] config/feishu.json 解析失败：{e}", file=sys.stderr)
+        return None
+
+
+def _load_feishu_credentials() -> tuple[str, str]:
+    """返回 (app_id, app_secret)。优先 config/feishu.json 显式字段（非占位符），
+    否则读 .env 的 FEISHU_APP_ID/FEISHU_APP_SECRET（trade-data/.env 优先，trade/.env 兜底）。
+    不 echo 凭证值。"""
+    app_id, app_secret = "", ""
+    cfg = load_feishu_config()
+    if cfg:
+        app_id = str(cfg.get("app_id", "") or "").strip()
+        app_secret = str(cfg.get("app_secret", "") or "").strip()
+        if (app_id and app_secret
+                and PLACEHOLDER_FEISHU_ID not in app_id
+                and PLACEHOLDER_FEISHU_SECRET not in app_secret):
+            return app_id, app_secret
+    # .env 候选路径（FEISHU 凭证在 trade-data/.env；trade/.env 兜底）
+    candidates = [
+        Path("/Users/linhuichen/code/trade-data/.env"),
+        REPO.parent / "trade-data" / ".env",
+        REPO / ".env",
+    ]
+    found_id, found_secret = "", ""
+    for env_path in candidates:
+        if not env_path.exists():
+            continue
+        try:
+            lines = env_path.read_text(encoding="utf-8").splitlines()
+        except Exception:  # noqa: BLE001
+            continue
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k = k.strip()
+            if k == "FEISHU_APP_ID":
+                found_id = v.strip()
+            elif k == "FEISHU_APP_SECRET":
+                found_secret = v.strip()
+        if found_id and found_secret:
+            break
+    return found_id, found_secret
+
+
+def _feishu_http_post_json(url: str, payload: bytes, headers: dict,
+                           timeout: int = 20) -> dict:
+    """POST JSON 到飞书 API。本地环境 MITM 代理自签证书致默认校验失败，
+    遇到 CERTIFICATE_VERIFY_FAILED 退化为不校验重试一次（仅飞书 API 调用）。"""
+    req = urllib.request.Request(url, data=payload, method="POST", headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", "replace")
+    except urllib.error.URLError as e:
+        reason = getattr(e, "reason", None)
+        if not isinstance(reason, ssl.SSLCertVerificationError):
+            raise
+        print("[notify] feishu SSL 校验失败，退化为不校验重试一次（本地 MITM 代理）",
+              file=sys.stderr)
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            raw = resp.read().decode("utf-8", "replace")
+    return json.loads(raw)
+
+
+def _get_tenant_access_token() -> str | None:
+    """获取飞书 tenant_access_token（带缓存，2h 有效，过期前 120s 刷新复用）。
+
+    失败返回 None（调用方跳过飞书，不阻塞）。"""
+    now = time.time()
+    if _FEISHU_TOKEN_CACHE["token"] and _FEISHU_TOKEN_CACHE["expire_at"] > now:
+        return _FEISHU_TOKEN_CACHE["token"]
+    app_id, app_secret = _load_feishu_credentials()
+    if (not app_id or not app_secret
+            or PLACEHOLDER_FEISHU_ID in app_id
+            or PLACEHOLDER_FEISHU_SECRET in app_secret):
+        print("[notify] feishu app_id/app_secret 缺失或占位符，跳过发送"
+              "（.env 无 FEISHU_APP_ID/FEISHU_APP_SECRET）", file=sys.stderr)
+        return None
+    url = f"{FEISHU_API_BASE}/open-apis/auth/v3/tenant_access_token/internal"
+    payload = json.dumps({"app_id": app_id, "app_secret": app_secret},
+                         ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json; charset=utf-8"}
+    try:
+        data = _feishu_http_post_json(url, payload, headers)
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify] Feishu 获取 token 失败（跳过发送，不阻塞）：{e}", file=sys.stderr)
+        return None
+    if data.get("code") != 0:
+        print(f"[notify] Feishu token API 返回非 0：code={data.get('code')} "
+              f"msg={data.get('msg')}（跳过发送）", file=sys.stderr)
+        return None
+    token = str(data.get("tenant_access_token", "") or "")
+    if not token:
+        print("[notify] Feishu token 响应为空，跳过发送", file=sys.stderr)
+        return None
+    expire = int(data.get("expire", 7200) or 7200)
+    _FEISHU_TOKEN_CACHE["token"] = token
+    _FEISHU_TOKEN_CACHE["expire_at"] = now + max(60, expire - 120)
+    return token
+
+
+def _send_feishu_api(chat_id: str, subject: str, text: str) -> bool:
+    """飞书应用模式发送：POST im/v1/messages?receive_id_type=chat_id（text 消息）。"""
+    token = _get_tenant_access_token()
+    if not token:
+        return False
+    url = f"{FEISHU_API_BASE}/open-apis/im/v1/messages?receive_id_type=chat_id"
+    content = json.dumps({"text": text}, ensure_ascii=False)
+    payload = json.dumps({"receive_id": chat_id, "msg_type": "text", "content": content},
+                         ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json; charset=utf-8",
+               "Authorization": f"Bearer {token}"}
+    try:
+        data = _feishu_http_post_json(url, payload, headers)
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify] Feishu 发送失败（不阻塞）：{e}", file=sys.stderr)
+        return False
+    if data.get("code") == 0:
+        print(f"[notify] Feishu 已发送至 {chat_id}：{subject}", file=sys.stderr)
+        return True
+    print(f"[notify] Feishu API 返回非 0：code={data.get('code')} "
+          f"msg={data.get('msg')}（subject={subject}）", file=sys.stderr)
+    return False
+
+
+def _send_feishu_webhook(url: str, subject: str, text: str) -> bool:
+    """飞书 webhook 模式发送（阶段1自定义机器人备用）：POST 群机器人 webhook。"""
+    payload = json.dumps({"msg_type": "text", "content": {"text": text}},
+                         ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json; charset=utf-8"}
+    try:
+        data = _feishu_http_post_json(url, payload, headers)
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify] Feishu webhook 发送失败（不阻塞）：{e}", file=sys.stderr)
+        return False
+    if data.get("code") == 0 or data.get("StatusCode") == 0:
+        print(f"[notify] Feishu webhook 已发送至 {url[:60]}…：{subject}", file=sys.stderr)
+        return True
+    print(f"[notify] Feishu webhook API 返回非 0：{data}（subject={subject}）",
+          file=sys.stderr)
+    return False
+
+
+def _resolve_feishu_chat_key(subject: str, from_prefix: str | None,
+                             severe: bool) -> str:
+    """按通知类别路由飞书群：severe/[告警] -> alert 群；[完成]/[恢复] -> agent_done 群；
+    其余（收盘分析/盘中信号/小时级节点/买卖点信号等）-> report 群。"""
+    if severe:
+        return "alert"
+    hay = f"{from_prefix or ''} {subject}"
+    if "[告警]" in hay:
+        return "alert"
+    if "[完成]" in hay or "[恢复]" in hay:
+        return "agent_done"
+    return "report"
+
+
+def send_feishu(subject: str, body: str, chat_key: str | None = None,
+                dry_run: bool = False, severe: bool = False,
+                from_prefix: str | None = None) -> bool:
+    """发飞书群消息（自建应用 im/v1/messages 或 webhook 模式）。
+
+    chat_key 显式指定（alert/agent_done/report）；None 时按 _resolve_feishu_chat_key
+    自动映射。配置缺失/enabled=false/占位符 -> 静默跳过（同 Telegram 未配置口径）。
+    发送失败只 print 警告不抛异常（不阻塞调用方/不阻塞邮件）。
+    返回 True 表示发出（或 dry_run 模拟成功），False 表示未发/失败。
+    """
+    cfg = load_feishu_config()
+    if cfg is None:
+        return False
+    if not cfg.get("enabled", True):
+        return False
+    if chat_key is None:
+        chat_key = _resolve_feishu_chat_key(subject, from_prefix, severe)
+    chat_ids = cfg.get("chat_ids") or {}
+    chat_id = str(chat_ids.get(chat_key, "") or "").strip()
+    if not chat_id:
+        print(f"[notify] feishu 群 {chat_key} 未配置 chat_id，跳过发送", file=sys.stderr)
+        return False
+    text = f"{subject}\n\n{_html_to_text(body)}"
+    if len(text) > FEISHU_TEXT_LIMIT:
+        text = text[: FEISHU_TEXT_LIMIT - 30] + "\n…(已截断)"
+    if dry_run:
+        print(f"[notify][dry-run] feishu group={chat_key} chat_id={chat_id}", file=sys.stderr)
+        print(f"[notify][dry-run] feishu text(前200)=\n{text[:200]}", file=sys.stderr)
+        return True
+    mode = str(cfg.get("mode", "app") or "app").lower()
+    if mode == "webhook":
+        url = str((cfg.get("webhook_urls") or {}).get(chat_key, "") or "").strip()
+        if not url:
+            print(f"[notify] feishu webhook 模式但群 {chat_key} 未配置 webhook_urls，跳过",
+                  file=sys.stderr)
+            return False
+        return _send_feishu_webhook(url, subject, text)
+    return _send_feishu_api(chat_id, subject, text)
+
+
 def _send_email(subject: str, body: str, dry_run: bool = False,
                 to: str | None = None, from_prefix: str | None = None) -> bool:
     """发邮件（内部，由 send()/send_to() 调用）。dry_run=True 只 print 不真发。
@@ -237,29 +474,37 @@ def _send_email(subject: str, body: str, dry_run: bool = False,
 
 
 def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
-         from_prefix: str | None = None) -> dict:
-    """多渠道分发通知（邮件 + Telegram）。各渠道独立失败不互相阻塞。
+         from_prefix: str | None = None, feishu_group: str | None = None,
+         feishu_only: bool = False) -> dict:
+    """多渠道分发通知（邮件 + Telegram + 飞书）。各渠道独立失败不互相阻塞。
 
-    先邮件后 Telegram，任一渠道失败不影响另一个。返回聚合结果：
-      {"email": bool, "telegram": bool}，True 表示该渠道发出（或 dry_run 模拟成功），
-      False 表示未发（配置缺失/占位符/发送失败）。
+    先邮件后 Telegram 再飞书，任一渠道失败不影响其他。返回聚合结果：
+      {"email": bool, "telegram": bool, "feishu": bool}，True 表示该渠道发出
+      （或 dry_run 模拟成功），False 表示未发（配置缺失/占位符/发送失败）。
 
     severe=True 时写 data/alerts/latest.md（--alert-issue 配合）。
       2026-07-20 改造：subject 前缀由调用方控制（统一 [告警]/[完成]/[恢复] 模板），
       SEVERE_PREFIX 已置空串，--severe 不再修改 subject。
-    dry_run=True 两个渠道都只 print 不真发。
+    dry_run=True 所有渠道都只 print 不真发。
     from_prefix：邮件发件人名前缀（None=默认 "信号实验室监控"，非空如 "[告警]" -> "[告警] 信号实验室"）。
+    feishu_group：飞书群 key 显式覆盖自动路由（alert/agent_done/report）；None=按
+      severe/[告警]/[完成]/[恢复] 自动映射（见 _resolve_feishu_chat_key）。
+    feishu_only：True 时只发飞书（跳过邮件/Telegram），调试用。
+    邮件兜底保留：飞书失败不阻塞、邮件照发（SEVERE 告警邮件始终发，防飞书故障无通知）。
     """
     if severe:
         subject = SEVERE_PREFIX + subject
-    email_ok = _send_email(subject, body, dry_run=dry_run, from_prefix=from_prefix)
-    tg_ok = send_telegram(subject, body, dry_run=dry_run)
-    return {"email": email_ok, "telegram": tg_ok}
+    email_ok = _send_email(subject, body, dry_run=dry_run, from_prefix=from_prefix) if not feishu_only else False
+    tg_ok = send_telegram(subject, body, dry_run=dry_run) if not feishu_only else False
+    fs_ok = send_feishu(subject, body, chat_key=feishu_group, dry_run=dry_run,
+                        severe=severe, from_prefix=from_prefix)
+    return {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok}
 
 
 def send_to(subject: str, body: str, email: str | None = None,
             chat_id: str | None = None, dry_run: bool = False,
-            from_prefix: str | None = None) -> dict:
+            from_prefix: str | None = None, feishu_group: str | None = None,
+            feishu_only: bool = False) -> dict:
     """A12 订阅推送：指定收件人（email/chat_id）多渠道分发。
 
     与 send() 区别：send() 用 config 全局 to/chat_id（单一管理员）；
@@ -267,12 +512,15 @@ def send_to(subject: str, body: str, email: str | None = None,
     bot_token/api_base 仍用 config 全局配置，单一发件方给多收件人）。
 
     email/chat_id 任一为 None/空则跳过该渠道。各渠道独立失败不互相阻塞。
-    返回 {"email": bool, "telegram": bool}。
+    返回 {"email": bool, "telegram": bool, "feishu": bool}。
     from_prefix：邮件发件人名前缀（None=默认 "信号实验室监控"）。
+    feishu_group：飞书群 key（None=按前缀自动映射，订阅信号推送默认进 report 报告群）。
     """
-    email_ok = _send_email(subject, body, dry_run=dry_run, to=email, from_prefix=from_prefix) if email else False
-    tg_ok = send_telegram(subject, body, dry_run=dry_run, chat_id=chat_id) if chat_id else False
-    return {"email": email_ok, "telegram": tg_ok}
+    email_ok = _send_email(subject, body, dry_run=dry_run, to=email, from_prefix=from_prefix) if email and not feishu_only else False
+    tg_ok = send_telegram(subject, body, dry_run=dry_run, chat_id=chat_id) if chat_id and not feishu_only else False
+    fs_ok = send_feishu(subject, body, chat_key=feishu_group, dry_run=dry_run,
+                        severe=False, from_prefix=from_prefix)
+    return {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok}
 
 
 def write_alert(issue: str, detail: str, log_path: str | None = None) -> None:
@@ -375,11 +623,13 @@ def update_dedup(key: str) -> None:
         print(f"[notify][dedup] 更新失败(不影响本次发送)：{e}", file=sys.stderr)
 
 
-def notify_agent_done(agent_name: str, summary: str, dry_run: bool = False) -> dict:
-    """agent 完成通知：发邮件(+Telegram 若配置)直达用户，绕过主控消息队列。
+def notify_agent_done(agent_name: str, summary: str, dry_run: bool = False,
+                      feishu_group: str | None = None) -> dict:
+    """agent 完成通知：发邮件(+Telegram+飞书 若配置)直达用户，绕过主控消息队列。
 
     主控消息队列瓶颈（680 enqueue 仅 313 dequeue=54% 丢失）致 SendMessage/
-    task-notification 丢失率高。本函数直接调 send() 发邮件/TG 到用户，不经过主控队列。
+    task-notification 丢失率高。本函数直接调 send() 发邮件/TG/飞书到用户，不经过主控队列。
+    飞书固定发到 agent_done 群（开发群，feishu_group 可显式覆盖）。
 
     去重：同一 agent 5 分钟(300s)内不重复发（dedup_key=agent_done_<name>），
     防 agent 反复 came to rest 多次完成通知轰炸。
@@ -388,8 +638,10 @@ def notify_agent_done(agent_name: str, summary: str, dry_run: bool = False) -> d
       agent_name: agent 名称（如 "notify-research"）
       summary: 完成结论摘要（纯文本，会转 HTML 发送）
       dry_run: True 只 print 不真发
+      feishu_group: 飞书群 key 覆盖（默认 agent_done 开发群）
 
-    返回 {"email": bool, "telegram": bool}（suppress 时额外含 "suppressed": True）。
+    返回 {"email": bool, "telegram": bool, "feishu": bool}
+          （suppress 时额外含 "suppressed": True）。
     """
     dedup_key = f"agent_done_{agent_name}"
     dedup_window = 300  # 5 分钟内同一 agent 不重复发
@@ -397,7 +649,7 @@ def notify_agent_done(agent_name: str, summary: str, dry_run: bool = False) -> d
     # 去重检查
     if not dry_run and check_dedup(dedup_key, dedup_window):
         print(f"[notify][agent-done] suppress {agent_name} 5min 内已发过", file=sys.stderr)
-        return {"email": False, "telegram": False, "suppressed": True}
+        return {"email": False, "telegram": False, "feishu": False, "suppressed": True}
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     subject = f"\U0001f916 agent {agent_name} 完成"
@@ -413,7 +665,8 @@ Agent：{agent_name}
 本通知由 notify.py notify_agent_done() 直发，绕过主控消息队列。
 </div>"""
 
-    results = send(subject, body, dry_run=dry_run, from_prefix="[完成]")
+    results = send(subject, body, dry_run=dry_run, from_prefix="[完成]",
+                   feishu_group=feishu_group or "agent_done")
 
     # 发送后更新 dedup（无论成败，已尝试即更新）
     if not dry_run:
@@ -444,11 +697,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--from-prefix", default=None,
                         help="邮件发件人名前缀（如 [告警]/[完成]/[恢复]）；"
                              "None/空=默认 '信号实验室监控'，非空 -> '<prefix> 信号实验室'")
+    parser.add_argument("--feishu-group", default=None, metavar="KEY",
+                        help="飞书群 key 显式覆盖自动路由：alert=运维群 / agent_done=开发群"
+                             " / report=报告群。默认按 severe/[告警]/[完成]/[恢复] 自动映射")
+    parser.add_argument("--feishu-only", action="store_true",
+                        help="调试用：只发飞书（跳过邮件/Telegram）")
     args = parser.parse_args(argv)
 
     # agent 完成通知模式：subject=结论摘要，直达用户绕过主控队列
     if args.agent_done:
-        results = notify_agent_done(args.agent_done, args.subject, dry_run=args.dry_run)
+        results = notify_agent_done(args.agent_done, args.subject, dry_run=args.dry_run,
+                                    feishu_group=args.feishu_group)
         if results.get("suppressed"):
             return 0
         ok = [ch for ch, v in results.items() if v]
@@ -466,7 +725,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     results = send(args.subject, args.body, severe=args.severe, dry_run=args.dry_run,
-                   from_prefix=args.from_prefix)
+                   from_prefix=args.from_prefix, feishu_group=args.feishu_group,
+                   feishu_only=args.feishu_only)
     ok = [ch for ch, v in results.items() if v]
     fail = [ch for ch, v in results.items() if not v]
     if ok:

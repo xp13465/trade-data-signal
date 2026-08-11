@@ -1,0 +1,22 @@
+{
+  "_help": "飞书通知配置模板。复制为 config/feishu.json（已 gitignore）填入真实值。app_id/app_secret 推荐放 .env（FEISHU_APP_ID/FEISHU_APP_SECRET，存 trade-data/.env，从 .env 读不硬编码不 echo）；也可在此显式覆盖。chat_ids 获取：应用进群后在群里发一条消息，从监听日志或事件 payload 读 oc_ 开头 id；或调 im.chat.list 按群名匹配。",
+  "enabled": true,
+  "mode": "app",
+  "app_id": "cli_xxx",
+  "app_secret": "YOUR_APP_SECRET",
+  "chat_ids": {
+    "alert": "oc_xxx_运维群",
+    "agent_done": "oc_yyy_开发群",
+    "report": "oc_zzz_报告群"
+  },
+  "webhook_urls": {
+    "alert": "",
+    "agent_done": "",
+    "report": ""
+  },
+  "receive": {
+    "chat_id_whitelist": ["oc_yyy_开发群"],
+    "keyword_prefixes": ["需求:", "t:"],
+    "inbox_dir": "data/feishu_requests"
+  }
+}

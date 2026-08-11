@@ -66,6 +66,12 @@ config/email.json
 # Telegram bot 配置（含 bot_token，敏感 -- 用 telegram.json.example 作模板）
 config/telegram.json
 
+# 飞书通知配置（含 chat_ids 群 id，敏感 -- 用 feishu.json.example 作模板；app_id/app_secret 存 .env 从 .env 读）
+config/feishu.json
+
+# 飞书接收落盘目录（runtime 数据，同 alert_state.json 策略不进 git）
+data/feishu_requests/
+
 # A12 订阅推送配置（含订阅者邮箱/chat_id，敏感 -- 用 subscriptions.json.example 作模板）
 config/subscriptions.json
 # C 方案（2026-07-24）：CF Workers 订阅接口密码（回流同步用，敏感）
