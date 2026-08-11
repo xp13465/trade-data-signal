@@ -23,12 +23,13 @@ data/feishu_requests/<ts>-<message_id>.json（含 ts/sender/chat_id/msg_type/con
   send_receipt 直接回用户所在群。防重复：同一 message_id 只自动处理一次（进程内 Set +
   jsonl + 启动时载入历史 *.processed.json，SDK at-least-once 重推不重复进 TASKS/回执）。
 - 跨群转发：报告群（report）的**人类用户**消息自动抄送一份到开发群（agent_done），带
-  [转自报告群] 标记；告警群（alert）的**人类用户**消息默认**不抄送**开发群（多为计划任务
-  执行告警/恢复类问询，应留运维群），仅当带需求前缀（需求:/t:，全角/半角冒号都认，复用
-  _match_prefix）才抄送并带 [转自告警群] 标记。防循环铁律：只转发 sender_type=='user'
-  （人类用户），bot 自己（sender_type=='app'）发的告警/回执/转发消息一律不转发；取不到
-  sender_type 宁可不转发。message_id 进程内 Set + jsonl 落盘去重，SDK 重推不重复转发。
-  转发 best-effort，失败仅 log 不阻塞落盘。
+  [转自报告群] 标记，且**同时按需求落盘进待办+回执**（2026-08-11 fix：报告群用户回复此前
+  仅转发未进 TASKS，用户感知"回复未被处理"）；告警群（alert）的**人类用户**消息默认**不抄送**
+  开发群（多为计划任务执行告警/恢复类问询，应留运维群），仅当带需求前缀（需求:/t:，全角/
+  半角冒号都认，复用 _match_prefix）才抄送并带 [转自告警群] 标记。防循环铁律：只转发
+  sender_type=='user'（人类用户），bot 自己（sender_type=='app'）发的告警/回执/转发消息
+  一律不转发；取不到 sender_type 宁可不转发。message_id 进程内 Set + jsonl 落盘去重，
+  SDK 重推不重复转发。转发 best-effort，失败仅 log 不阻塞落盘。
 
 用法:
   python scripts/feishu_ws_listener.py [--once] [--no-ssl-workaround]
@@ -569,8 +570,9 @@ def process_event(data, whitelist: set, prefixes: list[str],
          TASKS.md `#### 待办` 小节（git 落档持久化）
       ② send_requirement_receipt：notify.py 发即时回执到开发群（引用回复用户消息）
     跨群转发：报告群用户消息抄送开发群；告警群用户消息仅带需求前缀才抄送开发群（见
-    maybe_forward_user_message），与落盘解耦——用户问询不一定带需求前缀，无论是否落盘都
-    转发（告警群无前缀用户消息除外）；bot 自己的消息不转发（防循环）。
+    maybe_forward_user_message）。报告群人类用户消息（已转发）同时落盘进待办+回执——
+    用户回复反馈不丢（2026-08-11 fix）；告警群无前缀用户消息除外（计划任务执行告警/恢复
+    类问询留运维群）。bot 自己的消息不转发（防循环）。
     防重复：同一 message_id 只自动处理一次（autodone_ids 进程内 Set + jsonl +
     历史 *.processed.json 载入），SDK at-least-once 重推不重复进 TASKS/回执。
     返回落盘文件名（未落盘返回 None）。once=True 且落盘后调用方退出。"""
@@ -588,11 +590,16 @@ def process_event(data, whitelist: set, prefixes: list[str],
             return None
         # 跨群转发（best-effort，失败不阻塞落盘）：在前缀过滤之前执行，保证用户问询（无前缀）也转发
         # （告警群无前缀用户消息除外：计划任务执行告警/恢复类问询不抄送开发群，见 maybe_forward_user_message）
-        maybe_forward_user_message(data, chat_id, content, chat_map=chat_map,
-                                   forwarded_ids=forwarded_ids, dedup_path=dedup_path,
-                                   prefixes=prefixes)
-        # 非白名单群必须带需求前缀才接收（白名单需求群免前缀直接落盘）
-        if chat_id not in whitelist and not _match_prefix(content, prefixes):
+        forwarded = maybe_forward_user_message(
+            data, chat_id, content, chat_map=chat_map,
+            forwarded_ids=forwarded_ids, dedup_path=dedup_path,
+            prefixes=prefixes)
+        # 非白名单群必须带需求前缀才接收（白名单需求群免前缀直接落盘）；
+        # 报告群人类用户消息（已跨群转发）也落盘进待办+回执，保证用户回复反馈不被丢
+        # （2026-08-11 fix：用户报告群回复"这个是监控的 应该发给运维群"此前仅转发开发群，
+        #  未落盘/未进 TASKS/未回执，用户感知"未被处理"）
+        if (chat_id not in whitelist and not _match_prefix(content, prefixes)
+                and not forwarded):
             log(f"跳过非需求消息（非白名单群且无需求前缀）：chat_id={chat_id} content={content[:60]}")
             return None
         ts_ms = int(msg.create_time) if msg.create_time else int(time.time() * 1000)

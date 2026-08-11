@@ -430,7 +430,8 @@ class CrossGroupForwardTests(unittest.TestCase):
         receipt_mock.assert_called_once()
 
     def test_report_user_message_forwarded_to_dev_group(self):
-        """③ 报告群用户消息→转发到开发群且带 [转自报告群]。"""
+        """③ 报告群用户消息→转发到开发群且带 [转自报告群]，同时落盘进待办+回执。
+        （2026-08-11 fix：此前仅转发未进 TASKS，用户报告群回复"未被处理"）"""
         content = "今天的报告结论是什么？"
         fn, send_mock, todo_mock, receipt_mock = self._run(
             fake_event(chat_id=REPORT_CHAT, content_text=content, sender_type="user",
@@ -439,7 +440,26 @@ class CrossGroupForwardTests(unittest.TestCase):
         chat_id, text = send_mock.call_args[0]
         self.assertEqual(chat_id, DEV_CHAT)
         self.assertEqual(text, f"[转自报告群] {content}")
-        self.assertIsNone(fn)  # 无需求前缀且非白名单：不进待办不回执
+        # 报告群用户消息：转发 + 落盘进待办 + 回执（不丢用户反馈）
+        self.assertIsNotNone(fn)
+        todo_mock.assert_called_once()
+        receipt_mock.assert_called_once()
+
+    def test_report_user_reply_feedback_captured_as_requirement(self):
+        """⑦ 报告群用户对 bot 通知的回复反馈（引用通知文本+用户评论）→ 转发 + 落盘进待办+回执。"""
+        content = ("72h恢复] p0_smoke_s6_boot p0_s6_fail 08-11 22:10\n\n"
+                   "[恢复] p0_smoke_s6_boot 异常关键词<p0_s6_fail> 已消失 "
+                   "(首次发现: 2026-08-11 21:10:05, 恢复时间: 2026-08-11 22:10:05)  "
+                   "这个是监控的 应该发给运维群")
+        fn, send_mock, todo_mock, receipt_mock = self._run(
+            fake_event(chat_id=REPORT_CHAT, content_text=content, sender_type="user",
+                       message_id="om_report_feedback1"))
+        send_mock.assert_called_once()  # 转发到开发群
+        self.assertEqual(send_mock.call_args[0][0], DEV_CHAT)
+        self.assertIn("[转自报告群]", send_mock.call_args[0][1])
+        self.assertIsNotNone(fn)  # 落盘
+        todo_mock.assert_called_once()  # 进 TASKS 待办
+        receipt_mock.assert_called_once()  # 即时回执
 
     def test_bot_own_message_not_forwarded(self):
         """④ bot 自己发的消息（sender_type=app）→不转发（防循环）。"""

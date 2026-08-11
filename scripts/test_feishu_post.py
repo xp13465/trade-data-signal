@@ -143,6 +143,44 @@ class SendFeishuPostTest(unittest.TestCase):
         self.assertEqual(captured["payload"]["content"]["post"]["zh_cn"]["title"], "标题")
 
 
+class ResolveChatKeyTests(unittest.TestCase):
+    """_resolve_feishu_chat_key 群路由：方括号词根匹配（2026-08-11 修复 72h 监控/恢复误落报告群）。"""
+
+    def _key(self, subject="", from_prefix=None, severe=False):
+        return notify._resolve_feishu_chat_key(subject, from_prefix, severe)
+
+    def test_72h_recovery_routes_alert(self):
+        """[72h恢复]（monitor_72h.sh 恢复通知，无 --severe）→ alert 运维群（修复前误落 report）。"""
+        self.assertEqual(
+            self._key("[72h恢复] p0_smoke_s6_boot p0_s6_fail 08-11 22:10",
+                      from_prefix="[72h恢复]"), "alert")
+
+    def test_72h_monitor_routes_alert(self):
+        """[72h监控]（到期停止/异常告警）→ alert 运维群（修复前误落 report）。"""
+        self.assertEqual(
+            self._key("[72h监控] 到期停止 08-11 22:30", from_prefix="[72h监控]"), "alert")
+
+    def test_alert_routes_alert_regression(self):
+        """[告警] → alert（回归）。"""
+        self.assertEqual(self._key("[告警] intraday R2上传失败 08-11 22:00",
+                                   from_prefix="[告警]"), "alert")
+
+    def test_recovery_routes_alert_regression(self):
+        """[恢复]（schedule_monitor 恢复通知）→ alert（回归）。"""
+        self.assertEqual(self._key("[恢复] update_all 异常恢复 08-11 22:00",
+                                   from_prefix="[恢复]"), "alert")
+
+    def test_done_routes_agent_done_regression(self):
+        """[完成] → agent_done 开发群（回归）。"""
+        self.assertEqual(self._key("[完成] update_all 12min 08-11 22:00",
+                                   from_prefix="[完成]"), "agent_done")
+
+    def test_default_routes_report_regression(self):
+        """默认（收盘分析/买卖点信号等）→ report 报告群（回归）。"""
+        self.assertEqual(self._key("收盘分析 08-11", from_prefix="[买卖点信号]"), "report")
+        self.assertEqual(self._key("普通消息"), "report")
+
+
 class CheckSignalsPostTest(unittest.TestCase):
     def test_build_feishu_post_groups_and_colors(self):
         """买卖分组（彩色 emoji 前缀 买红/卖绿/持有灰）+ 分组表头 md 加粗 + 触发条件截断。"""

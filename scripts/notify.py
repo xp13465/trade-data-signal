@@ -466,14 +466,19 @@ def _send_feishu_webhook(url: str, subject: str, text: str,
 
 def _resolve_feishu_chat_key(subject: str, from_prefix: str | None,
                              severe: bool) -> str:
-    """按通知类别路由飞书群：severe/[告警]/[恢复] -> alert 群；[完成] -> agent_done 群；
+    """按通知类别路由飞书群：severe/[告警]/[恢复]/[监控] -> alert 群；[完成] -> agent_done 群；
     其余（收盘分析/盘中信号/小时级节点/买卖点信号等）-> report 群。
 
-    [恢复] 与 [告警] 成对（异常发生/恢复闭环），同走 alert 告警群，让运维看到完整闭环。"""
+    [恢复] 与 [告警] 成对（异常发生/恢复闭环），同走 alert 告警群，让运维看到完整闭环。
+    2026-08-11 修复：改为方括号内词根匹配（正则 [Xxx告警]/[Xxx恢复]/[Xxx监控] 均命中），
+    覆盖 monitor_72h.sh 的 [72h恢复]/[72h监控]——原精确串 [告警]/[恢复] 匹配失败，
+    致 [72h恢复] 恢复通知误落 report 报告群（用户反馈"监控消息应发运维群"）。"""
     if severe:
         return "alert"
     hay = f"{from_prefix or ''} {subject}"
-    if "[告警]" in hay or "[恢复]" in hay:
+    # 方括号内词根匹配：覆盖 [告警]/[恢复]/[监控] 及复合词 [72h恢复]/[72h监控] 等
+    # （只匹配方括号内，subject 正文含"监控"等词不误伤）
+    if re.search(r"\[[^\]]*(告警|恢复|监控)[^\]]*\]", hay):
         return "alert"
     if "[完成]" in hay:
         return "agent_done"
