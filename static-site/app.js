@@ -3672,6 +3672,7 @@ function _lwSignalLiteCfg(title, data, markData, opts) {
   }
   return {
     h: 300, pl: 55, pr: 20, pt: 30, pb: 50,
+    boundaryGap: true,
     dataZoom: true,
     xLabels: dates, xFmt: (v) => v,
     ys: [{ scale: true, splitNumber: 5 }],
@@ -10274,8 +10275,9 @@ async function renderOverview() {
     addCardTimeBadge(_wDiv.parentElement, wLast, snap, "t0");
     _lwSetup(_wDiv, {
       h: 182, pl: 55, pr: 20, pt: 35, pb: 35,
+      boundaryGap: true,
       xLabels: wDates, xFmt: (v) => v,
-      ys: [{ splitLine: true }],
+      ys: [{ splitLine: true, zeroBased: true }],
       legend: [
         { name: "上涨家数", color: "#e6492e" },
         { name: "下跌家数", color: "#2e8b57" },
@@ -10448,12 +10450,13 @@ async function renderOverview() {
       addCardTimeBadge(_adDiv.parentElement, adDates.length ? adDates[adDates.length - 1] : "", snap, "t0");
       _lwSetup(_adDiv, {
         h: 210, pl: 55, pr: 55, pt: 35, pb: 35,
+        boundaryGap: true,
         dataZoom: true,
         xLabels: adDates, xFmt: (v) => v,
         gridAxis: 1, // 右轴(腾落线) splitLine, 左轴(涨跌比) splitLine:false
         ys: [
           { formatter: (v) => Number(v).toFixed(2), zeroBased: true, splitLine: false, name: "涨跌比" },
-          { name: "腾落线" },
+          { name: "腾落线", zeroBased: true },
         ],
         legend: [
           { name: "涨跌家数比", color: "#e6492e" },
@@ -10519,6 +10522,7 @@ async function renderOverview() {
       addCardTimeBadge(_vrDiv.parentElement, vrDates.length ? vrDates[vrDates.length - 1] : "", snap, "t0");
       _lwSetup(_vrDiv, {
         h: 300, pl: 55, pr: 20, pt: 35, pb: 35,
+        boundaryGap: true,
         dataZoom: true,
         xLabels: vrDates, xFmt: (v) => v,
         ys: [{ name: "亿元", zeroBased: true, formatter: (v) => (v / 10000).toFixed(1) + "万" }],
@@ -10583,12 +10587,13 @@ async function renderOverview() {
       const _nhlNet = nhlData.map(d => d.nhnl_52w);
       _lwSetup(_nhlDiv, {
         h: 196, pl: 55, pr: 55, pt: 35, pb: 35,
+        boundaryGap: true,
         dataZoom: true,
         xLabels: nhlDates, xFmt: (v) => v,
         gridAxis: 1, // 右轴(净新高) splitLine, 左轴(家数) splitLine:false
         ys: [
           { name: "家数", zeroBased: true, splitLine: false },
-          { name: "净新高" },
+          { name: "净新高", zeroBased: true },
         ],
         legend: [
           { name: "52周新高", color: "#e6492e" },
@@ -11964,6 +11969,7 @@ function _kpiLiteCfg(result, dates, _estimates, _unit) {
   else if (typeof result.yLabel === "string") yFmt = (v) => String(result.yLabel).replace("{value}", String(Number(v).toFixed(0)));
   return {
     h: 380, pl: 65, pr: 25, pt: 35, pb: 45,
+    boundaryGap: true,
     dataZoom: true,
     xLabels: dates, xFmt: (v) => v,
     ys: [{ scale: true, splitNumber: 5, formatter: yFmt }],
@@ -12003,6 +12009,7 @@ function _lwLineCard(title, series, opts, hint, container, height) {
   const seriesName = stripHtml(title);
   const liteCfg = {
     h: height || 300, pl: 55, pr: 20, pt: 35, pb: 35,
+    boundaryGap: true,
     dataZoom: true,
     xLabels: dates, xFmt: (v) => v,
     ys: [{ splitLine: true }],
