@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """feishu_ws_listener.py - 飞书长连接常驻监听进程（接收群消息，落盘供主控整理待办）。
 
-订阅 im.message.receive_v1 事件（长连接 WebSocket，免公网回调），白名单 chat_id + 关键词
-前缀双过滤，合法需求落盘 data/feishu_requests/<ts>-<message_id>.json（含
-ts/sender/chat_id/msg_type/content 明文）。launchd KeepAlive 常驻（com.trade.feishu-listener）。
+订阅 im.message.receive_v1 事件（长连接 WebSocket，免公网回调）。白名单需求群内消息
+免前缀直接当需求接收；其他群保留关键词前缀过滤（全角/半角冒号都认）。合法需求落盘
+data/feishu_requests/<ts>-<message_id>.json（含 ts/sender/chat_id/msg_type/content
+明文）。launchd KeepAlive 常驻（com.trade.feishu-listener）。
 
 - 凭证：config/feishu.json（gitignore）的 receive 段 + .env 的 FEISHU_APP_ID/FEISHU_APP_SECRET
   （存 /Users/linhuichen/code/trade-data/.env，从 .env 读不硬编码不 echo）。
@@ -163,25 +164,43 @@ def build_ws_client(app_id: str, app_secret: str, handler) -> object | None:
         return None
 
 
+def _match_prefix(content: str, prefixes: list[str]) -> bool:
+    """宽松前缀匹配：全角/半角冒号都认（需求:/需求：/t:/t： 均命中）。"""
+    text = content.strip()
+    for p in (prefixes or []):
+        p = p.strip()
+        if not p:
+            continue
+        if text.startswith(p):
+            return True
+        # 全角/半角冒号变体互换再匹配
+        if ":" in p:
+            if text.startswith(p.replace(":", "：")):
+                return True
+        elif "：" in p:
+            if text.startswith(p.replace("：", ":")):
+                return True
+    return False
+
+
 def process_event(data, whitelist: set, prefixes: list[str],
                   inbox_dir: Path, once: bool = False) -> str | None:
     """处理一条 im.message.receive_v1 事件（模块级，便于测试）。
 
-    白名单群 + 前缀过滤，合法需求落盘 inbox_dir/<ts>-<message_id>.json。
+    白名单需求群：免前缀直接当需求落盘；其他群：保留前缀过滤（全角/半角冒号都认）。
+    合法需求落盘 inbox_dir/<ts>-<message_id>.json。
     返回落盘文件名（未落盘返回 None）。once=True 且落盘后调用方退出。"""
     try:
         msg = data.event.message
         chat_id = str(msg.chat_id or "")
-        if chat_id not in whitelist:
-            log(f"跳过非白名单群消息 chat_id={chat_id}")
-            return None
         msg_type = str(msg.message_type or "")
         content = content_plain(str(msg.content or ""), msg_type)
         if not content:
             log("跳过空内容消息")
             return None
-        if prefixes and not any(content.strip().startswith(p) for p in prefixes):
-            log(f"跳过非需求消息（无前缀）：chat_id={chat_id} content={content[:60]}")
+        # 非白名单群必须带需求前缀才接收（白名单需求群免前缀直接落盘）
+        if chat_id not in whitelist and not _match_prefix(content, prefixes):
+            log(f"跳过非需求消息（非白名单群且无需求前缀）：chat_id={chat_id} content={content[:60]}")
             return None
         ts_ms = msg.create_time if msg.create_time else int(time.time() * 1000)
         ts = int(ts_ms / 1000) if ts_ms > 1e12 else int(ts_ms)
