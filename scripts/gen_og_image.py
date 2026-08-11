@@ -142,8 +142,8 @@ def panel_adv_dec(draw, x, y, w, h, up, down):
 
 
 def panel_signals(draw, x, y, w, h):
-    """信号灯：买/卖/辅买/追 四色圆点。"""
-    items = (("买", GREEN), ("卖", RED), ("辅买", PURPLE), ("追", ORANGE))
+    """信号灯：买/卖/辅买/追 四色圆点（A股红买绿卖约定，与平台信号灯 buy 红/ sell 绿 一致）。"""
+    items = (("买", RED), ("卖", GREEN), ("辅买", PURPLE), ("追", ORANGE))
     y0 = y + 48
     for i, (lab, col) in enumerate(items):
         iy = y0 + i * 25
