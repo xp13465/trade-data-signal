@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260811-a127';  // bump a126->a127: F12根因修复 市场温度热力图先挂载再init(echarts 0宽canvas空白)
+const CACHE_VERSION = 'v6-20260811-a128';  // bump a127->a128: AI预测多角色+卖信号区分+AI弹窗默认展开+历史收盘分析结合AI预测+横幅按钮顺序+chip情绪分计数
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

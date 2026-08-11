@@ -78,6 +78,7 @@ def generate_summary(date: str | None = None) -> dict:
         {date, summary, summary_short, sentiment_label, sentiment_score,
          fear_greed_value, fear_greed_label, volume_label, sh_pct,
          up_count, down_count, zt_count, dt_count, buy_count, sell_count,
+         buy_sentiment_count, sell_sentiment_count,
          nh_count, nl_count, ma_bullish, ma_bearish, top_industries: [...]}
     """
     conn = get_conn()
@@ -199,20 +200,39 @@ def generate_summary(date: str | None = None) -> dict:
     vol_display = f"{amount:.0f}亿" if amount else ""
 
     # ---- 5. 买卖点信号 ----
+    # 2026-08-11 口径分层（对齐 queries.py 方案B 2026-07-20）：
+    #   buy_count/sell_count 只算真实指数可交易信号（index_id NOT LIKE 's.%'），
+    #   与首页 signals_today 的 s.* 过滤口径一致；s.*（情绪分 0-100 衍生指标，
+    #   非可交易标的）单独统计到 buy_sentiment_count/sell_sentiment_count，
+    #   避免情绪分模拟信号混入"卖点 N 个"误导用户（810 实查 sell 5 条全 s.*）。
     buy_count = conn.execute(
-        "SELECT COUNT(*) as n FROM signal_daily WHERE date=? AND signal='buy'",
+        "SELECT COUNT(*) as n FROM signal_daily WHERE date=? AND signal='buy' "
+        "AND index_id NOT LIKE 's.%'",
         (date,),
     ).fetchone()["n"]
     buy_aux_count = conn.execute(
-        "SELECT COUNT(*) as n FROM signal_daily WHERE date=? AND signal='buy_aux'",
+        "SELECT COUNT(*) as n FROM signal_daily WHERE date=? AND signal='buy_aux' "
+        "AND index_id NOT LIKE 's.%'",
         (date,),
     ).fetchone()["n"]
     sell_count = conn.execute(
-        "SELECT COUNT(*) as n FROM signal_daily WHERE date=? AND signal='sell'",
+        "SELECT COUNT(*) as n FROM signal_daily WHERE date=? AND signal='sell' "
+        "AND index_id NOT LIKE 's.%'",
+        (date,),
+    ).fetchone()["n"]
+    buy_sentiment_count = conn.execute(
+        "SELECT COUNT(*) as n FROM signal_daily WHERE date=? AND signal IN ('buy','buy_aux') "
+        "AND index_id LIKE 's.%'",
+        (date,),
+    ).fetchone()["n"]
+    sell_sentiment_count = conn.execute(
+        "SELECT COUNT(*) as n FROM signal_daily WHERE date=? AND signal='sell' "
+        "AND index_id LIKE 's.%'",
         (date,),
     ).fetchone()["n"]
     total_buy = (buy_count or 0) + (buy_aux_count or 0)
     sell_n = sell_count or 0
+    total_buy_sentiment = (buy_sentiment_count or 0) + (sell_sentiment_count or 0)
 
     signal_desc = ""
     if total_buy > 0 and sell_n > 0:
@@ -385,6 +405,8 @@ def generate_summary(date: str | None = None) -> dict:
         "dt_count": dt_count,
         "buy_count": total_buy,
         "sell_count": sell_n,
+        "buy_sentiment_count": (buy_sentiment_count or 0),
+        "sell_sentiment_count": (sell_sentiment_count or 0),
         "nh_count": nh,
         "nl_count": nl,
         "nhnl": nhnl,
@@ -405,6 +427,7 @@ BRIEF_FIELDS = (
     "volume_amount", "volume_label",
     "sh_pct", "sh_close", "up_count", "down_count",
     "zt_count", "dt_count", "buy_count", "sell_count",
+    "buy_sentiment_count", "sell_sentiment_count",
     "nh_count", "nl_count", "ma_bullish", "ma_bearish",
     "top_industries",
     "bottom_industries",

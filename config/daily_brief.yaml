@@ -19,6 +19,15 @@ timeout_seconds: 60           # 单次 API 超时
 max_retries: 2                # 超时/5xx/429 重试次数(429 退避 2^n 秒)
 temperature: 0.4              # 生成确定性
 
+# ── 多角色协作式编排(P0-4,2026-08-11 实施,见 docs/ai-predict-multiagent-plan.md)──
+#   6 角色: ①技术面 ②资金面 ③情绪面 ④风控(并行) -> ⑤研究员(多空辩论,串行) -> ⑥主编组装。
+#   每角色只喂自己数据域;任一环节失败降级单 prompt 主链路(保底不破)。输出结构不变(前端零改动)。
+#   验证质量后再把 multi_agent_enabled 开 true(也可每次 CLI 加 --multi 临时走)。
+multi_agent_enabled: false    # false=单 prompt 主链路(默认);true=--multi 时走 6 角色编排
+researcher_model: deepseek-chat  # ⑤研究员模型:deepseek-chat(V3)/deepseek-reasoner(R1 深度辩论,P1-11)
+multi_agent_timeout_seconds: 90  # 单角色调用超时
+max_role_retries: 1              # 角色失败重试次数(4 角色并行,失败过多降级单 prompt)
+
 # ── 输出 ──────────────────────────────────────────────────────────────
 max_watch_items: 5            # 明日关注标的条数上限
 # 免责声明行(输出 meta.disclaimer + text.note 末尾)。{date} 被替换为预测日期。

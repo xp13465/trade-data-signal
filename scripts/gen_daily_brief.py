@@ -33,6 +33,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import datetime as _dt
 import json
 import os
@@ -170,6 +171,12 @@ def load_config() -> dict:
     cfg.setdefault("output_price_per_million", 8.0)
     cfg.setdefault("monthly_warn_yuan", 20.0)
     cfg.setdefault("review_enabled", True)
+    # ── 多角色协作式(P0-4,2026-08-11 实施)────────────────────────────────
+    #   false = 默认单 prompt 主链路;true = --multi 时走 6 角色编排(验证质量后再开)
+    cfg.setdefault("multi_agent_enabled", False)
+    cfg.setdefault("researcher_model", "deepseek-chat")  # 可选 deepseek-reasoner(R1 深度辩论,P1-11)
+    cfg.setdefault("multi_agent_timeout_seconds", 90)
+    cfg.setdefault("max_role_retries", 1)
     return cfg
 
 
@@ -212,8 +219,19 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
         "down_count": summary.get("down_count"),
         "zt_count": summary.get("zt_count"),
         "dt_count": summary.get("dt_count"),
+        # 2026-08-11 口径分层（§2.5 卖信号区分修复）：
+        #   buy_count/sell_count = 真实指数可交易信号（index_id 非 s.*，与首页
+        #   signals_today 过滤口径一致）；buy_sentiment_count/sell_sentiment_count
+        #   = 情绪分模拟信号（s.* 前缀，0-100 衍生指标，非可交易标的）。
+        #   tradable_* / sentiment_* 为语义化别名，供 prompt 直接引用。
         "buy_count": summary.get("buy_count"),
         "sell_count": summary.get("sell_count"),
+        "tradable_buy_count": summary.get("buy_count"),
+        "tradable_sell_count": summary.get("sell_count"),
+        "buy_sentiment_count": summary.get("buy_sentiment_count"),
+        "sell_sentiment_count": summary.get("sell_sentiment_count"),
+        "sentiment_buy_count": summary.get("buy_sentiment_count"),
+        "sentiment_sell_count": summary.get("sell_sentiment_count"),
         "volume_amount": summary.get("volume_amount"),
         "volume_label": summary.get("volume_label"),
         "ma_bullish": summary.get("ma_bullish"),
@@ -221,6 +239,13 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
         "top_industries": [t.get("name") for t in (summary.get("top_industries") or [])[:3]],
         "bottom_industries": [t.get("name") for t in (summary.get("bottom_industries") or [])[:3]],
     }
+    d["signals_note"] = (
+        "口径说明: summary.buy_count/sell_count(或 tradable_buy_count/tradable_sell_count)"
+        "为真实指数可交易信号(指数走势触发,可交易标的);"
+        "summary.buy_sentiment_count/sell_sentiment_count(或 sentiment_buy_count/sentiment_sell_count)"
+        "为情绪分模拟信号(s.* 前缀,0-100 衍生指标,非可交易标的,仅情绪参考)。"
+        "引用时必须区分,情绪分信号须标注'情绪分信号',不得表述为'卖信号 N 个'。"
+    )
 
     ov = _read_json(static_dir / "overview.json") or {}
     d["signals_today"] = [
@@ -457,6 +482,12 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
         "2. watch_list 明日关注标的 1-5 个,必须引用注入数据中真实存在的 index_id/name,可带参考胜率。\n"
         "3. risk_items 3-5 条风险点,引用注入数据(alert 预警维度/资金面/波动率/南向)。\n"
         "4. 每条论断必须引用注入数据的具体数值或信号名(如:恐贪54/涨跌4067:1391/QVIX_300=19.6)。禁止编造不在注入数据里的指标或数值。\n"
+        "4b.【信号口径红线】引用卖/买信号数量时,必须区分两类:真实指数可交易信号"
+        "(summary.tradable_buy_count/tradable_sell_count,指数走势触发,可交易标的)与"
+        "情绪分模拟信号(summary.sentiment_buy_count/sentiment_sell_count,s.* 前缀,"
+        "0-100 衍生指标,非可交易标的,仅情绪参考)。情绪分信号必须标注'情绪分信号',"
+        "不得表述为'卖信号 N 个'或'买信号 N 个';只有真实指数可交易信号才能称为"
+        "'卖信号/买信号 N 个'。\n"
         "5. text.review(今日复盘,约80字)、text.trend(趋势研判,约60字)、text.watch(明日关注,约80字)、text.risk(风险点,约60字),总长 ≤300 字。\n"
         "6. 只做\"关注/观察/警惕/留意/注意/谨慎\"表述,给出方向和风险即可,不做任何交易指令。\n"
         "7. 当前北京时间 " + now_str + ",数据截至 " + date + " 收盘。忽略任何 " + date + " 之后发生的事件、消息或数据(那些尚未发生,不得当作已知信息使用)。输出需标注\"基于 " + date + " 收盘数据\"。\n"
@@ -484,7 +515,7 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
 
 
 # ── deepseek 调用(超时60s/重试2次/429退避 P1-9)───────────────────────────
-def call_deepseek(messages: list[dict], cfg: dict, log_fn) -> dict | None:
+def call_deepseek(messages: list[dict], cfg: dict, log_fn, model: str | None = None) -> dict | None:
     if requests is None:
         log_fn("requests 未安装,无法调 AI")
         return None
@@ -493,7 +524,7 @@ def call_deepseek(messages: list[dict], cfg: dict, log_fn) -> dict | None:
         log_fn("未找到 DEEPSEEK_API_KEY(.env),跳过 AI")
         return None
     base = (os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com/v1").rstrip("/")
-    model = os.environ.get("DEEPSEEK_MODEL") or cfg.get("model", "deepseek-chat")
+    model = model or os.environ.get("DEEPSEEK_MODEL") or cfg.get("model", "deepseek-chat")
     url = base + "/chat/completions"
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     payload = {
@@ -594,7 +625,218 @@ def parse_ai_output(raw: dict | None, data: dict, date: str) -> dict | None:
     }
 
 
-# ── 合规脱敏(P0-3 正则兜底)───────────────────────────────────────────────
+# ═══ 多角色协作式编排(P0-4,2026-08-11 实施) ═══════════════════════════
+# 6 角色: ①技术面 ②资金面 ③情绪面 ④风控(①②③④并行) -> ⑤研究员(多空辩论,串行)
+#       -> ⑥主编(组装+meta+合规) -> 复用 parse_ai_output 结构(前端零改动)。
+# 每角色只喂自己数据域(缩小数据域控幻觉,见 docs/ai-predict-multiagent-plan.md §3.1)。
+# 降级链: 任一环节失败 -> 该角色论据缺失或整体降级单 prompt 主链路(保底不破 §3.4)。
+# 合规: 主编 sys_text 复用指令词黑名单 + 最终 scrub_text 正则兜底(P0-3)。
+# 模型: ①②③④⑥ deepseek-chat;⑤ 研究员 cfg.researcher_model(默认 deepseek-chat,
+#       可切 deepseek-reasoner R1 深度辩论 = P1-11)。
+# 成本: 各角色 usage 汇总一次写入 cost_log(version=ai-multi,~¥0.05/日)。
+def split_domains(d: dict) -> dict:
+    """按角色拆分数据域(每角色只喂自己的域,缩小数据域控幻觉)。"""
+    s = d.get("summary") or {}
+    funds = d.get("funds") or {}
+    return {
+        "tech": {
+            "indices": d.get("indices"),
+            "signals_today": d.get("signals_today"),
+            "signal_stats_buy_top": d.get("signal_stats_buy_top"),
+            "summary": {k: s.get(k) for k in (
+                "sh_pct", "sh_close", "ma_bullish", "ma_bearish",
+                "nh_count", "nl_count", "nhnl", "volume_amount", "volume_label",
+                "tradable_buy_count", "tradable_sell_count", "buy_count", "sell_count")},
+            "signals_note": d.get("signals_note"),
+        },
+        "fund": {
+            "funds": funds,
+            "futures_acc_trend_tail": d.get("futures_acc_trend_tail"),
+            "futures_acc_conclusion": d.get("futures_acc_conclusion"),
+            "north_quarterly": d.get("north_quarterly"),
+            "funds_note": d.get("funds_note"),
+        },
+        "sentiment": {
+            "scores": d.get("scores"),
+            "recent_freeze": d.get("recent_freeze"),
+            "industry_heatmap_top": d.get("industry_heatmap_top"),
+            "alert_low": (d.get("alert") or {}).get("low"),
+            "summary": {k: s.get(k) for k in (
+                "sentiment_label", "sentiment_score", "fear_greed_value",
+                "fear_greed_label", "is_freeze", "freeze_info",
+                "sentiment_buy_count", "sentiment_sell_count",
+                "buy_sentiment_count", "sell_sentiment_count")},
+            "rotation_width": {k: funds.get(k) for k in (
+                "a_rotation_5d", "a_rotation_10d", "a_rotation_20d",
+                "a_rotation_concept_5d", "a_width_fengban_rate",
+                "a_width_max_lianban", "a_width_zhaban_rate")},
+        },
+        "risk": {
+            "alert": d.get("alert"),
+            "risk_funds": {k: funds.get(k) for k in (
+                "a_qvix_300", "a_qvix_1000", "a_volume_ratio", "a_volume_signal",
+                "a_fund_main", "hk_south", "a_turnover_mean", "a_turnover_p90",
+                "a_turnover_gt5_pct")},
+            "industry_heatmap_top": d.get("industry_heatmap_top"),
+        },
+    }
+
+
+def _role_sys_text(role: str, date: str) -> str:
+    now_str = _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+    return (
+        f"你是A股{role}分析师,基于注入的【{role}数据域】做分析。输出必须是【合法JSON对象】,"
+        "不要输出任何 JSON 外的说明文字。JSON 结构固定为:\n"
+        '{"summary":"1-2句结论","observations":["...","..."],'
+        '"direction_hint":"up|down|flat","confidence":0.0-1.0,'
+        '"signals":[{"type":"real|sentiment","name":"...","count":N,"note":"..."}]}\n'
+        "规则:\n"
+        "1. observations 2-4 条,每条引用注入数据的具体数值或信号名(如:恐贪54/QVIX=19.6/机构净多+1200)。\n"
+        "2. direction_hint 给本角色倾向:up=偏强,down=偏弱,flat=震荡/看不清。拿不准就 flat,不硬猜。\n"
+        "3. confidence 0-1 给本角色判断置信度。\n"
+        "4. signals 仅当注入数据含信号/计数时列出,必须按 type 标注:"
+        "real=真实指数可交易信号(指数走势触发,可交易标的),sentiment=情绪分模拟信号"
+        "(s.* 前缀 0-100 衍生指标,非可交易标的,仅情绪参考)。\n"
+        f"5. 当前北京时间 {now_str},数据截至 {date} 收盘。忽略 {date} 之后任何事件/消息/数据。\n"
+        "6. 只分析注入数据,禁止编造指标或数值。"
+    )
+
+
+def build_role_messages(role: str, domain: dict, date: str, cfg: dict) -> list[dict]:
+    user = {
+        "date": date,
+        "data": domain,
+        "任务": f"基于以上【{role}数据域】生成 {role} 分析 JSON。",
+    }
+    return [
+        {"role": "system", "content": _role_sys_text(role, date)},
+        {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+    ]
+
+
+def _call_role(role: str, messages: list[dict], cfg: dict, log) -> dict | None:
+    raw = call_deepseek(messages, cfg, log)
+    if not raw:
+        return None
+    try:
+        content = raw["choices"][0]["message"]["content"]
+    except Exception:
+        return None
+    parsed = _extract_json(content)
+    if not parsed:
+        log(f"角色 {role} 输出解析失败")
+        return None
+    return {"role": role, "parsed": parsed, "usage": raw.get("usage") or {}}
+
+
+def run_roles_parallel(domains: dict, date: str, cfg: dict, log) -> tuple[dict, list]:
+    """①②③④ 角色并行调用(互不依赖)。返回 ({role: result}, usages)。"""
+    results: dict = {}
+    usages: list = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+        futs = {ex.submit(_call_role, role, build_role_messages(role, dom, date, cfg), cfg, log): role
+                for role, dom in domains.items()}
+        for fut in concurrent.futures.as_completed(futs):
+            role = futs[fut]
+            try:
+                r = fut.result()
+            except Exception as e:
+                log(f"角色 {role} 异常: {e}")
+                r = None
+            if r:
+                results[role] = r
+                usages.append(r.get("usage") or {})
+    return results, usages
+
+
+def _role_block(role: str, r: dict | None) -> str:
+    if not r:
+        return f"## {role}(角色失败,无论据)"
+    p = r["parsed"]
+    hint = {"up": "偏多", "down": "偏空", "flat": "震荡"}.get(p.get("direction_hint"), p.get("direction_hint"))
+    return (f"## {role}(倾向 {hint},置信度 {p.get('confidence')})\n"
+            f"结论: {p.get('summary')}\n"
+            f"论据: {'; '.join(p.get('observations') or [])}")
+
+
+def build_researcher_messages(role_results: dict, date: str, cfg: dict) -> list[dict]:
+    now_str = _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+    parts = [_role_block(role, role_results.get(role)) for role in ("tech", "fund", "sentiment", "risk")]
+    user = {
+        "date": date,
+        "roles": "\n\n".join(parts),
+        "任务": "你是A股研究员,做多空辩论后收敛。先分别列出【多头论据】与【空头论据】"
+                "(各2-4条,引用各角色论据的具体数值),再给倾向判断与置信度。"
+                "倾向必须同时给出支撑与风险,允许'震荡/看不清'。"
+                "输出【合法JSON对象】:\n"
+                '{"bull":["...","..."],"bear":["...","..."],"lean":"up|down|flat",'
+                '"confidence":0.0-1.0,"summary":"1-2句多空融合结论"}',
+    }
+    sys_text = (
+        f"你是A股研究员,对技术/资金/情绪/风控四角色论据做多空对抗辩论并收敛到倾向。当前北京时间 {now_str},"
+        f"数据截至 {date} 收盘,忽略 {date} 之后事件。只引用注入论据,禁止编造。"
+        "只做\"关注/观察/警惕/留意\"表述,不做任何交易指令。"
+    )
+    return [
+        {"role": "system", "content": sys_text},
+        {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+    ]
+
+
+def build_editor_messages(role_results: dict, researcher: dict | None, date: str, cfg: dict,
+                          data: dict | None = None) -> list[dict]:
+    now_str = _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+    compliance = cfg.get("compliance_enabled", True)
+    parts = [_role_block(role, role_results.get(role)) for role in ("tech", "fund", "sentiment", "risk")]
+    researcher_block = "无(研究员未输出,基于角色论据自行权衡)"
+    if researcher:
+        researcher_block = (f"多头论据: {'; '.join(researcher.get('bull') or [])}\n"
+                            f"空头论据: {'; '.join(researcher.get('bear') or [])}\n"
+                            f"倾向: {researcher.get('lean')} 置信度 {researcher.get('confidence')}\n"
+                            f"融合结论: {researcher.get('summary')}")
+    sys_text = (
+        "你是每日A股预测主编,汇总各角色论据与研究员倾向,组装最终每日预测。输出必须是【合法JSON对象】,"
+        "不要输出任何 JSON 外的说明文字。JSON 结构固定为:\n"
+        "{\n"
+        '  "direction": "up|down|flat",\n'
+        '  "watch_list": [{"index_id": "...", "name": "...", "win_rate": 0.75}],\n'
+        '  "risk_items": ["..."],\n'
+        '  "text": {"review": "...", "trend": "...", "watch": "...", "risk": "..."}\n'
+        "}\n"
+        "规则:\n"
+        "1. direction 是下一交易日A股方向研判:up=偏强/看涨,down=偏弱/看跌,flat=震荡/看不清。拿不准就 flat。\n"
+        "2. watch_list 明日关注标的 1-5 个,必须引用注入数据中真实存在的 index_id/name(数据锚定列表),可带参考胜率。\n"
+        "3. risk_items 3-5 条风险点,引用各角色论据(alert 预警/资金面/波动率/南向/情绪极端)。\n"
+        "4. text.review(今日复盘,约120字)、text.trend(趋势研判,约100字)、text.watch(明日关注,约100字)、"
+        "text.risk(风险点,约80字),总长 ≤400 字。每段要体现多角色融合:技术/资金/情绪/风控各至少一处。\n"
+        "5. 每条论断引用具体数值或信号名,禁止编造。\n"
+        "6. 【信号口径红线】引用卖/买信号数量时区分:真实指数可交易信号(非 s.*)与情绪分模拟信号(s.*,"
+        "非可交易标的)。情绪分信号必须标注'情绪分信号',不得表述为'卖信号 N 个'。\n"
+        "7. 只做\"关注/观察/警惕/留意/注意/谨慎\"表述,不做任何交易指令。\n"
+        f"8. 当前北京时间 {now_str},数据截至 {date} 收盘,忽略 {date} 之后事件。输出标注\"基于 {date} 收盘数据\"。\n"
+    )
+    if compliance:
+        sys_text += (
+            "9. 【合规红线】严禁使用:买入、卖出、加仓、建仓、清仓、减仓、重仓、满仓、抄底、逃顶、止损、止盈、"
+            "仓位、建议持有、加杠杆。只允许:关注、警惕、观察、留意、注意、谨慎。\n"
+        )
+    # 数据锚定(P1-8):与 parse_ai_output 同源,watch_list 只允许注入数据真实存在的 index_id
+    injected_ids = {
+        x.get("index_id") for x in (data.get("signals_today") or []) if data
+    } | {x.get("index_id") for x in (data.get("signal_stats_buy_top") or []) if data}
+    user = {
+        "date": date,
+        "roles": "\n\n".join(parts),
+        "researcher": researcher_block,
+        "signals_note": (data or {}).get("signals_note"),
+        "数据锚定(仅这些 index_id 可用于 watch_list)": sorted(injected_ids),
+        "任务": "基于以上角色论据+研究员倾向,组装最终每日预测 JSON(注意 signals_note 的信号口径说明)。",
+    }
+    return [
+        {"role": "system", "content": sys_text},
+        {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+    ]
+
 def scrub_text(text: str, cfg: dict) -> str:
     if not cfg.get("compliance_enabled", True):
         return text
@@ -847,6 +1089,70 @@ def compute_known_bias(history: list[dict]) -> str:
     return s
 
 
+def _merge_usage(usages: list[dict]) -> dict:
+    """汇总多角色调用的 token 用量(成本监控)。"""
+    pt = sum((u or {}).get("prompt_tokens") or 0 for u in usages)
+    ct = sum((u or {}).get("completion_tokens") or 0 for u in usages)
+    return {"prompt_tokens": pt, "completion_tokens": ct}
+
+
+def run_multi_agent(date: str, data: dict, cfg: dict, log) -> tuple[dict | None, dict | None]:
+    """6 角色协作式生成(①②③④并行 -> ⑤研究员串行 -> ⑥主编组装)。
+
+    返回 (brief, total_usage);任一关键环节失败 -> 返回 (None, None) 由调用方降级单 prompt。
+    主编输出经 parse_ai_output 复用结构/数据锚定(P1-8)校验,meta.version="ai-multi"。
+    """
+    domains = split_domains(data)
+    role_results, usages = run_roles_parallel(domains, date, cfg, log)
+    if len(role_results) < 2:
+        log(f"多角色失败(仅 {len(role_results)}/4 角色成功),降级单 prompt")
+        return None, None
+    log(f"4 角色并行完成: {', '.join(sorted(role_results.keys()))}")
+
+    # ⑤ 研究员(多空辩论,串行;失败跳过辩论段,主编直接基于角色论据)
+    researcher = None
+    researcher_model = cfg.get("researcher_model") or "deepseek-chat"
+    r_raw = call_deepseek(build_researcher_messages(role_results, date, cfg), cfg, log,
+                          model=researcher_model)
+    if r_raw:
+        try:
+            r_content = r_raw["choices"][0]["message"]["content"]
+        except Exception:
+            r_content = ""
+        rp = _extract_json(r_content)
+        if rp:
+            researcher = rp
+            usages.append(r_raw.get("usage") or {})
+            log(f"研究员多空辩论完成 lean={rp.get('lean')} conf={rp.get('confidence')}")
+        else:
+            log("研究员输出解析失败,跳过辩论段")
+    else:
+        log("研究员调用失败,跳过辩论段")
+
+    # ⑥ 主编(串行)组装最终结构
+    e_raw = call_deepseek(build_editor_messages(role_results, researcher, date, cfg, data), cfg, log)
+    if not e_raw:
+        log("主编调用失败,降级单 prompt")
+        return None, None
+    total_usage = _merge_usage(usages + [e_raw.get("usage") or {}])
+    parsed = parse_ai_output(e_raw, data, date)
+    if not parsed:
+        log("主编输出解析失败,降级单 prompt")
+        return None, None
+    parsed["meta"]["version"] = "ai-multi"
+    # 角色结论/辩论为可溯源工作笔记(meta 层,非主输出);同样过合规脱敏(P0-3 防未来展示泄漏)
+    parsed["meta"]["roles"] = {r: scrub_text((v.get("parsed") or {}).get("summary") or "", cfg)
+                               for r, v in role_results.items()}
+    if researcher:
+        researcher = dict(researcher)
+        researcher["bull"] = [scrub_text(str(x), cfg) for x in researcher.get("bull") or []]
+        researcher["bear"] = [scrub_text(str(x), cfg) for x in researcher.get("bear") or []]
+        researcher["summary"] = scrub_text(str(researcher.get("summary") or ""), cfg)
+    parsed["meta"]["debate"] = researcher  # P1 可选: 存多空论据供前端"展开看辩论"
+    parsed["_usage"] = total_usage
+    return parsed, total_usage
+
+
 # ── 主流程 ───────────────────────────────────────────────────────────────
 def main() -> int:
     ap = argparse.ArgumentParser(description="每日AI预测(daily_brief)生成脚本")
@@ -854,6 +1160,8 @@ def main() -> int:
     ap.add_argument("--mock", action="store_true", help="不真调 deepseek,用固定 mock 输出(测试)")
     ap.add_argument("--rule-only", action="store_true", help="强制走规则版(跳过 AI,测试降级)")
     ap.add_argument("--no-upload", action="store_true", help="跳过 R2 上传")
+    ap.add_argument("--multi", action="store_true",
+                    help="多角色协作式编排(6角色,并行;配置 daily_brief.yaml multi_agent_enabled 亦可开启)")
     args = ap.parse_args()
 
     load_env()
@@ -882,22 +1190,34 @@ def main() -> int:
     brief = None
 
     if not args.rule_only and not args.mock:
-        # 主链路:AI 生成
-        known_bias = compute_known_bias(history) if cfg.get("review_enabled") else ""
-        messages = build_prompt(date, data, cfg, known_bias)
-        raw = call_deepseek(messages, cfg, log)
-        if raw:
-            parsed = parse_ai_output(raw, data, date)
-            if parsed:
-                usage = parsed.pop("_usage", None)
-                brief = parsed
-                log(f"AI 生成成功 direction={brief['meta']['direction']} watch={len(brief['meta']['watch_list'])}")
+        # 主链路:AI 生成。多角色编排优先(--multi 或配置开关),失败降级单 prompt 主链路(保底不破)。
+        if args.multi or cfg.get("multi_agent_enabled", False):
+            log("走多角色协作式编排(6角色)")
+            _multi_brief, _multi_usage = run_multi_agent(date, data, cfg, log)
+            if _multi_brief:
+                usage = _multi_brief.pop("_usage", None)
+                brief = _multi_brief
+                version = "ai-multi"
+                log(f"多角色AI生成成功 direction={brief['meta']['direction']} "
+                    f"watch={len(brief['meta']['watch_list'])} roles={len(brief['meta'].get('roles') or {})}")
             else:
-                log("AI 输出解析失败,降级规则版")
+                log("多角色编排失败,降级单 prompt 主链路")
+        if brief is None:
+            known_bias = compute_known_bias(history) if cfg.get("review_enabled") else ""
+            messages = build_prompt(date, data, cfg, known_bias)
+            raw = call_deepseek(messages, cfg, log)
+            if raw:
+                parsed = parse_ai_output(raw, data, date)
+                if parsed:
+                    usage = parsed.pop("_usage", None)
+                    brief = parsed
+                    log(f"AI 生成成功 direction={brief['meta']['direction']} watch={len(brief['meta']['watch_list'])}")
+                else:
+                    log("AI 输出解析失败,降级规则版")
+                    version = "rule"
+            else:
+                log("AI 调用失败/无返回,降级规则版")
                 version = "rule"
-        else:
-            log("AI 调用失败/无返回,降级规则版")
-            version = "rule"
     elif args.mock:
         # mock:模拟 AI 成功(测试主链路,不真调 API)
         brief = {
@@ -939,7 +1259,9 @@ def main() -> int:
     # 合规脱敏 + 免责(在 meta 回填前完成 text 层)
     for k in ("review", "trend", "watch", "risk"):
         brief["text"][k] = scrub_text(brief["text"].get(k, ""), cfg)
-    if version == "ai" and cfg.get("compliance_enabled"):
+    # meta.risk_items 也用户可见(AI 弹窗逐字展示),同样过合规脱敏(P0-3)
+    brief["meta"]["risk_items"] = [scrub_text(str(r), cfg) for r in brief["meta"].get("risk_items") or []]
+    if version in ("ai", "ai-multi") and cfg.get("compliance_enabled"):
         _remains = [w for w in FORBIDDEN_WORDS if any(w in (brief["text"][k] or "") for k in ("review", "trend", "watch", "risk"))]
         if _remains:
             log(f"⚠ 合规校验仍有指令词残留: {_remains}(已在 scrub 阶段处理)")
@@ -950,7 +1272,7 @@ def main() -> int:
     log(f"写 {static_dir / BRIEF_FILE} + history({len(history)}条) hit_stats={stats}")
 
     # 成本日志
-    log_cost(repo, cfg, date, version, usage, ok=(version == "ai"))
+    log_cost(repo, cfg, date, version, usage, ok=(version in ("ai", "ai-multi")))
 
     # R2 上传
     upload_to_r2(repo, args.no_upload)

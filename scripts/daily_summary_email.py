@@ -278,10 +278,15 @@ def build_text(it: dict, subs: list[dict] | None = None, extras: dict | None = N
     if vol is not None:
         lines.append(f"成交额:{vol:.0f}亿" + (f"({vol_label})" if vol_label else ""))
 
-    # 关注/风险点
+    # 关注/风险点(2026-08-11 口径分层: buy_count/sell_count=真实指数可交易信号(非 s.*);
+    # 情绪分模拟信号(s.*)单独标注"情绪分",避免把情绪信号当真实买卖点误导)
     buy, sell = it.get("buy_count"), it.get("sell_count")
+    sb, ss = it.get("buy_sentiment_count"), it.get("sell_sentiment_count")
     if buy is not None and sell is not None:
-        lines.append(f"关注/风险点:关注{buy} / 风险{sell}")
+        sig_line = f"关注/风险点:关注{buy} / 风险{sell}"
+        if sb or ss:
+            sig_line += f"(另:情绪分信号 买{sb or 0} / 卖{ss or 0},仅情绪参考非可交易)"
+        lines.append(sig_line)
 
     # 新高新低 + 均线多空
     nh, nl = it.get("nh_count"), it.get("nl_count")
@@ -385,8 +390,12 @@ def build_html(it: dict, subs: list[dict] | None = None, extras: dict | None = N
         add("成交额", f"{vol:.0f}亿" + (f"({vol_label})" if vol_label else ""))
 
     buy, sell = it.get("buy_count"), it.get("sell_count")
+    sb, ss = it.get("buy_sentiment_count"), it.get("sell_sentiment_count")
     if buy is not None and sell is not None:
-        add("关注/风险点", f"关注{buy} / 风险{sell}")
+        sig_text = f"关注{buy} / 风险{sell}"
+        if sb or ss:
+            sig_text += f"(情绪分:买{sb or 0}/卖{ss or 0},仅情绪参考非可交易)"
+        add("关注/风险点", sig_text)
 
     nh, nl = it.get("nh_count"), it.get("nl_count")
     if nh is not None and nl is not None:

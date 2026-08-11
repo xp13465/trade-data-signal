@@ -6237,9 +6237,13 @@ function renderSummaryChips(s, snap) {
   if (s.zt_count || s.dt_count) {
     chips.push(`<span class="summary-chip">涨停${s.zt_count || 0} 跌停${s.dt_count || 0}</span>`);
   }
-  // 买卖信号
-  if (s.buy_count || s.sell_count) {
-    chips.push(`<span class="summary-chip">买${s.buy_count || 0} 卖${s.sell_count || 0}</span>`);
+  // 买卖信号（2026-08-11 口径分层：买/卖=真实指数可交易信号(非 s.*)；情绪买/卖=情绪分模拟信号(s.* 0-100 衍生指标,非可交易标的,仅情绪参考)）
+  if (s.buy_count || s.sell_count || s.buy_sentiment_count || s.sell_sentiment_count) {
+    let _sigText = `买${s.buy_count || 0} 卖${s.sell_count || 0}`;
+    if (s.buy_sentiment_count || s.sell_sentiment_count) {
+      _sigText += ` 情绪${s.buy_sentiment_count || 0}买${s.sell_sentiment_count || 0}卖`;
+    }
+    chips.push(`<span class="summary-chip" title="买/卖=真实指数可交易信号；情绪买/卖=情绪分模拟信号(0-100衍生指标，非可交易标的)，仅情绪参考">${_sigText}</span>`);
   }
   // 新高新低
   if (s.nh_count != null || s.nl_count != null) {
@@ -8883,7 +8887,7 @@ async function renderOverview() {
         const snapBadge = `<span class="summary-snap-tag" style="color:#e6a23c">⏰ ${_lunch ? "午休小结" : "盘中动态小结"}</span>`;
         const _tLabel = _lunch ? "13:00复牌" : `更新于 ${_intradayDynamicTime || hhmm}`;
         const _pulse = '<span class="dyn-pulse" id="banner-pulse"><span class="dyn-pulse-dot"></span>1min</span>';
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-ai-btn" title="查看每日AI预测与历史命中">🤖 AI 预测</button><button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap)}</div>`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span><button class="summary-ai-btn" title="查看每日AI预测与历史命中">🤖 AI 预测</button>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap)}</div>`;
         _bannerRenderCtx = { el: banner, s: null, snap, type: "intraday" };
       } else {
         // 收盘后/同日：原逻辑（标题用 summary.generated_at，chips 用 summary+snap 同日覆盖）
@@ -8918,7 +8922,7 @@ async function renderOverview() {
         const sentimentBadge = s.sentiment_label ? `<span class="summary-fg-tag">${s.sentiment_label}</span>` : "";
         // 情绪标签+恐贪标签移到第二行(与 summary-meta 同行),行1只留日期标题
         const titleTags = (sentimentBadge || fgBadge || freezeBadge) ? `${sentimentBadge}${fgBadge}${freezeBadge}` : "";
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span>${titleTags ? `<span class="summary-title-tags">${titleTags}</span>` : ""}<span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-ai-btn" title="查看每日AI预测与历史命中">🤖 AI 预测</button><button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span>${titleTags ? `<span class="summary-title-tags">${titleTags}</span>` : ""}<span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span><button class="summary-ai-btn" title="查看每日AI预测与历史命中">🤖 AI 预测</button>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
         _bannerRenderCtx = { el: banner, s, snap, type: "summary" };
       }
       content.insertBefore(banner, content.firstChild);
@@ -18115,7 +18119,7 @@ function initBackToTop() {
 
 // ---- 历史收盘分析弹窗（横幅"更多"按钮触发）----
 // limit=30：每页 30 条（约 3 个月每日），90 条数据分 3 页，第 1 页能显示到约 2 个月前
-let _summaryHistoryState = { page: 0, limit: 30, total: 0, cache: null };
+let _summaryHistoryState = { page: 0, limit: 30, total: 0, cache: null, briefByDate: null };
 
 function _summaryHistoryModalEl() {
   let modal = document.getElementById("summaryHistoryModal");
@@ -18137,12 +18141,19 @@ function _summaryHistoryModalEl() {
   return modal;
 }
 
-function _summaryHistoryItemHtml(s) {
+function _summaryHistoryItemHtml(s, briefByDate) {
   const date = s.date ? `${s.date.substring(0,4)}-${s.date.substring(4,6)}-${s.date.substring(6,8)}` : "";
   const fg = s.fear_greed_label ? `<span class="sh-fg">😐 ${s.fear_greed_label} ${s.fear_greed_value != null ? s.fear_greed_value.toFixed(0) : ""}</span>` : "";
   const freeze = s.is_freeze ? `<span class="sh-freeze">❄️冰点</span>` : "";
   // 去掉裸 summary 文字，改用指标 chips（与横幅一致）；历史接口缺的字段做空值兜底跳过
-  return `<div class="summary-history-item"><div class="sh-date">${date} <span class="sh-label">${s.sentiment_label || ""}</span>${fg}${freeze}</div>${renderSummaryChips(s, null)}</div>`;
+  // 2026-08-11 结合展示:收盘分析下方追加对应日期 AI 预测(按 date 关联 daily_brief_history)
+  let aiBlock = "";
+  const it = (briefByDate && s.date) ? briefByDate[s.date] : null;
+  if (it) {
+    const meta = it.meta || {};
+    aiBlock = `<div class="sh-ai-brief"><div class="sh-ai-brief-head"><span class="db-dir">${_dbDirLabel(meta.direction)}</span><span class="sh-ai-brief-title">🤖 AI预测</span>${_dbHitHtml(meta)}${_dbActualHtml(meta)}</div>${_dbBriefDetailHtml(it)}</div>`;
+  }
+  return `<div class="summary-history-item"><div class="sh-date">${date} <span class="sh-label">${s.sentiment_label || ""}</span>${fg}${freeze}</div>${renderSummaryChips(s, null)}${aiBlock}</div>`;
 }
 
 async function _loadSummaryHistoryPage() {
@@ -18160,10 +18171,22 @@ async function _loadSummaryHistoryPage() {
       list.innerHTML = `<div class="summary-history-empty">加载失败：${e}</div>`;
       return;
     }
+    // 2026-08-11 结合展示:加载 daily_brief_history.json 建 date->brief 映射(失败则无 AI 块,不影响收盘分析)
+    try {
+      const briefs = await fetchJSON("./data/daily_brief_history.json");
+      const bm = {};
+      ((briefs && briefs.items) || []).forEach((it) => {
+        const dd = it.date || (it.meta && it.meta.date);
+        if (dd) bm[dd] = it;
+      });
+      _summaryHistoryState.briefByDate = bm;
+    } catch (e2) {
+      _summaryHistoryState.briefByDate = {};
+    }
   }
   const offset = page * limit;
   const items = _summaryHistoryState.cache.slice(offset, offset + limit);
-  list.innerHTML = items.map(_summaryHistoryItemHtml).join("") || '<div class="summary-history-empty">暂无历史数据</div>';
+  list.innerHTML = items.map((s) => _summaryHistoryItemHtml(s, _summaryHistoryState.briefByDate || {})).join("") || '<div class="summary-history-empty">暂无历史数据</div>';
   // 翻页后列表回顶（用户想看新页内容，不是底部）
   list.scrollTop = 0;
   _renderSummaryPager(modal);
@@ -18272,14 +18295,13 @@ function _dbActualHtml(meta) {
   return '<span class="db-actual">次日待回填</span>';
 }
 
-// 单条历史预测：首行日期+方向断言+命中标记+次日实际涨跌，点开某日展开=预测内容+meta断言(watch_list/risk_items)
-function _dailyBriefItemHtml(it) {
+// 复用:AI 预测内容块(复盘/趋势/关注/风险四段 + meta 断言 watch_list/risk_items + 免责)。
+// 供 AI 预测弹窗详情、历史收盘分析弹窗结合展示共用，保证两处渲染一致。
+function _dbBriefDetailHtml(it) {
   const meta = it.meta || {};
-  const dateRaw = it.date || meta.date || "";
-  const date = dateRaw.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
+  const t = it.text || {};
   const watchList = (meta.watch_list || []).map((w) => w.name || w.index_id).join("、");
   const riskItems = (meta.risk_items || []).join("、");
-  const t = it.text || {};
   let watchLine = "";
   if (t.watch || watchList) {
     watchLine = `<p class="db-line"><span class="db-k">关注</span>${_esc(t.watch || "")}${watchList ? `<span class="db-watch">【${_esc(watchList)}】</span>` : ""}</p>`;
@@ -18289,14 +18311,23 @@ function _dailyBriefItemHtml(it) {
     riskLine = `<p class="db-line"><span class="db-k">风险</span>${_esc(t.risk || "")}${riskItems ? `<span class="db-risk">【${_esc(riskItems)}】</span>` : ""}</p>`;
   }
   const note = t.note || it.disclaimer || "";
-  return `<div class="summary-history-item db-item" data-date="${_escAttr(dateRaw)}">
-    <div class="sh-date"><span class="db-dir">${_dbDirLabel(meta.direction)}</span><span class="sh-label">${_esc(date)}</span>${_dbHitHtml(meta)}${_dbActualHtml(meta)}<span class="db-expand-hint">点击展开 ▼</span></div>
-    <div class="db-detail hidden">
-      <p class="db-line"><span class="db-k">复盘</span>${_esc(t.review || "")}</p>
+  return `<p class="db-line"><span class="db-k">复盘</span>${_esc(t.review || "")}</p>
       <p class="db-line"><span class="db-k">趋势</span>${_esc(t.trend || "")}</p>
       ${watchLine}
       ${riskLine}
-      ${note ? `<p class="db-note">${_esc(note)}</p>` : ""}
+      ${note ? `<p class="db-note">${_esc(note)}</p>` : ""}`;
+}
+
+// 单条历史预测：首行日期+方向断言+命中标记+次日实际涨跌。2026-08-11 起默认展开预测内容
+// (用户反馈"默认收起需再点一步"反人性)，点首行可收起/展开。
+function _dailyBriefItemHtml(it) {
+  const meta = it.meta || {};
+  const dateRaw = it.date || meta.date || "";
+  const date = dateRaw.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
+  return `<div class="summary-history-item db-item" data-date="${_escAttr(dateRaw)}">
+    <div class="sh-date"><span class="db-dir">${_dbDirLabel(meta.direction)}</span><span class="sh-label">${_esc(date)}</span>${_dbHitHtml(meta)}${_dbActualHtml(meta)}<span class="db-expand-hint">点击收起 ▲</span></div>
+    <div class="db-detail">
+      ${_dbBriefDetailHtml(it)}
     </div>
   </div>`;
 }
@@ -18349,7 +18380,7 @@ function _renderDailyBriefStats(brief) {
       '<span class="db-stats-title">📊 AI预测命中率（meta机检，次日回填）</span>' +
       `<span class="db-stats-item">近30日：<b>${s30 && s30.n ? `${s30.hit}/${s30.n}（${rate(s30)}）` : "暂无样本"}</b></span>` +
       `<span class="db-stats-item">近90日：<b>${s90 && s90.n ? `${s90.hit}/${s90.n}（${rate(s90)}）` : "暂无样本"}</b></span>` +
-      '<span class="db-stats-how">AI每日盘后基于当日收盘数据（行情/资金/情绪/信号胜率等）生成复盘·趋势·关注·风险四段预测，meta结构化断言方向/关注标的/风险点，次日机检回填实际涨跌判定命中；命中率仅为历史统计，不构成投资建议。</span>' +
+      '<span class="db-stats-how">AI每日盘后基于当日收盘数据，由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测；meta结构化断言方向/关注标的/风险点，次日机检回填实际涨跌判定命中。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。命中率仅为历史统计，不构成投资建议。</span>' +
     '</div>';
 }
 

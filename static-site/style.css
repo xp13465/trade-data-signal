@@ -3131,6 +3131,18 @@ main { padding: 16px 24px; }
   gap: 6px;
 }
 .db-detail.hidden { display: none; }
+.sh-ai-brief {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-left: 3px solid #7c4dff;
+  background: var(--bg-hover);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sh-ai-brief-head { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.sh-ai-brief-title { font-weight: 600; color: #7c4dff; margin-right: 2px; }
 .db-line { font-size: 13px; color: var(--text-1); line-height: 1.7; margin: 0; }
 .db-k {
   font-weight: 600;
