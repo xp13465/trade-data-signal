@@ -7743,7 +7743,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
       var bKey = qk + "|" + modeKey;
       var cachedBucket = _kellyBucketStatsCache.get(bKey);
       var statsByPeriod;
-      if (amountMode === "fixed" && cachedBucket && cachedBucket.feeSig === feeSig && _kellySameTradeArray(cachedBucket.toggled, toggled)) {
+      if (amountMode === "fixed" && cachedBucket && cachedBucket.amountMode === amountMode && cachedBucket.feeSig === feeSig && _kellySameTradeArray(cachedBucket.toggled, toggled)) {
         statsByPeriod = cachedBucket.stats;
       } else {
         statsByPeriod = {};
@@ -8507,7 +8507,7 @@ function _renderSigKellyBar(bar, data, period) {
 function _kellyComboAdviceHtml() {
   return (
     `<div class="lab-sigkelly-advice">` +
-      `<div class="lab-sigkelly-advice-title">🎯 降亏组合使用建议（真实回测 · 4 组合全开口径 · 全信号 66,726 笔）</div>` +
+      `<div class="lab-sigkelly-advice-title">🎯 降亏组合使用建议（真实回测 · 4 组合全开 · 金额口径=每笔固定 1 万(旧口径·静态) · 全信号 66,726 笔）</div>` +
       `<details class="lab-sigkelly-advice-details">` +
         `<summary>① 4 个组合全开怎么样？（年末季节 + 稳健核心 + 最大化降亏 + 1月调整）</summary>` +
         `<div class="lab-sigkelly-advice-body">` +
@@ -8532,7 +8532,7 @@ function _kellyComboAdviceHtml() {
             `<tr class="lab-sigkelly-advice-hl"><td><b>总建议</b></td><td><b>全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）</b></td><td>全信号 G 模式 n=5,629 净 <b>+322万</b> 胜率64.1% 年化1.84%，按年窗口持续增长（2023 年近持平非负）</td></tr>` +
           `</tbody></table>` +
           `<div class="lab-sigkelly-advice-li">总建议依据：G 模式（指数卖出信号触发离场）最贴近交易页面的信号驱动跟单方法，且是全信号 9 模式里净利最高、胜率最高、按年增长最稳的退出方式；叠加 4 组合降亏后胜率从 61.2% 进一步提升到 64.1%。</div>` +
-          `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">下方「最后结果」全信号表即按总建议口径实时计算（随降亏组合勾选 / 费率档 / 周期切换联动）。</div>` +
+          `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">本面板数字为静态口径（每笔固定 1 万·旧口径，Python 管线回测）；下方「最后结果」全信号表按当前所选金额口径（默认每日资金池等分）实时计算，两处金额量级不同，请勿直接对比数字。</div>` +
         `</div>` +
       `</details>` +
     `</div>`
@@ -8564,7 +8564,7 @@ function _sigKellyAllSignalGroupHtml(period) {
   return (
     `<div class="lab-sigkelly-group lab-sigkelly-all-group">` +
       `<div class="lab-sigkelly-group-title">📌 全信号表（最后结果 · 全量信号融合）<span class="lab-sigkelly-all-badge">最后结果</span></div>` +
-      `<div class="lab-sigkelly-all-desc">总建议口径：全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）。下表实时随上方降亏组合勾选 / 费率档 / 周期切换联动。年份窗口表为全周期口径（非当前周期窗口）。</div>` +
+      `<div class="lab-sigkelly-all-desc">总建议口径：全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）。金额口径=当前所选（默认每日资金池等分，切换「每笔固定 1 万」时为固定金额）。下表实时随上方降亏组合勾选 / 费率档 / 周期切换联动。年份窗口表为全周期口径（非当前周期窗口）。</div>` +
       `<div class="lab-sigkelly-all-main">` +
         `<div class="lab-sigkelly-all-card">${cardHtml}</div>` +
         `<div class="lab-sigkelly-all-yearly lab-sigkelly-all-yearly-block">` +
@@ -9132,60 +9132,10 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   }
   // positionCap 仓位控制过滤 + 每日资金池等分(2026-08-12): 与卡片统计口径一致(§22数据一致性)
   // 降亏过滤谓词抽成命名函数供基笔池复用(不含period cutoff: cutoff只用于弹窗当前周期显示, 池需全周期一致)
+  // 2026-08-12 P2-2修复: 直接调共享谓词 _kellyPassesFadeFilters(消除逐条复制漂移, 补齐 v4 12 toggle 生效, 弹窗与卡片统计一致 §22)
+  var _pcMonthMask = _kellyActiveMonthMask(_filters);
   function _pcFadePasses(t) {
-    if (_filters.excludeAux && _fIdx.signal != null && (t[_fIdx.signal] || "") === "buy_aux") return false;
-    if (_filters.marketTiming && _fIdx.market_state != null && t[_fIdx.market_state] !== true) return false;
-    // 排除3+5月(季节性): buy_date月份03/05过滤
-    if (_filters.excludeMonth && _fIdx.buy_date != null) { var _mm2 = (t[_fIdx.buy_date] || "").substring(4, 6); if (_mm2 === "03" || _mm2 === "05") return false; }
-    // 排除rating=low(低评级最大亏损源)
-    if (_filters.excludeRatingLow && _fIdx.rating != null && t[_fIdx.rating] === "low") return false;
-    // 排除buy_aux+03/05月交叉(最外科手术式降亏标志, 比值2.52)
-    if (_filters.excludeAuxCross && _fIdx.signal != null && (t[_fIdx.signal] || "") === "buy_aux" && _fIdx.buy_date != null) { var _mm3 = (t[_fIdx.buy_date] || "").substring(4, 6); if (_mm3 === "03" || _mm3 === "05") return false; }
-    // 排除buy_special追关注+MA60熊市(追涨信号在熊市是雷区, 比值2.31)
-    if (_filters.excludeSpecialBear && _fIdx.signal != null && (t[_fIdx.signal] || "") === "buy_special" && _fIdx.market_state != null && t[_fIdx.market_state] === false) return false;
-    // round3新候选(11月系, 2026-08-10 verify验证): A5 11月中旬+追关注 / A45 11月中下旬+追关注
-    if ((_filters.a5NovMidSpecial || _filters.a45NovMidLateSpecial) && _fIdx.signal != null && (t[_fIdx.signal] || "") === "buy_special" && _fIdx.buy_date != null) {
-      var _bdR3 = String(t[_fIdx.buy_date] || "");
-      var _mmR3 = _bdR3.substring(4, 6);
-      var _ddR3 = parseInt(_bdR3.substring(6, 8), 10) || 0;
-      if (_mmR3 === "11" && _filters.a5NovMidSpecial && _ddR3 >= 11 && _ddR3 <= 20) return false;
-      if (_mmR3 === "11" && _filters.a45NovMidLateSpecial && _ddR3 >= 11) return false;
-    }
-    // 1月调整(2026-08-11 元素级重组): J1 1月中旬(11-20日)+mid评级 / J2 1月中旬+追关注; 只做中旬(1月上旬=盈利口袋不可动)
-    if ((_filters.janMidRating || _filters.janMidSpecial) && _fIdx.buy_date != null) {
-      var _bdJ = String(t[_fIdx.buy_date] || "");
-      var _mmJ = _bdJ.substring(4, 6);
-      var _ddJ = parseInt(_bdJ.substring(6, 8), 10) || 0;
-      if (_mmJ === "01" && _ddJ >= 11 && _ddJ <= 20) {
-        if (_filters.janMidSpecial && _fIdx.signal != null && (t[_fIdx.signal] || "") === "buy_special") return false;
-        if (_filters.janMidRating && _fIdx.rating != null && t[_fIdx.rating] === "mid") return false;
-      }
-    }
-    // v3新9 toggle(比值>3, 按比值倒序)
-    var _v3On2 = _filters.n1MarTueHigh || _filters.n2NovSpecialIndustry || _filters.r8PureNonMay || _filters.n3NovSpecialMon || _filters.n4AMay || _filters.r7MayReinforced || _filters.n5MayVlow || _filters.n6MidMay || _filters.r10May6NonMay;
-    if (_v3On2) {
-      var _bd3b = String(t[_fIdx.buy_date] || "");
-      var _mm3b = _bd3b.substring(4, 6);
-      var _sig3b = _fIdx.signal != null ? String(t[_fIdx.signal] || "") : "";
-      var _wd3b = _kellyBuyWeekday(_bd3b);
-      var _bpb3b = _fIdx.buy_price != null ? _kellyBuypriceBin(t[_fIdx.buy_price]) : "";
-      var _mktD3b = "", _ratD3b = "";
-      if (_tradeDims2) {
-        var _dk3b = (t[_fIdx.signal_date] || "") + '|' + (t[_fIdx.index_id] || "") + '|' + _sig3b + '|' + _bd3b + '|' + (t[_fIdx.etf_code] || "") + '|' + (t[_fIdx.sell_date] || "");
-        var _dims3b = _tradeDims2[_dk3b] || {};
-        _mktD3b = _dims3b.mkt || ""; _ratD3b = _dims3b.rating || "";
-      }
-      if (_filters.n1MarTueHigh && _mm3b === "03" && _wd3b === 2 && _bpb3b === "high") return false;
-      if (_filters.n2NovSpecialIndustry && _sig3b === "buy_special" && _mm3b === "11" && _mktD3b === "industry") return false;
-      if (_filters.r8PureNonMay && ((_mm3b === "03" && _wd3b === 2 && _bpb3b === "high") || (_sig3b === "buy_special" && _mm3b === "11" && _mktD3b === "industry") || (_sig3b === "buy_special" && _mm3b === "11" && _wd3b === 0))) return false;
-      if (_filters.n3NovSpecialMon && _sig3b === "buy_special" && _mm3b === "11" && _wd3b === 0) return false;
-      if (_filters.n4AMay && _mktD3b === "a" && _mm3b === "05") return false;
-      if (_filters.r7MayReinforced && ((_mktD3b === "a" && _mm3b === "05") || (_ratD3b === "mid" && _mm3b === "05") || (_mm3b === "05" && _bpb3b === "vlow") || (_mm3b === "03" && _wd3b === 2 && _bpb3b === "high") || (_sig3b === "buy_special" && _mm3b === "11" && _mktD3b === "industry") || (_sig3b === "buy_special" && _mm3b === "11" && _wd3b === 0))) return false;
-      if (_filters.n5MayVlow && _mm3b === "05" && _bpb3b === "vlow") return false;
-      if (_filters.n6MidMay && _ratD3b === "mid" && _mm3b === "05") return false;
-      if (_filters.r10May6NonMay && (_mm3b === "05" || (_mm3b === "03" && _wd3b === 2 && _bpb3b === "high") || (_sig3b === "buy_special" && _mm3b === "11" && _mktD3b === "industry") || (_sig3b === "buy_special" && _mm3b === "11" && _wd3b === 0) || (_sig3b === "buy_special" && _mm3b === "11" && _bpb3b === "low") || (_sig3b === "buy_special" && _mm3b === "03" && _mktD3b === "industry") || (_mm3b === "03" && _wd3b === 2 && _sig3b === "buy_aux"))) return false;
-    }
-    return true;
+    return _kellyPassesFadeFilters(t, _fIdx, _filters, _kellyTradeFeatureCache, _tradeDims2, _pcMonthMask);
   }
   // positionCap: 跨全部卖出模式×rating三分区收集基笔池(去重, 9模式共享同一批基笔, 模式之前统一生效)
   // 每日资金池等分: countByDate = 保留基笔池(降亏+positionCap后)当日信号数, 每笔=每日金额/当日信号数
@@ -9307,7 +9257,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
 
     let tbodyHTML = "";
     if (pageRows.length === 0) {
-      tbodyHTML = `<tr><td colspan="14" class="lab-sigkelly-trades-more">无符合条件的交易记录</td></tr>`;
+      tbodyHTML = `<tr><td colspan="15" class="lab-sigkelly-trades-more">无符合条件的交易记录</td></tr>`;
     } else {
       for (const t of pageRows) {
         const pf = t[fIdx.profit] || 0;
