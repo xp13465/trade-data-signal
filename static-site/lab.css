@@ -1432,6 +1432,12 @@
 .lab-sigkelly-fee-btn { font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-2); cursor: pointer; white-space: nowrap; transition: all 0.15s; }
 .lab-sigkelly-fee-btn:hover { border-color: var(--primary); color: var(--text-1); }
 .lab-sigkelly-fee-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+/* positionCap 仓位控制过滤 K 档位按钮(2026-08-12): 1-4 分段按钮, 与 fee-btn 同风格 */
+.lab-sigkelly-kbtns { display: inline-flex; gap: 2px; margin: 0 2px; }
+.lab-sigkelly-kbtn { font-size: 11px; padding: 1px 7px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-2); cursor: pointer; line-height: 1.5; transition: all 0.15s; }
+.lab-sigkelly-kbtn:hover { border-color: var(--primary); color: var(--text-1); }
+.lab-sigkelly-kbtn.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700; }
+.lab-sigkelly-toggle-group-poscap { border: 1px dashed var(--primary); }
 .lab-sigkelly-fee-hint { font-size: 10px; color: var(--text-3); margin-left: 4px; }
 .lab-sigkelly-fee-custom { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; width: 100%; font-size: 11px; color: var(--text-3); padding: 4px 0; }
 .lab-sigkelly-fee-custom label { display: flex; align-items: center; gap: 2px; white-space: nowrap; }

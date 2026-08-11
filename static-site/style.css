@@ -919,6 +919,12 @@ main { padding: 16px 24px; }
 .sig-score-mid { color: #e6a23c; }
 .sig-score-low { color: var(--text-3); }
 .sig-item-high { border: 1px solid #15803d44; background: #15803d0a; border-radius: 4px; }
+/* positionCap 仓位控制过滤(2026-08-12): 凯利回测页 toggle 共享设置(tds_poscap), 当日 top-K 建议执行高亮/其余灰显 */
+.sig-poscap-badge { font-size: 10px; vertical-align: super; line-height: 0; margin-left: 2px; cursor: help; font-weight: 600; border-radius: 3px; padding: 0 3px; }
+.sig-poscap-ok { color: #15803d; background: #15803d1a; }
+.sig-poscap-full { color: var(--text-3); background: var(--bg-hover, rgba(0,0,0,0.05)); }
+.sig-item.sig-poscap-kept { border: 1px solid #15803d55; background: #15803d0f; border-radius: 4px; }
+.sig-item.sig-poscap-excluded { opacity: 0.5; filter: grayscale(0.3); }
 /* 信号至今对错角标（☑️符合预测/✖️不符预测，since_correct）。与 sig-score 同 sup 上标风格。
    2026-07-28: 评级+对错移到指数名前,指数名放最右被 ellipsis 优先截断,评级+对错始终可见。 */
 .sig-correct { font-size: 10px; vertical-align: super; line-height: 0; margin-left: 2px; cursor: help; }

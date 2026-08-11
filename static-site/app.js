@@ -1774,6 +1774,48 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   if (todayDate && groups[todayDate]) {
     dates = [todayDate, ...dates.filter((d) => d !== todayDate)];
   }
+  // positionCap 仓位控制过滤(2026-08-12): 凯利回测页 toggle 共享设置(localStorage "tds_poscap", 双页联动)
+  // 当日 top-K 信号"建议执行"高亮, 其余"当日已满(仓位控制)"灰显
+  // 排序口径与凯利回测 §6.1 一致: track_score DESC → 评级(high>mid>low) → 信号类型(buy_backup>buy>buy_aux>buy_special) → buy_date ASC
+  let _posCapKeptSet = null;
+  let _posCapK = 0;
+  if (kind === "signal" && todayDate) {
+    try {
+      const _raw = localStorage.getItem("tds_poscap");
+      if (_raw) {
+        const _pc = JSON.parse(_raw);
+        if (_pc && _pc.on && _pc.k >= 1 && _pc.k <= 4) {
+          _posCapK = _pc.k;
+          const _rc = { high: 0, mid: 1, low: 2, "": 3 };
+          const _sc = { buy_backup: 0, buy: 1, buy_aux: 2, buy_special: 3, "": 9 };
+          const _ratingOf = (it) => {
+            const s = _getSignalScore(it)?.score;
+            if (s == null) return "";
+            if (s >= 0.75) return "high";
+            if (s >= 0.55) return "mid";
+            return "low";
+          };
+          const _todayItems = windowedItems.filter((it) => it.date === todayDate);
+          const _sorted = _todayItems.slice().sort((a, b) => {
+            const ta = _topEtfByScore(a.etfs)?.track_score ?? -1;
+            const tb = _topEtfByScore(b.etfs)?.track_score ?? -1;
+            if (tb !== ta) return tb - ta;
+            // 0||3 陷阱: rank 0(high/buy_backup)是合法最小值, 用 hasOwnProperty 判定, 不能用 || 兜底
+            const rak = _ratingOf(a), rbk = _ratingOf(b);
+            const ra = Object.prototype.hasOwnProperty.call(_rc, rak) ? _rc[rak] : 3;
+            const rb = Object.prototype.hasOwnProperty.call(_rc, rbk) ? _rc[rbk] : 3;
+            if (ra !== rb) return ra - rb;
+            const sak = a.signal || "", sbk = b.signal || "";
+            const sa = Object.prototype.hasOwnProperty.call(_sc, sak) ? _sc[sak] : 9;
+            const sb = Object.prototype.hasOwnProperty.call(_sc, sbk) ? _sc[sbk] : 9;
+            if (sa !== sb) return sa - sb;
+            return 0;
+          });
+          _posCapKeptSet = new Set(_sorted.slice(0, _posCapK));
+        }
+      }
+    } catch (e) {}
+  }
   let rows = "";
   for (const dt of dates) {
     const isToday = dt === todayDate;
@@ -1804,6 +1846,19 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           ? '<sup class="sig-intraday-warn" data-tip="盘中预估·收盘后(17:50)重算定版，此信号可能消失或变动">⚠</sup>'
           : '';
         const cls = showIntradayWarn ? "sig-item sig-clickable sig-intraday" : "sig-item sig-clickable";
+        // positionCap 仓位控制过滤(2026-08-12): 今日 top-K 建议执行高亮, 其余"当日已满(仓位控制)"灰显
+        // (仅今日组生效, 与凯利回测页 toggle 共享 tds_poscap 联动)
+        let posCapCls = "";
+        let posCapBadge = "";
+        if (_posCapKeptSet && isToday) {
+          if (_posCapKeptSet.has(it)) {
+            posCapCls = " sig-poscap-kept";
+            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="仓位控制过滤开启(K=${_posCapK}): 按 跟踪分↓→评级→信号类型→买入日 当日排序前${_posCapK}名, 建议执行">建议执行</sup>`;
+          } else {
+            posCapCls = " sig-poscap-excluded";
+            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="仓位控制过滤开启(K=${_posCapK}): 当日只建议执行最优${_posCapK}个, 本信号未进入, 当日已满">当日已满</sup>`;
+          }
+        }
         // 评分尾缀：技术参考点综合把握度（10d 窗口 score）
         const sc = _getSignalScore(it);
         let scoreBadge = "";
@@ -1876,7 +1931,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           _cellName = _idxName;
           _cellCode = _sigIdxCode;
         }
-        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${_cellLight}${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_cellName}${_cellCode ? ` <span class="idx-code-tag">${_cellCode}</span>` : ""}</span></span>`;
+        return `<span class="${cls}${scoreCls}${posCapCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${_cellLight}${posCapBadge}${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_cellName}${_cellCode ? ` <span class="idx-code-tag">${_cellCode}</span>` : ""}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
