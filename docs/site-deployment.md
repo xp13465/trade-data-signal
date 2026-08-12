@@ -233,6 +233,32 @@ trade/
 | Homebrew | 最新 | 包管理（非必需但推荐） |
 | Git | 2.x | 代码版本控制 + 数据上线 |
 
+#### 3.1.1 DNS 劫持根治（/etc/hosts 固定 IP，服务器级配置）
+
+> 触发（2026-08-12 运维群告警排查根因）：链路层 UDP 53 DNS 劫持——5 个公共 DNS 对 CF/github 域名全 SERVFAIL，DoH（HTTPS 443）不受影响，国内域名（qq.com）正常。症状 = 定时任务 R2 上传/站点 curl 全失败但网络本身"看起来正常"。
+
+**方案**：`/etc/hosts` 固定业务核心域名 IP。hosts 是 kernel 层优先解析、**不受代理虚拟网卡覆盖**（开代理实测仍 200），CF 域名国内直连稳定，固定 IP 后**开/关代理都通**，业务定时任务（采集/R2 上传/站点分发）不再依赖代理。
+
+```bash
+# 写入 /etc/hosts（sudo）——业务核心域名固定解析（勿删）
+104.21.46.172  ss.fx8.store ssd.fx8.store
+172.67.168.203  ss.fx8.store ssd.fx8.store
+20.205.243.166  github.com
+185.199.108.153 github.io sss.sugas.site
+185.199.109.153 github.io sss.sugas.site
+```
+
+**IP 来源**：CF 域名用 CF 双 IP（104.21.x + 172.67.x，DoH 解析验证）；github.com 用 DoH（`curl "https://dns.alidns.com/resolve?name=github.com&type=A"`）验证的真实 A 记录（2026-08-12 为 20.205.243.166）。
+
+**验证**（开/关代理各跑一次，业务核心全 200 即根治）：
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" "https://ssd.fx8.store/data/overview.json"   # R2 上传
+curl -s -o /dev/null -w "%{http_code}\n" "https://ss.fx8.store/"                      # 主站
+nc -z -w 5 github.com 22 && echo "SSH 22 通"                                          # github push(需代理)
+```
+
+**边界（重要）**：github.com 主站**连接层 SNI 干扰是网络特性非 DNS**（无代理时各 IP 时通时不通），hosts 只保解析不保连接——github push 是**开发操作**需代理，但业务运行不碰 github，无影响。DNS 劫持排查通路：DoH（dns.alidns.com）取真实 IP + `curl --resolve HOST:443:IP` 直连穿透。
+
 ### 3.2 Python 依赖（requirements.txt）
 
 ```
