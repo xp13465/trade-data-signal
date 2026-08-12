@@ -9,8 +9,11 @@
   UserPromptSubmit -> python3 scripts/feishu_chat_hook.py user
       stdin JSON 含用户消息正文在 prompt 字段 -> 抄送该句
   Stop             -> python3 scripts/feishu_chat_hook.py assistant
-      stdin JSON 优先用 last_assistant_message 字段（新版 Claude Code 2.1.224 已含最终回复全文），
-      无该字段回退读 transcript_path 最后一条 assistant 文本 -> 抄送
+      整段回复全文抄送（2026-08-12）：一个 turn 内 assistant 常有多条文本消息
+      （工具循环中间分析 + 最终结论），拼接 transcript 当前 turn 内**所有** assistant
+      文本消息（以最后一条真实 user 消息为 turn 边界）整段抄送，不只最后一条；
+      payload 的 last_assistant_message（新版 Claude Code 2.1.224 已含最终回复全文）
+      保留作"最后一条"兜底补丁（transcript 拼不到时降级只发最后一条，不丢不阻塞）
 
 防重复抄送：/tmp/feishu_hook_sent.txt 记录已抄送消息指纹（transcript+消息id/hash），
 同一条只抄一次（Stop 会多次触发，必须去重）。
@@ -125,31 +128,46 @@ def _extract_text(content) -> str:
     return "\n".join(texts).strip()
 
 
-def _last_assistant_text(transcript_path: str):
-    """读 transcript JSONL 最后一条含文本的 assistant 消息。
-    返回 (line_no, text, stable_id)；无则 (None, "", None)。
+def _collect_turn_assistant_texts(transcript_path: str):
+    """读 transcript，拼接"当前 turn"内**所有** assistant 文本消息。
+
+    当前 turn 界定：最后一条真实 user 消息（JSONL type=user 且 message.content 为
+    非空 str 文本，排除 tool_result 等 dict content）之后的全部 assistant 消息。
+    一个 turn 内 assistant 常有多条文本消息（工具循环中间的"分析" + 最终结论），
+    整段回复全文抄送需全含，不只 last_assistant_message（最后一条）。
+
+    返回 [(line_no, text, stable), ...] 按行序（最近 turn 在尾部）；无则 []。
     stable_id 优先消息自带 uuid/id（transcript 重写行号会变，uuid 更稳）。"""
     try:
         lines = Path(transcript_path).read_text(encoding="utf-8").splitlines()
     except Exception as e:
         _log(f"读 transcript 失败: {e}")
-        return None, "", None
-    for i in range(len(lines) - 1, -1, -1):
+        return []
+    boundary_found = False  # 是否遇过真实 user 消息（turn 边界）
+    records = []
+    for i, ln in enumerate(lines):
         try:
-            rec = json.loads(lines[i])
+            rec = json.loads(ln)
         except Exception:
             continue
-        if not isinstance(rec, dict) or rec.get("type") != "assistant":
+        if not isinstance(rec, dict):
             continue
-        msg = rec.get("message")
-        if not isinstance(msg, dict):
-            continue
-        text = _extract_text(msg.get("content"))
-        if not text:
-            continue
-        stable = msg.get("id") or msg.get("uuid") or rec.get("uuid") or str(i)
-        return i, text, stable
-    return None, "", None
+        t = rec.get("type")
+        if t == "user":
+            msg = rec.get("message")
+            c = (msg or {}).get("content") if isinstance(msg, dict) else None
+            if isinstance(c, str) and c.strip():
+                boundary_found = True
+                records = []  # 新 turn 边界：重置，之前的 assistant 不属于当前 turn
+        elif t == "assistant":
+            msg = rec.get("message")
+            if not isinstance(msg, dict):
+                continue
+            text = _extract_text(msg.get("content"))
+            if text:
+                stable = msg.get("id") or msg.get("uuid") or rec.get("uuid") or str(i)
+                records.append((i, text, stable))
+    return records if boundary_found else []
 
 
 # ---------------------------------------------------------------- 补扫
@@ -226,22 +244,52 @@ def handle_user(data: dict) -> int:
 
 
 def handle_assistant(data: dict) -> int:
-    """Stop：优先用 payload 的 last_assistant_message 字段（新版 Claude Code 2.1.224
-    Stop hook stdin 已实测含该字段且为最终回复全文，2026-08-12 01:13:54 payload 证据），
-    不再等 transcript；transcript 读取只作 fallback（兼容旧版/无该字段）。
+    """Stop：拼接当前 turn 内**所有** assistant 文本消息（中间分析+最终结论）整段抄送。
 
-    根因：旧逻辑只读 transcript 最后一条含文本的 assistant，但工具循环尾部最后一条
-    assistant 常是纯 tool_use 块（无 text）→ _extract_text 取不到；文本回复若 flush 延迟
-    则 MAX_RETRY_READ 内读不到 → 静默跳过 → assistant 不抄送（开发群只有👤缺🤖）。
-    last_assistant_message 由 Claude Code 侧确保为最终回复全文，根治该漏抄。"""
+    需求（2026-08-12）："整段回复全文抄送"——一个 turn 内 assistant 常有多条文本消息
+    （工具循环中间分析 + 最终结论），只抄 last_assistant_message（最后一条）会丢中间分析。
+    方案：优先读 transcript 拼接当前 turn 全部 assistant 文本（MAX_RETRY_READ 重试等
+    transcript 刷新）；payload 的 last_assistant_message 保留作"最后一条"兜底补丁——
+    transcript 拼不到时降级只发最后一条（不丢不阻塞）；transcript 无 user 边界/全空则占位。
+
+    防重发：并入拼接的每条 assistant 消息单条指纹一并标记（与 _sweep_unforwarded 同公式），
+    避免补扫把中间分析逐条再发一遍造成重复；拼接全文自身指纹防 Stop 多次触发重发。"""
     transcript = data.get("transcript_path") or ""
     session = data.get("session_id") or ""
-
-    # 1) 新版 payload 直接带最终回复全文 → 直接用（最稳，不依赖 transcript 状态）
     last_msg = (data.get("last_assistant_message") or "").strip()
+
+    # 1) 优先：读 transcript 拼接当前 turn 全部 assistant 文本（重试等刷新）
+    if transcript and os.path.exists(transcript):
+        turn_texts = []
+        for _ in range(MAX_RETRY_READ):
+            turn_texts = _collect_turn_assistant_texts(transcript)
+            if turn_texts:
+                break
+            time.sleep(RETRY_SLEEP)
+        if turn_texts:
+            parts = [t for _, t, _ in turn_texts]
+            body = "\n\n".join(parts).strip()
+            # last_assistant_message 为最终结论：若 transcript 尾部未含（flush 延迟）则补为最后一段
+            if last_msg and not body.endswith(last_msg):
+                body = (body + "\n\n" + last_msg).strip()
+            # 补入段(last_msg 来自 payload, 不在 turn_texts)无条件补标单条指纹：
+            # 防 flush 完成后补扫把该段单独重发(reviewer 审出防重发缺陷；重复标记幂等无害)
+            if last_msg:
+                _mark_sent("A|" + _fp([transcript, last_msg[:200]]))
+            fp = "A|" + _fp([transcript, body[:200]])
+            if fp in _load_sent():
+                _sweep_unforwarded(transcript, session)
+                return 0
+            # 并入的每条 assistant 单条指纹标记，防 _sweep_unforwarded 逐条重发(P2-1 同公式)
+            for _, t, _ in turn_texts:
+                _mark_sent("A|" + _fp([transcript, t[:200]]))
+            if _send("🤖 Claude", _truncate(body)):
+                _mark_sent(fp)
+            _sweep_unforwarded(transcript, session)
+            return 0
+
+    # 2) 降级：transcript 拼不到但有最终回复全文 → 只发最后一条（不丢不阻塞）
     if last_msg:
-        # 指纹基于内容 hash（截断后 200 字，避免超长 key）：同消息同 Stop 不重发；
-        # 与 transcript 路径指纹（md5(transcript|行号)）内容不同不会冲突
         fp = "A|" + _fp([transcript, last_msg[:200]])
         if fp in _load_sent():
             _sweep_unforwarded(transcript, session)
@@ -251,30 +299,7 @@ def handle_assistant(data: dict) -> int:
         _sweep_unforwarded(transcript, session)
         return 0
 
-    # 2) 回退：读 transcript 最后一条含文本的 assistant（兼容旧版/无该字段）
-    if not transcript or not os.path.exists(transcript):
-        _sweep_unforwarded(transcript, session)
-        return 0
-
-    line_no, text, stable = None, "", None
-    for _ in range(MAX_RETRY_READ):
-        line_no, text, stable = _last_assistant_text(transcript)
-        if text:
-            break
-        time.sleep(RETRY_SLEEP)
-
-    if text:
-        # 指纹用内容 hash(与补扫同公式), 避免回退路径与补扫各发一次(P2-1, 2026-08-12)
-        fp = "A|" + _fp([transcript, text[:200]])
-        if fp in _load_sent():
-            _sweep_unforwarded(transcript, session)
-            return 0
-        if _send("🤖 Claude", _truncate(text)):
-            _mark_sent(fp)
-        _sweep_unforwarded(transcript, session)
-        return 0
-
-    # 取不到正文：仅当 transcript 最后一条确为 assistant（真发生回复但无文本可提）
+    # 3) 取不到正文：仅当 transcript 最后一条确为 assistant（真发生回复但无文本可提）
     # 才发占位；transcript 空/未刷新时静默跳过（避免刷屏）。
     try:
         lines = Path(transcript).read_text(encoding="utf-8").splitlines()
