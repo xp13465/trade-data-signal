@@ -7980,12 +7980,16 @@ async function renderSigKellyLab() {
     } catch (e) {}
     var _aiBuildReviews = function(mode) {
       var list = mode === 'dual' ? _aiReviewsDual : _aiReviews3ai;
-      var html = '<div class="lab-sigkelly-ai-switch">' +
+      // 单一根容器 lab-sigkelly-ai-wrap(2026-08-12 fix): 切换条 + 报告块必须同在一个根下,
+      //   初始渲染/切换渲染都取 firstElementChild=wrap, 否则只取到切换条、报告块被丢弃(3AI改造回退 bug)。
+      //   切换条(.lab-sigkelly-ai-switch)在上, 报告块(.lab-sigkelly-ai-review)在下。
+      var html = '<div class="lab-sigkelly-ai-wrap">' +
+        '<div class="lab-sigkelly-ai-switch">' +
         '<span class="lab-sigkelly-ai-switch-label">AI 报告版本:</span>' +
         '<button type="button" class="lab-sigkelly-ai-switch-btn' + (mode === '3ai' ? ' active' : '') + '" data-mode="3ai">3AI 新版</button>' +
         '<button type="button" class="lab-sigkelly-ai-switch-btn' + (mode === 'dual' ? ' active' : '') + '" data-mode="dual">双AI 历史</button>' +
-        '</div>';
-      html += '<div class="lab-sigkelly-ai-review">';
+        '</div>' +
+        '<div class="lab-sigkelly-ai-review">';
       for (var i = 0; i < list.length; i++) {
         var r = list[i];
         var _aiContent = KELLY_REVIEW_NOTES[r.key] || '';
@@ -7997,6 +8001,7 @@ async function renderSigKellyLab() {
         html += '</details>';
       }
       html += '</div>';
+      html += '</div>'; // close lab-sigkelly-ai-wrap
       return html;
     };
     var _aiBindSwitch = function(container) {
