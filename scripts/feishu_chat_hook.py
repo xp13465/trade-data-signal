@@ -47,6 +47,12 @@ FEISHU_CHAT_KEY = "agent_done"  # 开发群
 BODY_LIMIT = 1800  # 留余量给 subject/截断尾注（notify 内部还会截到 2000）
 MAX_RETRY_READ = 5  # assistant 模式等 transcript 刷新的重试次数
 RETRY_SLEEP = 0.3  # 秒
+# 不抄送的系统/定时 prompt 前缀(2026-08-12 主控定位): 主控 cron 轮询 prompt 会触发
+# UserPromptSubmit 被当"用户消息"抄送(飞书群出现"轮询"噪音); 用户真实消息盘中打断
+# (turn 运行中注入)反而不触发 UserPromptSubmit → 漏抄, 治漏抄靠 _sweep_unforwarded 补扫。
+SKIP_PROMPT_PREFIXES = ("轮询", "[cron", "[system", "[SYSTEM")
+# 补扫窗口: 只看 transcript 尾部最近 N 条(防首次接入时洪水补发历史消息)
+SWEEP_LINES = 120
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -146,11 +152,65 @@ def _last_assistant_text(transcript_path: str):
     return None, "", None
 
 
+# ---------------------------------------------------------------- 补扫
+def _sweep_unforwarded(transcript_path: str, session: str = ""):
+    """补扫 transcript 尾部最近消息，抄送"尚无独立 hook 事件"的 user/assistant 文本。
+
+    根因(2026-08-12 主控定位): 主控长 turn(盘中用户打断/cron 轮询注入)期间无 Stop 事件，
+    UserPromptSubmit 也只在该次 prompt 触发——用户真实消息/我的回复若落在长 turn 内，
+    永远等不到属于自己的 hook 事件 → 漏抄(飞书群只有👤轮询噪音、缺用户真实句和🤖回复)。
+    每次任意 hook 触发(用户新句/轮询/回复)后顺带补扫，把窗口内未抄送的补上。
+    指纹与主 handler 同公式(session+transcript+内容)，互斥去重不重发；轮询前缀不补扫。
+    """
+    if not transcript_path or not os.path.exists(transcript_path):
+        return
+    try:
+        lines = Path(transcript_path).read_text(encoding="utf-8").splitlines()
+    except Exception as e:
+        _log(f"补扫读 transcript 失败: {e}")
+        return
+    for ln in lines[-SWEEP_LINES:]:
+        try:
+            rec = json.loads(ln)
+        except Exception:
+            continue
+        if not isinstance(rec, dict):
+            continue
+        if rec.get("type") == "user":
+            msg = rec.get("message")
+            if not isinstance(msg, dict):
+                continue
+            c = msg.get("content")
+            txt = c.strip() if isinstance(c, str) else ""
+            if not txt or txt.startswith(SKIP_PROMPT_PREFIXES):
+                continue
+            fp = "U|" + _fp([session, transcript_path, txt])
+            if fp in _load_sent():
+                continue
+            if _send("👤 用户", _truncate(txt)):
+                _mark_sent(fp)
+        elif rec.get("type") == "assistant":
+            msg = rec.get("message")
+            if not isinstance(msg, dict):
+                continue
+            txt = _extract_text(msg.get("content"))
+            if not txt:
+                continue
+            fp = "A|" + _fp([transcript_path, txt[:200]])
+            if fp in _load_sent():
+                continue
+            if _send("🤖 Claude", _truncate(txt)):
+                _mark_sent(fp)
+
+
 # ---------------------------------------------------------------- 两种模式
 def handle_user(data: dict) -> int:
     """UserPromptSubmit：stdin JSON 的 prompt 字段 = 用户消息正文。"""
     prompt = (data.get("prompt") or "").strip()
     if not prompt:
+        return 0
+    # cron 轮询/系统注入 prompt 不抄送(2026-08-12): 主控定时轮询会被当"用户消息"误抄
+    if prompt.startswith(SKIP_PROMPT_PREFIXES):
         return 0
     session = data.get("session_id") or ""
     transcript = data.get("transcript_path") or ""
@@ -160,6 +220,8 @@ def handle_user(data: dict) -> int:
         return 0
     if _send("👤 用户", _truncate(prompt)):
         _mark_sent(fp)
+    # 顺带补扫：长 turn 内被注入的用户消息/我的回复可能无独立 hook 事件 → 补抄
+    _sweep_unforwarded(transcript, session)
     return 0
 
 
@@ -173,6 +235,7 @@ def handle_assistant(data: dict) -> int:
     则 MAX_RETRY_READ 内读不到 → 静默跳过 → assistant 不抄送（开发群只有👤缺🤖）。
     last_assistant_message 由 Claude Code 侧确保为最终回复全文，根治该漏抄。"""
     transcript = data.get("transcript_path") or ""
+    session = data.get("session_id") or ""
 
     # 1) 新版 payload 直接带最终回复全文 → 直接用（最稳，不依赖 transcript 状态）
     last_msg = (data.get("last_assistant_message") or "").strip()
@@ -181,13 +244,16 @@ def handle_assistant(data: dict) -> int:
         # 与 transcript 路径指纹（md5(transcript|行号)）内容不同不会冲突
         fp = "A|" + _fp([transcript, last_msg[:200]])
         if fp in _load_sent():
+            _sweep_unforwarded(transcript, session)
             return 0
         if _send("🤖 Claude", _truncate(last_msg)):
             _mark_sent(fp)
+        _sweep_unforwarded(transcript, session)
         return 0
 
     # 2) 回退：读 transcript 最后一条含文本的 assistant（兼容旧版/无该字段）
     if not transcript or not os.path.exists(transcript):
+        _sweep_unforwarded(transcript, session)
         return 0
 
     line_no, text, stable = None, "", None
@@ -200,9 +266,11 @@ def handle_assistant(data: dict) -> int:
     if text:
         fp = "A|" + _fp([transcript, str(stable or line_no)])
         if fp in _load_sent():
+            _sweep_unforwarded(transcript, session)
             return 0
         if _send("🤖 Claude", _truncate(text)):
             _mark_sent(fp)
+        _sweep_unforwarded(transcript, session)
         return 0
 
     # 取不到正文：仅当 transcript 最后一条确为 assistant（真发生回复但无文本可提）
@@ -217,6 +285,7 @@ def handle_assistant(data: dict) -> int:
         if fp not in _load_sent():
             if _send("🤖 Claude", "[已回复（正文取不到）]"):
                 _mark_sent(fp)
+    _sweep_unforwarded(transcript, session)
     return 0
 
 
