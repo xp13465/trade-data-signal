@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260812-a162';  // bump a161->a162: #18 推荐区A/F/G三玩法实时并列(峰值资金收益率+最大持仓+所需最小本金) + J1/J2/yearEnd AI宏边际口径修正 + 累计列更名(2026-08-12)
+const CACHE_VERSION = 'v6-20260812-a163';  // bump a162->a163: #18 F1 披露文字修正 - A/F/G三玩法表固定全周期all口径,「最后结果」卡随周期切换切「全部」才同值(2026-08-12)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
