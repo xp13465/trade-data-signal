@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260813-a167';  // bump a166->a167 feat(kelly-pos-rating) AI仓位建议K档位评级标注+hover评级理由表格(lab.min.js/lab.min.css)(2026-08-13)
+const CACHE_VERSION = 'v6-20260813-a168';  // bump a167->a168 fix(kelly-ai-bind): _aiBindSwitch null deref — appendChild 移走节点后重读 firstElementChild=null 致凯利页空白(lab.min.js)(2026-08-13)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

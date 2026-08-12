@@ -8020,9 +8020,10 @@ async function renderSigKellyLab() {
     };
     var _aiDiv = document.createElement('div');
     _aiDiv.innerHTML = _aiBuildReviews(_aiMode);
-    if (_aiDiv.firstElementChild) {
-      wrapper.appendChild(_aiDiv.firstElementChild);
-      _aiBindSwitch(_aiDiv.firstElementChild);
+    var _aiWrap = _aiDiv.firstElementChild;
+    if (_aiWrap) {
+      wrapper.appendChild(_aiWrap);
+      _aiBindSwitch(_aiWrap);
     }
   }
 
