@@ -184,6 +184,10 @@
 - **验收口径**:实施方案 agent 自验须含「同模式/同数据源/同组件还被谁用+相关展示位清单+逐项覆盖结果」,不只做用户点名处;reviewer 查举一反三覆盖,漏=验收不过
 - 防重犯:①需求理解/方案阶段先列"同类消费点/相关展示位"清单,不全员覆盖不实施 ②只做用户点名处=违反本规范,先确认是否有同模式其他位置 ③与 §23.2 修bug三铁律③(排查同类)同源,一为正(修bug排查已坏同类)一为前(做方案覆盖未做同类)
 
+### 23.4 团队协作:开发任务先查"已落档未开发功能"+ 同模块冲突预防(2026-08-12 用户定)
+**核心**:多子 agent 是一个团队,开工前先查 `docs/pending-features-index.md` 同模块项+预留位置;同模块多任务不许"后覆盖前",冲突/依赖/过时**一开始就暴露**上报主控;待办开干前对账现状。
+→ 全文按角色归属:实施层 `.claude/skills/role-implementer/SKILL.md §8 团队协作`(实施视角核心)、reviewer 验收口径 `.claude/skills/role-reviewer/SKILL.md`、主控调度视角 `docs/main-governance.md`。**落档规范即时按角色分类(2026-08-12 用户定:记录经验/规范时就有分类思想,不靠后续整理再归类)**。
+
 ## 历史/约束归档引用(全文已归档,按需查)
 - **§10 切分支保护 DB**(2026-07-14 已根治):DB(sentiment.db/etf_national_team.db)已移出 git untracked,切分支不再污染;绝不能 `git restore/checkout -- data/sentiment.db`;同步 main 避免本地 checkout。原文全量见 docs/archive/CLAUDE-history.md
 - **§12 superpowers 融合规则**:superpowers skill 库优先级低于本文件;运维/采集/上线/数据任务明示跳过 brainstorming HARD-GATE + continuous-execution;大型功能开发可按需用全套。原文全量见 docs/archive/CLAUDE-history.md

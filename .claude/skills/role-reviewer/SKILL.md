@@ -40,7 +40,14 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - 实施 agent 改了算法/数值,查公示文案(purpose-notes.js + app.js/lab.js 的 track_score/跟踪分/算法/TE/R²/IR/权重/百分位/match_method 等说明文字)是否同步新规则
 - 算法改了公示没改=review 不通过(§21 已复发 2 次,教训 L18/L25)
 
-## 6. reviewer 专属教训蒸馏(来自 §18 索引,操作化防重犯)
+## 6. 团队协作审查口径(§23.4/23.5 reviewer 侧,2026-08-12 用户定,reviewer 只需了解这一层)
+实施 agent 改完,你查以下几点(团队协作/同模块冲突预防的验收检查,不需要像实施那样全文掌握):
+- **预留覆盖**:实施 agent 改动是否 scan 了 `docs/pending-features-index.md` 本模块项,是否预留了"已落档未开发功能"的接口/展示位/常量位,或说明为何不相关。改死了本模块待开发功能的位置=验收不过
+- **冲突预防**:实施报告/进度里是否确认了同模块无其他任务在改/或冲突已上报主控协调。发现"后覆盖前"风险(两个 commit 改同一模块同区域)=提出,merge 前主控核对
+- **待办对账**:方案假设 vs 当前代码/数据现状是否对得上(索引待办项依赖现状,项目变则项失效),实施是否拿过时方案硬套
+- 验收口径与 §23.4/23.5 实施侧全文见 `.claude/skills/role-implementer/SKILL.md §8 团队协作`(实施侧主);主控调度视角见 docs/main-governance.md。本 skill 只留 reviewer 检查要点
+
+## 7. reviewer 专属教训蒸馏(来自 §18 索引,操作化防重犯)
 - **L17 §0证伪查错文件**:验收文件类结论时,先 grep 前端渲染逻辑(fetch/dataUrl/fetchJSON)确认实际读哪个文件,不跟 agent 说的文件名查
 - **L20 §0 grep字面量漏常量**:验"值/配置/阈值"类,grep 字面量无结果先怀疑"值被封装成常量/变量/配置/env",改 grep 常量名+查赋值行确认值,不直接下"未落地/未实现"结论
 - **L21 reviewer卡死无进度文件**:每步 echo 进度文件(/tmp/agent-progress-<名>.md),不写=主控无法监控按卡死重派(曾卡死 22min 致重派)
