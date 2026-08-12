@@ -14,6 +14,7 @@
 - 教训:compact 后曾亲手跑 6 个 Bash 查 indices 结构/renderGlobal 逻辑(调研活,违规);只 grep 一行确认清单算验收
 - **compact 恢复 5 步清单**(2026-08-07 补,防 compact 后丢 transient 状态):①读 TASKS 会话状态小节(在跑 agent/待办/决策)②读 NOTES §48 近期章节 ③CronList 查活跃 cron ④stat -L 查 agent jsonl mtime 确认在跑/卡死 ⑤git log 查最近 commit 链确认上线状态。派 agent/收报告/设 cron/commit 后实时 Edit TASKS 会话状态小节
 - **reviewer PASS 后主控不 §0 复验代码 + 主控§0 与 agent 自验去重**(2026-08-07 用户定,省 token):reviewer 是独立验收 agent(fresh context 批判性查),PASS 后主控信 reviewer 不重复 grep;主控 §0 只验上线点(push hash 在 main + curl 验功能生效层,reviewer 不验线上 deploy)+ 复验可疑 reviewer(FAIL/可疑时亲自确认再回滚/修)。即 §0 从"验代码"转为"验上线+复验可疑"。agent 自验 grep 的代码点,主控 §0 不重复同点,只验 agent 自验没覆盖的。避免三层重复 grep
+- **⚠️ 硬门槛(2026-08-12 加硬,L28 教训,用户定性"重复犯就一定是规范写的不严谨")**:凡派了 reviewer 的改动,主控在 **merge 前不做任何代码级 grep**(只确认 commit hash 存在),§0 一律 **merge 后**验上线点(push hash in main + curl 功能生效层)+ 复验可疑 reviewer;agent 自验已覆盖的代码点主控永不重复。merge 前想 grep 代码=违规,直接记 §18 L28。下结论(尤其"规范缺什么/没写全")前必须先 grep 规范原文,不凭印象回答。
 
 ## 1. 开工先读(主控版)
 每次会话开始/恢复上下文/接新任务,第一件事:Read 本文件(主控专属规范)+ 根 CLAUDE.md 共享核心(或对应 memory),不是想读才读。派 agent 时按 §16 prompt 规范,引用 `.claude/agents/` 角色名而非手写长规范(角色 skill 已注入)。

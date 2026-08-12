@@ -40,7 +40,7 @@
 用户定:慢慢积累经验迭代完美。每次犯错记录于此 + 防重犯条款,不重犯同类。**明细原文全量已归档 `docs/archive/CLAUDE-errors-2026-08.md`(27 过错+22 经验+5 token 段+每日归纳,可 git show 溯源),本节约索引+防重犯精华。**
 
 ### 过错索引(27 条:锚点 id|日期|主题|一句话防重犯|归档原文位置)
-> 锚点 id = `docs/archive/CLAUDE-errors-2026-08.md` 末尾「防重犯锚点索引」块,`grep 锚点id` 可反向追原文(含根因+场景+防重犯)。零丢失校验:`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-2026-08.md` == 本表行数(27)。
+> 锚点 id = `docs/archive/CLAUDE-errors-2026-08.md` 末尾「防重犯锚点索引」块,`grep 锚点id` 可反向追原文(含根因+场景+防重犯)。零丢失校验:`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-2026-08.md` == 本表行数(28)。
 > 移动去向:§11→docs/main-governance.md、§15→reviewer skill+governance、§21→implementer skill、§22/§23.x→根共享核心、§8三查→根+implementer skill、§14→根摘要+implementer skill。
 
 | 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
@@ -72,6 +72,7 @@
 | L25 | 08-11 | J1/J2 §21公示复发 | →§21强化款(已复发2次) | archive:L82 |
 | L26 | 08-11 | hooks误报"还没生效" | 判断生效先查运行证据 | archive:L83 |
 | L27 | 08-11 | hooks子agent输入也抄送 | hooks区分主会话vs子agent | archive:L84 |
+| L28 | 08-12 | 主控§0抢跑在reviewer前重复验代码 | 派reviewer的改动merge前不grep代码(只验hash),§0只验上线点,下结论先查规范原文 | archive:L94 |
 
 ### 已提炼防重犯条款引用清单(去重后正式条款位置)
 - cron 兜底/卡死/429/重派 → §11(governance) | 定时时点/push main 避开 → §14(根摘要+implementer skill) | reviewer 回归/改动分级 → §15(reviewer skill+governance) | 数据一致性+三步同步 → §22(根) | 算法公示 → §21(implementer skill 强化款) | §0 验常量 → memory verify-grep-constant-not-literal | 需求复述不扩展/举一反三 → §23.3(根) | 修bug三铁律 → §23.2(根) | README 维护 → §23.1(根)
