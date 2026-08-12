@@ -37,8 +37,8 @@
   <link rel="preload" href="./style.min.css?v=7918e6c0" as="style" onload="this.onload=null;this.rel='stylesheet'">
   <noscript><link rel="stylesheet" href="./style.min.css?v=7918e6c0"></noscript>
   <!-- lab.min.css 懒加载：首屏不用 lab- 类（仅 trade_sim 弹窗动态注入 .lab-win-bar 等 5 个类），改 preload 异步加载省首屏阻塞 -->
-  <link rel="preload" href="./lab.min.css?v=df2c62df" as="style" onload="this.onload=null;this.rel='stylesheet'">
-  <noscript><link rel="stylesheet" href="./lab.min.css?v=df2c62df"></noscript>
+  <link rel="preload" href="./lab.min.css?v=48245c40" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="./lab.min.css?v=48245c40"></noscript>
 <!-- 防闪烁：CSS 加载后、body 渲染前读 localStorage 提前设 data-theme -->
 <script>
 (function(){
@@ -180,12 +180,12 @@
 
   <script src="./qr.js?v=1b721750"></script>
   <script defer src="./common.min.js?v=0544d3dc"></script>
-  <script defer src="./purpose-notes.min.js?v=f7647cf8"></script>
+  <script defer src="./purpose-notes.min.js?v=95bc2ff5"></script>
   <script defer src="./kelly-review-notes.min.js?v=3b7703f5"></script>
   <script defer src="./i18n.js?v=279ae6c4"></script>
   <script defer src="./app.min.js?v=54424fe7"></script>
   <!-- B5: lab.min.js 不再预加载，切到 lab tab/#lab 直链时由 app.js dynamic 注入 -->
-  <meta name="lab-asset-url" content="./lab.min.js?v=d6591f86">
+  <meta name="lab-asset-url" content="./lab.min.js?v=56149c59">
   <!-- P2-5: echarts.min.js 不再预加载（省 615KB 首屏 JS），renderTab 触发时由 app.js dynamic 注入 -->
   <meta name="echarts-asset-url" content="./vendor/echarts.min.js?v=b91b9de4">
 <!-- zz.bdstatic 百度站长已移到 inline-init.js（defer 统一外部化） -->

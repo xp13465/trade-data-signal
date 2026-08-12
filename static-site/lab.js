@@ -7242,17 +7242,19 @@ function _kellyBuildTradeDims(td, fIdx) {
   }
   return dims;
 }
-// 降亏过滤默认state(17 toggle, 默认全false=基准)
+// 降亏过滤默认state(默认最优组合, 2026-08-12用户定: "默认的最优组合要开启,用户看到的才是默认最好的"):
+// 默认开启 positionCap(每日只买最优K个,K=2) + 3个降亏推荐(A45 11月中下旬+追关注/A5 11月中旬+追关注/追关注×熊市交叉),
+// 其余降亏toggle默认false(数据证明负边际/过拟合, 见 docs/kelly-position-cap-k-sensitivity.md)
 function _kellyDefaultFilters() {
   return {
-    // round3新候选(11月系, 2026-08-10 verify验证: A45 5.75>A5 5.49)
-    a5NovMidSpecial: false, a45NovMidLateSpecial: false,
+    // round3新候选(11月系, 2026-08-10 verify验证: A45 5.75>A5 5.49); 默认开启A45/A5(11月追关注, 降亏推荐)
+    a5NovMidSpecial: true, a45NovMidLateSpecial: true,
     // v3新标志(比值>3, 按比值倒序: 10.06>6.63>5.87>5.24>4.67>4.18>4.02>3.35>3.31)
     n1MarTueHigh: false, n2NovSpecialIndustry: false, r8PureNonMay: false,
     n3NovSpecialMon: false, n4AMay: false, r7MayReinforced: false,
     n5MayVlow: false, n6MidMay: false, r10May6NonMay: false,
-    // 现有标志(比值<3, 按比值倒序: 2.52>2.31>2.11>1.38>1.24>1.14)
-    excludeAuxCross: false, excludeSpecialBear: false, excludeMonth: false,
+    // 现有标志(比值<3, 按比值倒序: 2.52>2.31>2.11>1.38>1.24>1.14); 默认开启排除追关注×熊市交叉(降亏推荐)
+    excludeAuxCross: false, excludeSpecialBear: true, excludeMonth: false,
     excludeAux: false, marketTiming: false, excludeRatingLow: false,
     // v4新标志(第一梯队: Greedy-7组合/V4-C简化/V4-B)
     greedy7: false, v4cSimple: false, v4b: false,
@@ -7262,8 +7264,8 @@ function _kellyDefaultFilters() {
     greedy15: false, v4f: false, v4g: false, v4m: false, v4k: false,
     // 1月调整(2026-08-11 元素级重组验证: 1月中旬(11-20日)+mid评级 / 1月中旬+追关注; 1月上旬=盈利口袋明确排除)
     janMidRating: false, janMidSpecial: false,
-    // positionCap 仓位控制过滤(2026-08-12): 同日只买最优K个(基笔级,模式之前统一生效), K可配置1-4默认2
-    positionCap: false, positionCapK: 2
+    // positionCap 仓位控制过滤(2026-08-12): 同日只买最优K个(基笔级,模式之前统一生效), K可配置1-4默认2; 默认开启
+    positionCap: true, positionCapK: 2
   };
 }
 
@@ -7600,9 +7602,9 @@ function _kellyMaxConcurrentCapital(trades) {
   }
   return Math.round(maxC * 10000) / 10000;
 }
-// 共享设置: positionCap 开关 + K 档位(交易页标灰联动, localStorage 双页共享; 默认 关闭/K=2)
+// 共享设置: positionCap 开关 + K 档位(交易页标灰联动, localStorage 双页共享; 默认 开启/K=2, 2026-08-12用户定默认最优组合要开启)
 function _kellySharedPosCap() {
-  var def = { on: false, k: 2 };
+  var def = { on: true, k: 2 };
   try {
     var raw = localStorage.getItem("tds_poscap");
     if (raw) { var p = JSON.parse(raw); if (typeof p.k === "number" && p.k >= 1 && p.k <= 4) def.k = p.k; def.on = !!p.on; }
@@ -7794,11 +7796,21 @@ async function _kellyApplyFeeRecompute(feeParams) {
             _kellyRecomputeCache.set(_t2, _c2);
           }
           var _yk = yearlyMap[_yr];
-          if (!_yk) { _yk = yearlyMap[_yr] = { profit: 0, n: 0, wins: 0, loss: 0 }; }
+          if (!_yk) { _yk = yearlyMap[_yr] = { profit: 0, n: 0, wins: 0, loss: 0, _trades: [] }; }
           _yk.profit += _c2.r.profit;
           _yk.n++;
           if (_c2.r.profit > 0) _yk.wins++; else _yk.loss++;
+          // 按年峰值资金收益率列(2026-08-12用户定): 收集该年交易(买/卖/金额), 聚合后算该年峰值同时持仓资金
+          _yk._trades.push({ buy_date: _t2[fIdx.buy_date] || "", sell_date: _t2[fIdx.sell_date] || "", amount: _amt2 });
         }
+      }
+      // 2026-08-12 按年峰值资金收益率 = 该年累计净盈亏 / 该年峰值同时持仓资金 × 100 (与卡面/建议面板 return_pct_max_holding 同口径, §22)
+      for (var _yy in yearlyMap) {
+        var _yv = yearlyMap[_yy];
+        var _mcc = _kellyMaxConcurrentCapital(_yv._trades);
+        _yv.peak_capital = _mcc;
+        _yv.peak_return_pct = _mcc > 0 ? Math.round(_yv.profit / _mcc * 100 * 10000) / 10000 : 0;
+        delete _yv._trades;
       }
       result.allYearly = yearlyMap;
     }
@@ -8025,11 +8037,13 @@ async function renderSigKellyLab() {
     state.labSigKellyFeePreset = "etf_def";
     state.labSigKellyFeeParams = { commission_rate: 0.0003, min_commission: 5, slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0 };
   }
-  // 降亏过滤toggle state(默认关闭, 显示原始全量数据)
+  // 降亏过滤toggle state(默认最优组合已开启: positionCap+A45/A5/追关注×熊市, 见 _kellyDefaultFilters)
   if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
   // 金额口径默认=每日资金池等分(基础正确逻辑, 2026-08-12); positionCap 开关/K 与交易页共享localStorage
   if (!state.labSigKellyAmountMode) state.labSigKellyAmountMode = "pool";
   var _sharedPC = _kellySharedPosCap();
+  // 2026-08-12 默认开启 positionCap(用户:默认最优组合要开启): 首次访问(无 tds_poscap)写入默认{on:true,k:2}, 与 app.js 首页联动一致(§22)
+  if (!localStorage.getItem("tds_poscap")) _kellySetSharedPosCap(true, 2);
   state.labSigKellyFilters.positionCap = !!(_sharedPC && _sharedPC.on);
   state.labSigKellyFilters.positionCapK = (_sharedPC && _sharedPC.k) || 2;
 
@@ -8157,7 +8171,7 @@ function _renderSigKellyBar(bar, data, period) {
   ).join("");
   const positionCapHTML =
     `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap"><span class="lab-sigkelly-toggle-tier">仓位控制过滤(同日只买最优K个·资金利用率)</span>` +
-    `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="仓位控制过滤=同日只买最优K个信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型buy_backup&gt;buy&gt;buy_aux&gt;buy_special→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。每日资金池口径回测(G模式): 关=每日池买全部 收益率38.28%/最大持仓171.7万; K=1 收益率48.88%最高+净利+78.7万+持仓161万三项全优; K=2(默认) 43.16%更分散+2021退化年抗跌; K≥3 趋同买全部无额外价值。与降亏同开仅推荐 a45NovMidLateSpecial/excludeSpecialBear; ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开/greedy广谱; B模式(3%止盈)每日池全负建议关。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}> 仓位控制过滤(每日只买最优K个) K:<span class="lab-sigkelly-kbtns">${_pcKbtns}</span> <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启,用户:默认的最优组合要开启): 仓位控制过滤=同日只买最优K个信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型buy_backup&gt;buy&gt;buy_aux&gt;buy_special→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。每日资金池口径回测(G模式): 关=每日池买全部 收益率38.28%/最大持仓171.7万; K=1 收益率48.88%最高+净利+78.7万+持仓161万三项全优; K=2(默认) 43.16%更分散+2021退化年抗跌; K≥3 趋同买全部无额外价值。与降亏同开仅推荐 a45NovMidLateSpecial/excludeSpecialBear; ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开/greedy广谱; B模式(3%止盈)每日池全负建议关。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> 仓位控制过滤(每日只买最优K个) K:<span class="lab-sigkelly-kbtns">${_pcKbtns}</span> <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
     `</div>`;
   // 金额口径(2026-08-12): 每日资金池等分(默认正确逻辑) vs 每笔固定(旧口径对比用)
   const _amountMode = state.labSigKellyAmountMode || "pool";
@@ -8171,8 +8185,8 @@ function _renderSigKellyBar(bar, data, period) {
       positionCapHTML +
       `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">组合降亏(预设宏·可叠加)</span>` + comboHTML + `</div>` +
       `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">round3 11月系(2026-08-10验证)</span>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="A45(11月中旬+下旬+追关注): 排除11日及以后(buy_date日≥11)的buy_special追关注交易。减亏5.54%/损盈0.96%/比值5.75。净增收+49.9万元(全场候选最大)。覆盖11月80%的special交易。叠加现有4 toggle之上边际+10.7万(比值7.87)。⚠含11月下旬(2024+零交易,近年贡献主要来自中旬)。"><input type="checkbox" class="lab-sigkelly-toggle-a45"${_filters.a45NovMidLateSpecial ? " checked" : ""}> A45 11月中下旬+追关注(5.75) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="A5(11月中旬+追关注): 排除11日-20日(中旬)的buy_special追关注交易。减亏3.62%/损盈0.66%/比值5.49。净增收+31.9万元。最稳候选:2016-2025连续有交易无空窗,4窗口(y2/y3/y5/y10)全>2。叠加现有4 toggle之上边际+7.7万(比值6.45)。注意:A5为A45(11月中下旬)的子集,同时开启A45时A5不再新增过滤。"><input type="checkbox" class="lab-sigkelly-toggle-a5"${_filters.a5NovMidSpecial ? " checked" : ""}> A5 11月中旬+追关注(5.49) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启,降亏推荐): A45(11月中旬+下旬+追关注): 排除11日及以后(buy_date日≥11)的buy_special追关注交易。减亏5.54%/损盈0.96%/比值5.75。净增收+49.9万元(全场候选最大)。覆盖11月80%的special交易。叠加现有4 toggle之上边际+10.7万(比值7.87)。⚠含11月下旬(2024+零交易,近年贡献主要来自中旬)。"><input type="checkbox" class="lab-sigkelly-toggle-a45"${_filters.a45NovMidLateSpecial ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> A45 11月中下旬+追关注(5.75) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启,降亏推荐): A5(11月中旬+追关注): 排除11日-20日(中旬)的buy_special追关注交易。减亏3.62%/损盈0.66%/比值5.49。净增收+31.9万元。最稳候选:2016-2025连续有交易无空窗,4窗口(y2/y3/y5/y10)全>2。叠加现有4 toggle之上边际+7.7万(比值6.45)。注意:A5为A45(11月中下旬)的子集,同时开启A45时A5不再新增过滤。"><input type="checkbox" class="lab-sigkelly-toggle-a5"${_filters.a5NovMidSpecial ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> A5 11月中旬+追关注(5.49) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `</div>` +
       `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">1月调整(元素级重组·2026-08-11)</span>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="J1(1月中旬+mid评级): 排除buy_date在11-20日(中旬)且rating=mid的1月交易。standalone减亏2.31%/损盈0.49%/比值4.71,净增收+18.7万,4窗口全>2(y1 4.0/y3 4.0/y5 4.2/y10 4.7),与现有标志90%不重叠,live4+现有之上边际+14.4万(n=1,026)。⚠附监控:maxSh0.62略超0.60(2026单年占净影响62%,全局大亏年系统性特征),每年1月后检查1月中旬子集是否转盈。只做中旬:1月上旬=盈利口袋(全负-56万)不可动。"><input type="checkbox" class="lab-sigkelly-toggle-janmidrating"${_filters.janMidRating ? " checked" : ""}> J1 1月中旬+mid评级(4.71)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
@@ -8205,7 +8219,7 @@ function _renderSigKellyBar(bar, data, period) {
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-K(1月+主关注+高价)。比值10.11。净增收+4.08万元。maxSh0.49。⚠有子集盈利年(2017/2025),3/5年净正非全正,稳定性不足。"><input type="checkbox" class="lab-sigkelly-toggle-v4k"${_filters.v4k ? " checked" : ""}> V4-K(10.11)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `</div><div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">比值&lt;3(广谱过滤)</span>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 buy_aux 信号在3/5月进场的交易（交叉标志）。减亏 7.3% / 损盈 2.9% / 比值 2.52（全场最高）。净增收 +25.8万元。最外科手术式标志，双条件交集更稳定。"><input type="checkbox" class="lab-sigkelly-toggle-auxcross"${_filters.excludeAuxCross ? " checked" : ""}> 辅关注×3/5月交叉(2.52) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 buy_special（追关注）信号在MA60熊市的交易（交叉标志）。减亏 8.3% / 损盈 3.6% / 比值 2.31。净增收 +26.5万元。追涨信号在熊市是经典反模式（追涨被套），buy_special整体净正但在熊市净亏。"><input type="checkbox" class="lab-sigkelly-toggle-specialbear"${_filters.excludeSpecialBear ? " checked" : ""}> 追关注×熊市交叉(2.31) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启,降亏推荐): 排除 buy_special（追关注）信号在MA60熊市的交易（交叉标志）。减亏 8.3% / 损盈 3.6% / 比值 2.31。净增收 +26.5万元。追涨信号在熊市是经典反模式（追涨被套），buy_special整体净正但在熊市净亏。"><input type="checkbox" class="lab-sigkelly-toggle-specialbear"${_filters.excludeSpecialBear ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> 追关注×熊市交叉(2.31) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="季节性过滤，排除3月和5月进场的交易。减亏 18.4% / 损盈 8.7% / 比值 2.11。净增收 +52.8万元。历史6年3/5月亏多盈少可能过拟合。"><input type="checkbox" class="lab-sigkelly-toggle-month"${_filters.excludeMonth ? " checked" : ""}> 排除3+5月(季节性)(2.11) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 buy_aux（辅关注）信号。减亏 34.5%（253.6万元）/ 损盈 25.0%（238.7万元）/ 比值 1.38。净增收 +14.8万元。唯一净负信号类型（胜率48%），系统性最强。"><input type="checkbox" class="lab-sigkelly-toggle-aux"${_filters.excludeAux ? " checked" : ""}> 排除辅关注(1.38) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="MA60 大盘择时（仅A股类 a/concept/industry）：沪深300在60日均线之上才进场。减亏 47.0%（345.6万元）/ 损盈 37.8%（360.5万元）/ 比值 1.24。净影响 -14.9万元（降亏强但损盈更多，全模式净负）。港股/全球标 true 不过滤。"><input type="checkbox" class="lab-sigkelly-toggle-mkt"${_filters.marketTiming ? " checked" : ""}> MA60大盘择时(1.24) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
@@ -8508,6 +8522,7 @@ function _kellyComboAdviceHtml() {
   return (
     `<div class="lab-sigkelly-advice">` +
       `<div class="lab-sigkelly-advice-title">🎯 降亏组合使用建议（真实回测 · 4 组合全开 · 金额口径=每笔固定 1 万(旧口径·静态) · 全信号 66,726 笔）</div>` +
+      `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">默认最优组合已开启（2026-08-12 用户定"默认的最优组合要开启"）：仓位控制过滤（每日只买最优K个，K=2）+ A45 11月中下旬+追关注 + A5 11月中旬+追关注 + 追关注×熊市交叉，其余降亏 toggle 默认关（数据证明负边际/过拟合）。下方「最后结果」全信号表即按此默认组合实时计算。</div>` +
       `<details class="lab-sigkelly-advice-details">` +
         `<summary>① 4 个组合全开怎么样？（年末季节 + 稳健核心 + 最大化降亏 + 1月调整）</summary>` +
         `<div class="lab-sigkelly-advice-body">` +
@@ -8559,7 +8574,10 @@ function _sigKellyAllSignalGroupHtml(period) {
     const cumStr = (yCum >= 0 ? "+" : "") + yCum.toFixed(0);
     const yCls = v.profit >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
     const yCumCls = yCum >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
-    yRows += `<tr><td>${y}</td><td>${v.n}</td><td class="${yCls}">${profStr}元</td><td class="${yCumCls}">${cumStr}元</td><td>${wr}</td></tr>`;
+    // 按年峰值资金收益率列(2026-08-12): =该年累计净盈亏/该年峰值同时持仓资金×100, 与卡面/建议面板口径一致(§22)
+    const yPeakStr = v.peak_return_pct != null ? v.peak_return_pct.toFixed(2) + "%" : "-";
+    const yPeakCls = v.peak_return_pct == null ? "" : (v.peak_return_pct >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg");
+    yRows += `<tr><td>${y}</td><td>${v.n}</td><td class="${yCls}">${profStr}元</td><td class="${yCumCls}">${cumStr}元</td><td>${wr}</td><td class="${yPeakCls}" title="=该年累计净盈亏/该年峰值同时持仓资金">${yPeakStr}</td></tr>`;
   }
   return (
     `<div class="lab-sigkelly-group lab-sigkelly-all-group">` +
@@ -8570,7 +8588,7 @@ function _sigKellyAllSignalGroupHtml(period) {
         `<div class="lab-sigkelly-all-yearly lab-sigkelly-all-yearly-block">` +
           `<div class="lab-sigkelly-all-sub">按年窗口增长（全信号 · 当前降亏组合实时）</div>` +
           `<div class="lab-sigkelly-table-scroll"><table class="lab-sigkelly-table lab-sigkelly-yearly-table">` +
-            `<thead><tr><th>年份</th><th>笔数</th><th>净盈亏(元)</th><th>累计(元)</th><th>胜率</th></tr></thead>` +
+            `<thead><tr><th>年份</th><th>笔数</th><th>净盈亏(元)</th><th>累计(元)</th><th>胜率</th><th title="=该年累计净盈亏/该年峰值同时持仓资金×100, 与卡面/建议面板峰值资金收益率同口径">峰值资金<br>收益率</th></tr></thead>` +
             `<tbody>${yRows}</tbody>` +
           `</table></div>` +
         `</div>` +
@@ -9158,13 +9176,20 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
     return true;
   });
 
+  // 2026-08-12 需求B: 被降亏过滤/仓位控制淘汰的交易(显示+删除线灰化, 让用户看到"被淘汰了"而非只消失)
+  // 淘汰=未通过 _pcFadePasses(降亏toggle) 或 未被 positionCap 前K保留; 周期cutoff不算淘汰(原语义过滤)
+  let eliminated = rawTrades.filter(function (t) {
+    if (cutoff && cutoff !== "0" && (t[_fIdx.buy_date] || "") < cutoff) return false;
+    return !_pcFadePasses(t) || (_posCapKept && !_posCapKept[_kellyBaseKey(t, _fIdx)]);
+  });
+
   // 始终重算(含默认档)以获取费率消耗: 重算 profit/return_pct/fee_cost
   // 2026-08-12 每日资金池等分: 每笔金额 = 每日金额/当日信号数(与卡片统计口径一致 §22)
   var extFields;
   {
     const _buyAmount = td.buy_amount || (cfg.buy_amount) || 10000;
     const feeParams = state.labSigKellyFeeParams || { commission_rate: 0.0003, min_commission: 5, slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0 };
-    trades = trades.map((t) => {
+    const _recompute = (t) => {
       const _amt = _kellyPerTradeAmount(t, _fIdx, _buyAmount, _amountMode, _countByDate);
       const r = _kellyRecomputeTrade(t, _fIdx, feeParams, _amt);
       const newT = t.slice();
@@ -9173,24 +9198,29 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
       newT.push(r.fee_cost); // fee_cost 作为额外元素追加到数组末尾
       newT.push(_amt); // amount 作为额外元素追加(资金池口径每笔金额展示)
       return newT;
-    });
+    };
+    trades = trades.map(_recompute);
+    eliminated = eliminated.map(_recompute);
     extFields = fields.concat(["fee_cost", "amount"]);
   }
 
   // 渲染 modal(新开弹窗重置到第 1 页)
   state._sigKellyTradePage = 1;
-  _renderSigKellyTradesModal(overlay, trades, extFields, quadLabel, modeLabel, period, quadKey, modeKey);
+  state._sigKellyElimPage = 1;
+  _renderSigKellyTradesModal(overlay, trades, extFields, quadLabel, modeLabel, period, quadKey, modeKey, eliminated);
 }
 
-function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabel, period, quadKey, modeKey) {
+function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabel, period, quadKey, modeKey, eliminated) {
   const fIdx = {};
   fields.forEach((f, i) => { fIdx[f] = i; });
   // 排序/筛选状态
   if (!state._sigKellyTradeSort) state._sigKellyTradeSort = { key: "buy_date", dir: -1 };
   if (!state._sigKellyTradeFilter) state._sigKellyTradeFilter = { etf: "", profit: "all" };
   if (!state._sigKellyTradePage) state._sigKellyTradePage = 1;
+  if (!state._sigKellyElimPage) state._sigKellyElimPage = 1;
   const sort = state._sigKellyTradeSort;
   const filter = state._sigKellyTradeFilter;
+  eliminated = eliminated || [];
 
   const colDefs = [
     { key: "index_id", label: "触发信号", sortable: true },
@@ -9255,61 +9285,77 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     const page = state._sigKellyTradePage;
     const pageRows = filtered.slice((page - 1) * perPage, page * perPage);
 
+    // 行渲染(正常/被淘汰共用, 2026-08-12 需求B): 返回 td 拼接, 外层 tr class 由调用方决定
+    const _rowHtml = (t) => {
+      const pf = t[fIdx.profit] || 0;
+      const rp = t[fIdx.return_pct] || 0;
+      const pfCls = pf >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
+      const isHolding = !t[fIdx.sell_date]; // 持仓中trade(sell_date 空, 预估盈亏)
+      // 触发信号列: 指数名 + 信号标签
+      const iid = t[fIdx.index_id] || "";
+      const sig = t[fIdx.signal] || "";
+      const sigCell = indexIdToName(iid) + '<br><span class="lab-sigkelly-siglabel">' + signalLabel({ signal: sig }) + '</span>';
+      // ETF关系列: 信号灯圆点 + 档位标签 + 跟踪分
+      const etfRel = (function () {
+        const etf = {
+          match_method: t[fIdx.match_method],
+          track_tier: t[fIdx.track_tier],
+          track_score: t[fIdx.track_score],
+          track_low_confidence: t[fIdx.track_low_confidence],
+        };
+        const light = _etfLightInfo(etf);
+        const scoreStr = (typeof etf.track_score === "number") ? Math.round(etf.track_score) : "-";
+        return '<span class="etf-light ' + light.cls + '"></span> ' + light.label + ' ' + scoreStr;
+      })();
+      // 持仓中trade 特殊渲染: 卖出日=持仓中标签 / 卖价=当前价+预估 / 收益率=预估前缀+虚线斜体 / 原因=持有中X天
+      const sellDateCell = isHolding
+        ? `<td><span class="lab-sigkelly-holding-tag">持仓中</span></td>`
+        : `<td>${t[fIdx.sell_date]}</td>`;
+      const _cpIdx = fIdx.current_price;
+      const sellPriceCell = isHolding
+        ? `<td class="lab-sigkelly-est">${(+(_cpIdx != null ? t[_cpIdx] : 0)).toFixed(4)}<span class="lab-sigkelly-est-tag">预估</span></td>`
+        : `<td>${(+t[fIdx.sell_price]).toFixed(4)}</td>`;
+      const profitCell = isHolding
+        ? `<td class="${pfCls} lab-sigkelly-est">${(pf >= 0 ? "+" : "") + pf.toFixed(2)}</td>`
+        : `<td class="${pfCls}">${(pf >= 0 ? "+" : "") + pf.toFixed(2)}</td>`;
+      const returnCell = isHolding
+        ? `<td class="${pfCls} lab-sigkelly-est">预估${(rp >= 0 ? "+" : "") + rp.toFixed(2)}%</td>`
+        : `<td class="${pfCls}">${(rp >= 0 ? "+" : "") + rp.toFixed(2)}%</td>`;
+      const reasonCell = isHolding
+        ? `<td>${t[fIdx.sell_reason] || "持有中"} ${t[fIdx.hold_days]}天</td>`
+        : `<td>${t[fIdx.sell_reason]}</td>`;
+      return `<td class="lab-sigkelly-trades-sigcell">${sigCell}</td>` +
+        `<td>${t[fIdx.buy_date]}</td>${sellDateCell}` +
+        `<td class="lab-sigkelly-trades-etfrel">${etfRel}</td>` +
+        `<td>${t[fIdx.etf_code]}</td><td class="lab-sigkelly-trades-etfname">${t[fIdx.etf_name]}</td>` +
+        `<td>${(+t[fIdx.buy_price]).toFixed(4)}</td>${sellPriceCell}` +
+        `<td>${(+t[fIdx.shares]).toFixed(2)}</td>` +
+        `<td class="lab-sigkelly-amt">${(t[fIdx.amount] != null ? (+t[fIdx.amount]).toLocaleString() : "-")}</td>` +
+        profitCell + returnCell +
+        `<td class="lab-sigkelly-neg lab-sigkelly-fee">${(t[fIdx.fee_cost] != null ? "-" + (+t[fIdx.fee_cost]).toFixed(2) : "-")}</td>` +
+        `<td>${t[fIdx.hold_days]}</td>${reasonCell}`;
+    };
     let tbodyHTML = "";
     if (pageRows.length === 0) {
       tbodyHTML = `<tr><td colspan="15" class="lab-sigkelly-trades-more">无符合条件的交易记录</td></tr>`;
     } else {
       for (const t of pageRows) {
-        const pf = t[fIdx.profit] || 0;
-        const rp = t[fIdx.return_pct] || 0;
-        const pfCls = pf >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
-        const isHolding = !t[fIdx.sell_date]; // 持仓中trade(sell_date 空, 预估盈亏)
-        // 触发信号列: 指数名 + 信号标签
-        const iid = t[fIdx.index_id] || "";
-        const sig = t[fIdx.signal] || "";
-        const sigCell = indexIdToName(iid) + '<br><span class="lab-sigkelly-siglabel">' + signalLabel({ signal: sig }) + '</span>';
-        // ETF关系列: 信号灯圆点 + 档位标签 + 跟踪分
-        const etfRel = (function () {
-          const etf = {
-            match_method: t[fIdx.match_method],
-            track_tier: t[fIdx.track_tier],
-            track_score: t[fIdx.track_score],
-            track_low_confidence: t[fIdx.track_low_confidence],
-          };
-          const light = _etfLightInfo(etf);
-          const scoreStr = (typeof etf.track_score === "number") ? Math.round(etf.track_score) : "-";
-          return '<span class="etf-light ' + light.cls + '"></span> ' + light.label + ' ' + scoreStr;
-        })();
-        // 持仓中trade 特殊渲染: 卖出日=持仓中标签 / 卖价=当前价+预估 / 收益率=预估前缀+虚线斜体 / 原因=持有中X天
-        const sellDateCell = isHolding
-          ? `<td><span class="lab-sigkelly-holding-tag">持仓中</span></td>`
-          : `<td>${t[fIdx.sell_date]}</td>`;
-        const _cpIdx = fIdx.current_price;
-        const sellPriceCell = isHolding
-          ? `<td class="lab-sigkelly-est">${(+(_cpIdx != null ? t[_cpIdx] : 0)).toFixed(4)}<span class="lab-sigkelly-est-tag">预估</span></td>`
-          : `<td>${(+t[fIdx.sell_price]).toFixed(4)}</td>`;
-        const profitCell = isHolding
-          ? `<td class="${pfCls} lab-sigkelly-est">${(pf >= 0 ? "+" : "") + pf.toFixed(2)}</td>`
-          : `<td class="${pfCls}">${(pf >= 0 ? "+" : "") + pf.toFixed(2)}</td>`;
-        const returnCell = isHolding
-          ? `<td class="${pfCls} lab-sigkelly-est">预估${(rp >= 0 ? "+" : "") + rp.toFixed(2)}%</td>`
-          : `<td class="${pfCls}">${(rp >= 0 ? "+" : "") + rp.toFixed(2)}%</td>`;
-        const reasonCell = isHolding
-          ? `<td>${t[fIdx.sell_reason] || "持有中"} ${t[fIdx.hold_days]}天</td>`
-          : `<td>${t[fIdx.sell_reason]}</td>`;
-        const rowCls = isHolding ? "lab-sigkelly-holding-row" : "";
-        tbodyHTML += `<tr class="${rowCls}">` +
-          `<td class="lab-sigkelly-trades-sigcell">${sigCell}</td>` +
-          `<td>${t[fIdx.buy_date]}</td>${sellDateCell}` +
-          `<td class="lab-sigkelly-trades-etfrel">${etfRel}</td>` +
-          `<td>${t[fIdx.etf_code]}</td><td class="lab-sigkelly-trades-etfname">${t[fIdx.etf_name]}</td>` +
-          `<td>${(+t[fIdx.buy_price]).toFixed(4)}</td>${sellPriceCell}` +
-          `<td>${(+t[fIdx.shares]).toFixed(2)}</td>` +
-          `<td class="lab-sigkelly-amt">${(t[fIdx.amount] != null ? (+t[fIdx.amount]).toLocaleString() : "-")}</td>` +
-          profitCell + returnCell +
-          `<td class="lab-sigkelly-neg lab-sigkelly-fee">${(t[fIdx.fee_cost] != null ? "-" + (+t[fIdx.fee_cost]).toFixed(2) : "-")}</td>` +
-          `<td>${t[fIdx.hold_days]}</td>${reasonCell}` +
-        `</tr>`;
+        const rowCls = (!t[fIdx.sell_date]) ? "lab-sigkelly-holding-row" : "";
+        tbodyHTML += `<tr class="${rowCls}">${_rowHtml(t)}</tr>`;
+      }
+    }
+    // 被淘汰交易区块(2026-08-12 需求B): 被降亏过滤/仓位控制淘汰的交易显示+删除线灰化, 独立分页(不计入统计口径)
+    let elimTbody = "";
+    let elimTotalPages = 1;
+    if (eliminated.length > 0) {
+      const elimPerPage = 50;
+      elimTotalPages = Math.max(1, Math.ceil(eliminated.length / elimPerPage));
+      if (state._sigKellyElimPage > elimTotalPages) state._sigKellyElimPage = elimTotalPages;
+      if (state._sigKellyElimPage < 1) state._sigKellyElimPage = 1;
+      const elimPageRows = eliminated.slice((state._sigKellyElimPage - 1) * elimPerPage, state._sigKellyElimPage * elimPerPage);
+      for (const t of elimPageRows) {
+        const elimRowCls = ((!t[fIdx.sell_date]) ? "lab-sigkelly-holding-row" : "") + " lab-sigkelly-eliminated-row";
+        elimTbody += `<tr class="${elimRowCls}">${_rowHtml(t)}</tr>`;
       }
     }
 
@@ -9327,6 +9373,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
           `<span>总盈亏 ${(totalProfit >= 0 ? "+" : "") + totalProfit.toFixed(0)} 元</span>` +
           `<span class="lab-sigkelly-neg">费率消耗 -${totalFeeCost.toFixed(0)} 元</span>` +
           (holdingCount > 0 ? `<span class="lab-sigkelly-holding-stat">含 ${holdingCount} 笔预估</span>` : "") +
+          (eliminated.length > 0 ? `<span class="lab-sigkelly-elim-stat">⚠ 被降亏/仓位控制淘汰 ${eliminated.length} 笔(删除线,不计入统计)</span>` : "") +
         `</div>` +
         `<div class="lab-sigkelly-modal-filters">` +
           `<input type="text" class="lab-input lab-sigkelly-filter-etf" placeholder="筛选ETF名称/代码…" value="${filter.etf}">` +
@@ -9347,6 +9394,20 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
           `<span class="lab-sigkelly-page-info">第 ${page} / ${totalPages} 页(共 ${filtered.length} 笔)</span>` +
           `<button type="button" class="lab-sigkelly-page-next" ${page >= totalPages ? "disabled" : ""}>下一页 ›</button>` +
         `</div>` +
+        (eliminated.length > 0 ? (
+          `<div class="lab-sigkelly-modal-elimwrap">` +
+            `<div class="lab-sigkelly-modal-elimtitle">⚠ 被降亏/仓位控制淘汰的交易 ${eliminated.length} 笔（删除线=不参与统计,已从卡片/按年表剔除;仅在此展示对照哪些被淘汰）</div>` +
+            `<table class="lab-sigkelly-trades-table">` +
+              `<thead><tr>${thHTML}</tr></thead>` +
+              `<tbody>${elimTbody}</tbody>` +
+            `</table>` +
+            `<div class="lab-sigkelly-modal-pagination">` +
+              `<button type="button" class="lab-sigkelly-page-prev-elim" ${state._sigKellyElimPage <= 1 ? "disabled" : ""}>‹ 上一页</button>` +
+              `<span class="lab-sigkelly-page-info">第 ${state._sigKellyElimPage} / ${elimTotalPages} 页(共 ${eliminated.length} 笔)</span>` +
+              `<button type="button" class="lab-sigkelly-page-next-elim" ${state._sigKellyElimPage >= elimTotalPages ? "disabled" : ""}>下一页 ›</button>` +
+            `</div>` +
+          `</div>`
+        ) : "") +
       `</div>`;
 
     // 关闭
@@ -9391,6 +9452,15 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     const nextBtn = overlay.querySelector(".lab-sigkelly-page-next");
     if (nextBtn) {
       nextBtn.onclick = () => { state._sigKellyTradePage++; _render(); };
+    }
+    // 被淘汰交易分页(2026-08-12 需求B)
+    const elimPrevBtn = overlay.querySelector(".lab-sigkelly-page-prev-elim");
+    if (elimPrevBtn) {
+      elimPrevBtn.onclick = () => { if (state._sigKellyElimPage > 1) { state._sigKellyElimPage--; _render(); } };
+    }
+    const elimNextBtn = overlay.querySelector(".lab-sigkelly-page-next-elim");
+    if (elimNextBtn) {
+      elimNextBtn.onclick = () => { state._sigKellyElimPage++; _render(); };
     }
   }
 
