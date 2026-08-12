@@ -8215,7 +8215,7 @@ function _renderSigKellyBar(bar, data, period) {
       `<label>过户费:万分之<input type="number" class="lab-input lab-sigkelly-fee-input-transfer" value="${transferVal}" step="0.01" min="0" style="width:42px">(沪)</label>` +
       `<label>印花税:万分之<input type="number" class="lab-input lab-sigkelly-fee-input-stamp" value="${stampVal}" step="0.01" min="0" style="width:42px">(卖)</label>` +
     `</div>`;
-  // 降亏过滤toggle(31个独立checkbox可组合, 其中4个默认推荐(AI宏)常驻高亮+27个折叠收起, 开启后过滤交易集重算所有指标, 按比值倒序)
+  // 降亏过滤toggle(31个独立checkbox可组合, 其中7个默认推荐(AI宏)常驻高亮+24个折叠收起, 开启后过滤交易集重算所有指标, 按比值倒序)
   const _filters = state.labSigKellyFilters || _kellyDefaultFilters();
   // 组合降亏「预设宏」(4个, 2026-08-11新增): 组合checkbox勾选态由成员toggle派生
   const comboHTML = Object.keys(_kellyComboPresets).map((ck) => {
@@ -8251,7 +8251,7 @@ function _renderSigKellyBar(bar, data, period) {
     `</span>`;
   const positionCapHTML =
     `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap"><span class="lab-sigkelly-toggle-tier">AI仓位建议(技术别名:仓位控制过滤·同日只买最优K个·资金利用率)</span>` +
-    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启,用户:默认的最优组合要开启): AI仓位建议(技术别名:仓位控制过滤)=同日只买最优K个信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型buy_backup&gt;buy&gt;buy_aux&gt;buy_special→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。每笔固定1万口径回测(G模式,2026-08-12删资金池后重跑): 关=买全部信号 收益率32.27%/最大持仓1,218万(资金占用高); K=1 收益率48.58%最高+持仓降至162万(资金占用最小)但净利仅+78.7万(砍最狠较基线-80%); K=2(默认) 收益率40.41%+净利+119.2万+持仓295万(收益率/净利平衡点); K≥3 收益率趋近买全部、净利随持仓回升。⚠fixed口径下K档是收益率↑vs净利↓的权衡(砍量), 非资金池口径的净利反升; K=1=激进资金效率, K=2=平衡默认。与降亏同开仅推荐默认组合(AI宏: excludeSpecialBear/janMidRating/janMidSpecial/n2NovSpecialIndustry,fixed+K=2下边际≈0无害); ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开/greedy广谱; B模式(3%止盈)仓位控制下转负建议关。范围扩展(2026-08-12 #4): 交易页整个信号列表(近15交易日)按同一排序展示 AI建议(AI建议买入/当日已满)。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> AI仓位建议(每日只买最优K个·技术别名:仓位控制过滤) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启,用户:默认的最优组合要开启): AI仓位建议(技术别名:仓位控制过滤)=同日只买最优K个信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型buy_backup&gt;buy&gt;buy_aux&gt;buy_special→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。每笔固定1万口径回测(G模式,2026-08-12删资金池后重跑): 关=买全部信号 收益率32.27%/最大持仓1,218万(资金占用高); K=1 收益率48.58%最高+持仓降至162万(资金占用最小)但净利仅+78.7万(砍最狠较基线-80%); K=2(默认) 收益率40.41%+净利+119.2万+持仓295万(收益率/净利平衡点); K≥3 收益率趋近买全部、净利随持仓回升。⚠fixed口径下K档是收益率↑vs净利↓的权衡(砍量), 非资金池口径的净利反升; K=1=激进资金效率, K=2=平衡默认。与降亏同开仅推荐默认组合(AI宏: excludeSpecialBear/janMidRating/janMidSpecial/n2NovSpecialIndustry/r7MayReinforced/excludeAuxCross/greedy15,fixed+K=2下边际≈0无害); ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开; 勿再叠加 greedy7/10 等其他广谱(greedy15 已在 AI宏 默认内); B模式(3%止盈)仓位控制下转负建议关。范围扩展(2026-08-12 #4): 交易页整个信号列表(近15交易日)按同一排序展示 AI建议(AI建议买入/当日已满)。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> AI仓位建议(每日只买最优K个·技术别名:仓位控制过滤) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
     `<span class="lab-sigkelly-kbtns lab-sigkelly-posrate" tabindex="0"><span class="lab-sigkelly-posrate-k">K:</span>${_pcKbtns}${_pcRatingPop}</span>` +
     `</div>`;
   // 历史固化(#4 2026-08-12): 把仓位建议历史回测数据固化展示(参照 _kellyComboAdviceHtml 静态面板模式), 数据来自调研文档按方案固化, 非实时计算
@@ -8290,7 +8290,7 @@ function _renderSigKellyBar(bar, data, period) {
           `<tr class="lab-sigkelly-advice-hl"><td><b>合计</b></td><td class="lab-sigkelly-pos"><b>+3,930,802</b></td><td>61.2%</td><td class="lab-sigkelly-pos"><b>+787,016</b></td><td>59.1%</td><td class="lab-sigkelly-pos"><b>+1,192,187</b></td><td>58.2%</td></tr>` +
         `</tbody></table></div>` +
         `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-warn">诚实标注: ①2023 弱年 K=1/K=2 反超基线(+4.45万/+5.38万 vs +0.97万, 胜率 +7pt)——拥挤弱市日买全是亏损主因, 过滤低价值信号反而改善; ②2021 是 K=2 唯一退化年(-5.1万 &lt; 基线 -4.7万), top2 选进更多亏损, 属结构弱年+选优增益不足叠加; ③净盈亏整体大降(K=1/K=2 为基线 20%/30%)是设计——目标=资金利用率(收益率)非净额; ④⚠️ B 模式(3%止盈)K=1 下转负(-2.47%), B 模式用户建议关闭仓位过滤。</div>` +
-        `<div class="lab-sigkelly-advice-li">与降亏同开: 仅推荐默认组合(AI宏: 追关注×熊市/J1 1月中旬+mid评级/J2 1月中旬+追关注/n2 11月+追关注+行业, 默认已开启, fixed+K=2 下边际≈0 无害); ⚠绝不同开 live4(收益率崩 2-5%)/COMBO4 全开/greedy 广谱(双重砍量)。</div>` +
+        `<div class="lab-sigkelly-advice-li">与降亏同开: 仅推荐默认组合(AI宏: 追关注×熊市/J1 1月中旬+mid评级/J2 1月中旬+追关注/n2 11月+追关注+行业/r7 5月强化+3非五月R7/辅关注×3/5月交叉/Greedy-15组合, 默认已开启, fixed+K=2 下边际≈0 无害); ⚠绝不同开 live4(收益率崩 2-5%)/COMBO4 全开; 勿再叠加 greedy7/10 等其他广谱(greedy15 已在 AI宏 默认内, 双重砍量)。</div>` +
       `</div>` +
     `</details>`;
   // 金额口径(2026-08-12 用户定): 固定=每笔固定 1 万(移除资金池等分切换——"1w还分30个信号买30份没意义,仓位控制1/2/3/4已足以")
