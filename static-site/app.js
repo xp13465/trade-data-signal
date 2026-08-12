@@ -20107,7 +20107,7 @@ function _summaryHistoryItemHtml(s, briefByDate) {
   const it = (briefByDate && s.date) ? briefByDate[s.date] : null;
   if (it) {
     const meta = it.meta || {};
-    aiBlock = `<div class="sh-ai-brief"><div class="sh-ai-brief-head"><span class="db-dir">${_dbDirLabel(meta.direction)}</span><span class="sh-ai-brief-title">🤖 AI预测</span>${_dbConfidenceBadge(meta)}${_dbHitHtml(meta)}${_dbActualHtml(meta)}</div>${_dbBriefDetailHtml(it)}</div>`;
+    aiBlock = `<div class="sh-ai-brief"><div class="sh-ai-brief-head"><span class="db-dir">${_dbDirLabel(meta.direction)}</span><span class="sh-ai-brief-title">🤖 AI预测</span>${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}${_dbHitHtml(meta)}${_dbActualHtml(meta)}</div>${_dbBriefDetailHtml(it)}</div>`;
   }
   return `<div class="summary-history-item"><div class="sh-date">${date} <span class="sh-label">${s.sentiment_label || ""}</span>${fg}${freeze}</div>${renderSummaryChips(s, null)}${aiBlock}</div>`;
 }
@@ -20273,6 +20273,31 @@ function _dbConfidenceBadge(meta) {
   return `<span class="db-conf db-conf-${c.level}">把握度${c.label} ${c.pct}</span>`;
 }
 
+// 2026-08-12 弃用标志/版本徽标: 基于 meta.version(后端 gen_daily_brief.py 写入) 渲染生成版本。
+//   ai-multi=多角色协作完整版(当前默认); ai=旧单模型版(ai-multi 上线前主版, 已被多角色版取代);
+//   rule=AI生成失败规则兜底版(无多角色辩论); minimal=最小兜底版。
+// 三处消费点(弹窗条目/历史收盘分析/公示行)统一走本函数, §22 一致性。
+function _dbVersionBadge(meta) {
+  meta = meta || {};
+  const v = meta.version;
+  if (!v) return "";
+  if (v === "ai-multi") return '<span class="db-ver db-ver-multi" title="6角色协作版：技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规">🤖 多角色</span>';
+  if (v === "ai") return '<span class="db-ver db-ver-old" title="旧单模型版（ai-multi 多角色版上线前的主版本），已被多角色版取代">旧版单模型</span>';
+  if (v === "rule") return '<span class="db-ver db-ver-rule" title="AI 生成失败时的规则兜底版（无多角色辩论/无完整 AI 解读）">⚠️ 降级版</span>';
+  if (v === "minimal") return '<span class="db-ver db-ver-min" title="AI 与规则均不可用时的最小兜底版">⚠️ 精简版</span>';
+  return "";
+}
+
+// 2026-08-12 结论展示: 折叠面板外直接展示当日融合结论(不展开也能看到)。
+//   取值优先级: meta.debate.summary(研究员多空辩论融合结论) → meta.confidence_reason(把握度理由) → meta.highlights[0](今日要点首条)。
+function _dbConclusionHtml(meta) {
+  meta = meta || {};
+  const d = meta.debate || {};
+  const concl = d.summary || meta.confidence_reason || ((meta.highlights && meta.highlights[0]) || "");
+  if (!concl) return "";
+  return `<p class="db-line db-conclusion"><span class="db-k">🧭 结论</span>${_esc(concl)}</p>`;
+}
+
 // 复用:AI 预测内容块(复盘/趋势/关注/风险四段 + meta 断言 watch_list/risk_items + 免责)。
 // 供 AI 预测弹窗详情、历史收盘分析弹窗结合展示共用，保证两处渲染一致。
 // 2026-08-11 补齐:①🎯今日要点高亮区块(meta.highlights,后端 _ensure_highlights 兜底非空)
@@ -20325,11 +20350,18 @@ function _dbBriefDetailHtml(it) {
   const highlightsHtml = _dbHighlightsHtml(meta);
   const rolesHtml = _dbRolesHtml(meta);
   const debateHtml = _dbDebateHtml(meta);
+  const conclusionHtml = _dbConclusionHtml(meta);
   let debateBlock = "";
   if (rolesHtml || debateHtml) {
-    debateBlock = `<details class="db-debate-wrap"><summary class="db-debate-toggle">🧠 多角色讨论详情<span class="db-debate-arrow">▾</span></summary><div class="db-debate-body">${rolesHtml}${debateHtml}</div></details>`;
+    // 2026-08-12 辩论入口强化: 标题带角色数 + 多空论据数, 让用户点开前就感知内容量
+    const roleN = Object.keys((meta && meta.roles) || {}).length;
+    const d2 = (meta && meta.debate) || {};
+    const bullN = (d2.bull || []).length;
+    const bearN = (d2.bear || []).length;
+    const tag = (roleN ? ` · ${roleN}角色` : "") + (bullN || bearN ? ` · 辩论 ${bullN}对${bearN}` : "");
+    debateBlock = `<details class="db-debate-wrap"><summary class="db-debate-toggle">🧠 多角色讨论详情${tag}<span class="db-debate-arrow">▾</span></summary><div class="db-debate-body">${rolesHtml}${debateHtml}</div></details>`;
   }
-  return `${highlightsHtml}${conf ? `<p class="db-line"><span class="db-k">把握度</span>${_dbConfidenceBadge(meta)}<span class="db-conf-reason">${_esc(conf.reason)}</span></p>` : ""}
+  return `${highlightsHtml}${conclusionHtml}${conf ? `<p class="db-line"><span class="db-k">把握度</span>${_dbConfidenceBadge(meta)}<span class="db-conf-reason">${_esc(conf.reason)}</span></p>` : ""}
       <p class="db-line"><span class="db-k">复盘</span>${_esc(t.review || "")}</p>
       <p class="db-line"><span class="db-k">趋势</span>${_esc(t.trend || "")}</p>
       ${watchLine}
@@ -20345,7 +20377,7 @@ function _dailyBriefItemHtml(it) {
   const dateRaw = it.date || meta.date || "";
   const date = dateRaw.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
   return `<div class="summary-history-item db-item" data-date="${_escAttr(dateRaw)}">
-    <div class="sh-date"><span class="db-dir">${_dbDirLabel(meta.direction)}</span>${_dbConfidenceBadge(meta)}<span class="sh-label">${_esc(date)}</span>${_dbHitHtml(meta)}${_dbActualHtml(meta)}<span class="db-expand-hint">点击收起 ▲</span></div>
+    <div class="sh-date"><span class="db-dir">${_dbDirLabel(meta.direction)}</span>${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}<span class="sh-label">${_esc(date)}</span>${_dbHitHtml(meta)}${_dbActualHtml(meta)}<span class="db-expand-hint">点击收起 ▲</span></div>
     <div class="db-detail">
       ${_dbBriefDetailHtml(it)}
     </div>
@@ -20417,7 +20449,7 @@ function _renderDailyBriefStats(brief) {
       `<span class="db-stats-item db-stats-sched">🕗 每日 20:40 更新${genAt}${todayConf ? ` · 今日${todayConf}` : ""}</span>` +
       `<span class="db-stats-item">近30日：<b>${s30 && s30.n ? `${s30.hit}/${s30.n}（${rate(s30)}）` : "暂无样本"}</b></span>` +
       `<span class="db-stats-item">近90日：<b>${s90 && s90.n ? `${s90.hit}/${s90.n}（${rate(s90)}）` : "暂无样本"}</b></span>` +
-      '<span class="db-stats-how">AI每日盘后基于当日收盘数据，默认由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测 + 🎯今日要点 + 多角色讨论（展开可看四角色结论与多空辩论）；任一环节失败自动降级单模型生成兜底。meta结构化断言方向/关注标的/风险点，次日机检回填实际涨跌判定命中。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30（把握度低时方向更倾向震荡，仅参考）。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。命中率仅为历史统计，不构成投资建议。</span>' +
+      '<span class="db-stats-how">AI每日盘后基于当日收盘数据，默认由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测 + 🎯今日要点 + 多角色讨论（展开可看四角色结论与多空辩论）；任一环节失败自动降级单模型生成兜底。meta结构化断言方向/关注标的/风险点，次日机检回填实际涨跌判定命中。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30（把握度低时方向更倾向震荡，仅参考）。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。<b>版本徽标</b>：🤖多角色=6角色完整版（默认）／旧版单模型=多角色版上线前旧版（已被取代）／⚠️降级版=AI生成失败规则兜底（无多角色辩论）／⚠️精简版=最小兜底；降级/精简版仅供参考。每条预测含<b>🧭结论</b>行（融合结论=研究员多空辩论收敛结果，不展开即可见），<b>辩论详情</b>折叠面板可展开看四角色结论与多空论据（含论据数）。命中率仅为历史统计，不构成投资建议。</span>' +
     '</div>';
 }
 
