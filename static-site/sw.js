@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260812-a161';  // bump a160->a161: 崩溃恢复归位——feat/kelly-position-rename #4 AI仓位建议(rename+范围扩展+历史固化) + feat/daily-brief-debate-ui #10 AI预测辩论详情+弃用标志+结论展示(2026-08-12)
+const CACHE_VERSION = 'v6-20260812-a162';  // bump a161->a162: 分时图3条低危改进(#44)——connectNulls段尾p3跨空钳制+legend超宽单行钳制+heatmap legY 5字名兜底(2026-08-12)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

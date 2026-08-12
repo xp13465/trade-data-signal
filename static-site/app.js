@@ -11195,7 +11195,11 @@ function _lwLineDIdx(xs, ys, idx, i0, i1, smooth) {
     const p0 = { x: xs[idx[_pk]], y: ys[idx[_pk]] };
     const p1 = { x: xs[idx[k]], y: ys[idx[k]] };
     const p2 = { x: xs[idx[k + 1]], y: ys[idx[k + 1]] };
-    const p3 = { x: xs[idx[Math.min(i1, k + 2)]], y: ys[idx[Math.min(i1, k + 2)]] };
+    // fix2(2026-08-12): 段尾 p3 钳制 — 下下点(k+2)若跨空(隔 null, idx 差 >1)则控制点取段尾自身(k+1),
+    // 防段尾平滑控制点被跨空下一点拉走 → 曲线尾端跨空泄漏/overshoot(connectNulls 线跨空处鼓包)。
+    const _p3i = Math.min(i1, k + 2);
+    const _p3c = (_p3i > k + 1 && idx[_p3i] > idx[k + 1] + 1) ? k + 1 : _p3i;
+    const p3 = { x: xs[idx[_p3c]], y: ys[idx[_p3c]] };
     const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
     const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
     d += " C " + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1)
@@ -11322,7 +11326,9 @@ function _lwSVG(cfg) {
     if (_row.length) _rows.push({ items: _row, w: _rowW });
     let ly = PT - 14;
     for (const row of _rows) {
-      let lx = (PL + (_lwMax - PL) / 2) - row.w / 2;   // 该行水平居中(图表区中心)
+      // fix4(2026-08-12): 超宽单行钳制 — 行总宽 > 图表区时居中起点为负, legend 溢出左界压 y 轴;
+      // 钳到 PL 左对齐(超宽单 item 无法换行, 至少不侵入左边距/轴标签; 正常可容纳行不受影响)。
+      let lx = Math.max(PL, (PL + (_lwMax - PL) / 2) - row.w / 2);   // 该行水平居中(图表区中心), 超宽兜底左对齐
       for (const _li of row.items) {
         const it = _li.it;
         s += '<line x1="' + lx + '" y1="' + ly + '" x2="' + (lx + 10) + '" y2="' + ly + '" stroke="' + it.color + '" stroke-width="2"/>';
@@ -11661,8 +11667,11 @@ function _lwHeatmapSVG(cfg) {
   }
   // 底部渐变条(visualMap 色条: 左 +5% 右 -5%, 与 echarts inRange 5 停同色)。
   // fix4: legY 按最长行业名动态下移(原固定 H-PB+44, 竖排文字下移 12px 后与 4 字名重叠)。
+  // fix5(2026-08-12): 5 字(及以上)行业名兜底 — 公式值 > H-legH 时渐变条整体溢出 viewBox 底(不可见),
+  // 钳到 H-legH-2 兜底(条+两端 +5%/-5% 标签仍在视口内; 4 字名现值 269 < 270 钳制不触发, 行为不变)。
   const legW = Math.min(150, _iw * 0.6), legH = 8;
-  const legX = (W - legW) / 2, legY = H - PB + 18 + (_maxNmLen - 1) * 11 + 10;
+  const _legY = H - PB + 18 + (_maxNmLen - 1) * 11 + 10;
+  const legX = (W - legW) / 2, legY = Math.min(_legY, H - legH - 2);
   const _seg = 24;
   for (let k = 0; k < _seg; k++) {
     s += '<rect x="' + (legX + k * (legW / _seg)).toFixed(1) + '" y="' + legY + '" width="' + (legW / _seg + 0.6).toFixed(1) + '" height="' + legH + '" fill="' + _lwHmColor(colors, k / (_seg - 1)) + '"/>';
