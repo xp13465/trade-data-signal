@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260812-a151';  // bump a150->a151: 凯利回测—默认最优组合开启(positionCap+A45/A5/追关注×熊市,含共享tds_poscap写入)+默认推荐toggle金色高亮+被淘汰交易删除线+按年表峰值资金收益率列
+const CACHE_VERSION = 'v6-20260812-a152';  // bump a151->a152: fix §21 reviewer blocker—被淘汰展示公示补全(purpose-notes.js 删除线灰化/独立分页/不计入统计/仅对照)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
