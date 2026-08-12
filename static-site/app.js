@@ -11114,9 +11114,18 @@ function _reRenderHomeSpark() {
 function _lwValueExtent(vals, splitNumber, zeroBased) {
   const _valid = [];
   for (const v of vals) if (v != null && !isNaN(v)) _valid.push(v);
-  let _rawMin = zeroBased ? 0 : (_valid.length ? Math.min.apply(null, _valid) : 0);
-  let _rawMax = _valid.length ? Math.max.apply(null, _valid) : (zeroBased ? 1 : 1);
-  if (zeroBased && _rawMax < 0) _rawMax = 0;
+  let _rawMin, _rawMax;
+  if (_valid.length) {
+    const _m = Math.min.apply(null, _valid);
+    const _M = Math.max.apply(null, _valid);
+    if (zeroBased) { _rawMin = Math.min(0, _m); _rawMax = Math.max(0, _M); }
+    else { _rawMin = _m; _rawMax = _M; }
+  } else {
+    _rawMin = 0; _rawMax = 1;
+  }
+  // 2026-08-12 修复: zeroBased=「0 必须在轴内」, min=max(数据,0) 各取一边 —
+  // 原实现数据全负时 _rawMin=0 + _rawMax 被钳到 0 → extent 塌缩 [0,1], 腾落线(ad_line -9万~-15万)被画成 0~1 刻度
+  // _rawMax 恒 >=0(zeroBased 下 max(0,_M)), 原 `if (zeroBased && _rawMax < 0) _rawMax = 0` 已不再需要
   let extMin = _rawMin, extMax = _rawMax;
   if (extMin === extMax) {
     if (extMin !== 0) { const _s = Math.abs(extMin); extMax += _s / 2; extMin -= _s / 2; }

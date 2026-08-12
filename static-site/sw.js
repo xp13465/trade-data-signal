@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260812-a158';  // bump a157->a158: 凯利降亏过滤折叠区重归类(5组->4组经济逻辑分组: 日历效应·季节调仓/信号质量·弱信号/复合并集·广谱管理/市场防御·大盘择时, 组内比值降序+监控置尾+慎用标注, 纯展示层)
+const CACHE_VERSION = 'v6-20260812-a159';  // bump a158->a159: 修复首页腾落线右侧y轴标注错误(_lwValueExtent zeroBased 分支: 全负数据时原 _rawMin=0+_rawMax 钳到0 致 extent 塌缩[0,1] 刻度画成0~1, 改 0必须在轴内 min=min(数据,0)/max=max(数据,0) 各取一边, 刻度恢复负十几万)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
