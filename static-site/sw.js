@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260812-a157';  // bump a156->a157: 恒生指数/恒生国企分时乱序修复(同花顺港股源点数组乱序, _sortMinutePoints 全源排序去重, 根治配色错+大跳空坡+午休标记错位)
+const CACHE_VERSION = 'v6-20260812-a158';  // bump a157->a158: 凯利降亏过滤折叠区重归类(5组->4组经济逻辑分组: 日历效应·季节调仓/信号质量·弱信号/复合并集·广谱管理/市场防御·大盘择时, 组内比值降序+监控置尾+慎用标注, 纯展示层)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
