@@ -76,6 +76,18 @@ if [ "$COLLECT_RC" -eq 0 ]; then
   echo "汪汪队通知退出码=$NT_NOTIFY_RC" | tee -a "$LOG"
 fi
 
+# 1.6) accum_nav 累计净值(已复权)增量补齐（2026-08-13 根因修复：
+#      accum_nav 自 2026-08-08 一次性回填至 20260807 后断更 -> etf_since_return 至今盈亏
+#      8/10-12 全 NULL -> check_data_integrity etf_since_return FAIL 卡部署。
+#      pipeline 增量扫描近 30 天 accum_nav IS NULL 行逐只补齐，单只失败降级跳过留待下次。
+#      必须放 deploy.sh 之前：overview.json 的 etf_since_return 由 export.py 从 DB 生成，
+#      先补齐 DB 再 export 才过得了 check_data_integrity 阈值。
+#      20:07 主槽 ~25min + 21:30 兜底槽幂等重跑，当日净值当日补齐当日上线。 -->
+echo "-> 补齐 ETF 累计净值 accum_nav ..." | tee -a "$LOG"
+"$PY" -m app.collector.etf_national_team accum-nav --lookback 30 2>&1 | tee -a "$LOG"
+ACCUM_RC=${PIPESTATUS[0]}
+echo "accum_nav 补齐退出码=$ACCUM_RC" | tee -a "$LOG"
+
 # 2) 持 deploy 锁推送（串行化 git，阻塞排队；deploy.sh 重新 export 全量 JSON + git push）
 #    deploy.sh 幂等：export 生成相同 JSON -> git add 无新变更 -> 跳过 commit -> push up-to-date。
 #    无新数据时也安全（仅多跑一次 export.py）。
@@ -91,6 +103,7 @@ DEPLOY_RC=${PIPESTATUS[0]}
 # 覆盖 6824a43c 只覆盖 collector 失败的缺陷: collector 成功+deploy 失败也能正确记录 exit=1。
 FINAL_RC=0
 [ "$COLLECT_RC" -ne 0 ] && FINAL_RC=$COLLECT_RC
+[ "$ACCUM_RC" -ne 0 ] && FINAL_RC=$ACCUM_RC
 [ "$DEPLOY_RC" -ne 0 ] && FINAL_RC=$DEPLOY_RC
 if [ "$FINAL_RC" -ne 0 ]; then
   # 抓 collector 的 duration(若有完成行),失败也带 duration 便于前端展示
