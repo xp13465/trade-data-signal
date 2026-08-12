@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260812-a149';  // bump a148->a149: SVG fix3 — 撤销fix2标签上移改6图dataZoom pb35->44放12px字/pinch方向反转/pan-y仅dataZoom图
+const CACHE_VERSION = 'v6-20260812-a150';  // bump a149->a150: SVG fix4 — 跨市场线断点桥接(connectNulls+visualMap分段)/市场宽度堆叠线对齐echarts累积顶/申万热力图竖排行序对齐echarts(近5日顶近1日底)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

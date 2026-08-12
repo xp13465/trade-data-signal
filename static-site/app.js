@@ -10283,8 +10283,8 @@ async function renderOverview() {
         { name: "下跌家数", color: "#2e8b57" },
       ],
       series: [
-        { type: "stack", stack: "width", data: _wUpData, color: "#e6492e", width: 1.5, smooth: true, areaOpacity: 0.6 },
-        { type: "stack", stack: "width", data: _wDnData, color: "#2e8b57", width: 1.5, smooth: true, areaOpacity: 0.6 },
+        { type: "stack", stack: "width", data: _wUpData, color: "#e6492e", width: 1.5, smooth: false, areaOpacity: 0.7 },
+        { type: "stack", stack: "width", data: _wDnData, color: "#2e8b57", width: 1.5, smooth: false, areaOpacity: 0.7 },
       ],
       tipFn: (i) => {
         const up = _wUpData[i], dn = _wDnData[i];
@@ -11318,16 +11318,21 @@ function _lwSVG(cfg) {
             }
             s += '<path d="' + d + '" fill="none" stroke="' + _stroke + '" stroke-width="' + (ser.width || 1.5) + '"' + _dashAttr + _opacityAttr + ' stroke-linejoin="round" stroke-linecap="round"/>';
           } else {
+            // P0 修复(2026-08-12): visualMap 分段色 connectNulls 线断成点根因 — 原按同色段各画独立 path,
+            // 段间(色变处)不连 + 单点段(无 symbol)整段不画 → 跨市场综合评分/恐贪指数/A股情绪分线断成一个个点。
+            // 修复: 每同色段路径在段尾桥接下一有效点(可能不同色), 相邻段共享端点 → 线连续(对齐 echarts visualMap)。
             let rs2 = 0;
             while (rs2 < _idx.length) {
               let re = rs2;
               const c0 = _perColor(_idx[rs2], ser.data[_idx[rs2]]);
               while (re + 1 < _idx.length && _perColor(_idx[re + 1], ser.data[_idx[re + 1]]) === c0) re++;
-              if (re === rs2) {
+              const _nxt = (re + 1 < _idx.length) ? re + 1 : -1;   // 段尾桥接: 下一有效点(可不同色), 段间共享端点
+              if (_nxt < 0 && re === rs2) {
+                // 末位单点(无下一段可桥接): 有 symbol 画圆点, 无则略(同 echarts symbol:none 行为)
                 if (ser.symbolR) s += '<circle cx="' + xs[_idx[rs2]].toFixed(1) + '" cy="' + ys[_idx[rs2]].toFixed(1) + '" r="' + ser.symbolR + '" fill="' + c0 + '"' + (ser.opacity != null ? ' fill-opacity="' + ser.opacity + '"' : "") + '/>';
               } else {
                 let d = "M " + xs[_idx[rs2]].toFixed(1) + " " + ys[_idx[rs2]].toFixed(1);
-                for (let k = rs2 + 1; k <= re; k++) d += " L " + xs[_idx[k]].toFixed(1) + " " + ys[_idx[k]].toFixed(1);
+                for (let k = rs2 + 1; k <= (_nxt < 0 ? re : _nxt); k++) d += " L " + xs[_idx[k]].toFixed(1) + " " + ys[_idx[k]].toFixed(1);
                 s += '<path d="' + d + '" fill="none" stroke="' + c0 + '" stroke-width="' + (ser.width || 1.5) + '"' + _dashAttr + _opacityAttr + ' stroke-linejoin="round" stroke-linecap="round"/>';
               }
               rs2 = re + 1;
@@ -11396,17 +11401,23 @@ function _lwSVG(cfg) {
         }
       }
     } else if (ser.type === "stack") {
-      // 堆叠面积(line 叠, echarts stack): 引擎按 stack 键自动累积(series 顺序=底→顶), 面积=本系列线→前累积顶
+      // 堆叠面积(line 叠, echarts stack): 引擎按 stack 键自动累积(series 顺序=底→顶), 面积=本系列累积顶→前累积底
       if (ser.stack && !cfg._stackCum) cfg._stackCum = {};
       const cum = ser.stack && cfg._stackCum ? (cfg._stackCum[ser.stack] || (cfg._stackCum[ser.stack] = new Float64Array(n))) : null;
       for (const [_a, _b] of _runs) {
-        const d = _lwLineD(xs, ys, _a, _b, ser.smooth !== false);
+        // 修复(2026-08-12, 市场宽度 1:1): 可见描边线画在"累积顶"(cum[i]+value[i]), 对齐 echarts stack
+        // 线位置(实测 echarts 顶部层线=py(上+下) 累计顶)。原实现线画在 py(ser.data[i])(本层底/与下层交界),
+        // 顶部层线错位显在红绿面积交界处, 非 1:1。面积=累积顶→前累积底(cum[i])。
+        const _topYs = [];
+        for (let i = _a; i <= _b; i++) {
+          const _v = (ser.data[i] != null && !isNaN(ser.data[i])) ? Number(ser.data[i]) : 0;
+          _topYs[i] = cum ? _py(ai, cum[i] + _v) : ys[i];
+        }
+        const d = _lwLineD(xs, _topYs, _a, _b, ser.smooth !== false);
         let areaD = d;
         if (cum) {
-          const t0 = (ser.data[_b] != null && !isNaN(ser.data[_b])) ? Number(ser.data[_b]) : 0;
-          const t1 = (ser.data[_a] != null && !isNaN(ser.data[_a])) ? Number(ser.data[_a]) : 0;
-          const cy0 = _py(ai, cum[_b] + t0);
-          const cy1 = _py(ai, cum[_a] + t1);
+          const cy0 = _py(ai, cum[_b]);
+          const cy1 = _py(ai, cum[_a]);
           areaD = d + " L " + xs[_b].toFixed(1) + " " + cy0.toFixed(1) + " L " + xs[_a].toFixed(1) + " " + cy1.toFixed(1) + " Z";
         } else {
           const closeY = _py(ai, 0);
@@ -11527,16 +11538,17 @@ function _lwHeatmapSVG(cfg) {
     const gx = _crisp(PL + c * cellW);
     s += '<line x1="' + gx + '" y1="' + PT + '" x2="' + gx + '" y2="' + (PT + _ih) + '" stroke="var(--border)"/>';
   }
-  // y 行标签(左, fontSize 11)
+  // y 行标签(左, fontSize 11)。行序对齐 echarts heatmap category y 轴(实测 echarts 第 0 行=近1日 在底,
+  // 最后行=近5日 在顶), 故数据行 r 画在视觉行 nRow-1-r(自底向上)。
   for (let r = 0; r < nRow; r++) {
-    s += '<text x="' + (PL - 8) + '" y="' + (PT + r * cellH + cellH / 2 + 3.5).toFixed(1) + '" font-size="11" text-anchor="end" style="fill:var(--text-1)">' + yCats[r] + '</text>';
+    s += '<text x="' + (PL - 8) + '" y="' + (PT + (nRow - 1 - r) * cellH + cellH / 2 + 3.5).toFixed(1) + '" font-size="11" text-anchor="end" style="fill:var(--text-1)">' + yCats[r] + '</text>';
   }
   // 色块 + 格内数值(echarts label formatter toFixed(1), null 显示 "-")
   const _lv = (v) => (v == null || isNaN(v) ? -1 : ((v - cmin) / (cmax - cmin || 1)));
   for (const pt of hm.data || []) {
     const ci = pt[0], ri = pt[1], v = pt[2];
     if (ci < 0 || ci >= nCol || ri < 0 || ri >= nRow) continue;
-    const x0 = PL + ci * cellW, y0 = PT + ri * cellH;
+    const x0 = PL + ci * cellW, y0 = PT + (nRow - 1 - ri) * cellH;
     const fill = (v == null || isNaN(v)) ? "rgba(128,128,128,0.10)" : _lwHmColor(colors, _lv(v));
     s += '<rect x="' + (x0 + 0.5).toFixed(1) + '" y="' + (y0 + 0.5).toFixed(1) + '" width="' + (cellW - 1).toFixed(1) + '" height="' + (cellH - 1).toFixed(1) + '" fill="' + fill + '"/>';
     if (hm.label && hm.label.show !== false && v != null && !isNaN(v)) {
@@ -11544,14 +11556,23 @@ function _lwHeatmapSVG(cfg) {
       s += '<text x="' + (x0 + cellW / 2).toFixed(1) + '" y="' + (y0 + cellH / 2 + 3).toFixed(1) + '" font-size="' + (hm.label.fontSize || 9) + '" text-anchor="middle" style="fill:#333">' + _ltxt + '</text>';
     }
   }
-  // x 行业标签(interval 0 全显, 不旋转, 对齐 echarts interval:0)
+  // x 行业标签(interval 0 全显, 竖排逐字 12px 行高)。2026-08-12 用户需求: 横排小屏文字重叠→竖排
+  // (对齐 echarts axisLabel rotate 竖排语义)。首字基线=绘图区底 H-PB 下 6px, 逐字 dy=11 向下排,
+  // 最长 4 字行业名(建筑材料/美容护理等)占 ~39px; 渐变图例下移让位(下方留空, 不压标签)。
   for (let c = 0; c < nCol; c++) {
     const x = PL + c * cellW + cellW / 2;
-    s += '<text x="' + x.toFixed(1) + '" y="' + (H - PB + 14).toFixed(1) + '" font-size="10" text-anchor="middle" style="fill:var(--text-1)">' + names[c] + '</text>';
+    const _nm = String(names[c]);
+    const _lx = x.toFixed(1);
+    s += '<text x="' + _lx + '" y="' + (H - PB + 6).toFixed(1) + '" font-size="10" text-anchor="middle" style="fill:var(--text-1)">';
+    for (let _ch = 0; _ch < _nm.length; _ch++) {
+      s += '<tspan x="' + _lx + '"' + (_ch === 0 ? "" : ' dy="11"') + '>' + _nm[_ch] + '</tspan>';
+    }
+    s += '</text>';
   }
-  // 底部渐变条(visualMap 色条: 左 +5% 右 -5%, 与 echarts inRange 5 停同色)
+  // 底部渐变条(visualMap 色条: 左 +5% 右 -5%, 与 echarts inRange 5 停同色; 竖排标签让位下移,
+  // PB=60 时绘图底=220, 4 字行业名竖排到 ~259, 渐变条放 264~272 不压标签)
   const legW = Math.min(150, _iw * 0.6), legH = 8;
-  const legX = (W - legW) / 2, legY = H - PB + 20;
+  const legX = (W - legW) / 2, legY = H - PB + 44;
   const _seg = 24;
   for (let k = 0; k < _seg; k++) {
     s += '<rect x="' + (legX + k * (legW / _seg)).toFixed(1) + '" y="' + legY + '" width="' + (legW / _seg + 0.6).toFixed(1) + '" height="' + legH + '" fill="' + _lwHmColor(colors, k / (_seg - 1)) + '"/>';
@@ -11601,7 +11622,8 @@ function _lwHeatmapBind(wrap, cfg) {
     const wrapRect = wrap.getBoundingClientRect();
     const ratioW = _W / (svgRect.width || 1), ratioH = _h / (svgRect.height || 1);
     const cssX = (PL + ci * cellW + cellW / 2) / ratioW;
-    const cssY = (PT + ri * cellH + cellH / 2) / ratioH + (svgRect.top - wrapRect.top);
+    // 行序对齐 _lwHeatmapSVG(数据行 r 画在视觉行 nRow-1-r): 浮层定位到该数据行实际视觉 y
+    const cssY = (PT + (nRow - 1 - ri) * cellH + cellH / 2) / ratioH + (svgRect.top - wrapRect.top);
     const tipW = tip.offsetWidth || 90, tipH = tip.offsetHeight || 40;
     let left = cssX - tipW / 2;
     if (left < 0) left = 0;
@@ -11619,7 +11641,9 @@ function _lwHeatmapBind(wrap, cfg) {
     const vx = (e.clientX - r.left) * ratioW, vy = (e.clientY - r.top) * ratioH;
     if (vx < PL || vx >= PL + _iw || vy < PT || vy >= PT + _ih) { _hide(); return; }
     const ci = Math.min(nCol - 1, Math.floor((vx - PL) / cellW));
-    const ri = Math.min(nRow - 1, Math.floor((vy - PT) / cellH));
+    // 鼠标所在视觉行(vr=0 顶) → 数据行 ri = nRow-1-vr(行序反转对齐 echarts heatmap category y: 近5日顶/近1日底)
+    const vr = Math.min(nRow - 1, Math.floor((vy - PT) / cellH));
+    const ri = nRow - 1 - vr;
     _show(ci, ri);
   });
   svg.addEventListener("mouseleave", _hide);
@@ -17097,8 +17121,9 @@ function _heatmapSetOption(c, heatmap, toggleBtnsEl) {
         return s;
       },
     },
-    grid: { left: 56, right: 16, top: 24, bottom: 60 },
-    xAxis: { type: "category", data: names, axisLabel: { color: cssVar("--text-1"), rotate: 0, fontSize: 10, interval: 0 }, splitArea: { show: false } },
+    grid: { left: 56, right: 16, top: 24, bottom: 76 },
+    // 2026-08-12 与 lite SVG 竖排对齐: rotate:90 逐字竖排(最长 4 字行业名占高), 小屏不再横排重叠
+    xAxis: { type: "category", data: names, axisLabel: { color: cssVar("--text-1"), rotate: 90, fontSize: 10, interval: 0 }, splitArea: { show: false } },
     yAxis: { type: "category", data: yCats, axisLabel: { color: cssVar("--text-1"), fontSize: 11 } },
     visualMap: {
       min: -5, max: 5, calculable: true, orient: "horizontal", left: "center", bottom: 4,
