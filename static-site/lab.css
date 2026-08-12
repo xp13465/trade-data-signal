@@ -1477,6 +1477,14 @@
 .lab-sigkelly-toggle-hint { font-size: 10px; color: var(--text-4); margin-left: 4px; }
 .lab-sigkelly-toggle-tier { font-size: 11px; font-weight: 700; color: var(--primary); white-space: nowrap; padding: 0 4px; border-left: 2px solid var(--primary); margin-left: 2px; }
 .lab-sigkelly-toggle-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; width: 100%; padding: 4px 6px; background: var(--bg-hover, rgba(0,0,0,0.02)); border-radius: 4px; }
+/* 2026-08-13 #39 三级级联UI 第1级: AI宏 总开关独立行(主色实线高亮, 区别于组合/推荐组) */
+.lab-sigkelly-toggle-group-ai { border: 1px solid var(--primary); background: rgba(255, 140, 0, 0.05); margin-bottom: 2px; }
+[data-theme="dark"] .lab-sigkelly-toggle-group-ai, [data-theme="redgold"] .lab-sigkelly-toggle-group-ai { background: rgba(240, 185, 11, 0.08); }
+/* 2026-08-13 #39: AI宏详情可折叠 body(默认展开, 收合时整段隐藏) */
+.lab-sigkelly-ai-macro-body { display: flex; flex-direction: column; gap: 6px; width: 100%; margin-top: 2px; padding-top: 6px; border-top: 1px dashed var(--border); }
+/* 2026-08-13 #39: 折叠按钮 hover 反馈(展开/收起) */
+.lab-sigkelly-toggle-detail-btn:hover { background: rgba(128,128,128,0.15) !important; }
+.lab-sigkelly-toggle-detail-btn:active { background: rgba(128,128,128,0.25) !important; }
 .lab-sigkelly-toggle-tip { font-size: 10px; color: var(--text-4); cursor: help; margin-left: 1px; }
 /* 2026-08-12 需求A: 默认推荐 toggle 高亮(金色亮底+描边+徽标), 与不推荐 toggle 区分 */
 .lab-sigkelly-toggle.lab-sigkelly-rec { background: rgba(250,173,20,0.10); border: 1px solid rgba(250,173,20,0.45); border-radius: 5px; padding: 2px 6px; }
