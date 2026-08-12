@@ -50,7 +50,7 @@ RETRY_SLEEP = 0.3  # 秒
 # 不抄送的系统/定时 prompt 前缀(2026-08-12 主控定位): 主控 cron 轮询 prompt 会触发
 # UserPromptSubmit 被当"用户消息"抄送(飞书群出现"轮询"噪音); 用户真实消息盘中打断
 # (turn 运行中注入)反而不触发 UserPromptSubmit → 漏抄, 治漏抄靠 _sweep_unforwarded 补扫。
-SKIP_PROMPT_PREFIXES = ("轮询", "[cron", "[system", "[SYSTEM")
+SKIP_PROMPT_PREFIXES = ("轮询", "[cron-poll", "[cron", "[system", "[SYSTEM")
 # 补扫窗口: 只看 transcript 尾部最近 N 条(防首次接入时洪水补发历史消息)
 SWEEP_LINES = 120
 
@@ -264,7 +264,8 @@ def handle_assistant(data: dict) -> int:
         time.sleep(RETRY_SLEEP)
 
     if text:
-        fp = "A|" + _fp([transcript, str(stable or line_no)])
+        # 指纹用内容 hash(与补扫同公式), 避免回退路径与补扫各发一次(P2-1, 2026-08-12)
+        fp = "A|" + _fp([transcript, text[:200]])
         if fp in _load_sent():
             _sweep_unforwarded(transcript, session)
             return 0
