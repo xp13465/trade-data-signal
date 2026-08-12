@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260812-a162';  // bump a161->a162: 分时图3条低危改进(#44)——connectNulls段尾p3跨空钳制+legend超宽单行钳制+heatmap legY 5字名兜底(2026-08-12)
+const CACHE_VERSION = 'v6-20260812-a164';  // bump a163->a164 merge(#26 分时图3条低危改进 + #18 F1三玩法口径修正)(2026-08-12)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
