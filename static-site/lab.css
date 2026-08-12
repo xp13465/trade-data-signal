@@ -1432,11 +1432,33 @@
 .lab-sigkelly-fee-btn { font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-2); cursor: pointer; white-space: nowrap; transition: all 0.15s; }
 .lab-sigkelly-fee-btn:hover { border-color: var(--primary); color: var(--text-1); }
 .lab-sigkelly-fee-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
-/* positionCap 仓位控制过滤 K 档位按钮(2026-08-12): 1-4 分段按钮, 与 fee-btn 同风格 */
+/* positionCap 仓位控制过滤 K 档位按钮(2026-08-12): 1-4 分段按钮, 与 fee-btn 同风格
+   2026-08-13: 加评级标注(最激进/次稳健/最稳健/最保守, K=3 主推) + hover 评级理由表格(lab-sigkelly-posrate-*) */
 .lab-sigkelly-kbtns { display: inline-flex; gap: 2px; margin: 0 2px; }
-.lab-sigkelly-kbtn { font-size: 11px; padding: 1px 7px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-2); cursor: pointer; line-height: 1.5; transition: all 0.15s; }
+.lab-sigkelly-posrate { position: relative; display: inline-flex; align-items: stretch; gap: 2px; margin: 0 2px; }
+.lab-sigkelly-posrate-k { font-size: 11px; font-weight: 700; color: var(--text-2); align-self: center; margin-right: 1px; }
+.lab-sigkelly-kbtn { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-width: 34px; padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-2); cursor: pointer; line-height: 1.25; transition: all 0.15s; }
 .lab-sigkelly-kbtn:hover { border-color: var(--primary); color: var(--text-1); }
 .lab-sigkelly-kbtn.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700; }
+.lab-sigkelly-kbtn-k { font-size: 12px; font-weight: 700; }
+.lab-sigkelly-kbtn-r { font-size: 9px; font-weight: 400; opacity: 0.8; line-height: 1.2; }
+.lab-sigkelly-kbtn-main .lab-sigkelly-kbtn-r { color: #d48806; font-weight: 700; opacity: 1; }
+[data-theme="dark"] .lab-sigkelly-kbtn-main .lab-sigkelly-kbtn-r, [data-theme="redgold"] .lab-sigkelly-kbtn-main .lab-sigkelly-kbtn-r { color: #ffb300; }
+.lab-sigkelly-kbtn.active .lab-sigkelly-kbtn-r { color: inherit; opacity: 1; }
+/* 评级理由 hoverpop(2026-08-13, 仿 wm-pop 视觉: bg-card + border + shadow) */
+.lab-sigkelly-posrate-pop-wrap { position: absolute; z-index: 50; left: 0; top: 100%; margin-top: 4px; display: none; }
+.lab-sigkelly-posrate-pop-wrap::before { content: ""; position: absolute; top: -4px; left: 0; right: 0; height: 4px; }
+.lab-sigkelly-posrate-pop { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; box-shadow: 0 4px 16px var(--shadow-strong); font-size: 11px; line-height: 1.5; color: var(--text-2); width: 480px; max-width: calc(100vw - 16px); white-space: normal; }
+.lab-sigkelly-posrate-pop-title { font-size: 12px; font-weight: 700; color: var(--text-1); margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.lab-sigkelly-posrate-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 6px; }
+.lab-sigkelly-posrate-table th, .lab-sigkelly-posrate-table td { padding: 3px 5px; text-align: center; border-bottom: 1px solid var(--border); }
+.lab-sigkelly-posrate-table th { font-weight: 600; color: var(--text-3); font-size: 10px; }
+.lab-sigkelly-posrate-table td:first-child { text-align: left; white-space: nowrap; }
+.lab-sigkelly-posrate-table td:last-child { text-align: left; color: var(--text-3); }
+.lab-sigkelly-posrate-hl { background: rgba(250,173,20,0.10); }
+[data-theme="dark"] .lab-sigkelly-posrate-hl, [data-theme="redgold"] .lab-sigkelly-posrate-hl { background: rgba(240,185,11,0.14); }
+.lab-sigkelly-posrate-pop-note { color: var(--text-4); font-size: 10px; line-height: 1.45; border-top: 1px dashed var(--border); padding-top: 5px; }
+@media (max-width: 760px) { .lab-sigkelly-posrate-pop { width: min(480px, calc(100vw - 16px)); font-size: 10.5px; padding: 7px 9px; } }
 .lab-sigkelly-toggle-group-poscap { border: 1px dashed var(--primary); }
 .lab-sigkelly-toggle-group-rec { border: 1px dashed rgba(250,173,20,0.6); background: rgba(250,173,20,0.06); }
 .lab-sigkelly-fee-hint { font-size: 10px; color: var(--text-3); margin-left: 4px; }

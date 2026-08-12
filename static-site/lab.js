@@ -8202,12 +8202,33 @@ function _renderSigKellyBar(bar, data, period) {
   // positionCap 仓位控制过滤(2026-08-12): 同日只买最优K个(基笔级,9模式共享统一生效), K档位1-4可配置(默认2)
   // 2026-08-12 #4 rename+范围扩展: 显示名改"AI仓位建议"(技术别名:仓位控制过滤), pop tooltip 完整展示; 历史回测数据固化展示(下方 poscapHistoryHTML)
   const _pcK = _filters.positionCapK || 2;
-  const _pcKbtns = [1, 2, 3, 4].map((k) =>
-    `<button type="button" class="lab-sigkelly-kbtn${k === _pcK ? " active" : ""}" data-k="${k}" title="K=${k}: 每日最多买入${k}个最优信号, 每笔固定1万(资金集中到当日最优信号, 降低资金占用)">${k}</button>`
-  ).join("");
+  // 2026-08-13: K档位评级标注 + hover 评级理由表格(展示层, 不改算法; 数据=researcher 回测定稿只读勿改; 口径=全开4组合+A模式(固定10天)+每笔1万+费率etf_def+全周期)
+  const _pcRating = {
+    1: { name: "最激进", ret: "71.03%", dd: "14.54%", ra: "4.88", n: "1,229", reason: "收益率最高但回撤最大、样本最少" },
+    2: { name: "次稳健", ret: "61.16%", dd: "11.43%", ra: "5.35", n: "1,968", reason: "收益率回撤居中" },
+    3: { name: "最稳健", ret: "64.00%", dd: "9.13%", ra: "7.01", n: "2,505", reason: "收益率第二高+回撤第二优,甜点区(主推)" },
+    4: { name: "最保守", ret: "61.73%", dd: "7.11%", ra: "8.69", n: "2,916", reason: "回撤最小" }
+  };
+  const _pcKbtns = [1, 2, 3, 4].map((k) => {
+    const r = _pcRating[k];
+    return `<button type="button" class="lab-sigkelly-kbtn${k === _pcK ? " active" : ""}${k === 3 ? " lab-sigkelly-kbtn-main" : ""}" data-k="${k}" data-no-pop=""><span class="lab-sigkelly-kbtn-k">${k}</span><span class="lab-sigkelly-kbtn-r">${r.name}${k === 3 ? "★主推" : ""}</span></button>`;
+  }).join("");
+  const _pcRatingRows = [1, 2, 3, 4].map((k) => {
+    const r = _pcRating[k];
+    return `<tr${k === 3 ? ' class="lab-sigkelly-posrate-hl"' : ""}><td><b>K=${k}</b> ${r.name}${k === 3 ? " ★主推" : ""}</td><td>${r.ret}</td><td>${r.dd}</td><td>${r.ra}</td><td>${r.n}</td><td>${r.reason}</td></tr>`;
+  }).join("");
+  const _pcRatingPop =
+    `<span class="lab-sigkelly-posrate-pop-wrap">` +
+      `<div class="lab-sigkelly-posrate-pop">` +
+        `<div class="lab-sigkelly-posrate-pop-title">AI仓位建议 · K 档位评级（评级依据=下方回撤矩阵）</div>` +
+        `<table class="lab-sigkelly-posrate-table"><thead><tr><th>档位</th><th>收益率</th><th>峰值资金回撤</th><th>风险调整<br>(收益/回撤)</th><th>样本</th><th>评级理由</th></tr></thead><tbody>${_pcRatingRows}</tbody></table>` +
+        `<div class="lab-sigkelly-posrate-pop-note">⚠ 口径：全开4组合 + A模式(固定10天) + 每笔1万 + 费率etf_def + 全周期；评级基于该口径回测（与下方「历史回测数据」G模式口径不同，勿混用数值）</div>` +
+      `</div>` +
+    `</span>`;
   const positionCapHTML =
     `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap"><span class="lab-sigkelly-toggle-tier">AI仓位建议(技术别名:仓位控制过滤·同日只买最优K个·资金利用率)</span>` +
-    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启,用户:默认的最优组合要开启): AI仓位建议(技术别名:仓位控制过滤)=同日只买最优K个信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型buy_backup&gt;buy&gt;buy_aux&gt;buy_special→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。每笔固定1万口径回测(G模式,2026-08-12删资金池后重跑): 关=买全部信号 收益率32.27%/最大持仓1,218万(资金占用高); K=1 收益率48.58%最高+持仓降至162万(资金占用最小)但净利仅+78.7万(砍最狠较基线-80%); K=2(默认) 收益率40.41%+净利+119.2万+持仓295万(收益率/净利平衡点); K≥3 收益率趋近买全部、净利随持仓回升。⚠fixed口径下K档是收益率↑vs净利↓的权衡(砍量), 非资金池口径的净利反升; K=1=激进资金效率, K=2=平衡默认。与降亏同开仅推荐默认组合(AI宏: excludeSpecialBear/janMidRating/janMidSpecial/n2NovSpecialIndustry,fixed+K=2下边际≈0无害); ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开/greedy广谱; B模式(3%止盈)仓位控制下转负建议关。范围扩展(2026-08-12 #4): 交易页整个信号列表(近15交易日)按同一排序展示 AI建议(AI建议买入/当日已满)。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> AI仓位建议(每日只买最优K个·技术别名:仓位控制过滤) K:<span class="lab-sigkelly-kbtns">${_pcKbtns}</span> <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启,用户:默认的最优组合要开启): AI仓位建议(技术别名:仓位控制过滤)=同日只买最优K个信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型buy_backup&gt;buy&gt;buy_aux&gt;buy_special→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。每笔固定1万口径回测(G模式,2026-08-12删资金池后重跑): 关=买全部信号 收益率32.27%/最大持仓1,218万(资金占用高); K=1 收益率48.58%最高+持仓降至162万(资金占用最小)但净利仅+78.7万(砍最狠较基线-80%); K=2(默认) 收益率40.41%+净利+119.2万+持仓295万(收益率/净利平衡点); K≥3 收益率趋近买全部、净利随持仓回升。⚠fixed口径下K档是收益率↑vs净利↓的权衡(砍量), 非资金池口径的净利反升; K=1=激进资金效率, K=2=平衡默认。与降亏同开仅推荐默认组合(AI宏: excludeSpecialBear/janMidRating/janMidSpecial/n2NovSpecialIndustry,fixed+K=2下边际≈0无害); ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开/greedy广谱; B模式(3%止盈)仓位控制下转负建议关。范围扩展(2026-08-12 #4): 交易页整个信号列表(近15交易日)按同一排序展示 AI建议(AI建议买入/当日已满)。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> AI仓位建议(每日只买最优K个·技术别名:仓位控制过滤) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+    `<span class="lab-sigkelly-kbtns lab-sigkelly-posrate" tabindex="0"><span class="lab-sigkelly-posrate-k">K:</span>${_pcKbtns}${_pcRatingPop}</span>` +
     `</div>`;
   // 历史固化(#4 2026-08-12): 把仓位建议历史回测数据固化展示(参照 _kellyComboAdviceHtml 静态面板模式), 数据来自调研文档按方案固化, 非实时计算
   //   每笔固定1万口径(与上方回测/全信号表同口径,§22 一致性); 排序 key 与回测/交易页一致(跟踪分↓→评级→信号类型→买入日)
@@ -8577,6 +8598,8 @@ function _renderSigKellyBar(bar, data, period) {
       _kellyOnFilterChange();
     };
   });
+  // 2026-08-13: K档位评级 hoverpop(评级理由表格, 桌面 hover / 移动端 tap)
+  _bindSigKellyPosRatePop(bar);
   // 细标志收起/展开(2026-08-12 需求4: 非默认27个独立小toggle默认收起, 按钮在「组合降亏」行内; 4预设宏/仓位控制/金额展示/4默认推荐(AI宏)常驻)
   var _detBtn = bar.querySelector("#lab-kelly-toggle-detail-btn");
   var _detWrap = bar.querySelector("#lab-kelly-toggle-detail");
@@ -8865,6 +8888,42 @@ function _bindSigKellyGuidePop(host) {
     }, true);
     window.addEventListener("scroll", () => {
       document.querySelectorAll(".lab-sigkelly-guide-pop-wrap").forEach((p) => {
+        if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; }
+      });
+    }, { passive: true, capture: true });
+  }
+}
+
+// 绑定 AI仓位建议 K档位评级 hoverpop(桌面 hover / 移动端 tap 切换), 复用 wm pop 定位+关闭逻辑
+function _bindSigKellyPosRatePop(bar) {
+  const isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
+  bar.querySelectorAll(".lab-sigkelly-posrate").forEach((trig) => {
+    const pop = trig.querySelector(".lab-sigkelly-posrate-pop-wrap");
+    if (!pop) return;
+    let openByClick = false;
+    const show = () => { pop.style.display = "block"; _positionSigKellyWmPop(trig, pop); };
+    const hide = () => { pop.style.display = "none"; pop.style.left = ""; };
+    trig.addEventListener("mouseenter", () => { if (!openByClick) show(); });
+    trig.addEventListener("mouseleave", () => { if (!openByClick) hide(); });
+    trig.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (isTouch) {
+        openByClick = pop.style.display !== "block";
+        if (openByClick) show(); else hide();
+      }
+    });
+  });
+  // 移动端: 点别处/滚动关闭所有评级 pop(全局绑一次)
+  if (isTouch && !document._sigKellyPosRateDocBound) {
+    document._sigKellyPosRateDocBound = true;
+    document.addEventListener("click", (e) => {
+      if (e.target.closest && e.target.closest(".lab-sigkelly-posrate")) return;
+      document.querySelectorAll(".lab-sigkelly-posrate-pop-wrap").forEach((p) => {
+        if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; }
+      });
+    }, true);
+    window.addEventListener("scroll", () => {
+      document.querySelectorAll(".lab-sigkelly-posrate-pop-wrap").forEach((p) => {
         if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; }
       });
     }, { passive: true, capture: true });
