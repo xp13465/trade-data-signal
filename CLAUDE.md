@@ -221,7 +221,7 @@
 
 # Compact Instructions(上下文压缩时保留什么,2026-08-12 用户定,OPT-3 context rot 防护)
 > 目的:上下文过长 auto-compact 时,以下信息必须保留在摘要中,防遗忘约束/丢状态(用户强调核心=保回答质量非仅省钱,官方 best practice)。与 memory compact-recovery-checklist(compact 后 5 步恢复)互补:本节约=压缩时要留什么,恢复清单=压缩后做什么。
-1. **在跑 agent 状态**:agentId + 任务 + 进度文件路径 + 是否 worktree 隔离;未完成的不预测结果,等通知
+1. **在跑 agent 状态**:agentId + 任务 + 进度文件路径 + 是否 worktree 隔离;未完成的不预测结果,等通知;**收到完成通知→立即评估下一步(验收/派 reviewer/派下一步 agent)并派出,不积压;派单待办实时写进 TaskCreate/TaskUpdate,不留"心理队列"**(2026-08-12 教训:merge 占注意力时 3 个派单漏派,用户提醒才动)
 2. **修改文件清单**:本轮/本分支改动文件(绝对路径)+ 未 commit 的改动,恢复后能接着干
 3. **测试/验证命令**:跑过的关键自测/curl/校验命令,恢复后复用
 4. **当前 git 状态**:分支名 + 未推 commit + merge/上线待办链
