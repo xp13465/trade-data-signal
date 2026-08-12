@@ -93,7 +93,87 @@ Claude Code 的 thinking 参数构建器(disabled 分支)条件:`r.type==="disab
 - **effort 参数对 glm-5.2 无省 token 效果**:`--effort low` / `CLAUDE_EFFORT=low` / frontmatter `effort:low` 只改 `output_config.effort`,不改 thinking type(thinking 仍 adaptive=ON)。主控派 implementer/tester 传 effort:'low' **不省 token**(与原始假设"effort=low 关 thinking"不符,已实测推翻)
 - 若选方案 A:主控派 implementer/tester 无需额外操作(frontmatter 已配 haiku);reviewer/researcher 仍 inherit glm-5.2
 
-## 六、来源
+## 六、CLAUDE_CODE_DISABLE_THINKING 实测 + deepseek-v4-pro 落地（2026-08-13 v2 实测）
+
+> 本节=实施 agent v2 实测落档，承接 §五（三机制失败）。本轮主控 grep 二进制发现 `CLAUDE_CODE_DISABLE_THINKING`(处理函数 Rig)与 `MAX_THINKING_TOKENS=0` 可能走不同分支，需单独干净实测。**结论:仍不能绕过 ydr**(只省略不发 disabled)。备选方案(本地代理注入 disabled)端到端验证可行，落地待主控/用户决策(P0 风险)。
+
+### 6.1 CLAUDE_CODE_DISABLE_THINKING 实测结论:不能绕过 ydr(失败)
+
+方法:本地 HTTP 代理(localhost:8899)拦截 `claude -p` 子进程发往火山方舟的真实请求体，设 `CLAUDE_CODE_DISABLE_THINKING=1` 看 thinking 字段。Claude Code 2.1.224。
+
+| 测试 | model | env | claude 实发 thinking 字段 |
+|---|---|---|---|
+| baseline | glm-5.2 | 无 | `{type:adaptive,display:omitted}` |
+| glm-DT | glm-5.2 | DISABLE_THINKING=1 | **`<OMITTED>`(省略)** |
+| ds-baseline | deepseek-v4-pro | 无 | `{type:adaptive,display:omitted}` |
+| ds-DT | deepseek-v4-pro | DISABLE_THINKING=1 | **`<OMITTED>`(省略)** |
+| ds-DA | deepseek-v4-pro | DISABLE_ADAPTIVE_THINKING=1 | `{type:adaptive,display:omitted}`(无效) |
+| ds-DT+DA | deepseek-v4-pro | 两者都=1 | **`<OMITTED>`(省略)** |
+
+**判定:`CLAUDE_CODE_DISABLE_THINKING` 对非Claude模型(glm/deepseek)只"省略"thinking 参数，不发 `{type:disabled}`**。省略 = 火山方舟默认 ON(不省 token，见 6.2)。`DISABLE_ADAPTIVE_THINKING` 单独无效，组合无效。与 §五 MAX_THINKING_TOKENS=0 同结论(都走"省略"分支，都不触发 disabled 分支)。
+
+根因(§5.3 已确认):disabled 分支条件 `!ydr(u)`，非Claude模型 ydr=true -> disabled 永不触发。`CLAUDE_CODE_DISABLE_THINKING` 走"省略 thinking 参数"另一代码路径，不碰 disabled 分支，故绕不过 ydr。
+
+### 6.2 省token实测:省略 vs disabled(直接 curl 火山方舟)
+
+直接请求火山方舟(不经 claude)，同 prompt "回复数字1即可":
+
+| model | thinking 参数 | output_tokens | content_types | 省 |
+|---|---|---|---|---|
+| deepseek-v4-pro | OMIT(省略) | 151 | [thinking,text] | 否 |
+| deepseek-v4-pro | `{type:disabled}` | **1** | [text] | **99%** |
+| deepseek-v4-pro | `{type:adaptive}` | 87 | [thinking,text] | 否 |
+| glm-5.2 | `{type:disabled}` | **2** | [text] | **98%** |
+| glm-5.2 | OMIT(省略) | 109 | [thinking,text] | 否 |
+
+**`{type:disabled}` 是唯一真省(98-99%)。省略/adaptive 都是 ON(87-151 token)。** CLAUDE_CODE_DISABLE_THINKING 让 claude 省略 = ON = 不省。
+
+### 6.3 备选方案:本地代理注入 disabled(端到端验证可行)
+
+既然 claude 不肯发 disabled，由**本地代理层强制注入**:代理转发请求到火山方舟时，对指定 model(deepseek-v4-pro)把请求体 thinking 字段改成 `{type:disabled}`。
+
+端到端实测(代理注入 + `claude -p` deepseek-v4-pro):
+- 代理记录:`thinking={type:adaptive} injected=True`(claude 发 adaptive，代理改 disabled)
+- 响应:`RESP 200 has_thinking=False output=2`(无 thinking block，2 token)
+- claude -p 成功返回 "数字1"
+- **省 token:deepseek baseline 87-151 -> 注入后 2(省 98%+)**
+
+### 6.4 落地工程方案 + 风险评估(待主控/用户决策，未擅自激活)
+
+**落地配置**:
+1. 代理脚本常驻(`scripts/thinking_proxy.py`，监听 localhost:8899，转发 ark.cn-beijing.volces.com/api/coding，对 deepseek-v4-pro 注入 disabled)
+2. launchd 守护(KeepAlive=true，挂了秒级重启)
+3. settings.json env `ANTHROPIC_BASE_URL=http://localhost:8899`(全局走代理)
+4. agents implementer/tester `model: deepseek-v4-pro`(代理注入 disabled 省 token)
+5. agents reviewer/researcher `model: inherit`(=glm-5.2，代理不注入保思考);主控 glm-5.2 同(保思考)
+6. 代理 `TTP_INJECT_MODELS=deepseek-v4-pro`(只对执行类注入，判断类保思考 = per-role 效果)
+
+**per-role 效果**(代理 per-model 注入实现，非 env per-role):
+- implementer/tester(deepseek-v4-pro + 注入 disabled):省 98% token，执行类任务关思考(§四可接受)
+- reviewer/researcher/主控(glm-5.2 不注入):保 adaptive 思考(§四承重墙，不降质)
+
+**风险(P0，需主控/用户知情)**:
+- ⚠️ **代理挂 = 全站 claude 不可用**:settings BASE_URL 指向代理，代理故障则所有请求失败。launchd KeepAlive 守护 + claude 网络错误重试 = 大部分自愈，但重启期间(秒级)请求可能失败
+- 延迟:多一跳本地转发(实测可接受，2-4s 含代理)
+- token/对话经代理(本地，风险低)
+- 维护:多一个常驻服务
+
+**权衡建议(给主控/用户决策)**:
+
+| 方案 | 省 token | 质量 | 风险 | 复杂度 | 适用 |
+|---|---|---|---|---|---|
+| B. 代理注入 disabled(per-model) | 执行类省98% | 执行类关/判断类保 | **P0 代理挂全站不可用** | 高(launchd守护) | 要省 token + 保模型(glm/deepseek) + 接受 P0 风险 |
+| A(§5.4). model:haiku | 执行类省98% | 换模型(非关思考)，能力可能弱 | 低(frontmatter) | 低 | 要省 token + 接受换模型 + 不要 P0 风险 |
+| E. 接受现状 | 不省 | 保 | 无 | 无 | token 成本可接受 |
+
+- **若优先保 P0 稳定**:选 A(haiku，低风险)或 E(不改)
+- **若优先省 token + 保模型**:选 B(代理注入)，但须接受 P0 风险 + 建 launchd 守护 + 故障转移(代理挂时 claude 重试兜底)
+- 代理注入的 per-role 效果优于 haiku(不换模型，deepseek-v4-pro 能力可能强于 haiku)，但 P0 风险是代价
+
+### 6.5 关键事实修正(对 §5.2 表格③)
+§5.2 表格③将 `CLAUDE_CODE_DISABLE_THINKING=1` 与 `MAX_THINKING_TOKENS=0` 合并测，结论"省略"。本轮单独干净实测确认:**CLAUDE_CODE_DISABLE_THINKING 单独也是"省略"(不绕 ydr)，与 MAX_THINKING_TOKENS=0 同分支**。两者都不触发 disabled 分支。修正:不是"CLAUDE_CODE_DISABLE_THINKING 可能不同"，而是确认相同(都省略，都不省 token)。
+
+## 七、来源
 - [decodeclaude.com — UltraThink Is Dead, Long Live Extended Thinking](https://decodeclaude.com/ultrathink-deprecated/)(2026-01-17,逆向源码确认默认 31999 + 关法 + "more thinking isn't always better")
 - [Simon Willison — Claude 3.7 Sonnet, extended thinking and long output](https://simonwillison.net/2025/Feb/25/llm-anthropic-014/)(2025-02-25,thinking 机制/budget_tokens 背景)
 - [patrickmccanna.net — The text in Claude Code's Extended Thinking output is not authentic](https://patrickmccanna.net/the-text-in-claude-codes-extended-thinking-output-is-not-authentic/)(2026-06-22,325pts/225 评论;thinking 输出是摘要非真实推理——审计用途注意,与提速无关)
