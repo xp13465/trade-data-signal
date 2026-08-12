@@ -1438,6 +1438,7 @@
 .lab-sigkelly-kbtn:hover { border-color: var(--primary); color: var(--text-1); }
 .lab-sigkelly-kbtn.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700; }
 .lab-sigkelly-toggle-group-poscap { border: 1px dashed var(--primary); }
+.lab-sigkelly-toggle-group-rec { border: 1px dashed rgba(250,173,20,0.6); background: rgba(250,173,20,0.06); }
 .lab-sigkelly-fee-hint { font-size: 10px; color: var(--text-3); margin-left: 4px; }
 .lab-sigkelly-fee-custom { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; width: 100%; font-size: 11px; color: var(--text-3); padding: 4px 0; }
 .lab-sigkelly-fee-custom label { display: flex; align-items: center; gap: 2px; white-space: nowrap; }

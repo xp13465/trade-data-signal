@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260812-a155';  // bump a153->a154: 凯利删资金池等分口径(固定每笔1万)+K档fixed口径重跑+G模式总建议配套公示+降亏31小toggle默认收起
+const CACHE_VERSION = 'v6-20260812-a156';  // bump a155->a156: 凯利默认推荐组重构(A45/A5/追关注×熊市/J1/J2常驻高亮+26非默认收起)+J1/J2并入默认推荐+老用户旧filters字段补齐+总建议n=2227/+123万/61.3%/2.45%/45.75%
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

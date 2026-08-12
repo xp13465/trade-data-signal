@@ -7089,7 +7089,7 @@ function _kellyYearsFromTrades(trades) {
   return Math.max(days / 365.25, 1.0 / 365.25);
 }
 
-// 最大回撤(复用 _max_drawdown; 2026-08-12 资金池口径: 用每笔 amount 求总投入, fixed口径每笔相等退化为旧行为)
+// 最大回撤(复用 _max_drawdown; 2026-08-12: 用每笔 amount 求总投入, fixed口径每笔相等=笔数×1万)
 function _kellyMaxDrawdown(trades, buyAmount) {
   if (!trades.length) return { abs: 0, pct: 0 };
   var sorted = trades.slice().sort(function (a, b) {
@@ -7147,7 +7147,7 @@ function _kellyComputeStats(trades, periodKey, buyAmount) {
   else if (winCount > 0 && loseCount === 0) plRatio = 999.0;
   else plRatio = null;
   var meanReturn = trades.reduce(function (s, t) { return s + t.return_pct; }, 0) / n;
-  // 2026-08-12 资金池口径: 总投入=每笔 amount 求和(fixed口径每笔=buyAmount退化为旧行为)
+  // 2026-08-12: 总投入=每笔 amount 求和(fixed口径每笔=buyAmount)
   var totalAmount = trades.reduce(function (s, t) { return s + (t.amount || buyAmount); }, 0);
   var totalReturn = totalAmount > 0 ? trades.reduce(function (s, t) { return s + t.profit; }, 0) / totalAmount * 100 : 0;
   var avgHold = trades.reduce(function (s, t) { return s + t.hold_days; }, 0) / n;
@@ -7243,7 +7243,7 @@ function _kellyBuildTradeDims(td, fIdx) {
   return dims;
 }
 // 降亏过滤默认state(默认最优组合, 2026-08-12用户定: "默认的最优组合要开启,用户看到的才是默认最好的"):
-// 默认开启 positionCap(每日只买最优K个,K=2) + 3个降亏推荐(A45 11月中下旬+追关注/A5 11月中旬+追关注/追关注×熊市交叉),
+// 默认开启 positionCap(每日只买最优K个,K=2) + 5个降亏推荐(A45 11月中下旬+追关注/A5 11月中旬+追关注/追关注×熊市交叉/J1 1月中旬+mid评级/J2 1月中旬+追关注,2026-08-12并入),
 // 其余降亏toggle默认false(数据证明负边际/过拟合, 见 docs/kelly-position-cap-k-sensitivity.md)
 function _kellyDefaultFilters() {
   return {
@@ -7263,7 +7263,8 @@ function _kellyDefaultFilters() {
     // v4新标志(第三梯队,附监控: Greedy-15组合/V4-F/V4-G/V4-M/V4-K)
     greedy15: false, v4f: false, v4g: false, v4m: false, v4k: false,
     // 1月调整(2026-08-11 元素级重组验证: 1月中旬(11-20日)+mid评级 / 1月中旬+追关注; 1月上旬=盈利口袋明确排除)
-    janMidRating: false, janMidSpecial: false,
+    // 2026-08-12 用户拍板并入默认推荐("只要有增幅就做"): 默认推荐(positionCap K2+A45+A5+追关注×熊市)+1月调整 G模式all +9172元/+0.43pp 全9模式正增量+4.8万; ⚠J1 maxSh0.62/J2 0.79 带监控(每年1月后检查)
+    janMidRating: true, janMidSpecial: true,
     // positionCap 仓位控制过滤(2026-08-12): 同日只买最优K个(基笔级,模式之前统一生效), K可配置1-4默认2; 默认开启
     positionCap: true, positionCapK: 2
   };
@@ -7499,11 +7500,11 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
   return true;
 }
 
-// ===== positionCap 仓位控制过滤 + 每日资金池等分 (2026-08-12) =====
+// ===== positionCap 仓位控制过滤 (2026-08-12; 金额口径固定=每笔1万, 已移除每日资金池等分) =====
 // 需求: "一天100个信号不可能买100次, 同日只买最优K个" + "一天2个信号就各买5000, 每天交易额不变"
 // positionCap: 按 signal_date 分组当日全部基笔信号, 组内排序 track_score DESC→rating(high>mid>low)→signal类型(buy_backup>buy>buy_aux>buy_special)→buy_date ASC, 保留前K个
 // 过滤时机: 基笔信号级(9卖出模式A-I共享同一批基笔信号, 过滤在模式之前统一生效; 同一信号同一天只算一次, 跨模式不重复计)
-// 金额口径: "pool"=每日资金池等分(每笔=每日金额/当日信号数, 每日总投资额恒定, 默认正确逻辑) / "fixed"=每笔固定金额(旧口径)
+// 金额口径(2026-08-12 用户定): 固定=每笔固定 1 万(移除"每日资金池等分"——用户原话"1w还分30个信号买30份没意义,仓位控制1/2/3/4已足以")
 // 基笔身份: signal_date|index_id|signal|buy_date|etf_code (买侧身份, 卖出模式不影响)
 function _kellyBaseKey(t, fIdx) {
   return (t[fIdx.signal_date] || "") + "|" + (t[fIdx.index_id] || "") + "|" + (t[fIdx.signal] || "") + "|" + (t[fIdx.buy_date] || "") + "|" + (t[fIdx.etf_code] || "");
@@ -7562,25 +7563,11 @@ function _kellyCollectBasePool(quads, sellModes, fIdx, passFn) {
   });
   return pool;
 }
-// 按 signal_date 统计基笔池内当日信号数(资金池等分用)
-function _kellyCountByDate(trades, fIdx) {
-  var map = {};
-  for (var i = 0; i < trades.length; i++) {
-    var sd = String(trades[i][fIdx.signal_date] || "");
-    if (!sd) continue;
-    map[sd] = (map[sd] || 0) + 1;
-  }
-  return map;
-}
-// 单笔买入金额: "pool"=每日资金池等分(每笔=每日金额/当日信号数, 默认) / "fixed"=每笔固定金额
-function _kellyPerTradeAmount(t, fIdx, buyAmount, amountMode, countByDate) {
-  if (amountMode === "pool" && countByDate) {
-    var n = countByDate[String(t[fIdx.signal_date] || "")] || 0;
-    if (n > 0) return buyAmount / n;
-  }
+// 单笔买入金额(2026-08-12 移除资金池等分口径): 固定=每笔固定 1 万
+function _kellyPerTradeAmount(t, fIdx, buyAmount) {
   return buyAmount;
 }
-// 最大同时持仓占用资金(资金池口径: 按日期分桶累加买入/卖出金额, 同日先买后卖=保守, 语义与 _kellyMaxConcurrent 一致)
+// 最大同时持仓占用资金(按日期分桶累加买入/卖出金额, 同日先买后卖=保守, 语义与 _kellyMaxConcurrent 一致; fixed口径每笔相等=并发笔数×1万)
 function _kellyMaxConcurrentCapital(trades) {
   if (!trades.length) return 0;
   var SENTINEL = "99999999", deltas = {}, dates = [];
@@ -7696,31 +7683,22 @@ async function _kellyApplyFeeRecompute(feeParams) {
   }
   // ④ filters+feeParams+金额口径签名缓存: 连点命中直接复用, 不重算
   var feeSig = _kellyFeeSig(feeParams);
-  // 金额口径(2026-08-12): "pool"=每日资金池等分(默认正确逻辑, 每笔=每日金额/当日信号数) / "fixed"=每笔固定金额(旧口径)
-  var amountMode = state.labSigKellyAmountMode || "pool";
-  var cacheKey = feeSig + "|" + amountMode + "|" + JSON.stringify(filters);
+  // 金额口径(2026-08-12 用户定): 固定=每笔固定 1 万(移除资金池等分, 仓位控制1/2/3/4已足以)
+  var cacheKey = feeSig + "|fixed|" + JSON.stringify(filters);
   if (_kellyStatsCacheKey === cacheKey && _kellyStatsCacheVal) {
     return _kellyStatsCacheVal;
   }
   var result = {};
-  // 降亏toggle过滤谓词(只算一次, positionCap/资金池池共用)
+  // 降亏toggle过滤谓词(只算一次, positionCap/仓位控制共用)
   var monthMask = _kellyActiveMonthMask(filters);
   var passesFade = function (t) {
     return _kellyPassesFadeFilters(t, fIdx, filters, _kellyTradeFeatureCache, _tradeDims, monthMask);
   };
   // positionCap 仓位控制过滤: 统一在模式之前生效(9模式共享同一批基笔, 同一信号同一天只算一次跨模式不重复计)
-  // 每日资金池等分: countByDate = 保留基笔池(降亏+positionCap后)当日信号数, 每笔=每日金额/当日信号数
   var posCapKept = null;
-  var countByDate = null;
-  if ((filters.positionCap && filters.positionCapK > 0) || amountMode === "pool") {
+  if (filters.positionCap && filters.positionCapK > 0) {
     var basePool = _kellyCollectBasePool(quads, sellModes, fIdx, passesFade);
-    if (filters.positionCap && filters.positionCapK > 0) {
-      posCapKept = _kellyPositionCapKeptKeys(basePool, fIdx, filters.positionCapK);
-    }
-    if (amountMode === "pool") {
-      var keptPool = posCapKept ? basePool.filter(function (t) { return !!posCapKept[_kellyBaseKey(t, fIdx)]; }) : basePool;
-      countByDate = _kellyCountByDate(keptPool, fIdx);
-    }
+    posCapKept = _kellyPositionCapKeptKeys(basePool, fIdx, filters.positionCapK);
   }
   // ① 按(qk,mode)只过滤一次(不含period cutoff), 5个period从过滤结果按cutoff取子集(扫描5->1遍)
   // ② v3/v4特征经缓存Map只算一次, 后续O(1)查表
@@ -7737,15 +7715,14 @@ async function _kellyApplyFeeRecompute(feeParams) {
       });
     }
     // 阶段2: 每个period从toggled结果按cutoff取子集(轻量字符串比较)
-    // 逐桶缓存: toggle改动只影响匹配到删除trade的桶, 未被影响的桶(feeSig+toggled数组未变)直接复用上次stats(纯函数, 结果精确一致)
-    // ⚠2026-08-12: 资金池口径下 countByDate 全局联动, 任一toggle变可能改所有桶金额, 桶缓存仅fixed口径安全
+    // 逐桶缓存: toggle改动只影响匹配到删除trade的桶, 未被影响的桶(feeSig+toggled数组未变)直接复用上次stats(纯函数, 结果精确一致; fixed口径每笔金额恒定, 桶缓存安全)
     for (var periodKey in periods) result[qk][periodKey] = {};
     for (var modeKey in sellModes) {
       var toggled = toggledByMode[modeKey];
       var bKey = qk + "|" + modeKey;
       var cachedBucket = _kellyBucketStatsCache.get(bKey);
       var statsByPeriod;
-      if (amountMode === "fixed" && cachedBucket && cachedBucket.amountMode === amountMode && cachedBucket.feeSig === feeSig && _kellySameTradeArray(cachedBucket.toggled, toggled)) {
+      if (cachedBucket && cachedBucket.feeSig === feeSig && _kellySameTradeArray(cachedBucket.toggled, toggled)) {
         statsByPeriod = cachedBucket.stats;
       } else {
         statsByPeriod = {};
@@ -7760,7 +7737,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
           }
           // ③ 费率重算缓存(feeParams+单笔金额未变同一trade只算一次, 消灭跨bucket重复)
           var recomputed = trades.map(function (t) {
-            var amt = _kellyPerTradeAmount(t, fIdx, buyAmount, amountMode, countByDate);
+            var amt = _kellyPerTradeAmount(t, fIdx, buyAmount);
             var c = _kellyRecomputeCache.get(t);
             if (!c || c.sig !== feeSig || c.amt !== amt) {
               var r = _kellyRecomputeTrade(t, fIdx, feeParams, amt);
@@ -7775,7 +7752,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
         }
         // 缓存上限保护: 只保留最近~5个过滤状态(144桶×5=720), 防无界增长
         if (_kellyBucketStatsCache.size >= 720) _kellyBucketStatsCache.clear();
-        _kellyBucketStatsCache.set(bKey, { feeSig: feeSig, amountMode: amountMode, toggled: toggled, stats: statsByPeriod });
+        _kellyBucketStatsCache.set(bKey, { feeSig: feeSig, toggled: toggled, stats: statsByPeriod });
       }
       for (var periodKey in periods) result[qk][periodKey][modeKey] = statsByPeriod[periodKey];
     }
@@ -7788,7 +7765,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
           var _t2 = _yt[_yi];
           var _yr = (_t2[fIdx.buy_date] || "").substring(0, 4);
           if (!_yr) continue;
-          var _amt2 = _kellyPerTradeAmount(_t2, fIdx, buyAmount, amountMode, countByDate);
+          var _amt2 = _kellyPerTradeAmount(_t2, fIdx, buyAmount);
           var _c2 = _kellyRecomputeCache.get(_t2);
           if (!_c2 || _c2.sig !== feeSig || _c2.amt !== _amt2) {
             var _rr2 = _kellyRecomputeTrade(_t2, fIdx, feeParams, _amt2);
@@ -8037,10 +8014,18 @@ async function renderSigKellyLab() {
     state.labSigKellyFeePreset = "etf_def";
     state.labSigKellyFeeParams = { commission_rate: 0.0003, min_commission: 5, slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0 };
   }
-  // 降亏过滤toggle state(默认最优组合已开启: positionCap+A45/A5/追关注×熊市, 见 _kellyDefaultFilters)
-  if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
-  // 金额口径默认=每日资金池等分(基础正确逻辑, 2026-08-12); positionCap 开关/K 与交易页共享localStorage
-  if (!state.labSigKellyAmountMode) state.labSigKellyAmountMode = "pool";
+  // 降亏过滤toggle state(默认最优组合已开启: positionCap+A45/A5/追关注×熊市+J1/J2(1月调整,2026-08-12并入), 见 _kellyDefaultFilters)
+  // 2026-08-12 补齐缺失字段: 老用户localStorage旧filters缺新字段(如janMidRating/janMidSpecial)时用默认值补齐,
+  // 而非整体重置——不覆盖用户已手动关闭的字段(已存在字段保持原值), 根治"默认推荐没勾"根因(§23.2修完整)
+  if (!state.labSigKellyFilters) {
+    state.labSigKellyFilters = _kellyDefaultFilters();
+  } else {
+    var _kellyDft = _kellyDefaultFilters();
+    for (var _kf in _kellyDft) {
+      if (!Object.prototype.hasOwnProperty.call(state.labSigKellyFilters, _kf)) state.labSigKellyFilters[_kf] = _kellyDft[_kf];
+    }
+  }
+  // 金额口径固定=每笔固定1万(2026-08-12 移除资金池等分); positionCap 开关/K 与交易页共享localStorage
   var _sharedPC = _kellySharedPosCap();
   // 2026-08-12 默认开启 positionCap(用户:默认最优组合要开启): 首次访问(无 tds_poscap)写入默认{on:true,k:2}, 与 app.js 首页联动一致(§22)
   if (!localStorage.getItem("tds_poscap")) _kellySetSharedPosCap(true, 2);
@@ -8156,7 +8141,7 @@ function _renderSigKellyBar(bar, data, period) {
       `<label>过户费:万分之<input type="number" class="lab-input lab-sigkelly-fee-input-transfer" value="${transferVal}" step="0.01" min="0" style="width:42px">(沪)</label>` +
       `<label>印花税:万分之<input type="number" class="lab-input lab-sigkelly-fee-input-stamp" value="${stampVal}" step="0.01" min="0" style="width:42px">(卖)</label>` +
     `</div>`;
-  // 降亏过滤toggle(31个独立checkbox可组合, 开启后过滤交易集重算所有指标, 按比值倒序)
+  // 降亏过滤toggle(31个独立checkbox可组合, 其中5个默认推荐常驻高亮+26个折叠收起, 开启后过滤交易集重算所有指标, 按比值倒序)
   const _filters = state.labSigKellyFilters || _kellyDefaultFilters();
   // 组合降亏「预设宏」(4个, 2026-08-11新增): 组合checkbox勾选态由成员toggle派生
   const comboHTML = Object.keys(_kellyComboPresets).map((ck) => {
@@ -8167,31 +8152,30 @@ function _renderSigKellyBar(bar, data, period) {
   // positionCap 仓位控制过滤(2026-08-12): 同日只买最优K个(基笔级,9模式共享统一生效), K档位1-4可配置(默认2)
   const _pcK = _filters.positionCapK || 2;
   const _pcKbtns = [1, 2, 3, 4].map((k) =>
-    `<button type="button" class="lab-sigkelly-kbtn${k === _pcK ? " active" : ""}" data-k="${k}" title="K=${k}: 每日最多买入${k}个最优信号(资金池等分时每笔=每日金额/${k})">${k}</button>`
+    `<button type="button" class="lab-sigkelly-kbtn${k === _pcK ? " active" : ""}" data-k="${k}" title="K=${k}: 每日最多买入${k}个最优信号, 每笔固定1万(资金集中到当日最优信号, 降低资金占用)">${k}</button>`
   ).join("");
   const positionCapHTML =
     `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap"><span class="lab-sigkelly-toggle-tier">仓位控制过滤(同日只买最优K个·资金利用率)</span>` +
-    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启,用户:默认的最优组合要开启): 仓位控制过滤=同日只买最优K个信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型buy_backup&gt;buy&gt;buy_aux&gt;buy_special→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。每日资金池口径回测(G模式): 关=每日池买全部 收益率38.28%/最大持仓171.7万; K=1 收益率48.88%最高+净利+78.7万+持仓161万三项全优; K=2(默认) 43.16%更分散+2021退化年抗跌; K≥3 趋同买全部无额外价值。与降亏同开仅推荐 a45NovMidLateSpecial/excludeSpecialBear; ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开/greedy广谱; B模式(3%止盈)每日池全负建议关。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> 仓位控制过滤(每日只买最优K个) K:<span class="lab-sigkelly-kbtns">${_pcKbtns}</span> <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启,用户:默认的最优组合要开启): 仓位控制过滤=同日只买最优K个信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型buy_backup&gt;buy&gt;buy_aux&gt;buy_special→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。每笔固定1万口径回测(G模式,2026-08-12删资金池后重跑): 关=买全部信号 收益率32.27%/最大持仓1,218万(资金占用高); K=1 收益率48.58%最高+持仓降至162万(资金占用最小)但净利仅+78.7万(砍最狠较基线-80%); K=2(默认) 收益率40.41%+净利+119.2万+持仓295万(收益率/净利平衡点); K≥3 收益率趋近买全部、净利随持仓回升。⚠fixed口径下K档是收益率↑vs净利↓的权衡(砍量), 非资金池口径的净利反升; K=1=激进资金效率, K=2=平衡默认。与降亏同开仅推荐默认组合(a45NovMidLateSpecial/a5NovMidSpecial/excludeSpecialBear/janMidRating/janMidSpecial,fixed+K=2下边际≈0无害); ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开/greedy广谱; B模式(3%止盈)仓位控制下转负建议关。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> 仓位控制过滤(每日只买最优K个) K:<span class="lab-sigkelly-kbtns">${_pcKbtns}</span> <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
     `</div>`;
-  // 金额口径(2026-08-12): 每日资金池等分(默认正确逻辑) vs 每笔固定(旧口径对比用)
-  const _amountMode = state.labSigKellyAmountMode || "pool";
-  const _amtLabel = _amountMode === "pool" ? "资金池等分" : "每笔固定1万";
+  // 金额口径(2026-08-12 用户定): 固定=每笔固定 1 万(移除资金池等分切换——"1w还分30个信号买30份没意义,仓位控制1/2/3/4已足以")
+  const _amtLabel = "每笔固定1万";
   const amountHTML =
     `<span class="lab-sigkelly-fee-label">金额:</span>` +
-    `<button type="button" class="lab-sigkelly-fee-btn${_amountMode === "pool" ? " active" : ""}" data-amount="pool" title="每日资金池等分(基础正确逻辑): 当日N个信号每笔=每日金额/N(如2个信号各5000), 每日总投资额恒定, 解决'一天100个信号买100次'的不可现实杠杆">0:资金池等分</button>` +
-    `<button type="button" class="lab-sigkelly-fee-btn${_amountMode === "fixed" ? " active" : ""}" data-amount="fixed" title="每笔固定金额(旧口径, 对比用): 每笔均买固定金额, 多信号日资金占用放大">1:每笔固定1万</button>`;
+    `<span class="lab-sigkelly-fee-label" style="font-weight:600">每笔固定 1 万</span>`;
   const toggleHTML = `<div class="lab-sigkelly-toggle-row">` +
       `<span class="lab-sigkelly-toggle-label">过滤:</span>` +
       positionCapHTML +
-      `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">组合降亏(预设宏·可叠加)</span>` + comboHTML + `</div>` +
-      `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">round3 11月系(2026-08-10验证)</span>` +
+      `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">组合降亏(预设宏·可叠加)</span>` + comboHTML +
+      `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-toggle-detail-btn" style="margin-left:10px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="展开/收起下方 26 个非默认独立小降亏toggle(默认收起, 关注细标志时手动展开调试)">细标志(26)展开 ▼</button></div>` +
+      `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-rec"><span class="lab-sigkelly-toggle-tier">⭐ 默认推荐组合(默认开启·2026-08-12)</span>` +
       `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启,降亏推荐): A45(11月中旬+下旬+追关注): 排除11日及以后(buy_date日≥11)的buy_special追关注交易。减亏5.54%/损盈0.96%/比值5.75。净增收+49.9万元(全场候选最大)。覆盖11月80%的special交易。叠加现有4 toggle之上边际+10.7万(比值7.87)。⚠含11月下旬(2024+零交易,近年贡献主要来自中旬)。"><input type="checkbox" class="lab-sigkelly-toggle-a45"${_filters.a45NovMidLateSpecial ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> A45 11月中下旬+追关注(5.75) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启,降亏推荐): A5(11月中旬+追关注): 排除11日-20日(中旬)的buy_special追关注交易。减亏3.62%/损盈0.66%/比值5.49。净增收+31.9万元。最稳候选:2016-2025连续有交易无空窗,4窗口(y2/y3/y5/y10)全>2。叠加现有4 toggle之上边际+7.7万(比值6.45)。注意:A5为A45(11月中下旬)的子集,同时开启A45时A5不再新增过滤。"><input type="checkbox" class="lab-sigkelly-toggle-a5"${_filters.a5NovMidSpecial ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> A5 11月中旬+追关注(5.49) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启,降亏推荐): 排除 buy_special（追关注）信号在MA60熊市的交易（交叉标志）。减亏 8.3% / 损盈 3.6% / 比值 2.31。净增收 +26.5万元。追涨信号在熊市是经典反模式（追涨被套），buy_special整体净正但在熊市净亏。"><input type="checkbox" class="lab-sigkelly-toggle-specialbear"${_filters.excludeSpecialBear ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> 追关注×熊市交叉(2.31) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(2026-08-12用户拍板并入,默认开启): J1(1月中旬+mid评级): 排除buy_date在11-20日(中旬)且rating=mid的1月交易。standalone减亏2.31%/损盈0.49%/比值4.71,净增收+18.7万,4窗口全>2(y1 4.0/y3 4.0/y5 4.2/y10 4.7),与现有标志90%不重叠,live4+现有之上边际+14.4万(n=1,026)。⚠附监控:maxSh0.62略超0.60(2026单年占净影响62%,全局大亏年系统性特征),每年1月后检查1月中旬子集是否转盈。只做中旬:1月上旬=盈利口袋(全负-56万)不可动。"><input type="checkbox" class="lab-sigkelly-toggle-janmidrating"${_filters.janMidRating ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> J1 1月中旬+mid评级(4.71)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(2026-08-12用户拍板并入,默认开启): J2(1月中旬+追关注): 排除buy_date在11-20日(中旬)的buy_special追关注1月交易。standalone减亏4.95%/损盈1.10%/比值4.49,净增收+38.9万,4窗口全>2(y1 4.9/y3 4.6/y10 4.5),live4+现有之上边际+14.4万(n=1,098)。覆盖更广(2,565笔vs J1 1,134)但⚠maxSh0.79更差(2026更主导)。J2含J1约96%(J1为J2中mid评级的子集),同时开幂等无害。只做中旬:1月上旬=盈利口袋(全负-56万)不可动。"><input type="checkbox" class="lab-sigkelly-toggle-janmidspecial"${_filters.janMidSpecial ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> J2 1月中旬+追关注(4.49)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `</div>` +
-      `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">1月调整(元素级重组·2026-08-11)</span>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="J1(1月中旬+mid评级): 排除buy_date在11-20日(中旬)且rating=mid的1月交易。standalone减亏2.31%/损盈0.49%/比值4.71,净增收+18.7万,4窗口全>2(y1 4.0/y3 4.0/y5 4.2/y10 4.7),与现有标志90%不重叠,live4+现有之上边际+14.4万(n=1,026)。⚠附监控:maxSh0.62略超0.60(2026单年占净影响62%,全局大亏年系统性特征),每年1月后检查1月中旬子集是否转盈。只做中旬:1月上旬=盈利口袋(全负-56万)不可动。"><input type="checkbox" class="lab-sigkelly-toggle-janmidrating"${_filters.janMidRating ? " checked" : ""}> J1 1月中旬+mid评级(4.71)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="J2(1月中旬+追关注): 排除buy_date在11-20日(中旬)的buy_special追关注1月交易。standalone减亏4.95%/损盈1.10%/比值4.49,净增收+38.9万,4窗口全>2(y1 4.9/y3 4.6/y10 4.5),live4+现有之上边际+14.4万(n=1,098)。覆盖更广(2,565笔vs J1 1,134)但⚠maxSh0.79更差(2026更主导)。J2含J1约96%(J1为J2中mid评级的子集),偏好surgical开J1,偏好覆盖开J2,同时开幂等无害。只做中旬:1月上旬=盈利口袋(全负-56万)不可动。"><input type="checkbox" class="lab-sigkelly-toggle-janmidspecial"${_filters.janMidSpecial ? " checked" : ""}> J2 1月中旬+追关注(4.49)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `</div>` +
+      `<div id="lab-kelly-toggle-detail" class="lab-sigkelly-toggle-detail" style="display:none">` +
       `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">比值&gt;3(高性价比)</span>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除3月+周三+高价ETF的交易。减亏0.89%/损盈0.09%/比值10.06(全场最高)。净增收+5.85万元。7/7年全亏(2017-2026)，无单年主导，稳定性最强单标志。"><input type="checkbox" class="lab-sigkelly-toggle-n1"${_filters.n1MarTueHigh ? " checked" : ""}> 3月+周三+高价(10.06) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除11月+追关注+行业指数的交易。减亏1.10%/损盈0.17%/比值6.63。净增收+6.72万元。7/9年亏，近年(2023/2025)大亏回归。年末追涨在行业轮动中被套。"><input type="checkbox" class="lab-sigkelly-toggle-n2"${_filters.n2NovSpecialIndustry ? " checked" : ""}> 11月+追关注+行业(6.63) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
@@ -8219,12 +8203,11 @@ function _renderSigKellyBar(bar, data, period) {
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-K(1月+主关注+高价)。比值10.11。净增收+4.08万元。maxSh0.49。⚠有子集盈利年(2017/2025),3/5年净正非全正,稳定性不足。"><input type="checkbox" class="lab-sigkelly-toggle-v4k"${_filters.v4k ? " checked" : ""}> V4-K(10.11)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `</div><div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">比值&lt;3(广谱过滤)</span>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 buy_aux 信号在3/5月进场的交易（交叉标志）。减亏 7.3% / 损盈 2.9% / 比值 2.52（全场最高）。净增收 +25.8万元。最外科手术式标志，双条件交集更稳定。"><input type="checkbox" class="lab-sigkelly-toggle-auxcross"${_filters.excludeAuxCross ? " checked" : ""}> 辅关注×3/5月交叉(2.52) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启,降亏推荐): 排除 buy_special（追关注）信号在MA60熊市的交易（交叉标志）。减亏 8.3% / 损盈 3.6% / 比值 2.31。净增收 +26.5万元。追涨信号在熊市是经典反模式（追涨被套），buy_special整体净正但在熊市净亏。"><input type="checkbox" class="lab-sigkelly-toggle-specialbear"${_filters.excludeSpecialBear ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> 追关注×熊市交叉(2.31) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="季节性过滤，排除3月和5月进场的交易。减亏 18.4% / 损盈 8.7% / 比值 2.11。净增收 +52.8万元。历史6年3/5月亏多盈少可能过拟合。"><input type="checkbox" class="lab-sigkelly-toggle-month"${_filters.excludeMonth ? " checked" : ""}> 排除3+5月(季节性)(2.11) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 buy_aux（辅关注）信号。减亏 34.5%（253.6万元）/ 损盈 25.0%（238.7万元）/ 比值 1.38。净增收 +14.8万元。唯一净负信号类型（胜率48%），系统性最强。"><input type="checkbox" class="lab-sigkelly-toggle-aux"${_filters.excludeAux ? " checked" : ""}> 排除辅关注(1.38) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="MA60 大盘择时（仅A股类 a/concept/industry）：沪深300在60日均线之上才进场。减亏 47.0%（345.6万元）/ 损盈 37.8%（360.5万元）/ 比值 1.24。净影响 -14.9万元（降亏强但损盈更多，全模式净负）。港股/全球标 true 不过滤。"><input type="checkbox" class="lab-sigkelly-toggle-mkt"${_filters.marketTiming ? " checked" : ""}> MA60大盘择时(1.24) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 rating=low 低评级信号。减亏 82.3%（605.4万元）/ 损盈 72.0%（686.4万元）/ 比值 1.14。净影响 -81.0万元（最大破坏）。低评级是周期性盈利群体（2025牛市+901k），砍掉损净利。"><input type="checkbox" class="lab-sigkelly-toggle-rating"${_filters.excludeRatingLow ? " checked" : ""}> 排除低评级(1.14) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `</div><span class="lab-sigkelly-toggle-hint">独立/组合开启,实时过滤重算</span>` +
+      `</div></div><span class="lab-sigkelly-toggle-hint">独立/组合开启,实时过滤重算</span>` +
     `</div>`;
   bar.innerHTML =
     `<div class="lab-sigkelly-periods">${tabsHTML}</div>` +
@@ -8494,14 +8477,16 @@ function _renderSigKellyBar(bar, data, period) {
       _kellyOnFilterChange();
     };
   });
-  // 金额口径切换(2026-08-12): 每日资金池等分(默认) vs 每笔固定(旧口径对比)
-  bar.querySelectorAll(".lab-sigkelly-fee-btn[data-amount]").forEach(function (btn) {
-    btn.onclick = function () {
-      state.labSigKellyAmountMode = btn.dataset.amount;
-      bar.querySelectorAll(".lab-sigkelly-fee-btn[data-amount]").forEach(function (b) { b.classList.toggle("active", b === btn); });
-      _kellyOnFilterChange();
-    };
-  });
+  // 细标志收起/展开(2026-08-12 需求4: 非默认26个独立小toggle默认收起, 按钮在「组合降亏」行内; 4预设宏/仓位控制/金额展示/5默认推荐常驻)
+  var _detBtn = bar.querySelector("#lab-kelly-toggle-detail-btn");
+  var _detWrap = bar.querySelector("#lab-kelly-toggle-detail");
+  if (_detBtn && _detWrap) {
+    _detBtn.addEventListener("click", function () {
+      var open = _detWrap.style.display !== "none";
+      _detWrap.style.display = open ? "none" : "";
+      _detBtn.textContent = open ? "细标志(26)展开 ▼" : "细标志(26)收起 ▲";
+    });
+  }
   // 成员toggle改动→刷新组合三态(事件委托, 捕获toggle区内所有checkbox change; 组合自身change跳过)
   var _kellyToggleRow = bar.querySelector(".lab-sigkelly-toggle-row");
   if (_kellyToggleRow) {
@@ -8521,8 +8506,8 @@ function _renderSigKellyBar(bar, data, period) {
 function _kellyComboAdviceHtml() {
   return (
     `<div class="lab-sigkelly-advice">` +
-      `<div class="lab-sigkelly-advice-title">🎯 降亏组合使用建议（真实回测 · 4 组合全开 · 金额口径=每笔固定 1 万(旧口径·静态) · 全信号 66,726 笔）</div>` +
-      `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">默认最优组合已开启（2026-08-12 用户定"默认的最优组合要开启"）：仓位控制过滤（每日只买最优K个，K=2）+ A45 11月中下旬+追关注 + A5 11月中旬+追关注 + 追关注×熊市交叉，其余降亏 toggle 默认关（数据证明负边际/过拟合）。下方「最后结果」全信号表即按此默认组合实时计算。</div>` +
+      `<div class="lab-sigkelly-advice-title">🎯 降亏组合使用建议（真实回测 · 4 组合全开 · 金额口径=每笔固定 1 万（静态） · 全信号 66,726 笔）</div>` +
+      `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">默认最优组合已开启（2026-08-12 用户定"默认的最优组合要开启"）：仓位控制过滤（每日只买最优K个，K=2）+ A45 11月中下旬+追关注 + A5 11月中旬+追关注 + 追关注×熊市交叉 + 1月调整（J1 1月中旬+mid评级 + J2 1月中旬+追关注，2026-08-12 并入，fixed口径 G 模式 all 增量 +1.2万/+0.77pp，全9模式正增量），其余降亏 toggle 默认关（数据证明负边际/过拟合）。⚠J1/J2 带监控（maxSh 0.62/0.79，2026 单年主导，每年 1 月后检查1月中旬子集是否转盈）。金额口径=每笔固定 1 万（2026-08-12 移除资金池等分）。下方「最后结果」全信号表即按此默认组合实时计算。</div>` +
       `<details class="lab-sigkelly-advice-details">` +
         `<summary>① 4 个组合全开怎么样？（年末季节 + 稳健核心 + 最大化降亏 + 1月调整）</summary>` +
         `<div class="lab-sigkelly-advice-body">` +
@@ -8544,10 +8529,10 @@ function _kellyComboAdviceHtml() {
             `<tr><td>短线型</td><td>短持模式 A(10天)/E(5天)/B/C/D(止盈) 快进快出</td><td>净 +30万~+77万，年化 1.11~1.82%；E(5天)最薄仅 +30万，A(固定10天)优于 E</td></tr>` +
             `<tr><td>长线型</td><td>长持/信号驱动 F(15天)/G(卖出信号)/I(追关注+追止损)</td><td><b>G 净 +322万</b>（胜率64.1% 年化1.84%）；I +264万；F +104万（年化1.98%最高）</td></tr>` +
             `<tr><td>保守型</td><td>只做高评级信号（rating=high）</td><td>n=531 胜率 <b>70.6%</b> 盈亏比 <b>2.88</b> 年化 <b>2.80%</b>（质量最优但样本少，宜与广谱组合）</td></tr>` +
-            `<tr class="lab-sigkelly-advice-hl"><td><b>总建议</b></td><td><b>全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）</b></td><td>全信号 G 模式 n=5,629 净 <b>+322万</b> 胜率64.1% 年化1.84%，按年窗口持续增长（2023 年近持平非负）</td></tr>` +
+            `<tr class="lab-sigkelly-advice-hl"><td><b>总建议</b></td><td><b>全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）</b></td><td>页面默认组合（含1月调整）下 G 模式 n=2,227 净 <b>+123万</b> 胜率61.3% 年化2.45% 收益率45.75%；按年 2019 起除 2021（-1.0万回撤年，并入J1/J2后较原默认 -1.2万 略改善）外逐年正，2023 +5.9万 不转负</td></tr>` +
           `</tbody></table>` +
-          `<div class="lab-sigkelly-advice-li">总建议依据：G 模式（指数卖出信号触发离场）最贴近交易页面的信号驱动跟单方法，且是全信号 9 模式里净利最高、胜率最高、按年增长最稳的退出方式；叠加 4 组合降亏后胜率从 61.2% 进一步提升到 64.1%。</div>` +
-          `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">本面板数字为静态口径（每笔固定 1 万·旧口径，Python 管线回测）；下方「最后结果」全信号表按当前所选金额口径（默认每日资金池等分）实时计算，两处金额量级不同，请勿直接对比数字。</div>` +
+          `<div class="lab-sigkelly-advice-li">总建议配套（页面默认组合，可复现）：仓位=每笔固定 1 万 + 仓位控制 K=2（同日只买最优2个，可切 K=1/3/4）；降亏过滤=追关注×熊市（excludeSpecialBear）+ a45NovMidLateSpecial（11月中下旬追关注）+ a5NovMidSpecial（11月中旬追关注）+ janMidRating（J1 1月中旬+mid评级）+ janMidSpecial（J2 1月中旬+追关注），五个默认开启；数字口径=每笔固定 1 万·静态参考（与下方「最后结果」表同口径，可直接对比）。G 模式（指数卖出信号触发离场）最贴近交易页面的信号驱动跟单方法，此默认组合下全信号 9 模式里 G 净利最高（+123万）且年化最高（2.45%）；主要贡献年 2024（+44.5万）/2025（+41.3万），2023 年 +5.9万 不转负。⚠J1/J2 带监控（maxSh 0.62/0.79，2026 单年主导），每年 1 月后检查1月中旬子集是否转盈。</div>` +
+          `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">金额口径全站统一=每笔固定 1 万（2026-08-12 移除资金池等分）；默认组合已并入 1月调整（J1/J2，2026-08-12 用户拍板"只要有增幅就做"，fixed 口径 G 模式 all 增量 +1.2万/+0.77pp，全9模式正增量合计 +7.0万）；本面板数字为静态口径（Python 管线回测，上方分投资习惯各行为 4 组合全开口径，总建议行为页面默认组合口径）；下方「最后结果」全信号表按当前所选降亏组合/费率/周期实时计算，同为每笔固定 1 万口径，可对照。</div>` +
         `</div>` +
       `</details>` +
     `</div>`
@@ -8582,7 +8567,7 @@ function _sigKellyAllSignalGroupHtml(period) {
   return (
     `<div class="lab-sigkelly-group lab-sigkelly-all-group">` +
       `<div class="lab-sigkelly-group-title">📌 全信号表（最后结果 · 全量信号融合）<span class="lab-sigkelly-all-badge">最后结果</span></div>` +
-      `<div class="lab-sigkelly-all-desc">总建议口径：全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）。金额口径=当前所选（默认每日资金池等分，切换「每笔固定 1 万」时为固定金额）。下表实时随上方降亏组合勾选 / 费率档 / 周期切换联动。年份窗口表为全周期口径（非当前周期窗口）。</div>` +
+      `<div class="lab-sigkelly-all-desc">总建议口径：全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）。金额口径=每笔固定 1 万（2026-08-12 移除资金池等分，全站统一）。下表实时随上方降亏组合勾选 / 费率档 / 周期切换联动。年份窗口表为全周期口径（非当前周期窗口）。</div>` +
       `<div class="lab-sigkelly-all-main">` +
         `<div class="lab-sigkelly-all-card">${cardHtml}</div>` +
         `<div class="lab-sigkelly-all-yearly lab-sigkelly-all-yearly-block">` +
@@ -9148,7 +9133,7 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
     _tradeDims2 = _kellyBuildTradeDims(td, _fIdx);
     state.labSigKellyTradeDims = _tradeDims2;
   }
-  // positionCap 仓位控制过滤 + 每日资金池等分(2026-08-12): 与卡片统计口径一致(§22数据一致性)
+  // positionCap 仓位控制过滤(2026-08-12): 与卡片统计口径一致(§22数据一致性); 金额口径固定=每笔1万
   // 降亏过滤谓词抽成命名函数供基笔池复用(不含period cutoff: cutoff只用于弹窗当前周期显示, 池需全周期一致)
   // 2026-08-12 P2-2修复: 直接调共享谓词 _kellyPassesFadeFilters(消除逐条复制漂移, 补齐 v4 12 toggle 生效, 弹窗与卡片统计一致 §22)
   var _pcMonthMask = _kellyActiveMonthMask(_filters);
@@ -9156,18 +9141,10 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
     return _kellyPassesFadeFilters(t, _fIdx, _filters, _kellyTradeFeatureCache, _tradeDims2, _pcMonthMask);
   }
   // positionCap: 跨全部卖出模式×rating三分区收集基笔池(去重, 9模式共享同一批基笔, 模式之前统一生效)
-  // 每日资金池等分: countByDate = 保留基笔池(降亏+positionCap后)当日信号数, 每笔=每日金额/当日信号数
-  var _amountMode = state.labSigKellyAmountMode || "pool";
-  var _posCapKept = null, _countByDate = null;
-  if ((_filters.positionCap && _filters.positionCapK > 0) || _amountMode === "pool") {
+  var _posCapKept = null;
+  if (_filters.positionCap && _filters.positionCapK > 0) {
     var _basePool = _kellyCollectBasePool(td.quadrants, cfg.sell_modes || {}, _fIdx, _pcFadePasses);
-    if (_filters.positionCap && _filters.positionCapK > 0) {
-      _posCapKept = _kellyPositionCapKeptKeys(_basePool, _fIdx, _filters.positionCapK);
-    }
-    if (_amountMode === "pool") {
-      var _keptPool = _posCapKept ? _basePool.filter(function (t) { return !!_posCapKept[_kellyBaseKey(t, _fIdx)]; }) : _basePool;
-      _countByDate = _kellyCountByDate(_keptPool, _fIdx);
-    }
+    _posCapKept = _kellyPositionCapKeptKeys(_basePool, _fIdx, _filters.positionCapK);
   }
   let trades = rawTrades.filter(function (t) {
     if (cutoff && cutoff !== "0" && (t[_fIdx.buy_date] || "") < cutoff) return false;
@@ -9184,19 +9161,19 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   });
 
   // 始终重算(含默认档)以获取费率消耗: 重算 profit/return_pct/fee_cost
-  // 2026-08-12 每日资金池等分: 每笔金额 = 每日金额/当日信号数(与卡片统计口径一致 §22)
+  // 2026-08-12: 每笔金额=固定1万(与卡片统计口径一致 §22)
   var extFields;
   {
     const _buyAmount = td.buy_amount || (cfg.buy_amount) || 10000;
     const feeParams = state.labSigKellyFeeParams || { commission_rate: 0.0003, min_commission: 5, slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0 };
     const _recompute = (t) => {
-      const _amt = _kellyPerTradeAmount(t, _fIdx, _buyAmount, _amountMode, _countByDate);
+      const _amt = _kellyPerTradeAmount(t, _fIdx, _buyAmount);
       const r = _kellyRecomputeTrade(t, _fIdx, feeParams, _amt);
       const newT = t.slice();
       newT[_fIdx.profit] = r.profit;
       newT[_fIdx.return_pct] = r.return_pct;
       newT.push(r.fee_cost); // fee_cost 作为额外元素追加到数组末尾
-      newT.push(_amt); // amount 作为额外元素追加(资金池口径每笔金额展示)
+      newT.push(_amt); // amount 作为额外元素追加(每笔固定1万)
       return newT;
     };
     trades = trades.map(_recompute);
