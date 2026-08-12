@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260812-a159';  // bump a158->a159: 修复首页腾落线右侧y轴标注错误(_lwValueExtent zeroBased 分支: 全负数据时原 _rawMin=0+_rawMax 钳到0 致 extent 塌缩[0,1] 刻度画成0~1, 改 0必须在轴内 min=min(数据,0)/max=max(数据,0) 各取一边, 刻度恢复负十几万)
+const CACHE_VERSION = 'v6-20260812-a160';  // bump a159->a160: 凯利降亏默认改为AI宏(AI宏=新默认: excludeSpecialBear+J1+J2+n2NovSpecialIndustry+positionCap(K=2), 关闭A45/A5, 2026-08-12用户拍板; 同步lab.js/purpose-notes/README公示+组合建议文案对齐AI宏)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
