@@ -9,7 +9,8 @@
   UserPromptSubmit -> python3 scripts/feishu_chat_hook.py user
       stdin JSON 含用户消息正文在 prompt 字段 -> 抄送该句
   Stop             -> python3 scripts/feishu_chat_hook.py assistant
-      stdin JSON 不含回复正文，但有 transcript_path -> 读最后一条 assistant 文本 -> 抄送
+      stdin JSON 优先用 last_assistant_message 字段（新版 Claude Code 2.1.224 已含最终回复全文），
+      无该字段回退读 transcript_path 最后一条 assistant 文本 -> 抄送
 
 防重复抄送：/tmp/feishu_hook_sent.txt 记录已抄送消息指纹（transcript+消息id/hash），
 同一条只抄一次（Stop 会多次触发，必须去重）。
@@ -29,6 +30,8 @@ config/feishu.json + .env 读，不硬编码。
 用法（手动测试）：
   echo '{"prompt": "测试用户消息", "session_id": "s1", "transcript_path": "/tmp/t.jsonl"}' \
     | python3 scripts/feishu_chat_hook.py user
+  echo '{"transcript_path": "/tmp/t.jsonl", "last_assistant_message": "测试回复全文"}' \
+    | python3 scripts/feishu_chat_hook.py assistant
   echo '{"transcript_path": "/tmp/t.jsonl"}' | python3 scripts/feishu_chat_hook.py assistant
 """
 import hashlib
@@ -155,14 +158,35 @@ def handle_user(data: dict) -> int:
     fp = "U|" + _fp([session, transcript, prompt])
     if fp in _load_sent():
         return 0
-    _send("👤 用户", _truncate(prompt))
-    _mark_sent(fp)
+    if _send("👤 用户", _truncate(prompt)):
+        _mark_sent(fp)
     return 0
 
 
 def handle_assistant(data: dict) -> int:
-    """Stop：stdin 无正文，读 transcript_path 最后一条 assistant 文本。"""
+    """Stop：优先用 payload 的 last_assistant_message 字段（新版 Claude Code 2.1.224
+    Stop hook stdin 已实测含该字段且为最终回复全文，2026-08-12 01:13:54 payload 证据），
+    不再等 transcript；transcript 读取只作 fallback（兼容旧版/无该字段）。
+
+    根因：旧逻辑只读 transcript 最后一条含文本的 assistant，但工具循环尾部最后一条
+    assistant 常是纯 tool_use 块（无 text）→ _extract_text 取不到；文本回复若 flush 延迟
+    则 MAX_RETRY_READ 内读不到 → 静默跳过 → assistant 不抄送（开发群只有👤缺🤖）。
+    last_assistant_message 由 Claude Code 侧确保为最终回复全文，根治该漏抄。"""
     transcript = data.get("transcript_path") or ""
+
+    # 1) 新版 payload 直接带最终回复全文 → 直接用（最稳，不依赖 transcript 状态）
+    last_msg = (data.get("last_assistant_message") or "").strip()
+    if last_msg:
+        # 指纹基于内容 hash（截断后 200 字，避免超长 key）：同消息同 Stop 不重发；
+        # 与 transcript 路径指纹（md5(transcript|行号)）内容不同不会冲突
+        fp = "A|" + _fp([transcript, last_msg[:200]])
+        if fp in _load_sent():
+            return 0
+        if _send("🤖 Claude", _truncate(last_msg)):
+            _mark_sent(fp)
+        return 0
+
+    # 2) 回退：读 transcript 最后一条含文本的 assistant（兼容旧版/无该字段）
     if not transcript or not os.path.exists(transcript):
         return 0
 
@@ -177,8 +201,8 @@ def handle_assistant(data: dict) -> int:
         fp = "A|" + _fp([transcript, str(stable or line_no)])
         if fp in _load_sent():
             return 0
-        _send("🤖 Claude", _truncate(text))
-        _mark_sent(fp)
+        if _send("🤖 Claude", _truncate(text)):
+            _mark_sent(fp)
         return 0
 
     # 取不到正文：仅当 transcript 最后一条确为 assistant（真发生回复但无文本可提）
@@ -191,8 +215,8 @@ def handle_assistant(data: dict) -> int:
     if isinstance(last, dict) and last.get("type") == "assistant":
         fp = "A|" + _fp([transcript, "placeholder"])
         if fp not in _load_sent():
-            _send("🤖 Claude", "[已回复（正文取不到）]")
-            _mark_sent(fp)
+            if _send("🤖 Claude", "[已回复（正文取不到）]"):
+                _mark_sent(fp)
     return 0
 
 
