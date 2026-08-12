@@ -1775,11 +1775,11 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     dates = [todayDate, ...dates.filter((d) => d !== todayDate)];
   }
   // positionCap 仓位控制过滤(2026-08-12): 凯利回测页 toggle 共享设置(localStorage "tds_poscap", 双页联动)
-  // 当日 top-K 信号"建议执行"高亮, 其余"当日已满(仓位控制)"灰显
+  // #4 范围扩展(2026-08-12): 从凯利区扩展到整个信号列表——近15交易日每个日期各自按同一排序算 top-K, 所有日期都展示 AI建议(AI建议买入/当日已满), 不只今日
   // 排序口径与凯利回测 §6.1 一致: track_score DESC → 评级(high>mid>low) → 信号类型(buy_backup>buy>buy_aux>buy_special) → buy_date ASC
-  let _posCapKeptSet = null;
+  let _posCapKeptMap = null;
   let _posCapK = 0;
-  if (kind === "signal" && todayDate) {
+  if (kind === "signal") {
     try {
       const _raw = localStorage.getItem("tds_poscap");
       if (_raw) {
@@ -1795,8 +1795,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
             if (s >= 0.55) return "mid";
             return "low";
           };
-          const _todayItems = windowedItems.filter((it) => it.date === todayDate);
-          const _sorted = _todayItems.slice().sort((a, b) => {
+          const _posCapSorted = (items) => items.slice().sort((a, b) => {
             const ta = _topEtfByScore(a.etfs)?.track_score ?? -1;
             const tb = _topEtfByScore(b.etfs)?.track_score ?? -1;
             if (tb !== ta) return tb - ta;
@@ -1811,7 +1810,12 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
             if (sa !== sb) return sa - sb;
             return 0;
           });
-          _posCapKeptSet = new Set(_sorted.slice(0, _posCapK));
+          _posCapKeptMap = new Map();
+          for (const dt of dates) {
+            const _dayItems = windowedItems.filter((it) => it.date === dt);
+            if (!_dayItems.length) continue;
+            _posCapKeptMap.set(dt, new Set(_posCapSorted(_dayItems).slice(0, _posCapK)));
+          }
         }
       }
     } catch (e) {}
@@ -1846,17 +1850,17 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           ? '<sup class="sig-intraday-warn" data-tip="盘中预估·收盘后(17:50)重算定版，此信号可能消失或变动">⚠</sup>'
           : '';
         const cls = showIntradayWarn ? "sig-item sig-clickable sig-intraday" : "sig-item sig-clickable";
-        // positionCap 仓位控制过滤(2026-08-12): 今日 top-K 建议执行高亮, 其余"当日已满(仓位控制)"灰显
-        // (仅今日组生效, 与凯利回测页 toggle 共享 tds_poscap 联动)
+        // AI仓位建议(#4 2026-08-12 rename+范围扩展): 近15交易日每个日期各自 top-K AI建议买入高亮, 其余"当日已满"灰显
+        // (与凯利回测页 toggle 共享 tds_poscap 联动; 历史日期为复盘视角, 排序/口径与回测一致)
         let posCapCls = "";
         let posCapBadge = "";
-        if (_posCapKeptSet && isToday) {
-          if (_posCapKeptSet.has(it)) {
+        if (_posCapKeptMap && _posCapKeptMap.has(dt)) {
+          if (_posCapKeptMap.get(dt).has(it)) {
             posCapCls = " sig-poscap-kept";
-            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="仓位控制过滤开启(K=${_posCapK}): 按 跟踪分↓→评级→信号类型→买入日 当日排序前${_posCapK}名, 建议执行（按指数级 top-K 展示，与回测每ETF粒度有差异）">建议执行</sup>`;
+            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 按 跟踪分↓→评级→信号类型→买入日 当日排序前${_posCapK}名, AI建议买入（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议</sup>`;
           } else {
             posCapCls = " sig-poscap-excluded";
-            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="仓位控制过滤开启(K=${_posCapK}): 当日只建议执行最优${_posCapK}个, 本信号未进入, 当日已满（按指数级 top-K 展示，与回测每ETF粒度有差异）">当日已满</sup>`;
+            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 当日只建议最优${_posCapK}个, 本信号未进入AI建议, 当日已满（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">当日已满</sup>`;
           }
         }
         // 评分尾缀：技术参考点综合把握度（10d 窗口 score）
