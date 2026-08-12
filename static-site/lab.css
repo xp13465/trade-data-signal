@@ -1659,7 +1659,12 @@
   .lab-sigkelly-trades-table th, .lab-sigkelly-trades-table td { padding: 3px 4px; }
 }
 
-/* === 双AI对比展示区(三份文档折叠默认收起) === */
+/* === AI报告展示区(3AI新版 / 双AI历史 双模式切换, 折叠默认收起) === */
+.lab-sigkelly-ai-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 12px; color: var(--text-3); padding: 4px 0; }
+.lab-sigkelly-ai-switch-label { font-weight: 700; color: var(--text-2); white-space: nowrap; }
+.lab-sigkelly-ai-switch-btn { font-size: 11px; padding: 2px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-2); cursor: pointer; transition: all 0.15s; }
+.lab-sigkelly-ai-switch-btn:hover { border-color: var(--primary); color: var(--text-1); }
+.lab-sigkelly-ai-switch-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700; }
 .lab-sigkelly-ai-review { margin: 10px 0 0 0; display: flex; flex-direction: column; gap: 8px; }
 .lab-sigkelly-review {
   border: 1px solid var(--border); border-radius: 8px; padding: 0; overflow: hidden;

@@ -25,10 +25,14 @@ except ImportError:
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # (md 源文件相对路径, JS 对象 key)
+# 2026-08-12 新增 3AI 版: claude-v4(Claude第三角色独立分析) + 3ai-comparison(3AI结论对比);
+# 原双AI 3 项(comparison/comprehensive/deepseek)保留为历史版本,前端 lab.js 双模式切换展示。
 DOCS = [
-    ("docs/kelly-backtest-comparison.md", "comparison"),
+    ("docs/kelly-backtest-3ai-comparison.md", "3ai-comparison"),
     ("docs/kelly-backtest-comprehensive-review.md", "comprehensive"),
     ("docs/kelly-backtest-deepseek-review.md", "deepseek"),
+    ("docs/kelly-backtest-claude-v4-review.md", "claude-v4"),
+    ("docs/kelly-backtest-comparison.md", "comparison"),
 ]
 
 OUTPUT = os.path.join(BASE, "static-site", "kelly-review-notes.js")
@@ -57,7 +61,7 @@ def main():
 
     # JSON 序列化为 JS 对象（双引号在 JS 中合法，json.dumps 处理所有转义）
     js_obj = json.dumps(obj, ensure_ascii=False)
-    output = f"// === 凯利回测双AI对比文档(md->html 预处理生成) ===\n"
+    output = f"// === 凯利回测 AI 报告文档(双AI + 3AI,md->html 预处理生成) ===\n"
     output += f"// 由 scripts/md_to_html.py 从 docs/kelly-backtest-*.md 生成，勿手动编辑\n"
     output += f"// 加载顺序: index.html 中 kelly-review-notes.min.js 用 <script defer> 在 purpose-notes.min.js 之后\n"
     output += f"var KELLY_REVIEW_NOTES = {js_obj};\n"
