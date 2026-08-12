@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- thinking-proxy launchd 守护(待主控/用户决策后激活,当前未 load)
+     用途:常驻 thinking_proxy.py,对 deepseek-v4-pro 注入 thinking:disabled 省 token
+     详见 docs/thinking-off-optimization.md §六
+     激活:launchctl load scripts/com.trade.thinking-proxy.plist
+     停用:launchctl unload scripts/com.trade.thinking-proxy.plist
+     风险(P0):代理挂=全站 claude 不可用;KeepAlive 守护秒级重启+claude 重试兜底 -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.trade.thinking-proxy</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/linhuichen/code/trade/scripts/thinking_proxy.py</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>TTP_INJECT</key>
+        <string>1</string>
+        <key>TTP_INJECT_MODELS</key>
+        <string>deepseek-v4-pro</string>
+    </dict>
+    <key>KeepAlive</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/linhuichen/code/trade-data/data/logs/thinking-proxy.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/linhuichen/code/trade-data/data/logs/thinking-proxy.err</string>
+</dict>
+</plist>
