@@ -20,6 +20,7 @@
 每次会话开始/恢复上下文/接新任务,第一件事:Read 本文件(主控专属规范)+ 根 CLAUDE.md 共享核心(或对应 memory),不是想读才读。派 agent 时按 §16 prompt 规范,引用 `.claude/agents/` 角色名而非手写长规范(角色 skill 已注入)。
 
 ## 2. 监管+loop(主控只派发,不亲自干活)
+- **⚠️ 2026-08-12 教训 L29:本条款已提升为根 CLAUDE.md 共享核心 §0.1「主控角色红线:只调度,不亲自实施」**——因角色拆分后本条款只在 governance(按需读),compact 后不注入,主控忙起来忘读→亲自 Edit app.js 犯错。红线在共享核心=每会话必注入,主控先守 §0.1,细节才看本条。
 - 主控只做三件事:①派发任务(含目标+约束+验收口径)②收子 agent 总结③逐字验证关键结论(grep/SQL/读代码,不信 agent 报告)
 - **调研/定位/分析问题也派子 agent**,不只派"实施"。主上下文不做 grep/Read/方案分析这些"调研活"
 - 用 Agent 工具派子 agent(**必须 `run_in_background: true`** + **派完立即 CronCreate 兜底**,见 §11;SendMessage 通知会丢,cron 兜底查进度文件 DONE+jsonl mtime 防傻等,架构限制下最优)

@@ -15,6 +15,12 @@
 | 测试 agent | 本共享核心 + .claude/skills/role-tester(smoke/数据校验/curl 三查/一致性) |
 > 设计原则:根文件只留"所有角色都该无条件知道"的共享核心;角色专属规范进 role skill(启动全文注入,确定性,不依赖主动读);主控专属进 governance(子 agent 永不读,不再为其 token 买单)。
 
+## 0.1 主控角色红线:只调度,不亲自实施(2026-08-12 用户定,防再犯)
+- **主控永不亲自 Edit 业务代码 / 写代码 / 跑自测 / 亲自 grep 定位实施细节**——实施是子 agent 的活:改代码/修bug 派 implementer、回归/查影响面派 reviewer、根因/数据挖掘派 researcher、smoke/校验派 tester。
+- 主控=调度中枢+时点管理+§0 验收(只验上线点,不重复 agent 自验的代码点,全文见 governance §2/§0)。
+- **触发场景**:接 bug/功能需求时想"直接 Edit 快一点"→ 停,先想"该派谁"。紧急小改也走 agent(§23.2 修bug三铁律要求 agent 修+自测)。
+- **为什么放共享核心**:2026-08-12 角色拆分后此条仅在 governance(按需读),compact 后上下文不注入,主控忙碌时忘了读→亲自 Edit app.js 犯错(教训 L29)。提升为共享核心=每会话必注入,不依赖"想得起来读"。
+
 ## 1. 开工先读
 每次会话开始/恢复上下文/接新任务,第一件事:主控先 Read docs/main-governance.md,子 agent 已由 agent 定义注入角色 skill,再读本共享核心(或对应 memory),不是想读才读。这是和"杜绝 token 浪费"并列的硬准则。
 
@@ -37,11 +43,11 @@
 - **实施联动**:回测结论出来前,实施 agent 代码结构先支持多口径/多档位(如金额口径、K 档位可配置),数据定稿后直接切默认值,不返工
 
 ## 18. 防重犯索引表(2026-08-08 起,每次犯错追加;原文全量已归档)
-用户定:慢慢积累经验迭代完美。每次犯错记录于此 + 防重犯条款,不重犯同类。**明细原文全量已归档 `docs/archive/CLAUDE-errors-2026-08.md`(28 过错+22 经验+5 token 段+每日归纳,可 git show 溯源),本节约索引+防重犯精华。**
-**⚠️ 索引表按归属 5 类分节(2026-08-12 用户定,用户原话"不同角色的经验对其他角色不通用""测试一般不需要调研的经验和错误")**:①通用共享(留根,所有角色都该知道)②主控专属(进 docs/main-governance.md)③实施专属(进 .claude/skills/role-implementer/SKILL.md)④调研专属(进 .claude/skills/role-researcher/SKILL.md)⑤测试专属(进 .claude/skills/role-tester/SKILL.md)。各文件已同步归属条目,零丢失(28 过错+22 经验=50 条一条不丢不重复),本表保留全量锚点便于全站反查。
+用户定:慢慢积累经验迭代完美。每次犯错记录于此 + 防重犯条款,不重犯同类。**明细原文全量已归档 `docs/archive/CLAUDE-errors-2026-08.md`(29 过错+22 经验+5 token 段+每日归纳,可 git show 溯源),本节约索引+防重犯精华。**
+**⚠️ 索引表按归属 5 类分节(2026-08-12 用户定,用户原话"不同角色的经验对其他角色不通用""测试一般不需要调研的经验和错误")**:①通用共享(留根,所有角色都该知道)②主控专属(进 docs/main-governance.md)③实施专属(进 .claude/skills/role-implementer/SKILL.md)④调研专属(进 .claude/skills/role-researcher/SKILL.md)⑤测试专属(进 .claude/skills/role-tester/SKILL.md)。各文件已同步归属条目,零丢失(29 过错+22 经验=51 条一条不丢不重复),本表保留全量锚点便于全站反查。
 
-### 过错索引(28 条:锚点 id|日期|主题|一句话防重犯|归档原文位置,按归属 5 类分节:通用 3 / 主控 9 / 实施 11 / 调研 4 / 测试 1)
-> 锚点 id = `docs/archive/CLAUDE-errors-2026-08.md` 末尾「防重犯锚点索引」块,`grep 锚点id` 可反向追原文(含根因+场景+防重犯)。零丢失校验:`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-2026-08.md` == 本表行数(28)。
+### 过错索引(29 条:锚点 id|日期|主题|一句话防重犯|归档原文位置,按归属 5 类分节:通用 3 / 主控 10 / 实施 11 / 调研 4 / 测试 1)
+> 锚点 id = `docs/archive/CLAUDE-errors-2026-08.md` 末尾「防重犯锚点索引」块,`grep 锚点id` 可反向追原文(含根因+场景+防重犯)。零丢失校验:`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-2026-08.md` == 本表行数(29)。
 > 移动去向:§11→docs/main-governance.md、§15→reviewer skill+governance、§21→implementer skill、§22/§23.x→根共享核心、§8三查→根+implementer skill、§14→根摘要+implementer skill。**归属拆分(2026-08-12)**:锚点不删,只按归属分节标注;各归属全文条目已同步进对应文件(main-governance.md / 3 个 role skill / claude-work-mode/CLAUDE.md)。
 
 **① 通用共享(3 条):所有角色都该知道,留根共享核心**
@@ -51,7 +57,7 @@
 | L04 | 08-08 | .gz凭memory断定 | 断定前验证 | archive:L16 |
 | L05 | 08-08 | trade/trade-data混淆 | agent关键结论§0验(路径/文件数类) | archive:L17 |
 
-**② 主控专属(9 条):主控全栈需要,全文进 docs/main-governance.md「主控专属教训」段**
+**② 主控专属(10 条):主控全栈需要,全文进 docs/main-governance.md「主控专属教训」段**
 | 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
 |---|---|---|---|---|
 | L01 | 08-08 | 通知丢失不设cron傻等 | cron兜底必设 | archive:L13 |
@@ -63,6 +69,7 @@
 | L24 | 08-11 | 核心需求方向偏差(误派J1/J2) | 需求拆解清单+复述确认(→§23.3) | archive:L81 |
 | L26 | 08-11 | hooks误报"还没生效" | 判断生效先查运行证据 | archive:L83 |
 | L28 | 08-12 | 主控§0抢跑在reviewer前重复验代码 | 派reviewer的改动merge前不grep代码(只验hash),§0只验上线点,下结论先查规范原文 | archive:L94 |
+| L29 | 08-12 | 主控亲自Edit干活违反"只派发" | 主控永不亲自改代码/写代码/跑自测,实施一律派implementer(→根CLAUDE.md §0.1红线) | archive:L95 |
 
 **③ 实施专属(11 条):全文进 .claude/skills/role-implementer/SKILL.md「实施专属教训蒸馏」段**
 | 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
