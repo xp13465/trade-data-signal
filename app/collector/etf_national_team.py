@@ -24,6 +24,7 @@
 CLI：
   python -m app.collector.etf_national_team backfill --start 2023-01-01   全量回填
   python -m app.collector.etf_national_team daily                         当日增量
+  python -m app.collector.etf_national_team accum-nav --lookback 30      累计净值增量补齐
   python -m app.collector.etf_national_team signals                      重算信号
   python -m app.collector.etf_national_team holders                      只拉持有人(半年一次)
 """
@@ -456,6 +457,7 @@ _TIMEOUT_SEC = {
     "intraday-realtime": 600,
     "holders": 600,
     "backfill": 1800,
+    "accum-nav": 2400,  # 1461只×~1s(0.6s限流+0.4s请求)≈25min,留余量防 em 限流重试
 }
 # socket 默认超时(秒): 兜底 mootdx/baostock/requests 单次调用卡死。
 # signal.alarm 是主进程级兜底(600s),socket 超时是单次调用级(30s),双保险。
@@ -1880,15 +1882,97 @@ def export_json_files() -> None:
           f"(daily ×{len(_NT_ALL_RANGES)} ranges + quarterly + holders)", flush=True)
 
 
+# ── Pipeline: accum_nav 累计净值(已复权) 增量补齐 ────────────────────────────────
+# 根因修复(2026-08-13): etf_daily.accum_nav 自 2026-08-08 一次性回填至 20260807 后断更
+#   (全仓无写入方),导致 etf_since_return(信号至今盈亏)依赖的 20260810/11/12 累计净值全 NULL,
+#   deploy check_data_integrity etf_since_return 85.4% < 90% FAIL 卡部署。
+# 本 pipeline 每日增量扫描近 lookback_days 天内 accum_nav IS NULL 的行,
+# 逐只调 akshare fund_open_fund_info_em(累计净值走势) 拉最新序列补齐。
+# 只更新缺失(增量)不重刷全量;单只失败降级跳过留待下次;源缺失日期(净值未发布)不写。
+def fetch_accum_nav_series(code: str) -> dict[str, float]:
+    """akshare fund_open_fund_info_em(累计净值走势) 拉单只 ETF 累计净值序列。
+    返回 {YYYYMMDD: 累计净值}(已复权,除权日不跳变);失败/无数据返回 {}。"""
+    out: dict[str, float] = {}
+    try:
+        # safe_call 内置全局限流(0.6s/只,与 public_fund E4 同节奏,防 em 限流)
+        df = safe_call(ak.fund_open_fund_info_em, retries=1, symbol=code, indicator="累计净值走势")
+        if isinstance(df, Exception) or df is None or len(df) == 0:
+            return out
+        for _, row in df.iterrows():
+            d = str(row.get("净值日期")).strip().replace("-", "")[:8]
+            if len(d) != 8:
+                continue
+            try:
+                nav = float(row.get("累计净值"))
+            except (TypeError, ValueError):
+                continue
+            if nav == nav:  # 非 NaN
+                out[d] = nav
+        return out
+    except Exception as e:  # noqa: BLE001
+        print(f"  [accum_nav] {code} 拉取失败: {type(e).__name__} {e}", flush=True)
+        return out
+
+
+def update_accum_nav(conn, lookback_days: int = 30) -> dict:
+    """增量补齐 etf_daily.accum_nav(已复权累计净值),返回统计 dict。
+    目标行 = 近 lookback_days 天内 accum_nav IS NULL 的 etf_daily 行(缺口/新交易日),
+    逐只调 fund_open_fund_info_em 拉序列按 date 补齐。upsert 幂等可重复跑。
+    只更新缺失(增量)不重刷全量;单只失败降级跳过(留待下次);源缺失日期不写保持 NULL。"""
+    t0 = time.time()
+    start = (dt.datetime.now() - dt.timedelta(days=lookback_days)).strftime("%Y%m%d")
+    rows = conn.execute(
+        "SELECT etf_code, date FROM etf_daily "
+        "WHERE date >= ? AND accum_nav IS NULL ORDER BY etf_code, date",
+        (start,),
+    ).fetchall()
+    need: dict[str, list[str]] = {}
+    for r in rows:
+        need.setdefault(r["etf_code"], []).append(r["date"])
+    if not need:
+        print(f"  [accum_nav] 近 {lookback_days} 天无缺失行,跳过", flush=True)
+        return {"filled": 0, "codes": 0, "skip": 0, "secs": 0.0}
+    print(f"  [accum_nav] 缺失 {len(rows)} 行 / {len(need)} 只,逐只拉累计净值补齐...", flush=True)
+    filled = 0
+    ok = skip = 0
+    for i, (code, dates) in enumerate(need.items(), 1):
+        series = fetch_accum_nav_series(code)
+        if not series:
+            skip += 1
+            continue
+        up_rows = [{"date": d, "etf_code": code, "accum_nav": series[d]}
+                   for d in dates if d in series]
+        if up_rows:
+            filled += _upsert_daily(conn, up_rows, ["accum_nav"])
+            ok += 1
+        if i % 100 == 0 or i == len(need):
+            print(f"  [accum_nav] {i}/{len(need)} 只 ok={ok} skip={skip} "
+                  f"累计补 {filled} 行 elapsed={time.time()-t0:.0f}s", flush=True)
+    print(f"[etf_nt] accum-nav 完成 {time.time()-t0:.0f}s: "
+          f"缺失 {len(rows)} 行 补 {filled} 行 ok={ok} skip={skip}", flush=True)
+    return {"filled": filled, "codes": ok, "skip": skip, "secs": time.time() - t0}
+
+
+def pipeline_accum_nav(lookback_days: int = 30) -> dict:
+    """accum_nav 累计净值(已复权)增量补齐 pipeline。"""
+    print(f"[etf_nt] accum-nav 开始 {dt.datetime.now():%Y-%m-%d %H:%M:%S}", flush=True)
+    conn = get_conn()
+    try:
+        return update_accum_nav(conn, lookback_days=lookback_days)
+    finally:
+        conn.close()
+
+
 # ── CLI ────────────────────────────────────────────────────────────────────────
 def main():
     init_db()
     cmd = sys.argv[1] if len(sys.argv) > 1 else "daily"
-    if cmd not in ("daily", "backfill", "signals", "holders", "holders_v2", "export", "intraday-close", "intraday-realtime"):
+    if cmd not in ("daily", "backfill", "signals", "holders", "holders_v2", "export", "intraday-close", "intraday-realtime", "accum-nav"):
         print(__doc__)
         print(f"\n用法: python -m app.collector.etf_national_team <command>")
         print(f"  backfill --start 20230101   全量回填")
         print(f"  daily                       当日增量")
+        print(f"  accum-nav [--lookback N]    accum_nav 累计净值增量补齐(默认近30天缺口)")
         print(f"  intraday-close              15:35 收盘后采 ETF close(末日 share_change=NULL 触发预估)")
         print(f"  intraday-realtime           9:35-14:50 盘中实时市价预估(akshare fund_etf_fund_daily_em)")
         print(f"  signals                     重算信号")
@@ -1898,8 +1982,9 @@ def main():
         sys.exit(1)
         return
 
-    # 进程互斥（daily/backfill/holders/intraday-close/intraday-realtime 持锁跑，signals/export/holders_v2 不需要锁）
-    locked = cmd in ("daily", "backfill", "holders", "intraday-close", "intraday-realtime")
+    # 进程互斥（daily/backfill/holders/intraday-close/intraday-realtime/accum-nav 持锁跑，
+    #   signals/export/holders_v2 不需要锁）
+    locked = cmd in ("daily", "backfill", "holders", "intraday-close", "intraday-realtime", "accum-nav")
     if locked:
         if not _acquire_lock(nonblock=True):
             print(f"[etf_nt] 已有进程在跑（{LOCK_PATH}），跳过", file=sys.stderr)
@@ -1940,6 +2025,15 @@ def main():
             pipeline_intraday_close()
         elif cmd == "intraday-realtime":
             pipeline_intraday_realtime()
+        elif cmd == "accum-nav":
+            lookback = 30
+            for i, a in enumerate(sys.argv[2:], 2):
+                if a == "--lookback" and i + 1 < len(sys.argv):
+                    try:
+                        lookback = int(sys.argv[i + 1])
+                    except ValueError:
+                        pass
+            pipeline_accum_nav(lookback_days=lookback)
     finally:
         # 正常完成取消 alarm(finally 在 os._exit 时不执行,仅正常路径走;
         # 超时路径 _timeout_handler 内 os._exit(2) 直接终止,alarm 无所谓)
