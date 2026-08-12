@@ -272,6 +272,10 @@ def handle_assistant(data: dict) -> int:
             # last_assistant_message 为最终结论：若 transcript 尾部未含（flush 延迟）则补为最后一段
             if last_msg and not body.endswith(last_msg):
                 body = (body + "\n\n" + last_msg).strip()
+            # 补入段(last_msg 来自 payload, 不在 turn_texts)无条件补标单条指纹：
+            # 防 flush 完成后补扫把该段单独重发(reviewer 审出防重发缺陷；重复标记幂等无害)
+            if last_msg:
+                _mark_sent("A|" + _fp([transcript, last_msg[:200]]))
             fp = "A|" + _fp([transcript, body[:200]])
             if fp in _load_sent():
                 _sweep_unforwarded(transcript, session)
