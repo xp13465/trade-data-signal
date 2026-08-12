@@ -188,41 +188,98 @@
 
 用户定：慢慢积累经验迭代完美。每次犯错记录于此 + 防重犯条款，不重犯同类。**明细原文全量已归档 `<docs/archive/CLAUDE-errors-<月份>.md>`（过错+经验+每日归纳，可 git show 溯源），本节约索引+防重犯精华。**
 
-### 过错索引（28 条：锚点 id|日期|主题|一句话防重犯|归档原文位置）
+### 过错索引（28 条：锚点 id|日期|主题|一句话防重犯|归档原文位置，按归属 5 类分节：通用 3 / 主控 9 / 实施 11 / 调研 4 / 测试 1）
 
 > 锚点 id = `<docs/archive/CLAUDE-errors-<月份>.md>` 末尾「防重犯锚点索引」块，`grep 锚点id` 可反向追原文（含根因+场景+防重犯）。零丢失校验：`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-*.md` == 本表行数（28）。
-> 移动去向（角色拆分后）：§11→主控治理文档、§15→reviewer skill+治理、§21→实施 skill、§22/§23.x→根共享核心、§8三查→根+实施 skill、§14→根摘要+实施 skill。
+> 移动去向（角色拆分后）：§11→主控治理文档、§15→reviewer skill+治理、§21→实施 skill、§22/§23.x→根共享核心、§8三查→根+实施 skill、§14→根摘要+实施 skill。**归属拆分（2026-08-12，与根 CLAUDE.md 一致）**：锚点不删，只按归属分节标注；各归属全文条目已同步进 docs/main-governance.md / 3 个 role skill / 根 CLAUDE.md。
 
+**① 通用共享（3 条）：所有角色都该知道，留根共享核心**
+| 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
+|---|---|---|---|---|
+| L02 | 08-08 | DB方案理解反复3次 | 关键决策前复述确认 | archive:L14 |
+| L04 | 08-08 | .gz凭memory断定 | 断定前验证 | archive:L16 |
+| L05 | 08-08 | trade/trade-data混淆 | agent关键结论§0验(路径/文件数类) | archive:L17 |
+
+**② 主控专属（9 条）：主控全栈需要，全文进 docs/main-governance.md「主控专属教训」段**
 | 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
 |---|---|---|---|---|
 | L01 | 08-08 | 通知丢失不设cron傻等 | cron兜底必设 | archive:L13 |
-| L02 | 08-08 | DB方案理解反复3次 | 关键决策前复述确认 | archive:L14 |
+| L15 | 08-09 | 追加A级小改漏做 | 追加任务不靠SendMessage(→§11) | archive:L50 |
+| L17 | 08-09 | §0证伪查错文件 | §0证伪前grep前端渲染逻辑确认读哪个文件(→§8三查) | archive:L52 |
+| L20 | 08-10 | §0 grep字面量漏常量 | →memory verify-grep-constant-not-literal | archive:L65 |
+| L21 | 08-10 | reviewer卡死无进度文件 | prompt显式"每步echo进度文件"(→§11) | archive:L66 |
+| L23 | 08-10 | prompt期望数值错误 | 期望值先核实来源 | archive:L68 |
+| L24 | 08-11 | 核心需求方向偏差(误派J1/J2) | 需求拆解清单+复述确认(→§23.3) | archive:L81 |
+| L26 | 08-11 | hooks误报"还没生效" | 判断生效先查运行证据 | archive:L83 |
+| L28 | 08-12 | 主控§0抢跑在reviewer前重复验代码 | 派reviewer的改动merge前不grep代码(只验hash),§0只验上线点,下结论先查规范原文 | archive:L94 |
+
+**③ 实施专属（11 条）：全文进 .claude/skills/role-implementer/SKILL.md「实施专属教训蒸馏」段**
+| 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
+|---|---|---|---|---|
 | L03 | 08-08 | exclude偏离全量本意 | 全量不擅自exclude先确认 | archive:L15 |
-| L04 | 08-08 | .gz凭memory断定 | 断定前验证 | archive:L16 |
-| L05 | 08-08 | trade/trade-data混淆 | agent关键结论§0验(路径/文件数类) | archive:L17 |
 | L06 | 08-08 | cherry-pick撞冲突 | 切分支前CronList+查后台agent | archive:L18 |
 | L07 | 08-08 | hoverpop方案试错 | 方案先调研再实施 | archive:L19 |
 | L08 | 08-08 | ETF拆档null归属 | 归属/分类前复述口径确认 | archive:L22 |
-| L09 | 08-08 | hoverpop"无数据"误判 | 下结论前验数据产物层(R2旧vs新版) | archive:L23 |
 | L10 | 08-08 | lowconf灰蓝过时规则 | 改灯体系遍历所有return/分支 | archive:L24 |
 | L11 | 08-08 | 需求2加未要求改动 | 不擅自扩展需求(→§23.3) | archive:L25 |
+| L16 | 08-09 | 数据没上线R2 | 新类别上线链路三步(→§22) | archive:L51 |
+| L18 | 08-10 | §21算法公示gap复发 | →§21强化款(已复发2次) | archive:L60 |
+| L25 | 08-11 | J1/J2 §21公示复发 | →§21强化款(已复发2次) | archive:L82 |
+| L19 | 08-10 | 前端重算不对齐后端 | replay逐字段对比后端JSON(→memory frontend-replay-align-backend) | archive:L61 |
+| L27 | 08-11 | hooks子agent输入也抄送 | hooks区分主会话vs子agent | archive:L84 |
+
+**④ 调研专属（4 条）：全文进 .claude/skills/role-researcher/SKILL.md「防误判教训蒸馏」段**
+| 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
+|---|---|---|---|---|
+| L09 | 08-08 | hoverpop"无数据"误判 | 下结论前验数据产物层(R2旧vs新版) | archive:L23 |
 | L12 | 08-08 | 至今盈亏方向偏差 | 调研先对准UI位置(grep渲染层) | archive:L26 |
 | L13 | 08-08 | 量子"0/不可改善"误判 | 换方法/数据源+多关联维度 | archive:L27 |
 | L14 | 08-09 | annualized口径判断偏差 | 指定口径前验算典型值合理性 | archive:L49 |
-| L15 | 08-09 | 追加A级小改漏做 | 追加任务不靠SendMessage(→§11) | archive:L50 |
-| L16 | 08-09 | 数据没上线R2 | 新类别上线链路三步(→§22) | archive:L51 |
-| L17 | 08-09 | §0证伪查错文件 | §0证伪前grep前端渲染逻辑确认读哪个文件(→§8三查) | archive:L52 |
-| L18 | 08-10 | §21算法公示gap复发 | →§21强化款(已复发2次) | archive:L60 |
-| L19 | 08-10 | 前端重算不对齐后端 | replay逐字段对比后端JSON(→memory frontend-replay-align-backend) | archive:L61 |
-| L20 | 08-10 | §0 grep字面量漏常量 | →memory verify-grep-constant-not-literal | archive:L65 |
-| L21 | 08-10 | reviewer卡死无进度文件 | prompt显式"每步echo进度文件"(→§11) | archive:L66 |
+
+**⑤ 测试专属（1 条）：全文进 .claude/skills/role-tester/SKILL.md「测试专属教训蒸馏」段**
+| 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
+|---|---|---|---|---|
 | L22 | 08-10 | curl -sv泄漏token | →memory curl-v-leaks-auth-token | archive:L67 |
-| L23 | 08-10 | prompt期望数值错误 | 期望值先核实来源 | archive:L68 |
-| L24 | 08-11 | 核心需求方向偏差(误派J1/J2) | 需求拆解清单+复述确认(→§23.3) | archive:L81 |
-| L25 | 08-11 | J1/J2 §21公示复发 | →§21强化款(已复发2次) | archive:L82 |
-| L26 | 08-11 | hooks误报"还没生效" | 判断生效先查运行证据 | archive:L83 |
-| L27 | 08-11 | hooks子agent输入也抄送 | hooks区分主会话vs子agent | archive:L84 |
-| L28 | 08-12 | 主控§0抢跑在reviewer前重复验代码 | 派reviewer的改动merge前不grep代码(只验hash),§0只验上线点,下结论先查规范原文 | archive:L94 |
+
+### 经验索引（22 条，非过错，适用场景，按归属 4 类分节：主控 6 / 实施 10 / 调研 4 / 测试 2；锚点 E01-E22 见归档文件末尾「防重犯锚点索引」块，原文可 grep 反追）
+
+**② 主控专属（6 条）：全文进 docs/main-governance.md「主控专属教训」段**
+| 锚点 | 经验 | 适用 | 归档 |
+|---|---|---|---|
+| E05 | GitHub Actions deploy 约90s,curl 验上线 sleep 90 | 验线上等部署完成 | archive:L62 |
+| E07 | reviewer FAIL 后§0验2点合规(§0允许 FAIL 时亲自确认) | 非违规 | archive:L62 |
+| E15 | 开源化两仓库分工(数据主体放 staticdata 仓) | 开源数据/代码分仓库 | archive:L74 |
+| E18 | TaskCompleted hook 发现(2.1.224) | 通知架构演进方向(待验证) | archive:L88 |
+| E19 | 通知架构方案A子agent中间层不可行 | 子agent做中间层先算模型回合数 | archive:L89 |
+| E22 | 并发实验结论已落 §16④;TASKS 归档校验已落 §7(bdef31aeb) | 仅记引用 | archive:L92 |
+
+**③ 实施专属（10 条）：全文进 .claude/skills/role-implementer/SKILL.md「实施专属教训蒸馏」段**
+| 锚点 | 经验 | 适用 | 归档 |
+|---|---|---|---|
+| E01 | R2 purge_cache 分批避 Worker 超时 500(每批30 keys+批间sleep) | 所有 R2 purge 场景不一次全量 | archive:L55 |
+| E02 | 持仓 hold_days 改交易日口径 | "持有天数"类计算用交易日 | archive:L56 |
+| E04 | 凯利卡间比较水印(蓝★+紫◆全局互比) | UI 多卡比较用全局互比+双标识 | archive:L58 |
+| E06 | Edit 含 em dash 行失败用 sed 行号替换 | memory appjs-em-dash-edit | archive:L62 |
+| E08 | intraday 走 R2 后盘中 push 代码不避 intraday(4fb1a88e9) | §14 已落档 | archive:L62 |
+| E09 | 分时 1min 轮询自愈(S1-S5+S9:超时/inflight去重/降频/心跳/切前台清) | 定时轮询类前端机制 | archive:L62 |
+| E11 | 兜底槽按槽差异化(BACKFILL_SLOT env 通道) | 多 launchd 槽位差异化 | archive:L70 |
+| E17 | 0 token 抄送方案(hooks,2d1b9206e) | "自动记录/转发会话"类需求 | archive:L87 |
+| E20 | 飞书 listener 需求自动处理(02bd47f8f) | 外部消息→主控在 listener 层落盘+回执 | archive:L90 |
+| E21 | "全信号表"双视图方法论 | 多因子系统要拆分调试+结果双视图 | archive:L91 |
+
+**④ 调研专属（4 条）：全文进 .claude/skills/role-researcher/SKILL.md「防误判教训蒸馏」段**
+| 锚点 | 经验 | 适用 | 归档 |
+|---|---|---|---|
+| E10 | 决策树/子群数据挖掘方法论 | 多特征组合优化 | archive:L62 |
+| E12 | 数据挖掘盲区发现方法论(字段覆盖) | 多轮挖掘前核对字段覆盖 | archive:L71 |
+| E13 | 新 toggle 评估用"叠加边际" | 多 toggle 叠加算边际贡献 | archive:L72 |
+| E14 | 邮件期货风向字段语义修正(静态vs动态) | 同源先确认字段语义 | archive:L73 |
+
+**⑤ 测试专属（2 条）：全文进 .claude/skills/role-tester/SKILL.md「测试专属教训蒸馏」段**
+| 锚点 | 经验 | 适用 | 归档 |
+|---|---|---|---|
+| E03 | check_data_integrity+check_r2_consistency | 数据产物改动后跑+定期审计 R2 | archive:L57 |
+| E16 | check_data_integrity"该有的数据在不在"校验 | C级任务防静默缺失 | archive:L75 |
 
 ### 已提炼防重犯条款引用清单（去重后正式条款位置）
 

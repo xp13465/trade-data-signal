@@ -33,11 +33,15 @@ description: 测试 agent 专属规范 — 由 .claude/agents/tester.md 的 skil
 - 大 range 历史序列 `-(all|5y|3y).json$` 走 R2 `data/` 前缀
 - R2 架构 checklist:①该类别的 upload-{prefix} 命令存在? ②前端 fetch 走 R2 URL 或 dataUrl? ③upload-data-large exclude 含该前缀(防双副本)?
 
-## 5. 测试专属教训蒸馏(来自 §18 索引,操作化防重犯)
-- **L16 数据没上线R2(漏检重灾区)**:新数据类别上线后确认上传链路完整三步:①export.py upload_r2 清单含该类别 ②launchd 定时覆盖或 deploy.sh 含 ③backfill 补跑上传;独立脚本(无 launchd)的 backfill 手动补跑上传 R2。测完自查"是否还有其他同类文件没传 R2"(§23.2 排查同类)
-- **L22 curl -v泄漏token**:curl 带认证头诊断禁止 -v/-i
-- **L09 hoverpop"无数据"误判**:测试"无数据/加载失败"类,先验证数据产物层(R2 旧版 vs 新版字段值差异),不只看代码分支
-- **L20 grep字面量漏常量**:验"值/配置/阈值"类,grep 字面量无结果先怀疑封装成常量,改 grep 常量名+查赋值行
+## 5. 测试专属教训蒸馏(2026-08-12 用户定 §18 按归属拆分:3 条 = 过错 1 + 经验 2)
+> 每条一行(锚点|一句话防重犯|归档行号),防重犯原文(含根因+场景+防重犯全文)在 `docs/archive/CLAUDE-errors-2026-08.md` 反追。**命中场景读本清单 → grep 锚点 → 归档原文**。零丢失校验:测试归属 = L22(1 过错)+ E03/E16(2 经验)= 3 条。通用/主控/实施/调研归属教训见各自文件,不经本 skill 注入。
+
+### 测试专属过错(1 条)
+- **L22 curl -v泄漏token**:curl 带认证头诊断禁止 -v/-i(打印请求头泄漏 token);token 从 .env 读不硬编码不 echo | archive:L67
+
+### 测试专属经验(2 条)
+- **E03 check_data_integrity+check_r2_consistency**:数据产物改动后跑+定期审计 R2 | archive:L57
+- **E16 check_data_integrity"该有的数据在不在"校验**:C 级任务防静默缺失 | archive:L75
 
 ## 6. 相关文件指针
 - docs/smoke-checklist.md(P0/P1 主功能清单+数据校验规则,必读执行)

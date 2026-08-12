@@ -64,17 +64,32 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - **验收口径**:自验须含「同模式/同数据源/同组件还被谁用+相关展示位清单+逐项覆盖结果」,不只做用户点名处;reviewer 查举一反三覆盖,漏=验收不过
 - 防重犯:①需求理解/方案阶段先列"同类消费点/相关展示位"清单,不全员覆盖不实施 ②只做用户点名处=违反本规范 ③与修 bug 三铁律③同源,一为正(修bug排查已坏同类)一为前(做方案覆盖未做同类)
 
-## 7. 实施 agent 专属教训蒸馏(来自 §18 索引 L01-L27,操作化防重犯)
-- **L02 DB方案理解反复**:关键决策前复述理解让用户确认,不臆断不反复
-- **L03 exclude偏离全量**:用户说"全量/全部"不擅自 exclude/清理,先确认
-- **L07 hoverpop方案试错**:方案先充分调研再实施,不边试边改
-- **L10 lowconf过时规则**:改动一个灯/样式体系时遍历所有 return/分支(不只主路径),grep 所有 `return {cls:` 确认无过时拦截
-- **L11 需求加未要求改动**:理解需求时不擅自加未要求的改动,不确定时复述需求让用户确认
-- **L15 追加A级小改漏做**:追加任务给运行中 agent 不只靠 SendMessage,commit 前主动确认追加任务是否处理;或等 commit 后派新 agent
-- **L18/L25 §21公示gap(已复发2次)**:改算法/数值必显式 grep purpose-notes.js + app.js/lab.js 所有公示点同步改
-- **L19 前端重算对齐后端**:前端重算类实施(replay/recompute),自验须取一个 signal JSON 逐字段对比后端输出(open_positions/rounds/equity_curve/summary),列对比表,不一致列差值,不只对比 summary 总计
-- **L23 prompt期望数值错误**:任务里的期望数值先核实来源(字段语义/页面实际),不凭印象
-- **L24 核心需求方向偏差**:接"分析/建议+新增视图"类核心需求,先列需求拆解清单,对清单再实施,不把相关增量功能当核心需求做;实施前复述需求确认
+## 7. 实施 agent 专属教训蒸馏(2026-08-12 用户定 §18 按归属拆分:21 条 = 过错 11 + 经验 10)
+> 每条一行(锚点|一句话防重犯|归档行号),防重犯原文(含根因+场景+防重犯全文)在 `docs/archive/CLAUDE-errors-2026-08.md` 反追。**命中场景读本清单 → grep 锚点 → 归档原文**。零丢失校验:实施归属 = L03/L06/L07/L08/L10/L11/L16/L18/L25/L19/L27(11 过错)+ E01/E02/E04/E06/E08/E09/E11/E17/E20/E21(10 经验)= 21 条。通用/主控/调研/测试归属教训见各自文件,不经本 skill 注入。
+
+### 实施专属过错(11 条)
+- **L03 exclude偏离全量**:用户说"全量/全部"不擅自 exclude/清理,先确认 | archive:L15
+- **L06 cherry-pick撞冲突**:切分支前 CronList+查后台 agent | archive:L18
+- **L07 hoverpop方案试错**:方案先充分调研再实施,不边试边改 | archive:L19
+- **L08 ETF拆档null归属**:归属/分类前复述口径确认,不靠语义猜测 | archive:L22
+- **L10 lowconf过时规则**:改灯/样式体系遍历所有 return/分支,grep 所有 `return {cls:` 确认无过时拦截 | archive:L24
+- **L11 需求加未要求改动**:理解需求不擅自加未要求的改动,不确定时复述需求确认 | archive:L25
+- **L16 数据没上线R2**:新类别上线链路三步(①export.py upload_r2 清单 ②launchd 覆盖/deploy.sh ③backfill 补跑)→§22 | archive:L51
+- **L18/L25 §21公示gap(已复发2次)**:改算法/数值必显式 grep purpose-notes.js + app.js/lab.js 所有公示点同步改 | archive:L60/L82
+- **L19 前端重算对齐后端**:replay/recompute 自验取一个 signal JSON 逐字段对比后端(open_positions/rounds/equity_curve/summary),列对比表,不只对比 summary 总计 | archive:L61
+- **L27 hooks子agent输入也抄送**:hooks 区分主会话 vs 子 agent,子 agent 输入不抄送 | archive:L84
+
+### 实施专属经验(10 条)
+- **E01 R2 purge分批**:R2 purge 每批 30 keys+批间 sleep,不一次全量 | archive:L55
+- **E02 持有天数用交易日**:持仓 hold_days 改交易日口径 | archive:L56
+- **E04 多卡全局互比水印**:UI 多卡比较用全局互比+双标识(蓝★+紫◆) | archive:L58
+- **E06 em dash 用 sed**:Edit 含 em dash 行失败用 sed 行号替换 | archive:L62
+- **E08 盘中 push 不避 intraday**:R2 迁移后盘中 push 代码不避 intraday | archive:L62
+- **E09 分时轮询自愈**:分时 1min 轮询自愈机制(S1-S5+S9) | archive:L62
+- **E11 兜底槽差异化**:多 launchd 槽位用 BACKFILL_SLOT env 通道差异化 | archive:L70
+- **E17 0token hooks抄送**:hooks 0 token 抄送方案(2d1b9206e) | archive:L87
+- **E20 飞书 listener 落盘**:外部消息→主控在 listener 层落盘+回执(02bd47f8f) | archive:L90
+- **E21 全信号表双视图**:多因子系统拆分调试+结果双视图 | archive:L91
 
 ## 8. 相关文件指针
 - docs/agent-quickstart.md(按任务类型 A-F 的操作步骤速查,接任务先读对应类型)
