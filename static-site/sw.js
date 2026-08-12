@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260812-a152';  // bump a151->a152: fix §21 reviewer blocker—被淘汰展示公示补全(purpose-notes.js 删除线灰化/独立分页/不计入统计/仅对照)
+const CACHE_VERSION = 'v6-20260812-a153';  // bump a152->a153: SVG 复刻 echarts 4 问题修复(connectNulls平滑/stack面积底边折线/legend居中/热力图竖排下移+echarts正立竖排)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

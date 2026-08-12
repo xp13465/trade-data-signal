@@ -11131,6 +11131,35 @@ function _lwLineD(xs, ys, i0, i1, smooth) {
   }
   return d;
 }
+// connectNulls 平滑 helper: 按实际数据点 index 数组 idx[i0..i1] 构建折线/平滑曲线。
+// 段内 idx 连续(相邻差 1)才 catmull-rom 平滑, 跨 null(idx 差 >1)用直线连接 —
+// 保留 connectNulls 断点语义(有 null 处不平滑跨空, 线仍连通, 防跨空拉出大弧线)。
+// 2026-08-12 fix1: 原 connectNulls 分支恒用直线 L 连点, 忽略 ser.smooth; 折线有锐角 vs echarts 平滑曲线。
+function _lwLineDIdx(xs, ys, idx, i0, i1, smooth) {
+  let d = "M " + xs[idx[i0]].toFixed(1) + " " + ys[idx[i0]].toFixed(1);
+  if (!smooth) {
+    for (let k = i0 + 1; k <= i1; k++) d += " L " + xs[idx[k]].toFixed(1) + " " + ys[idx[k]].toFixed(1);
+    return d;
+  }
+  let _segK = i0;   // 当前连续段起点(k 索引), 段内 index 连续才平滑
+  for (let k = i0; k < i1; k++) {
+    if (idx[k + 1] > idx[k] + 1) {   // 跨 null: 直线连接(断点语义), 新段从 k+1 起(p0 取段首自身防 overshoot)
+      d += " L " + xs[idx[k + 1]].toFixed(1) + " " + ys[idx[k + 1]].toFixed(1);
+      _segK = k + 1;
+      continue;
+    }
+    const _pk = (k > _segK) ? k - 1 : k;
+    const p0 = { x: xs[idx[_pk]], y: ys[idx[_pk]] };
+    const p1 = { x: xs[idx[k]], y: ys[idx[k]] };
+    const p2 = { x: xs[idx[k + 1]], y: ys[idx[k + 1]] };
+    const p3 = { x: xs[idx[Math.min(i1, k + 2)]], y: ys[idx[Math.min(i1, k + 2)]] };
+    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+    d += " C " + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1)
+      + " " + xs[idx[k + 1]].toFixed(1) + " " + ys[idx[k + 1]].toFixed(1);
+  }
+  return d;
+}
 // visualMap 线性插值(echarts inRange colors min..max 渐变, 5 段颜色线性插值)。
 function _lwColorScale(stops, min, max, v) {
   if (v == null || isNaN(v)) return "transparent";
@@ -11235,16 +11264,29 @@ function _lwSVG(cfg) {
       s += '<text x="' + (side === "left" ? (PL - 8) : (W - PR + 8)) + '" y="' + (gy + 3.5).toFixed(1) + '" font-size="' + _axFont + '" text-anchor="' + (side === "left" ? "end" : "start") + '" style="fill:var(--text-1)">' + lbl + '</text>';
     }
   }
-  // legend(top:0 对齐 echarts legend, 画在 PT 留白区上沿)
+  // legend(对齐 echarts legend top:0, 画在 PT 留白区上沿)。
+  // fix3(2026-08-12): 每行水平居中(按该行 item 总宽计算起点), 原左起 PL 压在 y 轴 name(x=PL+4)上。
   if (cfg.legend && cfg.legend.length) {
-    let lx = PL, ly = PT - 14;
     const _lwMax = W - PR;
+    const _rows = [];
+    let _row = [], _rowW = 0;
     for (const it of cfg.legend) {
       const _itemW = 14 + 8 + String(it.name).length * _axFont + 18;
-      if (lx + _itemW > _lwMax && lx > PL) { lx = PL; ly += 16; }   // 多系列换行不溢出右缘(对齐 echarts legend 滚动/换行)
-      s += '<line x1="' + lx + '" y1="' + ly + '" x2="' + (lx + 10) + '" y2="' + ly + '" stroke="' + it.color + '" stroke-width="2"/>';
-      s += '<text x="' + (lx + 14) + '" y="' + (ly + 4) + '" font-size="' + _axFont + '" style="fill:var(--text-1)">' + it.name + '</text>';
-      lx += _itemW;
+      if (_row.length && _rowW + _itemW > (_lwMax - PL)) { _rows.push({ items: _row, w: _rowW }); _row = []; _rowW = 0; }
+      _row.push({ it: it, w: _itemW });
+      _rowW += _itemW;
+    }
+    if (_row.length) _rows.push({ items: _row, w: _rowW });
+    let ly = PT - 14;
+    for (const row of _rows) {
+      let lx = (PL + (_lwMax - PL) / 2) - row.w / 2;   // 该行水平居中(图表区中心)
+      for (const _li of row.items) {
+        const it = _li.it;
+        s += '<line x1="' + lx + '" y1="' + ly + '" x2="' + (lx + 10) + '" y2="' + ly + '" stroke="' + it.color + '" stroke-width="2"/>';
+        s += '<text x="' + (lx + 14) + '" y="' + (ly + 4) + '" font-size="' + _axFont + '" style="fill:var(--text-1)">' + it.name + '</text>';
+        lx += _li.w;
+      }
+      ly += 16;
     }
   }
   // x 轴: 轴线 + 刻度(边界含末边, echarts alignWithLabel:false) + 标签(自动间隔, 半格中心/boundaryGap=false 点位)
@@ -11310,8 +11352,9 @@ function _lwSVG(cfg) {
         const _perColor = typeof ser.itemColor === "function" ? ser.itemColor : null;
         if (_idx.length) {
           if (!_perColor) {
-            let d = "M " + xs[_idx[0]].toFixed(1) + " " + ys[_idx[0]].toFixed(1);
-            for (let k = 1; k < _idx.length; k++) d += " L " + xs[_idx[k]].toFixed(1) + " " + ys[_idx[k]].toFixed(1);
+            // fix1(2026-08-12): connectNulls 平滑 — 按实际点 index 数组走 _lwLineDIdx(ser.smooth 时 catmull-rom),
+            // 原恒直线连点有锐角 vs echarts smooth 曲线; 跨 null 段内保留断点语义。
+            let d = _lwLineDIdx(xs, ys, _idx, 0, _idx.length - 1, ser.smooth === true);
             if (ser.areaOpacity != null) {
               const _ap = d + " L " + xs[_idx[_idx.length - 1]].toFixed(1) + " " + _axisY.toFixed(1) + " L " + xs[_idx[0]].toFixed(1) + " " + _axisY.toFixed(1) + " Z";
               s += '<path d="' + _ap + '" fill="' + _stroke + '" opacity="' + ser.areaOpacity + '"/>';
@@ -11331,8 +11374,8 @@ function _lwSVG(cfg) {
                 // 末位单点(无下一段可桥接): 有 symbol 画圆点, 无则略(同 echarts symbol:none 行为)
                 if (ser.symbolR) s += '<circle cx="' + xs[_idx[rs2]].toFixed(1) + '" cy="' + ys[_idx[rs2]].toFixed(1) + '" r="' + ser.symbolR + '" fill="' + c0 + '"' + (ser.opacity != null ? ' fill-opacity="' + ser.opacity + '"' : "") + '/>';
               } else {
-                let d = "M " + xs[_idx[rs2]].toFixed(1) + " " + ys[_idx[rs2]].toFixed(1);
-                for (let k = rs2 + 1; k <= (_nxt < 0 ? re : _nxt); k++) d += " L " + xs[_idx[k]].toFixed(1) + " " + ys[_idx[k]].toFixed(1);
+                // fix1(2026-08-12): 段内平滑(跨色段尾桥接下一有效点), 对齐 echarts visualMap+smooth 观感
+                const d = _lwLineDIdx(xs, ys, _idx, rs2, (_nxt < 0 ? re : _nxt), ser.smooth === true);
                 s += '<path d="' + d + '" fill="none" stroke="' + c0 + '" stroke-width="' + (ser.width || 1.5) + '"' + _dashAttr + _opacityAttr + ' stroke-linejoin="round" stroke-linecap="round"/>';
               }
               rs2 = re + 1;
@@ -11409,16 +11452,19 @@ function _lwSVG(cfg) {
         // 线位置(实测 echarts 顶部层线=py(上+下) 累计顶)。原实现线画在 py(ser.data[i])(本层底/与下层交界),
         // 顶部层线错位显在红绿面积交界处, 非 1:1。面积=累积顶→前累积底(cum[i])。
         const _topYs = [];
+        const _botYs = [];   // 本层底 = 前层累积顶(cum), 无 cum 时 = 0 轴
         for (let i = _a; i <= _b; i++) {
           const _v = (ser.data[i] != null && !isNaN(ser.data[i])) ? Number(ser.data[i]) : 0;
           _topYs[i] = cum ? _py(ai, cum[i] + _v) : ys[i];
+          _botYs[i] = cum ? _py(ai, cum[i]) : _py(ai, 0);
         }
         const d = _lwLineD(xs, _topYs, _a, _b, ser.smooth !== false);
         let areaD = d;
         if (cum) {
-          const cy0 = _py(ai, cum[_b]);
-          const cy1 = _py(ai, cum[_a]);
-          areaD = d + " L " + xs[_b].toFixed(1) + " " + cy0.toFixed(1) + " L " + xs[_a].toFixed(1) + " " + cy1.toFixed(1) + " Z";
+          // fix2(2026-08-12): 底边=前层累积线(cum 折线反向), 非"段两端点直线" — 原直线切穿前层折线
+          // (市场宽度 up 波动大时绿区底边跌破红顶折线侵入红区), 与 echarts(底边=前层线)观感错位。
+          for (let i = _b; i >= _a; i--) areaD += " L " + xs[i].toFixed(1) + " " + _botYs[i].toFixed(1);
+          areaD += " Z";
         } else {
           const closeY = _py(ai, 0);
           areaD = d + " L " + xs[_b].toFixed(1) + " " + closeY.toFixed(1) + " L " + xs[_a].toFixed(1) + " " + closeY.toFixed(1) + " Z";
@@ -11557,22 +11603,23 @@ function _lwHeatmapSVG(cfg) {
     }
   }
   // x 行业标签(interval 0 全显, 竖排逐字 12px 行高)。2026-08-12 用户需求: 横排小屏文字重叠→竖排
-  // (对齐 echarts axisLabel rotate 竖排语义)。首字基线=绘图区底 H-PB 下 6px, 逐字 dy=11 向下排,
-  // 最长 4 字行业名(建筑材料/美容护理等)占 ~39px; 渐变图例下移让位(下方留空, 不压标签)。
+  // (对齐 echarts axisLabel 竖排语义)。fix4: 首字基线 H-PB+18(原 +6 致字形顶 H-PB-4 越轴压进绘图区,
+  // 下移 12px 给间距); 逐字 dy=11 向下排, 最长 4 字行业名占 ~51px; 渐变图例按最长名动态下移。
+  const _maxNmLen = Math.max.apply(null, names.map((n) => String(n).length));
   for (let c = 0; c < nCol; c++) {
     const x = PL + c * cellW + cellW / 2;
     const _nm = String(names[c]);
     const _lx = x.toFixed(1);
-    s += '<text x="' + _lx + '" y="' + (H - PB + 6).toFixed(1) + '" font-size="10" text-anchor="middle" style="fill:var(--text-1)">';
+    s += '<text x="' + _lx + '" y="' + (H - PB + 18).toFixed(1) + '" font-size="10" text-anchor="middle" style="fill:var(--text-1)">';
     for (let _ch = 0; _ch < _nm.length; _ch++) {
       s += '<tspan x="' + _lx + '"' + (_ch === 0 ? "" : ' dy="11"') + '>' + _nm[_ch] + '</tspan>';
     }
     s += '</text>';
   }
-  // 底部渐变条(visualMap 色条: 左 +5% 右 -5%, 与 echarts inRange 5 停同色; 竖排标签让位下移,
-  // PB=60 时绘图底=220, 4 字行业名竖排到 ~259, 渐变条放 264~272 不压标签)
+  // 底部渐变条(visualMap 色条: 左 +5% 右 -5%, 与 echarts inRange 5 停同色)。
+  // fix4: legY 按最长行业名动态下移(原固定 H-PB+44, 竖排文字下移 12px 后与 4 字名重叠)。
   const legW = Math.min(150, _iw * 0.6), legH = 8;
-  const legX = (W - legW) / 2, legY = H - PB + 44;
+  const legX = (W - legW) / 2, legY = H - PB + 18 + (_maxNmLen - 1) * 11 + 10;
   const _seg = 24;
   for (let k = 0; k < _seg; k++) {
     s += '<rect x="' + (legX + k * (legW / _seg)).toFixed(1) + '" y="' + legY + '" width="' + (legW / _seg + 0.6).toFixed(1) + '" height="' + legH + '" fill="' + _lwHmColor(colors, k / (_seg - 1)) + '"/>';
@@ -11673,7 +11720,8 @@ function _lwHeatmapSetup(chartDiv, heatmap, toggleBtnsEl) {
       }
     });
     return {
-      h: 280, pl: 56, pr: 16, pt: 24, pb: 60,
+      // fix4(2026-08-12): pb 60→72 为竖排文字下移 12px + 动态渐变条腾空间(对齐 echarts grid bottom:76)
+      h: 280, pl: 56, pr: 16, pt: 24, pb: 72,
       heatmap: {
         xLabels: names, yCats: yCats, data: data, min: -5, max: 5,
         colors: ["#2e8b57", "#a8d8b9", "#f2f3f5", "#f5b6a8", "#e6492e"],
@@ -17122,8 +17170,9 @@ function _heatmapSetOption(c, heatmap, toggleBtnsEl) {
       },
     },
     grid: { left: 56, right: 16, top: 24, bottom: 76 },
-    // 2026-08-12 与 lite SVG 竖排对齐: rotate:90 逐字竖排(最长 4 字行业名占高), 小屏不再横排重叠
-    xAxis: { type: "category", data: names, axisLabel: { color: cssVar("--text-1"), rotate: 90, fontSize: 10, interval: 0 }, splitArea: { show: false } },
+    // 2026-08-12 与 lite SVG 竖排对齐: fix4 改 formatter 每字换行 \n 正立竖排(原 rotate:90 文字躺倒,
+    // 与 SVG 正立竖排观感不一致); interval:0 全显, 最长 4 字行业名占高, 小屏不再横排重叠
+    xAxis: { type: "category", data: names, axisLabel: { color: cssVar("--text-1"), fontSize: 10, interval: 0, formatter: (v) => String(v).split("").join("\n") }, splitArea: { show: false } },
     yAxis: { type: "category", data: yCats, axisLabel: { color: cssVar("--text-1"), fontSize: 11 } },
     visualMap: {
       min: -5, max: 5, calculable: true, orient: "horizontal", left: "center", bottom: 4,
