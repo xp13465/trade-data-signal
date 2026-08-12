@@ -11747,18 +11747,29 @@ function _lwHeatmapSetup(chartDiv, heatmap, toggleBtnsEl) {
       _heatmapSetOption(c, heatmap, toggleBtnsEl);
     }
   };
-  _lwRenderers.set(chartDiv, render);
+  // 2026-08-12 修复: 对齐 echarts 版 _heatmapSetOption(L17154 每次渲染同步按钮 active 态)。
+  // 原实现只在 click 时设 active, 初始 render 漏同步 → 默认 state.heatmapRange="all" 但"全部"按钮不高亮。
+  const _syncBtns = () => {
+    if (!toggleBtnsEl) return;
+    toggleBtnsEl.querySelectorAll("button").forEach((b) => {
+      b.classList.toggle("active", b.dataset.hr === _hmState.range);
+    });
+  };
+  // render 末尾同步按钮(覆盖初始/切换/⚡重渲染三种路径)
+  const _renderWithBtns = render;
+  _lwRenderers.set(chartDiv, () => { _renderWithBtns(); _syncBtns(); });
   if (toggleBtnsEl) {
     toggleBtnsEl.querySelectorAll("button").forEach((b) => {
       b.onclick = () => {
         _hmState.range = b.dataset.hr;
         state.heatmapRange = b.dataset.hr;
-        toggleBtnsEl.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x.dataset.hr === b.dataset.hr));
+        _syncBtns();
         render();
       };
     });
   }
   render();
+  _syncBtns();
   return chartDiv;
 }
 // 轻量版整体 HTML(容器 + SVG + tooltip 浮层)。初帧 viewBox 宽 640 参考, _lwBind 按实测宽校正。

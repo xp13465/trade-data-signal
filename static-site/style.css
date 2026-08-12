@@ -1034,6 +1034,10 @@ main { padding: 16px 24px; }
   background-color: color-mix(in srgb, var(--bg-hover) 88%, transparent);
   box-shadow: 0 4px 16px var(--shadow-strong), 0 0 0 1px var(--primary);
   transform: translateY(-1px);
+  /* 2026-08-12 修复: hover 时 transform 创建堆叠上下文把卡内提示层(kpi-fg/sent-tooltip z-index:10)
+     隔离, 自身 z-index auto(0) 被后渲染卡覆盖 → 提升 z-index 让卡(含内部浮层)浮到页面卡片层之上。
+     30 > 卡片普通流(0)与 .chart-card:hover(10), < bottomnav(60)/FAB(90)/modal(100)。 */
+  z-index: 30;
 }
 /* P1-⑥+ hover 动效扩展到图表大卡(分时图/宽窄度/指数图/MA/持仓/信号卡等)：
    translateY -2px 蹦出效果，compositor 层纯视觉变换不影响 ECharts getBoundingClientRect 坐标；
@@ -1043,7 +1047,9 @@ main { padding: 16px 24px; }
 .chart-card { transition: transform .15s ease, box-shadow .15s ease, background-color .15s ease; }
 .chart-card:not(.nt-home-card):hover {
   transform: translateY(-2px);
-  z-index: 10;
+  /* 2026-08-12 修复: 10→30。hover transform 创建堆叠上下文把内部提示层(.lw-tip z-index:60 / etf-trend-tip)
+     隔离, 需提升容器自身 z-index 才能让卡(含提示层)浮到所有普通流卡片之上, 不被后渲染卡覆盖。 */
+  z-index: 30;
   border-color: var(--primary);
   background-color: color-mix(in srgb, var(--bg-hover) 88%, transparent);
   box-shadow: 0 4px 16px var(--shadow-strong), 0 0 0 1px var(--primary);
@@ -1398,6 +1404,10 @@ main { padding: 16px 24px; }
 .spark-cell:hover {
   transform: translateY(-0.5px);
   box-shadow: 0 4px 16px var(--shadow-strong), 0 0 0 1px var(--primary);
+  /* 2026-08-12 修复: hover transform 创建堆叠上下文把分时图提示层(.lw-tip z-index:60)隔离在内部,
+     自身 z-index auto(0) 被页面下方 .chart-card(恐贪指数/近期冰点日等, 普通流0/hover10)覆盖
+     → 提升 z-index:30 让整卡(含提示层)浮到卡片层之上。30 > chart-card hover(10), < bottomnav(60)。 */
+  z-index: 30;
 }
 .spark-head {
   display: flex;

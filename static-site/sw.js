@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260812-a153';  // bump a152->a153: SVG 复刻 echarts 4 问题修复(connectNulls平滑/stack面积底边折线/legend居中/热力图竖排下移+echarts正立竖排)
+const CACHE_VERSION = 'v6-20260812-a155';  // bump a153->a154: 凯利删资金池等分口径(固定每笔1万)+K档fixed口径重跑+G模式总建议配套公示+降亏31小toggle默认收起
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
