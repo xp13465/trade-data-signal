@@ -6789,6 +6789,24 @@ async function fetchQQMinute(code) {
 // 批量拉取结果填入 _batchMinuteCache，_renderIntradayChart 优先查此缓存复用，不再重复请求
 const _batchMinuteCache = new Map(); // code -> result（批量拉取后填充，_renderIntradayChart 优先查此缓存）
 
+// 2026-08-12 分时点排序去重(根治恒生指数/恒生国企分时乱序):
+// 同花顺港股源(hk_HSI/hk_HSCEI)返回的 data 字段点数组本身乱序——把最新几个下午盘点(13:38-13:46)拼在最前,
+// 再拼全天升序序列(09:30-13:37), 致配色错/大跳空坡/午休标记错位。全源统一按 "HH:MM" 字典序升序+同 time 去重。
+// 已升序的数据(东财/腾讯/A股源)排序幂等无副作用。放数据管道层, 与渲染实现(SVG/echarts/未来 canvas 统一组件)无关。
+function _sortMinutePoints(points) {
+  if (!points || points.length < 2) return points;
+  const seen = new Set();
+  const out = [];
+  for (const p of points) {
+    if (!p || p.time == null) continue;
+    if (seen.has(p.time)) continue;
+    seen.add(p.time);
+    out.push(p);
+  }
+  out.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+  return out;
+}
+
 // 同花顺批量分时API: 一次拉多个指数分时数据
 // thsCodes: ["zs_1A0001","zs_399001",...] (最多 10 只)
 // 返回 {results: {[thsCode]: {name,price,preClose,pct,date,points}}, ok: bool}
@@ -6814,7 +6832,7 @@ async function fetchTHSBatchMinute(thsCodes) {
       const d = json[tc];
       if (!d || !d.data) continue;
       // data 字段: "0930,3815.12,成交额,均价,成交量;0931,..." (5 段，分号分隔，时间无冒号)
-      const points = [];
+      let points = [];
       for (const seg of String(d.data).split(";")) {
         if (!seg) continue;
         const p = seg.split(",");
@@ -6828,6 +6846,9 @@ async function fetchTHSBatchMinute(thsCodes) {
         const volume = parseInt(p[4], 10) || 0; // 成交量
         points.push({ time, price, volume, amount });
       }
+      // 2026-08-12 双保险: 同花顺港股源点数组乱序, 解析后即排序去重再填缓存
+      // (顺带修正 curPrice=points[最末]=最新价; _batchMinuteCache 内保持有序)
+      points = _sortMinutePoints(points);
       if (!points.length) continue;
       const preClose = d.pre != null ? parseFloat(d.pre) : null;
       const curPrice = points[points.length - 1].price;
@@ -7150,6 +7171,15 @@ function _renderIntradayChart(container, code, preClose, snapTime) {
   return p.then((result) => {
     if (!container.isConnected) return false;
     if (!result || !result.points || !result.points.length) {
+      _renderIntradayFail(container, snapTime);
+      return false;
+    }
+    // 2026-08-12 根治恒指乱序: 全源统一排序去重后再渲染。
+    // 同花顺港股源点数组乱序(最新下午盘拼头部+全天升序序列), times/prices/lastPrice/
+    // 午休边界(morningLast·afternoonFirst·markArea)均须基于升序计算, 否则配色错+大跳空坡。
+    // 覆盖 _batchMinuteCache 与单只 fallback 两条数据链; 已升序源幂等无副作用。
+    result.points = _sortMinutePoints(result.points);
+    if (!result.points.length) {
       _renderIntradayFail(container, snapTime);
       return false;
     }
