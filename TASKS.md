@@ -8,7 +8,8 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-12 深夜(**索引同步+定期自动同步机制建立;AI宏穷举 agent ab15c554 + 重归类实施 agent ac890c4 跑中;分时乱序修复 aa5712016 已上线 main**)。**本轮**:
+**最后更新**:2026-08-12 15:33(**#16 重归类 reviewer PASS 待 merge main(16:07 一次性 cron 9dae4a30 自动 merge,避开 15:35/16:00 盘后时点);AI宏穷举 agent ab15c554 仍跑中;分时乱序修复 aa5712016 已上线 main**)。**本轮**:
+- **#16 重归类 reviewer PASS**(aca0ccc4b3b78dbe3:26 toggle 零增删零内容变更 set 差集空/label+data-tip 逐字一致/逻辑铁律零改动(_kellyDefaultFilters/_kellyPassesFadeFilters/_kellyRefreshComboStates 不在 diff)/结构配对平衡/§21 公示 4 组与 DOM 逐项一致/§23.4 #39 预留兼容(宏+级联上层新增即可)/§22 纯展示层;commit bacdf8c9b 待 merge main)
 - **🆕索引同步+定期自动同步机制(2026-08-12 用户定,原话"应该是定期自动同步的。否则快照慢慢过时达不到索引效果")**:7 项新待办(#39 AI降亏宏/#40 重归类/#41 AI仓位#4/#42 上下文优化3项/#43 feishu整段抄送/#44 分时3低危/#45 4组合文案)增补进 docs/pending-features-index.md 新增「八、会话新待办增补」节;头部加"最近更新+每日 23:47 cron 定期同步"说明;**每日 23:47 自动同步 cron 已设**(id c7f3132f,durable 持久化,扫当日 docs/TASKS 改动+任务列表状态→增补新待办/更新状态(完成移入【已排除清单】)/刷新日期戳→commit push main;⚠️**7 天自动过期,过期后主控每日总结/周 memory review 时(§19)重建**,机制固化于 governance §18.2 索引维护);本索引+governance 改动待 commit+push
 - **分时乱序修复已上线 main**(aa5712016:同花顺港股 HSI/HSCEI API 把最新下午点前置到全天升序序列致乱序,_sortMinutePoints 按 HH:MM 字典序排序+Set 去重,应用到 _renderIntradayChart+fetchTHSBatchMinute;仅 hsi/hscei 受影响,§0 验 app.min.js 含 sort 逻辑+sw a157)
 - **上下文优化调研 DONE**(docs/context-optimization-research.md:OPT-1 轮询/编排降本[主会话56% turn 是编排开销]/OPT-2 MEMORY.md 索引瘦身 19.8KB→~8KB[每子agent全量注入的最大低相关项]/OPT-3 主会话 /clear 分会话+Compact Instructions[context rot:上下文过多稀释问题权重,保质量>省token];推荐先做 3 项,等用户拍板顺序)
