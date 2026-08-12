@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260812-a164';  // bump a163->a164 merge(#26 分时图3条低危改进 + #18 F1三玩法口径修正)(2026-08-12)
+const CACHE_VERSION = 'v6-20260812-a165';  // bump a164->a165 feat(kelly-3ai-comparison) 凯利回测AI报告区 3AI新版+双AI历史切换(lab.min.js/kelly-review-notes.min.js/lab.min.css)(2026-08-12)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

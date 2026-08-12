@@ -7957,27 +7957,68 @@ async function renderSigKellyLab() {
   wrapper.appendChild(bar);
 
   // AI报告折叠区(静态AI报告, 不依赖周期/费率, 放wrapper层避免随_renderSigKellyQuadrants重渲染重置open状态)
+  // 2026-08-12 升级: 3AI新版(默认) / 双AI历史 双模式切换(localStorage 记忆 lab_sigkelly_ai_mode)
+  //   3AI模式= 3ai-comparison(3AI结论对比) + comprehensive + deepseek + claude-v4(Claude第三角色)
+  //   双AI模式= comparison(双AI对比) + comprehensive + deepseek(历史版, 保留不动)
+  //   内容来自 KELLY_REVIEW_NOTES 静态 HTML 字符串, 切换只控制渲染哪些块, 不改内容
   if (typeof KELLY_REVIEW_NOTES !== 'undefined' && KELLY_REVIEW_NOTES) {
-    var _aiReviews = [
-      { key: 'comparison', title: '双AI对比', hint: 'Claude vs DeepSeek 结论差异对比(核心)' },
+    var _aiReviewsDual = [
+      { key: 'comparison', title: '双AI对比', hint: 'Claude vs DeepSeek 结论差异对比(核心, 历史版)' },
       { key: 'comprehensive', title: '主控综合结论', hint: 'Claude 4部分:评价/推荐/改造/降亏过滤' },
       { key: 'deepseek', title: 'DeepSeek独立分析', hint: 'DeepSeek 6章节独立分析' },
     ];
-    var _aiHtml = '<div class="lab-sigkelly-ai-review">';
-    for (var i = 0; i < _aiReviews.length; i++) {
-      var r = _aiReviews[i];
-      let _aiContent = KELLY_REVIEW_NOTES[r.key] || '';
-      if (!_aiContent) continue;
-      _aiHtml += '<details class="lab-sigkelly-review">';
-      _aiHtml += '<summary class="lab-sigkelly-review-summary">' + r.title +
-              ' <span class="lab-sigkelly-review-hint">' + r.hint + '</span></summary>';
-      _aiHtml += '<div class="lab-sigkelly-review-body">' + _aiContent + '</div>';
-      _aiHtml += '</details>';
-    }
-    _aiHtml += '</div>';
+    var _aiReviews3ai = [
+      { key: '3ai-comparison', title: '3AI 结论对比', hint: '主控综合 vs DeepSeek vs Claude第三角色(含6→9模式数据换代迁移, 新版)' },
+      { key: 'comprehensive', title: '主控综合结论', hint: 'Claude 4部分:评价/推荐/改造/降亏过滤' },
+      { key: 'deepseek', title: 'DeepSeek独立分析', hint: 'DeepSeek 6章节独立分析' },
+      { key: 'claude-v4', title: 'Claude第三角色独立分析', hint: 'Claude(deepseek-v4-flash) 基于新版9模式数据的独立分析' },
+    ];
+    var _aiMode = '3ai';
+    try {
+      var _aiModeSaved = localStorage.getItem('lab_sigkelly_ai_mode');
+      if (_aiModeSaved === 'dual' || _aiModeSaved === '3ai') _aiMode = _aiModeSaved;
+    } catch (e) {}
+    var _aiBuildReviews = function(mode) {
+      var list = mode === 'dual' ? _aiReviewsDual : _aiReviews3ai;
+      var html = '<div class="lab-sigkelly-ai-switch">' +
+        '<span class="lab-sigkelly-ai-switch-label">AI 报告版本:</span>' +
+        '<button type="button" class="lab-sigkelly-ai-switch-btn' + (mode === '3ai' ? ' active' : '') + '" data-mode="3ai">3AI 新版</button>' +
+        '<button type="button" class="lab-sigkelly-ai-switch-btn' + (mode === 'dual' ? ' active' : '') + '" data-mode="dual">双AI 历史</button>' +
+        '</div>';
+      html += '<div class="lab-sigkelly-ai-review">';
+      for (var i = 0; i < list.length; i++) {
+        var r = list[i];
+        var _aiContent = KELLY_REVIEW_NOTES[r.key] || '';
+        if (!_aiContent) continue;
+        html += '<details class="lab-sigkelly-review">';
+        html += '<summary class="lab-sigkelly-review-summary">' + r.title +
+                ' <span class="lab-sigkelly-review-hint">' + r.hint + '</span></summary>';
+        html += '<div class="lab-sigkelly-review-body">' + _aiContent + '</div>';
+        html += '</details>';
+      }
+      html += '</div>';
+      return html;
+    };
+    var _aiBindSwitch = function(container) {
+      var _aiBtns = container.querySelectorAll('.lab-sigkelly-ai-switch-btn');
+      for (var j = 0; j < _aiBtns.length; j++) {
+        _aiBtns[j].onclick = function() {
+          var m = this.getAttribute('data-mode');
+          try { localStorage.setItem('lab_sigkelly_ai_mode', m); } catch (e) {}
+          var _aiTmp = document.createElement('div');
+          _aiTmp.innerHTML = _aiBuildReviews(m);
+          var _aiNewWrap = _aiTmp.firstElementChild;
+          container.parentNode.replaceChild(_aiNewWrap, container);
+          _aiBindSwitch(_aiNewWrap);
+        };
+      }
+    };
     var _aiDiv = document.createElement('div');
-    _aiDiv.innerHTML = _aiHtml;
-    if (_aiDiv.firstElementChild) wrapper.appendChild(_aiDiv.firstElementChild);
+    _aiDiv.innerHTML = _aiBuildReviews(_aiMode);
+    if (_aiDiv.firstElementChild) {
+      wrapper.appendChild(_aiDiv.firstElementChild);
+      _aiBindSwitch(_aiDiv.firstElementChild);
+    }
   }
 
   // 内容 host
