@@ -156,7 +156,7 @@
 | 采集 | mootdx（TCP 全 A 日线 16M 行）+ BaoStock（校验）+ 腾讯/东财/同花顺（互备）+ 申万/中证/HKEX/CCASS/CFFEX/cninfo |
 | 前端 | 原生 JS + ECharts（分时/恐贪/评分弹窗/信号卡/策略实验室）+ Service Worker + PWA，`build_min.py` 压缩 + 版本号破缓存 |
 | 存储 | Cloudflare Workers（主站）+ R2 对象存储（全量品种/大 range 历史序列）+ GitHub Pages / MaoziYun（备站） |
-| AI | DeepSeek（每日速递白话生成 + 邮件白话化） |
+| AI | DeepSeek（每日速递白话生成 + 邮件白话化 + 本地 thinking 代理：官方 DeepSeek 直连 /anthropic + thinking disabled 注入，per-role 省 token，scripts/thinking_proxy.py） |
 | 交易执行 | easytrader 二次开发 → [thsautoorder](https://github.com/xp13465/thsautoorder)（独立仓库）：验证码识别 / API 接口队列监听 / 可用性提升 |
 | 调度 | macOS launchd：17:50 主采集并行流水线 / 盘中每 10min intraday 快照 / 盘后 export+deploy / futures/lhb/rzhb/etf-national-team/backfill/lab-auto/schedule-monitor |
 | 部署 | GH Actions deploy-cf.yml + wrangler deploy（加速 20min→1-2min），push main 自动上线 |

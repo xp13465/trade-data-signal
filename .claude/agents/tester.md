@@ -2,7 +2,7 @@
 name: tester
 description: 测试 agent — 跑回归 smoke/压测/边界测试/数据完整性校验/上线验证。当主控派发"测试/回归 smoke/校验/数据完整性/curl 验证/压测"类任务时使用。启动经 skills 字段全文注入 role-tester 专属规范(smoke 执行/数据校验/curl 验证/一致性)。
 tools: Read, Bash, WebFetch, WebSearch
-model: inherit
+model: deepseek-v4-flash
 skills:
   - role-tester
 ---

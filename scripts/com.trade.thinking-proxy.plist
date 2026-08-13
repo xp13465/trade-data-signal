@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- thinking-proxy launchd 守护(待主控/用户决策后激活,当前未 load)
-     用途:常驻 thinking_proxy.py,对 deepseek-v4-pro 注入 thinking:disabled 省 token
-     详见 docs/thinking-off-optimization.md §六
+<!-- thinking-proxy launchd 守护(2026-08-13 已按 #32 启用)
+     用途:常驻 thinking_proxy.py,官方 DeepSeek 直连(api.deepseek.com/anthropic),
+          对 deepseek-v4-flash 注入 thinking:disabled 省 token(per-role 执行类)
+     详见 docs/thinking-off-optimization.md §八
      激活:launchctl load scripts/com.trade.thinking-proxy.plist
      停用:launchctl unload scripts/com.trade.thinking-proxy.plist
+     一键回退:bash scripts/thinking-proxy-rollback.sh
      风险(P0):代理挂=全站 claude 不可用;KeepAlive 守护秒级重启+claude 重试兜底 -->
 <plist version="1.0">
 <dict>
@@ -20,7 +22,13 @@
         <key>TTP_INJECT</key>
         <string>1</string>
         <key>TTP_INJECT_MODELS</key>
-        <string>deepseek-v4-pro</string>
+        <string>deepseek-v4-flash</string>
+        <key>TTP_UPSTREAM_HOST</key>
+        <string>api.deepseek.com</string>
+        <key>TTP_UPSTREAM_PORT</key>
+        <string>443</string>
+        <key>TTP_UPSTREAM_BASE</key>
+        <string>/anthropic</string>
     </dict>
     <key>KeepAlive</key>
     <true/>

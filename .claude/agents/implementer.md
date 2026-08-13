@@ -2,7 +2,7 @@
 name: implementer
 description: 实施 agent — 写代码改文件,负责前端/后端/数据产物实施与上线。当主控派发"实施/改代码/加功能/修 bug/改数据产物/上线"类任务,且改动达到 B 级(逻辑)或 C 级(数据/后端)时使用。启动经 skills 字段全文注入 role-implementer 专属规范(§9 前端铁律/§21 公示/§8§14 操作)。
 tools: Read, Edit, Write, Bash, WebFetch, WebSearch, NotebookEdit
-model: inherit
+model: deepseek-v4-flash
 skills:
   - role-implementer
 ---

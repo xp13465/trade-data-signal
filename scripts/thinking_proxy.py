@@ -3,35 +3,40 @@
 thinking_proxy.py - 本地代理:拦截 Claude Code 请求,对指定 model 注入 thinking:disabled
 
 用途:Claude Code 对非Claude模型(glm/deepseek)永不发 {type:disabled}(ydr 阻断),
-      导致火山方舟默认 thinking ON 费 token。本代理在转发层强制注入 disabled,省 98% token。
-      详见 docs/thinking-off-optimization.md §六。
+      导致默认 thinking ON 费 token。本代理在转发层强制注入 disabled,省 98% token。
+      详见 docs/thinking-off-optimization.md §八(DeepSeek 官方直连实测)。
 
 用法(常驻):
-  TTP_INJECT=1 TTP_INJECT_MODELS=deepseek-v4-pro python3 scripts/thinking_proxy.py
-  监听 127.0.0.1:8899,转发到 https://ark.cn-beijing.volces.com/api/coding
+  TTP_INJECT=1 TTP_INJECT_MODELS=deepseek-v4-flash \
+  TTP_UPSTREAM_HOST=api.deepseek.com TTP_UPSTREAM_PORT=443 TTP_UPSTREAM_BASE=/anthropic \
+  python3 scripts/thinking_proxy.py
+  监听 127.0.0.1:8899,转发到官方 DeepSeek Anthropic 兼容端点
+  (默认即官方 api.deepseek.com/anthropic;火山兼容可切回 ark.cn-beijing.volces.com/api/coding)
 
-激活步骤(待主控/用户决策后执行,当前未激活):
+激活步骤(已按 #32 启用):
   1. launchctl load scripts/com.trade.thinking-proxy.plist   # 守护代理
-  2. settings.json env 加 "ANTHROPIC_BASE_URL": "http://localhost:8899"
-  3. .claude/agents/implementer.md + tester.md: model: deepseek-v4-pro
-     (reviewer/researcher/主控留 glm-5.2,代理不注入 = 保思考)
+  2. settings.json env "ANTHROPIC_BASE_URL": "http://127.0.0.1:8899"(官方直连改走本地代理)
+  3. .claude/agents/implementer.md + tester.md: model: deepseek-v4-flash(代理注入 disabled 省 token)
+     reviewer/researcher/主控: model: deepseek-v4-pro(代理不注入 = 保思考)
 
 风险(P0):代理挂 = 全站 claude 不可用。launchd KeepAlive 守护 + claude 重试兜底。
-回退:launchctl unload + 删 settings ANTHROPIC_BASE_URL(回直连火山方舟)。
+回退:bash scripts/thinking-proxy-rollback.sh(还原 settings + unload + pkill,一键)。
 
 env:
-  TTP_INJECT=1                 # 开启注入
-  TTP_INJECT_MODELS=deepseek-v4-pro  # 逗号分隔,匹配 model 字段子串;未匹配的 model 不注入(保思考)
+  TTP_INJECT=1                          # 开启注入
+  TTP_INJECT_MODELS=deepseek-v4-flash   # 逗号分隔,匹配 model 字段子串;未匹配的 model 不注入(保思考)
+  TTP_UPSTREAM_HOST/PORT/BASE           # upstream 配置,默认官方 api.deepseek.com:443/anthropic
 """
 import http.server, json, http.client, threading, time, sys, ssl, re, os
 
 LOG = os.environ.get("TTP_LOG", "/Users/linhuichen/code/trade-data/data/logs/thinking-proxy-req.log")
-UPSTREAM_HOST = "ark.cn-beijing.volces.com"
-UPSTREAM_PORT = 443
-UPSTREAM_BASE = "/api/coding"
-SSL_CTX = ssl._create_unverified_context()  # 本地代理,跳过证书验证(转发到已知火山方舟)
+# upstream 配置化(默认官方 DeepSeek Anthropic 兼容端点;火山兼容:host=ark.cn-beijing.volces.com base=/api/coding)
+UPSTREAM_HOST = os.environ.get("TTP_UPSTREAM_HOST", "api.deepseek.com")
+UPSTREAM_PORT = int(os.environ.get("TTP_UPSTREAM_PORT", "443"))
+UPSTREAM_BASE = os.environ.get("TTP_UPSTREAM_BASE", "/anthropic")
+SSL_CTX = ssl._create_unverified_context()  # 本地代理,跳过证书验证(转发到已知 upstream)
 INJECT = os.environ.get("TTP_INJECT", "") == "1"
-INJECT_MODELS = [m for m in os.environ.get("TTP_INJECT_MODELS", "deepseek-v4-pro").split(",") if m]
+INJECT_MODELS = [m for m in os.environ.get("TTP_INJECT_MODELS", "deepseek-v4-flash").split(",") if m]
 
 def logmsg(s):
     os.makedirs(os.path.dirname(LOG), exist_ok=True)
