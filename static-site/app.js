@@ -1905,6 +1905,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // 排序口径与凯利回测 §6.1 一致: track_score DESC → 评级(high>mid>low) → 信号类型(buy_backup>buy>buy_aux>buy_special) → buy_date ASC
   let _posCapKeptMap = null;
   let _posCapK = 0;
+  let _posCapSortedFn = null;  // 2026-08-13 rank fix: 质量序排序函数提升到 for 循环可访问作用域(编号复用同一排序, 单源零漂移)
   let _pcOn = true;  // AI仓位建议 当前是否开启(开关行 off 按钮状态; 首页无 tds_poscap key 时保持现状 K=3 高亮, 与 lab.js 默认 on:true 语义对齐)
   if (kind === "signal") {
     try {
@@ -1923,7 +1924,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
             if (s >= 0.55) return "mid";
             return "low";
           };
-          const _posCapSorted = (items) => items.slice().sort((a, b) => {
+          _posCapSortedFn = (items) => items.slice().sort((a, b) => {
             const ta = _topEtfByScore(a.etfs)?.track_score ?? -1;
             const tb = _topEtfByScore(b.etfs)?.track_score ?? -1;
             if (tb !== ta) return tb - ta;
@@ -1946,7 +1947,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
             // 顺延补位给后续未命中信号; 判定走共享谓词 _isAiFadeHit(受首页「AI降亏过滤」开关门控: 开关关→不滤, top-K 正常取)。
             _dayItems = _dayItems.filter((it) => !_isAiFadeHit(it));
             if (!_dayItems.length) continue;
-            _posCapKeptMap.set(dt, new Set(_posCapSorted(_dayItems).slice(0, _posCapK)));
+            _posCapKeptMap.set(dt, new Set(_posCapSortedFn(_dayItems).slice(0, _posCapK)));
           }
         }
       }
@@ -1976,16 +1977,17 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     } else {
       dayItems.sort((a, b) => (a.value ?? 99) - (b.value ?? 99));
     }
-    // #38 fix(2026-08-13): AI建议加序号 - 同日期 kept 项按当前渲染顺序编号(AI建议1/2/3...),
-    //   序号=该日期 AI建议买入在列表中的显示次序(第1个=列表最上方), 用户能看出 top-K 内的排序(用户反馈"档K=3不知道3个AI建议里的排序")。
-    //   注: 序号按渲染顺序(信号优先级 ord→score), 非回测排序(track_score↓→评级→类型→买入日), 与用户看到的列表顺序一致。
+    // #38 fix(2026-08-13): AI建议加序号 - 同日期 kept 项按质量序编号(AI建议1/2/3...)。
+    //   rank fix(2026-08-13, 用户反馈 8/11 三 buy_special"颠倒"): 原按渲染序(信号优先级 ord→score)编号,
+    //   与回测排序(track_score↓→评级→类型→买入日)不一致 → 道琼斯(质量第1)显示 AI建议3, 用户看到"颠倒"。
+    //   修复: AI建议N = 当日 top-K 保留集内按质量序(与 _posCapKeptMap 选择集/回测同口径 _posCapSortedFn)降序的第 N 名。
+    //   编号稳定不随 K 跳变(道琼斯恒AI建议1/标普恒2/纳指恒3); 列表渲染位置不变, 仅编号=质量序(渲染序与编号可能不同序, tooltip 说明)。
     let _posCapRank = null;
     if (_posCapKeptMap && _posCapKeptMap.has(dt)) {
       _posCapRank = new Map();
-      let _rk = 0;
-      for (const _di of dayItems) {
-        if (_posCapKeptMap.get(dt).has(_di)) _posCapRank.set(_di, ++_rk);
-      }
+      // 对保留集(kept, Set)按质量序排序后编号 1/2/3...(复用 _posCapSortedFn 与选择集同排序函数, 单源零漂移)
+      const _keptSorted = _posCapSortedFn([..._posCapKeptMap.get(dt)]);
+      _keptSorted.forEach((_di, _idx) => _posCapRank.set(_di, _idx + 1));
     }
     const cellHtml = (it) => {
       if (kind === "signal") {
@@ -2005,7 +2007,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           const _capRank = _posCapRank.get(it) || 0;
           if (_capRank) {
             posCapCls = " sig-poscap-kept";
-            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 口径与凯利回测一致「先滤AI降亏、再选top-K」——命中降亏的信号不占AI建议位、顺延补位; 从存活信号按 跟踪分↓→评级→信号类型→买入日 当日排序取前${_posCapK}名进入AI建议买入; 序号=本日AI建议在列表中的显示顺序(第${_capRank}个, 1=最上方); 存活者若命中AI降亏仍显示删除线建议回避（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议${_capRank}</sup>`;
+            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 口径与凯利回测一致「先滤AI降亏、再选top-K」——命中降亏的信号不占AI建议位、顺延补位; 从存活信号按 跟踪分↓→评级→信号类型→买入日 当日排序取前${_posCapK}名进入AI建议买入; 序号=当日跟踪分降序第${_capRank}名(与凯利回测K档口径一致, 不随K档跳变; 列表视觉位置可能与编号不同序, 以编号为准); 存活者若命中AI降亏仍显示删除线建议回避（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议${_capRank}</sup>`;
           } else {
             posCapCls = " sig-poscap-excluded";
             posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 当日从存活信号只建议最优${_posCapK}个, 本信号未进入AI建议, 当日已满; 命中AI降亏的信号已被过滤不占位（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">当日已满</sup>`;
