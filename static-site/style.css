@@ -222,8 +222,11 @@ header h1 { font-size: 18px; margin: 0; }
 .nav-no-sticky .lab-subnav,
 .nav-no-sticky .lab-subnav-child,
 .nav-no-sticky .lab-sigkelly-bar { position: static; }
-/* #49 ai长线模式(G/H/I)仓位管理: 卡片 G/H/I 行"AI长线·开"角标(开时套 FIFO 硬控后展示) */
-.lab-sigkelly-gih-badge { margin-left: 5px; padding: 0 5px; border-radius: 3px; font-size: 10px; line-height: 1.6; color: #fff; background: #722ed1; }
+/* #49 ai长线模式(G/H/I)仓位管理: 卡片 G/H/I 行"AI长线·开"角标(开时套 FIFO 硬控后展示)
+   2026-08-14 样式修复(#25 bug): "长线模式开文字看不清"——字号 10→11px、加粗、去掉与 class 同名的幽灵样式(display:block 的 block 折叠),
+   并给暗色/红金皮肤提亮紫, 保证与白字对比充足。 */
+.lab-sigkelly-gih-badge { display: inline-block; margin-left: 5px; padding: 0 6px; border-radius: 3px; font-size: 11px; line-height: 1.7; color: #fff; font-weight: 600; background: #722ed1; box-shadow: 0 0 0 1px rgba(255,255,255,0.28) inset; white-space: nowrap; vertical-align: middle; }
+[data-theme="dark"] .lab-sigkelly-gih-badge, [data-theme="redgold"] .lab-sigkelly-gih-badge { background: #8b3ff0; }
 /* #49 ai长线仓位管理口径说明: 弹窗/三玩法表 未套硬控原始口径的诚实标注(紫底白字, 与badge同色系) */
 .lab-sigkelly-gih-modal-note { margin: 6px 0; padding: 6px 8px; border: 1px solid #722ed1; border-radius: 4px; background: #f9f0ff; color: #5b21b6; font-size: 11px; line-height: 1.6; }
 .tabs > button {   /* 仅直接子（tab 按钮），不影响 .periods 内的周期按钮 */

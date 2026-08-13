@@ -9311,7 +9311,7 @@ function _sigKellyAfgRealtimeHtml() {
     const hlAttr = (m.key === "G") ? " lab-sigkelly-advice-hl" : "";
     const afgCls = `class="lab-sigkelly-trade-row${hlAttr}${_afgElim ? " lab-sigkelly-eliminated-row lab-sigkelly-opelim-row" : ""}"`;
     const afgTip = _afgElim ? `淘汰·${_afgReason}: ${(_afgFlag && _afgFlag.tip) || ""}` : m.desc;
-    const afgBadge = _afgElim ? `<span class="lab-sigkelly-modelbl lab-sigkelly-exec-badge" title="${(_afgFlag && _afgFlag.tip) || _afgReason}">淘汰·${_afgReason}</span>` : "";
+    const afgBadge = _afgElim ? `<span class="lab-sigkelly-exec-badge" title="${(_afgFlag && _afgFlag.tip) || _afgReason}">淘汰·${_afgReason}</span>` : "";
     rows += `<tr ${afgCls} title="${afgTip}"><td><b>${m.name}</b>${afgBadge}</td><td>${s.n}</td><td class="${s.total_profit >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${profStr}</td><td>${winStr}</td><td>${plStr}</td><td class="${s.return_pct_max_holding >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${rmhStr}</td><td>${maxConcStr}</td><td>${minCapStr}</td></tr>`;
   }
   return (
@@ -9854,7 +9854,7 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
     const _gihOnThis = !!state.labSigKellyGihOn;
     const _gihRow = _gihOnThis && _kellyIsGih(m) ? (pdata[m + "__gihb1"] || null) : null;
     const r = _gihRow || pdata[m];
-    const _gihBadge = _kellyIsGih(m) && _gihOnThis && _gihRow ? `<span class="lab-sigkelly-modelbl lab-sigkelly-gih-badge" title="ai长线模式仓位管理已开: 持仓≤20万+FIFO强制平仓, 本行为开·乐观b1口径; 保守b0见对比表(真实值在区间)">AI长线·开</span>` : "";
+    const _gihBadge = _kellyIsGih(m) && _gihOnThis && _gihRow ? `<span class="lab-sigkelly-gih-badge" title="ai长线模式仓位管理已开: 持仓≤20万+FIFO强制平仓, 本行为开·乐观b1口径; 保守b0见对比表(真实值在区间)">AI长线·开</span>` : "";
     // 可操作性淘汰判定(需求②GIH off 无操作性 + 需求D K-OFF 无仓位限制): 卡片行统一走 _kellyOpElimination, 与三玩法/全信号表/水印同判据(§23.3)
     const _opPosCapOn = !!((state.labSigKellyFilters || {}).positionCap);
     const _opFlag = _kellyOpElimination(pdata, m, _gihOnThis, _opPosCapOn);
@@ -9898,7 +9898,7 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
     // #25 A包(需求②+需求D): 不可操作(峰持仓>20倍)行加删除线灰化 + 淘汰角标 + hoverpop 淘汰理由(无操作性 / 无仓位限制·无法实操)
     const _opRowCls = _opElim ? " lab-sigkelly-eliminated-row lab-sigkelly-opelim-row" : "";
     const _opRowTip = _opElim ? `淘汰·${_opReason}: ${_opTip || ""}` : "点击查看交易记录";
-    const _opBadge = _opElim ? `<span class="lab-sigkelly-modelbl lab-sigkelly-exec-badge" title="${_opTip || _opReason}">淘汰·${_opReason}</span>` : "";
+    const _opBadge = _opElim ? `<span class="lab-sigkelly-exec-badge" title="${_opTip || _opReason}">淘汰·${_opReason}</span>` : "";
     rows +=
       `<tr class="lab-sigkelly-trade-row${_opRowCls}" data-quad="${qk}" data-mode="${m}" data-period="${period}" data-opelim="${_opElim ? "1" : "0"}" title="${_opRowTip}">` +
         `<td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span>${_gihBadge}${_opBadge}</td>` +
