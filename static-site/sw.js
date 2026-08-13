@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260813-a181';  // bump a180->a181: 凯利区开关行重构(调序「AI仓位建议」至「AI降亏过滤」上方+标题精简为「AI仓位建议 K:」+K按钮组加OFF)+首页K按钮hoverpop升级为凯利区同款评级表格+评级数据抽 common.js 共享单一数据源(§22)+总开关语义澄清(仅控核心3键); 基底=数字单位a177
+const CACHE_VERSION = 'v6-20260813-a182';  // bump a181->a182: fix(reviewer C1) 首页AI仓位建议K/OFF按钮点击失效——common.js _bindAiPoscapRatePop trig click 对 .sig-kbtn/.lab-sigkelly-kbtn 点击不再 stopPropagation(交 sigCard 级委托/btn.onclick), 含评级表「峰值资金回撤」口径注释(÷concCap 本金, 区别于回测报告 ddPct÷资金池); 基底=数字单位a177
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

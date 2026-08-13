@@ -492,7 +492,7 @@ function _aiPoscapRatingPopHtml() {
     '<div class="lab-sigkelly-posrate-pop">' +
       '<div class="lab-sigkelly-posrate-pop-title">AI仓位建议 · K 档位评级（评级依据=下方回撤矩阵）</div>' +
       '<table class="lab-sigkelly-posrate-table"><thead><tr><th>档位</th><th>收益率</th><th>峰值资金回撤</th><th>风险调整<br>(收益/回撤)</th><th>样本</th><th>评级理由</th></tr></thead><tbody>' + rows + '</tbody></table>' +
-      '<div class="lab-sigkelly-posrate-pop-note">⚠ 口径：AI降亏过滤默认=核心3键(r7 5月强化+3非五月R7 / exclAuxCross 辅关注×3/5月交叉 / Greedy-15) + A模式(固定10天) + 每笔1万 + 费率etf_def + 全周期；与 AI降亏过滤 提示口径一致，与「历史回测数据」G模式口径不同，勿混用数值</div>' +
+      '<div class="lab-sigkelly-posrate-pop-note">⚠ 口径：AI降亏过滤默认=核心3键(r7 5月强化+3非五月R7 / exclAuxCross 辅关注×3/5月交叉 / Greedy-15) + A模式(固定10天) + 每笔1万 + 费率etf_def + 全周期；与 AI降亏过滤 提示口径一致，与「历史回测数据」G模式口径不同，勿混用数值。峰值资金回撤=最大回撤金额÷本金(concCap, 峰值同时持仓资金；与回测报告 ddPct=最大回撤÷资金池 口径不同, 数值勿直接对照)</div>' +
     '</div>' +
   '</span>';
 }
@@ -518,6 +518,11 @@ function _bindAiPoscapRatePop(container) {
     trig.addEventListener("mouseenter", function () { if (!openByClick) show(); });
     trig.addEventListener("mouseleave", function () { if (!openByClick) hide(); });
     trig.addEventListener("click", function (e) {
+      // 2026-08-13 fix(reviewer C1): K/off 按钮点击不再被无条件 stopPropagation 拦截——
+      // 首页 .sig-kbtn 是 trigger(.lab-sigkelly-posrate) 的子元素, 事件需冒泡到 sigCard 级委托(_bindSigSwitchRow)才生效;
+      // 凯利区 .lab-sigkelly-kbtn 用直接 btn.onclick(target 先执行), 但为一致与稳妥一并放过。
+      var t = e.target;
+      if (t && t.closest && (t.closest(".sig-kbtn") || t.closest(".lab-sigkelly-kbtn"))) return;
       e.stopPropagation();
       if (isTouch) {
         openByClick = pop.style.display !== "block";
