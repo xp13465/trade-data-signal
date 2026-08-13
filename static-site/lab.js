@@ -8281,7 +8281,9 @@ async function renderSigKellyLab() {
       // 单一根容器 lab-sigkelly-ai-wrap(2026-08-12 fix): 切换条 + 报告块必须同在一个根下,
       //   初始渲染/切换渲染都取 firstElementChild=wrap, 否则只取到切换条、报告块被丢弃(3AI改造回退 bug)。
       //   切换条(.lab-sigkelly-ai-switch)在上, 报告块(.lab-sigkelly-ai-review)在下。
-      var html = '<div class="lab-sigkelly-ai-wrap">' +
+      // 2026-08-14 用户定: AI报告结论已过时,整区移页面尾部作历史留存,加归档标注(.lab-sigkelly-ai-archive-title)
+      var html = '<div class="lab-sigkelly-ai-wrap lab-sigkelly-ai-archive">' +
+        '<div class="lab-sigkelly-ai-archive-title">📦 历史 AI 报告存档（结论已过时 · 2026-08-14 起移页尾 · 仅供回溯）</div>' +
         '<div class="lab-sigkelly-ai-switch">' +
         '<span class="lab-sigkelly-ai-switch-label">AI 报告版本:</span>' +
         '<button type="button" class="lab-sigkelly-ai-switch-btn' + (mode === '3ai' ? ' active' : '') + '" data-mode="3ai">3AI 新版</button>' +
@@ -8319,10 +8321,8 @@ async function renderSigKellyLab() {
     var _aiDiv = document.createElement('div');
     _aiDiv.innerHTML = _aiBuildReviews(_aiMode);
     var _aiWrap = _aiDiv.firstElementChild;
-    if (_aiWrap) {
-      wrapper.appendChild(_aiWrap);
-      _aiBindSwitch(_aiWrap);
-    }
+    // 2026-08-14 用户定: AI报告区从 wrapper 中部移到页面尾部(host 之后)作历史留存,先暂存这里,最后 append
+    var _aiWrapPending = _aiWrap || null;
   }
 
   // 内容 host
@@ -8330,6 +8330,11 @@ async function renderSigKellyLab() {
   host.className = "lab-sigkelly-host";
   host.innerHTML = '<div class="lab-custom-loading">⏳ 加载中…</div>';
   wrapper.appendChild(host);
+  // 2026-08-14 用户定: AI报告区(历史留存)append 到页面尾部(host 即所有数据表格/图表之后, 页面最底)
+  if (_aiWrapPending) {
+    wrapper.appendChild(_aiWrapPending);
+    _aiBindSwitch(_aiWrapPending);
+  }
 
   content.querySelectorAll(".lab-sigkelly-wrap").forEach((el) => el.remove());
   content.appendChild(wrapper);

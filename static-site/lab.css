@@ -1733,6 +1733,9 @@
 }
 
 /* === AI报告展示区(3AI新版 / 双AI历史 双模式切换, 折叠默认收起) === */
+/* 2026-08-14 用户定: AI报告区移尾部作历史留存, 归档标注样式(弱化灰边提示"历史非当前") */
+.lab-sigkelly-ai-archive { margin-top: 22px; padding: 10px 12px; border: 1px dashed var(--border); border-radius: 8px; opacity: 0.78; background: var(--bg-card); }
+.lab-sigkelly-ai-archive-title { font-size: 12px; font-weight: 700; color: var(--text-3); padding: 0 0 6px; border-bottom: 1px dashed var(--border); margin-bottom: 6px; }
 .lab-sigkelly-ai-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 12px; color: var(--text-3); padding: 4px 0; }
 .lab-sigkelly-ai-switch-label { font-weight: 700; color: var(--text-2); white-space: nowrap; }
 .lab-sigkelly-ai-switch-btn { font-size: 11px; padding: 2px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-2); cursor: pointer; transition: all 0.15s; }
