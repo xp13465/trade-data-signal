@@ -4,6 +4,8 @@
 
 用户需求（2026-08-11）：
   "我发一句就抄送，你回复一句也直接抄送" —— 逐条实时，不是打包批量。
+2026-08-13 升级（用户原话"索性全量抄送,不过滤了,反正也滤不好"）：
+  主/子会话全量抄送，不再跳过子 agent 会话；每条标注主会话/子会话+角色。
 
 由 .claude/settings.json hooks 触发：
   UserPromptSubmit -> python3 scripts/feishu_chat_hook.py user
@@ -15,16 +17,24 @@
       payload 的 last_assistant_message（新版 Claude Code 2.1.224 已含最终回复全文）
       保留作"最后一条"兜底补丁（transcript 拼不到时降级只发最后一条，不丢不阻塞）
 
+主/子会话区分（2026-08-13 重建，替代已失效的 AI_AGENT 后缀判定）：
+  根因：Claude Code 2.1.224 主会话 hook 子进程 AI_AGENT 已从 _harness 变成 _agent，
+  原 AI_AGENT.endswith("_agent") 跳过逻辑会误跳主会话（丢用户消息）+误当子会话。
+  2.1.224 原生可靠区分信号（payload 字段）：
+    - hook_event_name：主会话 Stop="Stop"（无 agent_id/agent_type）；子会话="SubagentStop"
+      且带 agent_id/agent_type/agent_transcript_path（agent_type=角色名）
+    - UserPromptSubmit：带 agent_id 或 transcript_path 含 "/subagents/agent-" => 子会话
+    - transcript_path：子会话=<proj>/<sessionId>/subagents/agent-<id>.jsonl；
+      主会话=<proj>/<sessionId>.jsonl
+    - 子 agent 完成通知注入主会话：UserPromptSubmit prompt 以
+      "<agent-message from=\"X\">" 开头（X=角色名/general-purpose）=> 子会话(角色X)汇报
+  判据详见 docs/archive + research-hook-main-sub-20260813-1826.log；
+  ⚠️ 不能再用 CHILD_SESSION/CLAUDE_CODE_SESSION_ID（主/子同值，曾致停摆事故 e79c23d69）。
+  ⚠️ AI_AGENT 已废弃作判定信号（变值 _harness/_agent 均出现过）。
+
 防重复抄送：/tmp/feishu_hook_sent.txt 记录已抄送消息指纹（transcript+消息id/hash），
 同一条只抄一次（Stop 会多次触发，必须去重）。
 防并发重复：fcntl.flock 对指纹文件加排它锁，串行化读写（Stop/UserPromptSubmit 可能并发触发）。
-
-子 agent 会话不抄送（2026-08-12 修复）：项目级 hooks 在子 agent 会话中同样触发，
-若不加判断会把子 agent 输入/输出误抄送。判定用环境变量 AI_AGENT 后缀：
-主控 hook 子进程=claude-code_2-1-224_harness，子 agent hook 子进程=claude-code_2-1-224_agent，
-AI_AGENT.endswith("_agent") 则 exit 0 跳过（见 main() 开头）。
-⚠️ 不能用 CHILD_SESSION 环境变量判定（Claude Code 2.1.224 给主控 hook 子进程也注入=1，
-曾致主控抄送停摆，commit e79c23d69 事故，详见 docs/feishu-hook-stall-diagnosis.md）。
 
 任何异常必须 exit 0 —— hook 失败不能中断 Claude Code 主流程。
 发送复用 scripts/notify.py 的 send_feishu（agent_done 开发群），密钥从
@@ -40,6 +50,7 @@ config/feishu.json + .env 读，不硬编码。
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -87,6 +98,94 @@ def _is_system_inject(text: str) -> bool:
     if not text:
         return False
     return any(marker in text for marker in SYSTEM_INJECT_MARKERS)
+
+
+# ---------------------------------------------------------------- 主/子会话判定
+# 角色名 -> 中文(2026-08-13 需求): implementer/reviewer/researcher/tester/general-purpose
+ROLE_CN = {
+    "implementer": "实施",
+    "reviewer": "审查",
+    "researcher": "调研",
+    "tester": "测试",
+    "general-purpose": "通用",
+}
+
+
+def _role_cn(role) -> str | None:
+    """角色名转中文；未知角色/None 原样返回（None 由调用方兜底成"子会话"）。"""
+    if not role:
+        return None
+    return ROLE_CN.get(role, role)
+
+
+def _subagent_subject(role) -> str:
+    """子会话 subject：🧩 子会话·{中文角色}；角色未知 => 🧩 子会话。"""
+    cn = _role_cn(role)
+    return f"🧩 子会话·{cn}" if cn else "🧩 子会话"
+
+
+def classify(data: dict):
+    """按 payload 判定主会话/子会话 + 角色（2026-08-13 重建，替代 AI_AGENT 后缀）。
+
+    返回 (kind, role, sub_transcript)：
+      kind: "main" | "subagent" | "unknown"
+      role: agent_type(implementer/reviewer/researcher/tester/general-purpose)，未知 None
+      sub_transcript: 子会话的 agent_transcript_path（仅 subagent 可能有）
+
+    2.1.224 原生信号（researcher 源码级 + 实测 payload 佐证，详见 docstring）：
+      - hook_event_name: 主 Stop="Stop" / 子 Stop="SubagentStop"(带 agent_id/agent_type)
+      - UserPromptSubmit: 带 agent_id 或 transcript_path 含 "/subagents/agent-" => 子会话
+      - 无 hook_event_name 时(旧版/手动测试)退化用 transcript_path 路径特征判定
+    """
+    hev = data.get("hook_event_name")
+    if hev == "SubagentStop":
+        return ("subagent", data.get("agent_type") or None, data.get("agent_transcript_path"))
+    if hev == "Stop":
+        # 主会话 Stop 正常无 agent_id；极端情况（部分版本子 Stop 也发 Stop）兜底判子
+        if data.get("agent_id"):
+            return ("subagent", data.get("agent_type") or None, None)
+        return ("main", None, None)
+    tp = data.get("transcript_path") or ""
+    if hev == "UserPromptSubmit":
+        if data.get("agent_id") or "/subagents/agent-" in tp:
+            return ("subagent", data.get("agent_type") or None, tp)
+        return ("main", None, tp)
+    # 无 hook_event_name：退化路径特征判定（手动测试/旧版 Claude Code）
+    if data.get("agent_id") or "/subagents/agent-" in tp:
+        return ("subagent", data.get("agent_type") or None, tp)
+    return ("main", None, tp)
+
+
+_AGENT_MESSAGE_RE = re.compile(r'<agent-message from="([^"]+)"')
+
+
+def _agent_message_role(prompt: str) -> str | None:
+    """从 "<agent-message from=\"X\">" 前缀提取子 agent 角色名 X（无则 None）。"""
+    m = _AGENT_MESSAGE_RE.search(prompt or "")
+    return m.group(1) if m else None
+
+
+def _detect_subagent_role(transcript_path: str) -> str | None:
+    """从子 agent transcript 首部提取角色名（补扫/无 agent_type 时兜底）。
+
+    子 agent 自己的 transcript 首条 user 消息含
+    <command-name>role-<角色></command-name>（本 agent 实测 role-implementer）。"""
+    try:
+        lines = Path(transcript_path).read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return None
+    for ln in lines[:40]:
+        try:
+            rec = json.loads(ln)
+        except Exception:
+            continue
+        if not isinstance(rec, dict):
+            continue
+        txt = json.dumps(rec, ensure_ascii=False)
+        m = re.search(r'role-(implementer|reviewer|researcher|tester|general-purpose)', txt)
+        if m:
+            return m.group(1)
+    return None
 
 
 def _load_sent() -> set:
@@ -211,6 +310,11 @@ def _sweep_unforwarded(transcript_path: str, session: str = ""):
     except Exception as e:
         _log(f"补扫读 transcript 失败: {e}")
         return
+    # 2026-08-13 全量抄送: 补扫同样区分主/子会话(路径含 /subagents/agent- 判子会话)
+    subagent = "/subagents/agent-" in (transcript_path or "")
+    sub_role = _detect_subagent_role(transcript_path) if subagent else None
+    user_subject = _subagent_subject(sub_role) if subagent else "👤 主会话"
+    asst_subject = _subagent_subject(sub_role) if subagent else "🤖 主会话"
     for ln in lines[-SWEEP_LINES:]:
         try:
             rec = json.loads(ln)
@@ -230,7 +334,7 @@ def _sweep_unforwarded(transcript_path: str, session: str = ""):
             fp = "U|" + _fp([session, transcript_path, txt])
             if fp in _load_sent():
                 continue
-            if _send("👤 用户", _truncate(txt)):
+            if _send(user_subject, _truncate(txt)):
                 _mark_sent(fp)
         elif rec.get("type") == "assistant":
             msg = rec.get("message")
@@ -242,13 +346,20 @@ def _sweep_unforwarded(transcript_path: str, session: str = ""):
             fp = "A|" + _fp([transcript_path, txt[:200]])
             if fp in _load_sent():
                 continue
-            if _send("🤖 Claude", _truncate(txt)):
+            if _send(asst_subject, _truncate(txt)):
                 _mark_sent(fp)
 
 
 # ---------------------------------------------------------------- 两种模式
 def handle_user(data: dict) -> int:
-    """UserPromptSubmit：stdin JSON 的 prompt 字段 = 用户消息正文。"""
+    """UserPromptSubmit：stdin JSON 的 prompt 字段 = 用户消息正文。
+
+    2026-08-13 全量抄送：主/子会话均抄送（不再跳过子 agent 会话），并按 classify 标注：
+      - 主会话用户 => 👤 主会话
+      - 子会话 UserPromptSubmit（子 agent 收到的任务 prompt）=> 🧩 子会话·{角色}
+      - 子 agent 完成通知注入主会话（prompt 以 <agent-message from="X"> 开头）
+        => 🧩 子会话·{角色X} 汇报
+    """
     prompt = (data.get("prompt") or "").strip()
     if not prompt:
         return 0
@@ -257,13 +368,22 @@ def handle_user(data: dict) -> int:
     # agentId/描述开头前缀不匹配 → 叠加内容级强特征 _is_system_inject 一并拦截
     if prompt.startswith(SKIP_PROMPT_PREFIXES) or _is_system_inject(prompt):
         return 0
+    kind, role, _ = classify(data)
+    if prompt.startswith("<agent-message from="):
+        # 子 agent 完成通知注入主会话（或子会话收到更深层 agent-message）：标"角色汇报"
+        from_role = _agent_message_role(prompt) or "general-purpose"
+        subject = f"🧩 子会话·{_role_cn(from_role)} 汇报"
+    elif kind == "subagent":
+        subject = _subagent_subject(role)
+    else:
+        subject = "👤 主会话"
     session = data.get("session_id") or ""
     transcript = data.get("transcript_path") or ""
     # 指纹含 prompt 内容 hash：同一句只抄一次（用户重复发同一句文本属罕见，可接受）
     fp = "U|" + _fp([session, transcript, prompt])
     if fp in _load_sent():
         return 0
-    if _send("👤 用户", _truncate(prompt)):
+    if _send(subject, _truncate(prompt)):
         _mark_sent(fp)
     # 顺带补扫：长 turn 内被注入的用户消息/我的回复可能无独立 hook 事件 → 补抄
     _sweep_unforwarded(transcript, session)
@@ -271,7 +391,7 @@ def handle_user(data: dict) -> int:
 
 
 def handle_assistant(data: dict) -> int:
-    """Stop：拼接当前 turn 内**所有** assistant 文本消息（中间分析+最终结论）整段抄送。
+    """Stop/SubagentStop：拼接当前 turn 内**所有** assistant 文本消息（中间分析+最终结论）整段抄送。
 
     需求（2026-08-12）："整段回复全文抄送"——一个 turn 内 assistant 常有多条文本消息
     （工具循环中间分析 + 最终结论），只抄 last_assistant_message（最后一条）会丢中间分析。
@@ -279,11 +399,22 @@ def handle_assistant(data: dict) -> int:
     transcript 刷新）；payload 的 last_assistant_message 保留作"最后一条"兜底补丁——
     transcript 拼不到时降级只发最后一条（不丢不阻塞）；transcript 无 user 边界/全空则占位。
 
+    2026-08-13 全量抄送：主会话 Stop => 🤖 主会话；子会话 SubagentStop => 🧩 子会话·{角色}，
+    子会话 transcript 优先用 payload 的 agent_transcript_path（子 agent 的 transcript）。
+
     防重发：并入拼接的每条 assistant 消息单条指纹一并标记（与 _sweep_unforwarded 同公式），
     避免补扫把中间分析逐条再发一遍造成重复；拼接全文自身指纹防 Stop 多次触发重发。"""
     transcript = data.get("transcript_path") or ""
     session = data.get("session_id") or ""
     last_msg = (data.get("last_assistant_message") or "").strip()
+
+    kind, role, sub_transcript = classify(data)
+    if kind == "subagent":
+        subject = _subagent_subject(role)
+        # 子会话 transcript 优先用 agent_transcript_path（SubagentStop 带），否则退主 transcript_path
+        transcript = sub_transcript or transcript
+    else:
+        subject = "🤖 主会话"
 
     # 1) 优先：读 transcript 拼接当前 turn 全部 assistant 文本（重试等刷新）
     if transcript and os.path.exists(transcript):
@@ -310,7 +441,7 @@ def handle_assistant(data: dict) -> int:
             # 并入的每条 assistant 单条指纹标记，防 _sweep_unforwarded 逐条重发(P2-1 同公式)
             for _, t, _ in turn_texts:
                 _mark_sent("A|" + _fp([transcript, t[:200]]))
-            if _send("🤖 Claude", _truncate(body)):
+            if _send(subject, _truncate(body)):
                 _mark_sent(fp)
             _sweep_unforwarded(transcript, session)
             return 0
@@ -321,7 +452,7 @@ def handle_assistant(data: dict) -> int:
         if fp in _load_sent():
             _sweep_unforwarded(transcript, session)
             return 0
-        if _send("🤖 Claude", _truncate(last_msg)):
+        if _send(subject, _truncate(last_msg)):
             _mark_sent(fp)
         _sweep_unforwarded(transcript, session)
         return 0
@@ -336,7 +467,7 @@ def handle_assistant(data: dict) -> int:
     if isinstance(last, dict) and last.get("type") == "assistant":
         fp = "A|" + _fp([transcript, "placeholder"])
         if fp not in _load_sent():
-            if _send("🤖 Claude", "[已回复（正文取不到）]"):
+            if _send(subject, "[已回复（正文取不到）]"):
                 _mark_sent(fp)
     _sweep_unforwarded(transcript, session)
     return 0
@@ -344,16 +475,11 @@ def handle_assistant(data: dict) -> int:
 
 # ---------------------------------------------------------------- 入口
 def main(argv) -> int:
-    # 子 agent 会话不抄送（2026-08-12 修复 bug，依据诊断实测 docs/feishu-hook-stall-diagnosis.md）：
-    # 项目级 hooks 在子 agent（Agent 工具派出的独立会话）中同样被加载并触发，
-    # 若不拦截会把子 agent 的输入（任务 prompt）误当用户消息抄送飞书（用户已反馈）。
-    # 区分标志（实测 2026-08-12 01:10 /tmp/feishu_hook_capture.log）：
-    #   主控会话 hook 子进程 AI_AGENT=claude-code_2-1-224_harness（不跳过）
-    #   子 agent hook 子进程  AI_AGENT=claude-code_2-1-224_agent（跳过）
-    # ⚠️ 不能用 CHILD_SESSION 判定（主控 hook 子进程也被注入=1，曾致停摆事故）。
-    # 主控会话逐条实时抄送完全不受影响。异常也 exit 0 不阻塞 Claude Code。
-    if os.environ.get("AI_AGENT", "").endswith("_agent"):
-        return 0
+    # 2026-08-13 全量抄送：主/子会话都不再跳过（用户原话"索性全量抄送,不过滤了"）。
+    # 原 AI_AGENT.endswith("_agent") 跳过逻辑已移除——2.1.224 主会话 hook 子进程
+    # AI_AGENT 已从 _harness 变 _agent，会误跳主会话丢用户消息 + 误当子会话。
+    # 主/子区分改为 payload 级 classify()（hook_event_name/agent_id/transcript_path，
+    # 见 docstring + classify 注释）。异常也 exit 0 不阻塞 Claude Code。
     mode = argv[1] if len(argv) > 1 else ""
     try:
         data = json.loads(sys.stdin.read() or "{}")
