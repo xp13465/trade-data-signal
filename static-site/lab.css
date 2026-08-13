@@ -1461,6 +1461,36 @@
 @media (max-width: 760px) { .lab-sigkelly-posrate-pop { width: min(480px, calc(100vw - 16px)); font-size: 10.5px; padding: 7px 9px; } }
 .lab-sigkelly-toggle-group-poscap { border: 1px dashed var(--primary); }
 .lab-sigkelly-toggle-group-rec { border: 1px dashed rgba(250,173,20,0.6); background: rgba(250,173,20,0.06); }
+/* ===== 2026-08-14 降亏过滤建议重写: 顶部「怎么用」三行 ===== */
+.lab-sigkelly-fade-how { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 4px 6px 2px; font-size: 11.5px; line-height: 1.5; }
+.lab-sigkelly-fade-how-row { padding: 2px 8px; border-radius: 4px; }
+.lab-sigkelly-fade-how-row b { font-weight: 700; margin-right: 4px; }
+.lab-sigkelly-fade-how-ok { background: rgba(56,158,13,0.08); color: #389e0d; }
+.lab-sigkelly-fade-how-mid { background: rgba(240,173,20,0.10); color: #ad6800; }
+.lab-sigkelly-fade-how-no { background: rgba(212,56,13,0.08); color: #d4380d; }
+[data-theme="dark"] .lab-sigkelly-fade-how-ok, [data-theme="redgold"] .lab-sigkelly-fade-how-ok { color: #95de64; background: rgba(56,158,13,0.12); }
+[data-theme="dark"] .lab-sigkelly-fade-how-mid, [data-theme="redgold"] .lab-sigkelly-fade-how-mid { color: #ffe58f; background: rgba(240,173,20,0.14); }
+[data-theme="dark"] .lab-sigkelly-fade-how-no, [data-theme="redgold"] .lab-sigkelly-fade-how-no { color: #ff9c9a; background: rgba(212,56,13,0.12); }
+/* 默认推荐7键高亮区: 独立成块(已在 .lab-sigkelly-toggle-group-rec 底色), 内部稍外扩 */
+.lab-sigkelly-toggle-group-rec { align-items: flex-start; }
+/* ===== toggle 白话 advice 可见文本 ===== */
+.lab-sigkelly-fade-advice { font-weight: 600; }
+/* 星标+色块联动 warn 前缀: 绿=推荐/黄=监控/红=慎用(破坏性) */
+.lab-sigkelly-fade-warn-green { border: 1px solid rgba(56,158,13,0.5); border-radius: 5px; padding: 2px 6px; background: rgba(56,158,13,0.08); }
+.lab-sigkelly-fade-warn-green .lab-sigkelly-fade-advice { color: #389e0d; }
+[data-theme="dark"] .lab-sigkelly-fade-warn-green .lab-sigkelly-fade-advice, [data-theme="redgold"] .lab-sigkelly-fade-warn-green .lab-sigkelly-fade-advice { color: #95de64; }
+.lab-sigkelly-fade-warn-yellow { border: 1px dashed rgba(240,173,20,0.6); border-radius: 5px; padding: 2px 6px; background: rgba(240,173,20,0.07); }
+.lab-sigkelly-fade-warn-yellow .lab-sigkelly-fade-advice { color: #ad6800; }
+[data-theme="dark"] .lab-sigkelly-fade-warn-yellow .lab-sigkelly-fade-advice, [data-theme="redgold"] .lab-sigkelly-fade-warn-yellow .lab-sigkelly-fade-advice { color: #ffe58f; }
+.lab-sigkelly-fade-warn-red { border: 1px solid rgba(212,56,13,0.5); border-radius: 5px; padding: 2px 6px; background: rgba(212,56,13,0.07); }
+.lab-sigkelly-fade-warn-red .lab-sigkelly-fade-advice { color: #d4380d; }
+[data-theme="dark"] .lab-sigkelly-fade-warn-red .lab-sigkelly-fade-advice, [data-theme="redgold"] .lab-sigkelly-fade-warn-red .lab-sigkelly-fade-advice { color: #ff9c9a; }
+/* ===== 更多开关折叠区 ===== */
+.lab-sigkelly-toggle-more { width: 100%; border: 1px dashed var(--border); border-radius: 5px; background: var(--bg-hover, rgba(0,0,0,0.02)); }
+.lab-sigkelly-toggle-more-summary { cursor: pointer; user-select: none; font-size: 11.5px; font-weight: 700; color: var(--text-2); padding: 4px 8px; border-radius: 5px; }
+.lab-sigkelly-toggle-more-summary:hover { color: var(--primary); }
+.lab-sigkelly-toggle-more-summary .lab-sigkelly-toggle-cat-caret { font-size: 9px; opacity: 0.8; margin-left: 2px; }
+.lab-sigkelly-toggle-more-body { padding: 4px 6px 2px; }
 .lab-sigkelly-fee-hint { font-size: 10px; color: var(--text-3); margin-left: 4px; }
 .lab-sigkelly-fee-custom { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; width: 100%; font-size: 11px; color: var(--text-3); padding: 4px 0; }
 .lab-sigkelly-fee-custom label { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
