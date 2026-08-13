@@ -9317,6 +9317,13 @@ function _renderSigKellyBar(bar, data, period) {
       state.labSigKellyMoreOpen = _moreDtl.open;
     });
   }
+  // 2026-08-14 组合使用建议外层折叠区 open 状态持久化(默认收缩, 展开后重渲染保持), 写入 state 供下次 render 读
+  var _adviceDtl = bar.querySelector(".lab-sigkelly-advice-outer");
+  if (_adviceDtl) {
+    _adviceDtl.addEventListener("toggle", function () {
+      state.labSigKellyAdviceOpen = _adviceDtl.open;
+    });
+  }
 
   // 成员toggle改动→刷新组合三态+AI宏三态(事件委托, 捕获toggle区内所有checkbox change; 组合自身/AI宏自身change跳过, 各自handler已刷新)
   var _kellyToggleRow = bar.querySelector(".lab-sigkelly-toggle-row");
@@ -9341,22 +9348,11 @@ function _renderSigKellyBar(bar, data, period) {
 function _kellyComboAdviceHtml() {
   return (
     `<div class="lab-sigkelly-advice">` +
-      `<div class="lab-sigkelly-advice-title">🎯 降亏组合使用建议（真实回测 · 口径=每日资金池等分+top-K(2026-08-14 #48) · 4组合全开=可选分析非默认推荐）</div>` +
+      `<div class="lab-sigkelly-advice-title">🎯 降亏组合使用建议（真实回测 · 口径=每日资金池等分+top-K(2026-08-14 #48)）</div>` +
       `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">默认最优组合已开启（AI降亏过滤，数据支撑 docs/kelly/position/kelly-dailypool-exhaustive-rerun.md）：AI仓位建议（技术别名：仓位控制过滤，每日只买最优K个，K=1主推，2026-08-14 #BC 默认 K 3→1）+ 基础4键降亏推荐（追关注×熊市交叉 + 1月中旬+中评级 + 1月中旬+追关注 + n2 11月+追关注+行业）+ 核心3键（r7 5月强化+3稳定非5月 + 辅关注×3/5月交叉 + Greedy-15组合）。每日池+费率重算口径（2026-08-14 #BC，含最低佣金5元）：A模式 K1(默认主推)=86.60%/K2=67.61%/K3=66.24%/K4=63.17%；F K1=78.71%/G K1=47.22%（#48 每日池口径）。旧 fixed 穷举v2（77.36/66.22/68.40，每笔1万）与 #48 每日池(比例法)均为历史决策基准已过时（#BC 改费率重算口径）。⚠G 模式（推荐卖出法）分裂结论：去掉 greedy15/excludeAuxCross/r7 并加 a45(11月中下旬+追关注)→ K1 收益升到 51.66%（净+82.6万），比现状 47.22%（+64.2万）双升；A/F（短持）维持现状默认最优（greedy15 是收益率大增来源，勿去）。A45/A5 不在默认组合。其余降亏 toggle 默认关（负边际/过拟合）。⚠J1/J2 带监控（maxSh 0.62/0.79，2026 单年主导，每年 1 月后检查）。下方「最后结果」全信号表即按当前组合实时计算。</div>` +
-      `<details class="lab-sigkelly-advice-details">` +
-        `<summary>① 4 个组合全开怎么样？（可选分析非默认推荐：与默认差异极小 0.3-0.7pt，非默认勾选）</summary>` +
-        `<div class="lab-sigkelly-advice-body">` +
-          `<div class="lab-sigkelly-advice-verdict"><b>结论：好</b>，数据支持你的体感——保留 76% 交易（50,661/66,726）仍充分分散，但净利不降反升、胜率 +5pt、最大回撤减半。</div>` +
-          `<table class="lab-sigkelly-table lab-sigkelly-advice-table"><thead><tr><th>口径</th><th title="样本=该口径下保留的交易笔数(66,726 为全信号原始总笔数)">样本</th><th>净盈亏(元)</th><th>胜率</th><th title="盈亏比=平均盈利/平均亏损(绝对值), 反映赚亏幅度之比">盈亏比</th><th title="峰值资金收益率=总盈亏/峰值同时持仓资金×100, 与卡面/最后结果表同口径">峰值资金收益率</th><th>年化</th><th>最大回撤</th></tr></thead><tbody>` +
-            `<tr><td>不降亏（原始）</td><td>66,726</td><td>+10,336,571</td><td>53.5%</td><td>1.55</td><td>26.20%</td><td>1.51%</td><td>0.19%</td></tr>` +
-            `<tr class="lab-sigkelly-advice-hl"><td><b>4 组合全开（可选分析）</b></td><td>50,661</td><td><b>+10,867,390</b></td><td>58.5%</td><td>1.59</td><td>30.74%</td><td>1.75%</td><td>0.10%</td></tr>` +
-          `</tbody></table>` +
-          `<div class="lab-sigkelly-advice-li">· 按年窗口增长确认（⚠口径=4组合全开=可选分析非默认，多卖出模式视角综合，非下方「最后结果」G模式单视角；两表按年数字因口径不同属正常 §22）：2019 起累计持续增长（2019 +57万 → 2020 +118万 → 2021 +145万 → 2022 +192万 → 2023 +144万[回撤] → 2024 +429万 → 2025 +986万 → 2026 +1,087万）。</div>` +
-          `<div class="lab-sigkelly-advice-li">· 各组合叠加边际（4 组合全开 vs 去一）：<b>1月调整 +33.6万</b>（最大）＞ 最大化降亏 +21.8万 ＞ 稳健核心 +0.6万 ＞ 年末季节 +0（成员被 greedy15/J2 完全覆盖，冗余但无害）。</div>` +
-          `<div class="lab-sigkelly-advice-li">· ⚠ 每日池口径（2026-08-14 #48）下 4组合全开 vs AI宏7键默认差仅 <b>0.3-0.7pt</b>（G K1：47.22% vs 46.54%），已不再是旧 fixed 结论的「低 6.33pp」——两配置收益几乎打平，4组合全开主要为可选分析，非默认推荐也差别不大。</div>` +
-          `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-warn">· 注意点：① 2023 仍是亏损年（-48.0万，2/4/8月大亏，4 类信号全负，属市场性弱年，组合无法完全消除）；② 再叠加现有 4 toggle 胜率升到 67.4% 但净利从 +1,087万 降到 +301万（只留 13% 交易），是「更保守但利润大幅收缩」的取舍；③ 1月调整 J1/J2 单年主导，需每年 1 月后监控。</div>` +
-        `</div>` +
-      `</details>` +
+      `<details class="lab-sigkelly-advice-details lab-sigkelly-advice-outer"${state.labSigKellyAdviceOpen ? " open" : ""}>` +
+        `<summary>🎯 降亏组合使用建议（AI宏7键默认 + G玩法P≤3d「先卖年轻仓」，点击展开 ↓）</summary>` +
+        `<div class="lab-sigkelly-advice-panel">` +
       `<details class="lab-sigkelly-advice-details" open>` +
         `<summary>② 分投资习惯怎么用？＋总建议（A/F/G 三玩法实时并列）</summary>` +
         `<div class="lab-sigkelly-advice-body">` +
@@ -9365,16 +9361,18 @@ function _kellyComboAdviceHtml() {
           `<table class="lab-sigkelly-table lab-sigkelly-advice-table"><thead><tr><th>投资习惯</th><th>建议</th><th>真实回测数据</th></tr></thead><tbody>` +
             `<tr><td>追高/趋势型</td><td>追关注信号只做牛市（MA60 之上），熊市追涨坚决回避</td><td>牛市 n=19,323 净 <b>+490万</b> 胜率60.5% 盈亏比1.94；熊市 n=1,908 净 -16.3万 胜率41.7% 盈亏比0.97（亏损区）</td></tr>` +
             `<tr><td>保守型</td><td>只做高评级信号（rating=high）</td><td>n=531 胜率 <b>70.6%</b> 盈亏比 <b>2.88</b> 年化 <b>2.80%</b>（质量最优但样本少，宜与广谱组合）</td></tr>` +
-            `<tr class="lab-sigkelly-advice-hl"><td><b>总建议</b></td><td><b>全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）</b></td><td>页面默认组合（AI降亏过滤）下 G 模式 n=1,889 净 <b>+103.1万</b> 胜率60.9% 收益率42.08%（峰值资金收益率口径，每笔1万·K=3 静态基线；2026-08-14 #BC 默认 K 改 1 主推，K=1 下 G 收益率更高 47.22% 每日池口径）；按年重跑：2021 -2.1万（唯一回撤年）外主要年正，2023 +9.3万 不转负，2024 +38.1万 / 2025 +28.8万</td></tr>` +
+            `<tr class="lab-sigkelly-advice-hl"><td><b>总建议</b></td><td><b>全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）</b></td><td>AI仓位建议 K=1（主推，每日池+费率重算口径 docs/kelly/position/kelly-dailypool-exhaustive-rerun.md）下 G 模式收益率 <b>47.22%</b> 净 <b>+642,184</b>（n 未披露；峰持仓 136万）；按年（G K1 每日池）：2021 <b>-23,500</b>（唯一回撤年）外主要年正，2023 +60,645 不转负，2024 +225,894 / 2025 +151,405（合计占 K1 总净利 58.7%）</td></tr>` +
           `</tbody></table>` +
-          `<div class="lab-sigkelly-advice-li">总建议配套（页面默认组合 AI降亏过滤，可复现）：仓位=每日资金池等分 + AI仓位建议 K=1（技术别名：仓位控制过滤，同日只买最优1个，主推档，2026-08-14 #BC 默认 K=1；每日总投入恒 1 万均分当日保留数，可切 K=2/3/4；⚠本面板静态数字为每笔固定 1 万基线，实时复现以页面每日池口径为准）；降亏过滤=追关注×熊市（excludeSpecialBear）+ n2NovSpecialIndustry（11月+追关注+行业）+ janMidRating（1月中旬+中评级）+ janMidSpecial（1月中旬+追关注）+ r7MayReinforced（5月强化+3稳定非5月）+ excludeAuxCross（辅关注×3/5月交叉）+ greedy15（Greedy-15组合），7个默认开启；数字口径=每笔固定 1 万·静态参考（与下方「最后结果」表同口径，可直接对比）。G 模式（指数卖出信号触发离场）最贴近交易页面的信号驱动跟单方法，此默认组合（AI降亏过滤）下 G 净利 +103.1万（n=1,889 胜率60.9%）；主要贡献年 2024（+38.1万）/2025（+28.8万），2023 年 +9.3万 不转负，2021 -2.1万（唯一回撤年）。⚠J1/J2 带监控（maxSh 0.62/0.79，2026 单年主导），每年 1 月后检查1月中旬子集是否转盈。</div>` +
+          `<div class="lab-sigkelly-advice-li">总建议配套（页面默认组合 AI降亏过滤，可复现）：仓位=每日资金池等分 + AI仓位建议 K=1（技术别名：仓位控制过滤，同日只买最优1个，主推档，2026-08-14 #BC 默认 K=1；每日总投入恒 1 万均分当日保留数，可切 K=2/3/4）；降亏过滤=追关注×熊市（excludeSpecialBear）+ n2NovSpecialIndustry（11月+追关注+行业）+ janMidRating（1月中旬+中评级）+ janMidSpecial（1月中旬+追关注）+ r7MayReinforced（5月强化+3稳定非5月）+ excludeAuxCross（辅关注×3/5月交叉）+ greedy15（Greedy-15组合），7个默认开启；⚠口径差异说明：本节「投资习惯」静态表格数字=每笔固定 1 万基线（docs/kelly/combo/kelly-combo-usage-advice.md），与下方「最后结果」表（实时=每日资金池等分+top-K）<b>不同口径，不可直接纵向对比</b>，仅供行为/年份参考，核心决策以每日池为准。G 模式（指数卖出信号触发离场）最贴近交易页面的信号驱动跟单，AI仓位建议 K=1 主推口径见上方「总建议」行。⚠J1/J2 带监控（maxSh 0.62/0.79，2026 单年主导），每年 1 月后检查1月中旬子集是否转盈。</div>` +
           `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-verdict lab-sigkelly-gmethod"><b>🎓 G 玩法完整交易方法（2026-08-14，与 A/F 并列，供 G 用户实盘落地）</b>：G=卖出信号长线，默认 AI宏7键之外可再加一层仓位管理。研究找出 G 的最优仓位法＝<b>P≤3d「先卖年轻仓」</b>（数据支撑 docs/kelly/position/kelly-g-mode-recheck.md #49）：<b>持仓超过上限时，先卖掉「刚买进、还没持有满 3 天」的年轻仓（几笔年轻仓里先卖持有最久的那笔）；只有当手上一笔年轻仓都没有时，才轮到卖最老的持仓</b>。白话理解＝<b>保老仓、砍新仓</b>——因为回测里 G 的利润引擎集中在 21-100 天持仓段（净 +20.3万，长持全是盈利单），新仓才刚买、还没累积利润、砍掉损失最小。举例：你已有 12 万持仓，A 笔已持 10 天赚了 +8%（利润引擎要留），B 笔刚买 2 天刚回本（年轻仓），此时新信号买入会超 13 万上限 → 先卖 B 保 A，让 A 继续滚利润。</div>` +
-          `<div class="lab-sigkelly-advice-li lab-sigkelly-gmethod"><b>三档自选（按你的资金能力挑一档，回测峰持仓全部 ≤20 倍本金=可操作）</b>：① 13万档（激进·收益率最高）= 155.78%（净 +202,508，占用 91.4%=13 倍本金）；② 15万档（折中）= 147.34%（净 +221,016）；③ 20万档（最稳·绝对净利最高）= 131.25%（净 +262,509）。<b>资金越宽松选高档吃更多绝对净利，资金偏紧选低档吃更高收益率</b>；三档绝对净利随档位升、收益率随档位降，都可操作（可配合本面板「ai长线模式(G/H/I)仓位管理」开关联动看效果）。</div>` +
+          `<div class="lab-sigkelly-advice-li lab-sigkelly-gmethod"><b>三档自选（按你的资金能力挑一档，回测峰持仓全部 ≤20 倍本金=可操作；收益率数字为 b0 保守口径）</b>：① 13万档（激进·收益率最高）= 155.78%（净 +202,508，占用 91.4%=13 倍本金）；② 15万档（折中）= 147.34%（净 +221,016）；③ 20万档（最稳·绝对净利最高）= 131.25%（净 +262,509）。<b>资金越宽松选高档吃更多绝对净利，资金偏紧选低档吃更高收益率</b>；三档绝对净利随档位升、收益率随档位降，都可操作（可配合本面板「ai长线模式(G/H/I)仓位管理」开关联动看效果）。</div>` +
           `<div class="lab-sigkelly-advice-li lab-sigkelly-gmethod"><b>为什么可信（对比证明）</b>：P≤3d 在 5-20 万每个档位收益率都高于旧 FIFO（卖最老＝卖掉了利润引擎本体）；15 个不同起始年 <b>全部</b>胜 FIFO（收益率均值 98.9% vs FIFO 62.0%）、随机 30 个起始点 <b>0/30 负</b>。且 P≤3d 强平的正好是 0-3 天新仓（还没累积利润）→ 保守/乐观两种利润模型区间窄（13万档 24pp／20万档仅 4pp）＝<b>数字可信、几乎不依赖模型假设</b>；反观旧 FIFO 强平的是最老仓（平均已持 73 天、自然利润合计 +45 万）→ 区间宽 105pp，真实值高度不确定。<b>结论：G 用户若上仓位管理，用 P≤3d「先卖年轻仓」代替旧 FIFO，收益率与可信度双提升。</b></div>` +
           `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note lab-sigkelly-gmethod">📌 G 方法三层流程（白话说一遍）：① 选组合=AI宏7键默认（A/F 维持现状最稳）；② G 想更极致可去 greedy15/excludeAuxCross/r7 + 加 a45（见上方口径说明分裂结论）；③ 实盘仓位=每日池均分 + P≤3d「先卖年轻仓」，档位按资金自选 13万/15万/20万。⚠本段为研究结论（docs/kelly/position/），实际交易以页面「ai长线模式(G/H/I)仓位管理」开关勾选联动为准，仍需你盯盘确认信号。</div>` +
-          `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">⚠ 2026-08-14 #48 口径说明：本节「投资习惯/4组合全开」行为表格为<b>静态每笔固定 1 万基线（docs/kelly/combo/kelly-combo-usage-advice.md, 全信号 66,726 笔），供行为/年份参考</b>；页面实时 K 档评级/全信号表为<b>每日资金池等分+top-K（2026-08-13 恢复, 2026-08-14 对齐）</b>。核心决策以每日池为准（§0.2 分裂结论）：A/F 短持→维持 AI宏7键默认现状；G 长持(推荐卖出法)→建议去 greedy15/excludeAuxCross/r7 + 加 a45。上方 A/F/G 三玩法表为全周期 all 口径(每日池,实时联动)，下方「最后结果」全信号表随周期切换（切到「全部」时两表同值）。</div>` +
+          `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">⚠ 2026-08-14 #48 口径说明：本节「投资习惯」行为表格/总建议数字为<b>每日资金池等分+top-K（2026-08-13 恢复, 2026-08-14 #BC 对齐重算）口径</b>；页面实时 K 档评级/全信号表同为<b>每日资金池等分+top-K</b>，可对照。核心决策以每日池为准（§0.2 分裂结论）：A/F 短持→维持 AI宏7键默认现状；G 长持(推荐卖出法)→建议去 greedy15/excludeAuxCross/r7 + 加 a45。上方 A/F/G 三玩法表为全周期 all 口径(每日池,实时联动)，下方「最后结果」全信号表随周期切换（切到「全部」时两表同值）。</div>` +
         `</div>` +
       `</details>` +
+      `</div>` +
+    `</details>` +
     `</div>`
   );
 }

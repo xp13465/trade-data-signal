@@ -1648,6 +1648,11 @@
 .lab-sigkelly-advice-details + .lab-sigkelly-advice-details { margin-top: 6px; }
 .lab-sigkelly-advice-details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-1); padding: 3px 0; }
 .lab-sigkelly-advice-details summary:hover { color: var(--primary); }
+/* 2026-08-14 组合使用建议整体可收缩: 外层 details 默认收缩, 标题一行概括; 开启后内嵌面板承接原标题+note+分节 */
+.lab-sigkelly-advice-outer { padding: 4px 10px 2px; }
+.lab-sigkelly-advice-outer > summary { font-size: 13px; font-weight: 700; color: #c87a1a; padding: 6px 2px; }
+.lab-sigkelly-advice-outer > summary:hover { color: var(--primary); }
+.lab-sigkelly-advice-panel { padding-top: 4px; }
 .lab-sigkelly-advice-body { padding: 6px 0 4px; }
 .lab-sigkelly-advice-verdict { font-size: 13px; color: var(--text-1); line-height: 1.7; margin-bottom: 6px; }
 .lab-sigkelly-advice-verdict b { color: #389e0d; }
