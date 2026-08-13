@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260813-a174';  // bump a173->a174: 首页成交额KPI主值加单位"亿"(金额类_a_fmtKpiValue统一, 用户反馈不hover缺单位)
+const CACHE_VERSION = 'v6-20260813-a175';  // bump a174->a175: 数字类卡片全站补单位(涨跌家数只/家+黄金元/克+国债%+波指点+龙虎榜只+走势图标题后缀单位+summary chips+凯利表头元; 金额类亿已在a174)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
