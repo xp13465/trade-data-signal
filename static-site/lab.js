@@ -7950,6 +7950,7 @@ function _kellyReadCustomParams() {
 // toggle改交易集合(filter) vs 费率改profit(recompute), 正交叠加不互斥
 async function _kellyOnFilterChange() {
   var host = document.querySelector(".lab-sigkelly-host");
+  var bar = document.querySelector(".lab-sigkelly-bar");
   if (!host || !state.labSigKellyData) return;
   // loading先paint再算(方案B⑤), 防重入(方案B⑥)
   await _kellyRunRecompute(host,
@@ -7961,7 +7962,11 @@ async function _kellyOnFilterChange() {
         state.labSigKellyFeeStats = null;
       }
     },
-    function () { _updateSigKellyQuadrantsInPlace(host, state.labSigKellyData, state.labSigKellyPeriod); }
+    function () {
+      // #54 2026-08-13: toggle 变更后重渲染 bar → K 档评级 hoverpop/positionCap label 读共享动态源刷新(与费率切换路径一致; _kellyRunRecompute 内已重算写 _AI_POSCAP_RATING_DYNAMIC)
+      if (bar) _renderSigKellyBar(bar, state.labSigKellyData, state.labSigKellyPeriod);
+      _updateSigKellyQuadrantsInPlace(host, state.labSigKellyData, state.labSigKellyPeriod);
+    }
   );
   // 2026-08-13 降亏状态持久化: 所有 filter toggle 改动都经此函数, 统一写 tds_kelly_filters(AI宏 7成员+组合, 供首页 AI 开关联动; 幂等小JSON)
   _kellyPersistFilters();
