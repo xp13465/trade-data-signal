@@ -2835,8 +2835,17 @@ function fmtLatestVal(v) {
   return v.toFixed(2);
 }
 
+// 单位短化：latestSuffixMulti 系列标题后缀用（单位从数据源 unit 映射，未命中时原样返回，单位不明不加误导）
+function unitShort(u) {
+  if (!u) return "";
+  const map = { "亿元": "亿", "元/克": "元/克", "%": "%", "点": "点", "家": "家", "只": "只", "板": "板", "手": "手", "亿份": "亿份", "倍": "倍", "万手": "万手" };
+  return map[u] || u;
+}
+
 // 多序列图标题后缀：取所有序列最新日期的最大值 + 各序列最新值（用短标签 label，缺省用 name）
-// series = [{name, data:[{date,value}], label?}]，如 ` · MM-DD 涨停92 跌停4 连板2`
+// series = [{name, data:[{date,value}], label?, unit?, scale?}]，如 ` · MM-DD 涨停92只 跌停4只 连板2家`
+// unit：系列显示单位后缀(经 unitShort 短化)；scale：标题后缀显示前乘数(0-1 小数存储的百分比系列用 100, 与 KPI 卡口径一致 §22)。
+// 不带 unit/scale 的系列输出与旧版完全一致(全局通用函数, 指数/ETF 等非金额图表不受影响)。
 function latestSuffixMulti(series) {
   if (!series || !series.length) return "";
   let lastDate = "";
@@ -2855,7 +2864,8 @@ function latestSuffixMulti(series) {
       if (s.data[j].date <= lastDate) { v = s.data[j].value; break; }
     }
     const lbl = s.label || s.name || "";
-    parts.push(`${lbl}${fmtLatestVal(v)}`);
+    const disp = v * (s.scale || 1);
+    parts.push(`${lbl}${fmtLatestVal(disp)}${unitShort(s.unit)}`);
   }
   return `<span class="chart-latest"> · ${fmtDate(lastDate)} ${parts.join(" ")}</span>`;
 }
@@ -6146,9 +6156,10 @@ function _fmtKpiValue(id, v) {
     case "a_width_fengban_rate": return (v * 100).toFixed(1) + "%"; // 存储为 0-1 小数
     case "a_width_zt_count":
     case "a_width_dt_count":
+    case "a_width_zb_count": return v.toFixed(0) + "只"; // 涨停/跌停/炸板数(只,overview unit=只)
     case "a_width_up_count":
-    case "a_width_down_count":
-    case "a_width_zb_count": return v.toFixed(0);
+    case "a_width_down_count": return v.toFixed(0) + "家"; // 上涨/下跌家数(家,overview unit=家)
+    case "a_width_max_lianban": return v.toFixed(0) + "板"; // 连板高度(板,防再犯 L10 同类)
     // 2026-08-13 修复(用户反馈): 首页成交额KPI主值缺单位,不hover只显纯数字14728,单位只出现在hover pop(1.47万亿).
     // 金额类(a_amount/a_fund_margin/a_fund_north/a_fund_main)单位均为"亿元"(overview today.metrics unit=亿元),
     // 主值常态显示单位,与hover pop万亿/亿口径一致(§22);a_fund_* 当前虽挪出首屏KPI小卡(_KPI_T1_MOVED),
@@ -6158,6 +6169,10 @@ function _fmtKpiValue(id, v) {
     case "a_fund_north":
     case "a_fund_main": return (v >= 0 ? "+" : "") + v.toFixed(1) + "亿"; // 北向成交总额/主力净流入(亿元)
     case "a_volume_ratio": return v.toFixed(2) + "x";
+    case "gold": return v.toFixed(2) + "元/克"; // 沪金(元/克,overview unit=元/克)
+    case "cn10y": return v.toFixed(2) + "%"; // 10年期国债收益率(%,overview unit=%)
+    case "a_qvix_300": return v.toFixed(2) + "点"; // 中国波指300(点,overview unit=点)
+    case "lhb_count": return v.toFixed(0) + "只"; // 龙虎榜上榜家数(只,overview unit=只)
     case "a_turnover_mean":
     case "a_turnover_median":
     case "a_turnover_p90":
@@ -6538,7 +6553,7 @@ function renderSummaryChips(s, snap) {
   }
   // 涨跌家数
   if (s.up_count != null || s.down_count != null) {
-    chips.push(`<span class="summary-chip">${s.up_count || 0}涨 ${s.down_count || 0}跌${termTip(_WIDTH_CALIBER_TIP)}</span>`);
+    chips.push(`<span class="summary-chip">涨${s.up_count || 0}家 跌${s.down_count || 0}家${termTip(_WIDTH_CALIBER_TIP)}</span>`);
   }
   // 成交额
   if (s.volume_amount != null) {
@@ -6549,7 +6564,7 @@ function renderSummaryChips(s, snap) {
   }
   // 涨跌停
   if (s.zt_count || s.dt_count) {
-    chips.push(`<span class="summary-chip">涨停${s.zt_count || 0} 跌停${s.dt_count || 0}</span>`);
+    chips.push(`<span class="summary-chip">涨停${s.zt_count || 0}只 跌停${s.dt_count || 0}只</span>`);
   }
   // 买卖信号（2026-08-11 口径分层：买/卖=真实指数可交易信号(非 s.*)；情绪买/卖=情绪分模拟信号(s.* 0-100 衍生指标,非可交易标的,仅情绪参考)）
   if (s.buy_count || s.sell_count || s.buy_sentiment_count || s.sell_sentiment_count) {
@@ -6561,11 +6576,11 @@ function renderSummaryChips(s, snap) {
   }
   // 新高新低
   if (s.nh_count != null || s.nl_count != null) {
-    chips.push(`<span class="summary-chip">新高${s.nh_count || 0} 新低${s.nl_count || 0}</span>`);
+    chips.push(`<span class="summary-chip">新高${s.nh_count || 0}家 新低${s.nl_count || 0}家</span>`);
   }
   // 均线多空
   if ((s.ma_bullish != null || s.ma_bearish != null) && (s.ma_bullish || s.ma_bearish)) {
-    chips.push(`<span class="summary-chip">均线${s.ma_bullish || 0}多${s.ma_bearish || 0}空</span>`);
+    chips.push(`<span class="summary-chip">均线${s.ma_bullish || 0}家多${s.ma_bearish || 0}家空</span>`);
   }
   const chipsRow = chips.length ? `<div class="summary-chips">${chips.join("")}</div>` : "";
 
@@ -9765,11 +9780,13 @@ async function renderOverview() {
         const _fmt6mV = (v) => {
           if (v == null) return "-";
           if (k.id === "a_width_zhaban_rate" || k.id === "a_width_fengban_rate") return (v * 100).toFixed(0) + "%";
-          if (k.id === "a_width_zt_count" || k.id === "a_width_dt_count" || k.id === "a_width_up_count" || k.id === "a_width_down_count") return v.toFixed(0);
+          if (k.id === "a_width_zt_count" || k.id === "a_width_dt_count") return v.toFixed(0) + "只"; // 与主值口径一致(§22)
+          if (k.id === "a_width_up_count" || k.id === "a_width_down_count") return v.toFixed(0) + "家";
           if (k.id === "a_volume_ratio") return v.toFixed(1) + "x";
-          if (k.id === "gold") return v.toFixed(0);
+          if (k.id === "gold") return v.toFixed(0) + "元/克";
           if (k.id === "cn10y") return v.toFixed(2) + "%";
-          if (k.id === "a_qvix_300") return v.toFixed(0);
+          if (k.id === "a_qvix_300") return v.toFixed(0) + "点";
+          if (k.id === "lhb_count") return v.toFixed(0) + "只";
           return v.toFixed(0);
         };
         let _extraRows = "";
@@ -10594,8 +10611,8 @@ async function renderOverview() {
 
       const adSeries = [
         { name: "涨跌家数比", data: adData.map(d => ({ date: d.date, value: d.ratio })), label: "涨跌比" },
-        { name: "腾落线", data: adData.map(d => ({ date: d.date, value: d.ad_line })), label: "腾落线" },
-        { name: "腾落线MA20", data: adData.map(d => ({ date: d.date, value: d.ad_line_ma20 })), label: "MA20" },
+        { name: "腾落线", data: adData.map(d => ({ date: d.date, value: d.ad_line })), label: "腾落线", unit: "家" },
+        { name: "腾落线MA20", data: adData.map(d => ({ date: d.date, value: d.ad_line_ma20 })), label: "MA20", unit: "家" },
       ];
       // P1 Step②(2026-08-12): AD Line lite-aware(双 y 轴 bar+2线, 外观对等原 mkCard+setOption)
       const _adDiv = _lwCardShell("📊 腾落线（AD Line）" + termTip("腾落线=累积每日上涨家数-下跌家数。持续上升=广度健康(多数股票涨),与指数背离常预示拐点。累计值绝对值无意义,看趋势。") + latestSuffixMulti(adSeries), 210, null, colC1);
@@ -10625,8 +10642,8 @@ async function renderOverview() {
         tipFn: (i) => {
           const r = ratioData[i], al = adLineData[i], ma = adMA20[i];
           return adDates[i] + "<br/>涨跌家数比：" + (r == null || isNaN(r) ? "-" : Number(r).toFixed(2))
-            + "<br/>腾落线：" + (al == null || isNaN(al) ? "-" : al)
-            + "<br/>腾落线MA20：" + (ma == null || isNaN(ma) ? "-" : ma);
+            + "<br/>腾落线：" + (al == null || isNaN(al) ? "-" : al + "家")
+            + "<br/>腾落线MA20：" + (ma == null || isNaN(ma) ? "-" : ma + "家");
         },
       }, (container) => {
         const inst = echarts.init(container);
@@ -10666,9 +10683,9 @@ async function renderOverview() {
       const vrColors = vrData.map(d => (d.pct_change >= 0) ? "#e6492e" : "#2e8b57");
 
       const vrSeries = [
-        { name: "成交额", data: vrData.map(d => ({ date: d.date, value: d.amount })), label: "成交" },
-        { name: "MA5", data: vrData.map(d => ({ date: d.date, value: d.ma5 })), label: "MA5" },
-        { name: "MA20", data: vrData.map(d => ({ date: d.date, value: d.ma20 })), label: "MA20" },
+        { name: "成交额", data: vrData.map(d => ({ date: d.date, value: d.amount })), label: "成交", unit: "亿" },
+        { name: "MA5", data: vrData.map(d => ({ date: d.date, value: d.ma5 })), label: "MA5", unit: "亿" },
+        { name: "MA20", data: vrData.map(d => ({ date: d.date, value: d.ma20 })), label: "MA20", unit: "亿" },
       ];
       // P1 Step②(2026-08-12): 成交额与量比 lite-aware(单 y bar+2线, 外观对等原 mkCard+setOption)
       const _vrDiv = _lwCardShell("📈 成交额与量比（近 120 日）" + termTip("量比=当日成交额/前5日均量。>1.5=放量(交投活跃),<0.7=缩量(清淡)。放量伴随涨跌更可信。") + latestSuffixMulti(vrSeries), 300, null, colC2);
@@ -10727,9 +10744,9 @@ async function renderOverview() {
     if (nhlData.length) {
       const nhlDates = nhlData.map(d => d.date);
       const nhlSeries = [
-        { name: "52周新高", data: nhlData.map(d => ({ date: d.date, value: d.nh_52w })), label: "新高" },
-        { name: "52周新低", data: nhlData.map(d => ({ date: d.date, value: d.nl_52w })), label: "新低" },
-        { name: "净新高", data: nhlData.map(d => ({ date: d.date, value: d.nhnl_52w })), label: "净新高" },
+        { name: "52周新高", data: nhlData.map(d => ({ date: d.date, value: d.nh_52w })), label: "新高", unit: "家" },
+        { name: "52周新低", data: nhlData.map(d => ({ date: d.date, value: d.nl_52w })), label: "新低", unit: "家" },
+        { name: "净新高", data: nhlData.map(d => ({ date: d.date, value: d.nhnl_52w })), label: "净新高", unit: "家" },
       ];
       // P1 Step②(2026-08-12): 新高新低 lite-aware(双 y 2bar+线, 外观对等原 mkCard+setOption, barOffset 复刻并排)
       const _nhlDiv = _lwCardShell("🔬 新高新低家数（52 周）" + termTip("近52周创新高/新低的股票家数，新高多=强势新低多=弱势") + latestSuffixMulti(nhlSeries), 196, null, colC1);
@@ -10761,9 +10778,9 @@ async function renderOverview() {
         ],
         tipFn: (i) => {
           const nh = _nhlNh[i], nl = _nhlNl[i], net = _nhlNet[i];
-          return nhlDates[i] + "<br/>52周新高：" + (nh == null || isNaN(nh) ? "-" : nh)
-            + "<br/>52周新低：" + (nl == null || isNaN(nl) ? "-" : nl)
-            + "<br/>净新高：" + (net == null || isNaN(net) ? "-" : net);
+          return nhlDates[i] + "<br/>52周新高：" + (nh == null || isNaN(nh) ? "-" : nh + "家")
+            + "<br/>52周新低：" + (nl == null || isNaN(nl) ? "-" : nl + "家")
+            + "<br/>净新高：" + (net == null || isNaN(net) ? "-" : net + "家");
         },
       }, (container) => {
         const inst = echarts.init(container);
@@ -13379,11 +13396,22 @@ async function renderAStock(container = content) {
     "解禁/IPO/可转债": { unlock_amount: "解禁", unlock_count: "解禁家数", ipo_count: "IPO", ipo_amount: "募资额", cov_count: "可转债", cov_premium_median: "溢价率" },
   };
   // 构建带短标签的 series 并追加最新值后缀到标题
+  // 标题后缀单位：单位从数据源 unit 取(unitShort 短化)；0-1 小数存储的百分比系列
+  // (炸板率/封板率/封板率/>5%占比)标题后缀值×100 显示为百分比，与首页 KPI 卡口径一致(§22)。
+  // 无量纲(unit='-'，如 >5%占比 标题已注明 0-1)不加单位避免误导；指数/ETF 图表不走本函数不受影响。
   function buildSeries(g, ids) {
     const labels = groupLabels[g] || {};
     return ids.map((id) => {
       const m = (r.metrics && r.metrics[id]) || null;
-      return m ? { name: m.name, data: m.data, label: labels[id] } : null;
+      if (!m) return null;
+      let unit = m.unit || "";
+      let scale = 1;
+      if (id === "a_width_zhaban_rate" || id === "a_width_fengban_rate" || id === "a_width_seal_rate" || id === "a_turnover_gt5_pct") {
+        unit = "%"; scale = 100; // 0-1 小数存储的百分比
+      } else if (unit === "-") {
+        unit = ""; // 无量纲(0-1 占比等, 加单位会误导)
+      }
+      return { name: m.name, data: m.data, label: labels[id], unit: unit, scale: scale };
     }).filter(Boolean);
   }
   const entries = Object.entries(groups);
@@ -17186,7 +17214,7 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
   if (chart1Series.some((s) => s.data.length)) {
     const dates1 = [...new Set(chart1Series.flatMap((s) => s.data.map((d) => d.date)))].sort();
     const roleLabels = { "机构(前20)": "机构", "中信期货": "中信", "国泰君安": "国君" };
-    const c1Series = chart1Series.map((s) => ({ ...s, label: roleLabels[s.name] || s.name }));
+    const c1Series = chart1Series.map((s) => ({ ...s, label: roleLabels[s.name] || s.name, unit: "手" }));
     const c1 = mkCard("综合净多空手数" + termTip("机构多头仓位减空头仓位，正数=机构偏看多") + latestSuffixMulti(c1Series), 300, null, fgGrid);
     appendPlainTip(c1, "净多空为正且持续增加，机构看多情绪增强");
     addCardTimeBadge(c1.getDom().parentElement, dates1.length ? dates1[dates1.length - 1] : "", snap, "t1", "futures_date");
@@ -17249,7 +17277,7 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
     if (prodSeries.some((s) => s.data.length)) {
       const datesP = [...new Set(prodSeries.flatMap((s) => s.data.map((d) => d.date)))].sort();
       const prodLabels = { "沪深300期货": "300", "中证500期货": "500", "上证50期货": "50", "中证1000期货": "1000", "综合": "综合" };
-      const cPSeries = prodSeries.map((s) => ({ ...s, label: prodLabels[s.name] || s.name }));
+      const cPSeries = prodSeries.map((s) => ({ ...s, label: prodLabels[s.name] || s.name, unit: "手" }));
       const cP = mkCard(`${role} 各品种净多空手数` + termTip("该角色在各期货品种上的净多空手数，正数看多负数看空") + latestSuffixMulti(cPSeries), 300, null, fgGrid);
       addCardTimeBadge(cP.getDom().parentElement, datesP.length ? datesP[datesP.length - 1] : "", snap, "t1", "futures_date");
       cP.setOption(withTheme({

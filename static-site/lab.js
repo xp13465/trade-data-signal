@@ -2045,7 +2045,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
 
   const tradesBody = isOpen
     ? `<div class="lab-sim-trades-body">` +
-      `<div class="lab-sim-table-wrap"><table><thead><tr><th>品种</th><th>#</th><th>关注日期</th><th>关注价</th><th>风险日期</th><th>风险价</th><th>收益率</th><th>持有</th><th>账户总资金</th><th>累计盈亏</th><th>累计收益率</th><th data-tip="本笔累计收益率/累计盈亏相较上一笔的差值，红赚绿亏">较上次</th></tr></thead><tbody>` +
+      `<div class="lab-sim-table-wrap"><table><thead><tr><th>品种</th><th>#</th><th>关注日期</th><th>关注价</th><th>风险日期</th><th>风险价</th><th>收益率</th><th>持有</th><th>账户总资金(元)</th><th>累计盈亏(元)</th><th>累计收益率</th><th data-tip="本笔累计收益率/累计盈亏(元)相较上一笔的差值，红赚绿亏">较上次</th></tr></thead><tbody>` +
       (tradeRows || '<tr><td colspan="12" style="text-align:center;color:var(--text-4)">无交易记录</td></tr>') +
       holdingRows +
       `</tbody></table></div>${pagerHTML}</div>`
