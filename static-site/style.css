@@ -1011,6 +1011,7 @@ main { padding: 16px 24px; }
   display: flex;
   flex-direction: column;
   gap: 10px;
+  position: relative;  /* 5 个共用骨架弹窗(.theme-modal-close)的定位锚点, 统一在此而非逐个弹窗声明 */
 }
 .modal-body label { display: flex; flex-direction: column; font-size: 13px; gap: 4px; }
 .modal-body input, .modal-body select { padding: 6px 8px; border: 1px solid var(--border-strong); border-radius: 4px; }
@@ -3948,15 +3949,59 @@ main { padding: 16px 24px; }
   box-shadow: 0 8px 32px var(--shadow-strong);
 }
 .theme-modal h3 { margin: 0 0 14px; font-size: 16px; color: var(--text-1); }
-.theme-options { display: flex; flex-direction: column; gap: 8px; }
-.theme-option {
+/* 皮肤弹窗 header：标题 + 关闭按钮同行(参照 rule-modal-header)，border-bottom 分隔 */
+.theme-modal .modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 0 12px; margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.theme-modal .modal-header h3 { margin: 0; font-size: 16px; color: var(--text-1); }
+/* 皮肤 2×2 卡片网格(移动端仍 2 列，94vw 收窄自动适应) */
+.theme-skin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+/* 2026-08-13 reviewer 复审 FAIL 修复：theme modal 内选项按钮(皮肤卡/合规/走势图)同为 <button>，
+   基线 .modal-body button(特异性 0,1,1) 会覆盖其 padding/border/background/color(渲成金色实底白字)，
+   所有 .theme-option 系选择器提级到 .theme-modal 下(0,2,0) 才压得住；color 显式补 var(--text-1) 防 #fff 透入 */
+.theme-modal .theme-option {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
-  background: var(--bg-card); cursor: pointer; text-align: left;
+  background: var(--bg-card); color: var(--text-1); cursor: pointer; text-align: left;
   transition: all 0.15s; font-family: inherit; width: 100%;
 }
-.theme-option:hover { border-color: var(--primary); background: var(--bg-hover); }
-.theme-option.active { border-color: var(--primary); background: var(--primary-bg); box-shadow: 0 0 0 2px var(--primary); }
+.theme-modal .theme-option:hover { border-color: var(--primary); background: var(--bg-hover); }
+.theme-modal .theme-option.active { border-color: var(--primary); background: var(--primary-bg); box-shadow: 0 0 0 2px var(--primary); }
+/* 皮肤渐变预览卡：覆盖 .theme-option 横向布局为纵向卡片（须定义在 .theme-option 之后才生效）。
+   2026-08-13 reviewer 复审 FAIL 修复：提级 .theme-modal(0,2,0)，显式补全 bg/color/border/padding/radius
+   双保险防 .modal-body button(0,1,1) 基线覆盖；卡底色 --bg-card 恢复后，✓角标 primary 底在卡上不再同色消失 */
+.theme-modal .theme-skin-card {
+  background: var(--bg-card); color: var(--text-1);
+  border: 1px solid var(--border); padding: 10px; border-radius: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  position: relative;
+}
+.theme-skin-preview {
+  display: block;
+  height: 52px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+}
+.theme-skin-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.theme-modal .theme-skin-name { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.theme-modal .theme-skin-desc { font-size: 11px; color: var(--text-3); margin-top: 0; }
+.theme-modal .theme-skin-card .theme-check {
+  position: absolute; top: 16px; right: 16px;
+  width: 18px; height: 18px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--primary); color: var(--bg-card);
+  font-size: 11px; font-weight: bold; line-height: 1;
+  opacity: 0; transition: all .15s;
+}
+.theme-modal .theme-skin-card.active .theme-check { opacity: 1; }
 .theme-swatch { display: flex; gap: 3px; flex-shrink: 0; }
 .theme-swatch span {
   width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--border-strong);
@@ -3964,18 +4009,37 @@ main { padding: 16px 24px; }
 .theme-info { flex: 1; min-width: 0; }
 .theme-info .theme-name { font-size: 14px; font-weight: 600; color: var(--text-1); }
 .theme-info .theme-desc { font-size: 11px; color: var(--text-3); margin-top: 2px; }
-.theme-check { font-size: 18px; font-weight: bold; color: var(--primary); opacity: 0; flex-shrink: 0; }
-.theme-option.active .theme-check { opacity: 1; }
-.theme-modal-close {
-  position: absolute; top: 12px; right: 14px;
-  background: none; border: none; font-size: 22px; color: var(--text-3); cursor: pointer; line-height: 1; padding: 0 4px;
+/* 合规/走势图选项的 ✓(非皮肤卡)：提级 .theme-modal 防 .modal-body button color:#fff 覆盖成白底隐形 */
+.theme-modal .theme-check { font-size: 18px; font-weight: bold; color: var(--primary); opacity: 0; flex-shrink: 0; }
+.theme-modal .theme-option.active .theme-check { opacity: 1; }
+/* 共用关闭按钮：圆形胶囊，5 个共用骨架弹窗(皮肤/通知设置/登录/退出/留言)统一。
+   .modal-close 为新类名(皮肤弹窗 header 内流外关闭)，.theme-modal-close 保留别名兼容其它 4 弹窗。
+   2026-08-13 reviewer 复审 FAIL 修复：提级 .modal-body(0,2,0) > .modal-body button(0,1,1)，
+   否则被渲成金色实底白字药丸(padding:6px 16px)而非中性圆形胶囊 */
+.modal-body .modal-close,
+.modal-body .theme-modal-close {
+  position: absolute; top: 14px; right: 16px;
+  width: 26px; height: 26px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--bg-hover); border: none;
+  color: var(--text-3); font-size: 15px; line-height: 1; cursor: pointer; padding: 0;
+  transition: all .15s;
 }
-.theme-modal-close:hover { color: var(--text-1); }
+.modal-body .modal-close:hover,
+.modal-body .theme-modal-close:hover { color: var(--text-1); background: var(--primary-bg); }
+/* 皮肤弹窗 header 内关闭按钮改流内(与标题同行)：必须置于上方 .modal-body .modal-close 之后——
+   两者同 (0,2,0) 特异性，后声明的 position:static 才压过 position:absolute；其它 4 个共用弹窗仍绝对定位右上角 */
+.theme-modal .modal-header .modal-close,
+.theme-modal .modal-header .theme-modal-close { position: static; }
 
 /* 皮肤弹窗内合规开关区块（复用 .theme-option 布局，新增分隔线/小标题/图标列） */
 .theme-divider { height: 1px; background: var(--border); margin: 14px 0 10px; }
 .theme-section-title { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--text-1); }
-.compliance-options { display: flex; flex-direction: column; gap: 8px; }
+.compliance-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
 .compliance-option .compliance-icon { font-size: 18px; flex-shrink: 0; width: 22px; text-align: center; line-height: 1; }
 
 @media (max-width: 768px) {
@@ -3991,6 +4055,26 @@ main { padding: 16px 24px; }
   }
   .h5-notify-btn:active { background: var(--bg-hover); }
   .theme-modal .modal-body { width: 94vw; }
+  /* 移动端：显示模式/走势图渲染两卡回退单列(文字卡全宽更易点选)；皮肤卡仍 2×2 */
+  .theme-modal .compliance-options { grid-template-columns: 1fr; }
+}
+
+/* 5 个共用骨架弹窗(皮肤/通知设置/登录/退出/留言)进出场动画，仿 termPopIn fade+scale；尊重 prefers-reduced-motion */
+@keyframes modalFadeIn {
+  from { opacity: 0; transform: scale(.96) translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+.theme-modal:not(.hidden),
+.notify-settings-modal:not(.hidden),
+.auth-login-modal:not(.hidden),
+.feedback-modal:not(.hidden) {
+  animation: modalFadeIn .18s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme-modal:not(.hidden),
+  .notify-settings-modal:not(.hidden),
+  .auth-login-modal:not(.hidden),
+  .feedback-modal:not(.hidden) { animation: none; }
 }
 
 /* === 💬 留言箱弹窗（复用 .theme-modal 风格，走皮肤变量） === */
