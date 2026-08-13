@@ -22873,17 +22873,19 @@ function initThemeSwitcher() {
   modal.className = "modal theme-modal hidden";
   modal.innerHTML =
     '<div class="modal-body">' +
-      '<button class="theme-modal-close" title="关闭">×</button>' +
-      '<h3>🎨 切换皮肤</h3>' +
-      '<div class="theme-options">' +
+      '<div class="modal-header">' +
+        '<h3>🎨 切换皮肤</h3>' +
+        '<button class="modal-close theme-modal-close" title="关闭">×</button>' +
+      '</div>' +
+      '<div class="theme-skin-grid">' +
         THEMES.map(function (t) {
           return (
-            '<button class="theme-option" data-theme="' + t.id + '">' +
-              '<span class="theme-swatch">' +
-                t.swatch.map(function (c) { return '<span style="background:' + c + '"></span>'; }).join("") +
+            '<button class="theme-option theme-skin-card" data-skin="' + t.id + '" type="button">' +
+              '<span class="theme-skin-preview" style="background:linear-gradient(180deg,' + t.swatch[0] + ' 0%,' + t.swatch[1] + ' 55%,' + t.swatch[2] + ' 100%)"></span>' +
+              '<span class="theme-skin-meta">' +
+                '<span class="theme-skin-name">' + t.name + '</span>' +
+                '<span class="theme-skin-desc">' + t.desc + '</span>' +
               '</span>' +
-              '<span class="theme-info"><span class="theme-name">' + t.name + '</span>' +
-              '<span class="theme-desc">' + t.desc + '</span></span>' +
               '<span class="theme-check">✓</span>' +
             '</button>'
           );
@@ -22947,7 +22949,7 @@ function initThemeSwitcher() {
     var cur = currentTheme();
     modal.querySelectorAll(".theme-option").forEach(function (opt) {
       if (!opt.classList.contains("compliance-option")) {
-        opt.classList.toggle("active", opt.dataset.theme === cur);
+        opt.classList.toggle("active", opt.dataset.skin === cur);
       }
     });
   }
@@ -22964,17 +22966,36 @@ function initThemeSwitcher() {
       opt.classList.toggle("active", (opt.dataset.chartLite === "1") === lite);
     });
   }
+  // 纯 CSS 变量层皮肤预览: 不写 localStorage、不触发 rethemeCharts(ECharts canvas 不跟 CSS 变量，半预览可接受)
+  function previewTheme(t) {
+    if (t) document.documentElement.setAttribute("data-theme", t);
+    else document.documentElement.removeAttribute("data-theme");
+  }
+  function restoreThemeFromStorage() { previewTheme(currentTheme()); }
+  // 2026-08-13 reviewer 复审建议：closeModal 补 restoreThemeFromStorage()——Escape/键盘关闭后弹窗 display:none，
+  // mouseleave 不触发，不恢复则 hover 预览主题残留到刷新；hover 正常路径已由 mouseleave 恢复，此处兜底双保险
+  function closeModal() { restoreThemeFromStorage(); modal.classList.add("hidden"); document.body.style.overflow = ""; }
   document.querySelectorAll(".theme-btn").forEach(function (b) {
     b.addEventListener("click", function () {
       renderActive();
       renderComplianceActive();
       renderChartLiteActive();
       modal.classList.remove("hidden");
+      document.body.style.overflow = "hidden";  // 打开锁 body 滚动，关闭恢复
     });
+  });
+  // hover 预览皮肤(桌面端 mouseenter/mouseleave; 移动端无 hover 无副作用)
+  modal.querySelectorAll(".theme-skin-card").forEach(function (card) {
+    card.addEventListener("mouseenter", function () { previewTheme(card.dataset.skin); });
+    card.addEventListener("mouseleave", restoreThemeFromStorage);
+  });
+  // Escape 关闭(仅关本弹窗; L15448 全局 handler 只覆盖基金弹窗，互不冲突)
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !modal.classList.contains("hidden")) closeModal();
   });
   modal.addEventListener("click", function (e) {
     if (e.target === modal || e.target.classList.contains("theme-modal-close")) {
-      modal.classList.add("hidden");
+      closeModal();
       return;
     }
     var opt = e.target.closest(".theme-option");
@@ -22991,16 +23012,16 @@ function initThemeSwitcher() {
         // gating：完整版（off）为登录特权 hasPrivilege("detailed_view")，未登录弹提示+登录入口不切换
         var _mode = opt.dataset.complianceMode;
         if (_mode === "off" && !hasPrivilege("detailed_view")) {
-          modal.classList.add("hidden");
+          closeModal();
           openLoginPromptForDetailed();
           return;
         }
         applyCompliance(_mode);
         renderComplianceActive();
       } else {
-        applyTheme(opt.dataset.theme);
+        applyTheme(opt.dataset.skin);
         renderActive();
-        setTimeout(function () { modal.classList.add("hidden"); }, 180);
+        setTimeout(closeModal, 180);
       }
     }
   });
