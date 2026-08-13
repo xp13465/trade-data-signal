@@ -54,6 +54,18 @@ RETRY_SLEEP = 0.3  # 秒
 # UserPromptSubmit 被当"用户消息"抄送(飞书群出现"轮询"噪音); 用户真实消息盘中打断
 # (turn 运行中注入)反而不触发 UserPromptSubmit → 漏抄, 治漏抄靠 _sweep_unforwarded 补扫。
 SKIP_PROMPT_PREFIXES = ("轮询", "[cron-poll", "[cron", "[system", "[SYSTEM")
+# 系统注入/任务通知内容级强特征(2026-08-13 修复): 子 agent 完成通知(task-notification)
+# 注入主控会话时以 agentId/任务描述/<task-notification> 标签开头, SKIP_PROMPT_PREFIXES
+# 前缀匹配挡不住, 需内容级判定。以下句子只出现在系统注入(Claude Code 后台任务事件文案),
+# 真实用户消息不会含; 不用更宽特征防误杀用户消息。
+SYSTEM_INJECT_MARKERS = (
+    "task-notification",
+    "A task-notification fires each time",
+    "SYSTEM NOTIFICATION",
+    "NOT USER INPUT",
+    "This is an automated background-task event",
+    "automated background-task event, NOT a message from the user",
+)
 # 补扫窗口: 只看 transcript 尾部最近 N 条(防首次接入时洪水补发历史消息)
 SWEEP_LINES = 120
 
@@ -63,6 +75,18 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # ---------------------------------------------------------------- 工具
 def _log(msg: str) -> None:
     print(f"[feishu_hook] {msg}", file=sys.stderr)
+
+
+def _is_system_inject(text: str) -> bool:
+    """判定文本是否为系统注入(task-notification 等后台任务事件), 是则返回 True(不抄送)。
+
+    子 agent 完成通知注入主控会话时被 UserPromptSubmit 触发, prompt 以 agentId/
+    任务描述/<task-notification> 标签开头, 前缀过滤(SKIP_PROMPT_PREFIXES)挡不住;
+    用内容级强特征(SYSTEM_INJECT_MARKERS, 只出现在系统注入的句子)判定, 防误杀真实用户消息。
+    """
+    if not text:
+        return False
+    return any(marker in text for marker in SYSTEM_INJECT_MARKERS)
 
 
 def _load_sent() -> set:
@@ -200,7 +224,8 @@ def _sweep_unforwarded(transcript_path: str, session: str = ""):
                 continue
             c = msg.get("content")
             txt = c.strip() if isinstance(c, str) else ""
-            if not txt or txt.startswith(SKIP_PROMPT_PREFIXES):
+            # 2026-08-13: task-notification 注入同样前缀不匹配, 叠加内容级强特征拦截
+            if not txt or txt.startswith(SKIP_PROMPT_PREFIXES) or _is_system_inject(txt):
                 continue
             fp = "U|" + _fp([session, transcript_path, txt])
             if fp in _load_sent():
@@ -228,7 +253,9 @@ def handle_user(data: dict) -> int:
     if not prompt:
         return 0
     # cron 轮询/系统注入 prompt 不抄送(2026-08-12): 主控定时轮询会被当"用户消息"误抄
-    if prompt.startswith(SKIP_PROMPT_PREFIXES):
+    # (2026-08-13 修复): 子 agent 完成通知(task-notification)注入主控会话, prompt 以
+    # agentId/描述开头前缀不匹配 → 叠加内容级强特征 _is_system_inject 一并拦截
+    if prompt.startswith(SKIP_PROMPT_PREFIXES) or _is_system_inject(prompt):
         return 0
     session = data.get("session_id") or ""
     transcript = data.get("transcript_path") or ""
