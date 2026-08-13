@@ -945,6 +945,9 @@ main { padding: 16px 24px; }
 .sig-kbtn-main .sig-kbtn-r { color: #d48806; font-weight: 700; opacity: 1; }
 [data-theme="dark"] .sig-kbtn-main .sig-kbtn-r, [data-theme="redgold"] .sig-kbtn-main .sig-kbtn-r { color: #ffb300; }
 .sig-kbtn.active .sig-kbtn-r { color: inherit; opacity: 1; }
+/* 2026-08-13 首页 AI仓位建议 off 按钮: 关闭态用警示红区分(K 档主推为 primary 蓝), 表示 AI仓位建议已关闭显示 */
+.sig-kbtn-off.active { background: #b42318; border-color: #b42318; }
+[data-theme="dark"] .sig-kbtn-off.active, [data-theme="redgold"] .sig-kbtn-off.active { background: #d4380d; border-color: #d4380d; }
 /* 2026-08-13 AI 降亏过滤命中灰显: 总开关开 + 命中降亏条件(凯利区实际开启) → 灰显+删除线(建议回避), 与 poscap 灰显视觉区分(更强调) */
 .sig-item.sig-ai-hit { opacity: 0.45; filter: grayscale(0.5); text-decoration: line-through; }
 .sig-ai-hit-badge { font-size: 10px; vertical-align: super; line-height: 0; margin-left: 2px; cursor: help; font-weight: 600; border-radius: 3px; padding: 0 3px; color: #b42318; background: #b423181a; text-decoration: none; }
