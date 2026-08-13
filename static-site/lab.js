@@ -8268,33 +8268,26 @@ function _renderSigKellyBar(bar, data, period) {
   // positionCap 仓位控制过滤(2026-08-12): 同日只买最优K个(基笔级,9模式共享统一生效), K档位1-4可配置(默认3, 2026-08-13定默认)
   // 2026-08-12 #4 rename+范围扩展: 显示名改"AI仓位建议"(技术别名:仓位控制过滤), pop tooltip 完整展示; 历史回测数据固化展示(下方 poscapHistoryHTML)
   const _pcK = _filters.positionCapK || 3;
-  // 2026-08-13: K档位评级标注 + hover 评级理由表格(展示层, 不改算法; 数据=researcher 从 /tmp/kelly_v2_results_K{1-4}_r1-5.json 溯源定稿只读勿改; 口径=AI宏默认3元(r7 5月强化+3非五月R7/exclAuxCross 辅关注×3/5月交叉/greedy15)+A模式(固定10天)+每笔1万+费率etf_def+全周期, 与 AI宏 hoverpop 3元 口径一致)
-  const _pcRating = {
+  // 2026-08-13: K档位评级标注 + hover 评级理由表格(展示层, 不改算法; 数据=共享单一数据源 common.js window._AI_POSCAP_RATING, §22 与首页 app.js 一致, 勿单改数值)
+  // 口径=AI宏默认3元(r7 5月强化+3非五月R7/exclAuxCross 辅关注×3/5月交叉/greedy15)+A模式(固定10天)+每笔1万+费率etf_def+全周期, 与 AI宏 hoverpop 3元 口径一致
+  const _pcRating = window._AI_POSCAP_RATING || {
     1: { name: "最激进", ret: "77.36%", dd: "13.50%", ra: "5.73", n: "1,184", reason: "收益率最高但回撤最大、样本最少" },
     2: { name: "次稳健", ret: "66.22%", dd: "12.09%", ra: "5.48", n: "1,889", reason: "收益率回撤居中" },
     3: { name: "最稳健", ret: "68.40%", dd: "8.67%", ra: "7.89", n: "2,403", reason: "收益率第二高+回撤第二优,甜点区(主推)" },
     4: { name: "最保守", ret: "65.13%", dd: "7.24%", ra: "9.00", n: "2,794", reason: "回撤最小" }
   };
+  // 2026-08-13 调序+OFF: 对齐首页「AI仓位建议 K:」布局 —— 精简标题(技术别名/口径全进 data-tip) + K 按钮组加 OFF(写 tds_poscap {on:false} 退化普通列表, 再点某 K 档恢复, §22 与首页/交易页共享键联动)
   const _pcKbtns = [3, 1, 2, 4].map((k) => {
     const r = _pcRating[k];
-    return `<button type="button" class="lab-sigkelly-kbtn${k === _pcK ? " active" : ""}${k === 3 ? " lab-sigkelly-kbtn-main" : ""}" data-k="${k}" data-no-pop=""><span class="lab-sigkelly-kbtn-k">${k}</span><span class="lab-sigkelly-kbtn-r">${r.name}${k === 3 ? "★主推" : ""}</span></button>`;
+    return `<button type="button" class="lab-sigkelly-kbtn${(_filters.positionCap && k === _pcK) ? " active" : ""}${k === 3 ? " lab-sigkelly-kbtn-main" : ""}" data-k="${k}" data-no-pop=""><span class="lab-sigkelly-kbtn-k">${k}</span><span class="lab-sigkelly-kbtn-r">${r.name}${k === 3 ? "★主推" : ""}</span></button>`;
   }).join("");
-  const _pcRatingRows = [3, 1, 2, 4].map((k) => {
-    const r = _pcRating[k];
-    return `<tr${k === 3 ? ' class="lab-sigkelly-posrate-hl"' : ""}><td><b>K=${k}</b> ${r.name}${k === 3 ? " ★主推" : ""}</td><td>${r.ret}</td><td>${r.dd}</td><td>${r.ra}</td><td>${r.n}</td><td>${r.reason}</td></tr>`;
-  }).join("");
-  const _pcRatingPop =
-    `<span class="lab-sigkelly-posrate-pop-wrap">` +
-      `<div class="lab-sigkelly-posrate-pop">` +
-        `<div class="lab-sigkelly-posrate-pop-title">AI仓位建议 · K 档位评级（评级依据=下方回撤矩阵）</div>` +
-        `<table class="lab-sigkelly-posrate-table"><thead><tr><th>档位</th><th>收益率</th><th>峰值资金回撤</th><th>风险调整<br>(收益/回撤)</th><th>样本</th><th>评级理由</th></tr></thead><tbody>${_pcRatingRows}</tbody></table>` +
-        `<div class="lab-sigkelly-posrate-pop-note">⚠ 口径：AI降亏过滤默认=核心3键(r7 5月强化+3非五月R7 / exclAuxCross 辅关注×3/5月交叉 / Greedy-15) + A模式(固定10天) + 每笔1万 + 费率etf_def + 全周期；与 AI降亏过滤 提示口径一致，与下方「历史回测数据」G模式口径不同，勿混用数值</div>` +
-      `</div>` +
-    `</span>`;
+  // OFF 按钮(2026-08-13, 复用首页同款交互): data-k="off" 由下方 K 按钮绑定识别为关(写 tds_poscap {on:false}), 关闭后该区退化普通列表, 再点某 K 档恢复
+  const _pcOffBtn = `<button type="button" class="lab-sigkelly-kbtn lab-sigkelly-kbtn-off${_filters.positionCap ? "" : " active"}" data-k="off" data-no-pop=""><span class="lab-sigkelly-kbtn-k">关</span><span class="lab-sigkelly-kbtn-r">off</span></button>`;
+  const _pcRatingPop = (window._aiPoscapRatingPopHtml ? window._aiPoscapRatingPopHtml() : "");
   const positionCapHTML =
-    `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap"><span class="lab-sigkelly-toggle-tier">AI仓位建议(技术别名:仓位控制过滤·同日只买最优K个·资金利用率)</span>` +
-    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启): AI仓位建议(技术别名:仓位控制过滤)=同日只买最优K个信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型buy_backup&gt;buy&gt;buy_aux&gt;buy_special→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。每笔固定1万口径回测(G模式): 关=买全部信号 收益率32.27%/最大持仓1,218万(资金占用高); K=1 收益率48.58%最高+持仓降至162万(资金占用最小)但净利仅+78.7万(砍最狠较基线-80%); K=2 收益率40.41%+净利+119.2万+持仓295万; K=3(默认) 收益率38.96%+净利+156.6万+持仓402万(收益率/净利双优·最稳健甜点, 实操容错高); K≥4 收益率趋近买全部、净利随持仓回升。⚠fixed口径下K档是收益率↑vs净利↓的权衡(砍量), 非资金池口径的净利反升; K=1=激进资金效率, K=3=最稳健主推。与降亏同开仅推荐默认组合(AI降亏过滤: excludeSpecialBear/janMidRating/janMidSpecial/n2NovSpecialIndustry/r7MayReinforced/excludeAuxCross/greedy15,fixed+K=3下边际≈0无害); ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开; 勿再叠加 greedy7/10 等其他广谱(greedy15 已在 AI降亏过滤 默认内); B模式(3%止盈)仓位控制下转负建议关。范围扩展: 交易页整个信号列表(近15交易日)按同一排序展示 AI建议(AI建议买入/当日已满)。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> AI仓位建议(每日只买最优K个·技术别名:仓位控制过滤) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-    `<span class="lab-sigkelly-kbtns lab-sigkelly-posrate" tabindex="0"><span class="lab-sigkelly-posrate-k">K:</span>${_pcKbtns}${_pcRatingPop}</span>` +
+    `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap"><span class="lab-sigkelly-toggle-tier">AI仓位建议</span>` +
+    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启): AI仓位建议(技术别名:仓位控制过滤)=同日只买最优K个信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型buy_backup&gt;buy&gt;buy_aux&gt;buy_special→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。每笔固定1万口径回测(G模式): 关=买全部信号 收益率32.27%/最大持仓1,218万(资金占用高); K=1 收益率48.58%最高+持仓降至162万(资金占用最小)但净利仅+78.7万(砍最狠较基线-80%); K=2 收益率40.41%+净利+119.2万+持仓295万; K=3(默认) 收益率38.96%+净利+156.6万+持仓402万(收益率/净利双优·最稳健甜点, 实操容错高); K≥4 收益率趋近买全部、净利随持仓回升。⚠fixed口径下K档是收益率↑vs净利↓的权衡(砍量), 非资金池口径的净利反升; K=1=激进资金效率, K=3=最稳健主推。OFF按钮(关)=写 tds_poscap {on:false} 关闭AI仓位建议、该区退化普通列表(不再显示「AI建议N」「当日已满」), 再点某 K 档恢复 {on:true,k}(与首页/交易页共享键联动)。与降亏同开仅推荐默认组合(AI降亏过滤: excludeSpecialBear/janMidRating/janMidSpecial/n2NovSpecialIndustry/r7MayReinforced/excludeAuxCross/greedy15,fixed+K=3下边际≈0无害); ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开; 勿再叠加 greedy7/10 等其他广谱(greedy15 已在 AI降亏过滤 默认内); B模式(3%止盈)仓位控制下转负建议关。范围扩展: 交易页整个信号列表(近15交易日)按同一排序展示 AI建议(AI建议买入/当日已满)。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> AI仓位建议 K: <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+    `<span class="lab-sigkelly-kbtns lab-sigkelly-posrate" tabindex="0">${_pcKbtns}${_pcOffBtn}${_pcRatingPop}</span>` +
     `</div>`;
   // 历史固化(#4 2026-08-12): 把仓位建议历史回测数据固化展示(参照 _kellyComboAdviceHtml 静态面板模式), 数据来自调研文档按方案固化, 非实时计算
   //   每笔固定1万口径(与上方回测/全信号表同口径,§22 一致性); 排序 key 与回测/交易页一致(跟踪分↓→评级→信号类型→买入日)
@@ -8342,12 +8335,13 @@ function _renderSigKellyBar(bar, data, period) {
     `<span class="lab-sigkelly-fee-label" style="font-weight:600">每笔固定 1 万</span>`;
   const toggleHTML = `<div class="lab-sigkelly-toggle-row">` +
       `<span class="lab-sigkelly-toggle-label">过滤:</span>` +
-      // #39 三级级联UI 第1级: AI宏 总开关(独立行, 可收起展开; 勾选联动 3元 子级, 见 _kellyAiMacroMembers; 2026-08-13 行序: AI宏 置顶, AI仓位建议行在下)
+      // 2026-08-13 调序: AI仓位建议行 移到 AI降亏过滤(总开关)行 上方(对齐用户偏好: 布局=首页式 3124 K 按钮 + OFF + 简短标题在前)
+      positionCapHTML +
+      // #39 三级级联UI 第1级: AI宏 总开关(独立行, 可收起展开; 勾选联动 核心3键 子级, 见 _kellyAiMacroMembers; 2026-08-13 调序后: AI仓位建议行在上, AI宏总开关在下)
       `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-ai">` +
-      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ AI降亏过滤(总开关, 默认开启): = AI仓位建议(K=3 默认=最稳健主推, 可手动切换, 见 K 按钮评级) + 基础4键默认(追关注×熊市/J1 1月中旬+mid评级/J2 1月中旬+追关注/n2 11月+追关注+行业) + 核心3键(r7 5月强化+3非五月R7 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合)。默认=穷举最大化推荐: A模式 K1=77.36%(最激进) / 默认K=3 A=68.40%; K2 A=66.22%; F/G 见 K 档回测。⚠口径差异: 77.36%=K1 A模式, 默认K=3下 A=68.40%; G 净利 127.7→103.1万(以降净利换收益率)。勾选=联动下方 核心3键 子复选框, 取消=关 核心3键; ⚠4组合全开=可选分析非默认推荐(低核心3键 6.33pp, 勿误解为默认)。"><input type="checkbox" class="lab-sigkelly-toggle-aimacro" checked><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> AI降亏过滤(总开关,默认开启) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ AI降亏过滤(总开关, 默认开启): = AI仓位建议(K=3 默认=最稳健主推, 可手动切换, 见 K 按钮评级) + 基础4键默认(追关注×熊市/J1 1月中旬+mid评级/J2 1月中旬+追关注/n2 11月+追关注+行业; ⚠基础4键为独立 toggle, 不受本总开关控制) + 核心3键(r7 5月强化+3非五月R7 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合)。默认=穷举最大化推荐: A模式 K1=77.36%(最激进) / 默认K=3 A=68.40%; K2 A=66.22%; F/G 见 K 档回测。⚠口径差异: 77.36%=K1 A模式, 默认K=3下 A=68.40%; G 净利 127.7→103.1万(以降净利换收益率)。勾选=联动下方 核心3键 子复选框, 取消=关 核心3键; ⚠4组合全开=可选分析非默认推荐(低核心3键 6.33pp, 勿误解为默认)。"><input type="checkbox" class="lab-sigkelly-toggle-aimacro" checked><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> AI降亏过滤(总开关,默认开启) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-btn" style="margin-left:10px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="收起/展开下方 组合降亏预设宏 + 单标志降亏(31个), 默认展开">AI降亏过滤详情收起 ▲</button>` +
       `</div>` +
-      positionCapHTML +
       `<div id="lab-kelly-ai-macro-body" class="lab-sigkelly-ai-macro-body">` +
       `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">组合降亏(可选)</span>` + comboHTML +
       `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-toggle-detail-btn" style="margin-left:10px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="展开/收起下方 24 个非默认独立小降亏toggle(默认收起, 关注细标志时手动展开调试)">细标志(24)展开 ▼</button></div>` +
@@ -8668,24 +8662,42 @@ function _renderSigKellyBar(bar, data, period) {
     _kellyOnFilterChange();
   };
   // positionCap 仓位控制过滤(2026-08-12): 开关 + K档位1-4(共享localStorage供交易页标灰联动)
+  // 2026-08-13 调序+OFF: K按钮组加 OFF(写 tds_poscap {on:false} 退化普通列表, 再点某 K 档恢复), 与首页/交易页共享键联动(§22)
+  // 同步 K/off 按钮高亮(bar 非整建重渲染, 需手动管理; on=true→K 档高亮, on=false→OFF 高亮)
+  function _syncPosCapActive(barEl, on, k) {
+    barEl.querySelectorAll(".lab-sigkelly-kbtn").forEach(function (b) {
+      if (b.dataset.k === "off") b.classList.toggle("active", !on);
+      else b.classList.toggle("active", !!on && parseInt(b.dataset.k, 10) === (k || 3));
+    });
+  }
   var posCapCb = bar.querySelector(".lab-sigkelly-toggle-poscap");
   if (posCapCb) posCapCb.onchange = function () {
     if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
     state.labSigKellyFilters.positionCap = posCapCb.checked;
     _kellySetSharedPosCap(posCapCb.checked, state.labSigKellyFilters.positionCapK || 3);
+    _syncPosCapActive(bar, posCapCb.checked, state.labSigKellyFilters.positionCapK || 3);
     _kellyOnFilterChange();
   };
   bar.querySelectorAll(".lab-sigkelly-kbtn").forEach(function (btn) {
     btn.onclick = function () {
       if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
-      state.labSigKellyFilters.positionCapK = parseInt(btn.dataset.k, 10) || 3;
-      _kellySetSharedPosCap(!!state.labSigKellyFilters.positionCap, state.labSigKellyFilters.positionCapK);
-      bar.querySelectorAll(".lab-sigkelly-kbtn").forEach(function (b) { b.classList.toggle("active", b === btn); });
+      if (btn.dataset.k === "off") {
+        // OFF 按钮(2026-08-13, 复用首页同款交互): 写 tds_poscap {on:false}, 关闭 AI仓位建议 → 该区退化普通列表; 再点某 K 档恢复
+        state.labSigKellyFilters.positionCap = false;
+        _kellySetSharedPosCap(false, 3);
+      } else {
+        state.labSigKellyFilters.positionCapK = parseInt(btn.dataset.k, 10) || 3;
+        state.labSigKellyFilters.positionCap = true;  // 从 OFF 恢复(点 K 档=开启)
+        _kellySetSharedPosCap(true, state.labSigKellyFilters.positionCapK);
+      }
+      var posCapCb2 = bar.querySelector(".lab-sigkelly-toggle-poscap");
+      if (posCapCb2) posCapCb2.checked = !!state.labSigKellyFilters.positionCap;
+      _syncPosCapActive(bar, state.labSigKellyFilters.positionCap, state.labSigKellyFilters.positionCapK || 3);
       _kellyOnFilterChange();
     };
   });
-  // 2026-08-13: K档位评级 hoverpop(评级理由表格, 桌面 hover / 移动端 tap)
-  _bindSigKellyPosRatePop(bar);
+  // 2026-08-13: K档位评级 hoverpop(评级理由表格, 桌面 hover / 移动端 tap; 共享 common.js _bindAiPoscapRatePop, 与首页同款 §22)
+  _bindAiPoscapRatePop(bar);
   // #39 三级级联UI 第1级 AI宏 独立行收起/展开(2026-08-13): 收起/展开 组合降亏 + 单标志降亏 整体详情(默认展开)
   var _aiBtn = bar.querySelector("#lab-kelly-ai-macro-btn");
   var _aiWrap = bar.querySelector("#lab-kelly-ai-macro-body");
@@ -8994,41 +9006,8 @@ function _bindSigKellyGuidePop(host) {
   }
 }
 
-// 绑定 AI仓位建议 K档位评级 hoverpop(桌面 hover / 移动端 tap 切换), 复用 wm pop 定位+关闭逻辑
-function _bindSigKellyPosRatePop(bar) {
-  const isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
-  bar.querySelectorAll(".lab-sigkelly-posrate").forEach((trig) => {
-    const pop = trig.querySelector(".lab-sigkelly-posrate-pop-wrap");
-    if (!pop) return;
-    let openByClick = false;
-    const show = () => { pop.style.display = "block"; _positionSigKellyWmPop(trig, pop); };
-    const hide = () => { pop.style.display = "none"; pop.style.left = ""; };
-    trig.addEventListener("mouseenter", () => { if (!openByClick) show(); });
-    trig.addEventListener("mouseleave", () => { if (!openByClick) hide(); });
-    trig.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (isTouch) {
-        openByClick = pop.style.display !== "block";
-        if (openByClick) show(); else hide();
-      }
-    });
-  });
-  // 移动端: 点别处/滚动关闭所有评级 pop(全局绑一次)
-  if (isTouch && !document._sigKellyPosRateDocBound) {
-    document._sigKellyPosRateDocBound = true;
-    document.addEventListener("click", (e) => {
-      if (e.target.closest && e.target.closest(".lab-sigkelly-posrate")) return;
-      document.querySelectorAll(".lab-sigkelly-posrate-pop-wrap").forEach((p) => {
-        if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; }
-      });
-    }, true);
-    window.addEventListener("scroll", () => {
-      document.querySelectorAll(".lab-sigkelly-posrate-pop-wrap").forEach((p) => {
-        if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; }
-      });
-    }, { passive: true, capture: true });
-  }
-}
+// 绑定 AI仓位建议 K档位评级 hoverpop 已迁移至 common.js _bindAiPoscapRatePop(2026-08-13, 共享单一数据源 §22, 与首页 app.js 同款), 本处不再重复定义
+
 
 // 组内各卖出模式最终盈亏(total_profit)比较水印
 // kind: top1(全>0) / out(全≤0淘汰) / mix(有正有负分化); X=最高tp方案字母

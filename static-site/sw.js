@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260813-a182';  // bump a180->a182(避让并行的a181): 首页chart-card hover 去掉背景色(hover背景与进度条轨道同源--bg-hover导致轨道/虚线看不清),保留上浮/描边/发光; 基底=a180
+const CACHE_VERSION = 'v6-20260813-a183';  // merge 两批 a182 撞号合并升 a183: chart-card hover 去背景色 + 凯利开关行重构(调序/OFF/标题精简+首页K按钮hoverpop,common.js trig click 对 .sig-kbtn/.lab-sigkelly-kbtn 不再 stopPropagation 交委托, 含评级表峰值资金回撤口径注释÷concCap); 基底=数字单位a177
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

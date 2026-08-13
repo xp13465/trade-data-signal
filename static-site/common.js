@@ -472,7 +472,85 @@ function renderPurposeNote(container, text, {variant}={}) {
   return el;
 }
 
+// === AI仓位建议 K 档评级(2026-08-13 共享单一数据源, §22 一致性: app.js 首页 + lab.js 凯利区两处共用同一份数据/HTML/绑定) ===
+// 数据=researcher 从 /tmp/kelly_v2_results_K{1-4}_r1-5.json 溯源定稿只读勿改
+// 口径=AI降亏过滤默认=核心3键(r7 5月强化+3非五月R7 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合)+A模式(固定10天)+每笔1万+费率etf_def+全周期
+// 与 AI宏 hoverpop 3元口径一致, 与「历史回测数据」G模式口径不同, 勿混用数值
+var _AI_POSCAP_RATING = {
+  1: { name: "最激进", ret: "77.36%", dd: "13.50%", ra: "5.73", n: "1,184", reason: "收益率最高但回撤最大、样本最少" },
+  2: { name: "次稳健", ret: "66.22%", dd: "12.09%", ra: "5.48", n: "1,889", reason: "收益率回撤居中" },
+  3: { name: "最稳健", ret: "68.40%", dd: "8.67%", ra: "7.89", n: "2,403", reason: "收益率第二高+回撤第二优,甜点区(主推)" },
+  4: { name: "最保守", ret: "65.13%", dd: "7.24%", ra: "9.00", n: "2,794", reason: "回撤最小" }
+};
+// K 档评级 hoverpop 表格 HTML(3124 排序, K=3 高亮主推; app.js/lab.js 两处共用同一份, 勿单改数值)
+function _aiPoscapRatingPopHtml() {
+  var rows = [3, 1, 2, 4].map(function (k) {
+    var r = _AI_POSCAP_RATING[k];
+    return '<tr' + (k === 3 ? ' class="lab-sigkelly-posrate-hl"' : '') + '><td><b>K=' + k + '</b> ' + r.name + (k === 3 ? ' ★主推' : '') + '</td><td>' + r.ret + '</td><td>' + r.dd + '</td><td>' + r.ra + '</td><td>' + r.n + '</td><td>' + r.reason + '</td></tr>';
+  }).join("");
+  return '<span class="lab-sigkelly-posrate-pop-wrap">' +
+    '<div class="lab-sigkelly-posrate-pop">' +
+      '<div class="lab-sigkelly-posrate-pop-title">AI仓位建议 · K 档位评级（评级依据=下方回撤矩阵）</div>' +
+      '<table class="lab-sigkelly-posrate-table"><thead><tr><th>档位</th><th>收益率</th><th>峰值资金回撤</th><th>风险调整<br>(收益/回撤)</th><th>样本</th><th>评级理由</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '<div class="lab-sigkelly-posrate-pop-note">⚠ 口径：AI降亏过滤默认=核心3键(r7 5月强化+3非五月R7 / exclAuxCross 辅关注×3/5月交叉 / Greedy-15) + A模式(固定10天) + 每笔1万 + 费率etf_def + 全周期；与 AI降亏过滤 提示口径一致，与「历史回测数据」G模式口径不同，勿混用数值。峰值资金回撤=最大回撤金额÷本金(concCap, 峰值同时持仓资金；与回测报告 ddPct=最大回撤÷资金池 口径不同, 数值勿直接对照)</div>' +
+    '</div>' +
+  '</span>';
+}
+// 绑定 AI仓位建议 K 档评级 hoverpop(桌面 hover / 移动端 tap 切换; 自包含定位, 不依赖 lab.js; 与凯利区原 _bindSigKellyPosRatePop 同款逻辑)
+// container: 包含 .lab-sigkelly-posrate(trigger) 的容器(首页 sigCard / 凯利区 bar), 全站两处共用
+function _bindAiPoscapRatePop(container) {
+  if (!container) return;
+  var isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
+  container.querySelectorAll(".lab-sigkelly-posrate").forEach(function (trig) {
+    var pop = trig.querySelector(".lab-sigkelly-posrate-pop-wrap");
+    if (!pop) return;
+    var openByClick = false;
+    var show = function () {
+      pop.style.display = "block";
+      // 定位(同 lab.js _positionSigKellyWmPop): left 相对 trig, 右越界左移但不超左边界
+      var pw = pop.offsetWidth;
+      var tr = trig.getBoundingClientRect();
+      var left = Math.min(0, window.innerWidth - 8 - pw - tr.left);
+      left = Math.max(left, 8 - tr.left);
+      pop.style.left = left + "px";
+    };
+    var hide = function () { pop.style.display = "none"; pop.style.left = ""; };
+    trig.addEventListener("mouseenter", function () { if (!openByClick) show(); });
+    trig.addEventListener("mouseleave", function () { if (!openByClick) hide(); });
+    trig.addEventListener("click", function (e) {
+      // 2026-08-13 fix(reviewer C1): K/off 按钮点击不再被无条件 stopPropagation 拦截——
+      // 首页 .sig-kbtn 是 trigger(.lab-sigkelly-posrate) 的子元素, 事件需冒泡到 sigCard 级委托(_bindSigSwitchRow)才生效;
+      // 凯利区 .lab-sigkelly-kbtn 用直接 btn.onclick(target 先执行), 但为一致与稳妥一并放过。
+      var t = e.target;
+      if (t && t.closest && (t.closest(".sig-kbtn") || t.closest(".lab-sigkelly-kbtn"))) return;
+      e.stopPropagation();
+      if (isTouch) {
+        openByClick = pop.style.display !== "block";
+        if (openByClick) show(); else hide();
+      }
+    });
+  });
+  // 移动端: 点别处/滚动关闭所有评级 pop(全局绑一次)
+  if (isTouch && !document._aiPoscapRateDocBound) {
+    document._aiPoscapRateDocBound = true;
+    document.addEventListener("click", function (e) {
+      if (e.target.closest && e.target.closest(".lab-sigkelly-posrate")) return;
+      document.querySelectorAll(".lab-sigkelly-posrate-pop-wrap").forEach(function (p) {
+        if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; }
+      });
+    }, true);
+    window.addEventListener("scroll", function () {
+      document.querySelectorAll(".lab-sigkelly-posrate-pop-wrap").forEach(function (p) {
+        if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; }
+      });
+    }, { passive: true, capture: true });
+  }
+}
+
 // === 挂到 window,供 lab.js / app.js 跨文件引用 ===
+window._AI_POSCAP_RATING = _AI_POSCAP_RATING;
+window._aiPoscapRatingPopHtml = _aiPoscapRatingPopHtml;
+window._bindAiPoscapRatePop = _bindAiPoscapRatePop;
 window._LAB_CUSTOM_BROAD = _LAB_CUSTOM_BROAD;
 window._LAB_CUSTOM_SW = _LAB_CUSTOM_SW;
 window._LAB_CUSTOM_DIV = _LAB_CUSTOM_DIV;

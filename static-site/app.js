@@ -1742,12 +1742,14 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn) {
   ).join("");
   // off 按钮(2026-08-13): 复用 .sig-kbtn 样式, data-k="off" 由 _bindSigSwitchRow 识别为关(写 tds_poscap {on:false})
   const _offBtn = `<button type="button" class="sig-kbtn sig-kbtn-off${_pcOn ? "" : " active"}" data-k="off" data-no-pop=""><span class="sig-kbtn-k">关</span><span class="sig-kbtn-r">off</span></button>`;
+  // 2026-08-13 hoverpop 升级: K 按钮组复用凯利区评级表格 hoverpop(共享 common.js _aiPoscapRatingPopHtml/_bindAiPoscapRatePop, §22 两处数据一致)
+  const _ratingPop = (window._aiPoscapRatingPopHtml ? window._aiPoscapRatingPopHtml() : "");
   return `<div class="sig-switch-row" data-no-pop="">` +
     `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(总开关, 首页独立): 开启=首页按降亏策略判定(固定7键: 基础4+核心3键全生效), 命中降亏条件的信号灰显+删除线+标注AI降亏, 建议回避; 关闭=首页完全不判降亏, 信号恢复正常样式。独立 localStorage 键 tds_home_fade, 与凯利区互不影响">` +
       `<input type="checkbox" class="sig-switch-ai-cb"${_fadeOn ? " checked" : ""}> AI降亏过滤` +
       `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 开启=首页按降亏策略判定, 固定 7 键成员级(基础4: 追关注×熊市交叉 / J1 1月中旬+mid评级 / J2 1月中旬+追关注 / n2 11月+追关注+行业 + 核心3键: 5月强化+3非五月R7 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致), 命中降亏条件的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); 关闭=首页完全不判降亏、不灰显不删除线不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号。">ⓘ</span>` +
     `</label>` +
-    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap): 同日只买最优K个, 未进入前K=当日已满灰显; 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表, 再点某 K 档恢复">AI仓位建议 K: <span class="sig-kbtns">${_kbtns}${_offBtn}</span></span>` +
+    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap): 同日只买最优K个, 未进入前K=当日已满灰显; 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表, 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span></span>` +
     `</div>`;
 }
 // 绑定首页开关行事件(K 按钮 + AI降亏 checkbox), 改状态后重绘 sigCard; 每次渲染开关行后调用
@@ -1794,6 +1796,8 @@ function _bindSigSwitchRow(sigCard) {
       _showSigToast("当前无命中降亏条件的信号, 列表无变化; 命中降亏的信号将" + (on ? "灰显+删除线+标注AI降亏" : "恢复正常样式"));
     }
   });
+  // 2026-08-13 hoverpop 升级: K 按钮评级表格 pop 绑定(共享 common.js _bindAiPoscapRatePop, §22 与凯利区同款; 初次渲染绑一次, 重绘后由 _rerenderSigCardContent 末尾重绑)
+  _bindAiPoscapRatePop(sigCard);
 }
 
 function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = true) {
@@ -2274,6 +2278,8 @@ function _rerenderSigCardContent(r, snap) {
     if (badge) sigCard.appendChild(badge);
     if (hint) sigCard.appendChild(hint);
   }
+  // 2026-08-13 hoverpop 升级: 开关行(.sig-switch-row)重绘替换后重新绑定 K 按钮评级 pop(旧 trigger 已销毁, 新 trigger 需重新 bind)
+  _bindAiPoscapRatePop(sigCard);
 }
 
 // ts:overview-refreshed hook: collected_at 变化时增量重绘 sigCard(非概览 tab / 无数据 / 同 collected_at 跳过)
