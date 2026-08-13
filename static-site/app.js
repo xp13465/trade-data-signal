@@ -2007,6 +2007,11 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
             posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 当日从存活信号只建议最优${_posCapK}个, 本信号未进入AI建议, 当日已满; 命中AI降亏的信号已被过滤不占位（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">当日已满</sup>`;
           }
         }
+        // 2026-08-13 C1 fix(reviewer): 恢复每 cell 渲染前的三变量初始化声明(重构时误删 → 隐式全局污染, 命中 cell 赋值后污染后方未命中 cell)。
+        // 基线 922578ff1 L2057-2059 同款; 每 cell 渲染前重置, 保证未命中 cell 拼空串而非继承上一命中值或字面 undefined
+        let aiHitCls = "";
+        let aiHitBadge = "";
+        let aiHitAttr = "";
         // 2026-08-13 重构: 首页 AI降亏过滤开关(独立键 tds_home_fade)开启时, 命中降亏(固定7键) → 灰显+删除线+标注(hover 显命中条件)。
         // 开关关闭时 _isAiFadeHit 恒 false, 整块自然跳过(不灰显不删除线不标注, hoverpop 原因行也不渲染);
         // 命中判定用共享谓词 _isAiFadeHit 与 top-K 补位同源
