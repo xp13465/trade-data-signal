@@ -7043,9 +7043,9 @@ function _kellyComputeKelly(winRate, plRatio) {
   return { f_star: Math.round(fStar * 10000) / 10000, half_kelly: Math.round(halfKelly * 100) / 100, kelly_tier: tier };
 }
 
-// 最大同时持仓(复用 _max_concurrent, 扫描线, 同日先买后卖=保守)
+// 最大同时持仓(复用 _max_concurrent, 扫描线)
 // 优化: 按日期分桶(buy/sell计数)而非对2n个事件排序, 只排序出现的日期数(远小于2n), 语义逐位等价
-// (同日期先加buy再减sell=保守, 与原"同日t=0买在t=1卖前"一致; 无sell_date归入SENTINEL最后处理)
+// (同日 FIFO 强平+新买入 场景必须【先减后加】——与仿真内核 _kellyAihlineFifoCap 同序, cap后峰值精确回到 cap 内笔数; 普通模式无同日买卖, 顺序无关, 对 A-F 基线零漂移)
 function _kellyMaxConcurrent(trades) {
   if (!trades.length) return 0;
   var SENTINEL = "99999999", deltas = {}, dates = [];
@@ -7063,9 +7063,9 @@ function _kellyMaxConcurrent(trades) {
   var cur = 0, maxConc = 0;
   for (var i = 0; i < dates.length; i++) {
     var d = deltas[dates[i]];
-    cur += d.b;
+    cur -= d.s;  // 先减当日卖出/强平
+    cur += d.b;  // 再加当日买入
     if (cur > maxConc) maxConc = cur;
-    cur -= d.s;
   }
   return maxConc;
 }
@@ -7588,7 +7588,8 @@ function _kellyPerTradeAmount(t, fIdx, buyAmount, dayKeptCount) {
   if (dayKeptCount && dayKeptCount > 0) return buyAmount / dayKeptCount;
   return buyAmount;
 }
-// 最大同时持仓占用资金(按日期分桶累加买入/卖出金额, 同日先买后卖=保守, 语义与 _kellyMaxConcurrent 一致; 读 trades[i].amount, 每日资金池等分口径每笔已摊薄自动算对 → K档最大持仓恒定)
+// 最大同时持仓占用资金(按日期分桶累加买入/卖出金额; 同日 FIFO 强平+新买入 场景必须【先减后加】——先平旧仓再入新仓, 才与仿真内核 _kellyAihlineFifoCap 同序, cap 后峰值才精确回到 cap(20万); 若先加后减会把同日"待强平+新入"同时计入峰值而超 cap)
+// 注: 全 144 象限×模式普通交易无"同日既买又卖"(仅 GIH FIFO 强平产生), 故改先减后加对 A-F 基线零漂移(等价), 语义与 _kellyMaxConcurrent 一致
 function _kellyMaxConcurrentCapital(trades) {
   if (!trades.length) return 0;
   var SENTINEL = "99999999", deltas = {}, dates = [];
@@ -7604,9 +7605,9 @@ function _kellyMaxConcurrentCapital(trades) {
   var cur = 0, maxC = 0;
   for (var i = 0; i < dates.length; i++) {
     var d = deltas[dates[i]];
-    cur += d.b;
+    cur -= d.s;  // 先减当日卖出/强平
+    cur += d.b;  // 再加当日买入
     if (cur > maxC) maxC = cur;
-    cur -= d.s;
   }
   return Math.round(maxC * 10000) / 10000;
 }
@@ -9253,6 +9254,9 @@ function _sigKellyAfgRealtimeHtml() {
   }
   return (
     `<div class="lab-sigkelly-afg-realtime">` +
+      (state.labSigKellyGihOn
+        ? `<div class="lab-sigkelly-gih-modal-note" title="#49 ai长线仓位管理口径说明">⚠️ “ai长线模式(G/H/I)仓位管理”已开：下方 G 行显示的是<u>未套 20万 FIFO 硬控</u>的原始口径（峰值占用资金 136 万、净利 +64.2 万、收益率 47.2%，本金占用大）；当前卡片 G/H/I 行为已套 20 万硬控后的口径（峰值资金≤20 万，收益/净利见「最后结果」卡，更优）。两者口径不同，请以卡片/对比表为准。</div>`
+        : "") +
       `<div class="lab-sigkelly-advice-li"><b>三玩法各自披露</b>「峰值资金收益率＋最大持仓＋所需最小本金」：峰值资金收益率=总盈亏/峰值同时持仓资金×100（与卡面/最后结果表同口径）；最大持仓=峰值同时持仓笔数/资金；所需最小本金≈峰值同时持仓资金÷20（按 20 倍资金约束折算，实际按自身杠杆/资金安排）。</div>` +
       `<div class="lab-sigkelly-table-scroll"><table class="lab-sigkelly-table lab-sigkelly-afg-table"><thead><tr>` +
         `<th>玩法</th>` +
@@ -9494,7 +9498,8 @@ function _bindSigKellyGuidePop(host) {
 // kind: top1(全>0) / out(全≤0淘汰) / mix(有正有负分化); X=最高tp方案字母
 // 辅助(仅top1/mix态,描述最高方案): 风险橙(高仓/样本少)+优势绿(高胜率/低回撤/高夏普)
 function _sigKellyWatermark(pdata) {
-  const modes = Object.keys(pdata);
+  // 过滤 #49 GIH 伪模式键(mode+"__gihb0/b1/peak"), 只遍历真实模式(A-I), 防伪键污染水印top/均值(§21§22)
+  const modes = Object.keys(pdata).filter(m => m.indexOf("__") < 0);
   const items = modes.map(m => {
     const r = pdata[m];
     if (!r) return null;
@@ -9617,7 +9622,8 @@ function _sigKellyCardComparison(quads, period, feeStats) {
     if (!q) continue;
     const periods = q.periods || {};
     const pdata = (feeStats && feeStats[qk] && feeStats[qk][period]) ? feeStats[qk][period] : (periods[period] || {});
-    const modes = Object.keys(pdata);
+    // 过滤 #49 GIH 伪模式键(mode+"__gihb0/b1/peak"), 防卡级均值/模式数被伪键稀释错乱(§21§22)
+    const modes = Object.keys(pdata).filter(m => m.indexOf("__") < 0);
     // 过滤 n<30 的模式
     const validModes = modes.filter((m) => {
       const r = pdata[m];
@@ -10133,6 +10139,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       `<div class="lab-sigkelly-modal">` +
         `<div class="lab-sigkelly-modal-head">` +
           `<div class="lab-sigkelly-modal-title">📋 交易记录 · ${quadLabel} · ${modeLabel} · ${period}${feeLabel}</div>` +
+          (state.labSigKellyGihOn && _kellyIsGih(modeKey) ? `<div class="lab-sigkelly-gih-modal-note" title="#49 ai长线仓位管理口径说明">⚠️ 本弹窗为<u>未套 ai长线仓位管理(20万 FIFO 硬控)</u>的原始交易；当前卡片 G/H/I 行为已套 20 万硬控后的口径（峰持仓资金≤20万），此处净盈亏/峰值与卡片可能不一致。</div>` : "") +
           `<button type="button" class="lab-sigkelly-modal-close" title="关闭">✕</button>` +
         `</div>` +
         `<div class="lab-sigkelly-modal-stats">` +
