@@ -532,10 +532,20 @@ def _ai_macro_track_score_of(sig: dict):
     return best
 
 
+# 仅 A股类才按 hs300 MA60 大盘择时判断熊市(与凯利脚本 A_STOCK_MARKETS={"a","concept","industry"} 同源);
+# 非 A 类(hk/global/hk_industry)凯利区 market_state 恒 True 不过滤, 此处须同守卫防误标(review FAIL1)。
+_AI_MACRO_A_STOCK_MARKETS = {"mkt_a", "mkt_concept", "mkt_industry"}
+# 凯利回测仅对买交易应用降亏过滤(与 signal_kelly_backtest.py BUY_SIGNALS=("buy","buy_aux","buy_special","buy_backup") 同源);
+# overview 信号级另含 buy_special_filtered(追买h5过滤预览, 归 buy_special, 与 _ai_macro_rating_of 同口径)一并计入。
+# 非买信号(band_hold/sell/sell_stop_loss)凯利区不存在(只采买信号), 一律不判降亏(review MED3)。
+_AI_MACRO_BUY_SIGNALS = {"buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup"}
+
+
 def _ai_macro_hit_filters(sig: dict, ctx: dict) -> list:
     """信号级 AI宏(基础4+3元 7 toggle)命中条件名列表(与凯利区 AI宏默认集同源)。
     ctx 需含: rating_of(sig)->str / market_of(iid)->str / track_score_of(sig)->float|None /
-    is_bull(date)->bool。price_bin 依赖子条件降级不参与命中(见模块级注释)。"""
+    is_bull(date)->bool。price_bin 依赖子条件降级不参与命中(见模块级注释)。
+    仅买信号守卫(MED3): 非买信号直接返空(与凯利区"只对买交易过滤"同源)。"""
     _f = []
     _d = str(sig.get("date") or "")
     _mm = _d[4:6] if len(_d) >= 8 else ""
@@ -548,11 +558,15 @@ def _ai_macro_hit_filters(sig: dict, ctx: dict) -> list:
     _bull = ctx["is_bull"](_d)
     _q = _ai_macro_quarter(_mm)
 
+    # ⚠仅买信号守卫(与凯利区"只对买交易过滤"同源): 非买(band_hold/sell/sell_stop_loss)一律不判降亏
+    if _sig not in _AI_MACRO_BUY_SIGNALS:
+        return []
+
     # 1 n2: buy_special + 11月 + 行业指数
     if _sig == "buy_special" and _mm == "11" and _mkt == "mkt_industry":
         _f.append("n2NovSpecialIndustry")
-    # 2 excludeSpecialBear: buy_special + MA60 熊市
-    if _sig == "buy_special" and not _bull:
+    # 2 excludeSpecialBear: buy_special + A股类 + MA60 熊市(大盘择时仅对A股类, 非A不过滤, 与凯利同源)
+    if _sig == "buy_special" and _mkt in _AI_MACRO_A_STOCK_MARKETS and not _bull:
         _f.append("excludeSpecialBear")
     # 3 janMidRating: 1月中旬(11-20日) + mid 评级
     if _mm == "01" and 11 <= _dd <= 20 and _rating == "mid":

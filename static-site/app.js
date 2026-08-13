@@ -1720,9 +1720,9 @@ function _sigSwitchHtml(_aiOn, _k) {
     `<button type="button" class="sig-kbtn${kk === _k ? " active" : ""}${kk === 3 ? " sig-kbtn-main" : ""}" data-k="${kk}" data-no-pop=""><span class="sig-kbtn-k">${kk}</span><span class="sig-kbtn-r">${_kRating[kk]}${kk === 3 ? "★" : ""}</span></button>`
   ).join("");
   return `<div class="sig-switch-row" data-no-pop="">` +
-    `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤总开关(与凯利区 AI宏 共享): 开启=命中降亏条件(追关注×熊市交叉/J1/J2/n2/r7/辅关注×3/5月/Greedy-15组合)的信号灰显+删除线+标注AI降亏, 建议回避; 关闭=全部正常显示">` +
+    `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(3元部分, 与凯利区 AI宏 共享): 勾选=3元(r7/辅关注×3/5月/Greedy-15)降亏开启; 基础4键(追关注×熊市交叉/J1/J2/n2)为凯利区独立toggle默认开不受此开关控制; 命中当前实际开启降亏条件的信号灰显+删除线+标注AI降亏, 建议回避">` +
       `<input type="checkbox" class="sig-switch-ai-cb"${_aiOn ? " checked" : ""}> AI降亏过滤` +
-      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤总开关(与凯利区 AI宏 共享, localStorage tds_kelly_filters): 开启=命中降亏条件(追关注×熊市交叉 / J1 1月中旬+mid评级 / J2 1月中旬+追关注 / n2 11月+追关注+行业 / r7 5月强化+3非五月R7 / 辅关注×3/5月交叉 / Greedy-15组合)的信号灰显+删除线+标注AI降亏, 建议回避(对应凯利区 7 个降亏 toggle 实际开启项); 关闭=全部正常显示。凯利区改动实时联动。">ⓘ</span>` +
+      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(与凯利区 AI宏 共享, localStorage tds_kelly_filters): 勾选=3元(r7 5月强化+3非五月R7 / 辅关注×3/5月交叉 / Greedy-15组合)降亏过滤开启; 基础4键(追关注×熊市交叉 / J1 1月中旬+mid评级 / J2 1月中旬+追关注 / n2 11月+追关注+行业)是凯利区独立toggle默认开启, 不受本开关控制。命中当前实际开启降亏条件的信号灰显+删除线+标注AI降亏, 建议回避(对应凯利区 7 个降亏 toggle 实际开启项); 凯利区改动实时联动。">ⓘ</span>` +
     `</label>` +
     `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap): 同日只买最优K个, 未进入前K=当日已满灰显">AI仓位建议 K: <span class="sig-kbtns">${_kbtns}</span></span>` +
     `</div>`;
@@ -1901,8 +1901,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       }
     } catch (e) {}
   }
-  // 2026-08-13 AI 降亏过滤(首页 AI 开关): 读 tds_kelly_filters(凯利区写, §22 一致性) → _aiMacroOn 总开关 + _aiOnMembers 实际开启成员
-  // 不存在该 key=首次访问按 AI宏 默认全开(与凯利区默认一致); 灰显条件=总开关开 + 后端 ai_macro.hit + 命中条件 ∈ 实际开启成员
+  // 2026-08-13 AI 降亏过滤(首页 AI 开关): 读 tds_kelly_filters(凯利区写, §22 一致性) → _aiMacroOn 3元总开关 + _aiOnMembers 实际开启成员
+  // 不存在该 key=首次访问按 AI宏 默认全开(与凯利区默认一致); 灰显条件=后端 ai_macro.hit + 命中条件 ∈ 实际开启成员(成员级, 不依赖 3元总开关)
   let _aiMacroOn = true;
   const _aiOnMembers = {};
   for (const _amk in _AI_MACRO_FILTER_NAMES) _aiOnMembers[_amk] = true;
@@ -1961,15 +1961,16 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
             posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 当日只建议最优${_posCapK}个, 本信号未进入AI建议, 当日已满（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">当日已满</sup>`;
           }
         }
-        // 2026-08-13 AI 降亏过滤(首页 AI 开关 + 后端 ai_macro): 总开关开 + 命中降亏条件 + 该条件在凯利区实际开启 → 灰显+删除线+标注(hover 显命中条件, §22 与凯利区一致)
+        // 2026-08-13 AI 降亏过滤(首页 AI 开关 + 后端 ai_macro): 命中降亏条件 + 该条件在凯利区实际开启 → 灰显+删除线+标注(hover 显命中条件, §22 与凯利区一致)
+        // 2026-08-13 FAIL2 fix: 去 _aiMacroOn(3元总开关)门控——基础4键是凯利区独立toggle默认开, 关3元总开关时基础4命中仍须灰显(与凯利区过滤一致), 只按成员级实际开启过滤
         let aiHitCls = "";
         let aiHitBadge = "";
-        if (_aiMacroOn && it.ai_macro && it.ai_macro.hit && Array.isArray(it.ai_macro.filters)) {
+        if (it.ai_macro && it.ai_macro.hit && Array.isArray(it.ai_macro.filters)) {
           const _hitOn = it.ai_macro.filters.filter((fk) => _aiOnMembers[fk]);
           if (_hitOn.length) {
             aiHitCls = " sig-ai-hit";
             const _hitNames = _hitOn.map((fk) => _AI_MACRO_FILTER_NAMES[fk] || fk).join(" / ");
-            aiHitBadge = `<sup class="sig-ai-hit-badge" data-tip="AI降亏过滤(降亏过滤总开关·AI宏)开启: 本信号命中降亏条件【${_hitNames}】, 按凯利区降亏组合建议回避(与凯利区联动, 改开关/凯利区toggle实时生效)">AI降亏</sup>`;
+            aiHitBadge = `<sup class="sig-ai-hit-badge" data-tip="AI降亏过滤: 本信号命中降亏条件【${_hitNames}】, 按凯利区降亏组合实际开启项建议回避(与凯利区联动, 改开关/凯利区toggle实时生效)">AI降亏</sup>`;
           }
         }
         // 评分尾缀：技术参考点综合把握度（10d 窗口 score）

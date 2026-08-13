@@ -7271,7 +7271,7 @@ function _kellyDefaultFilters() {
     // 2026-08-12 用户拍板并入默认推荐("只要有增幅就做"): 默认推荐(positionCap K2+A45+A5+追关注×熊市)+1月调整 G模式all +9172元/+0.43pp 全9模式正增量+4.8万; ⚠J1 maxSh0.62/J2 0.79 带监控(每年1月后检查)
     // 2026-08-12 当日再拍板"替换默认(AI宏=新默认)": A45/A5 移出默认(结构内冗余)+n2 并入, 形成 AI宏(见上方注释)
     janMidRating: true, janMidSpecial: true,
-    // positionCap 仓位控制过滤(2026-08-12): 同日只买最优K个(基笔级,模式之前统一生效), K可配置1-4默认2; 默认开启
+    // positionCap 仓位控制过滤(2026-08-12): 同日只买最优K个(基笔级,模式之前统一生效), K可配置1-4默认3; 默认开启
     positionCap: true, positionCapK: 3
   };
 }
