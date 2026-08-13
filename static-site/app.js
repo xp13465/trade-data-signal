@@ -583,7 +583,7 @@ function _backupChipThresholdsFor(id) {
   var override = _BACKUP_CHIP_MARKET_OVERRIDE[m] || {};
   return Object.assign({}, _BACKUP_CHIP_THRESHOLDS, override);
 }
-// 2026-07-25 walk-forward 优化黑名单（docs/walk-forward-action-plan.md 情况B+D）+
+// 2026-07-25 walk-forward 优化黑名单（docs/archive/walk-forward-action-plan.md 情况B+D）+
 // 2026-07-25 方向D 黑名单分级：拆为「WF 确凿失效」(维持屏蔽) + 「小样本」(不屏蔽,加标注走三档)两级。
 //
 // _OVERFIT_FAILED_IDS（情况B WF 确凿失效，维持屏蔽）：信号经全样本调参后测试段反向退化

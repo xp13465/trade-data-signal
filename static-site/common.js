@@ -473,7 +473,7 @@ function renderPurposeNote(container, text, {variant}={}) {
 }
 
 // === AI仓位建议 K 档评级(2026-08-13 共享单一数据源, §22 一致性: app.js 首页 + lab.js 凯利区两处共用同一份数据/HTML/绑定) ===
-// 2026-08-14 #48: 静态快照由 fixed(每笔1万) 重算为每日池口径(基准=每日池 AI宏7键 A模式, docs/kelly-dailypool-exhaustive-rerun.md §2/§3.3; n=保留基笔数与金额口径无关不变; ra=ret/dd 同口径)
+// 2026-08-14 #48: 静态快照由 fixed(每笔1万) 重算为每日池口径(基准=每日池 AI宏7键 A模式, docs/kelly/position/kelly-dailypool-exhaustive-rerun.md §2/§3.3; n=保留基笔数与金额口径无关不变; ra=ret/dd 同口径)
 // 口径=AI降亏过滤默认=核心3键(r7 5月强化+3稳定非5月 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合)+A模式(固定10天)+每日资金池等分+top-K+费率etf_def+全周期
 // 与 AI宏 hoverpop 3元口径一致, 与「历史回测数据」G模式口径不同, 勿混用数值
 var _AI_POSCAP_RATING = {

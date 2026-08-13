@@ -2,6 +2,7 @@
 
 > **用途**:团队共享"未开发功能地图"。任何开发任务开工前对照本表,确认方案已出的待做项,避免多子 agent 只顾自己的活、漏做已落档方案。
 > **生成**:2026-08-12 盘点 agent 产出。来源:docs/ 81 份 md + TASKS.md 待办 + 代码层验证(grep 结论均带证据,非臆断)。
+> **路径整理(2026-08-14)**:docs/ 已按主题拆分,凯利文档移入 `docs/kelly/{mining,combo,position,backtest-ai,toggle,analysis}/`、walk-forward/claude-md-reorganize 系列移入 `docs/archive/`。本表内 kelly-* / walk-forward-* 引用路径均已同步为新路径。23:45 cron 定期重建**(`.claude/scheduled_tasks.json` L49 prompt 用 git log 扫新增文件)**会自然用新路径,无需额外改。
 > **最近更新**:2026-08-14(每日 23:45 cron 同步:凯利每日池口径穷举重跑 + 20倍本金硬控调研落档,新增 #48-50,更新 #16/#47)。2026-08-13 用户拍板:#14 更名明确位置→远期待办、#16 排队中(依赖K档口径)、#18 关闭移排除清单、#20→远期待办、#21 并入 #17 v5→远期待办。**此后每日 23:45 cron 定期同步**(2026-08-12 用户定:快照会慢慢过时达不到索引效果,需定期刷新),机制见 docs/main-governance.md §23.4 索引维护。
 > **口径**:只列"方案已出/结论已定/计划已写,但尚未开发完成"的功能;已上线/已在跑项见文末【已排除清单】。
 > **状态标记**:未派 / 排队中 / 部分完成 / 需确认(不确定是否已开发,待主控核)
@@ -35,14 +36,14 @@
 
 | # | 功能 | 出处 | 方案摘要 | 依赖/前置 | 状态 |
 |---|---|---|---|---|---|
-| 14 | **lab_sim 费率客调(策略实验室配对交易;注意 trade_sim 单信号弹窗已上线)** | docs/kelly-fee-adjust-sim-eval.md §10.1 | 凯利费率客调已实现;**trade_sim(单信号回测详情弹窗,app.js _tradeSimOpenModal)已上线**(app.js L21530 _SIM_FEE_PRESETS 6档5参数);**lab_sim(策略实验室配对交易,lab.js 卡片)未做**——lab.js 无费率客调控件,只有静态成本对比块 | 复用凯利费率客调模式 | **远期待办**(2026-08-13 用户定:低优先级) |
-| 15 | **凯利回测「次日开盘」口径(前端展示/默认口径)** | docs/kelly-nextday-open-backtest.md + TASKS.md L55 | 建议①后续回测/前端展示默认改「次日开盘」口径(收盘固化、次日开盘买入,数据 100% 覆盖)②操作建议:开盘挂 -1% 限价单 | 无 | **未派**(lab.js 无次日开盘口径,仍收盘口径) |
-| 16 | **凯利组合 Walk-forward 滚动验证(样本外)** | docs/kelly-mining-literature.md(未落地) + kelly-combo-signal-research.md §4 + kelly-loss-mining-v4.md §8 #2 + kelly-backtest-comprehensive-review L525 | 用 t-1 年选 toggle、t 年验证,模拟真实前向;建议作为组合上线前必选验证(2011-2020 选、2021-2026 验) | **K 档金额口径已确认(2026-08-14 每日池 top-K 已恢复 c951dafa8,穷举重跑已出 docs/kelly-dailypool-exhaustive-rerun.md,新 toggle 边际已有效)** | **排队中**(2026-08-13 用户定实施;口径已确认,可派) |
-| 17 | **凯利 v5 候选方法 4 项** | docs/kelly-mining-literature.md 行72-76 | Decision set 互斥规则集 / PSM 倾向得分匹配 / 漂移检测(drift)/ NSGA-II 多目标优化。(2026-08-13 并入原 #21 高胜率子群深化:需先扩 ETF 属性维度/样本) | 无 | **未实施**(v5 可选方向) |
-| 19 | **港股/全球加 MA60 择时按需扩展** | docs/kelly-timing-analysis.md 尾部(L420) | A股 MA60 择时已上线 toggle;港股/全球用 HSI/SPX MA60,样本量小收益有限,按需扩展 | 无 | **未实施**(建议,可选) |
-| 20 | **凯利交叉分组卡片可切换二级筛选** | docs/kelly-analysis.md L223 | 信号类型×大类交叉卡片数爆炸,建议做成可切换二级筛选而非平铺。交叉分组样本量易<30,实施前先确认象限样本>100 | 无 | **远期待办**(2026-08-13 用户定:交叉分组样本坍塌+置顶已缓解爆炸,ROI 低暂缓) |
-| 21 | **高胜率子群深化研究(并入 #17 v5 方向)** | docs/kelly-backtest-deepseek-review.md L89 | 两象限表现优异但样本小,下一步分析行业/市值/技术形态特征,扩充样本或找适用场景 | 依赖新数据(行业/市值/技术形态字段,signal_kelly_trades.json 无),样本小(n=85) | **远期待办**(2026-08-13 用户定:并入 #17 v5,需先接入 ETF 属性维度/扩充样本再做) |
-| 22 | **凯利过滤层 walk-forward(调阈值验证持续)** | docs/walk-forward-report.md L183 | 过滤层多轮迭代调参有过拟合风险,建议未来对过滤层做 walk-forward | 无 | **未实施**(研究项) |
+| 14 | **lab_sim 费率客调(策略实验室配对交易;注意 trade_sim 单信号弹窗已上线)** | docs/kelly/analysis/kelly-fee-adjust-sim-eval.md §10.1 | 凯利费率客调已实现;**trade_sim(单信号回测详情弹窗,app.js _tradeSimOpenModal)已上线**(app.js L21530 _SIM_FEE_PRESETS 6档5参数);**lab_sim(策略实验室配对交易,lab.js 卡片)未做**——lab.js 无费率客调控件,只有静态成本对比块 | 复用凯利费率客调模式 | **远期待办**(2026-08-13 用户定:低优先级) |
+| 15 | **凯利回测「次日开盘」口径(前端展示/默认口径)** | docs/kelly/position/kelly-nextday-open-backtest.md + TASKS.md L55 | 建议①后续回测/前端展示默认改「次日开盘」口径(收盘固化、次日开盘买入,数据 100% 覆盖)②操作建议:开盘挂 -1% 限价单 | 无 | **未派**(lab.js 无次日开盘口径,仍收盘口径) |
+| 16 | **凯利组合 Walk-forward 滚动验证(样本外)** | docs/kelly/mining/kelly-mining-literature.md(未落地) + kelly-combo-signal-research.md §4 + kelly-loss-mining-v4.md §8 #2 + kelly-backtest-comprehensive-review L525 | 用 t-1 年选 toggle、t 年验证,模拟真实前向;建议作为组合上线前必选验证(2011-2020 选、2021-2026 验) | **K 档金额口径已确认(2026-08-14 每日池 top-K 已恢复 c951dafa8,穷举重跑已出 docs/kelly/position/kelly-dailypool-exhaustive-rerun.md,新 toggle 边际已有效)** | **排队中**(2026-08-13 用户定实施;口径已确认,可派) |
+| 17 | **凯利 v5 候选方法 4 项** | docs/kelly/mining/kelly-mining-literature.md 行72-76 | Decision set 互斥规则集 / PSM 倾向得分匹配 / 漂移检测(drift)/ NSGA-II 多目标优化。(2026-08-13 并入原 #21 高胜率子群深化:需先扩 ETF 属性维度/样本) | 无 | **未实施**(v5 可选方向) |
+| 19 | **港股/全球加 MA60 择时按需扩展** | docs/kelly/analysis/kelly-timing-analysis.md 尾部(L420) | A股 MA60 择时已上线 toggle;港股/全球用 HSI/SPX MA60,样本量小收益有限,按需扩展 | 无 | **未实施**(建议,可选) |
+| 20 | **凯利交叉分组卡片可切换二级筛选** | docs/kelly/analysis/kelly-analysis.md L223 | 信号类型×大类交叉卡片数爆炸,建议做成可切换二级筛选而非平铺。交叉分组样本量易<30,实施前先确认象限样本>100 | 无 | **远期待办**(2026-08-13 用户定:交叉分组样本坍塌+置顶已缓解爆炸,ROI 低暂缓) |
+| 21 | **高胜率子群深化研究(并入 #17 v5 方向)** | docs/kelly/backtest-ai/kelly-backtest-deepseek-review.md L89 | 两象限表现优异但样本小,下一步分析行业/市值/技术形态特征,扩充样本或找适用场景 | 依赖新数据(行业/市值/技术形态字段,signal_kelly_trades.json 无),样本小(n=85) | **远期待办**(2026-08-13 用户定:并入 #17 v5,需先接入 ETF 属性维度/扩充样本再做) |
+| 22 | **凯利过滤层 walk-forward(调阈值验证持续)** | docs/archive/walk-forward-report.md L183 | 过滤层多轮迭代调参有过拟合风险,建议未来对过滤层做 walk-forward | 无 | **未实施**(研究项) |
 
 ## 四、飞书通知
 
@@ -92,10 +93,10 @@
 | 44 | **分时图 3 条低危改进** | 2026-08-12 分时乱序修复遗留 | ①段尾 p3 跨空泄漏钳制 ②legend 超宽单行 ③5 字行业名 legY 兜底 | 无 | **已完成**(2026-08-12 上线 537109553) |
 | 45 | **凯利「4组合全开」建议文案修正** | 2026-08-12 用户质疑默认勾选不一致 | 组合使用建议标题易误解为默认推荐,加"可选分析非默认推荐"说明 | 并入 #39(AI宏实施时一起改) | **未完成**(lab.js:8633 标题仍"4组合全开",无"可选分析非默认推荐"字样;随 #39 一起做) |
 | 46 | **降亏面板①口径标注 + 真实对照行** | 2026-08-13 用户提出(任务列表 #28-50 重复记录) | 降亏面板补「不含仓位控制/峰值持仓991万」口径说明 + 真实对照行(默认 posK2 上全开=G降23.9万),另补 1 处「降亏全开对比行」 | 数据/逻辑需求 | **待处理**(优先级中,等 P0 bug 修复后派) |
-| 47 | **K档位评级 A 模式数值数据溯源落档 + 每日池重算** | reviewer MINOR-2(2026-08-13) + docs/kelly-dailypool-exhaustive-rerun.md | A 模式评级数值(71.03/61.16/64.00/61.73)仅硬编码于 lab.js _pcRating,仓库内无回测产物支撑;每日池穷举重跑已产出新 A 模式数(K1=86.60% 等),旧 _pcRating 是 fixed 口径需重算 | 每日池报告已落档 | **部分完成**(穷举数据已落档;页面 _pcRating 重算并入 #48) |
-| 48 | **页面 `_kellyFadeFlagGroups` 31键 ratio 每日池口径重算 + _pcRating 重算**(§22 一致性) | docs/kelly-dailypool-exhaustive-rerun.md §0.7/§7.2(2026-08-14) | 页面 31 个 toggle 展示 ratio(每笔1万口径)在每日池下排序剧烈变化(v4b 3→1、n2 10→2、specBear 27→6、v4f 1→31 等);lab.js _kellyFadeFlagGroups 旧 ratio 过时,需按每日池口径(基准=每日池空filter K1,减亏%/损盈%)重算并更新排序;tip 注明口径切换;同步 _pcRating 评级数值重算 + 首页 _AI_POSCAP_RATING | 每日池报告已落档 | **未派**(需 implementer,§22 一致性) |
-| 49 | **G/H/I 长持模式持仓≤20倍本金(20万)硬控手段** | docs/kelly-position-cap-20x-limit.md(2026-08-14) | 用户 2026-08-14 新需求:G/H/I 峰值持仓 45-148 倍单次本金不可操作。最优=手段B(FIFO 强制平仓,cap20万):G 收益率反升到 95.7%(b0)~200%(b1)、I 74.5%~153%、H 应放弃;手段A(砍当日)诚实备选、手段D(截断)全负失败 | 真实平仓盈亏需中间价格路径(待验证);H 后期研究为什么差(本次按用户定性标注慎用,未做 H 优化) | **已实施**(2026-08-14 上线:lab.js 凯利回测区新增「ai长线模式(G/H/I)仓位管理」开关=长线族群总入口+模式→策略映射(fifo20w),默认关,ON 套持仓≤20万+FIFO硬控,G/H/I 卡片套乐观b1+AI长线·开角标,新增G/H/I对比表(关/开b0/开b1,报告§7.2 K1口径),前端FIFO内核与报告逐位对齐§21;purpose-notes/README同步;sw.js a197) |
-| 50 | **每日池口径默认 K 档/toggle 决策落档** | docs/kelly-dailypool-exhaustive-rerun.md §0.2-0.3(2026-08-14) | 默认 toggle 用户定维持 AI宏7键;最优 K=K1 数据最优/K2 推荐默认;G 模式(长持)可去 greedy15/excludeAuxCross/r7 加 a45(51.66%>47.22%),A/F 模式维持现状 | 决策已定(用户 2026-08-14) | **已定**(待落档 README/前端 tooltip;实施并入 #48) |
+| 47 | **K档位评级 A 模式数值数据溯源落档 + 每日池重算** | reviewer MINOR-2(2026-08-13) + docs/kelly/position/kelly-dailypool-exhaustive-rerun.md | A 模式评级数值(71.03/61.16/64.00/61.73)仅硬编码于 lab.js _pcRating,仓库内无回测产物支撑;每日池穷举重跑已产出新 A 模式数(K1=86.60% 等),旧 _pcRating 是 fixed 口径需重算 | 每日池报告已落档 | **部分完成**(穷举数据已落档;页面 _pcRating 重算并入 #48) |
+| 48 | **页面 `_kellyFadeFlagGroups` 31键 ratio 每日池口径重算 + _pcRating 重算**(§22 一致性) | docs/kelly/position/kelly-dailypool-exhaustive-rerun.md §0.7/§7.2(2026-08-14) | 页面 31 个 toggle 展示 ratio(每笔1万口径)在每日池下排序剧烈变化(v4b 3→1、n2 10→2、specBear 27→6、v4f 1→31 等);lab.js _kellyFadeFlagGroups 旧 ratio 过时,需按每日池口径(基准=每日池空filter K1,减亏%/损盈%)重算并更新排序;tip 注明口径切换;同步 _pcRating 评级数值重算 + 首页 _AI_POSCAP_RATING | 每日池报告已落档 | **未派**(需 implementer,§22 一致性) |
+| 49 | **G/H/I 长持模式持仓≤20倍本金(20万)硬控手段** | docs/kelly/position/kelly-position-cap-20x-limit.md(2026-08-14) | 用户 2026-08-14 新需求:G/H/I 峰值持仓 45-148 倍单次本金不可操作。最优=手段B(FIFO 强制平仓,cap20万):G 收益率反升到 95.7%(b0)~200%(b1)、I 74.5%~153%、H 应放弃;手段A(砍当日)诚实备选、手段D(截断)全负失败 | 真实平仓盈亏需中间价格路径(待验证);H 后期研究为什么差(本次按用户定性标注慎用,未做 H 优化) | **已实施**(2026-08-14 上线:lab.js 凯利回测区新增「ai长线模式(G/H/I)仓位管理」开关=长线族群总入口+模式→策略映射(fifo20w),默认关,ON 套持仓≤20万+FIFO硬控,G/H/I 卡片套乐观b1+AI长线·开角标,新增G/H/I对比表(关/开b0/开b1,报告§7.2 K1口径),前端FIFO内核与报告逐位对齐§21;purpose-notes/README同步;sw.js a197) |
+| 50 | **每日池口径默认 K 档/toggle 决策落档** | docs/kelly/position/kelly-dailypool-exhaustive-rerun.md §0.2-0.3(2026-08-14) | 默认 toggle 用户定维持 AI宏7键;最优 K=K1 数据最优/K2 推荐默认;G 模式(长持)可去 greedy15/excludeAuxCross/r7 加 a45(51.66%>47.22%),A/F 模式维持现状 | 决策已定(用户 2026-08-14) | **已定**(待落档 README/前端 tooltip;实施并入 #48) |
 
 ---
 

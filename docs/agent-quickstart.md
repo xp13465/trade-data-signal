@@ -357,7 +357,7 @@ curl -s https://ssd.fx8.store/data/xxx.json | python3 -c "import sys,json;print(
 
 - **手写 CART 决策树 + beam search 子群发现 + 关联规则 + 多维交叉**：超越人工 2 特征穷举（最高比值 2.52），找到 78 个比值>3 标志（单标志最高 10.06）。
 - **关键**：决策树叶节点纯度 = 标志有效性（高纯度亏损叶 = 高比值降亏标志）。
-- **产出文档**：`docs/kelly-loss-mining-v3.md`（v3 决策树挖掘）、`docs/kelly-loss-mining-methods.md`（方法论调研）。
+- **产出文档**：`docs/kelly/mining/kelly-loss-mining-v3.md`（v3 决策树挖掘）、`docs/kelly/mining/kelly-loss-mining-methods.md`（方法论调研）。
 
 ---
 
@@ -401,11 +401,11 @@ cd /Users/linhuichen/code/trade-data && /Users/linhuichen/code/trade/.venv/bin/u
 
 ## H. 降亏挖掘/回测任务快速上手
 
-> 完整文献/方法论/方案引导沉淀见 **`docs/kelly-mining-literature.md`**（本文只给"直接做对"的 step + 坑速查，细节链接到文献文档）。数据源 `static-site/data/signal_kelly_trades.json`（33MB，44,832 笔去重），基准 PF≈1.285。
+> 完整文献/方法论/方案引导沉淀见 **`docs/kelly/mining/kelly-mining-literature.md`**（本文只给"直接做对"的 step + 坑速查，细节链接到文献文档）。数据源 `static-site/data/signal_kelly_trades.json`（33MB，44,832 笔去重），基准 PF≈1.285。
 
 ### 这类任务直接做对 step
 
-1. **先读前几轮报告 + 现有 toggle 口径**：v1→v4 报告 + `docs/kelly-loss-reduction-toggle-plan.md`/`-toggle-v2-plan.md`（现有 toggle 口径）+ memory `kelly-loss-toggle-ratio-standard.md`（比值>2 硬口径）。看 v3 §7.4 / v4 §7.4"已验证方法清单"防重复挖。
+1. **先读前几轮报告 + 现有 toggle 口径**：v1→v4 报告 + `docs/kelly/toggle/kelly-loss-reduction-toggle-plan.md`/`-toggle-v2-plan.md`（现有 toggle 口径）+ memory `kelly-loss-toggle-ratio-standard.md`（比值>2 硬口径）。看 v3 §7.4 / v4 §7.4"已验证方法清单"防重复挖。
 2. **识别数据维度盲区**：对比数据源全部字段 vs 历轮实际挖过的字段。历轮最大发现来自盲区（market_state 已注入部署版但从未挖过）。未覆盖字段=优先挖掘目标。
 3. **换方法换数据源不轻断"不可改善"**：一个算法挖不出≠无标志，换方法/换数据源/换关联维度验证后再下结论。
 4. **候选清单 + 比值口径 >2 过滤**：比值=降亏%/损盈%（=Lift-1），>2 满意 >3 更佳；低比值保留备选迭代淘汰；排除会"砍牛利润"的标志（如 low 评级 -810k）。
