@@ -168,6 +168,29 @@ Claude Code 的 thinking 参数构建器(disabled 分支)条件:`r.type==="disab
 
 - **若优先保 P0 稳定**:选 A(haiku，低风险)或 E(不改)
 - **若优先省 token + 保模型**:选 B(代理注入)，但须接受 P0 风险 + 建 launchd 守护 + 故障转移(代理挂时 claude 重试兜底)
+
+---
+
+## 9. 现状已落地:flash 底别名 per-role(2026-08-13 用户裁决 #57 落地，替换上述 pro 评估方案)
+
+> ⚠️ **上方案(6.3/6.4)为历史评估，基于 deepseek-v4-pro + 火山方舟，未按此形态启用。** 实际现网(2026-08-13 起)为**官方直连 api.deepseek.com + flash 底 + 别名 per-role，且全程零 v4-pro 消耗**。理由:用户裁决拒绝任何 v4-pro。
+
+**落地机制**(`scripts/thinking_proxy.py` 常驻官方直连 8899):
+- **执行类** implementer/tester `model: deepseek-v4-flash` → 代理 `TTP_INJECT_MODELS=deepseek-v4-flash` 注入 `{type:disabled}`(关思考省 token)
+- **判断类** reviewer/researcher `model: deepseek-v4-think`(别名，flash 底) + 主控 settings `ANTHROPIC_MODEL: deepseek-v4-think` → 代理 `TTP_ALIAS_MODELS=deepseek-v4-think` **不注入**(保 thinking，§四承重墙)，并把 model **改写成官方认可的 `deepseek-v4-flash`** 再转发(官方只认 pro/flash 两名字，别名直发会 400)
+- **零 v4-pro**:全部档位(fable/haiku/opus/sonnet/ANTHROPIC_MODEL/顶层 model)均指向 flash/flash 别名，无任何 pro 引用
+
+**关键前置(实测确认)**:
+- Claude Code `modelOverrides` **不生效**(发出请求仍用原始 model 字符串，实测假 server 捕获 `MODEL=deepseek-v4-think`)，无法靠 ClCode 侧把别名解析成 flash 后发出
+- 故 flash 底变体唯一可行 = **代理层别名改写**(接受别名请求→不注入→改写成 flash)
+- **必须移除全局 `CLAUDE_CODE_SUBAGENT_MODEL`**(实测:它强制所有 subagent=flash，使 subagent frontmatter 别名失效;移除后 subagent 别名才生效)
+
+**生产验收(端到端连官方)**:
+- 真实 subagent(别名 frontmatter)经生产代理:`injected=False aliased=True` → `has_thinking=True`(保思考)
+- 执行类 flash:`injected=True has_thinking=False`(关思考)
+- 官方 flash 底能力支持 thinking(adaptive/enabled 均返回 thinking block)
+
+**回退**:`bash scripts/thinking-proxy-rollback.sh` + 恢复 `.claude/agents/*.md` frontmatter + 主控 settings 备份(`/Users/linhuichen/.claude/settings.json.bak-perrole-20260813-221000`)。
 - 代理注入的 per-role 效果优于 haiku(不换模型，deepseek-v4-pro 能力可能强于 haiku)，但 P0 风险是代价
 
 ### 6.5 关键事实修正(对 §5.2 表格③)
@@ -186,3 +209,46 @@ WebSearch/WebFetch 被 harness 阻断("Unable to verify domain safe")时:
 3. **HN Algolia API 可用**(同样需 --resolve hn.algolia.com:34.160.168.181):`/api/v1/search?query=...&tags=story|comment`
 - 本会话实测通:simonwillison.net / patrickmccanna.net / decodeclaude.com / gist.githubusercontent.com / hn.algolia.com / docs.anthropic.com(301 但 TLS 通)
 - 断:platform.claude.com(docs 301 目标,HTTP 000)、www.reddit.com(HTTP 000)、export.arxiv.org(HTTP 000)
+
+## 八、DeepSeek 官方直连 thinking 实测(2026-08-13,api.deepseek.com)
+
+> 触发:用户从火山方舟切官方 API 直连 V4 flash(`ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic` + `ANTHROPIC_MODEL=deepseek-v4-flash`,settings env 直放官方 key),官方文档明示 thinking 可调,要求实测官方线路能否控制 thinking 开关(替代火山方舟代理注入 hack)。本轮=主控直接实测落档。
+> 官方可用模型:`deepseek-v4-flash` + `deepseek-v4-pro`(无 deepseek-chat)。
+
+### 8.1 裸 API 层:官方原生支持 thinking 开关(不用 hack)
+同一 prompt "17*23?只答数字" 直接 curl OpenAI 兼容 `/v1/chat/completions`(curl -k,本机 MITM 自签证书 SSL 校验失败):
+
+| 传参 | v4-flash comp_tok | reasoning_content | 判定 |
+|---|---|---|---|
+| 不传(默认) | 31 | Y | ON |
+| `{"thinking":{"type":"disabled"}}` | **1** | N(0s) | **真关** |
+| `{"thinking":{"type":"enabled"}}` | 17 | Y | ON |
+| `{"thinking":{enabled,budget_tokens:2048}}` | 25 | Y | ON |
+| `reasoning_effort:"none"` | **1** | N | **真关**(flash 独有简化) |
+| `reasoning_effort:"low"` | 39 | Y | ON |
+| `output_config:{effort:low/none}` | 25-36 | Y | 官方不认,ON |
+| `reasoning:{effort:none/high}` | 15-39 | Y | 官方不认,ON |
+
+V4 pro 对照:baseline=49 ON;`disabled` → **1**(同样真关)。
+
+### 8.2 Anthropic 兼容端点(Claude Code 直连真实路径 `/anthropic/v1/messages`)
+官方 Anthropic 兼容端点为 `https://api.deepseek.com/anthropic`(非 /v1/messages,Claude Code 当前直连此路径;x-api-key 与 Authorization Bearer 均可):
+
+| 传参 | output_tokens | content_types | 判定 |
+|---|---|---|---|
+| 不传(默认) | 36 | [thinking,text] | ON |
+| `{"thinking":{"type":"disabled"}}` | **1** | [text] | **真关**(0s) |
+| `{type:"adaptive",display:"omitted"}` | 21 | [thinking,text] | ON |
+| `{type:"enabled",budget_tokens:2048}` | 31 | [thinking,text] | ON |
+
+### 8.3 Claude Code 端到端:仍发 adaptive → 官方 ON → 仍需代理注入
+本地代理(127.0.0.1:8899→api.deepseek.com/anthropic)拦截 `claude -p` 直连官方真实请求(测试脚本 `/tmp/ds_proxy_anthropic.py`):
+- Claude Code 对 deepseek-v4-flash 发 `{"thinking":{"type":"adaptive","display":"omitted"}}` → 官方视为 ON(不省)
+- 代理把 adaptive 注入改 disabled 后:`RESP 200 types=['text'] output=1`(无 thinking block,1 token)→ **端到端省 97%**
+- **根因同 §5.3**:Claude Code 的 disabled 分支 `!ydr(u)`,非 Claude 已知模型(deepseek-v4-flash)ydr=true → 永不发 disabled;thinking 构建逻辑基于模型名,与 base_url(火山/官方)无关。
+
+### 8.4 结论 + 落地建议
+- **官方裸 API 原生可关 thinking**(flash/pro 均实测),比火山方舟文档更明确;V4 flash 额外支持 `reasoning_effort:"none"` 简化关闭。
+- **Claude Code 直连官方仍不能自动关**(发 adaptive=ON),省 token 方案不变:**本地代理注入 disabled**。
+- 现成 `scripts/thinking_proxy.py` 把 upstream 从火山方舟改官方 `/anthropic` 即可(官方原生认识 disabled,无需 hack),per-model 注入(只对 implementer/tester)照旧。
+- 风险同 §6.4 P0(代理挂=全站不可用),launchd 守护可缓解。启用仍需用户指令(#32)。
