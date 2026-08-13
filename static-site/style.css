@@ -586,6 +586,12 @@ main { padding: 16px 24px; }
 .term-pop--sig-sell .term-pop-sig-label { color: #2e8b57; }
 .term-pop--sig-sell_stop_loss { border-left-color: #3498db; }
 .term-pop--sig-sell_stop_loss .term-pop-sig-label { color: #3498db; }
+/* #38 删除线原因行(2026-08-13): cell 命中 AI降亏过滤(带删除线)时 hoverpop 追加的说明行 */
+.term-pop-aihit {
+  margin-top: 6px; padding-top: 6px;
+  border-top: 1px dashed var(--border-strong, rgba(0,0,0,0.15));
+  color: #b42318; font-size: 12px; line-height: 1.55;
+}
 /* 指数名段 chip 强化：所有指数名做成小标签 chip(加粗+主题主色+bg-hover 底+border-strong 边框+padding+圆角),
    一眼从描述文字中跳出来; 纳斯达克100(us_ndx)额外强化蓝(深蓝文字+淡蓝底+蓝边框, 覆盖普通 chip) */
 .term-pop--sig .term-pop-idx {

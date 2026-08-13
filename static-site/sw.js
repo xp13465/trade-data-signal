@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260813-a175';  // bump a174->a175: 数字类卡片全站补单位(涨跌家数只/家+黄金元/克+国债%+波指点+龙虎榜只+走势图标题后缀单位+summary chips+凯利表头元; 金额类亿已在a174)
+const CACHE_VERSION = 'v6-20260813-a176';  // bump a175->a176: 首页技术分析参考点同日期多信号去重日期(#37)+AI建议序号+删除线hoverpop说明(#38)+badge tooltip措辞对齐+注释行号修正; 基底=数字单位a175(#36)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

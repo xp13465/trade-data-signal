@@ -1940,6 +1940,17 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     } else {
       dayItems.sort((a, b) => (a.value ?? 99) - (b.value ?? 99));
     }
+    // #38 fix(2026-08-13): AI建议加序号 - 同日期 kept 项按当前渲染顺序编号(AI建议1/2/3...),
+    //   序号=该日期 AI建议买入在列表中的显示次序(第1个=列表最上方), 用户能看出 top-K 内的排序(用户反馈"档K=3不知道3个AI建议里的排序")。
+    //   注: 序号按渲染顺序(信号优先级 ord→score), 非回测排序(track_score↓→评级→类型→买入日), 与用户看到的列表顺序一致。
+    let _posCapRank = null;
+    if (_posCapKeptMap && _posCapKeptMap.has(dt)) {
+      _posCapRank = new Map();
+      let _rk = 0;
+      for (const _di of dayItems) {
+        if (_posCapKeptMap.get(dt).has(_di)) _posCapRank.set(_di, ++_rk);
+      }
+    }
     const cellHtml = (it) => {
       if (kind === "signal") {
         // 今日+盘中=盘中预估信号，收盘后(17:50)重算定版可能消失/变动，挂⚠角标强提醒
@@ -1952,10 +1963,11 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // (与凯利回测页 toggle 共享 tds_poscap 联动; 历史日期为复盘视角, 排序/口径与回测一致)
         let posCapCls = "";
         let posCapBadge = "";
-        if (_posCapKeptMap && _posCapKeptMap.has(dt)) {
-          if (_posCapKeptMap.get(dt).has(it)) {
+        const _capRank = (_posCapRank && _posCapRank.get(it)) || 0;
+        if (_posCapRank) {
+          if (_capRank) {
             posCapCls = " sig-poscap-kept";
-            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 按 跟踪分↓→评级→信号类型→买入日 当日排序前${_posCapK}名, AI建议买入（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议</sup>`;
+            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 按 跟踪分↓→评级→信号类型→买入日 当日排序前${_posCapK}名进入AI建议买入; 序号=本日AI建议在列表中的显示顺序(第${_capRank}个, 1=最上方); 若同时命中AI降亏过滤, 仍会加删除线建议回避（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议${_capRank}</sup>`;
           } else {
             posCapCls = " sig-poscap-excluded";
             posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 当日只建议最优${_posCapK}个, 本信号未进入AI建议, 当日已满（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">当日已满</sup>`;
@@ -1965,12 +1977,14 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // 2026-08-13 FAIL2 fix: 去 _aiMacroOn(3元总开关)门控——基础4键是凯利区独立toggle默认开, 关3元总开关时基础4命中仍须灰显(与凯利区过滤一致), 只按成员级实际开启过滤
         let aiHitCls = "";
         let aiHitBadge = "";
+        let aiHitAttr = "";  // #38 fix(2026-08-13): 删除线原因传给 cell hoverpop(hover 信号本体时提示为什么带删除线)
         if (it.ai_macro && it.ai_macro.hit && Array.isArray(it.ai_macro.filters)) {
           const _hitOn = it.ai_macro.filters.filter((fk) => _aiOnMembers[fk]);
           if (_hitOn.length) {
             aiHitCls = " sig-ai-hit";
             const _hitNames = _hitOn.map((fk) => _AI_MACRO_FILTER_NAMES[fk] || fk).join(" / ");
-            aiHitBadge = `<sup class="sig-ai-hit-badge" data-tip="AI降亏过滤: 本信号命中降亏条件【${_hitNames}】, 按凯利区降亏组合实际开启项建议回避(与凯利区联动, 改开关/凯利区toggle实时生效)">AI降亏</sup>`;
+            aiHitBadge = `<sup class="sig-ai-hit-badge" data-tip="删除线原因: 本信号命中AI降亏过滤条件【${_hitNames}】→ 被过滤建议回避, 所以显示删除线(首页/凯利区「AI降亏过滤」开关产生, 关闭对应开关即取消删除线恢复正常)">AI降亏</sup>`;
+            aiHitAttr = ` data-ai-hit="1" data-ai-hit-names="${_escAttr(_hitNames)}"`;
           }
         }
         // 评分尾缀：技术参考点综合把握度（10d 窗口 score）
@@ -2045,7 +2059,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           _cellName = _idxName;
           _cellCode = _sigIdxCode;
         }
-        return `<span class="${cls}${scoreCls}${posCapCls}${aiHitCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${_cellLight}${posCapBadge}${aiHitBadge}${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_cellName}${_cellCode ? ` <span class="idx-code-tag">${_cellCode}</span>` : ""}</span></span>`;
+        return `<span class="${cls}${scoreCls}${posCapCls}${aiHitCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr}${aiHitAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${_cellLight}${posCapBadge}${aiHitBadge}${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_cellName}${_cellCode ? ` <span class="idx-code-tag">${_cellCode}</span>` : ""}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
@@ -2053,10 +2067,13 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     // 同日数据超过 4 个时按 4 个/行分块换行，每行重复日期（不做合并单元格效果）。
     // COLS 与 CSS .sig-items grid-template-columns:repeat(4,1fr) 一致；
     // 移动端(≤768px) CSS 改 2 列，同日仍按 4 分组，日期会在每 2 个移动行重复一次（分块数不依赖断点，无 resize 回归）。
+    // #37 fix(2026-08-13): 同日期多信号换行只保留首个日期——首行显示日期, 其余同日期行日期留空,
+    //   保留空 .sig-day-date span(flex:0 0 70px 固定宽)保证列对齐不塌陷; 用户反馈"每行重复日期=眼花(看到烟花)"
     const COLS = 4;
     for (let i = 0; i < dayItems.length; i += COLS) {
       const cellsHtml = dayItems.slice(i, i + COLS).map(cellHtml).join("");
-      rows += `<div class="sig-day-row${isToday ? " today-row" : ""}"><span class="sig-day-date">${dateLabel}</span><div class="sig-items">${cellsHtml}</div></div>`;
+      const dateSpan = i === 0 ? `<span class="sig-day-date">${dateLabel}</span>` : `<span class="sig-day-date"></span>`;
+      rows += `<div class="sig-day-row${isToday ? " today-row" : ""}">${dateSpan}<div class="sig-items">${cellsHtml}</div></div>`;
     }
   }
   // B方案(2026-07-28): 技术分析参考点准确率汇总条（仅 signal 类；freeze 无 since_correct/score 不显示）
@@ -2681,6 +2698,15 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         if (idxName && (p === idxName || p === idx || p.startsWith(idxName + " ("))) return '<b class="term-pop-idx' + (isNdx ? ' term-pop-idx-ndx' : '') + '">' + _esc(p) + '</b>';
         return _esc(p);
       }).join(" · ");
+      // #38 fix(2026-08-13): 删除线 hoverpop 说明 - cell 带 data-ai-hit(=1, 命中AI降亏过滤被删线)时,
+      //   hoverpop 追加一行讲人话说明删除线原因(用户反馈"810信号带删除线但不知道什么意思、hoverpop 也没提示")。
+      //   删除线语义溯源: commit 1c5c6b77d「首页AI开关+后端ai_macro」引入, .sig-ai-hit{text-decoration:line-through}(style.css L949),
+      //   = 命中降亏条件 + 凯利区实际开启 → 灰显+删除线+AI降亏标注, 建议回避(§22 与凯利区联动)。
+      var _aiHitRaw = el.getAttribute("data-ai-hit");
+      if (_aiHitRaw === "1") {
+        var _aiHitNames = el.getAttribute("data-ai-hit-names") || "降亏条件";
+        html += '<div class="term-pop-aihit">⚠️ 删除线原因: 本信号命中 AI降亏过滤条件【' + _esc(_aiHitNames) + '】, 被标记为建议回避, 所以加了删除线(与首页/凯利区「AI降亏过滤」开关联动)。如不需要该过滤, 关闭对应开关即可取消删除线恢复正常显示。</div>';
+      }
       if (locateHtml || idxLineHtml || etfMetaHtml || etfHtml) html += locateHtml + idxLineHtml + etfMetaHtml + etfHtml;
       pop.innerHTML = html;
     } else {
