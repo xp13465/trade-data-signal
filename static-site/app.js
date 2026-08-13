@@ -1736,8 +1736,9 @@ function _showSigToast(msg) {
 // ②AI仓位建议 off 按钮——写 tds_poscap {on:false}(与凯利区 _kellySetSharedPosCap(false,k) 同键同语义, §22 联动), 该区域退化为普通信号列表
 function _sigSwitchHtml(_fadeOn, _k, _pcOn) {
   const _kRating = { 1: "最激进", 2: "次稳健", 3: "最稳健", 4: "最保守" };
-  const _kbtns = [3, 1, 2, 4].map((kk) =>
-    `<button type="button" class="sig-kbtn${(kk === _k && _pcOn) ? " active" : ""}${kk === 3 ? " sig-kbtn-main" : ""}" data-k="${kk}" data-no-pop=""><span class="sig-kbtn-k">${kk}</span><span class="sig-kbtn-r">${_kRating[kk]}${kk === 3 ? "★" : ""}</span></button>`
+  // 2026-08-14 #BC C包: 主推 K1 → K 按钮 1 排首位+高亮★主推
+  const _kbtns = [1, 3, 4, 2].map((kk) =>
+    `<button type="button" class="sig-kbtn${(kk === _k && _pcOn) ? " active" : ""}${kk === 1 ? " sig-kbtn-main" : ""}" data-k="${kk}" data-no-pop=""><span class="sig-kbtn-k">${kk}</span><span class="sig-kbtn-r">${_kRating[kk]}${kk === 1 ? "★主推" : ""}</span></button>`
   ).join("");
   // off 按钮(2026-08-13): 复用 .sig-kbtn 样式, data-k="off" 由 _bindSigSwitchRow 识别为关(写 tds_poscap {on:false})
   const _offBtn = `<button type="button" class="sig-kbtn sig-kbtn-off${_pcOn ? "" : " active"}" data-k="off" data-no-pop=""><span class="sig-kbtn-k">关</span><span class="sig-kbtn-r">off</span></button>`;
@@ -1748,7 +1749,7 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn) {
       `<input type="checkbox" class="sig-switch-ai-cb"${_fadeOn ? " checked" : ""}> AI降亏过滤` +
       `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 开启=首页按降亏策略判定, 固定 7 键成员级(基础4: 追关注×熊市交叉 / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 + 核心3键: 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致), 命中降亏条件的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); 关闭=首页完全不判降亏、不灰显不删除线不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号。">ⓘ</span>` +
     `</label>` +
-    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap): 同日只买最优K个, 未进入前K=当日已满灰显; 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表, 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。【档位语义·与下方评级表一致·2026-08-14 每日池口径】K=1=收益率最优档(每日池 A模式 86.60%)但回撤较大(13.0%)、样本最少(1,184), 非默认; K=3=默认稳健档(收益率78.91% 非最高, 但回撤并列最小(12.0%)+甜点区主推★), 默认 K=3 为稳健选择, 非收益率最优档">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span></span>` +
+    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap): 同日只买最优K个, 未进入前K=当日已满灰显; 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表, 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span></span>` +
     `</div>`;
 }
 // 绑定首页开关行事件(K 按钮 + AI降亏 checkbox), 改状态后重绘 sigCard; 每次渲染开关行后调用
@@ -1763,9 +1764,9 @@ function _bindSigSwitchRow(sigCard) {
       if (kb.dataset.k === "off") {
         // AI仓位建议 off 按钮(2026-08-13): 写 tds_poscap {on:false}, 与凯利区 _kellySetSharedPosCap(false,k) 同键同语义(§22 联动),
         // 关闭后该区域退化为普通信号列表(无「AI建议N」「当日已满」badge), 再点某 K 档恢复 {on:true,k}
-        try { localStorage.setItem("tds_poscap", JSON.stringify({ on: false, k: 3 })); } catch (err) {}
+        try { localStorage.setItem("tds_poscap", JSON.stringify({ on: false, k: 1 })); } catch (err) {}
       } else {
-        const k = parseInt(kb.dataset.k, 10) || 3;
+        const k = parseInt(kb.dataset.k, 10) || 1;
         try { localStorage.setItem("tds_poscap", JSON.stringify({ on: true, k })); } catch (err) {}
       }
       _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
@@ -1903,9 +1904,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // #4 范围扩展(2026-08-12): 从凯利区扩展到整个信号列表——近15交易日每个日期各自按同一排序算 top-K, 所有日期都展示 AI建议(AI建议买入/当日已满), 不只今日
   // 排序口径与凯利回测 §6.1 一致: track_score DESC → 评级(high>mid>low) → 信号类型(buy_backup>buy>buy_aux>buy_special) → buy_date ASC
   let _posCapKeptMap = null;
-  let _posCapK = 0;
+  let _posCapK = 1;  // 2026-08-14 #BC 默认 K=1(主推档, 与 lab.js _kellyDefaultFilters/_kellySharedPosCap on:true/k:1 语义对齐)
   let _posCapSortedFn = null;  // 2026-08-13 rank fix: 质量序排序函数提升到 for 循环可访问作用域(编号复用同一排序, 单源零漂移)
-  let _pcOn = true;  // AI仓位建议 当前是否开启(开关行 off 按钮状态; 首页无 tds_poscap key 时保持现状 K=3 高亮, 与 lab.js 默认 on:true 语义对齐)
+  let _pcOn = true;  // AI仓位建议 当前是否开启(开关行 off 按钮状态; 首页无 tds_poscap key 时保持现状 K=1 主推高亮, 与 lab.js 默认 on:true/k:1 语义对齐)
   if (kind === "signal") {
     try {
       const _raw = localStorage.getItem("tds_poscap");
@@ -1953,7 +1954,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     } catch (e) {}
   }
   // 2026-08-13 重构: 显示随过滤开关走(合并后单开关, 无独立显示层); 开关行 HTML 用 _fadeOn 渲染「AI降亏过滤」勾选态
-  const _sigSwitchHtmlStr = (kind === "signal") ? _sigSwitchHtml(_fadeOn, _posCapK || 3, _pcOn) : "";
+  const _sigSwitchHtmlStr = (kind === "signal") ? _sigSwitchHtml(_fadeOn, _posCapK || 1, _pcOn) : "";
   let rows = "";
   for (const dt of dates) {
     const isToday = dt === todayDate;

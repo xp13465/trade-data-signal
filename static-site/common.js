@@ -473,14 +473,14 @@ function renderPurposeNote(container, text, {variant}={}) {
 }
 
 // === AI仓位建议 K 档评级(2026-08-13 共享单一数据源, §22 一致性: app.js 首页 + lab.js 凯利区两处共用同一份数据/HTML/绑定) ===
-// 2026-08-14 #48: 静态快照由 fixed(每笔1万) 重算为每日池口径(基准=每日池 AI宏7键 A模式, docs/kelly/position/kelly-dailypool-exhaustive-rerun.md §2/§3.3; n=保留基笔数与金额口径无关不变; ra=ret/dd 同口径)
-// 口径=AI降亏过滤默认=核心3键(r7 5月强化+3稳定非5月 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合)+A模式(固定10天)+每日资金池等分+top-K+费率etf_def+全周期
-// 与 AI宏 hoverpop 3元口径一致, 与「历史回测数据」G模式口径不同, 勿混用数值
+// 2026-08-14 #48+#BC: 静态快照由 fixed(每笔1万)/比例法 重算为每日池口径 + 费率重算口径(含最低佣金5元), 与动态重算 _kellyApplyFeeRecompute 数值一致(§22 消除 12.7pt 佣金低估差)
+// 口径=AI降亏过滤默认=核心3键(r7 5月强化+3稳定非5月 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合)+A模式(固定10天)+每日资金池等分+top-K+费率etf_def(含min_commission=5元)+全周期+费率重算
+// 数值来源: Node 复算前端 _kellyApplyFeeRecompute 动态链路(lab.js 实际函数, 逐位一致), 数据 generated_at 2026-08-14 02:22; 主推 K1(收益率最高 86.60%)
 var _AI_POSCAP_RATING = {
-  1: { name: "最激进", ret: "86.60%", dd: "13.0%", ra: "6.66", n: "1,184", reason: "收益率最高但回撤较大、样本最少" },
-  2: { name: "次稳健", ret: "74.93%", dd: "14.0%", ra: "5.35", n: "1,889", reason: "收益率最低+回撤最大" },
-  3: { name: "最稳健", ret: "78.91%", dd: "12.0%", ra: "6.58", n: "2,403", reason: "回撤并列最小+收益率第三,甜点区(主推)" },
-  4: { name: "最保守", ret: "79.96%", dd: "12.0%", ra: "6.66", n: "2,794", reason: "回撤并列最小+收益率第二高" }
+  1: { name: "最激进", ret: "86.60%", dd: "15.99%", ra: "5.42", n: "1,202", reason: "收益率最高+回撤最小+样本最少,主推★" },
+  2: { name: "次稳健", ret: "67.61%", dd: "18.64%", ra: "3.63", n: "1,930", reason: "收益率最低+回撤最大" },
+  3: { name: "最稳健", ret: "66.24%", dd: "16.19%", ra: "4.09", n: "2,461", reason: "回撤第二大+收益率第三(收益/回撤较优)" },
+  4: { name: "最保守", ret: "63.17%", dd: "17.84%", ra: "3.54", n: "2,870", reason: "收益率第二低+回撤第二大+样本最多" }
 };
 // #54 2026-08-13 动态化: 共享动态源(由 lab.js _kellyApplyFeeRecompute 在 AI仓位建议开启时用当前 filters+费率+最新数据重算写入)
 // 结构: { computed:bool, date:数据日期, fee:费率档标签, cfg:降亏勾选摘要, values:{1..4:{name,ret,dd,ra,n,reason?,retNum,ddNum,nNum}} }
@@ -499,7 +499,7 @@ function _aiPoscapRatingSrc() {
   if (d && d.computed && d.values && pcOn) return { dynamic: true, src: d };
   return { dynamic: false, src: _AI_POSCAP_RATING };
 }
-// 动态评级理由派生(收益率最高/回撤最小/样本最少/甜点主推; 静态快照自带 reason 不走此函数)
+// 动态评级理由派生(收益率最高/回撤最小/样本最少/主推; 静态快照自带 reason 不走此函数); 主推 K1(收益率最高)
 function _aiPoscapRatingReasonFor(k, vals) {
   var retMaxK = 1, ddMinK = 1, nMinK = 1, i;
   for (i = 1; i <= 4; i++) {
@@ -512,7 +512,7 @@ function _aiPoscapRatingReasonFor(k, vals) {
   if (k === retMaxK) parts.push("收益率最高");
   if (k === ddMinK) parts.push("回撤最小");
   if (k === nMinK) parts.push("样本最少");
-  if (k === 3) parts.push("甜点区(主推, 收益率/回撤均衡)");
+  if (k === 1) parts.push("主推★(收益率最高)");
   if (!parts.length) parts.push("收益回撤居中");
   return parts.join("+");
 }
@@ -527,26 +527,26 @@ function _aiPoscapRatingSummary() {
   }).filter(Boolean);
   return parts.join('; ') + (s.dynamic
     ? ('（实时·当前配置/费率/数据' + (s.src.date ? ' ' + s.src.date : '') + '）')
-    : '（快照 08-14·每日池口径: AI降亏过滤默认 AI宏7键+每日资金池等分+top-K, 当前未开启AI仓位建议或未重算）');
+    : '（快照 08-14·每日池+费率重算口径(含最低佣金5元): AI降亏过滤默认 AI宏7键+每日资金池等分+top-K, 主推K1; 当前未开启AI仓位建议或未重算）');
 }
-// K 档评级 hoverpop 表格 HTML(3124 排序, K=3 高亮主推; app.js/lab.js 两处共用同一份, 数据源=动态优先/静态快照回退, 勿单改数值)
+// K 档评级 hoverpop 表格 HTML(1 排首位, K=1 高亮主推; app.js/lab.js 两处共用同一份, 数据源=动态优先/静态快照回退, 勿单改数值)
 function _aiPoscapRatingPopHtml() {
   var s = _aiPoscapRatingSrc();
   var vals = s.src.values || _AI_POSCAP_RATING;
-  var rows = [3, 1, 2, 4].map(function (k) {
+  var rows = [1, 3, 4, 2].map(function (k) {
     var r = vals[k];
     if (!r) return "";
     var reason = r.reason || _aiPoscapRatingReasonFor(k, vals);
-    return '<tr' + (k === 3 ? ' class="lab-sigkelly-posrate-hl"' : '') + '><td><b>K=' + k + '</b> ' + r.name + (k === 3 ? ' ★主推' : '') + '</td><td>' + r.ret + '</td><td>' + r.dd + '</td><td>' + r.ra + '</td><td>' + r.n + '</td><td>' + reason + '</td></tr>';
+    return '<tr' + (k === 1 ? ' class="lab-sigkelly-posrate-hl"' : '') + '><td><b>K=' + k + '</b> ' + r.name + (k === 1 ? ' ★主推' : '') + '</td><td>' + r.ret + '</td><td>' + r.dd + '</td><td>' + r.ra + '</td><td>' + r.n + '</td><td>' + reason + '</td></tr>';
   }).join("");
   var srcLabel = s.dynamic
     ? '📌 实时·当前配置/费率/数据(' + (s.src.date || '-') + (s.src.fee ? ' · 费率' + s.src.fee : '') + ')：随上方降亏勾选 / 费率档 / 最新数据联动重算(展示层动态化, 未改算法)'
-    : '📌 快照 08-14：每日池口径(2026-08-14 #48 重算) = AI降亏过滤默认 AI宏7键(r7/exclAuxCross/greedy15+基础4) + A模式(固定10天) + 每日资金池等分+top-K + 费率etf_def + 全周期。当前未开启 AI仓位建议 或尚未重算, 显示静态快照';
+    : '📌 快照 08-14：每日池+费率重算口径(2026-08-14 #48+#BC) = AI降亏过滤默认 AI宏7键(r7/exclAuxCross/greedy15+基础4) + A模式(固定10天) + 每日资金池等分+top-K + 费率etf_def(含最低佣金5元) + 全周期。当前未开启 AI仓位建议 或尚未重算, 显示静态快照';
   return '<span class="lab-sigkelly-posrate-pop-wrap">' +
     '<div class="lab-sigkelly-posrate-pop">' +
       '<div class="lab-sigkelly-posrate-pop-title">AI仓位建议 · K 档位评级（评级依据=下方回撤矩阵）</div>' +
       '<table class="lab-sigkelly-posrate-table"><thead><tr><th>档位</th><th>收益率</th><th>峰值资金回撤</th><th>风险调整<br>(收益/回撤)</th><th>样本</th><th>评级理由</th></tr></thead><tbody>' + rows + '</tbody></table>' +
-      '<div class="lab-sigkelly-posrate-pop-note">⚠ 口径：动态=当前降亏勾选(AI降亏过滤 7 键或用户自定义) + A模式(固定10天) + 每日资金池等分+top-K + 当前费率档 + 最新数据全周期；静态快照=AI降亏过滤默认 AI宏7键+每日资金池等分+top-K+费率etf_def+全周期(2026-08-14 重算)。与「历史回测数据」G模式口径不同，勿混用数值。峰值资金回撤=最大回撤金额÷本金(concCap, 峰值同时持仓资金；与回测报告 ddPct=最大回撤÷资金池 口径不同, 数值勿直接对照)</div>' +
+      '<div class="lab-sigkelly-posrate-pop-note">⚠ 口径：动态=当前降亏勾选(AI降亏过滤 7 键或用户自定义) + A模式(固定10天) + 每日资金池等分+top-K + 当前费率档(默认etf_def含最低佣金5元) + 最新数据全周期；静态快照=同上默认配置+费率重算口径(2026-08-14 #48+#BC, 含最低佣金5元, 与动态一致§22)。与「历史回测数据」G模式口径不同，勿混用数值。峰值资金回撤=最大回撤金额÷本金(concCap, 峰值同时持仓资金；与回测报告 ddPct=最大回撤÷资金池 口径不同, 数值勿直接对照)</div>' +
       '<div class="lab-sigkelly-posrate-pop-note">' + srcLabel + '</div>' +
     '</div>' +
   '</span>';
