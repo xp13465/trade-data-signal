@@ -239,6 +239,61 @@ def etf_for(index_id: str) -> dict:
     return {"etfs": etfs}
 
 
+# ── 首页 1:1 对齐回测(#60 方案A): ETF 选择冻结表接入 ────────────────────────────
+# 背景: 回测 scripts/signal_kelly_backtest.py 已用 #58 冻结表 data/signal_kelly_etf_freeze.json
+# (键 = date|index_id|signal, 值为该信号事件的固化 ETF)根治换标漂移; 首页 overview signals_today 的
+# etfs 由 etf_for() 读当前 board_etf_map.json 注入, 未冻结 → 历史信号日随当前映射漂(同类漂移未修)。
+# 方案A(用户定): 首页实操验证退化为回测口径(回测是实证基准) = 纯 max(track_score), 并接入同表冻结,
+# 使首页每信号 top1 = 回测每笔成交标的 1:1。
+#
+# 此处只**只读** freeze 表防御(冻结表属回测脚本所有, 首页不回写避免并发写冲突):
+#   命中冻结 → 该信号 top1 为冻结 ETF(权威), 注入 `_bk_top:true` 供前端优先取;
+#   未命中(新信号) → 前端纯 max(track_score) 自然 = 回测 would-be 冻结(不写回)。
+# 键格式与 #58 `_signal_key` 完全一致: f"{date}|{index_id}|{signal}"。
+_ETF_FREEZE_PATH = Path(__file__).absolute().parent.parent / "data" / "signal_kelly_etf_freeze.json"
+
+
+def _etf_freeze() -> dict:
+    """读 #58 冻结查找表 {signal_key: {code, name, track_tier, track_score, ...}}。文件不存在返回 {}。"""
+    if not _ETF_FREEZE_PATH.exists():
+        return {}
+    try:
+        data = json.loads(_ETF_FREEZE_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _signal_key(date: str, index_id: str, signal: str) -> str:
+    return f"{date}|{index_id}|{signal}"
+
+
+def _align_home_top1_to_backtest(_s: dict, freeze: dict) -> None:
+    """把一条 signals_today 信号与其回测标的 1:1 对齐: 命中 #58 冻结表则把冻结 ETF 标为权威 top1。
+
+    - 命中冻结: 在信号 etfs 中给冻结 code 所在条目加 `_bk_top: True`(权威 top1, 前端 _topEtfByScore
+      优先返回); 若冻结 code 不在当前 etfs(已被 board_etf_map 换代), 按冻结条目 prepend 到 etfs 首。
+    - 未命中冻结: 不改动(前端纯 max(track_score) 自然对齐回测 would-be 冻结)。
+    _s["etfs"] 为 list[dict]; 返回前原地改 _s["etfs"] 并置 _s["_bk_top"]。
+    """
+    key = _signal_key(_s.get("date", ""), _s.get("index_id", ""), _s.get("signal", ""))
+    frozen = freeze.get(key)
+    if not frozen or not isinstance(_s.get("etfs"), list):
+        return
+    etfs = _s["etfs"]
+    code = frozen.get("code")
+    idx = next((i for i, e in enumerate(etfs) if isinstance(e, dict) and e.get("code") == code), -1)
+    if idx >= 0:
+        etfs[idx] = dict(etfs[idx])
+        etfs[idx]["_bk_top"] = True
+    else:
+        # 冻结 ETF 已被 board_etf_map 换代移除 → prepend 冻结条目, 保证首页仍显回测标的
+        entry = {k: v for k, v in frozen.items() if k != "frozen_at"}
+        entry["_bk_top"] = True
+        etfs.insert(0, entry)
+    _s["_bk_top"] = True
+
+
 def _self_etf_for(iid, cfg, conn):
     """ETF本体注入：当 index 本身就是 ETF（indicators.yaml func=fund_etf_hist_sina，
     如 cgb_10y_etf symbol=sh511260），board_etf_map.json 无此 key（非板块/宽基映射）
@@ -721,6 +776,8 @@ def overview(conn, cfg):
     # func 字段用于 fund_etf_hist_sina 分支（index 本身就是 ETF，如 cgb_10y_etf sh511260）。
     _idx_meta = {i["id"]: {"name": i.get("name"), "symbol": i.get("symbol"), "func": i.get("func")}
                  for i in cfg.get("indices", []) if i.get("enabled", True)}
+    # 2026-08-13 #60 方案A 首页1:1对齐回测: 读 #58 冻结表一次, 每条信号命中冻结则标权威 top1。
+    _home_freeze = _etf_freeze()
     for _s in sigs:
         _meta = _idx_meta.get(_s["index_id"])
         if _meta:
@@ -734,6 +791,8 @@ def overview(conn, cfg):
             _s["etfs"] = _self["etfs"]
         else:
             _s["etfs"] = [dict(_e) for _e in (etf_for(_s["index_id"]).get("etfs") or [])]
+        # 首页1:1对齐回测(#60 方案A): 命中冻结表 → 该信号 top1 = 回测标的(标 _bk_top)。
+        _align_home_top1_to_backtest(_s, _home_freeze)
     # 信号至今盈亏（方案B后端算）：为每条信号算 since_return（至今涨跌%）+ since_correct（对错）。
     # 缓存 {index_id: {date: close/value}} 避免 N+1（同 index_id 多信号只查一次）。
     # 用传入 conn 查（不调 normalize.load_* 避免新建连接，遵守模块无状态原则）。

@@ -1670,23 +1670,22 @@ function _signalLightInfo(it) {
 // hoverpop + cellHtml tooltip 统一用此函数取 top1, 解决 etfs[0]=最相似(560590) 与 popup top1=跟踪最好(560010) 错配
 function _topEtfByScore(etfs) {
   if (!etfs || !etfs.length) return null;
-  // 优先用后端滞回 stable_top1 标记(3天滞回防 top1 跳变, build_board_etf_map.py 标记)
+  // 2026-08-13 #60 方案A 首页1:1对齐回测: 优先返回后端/回测冻结的权威 top1(_bk_top, 即该信号
+  // (date|index_id|signal) 在 data/signal_kelly_etf_freeze.json 固化的 ETF, 由 queries.py 注入)。
+  // _bk_top 是回测确定的 ETF 本体(freeze), 非被移除的 stable_top1 3天滞回启发(那正是与回测漂移之源)。
+  // 未命中冻结(新信号/非回测类型)无 _bk_top → 纯 max(track_score), 与回测 _build_best_etf 同准则。
   for (var _i = 0; _i < etfs.length; _i++) {
-    if (etfs[_i] && etfs[_i].stable_top1 === true) return etfs[_i];
+    if (etfs[_i] && etfs[_i]._bk_top === true) return etfs[_i];
   }
-  // 降级: track_score 降序, track_n<90 视为不够稳定排后(延迟纳入, 只展示不排 top1)
+  // 统一回测口径: 纯 track_score 降序(回测 = max(track_score)), null/absent 排后;
+  // 去掉原 stable_top1 优先 + track_n>=90 稳定排前(与回测漂移之源, 见 #58)。
   return etfs.slice().sort(function(a, b) {
-    var _na = (a && typeof a.track_n === "number") ? a.track_n : 0;
-    var _nb = (b && typeof b.track_n === "number") ? b.track_n : 0;
-    var _aStable = _na >= 90;
-    var _bStable = _nb >= 90;
-    if (_aStable !== _bStable) return _bStable ? 1 : -1;  // >=90 优先, <90 排后
     var _sa = (a && typeof a.track_score === "number") ? a.track_score : -1;
     var _sb = (b && typeof b.track_score === "number") ? b.track_score : -1;
-    if (_sb !== _sa) return _sb - _sa;  // track_score 降序, null/absent 排后
+    if (_sb !== _sa) return _sb - _sa;  // track_score 降序
     var _ia = (a && typeof a.similarity === "number") ? a.similarity : -1;
     var _ib = (b && typeof b.similarity === "number") ? b.similarity : -1;
-    return _ib - _ia;  // 回退 similarity 降序(与 popup 一致, 无值用 -1)
+    return _ib - _ia;  // 平手回退 similarity 降序(与 popup 一致, 无值用 -1)
   })[0];
 }
 
