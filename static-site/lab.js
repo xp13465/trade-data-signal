@@ -8164,7 +8164,8 @@ var _kellyComboPresets = {
   }
 };
 
-// 刷新组合checkbox三态(派生: 全成员勾选=checked, 部分=indeterminate半选, 无=空); 成员toggle/组合改动后调用
+// 刷新组合checkbox三态(派生: 全成员勾选=active, 部分=indeterminate半选, 无=空); 成员toggle/组合改动后调用
+// 2026-08-13 融合: 组合宏改为顶部快捷按钮(不再 checkbox), 三态改 class 表达(active=全选/semi=半选), 与事件绑定解耦
 function _kellyRefreshComboStates(bar) {
   var filters = state.labSigKellyFilters || _kellyDefaultFilters();
   for (var ck in _kellyComboPresets) {
@@ -8175,8 +8176,10 @@ function _kellyRefreshComboStates(bar) {
     for (var i = 0; i < members.length; i++) {
       if (filters[members[i].k]) anyOn = true; else allOn = false;
     }
-    cb.checked = allOn;
-    cb.indeterminate = !allOn && anyOn;
+    if (cb.classList) {
+      cb.classList.toggle("active", allOn);
+      cb.classList.toggle("semi", !allOn && anyOn);
+    }
   }
 }
 
@@ -8228,6 +8231,87 @@ function _kellyRefreshAiMacroState(bar) {
   cb.indeterminate = !allOn && anyOn;
 }
 
+// ===== 降亏过滤 31 toggle 单一事实来源(2026-08-13 融合优化 #39): 渲染/排序/badge/联动全部从本数组派生, 根治"名称/比值/tip 硬编码在 HTML 字符串"痛点 =====
+// 字段: k=filter key / cls=checkbox class(事件绑定/组合宏成员复用, 勿改名) / name=白话名 / ratio=降亏比值(组内按此降序) /
+//       rec=默认推荐(⭐ badge 由此派生, 根治"标了但实际不默认"复发) / linked=核心3键(受 AI宏 总开关联动) /
+//       warn=监控/慎用标注(组内降序下虚高比值会置顶, 靠此防误导) / tip=完整说明(hover)
+// 分组口径=2026-08-12 用户定 4 大经济逻辑分类(日历效应·季节调仓/复合并集·广谱管理/信号质量·弱信号/市场防御·大盘择时)
+// 组间固定序(按组内默认推荐最高比值降序): 日历效应(6.63)>复合并集(4.18)>信号质量(2.52)>市场防御(2.31)
+var _kellyFadeFlagGroups = [
+  { key: "calendar", title: "日历效应·季节调仓", flags: [
+    // 组内按 ratio 降序排(渲染时再 sort 兜底); 虚高(V4-F 999/V4-M 115.56)会置顶, 保留 warn 标注防误导
+    { k: "v4f", cls: "lab-sigkelly-toggle-v4f", name: "V4-F 6月+周三+主关注+关联", ratio: 999, warn: "⚠️监控",
+      tip: "排除V4-F(6月+周三+主关注+related)。比值999(JEP)。净增收+2.47万元。⚠n=60太小,只3年数据,JEP ratio=999虚高。每年6月检查,子集转盈则暂停。" },
+    { k: "v4m", cls: "lab-sigkelly-toggle-v4m", name: "V4-M 9月+周三+追关注", ratio: 115.56, warn: "⚠️监控",
+      tip: "排除V4-M(9月+周三+追关注)。比值115.56。净增收+5.24万元。⚠只3年数据(2021/2024/2026),ratio=115.56虚高。数据不足,每年检查。" },
+    { k: "v4b", cls: "lab-sigkelly-toggle-v4b", name: "V4-B 5月+追关注+关联指数", ratio: 53.96,
+      tip: "排除V4-B(A股+5月+追关注+related)。比值53.96。净增收+4.01万元。6年全正,maxSh0.37最低,n=210充足。5月系中最稳。" },
+    { k: "v4i", cls: "lab-sigkelly-toggle-v4i", name: "V4-I 5月+追关注+概念+周一", ratio: 27.04,
+      tip: "排除V4-I(追关注+5月+概念+周一)。比值27.04。净增收+5.37万元。4年全正,y3=29.7。maxSh0.57接近阈值。" },
+    { k: "v4j", cls: "lab-sigkelly-toggle-v4j", name: "V4-J 5月+超低价+追关注", ratio: 15.55,
+      tip: "排除V4-J(5月+极低价+追关注)。比值15.55。净增收+6.29万元。5年全正,maxSh0.40。是⑤n5(5月+极低价,maxSh66%)的细化版,加追关注后maxSh从66%降到40%,过拟合风险显著降低。" },
+    { k: "v4d", cls: "lab-sigkelly-toggle-v4d", name: "V4-D 12月+周二+辅关注+低分", ratio: 12.20,
+      tip: "排除V4-D(12月+周二+辅关注+低分)。比值12.20。净增收+3.92万元。5年全正(2020-2024),maxSh0.46。经济逻辑最强(年末止损潮)。n=102,近1年无数据(12月未到)。" },
+    { k: "v4k", cls: "lab-sigkelly-toggle-v4k", name: "V4-K 1月+主关注+高价", ratio: 10.11, warn: "⚠️监控",
+      tip: "排除V4-K(1月+主关注+高价)。比值10.11。净增收+4.08万元。maxSh0.49。⚠有子集盈利年(2017/2025),3/5年净正非全正,稳定性不足。" },
+    { k: "n1MarTueHigh", cls: "lab-sigkelly-toggle-n1", name: "3月+周三+高价", ratio: 10.06,
+      tip: "排除3月+周三+高价ETF的交易。减亏0.89%/损盈0.09%/比值10.06(全场最高)。净增收+5.85万元。7/7年全亏(2017-2026)，无单年主导，稳定性最强单标志。" },
+    { k: "v4cSimple", cls: "lab-sigkelly-toggle-v4csimple", name: "V4-C 3月+周三+辅关注", ratio: 7.84,
+      tip: "排除V4-C简化(3月+周三+辅关注,去低分冗余)。比值7.84。净增收+11.3万元。4窗口极稳(y1/y3/y10均>7),覆盖366笔。是N1(3月+周三+高价)的信号维度变体,可叠加。" },
+    { k: "n2NovSpecialIndustry", cls: "lab-sigkelly-toggle-n2", name: "11月+追关注+行业", ratio: 6.63, rec: true,
+      tip: "⭐ 默认推荐(默认开启,降亏推荐): 排除11月+追关注+行业指数的交易。减亏1.10%/损盈0.17%/比值6.63。净增收+6.72万元。7/9年亏，近年(2023/2025)大亏回归。年末追涨在行业轮动中被套。" },
+    { k: "v4g", cls: "lab-sigkelly-toggle-v4g", name: "V4-G 全球+一季度+辅关注+低评级", ratio: 6.25, warn: "⚠️监控",
+      tip: "排除V4-G(全球+Q1+辅关注+低评级)。比值6.25。净增收+5.64万元。maxSh0.34。⚠近年才转亏:2023-2024子集实际盈利,2025-2026才大亏,可能是市场结构变化。观察2年再决定。" },
+    { k: "a45NovMidLateSpecial", cls: "lab-sigkelly-toggle-a45", name: "A45 11月中下旬+追关注", ratio: 5.75,
+      tip: "A45(11月中旬+下旬+追关注): 排除11日及以后(buy_date日≥11)的buy_special追关注交易。减亏5.54%/损盈0.96%/比值5.75。净增收+49.9万元(全场候选最大)。覆盖11月80%的special交易。叠加现有4 toggle之上边际+10.7万(比值7.87)。⚠含11月下旬(2024+零交易,近年贡献主要来自中旬)。已不在 AI降亏过滤 默认组合(功能与specialBear+J1+J2+n2 75%重叠冗余,posK2下边际转负)。" },
+    { k: "a5NovMidSpecial", cls: "lab-sigkelly-toggle-a5", name: "A5 11月中旬+追关注", ratio: 5.49,
+      tip: "A5(11月中旬+追关注): 排除11日-20日(中旬)的buy_special追关注交易。减亏3.62%/损盈0.66%/比值5.49。净增收+31.9万元。最稳候选:2016-2025连续有交易无空窗,4窗口(y2/y3/y5/y10)全>2。叠加现有4 toggle之上边际+7.7万(比值6.45)。注意:A5为A45(11月中下旬)的子集,同时开启A45时A5不再新增过滤。已不在 AI降亏过滤 默认组合(与specialBear+J1+J2冗余,posK2下边际转负)。" },
+    { k: "n3NovSpecialMon", cls: "lab-sigkelly-toggle-n3", name: "11月+追关注+周一", ratio: 5.24,
+      tip: "排除11月+追关注+周一的交易。减亏1.55%/损盈0.30%/比值5.24。净增收+8.87万元。8/10年亏，n=474样本充足。周末消息面消化后的追涨易被套。" },
+    { k: "janMidRating", cls: "lab-sigkelly-toggle-janmidrating", name: "J1 1月中旬+中评级", ratio: 4.71, rec: true, warn: "⚠️监控",
+      tip: "⭐ 默认推荐(默认开启): J1(1月中旬+中评级): 排除buy_date在11-20日(中旬)且rating=mid的1月交易。standalone减亏2.31%/损盈0.49%/比值4.71,净增收+18.7万,4窗口全>2(y1 4.0/y3 4.0/y5 4.2/y10 4.7),与现有标志90%不重叠,AI降亏过滤默认组合内边际+0.3万。⚠附监控:maxSh0.62略超0.60(2026单年占净影响62%,全局大亏年系统性特征),每年1月后检查1月中旬子集是否转盈。只做中旬:1月上旬=盈利口袋(全负-56万)不可动。" },
+    { k: "n4AMay", cls: "lab-sigkelly-toggle-n4", name: "A股+5月", ratio: 4.67,
+      tip: "排除A股指数+5月的交易。减亏1.10%/损盈0.24%/比值4.67。净增收+6.04万元。5月系中最稳(9/15年亏)，2023-2026连亏4年。5月A股调整常态化(年报季后调仓)。" },
+    { k: "janMidSpecial", cls: "lab-sigkelly-toggle-janmidspecial", name: "J2 1月中旬+追关注", ratio: 4.49, rec: true, warn: "⚠️监控",
+      tip: "⭐ 默认推荐(默认开启): J2(1月中旬+追关注): 排除buy_date在11-20日(中旬)的buy_special追关注1月交易。standalone减亏4.95%/损盈1.10%/比值4.49,净增收+38.9万,4窗口全>2(y1 4.9/y3 4.6/y10 4.5),AI降亏过滤默认组合内边际+0.8万。覆盖更广(2,565笔vs J1 1,134)但⚠maxSh0.79更差(2026更主导)。J2含J1约96%(J1为J2中mid评级的子集),同时开幂等无害。只做中旬:1月上旬=盈利口袋(全负-56万)不可动。" },
+    { k: "n5MayVlow", cls: "lab-sigkelly-toggle-n5", name: "5月+超低价", ratio: 4.02, warn: "⚠️监控",
+      tip: "排除5月+极低价ETF的交易。减亏1.85%/损盈0.46%/比值4.02。净增收+9.51万元。⚠️附监控:2026年占全历史净影响66%，过拟合风险最高。2021-2023连续3年子集盈利。每年6月监控5月表现，转盈则暂停。" },
+    { k: "n6MidMay", cls: "lab-sigkelly-toggle-n6", name: "5月+中评级", ratio: 3.35, warn: "⚠️监控",
+      tip: "排除mid评级+5月的交易。减亏2.19%/损盈0.65%/比值3.35。净增收+10.20万元。⚠️附监控:2026年占全历史净影响71%，2021大额子集盈利-1.74万。每年6月监控5月表现，转盈则暂停。" }
+  ]},
+  { key: "combo", title: "复合并集·广谱管理", flags: [
+    { k: "r8PureNonMay", cls: "lab-sigkelly-toggle-r8", name: "纯非5月3稳定组合", ratio: 5.87,
+      tip: "排除纯非五月3稳定组件(N1+N2+N3并集)。减亏3.19%/损盈0.54%/比值5.87。净增收+18.85万元。2021-2026连续6年全正，完全避开5月shift争议，损盈最低之一。与5月标志零重叠，可作独立补充。" },
+    { k: "r7MayReinforced", cls: "lab-sigkelly-toggle-r7", name: "5月强化+3稳定非5月", ratio: 4.18, rec: true, linked: true,
+      tip: "⭐ 默认推荐(默认开启): 排除5月强化(A股/mid/低价)+3稳定非五月(N1+N2+N3)的并集。减亏7.21%/损盈1.73%/比值4.18。净增收+37.75万元。损盈最低(最surgical)，近1/3年比值>9。含5月,2021子集盈利-1.78万。核心3键成员之一(r7+exclAuxCross+greedy15)。" },
+    { k: "r10May6NonMay", cls: "lab-sigkelly-toggle-r10", name: "5月+6非5月组合", ratio: 3.31,
+      tip: "排除5月+6稳定非五月组件的并集(5月整体+N1+N2+N3+11月追关注低价+3月追关注行业+3月周三辅关注)。减亏14.63%/损盈4.42%/比值3.31。净增收+67.65万元(全场最大)。PF 1.285→1.439。三条独立季节+信号线重叠少。2021-2022子集盈利(5月shift痕迹)。" },
+    // greedy15 双口径并存(2026-08-13 穷举v2 核对结论): 标签主显 ratio=3.29 为 v3 挖掘报告 standalone 比值(降亏标志挖掘报告, 未被穷举 v2 重算推翻); tip ⚠ standalone比值1.90<2 为穷举 v2 报告口径(标记为默认推荐核心3键一员开启、勿单开)。两口径来源不同并存可接受, 不改数值。
+    { k: "greedy15", cls: "lab-sigkelly-toggle-greedy15", name: "Greedy-15广谱组合", ratio: 3.29, rec: true, linked: true,
+      tip: "⭐ 默认推荐(默认开启): 排除Greedy-15组合(15step并集=Greedy-10+step11-15)。减亏32.4%/损盈9.84%/比值3.29(挖掘standalone口径)。净增收+149.0万元。PF1.285→1.713。maxSh0.28。⚠穷举v2 standalone比值1.90<2不达标, 仅作为核心3键一员开启(勿单开此组合); A/F收益率大增来源(K2 A 37.90→66.22%)但G净利略降(127.7→103.1万)。含step11=现有N2、step13=V4-G、step15=V4-M,同时开启幂等无害。" },
+    { k: "greedy7", cls: "lab-sigkelly-toggle-greedy7", name: "Greedy-7广谱组合", ratio: 3.15,
+      tip: "排除Greedy-7组合(7step并集):追关注+5月/追关注+11月+概念/追关注+3月/辅关注+1月/Q2+低价+辅关注+概念/主关注+1月/3月+周三+概念+低评级。减亏22.5%/损盈7.16%/比值3.15。净增收+100.7万元。PF1.285->1.540。maxSh0.28远低于⑤⑥的66%/71%,7条独立亏损逻辑线,近年不失效。" },
+    { k: "greedy10", cls: "lab-sigkelly-toggle-greedy10", name: "Greedy-10广谱组合", ratio: 3.06,
+      tip: "排除Greedy-10组合(10step并集=Greedy-7+step8-10)。减亏28.0%/损盈9.16%/比值3.06。净增收+123.0万元。PF1.285->1.623。maxSh0.28。损盈9.16%接近10%上限。" },
+    { k: "excludeMonth", cls: "lab-sigkelly-toggle-month", name: "排除3月和5月进场", ratio: 2.11,
+      tip: "季节性过滤，排除3月和5月进场的交易。减亏 18.4% / 损盈 8.7% / 比值 2.11。净增收 +52.8万元。历史6年3/5月亏多盈少可能过拟合。" }
+  ]},
+  { key: "quality", title: "信号质量·弱信号", flags: [
+    { k: "excludeAuxCross", cls: "lab-sigkelly-toggle-auxcross", name: "辅关注×3/5月交叉", ratio: 2.52, rec: true, linked: true,
+      tip: "⭐ 默认推荐(默认开启): 排除 buy_aux 信号在3/5月进场的交易（交叉标志）。减亏 7.3% / 损盈 2.9% / 比值 2.52（全场最高）。净增收 +25.8万元。最外科手术式标志,双条件交集更稳定。核心3键成员之一。" },
+    { k: "excludeAux", cls: "lab-sigkelly-toggle-aux", name: "排除辅关注信号", ratio: 1.38,
+      tip: "排除 buy_aux（辅关注）信号。减亏 34.5%（253.6万元）/ 损盈 25.0%（238.7万元）/ 比值 1.38。净增收 +14.8万元。唯一净负信号类型（胜率48%），系统性最强。" },
+    { k: "excludeRatingLow", cls: "lab-sigkelly-toggle-rating", name: "排除低评级信号", ratio: 1.14, warn: "⚠️慎用(破坏性)",
+      tip: "排除 rating=low 低评级信号。减亏 82.3%（605.4万元）/ 损盈 72.0%（686.4万元）/ 比值 1.14。净影响 -81.0万元（最大破坏）。低评级是周期性盈利群体（2025牛市+901k），砍掉损净利。" }
+  ]},
+  { key: "market", title: "市场防御·大盘择时", flags: [
+    { k: "excludeSpecialBear", cls: "lab-sigkelly-toggle-specialbear", name: "追关注×熊市交叉", ratio: 2.31, rec: true,
+      tip: "⭐ 默认推荐(默认开启,降亏推荐): 排除 buy_special（追关注）信号在MA60熊市的交易（交叉标志）。减亏 8.3% / 损盈 3.6% / 比值 2.31。净增收 +26.5万元。追涨信号在熊市是经典反模式（追涨被套），buy_special整体净正但在熊市净亏。" },
+    { k: "marketTiming", cls: "lab-sigkelly-toggle-mkt", name: "MA60大盘择时", ratio: 1.24, warn: "⚠️慎用(破坏性)",
+      tip: "MA60 大盘择时（仅A股类 a/concept/industry）：沪深300在60日均线之上才进场。减亏 47.0%（345.6万元）/ 损盈 37.8%（360.5万元）/ 比值 1.24。净影响 -14.9万元（降亏强但损盈更多，全模式净负）。港股/全球标 true 不过滤。" }
+  ]}
+];
+
 function _renderSigKellyBar(bar, data, period) {
   const cfg = data.config || {};
   const periods = cfg.periods || { y1: "近1年", y3: "近3年", all: "全部" };
@@ -8257,13 +8341,27 @@ function _renderSigKellyBar(bar, data, period) {
       `<label>过户费:万分之<input type="number" class="lab-input lab-sigkelly-fee-input-transfer" value="${transferVal}" step="0.01" min="0" style="width:42px">(沪)</label>` +
       `<label>印花税:万分之<input type="number" class="lab-input lab-sigkelly-fee-input-stamp" value="${stampVal}" step="0.01" min="0" style="width:42px">(卖)</label>` +
     `</div>`;
-  // 降亏过滤toggle(31个独立checkbox可组合, 其中7个默认推荐(AI宏)常驻高亮+24个折叠收起, 开启后过滤交易集重算所有指标, 按比值倒序)
+  // 降亏过滤toggle(31个独立checkbox可组合, 其中7个默认推荐(AI宏)在4大分类组内标⭐, 单一事实来源 _kellyFadeFlagGroups; 开启后过滤交易集重算所有指标, 组内按比值降序)
   const _filters = state.labSigKellyFilters || _kellyDefaultFilters();
-  // 组合降亏「预设宏」(4个, 2026-08-11新增): 组合checkbox勾选态由成员toggle派生
+  // 组合降亏「预设宏」(4个, 2026-08-11新增): 2026-08-13 融合 #39 改为顶部快捷按钮行, 一键勾选/取消全部成员toggle, 勾选态由成员派生(见 _kellyRefreshComboStates)
   const comboHTML = Object.keys(_kellyComboPresets).map((ck) => {
     const cp = _kellyComboPresets[ck];
-    const allOn = cp.members.every((m) => _filters[m.k]);
-    return `<label class="lab-sigkelly-toggle lab-sigkelly-toggle-combo" tabindex="0" data-no-pop="" data-tip="${cp.tip}"><input type="checkbox" class="lab-sigkelly-toggle-combo lab-sigkelly-toggle-combo-${ck}"${allOn ? " checked" : ""}> ${cp.label} <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>`;
+    return `<button type="button" class="lab-sigkelly-toggle-combo lab-sigkelly-toggle-combo-${ck}" data-no-pop="" title="${cp.tip}">${cp.label}</button>`;
+  }).join("");
+  // 4大分类组(2026-08-13 融合 #39, 单一事实来源 _kellyFadeFlagGroups): 组内按 ratio 降序(虚高比值置顶由 warn 标注防误导), 组标题可点击收展该组
+  const catHTML = _kellyFadeFlagGroups.map((g) => {
+    const flagsSorted = g.flags.slice().sort((a, b) => b.ratio - a.ratio);
+    const flagHTML = flagsSorted.map((f) => {
+      return `<label class="lab-sigkelly-toggle${f.rec ? " lab-sigkelly-rec" : ""}" tabindex="0" data-no-pop="" data-tip="${f.tip}">` +
+        `<input type="checkbox" class="${f.cls}"${_filters[f.k] ? " checked" : ""}>` +
+        (f.rec ? `<span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span>` : "") +
+        (f.linked ? `<span class="lab-sigkelly-toggle-linked">🔗核心3键</span>` : "") +
+        ` ${f.name}(${f.ratio})${f.warn || ""} <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>`;
+    }).join("");
+    return `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-cat" data-cat="${g.key}">` +
+      `<span class="lab-sigkelly-toggle-tier lab-sigkelly-toggle-tier-cat" data-cat="${g.key}" title="点击收起/展开该组">${g.title}(${g.flags.length}) <span class="lab-sigkelly-toggle-cat-caret">▼</span></span>` +
+      `<div class="lab-sigkelly-toggle-cat-body" data-cat="${g.key}">${flagHTML}</div>` +
+      `</div>`;
   }).join("");
   // positionCap 仓位控制过滤(2026-08-12): 同日只买最优K个(基笔级,9模式共享统一生效), K档位1-4可配置(默认3, 2026-08-13定默认)
   // 2026-08-12 #4 rename+范围扩展: 显示名改"AI仓位建议"(技术别名:仓位控制过滤), pop tooltip 完整展示; 历史回测数据固化展示(下方 poscapHistoryHTML)
@@ -8340,61 +8438,15 @@ function _renderSigKellyBar(bar, data, period) {
       // #39 三级级联UI 第1级: AI宏 总开关(独立行, 可收起展开; 勾选联动 核心3键 子级, 见 _kellyAiMacroMembers; 2026-08-13 调序后: AI仓位建议行在上, AI宏总开关在下)
       `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-ai">` +
       `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ AI降亏过滤(总开关, 默认开启): = AI仓位建议(K=3 默认=最稳健主推, 可手动切换, 见 K 按钮评级) + 基础4键默认(追关注×熊市/J1 1月中旬+mid评级/J2 1月中旬+追关注/n2 11月+追关注+行业; ⚠基础4键为独立 toggle, 不受本总开关控制) + 核心3键(r7 5月强化+3非五月R7 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合)。默认=穷举最大化推荐: A模式 K1=77.36%(最激进) / 默认K=3 A=68.40%; K2 A=66.22%; F/G 见 K 档回测。⚠口径差异: 77.36%=K1 A模式, 默认K=3下 A=68.40%; G 净利 127.7→103.1万(以降净利换收益率)。勾选=联动下方 核心3键 子复选框, 取消=关 核心3键; ⚠4组合全开=可选分析非默认推荐(低核心3键 6.33pp, 勿误解为默认)。"><input type="checkbox" class="lab-sigkelly-toggle-aimacro" checked><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> AI降亏过滤(总开关,默认开启) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-btn" style="margin-left:10px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="收起/展开下方 组合降亏预设宏 + 单标志降亏(31个), 默认展开">AI降亏过滤详情收起 ▲</button>` +
+      `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-btn" style="margin-left:10px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="收起/展开下方 组合降亏快捷按钮 + 31个单标志(4大分类组), 默认展开">AI降亏过滤详情收起 ▲</button>` +
       `</div>` +
       `<div id="lab-kelly-ai-macro-body" class="lab-sigkelly-ai-macro-body">` +
-      `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">组合降亏(可选)</span>` + comboHTML +
-      `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-toggle-detail-btn" style="margin-left:10px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="展开/收起下方 24 个非默认独立小降亏toggle(默认收起, 关注细标志时手动展开调试)">细标志(24)展开 ▼</button></div>` +
-      `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-rec"><span class="lab-sigkelly-toggle-tier">⭐ 单标志降亏(默认开启7项)</span>` +
-      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启,降亏推荐): 排除 buy_special（追关注）信号在MA60熊市的交易（交叉标志）。减亏 8.3% / 损盈 3.6% / 比值 2.31。净增收 +26.5万元。追涨信号在熊市是经典反模式（追涨被套），buy_special整体净正但在熊市净亏。"><input type="checkbox" class="lab-sigkelly-toggle-specialbear"${_filters.excludeSpecialBear ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> 追关注×熊市交叉(2.31) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启): J1(1月中旬+mid评级): 排除buy_date在11-20日(中旬)且rating=mid的1月交易。standalone减亏2.31%/损盈0.49%/比值4.71,净增收+18.7万,4窗口全>2(y1 4.0/y3 4.0/y5 4.2/y10 4.7),与现有标志90%不重叠,AI降亏过滤默认组合内边际+0.3万。⚠附监控:maxSh0.62略超0.60(2026单年占净影响62%,全局大亏年系统性特征),每年1月后检查1月中旬子集是否转盈。只做中旬:1月上旬=盈利口袋(全负-56万)不可动。"><input type="checkbox" class="lab-sigkelly-toggle-janmidrating"${_filters.janMidRating ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> J1 1月中旬+mid评级(4.71)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启): J2(1月中旬+追关注): 排除buy_date在11-20日(中旬)的buy_special追关注1月交易。standalone减亏4.95%/损盈1.10%/比值4.49,净增收+38.9万,4窗口全>2(y1 4.9/y3 4.6/y10 4.5),AI降亏过滤默认组合内边际+0.8万。覆盖更广(2,565笔vs J1 1,134)但⚠maxSh0.79更差(2026更主导)。J2含J1约96%(J1为J2中mid评级的子集),同时开幂等无害。只做中旬:1月上旬=盈利口袋(全负-56万)不可动。"><input type="checkbox" class="lab-sigkelly-toggle-janmidspecial"${_filters.janMidSpecial ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> J2 1月中旬+追关注(4.49)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启,降亏推荐): 排除11月+追关注+行业指数的交易。减亏1.10%/损盈0.17%/比值6.63。净增收+6.72万元。7/9年亏，近年(2023/2025)大亏回归。年末追涨在行业轮动中被套。"><input type="checkbox" class="lab-sigkelly-toggle-n2"${_filters.n2NovSpecialIndustry ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> 11月+追关注+行业(6.63) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启): 排除5月强化(A股/mid/低价)+3稳定非五月(N1+N2+N3)的并集。减亏7.21%/损盈1.73%/比值4.18。净增收+37.75万元。损盈最低(最surgical)，近1/3年比值>9。含5月,2021子集盈利-1.78万。核心3键成员之一(r7+exclAuxCross+greedy15)。"><input type="checkbox" class="lab-sigkelly-toggle-r7"${_filters.r7MayReinforced ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> 5月强化+3非五月R7(4.18) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启): 排除 buy_aux 信号在3/5月进场的交易（交叉标志）。减亏 7.3% / 损盈 2.9% / 比值 2.52（全场最高）。净增收 +25.8万元。最外科手术式标志,双条件交集更稳定。核心3键成员之一。"><input type="checkbox" class="lab-sigkelly-toggle-auxcross"${_filters.excludeAuxCross ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> 辅关注×3/5月交叉(2.52) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启): 排除Greedy-15组合(15step并集=Greedy-10+step11-15)。减亏32.4%/损盈9.84%/比值3.29。净增收+149.0万元。PF1.285→1.713。maxSh0.28。⚠standalone比值1.90<2不达标, 仅作为核心3键一员开启(勿单开此组合); A/F收益率大增来源(K2 A 37.90→66.22%)但G净利略降(127.7→103.1万)。含step11=现有N2、step13=V4-G、step15=V4-M,同时开启幂等无害。"><input type="checkbox" class="lab-sigkelly-toggle-greedy15"${_filters.greedy15 ? " checked" : ""}><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> Greedy-15组合(3.29) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      // 2026-08-13 融合 #39: 组合预设宏改顶部快捷按钮行(一键勾选成员, 不再独立内容块); 标题含"可选分析非默认推荐"(#45 文案修正)
+      `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-combo"><span class="lab-sigkelly-toggle-tier">组合降亏(可选分析非默认推荐)</span>` + comboHTML + `</div>` +
+      // 4大分类组(31 toggle 全归位, 组内比值降序, 默认推荐7键标⭐且核心3键标🔗, 组标题可点击收展该组)
+      catHTML +
       `</div>` +
-      `<div id="lab-kelly-toggle-detail" class="lab-sigkelly-toggle-detail" style="display:none">` +
-      `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">日历效应·季节调仓(16)</span>` +
-      `<span class="lab-sigkelly-toggle-tier" style="flex-basis:100%;font-size:10px;opacity:0.75">5月·五月卖出</span>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-B(A股+5月+追关注+related)。比值53.96。净增收+4.01万元。6年全正,maxSh0.37最低,n=210充足。5月系中最稳。"><input type="checkbox" class="lab-sigkelly-toggle-v4b"${_filters.v4b ? " checked" : ""}> V4-B(53.96) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-I(追关注+5月+概念+周一)。比值27.04。净增收+5.37万元。4年全正,y3=29.7。maxSh0.57接近阈值。"><input type="checkbox" class="lab-sigkelly-toggle-v4i"${_filters.v4i ? " checked" : ""}> V4-I(27.04) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-J(5月+极低价+追关注)。比值15.55。净增收+6.29万元。5年全正,maxSh0.40。是⑦n5(5月+极低价,maxSh66%)的细化版,加追关注后maxSh从66%降到40%,过拟合风险显著降低。"><input type="checkbox" class="lab-sigkelly-toggle-v4j"${_filters.v4j ? " checked" : ""}> V4-J(15.55) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除A股指数+5月的交易。减亏1.10%/损盈0.24%/比值4.67。净增收+6.04万元。5月系中最稳(9/15年亏)，2023-2026连亏4年。5月A股调整常态化(年报季后调仓)。"><input type="checkbox" class="lab-sigkelly-toggle-n4"${_filters.n4AMay ? " checked" : ""}> A股+5月(4.67) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除5月+极低价ETF的交易。减亏1.85%/损盈0.46%/比值4.02。净增收+9.51万元。⚠️附监控:2026年占全历史净影响66%，过拟合风险最高。2021-2023连续3年子集盈利。每年6月监控5月表现，转盈则暂停。"><input type="checkbox" class="lab-sigkelly-toggle-n5"${_filters.n5MayVlow ? " checked" : ""}> 5月+极低价(4.02)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除mid评级+5月的交易。减亏2.19%/损盈0.65%/比值3.35。净增收+10.20万元。⚠️附监控:2026年占全历史净影响71%，2021大额子集盈利-1.74万。每年6月监控5月表现，转盈则暂停。"><input type="checkbox" class="lab-sigkelly-toggle-n6"${_filters.n6MidMay ? " checked" : ""}> mid+5月(3.35)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<span class="lab-sigkelly-toggle-tier" style="flex-basis:100%;font-size:10px;opacity:0.75">11月·年末追涨(含A5/A45候选,非默认)</span>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="A45(11月中旬+下旬+追关注): 排除11日及以后(buy_date日≥11)的buy_special追关注交易。减亏5.54%/损盈0.96%/比值5.75。净增收+49.9万元(全场候选最大)。覆盖11月80%的special交易。叠加现有4 toggle之上边际+10.7万(比值7.87)。⚠含11月下旬(2024+零交易,近年贡献主要来自中旬)。已不在 AI降亏过滤 默认组合(功能与specialBear+J1+J2+n2 75%重叠冗余,posK2下边际转负)。"><input type="checkbox" class="lab-sigkelly-toggle-a45"${_filters.a45NovMidLateSpecial ? " checked" : ""}> A45 11月中下旬+追关注(5.75) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="A5(11月中旬+追关注): 排除11日-20日(中旬)的buy_special追关注交易。减亏3.62%/损盈0.66%/比值5.49。净增收+31.9万元。最稳候选:2016-2025连续有交易无空窗,4窗口(y2/y3/y5/y10)全>2。叠加现有4 toggle之上边际+7.7万(比值6.45)。注意:A5为A45(11月中下旬)的子集,同时开启A45时A5不再新增过滤。已不在 AI降亏过滤 默认组合(与specialBear+J1+J2冗余,posK2下边际转负)。"><input type="checkbox" class="lab-sigkelly-toggle-a5"${_filters.a5NovMidSpecial ? " checked" : ""}> A5 11月中旬+追关注(5.49) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除11月+追关注+周一的交易。减亏1.55%/损盈0.30%/比值5.24。净增收+8.87万元。8/10年亏，n=474样本充足。周末消息面消化后的追涨易被套。"><input type="checkbox" class="lab-sigkelly-toggle-n3"${_filters.n3NovSpecialMon ? " checked" : ""}> 11月+追关注+周一(5.24) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<span class="lab-sigkelly-toggle-tier" style="flex-basis:100%;font-size:10px;opacity:0.75">3月·季末调仓</span>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除3月+周三+高价ETF的交易。减亏0.89%/损盈0.09%/比值10.06(全场最高)。净增收+5.85万元。7/7年全亏(2017-2026)，无单年主导，稳定性最强单标志。"><input type="checkbox" class="lab-sigkelly-toggle-n1"${_filters.n1MarTueHigh ? " checked" : ""}> 3月+周三+高价(10.06) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-C简化(3月+周三+辅关注,去低分冗余)。比值7.84。净增收+11.3万元。4窗口极稳(y1/y3/y10均>7),覆盖366笔。是v3 N1(3月+周三+高价)的信号维度变体,可叠加。"><input type="checkbox" class="lab-sigkelly-toggle-v4csimple"${_filters.v4cSimple ? " checked" : ""}> V4-C简化(7.84) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<span class="lab-sigkelly-toggle-tier" style="flex-basis:100%;font-size:10px;opacity:0.75">1月/12月·年初年末调整</span>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-D(12月+周二+辅关注+低分)。比值12.20。净增收+3.92万元。5年全正(2020-2024),maxSh0.46。经济逻辑最强(年末止损潮)。n=102,近1年无数据(12月未到)。"><input type="checkbox" class="lab-sigkelly-toggle-v4d"${_filters.v4d ? " checked" : ""}> V4-D(12.20) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-K(1月+主关注+高价)。比值10.11。净增收+4.08万元。maxSh0.49。⚠有子集盈利年(2017/2025),3/5年净正非全正,稳定性不足。"><input type="checkbox" class="lab-sigkelly-toggle-v4k"${_filters.v4k ? " checked" : ""}> V4-K(10.11)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<span class="lab-sigkelly-toggle-tier" style="flex-basis:100%;font-size:10px;opacity:0.75">其他季末(Q1/6/9月)</span>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-M(9月+周三+追关注)。比值115.56。净增收+5.24万元。⚠只3年数据(2021/2024/2026),ratio=115.56虚高。数据不足,每年检查。"><input type="checkbox" class="lab-sigkelly-toggle-v4m"${_filters.v4m ? " checked" : ""}> V4-M(115.56)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-F(6月+周三+主关注+related)。比值999(JEP)。净增收+2.47万元。⚠n=60太小,只3年数据,JEP ratio=999虚高。每年6月检查,子集转盈则暂停。"><input type="checkbox" class="lab-sigkelly-toggle-v4f"${_filters.v4f ? " checked" : ""}> V4-F(999)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除V4-G(全球+Q1+辅关注+低评级)。比值6.25。净增收+5.64万元。maxSh0.34。⚠近年才转亏:2023-2024子集实际盈利,2025-2026才大亏,可能是市场结构变化。观察2年再决定。"><input type="checkbox" class="lab-sigkelly-toggle-v4g"${_filters.v4g ? " checked" : ""}> V4-G(6.25)⚠️监控 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `</div>` +
-      `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">信号质量·弱信号(2)</span>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 buy_aux（辅关注）信号。减亏 34.5%（253.6万元）/ 损盈 25.0%（238.7万元）/ 比值 1.38。净增收 +14.8万元。唯一净负信号类型（胜率48%），系统性最强。"><input type="checkbox" class="lab-sigkelly-toggle-aux"${_filters.excludeAux ? " checked" : ""}> 排除辅关注(1.38) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除 rating=low 低评级信号。减亏 82.3%（605.4万元）/ 损盈 72.0%（686.4万元）/ 比值 1.14。净影响 -81.0万元（最大破坏）。低评级是周期性盈利群体（2025牛市+901k），砍掉损净利。"><input type="checkbox" class="lab-sigkelly-toggle-rating"${_filters.excludeRatingLow ? " checked" : ""}> 排除低评级(1.14)⚠️慎用(破坏性) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `</div>` +
-      `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">复合并集·广谱管理(5)</span>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除纯非五月3稳定组件(N1+N2+N3并集)。减亏3.19%/损盈0.54%/比值5.87。净增收+18.85万元。2021-2026连续6年全正，完全避开5月shift争议，损盈最低之一。与5月标志零重叠，可作独立补充。"><input type="checkbox" class="lab-sigkelly-toggle-r8"${_filters.r8PureNonMay ? " checked" : ""}> 纯非五月3稳定R8(5.87) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除5月+6稳定非五月组件的并集(5月整体+N1+N2+N3+11月追关注低价+3月追关注行业+3月周三辅关注)。减亏14.63%/损盈4.42%/比值3.31。净增收+67.65万元(全场最大)。PF 1.285→1.439。三条独立季节+信号线重叠少。2021-2022子集盈利(5月shift痕迹)。"><input type="checkbox" class="lab-sigkelly-toggle-r10"${_filters.r10May6NonMay ? " checked" : ""}> 5月+6非五月R10(3.31) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除Greedy-7组合(7step并集):追关注+5月/追关注+11月+概念/追关注+3月/辅关注+1月/Q2+低价+辅关注+概念/主关注+1月/3月+周三+概念+低评级。减亏22.5%/损盈7.16%/比值3.15。净增收+100.7万元。PF1.285->1.540。maxSh0.28远低于⑦⑧的66%/71%,7条独立亏损逻辑线,近年不失效。"><input type="checkbox" class="lab-sigkelly-toggle-greedy7"${_filters.greedy7 ? " checked" : ""}> Greedy-7组合(3.15) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="排除Greedy-10组合(10step并集=Greedy-7+step8-10)。减亏28.0%/损盈9.16%/比值3.06。净增收+123.0万元。PF1.285->1.623。maxSh0.28。损盈9.16%接近10%上限。"><input type="checkbox" class="lab-sigkelly-toggle-greedy10"${_filters.greedy10 ? " checked" : ""}> Greedy-10组合(3.06) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="季节性过滤，排除3月和5月进场的交易。减亏 18.4% / 损盈 8.7% / 比值 2.11。净增收 +52.8万元。历史6年3/5月亏多盈少可能过拟合。"><input type="checkbox" class="lab-sigkelly-toggle-month"${_filters.excludeMonth ? " checked" : ""}> 排除3+5月(季节性)(2.11) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `</div>` +
-      `<div class="lab-sigkelly-toggle-group"><span class="lab-sigkelly-toggle-tier">市场防御·大盘择时(1)</span>` +
-      `<label class="lab-sigkelly-toggle" tabindex="0" data-no-pop="" data-tip="MA60 大盘择时（仅A股类 a/concept/industry）：沪深300在60日均线之上才进场。减亏 47.0%（345.6万元）/ 损盈 37.8%（360.5万元）/ 比值 1.24。净影响 -14.9万元（降亏强但损盈更多，全模式净负）。港股/全球标 true 不过滤。"><input type="checkbox" class="lab-sigkelly-toggle-mkt"${_filters.marketTiming ? " checked" : ""}> MA60大盘择时(1.24)⚠️慎用(破坏性) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-      `</div>` +
-      `</div>` +
-      `</div>` +
-      `<span class="lab-sigkelly-toggle-hint">AI降亏过滤=总开关(联动下方子复选框);组合/单标志独立开启,实时过滤重算</span>` +
+      `<span class="lab-sigkelly-toggle-hint">AI降亏过滤=总开关(联动下方核心3键子复选框);组合预设/单标志独立开启,实时过滤重算</span>` +
     `</div>`;
   bar.innerHTML =
     `<div class="lab-sigkelly-periods">${tabsHTML}</div>` +
@@ -8630,20 +8682,25 @@ function _renderSigKellyBar(bar, data, period) {
     _kellyOnFilterChange();
   };
   // 组合降亏「预设宏」(2026-08-11用户定: 1+2+3全要,按需选择,组合可叠加=成员并集OR):
-  // 点击组合→勾选/取消全部成员toggle, 过滤零改动(成员谓词并集), 幂等+§22一致; 组合勾选态由成员派生(不新增第三份过滤状态)
+  // 2026-08-13 融合 #39: 组合宏改顶部快捷按钮(一键勾选/取消全部成员toggle, 过滤零改动(成员谓词并集), 幂等+§22一致; 组合勾选态由成员派生(不新增第三份过滤状态))
+  // 按钮无 change 事件, 需手动刷新 AI宏 三态(最大化降亏组合含核心3键 greedy15)
   for (var comboKey in _kellyComboPresets) {
     (function (ck) {
       var comboCb = bar.querySelector(".lab-sigkelly-toggle-combo-" + ck);
       if (!comboCb) return;
-      comboCb.onchange = function () {
+      comboCb.onclick = function () {
         if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
         var members = _kellyComboPresets[ck].members;
-        for (var i = 0; i < members.length; i++) {
-          state.labSigKellyFilters[members[i].k] = comboCb.checked;
-          var mb = bar.querySelector("." + members[i].cls);
-          if (mb) mb.checked = comboCb.checked;
+        var allOn = true;
+        for (var i = 0; i < members.length; i++) { if (!state.labSigKellyFilters[members[i].k]) { allOn = false; break; } }
+        var setOn = !allOn;
+        for (var j = 0; j < members.length; j++) {
+          state.labSigKellyFilters[members[j].k] = setOn;
+          var mb = bar.querySelector("." + members[j].cls);
+          if (mb) mb.checked = setOn;
         }
         _kellyRefreshComboStates(bar);
+        _kellyRefreshAiMacroState(bar);
         _kellyOnFilterChange();
       };
     })(comboKey);
@@ -8708,16 +8765,18 @@ function _renderSigKellyBar(bar, data, period) {
       _aiBtn.textContent = open ? "AI降亏过滤详情展开 ▼" : "AI降亏过滤详情收起 ▲";
     });
   }
-  // 细标志收起/展开(2026-08-12 需求4: 非默认24个独立小toggle默认收起, 按钮在「组合降亏」行内; 4预设宏/仓位控制/金额展示/7默认推荐(AI宏=基础+3元)常驻)
-  var _detBtn = bar.querySelector("#lab-kelly-toggle-detail-btn");
-  var _detWrap = bar.querySelector("#lab-kelly-toggle-detail");
-  if (_detBtn && _detWrap) {
-    _detBtn.addEventListener("click", function () {
-      var open = _detWrap.style.display !== "none";
-      _detWrap.style.display = open ? "none" : "";
-      _detBtn.textContent = open ? "细标志(24)展开 ▼" : "细标志(24)收起 ▲";
+  // 4大分类组 收起/展开(2026-08-13 融合 #39: 组标题可点击收展该组, 4组默认全展开, 不持久化)
+  bar.querySelectorAll(".lab-sigkelly-toggle-tier-cat").forEach(function (tier) {
+    tier.addEventListener("click", function () {
+      var cat = tier.getAttribute("data-cat");
+      var body = bar.querySelector(".lab-sigkelly-toggle-cat-body[data-cat='" + cat + "']");
+      var caret = tier.querySelector(".lab-sigkelly-toggle-cat-caret");
+      if (!body) return;
+      var isCollapsed = body.classList.contains("collapsed");
+      body.classList.toggle("collapsed", !isCollapsed);
+      if (caret) caret.textContent = isCollapsed ? "▼" : "▶";
     });
-  }
+  });
   // 成员toggle改动→刷新组合三态+AI宏三态(事件委托, 捕获toggle区内所有checkbox change; 组合自身/AI宏自身change跳过, 各自handler已刷新)
   var _kellyToggleRow = bar.querySelector(".lab-sigkelly-toggle-row");
   if (_kellyToggleRow) {

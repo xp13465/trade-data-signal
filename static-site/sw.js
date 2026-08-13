@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260813-a184';  // SW 更新检测即时化: index.html 注册 SW 加 updateViaCache:none + 5min reg.update() 轮询(SPA 无导航时也能快速检出新版), 改 index.html 必须升此版本让已缓存用户拉到新 App Shell; 基底=数字单位a177
+const CACHE_VERSION = 'v6-20260813-a186';  // a185->a186(皮肤分支已占a185): 凯利AI降亏过滤区融合(#39/#45) 4大分类组31单标志+组合宏按钮+总开关三级级联, 前端lab.js/lab.css/lab.min重建+bump; a184->a185=皮肤弹窗样式修复; 基底=数字单位a177
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

@@ -1492,6 +1492,21 @@
 [data-theme="dark"] .lab-sigkelly-toggle.lab-sigkelly-rec, [data-theme="redgold"] .lab-sigkelly-toggle.lab-sigkelly-rec { background: rgba(250,173,20,0.14); }
 .lab-sigkelly-rec-badge { display: inline-block; font-size: 10px; font-weight: 700; color: #8a5a00; background: linear-gradient(135deg, #ffd700, #ffb300); border-radius: 3px; padding: 0 5px; margin: 0 3px; line-height: 1.5; }
 [data-theme="dark"] .lab-sigkelly-rec-badge, [data-theme="redgold"] .lab-sigkelly-rec-badge { color: #5b3b00; }
+/* 2026-08-13 融合 #39: 核心3键(受AI宏总开关联动)徽标 */
+.lab-sigkelly-toggle-linked { display: inline-block; font-size: 9px; font-weight: 700; color: #0958d9; background: rgba(9,88,217,0.10); border: 1px solid rgba(9,88,217,0.35); border-radius: 3px; padding: 0 4px; margin: 0 2px; line-height: 1.5; white-space: nowrap; }
+[data-theme="dark"] .lab-sigkelly-toggle-linked, [data-theme="redgold"] .lab-sigkelly-toggle-linked { color: #69b1ff; border-color: rgba(105,177,255,0.45); background: rgba(22,93,255,0.16); }
+/* 2026-08-13 融合 #39: 4大分类组 - 组标题可点击收展该组 */
+.lab-sigkelly-toggle-tier-cat { cursor: pointer; user-select: none; padding: 1px 6px 1px 4px; border-radius: 3px; transition: background 0.15s; }
+.lab-sigkelly-toggle-tier-cat:hover { background: rgba(255,140,0,0.12); }
+[data-theme="dark"] .lab-sigkelly-toggle-tier-cat:hover, [data-theme="redgold"] .lab-sigkelly-toggle-tier-cat:hover { background: rgba(240,185,11,0.14); }
+.lab-sigkelly-toggle-cat-caret { font-size: 9px; opacity: 0.8; margin-left: 2px; }
+.lab-sigkelly-toggle-cat-body { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; width: 100%; padding-top: 4px; }
+.lab-sigkelly-toggle-cat-body.collapsed { display: none; }
+/* 2026-08-13 融合 #39: 组合预设宏改顶部快捷按钮(一键勾选成员; active=全成员勾选, semi=部分勾选) */
+.lab-sigkelly-toggle-combo { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-2); cursor: pointer; line-height: 1.4; transition: all 0.15s; white-space: nowrap; }
+.lab-sigkelly-toggle-combo:hover { border-color: var(--primary); color: var(--text-1); }
+.lab-sigkelly-toggle-combo.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700; }
+.lab-sigkelly-toggle-combo.semi { border-style: dashed; border-color: var(--primary); color: var(--primary); }
 /* 降亏过滤 toggle hover 说明 tooltip (CSS 纯实现, hover/focus-within 触发, 复用 wm-pop 视觉变量) */
 .lab-sigkelly-toggle[data-tip] { position: relative; }
 .lab-sigkelly-toggle[data-tip]::before { content: ""; position: absolute; top: 100%; left: 0; right: 0; height: 6px; }
