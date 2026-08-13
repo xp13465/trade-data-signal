@@ -1748,7 +1748,7 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn) {
       `<input type="checkbox" class="sig-switch-ai-cb"${_fadeOn ? " checked" : ""}> AI降亏过滤` +
       `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 开启=首页按降亏策略判定, 固定 7 键成员级(基础4: 追关注×熊市交叉 / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 + 核心3键: 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致), 命中降亏条件的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); 关闭=首页完全不判降亏、不灰显不删除线不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号。">ⓘ</span>` +
     `</label>` +
-    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap): 同日只买最优K个, 未进入前K=当日已满灰显; 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表, 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。【档位语义·与下方评级表一致】K=1=收益率最优档(fixed 每笔1万口径 77.36%)但回撤最大(13.50%)、样本最少(1,184), 非默认; K=3=默认稳健档(收益率68.40% 非最高, 但收益率第二高+回撤第二优(8.67%)+样本充足(2,403), 甜点区主推★), 默认 K=3 为稳健选择, 非收益率最优档">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span></span>` +
+    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap): 同日只买最优K个, 未进入前K=当日已满灰显; 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表, 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。【档位语义·与下方评级表一致·2026-08-14 每日池口径】K=1=收益率最优档(每日池 A模式 86.60%)但回撤较大(13.0%)、样本最少(1,184), 非默认; K=3=默认稳健档(收益率78.91% 非最高, 但回撤并列最小(12.0%)+甜点区主推★), 默认 K=3 为稳健选择, 非收益率最优档">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span></span>` +
     `</div>`;
 }
 // 绑定首页开关行事件(K 按钮 + AI降亏 checkbox), 改状态后重绘 sigCard; 每次渲染开关行后调用
