@@ -482,17 +482,72 @@ var _AI_POSCAP_RATING = {
   3: { name: "最稳健", ret: "68.40%", dd: "8.67%", ra: "7.89", n: "2,403", reason: "收益率第二高+回撤第二优,甜点区(主推)" },
   4: { name: "最保守", ret: "65.13%", dd: "7.24%", ra: "9.00", n: "2,794", reason: "回撤最小" }
 };
-// K 档评级 hoverpop 表格 HTML(3124 排序, K=3 高亮主推; app.js/lab.js 两处共用同一份, 勿单改数值)
+// #54 2026-08-13 动态化: 共享动态源(由 lab.js _kellyApplyFeeRecompute 在 AI仓位建议开启时用当前 filters+费率+最新数据重算写入)
+// 结构: { computed:bool, date:数据日期, fee:费率档标签, cfg:降亏勾选摘要, values:{1..4:{name,ret,dd,ra,n,reason?,retNum,ddNum,nNum}} }
+// 首页 app.js 与凯利区 lab.js 均经 _aiPoscapRatingSrc() 取源(§22 两处一致); 无动态值(未开启 positionCap/未计算)→回退静态快照 _AI_POSCAP_RATING
+var _AI_POSCAP_RATING_DYNAMIC = null;
+window._AI_POSCAP_RATING_DYNAMIC = _AI_POSCAP_RATING_DYNAMIC;
+
+// 取当前评级数据源: 动态优先(已计算且 positionCap 当前开启), 否则回退静态快照(标注"快照 08-13")
+function _aiPoscapRatingSrc() {
+  var d = window._AI_POSCAP_RATING_DYNAMIC;
+  var pcOn = true;
+  try {
+    var _raw = localStorage.getItem("tds_poscap");
+    if (_raw) { var _p = JSON.parse(_raw); pcOn = !!_p.on; }
+  } catch (e) {}
+  if (d && d.computed && d.values && pcOn) return { dynamic: true, src: d };
+  return { dynamic: false, src: _AI_POSCAP_RATING };
+}
+// 动态评级理由派生(收益率最高/回撤最小/样本最少/甜点主推; 静态快照自带 reason 不走此函数)
+function _aiPoscapRatingReasonFor(k, vals) {
+  var retMaxK = 1, ddMinK = 1, nMinK = 1, i;
+  for (i = 1; i <= 4; i++) {
+    if (!vals[i]) continue;
+    if (vals[i].retNum > vals[retMaxK].retNum) retMaxK = i;
+    if (vals[i].ddNum < vals[ddMinK].ddNum) ddMinK = i;
+    if (vals[i].nNum < vals[nMinK].nNum) nMinK = i;
+  }
+  var parts = [];
+  if (k === retMaxK) parts.push("收益率最高");
+  if (k === ddMinK) parts.push("回撤最小");
+  if (k === nMinK) parts.push("样本最少");
+  if (k === 3) parts.push("甜点区(主推, 收益率/回撤均衡)");
+  if (!parts.length) parts.push("收益回撤居中");
+  return parts.join("+");
+}
+// 生成 K 档评级一行摘要(凯利区 positionCap label data-tip 复用; 与 hoverpop 表同源 §22)
+function _aiPoscapRatingSummary() {
+  var s = _aiPoscapRatingSrc();
+  var vals = s.src.values || _AI_POSCAP_RATING;
+  var parts = [1, 2, 3, 4].map(function (k) {
+    var r = vals[k];
+    if (!r) return "";
+    return 'K=' + k + ' ' + r.name + ' 收益率' + r.ret + '/峰值资金回撤' + r.dd + '/样本' + r.n;
+  }).filter(Boolean);
+  return parts.join('; ') + (s.dynamic
+    ? ('（实时·当前配置/费率/数据' + (s.src.date ? ' ' + s.src.date : '') + '）')
+    : '（快照 08-13·固定AI降亏过滤默认口径, 当前未开启AI仓位建议或未重算）');
+}
+// K 档评级 hoverpop 表格 HTML(3124 排序, K=3 高亮主推; app.js/lab.js 两处共用同一份, 数据源=动态优先/静态快照回退, 勿单改数值)
 function _aiPoscapRatingPopHtml() {
+  var s = _aiPoscapRatingSrc();
+  var vals = s.src.values || _AI_POSCAP_RATING;
   var rows = [3, 1, 2, 4].map(function (k) {
-    var r = _AI_POSCAP_RATING[k];
-    return '<tr' + (k === 3 ? ' class="lab-sigkelly-posrate-hl"' : '') + '><td><b>K=' + k + '</b> ' + r.name + (k === 3 ? ' ★主推' : '') + '</td><td>' + r.ret + '</td><td>' + r.dd + '</td><td>' + r.ra + '</td><td>' + r.n + '</td><td>' + r.reason + '</td></tr>';
+    var r = vals[k];
+    if (!r) return "";
+    var reason = r.reason || _aiPoscapRatingReasonFor(k, vals);
+    return '<tr' + (k === 3 ? ' class="lab-sigkelly-posrate-hl"' : '') + '><td><b>K=' + k + '</b> ' + r.name + (k === 3 ? ' ★主推' : '') + '</td><td>' + r.ret + '</td><td>' + r.dd + '</td><td>' + r.ra + '</td><td>' + r.n + '</td><td>' + reason + '</td></tr>';
   }).join("");
+  var srcLabel = s.dynamic
+    ? '📌 实时·当前配置/费率/数据(' + (s.src.date || '-') + (s.src.fee ? ' · 费率' + s.src.fee : '') + ')：随上方降亏勾选 / 费率档 / 最新数据联动重算(展示层动态化, 未改算法)'
+    : '📌 快照 08-13：固定 AI降亏过滤默认口径(核心3键 r7/exclAuxCross/greedy15 + A模式(固定10天) + 每笔1万 + 费率etf_def + 全周期)。当前未开启 AI仓位建议 或尚未重算, 显示历史快照';
   return '<span class="lab-sigkelly-posrate-pop-wrap">' +
     '<div class="lab-sigkelly-posrate-pop">' +
       '<div class="lab-sigkelly-posrate-pop-title">AI仓位建议 · K 档位评级（评级依据=下方回撤矩阵）</div>' +
       '<table class="lab-sigkelly-posrate-table"><thead><tr><th>档位</th><th>收益率</th><th>峰值资金回撤</th><th>风险调整<br>(收益/回撤)</th><th>样本</th><th>评级理由</th></tr></thead><tbody>' + rows + '</tbody></table>' +
-      '<div class="lab-sigkelly-posrate-pop-note">⚠ 口径：AI降亏过滤默认=核心3键(r7 5月强化+3非五月R7 / exclAuxCross 辅关注×3/5月交叉 / Greedy-15) + A模式(固定10天) + 每笔1万 + 费率etf_def + 全周期；与 AI降亏过滤 提示口径一致，与「历史回测数据」G模式口径不同，勿混用数值。峰值资金回撤=最大回撤金额÷本金(concCap, 峰值同时持仓资金；与回测报告 ddPct=最大回撤÷资金池 口径不同, 数值勿直接对照)</div>' +
+      '<div class="lab-sigkelly-posrate-pop-note">⚠ 口径：动态=当前降亏勾选(AI降亏过滤 7 键或用户自定义) + A模式(固定10天) + 每笔1万 + 当前费率档 + 最新数据全周期；静态快照=AI降亏过滤默认核心3键+费率etf_def+全周期。与「历史回测数据」G模式口径不同，勿混用数值。峰值资金回撤=最大回撤金额÷本金(concCap, 峰值同时持仓资金；与回测报告 ddPct=最大回撤÷资金池 口径不同, 数值勿直接对照)</div>' +
+      '<div class="lab-sigkelly-posrate-pop-note">' + srcLabel + '</div>' +
     '</div>' +
   '</span>';
 }
@@ -549,7 +604,10 @@ function _bindAiPoscapRatePop(container) {
 
 // === 挂到 window,供 lab.js / app.js 跨文件引用 ===
 window._AI_POSCAP_RATING = _AI_POSCAP_RATING;
+window._AI_POSCAP_RATING_DYNAMIC = _AI_POSCAP_RATING_DYNAMIC;
 window._aiPoscapRatingPopHtml = _aiPoscapRatingPopHtml;
+window._aiPoscapRatingSummary = _aiPoscapRatingSummary;
+window._aiPoscapRatingSrc = _aiPoscapRatingSrc;
 window._bindAiPoscapRatePop = _bindAiPoscapRatePop;
 window._LAB_CUSTOM_BROAD = _LAB_CUSTOM_BROAD;
 window._LAB_CUSTOM_SW = _LAB_CUSTOM_SW;

@@ -1492,6 +1492,9 @@
 [data-theme="dark"] .lab-sigkelly-toggle.lab-sigkelly-rec, [data-theme="redgold"] .lab-sigkelly-toggle.lab-sigkelly-rec { background: rgba(250,173,20,0.14); }
 .lab-sigkelly-rec-badge { display: inline-block; font-size: 10px; font-weight: 700; color: #8a5a00; background: linear-gradient(135deg, #ffd700, #ffb300); border-radius: 3px; padding: 0 5px; margin: 0 3px; line-height: 1.5; }
 [data-theme="dark"] .lab-sigkelly-rec-badge, [data-theme="redgold"] .lab-sigkelly-rec-badge { color: #5b3b00; }
+/* #54 2026-08-13 ⭐badge 同步: 默认推荐但当前已关/部分时降级暗显(与 checkbox 勾选态同步) */
+.lab-sigkelly-rec-badge-off { background: var(--bg-elevated, #f0f0f0); color: var(--text-4, #999); border: 1px dashed var(--border, #ddd); opacity: 0.75; }
+[data-theme="dark"] .lab-sigkelly-rec-badge-off, [data-theme="redgold"] .lab-sigkelly-rec-badge-off { background: rgba(255,255,255,0.06); color: var(--text-4, #999); }
 /* 2026-08-13 融合 #39: 核心3键(受AI宏总开关联动)徽标 */
 .lab-sigkelly-toggle-linked { display: inline-block; font-size: 9px; font-weight: 700; color: #0958d9; background: rgba(9,88,217,0.10); border: 1px solid rgba(9,88,217,0.35); border-radius: 3px; padding: 0 4px; margin: 0 2px; line-height: 1.5; white-space: nowrap; }
 [data-theme="dark"] .lab-sigkelly-toggle-linked, [data-theme="redgold"] .lab-sigkelly-toggle-linked { color: #69b1ff; border-color: rgba(105,177,255,0.45); background: rgba(22,93,255,0.16); }
