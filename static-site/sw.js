@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260813-a173';  // bump a172->a173: reviewer修复(ai_macro降亏): FAIL1 excludeSpecialBear加A股类守卫(非A hk/global/hk_industry不再误标, 命中60→20) + FAIL2 首页去_aiMacroOn(3元总开关)门控改成员级(基础4命中关AI宏也灰显, 与凯利区一致§22) + MED3 仅买信号守卫(非买band_hold/sell/sell_stop_loss不判降亏) + MED4 lab.js注释默认3(2026-08-13)
+const CACHE_VERSION = 'v6-20260813-a174';  // bump a173->a174: 首页成交额KPI主值加单位"亿"(金额类_a_fmtKpiValue统一, 用户反馈不hover缺单位)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

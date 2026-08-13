@@ -6149,10 +6149,14 @@ function _fmtKpiValue(id, v) {
     case "a_width_up_count":
     case "a_width_down_count":
     case "a_width_zb_count": return v.toFixed(0);
-    case "a_amount":
-    case "a_fund_margin": return v.toFixed(0);
+    // 2026-08-13 修复(用户反馈): 首页成交额KPI主值缺单位,不hover只显纯数字14728,单位只出现在hover pop(1.47万亿).
+    // 金额类(a_amount/a_fund_margin/a_fund_north/a_fund_main)单位均为"亿元"(overview today.metrics unit=亿元),
+    // 主值常态显示单位,与hover pop万亿/亿口径一致(§22);a_fund_* 当前虽挪出首屏KPI小卡(_KPI_T1_MOVED),
+    // 仍在"A股指标走势图"资金面分组可见/未来回KPI,统一加单位防再犯(L10 同类).
+    case "a_amount": return v.toFixed(0) + "亿";
+    case "a_fund_margin": return v.toFixed(0) + "亿"; // 两融余额(沪市融资,亿元)
     case "a_fund_north":
-    case "a_fund_main": return (v >= 0 ? "+" : "") + v.toFixed(1);
+    case "a_fund_main": return (v >= 0 ? "+" : "") + v.toFixed(1) + "亿"; // 北向成交总额/主力净流入(亿元)
     case "a_volume_ratio": return v.toFixed(2) + "x";
     case "a_turnover_mean":
     case "a_turnover_median":
