@@ -58,11 +58,11 @@
 - **验收口径**:任何精简任务自验须含「核心保留清单+可逆性说明+复查安排」,不达标不验收
 
 ## 18. 防重犯索引表(2026-08-08 起,每次犯错追加;原文全量已归档)
-用户定:慢慢积累经验迭代完美。每次犯错记录于此 + 防重犯条款,不重犯同类。**明细原文全量已归档 `docs/archive/CLAUDE-errors-2026-08.md`(29 过错+22 经验+5 token 段+每日归纳,可 git show 溯源),本节约索引+防重犯精华。**
-**⚠️ 索引表按归属 5 类分节(2026-08-12 用户定,用户原话"不同角色的经验对其他角色不通用""测试一般不需要调研的经验和错误")**:①通用共享(留根,所有角色都该知道)②主控专属(进 docs/main-governance.md)③实施专属(进 .claude/skills/role-implementer/SKILL.md)④调研专属(进 .claude/skills/role-researcher/SKILL.md)⑤测试专属(进 .claude/skills/role-tester/SKILL.md)。各文件已同步归属条目,零丢失(29 过错+22 经验=51 条一条不丢不重复),本表保留全量锚点便于全站反查。
+用户定:慢慢积累经验迭代完美。每次犯错记录于此 + 防重犯条款,不重犯同类。**明细原文全量已归档 `docs/archive/CLAUDE-errors-2026-08.md`(32 过错+26 经验+5 token 段+每日归纳,可 git show 溯源),本节约索引+防重犯精华。**
+**⚠️ 索引表按归属 5 类分节(2026-08-12 用户定,用户原话"不同角色的经验对其他角色不通用""测试一般不需要调研的经验和错误")**:①通用共享(留根,所有角色都该知道)②主控专属(进 docs/main-governance.md)③实施专属(进 .claude/skills/role-implementer/SKILL.md)④调研专属(进 .claude/skills/role-researcher/SKILL.md)⑤测试专属(进 .claude/skills/role-tester/SKILL.md)。各文件已同步归属条目,零丢失(32 过错+26 经验=58 条一条不丢不重复),本表保留全量锚点便于全站反查。
 
-### 过错索引(29 条:锚点 id|日期|主题|一句话防重犯|归档原文位置,按归属 5 类分节:通用 3 / 主控 10 / 实施 11 / 调研 4 / 测试 1)
-> 锚点 id = `docs/archive/CLAUDE-errors-2026-08.md` 末尾「防重犯锚点索引」块,`grep 锚点id` 可反向追原文(含根因+场景+防重犯)。零丢失校验:`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-2026-08.md` == 本表行数(29)。
+### 过错索引(32 条:锚点 id|日期|主题|一句话防重犯|归档原文位置,按归属 5 类分节:通用 3 / 主控 13 / 实施 11 / 调研 4 / 测试 1)
+> 锚点 id = `docs/archive/CLAUDE-errors-2026-08.md` 末尾「防重犯锚点索引」块,`grep 锚点id` 可反向追原文(含根因+场景+防重犯)。零丢失校验:`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-2026-08.md` == 本表行数(32)。
 > 移动去向:§11→docs/main-governance.md、§15→reviewer skill+governance、§21→implementer skill、§22/§23.x→根共享核心、§8三查→根+implementer skill、§14→根摘要+implementer skill。**归属拆分(2026-08-12)**:锚点不删,只按归属分节标注;各归属全文条目已同步进对应文件(main-governance.md / 3 个 role skill / claude-work-mode/CLAUDE.md)。
 
 **① 通用共享(3 条):所有角色都该知道,留根共享核心**
@@ -72,7 +72,7 @@
 | L04 | 08-08 | .gz凭memory断定 | 断定前验证 | archive:L16 |
 | L05 | 08-08 | trade/trade-data混淆 | agent关键结论§0验(路径/文件数类) | archive:L17 |
 
-**② 主控专属(10 条):主控全栈需要,全文进 docs/main-governance.md「主控专属教训」段**
+**② 主控专属(13 条):主控全栈需要,全文进 docs/main-governance.md「主控专属教训」段**
 | 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
 |---|---|---|---|---|
 | L01 | 08-08 | 通知丢失不设cron傻等 | cron兜底必设 | archive:L13 |
@@ -85,6 +85,9 @@
 | L26 | 08-11 | hooks误报"还没生效" | 判断生效先查运行证据 | archive:L83 |
 | L28 | 08-12 | 主控§0抢跑在reviewer前重复验代码 | 派reviewer的改动merge前不grep代码(只验hash),§0只验上线点,下结论先查规范原文 | archive:L94 |
 | L29 | 08-12 | 主控亲自Edit干活违反"只派发" | 主控永不亲自改代码/写代码/跑自测,实施一律派implementer(→根CLAUDE.md §0.1红线) | archive:L95 |
+| L30 | 08-14 | 需求叫停时过度删除同链路中间档(08-12 把"每日池+买全部"误删成整个每日池,误删"每日池+top-K"中间档,08-13 用户报 K=3 33万异常才暴露) | 用户叫停某功能/改口径时,先复述"要删到什么粒度/保留什么档"确认再实施,不把同链路可保留档一起删(→memory requirement-research-bias-verify-first #9) | archive:L96 |
+| L31 | 08-14 | 派单基准过时(派每日池穷举重跑沿用旧报告"4组合全开"基准,用户指出当前默认已是 AI宏7键 基础4+核心3) | 派数据重跑/回测任务前,先核对当前页面 `_kellyDefaultFilters()`/`_kellyComboPresets` 真值,不沿用旧报告基准(→memory requirement-research-bias-verify-first #10) | archive:L97 |
+| L32 | 08-14 | "A/F收益率虚高"标注方向错误(把 A/F 86.6% 标为机制性虚高,用户纠正:A/F 持仓10-15万=可操作非虚高,G/H/I 持仓136万=136倍本金不可操作,无操作性的净盈亏才是更虚的) | 判断收益率/净盈亏是否有实操意义,先看峰值持仓/单次本金倍数,不从模式快慢预设"虚高"标签(→memory kelly-operability-20x-principal) | archive:L98 |
 
 **③ 实施专属(11 条):全文进 .claude/skills/role-implementer/SKILL.md「实施专属教训蒸馏」段**
 | 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
@@ -117,8 +120,8 @@
 ### 已提炼防重犯条款引用清单(去重后正式条款位置)
 - cron 兜底/卡死/429/重派 → §11(governance) | 定时时点/push main 避开 → §14(根摘要+implementer skill) | reviewer 回归/改动分级 → §15(reviewer skill+governance) | 数据一致性+三步同步 → §22(根) | 算法公示 → §21(implementer skill 强化款) | §0 验常量 → memory verify-grep-constant-not-literal | 需求复述不扩展/举一反三 → §23.3(根) | 修bug三铁律 → §23.2(根) | README 维护 → §23.1(根)
 
-### 经验索引(22 条,非过错,适用场景,按归属 4 类分节:主控 6 / 实施 10 / 调研 4 / 测试 2;锚点 E01-E22 见归档文件末尾「防重犯锚点索引」块,原文可 grep 反追)
-**② 主控专属(6 条):全文进 docs/main-governance.md「主控专属教训」段**
+### 经验索引(26 条,非过错,适用场景,按归属 4 类分节:主控 8 / 实施 10 / 调研 6 / 测试 2;锚点 E01-E26 见归档文件末尾「防重犯锚点索引」块,原文可 grep 反追)
+**② 主控专属(8 条):全文进 docs/main-governance.md「主控专属教训」段**
 | 锚点 | 经验 | 适用 | 归档 |
 |---|---|---|---|
 | E05 | GitHub Actions deploy 约90s,curl 验上线 sleep 90 | 验线上等部署完成 | archive:L62 |
@@ -127,6 +130,8 @@
 | E18 | TaskCompleted hook 发现(2.1.224) | 通知架构演进方向(待验证) | archive:L88 |
 | E19 | 通知架构方案A子agent中间层不可行 | 子agent做中间层先算模型回合数 | archive:L89 |
 | E22 | 并发实验结论已落 §16④;TASKS 归档校验已落 §7(bdef31aeb) | 仅记引用 | archive:L92 |
+| E25 | 口径/基准切换先派影响面审计(会反转/数值变化/自愈三类),并行修根因,再全面修正受影响功能 | 任何资金口径/默认基准切换(如 fixed→每日池) | archive:L101 |
+| E26 | 发现派单基准过时立即 SendMessage 同步在跑 agent(本次 STEP 1/6 修正,避免全量重跑) | 派数据重跑/回测任务后才发现基准过时 | archive:L102 |
 
 **③ 实施专属(10 条):全文进 .claude/skills/role-implementer/SKILL.md「实施专属教训蒸馏」段**
 | 锚点 | 经验 | 适用 | 归档 |
@@ -142,13 +147,15 @@
 | E20 | 飞书 listener 需求自动处理(02bd47f8f) | 外部消息→主控在 listener 层落盘+回执 | archive:L90 |
 | E21 | "全信号表"双视图方法论 | 多因子系统要拆分调试+结果双视图 | archive:L91 |
 
-**④ 调研专属(4 条):全文进 .claude/skills/role-researcher/SKILL.md「防误判教训蒸馏」段**
+**④ 调研专属(6 条):全文进 .claude/skills/role-researcher/SKILL.md「防误判教训蒸馏」段**
 | 锚点 | 经验 | 适用 | 归档 |
 |---|---|---|---|
 | E10 | 决策树/子群数据挖掘方法论 | 多特征组合优化 | archive:L62 |
 | E12 | 数据挖掘盲区发现方法论(字段覆盖) | 多轮挖掘前核对字段覆盖 | archive:L71 |
 | E13 | 新 toggle 评估用"叠加边际" | 多 toggle 叠加算边际贡献 | archive:L72 |
 | E14 | 邮件期货风向字段语义修正(静态vs动态) | 同源先确认字段语义 | archive:L73 |
+| E23 | K=1 时每笔1万 ≡ 每日池(净利逐位相同);K>1 每笔1万=虚假杠杆(净利虚高≈K倍,持仓同步放大,收益率不变) | 判断回测收益率/净利口径真实性 | archive:L99 |
+| E24 | 最优 toggle 组合依卖出模式分裂:G 模式 greedy15/excludeAuxCross/r7 负贡献(去后+a45 最优 51.66%),A/F 模式 greedy15 正贡献(维持 AI宏7 86.6%) | 调优默认组合,不一套配置打天下 | archive:L100 |
 
 **⑤ 测试专属(2 条):全文进 .claude/skills/role-tester/SKILL.md「测试专属教训蒸馏」段**
 | 锚点 | 经验 | 适用 | 归档 |
