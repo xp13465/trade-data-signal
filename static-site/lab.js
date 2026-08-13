@@ -7641,6 +7641,60 @@ const AIHLINE_STRATS = {
 const GIHPOS_STRATEGY = { G: "fifo20w", H: "fifo20w", I: "fifo20w" };
 // G/H/I 判定(与 _sigKellyModeSpanKey 同源, 全站长线族群统一定义)
 function _kellyIsGih(modeKey) { return modeKey === "G" || modeKey === "H" || modeKey === "I"; }
+// #25 A包: 可操作层判据 = 峰值同时持仓资金 ≤ 20万(20倍单次本金1万), 用户2026-08-14原话"优秀数据首先看可操作性其次看收益率"
+// 首页/实验室单次本金基准 = buy_amount(默认10000/daily池每笔=10000/K). A-F 短线天然≤20倍; G/H/I 长持原始仓位易>20倍(136万/111万/45万)不可操作, 开ai长线(GIH on)后套20万FIFO硬控→可操作
+var _KELLY_OPERABLE_CAP = 200000; // 峰持仓资金≤20万 = 单次本金倍数≤20(可操作性硬标准, memory kelly-operability-20x-principal)
+function _kellyOperableRow(pdata, modeKey, gihOn) {
+  // GIH on: G/H/I 取 __gihb1(20万FIFO硬控后乐观b1口径, 可操作); 否则用原始stats. A-F 恒定原始
+  if (gihOn && _kellyIsGih(modeKey)) {
+    const cap = pdata[modeKey + "__gihb1"];
+    if (!cap) return { r: pdata[modeKey], operable: false, capOn: false };
+    return { r: cap, operable: true, capOn: true };
+  }
+  const r = pdata[modeKey];
+  if (!r) return null;
+  const mcc = r.max_concurrent_capital || 0;
+  return { r: r, operable: mcc <= _KELLY_OPERABLE_CAP, capOn: false };
+}
+// 卡片行(renderSigKellyCard)/水印/三玩法表/对比表/全信号表/弹窗 通用的"不可操作淘汰"判定 + 理由 + 角标文案, §23.3 举一反三共用(不重复定义)
+// #25 A包(2026-08-14) 两个触发源统一用"峰持仓≤20万=可操作"判据, 理由按触发源分类:
+//   需求② = positionCap ON 但 GIH off(G/H/I 未套20万FIFO硬控)且原始峰持仓>20倍 → 理由"无操作性"
+//   需求D = positionCap OFF(K关, 无仓位限制每笔固定1万全买)导致峰持仓>20倍 → 理由"无仓位限制·无法实操"
+// 返回 null(不可用) 或 { r, operable, eliminated, reason, tip } —— eliminated=应标"淘汰", operable=该模式是否可操作(供 TOP1 候选过滤)
+// 触发源合并: K-OFF 时即使 GIH on(A cap后)也可能因无仓位限制疯长? 否——K-OFF+GIHon 时 G/H/I 取 cap, 但 A-F 仍无仓位限制每笔1万全买; 峰持仓超限才淘汰, 不预设
+function _kellyOpElimination(pdata, modeKey, gihOn, posCapOn) {
+  const o = _kellyOperableRow(pdata, modeKey, gihOn);
+  if (!o) return null;
+  const mcc = (o.r.max_concurrent_capital || 0);
+  const mult = (mcc / 10000) || 0;
+  const operable = mcc <= _KELLY_OPERABLE_CAP;
+  if (operable) return { r: o.r, operable: true, eliminated: false, reason: "", tip: "" };
+  // 峰持仓超20倍 → 不可操作. 理由分类:
+  // 需求D: positionCap OFF(无仓位限制, 每笔1万全买)是主因(即使GIH cap后A-F/非cap模式也会疯长)
+  if (!posCapOn) {
+    return {
+      r: o.r, operable: false, eliminated: true, reason: "无仓位限制·无法实操",
+      tip: `淘汰=无仓位限制·无法实操: K档已「关」(positionCap OFF), 每笔固定 1 万、无仓位限制, 当日全部信号都买 → 峰值同时持仓 ${(mult >= 1 ? mult.toFixed(0) : mult)} 万(${mult >= 1 ? mult.toFixed(0) : mult}倍单次本金) 远超 20 倍可操作上限。为验证数据变化保留展示, 切换 K=1-4(每笔=10000/当日保留数, 有仓位控制)后回归可操作。`
+    };
+  }
+  // 需求②: positionCap ON 但 GIH off(G/H/I 未套20万硬控)且原始峰持仓>20倍 → 无操作性; A-F 在 K ON 下有仓位控制自然≤20倍不进此分支
+  return {
+    r: o.r, operable: false, eliminated: true, reason: "无操作性",
+    tip: `淘汰=无操作性: 本模式(${modeKey})原始仓位峰值同时持仓 ${(mult >= 1 ? mult.toFixed(0) : mult)} 万 = ${(mult >= 1 ? mult.toFixed(0) : mult)} 倍单次本金, 超出 20 倍可操作上限(${_KELLY_OPERABLE_CAP / 10000}万)。开上方「ai长线(G/H/I)仓位管理」套 20万 FIFO 硬控后可操作, 才参与 TOP1 推荐。`
+  };
+}
+// 弹窗交易记录态: 被不可操作淘汰的模式(GIH off 无操作性 / K-OFF 无仓位限制), 弹窗顶部给淘汰理由提示(§23.3 举一反三补齐该展示位), 与卡片行/水印同判据同文案
+function _kellyOpModalNote(quadKey, modeKey, period) {
+  const fs = state.labSigKellyFeeStats;
+  const pdata = (fs && fs[quadKey] && fs[quadKey][period]) ? fs[quadKey][period] : null;
+  if (!pdata) return "";
+  const posCapOn = !!((state.labSigKellyFilters || {}).positionCap);
+  const flag = _kellyOpElimination(pdata, modeKey, !!state.labSigKellyGihOn, posCapOn);
+  if (!flag || !flag.eliminated) return "";
+  const mcc = (pdata[modeKey] && pdata[modeKey].max_concurrent_capital) || 0;
+  const mult = (mcc / 10000) || 0;
+  return `<div class="lab-sigkelly-gih-modal-note lab-sigkelly-opelim-modal-note" title="${flag.reason}">⚠️ 本模式已「<b>${flag.reason}</b>」：当前峰值同时持仓 ${(mult >= 1 ? mult.toFixed(0) : mult)} 万(${(mult >= 1 ? mult.toFixed(0) : mult)}倍单次本金) 超出 20 倍可操作上限，${flag.tip}</div>`;
+}
 // 共享设置: 开关状态(localStorage, 默认关; 只影响实验室 G/H/I 卡片, 首页默认关闭不展示, §22 口径)
 function _kellySharedGih() {
   var def = { on: false };
@@ -9239,17 +9293,26 @@ function _sigKellyAfgRealtimeHtml() {
     { key: "G", name: "G · 卖出信号中长线", desc: "指数卖出信号触发离场, 无信号持有至回测结束; 最贴近交易页信号驱动跟单, 总建议主选" },
   ];
   let rows = "";
+  const _afgPosCapOn = !!((state.labSigKellyFilters || {}).positionCap);
+  const _afgGihOn = !!state.labSigKellyGihOn;
   for (const m of modes) {
     const s = (feeStats.all.all || {})[m.key];
     if (!s || !s.n) { rows += `<tr><td><b>${m.name}</b></td><td colspan="7">暂无数据</td></tr>`; continue; }
+    // #25 A包(需求②+需求D举一反三): 三玩法表同样标不可操作淘汰(峰持仓>20倍); A/F 在 K-OFF 下也可能无仓位限制峰持仓超限
+    const _afgFlag = _kellyOpElimination(feeStats.all.all, m.key, _afgGihOn, _afgPosCapOn);
+    const _afgElim = _afgFlag ? _afgFlag.eliminated : false;
+    const _afgReason = _afgFlag && _afgFlag.eliminated ? _afgFlag.reason : "";
     const profStr = (s.total_profit >= 0 ? "+" : "") + Math.round(s.total_profit).toLocaleString("en-US");
     const winStr = (s.win_rate * 100).toFixed(1) + "%";
     const plStr = (s.pl_ratio == null) ? "-" : s.pl_ratio.toFixed(2);
     const rmhStr = s.return_pct_max_holding.toFixed(2) + "%";
     const maxConcStr = s.max_concurrent + "笔 / " + (s.max_concurrent_capital / 10000).toFixed(0) + "万";
     const minCapStr = (s.max_concurrent_capital / 20 / 10000).toFixed(1) + "万";
-    const hlAttr = (m.key === "G") ? ` class="lab-sigkelly-advice-hl"` : "";
-    rows += `<tr${hlAttr} title="${m.desc}"><td><b>${m.name}</b></td><td>${s.n}</td><td class="${s.total_profit >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${profStr}</td><td>${winStr}</td><td>${plStr}</td><td class="${s.return_pct_max_holding >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${rmhStr}</td><td>${maxConcStr}</td><td>${minCapStr}</td></tr>`;
+    const hlAttr = (m.key === "G") ? " lab-sigkelly-advice-hl" : "";
+    const afgCls = `class="lab-sigkelly-trade-row${hlAttr}${_afgElim ? " lab-sigkelly-eliminated-row lab-sigkelly-opelim-row" : ""}"`;
+    const afgTip = _afgElim ? `淘汰·${_afgReason}: ${(_afgFlag && _afgFlag.tip) || ""}` : m.desc;
+    const afgBadge = _afgElim ? `<span class="lab-sigkelly-modelbl lab-sigkelly-exec-badge" title="${(_afgFlag && _afgFlag.tip) || _afgReason}">淘汰·${_afgReason}</span>` : "";
+    rows += `<tr ${afgCls} title="${afgTip}"><td><b>${m.name}</b>${afgBadge}</td><td>${s.n}</td><td class="${s.total_profit >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${profStr}</td><td>${winStr}</td><td>${plStr}</td><td class="${s.return_pct_max_holding >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${rmhStr}</td><td>${maxConcStr}</td><td>${minCapStr}</td></tr>`;
   }
   return (
     `<div class="lab-sigkelly-afg-realtime">` +
@@ -9493,26 +9556,37 @@ function _bindSigKellyGuidePop(host) {
 // 绑定 AI仓位建议 K档位评级 hoverpop 已迁移至 common.js _bindAiPoscapRatePop(2026-08-13, 共享单一数据源 §22, 与首页 app.js 同款), 本处不再重复定义
 
 
-// 组内各卖出模式最终盈亏(total_profit)比较水印
-// kind: top1(全>0) / out(全≤0淘汰) / mix(有正有负分化); X=最高tp方案字母
-// 辅助(仅top1/mix态,描述最高方案): 风险橙(高仓/样本少)+优势绿(高胜率/低回撤/高夏普)
+// 组内各卖出模式比较水印
+// kind: top1(可操作层全>0) / out(全≤0淘汰) / mix(有正有负分化)
+// #25 A包(2026-08-14): TOP1 推荐算法修正——先看可操作性层(峰持仓≤20万=≤20倍单次本金), 再按【收益率 return_pct_max_holding】排序, 不再按净盈亏 total_profit
+//   用户原话"优秀的数据首先是看可操作性, 其次是看收益率, 净盈亏和最大持仓只是佐证没有比较意义"。GIH on 时 G/H/I 读 __gihb1(cap后乐观b1, 已可操作); 不可操作模式(GIH off 的 G/H/I)不参与 TOP1 推荐
+// X=可操作层内收益率最高的方案字母; 辅助(仅top1/mix态): 风险橙(高仓/样本少)+优势绿(高胜率/低回撤/高夏普)
 function _sigKellyWatermark(pdata) {
+  const _gihOn = !!state.labSigKellyGihOn;
+  // #25 A包(需求D): K-OFF(positionCap关, 无仓位限制)时即使 A-F 也可能峰持仓>20倍不可操作, 与需求② GIH off 同用 _kellyOpElimination 统一判据(峰持仓≤20万)
+  const _posCapOn = !!((state.labSigKellyFilters || {}).positionCap);
   // 过滤 #49 GIH 伪模式键(mode+"__gihb0/b1/peak"), 只遍历真实模式(A-I), 防伪键污染水印top/均值(§21§22)
   const modes = Object.keys(pdata).filter(m => m.indexOf("__") < 0);
   const items = modes.map(m => {
-    const r = pdata[m];
+    const x = _kellyOpElimination(pdata, m, _gihOn, _posCapOn); // GIH on 时 G/H/I 取 __gihb1; K-OFF/A-F 也判峰持仓
+    const r = x ? x.r : null;
     if (!r) return null;
-    return { m, tp: r.total_profit || 0, hk: (r.half_kelly == null ? 0 : r.half_kelly), n: r.n || 0,
+    return { m, operable: x.operable, reason: x.reason, tp: r.total_profit || 0, rmh: (r.return_pct_max_holding == null ? 0 : r.return_pct_max_holding),
+             hk: (r.half_kelly == null ? 0 : r.half_kelly), n: r.n || 0,
              wr: (r.win_rate == null ? 0 : r.win_rate), md: (r.max_drawdown_pct == null ? 999 : r.max_drawdown_pct), sh: (r.sharpe == null ? 0 : r.sharpe) };
   }).filter(Boolean);
   if (items.length < 2) return null;
-  const pos = items.filter(x => x.tp > 0);
-  const hasNeg = items.some(x => x.tp <= 0);
+  // 可操作层(参与推荐) = operable 为真; 不可操作模式不参与 TOP1 但保留在 compares 展示(逐位对比仍显示其净盈亏)
+  // 若全部不可操作(极端), 退回全模式计算(保证 top1/淘汰语义仍可用, 只是标注可操作性缺位)
+  const cand = items.filter(x => x.operable).length ? items.filter(x => x.operable) : items;
+  const pos = cand.filter(x => x.tp > 0);
+  const hasNeg = cand.some(x => x.tp <= 0);
   let kind;
   if (pos.length === 0) kind = "out";
   else if (hasNeg) kind = "mix";
   else kind = "top1";
-  const top = items.slice().sort((a, b) => b.tp - a.tp)[0];
+  // #25 A包 核心: 排序键 = 收益率(rmh), 先可操作层过滤(已在 cand 上); 不再 b.tp-a.tp 净盈亏
+  const top = cand.slice().sort((a, b) => b.rmh - a.rmh)[0];
   const auxRisk = [], auxGood = [];
   if (kind !== "out") {
     if (top.hk >= 60) auxRisk.push("高仓");
@@ -9530,7 +9604,8 @@ function _sigKellyWatermark(pdata) {
   }
   const text = auxHtml ? `${mainText}${auxHtml}` : mainText;
   const auxAll = [...auxRisk, ...auxGood];
-  const title = `${kindText}·${top.m} | 盈亏${top.tp.toFixed(0)}` + (auxAll.length ? ` | ${auxAll.join("/")}` : "");
+  // #25 A包: title 优先展示收益率(推荐排序键)再展示净盈亏(佐证), 用户语义"先可操作性→再收益率→净盈亏佐证"
+  const title = `${kindText}·${top.m} | 收益率${top.rmh.toFixed(2)}%·盈亏${top.tp.toFixed(0)}` + (auxAll.length ? ` | ${auxAll.join("/")}` : "");
   // items 供 hoverpop 渲染各模式盈亏对比; auxRisk/auxGood 供辅助标签说明; top=最高方案
   return { kind, text, title, items, auxRisk, auxGood, top };
 }
@@ -9539,12 +9614,15 @@ function _sigKellyWatermark(pdata) {
 // wm = _sigKellyWatermark 返回值(含 items/auxRisk/auxGood/top)
 function _sigKellyWmPopupHtml(wm) {
   const modeLabels = _sigKellyModeLabels();
-  // 本组各模式最终盈亏对比(正红负绿,与表格 lab-sigkelly-pos/neg 一致)
+  // 本组各模式对比: 每个模式显示【收益率(推荐排序键)+净盈亏佐证】; 不可操作(GIH off 的 G/H/I 原仓位>20倍)标"无操作性"灰化不参与推荐, 正红负绿与表格一致
   const cmpRows = wm.items.map((it) => {
     const tpStr = (it.tp >= 0 ? "+" : "") + it.tp.toFixed(0);
+    const rmhStr = (it.rmh != null ? (it.rmh >= 0 ? "+" : "") + it.rmh.toFixed(2) + "%" : "-");
     const cls = it.tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
     const hi = (wm.top && it.m === wm.top.m) ? " lab-sigkelly-wm-cmp-hi" : "";
-    return `<div class="lab-sigkelly-wm-cmp-row${hi}"><span class="lab-sigkelly-wm-cmp-m">${it.m}</span><span class="lab-sigkelly-wm-cmp-lbl">${modeLabels[it.m] || ""}</span><span class="${cls}">${tpStr}</span></div>`;
+    const noOp = it.operable ? "" : " lab-sigkelly-wm-cmp-noop";
+    const noOpBadge = it.operable ? "" : ` <span class="lab-sigkelly-wm-cmp-noop-badge" title="峰值同时持仓超20倍单次本金, 不可操作(${it.reason || "无操作性"}), 不参与TOP1推荐; 需求②开ai长线硬控/需求D切K=1-4后可操作">${it.reason || "无操作性"}</span>`;
+    return `<div class="lab-sigkelly-wm-cmp-row${hi}${noOp}"><span class="lab-sigkelly-wm-cmp-m">${it.m}</span><span class="lab-sigkelly-wm-cmp-lbl">${modeLabels[it.m] || ""}</span><span class="${cls}">${rmhStr}</span><span class="lab-sigkelly-wm-cmp-tp">盈亏${tpStr}</span>${noOpBadge}</div>`;
   }).join("");
   // 辅助标签说明(仅 top1/mix 显示当前命中标签 + 全量图例)
   let auxHtml = "";
@@ -9575,17 +9653,18 @@ function _sigKellyWmPopupHtml(wm) {
       `<div class="lab-sigkelly-wm-pop-title">组比较水印说明</div>` +
       `<div class="lab-sigkelly-wm-sec">` +
         `<div class="lab-sigkelly-wm-sub">三态定义</div>` +
-        `<div class="lab-sigkelly-wm-li"><b>TOP1·X</b>: 各方案最终盈亏全为正,X 为最高方案</div>` +
-        `<div class="lab-sigkelly-wm-li"><b>分化·X</b>: 有正有负,X 为最高方案</div>` +
-        `<div class="lab-sigkelly-wm-li"><b>淘汰</b>: 各方案最终盈亏全≤0</div>` +
-        `<div class="lab-sigkelly-wm-li lab-sigkelly-wm-li-x">X = 本组各卖出模式中最终盈亏最高的方案字母</div>` +
+        `<div class="lab-sigkelly-wm-li"><b>TOP1·X</b>: 可操作层各方案最终盈亏全为正,X 为推荐方案(收益率最高)</div>` +
+        `<div class="lab-sigkelly-wm-li"><b>分化·X</b>: 可操作层有正有负,X 为推荐方案</div>` +
+        `<div class="lab-sigkelly-wm-li"><b>淘汰</b>: 可操作层各方案最终盈亏全≤0</div>` +
+        `<div class="lab-sigkelly-wm-li lab-sigkelly-wm-li-x">推荐规则: ①先看可操作性(峰值同时持仓≤20万=≤20倍单次本金, 不可操作模式不推荐) ②再看收益率(峰值资金收益率 return_pct_max_holding) ③净盈亏/最大持仓只是佐证, 不比排序。X = 可操作层中收益率最高的方案字母</div>` +
+        `<div class="lab-sigkelly-wm-li lab-sigkelly-wm-li-noop">删除线/无操作性标灰=峰值同时持仓超20倍单次本金, 不可操作(不参与推荐)。两种触发: 需求②GIH未开(原始 G/H/I 136万/111万/45万)→开「ai长线(G/H/I)仓位管理」套20万硬控; 需求D K档关(无仓位限制每笔1万全买)→切K=1-4(每笔=10000/N有仓位控制)。本卡A-F在该口径下峰持仓≤20倍则可操作仍参与推荐</div>` +
       `</div>` +
       `<div class="lab-sigkelly-wm-sec">` +
         `<div class="lab-sigkelly-wm-sub">卖出模式含义</div>` +
         `<div class="lab-sigkelly-wm-li">${modeDesc}</div>` +
       `</div>` +
       `<div class="lab-sigkelly-wm-sec">` +
-        `<div class="lab-sigkelly-wm-sub">本组各模式最终盈亏对比</div>` +
+        `<div class="lab-sigkelly-wm-sub">本组各模式收益率+净盈亏对比(收益率为主, 净盈亏佐证)</div>` +
         `<div class="lab-sigkelly-wm-cmp">${cmpRows}</div>` +
       `</div>` +
       auxHtml +
@@ -9771,10 +9850,17 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
   let rows = "";
   for (const m of modes) {
     // #49 ai长线模式(G/H/I)仓位管理: 开时对 G/H/I 模式卡片行套 FIFO 硬控后的数值(乐观 b1 口径, b0 区间见对比表; §22 双口径说明在对比表)
+    // #25 A包(2026-08-14): GIH off(G/H/I 未套20万硬控、原仓位>20倍)时, 该行标"淘汰·无操作性"(删除线+角标+hoverpop理由), 非从列表消失; GIH on(cap后可操作)不标
     const _gihOnThis = !!state.labSigKellyGihOn;
     const _gihRow = _gihOnThis && _kellyIsGih(m) ? (pdata[m + "__gihb1"] || null) : null;
     const r = _gihRow || pdata[m];
     const _gihBadge = _kellyIsGih(m) && _gihOnThis && _gihRow ? `<span class="lab-sigkelly-modelbl lab-sigkelly-gih-badge" title="ai长线模式仓位管理已开: 持仓≤20万+FIFO强制平仓, 本行为开·乐观b1口径; 保守b0见对比表(真实值在区间)">AI长线·开</span>` : "";
+    // 可操作性淘汰判定(需求②GIH off 无操作性 + 需求D K-OFF 无仓位限制): 卡片行统一走 _kellyOpElimination, 与三玩法/全信号表/水印同判据(§23.3)
+    const _opPosCapOn = !!((state.labSigKellyFilters || {}).positionCap);
+    const _opFlag = _kellyOpElimination(pdata, m, _gihOnThis, _opPosCapOn);
+    const _opElim = _opFlag ? _opFlag.eliminated : false;
+    const _opTip = _opFlag ? _opFlag.tip : "";
+    const _opReason = _opFlag && _opFlag.eliminated ? _opFlag.reason : "";
     if (!r) {
       rows += `<tr><td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span></td><td colspan="14" class="lab-sigkelly-empty">无数据</td></tr>`;
       continue;
@@ -9809,9 +9895,13 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
     const sh = r.sharpe != null ? r.sharpe.toFixed(2) : "-";
     const md = r.max_drawdown_pct != null ? r.max_drawdown_pct.toFixed(2) + "%" : "-";
     const cm = r.calmar != null ? r.calmar.toFixed(2) : "-";
+    // #25 A包(需求②+需求D): 不可操作(峰持仓>20倍)行加删除线灰化 + 淘汰角标 + hoverpop 淘汰理由(无操作性 / 无仓位限制·无法实操)
+    const _opRowCls = _opElim ? " lab-sigkelly-eliminated-row lab-sigkelly-opelim-row" : "";
+    const _opRowTip = _opElim ? `淘汰·${_opReason}: ${_opTip || ""}` : "点击查看交易记录";
+    const _opBadge = _opElim ? `<span class="lab-sigkelly-modelbl lab-sigkelly-exec-badge" title="${_opTip || _opReason}">淘汰·${_opReason}</span>` : "";
     rows +=
-      `<tr class="lab-sigkelly-trade-row" data-quad="${qk}" data-mode="${m}" data-period="${period}" title="点击查看交易记录">` +
-        `<td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span>${_gihBadge}</td>` +
+      `<tr class="lab-sigkelly-trade-row${_opRowCls}" data-quad="${qk}" data-mode="${m}" data-period="${period}" data-opelim="${_opElim ? "1" : "0"}" title="${_opRowTip}">` +
+        `<td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span>${_gihBadge}${_opBadge}</td>` +
         `<td class="lab-sigkelly-hk"><span class="lab-kelly-tier ${tierCls}">${hk.toFixed(1)}%</span><span class="lab-sigkelly-tier">${tier}</span></td>` +
         `<td>${wr}</td><td>${plStr}</td><td>${mr}</td><td>${nStr}</td>` +
         `<td class="lab-sigkelly-tp-hl ${tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${tpStr}元</td>` +
@@ -10138,7 +10228,8 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       `<div class="lab-sigkelly-modal">` +
         `<div class="lab-sigkelly-modal-head">` +
           `<div class="lab-sigkelly-modal-title">📋 交易记录 · ${quadLabel} · ${modeLabel} · ${period}${feeLabel}</div>` +
-          (state.labSigKellyGihOn && _kellyIsGih(modeKey) ? `<div class="lab-sigkelly-gih-modal-note" title="#49 ai长线仓位管理口径说明">⚠️ 本弹窗为<u>未套 ai长线仓位管理(20万 FIFO 硬控)</u>的原始交易；当前卡片 G/H/I 行为已套 20 万硬控后的口径（峰持仓资金≤20万），此处净盈亏/峰值与卡片可能不一致。</div>` : "") +
+          (state.labSigKellyGihOn && _kellyIsGih(modeKey) ? `<div class="lab-sigkelly-gih-modal-note" title="#49 ai长线仓位管理口径说明">⚠️ 本弹窗为<u>未套 ai长线仓位管理(20万 FIFO 硬控)</u>的原始交易；当前卡片 G/H/I 行为已套 20 万硬控后的口径（峰持仓资金≤20万），此处净盈亏/峰值与卡片可能不一致。</div>`
+           : _kellyOpModalNote(quadKey, modeKey, period)) +
           `<button type="button" class="lab-sigkelly-modal-close" title="关闭">✕</button>` +
         `</div>` +
         `<div class="lab-sigkelly-modal-stats">` +

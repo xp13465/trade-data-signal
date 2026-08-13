@@ -1577,6 +1577,12 @@
 .lab-sigkelly-wm-aux-none { color: var(--text-3); font-size: 10px; }
 .lab-sigkelly-wm-legend { color: var(--text-3); font-size: 10px; margin-top: 4px; line-height: 1.4; }
 [data-theme="dark"] .lab-sigkelly-wm-cmp-hi, [data-theme="redgold"] .lab-sigkelly-wm-cmp-hi { background: rgba(240,185,11,0.14); }
+/* 2026-08-14 #25 A包: 水印对比行 收益率+净盈亏双值; 可操作性淘汰标注(不可操作模式灰化删除线不计推荐) */
+.lab-sigkelly-wm-cmp-tp { color: var(--text-3); font-weight: 400 !important; font-size: 10px; }
+.lab-sigkelly-wm-cmp-noop { opacity: 0.5; }
+.lab-sigkelly-wm-cmp-noop .lab-sigkelly-wm-cmp-m, .lab-sigkelly-wm-cmp-noop .lab-sigkelly-wm-cmp-lbl, .lab-sigkelly-wm-cmp-noop .lab-sigkelly-wm-cmp-tp { text-decoration: line-through; }
+.lab-sigkelly-wm-cmp-noop-badge { display: inline-block; padding: 0 4px; border-radius: 3px; font-size: 9px; line-height: 1.5; color: #fff; background: #f5222d; white-space: nowrap; margin-left: auto; font-weight: 600 !important; }
+.lab-sigkelly-wm-li-noop { color: #fa541c; }
 @media (max-width: 760px) { .lab-sigkelly-wm-pop { width: min(248px, calc(100vw - 16px)); font-size: 10.5px; padding: 7px 9px; } }
 .lab-sigkelly-card-head { margin-bottom: 8px; }
 .lab-sigkelly-card-name { font-size: 14px; font-weight: 700; color: var(--text-1); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 48px; }
@@ -1710,6 +1716,10 @@
 .lab-sigkelly-eliminated-row td { text-decoration: line-through; color: var(--text-4); }
 .lab-sigkelly-eliminated-row:hover { opacity: 0.8; background: rgba(134,142,150,0.10); }
 .lab-sigkelly-elim-stat { color: #868e96; font-weight: 600; }
+/* 2026-08-14 #25 A包(需求②+需求D): 不可操作淘汰(GIH off 无操作性 / K-OFF 无仓位限制) 增强标注, 与降亏淘汰区分理由 */
+.lab-sigkelly-opelim-row td { text-decoration: line-through; color: var(--text-4); }
+.lab-sigkelly-exec-badge { margin-left: 5px; padding: 0 5px; border-radius: 4px; font-size: 10px; line-height: 1.7; color: #fff; background: var(--gih-el, #f5222d); white-space: nowrap; }
+.lab-sigkelly-opelim-modal-note { color: #fa541c; }
 .lab-sigkelly-modal-elimwrap { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; }
 .lab-sigkelly-modal-elimtitle { font-size: 11px; font-weight: 700; color: #868e96; margin-bottom: 6px; }
 @media (max-width: 760px) {
