@@ -37,6 +37,11 @@ UPSTREAM_BASE = os.environ.get("TTP_UPSTREAM_BASE", "/anthropic")
 SSL_CTX = ssl._create_unverified_context()  # 本地代理,跳过证书验证(转发到已知 upstream)
 INJECT = os.environ.get("TTP_INJECT", "") == "1"
 INJECT_MODELS = [m for m in os.environ.get("TTP_INJECT_MODELS", "deepseek-v4-flash").split(",") if m]
+# 判断类别名(flash 底保思考):请求体 model 匹配任一别名时,不注入 disabled(保 thinking),
+# 但把 model 改写成官方认可的真实 flash 再转发(官方只认 deepseek-v4-pro/flash 两个名,别名直发会 400)。
+# 作用:让判断类(reviewer/researcher/主控)frontmatter 用别名,代理据此区分角色——别名=保思考、flash=注入关思考。
+ALIAS_MODELS = [m for m in os.environ.get("TTP_ALIAS_MODELS", "deepseek-v4-think").split(",") if m]
+ALIAS_TARGET = os.environ.get("TTP_ALIAS_TARGET", "deepseek-v4-flash")  # 别名改写成的真实模型名(底层能力)
 
 def logmsg(s):
     os.makedirs(os.path.dirname(LOG), exist_ok=True)
@@ -55,13 +60,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             thinking_field = obj.get("thinking", "<OMITTED>")
         except Exception as e:
             thinking_field = f"<parse-error {e}>"
-        # 注入 disabled(只对指定 model)
+        # 注入 disabled(只对指定 model = 执行类)
         injected = False
-        if INJECT and model_field and any(m in str(model_field) for m in INJECT_MODELS):
-            obj["thinking"] = {"type": "disabled"}
+        # 别名改写(判断类):不注入(保思考),改写 model 为官方认可的 ALIAS_TARGET 再转发
+        aliased = False
+        if model_field:
+            if any(m in str(model_field) for m in INJECT_MODELS) and INJECT:
+                obj["thinking"] = {"type": "disabled"}
+                injected = True
+            elif any(m in str(model_field) for m in ALIAS_MODELS):
+                obj["model"] = ALIAS_TARGET
+                aliased = True
+        if injected or aliased:
             body = json.dumps(obj).encode()
-            injected = True
-        logmsg(f"REQ {self.command} {self.path} model={model_field} thinking={json.dumps(thinking_field, ensure_ascii=False)} injected={injected}")
+        logmsg(f"REQ {self.command} {self.path} model={model_field}->{obj.get('model')} thinking={json.dumps(thinking_field, ensure_ascii=False)} injected={injected} aliased={aliased}")
         conn = http.client.HTTPSConnection(UPSTREAM_HOST, UPSTREAM_PORT, timeout=180, context=SSL_CTX)
         upstream_path = UPSTREAM_BASE + self.path
         headers = {k: v for k, v in self.headers.items() if k.lower() not in ("host", "content-length", "connection")}
@@ -95,5 +107,5 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 8899), Handler)
-    logmsg(f"proxy listening on 127.0.0.1:8899 INJECT={INJECT} MODELS={INJECT_MODELS} -> https://{UPSTREAM_HOST}{UPSTREAM_BASE}")
+    logmsg(f"proxy listening on 127.0.0.1:8899 INJECT={INJECT} MODELS={INJECT_MODELS} ALIAS_MODELS={ALIAS_MODELS}->{ALIAS_TARGET} -> https://{UPSTREAM_HOST}{UPSTREAM_BASE}")
     server.serve_forever()

@@ -23,6 +23,10 @@
         <string>1</string>
         <key>TTP_INJECT_MODELS</key>
         <string>deepseek-v4-flash</string>
+        <key>TTP_ALIAS_MODELS</key>
+        <string>deepseek-v4-think</string>
+        <key>TTP_ALIAS_TARGET</key>
+        <string>deepseek-v4-flash</string>
         <key>TTP_UPSTREAM_HOST</key>
         <string>api.deepseek.com</string>
         <key>TTP_UPSTREAM_PORT</key>

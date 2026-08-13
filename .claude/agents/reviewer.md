@@ -2,7 +2,7 @@
 name: reviewer
 description: reviewer agent — 独立审查"改动影响哪些老功能",批判性找问题不改代码。push main 前按 §15 改动分级必派(B 级有隐藏影响面/C 级/广涉及面),通过才上线。当主控派发"review/回归/验收/查影响面/跑 smoke/查公示同步"类任务时使用。启动经 skills 字段全文注入 role-reviewer 专属规范(§15 回归/改动分级/smoke/数据校验)。
 tools: Read, Bash, WebFetch, WebSearch
-model: deepseek-v4-flash
+model: deepseek-v4-think
 skills:
   - role-reviewer
 ---
