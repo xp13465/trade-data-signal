@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260813-a180';  // bump a179->a180: 首页「AI降亏过滤」+「AI降亏显示」合并为一个按钮+独立作用域(新键 tds_home_fade 与凯利区 tds_kelly_filters 解耦)+判定改固定7键总开关+toast通用文案+README/purpose-notes 公示同步; 基底=数字单位a177
+const CACHE_VERSION = 'v6-20260813-a182';  // bump a180->a182(避让并行的a181): 首页chart-card hover 去掉背景色(hover背景与进度条轨道同源--bg-hover导致轨道/虚线看不清),保留上浮/描边/发光; 基底=a180
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

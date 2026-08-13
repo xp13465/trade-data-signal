@@ -1068,6 +1068,8 @@ main { padding: 16px 24px; }
 /* P1-⑥+ hover 动效扩展到图表大卡(分时图/宽窄度/指数图/MA/持仓/信号卡等)：
    translateY -2px 蹦出效果，compositor 层纯视觉变换不影响 ECharts getBoundingClientRect 坐标；
    用 box-shadow 0 0 0 1px 模拟描边(不改 border-width 避免布局抖动) + 背景变深对齐 KPI。
+   2026-08-13 去掉背景色：hover 背景与进度条轨道色(.fg-dim-track/.hist-pos-track)同源 --bg-hover，
+   hover 时轨道被同色背景吞没、虚线对比度骤降看不清；保留上浮/描边/发光反馈。
    排除 .nt-home-card(已有自己 hover 定义)；market-score-card 非 chart-card 不受影响。
    fg-dim-card/sig-card/ma-card/position-card 等子类共享此 hover，统一交互反馈。 */
 .chart-card { transition: transform .15s ease, box-shadow .15s ease, background-color .15s ease; }
@@ -1077,7 +1079,6 @@ main { padding: 16px 24px; }
      隔离, 需提升容器自身 z-index 才能让卡(含提示层)浮到所有普通流卡片之上, 不被后渲染卡覆盖。 */
   z-index: 30;
   border-color: var(--primary);
-  background-color: color-mix(in srgb, var(--bg-hover) 88%, transparent);
   box-shadow: 0 4px 16px var(--shadow-strong), 0 0 0 1px var(--primary);
 }
 /* P0-② data-state 左侧色条着色 */
