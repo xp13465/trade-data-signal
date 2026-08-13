@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260813-a178';  // bump a177->a178: 首页AI仓位建议top-K×AI降亏融合口径(先滤降亏再选top-K顺延补位,对齐回测lab.js)+开关改名AI降亏过滤(3元)+无变化toast反馈; 基底=数字单位a177(首页开关行补强)
+const CACHE_VERSION = 'v6-20260813-a179';  // bump a178->a179: 首页AI仓位建议top-K×AI降亏融合口径(先滤降亏再选top-K顺延补位,对齐回测lab.js)+开关改名AI降亏过滤+无变化toast反馈 + 凯利回测「终极融合版」文案/命名重构(去「3元」改「核心3键」、AI宏统一「AI降亏过滤」) + 全站去3元黑话收尾; 基底=数字单位a177
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

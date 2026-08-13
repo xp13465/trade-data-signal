@@ -1751,9 +1751,9 @@ function _sigSwitchHtml(_aiOn, _k, _pcOn, _aiDisplay) {
   // off 按钮(2026-08-13): 复用 .sig-kbtn 样式, data-k="off" 由 _bindSigSwitchRow 识别为关(写 tds_poscap {on:false})
   const _offBtn = `<button type="button" class="sig-kbtn sig-kbtn-off${_pcOn ? "" : " active"}" data-k="off" data-no-pop=""><span class="sig-kbtn-k">关</span><span class="sig-kbtn-r">off</span></button>`;
   return `<div class="sig-switch-row" data-no-pop="">` +
-    `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(3元)(2026-08-13 改名明确范围): 仅控制3元降亏条件(r7/辅关注×3/5月/Greedy-15); 基础4键(追关注×熊市交叉/J1/J2/n2)命中不受本开关控制, 需去凯利区关闭对应成员; 命中当前实际开启降亏条件的信号灰显+删除线+标注AI降亏, 建议回避">` +
-      `<input type="checkbox" class="sig-switch-ai-cb"${_aiOn ? " checked" : ""}> AI降亏过滤(3元)` +
-      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤(3元)开关(2026-08-13 改名明确范围, 与凯利区 AI宏 共享, localStorage tds_kelly_filters): 仅控制3元降亏条件(r7 5月强化+3非五月R7 / 辅关注×3/5月交叉 / Greedy-15组合)的开启与关闭; 基础4键(追关注×熊市交叉 / J1 1月中旬+mid评级 / J2 1月中旬+追关注 / n2 11月+追关注+行业)是凯利区独立toggle默认开启, 命中不受本开关控制——如需关闭基础4请在凯利区关闭对应成员。命中当前实际开启降亏条件的信号灰显+删除线+标注AI降亏, 建议回避(对应凯利区 7 个降亏 toggle 实际开启项); 凯利区改动实时联动; 若点击后列表无任何变化, 说明当前命中的信号均由基础4判定。">ⓘ</span>` +
+    `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(2026-08-13 改名明确范围): 仅控制核心3键降亏条件(r7/辅关注×3/5月/Greedy-15); 基础4键(追关注×熊市交叉/J1/J2/n2)命中不受本开关控制, 需去凯利区关闭对应成员; 命中当前实际开启降亏条件的信号灰显+删除线+标注AI降亏, 建议回避">` +
+      `<input type="checkbox" class="sig-switch-ai-cb"${_aiOn ? " checked" : ""}> AI降亏过滤` +
+      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(2026-08-13 改名明确范围, 与凯利区 AI降亏过滤 共享, localStorage tds_kelly_filters): 仅控制核心3键降亏条件(r7 5月强化+3非五月R7 / 辅关注×3/5月交叉 / Greedy-15组合)的开启与关闭; 基础4键(追关注×熊市交叉 / J1 1月中旬+mid评级 / J2 1月中旬+追关注 / n2 11月+追关注+行业)是凯利区独立toggle默认开启, 命中不受本开关控制——如需关闭基础4请在凯利区关闭对应成员。命中当前实际开启降亏条件的信号灰显+删除线+标注AI降亏, 建议回避(对应凯利区 7 个降亏 toggle 实际开启项); 凯利区改动实时联动; 若点击后列表无任何变化, 说明当前命中的信号均由基础4判定。">ⓘ</span>` +
     `</label>` +
     `<label class="sig-switch-lab sig-switch-aidisplay" data-no-pop="" title="AI降亏显示(纯显示层, 不影响过滤): 勾选=命中AI降亏的信号在首页显示删除线+AI降亏标注; 取消=删除线/AI降亏标注/hover删除线原因全隐藏, 信号恢复正常样式。本地持久化(独立键 tds_poscap_aiDisplay), 与「AI降亏过滤」开关独立: 过滤开关决定哪些信号被判定命中, 显示开关决定命中的信号在首页要不要用删除线展示">` +
       `<input type="checkbox" class="sig-switch-aidisplay-cb"${_aiDisplay ? " checked" : ""}> AI降亏显示` +
@@ -1828,7 +1828,7 @@ function _bindSigSwitchRow(sigCard) {
     // 2026-08-13 toast: 列表无任何变化 → 提示用户本开关只控3元, 当前命中均来自基础4(需去凯利区关闭对应成员)
     const _gridAfter = (document.querySelector(".sig-card .signal-grid") || {}).innerHTML;
     if (_gridBefore != null && _gridAfter === _gridBefore) {
-      _showSigToast("当前命中的信号均由基础4判定(追关注×熊市/J1/J2/n2), 不受「AI降亏过滤(3元)」开关控制; 如需关闭基础4请去凯利区对应成员; AI降亏显示开关可一键隐藏全部删除线");
+      _showSigToast("当前命中的信号均由基础4判定(追关注×熊市/J1/J2/n2), 不受「AI降亏过滤」开关控制; 如需关闭基础4请去凯利区对应成员; AI降亏显示开关可一键隐藏全部删除线");
     }
   });
 }
@@ -2064,7 +2064,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           if (_hitOn.length) {
             aiHitCls = " sig-ai-hit";
             const _hitNames = _hitOn.map((fk) => _AI_MACRO_FILTER_NAMES[fk] || fk).join(" / ");
-            aiHitBadge = `<sup class="sig-ai-hit-badge" data-tip="删除线原因: 本信号命中AI降亏过滤条件【${_hitNames}】→ 被过滤建议回避, 所以显示删除线, 且不占AI建议位(顺延补位给未命中信号)(由凯利区/首页「AI降亏过滤(3元)」开关判定; 首页「AI降亏显示」开关可一键隐藏删除线+此标注, 纯显示层不影响过滤计算)">AI降亏</sup>`;
+            aiHitBadge = `<sup class="sig-ai-hit-badge" data-tip="删除线原因: 本信号命中AI降亏过滤条件【${_hitNames}】→ 被过滤建议回避, 所以显示删除线, 且不占AI建议位(顺延补位给未命中信号)(由凯利区/首页「AI降亏过滤」开关判定; 首页「AI降亏显示」开关可一键隐藏删除线+此标注, 纯显示层不影响过滤计算)">AI降亏</sup>`;
             aiHitAttr = ` data-ai-hit="1" data-ai-hit-names="${_escAttr(_hitNames)}"`;
           }
         }
@@ -2786,7 +2786,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
       var _aiHitRaw = el.getAttribute("data-ai-hit");
       if (_aiHitRaw === "1") {
         var _aiHitNames = el.getAttribute("data-ai-hit-names") || "降亏条件";
-        html += '<div class="term-pop-aihit">⚠️ 删除线原因: 本信号命中 AI降亏过滤条件【' + _esc(_aiHitNames) + '】, 被标记为建议回避, 所以加了删除线, 且不占AI建议位(顺延补位给未命中信号)(与首页/凯利区「AI降亏过滤(3元)」开关联动)。如不需要该过滤, 关闭凯利区/首页「AI降亏过滤」开关即可; 也可用首页「AI降亏显示」开关一键隐藏删除线+此提示(纯显示层, 不影响过滤计算)。</div>';
+        html += '<div class="term-pop-aihit">⚠️ 删除线原因: 本信号命中 AI降亏过滤条件【' + _esc(_aiHitNames) + '】, 被标记为建议回避, 所以加了删除线, 且不占AI建议位(顺延补位给未命中信号)(与首页/凯利区「AI降亏过滤」开关联动)。如不需要该过滤, 关闭凯利区/首页「AI降亏过滤」开关即可; 也可用首页「AI降亏显示」开关一键隐藏删除线+此提示(纯显示层, 不影响过滤计算)。</div>';
       }
       if (locateHtml || idxLineHtml || etfMetaHtml || etfHtml) html += locateHtml + idxLineHtml + etfMetaHtml + etfHtml;
       pop.innerHTML = html;
