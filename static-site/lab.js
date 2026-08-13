@@ -8316,14 +8316,14 @@ function _kellyRefreshAiMacroState(bar) {
 // #54 2026-08-13 ⭐badge 同步: 默认推荐徽标反映实际勾选态(rec=true 但当前 off → 降级"已关/部分"暗显, 与 checkbox 同步; 语义=默认推荐集成员)
 function _kellyRecBadge(on) {
   return on
-    ? '<span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span>'
-    : '<span class="lab-sigkelly-rec-badge lab-sigkelly-rec-badge-off">⭐ 默认推荐·已关</span>';
+    ? '<span class="lab-sigkelly-rec-badge">⭐ 推荐</span>'
+    : '<span class="lab-sigkelly-rec-badge lab-sigkelly-rec-badge-off">⭐ 推荐·已关</span>';
 }
 function _kellyRecBadgeState(allOn, anyOn) {
-  if (allOn) return '<span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span>';
+  if (allOn) return '<span class="lab-sigkelly-rec-badge">⭐ 推荐</span>';
   return anyOn
-    ? '<span class="lab-sigkelly-rec-badge lab-sigkelly-rec-badge-off">⭐ 默认推荐·部分</span>'
-    : '<span class="lab-sigkelly-rec-badge lab-sigkelly-rec-badge-off">⭐ 默认推荐·已关</span>';
+    ? '<span class="lab-sigkelly-rec-badge lab-sigkelly-rec-badge-off">⭐ 推荐·部分</span>'
+    : '<span class="lab-sigkelly-rec-badge lab-sigkelly-rec-badge-off">⭐ 推荐·已关</span>';
 }
 
 // ===== 降亏过滤 31 toggle 单一事实来源(2026-08-13 融合优化 #39): 渲染/排序/badge/联动全部从本数组派生, 根治"名称/比值/tip 硬编码在 HTML 字符串"痛点 =====
@@ -9061,16 +9061,33 @@ function _renderSigKellyQuadrants(host, data, period) {
     { title: _t("lab_group_by_sig_type"), keys: ["sig_main", "sig_aux", "sig_special", "sig_backup"] },
     { title: "按指数大类分组(宽基/港股/全球/行业/概念)", keys: ["mkt_a", "mkt_hk", "mkt_global", "mkt_industry", "mkt_concept"] },
   ];
-  // 组合使用建议(静态) + 全信号表(最后结果, 实时), 置顶于16卡分组前
+  // 卡片置顶: 置顶的子域卡集中显示在最前部已置顶区(按置顶顺序), 置顶卡从原分组剔除, 只影响展示顺序
+  const pinnedKeys = _sigKellyPinnedKeys();
+  const pinnedSet = {};
+  for (let i = 0; i < pinnedKeys.length; i++) pinnedSet[pinnedKeys[i]] = true;
+  const pinnedSub = pinnedKeys.filter((k) => k !== "all" && quads[k]);
+  // 组合使用建议(静态) + 全信号表(最后结果, 实时) 常驻顶部
   let html = _kellyComboAdviceHtml() + _sigKellyAllSignalGroupHtml(period);
+  // 已置顶区(置顶子域卡集中显示, 置顶/取消置顶后整组重排)
+  if (pinnedSub.length) {
+    html += `<div class="lab-sigkelly-group lab-sigkelly-group-pinned">`;
+    html += `<div class="lab-sigkelly-group-title">📌 已置顶 <span class="lab-sigkelly-pin-hint">(${pinnedSub.length} 张·点击卡内 📌 取消置顶)</span></div>`;
+    html += `<div class="lab-sigkelly-grid">`;
+    for (let i = 0; i < pinnedSub.length; i++) {
+      const qk = pinnedSub[i];
+      html += _renderSigKellyCard(qk, quads[qk], period, cmp.map[qk] || null);
+    }
+    html += `</div></div>`;
+  }
   for (const g of groups) {
+    // 跳过已置顶的子域卡(不重复展示)
+    const keystoRender = g.keys.filter((k) => !pinnedSet[k] && quads[k]);
+    if (!keystoRender.length) continue;
     html += `<div class="lab-sigkelly-group">`;
     html += `<div class="lab-sigkelly-group-title">${g.title}</div>`;
     html += `<div class="lab-sigkelly-grid">`;
-    for (const qk of g.keys) {
-      const q = quads[qk];
-      if (!q) continue;
-      html += _renderSigKellyCard(qk, q, period, cmp.map[qk] || null);
+    for (const qk of keystoRender) {
+      html += _renderSigKellyCard(qk, quads[qk], period, cmp.map[qk] || null);
     }
     html += `</div></div>`;
   }
@@ -9092,6 +9109,18 @@ function _bindSigKellyCardEvents(host) {
   host.querySelectorAll(".lab-sigkelly-trade-row").forEach((row) => {
     row.onclick = () => {
       _openSigKellyTradesModal(row.dataset.quad, row.dataset.mode, row.dataset.period);
+    };
+  });
+  // 卡片置顶按钮: 点击切换置顶(写 localStorage), 整组重排渲染(置顶卡进已置顶区, 排序变更需重建)
+  host.querySelectorAll(".lab-sigkelly-pin-btn").forEach((btn) => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const qk = btn.getAttribute("data-pin-quad");
+      if (!qk) return;
+      _sigKellySetPinned(qk, !_sigKellyIsPinned(qk));
+      const bar = document.querySelector(".lab-sigkelly-bar");
+      if (bar) _renderSigKellyBar(bar, state.labSigKellyData, state.labSigKellyPeriod);
+      _renderSigKellyQuadrants(host, state.labSigKellyData, state.labSigKellyPeriod);
     };
   });
   // 组比较水印 hoverpop: 悬停/点击 badge 弹说明
@@ -9443,10 +9472,26 @@ function _sigKellyCwmPopupHtml(cmp) {
   );
 }
 
+// 卡片置顶: 全信号表卡+16子域卡共用 localStorage(按 data-quad 标识), 置顶卡片集中显示在最前部(已置顶区)
+// 2026-08-13 用户需求: "盯住置顶"方便调试降亏排序; 只影响展示顺序, 不动卡片内容/排序算法(§23.3 覆盖全信号+全子域卡)
+const _SIGKELLY_PIN_KEY = "tds_lab_sigkelly_pinned";
+function _sigKellyPinnedKeys() {
+  try { const a = JSON.parse(localStorage.getItem(_SIGKELLY_PIN_KEY) || "[]"); return Array.isArray(a) ? a.filter((k) => typeof k === "string") : []; }
+  catch (e) { return []; }
+}
+function _sigKellyIsPinned(qk) { return _sigKellyPinnedKeys().indexOf(qk) >= 0; }
+function _sigKellySetPinned(qk, on) {
+  const arr = _sigKellyPinnedKeys();
+  const i = arr.indexOf(qk);
+  const was = i >= 0;
+  if (on && !was) arr.push(qk);   // 保持置顶顺序: 后置顶的补到队尾, 已置顶区按首次置顶序排列
+  if (!on && was) arr.splice(i, 1);
+  try { localStorage.setItem(_SIGKELLY_PIN_KEY, JSON.stringify(arr)); } catch (e) {}
+}
+
 // 单象限卡片: 各卖出模式宽表(动态从 sell_modes 读取) + 跟单指引
 // 主表+进阶表合并为一张宽表(14列),details 折叠已移除常显;最大持仓显笔数+资金
 function _renderSigKellyCard(qk, q, period, cardCmp) {
-  const periods = q.periods || {};
   // 费率客调: 如果有重算stats,用重算值替换原始stats(结构一致)
   const feeStats = state.labSigKellyFeeStats;
   const pdata = (feeStats && feeStats[qk] && feeStats[qk][period]) ? feeStats[qk][period] : (periods[period] || {});
@@ -9512,11 +9557,14 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
     if (cardCmp.isStable) badges += `<span class="lab-sigkelly-cwm-badge lab-sigkelly-cwm-stable">◆最稳定</span>`;
     cwmHtml = `<div class="lab-sigkelly-cwm" data-cwm="1">${badges}<div class="lab-sigkelly-wm-pop-wrap lab-sigkelly-cwm-pop-wrap" style="display:none">${_sigKellyCwmPopupHtml(cardCmp)}</div></div>`;
   }
+  const _pinned = _sigKellyIsPinned(qk);
   return (
-    `<div class="lab-sigkelly-card" data-quad="${qk}">` +
+    `<div class="lab-sigkelly-card${_pinned ? " lab-sigkelly-card-pinned" : ""}" data-quad="${qk}">` +
       (wm ? `<div class="lab-sigkelly-wm lab-sigkelly-wm-${wm.kind}" data-wm="1"><span class="lab-sigkelly-wm-badge">${wm.text}</span><div class="lab-sigkelly-wm-pop-wrap" style="display:none">${_sigKellyWmPopupHtml(wm)}</div></div>` : ``) +
       `<div class="lab-sigkelly-card-head">` +
-        `<div class="lab-sigkelly-card-name"><span>${q.label || qk}</span></div>` +
+        `<div class="lab-sigkelly-card-name"><span>${q.label || qk}</span>` +
+          `<button type="button" class="lab-sigkelly-pin-btn${_pinned ? " active" : ""}" data-pin-quad="${qk}" title="${_pinned ? "点击取消置顶" : "点击置顶此卡片(放最前部盯住)"}" aria-label="置顶/取消置顶">📌</button>` +
+        `</div>` +
         `<div class="lab-sigkelly-card-desc">${q.desc || ""}` +
         (hasGuide
           ? ` <span class="lab-sigkelly-guide-trigger" data-guide="1">卖出模式说明❓` +

@@ -1490,6 +1490,9 @@
 .lab-sigkelly-toggle.lab-sigkelly-rec { background: rgba(250,173,20,0.10); border: 1px solid rgba(250,173,20,0.45); border-radius: 5px; padding: 2px 6px; }
 .lab-sigkelly-toggle.lab-sigkelly-rec:hover { background: rgba(250,173,20,0.16); }
 [data-theme="dark"] .lab-sigkelly-toggle.lab-sigkelly-rec, [data-theme="redgold"] .lab-sigkelly-toggle.lab-sigkelly-rec { background: rgba(250,173,20,0.14); }
+/* 2026-08-13 用户需求: 默认推荐框内文字醒目 —— 高亮框内灰字(默认--text-3)改成加粗金字, 不再暗淡 (badge/linked 自带色, 不受影响) */
+.lab-sigkelly-toggle.lab-sigkelly-rec { color: #a05a00; font-weight: 700; }
+[data-theme="dark"] .lab-sigkelly-toggle.lab-sigkelly-rec, [data-theme="redgold"] .lab-sigkelly-toggle.lab-sigkelly-rec { color: #ffd74a; }
 .lab-sigkelly-rec-badge { display: inline-block; font-size: 10px; font-weight: 700; color: #8a5a00; background: linear-gradient(135deg, #ffd700, #ffb300); border-radius: 3px; padding: 0 5px; margin: 0 3px; line-height: 1.5; }
 [data-theme="dark"] .lab-sigkelly-rec-badge, [data-theme="redgold"] .lab-sigkelly-rec-badge { color: #5b3b00; }
 /* #54 2026-08-13 ⭐badge 同步: 默认推荐但当前已关/部分时降级暗显(与 checkbox 勾选态同步) */
@@ -1519,6 +1522,14 @@
 .lab-sigkelly-group-title { font-size: 14px; font-weight: 700; color: var(--text-1); margin: 6px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
 .lab-sigkelly-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 700px), 1fr)); gap: 12px; }
 .lab-sigkelly-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; min-width: 0; position: relative; }
+/* 2026-08-13 卡片置顶: 置顶卡金色高亮描边 + 已置顶区标题/提示 */
+.lab-sigkelly-card-pinned { border: 1px solid rgba(250,173,20,0.65); box-shadow: 0 0 0 1px rgba(250,173,20,0.15), 0 2px 8px rgba(250,173,20,0.12); }
+.lab-sigkelly-group-pinned { margin-bottom: 16px; padding: 4px 8px 8px; border: 1px dashed rgba(250,173,20,0.5); border-radius: 8px; background: rgba(250,173,20,0.05); }
+.lab-sigkelly-group-pinned .lab-sigkelly-group-title { color: #b8860b; border-bottom-color: rgba(250,173,20,0.4); }
+.lab-sigkelly-pin-hint { font-size: 11px; font-weight: 500; color: var(--text-3); margin-left: 4px; }
+.lab-sigkelly-pin-btn { background: transparent; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 5px; color: var(--text-3); opacity: 0.7; transition: all 0.15s; }
+.lab-sigkelly-pin-btn:hover { opacity: 1; border-color: rgba(250,173,20,0.6); }
+.lab-sigkelly-pin-btn.active { opacity: 1; background: rgba(250,173,20,0.18); border-color: rgba(250,173,20,0.7); box-shadow: 0 0 0 1px rgba(250,173,20,0.3); }
 .lab-sigkelly-wm { position: absolute; top: 6px; right: 8px; z-index: 2; pointer-events: auto; cursor: help; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 8px; letter-spacing: 0.5px; line-height: 1.3; }
 .lab-sigkelly-wm-badge { opacity: 0.82; }
 .lab-sigkelly-wm-top1 { background: rgba(212,160,23,0.16); color: #b8860b; border: 1px solid rgba(184,134,11,0.4); }
