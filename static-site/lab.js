@@ -7089,7 +7089,7 @@ function _kellyYearsFromTrades(trades) {
   return Math.max(days / 365.25, 1.0 / 365.25);
 }
 
-// 最大回撤(复用 _max_drawdown; 2026-08-12: 用每笔 amount 求总投入, fixed口径每笔相等=笔数×1万)
+// 最大回撤(复用 _max_drawdown; 2026-08-13: 总投入=每笔 amount 求和, 每日资金池等分口径每笔已摊薄自动算对, 不按"笔数×1万")
 function _kellyMaxDrawdown(trades, buyAmount) {
   if (!trades.length) return { abs: 0, pct: 0 };
   var sorted = trades.slice().sort(function (a, b) {
@@ -7147,7 +7147,7 @@ function _kellyComputeStats(trades, periodKey, buyAmount) {
   else if (winCount > 0 && loseCount === 0) plRatio = 999.0;
   else plRatio = null;
   var meanReturn = trades.reduce(function (s, t) { return s + t.return_pct; }, 0) / n;
-  // 2026-08-12: 总投入=每笔 amount 求和(fixed口径每笔=buyAmount)
+  // 2026-08-13: 总投入=每笔 amount 求和(每日资金池等分口径每笔=10000/当日保留数, 自动正确; fixed口径下每笔=buyAmount)
   var totalAmount = trades.reduce(function (s, t) { return s + (t.amount || buyAmount); }, 0);
   var totalReturn = totalAmount > 0 ? trades.reduce(function (s, t) { return s + t.profit; }, 0) / totalAmount * 100 : 0;
   var avgHold = trades.reduce(function (s, t) { return s + t.hold_days; }, 0) / n;
@@ -7506,11 +7506,12 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
   return true;
 }
 
-// ===== positionCap 仓位控制过滤 (2026-08-12; 金额口径固定=每笔1万, 已移除每日资金池等分) =====
+// ===== positionCap 仓位控制过滤 (2026-08-13; 金额口径=每日资金池等分+top-K, 2026-08-13用户纠正恢复原口径) =====
 // 需求: "一天100个信号不可能买100次, 同日只买最优K个" + "一天2个信号就各买5000, 每天交易额不变"
 // positionCap: 按 signal_date 分组当日全部基笔信号, 组内排序 track_score DESC→rating(high>mid>low)→signal类型(buy_backup>buy>buy_aux>buy_special)→buy_date ASC, 保留前K个
 // 过滤时机: 基笔信号级(9卖出模式A-I共享同一批基笔信号, 过滤在模式之前统一生效; 同一信号同一天只算一次, 跨模式不重复计)
-// 金额口径(2026-08-12 用户定): 固定=每笔固定 1 万(移除"每日资金池等分"——用户原话"1w还分30个信号买30份没意义,仓位控制1/2/3/4已足以")
+// 金额口径(2026-08-13 用户纠正恢复): 每日资金池等分+top-K = 当日保留前K基笔(后续positionCap保留), 每笔=10000/当日保留数, 每日总投入恒1万 → K档最大持仓恒定(~11万)。
+//   当初(2026-08-12 5d047aef2)把"每日资金池整体删除""1w还分30个信号买30份没意义,仓位控制1/2/3/4已足以"是理解错误——用户反对的是"每日池+买全部"(每份太小), 而非每日池本身;"仓位控制K/4已足以"正是要每日池+top-K(每份=10000/当日保留个数, 有实操意义)
 // 基笔身份: signal_date|index_id|signal|buy_date|etf_code (买侧身份, 卖出模式不影响)
 function _kellyBaseKey(t, fIdx) {
   return (t[fIdx.signal_date] || "") + "|" + (t[fIdx.index_id] || "") + "|" + (t[fIdx.signal] || "") + "|" + (t[fIdx.buy_date] || "") + "|" + (t[fIdx.etf_code] || "");
@@ -7569,11 +7570,25 @@ function _kellyCollectBasePool(quads, sellModes, fIdx, passFn) {
   });
   return pool;
 }
-// 单笔买入金额(2026-08-12 移除资金池等分口径): 固定=每笔固定 1 万
-function _kellyPerTradeAmount(t, fIdx, buyAmount) {
+// 每日资金池等分+top-K 金额口径(2026-08-13 恢复, 用户纠正最初理解错误):
+//  当日保留前K基笔(全mode共享同一批kept), 每笔=10000/当日保留数, 每日总投入恒1万 → K档最大持仓恒定(~11万), 恢复分仓实操意义
+//  当初(5d047aef2)把"每日资金池"整体删除是错误理解——用户反对的是"每日池+买全部"(每份太小), 而非每日池本身; 仓位控制X/4已足以=要每日池+top-K
+//  当日保留数基于 posCapKept 保留集合全集(跨mode)统计, 保证同一天同一基笔在所有mode/场景金额统一(§22 跨展示位一致)
+function _kellyKeptDayCounts(kept) {
+  var m = {};
+  if (!kept) return m;
+  for (var k in kept) {
+    var sd = String(k || "").split("|")[0];
+    if (sd) m[sd] = (m[sd] || 0) + 1;
+  }
+  return m;
+}
+// 单笔买入金额: 每日资金池+top-K 口径 = buyAmount(10000) / 当日保留基笔数(dayKeptCount); positionCap 未开或无数时退化为固定 buyAmount
+function _kellyPerTradeAmount(t, fIdx, buyAmount, dayKeptCount) {
+  if (dayKeptCount && dayKeptCount > 0) return buyAmount / dayKeptCount;
   return buyAmount;
 }
-// 最大同时持仓占用资金(按日期分桶累加买入/卖出金额, 同日先买后卖=保守, 语义与 _kellyMaxConcurrent 一致; fixed口径每笔相等=并发笔数×1万)
+// 最大同时持仓占用资金(按日期分桶累加买入/卖出金额, 同日先买后卖=保守, 语义与 _kellyMaxConcurrent 一致; 读 trades[i].amount, 每日资金池等分口径每笔已摊薄自动算对 → K档最大持仓恒定)
 function _kellyMaxConcurrentCapital(trades) {
   if (!trades.length) return 0;
   var SENTINEL = "99999999", deltas = {}, dates = [];
@@ -7689,8 +7704,8 @@ async function _kellyApplyFeeRecompute(feeParams) {
   }
   // ④ filters+feeParams+金额口径签名缓存: 连点命中直接复用, 不重算
   var feeSig = _kellyFeeSig(feeParams);
-  // 金额口径(2026-08-12 用户定): 固定=每笔固定 1 万(移除资金池等分, 仓位控制1/2/3/4已足以)
-  var cacheKey = feeSig + "|fixed|" + JSON.stringify(filters);
+  // 金额口径(2026-08-13 用户纠正恢复): 每日资金池等分+top-K(每笔=10000/当日保留基笔数, 每日总投入恒1万 → K档最大持仓恒定; 撤销2026-08-12"每笔固定1万"fixed口径)
+  var cacheKey = feeSig + "|pool|" + JSON.stringify(filters);
   if (_kellyStatsCacheKey === cacheKey && _kellyStatsCacheVal) {
     return _kellyStatsCacheVal;
   }
@@ -7702,9 +7717,11 @@ async function _kellyApplyFeeRecompute(feeParams) {
   };
   // positionCap 仓位控制过滤: 统一在模式之前生效(9模式共享同一批基笔, 同一信号同一天只算一次跨模式不重复计)
   var posCapKept = null;
+  var posDayCounts = null; // 每日资金池等分: 当日保留基笔数{signal_date:count}, 基于保留集合全集(跨mode)统计(2026-08-13恢复)
   if (filters.positionCap && filters.positionCapK > 0) {
     var basePool = _kellyCollectBasePool(quads, sellModes, fIdx, passesFade);
     posCapKept = _kellyPositionCapKeptKeys(basePool, fIdx, filters.positionCapK);
+    posDayCounts = _kellyKeptDayCounts(posCapKept);
   }
   // ① 按(qk,mode)只过滤一次(不含period cutoff), 5个period从过滤结果按cutoff取子集(扫描5->1遍)
   // ② v3/v4特征经缓存Map只算一次, 后续O(1)查表
@@ -7743,7 +7760,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
           }
           // ③ 费率重算缓存(feeParams+单笔金额未变同一trade只算一次, 消灭跨bucket重复)
           var recomputed = trades.map(function (t) {
-            var amt = _kellyPerTradeAmount(t, fIdx, buyAmount);
+            var amt = _kellyPerTradeAmount(t, fIdx, buyAmount, posDayCounts ? posDayCounts[t[fIdx.signal_date]] : null);
             var c = _kellyRecomputeCache.get(t);
             if (!c || c.sig !== feeSig || c.amt !== amt) {
               var r = _kellyRecomputeTrade(t, fIdx, feeParams, amt);
@@ -7771,7 +7788,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
           var _t2 = _yt[_yi];
           var _yr = (_t2[fIdx.buy_date] || "").substring(0, 4);
           if (!_yr) continue;
-          var _amt2 = _kellyPerTradeAmount(_t2, fIdx, buyAmount);
+          var _amt2 = _kellyPerTradeAmount(_t2, fIdx, buyAmount, posDayCounts ? posDayCounts[_t2[fIdx.signal_date]] : null);
           var _c2 = _kellyRecomputeCache.get(_t2);
           if (!_c2 || _c2.sig !== feeSig || _c2.amt !== _amt2) {
             var _rr2 = _kellyRecomputeTrade(_t2, fIdx, feeParams, _amt2);
@@ -7813,6 +7830,8 @@ async function _kellyApplyFeeRecompute(feeParams) {
         var _posVals = {};
         for (var _pk = 1; _pk <= 4; _pk++) {
           var _kept = _kellyPositionCapKeptKeys(_posBase, fIdx, _pk);
+          // 每日资金池等分(2026-08-13恢复): 该K档当月的当日保留基笔数, 与卡片/弹窗同口径(§22)
+          var _posDayCounts = _kellyKeptDayCounts(_kept);
           var _keptArr = [];
           for (var _ti = 0; _ti < _posRaw.length; _ti++) {
             var _tb = _posRaw[_ti];
@@ -7821,7 +7840,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
             _keptArr.push(_tb);
           }
           var _recomp = _keptArr.map(function (tt) {
-            var _amt = _kellyPerTradeAmount(tt, fIdx, buyAmount);
+            var _amt = _kellyPerTradeAmount(tt, fIdx, buyAmount, _posDayCounts ? _posDayCounts[tt[fIdx.signal_date]] : null);
             var _c = _kellyRecomputeCache.get(tt);
             if (!_c || _c.sig !== feeSig || _c.amt !== _amt) {
               var _r = _kellyRecomputeTrade(tt, fIdx, feeParams, _amt);
@@ -8171,7 +8190,7 @@ async function renderSigKellyLab() {
       }
     }
   } catch (e) {}
-  // 金额口径固定=每笔固定1万(2026-08-12 移除资金池等分); positionCap 开关/K 与交易页共享localStorage
+  // 金额口径=每日资金池等分+top-K(2026-08-13 恢复, 每笔=10000/当日保留数, K档最大持仓恒定); positionCap 开关/K 与交易页共享localStorage
   var _sharedPC = _kellySharedPosCap();
   // 2026-08-12 默认开启 positionCap(用户:默认最优组合要开启): 首次访问(无 tds_poscap)写入默认{on:true,k:3}(2026-08-13 K默认3), 与 app.js 首页联动一致(§22)
   if (!localStorage.getItem("tds_poscap")) _kellySetSharedPosCap(true, 3);
@@ -9035,7 +9054,7 @@ function _sigKellyAllSignalGroupHtml(period) {
   return (
     `<div class="lab-sigkelly-group lab-sigkelly-all-group">` +
       `<div class="lab-sigkelly-group-title">📌 全信号表（最后结果 · 全量信号融合）<span class="lab-sigkelly-all-badge">最后结果</span></div>` +
-      `<div class="lab-sigkelly-all-desc">总建议口径：全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）。金额口径=每笔固定 1 万（2026-08-12 移除资金池等分，全站统一）。下表实时随上方降亏组合勾选 / 费率档 / 周期切换联动。年份窗口表为全周期口径（非当前周期窗口）。</div>` +
+      `<div class="lab-sigkelly-all-desc">总建议口径：全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）。金额口径=每日资金池等分+top-K（2026-08-13 恢复：当日保留前K基笔，每笔=10000/当日保留数，每日总投入恒1万，K档最大持仓恒定）。下表实时随上方降亏组合勾选 / 费率档 / 周期切换联动。年份窗口表为全周期口径（非当前周期窗口）。</div>` +
       `<div class="lab-sigkelly-all-main">` +
         `<div class="lab-sigkelly-all-card">${cardHtml}</div>` +
         `<div class="lab-sigkelly-all-yearly lab-sigkelly-all-yearly-block">` +
@@ -9657,7 +9676,7 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
     _tradeDims2 = _kellyBuildTradeDims(td, _fIdx);
     state.labSigKellyTradeDims = _tradeDims2;
   }
-  // positionCap 仓位控制过滤(2026-08-12): 与卡片统计口径一致(§22数据一致性); 金额口径固定=每笔1万
+  // positionCap 仓位控制过滤(2026-08-13): 与卡片统计口径一致(§22数据一致性); 金额口径=每日资金池等分+top-K(每笔=10000/当日保留数, 恢复2026-08-13)
   // 降亏过滤谓词抽成命名函数供基笔池复用(不含period cutoff: cutoff只用于弹窗当前周期显示, 池需全周期一致)
   // 2026-08-12 P2-2修复: 直接调共享谓词 _kellyPassesFadeFilters(消除逐条复制漂移, 补齐 v4 12 toggle 生效, 弹窗与卡片统计一致 §22)
   var _pcMonthMask = _kellyActiveMonthMask(_filters);
@@ -9666,9 +9685,11 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   }
   // positionCap: 跨全部卖出模式×rating三分区收集基笔池(去重, 9模式共享同一批基笔, 模式之前统一生效)
   var _posCapKept = null;
+  var _posDayCounts = null; // 每日资金池等分(2026-08-13恢复): 当日保留基笔数, 与卡片/评级同口径(§22跨展示位一致)
   if (_filters.positionCap && _filters.positionCapK > 0) {
     var _basePool = _kellyCollectBasePool(td.quadrants, cfg.sell_modes || {}, _fIdx, _pcFadePasses);
     _posCapKept = _kellyPositionCapKeptKeys(_basePool, _fIdx, _filters.positionCapK);
+    _posDayCounts = _kellyKeptDayCounts(_posCapKept);
   }
   let trades = rawTrades.filter(function (t) {
     if (cutoff && cutoff !== "0" && (t[_fIdx.buy_date] || "") < cutoff) return false;
@@ -9691,7 +9712,7 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
     const _buyAmount = td.buy_amount || (cfg.buy_amount) || 10000;
     const feeParams = state.labSigKellyFeeParams || { commission_rate: 0.0003, min_commission: 5, slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0 };
     const _recompute = (t) => {
-      const _amt = _kellyPerTradeAmount(t, _fIdx, _buyAmount);
+      const _amt = _kellyPerTradeAmount(t, _fIdx, _buyAmount, _posDayCounts ? _posDayCounts[t[_fIdx.signal_date]] : null);
       const r = _kellyRecomputeTrade(t, _fIdx, feeParams, _amt);
       const newT = t.slice();
       newT[_fIdx.profit] = r.profit;
