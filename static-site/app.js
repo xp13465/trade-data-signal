@@ -1713,18 +1713,36 @@ function _readKellyAiFilters() {
   } catch (e) {}
   return null;
 }
-// 首页 AI 降亏开关行 HTML(K 档 3124 + AI降亏过滤总开关); 状态读自 localStorage, 事件绑在 _bindSigSwitchRow
-function _sigSwitchHtml(_aiOn, _k) {
+// 首页 AI 降亏显示开关(2026-08-13): 纯显示层, 控制首页信号列表删除线+「AI降亏」标注+badge hoverpop 原因行的显示与否。
+// 独立 localStorage 键 tds_poscap_aiDisplay(默认开启=显示删除线, 即现状行为), 不与 tds_kelly_filters(过滤)混淆——
+// 显示开关只影响首页渲染, 不改任何过滤计算/后端 overview.json/凯利区存储与计算。
+function _readAiDisplayFlag() {
+  try {
+    const v = localStorage.getItem("tds_poscap_aiDisplay");
+    if (v === "0" || v === "false") return false;
+  } catch (e) {}
+  return true;
+}
+// 首页 AI 降亏开关行 HTML(K 档 3124 + off 按钮 + AI降亏过滤总开关 + AI降亏显示开关); 状态读自 localStorage, 事件绑在 _bindSigSwitchRow
+// 2026-08-13 补强(用户拍板): ①AI降亏显示开关(纯显示层, 独立键 tds_poscap_aiDisplay)——控制首页删除线+AI降亏标注显示与否, 不碰过滤/后端/凯利区;
+// ②AI仓位建议 off 按钮——写 tds_poscap {on:false}(与凯利区 _kellySetSharedPosCap(false,k) 同键同语义, §22 联动), 该区域退化为普通信号列表
+function _sigSwitchHtml(_aiOn, _k, _pcOn, _aiDisplay) {
   const _kRating = { 1: "最激进", 2: "次稳健", 3: "最稳健", 4: "最保守" };
   const _kbtns = [3, 1, 2, 4].map((kk) =>
-    `<button type="button" class="sig-kbtn${kk === _k ? " active" : ""}${kk === 3 ? " sig-kbtn-main" : ""}" data-k="${kk}" data-no-pop=""><span class="sig-kbtn-k">${kk}</span><span class="sig-kbtn-r">${_kRating[kk]}${kk === 3 ? "★" : ""}</span></button>`
+    `<button type="button" class="sig-kbtn${(kk === _k && _pcOn) ? " active" : ""}${kk === 3 ? " sig-kbtn-main" : ""}" data-k="${kk}" data-no-pop=""><span class="sig-kbtn-k">${kk}</span><span class="sig-kbtn-r">${_kRating[kk]}${kk === 3 ? "★" : ""}</span></button>`
   ).join("");
+  // off 按钮(2026-08-13): 复用 .sig-kbtn 样式, data-k="off" 由 _bindSigSwitchRow 识别为关(写 tds_poscap {on:false})
+  const _offBtn = `<button type="button" class="sig-kbtn sig-kbtn-off${_pcOn ? "" : " active"}" data-k="off" data-no-pop=""><span class="sig-kbtn-k">关</span><span class="sig-kbtn-r">off</span></button>`;
   return `<div class="sig-switch-row" data-no-pop="">` +
     `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(3元部分, 与凯利区 AI宏 共享): 勾选=3元(r7/辅关注×3/5月/Greedy-15)降亏开启; 基础4键(追关注×熊市交叉/J1/J2/n2)为凯利区独立toggle默认开不受此开关控制; 命中当前实际开启降亏条件的信号灰显+删除线+标注AI降亏, 建议回避">` +
       `<input type="checkbox" class="sig-switch-ai-cb"${_aiOn ? " checked" : ""}> AI降亏过滤` +
       `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(与凯利区 AI宏 共享, localStorage tds_kelly_filters): 勾选=3元(r7 5月强化+3非五月R7 / 辅关注×3/5月交叉 / Greedy-15组合)降亏过滤开启; 基础4键(追关注×熊市交叉 / J1 1月中旬+mid评级 / J2 1月中旬+追关注 / n2 11月+追关注+行业)是凯利区独立toggle默认开启, 不受本开关控制。命中当前实际开启降亏条件的信号灰显+删除线+标注AI降亏, 建议回避(对应凯利区 7 个降亏 toggle 实际开启项); 凯利区改动实时联动。">ⓘ</span>` +
     `</label>` +
-    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap): 同日只买最优K个, 未进入前K=当日已满灰显">AI仓位建议 K: <span class="sig-kbtns">${_kbtns}</span></span>` +
+    `<label class="sig-switch-lab sig-switch-aidisplay" data-no-pop="" title="AI降亏显示(纯显示层, 不影响过滤): 勾选=命中AI降亏的信号在首页显示删除线+AI降亏标注; 取消=删除线/AI降亏标注/hover删除线原因全隐藏, 信号恢复正常样式。本地持久化(独立键 tds_poscap_aiDisplay), 与「AI降亏过滤」开关独立: 过滤开关决定哪些信号被判定命中, 显示开关决定命中的信号在首页要不要用删除线展示">` +
+      `<input type="checkbox" class="sig-switch-aidisplay-cb"${_aiDisplay ? " checked" : ""}> AI降亏显示` +
+      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏显示开关(纯显示层, 独立 localStorage 键 tds_poscap_aiDisplay, 默认开启): 关闭后首页不再显示删除线(灰显+line-through)+「AI降亏」标注+hover删除线原因, 信号恢复正常样式——不影响任何过滤计算/后端 overview.json/凯利区存储与计算(那里仍正常过滤)。与「AI降亏过滤」开关独立可叠加: 过滤=决定哪些信号被判定命中; 显示=决定命中信号在首页要不要用删除线展示。">ⓘ</span>` +
+    `</label>` +
+    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap): 同日只买最优K个, 未进入前K=当日已满灰显; 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表, 再点某 K 档恢复">AI仓位建议 K: <span class="sig-kbtns">${_kbtns}${_offBtn}</span></span>` +
     `</div>`;
 }
 // 绑定首页开关行事件(K 按钮 + AI降亏 checkbox), 改状态后重绘 sigCard; 每次渲染开关行后调用
@@ -1736,8 +1754,14 @@ function _bindSigSwitchRow(sigCard) {
     if (kb) {
       e.preventDefault();
       e.stopPropagation();
-      const k = parseInt(kb.dataset.k, 10) || 3;
-      try { localStorage.setItem("tds_poscap", JSON.stringify({ on: true, k })); } catch (err) {}
+      if (kb.dataset.k === "off") {
+        // AI仓位建议 off 按钮(2026-08-13): 写 tds_poscap {on:false}, 与凯利区 _kellySetSharedPosCap(false,k) 同键同语义(§22 联动),
+        // 关闭后该区域退化为普通信号列表(无「AI建议N」「当日已满」badge), 再点某 K 档恢复 {on:true,k}
+        try { localStorage.setItem("tds_poscap", JSON.stringify({ on: false, k: 3 })); } catch (err) {}
+      } else {
+        const k = parseInt(kb.dataset.k, 10) || 3;
+        try { localStorage.setItem("tds_poscap", JSON.stringify({ on: true, k })); } catch (err) {}
+      }
       _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
       return;
     }
@@ -1746,8 +1770,22 @@ function _bindSigSwitchRow(sigCard) {
       // checkbox change 走 change 事件, click 这里只处理按钮; 空实现避免误吞(change 在下方单独绑)
       return;
     }
+    const aiDispCb = e.target.closest(".sig-switch-aidisplay-cb");
+    if (aiDispCb) {
+      // checkbox change 走 change 事件, click 这里只处理按钮; 空实现避免误吞(change 在下方单独绑)
+      return;
+    }
   });
   sigCard.addEventListener("change", (e) => {
+    const aiDispCb = e.target.closest(".sig-switch-aidisplay-cb");
+    if (aiDispCb) {
+      e.preventDefault();
+      e.stopPropagation();
+      // AI降亏显示(纯显示层, 2026-08-13): 只控制首页删除线/AI降亏标注/hover原因行的显示, 不改任何过滤计算/后端/凯利区
+      try { localStorage.setItem("tds_poscap_aiDisplay", aiDispCb.checked ? "1" : "0"); } catch (err) {}
+      _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
+      return;
+    }
     const aiCb = e.target.closest(".sig-switch-ai-cb");
     if (!aiCb) return;
     e.preventDefault();
@@ -1860,11 +1898,13 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // 排序口径与凯利回测 §6.1 一致: track_score DESC → 评级(high>mid>low) → 信号类型(buy_backup>buy>buy_aux>buy_special) → buy_date ASC
   let _posCapKeptMap = null;
   let _posCapK = 0;
+  let _pcOn = true;  // AI仓位建议 当前是否开启(开关行 off 按钮状态; 首页无 tds_poscap key 时保持现状 K=3 高亮, 与 lab.js 默认 on:true 语义对齐)
   if (kind === "signal") {
     try {
       const _raw = localStorage.getItem("tds_poscap");
       if (_raw) {
         const _pc = JSON.parse(_raw);
+        _pcOn = !!( _pc && _pc.on );  // off 状态(凯利区/首页 off 按钮写 {on:false})时显示「关」按钮高亮, K 档不高亮
         if (_pc && _pc.on && _pc.k >= 1 && _pc.k <= 4) {
           _posCapK = _pc.k;
           const _rc = { high: 0, mid: 1, low: 2, "": 3 };
@@ -1917,7 +1957,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       }
     } catch (e) {}
   }
-  const _sigSwitchHtmlStr = (kind === "signal") ? _sigSwitchHtml(_aiMacroOn, _posCapK || 3) : "";
+  // 2026-08-13 AI 降亏显示开关(纯显示层): 读独立键 tds_poscap_aiDisplay(默认 true), 控制删除线/AI降亏标注/badge hoverpop 原因行显示
+  const _aiDisplay = (kind === "signal") ? _readAiDisplayFlag() : false;
+  const _sigSwitchHtmlStr = (kind === "signal") ? _sigSwitchHtml(_aiMacroOn, _posCapK || 3, _pcOn, _aiDisplay) : "";
   let rows = "";
   for (const dt of dates) {
     const isToday = dt === todayDate;
@@ -1967,7 +2009,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         if (_posCapRank) {
           if (_capRank) {
             posCapCls = " sig-poscap-kept";
-            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 按 跟踪分↓→评级→信号类型→买入日 当日排序前${_posCapK}名进入AI建议买入; 序号=本日AI建议在列表中的显示顺序(第${_capRank}个, 1=最上方); 若同时命中AI降亏过滤, 仍会加删除线建议回避（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议${_capRank}</sup>`;
+            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 按 跟踪分↓→评级→信号类型→买入日 当日排序前${_posCapK}名进入AI建议买入; 序号=本日AI建议在列表中的显示顺序(第${_capRank}个, 1=最上方); 若「AI降亏显示」开启且命中AI降亏过滤, 仍会加删除线建议回避（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议${_capRank}</sup>`;
           } else {
             posCapCls = " sig-poscap-excluded";
             posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 当日只建议最优${_posCapK}个, 本信号未进入AI建议, 当日已满（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">当日已满</sup>`;
@@ -1978,12 +2020,14 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         let aiHitCls = "";
         let aiHitBadge = "";
         let aiHitAttr = "";  // #38 fix(2026-08-13): 删除线原因传给 cell hoverpop(hover 信号本体时提示为什么带删除线)
-        if (it.ai_macro && it.ai_macro.hit && Array.isArray(it.ai_macro.filters)) {
+        // 2026-08-13 显示开关: _aiDisplay 关闭时整块跳过(无删除线/badge/data-ai-hit attr → hoverpop 原因行也不渲染),
+        // 纯显示层不影响过滤判定(过滤仍按 _aiOnMembers 成员级正常计算)
+        if (_aiDisplay && it.ai_macro && it.ai_macro.hit && Array.isArray(it.ai_macro.filters)) {
           const _hitOn = it.ai_macro.filters.filter((fk) => _aiOnMembers[fk]);
           if (_hitOn.length) {
             aiHitCls = " sig-ai-hit";
             const _hitNames = _hitOn.map((fk) => _AI_MACRO_FILTER_NAMES[fk] || fk).join(" / ");
-            aiHitBadge = `<sup class="sig-ai-hit-badge" data-tip="删除线原因: 本信号命中AI降亏过滤条件【${_hitNames}】→ 被过滤建议回避, 所以显示删除线(首页/凯利区「AI降亏过滤」开关产生, 关闭对应开关即取消删除线恢复正常)">AI降亏</sup>`;
+            aiHitBadge = `<sup class="sig-ai-hit-badge" data-tip="删除线原因: 本信号命中AI降亏过滤条件【${_hitNames}】→ 被过滤建议回避, 所以显示删除线(由凯利区/首页「AI降亏过滤」开关判定; 首页「AI降亏显示」开关可一键隐藏删除线+此标注, 纯显示层不影响过滤计算)">AI降亏</sup>`;
             aiHitAttr = ` data-ai-hit="1" data-ai-hit-names="${_escAttr(_hitNames)}"`;
           }
         }
@@ -2705,7 +2749,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
       var _aiHitRaw = el.getAttribute("data-ai-hit");
       if (_aiHitRaw === "1") {
         var _aiHitNames = el.getAttribute("data-ai-hit-names") || "降亏条件";
-        html += '<div class="term-pop-aihit">⚠️ 删除线原因: 本信号命中 AI降亏过滤条件【' + _esc(_aiHitNames) + '】, 被标记为建议回避, 所以加了删除线(与首页/凯利区「AI降亏过滤」开关联动)。如不需要该过滤, 关闭对应开关即可取消删除线恢复正常显示。</div>';
+        html += '<div class="term-pop-aihit">⚠️ 删除线原因: 本信号命中 AI降亏过滤条件【' + _esc(_aiHitNames) + '】, 被标记为建议回避, 所以加了删除线(与首页/凯利区「AI降亏过滤」开关联动)。如不需要该过滤, 关闭凯利区/首页「AI降亏过滤」开关即可; 也可用首页「AI降亏显示」开关一键隐藏删除线+此提示(纯显示层, 不影响过滤计算)。</div>';
       }
       if (locateHtml || idxLineHtml || etfMetaHtml || etfHtml) html += locateHtml + idxLineHtml + etfMetaHtml + etfHtml;
       pop.innerHTML = html;
