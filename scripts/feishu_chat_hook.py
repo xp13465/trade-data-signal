@@ -64,7 +64,7 @@ RETRY_SLEEP = 0.3  # 秒
 # 不抄送的系统/定时 prompt 前缀(2026-08-12 主控定位): 主控 cron 轮询 prompt 会触发
 # UserPromptSubmit 被当"用户消息"抄送(飞书群出现"轮询"噪音); 用户真实消息盘中打断
 # (turn 运行中注入)反而不触发 UserPromptSubmit → 漏抄, 治漏抄靠 _sweep_unforwarded 补扫。
-SKIP_PROMPT_PREFIXES = ("轮询", "[cron-poll", "[cron", "[system", "[SYSTEM")
+SKIP_PROMPT_PREFIXES = ("轮询", "[cron-poll", "[cron", "[system", "[SYSTEM", "§11")
 # 系统注入/任务通知内容级强特征(2026-08-13 修复): 子 agent 完成通知(task-notification)
 # 注入主控会话时以 agentId/任务描述/<task-notification> 标签开头, SKIP_PROMPT_PREFIXES
 # 前缀匹配挡不住, 需内容级判定。以下句子只出现在系统注入(Claude Code 后台任务事件文案),
@@ -76,6 +76,11 @@ SYSTEM_INJECT_MARKERS = (
     "NOT USER INPUT",
     "This is an automated background-task event",
     "automated background-task event, NOT a message from the user",
+    # 2026-08-13 误抄送修复: ①cron 巡检 prompt 固定文案(主控曾把前缀从"轮询"改"§11 cron"绕过前缀黑名单,
+    # 内容级特征更稳); ②compact 上下文恢复摘要固定英文开头(被当"👤 用户"误抄)。两条均为系统注入固定文案,
+    # 真实用户消息不会含。前缀黑名单+内容级特征双保险。
+    "cron 兜底巡检",
+    "This session is being continued",
 )
 # 补扫窗口: 只看 transcript 尾部最近 N 条(防首次接入时洪水补发历史消息)
 SWEEP_LINES = 120
