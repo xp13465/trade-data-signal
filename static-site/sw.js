@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260813-a183';  // merge 两批 a182 撞号合并升 a183: chart-card hover 去背景色 + 凯利开关行重构(调序/OFF/标题精简+首页K按钮hoverpop,common.js trig click 对 .sig-kbtn/.lab-sigkelly-kbtn 不再 stopPropagation 交委托, 含评级表峰值资金回撤口径注释÷concCap); 基底=数字单位a177
+const CACHE_VERSION = 'v6-20260813-a184';  // SW 更新检测即时化: index.html 注册 SW 加 updateViaCache:none + 5min reg.update() 轮询(SPA 无导航时也能快速检出新版), 改 index.html 必须升此版本让已缓存用户拉到新 App Shell; 基底=数字单位a177
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
