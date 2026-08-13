@@ -8489,7 +8489,7 @@ function _renderSigKellyBar(bar, data, period) {
   const aiMacroLabelHTML =
     `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ AI降亏过滤(总开关, 默认开启): = AI仓位建议(K=3 默认=最稳健主推, 可手动切换, 见 K 按钮评级) + 全部7个默认推荐 toggle(基础4: 追关注×熊市/1月中旬+中评级/1月中旬+追关注/n2 11月+追关注+行业 + 核心3: r7 5月强化+3稳定非5月 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合)。默认=穷举最大化推荐: A模式 K1=77.36%(最激进) / 默认K=3 A=68.40%; K2 A=66.22%; F/G 见 K 档回测。⚠口径差异: 77.36%=K1 A模式, 默认K=3下 A=68.40%; G 净利 127.7→103.1万(以降净利换收益率)。勾选=联动下方全部7个默认推荐子复选框(基础4+核心3), 取消=关全部7个; ⚠4组合全开=可选分析非默认推荐(低默认推荐 6.33pp, 勿误解为默认)。「重置为AI默认推荐」按钮=一键恢复本默认7键全开 + AI仓位建议K=3 并重写本地记忆。"><input type="checkbox" class="lab-sigkelly-toggle-aimacro"${_aiMacroAll.allOn ? " checked" : ""}>${_kellyRecBadgeState(_aiMacroAll.allOn, _aiMacroAll.anyOn)} AI降亏过滤(总开关,默认开启) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>`;
   const aiMacroDetailBtnHTML =
-    `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-btn" style="margin-left:10px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="收起/展开下方 组合降亏快捷按钮 + 31个单标志(4大分类组), 默认展开">AI降亏过滤详情收起 ▲</button>`;
+    `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-btn" style="margin-left:10px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="收起/展开下方 组合降亏快捷按钮 + 31个单标志(4大分类组), 默认收起">AI降亏过滤详情展开 ▼</button>`;
   // #54 2026-08-13 (用户20:27 必做): 「重置为AI默认推荐」按钮——尝试各种组合后一键恢复 AI默认勾选(_kellyDefaultFilters 7键全开+AI仓位建议K=3), 重写 tds_kelly_filters 持久化, 刷新三态/hoverpop动态值
   const aiMacroResetBtnHTML =
     `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-reset" style="margin-left:8px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="一键恢复 AI 默认推荐勾选(AI降亏过滤 7 键全开 + AI仓位建议 K=3), 重写本地记忆并刷新统计">重置为AI默认推荐</button>`;
@@ -8550,8 +8550,8 @@ function _renderSigKellyBar(bar, data, period) {
       // 2026-08-13 合并行: AI仓位建议(K档按钮+OFF) 与 AI宏总开关 合并为一行(用户需求: 去重纯文字标题 + 第二行并入第一行「关OFF」按钮后)。
       // 原第二行 .lab-sigkelly-toggle-group-ai 独立行已移除, AI宏 toggle+详情按钮 并入 positionCapHTML 内(见 aiMacroLabelHTML/aiMacroDetailBtnHTML)
       positionCapHTML +
-      // #39 三级级联UI 第1级: AI宏 详情折叠 body(默认展开, 收起/展开由 #lab-kelly-ai-macro-btn 控制; 勾选联动全部7键子级见 _kellyAiMacroMembers)
-      `<div id="lab-kelly-ai-macro-body" class="lab-sigkelly-ai-macro-body">` +
+      // #39 三级级联UI 第1级: AI宏 详情折叠 body(默认收起, 收起/展开由 #lab-kelly-ai-macro-btn 控制; style=display:none 默认收起, 勾选联动全部7键子级见 _kellyAiMacroMembers)
+      `<div id="lab-kelly-ai-macro-body" class="lab-sigkelly-ai-macro-body" style="display:none">` +
       // 2026-08-13 融合 #39: 组合预设宏改顶部快捷按钮行(一键勾选成员, 不再独立内容块); 标题含"可选分析非默认推荐"(#45 文案修正)
       `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-combo"><span class="lab-sigkelly-toggle-tier">组合降亏(可选分析非默认推荐)</span>` + comboHTML + `</div>` +
       // 4大分类组(31 toggle 全归位, 组内比值降序, 默认推荐7键标⭐且核心3键标🔗, 组标题可点击收展该组)
@@ -8866,7 +8866,7 @@ function _renderSigKellyBar(bar, data, period) {
   });
   // 2026-08-13: K档位评级 hoverpop(评级理由表格, 桌面 hover / 移动端 tap; 共享 common.js _bindAiPoscapRatePop, 与首页同款 §22)
   _bindAiPoscapRatePop(bar);
-  // #39 三级级联UI 第1级 AI宏 独立行收起/展开(2026-08-13): 收起/展开 组合降亏 + 单标志降亏 整体详情(默认展开)
+  // #39 三级级联UI 第1级 AI宏 独立行收起/展开(2026-08-13): 收起/展开 组合降亏 + 单标志降亏 整体详情(默认收起)
   var _aiBtn = bar.querySelector("#lab-kelly-ai-macro-btn");
   var _aiWrap = bar.querySelector("#lab-kelly-ai-macro-body");
   if (_aiBtn && _aiWrap) {
