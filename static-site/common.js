@@ -474,7 +474,7 @@ function renderPurposeNote(container, text, {variant}={}) {
 
 // === AI仓位建议 K 档评级(2026-08-13 共享单一数据源, §22 一致性: app.js 首页 + lab.js 凯利区两处共用同一份数据/HTML/绑定) ===
 // 数据=researcher 从 /tmp/kelly_v2_results_K{1-4}_r1-5.json 溯源定稿只读勿改
-// 口径=AI降亏过滤默认=核心3键(r7 5月强化+3非五月R7 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合)+A模式(固定10天)+每笔1万+费率etf_def+全周期
+// 口径=AI降亏过滤默认=核心3键(r7 5月强化+3稳定非5月 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合)+A模式(固定10天)+每笔1万+费率etf_def+全周期
 // 与 AI宏 hoverpop 3元口径一致, 与「历史回测数据」G模式口径不同, 勿混用数值
 var _AI_POSCAP_RATING = {
   1: { name: "最激进", ret: "77.36%", dd: "13.50%", ra: "5.73", n: "1,184", reason: "收益率最高但回撤最大、样本最少" },
