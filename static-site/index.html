@@ -234,7 +234,12 @@
   }
 
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('./sw.js').catch(function (err) {
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(function (reg) {
+      // 每 5 分钟后台检查 SW 更新(SPA 无导航时防漏检,版本变了才安装新版+弹右下角「🔄 已有新版」toast)
+      setInterval(function () {
+        reg.update().catch(function () {});
+      }, 5 * 60 * 1000);
+    }).catch(function (err) {
       console.warn('[pwa] SW register failed:', err);
     });
   });
