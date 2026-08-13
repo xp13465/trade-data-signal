@@ -8226,18 +8226,18 @@ function _renderSigKellyBar(bar, data, period) {
   // positionCap 仓位控制过滤(2026-08-12): 同日只买最优K个(基笔级,9模式共享统一生效), K档位1-4可配置(默认2)
   // 2026-08-12 #4 rename+范围扩展: 显示名改"AI仓位建议"(技术别名:仓位控制过滤), pop tooltip 完整展示; 历史回测数据固化展示(下方 poscapHistoryHTML)
   const _pcK = _filters.positionCapK || 2;
-  // 2026-08-13: K档位评级标注 + hover 评级理由表格(展示层, 不改算法; 数据=researcher 回测定稿只读勿改; 口径=全开4组合(可选分析)+A模式(固定10天)+每笔1万+费率etf_def+全周期, 非当前默认AI宏3元口径)
+  // 2026-08-13: K档位评级标注 + hover 评级理由表格(展示层, 不改算法; 数据=researcher 从 /tmp/kelly_v2_results_K{1-4}_r1-5.json 溯源定稿只读勿改; 口径=AI宏默认3元(r7 5月强化+3非五月R7/exclAuxCross 辅关注×3/5月交叉/greedy15)+A模式(固定10天)+每笔1万+费率etf_def+全周期, 与 AI宏 hoverpop 3元 口径一致)
   const _pcRating = {
-    1: { name: "最激进", ret: "71.03%", dd: "14.54%", ra: "4.88", n: "1,229", reason: "收益率最高但回撤最大、样本最少" },
-    2: { name: "次稳健", ret: "61.16%", dd: "11.43%", ra: "5.35", n: "1,968", reason: "收益率回撤居中" },
-    3: { name: "最稳健", ret: "64.00%", dd: "9.13%", ra: "7.01", n: "2,505", reason: "收益率第二高+回撤第二优,甜点区(主推)" },
-    4: { name: "最保守", ret: "61.73%", dd: "7.11%", ra: "8.69", n: "2,916", reason: "回撤最小" }
+    1: { name: "最激进", ret: "77.36%", dd: "13.50%", ra: "5.73", n: "1,184", reason: "收益率最高但回撤最大、样本最少" },
+    2: { name: "次稳健", ret: "66.22%", dd: "12.09%", ra: "5.48", n: "1,889", reason: "收益率回撤居中" },
+    3: { name: "最稳健", ret: "68.40%", dd: "8.67%", ra: "7.89", n: "2,403", reason: "收益率第二高+回撤第二优,甜点区(主推)" },
+    4: { name: "最保守", ret: "65.13%", dd: "7.24%", ra: "9.00", n: "2,794", reason: "回撤最小" }
   };
-  const _pcKbtns = [1, 2, 3, 4].map((k) => {
+  const _pcKbtns = [3, 1, 2, 4].map((k) => {
     const r = _pcRating[k];
     return `<button type="button" class="lab-sigkelly-kbtn${k === _pcK ? " active" : ""}${k === 3 ? " lab-sigkelly-kbtn-main" : ""}" data-k="${k}" data-no-pop=""><span class="lab-sigkelly-kbtn-k">${k}</span><span class="lab-sigkelly-kbtn-r">${r.name}${k === 3 ? "★主推" : ""}</span></button>`;
   }).join("");
-  const _pcRatingRows = [1, 2, 3, 4].map((k) => {
+  const _pcRatingRows = [3, 1, 2, 4].map((k) => {
     const r = _pcRating[k];
     return `<tr${k === 3 ? ' class="lab-sigkelly-posrate-hl"' : ""}><td><b>K=${k}</b> ${r.name}${k === 3 ? " ★主推" : ""}</td><td>${r.ret}</td><td>${r.dd}</td><td>${r.ra}</td><td>${r.n}</td><td>${r.reason}</td></tr>`;
   }).join("");
@@ -8246,7 +8246,7 @@ function _renderSigKellyBar(bar, data, period) {
       `<div class="lab-sigkelly-posrate-pop">` +
         `<div class="lab-sigkelly-posrate-pop-title">AI仓位建议 · K 档位评级（评级依据=下方回撤矩阵）</div>` +
         `<table class="lab-sigkelly-posrate-table"><thead><tr><th>档位</th><th>收益率</th><th>峰值资金回撤</th><th>风险调整<br>(收益/回撤)</th><th>样本</th><th>评级理由</th></tr></thead><tbody>${_pcRatingRows}</tbody></table>` +
-        `<div class="lab-sigkelly-posrate-pop-note">⚠ 口径：全开4组合(可选分析) + A模式(固定10天) + 每笔1万 + 费率etf_def + 全周期；评级基于该口径回测（非当前默认 AI宏3元 口径，与下方「历史回测数据」G模式口径不同，勿混用数值）</div>` +
+        `<div class="lab-sigkelly-posrate-pop-note">⚠ 口径：AI宏默认 3元(r7 5月强化+3非五月R7 / exclAuxCross 辅关注×3/5月交叉 / greedy15) + A模式(固定10天) + 每笔1万 + 费率etf_def + 全周期；与 AI宏 hoverpop 3元 口径一致，与下方「历史回测数据」G模式口径不同，勿混用数值</div>` +
       `</div>` +
     `</span>`;
   const positionCapHTML =
@@ -8258,7 +8258,7 @@ function _renderSigKellyBar(bar, data, period) {
   //   每笔固定1万口径(与上方回测/全信号表同口径,§22 一致性); 排序 key 与回测/交易页一致(跟踪分↓→评级→信号类型→买入日)
   const poscapHistoryHTML =
     `<details class="lab-sigkelly-advice-details lab-sigkelly-poscap-history">` +
-      `<summary>📊 AI仓位建议 · 历史回测数据(固化展示; 口径=每笔固定1万·G模式, 与上方回测/全信号表同口径)</summary>` +
+      `<summary>📊 AI仓位建议 · 历史回测数据(固化展示; 口径=每笔固定1万·G模式, positionCap 单独回测未叠加 AI宏 降亏; 与实时全信号表数值不同属正常)</summary>` +
       `<div class="lab-sigkelly-advice-body">` +
         `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">数据来源(调研方案固化, 非实时计算): <b>docs/kelly-position-filter-backtest.md</b>(P1/P2 基线 + 按年分解) + <b>docs/kelly-position-cap-k-sensitivity.md</b>(K 敏感性全谱)。排序 key = 跟踪分↓ → 评级(high&gt;mid&gt;low) → 信号类型(buy_backup&gt;buy&gt;buy_aux&gt;buy_special) → 买入日↑。目标=资金利用率最大化(降低最大持仓)以提高总收益率, 非质量过滤。</div>` +
         `<div class="lab-sigkelly-advice-li"><b>① K 档位历史对比（每笔固定 1 万口径，G 模式）</b></div>` +
@@ -8303,7 +8303,7 @@ function _renderSigKellyBar(bar, data, period) {
       positionCapHTML +
       // #39 三级级联UI 第1级: AI宏 总开关(独立行, 可收起展开; 勾选联动 3元 子级, 见 _kellyAiMacroMembers)
       `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-ai">` +
-      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ AI宏(降亏过滤总开关, 2026-08-13 穷举v2, 默认开启): = AI仓位建议(K=2) + 基础默认(追关注×熊市/J1 1月中旬+mid评级/J2 1月中旬+追关注/n2 11月+追关注+行业, 2026-08-12) + 3元(r7 5月强化+3非五月R7 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合, 2026-08-13穷举v2加入默认)。穷举v2(406,336配置全扫) 3元叠加AI_BASE: K1 A=77.36%/F=73.68%/G=47.40%; K2(默认) A=66.22%/F=63.76%/G=42.08%。⚠口径差异: 77.36%=K1 A模式(默认K=2下 A=66.22%); G 净利 127.7→103.1万(以降净利换收益率)。勾选AI宏=勾选3元(r7+exclAuxCross+greedy15, 见下方⭐默认推荐), 取消=取消3元; ⚠4组合全开=可选分析非默认推荐(低3元 6.33pp, 勿误解为默认)。"><input type="checkbox" class="lab-sigkelly-toggle-aimacro" checked><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> AI宏(降亏过滤总开关·3元) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+      `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ AI宏(降亏过滤总开关, 2026-08-13 穷举v2, 默认开启): = AI仓位建议(K=2 默认=本金门槛平衡档, 穷举v2 报告选档; K=3 为 K 档评级主推·最稳健甜点(3元口径下 K3 68.40% &gt; 默认 K2 66.22%, 可手动切换, 见 K 按钮评级), 默认仍 K=2 因本金门槛: K2 concCap 22万 vs K3 33万) + 基础默认(追关注×熊市/J1 1月中旬+mid评级/J2 1月中旬+追关注/n2 11月+追关注+行业, 2026-08-12) + 3元(r7 5月强化+3非五月R7 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合, 2026-08-13穷举v2加入默认)。穷举v2(406,336配置全扫) 3元叠加AI_BASE: K1 A=77.36%/F=73.68%/G=47.40%; K2(默认) A=66.22%/F=63.76%/G=42.08%。⚠口径差异: 77.36%=K1 A模式(默认K=2下 A=66.22%); G 净利 127.7→103.1万(以降净利换收益率)。勾选AI宏=勾选3元(r7+exclAuxCross+greedy15, 见下方⭐默认推荐), 取消=取消3元; ⚠4组合全开=可选分析非默认推荐(低3元 6.33pp, 勿误解为默认)。"><input type="checkbox" class="lab-sigkelly-toggle-aimacro" checked><span class="lab-sigkelly-rec-badge">⭐ 默认推荐</span> AI宏(降亏过滤总开关·3元) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
       `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-btn" style="margin-left:10px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="收起/展开下方 组合降亏预设宏 + 单标志降亏(31个), 默认展开">AI宏详情收起 ▲</button>` +
       `</div>` +
       `<div id="lab-kelly-ai-macro-body" class="lab-sigkelly-ai-macro-body">` +

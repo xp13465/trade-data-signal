@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260813-a170';  // bump a169->a170 fix(reviewer #39/#45): AI宏公示修正——positionCap hover/历史回测note/AI仓位建议公示补齐3元(r7/exclAuxCross/greedy15)+'greedy 广谱'矛盾措辞改'勿再叠加 greedy7/10'(greedy15已在AI宏默认内)+README数字口径'7个降亏默认推荐+AI仓位建议'(lab.min.js/lab.min.css/purpose-notes.min.js)(2026-08-13)
+const CACHE_VERSION = 'v6-20260813-a171';  // bump a170->a171: K档评级换3元A模式全周期值(77.36/66.22/68.40/65.13)+K按钮3124排序+hoverpop澄清(K2默认本金门槛vs K3主推)+评级note改3元口径+purpose-notes.js/README评级口径同步(lab.min.js/lab.min.css/purpose-notes.min.js)(2026-08-13)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
