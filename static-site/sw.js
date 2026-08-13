@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260813-a177';  // bump a176->a177: 首页开关行补强 - AI降亏显示开关(纯显示层,独立键tds_poscap_aiDisplay)+AI仓位建议K加off按钮(写tds_poscap on:false,与凯利区联动); 基底=数字单位a176(#37+#38)
+const CACHE_VERSION = 'v6-20260813-a178';  // bump a177->a178: 首页AI仓位建议top-K×AI降亏融合口径(先滤降亏再选top-K顺延补位,对齐回测lab.js)+开关改名AI降亏过滤(3元)+无变化toast反馈; 基底=数字单位a177(首页开关行补强)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
