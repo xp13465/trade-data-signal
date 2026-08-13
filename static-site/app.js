@@ -1690,8 +1690,11 @@ function _topEtfByScore(etfs) {
   })[0];
 }
 
-// ===== 首页 AI 开关(2026-08-13): AI降亏过滤总开关 + AI仓位建议 K 档 =====
-// 与凯利区 lab.js 共享状态(§22 一致性): tds_kelly_filters(AI宏 7成员+组合) + tds_poscap(K/开关)
+// ===== 首页 AI 开关(2026-08-13): AI降亏过滤开关 + AI仓位建议 K 档 =====
+// 2026-08-13 重构(用户拍板): 「AI降亏过滤」+「AI降亏显示」合并为单个「AI降亏过滤」总开关, 首页独立作用域——
+//   独立 localStorage 键 tds_home_fade(布尔, 默认开启), 与凯利区 tds_kelly_filters 完全解耦(不再读/写凯利区, 互不影响);
+//   判定策略=固定 7 键成员级(基础4+核心3键全生效, 与凯利区默认策略一致): 开启=命中即灰显删除线+标注, 关闭=首页完全不判降亏。
+// 旧键 tds_poscap_aiDisplay(显示开关)已随合并废弃, 首页不再使用(如用户浏览器残留不影响任何逻辑)。
 // 后端 overview.json 每条信号注入 ai_macro: {hit, filters:[命中的降亏条件key...]}(queries.py, 7 谓词同源凯利回测)
 const _AI_MACRO_FILTER_NAMES = {
   n2NovSpecialIndustry: "11月+追关注+行业",
@@ -1702,23 +1705,11 @@ const _AI_MACRO_FILTER_NAMES = {
   excludeAuxCross: "辅关注×3/5月交叉",
   greedy15: "Greedy-15组合"
 };
-// 读 tds_kelly_filters(localStorage, 凯利区写; 不存在/异常→null 按默认 AI宏全开处理)
-function _readKellyAiFilters() {
+// 读首页独立 AI降亏过滤开关(localStorage tds_home_fade, 布尔, 默认开启=按降亏策略判定+灰显删除线+标注)。
+// 与凯利区 tds_kelly_filters 完全解耦互不影响; 旧键 tds_poscap_aiDisplay(纯显示开关)已随合并废弃不再读取。
+function _readHomeFadeFlag() {
   try {
-    const raw = localStorage.getItem("tds_kelly_filters");
-    if (raw) {
-      const f = JSON.parse(raw);
-      if (f && f.members) return f;
-    }
-  } catch (e) {}
-  return null;
-}
-// 首页 AI 降亏显示开关(2026-08-13): 纯显示层, 控制首页信号列表删除线+「AI降亏」标注+badge hoverpop 原因行的显示与否。
-// 独立 localStorage 键 tds_poscap_aiDisplay(默认开启=显示删除线, 即现状行为), 不与 tds_kelly_filters(过滤)混淆——
-// 显示开关只影响首页渲染, 不改任何过滤计算/后端 overview.json/凯利区存储与计算。
-function _readAiDisplayFlag() {
-  try {
-    const v = localStorage.getItem("tds_poscap_aiDisplay");
+    const v = localStorage.getItem("tds_home_fade");
     if (v === "0" || v === "false") return false;
   } catch (e) {}
   return true;
@@ -1740,10 +1731,11 @@ function _showSigToast(msg) {
     _sigToastTimer = setTimeout(() => { if (_sigToastEl) _sigToastEl.style.display = "none"; }, 3200);
   } catch (e) {}
 }
-// 首页 AI 降亏开关行 HTML(K 档 3124 + off 按钮 + AI降亏过滤总开关 + AI降亏显示开关); 状态读自 localStorage, 事件绑在 _bindSigSwitchRow
-// 2026-08-13 补强(用户拍板): ①AI降亏显示开关(纯显示层, 独立键 tds_poscap_aiDisplay)——控制首页删除线+AI降亏标注显示与否, 不碰过滤/后端/凯利区;
+// 首页 AI 降亏开关行 HTML(K 档 3124 + off 按钮 + AI降亏过滤总开关); 状态读自 localStorage, 事件绑在 _bindSigSwitchRow
+// 2026-08-13 重构(用户拍板): 「AI降亏过滤」+「AI降亏显示」合并为单个「AI降亏过滤」总开关(独立键 tds_home_fade, 与凯利区解耦):
+//   开启=首页按降亏策略判定(固定7键)+灰显删除线+「AI降亏」标注+hoverpop 原因; 关闭=首页完全不判降亏、信号正常(不灰显不删除线不标注)。
 // ②AI仓位建议 off 按钮——写 tds_poscap {on:false}(与凯利区 _kellySetSharedPosCap(false,k) 同键同语义, §22 联动), 该区域退化为普通信号列表
-function _sigSwitchHtml(_aiOn, _k, _pcOn, _aiDisplay) {
+function _sigSwitchHtml(_fadeOn, _k, _pcOn) {
   const _kRating = { 1: "最激进", 2: "次稳健", 3: "最稳健", 4: "最保守" };
   const _kbtns = [3, 1, 2, 4].map((kk) =>
     `<button type="button" class="sig-kbtn${(kk === _k && _pcOn) ? " active" : ""}${kk === 3 ? " sig-kbtn-main" : ""}" data-k="${kk}" data-no-pop=""><span class="sig-kbtn-k">${kk}</span><span class="sig-kbtn-r">${_kRating[kk]}${kk === 3 ? "★" : ""}</span></button>`
@@ -1751,13 +1743,9 @@ function _sigSwitchHtml(_aiOn, _k, _pcOn, _aiDisplay) {
   // off 按钮(2026-08-13): 复用 .sig-kbtn 样式, data-k="off" 由 _bindSigSwitchRow 识别为关(写 tds_poscap {on:false})
   const _offBtn = `<button type="button" class="sig-kbtn sig-kbtn-off${_pcOn ? "" : " active"}" data-k="off" data-no-pop=""><span class="sig-kbtn-k">关</span><span class="sig-kbtn-r">off</span></button>`;
   return `<div class="sig-switch-row" data-no-pop="">` +
-    `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(2026-08-13 改名明确范围): 仅控制核心3键降亏条件(r7/辅关注×3/5月/Greedy-15); 基础4键(追关注×熊市交叉/J1/J2/n2)命中不受本开关控制, 需去凯利区关闭对应成员; 命中当前实际开启降亏条件的信号灰显+删除线+标注AI降亏, 建议回避">` +
-      `<input type="checkbox" class="sig-switch-ai-cb"${_aiOn ? " checked" : ""}> AI降亏过滤` +
-      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(2026-08-13 改名明确范围, 与凯利区 AI降亏过滤 共享, localStorage tds_kelly_filters): 仅控制核心3键降亏条件(r7 5月强化+3非五月R7 / 辅关注×3/5月交叉 / Greedy-15组合)的开启与关闭; 基础4键(追关注×熊市交叉 / J1 1月中旬+mid评级 / J2 1月中旬+追关注 / n2 11月+追关注+行业)是凯利区独立toggle默认开启, 命中不受本开关控制——如需关闭基础4请在凯利区关闭对应成员。命中当前实际开启降亏条件的信号灰显+删除线+标注AI降亏, 建议回避(对应凯利区 7 个降亏 toggle 实际开启项); 凯利区改动实时联动; 若点击后列表无任何变化, 说明当前命中的信号均由基础4判定。">ⓘ</span>` +
-    `</label>` +
-    `<label class="sig-switch-lab sig-switch-aidisplay" data-no-pop="" title="AI降亏显示(纯显示层, 不影响过滤): 勾选=命中AI降亏的信号在首页显示删除线+AI降亏标注; 取消=删除线/AI降亏标注/hover删除线原因全隐藏, 信号恢复正常样式。本地持久化(独立键 tds_poscap_aiDisplay), 与「AI降亏过滤」开关独立: 过滤开关决定哪些信号被判定命中, 显示开关决定命中的信号在首页要不要用删除线展示">` +
-      `<input type="checkbox" class="sig-switch-aidisplay-cb"${_aiDisplay ? " checked" : ""}> AI降亏显示` +
-      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏显示开关(纯显示层, 独立 localStorage 键 tds_poscap_aiDisplay, 默认开启): 关闭后首页不再显示删除线(灰显+line-through)+「AI降亏」标注+hover删除线原因, 信号恢复正常样式——不影响任何过滤计算/后端 overview.json/凯利区存储与计算(那里仍正常过滤)。与「AI降亏过滤」开关独立可叠加: 过滤=决定哪些信号被判定命中; 显示=决定命中信号在首页要不要用删除线展示。">ⓘ</span>` +
+    `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(总开关, 首页独立): 开启=首页按降亏策略判定(固定7键: 基础4+核心3键全生效), 命中降亏条件的信号灰显+删除线+标注AI降亏, 建议回避; 关闭=首页完全不判降亏, 信号恢复正常样式。独立 localStorage 键 tds_home_fade, 与凯利区互不影响">` +
+      `<input type="checkbox" class="sig-switch-ai-cb"${_fadeOn ? " checked" : ""}> AI降亏过滤` +
+      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 开启=首页按降亏策略判定, 固定 7 键成员级(基础4: 追关注×熊市交叉 / J1 1月中旬+mid评级 / J2 1月中旬+追关注 / n2 11月+追关注+行业 + 核心3键: 5月强化+3非五月R7 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致), 命中降亏条件的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); 关闭=首页完全不判降亏、不灰显不删除线不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号。">ⓘ</span>` +
     `</label>` +
     `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap): 同日只买最优K个, 未进入前K=当日已满灰显; 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表, 再点某 K 档恢复">AI仓位建议 K: <span class="sig-kbtns">${_kbtns}${_offBtn}</span></span>` +
     `</div>`;
@@ -1787,48 +1775,23 @@ function _bindSigSwitchRow(sigCard) {
       // checkbox change 走 change 事件, click 这里只处理按钮; 空实现避免误吞(change 在下方单独绑)
       return;
     }
-    const aiDispCb = e.target.closest(".sig-switch-aidisplay-cb");
-    if (aiDispCb) {
-      // checkbox change 走 change 事件, click 这里只处理按钮; 空实现避免误吞(change 在下方单独绑)
-      return;
-    }
   });
   sigCard.addEventListener("change", (e) => {
-    const aiDispCb = e.target.closest(".sig-switch-aidisplay-cb");
-    if (aiDispCb) {
-      e.preventDefault();
-      e.stopPropagation();
-      // AI降亏显示(纯显示层, 2026-08-13): 只控制首页删除线/AI降亏标注/hover原因行的显示, 不改任何过滤计算/后端/凯利区
-      try { localStorage.setItem("tds_poscap_aiDisplay", aiDispCb.checked ? "1" : "0"); } catch (err) {}
-      _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
-      return;
-    }
     const aiCb = e.target.closest(".sig-switch-ai-cb");
     if (!aiCb) return;
     e.preventDefault();
     e.stopPropagation();
     const on = aiCb.checked;
-    // 2026-08-13 toast: 点击前快照网格 HTML, 点击后列表无任何变化(当前命中的信号均由基础4判定, 3元开关无可见效果)时给反馈
+    // 2026-08-13 toast: 点击前快照网格 HTML, 点击后列表无任何变化(当前无命中降亏条件的信号)时给反馈
     const _gridBefore = (document.querySelector(".sig-card .signal-grid") || {}).innerHTML;
-    // 与凯利区 AI宏 checkbox 同语义: 勾选=3元(r7/exclAuxCross/greedy15)全开, 取消=3元全关; 其余基础4保持原值
-    try {
-      const f = _readKellyAiFilters();
-      const members = (f && f.members) ? Object.assign({}, f.members) : {};
-      if (!Object.prototype.hasOwnProperty.call(members, "r7MayReinforced")) members.r7MayReinforced = true;
-      if (!Object.prototype.hasOwnProperty.call(members, "excludeAuxCross")) members.excludeAuxCross = true;
-      if (!Object.prototype.hasOwnProperty.call(members, "greedy15")) members.greedy15 = true;
-      members.r7MayReinforced = on;
-      members.excludeAuxCross = on;
-      members.greedy15 = on;
-      const base = { n2NovSpecialIndustry: true, excludeSpecialBear: true, janMidRating: true, janMidSpecial: true };
-      for (const bk in base) { if (!Object.prototype.hasOwnProperty.call(members, bk)) members[bk] = base[bk]; }
-      localStorage.setItem("tds_kelly_filters", JSON.stringify({ aiMacro: on, members, combos: [] }));
-    } catch (err) {}
+    // 2026-08-13 重构: 首页独立开关写 tds_home_fade(布尔, 默认开启), 与凯利区 tds_kelly_filters 完全解耦, 不再写凯利区;
+    // 合并后单开关即控过滤判定又控删除线/标注显示(关闭=完全不判降亏, 信号恢复正常样式)
+    try { localStorage.setItem("tds_home_fade", on ? "1" : "0"); } catch (err) {}
     _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
-    // 2026-08-13 toast: 列表无任何变化 → 提示用户本开关只控3元, 当前命中均来自基础4(需去凯利区关闭对应成员)
+    // 2026-08-13 toast: 列表无任何变化 → 提示用户当前无命中降亏条件的信号(通用文案)
     const _gridAfter = (document.querySelector(".sig-card .signal-grid") || {}).innerHTML;
     if (_gridBefore != null && _gridAfter === _gridBefore) {
-      _showSigToast("当前命中的信号均由基础4判定(追关注×熊市/J1/J2/n2), 不受「AI降亏过滤」开关控制; 如需关闭基础4请去凯利区对应成员; AI降亏显示开关可一键隐藏全部删除线");
+      _showSigToast("当前无命中降亏条件的信号, 列表无变化; 命中降亏的信号将" + (on ? "灰显+删除线+标注AI降亏" : "恢复正常样式"));
     }
   });
 }
@@ -1917,27 +1880,20 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   if (todayDate && groups[todayDate]) {
     dates = [todayDate, ...dates.filter((d) => d !== todayDate)];
   }
-  // 2026-08-13 AI 降亏过滤(首页 AI 开关): 读 tds_kelly_filters(凯利区写, §22 一致性) → _aiMacroOn 3元总开关 + _aiOnMembers 实际开启成员
-  // 不存在该 key=首次访问按 AI宏 默认全开(与凯利区默认一致); 灰显条件=后端 ai_macro.hit + 命中条件 ∈ 实际开启成员(成员级, 不依赖 3元总开关)
+  // 2026-08-13 重构: 首页 AI降亏过滤开关(独立键 tds_home_fade, 默认开启) → 开启时按固定 7 键成员级判定(基础4+核心3键全生效, 与凯利区默认策略一致);
+  // 关闭时首页完全不判降亏(_isAiFadeHit 恒 false → 不灰显不删除线不标注, top-K 不滤不补位正常取)。
+  // 不再读凯利区 tds_kelly_filters(解耦, 互不影响)。
   // ⚠️ 2026-08-13 融合口径: 本判定必须前移到 top-K 选取之前(先滤降亏、再选 top-K, 与凯利回测 lab.js _kellyCollectBasePool 先过 passesFade 一致)
-  let _aiMacroOn = true;
+  let _fadeOn = true;
   const _aiOnMembers = {};
-  for (const _amk in _AI_MACRO_FILTER_NAMES) _aiOnMembers[_amk] = true;
+  for (const _amk in _AI_MACRO_FILTER_NAMES) _aiOnMembers[_amk] = true;  // 固定 7 键全开(与凯利区默认策略一致)
   if (kind === "signal") {
-    try {
-      const _kf = _readKellyAiFilters();
-      if (_kf) {
-        if (typeof _kf.aiMacro === "boolean") _aiMacroOn = _kf.aiMacro;
-        for (const _amk in _aiOnMembers) {
-          if (typeof _kf.members[_amk] === "boolean") _aiOnMembers[_amk] = _kf.members[_amk];
-        }
-      }
-    } catch (e) {}
+    _fadeOn = _readHomeFadeFlag();
   }
-  // 2026-08-13 融合口径: 判断信号是否「命中降亏且条件实际开启」(成员级 _aiOnMembers)。
-  // 与凯利回测 passesFade 同语义; 只受过滤判定影响, 不受「AI降亏显示」开关影响(回测不看显示开关)。
+  // 2026-08-13 融合口径: 判断信号是否「命中降亏」(固定 7 键成员级, 与凯利回测 passesFade 同语义)。
+  // 受首页 AI降亏过滤开关(_fadeOn)门控: 开关关→恒 false 不判降亏; 开关开→ ai_macro.hit 且命中任一 7 键即为命中。
   const _isAiFadeHit = (it) => {
-    return !!(it && it.ai_macro && it.ai_macro.hit && Array.isArray(it.ai_macro.filters)
+    return _fadeOn && !!(it && it.ai_macro && it.ai_macro.hit && Array.isArray(it.ai_macro.filters)
       && it.ai_macro.filters.some((fk) => _aiOnMembers[fk]));
   };
   // positionCap 仓位控制过滤(2026-08-12): 凯利回测页 toggle 共享设置(localStorage "tds_poscap", 双页联动)
@@ -1982,8 +1938,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           for (const dt of dates) {
             let _dayItems = windowedItems.filter((it) => it.date === dt);
             if (!_dayItems.length) continue;
-            // 2026-08-13 融合口径(与凯利回测一致: 先滤降亏、再选top-K): 被降亏命中且条件实际开启的信号不占AI建议位,
-            // 顺延补位给后续未命中信号; 只受成员级过滤判定(_aiOnMembers)影响, 不受「AI降亏显示」开关影响(回测不看显示开关)。
+            // 2026-08-13 融合口径(与凯利回测一致: 先滤降亏、再选top-K): 被降亏命中的信号不占AI建议位,
+            // 顺延补位给后续未命中信号; 判定走共享谓词 _isAiFadeHit(受首页「AI降亏过滤」开关门控: 开关关→不滤, top-K 正常取)。
             _dayItems = _dayItems.filter((it) => !_isAiFadeHit(it));
             if (!_dayItems.length) continue;
             _posCapKeptMap.set(dt, new Set(_posCapSorted(_dayItems).slice(0, _posCapK)));
@@ -1992,9 +1948,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       }
     } catch (e) {}
   }
-  // 2026-08-13 AI 降亏显示开关(纯显示层): 读独立键 tds_poscap_aiDisplay(默认 true), 控制删除线/AI降亏标注/badge hoverpop 原因行显示
-  const _aiDisplay = (kind === "signal") ? _readAiDisplayFlag() : false;
-  const _sigSwitchHtmlStr = (kind === "signal") ? _sigSwitchHtml(_aiMacroOn, _posCapK || 3, _pcOn, _aiDisplay) : "";
+  // 2026-08-13 重构: 显示随过滤开关走(合并后单开关, 无独立显示层); 开关行 HTML 用 _fadeOn 渲染「AI降亏过滤」勾选态
+  const _sigSwitchHtmlStr = (kind === "signal") ? _sigSwitchHtml(_fadeOn, _posCapK || 3, _pcOn) : "";
   let rows = "";
   for (const dt of dates) {
     const isToday = dt === todayDate;
@@ -2052,19 +2007,20 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
             posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 当日从存活信号只建议最优${_posCapK}个, 本信号未进入AI建议, 当日已满; 命中AI降亏的信号已被过滤不占位（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">当日已满</sup>`;
           }
         }
-        // 2026-08-13 AI 降亏过滤(首页 AI 开关 + 后端 ai_macro): 命中降亏条件 + 该条件在凯利区实际开启 → 灰显+删除线+标注(hover 显命中条件, §22 与凯利区一致)
-        // 2026-08-13 FAIL2 fix: 去 _aiMacroOn(3元总开关)门控——基础4键是凯利区独立toggle默认开, 关3元总开关时基础4命中仍须灰显(与凯利区过滤一致), 只按成员级实际开启过滤
+        // 2026-08-13 C1 fix(reviewer): 恢复每 cell 渲染前的三变量初始化声明(重构时误删 → 隐式全局污染, 命中 cell 赋值后污染后方未命中 cell)。
+        // 基线 922578ff1 L2057-2059 同款; 每 cell 渲染前重置, 保证未命中 cell 拼空串而非继承上一命中值或字面 undefined
         let aiHitCls = "";
         let aiHitBadge = "";
-        let aiHitAttr = "";  // #38 fix(2026-08-13): 删除线原因传给 cell hoverpop(hover 信号本体时提示为什么带删除线)
-        // 2026-08-13 显示开关: _aiDisplay 关闭时整块跳过(无删除线/badge/data-ai-hit attr → hoverpop 原因行也不渲染),
-        // 纯显示层不影响过滤判定(过滤仍按 _aiOnMembers 成员级正常计算); 命中判定用共享谓词 _isAiFadeHit 与 top-K 补位同源
-        if (_aiDisplay && _isAiFadeHit(it)) {
+        let aiHitAttr = "";
+        // 2026-08-13 重构: 首页 AI降亏过滤开关(独立键 tds_home_fade)开启时, 命中降亏(固定7键) → 灰显+删除线+标注(hover 显命中条件)。
+        // 开关关闭时 _isAiFadeHit 恒 false, 整块自然跳过(不灰显不删除线不标注, hoverpop 原因行也不渲染);
+        // 命中判定用共享谓词 _isAiFadeHit 与 top-K 补位同源
+        if (_isAiFadeHit(it)) {
           const _hitOn = it.ai_macro.filters.filter((fk) => _aiOnMembers[fk]);
           if (_hitOn.length) {
             aiHitCls = " sig-ai-hit";
             const _hitNames = _hitOn.map((fk) => _AI_MACRO_FILTER_NAMES[fk] || fk).join(" / ");
-            aiHitBadge = `<sup class="sig-ai-hit-badge" data-tip="删除线原因: 本信号命中AI降亏过滤条件【${_hitNames}】→ 被过滤建议回避, 所以显示删除线, 且不占AI建议位(顺延补位给未命中信号)(由凯利区/首页「AI降亏过滤」开关判定; 首页「AI降亏显示」开关可一键隐藏删除线+此标注, 纯显示层不影响过滤计算)">AI降亏</sup>`;
+            aiHitBadge = `<sup class="sig-ai-hit-badge" data-tip="删除线原因: 本信号命中AI降亏过滤条件【${_hitNames}】→ 被过滤建议回避, 所以显示删除线, 且不占AI建议位(顺延补位给未命中信号)(由首页「AI降亏过滤」开关判定, 独立作用域与凯利区互不影响; 关闭首页「AI降亏过滤」开关即可恢复正常样式)">AI降亏</sup>`;
             aiHitAttr = ` data-ai-hit="1" data-ai-hit-names="${_escAttr(_hitNames)}"`;
           }
         }
@@ -2782,11 +2738,11 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
       // #38 fix(2026-08-13): 删除线 hoverpop 说明 - cell 带 data-ai-hit(=1, 命中AI降亏过滤被删线)时,
       //   hoverpop 追加一行讲人话说明删除线原因(用户反馈"810信号带删除线但不知道什么意思、hoverpop 也没提示")。
       //   删除线语义溯源: commit 1c5c6b77d「首页AI开关+后端ai_macro」引入, .sig-ai-hit{text-decoration:line-through}(style.css L949),
-      //   = 命中降亏条件 + 凯利区实际开启 → 灰显+删除线+AI降亏标注, 建议回避(§22 与凯利区联动)。
+      //   2026-08-13 重构后 = 首页「AI降亏过滤」开关开启 + 命中降亏条件(固定7键) → 灰显+删除线+AI降亏标注, 建议回避(独立作用域, 与凯利区互不影响)。
       var _aiHitRaw = el.getAttribute("data-ai-hit");
       if (_aiHitRaw === "1") {
         var _aiHitNames = el.getAttribute("data-ai-hit-names") || "降亏条件";
-        html += '<div class="term-pop-aihit">⚠️ 删除线原因: 本信号命中 AI降亏过滤条件【' + _esc(_aiHitNames) + '】, 被标记为建议回避, 所以加了删除线, 且不占AI建议位(顺延补位给未命中信号)(与首页/凯利区「AI降亏过滤」开关联动)。如不需要该过滤, 关闭凯利区/首页「AI降亏过滤」开关即可; 也可用首页「AI降亏显示」开关一键隐藏删除线+此提示(纯显示层, 不影响过滤计算)。</div>';
+        html += '<div class="term-pop-aihit">⚠️ 删除线原因: 本信号命中 AI降亏过滤条件【' + _esc(_aiHitNames) + '】, 被标记为建议回避, 所以加了删除线, 且不占AI建议位(顺延补位给未命中信号)(由首页「AI降亏过滤」开关判定, 独立作用域与凯利区互不影响)。如不需要该过滤, 关闭首页「AI降亏过滤」开关即可恢复正常样式。</div>';
       }
       if (locateHtml || idxLineHtml || etfMetaHtml || etfHtml) html += locateHtml + idxLineHtml + etfMetaHtml + etfHtml;
       pop.innerHTML = html;
