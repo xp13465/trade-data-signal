@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260813-a185';  // a184->a185: 皮肤弹窗样式修复(reviewer复审FAIL——.modal-body button(0,1,1)覆盖新样式,theme-skin-card/close提级0,2,0+closeModal补restoreThemeFromStorage); a183->a184=SW更新检测即时化; 基底=a177
+const CACHE_VERSION = 'v6-20260813-a186';  // a185->a186: 凯利AI降亏过滤区融合(#39/#45) 4大分类组31单标志+组合宏按钮+总开关三级级联+§22 K档口径同步; a184->a185=皮肤弹窗样式修复(CSS特异性0,2,0+data-skin泄漏根治); a183->a184=SW更新检测即时化; 基底=a177
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
