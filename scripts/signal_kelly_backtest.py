@@ -155,6 +155,78 @@ def _load_board_etf_map():
         return json.load(f)
 
 
+# ── 换标漂移修复: 每信号事件 ETF 选择冻结落盘(#58) ────────────────────────────
+# 背景: 原 _build_best_etf 每次回测都读当前 board_etf_map.json 取每指数当前 track_score 最高 ETF,
+# 并把该 ETF 指派给该指数所有历史信号日。一旦某 index 的 best ETF 被另一只反超, 该 index 全部历史成交
+# 整批从旧代码切到新代码(旧记录删除、新代码独立行情重算收益)——换标漂移。
+# 修复: 历史成交应按"信号日当时的 index→ETF 映射"固化; 因无历史映射快照(见 Q1), 采用冻结落盘方案:
+# 对每个已出现的信号事件 (date|index_id|signal), 首次回测时固化其 ETF 选择到持久化查找表
+# data/signal_kelly_etf_freeze.json; 之后 board_etf_map 的 best ETF 变更只影响「新出现的信号事件」,
+# 不改写已固化的历史成交。换标只影响未来新信号。
+
+# freeze 文件路径默认为 data/ 根目录(非 git 提交的运行时持久化数据)
+ETF_FREEZE_PATH_ENV = "SIGNAL_KELLY_ETF_FREEZE_PATH"
+
+
+def _etf_freeze_path():
+    p = os.environ.get(ETF_FREEZE_PATH_ENV)
+    if p:
+        return p
+    return os.path.join(ROOT, "data", "signal_kelly_etf_freeze.json")
+
+
+def _signal_key(date, iid, sig):
+    """信号事件的唯一键: date|index_id|signal。"""
+    return f"{date}|{iid}|{sig}"
+
+
+def _load_etf_freeze():
+    """读冻结查找表 {signal_key: {code, name, track_tier, ..., frozen_at}}。文件不存在返回 {}。"""
+    p = _etf_freeze_path()
+    if not os.path.exists(p):
+        return {}
+    try:
+        with open(p, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+    except (json.JSONDecodeError, OSError):
+        pass
+    return {}
+
+
+def _save_etf_freeze(freeze):
+    """写冻结查找表(原子写: 先写临时文件再 rename)。"""
+    p = _etf_freeze_path()
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(freeze, f, ensure_ascii=False, separators=(",", ":"))
+    os.replace(tmp, p)
+
+
+def _resolve_etf(date, iid, sig, best_etf, freeze):
+    """解析某信号事件 (date,index_id,signal) 匹配的 ETF。
+
+    - 若该信号事件已在冻结查找表: 返回冻结的 ETF 值(历史成交固化, 不再随当前 best 变更)。
+    - 若未冻结(新信号): 用当前 best ETF, 并就地写入 freeze(便于 compute() 结束时持久化)。
+    返回 (etf_dict, is_frozen)。best_etf 无此指数时返回 (None, False)。
+    """
+    key = _signal_key(date, iid, sig)
+    frozen = freeze.get(key)
+    if frozen is not None:
+        return frozen, True
+    be = best_etf.get(iid)
+    if not be:
+        return None, False
+    # 冻结当前 best(补充 frozen_at 时间戳便于审计)
+    entry = dict(be)
+    from datetime import datetime as _dt
+    entry["frozen_at"] = _dt.now().strftime("%Y-%m-%d %H:%M")
+    freeze[key] = entry
+    return entry, False
+
+
 def _load_market_map():
     """读 config/indicators.yaml -> {index_id: market}。
 
@@ -810,6 +882,13 @@ def compute():
     best_etf = _build_best_etf(etf_map)
     print(f"   {len(best_etf)} 个指数有 track_score 第一名 ETF")
 
+    # 换标漂移修复: 加载已固化的每信号事件 ETF 选择。board_etf_map 的 best 变更只影响新信号事件,
+    # 已固化历史成交保持不变。
+    print("-> 加载已固化 ETF 选择 (signal_kelly_etf_freeze.json) ...", flush=True)
+    etf_freeze = _load_etf_freeze()
+    frozen_prev_count = len(etf_freeze)
+    print(f"   {frozen_prev_count} 个信号事件已固化 ETF")
+
     print("-> 加载 indicators.yaml 市场分类 ...", flush=True)
     market_map = _load_market_map()
     print(f"   {len(market_map)} 个指数有 market 分类")
@@ -837,10 +916,11 @@ def compute():
     conn.close()
     print(f"   {len(buy_rows)} 条买信号")
 
-    # 3. 确定需要的 ETF 代码集合, 批量加载价格
+    # 3. 确定需要的 ETF 代码集合, 批量加载价格。注意: 用 _resolve_etf 而非直接 best_etf.get,
+    #    这样已固化的历史信号事件用冻结 ETF, 新信号事件就地冻结当前 best。
     needed_etfs = set()
     for _date, iid, _sig in buy_rows:
-        be = best_etf.get(iid)
+        be, _frozen = _resolve_etf(_date, iid, _sig, best_etf, etf_freeze)
         if be:
             needed_etfs.add(be["code"])
     print(f"-> 批量加载 {len(needed_etfs)} 只 ETF 的 accum_nav ...", flush=True)
@@ -858,15 +938,18 @@ def compute():
     quadrants = {qk: {mk: [] for mk in SELL_MODES} for qk in QUADRANT_META}
     skipped_no_etf = skipped_no_score = skipped_no_price = 0
     classified = 0
+    frozen_used = 0  # 使用已固化 ETF 的信号事件数(历史成交固化, 不随当前 best 变更)
 
     # ETF track_tier -> 象限后缀映射(none -> has_track, 有ETF但跟踪较弱也纳入)
     etf_quad_map = {"strong": "strong", "related": "related", "approx": "approx", "none": "has_track"}
 
     for date, iid, sig in buy_rows:
-        be = best_etf.get(iid)
+        be, be_frozen = _resolve_etf(date, iid, sig, best_etf, etf_freeze)
         if not be:
             skipped_no_etf += 1
             continue
+        if be_frozen:
+            frozen_used += 1
 
         etf_code = be["code"]
         tier = be["track_tier"]
@@ -930,6 +1013,14 @@ def compute():
 
     print(f"   分类完成: {classified} 信号有有效回测")
     print(f"   跳过: 无ETF映射={skipped_no_etf}, 无评级score={skipped_no_score}, 无ETF价格/未来不足={skipped_no_price}")
+    print(f"   换标漂移修复: 使用已固化ETF的信号事件={frozen_used}, 本次新固化={len(etf_freeze) - frozen_prev_count}")
+
+    # 换标漂移修复: 持久化冻结查找表(含本轮新固化), 供下次回测保持历史成交固化。
+    try:
+        _save_etf_freeze(etf_freeze)
+        print(f"   ✓ 已固化 {len(etf_freeze)} 个信号事件 -> {_etf_freeze_path()}")
+    except OSError as e:
+        print(f"   ⚠ 冻结表写盘失败(不影响本次回测结果): {e}", file=sys.stderr)
 
     # 5. 按周期聚合统计
     output = {
