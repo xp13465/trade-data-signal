@@ -17,7 +17,7 @@ thinking_proxy.py - 本地代理:拦截 Claude Code 请求,对指定 model 注�
   1. launchctl load scripts/com.trade.thinking-proxy.plist   # 守护代理
   2. settings.json env "ANTHROPIC_BASE_URL": "http://127.0.0.1:8899"(官方直连改走本地代理)
   3. .claude/agents/implementer.md + tester.md: model: deepseek-v4-flash(代理注入 disabled 省 token)
-     reviewer/researcher/主控: model: deepseek-v4-pro(代理不注入 = 保思考)
+     reviewer/researcher/主控: model: deepseek-v4-think(flash 底别名,代理不注入 + 改写 flash = 保思考,零 v4-pro)
 
 风险(P0):代理挂 = 全站 claude 不可用。launchd KeepAlive 守护 + claude 重试兜底。
 回退:bash scripts/thinking-proxy-rollback.sh(还原 settings + unload + pkill,一键)。
@@ -25,6 +25,8 @@ thinking_proxy.py - 本地代理:拦截 Claude Code 请求,对指定 model 注�
 env:
   TTP_INJECT=1                          # 开启注入
   TTP_INJECT_MODELS=deepseek-v4-flash   # 逗号分隔,匹配 model 字段子串;未匹配的 model 不注入(保思考)
+  TTP_ALIAS_MODELS=deepseek-v4-think    # 判断类别名(flash 底保思考):不注入 + 改写 ALIAS_TARGET 转发
+  TTP_ALIAS_TARGET=deepseek-v4-flash    # 别名改写成的真实 model(官方只认 pro/flash;别名直发 400)
   TTP_UPSTREAM_HOST/PORT/BASE           # upstream 配置,默认官方 api.deepseek.com:443/anthropic
 """
 import http.server, json, http.client, threading, time, sys, ssl, re, os
