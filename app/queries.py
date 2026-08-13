@@ -10,6 +10,7 @@
   1. stats_all() 统一用 sigstats.compute() 现算（非 load 读 JSON，修 main 缺品种 bug）
   2. rotation() 统一用 compute_rotation() 含门控（非 export 直接 SQL，修无门控不一致）
 """
+import bisect
 import json
 import re
 from datetime import datetime, timedelta
@@ -426,6 +427,181 @@ def stats_for(stats_all_dict: dict, index_id: str) -> dict:
     return stats_all_dict.get(index_id, {})
 
 
+# ============ AI宏降亏命中标注(2026-08-13 首页 AI 开关) ============
+# 提取凯利回测区 lab.js _kellyPassesFadeFilters 的「AI宏默认降亏」7 谓词
+# (基础 4 键 n2/excludeSpecialBear/janMidRating/janMidSpecial + 3元 3 键
+#  r7MayReinforced/excludeAuxCross/greedy15)为可复用的信号级谓词，给 overview.json
+# 每条信号注入 ai_macro:{hit, filters}。与凯利区降亏逻辑同源(§22)。
+# ⚠ 粒度降级(诚实标注)：凯利区基于交易级字段(含 ETF 买入价 buy_price 的
+# price_bin 五分位)，overview 信号级无价格字段 → price_bin 依赖子条件在信号级
+# **不可判定、不参与命中**(漏标不误标，宁保守不误杀)。其余字段(信号日/信号类型/
+# 指数大类 mkt_*/评级 high-mid-low/weekday/top1 track_score)均与凯利同源同口径。
+# 首页开关=AI宏总开关(tds_kelly_filters.aiMacro)：on → ai_macro.hit 信号灰显对照。
+_AI_MACRO_TOGGLE_NAMES = {
+    "n2NovSpecialIndustry": "11月+追关注+行业",
+    "excludeSpecialBear": "追关注×熊市交叉",
+    "janMidRating": "J1 1月中旬+mid评级",
+    "janMidSpecial": "J2 1月中旬+追关注",
+    "r7MayReinforced": "5月强化+3非五月R7",
+    "excludeAuxCross": "辅关注×3/5月交叉",
+    "greedy15": "Greedy-15组合",
+}
+
+
+def _ai_macro_weekday(date_str: str) -> int:
+    """信号日星期，与 lab.js _kellyBuyWeekday 同款(0=Mon..6=Sun)；无法解析返回 -1。"""
+    if not date_str or len(date_str) < 8:
+        return -1
+    try:
+        return datetime(int(date_str[0:4]), int(date_str[4:6]), int(date_str[6:8])).weekday()
+    except ValueError:
+        return -1
+
+
+def _ai_macro_quarter(mm: str) -> int:
+    """信号月 → 季度(ceil(mm/3)，与凯利 _q3 同款)；空串返回 0。"""
+    if not mm or not mm.isdigit():
+        return 0
+    return (int(mm) + 2) // 3
+
+
+def _ai_macro_build_market_map(cfg) -> dict:
+    """indicators.yaml → {index_id: mkt_a/mkt_hk/mkt_global/mkt_industry/mkt_concept}(与凯利脚本同源)。"""
+    out = {}
+    for i in cfg.get("indices", []):
+        iid, mkt = i.get("id"), i.get("market")
+        if iid and mkt:
+            out[iid] = f"mkt_{mkt}"
+    return out
+
+
+def _ai_macro_build_market_state(conn):
+    """沪深300 close 相对 MA60 状态(凯利 MARKET_FILTER_MA_WINDOW=60)。
+    返回 ({date: bool}, 排序日期列表)；无数据返回 (None, None) 保守不过滤。"""
+    rows = conn.execute(
+        "SELECT date, close FROM index_daily WHERE index_id='hs300' "
+        "AND close IS NOT NULL ORDER BY date"
+    ).fetchall()
+    if not rows:
+        return None, None
+    dates = [r["date"] for r in rows]
+    closes = [r["close"] for r in rows]
+    w = 60
+    state = {}
+    for i in range(w - 1, len(dates)):
+        ma = sum(closes[i - w + 1: i + 1]) / w
+        state[dates[i]] = closes[i] > ma
+    return state, dates
+
+
+def _ai_macro_is_bull(date_str: str, state, dates) -> bool:
+    """<= 信号日最近的 MA60 状态(多头 True)；无状态保守 True(不过滤)。"""
+    if not state:
+        return True
+    idx = bisect.bisect_right(dates, date_str) - 1
+    while idx >= 0:
+        d = dates[idx]
+        if d in state:
+            return state[d]
+        idx -= 1
+    return True
+
+
+def _ai_macro_rating_of(sig: dict, sig_stats: dict) -> str:
+    """信号评级 high/mid/low：signal_stats[index_id][signal].10d.score 分档
+    (≥0.75 high / ≥0.55 mid / <0.55 low，与前端 _getSignalScore/凯利脚本同口径)。
+    buy_special_filtered 归 buy_special(与凯利脚本同)。无 score 返回 ""。"""
+    sig_key = "buy_special" if sig.get("signal") == "buy_special_filtered" else (sig.get("signal") or "")
+    try:
+        d = (sig_stats.get(sig.get("index_id") or "", {}) or {}).get(sig_key, {}).get("10d", {})
+    except AttributeError:
+        return ""
+    s = d.get("score")
+    if s is None:
+        return ""
+    return "high" if s >= 0.75 else ("mid" if s >= 0.55 else "low")
+
+
+def _ai_macro_track_score_of(sig: dict):
+    """top1 ETF track_score(与凯利脚本 _build_best_etf 同口径，取最高分)；无返 None。"""
+    best = None
+    for _e in (sig.get("etfs") or []):
+        ts = _e.get("track_score")
+        if ts is not None and (best is None or ts > best):
+            best = ts
+    return best
+
+
+# 仅 A股类才按 hs300 MA60 大盘择时判断熊市(与凯利脚本 A_STOCK_MARKETS={"a","concept","industry"} 同源);
+# 非 A 类(hk/global/hk_industry)凯利区 market_state 恒 True 不过滤, 此处须同守卫防误标(review FAIL1)。
+_AI_MACRO_A_STOCK_MARKETS = {"mkt_a", "mkt_concept", "mkt_industry"}
+# 凯利回测仅对买交易应用降亏过滤(与 signal_kelly_backtest.py BUY_SIGNALS=("buy","buy_aux","buy_special","buy_backup") 同源);
+# overview 信号级另含 buy_special_filtered(追买h5过滤预览, 归 buy_special, 与 _ai_macro_rating_of 同口径)一并计入。
+# 非买信号(band_hold/sell/sell_stop_loss)凯利区不存在(只采买信号), 一律不判降亏(review MED3)。
+_AI_MACRO_BUY_SIGNALS = {"buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup"}
+
+
+def _ai_macro_hit_filters(sig: dict, ctx: dict) -> list:
+    """信号级 AI宏(基础4+3元 7 toggle)命中条件名列表(与凯利区 AI宏默认集同源)。
+    ctx 需含: rating_of(sig)->str / market_of(iid)->str / track_score_of(sig)->float|None /
+    is_bull(date)->bool。price_bin 依赖子条件降级不参与命中(见模块级注释)。
+    仅买信号守卫(MED3): 非买信号直接返空(与凯利区"只对买交易过滤"同源)。"""
+    _f = []
+    _d = str(sig.get("date") or "")
+    _mm = _d[4:6] if len(_d) >= 8 else ""
+    _dd = int(_d[6:8]) if len(_d) >= 8 else 0
+    _sig = sig.get("signal") or ""
+    _wd = _ai_macro_weekday(_d)
+    _rating = ctx["rating_of"](sig)
+    _mkt = ctx["market_of"](sig.get("index_id") or "")
+    _ts = ctx["track_score_of"](sig)
+    _bull = ctx["is_bull"](_d)
+    _q = _ai_macro_quarter(_mm)
+
+    # ⚠仅买信号守卫(与凯利区"只对买交易过滤"同源): 非买(band_hold/sell/sell_stop_loss)一律不判降亏
+    if _sig not in _AI_MACRO_BUY_SIGNALS:
+        return []
+
+    # 1 n2: buy_special + 11月 + 行业指数
+    if _sig == "buy_special" and _mm == "11" and _mkt == "mkt_industry":
+        _f.append("n2NovSpecialIndustry")
+    # 2 excludeSpecialBear: buy_special + A股类 + MA60 熊市(大盘择时仅对A股类, 非A不过滤, 与凯利同源)
+    if _sig == "buy_special" and _mkt in _AI_MACRO_A_STOCK_MARKETS and not _bull:
+        _f.append("excludeSpecialBear")
+    # 3 janMidRating: 1月中旬(11-20日) + mid 评级
+    if _mm == "01" and 11 <= _dd <= 20 and _rating == "mid":
+        _f.append("janMidRating")
+    # 4 janMidSpecial: buy_special + 1月中旬
+    if _sig == "buy_special" and _mm == "01" and 11 <= _dd <= 20:
+        _f.append("janMidSpecial")
+    # 5 r7MayReinforced: 并集(5月A股 / 5月mid / 11月special+行业 / 11月special+周一)
+    #   ⚠5月vlow、3月周二high 两项依赖 price_bin 信号级降级不参与
+    if ((_mkt == "mkt_a" and _mm == "05") or (_rating == "mid" and _mm == "05")
+            or (_sig == "buy_special" and _mm == "11" and _mkt == "mkt_industry")
+            or (_sig == "buy_special" and _mm == "11" and _wd == 0)):
+        _f.append("r7MayReinforced")
+    # 6 excludeAuxCross: buy_aux + 3/5月
+    if _sig == "buy_aux" and (_mm == "03" or _mm == "05"):
+        _f.append("excludeAuxCross")
+    # 7 greedy15: 15step 并集(信号级可判定子集)
+    #   ⚠step5(q2+vlow+buy_aux+concept)/step9(06+vlow+low)/step14(01+low+buy_special+concept)
+    #   依赖 price_bin 信号级降级不参与
+    if ((_sig == "buy_special" and _mm == "05")
+            or (_sig == "buy_special" and _mm == "11" and _mkt == "mkt_concept")
+            or (_sig == "buy_special" and _mm == "03")
+            or (_sig == "buy_aux" and _mm == "01")
+            or (_sig == "buy" and _mm == "01")
+            or (_mm == "03" and _wd == 2 and _mkt == "mkt_concept" and _rating == "low")
+            or (_sig == "buy_aux" and _mm == "12" and _ts is not None and _ts < 50)
+            or (_sig == "buy_aux" and _mm == "05")
+            or (_sig == "buy_special" and _mm == "11" and _mkt == "mkt_industry")
+            or (_mm == "04" and _wd == 1 and _mkt == "mkt_concept" and _ts is not None and _ts < 50)
+            or (_mkt == "mkt_global" and _q == 1 and _sig == "buy_aux" and _rating == "low")
+            or (_sig == "buy_special" and _mm == "09" and _wd == 2)):
+        _f.append("greedy15")
+    return _f
+
+
 # ============ Composite 端点 ============
 
 # 品种名映射（代码 -> 中文）
@@ -675,6 +851,24 @@ def overview(conn, cfg):
                 _ret = round((_today_close - _sig_close) / _sig_close * 100, 2)
                 _e["etf_since_return"] = _ret
                 _e["etf_price_diff"] = round(_today_close - _sig_close, 3)
+
+    # AI宏降亏命中标注(2026-08-13 首页 AI 开关): 每条信号注入 ai_macro:{hit, filters}
+    # 7 谓词与凯利区 AI宏默认降亏(lab.js _kellyPassesFadeFilters + _kellyDefaultFilters)同源;
+    # 信号级粒度降级: price_bin(ETF 买入价分位)依赖子条件在 overview 不可判定(无价格字段),
+    # 不参与命中(漏标不误标, 诚实标注见 _ai_macro_hit_filters 模块级注释)。
+    if sigs:
+        _sig_stats = sigstats.load()  # 主库 data/signal_stats.json(与 overview 同源)
+        _market_map = _ai_macro_build_market_map(cfg)
+        _bull_state, _bull_dates = _ai_macro_build_market_state(conn)
+        _ctx = {
+            "rating_of": lambda _s: _ai_macro_rating_of(_s, _sig_stats),
+            "market_of": lambda _iid: _market_map.get(_iid or "", ""),
+            "track_score_of": _ai_macro_track_score_of,
+            "is_bull": lambda _d: _ai_macro_is_bull(_d, _bull_state, _bull_dates),
+        }
+        for _s in sigs:
+            _f = _ai_macro_hit_filters(_s, _ctx)
+            _s["ai_macro"] = {"hit": bool(_f), "filters": _f}
 
     freeze_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=120)).strftime("%Y%m%d")
     freeze_dates = [r[0] for r in conn.execute(

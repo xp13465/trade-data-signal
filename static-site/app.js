@@ -1690,6 +1690,87 @@ function _topEtfByScore(etfs) {
   })[0];
 }
 
+// ===== 首页 AI 开关(2026-08-13): AI降亏过滤总开关 + AI仓位建议 K 档 =====
+// 与凯利区 lab.js 共享状态(§22 一致性): tds_kelly_filters(AI宏 7成员+组合) + tds_poscap(K/开关)
+// 后端 overview.json 每条信号注入 ai_macro: {hit, filters:[命中的降亏条件key...]}(queries.py, 7 谓词同源凯利回测)
+const _AI_MACRO_FILTER_NAMES = {
+  n2NovSpecialIndustry: "11月+追关注+行业",
+  excludeSpecialBear: "追关注×熊市交叉",
+  janMidRating: "J1 1月中旬+mid评级",
+  janMidSpecial: "J2 1月中旬+追关注",
+  r7MayReinforced: "5月强化+3非五月R7",
+  excludeAuxCross: "辅关注×3/5月交叉",
+  greedy15: "Greedy-15组合"
+};
+// 读 tds_kelly_filters(localStorage, 凯利区写; 不存在/异常→null 按默认 AI宏全开处理)
+function _readKellyAiFilters() {
+  try {
+    const raw = localStorage.getItem("tds_kelly_filters");
+    if (raw) {
+      const f = JSON.parse(raw);
+      if (f && f.members) return f;
+    }
+  } catch (e) {}
+  return null;
+}
+// 首页 AI 降亏开关行 HTML(K 档 3124 + AI降亏过滤总开关); 状态读自 localStorage, 事件绑在 _bindSigSwitchRow
+function _sigSwitchHtml(_aiOn, _k) {
+  const _kRating = { 1: "最激进", 2: "次稳健", 3: "最稳健", 4: "最保守" };
+  const _kbtns = [3, 1, 2, 4].map((kk) =>
+    `<button type="button" class="sig-kbtn${kk === _k ? " active" : ""}${kk === 3 ? " sig-kbtn-main" : ""}" data-k="${kk}" data-no-pop=""><span class="sig-kbtn-k">${kk}</span><span class="sig-kbtn-r">${_kRating[kk]}${kk === 3 ? "★" : ""}</span></button>`
+  ).join("");
+  return `<div class="sig-switch-row" data-no-pop="">` +
+    `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(3元部分, 与凯利区 AI宏 共享): 勾选=3元(r7/辅关注×3/5月/Greedy-15)降亏开启; 基础4键(追关注×熊市交叉/J1/J2/n2)为凯利区独立toggle默认开不受此开关控制; 命中当前实际开启降亏条件的信号灰显+删除线+标注AI降亏, 建议回避">` +
+      `<input type="checkbox" class="sig-switch-ai-cb"${_aiOn ? " checked" : ""}> AI降亏过滤` +
+      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(与凯利区 AI宏 共享, localStorage tds_kelly_filters): 勾选=3元(r7 5月强化+3非五月R7 / 辅关注×3/5月交叉 / Greedy-15组合)降亏过滤开启; 基础4键(追关注×熊市交叉 / J1 1月中旬+mid评级 / J2 1月中旬+追关注 / n2 11月+追关注+行业)是凯利区独立toggle默认开启, 不受本开关控制。命中当前实际开启降亏条件的信号灰显+删除线+标注AI降亏, 建议回避(对应凯利区 7 个降亏 toggle 实际开启项); 凯利区改动实时联动。">ⓘ</span>` +
+    `</label>` +
+    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap): 同日只买最优K个, 未进入前K=当日已满灰显">AI仓位建议 K: <span class="sig-kbtns">${_kbtns}</span></span>` +
+    `</div>`;
+}
+// 绑定首页开关行事件(K 按钮 + AI降亏 checkbox), 改状态后重绘 sigCard; 每次渲染开关行后调用
+function _bindSigSwitchRow(sigCard) {
+  if (!sigCard || sigCard._sigSwitchBound) return;
+  sigCard._sigSwitchBound = true;
+  sigCard.addEventListener("click", (e) => {
+    const kb = e.target.closest(".sig-kbtn");
+    if (kb) {
+      e.preventDefault();
+      e.stopPropagation();
+      const k = parseInt(kb.dataset.k, 10) || 3;
+      try { localStorage.setItem("tds_poscap", JSON.stringify({ on: true, k })); } catch (err) {}
+      _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
+      return;
+    }
+    const aiCb = e.target.closest(".sig-switch-ai-cb");
+    if (aiCb) {
+      // checkbox change 走 change 事件, click 这里只处理按钮; 空实现避免误吞(change 在下方单独绑)
+      return;
+    }
+  });
+  sigCard.addEventListener("change", (e) => {
+    const aiCb = e.target.closest(".sig-switch-ai-cb");
+    if (!aiCb) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const on = aiCb.checked;
+    // 与凯利区 AI宏 checkbox 同语义: 勾选=3元(r7/exclAuxCross/greedy15)全开, 取消=3元全关; 其余基础4保持原值
+    try {
+      const f = _readKellyAiFilters();
+      const members = (f && f.members) ? Object.assign({}, f.members) : {};
+      if (!Object.prototype.hasOwnProperty.call(members, "r7MayReinforced")) members.r7MayReinforced = true;
+      if (!Object.prototype.hasOwnProperty.call(members, "excludeAuxCross")) members.excludeAuxCross = true;
+      if (!Object.prototype.hasOwnProperty.call(members, "greedy15")) members.greedy15 = true;
+      members.r7MayReinforced = on;
+      members.excludeAuxCross = on;
+      members.greedy15 = on;
+      const base = { n2NovSpecialIndustry: true, excludeSpecialBear: true, janMidRating: true, janMidSpecial: true };
+      for (const bk in base) { if (!Object.prototype.hasOwnProperty.call(members, bk)) members[bk] = base[bk]; }
+      localStorage.setItem("tds_kelly_filters", JSON.stringify({ aiMacro: on, members, combos: [] }));
+    } catch (err) {}
+    _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
+  });
+}
+
 function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = true) {
   if (!items || !items.length) return `<h3>${title}</h3><div class="empty-note">${emptyText}</div>`;
   // A/B 方案(2026-07-29): 评级/对错筛选 - 汇总条数字仍用全量 items(_calcSignalAccuracy),
@@ -1820,6 +1901,23 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       }
     } catch (e) {}
   }
+  // 2026-08-13 AI 降亏过滤(首页 AI 开关): 读 tds_kelly_filters(凯利区写, §22 一致性) → _aiMacroOn 3元总开关 + _aiOnMembers 实际开启成员
+  // 不存在该 key=首次访问按 AI宏 默认全开(与凯利区默认一致); 灰显条件=后端 ai_macro.hit + 命中条件 ∈ 实际开启成员(成员级, 不依赖 3元总开关)
+  let _aiMacroOn = true;
+  const _aiOnMembers = {};
+  for (const _amk in _AI_MACRO_FILTER_NAMES) _aiOnMembers[_amk] = true;
+  if (kind === "signal") {
+    try {
+      const _kf = _readKellyAiFilters();
+      if (_kf) {
+        if (typeof _kf.aiMacro === "boolean") _aiMacroOn = _kf.aiMacro;
+        for (const _amk in _aiOnMembers) {
+          if (typeof _kf.members[_amk] === "boolean") _aiOnMembers[_amk] = _kf.members[_amk];
+        }
+      }
+    } catch (e) {}
+  }
+  const _sigSwitchHtmlStr = (kind === "signal") ? _sigSwitchHtml(_aiMacroOn, _posCapK || 3) : "";
   let rows = "";
   for (const dt of dates) {
     const isToday = dt === todayDate;
@@ -1861,6 +1959,18 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           } else {
             posCapCls = " sig-poscap-excluded";
             posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 当日只建议最优${_posCapK}个, 本信号未进入AI建议, 当日已满（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">当日已满</sup>`;
+          }
+        }
+        // 2026-08-13 AI 降亏过滤(首页 AI 开关 + 后端 ai_macro): 命中降亏条件 + 该条件在凯利区实际开启 → 灰显+删除线+标注(hover 显命中条件, §22 与凯利区一致)
+        // 2026-08-13 FAIL2 fix: 去 _aiMacroOn(3元总开关)门控——基础4键是凯利区独立toggle默认开, 关3元总开关时基础4命中仍须灰显(与凯利区过滤一致), 只按成员级实际开启过滤
+        let aiHitCls = "";
+        let aiHitBadge = "";
+        if (it.ai_macro && it.ai_macro.hit && Array.isArray(it.ai_macro.filters)) {
+          const _hitOn = it.ai_macro.filters.filter((fk) => _aiOnMembers[fk]);
+          if (_hitOn.length) {
+            aiHitCls = " sig-ai-hit";
+            const _hitNames = _hitOn.map((fk) => _AI_MACRO_FILTER_NAMES[fk] || fk).join(" / ");
+            aiHitBadge = `<sup class="sig-ai-hit-badge" data-tip="AI降亏过滤: 本信号命中降亏条件【${_hitNames}】, 按凯利区降亏组合实际开启项建议回避(与凯利区联动, 改开关/凯利区toggle实时生效)">AI降亏</sup>`;
           }
         }
         // 评分尾缀：技术参考点综合把握度（10d 窗口 score）
@@ -1935,7 +2045,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           _cellName = _idxName;
           _cellCode = _sigIdxCode;
         }
-        return `<span class="${cls}${scoreCls}${posCapCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${_cellLight}${posCapBadge}${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_cellName}${_cellCode ? ` <span class="idx-code-tag">${_cellCode}</span>` : ""}</span></span>`;
+        return `<span class="${cls}${scoreCls}${posCapCls}${aiHitCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${_cellLight}${posCapBadge}${aiHitBadge}${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_cellName}${_cellCode ? ` <span class="idx-code-tag">${_cellCode}</span>` : ""}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
@@ -2064,7 +2174,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   const _h3Html = _windowBtnsHtml
     ? `<h3 class="sig-title-row"><span class="sig-title-text">${title}</span>${_windowBtnsHtml}</h3>`
     : `<h3>${title}</h3>`;
-  return `${_h3Html}${_accHtml}<div class="signal-grid">${rows}</div>`;
+  return `${_h3Html}${_sigSwitchHtmlStr}${_accHtml}<div class="signal-grid">${rows}</div>`;
 }
 
 // D 方案(2026-07-29): sigCard 自动更新 - ts:overview-refreshed hook 增量重绘。
@@ -2088,12 +2198,17 @@ function _rerenderSigCardContent(r, snap) {
   const newH3 = tmp.querySelector("h3");
   const newAccWrap = tmp.querySelector(".sig-acc-wrap");
   const newGrid = tmp.querySelector(".signal-grid");
+  const newSigSwitch = tmp.querySelector(".sig-switch-row");
   const oldH3 = sigCard.querySelector("h3");
   const oldAccWrap = sigCard.querySelector(".sig-acc-wrap");
   const oldGrid = sigCard.querySelector(".signal-grid");
+  const oldSigSwitch = sigCard.querySelector(".sig-switch-row");
   if (newH3 && newAccWrap && newGrid && oldH3 && oldAccWrap && oldGrid) {
     // UI(2026-07-31): h3 也增量替换(含窗口按钮 active 态 + 标题后缀, 随筛选切换更新)
     // 问题3 fix: .sig-acc-wrap 整体替换(summary+byType), 切窗口时 byType 各类型数量/准确率联动更新
+    // 2026-08-13 开关行: 标题下第一行, 增量替换(状态读 localStorage 重绘, 事件用一次性绑定防重复)
+    if (oldSigSwitch && newSigSwitch) oldSigSwitch.replaceWith(newSigSwitch);
+    else if (newSigSwitch) oldH3.insertAdjacentElement("afterend", newSigSwitch);
     oldH3.replaceWith(newH3);
     oldAccWrap.replaceWith(newAccWrap);
     oldGrid.replaceWith(newGrid);
@@ -6034,10 +6149,14 @@ function _fmtKpiValue(id, v) {
     case "a_width_up_count":
     case "a_width_down_count":
     case "a_width_zb_count": return v.toFixed(0);
-    case "a_amount":
-    case "a_fund_margin": return v.toFixed(0);
+    // 2026-08-13 修复(用户反馈): 首页成交额KPI主值缺单位,不hover只显纯数字14728,单位只出现在hover pop(1.47万亿).
+    // 金额类(a_amount/a_fund_margin/a_fund_north/a_fund_main)单位均为"亿元"(overview today.metrics unit=亿元),
+    // 主值常态显示单位,与hover pop万亿/亿口径一致(§22);a_fund_* 当前虽挪出首屏KPI小卡(_KPI_T1_MOVED),
+    // 仍在"A股指标走势图"资金面分组可见/未来回KPI,统一加单位防再犯(L10 同类).
+    case "a_amount": return v.toFixed(0) + "亿";
+    case "a_fund_margin": return v.toFixed(0) + "亿"; // 两融余额(沪市融资,亿元)
     case "a_fund_north":
-    case "a_fund_main": return (v >= 0 ? "+" : "") + v.toFixed(1);
+    case "a_fund_main": return (v >= 0 ? "+" : "") + v.toFixed(1) + "亿"; // 北向成交总额/主力净流入(亿元)
     case "a_volume_ratio": return v.toFixed(2) + "x";
     case "a_turnover_mean":
     case "a_turnover_median":
@@ -10148,8 +10267,9 @@ async function renderOverview() {
   const sigCard = document.createElement("div");
   sigCard.className = "chart-card sig-card";
   sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看8类信号与ETF跟踪指标详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true);
-  addCardTimeBadge(sigCard, r.date, snap, "t0", "", false, true);  // 任务1: useOverviewDate=true, 轮询后用最新 overview.date 覆盖
+  addCardTimeBadge(sigCard, r.date, snap, "t0", "", false, true);  // 任务1: useOverviewDate=true, 轮询后用最新 overview.date 刷新
   _sigCardRenderedAt = r.collected_at;  // D: 记录渲染时 collected_at, 供 _maybeRerenderSigCard 判断是否需重绘
+  _bindSigSwitchRow(sigCard);  // 2026-08-13 首页 AI 开关行事件绑定(一次性委托, 重绘后仍生效)
   // B1 方案B(2026-07-27): 盘中提示 - sw_/thsc_/cgb_ 等行业概念指数不在 intraday 反哺列表
   // (_SNAPSHOT_TO_INDEX_ID 只12个),盘中它们的 -all.json 不更新,首页看到的当日 buy/sell pin
   // 点弹窗看不到 T 日 pin(K线末日还是 T-1)。加提示让用户知道收盘后 17:50 全对齐,非 bug。
