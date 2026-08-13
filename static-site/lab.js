@@ -7290,6 +7290,8 @@ var _kellyStatsCacheVal = null;
 var _kellyBucketStatsCache = new Map();    // (qk|mode) -> {feeSig, toggled, stats} 逐桶复用(仅被toggle改动影响的桶重算)
 var _kellyRecomputeBusy = false;           // 防重入: 重算进行中
 var _kellyRecomputePending = false;        // 重算中来新点击/改费率: 记待处理
+// #49 fix(issue49): G/H/I 对比表 展开/收起状态(独立于开关, 由 9124 按钮点击控制, 重渲染 bar 时保持) — 默认收起
+var _gihCompareOpen = false;
 
 // 费率参数签名(判断是否变化, 变化才重算费率部分)
 function _kellyFeeSig(fp) {
@@ -7823,7 +7825,8 @@ async function _kellyApplyFeeRecompute(feeParams) {
   // ④ filters+feeParams+金额口径签名缓存: 连点命中直接复用, 不重算
   var feeSig = _kellyFeeSig(feeParams);
   // 金额口径(2026-08-13 用户纠正恢复): 每日资金池等分+top-K(每笔=10000/当日保留基笔数, 每日总投入恒1万 → K档最大持仓恒定; 撤销2026-08-12"每笔固定1万"fixed口径)
-  var cacheKey = feeSig + "|pool|" + JSON.stringify(filters);
+  // #49 fix(issue49): ai长线(G/H/I)仓位管理 开关态并入顶层缓存签名——否则 7827 短路命中旧缓存(result 无 __gihb1)致开关无效(卡片G/H/I恒显原始值), 须切换强制重算
+  var cacheKey = feeSig + "|pool|" + JSON.stringify(filters) + "|gih" + (state.labSigKellyGihOn ? "1" : "0");
   if (_kellyStatsCacheKey === cacheKey && _kellyStatsCacheVal) {
     return _kellyStatsCacheVal;
   }
@@ -8756,9 +8759,9 @@ function _renderSigKellyBar(bar, data, period) {
   const aihlineLabelHTML =
     `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="${_gihTip}">` +
       `<input type="checkbox" class="lab-sigkelly-toggle-gih"${_gihOn ? " checked" : ""}>${_kellyRecBadge(_gihOn)} ai长线模式(G/H/I)仓位管理 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-    `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-gih-compare-btn" style="margin-left:8px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="收起/展开 G/H/I 仓位管理 开关前后对比表(报告 K=1 参考口径)">G/H/I 对比表 ${_gihOn ? "▲" : "▼"}</button>`;
+    `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-gih-compare-btn" style="margin-left:8px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="收起/展开 G/H/I 仓位管理 开关前后对比表(报告 K=1 参考口径)">G/H/I 对比表 ${_gihCompareOpen ? "▲" : "▼"}</button>`;
   const aihlineCompareHTML =
-    `<div id="lab-kelly-gih-compare-body" class="lab-sigkelly-ai-macro-body" style="${_gihOn ? "" : "display:none"}">` +
+    `<div id="lab-kelly-gih-compare-body" class="lab-sigkelly-ai-macro-body" style="${_gihCompareOpen ? "" : "display:none"}">` +
       `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap">` +
         `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">ai长线模式(G/H/I)仓位管理 · 开关前后对比表(数据来源 <b>docs/kelly-ghiposition-manage-matrix.md §7.2 推荐 K=1 版</b>; 前端仿真内核已与报告逐位对齐, §21)。开=持仓≤20万+FIFO强制平仓。收益率=净利/峰值占用资金; 保守b0=强平按0利计, 乐观b1=按持有时间线性, 真实值在区间。</div>` +
         `<div class="lab-sigkelly-table-scroll">${_gihCompareTableHTML}</div>` +
@@ -9099,11 +9102,7 @@ function _renderSigKellyBar(bar, data, period) {
     // 开关后: G/H/I 卡片数据需重新计算(套 FIFO cap), 重渲染 bar 刷新对比表展示态 + 重算象限
     var hostEl = document.querySelector(".lab-sigkelly-host");
     if (hostEl && state.labSigKellyData) {
-      // 保持对比表/关卡按钮文案随开关态刷新
-      var cmpBtn = bar.querySelector("#lab-kelly-gih-compare-btn");
-      var cmpBody = document.getElementById("lab-kelly-gih-compare-body");
-      if (cmpBtn) cmpBtn.textContent = "G/H/I 对比表 " + (state.labSigKellyGihOn ? "▲" : "▼");
-      if (cmpBody) cmpBody.style.display = state.labSigKellyGihOn ? "" : "none";
+      // #49 fix(issue49): 对比表展开/收起由按钮点击独立控制(_gihCompareOpen), 开关 change 不强制收展 — 只触发重算刷新内容; _renderSigKellyBar 重渲染时对比表开合保持不变
       _kellyRunRecompute(hostEl,
         '<div class="lab-custom-loading">⏳ 切换 ai长线模式, 重算 G/H/I 仓位管理…</div>',
         function (stats) {
@@ -9122,9 +9121,9 @@ function _renderSigKellyBar(bar, data, period) {
   var _gihWrap = document.getElementById("lab-kelly-gih-compare-body");
   if (_gihBtn && _gihWrap) {
     _gihBtn.addEventListener("click", function () {
-      var open = _gihWrap.style.display !== "none";
-      _gihWrap.style.display = open ? "none" : "";
-      _gihBtn.textContent = open ? "G/H/I 对比表 ▼" : "G/H/I 对比表 ▲";
+      _gihCompareOpen = _gihWrap.style.display === "none";   // 当前收起→展开(state=开), 否则收起
+      _gihWrap.style.display = _gihCompareOpen ? "" : "none";
+      _gihBtn.textContent = _gihCompareOpen ? "G/H/I 对比表 ▲" : "G/H/I 对比表 ▼";
     });
   }
   // 2026-08-13: K档位评级 hoverpop(评级理由表格, 桌面 hover / 移动端 tap; 共享 common.js _bindAiPoscapRatePop, 与首页同款 §22)
