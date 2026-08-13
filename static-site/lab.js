@@ -7623,6 +7623,123 @@ function _kellySetSharedPosCap(on, k) {
   try { localStorage.setItem("tds_poscap", JSON.stringify({ on: !!on, k: k || 3 })); } catch (e) {}
 }
 
+// ===== ai长线模式(G/H/I)仓位管理 (2026-08-14 #49; 可扩展架构: 按钮=长线族群总入口, 内部按模式配置独立策略) =====
+// 用户定义: 只记「ai长线模式(G/H/I)仓位管理」一个开关, 背后是 G/H/I 长线族群的完整交易方法论。
+// v1 = 三模式统一 "持仓≤20万 + FIFO强制平仓" 硬控; 后续某模式优化(如 H 可操作性研究)只需改该模式的策略映射, 不动按钮整体。
+// 架构核心: 模式→策略映射结构, 不写死"三模式同一个逻辑"。v1 三个都指向 fifo20w 策略。
+const AIHLINE_STRATS = {
+  fifo20w: {
+    label: "FIFO 20万",
+    cap: 200000,       // 持仓上限 = 20倍单次本金(单次本金=10000)
+    method: "B"        // 手段B = FIFO 强制平最久持仓, 回cap内再买入
+  }
+};
+// 模式→策略映射(v1: G/H/I 全 fifo20w; key 值可扩展其他策略名)
+const GIHPOS_STRATEGY = { G: "fifo20w", H: "fifo20w", I: "fifo20w" };
+// G/H/I 判定(与 _sigKellyModeSpanKey 同源, 全站长线族群统一定义)
+function _kellyIsGih(modeKey) { return modeKey === "G" || modeKey === "H" || modeKey === "I"; }
+// 共享设置: 开关状态(localStorage, 默认关; 只影响实验室 G/H/I 卡片, 首页默认关闭不展示, §22 口径)
+function _kellySharedGih() {
+  var def = { on: false };
+  try {
+    var raw = localStorage.getItem("tds_gihpos");
+    if (raw) { var p = JSON.parse(raw); def.on = !!p.on; }
+  } catch (e) {}
+  return def;
+}
+function _kellySetSharedGih(on) {
+  try { localStorage.setItem("tds_gihpos", JSON.stringify({ on: !!on })); } catch (e) {}
+}
+// 当前模式策略(未来某模式优化后改 GIHPOS_STRATEGY[modeKey] 即生效, 不动按钮整体)
+function _kellyGihStrat(modeKey) { return AIHLINE_STRATS[GIHPOS_STRATEGY[modeKey]] || null; }
+
+// ---- 下面为策略 fifo20w 的具体仿真内核(JS 端口 of /tmp/cap_sim.py simulate_capped method='B' + realize) ----
+// 已按报告 §7.2(K1 版)自验逐位对齐: G/H/I × b0/b1 六格 净利/收益率/峰值全对齐, 见 /tmp/gih49/fifo_test.js
+const AIHLINE_CAL_RATIO = 1.498; // 日历日/交易日中位比(与 python cap_sim 一致)
+// 真实强平盈亏不可知(b0 0利 保守 / b1 按持有时间线性 乐观), 真实值在区间, 不把 b1 当承诺
+function _kellyAihlineCalSpan(bd, sd) {
+  if (!bd || !sd || sd < bd) return 0;
+  var d1 = new Date(+bd.slice(0, 4), +bd.slice(4, 6) - 1, +bd.slice(6, 8));
+  var d2 = new Date(+sd.slice(0, 4), +sd.slice(4, 6) - 1, +sd.slice(6, 8));
+  return Math.max(Math.round((d2 - d1) / 86400000), 0);
+}
+// 强平笔利润实现(pr=profit, rp=return_pct, amt=amount, closeDate=强制平仓日)
+function _kellyAihlineRealize(pr, rp, bd, sd, hd, amt, closeDate, model) {
+  var ns = sd ? _kellyAihlineCalSpan(bd, sd) : (hd ? hd * AIHLINE_CAL_RATIO : 0);
+  var cs = closeDate ? _kellyAihlineCalSpan(bd, closeDate) : ns;
+  if (ns <= 0 || cs >= ns) return { pr: pr, rp: rp, hd: hd };
+  var f = cs / ns;
+  if (model === "b0") return { pr: 0, rp: 0, hd: Math.round(hd * f) };
+  if (model === "b1") return { pr: pr * f, rp: (pr * f / amt * 100), hd: Math.round(hd * f) };
+  return { pr: 0, rp: 0, hd: 0 };
+}
+// 策略 fifo20w 仿真: 传入已 K 过滤/费率重算的 trade 数组 {profit,return_pct,buy_date,sell_date,hold_days,amount},
+// 返回 {kept(强平后成交数组), peak(仿真峰值持仓)}。model='b0'保守 / 'b1'乐观。
+function _kellyAihlineFifoCap(trades, cap, model) {
+  var trs = trades.map(function (t) {
+    return { profit: t.profit, return_pct: t.return_pct, buy_date: t.buy_date, sell_date: t.sell_date || null, hold_days: t.hold_days, amount: t.amount || 0, closed: null, fee_cost: t.fee_cost || 0 };
+  });
+  var buysByDate = {}, datesSet = {}, allDates = [];
+  for (var i = 0; i < trs.length; i++) {
+    var bd = trs[i].buy_date;
+    (buysByDate[bd] || (buysByDate[bd] = [])).push(trs[i]);
+    if (!datesSet[bd]) { datesSet[bd] = 1; allDates.push(bd); }
+    var sd2 = trs[i].sell_date;
+    if (sd2 && !datesSet[sd2]) { datesSet[sd2] = 1; allDates.push(sd2); }
+  }
+  allDates.sort();
+  var openTrs = [], kept = [], cur = 0, peak = 0;
+  for (var d = 0; d < allDates.length; d++) {
+    var dt = allDates[d];
+    var newOpen = [];
+    for (var o = 0; o < openTrs.length; o++) {
+      var t = openTrs[o];
+      if (t.sell_date === dt && t.closed === null) {
+        t.closed = "natural";
+        cur -= t.amount;
+        kept.push({ profit: t.profit, return_pct: t.return_pct, buy_date: t.buy_date, sell_date: t.sell_date, hold_days: t.hold_days, amount: t.amount, fee_cost: t.fee_cost });
+      } else newOpen.push(t);
+    }
+    openTrs = newOpen;
+    var dayTrs = buysByDate[dt];
+    if (dayTrs) {
+      var dayTotal = 0;
+      for (var k = 0; k < dayTrs.length; k++) dayTotal += dayTrs[k].amount;
+      var needed = cur + dayTotal - cap;
+      if (needed > 1e-6) {
+        // 手段B: FIFO 强制平最久持仓, 回cap内再买入
+        while (needed > 1e-6 && openTrs.length) {
+          var tr = openTrs.shift();
+          var r = _kellyAihlineRealize(tr.profit, tr.return_pct, tr.buy_date, tr.sell_date, tr.hold_days, tr.amount, dt, model);
+          kept.push({ profit: r.pr, return_pct: r.rp, buy_date: tr.buy_date, sell_date: dt, hold_days: r.hd, amount: tr.amount, fee_cost: tr.fee_cost });
+          cur -= tr.amount;
+          needed = cur + dayTotal - cap;
+        }
+        if (needed <= 1e-6) { openTrs = openTrs.concat(dayTrs); cur += dayTotal; }
+        // else 当日跳过(不入池)
+      } else { openTrs = openTrs.concat(dayTrs); cur += dayTotal; }
+    }
+    if (cur > peak) peak = cur;
+  }
+  for (var z = 0; z < openTrs.length; z++) {
+    var tz = openTrs[z];
+    if (tz.closed === null) kept.push({ profit: tz.profit, return_pct: tz.return_pct, buy_date: tz.buy_date, sell_date: tz.sell_date || "", hold_days: tz.hold_days, amount: tz.amount, fee_cost: tz.fee_cost });
+  }
+  return { kept: kept, peak: Math.round(peak * 10000) / 10000 };
+}
+// 包装: 对单个 mode 的 K 过滤 trade 数组按当前策略仿真(返回 b0/b1 两套 kept 数组 + 峰值)
+function _kellyAihlineApply(trades, strategy, periodKey) {
+  var out = { b0: null, b1: null, peak: 0, stratKey: null };
+  if (!strategy) return out;
+  out.stratKey = strategy;
+  var b0 = _kellyAihlineFifoCap(trades, strategy.cap, "b0");
+  var b1 = _kellyAihlineFifoCap(trades, strategy.cap, "b1");
+  out.b0 = b0.kept;
+  out.b1 = b1.kept;
+  out.peak = b0.peak;
+  return out;
+}
+
 // 让loading先paint: 双rAF(第一帧调度, 第二帧在paint后恢复, 再执行同步重算)
 function _kellyNextPaint() {
   return new Promise(function (resolve) {
@@ -7743,9 +7860,11 @@ async function _kellyApplyFeeRecompute(feeParams) {
     for (var modeKey in sellModes) {
       var toggled = toggledByMode[modeKey];
       var bKey = qk + "|" + modeKey;
+      // #49: ai长线(G/H/I)仓位管理 开关态并入桶缓存签名, 切换时强制重算(否则桶命中不更新 G/H/I 硬控 stats)
+      var _gihCk = (!!state.labSigKellyGihOn) ? "G1" : "G0";
       var cachedBucket = _kellyBucketStatsCache.get(bKey);
       var statsByPeriod;
-      if (cachedBucket && cachedBucket.feeSig === feeSig && _kellySameTradeArray(cachedBucket.toggled, toggled)) {
+      if (cachedBucket && cachedBucket.gih === _gihCk && cachedBucket.feeSig === feeSig && _kellySameTradeArray(cachedBucket.toggled, toggled)) {
         statsByPeriod = cachedBucket.stats;
       } else {
         statsByPeriod = {};
@@ -7772,12 +7891,30 @@ async function _kellyApplyFeeRecompute(feeParams) {
                      hold_days: t[fIdx.hold_days] || 0, amount: amt };
           });
           statsByPeriod[periodKey] = _kellyComputeStats(recomputed, periodKey, buyAmount);
+          // #49 ai长线模式(G/H/I)仓位管理: 开时对 G/H/I 模式额外套 FIFO 硬控, b0(保守)/b1(乐观) stats 直接写入 statsByPeriod(随桶缓存)
+          // 仿真内核 _kellyAihlineFifoCap 已按报告 §7.2(K1)自验逐位对齐(§21); 下方 result 赋值处注册为 result[qk][period][mode+"__gihb0/b1"]
+          if (_kellyIsGih(modeKey) && state.labSigKellyGihOn && _kellyGihStrat(modeKey)) {
+            var _gihSim = _kellyAihlineApply(recomputed, _kellyGihStrat(modeKey), periodKey);
+            statsByPeriod[periodKey + "__gihb0"] = _kellyComputeStats(_gihSim.b0, periodKey, buyAmount);
+            statsByPeriod[periodKey + "__gihb1"] = _kellyComputeStats(_gihSim.b1, periodKey, buyAmount);
+            statsByPeriod[periodKey + "__gihpeak"] = _gihSim.peak;
+          }
         }
         // 缓存上限保护: 只保留最近~5个过滤状态(144桶×5=720), 防无界增长
         if (_kellyBucketStatsCache.size >= 720) _kellyBucketStatsCache.clear();
-        _kellyBucketStatsCache.set(bKey, { feeSig: feeSig, toggled: toggled, stats: statsByPeriod });
+        _kellyBucketStatsCache.set(bKey, { feeSig: feeSig, toggled: toggled, stats: statsByPeriod, gih: _gihCk });
       }
       for (var periodKey in periods) result[qk][periodKey][modeKey] = statsByPeriod[periodKey];
+      // #49: ai长线 FIFO 硬控 stats 从 statsByPeriod 注册到 result[qk][period][mode+"__gihb0/b1"], 卡片/对比表按 modeKey 取用(§22)
+      if (state.labSigKellyGihOn && _kellyIsGih(modeKey)) {
+        for (var periodKey in periods) {
+          if (statsByPeriod[periodKey + "__gihb0"] !== undefined) {
+            result[qk][periodKey][modeKey + "__gihb0"] = statsByPeriod[periodKey + "__gihb0"];
+            result[qk][periodKey][modeKey + "__gihb1"] = statsByPeriod[periodKey + "__gihb1"];
+            result[qk][periodKey][modeKey + "__gihpeak"] = statsByPeriod[periodKey + "__gihpeak"];
+          }
+        }
+      }
     }
     // 全信号伪象限: 按年聚合(「最后结果」表用, 全周期口径非当前period窗口, 与toggle/费率联动)
     if (qk === "all") {
@@ -8196,6 +8333,8 @@ async function renderSigKellyLab() {
   if (!localStorage.getItem("tds_poscap")) _kellySetSharedPosCap(true, 3);
   state.labSigKellyFilters.positionCap = !!(_sharedPC && _sharedPC.on);
   state.labSigKellyFilters.positionCapK = (_sharedPC && _sharedPC.k) || 3;
+  // #49 ai长线模式(G/H/I)仓位管理: 开关写共享键(localStorage tds_gihpos, 默认关; 只影响实验室 G/H/I 卡片, 首页默认关闭不展示 §22)
+  state.labSigKellyGihOn = _kellySharedGih().on;
 
   _renderSigKellyBar(bar, data, period);
   _renderSigKellyQuadrants(host, data, period);
@@ -8578,7 +8717,53 @@ function _renderSigKellyBar(bar, data, period) {
         `<div class="lab-sigkelly-advice-li">与降亏同开: 仅推荐默认组合(AI降亏过滤: 追关注×熊市/1月中旬+中评级/1月中旬+追关注/n2 11月+追关注+行业/r7 5月强化+3稳定非5月/辅关注×3/5月交叉/Greedy-15组合, 默认已开启, fixed+K=3 下边际≈0 无害); ⚠绝不同开 live4(收益率崩 2-5%)/COMBO4 全开; 勿再叠加 greedy7/10 等其他广谱(greedy15 已在 AI降亏过滤 默认内, 双重砍量)。</div>` +
       `</div>` +
     `</details>`;
-  // 金额口径(2026-08-12 用户定): 固定=每笔固定 1 万(移除资金池等分切换——"1w还分30个信号买30份没意义,仓位控制1/2/3/4已足以")
+  // #49 ai长线模式(G/H/I)仓位管理: 按钮(长线族群总入口, 默认关, v1 三模式统一使用"持仓≤20万+FIFO"硬控, 架构支持后续按模式独立换策略)
+  // 数据来源 docs/kelly-ghiposition-manage-matrix.md (2026-08-14); 对比表口径=§7.2 推荐 K=1 版; tooltip 白话文案=§7.3 按模式分写(架构要求: 说明文案按模式区分)
+  const _gihOn = !!state.labSigKellyGihOn;
+  // 对比表数据(§7.2 K1 版, 报告权威值; 前端仿真内核 _kellyAihlineFifoCap 已逐位对齐此表, §21)
+  const _gihRefRows = [
+    { m: "G", mName: "G · 卖出信号中长线", strat: "FIFO 20万", off: ["47.2%", "+64.2万", "136万"], b0: ["95.7%", "+19.1万", "20万"], b1: ["200.5%", "+40.1万", "20万"] },
+    { m: "I", mName: "I · 追关注加追止损中长线", strat: "FIFO 20万", off: ["39.5%", "+43.9万", "111万"], b0: ["74.5%", "+14.9万", "20万"], b1: ["153.4%", "+30.7万", "20万"] },
+    { m: "H", mName: "H · 卖出+追止损中长线", strat: "FIFO 20万", off: ["34.3%", "+15.4万", "45万"], b0: ["21.5%", "+4.3万", "20万"], b1: ["53.2%", "+10.6万", "20万"] }
+  ];
+  const _gihCompareTableHTML =
+    `<table class="lab-sigkelly-table lab-sigkelly-advice-table">` +
+      `<thead><tr><th>模式</th><th>当前策略</th><th>开关</th><th>收益率</th><th>净利</th><th>所需本金</th></tr></thead><tbody>` +
+      _gihRefRows.map(function (r) {
+        const mk = _gihRefRows.indexOf(r);
+        return (
+          (mk !== 0 ? `` : ``) +
+          `<tr class="lab-sigkelly-advice-hl">` +
+            `<td rowspan="3"><b>${r.m}</b><span class="lab-sigkelly-modelbl">${r.mName}</span></td>` +
+            `<td rowspan="3">${r.strat}</td>` +
+          `</tr>` +
+          `<tr><td><b>关(基线)</b></td><td class="lab-sigkelly-pos">${r.off[0]}</td><td class="lab-sigkelly-pos">${r.off[1]}</td><td>${r.off[2]}</td></tr>` +
+          `<tr><td>开(保守 b0)</td><td>${r.b0[0]}</td><td>${r.b0[1]}</td><td>${r.b0[2]}</td></tr>` +
+          `<tr><td>开(乐观 b1)</td><td class="lab-sigkelly-pos">${r.b1[0]}</td><td class="lab-sigkelly-pos">${r.b1[1]}</td><td>${r.b1[2]}</td></tr>`
+        );
+      }).join("") +
+    `</tbody></table>`;
+  // tooltip 白话文案(§7.3, 按模式分写——架构要求说明文案按模式区分, 不混成"三个都一样")
+  const _gihTip =
+    "⭐ ai长线模式(G/H/I)仓位管理(默认关): 对 G/H/I 三长线模式的持仓套用「持仓≤20万(20倍单次本金) + FIFO强制平最久持仓」硬控。" +
+    "开=D 开启后 G/H/I 数据额外变化(见对比表); 关闭恢复原样; 只影响 G/H/I, A-F 短线模式天然≤20倍不受影响。各模式效果不同(按模式说明):" +
+    "【G 最值得开】关需136万本金/47%/净+64万 → 开压到20万/96-200%/净+19~40万, 强烈建议开启。" +
+    "【I 值得开】关需111万/40%/净+44万 → 开20万/75-153%/净+15~31万, 建议开启。" +
+    "【H 用收益换本金可控, 慎用】关需45万/34%/净+15万 → 开20万/保守22%/乐观53%, 利润结构靠21-100天长持与20万轮动强平冲突, 建议谨慎(已纳入, 后期研究为什么差)。" +
+    "保守vs乐观: 强平真实盈亏不可知(无中间价格路径)——保守=被强平仓按0利计, 乐观=按持有时间线性折算, 真实值在区间, 不把乐观当承诺。" +
+    "💡 当前页面默认 K=3, 对比表为推荐 K=1 口径; 建议切 K=1 收益更高(开cap后 G/H/I 全为 K=1 最优, 见报告§5)。";
+  const aihlineLabelHTML =
+    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="${_gihTip}">` +
+      `<input type="checkbox" class="lab-sigkelly-toggle-gih"${_gihOn ? " checked" : ""}>${_kellyRecBadge(_gihOn)} ai长线模式(G/H/I)仓位管理 <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+    `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-gih-compare-btn" style="margin-left:8px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="收起/展开 G/H/I 仓位管理 开关前后对比表(报告 K=1 参考口径)">G/H/I 对比表 ${_gihOn ? "▲" : "▼"}</button>`;
+  const aihlineCompareHTML =
+    `<div id="lab-kelly-gih-compare-body" class="lab-sigkelly-ai-macro-body" style="${_gihOn ? "" : "display:none"}">` +
+      `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap">` +
+        `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">ai长线模式(G/H/I)仓位管理 · 开关前后对比表(数据来源 <b>docs/kelly-ghiposition-manage-matrix.md §7.2 推荐 K=1 版</b>; 前端仿真内核已与报告逐位对齐, §21)。开=持仓≤20万+FIFO强制平仓。收益率=净利/峰值占用资金; 保守b0=强平按0利计, 乐观b1=按持有时间线性, 真实值在区间。</div>` +
+        `<div class="lab-sigkelly-table-scroll">${_gihCompareTableHTML}</div>` +
+        `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-warn">诚实标注: G/I 开cap后收益率反升(G 47%→96-200%、I 40%→75-153%)是设计(峰值持仓砍 6.8/5.5 倍, 净利只损失 37/30%); H 是三模式最大受害者(保守口径收益率 34.3%→21.5% 下降, 利润100%靠21-100天持仓与20万轮动强平天然冲突)。当前页面默认 K=3, 本表为推荐 K=1 口径, 建议切 K=1 收益更高。</div>` +
+      `</div>` +
+    `</div>`;
   const _amtLabel = "每笔固定1万";
   const amountHTML =
     `<span class="lab-sigkelly-fee-label">金额:</span>` +
@@ -8588,6 +8773,8 @@ function _renderSigKellyBar(bar, data, period) {
       // 2026-08-13 合并行: AI仓位建议(K档按钮+OFF) 与 AI宏总开关 合并为一行(用户需求: 去重纯文字标题 + 第二行并入第一行「关OFF」按钮后)。
       // 原第二行 .lab-sigkelly-toggle-group-ai 独立行已移除, AI宏 toggle+详情按钮 并入 positionCapHTML 内(见 aiMacroLabelHTML/aiMacroDetailBtnHTML)
       positionCapHTML +
+      // #49 ai长线模式(G/H/I)仓位管理: 独立一行(长线族群总入口, 与 AI仓位建议(短线/全模式)平级; 默认关, 只影响 G/H/I)
+      `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-gih">` + aihlineLabelHTML + `</div>` +
       // #39 三级级联UI 第1级: AI宏 详情折叠 body(默认收起, 收起/展开由 #lab-kelly-ai-macro-btn 控制; style=display:none 默认收起, 勾选联动全部7键子级见 _kellyAiMacroMembers)
       `<div id="lab-kelly-ai-macro-body" class="lab-sigkelly-ai-macro-body" style="display:none">` +
       // 2026-08-13 融合 #39: 组合预设宏改顶部快捷按钮行(一键勾选成员, 不再独立内容块); 标题含"可选分析非默认推荐"(#45 文案修正)
@@ -8611,6 +8798,7 @@ function _renderSigKellyBar(bar, data, period) {
     `</div>` +
     customHTML +
     toggleHTML +
+    aihlineCompareHTML +
     poscapHistoryHTML;
   // 周期切换
   bar.querySelectorAll(".lab-sigkelly-period-btn").forEach((btn) => {
@@ -8902,6 +9090,42 @@ function _renderSigKellyBar(bar, data, period) {
       _kellyOnFilterChange();
     };
   });
+  // #49 ai长线模式(G/H/I)仓位管理: 开关(默认关, 只影响 G/H/I) → 写共享键 + 重算(套 FIFO 硬控) + 刷新对比表; A-F 不受影响
+  var gihCb = bar.querySelector(".lab-sigkelly-toggle-gih");
+  if (gihCb) gihCb.onchange = function () {
+    state.labSigKellyGihOn = !!gihCb.checked;
+    _kellySetSharedGih(state.labSigKellyGihOn);
+    // 开关后: G/H/I 卡片数据需重新计算(套 FIFO cap), 重渲染 bar 刷新对比表展示态 + 重算象限
+    var hostEl = document.querySelector(".lab-sigkelly-host");
+    if (hostEl && state.labSigKellyData) {
+      // 保持对比表/关卡按钮文案随开关态刷新
+      var cmpBtn = bar.querySelector("#lab-kelly-gih-compare-btn");
+      var cmpBody = document.getElementById("lab-kelly-gih-compare-body");
+      if (cmpBtn) cmpBtn.textContent = "G/H/I 对比表 " + (state.labSigKellyGihOn ? "▲" : "▼");
+      if (cmpBody) cmpBody.style.display = state.labSigKellyGihOn ? "" : "none";
+      _kellyRunRecompute(hostEl,
+        '<div class="lab-custom-loading">⏳ 切换 ai长线模式, 重算 G/H/I 仓位管理…</div>',
+        function (stats) {
+          if (stats) {
+            state.labSigKellyFeeStats = stats;
+            _renderSigKellyBar(bar, state.labSigKellyData, state.labSigKellyPeriod);
+            _updateSigKellyQuadrantsInPlace(hostEl, state.labSigKellyData, state.labSigKellyPeriod);
+          }
+        },
+        function () {}
+      );
+    }
+  };
+  // #49 对比表收起/展开按钮
+  var _gihBtn = bar.querySelector("#lab-kelly-gih-compare-btn");
+  var _gihWrap = document.getElementById("lab-kelly-gih-compare-body");
+  if (_gihBtn && _gihWrap) {
+    _gihBtn.addEventListener("click", function () {
+      var open = _gihWrap.style.display !== "none";
+      _gihWrap.style.display = open ? "none" : "";
+      _gihBtn.textContent = open ? "G/H/I 对比表 ▼" : "G/H/I 对比表 ▲";
+    });
+  }
   // 2026-08-13: K档位评级 hoverpop(评级理由表格, 桌面 hover / 移动端 tap; 共享 common.js _bindAiPoscapRatePop, 与首页同款 §22)
   _bindAiPoscapRatePop(bar);
   // #39 三级级联UI 第1级 AI宏 独立行收起/展开(2026-08-13): 收起/展开 组合降亏 + 单标志降亏 整体详情(默认收起)
@@ -9541,7 +9765,11 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
   const hasGuide = modes.some((m) => guidance[m]);
   let rows = "";
   for (const m of modes) {
-    const r = pdata[m];
+    // #49 ai长线模式(G/H/I)仓位管理: 开时对 G/H/I 模式卡片行套 FIFO 硬控后的数值(乐观 b1 口径, b0 区间见对比表; §22 双口径说明在对比表)
+    const _gihOnThis = !!state.labSigKellyGihOn;
+    const _gihRow = _gihOnThis && _kellyIsGih(m) ? (pdata[m + "__gihb1"] || null) : null;
+    const r = _gihRow || pdata[m];
+    const _gihBadge = _kellyIsGih(m) && _gihOnThis && _gihRow ? `<span class="lab-sigkelly-modelbl lab-sigkelly-gih-badge" title="ai长线模式仓位管理已开: 持仓≤20万+FIFO强制平仓, 本行为开·乐观b1口径; 保守b0见对比表(真实值在区间)">AI长线·开</span>` : "";
     if (!r) {
       rows += `<tr><td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span></td><td colspan="14" class="lab-sigkelly-empty">无数据</td></tr>`;
       continue;
@@ -9578,7 +9806,7 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
     const cm = r.calmar != null ? r.calmar.toFixed(2) : "-";
     rows +=
       `<tr class="lab-sigkelly-trade-row" data-quad="${qk}" data-mode="${m}" data-period="${period}" title="点击查看交易记录">` +
-        `<td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span></td>` +
+        `<td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span>${_gihBadge}</td>` +
         `<td class="lab-sigkelly-hk"><span class="lab-kelly-tier ${tierCls}">${hk.toFixed(1)}%</span><span class="lab-sigkelly-tier">${tier}</span></td>` +
         `<td>${wr}</td><td>${plStr}</td><td>${mr}</td><td>${nStr}</td>` +
         `<td class="lab-sigkelly-tp-hl ${tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${tpStr}元</td>` +
