@@ -1708,11 +1708,23 @@ _NT_THR = {"surge": 2, "outflow": 2, "volume": 3}
 _NT_SIG_LABEL = {"share_surge": "进", "share_outflow": "出", "volume_surge": "量"}
 
 
+# 信号 stale 判定阈值（2026-08-14 修"最新信号卡死"bug）：etf_signal 只在信号触发时写行，
+# 无触发则不写 -> MAX(etf_signal.date) 会停在最后一次触发日（如 7/31），而 etf_daily 每日健康
+# （MAX=8/14）。若信号日落后于数据日 > 该交易日数即视为 stale，前端标注"近N日无信号触发"
+# 而非伪装成"有最新信号"。信号为 T+1 发布，正常滞后 ≤2 交易日，故阈值取 2。
+_NT_SIGNAL_STALE_TD = 2
+
+
 def latest_signals_overview() -> dict | None:
     """查询最新数据日的汪汪队信号 + 共振聚合，供 overview.json 首页卡片展示。
 
     返回 {date, signals:[{code,name,type,label,share_change_yi,amount_ratio,intensity,note}],
-          n_surge,n_outflow,n_volume,resonance:{surge,outflow,volume},is_resonance}。
+          n_surge,n_outflow,n_volume,resonance:{surge,outflow,volume},is_resonance,
+          data_date, signal_stale, signal_stale_td}。
+    - date: 最后一次信号触发日(MAX etf_signal.date)，可能卡在旧日（无触发不写行）。
+    - data_date: 真实数据日期(MAX etf_daily.date)，etf_daily 每日写入，健康到最近交易日。
+    - signal_stale: 信号日落后数据日 > _NT_SIGNAL_STALE_TD 个交易日 = True（近期无信号触发）。
+    - signal_stale_td: 信号日到数据日的交易日数差（0=同日）。
     无数据返回 None。signals 排除 split_suspect（折算日，非真实信号）。
     """
     if not DB_PATH.exists():
@@ -1722,19 +1734,32 @@ def latest_signals_overview() -> dict | None:
         row = conn.execute(
             "SELECT max(date) AS d FROM etf_signal WHERE signal_type!='split_suspect'"
         ).fetchone()
-        data_date = row["d"] if row and row["d"] else ""
-        if not data_date:
+        signal_date = row["d"] if row and row["d"] else ""
+        if not signal_date:
             return None
+        # 真实数据日期：etf_daily 每日健康写入，取代 etf_signal 卡死的语义（2026-08-14 bug 根因）。
+        drow = conn.execute("SELECT max(date) AS d FROM etf_daily").fetchone()
+        data_date = drow["d"] if drow and drow["d"] else signal_date
         rows = conn.execute(
             "SELECT etf_code, signal_type, share_change, amount_ratio, intensity, note "
             "FROM etf_signal WHERE date=? AND signal_type!='split_suspect' "
             "ORDER BY signal_type, etf_code",
-            (data_date,),
+            (signal_date,),
         ).fetchall()
     finally:
         conn.close()
     if not rows:
         return None
+    # stale 判定：信号日 vs 数据日 交易日数差
+    signal_stale = False
+    signal_stale_td = 0
+    try:
+        if data_date > signal_date:
+            from ..calendar import trading_days_between
+            signal_stale_td = len(trading_days_between(signal_date, data_date)) - 1
+            signal_stale = signal_stale_td > _NT_SIGNAL_STALE_TD
+    except Exception:  # noqa: BLE001 日历降级不影响主流程
+        signal_stale = False
     signals = []
     codes_by_type = {"share_surge": set(), "share_outflow": set(), "volume_surge": set()}
     for r in rows:
@@ -1762,7 +1787,10 @@ def latest_signals_overview() -> dict | None:
         "volume": n_volume >= _NT_THR["volume"],
     }
     return {
-        "date": data_date,
+        "date": signal_date,
+        "data_date": data_date,
+        "signal_stale": signal_stale,
+        "signal_stale_td": signal_stale_td,
         "signals": signals,
         "n_surge": n_surge,
         "n_outflow": n_outflow,

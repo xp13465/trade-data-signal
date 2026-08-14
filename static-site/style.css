@@ -4164,6 +4164,9 @@ main { padding: 16px 24px; }
 .nt-home-card { transition: border-color .2s, box-shadow .2s, transform .15s ease; }
 .nt-home-card:hover { border-color: var(--primary); box-shadow: 0 4px 16px var(--shadow-strong), 0 0 0 1px var(--primary); transform: translateY(-2px); }
 .nt-date-tag { font-size: 11px; color: var(--text-3); font-weight: normal; margin-left: 4px; }
+/* 2026-08-14 修"最新信号卡7/31"bug：信号 stale（近N交易日无信号触发）时灰色标注，数据日期仍正常显示 */
+.nt-date-tag.nt-date-stale { color: var(--text-4, #9aa0a6); font-style: italic; }
+.nt-date-tag.nt-date-stale::before { content: "⚠ "; font-style: normal; }
 .nt-resonance-badge {
   display: inline-block; margin-left: 6px; padding: 1px 7px; font-size: 11px; font-weight: 600;
   color: #b8860b; background: linear-gradient(90deg,#fff8e1,#fff3cd);

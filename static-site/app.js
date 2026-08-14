@@ -10516,11 +10516,40 @@ async function renderOverview() {
     } else {
       _ntRecentDaily = null;
     }
+    // 日期语义（2026-08-14 修"最新信号卡7/31"bug）：etf_signal 只在信号触发时写行，无触发会停在旧日；
+    // 数据日期取 etf_daily 的 data_date（每日健康到最近交易日），并据 signal_stale 标"近N日无信号触发"，
+    // 而非把旧的最后信号日伪装成"有最新信号"。
+    const ntDataDate = nt.data_date || r.etf_date || "";
+    // stale 判定：优先用后端 signal_stale（新 overview 字段）；旧数据无该字段时，
+    // 用信号日(nt.date) vs 数据日(ntDataDate) 日历日差兜底（>3 天视为 stale），保证修复对新旧数据都生效。
+    let ntStale = !!(nt.signal_stale);
+    let ntStaleTd = (typeof nt.signal_stale_td === "number") ? nt.signal_stale_td : "";
+    if (!("signal_stale" in nt) && nt.date && ntDataDate && ntDataDate > nt.date) {
+      try {
+        const _d1 = new Date(nt.date.replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3"));
+        const _d2 = new Date(ntDataDate.replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3"));
+        const _gap = Math.round((_d2 - _d1) / 86400000);
+        if (_gap > 3) { ntStale = true; ntStaleTd = _gap; }
+      } catch (e) { /* 日期解析失败则沿用后端标志 */ }
+    }
+    let ntDateTagHtml;
+    let ntListTodayDate;
+    if (ntStale) {
+      const staleTxt = ntStaleTd ? "近" + ntStaleTd + "个交易日" : "近日";
+      ntDateTagHtml = '<span class="nt-date-tag nt-date-stale" title="' +
+        staleTxt + '无信号触发（etf_signal 仅在信号触发时写行），数据仍更新至 ' + fmtDate(ntDataDate) +
+        '">数据 ' + fmtDate(ntDataDate) + ' · ' + staleTxt + '无信号触发</span>';
+      ntListTodayDate = ""; // stale 时不把旧信号日当"今日"高亮
+    } else {
+      ntDateTagHtml = '<span class="nt-date-tag">数据 ' + fmtDate(ntDataDate) + ' · 最近信号 ' + fmtDate(nt.date) + '</span>';
+      ntListTodayDate = nt.date;
+    }
     ntCard.innerHTML =
-      '<h3>🐶 汪汪队信号 <span class="nt-date-tag">数据 ' + fmtDate(r.etf_date) + ' · 最近信号 ' + fmtDate(nt.date) + '</span>' + resBadge +
-      termTip("宽基ETF份额变动跟踪;观察份额增减与成交放量。进=份额增+z>2+放量(红)/出=份额减+z<-2+放量(绿)/量=成交额>5日均2倍(橙)。共振=进/出≥2只、量≥3只宽基同日同步异动。ETF份额T+1发布，数据日期可能为T-1。点击下方信号chip查看当日明细。") + "</h3>" +
+      '<h3>🐶 汪汪队信号 ' + ntDateTagHtml + resBadge +
+      termTip("宽基ETF份额变动跟踪;观察份额增减与成交放量。进=份额增+z>2+放量(红)/出=份额减+z<-2+放量(绿)/量=成交额>5日均2倍(橙)。共振=进/出≥2只、量≥3只宽基同日同步异动。ETF份额T+1发布，数据日期可能为T-1。点击下方信号chip查看当日明细。" +
+        (ntStale ? "。当前近" + (staleTxt ? staleTxt : "日") + "无信号触发，信号仅在有异动时产生，数据日期仍每日更新至 " + fmtDate(ntDataDate) + "。" : "")) + "</h3>" +
       summaryHtml +
-      '<div class="signal-grid nt-signal-grid">' + _renderNtSignalList(rc && rc.daily ? rc.daily : [], nt.date) + '</div>';
+      '<div class="signal-grid nt-signal-grid">' + _renderNtSignalList(rc && rc.daily ? rc.daily : [], ntListTodayDate) + '</div>';
     addCardTimeBadge(ntCard, r.etf_date, snap, "t1", "etf_date");
     // chip 点击：弹当日明细 modal（事件委托，[data-nt-date] 触发；stopPropagation 防冒泡）
     ntCard.addEventListener("click", (e) => {
@@ -12976,6 +13005,23 @@ function renderNationalTeamOverview(container, data, qData, hData, rawData, snap
   if (recentDaily.length) {
     _ntRecentDaily = recentDaily;
     var rcTodayDate = recentDaily[recentDaily.length - 1].date;
+    // 2026-08-14 stale 抑制(§22一致性, 修"最新信号卡7/31"bug同类): 数据日期取 etfs[].daily 最大日期,
+    // 若最近信号日落后>3 日历日(信号无触发), 不把旧信号日当"今日"高亮(与首页卡片同语义)。
+    if (rcTodayDate) {
+      var _rcDataDate = "";
+      try {
+        (rawData.etfs || []).forEach(function (e) {
+          (e.daily || []).forEach(function (d) { if (d.date > _rcDataDate) _rcDataDate = d.date; });
+        });
+      } catch (e) { _rcDataDate = ""; }
+      if (_rcDataDate && _rcDataDate > rcTodayDate) {
+        try {
+          var _rcGap = Math.round((new Date(_rcDataDate.replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3")) -
+            new Date(rcTodayDate.replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3"))) / 86400000);
+          if (_rcGap > 3) rcTodayDate = "";
+        } catch (e) { /* 日期解析失败则保留原高亮 */ }
+      }
+    }
     var rcTotal = recentDaily.reduce(function (s, d) { return s + d.total; }, 0);
     var rcSurge = recentDaily.reduce(function (s, d) { return s + d.n_surge; }, 0);
     var rcOutflow = recentDaily.reduce(function (s, d) { return s + d.n_outflow; }, 0);

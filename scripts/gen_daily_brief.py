@@ -425,6 +425,24 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
             "inst_hold_pct": last.get("inst_hold_pct"),
             "retail_hold_pct": last.get("retail_hold_pct"),
         })
+    # 新鲜度守卫（2026-08-14 修"最新信号卡7/31"bug）：etf_signal 只在信号触发时写行，无触发会停在旧日；
+    # data_date(etf_daily 每日健康) 才是真实数据日期，signal_stale 时明确标注"近N交易日无信号触发"，
+    # 避免 AI 把旧信号日(如7/31)当最新数据呈现。仅提示性，不伪造"今日有信号"。
+    _nt_data_date = nt.get("data_date") or nt.get("date") or ""
+    _nt_sig_date = nt.get("date") or ""
+    if nt.get("signal_stale"):
+        _nt_stale_note = (
+            f"[新鲜度提示] 汪汪队信号数据日期 data_date={_nt_data_date}(每日健康更新), "
+            f"最近信号日 signal_date={_nt_sig_date}(etf_signal 仅在信号触发时写行,"
+            f"近{nt.get('signal_stale_td')}个交易日无信号触发=stale)。"
+            "本段 signals/recent 为最后一次触发日的旧数据,描述资金动向时须以 data_date 为基准、"
+            "明确说明'近期无新信号触发',不得把旧信号当今日实时数据。"
+        )
+    else:
+        _nt_stale_note = (
+            f"[新鲜度] 汪汪队信号数据日期 data_date={_nt_data_date},最近信号日 signal_date={_nt_sig_date},"
+            "信号新鲜。"
+        )
     d["etf_national_team_note"] = (
         "口径说明: etf_national_team 为ETF汪汪队(国家队/机构护盘资金)跟踪: signals=当日异动信号"
         "(type share_outflow 份额流出 / volume_surge 放量), share_change_yi=份额变化(亿份),"
@@ -432,6 +450,7 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
         "recent_7d=近7日异动统计; etf_national_team_share=12只跟踪ETF近5日份额变化%(share_change_pct)"
         "与当日份额变化亿份(share_change_yi),正=资金流入增持; etf_national_team_holders=季报机构持仓占比"
         "(inst_hold_pct 机构占比,高=机构/国家队主导)。汪汪队增持/异动是护盘与资金面支撑信号。"
+        + _nt_stale_note
     )
 
     # ── DB(daily_metric / score_daily / index_daily) ──
