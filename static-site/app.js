@@ -9498,6 +9498,21 @@ async function renderOverview() {
     new Promise((res) => setTimeout(res, 1500))
   ]).catch(() => {});
   const [r] = await Promise.all([overviewPromise, signalStatsPromise, intradayPromise]);
+  // P0(2026-08-14) 根因守卫: overview 请求失败时 SW 曾返 HTTP200 的 {"error":"offline"} 占位对象
+  // (fetchJSON 只查 r.ok 穿透当正常数据), 推进到下方 L9651 r.today.scores 时 r.today undefined ->
+  // "Cannot read properties of undefined (reading 'scores')" 首页裸崩。现在:
+  // ① 无 today 视为失败 -> 不 _setCachedOverview 坏对象(防 _overviewTTL 5min 缓存反复崩)并 _setCachedOverview(null) 清旧
+  // ② 渲染失败空态+重试按钮(renderErrorState retryFn 重拉 overview) 不裸崩
+  // ③ _startOverviewRefresh 兜底轮询自动重试恢复(网络恢复即自愈)
+  // 参照 _refreshKpiMainValues L6461 的 `if (!r || !r.today) return;` 同模式守卫。
+  if (!r || !r.today) {
+    _setCachedOverview(null);
+    if (!_overviewRefreshActive) _startOverviewRefresh();
+    content.innerHTML = "";
+    renderPurposeNote(content, PURPOSE_NOTES["overview"]);
+    renderErrorState(content, "overview 数据加载失败" + (r && r.error ? "（" + r.error + "）" : ""), () => renderOverview());
+    return;
+  }
   _setCachedOverview(r);
   // 分享按钮旁显示数据采集时间（来自 collect_log 最新 run_at）+ A4 健康灯（collect_health）
   applyCollectTime(r.collected_at, r.collect_health);
@@ -9648,7 +9663,7 @@ async function renderOverview() {
   // 散户最先看的行情速览：涨停/跌停/成交额/情绪分 等 KPI + 10 大指数迷你走势
   const scoreNames = { a_sentiment: "A股综合情绪分", cross_market: "跨市场综合评分", fear_greed: "恐贪指数" };
   const kpiCards = [];
-  for (const [id, s] of Object.entries(r.today.scores || {})) {
+  for (const [id, s] of Object.entries((r.today && r.today.scores) || {})) {
     kpiCards.push({
       id: id,
       title: scoreNames[id] || indexIdToName(id),
@@ -9669,7 +9684,7 @@ async function renderOverview() {
     "a_fund_margin", "a_fund_main", "a_fund_north",
     "a_turnover_mean", "a_turnover_median", "a_turnover_p90", "a_turnover_p10", "a_turnover_gt5_pct",
   ]);
-  for (const m of r.today.metrics || []) {
+  for (const m of (r.today && r.today.metrics) || []) {
     if (_KPI_T1_MOVED.has(m.id)) continue; // C组8项挪出首屏KPI小卡,见上方说明(折叠区/A股走势图区仍可见)
     // 北向资金等源端长期停更兜底逻辑(如原净买额 2024-08 停更;现北向已切 HKEX 成交总额源每日更新,本分支不再触发)：不再隐藏,恢复显示末日值并叠加"数据停更"水印(见 KPI 卡渲染),
     // 恢复更新后 isStaleMetric 自动转 false,水印消失。
