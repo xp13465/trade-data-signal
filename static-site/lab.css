@@ -1621,7 +1621,7 @@
 .lab-sigkelly-table th, .lab-sigkelly-table td { padding: 5px 6px; text-align: center; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .lab-sigkelly-table th { font-weight: 600; color: var(--text-3); font-size: 11px; }
 .lab-sigkelly-table td:first-child { text-align: left; }
-.lab-sigkelly-modelbl { display: inline; font-size: 10px; color: var(--text-4); margin-left: 4px; }
+.lab-sigkelly-modelbl { display: block; font-size: 10px; color: var(--text-4); margin-left: 0; }
 .lab-sigkelly-hk { white-space: nowrap; }
 .lab-kelly-tier { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 12px; font-weight: 700; }
 .lab-kelly-aggressive { background: rgba(220, 38, 38, 0.15); color: #dc2626; }
@@ -1782,7 +1782,7 @@
    红角标独立亮色不为整行 opacity 吞没。 */
 .lab-sigkelly-opelim-row { opacity: 0.85; } /* 覆盖 .eliminated-row 的 0.55, 淘汰行内容(含角标)保持可读 */
 .lab-sigkelly-opelim-row td { text-decoration: line-through; color: var(--text-2); } /* text-2 中间灰: 仍表"旧数据"但文字可辨 */
-.lab-sigkelly-exec-badge { margin-left: 5px; padding: 0 5px; border-radius: 4px; font-size: 11px; line-height: 1.7; color: #fff; font-weight: 600; background: #c62828; box-shadow: 0 0 0 1px rgba(255,255,255,0.35) inset; white-space: nowrap; }
+.lab-sigkelly-exec-badge { display: block; margin-top: 2px; margin-left: 0; padding: 0 5px; border-radius: 4px; font-size: 11px; line-height: 1.7; color: #fff; font-weight: 600; background: #c62828; box-shadow: 0 0 0 1px rgba(255,255,255,0.35) inset; white-space: nowrap; } /* 2026-08-14 #firstcol: display:block 使淘汰角标在首列独立一行 */
 .lab-sigkelly-opelim-modal-note { color: #fa541c; font-weight: 600; }
 .lab-sigkelly-modal-elimwrap { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; }
 .lab-sigkelly-modal-elimtitle { font-size: 11px; font-weight: 700; color: #868e96; margin-bottom: 6px; }
