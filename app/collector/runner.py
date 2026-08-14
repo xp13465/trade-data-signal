@@ -30,6 +30,27 @@ def _mootdx_timeout_handler(signum, frame):  # noqa: ARG001
     raise TimeoutError("mootdx step timeout 30min")
 
 
+def _turnover_date_coverage(date_ymd, universe):
+    """查 baostock_daily_raw 中目标日有数据的 code 数，返回 (count, reference)。
+
+    用于 2026-08-14 update_all 提速 方案B：防部分采集静默用偏样本。
+    覆盖率 = count / len(universe)。universe 取 turnover pipeline 的 todo 集
+    （progress['r'] 有记录的 code）。异常返回 None（由调用方按不拦截处理）。
+    """
+    try:
+        from . import baostock_daily
+        conn = baostock_daily.get_conn()
+        try:
+            n = conn.execute(
+                "SELECT COUNT(DISTINCT code) FROM baostock_daily_raw WHERE date=?",
+                (date_ymd,)).fetchone()[0]
+        finally:
+            conn.close()
+        return int(n), len(universe)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def upsert_metric(date, metric_id, value, source="akshare"):
     conn = get_conn()
     conn.execute(
@@ -410,6 +431,8 @@ def run(date=None, verbose=True, steps=None):
     # 交易日），总是跑。历史根因：本步曾不自动跑 -> a_turnover 停滞 9 天（2026-07-15 修复）。
     if _want(steps, "turnover"):
         import os
+        # 2026-08-14 方案B：当日覆盖率 <95% 时置 True -> 跳过写 a_turnover_* 偏样本
+        _turnover_partial = False
         if os.environ.get("RUN_BAOSTOCK"):
             try:
                 from . import baostock_daily, baostock_parallel
@@ -429,6 +452,20 @@ def run(date=None, verbose=True, steps=None):
                     details.append(("baostock_turnover", "ok" if res["fail"] == 0 else "fail",
                                     f"+{res['total_rows']} rows, {res['ok']} ok/{res['fail']} fail "
                                     f"({len(todo)} codes, parallel)"))
+                    # 2026-08-14 update_all 提速 方案B：防部分采集静默用偏样本。
+                    # baostock 封禁(10001011)致当日缺 826 code -> 覆盖率 <95% 时标
+                    # skipped_partial 并告警，跳过写该日偏样本(幂等：已正确日不被覆盖，
+                    # 缺码次日回补后重跑自动补全)。
+                    _cov = _turnover_date_coverage(date, todo)
+                    if _cov is not None and _cov[0] < 0.95 * _cov[1]:
+                        fail += 1
+                        details.append(("baostock_turnover", "skipped_partial",
+                                        f"当日{date}覆盖率 {_cov[0]}/{_cov[1]} "
+                                        f"({_cov[0]/_cov[1]*100:.1f}%) <95%，跳过写偏样本(待补全)"))
+                        print(f"  [turnover] 告警: {date} 覆盖率 "
+                              f"{_cov[0]/_cov[1]*100:.1f}% <95%，a_turnover_* 该日不写偏样本，"
+                              f"待 baostock 回补(见 rebackfill 命令)", flush=True)
+                        _turnover_partial = True
                 else:
                     details.append(("baostock_turnover", "ok", "skip (no progress)"))
             except Exception as e:  # noqa: BLE001
@@ -438,19 +475,25 @@ def run(date=None, verbose=True, steps=None):
             details.append(("baostock_turnover", "ok",
                             "skip (需 RUN_BAOSTOCK=1; turnover pipeline 已设)"))
         # 算换手率分布（增量，快；部分采集日自动跳过待补全）
-        try:
-            from . import cleanup_d3d2
-            tres = cleanup_d3d2.run_turnover()
-            if "error" in tres:
-                details.append(("turnover_dist", "ok", f"skip ({tres['error']})"))
-            else:
-                details.append(("turnover_dist", "ok",
-                                f"+{tres.get('days', 0)} days, {tres.get('written', 0)} rows, "
-                                f"skipped_partial={tres.get('skipped_partial', 0)}"))
-                ok += 1
-        except Exception as e:  # noqa: BLE001
+        # 2026-08-14 方案B：当日覆盖率 <95% 时 _turnover_partial=True -> 跳过写偏样本
+        if not _turnover_partial:
+            try:
+                from . import cleanup_d3d2
+                tres = cleanup_d3d2.run_turnover()
+                if "error" in tres:
+                    details.append(("turnover_dist", "ok", f"skip ({tres['error']})"))
+                else:
+                    details.append(("turnover_dist", "ok",
+                                    f"+{tres.get('days', 0)} days, {tres.get('written', 0)} rows, "
+                                    f"skipped_partial={tres.get('skipped_partial', 0)}"))
+                    ok += 1
+            except Exception as e:  # noqa: BLE001
+                fail += 1
+                details.append(("turnover_dist", "fail", str(e)[:150]))
+        else:
             fail += 1
-            details.append(("turnover_dist", "fail", str(e)[:150]))
+            details.append(("turnover_dist", "skipped_partial",
+                            f"当日{date}部分采集，已跳过写 a_turnover_* 偏样本"))
 
     if verbose:
         print(f"=== 采集 {date} 完成 (steps={steps or 'all'}): ok={ok} fail={fail} ===")

@@ -35,8 +35,14 @@ def is_conn_error(msg: str) -> bool:
     """
     markers = ("Broken pipe", "接收数据异常", "Connection reset",
                "Connection aborted", "EOF occurred", "uranium",
-               "用户未登录", "10001001")
+               "用户未登录", "10001001", "10001011")
     return any(m in msg for m in markers)
+
+
+# 2026-08-14 update_all 提速 方案A第一步:服务端"黑名单用户"错误码 10001011。
+# 8-14 17:50 update_all:baostock 对 4 并发中 2 个连接返 10001011,worker0/1 共 825 fail,
+# 原 markers 不含 10001011 -> 被封连接不走 re-login,825 code 白等(18.9min)。加入后
+# 被封连接会触发重新登录而非走普通 FAIL 路径(方案A只做第一步,不做完整熔断)。
 
 
 def relogin():
