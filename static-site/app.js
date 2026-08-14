@@ -2059,10 +2059,13 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   }
   // 2026-08-13 融合口径: 判断信号是否「命中降亏」(固定 7 键成员级, 与凯利回测 passesFade 同语义)。
   // 受首页 AI降亏过滤开关(_fadeOn)门控: 开关关→恒 false 不判降亏; 开关开→ ai_macro.hit 且命中任一 7 键即为命中。
-  const _isAiFadeHit = (it) => {
+  // 2026-08-15 P0 mangle 根治: const-arrow 布尔助手被 terser mangle 改名单字符(如 _isSellSig→$→C),
+  //   与大型压缩文件既有变量撞车致 "c is not a function"。改为 function 声明 + build_min keep_fnames:
+  //   single-statement 会内联、multi-statement 保留原名, 二者都不会留下可撞车的单字符函数调用。
+  function _isAiFadeHit(it) {
     return _fadeOn && !!(it && it.ai_macro && it.ai_macro.hit && Array.isArray(it.ai_macro.filters)
       && it.ai_macro.filters.some((fk) => _aiOnMembers[fk]));
-  };
+  }
   // positionCap 仓位控制过滤(2026-08-12): 凯利回测页 toggle 共享设置(localStorage "tds_poscap", 双页联动)
   // #4 范围扩展(2026-08-12): 从凯利区扩展到整个信号列表——近15交易日每个日期各自按同一排序算 top-K, 所有日期都展示 AI建议(AI建议买入/当日已满), 不只今日
   // 排序口径与凯利回测 §6.1 一致: track_score DESC → 评级(high>mid>low) → 信号类型(buy_backup>buy>buy_aux>buy_special) → buy_date ASC
@@ -2191,17 +2194,21 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // 2026-08-14 任务A fix(reviewer 建议 #30): 卖类/持有中性信号行跳过「当日已满」badge——卖类(sell/sell_stop_loss/
         //   波段减仓 band_sell/波段持有 band_hold)不涉及"当日已满不能买"语义, 且不入AI建议(不进 kept), 原渲染落 else
         //   分支误显示「当日已满」, 修复为整块跳过分支(§23.3 举一反三: 全站 poscap/「当日已满」渲染点只有本 cellHtml 一处)。
-        const _isSellRow = it.signal === "sell" || it.signal === "sell_stop_loss" || it.signal === "band_hold"
-          || (it.reason || "").includes("波段减仓") || (it.reason || "").includes("波段止损");
+        function _isSellRow(it) {  // 2026-08-15 P0 mangle 根治: const-arrow→function 声明(见 _isAiFadeHit 注释)
+          return it.signal === "sell" || it.signal === "sell_stop_loss" || it.signal === "band_hold"
+            || (it.reason || "").includes("波段减仓") || (it.reason || "").includes("波段止损");
+        }
         // 2026-08-14 AI过滤视图: 卖出类专指(不含 band_hold 中性持有)——sell/sell_stop_loss/波段减仓 band_sell/波段止损。
         // 与 _isSellRow(含 band_hold, 用于跳过「当日已满」)区分: band_hold=持有中性不标, 既不属「AI警示」卖出类也不置灰(现状保持)。
-        const _isSellSig = it.signal === "sell" || it.signal === "sell_stop_loss"
-          || (it.reason || "").includes("波段减仓") || (it.reason || "").includes("波段止损");
+        function _isSellSig(it) {  // 2026-08-15 P0 mangle 根治: const-arrow→function 声明(见 _isAiFadeHit 注释)
+          return it.signal === "sell" || it.signal === "sell_stop_loss"
+            || (it.reason || "").includes("波段减仓") || (it.reason || "").includes("波段止损");
+        }
         // 2026-08-14 P1-2 fix(首页8/14信号根因附带缺陷): 「当日已满」分支也须判 _bt_in_universe——
         // 未入样宇宙(uni=False)的买入类信号(如 8/10 csi_931892/gz_399440、8/12 thsc_306380)不该被误标"当日已满"。
         // 未入样信号压根不参与AI建议top-K, 应保持零标注(与 kept 空/空态一致), 而非落 else 显示"当日已满"。
         // (§23.3 举一反三: 全站 poscap/「当日已满」渲染点只有本 cellHtml 一处, 同步修正口径)。
-        if (_posCapRank && !_isAiFadeHit(it) && !_isSellRow && it._bt_in_universe !== false) {
+        if (_posCapRank && !_isAiFadeHit(it) && !_isSellRow(it) && it._bt_in_universe !== false) {
           const _capRank = _posCapRank.get(it) || 0;
           if (_capRank) {
             posCapCls = " sig-poscap-kept";

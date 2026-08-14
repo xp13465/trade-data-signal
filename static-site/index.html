@@ -179,13 +179,13 @@
   </footer>
 
   <script src="./qr.js?v=1b721750"></script>
-  <script defer src="./common.min.js?v=a3a415f1"></script>
+  <script defer src="./common.min.js?v=a09a2cc5"></script>
   <script defer src="./purpose-notes.min.js?v=4de1432a"></script>
   <script defer src="./kelly-review-notes.min.js?v=3ed58633"></script>
   <script defer src="./i18n.js?v=a53cc265"></script>
-  <script defer src="./app.min.js?v=95e01460"></script>
+  <script defer src="./app.min.js?v=1e75e091"></script>
   <!-- B5: lab.min.js 不再预加载，切到 lab tab/#lab 直链时由 app.js dynamic 注入 -->
-  <meta name="lab-asset-url" content="./lab.min.js?v=21a3a106">
+  <meta name="lab-asset-url" content="./lab.min.js?v=00e299c9">
   <!-- P2-5: echarts.min.js 不再预加载（省 615KB 首屏 JS），renderTab 触发时由 app.js dynamic 注入 -->
   <meta name="echarts-asset-url" content="./vendor/echarts.min.js?v=b91b9de4">
 <!-- zz.bdstatic 百度站长已移到 inline-init.js（defer 统一外部化） -->
@@ -242,7 +242,7 @@
         return;
       }
       // 已有 SW 接管: 探活 app.min.js 是否当前可达(sw.js cacheFirst 会从新缓存/网络供应)
-      fetch('./app.min.js?v=95e01460', { method: 'HEAD', cache: 'no-store' })
+      fetch('./app.min.js?v=1e75e091', { method: 'HEAD', cache: 'no-store' })
         .then(function (res) {
           if (res && res.ok) {
             // 核心 JS 可达 → SW cacheFirst 能正确供应渲染资源 → 安全 reload
@@ -271,7 +271,7 @@
       var tries = 0;
       _swPrepareRetry = setInterval(function () {
         tries++;
-        fetch('./app.min.js?v=95e01460', { method: 'HEAD', cache: 'no-store' })
+        fetch('./app.min.js?v=1e75e091', { method: 'HEAD', cache: 'no-store' })
           .then(function (res) {
             if (res && res.ok) {
               clearInterval(_swPrepareRetry);
