@@ -474,7 +474,7 @@ function renderPurposeNote(container, text, {variant}={}) {
 
 // === AI仓位建议 K 档评级(2026-08-13 共享单一数据源, §22 一致性: app.js 首页 + lab.js 凯利区两处共用同一份数据/HTML/绑定) ===
 // 2026-08-14 #48+#BC: 静态快照由 fixed(每笔1万)/比例法 重算为每日池口径 + 费率重算口径(含最低佣金5元), 与动态重算 _kellyApplyFeeRecompute 数值一致(§22 消除 12.7pt 佣金低估差)
-// 口径=AI降亏过滤默认=核心3键(r7 5月强化+3稳定非5月 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合)+A模式(固定10天)+每日资金池等分+top-K+费率etf_def(含min_commission=5元)+全周期+费率重算
+// 口径=AI降亏过滤默认=AI宏4+3+1(4=基础4+3=核心3保留入样: r7 5月强化+3稳定非5月 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合等; +1=回测剔除波动相关/未入样本信号)+A模式(固定10天)+每日资金池等分+top-K+费率etf_def(含min_commission=5元)+全周期+费率重算
 // 数值来源: Node 复算前端 _kellyApplyFeeRecompute 动态链路(lab.js 实际函数, 逐位一致), 数据 generated_at 2026-08-14 02:22; 主推 K1(收益率最高 86.60%)
 var _AI_POSCAP_RATING = {
   1: { name: "最激进", ret: "86.60%", dd: "15.99%", ra: "5.42", n: "1,202", reason: "收益率最高+回撤最小+样本最少,主推★" },
@@ -527,7 +527,7 @@ function _aiPoscapRatingSummary() {
   }).filter(Boolean);
   return parts.join('; ') + (s.dynamic
     ? ('（实时·当前配置/费率/数据' + (s.src.date ? ' ' + s.src.date : '') + '）')
-    : '（快照 08-14·每日池+费率重算口径(含最低佣金5元): AI降亏过滤默认 AI宏7键+每日资金池等分+top-K, 主推K1; 当前未开启AI仓位建议或未重算）');
+    : '（快照 08-14·每日池+费率重算口径(含最低佣金5元): AI降亏过滤默认 AI宏4+3+1(4基础+3核心保留入样 + 1回测剔除波动相关/未入样本信号)+每日资金池等分+top-K, 主推K1; 当前未开启AI仓位建议或未重算）');
 }
 // K 档评级 hoverpop 表格 HTML(1 排首位, K=1 高亮主推; app.js/lab.js 两处共用同一份, 数据源=动态优先/静态快照回退, 勿单改数值)
 function _aiPoscapRatingPopHtml() {
@@ -541,7 +541,7 @@ function _aiPoscapRatingPopHtml() {
   }).join("");
   var srcLabel = s.dynamic
     ? '📌 实时·当前配置/费率/数据(' + (s.src.date || '-') + (s.src.fee ? ' · 费率' + s.src.fee : '') + ')：随上方降亏勾选 / 费率档 / 最新数据联动重算(展示层动态化, 未改算法)'
-    : '📌 快照 08-14：每日池+费率重算口径(2026-08-14 #48+#BC) = AI降亏过滤默认 AI宏7键(r7/exclAuxCross/greedy15+基础4) + A模式(固定10天) + 每日资金池等分+top-K + 费率etf_def(含最低佣金5元) + 全周期。当前未开启 AI仓位建议 或尚未重算, 显示静态快照';
+    : '📌 快照 08-14：每日池+费率重算口径(2026-08-14 #48+#BC) = AI降亏过滤默认 AI宏4+3+1(基础4+核心3保留入样 + 1回测剔除波动相关/未入样本信号) + A模式(固定10天) + 每日资金池等分+top-K + 费率etf_def(含最低佣金5元) + 全周期。当前未开启 AI仓位建议 或尚未重算, 显示静态快照';
   return '<span class="lab-sigkelly-posrate-pop-wrap">' +
     '<div class="lab-sigkelly-posrate-pop">' +
       '<div class="lab-sigkelly-posrate-pop-title">AI仓位建议 · K 档位评级（评级依据=下方回撤矩阵）</div>' +
