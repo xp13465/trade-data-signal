@@ -9,13 +9,13 @@
 
 | 子目录 | 职责 | md 数 |
 |---|---|---|
-| [analysis/](analysis/README.md) | 认知差/费率/收益线性/时机/卡间水印等**分析**类报告 | 10 |
+| [analysis/](analysis/README.md) | 认知差/费率/收益线性/时机/卡间水印等**分析**类报告 | 11 |
 | [backtest-ai/](backtest-ai/README.md) | AI 预测/3AI 对比/回测审查/宏观穷举**回测**类 | 8 |
 | [combo/](combo/README.md) | 组合元素挖掘/组合用法/round 验证**组合**类 | 5 |
 | [mining/](mining/README.md) | 亏损挖掘/文献/风格/在线调研**挖掘**类 | 12 |
 | [position/](position/README.md) | 仓位上限/每日池/策略AB/分仓行为/回撤**仓位**类 | 14 |
 | [toggle/](toggle/README.md) | 降亏 toggle 方案/计划 | 2 |
-| [scripts/](scripts/README.md) | 全部回测/复算**运行脚本**(按 A-D 组) | 23 脚本 |
+| [scripts/](scripts/README.md) | 全部回测/复算**运行脚本**(按 A-E 组) | 24 脚本 |
 
 ---
 
@@ -30,6 +30,7 @@
 
 ## 本轮落档(2026-08-14)
 
+- 债类指数纳入回测穷举对比:报告 `analysis/kelly-bond-inclusion-probe.md`(结论:纳入债类变差不建议;`--include-band` 波段 band_hold 纳入更差,过度交易浪费仓位)+ 脚本 `scripts/signal_kelly_backtest_bond.py` + 数据 `analysis/data/bond_probe_comparison.json`
 - 策略A/B 穷举对比:报告 `position/kelly-strategyAB-exhaustive.md` + 脚本 `scripts/strategyAB_compare.py`、`strategyAB_robust.py`、`amount_verify.js`、`kelly_verify_amount.py`
 - 认知差(按年收益率 vs 峰值回撤):报告 `analysis/kelly-yearly-vs-drawdown-cognitive-gap.md` + 脚本 `scripts/kelly_yearly_*.js`、`dd_2011_*.js`
 - AI 预测命中口径:报告 `analysis/kelly-ai-predict-hit-method.md` + 脚本 `scripts/rebackfill_daily_brief.py`

@@ -41,6 +41,12 @@
 | kelly_combo_advice_analysis.py | passes_fade/fIdx/empty_filters/BUY_AMOUNT/compute_stats/to_row | strategyAB/dailypool 组 |
 | kelly_posfilter_backtest.py | base_signals/get_by_date/base_key | strategyAB/dailypool 组 |
 
+## E 组(债类纳入回测 probe,2026-08-14)
+
+| 脚本 | 用途 | 复现 |
+|---|---|---|
+| signal_kelly_backtest_bond.py | 债类(self-ETF 兜底)纳入 vs 不纳入穷举对比(结论:纳入变差不建议)+ `--include-band` 波段(band_hold)纳入对比(更差,过度交易浪费仓位);报告 `analysis/kelly-bond-inclusion-probe.md`,数据 `analysis/data/bond_probe_comparison.json` | python3 scripts/signal_kelly_backtest_bond.py [--include-band] --output docs/kelly/analysis/data/bond_probe_comparison.json |
+
 ## 其他(组合分类/提取/AI 预测/4组合核验)
 
 | 脚本 | 用途 | 复现 |
