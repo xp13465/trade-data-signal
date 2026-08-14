@@ -582,6 +582,12 @@ def rebackfill_date(target_ymd: str, *, verbose: bool = True) -> dict:
     """
     init_db()
     progress = load_progress()
+    # 目标日两种归一化:DB 存 8 位无连字符("20260814"),BaoStock API 要带连字符("2026-08-14")。
+    # 2026-08-14 reviewer FAIL P3-①:原 have_rows 用原始 target_ymd 查表,若传入带连字符
+    # ("2026-08-14")则匹配不到 DB 已采行 -> 已采 code 也被当 missing 重采(幂等破坏);
+    # fetch 用 _to_ymd 而查表用原始值,格式不一致。统一先 _norm_date 查 DB、_to_ymd 给 API。
+    target_db = _norm_date(target_ymd)     # "20260814"(匹配 baostock_daily_raw.date 存储格式)
+    target_fetch = _to_ymd(target_ymd)     # "2026-08-14"(BaoStock query API 要求)
     # 宇宙 = progress['r'] 有记录(已 backfill recent 段的 code,与 turnover pipeline 同口径)
     universe = [c for c, v in progress.items() if v.get("r")]
     if not universe:
@@ -589,20 +595,20 @@ def rebackfill_date(target_ymd: str, *, verbose: bool = True) -> dict:
         reconcile()
         progress = load_progress()
         universe = [c for c, v in progress.items() if v.get("r")]
-    # 目标日已有行的 code
+    # 目标日已有行的 code(用 DB 存储格式 target_db 匹配)
     conn = get_conn()
     have_rows = {r[0] for r in conn.execute(
         "SELECT DISTINCT code FROM baostock_daily_raw WHERE date=?",
-        (target_ymd,))}
+        (target_db,))}
     conn.close()
     missing = [c for c in universe if c not in have_rows]
-    print(f"[rebackfill] 目标日 {target_ymd}: 宇宙 {len(universe)} code, "
+    print(f"[rebackfill] 目标日 {target_db}: 宇宙 {len(universe)} code, "
           f"已有 {len(universe)-len(missing)}, 缺 {len(missing)} code", flush=True)
     if not missing:
         print("[rebackfill] 无缺码,已完整。", flush=True)
-        return {"target": target_ymd, "missing": 0, "ok": 0, "fail": 0, "rows": 0}
+        return {"target": target_db, "missing": 0, "ok": 0, "fail": 0, "rows": 0}
 
-    start = end = _to_ymd(target_ymd)  # 只拉目标单日
+    start = end = target_fetch  # 只拉目标单日
     ok = fail = total_rows = 0
     fails: list[tuple[str, str]] = []
     for i, code in enumerate(missing):
@@ -757,7 +763,11 @@ def _cli(argv: list[str]) -> int:
     if cmd == "rebackfill":
         if len(argv) < 3:
             print("usage: rebackfill YYYYMMDD (只重采目标日缺的 code)"); return 1
-        target = argv[2]
+        target = _norm_date(argv[2])  # 2026-08-14 / 20260814 -> 20260814(8 位,DB 格式)
+        # 2026-08-14 reviewer FAIL P3-①:target 补 8 位校验,防非法/非日期输入
+        if len(target) != 8 or not target.isdigit():
+            print(f"!! rebackfill 目标日格式非法: {argv[2]} (须 YYYYMMDD 或 YYYY-MM-DD)")
+            return 1
         res = rebackfill_date(target, verbose=True)
         return 0 if res.get("fail", 0) == 0 else 2
 

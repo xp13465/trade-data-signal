@@ -14,8 +14,9 @@
 
 CLI:
   python -m app.collector.cleanup_d3d2 validate        # 仅阶段2 校验
-  python -m app.collector.cleanup_d3d2 turnover        # 仅换手率分布回填
+  python -m app.collector.cleanup_d3d2 turnover        # 仅换手率分布回填(含覆盖率<95%拦截)
   python -m app.collector.cleanup_d3d2 all             # 两步串行
+  python -m app.collector.cleanup_d3d2 purge-turnover-date YYYYMMDD  # 删某日 a_turnover_* 偏样本行
 """
 from __future__ import annotations
 
@@ -462,11 +463,33 @@ def run_validate() -> dict:
     return res
 
 
-def run_turnover(*, full: bool = False) -> dict:
+def _turnover_universe() -> list:
+    """换手率分布的分母宇宙 = baostock progress['r'] 有记录的 code（与 runner turnover 同口径）。
+
+    2026-08-14 reviewer FAIL P2-2 修复：覆盖率拦截下沉到本函数统一处理。
+    progress 读取失败/为空时返回空列表（调用方退化为仅用 MIN_STOCKS_PER_DAY 下限，
+    兼容历史行为——纯手动 --full 且无 progress 的场景）。
+    """
+    try:
+        from . import baostock_daily
+        prog = baostock_daily.load_progress()
+        return [c for c, v in prog.items() if v.get("r")]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def run_turnover(*, full: bool = False, min_coverage: float = 0.95) -> dict:
     """算换手率分布并回填 daily_metric。
 
     full=True 强制全量重算（2016 至今，慢）；默认增量（只算 daily_metric 末尾之后的新交易日）。
-    部分采集日（股票数 < MIN_STOCKS_PER_DAY）跳过，待 baostock 补全后重跑自动补回。
+
+    覆盖率拦截（2026-08-14 reviewer FAIL P2-2 下沉）：对每个待写日，
+    count < max(MIN_STOCKS_PER_DAY, min_coverage×universe) 视为部分采集偏样本，
+    跳过该日不写（待 baostock 补全后重跑自动补回）。universe = baostock progress['r']
+    的 code 数（与 runner turnover 同口径）。拦截在 run_turnover 内统一处理，
+    无论从 runner 触发还是手动 CLI 触发都生效，堵住"runner 当日拦截后，下次 pipeline
+    增量从 daily_metric 末尾+1 重算 8-14 且 count 落在 [4000, 0.95×universe) 时
+    cleanup 只看 count>=4000 会照写偏样本"的时序依赖缺口。
     """
     if full:
         g = compute_turnover_dist(start_date=START_DATE)
@@ -475,14 +498,21 @@ def run_turnover(*, full: bool = False) -> dict:
     if len(g) == 0:
         print("[turnover] no data, abort", flush=True)
         return {"error": "no turnover data"}
-    # 剔除部分采集日（股票数过少 -> 分布失真）
+    # 覆盖率分母宇宙（8-14 场景 universe≈5200；缺码 826 时 4374/5200≈84% < 95%）
+    universe = _turnover_universe()
+    # 阈值 = 覆盖率下限 与 绝对下限(4000) 取较大者：既防 84% 偏样本，也兼容无 progress 场景
+    cov_threshold = int(min_coverage * len(universe)) if universe else 0
+    effective_min = max(MIN_STOCKS_PER_DAY, cov_threshold)
     before = len(g)
-    skipped_partial = g[g["count"] < MIN_STOCKS_PER_DAY]
-    g = g[g["count"] >= MIN_STOCKS_PER_DAY].reset_index(drop=True)
+    skipped_partial = g[g["count"] < effective_min]
+    g = g[g["count"] >= effective_min].reset_index(drop=True)
     if len(skipped_partial):
+        uni_desc = len(universe) if universe else "?"
         for _, row in skipped_partial.iterrows():
-            print(f"[turnover] 跳过部分采集日 {row['date']}：仅 {int(row['count'])} 只 "
-                  f"< {MIN_STOCKS_PER_DAY}，待 baostock 补全后重跑补回", flush=True)
+            reason = (f"仅 {int(row['count'])} 只 < 阈值 {effective_min}"
+                      f"(universe={uni_desc} 覆盖率下限 {min_coverage*100:.0f}%)")
+            print(f"[turnover] 跳过部分采集日 {row['date']}：{reason}，"
+                  f"待 baostock 补全后重跑补回", flush=True)
     print(f"[turnover] 待回填 {len(g)} 天（剔除 {before - len(g)} 天部分采集）", flush=True)
     if len(g) == 0:
         print("[turnover] 全部为部分采集日，无新数据可回填", flush=True)
@@ -493,6 +523,31 @@ def run_turnover(*, full: bool = False) -> dict:
     return res
 
 
+def purge_turnover_date(target_ymd: str) -> int:
+    """删除 daily_metric 中某日的 a_turnover_* 行（清理已误写/偏样本日，供 rebackfill 后重算）。
+
+    2026-08-14 reviewer FAIL P2-1 清理计划：旧代码 17:50 已把 8-14 偏样本
+    (4374/5200=84%) 写入 a_turnover_mean=2.993(8-13 全量 3.49),MIN_STOCKS_PER_DAY=4000
+    没拦住(4374>=4000)。rebackfill 补码后需 purge 掉该日偏样本行,再重跑 run_turnover
+    (覆盖率拦截会保证:补全前跳过、补全后写正确值)。注意:只删 source='baostock' 的行,
+    保护 source='manual' 的手动值。
+
+    返回删除行数(0 = 该日无 baostock 来源的 a_turnover_* 行)。
+    """
+    conn = get_conn()
+    cur = conn.execute(
+        "DELETE FROM daily_metric "
+        "WHERE date=? AND metric_id IN (?,?,?,?,?) AND source != 'manual'",
+        (target_ymd, *TURNOVER_METRICS),
+    )
+    conn.commit()
+    n = cur.rowcount
+    conn.close()
+    print(f"[turnover] purge {target_ymd} 的 a_turnover_* 行: 删除 {n} 行"
+          f"(保留 source='manual')", flush=True)
+    return n
+
+
 def _cli(argv: list[str]) -> int:
     cmd = argv[1] if len(argv) > 1 else "all"
     full = "--full" in argv  # 强制全量重算（默认增量）
@@ -500,12 +555,17 @@ def _cli(argv: list[str]) -> int:
         run_validate()
     elif cmd == "turnover":
         run_turnover(full=full)
+    elif cmd == "purge-turnover-date":
+        # 2026-08-14 P2-1 清理：删某日 a_turnover_* 偏样本行（配合 rebackfill + 重跑）
+        if len(argv) < 3:
+            print("usage: purge-turnover-date YYYYMMDD"); return 2
+        purge_turnover_date(argv[2])
     elif cmd == "all":
         run_validate()
         run_turnover(full=full)
     else:
         print(f"unknown command: {cmd}")
-        print("usage: python -m app.collector.cleanup_d3d2 <validate|turnover|all> [--full]")
+        print("usage: python -m app.collector.cleanup_d3d2 <validate|turnover|all|purge-turnover-date> [--full]")
         return 2
     return 0
 
