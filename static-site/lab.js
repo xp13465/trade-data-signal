@@ -9838,6 +9838,21 @@ function _bindSigKellyCardEvents(host) {
   _bindSigKellyGuidePop(host);
   // 按年窗口增长模式下拉: 切换 A-G 任一模式, 就地刷新按年增长表(前端 state 联动, 不刷新整页)
   _bindSigKellyYearlyMode(host);
+  // 2026-08-14 问题1: 全信号表按年窗口表格限高——测量「强关联ETF」卡片(etf_strong)高度作为基准, 设置按年表滚动容器 max-height, 超出内部滚动
+  _applySigKellyYearlyMaxHeight(host);
+}
+
+// 2026-08-14 问题1: 给全信号表「按年窗口增长」表格设置 max-height = 强关联ETF(etf_strong)卡片高度, 超出内部滚动。
+// 基准卡片取「按 ETF 跟踪评分分组」的 etf_strong(强关联)卡; 若该卡未渲染(无数据), 回退用同排「全信号」卡高度;
+// 再不行则不动(由 CSS 兜底 max-height: 440px 兜住)。每次重渲染/周期/模式切换后调用, 保证基准实时。
+function _applySigKellyYearlyMaxHeight(host) {
+  var scrollEl = host.querySelector(".lab-sigkelly-all-yearly .lab-sigkelly-table-scroll");
+  if (!scrollEl) return;
+  var refCard = host.querySelector('.lab-sigkelly-card[data-quad="etf_strong"]');
+  if (!refCard) refCard = host.querySelector(".lab-sigkelly-all-card .lab-sigkelly-card");
+  if (!refCard) return;
+  var refH = refCard.offsetHeight;
+  if (refH > 60) scrollEl.style.maxHeight = refH + "px";
 }
 
 // 按年窗口增长 A-G 下拉切换绑定(2026-08-14): 选择模式 -> 更新 state.labSigKellyYearlyMode -> 就地替换全信号表组(含卡+按年表)

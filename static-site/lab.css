@@ -1678,6 +1678,18 @@
 .lab-sigkelly-advice-warn { color: #d4380d; }
 [data-theme="dark"] .lab-sigkelly-advice-warn, [data-theme="redgold"] .lab-sigkelly-advice-warn { color: #ff9c9a; }
 .lab-sigkelly-advice-note { color: var(--text-3); font-size: 11.5px; line-height: 1.6; font-style: normal; }
+/* 2026-08-14 问题2: 「AI仓位建议 · 历史回测数据」展开面板布局修正 —— 限宽(不撑满全屏)+限高80vh内部滚动+行高收窄。
+   专用于 .lab-sigkelly-poscap-history(仅该历史固化面板), 不影响「全信号操作建议指南」面板(advice-outer)既有排版。 */
+.lab-sigkelly-poscap-history { max-width: 860px; }
+.lab-sigkelly-poscap-history summary { white-space: normal; overflow-wrap: break-word; line-height: 1.5; padding: 6px 2px; }
+.lab-sigkelly-poscap-history .lab-sigkelly-advice-body { max-height: 80vh; overflow-y: auto; padding-right: 6px; }
+.lab-sigkelly-poscap-history .lab-sigkelly-advice-li { line-height: 1.5; padding: 1px 0; }
+.lab-sigkelly-poscap-history .lab-sigkelly-advice-table th,
+.lab-sigkelly-poscap-history .lab-sigkelly-advice-table td { padding: 3px 6px; line-height: 1.4; }
+.lab-sigkelly-poscap-history .lab-sigkelly-advice-table-scroll { max-height: none; overflow-y: visible; }
+/* §23.3 举一反三(2026-08-14): 「全信号操作建议指南」(advice-outer)与 AI仓位建议历史面板同为 .lab-sigkelly-advice-details 展开面板, 同样撑高/一屏难看全——限高80vh内部滚动+summary自动换行, 让展开后内容可在面板内滚动看全(仅同类布局修正, 不动内容) */
+.lab-sigkelly-advice-outer .lab-sigkelly-advice-body { max-height: 80vh; overflow-y: auto; padding-right: 6px; }
+.lab-sigkelly-advice-outer summary { overflow-wrap: break-word; }
 /* 2026-08-14 #49: G玩法完整交易方法教学块(总建议②分节内, 与 A/F 并列). 区别于警告红(advice-warn)/中性注(advice-note)/金结论(verdict), 用靛青左边框+淡底做"方法教学"callout */
 .lab-sigkelly-gmethod { border-left: 3px solid #13a8a8; background: linear-gradient(90deg, rgba(19,168,168,0.07), rgba(19,168,168,0.015)); padding-left: 10px; padding-right: 8px; padding-top: 4px; padding-bottom: 4px; border-radius: 0 6px 6px 0; margin-top: 4px; margin-bottom: 4px; }
 [data-theme="dark"] .lab-sigkelly-gmethod, [data-theme="redgold"] .lab-sigkelly-gmethod { border-left-color: #36cfc9; background: linear-gradient(90deg, rgba(54,207,201,0.10), rgba(54,207,201,0.02)); }
@@ -1705,6 +1717,9 @@
 .lab-sigkelly-yearly-table { font-size: 12px; }
 .lab-sigkelly-yearly-table th, .lab-sigkelly-yearly-table td { padding: 4px 10px; }
 .lab-sigkelly-yearly-table td { white-space: nowrap; }
+/* 2026-08-14 问题1: 全信号表「按年窗口增长」表格限高——不超强关联ETF(etf_strong)卡片高度, 超出部分内部滚动。
+   实际 max-height 由 JS(_applySigKellyYearlyMaxHeight)测量强关联卡片高度后设置, 此处为无卡片/未测量时的兜底上限, 防止表格撑爆页面。 */
+.lab-sigkelly-all-yearly .lab-sigkelly-table-scroll { max-height: 440px; overflow-y: auto; }
 @media (max-width: 1080px) { .lab-sigkelly-all-main { flex-direction: column; } .lab-sigkelly-all-card, .lab-sigkelly-all-yearly { flex: 1 1 auto; width: 100%; max-width: 100%; } }
 
 /* 宽表横向滚动(主表+进阶表合并为一张14列宽表,details 折叠已移除) */
