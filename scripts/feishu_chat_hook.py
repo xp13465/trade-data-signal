@@ -81,6 +81,10 @@ SYSTEM_INJECT_MARKERS = (
     # 真实用户消息不会含。前缀黑名单+内容级特征双保险。
     "cron 兜底巡检",
     "This session is being continued",
+    # 2026-08-14: Claude Code 无可见输出时注入的续接提示, 不在 SKIP_PROMPT_PREFIXES
+    # 也不在 content 级特征内 → 被当"👤 主会话"误抄; 加入 content 级强特征双拦截
+    # (handle_user L374 + _sweep_unforwarded L337 都查 _is_system_inject)
+    "[Your previous response had no visible output",
 )
 # 补扫窗口: 只看 transcript 尾部最近 N 条(防首次接入时洪水补发历史消息)
 SWEEP_LINES = 120
@@ -334,7 +338,12 @@ def _sweep_unforwarded(transcript_path: str, session: str = ""):
             c = msg.get("content")
             txt = c.strip() if isinstance(c, str) else ""
             # 2026-08-13: task-notification 注入同样前缀不匹配, 叠加内容级强特征拦截
-            if not txt or txt.startswith(SKIP_PROMPT_PREFIXES) or _is_system_inject(txt):
+            # 2026-08-14: 子 agent 完成汇报注入主会话的 user 消息以
+            #   "Another Claude session sent a message:\n<agent-message from=...>" 形态出现,
+            #   前缀/内容级特征都不命中 → 会被当"👤 主会话"重发; <agent-message 内容级强特征
+            #   拦截(sweep 跳过, handle_user 已正确标"🧩 子会话·X 汇报"发一次, 不重发)
+            if not txt or txt.startswith(SKIP_PROMPT_PREFIXES) \
+                    or _is_system_inject(txt) or "<agent-message" in txt:
                 continue
             fp = "U|" + _fp([session, transcript_path, txt])
             if fp in _load_sent():
@@ -374,8 +383,10 @@ def handle_user(data: dict) -> int:
     if prompt.startswith(SKIP_PROMPT_PREFIXES) or _is_system_inject(prompt):
         return 0
     kind, role, _ = classify(data)
-    if prompt.startswith("<agent-message from="):
+    if _agent_message_role(prompt):
         # 子 agent 完成通知注入主会话（或子会话收到更深层 agent-message）：标"角色汇报"
+        # 用正则 search 提取角色（而非 startswith）：带 "Another Claude session sent
+        # a message:\n<agent-message from=...>" 前缀也能识别，避免落 else 误标"👤 主会话"
         from_role = _agent_message_role(prompt) or "general-purpose"
         subject = f"🧩 子会话·{_role_cn(from_role)} 汇报"
     elif kind == "subagent":
