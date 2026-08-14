@@ -76,3 +76,20 @@
 - 前端已做旧数据兜底(本地判 stale),修复对当前线上 overview.json 立即生效。
 - 后端新字段(`data_date`/`signal_stale`/`signal_stale_td`)在下次数据重跑(export)后写入 overview.json,
   前端优先读后端字段,二者结果一致(§22)。
+
+## 七、08-14 线上报错 staleTxt is not defined 修复(块级作用域 bug,线上P0紧急)
+
+- **时间/触发**: 2026-08-14 下午用户看到首页页面报错「加载失败: staleTxt is not defined」,汪汪队卡片渲染崩溃。
+- **根因**: 上文 a215(commit fdde79540) 实现 stale 语义时,`const staleTxt = ...` 声明在 `if (ntStale) { ... }` 块内;
+  但 `ntCard.innerHTML` 的 termTip 在 if/else **块外**引用 `staleTxt ? staleTxt : "日"`。
+  JS `const` 为块级作用域,块外访问 → ReferenceError;尤其 `ntStale=false`(常见分支) staleTxt 根本未声明,必崩。
+- **修法(最小改动,逻辑不变)**: ①`let staleTxt = ""` 提升到函数作用域(与 ntStale/ntStaleTd 同层);
+  ②`if(ntStale)` 内改 `staleTxt = ...`(去掉 const 重新声明); ③块外 `staleTxt ? staleTxt : "日"` 兜底不变。
+  ntStale 时算 staleTxt,否则留空 → 块外兜底 "日"。未改任何其他逻辑/文案。
+- **自验**: node 语法过; 模拟 stale/fresh 两分支均正常(复现原代码 fresh 分支 ReferenceError,修复后不崩);
+  min 版验证函数作用域 `let c=""` + 块外 `(c||"日")`;build_min+bump_asset_version+sw CACHE_VERSION a215->a216。
+- **同类排查(§23.2三铁律③)**: commit fdde79540 改的前端变量——专区「近期信号按日期」用 `var`(函数作用域,
+  无此块级作用域问题);gen_daily_brief.py 为 Python 无此问题;全 app.js 该函数内其余 const(_d1/_d2/_gap)
+  均在 try 块内使用无块外引用。仅 staleTxt 一处。
+- **教训**: 前端变量若需在 if/else 块外复用,声明必须提升到函数作用域(let 在块外声明),块内只赋值;
+  块内 const 在块外引用 = 经典 ReferenceError。§23.2 修 bug 要自查同 commit 引入的其他跨作用域引用。
