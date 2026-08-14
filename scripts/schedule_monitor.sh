@@ -285,6 +285,9 @@ DUR_THRESHOLDS = {
     "backfill_evening": 1800,   # 30min
     "us_stock_morning": 900,    # 15min
 }
+# stats 初始化(2026-08-14 A1 补): A1 进行中检测块引用 stats, 须保证 STATS_FILE 不存在/
+#   解析失败时 stats 仍为 [] 而非 NameError(否则进行中检测整块崩溃)。
+stats = []
 if STATS_FILE.exists():
     try:
         with open(STATS_FILE, encoding="utf-8") as f:
