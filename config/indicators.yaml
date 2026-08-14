@@ -81,19 +81,19 @@ metrics:
   #   hf_xau   <- hf_XAU  (伦敦金现货辅助参考，美元计价与AU0口径不同不强推前端)
   # 收盘 pipeline（下方 func 指定的日线函数）次日覆盖为最终收盘历史值（UPSERT 幂等）。
   # us10y/hf_TNX 新浪源全空不可用，保持 T+1（bond_zh_us_rate）；cn_us_spread 跟随 T+1。
-  - {id: usdcnh,   name: 离岸人民币,   group: global, type: simple, func: currency_boc_sina, params: {symbol: 美元}, column: 中行折算价, unit: "-", direction: negative, sell_no_trend_filter: true, enabled: true}
-  - {id: gold,     name: 黄金(沪金),   group: global, type: simple, func: futures_main_sina,  params: {symbol: AU0}, column: 收盘价, unit: 元/克, direction: negative, enabled: true}
-  - {id: oil,      name: 原油(INE主力连续), group: global, type: simple, func: futures_main_sina,  params: {symbol: sc0}, column: 收盘价, unit: 元/桶, direction: neutral, enabled: true}
-  - {id: wti_oil,      name: WTI原油,   group: global, type: simple, func: futures_foreign_hist, params: {symbol: CL}, column: close, unit: 美元/桶,   direction: neutral, enabled: true}
-  - {id: comex_silver, name: COMEX白银, group: global, type: simple, func: futures_foreign_hist, params: {symbol: SI}, column: close, unit: 美元/盎司, direction: neutral, enabled: true}
-  - {id: cn10y,        name: 中国10年国债收益率, group: global, type: simple, func: bond_china_yield, column: '10年', filter: {曲线名称: 中债国债收益率曲线}, unit: "%", direction: neutral, enabled: true}
+  - {id: usdcnh,   name: 离岸人民币,   group: global, market: global, type: simple, func: currency_boc_sina, params: {symbol: 美元}, column: 中行折算价, unit: "-", direction: negative, sell_no_trend_filter: true, enabled: true}
+  - {id: gold,     name: 黄金(沪金),   group: global, market: global, type: simple, func: futures_main_sina,  params: {symbol: AU0}, column: 收盘价, unit: 元/克, direction: negative, enabled: true}
+  - {id: oil,      name: 原油(INE主力连续), group: global, market: global, type: simple, func: futures_main_sina,  params: {symbol: sc0}, column: 收盘价, unit: 元/桶, direction: neutral, enabled: true}
+  - {id: wti_oil,      name: WTI原油,   group: global, market: global, type: simple, func: futures_foreign_hist, params: {symbol: CL}, column: close, unit: 美元/桶,   direction: neutral, enabled: true}
+  - {id: comex_silver, name: COMEX白银, group: global, market: global, type: simple, func: futures_foreign_hist, params: {symbol: SI}, column: close, unit: 美元/盎司, direction: neutral, enabled: true}
+  - {id: cn10y,        name: 中国10年国债收益率, group: global, market: global, type: simple, func: bond_china_yield, column: '10年', filter: {曲线名称: 中债国债收益率曲线}, unit: "%", direction: neutral, enabled: true}
   # cn10y_etf: sh511260 十年国债ETF 实时价格（元），盘中参考指标。
   # cn10y 收益率本身保持 T+1（中债源盘后才出），ETF 实时价供前端盘中国债走势参考。
   # func=TODO：runner 不采集，由 intraday_snapshot._backfill_cn10y_etf_metric 写入（source='intraday'）。
-  - {id: cn10y_etf,    name: 十年国债ETF(实时), group: global, type: simple, func: TODO, unit: 元, direction: neutral, enabled: true}
-  - {id: us10y,        name: 美国10年国债收益率, group: global, type: simple, func: bond_zh_us_rate, params: {start_date: '20160101'}, column: 美国国债收益率10年, unit: "%", direction: neutral, enabled: true}
-  - {id: cn_us_spread, name: 中美利差(10Y),      group: global, type: derived, formula: "cn10y - us10y", unit: "%", direction: neutral, enabled: true}
-  - {id: brent, name: 布伦特原油, group: global, type: simple, func: futures_foreign_hist, params: {symbol: OIL}, column: close, unit: 美元/桶, direction: neutral, enabled: true}
+  - {id: cn10y_etf,    name: 十年国债ETF(实时), group: global, market: global, type: simple, func: TODO, unit: 元, direction: neutral, enabled: true}
+  - {id: us10y,        name: 美国10年国债收益率, group: global, market: global, type: simple, func: bond_zh_us_rate, params: {start_date: '20160101'}, column: 美国国债收益率10年, unit: "%", direction: neutral, enabled: true}
+  - {id: cn_us_spread, name: 中美利差(10Y),      group: global, market: global, type: derived, formula: "cn10y - us10y", unit: "%", direction: neutral, enabled: true}
+  - {id: brent, name: 布伦特原油, group: global, market: global, type: simple, func: futures_foreign_hist, params: {symbol: OIL}, column: close, unit: 美元/桶, direction: neutral, enabled: true}
 
   # ============ 试采 · 龙虎榜 / 解禁 / IPO / 可转债 ============
   - {id: lhb_count,           name: 龙虎榜上榜家数,   group: lhb,    type: simple, func: stock_lhb_detail_em,                transform: count_rows, unit: 只, direction: positive, enabled: true}

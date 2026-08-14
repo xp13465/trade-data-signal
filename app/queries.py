@@ -806,11 +806,15 @@ def overview(conn, cfg):
             "WHERE date IN (%s) GROUP BY date" % _dph, sig_dates,
         ).fetchall():
             _il_cov[row["date"]] = (row["n"], row["m"])
-        # 当天(与任何盘中轮同一行)的确切 first-seen 时间, -s:* 已排除不入; 建 (date,index_id,signal)→首见
+        # 当天(与任何盘中轮同一行)的确切 first-seen 时间, -s:* 已排除不入; 建 (date,index_id,signal)→首见。
+        # 2026-08-15 补: 只取白天盘中轮 time <= '17:00'(保留 15:35 盘中轮) —— 排除 18:43/20:35
+        # 两个盘后 check_signals 补采轮, 否则"白天盘中零记录、仅盘后才首现"的信号(如 8/14 中证
+        # 银行 csi_399986 sell)会被误当"盘中出现过"→ 不标迟到。用户口径: 17:50 后补采才进 = 迟到。
         _il_first = {}
         for row in conn.execute(
             "SELECT date, index_id, signal, MIN(time) AS m FROM signal_intraday_log "
-            "WHERE date IN (%s) GROUP BY date, index_id, signal" % _dph, sig_dates,
+            "WHERE date IN (%s) AND time <= '17:00' "
+            "GROUP BY date, index_id, signal" % _dph, sig_dates,
         ).fetchall():
             _il_first[(row["date"], row["index_id"], row["signal"])] = row["m"]
     else:
@@ -837,7 +841,13 @@ def overview(conn, cfg):
         # 2026-08-14 P0-2 盘后补齐角标: 迟到信号=true(数据源晚到 21:00 补采才进)。
         # 判定见上方注释: 非全球/港股市场 && 当日无 intraday_log 记录 && 当日盘中轮覆盖完整。
         _iid = _s["index_id"]
-        if _mkt_cfg.get(_iid, None) in _late_excl_markets:
+        # 2026-08-15 A2补: g.*(全球商品/利率/汇率, 读 daily_metric)与 s.*(情绪综合分, 读 score_daily)
+        # 这两种前缀指标本就不会进 A 股盘中 intraday_log 轮(signal_intraday_log 中它们记录=0),
+        # 正常隔夜/T+1 晚发属既定规律, 一旦触发会因"盘中无记录"被误标盘后补齐 → 一律不标。
+        # 与上方 L809 "-s:* 已排除不入"注释、以及 _load_close_map 的 g./s. 前缀数据源分派一致。
+        if _iid.startswith(("g.", "s.")):
+            _bt_late = False
+        elif _mkt_cfg.get(_iid, None) in _late_excl_markets:
             _bt_late = False
         else:
             _cov = _il_cov.get(_s["date"])
