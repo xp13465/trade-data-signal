@@ -11,6 +11,13 @@
   python scripts/check_signals.py --date 20260706  # 指定日期
 
 配置：config/email.json（含 SMTP 授权码，已 gitignore；模板见 email.json.example）。
+
+2026-08-14 告警邮件优化：
+  A5 盘中模式 n_total==0 且仅 fade/timeline 时不发邮件（盘中信号反复消失属常态，避免噪音；
+     保留收盘版正常发信）。
+  B1 邮件主题与正文统一为"去重新信号"口径（subject_signals 恒 None），正文统计行加
+     "(当日去重后新信号 N 条)"标注（--full 全量模式不加）。
+  B3 去重新信号全为中性"波段持有"时，主题改"仅波段持有(中性持有,无操作信号)"，只反映实质。
 """
 from __future__ import annotations
 
@@ -929,7 +936,8 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
                 fade_alerts: list[dict] | None = None,
                 timeline: list[dict] | None = None,
                 fade_timeline: list[dict] | None = None,
-                subject_signals: list[dict] | None = None) -> tuple[str, str]:
+                subject_signals: list[dict] | None = None,
+                dedup_annotate: bool = False) -> tuple[str, str]:
     """构建邮件主题 + HTML 正文。返回 (subject, html_body)。
 
     intraday=True 时邮件标注【盘中实时】+ 风险提示横幅（盘中快照非最终，
@@ -940,8 +948,9 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
     fade_timeline（2026-08-10 用户增量）：盘中模式 fade 通知时传入，附该信号
       当日在 signal_intraday_log 的出现细节（产生/通知时间 → 消失时点），
       与收盘全貌 timeline 分离。
-    subject_signals：主题信号摘要用全量（收盘时间线邮件在 dedup 后 signals 可能为空，
-      但当日实际有信号，主题用当日全量 signals 展示，表体仍为 signals 去重结果）。
+    subject_signals：主题信号摘要用（预留，见 B1 说明；当前统一为与表体一致的去重新信号）。
+    dedup_annotate（2026-08-14 告警优化 B1）：True 时正文统计行加"(当日去重后新信号 N 条)"，
+      标注主题/正文统一为去重新信号口径。
     """
     stats = load_signal_stats()
 
@@ -959,7 +968,9 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
     n_hold = len(groups["band_hold"])
 
     # === 标题：信号类型 + 品种摘要 ===
-    # 主题信号摘要：收盘时间线邮件用当日全量（subject_signals），表体仍为 signals（去重结果）
+    # B1(2026-08-14)：主题与正文统一为"去重新信号"口径（subject_signals 当前恒为 None，
+    #   subj_groups = groups = 去重 signals）。原"主题用当日全量/表体用去重"两口径无标注
+    #   会误导，故统一；正文统计行加"(当日去重后新信号 N 条)"标注（见下方 dedup_annotate）。
     parts = []
     for sig_type in SIGNAL_ORDER:
         g = subj_groups[sig_type]
@@ -972,7 +983,12 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
     # fade-detect 警示存在时主题加 ⚠️ 前缀（2026-07-23 P1-新-A）；时间线存在时加 🕐 前缀
     fade_prefix = "⚠️ " if fade_alerts else ""
     timeline_prefix = "🕐 " if (timeline or fade_timeline) else ""
-    if parts:
+    # B3(2026-08-14)：去重新信号全为中性"波段持有"时，主题只反映实质 —— 不罗列全部
+    #   买卖（会误导以为有买卖动作），改"仅波段持有(中性持有,无操作信号)"。
+    _has_action = any(subj_groups[t] for t in SIGNAL_ORDER if t != "band_hold")
+    if parts and not _has_action and subj_groups["band_hold"]:
+        parts_str = "  仅波段持有(中性持有,无操作信号)"
+    elif parts:
         parts_str = "  " + " | ".join(parts)
     elif timeline or fade_timeline:
         # P2-3：时间线/盘中 fade 详情存在但当日信号空（信号均已消失）时，
@@ -995,9 +1011,11 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
             '（如辅买信号消失/重现）。此为快照非最终，<b>收盘后 17:50 仍发送最终版邮件</b>，'
             '请以收盘最终版为准。</div>'
         )
+    # B1(2026-08-14)：正文统计行加"(当日去重后新信号 N 条)"，标注主题/正文统一为去重新信号口径
+    _dedup_note = f"（当日去重后新信号 {n_total} 条）" if dedup_annotate else ""
     html_parts = [f"""<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">{notify.MOBILE_EMAIL_CSS}</head><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1d2129;max-width:720px;">
 <h2 style="margin:0 0 8px 0;color:#1d2129;">{h2_title}</h2>
-<p style="margin:0 0 16px 0;color:#86909c;font-size:13px;">{date} · 共 <b>{n_total}</b> 个信号（主买 {n_buy} / 辅买 {n_aux} / 追买 {n_special} / 备买 {n_backup} / 卖 {n_sell} / 追止损卖 {n_stop_loss} / 波段持有 {n_hold}）</p>
+<p style="margin:0 0 16px 0;color:#86909c;font-size:13px;">{date} · 共 <b>{n_total}</b> 个信号（主买 {n_buy} / 辅买 {n_aux} / 追买 {n_special} / 备买 {n_backup} / 卖 {n_sell} / 追止损卖 {n_stop_loss} / 波段持有 {n_hold}）{_dedup_note}</p>
 {intraday_banner}"""]
 
     # fade-detect 警示横幅（红/橙/黄三档表格），放正文顶部 intraday 横幅之后（2026-07-23 P1-新-A）
@@ -1340,17 +1358,25 @@ def main(argv: list[str] | None = None) -> int:
             if timeline:
                 extra.append(f"{len(timeline)} 条信号时间线")
             if extra:
+                # A5(2026-08-14)：盘中模式 n_total==0 且仅 fade/timeline 时不发邮件。
+                # 盘中信号反复出现/消失属常态，当前无任何信号时 fade/时间线通知成噪音。
+                # 保留收盘版正常发信（收盘 fade/时间线是重要复盘信息）。
+                if args.intraday and not signals:
+                    log.info("盘中模式：当前无信号(n_total=0)且仅 fade/timeline，不发邮件(A5)")
+                    return 0
                 log.info("无新信号（已去重），但有 %s，仍发邮件", " + ".join(extra))
             else:
                 log.info("无新信号（已去重），不发邮件")
                 return 0
-    # 收盘时间线邮件：主题用当日全量 signals（dedup 后 signals_to_send 可能为空但当日有信号），
-    # 表体仍为 signals_to_send（去重结果），完整生命周期见时间线表格。
-    subject_signals = signals if timeline else None
+    # B1(2026-08-14)：主题与正文统一为"去重新信号"口径。subject_signals 恒传 None
+    #   （不再用当日全量 signals），避免主题/正文两口径无标注误导；正文统计行加
+    #   "(当日去重后新信号 N 条)"标注（dedup_annotate）。--full 全量模式不加该标注。
+    subject_signals = None
     subject, body = build_email(date, signals_to_send, name_map,
                                 intraday=args.intraday, fade_alerts=fade_alerts_for_email,
                                 timeline=timeline, fade_timeline=fade_timeline,
-                                subject_signals=subject_signals)
+                                subject_signals=subject_signals,
+                                dedup_annotate=(not args.full))
     # 飞书 post 富文本（报告群版）：buy/sell 分组 + 彩色，替代 _html_to_text 拍平成纯文本
     feishu_post = build_feishu_post(subject, signals_to_send, name_map,
                                     intraday=args.intraday,

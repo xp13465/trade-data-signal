@@ -24,6 +24,15 @@
 #   schedule_stats.json(任务状态) -> 派 agent 修正 -> 修正后任务跑新版 exit=0/时效恢复 ->
 #   schedule_monitor 检测恢复发恢复邮件。launchd 持久(schedule_monitor/self_heal 不依赖会话)。
 # launchd 每15分钟(Minute=0,15,30,45)由 com.trade.schedule-monitor.plist 触发。
+#
+# 2026-08-14 告警邮件优化:
+#   A1 新增"进行中超时检测"(任务 dur=null 未完成, 超计划时点+阈值+缓冲仍不结束 = 疑似卡死
+#      告警, 如 update_all 17:50 卡死 54min 无告警的 8-14 事故); 修复 null dur 误恢复
+#      (进行中任务 key 保持 active, 不判"已消失"发恢复邮件)。
+#   A3 恢复邮件最小静默窗口: 同 key 上次恢复(last_recovered) <30min 不重复发恢复邮件
+#      (防 8-12 振荡), 状态仍置 recovered。
+#   B2 告警正文模板化: 每项 4 行 [严重度]任务 异常类型 / 影响 / 日志 / 建议;
+#      恢复邮件尾加"无需操作,已自动恢复"提示。
 set -uo pipefail
 REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 cd "$REPO"
@@ -159,6 +168,26 @@ def save_alert_state(state):
 
 alert_state = load_alert_state()
 seen_keys_this_run = set()  # 本次运行仍存在的异常 key(防误报恢复)
+# 2026-08-14 告警优化 A1: 进行中(未完成)任务集合。dur=null + exit=null = 任务仍在跑。
+# 用于: ①进行中超时检测(卡死/异常慢) ②恢复检测跳过进行中任务的 key(防 8-14 误恢复)。
+in_progress_tasks = set()
+
+# 2026-08-14 告警优化 A3: 恢复邮件最小静默窗口。同 key 上次恢复(last_recovered)距今
+# <30min 则不重复发恢复邮件(防 8-12 振荡: active->recovered->active 快速交替轰炸)。
+# 状态仍置 recovered(异常确已消失), 仅抑制恢复邮件。
+RECOVERY_COOLDOWN = timedelta(minutes=30)
+
+
+def _recovery_cooldown_ok(_key, _info):
+    """A3: 同 key 上次恢复(last_recovered)距今 <30min 返回 False(不重复发恢复邮件)。"""
+    _lr = _info.get("last_recovered")
+    if not _lr:
+        return True
+    try:
+        _lr_dt = datetime.strptime(_lr, "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return True
+    return NOW - _lr_dt >= RECOVERY_COOLDOWN
 
 # 通知分级(2026-08-10): 自愈类(not_loaded/r2_unreachable 等可被 self_heal.sh/网络自愈)
 # 连续N次仍异常才通知, 严重类(漏跑/exit失败/数据错)首次即通知。N=2 = 30min(15min频率×2)。
@@ -370,6 +399,15 @@ if STATS_FILE.exists():
             # 恢复检测: dur 降回阈值内 -> key 未 seen -> L476 恢复循环自动发恢复邮件。
             _dur = s.get("last_duration_sec")
             _dur_task = s.get("task")
+            # 2026-08-14 告警优化 A1: 进行中任务收集到 in_progress_tasks。
+            # "进行中"信号 = last_duration_sec 为 None(有 start 无 end, gen_schedule_stats
+            #   写 null)。注意 last_exit 是"上一次退出码", 卡死/在跑时仍可能为 0(上次成功),
+            #   不能用 exit is None 判定(8-14 update_all 卡死 exit=0 dur=None 实测)。
+            #   排除 exit!=0(失败/被杀, 已由退出检查告警, 防重复)。
+            # 用途: ①进行中超时检测(A1新增块) ②恢复检测循环跳过该任务的 key
+            #   (防 8-14 误恢复: update_all 卡死 dur=null, 未 seen -> 误判"已消失")。
+            if _dur is None and _dur_task in DUR_THRESHOLDS and s.get("last_exit") in (None, 0):
+                in_progress_tasks.add(_dur_task)
             if _dur is not None and _dur_task in DUR_THRESHOLDS:
                 _dur_thresh = DUR_THRESHOLDS[_dur_task]
                 if _dur > _dur_thresh:
@@ -403,6 +441,72 @@ if STATS_FILE.exists():
                                   f"last_alerted={_ex_dur.get('last_alerted')}, 不重发")
     except Exception as e:
         print(f"[warn] 解析 schedule_stats.json 失败: {e}", file=sys.stderr)
+
+# A1 进行中超时检测（2026-08-14 告警优化）: 任务卡死/异常慢(未完成)检测。
+# 背景: 原 dur 检查只查"已完成"任务(last_duration_sec 非 null), 任务进行中超时
+#   (未完成, dur=null)完全不检查 -> 8-14 update_all 17:50 卡死 54min+ 无超时告警;
+#   同时 dur=null 时 key 未 seen, 恢复检测循环误判"异常已消失"发恢复邮件。
+# 规则: 对每个进行中任务(dur=null + exit=null, 已收集 in_progress_tasks), 取今日
+#   最近一次已到计划时点 sch, 若 last_run >= sch(任务确在该时点启动) 且
+#   NOW > sch + 耗时阈值 + 缓冲 -> 超时告警。缓冲(IN_PROGRESS_BUFFER)防正常偏慢误报
+#   (update_all +20min / backfill +15min, 对齐主控要求 update_all+50min/backfill+45min)。
+# 超时 key 进 seen_keys_this_run(防误恢复), 已 active 则 suppress 不重发。
+IN_PROGRESS_BUFFER = {
+    "update_all": 20,          # 计划17:50 +30min阈值 +20min缓冲 = 18:40 未完成告警
+    "backfill_evening": 15,    # +30min +15min = 45min
+    "intraday_snapshot": 10,
+    "us_stock_morning": 10,
+}
+_task_sched_map = {t["task"]: t["schedules"] for t in TASKS}
+_stats_by_task = {s.get("task"): s for s in stats if isinstance(s, dict)}
+for _ip_task in sorted(in_progress_tasks):
+    _ip_scheds = _task_sched_map.get(_ip_task, [])
+    _ip_dur_thresh = DUR_THRESHOLDS[_ip_task]
+    _ip_buffer = IN_PROGRESS_BUFFER.get(_ip_task, 0)
+    # 今日最近一次已到计划时点(<= NOW)
+    _sch_dts = []
+    for _h in _ip_scheds:
+        _st = today_schedule(_h)
+        if _st <= NOW:
+            _sch_dts.append(_st)
+    if not _sch_dts:
+        continue
+    _latest_sch = max(_sch_dts)
+    _ip_stats = _stats_by_task.get(_ip_task, {})
+    _ip_lr = _ip_stats.get("last_run") or ""
+    _ip_started_at_sch = False
+    if _ip_lr:
+        try:
+            _ip_lr_dt = datetime.strptime(_ip_lr, "%Y-%m-%d %H:%M")
+            if _ip_lr_dt >= _latest_sch:
+                _ip_started_at_sch = True
+        except ValueError:
+            pass
+    if not _ip_started_at_sch:
+        continue
+    _timeout_at = _latest_sch + timedelta(seconds=_ip_dur_thresh) + timedelta(minutes=_ip_buffer)
+    if NOW <= _timeout_at:
+        continue
+    _run_min = int((NOW - _latest_sch).total_seconds() // 60)
+    _ip_key = f"{_ip_task}|in_progress_timeout"
+    seen_keys_this_run.add(_ip_key)
+    _ex_ip = alert_state.get(_ip_key)
+    if _ex_ip is None or _ex_ip.get("status") != "active":
+        alerts.append(
+            f"SEVERE: {_ip_task} 超时未完成 已运行{_run_min}min "
+            f"(计划<{_latest_sch.strftime('%H:%M')}> + 阈值{_ip_dur_thresh}s + 缓冲{_ip_buffer}min"
+            f"=<{_timeout_at.strftime('%H:%M')}> 仍未完成, 疑似卡死/异常慢) last_run<{_ip_lr}>"
+        )
+        alert_state[_ip_key] = {
+            "status": "active",
+            "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+            "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+            "keyword": "in_progress_timeout",
+            "line_sample": f"run={_run_min}min last_run={_ip_lr}",
+        }
+    else:
+        print(f"[suppress] {_ip_task} 进行中超时持续中, "
+              f"last_alerted={_ex_ip.get('last_alerted')}, 不重发")
 
 # 5) launchctl 加载检查（2026-07-20 补缺口，方案D）
 #    11个 com.trade label（9监控任务 + self-heal，不含 schedule-monitor 自己防递归）。
@@ -513,6 +617,13 @@ for _key, _info in list(alert_state.items()):
         # 恢复检测 -- 否则 72h_ active key 不在 seen_keys_this_run 被误判"已恢复"
         # -> :15/:45 误恢复 + :10/:40 72h重报 = 振荡(2026-08-10 修复)
         continue
+    # 2026-08-14 告警优化 A1: 任务仍在进行中(dur=null + exit=null)时, 其历史异常 key
+    # 不能判"已恢复" -> 防 8-14 误恢复(update_all 卡死 dur=null 未 seen 被误判异常已消失,
+    # 18:00 误发 [恢复] update_all)。保持 active, 等任务真正完成(exit 非0/耗时超/或进行中
+    # 超时告警)后再走恢复逻辑。
+    if "|" in _key and _key.split("|", 1)[0] in in_progress_tasks:
+        print(f"[hold] {_key} 任务仍在进行中(dur=null), 不判恢复(保持 active)")
+        continue
     if _key not in seen_keys_this_run:
         if _key.startswith("missed|"):
             # 漏跑 key: 不发恢复邮件, 检查是否跨日静默清理
@@ -526,13 +637,21 @@ for _key, _info in list(alert_state.items()):
             continue
         _task = _key.split("|", 1)[0] if "|" in _key else _key
         _kw = _info.get("keyword", "?")
-        recoveries.append({
-            "task": _task,
-            "keyword": _kw,
-            "first_seen": _info.get("first_seen", "?"),
-        })
+        # A3: 静默窗口检查须在覆盖 last_recovered 之前(用旧值判断)
+        _emit = _recovery_cooldown_ok(_key, _info)
         _info["status"] = "recovered"
         _info["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+        if _emit:
+            recoveries.append({
+                "task": _task,
+                "keyword": _kw,
+                "first_seen": _info.get("first_seen", "?"),
+            })
+        else:
+            print(
+                f"[cooldown] {_task} 恢复邮件静默(上次恢复 <{RECOVERY_COOLDOWN} 前), "
+                f"状态已置 recovered 但不发邮件 (首次发现: {_info.get('first_seen')})"
+            )
         print(
             f"[recovery] {_task} 异常关键词 {_kw} 已消失 "
             f"(首次发现: {_info.get('first_seen')})"
@@ -676,13 +795,18 @@ try:
             # 因 overview 检查在恢复循环之后运行, 复用会被误报恢复)
             _existing = alert_state.get(dedup_key)
             if _existing is not None and _existing.get("status") == "active":
-                recoveries.append({
-                    "task": "overview_lag",
-                    "keyword": "overview_lag",
-                    "first_seen": _existing.get("first_seen", "?"),
-                })
+                # A3: 静默窗口(用旧 last_recovered 判断)
+                _emit = _recovery_cooldown_ok(dedup_key, _existing)
                 _existing["status"] = "recovered"
                 _existing["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                if _emit:
+                    recoveries.append({
+                        "task": "overview_lag",
+                        "keyword": "overview_lag",
+                        "first_seen": _existing.get("first_seen", "?"),
+                    })
+                else:
+                    print(f"[cooldown] overview 时效恢复邮件静默(上次恢复<30min前), 状态已置 recovered")
                 print(
                     f"[recovery] overview 时效滞后已恢复 "
                     f"(首次发现: {_existing.get('first_seen')})"
@@ -782,12 +906,17 @@ try:
         _ex_r2u = alert_state.get("r2_unreachable")
         if _ex_r2u is not None:
             if _ex_r2u.get("status") == "active":
-                recoveries.append({
-                    "task": "r2_unreachable", "keyword": "r2_unreachable",
-                    "first_seen": _ex_r2u.get("first_seen", "?"),
-                })
+                # A3: 静默窗口
+                _emit = _recovery_cooldown_ok("r2_unreachable", _ex_r2u)
                 _ex_r2u["status"] = "recovered"
                 _ex_r2u["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                if _emit:
+                    recoveries.append({
+                        "task": "r2_unreachable", "keyword": "r2_unreachable",
+                        "first_seen": _ex_r2u.get("first_seen", "?"),
+                    })
+                else:
+                    print(f"[cooldown] r2_unreachable 恢复邮件静默(上次恢复<30min前)")
                 print(f"[recovery] R2 直连不可达已恢复 "
                       f"(首次发现: {_ex_r2u.get('first_seen')})")
             elif _ex_r2u.get("status") == "pending":
@@ -830,12 +959,17 @@ try:
                 # 恢复检测
                 _ex_r2ov = alert_state.get("r2_overview_lag")
                 if _ex_r2ov is not None and _ex_r2ov.get("status") == "active":
-                    recoveries.append({
-                        "task": "r2_overview_lag", "keyword": "r2_overview_lag",
-                        "first_seen": _ex_r2ov.get("first_seen", "?"),
-                    })
+                    # A3: 静默窗口
+                    _emit = _recovery_cooldown_ok("r2_overview_lag", _ex_r2ov)
                     _ex_r2ov["status"] = "recovered"
                     _ex_r2ov["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                    if _emit:
+                        recoveries.append({
+                            "task": "r2_overview_lag", "keyword": "r2_overview_lag",
+                            "first_seen": _ex_r2ov.get("first_seen", "?"),
+                        })
+                    else:
+                        print(f"[cooldown] r2_overview_lag 恢复邮件静默(上次恢复<30min前)")
                     print(f"[recovery] R2 overview 时效滞后已恢复 "
                           f"(首次发现: {_ex_r2ov.get('first_seen')})")
 
@@ -878,12 +1012,17 @@ try:
                     # 恢复检测
                     _ex_r2id = alert_state.get("r2_intraday_lag")
                     if _ex_r2id is not None and _ex_r2id.get("status") == "active":
-                        recoveries.append({
-                            "task": "r2_intraday_lag", "keyword": "r2_intraday_lag",
-                            "first_seen": _ex_r2id.get("first_seen", "?"),
-                        })
+                        # A3: 静默窗口
+                        _emit = _recovery_cooldown_ok("r2_intraday_lag", _ex_r2id)
                         _ex_r2id["status"] = "recovered"
                         _ex_r2id["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                        if _emit:
+                            recoveries.append({
+                                "task": "r2_intraday_lag", "keyword": "r2_intraday_lag",
+                                "first_seen": _ex_r2id.get("first_seen", "?"),
+                            })
+                        else:
+                            print(f"[cooldown] r2_intraday_lag 恢复邮件静默(上次恢复<30min前)")
                         print(f"[recovery] R2 intraday 时效滞后已恢复 "
                               f"(首次发现: {_ex_r2id.get('first_seen')})")
 
@@ -891,6 +1030,53 @@ try:
     save_alert_state(alert_state)
 except Exception as e:
     print(f"[warn] R2 直连时效检查失败: {e}", file=sys.stderr)
+
+# B2 告警正文模板化（2026-08-14 告警优化）: 原正文=纯 SEVERE 行列表, 改为每项 4 行模板
+#   [严重度] 任务 异常类型 / 影响:XX / 日志:路径 / 建议:XX。按任务写对应影响与建议。
+_IMPACT_MAP = {
+    "update_all": "全站 overview/评分/预警/ETF清单等数据可能过期或未更新, 前端读到旧版",
+    "backfill_evening": "回填数据(指数/分红等)可能缺失或未更新, 前端对应指标读旧",
+    "intraday_snapshot": "盘中 overview/intraday 快照可能过期, 前端分时/实时数据读旧",
+    "futures_backfill": "期货数据可能缺失或未更新, 前端期货指标读旧",
+    "lhb_backfill": "龙虎榜数据可能缺失或未更新, 前端对应展示读旧",
+    "rzhb_backfill": "两融数据可能缺失或未更新, 前端对应展示读旧",
+    "etf_national_team": "汪汪队 ETF 数据可能过期或未更新, 前端 ETF 板块读旧",
+    "lab_auto": "策略实验室回测数据可能未更新, 前端实验室读旧",
+    "us_stock_morning": "美股数据可能缺失或未更新, 前端美股指标读旧",
+    "overview": "线上 overview.json 时效滞后, 前端首页可能读到旧数据",
+    "R2": "R2 存储(ssd.fx8.store)不可达或数据未推新版, 前端大文件/rewrite 数据源断或读旧",
+}
+_SUGGEST_MAP = {
+    "update_all": "自动恢复中; 若持续(超时告警)请人工查 update_all 进程/卡死点",
+    "backfill_evening": "自动恢复中; 若持续请人工检查回填进程",
+    "intraday_snapshot": "自动恢复中; 若持续请人工检查盘中采集/push 链路",
+    "etf_national_team": "自动恢复中; 若持续(进程池退化)请人工检查",
+    "overview": "自动恢复中; 若持续请人工查 intraday/push 链路",
+    "R2": "自动恢复中; 若持续请人工查 upload_r2/网络/R2 桶",
+}
+_LOG_MAP = {t["task"]: str(LOG_DIR / t["log"]) for t in TASKS}
+
+
+def _format_alert_item(line):
+    """B2: 单条 SEVERE 告警行 -> 4 行模板 HTML。"""
+    _text = line[8:] if line.startswith("SEVERE: ") else line  # "SEVERE: "=8字符
+    _first = _text.split(" ", 1)[0] if " " in _text else _text
+    _task = _first
+    if _first.startswith("com.trade."):
+        _task = _first.replace("com.trade.", "").replace("-", "_")
+    elif _first == "线上":
+        _task = "overview"
+    _impact = _IMPACT_MAP.get(_task, "对应任务数据可能过期或未更新, 前端可能读到旧数据")
+    _sugg = _SUGGEST_MAP.get(_task, "自动恢复中; 若持续异常请人工介入检查")
+    _log = _LOG_MAP.get(_task, str(MONITOR_LOG))
+    _esc = lambda s: str(s).replace("<", "&lt;").replace(">", "&gt;")  # noqa: E731
+    return (
+        f"<b>[SEVERE] {_esc(_text)}</b><br>"
+        f"影响: {_esc(_impact)}<br>"
+        f"日志: {_esc(_log)}<br>"
+        f"建议: {_esc(_sugg)}"
+    )
+
 
 # 输出 + 告警
 now_str = NOW.strftime("%Y-%m-%d %H:%M:%S")
@@ -900,9 +1086,8 @@ if alerts:
         print(a)
     # 复用 notify.py 发邮件 + 写 alerts/latest.md（subject 统一模板 [告警] ... MM-DD HH:MM）
     # --from-prefix "[告警]" -> 发件人名 "[告警] 信号实验室"
-    body = "<br>".join(
-        a.replace("<", "&lt;").replace(">", "&gt;") for a in alerts
-    )
+    # B2(2026-08-14): 正文由纯 SEVERE 行列表改为每项 4 行模板(严重度/影响/日志/建议)
+    body = "<br><br>".join(_format_alert_item(a) for a in alerts)
     _sm_time = NOW.strftime("%m-%d %H:%M")
     subprocess.run(
         [
@@ -934,6 +1119,8 @@ if recoveries:
         f"(首次发现: {r['first_seen']}, 恢复时间: {now_str})"
         for r in recoveries
     ]
+    # B2(2026-08-14): 恢复邮件尾加"无需操作,已自动恢复"提示
+    rec_lines.append("— 无需操作, 异常已自动恢复 —")
     body = "<br>".join(
         l.replace("<", "&lt;").replace(">", "&gt;") for l in rec_lines
     )

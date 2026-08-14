@@ -10,6 +10,8 @@
 #   5) 功能及时性：signal_kelly annualized_return 口径（<100% = OK，>100% = 旧 258% 公式 SEVERE）+ 日频数据时效
 #
 # 72h 超时自停：启动时写 /tmp/monitor_72h_start 时间戳，每次跑检查 elapsed>72h 则 launchctl bootout 自卸载 + notify。
+# A6(2026-08-14 告警优化)：到期自停前把仍 active/pending 的 72h_ 项收集进通知，转告警提示
+#   转由常驻 schedule_monitor/self_heal 复查或人工评估接管（防监控项无声丢失）。
 # 告警：复用 notify.py + alert_state.json（key 前缀 72h_ 避免与 schedule_monitor 冲突）。
 # 频率：launchd 每30min（Minute=10/40），与 schedule_monitor(0/15/30/45) + self_heal(7/22/37/52) 错开。
 # 安全：只读 curl + launchctl + git log + 本地文件检查，不 push main 不写 DB 不跑采集，零生产风险。
@@ -39,10 +41,29 @@ except Exception:
 ")
 if [ "$ELAPSED" -gt 259200 ]; then
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] [72h监控] 已运行${ELAPSED}s 超72h，自动停止" >> "$REPO/data/logs/monitor_72h.log"
+  # A6(2026-08-14 告警优化): 72h 到期交接 —— 收集仍 active/pending 的 72h_ key,
+  # 转告警一次提示接管(常驻 schedule_monitor/self_heal 复查或人工评估), 防监控项无声丢失。
+  ACTIVE_72H="$("$REPO/.venv/bin/python" -c "
+import json, os
+from pathlib import Path
+p = Path(os.environ['REPO']) / 'data' / 'alert_state.json'
+try:
+    d = json.loads(p.read_text(encoding='utf-8'))
+except Exception:
+    d = {}
+acts = [k for k, v in d.items() if k.startswith('72h_') and v.get('status') in ('active', 'pending')]
+print('\n'.join(acts) if acts else '')
+" 2>/dev/null)"
   # 通知主控 72h 到期
+  BODY="72h 持续监控已运行 ${ELAPSED}s 超72h，自动 launchctl bootout 停止。如需继续请重新加载 plist。"
+  if [ -n "$ACTIVE_72H" ]; then
+    BODY="$BODY
+【72h监控即将停止，请评估常驻覆盖】以下监控项仍 active/pending，需转由常驻 schedule_monitor/self_heal 复查或人工接管：
+$(echo "$ACTIVE_72H" | sed 's/^/  - /')"
+  fi
   "$REPO/.venv/bin/python" "$REPO/scripts/notify.py" \
     "[72h监控] 到期停止 $(date '+%m-%d %H:%M')" \
-    "72h 持续监控已运行 ${ELAPSED}s 超72h，自动 launchctl bootout 停止。如需继续请重新加载 plist。" \
+    "$BODY" \
     --from-prefix "[72h监控]" \
     --alert-issue "72h监控到期停止" \
     --alert-log "$REPO/data/logs/monitor_72h.log" \
