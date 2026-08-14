@@ -1742,6 +1742,8 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn) {
   ).join("");
   // off 按钮(2026-08-13): 复用 .sig-kbtn 样式, data-k="off" 由 _bindSigSwitchRow 识别为关(写 tds_poscap {on:false})
   const _offBtn = `<button type="button" class="sig-kbtn sig-kbtn-off${_pcOn ? "" : " active"}" data-k="off" data-no-pop=""><span class="sig-kbtn-k">关</span><span class="sig-kbtn-r">off</span></button>`;
+  // 参考说明按钮(2026-08-14): 放在 off 之后, 复用 .sig-kbtn 样式, data-k="help" 由 _bindSigSwitchRow 识别为弹「推荐操作方法」说明弹窗(短线 A/F + 中长线 G + 引导信号凯利回测)
+  const _helpBtn = `<button type="button" class="sig-kbtn sig-kbtn-help" data-k="help" data-no-pop="" title="参考说明: 推荐操作方法(短线 A/F 玩法 / 中长线 G 玩法) + 跳转信号凯利回测校验各模式回测数据"><span class="sig-kbtn-k">参考</span><span class="sig-kbtn-r">说明</span></button>`;
   // 2026-08-13 hoverpop 升级: K 按钮组复用凯利区评级表格 hoverpop(共享 common.js _aiPoscapRatingPopHtml/_bindAiPoscapRatePop, §22 两处数据一致)
   const _ratingPop = (window._aiPoscapRatingPopHtml ? window._aiPoscapRatingPopHtml() : "");
   return `<div class="sig-switch-row" data-no-pop="">` +
@@ -1749,7 +1751,7 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn) {
       `<input type="checkbox" class="sig-switch-ai-cb"${_fadeOn ? " checked" : ""}> AI降亏过滤` +
       `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 开启=首页按降亏策略判定, 固定 7 键成员级(基础4: 追关注×熊市交叉 / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 + 核心3键: 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致), 命中降亏条件的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); 关闭=首页完全不判降亏、不灰显不删除线不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号。">ⓘ</span>` +
     `</label>` +
-    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap): 同日只买最优K个, 未进入前K=当日已满灰显; 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表, 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span></span>` +
+    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap): 同日只买最优K个, 未进入前K=当日已满灰显; 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表, 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_helpBtn}${_ratingPop}</span></span>` +
     `</div>`;
 }
 // 绑定首页开关行事件(K 按钮 + AI降亏 checkbox), 改状态后重绘 sigCard; 每次渲染开关行后调用
@@ -1761,6 +1763,11 @@ function _bindSigSwitchRow(sigCard) {
     if (kb) {
       e.preventDefault();
       e.stopPropagation();
+      if (kb.dataset.k === "help") {
+        // 参考说明按钮(2026-08-14): 弹「推荐操作方法」说明弹窗(短线 A/F + 中长线 G + 引导信号凯利回测), 不改任何状态
+        _openRefHelpModal();
+        return;
+      }
       if (kb.dataset.k === "off") {
         // AI仓位建议 off 按钮(2026-08-13): 写 tds_poscap {on:false}, 与凯利区 _kellySetSharedPosCap(false,k) 同键同语义(§22 联动),
         // 关闭后该区域退化为普通信号列表(无「AI建议N」「当日已满」badge), 再点某 K 档恢复 {on:true,k}
@@ -1798,6 +1805,68 @@ function _bindSigSwitchRow(sigCard) {
   });
   // 2026-08-13 hoverpop 升级: K 按钮评级表格 pop 绑定(共享 common.js _bindAiPoscapRatePop, §22 与凯利区同款; 初次渲染绑一次, 重绘后由 _rerenderSigCardContent 末尾重绑)
   _bindAiPoscapRatePop(sigCard);
+}
+
+// === 推荐操作方法「参考说明」弹窗(2026-08-14) ===
+// 首页信号处 AI仓位建议开关行「参考说明」按钮点击弹出: 讲清短线 A/F 玩法 + 中长线 G 玩法(白话操作),
+// + 引导跳转「信号凯利回测」(lab #lab?sub=sigkelly) 校验各模式回测数据。
+// 文案口径与凯利回测页 lab.js _sigKellyAfgRealtimeHtml / purpose-notes.js lab.sigkelly 一致(§21/§22):
+//   A=固定10天短线(买入后固定持有10天卖出, 快进快出) / F=持有15天短线(固定持有15天卖出)
+//   G=卖出信号中长线(指数卖出信号触发离场, 无信号持有至回测结束, 最贴近交易页信号驱动跟单, 总建议主选)
+// 复用 .rule-modal 弹窗样式(与「📊 技术信号&ETF信号灯参考」modal 同款, 项目既有弹窗机制, 不新造)。
+function _openRefHelpModal() {
+  let modal = document.getElementById("sigRefHelpModal");
+  const isFirst = !modal;
+  if (isFirst) {
+    modal = document.createElement("div");
+    modal.id = "sigRefHelpModal";
+    modal.className = "rule-modal hidden";
+    document.body.appendChild(modal);
+  }
+  const _jump = (e) => {
+    if (e) e.preventDefault();
+    // 跳转「信号凯利回测」子 tab(#lab?sub=sigkelly), 复用既有 tab 切换/renderTab 链路, 非假链接
+    state.labSubMode = "sigkelly";
+    state.labStrategy = null;
+    const labBtn = document.querySelector('button[data-tab="lab"]');
+    if (labBtn && !labBtn.classList.contains("active")) {
+      labBtn.click();
+    } else {
+      // 已在 lab tab(其他子模式): 直接按 sigkelly 重渲染
+      try { history.replaceState(null, "", location.pathname + location.search + "#lab?sub=sigkelly"); } catch (err) {}
+      renderTab();
+    }
+    _close();
+  };
+  const _close = () => { modal.classList.add("hidden"); document.body.style.overflow = ""; };
+  modal.innerHTML = '<div class="rule-modal-overlay"></div>' +
+    '<div class="rule-modal-body"><div class="rule-modal-header"><h3>📖 推荐操作方法 · 参考说明</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
+    '<div class="rule-modal-content">' +
+      '<div class="rule-card"><div class="rule-card-head">🔵 短线玩法：A / F（快进快出）</div>' +
+        '<p><b>A（固定10天短线）</b>：看到买入信号后买进，<b>固定持有 10 天就卖出</b>，快进快出，吃一段短线波段就离场。</p>' +
+        '<p><b>F（持有15天短线）</b>：看到买入信号后买进，<b>固定持有 15 天就卖出</b>，比 A 拿得稍久一点。</p>' +
+        '<p>白话理解：<b>持有周期短、跟着短线信号进出</b>，不恋战。适合想快进快出、资金周转快的玩法。</p>' +
+      '</div>' +
+      '<div class="rule-card"><div class="rule-card-head">🟢 中长线玩法：G（跟指数卖出信号离场）</div>' +
+        '<p><b>G（卖出信号中长线）</b>：看到买入信号后买进后<b>不急着卖</b>，一直持有；<b>只有当对应指数的「卖出信号」触发时才离场</b>；没触发卖出信号就继续持有到回测结束。</p>' +
+        '<p>白话理解：<b>跟随指数卖出信号触发离场、无信号就拿着</b>，是最贴近交易页面信号驱动跟单的方法，也是总建议的主选。</p>' +
+        '<p>进阶（可选）：G 玩法还可加一层仓位管理——持仓超过上限时，<b>先卖「刚买进、还没持有满 3 天」的年轻仓（保老仓、砍新仓）</b>，让老仓继续滚利润（详见凯利回测页「G 玩法完整交易方法」）。</p>' +
+      '</div>' +
+      '<div class="rule-card"><div class="rule-card-head">📊 校验各玩法回测数据</div>' +
+        '<p>想核对 A/F/G 各玩法的真实回测数据（收益率 / 最大持仓 / 回撤 / 样本等），请到 <b>「信号凯利回测」</b>页查看：</p>' +
+        '<p><a href="#" class="sig-ref-help-jump" data-no-pop="" style="color:var(--primary);font-weight:700;">➡️ 打开「信号凯利回测」，定位 A/F/G 模式数据</a></p>' +
+      '</div>' +
+      '<div class="rule-modal-footer">⚠ 以上为研究标注的操作说明，非交易指令；过往表现不代表未来收益。具体数值口径以「信号凯利回测」页实时数据为准。</div>' +
+    '</div>' +
+    '</div></div>';
+  modal.querySelector(".rule-modal-overlay").addEventListener("click", _close);
+  modal.querySelector(".rule-modal-close").addEventListener("click", _close);
+  modal.querySelector(".sig-ref-help-jump").addEventListener("click", _jump);
+  if (isFirst) {
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.classList.contains("hidden")) _close(); });
+  }
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
 }
 
 function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = true) {
@@ -1941,7 +2010,10 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           });
           _posCapKeptMap = new Map();
           for (const dt of dates) {
-            let _dayItems = windowedItems.filter((it) => it.date === dt);
+            // 2026-08-14 fix(用户报 814 列表只1条却标AI建议2): kept 集人口须与列表展示一致(popItems 档位筛选 + 排除 band_hold),
+            //   原来用 windowedItems(全量) 算 kept → 被默认档位筛选藏掉的信号仍占AI建议位, 导致列表可见项编号跳号(如列表只1条却标AI建议2)。
+            //   现改为 popItems(同函数作用域, L1868 档位筛选后人口) 上算, 并排除 band_hold(持有中性, 与「AI建议买入」语义不符且默认不可见), 编号与展示一一对应。
+            let _dayItems = popItems.filter((it) => it.date === dt && it.signal !== "band_hold");
             if (!_dayItems.length) continue;
             // 2026-08-13 融合口径(与凯利回测一致: 先滤降亏、再选top-K): 被降亏命中的信号不占AI建议位,
             // 顺延补位给后续未命中信号; 判定走共享谓词 _isAiFadeHit(受首页「AI降亏过滤」开关门控: 开关关→不滤, top-K 正常取)。
@@ -2007,10 +2079,10 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           const _capRank = _posCapRank.get(it) || 0;
           if (_capRank) {
             posCapCls = " sig-poscap-kept";
-            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 口径与凯利回测一致「先滤AI降亏、再选top-K」——命中降亏的信号不占AI建议位、顺延补位; 从存活信号按 跟踪分↓→评级→信号类型→买入日 当日排序取前${_posCapK}名进入AI建议买入; 序号=当日跟踪分降序第${_capRank}名(与凯利回测K档口径一致, 不随K档跳变; 列表视觉位置可能与编号不同序, 以编号为准); 存活者若命中AI降亏仍显示删除线建议回避（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议${_capRank}</sup>`;
+            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 口径与凯利回测一致「先滤AI降亏、再选top-K」——命中降亏的信号不占AI建议位、顺延补位; 在当前档位筛选(ETF档位+排除持有中性)的存活信号内按 跟踪分↓→评级→信号类型→买入日 当日排序取前${_posCapK}名进入AI建议买入(与列表展示同人口, 编号不跳号); 序号=当日跟踪分降序第${_capRank}名(与凯利回测K档口径一致, 不随K档跳变; 列表视觉位置可能与编号不同序, 以编号为准); 存活者若命中AI降亏仍显示删除线建议回避（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议${_capRank}</sup>`;
           } else {
             posCapCls = " sig-poscap-excluded";
-            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 当日从存活信号只建议最优${_posCapK}个, 本信号未进入AI建议, 当日已满; 命中AI降亏的信号已被过滤不占位（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">当日已满</sup>`;
+            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 当日从当前档位筛选(ETF档位+排除持有中性)的存活信号只建议最优${_posCapK}个, 本信号未进入AI建议, 当日已满; 命中AI降亏的信号已被过滤不占位（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">当日已满</sup>`;
           }
         }
         // 2026-08-13 C1 fix(reviewer): 恢复每 cell 渲染前的三变量初始化声明(重构时误删 → 隐式全局污染, 命中 cell 赋值后污染后方未命中 cell)。
