@@ -36,6 +36,7 @@
     update [--limit N]           增量所有 code（只拉 r 段 progress 之后到今天）
     one CODE [--start DATE]      单只全量（默认 19900101 到今天）
     upone CODE                   单只增量（r 段增量）
+    rebackfill YYYYMMDD          按日回补:只重采目标日缺的 code(防封禁致当日缺口)
     stats                        库统计
     codes                        重建 code 列表缓存（复用 D1 的）
 
@@ -568,6 +569,75 @@ def run_update(codes: list[str], *, save_every: int = 10, verbose: bool = True) 
             "details": details}
 
 
+def rebackfill_date(target_ymd: str, *, verbose: bool = True) -> dict:
+    """按日期回补:只重采目标日缺数据的 code(防 8-14 封禁致当日 turnover 缺口)。
+
+    背景(2026-08-14):baostock 对 4 并发中 2 连接返 10001011 黑名单,826 code 白等,
+    20260814 当日 turnover 缺失,增量模式次日不回补 -> 永久缺口。本命令只拉目标日缺的
+    code(002/300 段),单日 fetch + upsert,幂等(已有行不会被覆盖成空;缺的才补)。
+
+    用法:python -m app.collector.baostock_daily rebackfill 20260814
+    只采"progress['r'] 有记录(code 在宇宙内) 且 目标日 baostock_daily_raw 无行"的 code。
+    若 baostock 仍返 10001011,该 code 记 fail,可重跑;恢复后重跑自动补全。
+    """
+    init_db()
+    progress = load_progress()
+    # 目标日两种归一化:DB 存 8 位无连字符("20260814"),BaoStock API 要带连字符("2026-08-14")。
+    # 2026-08-14 reviewer FAIL P3-①:原 have_rows 用原始 target_ymd 查表,若传入带连字符
+    # ("2026-08-14")则匹配不到 DB 已采行 -> 已采 code 也被当 missing 重采(幂等破坏);
+    # fetch 用 _to_ymd 而查表用原始值,格式不一致。统一先 _norm_date 查 DB、_to_ymd 给 API。
+    target_db = _norm_date(target_ymd)     # "20260814"(匹配 baostock_daily_raw.date 存储格式)
+    target_fetch = _to_ymd(target_ymd)     # "2026-08-14"(BaoStock query API 要求)
+    # 宇宙 = progress['r'] 有记录(已 backfill recent 段的 code,与 turnover pipeline 同口径)
+    universe = [c for c, v in progress.items() if v.get("r")]
+    if not universe:
+        print("[rebackfill] progress 无 recent 段 code,先 reconcile 从 DB 重建", flush=True)
+        reconcile()
+        progress = load_progress()
+        universe = [c for c, v in progress.items() if v.get("r")]
+    # 目标日已有行的 code(用 DB 存储格式 target_db 匹配)
+    conn = get_conn()
+    have_rows = {r[0] for r in conn.execute(
+        "SELECT DISTINCT code FROM baostock_daily_raw WHERE date=?",
+        (target_db,))}
+    conn.close()
+    missing = [c for c in universe if c not in have_rows]
+    print(f"[rebackfill] 目标日 {target_db}: 宇宙 {len(universe)} code, "
+          f"已有 {len(universe)-len(missing)}, 缺 {len(missing)} code", flush=True)
+    if not missing:
+        print("[rebackfill] 无缺码,已完整。", flush=True)
+        return {"target": target_db, "missing": 0, "ok": 0, "fail": 0, "rows": 0}
+
+    start = end = target_fetch  # 只拉目标单日
+    ok = fail = total_rows = 0
+    fails: list[tuple[str, str]] = []
+    for i, code in enumerate(missing):
+        try:
+            rows, msg = fetch_one(code, start, end)
+        except Exception as e:  # noqa: BLE001
+            rows, msg = [], f"{type(e).__name__}: {str(e)[:150]}"
+        if rows:
+            n = upsert_rows(rows)
+            total_rows += n
+            ok += 1
+            if verbose:
+                print(f"  [{i+1}/{len(missing)}] {code}: ok +{n} rows", flush=True)
+        else:
+            fail += 1
+            fails.append((code, msg))
+            if verbose:
+                print(f"  [{i+1}/{len(missing)}] {code}: FAIL {msg[:100]}", flush=True)
+    # 写 fail 明细到日志(排查用)
+    if fails:
+        log_path = _DATA_DIR / "baostock_logs" / f"rebackfill_{target_ymd}.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text("\n".join(f"{c}\t{m}" for c, m in fails), encoding="utf-8")
+    print(f"[rebackfill] {target_ymd} done: ok={ok} fail={fail} rows={total_rows} "
+          f"({len(missing)} missing)", flush=True)
+    return {"target": target_ymd, "missing": len(missing), "ok": ok, "fail": fail,
+            "rows": total_rows}
+
+
 def reconcile() -> int:
     """从 DB 实际数据重建 progress（修并行采数时 progress.json 可能的写覆盖）。
 
@@ -689,6 +759,17 @@ def _cli(argv: list[str]) -> int:
         save_progress(prog)
         print(f"{code}: {msg}")
         return 0
+
+    if cmd == "rebackfill":
+        if len(argv) < 3:
+            print("usage: rebackfill YYYYMMDD (只重采目标日缺的 code)"); return 1
+        target = _norm_date(argv[2])  # 2026-08-14 / 20260814 -> 20260814(8 位,DB 格式)
+        # 2026-08-14 reviewer FAIL P3-①:target 补 8 位校验,防非法/非日期输入
+        if len(target) != 8 or not target.isdigit():
+            print(f"!! rebackfill 目标日格式非法: {argv[2]} (须 YYYYMMDD 或 YYYY-MM-DD)")
+            return 1
+        res = rebackfill_date(target, verbose=True)
+        return 0 if res.get("fail", 0) == 0 else 2
 
     # 批量命令：recent / old / full / update
     if cmd in ("recent", "old", "full", "update"):

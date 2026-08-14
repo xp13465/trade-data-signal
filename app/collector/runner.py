@@ -6,18 +6,38 @@
   mootdx / industry_width / width_history / futures / ad_line / turnover
 依赖由调用方保证（如 width pipeline 传 ["mootdx","industry_width","width_history"]）。
 """
+import os
 import signal
+import subprocess
 import sys
 import datetime as dt
+from pathlib import Path
 
 from ..db import get_conn
 from ..calendar import last_trading_day
 from . import fetchers
 from .base import log_collect
 
+# notify.py 路径（告警触发通知用，见 P3-②）
+_NOTIFY_PY = Path(__file__).absolute().parent.parent.parent / "scripts" / "notify.py"
 
-def _now():
-    return dt.datetime.now().isoformat()
+
+def _notify(subject: str, body: str, *, dedup_key: str, dedup_window: int = 86400):
+    """subprocess 调 scripts/notify.py 发告警（邮件+TG+飞书），失败不抛异常。
+
+    2026-08-14 reviewer FAIL P3-②：覆盖率<95% 等采集异常仅 fail+=1 进日志不达用户，
+    此处走 notify.py 触发通知。--dedup-key 一天一次防轰炸（same 日不重复告警）。
+    """
+    try:
+        subprocess.run(
+            [sys.executable, str(_NOTIFY_PY), subject, body,
+             "--severe", "--from-prefix", "[告警]",
+             "--dedup-key", dedup_key, "--dedup-window", str(dedup_window)],
+            timeout=60, check=False,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except Exception:  # noqa: BLE001  通知失败不阻塞采集
+        pass
 
 
 def _want(steps, name):
@@ -28,6 +48,32 @@ def _want(steps, name):
 def _mootdx_timeout_handler(signum, frame):  # noqa: ARG001
     """SIGALRM 处理器：mootdx step 超 30min 抛 TimeoutError 跳过，防阻塞 update_all。"""
     raise TimeoutError("mootdx step timeout 30min")
+
+
+def _turnover_date_coverage(date_ymd, universe):
+    """查 baostock_daily_raw 中目标日有数据的 code 数，返回 (count, reference)。
+
+    用于 2026-08-14 update_all 提速 方案B：防部分采集静默用偏样本。
+    覆盖率 = count / len(universe)。universe 取 turnover pipeline 的 todo 集
+    （progress['r'] 有记录的 code）。异常返回 None。
+
+    2026-08-14 reviewer FAIL P3-③：异常返回 None 在本函数=仅"快速告警"静默窗口，
+    **数据写入拦截已下沉到 cleanup_d3d2.run_turnover() 内部逐日校验**（count <
+    max(4000, 0.95×universe) 才跳过），故本函数异常不会静默放行偏样本写入——
+    由 cleanup 兜底。本函数仅用于 runner 层的快速告警 + notify 触发。
+    """
+    try:
+        from . import baostock_daily
+        conn = baostock_daily.get_conn()
+        try:
+            n = conn.execute(
+                "SELECT COUNT(DISTINCT code) FROM baostock_daily_raw WHERE date=?",
+                (date_ymd,)).fetchone()[0]
+        finally:
+            conn.close()
+        return int(n), len(universe)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def upsert_metric(date, metric_id, value, source="akshare"):
@@ -429,6 +475,31 @@ def run(date=None, verbose=True, steps=None):
                     details.append(("baostock_turnover", "ok" if res["fail"] == 0 else "fail",
                                     f"+{res['total_rows']} rows, {res['ok']} ok/{res['fail']} fail "
                                     f"({len(todo)} codes, parallel)"))
+                    # 2026-08-14 方案B：当日覆盖率 <95% 时记 skipped_partial 告警。
+                    # 真正的写入拦截已下沉到 cleanup_d3d2.run_turnover() 内部统一处理
+                    # （reviewer FAIL P2-2），本处只保留快速告警，不阻断 run_turnover 调用
+                    # ——否则会漏掉"历史待补日(如 8-14)在下次增量重算时被 cleanup 拦截"的兜底。
+                    _cov = _turnover_date_coverage(date, todo)
+                    if _cov is not None and _cov[0] < 0.95 * _cov[1]:
+                        fail += 1
+                        details.append(("baostock_turnover", "skipped_partial",
+                                        f"当日{date}覆盖率 {_cov[0]}/{_cov[1]} "
+                                        f"({_cov[0]/_cov[1]*100:.1f}%) <95%，该日偏样本将由 "
+                                        f"cleanup_d3d2 拦截不写(待回补)"))
+                        print(f"  [turnover] 告警: {date} 覆盖率 "
+                              f"{_cov[0]/_cov[1]*100:.1f}% <95%，a_turnover_* 该日偏样本由 "
+                              f"cleanup_d3d2 拦截不写，待 baostock 回补(见 rebackfill 命令)", flush=True)
+                        # P3-②：告警不达用户(仅 fail+=1 进日志)，走 notify.py 通知用户
+                        _notify(
+                            f"[告警] baostock 当日覆盖率不足 {date} "
+                            f"({_cov[0]/_cov[1]*100:.1f}%)",
+                            f"<b>baostock {date} 采集覆盖率不足</b><br>"
+                            f"覆盖率 {_cov[0]}/{_cov[1]} = {_cov[0]/_cov[1]*100:.1f}% &lt; 95%"
+                            f"，a_turnover_* 该日偏样本已拦截不写。<br>"
+                            f"待 baostock 封禁解除后 <code>python -m app.collector.baostock_daily "
+                            f"rebackfill {date}</code> 补码并重跑 turnover。",
+                            dedup_key="baostock_turnover_partial", dedup_window=86400,
+                        )
                 else:
                     details.append(("baostock_turnover", "ok", "skip (no progress)"))
             except Exception as e:  # noqa: BLE001
@@ -437,7 +508,8 @@ def run(date=None, verbose=True, steps=None):
         else:
             details.append(("baostock_turnover", "ok",
                             "skip (需 RUN_BAOSTOCK=1; turnover pipeline 已设)"))
-        # 算换手率分布（增量，快；部分采集日自动跳过待补全）
+        # 算换手率分布（增量，快；部分采集日由 cleanup_d3d2.run_turnover 内部按
+        # count < max(4000, 0.95×universe) 统一拦截跳过，待 baostock 补全后重跑自动补回）
         try:
             from . import cleanup_d3d2
             tres = cleanup_d3d2.run_turnover()
