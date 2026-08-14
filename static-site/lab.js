@@ -8268,7 +8268,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
 
 // 费率切换处理
 async function _kellyOnFeeChange(presetKey) {
-  if (!state.labSigKellyFeePreset) state.labSigKellyFeePreset = "etf_def";
+  if (!state.labSigKellyFeePreset) state.labSigKellyFeePreset = "etf_main";
   state.labSigKellyFeePreset = presetKey;
   // 更新 feeParams
   if (presetKey === "custom") {
@@ -8294,10 +8294,10 @@ async function _kellyOnFeeChange(presetKey) {
       if (stats) {
         state.labSigKellyFeeStats = stats;
       } else {
-        // 加载失败: 回退原始stats(无费率消耗列)
-        state.labSigKellyFeePreset = "etf_def";
+        // 加载失败: 回退原始stats(无费率消耗列) — 2026-08-14 默认档改 ETF主流(etf_main)
+        state.labSigKellyFeePreset = "etf_main";
         state.labSigKellyFeeParams = {
-          commission_rate: 0.0003, min_commission: 5, slippage: 0.001,
+          commission_rate: 0.00005, min_commission: 0.1, slippage: 0.001,
           transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0,
         };
         state.labSigKellyFeeStats = null;
@@ -8381,7 +8381,7 @@ async function _kellyOnFilterChange() {
 // 当前费率标签
 function _kellyFeeLabel() {
   var preset = KELLY_FEE_PRESETS.find(function (p) { return p.key === state.labSigKellyFeePreset; });
-  return preset ? preset.label : "ETF默认";
+  return preset ? preset.label : "ETF主流";
 }
 // 轻量 toast(凯利区, #54 2026-08-13 重置按钮反馈)
 function _kellyToast(msg) {
@@ -8553,10 +8553,10 @@ async function renderSigKellyLab() {
   // 默认周期 y1(对比矩阵已移除,卡片视图常驻,主表+进阶表合并为一张宽表)
   if (!state.labSigKellyPeriod) state.labSigKellyPeriod = "y1";
   const period = state.labSigKellyPeriod;
-  // 初始化费率客调state(默认ETF档=当前后端费率)
+  // 初始化费率客调state(默认ETF主流档=万0.5最低0.1, 2026-08-14 用户改默认: ETF主流; 渲染数据随费率档联动重算 → 按ETF主流口径渲染 §22)
   if (!state.labSigKellyFeePreset) {
-    state.labSigKellyFeePreset = "etf_def";
-    state.labSigKellyFeeParams = { commission_rate: 0.0003, min_commission: 5, slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0 };
+    state.labSigKellyFeePreset = "etf_main";
+    state.labSigKellyFeeParams = { commission_rate: 0.00005, min_commission: 0.1, slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0 };
   }
   // 降亏过滤toggle state(AI宏默认已开启: positionCap+追关注×熊市+J1/J2(1月调整)+n2(11月+追关注+行业), 2026-08-12用户拍板"替换默认(AI宏=新默认)", 见 _kellyDefaultFilters)
   // 注意: labSigKellyFilters 仅内存态(每次页面加载都从 _kellyDefaultFilters AI宏 重建, 不读写 localStorage)——
@@ -8850,7 +8850,7 @@ function _renderSigKellyBar(bar, data, period) {
   const modes = cfg.sell_modes || {};
   const modeStr = Object.keys(modes).map((k) => modes[k] ? `${k}:${_sigKellyModeLabelWith(k, modes[k].label)}` : k).join(" · ");
   // 费率预设按钮
-  const curFee = state.labSigKellyFeePreset || "etf_def";
+  const curFee = state.labSigKellyFeePreset || "etf_main";
   const feeBtnsHTML = KELLY_FEE_PRESETS.map((p) => {
     const active = p.key === curFee ? " active" : "";
     const title = p.desc || "";
@@ -8933,7 +8933,7 @@ function _renderSigKellyBar(bar, data, period) {
   // 2026-08-12 #4 rename+范围扩展: 显示名改"AI仓位建议"(技术别名:仓位控制过滤), pop tooltip 完整展示; 历史回测数据固化展示(下方 poscapHistoryHTML)
   const _pcK = _filters.positionCapK || 1;
   // 2026-08-13: K档位评级标注 + hover 评级理由表格(展示层, 不改算法; 数据=共享单一数据源 common.js window._AI_POSCAP_RATING, §22 与首页 app.js 一致, 勿单改数值)
-  // 口径=AI宏默认3元(r7 5月强化+3稳定非5月/exclAuxCross 辅关注×3/5月交叉/greedy15)+A模式(固定10天)+每日资金池等分+top-K +费率etf_def+全周期, 与 AI宏 hoverpop 3元 口径一致
+  // 口径=AI宏默认3元(r7 5月强化+3稳定非5月/exclAuxCross 辅关注×3/5月交叉/greedy15)+A模式(固定10天)+每日资金池等分+top-K +费率etf_main(ETF主流, 2026-08-14 默认改)+全周期, 与 AI宏 hoverpop 口径一致
   // 2026-08-14 #48+#BC: 静态快照由 fixed(比例法) 重算为每日池+费率重算口径(含最低佣金5元, 与动态 _kellyApplyFeeRecompute 一致 §22); §22 与 common.js _AI_POSCAP_RATING/首页 app.js tooltip 三处一致; 主推 K1
   const _pcRating = window._AI_POSCAP_RATING || {
     1: { name: "最激进", ret: "86.60%", dd: "15.99%", ra: "5.42", n: "1,202", reason: "收益率最高+回撤最小+样本最少,主推★" },
@@ -9628,6 +9628,22 @@ function _sigKellyAfgRealtimeHtml() {
 }
 
 // 全信号表(最后结果): 全信号「all」伪象限卡(实时随toggle/费率/周期) + 按年窗口增长表
+// 2026-08-14 需求②: 来源条件归纳提示——动态读当前状态拼出「当前[模式]+[k档]+[降亏N标志]+[费率口径](+[G档])」,
+//   不写死, 实时反映本表数据实际使用的条件(卖出模式下拉选中 + AI仓位K档 + 降亏标志集 + 费率档; G 模式额外补 G 三档自选)
+function _kellyYearlySourceHint(modeKey) {
+  var parts = ["[" + (modeKey || "G") + "]"];
+  var f = state.labSigKellyFilters || _kellyDefaultFilters();
+  parts.push(f.positionCap ? ("[k=" + (f.positionCapK || 1) + "]") : "[k=off]");
+  var flagCount = 0;
+  for (var kk in f) {
+    if (kk === "positionCap" || kk === "positionCapK") continue;
+    if (f[kk] === true) flagCount++;
+  }
+  parts.push("[降亏" + flagCount + "标志]");
+  parts.push("[" + _kellyFeeLabel() + "]");
+  if (modeKey === "G") parts.push("[G档" + _kellyGihGTier() + "]");
+  return "当前" + parts.join("+");
+}
 function _sigKellyAllSignalGroupHtml(period) {
   const feeStats = state.labSigKellyFeeStats;
   if (!feeStats || !feeStats.all) {
@@ -9645,7 +9661,6 @@ function _sigKellyAllSignalGroupHtml(period) {
     : (Object.keys(_ymModes).length ? Object.keys(_ymModes).sort() : ["G"]);
   if (_ymOpts.indexOf(_selMode) < 0 && _ymOpts.length) state.labSigKellyYearlyMode = _ymOpts[0];
   const _selModeFinal = state.labSigKellyYearlyMode || "G";
-  const _ymLabel = (_ymModes[_selModeFinal] && _ymModes[_selModeFinal].label) ? _ymModes[_selModeFinal].label : _selModeFinal;
   const _ymOptionsHtml = _ymOpts.map((_mk) => {
     const _ml = (_ymModes[_mk] && _ymModes[_mk].label) ? _ymModes[_mk].label : _mk;
     return `<option value="${_mk}"${_mk === _selModeFinal ? " selected" : ""}>${_mk} · ${_ml}</option>`;
@@ -9679,7 +9694,7 @@ function _sigKellyAllSignalGroupHtml(period) {
           `<div class="lab-sigkelly-yearly-modebar">` +
             `<label class="lab-sigkelly-yearly-mode-label" for="lab-sigkelly-yearly-mode">卖出模式</label>` +
             `<select id="lab-sigkelly-yearly-mode" class="lab-sigkelly-yearly-mode-select" data-yearly-mode="1">${_ymOptionsHtml}</select>` +
-            `<span class="lab-sigkelly-yearly-mode-cur">当前：${_selModeFinal} · ${_ymLabel}</span>` +
+            `<span class="lab-sigkelly-yearly-mode-cur" title="本表数据来源条件：卖出模式 + AI仓位K档 + 降亏标志集 + 费率口径，实时随上方勾选/费率档联动">${_kellyYearlySourceHint(_selModeFinal)}</span>` +
           `</div>` +
           `<div class="lab-sigkelly-table-scroll"><table class="lab-sigkelly-table lab-sigkelly-yearly-table">` +
             `<thead><tr><th>年份</th><th>笔数</th><th>净盈亏(元)</th><th>累计净盈亏(元)</th><th>胜率</th><th title="=该年累计净盈亏/该年峰值同时持仓资金×100, 与卡面/建议面板峰值资金收益率同口径">峰值资金<br>收益率</th></tr></thead>` +
@@ -10550,7 +10565,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       }
     }
 
-    const feeLabel = (state.labSigKellyFeePreset && state.labSigKellyFeePreset !== "etf_def") ? ` · 费率:${_kellyFeeLabel()}` : "";
+    const feeLabel = (state.labSigKellyFeePreset && state.labSigKellyFeePreset !== "etf_main") ? ` · 费率:${_kellyFeeLabel()}` : "";
     overlay.innerHTML =
       `<div class="lab-sigkelly-modal">` +
         `<div class="lab-sigkelly-modal-head">` +

@@ -1621,7 +1621,7 @@
 .lab-sigkelly-table th, .lab-sigkelly-table td { padding: 5px 6px; text-align: center; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .lab-sigkelly-table th { font-weight: 600; color: var(--text-3); font-size: 11px; }
 .lab-sigkelly-table td:first-child { text-align: left; }
-.lab-sigkelly-modelbl { display: block; font-size: 10px; color: var(--text-4); }
+.lab-sigkelly-modelbl { display: inline; font-size: 10px; color: var(--text-4); margin-left: 4px; }
 .lab-sigkelly-hk { white-space: nowrap; }
 .lab-kelly-tier { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 12px; font-weight: 700; }
 .lab-kelly-aggressive { background: rgba(220, 38, 38, 0.15); color: #dc2626; }
