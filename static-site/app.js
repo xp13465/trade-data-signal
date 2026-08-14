@@ -1772,18 +1772,17 @@ function _sigHelpPopHtml() {
     '<div class="sig-kbtn-help-pop-foot">💡 点击按钮查看完整操作指南，并可跳转「信号凯利回测」校验 A/F/G 各模式回测数据。</div>' +
     '</div>';
 }
-// 绑定参考说明按钮独立 hoverpop(2026-08-14): 自包含定位(相对 .sig-kbtn-help-wrap, 右对齐, 右越界左移), 桌面 hover / 移动端 tap 切换;
+// 绑定参考说明按钮独立 hoverpop(2026-08-14): 自包含定位(相对 .sig-kbtn-help-wrap, 右对齐, 右越界左移), 桌面 hover 显示;
+// 点击 help 由 _bindSigSwitchRow 委托弹说明弹窗(桌面/移动端均开弹窗), hoverpop 不拦截点击(无 stopPropagation, 不抢弹窗);
 // 与 K 评级 pop(_bindAiPoscapRatePop)互不干扰——help 按钮已移出 .lab-sigkelly-posrate trigger, 各管各的 pop
 function _bindSigHelpPop(container) {
   if (!container) return;
-  var isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
   container.querySelectorAll(".sig-kbtn-help-wrap").forEach(function (wrap) {
     if (wrap._sigHelpBound) return;
     wrap._sigHelpBound = true;
     var btn = wrap.querySelector(".sig-kbtn-help");
     var pop = wrap.querySelector(".sig-kbtn-help-pop-wrap");
     if (!btn || !pop) return;
-    var openByClick = false;
     var show = function () {
       pop.style.display = "block";
       // 定位: 右对齐 trigger, 左越界左移但不超左边界
@@ -1793,31 +1792,10 @@ function _bindSigHelpPop(container) {
       pop.style.left = left - tr.left + "px";
     };
     var hide = function () { pop.style.display = "none"; pop.style.left = ""; };
-    btn.addEventListener("mouseenter", function () { if (!openByClick) show(); });
-    btn.addEventListener("mouseleave", function () { if (!openByClick) hide(); });
-    btn.addEventListener("click", function (e) {
-      // help 点击由 _bindSigSwitchRow 弹说明弹窗; 这里仅在移动端做 tap 开/关 hoverpop(tap 不弹说明弹窗)
-      if (!isTouch) return;
-      e.stopPropagation();
-      openByClick = pop.style.display !== "block";
-      if (openByClick) show(); else hide();
-    });
+    btn.addEventListener("mouseenter", show);
+    btn.addEventListener("mouseleave", hide);
+    // 注意: 不在此绑 click——help 点击需冒泡到 sigCard 级 _bindSigSwitchRow 委托弹说明弹窗
   });
-  // 移动端: 点别处关闭 help pop
-  if (isTouch && !document._sigHelpDocBound) {
-    document._sigHelpDocBound = true;
-    document.addEventListener("click", function (e) {
-      if (e.target.closest && e.target.closest(".sig-kbtn-help-wrap")) return;
-      document.querySelectorAll(".sig-kbtn-help-pop-wrap").forEach(function (p) {
-        if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; }
-      });
-    }, true);
-    window.addEventListener("scroll", function () {
-      document.querySelectorAll(".sig-kbtn-help-pop-wrap").forEach(function (p) {
-        if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; }
-      });
-    }, { passive: true, capture: true });
-  }
 }
 // 绑定首页开关行事件(K 按钮 + AI降亏 checkbox), 改状态后重绘 sigCard; 每次渲染开关行后调用
 function _bindSigSwitchRow(sigCard) {
@@ -1870,6 +1848,8 @@ function _bindSigSwitchRow(sigCard) {
   });
   // 2026-08-13 hoverpop 升级: K 按钮评级表格 pop 绑定(共享 common.js _bindAiPoscapRatePop, §22 与凯利区同款; 初次渲染绑一次, 重绘后由 _rerenderSigCardContent 末尾重绑)
   _bindAiPoscapRatePop(sigCard);
+  // 2026-08-14 参考说明按钮独立 hoverpop 绑定(自包含, 与 K 评级 pop 互不干扰; 初次渲染绑一次, 重绘后由 _rerenderSigCardContent 末尾重绑)
+  _bindSigHelpPop(sigCard);
 }
 
 // === 推荐操作方法「参考说明」弹窗(2026-08-14) ===
@@ -2419,6 +2399,8 @@ function _rerenderSigCardContent(r, snap) {
   }
   // 2026-08-13 hoverpop 升级: 开关行(.sig-switch-row)重绘替换后重新绑定 K 按钮评级 pop(旧 trigger 已销毁, 新 trigger 需重新 bind)
   _bindAiPoscapRatePop(sigCard);
+  // 2026-08-14 参考说明按钮独立 hoverpop 重绑(与 K 评级 pop 同模式, 旧 wrap 已销毁需重新 bind)
+  _bindSigHelpPop(sigCard);
 }
 
 // ts:overview-refreshed hook: collected_at 变化时增量重绘 sigCard(非概览 tab / 无数据 / 同 collected_at 跳过)

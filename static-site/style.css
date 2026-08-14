@@ -962,6 +962,27 @@ main { padding: 16px 24px; }
 /* 2026-08-13 首页 AI仓位建议 off 按钮: 关闭态用警示红区分(K 档主推为 primary 蓝), 表示 AI仓位建议已关闭显示 */
 .sig-kbtn-off.active { background: #b42318; border-color: #b42318; }
 [data-theme="dark"] .sig-kbtn-off.active, [data-theme="redgold"] .sig-kbtn-off.active { background: #d4380d; border-color: #d4380d; }
+/* 2026-08-14 参考说明按钮独立化: 独立样式(不复用 .sig-kbtn 与 off 同款, 不复用 K 评级 hoverpop)——
+   主色系描边 + 浅底, 明显可点击、不喧宾夺主; .sig-kbtn-help-wrap 自包含定位, 独立 hoverpop(.sig-kbtn-help-pop-wrap/.sig-kbtn-help-pop) */
+.sig-kbtn-help-wrap { position: relative; display: inline-flex; align-items: center; margin-left: 2px; }
+.sig-kbtn-help { min-width: 58px; padding: 2px 8px; border: 1px solid var(--primary); border-radius: 4px; background: var(--primary-bg); color: var(--primary); line-height: 1.25; transition: all 0.15s; }
+.sig-kbtn-help:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+.sig-kbtn-help .sig-kbtn-k { font-size: 11px; font-weight: 700; }
+.sig-kbtn-help .sig-kbtn-r { font-size: 9px; font-weight: 400; opacity: 0.9; }
+.sig-kbtn-help:hover .sig-kbtn-r { color: inherit; opacity: 0.95; }
+.sig-kbtn-help-pop-wrap { position: absolute; z-index: 60; top: 100%; right: 0; margin-top: 4px; display: none; white-space: normal; }
+.sig-kbtn-help-pop-wrap::before { content: ""; position: absolute; top: -4px; left: 0; right: 0; height: 4px; }
+.sig-kbtn-help-pop { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; box-shadow: 0 4px 16px var(--shadow-strong); font-size: 11px; line-height: 1.5; color: var(--text-2); width: 330px; max-width: calc(100vw - 16px); }
+.sig-kbtn-help-pop-title { font-size: 12px; font-weight: 700; color: var(--text-1); margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.sig-kbtn-help-pop-sec { margin-bottom: 5px; }
+.sig-kbtn-help-pop-tag { display: inline-block; font-weight: 700; margin-right: 4px; }
+.sig-kbtn-help-pop-tag-short { color: #1d4ed8; }
+.sig-kbtn-help-pop-tag-long { color: #16a34a; }
+[data-theme="dark"] .sig-kbtn-help-pop-tag-short, [data-theme="redgold"] .sig-kbtn-help-pop-tag-short { color: #93c5fd; }
+[data-theme="dark"] .sig-kbtn-help-pop-tag-long, [data-theme="redgold"] .sig-kbtn-help-pop-tag-long { color: #86efac; }
+.sig-kbtn-help-pop-body { color: var(--text-2); }
+.sig-kbtn-help-pop-foot { color: var(--text-4); font-size: 10px; line-height: 1.45; border-top: 1px dashed var(--border); padding-top: 5px; margin-top: 2px; }
+@media (max-width: 760px) { .sig-kbtn-help-pop { width: min(330px, calc(100vw - 16px)); font-size: 10.5px; padding: 7px 9px; } }
 /* 2026-08-13 AI 降亏过滤命中灰显: 总开关开 + 命中降亏条件(凯利区实际开启) → 灰显+删除线(建议回避), 与 poscap 灰显视觉区分(更强调) */
 .sig-item.sig-ai-hit { opacity: 0.45; filter: grayscale(0.5); text-decoration: line-through; }
 .sig-ai-hit-badge { font-size: 10px; vertical-align: super; line-height: 0; margin-left: 2px; cursor: help; font-weight: 600; border-radius: 3px; padding: 0 3px; color: #b42318; background: #b423181a; text-decoration: none; }
