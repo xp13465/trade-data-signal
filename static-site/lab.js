@@ -8173,13 +8173,16 @@ async function _kellyApplyFeeRecompute(feeParams) {
           _bK.profit += _bC.r.profit;
           _bK.n++;
           if (_bC.r.profit > 0) _bK.wins++; else _bK.loss++;
-          _bK._trades.push({ buy_date: _bT[fIdx.buy_date] || "", sell_date: _bT[fIdx.sell_date] || "", amount: _bAmt });
+          _bK._trades.push({ buy_date: _bT[fIdx.buy_date] || "", sell_date: _bT[fIdx.sell_date] || "", amount: _bAmt, profit: _bC.r.profit });
         }
         for (var _by in _ymap) {
           var _bv = _ymap[_by];
           var _bmcc = _kellyMaxConcurrentCapital(_bv._trades);
           _bv.peak_capital = _bmcc;
           _bv.peak_return_pct = _bmcc > 0 ? Math.round(_bv.profit / _bmcc * 100 * 10000) / 10000 : 0;
+          // 2026-08-14 按年峰值资金回撤 = 该年最大回撤金额 / 该年峰值同时持仓资金 × 100 (与 hoverpop/AI仓位K评级 max_drawdown/max_concurrent_capital 同口径, 只是按年; §22)
+          var _bdd = _kellyMaxDrawdown(_bv._trades).abs;
+          _bv.peak_drawdown_pct = _bmcc > 0 ? Math.round(_bdd / _bmcc * 100 * 10000) / 10000 : 0;
           delete _bv._trades;
         }
         return _ymap;
@@ -9680,9 +9683,12 @@ function _sigKellyAllSignalGroupHtml(period) {
     // 按年峰值资金收益率列(2026-08-12): =该年累计净盈亏/该年峰值同时持仓资金×100, 与卡面/建议面板口径一致(§22)
     const yPeakStr = v.peak_return_pct != null ? v.peak_return_pct.toFixed(2) + "%" : "-";
     const yPeakCls = v.peak_return_pct == null ? "" : (v.peak_return_pct >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg");
-    yRows += `<tr><td>${y}</td><td>${v.n}</td><td class="${yCls}">${profStr}元</td><td class="${yCumCls}">${cumStr}元</td><td>${wr}</td><td class="${yPeakCls}" title="=该年累计净盈亏/该年峰值同时持仓资金">${yPeakStr}</td></tr>`;
+    // 2026-08-14 按年峰值资金回撤列(第7列): =该年最大回撤金额/该年峰值同时持仓资金×100, 与 hoverpop 同口径(只是按年), 认知差对齐
+    const yPeakDdStr = v.peak_drawdown_pct != null ? v.peak_drawdown_pct.toFixed(2) + "%" : "-";
+    const yPeakDdCls = v.peak_drawdown_pct == null ? "" : (v.peak_drawdown_pct > 0 ? "lab-sigkelly-neg" : "lab-sigkelly-pos");
+    yRows += `<tr><td>${y}</td><td>${v.n}</td><td class="${yCls}">${profStr}元</td><td class="${yCumCls}">${cumStr}元</td><td>${wr}</td><td class="${yPeakCls}" title="=该年累计净盈亏/该年峰值同时持仓资金">${yPeakStr}</td><td class="${yPeakDdCls}" title="=该年过程中最深一次从高点跌下来的幅度(最大回撤金额÷峰值同时持仓资金)">${yPeakDdStr}</td></tr>`;
   }
-  const _ymEmptyRows = (!years.length) ? `<tr><td colspan="6" class="lab-sigkelly-all-empty">该模式暂无信号数据</td></tr>` : "";
+  const _ymEmptyRows = (!years.length) ? `<tr><td colspan="7" class="lab-sigkelly-all-empty">该模式暂无信号数据</td></tr>` : "";
   return (
     `<div class="lab-sigkelly-group lab-sigkelly-all-group">` +
       `<div class="lab-sigkelly-group-title">📌 全信号表（最后结果 · 全量信号融合）<span class="lab-sigkelly-all-badge">最后结果</span></div>` +
@@ -9697,9 +9703,10 @@ function _sigKellyAllSignalGroupHtml(period) {
             `<span class="lab-sigkelly-yearly-mode-cur" title="本表数据来源条件：卖出模式 + AI仓位K档 + 降亏标志集 + 费率口径，实时随上方勾选/费率档联动">${_kellyYearlySourceHint(_selModeFinal)}</span>` +
           `</div>` +
           `<div class="lab-sigkelly-table-scroll"><table class="lab-sigkelly-table lab-sigkelly-yearly-table">` +
-            `<thead><tr><th>年份</th><th>笔数</th><th>净盈亏(元)</th><th>累计净盈亏(元)</th><th>胜率</th><th title="=该年累计净盈亏/该年峰值同时持仓资金×100, 与卡面/建议面板峰值资金收益率同口径">峰值资金<br>收益率</th></tr></thead>` +
+            `<thead><tr><th>年份</th><th>笔数</th><th>净盈亏(元)</th><th>累计净盈亏(元)</th><th>胜率</th><th title="=该年最终的赚钱结果 ÷ 该年手上同时拿着最多的钱 ×100;注意回撤≠收益率:回撤是过程中最深一次从高点跌下来的幅度,收益率是最终净结果,两者是不同尺子">峰值资金<br>收益率</th><th title="=该年过程中最深一次从高点跌下来的幅度(最大回撤金额÷峰值同时持仓资金);与收益率(最终净结果)不同,回撤通常≥亏损,因为过程可能先涨后跌">峰值资金<br>回撤</th></tr></thead>` +
             `<tbody>${yRows}${_ymEmptyRows}</tbody>` +
           `</table></div>` +
+          `<div class="lab-sigkelly-all-note">💡 白话解释：收益率=这一年最终赚的钱 ÷ 这一年手里同时拿得最多的那笔钱；回撤=这一年过程中最深一次从高点跌下去的幅度。它俩是两把不同的尺子，回撤一般会比亏损大，因为过程可能先涨后跌——别拿这两列直接比大小。全周期回撤见「AI仓位建议」的 K 按钮评级。</div>` +
         `</div>` +
       `</div>` +
     `</div>`
@@ -10228,11 +10235,11 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
     // 最大持仓: 笔数(max_concurrent) + 资金(max_concurrent_capital),笔数加粗显眼
     const mc = r.max_concurrent || 0;
     const mcc = r.max_concurrent_capital || 0;
-    const mcStr = mc ? `<b class="lab-sigkelly-mc-n">${mc}</b>笔 / ${(mcc >= 10000 ? (mcc / 10000).toFixed(1) + "万" : mcc)}` : "-";
+    const mcStr = mc ? `<b class="lab-sigkelly-mc-n">${mc}</b>笔 / ${(mcc >= 10000 ? (mcc / 10000).toFixed(1) + "万" : Math.round(mcc))}` : "-";
     // 持仓中: 笔数(holding_count) + 占用资金(holding_capital),预估盈亏已计入统计
     const hc = r.holding_count || 0;
     const hcap = r.holding_capital || 0;
-    const hcStr = hc ? `<b class="lab-sigkelly-hc-n">${hc}</b>笔 / ${(hcap >= 10000 ? (hcap / 10000).toFixed(1) + "万" : hcap)}` : "-";
+    const hcStr = hc ? `<b class="lab-sigkelly-hc-n">${hc}</b>笔 / ${(hcap >= 10000 ? (hcap / 10000).toFixed(1) + "万" : Math.round(hcap))}` : "-";
     const ann = r.annualized_return != null ? r.annualized_return.toFixed(2) + "%" : "-";
     const sh = r.sharpe != null ? r.sharpe.toFixed(2) : "-";
     const md = r.max_drawdown_pct != null ? r.max_drawdown_pct.toFixed(2) + "%" : "-";
@@ -10536,7 +10543,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
         `<td>${t[fIdx.etf_code]}</td><td class="lab-sigkelly-trades-etfname">${t[fIdx.etf_name]}</td>` +
         `<td>${(+t[fIdx.buy_price]).toFixed(4)}</td>${sellPriceCell}` +
         `<td>${(+t[fIdx.shares]).toFixed(2)}</td>` +
-        `<td class="lab-sigkelly-amt">${(t[fIdx.amount] != null ? (+t[fIdx.amount]).toLocaleString() : "-")}</td>` +
+        `<td class="lab-sigkelly-amt">${(t[fIdx.amount] != null ? Math.round(+t[fIdx.amount]).toLocaleString() : "-")}</td>` +
         profitCell + returnCell +
         `<td class="lab-sigkelly-neg lab-sigkelly-fee">${(t[fIdx.fee_cost] != null ? "-" + (+t[fIdx.fee_cost]).toFixed(2) : "-")}</td>` +
         `<td>${t[fIdx.hold_days]}</td>${reasonCell}`;
