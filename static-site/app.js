@@ -1745,8 +1745,10 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn) {
   // 参考说明按钮(2026-08-14 独立化): 移出 .lab-sigkelly-posrate 评级 trigger(不复用 K 评级表 _aiPoscapRatingPopHtml),
   // 独立样式 .sig-kbtn-help(与 off/K 区分, 主色系描边, 不复用 sig-kbtn-off 红), 独立 hoverpop(.sig-kbtn-help-pop, 自包含定位),
   // 文字改「推荐方法&参考说明」; data-k="help" 仍由 _bindSigSwitchRow 识别为弹「推荐操作方法」说明弹窗(短线 A/F + 中长线 G + 引导信号凯利回测)
-  const _helpBtn = `<span class="sig-kbtn-help-wrap" data-no-pop="">` +
-    `<button type="button" class="sig-kbtn sig-kbtn-help" data-k="help" data-no-pop=""><span class="sig-kbtn-k">推荐方法</span><span class="sig-kbtn-r">参考说明</span></button>` +
+  // title="" 阻止祖先 .sig-switch-poscap 原生 title 冒泡(2026-08-14 fix: help hoverpop 与父级原生 title 打架重叠):
+  // HTML 规范子元素空 title 会阻止祖先 title 在本元素显示; help 按钮自带独立 hoverpop(.sig-kbtn-help-pop), 原生 title 多余且打架, 永久抑制
+  const _helpBtn = `<span class="sig-kbtn-help-wrap" data-no-pop="" title="">` +
+    `<button type="button" class="sig-kbtn sig-kbtn-help" data-k="help" data-no-pop="" title=""><span class="sig-kbtn-k">推荐方法</span><span class="sig-kbtn-r">参考说明</span></button>` +
     `<span class="sig-kbtn-help-pop-wrap">` + _sigHelpPopHtml() + `</span>` +
     `</span>`;
   // 2026-08-13 hoverpop 升级: K 按钮组复用凯利区评级表格 hoverpop(共享 common.js _aiPoscapRatingPopHtml/_bindAiPoscapRatePop, §22 两处数据一致)
@@ -1795,6 +1797,28 @@ function _bindSigHelpPop(container) {
     btn.addEventListener("mouseenter", show);
     btn.addEventListener("mouseleave", hide);
     // 注意: 不在此绑 click——help 点击需冒泡到 sigCard 级 _bindSigSwitchRow 委托弹说明弹窗
+  });
+}
+// 绑定 K 评级 trigger 父级原生 title 抑制(2026-08-14 举一反三, 与 help 按钮同类问题 §23.3):
+// K 按钮(.lab-sigkelly-posrate)嵌在父容器 .sig-switch-poscap(带长原生 title)内, 自身又有 K 评级表 hoverpop——
+// 悬停时原生 title + K 评级 pop 同时弹出重叠打架(同 help 按钮 _sigHelpPop 用户报的 bug)。
+// 方案=K 评级 pop 显示期间(mouseenter)临时把父容器 title 置空、离开(mouseleave)恢复;
+// K 原生 title 属性保留在 DOM("仍保留"), 仅悬停 K trigger 弹 pop 时不打架, 悬停标签文本/非弹pop时仍正常显示。
+// 与 help 的 title="" 永久抑制互补(help 独立 hoverpop 无原生 title 需求; K 原生 title 需保留故用"显示期临时抑制")。
+// 凯利区(common.js _bindAiPoscapRatePop 同款)trigger 无 title 祖先 → 本函数 while 找不到 title 祖先则 no-op, 不影响 lab.js。
+function _bindPoscapTitleSuppress(container) {
+  if (!container) return;
+  container.querySelectorAll(".lab-sigkelly-posrate").forEach(function (trig) {
+    if (trig._poscapTitleSuppressed) return;
+    trig._poscapTitleSuppressed = true;
+    var parent = trig.parentElement;
+    while (parent && !parent.getAttribute("title")) parent = parent.parentElement;
+    if (!parent) return;  // 无 title 祖先(凯利区)直接跳过
+    var orig = parent.getAttribute("title");
+    var suppress = function () { parent.setAttribute("title", ""); };
+    var restore = function () { parent.setAttribute("title", orig); };
+    trig.addEventListener("mouseenter", suppress);
+    trig.addEventListener("mouseleave", restore);
   });
 }
 // 绑定首页开关行事件(K 按钮 + AI降亏 checkbox), 改状态后重绘 sigCard; 每次渲染开关行后调用
@@ -1848,6 +1872,8 @@ function _bindSigSwitchRow(sigCard) {
   });
   // 2026-08-13 hoverpop 升级: K 按钮评级表格 pop 绑定(共享 common.js _bindAiPoscapRatePop, §22 与凯利区同款; 初次渲染绑一次, 重绘后由 _rerenderSigCardContent 末尾重绑)
   _bindAiPoscapRatePop(sigCard);
+  // 2026-08-14 举一反三: K 评级 pop 显示期抑制父容器 .sig-switch-poscap 原生 title(与 help 同类问题, 防原生 title + K 评级 pop 打架; 初次渲染绑一次, 重绘后由 _rerenderSigCardContent 末尾重绑)
+  _bindPoscapTitleSuppress(sigCard);
   // 2026-08-14 参考说明按钮独立 hoverpop 绑定(自包含, 与 K 评级 pop 互不干扰; 初次渲染绑一次, 重绘后由 _rerenderSigCardContent 末尾重绑)
   _bindSigHelpPop(sigCard);
 }
@@ -2399,6 +2425,8 @@ function _rerenderSigCardContent(r, snap) {
   }
   // 2026-08-13 hoverpop 升级: 开关行(.sig-switch-row)重绘替换后重新绑定 K 按钮评级 pop(旧 trigger 已销毁, 新 trigger 需重新 bind)
   _bindAiPoscapRatePop(sigCard);
+  // 2026-08-14 举一反三: K 评级 pop 显示期抑制父容器 .sig-switch-poscap 原生 title(与 help 同类问题; 旧 trigger 已销毁需重新 bind)
+  _bindPoscapTitleSuppress(sigCard);
   // 2026-08-14 参考说明按钮独立 hoverpop 重绑(与 K 评级 pop 同模式, 旧 wrap 已销毁需重新 bind)
   _bindSigHelpPop(sigCard);
 }
