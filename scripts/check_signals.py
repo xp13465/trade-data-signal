@@ -1371,7 +1371,13 @@ def main(argv: list[str] | None = None) -> int:
     # B1(2026-08-14)：主题与正文统一为"去重新信号"口径。subject_signals 恒传 None
     #   （不再用当日全量 signals），避免主题/正文两口径无标注误导；正文统计行加
     #   "(当日去重后新信号 N 条)"标注（dedup_annotate）。--full 全量模式不加该标注。
-    subject_signals = None
+    # B1 修复(2026-08-14 reviewer FAIL)：收盘时间线邮件（timeline 非空=当日全貌复盘）主题
+    #   恢复"当日全量"口径（subject_signals=signals）。0 新信号日（signals_to_send 为空）但
+    #   当日有信号已推送时，原主题误标"信号均已消失"（事实错误，信号已推送非消失）；
+    #   改传当日全量 signals 让主题呈现"追买×2...|卖×4..."当日汇总。timeline 为空时仍走
+    #   去重新信号口径（subject_signals=None）。build_email 内 elif timeline 分支（parts 空）
+    #   仅当日 signals 真为空（信号全部消失）时才触发"信号均已消失"，语义正确。
+    subject_signals = signals if timeline else None
     subject, body = build_email(date, signals_to_send, name_map,
                                 intraday=args.intraday, fade_alerts=fade_alerts_for_email,
                                 timeline=timeline, fade_timeline=fade_timeline,

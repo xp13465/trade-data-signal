@@ -10,7 +10,8 @@
 #   1) 漏跑：当前时间落在某任务计划时点 + 30min 容忍窗口内，但 last_run < 计划时点 = 漏跑告警
 #   2) 退出失败：schedule_stats.json 中 last_exit 非 0（非 null，null=进行中/无数据不算失败）
 #   2b) log异常关键词：scan_log_anomaly 抓 Traceback/异常类名/FATAL（exit=0 不可信, 脚本吞异常漏报）
-#   3) 执行耗时：last_duration_sec 超阈值告警（intraday>10min/update_all>30min/backfill>30min）
+#   3) 执行耗时：last_duration_sec 超阈值告警（intraday>10min/update_all>70min/backfill>75min，
+#      2026-08-14 依实测重标，原 update_all>30min 误报正常日 60min）
 #   4) launchctl 加载：11 个 com.trade label 未加载 = launchd 层挂了
 #   5) 产物时效（Worker路径）：线上 overview.json collected_at vs NOW, 3域名容错, 盘中<20min
 #   6) R2直连时效：ssd.fx8.store overview/intraday collected_at 时效 + R2可达性
@@ -279,10 +280,15 @@ except Exception as e:
 STALE_EXIT_THRESHOLD = timedelta(hours=24)
 
 # 执行耗时阈值(R2迁移72h监控 2026-08-08): 移到循环外避免每次迭代重建(L2)
+# 2026-08-14 修复(reviewer FAIL, A1 误报正常日): 依据 update_all_launchd.log 近9交易日实际耗时
+#   (38/38/49/53/54/59/21/53/60 min, max=3609s=8-14, P90=3556s)重标。阈值必须 > 实测 max,
+#   否则完成态检查(3609>3600)会复发假SEVERE(8-14 正常完成 exit=0 却曾报 dur>1800s)。
+#   update_all 4200s(70min, max 3609s + ~10min 裕量); backfill_evening 4500s(75min,
+#   覆盖 16:35 槽 max 2776s + 21:00 槽 08-10 达 3707s)。
 DUR_THRESHOLDS = {
     "intraday_snapshot": 600,   # 10min
-    "update_all": 1800,         # 30min
-    "backfill_evening": 1800,   # 30min
+    "update_all": 4200,         # 70min(实测 max 3609s, 2026-08-14)
+    "backfill_evening": 4500,   # 75min(实测 max ~3707s 21:00槽 08-10)
     "us_stock_morning": 900,    # 15min
 }
 # stats 初始化(2026-08-14 A1 补): A1 进行中检测块引用 stats, 须保证 STATS_FILE 不存在/
@@ -396,7 +402,8 @@ if STATS_FILE.exists():
             # 维度③: 执行耗时阈值检查（R2迁移72h监控 2026-08-08）
             # schedule_stats.json 的 last_duration_sec 字段,超阈值告警(进程退化/卡死信号)。
             # intraday ~7min正常 >600s(10min)告警(重叠下一10min槽=下轮读旧数据);
-            # update_all ~11min正常 >1800s(30min)告警; backfill ~22min >1800s(30min)告警;
+            # update_all 正常 max~60min(实测3609s) >4200s(70min)告警; backfill 正常 max~62min
+            #   (21:00槽08-10 3707s) >4500s(75min)告警; (2026-08-14 依实测重标)
             # us_stock_morning ~10min >900s(15min)告警。
             # 只检查最近 24h 内完成的任务(stale 不重复告警,同 exit/log_anomaly 逻辑)。
             # 恢复检测: dur 降回阈值内 -> key 未 seen -> L476 恢复循环自动发恢复邮件。
@@ -452,11 +459,13 @@ if STATS_FILE.exists():
 # 规则: 对每个进行中任务(dur=null + exit=null, 已收集 in_progress_tasks), 取今日
 #   最近一次已到计划时点 sch, 若 last_run >= sch(任务确在该时点启动) 且
 #   NOW > sch + 耗时阈值 + 缓冲 -> 超时告警。缓冲(IN_PROGRESS_BUFFER)防正常偏慢误报
-#   (update_all +20min / backfill +15min, 对齐主控要求 update_all+50min/backfill+45min)。
+#   (update_all +30min / backfill +15min; 阈值已重标 update_all=4200s/backfill=4500s,
+#   对齐近9交易日实测 max, 2026-08-14 修复 A1 误报正常日)。
 # 超时 key 进 seen_keys_this_run(防误恢复), 已 active 则 suppress 不重发。
 IN_PROGRESS_BUFFER = {
-    "update_all": 20,          # 计划17:50 +30min阈值 +20min缓冲 = 18:40 未完成告警
-    "backfill_evening": 15,    # +30min +15min = 45min
+    "update_all": 30,          # 计划17:50 +70min阈值(4200s) +30min缓冲 = 19:30 未完成才告警
+                               # (原 18:40 早于正常完成 18:50 误报, reviewer FAIL 2026-08-14)
+    "backfill_evening": 15,    # +75min阈值(4500s) +15min = 90min 窗口
     "intraday_snapshot": 10,
     "us_stock_morning": 10,
 }
