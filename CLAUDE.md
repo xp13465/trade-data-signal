@@ -236,6 +236,17 @@
 - **⑤ 变更联动**(只迭代凯利标准,其他自动同步):改回测标准→重跑 build_board_etf_map.py→重跑 signal_kelly_backtest.py→重跑 export(queries.py 注入标记)→首页自动跟随(读标记,不改前端选择逻辑)→同步公示→跑对称校验→§22 三步同步(R2/static-site)后上线,8 步全走完才算 done
 - **验收口径**:涉及宇宙规则任务自验含「yaml 声明已更新 + 三处公示 grep 通过 + 首页读标记无自算 + 校验脚本 PASS + 8 步联动完成」;reviewer 查这 5 项,漏=验收不过
 
+## 24. 前端部署/缓存/SW更新防撕裂(2026-08-14 用户定,全站白屏P0事故根治,防再犯)
+**触发词**:发版/改app.js·lab.js·common.js·index.html/bump版本串/站点白/点更新新版白/Cannot read 'scores'/_aiPoscapRatingSummary is not defined/三站版本混乱/缓存滞留。
+**背景(2026-08-14 P0 全站白屏事故)**:版本串=内容 md5 哈希(bump_asset_version.py"内容相同则版本号相同"),A+B实施期集中改前端+备站数据不同步+中间"改源码漏bump"断链点→CDN/浏览器缓存滞留「孤儿旧快照」(引不存在对应内容产物的版本串)→SW更新清缓存重建时裸崩全白。根因=「版本串机制 + SW更新接管 + 数据同步」三处设计未闭环。
+**核心一句话:版本串必须随内容强制刷新(杜绝指纹断链),SW 更新接管必须壳芯配套+失败回退,部署后必须验"内容哈希==index引用版本串"。**
+- **① 版本串改「发布序号(日期+批次)」而非纯内容哈希**(2026-08-14 定):每次部署强制换新串,内容相同也换,杜绝"指纹断链、旧缓存不清、不触发更新"死角。改 `scripts/bump_asset_version.py` 由内容md5换为 日期+自增/哈希混合,保证每次不同
+- **② 改前端源码必同 commit bump 版本串(§22 扩展硬约束)**:改 app.js/lab.js/common.js/index.html → **必须同 commit 跑 bump_asset_version.py + push + 验线上 index 引用`?v=`与实际文件内容md5一致**;禁止"源码改了版本串没跟着变"漏跑
+- **③ SW 更新接管需「壳与芯配套 + 失败回退」安全网**:activate 清缓存/claim 接管前,先确认 app shell(app.min.js/common.min.js/index)已预缓存就绪;未就绪不 claim 不强推,失败回退旧SW/旧缓存,绝不全白(sw.js 实现,参考 §0 sw 模式)
+- **④ 数据全站同步(§22 三步)覆盖盘后核心产物**:overview.json/a-stock-3m.json 等盘后产物必须随 §22 三步同步到备站(GH/Maozi)或可靠 fallback 主站,备站不得缺核心文件
+- **⑤ 部署后自动校验「内容哈希==index版本串」**:deploy 链加 check(如对 app/lab/common 每文件算 md5 前8,与 index 引用比对),不一致即阻断上线,防孤儿快照再产生
+- **验收口径**:上线/发版任务自验含「版本串每次更换确认 + 改码同commit bump + 部署后哈希==引用校验 PASS + 备站核心数据在位」;reviewer 查这4项,漏=验收不过。事故根因全文见 memory `deploy-cdn-stale-snapshot-blue-screen`
+
 ## 历史/约束归档引用(全文已归档,按需查)
 - **§10 切分支保护 DB**(2026-07-14 已根治):DB(sentiment.db/etf_national_team.db)已移出 git untracked,切分支不再污染;绝不能 `git restore/checkout -- data/sentiment.db`;同步 main 避免本地 checkout。原文全量见 docs/archive/CLAUDE-history.md
 - **§12 superpowers 融合规则**:superpowers skill 库优先级低于本文件;运维/采集/上线/数据任务明示跳过 brainstorming HARD-GATE + continuous-execution;大型功能开发可按需用全套。原文全量见 docs/archive/CLAUDE-history.md
