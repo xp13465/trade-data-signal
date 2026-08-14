@@ -793,6 +793,10 @@ def overview(conn, cfg):
             _s["etfs"] = [dict(_e) for _e in (etf_for(_s["index_id"]).get("etfs") or [])]
         # 首页1:1对齐回测(#60 方案A): 命中冻结表 → 该信号 top1 = 回测标的(标 _bk_top)。
         _align_home_top1_to_backtest(_s, _home_freeze)
+        # AI建议入样宇宙1:1对齐回测(#25): 信号是否在凯利回测入样宇宙内
+        # (有跟踪 ETF 且带 track_score)。放 freeze 对齐后,冻结条目(回测只在宇宙内冻结)
+        # 也带 track_score,不会误判。前端 AI 建议只在此宇宙内选。
+        _s["_bt_in_universe"] = any(_e.get("track_score") is not None for _e in (_s.get("etfs") or []))
     # 信号至今盈亏（方案B后端算）：为每条信号算 since_return（至今涨跌%）+ since_correct（对错）。
     # 缓存 {index_id: {date: close/value}} 避免 N+1（同 index_id 多信号只查一次）。
     # 用传入 conn 查（不调 normalize.load_* 避免新建连接，遵守模块无状态原则）。

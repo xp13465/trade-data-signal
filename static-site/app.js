@@ -2084,7 +2084,12 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
             // 2026-08-14 fix(用户报 814 列表只1条却标AI建议2): kept 集人口须与列表展示一致(popItems 档位筛选 + 排除 band_hold),
             //   原来用 windowedItems(全量) 算 kept → 被默认档位筛选藏掉的信号仍占AI建议位, 导致列表可见项编号跳号(如列表只1条却标AI建议2)。
             //   现改为 popItems(同函数作用域, L1868 档位筛选后人口) 上算, 并排除 band_hold(持有中性, 与「AI建议买入」语义不符且默认不可见), 编号与展示一一对应。
-            let _dayItems = popItems.filter((it) => it.date === dt && it.signal !== "band_hold");
+            // 2026-08-14 #25 AI建议入样宇宙1:1对齐回测: 加 _bt_in_universe !== false(未入样信号不参与AI建议;
+            //   容错: 旧数据无字段视为在宇宙内, 避免历史缓存 AI 建议全消失)。排除卖类信号(sell/sell_stop_loss,
+            //   与「AI建议买入」语义不符; 风险提醒等其他展示不走 AI 建议编号, 不受影响)。
+            let _dayItems = popItems.filter((it) => it.date === dt && it.signal !== "band_hold"
+              && it.signal !== "sell" && it.signal !== "sell_stop_loss"
+              && it._bt_in_universe !== false);
             if (!_dayItems.length) continue;
             // 2026-08-13 融合口径(与凯利回测一致: 先滤降亏、再选top-K): 被降亏命中的信号不占AI建议位,
             // 顺延补位给后续未命中信号; 判定走共享谓词 _isAiFadeHit(受首页「AI降亏过滤」开关门控: 开关关→不滤, top-K 正常取)。
@@ -2150,7 +2155,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           const _capRank = _posCapRank.get(it) || 0;
           if (_capRank) {
             posCapCls = " sig-poscap-kept";
-            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 口径与凯利回测一致「先滤AI降亏、再选top-K」——命中降亏的信号不占AI建议位、顺延补位; 在当前档位筛选(ETF档位+排除持有中性)的存活信号内按 跟踪分↓→评级→信号类型→买入日 当日排序取前${_posCapK}名进入AI建议买入(与列表展示同人口, 编号不跳号); 序号=当日跟踪分降序第${_capRank}名(与凯利回测K档口径一致, 不随K档跳变; 列表视觉位置可能与编号不同序, 以编号为准); 存活者若命中AI降亏仍显示删除线建议回避（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议${_capRank}</sup>`;
+            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 口径与凯利回测一致「先滤AI降亏、再选top-K」——命中降亏的信号不占AI建议位、顺延补位; 仅在凯利回测入样宇宙(有跟踪ETF且带回测跟踪分)内选择, 未入样标的(债类/港股/全球等)与卖类信号(sell/sell_stop_loss)不进入AI建议买入; 在当前档位筛选(ETF档位+排除持有中性)的存活信号内按 跟踪分↓→评级→信号类型→买入日 当日排序取前${_posCapK}名进入AI建议买入(与列表展示同人口, 编号不跳号); 序号=当日跟踪分降序第${_capRank}名(与凯利回测K档口径一致, 不随K档跳变; 列表视觉位置可能与编号不同序, 以编号为准); 存活者若命中AI降亏仍显示删除线建议回避（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议${_capRank}</sup>`;
           } else {
             posCapCls = " sig-poscap-excluded";
             posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 当日从当前档位筛选(ETF档位+排除持有中性)的存活信号只建议最优${_posCapK}个, 本信号未进入AI建议, 当日已满; 命中AI降亏的信号已被过滤不占位（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">当日已满</sup>`;
