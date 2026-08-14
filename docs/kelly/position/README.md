@@ -5,6 +5,7 @@
 | 文档 | 说明 |
 |---|---|
 | kelly-strategyAB-exhaustive.md | **策略A(固定拆K)vs 策略B(每日池等分)穷举对比**(2026-08-14,本轮新增) |
+| firstcol-badge-linebreak.md | 信号凯利回测首列 SPAN 独立换行(纯前端 CSS display:block,2026-08-14) |
 | kelly-dailypool-exhaustive-rerun.md | 每日池口径穷举重跑(权威基线) |
 | kelly-fade-filter-interaction.md | fade 过滤交互 |
 | kelly-g-mode-recheck.md | G 模式复核 |
