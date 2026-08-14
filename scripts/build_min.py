@@ -65,9 +65,13 @@ def minify_js(src, dst, src_rel, dst_rel):
     dst_name = os.path.basename(dst)        # app.min.js / lab.min.js
 
     # terser 在 src_dir 内运行：输入 app.js -> 输出 app.min.js（无 sourceMappingURL 注释、无 .map）
+    # ⚠️ --mangle reserved=["$"]（2026-08-15 P0根治, 脚本 "$ is not a function"）：
+    #   terser mangle 会把局部函数(如 _isSellSig)重命名为最短名 `$`，但 app.js/lab.js 全文件
+    #   已有 37+ 处把 `$` 用作普通局部变量(字符串/数组/布尔, 不同作用域)，导致作用域遮蔽冲突
+    #   → 运行时 "$ is not a function"。reserved 让 `$` 永不被 mangle 复用为标识符，根治冲突。
     cmd = [
         "npx", "--yes", "terser", src_name,
-        "--compress", "--mangle",
+        "--compress", "--mangle", "reserved=['$']",
         "-o", dst_name,
     ]
     r = subprocess.run(cmd, capture_output=True, text=True, cwd=src_dir, timeout=300)
