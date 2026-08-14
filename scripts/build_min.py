@@ -65,13 +65,18 @@ def minify_js(src, dst, src_rel, dst_rel):
     dst_name = os.path.basename(dst)        # app.min.js / lab.min.js
 
     # terser 在 src_dir 内运行：输入 app.js -> 输出 app.min.js（无 sourceMappingURL 注释、无 .map）
-    # ⚠️ --mangle reserved=["$"]（2026-08-15 P0根治, 脚本 "$ is not a function"）：
-    #   terser mangle 会把局部函数(如 _isSellSig)重命名为最短名 `$`，但 app.js/lab.js 全文件
-    #   已有 37+ 处把 `$` 用作普通局部变量(字符串/数组/布尔, 不同作用域)，导致作用域遮蔽冲突
-    #   → 运行时 "$ is not a function"。reserved 让 `$` 永不被 mangle 复用为标识符，根治冲突。
+    # 2026-08-15 P0 mangle 根治(防 "c is not a function" 系统性冲突):
+    #   terser mangle 用"最短名池"($,_,A,B,...a,b,...)重命名局部标识符, 大型压缩文件(37+处用 $ 作普通变量)
+    #   会撞车——函数被改名成单字符与既有变量遮蔽 → 运行时出现单字符函数调用冲突(曾 "$ is not a function",
+    #   加 reserved=['$'] 又把 _isSellSig 改名转成 C/c, 打地鼠)。根治配置:
+    #   ① keep_fnames: 保留所有真函数名(函数声明/命名字函数名不参与 mangle), 整类消除"函数被改名单字符撞变量";
+    #   ② 首页关键 const-arrow 布尔助手已改 function 声明(_isSellSig/_isSellRow/_isAiFadeHit): 单语句被 compress
+    #      内联掉, 多语句被 keep_fnames 保名, 二者都不留可撞车的单字符函数调用。
+    #   ⚠️ keep_fnames 不保护 const x = ()=>{} 这种箭头绑定(已实证 rename 照旧), 故新增布尔助手应写 function 声明。
+    # 不再用 reserved=['$'](打地鼠, 只把冲突转移); keep_fnames + fn声明 从机制上根治。
     cmd = [
         "npx", "--yes", "terser", src_name,
-        "--compress", "--mangle", "reserved=['$']",
+        "--compress", "--mangle", "keep_fnames",
         "-o", dst_name,
     ]
     r = subprocess.run(cmd, capture_output=True, text=True, cwd=src_dir, timeout=300)
