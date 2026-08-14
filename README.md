@@ -1,16 +1,43 @@
+<!-- SVG-BANNER-START -->
+<p align="center">
+  <svg xmlns="http://www.w3.org/2000/svg" width="780" height="180" viewBox="0 0 780 180">
+    <defs>
+      <linearGradient id="tdg" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="#00D4FF" />
+        <stop offset="48%" stop-color="#7B2FFC" />
+        <stop offset="100%" stop-color="#00FF88" />
+      </linearGradient>
+      <linearGradient id="line" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="#00D4FF" stop-opacity="0" />
+        <stop offset="50%" stop-color="#00D4FF" stop-opacity="0.4" />
+        <stop offset="100%" stop-color="#00D4FF" stop-opacity="0" />
+      </linearGradient>
+      <filter id="glow">
+        <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+        <feMerge>
+          <feMergeNode in="coloredBlur"/>
+          <feMergeNode in="SourceGraphic"/>
+        </feMerge>
+      </filter>
+    </defs>
+    <rect width="780" height="180" rx="18" fill="#0D1117" />
+    <rect x="30" y="30" width="720" height="120" rx="10" fill="none" stroke="url(#line)" stroke-width="1.5" />
+    <text x="390" y="105" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif" font-size="76" font-weight="900" fill="url(#tdg)" text-anchor="middle" letter-spacing="12" filter="url(#glow)">TDSIGNAL</text>
+    <circle cx="170" cy="138" r="4.5" fill="#00FF88" />
+    <circle cx="170" cy="138" r="8" fill="#00FF88" opacity="0.3" />
+    <text x="192" y="143" font-family="'Courier New', Courier, monospace" font-size="14" fill="#00D4FF" font-weight="bold" opacity="0.9">A股 · 港股 · 全球</text>
+    <text x="560" y="143" font-family="'Courier New', Courier, monospace" font-size="14" fill="#7B2FFC" font-weight="bold" opacity="0.9">◆  ONLINE  ◆</text>
+    <path d="M 80 158 Q 160 140 240 158 T 400 158 T 560 158 T 700 158" stroke="#00D4FF" stroke-width="1.2" fill="none" opacity="0.25" />
+    <path d="M 120 165 Q 200 152 280 165 T 440 165 T 600 165" stroke="#7B2FFC" stroke-width="0.8" fill="none" opacity="0.15" />
+  </svg>
+</p>
+<!-- SVG-BANNER-END -->
+
 # 📊 信号实验室 · tdsignal
 
 > **A股/港股/全球盘后复盘情绪数据看板** —— 把散落各处的情绪值、涨跌家数、连板高度、买卖点信号、ETF 评分、策略实验室汇总到一处，
 > 攒成历史序列，用**数据挖掘**从数千笔回测交易中反推出"降亏过滤标志"，每日用 **AI** 生成白话速递，
 > 辅助判断市场情绪拐点与买卖时机。
-
-```
-    __    ___  ____
-   / /   / _ \|  _ \  __ _ ___ _ __ ___   __ _ _ __   __ _ _ __
-  / /__ | | | | | | |/ _` / __| '_ ` _ \ / _` | '_ \ / _` | '_ \
- /____/ | |_| | |_| | (_| \__ \ | | | | | (_| | | | | (_| | | | |
-         \___/|____/ \__,_|___/_| |_| |_|\__,_|_| |_|\__,_|_| |_|
-```
 
 **一句话**：免费数据源 + 情绪指数 + ETF 评分 + 凯利仓位回测 + 数据挖掘降亏过滤 + AI 每日速递，
 一个把「数据采集 → 计算 → 可视化 → 交易信号 → 信号质量挖掘 → AI 解读 → 自动交易执行」全链路打通的开源情绪数据看板。
@@ -235,6 +262,10 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 
 **用途**：`每日速递` 邮件 —— 收盘后由 [DeepSeek](https://platform.deepseek.com/) 生成 **daily_brief 白话解读**（情绪拐点 + 信号汇总 + 合规 gating），
 邮件正文对 **期货风向 / 公募基金** 做白话化改写，让"机器算出来的数字"变成"人读得懂的话"。
+
+### 🎨 顶部 SVG banner 艺术字（DeepSeek 辅助设计）
+
+**用途**：README 顶部 `TDSIGNAL` 渐变辉光 banner（A股 · 港股 · 全球 + ◆ ONLINE ◆）——由 [DeepSeek](https://www.deepseek.com/) 设计艺术字方案、本项目做主题适配（无线电主题标签改为项目实际覆盖范围）。
 
 ### 🔁 自动交易执行（easytrader → thsautoorder）
 
