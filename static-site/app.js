@@ -1742,8 +1742,13 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn) {
   ).join("");
   // off 按钮(2026-08-13): 复用 .sig-kbtn 样式, data-k="off" 由 _bindSigSwitchRow 识别为关(写 tds_poscap {on:false})
   const _offBtn = `<button type="button" class="sig-kbtn sig-kbtn-off${_pcOn ? "" : " active"}" data-k="off" data-no-pop=""><span class="sig-kbtn-k">关</span><span class="sig-kbtn-r">off</span></button>`;
-  // 参考说明按钮(2026-08-14): 放在 off 之后, 复用 .sig-kbtn 样式, data-k="help" 由 _bindSigSwitchRow 识别为弹「推荐操作方法」说明弹窗(短线 A/F + 中长线 G + 引导信号凯利回测)
-  const _helpBtn = `<button type="button" class="sig-kbtn sig-kbtn-help" data-k="help" data-no-pop="" title="参考说明: 推荐操作方法(短线 A/F 玩法 / 中长线 G 玩法) + 跳转信号凯利回测校验各模式回测数据"><span class="sig-kbtn-k">参考</span><span class="sig-kbtn-r">说明</span></button>`;
+  // 参考说明按钮(2026-08-14 独立化): 移出 .lab-sigkelly-posrate 评级 trigger(不复用 K 评级表 _aiPoscapRatingPopHtml),
+  // 独立样式 .sig-kbtn-help(与 off/K 区分, 主色系描边, 不复用 sig-kbtn-off 红), 独立 hoverpop(.sig-kbtn-help-pop, 自包含定位),
+  // 文字改「推荐方法&参考说明」; data-k="help" 仍由 _bindSigSwitchRow 识别为弹「推荐操作方法」说明弹窗(短线 A/F + 中长线 G + 引导信号凯利回测)
+  const _helpBtn = `<span class="sig-kbtn-help-wrap" data-no-pop="">` +
+    `<button type="button" class="sig-kbtn sig-kbtn-help" data-k="help" data-no-pop=""><span class="sig-kbtn-k">推荐方法</span><span class="sig-kbtn-r">参考说明</span></button>` +
+    `<span class="sig-kbtn-help-pop-wrap">` + _sigHelpPopHtml() + `</span>` +
+    `</span>`;
   // 2026-08-13 hoverpop 升级: K 按钮组复用凯利区评级表格 hoverpop(共享 common.js _aiPoscapRatingPopHtml/_bindAiPoscapRatePop, §22 两处数据一致)
   const _ratingPop = (window._aiPoscapRatingPopHtml ? window._aiPoscapRatingPopHtml() : "");
   return `<div class="sig-switch-row" data-no-pop="">` +
@@ -1751,8 +1756,68 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn) {
       `<input type="checkbox" class="sig-switch-ai-cb"${_fadeOn ? " checked" : ""}> AI降亏过滤` +
       `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 开启=首页按降亏策略判定, 固定 7 键成员级(基础4: 追关注×熊市交叉 / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 + 核心3键: 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致), 命中降亏条件的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); 关闭=首页完全不判降亏、不灰显不删除线不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号。">ⓘ</span>` +
     `</label>` +
-    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap): 同日只买最优K个, 未进入前K=当日已满灰显; 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表, 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_helpBtn}${_ratingPop}</span></span>` +
+    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap): 同日只买最优K个, 未进入前K=当日已满灰显; 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表, 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span>${_helpBtn}</span>` +
     `</div>`;
+}
+// 参考说明按钮独立 hoverpop HTML(2026-08-14): 不复用 K 评级表 _aiPoscapRatingPopHtml(仓位评级表语义不符),
+// 自含一套「推荐方法&参考说明」要点(短线 A/F + 中长线 G + 引导), 内容口径与 _openRefHelpModal 弹窗完全一致(§22),
+// 与凯利回测页 lab.js _sigKellyAfgRealtimeHtml / purpose-notes lab.sigkelly 同口径(§21): A=固定10天短线 / F=持有15天短线 / G=卖出信号中长线(指数卖出信号触发离场、无信号持有, 总建议主选)
+function _sigHelpPopHtml() {
+  return '<div class="sig-kbtn-help-pop">' +
+    '<div class="sig-kbtn-help-pop-title">📖 推荐方法 · 参考说明</div>' +
+    '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-short">🔵 短线 A/F</span>' +
+      '<span class="sig-kbtn-help-pop-body">A=买入后<b>固定持有10天</b>卖出；F=买入后<b>持有15天</b>卖出。快进快出，适合波段/资金周转快的玩法。</span></div>' +
+    '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-long">🟢 中长线 G</span>' +
+      '<span class="sig-kbtn-help-pop-body">买入后<b>一直持有</b>，仅当对应指数「卖出信号」触发才离场，无信号就拿着（总建议主选）。可选加 G 仓位管理：持仓超上限<b>先卖「未满3天」年轻仓</b>（保老仓、砍新仓）。</span></div>' +
+    '<div class="sig-kbtn-help-pop-foot">💡 点击按钮查看完整操作指南，并可跳转「信号凯利回测」校验 A/F/G 各模式回测数据。</div>' +
+    '</div>';
+}
+// 绑定参考说明按钮独立 hoverpop(2026-08-14): 自包含定位(相对 .sig-kbtn-help-wrap, 右对齐, 右越界左移), 桌面 hover / 移动端 tap 切换;
+// 与 K 评级 pop(_bindAiPoscapRatePop)互不干扰——help 按钮已移出 .lab-sigkelly-posrate trigger, 各管各的 pop
+function _bindSigHelpPop(container) {
+  if (!container) return;
+  var isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
+  container.querySelectorAll(".sig-kbtn-help-wrap").forEach(function (wrap) {
+    if (wrap._sigHelpBound) return;
+    wrap._sigHelpBound = true;
+    var btn = wrap.querySelector(".sig-kbtn-help");
+    var pop = wrap.querySelector(".sig-kbtn-help-pop-wrap");
+    if (!btn || !pop) return;
+    var openByClick = false;
+    var show = function () {
+      pop.style.display = "block";
+      // 定位: 右对齐 trigger, 左越界左移但不超左边界
+      var pw = pop.offsetWidth;
+      var tr = btn.getBoundingClientRect();
+      var left = Math.max(0, Math.min(tr.right - pw, window.innerWidth - 8 - pw));
+      pop.style.left = left - tr.left + "px";
+    };
+    var hide = function () { pop.style.display = "none"; pop.style.left = ""; };
+    btn.addEventListener("mouseenter", function () { if (!openByClick) show(); });
+    btn.addEventListener("mouseleave", function () { if (!openByClick) hide(); });
+    btn.addEventListener("click", function (e) {
+      // help 点击由 _bindSigSwitchRow 弹说明弹窗; 这里仅在移动端做 tap 开/关 hoverpop(tap 不弹说明弹窗)
+      if (!isTouch) return;
+      e.stopPropagation();
+      openByClick = pop.style.display !== "block";
+      if (openByClick) show(); else hide();
+    });
+  });
+  // 移动端: 点别处关闭 help pop
+  if (isTouch && !document._sigHelpDocBound) {
+    document._sigHelpDocBound = true;
+    document.addEventListener("click", function (e) {
+      if (e.target.closest && e.target.closest(".sig-kbtn-help-wrap")) return;
+      document.querySelectorAll(".sig-kbtn-help-pop-wrap").forEach(function (p) {
+        if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; }
+      });
+    }, true);
+    window.addEventListener("scroll", function () {
+      document.querySelectorAll(".sig-kbtn-help-pop-wrap").forEach(function (p) {
+        if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; }
+      });
+    }, { passive: true, capture: true });
+  }
 }
 // 绑定首页开关行事件(K 按钮 + AI降亏 checkbox), 改状态后重绘 sigCard; 每次渲染开关行后调用
 function _bindSigSwitchRow(sigCard) {
@@ -10524,6 +10589,9 @@ async function renderOverview() {
     // 用信号日(nt.date) vs 数据日(ntDataDate) 日历日差兜底（>3 天视为 stale），保证修复对新旧数据都生效。
     let ntStale = !!(nt.signal_stale);
     let ntStaleTd = (typeof nt.signal_stale_td === "number") ? nt.signal_stale_td : "";
+    // staleTxt 提升到函数作用域（2026-08-14 线上修复）：原在 if(ntStale) 块内 const 声明，
+    // 但块外 ntCard.innerHTML termTip 引用它 → 块级作用域 ReferenceError 崩溃。提升后块外用 "" 兜底。
+    let staleTxt = "";
     if (!("signal_stale" in nt) && nt.date && ntDataDate && ntDataDate > nt.date) {
       try {
         const _d1 = new Date(nt.date.replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3"));
@@ -10535,7 +10603,7 @@ async function renderOverview() {
     let ntDateTagHtml;
     let ntListTodayDate;
     if (ntStale) {
-      const staleTxt = ntStaleTd ? "近" + ntStaleTd + "个交易日" : "近日";
+      staleTxt = ntStaleTd ? "近" + ntStaleTd + "个交易日" : "近日";
       ntDateTagHtml = '<span class="nt-date-tag nt-date-stale" title="' +
         staleTxt + '无信号触发（etf_signal 仅在信号触发时写行），数据仍更新至 ' + fmtDate(ntDataDate) +
         '">数据 ' + fmtDate(ntDataDate) + ' · ' + staleTxt + '无信号触发</span>';
