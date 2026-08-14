@@ -226,11 +226,77 @@
     showUpdateToast();
   });
 
-  // 用户点击刷新按钮 -> 强制 reload 拿新版 App Shell
+  // 用户点击刷新按钮 -> 探活新 App Shell 已就绪才 reload,未就绪提示等待(防"点更新→reload→全白")
+  // P0(2026-08-14 a227): 旧逻辑点击即无条件 reload。若新 SW 已 claim 接管但 app.min.js 等核心壳
+  //   尚未预缓存就绪(network 抖动/边缘失败),reload 瞬间旧缓存已被新 SW activate 清空→净加载不全→全白空壳。
+  //   修=①reload 前用 navigator.serviceWorker.controller 判断是否正由新 SW 接管;②探活 app.min.js
+  //   (fetch HEAD, cache:'no-store')确认核心 JS 当前可达;③SW 未就绪时先检查新缓存/网络是否已含 app.min.js,
+  //   未就绪则提示「正在准备新版」并稍后自动 reload(或让用户稍后再点),绝不盲目 reload 踩裸崩。
   if (btn) {
     btn.addEventListener('click', function () {
-      window.location.reload();
+      // 新 SW 是否已激活负责(controllerchange 后 controller 非 null 且不是等待中)
+      var swActive = navigator.serviceWorker && navigator.serviceWorker.controller;
+      if (!swActive) {
+        // 尚无 SW 接管(首访刚注册/硬刷瞬间) → 直接 reload 即可(走浏览器默认网络,不经过 SW claim 裸崩链路)
+        window.location.reload();
+        return;
+      }
+      // 已有 SW 接管: 探活 app.min.js 是否当前可达(sw.js cacheFirst 会从新缓存/网络供应)
+      fetch('./app.min.js', { method: 'HEAD', cache: 'no-store' })
+        .then(function (res) {
+          if (res && res.ok) {
+            // 核心 JS 可达 → SW cacheFirst 能正确供应渲染资源 → 安全 reload
+            window.location.reload();
+          } else {
+            _prepareNewVersionWait();
+          }
+        })
+        .catch(function () {
+          _prepareNewVersionWait();
+        });
     });
+
+    // 核心 shell 未就绪: 提示"正在准备新版",稍后重探测到可达再自动 reload(避免用户空等/误点裸崩)
+    var _swPreparing = false;
+    var _swPrepareRetry = null;
+    function _prepareNewVersionWait() {
+      if (_swPreparing) return;
+      _swPreparing = true;
+      var label = toast && toast.querySelector('span');
+      var orig = label ? label.innerHTML : '';
+      if (label) label.innerHTML = '⏳ 正在准备新版…';
+      btn.textContent = '刷新中';
+      btn.disabled = true;
+      // 每 1.5s 重探测 app.min.js,最多 20 次(30s)仍不可达则恢复提示让用户稍后手点
+      var tries = 0;
+      _swPrepareRetry = setInterval(function () {
+        tries++;
+        fetch('./app.min.js', { method: 'HEAD', cache: 'no-store' })
+          .then(function (res) {
+            if (res && res.ok) {
+              clearInterval(_swPrepareRetry);
+              window.location.reload();
+              return;
+            }
+            if (tries >= 20) {
+              clearInterval(_swPrepareRetry);
+              if (label) label.innerHTML = orig;
+              btn.textContent = '刷新';
+              btn.disabled = false;
+              _swPreparing = false;
+            }
+          })
+          .catch(function () {
+            if (tries >= 20) {
+              clearInterval(_swPrepareRetry);
+              if (label) label.innerHTML = orig;
+              btn.textContent = '刷新';
+              btn.disabled = false;
+              _swPreparing = false;
+            }
+          });
+      }, 1500);
+    }
   }
 
   window.addEventListener('load', function () {
