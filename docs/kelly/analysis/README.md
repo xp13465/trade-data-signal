@@ -4,6 +4,7 @@
 
 | 文档 | 说明 |
 |---|---|
+| kelly-bond-inclusion-probe.md | **债类指数纳入回测穷举对比:纳入债类收益率变差,不建议纳入**(2026-08-14,本轮新增;数据 `data/bond_probe_comparison.json`+脚本 `scripts/signal_kelly_backtest_bond.py`) |
 | kelly-yearly-vs-drawdown-cognitive-gap.md | **认知差:按年收益率 vs 峰值资金回撤两把尺子**(2026-08-14,本轮新增) |
 | kelly-ai-predict-hit-method.md | **AI 预测命中口径 0.1→0.5 说明**(2026-08-14,本轮新增) |
 | kelly-analysis.md | 凯利分析总览 |
