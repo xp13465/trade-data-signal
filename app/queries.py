@@ -778,6 +778,43 @@ def overview(conn, cfg):
                  for i in cfg.get("indices", []) if i.get("enabled", True)}
     # 2026-08-13 #60 方案A 首页1:1对齐回测: 读 #58 冻结表一次, 每条信号命中冻结则标权威 top1。
     _home_freeze = _etf_freeze()
+    # =========================================================
+    # 2026-08-14 P0-2 盘后补齐角标后端注入: 判定某信号是否为"迟到信号"
+    # (数据源晚到, 21:00 backfill-evening 指数补采重算后才进 signal_daily, 从未进任何
+    # 盘中重算轮, 用户白天没看到、更没被告知)。可靠时间源 = signal_intraday_log 表
+    # (盘中每轮 _recompute_signals 后 append 当日 (time,index_id,signal) 快照)——
+    # 而非给 signal_daily 加 created_at 列: signal_daily 是 DELETE+INSERT 全量重建,
+    # 每次重算会把全历史行都重新盖成"本次爬取时间", 加列无法区分迟到(见 memory
+    # homepage-814-signal-annotation)。
+    # 口径(对齐用户 2026-08-14:"17:50 固化后 / 21:00 指数补采才进=迟到"):
+    #   日期 D 的信号 (index_id,signal) 判迟到 ⟺ 三者同时满足:
+    #   ① 指数 market 非 全球/港股(global/hk/hk_industry)——这些本就隔夜/晚发属"正常"
+    #      (欧股/美股/港股每天都不进 A 股盘中轮, 不排除会把它们每天误标成盘后补齐)
+    #   ② (index_id,signal) 从未出现在 D 的任意盘中 intraday_log 轮(即补采后才进)
+    #   ③ D 当天盘中轮覆盖完整(轮数 >=3 且 首轮 <= 17:00)——否则日志不全(如
+    #      intraday_log 建表当天 08-10 只有 20:36 一轮)无法判定, 宁可不标不误标
+    # 自查: 8/14 div_lowvol/gz_399431(true, A股晚发) / 8/14 csi_399986(false) /
+    # 8/13 cac40(false, 欧股) 均验证通过。
+    _late_excl_markets = {"global", "hk", "hk_industry"}
+    _mkt_cfg = {i["id"]: i.get("market") for i in cfg.get("indices", [])}
+    if sig_dates:
+        _dph = ",".join("?" * len(sig_dates))
+        # per-date 盘中轮覆盖(轮数 + 首轮时间) → 判定当天日志是否完整
+        _il_cov = {}
+        for row in conn.execute(
+            "SELECT date, COUNT(*) AS n, MIN(time) AS m FROM signal_intraday_log "
+            "WHERE date IN (%s) GROUP BY date" % _dph, sig_dates,
+        ).fetchall():
+            _il_cov[row["date"]] = (row["n"], row["m"])
+        # 当天(与任何盘中轮同一行)的确切 first-seen 时间, -s:* 已排除不入; 建 (date,index_id,signal)→首见
+        _il_first = {}
+        for row in conn.execute(
+            "SELECT date, index_id, signal, MIN(time) AS m FROM signal_intraday_log "
+            "WHERE date IN (%s) GROUP BY date, index_id, signal" % _dph, sig_dates,
+        ).fetchall():
+            _il_first[(row["date"], row["index_id"], row["signal"])] = row["m"]
+    else:
+        _il_cov, _il_first = {}, {}
     for _s in sigs:
         _meta = _idx_meta.get(_s["index_id"])
         if _meta:
@@ -797,6 +834,17 @@ def overview(conn, cfg):
         # (有跟踪 ETF 且带 track_score)。放 freeze 对齐后,冻结条目(回测只在宇宙内冻结)
         # 也带 track_score,不会误判。前端 AI 建议只在此宇宙内选。
         _s["_bt_in_universe"] = any(_e.get("track_score") is not None for _e in (_s.get("etfs") or []))
+        # 2026-08-14 P0-2 盘后补齐角标: 迟到信号=true(数据源晚到 21:00 补采才进)。
+        # 判定见上方注释: 非全球/港股市场 && 当日无 intraday_log 记录 && 当日盘中轮覆盖完整。
+        _iid = _s["index_id"]
+        if _mkt_cfg.get(_iid, None) in _late_excl_markets:
+            _bt_late = False
+        else:
+            _cov = _il_cov.get(_s["date"])
+            _cov_ok = bool(_cov) and _cov[0] >= 3 and (_cov[1] or "24:00") <= "17:00"
+            _seen = (_s["date"], _iid, _s["signal"]) in _il_first
+            _bt_late = _cov_ok and not _seen
+        _s["_bt_late"] = _bt_late
     # 信号至今盈亏（方案B后端算）：为每条信号算 since_return（至今涨跌%）+ since_correct（对错）。
     # 缓存 {index_id: {date: close/value}} 避免 N+1（同 index_id 多信号只查一次）。
     # 用传入 conn 查（不调 normalize.load_* 避免新建连接，遵守模块无状态原则）。
