@@ -1,0 +1,73 @@
+# universe_rules.yaml — 凯利回测/首页AI建议「入样宇宙规则」单一事实源
+# 规范: CLAUDE.md §23.6(2026-08-14 用户定)
+# 用途: 哪些信号进凯利回测 + 首页 AI 建议候选,必须①显式声明②强制公示③1:1遵从④对称校验⑤变更联动。
+#       本文件是机器校验(check_universe_alignment.py)与回测白名单(buy_whitelist)的权威来源,
+#       禁止从文档/记忆反推,禁止前端自行重算宇宙。
+# 注意: 本文件为「声明现状」——把此前分散隐式于 BUY_SIGNALS 白名单 / board_etf_map 构建 /
+#       首页 self 兜底三处的规则显式化。改任何规则须同时更新: 本 yaml + purpose-notes.js/lab.js/
+#       app.js 公示文案 + 重跑 board_etf_map/回测/export + 跑 check_universe_alignment.py(8 步联动)。
+
+# ① 入样信号类型白名单(只回测这些买入信号; 与 scripts/signal_kelly_backtest.py BUY_SIGNALS 对齐)
+buy_whitelist:
+  - buy
+  - buy_aux
+  - buy_special
+  - buy_backup
+
+# ② 入样依赖: 一个信号要入样, 必须 board_etf_map 有该指数 key, 且 key 对应 ETF 列表里
+#    至少一个 ETF 有非空 track_score(等价回测 _build_best_etf 判定 + queries.py _bt_in_universe)。
+inclusion_dependency:
+  require_board_etf_map_key: true
+  require_track_score_non_null: true
+  note: >
+    与回测 _build_best_etf 判定等价; 首页 queries.py overview() 已注入
+    _s["_bt_in_universe"] = any(track_score is not None for etfs), 前端 AI 建议只在此宇宙内选。
+
+# ③ 排除类别(这些类别的不入样, 与 build_board_etf_map.py 的 board_ids 过滤 + 全球指数留空规则对齐)
+#    match: 用于匹配指数 id 的前缀/字面; mode 定义"排除如何体现在 board_etf_map":
+#      - absent      = 该指数 key 不应出现在 board_etf_map(整类不建映射)
+#      - empty_array = 该指数 key 出现在 board_etf_map 但为空数组(无跨境 ETF, 留空展示)
+excluded_categories:
+  # 债类: 国债/利率类指数(cgb_idx 上证国债 / cgb_10y_etf 10年国债ETF / cgb_10y_future),无精准跨境 ETF,
+  #        不建映射(absent)。除 self_etf_exception.cgb_10y_etf 由首页 self-ETF 兜底单独处理。
+  - name: 债类
+    match: "cgb_"
+    mode: absent
+    note: 国债/利率类, board_etf_map 无此 key(留空), 由 self-ETF 兜底(仅 cgb_10y_etf)单独展示。
+  # 情绪: 情绪类指标(历史 id 前缀 s.), 非标的指数, 不入样。
+  - name: 情绪
+    match: "s."
+    mode: absent
+    note: 情绪指标, 非可交易标的, 不入样。
+  # 全球商品利率: 全球商品/利率类指标(历史 id 前缀 g.), 非标的指数, 不入样。
+  - name: 全球商品利率
+    match: "g."
+    mode: absent
+    note: 全球商品/利率指标, 非可交易标的, 不入样。
+  # 港股行业: market=hk_industry 的港股板块指数(hk_cesg10/hk_hsmbi/hk_hscci 等), build_board_etf_map
+  #         board_ids 只收 industry/concept/a/hk, 不收 hk_industry(absent)。
+  - name: 港股行业
+    match: "hk_"
+    mode: absent
+    note: >
+      港股行业板块指数(market=hk_industry), 无映射; 注意与 market=hk 的宽基(hsi/hscei/hstech)区分,
+      后者在 universe 内。
+  # 空数组: 无跨境 ETF 的指数(ftse100 富时100 / kospi 韩国), map 里有 key 但为空数组(empty_array)。
+  - name: 空数组
+    match: ["ftse100", "kospi"]
+    mode: empty_array
+    note: 大概率无跨境 ETF, board_etf_map 保留 key 但为空数组, 前端显示"无ETF"。
+
+# ④ 自我ETF唯一例外: func=fund_etf_hist_sina 的指数(index 本身就是 ETF, 如 cgb_10y_etf sh511260)
+#    由 queries.py _self_etf_for 用 symbol 剥前缀作 ETF 代码注入(match_method="self"), board_etf_map
+#    无此 key。self-ETF 条目无 track_score → 不入凯利回测宇宙(_bt_in_universe=False), 但首页仍展示
+#    "index 即 ETF 自身"。改此例外须同步 queries.py _self_etf_for 判定(func=fund_etf_hist_sina)。
+self_etf_exception:
+  cgb_10y_etf:
+    symbol: "sh511260"
+    match_method: "self"
+    note: "自我ETF唯一例外: 债类 cgb_10y_etf 是基金本身, 不入 board_etf_map, 由首页 self-ETF 兜底单独展示。"
+
+# ⑤ 校验: 上述规则由 scripts/check_universe_alignment.py 机器校验(挂 deploy 链, FAIL 阻断上线)。
+#    改规则 → 同步公示(purpose-notes.js lab.sigkelly + lab.js AI仓位 tooltip + app.js AI建议 tooltip)
+#    → 重跑 build_board_etf_map.py → 重跑 signal_kelly_backtest.py → 重跑 export → 跑本校验 → §22 三步同步。
