@@ -52,6 +52,8 @@ from app.db import get_conn  # noqa: E402
 # ── 常量 ──────────────────────────────────────────────────────────────────────
 BUY_AMOUNT = 10000         # 每笔买入金额(元) -- 1000->10000 降低最低佣金占比(往返费率~1%->~0.3%)
 HOLD_DAYS = 10             # 默认最大持有交易日(ABCD 模式用; E=5/F=15 per-mode 覆盖)
+# 入样信号白名单(§23.6 单一事实源 = config/universe_rules.yaml buy_whitelist, 此处为对齐副本)。
+# 改动必须与 yaml 同步, 并跑 scripts/check_universe_alignment.py 对称校验(断言3 会拦截白名单漂移)。
 BUY_SIGNALS = ("buy", "buy_aux", "buy_special", "buy_backup")
 
 SELL_MODES = {

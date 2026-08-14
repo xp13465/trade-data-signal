@@ -133,6 +133,21 @@ if [ "$CHECK_RC" -ne 0 ]; then
 fi
 echo "✓ 数据产物校验通过" | tee -a "$LOG"
 
+# 1.2 入样宇宙规则对称校验(CLAUDE.md §23.6, 2026-08-14 用户定)
+# 入样宇宙规则(哪些信号进凯利回测/首页AI建议)必须①显式声明(config/universe_rules.yaml)
+# ②强制公示 ③1:1遵从 ④对称校验 ⑤变更联动。本步做④对称校验: 自动比对 overview._bt_in_universe
+# ⟺ board_etf_map 重算 + 候选信号类型⊆白名单 + 回测交易无排除类别 + yaml排除类别⟺map实际缺失。
+# 任一断言 FAIL → 非0退出阻断上线(同 §22 数据一致性校验逻辑)。
+# config/scripts 在 trade-data 是 symlink 指向 trade, 故用 $REPO 相对路径与 check_data_integrity 一致。
+echo "-> 运行 check_universe_alignment.py 入样宇宙规则对称校验 ..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/check_universe_alignment.py" --repo "$REPO" --deploy-mode 2>&1 | tee -a "$LOG"
+UNIV_RC=${PIPESTATUS[0]}
+if [ "$UNIV_RC" -ne 0 ]; then
+  echo "✗ 入样宇宙规则校验失败(退出码 $UNIV_RC)，终止部署(§23.6 对称校验 FAIL 阻断上线)" | tee -a "$LOG"
+  exit "$UNIV_RC"
+fi
+echo "✓ 入样宇宙规则校验通过" | tee -a "$LOG"
+
 # 1.3 intraday_snapshot.json global_realtime 防覆盖检查（2026-07-31 德法角标三重根因修复）
 # 根因：export.py 调 load_latest_snapshot 从 DB reload 生成 intraday_snapshot.json，
 # 若 DB 镜像滞后或旧 snapshot 行无 global_realtime，reload 丢失 global_realtime 致前端德法角标无实时数据。
