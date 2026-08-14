@@ -1734,7 +1734,12 @@ function _showSigToast(msg) {
 // 2026-08-13 重构(用户拍板): 「AI降亏过滤」+「AI降亏显示」合并为单个「AI降亏过滤」总开关(独立键 tds_home_fade, 与凯利区解耦):
 //   开启=首页按降亏策略判定(固定7键)+灰显删除线+「AI降亏」标注+hoverpop 原因; 关闭=首页完全不判降亏、信号正常(不灰显不删除线不标注)。
 // ②AI仓位建议 off 按钮——写 tds_poscap {on:false}(与凯利区 _kellySetSharedPosCap(false,k) 同键同语义, §22 联动), 该区域退化为普通信号列表
-function _sigSwitchHtml(_fadeOn, _k, _pcOn) {
+function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
+  // 两段式信号固化(2026-08-14): A股已固化(finalized && a-share-close)时, AI建议 1/2/3 顶部
+  // 显示「已固化·可操作(盘后窗口)」标签(盘后窗口可按收盘价下单, 不随盘中波动消失); 盘中/其他态不显示。
+  const _aShareFinalizedTag = (signalsMeta && signalsMeta.finalized && signalsMeta.version === "a-share-close")
+    ? `<span class="sig-finalize-ashare-tag" data-no-pop="" data-tip="当日 A 股信号已用收盘价定稿(15:03)、不会再消失; 15:05-15:30 盘后固定价格交易窗口可按收盘价操作, 顶部 AI 建议 1/2/3 为当日可执行标的(已在盘后窗口可下单)。港股/全球/国债待 17:50 完整版。">⏰ 已固化·可操作(盘后窗口)</span>`
+    : "";
   const _kRating = { 1: "最激进", 2: "次稳健", 3: "最稳健", 4: "最保守" };
   // 2026-08-14 #BC C包: 主推 K1 → K 按钮 1 排首位+高亮★主推
   const _kbtns = [1, 3, 4, 2].map((kk) =>
@@ -1758,6 +1763,7 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn) {
       `<input type="checkbox" class="sig-switch-ai-cb"${_fadeOn ? " checked" : ""}> AI降亏过滤` +
       `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 开启=首页按降亏策略判定, 固定 7 键成员级(基础4: 追关注×熊市交叉 / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 + 核心3键: 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致), 命中降亏条件的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); 关闭=首页完全不判降亏、不灰显不删除线不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号。">ⓘ</span>` +
     `</label>` +
+    `${_aShareFinalizedTag}` +
     `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap): 同日只买最优K个, 未进入前K=当日已满灰显; 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表, 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span>${_helpBtn}</span>` +
     `</div>`;
 }
@@ -1771,6 +1777,8 @@ function _sigHelpPopHtml() {
       '<span class="sig-kbtn-help-pop-body">A=买入后<b>固定持有10天</b>卖出；F=买入后<b>持有15天</b>卖出。快进快出，适合波段/资金周转快的玩法。</span></div>' +
     '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-long">🟢 中长线 G</span>' +
       '<span class="sig-kbtn-help-pop-body">买入后<b>一直持有</b>，仅当对应指数「卖出信号」触发才离场，无信号就拿着（总建议主选）。可选加 G 仓位管理：持仓超上限<b>先卖「未满3天」年轻仓</b>（保老仓、砍新仓）。</span></div>' +
+    '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-time">⏰ 当日实操</span>' +
+      '<span class="sig-kbtn-help-pop-body"><b>15:03 后 A 股信号已用收盘价定稿不再变</b>；15:05-15:30 盘后固定价格交易可按收盘价操作，当日可执行标的见 AI 建议 1/2/3（不怕信号消失）。港股/全球待 17:50 完整版。</span></div>' +
     '<div class="sig-kbtn-help-pop-foot">💡 点击按钮查看完整操作指南，并可跳转「信号凯利回测」校验 A/F/G 各模式回测数据。</div>' +
     '</div>';
 }
@@ -1918,6 +1926,12 @@ function _openRefHelpModal() {
         '<p><b>F（持有15天短线）</b>：看到买入信号后买进，<b>固定持有 15 天就卖出</b>，比 A 拿得稍久一点。</p>' +
         '<p>白话理解：<b>持有周期短、跟着短线信号进出</b>，不恋战。适合想快进快出、资金周转快的玩法。</p>' +
       '</div>' +
+      '<div class="rule-card"><div class="rule-card-head">⏰ 当日实操建议（两段式信号固化）</div>' +
+        '<p>今日 A 股信号 15:03 已用收盘价定稿、<b>不会再消失</b>：盘后 15:02 快照已用 A 股收盘价重算完成；17:50 只是补港股/欧股/国债的完整版，A 股部分不会再变。</p>' +
+        '<p>15:05-15:30 盘后固定价格交易窗口可按收盘价操作：成交价为当日收盘价，价格固定可下单，不用等 17:50。</p>' +
+        '<p>当日可执行标的 = 顶部 AI 建议 1/2/3：仅从已入凯利回测宇宙（带跟踪分的可交易 ETF）中按收盘价版选入，不随盘中波动消失，可按对应 top ETF 在盘后窗口下单。</p>' +
+        '<p>⚠ 初版仅覆盖 A 股；港股/欧股/国债相关信号待 17:50 完整版补齐。</p>' +
+      '</div>' +
       '<div class="rule-card"><div class="rule-card-head">🟢 中长线玩法：G（跟指数卖出信号离场）</div>' +
         '<p><b>G（卖出信号中长线）</b>：看到买入信号后买进后<b>不急着卖</b>，一直持有；<b>只有当对应指数的「卖出信号」触发时才离场</b>；没触发卖出信号就继续持有到回测结束。</p>' +
         '<p>白话理解：<b>跟随指数卖出信号触发离场、无信号就拿着</b>，是最贴近交易页面信号驱动跟单的方法，也是总建议的主选。</p>' +
@@ -1940,7 +1954,7 @@ function _openRefHelpModal() {
   document.body.style.overflow = "hidden";
 }
 
-function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = true) {
+function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = true, signalsMeta = null) {
   if (!items || !items.length) return `<h3>${title}</h3><div class="empty-note">${emptyText}</div>`;
   // A/B 方案(2026-07-29): 评级/对错筛选 - 汇总条数字仍用全量 items(_calcSignalAccuracy),
   // 列表渲染用 filtered(只显示符合筛选的参考点)。null=不筛; "high"/"mid"/"low"=评级;
@@ -2102,7 +2116,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     } catch (e) {}
   }
   // 2026-08-13 重构: 显示随过滤开关走(合并后单开关, 无独立显示层); 开关行 HTML 用 _fadeOn 渲染「AI降亏过滤」勾选态
-  const _sigSwitchHtmlStr = (kind === "signal") ? _sigSwitchHtml(_fadeOn, _posCapK || 1, _pcOn) : "";
+  const _sigSwitchHtmlStr = (kind === "signal") ? _sigSwitchHtml(_fadeOn, _posCapK || 1, _pcOn, signalsMeta) : "";
   let rows = "";
   for (const dt of dates) {
     const isToday = dt === todayDate;
@@ -2382,7 +2396,27 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   const _h3Html = _windowBtnsHtml
     ? `<h3 class="sig-title-row"><span class="sig-title-text">${title}</span>${_windowBtnsHtml}</h3>`
     : `<h3>${title}</h3>`;
-  return `${_h3Html}${_sigSwitchHtmlStr}${_accHtml}<div class="signal-grid">${rows}</div>`;
+  // 两段式信号固化三态提示条(2026-08-14): 由后端 signals_meta 驱动(禁止前端硬编码时间)。
+  // 仅 signal 类显示; freeze 类无固化语义。文案为非交易指令性说明, 与 _sigIntradayHint 同风格(直接常量)。
+  const _finalizeBarHtml = (kind === "signal") ? _signalFinalizeBannerHtml(signalsMeta) : "";
+  return `${_h3Html}${_finalizeBarHtml}${_sigSwitchHtmlStr}${_accHtml}<div class="signal-grid">${rows}</div>`;
+}
+
+// 两段式信号固化三态提示条(2026-08-14, 方案 docs/signal-finalize-time.md §5.3):
+// 盘中预估(未收盘, 信号可能消失) / A股已固化(15:03收盘价版, 不会再消失, 盘后窗口可操作) /
+// 完整版定稿(17:50含港股/欧股/国债)。由 signals_meta 驱动, 前端不硬编码时间。
+function _signalFinalizeBannerHtml(meta) {
+  if (!meta) return "";
+  let barCls = "sig-finalize-bar sig-finalize-pre";
+  let barTxt = "⚠ 盘中预估 · 收盘后(15:03)重算定版，信号可能消失";
+  if (meta.finalized && meta.version === "a-share-close") {
+    barCls = "sig-finalize-bar sig-finalize-ashare";
+    barTxt = "✅ 当日 A 股信号已固化(15:03 收盘价版)，不会再消失 · 15:05-15:30 盘后窗口可按收盘价操作(AI 建议 1/2/3 为当日可执行标的) · 港股/全球/国债待 17:50 完整版";
+  } else if (meta.finalized && (meta.version === "full" || meta.version === "evening")) {
+    barCls = "sig-finalize-bar sig-finalize-full";
+    barTxt = "✅ 当日完整版信号已定稿(17:50，含港股/欧股/国债)";
+  }
+  return '<div class="' + barCls + '" data-tip="' + (meta.finalized_note || "") + '">' + barTxt + "</div>";
 }
 
 // D 方案(2026-07-29): sigCard 自动更新 - ts:overview-refreshed hook 增量重绘。
@@ -2400,23 +2434,29 @@ function _rerenderSigCardContent(r, snap) {
   if (!sigCard) return;
   const isClosed = snap ? snap.is_closed : true;
   const title = "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看8类信号与ETF跟踪指标详细解释）");
-  const newHtml = _renderSignalGrid(r.signals_today || [], r.date, title, "signal", "近期无技术分析参考点", isClosed);
+  const newHtml = _renderSignalGrid(r.signals_today || [], r.date, title, "signal", "近期无技术分析参考点", isClosed, r.signals_meta);
   const tmp = document.createElement("div");
   tmp.innerHTML = newHtml;
   const newH3 = tmp.querySelector("h3");
   const newAccWrap = tmp.querySelector(".sig-acc-wrap");
   const newGrid = tmp.querySelector(".signal-grid");
   const newSigSwitch = tmp.querySelector(".sig-switch-row");
+  const newFinalizeBar = tmp.querySelector(".sig-finalize-bar");
   const oldH3 = sigCard.querySelector("h3");
   const oldAccWrap = sigCard.querySelector(".sig-acc-wrap");
   const oldGrid = sigCard.querySelector(".signal-grid");
   const oldSigSwitch = sigCard.querySelector(".sig-switch-row");
+  const oldFinalizeBar = sigCard.querySelector(".sig-finalize-bar");
   if (newH3 && newAccWrap && newGrid && oldH3 && oldAccWrap && oldGrid) {
     // UI(2026-07-31): h3 也增量替换(含窗口按钮 active 态 + 标题后缀, 随筛选切换更新)
     // 问题3 fix: .sig-acc-wrap 整体替换(summary+byType), 切窗口时 byType 各类型数量/准确率联动更新
     // 2026-08-13 开关行: 标题下第一行, 增量替换(状态读 localStorage 重绘, 事件用一次性绑定防重复)
     if (oldSigSwitch && newSigSwitch) oldSigSwitch.replaceWith(newSigSwitch);
     else if (newSigSwitch) oldH3.insertAdjacentElement("afterend", newSigSwitch);
+    // 2026-08-14 两段式固化提示条: .sig-finalize-bar 在 h3 与开关行之间, 随重绘增量替换
+    if (oldFinalizeBar && newFinalizeBar) oldFinalizeBar.replaceWith(newFinalizeBar);
+    else if (newFinalizeBar) oldH3.insertAdjacentElement("afterend", newFinalizeBar);
+    else if (oldFinalizeBar) oldFinalizeBar.remove();
     oldH3.replaceWith(newH3);
     oldAccWrap.replaceWith(newAccWrap);
     oldGrid.replaceWith(newGrid);
@@ -10506,7 +10546,7 @@ async function renderOverview() {
   // 右列：近期买卖点（近15交易日，今日高亮排首）
   const sigCard = document.createElement("div");
   sigCard.className = "chart-card sig-card";
-  sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看8类信号与ETF跟踪指标详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true);
+  sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看8类信号与ETF跟踪指标详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true, r.signals_meta);
   addCardTimeBadge(sigCard, r.date, snap, "t0", "", false, true);  // 任务1: useOverviewDate=true, 轮询后用最新 overview.date 刷新
   _sigCardRenderedAt = r.collected_at;  // D: 记录渲染时 collected_at, 供 _maybeRerenderSigCard 判断是否需重绘
   _bindSigSwitchRow(sigCard);  // 2026-08-13 首页 AI 开关行事件绑定(一次性委托, 重绘后仍生效)

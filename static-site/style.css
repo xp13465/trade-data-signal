@@ -931,6 +931,14 @@ main { padding: 16px 24px; }
    收盘后(is_closed=true)/非今日pin不带此标记(已定版不消失)。 */
 .sig-clickable.sig-intraday { box-shadow: 0 0 0 1.5px rgba(230,162,60,0.55); }
 .sig-intraday-warn { color: #e6a23c; font-size: 11px; margin-left: 2px; vertical-align: super; line-height: 0; cursor: help; }
+/* 两段式信号固化三态提示条(2026-08-14): 由 signals_meta 驱动, 首页信号区标题下方。
+   盘中预估(警示橙) / A股已固化(绿) / 完整版定稿(蓝)。非交易指令性说明文字。 */
+.sig-finalize-bar { margin: 6px 0 2px; padding: 6px 10px; font-size: 11px; line-height: 1.5; border-radius: 3px; cursor: help; }
+.sig-finalize-pre { color: var(--text-3); background: rgba(230,162,60,0.08); border-left: 3px solid #e6a23c; }
+.sig-finalize-ashare { color: #15803d; background: rgba(21,128,61,0.08); border-left: 3px solid #15803d; }
+.sig-finalize-full { color: #1d63b8; background: rgba(29,99,184,0.08); border-left: 3px solid #1d63b8; }
+/* AI建议区「已固化·可操作」标签(2026-08-14): A股已固化时显示, 盘后窗口可操作 */
+.sig-finalize-ashare-tag { display: inline-block; margin: 2px 0 0 8px; padding: 2px 8px; font-size: 11px; color: #15803d; background: rgba(21,128,61,0.1); border: 1px solid rgba(21,128,61,0.4); border-radius: 3px; cursor: help; vertical-align: middle; }
 /* 评分尾缀角标：技术参考点综合把握度（10d 窗口 score）。sup 小号上标，hover tooltip 详情。
    score≥0.75 高(深绿#15803d)/≥0.55 中(橙#e6a23c)/<0.55 低(灰 var(--text-3))。
    .sig-item-high：score≥0.75 的 pin 整体细绿描边+微背景，一眼识别优质参考点。 */
@@ -978,8 +986,10 @@ main { padding: 16px 24px; }
 .sig-kbtn-help-pop-tag { display: inline-block; font-weight: 700; margin-right: 4px; }
 .sig-kbtn-help-pop-tag-short { color: #1d4ed8; }
 .sig-kbtn-help-pop-tag-long { color: #16a34a; }
+.sig-kbtn-help-pop-tag-time { color: #b45309; }
 [data-theme="dark"] .sig-kbtn-help-pop-tag-short, [data-theme="redgold"] .sig-kbtn-help-pop-tag-short { color: #93c5fd; }
 [data-theme="dark"] .sig-kbtn-help-pop-tag-long, [data-theme="redgold"] .sig-kbtn-help-pop-tag-long { color: #86efac; }
+[data-theme="dark"] .sig-kbtn-help-pop-tag-time, [data-theme="redgold"] .sig-kbtn-help-pop-tag-time { color: #fbbf24; }
 .sig-kbtn-help-pop-body { color: var(--text-2); }
 .sig-kbtn-help-pop-foot { color: var(--text-4); font-size: 10px; line-height: 1.45; border-top: 1px dashed var(--border); padding-top: 5px; margin-top: 2px; }
 @media (max-width: 760px) { .sig-kbtn-help-pop { width: min(330px, calc(100vw - 16px)); font-size: 10.5px; padding: 7px 9px; } }

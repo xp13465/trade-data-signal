@@ -72,7 +72,7 @@
 | 33 | **管理端任务看板(kanban)** | TASKS.md L66 + memory kanban-board-design | 4列(新需求/待办/进行中/归档按功能聚合)+ Card/Feature 数据模型 + worker /api/kanban + KV + admin/kanban.html | 无(已设计完整) | **未派**(排期:周末或下周) |
 | 34 | **场外基金阶段3:场内外联动(ETF 联接跟踪误差)** | TASKS.md L65 | 阶段1 评分引擎+阶段2 前端 UI 已实现;阶段3 场内外联动未做 | 阶段1/2 已上线 | **未派** |
 | 35 | **理财专员使用指南 about 页上线** | TASKS.md L121 + docs/理财专员使用指南.md | 613 行指南已验收;等用户定"上线 about 页/就放 docs" | 无 | **未派**(待用户决策) |
-| 36 | **signal-finalize-time 两段式 15:05 A股初版** | docs/signal-finalize-time.md §5.3 | 15:05 A股收盘价初版(标注"仅A股")+ 晚间定稿版;机制已天然支持 | 无 | **未实施**(建议形态) |
+| 36 | **signal-finalize-time 两段式 15:05 A股初版** | docs/signal-finalize-time.md §5.3 | 15:05 A股收盘价初版(标注"仅A股")+ 晚间定稿版;机制已天然支持 | 无 | **已实施**(2026-08-14: overview signals_meta 三态 + close/etf_close + 前端提示条/AI建议标签/参考说明, 见 docs/signal-finalize-time.md §6 已实施注记) |
 
 ## 七、数据采集 / 数据源缺口(已识别非功能方案)
 

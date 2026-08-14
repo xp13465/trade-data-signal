@@ -113,3 +113,13 @@
 - launchd 时点:`com.trade.update-all` 17:50 / `com.trade.intraday-snapshot` 每10min + 15:02/15:35/20:35 / `com.trade.lhb-backfill` 18:30/19:30 / `com.trade.backfill-evening` 16:35/21:00/2:00 / `com.trade.us-stock-morning` 5:00
 - **实测数据(2026-08-11,DB)**:`signal_intraday_log` 09:26-14:56 每轮 4-6 条波动;15:03=15:36=5 条(内容完全相同);18:42=20:36=8 条;signal_daily 当日最终 8 条
 - 日志:`update_all_20260811_1750.log`(17:50:05 开始,18:41 check_signals,18:49 结束,末尾 intraday_snapshot signals 重算 70304 条)
+
+## 7. 已实施注记(2026-08-14, 两段式信号固化上线)
+
+> 本方案 §5.3「两段式」已实施(主控派单, 见 pending-features-index #36)。机制由 overview() 后端注入 signals_meta 三态驱动, 前端不硬编码时间。
+
+- **后端 `app/queries.py` overview()**:注入 `signals_meta` 对象(version=`a-share-close`/`full`/`evening` + finalized + coverage + generated_at + finalized_note + operable_window)。版本判定基于**服务端当前时点 + 当日是否有数据**(score_date==今日且当前≥15:03 → a-share-close finalized;≥17:50 → full;≥20:36 → evening;盘中/无当日信号 → a-share-close finalized=false;非交易日 score_date!=今日 → full)。**每条信号补 `close`(该信号日指数收盘价, 复用 index_daily), etfs[] 每条补 `etf_close`(复用 etf_daily.close)**。零新增采集/launchd(挂在 overview 导出链)。
+- **前端 `static-site/app.js`**:①信号区标题下三态提示条 `_signalFinalizeBannerHtml`(盘中预估⚠ / A股已固化✅ / 完整版定稿✅);②AI建议区「⏰ 已固化·可操作(盘后窗口)」标签(A股已固化时, `_sigSwitchHtml`);③参考说明弹窗 `_openRefHelpModal` + hoverpop `_sigHelpPopHtml` 补「⏰ 当日实操建议」段。`static-site/style.css` 加 `.sig-finalize-bar`/`.sig-finalize-ashare-tag`/`.sig-kbtn-help-pop-tag-time` 样式。
+- **§21 公示**:purpose-notes.js `lab.sigkelly` 补「信号固化时点」说明(15:03 A股定稿 / 17:50 完整版 / 20:36 最终版)。
+- **§22 一致性**:overview 是 signals_today 唯一权威数据源, 所有消费 overview 的展示位(首页信号卡/重绘 hook)统一读 signals_meta/close。
+- 版本判定规则与前端提示文案对齐本文件 §2 时间线(15:03/17:50/20:36)。

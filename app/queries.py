@@ -844,6 +844,9 @@ def overview(conn, cfg):
             _sig_close = _cm.get(_sig_date)
             if _sig_close is None:
                 continue
+            # 两段式信号固化(2026-08-14): 每条信号补当日收盘价 close(该信号日指数收盘价),
+            # 供前端"已固化·可操作"展示与盘后固定价格窗口参考。
+            _s["close"] = _sig_close
             _today_close = _cm.get(score_date)
             if _today_close is None and _cm:
                 # 末日兜底：score_date 无 close 时取序列最大日期（最新可用）
@@ -873,16 +876,18 @@ def overview(conn, cfg):
                 if _e.get("code"):
                     _etf_codes.add(_e["code"])
         _etf_close_cache: dict[str, dict[str, float]] = {}
+        _etf_price_cache: dict[str, dict[str, float]] = {}  # etf_code->{date: close} 两段式信号固化
         if _etf_codes:
             try:
                 from .collector.etf_national_team import get_conn as _etf_get_conn
                 _ec = _etf_get_conn()
                 for _r in _ec.execute(
-                    "SELECT etf_code, date, accum_nav FROM etf_daily "
-                    "WHERE etf_code IN (%s) AND accum_nav IS NOT NULL" % ",".join("?" * len(_etf_codes)),
+                    "SELECT etf_code, date, accum_nav, close FROM etf_daily "
+                    "WHERE etf_code IN (%s) AND close IS NOT NULL" % ",".join("?" * len(_etf_codes)),
                     tuple(_etf_codes),
                 ).fetchall():
                     _etf_close_cache.setdefault(_r["etf_code"], {})[_r["date"]] = _r["accum_nav"]
+                    _etf_price_cache.setdefault(_r["etf_code"], {})[_r["date"]] = _r["close"]
                 _ec.close()
             except Exception:  # noqa: BLE001
                 pass
@@ -892,16 +897,28 @@ def overview(conn, cfg):
                 _e["etf_since_return"] = None
                 _e["etf_price_diff"] = None
                 _code = _e.get("code")
-                # 今日信号(date==score_date)无"至今"语义，对齐 L446-447 指数口径
-                if not _code or _sig_date == score_date:
+                if not _code:
                     continue
                 # 2026-08-08 fix: self ETF(如 511260=cgb_10y_etf)数据在 index_daily 不在 etf_daily,
                 # _etf_close_cache 永远 None。self 时用 _load_close_map(index_id) 取 index_daily close,
                 # self 的 etf_since_return=指数 since_return(本体即ETF,正确)
                 if _e.get("match_method") == "self":
                     _cm = _load_close_map(_s["index_id"])
+                    _price_cm = _cm
                 else:
                     _cm = _etf_close_cache.get(_code)
+                    _price_cm = _etf_price_cache.get(_code)
+                # 两段式信号固化(2026-08-14): 每条 ETF 候选补当日收盘价 etf_close(该信号日),
+                # 今日信号也有(收盘价版,供盘后固定价格窗口参考)。
+                # 末日兜底: 该信号日 etf_daily 无 close(如银行ETF今日数据滞后)时取最新可用 close,
+                # 对齐 etf_since_return 的 max(_cm.keys()) 兜底, 供盘后固定价格窗口可操作参考。
+                if _price_cm:
+                    _e["etf_close"] = _price_cm.get(_sig_date)
+                    if _e["etf_close"] is None and _price_cm:
+                        _e["etf_close"] = _price_cm.get(max(_price_cm.keys()))
+                # 今日信号(date==score_date)无"至今"语义，对齐 L446-447 指数口径
+                if _sig_date == score_date:
+                    continue
                 if not _cm:
                     continue
                 _sig_close = _cm.get(_sig_date)
@@ -1189,10 +1206,47 @@ def overview(conn, cfg):
     except Exception:  # noqa: BLE001
         pass
 
+    # 两段式信号固化 signals_meta(2026-08-14 实施, 方案见 docs/signal-finalize-time.md §5.3):
+    # 基于服务端当前时点 + 当日是否有数据判定版本(不新增采集/不新增 launchd)。
+    # 规则: A股 15:03 收盘价首轮定稿(15:03-15:36 不变, 不会再消失), 15:05-15:30 盘后
+    # 固定价格窗口可按收盘价操作; 17:50 update_all 后含港股/欧股/国债=full;
+    # 20:36 晚间快照后=evening 当天最终。非交易日/盘前(score_date!=今日)展示上日已定稿
+    # 信号, 视为 full。前端由 signals_meta 驱动三态提示条, 禁止硬编码时间。
+    _now = datetime.now()
+    _today_str = _now.strftime("%Y%m%d")
+    _hm = _now.hour * 100 + _now.minute
+    _is_today = score_date == _today_str
+    _has_signals = bool(sigs)
+    if not _is_today:
+        _meta_version, _meta_finalized, _meta_coverage = "full", True, "all"
+    elif not _has_signals or _hm < 1503:
+        _meta_version, _meta_finalized, _meta_coverage = "a-share-close", False, "a-share"
+    elif _hm < 1750:
+        _meta_version, _meta_finalized, _meta_coverage = "a-share-close", True, "a-share"
+    elif _hm < 2036:
+        _meta_version, _meta_finalized, _meta_coverage = "full", True, "all"
+    else:
+        _meta_version, _meta_finalized, _meta_coverage = "evening", True, "all"
+    if not _meta_finalized:
+        _finalized_note = "盘中预估,收盘后重算定版,信号可能消失"
+    elif _meta_version == "a-share-close":
+        _finalized_note = "当日A股信号已用收盘价定稿(15:03),不会再消失"
+    else:
+        _finalized_note = "当日完整版信号已定稿(17:50,含港股/欧股/国债)"
+    signals_meta = {
+        "version": _meta_version,
+        "generated_at": _now.strftime("%Y-%m-%d %H:%M"),
+        "coverage": _meta_coverage,
+        "finalized": _meta_finalized,
+        "finalized_note": _finalized_note,
+        "operable_window": "15:05-15:30 盘后固定价格交易窗口可按收盘价操作",
+    }
+
     return {
         "date": score_date,
         "collected_at": collected_at,
         "collect_health": collect_health,
+        "signals_meta": signals_meta,
         # 兼容字段（保留）
         "scores": scores,
         "signals_today": sigs,
