@@ -1028,7 +1028,10 @@ def scrub_text(text: str, cfg: dict) -> str:
 HISTORY_FILE = "daily_brief_history.json"
 BRIEF_FILE = "daily_brief.json"
 HISTORY_LIMIT = 90
-HIT_THRESHOLD = 0.1  # 涨跌幅 >0.1% 才算 up/down,否则 flat
+HIT_THRESHOLD = 0.5  # 涨跌幅 >0.5% 才算 up/down,否则 flat(2026-08-14 口径变更 0.1->0.5:
+#                     模型被提示词引导倾向 flat,±0.1% 容忍带下 flat 天花板仅 ~8%(近30日6.7%),
+#                     致 0% 命中率是口径算出来的而非预测能力为 0;±0.5% 带下 flat 天花板 ~37%,
+#                     8/11-8/13 中 8/11(+0.32%)/8/12(-0.50%) 判命中,命中率 0/3->2/3)
 
 # ── 结构化运行日志(2026-08-11 审计缺口#4)────────────────────────────────
 #   双写: a) static-site/data/daily_brief_run_log.json(随 daily_brief.json 一起 R2 上传+staticdata 同步,前端可读)
@@ -1151,6 +1154,28 @@ def backfill_hits(history: list[dict], db_path: Path, today: str) -> None:
             pred = meta.get("direction")
             hit["direction"] = bool(pred and pred == hit["actual_direction"])
         it["_backfilled_via"] = nxt
+
+
+def reclassify_all_hits(history: list[dict]) -> None:
+    """按当前 HIT_THRESHOLD 重判所有已回填条目的方向命中(口径变更时重刷历史)。
+
+    backfill_hits 只回填 hit.direction is None 的未判定条目;当 HIT_THRESHOLD 变更时,
+    已判定条目的 actual_direction/direction 语义随之失效,需逐条重判。本函数基于每条
+    已存的 actual_sh_pct 重算 actual_direction 与 direction,不重新查库(幂等)。
+    """
+    for it in history:
+        meta = it.get("meta") or {}
+        hit = meta.get("hit") or {}
+        pct = hit.get("actual_sh_pct")
+        if pct is None:
+            continue
+        ad = _actual_direction(pct)
+        hit["actual_direction"] = ad
+        pred = meta.get("direction")
+        if ad:
+            hit["direction"] = bool(pred and pred == ad)
+        else:
+            hit["direction"] = None
 
 
 def _history_stats(history: list[dict]) -> dict:
