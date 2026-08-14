@@ -30,7 +30,7 @@
 
 ## 本轮落档(2026-08-14)
 
-- 债类指数纳入回测穷举对比:报告 `analysis/kelly-bond-inclusion-probe.md`(结论:纳入债类变差不建议)+ 脚本 `scripts/signal_kelly_backtest_bond.py` + 数据 `analysis/data/bond_probe_comparison.json`
+- 债类指数纳入回测穷举对比:报告 `analysis/kelly-bond-inclusion-probe.md`(结论:纳入债类变差不建议;`--include-band` 波段 band_hold 纳入更差,过度交易浪费仓位)+ 脚本 `scripts/signal_kelly_backtest_bond.py` + 数据 `analysis/data/bond_probe_comparison.json`
 - 策略A/B 穷举对比:报告 `position/kelly-strategyAB-exhaustive.md` + 脚本 `scripts/strategyAB_compare.py`、`strategyAB_robust.py`、`amount_verify.js`、`kelly_verify_amount.py`
 - 认知差(按年收益率 vs 峰值回撤):报告 `analysis/kelly-yearly-vs-drawdown-cognitive-gap.md` + 脚本 `scripts/kelly_yearly_*.js`、`dd_2011_*.js`
 - AI 预测命中口径:报告 `analysis/kelly-ai-predict-hit-method.md` + 脚本 `scripts/rebackfill_daily_brief.py`

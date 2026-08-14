@@ -90,7 +90,7 @@ def _load_index_close_price(index_ids):
 def _compute_per_universe(buy_rows, best_etf, self_map, signal_stats, market_map,
                           market_state, market_dates, sell_timeline, today_str,
                           etf_price_map, etf_sdates_map, self_price_map, self_sdates_map,
-                          with_self_etf):
+                          with_self_etf, tag=""):
     """在指定宇宙(是否纳入 self-ETF)下跑完整信号分类 + 全模式回测。
 
     返回 (quadrants, skipped 明细)。
@@ -102,6 +102,8 @@ def _compute_per_universe(buy_rows, best_etf, self_map, signal_stats, market_map
     bond_entered = 0      # 进入回测的 self-ETF(债类)信号数
     bond_no_price = 0     # self-ETF 信号但无价格
     bond_total = 0        # self-ETF 买信号总数
+    band_entered = 0      # band_hold 单独计数(纳入波段宇宙用)
+    band_total = 0
 
     etf_quad_map = {"strong": "strong", "related": "related", "approx": "approx", "none": "has_track"}
 
@@ -114,7 +116,10 @@ def _compute_per_universe(buy_rows, best_etf, self_map, signal_stats, market_map
                   "track_tier": "none", "track_score": None, "match_method": "self",
                   "track_low_confidence": None}
             is_self = True
-            bond_total += 1
+            if sig == "band_hold":
+                band_total += 1
+            else:
+                bond_total += 1
         if not be:
             skipped_no_etf += 1
             continue
@@ -199,6 +204,8 @@ def main():
     parser = argparse.ArgumentParser(description="债类指数纳入回测 probe(穷举对比)")
     parser.add_argument("--output", default=os.path.join(ROOT, "docs", "kelly", "analysis", "data",
                                                          "bond_probe_comparison.json"))
+    parser.add_argument("--include-band", action="store_true",
+                        help="额外跑「纳入波段信号(band_hold 当买信号)」宇宙对比(用户要求维度)")
     args = parser.parse_args()
 
     today = datetime.now()
@@ -276,20 +283,45 @@ def main():
         print(f"  {k}: {skip_base[k]} -> {skip_bond[k]}")
     print(f"  self-ETF 债类信号: {skip_bond['self_etf_bond']}")
 
+    # ── 宇宙3(可选 --include-band): 纳入波段信号(band_hold 当买信号, 仅 self-ETF 债类) ──
+    quads_band = None
+    skip_band = None
+    if args.include_band:
+        # band_hold 是「持有状态」信号(非标准买点), 语义见报告; 用户要求按「纳入 vs 不纳入」给数据对比。
+        # 仅对 self-ETF 债类指数(cgb_10y_etf)追加 band_hold 为买信号。
+        conn = get_conn()
+        band_rows = conn.execute(
+            "SELECT date, index_id, signal FROM signal_daily "
+            "WHERE signal='band_hold' AND index_id IN (%s) ORDER BY date"
+            % ",".join("?" * len(self_map.keys())),
+            list(self_map.keys()),
+        ).fetchall()
+        conn.close()
+        band_buy_rows = buy_rows + list(band_rows)
+        print(f"\n--- 宇宙3: 纳入波段信号(band_hold, {len(band_rows)} 条) ---")
+        quads_band, skip_band = _compute_per_universe(
+            band_buy_rows, best_etf, self_map, signal_stats, market_map,
+            market_state, market_dates, sell_timeline, today_str,
+            etf_price_map, etf_sdates_map, self_price_map, self_sdates_map, with_self_etf=True)
+        print(f"  band_hold 债类信号: {skip_band['self_etf_bond']}")
+
     # ── 聚合统计对比(按卖出模式, all 周期) ──
     comparison = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "universe": {
             "baseline": "现状(不纳入 self-ETF 债类, ETF宇宙=board_etf_map)",
             "bond_probe": "纳入 self-ETF(首页同款兜底, cgb_10y_etf 等 func=fund_etf_hist_sina 指数用自身作ETF)",
+            "band_probe": "纳入波段信号(band_hold 当买信号, 叠加 self-ETF 兜底; 语义非标准买点, 见报告)",
         },
         "self_etf_map": self_map,
         "bond_detail": skip_bond["self_etf_bond"],
+        "band_detail": (skip_band["self_etf_bond"] if skip_band else None),
         "skipped": {"baseline": {k: v for k, v in skip_base.items() if k != "self_etf_bond"},
                     "bond_probe": {k: v for k, v in skip_bond.items() if k != "self_etf_bond"}},
         "by_mode": {},
         "by_signal": {},
         "bond_only": {},
+        "band_only": {},
         "period_cutoffs": {k: v["cutoff"] for k, v in S.PERIODS.items()},
     }
 
@@ -322,6 +354,27 @@ def main():
                            if bond_only_trades else 0,
             "signal_count": len(set(t["signal_date"] for t in bond_only_trades)),
         }
+        # 波段信号宇宙(仅 --include-band 时)
+        if quads_band is not None:
+            band_trades = (quads_band["rating_high"][mode_key]
+                           + quads_band["rating_mid"][mode_key]
+                           + quads_band["rating_low"][mode_key])
+            band_hold_only = [t for t in band_trades if t.get("signal") == "band_hold"]
+            comparison["by_mode"][mode_key]["band_probe"] = S._compute_stats(band_trades, "all")
+            comparison["by_mode"][mode_key]["band_hold_only"] = S._compute_stats(band_hold_only, "all")
+            comparison["band_only"][mode_key] = {
+                "n": len(band_hold_only),
+                "total_profit": round(sum(t["profit"] for t in band_hold_only), 4),
+                "total_invest": len(band_hold_only) * S.BUY_AMOUNT,
+                "total_return_pct": round(sum(t["profit"] for t in band_hold_only)
+                                          / (len(band_hold_only) * S.BUY_AMOUNT) * 100, 4)
+                                    if band_hold_only else 0,
+                "win_rate": round(sum(1 for t in band_hold_only if t["profit"] > 0) / len(band_hold_only), 4)
+                            if band_hold_only else 0,
+                "mean_return": round(sum(t["return_pct"] for t in band_hold_only) / len(band_hold_only), 4)
+                               if band_hold_only else 0,
+                "signal_count": len(set(t["signal_date"] for t in band_hold_only)),
+            }
 
     # 逐信号类型对比(all 周期, 覆盖短/中长模式)
     for sig in S.BUY_SIGNALS:
@@ -344,13 +397,24 @@ def main():
 
     # 打印关键对比表(all 周期)
     print("\n=== 对比表(全体有score信号, all周期) ===")
-    print(f"{'模式':<6} {'基线n':>7} {'纳入n':>7} {'债类n':>6} | {'基线净利':>9} {'纳入净利':>9} | {'基线胜率':>8} {'纳入胜率':>8} | {'债类胜率':>8}")
-    for mode_key in S.SELL_MODES:
-        row = comparison["by_mode"][mode_key]
-        b, p, bo = row["baseline"], row["bond_probe"], row["bond_only"]
-        print(f"{S.SELL_MODES[mode_key]['label']:<6} {b['n']:>7d} {p['n']:>7d} {bo['n']:>6d} | "
-              f"{b['total_profit']:>9.0f} {p['total_profit']:>9.0f} | "
-              f"{b['win_rate']*100:>7.1f}% {p['win_rate']*100:>7.1f}% | {bo['win_rate']*100:>7.1f}%")
+    if quads_band is not None:
+        print(f"{'模式':<6} {'基线n':>7} {'纳入债n':>7} {'加波段n':>7} | {'基线净利':>9} {'纳入债净':>9} {'加波段净':>9} | 债类胜率 | band胜率")
+        for mode_key in S.SELL_MODES:
+            row = comparison["by_mode"][mode_key]
+            b, p, bo = row["baseline"], row["bond_probe"], row["bond_only"]
+            bp = row["band_probe"]
+            bho = row["band_hold_only"]
+            print(f"{S.SELL_MODES[mode_key]['label']:<6} {b['n']:>7d} {p['n']:>7d} {bp['n']:>7d} | "
+                  f"{b['total_profit']:>9.0f} {p['total_profit']:>9.0f} {bp['total_profit']:>9.0f} | "
+                  f"{bo['win_rate']*100:>6.1f}% | {bho['win_rate']*100:>6.1f}%")
+    else:
+        print(f"{'模式':<6} {'基线n':>7} {'纳入n':>7} {'债类n':>6} | {'基线净利':>9} {'纳入净利':>9} | {'基线胜率':>8} {'纳入胜率':>8} | {'债类胜率':>8}")
+        for mode_key in S.SELL_MODES:
+            row = comparison["by_mode"][mode_key]
+            b, p, bo = row["baseline"], row["bond_probe"], row["bond_only"]
+            print(f"{S.SELL_MODES[mode_key]['label']:<6} {b['n']:>7d} {p['n']:>7d} {bo['n']:>6d} | "
+                  f"{b['total_profit']:>9.0f} {p['total_profit']:>9.0f} | "
+                  f"{b['win_rate']*100:>7.1f}% {p['win_rate']*100:>7.1f}% | {bo['win_rate']*100:>7.1f}%")
 
 
 if __name__ == "__main__":
