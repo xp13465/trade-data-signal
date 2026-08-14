@@ -9,3 +9,4 @@
 | kelly-combo-signal-research.md | 组合信号研究 |
 | kelly-combo-usage-advice.md | 组合用法建议 |
 | kelly-jan-adjust-combo-verify.md | 1月调整组合验证 |
+| kelly-advice-guide-rework.md | 全信号操作建议指南面板重构(降亏组合使用建议更名+G可操作口径+格式修复,2026-08-14) |

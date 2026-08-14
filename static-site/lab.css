@@ -1658,6 +1658,19 @@
 .lab-sigkelly-advice-verdict b { color: #389e0d; }
 [data-theme="dark"] .lab-sigkelly-advice-verdict b, [data-theme="redgold"] .lab-sigkelly-advice-verdict b { color: #95de64; }
 .lab-sigkelly-advice-table { margin: 4px 0 6px; }
+/* 2026-08-14 全信号操作建议指南重构: 面板分节标题(去序号平铺, 分投资习惯/总建议), 无序号无折叠 */
+.lab-sigkelly-advice-section-title { font-size: 13px; font-weight: 700; color: #c87a1a; margin: 8px 0 4px; padding: 4px 8px; background: linear-gradient(90deg, rgba(255,183,77,0.14), rgba(255,183,77,0.03)); border-left: 3px solid #ffb300; border-radius: 4px; line-height: 1.4; }
+[data-theme="dark"] .lab-sigkelly-advice-section-title, [data-theme="redgold"] .lab-sigkelly-advice-section-title { color: #e8a64d; }
+/* 2026-08-14 格式错位修复: 「投资习惯/建议/真实回测数据」3列表格过宽溢出屏幕——direct child of advice-body 才应用(table-layout:fixed+列宽+单元格换行), 不影响同 class 的 G/H/I 对比表(它在 table-scroll 内非 advice-body 直子) */
+.lab-sigkelly-advice-body > .lab-sigkelly-advice-table { table-layout: fixed; width: 100%; }
+.lab-sigkelly-advice-body > .lab-sigkelly-advice-table th,
+.lab-sigkelly-advice-body > .lab-sigkelly-advice-table td { white-space: normal; word-break: break-word; overflow-wrap: break-word; vertical-align: top; }
+.lab-sigkelly-advice-body > .lab-sigkelly-advice-table th:nth-child(1),
+.lab-sigkelly-advice-body > .lab-sigkelly-advice-table td:nth-child(1) { width: 15%; }
+.lab-sigkelly-advice-body > .lab-sigkelly-advice-table th:nth-child(2),
+.lab-sigkelly-advice-body > .lab-sigkelly-advice-table td:nth-child(2) { width: 32%; }
+.lab-sigkelly-advice-body > .lab-sigkelly-advice-table th:nth-child(3),
+.lab-sigkelly-advice-body > .lab-sigkelly-advice-table td:nth-child(3) { width: 53%; }
 .lab-sigkelly-advice-hl td { background: rgba(212,160,23,0.12); }
 [data-theme="dark"] .lab-sigkelly-advice-hl td, [data-theme="redgold"] .lab-sigkelly-advice-hl td { background: rgba(240,185,11,0.14); }
 .lab-sigkelly-advice-li { font-size: 13px; color: var(--text-1); line-height: 1.7; padding: 1px 0; }

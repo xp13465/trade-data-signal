@@ -9546,21 +9546,21 @@ function _renderSigKellyBar(bar, data, period) {
 function _kellyComboAdviceHtml() {
   return (
     `<div class="lab-sigkelly-advice">` +
-      `<div class="lab-sigkelly-advice-title">🎯 降亏组合使用建议（真实回测 · 口径=每日资金池等分+top-K(2026-08-14 #48)）</div>` +
+      `<div class="lab-sigkelly-advice-title">🎯 全信号操作建议指南（真实回测 · 口径=每日资金池等分+top-K，2026-08-14 #48）</div>` +
       `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">默认最优组合已开启（AI降亏过滤，数据支撑 docs/kelly/position/kelly-dailypool-exhaustive-rerun.md）：AI仓位建议（技术别名：仓位控制过滤，每日只买最优K个，K=1主推，2026-08-14 #BC 默认 K 3→1）+ 基础4键降亏推荐（追关注×熊市交叉 + 1月中旬+中评级 + 1月中旬+追关注 + n2 11月+追关注+行业）+ 核心3键（r7 5月强化+3稳定非5月 + 辅关注×3/5月交叉 + Greedy-15组合）。每日池+费率重算口径（2026-08-14 #BC，含最低佣金5元）：A模式 K1(默认主推)=86.60%/K2=67.61%/K3=66.24%/K4=63.17%；F K1=78.71%/G K1=47.22%（#48 每日池口径）。旧 fixed 穷举v2（77.36/66.22/68.40，每笔1万）与 #48 每日池(比例法)均为历史决策基准已过时（#BC 改费率重算口径）。⚠G 模式（推荐卖出法）分裂结论：去掉 greedy15/excludeAuxCross/r7 并加 a45(11月中下旬+追关注)→ K1 收益升到 51.66%（净+82.6万），比现状 47.22%（+64.2万）双升；A/F（短持）维持现状默认最优（greedy15 是收益率大增来源，勿去）。A45/A5 不在默认组合。其余降亏 toggle 默认关（负边际/过拟合）。⚠J1/J2 带监控（maxSh 0.62/0.79，2026 单年主导，每年 1 月后检查）。下方「最后结果」全信号表即按当前组合实时计算。</div>` +
       `<details class="lab-sigkelly-advice-details lab-sigkelly-advice-outer"${state.labSigKellyAdviceOpen ? " open" : ""}>` +
-        `<summary>🎯 降亏组合使用建议（AI宏7键默认 + G玩法P≤3d「先卖年轻仓」，点击展开 ↓）</summary>` +
+        `<summary>🎯 全信号操作建议指南（AI宏7键默认 + G玩法P≤3d「先卖年轻仓」三档可操作，点击展开）</summary>` +
         `<div class="lab-sigkelly-advice-panel">` +
-      `<details class="lab-sigkelly-advice-details" open>` +
-        `<summary>② 分投资习惯怎么用？＋总建议（A/F/G 三玩法实时并列）</summary>` +
         `<div class="lab-sigkelly-advice-body">` +
-          `<div class="lab-sigkelly-advice-li"><b>三玩法并列</b>（实时随上方降亏组合勾选 / 费率档联动，全周期 all 口径（与上方总建议行一致）；下方「最后结果」卡随周期切换，切到「全部」时同值；金额口径=每日资金池等分+top-K）：A=固定10天短线（快进快出）；F=持有15天短线；G=卖出信号长线（指数卖出信号触发离场、无信号持有至回测结束，最贴近交易页信号驱动跟单，也是总建议主选）。</div>` +
+          `<div class="lab-sigkelly-advice-section-title">分投资习惯怎么用（A/F/G 三玩法实时并列）</div>` +
+          `<div class="lab-sigkelly-advice-li"><b>三玩法并列</b>（实时随上方降亏组合勾选 / 费率档联动，全周期 all 口径（与下方总建议一致）；下方「最后结果」卡随周期切换，切到「全部」时同值；金额口径=每日资金池等分+top-K）：A=固定10天短线（快进快出）；F=持有15天短线；G=卖出信号长线（指数卖出信号触发离场、无信号持有至回测结束，最贴近交易页信号驱动跟单，也是总建议主选；G 建议开上方「ai长线模式(G/H/I)仓位管理」套 P≤3d 可操作档）。</div>` +
           _sigKellyAfgRealtimeHtml() +
           `<table class="lab-sigkelly-table lab-sigkelly-advice-table"><thead><tr><th>投资习惯</th><th>建议</th><th>真实回测数据</th></tr></thead><tbody>` +
             `<tr><td>追高/趋势型</td><td>追关注信号只做牛市（MA60 之上），熊市追涨坚决回避</td><td>牛市 n=19,323 净 <b>+490万</b> 胜率60.5% 盈亏比1.94；熊市 n=1,908 净 -16.3万 胜率41.7% 盈亏比0.97（亏损区）</td></tr>` +
             `<tr><td>保守型</td><td>只做高评级信号（rating=high）</td><td>n=531 胜率 <b>70.6%</b> 盈亏比 <b>2.88</b> 年化 <b>2.80%</b>（质量最优但样本少，宜与广谱组合）</td></tr>` +
-            `<tr class="lab-sigkelly-advice-hl"><td><b>总建议</b></td><td><b>全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）</b></td><td>AI仓位建议 K=1（主推，每日池+费率重算口径 docs/kelly/position/kelly-dailypool-exhaustive-rerun.md）下 G 模式收益率 <b>47.22%</b> 净 <b>+642,184</b>（n 未披露；峰持仓 136万）；按年（G K1 每日池）：2021 <b>-23,500</b>（唯一回撤年）外主要年正，2023 +60,645 不转负，2024 +225,894 / 2025 +151,405（合计占 K1 总净利 58.7%）</td></tr>` +
+            `<tr class="lab-sigkelly-advice-hl"><td><b>总建议</b></td><td><b>全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）</b></td><td>AI仓位建议 K=1（主推，每日池+费率重算口径 docs/kelly/position/kelly-dailypool-exhaustive-rerun.md）下 G 模式收益率 <b>47.22%</b> 净 <b>+642,184</b>（未套仓位管理原始口径，峰持仓 136万=不可操作，须开下方「ai长线模式(G/H/I)仓位管理」套 P≤3d 可操作档，推荐 13万=155.78%/+202,508，见下方 G 玩法教学）；按年（G K1 每日池）：2021 <b>-23,500</b>（唯一回撤年）外主要年正，2023 +60,645 不转负，2024 +225,894 / 2025 +151,405（合计占 K1 总净利 58.7%）</td></tr>` +
           `</tbody></table>` +
+          `<div class="lab-sigkelly-advice-section-title">总建议（最优秀玩法 + 操作指南）</div>` +
           `<div class="lab-sigkelly-advice-li">总建议配套（页面默认组合 AI降亏过滤，可复现）：仓位=每日资金池等分 + AI仓位建议 K=1（技术别名：仓位控制过滤，同日只买最优1个，主推档，2026-08-14 #BC 默认 K=1；每日总投入恒 1 万均分当日保留数，可切 K=2/3/4）；降亏过滤=追关注×熊市（excludeSpecialBear）+ n2NovSpecialIndustry（11月+追关注+行业）+ janMidRating（1月中旬+中评级）+ janMidSpecial（1月中旬+追关注）+ r7MayReinforced（5月强化+3稳定非5月）+ excludeAuxCross（辅关注×3/5月交叉）+ greedy15（Greedy-15组合），7个默认开启；⚠口径差异说明：本节「投资习惯」静态表格数字=每笔固定 1 万基线（docs/kelly/combo/kelly-combo-usage-advice.md），与下方「最后结果」表（实时=每日资金池等分+top-K）<b>不同口径，不可直接纵向对比</b>，仅供行为/年份参考，核心决策以每日池为准。G 模式（指数卖出信号触发离场）最贴近交易页面的信号驱动跟单，AI仓位建议 K=1 主推口径见上方「总建议」行。⚠J1/J2 带监控（maxSh 0.62/0.79，2026 单年主导），每年 1 月后检查1月中旬子集是否转盈。</div>` +
           `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-verdict lab-sigkelly-gmethod"><b>🎓 G 玩法完整交易方法（2026-08-14，与 A/F 并列，供 G 用户实盘落地）</b>：G=卖出信号长线，默认 AI宏7键之外可再加一层仓位管理。研究找出 G 的最优仓位法＝<b>P≤3d「先卖年轻仓」</b>（数据支撑 docs/kelly/position/kelly-g-mode-recheck.md #49）：<b>持仓超过上限时，先卖掉「刚买进、还没持有满 3 天」的年轻仓（几笔年轻仓里先卖持有最久的那笔）；只有当手上一笔年轻仓都没有时，才轮到卖最老的持仓</b>。白话理解＝<b>保老仓、砍新仓</b>——因为回测里 G 的利润引擎集中在 21-100 天持仓段（净 +20.3万，长持全是盈利单），新仓才刚买、还没累积利润、砍掉损失最小。举例：你已有 12 万持仓，A 笔已持 10 天赚了 +8%（利润引擎要留），B 笔刚买 2 天刚回本（年轻仓），此时新信号买入会超 13 万上限 → 先卖 B 保 A，让 A 继续滚利润。</div>` +
           `<div class="lab-sigkelly-advice-li lab-sigkelly-gmethod"><b>三档自选（按你的资金能力挑一档，回测峰持仓全部 ≤20 倍本金=可操作；收益率数字为 b0 保守口径）</b>：① 13万档（激进·收益率最高）= 155.78%（净 +202,508，占用 91.4%=13 倍本金）；② 15万档（折中）= 147.34%（净 +221,016）；③ 20万档（最稳·绝对净利最高）= 131.25%（净 +262,509）。<b>资金越宽松选高档吃更多绝对净利，资金偏紧选低档吃更高收益率</b>；三档绝对净利随档位升、收益率随档位降，都可操作（可配合本面板「ai长线模式(G/H/I)仓位管理」开关联动看效果）。</div>` +
@@ -9568,7 +9568,6 @@ function _kellyComboAdviceHtml() {
           `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note lab-sigkelly-gmethod">📌 G 方法三层流程（白话说一遍）：① 选组合=AI宏7键默认（A/F 维持现状最稳）；② G 想更极致可去 greedy15/excludeAuxCross/r7 + 加 a45（见上方口径说明分裂结论）；③ 实盘仓位=每日池均分 + P≤3d「先卖年轻仓」，档位按资金自选 13万/15万/20万。⚠本段为研究结论（docs/kelly/position/），实际交易以页面「ai长线模式(G/H/I)仓位管理」开关勾选联动为准，仍需你盯盘确认信号。</div>` +
           `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">⚠ 2026-08-14 #48 口径说明：本节「投资习惯」行为表格/总建议数字为<b>每日资金池等分+top-K（2026-08-13 恢复, 2026-08-14 #BC 对齐重算）口径</b>；页面实时 K 档评级/全信号表同为<b>每日资金池等分+top-K</b>，可对照。核心决策以每日池为准（§0.2 分裂结论）：A/F 短持→维持 AI宏7键默认现状；G 长持(推荐卖出法)→建议去 greedy15/excludeAuxCross/r7 + 加 a45。上方 A/F/G 三玩法表为全周期 all 口径(每日池,实时联动)，下方「最后结果」全信号表随周期切换（切到「全部」时两表同值）。</div>` +
         `</div>` +
-      `</details>` +
       `</div>` +
     `</details>` +
     `</div>`
@@ -9590,7 +9589,54 @@ function _sigKellyAfgRealtimeHtml() {
   let rows = "";
   const _afgPosCapOn = !!((state.labSigKellyFilters || {}).positionCap);
   const _afgGihOn = !!state.labSigKellyGihOn;
+  // G 可操作口径参考(报告权威 b0 保守 / b1 乐观, 出处 docs/kelly/position/kelly-g-mode-recheck.md; 与「G/H/I 对比表」/purpose-notes 同值 §21/§22)
+  const _KELLY_G_TIER_REF = {
+    "13万": { b0: ["155.78%", "+202,508", "13万"], b1: ["179.70%", "+234,000", "13万"] },
+    "15万": { b0: ["147.34%", "+221,016", "15万"], b1: ["165.70%", "+249,000", "15万"] },
+    "20万": { b0: ["131.25%", "+262,509", "20万"], b1: ["135.30%", "+271,000", "20万"] }
+  };
   for (const m of modes) {
+    // G 行: 始终展示可操作口径(P≤3d 当前档, 峰持仓≤20倍本金=可操作), 不再披露原始 329笔/146万 无操作性数字。
+    //   GIH on 用真实仿真 __gihb1(乐观, 与卡片一致, 全列有值); GIH off 用报告参考保守 b0(净利/收益率/本金)。
+    if (m.key === "G") {
+      const _gTier = _kellyGihGTier();
+      const _gRef = _KELLY_G_TIER_REF[_gTier] || _KELLY_G_TIER_REF["13万"];
+      const _gOp = (feeStats.all.all || {})["G__gihb1"];
+      let _gRow;
+      if (_gOp && _gOp.n) {
+        _gRow = {
+          name: `G · P≤3d ${_gTier}（可操作）`,
+          n: _gOp.n,
+          prof: (_gOp.total_profit >= 0 ? "+" : "") + Math.round(_gOp.total_profit).toLocaleString("en-US"),
+          profCls: _gOp.total_profit >= 0 ? "pos" : "neg",
+          win: (_gOp.win_rate * 100).toFixed(1) + "%",
+          pl: (_gOp.pl_ratio == null) ? "-" : _gOp.pl_ratio.toFixed(2),
+          rmh: _gOp.return_pct_max_holding.toFixed(2) + "%",
+          rmhCls: _gOp.return_pct_max_holding >= 0 ? "pos" : "neg",
+          mc: _gOp.max_concurrent + "笔 / " + (_gOp.max_concurrent_capital / 10000).toFixed(0) + "万",
+          minC: (_gOp.max_concurrent_capital / 20 / 10000).toFixed(1) + "万",
+          badge: `AI长线·开 ${_gTier}`,
+          tip: `G=P≤3d「先卖年轻仓」${_gTier}（乐观口径，峰持仓≤20倍本金=可操作；与卡片「最后结果」同值）`
+        };
+      } else {
+        _gRow = {
+          name: `G · P≤3d ${_gTier}（可操作）`,
+          n: "—",
+          prof: _gRef.b0[1],
+          profCls: "pos",
+          win: "—",
+          pl: "—",
+          rmh: _gRef.b0[0],
+          rmhCls: "pos",
+          mc: _gRef.b0[2] + "万（≤20倍）",
+          minC: "—",
+          badge: `P≤3d ${_gTier}·可操作`,
+          tip: `G=P≤3d「先卖年轻仓」${_gTier}（保守 b0 口径，峰持仓≤20倍本金=可操作）；样本/胜率/盈亏比见「G/H/I 对比表」`
+        };
+      }
+      rows += `<tr class="lab-sigkelly-trade-row lab-sigkelly-advice-hl" title="${_gRow.tip}"><td><b>${_gRow.name}</b><span class="lab-sigkelly-exec-badge" title="${_gRow.tip}">${_gRow.badge}</span></td><td>${_gRow.n}</td><td class="lab-sigkelly-${_gRow.profCls}">${_gRow.prof}</td><td>${_gRow.win}</td><td>${_gRow.pl}</td><td class="lab-sigkelly-${_gRow.rmhCls}">${_gRow.rmh}</td><td>${_gRow.mc}</td><td>${_gRow.minC}</td></tr>`;
+      continue;
+    }
     const s = (feeStats.all.all || {})[m.key];
     if (!s || !s.n) { rows += `<tr><td><b>${m.name}</b></td><td colspan="7">暂无数据</td></tr>`; continue; }
     // #25 A包(需求②+需求D举一反三): 三玩法表同样标不可操作淘汰(峰持仓>20倍); A/F 在 K-OFF 下也可能无仓位限制峰持仓超限
@@ -9612,7 +9658,7 @@ function _sigKellyAfgRealtimeHtml() {
   return (
     `<div class="lab-sigkelly-afg-realtime">` +
       (state.labSigKellyGihOn
-        ? `<div class="lab-sigkelly-gih-modal-note" title="#49+#xx ai长线仓位管理口径说明">⚠️ “ai长线模式(G/H/I)仓位管理”已开：本「三玩法各自披露」表显示的是<u>未套对应模式仓位法</u>的原始口径（G 峰 136万/47.2%／H 45万/34.3%／I 111万/39.5%，本金占用大）；当前卡片 G/H/I 行已套各模式最优仓位法（G=P≤3d「先卖年轻」当前档 ${_kellyGihGTier()}／H=满仓不买@7万／I=满仓不买@15万），收益/净利见「最后结果」卡，更优且峰持仓≤20倍可操作。两者口径不同，请以卡片/对比表为准。</div>`
+        ? `<div class="lab-sigkelly-gih-modal-note" title="#49+#xx ai长线仓位管理口径说明">⚠️ “ai长线模式(G/H/I)仓位管理”已开：本「三玩法各自披露」表 G 行已显示<u>可操作口径</u>（P≤3d「先卖年轻」当前档 ${_kellyGihGTier()}，乐观值，峰持仓≤20倍本金=可操作）；H/I 行仍为未套仓位法的原始口径（H 45万/34.3%／I 111万/39.5%，本金占用大），已套最优仓位法后的收益/净利见「最后结果」卡（H=满仓不买@7万／I=满仓不买@15万，更优且≤20倍可操作）。两者口径不同，请以卡片/对比表为准。</div>`
         : "") +
       `<div class="lab-sigkelly-advice-li"><b>三玩法各自披露</b>「峰值资金收益率＋最大持仓＋所需最小本金」：峰值资金收益率=总盈亏/峰值同时持仓资金×100（与卡面/最后结果表同口径）；最大持仓=峰值同时持仓笔数/资金；所需最小本金≈峰值同时持仓资金÷20（按 20 倍资金约束折算，实际按自身杠杆/资金安排）。</div>` +
       `<div class="lab-sigkelly-table-scroll"><table class="lab-sigkelly-table lab-sigkelly-afg-table"><thead><tr>` +
@@ -9625,7 +9671,7 @@ function _sigKellyAfgRealtimeHtml() {
         `<th title="最大持仓=峰值同时持仓笔数/资金(万), 反映资金占用峰值">最大持仓</th>` +
         `<th title="所需最小本金≈峰值同时持仓资金÷20(20倍资金约束折算)">所需最小本金</th>` +
       `</tr></thead><tbody>${rows}</tbody></table></div>` +
-      `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">本表实时随上方降亏组合勾选 / 费率档联动（全周期 all 口径，与上方总建议行一致；下方「最后结果」卡随周期切换，切到「全部」时同值，金额口径=每日资金池等分+top-K（2026-08-13 恢复，2026-08-14 #48 口径对齐）。勾选越激进（保留交易越多）净利越高但所需本金越大，按自身资金量选玩法；G 为总建议主选（卖出信号长线，与交易页信号驱动跟单一致）。</div>` +
+      `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">本表实时随上方降亏组合勾选 / 费率档联动（全周期 all 口径，与下方总建议一致；下方「最后结果」卡随周期切换，切到「全部」时同值，金额口径=每日资金池等分+top-K（2026-08-13 恢复，2026-08-14 #48 口径对齐）。G 行为<u>可操作口径</u>（P≤3d「先卖年轻」当前档，峰持仓≤20倍本金，不再披露原始 329笔/146万 无操作性数字）；A/F 行勾选越激进（保留交易越多）净利越高但所需本金越大，按自身资金量选玩法；G 为总建议主选（卖出信号长线，与交易页信号驱动跟单一致）。</div>` +
     `</div>`
   );
 }
