@@ -8912,17 +8912,29 @@ function _renderSigKellyBar(bar, data, period) {
       `<span class="lab-sigkelly-fade-how-row lab-sigkelly-fade-how-no"><b>⚠ 别做啥</b> 别单开 greedy15/greedy10/excludeAuxCross/r10(负边际最差, 谨慎砍量); B模式(3%止盈)裸开全负</span>` +
     `</div>`;
   const flagCatHTML = (flags) => flags.map((f) => _flagToggleHTML(f)).join("");
-  // 默认推荐独立高亮区(7键)
+  // 默认推荐独立高亮区(4+3+1: 7键 + 1个灰色只读「+1」回测剔除类别标识)
+  // D需求(2026-08-15): 标题 7键 → 4+3+1 = 7键+1类回测剔除; C需求: 追加第8个灰色只读开关(disabled, 只展示层/不可勾选, 不参与过滤/持久化/组合三态)
+  const plus1DisabledHTML =
+    `<label class="lab-sigkelly-toggle lab-sigkelly-rec lab-sigkelly-toggle-disabled" tabindex="-1" data-no-pop="" data-tip="+1 回测剔除类别(只读, 恒展示不可关): AI宏结构 4+3+1 的 +1 = 回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号, 后端 _bt_in_universe=false)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(_bt_in_universe=false), 故 AI建议 一律不推荐, 首页/本区以「未入样本」+灰显+删除线标注。含类别=债类 cgb_* / 情绪类 s.* / 全球商品利率类 g.* / 港股行业 hk_* / 空数组 ftse100·kospi(权威=config/universe_rules.yaml, §23.6)。此开关仅为界面上看得到的只读标识, 不参与过滤不写入本地记忆, 恒为展示态。" style="opacity:1">` +
+      `<input type="checkbox" class="lab-sigkelly-toggle-plus1" disabled checked>` +
+      `<span class="lab-sigkelly-fade-advice">+1 回测剔除类别(不可关)</span>` +
+      `<span class="lab-sigkelly-toggle-tip" title="+1 回测剔除类别(只读, 恒展示不可关): AI宏结构 4+3+1 的 +1 = 回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号, 后端 _bt_in_universe=false)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除, 故 AI建议 一律不推荐, 首页/本区以「未入样本」+灰显+删除线标注。含类别=债类 cgb_* / 情绪类 s.* / 全球商品利率类 g.* / 港股行业 hk_* / 空数组 ftse100·kospi(权威=config/universe_rules.yaml, §23.6)。此开关仅为界面上看得到的只读标识, 不参与过滤不写入本地记忆, 恒为展示态。">ⓘ</span>` +
+    `</label>`;
   const recZoneHTML =
     `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-rec">` +
-      `<span class="lab-sigkelly-toggle-tier">✅ 默认推荐(AI降亏过滤, 7键)</span>` +
+      `<span class="lab-sigkelly-toggle-tier">✅ 默认推荐(AI降亏过滤, 4+3+1 = 7键+1类回测剔除)</span>` +
       flagCatHTML(_kellyRecFlags.slice().sort((a, b) => b.ratio - a.ratio)) +
+      plus1DisabledHTML +
     `</div>`;
-  // 更多开关折叠区(非默认24键 + 4大分类组标题可收展)
+  // E需求(2026-08-15): 组合降亏行(logic前原顶部常驻)收纳进本「更多开关」折叠区 body 顶部, 保留点击一键勾选/取消成员功能(无键盘快捷键); 顶部原插入点移除见下方注释
+  const comboFoldHTML =
+    `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-combo"><span class="lab-sigkelly-toggle-tier">组合降亏(可选分析非默认推荐)</span>` + comboHTML + `</div>`;
+  // 更多开关折叠区(非默认24键 + 组合行收纳顶部 + 4大分类组标题可收展)
   const moreZoneHTML =
     `<details class="lab-sigkelly-toggle-more"${state.labSigKellyMoreOpen ? " open" : ""}>` +
       `<summary class="lab-sigkelly-toggle-more-summary">🔎 更多开关(非默认, ${_kellyMoreFlags.length} 个独立 toggle · 按4大经济逻辑分类) <span class="lab-sigkelly-toggle-cat-caret">▼</span></summary>` +
       `<div class="lab-sigkelly-toggle-more-body">` +
+        comboFoldHTML +
         // 问题2修复(2026-08-15): 更多开关区只渲染非默认(非rec) flags, 与顶部「默认推荐7键」区去重 —— 过滤掉 f.rec 的成员, 组标题 count 用过滤后长度, 过滤后空组跳过
         _kellyFadeFlagGroups.map((g) => {
           const flagsNoRec = g.flags.filter((f) => !f.rec);
@@ -8969,14 +8981,14 @@ function _renderSigKellyBar(bar, data, period) {
     return { allOn: allOn, anyOn: anyOn };
   })();
   const aiMacroLabelHTML =
-    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ AI降亏过滤(总开关, 默认开启): 结构=AI宏4+3+1(2026-08-14 补公示)——4+3=保留入样、可被AI建议推荐的降亏键(4: 基础4 追关注×熊市/1月中旬+中评级/1月中旬+追关注/n2 11月+追关注+行业 + 3: 核心3 r7 5月强化+3稳定非5月 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合); +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, 后端 _bt_in_universe=false)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除, 故 AI建议 一律不推荐, 以「未入样本」+灰显+删除线标注。= AI仓位建议(K=1 默认=主推, 收益率最高, 可手动切换, 见 K 按钮评级) + 全部7个默认推荐 toggle。每日池+费率重算口径(2026-08-14 #BC, 含最低佣金5元): A模式 K1(默认主推)=86.60%/K2=67.61%/K3=66.24%/K4=63.17%。A/F(短持)维持现状默认最优;用G卖出(推荐法)可试去 greedy15/auxCross/r7 +加a45→收益升到51.66%(净+82.6万)。勾选=联动下方全部7个默认推荐子复选框, 取消=关全部7个; ⚠4组合全开=可选分析非默认推荐(与默认差仅0.3-0.7pt, 勿误解为默认)。「重置为AI默认推荐」按钮=一键恢复本默认7键全开 + AI仓位建议K=1 并重写本地记忆。"><input type="checkbox" class="lab-sigkelly-toggle-aimacro"${_aiMacroAll.allOn ? " checked" : ""}>${_kellyRecBadgeState(_aiMacroAll.allOn, _aiMacroAll.anyOn)} AI降亏过滤(总开关,默认开启) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>`;
+    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ AI降亏过滤(总开关, 默认开启): 结构=AI宏4+3+1(2026-08-14 补公示)——4+3=保留入样、可被AI建议推荐的降亏键(4: 基础4 追关注×熊市/1月中旬+中评级/1月中旬+追关注/n2 11月+追关注+行业 + 3: 核心3 r7 5月强化+3稳定非5月 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合); +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, 后端 _bt_in_universe=false)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除, 故 AI建议 一律不推荐, 以「未入样本」+灰显+删除线标注。= AI仓位建议(K=1 默认=主推, 收益率最高, 可手动切换, 见 K 按钮评级) + 全部 4+3+1(7键+1类回测剔除)。每日池+费率重算口径(2026-08-14 #BC, 含最低佣金5元): A模式 K1(默认主推)=86.60%/K2=67.61%/K3=66.24%/K4=63.17%。A/F(短持)维持现状默认最优;用G卖出(推荐法)可试去 greedy15/auxCross/r7 +加a45→收益升到51.66%(净+82.6万)。勾选=联动下方默认推荐 4+3+1(7键+1类回测剔除子复选框, 其中+1类为只读恒展示不可勾选), 取消=关 4+3(7键); ⚠4组合全开=可选分析非默认推荐(与默认差仅0.3-0.7pt, 勿误解为默认)。「重置为AI默认推荐」按钮=一键恢复本默认 4+3+1(7键+1类回测剔除) + AI仓位建议K=1 并重写本地记忆。"><input type="checkbox" class="lab-sigkelly-toggle-aimacro"${_aiMacroAll.allOn ? " checked" : ""}>${_kellyRecBadgeState(_aiMacroAll.allOn, _aiMacroAll.anyOn)} AI降亏过滤(总开关,默认开启) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>`;
   // 问题1修复(2026-08-15): AI降亏过滤详情 展开/收起 初始态持久化到 state.labSigKellyAiDetailOpen(参照 labSigKellyMoreOpen 模式), 重渲染后保持展开态
   const _aiDetailText = state.labSigKellyAiDetailOpen ? "AI降亏过滤详情收起 ▲" : "AI降亏过滤详情展开 ▼";
   const aiMacroDetailBtnHTML =
     `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-btn" style="margin-left:10px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="收起/展开下方 组合降亏快捷按钮 + 31个单标志(4大分类组), 默认收起">${_aiDetailText}</button>`;
   // #54 2026-08-13 (用户20:27 必做): 「重置为AI默认推荐」按钮——尝试各种组合后一键恢复 AI默认勾选(_kellyDefaultFilters 7键全开+AI仓位建议K=1), 重写 tds_kelly_filters 持久化, 刷新三态/hoverpop动态值
   const aiMacroResetBtnHTML =
-    `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-reset" style="margin-left:8px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="一键恢复 AI 默认推荐勾选(AI降亏过滤 7 键全开 + AI仓位建议 K=1), 重写本地记忆并刷新统计">重置为AI默认推荐</button>`;
+    `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-reset" style="margin-left:8px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="一键恢复 AI 默认推荐勾选(AI降亏过滤 4+3+1: 7键+1类回测剔除, 其中+1类只读不可勾选; + AI仓位建议 K=1), 重写本地记忆并刷新统计">重置为AI默认推荐</button>`;
   const positionCapHTML =
     `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap">` +
     `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启): AI仓位建议(技术别名:仓位控制过滤)=仅在凯利回测入样宇宙内选择。★结构=AI宏4+3+1(2026-08-14 补公示): 4+3=保留入样、可被AI建议推荐的降亏键(基础4+核心3); +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 即下述排除类别)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(_bt_in_universe=false), 故 AI建议 一律不推荐, 首页/本区以「未入样本」+灰显+删除线标注。§23.6 入样宇宙规则, 权威=config/universe_rules.yaml: 入样白名单只收 buy/buy_aux/buy_special/buy_backup; 入样依赖=board_etf_map 有 key 且至少一个 ETF 有非空 track_score=后端 _bt_in_universe; 排除类别=债类 cgb_*/情绪 s.*/全球商品利率 g.*/港股行业 hk_*/空数组 ftse100·kospi; 自我ETF唯一例外=cgb_10y_etf 由 self-ETF 兜底; 首页/本区 1:1 遵从回测入样判定不自行重算), 卖类(sell/sell_stop_loss/波段减仓 band_sell/波段持有 band_hold)不入位——同日只买最优K个买入类信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型buy_backup&gt;buy&gt;buy_aux&gt;buy_special→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。**K档评级(2026-08-13 #54 动态化: 随当前降亏勾选/费率档/最新数据实时重算, 与首页/凯利K按钮评级 hoverpop 同源 common.js, §22 一致)**: ${_aiPoscapRatingSummary()}。主推 K1(收益率最高 86.60%); K越大收益率递减(K2=67.61%/K3=66.24%/K4=63.17%, 含最低佣金5元费率重算口径)。每日池口径下 K 越大净利反升(每日资金池恒定, 砍量越少持仓越多)。G模式历史口径(关32.27%/K1 48.58%/K2 40.41%/K3 38.96%等, positionCap单独回测未叠加AI降亏过滤)见下方📊历史回测面板——该面板显式标注G模式=有意双口径, 与K档评级A模式数值不同属正常(§22)。OFF按钮(关)=写 tds_poscap {on:false} 关闭AI仓位建议、该区退化普通列表(不再显示「AI建议N」「当日已满」), 再点某 K 档恢复 {on:true,k}(与首页/交易页共享键联动)。与降亏同开仅推荐默认组合(AI降亏过滤: excludeSpecialBear/janMidRating/janMidSpecial/n2NovSpecialIndustry/r7MayReinforced/excludeAuxCross/greedy15,每日池+K=1下边际≈0无害); ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开; 勿再叠加 greedy7/10 等其他广谱(greedy15 已在 AI降亏过滤 默认内); B模式(3%止盈)仓位控制下转负建议关。范围扩展: 交易页整个信号列表(近15交易日)按同一排序展示 AI建议(AI建议买入/当日已满)。⚠2026-08-14 首页「AI过滤视图」两开关正交不绑定(§21): 开关1「AI降亏」(tds_home_fade)=删除线过滤层——开启时未入样宇宙(债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, _bt_in_universe===false)信号=删线+灰显+「未入样本」标注; 开关2「AI仓位」(tds_poscap.on)=badge标注层——开启时入宇宙卖出(sell/sell_stop_loss/波段减仓)=亮色「AI警示」(卖出无K约束不判K), 买入进K=「AI建议N」/超K=「当日已满」; 全关=全量视图全亮不标注, band_hold波段持有=中性不标; 迟到入宇宙卖出(如8/14中证银行sell)「AI警示」+「盘后补齐」角标共存不冲突。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}>${_kellyRecBadge(_filters.positionCap)} AI仓位建议 K: <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
@@ -9103,14 +9115,14 @@ function _renderSigKellyBar(bar, data, period) {
       `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-gih">` + aihlineLabelHTML + `</div>` +
       // #39 三级级联UI 第1级: AI宏 详情折叠 body(默认收起, 收起/展开由 #lab-kelly-ai-macro-btn 控制; 展开/收起态持久化到 state.labSigKellyAiDetailOpen, 重渲染后保持; 勾选联动全部7键子级见 _kellyAiMacroMembers)
       `<div id="lab-kelly-ai-macro-body" class="lab-sigkelly-ai-macro-body" style="${state.labSigKellyAiDetailOpen ? "" : "display:none"}">` +
-      // 2026-08-13 融合 #39: 组合预设宏改顶部快捷按钮行(一键勾选成员, 不再独立内容块); 标题含"可选分析非默认推荐"(#45 文案修正)
-      `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-combo"><span class="lab-sigkelly-toggle-tier">组合降亏(可选分析非默认推荐)</span>` + comboHTML + `</div>` +
-      // 2026-08-14 重写: 顶部「怎么用」三行 + 默认推荐7键高亮区 + 更多开关折叠区(替代原4大分类组平铺)
+      // E需求(2026-08-15): 组合降亏行已从顶部移除, 收纳进 moreZoneHTML 更多开关折叠区 body 顶部(见 comboFoldHTML), 不再重复
+      // 2026-08-14 重写: 顶部「怎么用」三行 + 默认推荐4+3+1(7键+1)高亮区 + 更多开关折叠区(含组合行收纳)
       fadeHowHTML +
       recZoneHTML +
       moreZoneHTML +
       `</div>` +
-      `<span class="lab-sigkelly-toggle-hint">AI降亏过滤=总开关(联动下方全部7个默认推荐子复选框);组合预设/单标志独立开启,实时过滤重算</span>` +
+      // D需求(2026-08-15): hint 文案 7 -> 4+3+1
+      `<span class="lab-sigkelly-toggle-hint">AI降亏过滤=总开关(联动下方默认推荐 4+3+1: 7键+1类回测剔除, 其中+1类只读不可勾选);组合预设/单标志独立开启,实时过滤重算</span>` +
     `</div>`;
   bar.innerHTML =
     `<div class="lab-sigkelly-periods">${tabsHTML}</div>` +
@@ -9504,7 +9516,7 @@ function _renderSigKellyBar(bar, data, period) {
           _updateSigKellyQuadrantsInPlace(host, state.labSigKellyData, state.labSigKellyPeriod);
         }
       );
-      _kellyToast("已重置为AI默认推荐(AI降亏过滤 7 键全开 + AI仓位建议 K=1主推)");
+      _kellyToast("已重置为AI默认推荐(AI降亏过滤 4+3+1: 7键+1类回测剔除 + AI仓位建议 K=1主推)");
     });
   }
   // 4大分类组 收起/展开(2026-08-13 融合 #39: 组标题可点击收展该组, 4组默认全展开)

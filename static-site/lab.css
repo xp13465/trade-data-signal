@@ -1523,6 +1523,10 @@
 /* 2026-08-13 用户需求: 默认推荐框内文字醒目 —— 高亮框内灰字(默认--text-3)改成加粗金字, 不再暗淡 (badge/linked 自带色, 不受影响) */
 .lab-sigkelly-toggle.lab-sigkelly-rec { color: #a05a00; font-weight: 700; }
 [data-theme="dark"] .lab-sigkelly-toggle.lab-sigkelly-rec, [data-theme="redgold"] .lab-sigkelly-toggle.lab-sigkelly-rec { color: #ffd74a; }
+/* C需求(2026-08-15): +1 回测剔除类别 灰色只读开关(disabled, 恒展示不可勾选; 界面可见的只读标识, 不参与过滤/持久化/组合三态) */
+.lab-sigkelly-toggle.lab-sigkelly-toggle-disabled { background: rgba(128,128,128,0.08) !important; border: 1px dashed rgba(128,128,128,0.5) !important; color: var(--text-4, #999) !important; cursor: not-allowed !important; opacity: 1 !important; filter: grayscale(0.7); }
+.lab-sigkelly-toggle.lab-sigkelly-toggle-disabled:hover { background: rgba(128,128,128,0.08) !important; }
+.lab-sigkelly-toggle.lab-sigkelly-toggle-disabled input { cursor: not-allowed !important; accent-color: #999 !important; }
 .lab-sigkelly-rec-badge { display: inline-block; font-size: 10px; font-weight: 700; color: #8a5a00; background: linear-gradient(135deg, #ffd700, #ffb300); border-radius: 3px; padding: 0 5px; margin: 0 3px; line-height: 1.5; }
 [data-theme="dark"] .lab-sigkelly-rec-badge, [data-theme="redgold"] .lab-sigkelly-rec-badge { color: #5b3b00; }
 /* #54 2026-08-13 ⭐badge 同步: 默认推荐但当前已关/部分时降级暗显(与 checkbox 勾选态同步) */
