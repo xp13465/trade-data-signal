@@ -1682,6 +1682,12 @@
 .lab-sigkelly-all-yearly { flex: 0 1 auto; min-width: 0; max-width: 100%; }
 .lab-sigkelly-all-yearly-block { margin-top: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
 .lab-sigkelly-all-sub { font-size: 13px; font-weight: 600; color: var(--text-1); margin-bottom: 6px; }
+/* 按年窗口增长 A-G 模式下拉(2026-08-14): 模式选择条, 与 lab 页现有风格一致, 移动端可点 */
+.lab-sigkelly-yearly-modebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.lab-sigkelly-yearly-mode-label { font-size: 12px; color: var(--text-3); }
+.lab-sigkelly-yearly-mode-select { font-size: 12px; color: var(--text-1); background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; max-width: 220px; cursor: pointer; }
+.lab-sigkelly-yearly-mode-cur { font-size: 12px; color: var(--primary); font-weight: 600; }
+.lab-sigkelly-all-empty { text-align: center; color: var(--text-3); padding: 12px 0; }
 .lab-sigkelly-yearly-table { font-size: 12px; }
 .lab-sigkelly-yearly-table th, .lab-sigkelly-yearly-table td { padding: 4px 10px; }
 .lab-sigkelly-yearly-table td { white-space: nowrap; }

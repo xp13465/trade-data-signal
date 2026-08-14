@@ -8150,70 +8150,55 @@ async function _kellyApplyFeeRecompute(feeParams) {
     // 全信号伪象限: 按年聚合(「最后结果」表用, 全周期口径非当前period窗口, 与toggle/费率联动)
     // 2026-08-14 #BC 按年窗口口径归正(方案1): 仅累加 G 模式(当前推荐卖出法, 与「总建议=遵守G模式卖出」语义对齐);
     //   原实现遍历全 sellModes(A-I 9模式)累加 → 同一基笔信号 9 模式各一条 × 全累加 → +1,049万 量级虚高(名实不符)
+    // 2026-08-14 扩展: 按年窗口增长表支持 A-G 各模式独立查看(下拉切换)。allYearlyByMode = {modeKey: yearlyMap},
+    //   每个模式各自独立按年聚合(不做"全模式回退", 除非该模式无 signal); allYearly 仍取 G 模式(总建议语义, 兼容原展示)。
+    //   每个模式用 toggledByMode[modeKey](已随降亏组合/费率/周期过滤) → 与 toggle/费率/周期联动(§22); 重算复用 _kellyRecomputeCache 不重复计算。
     if (qk === "all") {
-      var yearlyMap = {};
-      // 仅 G 模式(当前推荐卖出法; 若卖出模式结构变化, 取 signal:true 的推荐模式)
+      // 2026-08-12 按年峰值资金收益率 = 该年累计净盈亏 / 该年峰值同时持仓资金 × 100 (与卡面/建议面板 return_pct_max_holding 同口径, §22)
+      var _aggYearlyMap = function (_ymTrades) {
+        var _ymap = {};
+        for (var _bi = 0; _bi < _ymTrades.length; _bi++) {
+          var _bT = _ymTrades[_bi];
+          var _bYr = (_bT[fIdx.buy_date] || "").substring(0, 4);
+          if (!_bYr) continue;
+          var _bAmt = _kellyPerTradeAmount(_bT, fIdx, buyAmount, posDayCounts ? posDayCounts[_bT[fIdx.signal_date]] : null);
+          var _bC = _kellyRecomputeCache.get(_bT);
+          if (!_bC || _bC.sig !== feeSig || _bC.amt !== _bAmt) {
+            var _bR = _kellyRecomputeTrade(_bT, fIdx, feeParams, _bAmt);
+            _bC = { sig: feeSig, amt: _bAmt, r: _bR };
+            _kellyRecomputeCache.set(_bT, _bC);
+          }
+          var _bK = _ymap[_bYr];
+          if (!_bK) { _bK = _ymap[_bYr] = { profit: 0, n: 0, wins: 0, loss: 0, _trades: [] }; }
+          _bK.profit += _bC.r.profit;
+          _bK.n++;
+          if (_bC.r.profit > 0) _bK.wins++; else _bK.loss++;
+          _bK._trades.push({ buy_date: _bT[fIdx.buy_date] || "", sell_date: _bT[fIdx.sell_date] || "", amount: _bAmt });
+        }
+        for (var _by in _ymap) {
+          var _bv = _ymap[_by];
+          var _bmcc = _kellyMaxConcurrentCapital(_bv._trades);
+          _bv.peak_capital = _bmcc;
+          _bv.peak_return_pct = _bmcc > 0 ? Math.round(_bv.profit / _bmcc * 100 * 10000) / 10000 : 0;
+          delete _bv._trades;
+        }
+        return _ymap;
+      };
+      // 逐模式独立按年聚合(A-G 全模式; 无 signal 的模式(如 H/I 某些档)留空表)
+      var allYearlyByMode = {};
+      for (var _amk in sellModes) {
+        var _amTrades = toggledByMode[_amk] || [];
+        if (!_amTrades.length) continue; // 无 signal 的模式不出表(留空, 前端显示暂无数据)
+        allYearlyByMode[_amk] = _aggYearlyMap(_amTrades);
+      }
+      // 总建议语义: 优先 G 模式(当前推荐卖出法; 若卖出模式结构变化, 取 signal:true 的推荐模式), 兼容原 allYearly 展示
       var _yyModeKey = null;
       for (var _ymk0 in sellModes) { if (_ymk0 === "G") { _yyModeKey = _ymk0; break; } }
       if (!_yyModeKey) {
         for (var _ymk1 in sellModes) { if ((sellModes[_ymk1] || {}).signal && String((sellModes[_ymk1] || {}).label || "").indexOf("卖出信号") >= 0) { _yyModeKey = _ymk1; break; } }
       }
-      if (_yyModeKey) {
-        var _ymk = _yyModeKey;
-        var _yt = toggledByMode[_ymk];
-        for (var _yi = 0; _yi < _yt.length; _yi++) {
-          var _t2 = _yt[_yi];
-          var _yr = (_t2[fIdx.buy_date] || "").substring(0, 4);
-          if (!_yr) continue;
-          var _amt2 = _kellyPerTradeAmount(_t2, fIdx, buyAmount, posDayCounts ? posDayCounts[_t2[fIdx.signal_date]] : null);
-          var _c2 = _kellyRecomputeCache.get(_t2);
-          if (!_c2 || _c2.sig !== feeSig || _c2.amt !== _amt2) {
-            var _rr2 = _kellyRecomputeTrade(_t2, fIdx, feeParams, _amt2);
-            _c2 = { sig: feeSig, amt: _amt2, r: _rr2 };
-            _kellyRecomputeCache.set(_t2, _c2);
-          }
-          var _yk = yearlyMap[_yr];
-          if (!_yk) { _yk = yearlyMap[_yr] = { profit: 0, n: 0, wins: 0, loss: 0, _trades: [] }; }
-          _yk.profit += _c2.r.profit;
-          _yk.n++;
-          if (_c2.r.profit > 0) _yk.wins++; else _yk.loss++;
-          // 按年峰值资金收益率列(2026-08-12用户定): 收集该年交易(买/卖/金额), 聚合后算该年峰值同时持仓资金
-          _yk._trades.push({ buy_date: _t2[fIdx.buy_date] || "", sell_date: _t2[fIdx.sell_date] || "", amount: _amt2 });
-        }
-      } else {
-        // 找不到推荐模式: 回退全部模式(兜底), 但标注口径
-        console.warn("[sigkelly] allYearly: 未找到 G 推荐卖出模式, 回退全模式累加");
-        for (var _ymk2 in sellModes) {
-          var _yt2 = toggledByMode[_ymk2];
-          for (var _yi2 = 0; _yi2 < _yt2.length; _yi2++) {
-            var _t3 = _yt2[_yi2];
-            var _yr3 = (_t3[fIdx.buy_date] || "").substring(0, 4);
-            if (!_yr3) continue;
-            var _amt3 = _kellyPerTradeAmount(_t3, fIdx, buyAmount, posDayCounts ? posDayCounts[_t3[fIdx.signal_date]] : null);
-            var _c3 = _kellyRecomputeCache.get(_t3);
-            if (!_c3 || _c3.sig !== feeSig || _c3.amt !== _amt3) {
-              var _rr3 = _kellyRecomputeTrade(_t3, fIdx, feeParams, _amt3);
-              _c3 = { sig: feeSig, amt: _amt3, r: _rr3 };
-              _kellyRecomputeCache.set(_t3, _c3);
-            }
-            var _yk3 = yearlyMap[_yr3];
-            if (!_yk3) { _yk3 = yearlyMap[_yr3] = { profit: 0, n: 0, wins: 0, loss: 0, _trades: [] }; }
-            _yk3.profit += _c3.r.profit;
-            _yk3.n++;
-            if (_c3.r.profit > 0) _yk3.wins++; else _yk3.loss++;
-            _yk3._trades.push({ buy_date: _t3[fIdx.buy_date] || "", sell_date: _t3[fIdx.sell_date] || "", amount: _amt3 });
-          }
-        }
-      }
-      // 2026-08-12 按年峰值资金收益率 = 该年累计净盈亏 / 该年峰值同时持仓资金 × 100 (与卡面/建议面板 return_pct_max_holding 同口径, §22)
-      for (var _yy in yearlyMap) {
-        var _yv = yearlyMap[_yy];
-        var _mcc = _kellyMaxConcurrentCapital(_yv._trades);
-        _yv.peak_capital = _mcc;
-        _yv.peak_return_pct = _mcc > 0 ? Math.round(_yv.profit / _mcc * 100 * 10000) / 10000 : 0;
-        delete _yv._trades;
-      }
-      result.allYearly = yearlyMap;
+      result.allYearlyByMode = allYearlyByMode;
+      result.allYearly = (_yyModeKey && allYearlyByMode[_yyModeKey]) ? allYearlyByMode[_yyModeKey] : {};
       result.allYearlyMode = _yyModeKey || "all"; // 记录口径(G模式)
     }
   }
@@ -9650,7 +9635,22 @@ function _sigKellyAllSignalGroupHtml(period) {
   }
   const allMeta = { label: "全信号", desc: "评级高低分区并集（互斥全量覆盖），全量信号不拆分，实时反映当前降亏组合勾选 / 费率 / 周期", periods: {} };
   const cardHtml = _renderSigKellyCard("all", allMeta, period, null);
-  const yearly = feeStats.allYearly || {};
+  // 2026-08-14 按年窗口增长 A-G 各模式下拉切换: 每个模式各自独立按年聚合(allYearlyByMode), 默认 G(当前推荐卖出法, 保持现网口径)
+  const _ymModes = (state.labSigKellyData && state.labSigKellyData.config && state.labSigKellyData.config.sell_modes) || {};
+  const _yearlyByMode = feeStats.allYearlyByMode || {};
+  const _selMode = state.labSigKellyYearlyMode || "G";
+  // 下拉选项: 用有按年数据的模式(A-G 及全部有 signal 的模式); 保证默认 G 存在
+  const _ymOpts = Object.keys(_yearlyByMode).length
+    ? Object.keys(_yearlyByMode).sort()
+    : (Object.keys(_ymModes).length ? Object.keys(_ymModes).sort() : ["G"]);
+  if (_ymOpts.indexOf(_selMode) < 0 && _ymOpts.length) state.labSigKellyYearlyMode = _ymOpts[0];
+  const _selModeFinal = state.labSigKellyYearlyMode || "G";
+  const _ymLabel = (_ymModes[_selModeFinal] && _ymModes[_selModeFinal].label) ? _ymModes[_selModeFinal].label : _selModeFinal;
+  const _ymOptionsHtml = _ymOpts.map((_mk) => {
+    const _ml = (_ymModes[_mk] && _ymModes[_mk].label) ? _ymModes[_mk].label : _mk;
+    return `<option value="${_mk}"${_mk === _selModeFinal ? " selected" : ""}>${_mk} · ${_ml}</option>`;
+  }).join("");
+  const yearly = _yearlyByMode[_selModeFinal] || {};
   const years = Object.keys(yearly).sort();
   let yRows = "";
   let yCum = 0;
@@ -9667,17 +9667,23 @@ function _sigKellyAllSignalGroupHtml(period) {
     const yPeakCls = v.peak_return_pct == null ? "" : (v.peak_return_pct >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg");
     yRows += `<tr><td>${y}</td><td>${v.n}</td><td class="${yCls}">${profStr}元</td><td class="${yCumCls}">${cumStr}元</td><td>${wr}</td><td class="${yPeakCls}" title="=该年累计净盈亏/该年峰值同时持仓资金">${yPeakStr}</td></tr>`;
   }
+  const _ymEmptyRows = (!years.length) ? `<tr><td colspan="6" class="lab-sigkelly-all-empty">该模式暂无信号数据</td></tr>` : "";
   return (
     `<div class="lab-sigkelly-group lab-sigkelly-all-group">` +
       `<div class="lab-sigkelly-group-title">📌 全信号表（最后结果 · 全量信号融合）<span class="lab-sigkelly-all-badge">最后结果</span></div>` +
-      `<div class="lab-sigkelly-all-desc">总建议口径：全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）。金额口径=每日资金池等分+top-K（2026-08-13 恢复：当日保留前K基笔，每笔=10000/当日保留数，每日总投入恒1万，K档最大持仓恒定）。下表实时随上方降亏组合勾选 / 费率档 / 周期切换联动。年份窗口表为全周期口径（非当前周期窗口），**仅累加 G 模式**（2026-08-14 #BC 归正：原全 9 模式累加量级虚高，对齐「总建议=遵守G模式卖出」语义）。</div>` +
+      `<div class="lab-sigkelly-all-desc">总建议口径：全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 G 模式）。金额口径=每日资金池等分+top-K（2026-08-13 恢复：当日保留前K基笔，每笔=10000/当日保留数，每日总投入恒1万，K档最大持仓恒定）。下表实时随上方降亏组合勾选 / 费率档 / 周期切换联动。年份窗口表为全周期口径（非当前周期窗口），**各模式各自独立按年增长**（2026-08-14 扩展：下方下拉选择 A-G 任一模式查看其各自的按年窗口增长，非混算；G 模式=当前推荐卖出法，与「总建议=遵守G模式卖出」语义对齐）。</div>` +
       `<div class="lab-sigkelly-all-main">` +
         `<div class="lab-sigkelly-all-card">${cardHtml}</div>` +
         `<div class="lab-sigkelly-all-yearly lab-sigkelly-all-yearly-block">` +
-          `<div class="lab-sigkelly-all-sub">按年窗口增长（G 模式 · 当前降亏组合实时）</div>` +
+          `<div class="lab-sigkelly-all-sub">按年窗口增长</div>` +
+          `<div class="lab-sigkelly-yearly-modebar">` +
+            `<label class="lab-sigkelly-yearly-mode-label" for="lab-sigkelly-yearly-mode">卖出模式</label>` +
+            `<select id="lab-sigkelly-yearly-mode" class="lab-sigkelly-yearly-mode-select" data-yearly-mode="1">${_ymOptionsHtml}</select>` +
+            `<span class="lab-sigkelly-yearly-mode-cur">当前：${_selModeFinal} · ${_ymLabel}</span>` +
+          `</div>` +
           `<div class="lab-sigkelly-table-scroll"><table class="lab-sigkelly-table lab-sigkelly-yearly-table">` +
             `<thead><tr><th>年份</th><th>笔数</th><th>净盈亏(元)</th><th>累计净盈亏(元)</th><th>胜率</th><th title="=该年累计净盈亏/该年峰值同时持仓资金×100, 与卡面/建议面板峰值资金收益率同口径">峰值资金<br>收益率</th></tr></thead>` +
-            `<tbody>${yRows}</tbody>` +
+            `<tbody>${yRows}${_ymEmptyRows}</tbody>` +
           `</table></div>` +
         `</div>` +
       `</div>` +
@@ -9762,6 +9768,20 @@ function _bindSigKellyCardEvents(host) {
   _bindSigKellyWmPop(host);
   // 卖出模式说明 hoverpop: 悬停/点击"卖出模式说明❓"入口弹 A-F 说明
   _bindSigKellyGuidePop(host);
+  // 按年窗口增长模式下拉: 切换 A-G 任一模式, 就地刷新按年增长表(前端 state 联动, 不刷新整页)
+  _bindSigKellyYearlyMode(host);
+}
+
+// 按年窗口增长 A-G 下拉切换绑定(2026-08-14): 选择模式 -> 更新 state.labSigKellyYearlyMode -> 就地替换全信号表组(含卡+按年表)
+function _bindSigKellyYearlyMode(host) {
+  host.querySelectorAll(".lab-sigkelly-yearly-mode-select[data-yearly-mode='1']").forEach((sel) => {
+    sel.onchange = () => {
+      state.labSigKellyYearlyMode = sel.value;
+      const _g = host.querySelector(".lab-sigkelly-all-group");
+      if (_g) _g.outerHTML = _sigKellyAllSignalGroupHtml(state.labSigKellyPeriod);
+      _bindSigKellyCardEvents(host);
+    };
+  });
 }
 
 // 卡片级就地更新(2026-08-11 交互优化): 卡片保持挂载, 仅就地替换变化的卡片DOM, 不触碰 group/grid 容器
