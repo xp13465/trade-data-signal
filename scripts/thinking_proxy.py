@@ -107,7 +107,38 @@ class Handler(http.server.BaseHTTPRequestHandler):
         outs = re.findall(r'"output_tokens"\s*:\s*(\d+)', resp_text)
         out_tok = outs[-1] if outs else "?"
         has_think = ('"type":"thinking"' in resp_text) or ('"type": "thinking"' in resp_text)
-        logmsg(f"RESP {resp.status} bytes={len(resp_body)} has_thinking={has_think} output={out_tok}")
+        # 记录完整 usage(input/output/cache/thinking)做 token 审计(2026-08-14 加,A/B 对照需 input 侧)。
+        # 兼容流式(SSE):usage 在最后一个 event: message_stop 的 data JSON 里,不是整个 body 单个 JSON。
+        uin = uout = ucc = ucr = uth = "?"
+        try:
+            if resp_text.lstrip().startswith("event:"):
+                # SSE:遍历每个 "data: {...}" 块,取最后一个含 usage 的 message_stop
+                for chunk in resp_text.split("\n\n"):
+                    if "data:" not in chunk:
+                        continue
+                    dline = chunk.split("data:", 1)[1].strip()
+                    try:
+                        ev = json.loads(dline)
+                    except Exception:
+                        continue
+                    if ev.get("type") == "message_stop" and ev.get("usage"):
+                        u = ev["usage"]; break
+                    elif ev.get("usage"):
+                        u = ev["usage"]; break
+                else:
+                    u = {}
+                uin = u.get("input_tokens", "?"); uout = u.get("output_tokens", "?")
+                ucc = u.get("cache_creation_input_tokens", 0); ucr = u.get("cache_read_input_tokens", 0)
+                uth = u.get("thinking_tokens", 0)
+            else:
+                u = json.loads(resp_text).get("usage", {})
+                uin = u.get("input_tokens", "?"); uout = u.get("output_tokens", "?")
+                ucc = u.get("cache_creation_input_tokens", 0); ucr = u.get("cache_read_input_tokens", 0)
+                uth = u.get("thinking_tokens", 0)
+        except Exception:
+            pass
+        logmsg(f"RESP {resp.status} bytes={len(resp_body)} has_thinking={has_think} "
+               f"usage(in={uin} out={uout} cc={ucc} cr={ucr} think={uth})")
         self.send_response(resp.status)
         for k, v in resp.getheaders():
             if k.lower() in ("transfer-encoding", "connection", "content-length"): continue
