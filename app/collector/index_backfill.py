@@ -1122,6 +1122,21 @@ def main():
             [sys.executable, str(repo / "scripts" / "with_lock.py"),
              "/tmp/trade_deploy.lock", "bash", "scripts/deploy.sh", "backfill"],
             cwd=repo, env={**os.environ, "REPO": str(repo)}, check=False)
+        # P0-1(2026-08-14 迟到信号增量补通知根治)：补采重算 signal_daily + export 后，
+        # 追加增量补通知——只报【新增/变化的迟到信号】(如本次 div_lowvol/gz_399431)，
+        # 幂等防重复轰炸。check_signals --incremental 对比 signal_notified.json[date]：
+        #   - 只发当日未通知过的 (index_id, signal)（18:42/20:40 已报的自动跳过）
+        #   - 无新信号时直接返回不发邮件（幂等兜底，不误发空通知）
+        #   - 失败不阻塞 backfill（通知是补充动作，非核心采集/重算链路）
+        # 显式传 today（backfill 目标交易日）：16:35/21:00 与 datetime.today 一致，但
+        # 02:00 凌晨 slot 时 datetime 已跨到次日而 backfill 补的是上一交易日(today)，
+        # 传 today 保证各槽位都查对 signal_daily 交易日（不复 18:42/20:40 已报、只补迟到）。
+        try:
+            subprocess.run(
+                ["bash", "scripts/check_signals.sh", today, "--incremental"],
+                cwd=repo, check=False)
+        except Exception as _e:  # noqa: BLE001
+            print(f"[backfill] 增量补通知 check_signals 异常(不阻断): {_e}")
         print("[backfill] ✓ 补采+重算+推送完成")
     else:
         print("[backfill] 无新数据(已采全或源未发布),跳过重算+推送")

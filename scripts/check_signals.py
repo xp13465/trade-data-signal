@@ -1246,19 +1246,32 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="dry-run：跑逻辑（含 fade-detect）但不发邮件、不写 signal_notified.json（测试用）",
     )
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help="增量晚补模式（2026-08-14 P0-1）：backfill-evening 21:00 补采重算后调用。"
+        "对比 signal_notified.json[date] 只补通知【当日新增/变化的迟到信号】"
+        "（如 div_lowvol/gz_399431），跳过 fade-detect/时间线（那些在 18:42/20:40 主 check "
+        "已覆盖，不重发）；幂等：当日已通知的 (index_id, signal) 跳过；无新信号不发邮件。",
+    )
     args = parser.parse_args(argv)
     # fade-detect 默认值：收盘+盘中都默认开（AZ54 P1-4，2026-07-29）
     # 盘中模式去重(fade_notified.json)+阈值(只 red 档推邮件)见下方 fade_alerts_for_email 逻辑
     if args.fade_detect is None:
         args.fade_detect = True
+    # 增量晚补模式：强制关闭 fade-detect——只针对性补通知新增/变化的迟到信号，
+    # 不携带盘中消失警示/时间线复盘（那些属 18:42/20:40 主 check 已报内容，重发=噪音）。
+    if args.incremental:
+        args.fade_detect = False
 
     date = args.date or datetime.now().strftime("%Y%m%d")
     log.info(
-        "=== check_signals 开始，查询日期：%s（%s模式%s%s）===",
+        "=== check_signals 开始，查询日期：%s（%s模式%s%s%s）===",
         date,
         "全量" if args.full else "去重",
         "·盘中实时" if args.intraday else "",
         f"·fade-detect={'on' if args.fade_detect else 'off'}",
+        "·增量晚补" if args.incremental else "",
     )
 
     signals = query_signals(date)
@@ -1298,7 +1311,9 @@ def main(argv: list[str] | None = None) -> int:
                              if (t["index_id"], t["signal"]) in fade_keys]
             log.info("盘中 fade 通知：读时间线 %d 条，匹配 fade 信号 %d 条",
                      len(intraday_timeline), len(fade_timeline))
-    else:
+    elif not args.incremental:
+        # 增量晚补模式（--incremental）不读时间线：只针对补通知新增/变化的迟到信号，
+        # 不携带当日全貌复盘（那些属 18:42/20:40 主 check 已报内容，重发=噪音）。
         try:
             timeline = load_signal_intraday_timeline(date)
         except Exception as e:  # noqa: BLE001
