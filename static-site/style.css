@@ -931,6 +931,11 @@ main { padding: 16px 24px; }
    收盘后(is_closed=true)/非今日pin不带此标记(已定版不消失)。 */
 .sig-clickable.sig-intraday { box-shadow: 0 0 0 1.5px rgba(230,162,60,0.55); }
 .sig-intraday-warn { color: #e6a23c; font-size: 11px; margin-left: 2px; vertical-align: super; line-height: 0; cursor: help; }
+/* 2026-08-14 P1-1: 当日无入样宇宙买入信号空态横条(灰色, 日期组标题下方) */
+.sig-empty-universe { margin: 0 0 6px 70px; padding: 5px 8px; font-size: 11px; color: var(--text-3, #999); background: var(--bg-hover, rgba(0,0,0,0.04)); border-left: 3px solid var(--text-3, #999); border-radius: 3px; cursor: help; }
+.today-row .sig-empty-universe { margin-left: 70px; }
+/* 2026-08-14 P0-2: 「盘后补齐」迟到信号角标(橙系, 与 ⚠ 盘中预估区分) */
+.sig-late-badge { color: #b45309; background: #b453091f; font-size: 10px; font-weight: 600; vertical-align: super; line-height: 0; margin-left: 2px; padding: 0 3px; border-radius: 3px; cursor: help; }
 /* 两段式信号固化三态提示条(2026-08-14): 由 signals_meta 驱动, 首页信号区标题下方。
    盘中预估(警示橙) / A股已固化(绿) / 完整版定稿(蓝)。非交易指令性说明文字。 */
 .sig-finalize-bar { margin: 6px 0 2px; padding: 6px 10px; font-size: 11px; line-height: 1.5; border-radius: 3px; cursor: help; }

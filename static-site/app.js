@@ -2038,6 +2038,15 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   if (todayDate && groups[todayDate]) {
     dates = [todayDate, ...dates.filter((d) => d !== todayDate)];
   }
+  // 2026-08-14 P1-1: 预计算「各日期是否有入样宇宙买入信号」(基于全量 signals_today=items, 不受用户 grade/correct/type/ETF
+  // 子筛选影响, 防"用户筛走买入信号却误报无买入信号")。空态横条判定用此表, 与 §23.6 入样宇宙/首页 AI建议口径一致。
+  const _BUY_UNI_SIGS = { buy: 1, buy_aux: 1, buy_special: 1, buy_backup: 1 };
+  const _dateHasInUniverseBuy = {};
+  if (kind === "signal") {
+    for (const it of items) {
+      if (it && it.date && it._bt_in_universe !== false && _BUY_UNI_SIGS[it.signal]) _dateHasInUniverseBuy[it.date] = true;
+    }
+  }
   // 2026-08-13 重构: 首页 AI降亏过滤开关(独立键 tds_home_fade, 默认开启) → 开启时按固定 7 键成员级判定(基础4+核心3键全生效, 与凯利区默认策略一致);
   // 关闭时首页完全不判降亏(_isAiFadeHit 恒 false → 不灰显不删除线不标注, top-K 不滤不补位正常取)。
   // 不再读凯利区 tds_kelly_filters(解耦, 互不影响)。
@@ -2158,6 +2167,15 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         const warnBadge = showIntradayWarn
           ? '<sup class="sig-intraday-warn" data-tip="盘中预估·收盘后(17:50)重算定版，此信号可能消失或变动">⚠</sup>'
           : '';
+        // 2026-08-14 P0-2(前端接口预留): 晚补信号挂「盘后补齐」角标——当某信号是当日17:50 固化后
+        //   (21:00 backfill-evening 指数数据晚到补采重算)才进入的迟到信号时, 置 `_bt_late===true`。
+        //   ⚠️ 数据层目前(overview signals_today)尚无该字段: 后端注入 `_bt_late`(区分"17:50固化后/21:00补采才进")
+        //   属 P0-1 另一个后端 agent 范畴, 本处仅预留渲染接口(字段缺失=undefined→不渲染角标, 不影响现有展示)。
+        //   待 P0-1 注入字段后, 本角标自动点亮, 无需再改前端。(§23.3 举一反三: 迟到信号静默补进是"无通知"
+        //   缺陷的一部分, 用户口径要求挂可解释角标 + 增量通知, 前端角标即本文互补充件)
+        const lateBadge = (it._bt_late === true)
+          ? '<sup class="sig-late-badge" data-tip="盘后补齐: 该信号因数据源晚到(如港股/欧股/国债/晚发指标, 21:00 backfill-evening 指数补采)才在收盘后稍晚进入定版, 属正常补齐">盘后补齐</sup>'
+          : '';
         const cls = showIntradayWarn ? "sig-item sig-clickable sig-intraday" : "sig-item sig-clickable";
         // AI仓位建议(#4 2026-08-12 rename+范围扩展): 近15交易日每个日期各自 top-K AI建议买入高亮, 其余"当日已满"灰显
         // (与凯利回测页 toggle 共享 tds_poscap 联动; 历史日期为复盘视角, 排序/口径与回测一致)
@@ -2170,7 +2188,11 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         //   分支误显示「当日已满」, 修复为整块跳过分支(§23.3 举一反三: 全站 poscap/「当日已满」渲染点只有本 cellHtml 一处)。
         const _isSellRow = it.signal === "sell" || it.signal === "sell_stop_loss" || it.signal === "band_hold"
           || (it.reason || "").includes("波段减仓") || (it.reason || "").includes("波段止损");
-        if (_posCapRank && !_isAiFadeHit(it) && !_isSellRow) {
+        // 2026-08-14 P1-2 fix(首页8/14信号根因附带缺陷): 「当日已满」分支也须判 _bt_in_universe——
+        // 未入样宇宙(uni=False)的买入类信号(如 8/10 csi_931892/gz_399440、8/12 thsc_306380)不该被误标"当日已满"。
+        // 未入样信号压根不参与AI建议top-K, 应保持零标注(与 kept 空/空态一致), 而非落 else 显示"当日已满"。
+        // (§23.3 举一反三: 全站 poscap/「当日已满」渲染点只有本 cellHtml 一处, 同步修正口径)。
+        if (_posCapRank && !_isAiFadeHit(it) && !_isSellRow && it._bt_in_universe !== false) {
           const _capRank = _posCapRank.get(it) || 0;
           if (_capRank) {
             posCapCls = " sig-poscap-kept";
@@ -2269,11 +2291,23 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           _cellName = _idxName;
           _cellCode = _sigIdxCode;
         }
-        return `<span class="${cls}${scoreCls}${posCapCls}${aiHitCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr}${aiHitAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${_cellLight}${posCapBadge}${aiHitBadge}${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_cellName}${_cellCode ? ` <span class="idx-code-tag">${_cellCode}</span>` : ""}</span></span>`;
+        return `<span class="${cls}${scoreCls}${posCapCls}${aiHitCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr}${aiHitAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${_cellLight}${posCapBadge}${aiHitBadge}${warnBadge}${lateBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_cellName}${_cellCode ? ` <span class="idx-code-tag">${_cellCode}</span>` : ""}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
     const dateLabel = fmtDate(dt);
+    // 2026-08-14 P1-1 fix(首页8/14信号"整片零标注")：当日无入样宇宙买入信号时, 在日期组标题下方渲染一条灰色提示横条
+    // 「当日无入样宇宙买入信号, 仅有风险/持有状态」, 替代静默零标注(让用户明白是"无买入信号"而非渲染崩/功能没开)。
+    // 判定口径(与 §23.6 入样宇宙规则/首页 AI建议 1:1 对齐): 预计算表 _dateHasInUniverseBuy 判定该日
+    // 「全量 signals_today 无入样宇宙买入类(buy/buy_aux/buy_special/buy_backup, _bt_in_universe !== false)」即显示;
+    // 不受用户 grade/correct/type/ETF 子筛选影响。卖类(sell/sell_stop_loss/波段)存在不视为有买入信号。
+    // 容错: 旧数据无 _bt_in_universe 字段视为在宇宙内(与 kept 选择集同规则), 不误报空态。
+    let _emptyUniverseBanner = "";
+    if (kind === "signal" && !_dateHasInUniverseBuy[dt]) {
+      _emptyUniverseBanner = `<div class="sig-empty-universe" data-tip="该日信号均为风险/持有类(卖出/跟踪止损/波段)或未入样宇宙的标的（如债类 cgb_*/ 情绪 s.*/ 全球商品利率 g.*/ 港股行业 hk_*，§23.6 入样宇宙规则），因此无 AI 建议买入标的，属正常空态而非功能未开。">当日无入样宇宙买入信号，仅有风险/持有状态</div>`;
+    } else {
+      _emptyUniverseBanner = "";
+    }
     // 同日数据超过 4 个时按 4 个/行分块换行，每行重复日期（不做合并单元格效果）。
     // COLS 与 CSS .sig-items grid-template-columns:repeat(4,1fr) 一致；
     // 移动端(≤768px) CSS 改 2 列，同日仍按 4 分组，日期会在每 2 个移动行重复一次（分块数不依赖断点，无 resize 回归）。
@@ -2283,7 +2317,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     for (let i = 0; i < dayItems.length; i += COLS) {
       const cellsHtml = dayItems.slice(i, i + COLS).map(cellHtml).join("");
       const dateSpan = i === 0 ? `<span class="sig-day-date">${dateLabel}</span>` : `<span class="sig-day-date"></span>`;
-      rows += `<div class="sig-day-row${isToday ? " today-row" : ""}">${dateSpan}<div class="sig-items">${cellsHtml}</div></div>`;
+      // P1-1: 空态横条放在该日期组标题下方(仅首个分块 i===0 渲染一次, 避免分块换行重复弹出)
+      const bannerSpan = i === 0 ? _emptyUniverseBanner : "";
+      rows += `<div class="sig-day-row${isToday ? " today-row" : ""}">${dateSpan}<div class="sig-items">${cellsHtml}</div></div>${bannerSpan}`;
     }
   }
   // B方案(2026-07-28): 技术分析参考点准确率汇总条（仅 signal 类；freeze 无 since_correct/score 不显示）
@@ -2421,7 +2457,9 @@ function _signalFinalizeBannerHtml(meta) {
     barCls = "sig-finalize-bar sig-finalize-full";
     // W1(2026-08-14): 17:50 update_all 起跑到 ~18:42 才完成信号重算(欧股/国债晚间入库),
     // 期间数据仍为 A 股收盘价版。文案放宽为"陆续补齐", 与后端 signals_meta.finalized_note 一致。
-    barTxt = "✅ 当日完整版信号 17:50 起陆续补齐(港股/欧股/国债) · 20:36 后最终定稿";
+    // W2(2026-08-14 首页8/14信号补): 21:00 backfill-benign 指数(港股/欧股/国债/晚发指标)数据源晚到才补采,
+    //   signal_daily 可能仍在该时点后新增/变动信号, 20:36 并非真"最终"。文案对齐 21:00 补采后定稿(与后端 finalized_note 一致)。
+    barTxt = "✅ 当日完整版信号 17:50 起陆续补齐(港股/欧股/国债) · 21:00 指数补采后最终定稿";
   }
   return '<div class="' + barCls + '" data-tip="' + (meta.finalized_note || "") + '">' + barTxt + "</div>";
 }
