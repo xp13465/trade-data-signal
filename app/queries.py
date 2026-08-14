@@ -881,12 +881,20 @@ def overview(conn, cfg):
             try:
                 from .collector.etf_national_team import get_conn as _etf_get_conn
                 _ec = _etf_get_conn()
-                for _r in _ec.execute(
-                    "SELECT etf_code, date, accum_nav, close FROM etf_daily "
-                    "WHERE etf_code IN (%s) AND close IS NOT NULL" % ",".join("?" * len(_etf_codes)),
-                    tuple(_etf_codes),
-                ).fetchall():
+                # 2026-08-14 fix(F1回归): 拆两条独立查询, _etf_close_cache 恢复 accum_nav IS NOT NULL,
+                # _etf_price_cache(etf_close) 单独查 close。共用一条查询+close IS NOT NULL 会让
+                # 有 close 但 accum_nav 为 NULL 的行进 _etf_close_cache -> _today_close=None -> 整体 None。
+                _etf_close_sql = (
+                    "SELECT etf_code, date, accum_nav FROM etf_daily "
+                    "WHERE etf_code IN (%s) AND accum_nav IS NOT NULL" % ",".join("?" * len(_etf_codes))
+                )
+                for _r in _ec.execute(_etf_close_sql, tuple(_etf_codes)).fetchall():
                     _etf_close_cache.setdefault(_r["etf_code"], {})[_r["date"]] = _r["accum_nav"]
+                _etf_price_sql = (
+                    "SELECT etf_code, date, close FROM etf_daily "
+                    "WHERE etf_code IN (%s) AND close IS NOT NULL" % ",".join("?" * len(_etf_codes))
+                )
+                for _r in _ec.execute(_etf_price_sql, tuple(_etf_codes)).fetchall():
                     _etf_price_cache.setdefault(_r["etf_code"], {})[_r["date"]] = _r["close"]
                 _ec.close()
             except Exception:  # noqa: BLE001
@@ -1232,7 +1240,10 @@ def overview(conn, cfg):
     elif _meta_version == "a-share-close":
         _finalized_note = "当日A股信号已用收盘价定稿(15:03),不会再消失"
     else:
-        _finalized_note = "当日完整版信号已定稿(17:50,含港股/欧股/国债)"
+        # W1(2026-08-14): 17:50 update_all 起跑到 ~18:42 才完成信号重算(欧股/国债数据晚间入库),
+        # 期间数据仍是 A 股收盘价版。文案放宽为"陆续补齐", 与 docs/signal-finalize-time.md 对齐,
+        # 不硬编码 18:45 阈值(20:36 同理, 数字阈值不灵活)。
+        _finalized_note = "当日完整版信号 17:50 起陆续补齐(港股/欧股/国债),20:36 后最终定稿"
     signals_meta = {
         "version": _meta_version,
         "generated_at": _now.strftime("%Y-%m-%d %H:%M"),

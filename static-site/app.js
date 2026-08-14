@@ -2419,7 +2419,9 @@ function _signalFinalizeBannerHtml(meta) {
     barTxt = "✅ 当日 A 股信号已固化(15:03 收盘价版)，不会再消失 · 15:05-15:30 盘后窗口可按收盘价操作(AI 建议 1/2/3 为当日可执行标的) · 港股/全球/国债待 17:50 完整版";
   } else if (meta.finalized && (meta.version === "full" || meta.version === "evening")) {
     barCls = "sig-finalize-bar sig-finalize-full";
-    barTxt = "✅ 当日完整版信号已定稿(17:50，含港股/欧股/国债)";
+    // W1(2026-08-14): 17:50 update_all 起跑到 ~18:42 才完成信号重算(欧股/国债晚间入库),
+    // 期间数据仍为 A 股收盘价版。文案放宽为"陆续补齐", 与后端 signals_meta.finalized_note 一致。
+    barTxt = "✅ 当日完整版信号 17:50 起陆续补齐(港股/欧股/国债) · 20:36 后最终定稿";
   }
   return '<div class="' + barCls + '" data-tip="' + (meta.finalized_note || "") + '">' + barTxt + "</div>";
 }
