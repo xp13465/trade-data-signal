@@ -3,7 +3,7 @@
 > **用途**:团队共享"未开发功能地图"。任何开发任务开工前对照本表,确认方案已出的待做项,避免多子 agent 只顾自己的活、漏做已落档方案。
 > **生成**:2026-08-12 盘点 agent 产出。来源:docs/ 81 份 md + TASKS.md 待办 + 代码层验证(grep 结论均带证据,非臆断)。
 > **路径整理(2026-08-14)**:docs/ 已按主题拆分,凯利文档移入 `docs/kelly/{mining,combo,position,backtest-ai,toggle,analysis}/`、walk-forward/claude-md-reorganize 系列移入 `docs/archive/`。本表内 kelly-* / walk-forward-* 引用路径均已同步为新路径。23:45 cron 定期重建**(`.claude/scheduled_tasks.json` L49 prompt 用 git log 扫新增文件)**会自然用新路径,无需额外改。
-> **最近更新**:2026-08-14(每日 23:45 cron 同步:凯利每日池口径穷举重跑 + 20倍本金硬控调研落档,新增 #48-50,更新 #16/#47)。2026-08-13 用户拍板:#14 更名明确位置→远期待办、#16 排队中(依赖K档口径)、#18 关闭移排除清单、#20→远期待办、#21 并入 #17 v5→远期待办。**此后每日 23:45 cron 定期同步**(2026-08-12 用户定:快照会慢慢过时达不到索引效果,需定期刷新),机制见 docs/main-governance.md §23.4 索引维护。
+> **最近更新**:2026-08-15(每日 cron 同步:AI过滤视图两开关正交上线 + 公示补「+1」+ §23.6 公示完成 + $压缩冲突P0修复,更新 #31/#33/#36/#49,新增 #51-53,移已排除清单)。2026-08-14(每日 23:45 cron 同步:凯利每日池口径穷举重跑 + 20倍本金硬控调研落档,新增 #48-50,更新 #16/#47)。2026-08-13 用户拍板:#14 更名明确位置→远期待办、#16 排队中(依赖K档口径)、#18 关闭移排除清单、#20→远期待办、#21 并入 #17 v5→远期待办。**此后每日 23:45 cron 定期同步**(2026-08-12 用户定:快照会慢慢过时达不到索引效果,需定期刷新),机制见 docs/main-governance.md §23.4 索引维护。
 > **口径**:只列"方案已出/结论已定/计划已写,但尚未开发完成"的功能;已上线/已在跑项见文末【已排除清单】。
 > **状态标记**:未派 / 排队中 / 部分完成 / 需确认(不确定是否已开发,待主控核)
 
@@ -72,7 +72,7 @@
 | 33 | **管理端任务看板(kanban)** | TASKS.md L66 + memory kanban-board-design | 4列(新需求/待办/进行中/归档按功能聚合)+ Card/Feature 数据模型 + worker /api/kanban + KV + admin/kanban.html | 无(已设计完整) | **未派**(排期:周末或下周) |
 | 34 | **场外基金阶段3:场内外联动(ETF 联接跟踪误差)** | TASKS.md L65 | 阶段1 评分引擎+阶段2 前端 UI 已实现;阶段3 场内外联动未做 | 阶段1/2 已上线 | **未派** |
 | 35 | **理财专员使用指南 about 页上线** | TASKS.md L121 + docs/理财专员使用指南.md | 613 行指南已验收;等用户定"上线 about 页/就放 docs" | 无 | **未派**(待用户决策) |
-| 36 | **signal-finalize-time 两段式 15:05 A股初版** | docs/signal-finalize-time.md §5.3 | 15:05 A股收盘价初版(标注"仅A股")+ 晚间定稿版;机制已天然支持 | 无 | **已实施**(2026-08-14: overview signals_meta 三态 + close/etf_close + 前端提示条/AI建议标签/参考说明, 见 docs/signal-finalize-time.md §6 已实施注记) |
+| 36 | **signal-finalize-time 两段式 15:05 A股初版** | docs/signal-finalize-time.md §5.3 | 15:05 A股收盘价初版(标注"仅A股")+ 晚间定稿版;机制已天然支持 | 无 | **已实施**(2026-08-14: overview signals_meta 三态 + close/etf_close + 前端提示条/AI建议标签/参考说明, 见 docs/signal-finalize-time.md §6 已实施注记; 2026-08-15 后续 W1 文案放宽 71d238785 + 三态提示 3311eca8d 已合) |
 
 ## 七、数据采集 / 数据源缺口(已识别非功能方案)
 
@@ -97,8 +97,20 @@
 | 48 | **页面 `_kellyFadeFlagGroups` 31键 ratio 每日池口径重算 + _pcRating 重算**(§22 一致性) | docs/kelly/position/kelly-dailypool-exhaustive-rerun.md §0.7/§7.2(2026-08-14) | 页面 31 个 toggle 展示 ratio(每笔1万口径)在每日池下排序剧烈变化(v4b 3→1、n2 10→2、specBear 27→6、v4f 1→31 等);lab.js _kellyFadeFlagGroups 旧 ratio 过时,需按每日池口径(基准=每日池空filter K1,减亏%/损盈%)重算并更新排序;tip 注明口径切换;同步 _pcRating 评级数值重算 + 首页 _AI_POSCAP_RATING | 每日池报告已落档 | **未派**(需 implementer,§22 一致性) |
 | 49 | **G/H/I 长持模式持仓≤20倍本金(20万)硬控手段** | docs/kelly/position/kelly-position-cap-20x-limit.md(2026-08-14) | 用户 2026-08-14 新需求:G/H/I 峰值持仓 45-148 倍单次本金不可操作。最优=手段B(FIFO 强制平仓,cap20万):G 收益率反升到 95.7%(b0)~200%(b1)、I 74.5%~153%、H 应放弃;手段A(砍当日)诚实备选、手段D(截断)全负失败 | 真实平仓盈亏需中间价格路径(待验证);H 后期研究为什么差(本次按用户定性标注慎用,未做 H 优化) | **已实施**(2026-08-14 上线:lab.js 凯利回测区新增「ai长线模式(G/H/I)仓位管理」开关=长线族群总入口+模式→策略映射(fifo20w),默认关,ON 套持仓≤20万+FIFO硬控,G/H/I 卡片套乐观b1+AI长线·开角标,新增G/H/I对比表(关/开b0/开b1,报告§7.2 K1口径),前端FIFO内核与报告逐位对齐§21;purpose-notes/README同步;sw.js a197) |
 | 50 | **每日池口径默认 K 档/toggle 决策落档** | docs/kelly/position/kelly-dailypool-exhaustive-rerun.md §0.2-0.3(2026-08-14) | 默认 toggle 用户定维持 AI宏7键;最优 K=K1 数据最优/K2 推荐默认;G 模式(长持)可去 greedy15/excludeAuxCross/r7 加 a45(51.66%>47.22%),A/F 模式维持现状 | 决策已定(用户 2026-08-14) | **已定**(待落档 README/前端 tooltip;实施并入 #48) |
+| 51 | **§23.6 入样宇宙规则落地**(显式化+校验) | config/universe_rules.yaml + scripts/check_universe_alignment.py(2026-08-14, f27768c85) | 宇宙规则单一事实源(yaml:白名单/入样依赖/排除类别/自我ETF例外) + 4断言对称校验脚本挂 deploy 链 FAIL 阻断上线 | 已落 yaml+校验脚本(17:42) | **部分完成**(yaml+check 已上线;首页1:1遵从/变更联动 8 步走查待全量验证) |
+| 52 | **§23.6 ②公示:入样宇宙规则三处公示文案** | app.js L2208/L2224/L2229 + purpose-notes.js lab.sigkelly + lab.js(2026-08-14, d798854aa) | 入样白名单/依赖/排除类别/自我ETF例外/1:1遵从 全公示到 AI建议 badge tooltip + AI警示 + 未入样本 + 凯利区 | 已上线 d798854aa | **已完成**(2026-08-14 上线;AI过滤视图补充公示 489f0bdb4) |
+| 53 | **首页「AI过滤视图」两开关正交** | 2026-08-14 用户多轮澄清 | AI降亏(删除线层)与 AI仓位(badge层)两开关独立不绑定:降亏=熊市追信号删线+未入样本删线;仓位=AI建议N/当日已满/AI警示 | 无 | **已完成**(2026-08-14 上线 489f0bdb4,review PASS) |
+| 54 | **公示补「+1」(AI宏4+3+1)** | 2026-08-14 用户:"信号凯利回测是全信号,回测剔除的波动相关/未入样本必须公示,最简单=补一个1" | AI宏结构公示升级为 4+3+1:+1=回测剔除的信号类别(波动相关/未入样本),虽属全信号但 AI建议不推荐 | 无 | **已完成**(2026-08-14 上线 cfd37057e) |
+| 55 | **$压缩冲突 P0 修复(防重犯)** | 2026-08-14 "$ is not a function" / 08-15 "c is not a function" | terser mangle 把新增函数重命名为单字符($→C)与既有变量冲突,报 is not a function | build_min.py 加 --mangle reserved=['$'] 只是打地鼠(69f505072) | **进行中**(08-15 根治:keep_fnames/保留函数名,待上线验证) |
 
 ---
+
+## 九、运维/一致性待办增补(2026-08-15 cron 同步)
+
+| # | 项 | 出处 | 说明 | 状态 |
+|---|---|---|---|---|
+| 56 | **signal_notified.json 双副本清理** | 2026-08-15 部署核验 | trade-data/data(权威,8/14=13条) vs trade/data(旧,8/14=11条) 双份;check_signals 读权威份无重发风险,但"直接 cd trade 跑 python"会误读旧副本重发;处置=同步旧副本或 symlink+断言(REPO 必须落 trade-data) | **待办**(低优先,已同步 md5 一致) |
+| 57 | **sw.js 版本注释过时修正** | reviewer S1(2026-08-14) | sw.js L18 注释仍写"任一开启=进入AI过滤视图(_sigFilterViewOn)",该变量不存在;改为"两开关正交各管一层" | **待办**(随下次 bump 一起) |
 
 ## 【已排除清单】已上线/已在跑(不要重复派)
 
@@ -108,4 +120,5 @@
 - **daily_brief**:后端 P0-1/2/3/4 + P1-2(多空辩论随 P0-4)/P1-7/P1-8/P1-9/P1-10/P1-11(配置)/P2-1(cost_log)/P2-2(已知偏差),前端 AI 预测弹窗+命中率+历史结合展示(2026-08-11,app.js L20066-20377)
 - **飞书**:阶段1 发送 + 阶段2 接收(lark-oapi 长连接+落盘+launchd)
 - **R2**:迁移 P0 方案1(PURGE_SECRET)/方案2(高频 ttl=0)、前端 ./data fallback、备站主动域名策略(_isBackupSite,app.js L3849)、72h 监控(monitor_72h.sh + com.trade.monitor-72h 已加载)、feed.xml 走 R2、staticdata 同步(daily_brief)、bak-audit 残留(A+B 已合 main、signal_kelly_trades ssd 直链已改主站双兜底)
-- **其他**:intraday 自愈 S1-S5+S9、walk-forward-c P1 选项A(sh 去 D1a,已实施)、全球指数盘中实时 15 指数(含港股系 7 个 + ASX200/SENSEX)、场外基金阶段1 评分引擎(6维+5指标+经理+凯利)+阶段2 UI、alert-design 自定义分析 tab(AI预警/AI评分/历史类比,lab.js custom 父tab)、README 命名统一+og.png 更新、P1-1 走向量化(perf,11.87s->6.10s)、staticdata-daily-brief-sync 全部、tasks-archive-maintain、claude-md 重组/role-based-context
+- **首页/信号**(2026-08-14/15 新增上线):**AI过滤视图两开关正交**(489f0bdb4,AI降亏=删除线层/AI仓位=badge层,review PASS)、**公示补「+1」AI宏4+3+1**(cfd37057e,回测剔除类别公示)、**§23.6 公示三处**(d798854aa,AI建议/AI警示/未入样本 tooltip+凯利区)、**§23.6 yaml+check_universe_alignment.py**(f27768c85,单一事实源+对称校验挂deploy)、**迟到信号增量补通知**(887712c27)、**盘后补齐角标 _bt_late**(89076fd1e+be1c2495b)、**8/14信号三修复**(47c23d42d:空态横条+当日已满判宇宙+定稿文案)、**$压缩冲突根治**(69f505072+根治版,terser reserved/keep-fnames)
+- **其他**:intraday 自愈 S1-S5+S9、walk-forward-c P1 选项A(sh 去 D1a,已实施)、全球指数盘中实时 15 指数(含港股系 7 个 + ASX200/SENSEX)、场外基金阶段1 评分引擎(6维+5指标+经理+凯利)+阶段2 UI、alert-design 自定义分析 tab(AI预警/AI评分/历史类比,lab.js custom 父tab)、README 命名统一+og.png 更新、P1-1 走向量化(perf,11.87s->6.10s)、staticdata-daily-brief-sync 全部、tasks-archive-maintain、claude-md 重组/role-based-context、signal-finalize-time 两段式(2026-08-14 上线)
