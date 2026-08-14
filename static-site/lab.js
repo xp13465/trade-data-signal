@@ -8923,11 +8923,17 @@ function _renderSigKellyBar(bar, data, period) {
     `<details class="lab-sigkelly-toggle-more"${state.labSigKellyMoreOpen ? " open" : ""}>` +
       `<summary class="lab-sigkelly-toggle-more-summary">🔎 更多开关(非默认, ${_kellyMoreFlags.length} 个独立 toggle · 按4大经济逻辑分类) <span class="lab-sigkelly-toggle-cat-caret">▼</span></summary>` +
       `<div class="lab-sigkelly-toggle-more-body">` +
+        // 问题2修复(2026-08-15): 更多开关区只渲染非默认(非rec) flags, 与顶部「默认推荐7键」区去重 —— 过滤掉 f.rec 的成员, 组标题 count 用过滤后长度, 过滤后空组跳过
         _kellyFadeFlagGroups.map((g) => {
-          const flagsSorted = g.flags.slice().sort((a, b) => b.ratio - a.ratio);
+          const flagsNoRec = g.flags.filter((f) => !f.rec);
+          if (flagsNoRec.length === 0) return "";
+          const flagsSorted = flagsNoRec.slice().sort((a, b) => b.ratio - a.ratio);
+          // 举一反三(2026-08-15): 4大分类组 手工收/展态持久化到 state.labSigKellyCatCollapsed(记录收起的组 key 集合), 重渲染后保持用户手工收展, 默认仍全展开不破坏原设计
+          const catCollapsed = !!(state.labSigKellyCatCollapsed || {})[g.key];
+          const catCaret = catCollapsed ? "▶" : "▼";
           return `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-cat" data-cat="${g.key}">` +
-            `<span class="lab-sigkelly-toggle-tier lab-sigkelly-toggle-tier-cat" data-cat="${g.key}" title="点击收起/展开该组">${g.title}(${g.flags.length}) <span class="lab-sigkelly-toggle-cat-caret">▼</span></span>` +
-            `<div class="lab-sigkelly-toggle-cat-body" data-cat="${g.key}">${flagCatHTML(flagsSorted)}</div>` +
+            `<span class="lab-sigkelly-toggle-tier lab-sigkelly-toggle-tier-cat" data-cat="${g.key}" title="点击收起/展开该组">${g.title}(${flagsNoRec.length}) <span class="lab-sigkelly-toggle-cat-caret">${catCaret}</span></span>` +
+            `<div class="lab-sigkelly-toggle-cat-body${catCollapsed ? " collapsed" : ""}" data-cat="${g.key}">${flagCatHTML(flagsSorted)}</div>` +
             `</div>`;
         }).join("") +
       `</div>` +
@@ -8964,8 +8970,10 @@ function _renderSigKellyBar(bar, data, period) {
   })();
   const aiMacroLabelHTML =
     `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ AI降亏过滤(总开关, 默认开启): 结构=AI宏4+3+1(2026-08-14 补公示)——4+3=保留入样、可被AI建议推荐的降亏键(4: 基础4 追关注×熊市/1月中旬+中评级/1月中旬+追关注/n2 11月+追关注+行业 + 3: 核心3 r7 5月强化+3稳定非5月 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合); +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, 后端 _bt_in_universe=false)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除, 故 AI建议 一律不推荐, 以「未入样本」+灰显+删除线标注。= AI仓位建议(K=1 默认=主推, 收益率最高, 可手动切换, 见 K 按钮评级) + 全部7个默认推荐 toggle。每日池+费率重算口径(2026-08-14 #BC, 含最低佣金5元): A模式 K1(默认主推)=86.60%/K2=67.61%/K3=66.24%/K4=63.17%。A/F(短持)维持现状默认最优;用G卖出(推荐法)可试去 greedy15/auxCross/r7 +加a45→收益升到51.66%(净+82.6万)。勾选=联动下方全部7个默认推荐子复选框, 取消=关全部7个; ⚠4组合全开=可选分析非默认推荐(与默认差仅0.3-0.7pt, 勿误解为默认)。「重置为AI默认推荐」按钮=一键恢复本默认7键全开 + AI仓位建议K=1 并重写本地记忆。"><input type="checkbox" class="lab-sigkelly-toggle-aimacro"${_aiMacroAll.allOn ? " checked" : ""}>${_kellyRecBadgeState(_aiMacroAll.allOn, _aiMacroAll.anyOn)} AI降亏过滤(总开关,默认开启) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>`;
+  // 问题1修复(2026-08-15): AI降亏过滤详情 展开/收起 初始态持久化到 state.labSigKellyAiDetailOpen(参照 labSigKellyMoreOpen 模式), 重渲染后保持展开态
+  const _aiDetailText = state.labSigKellyAiDetailOpen ? "AI降亏过滤详情收起 ▲" : "AI降亏过滤详情展开 ▼";
   const aiMacroDetailBtnHTML =
-    `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-btn" style="margin-left:10px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="收起/展开下方 组合降亏快捷按钮 + 31个单标志(4大分类组), 默认收起">AI降亏过滤详情展开 ▼</button>`;
+    `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-btn" style="margin-left:10px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="收起/展开下方 组合降亏快捷按钮 + 31个单标志(4大分类组), 默认收起">${_aiDetailText}</button>`;
   // #54 2026-08-13 (用户20:27 必做): 「重置为AI默认推荐」按钮——尝试各种组合后一键恢复 AI默认勾选(_kellyDefaultFilters 7键全开+AI仓位建议K=1), 重写 tds_kelly_filters 持久化, 刷新三态/hoverpop动态值
   const aiMacroResetBtnHTML =
     `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-reset" style="margin-left:8px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="一键恢复 AI 默认推荐勾选(AI降亏过滤 7 键全开 + AI仓位建议 K=1), 重写本地记忆并刷新统计">重置为AI默认推荐</button>`;
@@ -8980,7 +8988,8 @@ function _renderSigKellyBar(bar, data, period) {
   // 历史固化(#4 2026-08-12): 把仓位建议历史回测数据固化展示(参照 _kellyComboAdviceHtml 静态面板模式), 数据来自调研文档按方案固化, 非实时计算
   //   每笔固定1万口径(与上方回测/全信号表同口径,§22 一致性); 排序 key 与回测/交易页一致(跟踪分↓→评级→信号类型→买入日)
   const poscapHistoryHTML =
-    `<details class="lab-sigkelly-advice-details lab-sigkelly-poscap-history">` +
+    // 举一反三(2026-08-15): 历史回测 data面板 展开态持久化到 state.labSigKellyPoscapHistoryOpen(与问题1同类"用户手工展开的折叠区重渲染后丢失"), 点小标签重渲染后保持用户展开
+    `<details class="lab-sigkelly-advice-details lab-sigkelly-poscap-history"${state.labSigKellyPoscapHistoryOpen ? " open" : ""}>` +
       `<summary>📊 AI仓位建议 · 历史回测数据(固化展示; 口径=每笔固定1万·G模式, positionCap 单独回测未叠加 AI降亏过滤; 与实时全信号表数值不同属正常; K 档评级(每日池·费率重算·A模式·全周期, 86.60/67.61/66.24/63.17, 含最低佣金5元, 与首页一致)见上方 K 按钮评级 hoverpop——本面板 G 模式历史口径为有意双口径(§22))</summary>` +
       `<div class="lab-sigkelly-advice-body">` +
         `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">数据来源(调研方案固化, 非实时计算): <b>docs/kelly/position/kelly-position-filter-backtest.md</b>(P1/P2 基线 + 按年分解) + <b>docs/kelly/position/kelly-position-cap-k-sensitivity.md</b>(K 敏感性全谱)。排序 key = 跟踪分↓ → 评级(high&gt;mid&gt;low) → 信号类型(buy_backup&gt;buy&gt;buy_aux&gt;buy_special) → 买入日↑。目标=资金利用率最大化(降低最大持仓)以提高总收益率, 非质量过滤。</div>` +
@@ -9092,8 +9101,8 @@ function _renderSigKellyBar(bar, data, period) {
       positionCapHTML +
       // #49 ai长线模式(G/H/I)仓位管理: 独立一行(长线族群总入口, 与 AI仓位建议(短线/全模式)平级; 默认关, 只影响 G/H/I)
       `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-gih">` + aihlineLabelHTML + `</div>` +
-      // #39 三级级联UI 第1级: AI宏 详情折叠 body(默认收起, 收起/展开由 #lab-kelly-ai-macro-btn 控制; style=display:none 默认收起, 勾选联动全部7键子级见 _kellyAiMacroMembers)
-      `<div id="lab-kelly-ai-macro-body" class="lab-sigkelly-ai-macro-body" style="display:none">` +
+      // #39 三级级联UI 第1级: AI宏 详情折叠 body(默认收起, 收起/展开由 #lab-kelly-ai-macro-btn 控制; 展开/收起态持久化到 state.labSigKellyAiDetailOpen, 重渲染后保持; 勾选联动全部7键子级见 _kellyAiMacroMembers)
+      `<div id="lab-kelly-ai-macro-body" class="lab-sigkelly-ai-macro-body" style="${state.labSigKellyAiDetailOpen ? "" : "display:none"}">` +
       // 2026-08-13 融合 #39: 组合预设宏改顶部快捷按钮行(一键勾选成员, 不再独立内容块); 标题含"可选分析非默认推荐"(#45 文案修正)
       `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-combo"><span class="lab-sigkelly-toggle-tier">组合降亏(可选分析非默认推荐)</span>` + comboHTML + `</div>` +
       // 2026-08-14 重写: 顶部「怎么用」三行 + 默认推荐7键高亮区 + 更多开关折叠区(替代原4大分类组平铺)
@@ -9466,12 +9475,14 @@ function _renderSigKellyBar(bar, data, period) {
   // 2026-08-13: K档位评级 hoverpop(评级理由表格, 桌面 hover / 移动端 tap; 共享 common.js _bindAiPoscapRatePop, 与首页同款 §22)
   _bindAiPoscapRatePop(bar);
   // #39 三级级联UI 第1级 AI宏 独立行收起/展开(2026-08-13): 收起/展开 组合降亏 + 单标志降亏 整体详情(默认收起)
+  // 问题1修复(2026-08-15): 展开/收起态写 state.labSigKellyAiDetailOpen(参照 labSigKellyMoreOpen 模式), 点小标签/组合按钮重渲染后详情保持展开, 不回落默认收起
   var _aiBtn = bar.querySelector("#lab-kelly-ai-macro-btn");
   var _aiWrap = bar.querySelector("#lab-kelly-ai-macro-body");
   if (_aiBtn && _aiWrap) {
     _aiBtn.addEventListener("click", function () {
       var open = _aiWrap.style.display !== "none";
       _aiWrap.style.display = open ? "none" : "";
+      state.labSigKellyAiDetailOpen = !open;
       _aiBtn.textContent = open ? "AI降亏过滤详情展开 ▼" : "AI降亏过滤详情收起 ▲";
     });
   }
@@ -9496,7 +9507,8 @@ function _renderSigKellyBar(bar, data, period) {
       _kellyToast("已重置为AI默认推荐(AI降亏过滤 7 键全开 + AI仓位建议 K=1主推)");
     });
   }
-  // 4大分类组 收起/展开(2026-08-13 融合 #39: 组标题可点击收展该组, 4组默认全展开, 不持久化)
+  // 4大分类组 收起/展开(2026-08-13 融合 #39: 组标题可点击收展该组, 4组默认全展开)
+  // 举一反三修复(2026-08-15): 收展态写入 state.labSigKellyCatCollapsed(参照 labSigKellyMoreOpen 模式), 点小标签/组合按钮重渲染后保持用户手工收展, 不再恢复全展开
   bar.querySelectorAll(".lab-sigkelly-toggle-tier-cat").forEach(function (tier) {
     tier.addEventListener("click", function () {
       var cat = tier.getAttribute("data-cat");
@@ -9506,6 +9518,10 @@ function _renderSigKellyBar(bar, data, period) {
       var isCollapsed = body.classList.contains("collapsed");
       body.classList.toggle("collapsed", !isCollapsed);
       if (caret) caret.textContent = isCollapsed ? "▼" : "▶";
+      // 写 state: 收起→记录该组 key, 展开→删除该组 key
+      if (!state.labSigKellyCatCollapsed) state.labSigKellyCatCollapsed = {};
+      if (isCollapsed) delete state.labSigKellyCatCollapsed[cat];
+      else state.labSigKellyCatCollapsed[cat] = true;
     });
   });
   // 2026-08-14 重写:「更多开关」折叠区 open 状态持久化(重渲染后保持), 写入 state 供下次 render 读
@@ -9520,6 +9536,13 @@ function _renderSigKellyBar(bar, data, period) {
   if (_adviceDtl) {
     _adviceDtl.addEventListener("toggle", function () {
       state.labSigKellyAdviceOpen = _adviceDtl.open;
+    });
+  }
+  // 举一反三(2026-08-15): 「AI仓位建议·历史回测数据」面板 展开态持久化到 state.labSigKellyPoscapHistoryOpen(与问题1同类, 点小标签重渲染后保持用户展开)
+  var _poscapHstDtl = bar.querySelector(".lab-sigkelly-poscap-history");
+  if (_poscapHstDtl) {
+    _poscapHstDtl.addEventListener("toggle", function () {
+      state.labSigKellyPoscapHistoryOpen = _poscapHstDtl.open;
     });
   }
 
