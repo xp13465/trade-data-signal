@@ -225,6 +225,17 @@
 - **触发词**:任何研究/回测/论证/数据挖掘任务收尾 + 任何新增文件/目录落位时,主控核对「产物已放最合适位置+索引已更新」;派单 prompt 含落档要求,agent 收尾自验落档完整性
 - **验收口径**:研究/回测/新增功能任务验收必须含「落档位置确认(grep 报告/脚本/数据文件)+索引更新确认」,缺落档=验收不过;新目录若为临时摆放需当场说明并定迁移计划
 
+### 23.6 信号凯利回测「入样宇宙规则」治理(2026-08-14 用户定,防"隐式规则未公示"再犯)
+**触发词**:改回测宇宙/改 BUY_SIGNALS/改 board_etf_map 收录规则/新增排除类别/新增自我ETF例外/首页AI建议选标的/任何"哪些信号入样"的判定变更。
+**背景**:回测存在从未公示的隐式宇宙规则(债类 cgb_*/情绪 s.*/全球商品利率 g.*/港股行业 hk_industry/空数组 ftse100·kospi 不入样;只回测买入白名单 buy/buy_aux/buy_special/buy_backup),首页 AI建议 未 1:1 遵从(债类 buy_special、sell 信号曾进候选)。根因:规则分散隐式于 BUY_SIGNALS 白名单/board_etf_map 构建/首页 self 兜底(_self_etf_for)三处,无单一事实源、无公示、首页未从回测侧读入样标记——规则未公示=bug。
+**核心一句话:入样宇宙规则必须①显式声明 ②强制公示 ③首页 1:1 遵从 ④对称校验 ⑤变更联动,缺一即验收不过。**
+- **① 规则显式化(单一事实源)**:宇宙规则(入样信号白名单、入样依赖=board_etf_map key+track_score、排除类别=债类/情绪/全球商品利率/港股行业/空数组、自我ETF唯一例外 cgb_10y_etf)声明于 `config/universe_rules.yaml`;回测与校验脚本从它读,首页从后端注入的运行时标记读,**禁止从文档/记忆反推,禁止前端自行重算宇宙**
+- **② 公示强制(§21 扩展)**:宇宙规则属"算法逻辑",任何改动(含存量隐式规则首次公示)必须同步更新 purpose-notes.js lab.sigkelly + lab.js AI仓位建议 tooltip + app.js AI建议 badge tooltip;存量规则不只"改动时同步",存在即须公示,漏=验收不过
+- **③ 1:1 遵从**:首页/所有"选择标的做推荐"的展示位必须从回测侧读入样标记 `_bt_in_universe`(queries.py 注入,等价回测 _build_best_etf 判定),禁止自行重算;必须接入:首页 AI建议 top-K(app.js _dayItems 过滤,含排除 sell/sell_stop_loss),lab.js 凯利区数据源=回测产物天然对齐(防回归点=禁止前端自算);AI建议 候选信号类型 ⊆ BUY_SIGNALS
+- **④ 对称校验**:`scripts/check_universe_alignment.py`(挂 deploy/check_data_integrity 同链)自动比对:overview 每信号 _bt_in_universe ⟺ board_etf_map 重算入样判定逐条相等;overview 候选 ⊆ 白名单;signal_kelly_trades.json 无债/波段/情绪/商品/港股行业记录;yaml 声明排除类别 ⟺ map 实际缺失 key 集合;FAIL 阻断上线(同 §22)
+- **⑤ 变更联动**(只迭代凯利标准,其他自动同步):改回测标准→重跑 build_board_etf_map.py→重跑 signal_kelly_backtest.py→重跑 export(queries.py 注入标记)→首页自动跟随(读标记,不改前端选择逻辑)→同步公示→跑对称校验→§22 三步同步(R2/static-site)后上线,8 步全走完才算 done
+- **验收口径**:涉及宇宙规则任务自验含「yaml 声明已更新 + 三处公示 grep 通过 + 首页读标记无自算 + 校验脚本 PASS + 8 步联动完成」;reviewer 查这 5 项,漏=验收不过
+
 ## 历史/约束归档引用(全文已归档,按需查)
 - **§10 切分支保护 DB**(2026-07-14 已根治):DB(sentiment.db/etf_national_team.db)已移出 git untracked,切分支不再污染;绝不能 `git restore/checkout -- data/sentiment.db`;同步 main 避免本地 checkout。原文全量见 docs/archive/CLAUDE-history.md
 - **§12 superpowers 融合规则**:superpowers skill 库优先级低于本文件;运维/采集/上线/数据任务明示跳过 brainstorming HARD-GATE + continuous-execution;大型功能开发可按需用全套。原文全量见 docs/archive/CLAUDE-history.md
