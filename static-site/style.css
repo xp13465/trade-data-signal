@@ -958,6 +958,19 @@ main { padding: 16px 24px; }
 .sig-poscap-full { color: var(--text-3); background: var(--bg-hover, rgba(0,0,0,0.05)); }
 .sig-item.sig-poscap-kept { border: 1px solid #15803d55; background: #15803d0f; border-radius: 4px; }
 .sig-item.sig-poscap-excluded { opacity: 0.5; filter: grayscale(0.3); }
+/* 2026-08-14 AI 过滤视图新增两态(用户新口径: 只显AI推荐, 其余直接过滤置灰并标原因):
+   AI警示=入宇宙卖出(sell/sell_stop_loss/波段减仓/波段止损)亮显 + 醒目警示橙边框底(卖出=离场保护非过滤, 不透明不灰) */
+.sig-poscap-warnbadge { color: #b42318; background: #b423181a; }
+.sig-item.sig-poscap-warn { border: 1px solid #b42318aa; background: #b423180d; border-radius: 4px; }
+[data-theme="dark"] .sig-poscap-warnbadge { color: #ff7a45; background: #ff7a4526; }
+[data-theme="redgold"] .sig-poscap-warnbadge { color: #ff7a45; background: #ff7a4526; }
+[data-theme="dark"] .sig-item.sig-poscap-warn { border-color: #d84a3a; }
+[data-theme="redgold"] .sig-item.sig-poscap-warn { border-color: #d84a3a; }
+/* 未入样本=未入样宇宙(债类/情绪/全球商品利率/港股行业/空数组), AI降亏层: 用户口径「置灰+删除线」双重弱化(表达"被过滤掉"),
+   删除线为主、灰显为辅 —— 比「当日已满」更灰(sig-ai-hit 0.45 / excluded 0.5), 并带删除线(剔除非全局删除, 与 sig-ai-hit 区分) */
+.sig-poscap-notunibadge { color: var(--text-3, #999); background: var(--bg-hover, rgba(0,0,0,0.06)); text-decoration: line-through; }
+.sig-item.sig-poscap-notuni { opacity: 0.3; filter: grayscale(0.6); text-decoration: line-through; text-decoration-thickness: 1px; }
+.sig-item.sig-poscap-notuni .sig-idx-name, .sig-item.sig-poscap-notuni b { text-decoration: inherit; }
 /* 2026-08-13 首页 AI 开关行(信号列表标题下第一行): AI降亏过滤总开关 + AI仓位建议 K 档(与凯利区共享状态, §22 一致) */
 .sig-switch-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 12px; margin: 4px 0; padding: 5px 8px; background: var(--bg-2, var(--bg-hover)); border-radius: 4px; line-height: 1.5; }
 .sig-switch-lab { display: inline-flex; align-items: center; gap: 4px; cursor: default; color: var(--text-2); font-weight: 600; }

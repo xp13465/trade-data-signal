@@ -1759,12 +1759,12 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
   // 2026-08-13 hoverpop 升级: K 按钮组复用凯利区评级表格 hoverpop(共享 common.js _aiPoscapRatingPopHtml/_bindAiPoscapRatePop, §22 两处数据一致)
   const _ratingPop = (window._aiPoscapRatingPopHtml ? window._aiPoscapRatingPopHtml() : "");
   return `<div class="sig-switch-row" data-no-pop="">` +
-    `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(总开关, 首页独立): 开启=首页按降亏策略判定(固定7键: 基础4+核心3键全生效), 命中降亏条件的信号灰显+删除线+标注AI降亏, 建议回避; 关闭=首页完全不判降亏, 信号恢复正常样式。独立 localStorage 键 tds_home_fade, 与凯利区互不影响">` +
+    `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(总开关, 首页独立, 删除线过滤层): 开启=①命中降亏条件(固定7键)的买入信号=灰显+删除线+标注AI降亏建议回避(现状) + ②未入样宇宙信号(债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组)=删除线+灰显+标注未入样本; 关闭=不画任何删除线、未入样本不标注, 信号恢复正常样式。独立 localStorage 键 tds_home_fade 与凯利区互不影响; 与「AI仓位建议」两个开关正交(各自管一层, 不互相触发)">` +
       `<input type="checkbox" class="sig-switch-ai-cb"${_fadeOn ? " checked" : ""}> AI降亏过滤` +
-      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 开启=首页按降亏策略判定, 固定 7 键成员级(基础4: 追关注×熊市交叉 / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 + 核心3键: 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致), 命中降亏条件的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); 关闭=首页完全不判降亏、不灰显不删除线不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号。">ⓘ</span>` +
+      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 删除线过滤层, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 开启=①首页按降亏策略判定, 固定 7 键成员级(基础4: 追关注×熊市交叉 / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 + 核心3键: 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致), 命中降亏条件的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); ②未入样宇宙信号(债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, 后端 _bt_in_universe===false)=删除线+灰显+「未入样本」标注(AI过滤视图, 表达"被过滤掉"); 关闭=首页完全不判降亏、不画删除线、未入样本不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。⚠两开关正交: AI降亏层只产删除线/未入样本, 不产 AI建议N/当日已满/AI警示(那些归「AI仓位建议」开关控制)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号">ⓘ</span>` +
     `</label>` +
     `${_aShareFinalizedTag}` +
-    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap): 同日只买最优K个, 未进入前K=当日已满灰显; 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表, 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span>${_helpBtn}</span>` +
+    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap, badge标注层): 开启=同日只买最优K个买入类(进K=「AI建议N」亮绿 / 超K=「当日已满」灰显) + 入宇宙卖出(sell/sell_stop_loss/波段减仓)=「AI警示」亮橙(卖出无K约束不判K); 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表(无AI建议N/当日已满/AI警示), 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。⚠两开关正交: AI仓位层只产上面三类badge, 不产删除线过滤(删除线/未入样本归「AI降亏过滤」开关控制)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span>${_helpBtn}</span>` +
     `</div>`;
 }
 // 参考说明按钮独立 hoverpop HTML(2026-08-14): 不复用 K 评级表 _aiPoscapRatingPopHtml(仓位评级表语义不符),
@@ -2126,6 +2126,11 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   }
   // 2026-08-13 重构: 显示随过滤开关走(合并后单开关, 无独立显示层); 开关行 HTML 用 _fadeOn 渲染「AI降亏过滤」勾选态
   const _sigSwitchHtmlStr = (kind === "signal") ? _sigSwitchHtml(_fadeOn, _posCapK || 1, _pcOn, signalsMeta) : "";
+  // 2026-08-14 AI过滤视图(用户澄清口径, 两开关正交不绑定):
+  //   开关1「AI降亏」(_fadeOn, tds_home_fade)= 删除线过滤层 → 命中降亏删线(现状) + 未入样本(_bt_in_universe===false)删线+置灰+「未入样本」标注;
+  //   开关2「AI仓位」(_pcOn, tds_poscap.on)= badge标注层 → AI建议N(进top-K)/当日已满(超出K)/AI警示(入宇宙卖出), 均由 _posCapRank 或 _pcOn 门控;
+  //   叠加=两层同时生效; 全关=全量视图所有信号正常亮显不标注。两层严格正交, 不互相触发对方层(badge层不产删除线、删除线层不产badge)。
+  //   AI降亏开启时不产生 AI建议N/当日已满/AI警示(那些属 AI仓位层); AI仓位开启时不产生删除线过滤(那属 AI降亏层)。
   let rows = "";
   for (const dt of dates) {
     const isToday = dt === todayDate;
@@ -2188,6 +2193,10 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         //   分支误显示「当日已满」, 修复为整块跳过分支(§23.3 举一反三: 全站 poscap/「当日已满」渲染点只有本 cellHtml 一处)。
         const _isSellRow = it.signal === "sell" || it.signal === "sell_stop_loss" || it.signal === "band_hold"
           || (it.reason || "").includes("波段减仓") || (it.reason || "").includes("波段止损");
+        // 2026-08-14 AI过滤视图: 卖出类专指(不含 band_hold 中性持有)——sell/sell_stop_loss/波段减仓 band_sell/波段止损。
+        // 与 _isSellRow(含 band_hold, 用于跳过「当日已满」)区分: band_hold=持有中性不标, 既不属「AI警示」卖出类也不置灰(现状保持)。
+        const _isSellSig = it.signal === "sell" || it.signal === "sell_stop_loss"
+          || (it.reason || "").includes("波段减仓") || (it.reason || "").includes("波段止损");
         // 2026-08-14 P1-2 fix(首页8/14信号根因附带缺陷): 「当日已满」分支也须判 _bt_in_universe——
         // 未入样宇宙(uni=False)的买入类信号(如 8/10 csi_931892/gz_399440、8/12 thsc_306380)不该被误标"当日已满"。
         // 未入样信号压根不参与AI建议top-K, 应保持零标注(与 kept 空/空态一致), 而非落 else 显示"当日已满"。
@@ -2201,6 +2210,23 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
             posCapCls = " sig-poscap-excluded";
             posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="AI仓位建议(技术别名:仓位控制过滤)开启(K=${_posCapK}): 当日从当前档位筛选(ETF档位+排除持有中性)的存活买入类信号只建议最优${_posCapK}个, 本信号未进入AI建议, 当日已满; 命中AI降亏的信号已被过滤不占位; 卖类/持有中性信号(sell/sell_stop_loss/波段减仓/波段持有)不涉及当日已满语义, 不显示本badge（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">当日已满</sup>`;
           }
+        }
+        // 2026-08-14 AI过滤视图两态(用户澄清口径, 两个开关正交不绑定, §23.3 举一反三: 全站 poscap/「当日已满」渲染点只有本 cellHtml 一处):
+        // ⓐ AI警示(AI仓位层, 由开关2 _pcOn 控制, 与降亏层正交): 入宇宙卖出(sell/sell_stop_loss/波段减仓 band_sell/波段止损)
+        //    = 亮色 + AI警示(醒目警示橙, 与 AI建议 绿视觉区分; 卖出=离场保护非过滤, 不置灰不透明)。卖出无K档约束、不判K。
+        // ⓑ 未入样本(AI降亏层, 由开关1 _fadeOn 控制, 与仓位层正交): 未入宇宙(债类 cgb_*/情绪 s.*/全球商品利率 g.*/港股行业 hk_*/空数组,
+        //    _bt_in_universe===false)= 删除线 sig-poscap-notuni-dash + 灰显 + 「未入样本」标注(表述其被过滤掉)。
+        // 两层正交: 开 AI仓位 不产删除线(ⓑ 不看 _pcOn, 删除线归 AI降亏); 开 AI降亏 不产 AI需求 badge(ⓐ 不看 _fadeOn, badge归 AI仓位)。
+        // band_hold 持有中性不标不置灰(现状保持)。fade-hit 信号已有 AI降亏 删除线+标注, 不叠加 ⓐ/ⓑ 防双重矛盾。
+        // ⓐ AI警示(仓位层): AI仓位开关开启时, 入宇宙卖出给亮色警示框+「AI警示」标注。
+        if (_pcOn && !posCapCls && !_isAiFadeHit(it) && _isSellSig(it) && it._bt_in_universe !== false) {
+          posCapCls = " sig-poscap-warn";
+          posCapBadge = `<sup class="sig-poscap-badge sig-poscap-warnbadge" data-tip="AI警示(由「AI仓位建议」开关控制, AI仓位层): 本信号为【入样宇宙内】的卖出/离场类(sell/sell_stop_loss/波段减仓/波段止损), 属风险警示——卖出=保护已实现利润/离场, 与买入建议方向相反, 故不参与 AI 建议买入 top-K; 卖出无K档约束、不判K, 只要入样即亮显警示(§23.6 入样宇宙规则: 入样依赖=board_etf_map 有 key 且至少一个 ETF 有非空 track_score=后端 _bt_in_universe)。盘后补齐的迟到卖出信号(如 8/14 中证银行 sell)会同时挂「AI警示」+「盘后补齐」角标, 两者独立不冲突。">AI警示</sup>`;
+        }
+        // ⓑ 未入样本(降亏层): AI降亏开关开启时, 未入宇宙信号画删除线+灰显+「未入样本」标注(表述"被过滤掉")。
+        else if (_fadeOn && !posCapCls && !_isAiFadeHit(it) && it.signal !== "band_hold" && it._bt_in_universe === false) {
+          posCapCls = " sig-poscap-notuni";
+          posCapBadge = `<sup class="sig-poscap-badge sig-poscap-notunibadge" data-tip="未入样本(由「AI降亏过滤」开关控制, AI降亏层): 本信号不在凯利回测【入样宇宙】内(§23.6 入样宇宙规则, 权威=config/universe_rules.yaml: 入样白名单只收 buy/buy_aux/buy_special/buy_backup; 排除类别=债类 cgb_*/情绪 s.*/全球商品利率 g.*/港股行业 hk_*/空数组 ftse100·kospi), 回测未纳入因此不参与 AI 建议买入选择, 在 AI 过滤视图下删除线+灰显弱化。仅展示参考, 若买入属自行决策(首页 1:1 遵从回测入样判定, 不自行重算)。">未入样本</sup>`;
         }
         // 2026-08-13 C1 fix(reviewer): 恢复每 cell 渲染前的三变量初始化声明(重构时误删 → 隐式全局污染, 命中 cell 赋值后污染后方未命中 cell)。
         // 基线 922578ff1 L2057-2059 同款; 每 cell 渲染前重置, 保证未命中 cell 拼空串而非继承上一命中值或字面 undefined
@@ -2302,9 +2328,11 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     // 「全量 signals_today 无入样宇宙买入类(buy/buy_aux/buy_special/buy_backup, _bt_in_universe !== false)」即显示;
     // 不受用户 grade/correct/type/ETF 子筛选影响。卖类(sell/sell_stop_loss/波段)存在不视为有买入信号。
     // 容错: 旧数据无 _bt_in_universe 字段视为在宇宙内(与 kept 选择集同规则), 不误报空态。
+    // 2026-08-14 AI过滤视图: 空态横条仅「AI仓位」开关(_pcOn)开时渲染——该条语义为"无 AI 建议买入信号", 属 AI仓位层;
+    //   AI仓位关(=全量视图无AI建议语义)时不渲染, 避免误导。文案按用户口径改直白。
     let _emptyUniverseBanner = "";
-    if (kind === "signal" && !_dateHasInUniverseBuy[dt]) {
-      _emptyUniverseBanner = `<div class="sig-empty-universe" data-tip="该日信号均为风险/持有类(卖出/跟踪止损/波段)或未入样宇宙的标的（如债类 cgb_*/ 情绪 s.*/ 全球商品利率 g.*/ 港股行业 hk_*，§23.6 入样宇宙规则），因此无 AI 建议买入标的，属正常空态而非功能未开。">当日无入样宇宙买入信号，仅有风险/持有状态</div>`;
+    if (kind === "signal" && _pcOn && !_dateHasInUniverseBuy[dt]) {
+      _emptyUniverseBanner = `<div class="sig-empty-universe" data-tip="该日信号均为风险/持有类(卖出/跟踪止损/波段)或未入样宇宙的标的（如债类 cgb_*/ 情绪 s.*/ 全球商品利率 g.*/ 港股行业 hk_*，§23.6 入样宇宙规则），因此当日无 AI 建议买入标的，属正常空态而非功能未开。">今日无 AI 建议买入信号，仅风险/持有状态</div>`;
     } else {
       _emptyUniverseBanner = "";
     }
