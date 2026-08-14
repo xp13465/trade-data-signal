@@ -26,7 +26,7 @@
       buy_special_filtered_long: "追关注(过滤预览)",
       buy_backup: "备关注",
       sell_stop_loss: "追风控|警示",
-      band_hold: "持有",
+      band_hold: "波段持有",
       // 长标签（信号卡/频率汇总，app.js L2641 statsHint / L3610 频率modal / L12489 _freqPopupHtml）
       buy_long: "主关注",
       sell_long: "风险提醒",
@@ -42,7 +42,7 @@
       detail_buy_backup_name: "备关注 · 趋势转向",
       detail_sell_name: "风险提醒 · 趋势转弱",
       detail_sell_stop_loss_name: "追风控|警示 · ATR×3.5风控",
-      detail_band_hold_name: "持有 · 国债波段仓管",
+      detail_band_hold_name: "波段持有 · 国债波段仓管",
       detail_band_sell_name: "波段调整 · 国债波段仓管",
       // ETF 5档（app.js L13395 ETF_TIER_LABEL）
       etf_strong_sell: "重点规避",
@@ -76,7 +76,7 @@
       legend_band_reduce: "波段调整(国债)",
       legend_stop_loss: "ATR×3.5风控(追风控|警示)",
       legend_buy_diff: "⚠ 关注点回测差异提示",
-      legend_band_hold: "持有(国债)",
+      legend_band_hold: "波段持有(国债)",
       legend_sell: "趋势转弱(风险)",
       // 期货同向准确度趋势（分析术语，无买卖指令词，精简版与完整版一致）
       futures_acc_title: "同向准确度趋势",
@@ -313,7 +313,6 @@
     ["买入", "关注"],
     ["止损", "风控"],
     ["风控清仓", "风控\x01CLEARED\x01"],
-    ["波段持有", "持有"],
     ["清仓", "防范"],
     ["止盈", "收益兑现"],
     ["减仓", "调整"],
