@@ -1,23 +1,49 @@
 #!/bin/bash
-# thinking-proxy-rollback.sh — 一键回退官方直连 thinking 代理(还原 settings + 停代理 + agents 说明)
+# thinking-proxy-rollback.sh — 双端一键回退(还原 settings + 停代理)
 #
-# 用途:代理出问题/需停用时,一键还原到"官方直连不注入"状态。幂等,可重复执行。
-# 回退对象:
-#   ① ~/.claude/settings.json 从最近备份还原(ANTHROPIC_BASE_URL 回官方直连 / ANTHROPIC_MODEL 回原值)
-#   ② launchctl unload com.trade.thinking-proxy.plist
-#   ③ pkill thinking_proxy.py
-#   ④ 说明 agents model 需按需还原
-# 注意:本脚本不改 ~/.claude/settings.json 的 token(备份天然含原 token,还原即保留)。
+# 用途:代理出问题/需停用时,一键还原到对应 provider 的直连原态。
+# 幂等,可重复执行。支持双端:
+#   bash scripts/thinking-proxy-rollback.sh            # 还原到 方舟直连(现网默认,无参)
+#   bash scripts/thinking-proxy-rollback.sh official    # 还原到 官方直连(api.deepseek.com)
+#   bash scripts/thinking-proxy-rollback.sh ark         # 显式还原到 方舟直连
+#
+# 说明:
+#   - 只还原 ~/.claude/settings.json 的 ANTHROPIC_BASE_URL/MODEL 到对应 provider 直连备份,
+#     不写 token(备份天然含原 token,还原即保留)。
+#   - 停 launchd 代理 + pkill 兜底。
+#   - agents frontmatter 的 model(flash/think 别名)不还原(直连下别名会 404,需人工改 inherit,
+#     或直接走代理恢复)。回退到直连=放弃 per-role thinking 开关,thinking 默认 ON。
 
 set -u
 
-echo "[1/4] 还原 ~/.claude/settings.json(从最近 thinking 备份)"
-BAK=$(ls -t ~/.claude/settings.json.bak-thinking-* ~/.claude/settings.json.bak-thinking2-* 2>/dev/null | head -1)
-if [ -n "$BAK" ] && [ -f "$BAK" ]; then
-  cp "$BAK" ~/.claude/settings.json
+PROVIDER="${1:-ark}"   # 默认方舟直连
+TS=$(date +%Y%m%d-%H%M%S)
+
+# 各 provider 的直连备份(settings.json.bak-*-fallback 或官方直连)
+# 方舟直连原态备份:bak-ark-fallback-20260814-094337(方舟 key + ark.cn-beijing.volces.com/api/coding)
+# 官方直连备份:  bak-official-direct-20260814(官方 key sk-b0d32*** + api.deepseek.com/anthropic,由 trade-data/.env 生成)
+ARK_BAK="$HOME/.claude/settings.json.bak-ark-fallback-20260814-094337"
+OFFICIAL_BAK="$HOME/.claude/settings.json.bak-official-direct-20260814"
+
+case "$PROVIDER" in
+  ark)
+    BAK="$ARK_BAK"; DESC="方舟直连(ark.cn-beijing.volces.com/api/coding)"
+    ;;
+  official)
+    BAK="$OFFICIAL_BAK"; DESC="官方直连(api.deepseek.com/anthropic)"
+    ;;
+  *)
+    echo "未知 provider: $PROVIDER (可用 ark|official)"; exit 1
+    ;;
+esac
+
+echo "[1/4] 还原 settings 到: $DESC"
+if [ -f "$BAK" ]; then
+  cp "$BAK" "$HOME/.claude/settings.json"
   echo "  已还原自: $BAK"
+  python3 -c "import json;d=json.load(open('$HOME/.claude/settings.json'));print('  BASE_URL:',d['env']['ANTHROPIC_BASE_URL']);print('  MODEL:',d['env']['ANTHROPIC_MODEL'])"
 else
-  echo "  未找到 settings.json.bak-thinking-* 备份,跳过还原(settings 未改过或备份被清理)"
+  echo "  !! 未找到备份 $BAK ,请人工确认"
 fi
 
 echo "[2/4] unload thinking-proxy plist"
@@ -36,10 +62,9 @@ else
 fi
 
 echo "[4/4] 说明"
-echo "  ~/.claude/settings.json 已还原(ANTHROPIC_BASE_URL 回官方直连 / ANTHROPIC_MODEL 回原值, token 未动)"
-echo "  agents model 若已改为 per-role,需人工按需还原:"
+echo "  settings 已还原到 $DESC (token 未动,直连 = thinking 默认 ON)"
+echo "  agents model 若保留 flash/think 别名,直连下会 404,需人工改为 inherit:"
 echo "    .claude/agents/implementer.md + tester.md     -> model: inherit"
 echo "    .claude/agents/reviewer.md + researcher.md    -> model: inherit"
-echo "回退完成。"
-
+echo "回退完成。如需恢复代理: launchctl load scripts/com.trade.thinking-proxy.plist"
 exit 0

@@ -252,3 +252,71 @@ V4 pro 对照:baseline=49 ON;`disabled` → **1**(同样真关)。
 - **Claude Code 直连官方仍不能自动关**(发 adaptive=ON),省 token 方案不变:**本地代理注入 disabled**。
 - 现成 `scripts/thinking_proxy.py` 把 upstream 从火山方舟改官方 `/anthropic` 即可(官方原生认识 disabled,无需 hack),per-model 注入(只对 implementer/tester)照旧。
 - 风险同 §6.4 P0(代理挂=全站不可用),launchd 守护可缓解。启用仍需用户指令(#32)。
+
+## 九、火山方舟版落地(2026-08-14,upstream 切回方舟 coding 端点)
+
+> 触发:用户把 settings 从官方直连切回**火山方舟直连**(`ark.cn-beijing.volces.com/api/coding` + ark token + `ANTHROPIC_MODEL=deepseek-v4-flash`),要求方舟版 deepseek-v4-flash + thinking 按需 + 验证原官方兼容版本可用。本轮=主控独立单元测试 + 独立线程端到端验证后落地。
+
+### 9.1 单元测试:方舟 coding 端点 thinking 参数矩阵(裸 API,独立进程)
+
+| 传参 | output_tokens | content 类型 | 判定 |
+|---|---|---|---|
+| 不传(默认) | 34 | [thinking,text] | ON |
+| `{type:"adaptive"}`(Claude Code 默认) | **75** | [thinking,text] | ON(最费) |
+| `{type:"disabled"}` | **1** | [text] | **真关,省 97-98%** |
+| `{type:"enabled",budget:1024}` | 35 | [thinking,text] | ON |
+
+### 9.2 官方 api.deepseek.com/anthropic 兼容端点仍可用(原兼容版本验证)
+
+| 传参 | output_tokens | 判定 |
+|---|---|---|
+| 不传(默认) | 34 [thinking,text] | ON |
+| `{type:"disabled"}` | 1 [text] | 真关 |
+| `{type:"enabled"}` | 9 [thinking,text] | ON |
+
+**结论:官方兼容端点仍可用**,disabled 同样真关(1 token)。可作回退通道。
+
+### 9.3 方舟别名直发 404 → 代理改写仍必要
+- `deepseek-v4-think` 直发方舟 coding 端点 → **HTTP 404 UnsupportedModel**(方舟 coding 端点不认别名)。
+- **判断类别名必须经本地代理改写回 `deepseek-v4-flash` 才通**(同官方版逻辑)。
+
+### 9.4 端到端(独立线程经代理 8899 → 方舟)验证
+| 请求 | 代理行为 | 结果 |
+|---|---|---|
+| 执行类 flash+adaptive | `injected=True` | out=1,无 thinking(**关思考**) |
+| 执行类 flash 不传 | `injected=True` | out=1,无 thinking(**关思考**) |
+| 判断类 think 别名 | `injected=False aliased=True`(改回 flash) | out=33,含 thinking(**保思考**) |
+
+### 9.5 落地清单(与本会话隔离,独立线程验证)
+1. 备份 `~/.claude/settings.json` → `settings.json.bak-ark-fallback-20260814-094337`(方舟直连原态)
+2. plist `com.trade.thinking-proxy.plist` upstream 切方舟(`ark.cn-beijing.volces.com` / `443` / `/api/coding`),备份官方版 `com.trade.thinking-proxy.plist.bak-official-20260814-094432`
+3. `launchctl load` 守护(8899 监听确认)
+4. settings.json `ANTHROPIC_BASE_URL=http://127.0.0.1:8899` + `ANTHROPIC_MODEL=deepseek-v4-think`(保留 ark token)
+5. `claude -p` 生产路径验证:flash→injected(has_thinking=False),think→aliased(has_thinking=True)
+- **注意:settings env 在进程启动时注入,改 settings 只影响新会话,已在跑的会话仍走方舟直连(不受影响)**
+- **回退(双端,2026-08-14)**:`bash scripts/thinking-proxy-rollback.sh`(默认 ark)或 `bash scripts/thinking-proxy-rollback.sh official`(官方直连)。脚本自动还原对应 provider 的直连备份 + 停代理,备份文件:
+  - 方舟直连:`~/.claude/settings.json.bak-ark-fallback-20260814-094337`(方舟 key + ark coding 端点)
+  - 官方直连:`~/.claude/settings.json.bak-official-direct-20260814`(官方 key sk-b0d32*** + api.deepseek.com/anthropic,由 trade-data/.env 生成)
+- 方舟直连:`cp settings.json.bak-ark-fallback-20260814-094337 ~/.claude/settings.json`
+
+## 十、一套脚本眷顾官方/火山双端(2026-08-14)
+
+`thinking_proxy.py` upstream 已配置化为 `TTP_PROVIDER=ark|official` 预设表(2026-08-14 加),一套代码切双端:
+
+| provider | upstream | 说明 |
+|---|---|---|
+| `ark`(现网) | `ark.cn-beijing.volces.com:443/api/coding` | 方舟 coding 端点,disabled 真关/别名直发 404 |
+| `official` | `api.deepseek.com:443/anthropic` | 官方兼容端点,disabled 真关(2026-08-14 实测仍可用) |
+
+**切端步骤**:
+1. 改 plist `TTP_PROVIDER` = `ark` 或 `official`
+2. `launchctl unload + load scripts/com.trade.thinking-proxy.plist`
+3. settings.json 的 `ANTHROPIC_AUTH_TOKEN` 换对应 provider 的 key(方舟 ark-* / 官方 sk-*)
+4. `tail` 代理日志确认 `provider=<所选>` + 冒烟(flash→has_thinking=False, think→has_thinking=True)
+
+**回退脚本双端** `thinking-proxy-rollback.sh [ark|official]`(默认 ark),自动还原对应直连备份 + 停代理。直连=放弃 per-role thinking 开关(thinking 默认 ON),agents frontmatter 别名需改回 inherit(否则 404)。
+
+**配置进代码库**:`scripts/thinking_proxy.py` / `com.trade.thinking-proxy.plist` / `thinking-proxy-rollback.sh` 均已 tracked,脚本不含真实 token(token 走 settings.json/.env),API 路由保留。
+
+
+
