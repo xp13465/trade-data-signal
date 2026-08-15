@@ -1,15 +1,15 @@
-# 会话移交 20260816 (AI监控卡二次迭代进行中)
+# 会话移交 20260816 (AI监控卡二次迭代实施完成, reviewer 回归中)
 
 > 触发=重启会话/compact 后恢复。本文件记录 2026-08-16 会话的关键状态,重启后可据此恢复。
 > 关联 memory: session-handoff-20260813 / user-usage-memory-beats-my-inference / compact-recovery-checklist
 
-## 1. 当前在跑 agent(实施中,勿重复派单)
+## 1. 当前在跑 agent(勿重复派单)
 
 | 任务 | agent | 状态 |
 |---|---|---|
-| **AI监控卡二次迭代 5合一** | implementer `a2f6d2c9c7400e724` | 🔄 后台跑, 正在改 app.js + overfit_monitor.py(git 显示 M) |
+| **回归AI监控卡二次迭代** | reviewer `ae14f8b903ec7a9f8` | 🔄 后台跑 |
 
-**进度**: implementer 已收到「K档×降亏=两开关独立(首页同款)」修正(2026-08-16 用户拍板), 正在改。改动文件: static-site/app.js + scripts/overfit_monitor.py + 重跑数据产物。
+**进度**: implementer 已完成 5 合一并上线(db6d69513), §8 三查全过。reviewer 回归中, 通过后 merge 收口。
 
 ## 2. 任务清单(TASKS.md 对应)
 
@@ -39,10 +39,13 @@
 - **⚠️ 避盘后时点**: 15:35/16:00/17:50/20:35/22:00 不推 main
 - commit 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
 
-## 5. 实施完成后待派 reviewer 回归(§15 B级必审)
+## 5. 实施完成 ✅, reviewer 回归中
 
-- 审查: K档后端数据正确性(by_k 结构/排序口径/top-K 与首页一致性) + 前端K档交互/降亏同行 + 窗口语义 + ❓弹窗 + reviewer返修4项 + SVG/echarts对齐 + 版本串/上线三查 + 没改坏老功能
-- 尤其: K档×降亏叠加(降亏开→对K档数据再滤, 降亏关→纯K档全信号), 与首页口径一致
+- implementer 5合一已完成上线(db6d69513): by_k/filtered_by_k 8bank + K档可点选同行 + 窗口改显示范围 + ❓弹窗 + reviewer返修4项 + SVG/echarts对齐
+- §8 三查全过(R2 by_k就位 + app.min.js 含 data-overfit-k/显示范围/data-overfit-help)
+- §24 版本串 a275 一致(无孤儿快照)
+- reviewer `ae14f8b903ec7a9f8` 回归中, 重点: K档后端数据正确性 + 两开关正交(降亏关→K纯全信号, 用户两次确认) + ❓hoverpop言简意赅 + 4项返修 + 没改坏老功能
+- **PASS → 收口, FAIL → 修后重审**
 
 ## 6. 本次会话已收尾(不需再做)
 
