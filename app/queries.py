@@ -483,20 +483,27 @@ def stats_for(stats_all_dict: dict, index_id: str) -> dict:
 
 
 # ============ AI宏降亏命中标注(2026-08-13 首页 AI 开关) ============
-# 提取凯利回测区 lab.js _kellyPassesFadeFilters 的「AI宏默认降亏」7 谓词
-# (基础 4 键 n2/excludeSpecialBear/janMidRating/janMidSpecial + 3元 3 键
-#  r7MayReinforced/excludeAuxCross/greedy15)为可复用的信号级谓词，给 overview.json
-# 每条信号注入 ai_macro:{hit, filters}。与凯利区降亏逻辑同源(§22)。
+# 提取凯利回测区 lab.js _kellyPassesFadeFilters 的「AI宏默认降亏」8 键谓词
+# (基础 5 键 n2/excludeSpecialBear/janMidRating/janMidSpecial/k2c5HkChase 港股追涨剔除
+#  + 3元核心 3 键 r7MayReinforced/excludeAuxCross/greedy15；K2C5 并基础5为第 8 键，
+#  v1.1.0 用户拍板 定名「基础5」, 穷举验证 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md)
+# 为可复用的信号级谓词，给 overview.json 每条信号注入 ai_macro:{hit, filters}。
+# 与凯利区降亏逻辑同源(§22)。
 # ⚠ 粒度降级(诚实标注)：凯利区基于交易级字段(含 ETF 买入价 buy_price 的
 # price_bin 五分位)，overview 信号级无价格字段 → price_bin 依赖子条件在信号级
 # **不可判定、不参与命中**(漏标不误标，宁保守不误杀)。其余字段(信号日/信号类型/
 # 指数大类 mkt_*/评级 high-mid-low/weekday/top1 track_score)均与凯利同源同口径。
+# ⚠ +1类回测剔除(债类/波段不入宇宙)不在此 8 键内：由 overview 每条信号的
+# _bt_in_universe 字段承载(L840 注入, 等价回测 _build_best_etf 入样判定, §23.6)。
+# 前端首页删除线 = ①ai_macro.filters 命中 8 键之一(→「AI降亏」标注) +
+# ②_bt_in_universe===false(→「未入样本」标注), 两者正交叠加 = 8键+1类 = 9 (v1.1.0)。
 # 首页开关=AI宏总开关(tds_kelly_filters.aiMacro)：on → ai_macro.hit 信号灰显对照。
 _AI_MACRO_TOGGLE_NAMES = {
     "n2NovSpecialIndustry": "11月+追关注+行业",
     "excludeSpecialBear": "追关注×熊市交叉",
     "janMidRating": "J1 1月中旬+mid评级",
     "janMidSpecial": "J2 1月中旬+追关注",
+    "k2c5HkChase": "港股追涨剔除",
     "r7MayReinforced": "5月强化+3非五月R7",
     "excludeAuxCross": "辅关注×3/5月交叉",
     "greedy15": "Greedy-15组合",
@@ -597,7 +604,8 @@ _AI_MACRO_BUY_SIGNALS = {"buy", "buy_aux", "buy_special", "buy_special_filtered"
 
 
 def _ai_macro_hit_filters(sig: dict, ctx: dict) -> list:
-    """信号级 AI宏(基础4+3元 7 toggle)命中条件名列表(与凯利区 AI宏默认集同源)。
+    """信号级 AI宏(基础5+核心3 = 8 toggle, +1类剔除走 _bt_in_universe 字段)命中条件名列表
+    (与凯利区 AI宏默认集同源, v1.1.0 基准, docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md)。
     ctx 需含: rating_of(sig)->str / market_of(iid)->str / track_score_of(sig)->float|None /
     is_bull(date)->bool。price_bin 依赖子条件降级不参与命中(见模块级注释)。
     仅买信号守卫(MED3): 非买信号直接返空(与凯利区"只对买交易过滤"同源)。"""
@@ -623,6 +631,19 @@ def _ai_macro_hit_filters(sig: dict, ctx: dict) -> list:
     # 2 excludeSpecialBear: buy_special + A股类 + MA60 熊市(大盘择时仅对A股类, 非A不过滤, 与凯利同源)
     if _sig == "buy_special" and _mkt in _AI_MACRO_A_STOCK_MARKETS and not _bull:
         _f.append("excludeSpecialBear")
+    # 2b k2c5HkChase(K2C5, 并基础5 v1.1.0 第8键): signal∈{buy_special,buy_backup} × 港股
+    #   与 lab.js _kellyPassesFadeFilters L7521 同谓词(_mktD3==="hk")。
+    #   ⚠港股分类须对齐回测 MARKET_QUAD_MAP(scripts/signal_kelly_backtest.py L128-130):
+    #   回测把 market in (hk,hk_industry) 都归入 mkt_hk 象限(港股板块归入港股大类), lab.js
+    #   mktD 读该象限 → "hk"; 故后端 mkt 长形式只判单值 (mkt_hk,)。
+    #   ❗为什么不能连 mkt_hk_industry 一起判(2026-08-15 P2-1 修正): hk_industry 信号(如 hk_hsmbi)
+    #   在 §23.6 宇宙规则里属排除类别(港股行业 hk_*), 从未入样 → board_etf_map 无 key 无 track_score
+    #   → 回测 _build_best_etf 从不收录其 trade, 故 signal_kelly_trades.json 的 mkt_hk 象限只有
+    #   {hsi,hscei,hstech}(见 reviewer 审计复现), K2C5 在回测侧根本无从过滤 hk_industry 交易。
+    #   后端若连 mkt_hk_industry 一起判 = over-flag(防漏标意图反致过度标注): 12 条未入样 hk_industry
+    #   信号被标「AI降亏」而非「未入样本」, 与凯利区实际过滤范围不一致。故只判 mkt_hk。
+    if _sig in ("buy_special", "buy_backup") and _mkt == "mkt_hk":
+        _f.append("k2c5HkChase")
     # 3 janMidRating: 1月中旬(11-20日) + mid 评级
     if _mm == "01" and 11 <= _dd <= 20 and _rating == "mid":
         _f.append("janMidRating")
@@ -999,7 +1020,9 @@ def overview(conn, cfg):
                 _e["etf_price_diff"] = round(_today_close - _sig_close, 3)
 
     # AI宏降亏命中标注(2026-08-13 首页 AI 开关): 每条信号注入 ai_macro:{hit, filters}
-    # 7 谓词与凯利区 AI宏默认降亏(lab.js _kellyPassesFadeFilters + _kellyDefaultFilters)同源;
+    # 8 键(toggle 基础5+核心3, v1.1.0)谓词与凯利区 AI宏默认降亏
+    # (lab.js _kellyPassesFadeFilters + _kellyDefaultFilters)同源; +1类回测剔除由
+    # 各信号 _bt_in_universe 字段承载(L840, 端到端三处一致, 见模块级注释)。
     # 信号级粒度降级: price_bin(ETF 买入价分位)依赖子条件在 overview 不可判定(无价格字段),
     # 不参与命中(漏标不误标, 诚实标注见 _ai_macro_hit_filters 模块级注释)。
     if sigs:

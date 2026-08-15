@@ -71,27 +71,51 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _forward(self):
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length) if length else b""
-        thinking_field = None; model_field = None
-        try:
-            obj = json.loads(body)
-            model_field = obj.get("model")
-            thinking_field = obj.get("thinking", "<OMITTED>")
-        except Exception as e:
-            thinking_field = f"<parse-error {e}>"
-        # 注入 disabled(只对指定 model = 执行类)
+        thinking_field = None; model_field = None; obj = None
+        is_message_post = (self.command == "POST") and ("/v1/messages" in self.path or "/messages" in self.path)
+        if is_message_post and length:
+            try:
+                obj = json.loads(body)
+                model_field = obj.get("model")
+                thinking_field = obj.get("thinking", "<OMITTED>")
+            except Exception as e:
+                thinking_field = f"<parse-error {e}>"
+        # ═══ 固定模型铁律(2026-08-15 用户定,从"堵 v4-pro 泄漏"升级为核心原则)═══
+        # 白名单 = INJECT_MODELS(flash,注入关思考)+ ALIAS_MODELS(think,别名保思考改写 flash)。
+        # 之外任何 model(无论 v4-pro / claude-opus-5 / 未来新模型名 / 缺 model)一律不放行:
+        # 默认改写 ALIAS_TARGET(flash)+ 告警日志,绝不透传。只有闪 flash 注入、think 别名两种
+        # 是用户要求的模型,其余都不是"我要求让你用的模型"。
+        # 拒绝 vs 改写:默认改写 flash(保留功能成本回落到 flash);改写序列化失败则拒绝不转发。
         injected = False
-        # 别名改写(判断类):不注入(保思考),改写 model 为官方认可的 ALIAS_TARGET 再转发
         aliased = False
-        if model_field:
+        fallback = False
+        if is_message_post and length and obj is not None and model_field is not None:
+            # GET/静态请求不解析不清除(is_message_post=False),不会走到这里
             if any(m in str(model_field) for m in INJECT_MODELS) and INJECT:
                 obj["thinking"] = {"type": "disabled"}
                 injected = True
             elif any(m in str(model_field) for m in ALIAS_MODELS):
                 obj["model"] = ALIAS_TARGET
                 aliased = True
-        if injected or aliased:
-            body = json.dumps(obj).encode()
-        logmsg(f"REQ {self.command} {self.path} model={model_field}->{obj.get('model')} thinking={json.dumps(thinking_field, ensure_ascii=False)} injected={injected} aliased={aliased}")
+            else:
+                obj["model"] = ALIAS_TARGET
+                fallback = True
+                logmsg(f"WARN 未知model兜底改写 model={model_field}->{ALIAS_TARGET}")
+        elif is_message_post and length and obj is not None and model_field is None:
+            # POST 消息请求却无 model 字段(<parse-error 之外无 model>)= 异常,同兜底处理
+            obj["model"] = ALIAS_TARGET
+            fallback = True
+            logmsg("WARN 未知model兜底改写 model=None(缺 model 字段)->" + ALIAS_TARGET)
+        if injected or aliased or fallback:
+            try:
+                body = json.dumps(obj).encode()
+            except Exception as e:
+                # 改写失败 → 拒绝转发,绝不透传原样(原样=泄漏),返回 502
+                logmsg(f"CRIT 未知model兜底改写失败,拒绝转发 model={model_field} err={e}")
+                self.send_response(502); self.end_headers()
+                self.wfile.write(f"model rewrite failed, refusing to forward".encode())
+                return
+        logmsg(f"REQ {self.command} {self.path} model={model_field}->{obj.get('model') if obj else None} thinking={json.dumps(thinking_field, ensure_ascii=False) if thinking_field is not None else None} injected={injected} aliased={aliased} fallback={fallback}")
         conn = http.client.HTTPSConnection(UPSTREAM_HOST, UPSTREAM_PORT, timeout=180, context=SSL_CTX)
         upstream_path = UPSTREAM_BASE + self.path
         headers = {k: v for k, v in self.headers.items() if k.lower() not in ("host", "content-length", "connection")}

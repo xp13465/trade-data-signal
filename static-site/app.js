@@ -1962,14 +1962,16 @@ function _topEtfByScore(etfs) {
 // ===== 首页 AI 开关(2026-08-13): AI降亏过滤开关 + AI仓位建议 K 档 =====
 // 2026-08-13 重构(用户拍板): 「AI降亏过滤」+「AI降亏显示」合并为单个「AI降亏过滤」总开关, 首页独立作用域——
 //   独立 localStorage 键 tds_home_fade(布尔, 默认开启), 与凯利区 tds_kelly_filters 完全解耦(不再读/写凯利区, 互不影响);
-//   判定策略=固定 7 键成员级(基础4+核心3键全生效, 与凯利区默认策略一致): 开启=命中即灰显删除线+标注, 关闭=首页完全不判降亏。
+//   判定策略=固定 8 键成员级(基础5+核心3键全生效, v1.1.0 与凯利区默认策略一致): 开启=命中即灰显删除线+标注, 关闭=首页完全不判降亏。
 // 旧键 tds_poscap_aiDisplay(显示开关)已随合并废弃, 首页不再使用(如用户浏览器残留不影响任何逻辑)。
-// 后端 overview.json 每条信号注入 ai_macro: {hit, filters:[命中的降亏条件key...]}(queries.py, 7 谓词同源凯利回测)
+// 后端 overview.json 每条信号注入 ai_macro: {hit, filters:[命中的降亏条件key...]}(queries.py, 8 谓词同源凯利回测 v1.1.0;
+// 基础5+核心3=8键, K2C5 港股追涨并入基础5, 见 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md; +1类回测剔除走 _bt_in_universe 字段)。
 const _AI_MACRO_FILTER_NAMES = {
   n2NovSpecialIndustry: "11月+追关注+行业",
   excludeSpecialBear: "追关注×熊市交叉",
   janMidRating: "1月中旬+中评级",
   janMidSpecial: "1月中旬+追关注",
+  k2c5HkChase: "港股追涨剔除",
   r7MayReinforced: "5月强化+3稳定非5月",
   excludeAuxCross: "辅关注×3/5月交叉",
   greedy15: "Greedy-15组合"
@@ -2002,7 +2004,7 @@ function _showSigToast(msg) {
 }
 // 首页 AI 降亏开关行 HTML(K 档 3124 + off 按钮 + AI降亏过滤总开关); 状态读自 localStorage, 事件绑在 _bindSigSwitchRow
 // 2026-08-13 重构(用户拍板): 「AI降亏过滤」+「AI降亏显示」合并为单个「AI降亏过滤」总开关(独立键 tds_home_fade, 与凯利区解耦):
-//   开启=首页按降亏策略判定(固定7键)+灰显删除线+「AI降亏」标注+hoverpop 原因; 关闭=首页完全不判降亏、信号正常(不灰显不删除线不标注)。
+//   开启=首页按降亏策略判定(固定8键)+灰显删除线+「AI降亏」标注+hoverpop 原因; 关闭=首页完全不判降亏、信号正常(不灰显不删除线不标注)。
 // ②AI仓位建议 off 按钮——写 tds_poscap {on:false}(与凯利区 _kellySetSharedPosCap(false,k) 同键同语义, §22 联动), 该区域退化为普通信号列表
 function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
   // 两段式信号固化(2026-08-14): A股已固化(finalized && a-share-close)时, AI建议 1/2/3 顶部
@@ -2029,9 +2031,9 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
   // 2026-08-13 hoverpop 升级: K 按钮组复用凯利区评级表格 hoverpop(共享 common.js _aiPoscapRatingPopHtml/_bindAiPoscapRatePop, §22 两处数据一致)
   const _ratingPop = (window._aiPoscapRatingPopHtml ? window._aiPoscapRatingPopHtml() : "");
   return `<div class="sig-switch-row" data-no-pop="">` +
-    `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(总开关, 首页独立, 删除线过滤层): 开启=①命中降亏条件(固定 4+3+1 = 7键+1类回测剔除)的买入信号=灰显+删除线+标注AI降亏建议回避(现状) + ②未入样宇宙信号(债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, 含波动相关/未入样本信号)=删除线+灰显+标注未入样本; 关闭=不画任何删除线、未入样本不标注, 信号恢复正常样式。结构=AI宏4+3+1: 4+3=保留入样的降亏键, +1=回测剔除的波动相关/未入样本整类信号(AI建议不推荐)。独立 localStorage 键 tds_home_fade 与凯利区互不影响; 与「AI仓位建议」两个开关正交(各自管一层, 不互相触发)">` +
+    `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(总开关, 首页独立, 删除线过滤层): 开启=①命中降亏条件(固定 8键=基础5+核心3, +1类回测剔除=_bt_in_universe)的买入信号=灰显+删除线+标注AI降亏建议回避(现状) + ②未入样宇宙信号(债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, 含波动相关/未入样本信号)=删除线+灰显+标注未入样本; 关闭=不画任何删除线、未入样本不标注, 信号恢复正常样式。结构=AI宏5+3+1(v1.1.0 定名「基础5」): 5+3=保留入样的8个降亏键(基础5=基础4+K2C5 港股追涨剔除), +1=回测剔除的波动相关/未入样本整类信号(AI建议不推荐)。独立 localStorage 键 tds_home_fade 与凯利区互不影响; 与「AI仓位建议」两个开关正交(各自管一层, 不互相触发)">` +
       `<input type="checkbox" class="sig-switch-ai-cb"${_fadeOn ? " checked" : ""}> AI降亏过滤` +
-      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 删除线过滤层, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 结构=AI宏4+3+1(2026-08-14 补公示): 4=基础4键, 3=核心3键, 两者都是「保留入样、可被AI建议推荐」的降亏开关; +1=回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(后端 _bt_in_universe===false / 波动相关剔除), 故 AI建议 一律不推荐, 本开关开启时以「未入样本」+灰显+删除线标注表达"被过滤掉"。 开启=①首页按降亏策略判定, 固定 4+3+1 成员级(7键 + 1类回测剔除: 基础4= 追关注×熊市交叉 / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 + 核心3= 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致; +1=回测剔除的波动相关/未入样本信号整类), 命中降亏条件(4+3中任一键)的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); ②未入样宇宙信号(债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, 后端 _bt_in_universe===false)=删除线+灰显+「未入样本」标注(AI过滤视图, 表达"被过滤掉"); 关闭=首页完全不判降亏、不画删除线、未入样本不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。⚠两开关正交: AI降亏层只产删除线/未入样本, 不产 AI建议N/当日已满/AI警示(那些归「AI仓位建议」开关控制)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号">ⓘ</span>` +
+      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 删除线过滤层, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 结构=AI宏5+3+1(v1.1.0 定名「基础5」, 2026-08-15 补公示): 5=基础5键(基础4 + K2C5 港股追涨剔除), 3=核心3键, 两者 8 键都是「保留入样、可被AI建议推荐」的降亏开关; +1=回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(后端 _bt_in_universe===false / 波动相关剔除), 故 AI建议 一律不推荐, 本开关开启时以「未入样本」+灰显+删除线标注表达"被过滤掉"。 开启=①首页按降亏策略判定, 固定 8键+1类 成员级(基础5= 追关注×熊市交叉 / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 / K2C5 港股追涨剔除 + 核心3= 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致 v1.1.0; +1=回测剔除的波动相关/未入样本信号整类), 命中降亏条件(8键中任一键)的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); ②未入样宇宙信号(债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, 后端 _bt_in_universe===false)=删除线+灰显+「未入样本」标注(AI过滤视图, 表达"被过滤掉"); 关闭=首页完全不判降亏、不画删除线、未入样本不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。⚠两开关正交: AI降亏层只产删除线/未入样本, 不产 AI建议N/当日已满/AI警示(那些归「AI仓位建议」开关控制)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号">ⓘ</span>` +
     `</label>` +
     `${_aShareFinalizedTag}` +
     `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap, badge标注层): 开启=同日只买最优K个买入类(进K=「AI建议N」亮绿 / 超K=「当日已满」灰显) + 入宇宙卖出(sell/sell_stop_loss/波段减仓)=「AI警示」亮橙(卖出无K约束不判K); 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表(无AI建议N/当日已满/AI警示), 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。⚠两开关正交: AI仓位层只产上面三类badge, 不产删除线过滤(删除线/未入样本归「AI降亏过滤」开关控制)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span>${_helpBtn}</span>` +
@@ -2328,18 +2330,18 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       if (it && it.date && it._bt_in_universe !== false && _BUY_UNI_SIGS[it.signal]) _dateHasInUniverseBuy[it.date] = true;
     }
   }
-  // 2026-08-13 重构: 首页 AI降亏过滤开关(独立键 tds_home_fade, 默认开启) → 开启时按固定 7 键成员级判定(基础4+核心3键全生效, 与凯利区默认策略一致);
+  // 2026-08-13 重构: 首页 AI降亏过滤开关(独立键 tds_home_fade, 默认开启) → 开启时按固定 8 键成员级判定(基础5+核心3键全生效, v1.1.0 与凯利区默认策略一致);
   // 关闭时首页完全不判降亏(_isAiFadeHit 恒 false → 不灰显不删除线不标注, top-K 不滤不补位正常取)。
   // 不再读凯利区 tds_kelly_filters(解耦, 互不影响)。
   // ⚠️ 2026-08-13 融合口径: 本判定必须前移到 top-K 选取之前(先滤降亏、再选 top-K, 与凯利回测 lab.js _kellyCollectBasePool 先过 passesFade 一致)
   let _fadeOn = true;
   const _aiOnMembers = {};
-  for (const _amk in _AI_MACRO_FILTER_NAMES) _aiOnMembers[_amk] = true;  // 固定 7 键全开(与凯利区默认策略一致)
+  for (const _amk in _AI_MACRO_FILTER_NAMES) _aiOnMembers[_amk] = true;  // 固定 8 键全开(基础5+核心3, v1.1.0 与凯利区默认策略一致)
   if (kind === "signal") {
     _fadeOn = _readHomeFadeFlag();
   }
-  // 2026-08-13 融合口径: 判断信号是否「命中降亏」(固定 7 键成员级, 与凯利回测 passesFade 同语义)。
-  // 受首页 AI降亏过滤开关(_fadeOn)门控: 开关关→恒 false 不判降亏; 开关开→ ai_macro.hit 且命中任一 7 键即为命中。
+  // 2026-08-13 融合口径: 判断信号是否「命中降亏」(固定 8 键成员级, 与凯利回测 passesFade 同语义 v1.1.0)。
+  // 受首页 AI降亏过滤开关(_fadeOn)门控: 开关关→恒 false 不判降亏; 开关开→ ai_macro.hit 且命中任一 8 键即为命中。
   // 2026-08-15 P0 mangle 根治: const-arrow 布尔助手被 terser mangle 改名单字符(如 _isSellSig→$→C),
   //   与大型压缩文件既有变量撞车致 "c is not a function"。改为 function 声明 + build_min keep_fnames:
   //   single-statement 会内联、multi-statement 保留原名, 二者都不会留下可撞车的单字符函数调用。
@@ -2521,7 +2523,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         let aiHitCls = "";
         let aiHitBadge = "";
         let aiHitAttr = "";
-        // 2026-08-13 重构: 首页 AI降亏过滤开关(独立键 tds_home_fade)开启时, 命中降亏(固定7键) → 灰显+删除线+标注(hover 显命中条件)。
+        // 2026-08-13 重构: 首页 AI降亏过滤开关(独立键 tds_home_fade)开启时, 命中降亏(固定8键 v1.1.0) → 灰显+删除线+标注(hover 显命中条件)。
         // 开关关闭时 _isAiFadeHit 恒 false, 整块自然跳过(不灰显不删除线不标注, hoverpop 原因行也不渲染);
         // 命中判定用共享谓词 _isAiFadeHit 与 top-K 补位同源
         if (_isAiFadeHit(it)) {
@@ -3299,7 +3301,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
       // #38 fix(2026-08-13): 删除线 hoverpop 说明 - cell 带 data-ai-hit(=1, 命中AI降亏过滤被删线)时,
       //   hoverpop 追加一行讲人话说明删除线原因(用户反馈"810信号带删除线但不知道什么意思、hoverpop 也没提示")。
       //   删除线语义溯源: commit 1c5c6b77d「首页AI开关+后端ai_macro」引入, .sig-ai-hit{text-decoration:line-through}(style.css L949),
-      //   2026-08-13 重构后 = 首页「AI降亏过滤」开关开启 + 命中降亏条件(固定7键) → 灰显+删除线+AI降亏标注, 建议回避(独立作用域, 与凯利区互不影响)。
+      //   2026-08-13 重构后 = 首页「AI降亏过滤」开关开启 + 命中降亏条件(固定8键 v1.1.0) → 灰显+删除线+AI降亏标注, 建议回避(独立作用域, 与凯利区互不影响)。
       var _aiHitRaw = el.getAttribute("data-ai-hit");
       if (_aiHitRaw === "1") {
         var _aiHitNames = el.getAttribute("data-ai-hit-names") || "降亏条件";
