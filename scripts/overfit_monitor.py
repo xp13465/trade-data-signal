@@ -52,7 +52,7 @@ import sqlite3
 import subprocess
 import sys
 from collections import defaultdict
-from datetime import datetime, date as date_cls
+from datetime import datetime, date as date_cls, timedelta
 
 import yaml
 
@@ -106,6 +106,157 @@ def load_market_map():
         it.get("id"): it.get("market")
         for it in (cfg or {}).get("indices", []) if it.get("id") and it.get("market")
     }
+
+
+# ── AI 宏降亏删线层判定(v1.1.0, 监控卡自动联动) ─────────────────────────────────
+# 与 app/queries.py _ai_macro_hit_filters(L606-678, 8 键成员级) + _bt_in_universe(§23.6)
+# 同源(v1.1.0 基准)。监控卡「AI降亏过滤」开关开启时，打点侧过滤掉被删线命中的信号，
+# 让监控数据同步反映过滤后的实际(§23.3/§22 举一反三: 首页/凯利区已各自实现了该过滤层)。
+# 判定为纯函数(无 DB 依赖, 便于单测)。返回 True = 该信号**被过滤**(命中 8 键 或 未入样本)。
+
+def _ai_weekday(date_str):
+    """信号日星期 0=Mon..6=Sun(与 queries._ai_macro_weekday 同款)；失败返 -1。"""
+    if not date_str or len(date_str) < 8:
+        return -1
+    try:
+        return datetime(int(date_str[0:4]), int(date_str[4:6]), int(date_str[6:8])).weekday()
+    except ValueError:
+        return -1
+
+
+def _ai_quarter(mm):
+    """信号月 -> 季度(ceil(mm/3))。"""
+    if not mm or not mm.isdigit():
+        return 0
+    return (int(mm) + 2) // 3
+
+
+# AI 宏 8 键成员(与 queries._AI_MACRO_BUY_SIGNALS 同源; 非买不判降亏, §23.6 MED3)
+_AI_MACRO_BUY_SIGNALS = ("buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup")
+# 仅 A 股类(大盘择时只对 A 股类, 与 queries._AI_MACRO_A_STOCK_MARKETS 同源)
+_AI_MACRO_A_STOCK_MARKETS = {"mkt_a", "mkt_concept", "mkt_industry"}
+
+
+def ai_macro_hit_keys(date_str, signal, mkt, rating, ts):
+    """返回命中 AI 宏 8 键中的 7 键(降亏条件名列表, 不含 excludeSpecialBear, 由 signal_ai_filtered 补)。
+    入参: mkt=mkt_a/mkt_hk/..., rating=high/mid/low/''，ts=track_score|None。
+    与 queries._ai_macro_hit_filters 同源(v1.1.0)。
+    """
+    _f = []
+    _mm = date_str[4:6] if len(date_str) >= 8 else ""
+    try:
+        _dd = int(date_str[6:8])
+    except (ValueError, IndexError):
+        _dd = 0
+    _wd = _ai_weekday(date_str) if date_str else -1
+    _q = _ai_quarter(_mm)
+    _sig = signal or ""
+    if _sig not in _AI_MACRO_BUY_SIGNALS:
+        return _f
+    # 1 n2
+    if _sig == "buy_special" and _mm == "11" and mkt == "mkt_industry":
+        _f.append("n2NovSpecialIndustry")
+    # 2 excludeSpecialBear (is_bull 在调用处算好, 传入 ts... 需再传 bull)
+    # 2b k2c5HkChase
+    if _sig in ("buy_special", "buy_backup") and mkt == "mkt_hk":
+        _f.append("k2c5HkChase")
+    # 3 janMidRating
+    if _mm == "01" and 11 <= _dd <= 20 and rating == "mid":
+        _f.append("janMidRating")
+    # 4 janMidSpecial
+    if _sig == "buy_special" and _mm == "01" and 11 <= _dd <= 20:
+        _f.append("janMidSpecial")
+    # 5 r7MayReinforced
+    if ((mkt == "mkt_a" and _mm == "05") or (rating == "mid" and _mm == "05")
+            or (_sig == "buy_special" and _mm == "11" and mkt == "mkt_industry")
+            or (_sig == "buy_special" and _mm == "11" and _wd == 0)):
+        _f.append("r7MayReinforced")
+    # 6 excludeAuxCross
+    if _sig == "buy_aux" and (_mm == "03" or _mm == "05"):
+        _f.append("excludeAuxCross")
+    # 7 greedy15(信号级可判定子集)
+    if ((_sig == "buy_special" and _mm == "05")
+            or (_sig == "buy_special" and _mm == "11" and mkt == "mkt_concept")
+            or (_sig == "buy_special" and _mm == "03")
+            or (_sig == "buy_aux" and _mm == "01")
+            or (_sig == "buy" and _mm == "01")
+            or (_mm == "03" and _wd == 2 and mkt == "mkt_concept" and rating == "low")
+            or (_sig == "buy_aux" and _mm == "12" and ts is not None and ts < 50)
+            or (_sig == "buy_aux" and _mm == "05")
+            or (_sig == "buy_special" and _mm == "11" and mkt == "mkt_industry")
+            or (_mm == "04" and _wd == 1 and mkt == "mkt_concept" and ts is not None and ts < 50)
+            or (mkt == "mkt_global" and _q == 1 and _sig == "buy_aux" and rating == "low")
+            or (_sig == "buy_special" and _mm == "09" and _wd == 2)):
+        _f.append("greedy15")
+    return _f
+
+
+def signal_ai_filtered(date_str, signal, mkt, rating, ts, bull):
+    """AI 宏 9 规则删线层判定: 返回 True = 该信号被过滤(命中 8 键 或 _bt_in_universe===false 未入样本)。
+    与 queries._ai_macro_hit_filters + _bt_in_universe 同源(v1.1.0):
+      - 8 键成员级 = ai_macro_hit_keys 非空(命中即删线+建议回避)
+      - +1 类回测剔除 = 未入样本(债类 cgb_*/情绪 s.*/全球商品利率 g.*/港股行业 hk_*/空数组;
+        board_etf_map 无 key 或该 index 无任何 ETF 有非空 track_score => _bt_in_universe=false)。
+    仅买信号守卫(§23.6 MED3): 非买(sell/sell_stop_loss/band_*)不判降亏。
+    is_bull 为布尔(调用处由 hs300 MA60 算好); 无状态(ts/bull None)时:
+      - ts None 且属于排除类别 => 未入样本被过滤; ts None 无排除类别 => 保守保留(不过滤, 与 §23.6 空数组例外一致)。
+    """
+    _sig = signal or ""
+    # 非买信号(卖/持有中性)不判降亏(与凯利区"只对买交易过滤"同源)
+    if _sig not in _AI_MACRO_BUY_SIGNALS:
+        return False
+    # buy_special_filtered 归 buy_special
+    _sig = "buy_special" if _sig == "buy_special_filtered" else _sig
+    # +1 类未入样本: 无 track_score(排除类别, 除自我ETF例外 cgb_10y_etf)
+    if ts is None:
+        # cgb_10y_etf 是自我ETF唯一例外(§23.6), board_etf_map 有 key 且有 ETF 时 ts 非 None
+        return True
+    # 8 键命中(含 excludeSpecialBear 需 bull, 见下)
+    keys = ai_macro_hit_keys(date_str, _sig, mkt, rating, ts)
+    _mm = date_str[4:6] if len(date_str) >= 8 else ""
+    if _sig == "buy_special" and mkt in _AI_MACRO_A_STOCK_MARKETS and not bull:
+        if "excludeSpecialBear" not in keys:
+            keys.append("excludeSpecialBear")
+    return bool(keys)
+
+
+def load_board_etf_track_score():
+    """board_etf_map.json -> {index_id: top1 track_score|None}。
+    _bt_in_universe = 该 index 存在任一 ETF 有非空 track_score(与 queries L861 同源)。"""
+    for p in (os.path.join(REPO, "static-site", "data", "board_etf_map.json"),
+              os.path.join(REPO, "data", "board_etf_map.json")):
+        if os.path.exists(p):
+            try:
+                with open(p, encoding="utf-8") as f:
+                    m = json.load(f)
+                out = {}
+                for iid, arr in m.items():
+                    if iid in ("_meta", "_hysteresis") or not isinstance(arr, list):
+                        continue
+                    best = None
+                    for it in arr:
+                        ts = it.get("track_score") if isinstance(it, dict) else None
+                        if ts is not None and (best is None or ts > best):
+                            best = ts
+                    out[iid] = best
+                return out
+            except (json.JSONDecodeError, OSError):
+                return {}
+    return {}
+
+
+def build_market_state_hs300(close_map):
+    """沪深300 close 相对 MA60 状态 -> {date: bool}。无数据返 {} (保守不过滤)。"""
+    hs = close_map.get("hs300")
+    if not hs or len(sorted(hs)) < 60:
+        return {}
+    dates = sorted(hs)
+    closes = [hs[d] for d in dates]
+    state = {}
+    for i in range(59, len(dates)):
+        ma = sum(closes[i - 59: i + 1]) / 60
+        state[dates[i]] = closes[i] > ma
+    return state
 
 
 def load_signal_daily(conn):
@@ -186,9 +337,109 @@ def load_trades():
                     "mode": mode,
                     "market_state": tr[IDX["market_state"]],
                     "rating": tr[IDX["rating"]],
+                    "track_score": tr[IDX["track_score"]],  # 2026-08-15 AI宏过滤需用
                     "quad": qname,
                 })
     return by_date, data.get("generated_at", "")
+
+
+# ── AI 宏过滤层(监控卡开关联动) ─────────────────────────────────────────────────
+# 「AI降亏过滤」开关开启时, 打点侧只统计**未命中删线**的信号(命中 8 键或未入样本的被过滤),
+# 让监控数据同步反映过滤后的实际(§23.3 举一反三: 首页/凯利区已各自实现同一删线层)。
+# 回测侧/实盘侧共用同一判词 signal_ai_filtered, 仅评级/ts/bull 来源不同(诚实标注双源差异)。
+
+class FilterCtx(object):
+    """过滤判定依赖的上下文(Single source):
+      - market_map: {index_id: raw_market} (来自 config/indicators.yaml, 含 "a"/"hk"/"concept"...)
+      - ts_map: {index_id: top1 track_score|None} (来自 board_etf_map)
+      - bull_state: {date: bool} (hs300 MA60 多头态; 缺省空=保守不过滤)
+      - mkt_of(iid) / bull_of(date) / ts_of(iid) 提供索引级映射。
+    """
+
+    def __init__(self, market_map, ts_map=None, bull_state=None):
+        self.market_map = market_map or {}
+        self.ts_map = ts_map or {}
+        self.bull_state = bull_state or {}
+
+    def mkt_of(self, iid):
+        raw = self.market_map.get(iid)
+        if not raw:
+            # g./s. 前缀(情绪/全球指标)与 hk_* 等无 indicators 项时按前缀推断
+            if iid and iid.startswith(("hsi", "hscei", "hstech")):
+                return "mkt_hk"
+            if iid and (iid.startswith("hk_") or iid.startswith("cgb_") or iid.startswith("s.")):
+                return "mkt_hk"  # 排除类别, 未入样本先拦
+            return ""
+        # indicators.yaml 的 market 是原始值(非 mkt_ 前缀), 映射为大类象限
+        m = MARKET_QUAD_MAP.get(raw, "")
+        return ("mkt_" + raw) if not m else m
+
+    def ts_of(self, iid):
+        return self.ts_map.get(iid)
+
+    def bull_of(self, date_str):
+        # 取 <= 信号日最近的 MA60 状态; 无给定日则向前找
+        if not self.bull_state:
+            return True
+        d = date_str
+        guard = 0
+        while d and d not in self.bull_state and guard < 30:
+            guard += 1
+            try:
+                dt = datetime(int(d[0:4]), int(d[4:6]), int(d[6:8]))
+                d = (dt - timedelta(days=1)).strftime("%Y%m%d")
+            except Exception:
+                d = None
+                break
+        return self.bull_state.get(d, True) if d else True
+
+    def is_filtered(self, date_str, signal, iid, rating=None):
+        """该信号是否被 AI 宏删线过滤(True=过滤)。rating 可自外部注入(回测取 frozen, 实盘取 grade_map)。"""
+        mkt = self.mkt_of(iid)
+        ts = self.ts_of(iid)
+        bull = self.bull_of(date_str)
+        return signal_ai_filtered(date_str, signal, mkt, rating, ts, bull)
+
+
+def filter_trades_by_date(trades_by_date, ctx, mode_filt=None):
+    """过滤回测交易: 只保留 not signal_ai_filtered 的交易(仍按 mode 区分, 不破坏 A/F/G 差异)。
+    回测 rating 用交易冻结值; track_score 用交易冻结值(优先)否则 ctx.ts_map。
+    返回新的 trades_by_date(未改原 dict)。"""
+    out = {}
+    for d, lst in trades_by_date.items():
+        kept = []
+        for t in lst:
+            if mode_filt is not None and t["mode"] not in mode_filt:
+                continue
+            ts = t.get("track_score")
+            if ts is None:
+                ts = ctx.ts_of(t.get("index_id"))
+            rating = t.get("rating")
+            if ctx.is_filtered(str(d), t.get("signal"), t.get("index_id"), rating):
+                continue
+            kept.append(t)
+        if kept:
+            out[d] = kept
+    return out
+
+
+def filter_actual_by_date(by_date, ctx, grade_map):
+    """过滤实盘信号: 只保留 not signal_ai_filtered 的信号。
+    实盘评级 = grade_map[(iid, sig)](signal_stats 当前 10d score 分档, 与 _ai_macro_rating_of 同源诚实标注)。
+    返回新的 by_date(未改原 dict)。"""
+    out = {}
+    for d, lst in by_date.items():
+        kept = []
+        for s in lst:
+            sig = s.get("signal")
+            iid = s.get("index_id")
+            rating = grade_map.get((iid, sig), grade_map.get((iid, "buy_special" if sig == "buy_special_filtered" else sig), ""))
+            if ctx.is_filtered(str(d), sig, iid, rating):
+                continue
+            kept.append(s)
+        if kept:
+            out[d] = kept
+    return out
 
 
 # ── 口径打点 ──────────────────────────────────────────────────────────────────
@@ -758,47 +1009,24 @@ def derive_daily_for_rolls(bt_roll, act_roll, latest_date, min_n=20):
     }
 
 
-def build_output(rebuild=False, dry_run=False):
-    conn_ok = True
-    try:
-        conn = sqlite3.connect(find_db())
-        conn.row_factory = sqlite3.Row
-    except Exception as e:  # noqa: BLE001
-        print(f"⚠ DB 连接失败: {e}", file=sys.stderr)
-        conn_ok = False
-        conn = None
-
-    if conn_ok:
-        by_date = load_signal_daily(conn)
-        close_map = load_index_close(conn)
-    else:
-        by_date, close_map = {}, {}
-    trades_by_date, trades_generated = load_trades()
-    market_map = load_market_map()
-
-    latest_signal = max(by_date.keys()) if by_date else "0"
-
-    # 回测口径每日打点(按 signal_date)
+def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal):
+    """由（已可选过滤的）原始样本计算 accuracy + overfit 两棵子树。
+    被 build_output 调用两次：未过滤(现 v1) + 过滤(filtered, AI宏删线层)。
+    D2/D3/D4/象限用过滤后的 trades_by_date(保持一致, 见 §5.1/§5.4)。"""
     bt_daily = bucket_backtest_trades(trades_by_date, None)
     bt_dates = sorted(bt_daily.keys())
-    # 实盘口径每日打点(grade_map = signal_stats 当前10d.score分档, 见 load_signal_grade_map)
-    grade_map = load_signal_grade_map()
-    actual_daily = bucket_actual(by_date, close_map, latest_signal, grade_map) if conn_ok else []
+    actual_daily = bucket_actual(by_date, close_map, latest_signal, grade_map) if by_date else []
 
-    # 滚动窗口(回测口径, 主展示 = 实盘 vs 回测) —— total 维度, 保留现状结构
-    # 注意: points 需携带完整桶(total/by_signal/by_grade), rolling_win_rates 用 key_path 取子维度。
+    # 滚动窗口(total 维度)
     bt_points = [{"date": d, **bt_daily[d]} for d in bt_dates]
     actual_dates = [p["date"] for p in actual_daily]
     act_points = [{"date": p["date"], **{k: v for k, v in p.items() if k in ("total", "by_signal", "by_grade")}} for p in actual_daily]
     bt_roll = rolling_win_rates(bt_points, bt_dates, WINDOWS)
     act_roll = rolling_win_rates(act_points, actual_dates, WINDOWS)
 
-    # 维度滚动(需求1: 信号评级 + 信号类型): 裁剪到最近 SURFACE_DAYS(体积控制)
     def _trim_roll(roll):
         return {str(w): seq[-SURFACE_DAYS:] for w, seq in roll.items()}
 
-    # 评级: high/mid/low(回测含, 实盘含)
-    grade_keys = [["by_grade", "high"], ["by_grade", "mid"], ["by_grade", "low"]]
     grade_sig_keys_map = {
         "high": ["by_grade", "high"], "mid": ["by_grade", "mid"], "low": ["by_grade", "low"],
     }
@@ -807,11 +1035,8 @@ def build_output(rebuild=False, dry_run=False):
         kp = grade_sig_keys_map[g]
         bt_r = rolling_win_rates(bt_points, bt_dates, WINDOWS, key_path=kp)
         act_r = rolling_win_rates(act_points, [p["date"] for p in actual_daily], WINDOWS, key_path=kp)
-        by_grade_out[g] = {
-            "backtest": _trim_roll(bt_r),
-            "actual": _trim_roll(act_r),
-        }
-    # 信号: 回测 4 种 buy 类; 实盘 6 种(含 sell)
+        by_grade_out[g] = {"backtest": _trim_roll(bt_r), "actual": _trim_roll(act_r)}
+
     sig_map_bt = {
         "buy": ["by_signal", "buy"], "buy_aux": ["by_signal", "buy_aux"],
         "buy_special": ["by_signal", "buy_special"], "buy_backup": ["by_signal", "buy_backup"],
@@ -843,39 +1068,24 @@ def build_output(rebuild=False, dry_run=False):
     d4 = calc_d4_quadrant(trades_by_date, 60)
     risk, risk_detail = compute_risk(d1, d2, d3, d4)
 
-    # 预警: 读上次风险分数列
-    prev = load_prev_state()
-    prev_scores = [s.get("risk_score") for s in prev.get("overfit", {}).get("daily", [])
-                   if s.get("risk_score") is not None]
-    today = date_cls.today().strftime("%Y%m%d")
-    alerts = evaluate_alerts(risk, prev_scores, d1, d2, d3, d4, latest_signal)
-
-    # 构造输出
     out = {
-        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "version": "v1",
-        "config": {
-            "default_k": DEFAULT_K, "modes": AFG_MODES, "overfit_mode": OVERFIT_MODE,
-            "windows": WINDOWS, "weights": {"d1": W_D1, "d2": W_D2, "d3": W_D3, "d4": W_D4},
-            "data_sources": {
-                "backtest": "signal_kelly_trades.json", "actual": "signal_daily+index_daily",
-                "trades_generated_at": trades_generated,
-                "signal_daily_max_date": latest_signal,
-            },
-        },
         "accuracy": {
-            # 体积优化(2026-08-15): backtest_daily/actual_daily 前端只用 rolling 曲线,
-            # 明细多维(by_mode/by_signal)仅用于离线 D 维度计算, 不留前端产物体。保留 total 供回溯。
             "backtest_daily": {d: {"n": bt_daily[d]["total"]["n"], "win": bt_daily[d]["total"]["win"],
                                    "win_rate": bt_daily[d]["total"]["win_rate"]} for d in bt_dates[-730:]},
             "actual_daily": [{"date": p["date"], "n": p["total"]["n"], "win": p["total"]["win"],
                               "win_rate": p["total"]["win_rate"]}
                              for p in actual_daily if p.get("date") <= latest_signal][-730:],
             "rolling": {
-                # 前端只用滚动曲线, 全史点(backtest 1560/actual 6484)体积大。裁剪到最近 730 交易日
-                # (与 daily 一致, 足够画长曲线)。D 维度用裁剪前完整 rolling 已算, 不受影响。
                 "backtest": {str(w): roll[-730:] for w, roll in bt_roll.items()},
                 "actual": {str(w): roll[-730:] for w, roll in act_roll.items()},
+                "by_signal": {
+                    sig: {"backtest": by_signal_out[sig]["backtest"], "actual": by_signal_out[sig]["actual"]}
+                    for sig in ("buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss")
+                },
+                "by_grade": {
+                    g: {"backtest": by_grade_out[g]["backtest"], "actual": by_grade_out[g]["actual"]}
+                    for g in ("high", "mid", "low")
+                },
             },
         },
         "overfit": {
@@ -886,12 +1096,10 @@ def build_output(rebuild=False, dry_run=False):
                 "weighted": risk_detail["weighted"],
             },
             "daily": _derive_daily_series(bt_roll, act_roll, risk, latest_signal, win=60)[-730:],
-            # 风险分窗口切换(需求3): total 派生 30/60/90 三套 daily
             "daily_by_win": {
                 str(w): _derive_daily_series(bt_roll, act_roll, risk, latest_signal, win=w)[-SURFACE_DAYS:]
                 for w in WINDOWS
             },
-            # 风险分维度切换(需求1): 各评级/信号维度 60 窗口派生(复用 _derive_daily_series)
             "daily_by_dim": {
                 "grade": {
                     g: _derive_daily_series(
@@ -909,18 +1117,85 @@ def build_output(rebuild=False, dry_run=False):
             "quadrant_health": quadrant_health,
         },
     }
-    # 维度滚动写进 accuracy(需求1): by_signal / by_grade
-    out["accuracy"]["rolling"]["by_signal"] = {
-        sig: {"backtest": by_signal_out[sig]["backtest"], "actual": by_signal_out[sig]["actual"]}
-        for sig in ("buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss")
+    return out
+
+
+def build_output(rebuild=False, dry_run=False):
+    conn_ok = True
+    try:
+        conn = sqlite3.connect(find_db())
+        conn.row_factory = sqlite3.Row
+    except Exception as e:  # noqa: BLE001
+        print(f"⚠ DB 连接失败: {e}", file=sys.stderr)
+        conn_ok = False
+        conn = None
+
+    if conn_ok:
+        by_date_raw = load_signal_daily(conn)
+        close_map = load_index_close(conn)
+    else:
+        by_date_raw, close_map = {}, {}
+    trades_by_date_raw, trades_generated = load_trades()
+    market_map = load_market_map()
+
+    latest_signal = max(by_date_raw.keys()) if by_date_raw else "0"
+
+    # 实盘评级(与回测同源阈值 0.75/0.55, 当前10d.score 分档)
+    grade_map = load_signal_grade_map()
+
+    # AI 宏过滤上下文(board_etf_map track_score + hs300 MA60 bull + market_map)
+    ctx = FilterCtx(market_map,
+                    ts_map=load_board_etf_track_score(),
+                    bull_state=build_market_state_hs300(close_map))
+
+    # 两棵 bank: 未过滤(现状) + 过滤(AI宏删线层) —— 前端「AI降亏过滤」开关切换读取
+    bank_raw = _compute_bank(by_date_raw, close_map, trades_by_date_raw, grade_map, latest_signal)
+    if conn_ok:
+        by_date_filt = filter_actual_by_date(by_date_raw, ctx, grade_map)
+    else:
+        by_date_filt = {}
+    trades_by_date_filt = filter_trades_by_date(trades_by_date_raw, ctx, mode_filt=AFG_MODES)
+    bank_filt = _compute_bank(by_date_filt, close_map, trades_by_date_filt, grade_map, latest_signal)
+
+    # 预警主口径 = 未过滤的风险分(现状行为不变); filtered 仅作前端对比数据
+    d1 = bank_raw["overfit"]["current"]["d1"]
+    d2 = bank_raw["overfit"]["current"]["d2"]
+    d3 = bank_raw["overfit"]["current"]["d3"]
+    d4 = bank_raw["overfit"]["current"]["d4"]
+    risk = bank_raw["overfit"]["current"]["risk_score"]
+
+    prev = load_prev_state()
+    prev_scores = [s.get("risk_score") for s in prev.get("overfit", {}).get("daily", [])
+                   if s.get("risk_score") is not None]
+    today = date_cls.today().strftime("%Y%m%d")
+    alerts = evaluate_alerts(risk, prev_scores, d1, d2, d3, d4, latest_signal)
+
+    # 构造输出
+    out = {
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "version": "v2",
+        "config": {
+            "default_k": DEFAULT_K, "modes": AFG_MODES, "overfit_mode": OVERFIT_MODE,
+            "windows": WINDOWS, "weights": {"d1": W_D1, "d2": W_D2, "d3": W_D3, "d4": W_D4},
+            "data_sources": {
+                "backtest": "signal_kelly_trades.json", "actual": "signal_daily+index_daily",
+                "trades_generated_at": trades_generated,
+                "signal_daily_max_date": latest_signal,
+            },
+            "ai_filter": {
+                "version": "v1.1.0",
+                "rule_count": 9,
+                "desc": "AI宏删线层: 8键(基础5+核心3)+1类(未入样本 _bt_in_universe)。开关开启时监控只统计未命中删线的信号。",
+            },
+        },
     }
-    out["accuracy"]["rolling"]["by_grade"] = {
-        g: {"backtest": by_grade_out[g]["backtest"], "actual": by_grade_out[g]["actual"]}
-        for g in ("high", "mid", "low")
-    }
-    # 体积控制日志(维度 rolling 裁剪到 SURFACE_DAYS)
-    print(f"   accuracy.rolling.by_signal {[s for s in by_signal_out]}")
-    print(f"   accuracy.rolling.by_grade {[g for g in by_grade_out]} (维度裁剪 {SURFACE_DAYS} 天)")
+    out["accuracy"] = bank_raw["accuracy"]
+    out["overfit"] = bank_raw["overfit"]
+    out["filtered"] = bank_filt
+
+    # 体积控制日志
+    print(f"   accuracy.rolling.by_signal {[s for s in out['accuracy']['rolling']['by_signal']]}")
+    print(f"   accuracy.rolling.by_grade {[g for g in out['accuracy']['rolling']['by_grade']]} (维度裁剪 {SURFACE_DAYS} 天)")
 
     # 写文件
     os.makedirs(os.path.dirname(OUT_JSON), exist_ok=True)
@@ -931,8 +1206,10 @@ def build_output(rebuild=False, dry_run=False):
     print(f"✅ overfit_monitor.json 已写: {OUT_JSON}")
 
     # 视图摘要
-    print(f"   回测口径近60滚动胜率(末点): {bt_roll.get(60, [])[-1] if bt_roll.get(60) else 'N/A'}")
-    print(f"   实盘口径近60滚动胜率(末点): {act_roll.get(60, [])[-1] if act_roll.get(60) else 'N/A'}")
+    bt60 = out["accuracy"]["rolling"]["backtest"].get("60", [])
+    act60 = out["accuracy"]["rolling"]["actual"].get("60", [])
+    print(f"   回测口径近60滚动胜率(末点): {bt60[-1] if bt60 else 'N/A'}")
+    print(f"   实盘口径近60滚动胜率(末点): {act60[-1] if act60 else 'N/A'}")
     print(f"   D1={d1} D2={d2} D3={d3} D4={d4} 综合={risk} 等级={risk_level(risk)}")
 
     # 预警通知
