@@ -203,6 +203,13 @@
 - ⚠️ **不 force**:force-with-lease / force push 是最后手段;non-fast-forward 优先 `git fetch + rebase origin/main + 重试 push`(deploy.sh L141-160 内置),rebase 失败 abort 等人工。agent 不得擅自强推,尤其 main
 - ⚠️ **"功能 done"三查清单(唯一权威,2026-08-11 AI 预测前端漏上线教训补)**:验收"已上线/done"必须三查齐:①main 链含 commit(git log origin/main 含 hash)②数据层生效(curl 线上 JSON 字段有值/无旧字段残留)③**前端展示层上线(curl 线上 app.min.js/lab.js 含新功能 class/中文字符串)**。只验①②不验③=前端代码写了但从未 commit main+上线,用户看不到。**reviewer 验本地 min ≠ 前端上线**,reviewer PASS 后主控 §0 必须补验③
 
+## 8.1 派单 prompt 必带定位锚点(2026-08-15 优化 P0-4 加)
+> 背景:每个子 agent fresh context 重读大文件(app.js/lab.js 1.3MB 等),任务 prompt 不带定位锚点就从头 grep,纯 token 消耗。core:主控派单时先把定位点给足,让子 agent 直接跳到,不重读重扫。
+- **派单 prompt 必带 `@关键文件:行号` 或关键符号锚点(函数名/class/字符串/常量)**,让子 agent 直接跳到定位点,不从 1 行开始 grep 大文件
+- **大文件(app.js/lab.js/common.js/export.py/signal_stats.py 等)派单时,主控先给出定位锚点**(函数名/行号/中文字符串/字段名),子 agent 用 `grep -n "锚点" 文件` 直达,不整文件从头读
+- **主控派单前快速定位锚点**:grep 目标符号得到行号,写进 prompt("定位:app.js L1234 _dayItems 附近");拿不准锚点可让子 agent grep 关键词,但 anchor 已给=省一轮
+- 可复用锚点表见 `docs/agent-quickstart.md`(若有 app.js/lab.js 关键函数锚点表缓存则直接引用,缺则本次定位后回填)
+
 ## 14. 生产稳定性 P0(摘要;时点/launchd 细节见 .claude/skills/role-implementer §4)
 - **核心一句话:生产稳定性是 P0 第一要素**。项目已上线生产(ss.fx8.store/sss.sugas.site/s.sugas.site + ssd.fx8.store R2),定时任务撞车会导致线上数据覆盖事故/DB锁/用户看到错误数据,是不可逆生产故障
 - **任务冲突检查不应由用户提醒才做**:每次派任务/设 cron/推 main 前**必须主动查 launchd 定时任务清单**(`launchctl list | grep trade` + 查 plist `StartCalendarInterval`),列当日盘后任务时点确认不撞,并主动给用户时点建议
@@ -305,3 +312,4 @@
 6. **时点约束**:当日禁区时点(15:35/16:00/17:50/20:35/22:00)+ 安全窗口 23:00 后,merge main 避开
 7. **已落档规范**:本会话新落档的 CLAUDE.md 节/memory(如 §5.2/§5.3/新 memory),防 compact 后丢约束
 8. **未决事项**:用户的待确认问题 + 我对用户的承诺(如"第一个执行类任务用 effort=low 实跑")
+9. **主控主动瘦身(2026-08-15 P0-1 落档)**:主控主会话 jsonl 曾达 212MB(每轮基础重发超长历史,输入:输出≈36:1,最大单点漏损)。**每完成一个大任务就 /clear 或 /compact,不依赖会话内存记得起**:趁缓存热 compact 成本 ~10%(比无限膨胀后 auto-compact 省太多);`~/.claude/settings.json` 已设 `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000`(auto-compact 兜底阈值,防膨胀到百万才 compact)。

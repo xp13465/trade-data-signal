@@ -60,3 +60,11 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - docs/smoke-checklist.md(P0/P1 主功能清单+数据校验规则,必读执行)
 - docs/agent-quickstart.md(按任务类型操作步骤速查)
 - 根 CLAUDE.md §22 数据一致性铁律 + §18 防重犯索引表
+
+## 8. reviewer 瘦身规范(2026-08-15 优化 P0-3 加)
+> 背景:reviewer 每次 fresh context 11K 注入+重读改动文件,纯 token 消费(不改代码),近14天 172 commit 提及 reviewer/tester。瘦身核心=「主控少传全量、自验只跑关键点、无隐藏影响面可跳 full review」。降低 reviewer 单次 token,不牺牲审查精度。
+- **主控派单只传摘要,不传全量**:**主控派 reviewer 时只传「改动摘要 + 影响面清单 + 关键 diff 摘要」**,不把整个文件内容/全量 diff 塞进 prompt;重大文件若改动集中可传具体 diff 片段(非整文件)
+- **自验只跑 P0 关键 smoke**:按改动实际影响面圈定 smoke 点,只跑 P0 主功能点(curl JSON 数据层+关键交互文字),不默认重跑全量回归全清单;A/C 口径见 §2 分级——纯显示/无隐藏影响面改动按 §2①,不必拉满
+- **无隐藏影响面由主控§0单点验收**:明显无隐藏影响面(单点逻辑,不被轮询/事件/跨函数引用)的改动,可由主控 §0 单点验收替代完整 reviewer(呼应 §15 分级口径 §2①);有隐藏影响面仍走 reviewer
+- **复用近时段结论**:同一改动链(同 commit/同功能)已 review 过的关键点不重复全文重读,聚焦新增/变化部分(§22 一致性复用 prior 校验结果时标注来源)
+- **model/thinking**:reviewer 属复杂判断/口径/公示把关类,**保留 thinking/保留较高 model 档**,不降级(§5.2 ③ 判断类保留)
