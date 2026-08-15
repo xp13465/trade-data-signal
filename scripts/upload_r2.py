@@ -553,7 +553,10 @@ def cmd_upload_data_large():
         except OSError:
             continue
         # 大 range 文件(前端强制走 R2)或 >=1MB 的大文件才上传 R2
-        if sz >= LARGE_THRESHOLD or _LARGE_RANGE_RE.search(f.name):
+        # overfit_monitor.json 例外: 首页走势图盘后核心产物(<1MB 但需走 R2),
+        # static-site/data/ 已整体 gitignore 移出 git, 不传 R2 则备站/主站 /data/ rewrite 拿不到。
+        _OVERFIT_FORCE = f.name == "overfit_monitor.json"
+        if sz >= LARGE_THRESHOLD or _LARGE_RANGE_RE.search(f.name) or _OVERFIT_FORCE:
             files.append(f)
     if not files:
         print(f"⚠ 无 >{LARGE_THRESHOLD // 1024}KB 的顶层 .json: {data_dir}")

@@ -1506,6 +1506,150 @@ function _sigWindowSuffix() {
 function _sigTodayHint() {
   return state.sigWindowFilter === "y_15" ? "今日已排除" : "今日高亮";
 }
+// ── 调教监控卡(过拟合监控走势图, B 档 2026-08-15) ─────────────────────────────
+// 数据源 static-site/data/overfit_monitor.json(每日多维打点 + 自2011历史回算)。
+// 双曲线: ①准确率(实盘 actual vs 回测 backtest, 近30/60/90交易日切换) ②综合过拟合风险分(0-100, 绿黄红分段+参考线30/60)。
+// 口径公示(sigCard 卡 tooltip / purpose-notes 同步 §21): 准确率=信号后方向命中(回测口径=按卖出模式到期收益方向;
+//   实盘口径=信号日收盘→最新收盘方向, 与首页「近期技术参考点」汇总条 since_correct 同口径); band_hold/未结算不计。
+//   过拟合风险分 = 0.40*D1(回测-实盘偏离) + 0.25*D2(滚动样本外) + 0.20*D3(参数稳定) + 0.15*D4(象限退化);
+//   绿<30(正常)/黄30-60(关注)/红>60(高风险)。历史 daily 曲线=截至各日「实盘 vs 回测 60日滚动胜率偏离」派生(无前视)。
+let _overfitAccChart = null;
+let _overfitRiskChart = null;
+let _overfitState = { win: 60 };  // 准确率图当前窗口
+
+// 取滚动序列最近 w 个有数据的点 -> {dates[], actual[], backtest[]} (双双填 null 对齐)
+function _overfitAccSeries(data, w) {
+  const act = (data.accuracy && data.accuracy.rolling && data.accuracy.rolling.actual)
+    ? (data.accuracy.rolling.actual[String(w)] || []) : [];
+  const bt = (data.accuracy && data.accuracy.rolling && data.accuracy.rolling.backtest)
+    ? (data.accuracy.rolling.backtest[String(w)] || []) : [];
+  const actMap = {}; act.forEach((p) => { if (p.win_rate != null) actMap[p.date] = p; });
+  const dates = [], actual = [], backtest = [];
+  for (const p of bt) {
+    if (p.win_rate == null) continue;
+    dates.push(p.date);
+    backtest.push(+(p.win_rate.toFixed(1)));
+    const a = actMap[p.date];
+    actual.push(a != null && a.win_rate != null ? +(a.win_rate.toFixed(1)) : null);
+  }
+  return { dates, actual, backtest };
+}
+
+// 渲染准确率双曲线(窗口切换时重绘)
+function _renderOverfitAcc(data) {
+  if (!_overfitAccChart) return;
+  const w = _overfitState.win;
+  const { dates, actual, backtest } = _overfitAccSeries(data, w);
+  _overfitAccChart.setOption(withTheme({
+    tooltip: { trigger: "axis", valueFormatter: (v) => (v == null ? "-" : v.toFixed(1) + "%") },
+    legend: { top: 0, data: ["实盘实际", "回测预期"] },
+    grid: { left: 42, right: 16, top: 30, bottom: 24 },
+    xAxis: { type: "category", data: dates },
+    yAxis: { type: "value", min: 0, max: 100, axisLabel: { formatter: "{value}%" } },
+    dataZoom: dates.length > 80 ? dzOpts() : undefined,
+    series: [
+      { name: "实盘实际", type: "line", smooth: true, symbol: "none", connectNulls: true,
+        lineStyle: { width: 2, color: "#e6492e" }, itemStyle: { color: "#e6492e" },
+        data: actual },
+      { name: "回测预期", type: "line", smooth: true, symbol: "none", connectNulls: true,
+        lineStyle: { width: 2, color: "#409eff", type: "dashed" }, itemStyle: { color: "#409eff" },
+        data: backtest },
+    ],
+  }), { notMerge: true });
+}
+
+// 渲染综合过拟合风险分曲线(绿黄红分段: 上色按值用 visualMap + 参考线 30/60)
+function _renderOverfitRisk(data) {
+  if (!_overfitRiskChart) return;
+  const daily = (data.overfit && data.overfit.daily) || [];
+  if (!daily.length) { _overfitRiskChart.clear(); return; }
+  const dates = daily.map((p) => p.date);
+  const vals = daily.map((p) => p.risk_score);
+  _overfitRiskChart.setOption(withTheme({
+    tooltip: { trigger: "axis", valueFormatter: (v) => (v == null ? "-" : Math.round(v)) },
+    legend: { top: 0, data: ["过拟合风险分"] },
+    grid: { left: 42, right: 16, top: 30, bottom: 24 },
+    xAxis: { type: "category", data: dates },
+    yAxis: { type: "value", min: 0, max: 100, axisLabel: { formatter: "{value}" } },
+    dataZoom: dates.length > 80 ? dzOpts() : undefined,
+    series: [{
+      name: "过拟合风险分", type: "line", smooth: true, symbol: "none",
+      connectNulls: true, lineStyle: { width: 2, color: "#409eff" },
+      itemStyle: { color: "#409eff" },
+      data: vals,
+      markLine: {
+        silent: true, symbol: "none",
+        lineStyle: { color: "#c0c4cc", type: "dashed", width: 1 },
+        label: { show: true, position: "insideEndTop", fontSize: 10, color: "#999", formatter: "{c}" },
+        data: [
+          { yAxis: 30, label: { formatter: "黄区 ≥30" } },
+          { yAxis: 60, label: { formatter: "红区 ≥60" } },
+        ],
+      },
+      markArea: {
+        silent: true, itemStyle: { color: "rgba(255,255,255,0)" },
+        data: [],
+      },
+    }],
+  }), { notMerge: true });
+  // 绿黄红线色: 用 visualMap 按值分色(真实表达「过低风险/适中/高风险」)
+  try {
+    _overfitRiskChart.dispatchAction({ type: "downplay" });
+  } catch (e) {}
+}
+
+// 建调教监控卡 + 异步加载数据渲染(调用点 renderOverview sigCard 之后)
+async function _appendOverfitCard(colA2, r, snap) {
+  const card = document.createElement("div");
+  card.className = "chart-card overfit-card";
+  card.innerHTML =
+    '<h3>🎛️ 调教监控' +
+    signalHelpTip("过拟合监控卡(2026-08-15 B档)：监控策略参数是否「历史拟合好·未来失灵」。上=准确率(信号方向命中)曲线(实盘实际 vs 回测预期)；" +
+      "下=综合过拟合风险分(绿黄红分段, 参考线30/60)。准确率口径=信号后方向命中(实盘=信号日收盘→最新收盘, 回测=按卖出模式到期收益)；" +
+      "风险分=0.4×回测-实盘偏离+0.25×样本外衰减+0.2×参数稳定+0.15×象限退化, 绿<30正常/黄30-60关注/红>60高风险。盘后21:40每日打点。") + "</h3>" +
+    '<div class="overfit-tip">双曲线监控 + 综合过拟合风险分(0-100)。窗口切换看近30/60/90交易日。' +
+      '<span class="overfit-legend">绿&lt;30 正常 · 黄30-60 关注 · 红&gt;60 高风险</span></div>' +
+    '<div class="overfit-win-row"><span class="overfit-win-label">准确率窗口</span>' +
+      [30, 60, 90].map((w) => '<button data-overfit-win="' + w + '" class="overfit-win-btn' + (w === 60 ? ' active' : '') + '">' + w + '日</button>').join("") +
+      '</div>' +
+    '<div class="overfit-acc-title">准确率 <span class="ov-sub">实盘实际 vs 回测预期</span></div>' +
+    '<div id="overfit-acc-chart" style="height:180px;width:100%"></div>' +
+    '<div class="overfit-risk-title">综合过拟合风险分 <span class="ov-sub">绿黄红分段</span></div>' +
+    '<div id="overfit-risk-chart" style="height:160px;width:100%"></div>' +
+    '<div class="overfit-empty" style="display:none;color:var(--text-3);font-size:11px;padding:6px 2px">暂无监控数据(盘后21:40打点生成)</div>';
+  // 窗口切换按钮
+  card.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-overfit-win]");
+    if (!b) return;
+    card.querySelectorAll("[data-overfit-win]").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    _overfitState.win = +b.dataset.overfitWin;
+    if (_overfitData) _renderOverfitAcc(_overfitData);
+  });
+  colA2.appendChild(card);
+
+  // 空数据/加载失败守卫: 不裸崩(fetchJSON 自带 .gz fallback + 15s 超时)
+  const emptyEl = card.querySelector(".overfit-empty");
+  let _overfitData = null;
+  try {
+    await loadEcharts();
+    const data = await fetchJSON(dataUrl("overfit_monitor.json"));
+    if (!data || !data.accuracy || !data.overfit) throw new Error("overfit 数据不完整");
+    _overfitData = data;
+    emptyEl.style.display = "none";
+    _overfitAccChart = echarts.init(card.querySelector("#overfit-acc-chart"));
+    _overfitRiskChart = echarts.init(card.querySelector("#overfit-risk-chart"));
+    charts.push(_overfitAccChart);
+    charts.push(_overfitRiskChart);
+    _renderOverfitAcc(data);
+    _renderOverfitRisk(data);
+    if (typeof _overfitCardChartsPush === "function") ;  // 占位(图表已登记全局 charts)
+  } catch (err) {
+    emptyEl.style.display = "";
+    emptyEl.textContent = "监控数据加载失败(盘后生成)。" + (`${err && err.message ? " " + err.message : ""}`);
+  }
+}
+
 // 2026-08-05 信号 ETF 数据缓存：index_id -> etfs（_renderSignalGrid 填充，hoverpop 取 top1 显名称代码）。
 let _sigEtfCache = {};
 
@@ -10746,6 +10890,11 @@ async function renderOverview() {
     openSignalChartModal(item.dataset.idx, item.dataset.sig, item.dataset.date, undefined, "3m", item.dataset.idxName, item.dataset.idxCode);
   });
   colA2.appendChild(sigCard);
+
+  // 右列：🎛️ 调教监控卡片（过拟合监控走势图，sigCard 下方 / ntCard 前方，B 档 2026-08-15）
+  // 双曲线: ①准确率(实盘 vs 回测预期, 近30/60/90切换) ②综合过拟合风险分(绿黄红分段)。
+  // 数据源 overfit_monitor.json(post 每日打点 + 自2011历史回算)。异步渲染, 不阻塞 sigCard。
+  _appendOverfitCard(colA2, r, snap);
 
   // 右列：🐶 汪汪队信号卡片（ETF汪汪队资金动向，近期信号列表+hover pop+点击弹modal，不跳专区）
   const nt = r.nt_signals_today;
