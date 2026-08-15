@@ -1688,7 +1688,7 @@ async function _appendOverfitCard(colA2, r, snap) {
       "卖/止损卖 回测仅买入信号故只显示实盘单曲线。⚠样本去重：回测同一笔交易会按16象限×卖出模式重复计数, 已按(模式+信号日+标的+信号)去重, n 为真实唯一成交数；" +
       "近窗口样本不足(n<20)的档位不画误导曲线、显示空态提示。⚠实盘评级=「当前10日score快照」分档(signal_stats), 回测评级=「生成时score」固化, 两者时间轴不完全一致。") +
       '</h3>' +
-      '<div class="overfit-fade-row"><span class="overfit-fade-label" data-tip="AI降亏过滤开关(默认关, 独立 localStorage 键 tds_overfit_fade, 与首页/凯利区解耦): 开启=监控只统计「未被AI宏删线过滤」的信号(未被8键降亏命中 且 已入样 _bt_in_universe), 让监控数据同步反映实操过滤后的情况; 关闭=统计全信号(现状)。口径=AI宏5+3+1(v1.1.0 定名「基础5」): 5+3=保留入样的8个降亏键(基础5=基础4+K2C5 港股追涨剔除), +1=回测剔除的波动相关/未入样本整类信号。注意: 后端已同时生成 未过滤/已过滤 两套数据, 本开关只是前端切换读取, 不再前端重算(§23.6 读标记不自算)。【K档选择器待后续版本接入】">AI降亏过滤</span>' +
+      '<div class="overfit-fade-row"><span class="overfit-fade-label" data-tip="AI降亏过滤开关(默认关, 独立 localStorage 键 tds_overfit_fade, 与首页/凯利区解耦): 开启=监控只统计「未被AI宏删线过滤」的信号(未被8键降亏命中 且 已入样 _bt_in_universe), 让监控数据同步反映实操过滤后的情况; 关闭=统计全信号(现状)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(sell/sell_stop_loss/波段持有 band_*等)不判降亏, buy_special_filtered 归 buy_special 判。口径=AI宏5+3+1(v1.1.0 定名「基础5」): 5+3=保留入样的8个降亏键(基础5=基础4+K2C5 港股追涨剔除), +1=回测剔除的波动相关/未入样本整类信号。注意: 后端已同时生成 未过滤/已过滤 两套数据, 本开关只是前端切换读取, 不再前端重算(§23.6 读标记不自算)。【K档选择器待后续版本接入】">AI降亏过滤</span>' +
       '<label class="overfit-fade-switch"><input type="checkbox" data-overfit-fade="1"> <span class="ov-sw"></span></label>' +
       '<span class="overfit-fade-state" style="color:var(--text-3);font-size:11px;margin-left:6px"></span></div>' +
     '<div class="overfit-tip">双曲线监控 + 综合过拟合风险分(0-100)。窗口/评级/类型切换, 两图联动。窗口仅控总体风险分(30/60/90), 维度图固定60日。' +
@@ -5698,7 +5698,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
   const isFreeze = signal === "freeze";
   // 2026-07-20: 删除硬编码三元链，复用 signalLabel（L310-335 已覆盖 7 种信号 + 默认 fallback "趋势转弱"）。
   // 修复 sell_stop_loss / buy_special_filtered 等漏分支落英文原值的 bug（原末尾 `: signal` 返回英文）。
-  // reason 传空串：sell_stop_loss fallback 返回 "ATR止损"（L318），buy_special_filtered 返回 "特买(过滤预览)"。
+  // reason 传空串：sell_stop_loss fallback 返回 "ATR止损"（L318），buy_special_filtered 返回 "追买(过滤预览)"。
   const sigLabel = isFreeze ? `冰点${freezeVal ? "(" + freezeVal + ")" : ""}` : signalLabel({signal: signal, reason: ""});
   // 2026-08-07 标题追加同花顺板块代码(885xxx/886xxx)标签，和图表卡标题(L3732-3734)及信号格(L1603)风格统一。
   const _idxCodeTag = _sigIdxCode ? ` <span class="idx-code-tag" title="${idxCodeTooltip(indexId, _sigIdxCode)}">${_sigIdxCode}</span>` : "";

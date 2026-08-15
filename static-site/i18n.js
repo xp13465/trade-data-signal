@@ -51,7 +51,7 @@
       etf_buy: "关注机会",
       etf_strong_buy: "重点留意",
       // signalLabel（app.js L380）动态拼接用词
-      sl_buy_special_filtered: "特关注(过滤预览)",
+      sl_buy_special_filtered: "追关注(过滤预览)",
       word_stop_loss: "风控",
       word_band_reduce: "调整",
       // 第2阶段分散点：通知/ETF明细/标题等
@@ -174,7 +174,7 @@
       etf_hold: "持有观察",
       etf_buy: "买入",
       etf_strong_buy: "强买入",
-      sl_buy_special_filtered: "特买(过滤预览)",
+      sl_buy_special_filtered: "追买(过滤预览)",
       word_stop_loss: "止损",
       word_band_reduce: "减仓",
       // 第2阶段分散点：通知/ETF明细/标题等
