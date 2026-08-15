@@ -6682,6 +6682,10 @@ main { padding: 16px 24px; }
 .overfit-win-btn.active {
   background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600;
 }
+/* 2026-08-16 K档按钮(待后端按K档 bank 支持, disabled): 置灰+not-allowed, 与可用维度钮区分 */
+.overfit-win-btn:disabled {
+  opacity: 0.5; cursor: not-allowed; color: var(--text-4, #999); border-style: dashed;
+}
 /* 2026-08-15 AI降亏过滤开关：复用 notify-toggle 开关样式 */
 .overfit-fade-row {
   display: flex; align-items: center; gap: 6px; margin: 2px 0 8px; padding: 3px 8px;

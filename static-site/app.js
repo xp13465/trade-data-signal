@@ -1513,9 +1513,11 @@ function _sigTodayHint() {
 //   实盘口径=信号日收盘→最新收盘方向, 与首页「近期技术参考点」汇总条 since_correct 同口径); band_hold/未结算不计。
 //   过拟合风险分 = 0.40*D1(回测-实盘偏离) + 0.25*D2(滚动样本外) + 0.20*D3(参数稳定) + 0.15*D4(象限退化);
 //   绿<30(正常)/黄30-60(关注)/红>60(高风险)。历史 daily 曲线=截至各日「实盘 vs 回测 60日滚动胜率偏离」派生(无前视)。
-let _overfitAccChart = null;
-let _overfitRiskChart = null;
-let _overfitState = { win: 60, grade: null, sigType: null };  // win=窗口, grade=评级(null=全部), sigType=信号类型(null=全部)
+// 2026-08-16 三合一改造③: 两图从 echarts instance 改为 lite 容器引用(_lwSetup 在 _renderOverfitAcc/_renderOverfitRisk 内按 state 每次重建,
+// 随 charts.lightweight 开关切换, 零常驻 echarts.init)。
+let _overfitAccEl = null;    // #overfit-acc-chart 容器(lite SVG 或 echarts fallback)
+let _overfitRiskEl = null;   // #overfit-risk-chart 容器
+let _overfitState = { win: 60, grade: null, sigType: null, k: null };  // win=窗口, grade=评级(null=全部), sigType=信号类型(null=全部), k=K档(null=未支持/禁)
 // 分析参考点AI监控卡维度按钮中文标签(全局: 空态提示 + 标题副标共用)
 const _overfitDimLabels = {
   win: { 30: "30日", 60: "60日", 90: "90日" },
@@ -1561,45 +1563,67 @@ function _overfitAccSeries(data, w) {
 }
 
 // 渲染准确率双曲线(窗口/评级/类型切换时重绘)
+// 2026-08-16 三合一改造③: 走首页轻量 SVG 引擎 _lwSetup(multi-series, 对齐恐贪/A股情绪分外观), 零 echarts.init 首屏提速, 支持 charts.lightweight 开关。
+// 数据是后端聚合好的 rolling 窗口, 前端只读 bank、不做任何 top-K/过滤自算(§23.6 读标记不自算)。
 function _renderOverfitAcc(data) {
-  if (!_overfitAccChart) return;
+  if (!_overfitAccEl) return;
   const w = _overfitState.win;
   const { dates, actual, backtest, btEmpty } = _overfitAccSeries(data, w);
   const hasBt = !btEmpty && backtest.length > 0;
-  // 样本不足(近窗 n<20) -> 直接空态提示, 不画误导曲线
+  // 样本不足(近窗 n<20) -> 直接空态提示, 不画误导曲线(lite/echarts 两模式通用居中提示)
   if (dates.length === 0 || _overfitSampleInsufficient(data, "actual")) {
-    _overfitAccChart.clear();
     const dimName = _overfitState.sigType ? (_overfitDimLabels.sig[_overfitState.sigType] || _overfitState.sigType)
       : (_overfitState.grade ? (_overfitDimLabels.grade[_overfitState.grade] || _overfitState.grade) : "该维度");
-    _overfitAccChart.setOption(withTheme({
-      graphic: [{
-        type: "text", left: "center", top: "middle",
-        style: { text: dimName + " 近 " + _overfitState.win + " 日样本不足(n<20), 不画误导曲线", fill: cssVar("--text-3"), fontSize: 11 },
-      }],
-    }), { notMerge: true });
+    _overfitAccEl.innerHTML = '<div class="overfit-lite-empty" style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-3);font-size:11px;padding:0 6px;text-align:center">' +
+      dimName + " 近 " + _overfitState.win + " 日样本不足(n<20), 不画误导曲线</div>";
     return;
   }
-  const series = [
-    { name: "实盘实际", type: "line", smooth: true, symbol: "none", connectNulls: true,
-      lineStyle: { width: 2, color: "#e6492e" }, itemStyle: { color: "#e6492e" },
-      data: actual },
+  // 准确率双曲线 lite cfg(实盘 actual 红实线 + 回测 backtest 蓝虚线, 双 series; 对齐 _kpiLiteCfg multi-series 模式)
+  const accSeries = [
+    { type: "line", data: actual, color: "#e6492e", width: 2, smooth: true, connectNulls: true, itemColor: null, markLine: [] },
   ];
-  const legendData = ["实盘实际"];
+  const accLegend = [{ name: "实盘实际", color: "#e6492e" }];
   if (hasBt) {
-    legendData.push("回测预期");
-    series.push({ name: "回测预期", type: "line", smooth: true, symbol: "none", connectNulls: true,
-      lineStyle: { width: 2, color: "#409eff", type: "dashed" }, itemStyle: { color: "#409eff" },
-      data: backtest });
+    accLegend.push({ name: "回测预期", color: "#409eff" });
+    accSeries.push({ type: "line", data: backtest, color: "#409eff", width: 2, dash: "5 5", smooth: true, connectNulls: true, itemColor: null, markLine: [] });
   }
-  _overfitAccChart.setOption(withTheme({
-    tooltip: { trigger: "axis", valueFormatter: (v) => (v == null ? "-" : v.toFixed(1) + "%") },
-    legend: { top: 0, data: legendData },
-    grid: { left: 42, right: 16, top: 30, bottom: 24 },
-    xAxis: { type: "category", data: dates },
-    yAxis: { type: "value", min: 0, max: 100, axisLabel: { formatter: "{value}%" } },
-    dataZoom: dates.length > 80 ? dzOpts() : undefined,
-    series: series,
-  }), { notMerge: true });
+  _lwSetup(_overfitAccEl, {
+    h: 180, pl: 40, pr: 16, pt: 30, pb: 26,
+    boundaryGap: true,
+    dataZoom: dates.length > 80,
+    xLabels: dates, xFmt: (v) => v,
+    ys: [{ splitLine: true, formatter: (v) => v + "%", splitNumber: 5 }],
+    legend: accLegend,
+    series: accSeries,
+    tipFn: (i) => {
+      const lines = [fmtDate(dates[i])];
+      for (let si = 0; si < accSeries.length; si++) {
+        const pv = accSeries[si].data[i];
+        if (pv == null || isNaN(pv)) continue;
+        const marker = '<span style="display:inline-block;width:8px;height:2px;background:' + accSeries[si].color + ';margin-right:4px;vertical-align:middle"></span>';
+        lines.push(marker + (si === 0 ? "实盘实际" : "回测预期") + ": " + Number(pv).toFixed(1) + "%");
+      }
+      return lines.join("<br/>");
+    },
+  }, (container) => {
+    // echarts 兜底(fallback, charts.lightweight=false 或 echarts 未加载): 对齐原 echarts 双曲线 + 阈值/axis 外观
+    const inst = echarts.init(container);
+    const es = [
+      { name: "实盘实际", type: "line", smooth: true, symbol: "none", connectNulls: true,
+        lineStyle: { width: 2, color: "#e6492e" }, itemStyle: { color: "#e6492e" }, data: actual },
+    ];
+    if (hasBt) es.push({ name: "回测预期", type: "line", smooth: true, symbol: "none", connectNulls: true, lineStyle: { width: 2, color: "#409eff", type: "dashed" }, itemStyle: { color: "#409eff" }, data: backtest });
+    inst.setOption(withTheme({
+      tooltip: { trigger: "axis", valueFormatter: (v) => (v == null ? "-" : v.toFixed(1) + "%") },
+      legend: { top: 0, data: es.map((x) => x.name) },
+      grid: { left: 42, right: 16, top: 30, bottom: 24 },
+      xAxis: { type: "category", data: dates },
+      yAxis: { type: "value", min: 0, max: 100, axisLabel: { formatter: "{value}%" } },
+      dataZoom: dates.length > 80 ? dzOpts() : undefined,
+      series: es,
+    }), { notMerge: true });
+    charts.push(inst);
+  });
 }
 
 // 取风险分 daily 序列(按当前 state: win 窗口 + grade/sigType 维度)
@@ -1616,63 +1640,77 @@ function _overfitRiskSeries(data) {
   return daily;
 }
 
-// 渲染综合过拟合风险分曲线(绿黄红分段 visualMap 按值变色 + 参考线 30/60 + 窗口/评级/类型维度切换)
+// 渲染综合过拟合风险分曲线(绿黄红分段按值变色 + 参考线 30/60 + 窗口/评级/类型维度切换)
+// 2026-08-16 三合一改造③: 走首页轻量 SVG 引擎 _lwSetup(绿黄红分段 = _lwColorFn, 对齐恐贪/A股情绪分外观)。数据只读 bank、不自算。
 function _renderOverfitRisk(data) {
-  if (!_overfitRiskChart) return;
+  if (!_overfitRiskEl) return;
   const daily = _overfitRiskSeries(data);
+  const dimName = _overfitState.sigType ? (_overfitDimLabels.sig[_overfitState.sigType] || _overfitState.sigType)
+    : (_overfitState.grade ? (_overfitDimLabels.grade[_overfitState.grade] || _overfitState.grade) : "");
   if (!daily.length) {
-    _overfitRiskChart.clear();
-    const dimName = _overfitState.sigType ? (_overfitDimLabels.sig[_overfitState.sigType] || _overfitState.sigType)
-      : (_overfitState.grade ? (_overfitDimLabels.grade[_overfitState.grade] || _overfitState.grade) : "");
-    _overfitRiskChart.setOption(withTheme({
-      graphic: [{
-        type: "text", left: "center", top: "middle",
-        style: { text: dimName ? dimName + " 无风险分曲线(回测仅买入信号/样本不足)" : "暂无风险分曲线", fill: cssVar("--text-3"), fontSize: 11 },
-      }],
-    }), { notMerge: true });
+    _overfitRiskEl.innerHTML = '<div class="overfit-lite-empty" style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-3);font-size:11px;text-align:center">' +
+      (dimName ? dimName + " 无风险分曲线(回测仅买入信号/样本不足)" : "暂无风险分曲线") + "</div>";
     return;
   }
-  // 样本不足(该维度近窗无风险分) -> 空态, 不画误导曲线
-  const hasScore = daily.filter((p) => p.risk_score != null);
-  if (!hasScore.length) { _overfitRiskChart.clear(); return; }
+  const hasScorePoints = daily.filter((p) => p.risk_score != null);
+  if (!hasScorePoints.length) {
+    _overfitRiskEl.innerHTML = "";
+    return;
+  }
   const dates = daily.map((p) => p.date);
   const vals = daily.map((p) => (p.risk_score != null ? p.risk_score : null));
-  _overfitRiskChart.setOption(withTheme({
-    tooltip: { trigger: "axis", valueFormatter: (v) => (v == null ? "-" : Math.round(v)) },
-    legend: { top: 0, data: ["过拟合风险分"] },
-    grid: { left: 42, right: 16, top: 30, bottom: 24 },
-    xAxis: { type: "category", data: dates },
-    yAxis: { type: "value", min: 0, max: 100, axisLabel: { formatter: "{value}" } },
-    dataZoom: dates.length > 80 ? dzOpts() : undefined,
-    // 绿黄红分段按值变色(与 markLine 30/60 参考线语义对齐): 绿<30 正常 / 黄30-60 关注 / 红>60 高风险
-    visualMap: {
-      show: false,
-      dimension: 1,
-      pieces: [
-        { lte: 30, color: "#52c41a" },        // 绿 正常
-        { gt: 30, lte: 60, color: "#e6a23c" }, // 黄 关注
-        { gt: 60, color: "#e6492e" },          // 红 高风险
-      ],
-    },
+  // 绿黄红分段按值变色(与 markLine 30/60 参考线语义对齐): 绿<30 正常 / 黄30-60 关注 / 红>60 高风险
+  const rgColorFn = (i, v) => {
+    if (v == null || isNaN(v)) return "#86909c";
+    if (v <= 30) return "#52c41a";        // 绿 正常
+    if (v <= 60) return "#e6a23c";        // 黄 关注
+    return "#e6492e";                       // 红 高风险
+  };
+  _lwSetup(_overfitRiskEl, {
+    h: 160, pl: 40, pr: 16, pt: 30, pb: 26,
+    boundaryGap: true,
+    dataZoom: dates.length > 80,
+    xLabels: dates, xFmt: (v) => v,
+    ys: [{ splitLine: true, splitNumber: 5 }],
+    legend: [{ name: "过拟合风险分", color: "#409eff" }],
     series: [{
-      name: "过拟合风险分", type: "line", smooth: true, symbol: "none",
-      connectNulls: true, lineStyle: { width: 2, color: "#409eff" },
-      itemStyle: { color: "#409eff" },
-      data: vals,
-      markLine: {
-        silent: true, symbol: "none",
-        lineStyle: { color: "#c0c4cc", type: "dashed", width: 1 },
-        label: { show: true, position: "insideEndTop", fontSize: 10, color: "#999", formatter: "{c}" },
-        data: [
-          { yAxis: 30, label: { formatter: "黄区 ≥30" } },
-          { yAxis: 60, label: { formatter: "红区 ≥60" } },
-        ],
-      },
+      type: "line", data: vals, color: "#409eff", width: 2, smooth: true, connectNulls: true,
+      itemColor: rgColorFn,     // 绿黄红 visualMap 分段 → _lwColorFn(与恐贪/A股情绪分同款口径)
+      // 参考线 30/60 阈值虚线(markLine)
+      markLine: [
+        { y: 30, color: "#c0c4cc", label: "黄区 ≥30" },
+        { y: 60, color: "#c0c4cc", label: "红区 ≥60" },
+      ],
     }],
-  }), { notMerge: true });
-  try {
-    _overfitRiskChart.dispatchAction({ type: "downplay" });
-  } catch (e) {}
+    tipFn: (i) => {
+      const v = vals[i];
+      if (v == null || isNaN(v)) return dates[i];
+      const c = rgColorFn(i, v);
+      return dates[i] + "<br/><span style=\"display:inline-block;width:8px;height:2px;background:" + c + ";margin-right:4px;vertical-align:middle\"></span>过拟合风险分: " + Math.round(v);
+    },
+  }, (container) => {
+    // echarts 兜底(fallback, charts.lightweight=false 或 echarts 未加载)
+    const inst = echarts.init(container);
+    inst.setOption(withTheme({
+      tooltip: { trigger: "axis", valueFormatter: (v) => (v == null ? "-" : Math.round(v)) },
+      legend: { top: 0, data: ["过拟合风险分"] },
+      grid: { left: 42, right: 16, top: 30, bottom: 24 },
+      xAxis: { type: "category", data: dates },
+      yAxis: { type: "value", min: 0, max: 100, axisLabel: { formatter: "{value}" } },
+      dataZoom: dates.length > 80 ? dzOpts() : undefined,
+      visualMap: { show: false, dimension: 1, pieces: [
+        { lte: 30, color: "#52c41a" }, { gt: 30, lte: 60, color: "#e6a23c" }, { gt: 60, color: "#e6492e" },
+      ] },
+      series: [{
+        name: "过拟合风险分", type: "line", smooth: true, symbol: "none", connectNulls: true,
+        lineStyle: { width: 2, color: "#409eff" }, itemStyle: { color: "#409eff" }, data: vals,
+        markLine: { silent: true, symbol: "none", lineStyle: { color: "#c0c4cc", type: "dashed", width: 1 }, label: { show: true, position: "insideEndTop", fontSize: 10, color: "#999", formatter: "{c}" }, data: [
+          { yAxis: 30, label: { formatter: "黄区 ≥30" } }, { yAxis: 60, label: { formatter: "红区 ≥60" } },
+        ] },
+      }],
+    }), { notMerge: true });
+    charts.push(inst);
+  });
 }
 
 // 建分析参考点AI监控卡 + 异步加载数据渲染(调用点 renderOverview sigCard 之后)
@@ -1688,10 +1726,18 @@ async function _appendOverfitCard(colA2, r, snap) {
       "卖/止损卖 回测仅买入信号故只显示实盘单曲线。⚠样本去重：回测同一笔交易会按16象限×卖出模式重复计数, 已按(模式+信号日+标的+信号)去重, n 为真实唯一成交数；" +
       "近窗口样本不足(n<20)的档位不画误导曲线、显示空态提示。⚠实盘评级=「当前10日score快照」分档(signal_stats), 回测评级=「生成时score」固化, 两者时间轴不完全一致。") +
       '</h3>' +
-      '<div class="overfit-fade-row"><span class="overfit-fade-label" data-tip="AI降亏过滤开关(默认关, 独立 localStorage 键 tds_overfit_fade, 与首页/凯利区解耦): 开启=监控只统计「未被AI宏删线过滤」的信号(未被8键降亏命中 且 已入样 _bt_in_universe), 让监控数据同步反映实操过滤后的情况; 关闭=统计全信号(现状)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(sell/sell_stop_loss/波段持有 band_*等)不判降亏, buy_special_filtered 归 buy_special 判。口径=AI宏5+3+1(v1.1.0 定名「基础5」): 5+3=保留入样的8个降亏键(基础5=基础4+K2C5 港股追涨剔除), +1=回测剔除的波动相关/未入样本整类信号。注意: 后端已同时生成 未过滤/已过滤 两套数据, 本开关只是前端切换读取, 不再前端重算(§23.6 读标记不自算)。【K档选择器待后续版本接入】">AI降亏过滤</span>' +
+      '<div class="overfit-fade-row"><span class="overfit-fade-label" data-tip="AI降亏过滤开关(默认开, 独立 localStorage 键 tds_overfit_fade, 与首页/凯利区解耦): 开启=监控只统计「未被AI宏删线过滤」的信号(未被8键降亏命中 且 已入样 _bt_in_universe), 让监控数据同步反映实操过滤后的情况; 关闭=统计全信号(现状)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(sell/sell_stop_loss/波段持有 band_*等)不判降亏, buy_special_filtered 归 buy_special 判。口径=AI宏5+3+1(v1.1.0 定名「基础5」): 5+3=保留入样的8个降亏键(基础5=基础4+K2C5 港股追涨剔除), +1=回测剔除的波动相关/未入样本整类信号。注意: 后端已同时生成 未过滤/已过滤 两套数据, 本开关只是前端切换读取, 不再前端重算(§23.6 读标记不自算)。【K档选择器: 需后端按K档生成监控 bank(当前 overfit_monitor.json 无按K档维度), 本次暂置disabled, 仅预留UI; 当前两图按 全信号/删线过滤 两bank读取, 非 top-K 过滤, 不伪造前端自算(§23.6 读标记不自算)】">AI降亏过滤</span>' +
       '<label class="overfit-fade-switch"><input type="checkbox" data-overfit-fade="1"> <span class="ov-sw"></span></label>' +
       '<span class="overfit-fade-state" style="color:var(--text-3);font-size:11px;margin-left:6px"></span></div>' +
-    '<div class="overfit-tip">双曲线监控 + 综合过拟合风险分(0-100)。窗口/评级/类型切换, 两图联动。窗口仅控总体风险分(30/60/90), 维度图固定60日。' +
+    // 2026-08-16 三合一改造②: K档切换UI(预留)。后端 overfit_monitor.json 暂无按K档 bank,
+    // 故按钮 disabled + tooltip 诚实标注「待数据支持」(§23.6 读标记不自算, 不伪造前端 top-K)。
+    '<div class="overfit-k-row"><span class="overfit-win-label">K档</span>' +
+      '<button data-overfit-k="1" class="overfit-win-btn" disabled data-tip="K档过滤需后端生成按K档监控 bank, 当前数据源未支持(overfit_monitor.json 无K档维度), 暂不可用; 当前两图按 全信号/删线过滤 两bank读取, 非 top-K 过滤, 不伪造前端自算(§23.6)">K=1</button>' +
+      '<button data-overfit-k="2" class="overfit-win-btn" disabled data-tip="K档过滤需后端生成按K档监控 bank, 当前数据源未支持(overfit_monitor.json 无K档维度), 暂不可用">K=2</button>' +
+      '<button data-overfit-k="3" class="overfit-win-btn" disabled data-tip="K档过滤需后端生成按K档监控 bank, 当前数据源未支持(overfit_monitor.json 无K档维度), 暂不可用">K=3</button>' +
+      '<button data-overfit-k="4" class="overfit-win-btn" disabled data-tip="K档过滤需后端生成按K档监控 bank, 当前数据源未支持(overfit_monitor.json 无K档维度), 暂不可用">K=4</button>' +
+      '<span class="overfit-k-tip" style="color:var(--text-3);font-size:11px;margin-left:6px">待数据支持</span></div>' +
+    '<div class="overfit-tip">双曲线监控 + 综合过拟合风险分(0-100)。窗口/评级/类型切换, 两图联动。窗口仅控总体风险分(30/60/90), 维度图固定60日。K档过滤待后端支持。' +
       '<span class="overfit-legend">绿&lt;30 正常 · 黄30-60 关注 · 红&gt;60 高风险</span></div>' +
     '<div class="overfit-win-row"><span class="overfit-win-label">窗口</span>' +
       [30, 60, 90].map((w) => '<button data-overfit-win="' + w + '" class="overfit-win-btn' + (w === 60 ? ' active' : '') + '">' + w + '日</button>').join("") +
@@ -1774,12 +1820,13 @@ async function _appendOverfitCard(colA2, r, snap) {
   // 空数据/加载失败守卫: 不裸崩(fetchJSON 自带 .gz fallback + 15s 超时)
   const emptyEl = card.querySelector(".overfit-empty");
   let _overfitData = null;
-  // AI降亏过滤开关(默认关, 独立 localStorage 键 tds_overfit_fade; 与首页 tds_home_fade/凯利区 tds_kelly_filters 解耦)
-  let _ovFade = false;
-  try {
-    _ovFade = localStorage.getItem("tds_overfit_fade") === "1";
-  } catch (e) { _ovFade = false; }
-  // 回填开关初值(默认关) + change 监听(用户点 label/开关均触发)
+  // AI降亏过滤开关(默认开, 独立 localStorage 键 tds_overfit_fade; 与首页 tds_home_fade/凯利区 tds_kelly_filters 解耦)。
+  // 2026-08-16 三合一改造②: 首次无 localStorage 时默认开(true), 用户手动切换后写 localStorage 记住(手动关=记"0")。
+  // 数据是后端聚合好的 rolling 窗口, 前端只切 bank 读取、不重算(§23.6 读标记不自算)。
+  let _ovFade = localStorage.getItem("tds_overfit_fade") === null
+    ? true
+    : (localStorage.getItem("tds_overfit_fade") === "1");
+  // 回填开关初值(默认开, 首次无记忆=checked) + change 监听(用户点 label/开关均触发, 手动切换后写 localStorage 记住)
   const fadeCb = card.querySelector("[data-overfit-fade]");
   if (fadeCb) {
     fadeCb.checked = _ovFade;
@@ -1796,10 +1843,9 @@ async function _appendOverfitCard(colA2, r, snap) {
     if (!data || !data.accuracy || !data.overfit) throw new Error("overfit 数据不完整");
     _overfitData = data;
     emptyEl.style.display = "none";
-    _overfitAccChart = echarts.init(card.querySelector("#overfit-acc-chart"));
-    _overfitRiskChart = echarts.init(card.querySelector("#overfit-risk-chart"));
-    charts.push(_overfitAccChart);
-    charts.push(_overfitRiskChart);
+    // 2026-08-16 三合一改造③: 不 echoes.init, 仅存容器引用; 每图 _lwSetup 在 _renderOverfitAcc/_renderOverfitRisk 内调用(按 state 重建+支持 lightweight 开关)
+    _overfitAccEl = card.querySelector("#overfit-acc-chart");
+    _overfitRiskEl = card.querySelector("#overfit-risk-chart");
     syncOverfitCharts();
   } catch (err) {
     emptyEl.style.display = "";
