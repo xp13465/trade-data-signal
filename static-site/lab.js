@@ -7275,7 +7275,10 @@ function _kellyDefaultFilters() {
     janMidRating: true, janMidSpecial: true,
     // positionCap 仓位控制过滤(2026-08-12): 同日只买最优K个(基笔级,模式之前统一生效), K可配置1-4默认3; 默认开启
     // 2026-08-14 #BC C包: 主推 K1(收益率最高) → 默认档 3→1
-    positionCap: true, positionCapK: 1
+    positionCap: true, positionCapK: 1,
+    // K2C5 港股追涨 / K3 主关注×概念 (2026-08-15 #86 新增, 纯前端实验键, 默认关不开)
+    // 用户拍板"两个都做,默认关,自己开关看效果;不能影响1.0.0已有稳定性"。故默认关,不进AI宏断言默认,打开只在本次开关会话生效(刷新重置默认关=与现有非AI宏toggle一致行为)
+    k2c5HkChase: false, k3ConceptBuy: false
   };
 }
 
@@ -7365,7 +7368,9 @@ var _kellyMonthMask = {
   v4k: 1 << 0,                                      // 01
   greedy15: (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 8) | (1 << 10) | (1 << 11), // greedy10+q1+09
   janMidRating: 1 << 0,                             // 01
-  janMidSpecial: 1 << 0                             // 01
+  janMidSpecial: 1 << 0,                            // 01
+  // K2C5/K3 无月份约束(按 signal×market 过滤, 全年适用), 全12月掩码 0x1FFF, 防月门控短路跳过 hk/concept 交易遗漏过滤
+  k2c5HkChase: 0x1FFF, k3ConceptBuy: 0x1FFF
 };
 function _kellyActiveMonthMask(filters) {
   var mask = 0;
@@ -7394,7 +7399,9 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
   var _r3On = filters.a5NovMidSpecial || filters.a45NovMidLateSpecial;
   // 1月调整2 toggle(2026-08-11 元素级重组: 1月中旬(11-20日)+中评级 / 1月中旬+追关注)
   var _janOn = filters.janMidRating || filters.janMidSpecial;
-  if (_v3On || _v4On || _r3On || _janOn) {
+  // K2C5/K3 按 signal×market 过滤, 需 mktD 特征(2026-08-15 #86)才能判定, 故并入特征计算触发集合(坑1: 否则 _mktD3 惰性不计算, 新键永不生效)
+  var _k2On = filters.k2c5HkChase || filters.k3ConceptBuy;
+  if (_v3On || _v4On || _r3On || _janOn || _k2On) {
     // 月门控: 该trade月份不在任何活跃toggle的月集合内 => 不可能命中任何谓词, 直接通过(跳过昂贵特征)
     if (monthMask) {
       var _mmG = (t[fIdx.buy_date] || "").substring(4, 6);
@@ -7506,6 +7513,13 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
       if (filters.janMidRating && _mm3 === "01" && _dd3 >= 11 && _dd3 <= 20 && _ratD3 === "mid") return false;
       // J2: 1月中旬(11-20日)+追关注(buy_special), standalone比值4.49/净+38.9万, 4窗口全>2, 覆盖更广但maxSh0.79更差
       if (filters.janMidSpecial && _sig3 === "buy_special" && _mm3 === "01" && _dd3 >= 11 && _dd3 <= 20) return false;
+    }
+    // === K2C5/K3 (2026-08-15 #86 新增实验键, 默认关, 用户自开关看效果) ===
+    if (_k2On) {
+      // K2C5 港股追涨: 剔除 buy_special/buy_backup × 港股 (researcher 数据验证 948笔)
+      if (filters.k2c5HkChase && (_sig3 === "buy_special" || _sig3 === "buy_backup") && _mktD3 === "hk") return false;
+      // K3 主关注×概念: 剔除 buy × 概念 (researcher 数据验证 4440笔)
+      if (filters.k3ConceptBuy && _sig3 === "buy" && _mktD3 === "concept") return false;
     }
   }
   return true;
@@ -8840,7 +8854,12 @@ var _kellyFadeFlagGroups = [
     { k: "excludeSpecialBear", cls: "lab-sigkelly-toggle-specialbear", name: "追关注×熊市交叉", ratio: 2.90, rec: true,
       advice: "追涨只在牛市做 · 比值2.90", tip: "⭐ 默认推荐(默认开启,降亏推荐): 排除buy_special追关注在MA60熊市的交易。核心反模式——追涨在熊市被套,buy_special整体净正但熊市净亏。每日池减亏6.46%/损盈2.23%/比值2.90>2高性价比。G模式K1正边际+19,712(最强)。" },
     { k: "marketTiming", cls: "lab-sigkelly-toggle-mkt", name: "MA60大盘择时", ratio: 1.24, warn: "⚠️慎用(破坏性)",
-      advice: "别单开,全模式净负 · 比值1.24", tip: "❌非默认⚠慎用(破坏性): MA60大盘择时(仅A股a/concept/industry,沪深300在60日均线之上才进场)。每日池减亏37.26%/损盈30.14%/比值1.24(降亏强但损盈更多,全模式净负-14.9万)。诚实标注:别单开。" }
+      advice: "别单开,全模式净负 · 比值1.24", tip: "❌非默认⚠慎用(破坏性): MA60大盘择时(仅A股a/concept/industry,沪深300在60日均线之上才进场)。每日池减亏37.26%/损盈30.14%/比值1.24(降亏强但损盈更多,全模式净负-14.9万)。诚实标注:别单开。" },
+    // K2C5/K3 (2026-08-15 #86 新增, 纯前端实验键, 默认关, 用户自开关看效果; 未跑边际回测, ratio=待实测不编数字)
+    { k: "k2c5HkChase", cls: "lab-sigkelly-toggle-k2c5", name: "港股追涨", ratio: "待实测", warn: "⚠️默认关",
+      advice: "剔除港股追涨(948笔),默认关可自开 · 比值待实测", tip: "❌非默认⚠默认关: 剔除 signal∈{buy_special,buy_backup}×港股 的交易。报告§6.2 K2C5第一优先:剔除后 all A+7,384、y1 双正,能让港股卡 y1 翻正;但对可操作 G 玩法有害——G 的 P≤3d 里这些交易当强平缓冲垫,剔除会削弱缓冲。故默认关,自己开关看效果。未跑边际每日池回测,比值待实测(不编造数字)。" },
+    { k: "k3ConceptBuy", cls: "lab-sigkelly-toggle-k3", name: "主关注×概念", ratio: "待实测", warn: "⚠️默认关",
+      advice: "剔除主关注概念(4440笔),默认关可自开 · 比值待实测", tip: "❌非默认⚠默认关: 剔除 signal=buy×概念 的交易(4440笔)。报告: 剔除后 y1 提升最大,但高波动+牺牲 2024/2025 大赚年,报告建议默认关+监控。故默认关,自己开关看效果。未跑边际每日池回测,比值待实测(不编造数字)。" }
   ]}
 ];
 
@@ -9291,6 +9310,19 @@ function _renderSigKellyBar(bar, data, period) {
   if (v4kCb) v4kCb.onchange = function () {
     if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
     state.labSigKellyFilters.v4k = v4kCb.checked;
+    _kellyOnFilterChange();
+  };
+  // K2C5/K3 (2026-08-15 #86 新增实验键, 默认关, 自开关看效果)
+  var k2c5Cb = bar.querySelector(".lab-sigkelly-toggle-k2c5");
+  if (k2c5Cb) k2c5Cb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.k2c5HkChase = k2c5Cb.checked;
+    _kellyOnFilterChange();
+  };
+  var k3Cb = bar.querySelector(".lab-sigkelly-toggle-k3");
+  if (k3Cb) k3Cb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.k3ConceptBuy = k3Cb.checked;
     _kellyOnFilterChange();
   };
   // 现有6 toggle(比值<3)
