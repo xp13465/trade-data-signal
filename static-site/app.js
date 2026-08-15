@@ -4301,7 +4301,7 @@ const _resultCache = new Map(); // url -> { data, ts }
 // 2026-07-20: 加 index\/[^/]+-all 排除 kc50-all.json 等 index/{iid}-all.json（走势图源），
 // 让走势图与 overview 同级实时（跳过 5min 缓存），避免"卡片有信号但走势图无 pin"的窗口期不一致。
 // 只排除 *-all.json（走势图源），不排除 industry-*-indices/* 等静态少变文件（保留缓存）。
-const _NO_CACHE_URLS = /(?:^|\/)(?:boot|overview|intraday_snapshot|metrics|notifications|public_fund_\w+|summary(?:_history|\/history)?|index\/[^/]+-all)(?:\.json)?(?:$|[?])/;
+const _NO_CACHE_URLS = /(?:^|\/)(?:boot|overview|intraday_snapshot|metrics|notifications|daily_brief(?:_history)?|public_fund_\w+|summary(?:_history|\/history)?|index\/[^/]+-all)(?:\.json)?(?:$|[?])/;
 const _CACHE_TTL = 5 * 60 * 1000; // 历史类数据缓存 5 分钟
 // R2 大range 路由（2026-07-24）：all/5y/3y 从 R2 读（减 git 仓库 ~60M），小 range（3m/6m/1y）留本地减延迟。
 // fetchJSON 统一走 .json + CF br 压缩（2026-08-01 全部跳 .gz，根治 CF .gz 4h edge 缓存滞后）。
