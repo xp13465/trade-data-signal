@@ -1,4 +1,9 @@
-"""按 indicators.yaml 调用 akshare 采集。分序列型/快照型/直爬/指数/板块。"""
+"""按 indicators.yaml 调用 akshare 采集。分序列型/快照型/直爬/指数/板块。
+
+异源自动切换兜底(2026-08-15):主源(akshare 各接口)失败时自动切真异源备用源(不同 host/
+供应商),source 标记透传到 daily_metric.source 便于溯源。fallback 抓取器实现在
+multisource.py(美财政部/HKEX官方/东财 push2delay/futsseapi/上交所IV自算QVIX)。
+"""
 from pathlib import Path
 
 import akshare as ak
@@ -9,7 +14,18 @@ from .base import safe_call
 from ..calendar import last_trading_day, is_trading_day
 from ..db import get_conn
 
+# 异源兜底抓取器(见 multisource.py,集中管理所有 fallback)
+from . import multisource
+
 CONFIG_PATH = Path(__file__).absolute().parent.parent.parent / "config" / "indicators.yaml"
+
+# 异源兜底 source 标记(入库 daily_metric.source / collect_log 溯源)
+# 真异源=与主源不同 host/供应商,非同一源换接口(伪多源禁止)。
+SOURCE_TREASURY = "treasury"  # us10y: 美国财政部官方 CSV
+SOURCE_HKEX = "hkex"          # hk_south: HKEX 官方 JS 反算南向净买额
+SOURCE_EM = "em"              # cn10y/a_turnover_rate/gold/美股全球指数: 东财
+SOURCE_SSE = "sse"            # qvix: 上交所官方 IV 方差互换自算(真异源,权威)
+SOURCE_RV_LOCAL = "rv_local"  # qvix 网底: 本地已实现波动率(口径差异,已公示)
 
 
 def load_config():
@@ -154,23 +170,60 @@ def _fetch_bond_china_yield(fn, lookback_days=3650):
     return pd.concat(frames, ignore_index=True)
 
 
-# QVIX daily k.csv T+1+ 才出 T 日（滞后 2 天），同源分钟 csv（vix300.csv/vix50.csv）
-# T 盘后 ~15:00 即出 T 日全天 intraday。映射 daily->分钟函数，用于当日补采 fallback。
-QVIX_MIN_FUNCS = {
-    "index_option_300etf_qvix": "index_option_300etf_min_qvix",
-    "index_option_50etf_qvix": "index_option_50etf_min_qvix",
+# QVIX daily k.csv T+1+ 才出 T 日（滞后 2 天）。optbbs(1.optbbs.com) 主源曾宕机，
+# 同源分钟 csv(vix300.csv/vix50.csv) 在同一台服务器=伪多源，一起挂(2026-08-14)。
+# 真异源兜底链(优先级从高到低,均与 optbbs 不同 host):
+#   档1  上交所官方 IV 方差互换自算 QVIX(option_risk_indicator_sse,T+1 权威,历史全可回填)
+#        -> multisource.sse_qvix_series, source="sse"
+#   档2  本地 20 日滚动年化已实现波动率 RV(_qvix_rv_series, source="rv_local",口径差异已公示)
+#   (档3 新浪实时 IV 自算为下一步,已在此留钩子)
+RV_ETFS = {
+    "index_option_300etf_qvix": "510300",
+    "index_option_50etf_qvix": "510050",  # a_qvix_1000 实际在用的 50ETF 期权口径
 }
 
 
-def _qvix_min_target_date():
-    """推断分钟 csv 对应的交易日（YYYYMMDD）。
+def _qvix_rv_series(func_name, window=20):
+    """用对应跟踪 ETF 日线 close 算 20 日滚动年化已实现波动率(RV)，返回 [(date, rv)]。
 
-    分钟 csv（vix300.csv/vix50.csv）只含 time 列（如 '9:30:00'），无日期；
-    它在 T 盘后 ~15:00 覆盖写出 T 日全天 intraday，T+1 盘前仍为 T 日（今日未收盘）。
-    推断规则：
-      - 当前 >=15:00 且今日是交易日 → 分钟 csv 是今日
-      - 否则（盘前/盘中/非交易日）→ 分钟 csv 是今日的前一个交易日
+    daily_metric 只存 value 单列，故返回 close 语义的单值(annualized 波动率%)。
+    RV = 最近 window 个交易日对数收益率 std × sqrt(252) × 100。
+    数据源复用 fetch_etf_ohlc(sina 主源 + mootdx fallback，本身真异源)。
+    返回全序列供回填；末尾即最新交易日。
     """
+    from .etf_national_team import fetch_etf_ohlc  # 延迟导入避免循环依赖
+    etf_code = RV_ETFS.get(func_name)
+    if not etf_code:
+        return None
+    recs = fetch_etf_ohlc(etf_code)
+    if not recs:
+        return None
+    recs = sorted(recs, key=lambda x: x["date"])
+    closes = [r["close"] for r in recs]
+    dates = [r["date"] for r in recs]
+    import math
+    rets = []
+    for i in range(1, len(closes)):
+        c0, c1 = closes[i - 1], closes[i]
+        if c0 and c1 and c0 > 0 and c1 > 0:
+            rets.append(math.log(c1 / c0))
+        else:
+            rets.append(None)
+    out = []
+    for i in range(len(closes)):
+        if i < window:
+            continue
+        seg = [x for x in rets[i - window:i] if x is not None]
+        if len(seg) < 5:  # 窗口内有效收益不足 5 个，极端稀疏窗口不输出
+            continue
+        m = sum(seg) / len(seg)
+        var = sum((x - m) ** 2 for x in seg) / len(seg)
+        out.append((dates[i], round(math.sqrt(var) * math.sqrt(252) * 100, 3)))
+    return out or None
+
+
+def _qvix_latest_trading_date():
+    """判断当前应补采的 QVIX 交易日:盘后(>=15:00)且今日交易日=今日,否则前一交易日。"""
     import datetime as _dt
     try:
         now = _dt.datetime.now()
@@ -182,35 +235,35 @@ def _qvix_min_target_date():
         return None
 
 
-def _qvix_today_from_min(min_func_name, target_date):
-    """读分钟 csv 算当日 OHLC，返回 (date_str, close) 或 None。
-
-    daily_metric 表只有 value 单列（历史只存 close），故内部算 open/high/low
-    但只返回 close（最后有效 qvix 值，跳过 NaN）。
-    """
-    fn = getattr(ak, min_func_name, None)
-    if fn is None:
-        return None
-    df = safe_call(fn)
-    if isinstance(df, Exception) or df is None or len(df) == 0:
-        return None
-    if "qvix" not in df.columns:
-        return None
-    s = df["qvix"].dropna()
-    if len(s) == 0:
-        return None
-    close = float(s.iloc[-1])
-    if close != close or close == 0:  # NaN 或源占位 0
-        return None
-    return (target_date, close)
-
-
 # ================ 单值指标 ================
 
-def collect_series(metric):
+def collect_series(metric, _source="akshare"):
+    """采集单值序列指标。返回 (rows, msg, src)。
+
+    src=本次采集的数据来源:
+      "akshare"   默认主源(auth 各 akshare 接口)
+      SOURCE_TREASURY/SOURCE_HKEX/SOURCE_EM/SOURCE_SSE/SOURCE_RV_LOCAL
+               主源失败时自动切真异源兜底,透传 daily_metric.source 溯源 + collect_log 记降级。
+    """
+    # ── 异源兜底(主源函数全缺失/空/错误时切,pre函数形态) ──
+    if metric["func"] == "bond_zh_us_rate":  # us10y<->东财 bond_zh_us_rate 缺失
+        # us10y:主源东财 bond_zh_us_rate(akshare)+us10y param start_date。宕机/缺失时切美财政部官方
+        if metric["id"] == "us10y":
+            _rows = _fallback_then_main_series(metric, ["treasury"])
+            return _rows
+    if metric["func"] == "stock_hsgt_hist_em":  # hk_south
+        if metric["id"] == "hk_south":
+            _rows = _fallback_then_main_series(metric, ["hkex"])
+            return _rows
+    if metric["func"] == "bond_china_yield" and metric["id"] == "cn10y":
+        _rows = _fallback_then_main_series(metric, ["cn10y_em"])
+        return _rows
+    if metric["func"] == "futures_main_sina" and metric["params"].get("symbol") == "AU0":
+        _rows = _fallback_then_main_series(metric, ["gold_em"])
+        return _rows
     fn = getattr(ak, metric["func"], None)
     if fn is None:
-        return [], f"no attr {metric['func']}"
+        return [], f"no attr {metric['func']}", _source
     params = dict(metric.get("params") or {})
     if metric["func"] in NEEDS_DATE_RANGE:
         import datetime as _dt
@@ -222,22 +275,18 @@ def collect_series(metric):
     if metric["func"] == "bond_china_yield":
         df = _fetch_bond_china_yield(fn, int(metric.get("lookback_days", 3650)))
         if df is None or len(df) == 0:
-            return [], f"{metric['func']} empty"
+            return [], f"{metric['func']} empty", _source
     else:
         df = safe_call(fn, **params)
         if isinstance(df, Exception) or df is None or len(df) == 0:
-            # QVIX daily k.csv T+1+ 滞后:源空/错误时 fallback 分钟 csv 补当日
-            min_func = QVIX_MIN_FUNCS.get(metric["func"])
-            if min_func:
-                target = _qvix_min_target_date()
-                if target:
-                    rec = _qvix_today_from_min(min_func, target)
-                    if rec:
-                        d, v = rec
-                        return [(d, v * metric.get("scale", 1.0))], f"{metric['func']} daily empty, min fallback {d}"
+            # QVIX daily k.csv 主源(optbbs)空/错误:真异源链 sse -> RV(网底)
+            if metric["func"] in RV_ETFS:
+                _src, _rows, _msg = _qvix_fallback(metric)
+                if _rows:
+                    return _rows, _msg, _src
             if isinstance(df, Exception):
-                return [], f"{metric['func']} error: {df}"
-            return [], f"{metric['func']} empty"
+                return [], f"{metric['func']} error: {df}", _source
+            return [], f"{metric['func']} empty", _source
     # 行过滤（如 bond_china_yield 需筛「中债国债收益率曲线」）
     flt = metric.get("filter")
     if flt:
@@ -245,11 +294,11 @@ def collect_series(metric):
             if k in df.columns:
                 df = df[df[k] == v]
         if len(df) == 0:
-            return [], f"{metric['func']} empty after filter"
+            return [], f"{metric['func']} empty after filter", _source
     dc = _date_col(df)
     col = metric.get("column")
     if not dc or not col or col not in df.columns:
-        return [], f"{metric['func']} missing col (dc={dc}, col={col})"
+        return [], f"{metric['func']} missing col (dc={dc}, col={col})", _source
     sc = metric.get("scale", 1.0)
     drop_zero = bool(metric.get("drop_zero"))
     rows = []
@@ -263,15 +312,14 @@ def collect_series(metric):
         if drop_zero and v == 0:  # 源占位/解析缺失返回 0.0（如 QVIX 1000 源），当缺失跳过
             continue
         rows.append((_norm_date(r[dc]), v))
-    # QVIX 当日补采:daily k.csv 缺当日(T+1+ 滞后)时, fallback 分钟 csv 算当日 close
-    min_func = QVIX_MIN_FUNCS.get(metric["func"])
-    if min_func:
-        target = _qvix_min_target_date()
+    # QVIX 当日补采:主源 daily k.csv(T+1+ 滞后)缺当日时,真异源链 sse -> RV(网底)补一行
+    if metric["func"] in RV_ETFS:
+        target = _qvix_latest_trading_date()
         if target and not any(d == target for d, _ in rows):
-            rec = _qvix_today_from_min(min_func, target)
-            if rec:
-                d, v = rec
-                rows.append((d, v * sc))
+            _src, _rows, _msg = _qvix_fallback(metric, just_date=target)
+            if _rows:
+                rows = rows + _rows
+                return rows, _msg, _src
     # 突跳检测:配 spike_guard 的指标(如 a_fund_margin)，值跳变超阈值(倍)则剔除该行
     # (防源端数值层面放大，如 2026-08-04 两融余额源端放大 1000 倍，scale 挡不住)
     rows, spike_rejected = _spike_guard_filter_series(metric, rows)
@@ -279,11 +327,134 @@ def collect_series(metric):
         rej_str = "; ".join(
             f"{d}:{v:.4g}(prev={p:.4g},{r:.1f}x)" for d, v, p, r in spike_rejected
         )
-        return rows, f"ok (spike_guard rejected {len(spike_rejected)}): {rej_str}"
-    return rows, "ok"
+        return rows, f"ok (spike_guard rejected {len(spike_rejected)}): {rej_str}", _source
+    return rows, "ok", _source
 
 
-def cross_check_zt_pool(func_name: str, date: str):
+def _qvix_fallback(metric, just_date=None):
+    """QVIX 真异源兜底链:返回 (src, rows, msg)。优先级 sse官方IV自算 > RV(网底)。
+
+    - 主源(optbbs)整体空/错误:取一档可用源全序列回填。
+    - 主源只在当日缺:just_date=当日,优先 sse 算当日;sse 失败用 RV 当日。
+    """
+    func = metric["func"]
+    und = RV_ETFS.get(func)
+    sc = metric.get("scale", 1.0)
+    # 档1: 上交所官方 IV 方差互换自算 QVIX(真异源,T+1权威)
+    # 仅在补当日时调用(sse IV 为 T+1 发布,取最近交易日链);全序列回填开销大,网底 RV 更轻。
+    if just_date:
+        try:
+            res, msg = multisource.sse_qvix_series(just_date, und)
+            if res:
+                return SOURCE_SSE, [(res[0][0], res[0][1] * sc)], (
+                    f"{func} 主源缺{just_date}, sse官方IV自算QVIX: {res[0][1]:.2f} (sse)")
+        except Exception:  # noqa: BLE001
+            pass
+    # 网底: 本地 20 日滚动年化已实现波动率(口径差异,已公示)
+    rv = _qvix_rv_series(func)
+    if rv:
+        if just_date:
+            rv_rows = [(d, v * sc) for d, v in rv if d == just_date]
+            if rv_rows:
+                return SOURCE_RV_LOCAL, rv_rows, (
+                    f"{func} 主源缺{just_date}, RV网底: {rv_rows[0][1]:.2f} ({SOURCE_RV_LOCAL},口径差异)")
+        return SOURCE_RV_LOCAL, [(d, v * sc) for d, v in rv], (
+            f"{func} 主源宕机/空, 真异源全链都空, 切本地RV({SOURCE_RV_LOCAL},口径已公示)")
+    return "akshare", [], f"{func} 异源全链(sse/RV)皆败"
+
+
+def _fallback_then_main_series(metric, fallback_keys):
+    """主源 akshare 缺失时先试异源兜底(record),若兜底有数据则用之并标 source,否则走主源。
+
+    fallback_keys: 见下各函数,决定调哪个 multisource 抓取器 + source 标记。
+    返回 (rows, msg, src) 直接给 runner。
+    """
+    # 先试主源,主源正常返回 akshare 全序列
+    fn = getattr(ak, metric["func"], None)
+    rows_main, src_main = _series_from_main(metric, fn)
+    if rows_main:
+        return rows_main, "ok", src_main
+    # 主源空/错误 -> 异源兜底
+    for key in fallback_keys:
+        _res = _run_multisource(metric, key)
+        if _res is None or not _res[0]:
+            continue
+        rows, msg, src = _res
+        return rows, msg, src
+    return [], f"{metric['func']} 主源+异源兜底皆败", "akshare"
+
+
+def _series_from_main(metric, fn):
+    """走 akshare 主源拉序列(与 collect_series 主体同逻辑,供兜底先试主源)。"""
+    if fn is None:
+        return [], "akshare"
+    params = dict(metric.get("params") or {})
+    try:
+        import datetime as _dt
+        if metric["func"] in NEEDS_DATE_RANGE:
+            today = _dt.date.today()
+            lookback = NEEDS_DATE_RANGE[metric["func"]]
+            params.setdefault("start_date", (today - _dt.timedelta(days=lookback)).strftime("%Y%m%d"))
+            params.setdefault("end_date", today.strftime("%Y%m%d"))
+        if metric["func"] == "bond_china_yield":
+            df = _fetch_bond_china_yield(fn, int(metric.get("lookback_days", 3650)))
+        else:
+            df = safe_call(fn, **params)
+        if isinstance(df, Exception) or df is None or len(df) == 0:
+            return [], "akshare"
+        flt = metric.get("filter")
+        if flt:
+            for k, v in flt.items():
+                if k in df.columns:
+                    df = df[df[k] == v]
+        dc = _date_col(df)
+        col = metric.get("column")
+        if not dc or not col or col not in df.columns:
+            return [], "akshare"
+        sc = metric.get("scale", 1.0)
+        drop_zero = bool(metric.get("drop_zero"))
+        rows = []
+        for _, r in df.iterrows():
+            try:
+                v = float(r[col]) * sc
+            except (TypeError, ValueError):
+                continue
+            if v != v:
+                continue
+            if drop_zero and v == 0:
+                continue
+            rows.append((_norm_date(r[dc]), v))
+        if rows:
+            return rows, "akshare"
+    except Exception:  # noqa: BLE001
+        pass
+    return [], "akshare"
+
+
+def _run_multisource(metric, key):
+    """调到对应异源抓取器,返回 (rows, msg, src)。key: treasury/hkex/cn10y_em/gold_em。
+    us10y: 美财政部 CSV(source=treasury)
+    hk_south: HKEX 官方南向净买额(source=hkex)
+    cn10y: 东财 datacenter 中国10Y(source=em)
+    gold: 东财 futsseapi 沪金主连(source=em)
+    """
+    if key == "treasury":
+        rows = multisource.fetch_treasury_us10y()
+        if rows:
+            return rows, "us10y 主源东财宕机, 切美财政部官方CSV(treasury)", SOURCE_TREASURY
+    if key == "hkex":
+        rows = multisource.fetch_hkex_south_net()
+        if rows:
+            return rows, "hk_south 主源东财宕机, 切HKEX官方JS反算南向净买额(hkex)", SOURCE_HKEX
+    if key == "cn10y_em":
+        rows = multisource.fetch_em_cn10y()
+        if rows:
+            return rows, "cn10y 主源中债宕机, 切东财datacenter(em)", SOURCE_EM
+    if key == "gold_em":
+        rows = multisource.fetch_em_gold_aum()
+        if rows:
+            return rows, "gold 主源新浪宕机, 切东财futsseapi沪金主连(em)", SOURCE_EM
+    return None
     """zt_pool 系列空时交叉验证(2026-07-31 跌停池空修复,2026-07-20 提取公共函数)。
 
     场景:大盘反弹日跌停池(stock_zt_pool_dtgc_em)空=真0跌停,但涨停池
@@ -381,19 +552,32 @@ def collect_direct(metric):
 
 
 def collect_tencent(metric, date):
-    """腾讯行情函数（func 形如 tencent:index_turnover）。返回 (value, msg)。"""
+    """腾讯行情函数(func 形如 tencent:index_turnover)。返回 (value, msg, src)。
+
+    a_turnover_rate 主源腾讯指数换手率(value)宕机/空时,切东财 push2delay f168(eastmoney 异源)。
+    """
     from . import tencent
     name = metric["func"][len("tencent:"):]
     params = dict(metric.get("params") or {})
     fn = getattr(tencent, f"fetch_{name}", None)
-    if fn is None:
-        return None, f"no tencent.fetch_{name}"
-    res = safe_call(fn, **params)
-    if isinstance(res, Exception):
-        return None, f"tencent:{name} error: {res}"
-    if res is None:
-        return None, f"tencent:{name} empty"
-    return _scale(metric, float(res)), "ok"
+    if fn is not None:
+        res = safe_call(fn, **params)
+        if not isinstance(res, Exception) and res is not None:
+            return _scale(metric, float(res)), "ok", "akshare"
+        main_err = f"tencent:{name} error: {res}" if isinstance(res, Exception) else f"tencent:{name} empty"
+    else:
+        main_err = f"no tencent.fetch_{name}"
+    # 主源失败 -> 东财 push2delay 异源兜底(仅 a_turnover_rate,上证指数换手率)
+    if metric.get("id") == "a_turnover_rate":
+        try:
+            em_rows = multisource.fetch_em_index_turnover(secid=metric.get("params", {}).get("secid", "1.000001"))
+            if em_rows:
+                val = float(em_rows[0][1])
+                return _scale(metric, val), (
+                    f"a_turnover_rate 主源腾讯宕机, 切东财push2delay(em): {main_err}"), SOURCE_EM
+        except Exception:  # noqa: BLE001
+            pass
+    return None, main_err, "akshare"
 
 
 def _apply_transform(df, metric, date):
@@ -495,10 +679,20 @@ def collect_index(idx, start_date, end_date):
         # 无 start/end 参数，返全量历史（1999 起 ~6000 行）。period=day 日频。
         params.update(period="day")
     df = safe_call(fn, **params)
-    if isinstance(df, Exception):
-        return [], f"{idx['func']} error: {df}"
-    if df is None or len(df) == 0:
-        return [], f"{idx['func']} empty"
+    if isinstance(df, Exception) or (df is not None and len(df) == 0) or df is None:
+        main_err = (f"{idx['func']} error: {df}" if isinstance(df, Exception)
+                    else f"{idx['func']} empty")
+        # 美股/全球指数 主源(新浪)失败 -> 东财 push2delay 异源兜底(当日快照,真异源)
+        if idx["id"] in multisource.EM_INDEX_MAP:
+            secid, scale = multisource.EM_INDEX_MAP[idx["id"]]
+            snap = multisource.fetch_em_index_snapshot(secid, scale, date_str=end_date)
+            if snap:
+                d, close = snap[0]
+                return [(d, idx["id"], close, close, close, close, None, None)], (
+                    f"{idx['func']} 主源新浪宕机, 切东财push2delay(em)当日快照: ({main_err})")
+        if isinstance(df, Exception):
+            return [], main_err
+        return [], main_err
     dc = _date_col(df)
     if dc is None:
         return [], f"{idx['func']} no date col (cols={list(df.columns)[:6]})"

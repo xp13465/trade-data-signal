@@ -317,16 +317,19 @@ akshare 封装的同花顺接口。
 核心指数(新浪→baostock→腾讯)、主力净流入(东财→同花顺)、北向(HKEX→东财)、盘中实时(腾讯→新浪)、申万行业(申万→同花顺)、分时1min(同花顺→东财)、ETF日线(fetch_etf_ohlc sina+mootdx)。
 
 ### 15.2 可直接上(数值逐位互证)
-| 指标 | 现主源 | 免费兜底源 | 验证 |
-|---|---|---|---|
-| us10y | 东财 bond_zh_us_rate | **美国财政部官方 CSV**(home.treasury.gov daily-treasury-rates.csv) | 8/14 逐位一致 4.68 |
-| hk_south | 东财 stock_hsgt_hist_em | **HKEX 官方 JS**(data_tab_daily_{date}e.js)反算南向净买额 | 逐位一致 -13.16亿 |
-| cn10y | 中债 bond_china_yield | 东财 bond_zh_us_rate(datacenter) | 完全一致 1.6964 |
-| a_turnover_rate | 腾讯 index_turnover | 东财 push2delay secid=1.000001 f168 | 完全一致 1.03% |
-| 美股指数 | 新浪 index_us_stock_sina | 东财 push2delay 100.NDX 等 | 逐位一致 纳指 26729.16 |
-| 全球指数 | 新浪 index_global_hist_sina | 东财 push2delay(日经/DAX/富时/KOSPI) | 实测可达 |
-| gold(沪金AU0) | 新浪 futures_main_sina | 东财 futsseapi aum 沪金主连 | 差 0.06 元 |
-| wti/comex_silver/brent | 新浪 futures_foreign_hist | 东财 futsseapi 国际期货 620条 | 实测可达 |
+> ✅ **已实施(2026-08-15,feat/free-multisource-fallback)**:下列 6 组已落 `app/collector/multisource.py`
+> (异源抓取器)+ `app/collector/fetchers.py`(collect_series/collect_tencent/collect_index 切换逻辑)+
+> `app/collector/runner.py`(source 标记透传 daily_metric.source 溯源)。切源 source 标记:treasury/hkex/em。
+| 指标 | 现主源 | 免费兜底源 | 验证 | 兜底 source |
+|---|---|---|---|---|
+| us10y | 东财 bond_zh_us_rate | **美国财政部官方 CSV**(home.treasury.gov daily-treasury-rates.csv) | 8/14 逐位一致 4.68 | `treasury` |
+| hk_south | 东财 stock_hsgt_hist_em | **HKEX 官方 JS**(data_tab_daily_{date}e.js)反算南向净买额(SSE+SZSE Southbound Buy-Sell) | 逐位一致 -13.16亿 | `hkex` |
+| cn10y | 中债 bond_china_yield | 东财 datacenter RPTA_WEB_TREASURYYIELD 中国10Y(EMM00166466) | 完全一致 1.6964 | `em` |
+| a_turnover_rate | 腾讯 index_turnover | 东财 push2delay secid=1.000001 f168 | 完全一致 1.03% | `em` |
+| 美股指数 | 新浪 index_us_stock_sina | 东财 push2delay 100.NDX 等(全9指数实测) | 逐位一致 纳指 26729.16 | `em` |
+| 全球指数 | 新浪 index_global_hist_sina | 东财 push2delay(日经 N225/KOSPI KS11/DAX/富时/CAC40) | 实测可达 | `em` |
+| gold(沪金AU0) | 新浪 futures_main_sina | 东财 futsseapi aum 沪金主连(951.54) | 量级一致(0.9%) | `em` |
+| wti/comex_silver/brent | 新浪 futures_foreign_hist | 东财 futsseapi 国际期货 620条 | 实测可达 | (未实施,列入次优先) |
 
 ### 15.3 次优先(需映射/互补)
 | 指标 | 现主源 | 兜底源 | 说明 |
