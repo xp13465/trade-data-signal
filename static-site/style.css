@@ -3223,12 +3223,32 @@ main { padding: 16px 24px; }
 .db-hit-win { background: #e8f5e9; color: #2e7d32; }
 .db-hit-lose { background: #fdecea; color: #c62828; }
 .db-hit-pending { background: var(--bg-hover); color: var(--text-3); }
+/* 2026-08-15 区间双命中: 区间N/A(老条目无区间, 不算中不算不中) */
+.db-hit-na { background: #fff3e0; color: #e65100; }
 .db-actual {
   font-size: 11px;
   padding: 1px 7px;
   border-radius: 9px;
   background: var(--bg-hover);
   color: var(--text-2);
+}
+/* 2026-08-15 区间双命中: 预测区间徽标 + 板块区间芯片(与 db-watch/db-risk 同款式) */
+.db-range {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: #ede7f6;
+  color: #5e35b1;
+  font-weight: 600;
+}
+.db-sector {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: #e3f2fd;
+  color: #1565c0;
+  margin-right: 4px;
+  white-space: nowrap;
 }
 .db-expand-hint { font-size: 11px; color: var(--text-3); margin-left: auto; }
 .db-detail {

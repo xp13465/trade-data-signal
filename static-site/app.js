@@ -20704,7 +20704,7 @@ function _summaryHistoryItemHtml(s, briefByDate) {
   const it = (briefByDate && s.date) ? briefByDate[s.date] : null;
   if (it) {
     const meta = it.meta || {};
-    aiBlock = `<div class="sh-ai-brief"><div class="sh-ai-brief-head"><span class="db-dir">${_dbDirLabel(meta.direction)}</span><span class="sh-ai-brief-title">🤖 AI预测</span>${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}${_dbHitHtml(meta)}${_dbActualHtml(meta)}</div>${_dbBriefDetailHtml(it)}</div>`;
+    aiBlock = `<div class="sh-ai-brief"><div class="sh-ai-brief-head"><span class="db-dir">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}<span class="sh-ai-brief-title">🤖 AI预测</span>${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}${_dbHitHtml(meta)}${_dbActualHtml(meta)}</div>${_dbBriefDetailHtml(it)}</div>`;
   }
   return `<div class="summary-history-item"><div class="sh-date">${date} <span class="sh-label">${s.sentiment_label || ""}</span>${fg}${freeze}</div>${renderSummaryChips(s, null)}${aiBlock}</div>`;
 }
@@ -20830,11 +20830,35 @@ function _dbDirLabel(d) {
   return "➖ 震荡";
 }
 
+// 2026-08-15 区间双命中: 方向徽标后追加预测区间(+0.5~1.5%)。
+// 区间从 meta.range 读; 老条目无 range → 不显示区间徽标(不伪造)。
+function _dbRangeLabel(meta) {
+  const rng = (meta && meta.range) || null;
+  if (!rng || rng.lo == null || rng.hi == null) return "";
+  const fmt = (v) => (Number(v) > 0 ? `+${Number(v).toFixed(2)}` : Number(v).toFixed(2));
+  return `<span class="db-range">预计 ${fmt(rng.lo)}~${fmt(rng.hi)}%</span>`;
+}
+
+// 2026-08-15 区间命中判定 4 态: ✅方向+区间 / ✅仅方向(老条目无 range) / ❌未中 / 区间N/A。
+// 有 range → 看 hit.direction(新版=整体命中,大盘+板块双命中; 命中=true/未中=false/null=待回填);
+// 无 range 老条目 → hit.direction 沿用旧"方向相等"口径: true=仅方向命中, false=未中, null=待回填;
+// hit.range_hit 存在但为 null 且实际已回填 → 区间N/A(不算中不算不中)。
 function _dbHitHtml(meta) {
   const hit = (meta && meta.hit) || {};
-  if (hit.direction === true) return '<span class="db-hit db-hit-win">✅ 命中</span>';
+  const rng = (meta && meta.range) || null;
+  // 老条目无 range: 只判方向(不标区间)
+  if (!rng || rng.lo == null || rng.hi == null) {
+    if (hit.direction === true) return '<span class="db-hit db-hit-win">✅ 仅方向命中</span>';
+    if (hit.direction === false) return '<span class="db-hit db-hit-lose">❌ 未中</span>';
+    return '<span class="db-hit db-hit-pending">⏳ 待回填</span>';
+  }
+  // 新区间条目: 区间命中为主。已回填(有 actual_sh_pct)但无法整体判定(板块层 N/A) → 区间N/A
+  if (hit.actual_sh_pct != null && hit.direction == null) return '<span class="db-hit db-hit-na">区间N/A</span>';
+  if (hit.direction === true) return '<span class="db-hit db-hit-win">✅ 方向+区间命中</span>';
   if (hit.direction === false) return '<span class="db-hit db-hit-lose">❌ 未中</span>';
-  return '<span class="db-hit db-hit-pending">⏳ 待回填</span>';
+  // 大盘区间都还没判(N/A/未判定)且实际也未回填 → 待回填
+  if (hit.range_hit == null && hit.actual_sh_pct == null) return '<span class="db-hit db-hit-pending">⏳ 待回填</span>';
+  return '<span class="db-hit db-hit-na">区间N/A</span>';
 }
 
 function _dbActualHtml(meta) {
@@ -20843,6 +20867,15 @@ function _dbActualHtml(meta) {
     const pct = hit.actual_sh_pct;
     const sign = pct >= 0 ? "+" : "";
     const color = pct >= 0 ? "#e6492e" : "#2e8b57";
+    const fmt = (v) => (Number(v) > 0 ? `+${Number(v).toFixed(2)}` : Number(v).toFixed(2));
+    const rng = (meta && meta.range) || null;
+    // 2026-08-15 区间双命中: 次日实际涨跌幅旁加预测区间对比, 实际在区间内则强化标色
+    if (rng && rng.lo != null && rng.hi != null && hit.range_hit === true) {
+      return `<span class="db-actual" style="color:${color}">次日上证 ${sign}${pct.toFixed(2)}%（实测落进预测区间 ${fmt(rng.lo)}~${fmt(rng.hi)}% ✓）</span>`;
+    }
+    if (rng && rng.lo != null && rng.hi != null) {
+      return `<span class="db-actual" style="color:${color}">次日上证 ${sign}${pct.toFixed(2)}%（预测区间 ${fmt(rng.lo)}~${fmt(rng.hi)}%，实测 ${hit.range_hit === false ? "未落进" : "—"}）</span>`;
+    }
     return `<span class="db-actual" style="color:${color}">次日上证 ${sign}${pct.toFixed(2)}%</span>`;
   }
   return '<span class="db-actual">次日待回填</span>';
@@ -20934,6 +20967,32 @@ function _dbBriefDetailHtml(it) {
   const t = it.text || {};
   const watchList = (meta.watch_list || []).map((w) => w.name || w.index_id).join("、");
   const riskItems = (meta.risk_items || []).join("、");
+  // 2026-08-15 区间双命中: 大盘区间 + 板块区间区块。读 meta.range / meta.sector_ranges;
+  // 老条目 null sector_count 无 range → 整个区间区块留空(不伪造)。
+  let rangeBlock = "";
+  const rng = (meta.range && meta.range.lo != null && meta.range.hi != null) ? meta.range : null;
+  if (rng) {
+    const hit = (meta.hit || {}).range_hit;
+    const hitTxt = hit === true ? " ✅命中" : hit === false ? " ❌未中" : (meta.hit && meta.hit.actual_sh_pct != null ? " 区间N/A" : "");
+    const fmt = (v) => (Number(v) > 0 ? `+${Number(v).toFixed(2)}` : Number(v).toFixed(2));
+    rangeBlock = `<p class="db-line"><span class="db-k">大盘区间</span>上证次日 ${fmt(rng.lo)}~${fmt(rng.hi)}%${hitTxt}</p>`;
+  }
+  let sectorBlock = "";
+  const srs = (meta.sector_ranges && meta.sector_ranges.length) ? meta.sector_ranges : null;
+  if (srs) {
+    const shits = (meta.hit && meta.hit.sector_hits) || null;
+    const map = {};
+    if (shits) shits.forEach((s) => { if (s && s.name != null) map[s.name] = s; });
+    const fmt = (v) => (Number(v) > 0 ? `+${Number(v).toFixed(2)}` : Number(v).toFixed(2));
+    const pcs = srs.map((s) => {
+      const nm = s && (s.name || "");
+      const sh = map[nm];
+      const hitTxt = sh && sh.hit === true ? " ✅命中" : sh && sh.hit === false ? " ❌未中" : (sh && sh.actual_pct != null ? " N/A" : "");
+      // sector_ranges 元素本身不带 actual_pct(实际在 hit.sector_hits 里), 区间本体展示用 lo/hi
+      return `<span class="db-sector">${_esc(nm || "？")} ${fmt(s.lo)}~${fmt(s.hi)}%${hitTxt}</span>`;
+    }).join("");
+    sectorBlock = `<p class="db-line"><span class="db-k">板块区间</span>${pcs || "（无）"}</p>`;
+  }
   let watchLine = "";
   if (t.watch || watchList) {
     watchLine = `<p class="db-line"><span class="db-k">关注</span>${_esc(t.watch || "")}${watchList ? `<span class="db-watch">【${_esc(watchList)}】</span>` : ""}</p>`;
@@ -20958,7 +21017,7 @@ function _dbBriefDetailHtml(it) {
     const tag = (roleN ? ` · ${roleN}角色` : "") + (bullN || bearN ? ` · 辩论 ${bullN}对${bearN}` : "");
     debateBlock = `<details class="db-debate-wrap"><summary class="db-debate-toggle">🧠 多角色讨论详情${tag}<span class="db-debate-arrow">▾</span></summary><div class="db-debate-body">${rolesHtml}${debateHtml}</div></details>`;
   }
-  return `${highlightsHtml}${conclusionHtml}${conf ? `<p class="db-line"><span class="db-k">把握度</span>${_dbConfidenceBadge(meta)}<span class="db-conf-reason">${_esc(conf.reason)}</span></p>` : ""}
+  return `${rangeBlock}${sectorBlock}${highlightsHtml}${conclusionHtml}${conf ? `<p class="db-line"><span class="db-k">把握度</span>${_dbConfidenceBadge(meta)}<span class="db-conf-reason">${_esc(conf.reason)}</span></p>` : ""}
       <p class="db-line"><span class="db-k">复盘</span>${_esc(t.review || "")}</p>
       <p class="db-line"><span class="db-k">趋势</span>${_esc(t.trend || "")}</p>
       ${watchLine}
@@ -20974,7 +21033,7 @@ function _dailyBriefItemHtml(it) {
   const dateRaw = it.date || meta.date || "";
   const date = dateRaw.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
   return `<div class="summary-history-item db-item" data-date="${_escAttr(dateRaw)}">
-    <div class="sh-date"><span class="db-dir">${_dbDirLabel(meta.direction)}</span>${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}<span class="sh-label">${_esc(date)}</span>${_dbHitHtml(meta)}${_dbActualHtml(meta)}<span class="db-expand-hint">点击收起 ▲</span></div>
+    <div class="sh-date"><span class="db-dir">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}<span class="sh-label">${_esc(date)}</span>${_dbHitHtml(meta)}${_dbActualHtml(meta)}<span class="db-expand-hint">点击收起 ▲</span></div>
     <div class="db-detail">
       ${_dbBriefDetailHtml(it)}
     </div>
@@ -21042,11 +21101,11 @@ function _renderDailyBriefStats(brief) {
   const todayConf = (tb && tb.meta) ? _dbConfidenceBadge(tb.meta) : "";
   el.innerHTML =
     '<div class="db-stats-box">' +
-      '<span class="db-stats-title">📊 AI预测命中率（meta机检，次日回填）</span>' +
+      '<span class="db-stats-title">📊 AI预测命中率（方向+区间双命中，meta机检次日回填）</span>' +
       `<span class="db-stats-item db-stats-sched">🕗 每日 20:40 更新${genAt}${todayConf ? ` · 今日${todayConf}` : ""}</span>` +
       `<span class="db-stats-item">近30日：<b>${s30 && s30.n ? `${s30.hit}/${s30.n}（${rate(s30)}）` : "暂无样本"}</b></span>` +
       `<span class="db-stats-item">近90日：<b>${s90 && s90.n ? `${s90.hit}/${s90.n}（${rate(s90)}）` : "暂无样本"}</b></span>` +
-      '<span class="db-stats-how">AI每日盘后基于当日收盘数据，默认由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测 + 🎯今日要点 + 多角色讨论（展开可看四角色结论与多空辩论）；任一环节失败自动降级单模型生成兜底。meta结构化断言方向/关注标的/风险点，次日机检回填实际涨跌判定命中；方向判定容忍带 ±0.5%（|次日涨跌|≤0.5% 判 flat 震荡，>0.5% 判 up，<-0.5% 判 down，模型把握度低时倾向给 flat）。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30（把握度低时方向更倾向震荡，仅参考）。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。<b>版本徽标</b>：🤖多角色=6角色完整版（默认）／旧版单模型=多角色版上线前旧版（已被取代）／⚠️降级版=AI生成失败规则兜底（无多角色辩论）／⚠️精简版=最小兜底；降级/精简版仅供参考。每条预测含<b>🧭结论</b>行（融合结论=研究员多空辩论收敛结果，不展开即可见），<b>辩论详情</b>折叠面板可展开看四角色结论与多空论据（含论据数）。命中率仅为历史统计，不构成投资建议。</span>' +
+      '<span class="db-stats-how">AI每日盘后基于当日收盘数据，默认由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测 + 🎯今日要点 + 多角色讨论（展开可看四角色结论与多空辩论）；任一环节失败自动降级单模型生成兜底。meta结构化断言：预测给出<b>明确方向 + 具体涨跌幅区间</b>（大盘上证 + 1-3个领涨/领跌板块次日涨跌幅区间，区间宽度≤0.5%，越窄越准；方向由区间体现：全正=涨/全负=跌/含0=平震荡）。命中判定=<b>区间命中</b>：大盘实际涨跌幅 ∈ 大盘预测区间，且所有预测板块实际涨跌幅 ∈ 各自区间（大盘+板块双命中=✅方向+区间命中）。<b>历史老条目</b>（改造前无区间的预测）不伪造区间，只保留旧"方向相等"判定（✅仅方向命中），区间命中标"区间N/A"（不算中不算不中），故命中率为新老口径混合统计。<b>区间命中率</b>仅对改造后含区间的条目计，老条目区间N/A不计入。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。<b>版本徽标</b>：🤖多角色=6角色完整版（默认）／旧版单模型=多角色版上线前旧版（已被取代）／⚠️降级版=AI生成失败规则兜底（无多角色辩论）／⚠️精简版=最小兜底；降级/精简版仅供参考。每条预测含<b>🧭结论</b>行（融合结论=研究员多空辩论收敛结果，不展开即可见），<b>辩论详情</b>折叠面板可展开看四角色结论与多空论据（含论据数）。命中率仅为历史统计，不构成投资建议。</span>' +
     '</div>';
 }
 
