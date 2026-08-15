@@ -21,7 +21,7 @@
 | dailypool_rerun_final.py | 每日池最优配置矩阵(AI宏7键±greedy15±a45) | python3 dailypool_rerun_final.py |
 | dailypool_rerun_final2.py | 每日池最优穷举(演进版 final2,对应报告 §0.2) | python3 dailypool_rerun_final2.py |
 | dailypool_rerun_opt.py | 最优组合穷举(LOO+单加+双加)+按年分解+B模式 | python3 dailypool_rerun_opt.py |
-| dailypool_rerun_ratio.py | 每日池 standalone 减亏比值 vs 页面旧 ratio | python3 dailypool_rerun_ratio.py |
+| dailypool_rerun_ratio.py | 每日池 standalone 减亏比值 vs 页面旧 ratio(2026-08-16 扩展 K2C5/K3: K2C5 ALL9-K1 比值4.55, 详见 analysis/kelly-k2c5-dailypool-ratio.md) | python3 dailypool_rerun_ratio.py |
 
 ## C 组(认知差:按年收益率 vs 峰值资金回撤)
 

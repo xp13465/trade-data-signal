@@ -1,11 +1,12 @@
 # ============================================================
-# 用途: 用途: 每日池 standalone 减亏比值 vs 页面 _kellyFadeFlagGroups 旧 ratio 对比
-# 日期/来源: 2026-08-13 / tmp
+# 用途: 每日池 standalone 减亏比值 vs 页面 _kellyFadeFlagGroups 旧 ratio 对比
+# 日期/来源: 2026-08-13 / tmp; 2026-08-16 / trade 扩展 K2C5/K3
 # 结论: G 模式最优组合 去{greedy15,excludeAuxCross,r7}+a45; A/F 模式保持 AI宏7键; 详见 kelly-dailypool-exhaustive-rerun.md
+#       2026-08-16 扩展: K2C5(港股追涨剔除) ALL9-K1 减亏2.88%/损盈0.63%/比值4.55, 详见 docs/kelly/analysis/kelly-k2c5-dailypool-ratio.md
 # 依赖: kelly_combo_advice_analysis.py + kelly_posfilter_backtest.py
-# 输入/输出: 读 signal_kelly_trades.json, 输出 /tmp 下各配置统计
-# 复现: python3 dailypool_rerun_ratio.py
-# 注意: 原文件含硬编码绝对路径, 如需重跑请确认路径或改相对路径
+# 输入/输出: 读 static-site/data/signal_kelly_trades.json (数据截止 2026-08-13, mtime 8/15 23:05), 输出各配置统计
+# 复现: cd /Users/linhuichen/code/trade && python3 docs/kelly/scripts/dailypool_rerun_ratio.py
+# 注意: 原文件含硬编码绝对路径 /tmp 与 /Users/linhuichen/code/trade, 如需重跑请确认路径或改相对路径
 # ============================================================
 # -*- coding: utf-8 -*-
 """每日池口径 standalone 减亏比值 vs 页面 _kellyFadeFlagGroups 旧 ratio
@@ -14,12 +15,26 @@
 - toggle: 每日池 先toggle过滤再topK K
 - 减亏% = (基准总亏损-过滤后总亏损)/基准总亏损
 - 损盈% = (基准总盈利-过滤后总盈利)/基准总盈利
+- 2026-08-16: 追加 K2C5(港股追涨剔除 buy_special/buy_backup×港股) / K3(主关注×概念 buy×concept),
+  包装 passes_fade 在月门控短路前判定(防 fall-through), 判定对齐 lab.js L7521-7523 权威逻辑
 """
 import sys, math
 from collections import defaultdict
 sys.path.insert(0, '/tmp'); sys.path.insert(0, '/Users/linhuichen/code/trade')
-from kelly_combo_advice_analysis import (passes_fade, fIdx, empty_filters, BUY_AMOUNT)
+from kelly_combo_advice_analysis import passes_fade as _passes_fade_orig, fIdx, empty_filters, BUY_AMOUNT, trade_features
 from kelly_posfilter_backtest import base_signals, get_by_date, base_key
+
+# ---- K2C5/K3 包装判定 (对齐 lab.js L7520-7523, 放最前防月门控短路) ----
+def passes_fade(t, F):
+    if F.get('k2c5HkChase'):
+        sig = str(t[fIdx['signal']] or '')
+        if sig in ('buy_special', 'buy_backup') and trade_features(t).get('mktD', '') == 'hk':
+            return False
+    if F.get('k3ConceptBuy'):
+        sig = str(t[fIdx['signal']] or '')
+        if sig == 'buy' and trade_features(t).get('mktD', '') == 'concept':
+            return False
+    return _passes_fade_orig(t, F)
 
 DAILY=10000.0; MODES=['A','B','C','D','E','F','G','H','I']
 QUAL_RANK={'buy_backup':0,'buy':1,'buy_aux':2,'buy_special':3,'':9}
@@ -61,7 +76,7 @@ def ratio_for(mode,F,K):
     r=cutL/cutP if cutP>0 else (999.0 if cutL>0 else 0)
     return cutL,cutP,r
 
-TOGGLES=list(empty_filters().keys())
+TOGGLES=list(empty_filters().keys()) + ['k2c5HkChase', 'k3ConceptBuy']
 # 旧 ratio 从 lab.js _kellyFadeFlagGroups 摘录
 OLD_RATIO = {
  'v4f':999,'v4m':115.56,'v4b':53.96,'v4i':27.04,'v4j':15.55,'v4d':12.20,'v4k':10.11,
@@ -81,7 +96,8 @@ NAMES = {
  'a5NovMidSpecial':'a5 11月中旬+追','a45NovMidLateSpecial':'a45 11月中下旬+追','janMidRating':'J1 1月中+中评',
  'janMidSpecial':'J2 1月中+追','excludeAuxCross':'auxCross 辅×3/5月','excludeAux':'excludeAux 辅',
  'excludeRatingLow':'excludeRatingLow 低评','excludeMonth':'excludeMonth 3/5月','excludeSpecialBear':'specBear 追×熊',
- 'marketTiming':'marketTiming MA60','excludeAux':'excludeAux 辅'}
+ 'marketTiming':'marketTiming MA60','excludeAux':'excludeAux 辅',
+ 'k2c5HkChase':'K2C5 港股追涨剔除','k3ConceptBuy':'K3 主关注×概念'}
 
 for scope in ['G','ALL9']:
     print('='*120)
