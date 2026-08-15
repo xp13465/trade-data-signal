@@ -635,9 +635,14 @@ def _ai_macro_hit_filters(sig: dict, ctx: dict) -> list:
     #   与 lab.js _kellyPassesFadeFilters L7521 同谓词(_mktD3==="hk")。
     #   ⚠港股分类须对齐回测 MARKET_QUAD_MAP(scripts/signal_kelly_backtest.py L128-130):
     #   回测把 market in (hk,hk_industry) 都归入 mkt_hk 象限(港股板块归入港股大类), lab.js
-    #   mktD 读该象限 → "hk" 含 hk_industry; 故后端 mkt 长形式须判 (mkt_hk, mkt_hk_industry) 两值,
-    #   否则 hk_industry 信号(如 hk_hsmbi)回测侧命中 K2C5、后端 overview 漏标=§22 不一致。
-    if _sig in ("buy_special", "buy_backup") and _mkt in ("mkt_hk", "mkt_hk_industry"):
+    #   mktD 读该象限 → "hk"; 故后端 mkt 长形式只判单值 (mkt_hk,)。
+    #   ❗为什么不能连 mkt_hk_industry 一起判(2026-08-15 P2-1 修正): hk_industry 信号(如 hk_hsmbi)
+    #   在 §23.6 宇宙规则里属排除类别(港股行业 hk_*), 从未入样 → board_etf_map 无 key 无 track_score
+    #   → 回测 _build_best_etf 从不收录其 trade, 故 signal_kelly_trades.json 的 mkt_hk 象限只有
+    #   {hsi,hscei,hstech}(见 reviewer 审计复现), K2C5 在回测侧根本无从过滤 hk_industry 交易。
+    #   后端若连 mkt_hk_industry 一起判 = over-flag(防漏标意图反致过度标注): 12 条未入样 hk_industry
+    #   信号被标「AI降亏」而非「未入样本」, 与凯利区实际过滤范围不一致。故只判 mkt_hk。
+    if _sig in ("buy_special", "buy_backup") and _mkt == "mkt_hk":
         _f.append("k2c5HkChase")
     # 3 janMidRating: 1月中旬(11-20日) + mid 评级
     if _mm == "01" and 11 <= _dd <= 20 and _rating == "mid":
