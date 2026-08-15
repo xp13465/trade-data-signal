@@ -1,15 +1,26 @@
-# 会话移交 20260816 (AI监控卡二次迭代实施完成, reviewer 回归中)
+# 会话移交 20260816 (AI监控卡二次迭代 ✅ 已收口上线, 留 1 条 P2 待用户确认)
 
 > 触发=重启会话/compact 后恢复。本文件记录 2026-08-16 会话的关键状态,重启后可据此恢复。
 > 关联 memory: session-handoff-20260813 / user-usage-memory-beats-my-inference / compact-recovery-checklist
 
-## 1. 当前在跑 agent(勿重复派单)
+## 1. 当前状态 ✅ 全部收口
 
-| 任务 | agent | 状态 |
-|---|---|---|
-| **回归AI监控卡二次迭代** | reviewer `ae14f8b903ec7a9f8` | 🔄 后台跑 |
+**AI监控卡二次迭代 5 合一已 PASS 上线**(reviewer ae14f8b903ec7a9f8 结论 PASS):
+- implementer 完成上线 db6d69513, reviewer 逐项核对 PASS(两开关正交正确实现)
+- §8 三查 + §24 版本串 a275 全部一致
+- 任务 #18/#19/#20/#21 全 completed
 
-**进度**: implementer 已完成 5 合一并上线(db6d69513), §8 三查全过。reviewer 回归中, 通过后 merge 收口。
+## 2. ⚠️ 待用户确认的 P2 建议(reviewer 提, 未动手, §23.7 等用户拍板)
+
+**by_k(降亏关+K档)视图混入 21% 未入样信号, 与首页「同口径」说法有出入**
+- `scripts/overfit_monitor.py L453-488 build_topk_kept_map` 在 `by_date_raw` 上选 top-K, **没排除 `_bt_in_universe===false` 的信号**; 首页 `_posCapSortedFn` 人口(app.js L2584-2590)显式排除未入样
+- 实测: 5508 历史日里 **1172 日(21%)的 by_k top-1 落到 ts=None 未入样信号**(如 g.wti_oil 全球商品利率、cgb_* 债类, §23.6 排除类别); 近 60 日也有 7/53 日
+- 影响面: 只影响「降亏关+K档」视图; 默认视图(降亏开+filtered_by_k)干净, 与首页 1:1
+- 二选一修法(等用户确认): ① build_topk_kept_map 跳过 ts=None 信号(后端已有 ts_map, 一行判断), 真正做到与首页 AI建议同人口; ② 改公示措辞明确「by_k 人口=全信号含未入样, 与首页 AI建议入样口径不同」
+
+## 3. 顺带 2 个小 note(reviewer 提, 非本次引入, 不用动)
+- `await loadEcharts()`(app.js L1949)若 echarts CDN 挂, 卡片显示「加载失败」即使 lite SVG 不需要——老行为
+- 首页 tooltip(L2683)写排序含「→买入日」, 代码实际无第 4 键——同日内 buy_date 全等不影响, 既有文案/代码轻微不一致
 
 ## 2. 任务清单(TASKS.md 对应)
 
