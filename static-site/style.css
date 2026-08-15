@@ -6659,3 +6659,38 @@ main { padding: 16px 24px; }
   .h5-auth-btn .auth-dropdown-item { font-size: 14px; padding: 9px 12px; }
   .auth-login-modal .modal-body { width: 94vw; }
 }
+
+/* ── 调教监控卡(过拟合监控走势图, B 档 2026-08-15) ── */
+.overfit-card h3 {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.overfit-tip {
+  font-size: 11px; color: var(--text-3); line-height: 1.6; margin: 2px 0 6px;
+  padding: 4px 8px; background: rgba(128, 128, 128, 0.06); border-radius: 3px;
+}
+.overfit-legend { color: var(--text-3); }
+.overfit-win-row {
+  display: flex; align-items: center; gap: 4px; margin: 4px 0 8px; padding: 0 2px;
+}
+.overfit-win-label { font-size: 11px; color: var(--text-3); margin-right: 4px; }
+.overfit-win-btn {
+  font-size: 11px; padding: 2px 10px; border: 1px solid var(--border-color);
+  background: transparent; color: var(--text-2); border-radius: 12px; cursor: pointer;
+}
+.overfit-win-btn.active {
+  background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600;
+}
+.overfit-acc-title, .overfit-risk-title {
+  font-size: 12px; color: var(--text-2); font-weight: 600; margin: 2px 0 4px;
+}
+.overfit-acc-title .ov-sub, .overfit-risk-title .ov-sub {
+  font-weight: 400; color: var(--text-3); font-size: 10px; margin-left: 4px;
+}
+.overfit-empty { color: var(--text-3); font-size: 11px; padding: 4px 2px; }
+.overfit-card #overfit-acc-chart, .overfit-card #overfit-risk-chart {
+  min-width: 0; /* 移动端窄屏防溢出 */
+}
+@media (max-width: 600px) {
+  .overfit-win-row { flex-wrap: wrap; }
+  .overfit-card #overfit-acc-chart, .overfit-card #overfit-risk-chart { width: 100% !important; }
+}
