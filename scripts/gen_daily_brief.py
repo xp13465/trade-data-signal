@@ -272,8 +272,11 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
     d["name_map"] = {s.get("index_id"): s.get("name") for s in (ov.get("signals_today") or []) if s.get("index_id") and s.get("name")}
     d["signals_today_count"] = len(ov.get("signals_today") or [])
     d["recent_freeze"] = [f.get("date") for f in (ov.get("recent_freeze") or [])[-5:]]
+    # industry_heatmap_top: 附 sw_ index_id(申万行业,如 sw_801010),供 sector_ranges 板块名
+    #   -> index_id 锚定(板块区间次日验证要用 index_daily.sw_xxx 的 pct_change)。
     d["industry_heatmap_top"] = [
-        {"name": h.get("name"), "pct_1d": round(h["pct_1d"], 2) if h.get("pct_1d") is not None else None}
+        {"id": h.get("id"), "name": h.get("name"),
+         "pct_1d": round(h["pct_1d"], 2) if h.get("pct_1d") is not None else None}
         for h in (ov.get("industry_heatmap") or [])[:10]
     ]
 
@@ -562,6 +565,15 @@ def generate_rule_brief(date: str, data: dict, cfg: dict) -> dict:
     else:
         direction = "flat"
 
+    # 规则版区间:固定窄区间(标注"规则版区间"),方向由 direction 推导,宽度<0.5。
+    # up→(0.05,0.50], down→[-0.50,-0.05), flat→(-0.25,0.25);配合 _derive_direction 一致。
+    if direction == "up":
+        rng = {"lo": 0.05, "hi": 0.50}
+    elif direction == "down":
+        rng = {"lo": -0.50, "hi": -0.05}
+    else:
+        rng = {"lo": -0.25, "hi": 0.25}
+    sector_ranges_rule = []  # 规则版不预测板块区间(无 AI 逻辑)
     watch_list = [
         {"index_id": x["index_id"], "name": x.get("name") or x["index_id"], "win_rate": x["win_rate"]}
         for x in (data.get("signal_stats_buy_top") or [])[:cfg.get("max_watch_items", 5)]
@@ -572,11 +584,16 @@ def generate_rule_brief(date: str, data: dict, cfg: dict) -> dict:
             "date": date,
             "version": "rule",
             "direction": direction,
+            "range": rng,                       # 规则版固定窄区间
+            "sector_ranges": sector_ranges_rule,
+            "range_status": "rule_fixed",
+            "range_note": "规则版区间(非AI推导,固定窄带)",
             "confidence": 50,
             "confidence_reason": "规则版(非AI),无把握度评分,默认中等",
             "watch_list": watch_list,
             "risk_items": risk_items,
-            "hit": {"direction": None, "actual_sh_pct": None, "actual_direction": None},
+            "hit": {"direction": None, "actual_sh_pct": None, "actual_direction": None,
+                    "range_hit": None, "sector_hits": None},
         },
         "text": {"review": review, "trend": trend, "watch": watch, "risk": risk},
     }
@@ -590,11 +607,16 @@ def generate_minimal_brief(date: str, data: dict) -> dict:
             "date": date,
             "version": "minimal",
             "direction": "flat",
+            "range": {"lo": -0.5, "hi": 0.5},   # 数据不足最小版,给最宽允许区间兜底
+            "sector_ranges": [],
+            "range_status": "minimal_default",
+            "range_note": "最小版(数据不足),方向与区间均为默认兜底,可信度低",
             "confidence": 50,
             "confidence_reason": "数据不足(最小版),默认中等",
             "watch_list": [],
             "risk_items": [],
-            "hit": {"direction": None, "actual_sh_pct": None, "actual_direction": None},
+            "hit": {"direction": None, "actual_sh_pct": None, "actual_direction": None,
+                    "range_hit": None, "sector_hits": None},
         },
         "text": {
             "review": summary.get("summary") or "今日A股收盘数据缺失。",
@@ -615,6 +637,8 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
         "不要输出任何 JSON 外的说明文字。JSON 结构固定为:\n"
         "{\n"
         '  "direction": "up|down|flat",\n'
+        '  "range": {"lo": 0.5, "hi": 1.5}, // 大盘(上证指数)次日涨跌幅区间(%),必填,hi-lo≤0.5\n'
+        '  "sector_ranges": [{"name": "中证1000", "lo": 1.0, "hi": 1.5}], // 1-3个领涨/领跌板块区间\n'
         '  "confidence": 0-100整数(把握度), "confidence_reason": "1句把握度理由",\n'
         '  "watch_list": [{"index_id": "...", "name": "...", "win_rate": 0.75}],\n'
         '  "risk_items": ["..."],\n'
@@ -622,10 +646,16 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
         '  "text": {"review": "...", "trend": "...", "watch": "...", "risk": "..."}\n'
         "}\n"
         "规则:\n"
-        "1. direction 是下一个交易日的A股方向研判:up=偏强/看涨,down=偏弱/看跌,flat=震荡/看不清。拿不准就 flat,不硬猜方向。\n"
+        "1.【方向+区间双必填·铁律】必须同时给出明确 direction 和具体幅度区间 range,二者缺一不可。"
+        "range 代表上证指数次日涨跌幅(%):lo 下界、hi 上界,必填且禁止省略;"
+        "方向由区间自动推导(lo>0→up, hi<0→down,含0→flat),不得出现\"拿不准就flat/不硬猜方向\"的逃避行为,"
+        "区间可以窄但必须给、不准含糊。区间宽度约束:hi-lo ≤ 0.5(1.5-2可以,1.5-3不行),越窄越显真本事;"
+        "lo/hi 绝对值 ≤5。direction 必须与区间一致。\n"
+        "1a.【板块区间·必填】sector_ranges 给 1-3 个领涨/领跌板块的次日涨跌幅区间,每个板块名 name "
+        "必须 ∈ 注入数据 industry_heatmap_top 里真实存在的板块名(只能选自它),lo/hi 约束同上(宽度≤0.5、|·|≤5)。\n"
         "1b. confidence 给本次预测的整体把握度(0-100整数),基于论据充分性/分歧度/数据支持度:"
         "论据充分且信号一致=高把握 70-100;论据较足但有分歧=中等 55-70;论据不足或数据支持弱=低把握 30-55;"
-        "方向看不清/数据缺失=0-30。把握度低时 direction 更倾向 flat,不硬猜。"
+        "论据不足就老实给低 confidence,但绝不能因此省略区间或改称 flat——区间必须给。"
         "confidence_reason 用 1 句话说明把握度依据(如:量价均多但资金面分歧较大)。\n"
         "2. watch_list 明日关注标的 1-5 个,必须引用注入数据中真实存在的 index_id/name,可带参考胜率。\n"
         "3. risk_items 3-5 条风险点,引用注入数据(alert 预警维度/资金面/波动率/南向)。\n"
@@ -662,6 +692,9 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
     user = {
         "date": date,
         "data": data,
+        "板块白名单(仅这些 name 可用于 sector_ranges,且必须选领涨/领跌的板块)": [
+            h.get("name") for h in (data.get("industry_heatmap_top") or []) if h.get("name")
+        ],
         "任务": "基于以上数据生成每日预测 JSON(注意 data.funds_note 的资金口径说明)。",
     }
     return [
@@ -739,9 +772,20 @@ def parse_ai_output(raw: dict | None, data: dict, date: str) -> dict | None:
     parsed = _extract_json(content)
     if not parsed:
         return None
-    direction = parsed.get("direction")
-    if direction not in ("up", "down", "flat"):
-        direction = "flat"
+    # ── 区间双必填(2026-08-15 规格): range + sector_ranges。
+    # 缺 range / 区间非法 → 整条标注"区间缺失/非法"降级(不静默 flat 化),方向同标降级。
+    range_ok = _parse_range(parsed.get("range"))
+    sectors = _parse_sector_ranges(parsed.get("sector_ranges"), data)
+    # 板块区间允许为空(仅大盘区间)视为区间不完整:大盘必须有,板块缺失记为空。
+    # 大盘区间缺失/非法 => 方向也无从推导,整条降级(range_status)。direction 由区间推导,禁用"拿不准就flat"。
+    if range_ok is None:
+        range_status = "range_missing_invalid"
+        direction = "N/A"          # 大盘区间缺失 => 方向无法由区间推导,显式降级;不静默 flat
+    else:
+        range_status = "ok"
+        # direction 一律由区间推导为准(lo>0→up, hi<0→down, 跨0→flat);
+        # 若 AI 给的 direction 与区间矛盾,以区间为准覆盖(force)。
+        direction = _derive_direction(range_ok["lo"], range_ok["hi"])
     # 把握度 confidence(0-100 整数,与 direction 并列):主编/单 prompt 输出。
     # 类型/范围校验:非数字缺省默认 50;越界 clamp 到 0-100;confidence_reason 截断防超长。
     try:
@@ -781,17 +825,24 @@ def parse_ai_output(raw: dict | None, data: dict, date: str) -> dict | None:
         s = str(h).strip().replace("\n", " ")
         if s:
             highlights.append(s[:40])
+    # sector_ranges 规范化为 [{name, lo, hi, index_id}];前端展示用 name/lo/hi,index_id 供次日验证。
+    sector_out = ([dict(s) for s in sectors] if sectors else []) if range_ok else []
     return {
         "meta": {
             "date": date,
             "version": "ai",
             "direction": direction,
+            "range": range_ok,                     # {"lo","hi"} 或 None(缺失/非法)
+            "sector_ranges": sector_out,           # [{name,lo,hi,index_id}] 或 []
+            "range_status": range_status,          # "ok" | "range_missing_invalid"
+            "range_note": ("" if range_ok else "AI未给出合法幅度区间,方向不可信,已降级"),
             "confidence": confidence,
             "confidence_reason": confidence_reason,
             "watch_list": watch_list,
             "risk_items": risk_items,
             "highlights": highlights,
-            "hit": {"direction": None, "actual_sh_pct": None, "actual_direction": None},
+            "hit": {"direction": None, "actual_sh_pct": None, "actual_direction": None,
+                    "range_hit": None, "sector_hits": None},
         },
         "text": text,
         "_usage": usage,
@@ -871,7 +922,9 @@ def _role_sys_text(role: str, date: str) -> str:
         '"signals":[{"type":"real|sentiment","name":"...","count":N,"note":"..."}]}\n'
         "规则:\n"
         "1. observations 2-4 条,每条引用注入数据的具体数值或信号名(如:恐贪54/QVIX=19.6/机构净多+1200)。\n"
-        "2. direction_hint 给本角色倾向:up=偏强,down=偏弱,flat=震荡/看不清。拿不准就 flat,不硬猜。\n"
+        "2. direction_hint 给本角色倾向:up=偏强,down=偏弱,flat=震荡/看不清。"
+        "必须基于数据给出明确倾向,禁止以'看不清/震荡'作逃避改口;flat 只在数据真呈现窄幅震荡时给出,"
+        "且后续主编会要求给出具体幅度区间,倾向要与区间一致。\n"
         "3. confidence 0-1 给本角色判断置信度。\n"
         "4. signals 仅当注入数据含信号/计数时列出,必须按 type 标注:"
         "real=真实指数可交易信号(指数走势触发,可交易标的),sentiment=情绪分模拟信号"
@@ -946,7 +999,8 @@ def build_researcher_messages(role_results: dict, date: str, cfg: dict) -> list[
         "roles": "\n\n".join(parts),
         "任务": "你是A股研究员,做多空辩论后收敛。先分别列出【多头论据】与【空头论据】"
                 "(各2-4条,引用各角色论据的具体数值),再给倾向判断与置信度。"
-                "倾向必须同时给出支撑与风险,允许'震荡/看不清'。"
+                "倾向必须明确给 lean(up/down/flat),不得以'看不清'逃避;flat 仅在数据真呈窄幅震荡时给。"
+                "主编会基于你的 lean 收敛出**具体涨跌幅度区间**(区间必须给),所以 lean 也要有数值方向感。"
                 "输出【合法JSON对象】:\n"
                 '{"bull":["...","..."],"bear":["...","..."],"lean":"up|down|flat",'
                 '"confidence":0.0-1.0,"summary":"1-2句多空融合结论"}',
@@ -978,6 +1032,8 @@ def build_editor_messages(role_results: dict, researcher: dict | None, date: str
         "不要输出任何 JSON 外的说明文字。JSON 结构固定为:\n"
         "{\n"
         '  "direction": "up|down|flat",\n'
+        '  "range": {"lo": 0.5, "hi": 1.5}, // 大盘(上证指数)次日涨跌幅区间(%),必填,hi-lo≤0.5\n'
+        '  "sector_ranges": [{"name": "中证1000", "lo": 1.0, "hi": 1.5}], // 1-3个领涨/领跌板块区间\n'
         '  "confidence": 0-100整数(把握度), "confidence_reason": "1句把握度理由",\n'
         '  "watch_list": [{"index_id": "...", "name": "...", "win_rate": 0.75}],\n'
         '  "risk_items": ["..."],\n'
@@ -985,10 +1041,16 @@ def build_editor_messages(role_results: dict, researcher: dict | None, date: str
         '  "text": {"review": "...", "trend": "...", "watch": "...", "risk": "..."}\n'
         "}\n"
         "规则:\n"
-        "1. direction 是下一交易日A股方向研判:up=偏强/看涨,down=偏弱/看跌,flat=震荡/看不清。拿不准就 flat。\n"
+        "1.【方向+区间双必填·铁律】必须同时给出明确 direction 和具体幅度区间 range,二者缺一不可。"
+        "range 代表上证指数次日涨跌幅(%):lo 下界、hi 上界,必填且禁止省略;"
+        "方向由区间自动推导(lo>0→up, hi<0→down,含0→flat),不得出现\"拿不准就flat/不硬猜方向\"的逃避行为,"
+        "区间可以窄但必须给、不准含糊。区间宽度约束:hi-lo ≤ 0.5(1.5-2可以,1.5-3不行),越窄越显真本事;"
+        "lo/hi 绝对值 ≤5。direction 必须与区间一致。\n"
+        "1a.【板块区间·必填】sector_ranges 给 1-3 个领涨/领跌板块的次日涨跌幅区间,每个板块名 name "
+        "必须 ∈ 注入数据 industry_heatmap_top 里真实存在的板块名(只能选自它),lo/hi 约束同上(宽度≤0.5、|·|≤5)。\n"
         "1b. confidence 给本次预测的整体把握度(0-100整数),基于多空辩论收敛结果——多空论据充分性/分歧度/数据支持度:"
         "论据充分且多空分歧小=高把握 70-100;论据较足但存在分歧=中等 55-70;论据不足或数据支持弱=低把握 30-55;"
-        "方向看不清/数据缺失=0-30。把握度低时 direction 更倾向 flat,不硬猜。"
+        "论据不足就老实给低 confidence,但绝不能因此省略区间或改称 flat——区间必须给。"
         "confidence_reason 用 1 句话说明把握度依据(如:多空论据均较充分但资金面分歧较大)。\n"
         "2. watch_list 明日关注标的 1-5 个,必须引用注入数据中真实存在的 index_id/name(数据锚定列表),可带参考胜率。\n"
         "3. risk_items 3-5 条风险点,引用各角色论据(alert 预警/资金面/波动率/南向/情绪极端)。\n"
@@ -1011,12 +1073,16 @@ def build_editor_messages(role_results: dict, researcher: dict | None, date: str
     injected_ids = {
         x.get("index_id") for x in (data.get("signals_today") or []) if data
     } | {x.get("index_id") for x in (data.get("signal_stats_buy_top") or []) if data}
+    # 板块名白名单(data.industry_heatmap_top 真实存在的板块名,供 sector_ranges.name 校验)
+    sector_names = [h.get("name") for h in (data.get("industry_heatmap_top") or []) if data
+                    and h.get("name")]
     user = {
         "date": date,
         "roles": "\n\n".join(parts),
         "researcher": researcher_block,
         "signals_note": (data or {}).get("signals_note"),
         "数据锚定(仅这些 index_id 可用于 watch_list)": sorted(injected_ids),
+        "板块白名单(仅这些 name 可用于 sector_ranges,且必须选你判断领涨/领跌的板块)": sector_names,
         "任务": "基于以上角色论据+研究员倾向,组装最终每日预测 JSON(注意 signals_note 的信号口径说明)。",
     }
     return [
@@ -1051,6 +1117,13 @@ HIT_THRESHOLD = 0.5  # 涨跌幅 >0.5% 才算 up/down,否则 flat(2026-08-14 口
 #                     模型被提示词引导倾向 flat,±0.1% 容忍带下 flat 天花板仅 ~8%(近30日6.7%),
 #                     致 0% 命中率是口径算出来的而非预测能力为 0;±0.5% 带下 flat 天花板 ~37%,
 #                     8/11-8/13 中 8/11(+0.32%)/8/12(-0.50%) 判命中,命中率 0/3->2/3)
+
+# ── 区间预测硬约束(2026-08-15 用户定,规格 docs/daily-brief-range-prediction-spec.md)──
+# 命中=实际涨跌幅落进区间(大盘+板块双区间全中),不再是"±0.5% 容忍带下 flat 圆回来"。
+# 区间宽度上限是硬闸(防 AI 写宽区间套命中):hi - lo ≤ 0.5%,越窄越好。
+RANGE_MAX_WIDTH = 0.5    # 区间宽度硬上限(hi-lo ≤ 0.5)
+RANGE_ABS_LIMIT = 5.0    # lo/hi 绝对值硬上限(-5 ~ +5,防离谱区间)
+RANGE_SECTOR_MAX = 3     # sector_ranges 最多 3 个
 
 # ── 结构化运行日志(2026-08-11 审计缺口#4)────────────────────────────────
 #   双写: a) static-site/data/daily_brief_run_log.json(随 daily_brief.json 一起 R2 上传+staticdata 同步,前端可读)
@@ -1132,17 +1205,76 @@ def _actual_direction(pct: float | None) -> str | None:
     return "flat"
 
 
-def backfill_hits(history: list[dict], db_path: Path, today: str) -> None:
-    """对 history 中未回填(hit.direction=None)的条目,用其下一交易日实际 sh 涨跌幅回填。
-    today=本次生成日期,只回填 date < today 的条目,避免回填"未来"。"""
-    if not history:
-        return
-    # 只回填未判定条目(hit.direction is None);miss=False 也算已判定,避免每次重跑重扫(P2-1)
-    pending = [it for it in history if (it.get("meta", {}).get("hit", {}).get("direction") is None)]
-    if not pending:
-        return
-    # 一次性加载 index_daily sh 全表(date->pct_change)
-    sh_map = {}
+# ── 区间预测辅助(2026-08-15 区间双命中口径)─────────────────────────────────
+def _derive_direction(lo: float, hi: float) -> str:
+    """由区间推导方向:lo>0→up, hi<0→down, 否则 flat(区间跨0含0→flat)。"""
+    if lo > 0:
+        return "up"
+    if hi < 0:
+        return "down"
+    return "flat"
+
+
+def _parse_range(raw) -> dict | None:
+    """解析并硬校验大盘 range == {"lo": float, "hi": float}。
+    校验: lo≤hi、hi-lo≤RANGE_MAX_WIDTH、|lo/hi|≤RANGE_ABS_LIMIT。
+    合法返回规范化 {"lo","hi"};缺失/非 dict/类型错/非法宽度/越界返回 None(=区间缺失/非法)。"""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        lo = float(raw.get("lo"))
+        hi = float(raw.get("hi"))
+    except (TypeError, ValueError):
+        return None
+    if lo > hi:
+        return None
+    if hi - lo > RANGE_MAX_WIDTH:
+        return None
+    if abs(lo) > RANGE_ABS_LIMIT or abs(hi) > RANGE_ABS_LIMIT:
+        return None
+    return {"lo": round(lo, 2), "hi": round(hi, 2)}
+
+
+def _build_sector_id_map(data: dict) -> dict:
+    """板块名(申万行业可读名)->sw_ index_id 映射,供 sector_ranges name 校验 + 次日验证。
+    白名单来源 = load_data 注入的 industry_heatmap_top(30日均线带 id)。
+    返回 {name: index_id}。"""
+    m: dict = {}
+    for h in (data.get("industry_heatmap_top") or []):
+        nm = h.get("name")
+        iid = h.get("id")
+        if nm and iid:
+            m.setdefault(nm, iid)
+    return m
+
+
+def _parse_sector_ranges(raw, data: dict) -> list[dict] | None:
+    """解析并硬校验 sector_ranges:
+       - 1-3 个,每个 {"name","lo","hi"}
+       - name 必须 ∈ 注入 industry_heatmap_top 真实存在的板块名
+       - 每个区间走 _parse_range 硬校验
+    全合法返回 [{name, lo, hi, index_id}];非法/超出白名单 → 该 sector 丢弃;
+    若输出空 sector_ranges(或全部非法)但 AI 本应输出 → 返回 None 表示板块区间缺失/非法。"""
+    if not isinstance(raw, list) or not raw:
+        return None
+    id_map = _build_sector_id_map(data)
+    out: list[dict] = []
+    for s in raw[:RANGE_SECTOR_MAX]:
+        if not isinstance(s, dict):
+            continue
+        nm = str(s.get("name") or "").strip()
+        r = _parse_range(s)
+        if not r or nm not in id_map:
+            continue
+        out.append({"name": nm, "lo": r["lo"], "hi": r["hi"], "index_id": id_map[nm]})
+    if not out:
+        return None
+    return out
+
+
+def _load_sh_pct_map(db_path: Path) -> dict | None:
+    """一次性加载 index_daily sh 全表(date->pct_change);失败返回 None。"""
+    sh_map: dict = {}
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=15)
         cur = conn.cursor()
@@ -1152,9 +1284,61 @@ def backfill_hits(history: list[dict], db_path: Path, today: str) -> None:
                 sh_map[r[0]] = r[1]
         conn.close()
     except Exception:
+        return None
+    return sh_map
+
+
+def _load_index_pct_maps(db_path: Path, index_ids: list[str]) -> dict:
+    """加载多个指数(index_id)的 date->pct_change map,供板块次日验证。
+    返回 {index_id: {date: pct}}(每个只保留最新一天 pct,key 唯一)。"""
+    out: dict = {}
+    if not index_ids:
+        return out
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=15)
+        cur = conn.cursor()
+        for iid in index_ids:
+            cur.execute("SELECT date, pct_change FROM index_daily WHERE index_id=? ORDER BY date", (iid,))
+            rows = cur.fetchall()
+            if rows:
+                m: dict = {}
+                for r in rows:
+                    m.setdefault(r[0], r[1])
+                out[iid] = m
+        conn.close()
+    except Exception:
+        return out
+    return out
+
+
+def backfill_hits(history: list[dict], db_path: Path, today: str) -> None:
+    """对 history 中未回填(hit.direction=None)的条目,用其下一交易日实际指数涨跌幅回填命中。
+
+    口径(2026-08-15 区间双命中):命中=大盘区间命中 AND 板块双命中,即:
+      - range_hit: 次日上证 pct ∈ [range.lo, range.hi](无 range 或无法验证 → None=N/A)
+      - sector_hits: 每个预测板块次日申万指数 pct ∈ [lo,hi](全中才板块层命中;无法验证该板块 → None)
+      - direction(向后兼容字段)= 有新区间条目时代表"整体命中"=大盘 AND 板块双命中;
+        老条目(无 range)沿用旧"方向相等"判定(区间命中 N/A,不伪造)。
+    today=本次生成日期,只回填 date < today 的条目,避免回填"未来"。"""
+    if not history:
+        return
+    # 只回填未判定条目(hit.direction is None);miss=False 也算已判定,避免每次重跑重扫(P2-1)
+    pending = [it for it in history if (it.get("meta", {}).get("hit", {}).get("direction") is None)]
+    if not pending:
+        return
+    sh_map = _load_sh_pct_map(db_path)
+    if sh_map is None:
         return
     dates = sorted(sh_map.keys())
-    for it in history:
+    # 预收集所有条目用到的板块 index_id,一次性查库(避免逐条连库)
+    needed_idx = set()
+    for it in pending:
+        meta = it.get("meta") or {}
+        for s in (meta.get("sector_ranges") or []):
+            if s.get("index_id"):
+                needed_idx.add(s["index_id"])
+    idx_maps = _load_index_pct_maps(db_path, sorted(needed_idx))
+    for it in pending:
         meta = it.setdefault("meta", {})
         hit = meta.setdefault("hit", {})
         if hit.get("direction") is not None or not dates:
@@ -1162,25 +1346,69 @@ def backfill_hits(history: list[dict], db_path: Path, today: str) -> None:
         bdate = it.get("date") or meta.get("date")
         if not bdate or bdate >= today:
             continue
-        # 找 bdate 之后第一个有 sh 数据的交易日
+        # 找 bdate 之后第一个有 sh 数据的交易日(全局交易日对齐)
         nxt = next((x for x in dates if x > bdate), None)
         if nxt is None:
             continue
         pct = sh_map.get(nxt)
         hit["actual_sh_pct"] = round(pct, 2) if pct is not None else None
         hit["actual_direction"] = _actual_direction(pct)
-        if hit["actual_direction"]:
-            pred = meta.get("direction")
-            hit["direction"] = bool(pred and pred == hit["actual_direction"])
+        rng = meta.get("range")
+        pred = meta.get("direction")
+        if rng and pct is not None:
+            # 大盘区间命中
+            hit["range_hit"] = bool(rng["lo"] <= pct <= rng["hi"])
+            # 板块命中:每个预测板块次日 pct ∈ [lo,hi];全中才板块层命中;无法验证 → None
+            sector_hits = []
+            all_hit = True
+            all_na = True
+            for s in (meta.get("sector_ranges") or []):
+                im = idx_maps.get(s.get("index_id")) or {}
+                spct = None
+                for d in dates:
+                    if d > bdate and d in im:
+                        spct = im[d]
+                        break
+                if spct is None:
+                    sector_hits.append({"name": s["name"], "actual_pct": None, "hit": None})
+                    all_hit = False
+                else:
+                    spct = round(spct, 2)
+                    sh_ok = bool(s["lo"] <= spct <= s["hi"])
+                    sector_hits.append({"name": s["name"], "actual_pct": spct, "hit": sh_ok})
+                    all_na = False
+                    if not sh_ok:
+                        all_hit = False
+            hit["sector_hits"] = sector_hits
+            if sector_hits and not all_na:
+                board_hit = all_hit
+            else:
+                board_hit = None  # 无板块或板块全无法验证 → 板块层 N/A
+            # 整体命中 = 大盘 AND 板块双命中;任一层 N/A 则整体不硬判(标 None)
+            if board_hit is None or hit["range_hit"] is None:
+                hit["direction"] = None
+            else:
+                hit["direction"] = bool(hit["range_hit"] and board_hit)
+        else:
+            # 老条目(无 range)/pct 缺失:区间命中 N/A;方向沿用旧"方向相等"口径(不伪造区间命中)
+            hit["range_hit"] = None
+            hit["sector_hits"] = None
+            if hit["actual_direction"]:
+                hit["direction"] = bool(pred and pred == hit["actual_direction"])
         it["_backfilled_via"] = nxt
 
 
 def reclassify_all_hits(history: list[dict]) -> None:
-    """按当前 HIT_THRESHOLD 重判所有已回填条目的方向命中(口径变更时重刷历史)。
+    """按当前口径重判所有已回填条目的命中(口径变更时重刷历史)。
 
-    backfill_hits 只回填 hit.direction is None 的未判定条目;当 HIT_THRESHOLD 变更时,
-    已判定条目的 actual_direction/direction 语义随之失效,需逐条重判。本函数基于每条
-    已存的 actual_sh_pct 重算 actual_direction 与 direction,不重新查库(幂等)。
+    backfill_hits 只回填 hit.direction is None 的未判定条目;当 HIT_THRESHOLD / 区间口径
+    变更时,已判定条目的语义随之失效,需逐条重判。本函数基于每条已存的 actual_sh_pct 与
+    meta.range / meta.sector_ranges 重算,不重新查库(幂等)。
+
+    区间口径(2026-08-15):
+      - 有 range 条目:range_hit=大盘落区间;sector_hits=每板块落区间(全中=板块命中);
+        direction=大盘 AND 板块双命中。
+      - 老条目(无 range):区间命中一律 N/A(不算中不算不中),只保留旧"方向相等"判定,不伪造区间命中。
     """
     for it in history:
         meta = it.get("meta") or {}
@@ -1191,10 +1419,32 @@ def reclassify_all_hits(history: list[dict]) -> None:
         ad = _actual_direction(pct)
         hit["actual_direction"] = ad
         pred = meta.get("direction")
-        if ad:
-            hit["direction"] = bool(pred and pred == ad)
+        rng = meta.get("range")
+        if rng and pct is not None:
+            hit["range_hit"] = bool(rng["lo"] <= pct <= rng["hi"])
         else:
-            hit["direction"] = None
+            hit["range_hit"] = None  # 老条目无 range/缺失 → N/A
+        # sector_hits 无法从磁盘重算(需板块次日 pct,未落盘),保持已回填值或置 None(N/A)
+        if "sector_hits" not in hit:
+            hit["sector_hits"] = None
+        if hit["range_hit"] is None:
+            # 老条目(无 range):区间命中 N/A,保留旧方向相等判定(不伪造)
+            if ad:
+                hit["direction"] = bool(pred and pred == ad)
+            else:
+                hit["direction"] = None
+        else:
+            # 新区间条目:direction = 大盘 AND 板块双命中(整体命中)
+            sector_hits = hit.get("sector_hits") or []
+            if not sector_hits:
+                hit["direction"] = None
+            else:
+                any_na = any(s.get("hit") is None for s in sector_hits)
+                board_hit = all(s.get("hit") is True for s in sector_hits)
+                if any_na:
+                    hit["direction"] = None  # 板块层有无法验证项 → 整体不硬判 N/A
+                else:
+                    hit["direction"] = bool(hit["range_hit"] and board_hit)
 
 
 def _history_stats(history: list[dict]) -> dict:
@@ -1501,10 +1751,16 @@ def notify_daily_brief(brief: dict, cfg: dict, log, dry_run: bool = False) -> di
         watch_names = "、".join(
             (w.get("name") or w.get("index_id") or "") for w in (meta.get("watch_list") or []) if w)
         risk_items = [str(r) for r in (meta.get("risk_items") or [])]
-        subject = f"📊 AI预测 {date}:{dir_label}（把握度 {conf_s}）"
+        rng = meta.get("range") or {}
+        range_s = ""
+        if isinstance(rng, dict) and rng.get("lo") is not None and rng.get("hi") is not None:
+            range_s = f"{rng['lo']:+.2f}% ~ {rng['hi']:+.2f}%"
+        subject = f"📊 AI预测 {date}:{dir_label}（把握度 {conf_s}{('·区间' + range_s) if range_s else ''}）"
 
-        # ═══ 总结段(开头): 方向/信心/要点/多空结论 ═══
+        # ═══ 总结段(开头): 方向/区间/信心/要点/多空结论 ═══
         sum_lines = [f"明日方向: <b>{_html_esc(dir_label)}</b> · 把握度: <b>{conf_s}</b>"]
+        if range_s:
+            sum_lines.append(f"预测区间: <b>{_html_esc(range_s)}</b>(上证指数次日涨跌幅)")
         if lean:
             sum_lines.append(f"多空结论: {_html_esc(lean)}{(' · 置信度 ' + dconf_s) if dconf_s else ''}")
         if debate_sum:
@@ -1565,6 +1821,8 @@ def notify_daily_brief(brief: dict, cfg: dict, log, dry_run: bool = False) -> di
         # ═══ 飞书 post(先总结再细讲,A股红涨绿跌) ═══
         lines: list[list[dict]] = [[notify.post_md(f"**{subject}**")]]
         lines.append([notify.post_md("📌 **总结**")])
+        if range_s:
+            lines.append([notify.post_text(f"区间: {range_s}")])
         for h in highlights[:4]:
             lines.append([notify.post_text(f"🎯 {h}")])
         if lean:
@@ -1722,11 +1980,17 @@ def main() -> int:
         brief = {
             "meta": {
                 "date": date, "version": "ai", "direction": "up",
+                "range": {"lo": 0.05, "hi": 0.50},          # MOCK 区间(宽度<0.5)
+                "sector_ranges": [{"name": "电子", "lo": 0.5, "hi": 1.0,
+                                   "index_id": "sw_801080"}],
+                "range_status": "ok",
+                "range_note": "",
                 "confidence": 75,
                 "confidence_reason": "MOCK 测试数据",
                 "watch_list": [{"index_id": "hs300", "name": "沪深300", "win_rate": 0.65}],
                 "risk_items": ["均线转弱预警", "主力净流出"],
-                "hit": {"direction": None, "actual_sh_pct": None, "actual_direction": None},
+                "hit": {"direction": None, "actual_sh_pct": None, "actual_direction": None,
+                        "range_hit": None, "sector_hits": None},
             },
             "text": {
                 "review": f"{date} A股情绪回暖,上证涨0.67%,多数上涨,成交2.5万亿。",
@@ -1805,6 +2069,10 @@ def main() -> int:
         "date": date,
         "version": version,
         "direction": brief["meta"].get("direction"),
+        # 区间概览(2026-08-15): 大盘 range + 板块数 + 状态,供 run_log 快速核对
+        "range": brief["meta"].get("range"),
+        "range_status": brief["meta"].get("range_status"),
+        "sector_count": len(brief["meta"].get("sector_ranges") or []),
         "confidence": brief["meta"].get("confidence"),
         "watch_count": len(brief["meta"].get("watch_list") or []),
         "risk_count": len(brief["meta"].get("risk_items") or []),
