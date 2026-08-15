@@ -1586,10 +1586,6 @@ function _renderOverfitRisk(data) {
           { yAxis: 60, label: { formatter: "红区 ≥60" } },
         ],
       },
-      markArea: {
-        silent: true, itemStyle: { color: "rgba(255,255,255,0)" },
-        data: [],
-      },
     }],
   }), { notMerge: true });
   // 绿黄红线色: 用 visualMap 按值分色(真实表达「过低风险/适中/高风险」)
@@ -1606,7 +1602,7 @@ async function _appendOverfitCard(colA2, r, snap) {
     '<h3>🎛️ 调教监控' +
     signalHelpTip("过拟合监控卡(2026-08-15 B档)：监控策略参数是否「历史拟合好·未来失灵」。上=准确率(信号方向命中)曲线(实盘实际 vs 回测预期)；" +
       "下=综合过拟合风险分(绿黄红分段, 参考线30/60)。准确率口径=信号后方向命中(实盘=信号日收盘→最新收盘, 回测=按卖出模式到期收益)；" +
-      "风险分=0.4×回测-实盘偏离+0.25×样本外衰减+0.2×参数稳定+0.15×象限退化, 绿<30正常/黄30-60关注/红>60高风险。盘后21:40每日打点。") + "</h3>" +
+      "风险分=0.4×回测-实盘偏离+0.25×样本外衰减+0.2×参数稳定+0.15×象限退化, 绿<30正常/黄30-60关注/红>60高风险。盘后21:40每日打点。⚠回测G口径=信号驱动卖出全量(A/F/G模式,信号方向命中率, 与资金仓位无关); 不含 P≤3d 资本管理叠加(峰持仓136万为不可操作口径), 别当成交仓参考。") + "</h3>" +
     '<div class="overfit-tip">双曲线监控 + 综合过拟合风险分(0-100)。窗口切换看近30/60/90交易日。' +
       '<span class="overfit-legend">绿&lt;30 正常 · 黄30-60 关注 · 红&gt;60 高风险</span></div>' +
     '<div class="overfit-win-row"><span class="overfit-win-label">准确率窗口</span>' +
@@ -1643,7 +1639,6 @@ async function _appendOverfitCard(colA2, r, snap) {
     charts.push(_overfitRiskChart);
     _renderOverfitAcc(data);
     _renderOverfitRisk(data);
-    if (typeof _overfitCardChartsPush === "function") ;  // 占位(图表已登记全局 charts)
   } catch (err) {
     emptyEl.style.display = "";
     emptyEl.textContent = "监控数据加载失败(盘后生成)。" + (`${err && err.message ? " " + err.message : ""}`);

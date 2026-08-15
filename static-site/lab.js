@@ -7516,9 +7516,9 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
     }
     // === K2C5/K3 (2026-08-15 #86 新增实验键, 默认关, 用户自开关看效果) ===
     if (_k2On) {
-      // K2C5 港股追涨: 剔除 buy_special/buy_backup × 港股 (researcher 数据验证 948笔)
+      // K2C5 港股追涨: 剔除 buy_special/buy_backup × 港股 (当前数据文件实算: 独立信号728个/全9模式1431条)
       if (filters.k2c5HkChase && (_sig3 === "buy_special" || _sig3 === "buy_backup") && _mktD3 === "hk") return false;
-      // K3 主关注×概念: 剔除 buy × 概念 (researcher 数据验证 4440笔)
+      // K3 主关注×概念: 剔除 buy × 概念 (当前数据文件实算: 独立信号3775个/全9模式6480条)
       if (filters.k3ConceptBuy && _sig3 === "buy" && _mktD3 === "concept") return false;
     }
   }
@@ -8857,9 +8857,9 @@ var _kellyFadeFlagGroups = [
       advice: "别单开,全模式净负 · 比值1.24", tip: "❌非默认⚠慎用(破坏性): MA60大盘择时(仅A股a/concept/industry,沪深300在60日均线之上才进场)。每日池减亏37.26%/损盈30.14%/比值1.24(降亏强但损盈更多,全模式净负-14.9万)。诚实标注:别单开。" },
     // K2C5/K3 (2026-08-15 #86 新增, 纯前端实验键, 默认关, 用户自开关看效果; 未跑边际回测, ratio=待实测不编数字)
     { k: "k2c5HkChase", cls: "lab-sigkelly-toggle-k2c5", name: "港股追涨", ratio: "待实测", warn: "⚠️默认关",
-      advice: "剔除港股追涨(948笔),默认关可自开 · 比值待实测", tip: "❌非默认⚠默认关: 剔除 signal∈{buy_special,buy_backup}×港股 的交易。报告§6.2 K2C5第一优先:剔除后 all A+7,384、y1 双正,能让港股卡 y1 翻正;但对可操作 G 玩法有害——G 的 P≤3d 里这些交易当强平缓冲垫,剔除会削弱缓冲。故默认关,自己开关看效果。未跑边际每日池回测,比值待实测(不编造数字)。" },
+      advice: "剔除港股追涨(独立信号728),默认关可自开 · 比值待实测", tip: "❌非默认⚠默认关: 剔除 signal∈{buy_special,buy_backup}×港股 的交易(当前数据文件实算:独立信号728个/全9模式占1431条)。报告§6.2 K2C5第一优先:剔除后 all A+7,384、y1 双正,能让港股卡 y1 翻正;但对可操作 G 玩法有害——G 的 P≤3d 里这些交易当强平缓冲垫,剔除会削弱缓冲。故默认关,自己开关看效果。未跑边际每日池回测,比值待实测(不编造数字)。" },
     { k: "k3ConceptBuy", cls: "lab-sigkelly-toggle-k3", name: "主关注×概念", ratio: "待实测", warn: "⚠️默认关",
-      advice: "剔除主关注概念(4440笔),默认关可自开 · 比值待实测", tip: "❌非默认⚠默认关: 剔除 signal=buy×概念 的交易(4440笔)。报告: 剔除后 y1 提升最大,但高波动+牺牲 2024/2025 大赚年,报告建议默认关+监控。故默认关,自己开关看效果。未跑边际每日池回测,比值待实测(不编造数字)。" }
+      advice: "剔除主关注概念(独立信号3775),默认关可自开 · 比值待实测", tip: "❌非默认⚠默认关: 剔除 signal=buy×概念 的交易(当前数据文件实算:独立信号3775个/全9模式占6480条)。报告: 剔除后 y1 提升最大,但高波动+牺牲 2024/2025 大赚年,报告建议默认关+监控。故默认关,自己开关看效果。未跑边际每日池回测,比值待实测(不编造数字)。" }
   ]}
 ];
 
@@ -8919,6 +8919,9 @@ function _renderSigKellyBar(bar, data, period) {
   _kellyFadeFlagGroups.forEach((g) => { _kellyAllFlags.push(...g.flags); });
   const _kellyRecFlags = _kellyAllFlags.filter((f) => f.rec);
   const _kellyMoreFlags = _kellyAllFlags.filter((f) => !f.rec);
+  // P2-4 fix(2026-08-15): ratio 非数值(如 K2C5/K3 的"待实测"字符串/null)参与减法会产 NaN 使组内排序失效且无限期乱序;
+  //  归一为 -1(置底), 数值正常降序, 待实测键固定排组内最后(未验证不冒充高比值), NaN 消除排序确定。
+  const _kellyRatioSortVal = (r) => (typeof r === "number" ? r : -1);
   const _fadeWarnCls = (f) => {
     if (f.warn) {
       if (/慎用/.test(f.warn)) return " lab-sigkelly-fade-warn-red";
@@ -8953,7 +8956,7 @@ function _renderSigKellyBar(bar, data, period) {
   const recZoneHTML =
     `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-rec">` +
       `<span class="lab-sigkelly-toggle-tier">✅ 默认推荐(AI降亏过滤, 4+3+1 = 7键+1类回测剔除)</span>` +
-      flagCatHTML(_kellyRecFlags.slice().sort((a, b) => b.ratio - a.ratio)) +
+      flagCatHTML(_kellyRecFlags.slice().sort((a, b) => _kellyRatioSortVal(b.ratio) - _kellyRatioSortVal(a.ratio))) +
       plus1DisabledHTML +
     `</div>`;
   // E需求(2026-08-15): 组合降亏行(logic前原顶部常驻)收纳进本「更多开关」折叠区 body 顶部, 保留点击一键勾选/取消成员功能(无键盘快捷键); 顶部原插入点移除见下方注释
@@ -8969,7 +8972,7 @@ function _renderSigKellyBar(bar, data, period) {
         _kellyFadeFlagGroups.map((g) => {
           const flagsNoRec = g.flags.filter((f) => !f.rec);
           if (flagsNoRec.length === 0) return "";
-          const flagsSorted = flagsNoRec.slice().sort((a, b) => b.ratio - a.ratio);
+          const flagsSorted = flagsNoRec.slice().sort((a, b) => _kellyRatioSortVal(b.ratio) - _kellyRatioSortVal(a.ratio));
           // 举一反三(2026-08-15): 4大分类组 手工收/展态持久化到 state.labSigKellyCatCollapsed(记录收起的组 key 集合), 重渲染后保持用户手工收展, 默认仍全展开不破坏原设计
           const catCollapsed = !!(state.labSigKellyCatCollapsed || {})[g.key];
           const catCaret = catCollapsed ? "▶" : "▼";
