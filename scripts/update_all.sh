@@ -9,7 +9,7 @@
 #   stock_daily 后台死端（全 A 股日线备用源），不 export 不 push，不阻塞
 # 各 pipeline 的 commit+push 经 flock /tmp/trade_deploy.lock 串行，避免 git index.lock 冲突。
 #
-# 非交易日：默认跳过采集仅 deploy+check_signals；传 force 绕闸门强制采集（周末补数据/校准）。
+# 非交易日：默认跳过采集仅 deploy 补推数据（不发买卖点信号邮件）；传 force 绕闸门强制采集（周末补数据/校准）。
 # 旧串行版备份：scripts/update_all_serial.sh。
 #
 # 用法：bash scripts/update_all.sh [force]
