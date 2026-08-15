@@ -409,10 +409,19 @@ def build():
                     _retry_gap = (pending_start - _pe).total_seconds()
                     if _pc != 0 and 0 <= _retry_gap <= CRASH_RETRY_GAP_SEC:
                         _prev_crash_code = _pc
+                # [Bug1 复审FAIL补修·恢复被杀/卡死检测, 2026-08-15] 上轮(4784f0326)把
+                # real_exit 有值时一律采 None(残留码不采信),修好了 8/13 在跑误报,但把
+                # 2026-07-23/07-24 建立的「被杀/崩溃检测」弄坏: 上次配对 exit=0 的任务本轮
+                # 被 SIGTERM 杀(launchctl 码 143, age>3h)时,last_exit 从 143 变 null,
+                # 前端弹窗 + monitor "退出失败" 双漏报。
+                # 判定分层(见下方每分支注释): ①同槽 crash-retry ②被杀/卡死(age>3h 强信号,
+                # launchctl 码可信) ③在跑(age<=3h, 残留码不采信——8/13 误报的根本)。
                 if real_exit is not None and _prev_crash_code is not None:
-                    code = real_exit  # 同槽 crash-retry: launchctl 真实码(0/143/133/1)
+                    code = real_exit  # 同槽 crash-retry(场景C): launchctl 真实码(0/143/133/1)
+                elif real_exit is not None and age > MAX_GAP_SEC:
+                    code = real_exit  # 被杀/卡死(场景A, age>3h): launchctl 码可信 — 恢复 07-23/07-24 检测
                 elif real_exit is not None:
-                    code = None  # 正常在跑/非 crash-retry: 残留码不采信, last_exit=null
+                    code = None  # 在跑(场景B/D, age<=3h): 残留码不采信, last_exit=null
                 elif t["mode"] == "etf_nt":
                     code = None  # etf_nt 不启发式标 143(launchctl 读不到才 None)
                 else:
