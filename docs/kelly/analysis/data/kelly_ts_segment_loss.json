@@ -1,0 +1,3387 @@
+{
+ "G": {
+  "candidate_n": 5313,
+  "topk_n": 1203,
+  "baseline": {
+   "desc": "G 13万 P≤3d b0",
+   "net": 202836.39319999996,
+   "ret": 156.03,
+   "dd_pct": 0.1,
+   "n": 1203
+  },
+  "signal_static": {
+   "等宽5段": {
+    "rows": [
+     {
+      "label": "0-20",
+      "n": 63,
+      "win_rate": 66.7,
+      "loss_prob": 33.3,
+      "net": 47236,
+      "avg_rp": 7.5,
+      "loss_amt": -20174,
+      "plr": 1.67,
+      "flat": 0
+     },
+     {
+      "label": "20-40",
+      "n": 822,
+      "win_rate": 67.2,
+      "loss_prob": 32.8,
+      "net": 621913,
+      "avg_rp": 7.57,
+      "loss_amt": -194574,
+      "plr": 2.05,
+      "flat": 0
+     },
+     {
+      "label": "40-60",
+      "n": 1172,
+      "win_rate": 67.0,
+      "loss_prob": 33.0,
+      "net": 707346,
+      "avg_rp": 6.04,
+      "loss_amt": -191982,
+      "plr": 2.31,
+      "flat": 0
+     },
+     {
+      "label": "60-80",
+      "n": 2530,
+      "win_rate": 63.9,
+      "loss_prob": 36.1,
+      "net": 1399700,
+      "avg_rp": 5.53,
+      "loss_amt": -677195,
+      "plr": 1.73,
+      "flat": 0
+     },
+     {
+      "label": "80-100",
+      "n": 726,
+      "win_rate": 62.4,
+      "loss_prob": 37.6,
+      "net": 442758,
+      "avg_rp": 6.1,
+      "loss_amt": -292947,
+      "plr": 1.51,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 5313,
+     "win_rate": 64.9,
+     "loss_prob": 35.1,
+     "net": 3218953,
+     "avg_rp": 6.06,
+     "loss_amt": -1376873,
+     "plr": 1.8,
+     "flat": 0
+    },
+    "chi2": {
+     "chi2": 7.22,
+     "k": 5,
+     "N": 5313
+    }
+   },
+   "分位数5段": {
+    "rows": [
+     {
+      "label": "0-41.7",
+      "n": 1023,
+      "win_rate": 66.7,
+      "loss_prob": 33.3,
+      "net": 720875,
+      "avg_rp": 7.05,
+      "loss_amt": -244164,
+      "plr": 1.98,
+      "flat": 0
+     },
+     {
+      "label": "41.7-60.4",
+      "n": 1038,
+      "win_rate": 67.4,
+      "loss_prob": 32.6,
+      "net": 659400,
+      "avg_rp": 6.35,
+      "loss_amt": -163627,
+      "plr": 2.43,
+      "flat": 0
+     },
+     {
+      "label": "60.4-66.4",
+      "n": 1054,
+      "win_rate": 60.7,
+      "loss_prob": 39.3,
+      "net": 617004,
+      "avg_rp": 5.85,
+      "loss_amt": -338620,
+      "plr": 1.83,
+      "flat": 0
+     },
+     {
+      "label": "66.4-77.5",
+      "n": 1128,
+      "win_rate": 67.6,
+      "loss_prob": 32.4,
+      "net": 650361,
+      "avg_rp": 5.77,
+      "loss_amt": -248633,
+      "plr": 1.73,
+      "flat": 0
+     },
+     {
+      "label": "77.5-100",
+      "n": 1070,
+      "win_rate": 62.1,
+      "loss_prob": 37.9,
+      "net": 571313,
+      "avg_rp": 5.34,
+      "loss_amt": -381828,
+      "plr": 1.53,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 5313,
+     "win_rate": 64.9,
+     "loss_prob": 35.1,
+     "net": 3218953,
+     "avg_rp": 6.06,
+     "loss_amt": -1376873,
+     "plr": 1.8,
+     "flat": 0
+    },
+    "chi2": {
+     "chi2": 19.94,
+     "k": 5,
+     "N": 5313
+    }
+   },
+   "等宽10段": {
+    "rows": [
+     {
+      "label": "0-10",
+      "n": 40,
+      "win_rate": 77.5,
+      "loss_prob": 22.5,
+      "net": 57397,
+      "avg_rp": 14.35,
+      "loss_amt": -4574,
+      "plr": 3.93,
+      "flat": 0
+     },
+     {
+      "label": "10-20",
+      "n": 23,
+      "win_rate": 47.8,
+      "loss_prob": 52.2,
+      "net": -10162,
+      "avg_rp": -4.42,
+      "loss_amt": -15601,
+      "plr": 0.38,
+      "flat": 0
+     },
+     {
+      "label": "20-30",
+      "n": 171,
+      "win_rate": 71.9,
+      "loss_prob": 28.1,
+      "net": 154074,
+      "avg_rp": 9.01,
+      "loss_amt": -32168,
+      "plr": 2.26,
+      "flat": 0
+     },
+     {
+      "label": "30-40",
+      "n": 651,
+      "win_rate": 65.9,
+      "loss_prob": 34.1,
+      "net": 467839,
+      "avg_rp": 7.19,
+      "loss_amt": -162406,
+      "plr": 2.01,
+      "flat": 0
+     },
+     {
+      "label": "40-50",
+      "n": 381,
+      "win_rate": 62.5,
+      "loss_prob": 37.5,
+      "net": 185592,
+      "avg_rp": 4.87,
+      "loss_amt": -76116,
+      "plr": 2.07,
+      "flat": 0
+     },
+     {
+      "label": "50-60",
+      "n": 791,
+      "win_rate": 69.2,
+      "loss_prob": 30.8,
+      "net": 521754,
+      "avg_rp": 6.6,
+      "loss_amt": -115866,
+      "plr": 2.45,
+      "flat": 0
+     },
+     {
+      "label": "60-70",
+      "n": 1943,
+      "win_rate": 63.4,
+      "loss_prob": 36.6,
+      "net": 1116070,
+      "avg_rp": 5.74,
+      "loss_amt": -564636,
+      "plr": 1.72,
+      "flat": 0
+     },
+     {
+      "label": "70-80",
+      "n": 587,
+      "win_rate": 65.8,
+      "loss_prob": 34.2,
+      "net": 283630,
+      "avg_rp": 4.83,
+      "loss_amt": -112559,
+      "plr": 1.83,
+      "flat": 0
+     },
+     {
+      "label": "80-90",
+      "n": 385,
+      "win_rate": 62.3,
+      "loss_prob": 37.7,
+      "net": 185866,
+      "avg_rp": 4.83,
+      "loss_amt": -152390,
+      "plr": 1.34,
+      "flat": 0
+     },
+     {
+      "label": "90-100",
+      "n": 341,
+      "win_rate": 62.5,
+      "loss_prob": 37.5,
+      "net": 256892,
+      "avg_rp": 7.53,
+      "loss_amt": -140557,
+      "plr": 1.7,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 5313,
+     "win_rate": 64.9,
+     "loss_prob": 35.1,
+     "net": 3218953,
+     "avg_rp": 6.06,
+     "loss_amt": -1376873,
+     "plr": 1.8,
+     "flat": 0
+    },
+    "chi2": {
+     "chi2": 21.22,
+     "k": 10,
+     "N": 5313
+    }
+   },
+   "分位数10段": {
+    "rows": [
+     {
+      "label": "0-35.2",
+      "n": 498,
+      "win_rate": 70.1,
+      "loss_prob": 29.9,
+      "net": 419364,
+      "avg_rp": 8.42,
+      "loss_amt": -113062,
+      "plr": 2.01,
+      "flat": 0
+     },
+     {
+      "label": "35.2-41.7",
+      "n": 525,
+      "win_rate": 63.4,
+      "loss_prob": 36.6,
+      "net": 301512,
+      "avg_rp": 5.74,
+      "loss_amt": -131102,
+      "plr": 1.9,
+      "flat": 0
+     },
+     {
+      "label": "41.7-53.8",
+      "n": 557,
+      "win_rate": 72.9,
+      "loss_prob": 27.1,
+      "net": 402116,
+      "avg_rp": 7.22,
+      "loss_amt": -62739,
+      "plr": 2.76,
+      "flat": 0
+     },
+     {
+      "label": "53.8-60.4",
+      "n": 481,
+      "win_rate": 61.1,
+      "loss_prob": 38.9,
+      "net": 257284,
+      "avg_rp": 5.35,
+      "loss_amt": -100888,
+      "plr": 2.26,
+      "flat": 0
+     },
+     {
+      "label": "60.4-65.1",
+      "n": 555,
+      "win_rate": 54.6,
+      "loss_prob": 45.4,
+      "net": 159217,
+      "avg_rp": 2.87,
+      "loss_amt": -193133,
+      "plr": 1.52,
+      "flat": 0
+     },
+     {
+      "label": "65.1-66.4",
+      "n": 499,
+      "win_rate": 67.5,
+      "loss_prob": 32.5,
+      "net": 457786,
+      "avg_rp": 9.17,
+      "loss_amt": -145487,
+      "plr": 1.99,
+      "flat": 0
+     },
+     {
+      "label": "66.4-67.6",
+      "n": 581,
+      "win_rate": 68.8,
+      "loss_prob": 31.2,
+      "net": 380872,
+      "avg_rp": 6.56,
+      "loss_amt": -142690,
+      "plr": 1.66,
+      "flat": 0
+     },
+     {
+      "label": "67.6-77.5",
+      "n": 547,
+      "win_rate": 66.4,
+      "loss_prob": 33.6,
+      "net": 269489,
+      "avg_rp": 4.93,
+      "loss_amt": -105944,
+      "plr": 1.8,
+      "flat": 0
+     },
+     {
+      "label": "77.5-83.3",
+      "n": 514,
+      "win_rate": 63.4,
+      "loss_prob": 36.6,
+      "net": 258081,
+      "avg_rp": 5.02,
+      "loss_amt": -147041,
+      "plr": 1.59,
+      "flat": 0
+     },
+     {
+      "label": "83.3-100",
+      "n": 556,
+      "win_rate": 60.8,
+      "loss_prob": 39.2,
+      "net": 313232,
+      "avg_rp": 5.63,
+      "loss_amt": -234787,
+      "plr": 1.51,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 5313,
+     "win_rate": 64.9,
+     "loss_prob": 35.1,
+     "net": 3218953,
+     "avg_rp": 6.06,
+     "loss_amt": -1376873,
+     "plr": 1.8,
+     "flat": 0
+    },
+    "chi2": {
+     "chi2": 61.5,
+     "k": 10,
+     "N": 5313
+    }
+   }
+  },
+  "topk_static": {
+   "等宽5段": {
+    "rows": [
+     {
+      "label": "0-20",
+      "n": 4,
+      "win_rate": 75.0,
+      "loss_prob": 25.0,
+      "net": 2329,
+      "avg_rp": 5.82,
+      "loss_amt": -412,
+      "plr": 2.22,
+      "flat": 0
+     },
+     {
+      "label": "20-40",
+      "n": 19,
+      "win_rate": 42.1,
+      "loss_prob": 57.9,
+      "net": 3262,
+      "avg_rp": 1.72,
+      "loss_amt": -8353,
+      "plr": 1.91,
+      "flat": 0
+     },
+     {
+      "label": "40-60",
+      "n": 129,
+      "win_rate": 58.9,
+      "loss_prob": 41.1,
+      "net": 64282,
+      "avg_rp": 4.98,
+      "loss_amt": -21704,
+      "plr": 2.76,
+      "flat": 0
+     },
+     {
+      "label": "60-80",
+      "n": 792,
+      "win_rate": 60.2,
+      "loss_prob": 39.8,
+      "net": 403270,
+      "avg_rp": 5.09,
+      "loss_amt": -248528,
+      "plr": 1.73,
+      "flat": 0
+     },
+     {
+      "label": "80-100",
+      "n": 259,
+      "win_rate": 62.5,
+      "loss_prob": 37.5,
+      "net": 170315,
+      "avg_rp": 6.58,
+      "loss_amt": -100476,
+      "plr": 1.61,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 1203,
+     "win_rate": 60.3,
+     "loss_prob": 39.7,
+     "net": 643458,
+     "avg_rp": 5.35,
+     "loss_amt": -379473,
+     "plr": 1.77,
+     "flat": 0
+    }
+   },
+   "分位数5段": {
+    "rows": [
+     {
+      "label": "0-41.7",
+      "n": 28,
+      "win_rate": 57.1,
+      "loss_prob": 42.9,
+      "net": 7587,
+      "avg_rp": 2.71,
+      "loss_amt": -8765,
+      "plr": 1.4,
+      "flat": 0
+     },
+     {
+      "label": "41.7-60.4",
+      "n": 124,
+      "win_rate": 57.3,
+      "loss_prob": 42.7,
+      "net": 62286,
+      "avg_rp": 5.02,
+      "loss_amt": -21704,
+      "plr": 2.89,
+      "flat": 0
+     },
+     {
+      "label": "60.4-66.4",
+      "n": 234,
+      "win_rate": 52.6,
+      "loss_prob": 47.4,
+      "net": 88228,
+      "avg_rp": 3.77,
+      "loss_amt": -89659,
+      "plr": 1.79,
+      "flat": 0
+     },
+     {
+      "label": "66.4-77.5",
+      "n": 424,
+      "win_rate": 65.3,
+      "loss_prob": 34.7,
+      "net": 271761,
+      "avg_rp": 6.41,
+      "loss_amt": -113650,
+      "plr": 1.8,
+      "flat": 0
+     },
+     {
+      "label": "77.5-100",
+      "n": 393,
+      "win_rate": 60.8,
+      "loss_prob": 39.2,
+      "net": 213595,
+      "avg_rp": 5.43,
+      "loss_amt": -145695,
+      "plr": 1.59,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 1203,
+     "win_rate": 60.3,
+     "loss_prob": 39.7,
+     "net": 643458,
+     "avg_rp": 5.35,
+     "loss_amt": -379473,
+     "plr": 1.77,
+     "flat": 0
+    }
+   },
+   "等宽10段": {
+    "rows": [
+     {
+      "label": "0-10",
+      "n": 3,
+      "win_rate": 100.0,
+      "loss_prob": 0.0,
+      "net": 2742,
+      "avg_rp": 9.14,
+      "loss_amt": 0,
+      "plr": null,
+      "flat": 0
+     },
+     {
+      "label": "10-20",
+      "n": 1,
+      "win_rate": 0.0,
+      "loss_prob": 100.0,
+      "net": -412,
+      "avg_rp": -4.12,
+      "loss_amt": -412,
+      "plr": null,
+      "flat": 0
+     },
+     {
+      "label": "20-30",
+      "n": 4,
+      "win_rate": 75.0,
+      "loss_prob": 25.0,
+      "net": 5498,
+      "avg_rp": 13.74,
+      "loss_amt": -319,
+      "plr": 6.07,
+      "flat": 0
+     },
+     {
+      "label": "30-40",
+      "n": 15,
+      "win_rate": 33.3,
+      "loss_prob": 66.7,
+      "net": -2236,
+      "avg_rp": -1.49,
+      "loss_amt": -8033,
+      "plr": 1.44,
+      "flat": 0
+     },
+     {
+      "label": "40-50",
+      "n": 27,
+      "win_rate": 63.0,
+      "loss_prob": 37.0,
+      "net": 10225,
+      "avg_rp": 3.79,
+      "loss_amt": -4901,
+      "plr": 1.82,
+      "flat": 0
+     },
+     {
+      "label": "50-60",
+      "n": 102,
+      "win_rate": 57.8,
+      "loss_prob": 42.2,
+      "net": 54056,
+      "avg_rp": 5.3,
+      "loss_amt": -16803,
+      "plr": 3.07,
+      "flat": 0
+     },
+     {
+      "label": "60-70",
+      "n": 608,
+      "win_rate": 59.9,
+      "loss_prob": 40.1,
+      "net": 324563,
+      "avg_rp": 5.34,
+      "loss_amt": -197324,
+      "plr": 1.77,
+      "flat": 0
+     },
+     {
+      "label": "70-80",
+      "n": 184,
+      "win_rate": 61.4,
+      "loss_prob": 38.6,
+      "net": 78706,
+      "avg_rp": 4.28,
+      "loss_amt": -51204,
+      "plr": 1.59,
+      "flat": 0
+     },
+     {
+      "label": "80-90",
+      "n": 73,
+      "win_rate": 63.0,
+      "loss_prob": 37.0,
+      "net": 44951,
+      "avg_rp": 6.16,
+      "loss_amt": -24717,
+      "plr": 1.65,
+      "flat": 0
+     },
+     {
+      "label": "90-100",
+      "n": 186,
+      "win_rate": 62.4,
+      "loss_prob": 37.6,
+      "net": 125365,
+      "avg_rp": 6.74,
+      "loss_amt": -75759,
+      "plr": 1.6,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 1203,
+     "win_rate": 60.3,
+     "loss_prob": 39.7,
+     "net": 643458,
+     "avg_rp": 5.35,
+     "loss_amt": -379473,
+     "plr": 1.77,
+     "flat": 0
+    }
+   },
+   "分位数10段": {
+    "rows": [
+     {
+      "label": "0-35.2",
+      "n": 8,
+      "win_rate": 75.0,
+      "loss_prob": 25.0,
+      "net": 7827,
+      "avg_rp": 9.78,
+      "loss_amt": -732,
+      "plr": 3.9,
+      "flat": 0
+     },
+     {
+      "label": "35.2-41.7",
+      "n": 20,
+      "win_rate": 50.0,
+      "loss_prob": 50.0,
+      "net": -240,
+      "avg_rp": -0.12,
+      "loss_amt": -8033,
+      "plr": 0.97,
+      "flat": 0
+     },
+     {
+      "label": "41.7-53.8",
+      "n": 54,
+      "win_rate": 63.0,
+      "loss_prob": 37.0,
+      "net": 35778,
+      "avg_rp": 6.63,
+      "loss_amt": -7622,
+      "plr": 3.35,
+      "flat": 0
+     },
+     {
+      "label": "53.8-60.4",
+      "n": 70,
+      "win_rate": 52.9,
+      "loss_prob": 47.1,
+      "net": 26508,
+      "avg_rp": 3.79,
+      "loss_amt": -14082,
+      "plr": 2.57,
+      "flat": 0
+     },
+     {
+      "label": "60.4-65.1",
+      "n": 76,
+      "win_rate": 36.8,
+      "loss_prob": 63.2,
+      "net": -2806,
+      "avg_rp": -0.37,
+      "loss_amt": -33221,
+      "plr": 1.57,
+      "flat": 0
+     },
+     {
+      "label": "65.1-66.4",
+      "n": 158,
+      "win_rate": 60.1,
+      "loss_prob": 39.9,
+      "net": 91034,
+      "avg_rp": 5.76,
+      "loss_amt": -56438,
+      "plr": 1.73,
+      "flat": 0
+     },
+     {
+      "label": "66.4-67.6",
+      "n": 271,
+      "win_rate": 67.9,
+      "loss_prob": 32.1,
+      "net": 199701,
+      "avg_rp": 7.37,
+      "loss_amt": -77951,
+      "plr": 1.68,
+      "flat": 0
+     },
+     {
+      "label": "67.6-77.5",
+      "n": 153,
+      "win_rate": 60.8,
+      "loss_prob": 39.2,
+      "net": 72060,
+      "avg_rp": 4.71,
+      "loss_amt": -35700,
+      "plr": 1.95,
+      "flat": 0
+     },
+     {
+      "label": "77.5-83.3",
+      "n": 174,
+      "win_rate": 60.3,
+      "loss_prob": 39.7,
+      "net": 84011,
+      "avg_rp": 4.83,
+      "loss_amt": -59125,
+      "plr": 1.59,
+      "flat": 0
+     },
+     {
+      "label": "83.3-100",
+      "n": 219,
+      "win_rate": 61.2,
+      "loss_prob": 38.8,
+      "net": 129584,
+      "avg_rp": 5.92,
+      "loss_amt": -86569,
+      "plr": 1.58,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 1203,
+     "win_rate": 60.3,
+     "loss_prob": 39.7,
+     "net": 643458,
+     "avg_rp": 5.35,
+     "loss_amt": -379473,
+     "plr": 1.77,
+     "flat": 0
+    }
+   }
+  },
+  "excl_single": {
+   "等宽5段": [
+    {
+     "segment": "0-20",
+     "deleted": 4,
+     "net": 192263.71219999998,
+     "dnet": -10572.680999999982,
+     "ret": 147.9,
+     "dret": -8.129999999999995,
+     "dd_pct": 0.1
+    },
+    {
+     "segment": "20-40",
+     "deleted": 19,
+     "net": 200284.36410000006,
+     "dnet": -2552.029099999898,
+     "ret": 154.06,
+     "dret": -1.9699999999999989,
+     "dd_pct": 0.1
+    },
+    {
+     "segment": "40-60",
+     "deleted": 108,
+     "net": 194869.38989999998,
+     "dnet": -7967.003299999982,
+     "ret": 149.9,
+     "dret": -6.1299999999999955,
+     "dd_pct": 0.11
+    },
+    {
+     "segment": "60-80",
+     "deleted": 545,
+     "net": 111169.72920000002,
+     "dnet": -91666.66399999995,
+     "ret": 85.52,
+     "dret": -70.51,
+     "dd_pct": 0.15
+    },
+    {
+     "segment": "80-100",
+     "deleted": 20,
+     "net": 182273.92420000004,
+     "dnet": -20562.468999999925,
+     "ret": 140.21,
+     "dret": -15.819999999999993,
+     "dd_pct": 0.1
+    }
+   ],
+   "分位数5段": [
+    {
+     "segment": "0-41.7",
+     "deleted": 28,
+     "net": 186990.97780000002,
+     "dnet": -15845.41539999994,
+     "ret": 143.84,
+     "dret": -12.189999999999998,
+     "dd_pct": 0.1
+    },
+    {
+     "segment": "41.7-60.4",
+     "deleted": 105,
+     "net": 195249.866,
+     "dnet": -7586.527199999953,
+     "ret": 150.19,
+     "dret": -5.840000000000003,
+     "dd_pct": 0.11
+    },
+    {
+     "segment": "60.4-66.4",
+     "deleted": 183,
+     "net": 188595.661,
+     "dnet": -14240.73219999997,
+     "ret": 145.07,
+     "dret": -10.960000000000008,
+     "dd_pct": 0.08
+    },
+    {
+     "segment": "66.4-77.5",
+     "deleted": 189,
+     "net": 144003.17340000003,
+     "dnet": -58833.21979999993,
+     "ret": 110.77,
+     "dret": -45.260000000000005,
+     "dd_pct": 0.1
+    },
+    {
+     "segment": "77.5-100",
+     "deleted": 38,
+     "net": 177046.14500000005,
+     "dnet": -25790.248199999915,
+     "ret": 136.19,
+     "dret": -19.840000000000003,
+     "dd_pct": 0.11
+    }
+   ]
+  },
+  "excl_multi": {
+   "最差2段": {
+    "segments": [
+     "60.4-66.4",
+     "77.5-100"
+    ],
+    "deleted": 250,
+    "net": 172152.88910000003,
+    "dnet": -30683.504099999933,
+    "ret": 132.43,
+    "dret": -23.599999999999994,
+    "dd_pct": 0.08
+   },
+   "最差3段": {
+    "segments": [
+     "60.4-66.4",
+     "77.5-100",
+     "0-41.7"
+    ],
+    "deleted": 295,
+    "net": 159958.24639999997,
+    "dnet": -42878.14679999999,
+    "ret": 123.04,
+    "dret": -32.989999999999995,
+    "dd_pct": 0.09
+   }
+  },
+  "cross_dim": {
+   "market_state": [
+    {
+     "label": "0-41.7xFalse(空头)",
+     "n": 379,
+     "win_rate": 64.6,
+     "loss_prob": 35.4,
+     "net": 230899,
+     "avg_rp": 6.09,
+     "loss_amt": -123669,
+     "plr": 1.57,
+     "flat": 0
+    },
+    {
+     "label": "0-41.7xTrue(多头)",
+     "n": 644,
+     "win_rate": 67.9,
+     "loss_prob": 32.1,
+     "net": 489977,
+     "avg_rp": 7.61,
+     "loss_amt": -120496,
+     "plr": 2.4,
+     "flat": 0
+    },
+    {
+     "label": "41.7-60.4xFalse(空头)",
+     "n": 380,
+     "win_rate": 81.8,
+     "loss_prob": 18.2,
+     "net": 358087,
+     "avg_rp": 9.42,
+     "loss_amt": -43638,
+     "plr": 2.04,
+     "flat": 0
+    },
+    {
+     "label": "41.7-60.4xTrue(多头)",
+     "n": 658,
+     "win_rate": 59.1,
+     "loss_prob": 40.9,
+     "net": 301313,
+     "avg_rp": 4.58,
+     "loss_amt": -119988,
+     "plr": 2.43,
+     "flat": 0
+    },
+    {
+     "label": "60.4-66.4xFalse(空头)",
+     "n": 302,
+     "win_rate": 61.9,
+     "loss_prob": 38.1,
+     "net": 171641,
+     "avg_rp": 5.68,
+     "loss_amt": -104682,
+     "plr": 1.62,
+     "flat": 0
+    },
+    {
+     "label": "60.4-66.4xTrue(多头)",
+     "n": 752,
+     "win_rate": 60.2,
+     "loss_prob": 39.8,
+     "net": 445363,
+     "avg_rp": 5.92,
+     "loss_amt": -233939,
+     "plr": 1.92,
+     "flat": 0
+    },
+    {
+     "label": "66.4-77.5xFalse(空头)",
+     "n": 365,
+     "win_rate": 71.5,
+     "loss_prob": 28.5,
+     "net": 237587,
+     "avg_rp": 6.51,
+     "loss_amt": -100078,
+     "plr": 1.34,
+     "flat": 0
+    },
+    {
+     "label": "66.4-77.5xTrue(多头)",
+     "n": 763,
+     "win_rate": 65.8,
+     "loss_prob": 34.2,
+     "net": 412775,
+     "avg_rp": 5.41,
+     "loss_amt": -148555,
+     "plr": 1.96,
+     "flat": 0
+    },
+    {
+     "label": "77.5-100xFalse(空头)",
+     "n": 491,
+     "win_rate": 60.1,
+     "loss_prob": 39.9,
+     "net": 281457,
+     "avg_rp": 5.73,
+     "loss_amt": -204431,
+     "plr": 1.58,
+     "flat": 0
+    },
+    {
+     "label": "77.5-100xTrue(多头)",
+     "n": 579,
+     "win_rate": 63.7,
+     "loss_prob": 36.3,
+     "net": 289856,
+     "avg_rp": 5.01,
+     "loss_amt": -177397,
+     "plr": 1.5,
+     "flat": 0
+    }
+   ],
+   "rating": [
+    {
+     "label": "0-41.7xhigh",
+     "n": 23,
+     "win_rate": 69.6,
+     "loss_prob": 30.4,
+     "net": 16816,
+     "avg_rp": 7.31,
+     "loss_amt": -2842,
+     "plr": 3.03,
+     "flat": 0
+    },
+    {
+     "label": "0-41.7xlow",
+     "n": 692,
+     "win_rate": 65.2,
+     "loss_prob": 34.8,
+     "net": 457133,
+     "avg_rp": 6.61,
+     "loss_amt": -191860,
+     "plr": 1.81,
+     "flat": 0
+    },
+    {
+     "label": "0-41.7xmid",
+     "n": 308,
+     "win_rate": 69.8,
+     "loss_prob": 30.2,
+     "net": 246926,
+     "avg_rp": 8.02,
+     "loss_amt": -49462,
+     "plr": 2.59,
+     "flat": 0
+    },
+    {
+     "label": "41.7-60.4xlow",
+     "n": 894,
+     "win_rate": 66.7,
+     "loss_prob": 33.3,
+     "net": 581113,
+     "avg_rp": 6.5,
+     "loss_amt": -146073,
+     "plr": 2.49,
+     "flat": 0
+    },
+    {
+     "label": "41.7-60.4xmid",
+     "n": 144,
+     "win_rate": 72.2,
+     "loss_prob": 27.8,
+     "net": 78287,
+     "avg_rp": 5.44,
+     "loss_amt": -17554,
+     "plr": 2.1,
+     "flat": 0
+    },
+    {
+     "label": "60.4-66.4xlow",
+     "n": 876,
+     "win_rate": 64.3,
+     "loss_prob": 35.7,
+     "net": 651612,
+     "avg_rp": 7.44,
+     "loss_amt": -226913,
+     "plr": 2.15,
+     "flat": 0
+    },
+    {
+     "label": "60.4-66.4xmid",
+     "n": 178,
+     "win_rate": 43.3,
+     "loss_prob": 56.7,
+     "net": -34608,
+     "avg_rp": -1.94,
+     "loss_amt": -111708,
+     "plr": 0.91,
+     "flat": 0
+    },
+    {
+     "label": "66.4-77.5xhigh",
+     "n": 22,
+     "win_rate": 63.6,
+     "loss_prob": 36.4,
+     "net": 5693,
+     "avg_rp": 2.59,
+     "loss_amt": -926,
+     "plr": 4.08,
+     "flat": 0
+    },
+    {
+     "label": "66.4-77.5xlow",
+     "n": 961,
+     "win_rate": 68.3,
+     "loss_prob": 31.7,
+     "net": 608568,
+     "avg_rp": 6.33,
+     "loss_amt": -210418,
+     "plr": 1.81,
+     "flat": 0
+    },
+    {
+     "label": "66.4-77.5xmid",
+     "n": 145,
+     "win_rate": 64.1,
+     "loss_prob": 35.9,
+     "net": 36099,
+     "avg_rp": 2.49,
+     "loss_amt": -37289,
+     "plr": 1.1,
+     "flat": 0
+    },
+    {
+     "label": "77.5-100xhigh",
+     "n": 14,
+     "win_rate": 78.6,
+     "loss_prob": 21.4,
+     "net": 28070,
+     "avg_rp": 20.05,
+     "loss_amt": -1088,
+     "plr": 7.31,
+     "flat": 0
+    },
+    {
+     "label": "77.5-100xlow",
+     "n": 796,
+     "win_rate": 59.4,
+     "loss_prob": 40.6,
+     "net": 345620,
+     "avg_rp": 4.34,
+     "loss_amt": -319792,
+     "plr": 1.42,
+     "flat": 0
+    },
+    {
+     "label": "77.5-100xmid",
+     "n": 260,
+     "win_rate": 69.2,
+     "loss_prob": 30.8,
+     "net": 197623,
+     "avg_rp": 7.6,
+     "loss_amt": -60947,
+     "plr": 1.89,
+     "flat": 0
+    }
+   ],
+   "signal": [
+    {
+     "label": "0-41.7xbuy",
+     "n": 219,
+     "win_rate": 72.1,
+     "loss_prob": 27.9,
+     "net": 181204,
+     "avg_rp": 8.27,
+     "loss_amt": -57635,
+     "plr": 1.6,
+     "flat": 0
+    },
+    {
+     "label": "0-41.7xbuy_aux",
+     "n": 243,
+     "win_rate": 57.6,
+     "loss_prob": 42.4,
+     "net": 135097,
+     "avg_rp": 5.56,
+     "loss_amt": -89583,
+     "plr": 1.85,
+     "flat": 0
+    },
+    {
+     "label": "0-41.7xbuy_backup",
+     "n": 112,
+     "win_rate": 59.8,
+     "loss_prob": 40.2,
+     "net": 41819,
+     "avg_rp": 3.73,
+     "loss_amt": -28431,
+     "plr": 1.66,
+     "flat": 0
+    },
+    {
+     "label": "0-41.7xbuy_special",
+     "n": 449,
+     "win_rate": 70.6,
+     "loss_prob": 29.4,
+     "net": 362755,
+     "avg_rp": 8.08,
+     "loss_amt": -68515,
+     "plr": 2.62,
+     "flat": 0
+    },
+    {
+     "label": "41.7-60.4xbuy",
+     "n": 216,
+     "win_rate": 76.4,
+     "loss_prob": 23.6,
+     "net": 182007,
+     "avg_rp": 8.43,
+     "loss_amt": -38572,
+     "plr": 1.77,
+     "flat": 0
+    },
+    {
+     "label": "41.7-60.4xbuy_aux",
+     "n": 295,
+     "win_rate": 79.3,
+     "loss_prob": 20.7,
+     "net": 240470,
+     "avg_rp": 8.15,
+     "loss_amt": -30133,
+     "plr": 2.34,
+     "flat": 0
+    },
+    {
+     "label": "41.7-60.4xbuy_backup",
+     "n": 119,
+     "win_rate": 58.0,
+     "loss_prob": 42.0,
+     "net": 46183,
+     "avg_rp": 3.88,
+     "loss_amt": -23670,
+     "plr": 2.14,
+     "flat": 0
+    },
+    {
+     "label": "41.7-60.4xbuy_special",
+     "n": 408,
+     "win_rate": 56.9,
+     "loss_prob": 43.1,
+     "net": 190740,
+     "avg_rp": 4.67,
+     "loss_amt": -71251,
+     "plr": 2.79,
+     "flat": 0
+    },
+    {
+     "label": "60.4-66.4xbuy",
+     "n": 212,
+     "win_rate": 61.8,
+     "loss_prob": 38.2,
+     "net": 111058,
+     "avg_rp": 5.24,
+     "loss_amt": -69676,
+     "plr": 1.6,
+     "flat": 0
+    },
+    {
+     "label": "60.4-66.4xbuy_aux",
+     "n": 277,
+     "win_rate": 65.0,
+     "loss_prob": 35.0,
+     "net": 174092,
+     "avg_rp": 6.28,
+     "loss_amt": -94005,
+     "plr": 1.54,
+     "flat": 0
+    },
+    {
+     "label": "60.4-66.4xbuy_backup",
+     "n": 96,
+     "win_rate": 64.6,
+     "loss_prob": 35.4,
+     "net": 59701,
+     "avg_rp": 6.22,
+     "loss_amt": -22895,
+     "plr": 1.98,
+     "flat": 0
+    },
+    {
+     "label": "60.4-66.4xbuy_special",
+     "n": 469,
+     "win_rate": 56.9,
+     "loss_prob": 43.1,
+     "net": 272153,
+     "avg_rp": 5.8,
+     "loss_amt": -152044,
+     "plr": 2.11,
+     "flat": 0
+    },
+    {
+     "label": "66.4-77.5xbuy",
+     "n": 238,
+     "win_rate": 73.1,
+     "loss_prob": 26.9,
+     "net": 179412,
+     "avg_rp": 7.54,
+     "loss_amt": -60420,
+     "plr": 1.46,
+     "flat": 0
+    },
+    {
+     "label": "66.4-77.5xbuy_aux",
+     "n": 286,
+     "win_rate": 67.8,
+     "loss_prob": 32.2,
+     "net": 175838,
+     "avg_rp": 6.15,
+     "loss_amt": -80600,
+     "plr": 1.51,
+     "flat": 0
+    },
+    {
+     "label": "66.4-77.5xbuy_backup",
+     "n": 99,
+     "win_rate": 68.7,
+     "loss_prob": 31.3,
+     "net": 41436,
+     "avg_rp": 4.19,
+     "loss_amt": -24163,
+     "plr": 1.24,
+     "flat": 0
+    },
+    {
+     "label": "66.4-77.5xbuy_special",
+     "n": 505,
+     "win_rate": 64.8,
+     "loss_prob": 35.2,
+     "net": 253675,
+     "avg_rp": 5.02,
+     "loss_amt": -83450,
+     "plr": 2.2,
+     "flat": 0
+    },
+    {
+     "label": "77.5-100xbuy",
+     "n": 279,
+     "win_rate": 60.9,
+     "loss_prob": 39.1,
+     "net": 161162,
+     "avg_rp": 5.78,
+     "loss_amt": -127328,
+     "plr": 1.45,
+     "flat": 0
+    },
+    {
+     "label": "77.5-100xbuy_aux",
+     "n": 336,
+     "win_rate": 55.4,
+     "loss_prob": 44.6,
+     "net": 104797,
+     "avg_rp": 3.12,
+     "loss_amt": -154059,
+     "plr": 1.36,
+     "flat": 0
+    },
+    {
+     "label": "77.5-100xbuy_backup",
+     "n": 91,
+     "win_rate": 67.0,
+     "loss_prob": 33.0,
+     "net": 31140,
+     "avg_rp": 3.42,
+     "loss_amt": -30547,
+     "plr": 0.99,
+     "flat": 0
+    },
+    {
+     "label": "77.5-100xbuy_special",
+     "n": 364,
+     "win_rate": 67.9,
+     "loss_prob": 32.1,
+     "net": 274214,
+     "avg_rp": 7.53,
+     "loss_amt": -69894,
+     "plr": 2.33,
+     "flat": 0
+    }
+   ],
+   "track_tier": [
+    {
+     "label": "0-41.7xNone",
+     "n": 234,
+     "win_rate": 70.5,
+     "loss_prob": 29.5,
+     "net": 201310,
+     "avg_rp": 8.6,
+     "loss_amt": -52342,
+     "plr": 2.03,
+     "flat": 0
+    },
+    {
+     "label": "0-41.7xnone",
+     "n": 789,
+     "win_rate": 65.5,
+     "loss_prob": 34.5,
+     "net": 519566,
+     "avg_rp": 6.59,
+     "loss_amt": -191822,
+     "plr": 1.95,
+     "flat": 0
+    },
+    {
+     "label": "41.7-60.4xapprox",
+     "n": 791,
+     "win_rate": 69.2,
+     "loss_prob": 30.8,
+     "net": 521754,
+     "avg_rp": 6.6,
+     "loss_amt": -115866,
+     "plr": 2.45,
+     "flat": 0
+    },
+    {
+     "label": "41.7-60.4xnone",
+     "n": 243,
+     "win_rate": 61.7,
+     "loss_prob": 38.3,
+     "net": 133865,
+     "avg_rp": 5.51,
+     "loss_amt": -46700,
+     "plr": 2.4,
+     "flat": 0
+    },
+    {
+     "label": "60.4-66.4xrelated",
+     "n": 1054,
+     "win_rate": 60.7,
+     "loss_prob": 39.3,
+     "net": 617004,
+     "avg_rp": 5.85,
+     "loss_amt": -338620,
+     "plr": 1.83,
+     "flat": 0
+    },
+    {
+     "label": "66.4-77.5xrelated",
+     "n": 1112,
+     "win_rate": 68.0,
+     "loss_prob": 32.0,
+     "net": 651809,
+     "avg_rp": 5.86,
+     "loss_amt": -243391,
+     "plr": 1.73,
+     "flat": 0
+    },
+    {
+     "label": "66.4-77.5xstrong",
+     "n": 16,
+     "win_rate": 43.8,
+     "loss_prob": 56.2,
+     "net": -1448,
+     "avg_rp": -0.9,
+     "loss_amt": -5243,
+     "plr": 0.93,
+     "flat": 0
+    },
+    {
+     "label": "77.5-100xstrong",
+     "n": 1070,
+     "win_rate": 62.1,
+     "loss_prob": 37.9,
+     "net": 571313,
+     "avg_rp": 5.34,
+     "loss_amt": -381828,
+     "plr": 1.53,
+     "flat": 0
+    }
+   ]
+  }
+ },
+ "A": {
+  "candidate_n": 5313,
+  "topk_n": 1203,
+  "baseline": {
+   "desc": "A 每日池K1",
+   "net": 86857.23870000003,
+   "ret": 86.86,
+   "dd_pct": 0.13,
+   "n": 1203
+  },
+  "signal_static": {
+   "等宽5段": {
+    "rows": [
+     {
+      "label": "0-20",
+      "n": 63,
+      "win_rate": 54.0,
+      "loss_prob": 46.0,
+      "net": 6726,
+      "avg_rp": 1.07,
+      "loss_amt": -16274,
+      "plr": 1.21,
+      "flat": 0
+     },
+     {
+      "label": "20-40",
+      "n": 822,
+      "win_rate": 67.4,
+      "loss_prob": 32.6,
+      "net": 284736,
+      "avg_rp": 3.46,
+      "loss_amt": -115340,
+      "plr": 1.68,
+      "flat": 0
+     },
+     {
+      "label": "40-60",
+      "n": 1172,
+      "win_rate": 61.1,
+      "loss_prob": 38.9,
+      "net": 155363,
+      "avg_rp": 1.33,
+      "loss_amt": -158308,
+      "plr": 1.26,
+      "flat": 0
+     },
+     {
+      "label": "60-80",
+      "n": 2530,
+      "win_rate": 56.4,
+      "loss_prob": 43.6,
+      "net": 239798,
+      "avg_rp": 0.95,
+      "loss_amt": -334961,
+      "plr": 1.33,
+      "flat": 0
+     },
+     {
+      "label": "80-100",
+      "n": 726,
+      "win_rate": 62.5,
+      "loss_prob": 37.5,
+      "net": 119751,
+      "avg_rp": 1.65,
+      "loss_amt": -107850,
+      "plr": 1.26,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 5313,
+     "win_rate": 59.9,
+     "loss_prob": 40.1,
+     "net": 806374,
+     "avg_rp": 1.52,
+     "loss_amt": -732733,
+     "plr": 1.4,
+     "flat": 0
+    },
+    "chi2": {
+     "chi2": 36.13,
+     "k": 5,
+     "N": 5313
+    }
+   },
+   "分位数5段": {
+    "rows": [
+     {
+      "label": "0-41.7",
+      "n": 1023,
+      "win_rate": 65.9,
+      "loss_prob": 34.1,
+      "net": 314248,
+      "avg_rp": 3.07,
+      "loss_amt": -149336,
+      "plr": 1.61,
+      "flat": 0
+     },
+     {
+      "label": "41.7-60.4",
+      "n": 1038,
+      "win_rate": 61.1,
+      "loss_prob": 38.9,
+      "net": 135831,
+      "avg_rp": 1.31,
+      "loss_amt": -140586,
+      "plr": 1.25,
+      "flat": 0
+     },
+     {
+      "label": "60.4-66.4",
+      "n": 1054,
+      "win_rate": 54.8,
+      "loss_prob": 45.2,
+      "net": 77772,
+      "avg_rp": 0.74,
+      "loss_amt": -136720,
+      "plr": 1.29,
+      "flat": 0
+     },
+     {
+      "label": "66.4-77.5",
+      "n": 1128,
+      "win_rate": 57.6,
+      "loss_prob": 42.4,
+      "net": 120706,
+      "avg_rp": 1.07,
+      "loss_amt": -149471,
+      "plr": 1.33,
+      "flat": 0
+     },
+     {
+      "label": "77.5-100",
+      "n": 1070,
+      "win_rate": 60.6,
+      "loss_prob": 39.4,
+      "net": 157818,
+      "avg_rp": 1.47,
+      "loss_amt": -156620,
+      "plr": 1.31,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 5313,
+     "win_rate": 59.9,
+     "loss_prob": 40.1,
+     "net": 806374,
+     "avg_rp": 1.52,
+     "loss_amt": -732733,
+     "plr": 1.4,
+     "flat": 0
+    },
+    "chi2": {
+     "chi2": 29.73,
+     "k": 5,
+     "N": 5313
+    }
+   },
+   "等宽10段": {
+    "rows": [
+     {
+      "label": "0-10",
+      "n": 40,
+      "win_rate": 55.0,
+      "loss_prob": 45.0,
+      "net": 7045,
+      "avg_rp": 1.76,
+      "loss_amt": -10207,
+      "plr": 1.38,
+      "flat": 0
+     },
+     {
+      "label": "10-20",
+      "n": 23,
+      "win_rate": 52.2,
+      "loss_prob": 47.8,
+      "net": -319,
+      "avg_rp": -0.14,
+      "loss_amt": -6066,
+      "plr": 0.87,
+      "flat": 0
+     },
+     {
+      "label": "20-30",
+      "n": 171,
+      "win_rate": 72.5,
+      "loss_prob": 27.5,
+      "net": 59259,
+      "avg_rp": 3.47,
+      "loss_amt": -21395,
+      "plr": 1.43,
+      "flat": 0
+     },
+     {
+      "label": "30-40",
+      "n": 651,
+      "win_rate": 66.1,
+      "loss_prob": 33.9,
+      "net": 225477,
+      "avg_rp": 3.46,
+      "loss_amt": -93945,
+      "plr": 1.75,
+      "flat": 0
+     },
+     {
+      "label": "40-50",
+      "n": 381,
+      "win_rate": 63.8,
+      "loss_prob": 36.2,
+      "net": 61061,
+      "avg_rp": 1.6,
+      "loss_amt": -55218,
+      "plr": 1.2,
+      "flat": 0
+     },
+     {
+      "label": "50-60",
+      "n": 791,
+      "win_rate": 59.8,
+      "loss_prob": 40.2,
+      "net": 94302,
+      "avg_rp": 1.19,
+      "loss_amt": -103089,
+      "plr": 1.29,
+      "flat": 0
+     },
+     {
+      "label": "60-70",
+      "n": 1943,
+      "win_rate": 56.1,
+      "loss_prob": 43.9,
+      "net": 176693,
+      "avg_rp": 0.91,
+      "loss_amt": -258444,
+      "plr": 1.32,
+      "flat": 0
+     },
+     {
+      "label": "70-80",
+      "n": 587,
+      "win_rate": 57.2,
+      "loss_prob": 42.8,
+      "net": 63106,
+      "avg_rp": 1.08,
+      "loss_amt": -76517,
+      "plr": 1.36,
+      "flat": 0
+     },
+     {
+      "label": "80-90",
+      "n": 385,
+      "win_rate": 61.3,
+      "loss_prob": 38.7,
+      "net": 49008,
+      "avg_rp": 1.27,
+      "loss_amt": -56890,
+      "plr": 1.18,
+      "flat": 0
+     },
+     {
+      "label": "90-100",
+      "n": 341,
+      "win_rate": 63.9,
+      "loss_prob": 36.1,
+      "net": 70743,
+      "avg_rp": 2.07,
+      "loss_amt": -50961,
+      "plr": 1.35,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 5313,
+     "win_rate": 59.9,
+     "loss_prob": 40.1,
+     "net": 806374,
+     "avg_rp": 1.52,
+     "loss_amt": -732733,
+     "plr": 1.4,
+     "flat": 0
+    },
+    "chi2": {
+     "chi2": 40.99,
+     "k": 10,
+     "N": 5313
+    }
+   },
+   "分位数10段": {
+    "rows": [
+     {
+      "label": "0-35.2",
+      "n": 498,
+      "win_rate": 67.9,
+      "loss_prob": 32.1,
+      "net": 160472,
+      "avg_rp": 3.22,
+      "loss_amt": -74015,
+      "plr": 1.5,
+      "flat": 0
+     },
+     {
+      "label": "35.2-41.7",
+      "n": 525,
+      "win_rate": 64.0,
+      "loss_prob": 36.0,
+      "net": 153776,
+      "avg_rp": 2.93,
+      "loss_amt": -75321,
+      "plr": 1.71,
+      "flat": 0
+     },
+     {
+      "label": "41.7-53.8",
+      "n": 557,
+      "win_rate": 61.9,
+      "loss_prob": 38.1,
+      "net": 68686,
+      "avg_rp": 1.23,
+      "loss_amt": -73800,
+      "plr": 1.19,
+      "flat": 0
+     },
+     {
+      "label": "53.8-60.4",
+      "n": 481,
+      "win_rate": 60.1,
+      "loss_prob": 39.9,
+      "net": 67145,
+      "avg_rp": 1.4,
+      "loss_amt": -66786,
+      "plr": 1.33,
+      "flat": 0
+     },
+     {
+      "label": "60.4-65.1",
+      "n": 555,
+      "win_rate": 55.7,
+      "loss_prob": 44.3,
+      "net": 52414,
+      "avg_rp": 0.94,
+      "loss_amt": -66496,
+      "plr": 1.42,
+      "flat": 0
+     },
+     {
+      "label": "65.1-66.4",
+      "n": 499,
+      "win_rate": 53.9,
+      "loss_prob": 46.1,
+      "net": 25358,
+      "avg_rp": 0.51,
+      "loss_amt": -70224,
+      "plr": 1.16,
+      "flat": 0
+     },
+     {
+      "label": "66.4-67.6",
+      "n": 581,
+      "win_rate": 55.8,
+      "loss_prob": 44.2,
+      "net": 48526,
+      "avg_rp": 0.84,
+      "loss_amt": -80121,
+      "plr": 1.27,
+      "flat": 0
+     },
+     {
+      "label": "67.6-77.5",
+      "n": 547,
+      "win_rate": 59.6,
+      "loss_prob": 40.4,
+      "net": 72180,
+      "avg_rp": 1.32,
+      "loss_amt": -69350,
+      "plr": 1.38,
+      "flat": 0
+     },
+     {
+      "label": "77.5-83.3",
+      "n": 514,
+      "win_rate": 58.8,
+      "loss_prob": 41.2,
+      "net": 63328,
+      "avg_rp": 1.23,
+      "loss_amt": -75913,
+      "plr": 1.29,
+      "flat": 0
+     },
+     {
+      "label": "83.3-100",
+      "n": 556,
+      "win_rate": 62.2,
+      "loss_prob": 37.8,
+      "net": 94489,
+      "avg_rp": 1.7,
+      "loss_amt": -80707,
+      "plr": 1.32,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 5313,
+     "win_rate": 59.9,
+     "loss_prob": 40.1,
+     "net": 806374,
+     "avg_rp": 1.52,
+     "loss_amt": -732733,
+     "plr": 1.4,
+     "flat": 0
+    },
+    "chi2": {
+     "chi2": 35.1,
+     "k": 10,
+     "N": 5313
+    }
+   }
+  },
+  "topk_static": {
+   "等宽5段": {
+    "rows": [
+     {
+      "label": "0-20",
+      "n": 4,
+      "win_rate": 50.0,
+      "loss_prob": 50.0,
+      "net": -864,
+      "avg_rp": -2.16,
+      "loss_amt": -999,
+      "plr": 0.13,
+      "flat": 0
+     },
+     {
+      "label": "20-40",
+      "n": 19,
+      "win_rate": 57.9,
+      "loss_prob": 42.1,
+      "net": 3646,
+      "avg_rp": 1.92,
+      "loss_amt": -4225,
+      "plr": 1.35,
+      "flat": 0
+     },
+     {
+      "label": "40-60",
+      "n": 129,
+      "win_rate": 55.0,
+      "loss_prob": 45.0,
+      "net": 8939,
+      "avg_rp": 0.69,
+      "loss_amt": -18336,
+      "plr": 1.22,
+      "flat": 0
+     },
+     {
+      "label": "60-80",
+      "n": 792,
+      "win_rate": 51.8,
+      "loss_prob": 48.2,
+      "net": 39014,
+      "avg_rp": 0.49,
+      "loss_amt": -124709,
+      "plr": 1.22,
+      "flat": 0
+     },
+     {
+      "label": "80-100",
+      "n": 259,
+      "win_rate": 61.4,
+      "loss_prob": 38.6,
+      "net": 36123,
+      "avg_rp": 1.39,
+      "loss_amt": -45494,
+      "plr": 1.13,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 1203,
+     "win_rate": 54.3,
+     "loss_prob": 45.7,
+     "net": 86857,
+     "avg_rp": 0.72,
+     "loss_amt": -193762,
+     "plr": 1.22,
+     "flat": 0
+    }
+   },
+   "分位数5段": {
+    "rows": [
+     {
+      "label": "0-41.7",
+      "n": 28,
+      "win_rate": 50.0,
+      "loss_prob": 50.0,
+      "net": 1707,
+      "avg_rp": 0.61,
+      "loss_amt": -7209,
+      "plr": 1.24,
+      "flat": 0
+     },
+     {
+      "label": "41.7-60.4",
+      "n": 124,
+      "win_rate": 56.5,
+      "loss_prob": 43.5,
+      "net": 10013,
+      "avg_rp": 0.81,
+      "loss_amt": -16350,
+      "plr": 1.24,
+      "flat": 0
+     },
+     {
+      "label": "60.4-66.4",
+      "n": 234,
+      "win_rate": 52.1,
+      "loss_prob": 47.9,
+      "net": -101,
+      "avg_rp": -0.0,
+      "loss_amt": -35719,
+      "plr": 0.92,
+      "flat": 0
+     },
+     {
+      "label": "66.4-77.5",
+      "n": 424,
+      "win_rate": 51.9,
+      "loss_prob": 48.1,
+      "net": 25389,
+      "avg_rp": 0.6,
+      "loss_amt": -65362,
+      "plr": 1.29,
+      "flat": 0
+     },
+     {
+      "label": "77.5-100",
+      "n": 393,
+      "win_rate": 57.8,
+      "loss_prob": 42.2,
+      "net": 49849,
+      "avg_rp": 1.27,
+      "loss_amt": -69122,
+      "plr": 1.26,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 1203,
+     "win_rate": 54.3,
+     "loss_prob": 45.7,
+     "net": 86857,
+     "avg_rp": 0.72,
+     "loss_amt": -193762,
+     "plr": 1.22,
+     "flat": 0
+    }
+   },
+   "等宽10段": {
+    "rows": [
+     {
+      "label": "0-10",
+      "n": 3,
+      "win_rate": 33.3,
+      "loss_prob": 66.7,
+      "net": -975,
+      "avg_rp": -3.25,
+      "loss_amt": -999,
+      "plr": 0.05,
+      "flat": 0
+     },
+     {
+      "label": "10-20",
+      "n": 1,
+      "win_rate": 100.0,
+      "loss_prob": 0.0,
+      "net": 111,
+      "avg_rp": 1.11,
+      "loss_amt": 0,
+      "plr": null,
+      "flat": 0
+     },
+     {
+      "label": "20-30",
+      "n": 4,
+      "win_rate": 75.0,
+      "loss_prob": 25.0,
+      "net": 4047,
+      "avg_rp": 10.12,
+      "loss_amt": -881,
+      "plr": 1.86,
+      "flat": 0
+     },
+     {
+      "label": "30-40",
+      "n": 15,
+      "win_rate": 53.3,
+      "loss_prob": 46.7,
+      "net": -401,
+      "avg_rp": -0.27,
+      "loss_amt": -3344,
+      "plr": 0.77,
+      "flat": 0
+     },
+     {
+      "label": "40-50",
+      "n": 27,
+      "win_rate": 25.9,
+      "loss_prob": 74.1,
+      "net": -6265,
+      "avg_rp": -2.32,
+      "loss_amt": -8594,
+      "plr": 0.77,
+      "flat": 0
+     },
+     {
+      "label": "50-60",
+      "n": 102,
+      "win_rate": 62.7,
+      "loss_prob": 37.3,
+      "net": 15203,
+      "avg_rp": 1.49,
+      "loss_amt": -9742,
+      "plr": 1.52,
+      "flat": 0
+     },
+     {
+      "label": "60-70",
+      "n": 608,
+      "win_rate": 52.1,
+      "loss_prob": 47.9,
+      "net": 18970,
+      "avg_rp": 0.31,
+      "loss_amt": -93250,
+      "plr": 1.1,
+      "flat": 0
+     },
+     {
+      "label": "70-80",
+      "n": 184,
+      "win_rate": 50.5,
+      "loss_prob": 49.5,
+      "net": 20044,
+      "avg_rp": 1.09,
+      "loss_amt": -31459,
+      "plr": 1.6,
+      "flat": 0
+     },
+     {
+      "label": "80-90",
+      "n": 73,
+      "win_rate": 56.2,
+      "loss_prob": 43.8,
+      "net": 2685,
+      "avg_rp": 0.37,
+      "loss_amt": -13990,
+      "plr": 0.93,
+      "flat": 0
+     },
+     {
+      "label": "90-100",
+      "n": 186,
+      "win_rate": 63.4,
+      "loss_prob": 36.6,
+      "net": 33438,
+      "avg_rp": 1.8,
+      "loss_amt": -31504,
+      "plr": 1.19,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 1203,
+     "win_rate": 54.3,
+     "loss_prob": 45.7,
+     "net": 86857,
+     "avg_rp": 0.72,
+     "loss_amt": -193762,
+     "plr": 1.22,
+     "flat": 0
+    }
+   },
+   "分位数10段": {
+    "rows": [
+     {
+      "label": "0-35.2",
+      "n": 8,
+      "win_rate": 62.5,
+      "loss_prob": 37.5,
+      "net": 3182,
+      "avg_rp": 3.98,
+      "loss_amt": -1879,
+      "plr": 1.62,
+      "flat": 0
+     },
+     {
+      "label": "35.2-41.7",
+      "n": 20,
+      "win_rate": 45.0,
+      "loss_prob": 55.0,
+      "net": -1476,
+      "avg_rp": -0.74,
+      "loss_amt": -5329,
+      "plr": 0.88,
+      "flat": 0
+     },
+     {
+      "label": "41.7-53.8",
+      "n": 54,
+      "win_rate": 38.9,
+      "loss_prob": 61.1,
+      "net": -5436,
+      "avg_rp": -1.01,
+      "loss_amt": -10881,
+      "plr": 0.79,
+      "flat": 0
+     },
+     {
+      "label": "53.8-60.4",
+      "n": 70,
+      "win_rate": 70.0,
+      "loss_prob": 30.0,
+      "net": 15449,
+      "avg_rp": 2.21,
+      "loss_amt": -5470,
+      "plr": 1.64,
+      "flat": 0
+     },
+     {
+      "label": "60.4-65.1",
+      "n": 76,
+      "win_rate": 53.9,
+      "loss_prob": 46.1,
+      "net": 3255,
+      "avg_rp": 0.43,
+      "loss_amt": -7958,
+      "plr": 1.2,
+      "flat": 0
+     },
+     {
+      "label": "65.1-66.4",
+      "n": 158,
+      "win_rate": 51.3,
+      "loss_prob": 48.7,
+      "net": -3356,
+      "avg_rp": -0.21,
+      "loss_amt": -27761,
+      "plr": 0.84,
+      "flat": 0
+     },
+     {
+      "label": "66.4-67.6",
+      "n": 271,
+      "win_rate": 49.4,
+      "loss_prob": 50.6,
+      "net": 5367,
+      "avg_rp": 0.2,
+      "loss_amt": -43867,
+      "plr": 1.15,
+      "flat": 0
+     },
+     {
+      "label": "67.6-77.5",
+      "n": 153,
+      "win_rate": 56.2,
+      "loss_prob": 43.8,
+      "net": 20022,
+      "avg_rp": 1.31,
+      "loss_amt": -21495,
+      "plr": 1.5,
+      "flat": 0
+     },
+     {
+      "label": "77.5-83.3",
+      "n": 174,
+      "win_rate": 52.3,
+      "loss_prob": 47.7,
+      "net": 14280,
+      "avg_rp": 0.82,
+      "loss_amt": -32155,
+      "plr": 1.32,
+      "flat": 0
+     },
+     {
+      "label": "83.3-100",
+      "n": 219,
+      "win_rate": 62.1,
+      "loss_prob": 37.9,
+      "net": 35570,
+      "avg_rp": 1.62,
+      "loss_amt": -36967,
+      "plr": 1.2,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 1203,
+     "win_rate": 54.3,
+     "loss_prob": 45.7,
+     "net": 86857,
+     "avg_rp": 0.72,
+     "loss_amt": -193762,
+     "plr": 1.22,
+     "flat": 0
+    }
+   }
+  },
+  "excl_single": {
+   "等宽5段": [
+    {
+     "segment": "0-20",
+     "deleted": 4,
+     "net": 87721.60100000004,
+     "dnet": 864.362300000008,
+     "ret": 87.72,
+     "dret": 0.8599999999999994,
+     "dd_pct": 0.13
+    },
+    {
+     "segment": "20-40",
+     "deleted": 19,
+     "net": 83211.67090000003,
+     "dnet": -3645.5678000000044,
+     "ret": 83.21,
+     "dret": -3.6500000000000057,
+     "dd_pct": 0.12
+    },
+    {
+     "segment": "40-60",
+     "deleted": 108,
+     "net": 81193.80860000003,
+     "dnet": -5663.430099999998,
+     "ret": 81.19,
+     "dret": -5.670000000000002,
+     "dd_pct": 0.17
+    },
+    {
+     "segment": "60-80",
+     "deleted": 545,
+     "net": 74724.133,
+     "dnet": -12133.10570000003,
+     "ret": 74.72,
+     "dret": -12.14,
+     "dd_pct": 0.2
+    },
+    {
+     "segment": "80-100",
+     "deleted": 20,
+     "net": 69568.25149999998,
+     "dnet": -17288.987200000047,
+     "ret": 69.57,
+     "dret": -17.290000000000006,
+     "dd_pct": 0.12
+    }
+   ],
+   "分位数5段": [
+    {
+     "segment": "0-41.7",
+     "deleted": 28,
+     "net": 85150.63860000002,
+     "dnet": -1706.6001000000106,
+     "ret": 85.15,
+     "dret": -1.7099999999999937,
+     "dd_pct": 0.13
+    },
+    {
+     "segment": "41.7-60.4",
+     "deleted": 105,
+     "net": 76288.96020000006,
+     "dnet": -10568.278499999971,
+     "ret": 76.29,
+     "dret": -10.569999999999993,
+     "dd_pct": 0.17
+    },
+    {
+     "segment": "60.4-66.4",
+     "deleted": 183,
+     "net": 89377.44210000003,
+     "dnet": 2520.2033999999985,
+     "ret": 89.38,
+     "dret": 2.519999999999996,
+     "dd_pct": 0.13
+    },
+    {
+     "segment": "66.4-77.5",
+     "deleted": 189,
+     "net": 74207.48060000011,
+     "dnet": -12649.758099999919,
+     "ret": 74.21,
+     "dret": -12.650000000000006,
+     "dd_pct": 0.16
+    },
+    {
+     "segment": "77.5-100",
+     "deleted": 38,
+     "net": 69125.00070000006,
+     "dnet": -17732.23799999997,
+     "ret": 69.13,
+     "dret": -17.730000000000004,
+     "dd_pct": 0.13
+    }
+   ]
+  },
+  "excl_multi": {
+   "最差2段": {
+    "segments": [
+     "60.4-66.4",
+     "66.4-77.5"
+    ],
+    "deleted": 481,
+    "net": 80622.85370000002,
+    "dnet": -6234.385000000009,
+    "ret": 80.62,
+    "dret": -6.239999999999995,
+    "dd_pct": 0.16
+   },
+   "最差3段": {
+    "segments": [
+     "60.4-66.4",
+     "66.4-77.5",
+     "77.5-100"
+    ],
+    "deleted": 607,
+    "net": 55701.45469999993,
+    "dnet": -31155.7840000001,
+    "ret": 55.7,
+    "dret": -31.159999999999997,
+    "dd_pct": 0.17
+   }
+  }
+ },
+ "F": {
+  "candidate_n": 5313,
+  "topk_n": 1203,
+  "baseline": {
+   "desc": "F 每日池K1",
+   "net": 118841.49270000005,
+   "ret": 79.23,
+   "dd_pct": 0.22,
+   "n": 1203
+  },
+  "signal_static": {
+   "等宽5段": {
+    "rows": [
+     {
+      "label": "0-20",
+      "n": 63,
+      "win_rate": 54.0,
+      "loss_prob": 46.0,
+      "net": 10515,
+      "avg_rp": 1.67,
+      "loss_amt": -16651,
+      "plr": 1.39,
+      "flat": 0
+     },
+     {
+      "label": "20-40",
+      "n": 822,
+      "win_rate": 66.3,
+      "loss_prob": 33.7,
+      "net": 332347,
+      "avg_rp": 4.04,
+      "loss_amt": -125204,
+      "plr": 1.86,
+      "flat": 0
+     },
+     {
+      "label": "40-60",
+      "n": 1172,
+      "win_rate": 61.6,
+      "loss_prob": 38.4,
+      "net": 229125,
+      "avg_rp": 1.95,
+      "loss_amt": -167385,
+      "plr": 1.48,
+      "flat": 0
+     },
+     {
+      "label": "60-80",
+      "n": 2530,
+      "win_rate": 57.7,
+      "loss_prob": 42.3,
+      "net": 336505,
+      "avg_rp": 1.33,
+      "loss_amt": -390184,
+      "plr": 1.36,
+      "flat": 0
+     },
+     {
+      "label": "80-100",
+      "n": 726,
+      "win_rate": 60.2,
+      "loss_prob": 39.8,
+      "net": 172149,
+      "avg_rp": 2.37,
+      "loss_amt": -118139,
+      "plr": 1.62,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 5313,
+     "win_rate": 60.2,
+     "loss_prob": 39.8,
+     "net": 1080641,
+     "avg_rp": 2.03,
+     "loss_amt": -817563,
+     "plr": 1.53,
+     "flat": 0
+    },
+    "chi2": {
+     "chi2": 21.11,
+     "k": 5,
+     "N": 5313
+    }
+   },
+   "分位数5段": {
+    "rows": [
+     {
+      "label": "0-41.7",
+      "n": 1023,
+      "win_rate": 65.4,
+      "loss_prob": 34.6,
+      "net": 371943,
+      "avg_rp": 3.64,
+      "loss_amt": -160648,
+      "plr": 1.75,
+      "flat": 0
+     },
+     {
+      "label": "41.7-60.4",
+      "n": 1038,
+      "win_rate": 61.3,
+      "loss_prob": 38.7,
+      "net": 204591,
+      "avg_rp": 1.97,
+      "loss_amt": -148591,
+      "plr": 1.5,
+      "flat": 0
+     },
+     {
+      "label": "60.4-66.4",
+      "n": 1054,
+      "win_rate": 57.3,
+      "loss_prob": 42.7,
+      "net": 109671,
+      "avg_rp": 1.04,
+      "loss_amt": -163698,
+      "plr": 1.24,
+      "flat": 0
+     },
+     {
+      "label": "66.4-77.5",
+      "n": 1128,
+      "win_rate": 57.5,
+      "loss_prob": 42.5,
+      "net": 156651,
+      "avg_rp": 1.39,
+      "loss_amt": -177793,
+      "plr": 1.39,
+      "flat": 0
+     },
+     {
+      "label": "77.5-100",
+      "n": 1070,
+      "win_rate": 59.9,
+      "loss_prob": 40.1,
+      "net": 237786,
+      "avg_rp": 2.22,
+      "loss_amt": -166832,
+      "plr": 1.62,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 5313,
+     "win_rate": 60.2,
+     "loss_prob": 39.8,
+     "net": 1080641,
+     "avg_rp": 2.03,
+     "loss_amt": -817563,
+     "plr": 1.53,
+     "flat": 0
+    },
+    "chi2": {
+     "chi2": 19.09,
+     "k": 5,
+     "N": 5313
+    }
+   },
+   "等宽10段": {
+    "rows": [
+     {
+      "label": "0-10",
+      "n": 40,
+      "win_rate": 55.0,
+      "loss_prob": 45.0,
+      "net": 9844,
+      "avg_rp": 2.46,
+      "loss_amt": -7902,
+      "plr": 1.84,
+      "flat": 0
+     },
+     {
+      "label": "10-20",
+      "n": 23,
+      "win_rate": 52.2,
+      "loss_prob": 47.8,
+      "net": 671,
+      "avg_rp": 0.29,
+      "loss_amt": -8749,
+      "plr": 0.99,
+      "flat": 0
+     },
+     {
+      "label": "20-30",
+      "n": 171,
+      "win_rate": 71.9,
+      "loss_prob": 28.1,
+      "net": 84149,
+      "avg_rp": 4.92,
+      "loss_amt": -22671,
+      "plr": 1.84,
+      "flat": 0
+     },
+     {
+      "label": "30-40",
+      "n": 651,
+      "win_rate": 64.8,
+      "loss_prob": 35.2,
+      "net": 248199,
+      "avg_rp": 3.81,
+      "loss_amt": -102533,
+      "plr": 1.86,
+      "flat": 0
+     },
+     {
+      "label": "40-50",
+      "n": 381,
+      "win_rate": 64.0,
+      "loss_prob": 36.0,
+      "net": 79467,
+      "avg_rp": 2.09,
+      "loss_amt": -60025,
+      "plr": 1.3,
+      "flat": 0
+     },
+     {
+      "label": "50-60",
+      "n": 791,
+      "win_rate": 60.4,
+      "loss_prob": 39.6,
+      "net": 149658,
+      "avg_rp": 1.89,
+      "loss_amt": -107360,
+      "plr": 1.57,
+      "flat": 0
+     },
+     {
+      "label": "60-70",
+      "n": 1943,
+      "win_rate": 57.3,
+      "loss_prob": 42.7,
+      "net": 234034,
+      "avg_rp": 1.2,
+      "loss_amt": -310496,
+      "plr": 1.31,
+      "flat": 0
+     },
+     {
+      "label": "70-80",
+      "n": 587,
+      "win_rate": 59.1,
+      "loss_prob": 40.9,
+      "net": 102471,
+      "avg_rp": 1.75,
+      "loss_amt": -79688,
+      "plr": 1.58,
+      "flat": 0
+     },
+     {
+      "label": "80-90",
+      "n": 385,
+      "win_rate": 61.3,
+      "loss_prob": 38.7,
+      "net": 74893,
+      "avg_rp": 1.95,
+      "loss_amt": -60139,
+      "plr": 1.42,
+      "flat": 0
+     },
+     {
+      "label": "90-100",
+      "n": 341,
+      "win_rate": 58.9,
+      "loss_prob": 41.1,
+      "net": 97255,
+      "avg_rp": 2.85,
+      "loss_amt": -58001,
+      "plr": 1.86,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 5313,
+     "win_rate": 60.2,
+     "loss_prob": 39.8,
+     "net": 1080641,
+     "avg_rp": 2.03,
+     "loss_amt": -817563,
+     "plr": 1.53,
+     "flat": 0
+    },
+    "chi2": {
+     "chi2": 26.43,
+     "k": 10,
+     "N": 5313
+    }
+   },
+   "分位数10段": {
+    "rows": [
+     {
+      "label": "0-35.2",
+      "n": 498,
+      "win_rate": 67.9,
+      "loss_prob": 32.1,
+      "net": 208798,
+      "avg_rp": 4.19,
+      "loss_amt": -79401,
+      "plr": 1.72,
+      "flat": 0
+     },
+     {
+      "label": "35.2-41.7",
+      "n": 525,
+      "win_rate": 63.0,
+      "loss_prob": 37.0,
+      "net": 163145,
+      "avg_rp": 3.11,
+      "loss_amt": -81247,
+      "plr": 1.76,
+      "flat": 0
+     },
+     {
+      "label": "41.7-53.8",
+      "n": 557,
+      "win_rate": 61.6,
+      "loss_prob": 38.4,
+      "net": 99529,
+      "avg_rp": 1.79,
+      "loss_amt": -77647,
+      "plr": 1.42,
+      "flat": 0
+     },
+     {
+      "label": "53.8-60.4",
+      "n": 481,
+      "win_rate": 60.9,
+      "loss_prob": 39.1,
+      "net": 105062,
+      "avg_rp": 2.18,
+      "loss_amt": -70944,
+      "plr": 1.59,
+      "flat": 0
+     },
+     {
+      "label": "60.4-65.1",
+      "n": 555,
+      "win_rate": 56.9,
+      "loss_prob": 43.1,
+      "net": 62312,
+      "avg_rp": 1.12,
+      "loss_amt": -85934,
+      "plr": 1.3,
+      "flat": 0
+     },
+     {
+      "label": "65.1-66.4",
+      "n": 499,
+      "win_rate": 57.7,
+      "loss_prob": 42.3,
+      "net": 47359,
+      "avg_rp": 0.95,
+      "loss_amt": -77764,
+      "plr": 1.18,
+      "flat": 0
+     },
+     {
+      "label": "66.4-67.6",
+      "n": 581,
+      "win_rate": 54.9,
+      "loss_prob": 45.1,
+      "net": 55993,
+      "avg_rp": 0.96,
+      "loss_amt": -97299,
+      "plr": 1.29,
+      "flat": 0
+     },
+     {
+      "label": "67.6-77.5",
+      "n": 547,
+      "win_rate": 60.3,
+      "loss_prob": 39.7,
+      "net": 100659,
+      "avg_rp": 1.84,
+      "loss_amt": -80494,
+      "plr": 1.48,
+      "flat": 0
+     },
+     {
+      "label": "77.5-83.3",
+      "n": 514,
+      "win_rate": 60.1,
+      "loss_prob": 39.9,
+      "net": 104172,
+      "avg_rp": 2.03,
+      "loss_amt": -75743,
+      "plr": 1.58,
+      "flat": 0
+     },
+     {
+      "label": "83.3-100",
+      "n": 556,
+      "win_rate": 59.7,
+      "loss_prob": 40.3,
+      "net": 133613,
+      "avg_rp": 2.4,
+      "loss_amt": -91089,
+      "plr": 1.66,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 5313,
+     "win_rate": 60.2,
+     "loss_prob": 39.8,
+     "net": 1080641,
+     "avg_rp": 2.03,
+     "loss_amt": -817563,
+     "plr": 1.53,
+     "flat": 0
+    },
+    "chi2": {
+     "chi2": 25.17,
+     "k": 10,
+     "N": 5313
+    }
+   }
+  },
+  "topk_static": {
+   "等宽5段": {
+    "rows": [
+     {
+      "label": "0-20",
+      "n": 4,
+      "win_rate": 50.0,
+      "loss_prob": 50.0,
+      "net": 424,
+      "avg_rp": 1.06,
+      "loss_amt": -194,
+      "plr": 3.18,
+      "flat": 0
+     },
+     {
+      "label": "20-40",
+      "n": 19,
+      "win_rate": 47.4,
+      "loss_prob": 52.6,
+      "net": 3870,
+      "avg_rp": 2.04,
+      "loss_amt": -4788,
+      "plr": 2.01,
+      "flat": 0
+     },
+     {
+      "label": "40-60",
+      "n": 129,
+      "win_rate": 56.6,
+      "loss_prob": 43.4,
+      "net": 11864,
+      "avg_rp": 0.92,
+      "loss_amt": -20375,
+      "plr": 1.21,
+      "flat": 0
+     },
+     {
+      "label": "60-80",
+      "n": 792,
+      "win_rate": 52.9,
+      "loss_prob": 47.1,
+      "net": 55089,
+      "avg_rp": 0.7,
+      "loss_amt": -149492,
+      "plr": 1.22,
+      "flat": 0
+     },
+     {
+      "label": "80-100",
+      "n": 259,
+      "win_rate": 55.2,
+      "loss_prob": 44.8,
+      "net": 47593,
+      "avg_rp": 1.84,
+      "loss_amt": -49244,
+      "plr": 1.6,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 1203,
+     "win_rate": 53.7,
+     "loss_prob": 46.3,
+     "net": 118841,
+     "avg_rp": 0.99,
+     "loss_amt": -224094,
+     "plr": 1.32,
+     "flat": 0
+    }
+   },
+   "分位数5段": {
+    "rows": [
+     {
+      "label": "0-41.7",
+      "n": 28,
+      "win_rate": 50.0,
+      "loss_prob": 50.0,
+      "net": 4565,
+      "avg_rp": 1.63,
+      "loss_amt": -6830,
+      "plr": 1.67,
+      "flat": 0
+     },
+     {
+      "label": "41.7-60.4",
+      "n": 124,
+      "win_rate": 56.5,
+      "loss_prob": 43.5,
+      "net": 11594,
+      "avg_rp": 0.94,
+      "loss_amt": -18528,
+      "plr": 1.25,
+      "flat": 0
+     },
+     {
+      "label": "60.4-66.4",
+      "n": 234,
+      "win_rate": 52.1,
+      "loss_prob": 47.9,
+      "net": 643,
+      "avg_rp": 0.03,
+      "loss_amt": -44851,
+      "plr": 0.93,
+      "flat": 0
+     },
+     {
+      "label": "66.4-77.5",
+      "n": 424,
+      "win_rate": 52.1,
+      "loss_prob": 47.9,
+      "net": 29022,
+      "avg_rp": 0.68,
+      "loss_amt": -78939,
+      "plr": 1.26,
+      "flat": 0
+     },
+     {
+      "label": "77.5-100",
+      "n": 393,
+      "win_rate": 55.7,
+      "loss_prob": 44.3,
+      "net": 73017,
+      "avg_rp": 1.86,
+      "loss_amt": -74946,
+      "plr": 1.57,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 1203,
+     "win_rate": 53.7,
+     "loss_prob": 46.3,
+     "net": 118841,
+     "avg_rp": 0.99,
+     "loss_amt": -224094,
+     "plr": 1.32,
+     "flat": 0
+    }
+   },
+   "等宽10段": {
+    "rows": [
+     {
+      "label": "0-10",
+      "n": 3,
+      "win_rate": 33.3,
+      "loss_prob": 66.7,
+      "net": 210,
+      "avg_rp": 0.7,
+      "loss_amt": -194,
+      "plr": 4.17,
+      "flat": 0
+     },
+     {
+      "label": "10-20",
+      "n": 1,
+      "win_rate": 100.0,
+      "loss_prob": 0.0,
+      "net": 214,
+      "avg_rp": 2.14,
+      "loss_amt": 0,
+      "plr": null,
+      "flat": 0
+     },
+     {
+      "label": "20-30",
+      "n": 4,
+      "win_rate": 75.0,
+      "loss_prob": 25.0,
+      "net": 4561,
+      "avg_rp": 11.4,
+      "loss_amt": -1171,
+      "plr": 1.63,
+      "flat": 0
+     },
+     {
+      "label": "30-40",
+      "n": 15,
+      "win_rate": 40.0,
+      "loss_prob": 60.0,
+      "net": -690,
+      "avg_rp": -0.46,
+      "loss_amt": -3617,
+      "plr": 1.21,
+      "flat": 0
+     },
+     {
+      "label": "40-50",
+      "n": 27,
+      "win_rate": 33.3,
+      "loss_prob": 66.7,
+      "net": -5744,
+      "avg_rp": -2.13,
+      "loss_amt": -10127,
+      "plr": 0.87,
+      "flat": 0
+     },
+     {
+      "label": "50-60",
+      "n": 102,
+      "win_rate": 62.7,
+      "loss_prob": 37.3,
+      "net": 17609,
+      "avg_rp": 1.73,
+      "loss_amt": -10248,
+      "plr": 1.61,
+      "flat": 0
+     },
+     {
+      "label": "60-70",
+      "n": 608,
+      "win_rate": 52.5,
+      "loss_prob": 47.5,
+      "net": 23244,
+      "avg_rp": 0.38,
+      "loss_amt": -113903,
+      "plr": 1.09,
+      "flat": 0
+     },
+     {
+      "label": "70-80",
+      "n": 184,
+      "win_rate": 54.3,
+      "loss_prob": 45.7,
+      "net": 31845,
+      "avg_rp": 1.73,
+      "loss_amt": -35588,
+      "plr": 1.59,
+      "flat": 0
+     },
+     {
+      "label": "80-90",
+      "n": 73,
+      "win_rate": 53.4,
+      "loss_prob": 46.6,
+      "net": 4058,
+      "avg_rp": 0.56,
+      "loss_amt": -14432,
+      "plr": 1.12,
+      "flat": 0
+     },
+     {
+      "label": "90-100",
+      "n": 186,
+      "win_rate": 55.9,
+      "loss_prob": 44.1,
+      "net": 43535,
+      "avg_rp": 2.34,
+      "loss_amt": -34813,
+      "plr": 1.77,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 1203,
+     "win_rate": 53.7,
+     "loss_prob": 46.3,
+     "net": 118841,
+     "avg_rp": 0.99,
+     "loss_amt": -224094,
+     "plr": 1.32,
+     "flat": 0
+    }
+   },
+   "分位数10段": {
+    "rows": [
+     {
+      "label": "0-35.2",
+      "n": 8,
+      "win_rate": 62.5,
+      "loss_prob": 37.5,
+      "net": 4985,
+      "avg_rp": 6.23,
+      "loss_amt": -1365,
+      "plr": 2.79,
+      "flat": 0
+     },
+     {
+      "label": "35.2-41.7",
+      "n": 20,
+      "win_rate": 45.0,
+      "loss_prob": 55.0,
+      "net": -420,
+      "avg_rp": -0.21,
+      "loss_amt": -5465,
+      "plr": 1.13,
+      "flat": 0
+     },
+     {
+      "label": "41.7-53.8",
+      "n": 54,
+      "win_rate": 42.6,
+      "loss_prob": 57.4,
+      "net": -4712,
+      "avg_rp": -0.87,
+      "loss_amt": -12649,
+      "plr": 0.85,
+      "flat": 0
+     },
+     {
+      "label": "53.8-60.4",
+      "n": 70,
+      "win_rate": 67.1,
+      "loss_prob": 32.9,
+      "net": 16306,
+      "avg_rp": 2.33,
+      "loss_amt": -5878,
+      "plr": 1.85,
+      "flat": 0
+     },
+     {
+      "label": "60.4-65.1",
+      "n": 76,
+      "win_rate": 57.9,
+      "loss_prob": 42.1,
+      "net": 2371,
+      "avg_rp": 0.31,
+      "loss_amt": -12719,
+      "plr": 0.86,
+      "flat": 0
+     },
+     {
+      "label": "65.1-66.4",
+      "n": 158,
+      "win_rate": 49.4,
+      "loss_prob": 50.6,
+      "net": -1728,
+      "avg_rp": -0.11,
+      "loss_amt": -32132,
+      "plr": 0.97,
+      "flat": 0
+     },
+     {
+      "label": "66.4-67.6",
+      "n": 271,
+      "win_rate": 49.8,
+      "loss_prob": 50.2,
+      "net": 3404,
+      "avg_rp": 0.13,
+      "loss_amt": -53128,
+      "plr": 1.07,
+      "flat": 0
+     },
+     {
+      "label": "67.6-77.5",
+      "n": 153,
+      "win_rate": 56.2,
+      "loss_prob": 43.8,
+      "net": 25618,
+      "avg_rp": 1.67,
+      "loss_amt": -25811,
+      "plr": 1.55,
+      "flat": 0
+     },
+     {
+      "label": "77.5-83.3",
+      "n": 174,
+      "win_rate": 55.2,
+      "loss_prob": 44.8,
+      "net": 28970,
+      "avg_rp": 1.66,
+      "loss_amt": -32878,
+      "plr": 1.53,
+      "flat": 0
+     },
+     {
+      "label": "83.3-100",
+      "n": 219,
+      "win_rate": 56.2,
+      "loss_prob": 43.8,
+      "net": 44048,
+      "avg_rp": 2.01,
+      "loss_amt": -42068,
+      "plr": 1.6,
+      "flat": 0
+     }
+    ],
+    "overall": {
+     "label": "整体",
+     "n": 1203,
+     "win_rate": 53.7,
+     "loss_prob": 46.3,
+     "net": 118841,
+     "avg_rp": 0.99,
+     "loss_amt": -224094,
+     "plr": 1.32,
+     "flat": 0
+    }
+   }
+  },
+  "excl_single": {
+   "等宽5段": [
+    {
+     "segment": "0-20",
+     "deleted": 4,
+     "net": 118417.28450000005,
+     "dnet": -424.20819999999367,
+     "ret": 78.94,
+     "dret": -0.29000000000000625,
+     "dd_pct": 0.22
+    },
+    {
+     "segment": "20-40",
+     "deleted": 19,
+     "net": 114971.00620000003,
+     "dnet": -3870.4865000000136,
+     "ret": 76.65,
+     "dret": -2.5799999999999983,
+     "dd_pct": 0.2
+    },
+    {
+     "segment": "40-60",
+     "deleted": 108,
+     "net": 110454.75690000002,
+     "dnet": -8386.735800000024,
+     "ret": 73.64,
+     "dret": -5.590000000000003,
+     "dd_pct": 0.25
+    },
+    {
+     "segment": "60-80",
+     "deleted": 545,
+     "net": 102627.35620000001,
+     "dnet": -16214.136500000037,
+     "ret": 68.42,
+     "dret": -10.810000000000002,
+     "dd_pct": 0.28
+    },
+    {
+     "segment": "80-100",
+     "deleted": 20,
+     "net": 100152.91010000007,
+     "dnet": -18688.58259999998,
+     "ret": 66.77,
+     "dret": -12.460000000000008,
+     "dd_pct": 0.17
+    }
+   ],
+   "分位数5段": [
+    {
+     "segment": "0-41.7",
+     "deleted": 28,
+     "net": 114276.98430000004,
+     "dnet": -4564.508400000006,
+     "ret": 76.18,
+     "dret": -3.049999999999997,
+     "dd_pct": 0.21
+    },
+    {
+     "segment": "41.7-60.4",
+     "deleted": 105,
+     "net": 108419.76890000004,
+     "dnet": -10421.723800000007,
+     "ret": 72.28,
+     "dret": -6.950000000000003,
+     "dd_pct": 0.24
+    },
+    {
+     "segment": "60.4-66.4",
+     "deleted": 183,
+     "net": 119073.02110000003,
+     "dnet": 231.52839999998105,
+     "ret": 79.38,
+     "dret": 0.14999999999999147,
+     "dd_pct": 0.24
+    },
+    {
+     "segment": "66.4-77.5",
+     "deleted": 189,
+     "net": 108960.93889999992,
+     "dnet": -9880.553800000125,
+     "ret": 72.64,
+     "dret": -6.590000000000003,
+     "dd_pct": 0.27
+    },
+    {
+     "segment": "77.5-100",
+     "deleted": 38,
+     "net": 101887.1815,
+     "dnet": -16954.31120000004,
+     "ret": 67.92,
+     "dret": -11.310000000000002,
+     "dd_pct": 0.16
+    }
+   ]
+  },
+  "excl_multi": {
+   "最差2段": {
+    "segments": [
+     "60.4-66.4",
+     "66.4-77.5"
+    ],
+    "deleted": 481,
+    "net": 116361.40910000002,
+    "dnet": -2480.083600000027,
+    "ret": 77.57,
+    "dret": -1.6600000000000108,
+    "dd_pct": 0.27
+   },
+   "最差3段": {
+    "segments": [
+     "60.4-66.4",
+     "66.4-77.5",
+     "77.5-100"
+    ],
+    "deleted": 607,
+    "net": 92524.26789999993,
+    "dnet": -26317.224800000113,
+    "ret": 61.68,
+    "dret": -17.550000000000004,
+    "dd_pct": 0.24
+   }
+  }
+ }
+}
