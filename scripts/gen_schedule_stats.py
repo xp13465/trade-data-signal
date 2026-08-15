@@ -394,8 +394,25 @@ def build():
                 # backfill.sh 保证写最终 DONE 行(带真实 exit),无 DONE = 极端(SIGKILL 整个脚本),
                 # 真问题靠漏跑检查/耗时检查/launchd err log + launchctl 真实码。
                 real_exit = launchctl_last_exit(LABEL_MAP.get(t["task"]))
-                if real_exit is not None:
-                    code = real_exit  # 0=成功, 143=SIGTERM超时, 133=SIGTRAP, 1=脚本异常
+                # [Bug1 补修·路径B, 2026-08-15] 与路径A(CRASH_RETRY_GAP_SEC=6h)同口径。
+                # 上一轮(b1a5111b5)只修了 pending_crash_retry 标注(路径A), 此处
+                # `code = real_exit` 一字未动 -> last_exit 仍被 launchctl 无时间戳残留码
+                # (如 8/12 deploy exit=1 污染 8/13 17:50 正常在跑)污染, 致 schedule_monitor
+                # L304"退出失败 last_exit=1" + 前端 last_exit!=0 弹窗"上次执行异常"双误报。
+                # launchctl 真实码无时间戳, 不能无条件采信。仅当确属"同槽 crash-retry"
+                # (上一轮配对 exit!=0 且距本 pending_start < CRASH_RETRY_GAP_SEC) 才显
+                # launchctl 真实码; 否则 pending 在跑期间 last_exit 保持 null
+                # (进行中不算失败, 与路径A同口径: 跨天残留码与本次 pending 无关联)。
+                _prev_crash_code = None
+                if pairs and pairs[-1][1] is not None:
+                    _pe, _pc = pairs[-1][1], pairs[-1][2]
+                    _retry_gap = (pending_start - _pe).total_seconds()
+                    if _pc != 0 and 0 <= _retry_gap <= CRASH_RETRY_GAP_SEC:
+                        _prev_crash_code = _pc
+                if real_exit is not None and _prev_crash_code is not None:
+                    code = real_exit  # 同槽 crash-retry: launchctl 真实码(0/143/133/1)
+                elif real_exit is not None:
+                    code = None  # 正常在跑/非 crash-retry: 残留码不采信, last_exit=null
                 elif t["mode"] == "etf_nt":
                     code = None  # etf_nt 不启发式标 143(launchctl 读不到才 None)
                 else:
