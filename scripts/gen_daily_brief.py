@@ -675,6 +675,10 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
         "1a方向·优先正负【铁律】方向最优先给 up 或 down(正/负),正常平盘0很少见,不得偷懒给flat;"
         "只有真正判断将横盘窄幅震荡时才给 flat,且 flat 区间宽度必须≤0.2(如±0.1),禁止宽于0.2(平盘没有奔放幅度);"
         "正/负方向区间宽度可到0.5(仍≤0.5硬上限)。区间越窄越显真本事。\n"
+        "1a\"【全正/全负区间·铁律】判断偏涨(up)必须给**全正区间**(lo>0,如 +0.3~+0.8),"
+        "判断偏跌(down)必须给**全负区间**(hi<0,如 -0.8~-0.3)。严禁给\"跨0含0端点\"的区间"
+        "(如 -0.5~+0.5 / -0.5~0 / 0~+0.5)——这种区间会被判成 flat;若你确实想给 flat,"
+        "宽度只能≤±0.1(含0端点跨度≤0.2),别偷懒给跨0宽区间。含0端点=flat,必须显式 flat 而非跨0宽区间。\n"
         "1a'【中间层 7 个全押·铁律】index_ranges 必须输出**全部 7 个中间层指数**的次日预测区间"
         "(深证成指/创业板指/科创50/北证50/恒生指数/恒生科技/10年国债,不能少给、不能只选1-3个、"
         "不能为提升命中率放宽区间——难度优先于命中率)。每个 name 必须 ∈ 注入数据 middle_indices/cn10y "
@@ -799,6 +803,22 @@ def _extract_json(text: str) -> dict | None:
             except Exception:
                 return None
     return None
+
+
+def _raw_range_fields(raw: dict | None) -> str:
+    """观测纠盲(2026-08-15): 从 AI 原始返回提取 content 的 range/index_ranges/sector_ranges 字段
+    原样打印(JSON 字符串),供降级时区分"AI 没给区间" vs "AI 给了非法区间形态"。"""
+    if not raw:
+        return "None"
+    try:
+        content = raw["choices"][0]["message"]["content"]
+    except Exception:
+        return "raw-unreadable"
+    p = _extract_json(content)
+    if not p:
+        return f"JSON未解析出内部区间; content前200字= {str(content)[:200]}"
+    fields = {k: p.get(k) for k in ("range", "index_ranges", "sector_ranges")}
+    return json.dumps(fields, ensure_ascii=False)[:1500]
 
 
 def parse_ai_output(raw: dict | None, data: dict, date: str) -> dict | None:
@@ -1106,6 +1126,10 @@ def build_editor_messages(role_results: dict, researcher: dict | None, date: str
         "1a方向·优先正负【铁律】方向最优先给 up 或 down(正/负),正常平盘0很少见,不得偷懒给flat;"
         "只有真正判断将横盘窄幅震荡时才给 flat,且 flat 区间宽度必须≤0.2(如±0.1),禁止宽于0.2(平盘没有奔放幅度);"
         "正/负方向区间宽度可到0.5(仍≤0.5硬上限)。区间越窄越显真本事。\n"
+        "1a\"【全正/全负区间·铁律】判断偏涨(up)必须给**全正区间**(lo>0,如 +0.3~+0.8),"
+        "判断偏跌(down)必须给**全负区间**(hi<0,如 -0.8~-0.3)。严禁给\"跨0含0端点\"的区间"
+        "(如 -0.5~+0.5 / -0.5~0 / 0~+0.5)——这种区间会被判成 flat;若你确实想给 flat,"
+        "宽度只能≤±0.1(含0端点跨度≤0.2),别偷懒给跨0宽区间。含0端点=flat,必须显式 flat 而非跨0宽区间。\n"
         "1a'【中间层 7 个全押·铁律】index_ranges 必须输出**全部 7 个中间层指数**的次日预测区间"
         "(深证成指/创业板指/科创50/北证50/恒生指数/恒生科技/10年国债,不能少给、不能只选1-3个、"
         "不能为提升命中率放宽区间——难度优先于命中率)。每个 name 必须 ∈ 注入数据 middle_indices/cn10y "
@@ -1943,9 +1967,13 @@ def run_multi_agent(date: str, data: dict, cfg: dict, log) -> tuple[dict | None,
     total_usage = _merge_usage(usages + [e_raw.get("usage") or {}])
     parsed = parse_ai_output(e_raw, data, date)
     if not parsed:
-        log("主编输出解析失败,降级单 prompt")
+        log(f"主编输出解析失败,降级单 prompt; AI原始区间字段={_raw_range_fields(e_raw)}")
         return None, None
     parsed["meta"]["version"] = "ai-multi"
+    # 观测纠盲: 主编区间非法降级时打印 AI 原始区间字段,区分"没给"vs"给了非法区间"
+    if parsed["meta"].get("range_status") == "range_missing_invalid":
+        log(f"[观测] 主编区间校验降级(range_status=range_missing_invalid); "
+            f"AI原始 range/index_ranges/sector_ranges={_raw_range_fields(e_raw)}")
     # 角色结论/辩论为可溯源工作笔记(meta 层,非主输出);同样过合规脱敏(P0-3 防未来展示泄漏)
     parsed["meta"]["roles"] = {r: scrub_text((v.get("parsed") or {}).get("summary") or "", cfg)
                                for r, v in role_results.items()}
@@ -2320,8 +2348,12 @@ def main() -> int:
                     usage = parsed.pop("_usage", None)
                     brief = parsed
                     log(f"AI 生成成功 direction={brief['meta']['direction']} watch={len(brief['meta']['watch_list'])}")
+                    # 观测纠盲: 单 prompt 区间非法降级时打印 AI 原始区间字段
+                    if brief['meta'].get('range_status') == 'range_missing_invalid':
+                        log(f"[观测] 单prompt区间校验降级(range_status=range_missing_invalid); "
+                            f"AI原始 range/index_ranges/sector_ranges={_raw_range_fields(raw)}")
                 else:
-                    log("AI 输出解析失败,降级规则版")
+                    log(f"AI 输出解析失败,降级规则版; AI原始区间字段={_raw_range_fields(raw)}")
                     version = "rule"
             else:
                 log("AI 调用失败/无返回,降级规则版")
