@@ -148,6 +148,7 @@
                     │                 采集层（多源互备）                  │
                     │   mootdx(TCP)  BaoStock  腾讯  东财  同花顺  申万   │
                     │   中证指数  HKEX/CCASS  CFFEX  cninfo  美指/黄金    │
+                    │   异源兜底: 美财政/HKEX JS/东财数据中心/上交所期权IV │
                     └─────────────────────────────────────────────────────┘
                                                │  launchd 定时调度
         ┌─────────────────────────────┬───────────────────────────┬────────────────────┐
@@ -184,6 +185,7 @@
 
 **数据流**：多源采集（防单源封禁，互备降并发）→ SQLite 主库（`sentiment.db` / `etf_national_team.db`）→
 指标计算 → 静态 JSON 产物 → R2/CF 分发 → 前端渲染；小文件走 CF，大文件走 R2 直链，`manifest.json + sha256` 全程可校验。
+**异源兜底（2026-08-15 新增）**：核心指标自动切换**真异源**（不同 host/供应商，非伪多源）多重兜底——`us10y`（东财▶美财政部 CSV）、`hk_south`（东财▶HKEX 官方 JS 反算南向净买额）、`cn10y`（中债▶东财 datacenter）、`gold 沪金`（新浪▶东财 futsseapi）、`a_turnover_rate`（腾讯▶东财 push2delay）、美股/全球指数（新浪▶东财 push2）；**QVIX 3 重**：主源 optbbs → 备 A 上交所官方期权 IV 方差互换自算（T+1 可历史回填）→ 网底本地 RV（口径不同已公示）。每次采集落 `daily_metric.source` 归属标记（treasury/hkex/em/sse/rv_local）溯源，`collect_health/log` 记录切源，消费方零改动；QVIX 算法公示见 [`docs/qvix-data-sources.md`](docs/qvix-data-sources.md)（CBOE VIX 方差互换、math.erf 无 scipy 依赖）。
 前端展示的交易信号可接**自动交易执行**（可选，easytrader 二次开发 → [thsautoorder](https://github.com/xp13465/thsautoorder)，独立仓库）。
 
 ---
@@ -302,6 +304,11 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 | HKEX / CCASS | 港股指数 + 北向持仓披露 | 公开数据 |
 | CFFEX | 期货机构持仓 | 公开数据 |
 | cninfo | 公募基金 / ETF 持有人结构 | 公开数据 |
+| 美财政部 CSV | `us10y` 异源兜底（东财失联时，`data.treasury.gov`） | 官方公开数据 |
+| HKEX 官方 JS | `hk_south` 南向净买额异源反算（SSE+SZSE Buy-Sell，`datacdn.rscd.org.hk` 时指数 | 官方公开接口 |
+| 东财数据中心 | `cn10y` 国债收益率异源兜底（`datacenter-web.eastmoney.com` RPTA_WEB_TREASURYYIELD） | 公开接口 |
+| 东财 futsseapi/push2delay | `gold 沪金` / `a_turnover_rate` / 美股全球指数异源兜底（新浪/腾讯/中债失联时） | 公开接口 |
+| 上交所官方期权 IV | QVIX 备 A 异源自算原料（`query.sse.com.cn` option_risk_indicator_sse，2015 至今 T+1 可历史回填） | 官方公开数据 |
 
 > 数据源细节、采集时点与合规说明见 [`docs/data-sources.md`](docs/data-sources.md)。
 
