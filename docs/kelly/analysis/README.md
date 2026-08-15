@@ -5,6 +5,10 @@
 
 | 文档 | 说明 |
 |---|---|
+| kelly-k2c5-return-quadrant-check.md | **K2C5 港股追涨剔除双维度校验:用户认知①(除G外净利+收益率双升)对 A-F/H 成立、I 轻微负(-1,365)、G 口径待定;认知②(象限卡片盈利巨多)成立(基线 127/144=88.2% 正,剔后 133/144),港股卡 6 行负全转正**(2026-08-15,本轮新增;v1.0.0 基准 21:14 批,基线 G b0=+203,594 复现;数据 `kelly-k2c5-return-quadrant-check/data/kelly-k2c5-return-quadrant.json`+脚本 `kelly-k2c5-return-quadrant-check/scripts/kelly_k2c5_return_quadrant.py`) |
+| kelly-k2c5-frontend-vs-report-reconcile.md | **K2C5 toggle 前端 vs 报告 §7 口径对账:前端=重跑完整 P3d 仿真(b1 乐观)≠简单剔除;报告 §7=b0 保守,G 双口径分裂(b0 -2,256 / b1 +11,779),真实在区间方向不确定**(2026-08-15;数据 `kelly-k2c5-reconcile/data/k2c5-caliber-compare.json`+脚本 `kelly-k2c5-reconcile/scripts/kelly_k2c5_caliber_compare.py`) |
+| kelly-k2c5-mode-yearly-breakdown.md | **K2C5 港股追涨剔除边际 9 模式全按年分解:短持 A-F/H 全正、可操作 G(-2,256)/长持 I(-1,365)负,正负交织路径噪声**(2026-08-15;数据 `data/kelly-k2c5-mode-yearly.json`+脚本 `scripts/quadrant_mining/kelly_opg_yearly_allmodes.py`) |
+| kelly-track-score-segment-loss.md | **track_score 分段亏损概率穷举回测:假设不成立,不存在稳定黑洞**(2026-08-15,本轮新增;v1.0.0 基准 G 13万 P≤3d b0 基线 156.03%/+202,836;等宽+分位数5/10段信号层+组合层静态、剔除验证全负/微正、交叉维度、按年稳定性;数据 `data/kelly_ts_segment_loss.json`+脚本 `scripts/kelly_ts_segment_loss.py`;附社区亏损单识别方法调研) |
 | kelly-overfit-monitor-design.md | **过拟合监控系统设计方案(B档,2026-08-15 已实施)**:每日多维打点 + 4维过拟合指标(回测-实盘偏离/样本外/参数稳定/象限退化)+ 综合风险分(绿黄红)+ 综合预警邮件。实施 `scripts/overfit_monitor.py`(§7 实施说明,含与方案差异诚实标注) |
 | kelly-ai-suggestion-wrong-entry-quantify.md | **量化「错进 AI 建议」:修复前历史次数 + 修复后干净验证**(2026-08-14,本轮新增;814 债类 self-ETF 错进候选 882 次/748 交易日,空数组/无key 仅全档位错进,修复后目标类别错进=0;脚本 `scripts/replay_candidate.py`+`scripts/full_sweep.py`) |
 | kelly-bond-inclusion-probe.md | **债类指数纳入回测穷举对比:纳入债类收益率变差,不建议纳入**(2026-08-14,本轮新增;数据 `data/bond_probe_comparison.json`+脚本 `scripts/signal_kelly_backtest_bond.py`) |
