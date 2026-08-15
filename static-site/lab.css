@@ -1424,6 +1424,13 @@
 /* 2026-08-11 交互优化: sigkelly host 复用 .lab-custom-host--loading(旧内容半透明+顶部细条), 需 position:relative 作 ::before 定位基准 */
 .lab-sigkelly-host { position: relative; }
 .lab-sigkelly-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; position: sticky; top: calc(var(--tab-h, 41px) + var(--lab-subnav-h, 40px) + var(--lab-subnav-child-h, 40px)); z-index: 43; background: var(--bg-card); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+/* B级UI(2026-08-15): 吸顶条默认1行折叠(周期+状态摘要+「参数」按钮), 完整控制台收进 .lab-sigkelly-params-body 展开区 */
+.lab-sigkelly-bar-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.lab-sigkelly-bar-summary { font-size: 11px; color: var(--text-3); white-space: nowrap; cursor: default; }
+.lab-sigkelly-params-toggle { font-size: 11px; padding: 2px 10px; border: 1px solid var(--primary); border-radius: 4px; background: transparent; color: var(--primary); cursor: pointer; white-space: nowrap; transition: all 0.15s; }
+.lab-sigkelly-params-toggle:hover { background: var(--primary); color: #fff; }
+.lab-sigkelly-params-body { display: none; }
+.lab-sigkelly-params-body.lab-sigkelly-params-open { display: block; width: 100%; margin-top: 4px; }
 .lab-sigkelly-periods { display: flex; gap: 4px; flex-wrap: wrap; }
 .lab-sigkelly-params { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--text-3); align-items: center; }
 .lab-sigkelly-gen { color: var(--text-4); font-size: 11px; }
@@ -1877,3 +1884,46 @@
 .lab-sigkelly-review-body a:hover { text-decoration: underline; }
 [data-theme="dark"] .lab-sigkelly-review-body tr:nth-child(even) td,
 [data-theme="redgold"] .lab-sigkelly-review-body tr:nth-child(even) td { background: rgba(255,255,255,0.04); }
+
+/* ===== 信号凯利回测页 移动端整体布局/样式优化(2026-08-15, B级, 配合吸顶条折叠方案A) =====
+   核心: ①吸顶条折叠态压最小高度(周期+参数按钮只占1行, 展开控制台不去遮内容) ②卡片单列撑满+内边距收紧 ③toggle 展开态用2列紧凑网格不溢出 ④表格窄屏压缩cell padding且保横向滚动顺滑 — 全部只动样式, 不动渲染结构; 桌面(>600px)维持现状 */
+@media (max-width: 600px) {
+  /* --- 吸顶条折叠态: 1行压到最小高度, 展开控制台紧凑不挤爆 --- */
+  .lab-sigkelly-bar { gap: 6px 8px; padding-bottom: 4px; padding-top: 2px; }
+  .lab-sigkelly-bar-head { gap: 4px 6px; width: 100%; }
+  .lab-sigkelly-bar-summary { font-size: 10px; max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lab-sigkelly-params-toggle { font-size: 10px; padding: 2px 8px; margin-left: auto; flex-shrink: 0; }
+  .lab-sigkelly-periods .lab-sigkelly-period-btn { padding: 3px 8px; font-size: 11px; }
+  /* 展开态控制台: 整体紧凑 */
+  .lab-sigkelly-params-body.lab-sigkelly-params-open { padding: 2px 0 0; }
+  .lab-sigkelly-params { font-size: 11px; gap: 4px 8px; }
+  .lab-sigkelly-fee-row { gap: 4px; }
+  .lab-sigkelly-fee-btn { font-size: 10px; padding: 2px 6px; }
+  .lab-sigkelly-fee-hint { display: none; }          /* 窄屏隐藏快捷键提示, 省空间 */
+  .lab-sigkelly-fee-custom label { font-size: 10px; }
+  .lab-sigkelly-fee-custom .lab-input { width: 40px !important; }
+  /* --- 折叠区: AI开关/更多开关 用2列紧凑网格, 不溢出撑爆(31个toggle窄屏换行不乱) --- */
+  .lab-sigkelly-toggle-row { gap: 4px; }
+  .lab-sigkelly-toggle-group-rec, .lab-sigkelly-toggle-group-poscap { grid-template-columns: repeat(2, 1fr); display: grid; gap: 4px; }
+  .lab-sigkelly-toggle { padding: 3px 5px; font-size: 11px; min-width: 0; text-align: left; }
+  .lab-sigkelly-toggle-tier-cat { font-size: 11px; }
+  .lab-sigkelly-toggle-more-body { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; }
+  .lab-sigkelly-toggle-more-body .lab-sigkelly-toggle-group-cat { grid-column: 1 / -1; }
+  .lab-sigkelly-toggle-more-body .lab-sigkelly-toggle-cat-body { display: contents; }
+  .lab-sigkelly-toggle-more-body .lab-sigkelly-toggle-cat-body .lab-sigkelly-toggle { grid-column: span 1; }
+  .lab-sigkelly-toggle-combo-row, .lab-sigkelly-toggle-group-combo { grid-template-columns: repeat(2, 1fr); display: grid; gap: 4px; }
+  .lab-sigkelly-toggle-combo { font-size: 10px; padding: 2px 6px; white-space: normal; }
+  /* --- 卡片区: 单列撑满 + 内边距收紧 --- */
+  .lab-sigkelly-grid { gap: 8px; }
+  .lab-sigkelly-card { padding: 10px 8px; }
+  .lab-sigkelly-group { margin-bottom: 10px; }
+  .lab-sigkelly-group-title { font-size: 13px; margin: 4px 0 6px; }
+  /* --- 表格: cell padding 压缩, 字号不降到难读, 横向滚动保留顺滑 --- */
+  .lab-sigkelly-wide-table { font-size: 10.5px; }
+  .lab-sigkelly-wide-table th, .lab-sigkelly-wide-table td { padding: 3px 3px; font-size: 10.5px; }
+  .lab-sigkelly-table-scroll { -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
+  .lab-sigkelly-yearly-table th, .lab-sigkelly-yearly-table td { padding: 3px 5px; }
+  .lab-sigkelly-advice-table th, .lab-sigkelly-advice-table td { padding: 3px 4px; font-size: 10px; }
+  /* 历史回测面板也随移动端收窄, 避免撑出 */
+  .lab-sigkelly-poscap-history, .lab-sigkelly-advice-panel { width: 100% !important; max-width: 100% !important; }
+}

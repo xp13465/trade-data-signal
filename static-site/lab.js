@@ -8845,6 +8845,17 @@ var _kellyFadeFlagGroups = [
 ];
 
 function _renderSigKellyBar(bar, data, period) {
+  // B级UI(2026-08-15): 移动端吸顶条默认折叠成1行(周期+「参数」按钮), 全部控制台收进展开区, 点「参数」展开。用户方案A。
+  // 展开/收起态持久化 localStorage lab_sigkelly_params_open; 未设置过则按设备宽度默认(≤600px 收起 / >600px 展开=PC现状)。重渲染后保持, 不回落默认。
+  // 说明: PC 端保持展开(现状)避免用户觉得功能"藏起来"; 仅移动端默认收起缓解吸顶高度(叠加3层导航后内容被压到屏下)。
+  const _sigParamsOpenState = _sigKellyParamsOpen();
+  function _sigKellyParamsOpen() {
+    let saved = null;
+    try { saved = localStorage.getItem('lab_sigkelly_params_open'); } catch (e) { saved = null; }
+    if (saved !== null) return saved === '1';
+    const isMobile = window.matchMedia && window.matchMedia("(max-width: 600px)").matches;
+    return !isMobile; // 移动端默认收起, PC 默认展开
+  }
   const cfg = data.config || {};
   const periods = cfg.periods || { y1: "近1年", y3: "近3年", all: "全部" };
   const tabsHTML = Object.keys(periods).map((k) =>
@@ -9124,22 +9135,48 @@ function _renderSigKellyBar(bar, data, period) {
       // D需求(2026-08-15): hint 文案 7 -> 4+3+1
       `<span class="lab-sigkelly-toggle-hint">AI降亏过滤=总开关(联动下方默认推荐 4+3+1: 7键+1类回测剔除, 其中+1类只读不可勾选);组合预设/单标志独立开启,实时过滤重算</span>` +
     `</div>`;
+  // B级UI(2026-08-15): 恒显行(1行=周期+当前状态摘要+「参数」展开按钮) + 展开区(全部控制台)
+  // 状态摘要: 费率档 + AI仓位K档/off + G/H/I开关, 让折叠态下用户仍一眼看到当前配置
+  const _sumFee = _kellyFeeLabel();
+  const _sumPos = _filters.positionCap ? `仓位K${_pcK || 1}` : "仓位off";
+  const _sumGih = (_gihOn ? " · GIH开" : "");
+  const _paramBtn = `<button type="button" class="lab-sigkelly-params-toggle" id="lab-kelly-params-toggle" data-no-pop="" title="展开/收起 费率·降亏过滤·AI仓位·G/H/I 全部参数控制台">${_sigParamsOpenState ? "参数收起 ▲" : "⚙️ 参数 ▼"}</button>`;
+  const _paramsBodyOpen = _sigParamsOpenState ? " lab-sigkelly-params-open" : "";
   bar.innerHTML =
-    `<div class="lab-sigkelly-periods">${tabsHTML}</div>` +
-    `<div class="lab-sigkelly-params">` +
-      `<span>${_amtLabel} · 每日${cfg.buy_amount || 10000}元 · 卖出模式 ${modeStr}</span>` +
-      `<span class="lab-sigkelly-gen">📅 生成: ${data.generated_at || "-"}</span>` +
+    `<div class="lab-sigkelly-bar-head">` +
+      `<span class="lab-sigkelly-periods">${tabsHTML}</span>` +
+      `<span class="lab-sigkelly-bar-summary" title="费率: ${_sumFee} · ${_sumPos}${_sumGih} (点「参数」展开完整控制台)">费率:${_sumFee} · ${_sumPos}${_sumGih}</span>` +
+      _paramBtn +
     `</div>` +
-    `<div class="lab-sigkelly-fee-row">` +
-      `<span class="lab-sigkelly-fee-label">费率:</span>` +
-      feeBtnsHTML +
-      `<span class="lab-sigkelly-fee-hint">快捷键 0-4+C</span>` +
-      amountHTML +
-    `</div>` +
-    customHTML +
-    toggleHTML +
-    aihlineCompareHTML +
-    poscapHistoryHTML;
+    `<div class="lab-sigkelly-params-body${_paramsBodyOpen}">` +
+      `<div class="lab-sigkelly-params">` +
+        `<span>${_amtLabel} · 每日${cfg.buy_amount || 10000}元 · 卖出模式 ${modeStr}</span>` +
+        `<span class="lab-sigkelly-gen">📅 生成: ${data.generated_at || "-"}</span>` +
+      `</div>` +
+      `<div class="lab-sigkelly-fee-row">` +
+        `<span class="lab-sigkelly-fee-label">费率:</span>` +
+        feeBtnsHTML +
+        `<span class="lab-sigkelly-fee-hint">快捷键 0-4+C</span>` +
+        amountHTML +
+      `</div>` +
+      customHTML +
+      toggleHTML +
+      aihlineCompareHTML +
+      poscapHistoryHTML +
+    `</div>`;
+  // B级UI(2026-08-15): 「参数」展开/收起 —— 仅切 class + 按钮文案 + 写 localStorage, 不重渲染 bar(避免折叠↔展开返回到复时态丢失/输入焦点丢失)
+  var _paramsToggle = bar.querySelector("#lab-kelly-params-toggle");
+  if (_paramsToggle) {
+    _paramsToggle.onclick = function () {
+      var body = bar.querySelector(".lab-sigkelly-params-body");
+      if (!body) return;
+      var open = body.classList.contains("lab-sigkelly-params-open");
+      if (open) body.classList.remove("lab-sigkelly-params-open");
+      else body.classList.add("lab-sigkelly-params-open");
+      _paramsToggle.textContent = open ? "⚙️ 参数 ▼" : "参数收起 ▲";
+      try { localStorage.setItem('lab_sigkelly_params_open', open ? '0' : '1'); } catch (e) {}
+    };
+  }
   // 周期切换
   bar.querySelectorAll(".lab-sigkelly-period-btn").forEach((btn) => {
     btn.onclick = () => {
