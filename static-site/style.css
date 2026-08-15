@@ -1005,9 +1005,11 @@ main { padding: 16px 24px; }
 .sig-kbtn-help-pop-tag-short { color: #1d4ed8; }
 .sig-kbtn-help-pop-tag-long { color: #16a34a; }
 .sig-kbtn-help-pop-tag-time { color: #b45309; }
+.sig-kbtn-help-pop-tag-day { color: #7c3aed; }
 [data-theme="dark"] .sig-kbtn-help-pop-tag-short, [data-theme="redgold"] .sig-kbtn-help-pop-tag-short { color: #93c5fd; }
 [data-theme="dark"] .sig-kbtn-help-pop-tag-long, [data-theme="redgold"] .sig-kbtn-help-pop-tag-long { color: #86efac; }
 [data-theme="dark"] .sig-kbtn-help-pop-tag-time, [data-theme="redgold"] .sig-kbtn-help-pop-tag-time { color: #fbbf24; }
+[data-theme="dark"] .sig-kbtn-help-pop-tag-day, [data-theme="redgold"] .sig-kbtn-help-pop-tag-day { color: #c4b5fd; }
 .sig-kbtn-help-pop-body { color: var(--text-2); }
 .sig-kbtn-help-pop-foot { color: var(--text-4); font-size: 10px; line-height: 1.45; border-top: 1px dashed var(--border); padding-top: 5px; margin-top: 2px; }
 @media (max-width: 760px) { .sig-kbtn-help-pop { width: min(330px, calc(100vw - 16px)); font-size: 10.5px; padding: 7px 9px; } }

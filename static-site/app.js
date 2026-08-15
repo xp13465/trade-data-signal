@@ -1768,8 +1768,9 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
     `</div>`;
 }
 // 参考说明按钮独立 hoverpop HTML(2026-08-14): 不复用 K 评级表 _aiPoscapRatingPopHtml(仓位评级表语义不符),
-// 自含一套「推荐方法&参考说明」要点(短线 A/F + 中长线 G + 引导), 内容口径与 _openRefHelpModal 弹窗完全一致(§22),
+// 自含一套「推荐方法&参考说明」要点(短线 A/F + 中长线 G + 当日实操 + 次日玩法 + 引导), 内容口径与 _openRefHelpModal 弹窗完全一致(§22),
 // 与凯利回测页 lab.js _sigKellyAfgRealtimeHtml / purpose-notes lab.sigkelly 同口径(§21): A=固定10天短线 / F=持有15天短线 / G=卖出信号中长线(指数卖出信号触发离场、无信号持有, 总建议主选)
+// 次日玩法=分批挂单(2026-08-15 加, docs/kelly/position/kelly-nextday-batch-limit-sop.md §3.4): 次日开盘-1%限价分批挂单+未触达尾盘按现价补满(§22 与弹窗同口径)
 function _sigHelpPopHtml() {
   return '<div class="sig-kbtn-help-pop">' +
     '<div class="sig-kbtn-help-pop-title">📖 推荐方法 · 参考说明</div>' +
@@ -1779,7 +1780,9 @@ function _sigHelpPopHtml() {
       '<span class="sig-kbtn-help-pop-body">买入后<b>一直持有</b>，仅当对应指数「卖出信号」触发才离场，无信号就拿着（总建议主选）。可选加 G 仓位管理：持仓超上限<b>先卖「未满3天」年轻仓</b>（保老仓、砍新仓）。</span></div>' +
     '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-time">⏰ 当日实操</span>' +
       '<span class="sig-kbtn-help-pop-body"><b>15:03 后 A 股信号已用收盘价定稿不再变</b>；15:05-15:30 盘后固定价格交易可按收盘价操作，当日可执行标的见 AI 建议 1/2/3（不怕信号消失）。港股/全球待 17:50 完整版。</span></div>' +
-    '<div class="sig-kbtn-help-pop-foot">💡 点击按钮查看完整操作指南，并可跳转「信号凯利回测」校验 A/F/G 各模式回测数据。</div>' +
+    '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-day">⏭️ 次日玩法</span>' +
+      '<span class="sig-kbtn-help-pop-body">次日分批挂单（开盘 -1% 限价 + 未触达尾盘按现价补满）比当日操作<b>更稳、多赚 ~6 万</b>，详见弹窗。</span></div>' +
+    '<div class="sig-kbtn-help-pop-foot">💡 点击按钮查看完整操作指南，并可跳转「信号凯利回测」校验 A/F/G/minus1 各玩法回测数据。</div>' +
     '</div>';
 }
 // 绑定参考说明按钮独立 hoverpop(2026-08-14): 自包含定位(相对 .sig-kbtn-help-wrap, 右对齐, 右越界左移), 桌面 hover 显示;
@@ -1892,6 +1895,8 @@ function _bindSigSwitchRow(sigCard) {
 // 文案口径与凯利回测页 lab.js _sigKellyAfgRealtimeHtml / purpose-notes.js lab.sigkelly 一致(§21/§22):
 //   A=固定10天短线(买入后固定持有10天卖出, 快进快出) / F=持有15天短线(固定持有15天卖出)
 //   G=卖出信号中长线(指数卖出信号触发离场, 无信号持有至回测结束, 最贴近交易页信号驱动跟单, 总建议主选)
+//   次日玩法=分批挂单(2026-08-15 加, 数据结论 docs/kelly/position/kelly-nextday-batch-limit-sop.md §3.4):
+//   次日开盘-1%限价分批挂单+未触达尾盘按现价补满, 比次日开盘直接买多赚 ~6 万, 均价-0.37%, 87.9%交易日日内最低点低于开盘(§22 与 hoverpop _sigHelpPopHtml 同口径)
 // 复用 .rule-modal 弹窗样式(与「📊 技术信号&ETF信号灯参考」modal 同款, 项目既有弹窗机制, 不新造)。
 function _openRefHelpModal() {
   let modal = document.getElementById("sigRefHelpModal");
@@ -1936,6 +1941,12 @@ function _openRefHelpModal() {
         '<p><b>G（卖出信号中长线）</b>：看到买入信号后买进后<b>不急着卖</b>，一直持有；<b>只有当对应指数的「卖出信号」触发时才离场</b>；没触发卖出信号就继续持有到回测结束。</p>' +
         '<p>白话理解：<b>跟随指数卖出信号触发离场、无信号就拿着</b>，是最贴近交易页面信号驱动跟单的方法，也是总建议的主选。</p>' +
         '<p>进阶（可选）：G 玩法还可加一层仓位管理——持仓超过上限时，<b>先卖「刚买进、还没持有满 3 天」的年轻仓（保老仓、砍新仓）</b>，让老仓继续滚利润（详见凯利回测页「G 玩法完整交易方法」）。</p>' +
+      '</div>' +
+      '<div class="rule-card"><div class="rule-card-head">🆕 次日玩法：分批挂单（数据更稳，推荐）</div>' +
+        '<p><b>次日开盘直接买</b>：比当日收盘买几乎不输（净利仅低 0.01%，胜率还反升），不想麻烦的话次日开盘<u>无脑买</u>就行。</p>' +
+        '<p><b>次日分批挂单（推荐）</b>：分 N 单挂「<b>次日开盘价 -1%</b>」的限价单，没触达的尾盘按现价补上，把当日 1 万预算买满。回测比次日开盘直接买<b>多赚约 6 万</b>，均价更稳（约 -0.37%），不用盯盘等最低点。</p>' +
+        '<p><b>操作话术</b>：次日集合竞价后按开盘价挂 -1% 限价，没成交的尾盘按现价补满预算。</p>' +
+        '<p style="font-size:.84em;color:var(--text-dim,#9aa)">数据支撑：2011-2026 回测显示 87.9% 交易日日内最低点低于开盘，挂 -1% 等于免费搭日内下探便车；K=1 每日池净利多赚 +6.1 万（详见凯利回测页 SOP 报告）。</p>' +
       '</div>' +
       '<div class="rule-card"><div class="rule-card-head">📊 校验各玩法回测数据</div>' +
         '<p>想核对 A/F/G 各玩法的真实回测数据（收益率 / 最大持仓 / 回撤 / 样本等），请到 <b>「信号凯利回测」</b>页查看：</p>' +
