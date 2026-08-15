@@ -137,12 +137,18 @@ THS_TO_SW = {
 }
 
 
-# ── 申万行业指数 OHLC 数据源选择（2026-07-13）──
+# ── 申万行业指数 OHLC 数据源选择（2026-07-13 起）──
 # 申万官方 swsresearch.com trend/index API 自 0710 起持续 SSL 故障（SSLEOFError），
-# sw_* OHLC 停采在 0709。主源换同花顺 stock_board_industry_index_ths（90 二级行业指数
-# -> 聚合 31 申万一级，见 _fetch_sw_ohlc_ths）。申万源恢复后把本常量改回 "sw"
-# 即回切（fetchers.collect_index 会走 ak.index_hist_sw 通用逻辑）。
-SW_OHLC_SOURCE = "ths"
+# 主源换同花顺 stock_board_industry_index_ths（90 二级行业指数 -> 聚合 31 申万一级，
+# 见 _fetch_sw_ohlc_ths）。但同花顺聚合依赖 junction=DB最后一条close非NULL日，
+# 碰到盘中计算法 close 占位（intraday_snapshot 用 prev_close×(1+pct/100) 写入当日
+# close、OHLC/amount 留空），junction 被推到当日 -> new_dates(d>junction) 恒空 ->
+# 永不返回 OHLC（2026-08-14 修复日志：26 天 sw OHLC 停更静默空转根因）。
+# 2026-08-14 实测申万官方源已恢复（ak.index_hist_sw 返 1999 起全量真实 OHLC 到当日），
+# 回切 "sw"（fetchers.collect_index 走 ak.index_hist_sw 通用逻辑 + index_backfill 走
+# _sw_trend_fetch 申万 trend 补采）。若申万再故障需换回，参考 _fetch_sw_ohlc_ths
+# 并补"计算法占位日也算可回填"的处理。
+SW_OHLC_SOURCE = "sw"
 
 
 def _fetch_sw_ohlc_ths(sw_id, start_date, end_date, verbose=False):
