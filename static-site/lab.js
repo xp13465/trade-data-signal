@@ -7276,9 +7276,10 @@ function _kellyDefaultFilters() {
     // positionCap 仓位控制过滤(2026-08-12): 同日只买最优K个(基笔级,模式之前统一生效), K可配置1-4默认3; 默认开启
     // 2026-08-14 #BC C包: 主推 K1(收益率最高) → 默认档 3→1
     positionCap: true, positionCapK: 1,
-    // K2C5 港股追涨 / K3 主关注×概念 (2026-08-15 #86 新增, 纯前端实验键, 默认关不开)
-    // 用户拍板"两个都做,默认关,自己开关看效果;不能影响1.0.0已有稳定性"。故默认关,不进AI宏断言默认,打开只在本次开关会话生效(刷新重置默认关=与现有非AI宏toggle一致行为)
-    k2c5HkChase: false, k3ConceptBuy: false
+    // K2C5 港股追涨 / K3 主关注×概念 (2026-08-15 #86 新增 纯前端实验键; v1.1.0 2026-08-15 用户拍板升级)
+    // K2C5 默认开(v1.1.0 用户拍板: 全信号除 G 外双升, 港股卡去除后 0 负全转正, 见 docs/kelly/analysis/kelly-k2c5-return-quadrant-check.md)
+    // K3 维持默认关可自开(用户只拍板 K2C5, 未拍板 K3; 高波动+牺牲 2024/2025 大赚年, 报告建议默认关+监控)
+    k2c5HkChase: true, k3ConceptBuy: false
   };
 }
 
@@ -8855,9 +8856,9 @@ var _kellyFadeFlagGroups = [
       advice: "追涨只在牛市做 · 比值2.90", tip: "⭐ 默认推荐(默认开启,降亏推荐): 排除buy_special追关注在MA60熊市的交易。核心反模式——追涨在熊市被套,buy_special整体净正但熊市净亏。每日池减亏6.46%/损盈2.23%/比值2.90>2高性价比。G模式K1正边际+19,712(最强)。" },
     { k: "marketTiming", cls: "lab-sigkelly-toggle-mkt", name: "MA60大盘择时", ratio: 1.24, warn: "⚠️慎用(破坏性)",
       advice: "别单开,全模式净负 · 比值1.24", tip: "❌非默认⚠慎用(破坏性): MA60大盘择时(仅A股a/concept/industry,沪深300在60日均线之上才进场)。每日池减亏37.26%/损盈30.14%/比值1.24(降亏强但损盈更多,全模式净负-14.9万)。诚实标注:别单开。" },
-    // K2C5/K3 (2026-08-15 #86 新增, 纯前端实验键, 默认关, 用户自开关看效果; 未跑边际回测, ratio=待实测不编数字)
-    { k: "k2c5HkChase", cls: "lab-sigkelly-toggle-k2c5", name: "港股追涨", ratio: "待实测", warn: "⚠️默认关",
-      advice: "剔除港股追涨(独立信号728),默认关可自开 · 比值待实测", tip: "❌非默认⚠默认关: 剔除 signal∈{buy_special,buy_backup}×港股 的交易(当前数据文件实算:独立信号728个/全9模式占1431条)。报告§6.2 K2C5第一优先:剔除后 all A+7,384、y1 双正,能让港股卡 y1 翻正;但对可操作 G 玩法有害——G 的 P≤3d 里这些交易当强平缓冲垫,剔除会削弱缓冲。故默认关,自己开关看效果。未跑边际每日池回测,比值待实测(不编造数字)。" },
+    // K2C5/K3 (2026-08-15 #86 新增 纯前端实验键; v1.1.0 2026-08-15 用户拍板: K2C5 默认开, K3 维持默认关)
+    { k: "k2c5HkChase", cls: "lab-sigkelly-toggle-k2c5", name: "港股追涨", ratio: "待实测", warn: "⭐默认开(v1.1.0)",
+      advice: "剔除港股追涨(独立信号728),默认开(v1.1.0·AI宏第8键) · 比值待实测", tip: "⭐ 默认开(v1.1.0 2026-08-15 用户拍板) = AI宏组成**4+3+1+K2C5 = 基础4(n2NovSpecialIndustry/excludeSpecialBear/janMidRating/janMidSpecial)+核心3(r7MayReinforced/excludeAuxCross/greedy15)+K2C5(港股追涨剔除,第8键)+1类回测剔除(债类/波段不入宇宙 _bt_in_universe)=8键+1类**;K2C5 不算进基础4或核心3(那7键是穷举验证的稳定核心),是**新增第8个降亏键**。剔除 signal∈{buy_special,buy_backup}×港股 的交易(当前数据文件实算:独立信号728个/全9模式占1431条)。全信号除 G 外双升(A/F/H 多年稳定,净利 Δ +4,458~+7,840),16象限 92.4% 正,港股卡剔除后 0 负全转正(它就是港股卡亏损主源);除G外唯一负贡献 I 微负 -1,365。诚实标注 G: 因强平兑现口径分裂, b0(保守,强平记0利)=-2,256 / b1(乐观,按持有时间线性兑现)=+11,755,方向依赖口径,真实强平收益在区间[b0,b1],不把 b1 当承诺。" },
     { k: "k3ConceptBuy", cls: "lab-sigkelly-toggle-k3", name: "主关注×概念", ratio: "待实测", warn: "⚠️默认关",
       advice: "剔除主关注概念(独立信号3775),默认关可自开 · 比值待实测", tip: "❌非默认⚠默认关: 剔除 signal=buy×概念 的交易(当前数据文件实算:独立信号3775个/全9模式占6480条)。报告: 剔除后 y1 提升最大,但高波动+牺牲 2024/2025 大赚年,报告建议默认关+监控。故默认关,自己开关看效果。未跑边际每日池回测,比值待实测(不编造数字)。" }
   ]}
@@ -8945,17 +8946,17 @@ function _renderSigKellyBar(bar, data, period) {
       `<span class="lab-sigkelly-fade-how-row lab-sigkelly-fade-how-no"><b>⚠ 别做啥</b> 别单开 greedy15/greedy10/excludeAuxCross/r10(负边际最差, 谨慎砍量); B模式(3%止盈)裸开全负</span>` +
     `</div>`;
   const flagCatHTML = (flags) => flags.map((f) => _flagToggleHTML(f)).join("");
-  // 默认推荐独立高亮区(4+3+1: 7键 + 1个灰色只读「+1」回测剔除类别标识)
-  // D需求(2026-08-15): 标题 7键 → 4+3+1 = 7键+1类回测剔除; C需求: 追加第8个灰色只读开关(disabled, 只展示层/不可勾选, 不参与过滤/持久化/组合三态)
+  // 默认推荐独立高亮区(v1.1.0 2026-08-15: AI宏组成 4+3+1+K2C5 = 8键+1类; 高亮7键=基础4+核心3, K2C5 港股追涨为第8降亏键在下方市场组 toggle 默认开, +1 = 回测剔除类别)
+  // D需求(2026-08-15): 标题 7键 → 4+3+1 = 7键+1类回测剔除; C需求: 追加第8个灰色只读开关(disabled, 只展示层/不可勾选, 不参与过滤/持久化/组合三态); v1.1.0 补充: K2C5 并回 AI宏组成(第8键)但高亮区不重渲染它(它在市场组独立toggle), 标题与+1 tip 已在文案体现 8键+1类
   const plus1DisabledHTML =
-    `<label class="lab-sigkelly-toggle lab-sigkelly-rec lab-sigkelly-toggle-disabled" tabindex="-1" data-no-pop="" data-tip="+1 回测剔除类别(只读, 恒展示不可关): AI宏结构 4+3+1 的 +1 = 回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号, 后端 _bt_in_universe=false)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(_bt_in_universe=false), 故 AI建议 一律不推荐, 首页/本区以「未入样本」+灰显+删除线标注。含类别=债类 cgb_* / 情绪类 s.* / 全球商品利率类 g.* / 港股行业 hk_* / 空数组 ftse100·kospi(权威=config/universe_rules.yaml, §23.6)。此开关仅为界面上看得到的只读标识, 不参与过滤不写入本地记忆, 恒为展示态。" style="opacity:1">` +
+    `<label class="lab-sigkelly-toggle lab-sigkelly-rec lab-sigkelly-toggle-disabled" tabindex="-1" data-no-pop="" data-tip="+1 回测剔除类别(只读, 恒展示不可关): AI宏组成 **4+3+1+K2C5** = 基础4+核心3+K2C5(港股追涨,第8键)+**+1** = **8键+1类**; 这里的 +1 = 回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号, 后端 _bt_in_universe=false)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(_bt_in_universe=false), 故 AI建议 一律不推荐, 首页/本区以「未入样本」+灰显+删除线标注。含类别=债类 cgb_* / 情绪类 s.* / 全球商品利率类 g.* / 港股行业 hk_* / 空数组 ftse100·kospi(权威=config/universe_rules.yaml, §23.6)。此开关仅为界面上看得到的只读标识, 不参与过滤不写入本地记忆, 恒为展示态。" style="opacity:1">` +
       `<input type="checkbox" class="lab-sigkelly-toggle-plus1" disabled checked>` +
       `<span class="lab-sigkelly-fade-advice">+1 回测剔除类别(不可关)</span>` +
-      `<span class="lab-sigkelly-toggle-tip" title="+1 回测剔除类别(只读, 恒展示不可关): AI宏结构 4+3+1 的 +1 = 回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号, 后端 _bt_in_universe=false)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除, 故 AI建议 一律不推荐, 首页/本区以「未入样本」+灰显+删除线标注。含类别=债类 cgb_* / 情绪类 s.* / 全球商品利率类 g.* / 港股行业 hk_* / 空数组 ftse100·kospi(权威=config/universe_rules.yaml, §23.6)。此开关仅为界面上看得到的只读标识, 不参与过滤不写入本地记忆, 恒为展示态。">ⓘ</span>` +
+      `<span class="lab-sigkelly-toggle-tip" title="+1 回测剔除类别(只读, 恒展示不可关): AI宏组成 **4+3+1+K2C5** = 基础4+核心3+K2C5(港股追涨,第8键)+**+1** = **8键+1类**; 这里的 +1 = 回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号, 后端 _bt_in_universe=false)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除, 故 AI建议 一律不推荐, 首页/本区以「未入样本」+灰显+删除线标注。含类别=债类 cgb_* / 情绪类 s.* / 全球商品利率类 g.* / 港股行业 hk_* / 空数组 ftse100·kospi(权威=config/universe_rules.yaml, §23.6)。此开关仅为界面上看得到的只读标识, 不参与过滤不写入本地记忆, 恒为展示态。">ⓘ</span>` +
     `</label>`;
   const recZoneHTML =
     `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-rec">` +
-      `<span class="lab-sigkelly-toggle-tier">✅ 默认推荐(AI降亏过滤, 4+3+1 = 7键+1类回测剔除)</span>` +
+      `<span class="lab-sigkelly-toggle-tier">✅ 默认推荐(AI降亏过滤, 4+3+1+K2C5 = 8键+1类回测剔除; 高亮7键=基础4+核心3, K2C5 港股追涨在下方市场组默认开)</span>` +
       flagCatHTML(_kellyRecFlags.slice().sort((a, b) => _kellyRatioSortVal(b.ratio) - _kellyRatioSortVal(a.ratio))) +
       plus1DisabledHTML +
     `</div>`;
@@ -9340,7 +9341,7 @@ function _renderSigKellyBar(bar, data, period) {
     state.labSigKellyFilters.v4k = v4kCb.checked;
     _kellyOnFilterChange();
   };
-  // K2C5/K3 (2026-08-15 #86 新增实验键, 默认关, 自开关看效果)
+  // K2C5/K3 (2026-08-15 #86 新增实验键; v1.1.0: K2C5 默认开, K3 默认关, 自开关看效果)
   var k2c5Cb = bar.querySelector(".lab-sigkelly-toggle-k2c5");
   if (k2c5Cb) k2c5Cb.onchange = function () {
     if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
