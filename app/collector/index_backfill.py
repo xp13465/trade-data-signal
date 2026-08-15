@@ -1131,12 +1131,19 @@ def main():
         # 显式传 today（backfill 目标交易日）：16:35/21:00 与 datetime.today 一致，但
         # 02:00 凌晨 slot 时 datetime 已跨到次日而 backfill 补的是上一交易日(today)，
         # 传 today 保证各槽位都查对 signal_daily 交易日（不复 18:42/20:40 已报、只补迟到）。
-        try:
-            subprocess.run(
-                ["bash", "scripts/check_signals.sh", today, "--incremental"],
-                cwd=repo, check=False)
-        except Exception as _e:  # noqa: BLE001
-            print(f"[backfill] 增量补通知 check_signals 异常(不阻断): {_e}")
+        # 非交易日(周六/周日/节假日)不补发信号邮件：周六休市没开盘，补的是最近交易日
+        # (周五)缺口的信号，此时发邮件=用户周末收到周五迟到信号（2026-08-15 用户报:
+        # 周六 21:27 收到"20260814 卖×1 银行"）。补采/重算/推送数据仍保留（数据完整性
+        # 非交易日也要做），仅跳过"补发信号邮件"这一通知动作。交易日行为不变。
+        if non_trading:
+            print("[backfill] 非交易日，跳过增量信号补发（仅补数据，不发买卖点信号邮件）")
+        else:
+            try:
+                subprocess.run(
+                    ["bash", "scripts/check_signals.sh", today, "--incremental"],
+                    cwd=repo, check=False)
+            except Exception as _e:  # noqa: BLE001
+                print(f"[backfill] 增量补通知 check_signals 异常(不阻断): {_e}")
         print("[backfill] ✓ 补采+重算+推送完成")
     else:
         print("[backfill] 无新数据(已采全或源未发布),跳过重算+推送")

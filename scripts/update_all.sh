@@ -54,9 +54,12 @@ IS_TRADING=$("$PY" -c "from app.calendar import is_trading_day; print(1 if is_tr
 echo "交易日判断: IS_TRADING=${IS_TRADING:-unknown} FORCE=$FORCE" | tee -a "$LOG"
 
 if [ "$IS_TRADING" != "1" ] && [ "$FORCE" != "1" ]; then
-  echo "非交易日，跳过采集，仅 deploy 补推 + check_signals（force 可绕过）" | tee -a "$LOG"
+  echo "非交易日，跳过采集，仅 deploy 补推数据（不发信号邮件，force 可绕过）" | tee -a "$LOG"
   bash "$REPO/scripts/deploy.sh" 2>&1 | tee -a "$LOG"
-  bash "$REPO/scripts/check_signals.sh" 2>&1 | tee -a "$LOG"
+  # 非交易日不发买卖点信号邮件：周末/节假日休市没开盘，补采是最近交易日的缺口数据，
+  # 此时发信号=用户周末收到周五信号邮件（2026-08-15 用户报）。数据补推由上方 deploy 承担，
+  # 信号检测留待交易日主链路（下方 IS_TRADING=1 分支 L90-91）自然补发。
+  # 若确需非交易日手动校验信号，用 force 模式（仍会发，供人工校准）。
   echo "=== update_all.sh 结束（非交易日）$(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
   exit 0
 fi
