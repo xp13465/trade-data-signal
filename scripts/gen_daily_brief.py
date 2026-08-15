@@ -1506,8 +1506,9 @@ def backfill_hits(history: list[dict], db_path: Path, today: str) -> None:
            (基点是**次日收益率 − 当日收益率**,生成日周五预测下周一则取下一交易日的 cn10y)
            -> 7 个全中才 middle_hit=true;任一 N/A(数据缺失/无法验证)→ middle_hit=None(不硬判不伪造)。
       - sector_hits: 每个预测板块次日申万指数 pct ∈ [lo,hi](全中才板块层命中;无法验证该板块 → None)
-      - direction(向后兼容字段)= 有新区间条目时代表"整体命中"=大盘 AND 中间层 AND 板块三层全中;
-        老条目(无 range / 无 index_ranges)沿用旧"方向相等"判定(区间命中 N/A,不伪造)。
+      - direction(向后兼容字段)= 三层新条目代表"整体命中"=大盘 AND 中间层 AND 板块三层全中;
+        过渡条目(有 range+板块但 index_ranges 空)→ 走老方向判定 = range_hit AND board_hit(不含中间层,
+        不让缺中间层整条置 None 丢一天);老条目(无 range)沿用旧"方向相等"判定(区间命中 N/A,不伪造)。
     today=本次生成日期,只回填 date < today 的条目,避免回填"未来"。"""
     if not history:
         return
@@ -1548,13 +1549,18 @@ def backfill_hits(history: list[dict], db_path: Path, today: str) -> None:
         hit["actual_direction"] = _actual_direction(pct)
         rng = meta.get("range")
         pred = meta.get("direction")
+        # 判断是否"三层新条目"(含中间层 index_ranges)。8/14 过渡条目特例:
+        #  有 range + 板块,但 index_ranges 为空(None/[])→ 中间层缺失,走"老方向判定"
+        #  (不含中间层,即 direction=range_hit AND board_hit),不让整条置 None 丢一天(P2 修复)。
+        idx_ranges = meta.get("index_ranges") or []
+        has_middle = bool(rng and idx_ranges)
         # ── 中间层命中(7 全中才 middle_hit=true;任一 N/A → None)──
         middle_hits = []
         middle_hit = None  # 默认 N/A(无中间层预测 → 不硬判)
-        if rng and meta.get("index_ranges"):
+        if has_middle:
             all_mid = True
             all_na = True
-            for mi in (meta.get("index_ranges") or []):
+            for mi in idx_ranges:
                 nm = mi.get("name")
                 typ = mi.get("type")
                 lo, hi = mi.get("lo"), mi.get("hi")
@@ -1629,7 +1635,14 @@ def backfill_hits(history: list[dict], db_path: Path, today: str) -> None:
             else:
                 board_hit = None  # 无板块或板块全无法验证 → 板块层 N/A
             # 整体命中 = 大盘 AND 中间层 AND 板块三层全中;任一层 N/A 则整体不硬判(标 None)
-            if board_hit is None or hit["range_hit"] is None or middle_hit is None:
+            # 8/14 过渡条目(有 range+板块但 index_ranges 空):中间层不适用 → 走老方向判定
+            #   direction = range_hit AND board_hit(双层),不让缺中间层整条置 None 丢一天(P2 修复)。
+            if not has_middle:
+                if board_hit is None or hit["range_hit"] is None:
+                    hit["direction"] = None
+                else:
+                    hit["direction"] = bool(hit["range_hit"] and board_hit)
+            elif board_hit is None or hit["range_hit"] is None or middle_hit is None:
                 hit["direction"] = None
             else:
                 hit["direction"] = bool(hit["range_hit"] and middle_hit and board_hit)
@@ -1698,8 +1711,15 @@ def reclassify_all_hits(history: list[dict]) -> None:
                     board_hit = None  # 板块层有无法验证项 → 板块层不硬判
             elif not sector_hits:
                 board_hit = None
-            # 三层全中才 true;任一层 None → 整体不硬判
-            if board_hit is None or middle_hit is None:
+            # 8/14 过渡条目(有 range 但无 middle_hits 落盘)= 中间层不适用,
+            #   走老方向判定 = range_hit AND board_hit(不含中间层),不让缺中间层整条置 None(P2 修复)。
+            if not (isinstance(mid, list) and mid):
+                # 过渡条目/中间层缺失:双层判定
+                if board_hit is None or hit["range_hit"] is None:
+                    hit["direction"] = None
+                else:
+                    hit["direction"] = bool(hit["range_hit"] and board_hit)
+            elif board_hit is None or middle_hit is None:
                 hit["direction"] = None
             else:
                 hit["direction"] = bool(hit["range_hit"] and middle_hit and board_hit)
