@@ -99,6 +99,7 @@
 | L30 | 08-14 | 需求叫停时过度删除同链路中间档(08-12 把"每日池+买全部"误删成整个每日池,误删"每日池+top-K"中间档,08-13 用户报 K=3 33万异常才暴露) | 用户叫停某功能/改口径时,先复述"要删到什么粒度/保留什么档"确认再实施,不把同链路可保留档一起删(→memory requirement-research-bias-verify-first #9) | archive:L96 |
 | L31 | 08-14 | 派单基准过时(派每日池穷举重跑沿用旧报告"4组合全开"基准,用户指出当前默认已是 AI宏7键 基础4+核心3) | 派数据重跑/回测任务前,先核对当前页面 `_kellyDefaultFilters()`/`_kellyComboPresets` 真值,不沿用旧报告基准(→memory requirement-research-bias-verify-first #10) | archive:L97 |
 | L32 | 08-14 | "A/F收益率虚高"标注方向错误(把 A/F 86.6% 标为机制性虚高,用户纠正:A/F 持仓10-15万=可操作非虚高,G/H/I 持仓136万=136倍本金不可操作,无操作性的净盈亏才是更虚的) | 判断收益率/净盈亏是否有实操意义,先看峰值持仓/单次本金倍数,不从模式快慢预设"虚高"标签(→memory kelly-operability-20x-principal) | archive:L98 |
+| L33 | 08-15 | 子agent设"16:10定时器自唤醒merge"不可靠:子agent会话一停(等通知)其REPL没了,自己设的CronCreate永不触发→implementer傻等死闹钟+主控等它通知=双等待死锁,用户两次"?"才发现 | 带时点动作(merge/上线避盘后时点)主控侧设一次性CronCreate兜底(到点主控主动查),或收到子agent"在等定时器"报告立即改为命令立即执行;主控兜底设在自己会话,不指望子agent自唤醒(→memory subagent-timer-not-reliable) | archive:L103 |
 
 **③ 实施专属(11 条):全文进 .claude/skills/role-implementer/SKILL.md「实施专属教训蒸馏」段**
 | 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
