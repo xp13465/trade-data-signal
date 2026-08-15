@@ -1506,7 +1506,7 @@ function _sigWindowSuffix() {
 function _sigTodayHint() {
   return state.sigWindowFilter === "y_15" ? "今日已排除" : "今日高亮";
 }
-// ── 调教监控卡(过拟合监控走势图, B 档 2026-08-15) ─────────────────────────────
+// ── 分析参考点AI监控卡(过拟合监控走势图, B 档 2026-08-15) ─────────────────────
 // 数据源 static-site/data/overfit_monitor.json(每日多维打点 + 自2011历史回算)。
 // 双曲线: ①准确率(实盘 actual vs 回测 backtest, 近30/60/90交易日切换) ②综合过拟合风险分(0-100, 绿黄红分段+参考线30/60)。
 // 口径公示(sigCard 卡 tooltip / purpose-notes 同步 §21): 准确率=信号后方向命中(回测口径=按卖出模式到期收益方向;
@@ -1516,11 +1516,11 @@ function _sigTodayHint() {
 let _overfitAccChart = null;
 let _overfitRiskChart = null;
 let _overfitState = { win: 60, grade: null, sigType: null };  // win=窗口, grade=评级(null=全部), sigType=信号类型(null=全部)
-// 调教监控卡维度按钮中文标签(全局: 空态提示 + 标题副标共用)
+// 分析参考点AI监控卡维度按钮中文标签(全局: 空态提示 + 标题副标共用)
 const _overfitDimLabels = {
   win: { 30: "30日", 60: "60日", 90: "90日" },
   grade: { high: "高评级", mid: "中评级", low: "低评级", "": "全部" },
-  sig: { buy: "主买", buy_aux: "辅买", buy_special: "特买", buy_backup: "备买", sell: "卖", sell_stop_loss: "止损卖", "": "全部" },
+  sig: { buy: "主买", buy_aux: "辅买", buy_special: "追买", buy_backup: "备买", sell: "卖", sell_stop_loss: "止损卖", "": "全部" },
 };
 
 // 维度取值: 返回当前选中的滚动容 .{actual|backtest}.{w}。grade/sigType 都 null -> total; sigType 优先(类型比评级更细分)。
@@ -1675,18 +1675,22 @@ function _renderOverfitRisk(data) {
   } catch (e) {}
 }
 
-// 建调教监控卡 + 异步加载数据渲染(调用点 renderOverview sigCard 之后)
+// 建分析参考点AI监控卡 + 异步加载数据渲染(调用点 renderOverview sigCard 之后)
 async function _appendOverfitCard(colA2, r, snap) {
   const card = document.createElement("div");
   card.className = "chart-card overfit-card";
   card.innerHTML =
-    '<h3>🎛️ 调教监控' +
-    signalHelpTip("过拟合监控卡(2026-08-15 B档)：监控策略参数是否「历史拟合好·未来失灵」。上=准确率(信号方向命中)曲线(实盘实际 vs 回测预期)；" +
+    '<h3>🎛️ 分析参考点AI监控' +
+    termTip("分析参考点AI监控卡(2026-08-15 改造)：监控策略参数是否「历史拟合好·未来失灵」。上=准确率(信号方向命中)曲线(实盘实际 vs 回测预期)；" +
       "下=综合过拟合风险分(绿黄红分段, 参考线30/60)。准确率口径=信号后方向命中(实盘=信号日收盘→最新收盘, 回测=按卖出模式到期收益)；" +
       "风险分=0.4×回测-实盘偏离+0.25×样本外衰减+0.2×参数稳定+0.15×象限退化, 绿<30正常/黄30-60关注/红>60高风险。盘后21:40每日打点。⚠回测G口径=信号驱动卖出全量(A/F/G模式,信号方向命中率, 与资金仓位无关); 不含 P≤3d 资本管理叠加(峰持仓136万为不可操作口径), 别当成交仓参考。" +
-      "维度切换(2026-08-15)：点「评级/类型」可分别看 高/中/低 或 主买/辅买/特买/备买/卖/止损卖 子集；" +
+      "维度切换(2026-08-15)：点「评级/类型」可分别看 高/中/低 或 主买/辅买/追买/备买/卖/止损卖 子集；" +
       "卖/止损卖 回测仅买入信号故只显示实盘单曲线。⚠样本去重：回测同一笔交易会按16象限×卖出模式重复计数, 已按(模式+信号日+标的+信号)去重, n 为真实唯一成交数；" +
-      "近窗口样本不足(n<20)的档位不画误导曲线、显示空态提示。⚠实盘评级=「当前10日score快照」分档(signal_stats), 回测评级=「生成时score」固化, 两者时间轴不完全一致。") + "</h3>" +
+      "近窗口样本不足(n<20)的档位不画误导曲线、显示空态提示。⚠实盘评级=「当前10日score快照」分档(signal_stats), 回测评级=「生成时score」固化, 两者时间轴不完全一致。") +
+      '</h3>' +
+      '<div class="overfit-fade-row"><span class="overfit-fade-label" data-tip="AI降亏过滤开关(默认关, 独立 localStorage 键 tds_overfit_fade, 与首页/凯利区解耦): 开启=监控只统计「未被AI宏删线过滤」的信号(未被8键降亏命中 且 已入样 _bt_in_universe), 让监控数据同步反映实操过滤后的情况; 关闭=统计全信号(现状)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(sell/sell_stop_loss/波段持有 band_*等)不判降亏, buy_special_filtered 归 buy_special 判。口径=AI宏5+3+1(v1.1.0 定名「基础5」): 5+3=保留入样的8个降亏键(基础5=基础4+K2C5 港股追涨剔除), +1=回测剔除的波动相关/未入样本整类信号。注意: 后端已同时生成 未过滤/已过滤 两套数据, 本开关只是前端切换读取, 不再前端重算(§23.6 读标记不自算)。【K档选择器待后续版本接入】">AI降亏过滤</span>' +
+      '<label class="overfit-fade-switch"><input type="checkbox" data-overfit-fade="1"> <span class="ov-sw"></span></label>' +
+      '<span class="overfit-fade-state" style="color:var(--text-3);font-size:11px;margin-left:6px"></span></div>' +
     '<div class="overfit-tip">双曲线监控 + 综合过拟合风险分(0-100)。窗口/评级/类型切换, 两图联动。窗口仅控总体风险分(30/60/90), 维度图固定60日。' +
       '<span class="overfit-legend">绿&lt;30 正常 · 黄30-60 关注 · 红&gt;60 高风险</span></div>' +
     '<div class="overfit-win-row"><span class="overfit-win-label">窗口</span>' +
@@ -1702,7 +1706,7 @@ async function _appendOverfitCard(colA2, r, snap) {
       '<button data-overfit-sig="" class="overfit-win-btn active">全部</button>' +
       '<button data-overfit-sig="buy" class="overfit-win-btn">主买</button>' +
       '<button data-overfit-sig="buy_aux" class="overfit-win-btn">辅买</button>' +
-      '<button data-overfit-sig="buy_special" class="overfit-win-btn">特买</button>' +
+      '<button data-overfit-sig="buy_special" class="overfit-win-btn">追买</button>' +
       '<button data-overfit-sig="buy_backup" class="overfit-win-btn">备买</button>' +
       '<button data-overfit-sig="sell" class="overfit-win-btn">卖</button>' +
       '<button data-overfit-sig="sell_stop_loss" class="overfit-win-btn">止损卖</button>' +
@@ -1713,10 +1717,21 @@ async function _appendOverfitCard(colA2, r, snap) {
     '<div id="overfit-risk-chart" style="height:160px;width:100%"></div>' +
     '<div class="overfit-empty" style="display:none;color:var(--text-3);font-size:11px;padding:6px 2px">暂无监控数据(盘后21:40打点生成)</div>';
   // 三组维度按钮(窗口/评级/类型)共享联动: 一次点击任一按钮 -> 更新 _overfitState -> 同时重绘准确率 + 风险分两图
+  // 2026-08-15 AI降亏过滤开关: _ovFade 开启时切换到后端生成的过滤 bank(data.filtered, {accuracy,overfit} 同构)。
+  // 不前端重算(§23.6 读标记不自算): 过滤判定后端打点时已算好, 前端只切读取。
+  function _ovBank() {
+    if (_ovFade && _overfitData && _overfitData.filtered) return _overfitData.filtered;
+    return _overfitData;
+  }
   function syncOverfitCharts() {
     if (!_overfitData) return;
-    _renderOverfitAcc(_overfitData);
-    _renderOverfitRisk(_overfitData);
+    const bank = _ovBank();
+    if (!bank) return;
+    _renderOverfitAcc(bank);
+    _renderOverfitRisk(bank);
+    // 反映「已过滤」状态(开关开启且 filter bank 存在)
+    const fadeStateEl = card.querySelector(".overfit-fade-state");
+    if (fadeStateEl) fadeStateEl.textContent = (_ovFade && _overfitData.filtered) ? "已过滤(仅未命中删线信号)" : "";
     // 更新准确率/风险分标题副标(反映当前维度; 卖出类回测无数据 -> 注"仅买入")
     const accSub = card.querySelector(".ov-sub-dim");
     const riskSub = card.querySelector(".ov-sub-risk");
@@ -1759,6 +1774,22 @@ async function _appendOverfitCard(colA2, r, snap) {
   // 空数据/加载失败守卫: 不裸崩(fetchJSON 自带 .gz fallback + 15s 超时)
   const emptyEl = card.querySelector(".overfit-empty");
   let _overfitData = null;
+  // AI降亏过滤开关(默认关, 独立 localStorage 键 tds_overfit_fade; 与首页 tds_home_fade/凯利区 tds_kelly_filters 解耦)
+  let _ovFade = false;
+  try {
+    _ovFade = localStorage.getItem("tds_overfit_fade") === "1";
+  } catch (e) { _ovFade = false; }
+  // 回填开关初值(默认关) + change 监听(用户点 label/开关均触发)
+  const fadeCb = card.querySelector("[data-overfit-fade]");
+  if (fadeCb) {
+    fadeCb.checked = _ovFade;
+    fadeCb.addEventListener("change", () => {
+      if (!_overfitData) return;
+      _ovFade = !!fadeCb.checked;
+      try { localStorage.setItem("tds_overfit_fade", _ovFade ? "1" : "0"); } catch (e2) {}
+      syncOverfitCharts();
+    });
+  }
   try {
     await loadEcharts();
     const data = await fetchJSON(dataUrl("overfit_monitor.json"));
@@ -5667,7 +5698,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
   const isFreeze = signal === "freeze";
   // 2026-07-20: 删除硬编码三元链，复用 signalLabel（L310-335 已覆盖 7 种信号 + 默认 fallback "趋势转弱"）。
   // 修复 sell_stop_loss / buy_special_filtered 等漏分支落英文原值的 bug（原末尾 `: signal` 返回英文）。
-  // reason 传空串：sell_stop_loss fallback 返回 "ATR止损"（L318），buy_special_filtered 返回 "特买(过滤预览)"。
+  // reason 传空串：sell_stop_loss fallback 返回 "ATR止损"（L318），buy_special_filtered 返回 "追买(过滤预览)"。
   const sigLabel = isFreeze ? `冰点${freezeVal ? "(" + freezeVal + ")" : ""}` : signalLabel({signal: signal, reason: ""});
   // 2026-08-07 标题追加同花顺板块代码(885xxx/886xxx)标签，和图表卡标题(L3732-3734)及信号格(L1603)风格统一。
   const _idxCodeTag = _sigIdxCode ? ` <span class="idx-code-tag" title="${idxCodeTooltip(indexId, _sigIdxCode)}">${_sigIdxCode}</span>` : "";
@@ -11019,7 +11050,7 @@ async function renderOverview() {
   });
   colA2.appendChild(sigCard);
 
-  // 右列：🎛️ 调教监控卡片（过拟合监控走势图，sigCard 下方 / ntCard 前方，B 档 2026-08-15）
+  // 右列：🎛️ 分析参考点AI监控卡片（过拟合监控走势图，sigCard 下方 / ntCard 前方，B 档 2026-08-15）
   // 双曲线: ①准确率(实盘 vs 回测预期, 近30/60/90切换) ②综合过拟合风险分(绿黄红分段)。
   // 数据源 overfit_monitor.json(post 每日打点 + 自2011历史回算)。异步渲染, 不阻塞 sigCard。
   _appendOverfitCard(colA2, r, snap);
