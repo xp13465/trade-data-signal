@@ -4407,6 +4407,13 @@ async function fetchJSON(url) {
           ? _R2_FALLBACK_BASE + _base.slice("./data/".length) + _bustQuery
           : _fetchUrl;
         console.warn("[fetchJSON] ./data/ failed, fallback to R2: " + url + " -> " + _r2Url, e?.message || e);
+        // 主站 /data/ rewrite 失败 -> 二级兜底(2026-08-15 §24#47 消除主站 Worker 单点):
+        //   备站数据本就走主站 Worker rewrite(主动域名 L4330), 若主站该 rewrite 路由失效(/data/  purge/TTL 异常、CF 路由抖动、worker 部分故障),
+        //   同一主站 URL 退避重试 2 次仍失败 -> 再追加一次主站 R2 直链 /r2/data/ 兜底。
+        //   /r2/* 是 R2 binding 直读 + Cache API 边缘缓存 1h 的对象存储通道, 可用性/新鲜度独立于 /data/ rewrite, 作为最后一层保底。
+        //   仅 _isBackupSite && _isDataReq(备站 + 原本 ./data/ 请求) 触发, 不误伤 main/local 与 R2 大 range 直链(后者失败仍直接抛)。
+        //   兜底 URL 用 _R2_DATA_BASE(/r2/data/) + 原始文件名, 复用 _base/_bustQuery 保持与主站重写一致的 gz/json 与 cache-busting 逻辑。
+        let finalErr = e;
         for (let i = 0; i < 2; i++) {
           const fc = new AbortController();
           const ft = setTimeout(() => fc.abort(), 15000);
@@ -4415,12 +4422,34 @@ async function fetchJSON(url) {
               .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status + " " + _r2Url); return r; });
             return await resp.json();
           } catch (e2) {
-            if (i === 1) throw e2;
+            finalErr = e2;
+            if (i === 1) break; // 两端都失败: 不立即 throw, 若为备站则再试 R2 直链
             await new Promise((r) => setTimeout(r, 500)); // 退避 500ms 后重试一次
           } finally {
             clearTimeout(ft);
           }
         }
+        // 二级兜底: 备站 + 原本 ./data/ + 主站 rewrite 重试全失败 -> 主站 R2 直链 _R2_DATA_BASE(/r2/data/) 最后试一次
+        if (_isBackupSite && _isDataReq) {
+          // 原始文件名: 备站主动重写后 url = _R2_FALLBACK_BASE + <filename>; 由 _base(去 query)反推 filename, 复用 _bustQuery
+          const _baseFile = _base.slice(_R2_FALLBACK_BASE.length);
+          if (_baseFile && _baseFile.indexOf("/") < 0) { // 仅兜底 /data/ 下单层文件, 子目录/外链不动
+            const _r2DUrl = _R2_DATA_BASE + _baseFile + _bustQuery;
+            console.warn("[fetchJSON] 主站/data/重写失败, 二级兜底 R2 直链: " + url + " -> " + _r2DUrl, finalErr?.message || finalErr);
+            const fc = new AbortController();
+            const ft = setTimeout(() => fc.abort(), 15000);
+            try {
+              resp = await fetch(_r2DUrl, { signal: fc.signal, cache: _cacheMode })
+                .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status + " " + _r2DUrl); return r; });
+              return await resp.json();
+            } catch (e2) {
+              throw e2; // 最终兜底失败: 向上抛给调用方 renderFailCard
+            } finally {
+              clearTimeout(ft);
+            }
+          }
+        }
+        throw finalErr || e;
       }
       throw e;
     }
