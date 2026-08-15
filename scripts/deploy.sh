@@ -148,7 +148,19 @@ if [ "$UNIV_RC" -ne 0 ]; then
 fi
 echo "✓ 入样宇宙规则校验通过" | tee -a "$LOG"
 
-# 1.3 intraday_snapshot.json global_realtime 防覆盖检查（2026-07-31 德法角标三重根因修复）
+# 1.3 版本一致性校验(CLAUDE.md §24⑤, 2026-08-15 补; #48)
+# 适配 #46 日期+批次版本串机制: index引用版本串格式/与sw批次一致/资源存在/min比源新,
+# 任一 FAIL → 非0退出阻断上线(防孤儿快照再产生, 2026-08-14 全站白屏事故根因⑤)。
+echo "-> 运行 check_version_consistency.py 版本一致性校验 ..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/check_version_consistency.py" --site-dir "$GIT_REPO/static-site" --deploy-mode 2>&1 | tee -a "$LOG"
+VER_RC=${PIPESTATUS[0]}
+if [ "$VER_RC" -ne 0 ]; then
+  echo "✗ 版本一致性校验失败(退出码 $VER_RC)，终止部署(§24⑤ FAIL 阻断上线)" | tee -a "$LOG"
+  exit "$VER_RC"
+fi
+echo "✓ 版本一致性校验通过" | tee -a "$LOG"
+
+# 1.4 intraday_snapshot.json global_realtime 防覆盖检查（2026-07-31 德法角标三重根因修复）
 # 根因：export.py 调 load_latest_snapshot 从 DB reload 生成 intraday_snapshot.json，
 # 若 DB 镜像滞后或旧 snapshot 行无 global_realtime，reload 丢失 global_realtime 致前端德法角标无实时数据。
 # 修复1已让 _save_db/load_latest_snapshot 补 global_realtime，此处加检查：
