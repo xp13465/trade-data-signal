@@ -30,6 +30,11 @@ REPO = Path(__file__).parent.parent  # 不用 .resolve()：trade-data/scripts �
 LOG_DIR = REPO / "data" / "logs"
 OUT = REPO / "static-site" / "data" / "schedule_stats.json"
 MAX_GAP_SEC = 3 * 3600  # >3h 视为错位，丢弃
+# Bug1 修复(2026-08-15): pending_crash_retry 判定用时间间隔隔离历史残留码。
+# 只有"上一轮配对运行 crash(exit!=0) 且距本 pending_start < CRASH_RETRY_GAP_SEC"
+# (同一调度时槽/crash 后 6h 内立刻重启=真重试)才算，跨天残留(如 8/12 deploy=1 污染 8/13)
+# 不关联本 pending,不再误报。
+CRASH_RETRY_GAP_SEC = 6 * 3600
 
 # 外层脚本名只匹配任务自身，内嵌 deploy.sh/check_signals.sh 不会误配
 TASKS = [
@@ -389,17 +394,53 @@ def build():
                 # backfill.sh 保证写最终 DONE 行(带真实 exit),无 DONE = 极端(SIGKILL 整个脚本),
                 # 真问题靠漏跑检查/耗时检查/launchd err log + launchctl 真实码。
                 real_exit = launchctl_last_exit(LABEL_MAP.get(t["task"]))
-                if real_exit is not None:
-                    code = real_exit  # 0=成功, 143=SIGTERM超时, 133=SIGTRAP, 1=脚本异常
+                # [Bug1 补修·路径B, 2026-08-15] 与路径A(CRASH_RETRY_GAP_SEC=6h)同口径。
+                # 上一轮(b1a5111b5)只修了 pending_crash_retry 标注(路径A), 此处
+                # `code = real_exit` 一字未动 -> last_exit 仍被 launchctl 无时间戳残留码
+                # (如 8/12 deploy exit=1 污染 8/13 17:50 正常在跑)污染, 致 schedule_monitor
+                # L304"退出失败 last_exit=1" + 前端 last_exit!=0 弹窗"上次执行异常"双误报。
+                # launchctl 真实码无时间戳, 不能无条件采信。仅当确属"同槽 crash-retry"
+                # (上一轮配对 exit!=0 且距本 pending_start < CRASH_RETRY_GAP_SEC) 才显
+                # launchctl 真实码; 否则 pending 在跑期间 last_exit 保持 null
+                # (进行中不算失败, 与路径A同口径: 跨天残留码与本次 pending 无关联)。
+                _prev_crash_code = None
+                if pairs and pairs[-1][1] is not None:
+                    _pe, _pc = pairs[-1][1], pairs[-1][2]
+                    _retry_gap = (pending_start - _pe).total_seconds()
+                    if _pc != 0 and 0 <= _retry_gap <= CRASH_RETRY_GAP_SEC:
+                        _prev_crash_code = _pc
+                # [Bug1 复审FAIL补修·恢复被杀/卡死检测, 2026-08-15] 上轮(4784f0326)把
+                # real_exit 有值时一律采 None(残留码不采信),修好了 8/13 在跑误报,但把
+                # 2026-07-23/07-24 建立的「被杀/崩溃检测」弄坏: 上次配对 exit=0 的任务本轮
+                # 被 SIGTERM 杀(launchctl 码 143, age>3h)时,last_exit 从 143 变 null,
+                # 前端弹窗 + monitor "退出失败" 双漏报。
+                # 判定分层(见下方每分支注释): ①同槽 crash-retry ②被杀/卡死(age>3h 强信号,
+                # launchctl 码可信) ③在跑(age<=3h, 残留码不采信——8/13 误报的根本)。
+                if real_exit is not None and _prev_crash_code is not None:
+                    code = real_exit  # 同槽 crash-retry(场景C): launchctl 真实码(0/143/133/1)
+                elif real_exit is not None and age > MAX_GAP_SEC:
+                    code = real_exit  # 被杀/卡死(场景A, age>3h): launchctl 码可信 — 恢复 07-23/07-24 检测
+                elif real_exit is not None:
+                    code = None  # 在跑(场景B/D, age<=3h): 残留码不采信, last_exit=null
                 elif t["mode"] == "etf_nt":
                     code = None  # etf_nt 不启发式标 143(launchctl 读不到才 None)
                 else:
                     code = 143 if age > MAX_GAP_SEC else None  # standard 回退启发式
+                # P1(2026-07-29): pending_start(当前在跑) + 上次运行确实 crash = 重试中,
+                # 标记 pending_crash_retry 供后续 log_anomaly 标注。
+                # 2026-08-15 Bug1 修复(运维告警误报根因): 判定依据从 launchctl 历史残留码
+                # 改为 [日志最近一次完整配对运行的退出码 + 时间间隔]。
+                #   旧: launchctl_last_exit 是"任务上一次整体运行"的退出码(无时间戳)，
+                #       8/12 deploy 残留 exit=1 污染 8/13 全天正常在跑任务 -> 误报 5 条。
+                #   新: 只有"上一轮配对运行 exit!=0 且 其结束时间距本 pending_start < 6h"
+                #       (同一调度时槽内崩溃后立刻重启) 才判真 crash-retry；
+                #       跨天/跨调度周期的历史残留码不关联本 pending,不再误报。
+                if pairs and pairs[-1][1] is not None:
+                    _prev_end, _prev_code = pairs[-1][1], pairs[-1][2]
+                    _retry_gap = (pending_start - _prev_end).total_seconds()
+                    if _prev_code != 0 and 0 <= _retry_gap <= CRASH_RETRY_GAP_SEC:
+                        pending_crash_retry = True
                 last_dur = None
-                # P1(2026-07-29): pending_start(当前在跑) + last_exit!=0(上次crash) = 重试中,
-                # 标记 pending_crash_retry 供后续 log_anomaly 标注
-                if code is not None and code != 0:
-                    pending_crash_retry = True
         # 第4盲区修复: 扫最近一次运行窗口的 log 找异常关键词,
         # 即使 exit=0(异常被 try/except 吞)也能抓到告警
         anomaly = scan_log_anomaly(log_path, t["script"], t["mode"])
