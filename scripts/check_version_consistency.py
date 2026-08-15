@@ -54,6 +54,7 @@ MIN_PAIRS = [
     ("common.js", "common.min.js"),
     ("purpose-notes.js", "purpose-notes.min.js"),
     ("kelly-review-notes.js", "kelly-review-notes.min.js"),
+    ("kelly-reports-content.js", "kelly-reports-content.min.js"),
     ("app.js", "app.min.js"),
     ("lab.js", "lab.min.js"),
     ("style.css", "style.min.css"),
