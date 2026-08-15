@@ -18,4 +18,5 @@
 | kelly-position-cap-20x-limit.md | 仓位上限 20x 本金限制 |
 | kelly-position-cap-k-sensitivity.md | 仓位上限 K 敏感性 |
 | kelly-position-filter-backtest.md | 仓位过滤回测 |
+| kelly-poscap-history-panel-removal-check.md | **「AI仓位建议·历史回测」面板移除核对**(2026-08-15: 面板=每笔1万·裸G已废弃, 核心结论已被K评级+按年表+建议指南继承, 可放心移除) |
 | positioncap-review.md | 仓位上限审查 |
