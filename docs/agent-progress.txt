@@ -1,0 +1,11 @@
+# agent-progress — flat 区间收紧 (2026-08-15)
+任务: scripts/gen_daily_brief.py flat 区间宽度收紧≤0.2 + 方向优先正负
+STEP 已完成:
+- 规则版 flat 区间 (-0.25,0.25)→(-0.10,0.10)
+- 最小版 flat 区间 (-0.5,0.5)→(-0.10,0.10)
+- build_prompt + 主编版 系统提示词加"方向优先正负+flat≤0.2"强指令
+- _parse_range 加 flat(跨0含0)hi-lo≤0.2 硬校验,逃不出宽区间;sector 同样受校验(举一反三)
+- 常量 RANGE_FLAT_MAX_WIDTH=0.2
+自验: 语法OK + 5项单测全过 + 无残留宽 flat 区间
+下一步: commit + push main
+## DONE 待 push

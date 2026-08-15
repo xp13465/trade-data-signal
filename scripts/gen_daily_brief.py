@@ -566,13 +566,14 @@ def generate_rule_brief(date: str, data: dict, cfg: dict) -> dict:
         direction = "flat"
 
     # 规则版区间:固定窄区间(标注"规则版区间"),方向由 direction 推导,宽度<0.5。
-    # up→(0.05,0.50], down→[-0.50,-0.05), flat→(-0.25,0.25);配合 _derive_direction 一致。
+    # up→(0.05,0.50], down→[-0.50,-0.05), flat→(-0.10,0.10)(2026-08-15用户补充:
+    # 方向最优先正负,flat震荡是少见情况,区间宽度硬≤0.2=±0.1);配合 _derive_direction 一致。
     if direction == "up":
         rng = {"lo": 0.05, "hi": 0.50}
     elif direction == "down":
         rng = {"lo": -0.50, "hi": -0.05}
     else:
-        rng = {"lo": -0.25, "hi": 0.25}
+        rng = {"lo": -0.10, "hi": 0.10}
     sector_ranges_rule = []  # 规则版不预测板块区间(无 AI 逻辑)
     watch_list = [
         {"index_id": x["index_id"], "name": x.get("name") or x["index_id"], "win_rate": x["win_rate"]}
@@ -607,7 +608,7 @@ def generate_minimal_brief(date: str, data: dict) -> dict:
             "date": date,
             "version": "minimal",
             "direction": "flat",
-            "range": {"lo": -0.5, "hi": 0.5},   # 数据不足最小版,给最宽允许区间兜底
+            "range": {"lo": -0.10, "hi": 0.10},  # 数据不足最小版,默认兜底;flat须≤0.2宽(2026-08-15收紧)
             "sector_ranges": [],
             "range_status": "minimal_default",
             "range_note": "最小版(数据不足),方向与区间均为默认兜底,可信度低",
@@ -651,6 +652,9 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
         "方向由区间自动推导(lo>0→up, hi<0→down,含0→flat),不得出现\"拿不准就flat/不硬猜方向\"的逃避行为,"
         "区间可以窄但必须给、不准含糊。区间宽度约束:hi-lo ≤ 0.5(1.5-2可以,1.5-3不行),越窄越显真本事;"
         "lo/hi 绝对值 ≤5。direction 必须与区间一致。\n"
+        "1a方向·优先正负【铁律】方向最优先给 up 或 down(正/负),正常平盘0很少见,不得偷懒给flat;"
+        "只有真正判断将横盘窄幅震荡时才给 flat,且 flat 区间宽度必须≤0.2(如±0.1),禁止宽于0.2(平盘没有奔放幅度);"
+        "正/负方向区间宽度可到0.5(仍≤0.5硬上限)。区间越窄越显真本事。\n"
         "1a.【板块区间·必填】sector_ranges 给 1-3 个领涨/领跌板块的次日涨跌幅区间,每个板块名 name "
         "必须 ∈ 注入数据 industry_heatmap_top 里真实存在的板块名(只能选自它),lo/hi 约束同上(宽度≤0.5、|·|≤5)。\n"
         "1b. confidence 给本次预测的整体把握度(0-100整数),基于论据充分性/分歧度/数据支持度:"
@@ -1046,6 +1050,9 @@ def build_editor_messages(role_results: dict, researcher: dict | None, date: str
         "方向由区间自动推导(lo>0→up, hi<0→down,含0→flat),不得出现\"拿不准就flat/不硬猜方向\"的逃避行为,"
         "区间可以窄但必须给、不准含糊。区间宽度约束:hi-lo ≤ 0.5(1.5-2可以,1.5-3不行),越窄越显真本事;"
         "lo/hi 绝对值 ≤5。direction 必须与区间一致。\n"
+        "1a方向·优先正负【铁律】方向最优先给 up 或 down(正/负),正常平盘0很少见,不得偷懒给flat;"
+        "只有真正判断将横盘窄幅震荡时才给 flat,且 flat 区间宽度必须≤0.2(如±0.1),禁止宽于0.2(平盘没有奔放幅度);"
+        "正/负方向区间宽度可到0.5(仍≤0.5硬上限)。区间越窄越显真本事。\n"
         "1a.【板块区间·必填】sector_ranges 给 1-3 个领涨/领跌板块的次日涨跌幅区间,每个板块名 name "
         "必须 ∈ 注入数据 industry_heatmap_top 里真实存在的板块名(只能选自它),lo/hi 约束同上(宽度≤0.5、|·|≤5)。\n"
         "1b. confidence 给本次预测的整体把握度(0-100整数),基于多空辩论收敛结果——多空论据充分性/分歧度/数据支持度:"
@@ -1121,7 +1128,10 @@ HIT_THRESHOLD = 0.5  # 涨跌幅 >0.5% 才算 up/down,否则 flat(2026-08-14 口
 # ── 区间预测硬约束(2026-08-15 用户定,规格 docs/daily-brief-range-prediction-spec.md)──
 # 命中=实际涨跌幅落进区间(大盘+板块双区间全中),不再是"±0.5% 容忍带下 flat 圆回来"。
 # 区间宽度上限是硬闸(防 AI 写宽区间套命中):hi - lo ≤ 0.5%,越窄越好。
-RANGE_MAX_WIDTH = 0.5    # 区间宽度硬上限(hi-lo ≤ 0.5)
+# 方向优先级 + flat 收紧(2026-08-15 用户补充):方向最优先正负(flat是少见情况);
+# 若跨0(推导为 flat),区间宽度硬≤0.2(=±0.1),正/负方向仍可到0.5。
+RANGE_MAX_WIDTH = 0.5    # 区间宽度硬上限(hi-lo ≤ 0.5),up/down 用
+RANGE_FLAT_MAX_WIDTH = 0.2  # flat(区间跨0含0)宽度硬上限(hi-lo ≤ 0.2,2026-08-15收紧)
 RANGE_ABS_LIMIT = 5.0    # lo/hi 绝对值硬上限(-5 ~ +5,防离谱区间)
 RANGE_SECTOR_MAX = 3     # sector_ranges 最多 3 个
 
@@ -1217,8 +1227,9 @@ def _derive_direction(lo: float, hi: float) -> str:
 
 def _parse_range(raw) -> dict | None:
     """解析并硬校验大盘 range == {"lo": float, "hi": float}。
-    校验: lo≤hi、hi-lo≤RANGE_MAX_WIDTH、|lo/hi|≤RANGE_ABS_LIMIT。
-    合法返回规范化 {"lo","hi"};缺失/非 dict/类型错/非法宽度/越界返回 None(=区间缺失/非法)。"""
+    校验: lo≤hi、hi-lo≤RANGE_MAX_WIDTH、flat(跨0含0)时 hi-lo≤RANGE_FLAT_MAX_WIDTH(0.2)、
+    |lo/hi|≤RANGE_ABS_LIMIT。合法返回规范化 {"lo","hi"};缺失/非 dict/类型错/非法宽度/越界
+    返回 None(=区间缺失/非法)。flat 逃不出宽区间:跨0给>0.2宽区间 → 判非法。"""
     if not isinstance(raw, dict):
         return None
     try:
@@ -1229,6 +1240,9 @@ def _parse_range(raw) -> dict | None:
     if lo > hi:
         return None
     if hi - lo > RANGE_MAX_WIDTH:
+        return None
+    # 方向优先级: flat(区间跨0含0=会推导为flat)必须≤0.2宽,否则判非法降级,逃不出宽区间
+    if lo <= 0 <= hi and (hi - lo) > RANGE_FLAT_MAX_WIDTH:
         return None
     if abs(lo) > RANGE_ABS_LIMIT or abs(hi) > RANGE_ABS_LIMIT:
         return None
