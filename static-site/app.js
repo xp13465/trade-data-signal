@@ -10968,7 +10968,14 @@ async function renderOverview() {
       '<div class="empty-note">近期无汪汪队信号</div>';
     if (r && r.etf_date) addCardTimeBadge(ntCard, r.etf_date, snap, "t1", "etf_date");
   }
-  colA2.appendChild(ntCard);
+  // 汪汪队卡插入左列 colA1 恐贪分项条之后、A股综合情绪分之前(2026-08-15 用户拍板: 从右列 colA2 跨列移入左列 colA1)。
+  // 因 asChart 为块级作用域(在 r.a_sentiment_6m if 块内)不可直接引用, 用 colA1 内 h3 文本定位 A股情绪分卡,
+  // 找不到(情绪分未渲染)时 insertBefore(ntCard, null)=append 到 colA1 末尾作兜底, 不破坏既有 append 链。
+  {
+    const _asChartCard = Array.from(colA1.querySelectorAll(".chart-card"))
+      .find((c) => c.querySelector("h3") && c.querySelector("h3").textContent.indexOf("A股综合情绪分") === 0);
+    colA1.insertBefore(ntCard, _asChartCard || null);
+  }
 
   // 公募基金信号卡调用已移至下方合并 ov2ColB 左列 colB1 (5:4 布局 ui120, 2026-07-20 用户方案)
 
