@@ -7,6 +7,17 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 
 > 本 skill 由 implementer agent 定义 `skills: [role-implementer]` 启动全文注入,确定性加载不依赖主动读。共享核心在根 CLAUDE.md(自动注入),此处只放角色专属规范 + 操作细节。
 
+## 0. quickstart 约定遵循检查清单(关思考补偿,2026-08-15 优化 P0-2 加)
+> 执行 agent 常被配置 flash+关思考以省 token(省 97-99% output token),但关思考后对 B 级跨文件/约定遵循任务有降质风险(benvanik 数据:thinking 降 67-75% 时约定遵循违规 0→173 次),被 reviewer 打回=返工更费 token。本清单把实施 agent 最容易违反的规范浓缩成 8 条硬勾选,**开工前读一遍、完工自验逐条勾**,靠 prompt 不看 thinking 也守住核心约定。逐条对应的规范全文见下方对应节,参考实现见 `docs/agent-quickstart.md`。
+- [ ] **§21 算法公示**:改算法逻辑/数值(评分/权重/匹配/分段),必 grep 前端公示文案 purpose-notes.js + app.js/lab.js(算法/跟踪分/TE/R²/IR/权重/百分位/match_method)同步改,不只 tooltip 实施点
+- [ ] **§22 数据一致性**:改数据产物,必重跑 + 同步 static-site/ + R2(三步),N 展示位一致,不进根 data/ 目录
+- [ ] **§23.2 修 bug 三铁律**:修完整(先列同类错误面清单)+ 自测完成(全覆盖)+ 排查同类(根因修,不逐文件补丁)
+- [ ] **§23.3 举一反三**:做 A 主动覆盖同模式/同数据源/同组件所有消费点+相关展示位,不只用户点名处(自验列清单)
+- [ ] **§24 改前端源码** app.js/lab.js/common.js/index.html:必同 commit bump 版本串(bump_asset_version.py)+ 重建 min(build_min.py)+ bump sw.js CACHE_VERSION
+- [ ] **§8 上线链路**:改完必 commit+push feat+merge main+push main(commit message 加 Co-Authored-By 行)
+- [ ] **§23.5 新产物落档**:新增报告/脚本/数据当场落最合适目录+建/跟索引+git 已跟踪,不靠定期整理
+- [ ] **data/ 隔离**:不 add/提交根目录 data/(sentiment.db/etf_national_team.db/signal_stats.json 等留本地);static-site/data/ 走 deploy.sh 正常上线
+
 ## 1. 单版前端铁律(原 §9 全文,2026-07-15 web/ 弃用)
 - 前端源码统一在 static-site/(web/ 已删,不再双写);app/main.py 挂载 static-site/ 到根 /,/api/* 读 DB 不变
 - 改 CSS/JS 后跑 `scripts/build_min.py`(terser minify,仅 app.js+lab.js 2对)+ `scripts/bump_asset_version.py`(md5 前 8 位破缓存)

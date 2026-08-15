@@ -383,6 +383,39 @@ curl -s https://ssd.fx8.store/data/xxx.json | python3 -c "import sys,json;print(
 
 ---
 
+## 大文件派单定位锚点表（P0-4，2026-08-15 补）
+
+> 派单/prompt 时主控给「符号+行号」锚点,子 agent 用 `grep -n "符号" 文件` 直达,不整文件从头读(尤其 app.js/lab.js 1.3MB)。**行号会漂移,以 grep 实时为准**,本表给"原子符号"作稳定锚。改完大文件新增关键函数后回填本表。
+
+### static-site/app.js
+| 关键符号 | 定位说明（grep -n 该符号） |
+|---|---|
+| `_dayItems` / `_posCapKeptMap` / `_posCapSortedFn` | 首页 AI 建议 top-K 候选构建(~L2271) |
+| `function fetchJSON` | 前端数据拉取统一入口(~L4475) |
+| `_bt_late` | 首页盘后迟到信号判定标记(§21) |
+| `_isAiFadeHit` | 首页 AI 降亏点击命中判定 |
+| `_kellyDefaultFilters`(lab.js) | 凯利默认过滤组合,§21 公示必对真值 |
+
+### static-site/lab.js
+| 关键符号 | 定位说明 |
+|---|---|
+| `_kellyDefaultFilters` | 凯利默认过滤~L7253(§21/§23.6 对真值用) |
+| `_kellyComboPresets` | 凯利组合预设 |
+| `_kellyRecomputeTrade` | 凯利交易重算~L6995(L19 前端重算对齐后端用) |
+| `_kellyComputeStats` | 凯利统计~L7128 |
+| `_labBuildMarkData` / `renderLabChart` | 策略实验室图表渲染~L309/L355 |
+
+### 后端锚点
+| 关键符号 | 定位说明 |
+|---|---|
+| `scripts/export.py` | 数据产物生成,改 key 字段(量子top1/stable_top1)§22 校验用 |
+| `scripts/signal_stats.py` | 信号统计(引用 backtest_strategies.py) |
+| `app/queries.py` `_bt_in_universe` | 首页从回测侧读入样标记(§23.6 ③) |
+| `config/universe_rules.yaml` | 入样宇宙规则单一事实源(§23.6 ①) |
+| `static-site/purpose-notes.js` | 算法公示文案,§21/§23.6 ② 必改点 |
+
+---
+
 ## 本地开发环境
 
 ```bash
