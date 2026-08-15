@@ -3250,6 +3250,19 @@ main { padding: 16px 24px; }
   margin-right: 4px;
   white-space: nowrap;
 }
+.db-index {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: #e0f2f1;
+  color: #00695c;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+.db-index-yield {
+  background: #f3e5f5;
+  color: #8e24aa;
+}
 .db-expand-hint { font-size: 11px; color: var(--text-3); margin-left: auto; }
 .db-detail {
   margin-top: 8px;
