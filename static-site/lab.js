@@ -9030,7 +9030,7 @@ function _renderSigKellyBar(bar, data, period) {
       b0: ["90.0%", "+13.5万", "15万"], b1: ["90.0%", "+13.5万", "15万"] }
   ];
   const _gihCompareTableHTML =
-    `<table class="lab-sigkelly-table lab-sigkelly-advice-table">` +
+    `<table class="lab-sigkelly-table lab-sigkelly-advice-table lab-sigkelly-gih-table">` +
       `<thead><tr><th>模式</th><th>当前策略</th><th>开关</th><th>收益率</th><th>净利</th><th>所需本金</th></tr></thead><tbody>` +
       _gihRefRows.map(function (r) {
         return (
@@ -9069,9 +9069,9 @@ function _renderSigKellyBar(bar, data, period) {
   const aihlineCompareHTML =
     `<div id="lab-kelly-gih-compare-body" class="lab-sigkelly-ai-macro-body" style="${_gihCompareOpen ? "" : "display:none"}">` +
       `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap">` +
-        `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">ai长线模式(G/H/I)仓位管理 · 开关前后对比表(数据来源 G=「G模式复核」 <button type="button" class="lab-kelly-repo-btn" data-repo-id="kelly-g-mode-recheck">🔍查看报告</button>、H/I=「G/H/I连续资金扫描」 <button type="button" class="lab-kelly-repo-btn" data-repo-id="kelly-ghi-continuous-cap-sweep">🔍查看报告</button>, 推荐 K=1 版; 前端仿真内核已与报告逐位对齐 §21)。G=P≤3d「先卖年轻仓」(可切档, b0/b1 窄区间可信), H=满仓不买@7万, I=满仓不买@15万(H/I 手段A 无强平 b0=b1)。收益率=净利/峰值占用资金; 保守b0=强平按0利计, 乐观b1=按持有时间线性, 真实值在区间。</div>` +
+        `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">G/H/I 仓位管理 · 开关前后对比(推荐 K=1 口径, 前端内核已对齐报告§21)。数据来源 G=「G模式复核」 <button type="button" class="lab-kelly-repo-btn" data-repo-id="kelly-g-mode-recheck">🔍</button> · H/I=「G/H/I连续资金扫描」 <button type="button" class="lab-kelly-repo-btn" data-repo-id="kelly-ghi-continuous-cap-sweep">🔍</button>。G=P≤3d先卖年轻仓(可切档, b0/b1区间窄可信), H=满仓不买@7万, I=满仓不买@15万(H/I 手段A 无强平 b0=b1)。收益率=净利÷峰值占用资金; 保守b0=强平按0利计, 乐观b1=按持有时间线性, 真实值在区间。</div>` +
         `<div class="lab-sigkelly-table-scroll">${_gihCompareTableHTML}</div>` +
-        `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-warn">诚实标注: G 用 P≤3d 全面超旧 FIFO(15起始年全胜/随机0/30负/区间窄4-24pp, 强平的是0-3天新仓未攒利润); H/I 用满仓不买(手段A)保收益(无强平完全确定), 但 H 是小本金档净利绝对值低(7.5万), 绝对盈利目标下可自行放宽; 三模式峰持仓全部≤20倍单次本金=可操作。当前页面默认 K=1 主推, 本表亦为推荐 K=1 口径(2026-08-14 #BC 主推 K1)。</div>` +
+        `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-warn">诚实标注: G 的 P≤3d 全面超旧 FIFO(15起始年全胜/随机0/30负/区间窄4-24pp, 强平的为新仓未攒利润); H/I 手段A 无强平完全确定, 但 H 小本金档净利绝对值低(7.5万)可自行放宽; 三模式峰持仓均≤20倍本金=可操作。</div>` +
       `</div>` +
     `</div>`;
   // #78(2026-08-15): 金额口径统一为「每日资金池」(与信息行/建议指南正文一致, 消除旧"每笔固定1万"双口径混乱 §22/§23.3)
