@@ -1,5 +1,5 @@
 # analysis/ 凯利分析类报告索引
-| kelly-quadrant-loss-elimination.md | **亏损象限识别与剔除验证:用户假设 y1 成立/全周期不成立,细粒度子群降亏键是正解,候选 K2C5港股追涨/K3主关注×概念**(2026-08-15 新增;数据 `data/kelly-quadrant-mining-data.json`+脚本 `scripts/quadrant_mining/`10个) |
+| kelly-quadrant-loss-elimination.md | **亏损象限识别与剔除验证:用户假设 y1 成立/全周期不成立,细粒度子群降亏键是正解,候选 K2C5港股追涨/K3主关注×概念**(2026-08-15;数据 `data/kelly-quadrant-mining-data.json`+脚本 `scripts/quadrant_mining/`10个)。**§7 口径补测(2026-08-15)**:初版用裸 G(不可操作)测,用户质疑后按 v1.0.0 基准重测(G 用 13万 P≤3d 可操作口径 + F 等 9 模式全测),结论:降亏键对 A/F 短持正贡献、对可操作 G 转负(路径噪声),依玩法模式分裂,结论以 §7 为准。补测数据 `data/kelly-quadrant-opg-data.json`+脚本 `kelly_opg_engine.py`/`kelly_opg_yearly.py` |
 
 > 认知差/费率/收益线性/时机/卡间水印等分析类报告。**如何新增**:报告放本目录(`kelly-<主题>.md`),脚本放 `scripts/`,并同步更新本索引。
 

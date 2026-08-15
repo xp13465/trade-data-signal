@@ -1,0 +1,467 @@
+{
+ "data_version": "2026-08-15 02:38",
+ "basis": "v1.0.0: AI宏4+3+1 + 每日池等分 + K=1 + G=13万P≤3d b0, H=满仓不买@7万, I=满仓不买@15万, A-F=每日池+top-K",
+ "baseline": {
+  "all": {
+   "A": {
+    "n": 1203,
+    "total_profit": 97724.3256,
+    "win_rate": 0.5536,
+    "mean_return": 0.8123,
+    "return_pct_max_holding": 97.7243,
+    "max_concurrent": 10,
+    "max_concurrent_capital": 100000.0,
+    "total_fee_cost": 25623.457,
+    "total_invest": 12030000.0
+   },
+   "B": {
+    "n": 1203,
+    "total_profit": 40055.8785,
+    "win_rate": 0.5827,
+    "mean_return": 0.333,
+    "return_pct_max_holding": 40.0559,
+    "max_concurrent": 10,
+    "max_concurrent_capital": 100000.0,
+    "total_fee_cost": 25501.5801,
+    "total_invest": 12030000.0
+   },
+   "C": {
+    "n": 1203,
+    "total_profit": 54804.8605,
+    "win_rate": 0.5578,
+    "mean_return": 0.4556,
+    "return_pct_max_holding": 54.8049,
+    "max_concurrent": 10,
+    "max_concurrent_capital": 100000.0,
+    "total_fee_cost": 25532.6946,
+    "total_invest": 12030000.0
+   },
+   "D": {
+    "n": 1203,
+    "total_profit": 71176.257,
+    "win_rate": 0.5544,
+    "mean_return": 0.5917,
+    "return_pct_max_holding": 71.1763,
+    "max_concurrent": 10,
+    "max_concurrent_capital": 100000.0,
+    "total_fee_cost": 25567.3516,
+    "total_invest": 12030000.0
+   },
+   "E": {
+    "n": 1203,
+    "total_profit": 47286.6467,
+    "win_rate": 0.5245,
+    "mean_return": 0.3931,
+    "return_pct_max_holding": 94.5733,
+    "max_concurrent": 5,
+    "max_concurrent_capital": 50000.0,
+    "total_fee_cost": 25516.8927,
+    "total_invest": 12030000.0
+   },
+   "F": {
+    "n": 1203,
+    "total_profit": 129721.4489,
+    "win_rate": 0.5461,
+    "mean_return": 1.0783,
+    "return_pct_max_holding": 86.481,
+    "max_concurrent": 15,
+    "max_concurrent_capital": 150000.0,
+    "total_fee_cost": 25691.2032,
+    "total_invest": 12030000.0
+   },
+   "G": {
+    "n": 1203,
+    "total_profit": 205745.9424,
+    "return_pct_max_holding": 158.2661,
+    "max_concurrent_capital": 130000.0
+   },
+   "H": {
+    "n": 658,
+    "total_profit": 81514.836,
+    "return_pct_max_holding": 116.4498,
+    "max_concurrent_capital": 70000.0
+   },
+   "I": {
+    "n": 434,
+    "total_profit": 139073.0576,
+    "return_pct_max_holding": 92.7154,
+    "max_concurrent_capital": 150000.0
+   }
+  },
+  "y1": {
+   "A": {
+    "n": 169,
+    "total_profit": 22230.7755,
+    "win_rate": 0.5799,
+    "mean_return": 1.3154,
+    "return_pct_max_holding": 22.2308,
+    "max_concurrent": 10,
+    "max_concurrent_capital": 100000.0,
+    "total_fee_cost": 3611.455,
+    "total_invest": 1690000.0
+   },
+   "B": {
+    "n": 169,
+    "total_profit": 14335.9659,
+    "win_rate": 0.6213,
+    "mean_return": 0.8483,
+    "return_pct_max_holding": 15.9289,
+    "max_concurrent": 9,
+    "max_concurrent_capital": 90000.0,
+    "total_fee_cost": 3594.7823,
+    "total_invest": 1690000.0
+   },
+   "C": {
+    "n": 169,
+    "total_profit": 16440.379,
+    "win_rate": 0.5976,
+    "mean_return": 0.9728,
+    "return_pct_max_holding": 16.4404,
+    "max_concurrent": 10,
+    "max_concurrent_capital": 100000.0,
+    "total_fee_cost": 3599.191,
+    "total_invest": 1690000.0
+   },
+   "D": {
+    "n": 169,
+    "total_profit": 17879.8272,
+    "win_rate": 0.5799,
+    "mean_return": 1.058,
+    "return_pct_max_holding": 17.8798,
+    "max_concurrent": 10,
+    "max_concurrent_capital": 100000.0,
+    "total_fee_cost": 3602.2521,
+    "total_invest": 1690000.0
+   },
+   "E": {
+    "n": 169,
+    "total_profit": 9206.6247,
+    "win_rate": 0.5148,
+    "mean_return": 0.5448,
+    "return_pct_max_holding": 18.4132,
+    "max_concurrent": 5,
+    "max_concurrent_capital": 50000.0,
+    "total_fee_cost": 3583.958,
+    "total_invest": 1690000.0
+   },
+   "F": {
+    "n": 169,
+    "total_profit": 28883.9734,
+    "win_rate": 0.5503,
+    "mean_return": 1.7091,
+    "return_pct_max_holding": 20.6314,
+    "max_concurrent": 14,
+    "max_concurrent_capital": 140000.0,
+    "total_fee_cost": 3625.4168,
+    "total_invest": 1690000.0
+   },
+   "G": {
+    "n": 169,
+    "total_profit": 4313.6337,
+    "return_pct_max_holding": 3.3182,
+    "max_concurrent_capital": 130000.0
+   },
+   "H": {
+    "n": 71,
+    "total_profit": 11176.1814,
+    "return_pct_max_holding": 15.966,
+    "max_concurrent_capital": 70000.0
+   },
+   "I": {
+    "n": 60,
+    "total_profit": 10856.6817,
+    "return_pct_max_holding": 7.2378,
+    "max_concurrent_capital": 150000.0
+   }
+  }
+ },
+ "bareG_contrast": {
+  "all": {
+   "G": {
+    "total_profit": 654551.2197,
+    "return_pct_max_holding": 48.1288,
+    "max_concurrent_capital": 1360000.0
+   }
+  },
+  "y1": {
+   "G": {
+    "total_profit": 20603.6484,
+    "return_pct_max_holding": 2.3958,
+    "max_concurrent_capital": 860000.0
+   }
+  }
+ },
+ "user4_excl": {
+  "all": {
+   "A": {
+    "baseline": 97724.3256,
+    "after": 90691.8939,
+    "delta": -7032.43
+   },
+   "B": {
+    "baseline": 40055.8785,
+    "after": 37590.4042,
+    "delta": -2465.47
+   },
+   "C": {
+    "baseline": 54804.8605,
+    "after": 56890.9146,
+    "delta": 2086.05
+   },
+   "D": {
+    "baseline": 71176.257,
+    "after": 69766.0249,
+    "delta": -1410.23
+   },
+   "E": {
+    "baseline": 47286.6467,
+    "after": 47810.7532,
+    "delta": 524.11
+   },
+   "F": {
+    "baseline": 129721.4489,
+    "after": 113305.8532,
+    "delta": -16415.6
+   },
+   "G": {
+    "baseline": 205745.9424,
+    "after": 192742.9485,
+    "delta": -13002.99
+   },
+   "H": {
+    "baseline": 81514.836,
+    "after": 89062.6928,
+    "delta": 7547.86
+   },
+   "I": {
+    "baseline": 139073.0576,
+    "after": 123579.688,
+    "delta": -15493.37
+   }
+  },
+  "y1": {
+   "A": {
+    "baseline": 22230.7755,
+    "after": 25275.0846,
+    "delta": 3044.31
+   },
+   "B": {
+    "baseline": 14335.9659,
+    "after": 17269.828,
+    "delta": 2933.86
+   },
+   "C": {
+    "baseline": 16440.379,
+    "after": 21491.5365,
+    "delta": 5051.16
+   },
+   "D": {
+    "baseline": 17879.8272,
+    "after": 22730.005,
+    "delta": 4850.18
+   },
+   "E": {
+    "baseline": 9206.6247,
+    "after": 9303.3124,
+    "delta": 96.69
+   },
+   "F": {
+    "baseline": 28883.9734,
+    "after": 28607.2222,
+    "delta": -276.75
+   },
+   "G": {
+    "baseline": 4313.6337,
+    "after": 4755.271,
+    "delta": 441.64
+   },
+   "H": {
+    "baseline": 11176.1814,
+    "after": 9380.8304,
+    "delta": -1795.35
+   },
+   "I": {
+    "baseline": 10856.6817,
+    "after": 13376.6092,
+    "delta": 2519.93
+   }
+  },
+  "n": 3085
+ },
+ "candidates": {
+  "K2C5 港股追涨": {
+   "n": 159,
+   "margins": {
+    "all": {
+     "A": 7384.48,
+     "G": -2255.67,
+     "F": 4457.81,
+     "H": 7839.74,
+     "I": -1364.86
+    },
+    "y1": {
+     "A": 1011.58,
+     "G": 1071.0,
+     "F": 1593.16,
+     "H": -151.08,
+     "I": 1353.68
+    }
+   }
+  },
+  "K3 主关注×概念": {
+   "n": 720,
+   "margins": {
+    "all": {
+     "A": 5216.59,
+     "G": -4021.09,
+     "F": 6520.37,
+     "H": 9525.52,
+     "I": 23102.12
+    },
+    "y1": {
+     "A": 511.9,
+     "G": -486.76,
+     "F": 2390.11,
+     "H": 8047.55,
+     "I": 3767.2
+    }
+   }
+  },
+  "K1 追×港股×1月下旬": {
+   "n": 11,
+   "margins": {
+    "all": {
+     "A": 4860.68,
+     "G": 2361.62,
+     "F": 2359.58,
+     "H": 3063.48,
+     "I": 1096.45
+    },
+    "y1": {
+     "A": 0.0,
+     "G": 0.0,
+     "F": 0.0,
+     "H": 0.0,
+     "I": 0.0
+    }
+   }
+  },
+  "K6 高评级×(A∪概念)": {
+   "n": 85,
+   "margins": {
+    "all": {
+     "A": 409.39,
+     "G": 0.0,
+     "F": 746.44,
+     "H": 0.0,
+     "I": 0.0
+    },
+    "y1": {
+     "A": 361.32,
+     "G": 0.0,
+     "F": 604.05,
+     "H": 0.0,
+     "I": 0.0
+    }
+   }
+  },
+  "C1+C2+C5 最优组合": {
+   "n": 879,
+   "margins": {
+    "all": {
+     "A": 12521.56,
+     "G": -7430.43,
+     "F": 10953.46,
+     "H": 13377.07,
+     "I": 28060.35
+    },
+    "y1": {
+     "A": 1586.49,
+     "G": 166.36,
+     "F": 4140.55,
+     "H": 7896.47,
+     "I": 5120.88
+    }
+   }
+  }
+ },
+ "yearly_G": {
+  "baseline": {
+   "2011": -5423.960282818589,
+   "2012": 10172.94476385337,
+   "2013": 1384.815581926292,
+   "2014": 50987.768630223734,
+   "2015": -10761.29462157813,
+   "2016": 1474.1338029952058,
+   "2017": 10426.090139543003,
+   "2018": 24276.945969207693,
+   "2019": 18576.24062928546,
+   "2020": 26281.230867820253,
+   "2021": 10244.73070895279,
+   "2022": 13614.747149257688,
+   "2023": 2770.3964802315404,
+   "2024": 16000.578378464239,
+   "2025": 37209.832966805916,
+   "2026": -1489.2587886331285
+  },
+  "K2C5 港股追涨": {
+   "2011": 0.0,
+   "2012": 0.0,
+   "2013": 394.72,
+   "2014": -3686.58,
+   "2015": 1084.1,
+   "2016": -2137.62,
+   "2017": 1432.2,
+   "2018": 1842.98,
+   "2019": 647.62,
+   "2020": 375.43,
+   "2021": 215.28,
+   "2022": 0.0,
+   "2023": 0.0,
+   "2024": 0.0,
+   "2025": -2423.82,
+   "2026": 0.0
+  },
+  "K3 主关注×概念": {
+   "2011": 0.0,
+   "2012": 0.0,
+   "2013": 0.0,
+   "2014": 0.0,
+   "2015": 0.0,
+   "2016": 0.0,
+   "2017": 0.0,
+   "2018": -2213.22,
+   "2019": 0.0,
+   "2020": -25.87,
+   "2021": -301.39,
+   "2022": 2129.85,
+   "2023": 153.45,
+   "2024": -2915.44,
+   "2025": 301.34,
+   "2026": -1149.81
+  },
+  "K1 追×港股×1月下旬": {
+   "2011": 0.0,
+   "2012": 0.0,
+   "2013": 0.0,
+   "2014": 0.0,
+   "2015": 0.0,
+   "2016": 0.0,
+   "2017": 0.0,
+   "2018": 1842.98,
+   "2019": 0.0,
+   "2020": 0.0,
+   "2021": 518.63,
+   "2022": 0.0,
+   "2023": 0.0,
+   "2024": 0.0,
+   "2025": 0.0,
+   "2026": 0.0
+  },
+  "total_delta": {
+   "K2C5 港股追涨": -2255.67,
+   "K3 主关注×概念": -4021.09,
+   "K1 追×港股×1月下旬": 2361.62
+  }
+ }
+}
