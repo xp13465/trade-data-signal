@@ -308,6 +308,63 @@ akshare 封装的同花顺接口。
 
 ---
 
+## 15. 异源兜底矩阵(2026-08-15 调研)
+
+> 用户原则(2026-08-15):任何数据源必须有异源兜底(不同 host/协议/供应商),fallback 走同一源=伪多源=方案没做好;优先免费多源自动切换多重兜底。
+> 全项目单源/伪多源指标 → 免费异源组合,逐源实测(数据截止 2026-08-15)。所有"实测可达"均有本次 curl 实测支撑,非文档推断。
+
+### 15.1 真异源互备标杆(项目已有范式)
+核心指数(新浪→baostock→腾讯)、主力净流入(东财→同花顺)、北向(HKEX→东财)、盘中实时(腾讯→新浪)、申万行业(申万→同花顺)、分时1min(同花顺→东财)、ETF日线(fetch_etf_ohlc sina+mootdx)。
+
+### 15.2 可直接上(数值逐位互证)
+| 指标 | 现主源 | 免费兜底源 | 验证 |
+|---|---|---|---|
+| us10y | 东财 bond_zh_us_rate | **美国财政部官方 CSV**(home.treasury.gov daily-treasury-rates.csv) | 8/14 逐位一致 4.68 |
+| hk_south | 东财 stock_hsgt_hist_em | **HKEX 官方 JS**(data_tab_daily_{date}e.js)反算南向净买额 | 逐位一致 -13.16亿 |
+| cn10y | 中债 bond_china_yield | 东财 bond_zh_us_rate(datacenter) | 完全一致 1.6964 |
+| a_turnover_rate | 腾讯 index_turnover | 东财 push2delay secid=1.000001 f168 | 完全一致 1.03% |
+| 美股指数 | 新浪 index_us_stock_sina | 东财 push2delay 100.NDX 等 | 逐位一致 纳指 26729.16 |
+| 全球指数 | 新浪 index_global_hist_sina | 东财 push2delay(日经/DAX/富时/KOSPI) | 实测可达 |
+| gold(沪金AU0) | 新浪 futures_main_sina | 东财 futsseapi aum 沪金主连 | 差 0.06 元 |
+| wti/comex_silver/brent | 新浪 futures_foreign_hist | 东财 futsseapi 国际期货 620条 | 实测可达 |
+
+### 15.3 次优先(需映射/互补)
+| 指标 | 现主源 | 兜底源 | 说明 |
+|---|---|---|---|
+| a_width_up/down_count、a_amount | **新浪** stock_zh_a_spot(认知修正:非东财) | ①东财 push2delay clist 全A 5549只 ②mootdx 自算 | 东财实时+ mootdx 盘后/历史互补 |
+| a_width_zt/dt/max_lianban | 东财 push2ex 四池 | ①同花顺涨停池 limit_up_pool ②mootdx 自算 | 同花顺 8-14 实测 62 vs 东财 63 只 |
+| a_width_zhaban_rate | 东财双池(伪双源) | 同花顺 limit_up + mootdx seal_rate | 主东财兜同花顺/mootdx |
+| 同花顺概念27 | 同花顺 | 东财概念板块 clist(m:90+t:3) | 两套概念体系需映射表 |
+| 国证主题399xxx | 新浪 | 东财 push2delay/腾讯 | 真异源 |
+| 中证主题930xxx/931xxx | csindex 官方 | 东财快照(无 kline 历史) | 历史单源(官方权威),快照校验 |
+
+### 15.4 刷不到/证伪(诚实标注)
+1. a_div_yield 乐咕同口径无免费异源:中证上证综指股息率(2.36%)是成分股口径,乐咕(2.66%)是全A口径,只能方向参考/离群告警,不直接替换。
+2. 东财 push2his kline 全家族被封(ConnectionError),美股/中证主题历史不能走东财 kline,东财仅作实时快照校验。
+3. FRED 需 API key(400),美国财政部 CSV 替代成功。
+4. 英为/investing 403 反爬;新浪 hf_TNX 美债实时返回空;SGE 官方无公开 JSON。
+
+### 15.5 实施优先级(按性价比)
+1. 立即:a_turnover_rate(东财)/us10y(美财政部)/cn10y(东财)/hk_south(HKEX官方)/gold(东财)/美股全球(东财)
+2. 次优先:宽度三组(东财clist+mootdx)/wti银布(东财futsseapi)/中证主题快照校验
+3. 需映射:概念27↔东财概念、oil主连合约归属对齐
+
+### 复现(实测命令,2026-08-15)
+```bash
+# HKEX 南向净买额反算(8/14收盘)
+curl 'https://www.hkex.com.hk/eng/csm/DailyStat/data_tab_daily_20260814e.js' -H 'Referer: https://www.hkex.com.hk/Mutual-Market/Stock-Connect/Statistics/Historical-Daily'
+# 东财国内期货沪金主连
+curl 'https://futsseapi.eastmoney.com/list/SHFE,DCE,INE,CZCE,GFEX?orderBy=dm&sort=asc&pageSize=1200&pageIndex=0&token=58b2fa8f54638b60b87d69b31969089c&field=dm,sc,name,p,zdf&blockName=callback'
+# 美国财政部 10Y(2026全部)
+curl 'https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/2026/all?type=daily_treasury_yield_curve&field_tdr_date_value=2026&page&_format=csv'
+# 东财美股指数
+curl 'https://push2delay.eastmoney.com/api/qt/stock/get?secid=100.NDX'
+# 东财全A clist(分页100,总5549)
+curl 'https://push2delay.eastmoney.com/api/qt/clist/get?pn=1&pz=100&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f3,f6'
+# 同花顺涨停池(8/14)
+curl 'https://data.10jqka.com.cn/dataapi/limit_up/limit_up_pool'
+```
+
 ## 相关文档
 
 - [data-dictionary.md](data-dictionary.md) - 数据字典（JSON 字段说明）
