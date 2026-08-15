@@ -197,7 +197,7 @@ def collect_us10y():
     bond_zh_us_rate 在 SERIES_FUNCS 走全量拉取，02:00 时源尚未发布当日值）。
 
     复用 fetchers.collect_series 逻辑（同主 pipeline 采集路径，保证列名/日期/NaN 处理一致）。
-    返回 (rows, latest_date, latest_value, msg)。rows=[(date, value), ...]。
+    返回 (rows, latest_date, latest_value, msg, src)。rows=[(date, value), ...]。src=异源兜底标记。
     """
     from app.collector.fetchers import collect_series, load_config
     cfg = load_config()
@@ -207,12 +207,12 @@ def collect_us10y():
             us10y_cfg = m
             break
     if not us10y_cfg:
-        return [], None, None, "us10y metric config not found in indicators.yaml"
-    rows, msg = collect_series(us10y_cfg)
+        return [], None, None, "us10y metric config not found in indicators.yaml", "akshare"
+    rows, msg, src = collect_series(us10y_cfg)
     if not rows:
-        return [], None, None, f"collect_series: {msg}"
+        return [], None, None, f"collect_series: {msg}", "akshare"
     # rows 按 date 升序（collect_series 逐行 append），末位为最新
-    return rows, rows[-1][0], rows[-1][1], "ok"
+    return rows, rows[-1][0], rows[-1][1], "ok", src
 
 
 def main():
@@ -283,9 +283,9 @@ def main():
     # ── 美债 us10y 采集（与美股同时区，05:00 顺带采掉当日）──
     print(f"\n-> 采集 us10y 美债 ..." , flush=True)
     try:
-        us10y_rows, us10y_date, us10y_val, us10y_msg = collect_us10y()
+        us10y_rows, us10y_date, us10y_val, us10y_msg, us10y_src = collect_us10y()
         if us10y_rows:
-            upsert_metrics_many("us10y", us10y_rows)
+            upsert_metrics_many("us10y", us10y_rows, source=us10y_src)
             results.append(("us10y", "ok", f"bond_zh_us_rate date={us10y_date} value={us10y_val}%"))
             print(f"  ✓ us10y <- bond_zh_us_rate date={us10y_date} value={us10y_val}% ({len(us10y_rows)} rows)", flush=True)
         else:

@@ -305,10 +305,11 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 | CFFEX | 期货机构持仓 | 公开数据 |
 | cninfo | 公募基金 / ETF 持有人结构 | 公开数据 |
 | 美财政部 CSV | `us10y` 异源兜底（东财失联时，`data.treasury.gov`） | 官方公开数据 |
-| HKEX 官方 JS | `hk_south` 南向净买额异源反算（SSE+SZSE Buy-Sell，`datacdn.rscd.org.hk` 时指数 | 官方公开接口 |
+| HKEX 官方 JS | `hk_south` 南向净买额异源反算（SSE+SZSE Buy-Sell，JS 从 `datacdn.rscd.org.hk` 拉当日指数净买额数据） | 官方公开接口 |
 | 东财数据中心 | `cn10y` 国债收益率异源兜底（`datacenter-web.eastmoney.com` RPTA_WEB_TREASURYYIELD） | 公开接口 |
 | 东财 futsseapi/push2delay | `gold 沪金` / `a_turnover_rate` / 美股全球指数异源兜底（新浪/腾讯/中债失联时） | 公开接口 |
 | 上交所官方期权 IV | QVIX 备 A 异源自算原料（`query.sse.com.cn` option_risk_indicator_sse，2015 至今 T+1 可历史回填） | 官方公开数据 |
+| [nkuguanrui/ivx](https://github.com/nkuguanrui/ivx) | QVIX 备 A 方差互换自算参考（CBOE VIX 方差互换法 + sse 期权 IV 加权，`multisource.py` 自算实现参考其思路） | 开源项目 |
 
 > 数据源细节、采集时点与合规说明见 [`docs/data-sources.md`](docs/data-sources.md)。
 

@@ -821,9 +821,9 @@ def backfill_series_metrics(date):
             continue
         mid = m["id"]
         try:
-            rows, msg = fetchers.collect_series(m)
+            rows, msg, src = fetchers.collect_series(m)
             if rows:
-                runner.upsert_metrics_many(mid, rows)
+                runner.upsert_metrics_many(mid, rows, source=src)
                 log_collect(date, mid, "ok", f"{len(rows)} rows (series backfill)")
                 ok += 1
                 if any(d == date for d, _ in rows):
@@ -950,14 +950,14 @@ def backfill_history_gaps(date, verbose=True, strict_global=False):
             if last_d >= target_d:
                 continue
             try:
-                rows, msg = _fetchers_mod.collect_series(m)
+                rows, msg, src = _fetchers_mod.collect_series(m)
             except Exception as e:  # noqa: BLE001
                 if verbose:
                     print(f"  [gap] {mid} 补采异常: {e}")
                 continue
             newer = [rw for rw in rows if rw[0] > latest] if rows else []
             if newer:
-                upsert_metrics_many(mid, rows)
+                upsert_metrics_many(mid, rows, source=src)
                 new_latest = max(rw[0] for rw in newer)
                 fixed += 1
                 if verbose:

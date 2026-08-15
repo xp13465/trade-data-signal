@@ -48,6 +48,10 @@
   `optbbs daily csv → sse 官方IV自算(当日补/回填) → 本地RV(网底,口径标注)`。
 - **未实施(下一步)**:备B 新浪实时 IV 自算(option_sse_greeks_sina,盘中当日) —— 与备A 共用同一套
   方差互换算法(见 multisource.sse_qvix_series),仅换 IV 数据源,已留函数结构。
+- **对账(实现 vs 调研建议)**:调研建议 a_qvix_1000 用新浪中金所 mo 链(CFFEX 股指期权自算);实现改为
+  备A 上交所官方 IV 用 **SSE 510050(上证 50ETF 期权)** 做原料——a_qvix_1000 语义本就是 50ETF 期权波指
+  (历史口径),SSE 510050 与该语义贴合、T+1 权威且可历史回填,不需另起中金所 mo 自算(中金所股指期权是
+  不同指数方向,覆盖不到本指标历史语义)。实现采用 510050 而非新浪 mo 链,新浪实时链仍作为备B 候补。
 - **算法(multisource._sse_variance_term / sse_qvix_series)**:CBOE VIX 方差互换思想——
   近/次两到期月期权链 IV(Black-Scholes 反推期权价 Q(K),正态 CDF 用 math.erf 无 scipy 依赖),
   每 K 选 OTM,sum(ΔK/K²·e^{rT}Q),远期 F(Call-Put 平价)、K0(<F 最大行权),凸性修正,
