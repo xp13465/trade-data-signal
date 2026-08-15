@@ -30,6 +30,8 @@
 
 ## 本轮落档(2026-08-15)
 
+- 明日(2026-08-15 #83/#84)报告弹窗完整正文生成脚本:脚本 `scripts/kelly_reports_html.py`(前端展示用, 将 10 份 docs/kelly/**/*.md 经 GFM markdown 转 HTML 输出 `static-site/kelly-reports-content.js`, 供 lab.js 报告弹窗显示完整正文, 与 `md_to_html.py`/kelly-review-notes.js 同模式) + 生成数据 `static-site/kelly-reports-content.js/.min.js`
+- 移除「AI仓位建议·历史回测(G模式口径)」面板核对说明:报告 `position/kelly-poscap-history-panel-removal-check.md`(#83 移除依据, 核心结论已被 K 按钮评级/按年窗口增长表/建议指南继承)
 - 次日分批挂单买入穷举回测:报告 `position/kelly-nextday-batch-limit-sop.md`(结论:兜底 N=K 最优,每日池 G K1 净+861,375/53.17%,比次日开盘+6.1万,2011-2026 全年份正改善,9模式全正)+ 脚本 `scripts/kelly_batch_limit_*.py`(13个,F 组)+ 数据 `position/data/kelly_nextday_batch_limit_data.json`
 
 ## 本轮落档(2026-08-14)
