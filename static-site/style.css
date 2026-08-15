@@ -6693,6 +6693,13 @@ main { padding: 16px 24px; }
   background: var(--bg-2, rgba(128,128,128,0.05)); flex-wrap: wrap;
 }
 .overfit-fade-label { font-size: 11px; color: var(--text-2); font-weight: 600; cursor: help; }
+/* 2026-08-16 二次迭代: 降亏开关与K档同行的分隔竖线 + K档按钮(K与win-btn同视觉, 可点选active高亮) */
+.overfit-fade-sep {
+  width: 1px; height: 18px; background: var(--border-color, rgba(128,128,128,0.3));
+  margin: 0 2px; flex-shrink: 0;
+}
+.overfit-kbtn { min-width: 34px; text-align: center; }
+.overfit-kbtn.active { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
 .overfit-fade-switch {
   position: relative; width: 38px; height: 20px; flex-shrink: 0;
   background: var(--border-strong, #ccc); border-radius: 999px; cursor: pointer;

@@ -64,6 +64,10 @@ sys.path.insert(0, SCRIPT_DIR)
 # ── 常量 ──────────────────────────────────────────────────────────────────────
 BUY_SIGNALS = ("buy", "buy_aux", "buy_special", "buy_backup")
 SELL_SIGNALS = ("sell", "sell_stop_loss")
+_BUY_SIG_SET = set(BUY_SIGNALS)
+# top-K 排序常量(与首页 _posCapSortedFn / lab 同源, §23.6): rating 高>中>低>空; signal 备买>主买>辅买>追买
+_TOPK_RC = {"high": 0, "mid": 1, "low": 2, "": 3}
+_TOPK_SC = {"buy_backup": 0, "buy": 1, "buy_aux": 2, "buy_special": 3}
 AFG_MODES = ["A", "F", "G"]
 WINDOWS = [30, 60, 90]
 DEFAULT_K = 1
@@ -439,6 +443,61 @@ def filter_actual_by_date(by_date, ctx, grade_map):
             kept.append(s)
         if kept:
             out[d] = kept
+    return out
+
+
+# ── top-K 保留集(监控卡 K 档, 与首页/凯利 top-K 同口径 §23.6) ───────────────
+# K档 × 降亏开关两开关独立(2026-08-16 用户拍板修改原方案): K 档基于「人口」信号集做 top-K,
+#   人口由调用方决定 —— 全信号(by_date_raw) 或 降亏过滤后(by_date_filt)。降亏开=前端读 filtered_by_k
+#   (过滤人口 top-K), 降亏关=前端读 by_k(全信号人口 top-K)。K 独立可用, 不依赖降亏开关。
+def build_topk_kept_map(by_date, ctx, grade_map, k):
+    """在给定人口信号集上按 signal_date 分组 quality 序取前 k(top-K 保留集)。
+    人口由调用方决定 = 全信号 by_date_raw(by_k 档) 或 降亏过滤后 by_date_filt(filtered_by_k 档)。
+    排序口径(与首页 _posCapSortedFn / lab top-K 同源, §23.6): track_score DESC → rating(高>中>低>空)
+    → signal(备买>主买>辅买>追买); 仅 buy 类信号(buy/buy_aux/buy_special/buy_backup, 卖/波段不入位)。
+    返 {(signal_date_str, index_id, signal)} 保留集(实盘侧 top-K 与回测侧同批基笔, 1:1 对齐首页语义)。"""
+    by_signal_date = defaultdict(list)
+    for d, lst in by_date.items():
+        for s in lst:
+            sig = s.get("signal")
+            if sig not in _BUY_SIG_SET:
+                continue
+            iid = s.get("index_id")
+            # track_score: 信号冻结值优先, 否则 ctx.ts_map(board_etf_map)
+            ts = s.get("track_score")
+            if ts is None:
+                ts = ctx.ts_of(iid)
+            rating = s.get("rating") or grade_map.get(
+                (iid, sig), grade_map.get((iid, "buy_special" if sig == "buy_special_filtered" else sig), ""))
+            by_signal_date[d].append({"iid": iid, "sig": sig, "ts": ts, "rating": rating})
+    kept = set()
+    for d, items in by_signal_date.items():
+        items.sort(key=lambda t: (-(t["ts"] if t["ts"] is not None else -1),
+                                   _TOPK_RC.get(t["rating"], 3),
+                                   _TOPK_SC.get(t["sig"], 9)))
+        for it in items[:k]:
+            _sig = "buy_special" if it["sig"] == "buy_special_filtered" else it["sig"]
+            kept.add((str(d), it["iid"], _sig))
+    return kept
+
+
+def filter_trades_by_kept(trades_by_date, kept):
+    """回测交易按保留集过滤: 只留 (signal_date, index_id, signal) 在 kept 内的交易。"""
+    out = {}
+    for d, lst in trades_by_date.items():
+        new = [t for t in lst if (str(d), t.get("index_id"), t.get("signal")) in kept]
+        if new:
+            out[d] = new
+    return out
+
+
+def filter_by_date_by_kept(by_date, kept):
+    """实盘信号按保留集过滤: 只留 (signal_date, index_id, signal) 在 kept 内的信号。"""
+    out = {}
+    for d, lst in by_date.items():
+        new = [s for s in lst if (str(d), s.get("index_id"), s.get("signal")) in kept]
+        if new:
+            out[d] = new
     return out
 
 
@@ -1011,8 +1070,12 @@ def derive_daily_for_rolls(bt_roll, act_roll, latest_date, min_n=20):
 
 def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal):
     """由（已可选过滤的）原始样本计算 accuracy + overfit 两棵子树。
-    被 build_output 调用两次：未过滤(现 v1) + 过滤(filtered, AI宏删线层)。
-    D2/D3/D4/象限用过滤后的 trades_by_date(保持一致, 见 §5.1/§5.4)。"""
+    被 build_output 调用多次：未过滤(raw) + 过滤(filtered, AI宏删线层) + by_k(全信号top-K 4套) + filtered_by_k(降亏过滤后top-K 4套)。
+    D2/D3/D4/象限用过滤后的 trades_by_date(保持一致, 见 §5.1/§5.4)。
+    2026-08-16 窗口语义改造: 统计口径固定 60 交易日滚动, 不再按 30/60/90 三套重复算(体积降 ~1/3);
+    前端「显示范围」只截取最近 N 日展示, 不改变统计窗口。"""
+    # 滚动仅保留 60 窗口一套(统计口径固定; 消除 30/90 重复序列, 配合前端显示范围截取)
+    _ROLL_WIN = [60]
     bt_daily = bucket_backtest_trades(trades_by_date, None)
     bt_dates = sorted(bt_daily.keys())
     actual_daily = bucket_actual(by_date, close_map, latest_signal, grade_map) if by_date else []
@@ -1021,8 +1084,8 @@ def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal):
     bt_points = [{"date": d, **bt_daily[d]} for d in bt_dates]
     actual_dates = [p["date"] for p in actual_daily]
     act_points = [{"date": p["date"], **{k: v for k, v in p.items() if k in ("total", "by_signal", "by_grade")}} for p in actual_daily]
-    bt_roll = rolling_win_rates(bt_points, bt_dates, WINDOWS)
-    act_roll = rolling_win_rates(act_points, actual_dates, WINDOWS)
+    bt_roll = rolling_win_rates(bt_points, bt_dates, _ROLL_WIN)
+    act_roll = rolling_win_rates(act_points, actual_dates, _ROLL_WIN)
 
     def _trim_roll(roll):
         return {str(w): seq[-SURFACE_DAYS:] for w, seq in roll.items()}
@@ -1033,8 +1096,8 @@ def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal):
     by_grade_out = {}
     for g in ("high", "mid", "low"):
         kp = grade_sig_keys_map[g]
-        bt_r = rolling_win_rates(bt_points, bt_dates, WINDOWS, key_path=kp)
-        act_r = rolling_win_rates(act_points, [p["date"] for p in actual_daily], WINDOWS, key_path=kp)
+        bt_r = rolling_win_rates(bt_points, bt_dates, _ROLL_WIN, key_path=kp)
+        act_r = rolling_win_rates(act_points, [p["date"] for p in actual_daily], _ROLL_WIN, key_path=kp)
         by_grade_out[g] = {"backtest": _trim_roll(bt_r), "actual": _trim_roll(act_r)}
 
     sig_map_bt = {
@@ -1049,12 +1112,12 @@ def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal):
     for sig in ("buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss"):
         entry = {}
         if sig in sig_map_bt:
-            bt_r = rolling_win_rates(bt_points, bt_dates, WINDOWS, key_path=sig_map_bt[sig])
+            bt_r = rolling_win_rates(bt_points, bt_dates, _ROLL_WIN, key_path=sig_map_bt[sig])
             entry["backtest"] = _trim_roll(bt_r)
         else:
             entry["backtest"] = {}
         if sig in sig_map_act:
-            act_r = rolling_win_rates(act_points, [p["date"] for p in actual_daily], WINDOWS, key_path=sig_map_act[sig])
+            act_r = rolling_win_rates(act_points, [p["date"] for p in actual_daily], _ROLL_WIN, key_path=sig_map_act[sig])
             entry["actual"] = _trim_roll(act_r)
         else:
             entry["actual"] = {}
@@ -1097,8 +1160,8 @@ def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal):
             },
             "daily": _derive_daily_series(bt_roll, act_roll, risk, latest_signal, win=60)[-730:],
             "daily_by_win": {
-                str(w): _derive_daily_series(bt_roll, act_roll, risk, latest_signal, win=w)[-SURFACE_DAYS:]
-                for w in WINDOWS
+                # 窗口语义改造: 统计口径固定 60 窗口一套(前端显示范围 30/60/90 只截取展示, 不重算)
+                "60": _derive_daily_series(bt_roll, act_roll, risk, latest_signal, win=60)[-SURFACE_DAYS:]
             },
             "daily_by_dim": {
                 "grade": {
@@ -1157,6 +1220,24 @@ def build_output(rebuild=False, dry_run=False):
     trades_by_date_filt = filter_trades_by_date(trades_by_date_raw, ctx, mode_filt=AFG_MODES)
     bank_filt = _compute_bank(by_date_filt, close_map, trades_by_date_filt, grade_map, latest_signal)
 
+    # K 档(2026-08-16): K 档 × 降亏开关两开关独立(用户拍板修正) —— 前端:
+    #   降亏开 + K 档 = filtered_by_k[k](降亏过滤人口 top-K); 降亏关 + K 档 = by_k[k](全信号人口 top-K)。
+    #   by_k 与 filtered_by_k 各有 K=1..4 一套, 共 8 套; K 独立可用不依赖降亏开关(与首页/Lab 语义对齐 §23.6)。
+    K_ALLOWED = [1, 2, 3, 4]
+    by_k = {}
+    filtered_by_k = {}
+    for k in K_ALLOWED:
+        # 全信号人口 top-K(降亏关): 由原始 by_date_raw 选 top-K
+        kept_raw = build_topk_kept_map(by_date_raw, ctx, grade_map, k)
+        by_date_raw_k = filter_by_date_by_kept(by_date_raw, kept_raw) if conn_ok else {}
+        trades_raw_k = filter_trades_by_kept(trades_by_date_raw, kept_raw)
+        by_k[str(k)] = _compute_bank(by_date_raw_k, close_map, trades_raw_k, grade_map, latest_signal)
+        # 降亏过滤人口 top-K(降亏开): 由过滤后 by_date_filt 选 top-K
+        kept_filt = build_topk_kept_map(by_date_filt, ctx, grade_map, k)
+        by_date_filt_k = filter_by_date_by_kept(by_date_filt, kept_filt)
+        trades_filt_k = filter_trades_by_kept(trades_by_date_filt, kept_filt)
+        filtered_by_k[str(k)] = _compute_bank(by_date_filt_k, close_map, trades_filt_k, grade_map, latest_signal)
+
     # 预警主口径 = 未过滤的风险分(现状行为不变); filtered 仅作前端对比数据
     d1 = bank_raw["overfit"]["current"]["d1"]
     d2 = bank_raw["overfit"]["current"]["d2"]
@@ -1187,11 +1268,17 @@ def build_output(rebuild=False, dry_run=False):
                 "rule_count": 9,
                 "desc": "AI宏删线层: 8键(基础5+核心3)+1类(未入样本 _bt_in_universe)。开关开启时监控只统计未命中删线的信号。",
             },
+            "topk": {
+                "desc": "K档 × 降亏开关两开关独立(2026-08-16): by_k=全信号人口top-K, filtered_by_k=降亏过滤人口top-K(降亏开用)。排序口径=track_score DESC→评级→信号类型, 与首页AI建议top-K同源(§23.6)。K独立可用不依赖降亏开关。",
+                "k_allowed": [1, 2, 3, 4],
+            },
         },
     }
     out["accuracy"] = bank_raw["accuracy"]
     out["overfit"] = bank_raw["overfit"]
     out["filtered"] = bank_filt
+    out["by_k"] = by_k
+    out["filtered_by_k"] = filtered_by_k
 
     # 体积控制日志
     print(f"   accuracy.rolling.by_signal {[s for s in out['accuracy']['rolling']['by_signal']]}")
