@@ -1693,16 +1693,8 @@
 .lab-sigkelly-advice-warn { color: #d4380d; }
 [data-theme="dark"] .lab-sigkelly-advice-warn, [data-theme="redgold"] .lab-sigkelly-advice-warn { color: #ff9c9a; }
 .lab-sigkelly-advice-note { color: var(--text-3); font-size: 11.5px; line-height: 1.6; font-style: normal; }
-/* 2026-08-14 问题2: 「AI仓位建议 · 历史回测数据」展开面板布局修正 —— 限宽(不撑满全屏)+限高80vh内部滚动+行高收窄。
-   专用于 .lab-sigkelly-poscap-history(仅该历史固化面板), 不影响「全信号操作建议指南」面板(advice-outer)既有排版。 */
-.lab-sigkelly-poscap-history { max-width: 860px; }
-.lab-sigkelly-poscap-history summary { white-space: normal; overflow-wrap: break-word; line-height: 1.5; padding: 6px 2px; }
-.lab-sigkelly-poscap-history .lab-sigkelly-advice-body { max-height: 80vh; overflow-y: auto; padding-right: 6px; }
-.lab-sigkelly-poscap-history .lab-sigkelly-advice-li { line-height: 1.5; padding: 1px 0; }
-.lab-sigkelly-poscap-history .lab-sigkelly-advice-table th,
-.lab-sigkelly-poscap-history .lab-sigkelly-advice-table td { padding: 3px 6px; line-height: 1.4; }
-.lab-sigkelly-poscap-history .lab-sigkelly-advice-table-scroll { max-height: none; overflow-y: visible; }
-/* §23.3 举一反三(2026-08-14): 「全信号操作建议指南」(advice-outer)与 AI仓位建议历史面板同为 .lab-sigkelly-advice-details 展开面板, 同样撑高/一屏难看全——限高80vh内部滚动+summary自动换行, 让展开后内容可在面板内滚动看全(仅同类布局修正, 不动内容) */
+/* #83(2026-08-15): 移除「AI仓位建议 · 历史回测(G模式口径)」面板, 其专属样式类 .lab-sigkelly-poscap-history 全部删除; 下方 advice-outer 同类限高滚动规则(§23.3)保留(仍被「全信号操作建议指南」展开面板使用) */
+/* §23.3 举一反三(2026-08-14): 「全信号操作建议指南」(advice-outer)展开面板限高80vh内部滚动+summary自动换行, 让展开后内容可在面板内滚动看全(同类布局修正, 不动内容) */
 .lab-sigkelly-advice-outer .lab-sigkelly-advice-body { max-height: 80vh; overflow-y: auto; padding-right: 6px; }
 .lab-sigkelly-advice-outer summary { overflow-wrap: break-word; }
 /* 2026-08-14 #49: G玩法完整交易方法教学块(总建议②分节内, 与 A/F 并列). 区别于警告红(advice-warn)/中性注(advice-note)/金结论(verdict), 用靛青左边框+淡底做"方法教学"callout */
@@ -1927,8 +1919,8 @@
   .lab-sigkelly-table-scroll { -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
   .lab-sigkelly-yearly-table th, .lab-sigkelly-yearly-table td { padding: 3px 5px; }
   .lab-sigkelly-advice-table th, .lab-sigkelly-advice-table td { padding: 3px 4px; font-size: 10px; }
-  /* 历史回测面板也随移动端收窄, 避免撑出 */
-  .lab-sigkelly-poscap-history, .lab-sigkelly-advice-panel { width: 100% !important; max-width: 100% !important; }
+  /* 建议指南/展开面板随移动端收窄(历史回测面板已移除, advice-panel 保留) */
+  .lab-sigkelly-advice-panel { width: 100% !important; max-width: 100% !important; }
 }
 
 /* ===== #78+#79(2026-08-15): 建议指南信息行 + 报告查看弹窗 ===== */
@@ -1959,8 +1951,9 @@
   white-space: nowrap;
 }
 .lab-kelly-repo-btn:hover { background: var(--primary); color: #fff; }
-/* 报告查看弹窗(复用 lab-signal-modal 容器, 收窄便于读目录结构) */
-.lab-kelly-repo-modal { max-width: 680px; }
+/* 报告查看弹窗(复用 lab-signal-modal 容器)
+   #84(2026-08-15): 由「收窄 680px 读目录」改为「放大 1000px+ 读完整正文」——目录折叠(details), 正文独立滚动, h1-h4/表格/代码块样式, 移动端窄屏近全屏 */
+.lab-kelly-repo-modal { max-width: 1024px; width: min(1024px, 94vw); height: min(86vh, 720px); }
 .lab-kelly-repo-meta {
   font-size: 12.5px;
   line-height: 1.7;
@@ -1972,8 +1965,10 @@
 }
 .lab-kelly-repo-path { font-size: 11.5px; color: var(--text-3); margin-bottom: 10px; word-break: break-all; }
 .lab-kelly-repo-path code { background: var(--bg-hover); padding: 1px 4px; border-radius: 3px; }
-.lab-kelly-repo-toc-title { font-size: 13px; font-weight: 700; color: var(--text-1); margin: 4px 0 6px; }
-.lab-kelly-repo-toc { max-height: 46vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+/* 目录可折叠(TOC): details 收起时仅留一行标题, 展开时目录列表限高滚动 */
+.lab-kelly-repo-toc-wrap { margin-bottom: 10px; }
+.lab-kelly-repo-toc-title { font-size: 13px; font-weight: 700; color: var(--text-1); margin: 2px 0 6px; cursor: pointer; }
+.lab-kelly-repo-toc { max-height: 22vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
 .lab-kelly-repo-toc-line {
   padding: 3px 6px;
   font-size: 12.5px;
@@ -1983,3 +1978,58 @@
 }
 .lab-kelly-repo-toc-line:last-child { border-bottom: none; }
 .lab-kelly-repo-toc-line:hover { background: var(--bg-hover); }
+/* 完整正文(#84): 独立滚动 + 保留 h1-h4 结构 + 表格/代码块/引用/列表排版 */
+.lab-kelly-repo-body {
+  max-height: 46vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  white-space: normal;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-1);
+}
+.lab-kelly-repo-body-empty { color: var(--text-3); font-style: italic; }
+.lab-kelly-repo-body h1 { font-size: 19px; margin: 14px 0 8px; border-bottom: 2px solid var(--border); padding-bottom: 4px; }
+.lab-kelly-repo-body h2 { font-size: 17px; margin: 12px 0 6px; border-bottom: 1px solid var(--border); padding-bottom: 3px; }
+.lab-kelly-repo-body h3 { font-size: 15px; margin: 10px 0 4px; }
+.lab-kelly-repo-body h4 { font-size: 13.5px; margin: 8px 0 3px; }
+.lab-kelly-repo-body p { margin: 6px 0; }
+.lab-kelly-repo-body ul, .lab-kelly-repo-body ol { margin: 6px 0 6px 18px; padding-left: 0; }
+.lab-kelly-repo-body li { margin: 2px 0; }
+.lab-kelly-repo-body strong, .lab-kelly-repo-body b { font-weight: 700; }
+.lab-kelly-repo-body code { background: var(--bg-hover); padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+.lab-kelly-repo-body pre {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  white-space: pre;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.lab-kelly-repo-body pre code { background: none; padding: 0; }
+.lab-kelly-repo-body blockquote {
+  border-left: 3px solid var(--primary);
+  margin: 8px 0;
+  padding: 4px 10px;
+  color: var(--text-2);
+  background: var(--bg-hover);
+  border-radius: 0 4px 4px 0;
+}
+.lab-kelly-repo-body table { border-collapse: collapse; margin: 8px 0; max-width: 100%; display: block; overflow-x: auto; }
+.lab-kelly-repo-body th, .lab-kelly-repo-body td { border: 1px solid var(--border); padding: 5px 8px; font-size: 12.5px; line-height: 1.5; }
+.lab-kelly-repo-body th { background: var(--bg-hover); font-weight: 700; }
+.lab-kelly-repo-body hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+/* 移动端: 窄屏近全屏(宽94vw, 高90vh), 正文/目录限高按视口收窄避免撑出 */
+@media (max-width: 600px) {
+  .lab-kelly-repo-modal { width: 96vw; max-width: 96vw; height: 92vh; }
+  .lab-kelly-repo-body { max-height: 52vh; padding: 8px 10px; font-size: 12.5px; }
+  .lab-kelly-repo-body table { font-size: 11px; }
+  .lab-kelly-repo-body th, .lab-kelly-repo-body td { padding: 3px 5px; font-size: 11px; }
+  .lab-kelly-repo-toc { max-height: 26vh; }
+  .lab-kelly-repo-path { font-size: 10.5px; }
+}

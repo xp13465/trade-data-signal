@@ -9002,53 +9002,13 @@ function _renderSigKellyBar(bar, data, period) {
     `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-reset" style="margin-left:8px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="一键恢复 AI 默认推荐勾选(AI降亏过滤 4+3+1: 7键+1类回测剔除, 其中+1类只读不可勾选; + AI仓位建议 K=1), 重写本地记忆并刷新统计">重置为AI默认推荐</button>`;
   const positionCapHTML =
     `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap">` +
-    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启): AI仓位建议(技术别名:仓位控制过滤)=仅在凯利回测入样宇宙内选择。★结构=AI宏4+3+1(2026-08-14 补公示): 4+3=保留入样、可被AI建议推荐的降亏键(基础4+核心3); +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 即下述排除类别)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(_bt_in_universe=false), 故 AI建议 一律不推荐, 首页/本区以「未入样本」+灰显+删除线标注。§23.6 入样宇宙规则, 权威=config/universe_rules.yaml: 入样白名单只收 buy/buy_aux/buy_special/buy_backup; 入样依赖=board_etf_map 有 key 且至少一个 ETF 有非空 track_score=后端 _bt_in_universe; 排除类别=债类 cgb_*/情绪 s.*/全球商品利率 g.*/港股行业 hk_*/空数组 ftse100·kospi; 自我ETF唯一例外=cgb_10y_etf 由 self-ETF 兜底; 首页/本区 1:1 遵从回测入样判定不自行重算), 卖类(sell/sell_stop_loss/波段减仓 band_sell/波段持有 band_hold)不入位——同日只买最优K个买入类信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型buy_backup&gt;buy&gt;buy_aux&gt;buy_special→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。**K档评级(2026-08-13 #54 动态化: 随当前降亏勾选/费率档/最新数据实时重算, 与首页/凯利K按钮评级 hoverpop 同源 common.js, §22 一致)**: ${_aiPoscapRatingSummary()}。主推 K1(收益率最高 86.60%); K越大收益率递减(K2=67.61%/K3=66.24%/K4=63.17%, 含最低佣金5元费率重算口径)。每日池口径下 K 越大净利反升(每日资金池恒定, 砍量越少持仓越多)。G模式历史口径(关32.27%/K1 48.58%/K2 40.41%/K3 38.96%等, positionCap单独回测未叠加AI降亏过滤)见下方📊历史回测面板——该面板显式标注G模式=有意双口径, 与K档评级A模式数值不同属正常(§22)。OFF按钮(关)=写 tds_poscap {on:false} 关闭AI仓位建议、该区退化普通列表(不再显示「AI建议N」「当日已满」), 再点某 K 档恢复 {on:true,k}(与首页/交易页共享键联动)。与降亏同开仅推荐默认组合(AI降亏过滤: excludeSpecialBear/janMidRating/janMidSpecial/n2NovSpecialIndustry/r7MayReinforced/excludeAuxCross/greedy15,每日池+K=1下边际≈0无害); ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开; 勿再叠加 greedy7/10 等其他广谱(greedy15 已在 AI降亏过滤 默认内); B模式(3%止盈)仓位控制下转负建议关。范围扩展: 交易页整个信号列表(近15交易日)按同一排序展示 AI建议(AI建议买入/当日已满)。⚠2026-08-14 首页「AI过滤视图」两开关正交不绑定(§21): 开关1「AI降亏」(tds_home_fade)=删除线过滤层——开启时未入样宇宙(债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, _bt_in_universe===false)信号=删线+灰显+「未入样本」标注; 开关2「AI仓位」(tds_poscap.on)=badge标注层——开启时入宇宙卖出(sell/sell_stop_loss/波段减仓)=亮色「AI警示」(卖出无K约束不判K), 买入进K=「AI建议N」/超K=「当日已满」; 全关=全量视图全亮不标注, band_hold波段持有=中性不标; 迟到入宇宙卖出(如8/14中证银行sell)「AI警示」+「盘后补齐」角标共存不冲突。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}>${_kellyRecBadge(_filters.positionCap)} AI仓位建议 K: <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启): AI仓位建议(技术别名:仓位控制过滤)=仅在凯利回测入样宇宙内选择。★结构=AI宏4+3+1(2026-08-14 补公示): 4+3=保留入样、可被AI建议推荐的降亏键(基础4+核心3); +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 即下述排除类别)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(_bt_in_universe=false), 故 AI建议 一律不推荐, 首页/本区以「未入样本」+灰显+删除线标注。§23.6 入样宇宙规则, 权威=config/universe_rules.yaml: 入样白名单只收 buy/buy_aux/buy_special/buy_backup; 入样依赖=board_etf_map 有 key 且至少一个 ETF 有非空 track_score=后端 _bt_in_universe; 排除类别=债类 cgb_*/情绪 s.*/全球商品利率 g.*/港股行业 hk_*/空数组 ftse100·kospi; 自我ETF唯一例外=cgb_10y_etf 由 self-ETF 兜底; 首页/本区 1:1 遵从回测入样判定不自行重算), 卖类(sell/sell_stop_loss/波段减仓 band_sell/波段持有 band_hold)不入位——同日只买最优K个买入类信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型buy_backup&gt;buy&gt;buy_aux&gt;buy_special→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。**K档评级(2026-08-13 #54 动态化: 随当前降亏勾选/费率档/最新数据实时重算, 与首页/凯利K按钮评级 hoverpop 同源 common.js, §22 一致)**: ${_aiPoscapRatingSummary()}。主推 K1(收益率最高 86.60%); K越大收益率递减(K2=67.61%/K3=66.24%/K4=63.17%, 含最低佣金5元费率重算口径)。每日池口径下 K 越大净利反升(每日资金池恒定, 砍量越少持仓越多)。G模式历史口径(关32.27%/K1 48.58%/K2 40.41%/K3 38.96%等, 每笔固定1万·positionCap单独回测未叠加AI降亏过滤)为已废弃的旧口径(2026-08-13 起默认=每日资金池等分), 以本 K 档评级 hoverpop(每日池+top-K, 实时随勾选动态)与下方「全信号表 · 按年窗口增长」表(每日池实时, 可切 G 并跟 K 档联动)为准, 旧口径数值不再单独公示。OFF按钮(关)=写 tds_poscap {on:false} 关闭AI仓位建议、该区退化普通列表(不再显示「AI建议N」「当日已满」), 再点某 K 档恢复 {on:true,k}(与首页/交易页共享键联动)。与降亏同开仅推荐默认组合(AI降亏过滤: excludeSpecialBear/janMidRating/janMidSpecial/n2NovSpecialIndustry/r7MayReinforced/excludeAuxCross/greedy15,每日池+K=1下边际≈0无害); ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开; 勿再叠加 greedy7/10 等其他广谱(greedy15 已在 AI降亏过滤 默认内); B模式(3%止盈)仓位控制下转负建议关。范围扩展: 交易页整个信号列表(近15交易日)按同一排序展示 AI建议(AI建议买入/当日已满)。⚠2026-08-14 首页「AI过滤视图」两开关正交不绑定(§21): 开关1「AI降亏」(tds_home_fade)=删除线过滤层——开启时未入样宇宙(债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, _bt_in_universe===false)信号=删线+灰显+「未入样本」标注; 开关2「AI仓位」(tds_poscap.on)=badge标注层——开启时入宇宙卖出(sell/sell_stop_loss/波段减仓)=亮色「AI警示」(卖出无K约束不判K), 买入进K=「AI建议N」/超K=「当日已满」; 全关=全量视图全亮不标注, band_hold波段持有=中性不标; 迟到入宇宙卖出(如8/14中证银行sell)「AI警示」+「盘后补齐」角标共存不冲突。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}>${_kellyRecBadge(_filters.positionCap)} AI仓位建议 K: <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
     `<span class="lab-sigkelly-kbtns lab-sigkelly-posrate" tabindex="0">${_pcKbtns}${_pcOffBtn}${_pcRatingPop}</span>` +
     aiMacroLabelHTML +
     aiMacroDetailBtnHTML +
     aiMacroResetBtnHTML +
     `</div>`;
-  // 历史固化(#4 2026-08-12): 把仓位建议历史回测数据固化展示(参照 _kellyComboAdviceHtml 静态面板模式), 数据来自调研文档按方案固化, 非实时计算
-  //   每笔固定1万口径(与上方回测/全信号表同口径,§22 一致性); 排序 key 与回测/交易页一致(跟踪分↓→评级→信号类型→买入日)
-  const poscapHistoryHTML =
-    // 举一反三(2026-08-15): 历史回测 data面板 展开态持久化到 state.labSigKellyPoscapHistoryOpen(与问题1同类"用户手工展开的折叠区重渲染后丢失"), 点小标签重渲染后保持用户展开
-    `<details class="lab-sigkelly-advice-details lab-sigkelly-poscap-history"${state.labSigKellyPoscapHistoryOpen ? " open" : ""}>` +
-      `<summary title="长口径说明(悬停查看): 本面板=每笔固定 1万·G模式 历史口径, positionCap 单独回测未叠加 AI降亏过滤; 与实时全信号表数值不同属正常; K 档评级(每日池·A模式·全周期)见 K 按钮评级 hoverpop——本面板 G 模式历史口径为有意双口径(§22); 完整说明见展开态顶部。">📊 AI仓位建议 · 历史回测(G模式口径) ⓘ</summary>` +
-      `<div class="lab-sigkelly-advice-body">` +
-        `<div class="lab-sigkelly-advice-note lab-sigkelly-advice-warn">⚠ 口径说明：本面板=每笔固定1万·<b>G模式</b>历史口径(与上方建议指南「每日资金池等分+top-K」及实时全信号表<b>不同口径</b>, 不可直接纵向对比; positionCap 单独回测未叠加 AI降亏过滤, 与实时全信号表数值不同属正常)。K 档评级(每日池·费率重算·A模式·全周期, 86.60/67.61/66.24/63.17, 含最低佣金5元, 与首页一致)见 K 按钮评级 hoverpop——本面板 G 模式历史口径为<b>有意双口径</b>(§22)。</div>` +
-        `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">📄 数据来源(调研方案固化, 非实时计算): kelly-position-filter-backtest(P1/P2 基线 + 按年分解) <button type="button" class="lab-kelly-repo-btn" data-repo-id="kelly-position-filter-backtest">🔍查看报告</button> + kelly-position-cap-k-sensitivity(K 敏感性全谱) <button type="button" class="lab-kelly-repo-btn" data-repo-id="kelly-position-cap-k-sensitivity">🔍查看报告</button>。排序 key = 跟踪分↓ → 评级(high&gt;mid&gt;low) → 信号类型(buy_backup&gt;buy&gt;buy_aux&gt;buy_special) → 买入日↑。目标=资金利用率最大化(降低最大持仓)以提高总收益率, 非质量过滤。</div>` +
-        `<div class="lab-sigkelly-advice-li"><b>① K 档位历史对比（每笔固定 1 万口径，G 模式）</b></div>` +
-        `<table class="lab-sigkelly-table lab-sigkelly-advice-table"><thead><tr><th>K 档</th><th>样本</th><th>净盈亏(元)</th><th>胜率</th><th>收益率%</th><th>最大持仓(笔)</th></tr></thead><tbody>` +
-          `<tr><td>关(买全部)</td><td>7,414</td><td>+3,930,802</td><td>61.2%</td><td>32.27</td><td>1,218(爆炸)</td></tr>` +
-          `<tr class="lab-sigkelly-advice-hl"><td><b>K=1(主推,当前默认)</b></td><td>1,542</td><td>+787,016</td><td>59.1%</td><td class="lab-sigkelly-pos"><b>48.58</b></td><td>162(-87%)</td></tr>` +
-          `<tr><td>K=2</td><td>2,537</td><td>+1,192,187</td><td>58.2%</td><td class="lab-sigkelly-pos">40.41</td><td>295(-76%)</td></tr>` +
-          `<tr><td>K=3</td><td>3,278</td><td>+1,566,220</td><td>58.3%</td><td>38.96</td><td>402</td></tr>` +
-          `<tr><td>K=4</td><td>3,856</td><td>+1,855,509</td><td>58.7%</td><td>37.41</td><td>496</td></tr>` +
-        `</tbody></table>` +
-        `<div class="lab-sigkelly-advice-li"><b>② 按年分解（每笔固定 1 万口径；P0=买全部 / P1=K=1 / P2=K=2）</b></div>` +
-        `<div class="lab-sigkelly-table-scroll"><table class="lab-sigkelly-table lab-sigkelly-advice-table"><thead><tr><th>年份</th><th>买全部净</th><th>买全部胜率</th><th>K=1净</th><th>K=1胜率</th><th>K=2净</th><th>K=2胜率</th></tr></thead><tbody>` +
-          `<tr><td>2011</td><td class="lab-sigkelly-neg">-34,308</td><td>11.5%</td><td class="lab-sigkelly-neg">-34,308</td><td>11.5%</td><td class="lab-sigkelly-neg">-34,308</td><td>11.5%</td></tr>` +
-          `<tr><td>2012</td><td class="lab-sigkelly-pos">+10,160</td><td>75.0%</td><td class="lab-sigkelly-pos">+10,160</td><td>75.0%</td><td class="lab-sigkelly-pos">+10,160</td><td>75.0%</td></tr>` +
-          `<tr><td>2013</td><td class="lab-sigkelly-pos">+12,769</td><td>54.2%</td><td class="lab-sigkelly-pos">+13,326</td><td>56.5%</td><td class="lab-sigkelly-pos">+12,769</td><td>54.2%</td></tr>` +
-          `<tr><td>2014</td><td class="lab-sigkelly-pos">+102,661</td><td>78.7%</td><td class="lab-sigkelly-pos">+103,095</td><td>85.7%</td><td class="lab-sigkelly-pos">+102,661</td><td>78.7%</td></tr>` +
-          `<tr><td>2015</td><td class="lab-sigkelly-neg">-7,381</td><td>48.4%</td><td class="lab-sigkelly-neg">-6,395</td><td>48.4%</td><td class="lab-sigkelly-neg">-7,913</td><td>44.4%</td></tr>` +
-          `<tr><td>2016</td><td class="lab-sigkelly-pos">+1,878</td><td>54.4%</td><td class="lab-sigkelly-pos">+4,602</td><td>61.5%</td><td class="lab-sigkelly-pos">+3,686</td><td>55.7%</td></tr>` +
-          `<tr><td>2017</td><td class="lab-sigkelly-neg">-34,772</td><td>45.2%</td><td class="lab-sigkelly-pos">+23,649</td><td>59.3%</td><td class="lab-sigkelly-neg">-11,534</td><td>50.6%</td></tr>` +
-          `<tr><td>2018</td><td class="lab-sigkelly-pos">+38,329</td><td>57.2%</td><td class="lab-sigkelly-pos">+22,316</td><td>57.0%</td><td class="lab-sigkelly-pos">+34,826</td><td>56.7%</td></tr>` +
-          `<tr><td>2019</td><td class="lab-sigkelly-pos">+110,042</td><td>71.9%</td><td class="lab-sigkelly-pos">+51,142</td><td>73.8%</td><td class="lab-sigkelly-pos">+75,471</td><td>71.7%</td></tr>` +
-          `<tr><td>2020</td><td class="lab-sigkelly-pos">+207,328</td><td>63.9%</td><td class="lab-sigkelly-pos">+53,280</td><td>65.1%</td><td class="lab-sigkelly-pos">+96,351</td><td>63.3%</td></tr>` +
-          `<tr><td>2021</td><td class="lab-sigkelly-neg">-46,909</td><td>46.4%</td><td class="lab-sigkelly-neg">-37,175</td><td>41.9%</td><td class="lab-sigkelly-neg">-51,242</td><td>43.1%</td></tr>` +
-          `<tr><td>2022</td><td class="lab-sigkelly-pos">+195,728</td><td>56.1%</td><td class="lab-sigkelly-pos">+4,948</td><td>47.0%</td><td class="lab-sigkelly-pos">+15,710</td><td>47.7%</td></tr>` +
-          `<tr><td>2023</td><td class="lab-sigkelly-pos">+9,713</td><td>41.7%</td><td class="lab-sigkelly-pos">+44,487</td><td>48.6%</td><td class="lab-sigkelly-pos">+53,804</td><td>45.0%</td></tr>` +
-          `<tr><td>2024</td><td class="lab-sigkelly-pos">+1,400,341</td><td>87.9%</td><td class="lab-sigkelly-pos">+269,009</td><td>84.6%</td><td class="lab-sigkelly-pos">+453,738</td><td>85.7%</td></tr>` +
-          `<tr><td>2025</td><td class="lab-sigkelly-pos">+1,959,845</td><td>77.6%</td><td class="lab-sigkelly-pos">+249,395</td><td>69.7%</td><td class="lab-sigkelly-pos">+421,357</td><td>71.5%</td></tr>` +
-          `<tr><td>2026</td><td class="lab-sigkelly-pos">+5,378</td><td>46.7%</td><td class="lab-sigkelly-pos">+15,486</td><td>45.9%</td><td class="lab-sigkelly-pos">+20,380</td><td>47.4%</td></tr>` +
-          `<tr class="lab-sigkelly-advice-hl"><td><b>合计</b></td><td class="lab-sigkelly-pos"><b>+3,930,802</b></td><td>61.2%</td><td class="lab-sigkelly-pos"><b>+787,016</b></td><td>59.1%</td><td class="lab-sigkelly-pos"><b>+1,192,187</b></td><td>58.2%</td></tr>` +
-        `</tbody></table></div>` +
-        `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-warn">诚实标注: ①2023 弱年 K=1/K=2 反超基线(+4.45万/+5.38万 vs +0.97万, 胜率 +7pt)——拥挤弱市日买全是亏损主因, 过滤低价值信号反而改善; ②2021 是 K=2 唯一退化年(-5.1万 &lt; 基线 -4.7万), top2 选进更多亏损, 属结构弱年+选优增益不足叠加; ③净盈亏整体大降(K=1/K=2 为基线 20%/30%)是设计——目标=资金利用率(收益率)非净额; ④⚠️ B 模式(3%止盈)K=1 下转负(-2.47%), B 模式用户建议关闭仓位过滤。</div>` +
-        `<div class="lab-sigkelly-advice-li">与降亏同开: 仅推荐默认组合(AI降亏过滤: 追关注×熊市/1月中旬+中评级/1月中旬+追关注/n2 11月+追关注+行业/r7 5月强化+3稳定非5月/辅关注×3/5月交叉/Greedy-15组合, 默认已开启, 每日池+K=1 下边际≈0 无害); ⚠绝不同开 live4(收益率崩 2-5%)/COMBO4 全开; 勿再叠加 greedy7/10 等其他广谱(greedy15 已在 AI降亏过滤 默认内, 双重砍量)。</div>` +
-      `</div>` +
-    `</details>`;
+  // #83(2026-08-15): 移除「AI仓位建议 · 历史回测(G模式口径)」面板——每笔固定1万+裸G口径已废弃(现默认=每日资金池等分), 核心结论已被按年窗口增长表(每日池实时)+K按钮评级(common.js)+全信号建议指南完整继承(详见 docs/kelly/position/kelly-poscap-history-panel-removal-check.md)
   // #49+#xx ai长线模式(G/H/I)仓位管理: 按钮(长线族群总入口, 默认关, v2 三模式独立策略; 架构支持后续按模式独立换策略)
   // 数据定稿: G=P≤3d 三档(kelly-g-mode-recheck.md) / H=满仓不买7万 / I=满仓不买15万(kelly-ghi-continuous-cap-sweep.md)
   // 对比表口径=推荐 K=1 版(报告权威 b0 保守/乐观 b1); tooltip 白话文案按模式分写(架构要求: 说明文案按模式区分)
@@ -9151,7 +9111,6 @@ function _renderSigKellyBar(bar, data, period) {
       `<span> · 金额: 每日资金池 ${cfg.buy_amount || 10000} 元</span>` +
       `<span> · 卖出模式: ${modeStr}</span>` +
     `</div>`;
-  state.labSigKellyPoscapHistoryHTML = poscapHistoryHTML;
   bar.innerHTML =
     `<div class="lab-sigkelly-bar-head">` +
       `<span class="lab-sigkelly-periods">${tabsHTML}</span>` +
@@ -9593,14 +9552,7 @@ function _renderSigKellyBar(bar, data, period) {
       state.labSigKellyAdviceOpen = _adviceDtl.open;
     });
   }
-  // 举一反三(2026-08-15): 「AI仓位建议·历史回测数据」面板 展开态持久化到 state.labSigKellyPoscapHistoryOpen(与问题1同类, 点小标签重渲染后保持用户展开)
-  var _poscapHstDtl = bar.querySelector(".lab-sigkelly-poscap-history");
-  if (_poscapHstDtl) {
-    _poscapHstDtl.addEventListener("toggle", function () {
-      state.labSigKellyPoscapHistoryOpen = _poscapHstDtl.open;
-    });
-  }
-
+  // #83: 移除「AI仓位建议·历史回测数据」面板后, 其展开态持久化绑定(原 _poscapHstDtl / state.labSigKellyPoscapHistoryOpen)一并删除, 无残留引用
   // 成员toggle改动→刷新组合三态+AI宏三态(事件委托, 捕获toggle区内所有checkbox change; 组合自身/AI宏自身change跳过, 各自handler已刷新)
   var _kellyToggleRow = bar.querySelector(".lab-sigkelly-toggle-row");
   if (_kellyToggleRow) {
@@ -9676,10 +9628,14 @@ var _KELLY_REPORTS = {
 };
 
 // 报告查看弹窗(复用 lab-signal-modal 容器样式, 参照术语词典 modal)
+// #84(2026-08-15): 弹窗显示完整报告正文(非仅摘要+目录)。正文 HTML 由 scripts/kelly_reports_html.py 从
+//   docs/kelly/**/*.md 预生成到 static-site/kelly-reports-content.js(全局 KELLY_REPORTS_CONTENT[id]), §23.5 数据来源一致。
+//   目录(TOC)可折叠(details), 正文保留 h1-h4 结构 + 表格/代码块, 弹窗放大 + 正文独立滚动(见 lab.css .lab-kelly-repo-*).
 function _kellyReportModalHTML(id) {
   const r = _KELLY_REPORTS[id];
   if (!r) return "";
   const tocHTML = r.toc.map((t) => `<div class="lab-kelly-repo-toc-line">${t}</div>`).join("");
+  const fullHTML = (window.KELLY_REPORTS_CONTENT && window.KELLY_REPORTS_CONTENT[id]) || "";
   return `<div class="lab-signal-modal lab-kelly-repo-modal">` +
     `<div class="lab-signal-modal-head">` +
     `<span class="lab-signal-modal-title">📄 ${r.name}</span>` +
@@ -9687,9 +9643,14 @@ function _kellyReportModalHTML(id) {
     `</div>` +
     `<div class="lab-signal-modal-body">` +
       `<div class="lab-kelly-repo-meta">${r.summary}</div>` +
-      `<div class="lab-kelly-repo-path">源报告: <code>${r.path}</code> (git 仓库 docs/kelly/ 下)</div>` +
-      `<div class="lab-kelly-repo-toc-title">📑 目录结构</div>` +
-      `<div class="lab-kelly-repo-toc">${tocHTML}</div>` +
+      `<div class="lab-kelly-repo-path">源报告: <code>${r.path}</code> (docs/kelly/ 下)</div>` +
+      `<details class="lab-kelly-repo-toc-wrap" open>` +
+        `<summary class="lab-kelly-repo-toc-title">📑 目录结构（点击折叠/展开）</summary>` +
+        `<div class="lab-kelly-repo-toc">${tocHTML}</div>` +
+      `</details>` +
+      (fullHTML
+        ? `<div class="lab-kelly-repo-body">${fullHTML}</div>`
+        : `<div class="lab-kelly-repo-body lab-kelly-repo-body-empty">未找到正文（缺 kelly-reports-content 数据源，源见 ${r.path}）。</div>`) +
     `</div></div>`;
 }
 function _kellyReportOpenModal(id) {
@@ -9711,7 +9672,7 @@ function _kellyReportCloseModal() {
   const overlay = document.getElementById("labKellyRepoOverlay");
   if (overlay) { overlay.classList.remove("show"); document.body.style.overflow = ""; }
 }
-// 全文档级事件委托: 点「🔍查看报告」按钮打开对应报告弹窗(数据来源按钮在建议指南/历史回测面板等静态区)
+// 全文档级事件委托: 点「🔍查看报告」按钮打开对应报告弹窗(数据来源按钮在建议指南/ai长线对比表等静态区)
 document.addEventListener("click", function (e) {
   const btn = e.target && e.target.closest ? e.target.closest(".lab-kelly-repo-btn") : null;
   if (btn && btn.dataset && btn.dataset.repoId) {
@@ -9753,7 +9714,6 @@ function _kellyComboAdviceHtml() {
         `</div>` +
       `</div>` +
     `</details>` +
-    (state.labSigKellyPoscapHistoryHTML || "") +
     `</div>`
   );
 }

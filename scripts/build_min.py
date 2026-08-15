@@ -33,6 +33,7 @@ PAIRS = [
     ("static-site/common.js", "static-site/common.min.js"),
     ("static-site/purpose-notes.js", "static-site/purpose-notes.min.js"),
     ("static-site/kelly-review-notes.js", "static-site/kelly-review-notes.min.js"),
+    ("static-site/kelly-reports-content.js", "static-site/kelly-reports-content.min.js"),
     ("static-site/app.js", "static-site/app.min.js"),
     ("static-site/lab.js", "static-site/lab.min.js"),
     ("static-site/style.css", "static-site/style.min.css"),
