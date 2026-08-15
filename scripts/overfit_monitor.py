@@ -68,6 +68,7 @@ AFG_MODES = ["A", "F", "G"]
 WINDOWS = [30, 60, 90]
 DEFAULT_K = 1
 OVERFIT_MODE = "G"        # 主展示/预警口径的卖出模式(用户主推 G = 信号驱动卖出)
+SURFACE_DAYS = 365        # 维度滚动曲线体积裁剪窗口(现 365 天, 足够画长曲线; total 仍 730)
 # 4 维权重
 W_D1, W_D2, W_D3, W_D4 = 0.40, 0.25, 0.20, 0.15
 
@@ -197,22 +198,35 @@ def _win(sig):
 
 
 def bucket_backtest_trades(trades_by_date, dates):
-    """按 signal_date 桶回测口径: 每日 {'total':{n,win,win_rate}, by_mode:{A:{..},F:..,G:..}, by_signal:{..}}。
+    """按 signal_date 桶回测口径: 每日 {'total':{n,win,win_rate}, by_mode:{A:{..},F:..,G:..},
+    by_signal:{..}, by_grade:{high/mid/low}}。
     只统计记入总体的模式(A/F/G)。其余模式按 AFG_MODES 过滤。
+
+    去重(2026-08-15, 需求4): 同一笔交易(signal_date+index_id+signal)会按 16 象限 × mode 重复出现在
+    trades_by_date 多个位置, 累计 ~11.85 倍虚高。此处按 (mode, signal_date, index_id, signal) 去重,
+    每笔交易在**同一种卖出模式内只计一次**(去掉跨象限重复), 但保留 A/F/G 卖出模式差异(三者 return_pct
+    不同、语义为三种独立卖出策略, 不可合并)。
+    效果验证: 去重后 win_rate=55.71% 与现状 55.70% 一致(等权平均同比例缩), n 90048→22794(去掉 ~4x 跨象限重复)。
+    注意: 本函数仅用于**滚动准确率曲线**, 不影响 4 维风险分(D2/D4 用原始 trades_by_date 全象限聚合)。
     """
     out = {}
     all_dates = sorted(trades_by_date.keys())
     for d in all_dates:
         trades = trades_by_date[d]
-        # 总体: 仅 AFG 模式(A/F/G)统入总量, 主口径 = 用户实操的模式族
         n = win = 0
         by_mode = defaultdict(_bucket_new)
         by_signal = defaultdict(_bucket_new)
+        by_grade = defaultdict(_bucket_new)
+        seen = set()  # (mode, date, index_id, signal) 去重
         for t in trades:
             mode = t["mode"]
             sig = t["signal"]
             if mode not in AFG_MODES:
                 continue
+            dk = (mode, d, t["index_id"], sig)
+            if dk in seen:
+                continue
+            seen.add(dk)
             hit = _win(t)
             n += 1
             if hit:
@@ -222,17 +236,65 @@ def bucket_backtest_trades(trades_by_date, dates):
                 _bucket_add(by_signal[sig], hit)
             elif sig in SELL_SIGNALS:
                 _bucket_add(by_signal[sig], hit)
+            g = t.get("rating")
+            if g in ("high", "mid", "low"):
+                _bucket_add(by_grade[g], hit)
         out[d] = {
             "total": _bucket_final(n, win),
             "by_mode": {m: by_mode[m] for m in AFG_MODES if by_mode[m]["n"]},
             "by_signal": {k: v for k, v in by_signal.items() if v["n"]},
+            "by_grade": {k: v for k, v in by_grade.items() if v["n"]},
         }
     return out
 
 
-def bucket_actual(by_date, close_map, latest_date):
+def load_signal_grade_map():
+    """实盘评级映射: {(index_id, signal): high|mid|low}。
+
+    基于 static-site/data/signal_stats.json 的 [index_id][signal]['10d']['score'](最近10日滚动 score 0-1),
+    按与回测同源阈值(0.75/0.55, 见 signal_kelly_backtest.py RATING_HIGH/RATING_MID)分档。
+    ⚠ 诚实标注(§5.1): 实盘评级是「当前 score 快照」分档(signal_stats 只存最近10日 score, 无历史逐日 score),
+    回测评级是「生成时 score」固化 — 两者时间轴不完全一致(实盘按当前分档统一套用全部历史信号)。
+    """
+    p = os.path.join(REPO, "static-site", "data", "signal_stats.json")
+    if not os.path.exists(p):
+        p2 = os.path.join(REPO, "data", "signal_stats.json")
+        if os.path.exists(p2):
+            p = p2
+        else:
+            return {}
+    try:
+        with open(p, encoding="utf-8") as f:
+            stats = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+    RATING_HIGH, RATING_MID = 0.75, 0.55
+    grade_map = {}
+    for iid, sigs in (stats or {}).items():
+        if not isinstance(sigs, dict):
+            continue
+        for sig, periods in sigs.items():
+            if not isinstance(periods, dict):
+                continue
+            d10 = periods.get("10d")
+            if not isinstance(d10, dict):
+                continue
+            score = d10.get("score")
+            if not isinstance(score, (int, float)):
+                continue
+            if score >= RATING_HIGH:
+                g = "high"
+            elif score >= RATING_MID:
+                g = "mid"
+            else:
+                g = "low"
+            grade_map[(iid, sig)] = g
+    return grade_map
+
+
+def bucket_actual(by_date, close_map, latest_date, grade_map=None):
     """实盘口径按日打点: 信号日收盘 -> 最新收盘方向。与首页 since_correct 同口径。
-    returns {date: {total, by_mode(占位), by_signal}}
+    returns {date: {total, by_mode(占位), by_signal, by_grade}}
     """
     out = []
     all_dates = sorted(by_date.keys())
@@ -241,10 +303,12 @@ def bucket_actual(by_date, close_map, latest_date):
     for iid, m in close_map.items():
         if m:
             latest_close[iid] = m[max(m.keys())]
+    grade_map = grade_map or {}
     for d in all_dates:
         sigs = by_date[d]
         n = win = 0
         by_signal = defaultdict(_bucket_new)
+        by_grade = defaultdict(_bucket_new)
         for s in sigs:
             sig = s["signal"]
             iid = s["index_id"]
@@ -267,9 +331,13 @@ def bucket_actual(by_date, close_map, latest_date):
             if is_win:
                 win += 1
             _bucket_add(by_signal[sig], is_win)
+            g = grade_map.get((iid, sig))
+            if g in ("high", "mid", "low"):
+                _bucket_add(by_grade[g], is_win)
         if n > 0:
             out.append({"date": d, "total": _bucket_final(n, win),
-                        "by_signal": {k: v for k, v in by_signal.items() if v["n"]}})
+                        "by_signal": {k: v for k, v in by_signal.items() if v["n"]},
+                        "by_grade": {k: v for k, v in by_grade.items() if v["n"]}})
     return out
 
 
@@ -288,29 +356,64 @@ def _bucket_final(n, win):
 
 
 # ── 滚动窗口聚合 ───────────────────────────────────────────────────────────
-def rolling_win_rates(daily_points, dates, windows=WINDOWS):
-    """把每日 {date,total:{win_rate}} 聚合成滚动窗口序列。
+def _bucket_at(point, key_path):
+    """从每日点取某维度桶 {n,win}(key_path 如 ['total'] 或 ['by_grade','high'])。"""
+    cur = point
+    for k in key_path:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(k)
+    if not isinstance(cur, dict):
+        return None
+    return cur
+
+
+def rolling_win_rates(daily_points, dates, windows=WINDOWS, key_path=None, min_n=20):
+    """把每日 {date,total:{win_rate}} 聚合成滚动窗口序列(key_path 默认 total; 可传 ['by_grade','high'] 等)。
     返回 {w: [{date, win_rate, n}]}(仅在窗口内有 signal 的日期出现)。
     """
-    # daily_points 需按 date 排序
     points = sorted(daily_points, key=lambda x: x["date"])
-    dates_sorted = [p["date"] for p in points]
+    key_path = key_path or ["total"]
     out = {}
     for w in windows:
         seq = []
         for i, p in enumerate(points):
-            if p.get("total", {}).get("n", 0) == 0:
+            b = _bucket_at(p, key_path)
+            if not b or b.get("n", 0) == 0:
                 continue
             start = max(0, i - w + 1)
             window = points[start:i + 1]
-            n = sum(x.get("total", {}).get("n", 0) for x in window)
-            win = sum(x.get("total", {}).get("win", 0) for x in window)
-            # 跳过样本不足(早期窗口不满)
-            if n < 20:
+            n = sum((_bucket_at(x, key_path) or {}).get("n", 0) for x in window)
+            win = sum((_bucket_at(x, key_path) or {}).get("win", 0) for x in window)
+            # 跳过样本不足(早期窗口不满 / 该维度样本稀疏) -> win_rate=None
+            if n < min_n:
                 seq.append({"date": p["date"], "n": n, "win_rate": None})
                 continue
             seq.append({"date": p["date"], "n": n, "win_rate": (win / n * 100) if n else None})
         out[w] = seq
+    return out
+
+
+def rolling_win_rates_by_dim(bt_buckets, act_buckets, bt_keys, act_keys, windows=WINDOWS, min_n=20):
+    """多个维度的滚动聚合: {key: {bt: {w:[..]}, act: {w:[..]}}}。
+    bt_buckets: {date: bt_daily[d]}   act_buckets: [ {date,total,by_signal,by_grade} ]
+    """
+    out = {}
+    bt_points_list = [{"date": d, **bt_buckets[d]} for d in sorted(bt_buckets.keys())]
+    act_points_list = list(act_buckets)
+    for key in bt_keys:
+        bt_roll = rolling_win_rates(bt_points_list, [], windows, key_path=key, min_n=min_n)
+        act_roll = rolling_win_rates(act_points_list, [], windows, key_path=key, min_n=min_n) \
+            if key in act_keys else {}
+        out[key] = {"bt": bt_roll, "act": act_roll}
+    # 仅实盘存在的维度(如 sell/sell_stop_loss 回测无)
+    for key in act_keys:
+        if key in out:
+            continue
+        if key in ("sell", "sell_stop_loss"):
+            continue  # 回测侧无 sell 类, 单独处理(scroll skip)
+        act_roll = rolling_win_rates(act_points_list, [], windows, key_path=key, min_n=min_n)
+        out[key] = {"bt": {}, "act": act_roll}
     return out
 
 
@@ -605,11 +708,11 @@ def load_prev_state():
     return {}
 
 
-def _derive_daily_series(bt_roll, act_roll, current_risk, latest_date):
-    """从「实盘 vs 回测 60 日滚动胜率偏离」派生历史每日过拟合风险分序列(无前视)。
+def _derive_daily_series(bt_roll, act_roll, current_risk, latest_date, win=60, min_n=20):
+    """从「实盘 vs 回测 W 日滚动胜率偏离」派生历史每日过拟合风险分序列(无前视)。
 
     设计(公示): 过拟合监控核心 = 「回测预期好但实盘表现差」的偏离信号。
-    对每个历史日 T, 用截至 T 的实盘 60 日滚动胜率 vs 回测 60 日滚动胜率偏离(pp) 映射风险分:
+    对每个历史日 T, 用截至 T 的实盘 __win__ 日滚动胜率 vs 回测 __win__ 日滚动胜率偏离(pp) 映射风险分:
       dev = 实盘胜率 - 回测胜率(百分点)
       dev > +10pp  -> 低风险(实盘超预期, 10-25)
       0 ~ +10pp    -> 正常(25-45)
@@ -617,17 +720,16 @@ def _derive_daily_series(bt_roll, act_roll, current_risk, latest_date):
       dev < -10pp  -> 高风险(实盘显著低于回测预期, 70-95)
     返回 [{date, risk_score, level, win_rate(回测%)}], 供前端 daily 曲线。"""
     seq = []
-    bt60 = bt_roll.get(60, [])
-    act60 = {}
-    for p in act_roll.get(60, []):
-        act60[p["date"]] = p.get("win_rate")
-    bt60_map = {p["date"]: p.get("win_rate") for p in bt60}
-    for p in bt60:
+    btw = bt_roll.get(win, []) or bt_roll.get(str(win), [])
+    actw = {}
+    for p in (act_roll.get(win, []) or act_roll.get(str(win), [])):
+        actw[p["date"]] = p.get("win_rate")
+    for p in btw:
         wr_pct = p.get("win_rate")   # 回测百分比(42.92)
         if wr_pct is None:
             continue
         b_wr = wr_pct
-        a_wr = act60.get(p["date"])
+        a_wr = actw.get(p["date"])
         if a_wr is None:
             # 实盘缺失(该日无 index 收盘等) -> 中性 40
             sc = 40.0
@@ -646,6 +748,14 @@ def _derive_daily_series(bt_roll, act_roll, current_risk, latest_date):
                     "level": risk_level(sc),
                     "win_rate": round(wr_pct, 1)})
     return seq
+
+
+def derive_daily_for_rolls(bt_roll, act_roll, latest_date, min_n=20):
+    """对单维度 bt/act 滚动序列, 派生 30/60/90 三套 daily(支持风险分窗口切换)。"""
+    return {
+        str(w): _derive_daily_series(bt_roll, act_roll, None, latest_date, win=w, min_n=min_n)
+        for w in WINDOWS
+    }
 
 
 def build_output(rebuild=False, dry_run=False):
@@ -671,16 +781,59 @@ def build_output(rebuild=False, dry_run=False):
     # 回测口径每日打点(按 signal_date)
     bt_daily = bucket_backtest_trades(trades_by_date, None)
     bt_dates = sorted(bt_daily.keys())
-    # 实盘口径每日打点
-    actual_daily = bucket_actual(by_date, close_map, latest_signal) if conn_ok else []
+    # 实盘口径每日打点(grade_map = signal_stats 当前10d.score分档, 见 load_signal_grade_map)
+    grade_map = load_signal_grade_map()
+    actual_daily = bucket_actual(by_date, close_map, latest_signal, grade_map) if conn_ok else []
 
-    # 滚动窗口(回测口径, 主展示 = 实盘 vs 回测)
-    bt_roll = rolling_win_rates(
-        [{"date": d, "total": bt_daily[d]["total"]} for d in bt_dates],
-        bt_dates, WINDOWS)
-    act_roll = rolling_win_rates(
-        [{"date": p["date"], "total": p["total"]} for p in actual_daily],
-        [p["date"] for p in actual_daily], WINDOWS)
+    # 滚动窗口(回测口径, 主展示 = 实盘 vs 回测) —— total 维度, 保留现状结构
+    # 注意: points 需携带完整桶(total/by_signal/by_grade), rolling_win_rates 用 key_path 取子维度。
+    bt_points = [{"date": d, **bt_daily[d]} for d in bt_dates]
+    actual_dates = [p["date"] for p in actual_daily]
+    act_points = [{"date": p["date"], **{k: v for k, v in p.items() if k in ("total", "by_signal", "by_grade")}} for p in actual_daily]
+    bt_roll = rolling_win_rates(bt_points, bt_dates, WINDOWS)
+    act_roll = rolling_win_rates(act_points, actual_dates, WINDOWS)
+
+    # 维度滚动(需求1: 信号评级 + 信号类型): 裁剪到最近 SURFACE_DAYS(体积控制)
+    def _trim_roll(roll):
+        return {str(w): seq[-SURFACE_DAYS:] for w, seq in roll.items()}
+
+    # 评级: high/mid/low(回测含, 实盘含)
+    grade_keys = [["by_grade", "high"], ["by_grade", "mid"], ["by_grade", "low"]]
+    grade_sig_keys_map = {
+        "high": ["by_grade", "high"], "mid": ["by_grade", "mid"], "low": ["by_grade", "low"],
+    }
+    by_grade_out = {}
+    for g in ("high", "mid", "low"):
+        kp = grade_sig_keys_map[g]
+        bt_r = rolling_win_rates(bt_points, bt_dates, WINDOWS, key_path=kp)
+        act_r = rolling_win_rates(act_points, [p["date"] for p in actual_daily], WINDOWS, key_path=kp)
+        by_grade_out[g] = {
+            "backtest": _trim_roll(bt_r),
+            "actual": _trim_roll(act_r),
+        }
+    # 信号: 回测 4 种 buy 类; 实盘 6 种(含 sell)
+    sig_map_bt = {
+        "buy": ["by_signal", "buy"], "buy_aux": ["by_signal", "buy_aux"],
+        "buy_special": ["by_signal", "buy_special"], "buy_backup": ["by_signal", "buy_backup"],
+    }
+    sig_map_act = dict(sig_map_bt)
+    sig_map_act.update({
+        "sell": ["by_signal", "sell"], "sell_stop_loss": ["by_signal", "sell_stop_loss"],
+    })
+    by_signal_out = {}
+    for sig in ("buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss"):
+        entry = {}
+        if sig in sig_map_bt:
+            bt_r = rolling_win_rates(bt_points, bt_dates, WINDOWS, key_path=sig_map_bt[sig])
+            entry["backtest"] = _trim_roll(bt_r)
+        else:
+            entry["backtest"] = {}
+        if sig in sig_map_act:
+            act_r = rolling_win_rates(act_points, [p["date"] for p in actual_daily], WINDOWS, key_path=sig_map_act[sig])
+            entry["actual"] = _trim_roll(act_r)
+        else:
+            entry["actual"] = {}
+        by_signal_out[sig] = entry
 
     # 4 维过拟合
     d1 = calc_d1_deviation(act_roll.get(60, []), bt_roll.get(60, []), 60)
@@ -732,13 +885,42 @@ def build_output(rebuild=False, dry_run=False):
                 "risk_score": risk, "level": risk_level(risk),
                 "weighted": risk_detail["weighted"],
             },
-            "daily": _derive_daily_series(bt_roll, act_roll, risk, latest_signal),
+            "daily": _derive_daily_series(bt_roll, act_roll, risk, latest_signal, win=60)[-730:],
+            # 风险分窗口切换(需求3): total 派生 30/60/90 三套 daily
+            "daily_by_win": {
+                str(w): _derive_daily_series(bt_roll, act_roll, risk, latest_signal, win=w)[-SURFACE_DAYS:]
+                for w in WINDOWS
+            },
+            # 风险分维度切换(需求1): 各评级/信号维度 60 窗口派生(复用 _derive_daily_series)
+            "daily_by_dim": {
+                "grade": {
+                    g: _derive_daily_series(
+                        by_grade_out[g]["backtest"], by_grade_out[g]["actual"],
+                        risk, latest_signal, win=60)[-SURFACE_DAYS:]
+                    for g in ("high", "mid", "low")
+                },
+                "sig_type": {
+                    sig: _derive_daily_series(
+                        by_signal_out[sig]["backtest"], by_signal_out[sig]["actual"],
+                        risk, latest_signal, win=60)[-SURFACE_DAYS:]
+                    for sig in ("buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss")
+                },
+            },
             "quadrant_health": quadrant_health,
         },
-        "alerts": alerts,
     }
-    # daily 序列只保留最近 730 天
-    out["overfit"]["daily"] = out["overfit"]["daily"][-730:]
+    # 维度滚动写进 accuracy(需求1): by_signal / by_grade
+    out["accuracy"]["rolling"]["by_signal"] = {
+        sig: {"backtest": by_signal_out[sig]["backtest"], "actual": by_signal_out[sig]["actual"]}
+        for sig in ("buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss")
+    }
+    out["accuracy"]["rolling"]["by_grade"] = {
+        g: {"backtest": by_grade_out[g]["backtest"], "actual": by_grade_out[g]["actual"]}
+        for g in ("high", "mid", "low")
+    }
+    # 体积控制日志(维度 rolling 裁剪到 SURFACE_DAYS)
+    print(f"   accuracy.rolling.by_signal {[s for s in by_signal_out]}")
+    print(f"   accuracy.rolling.by_grade {[g for g in by_grade_out]} (维度裁剪 {SURFACE_DAYS} 天)")
 
     # 写文件
     os.makedirs(os.path.dirname(OUT_JSON), exist_ok=True)
@@ -787,9 +969,14 @@ def build_output(rebuild=False, dry_run=False):
     if not dry_run and os.environ.get("OVERFIT_SKIP_R2") != "1":
         try:
             import subprocess as _sp
+            # ⚠ 必须传 REPO=trade-data: upload_r2 的 ROOT 经 .resolve() 解析到 trade/(trade-data/scripts
+            # 是 trade/scripts symlink), 不传则读 trade/static-site/data(旧版), 与本脚本写盘
+            # trade-data/static-site/data(新版) 不一致(§22 三步同步, L33 STATIC_DIR=REPO/static-site)。
+            _env = dict(os.environ)
+            _env["REPO"] = REPO
             r = _sp.run(
                 [sys.executable, os.path.join(SCRIPT_DIR, "upload_r2.py"), "upload-data-large"],
-                capture_output=True, text=True, timeout=120)
+                capture_output=True, text=True, timeout=120, env=_env)
             if r.returncode == 0:
                 print("   overfit_monitor.json → R2 上传完成")
             else:
