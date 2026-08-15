@@ -1,4 +1,4 @@
-# scripts/ 凯利回测运行脚本索引(36 脚本)
+# scripts/ 凯利回测运行脚本索引(41 脚本)
 
 > 全部回测/复算脚本统一放本目录(互相 import 不拆散)。每个脚本头部含注释块(用途/日期/结论/依赖/复现)。
 > **如何新增**:新脚本放本目录 + 头部注释块 + 在本索引追加一行;多个中间演进版标注"以最新版为准"。
@@ -65,6 +65,11 @@
 | kelly_batch_all.py | 综合汇总(**权威数据源**,产出报告引用 json) | python3 docs/kelly/scripts/kelly_batch_all.py |
 | kelly_ksens.py | 基建:full_sort_key 排序 + keep_topk(被 engine 依赖) | - |
 | kelly_dailypool.py | 基建:每日池等分 + compute_scaled(被 engine 依赖) | - |
+| kelly_af_matrix_verify.py | A/F/G 三模式主矩阵验证(§四 补档,空filter+AI宏7键;A/F 峰值9-14倍可操作、G 162-173倍不可操作) | python3 docs/kelly/scripts/kelly_af_matrix_verify.py |
+| kelly_ghi_g_scan.py | G 模式专项穷举(强平顺序矩阵/cap扫描/稳健性/利润结构;P≤3d 最优根因) | python3 docs/kelly/scripts/kelly_ghi_g_scan.py |
+| kelly_combine_p3d2.py | 结合版 v2(次日分批×P≤3d,runcase 内核;被下两脚本 exec 加载) | python3 docs/kelly/scripts/kelly_combine_p3d2.py |
+| kelly_p3d_open_ef.py | 空filter 三路 P≤3d 对照(§六.9 主表来源:@13万 当日172.19>次日分批170.89>次日开盘157.55) | python3 docs/kelly/scripts/kelly_p3d_open_ef.py |
+| kelly_combine_k2.py | 结合版 K=1/2/3 全对比(§六.9 AI宏7键对照 + K 延伸) | python3 docs/kelly/scripts/kelly_combine_k2.py |
 
 ## 其他(组合分类/提取/AI 预测/4组合核验)
 
