@@ -1704,6 +1704,45 @@
 #lab-kelly-gih-compare-body .lab-sigkelly-advice-note { font-size: 11px; line-height: 1.5; margin-bottom: 2px; }
 #lab-kelly-gih-compare-body .lab-sigkelly-advice-warn { font-size: 11px; line-height: 1.5; margin-top: 2px; }
 #lab-kelly-gih-compare-body .lab-sigkelly-advice-li { padding: 0; }
+/* #88(2026-08-15): G/H/I 对比表改「横向布局」——三模式(G/H/I)作为列并排铺满宽度; 作用域限定 #lab-kelly-gih-compare-body(专属ID)不动同 class 的 afg/按年/投资习惯3列表(§23.3), 并覆盖 #87 纵向期的 nowrap/auto 规则(该版以「列」为模式, 行标签列需独立口径) */
+#lab-kelly-gih-compare-body { width: 100%; }
+#lab-kelly-gih-compare-body .lab-sigkelly-table { table-layout: fixed; width: 100%; min-width: 0; }
+/* 首列=「场景·指标」行标签(窄列固定, col width), 后3列= G/H/I 三模式列等宽铺满(横向对比核心) */
+#lab-kelly-gih-compare-body .lab-sigkelly-gihc-row { width: 16%; }
+#lab-kelly-gih-compare-body .lab-sigkelly-gihc-mode { width: 28%; }
+/* 数据行(tr): 分组场景首行上边框隔断由 td 触发, 保持 col/tr 语义分离 */
+#lab-kelly-gih-compare-body .lab-sigkelly-gihc-tr td { padding: 4px 6px; }
+#lab-kelly-gih-compare-body .lab-sigkelly-gihc-corner,
+#lab-kelly-gih-compare-body .lab-sigkelly-gihc-mode-th { white-space: normal; vertical-align: middle; }
+#lab-kelly-gih-compare-body .lab-sigkelly-gihc-mode-th { min-width: 0; }
+#lab-kelly-gih-compare-body .lab-sigkelly-gihc-mode-th b { display: block; }
+#lab-kelly-gih-compare-body .lab-sigkelly-gihc-mode-th .lab-sigkelly-modelbl { font-weight: 400; font-size: 10px; overflow-wrap: break-word; word-break: break-word; white-space: normal; }
+#lab-kelly-gih-compare-body .lab-sigkelly-gihc-scene-lab { font-size: 11px; white-space: normal; word-break: break-word; vertical-align: middle; }
+#lab-kelly-gih-compare-body .lab-sigkelly-gihc-scene-lab b { white-space: normal; }
+#lab-kelly-gih-compare-body .lab-sigkelly-gihc-metric { color: var(--text-3); font-weight: 400; font-size: 10px; white-space: nowrap; }
+#lab-kelly-gih-compare-body .lab-sigkelly-gihc-val { font-size: 12px; white-space: nowrap; text-align: left; }
+#lab-kelly-gih-compare-body .lab-sigkelly-gihc-scene-first td { border-top: 1px solid var(--border); } /* 场景组首行隔断, 清晰区分 关/开b0/开b1 三大组 */
+#lab-kelly-gih-compare-body .lab-sigkelly-gih-table th,
+#lab-kelly-gih-compare-body .lab-sigkelly-gih-table td { padding: 4px 6px; }
+#lab-kelly-gih-compare-body .lab-sigkelly-gih-table th:nth-child(1),
+#lab-kelly-gih-compare-body .lab-sigkelly-gih-table th:nth-child(2),
+#lab-kelly-gih-compare-body .lab-sigkelly-gih-table td:nth-child(1),
+#lab-kelly-gih-compare-body .lab-sigkelly-gih-table td:nth-child(2) { white-space: normal; }
+/* 移动端: 横向表较宽, 在窄屏下保证不挤乱——表格获得合理 min-width 走 .lab-sigkelly-table-scroll 横向滚动, 表头/场景组不收缩; 模式列从等宽27% 改为按内容 nowrap 不被压缩 */
+@media (max-width: 760px) {
+  #lab-kelly-gih-compare-body .lab-sigkelly-table { table-layout: fixed; width: 620px; min-width: 100%; }
+  #lab-kelly-gih-compare-body .lab-sigkelly-gihc-row { width: 120px; }
+  #lab-kelly-gih-compare-body .lab-sigkelly-gihc-mode { width: auto; min-width: 110px; }
+  #lab-kelly-gih-compare-body .lab-sigkelly-gihc-val { white-space: nowrap; }
+  #lab-kelly-gih-compare-body .lab-sigkelly-gihc-mode-th, #lab-kelly-gih-compare-body .lab-sigkelly-gihc-mode-th .lab-sigkelly-modelbl { white-space: nowrap; }
+}
+/* #88-问题4(2026-08-15): 「AI降亏过滤」「AI仓位建议」等推荐 toggle 黄色底框(label.lab-sigkelly-rec 内长文案)在移动端超框——允许框内文字换行收缩而不溢出. 只对推荐高亮框(rec)开启, 不影响普通 toggle; PC 宽度足够时 flex-wrap 不触发保持单行, 无副作用 */
+.lab-sigkelly-toggle.lab-sigkelly-rec { flex-wrap: wrap; white-space: normal; }
+/* #88-问题3(2026-08-15): G档 13万/15万/20万 按钮行移动端超屏截断——GIH推荐label 内档位容器(L9062 aihlineLabelHTML)允许换行收缩, 按钮不超屏. 用 :has(.lab-sigkelly-gih-tier-wrap) 精准只命中「ai长线模式(G/H/I)仓位管理」这一行, 不误伤其他推荐 toggle(L10 §9 作用域隔离) */
+.lab-sigkelly-toggle.lab-sigkelly-rec:has(.lab-sigkelly-gih-tier-wrap) { flex-wrap: wrap; white-space: normal; }
+.lab-sigkelly-toggle.lab-sigkelly-rec:has(.lab-sigkelly-gih-tier-wrap) .lab-sigkelly-gih-tier-wrap { flex-wrap: wrap; white-space: normal; gap: 2px 4px; align-items: center; }
+.lab-sigkelly-gih-tier-wrap { display: inline-flex; }
+.lab-sigkelly-gih-tier-btn { white-space: nowrap; }
 /* #83(2026-08-15): 移除「AI仓位建议 · 历史回测(G模式口径)」面板, 其专属样式类 .lab-sigkelly-poscap-history 全部删除; 下方 advice-outer 同类限高滚动规则(§23.3)保留(仍被「全信号操作建议指南」展开面板使用) */
 /* §23.3 举一反三(2026-08-14): 「全信号操作建议指南」(advice-outer)展开面板限高80vh内部滚动+summary自动换行, 让展开后内容可在面板内滚动看全(同类布局修正, 不动内容) */
 .lab-sigkelly-advice-outer .lab-sigkelly-advice-body { max-height: 80vh; overflow-y: auto; padding-right: 6px; }

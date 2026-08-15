@@ -9029,21 +9029,45 @@ function _renderSigKellyBar(bar, data, period) {
     { m: "I", mName: "I · 追关注加追止损中长线", strat: "满仓不买@15万", off: ["39.5%", "+43.9万", "111万"],
       b0: ["90.0%", "+13.5万", "15万"], b1: ["90.0%", "+13.5万", "15万"] }
   ];
+  // #88(2026-08-15): G/H/I 对比表改「横向布局」——三模式(G/H/I)作为列横向并排铺满宽度, 行方向=「场景(关/开b0/开b1)×指标(收益率/净利/所需本金)」。
+  //   原纵向 rowspan=3 只占屏幕左侧小篇幅→转置为 模式列铺开, 用户诉求(横向+占满宽度)达成。数据源 _gihRefRows 零改动(3模式×关/开b0/开b1×3指标 全保留, §5.3核心保障)。
+  //   展示顺序: 关(基线)→开(保守b0)→开(乐观b1) 各三行, 表头首列=场景·指标(行标签), 后3列=G/H/I三模式(列首显 m+strat)。
+  const _gihColHead =
+    `<colgroup><col class="lab-sigkelly-gihc-row"><col class="lab-sigkelly-gihc-mode"><col class="lab-sigkelly-gihc-mode"><col class="lab-sigkelly-gihc-mode"></colgroup>` +
+    `<thead><tr><th class="lab-sigkelly-gihc-corner">模式</th>` +
+      _gihRefRows.map(function (r) {
+        return `<th class="lab-sigkelly-gihc-mode-th"><b>${r.m}</b><span class="lab-sigkelly-modelbl">${r.mName.replace(/^[A-Z] · /, "")}${r.strat ? " · " + r.strat : ""}</span></th>`;
+      }).join("") +
+    `</tr></thead>`;
+  const _gihScene = [
+    { key: "off", label: "关(基线)" },
+    { key: "b0", label: "开(保守 b0)" },
+    { key: "b1", label: "开(乐观 b1)" }
+  ];
+  const _gihMetric = [
+    { k: 0, label: "收益率", cls: "lab-sigkelly-pos" },
+    { k: 1, label: "净利", cls: "lab-sigkelly-pos" },
+    { k: 2, label: "所需本金", cls: "" }
+  ];
+  // 场景行间隔分组: 首列带横向分隔, 区分 关基线/开b0/开b1 三大组; 每组内 3 个指标行连续排列, 一一对应 3 模式同列
+  const _gihGroups = _gihScene.map(function (sc, si) {
+    const first = si === 0 ? " lab-sigkelly-gihc-scene-first" : "";
+    const bodyRows = _gihMetric.map(function (mt) {
+      return `<tr class="lab-sigkelly-gihc-tr${first}">` +
+        `<td class="lab-sigkelly-gihc-scene-lab">${(mt.k === 0 ? `<b>${sc.label}</b><br>` : "")}<span class="lab-sigkelly-gihc-metric">${mt.label}</span></td>` +
+        _gihRefRows.map(function (r) {
+          const v = r[sc.key][mt.k];
+          return `<td class="${mt.cls} lab-sigkelly-gihc-val">${v}</td>`;
+        }).join("") +
+      `</tr>`;
+    });
+    return bodyRows;
+  }).join("");
   const _gihCompareTableHTML =
     `<table class="lab-sigkelly-table lab-sigkelly-advice-table lab-sigkelly-gih-table">` +
-      `<thead><tr><th>模式</th><th>当前策略</th><th>开关</th><th>收益率</th><th>净利</th><th>所需本金</th></tr></thead><tbody>` +
-      _gihRefRows.map(function (r) {
-        return (
-          `<tr class="lab-sigkelly-advice-hl">` +
-            `<td rowspan="3"><b>${r.m}</b><span class="lab-sigkelly-modelbl">${r.mName}</span></td>` +
-            `<td rowspan="3">${r.strat}</td>` +
-          `</tr>` +
-          `<tr><td><b>关(基线)</b></td><td class="lab-sigkelly-pos">${r.off[0]}</td><td class="lab-sigkelly-pos">${r.off[1]}</td><td>${r.off[2]}</td></tr>` +
-          `<tr><td>开(保守 b0)</td><td class="lab-sigkelly-pos">${r.b0[0]}</td><td class="lab-sigkelly-pos">${r.b0[1]}</td><td>${r.b0[2]}</td></tr>` +
-          `<tr><td>开(乐观 b1)</td><td class="lab-sigkelly-pos">${r.b1[0]}</td><td class="lab-sigkelly-pos">${r.b1[1]}</td><td>${r.b1[2]}</td></tr>`
-        );
-      }).join("") +
-    `</tbody></table>`;
+      _gihColHead +
+      `<tbody>${_gihGroups}</tbody>` +
+    `</table>`;
   // tooltip 白话文案(v2, 按模式分写——G=P≤3d三档/H=满仓不买7万/I=满仓不买15万)
   const _gihTipG = "【G】当前档位=" + _gihGTierCur + " → " + _kellyGihStratShort("G") + "「先卖年轻仓」: 超仓先卖持有≤3天新仓(砍掉刚买没攒利润的), 保21-100天利润引擎, 无年轻仓才卖最老。关 47.2%/+64.2万/136万 → 开(现档" + _gihGTierCur + ")乐观" + _gihGTierB[_gihGTierCur].b1[0] + "/净" + _gihGTierB[_gihGTierCur].b1[1] + "。15起始年全胜旧FIFO、随机30点0/30负, b0/b1区间窄(4-24pp)最可信。三档可切换: 资金宽选高档吃绝对净利、偏紧选低档吃收益率。";
   const _gihTip =
