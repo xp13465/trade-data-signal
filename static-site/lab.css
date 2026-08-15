@@ -1953,7 +1953,11 @@
 .lab-kelly-repo-btn:hover { background: var(--primary); color: #fff; }
 /* 报告查看弹窗(复用 lab-signal-modal 容器)
    #84(2026-08-15): 由「收窄 680px 读目录」改为「放大 1000px+ 读完整正文」——目录折叠(details), 正文独立滚动, h1-h4/表格/代码块样式, 移动端窄屏近全屏 */
-.lab-kelly-repo-modal { max-width: 1024px; width: min(1024px, 94vw); height: min(86vh, 720px); }
+/* 高度自适应视口(方案B: meta/目录固定, 正文 .lab-kelly-repo-body 弹性占满剩余滚动):
+   height 去掉 720px 锁死, 改 min(92vh,1080px) 跟随视口; modal 变 flex column, 正文撑满 */
+.lab-kelly-repo-modal { max-width: 1024px; width: min(1024px, 94vw); height: min(92vh, 1080px); display: flex; flex-direction: column; }
+/* 专属作用域覆盖 .lab-signal-modal-body(共享类不动, 只影响报告弹窗): 弹性列布局, meta/目录占自然高, 正文占剩余 */
+.lab-kelly-repo-modal .lab-signal-modal-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .lab-kelly-repo-meta {
   font-size: 12.5px;
   line-height: 1.7;
@@ -1980,7 +1984,9 @@
 .lab-kelly-repo-toc-line:hover { background: var(--bg-hover); }
 /* 完整正文(#84): 独立滚动 + 保留 h1-h4 结构 + 表格/代码块/引用/列表排版 */
 .lab-kelly-repo-body {
-  max-height: 46vh;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -2027,7 +2033,7 @@
 /* 移动端: 窄屏近全屏(宽94vw, 高90vh), 正文/目录限高按视口收窄避免撑出 */
 @media (max-width: 600px) {
   .lab-kelly-repo-modal { width: 96vw; max-width: 96vw; height: 92vh; }
-  .lab-kelly-repo-body { max-height: 52vh; padding: 8px 10px; font-size: 12.5px; }
+  .lab-kelly-repo-body { padding: 8px 10px; font-size: 12.5px; }
   .lab-kelly-repo-body table { font-size: 11px; }
   .lab-kelly-repo-body th, .lab-kelly-repo-body td { padding: 3px 5px; font-size: 11px; }
   .lab-kelly-repo-toc { max-height: 26vh; }
