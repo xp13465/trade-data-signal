@@ -22,6 +22,13 @@
 - `await loadEcharts()`(app.js L1949)若 echarts CDN 挂, 卡片显示「加载失败」即使 lite SVG 不需要——老行为
 - 首页 tooltip(L2683)写排序含「→买入日」, 代码实际无第 4 键——同日内 buy_date 全等不影响, 既有文案/代码轻微不一致
 
+## 4. ⚠️ 2026-08-16 04:37 cron sync 跳过(feat/iframe-theme-follow 已删除)
+
+- 触发: 历史 cron「定期 sync feat/iframe-theme-follow ← main」(其他会话登记)到点
+- 结论: **跳过 sync**——本地+remote 均无 feat/iframe-theme-follow 分支(reflog 证其已合并进 main 后删除, HEAD@{298} checkout 回 main); 无后台 agent 在改该分支
+- 未做: 不 push 任何分支 / 不重建 feat 分支 / 不碰 TASKS.md(工作区有 M 改动, 疑为历史遗留, 未动)
+- **待用户确认**: 该 cron 已无目标分支, 是否删除/停用? 若还有活跃 feat 分支需要定期 sync(如 feat/overfit-monitor-k-window 等), 可改登记新的 sync cron
+
 ## 2. 任务清单(TASKS.md 对应)
 
 - **#18 ✅ 已上线**(0a408b022): 监控卡三合一(默认开+K档UI预留+轻量SVG)
