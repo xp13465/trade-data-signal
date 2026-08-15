@@ -2029,27 +2029,84 @@ def notify_daily_brief(brief: dict, cfg: dict, log, dry_run: bool = False) -> di
         watch_names = "、".join(
             (w.get("name") or w.get("index_id") or "") for w in (meta.get("watch_list") or []) if w)
         risk_items = [str(r) for r in (meta.get("risk_items") or [])]
+        # ── 区间与中间层上色(A股红涨绿跌: 🔴偏强/🟢偏弱/⚪震荡,同多头辩论段配色) ──
+        RISE_COL, FALL_COL, FLAT_COL = "#c62828", "#2e7d32", "#999"  # 红涨/绿跌/灰震荡
+
+        def _interval_color(lo: float, hi: float, is_yield: bool) -> str:
+            """区间方向取色。is_yield(10年国债收益率bp):负=收益率下行=债涨=红,正=债跌=绿。
+            涨跌幅%:lo>=0红 / hi<=0绿 / 跨0灰。"""
+            if is_yield:
+                return RISE_COL if hi <= 0 else (FALL_COL if lo >= 0 else FLAT_COL)
+            return RISE_COL if lo >= 0 else (FALL_COL if hi <= 0 else FLAT_COL)
+
+        def _interval_emoji(lo: float, hi: float, is_yield: bool) -> str:
+            return {"#c62828": "🔴", "#2e7d32": "🟢", "#999": "⚪"}[_interval_color(lo, hi, is_yield)]
+
         rng = meta.get("range") or {}
-        range_s = ""
+        range_s = ""          # 纯文本(用于 subject / 飞书)
+        range_s_html = ""     # 邮件 body 上色版
+        range_emoji = "⚪"
         if isinstance(rng, dict) and rng.get("lo") is not None and rng.get("hi") is not None:
-            range_s = f"{rng['lo']:+.2f}% ~ {rng['hi']:+.2f}%"
+            _lo, _hi = float(rng["lo"]), float(rng["hi"])
+            range_s = f"{_lo:+.2f}% ~ {_hi:+.2f}%"
+            range_emoji = _interval_emoji(_lo, _hi, is_yield=False)
+            range_s_html = (f"<span style=\"color:{_interval_color(_lo, _hi, is_yield=False)};\">"
+                            f"{_lo:+.2f}% ~ {_hi:+.2f}%</span>")
         # 中间层 7 个全押展示(2026-08-15 三层命中): 前6涨跌幅%,10年国债收益率变化基点
-        index_s = ""
+        index_s_plain = ""    # 飞书 纯文本(每指数一行 + emoji)
+        index_s_html = ""     # 邮件 body 分条上色版(每指数一行)
         mids = meta.get("index_ranges") or []
         if mids:
-            def _mid_fmt(m):
-                if m.get("type") == "yield" or m.get("name") == "10年国债":
-                    return f"{m.get('name')} {m.get('lo'):+.0f}~{m.get('hi'):+.0f}bp"
-                return f"{m.get('name')} {m.get('lo'):+.2f}~{m.get('hi'):+.2f}%"
-            index_s = "；".join(_mid_fmt(m) for m in mids)
+            def _mid_row(m, emoji: bool = False):
+                name = m.get("name") or ""
+                is_y = (m.get("type") == "yield") or (name == "10年国债")
+                if is_y:
+                    lo, hi = float(m.get("lo", 0)), float(m.get("hi", 0))
+                    _t = f"{name}: {lo:+.0f}~{hi:+.0f}bp"
+                else:
+                    lo, hi = float(m.get("lo", 0)), float(m.get("hi", 0))
+                    _t = f"{name}: {lo:+.2f}~{hi:+.2f}%"
+                _col = _interval_color(lo, hi, is_yield=is_y)
+                _e = _interval_emoji(lo, hi, is_yield=is_y)
+                _html = (f"<br/>{_html_esc(name)}: <span style=\"color:{_col};\">"
+                         f"{_t.split(': ', 1)[1]}</span>")
+                return (_t if not emoji else f"{_e} {_t}"), _e, _html
+            _rows_html = []
+            for _m in mids:
+                _plain, _e, _html = _mid_row(_m, emoji=True)
+                _rows_html.append(_html)
+                index_s_plain = (index_s_plain + "\n" if index_s_plain else "") + _plain
+            index_s_html = "<b>中间层7押:</b>" + "".join(_rows_html)
+
+        # 板块区间(三层之一): 1-3 个领涨/领跌板块,红涨绿跌上色分条
+        sector_s_plain = ""    # 飞书 纯文本
+        sector_s_html = ""     # 邮件 body 分条上色版
+        sectors = meta.get("sector_ranges") or []
+        if sectors:
+            _rows_html_s = []
+            for _s in sectors:
+                if _s.get("lo") is None or _s.get("hi") is None:
+                    continue
+                _slo, _shi = float(_s["lo"]), float(_s["hi"])
+                _sname = _s.get("name") or ""
+                _scol = _interval_color(_slo, _shi, is_yield=False)
+                _se = _interval_emoji(_slo, _shi, is_yield=False)
+                _stxt = f"{_sname}: {_slo:+.2f}~{_shi:+.2f}%"
+                _rows_html_s.append(
+                    f"<br/>{_html_esc(_sname)}: <span style=\"color:{_scol};\">{_slo:+.2f}~{_shi:+.2f}%</span>")
+                sector_s_plain = (sector_s_plain + "\n" if sector_s_plain else "") + f"{_se} {_stxt}"
+            if _rows_html_s:
+                sector_s_html = "<b>板块区间:</b>" + "".join(_rows_html_s)
         subject = f"📊 AI预测 {date}:{dir_label}（把握度 {conf_s}{('·区间' + range_s) if range_s else ''}{('·中间' + str(len(mids)) + '押') if mids else ''}）"
 
         # ═══ 总结段(开头): 方向/区间/信心/要点/多空结论 ═══
         sum_lines = [f"明日方向: <b>{_html_esc(dir_label)}</b> · 把握度: <b>{conf_s}</b>"]
-        if range_s:
-            sum_lines.append(f"预测区间: <b>{_html_esc(range_s)}</b>(上证指数次日涨跌幅)")
-        if index_s:
-            sum_lines.append(f"中间层7个全押: <b>{_html_esc(index_s)}</b>(前6涨跌幅%,10年国债收益率变化基点)")
+        if range_s_html:
+            sum_lines.append(f"预测区间: <b>{range_s_html}</b>(上证指数次日涨跌幅)")
+        if index_s_html:
+            sum_lines.append(f"{index_s_html}（前6涨跌幅%,10年国债收益率变化基点）")
+        if sector_s_html:
+            sum_lines.append(f"{sector_s_html}（领涨/领跌板块次日涨跌幅%）")
         if lean:
             sum_lines.append(f"多空结论: {_html_esc(lean)}{(' · 置信度 ' + dconf_s) if dconf_s else ''}")
         if debate_sum:
@@ -2111,9 +2168,15 @@ def notify_daily_brief(brief: dict, cfg: dict, log, dry_run: bool = False) -> di
         lines: list[list[dict]] = [[notify.post_md(f"**{subject}**")]]
         lines.append([notify.post_md("📌 **总结**")])
         if range_s:
-            lines.append([notify.post_text(f"区间: {range_s}")])
-        if index_s:
-            lines.append([notify.post_text(f"中间层7个全押: {index_s[:80]}")])
+            lines.append([notify.post_text(f"区间{range_emoji}: {range_s}")])
+        if index_s_plain:
+            lines.append([notify.post_text("中间层7押:")])
+            for _l in index_s_plain.split("\n"):
+                lines.append([notify.post_text(_l)])
+        if sector_s_plain:
+            lines.append([notify.post_text("板块区间:")])
+            for _l in sector_s_plain.split("\n"):
+                lines.append([notify.post_text(_l)])
         for h in highlights[:4]:
             lines.append([notify.post_text(f"🎯 {h}")])
         if lean:
