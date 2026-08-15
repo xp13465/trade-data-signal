@@ -1,0 +1,294 @@
+{
+  "data_batch": "2026-08-15 21:14",
+  "k2c5_excl_n": 159,
+  "calibers": {
+    "A_simple_excl": {
+      "all": {
+        "A": {
+          "baseline": 97308.0,
+          "excl": 104693.0,
+          "delta": 7384.0
+        },
+        "B": {
+          "baseline": 39640.0,
+          "excl": 45797.0,
+          "delta": 6157.0
+        },
+        "C": {
+          "baseline": 54389.0,
+          "excl": 60741.0,
+          "delta": 6352.0
+        },
+        "D": {
+          "baseline": 70760.0,
+          "excl": 77090.0,
+          "delta": 6330.0
+        },
+        "E": {
+          "baseline": 47117.0,
+          "excl": 53662.0,
+          "delta": 6545.0
+        },
+        "F": {
+          "baseline": 129306.0,
+          "excl": 133763.0,
+          "delta": 4458.0
+        },
+        "G": {
+          "baseline": 654135.0,
+          "excl": 657986.0,
+          "delta": 3850.0
+        },
+        "H": {
+          "baseline": 165648.0,
+          "excl": 172694.0,
+          "delta": 7046.0
+        },
+        "I": {
+          "baseline": 450316.0,
+          "excl": 459715.0,
+          "delta": 9400.0
+        }
+      },
+      "y1": {
+        "A": {
+          "baseline": 21815.0,
+          "excl": 22826.0,
+          "delta": 1012.0
+        },
+        "B": {
+          "baseline": 13920.0,
+          "excl": 14052.0,
+          "delta": 132.0
+        },
+        "C": {
+          "baseline": 16024.0,
+          "excl": 17036.0,
+          "delta": 1012.0
+        },
+        "D": {
+          "baseline": 17464.0,
+          "excl": 18475.0,
+          "delta": 1012.0
+        },
+        "E": {
+          "baseline": 9037.0,
+          "excl": 9335.0,
+          "delta": 298.0
+        },
+        "F": {
+          "baseline": 28468.0,
+          "excl": 30061.0,
+          "delta": 1593.0
+        },
+        "G": {
+          "baseline": 20188.0,
+          "excl": 21078.0,
+          "delta": 890.0
+        },
+        "H": {
+          "baseline": 27774.0,
+          "excl": 28664.0,
+          "delta": 890.0
+        },
+        "I": {
+          "baseline": 14599.0,
+          "excl": 15489.0,
+          "delta": 890.0
+        }
+      }
+    },
+    "B_b0_report": {
+      "all": {
+        "A": {
+          "baseline": 97308.0,
+          "excl": 104693.0,
+          "delta": 7384.0
+        },
+        "B": {
+          "baseline": 39640.0,
+          "excl": 45797.0,
+          "delta": 6157.0
+        },
+        "C": {
+          "baseline": 54389.0,
+          "excl": 60741.0,
+          "delta": 6352.0
+        },
+        "D": {
+          "baseline": 70760.0,
+          "excl": 77090.0,
+          "delta": 6330.0
+        },
+        "E": {
+          "baseline": 47117.0,
+          "excl": 53662.0,
+          "delta": 6545.0
+        },
+        "F": {
+          "baseline": 129306.0,
+          "excl": 133763.0,
+          "delta": 4458.0
+        },
+        "G": {
+          "baseline": 203594.0,
+          "excl": 201339.0,
+          "delta": -2256.0
+        },
+        "H": {
+          "baseline": 81515.0,
+          "excl": 89355.0,
+          "delta": 7840.0
+        },
+        "I": {
+          "baseline": 139073.0,
+          "excl": 137708.0,
+          "delta": -1365.0
+        }
+      },
+      "y1": {
+        "A": {
+          "baseline": 21815.0,
+          "excl": 22826.0,
+          "delta": 1012.0
+        },
+        "B": {
+          "baseline": 13920.0,
+          "excl": 14052.0,
+          "delta": 132.0
+        },
+        "C": {
+          "baseline": 16024.0,
+          "excl": 17036.0,
+          "delta": 1012.0
+        },
+        "D": {
+          "baseline": 17464.0,
+          "excl": 18475.0,
+          "delta": 1012.0
+        },
+        "E": {
+          "baseline": 9037.0,
+          "excl": 9335.0,
+          "delta": 298.0
+        },
+        "F": {
+          "baseline": 28468.0,
+          "excl": 30061.0,
+          "delta": 1593.0
+        },
+        "G": {
+          "baseline": 1235.0,
+          "excl": 3233.0,
+          "delta": 1997.0
+        },
+        "H": {
+          "baseline": 11176.0,
+          "excl": 11025.0,
+          "delta": -151.0
+        },
+        "I": {
+          "baseline": 10857.0,
+          "excl": 12210.0,
+          "delta": 1354.0
+        }
+      }
+    },
+    "B_b1_frontend": {
+      "all": {
+        "A": {
+          "baseline": 97308.0,
+          "excl": 104693.0,
+          "delta": 7384.0
+        },
+        "B": {
+          "baseline": 39640.0,
+          "excl": 45797.0,
+          "delta": 6157.0
+        },
+        "C": {
+          "baseline": 54389.0,
+          "excl": 60741.0,
+          "delta": 6352.0
+        },
+        "D": {
+          "baseline": 70760.0,
+          "excl": 77090.0,
+          "delta": 6330.0
+        },
+        "E": {
+          "baseline": 47117.0,
+          "excl": 53662.0,
+          "delta": 6545.0
+        },
+        "F": {
+          "baseline": 129306.0,
+          "excl": 133763.0,
+          "delta": 4458.0
+        },
+        "G": {
+          "baseline": 236705.0,
+          "excl": 248460.0,
+          "delta": 11755.0
+        },
+        "H": {
+          "baseline": 81515.0,
+          "excl": 89355.0,
+          "delta": 7840.0
+        },
+        "I": {
+          "baseline": 139073.0,
+          "excl": 137708.0,
+          "delta": -1365.0
+        }
+      },
+      "y1": {
+        "A": {
+          "baseline": 21815.0,
+          "excl": 22826.0,
+          "delta": 1012.0
+        },
+        "B": {
+          "baseline": 13920.0,
+          "excl": 14052.0,
+          "delta": 132.0
+        },
+        "C": {
+          "baseline": 16024.0,
+          "excl": 17036.0,
+          "delta": 1012.0
+        },
+        "D": {
+          "baseline": 17464.0,
+          "excl": 18475.0,
+          "delta": 1012.0
+        },
+        "E": {
+          "baseline": 9037.0,
+          "excl": 9335.0,
+          "delta": 298.0
+        },
+        "F": {
+          "baseline": 28468.0,
+          "excl": 30061.0,
+          "delta": 1593.0
+        },
+        "G": {
+          "baseline": 4475.0,
+          "excl": 4261.0,
+          "delta": -215.0
+        },
+        "H": {
+          "baseline": 11176.0,
+          "excl": 11025.0,
+          "delta": -151.0
+        },
+        "I": {
+          "baseline": 10857.0,
+          "excl": 12210.0,
+          "delta": 1354.0
+        }
+      }
+    }
+  }
+}
