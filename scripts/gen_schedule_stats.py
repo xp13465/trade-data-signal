@@ -30,6 +30,11 @@ REPO = Path(__file__).parent.parent  # 不用 .resolve()：trade-data/scripts �
 LOG_DIR = REPO / "data" / "logs"
 OUT = REPO / "static-site" / "data" / "schedule_stats.json"
 MAX_GAP_SEC = 3 * 3600  # >3h 视为错位，丢弃
+# Bug1 修复(2026-08-15): pending_crash_retry 判定用时间间隔隔离历史残留码。
+# 只有"上一轮配对运行 crash(exit!=0) 且距本 pending_start < CRASH_RETRY_GAP_SEC"
+# (同一调度时槽/crash 后 6h 内立刻重启=真重试)才算，跨天残留(如 8/12 deploy=1 污染 8/13)
+# 不关联本 pending,不再误报。
+CRASH_RETRY_GAP_SEC = 6 * 3600
 
 # 外层脚本名只匹配任务自身，内嵌 deploy.sh/check_signals.sh 不会误配
 TASKS = [
@@ -395,11 +400,21 @@ def build():
                     code = None  # etf_nt 不启发式标 143(launchctl 读不到才 None)
                 else:
                     code = 143 if age > MAX_GAP_SEC else None  # standard 回退启发式
+                # P1(2026-07-29): pending_start(当前在跑) + 上次运行确实 crash = 重试中,
+                # 标记 pending_crash_retry 供后续 log_anomaly 标注。
+                # 2026-08-15 Bug1 修复(运维告警误报根因): 判定依据从 launchctl 历史残留码
+                # 改为 [日志最近一次完整配对运行的退出码 + 时间间隔]。
+                #   旧: launchctl_last_exit 是"任务上一次整体运行"的退出码(无时间戳)，
+                #       8/12 deploy 残留 exit=1 污染 8/13 全天正常在跑任务 -> 误报 5 条。
+                #   新: 只有"上一轮配对运行 exit!=0 且 其结束时间距本 pending_start < 6h"
+                #       (同一调度时槽内崩溃后立刻重启) 才判真 crash-retry；
+                #       跨天/跨调度周期的历史残留码不关联本 pending,不再误报。
+                if pairs and pairs[-1][1] is not None:
+                    _prev_end, _prev_code = pairs[-1][1], pairs[-1][2]
+                    _retry_gap = (pending_start - _prev_end).total_seconds()
+                    if _prev_code != 0 and 0 <= _retry_gap <= CRASH_RETRY_GAP_SEC:
+                        pending_crash_retry = True
                 last_dur = None
-                # P1(2026-07-29): pending_start(当前在跑) + last_exit!=0(上次crash) = 重试中,
-                # 标记 pending_crash_retry 供后续 log_anomaly 标注
-                if code is not None and code != 0:
-                    pending_crash_retry = True
         # 第4盲区修复: 扫最近一次运行窗口的 log 找异常关键词,
         # 即使 exit=0(异常被 try/except 吞)也能抓到告警
         anomaly = scan_log_anomaly(log_path, t["script"], t["mode"])
