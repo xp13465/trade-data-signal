@@ -22,6 +22,10 @@ from .base import log_collect
 _NOTIFY_PY = Path(__file__).absolute().parent.parent.parent / "scripts" / "notify.py"
 
 
+def _now():
+    return dt.datetime.now().isoformat()
+
+
 def _notify(subject: str, body: str, *, dedup_key: str, dedup_window: int = 86400):
     """subprocess 调 scripts/notify.py 发告警（邮件+TG+飞书），失败不抛异常。
 
