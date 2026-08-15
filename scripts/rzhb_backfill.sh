@@ -95,9 +95,9 @@ for m in cfg.get('metrics', []):
         continue
     mid = m['id']
     try:
-        rows, msg = fetchers.collect_series(m)
+        rows, msg, src = fetchers.collect_series(m)
         if rows:
-            runner.upsert_metrics_many(mid, rows)
+            runner.upsert_metrics_many(mid, rows, source=src)
             ok += 1
             if any(d == date for d, _ in rows):
                 has_today = True

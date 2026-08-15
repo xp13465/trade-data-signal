@@ -94,8 +94,9 @@ def upsert_metric(date, metric_id, value, source="akshare"):
     conn.close()
 
 
-def upsert_metrics_many(metric_id, rows):
-    """rows: [(date, value), ...]"""
+def upsert_metrics_many(metric_id, rows, source="akshare"):
+    """rows: [(date, value), ...]；source 默认 akshare，异源兜底时传对应 source 标记
+    (treasury/hkex/em/sse/rv_local 等,见 fetchers),便于溯源与前端降级透明化。"""
     conn = get_conn()
     conn.executemany(
         "INSERT INTO daily_metric (date, metric_id, value, source, updated_at) "
@@ -103,7 +104,7 @@ def upsert_metrics_many(metric_id, rows):
         "ON CONFLICT(date, metric_id) DO UPDATE SET "
         "value=excluded.value, source=excluded.source, updated_at=excluded.updated_at "
         "WHERE daily_metric.source != 'manual'",
-        [(d, metric_id, v, "akshare", _now()) for d, v in rows],
+        [(d, metric_id, v, source, _now()) for d, v in rows],
     )
     conn.commit()
     conn.close()
@@ -167,9 +168,9 @@ def run(date=None, verbose=True, steps=None):
                         details.append((mid, "fail", msg))
                         log_collect(date, mid, "error", msg)
                 elif func.startswith("tencent:"):
-                    val, msg = fetchers.collect_tencent(m, date)
+                    val, msg, src = fetchers.collect_tencent(m, date)
                     if val is not None:
-                        upsert_metric(date, mid, val)
+                        upsert_metric(date, mid, val, source=src)
                         ok += 1
                         details.append((mid, "ok", f"{val:.4g}"))
                         log_collect(date, mid, "ok", str(val))
@@ -178,12 +179,12 @@ def run(date=None, verbose=True, steps=None):
                         details.append((mid, "fail", msg))
                         log_collect(date, mid, "error", msg)
                 elif func in fetchers.SERIES_FUNCS:
-                    rows, msg = fetchers.collect_series(m)
+                    rows, msg, src = fetchers.collect_series(m)
                     if rows:
-                        upsert_metrics_many(mid, rows)
+                        upsert_metrics_many(mid, rows, source=src)
                         ok += 1
                         details.append((mid, "ok", f"{len(rows)} rows"))
-                        # msg 非 "ok" 时带 spike_guard 告警等，记入 collect_log 便于排查
+                        # msg 非 "ok" 时带 spike_guard 告警/异源兜底等，记入 collect_log 便于排查
                         log_msg = f"{len(rows)} rows" if not msg or msg == "ok" else f"{len(rows)} rows; {msg}"
                         log_collect(date, mid, "ok", log_msg)
                     else:
