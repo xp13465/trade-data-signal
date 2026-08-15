@@ -30,7 +30,7 @@
         <key>TTP_ALIAS_TARGET</key>
         <string>deepseek-v4-flash</string>
         <key>TTP_PROVIDER</key>
-        <string>ark</string>
+        <string>official</string>
         <key>TTP_UPSTREAM_HOST</key>
         <string>ark.cn-beijing.volces.com</string>
         <key>TTP_UPSTREAM_PORT</key>

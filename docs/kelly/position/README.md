@@ -4,6 +4,7 @@
 
 | 文档 | 说明 |
 |---|---|
+| kelly-nextday-batch-limit-sop.md | **次日分批挂单买入 SOP 回测**(2026-08-15,兜底 N=K 每日池 G K1 净+861,375/53.17%,比次日开盘+6.1万) |
 | kelly-strategyAB-exhaustive.md | **策略A(固定拆K)vs 策略B(每日池等分)穷举对比**(2026-08-14,本轮新增) |
 | firstcol-badge-linebreak.md | 信号凯利回测首列 SPAN 独立换行(纯前端 CSS display:block,2026-08-14) |
 | kelly-dailypool-exhaustive-rerun.md | 每日池口径穷举重跑(权威基线) |

@@ -1,4 +1,4 @@
-# scripts/ 凯利回测运行脚本索引(23 脚本)
+# scripts/ 凯利回测运行脚本索引(36 脚本)
 
 > 全部回测/复算脚本统一放本目录(互相 import 不拆散)。每个脚本头部含注释块(用途/日期/结论/依赖/复现)。
 > **如何新增**:新脚本放本目录 + 头部注释块 + 在本索引追加一行;多个中间演进版标注"以最新版为准"。
@@ -46,6 +46,25 @@
 | 脚本 | 用途 | 复现 |
 |---|---|---|
 | signal_kelly_backtest_bond.py | 债类(self-ETF 兜底)纳入 vs 不纳入穷举对比(结论:纳入变差不建议)+ `--include-band` 波段(band_hold)纳入对比(更差,过度交易浪费仓位);报告 `analysis/kelly-bond-inclusion-probe.md`,数据 `analysis/data/bond_probe_comparison.json` | python3 scripts/signal_kelly_backtest_bond.py [--include-band] --output docs/kelly/analysis/data/bond_probe_comparison.json |
+
+
+## F 组(次日分批挂单回测,2026-08-15;报告 position/kelly-nextday-batch-limit-sop.md,数据 position/data/kelly_nextday_batch_limit_data.json)
+
+| 脚本 | 用途 | 复现 |
+|---|---|---|
+| kelly_batch_limit_engine.py | **核心引擎**(兜底/严格/完整/用户版 + gap 映射,每日池 vs 每笔1万,补单来源) | python3 docs/kelly/scripts/kelly_batch_limit_engine.py |
+| kelly_batch_limit_matrix.py | 主矩阵:K=买全部/1/2/3/4 × N=1/2/3 × (严格不补/严格+池内补/严格+降级补/兜底) | python3 docs/kelly/scripts/kelly_batch_limit_matrix.py |
+| kelly_batch_limit_depth.py | 挂单深度敏感性 -0.5%/-1%/-1.5%/-2%(结论:-1% 最优) | python3 docs/kelly/scripts/kelly_batch_limit_depth.py |
+| kelly_batch_limit_ext1.py | 每笔固定1万 + toggle a45+exclBear(每笔1万峰值296-411万不可操作) | python3 docs/kelly/scripts/kelly_batch_limit_ext1.py |
+| kelly_batch_limit_ext2.py | 9模式 + 按市场(⚠️ 按年段 zip 错位 bug,按年以 yearly.py 为准) | python3 docs/kelly/scripts/kelly_batch_limit_ext2.py |
+| kelly_batch_limit_yearly.py | 按年分解修复版(按 next_date 分组,2011-2026 全正改善) | python3 docs/kelly/scripts/kelly_batch_limit_yearly.py |
+| kelly_batch_limit_full_play.py | 完整玩法(严格优先-1%+降级补+开盘兜底)vs 兜底(兜底更优) | python3 docs/kelly/scripts/kelly_batch_limit_full_play.py |
+| kelly_batch_limit_user.py | 用户原话版(固定top-N+缺额补挂):池内补≈兜底,降级补净利大降 | python3 docs/kelly/scripts/kelly_batch_limit_user.py |
+| kelly_batch_limit_smooth.py | 均价平滑度(兜底均值-0.37%/中位0%/标准差0.43%) | python3 docs/kelly/scripts/kelly_batch_limit_smooth.py |
+| kelly_batch_limit_final.py | 兜底 N=K 完整表(K1-N1 净+861,375/53.17% 最优) | python3 docs/kelly/scripts/kelly_batch_limit_final.py |
+| kelly_batch_all.py | 综合汇总(**权威数据源**,产出报告引用 json) | python3 docs/kelly/scripts/kelly_batch_all.py |
+| kelly_ksens.py | 基建:full_sort_key 排序 + keep_topk(被 engine 依赖) | - |
+| kelly_dailypool.py | 基建:每日池等分 + compute_scaled(被 engine 依赖) | - |
 
 ## 其他(组合分类/提取/AI 预测/4组合核验)
 

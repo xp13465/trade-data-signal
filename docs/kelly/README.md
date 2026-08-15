@@ -13,9 +13,9 @@
 | [backtest-ai/](backtest-ai/README.md) | AI 预测/3AI 对比/回测审查/宏观穷举**回测**类 | 8 |
 | [combo/](combo/README.md) | 组合元素挖掘/组合用法/round 验证**组合**类 | 5 |
 | [mining/](mining/README.md) | 亏损挖掘/文献/风格/在线调研**挖掘**类 | 12 |
-| [position/](position/README.md) | 仓位上限/每日池/策略AB/分仓行为/回撤**仓位**类 | 14 |
+| [position/](position/README.md) | 仓位上限/每日池/策略AB/分仓行为/回撤/次日买入**仓位**类 | 15 |
 | [toggle/](toggle/README.md) | 降亏 toggle 方案/计划 | 2 |
-| [scripts/](scripts/README.md) | 全部回测/复算**运行脚本**(按 A-E 组) | 24 脚本 |
+| [scripts/](scripts/README.md) | 全部回测/复算**运行脚本**(按 A-F 组) | 36 脚本 |
 
 ---
 
@@ -27,6 +27,10 @@
 4. **每新增一项,同步在本索引 + 对应子目录 README.md 追加一行**,让索引成为入口而非一次性清单。
 
 ---
+
+## 本轮落档(2026-08-15)
+
+- 次日分批挂单买入穷举回测:报告 `position/kelly-nextday-batch-limit-sop.md`(结论:兜底 N=K 最优,每日池 G K1 净+861,375/53.17%,比次日开盘+6.1万,2011-2026 全年份正改善,9模式全正)+ 脚本 `scripts/kelly_batch_limit_*.py`(13个,F 组)+ 数据 `position/data/kelly_nextday_batch_limit_data.json`
 
 ## 本轮落档(2026-08-14)
 
