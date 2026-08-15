@@ -1,4 +1,5 @@
 # analysis/ 凯利分析类报告索引
+| kelly-quadrant-loss-elimination.md | **亏损象限识别与剔除验证:用户假设 y1 成立/全周期不成立,细粒度子群降亏键是正解,候选 K2C5港股追涨/K3主关注×概念**(2026-08-15 新增;数据 `data/kelly-quadrant-mining-data.json`+脚本 `scripts/quadrant_mining/`10个) |
 
 > 认知差/费率/收益线性/时机/卡间水印等分析类报告。**如何新增**:报告放本目录(`kelly-<主题>.md`),脚本放 `scripts/`,并同步更新本索引。
 

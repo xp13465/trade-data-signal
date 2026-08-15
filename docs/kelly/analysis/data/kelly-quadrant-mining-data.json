@@ -1,0 +1,2156 @@
+{
+ "quad_basic": {
+  "base_A": {
+   "n": 1203,
+   "total_profit": 97724.3256,
+   "win_rate": 0.5536,
+   "mean_return": 0.8123,
+   "return_pct_max_holding": 97.7243,
+   "max_concurrent": 10,
+   "max_concurrent_capital": 100000.0,
+   "total_fee_cost": 25623.457,
+   "total_invest": 12030000.0
+  },
+  "base_G": {
+   "n": 1203,
+   "total_profit": 654551.2197,
+   "win_rate": 0.611,
+   "mean_return": 5.441,
+   "return_pct_max_holding": 48.1288,
+   "max_concurrent": 136,
+   "max_concurrent_capital": 1360000.0,
+   "total_fee_cost": 26799.9112,
+   "total_invest": 12030000.0
+  },
+  "quad_self": {
+   "rating_high": {
+    "label": "高评级",
+    "p9": 513.3229000000002,
+    "n9": 45,
+    "p9y": -4374.7872,
+    "n9y": 18,
+    "a_all": 542.6587,
+    "a_y1": -359.9132,
+    "a_n": 5,
+    "g_all": -199.4419,
+    "g_y1": -568.9832,
+    "g_n": 5
+   },
+   "rating_mid": {
+    "label": "中评级",
+    "p9": 276353.95660000003,
+    "n9": 1539,
+    "p9y": 73573.58420000001,
+    "n9y": 297,
+    "a_all": 36616.8778,
+    "a_y1": 11101.5685,
+    "a_n": 171,
+    "g_all": 18123.9973,
+    "g_y1": 6031.839,
+    "g_n": 171
+   },
+   "rating_low": {
+    "label": "低评级",
+    "p9": 1434495.748,
+    "n9": 9243,
+    "p9y": 102835.07450000002,
+    "n9y": 1206,
+    "a_all": 60564.789,
+    "a_y1": 11489.1203,
+    "a_n": 1027,
+    "g_all": 636626.6644,
+    "g_y1": 15140.7926,
+    "g_n": 1027
+   },
+   "etf_strong": {
+    "label": "强关联ETF",
+    "p9": 784120.6233999999,
+    "n9": 3609,
+    "p9y": 163591.83530000004,
+    "n9y": 828,
+    "a_all": 52619.0214,
+    "a_y1": 21917.8625,
+    "a_n": 401,
+    "g_all": 215411.0031,
+    "g_y1": 20038.3757,
+    "g_n": 401
+   },
+   "etf_related": {
+    "label": "相关ETF",
+    "p9": 747615.0954999999,
+    "n9": 5850,
+    "p9y": 25933.8414,
+    "n9y": 522,
+    "a_all": 32012.1484,
+    "a_y1": 3155.4069,
+    "a_n": 650,
+    "g_all": 367870.1587,
+    "g_y1": 3748.3119,
+    "g_n": 650
+   },
+   "etf_approx": {
+    "label": "近似ETF",
+    "p9": 166897.16969999997,
+    "n9": 918,
+    "p9y": -4993.0257,
+    "n9y": 99,
+    "a_all": 16127.8713,
+    "a_y1": -424.0124,
+    "a_n": 102,
+    "g_all": 54997.3417,
+    "g_y1": -1665.5295,
+    "g_n": 102
+   },
+   "etf_has_track": {
+    "label": "有跟踪ETF",
+    "p9": -23096.263199999998,
+    "n9": 378,
+    "p9y": -12607.758299999998,
+    "n9y": 54,
+    "a_all": -6290.5125,
+    "a_y1": -2146.7287,
+    "a_n": 42,
+    "g_all": 8370.9383,
+    "g_y1": -1330.4314,
+    "g_n": 42
+   },
+   "sig_main": {
+    "label": "主关注",
+    "p9": 363784.00769999996,
+    "n9": 1917,
+    "p9y": 23676.1993,
+    "n9y": 252,
+    "a_all": 23362.7703,
+    "a_y1": 3121.2572,
+    "a_n": 213,
+    "g_all": 112774.704,
+    "g_y1": 1821.7577,
+    "g_n": 213
+   },
+   "sig_aux": {
+    "label": "辅关注",
+    "p9": 537310.1335,
+    "n9": 2880,
+    "p9y": 53463.100900000005,
+    "n9y": 360,
+    "a_all": 19923.7794,
+    "a_y1": 4602.1831,
+    "a_n": 320,
+    "g_all": 203517.9704,
+    "g_y1": 11052.9825,
+    "g_n": 320
+   },
+   "sig_special": {
+    "label": "追关注",
+    "p9": 573163.5594,
+    "n9": 4401,
+    "p9y": 90642.76260000002,
+    "n9y": 675,
+    "a_all": 35009.9969,
+    "a_y1": 13431.5729,
+    "a_n": 489,
+    "g_all": 275241.6991,
+    "g_y1": 12115.9021,
+    "g_n": 489
+   },
+   "sig_backup": {
+    "label": "备关注",
+    "p9": 237105.32679999998,
+    "n9": 1629,
+    "p9y": 4251.8087,
+    "n9y": 234,
+    "a_all": 19427.779,
+    "a_y1": 1075.7624,
+    "a_n": 181,
+    "g_all": 63016.8462,
+    "g_y1": -4386.9938,
+    "g_n": 181
+   },
+   "mkt_a": {
+    "label": "A股宽基",
+    "p9": 584387.2109000001,
+    "n9": 3033,
+    "p9y": 62865.748999999996,
+    "n9y": 243,
+    "a_all": 31758.2496,
+    "a_y1": 6971.7102,
+    "a_n": 337,
+    "g_all": 215256.3618,
+    "g_y1": 7582.8446,
+    "g_n": 337
+   },
+   "mkt_hk": {
+    "label": "港股",
+    "p9": 21778.3701,
+    "n9": 936,
+    "p9y": -4149.2465,
+    "n9y": 54,
+    "a_all": -3727.5166,
+    "a_y1": -590.0697,
+    "a_n": 104,
+    "g_all": 23683.3331,
+    "g_y1": -398.1408,
+    "g_n": 104
+   },
+   "mkt_global": {
+    "label": "全球/国债",
+    "p9": 270167.0295,
+    "n9": 1053,
+    "p9y": 46450.226200000005,
+    "n9y": 243,
+    "a_all": 1086.9161,
+    "a_y1": 2918.3733,
+    "a_n": 117,
+    "g_all": 185618.4253,
+    "g_y1": 14777.4269,
+    "g_n": 117
+   },
+   "mkt_industry": {
+    "label": "申万行业",
+    "p9": 213708.68129999997,
+    "n9": 1854,
+    "p9y": -31015.1547,
+    "n9y": 189,
+    "a_all": 21039.0478,
+    "a_y1": -1429.099,
+    "a_n": 206,
+    "g_all": 57760.5829,
+    "g_y1": -12726.7438,
+    "g_n": 206
+   },
+   "mkt_concept": {
+    "label": "概念/主题",
+    "p9": 621321.7361000001,
+    "n9": 3951,
+    "p9y": 97882.29729999999,
+    "n9y": 792,
+    "a_all": 47567.6287,
+    "a_y1": 14359.8607,
+    "a_n": 439,
+    "g_all": 172232.5167,
+    "g_y1": 11368.2615,
+    "g_n": 439
+   }
+  },
+  "excl": {
+   "rating_high": {
+    "label": "高评级",
+    "dA": 409.38790000000154,
+    "sA": {
+     "n": 1202,
+     "total_profit": 98133.7135,
+     "win_rate": 0.5549,
+     "mean_return": 0.8164,
+     "return_pct_max_holding": 98.1337,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 25603.099,
+     "total_invest": 12020000.0
+    },
+    "dG": 1438.1185999999288,
+    "sG": {
+     "n": 1202,
+     "total_profit": 655989.3383,
+     "win_rate": 0.6115,
+     "mean_return": 5.4575,
+     "return_pct_max_holding": 48.2345,
+     "max_concurrent": 136,
+     "max_concurrent_capital": 1360000.0,
+     "total_fee_cost": 26781.7203,
+     "total_invest": 12020000.0
+    }
+   },
+   "rating_mid": {
+    "label": "中评级",
+    "dA": -7848.739699999991,
+    "sA": {
+     "n": 1143,
+     "total_profit": 89875.5859,
+     "win_rate": 0.5608,
+     "mean_return": 0.7863,
+     "return_pct_max_holding": 89.8756,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 24350.3703,
+     "total_invest": 11430000.0
+    },
+    "dG": 62959.207199999946,
+    "sG": {
+     "n": 1143,
+     "total_profit": 717510.4269,
+     "win_rate": 0.6369,
+     "mean_return": 6.2774,
+     "return_pct_max_holding": 50.5289,
+     "max_concurrent": 142,
+     "max_concurrent_capital": 1420000.0,
+     "total_fee_cost": 25676.7987,
+     "total_invest": 11430000.0
+    }
+   },
+   "rating_low": {
+    "label": "低评级",
+    "dA": -14033.74579999999,
+    "sA": {
+     "n": 357,
+     "total_profit": 83690.5798,
+     "win_rate": 0.619,
+     "mean_return": 2.3443,
+     "return_pct_max_holding": 83.6906,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 7713.5673,
+     "total_invest": 3570000.0
+    },
+    "dG": -560958.4761,
+    "sG": {
+     "n": 357,
+     "total_profit": 93592.7436,
+     "win_rate": 0.549,
+     "mean_return": 2.6216,
+     "return_pct_max_holding": 18.3515,
+     "max_concurrent": 51,
+     "max_concurrent_capital": 510000.0,
+     "total_fee_cost": 7734.2057,
+     "total_invest": 3570000.0
+    }
+   },
+   "etf_strong": {
+    "label": "强关联ETF",
+    "dA": -19253.292799999996,
+    "sA": {
+     "n": 1164,
+     "total_profit": 78471.0328,
+     "win_rate": 0.5455,
+     "mean_return": 0.6741,
+     "return_pct_max_holding": 78.471,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 24750.8933,
+     "total_invest": 11640000.0
+    },
+    "dG": -30614.31520000007,
+    "sG": {
+     "n": 1164,
+     "total_profit": 623936.9045,
+     "win_rate": 0.6229,
+     "mean_return": 5.3603,
+     "return_pct_max_holding": 41.3203,
+     "max_concurrent": 151,
+     "max_concurrent_capital": 1510000.0,
+     "total_fee_cost": 25902.7067,
+     "total_invest": 11640000.0
+    }
+   },
+   "etf_related": {
+    "label": "相关ETF",
+    "dA": -9253.8897,
+    "sA": {
+     "n": 723,
+     "total_profit": 88470.4359,
+     "win_rate": 0.5809,
+     "mean_return": 1.2237,
+     "return_pct_max_holding": 88.4704,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 15477.5717,
+     "total_invest": 7230000.0
+    },
+    "dG": -262591.22390000004,
+    "sG": {
+     "n": 723,
+     "total_profit": 391959.9958,
+     "win_rate": 0.6224,
+     "mean_return": 5.4213,
+     "return_pct_max_holding": 38.4275,
+     "max_concurrent": 102,
+     "max_concurrent_capital": 1020000.0,
+     "total_fee_cost": 16119.9135,
+     "total_invest": 7230000.0
+    }
+   },
+   "etf_approx": {
+    "label": "近似ETF",
+    "dA": -14727.454700000002,
+    "sA": {
+     "n": 1125,
+     "total_profit": 82996.8709,
+     "win_rate": 0.5449,
+     "mean_return": 0.7377,
+     "return_pct_max_holding": 82.9969,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 23936.0505,
+     "total_invest": 11250000.0
+    },
+    "dG": -35937.48490000004,
+    "sG": {
+     "n": 1125,
+     "total_profit": 618613.7348,
+     "win_rate": 0.6124,
+     "mean_return": 5.4988,
+     "return_pct_max_holding": 48.3292,
+     "max_concurrent": 128,
+     "max_concurrent_capital": 1280000.0,
+     "total_fee_cost": 25067.4105,
+     "total_invest": 11250000.0
+    }
+   },
+   "etf_has_track": {
+    "label": "有跟踪ETF",
+    "dA": 5047.157300000006,
+    "sA": {
+     "n": 1166,
+     "total_profit": 102771.4829,
+     "win_rate": 0.5583,
+     "mean_return": 0.8814,
+     "return_pct_max_holding": 102.7715,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 24855.0784,
+     "total_invest": 11660000.0
+    },
+    "dG": -7412.106099999975,
+    "sG": {
+     "n": 1166,
+     "total_profit": 647139.1136,
+     "win_rate": 0.6132,
+     "mean_return": 5.5501,
+     "return_pct_max_holding": 49.0257,
+     "max_concurrent": 132,
+     "max_concurrent_capital": 1320000.0,
+     "total_fee_cost": 26005.236,
+     "total_invest": 11660000.0
+    }
+   },
+   "sig_main": {
+    "label": "主关注",
+    "dA": -10581.473599999998,
+    "sA": {
+     "n": 1083,
+     "total_profit": 87142.852,
+     "win_rate": 0.5466,
+     "mean_return": 0.8046,
+     "return_pct_max_holding": 87.1429,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 23068.8678,
+     "total_invest": 10830000.0
+    },
+    "dG": -43620.39870000002,
+    "sG": {
+     "n": 1083,
+     "total_profit": 610930.821,
+     "win_rate": 0.614,
+     "mean_return": 5.6411,
+     "return_pct_max_holding": 50.4902,
+     "max_concurrent": 121,
+     "max_concurrent_capital": 1210000.0,
+     "total_fee_cost": 24175.9856,
+     "total_invest": 10830000.0
+    }
+   },
+   "sig_aux": {
+    "label": "辅关注",
+    "dA": -11664.795400000003,
+    "sA": {
+     "n": 1009,
+     "total_profit": 86059.5302,
+     "win_rate": 0.553,
+     "mean_return": 0.8529,
+     "return_pct_max_holding": 86.0595,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 21492.6673,
+     "total_invest": 10090000.0
+    },
+    "dG": -113095.37919999997,
+    "sG": {
+     "n": 1009,
+     "total_profit": 541455.8405,
+     "win_rate": 0.6056,
+     "mean_return": 5.3663,
+     "return_pct_max_holding": 42.9727,
+     "max_concurrent": 126,
+     "max_concurrent_capital": 1260000.0,
+     "total_fee_cost": 22454.7955,
+     "total_invest": 10090000.0
+    }
+   },
+   "sig_special": {
+    "label": "追关注",
+    "dA": -26102.21209999999,
+    "sA": {
+     "n": 788,
+     "total_profit": 71622.1135,
+     "win_rate": 0.5635,
+     "mean_return": 0.9089,
+     "return_pct_max_holding": 79.5801,
+     "max_concurrent": 9,
+     "max_concurrent_capital": 90000.0,
+     "total_fee_cost": 16812.7077,
+     "total_invest": 7880000.0
+    },
+    "dG": -245881.4831,
+    "sG": {
+     "n": 788,
+     "total_profit": 408669.7366,
+     "win_rate": 0.6294,
+     "mean_return": 5.1862,
+     "return_pct_max_holding": 36.4884,
+     "max_concurrent": 112,
+     "max_concurrent_capital": 1120000.0,
+     "total_fee_cost": 17525.1543,
+     "total_invest": 7880000.0
+    }
+   },
+   "sig_backup": {
+    "label": "备关注",
+    "dA": -13034.437399999995,
+    "sA": {
+     "n": 1063,
+     "total_profit": 84689.8882,
+     "win_rate": 0.5569,
+     "mean_return": 0.7967,
+     "return_pct_max_holding": 84.6899,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 22638.3654,
+     "total_invest": 10630000.0
+    },
+    "dG": -41570.605899999966,
+    "sG": {
+     "n": 1063,
+     "total_profit": 612980.6138,
+     "win_rate": 0.6181,
+     "mean_return": 5.7665,
+     "return_pct_max_holding": 49.8358,
+     "max_concurrent": 123,
+     "max_concurrent_capital": 1230000.0,
+     "total_fee_cost": 23754.5273,
+     "total_invest": 10630000.0
+    }
+   },
+   "mkt_a": {
+    "label": "A股宽基",
+    "dA": -10891.046000000002,
+    "sA": {
+     "n": 1075,
+     "total_profit": 86833.2796,
+     "win_rate": 0.547,
+     "mean_return": 0.8078,
+     "return_pct_max_holding": 86.8333,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 22920.0678,
+     "total_invest": 10750000.0
+    },
+    "dG": -112789.92170000006,
+    "sG": {
+     "n": 1075,
+     "total_profit": 541761.298,
+     "win_rate": 0.6074,
+     "mean_return": 5.0396,
+     "return_pct_max_holding": 40.4299,
+     "max_concurrent": 134,
+     "max_concurrent_capital": 1340000.0,
+     "total_fee_cost": 23881.6472,
+     "total_invest": 10750000.0
+    }
+   },
+   "mkt_hk": {
+    "label": "港股",
+    "dA": 1476.1897000000026,
+    "sA": {
+     "n": 1124,
+     "total_profit": 99200.5153,
+     "win_rate": 0.5516,
+     "mean_return": 0.8826,
+     "return_pct_max_holding": 99.2005,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 23948.0226,
+     "total_invest": 11240000.0
+    },
+    "dG": -13448.86129999999,
+    "sG": {
+     "n": 1124,
+     "total_profit": 641102.3584,
+     "win_rate": 0.6139,
+     "mean_return": 5.7038,
+     "return_pct_max_holding": 47.1399,
+     "max_concurrent": 136,
+     "max_concurrent_capital": 1360000.0,
+     "total_fee_cost": 25092.745,
+     "total_invest": 11240000.0
+    }
+   },
+   "mkt_global": {
+    "label": "全球/国债",
+    "dA": 554.7058000000106,
+    "sA": {
+     "n": 1109,
+     "total_profit": 98279.0314,
+     "win_rate": 0.5582,
+     "mean_return": 0.8862,
+     "return_pct_max_holding": 98.279,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 23639.3555,
+     "total_invest": 11090000.0
+    },
+    "dG": -181463.6996,
+    "sG": {
+     "n": 1109,
+     "total_profit": 473087.5201,
+     "win_rate": 0.5933,
+     "mean_return": 4.2659,
+     "return_pct_max_holding": 41.8662,
+     "max_concurrent": 113,
+     "max_concurrent_capital": 1130000.0,
+     "total_fee_cost": 24430.3483,
+     "total_invest": 11090000.0
+    }
+   },
+   "mkt_industry": {
+    "label": "申万行业",
+    "dA": -10652.257100000003,
+    "sA": {
+     "n": 1075,
+     "total_profit": 87072.0685,
+     "win_rate": 0.5553,
+     "mean_return": 0.81,
+     "return_pct_max_holding": 87.0721,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 22897.1807,
+     "total_invest": 10750000.0
+    },
+    "dG": -32826.244200000074,
+    "sG": {
+     "n": 1075,
+     "total_profit": 621724.9755,
+     "win_rate": 0.6167,
+     "mean_return": 5.7835,
+     "return_pct_max_holding": 48.9547,
+     "max_concurrent": 127,
+     "max_concurrent_capital": 1270000.0,
+     "total_fee_cost": 24027.2587,
+     "total_invest": 10750000.0
+    }
+   },
+   "mkt_concept": {
+    "label": "概念/主题",
+    "dA": -11683.453999999998,
+    "sA": {
+     "n": 1044,
+     "total_profit": 86040.8716,
+     "win_rate": 0.5623,
+     "mean_return": 0.8241,
+     "return_pct_max_holding": 86.0409,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 22231.4935,
+     "total_invest": 10440000.0
+    },
+    "dG": -52820.20380000002,
+    "sG": {
+     "n": 1044,
+     "total_profit": 601731.0159,
+     "win_rate": 0.6159,
+     "mean_return": 5.7637,
+     "return_pct_max_holding": 41.7869,
+     "max_concurrent": 144,
+     "max_concurrent_capital": 1440000.0,
+     "total_fee_cost": 23321.6855,
+     "total_invest": 10440000.0
+    }
+   }
+  }
+ },
+ "quad_y1_excl": {
+  "baseline_y1": {
+   "A": {
+    "n": 169,
+    "total_profit": 22230.7755,
+    "win_rate": 0.5799,
+    "mean_return": 1.3154,
+    "return_pct_max_holding": 22.2308,
+    "max_concurrent": 10,
+    "max_concurrent_capital": 100000.0,
+    "total_fee_cost": 3611.455,
+    "total_invest": 1690000.0
+   },
+   "G": {
+    "n": 169,
+    "total_profit": 20603.6484,
+    "win_rate": 0.4911,
+    "mean_return": 1.2192,
+    "return_pct_max_holding": 2.3958,
+    "max_concurrent": 86,
+    "max_concurrent_capital": 860000.0,
+    "total_fee_cost": 3608.0782,
+    "total_invest": 1690000.0
+   },
+   "n9": 1521,
+   "p9": 172033.8712
+  }
+ },
+ "candidate_excl": {
+  "baseline": {
+   "A_all": {
+    "n": 1203,
+    "total_profit": 97724.3256,
+    "win_rate": 0.5536,
+    "mean_return": 0.8123,
+    "return_pct_max_holding": 97.7243,
+    "max_concurrent": 10,
+    "max_concurrent_capital": 100000.0,
+    "total_fee_cost": 25623.457,
+    "total_invest": 12030000.0
+   },
+   "G_all": {
+    "n": 1203,
+    "total_profit": 654551.2197,
+    "win_rate": 0.611,
+    "mean_return": 5.441,
+    "return_pct_max_holding": 48.1288,
+    "max_concurrent": 136,
+    "max_concurrent_capital": 1360000.0,
+    "total_fee_cost": 26799.9112,
+    "total_invest": 12030000.0
+   },
+   "A_y1": {
+    "n": 169,
+    "total_profit": 22230.7755,
+    "win_rate": 0.5799,
+    "mean_return": 1.3154,
+    "return_pct_max_holding": 22.2308,
+    "max_concurrent": 10,
+    "max_concurrent_capital": 100000.0,
+    "total_fee_cost": 3611.455,
+    "total_invest": 1690000.0
+   },
+   "G_y1": {
+    "n": 169,
+    "total_profit": 20603.6484,
+    "win_rate": 0.4911,
+    "mean_return": 1.2192,
+    "return_pct_max_holding": 2.3958,
+    "max_concurrent": 86,
+    "max_concurrent_capital": 860000.0,
+    "total_fee_cost": 3608.0782,
+    "total_invest": 1690000.0
+   }
+  },
+  "self_res": {
+   "追关注×港股": {
+    "y1": {
+     "n": 45,
+     "p": -10508.6283
+    },
+    "all": {
+     "n": 405,
+     "p": -61764.538400000005
+    }
+   },
+   "有跟踪ETF×全球/国债": {
+    "y1": {
+     "n": 18,
+     "p": -5761.7142
+    },
+    "all": {
+     "n": 153,
+     "p": -7739.984000000002
+    }
+   },
+   "有跟踪ETF×概念/主题": {
+    "y1": {
+     "n": 18,
+     "p": -2475.4748999999997
+    },
+    "all": {
+     "n": 162,
+     "p": -18409.585700000003
+    }
+   },
+   "有跟踪ETF(整组)": {
+    "y1": {
+     "n": 54,
+     "p": -12607.758299999998
+    },
+    "all": {
+     "n": 378,
+     "p": -23096.263199999998
+    }
+   },
+   "高评级(整组)": {
+    "y1": {
+     "n": 18,
+     "p": -4374.7872
+    },
+    "all": {
+     "n": 45,
+     "p": 513.3229000000002
+    }
+   },
+   "近似ETF(整组)": {
+    "y1": {
+     "n": 99,
+     "p": -4993.0257
+    },
+    "all": {
+     "n": 918,
+     "p": 166897.16969999997
+    }
+   },
+   "港股(整组)": {
+    "y1": {
+     "n": 54,
+     "p": -4149.2465
+    },
+    "all": {
+     "n": 936,
+     "p": 21778.3701
+    }
+   },
+   "追关注×申万行业": {
+    "y1": {
+     "n": 63,
+     "p": -6144.7970000000005
+    },
+    "all": {
+     "n": 657,
+     "p": 59446.1503
+    }
+   },
+   "低评级×港股": {
+    "y1": {
+     "n": 45,
+     "p": -10508.6283
+    },
+    "all": {
+     "n": 927,
+     "p": 15418.987899999996
+    }
+   },
+   "相关×申万行业": {
+    "y1": {
+     "n": 117,
+     "p": -26654.125700000004
+    },
+    "all": {
+     "n": 1449,
+     "p": 116676.77489999999
+    }
+   },
+   "追关注×全球/国债": {
+    "y1": {
+     "n": 135,
+     "p": -6493.8604
+    },
+    "all": {
+     "n": 684,
+     "p": 67152.4689
+    }
+   },
+   "备关注×申万行业": {
+    "y1": {
+     "n": 63,
+     "p": -13298.742100000001
+    },
+    "all": {
+     "n": 441,
+     "p": 33520.16479999999
+    }
+   },
+   "有跟踪ETF×申万行业": {
+    "y1": {
+     "n": 18,
+     "p": -4370.5692
+    },
+    "all": {
+     "n": 63,
+     "p": 3053.3065
+    }
+   },
+   "近似×全球/国债": {
+    "y1": {
+     "n": 36,
+     "p": -3416.2477000000003
+    },
+    "all": {
+     "n": 198,
+     "p": 37015.2783
+    }
+   },
+   "主关注×概念/主题": {
+    "y1": {
+     "n": 135,
+     "p": -9998.4441
+    },
+    "all": {
+     "n": 720,
+     "p": 54129.4396
+    }
+   },
+   "备关注×中评级": {
+    "y1": {
+     "n": 18,
+     "p": -8183.948899999999
+    },
+    "all": {
+     "n": 243,
+     "p": 2903.201299999997
+    }
+   }
+  },
+  "excl": {
+   "追关注×港股": {
+    "keyset_n": 136,
+    "dAy1": 1011.5763000000006,
+    "dGy1": 889.8740000000034,
+    "dAall": 5748.6120999999985,
+    "dGall": 493.53590000001714,
+    "sA_all": {
+     "n": 1167,
+     "total_profit": 103472.9377,
+     "win_rate": 0.5553,
+     "mean_return": 0.8867,
+     "return_pct_max_holding": 103.4729,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 24871.0522,
+     "total_invest": 11670000.0
+    },
+    "sG_all": {
+     "n": 1167,
+     "total_profit": 655044.7556,
+     "win_rate": 0.6144,
+     "mean_return": 5.6131,
+     "return_pct_max_holding": 48.1651,
+     "max_concurrent": 136,
+     "max_concurrent_capital": 1360000.0,
+     "total_fee_cost": 26036.3718,
+     "total_invest": 11670000.0
+    },
+    "sA_y1": {
+     "n": 167,
+     "total_profit": 23242.3518,
+     "win_rate": 0.5868,
+     "mean_return": 1.3918,
+     "return_pct_max_holding": 23.2424,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 3570.7582,
+     "total_invest": 1670000.0
+    },
+    "sG_y1": {
+     "n": 167,
+     "total_profit": 21493.5224,
+     "win_rate": 0.497,
+     "mean_return": 1.287,
+     "return_pct_max_holding": 2.5286,
+     "max_concurrent": 85,
+     "max_concurrent_capital": 850000.0,
+     "total_fee_cost": 3567.1223,
+     "total_invest": 1670000.0
+    }
+   },
+   "有跟踪ETF×全球/国债": {
+    "keyset_n": 94,
+    "dAy1": 710.8751999999986,
+    "dGy1": 840.0254000000023,
+    "dAall": 2466.978600000002,
+    "dGall": -9704.01800000004,
+    "sA_all": {
+     "n": 1187,
+     "total_profit": 100191.3042,
+     "win_rate": 0.556,
+     "mean_return": 0.8441,
+     "return_pct_max_holding": 100.1913,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 25292.29,
+     "total_invest": 11870000.0
+    },
+    "sG_all": {
+     "n": 1187,
+     "total_profit": 644847.2017,
+     "win_rate": 0.6116,
+     "mean_return": 5.4326,
+     "return_pct_max_holding": 47.4152,
+     "max_concurrent": 136,
+     "max_concurrent_capital": 1360000.0,
+     "total_fee_cost": 26443.1582,
+     "total_invest": 11870000.0
+    },
+    "sA_y1": {
+     "n": 167,
+     "total_profit": 22941.6507,
+     "win_rate": 0.5808,
+     "mean_return": 1.3738,
+     "return_pct_max_holding": 22.9417,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 3570.9053,
+     "total_invest": 1670000.0
+    },
+    "sG_y1": {
+     "n": 167,
+     "total_profit": 21443.6738,
+     "win_rate": 0.497,
+     "mean_return": 1.2841,
+     "return_pct_max_holding": 2.4935,
+     "max_concurrent": 86,
+     "max_concurrent_capital": 860000.0,
+     "total_fee_cost": 3567.8,
+     "total_invest": 1670000.0
+    }
+   },
+   "有跟踪ETF×概念/主题": {
+    "keyset_n": 1322,
+    "dAy1": -247.65589999999793,
+    "dGy1": -1595.7027999999991,
+    "dAall": 1464.1379000000015,
+    "dGall": 2578.7197999999626,
+    "sA_all": {
+     "n": 1190,
+     "total_profit": 99188.4635,
+     "win_rate": 0.5546,
+     "mean_return": 0.8335,
+     "return_pct_max_holding": 99.1885,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 25352.0759,
+     "total_invest": 11900000.0
+    },
+    "sG_all": {
+     "n": 1190,
+     "total_profit": 657129.9395,
+     "win_rate": 0.6109,
+     "mean_return": 5.5221,
+     "return_pct_max_holding": 49.7826,
+     "max_concurrent": 132,
+     "max_concurrent_capital": 1320000.0,
+     "total_fee_cost": 26530.7685,
+     "total_invest": 11900000.0
+    },
+    "sA_y1": {
+     "n": 168,
+     "total_profit": 21983.1196,
+     "win_rate": 0.5774,
+     "mean_return": 1.3085,
+     "return_pct_max_holding": 21.9831,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 3589.9123,
+     "total_invest": 1680000.0
+    },
+    "sG_y1": {
+     "n": 168,
+     "total_profit": 19007.9456,
+     "win_rate": 0.4881,
+     "mean_return": 1.1314,
+     "return_pct_max_holding": 2.2102,
+     "max_concurrent": 86,
+     "max_concurrent_capital": 860000.0,
+     "total_fee_cost": 3583.7016,
+     "total_invest": 1680000.0
+    }
+   },
+   "有跟踪ETF(整组)": {
+    "keyset_n": 1599,
+    "dAy1": 1163.4519,
+    "dGy1": -302.3161,
+    "dAall": 5047.157300000006,
+    "dGall": -7412.106099999975,
+    "sA_all": {
+     "n": 1166,
+     "total_profit": 102771.4829,
+     "win_rate": 0.5583,
+     "mean_return": 0.8814,
+     "return_pct_max_holding": 102.7715,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 24855.0784,
+     "total_invest": 11660000.0
+    },
+    "sG_all": {
+     "n": 1166,
+     "total_profit": 647139.1136,
+     "win_rate": 0.6132,
+     "mean_return": 5.5501,
+     "return_pct_max_holding": 49.0257,
+     "max_concurrent": 132,
+     "max_concurrent_capital": 1320000.0,
+     "total_fee_cost": 26005.236,
+     "total_invest": 11660000.0
+    },
+    "sA_y1": {
+     "n": 164,
+     "total_profit": 23394.2274,
+     "win_rate": 0.5854,
+     "mean_return": 1.4265,
+     "return_pct_max_holding": 23.3942,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 3508.7905,
+     "total_invest": 1640000.0
+    },
+    "sG_y1": {
+     "n": 164,
+     "total_profit": 20301.3323,
+     "win_rate": 0.5,
+     "mean_return": 1.2379,
+     "return_pct_max_holding": 2.3606,
+     "max_concurrent": 86,
+     "max_concurrent_capital": 860000.0,
+     "total_fee_cost": 3502.3323,
+     "total_invest": 1640000.0
+    }
+   },
+   "高评级(整组)": {
+    "keyset_n": 85,
+    "dAy1": 361.3172999999988,
+    "dGy1": 356.9155000000028,
+    "dAall": 409.38790000000154,
+    "dGall": 1438.1185999999288,
+    "sA_all": {
+     "n": 1202,
+     "total_profit": 98133.7135,
+     "win_rate": 0.5549,
+     "mean_return": 0.8164,
+     "return_pct_max_holding": 98.1337,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 25603.099,
+     "total_invest": 12020000.0
+    },
+    "sG_all": {
+     "n": 1202,
+     "total_profit": 655989.3383,
+     "win_rate": 0.6115,
+     "mean_return": 5.4575,
+     "return_pct_max_holding": 48.2345,
+     "max_concurrent": 136,
+     "max_concurrent_capital": 1360000.0,
+     "total_fee_cost": 26781.7203,
+     "total_invest": 12020000.0
+    },
+    "sA_y1": {
+     "n": 168,
+     "total_profit": 22592.0928,
+     "win_rate": 0.5893,
+     "mean_return": 1.3448,
+     "return_pct_max_holding": 22.5921,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 3590.9963,
+     "total_invest": 1680000.0
+    },
+    "sG_y1": {
+     "n": 168,
+     "total_profit": 20960.5639,
+     "win_rate": 0.494,
+     "mean_return": 1.2477,
+     "return_pct_max_holding": 2.4659,
+     "max_concurrent": 85,
+     "max_concurrent_capital": 850000.0,
+     "total_fee_cost": 3587.6145,
+     "total_invest": 1680000.0
+    }
+   },
+   "近似ETF(整组)": {
+    "keyset_n": 1112,
+    "dAy1": -258.96500000000015,
+    "dGy1": -514.1106,
+    "dAall": -14727.454700000002,
+    "dGall": -35937.48490000004,
+    "sA_all": {
+     "n": 1125,
+     "total_profit": 82996.8709,
+     "win_rate": 0.5449,
+     "mean_return": 0.7377,
+     "return_pct_max_holding": 82.9969,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 23936.0505,
+     "total_invest": 11250000.0
+    },
+    "sG_all": {
+     "n": 1125,
+     "total_profit": 618613.7348,
+     "win_rate": 0.6124,
+     "mean_return": 5.4988,
+     "return_pct_max_holding": 48.3292,
+     "max_concurrent": 128,
+     "max_concurrent_capital": 1280000.0,
+     "total_fee_cost": 25067.4105,
+     "total_invest": 11250000.0
+    },
+    "sA_y1": {
+     "n": 161,
+     "total_profit": 21971.8105,
+     "win_rate": 0.5901,
+     "mean_return": 1.3647,
+     "return_pct_max_holding": 21.9718,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 3441.5305,
+     "total_invest": 1610000.0
+    },
+    "sG_y1": {
+     "n": 161,
+     "total_profit": 20089.5378,
+     "win_rate": 0.4845,
+     "mean_return": 1.2478,
+     "return_pct_max_holding": 2.543,
+     "max_concurrent": 79,
+     "max_concurrent_capital": 790000.0,
+     "total_fee_cost": 3437.6257,
+     "total_invest": 1610000.0
+    }
+   },
+   "港股(整组)": {
+    "keyset_n": 326,
+    "dAy1": 213.9164000000019,
+    "dGy1": 59.777900000000955,
+    "dAall": 1476.1897000000026,
+    "dGall": -13448.86129999999,
+    "sA_all": {
+     "n": 1124,
+     "total_profit": 99200.5153,
+     "win_rate": 0.5516,
+     "mean_return": 0.8826,
+     "return_pct_max_holding": 99.2005,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 23948.0226,
+     "total_invest": 11240000.0
+    },
+    "sG_all": {
+     "n": 1124,
+     "total_profit": 641102.3584,
+     "win_rate": 0.6139,
+     "mean_return": 5.7038,
+     "return_pct_max_holding": 47.1399,
+     "max_concurrent": 136,
+     "max_concurrent_capital": 1360000.0,
+     "total_fee_cost": 25092.745,
+     "total_invest": 11240000.0
+    },
+    "sA_y1": {
+     "n": 166,
+     "total_profit": 22444.6919,
+     "win_rate": 0.5843,
+     "mean_return": 1.3521,
+     "return_pct_max_holding": 22.4447,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 3547.8428,
+     "total_invest": 1660000.0
+    },
+    "sG_y1": {
+     "n": 166,
+     "total_profit": 20663.4263,
+     "win_rate": 0.494,
+     "mean_return": 1.2448,
+     "return_pct_max_holding": 2.4599,
+     "max_concurrent": 84,
+     "max_concurrent_capital": 840000.0,
+     "total_fee_cost": 3544.1381,
+     "total_invest": 1660000.0
+    }
+   },
+   "追关注×申万行业": {
+    "keyset_n": 675,
+    "dAy1": -233.16010000000097,
+    "dGy1": 1971.8240000000005,
+    "dAall": 3429.8010000000068,
+    "dGall": -30755.248099999968,
+    "sA_all": {
+     "n": 1165,
+     "total_profit": 101154.1266,
+     "win_rate": 0.5571,
+     "mean_return": 0.8683,
+     "return_pct_max_holding": 101.1541,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 24830.809,
+     "total_invest": 11650000.0
+    },
+    "sG_all": {
+     "n": 1165,
+     "total_profit": 623795.9716,
+     "win_rate": 0.6077,
+     "mean_return": 5.3545,
+     "return_pct_max_holding": 45.8674,
+     "max_concurrent": 136,
+     "max_concurrent_capital": 1360000.0,
+     "total_fee_cost": 25935.2031,
+     "total_invest": 11650000.0
+    },
+    "sA_y1": {
+     "n": 164,
+     "total_profit": 21997.6154,
+     "win_rate": 0.5732,
+     "mean_return": 1.3413,
+     "return_pct_max_holding": 21.9976,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 3506.0393,
+     "total_invest": 1640000.0
+    },
+    "sG_y1": {
+     "n": 164,
+     "total_profit": 22575.4724,
+     "win_rate": 0.5,
+     "mean_return": 1.3766,
+     "return_pct_max_holding": 2.7199,
+     "max_concurrent": 83,
+     "max_concurrent_capital": 830000.0,
+     "total_fee_cost": 3507.2873,
+     "total_invest": 1640000.0
+    }
+   },
+   "低评级×港股": {
+    "keyset_n": 323,
+    "dAy1": 1011.5763000000006,
+    "dGy1": 889.8740000000034,
+    "dAall": 2273.8496000000014,
+    "dGall": -12618.765200000023,
+    "sA_all": {
+     "n": 1125,
+     "total_profit": 99998.1752,
+     "win_rate": 0.552,
+     "mean_return": 0.8889,
+     "return_pct_max_holding": 99.9982,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 23970.9379,
+     "total_invest": 11250000.0
+    },
+    "sG_all": {
+     "n": 1125,
+     "total_profit": 641932.4545,
+     "win_rate": 0.6142,
+     "mean_return": 5.7061,
+     "return_pct_max_holding": 47.2009,
+     "max_concurrent": 136,
+     "max_concurrent_capital": 1360000.0,
+     "total_fee_cost": 25115.7292,
+     "total_invest": 11250000.0
+    },
+    "sA_y1": {
+     "n": 167,
+     "total_profit": 23242.3518,
+     "win_rate": 0.5868,
+     "mean_return": 1.3918,
+     "return_pct_max_holding": 23.2424,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 3570.7582,
+     "total_invest": 1670000.0
+    },
+    "sG_y1": {
+     "n": 167,
+     "total_profit": 21493.5224,
+     "win_rate": 0.497,
+     "mean_return": 1.287,
+     "return_pct_max_holding": 2.5286,
+     "max_concurrent": 85,
+     "max_concurrent_capital": 850000.0,
+     "total_fee_cost": 3567.1223,
+     "total_invest": 1670000.0
+    }
+   },
+   "相关×申万行业": {
+    "keyset_n": 812,
+    "dAy1": 255.61899999999878,
+    "dGy1": 10025.618300000002,
+    "dAall": -4697.079100000003,
+    "dGall": -21723.176800000016,
+    "sA_all": {
+     "n": 1112,
+     "total_profit": 93027.2465,
+     "win_rate": 0.5576,
+     "mean_return": 0.8366,
+     "return_pct_max_holding": 93.0272,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 23691.6789,
+     "total_invest": 11120000.0
+    },
+    "sG_all": {
+     "n": 1112,
+     "total_profit": 632828.0429,
+     "win_rate": 0.6133,
+     "mean_return": 5.6909,
+     "return_pct_max_holding": 49.0564,
+     "max_concurrent": 129,
+     "max_concurrent_capital": 1290000.0,
+     "total_fee_cost": 24832.525,
+     "total_invest": 11120000.0
+    },
+    "sA_y1": {
+     "n": 162,
+     "total_profit": 22486.3945,
+     "win_rate": 0.5802,
+     "mean_return": 1.388,
+     "return_pct_max_holding": 22.4864,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 3464.0466,
+     "total_invest": 1620000.0
+    },
+    "sG_y1": {
+     "n": 162,
+     "total_profit": 30629.2667,
+     "win_rate": 0.5123,
+     "mean_return": 1.8907,
+     "return_pct_max_holding": 3.8771,
+     "max_concurrent": 79,
+     "max_concurrent_capital": 790000.0,
+     "total_fee_cost": 3481.3904,
+     "total_invest": 1620000.0
+    }
+   },
+   "追关注×全球/国债": {
+    "keyset_n": 414,
+    "dAy1": 933.1693999999989,
+    "dGy1": -4103.246099999997,
+    "dAall": 5825.088799999998,
+    "dGall": -93694.12430000002,
+    "sA_all": {
+     "n": 1145,
+     "total_profit": 103549.4144,
+     "win_rate": 0.5624,
+     "mean_return": 0.9044,
+     "return_pct_max_holding": 103.5494,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 24411.4593,
+     "total_invest": 11450000.0
+    },
+    "sG_all": {
+     "n": 1145,
+     "total_profit": 560857.0954,
+     "win_rate": 0.6079,
+     "mean_return": 4.8983,
+     "return_pct_max_holding": 46.7381,
+     "max_concurrent": 120,
+     "max_concurrent_capital": 1200000.0,
+     "total_fee_cost": 25377.0321,
+     "total_invest": 11450000.0
+    },
+    "sA_y1": {
+     "n": 161,
+     "total_profit": 23163.9449,
+     "win_rate": 0.6025,
+     "mean_return": 1.4388,
+     "return_pct_max_holding": 23.1639,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 3444.6457,
+     "total_invest": 1610000.0
+    },
+    "sG_y1": {
+     "n": 161,
+     "total_profit": 16500.4023,
+     "win_rate": 0.472,
+     "mean_return": 1.0249,
+     "return_pct_max_holding": 2.0371,
+     "max_concurrent": 81,
+     "max_concurrent_capital": 810000.0,
+     "total_fee_cost": 3430.5716,
+     "total_invest": 1610000.0
+    }
+   },
+   "备关注×申万行业": {
+    "keyset_n": 148,
+    "dAy1": 1432.149400000002,
+    "dGy1": 4055.6509000000005,
+    "dAall": -4351.068499999994,
+    "dGall": 5259.929699999979,
+    "sA_all": {
+     "n": 1166,
+     "total_profit": 93373.2571,
+     "win_rate": 0.5549,
+     "mean_return": 0.8008,
+     "return_pct_max_holding": 93.3733,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 24832.4087,
+     "total_invest": 11660000.0
+    },
+    "sG_all": {
+     "n": 1166,
+     "total_profit": 659811.1494,
+     "win_rate": 0.6166,
+     "mean_return": 5.6588,
+     "return_pct_max_holding": 49.9857,
+     "max_concurrent": 132,
+     "max_concurrent_capital": 1320000.0,
+     "total_fee_cost": 26029.2711,
+     "total_invest": 11660000.0
+    },
+    "sA_y1": {
+     "n": 165,
+     "total_profit": 23662.9249,
+     "win_rate": 0.5879,
+     "mean_return": 1.4341,
+     "return_pct_max_holding": 23.6629,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 3529.7907,
+     "total_invest": 1650000.0
+    },
+    "sG_y1": {
+     "n": 165,
+     "total_profit": 24659.2993,
+     "win_rate": 0.497,
+     "mean_return": 1.4945,
+     "return_pct_max_holding": 2.9356,
+     "max_concurrent": 84,
+     "max_concurrent_capital": 840000.0,
+     "total_fee_cost": 3531.9921,
+     "total_invest": 1650000.0
+    }
+   },
+   "有跟踪ETF×申万行业": {
+    "keyset_n": 183,
+    "dAy1": 132.21719999999914,
+    "dGy1": -435.9096999999965,
+    "dAall": 448.4916000000085,
+    "dGall": -5996.03469999996,
+    "sA_all": {
+     "n": 1198,
+     "total_profit": 98172.8172,
+     "win_rate": 0.5543,
+     "mean_return": 0.8195,
+     "return_pct_max_holding": 98.1728,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 25519.687,
+     "total_invest": 11980000.0
+    },
+    "sG_all": {
+     "n": 1198,
+     "total_profit": 648555.185,
+     "win_rate": 0.611,
+     "mean_return": 5.4136,
+     "return_pct_max_holding": 47.6879,
+     "max_concurrent": 136,
+     "max_concurrent_capital": 1360000.0,
+     "total_fee_cost": 26682.5211,
+     "total_invest": 11980000.0
+    },
+    "sA_y1": {
+     "n": 168,
+     "total_profit": 22362.9927,
+     "win_rate": 0.5833,
+     "mean_return": 1.3311,
+     "return_pct_max_holding": 22.363,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 3590.9,
+     "total_invest": 1680000.0
+    },
+    "sG_y1": {
+     "n": 168,
+     "total_profit": 20167.7387,
+     "win_rate": 0.494,
+     "mean_return": 1.2005,
+     "return_pct_max_holding": 2.3451,
+     "max_concurrent": 86,
+     "max_concurrent_capital": 860000.0,
+     "total_fee_cost": 3586.3224,
+     "total_invest": 1680000.0
+    }
+   },
+   "近似×全球/国债": {
+    "keyset_n": 119,
+    "dAy1": 307.7272000000012,
+    "dGy1": -236.7574999999997,
+    "dAall": -1318.3727999999974,
+    "dGall": -20235.704200000037,
+    "sA_all": {
+     "n": 1186,
+     "total_profit": 96405.9528,
+     "win_rate": 0.554,
+     "mean_return": 0.8129,
+     "return_pct_max_holding": 96.406,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 25259.267,
+     "total_invest": 11860000.0
+    },
+    "sG_all": {
+     "n": 1186,
+     "total_profit": 634315.5155,
+     "win_rate": 0.6088,
+     "mean_return": 5.3484,
+     "return_pct_max_holding": 48.421,
+     "max_concurrent": 131,
+     "max_concurrent_capital": 1310000.0,
+     "total_fee_cost": 26395.5341,
+     "total_invest": 11860000.0
+    },
+    "sA_y1": {
+     "n": 166,
+     "total_profit": 22538.5027,
+     "win_rate": 0.5904,
+     "mean_return": 1.3577,
+     "return_pct_max_holding": 22.5385,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 3548.4406,
+     "total_invest": 1660000.0
+    },
+    "sG_y1": {
+     "n": 166,
+     "total_profit": 20366.8909,
+     "win_rate": 0.4819,
+     "mean_return": 1.2269,
+     "return_pct_max_holding": 2.4838,
+     "max_concurrent": 82,
+     "max_concurrent_capital": 820000.0,
+     "total_fee_cost": 3543.9083,
+     "total_invest": 1660000.0
+    }
+   },
+   "主关注×概念/主题": {
+    "keyset_n": 720,
+    "dAy1": 511.89640000000145,
+    "dGy1": 9076.852400000003,
+    "dAall": 5216.594200000007,
+    "dGall": 12508.479199999943,
+    "sA_all": {
+     "n": 1180,
+     "total_profit": 102940.9198,
+     "win_rate": 0.5534,
+     "mean_return": 0.8724,
+     "return_pct_max_holding": 102.9409,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 25148.9265,
+     "total_invest": 11800000.0
+    },
+    "sG_all": {
+     "n": 1180,
+     "total_profit": 667059.6989,
+     "win_rate": 0.6195,
+     "mean_return": 5.653,
+     "return_pct_max_holding": 50.1549,
+     "max_concurrent": 133,
+     "max_concurrent_capital": 1330000.0,
+     "total_fee_cost": 26340.7845,
+     "total_invest": 11800000.0
+    },
+    "sA_y1": {
+     "n": 166,
+     "total_profit": 22742.6719,
+     "win_rate": 0.5663,
+     "mean_return": 1.37,
+     "return_pct_max_holding": 22.7427,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 3550.8906,
+     "total_invest": 1660000.0
+    },
+    "sG_y1": {
+     "n": 166,
+     "total_profit": 29680.5008,
+     "win_rate": 0.506,
+     "mean_return": 1.788,
+     "return_pct_max_holding": 3.6196,
+     "max_concurrent": 82,
+     "max_concurrent_capital": 820000.0,
+     "total_fee_cost": 3565.5791,
+     "total_invest": 1660000.0
+    }
+   },
+   "备关注×中评级": {
+    "keyset_n": 126,
+    "dAy1": 95.54160000000047,
+    "dGy1": 3539.952000000001,
+    "dAall": -1064.7513999999937,
+    "dGall": 19232.690700000036,
+    "sA_all": {
+     "n": 1190,
+     "total_profit": 96659.5742,
+     "win_rate": 0.5563,
+     "mean_return": 0.8123,
+     "return_pct_max_holding": 96.6596,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 25347.0679,
+     "total_invest": 11900000.0
+    },
+    "sG_all": {
+     "n": 1190,
+     "total_profit": 673783.9104,
+     "win_rate": 0.6151,
+     "mean_return": 5.662,
+     "return_pct_max_holding": 49.5429,
+     "max_concurrent": 136,
+     "max_concurrent_capital": 1360000.0,
+     "total_fee_cost": 26566.4226,
+     "total_invest": 11900000.0
+    },
+    "sA_y1": {
+     "n": 168,
+     "total_profit": 22326.3171,
+     "win_rate": 0.5833,
+     "mean_return": 1.3289,
+     "return_pct_max_holding": 22.3263,
+     "max_concurrent": 10,
+     "max_concurrent_capital": 100000.0,
+     "total_fee_cost": 3590.4337,
+     "total_invest": 1680000.0
+    },
+    "sG_y1": {
+     "n": 168,
+     "total_profit": 24143.6004,
+     "win_rate": 0.5,
+     "mean_return": 1.4371,
+     "return_pct_max_holding": 2.8404,
+     "max_concurrent": 85,
+     "max_concurrent_capital": 850000.0,
+     "total_fee_cost": 3594.3469,
+     "total_invest": 1680000.0
+    }
+   }
+  }
+ },
+ "margin_exhaust": {
+  "baseline": {
+   "A_all": 97724.3256,
+   "G_all": 654551.2197,
+   "A_y1": 22230.7755,
+   "G_y1": 20603.6484
+  },
+  "results": {
+   "信号×市场|主关注×概念": {
+    "dA_all": 5216.594200000007,
+    "dG_all": 12508.479199999943,
+    "dA_y1": 511.89640000000145,
+    "dG_y1": 9076.852400000003,
+    "n": 720
+   },
+   "信号×市场|追关注×港股": {
+    "dA_all": 5748.6120999999985,
+    "dG_all": 493.53590000001714,
+    "dA_y1": 1011.5763000000006,
+    "dG_y1": 889.8740000000034,
+    "n": 136
+   },
+   "信号×市场|备关注×港股": {
+    "dA_all": 1635.8702000000048,
+    "dG_all": 3356.8527999999933,
+    "dA_y1": 0.0,
+    "dG_y1": 0.0,
+    "n": 23
+   },
+   "信号×市场|备关注×A股": {
+    "dA_all": -1792.0619000000006,
+    "dG_all": 3929.1631999999518,
+    "dA_y1": -244.94410000000062,
+    "dG_y1": -923.7104999999974,
+    "n": 70
+   },
+   "信号×市场|备关注×申万": {
+    "dA_all": -4351.068499999994,
+    "dG_all": 5259.929699999979,
+    "dA_y1": 1432.149400000002,
+    "dG_y1": 4055.6509000000005,
+    "n": 148
+   },
+   "信号×市场|辅关注×申万": {
+    "dA_all": -2050.7975000000006,
+    "dG_all": -6280.529700000072,
+    "dA_y1": -522.0037999999986,
+    "dG_y1": 982.8817000000017,
+    "n": 380
+   },
+   "信号×市场|主关注×港股": {
+    "dA_all": -3499.4179000000004,
+    "dG_all": -4945.5002000000095,
+    "dA_y1": -797.6598999999987,
+    "dG_y1": -830.0960999999988,
+    "n": 50
+   },
+   "信号×市场|主关注×申万": {
+    "dA_all": -6850.595399999991,
+    "dG_all": -1799.017200000002,
+    "dA_y1": 580.1075000000019,
+    "dG_y1": 3449.789200000003,
+    "n": 413
+   },
+   "信号×市场|备关注×概念": {
+    "dA_all": -2676.3747000000003,
+    "dG_all": -8947.768700000015,
+    "dA_y1": 3174.8763,
+    "dG_y1": 2400.0988000000034,
+    "n": 278
+   },
+   "信号×市场|主关注×全球": {
+    "dA_all": -295.0252999999939,
+    "dG_all": -11488.401100000017,
+    "dA_y1": -1195.9642999999996,
+    "dG_y1": -6318.031999999997,
+    "n": 36
+   },
+   "信号×市场|主关注×A股": {
+    "dA_all": 3184.784400000004,
+    "dG_all": -17685.981499999994,
+    "dA_y1": 671.7122999999992,
+    "dG_y1": -503.79059999999663,
+    "n": 219
+   },
+   "信号×市场|辅关注×港股": {
+    "dA_all": -2408.8747999999905,
+    "dG_all": -12353.749700000044,
+    "dA_y1": 0.0,
+    "dG_y1": 0.0,
+    "n": 117
+   },
+   "信号×市场|辅关注×概念": {
+    "dA_all": -3569.1322999999975,
+    "dG_all": -20098.999900000053,
+    "dA_y1": -2436.9912000000004,
+    "dG_y1": -5730.549699999998,
+    "n": 1240
+   },
+   "信号×市场|追关注×申万": {
+    "dA_all": 3429.8010000000068,
+    "dG_all": -30755.248099999968,
+    "dA_y1": -233.16010000000097,
+    "dG_y1": 1971.8240000000005,
+    "n": 675
+   },
+   "信号×市场|追关注×概念": {
+    "dA_all": -8091.856799999994,
+    "dG_all": -21976.037100000074,
+    "dA_y1": -6630.450199999999,
+    "dG_y1": -14720.792899999999,
+    "n": 1615
+   },
+   "信号×市场|辅关注×A股": {
+    "dA_all": -22.63159999999334,
+    "dG_all": -34283.40639999998,
+    "dA_y1": -1124.7407999999996,
+    "dG_y1": -5081.881599999999,
+    "n": 298
+   },
+   "信号×市场|辅关注×全球": {
+    "dA_all": -4952.819900000002,
+    "dG_all": -32241.530900000012,
+    "dA_y1": -2101.830399999999,
+    "dG_y1": -5307.591699999999,
+    "n": 117
+   },
+   "信号×市场|备关注×全球": {
+    "dA_all": 44.549400000003516,
+    "dG_all": -39977.05079999997,
+    "dA_y1": 588.8905999999988,
+    "dG_y1": 504.76370000000315,
+    "n": 33
+   },
+   "信号×市场|追关注×A股": {
+    "dA_all": -12244.182799999995,
+    "dG_all": -63944.47640000004,
+    "dA_y1": -1971.75,
+    "dG_y1": -263.58859999999913,
+    "n": 616
+   },
+   "信号×市场|追关注×全球": {
+    "dA_all": 5825.088799999998,
+    "dG_all": -93694.12430000002,
+    "dA_y1": 933.1693999999989,
+    "dG_y1": -4103.246099999997,
+    "n": 414
+   },
+   "ETF×市场|弱/无ETF×概念": {
+    "dA_all": 1464.1379000000015,
+    "dG_all": 2578.7197999999626,
+    "dA_y1": -247.65589999999793,
+    "dG_y1": -1595.7027999999991,
+    "n": 1322
+   },
+   "ETF×市场|相关ETF×概念": {
+    "dA_all": -530.9600999999966,
+    "dG_all": 102.19209999998566,
+    "dA_y1": -985.4601000000002,
+    "dG_y1": -1098.7985999999983,
+    "n": 724
+   },
+   "ETF×市场|弱/无ETF×申万": {
+    "dA_all": 448.4916000000085,
+    "dG_all": -5996.03469999996,
+    "dA_y1": 132.21719999999914,
+    "dG_y1": -435.9096999999965,
+    "n": 183
+   },
+   "ETF×市场|近似ETF×概念": {
+    "dA_all": -3526.2198999999964,
+    "dG_all": -2868.99589999998,
+    "dA_y1": 2.9940999999998894,
+    "dG_y1": 41.264100000000326,
+    "n": 391
+   },
+   "ETF×市场|弱/无ETF×全球": {
+    "dA_all": 2466.978600000002,
+    "dG_all": -9704.01800000004,
+    "dA_y1": 710.8751999999986,
+    "dG_y1": 840.0254000000023,
+    "n": 94
+   },
+   "ETF×市场|相关ETF×港股": {
+    "dA_all": 1476.1897000000026,
+    "dG_all": -13448.86129999999,
+    "dA_y1": 213.9164000000019,
+    "dG_y1": 59.777900000000955,
+    "n": 326
+   },
+   "ETF×市场|强ETF×A股": {
+    "dA_all": -911.5503999999928,
+    "dG_all": -11745.05839999998,
+    "dA_y1": -3746.6327999999994,
+    "dG_y1": -8392.640699999998,
+    "n": 391
+   },
+   "ETF×市场|近似ETF×全球": {
+    "dA_all": -1318.3727999999974,
+    "dG_all": -20235.704200000037,
+    "dA_y1": 307.7272000000012,
+    "dG_y1": -236.7574999999997,
+    "n": 119
+   },
+   "ETF×市场|近似ETF×申万": {
+    "dA_all": -8847.850999999995,
+    "dG_all": -12736.183100000024,
+    "dA_y1": -334.8195000000014,
+    "dG_y1": -385.3349999999991,
+    "n": 602
+   },
+   "ETF×市场|相关ETF×申万": {
+    "dA_all": -4697.079100000003,
+    "dG_all": -21723.176800000016,
+    "dA_y1": 255.61899999999878,
+    "dG_y1": 10025.618300000002,
+    "n": 812
+   },
+   "ETF×市场|强ETF×概念": {
+    "dA_all": -3588.052899999995,
+    "dG_all": -29997.02190000005,
+    "dA_y1": -6926.3529,
+    "dG_y1": -10644.003299999998,
+    "n": 1100
+   },
+   "ETF×市场|相关ETF×A股": {
+    "dA_all": -11418.573099999994,
+    "dG_all": -97831.2598,
+    "dA_y1": 685.4579999999987,
+    "dG_y1": 1836.1719000000012,
+    "n": 771
+   },
+   "ETF×市场|相关ETF×全球": {
+    "dA_all": 1039.648000000001,
+    "dG_all": -130985.7953,
+    "dA_y1": -1234.214100000001,
+    "dG_y1": -13120.554299999998,
+    "n": 387
+   },
+   "评级×市场|中评级×A股": {
+    "dA_all": 1303.2295000000013,
+    "dG_all": 37046.07860000001,
+    "dA_y1": -305.3054000000011,
+    "dG_y1": 937.2176000000036,
+    "n": 316
+   },
+   "评级×市场|中评级×申万": {
+    "dA_all": -473.12519999999495,
+    "dG_all": 16427.86879999994,
+    "dA_y1": 146.52600000000166,
+    "dG_y1": 2034.4852000000028,
+    "n": 199
+   },
+   "评级×市场|中评级×概念": {
+    "dA_all": -2491.0873999999894,
+    "dG_all": 11378.037699999986,
+    "dA_y1": 475.8048999999992,
+    "dG_y1": 9320.780700000003,
+    "n": 1001
+   },
+   "评级×市场|高评级×A股": {
+    "dA_all": 215.7566000000079,
+    "dG_all": 1234.9941999999573,
+    "dA_y1": 153.38030000000072,
+    "dG_y1": 144.94380000000092,
+    "n": 32
+   },
+   "评级×市场|高评级×概念": {
+    "dA_all": 193.6313000000082,
+    "dG_all": 203.1243999999715,
+    "dA_y1": 207.9369000000006,
+    "dG_y1": 211.971800000003,
+    "n": 53
+   },
+   "评级×市场|中评级×港股": {
+    "dA_all": 36.15490000000864,
+    "dG_all": 13.681600000010803,
+    "dA_y1": 36.15490000000136,
+    "dG_y1": 13.681600000003527,
+    "n": 3
+   },
+   "评级×市场|低评级×港股": {
+    "dA_all": 2273.8496000000014,
+    "dG_all": -12618.765200000023,
+    "dA_y1": 1011.5763000000006,
+    "dG_y1": 889.8740000000034,
+    "n": 323
+   },
+   "评级×市场|低评级×概念": {
+    "dA_all": 1958.636200000008,
+    "dG_all": -31515.912699999986,
+    "dA_y1": 279.14020000000164,
+    "dG_y1": -4514.714799999998,
+    "n": 2799
+   },
+   "评级×市场|低评级×申万": {
+    "dA_all": -10534.399099999995,
+    "dG_all": -49958.523799999966,
+    "dA_y1": 1110.566999999999,
+    "dG_y1": 8425.6604,
+    "n": 1417
+   },
+   "评级×市场|低评级×A股": {
+    "dA_all": -12673.387199999997,
+    "dG_all": -160030.49920000002,
+    "dA_y1": -2494.0118,
+    "dG_y1": -7860.456499999998,
+    "n": 855
+   },
+   "评级×市场|低评级×全球": {
+    "dA_all": 554.7058000000106,
+    "dG_all": -181463.6996,
+    "dA_y1": -1775.7347000000009,
+    "dG_y1": -15224.1063,
+    "n": 600
+   },
+   "信号×ETF|备关注×强ETF": {
+    "dA_all": -1765.892200000002,
+    "dG_all": 8479.373699999996,
+    "dA_y1": 1296.0240000000013,
+    "dG_y1": 173.94250000000102,
+    "n": 102
+   },
+   "信号×ETF|追关注×弱/无ETF": {
+    "dA_all": 2405.712400000004,
+    "dG_all": -1506.5503000000026,
+    "dA_y1": 1411.1078000000016,
+    "dG_y1": 1293.3867000000027,
+    "n": 756
+   },
+   "信号×ETF|主关注×弱/无ETF": {
+    "dA_all": 54.05930000000808,
+    "dG_all": -210.14120000007097,
+    "dA_y1": 0.0,
+    "dG_y1": 0.0,
+    "n": 276
+   },
+   "信号×ETF|备关注×弱/无ETF": {
+    "dA_all": 4071.9256000000023,
+    "dG_all": -4631.03330000001,
+    "dA_y1": 898.6406999999999,
+    "dG_y1": 221.928100000001,
+    "n": 130
+   },
+   "信号×ETF|主关注×近似ETF": {
+    "dA_all": 66.48270000000775,
+    "dG_all": -3715.3177999999607,
+    "dA_y1": 330.58510000000024,
+    "dG_y1": -579.4887999999992,
+    "n": 199
+   },
+   "信号×ETF|备关注×近似ETF": {
+    "dA_all": -5013.906099999993,
+    "dG_all": 1271.050099999993,
+    "dA_y1": -529.2592000000004,
+    "dG_y1": 368.20110000000204,
+    "n": 94
+   },
+   "信号×ETF|辅关注×弱/无ETF": {
+    "dA_all": -1584.073900000003,
+    "dG_all": -5884.337100000004,
+    "dA_y1": -1146.2966000000015,
+    "dG_y1": -1817.6308999999965,
+    "n": 437
+   },
+   "信号×ETF|主关注×强ETF": {
+    "dA_all": -610.2139000000025,
+    "dG_all": -7628.88870000001,
+    "dA_y1": 1387.6674999999996,
+    "dG_y1": 9871.133300000001,
+    "n": 341
+   },
+   "信号×ETF|辅关注×强ETF": {
+    "dA_all": -1698.7489999999962,
+    "dG_all": -12020.792200000025,
+    "dA_y1": -4089.719000000001,
+    "dG_y1": -8091.775099999999,
+    "n": 498
+   },
+   "信号×ETF|辅关注×近似ETF": {
+    "dA_all": -7109.711199999991,
+    "dG_all": -12672.266100000008,
+    "dA_y1": 112.9380999999994,
+    "dG_y1": 367.6921000000002,
+    "n": 308
+   },
+   "信号×ETF|追关注×近似ETF": {
+    "dA_all": -1991.9321999999956,
+    "dG_all": -19358.092799999984,
+    "dA_y1": -173.22889999999825,
+    "dG_y1": -670.5146999999997,
+    "n": 511
+   },
+   "信号×ETF|主关注×相关ETF": {
+    "dA_all": -8103.436300000001,
+    "dG_all": -17131.193300000043,
+    "dA_y1": -2154.189299999998,
+    "dG_y1": -2525.632999999998,
+    "n": 562
+   },
+   "信号×ETF|追关注×强ETF": {
+    "dA_all": -10074.337199999994,
+    "dG_all": -17861.71140000003,
+    "dA_y1": -8182.3249,
+    "dG_y1": -14533.215399999997,
+    "n": 550
+   },
+   "信号×ETF|备关注×相关ETF": {
+    "dA_all": -4716.239000000001,
+    "dG_all": -34801.96120000002,
+    "dA_y1": 688.156500000001,
+    "dG_y1": 4358.194800000001,
+    "n": 199
+   },
+   "信号×ETF|辅关注×相关ETF": {
+    "dA_all": -1194.665399999998,
+    "dG_all": -59161.64950000006,
+    "dA_y1": -1316.8482000000004,
+    "dG_y1": 99.10800000000017,
+    "n": 820
+   },
+   "信号×ETF|追关注×相关ETF": {
+    "dA_all": 338.8497000000061,
+    "dG_all": -142652.3,
+    "dA_y1": 1167.6620000000003,
+    "dG_y1": 1672.2691000000013,
+    "n": 1439
+   }
+  }
+ }
+}
