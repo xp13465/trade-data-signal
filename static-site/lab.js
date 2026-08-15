@@ -9052,6 +9052,7 @@ function _renderSigKellyBar(bar, data, period) {
   // 场景行间隔分组: 首列带横向分隔, 区分 关基线/开b0/开b1 三大组; 每组内 3 个指标行连续排列, 一一对应 3 模式同列
   const _gihGroups = _gihScene.map(function (sc, si) {
     const first = si === 0 ? " lab-sigkelly-gihc-scene-first" : "";
+    // #88fix(2026-08-15, P1 reviewer): map 返回数组必须先 join 成串, 否则外层 .join("") 在每组 3 行 <tr> 之间插入裸逗号(数组套数组), HTML foster-parenting 把逗号移出表格渲染在表格上方=用户看到 ,,,,,,
     const bodyRows = _gihMetric.map(function (mt) {
       return `<tr class="lab-sigkelly-gihc-tr${first}">` +
         `<td class="lab-sigkelly-gihc-scene-lab">${(mt.k === 0 ? `<b>${sc.label}</b><br>` : "")}<span class="lab-sigkelly-gihc-metric">${mt.label}</span></td>` +
@@ -9060,7 +9061,7 @@ function _renderSigKellyBar(bar, data, period) {
           return `<td class="${mt.cls} lab-sigkelly-gihc-val">${v}</td>`;
         }).join("") +
       `</tr>`;
-    });
+    }).join("");
     return bodyRows;
   }).join("");
   const _gihCompareTableHTML =
