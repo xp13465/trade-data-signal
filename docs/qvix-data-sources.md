@@ -43,6 +43,19 @@
 - 上交所源回填历史一次到位,新浪源只做当日/盘中增量。
 - 异源切换落在 collect_series 的 QVIX fallback 链(fetchers.py L230-274 已有 daily→分钟 fallback 雏形但同源 optbbs,需替换为真异源)。
 
+## ✅ 实施现状(2026-08-15,feat/free-multisource-fallback)
+- **已实施**:主源 optbbs + 备A 上交所官方 IV 方差互换自算 QVIX(multisource.sse_qvix_series,source=`sse`,T+1 权威,可历史回填) + 网底本地 RV(source=`rv_local`,口径差异前端已公示)。异源链:
+  `optbbs daily csv → sse 官方IV自算(当日补/回填) → 本地RV(网底,口径标注)`。
+- **未实施(下一步)**:备B 新浪实时 IV 自算(option_sse_greeks_sina,盘中当日) —— 与备A 共用同一套
+  方差互换算法(见 multisource.sse_qvix_series),仅换 IV 数据源,已留函数结构。
+- **算法(multisource._sse_variance_term / sse_qvix_series)**:CBOE VIX 方差互换思想——
+  近/次两到期月期权链 IV(Black-Scholes 反推期权价 Q(K),正态 CDF 用 math.erf 无 scipy 依赖),
+  每 K 选 OTM,sum(ΔK/K²·e^{rT}Q),远期 F(Call-Put 平价)、K0(<F 最大行权),凸性修正,
+  得两期年化方差,权重插值到 30 天,QVIX=100√V30。无风险 r=Shibor 3M。
+- **合理性校验(8/14)**:a_qvix_300(510300)=17.90 vs optbbs 8/13=16.72(异源 IV 供应商+差1天,7%偏差合理);
+  a_qvix_1000(510050)=16.48 vs RV/optbbs 16.61(1%差,极准)。历史回填(8/7=19.31/7/31=22.58)趋势合理。
+- a_qvix_1000 历史 2022 前仍只有 optbbs 有(新浪/上交所覆盖不到中金所股指期权历史),诚实标注:该段若 optbbs 永久宕机仍缺,只能以 RV/不补齐。
+
 ## 防误判自查
 - 每源实测(非页面描述):上交所 IV 字段值、新浪 IV 字段值、optbbs HTTP:000、东财 push2 HTTP:000 均实测。
 - 已区分 A/B/C 三档工作量。
