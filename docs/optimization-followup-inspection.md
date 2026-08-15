@@ -77,3 +77,16 @@
 - qvix(optbbs)源宕机是**独立遗留故障**(非 #90 回归),免费异源实施正在处理(optbbs→sse→rv 3重),下交易日观察是否兜住。
 - 主控 jsonl 28M 已近 clear/compact 时机(P0-1 落档的主动瘦身待执行)。
 - reviewer 的 README 26× 倍数错误已主控 A 级修正(§0.1 例外,紧急上线链)。
+
+### 2026-08-15 补充(18:40,核对 launchd 退出码发现的巡检盲区)
+
+**发现**:巡检指标 1 只查 `overview.json` 的 collect_health,漏了 launchd 层退出码。核对 `launchctl list | grep trade` 发现 2 个任务 8/15 退出码 1:
+| 任务 | 时点 | 失败根因 | 影响 | 现状 |
+|---|---|---|---|---|
+| gold-night | 8/15 02:40 | `runner.py` `_now` 未定义(be3da2c94 删定义,当时修复 5e70d8bc7 尚未提交) | gold_night 采集失败,发告警(已 email/feishu) | 17:20 commit 已修复;gold 8/14=943.16 已在 DB(akshare 兜) |
+| us-stock-morning | 8/15 05:00 | 同上(us10y 链路) | us10y 8/14 收盘没采到,整体 exit 1 跳过 deploy | 17:20 commit 已修复;us10y 8/14=4.68 已在 DB |
+
+**判定**:历史故障(#90 同源),17:20 commit + 17:50 update_all 后已修复,非当前持续问题。数据已兜底,用户视角无缺。
+**巡检盲区修正(记入下轮)**:
+- 指标 1 扩查:除 `overview.json collect_health` 外,必查 `launchctl list | grep trade` 退出码非 0 的任务(尤其 02:40/05:00 凌晨任务,collect_health 不覆盖)。
+- 教训:8/15 凌晨两任务失败当时没被巡检抓到的根因 = 巡检只看 collect_health 不看 launchd exit code + 这两任务不在「巡检对象 4 项改动」直接相关链。下轮巡检两个指标并行。
