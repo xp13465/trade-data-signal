@@ -26,7 +26,7 @@
         <key>TTP_INJECT_MODELS</key>
         <string>deepseek-v4-flash</string>
         <key>TTP_ALIAS_MODELS</key>
-        <string>deepseek-v4-think,claude-opus-5</string>
+        <string>deepseek-v4-think</string>
         <key>TTP_ALIAS_TARGET</key>
         <string>deepseek-v4-flash</string>
         <key>TTP_PROVIDER</key>

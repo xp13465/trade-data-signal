@@ -58,7 +58,7 @@ INJECT_MODELS = [m for m in os.environ.get("TTP_INJECT_MODELS", "deepseek-v4-fla
 # 判断类别名(flash 底保思考):请求体 model 匹配任一别名时,不注入 disabled(保 thinking),
 # 但把 model 改写成官方认可的真实 flash 再转发(官方只认 deepseek-v4-pro/flash 两个名,别名直发会 400)。
 # 作用:让判断类(reviewer/researcher/主控)frontmatter 用别名,代理据此区分角色——别名=保思考、flash=注入关思考。
-ALIAS_MODELS = [m for m in os.environ.get("TTP_ALIAS_MODELS", "deepseek-v4-think,claude-opus-5").split(",") if m]
+ALIAS_MODELS = [m for m in os.environ.get("TTP_ALIAS_MODELS", "deepseek-v4-think").split(",") if m]
 ALIAS_TARGET = os.environ.get("TTP_ALIAS_TARGET", "deepseek-v4-flash")  # 别名改写成的真实模型名(底层能力)
 
 def logmsg(s):
@@ -80,15 +80,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 thinking_field = obj.get("thinking", "<OMITTED>")
             except Exception as e:
                 thinking_field = f"<parse-error {e}>"
-        # 注入 disabled(只对指定 model = 执行类)
+        # ═══ 固定模型铁律(2026-08-15 用户定,从"堵 v4-pro 泄漏"升级为核心原则)═══
+        # 白名单 = INJECT_MODELS(flash,注入关思考)+ ALIAS_MODELS(think,别名保思考改写 flash)。
+        # 之外任何 model(无论 v4-pro / claude-opus-5 / 未来新模型名 / 缺 model)一律不放行:
+        # 默认改写 ALIAS_TARGET(flash)+ 告警日志,绝不透传。只有闪 flash 注入、think 别名两种
+        # 是用户要求的模型,其余都不是"我要求让你用的模型"。
+        # 拒绝 vs 改写:默认改写 flash(保留功能成本回落到 flash);改写序列化失败则拒绝不转发。
         injected = False
-        # 别名改写(判断类):不注入(保思考),改写 model 为官方认可的 ALIAS_TARGET 再转发
         aliased = False
-        # 未知 model 兜底(2026-08-15 加,根治新模型名/新 agent 泄漏):POST 消息请求但 model
-        # 不命中 INJECT 也不命中 ALIAS(含无 model 字段异常)时,默认改写 ALIAS_TARGET + 打告警日志。
-        # 只对消息 POST 生效;GET/静态请求(非 /v1/messages)直接放行不解析不兜底,防告警刷屏。
         fallback = False
         if is_message_post and length and obj is not None and model_field is not None:
+            # GET/静态请求不解析不清除(is_message_post=False),不会走到这里
             if any(m in str(model_field) for m in INJECT_MODELS) and INJECT:
                 obj["thinking"] = {"type": "disabled"}
                 injected = True
@@ -105,7 +107,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             fallback = True
             logmsg("WARN 未知model兜底改写 model=None(缺 model 字段)->" + ALIAS_TARGET)
         if injected or aliased or fallback:
-            body = json.dumps(obj).encode()
+            try:
+                body = json.dumps(obj).encode()
+            except Exception as e:
+                # 改写失败 → 拒绝转发,绝不透传原样(原样=泄漏),返回 502
+                logmsg(f"CRIT 未知model兜底改写失败,拒绝转发 model={model_field} err={e}")
+                self.send_response(502); self.end_headers()
+                self.wfile.write(f"model rewrite failed, refusing to forward".encode())
+                return
         logmsg(f"REQ {self.command} {self.path} model={model_field}->{obj.get('model') if obj else None} thinking={json.dumps(thinking_field, ensure_ascii=False) if thinking_field is not None else None} injected={injected} aliased={aliased} fallback={fallback}")
         conn = http.client.HTTPSConnection(UPSTREAM_HOST, UPSTREAM_PORT, timeout=180, context=SSL_CTX)
         upstream_path = UPSTREAM_BASE + self.path
