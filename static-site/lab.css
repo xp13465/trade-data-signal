@@ -1693,6 +1693,17 @@
 .lab-sigkelly-advice-warn { color: #d4380d; }
 [data-theme="dark"] .lab-sigkelly-advice-warn, [data-theme="redgold"] .lab-sigkelly-advice-warn { color: #ff9c9a; }
 .lab-sigkelly-advice-note { color: var(--text-3); font-size: 11.5px; line-height: 1.6; font-style: normal; }
+/* #87(2026-08-15): G/H/I 对比表展开区布局紧凑化——数字空当收敛+行高收窄; 作用域限定 #lab-kelly-gih-compare-body(专属ID)只命中 G/H/I 对比表, 不动同 class 的 afg/按年/投资习惯3列表(§23.3 防选择器过宽命中, 沿用 L1680 advice-outer 前缀同设计) */
+#lab-kelly-gih-compare-body .lab-sigkelly-table { table-layout: auto; width: auto; min-width: 100%; }
+#lab-kelly-gih-compare-body .lab-sigkelly-table th,
+#lab-kelly-gih-compare-body .lab-sigkelly-table td { padding: 3px 8px; line-height: 1.4; }
+#lab-kelly-gih-compare-body .lab-sigkelly-table th:nth-child(1),
+#lab-kelly-gih-compare-body .lab-sigkelly-table th:nth-child(2),
+#lab-kelly-gih-compare-body .lab-sigkelly-table td:nth-child(1),
+#lab-kelly-gih-compare-body .lab-sigkelly-table td:nth-child(2) { white-space: nowrap; }
+#lab-kelly-gih-compare-body .lab-sigkelly-advice-note { font-size: 11px; line-height: 1.5; margin-bottom: 2px; }
+#lab-kelly-gih-compare-body .lab-sigkelly-advice-warn { font-size: 11px; line-height: 1.5; margin-top: 2px; }
+#lab-kelly-gih-compare-body .lab-sigkelly-advice-li { padding: 0; }
 /* #83(2026-08-15): 移除「AI仓位建议 · 历史回测(G模式口径)」面板, 其专属样式类 .lab-sigkelly-poscap-history 全部删除; 下方 advice-outer 同类限高滚动规则(§23.3)保留(仍被「全信号操作建议指南」展开面板使用) */
 /* §23.3 举一反三(2026-08-14): 「全信号操作建议指南」(advice-outer)展开面板限高80vh内部滚动+summary自动换行, 让展开后内容可在面板内滚动看全(同类布局修正, 不动内容) */
 .lab-sigkelly-advice-outer .lab-sigkelly-advice-body { max-height: 80vh; overflow-y: auto; padding-right: 6px; }
