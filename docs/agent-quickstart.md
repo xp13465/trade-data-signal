@@ -4,7 +4,7 @@
 > 本文档是各类任务的**总览引导 + step-by-step**。数据上线详细见 [docs/data-deploy-quickstart.md](data-deploy-quickstart.md)（数据产物改动走那里，本文只引用不重复）。
 > 深度架构文档：[docs/site-deployment.md](site-deployment.md)（站点架构+从零重建）、[docs/r2-deployment.md](r2-deployment.md)（R2 数据层）、[docs/smoke-checklist.md](smoke-checklist.md)（P0 主功能回归清单）。
 >
-> 最后更新：2026-08-14（补 §F 派回测任务前核对当前默认筛选基准 + 需求叫停删除粒度复述 + 口径切换影响面审计 + 收益率实操意义判据）。硬规范见 `CLAUDE.md`，本文只摘任务执行相关要点，约束引用章节号不重述全文。
+> 最后更新：2026-08-16（补 §F 回测/挖掘基线= v1.1.0 基准 + 报告落档四件套 git ls-files 验收 + 汇报在跑 agent 数先核对 + 禁止用 Explore 派只读任务 + 非交易日不触发/不补发）。硬规范见 `CLAUDE.md`，本文只摘任务执行相关要点，约束引用章节号不重述全文。
 
 ---
 
@@ -248,6 +248,9 @@ curl -s https://ss.fx8.store/sw.js | grep CACHE_VERSION
 7. **派数据重跑/回测任务前先核对当前页面默认筛选/基准真值**（§18 L31）：不沿用旧报告基准。派单前 grep 当前页面 `_kellyDefaultFilters()` / `_kellyComboPresets`（默认键集/组合宏定义），基准写进 prompt 时标注"来源=当前页面 lab.js Lxxxx 核验"；发现基准过时立即 SendMessage 同步在跑 agent（避免全量重跑）。
 8. **需求叫停/改口径先复述"删到什么粒度/保留什么档"**（§18 L30）：用户叫停某功能（如"每日池+买全部没意义"）≠删整个链路，执行前 git show 原实现，列"删除清单+保留清单"确认，不把同链路可保留档（每日池+top-K）一起删；口径类改动后自验关键展示值（K 档切换最大持仓应恒定）。
 9. **口径/基准切换先派影响面审计**（§18 E25）：列"会反转/数值变化/自愈"三类再全面修正，不建立在错误口径上继续固化。
+10. **回测/挖掘第一件事=确认基线落在 v1.1.0 基准**（§18 L39，2026-08-15 立）：默认前提 = AI宏 5+3+1 = 基础5[n2NovSpecialIndustry/excludeSpecialBear/janMidRating/janMidSpecial/k2c5HkChase]+核心3[r7MayReinforced/excludeAuxCross/greedy15]+1类回测剔除(_bt_in_universe)= 8键+1类(总数9)；组合=每日资金池+K1+G用13万 P≤3d 可操作口径(裸G不是基准)。测非基准口径必须显式声明"非 v1.1.0 基准口径"+说明为何测+结论标注口径差异,不作主推结论。能复现基准基线才往下(如 G 基线 = +202,508/155.78% 且 K2C5 默认开)。
+11. **报告落档必走四件套 + git ls-files 验收**（§18 L34，§23.5）：报告本体+生成脚本+##复现段(脚本路径/输入依赖/重跑命令/数据日期/口径一句话)+配套 commit 同批;commit 前 `git ls-files` 确认三件套均已 tracked,缺=验收不过。活脚本写指向不复制,死脚本副本放报告同目录 scripts/。
+12. **禁止用内置 Explore agent 派只读/搜索任务**（§18 L35，2026-08-15）：Explore 内置 model=claude-opus-5 不在代理白名单→绕过白名单按 v4-pro 计费(12次~45万tokens泄漏)。只读定位/搜索/结构任务一律派 researcher。
 
 ### 调研方法
 
@@ -328,6 +331,8 @@ curl -s https://ssd.fx8.store/data/xxx.json | python3 -c "import sys,json;print(
 - **需求先拆解再派 agent（防误派方向）**：接"分析/建议+新增视图"类核心需求，先列需求拆解清单（要回答什么问题+要新增什么视图+用哪份数据回测）再派 agent；不把相关增量功能当核心需求实施（2026-08-11 误派 J1/J2 当核心需求教训，核心需求实为降亏组合建议+全信号表，§18 教训24）。
 - **数值/算法口径改动必同步全站公示点**：修一个数值要 grep 全站同一数值所有出现处（purpose-notes.js+app.js/lab.js 算法公示文案）同步改，不只 tooltip/实施点（§18 教训25 §21 复发）。
 - **收益率"虚高"标注先算峰值持仓/本金倍数**（§18 L32）：A/F 持仓10-15万=10-15倍单次本金=可操作非虚高；G/H/I 持仓136万=136倍本金=不可操作，"虚高"的是净盈亏金额。"虚高"只用于口径放大数值（每笔1万=虚假杠杆），不用于"高收益但可操作"；top1-G 这类推荐标签需附可操作性校验（≤20倍本金）。
+- **汇报"在跑N个agent"先逐个核对完成通知**（§18 L36）：收到完成通知=已完成立即移出在跑,别把已完成/已收通知的还当在跑(用户:"并行在跑的可没4个")。
+- **非交易日不触发/不补发**（§18 L37/L38）：AI预测触发源脚本(run_daily_brief.sh)必带交易日判断(复用 trade/app/calendar.py is_trading_day,比 plist Weekday 准);信号邮件/backfill 补发前判断交易日,非交易日不补发不发买卖点信号。
 
 ### git 操作
 
