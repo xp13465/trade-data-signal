@@ -203,3 +203,7 @@ static-site/data/*
 /data/alert_state.json
 /data/notify_dedup.json
 /data/baostock_progress.json.lock
+
+# agent 运行进度文件(临时产物,不提交;commit 前检查勿 add)
+docs/agent-progress.txt
+docs/*_progress.txt
