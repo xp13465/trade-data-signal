@@ -80,6 +80,14 @@
 - **⑤ 小任务不 spawn subagent(主控)**:单个小改动主控直接调度或合并派单,不每个 spawn 一个 agent。收益:每个 spawn 有冷缓存+重读成本,小任务多 agent 约贵 15x chat(社区报)。
 - **⑥ 失败方向用 /rewind 不用 /compact(主控)**:走错方向时用 /rewind 回退,不用 /compact。收益:不锚定失败链(正确性理由),缓存收益待实测。
 
+### 5.6 DeepSeek 官方 API 峰谷定价铁律(2026-08-16 用户定,防高峰 2 倍价)
+**背景**:DeepSeek 官方 2026-08-17 00:00 起峰谷定价,高峰(北京时间 9:00-12:00 / 14:00-18:00)= 空闲价 2 倍(flash:未命中输入 高峰3.0/空闲1.5 元/M、输出 9.0/4.5;pro:未命中输入 9.0/4.5、输出 27.0/13.5;缓存命中更省)。
+**核心一句话:deepseek 官方 API(api.deepseek.com)高峰时段不使用,开发/相关任务挪闲时处理;使用官方 API 高峰时段必须经用户拍板确认。火山方舟计费独立、不受此限。**
+- **① 官方 API 高峰不用**:api.deepseek.com 高峰(9-12/14-18)不调用;业务定时任务若落高峰→挪闲时;手动 CLI 重跑(如 gen_daily_brief.py)高峰也避,放 21:00 后
+- **② 使用必拍板**:任何"官方 API 高峰时段调用"必须先问用户确认,不擅自跑(与 §23.7 同精神)
+- **③ 现状审计(2026-08-16 researcher 落档)**:唯一业务定时调用=daily_brief **20:40**(低谷,绿,天然安全,勿挪);thinking_proxy agent 会话走官方(高峰跑 agent=官方 thinking 高峰价)→ 高峰需跑 agent 可一键切方舟 `bash scripts/thinking-proxy-rollback.sh ark`;方舟双端已就绪(gen_daily_brief yaml provider + thinking_proxy ark),方舟计费独立不受此限
+- **④ 与 §5.2 关系**:§5.2 模型参数层省 token,本条价格档位层省钱;都属"遇成本问题先查参数/配置层"
+
 ## 18. 防重犯索引表(2026-08-08 起,每次犯错追加;原文全量已归档)
 用户定:慢慢积累经验迭代完美。每次犯错记录于此 + 防重犯条款,不重犯同类。**明细原文全量已归档 `docs/archive/CLAUDE-errors-2026-08.md`(39 过错+30 经验+5 token 段+每日归纳,可 git show 溯源),本节约索引+防重犯精华。**
 **⚠️ 索引表按归属 5 类分节(2026-08-12 用户定,用户原话"不同角色的经验对其他角色不通用""测试一般不需要调研的经验和错误")**:①通用共享(留根,所有角色都该知道)②主控专属(进 docs/main-governance.md)③实施专属(进 .claude/skills/role-implementer/SKILL.md)④调研专属(进 .claude/skills/role-researcher/SKILL.md)⑤测试专属(进 .claude/skills/role-tester/SKILL.md)。各文件已同步归属条目,零丢失(39 过错+30 经验=69 条一条不丢不重复),本表保留全量锚点便于全站反查。
