@@ -33,11 +33,38 @@ const CATEGORY_SOURCES = {
     file: 'data/sentiment-3m.json',
     fields: ['fear_greed', 'a_sentiment', 'cross_market'], // latest/range 都只读这三字段
     summaryFields: ['fear_greed', 'a_sentiment', 'cross_market'],
+    shape: 'sentiment',
   },
   // alert: 大盘预警，源文件 alert.json（含 date/high/low/history）
   alert: {
     file: 'data/alert.json',
+    shape: 'alert',
   },
+  // ---- 2026-08-17 一次性加满 12 类 ----
+  // market: 综合评分/信号灯/今日信号，源 overview.json（单日快照）
+  market: { file: 'data/overview.json', shape: 'market' },
+  // a_stock: 只暴露 metrics 宽度指标（上涨家数/涨停等），绝不暴露 indices 原始行情（合规红线）
+  a_stock: { file: 'data/a-stock-3m.json', shape: 'a_stock' },
+  // rotation: 板块轮动速度（data 数组按日期）
+  rotation: { file: 'data/rotation.json', shape: 'array' },
+  // position: 各大指数点位+分位数（positions 快照数组）
+  position: { file: 'data/position.json', shape: 'position' },
+  // ma_alignment: 多头/空头/金叉死叉家数（data 数组按日期）
+  ma_alignment: { file: 'data/ma_alignment.json', shape: 'array' },
+  // volume_ratio: 全市场量能（data 数组按日期）
+  volume_ratio: { file: 'data/volume_ratio.json', shape: 'array' },
+  // new_high_low: 52周/20日新高新低家数（data 数组按日期）
+  new_high_low: { file: 'data/new_high_low.json', shape: 'array' },
+  // futures: 机构多空持仓/多空比（summary + positions_ratio）
+  futures: { file: 'data/futures.json', shape: 'futures' },
+  // signal_freq: 买卖信号频率（monthly_avg/year_count/total_count 聚合）
+  signal_freq: { file: 'data/signal_freq.json', shape: 'signal_freq' },
+  // fund_score: 基金评分 top 列表（80KB 小文件）
+  fund_score: { file: 'data/fund_score_top.json', shape: 'fund_score' },
+  // etf_score: ETF 评分列表（17MB 大文件，必须 ?limit=N 防读全量，默认 20 最大 100）
+  etf_score: { file: 'data/etf_score_list.json', shape: 'etf_score' },
+  // etf_national_team: 国家队 ETF 持仓（etfs 数组）
+  etf_national_team: { file: 'data/etf_national_team-1y.json', shape: 'etf_national_team' },
 };
 
 // 支持的 alert_analyze 标的（前端 static-site/data/alert_analyze_*.json 一一对应）。
@@ -220,11 +247,16 @@ function latestDateOf(arr) {
   return arr[arr.length - 1].date || null;
 }
 
-// summary：跨类别聚合今日值（恐贪+A股情绪+跨市场+大盘预警）
+// summary：跨类别聚合今日值（按组聚合设计）。
+// 只聚合「轻量状态组」小文件（sentiment/alert/market/signal_freq）——一次请求拿到今日市场全景概览，
+// 不拉大文件（etf_score 17MB / etf_national_team / fund_score / futures 等走各自 latest 单独查，
+// 避免 summary 每次调用都读全量大数据文件）。分组设计见 docs/api-data-query.md「summary 按组聚合」。
 async function summaryHandler(request, env) {
   const senti = await readJsonFile(env, request, 'data/sentiment-3m.json');
   const alert = await readJsonFile(env, request, 'data/alert.json');
-  const out = { generated_at: new Date().toISOString() };
+  const overview = await readJsonFile(env, request, 'data/overview.json');
+  const sigfreq = await readJsonFile(env, request, 'data/signal_freq.json');
+  const out = { generated_at: new Date().toISOString(), group: 'lightweight_status' };
   if (senti) {
     const s = latestSnapshot(['fear_greed', 'a_sentiment', 'cross_market'], senti);
     out.sentiment = { date: latestDateOf(senti.fear_greed), ...s };
@@ -240,6 +272,20 @@ async function summaryHandler(request, env) {
   } else {
     out.alert = null;
   }
+  if (overview) {
+    out.market = {
+      date: overview.date,
+      scores: overview.scores || null,
+      signals_today: (overview.signals_today || []).map(s => ({ date: s.date, index_id: s.index_id, signal: s.signal, name: s.name, reason: s.reason })),
+    };
+  } else {
+    out.market = null;
+  }
+  if (sigfreq) {
+    out.signal_freq = sigfreq;
+  } else {
+    out.signal_freq = null;
+  }
   return jsonOk(out);
 }
 
@@ -254,6 +300,11 @@ async function handleCategory(request, env, category, action, url) {
 
   const obj = await readJsonFile(env, request, src.file);
   if (!obj) return jsonError('data_unavailable', '数据源暂不可用', 503);
+
+  // 新增 shape 类别（market/a_stock/rotation/.../etf_national_team）走 handleShaped
+  if (src.shape && src.shape !== 'sentiment' && src.shape !== 'alert') {
+    return handleShaped(request, env, category, action, url, obj);
+  }
 
   if (category === 'alert') {
     // alert 结构特殊（date/high/low/history 非字段数组）
@@ -282,6 +333,165 @@ async function handleCategory(request, env, category, action, url) {
     return jsonOk(rangeSlice(src.fields, obj, start, end));
   }
   return jsonError('bad_request', `类别 ${category} 不支持操作: ${action}`, 400);
+}
+
+// ---- 通用数组切片（rotation/ma_alignment/volume_ratio/new_high_low 等 data 数组按日期）----
+// obj.data = [{date, ...}],在 [start,end] 闭区间切片
+function sliceDateArray(arr, start, end) {
+  if (!Array.isArray(arr)) return [];
+  let slice = arr;
+  if (start) slice = slice.filter(r => (r.date || '').replace(/-/g, '') >= start);
+  if (end) slice = slice.filter(r => (r.date || '').replace(/-/g, '') <= end);
+  return slice;
+}
+
+// ---- 各 shape 的 latest/range 实现（2026-08-17 一次性加满）----
+
+// market: overview.json 单日快照
+function shapeMarket(action, obj, url) {
+  if (action === 'latest') {
+    return jsonOk({ date: obj.date, scores: obj.scores || null, signals_today: obj.signals_today || [] });
+  }
+  // range：overview 是单日文件，返回当日快照
+  if (action === 'range') {
+    return jsonOk({ date: obj.date, scores: obj.scores || null, signals_today: obj.signals_today || [] });
+  }
+  return jsonError('bad_request', `market 类别不支持操作: ${action}`, 400);
+}
+
+// a_stock: 只暴露 metrics 宽度指标（每指标 {name,unit,data:[{date,value}]}），绝不暴露 indices
+function shapeAStock(action, obj, url) {
+  const metrics = obj.metrics || {};
+  const keys = Object.keys(metrics);
+  if (action === 'latest') {
+    const out = {};
+    for (const k of keys) {
+      const m = metrics[k];
+      const arr = m && Array.isArray(m.data) ? m.data : [];
+      out[k] = arr.length ? { name: m.name, unit: m.unit, date: arr[arr.length - 1].date, value: arr[arr.length - 1].value } : { name: m && m.name, unit: m && m.unit, value: null };
+    }
+    return jsonOk({ metrics: out });
+  }
+  if (action === 'range') {
+    const start = (url.searchParams.get('start') || '').replace(/-/g, '') || null;
+    const end = (url.searchParams.get('end') || '').replace(/-/g, '') || null;
+    const out = {};
+    for (const k of keys) {
+      const m = metrics[k];
+      out[k] = { name: m && m.name, unit: m && m.unit, data: sliceDateArray(m && m.data, start, end) };
+    }
+    return jsonOk({ metrics: out });
+  }
+  return jsonError('bad_request', `a_stock 类别不支持操作: ${action}`, 400);
+}
+
+// array shape（rotation/ma_alignment/volume_ratio/new_high_low）: data 数组按日期
+function shapeArray(action, obj, url) {
+  if (action === 'latest') {
+    const data = Array.isArray(obj.data) ? obj.data : [];
+    return jsonOk({ date: data.length ? data[data.length - 1].date : null, latest: data.length ? data[data.length - 1] : null });
+  }
+  if (action === 'range') {
+    const start = (url.searchParams.get('start') || '').replace(/-/g, '') || null;
+    const end = (url.searchParams.get('end') || '').replace(/-/g, '') || null;
+    return jsonOk({ data: sliceDateArray(obj.data, start, end) });
+  }
+  return jsonError('bad_request', `类别不支持操作: ${action}`, 400);
+}
+
+// position: positions 快照数组（非时间序列，latest 返回全部）
+function shapePosition(action, obj) {
+  if (action === 'latest' || action === 'range') {
+    return jsonOk({ positions: obj.positions || [] });
+  }
+  return jsonError('bad_request', `position 类别不支持操作: ${action}`, 400);
+}
+
+// futures: summary + 最新持仓/多空比
+function shapeFutures(action, obj, url) {
+  if (action === 'latest') {
+    const pos = Array.isArray(obj.positions) ? obj.positions : [];
+    const ratio = Array.isArray(obj.positions_ratio) ? obj.positions_ratio : [];
+    return jsonOk({
+      summary: obj.summary || null,
+      latest_positions: pos.length ? pos[pos.length - 1] : null,
+      latest_positions_ratio: ratio.length ? ratio[ratio.length - 1] : null,
+    });
+  }
+  if (action === 'range') {
+    const start = (url.searchParams.get('start') || '').replace(/-/g, '') || null;
+    const end = (url.searchParams.get('end') || '').replace(/-/g, '') || null;
+    return jsonOk({
+      positions: sliceDateArray(obj.positions, start, end),
+      positions_ratio: sliceDateArray(obj.positions_ratio, start, end),
+    });
+  }
+  return jsonError('bad_request', `futures 类别不支持操作: ${action}`, 400);
+}
+
+// signal_freq: 买卖信号频率聚合（monthly_avg/year_count/total_count 等全字段）
+function shapeSignalFreq(action, obj) {
+  if (action === 'latest' || action === 'range') {
+    return jsonOk(obj);
+  }
+  return jsonError('bad_request', `signal_freq 类别不支持操作: ${action}`, 400);
+}
+
+// fund_score: 基金评分 top 列表（80KB 小文件）
+function shapeFundScore(action, obj) {
+  if (action === 'latest' || action === 'range') {
+    return jsonOk({ date: obj.date, count: obj.count, method: obj.method, data: obj.data || [] });
+  }
+  return jsonError('bad_request', `fund_score 类别不支持操作: ${action}`, 400);
+}
+
+// etf_score: ETF 评分列表（17MB 大文件，?limit=N 防读全量，默认 20 最大 100）
+function shapeEtfScore(action, obj, url) {
+  let limit = 20;
+  const l = parseInt((url.searchParams.get('limit') || ''), 10);
+  if (!isNaN(l) && l > 0) limit = Math.min(l, 100);
+  const firstN = (arr) => (Array.isArray(arr) ? arr.slice(0, limit) : []);
+  if (action === 'latest' || action === 'range') {
+    return jsonOk({
+      date: obj.date,
+      updated_at: obj.updated_at,
+      limit,
+      total: { buy: (obj.buy_list || []).length, sell: (obj.sell_list || []).length, hold: (obj.hold_list || []).length },
+      buy_list: firstN(obj.buy_list),
+      sell_list: firstN(obj.sell_list),
+      hold_list: firstN(obj.hold_list),
+    });
+  }
+  return jsonError('bad_request', `etf_score 类别不支持操作: ${action}`, 400);
+}
+
+// etf_national_team: 国家队 ETF 持仓（etfs 数组）
+function shapeEtfNationalTeam(action, obj) {
+  if (action === 'latest' || action === 'range') {
+    return jsonOk({ updated_at: obj.updated_at, etfs: obj.etfs || [] });
+  }
+  return jsonError('bad_request', `etf_national_team 类别不支持操作: ${action}`, 400);
+}
+
+// 按 shape 分派到对应提取器；无 shape 的（sentiment/alert）走 handleCategory 既有逻辑
+function handleShaped(request, env, category, action, url, obj) {
+  const src = CATEGORY_SOURCES[category];
+  const shape = src.shape;
+  if (shape === 'sentiment' || shape === 'alert') return null; // 交给既有逻辑
+  const map = {
+    market: shapeMarket,
+    a_stock: shapeAStock,
+    array: shapeArray,
+    position: shapePosition,
+    futures: shapeFutures,
+    signal_freq: shapeSignalFreq,
+    fund_score: shapeFundScore,
+    etf_score: shapeEtfScore,
+    etf_national_team: shapeEtfNationalTeam,
+  };
+  const fn = map[shape];
+  if (!fn) return jsonError('bad_request', `类别 ${category} shape 未实现`, 500);
+  return fn(action, obj, url);
 }
 
 // signals: 按标的读 alert_analyze_<target>.json；缺 target 返回支持列表
