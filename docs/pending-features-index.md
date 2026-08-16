@@ -19,7 +19,7 @@
 | 4 | **daily_brief P1-3 公募基金持仓/行业配置注入**(中期风格参考) | docs/daily-brief-optimization.md §3 P1-3 | 注入 public_fund_summary 加仓/减仓行业 top 到【趋势研判/中期】,标注季报滞后 | 数据已有(public_fund_summary) | **未实施** |
 | 5 | **daily_brief P1-4 明日关注排序分**(胜率×凯利×一致性×近期确认) | docs/daily-brief-optimization.md §3 P1-4 | 用站点回测数据把 AI 关注列表从"模型猜"变"数据排序" | signal_kelly_backtest + signal_stats 已有 | **部分完成**(win_rate 已注入,L302-310;完整排序分未做) |
 | 6 | **daily_brief P1-5 日历效应/节假日/月末季末提示** | docs/daily-brief-optimization.md §3 P1-5 | 注入「明日是否月末/季末/长假前/财报季」,仅提示性段落 | 硬编码节假日表,成本低 | **未实施** |
-| 7 | **daily_brief P1-6 新闻舆情/宏观事件维度** | docs/daily-brief-optimization.md §3 P1-6 + 调研双报告:数据源实测 [`docs/ai-predict-news-macro-research-sources.md`](docs/ai-predict-news-macro-research-sources.md)(东财7x24/财联社电报/金十flash 三源免签可达,仅缺「未来事件日历」现成接口)、方法论 [`docs/ai-predict-news-macro-research-methodology.md`](docs/ai-predict-news-macro-research-methodology.md)(字段期望/页面展示 §7) | 盘后拉东财/财联社当日快讯 top 摘要注入【事件面】;或显式声明不含新闻维度 | fetch_news.py(launchd 16:45)已产 `data/news_digest.json`(三源:东财/财联社/金十,含 news+upcoming);注入侧 2026-08-16 已进 gen_daily_brief.load_data(新增 9 聚合 key + news 段 + upcoming 明日事件,guard 停更/缺失跳过,见 ai-predict-inject-research.md) | **注入侧已完成**(2026-08-16,gen_daily_brief.py 注入 news+9key);前端展示位仍待做(§7 页面展示建议,未实施) |
+| 7 | **daily_brief P1-6 新闻舆情/宏观事件维度** | docs/daily-brief-optimization.md §3 P1-6 + 调研双报告:数据源实测 [`docs/ai-predict-news-macro-research-sources.md`](docs/ai-predict-news-macro-research-sources.md)(东财7x24/财联社电报/金十flash 三源免签可达,仅缺「未来事件日历」现成接口)、方法论 [`docs/ai-predict-news-macro-research-methodology.md`](docs/ai-predict-news-macro-research-methodology.md)(字段期望/页面展示 §7) | 盘后拉东财/财联社当日快讯 top 摘要注入【事件面】;或显式声明不含新闻维度 | fetch_news.py(launchd 16:45)已产 `data/news_digest.json`(三源:东财/财联社/金十,含 news+upcoming);注入侧 2026-08-16 已进 gen_daily_brief.load_data(新增 9 聚合 key + news 段 + upcoming 明日事件,guard 停更/缺失跳过,见 ai-predict-inject-research.md) | **已完成**(2026-08-16:注入侧+前端展示位全落地——首页「📣今日要闻」外露速览行+「📅明日关键事件」日期标注(244c00cff/a7925c77d/a283/a284 系列)+ 外露行可点&历史兜底入口(33ef7bd33)+ 新闻按日期归档累积(49be3c317)+ 弹窗空态修复(70c625386),commit 均在 origin/main,版本串 a285→a296) |
 | 8 | **多角色阶段三:事件/新闻面分析师** | docs/ai-predict-multiagent-plan.md §3.2 阶段三 + 数据源实测[`docs/ai-predict-news-macro-research-sources.md`](docs/ai-predict-news-macro-research-sources.md) | ④事件/新闻面分析师,输入当日快讯摘要 | 需事件面数据采集;注入侧 2026-08-16 已把 news 分布进 risk 域(fetch_news 采集已就绪) | **部分完成**(news 数据+注入已进 risk 域;独立的「事件/新闻面分析角色」未新增,仍分布进既有域) |
 | 9 | **daily_brief P1-11 reasoner(R1)深度辩论增强** | docs/daily-brief-optimization.md §3 P1-11 | 研究员角色可切 deepseek-reasoner 深度对抗,成本贵 3-5 倍 | 配置已支持(cfg.researcher_model,gen_daily_brief.py L188),默认 deepseek-chat | **未启用**(可选开关,默认关) |
 
@@ -38,7 +38,7 @@
 |---|---|---|---|---|---|
 | 14 | **lab_sim 费率客调(策略实验室配对交易;注意 trade_sim 单信号弹窗已上线)** | docs/kelly/analysis/kelly-fee-adjust-sim-eval.md §10.1 | 凯利费率客调已实现;**trade_sim(单信号回测详情弹窗,app.js _tradeSimOpenModal)已上线**(app.js L21530 _SIM_FEE_PRESETS 6档5参数);**lab_sim(策略实验室配对交易,lab.js 卡片)未做**——lab.js 无费率客调控件,只有静态成本对比块 | 复用凯利费率客调模式 | **远期待办**(2026-08-13 用户定:低优先级) |
 | 15 | **凯利回测「次日开盘」口径(前端展示/默认口径)** | docs/kelly/position/kelly-nextday-open-backtest.md + TASKS.md L55 | 建议①后续回测/前端展示默认改「次日开盘」口径(收盘固化、次日开盘买入,数据 100% 覆盖)②操作建议:开盘挂 -1% 限价单 | 无 | **未派**(lab.js 无次日开盘口径,仍收盘口径) |
-| 16 | **凯利组合 Walk-forward 滚动验证(样本外)** | docs/kelly/mining/kelly-mining-literature.md(未落地) + kelly-combo-signal-research.md §4 + kelly-loss-mining-v4.md §8 #2 + kelly-backtest-comprehensive-review L525 | 用 t-1 年选 toggle、t 年验证,模拟真实前向;建议作为组合上线前必选验证(2011-2020 选、2021-2026 验) | **K 档金额口径已确认(2026-08-14 每日池 top-K 已恢复 c951dafa8,穷举重跑已出 docs/kelly/position/kelly-dailypool-exhaustive-rerun.md,新 toggle 边际已有效)** | **排队中**(2026-08-13 用户定实施;口径已确认,可派) |
+| 16 | **凯利组合 Walk-forward 滚动验证(样本外)** | docs/kelly/mining/kelly-mining-literature.md(未落地) + kelly-combo-signal-research.md §4 + kelly-loss-mining-v4.md §8 #2 + kelly-backtest-comprehensive-review L525 | 用 t-1 年选 toggle、t 年验证,模拟真实前向;建议作为组合上线前必选验证(2011-2020 选、2021-2026 验) | **K 档金额口径已确认(2026-08-14 每日池 top-K 已恢复 c951dafa8,穷举重跑已出 docs/kelly/position/kelly-dailypool-exhaustive-rerun.md,新 toggle 边际已有效)** | **已完成**(2026-08-16 commit 299db6167 已在 origin/main + 落档 docs/kelly/analysis/kelly-walkforward-validate.md:v1.1.0 推荐最优组合 8键全开 样本外有效不过拟合,选段最优反而过拟合) |
 | 17 | **凯利 v5 候选方法 4 项** | docs/kelly/mining/kelly-mining-literature.md 行72-76 | Decision set 互斥规则集 / PSM 倾向得分匹配 / 漂移检测(drift)/ NSGA-II 多目标优化。(2026-08-13 并入原 #21 高胜率子群深化:需先扩 ETF 属性维度/样本) | 无 | **未实施**(v5 可选方向) |
 | 19 | **港股/全球加 MA60 择时按需扩展** | docs/kelly/analysis/kelly-timing-analysis.md 尾部(L420) | A股 MA60 择时已上线 toggle;港股/全球用 HSI/SPX MA60,样本量小收益有限,按需扩展 | 无 | **未实施**(建议,可选) |
 | 20 | **凯利交叉分组卡片可切换二级筛选** | docs/kelly/analysis/kelly-analysis.md L223 | 信号类型×大类交叉卡片数爆炸,建议做成可切换二级筛选而非平铺。交叉分组样本量易<30,实施前先确认象限样本>100 | 无 | **远期待办**(2026-08-13 用户定:交叉分组样本坍塌+置顶已缓解爆炸,ROI 低暂缓) |
@@ -50,7 +50,7 @@
 | # | 功能 | 出处 | 方案摘要 | 依赖/前置 | 状态 |
 |---|---|---|---|---|---|
 | 23 | **飞书阶段3 优化** | docs/feishu-bot-integration-plan.md 阶段3(行261) | 发送统一到应用 API(弃 webhook)、@成员/@all 关键字、入向消息转告警群 | 阶段1/2 已实施;富文本 post 已做(notify.py) | **部分完成**(@/入向转告警未确认) |
-| 24 | **飞书需求群硬编码判断(前缀判定是否必需)** | TASKS.md L59(+L56-58/L62 群处理规则) | 用户 17:55 需求"需求群硬编码不行吗,其他群用前缀合理";另有报告群/告警群处理规则待对齐 | 无 | **未处理**(需求理解类,待主控确认) |
+| 24 | **飞书需求群硬编码判断(前缀判定是否必需)** | TASKS.md L59(+L56-58/L62 群处理规则) | 用户 17:55 需求"需求群硬编码不行吗,其他群用前缀合理";另有报告群/告警群处理规则待对齐 | 无 | **已完成**(scripts/feishu_ws_listener.py L737/781 已实现:白名单需求群免前缀直接落盘,非白名单群保留前缀过滤,全角/半角冒号都认) |
 | 25 | **飞书 hook 心跳自检告警** | docs/feishu-hook-stall-diagnosis.md L84 | 指纹文件 mtime 超阈值告警,防静默停摆再次发生 | 诊断标"可选增强" | **未实施**(需主控确认) |
 
 ## 五、R2 / 数据产物 / 运维
@@ -110,19 +110,19 @@
 | # | 项 | 出处 | 说明 | 状态 |
 |---|---|---|---|---|
 | 56 | **signal_notified.json 双副本清理** | 2026-08-15 部署核验 | trade-data/data(权威,8/14=13条) vs trade/data(旧,8/14=11条) 双份;check_signals 读权威份无重发风险,但"直接 cd trade 跑 python"会误读旧副本重发;处置=同步旧副本或 symlink+断言(REPO 必须落 trade-data) | **待办**(低优先,已同步 md5 一致) |
-| 57 | **sw.js 版本注释过时修正** | reviewer S1(2026-08-14) | sw.js L18 注释仍写"任一开启=进入AI过滤视图(_sigFilterViewOn)",该变量不存在;改为"两开关正交各管一层" | **待办**(随下次 bump 一起) |
+| 57 | **sw.js 版本注释过时修正** | reviewer S1(2026-08-14) | sw.js 注释堆里 `_sigFilterViewOn` 旧变量名残留 1 处(在 CACHE_VERSION 版本变更注释里,该变量已不存在);新注释「两开关正交」已随后续 bump 写入 | **半完成**(仅 CACHE_VERSION 注释堆 1 处旧名残留,随下次 bump 顺手清,不值得单独动) |
 
 ## 十、分析参考点AI监控增补(2026-08-16 cron 同步)
 
 | # | 项 | 出处 | 说明 | 状态 |
 |---|---|---|---|---|
 | 58 | **分析参考点AI监控三合一** | 2026-08-16 用户拍板 | AI降亏过滤默认开(首次无 localStorage 默认 true,手动关记住) + **K档启用**(by_k/filtered_by_k,与首页AI仓位建议top-K同口径,降亏开关×K档两开关独立)+ 双图轻量SVG(_lwSetup,绿黄红分段+30/60参考线) + ❓hover短+click详版弹窗 + reviewer返修(P1 localStorage try/catch/P2-1空态删_lwRenderers/P2-2 pb44/P2-3 y轴0-100) + SVG 3色为基准(echarts fallback 去固定色) + **P2修法①K档by_k排除未入样**(build_topk_kept_map 跳 ts=None 未入样,与首页同人口,全史剔1172条,commit ac61248a4+merge 33c722997) | **已完成**(2026-08-16 二次迭代,版本串 a275→a279,commit ac61248a4/33c722997) |
-| 59 | **K2C5 补跑每日池同口径比值** | 2026-08-16 用户拍板 | 凯利区降亏开关 K2C5 ratio"待实测"→补跑每日池减亏%/损盈%/比值(researcher 预跑:减亏2.88%/损盈0.63%/比值4.55) + 凯利区 advice 文案精简 | **进行中**(implementer 实施中,与本次监控卡迭代并行不同模块) |
+| 59 | **K2C5 补跑每日池同口径比值** | 2026-08-16 用户拍板 | 凯利区降亏开关 K2C5 ratio"待实测"→补跑每日池减亏%/损盈%/比值(researcher 预跑:减亏2.88%/损盈0.63%/比值4.55) + 凯利区 advice 文案精简 | **已完成**(2026-08-16 commit f5d218492 已在 origin/main + 落档 docs/kelly/analysis/kelly-k2c5-dailypool-ratio.md + 主站 ss.fx8.store lab.js 线上含「比值4.55」;备站 sss.sugas.site 前端同步滞后未命中,主站已上线即算上线) |
 | 60 | **分析参考点AI监控窗口语义改数据范围** | 2026-08-16 用户观察"窗口切换没实质影响" | 窗口按钮(30/60/90)从"滚动计算宽度"改为"整个曲线图数据范围"(更名「显示范围」):点N日=两图显示最近N天曲线段(前端截取,统计口径固定60日滚动,后端 rolling 只留60一套降体积);卡 tooltip+help 弹窗补说明 | **已完成**(2026-08-16 二次迭代,版本串 a275) |
 
 ## 【已排除清单】已上线/已在跑(不要重复派)
 
-- **凯利**:默认最优组合(仓位K=2+4降亏)、**金额口径=每日资金池等分+top-K**(2026-08-14 恢复 c951dafa8,修正 K=3 33万虚假杠杆;旧"每笔固定1万"为过时口径)、1月调整 J1/J2 并入、positionCap K档、G公示、**全信号表+组合使用建议**(lab.js L8503,2026-08-12)、MA60择时 toggle⑭、降亏过滤31 toggle、凯利费率客调、fade 交互方案一(lab-custom-host--loading,L7620)、稳健核心组合=仅 r8、次日开盘回测报告本身(仅建议未实施,见 #15)、**K档位评级标注+hover评级理由表格**(2026-08-13 上线 4fe5d45bc,展示层不改算法)、**凯利 top-K+质量约束+选择器前向测试 #18**(已关闭 2026-08-13:质量约束两口径负边际不实施;前向测试简单切分已有结论,滚动版并入 #16)
+- **凯利**:默认最优组合(仓位K=2+4降亏)、**金额口径=每日资金池等分+top-K**(2026-08-14 恢复 c951dafa8,修正 K=3 33万虚假杠杆;旧"每笔固定1万"为过时口径)、1月调整 J1/J2 并入、positionCap K档、G公示、**全信号表+组合使用建议**(lab.js L8503,2026-08-12)、MA60择时 toggle⑭、降亏过滤31 toggle、凯利费率客调、fade 交互方案一(lab-custom-host--loading,L7620)、稳健核心组合=仅 r8、次日开盘回测报告本身(仅建议未实施,见 #15)、**K档位评级标注+hover评级理由表格**(2026-08-13 上线 4fe5d45bc,展示层不改算法)、**凯利 top-K+质量约束+选择器前向测试 #18**(已关闭 2026-08-13:质量约束两口径负边际不实施;前向测试简单切分已有结论,滚动版并入 #16)、**K2C5 每日池同口径比值补测 #59**(2026-08-16 上线 f5d218492:K2C5 比值4.55(减亏2.88%/损盈0.63%,>2高性价比)K1档取用/K2档不取,K3 比值1.29 维持默认关,落档 kelly-k2c5-dailypool-ratio.md)
 - **daily_brief**:**辩论详情入口+弃用标志+结论展示**(2026-08-12 上线 4bc48da1a)、**edge-tts 语音播报**(2026-08-16 上线 a8a4d632f,版本串 a281:后端 gen_daily_brief.py 服务端 edge-tts 合成 daily_brief_tts_<date>.mp3 上传 R2 metadata audio/mpeg,前端 _dbPlayBtn 🔊 按钮 + <audio> 经 /r2/ 代理播,弹窗+历史收盘分析两处 §22 一致,仅 meta.tts_available=true 渲染,rule/minimal 兜底不播,失败不阻塞)
 - **SVG**:轻量走势图 P0+P1 全站扩展(首页 sparkline/KPI/分时,app.js L11059/L11077)、SVG 修正主链 a149、home-svg-fix P1-1/P1-2
 - **daily_brief**:后端 P0-1/2/3/4 + P1-2(多空辩论随 P0-4)/P1-7/P1-8/P1-9/P1-10/P1-11(配置)/P2-1(cost_log)/P2-2(已知偏差),前端 AI 预测弹窗+命中率+历史结合展示(2026-08-11,app.js L20066-20377)
