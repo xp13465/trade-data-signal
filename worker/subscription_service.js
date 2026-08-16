@@ -86,9 +86,15 @@ async function checkSubscriberKey(env, key) {
   return { ok: true, sub, key };
 }
 
-// 生成订阅 key：sub_ + 时间戳 + 随机 8 字节 hex
+// 生成订阅 key：sub_ + 时间戳 + 随机片段（用 crypto.randomUUID 保熵，不用 getRandomValues 直读
+// —— 实测在部分 Worker 运行时 getRandomValues 可能返回零值数组，randomUUID 更可靠）
 function genSubKey() {
-  const rand = [...new Uint8Array(8)].map(b => b.toString(16).padStart(2, '0')).join('');
+  let rand;
+  try {
+    rand = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+  } catch (e) {
+    rand = Math.random().toString(16).slice(2, 18);
+  }
   return `sub_${Date.now()}_${rand}`;
 }
 
