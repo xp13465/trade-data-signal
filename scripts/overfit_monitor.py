@@ -11,12 +11,17 @@
 ------------------------------------
 - 回测口径准确率: signal_kelly_trades.json 每笔交易按 signal_date 分组, return_pct>0 = 对(按模式卖出到期收益方向)。
 - 实盘口径准确率: signal_daily 每信号日 -> signal_daily 日收盘对应的 index_daily 收盘, 看多(buy/buy_aux/buy_special/buy_backup)
-  信号日收盘->最新收盘上涨 = 对; 看空(sell/sell_stop_loss)下跌 = 对; band_hold 中性不计。与首页 _calcSignalAccuracy 同口径。
+  信号日收盘->最新收盘上涨 = 对; band_hold 中性不计。
+  2026-08-17 用户拍板方案A「实盘限定回测宇宙」: 实盘线只统计回测宇宙内信号(信号类型 ∈ 买入白名单
+  buy/buy_aux/buy_special/buy_backup + board_etf_map 有非空 track_score 即 _bt_in_universe=True, 与 §23.6
+  universe_rules.yaml 单一事实源对齐), 卖/止损卖/情绪类/全球商品利率/港股行业/未入样 buy 类等回测不测的信号
+  全部剔除, 使实盘线与回测线比同一批买入信号(此前把卖类/情绪类 ~22% 命中率信号混入实盘总样本, 造成口径错位)。
 - 4 维过拟合风险分(0-100): risk_score = 0.40*D1(回测-实盘偏离) + 0.25*D2(滚动样本外衰减) + 0.20*D3(参数稳定) + 0.15*D4(象限退化)。
   等级: 绿 <30(正常) / 黄 30-60(关注) / 红 >60(高风险)。
 - 各维度按滚动窗口 w30/w60/w90 加权偏重最新(30 灵敏 / 90 稳健)。
-- 样本充足阈值随窗口缩放(2026-08-17 方案A): 每窗口 eff_min = min(min_n, ceil(w*0.5)), 10→5、15→8、30→15、60/100→20,
-  防默认 K=1 人口下 10/15 窗口被锁死 n=10/15(永远 < 20)而空白。落地于 rolling_win_rates, 前端 _overfitSampleInsufficient 同口径。
+- 样本数下限(2026-08-17 用户拍板「样本数不要做限制」): 完全去掉样本充足阈值判定, 各统计口径(10/15/30/60/100)
+  有多少样本画多少, 早期窗口不满 / 稀疏维度的档位照常算 win_rate(n 值照常输出, 前端看 n 判断可信度)。
+  落地于 rolling_win_rates, 前端 _overfitSampleInsufficient 同步删除。
 
 输入依赖
 --------
@@ -612,8 +617,14 @@ def load_signal_grade_map():
     return grade_map
 
 
-def bucket_actual(by_date, close_map, latest_date, grade_map=None):
+def bucket_actual(by_date, close_map, latest_date, grade_map=None, universe=None):
     """实盘口径按日打点: 信号日收盘 -> 最新收盘方向。与首页 since_correct 同口径。
+    2026-08-17 用户拍板方案A「实盘限定回测宇宙」: 只统计回测宇宙内信号, 使实盘线与回测线比同一批买入信号。
+    universe = {index_id: track_score|None}(来自 board_etf_map, 同 §23.6 _bt_in_universe 判定):
+      - 信号类型必须 ∈ BUY_SIGNALS(buy/buy_aux/buy_special/buy_backup) —— 回测只测买入白名单信号(§23.6 buy_whitelist);
+        卖(sell/sell_stop_loss)/情绪类/全球商品利率/港股行业等回测不测的信号剔除。
+      - index 必须 _bt_in_universe=True(universe[iid] is not None, 即 board_etf_map 有 key 且有非空 track_score)。
+      - band_hold 中性不计(原逻辑)。
     returns {date: {total, by_mode(占位), by_signal, by_grade}}
     """
     out = []
@@ -624,6 +635,7 @@ def bucket_actual(by_date, close_map, latest_date, grade_map=None):
         if m:
             latest_close[iid] = m[max(m.keys())]
     grade_map = grade_map or {}
+    universe = universe or {}
     for d in all_dates:
         sigs = by_date[d]
         n = win = 0
@@ -634,6 +646,11 @@ def bucket_actual(by_date, close_map, latest_date, grade_map=None):
             iid = s["index_id"]
             if sig == "band_hold":
                 continue  # 中性不计
+            # 实盘限定回测宇宙(2026-08-17 方案A): 只统计回测会测的买入白名单信号 + 已入样(_bt_in_universe)
+            if sig not in BUY_SIGNALS:
+                continue  # 卖/止损卖/情绪类等回测不测, 剔除(避免 22% 命中率混入实盘总样本拉低)
+            if universe.get(iid) is None:
+                continue  # 不在回测宇宙(board_etf_map 无 key 或无非空 track_score = _bt_in_universe False)
             cm = close_map.get(iid)
             if not cm:
                 continue
@@ -646,7 +663,7 @@ def bucket_actual(by_date, close_map, latest_date, grade_map=None):
             if d >= latest_date:
                 continue  # 今日信号无"至今"语义(与 queries.py L914-916 一致)
             since_ret = (today_close - sig_close) / sig_close
-            is_win = (since_ret < 0) if (sig in SELL_SIGNALS) else (since_ret > 0)
+            is_win = since_ret > 0  # 已限定回测宇宙买入白名单, 方向恒为看多(sell 类已剔除)
             n += 1
             if is_win:
                 win += 1
@@ -691,14 +708,14 @@ def _bucket_at(point, key_path):
 def rolling_win_rates(daily_points, dates, windows=WINDOWS, key_path=None, min_n=20):
     """把每日 {date,total:{win_rate}} 聚合成滚动窗口序列(key_path 默认 total; 可传 ['by_grade','high'] 等)。
     返回 {w: [{date, win_rate, n}]}(仅在窗口内有 signal 的日期出现)。
-    样本充足阈值随窗口缩放(2026-08-17): eff_min = min(min_n, ceil(w*0.5)),
-    即 10→5、15→8、30→15、60/100→20, 防默认 K=1 人口下 10/15 窗口被锁死 n=10/15 永远空白。
+    2026-08-17 用户拍板「样本数不做限制」: 完全去掉样本数下限判定, 有多少画多少;
+    早期窗口不满 / 维度样本稀疏的档位照常算 win_rate(n 值照常输出, 前端看 n 判断可信度)。
+    min_n 参数仅为兼容透传占位, 不再参与判定(调用方 rolling_win_rates_by_dim/_derive_daily_series 仅透传)。
     """
     points = sorted(daily_points, key=lambda x: x["date"])
     key_path = key_path or ["total"]
     out = {}
     for w in windows:
-        eff_min = min(min_n, math.ceil(w * 0.5))
         seq = []
         for i, p in enumerate(points):
             b = _bucket_at(p, key_path)
@@ -708,10 +725,7 @@ def rolling_win_rates(daily_points, dates, windows=WINDOWS, key_path=None, min_n
             window = points[start:i + 1]
             n = sum((_bucket_at(x, key_path) or {}).get("n", 0) for x in window)
             win = sum((_bucket_at(x, key_path) or {}).get("win", 0) for x in window)
-            # 跳过样本不足(早期窗口不满 / 该维度样本稀疏) -> win_rate=None
-            if n < eff_min:
-                seq.append({"date": p["date"], "n": n, "win_rate": None})
-                continue
+            # 不设样本数下限: 有多少画多少(2026-08-17 用户拍板)
             seq.append({"date": p["date"], "n": n, "win_rate": (win / n * 100) if n else None})
         out[w] = seq
     return out
@@ -720,7 +734,7 @@ def rolling_win_rates(daily_points, dates, windows=WINDOWS, key_path=None, min_n
 def rolling_win_rates_by_dim(bt_buckets, act_buckets, bt_keys, act_keys, windows=WINDOWS, min_n=20):
     """多个维度的滚动聚合: {key: {bt: {w:[..]}, act: {w:[..]}}}。
     bt_buckets: {date: bt_daily[d]}   act_buckets: [ {date,total,by_signal,by_grade} ]
-    样本充足阈值随窗口缩放语义见 rolling_win_rates(eff_min = min(min_n, ceil(w*0.5))), 本函数仅透传。
+    样本数下限判定见 rolling_win_rates(2026-08-17 已完全去掉), 本函数仅透传 min_n 占位。
     """
     out = {}
     bt_points_list = [{"date": d, **bt_buckets[d]} for d in sorted(bt_buckets.keys())]
@@ -1034,8 +1048,8 @@ def load_prev_state():
 
 def _derive_daily_series(bt_roll, act_roll, current_risk, latest_date, win=60, min_n=20):
     """从「实盘 vs 回测 W 日滚动胜率偏离」派生历史每日过拟合风险分序列(无前视)。
-    注意: 本函数消费 rolling_win_rates 已算好的序列, 内部无 flat n<min_n 判断(阈值缩放已在 rolling_win_rates 落地,
-    eff_min = min(min_n, ceil(win*0.5)); min_n 参数仅为透传占位)。
+    注意: 本函数消费 rolling_win_rates 已算好的序列, 内部无 flat n<min_n 判断(样本数下限已去掉,
+    min_n 参数仅为透传占位)。
 
     设计(公示): 过拟合监控核心 = 「回测预期好但实盘表现差」的偏离信号。
     对每个历史日 T, 用截至 T 的实盘 __win__ 日滚动胜率 vs 回测 __win__ 日滚动胜率偏离(pp) 映射风险分:
@@ -1078,24 +1092,25 @@ def _derive_daily_series(bt_roll, act_roll, current_risk, latest_date, win=60, m
 
 def derive_daily_for_rolls(bt_roll, act_roll, latest_date, min_n=20):
     """对单维度 bt/act 滚动序列, 派生 WINDOWS(10/15/30/60/100)多套 daily(统计口径可切)。
-    阈值缩放语义随 rolling_win_rates(eff_min = min(min_n, ceil(w*0.5))), 本函数仅透传。"""
+    样本数下限判定随 rolling_win_rates(2026-08-17 已完全去掉), 本函数仅透传 min_n 占位。"""
     return {
         str(w): _derive_daily_series(bt_roll, act_roll, None, latest_date, win=w, min_n=min_n)
         for w in WINDOWS
     }
 
 
-def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal):
+def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal, ts_map=None):
     """由（已可选过滤的）原始样本计算 accuracy + overfit 两棵子树。
     被 build_output 调用多次：未过滤(raw) + 过滤(filtered, AI宏删线层) + by_k(全信号top-K 4套) + filtered_by_k(降亏过滤后top-K 4套)。
     D2/D3/D4/象限用过滤后的 trades_by_date(保持一致, 见 §5.1/§5.4)。
     2026-08-16 窗口语义改造v2: 统计口径可切 10/15/30/60/100(默认60), 输出多套滚动序列;
-    前端「显示范围」只截取最近 N 日展示(30/60/90/180), 不改变统计窗口。"""
+    前端「显示范围」只截取最近 N 日展示(30/60/90/180), 不改变统计窗口。
+    2026-08-17 方案A: ts_map={index_id: track_score|None}(board_etf_map) 传入 bucket_actual, 实盘线限定回测宇宙。"""
     # 滚动按全部候选口径各算一套(10/15/30/60/100); accuracy.rolling/daily_by_win/daily_by_dim 均多套
     _ROLL_WIN = WINDOWS
     bt_daily = bucket_backtest_trades(trades_by_date, None)
     bt_dates = sorted(bt_daily.keys())
-    actual_daily = bucket_actual(by_date, close_map, latest_signal, grade_map) if by_date else []
+    actual_daily = bucket_actual(by_date, close_map, latest_signal, grade_map, universe=ts_map) if by_date else []
 
     # 滚动窗口(total 维度)
     bt_points = [{"date": d, **bt_daily[d]} for d in bt_dates]
@@ -1238,13 +1253,15 @@ def build_output(rebuild=False, dry_run=False):
                     bull_state=build_market_state_hs300(close_map))
 
     # 两棵 bank: 未过滤(现状) + 过滤(AI宏删线层) —— 前端「AI降亏过滤」开关切换读取
-    bank_raw = _compute_bank(by_date_raw, close_map, trades_by_date_raw, grade_map, latest_signal)
+    bank_raw = _compute_bank(by_date_raw, close_map, trades_by_date_raw, grade_map, latest_signal,
+                             ts_map=ctx.ts_map)
     if conn_ok:
         by_date_filt = filter_actual_by_date(by_date_raw, ctx, grade_map)
     else:
         by_date_filt = {}
     trades_by_date_filt = filter_trades_by_date(trades_by_date_raw, ctx, mode_filt=AFG_MODES)
-    bank_filt = _compute_bank(by_date_filt, close_map, trades_by_date_filt, grade_map, latest_signal)
+    bank_filt = _compute_bank(by_date_filt, close_map, trades_by_date_filt, grade_map, latest_signal,
+                              ts_map=ctx.ts_map)
 
     # K 档(2026-08-16): K 档 × 降亏开关两开关独立(用户拍板修正) —— 前端:
     #   降亏开 + K 档 = filtered_by_k[k](降亏过滤人口 top-K); 降亏关 + K 档 = by_k[k](全信号人口 top-K)。
@@ -1257,12 +1274,14 @@ def build_output(rebuild=False, dry_run=False):
         kept_raw = build_topk_kept_map(by_date_raw, ctx, grade_map, k)
         by_date_raw_k = filter_by_date_by_kept(by_date_raw, kept_raw) if conn_ok else {}
         trades_raw_k = filter_trades_by_kept(trades_by_date_raw, kept_raw)
-        by_k[str(k)] = _compute_bank(by_date_raw_k, close_map, trades_raw_k, grade_map, latest_signal)
+        by_k[str(k)] = _compute_bank(by_date_raw_k, close_map, trades_raw_k, grade_map, latest_signal,
+                                     ts_map=ctx.ts_map)
         # 降亏过滤人口 top-K(降亏开): 由过滤后 by_date_filt 选 top-K
         kept_filt = build_topk_kept_map(by_date_filt, ctx, grade_map, k)
         by_date_filt_k = filter_by_date_by_kept(by_date_filt, kept_filt)
         trades_filt_k = filter_trades_by_kept(trades_by_date_filt, kept_filt)
-        filtered_by_k[str(k)] = _compute_bank(by_date_filt_k, close_map, trades_filt_k, grade_map, latest_signal)
+        filtered_by_k[str(k)] = _compute_bank(by_date_filt_k, close_map, trades_filt_k, grade_map, latest_signal,
+                                              ts_map=ctx.ts_map)
 
     # 预警主口径 = 未过滤的风险分(现状行为不变); filtered 仅作前端对比数据
     d1 = bank_raw["overfit"]["current"]["d1"]
