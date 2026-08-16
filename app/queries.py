@@ -1320,15 +1320,20 @@ def overview(conn, cfg):
         _finalized_note = "盘中预估,收盘后重算定版,信号可能消失"
     elif _meta_version == "a-share-close":
         _finalized_note = "当日A股信号已用收盘价定稿(15:03),不会再消失"
-    else:
+    elif _meta_version == "full":
         # W1(2026-08-14): 17:50 update_all 起跑到 ~18:42 才完成信号重算(欧股/国债数据晚间入库),
         # 期间数据仍是 A 股收盘价版。文案放宽为"陆续补齐", 与 docs/signal-finalize-time.md 对齐,
         # 不硬编码 18:45 阈值(20:36 同理, 数字阈值不灵活)。
+        # W3(2026-08-16 用户定修法①): full 文案注明已定稿时点(A股15:03、港股/欧股/国债17:50起补齐),
+        #   并说清 21:00 指数补采后最终定稿。与 evening 文案拆开(按版本走), 不再共用/合并 full/evening。
+        _finalized_note = "当日完整版信号:A股15:03已定稿、港股/欧股/国债17:50起补齐,21:00指数补采后最终定稿"
+    else:
+        # evening(20:36+, 当天最终版, 文案跟版本走——不再沿用 full 的"进行式"说法)
         # W2(2026-08-14 首页8/14信号补): 21:00 backfill-evening 指数(如 div_lowvol/gz_399431 收盘价)
         # 数据源晚到才发布→补采重算 signal_daily, 可能在该时点后仍新增/变动信号, 故 20:36 并非真"最终"。
-        # 文案对齐真正定稿时点(21:00指数补采后), 不再宣称 20:36 定稿; 迟到信号挂「盘后补齐」角标(前端 _bt_late,
-        # 字段注入见 P0-1)。此文案为 signals_meta.finalized_note, 前端提示条由后端注入驱动, 禁止前端硬编码时间。
-        _finalized_note = "当日完整版信号 17:50 起陆续补齐(港股/欧股/国债),21:00 指数补采后最终定稿"
+        # W3(2026-08-16 用户定修法①): evening 如实说"已定稿", 并注明晚发指数补采(21:00)可能再补。
+        # 此文案为 signals_meta.finalized_note, 前端提示条由后端注入驱动, 禁止前端硬编码时间。
+        _finalized_note = "当日信号已定稿:A股15:03、港股/欧股/国债17:50已补齐;晚发指数补采(21:00)可能再补"
     signals_meta = {
         "version": _meta_version,
         "generated_at": _now.strftime("%Y-%m-%d %H:%M"),
