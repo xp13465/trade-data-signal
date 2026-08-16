@@ -86,6 +86,23 @@ async function readJsonFile(env, request, key) {
   }
 }
 
+// ---- 时间 ----
+// 限流/计量的「分钟/日」桶统一用 Asia/Shanghai（UTC+8）本地时，非 Worker 默认的 UTC：
+// Worker 的 new Date() 返回 UTC（wrangler.jsonc 未设 time_zone），直接用会把「每日」桶在
+// 08:00 北京时重置（UTC 午夜），与中国市场日界语义不符。此处 +8h 后取 UTC 分量即得北京时。
+function beijingNow() {
+  return new Date(Date.now() + 8 * 3600 * 1000);
+}
+function fmtTime(d, fmt) {
+  const pad = n => String(n).padStart(2, '0');
+  return fmt
+    .replace('YYYY', String(d.getUTCFullYear()))
+    .replace('MM', pad(d.getUTCMonth() + 1))
+    .replace('DD', pad(d.getUTCDate()))
+    .replace('HH', pad(d.getUTCHours()))
+    .replace('mm', pad(d.getUTCMinutes()));
+}
+
 // ---- 鉴权 ----
 // 取请求中的 key：Authorization: Bearer <key> 或 X-API-Key: <key>
 function extractApiKey(request) {
@@ -121,10 +138,9 @@ async function kvGetNum(env, k) {
 // 限流检查 + 计量，返回 null 通过 / 或错误 Response
 // 配额可经 KV 覆盖（api_quota:<hash>:minute / :day），默认 60 req/min、5000 req/day。
 async function enforceQuota(env, hash, category) {
-  const now = new Date();
-  const pad = n => String(n).padStart(2, '0');
-  const dayKey = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
-  const minKey = `${dayKey}${pad(now.getHours())}${pad(now.getMinutes())}`;
+  const now = beijingNow();
+  const dayKey = fmtTime(now, 'YYYYMMDD');
+  const minKey = fmtTime(now, 'YYYYMMDDHHmm');
 
   const minQuota = parseInt((await env.SUBSCRIBE_KV.get(`api_quota:${hash}:minute`)) || '60', 10) || 60;
   const dayQuota = parseInt((await env.SUBSCRIBE_KV.get(`api_quota:${hash}:day`)) || '5000', 10) || 5000;
@@ -147,10 +163,9 @@ async function enforceQuota(env, hash, category) {
 
 // 计量：每 5 分钟聚合写 KV（api_usage:<hash>:<yyyyMMddHH + 5min桶>），供计费拉取。
 async function recordUsage(env, hash, category) {
-  const now = new Date();
-  const pad = n => String(n).padStart(2, '0');
-  const bucket = Math.floor(now.getMinutes() / 5) * 5; // 0/5/10/.../55
-  const key = `api_usage:${hash}:${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(bucket)}`;
+  const now = beijingNow();
+  const bucket = Math.floor(now.getUTCMinutes() / 5) * 5; // 0/5/10/.../55
+  const key = `api_usage:${hash}:${fmtTime(now, 'YYYYMMDDHH')}${String(bucket).padStart(2, '0')}`;
   try {
     const cur = await env.SUBSCRIBE_KV.get(key);
     let arr = [];
@@ -158,7 +173,7 @@ async function recordUsage(env, hash, category) {
       try { arr = JSON.parse(cur); } catch (e) { arr = []; }
       if (!Array.isArray(arr)) arr = [];
     }
-    arr.push({ category, ts: now.toISOString() });
+    arr.push({ category, ts: new Date().toISOString() });
     // 简单截断防单桶过大（KV value 上限 25MB，安全起见截 1000 条/桶）
     if (arr.length > 1000) arr = arr.slice(-1000);
     await env.SUBSCRIBE_KV.put(key, JSON.stringify(arr), { expirationTtl: 86400 * 90 });

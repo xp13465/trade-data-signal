@@ -57,6 +57,8 @@ key 只在 KV 存 SHA-256 hash（键 `api_key:<hash>`），真实 key 由 `scrip
 按 key 计数（KV 无 CAS，get+increment，允许少量误差）：
 - **分钟**：默认 60 req/min（键 `api_usage_lim:<hash>:m:<yyyyMMddHHmm>`，90s 残留容忍）
 - **每日**：默认 5000 req/day（键 `api_usage_lim:<hash>:d:<yyyyMMdd>`）
+- 桶键统一用**北京时间（UTC+8）**（Worker `new Date()` 是 UTC，未设 `time_zone`，直接用它会在 08:00 北京时重置"每日"桶，与中国市场日界不符，故 worker 内 +8h 取 UTC 分量）
+- ⚠️ Workers KV 是**最终一致**：毫秒级并发突发下限流计数可能读到旧值而少计（get+increment 无 CAS 的原生限制），对持续/顺序请求的客户端限流准确；付费 API 若需严格限流需换 Durable Objects 计数（二期可选）
 - 配额可经 KV 覆盖：`api_quota:<hash>:minute` / `api_quota:<hash>:day`（`scripts/api_key_mgmt.py gen --quota-minute --quota-day` 可设默认）
 
 超限返回 `429` + JSON 错误体。

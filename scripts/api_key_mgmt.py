@@ -39,8 +39,10 @@ def hash_key(key: str) -> str:
 
 
 def run_wrangler(args):
-    # 用 npx wrangler kv 子命令操作 remote namespace
-    cmd = ["npx", "wrangler", "kv", *args, "--namespace-id", NS_ID]
+    # 用 npx wrangler kv 子命令操作 REMOTE namespace。
+    # 必须带 --remote：standalone `wrangler kv` 默认写 LOCAL miniflare 状态（.wrangler/state/），
+    # 不带 --remote 会把 key 写进本地而非线上 KV，线上 worker 永远读不到（2026-08-17 实施踩坑）。
+    cmd = ["npx", "wrangler", "kv", *args, "--namespace-id", NS_ID, "--remote"]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         print(r.stderr or r.stdout, file=sys.stderr)
@@ -57,9 +59,9 @@ def kv_delete(key):
 
 
 def kv_get(key):
-    # 返回 (exists, value)
+    # 返回 (exists, value)；须 --remote 读线上命名空间（同 run_wrangler 教训）
     r = subprocess.run(
-        ["npx", "wrangler", "kv", "key", "get", key, "--namespace-id", NS_ID],
+        ["npx", "wrangler", "kv", "key", "get", key, "--namespace-id", NS_ID, "--remote"],
         capture_output=True, text=True,
     )
     return r.returncode == 0, r.stdout.strip()
