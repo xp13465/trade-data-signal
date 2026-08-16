@@ -69,6 +69,26 @@
 - ⚠️ **min 版 JS 验证用字符串非变量名**（2026-08-07 补）：terser mangle 重命名 let 局部变量（`_compBarsHtml` 等），grep 验 min 版上线用 class 名/中文字符串（`kst-comp-fill`/分项构成/优秀）非变量名
 - ⚠️ **export 输出路径同步**（2026-08-07 补，§9 cwd trade-data 衍生陷阱）：export.py cwd trade-data 写 JSON 落 `trade-data/static-site/data/`，但 deploy.sh 从 `trade/static-site/data/` 推 git，两路径不同步推旧版。export 后必须 cp 或确认 rsync 同步
 
+### 4.1 前端部署/缓存/SW 更新防撕裂专项（§24，2026-08-14 P0 全站白屏事故根治）
+
+- **版本串改「发布序号（日期+批次）」**：`scripts/bump_asset_version.py` 已由内容 md5 换为 日期+自增/哈希混合（每次部署强制换新串，内容相同也换），杜绝"指纹断链、旧缓存不清、不触发更新"死角
+- **改前端源码必同 commit bump 版本串**：改 `static-site/app.js/lab.js/common.js/index.html` → **必须同 commit 跑 `scripts/bump_asset_version.py` + push + 验线上 index 引用 `?v=` 与实际文件内容 md5 一致**；禁止"源码改了版本串没跟着变"漏跑
+- **SW 更新接管需「壳与芯配套 + 失败回退」**：`static-site/sw.js` activate 清缓存/接管前，先确认 app shell（app.min.js/common.min.js/index）已预缓存就绪；未就绪不接管不强推，失败回退旧 SW/旧缓存，绝不全白
+- **数据全站同步（§22 三步）覆盖盘后核心产物**：overview.json/a-stock-3m.json 等盘后产物必须随 §22 三步同步到备站（GH/Maozi）或可靠 fallback 主站，备站不得缺核心文件
+- **部署后自动校验「内容哈希==index版本串」**：deploy 链加 check（对 app/lab/common 每文件算 md5 前 8，与 index 引用比对），不一致即阻断上线，防孤儿快照再产生
+- **事故根因**：版本串=内容哈希断链 + SW 更新裸崩 + 备站数据不同步（详见 memory `deploy-cdn-stale-snapshot-blue-screen`）
+
+## 4.2 测试基准锚点专项（§5.4，trade 已定稿推荐最优组合定义）
+
+- **当前基准 = v1.1.1（2026-08-16 收尾版本）**：v1.1.0「推荐最优组合」不变，一切回测/测试/挖掘/穷举前提 = v1.1.0 推荐最优组合。v1.1.1 = 纯数据/展示层修正（K 档 by_k 数据人口对齐首页/21:00 文案跟版本走/凯利首列 2 行版），非新组合，不回测基准定义
+- **v1.1.0 推荐最优组合定义（2026-08-15 用户拍板，定名「基础5」）**：默认 AI 推荐 = **AI宏 5+3+1 = 基础5[n2NovSpecialIndustry/excludeSpecialBear/janMidRating/janMidSpecial/k2c5HkChase] + 核心3[r7MayReinforced/excludeAuxCross/greedy15] + 1类回测剔除**（债类/波段不入宇宙 `_bt_in_universe`）= **8键+1类，总数9**。K2C5 已穷举验证并入基础5（不再是"第8键"），16组合全扫 K2C5 与核心3无叠加冲突、全局最优
+- **组合口径**：每日资金池等分 + AI仓位建议 K=1 + **G 用 13万 P≤3d「先卖年轻仓」可操作口径**（峰持仓≤20倍本金）；A/F 短持 = 每日池+top-K。**裸 G（无 P≤3d，不可操作）不是基准**
+- **版本计数**：v1.0.0 = AI宏 4+3+1（7键+1类）；v1.1.0 = AI宏 5+3+1（基础5+核心3 = 8键+1类，总数9）
+- **偏离=违规**：要测非基准口径（裸G/其他K档/其他P档/历史 fixed 口径/旧 v1.0.0 无 K2C5），必须显式声明"非 v1.1.0 基准口径" + 说明为什么测 + 结论标注差异，不作为主推结论
+- **派单钉基准**：主控派回测/挖掘任务 prompt 必须写「测试基准 = v1.1.0 推荐最优组合（定义见 §5.4①/§4.2）」
+- **版本升级原则（§5.4⑥）**：动到 AI 推荐/降亏过滤核心默认组合/算法，必须发中间版本（v1.0.0→v1.1.0→v1.1.1→...），同步更新：本基准定义 + memory 基准锚点 + 前端默认值 + §21 公示 + README；凡动了默认组合本身才升级测试基准定义
+- **依据文档**：`docs/kelly/analysis/kelly-k2c5-return-quadrant-check.md` + `kelly-k2c5-exhaust-interaction.md` + memory `test-baseline-v110-anchor` / `test-baseline-v111-anchor`
+
 ## 5. 切分支保护 DB（§10，2026-07-14 已根治，作历史教训留存）
 
 - 历史隐患：`data/sentiment.db`（80MB）+ `data/etf_national_team.db` 曾进 git 跟踪，切分支时 git 用旧版覆盖污染 DB，致 2026-07-14 事故（收盘快照丢失）
@@ -158,6 +178,26 @@
 - 触发场景：用户问"走势图轻量/完整切换为什么首页没效果"，现状=切换只接了 ETF 评分弹窗 1 个消费者，首页 sparkline/KPI sparkline/分时图都没接入
 - 本模式/数据源/组件还被谁用：全站所有走势图渲染点（ETF 评分弹窗/首页 sparkline/KPI sparkline/分时图）+ 所有数据一致性展示位（§22 三展示位）
 - **验收口径**：实施方案 agent 自验须含「同模式/同数据源/同组件还被谁用+相关展示位清单+逐项覆盖结果」，不只做用户点名处；reviewer 查举一反三覆盖，漏=验收不过
+
+### 9.4 团队协作项目例（23.4）
+
+- 开工前先查 `docs/pending-features-index.md`（已落档未开发功能索引，团队共享地图）同模块项
+- 同模块多任务不许"后覆盖前"；冲突/依赖/过时**一开始就暴露**上报主控
+- 本驱动源（凯利回测/首页 AI 过滤/前端展示）的历史待办索引项，写代码前先 scan，冲突先上报
+
+### 9.5 入样宇宙规则项目专项（23.6，防"隐式规则未公示"再犯）
+
+- **单一事实源**：宇宙规则（入样信号白名单、入样依赖=board_etf_map key+track_score、排除类别=债类/情绪/全球商品利率/港股行业/空数组、自我 ETF 唯一例外 cgb_10y_etf）声明于 `config/universe_rules.yaml`；回测与校验脚本从它读，首页从后端注入的运行时标记读
+- **首页 1:1 遵从**：首页 AI建议 top-K（app.js _dayItems 过滤，含排除 sell/sell_stop_loss）必须从回测侧读入样标记 `_bt_in_universe`（queries.py 注入，等价回测 _build_best_etf 判定），禁止前端自行重算宇宙；lab.js 凯利区数据源=回测产物天然对齐，防回归点=禁止前端自算
+- **对称校验**：`scripts/check_universe_alignment.py`（挂 deploy/check_data_integrity 同链）自动比对：overview 每信号 _bt_in_universe ⟺ board_etf_map 重算入样判定逐条相等；overview 候选 ⊆ 白名单；signal_kelly_trades.json 无债/波段/情绪/商品/港股行业记录；yaml 声明排除类别 ⟺ map 实际缺失 key 集合；FAIL 阻断上线
+- **变更联动 8 步**：改回测标准→重跑 `build_board_etf_map.py`→重跑 `signal_kelly_backtest.py`→重跑 export（queries.py 注入标记）→首页自动跟随（读标记不改前端选择逻辑）→同步公示→跑对称校验→§22 三步同步（R2/static-site）后上线
+- **公示强制（§21 扩展）**：宇宙规则属算法逻辑，must 同步更新 purpose-notes.js lab.sigkelly + lab.js AI仓位建议 tooltip + app.js AI建议 badge tooltip；存量规则存在即须公示
+
+### 9.6 版本功能冻结契约项目例（23.7）
+
+- trade 已发 v1.0.0/v1.1.0/v1.1.1，已上线功能冻结，改历史功能必须用户确认（纯 bug 修复例外，走 §23.2）
+- 做性能/测试时发现 bug/历史遗留：不得默认修也不得默认忽略，必须上报完整证明链路（现象/根因/影响/证据/修复方案）问用户确认
+- 新增功能默认不改变既有默认行为（新 toggle 默认关、新档位不覆盖默认值）
 
 ## 10. 数据产物/采集脚本/定时任务速查
 
