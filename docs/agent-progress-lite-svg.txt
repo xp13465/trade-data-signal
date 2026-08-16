@@ -1,0 +1,5 @@
+2026-08-17 lite-svg perColor 修复:
+- ①转折尖角: _lwLineDIdxCtx 段首 k===kStart 借前一色段最后点做中心差分(共线)
+- ②颜色滞后: 段循环绘制起点与颜色判定起点分离, 共享端点, kEnd=_nxt->re
+- 自测: 三图色变点折角 0.0°, 共享端点 0.0°, 颜色去向色对齐, 线连续, 边界6用例无崩
+- 待办: build_min + bump_asset_version + bump sw.js + commit + push feat + merge main + push main

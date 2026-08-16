@@ -12355,7 +12355,11 @@ function _lwLineDIdxCtx(xs, ys, idx, kStart, kEnd, ctxKEnd, smooth) {
       _segK = k + 1;
       continue;
     }
-    const _pk = (k > _segK) ? k - 1 : k;
+    // 2026-08-17 fix(转折尖角): 段首(k===kStart, 即跨色段共享端点)借前一色段最后点做中心差分 —
+    // 使下段「离开」切线与上段「到达」切线共线(折角→0°, 色变点真平滑)。仅当非首段、且与前一数据点
+    // 相邻(idx 差=1, 不跨 null)时借; 否则取自身(首点/跨 null 边界防平滑跨空)。
+    const _pk = (k > _segK) ? k - 1
+      : ((k === kStart && kStart > 0 && idx[kStart] - idx[kStart - 1] === 1) ? kStart - 1 : k);
     const p0 = { x: xs[idx[_pk]], y: ys[idx[_pk]] };
     const p1 = { x: xs[idx[k]], y: ys[idx[k]] };
     const p2 = { x: xs[idx[k + 1]], y: ys[idx[k + 1]] };
@@ -12577,20 +12581,29 @@ function _lwSVG(cfg) {
             // 段间(色变处)不连 + 单点段(无 symbol)整段不画 → 跨市场综合评分/恐贪指数/A股情绪分线断成一个个点。
             // 修复: 每同色段路径在段尾桥接下一有效点(可能不同色), 相邻段共享端点 → 线连续(对齐 echarts visualMap)。
             let rs2 = 0;
+            let _prevRe = -1;   // 上一色段末点(共享端点, 保线连续); -1 = 首段无前序
             while (rs2 < _idx.length) {
               let re = rs2;
               const c0 = _perColor(_idx[rs2], ser.data[_idx[rs2]]);
               while (re + 1 < _idx.length && _perColor(_idx[re + 1], ser.data[_idx[re + 1]]) === c0) re++;
-              const _nxt = (re + 1 < _idx.length) ? re + 1 : -1;   // 段尾桥接: 下一有效点(可不同色), 段间共享端点
-              if (_nxt < 0 && re === rs2) {
-                // 末位单点(无下一段可桥接): 有 symbol 画圆点, 无则略(同 echarts symbol:none 行为)
-                if (ser.symbolR) s += '<circle cx="' + xs[_idx[rs2]].toFixed(1) + '" cy="' + ys[_idx[rs2]].toFixed(1) + '" r="' + ser.symbolR + '" fill="' + c0 + '"' + (ser.opacity != null ? ' fill-opacity="' + ser.opacity + '"' : "") + '/>';
+              // 2026-08-17 fix(颜色切换滞后): 绘制起点与颜色判定起点分离 —
+              // 首段绘制 [0, re0](旧色最后点止); 后续段绘制起点 = 上一段 re(共享端点, 线连续)、
+              // 颜色判定起点 = rs2(re+1 起新色)。kEnd 由桥接 _nxt(=re+1) 改为 re(画到本段旧色最后点止),
+              // 色变点 re→re+1 之间改由下一段新色绘制 → 颜色在色变数据点精确切换, 不再滞后一个点距。
+              const _drawStart = (_prevRe >= 0) ? _prevRe : rs2;
+              if (_drawStart === re) {
+                // 整段仅一个点(仅可能为首段单点): 若为全序列最后一点(无后续可过渡) → 有 symbol 画圆点,
+                // 无则略(同 echarts symbol:none); 否则由后续段从共享端点过渡, 本段不画(线由后续段接管)。
+                if (re + 1 >= _idx.length && ser.symbolR) {
+                  s += '<circle cx="' + xs[_idx[rs2]].toFixed(1) + '" cy="' + ys[_idx[rs2]].toFixed(1) + '" r="' + ser.symbolR + '" fill="' + c0 + '"' + (ser.opacity != null ? ' fill-opacity="' + ser.opacity + '"' : "") + '/>';
+                }
               } else {
                 // fix1(2026-08-12): 段内平滑(跨色段尾桥接下一有效点), 对齐 echarts visualMap+smooth 观感
                 // 2026-08-17: 改 _lwLineDIdxCtx(带独立控制上下文 ctxKEnd=re+2), 消除色变点切线退化尖角
-                const d = _lwLineDIdxCtx(xs, ys, _idx, rs2, (_nxt < 0 ? re : _nxt), Math.min(_idx.length - 1, re + 2), ser.smooth === true);
+                const d = _lwLineDIdxCtx(xs, ys, _idx, _drawStart, re, Math.min(_idx.length - 1, re + 2), ser.smooth === true);
                 s += '<path d="' + d + '" fill="none" stroke="' + c0 + '" stroke-width="' + (ser.width || 1.5) + '"' + _dashAttr + _opacityAttr + ' stroke-linejoin="round" stroke-linecap="round"/>';
               }
+              _prevRe = re;
               rs2 = re + 1;
             }
           }
