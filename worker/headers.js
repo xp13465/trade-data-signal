@@ -152,7 +152,10 @@ function dataCacheTtl(pathname) {
   //   overview/intraday_snapshot/board_etf_map 是数据一致性核心文件，stale 不可接受。
   //   ttl=0 时 dataRewriteHandler 跳过 caches.default.match/put，即使 purge 失败也不留旧版。
   //   代价 ~50ms R2 回源/次，盘中用户量小可接受。
-  if (/^\/data\/(?:overview|intraday_snapshot|board_etf_map)\.json$/.test(pathname)) return 0;
+  //   2026-08-16 补 daily_brief(+_history)：每日 AI 预测，20:40 更新 + 手动重跑要立即生效，
+  //   此前落 LOW_FREQ 3600s 且旧 worker 无 purge endpoint 致 edge 缓存旧版 4h(max-age=14400)残留(2026-08-14 重跑用户仍见旧版)。
+  //   stale 不可接受，与 overview 同属数据一致性核心(memory 同源事故)。
+  if (/^\/data\/(?:overview|intraday_snapshot|board_etf_map|daily_brief|daily_brief_history)\.json$/.test(pathname)) return 0;
   // HIGH_FREQ 60s：盘中高频更新（boot/notifications/summary 等；overview/intraday_snapshot 已拆到 NO_CACHE）
   // feed.xml（RSS）：收盘后更新，盘中 RSS 阅读器可能轮询，60s 平衡时效与回源成本。
   if (/^\/data\/(?:boot|notifications|summary|summary_history|schedule_stats|alert)\.json$/.test(pathname) || pathname === '/data/feed.xml') return 60;
