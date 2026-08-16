@@ -81,11 +81,6 @@
 [data-theme="dark"] .lab-newbie-tip b,
 [data-theme="redgold"] .lab-newbie-tip b { color: #ff9c9a; }
 
-.lab-title {
-  font-size: 16px;
-  color: var(--text-1);
-  margin: 0 0 12px;
-}
 .lab-signal-stat {
   padding: 8px 0;
   font-size: 13px;
@@ -254,14 +249,6 @@
   margin: 0;
   font-weight: 600;
 }
-.lab-detail-key {
-  font-size: 12px;
-  color: var(--text-3);
-  background: var(--bg-hover);
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-family: monospace;
-}
 .lab-doc-card { border-left: 3px solid var(--primary); }
 .lab-doc-content p {
   margin: 6px 0;
@@ -371,7 +358,6 @@
 /* 模拟回测卡片（配对交易） */
 .lab-sim-card { margin-top: 16px; }
 .lab-sim-card h3 { margin-bottom: 4px; }
-.lab-sim-controls { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
 /* 配对策略卡片切换（替代下拉，带摘要+三色分级） */
 .lab-sim-pair-section { margin-bottom: 10px; }
 .lab-sim-pair-label { font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 6px; }
@@ -417,11 +403,6 @@
 .lab-sim-pair-card .pc-lvl-good { color: var(--mx-good-fg); }
 .lab-sim-pair-card .pc-lvl-warn { color: var(--mx-warn-fg); }
 .lab-sim-pair-card .pc-lvl-bad { color: var(--mx-bad-fg); }
-.lab-sim-mode-toggle { display: flex; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-strong); }
-.lab-sim-mode-toggle button { padding: 4px 12px; border: none; background: var(--bg-card); font-size: 12px; cursor: pointer; color: var(--text-2); transition: all 0.15s; }
-.lab-sim-mode-toggle button.active { background: var(--primary); color: #fff; font-weight: 600; }
-.lab-sim-mode-toggle button:hover:not(.active) { background: var(--bg-hover); }
-.lab-sim-desc { font-size: 12px; color: var(--text-3); margin-bottom: 12px; line-height: 1.5; }
 .lab-sim-empty { font-size: 13px; color: var(--text-4); text-align: center; padding: 20px; }
 .lab-sim-full-loading { font-size: 13px; color: var(--text-3); text-align: center; padding: 24px 16px; background: var(--bg-hover); border-radius: 8px; }
 .lab-full-prog { height: 6px; background: var(--border); border-radius: 3px; margin-top: 8px; overflow: hidden; }
@@ -545,7 +526,6 @@
   .lab-strategy-list { grid-template-columns: 1fr; }
   .lab-detail-title { font-size: 16px; }
   .lab-zone-tab { padding: 6px 10px; font-size: 12px; }
-  .lab-sim-controls { flex-direction: column; align-items: stretch; gap: 6px; }
   .lab-sim-pair-list { grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); }
   .lab-sim-pair-card .pc-ret { font-size: 14px; }
   .lab-sim-stats { grid-template-columns: repeat(2, 1fr); }
@@ -828,14 +808,6 @@
 .lab-signal-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 2px 0 6px; }
 .lab-fusion-chart-legend { font-size: 12px; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 2px 0 8px; }
 .lab-fusion-chart-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
-.lab-signal-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
-.lab-signal-tab {
-  padding: 6px 14px; border: 1px solid var(--border); border-radius: 6px;
-  background: var(--bg-card); color: var(--text-2); font-size: 13px; cursor: pointer;
-  transition: all 0.15s; -webkit-appearance: none; appearance: none;
-}
-.lab-signal-tab:hover { background: var(--bg-hover); }
-.lab-signal-tab.active { background: #9c27b0; color: #fff; border-color: #9c27b0; }
 .lab-signal-chart-area { min-height: 200px; }
 .lab-signal-no-chart { font-size: 13px; color: var(--text-4); text-align: center; padding: 40px; }
 
@@ -844,7 +816,6 @@
   .lab-signal-modal-title { font-size: 13px; }
   .lab-signal-modal-body { padding: 10px 8px 16px; }
   .lab-signal-modal { width: calc(100vw - 24px); max-width: calc(100vw - 24px); max-height: 90vh; margin: 2vh auto; }
-  .lab-signal-tab { padding: 5px 10px; font-size: 12px; flex: 1; text-align: center; }
   .lab-signal-period-btn { padding: 4px 10px; font-size: 11px; }
   .lab-signal-legend { margin-left: 0; width: 100%; }
   .lab-sim-signal-btn { font-size: 12px; padding: 6px 14px; }
@@ -854,29 +825,6 @@
 .lab-fusion-clickable { cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
 .lab-fusion-clickable:hover { border-color: #9c27b0; box-shadow: 0 2px 8px rgba(156, 39, 176, 0.15); }
 .lab-fusion-pair-hint { font-size: 12px; color: #9c27b0; margin-top: 6px; font-weight: 600; }
-.lab-fusion-pair-filter { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
-.lab-fusion-pair-filter label { font-size: 13px; color: var(--text-2); white-space: nowrap; }
-.lab-fusion-pair-filter select {
-  padding: 4px 8px; border: 1px solid var(--border-strong); border-radius: 4px;
-  font-size: 13px; color: var(--text-1); background: var(--bg-card); max-width: 160px; min-width: 0;
-}
-.lab-fusion-pair-legend { font-size: 12px; color: var(--text-3); margin-left: auto; }
-.lab-fusion-pair-section { margin-bottom: 16px; }
-.lab-fusion-pair-mode { font-size: 14px; font-weight: 700; color: var(--text-1); margin-bottom: 6px; }
-.lab-fusion-pair-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.lab-fusion-pair-table th {
-  text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--border-strong);
-  font-size: 12px; color: var(--text-3); font-weight: 600; white-space: nowrap;
-}
-.lab-fusion-pair-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-.lab-fusion-pair-table tr:last-child td { border-bottom: none; }
-.lab-fp-win { font-weight: 600; color: var(--text-1); }
-.lab-fp-n { color: var(--text-3); }
-@media (max-width: 600px) {
-  .lab-fusion-pair-table { font-size: 12px; }
-  .lab-fusion-pair-table th, .lab-fusion-pair-table td { padding: 5px 4px; }
-  .lab-fusion-pair-legend { margin-left: 0; width: 100%; }
-}
 
 /* 硬编码独立融合策略详情（Bug-A：6个无 _pairType 策略的回测结论文本） */
 .lab-fusion-hardcoded { display: flex; flex-direction: column; gap: 12px; }
@@ -890,13 +838,6 @@
   flex-shrink: 0; width: 64px; color: var(--text-3); font-weight: 600;
 }
 .lab-fusion-detail-value { color: var(--text-2); flex: 1; word-break: break-word; }
-/* 融合策略弹窗内"核心策略详情"分隔提示（融合文案与核心策略图表/回测之间） */
-.lab-fusion-core-divider {
-  margin: 16px 0 8px; padding: 8px 12px; font-size: 12px; line-height: 1.6;
-  color: var(--text-2); background: var(--bg-hover); border-radius: 6px;
-  border-left: 3px solid var(--border-strong);
-}
-.lab-fusion-core-detail { margin-top: 4px; }
 
 /* === 二级导航（单一信号 / 融合信号）=== */
 .lab-subnav {
@@ -1443,7 +1384,6 @@
    2026-08-13: 加评级标注(最激进/次稳健/最稳健/最保守, K=3 主推) + hover 评级理由表格(lab-sigkelly-posrate-*) */
 .lab-sigkelly-kbtns { display: inline-flex; gap: 2px; margin: 0 2px; }
 .lab-sigkelly-posrate { position: relative; display: inline-flex; align-items: stretch; gap: 2px; margin: 0 2px; }
-.lab-sigkelly-posrate-k { font-size: 11px; font-weight: 700; color: var(--text-2); align-self: center; margin-right: 1px; }
 .lab-sigkelly-kbtn { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-width: 34px; padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-2); cursor: pointer; line-height: 1.25; transition: all 0.15s; }
 .lab-sigkelly-kbtn:hover { border-color: var(--primary); color: var(--text-1); }
 .lab-sigkelly-kbtn.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700; }
@@ -1502,8 +1442,6 @@
 .lab-sigkelly-fee-custom { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; width: 100%; font-size: 11px; color: var(--text-3); padding: 4px 0; }
 .lab-sigkelly-fee-custom label { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
 .lab-sigkelly-fee-custom .lab-input { padding: 1px 4px; font-size: 11px; height: 22px; }
-.lab-sigkelly-fee-apply { font-size: 11px; padding: 2px 10px; border: 1px solid var(--primary); border-radius: 4px; background: var(--primary); color: #fff; cursor: pointer; }
-.lab-sigkelly-fee-apply:hover { opacity: 0.85; }
 .lab-sigkelly-fee { font-size: 11px; white-space: nowrap; }
 .lab-sigkelly-tp-hl { font-size: 13px; font-weight: 700; white-space: nowrap; }
 .lab-sigkelly-rmh { white-space: nowrap; }
@@ -1573,15 +1511,9 @@
 .lab-sigkelly-pin-btn.active { opacity: 1; background: rgba(250,173,20,0.18); border-color: rgba(250,173,20,0.7); box-shadow: 0 0 0 1px rgba(250,173,20,0.3); }
 .lab-sigkelly-wm { position: absolute; top: 6px; right: 8px; z-index: 2; pointer-events: auto; cursor: help; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 8px; letter-spacing: 0.5px; line-height: 1.3; }
 .lab-sigkelly-wm-badge { opacity: 0.82; }
-.lab-sigkelly-wm-top1 { background: rgba(212,160,23,0.16); color: #b8860b; border: 1px solid rgba(184,134,11,0.4); }
-.lab-sigkelly-wm-out { background: rgba(100,116,139,0.16); color: #64748b; border: 1px solid rgba(100,116,139,0.4); }
-.lab-sigkelly-wm-mix { background: rgba(234,88,12,0.16); color: #ea580c; border: 1px solid rgba(234,88,12,0.4); }
 .lab-sigkelly-wm-aux { font-size: 10px; font-weight: 600; margin-left: 4px; padding: 1px 4px; border-radius: 4px; }
 .lab-sigkelly-wm-aux-risk { color: #ea580c; background: rgba(234,88,12,0.12); }
 .lab-sigkelly-wm-aux-good { color: #389e0d; background: rgba(56,158,13,0.12); }
-[data-theme="dark"] .lab-sigkelly-wm-top1, [data-theme="redgold"] .lab-sigkelly-wm-top1 { color: #ffd666; background: rgba(240,185,11,0.18); border-color: rgba(240,185,11,0.45); }
-[data-theme="dark"] .lab-sigkelly-wm-out, [data-theme="redgold"] .lab-sigkelly-wm-out { color: #9aa4b2; }
-[data-theme="dark"] .lab-sigkelly-wm-mix, [data-theme="redgold"] .lab-sigkelly-wm-mix { color: #ffb070; }
 [data-theme="dark"] .lab-sigkelly-wm-aux-risk, [data-theme="redgold"] .lab-sigkelly-wm-aux-risk { color: #ffb070; }
 [data-theme="dark"] .lab-sigkelly-wm-aux-good, [data-theme="redgold"] .lab-sigkelly-wm-aux-good { color: #95de64; }
 @media (max-width: 760px) { .lab-sigkelly-wm { font-size: 10px; padding: 1px 6px; top: 4px; right: 6px; } }
