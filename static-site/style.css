@@ -3419,6 +3419,60 @@ main { padding: 16px 24px; }
 .sh-hist-news { margin-top: 6px; }
 .db-hist-news { padding: 8px 12px; border-radius: 6px; border-left: 3px solid #2e7d32; background: linear-gradient(90deg, rgba(46, 125, 50, 0.10), rgba(46, 125, 50, 0.03)); }
 .db-hist-news-t { font-size: 12.5px; font-weight: 700; color: #2e7d32; margin-bottom: 4px; }
+.db-hist-news-loading, .db-hist-news-empty { font-size: 12px; color: var(--text-3); padding: 6px 12px; border-left: 3px solid #7c4dff; background: linear-gradient(90deg, rgba(124, 77, 255, 0.06), rgba(124, 77, 255, 0.02)); border-radius: 6px; }
+
+/* ---- 首页 AI 预测卡「📰 新闻」按钮(与 🤖 AI 预测 并列,对齐 summary-ai-btn) ---- */
+.summary-news-btn {
+  margin-left: 6px;
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border: 1px solid rgba(124, 77, 255, 0.4);
+  border-radius: 5px;
+  background: linear-gradient(180deg, rgba(124, 77, 255, 0.12), rgba(124, 77, 255, 0.06));
+  color: #7c4dff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.summary-news-btn:hover { background: rgba(124, 77, 255, 0.18); border-color: #7c4dff; }
+
+/* ---- 新闻速递弹窗(📰 新闻,独立于 AI 预测弹窗) ---- */
+.news-modal-body { max-width: 760px; }
+#news-digest-body { display: flex; flex-direction: column; gap: 10px;}
+.news-version { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.news-version-k { font-weight: 700; color: #7c4dff; }
+.news-version-v { color: var(--text-2); }
+.news-archive-hint { color: var(--text-3); font-size: 11px; margin-left: 4px; }
+.news-empty { padding: 24px 12px; text-align: center; color: var(--text-3); font-size: 13px; }
+.news-scroll { max-height: 56vh; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 4px; }
+.news-src-bar { display: flex; gap: 8px; flex-wrap: wrap; }
+.news-src-chip {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 3px 12px;
+  font-size: 12px;
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.news-src-chip em { font-style: normal; opacity: 0.6; margin-left: 3px; font-size: 11px; }
+.news-src-chip.active { background: #7c4dff; color: #fff; border-color: #7c4dff; }
+.news-group { display: flex; flex-direction: column; gap: 6px; }
+.news-group-t { font-size: 12.5px; font-weight: 700; color: var(--text-1); }
+.db-news-li { cursor: pointer; }
+.db-news-li:hover .db-news-title { color: #7c4dff; }
+.news-src { flex-shrink: 0; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; line-height: 1.4; }
+.news-src.all { color: #7c4dff; background: rgba(124, 77, 255, 0.12); }
+.news-src.imp { color: #e6492e; background: rgba(230, 73, 46, 0.12); }
+.news-src.up { color: #e6a23c; background: rgba(230, 162, 60, 0.14); }
+.news-imp { flex-shrink: 0; color: #e6a23c; font-size: 11px; }
+/* 分时对照迷你图 */
+.db-news-spark { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-2); }
+.db-news-spark svg { display: block; }
+.db-news-spark svg circle.news-mark-hot { stroke: #e6a23c; stroke-width: 2.5; }
+.db-news-spark-static { padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-2); font-size: 12.5px; }
 
 /* ---- 大盘位置感卡片 ---- */
 .position-card { padding: 16px; }
