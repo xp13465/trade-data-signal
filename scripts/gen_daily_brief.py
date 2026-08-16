@@ -1801,6 +1801,64 @@ def write_outputs(static_dir: Path, brief: dict, cfg: dict, history: list | None
     return stats
 
 
+# ── AI 预测语音播报(edge-tts,2026-08-16,方案 docs/ai-predict-tts-plan.md §三)────────
+#   用微软 Edge "大声朗读"免费在线 TTS(edge-tts 包,非 Azure 商用)把 AI 预测合成 mp3,
+#   写 static-site/data/daily_brief_tts_<date>.mp3,前端 <audio> 播放。合成失败不阻塞主流程,
+#   不写 meta.tts_available(前端据此隐藏播放按钮,降级不破)。
+TTS_FILE_PREFIX = "daily_brief_tts_"
+TTS_VOICE = "zh-CN-XiaoxiaoNeural"  # 晓晓,女,标准中文神经音色
+TTS_RATE = "-5%"                    # 略慢一点,更易听清
+
+
+def _tts_filename(date: str) -> str:
+    return f"{TTS_FILE_PREFIX}{date}.mp3"
+
+
+def _synth_tts(brief: dict, static_dir: Path, date: str, log) -> str | None:
+    """组朗读文本 -> edge-tts 合成 mp3 -> 返回 mp3 相对 static-site/data/ 文件名;失败返回 None。
+
+    只有 AI/AI-multi 完整版(meta.highlights 非空)才合成,rule/minimal 兜底版跳过(内容单薄不值得播)。
+    朗读文本(按序拼接): 方向+把握度 -> 🎯今日要点(highlights) -> 复盘(review) -> 趋势(trend) -> 关注(watch) -> 风险(risk)。
+    失败(微软服务不可达/限流/调整协议)catch 记日志,不抛,不阻塞 daily_brief 主流程(风险见方案 §四)。
+    """
+    try:
+        meta = brief.get("meta") or {}
+        hl = meta.get("highlights") or []
+        if not (isinstance(hl, list) and hl):
+            log("tts 跳过: 非 AI 完整版(highlights 为空),不合成")
+            return None
+        text = brief.get("text") or {}
+        parts = []
+        dir_label = {"up": "上涨", "down": "下跌", "flat": "震荡"}.get(meta.get("direction"), "")
+        conf = meta.get("confidence")
+        if isinstance(conf, (int, float)) and not isinstance(conf, bool):
+            parts.append(f"今日上证指数方向{dir_label or '待定'}，把握度{int(round(conf))}。")
+        if hl:
+            parts.append("今日要点：" + "。".join(str(x) for x in hl) + "。")
+        for key, label in (("review", "复盘"), ("trend", "趋势研判"), ("watch", "明日关注"), ("risk", "风险提示")):
+            seg = (text.get(key) or "").strip()
+            if seg:
+                parts.append(f"{label}：{seg}")
+        content = "\n".join(parts)
+        if not content.strip():
+            log("tts 跳过: 无可用朗读文本")
+            return None
+        mp3 = static_dir / _tts_filename(date)
+        # edge-tts 程序化调用(save_sync 同步版,不用 asyncio.run 兼容旧 py)
+        import edge_tts
+        communicate = edge_tts.Communicate(content, TTS_VOICE, rate=TTS_RATE)
+        communicate.save_sync(str(mp3))
+        if not mp3.exists() or mp3.stat().st_size == 0:
+            log(f"⚠ tts 生成失败: 文件空 {mp3.name}")
+            return None
+        log(f"tts 合成成功: {mp3.name} {mp3.stat().st_size} 字节")
+        # 写作时间/价格可选;meta.tts_available 由调用方(需在 write_outputs 前设置才能归档进 history)
+        return _tts_filename(date)
+    except Exception as e:
+        log(f"⚠ tts 合成失败(不阻塞主流程): {e}")
+        return None
+
+
 # ── 成本监控(P2-1)────────────────────────────────────────────────────────
 def _cost_log_path(repo: Path, cfg: dict) -> Path:
     p = Path(cfg.get("cost_log", "data/daily_brief_cost.log"))
@@ -2260,6 +2318,7 @@ def main() -> int:
     ap.add_argument("--mock", action="store_true", help="不真调 deepseek,用固定 mock 输出(测试)")
     ap.add_argument("--rule-only", action="store_true", help="强制走规则版(跳过 AI,测试降级)")
     ap.add_argument("--no-upload", action="store_true", help="跳过 R2 上传")
+    ap.add_argument("--no-tts", action="store_true", help="跳过 edge-tts 语音合成(自测/开发用)")
     ap.add_argument("--multi", action="store_true",
                     help="多角色协作式编排(6角色,并行;配置 daily_brief.yaml multi_agent_enabled 亦可开启)")
     ap.add_argument("--notify-dry-run", action="store_true",
@@ -2436,6 +2495,19 @@ def main() -> int:
 
     # 回填上一日 hit + 写输出(传入已回填 history,防 write_outputs 重载丢弃回填)
     backfill_hits(history, db_path, date)
+    # AI 预测语音播报(edge-tts): 只对 AI 完整版(ai/ai-multi)合成;rule/minimal 兜底版内容单薄不值得播(方案 §三)。
+    #   先合成 mp3(成功 → meta.tts_available=True 才随 write_outputs 归档进 history);失败置 False,前端隐藏按钮不阻塞主流程。
+    tts_file = None
+    tts_ok = False
+    if not args.no_tts and version in ("ai", "ai-multi"):
+        tt = time.time()
+        tts_file = _synth_tts(brief, static_dir, date, log)
+        tts_ok = bool(tts_file)
+        brief["meta"]["tts_available"] = tts_ok
+        timings["tts"] = round(time.time() - tt, 2)
+    else:
+        brief["meta"]["tts_available"] = False
+        timings["tts"] = 0
     tw = time.time()
     stats = write_outputs(static_dir, brief, cfg, history)
     timings["write"] = round(time.time() - tw, 2)
@@ -2450,13 +2522,14 @@ def main() -> int:
     # 成本日志
     log_cost(repo, cfg, date, version, usage, ok=(version in ("ai", "ai-multi")))
 
-    # R2 上传(主数据 2 件;run_log 在 write_run_log 后单独传,保证本 run 的 run_log 随本 run 上线)
+    # R2 上传(主数据 2 件 + tts mp3(若有);run_log 在 write_run_log 后单独传,保证本 run 的 run_log 随本 run 上线)
+    files_out = [BRIEF_FILE, HISTORY_FILE] + ([tts_file] if tts_ok and tts_file else [])
     tu = time.time()
-    upload_to_r2(repo, args.no_upload, files=[BRIEF_FILE, HISTORY_FILE])
+    upload_to_r2(repo, args.no_upload, files=files_out)
     timings["r2"] = round(time.time() - tu, 2)
     # staticdata 同步(数据仓库留档,防 deploy 外生成器留旧版;best-effort)
     ts2 = time.time()
-    staticdata_sync(repo, args.no_upload, files=[BRIEF_FILE, HISTORY_FILE])
+    staticdata_sync(repo, args.no_upload, files=files_out)
     timings["staticdata"] = round(time.time() - ts2, 2)
 
     # 结构化运行日志双写(run_log 审计缺口#4: 每步耗时+数据量+新鲜度+AI参数+输出摘要)
@@ -2472,6 +2545,7 @@ def main() -> int:
         "confidence": brief["meta"].get("confidence"),
         "watch_count": len(brief["meta"].get("watch_list") or []),
         "risk_count": len(brief["meta"].get("risk_items") or []),
+        "tts": {"ok": tts_ok, "file": tts_file or None, "ms": timings.get("tts", 0)},
         "timings": timings,
         "data_sources": data_sources,
         "freshness": freshness,

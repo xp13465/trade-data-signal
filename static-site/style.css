@@ -3266,6 +3266,21 @@ main { padding: 16px 24px; }
   color: #8e24aa;
 }
 .db-expand-hint { font-size: 11px; color: var(--text-3); margin-left: auto; }
+/* edge-tts AI预测语音播报按钮(2026-08-16,docs/ai-predict-tts-plan.md) */
+.db-play {
+  flex: none;
+  border: 1px solid var(--border);
+  background: var(--bg-hover);
+  border-radius: 9px;
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 6px;
+  cursor: pointer;
+  color: inherit;
+  transition: background 0.15s, border-color 0.15s;
+}
+.db-play:hover { background: #ede7f6; border-color: #7c4dff; }
+.db-play.db-play-err { opacity: 0.4; cursor: not-allowed; }
 .db-detail {
   margin-top: 8px;
   padding-top: 8px;

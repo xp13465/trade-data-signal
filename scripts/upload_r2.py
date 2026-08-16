@@ -116,6 +116,7 @@ _CONTENT_TYPE_MAP = {
     ".css": "text/css; charset=utf-8",
     ".xml": "application/rss+xml; charset=utf-8",
     ".gz": "application/gzip",
+    ".mp3": "audio/mpeg",  # edge-tts AI预测语音播报(docs/ai-predict-tts-plan.md)
 }
 
 

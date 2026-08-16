@@ -21208,7 +21208,7 @@ function _summaryHistoryItemHtml(s, briefByDate) {
   const it = (briefByDate && s.date) ? briefByDate[s.date] : null;
   if (it) {
     const meta = it.meta || {};
-    aiBlock = `<div class="sh-ai-brief"><div class="sh-ai-brief-head"><span class="db-dir">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}<span class="sh-ai-brief-title">🤖 AI预测</span>${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}${_dbHitHtml(meta)}${_dbActualHtml(meta)}</div>${_dbBriefDetailHtml(it)}</div>`;
+    aiBlock = `<div class="sh-ai-brief"><div class="sh-ai-brief-head"><span class="db-dir">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}<span class="sh-ai-brief-title">🤖 AI预测</span>${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}${_dbHitHtml(meta)}${_dbActualHtml(meta)}${_dbPlayBtn(meta, it.date || meta.date)}</div>${_dbBriefDetailHtml(it)}</div>`;
   }
   return `<div class="summary-history-item"><div class="sh-date">${date} <span class="sh-label">${s.sentiment_label || ""}</span>${fg}${freeze}</div>${renderSummaryChips(s, null)}${aiBlock}</div>`;
 }
@@ -21244,6 +21244,7 @@ async function _loadSummaryHistoryPage() {
   const offset = page * limit;
   const items = _summaryHistoryState.cache.slice(offset, offset + limit);
   list.innerHTML = items.map((s) => _summaryHistoryItemHtml(s, _summaryHistoryState.briefByDate || {})).join("") || '<div class="summary-history-empty">暂无历史数据</div>';
+  _dbTtsBind(list);  // edge-tts 语音播报按钮事件委托
   // 翻页后列表回顶（用户想看新页内容，不是底部）
   list.scrollTop = 0;
   _renderSummaryPager(modal);
@@ -21399,6 +21400,47 @@ function _dbActualHtml(meta) {
     return `<span class="db-actual" style="color:${color}">次日上证 ${sign}${pct.toFixed(2)}%${midActual}</span>`;
   }
   return '<span class="db-actual">次日待回填</span>';
+}
+
+// ── AI 预测语音播报(edge-tts,2026-08-16,方案 docs/ai-predict-tts-plan.md §三)────────
+// 后端 gen_daily_brief.py 生成 static-site/data/daily_brief_tts_<date>.mp3 上传 R2 data/ 前缀,
+// 前端经 /r2/ 代理(带 ACAO:*,备站可跨域)播音,URL = _R2_DATA_BASE + daily_brief_tts_<date>.mp3。
+// 仅 meta.tts_available === true(后端合成成功)才渲染 🔊 按钮;失败缺字段不显示(降级不破)。
+// 单例 currentAudio:同一时刻只播一个,点新按钮先停旧的(§22 弹窗+历史收盘分析两处共用)。
+let __dbTtsAudio = null;
+function _dbPlayBtn(meta, dateRaw) {
+  if (!meta || meta.tts_available !== true || !dateRaw) return "";
+  const src = _R2_DATA_BASE + "daily_brief_tts_" + dateRaw + ".mp3";
+  return `<button type="button" class="db-play" title="语音播报 AI 预测" data-src="${src.replace(/"/g, "&quot;")}">🔊</button>`;
+}
+// 播放按钮点击处理(事件委托绑定在 HistoryEl/SummaryEl 容器,见下方绑定处):点击播/停,单例不叠音。
+function _dbPlayClick(btn) {
+  const src = btn.getAttribute("data-src");
+  if (!src) return;
+  if (__dbTtsAudio && __dbTtsAudio.src && __dbTtsAudio.src === src && !__dbTtsAudio.paused) {
+    __dbTtsAudio.pause();
+    return;
+  }
+  // 先停掉上一个,再播新的(单例)
+  if (__dbTtsAudio) { try { __dbTtsAudio.pause(); } catch (e) {} }
+  const a = new Audio(src);
+  a.preload = "none";
+  a.addEventListener("error", function () {
+    try { if (btn) btn.classList.add("db-play-err"); } catch (e) {}
+  });
+  a.play().catch(function () {});
+  __dbTtsAudio = a;
+}
+// 事件委托:在 AI 预测历史列表容器上绑一次点击,命中 .db-play 则播/停。
+// 容器 innerHTML 每次重渲染都要重新 bind(页面数据变化后按钮重新生成)。
+function _dbTtsBind(listEl) {
+  if (!listEl) return;
+  if (listEl.__dbTtsBound) return;   // 防重复委托
+  listEl.addEventListener("click", function (e) {
+    const btn = e.target && e.target.closest ? e.target.closest(".db-play") : null;
+    if (btn) { _dbPlayClick(btn); e.preventDefault(); }
+  });
+  listEl.__dbTtsBound = true;
 }
 
 // 把握度(confidence 0-100)梯度: 高70-100 / 中55-70 / 低30-55 / 看不清0-30。
@@ -21575,7 +21617,7 @@ function _dailyBriefItemHtml(it) {
   const dateRaw = it.date || meta.date || "";
   const date = dateRaw.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
   return `<div class="summary-history-item db-item" data-date="${_escAttr(dateRaw)}">
-    <div class="sh-date"><span class="db-dir">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}<span class="sh-label">${_esc(date)}</span>${_dbHitHtml(meta)}${_dbActualHtml(meta)}<span class="db-expand-hint">点击收起 ▲</span></div>
+    <div class="sh-date"><span class="db-dir">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}<span class="sh-label">${_esc(date)}</span>${_dbHitHtml(meta)}${_dbActualHtml(meta)}${_dbPlayBtn(meta, dateRaw)}<span class="db-expand-hint">点击收起 ▲</span></div>
     <div class="db-detail">
       ${_dbBriefDetailHtml(it)}
     </div>
@@ -21613,6 +21655,7 @@ async function _loadDailyBriefPage() {
   const offset = page * limit;
   const items = _dailyBriefState.cache.slice(offset, offset + limit);
   list.innerHTML = items.map(_dailyBriefItemHtml).join("") || '<div class="summary-history-empty">暂无历史预测数据</div>';
+  _dbTtsBind(list);  // edge-tts 语音播报按钮事件委托
   list.scrollTop = 0;
   // 点开某日=展开预测内容+meta断言（事件委托，列表重渲染后仍可点）
   list.querySelectorAll(".db-item").forEach((el) => {
