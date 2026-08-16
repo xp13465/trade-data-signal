@@ -2045,7 +2045,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
 
   const tradesBody = isOpen
     ? `<div class="lab-sim-trades-body">` +
-      `<div class="lab-sim-table-wrap"><table><thead><tr><th>品种</th><th>#</th><th>关注日期</th><th>关注价</th><th>风险日期</th><th>风险价</th><th>收益率</th><th>持有</th><th>账户总资金(元)</th><th>累计盈亏(元)</th><th>累计收益率</th><th data-tip="本笔累计收益率/累计盈亏(元)相较上一笔的差值，红赚绿亏">较上次</th></tr></thead><tbody>` +
+      `<div class="lab-sim-table-wrap"><table><thead><tr><th>品种</th><th>#</th><th>关注日期</th><th>关注价</th><th>风险日期</th><th>风险价</th><th>收益率</th><th>持有</th><th>账户总资金(元)</th><th>累计盈亏(元)</th><th>累计收益率</th><th data-tip="累计盈亏=账户资金−初始本金(1万)；累计收益率=累计盈亏÷初始本金×100%；较上次=本笔累计收益率/累计盈亏(元)相较上一笔的差值，红赚绿亏(首笔显示-)。例(上证「BB下轨反抽×MACD死叉」固定1万·近5年)：①2021-10-29买3537.07、12-20卖,本笔+1.6%,账户100,319.65(累计盈亏+319.65、累计收益率+0.32%),较上次=-(首笔)；②2022-01-17买、02-14卖,本笔-1.6%,账户99,999.16(累计-0.84、累计收益率-0.00%),较上次=收益率差-0.32pp、盈亏差-320.49元(绿亏)【核实源:lab_sim_sh_full.json win_trades.y5】">较上次</th></tr></thead><tbody>` +
       (tradeRows || '<tr><td colspan="12" style="text-align:center;color:var(--text-4)">无交易记录</td></tr>') +
       holdingRows +
       `</tbody></table></div>${pagerHTML}</div>`
@@ -2088,7 +2088,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
       `<tr><td>低档</td><td>万3</td><td>千1</td><td>${fmtPct(lo.annual_ret)}</td><td>${fmtPct(lo.total_ret)}</td><td>${lo.win_rate != null ? lo.win_rate + "%" : "-"}</td></tr>` +
       `<tr><td>高档</td><td>万5</td><td>千2</td><td>${fmtPct(hi.annual_ret)}</td><td>${fmtPct(hi.total_ret)}</td><td>${hi.win_rate != null ? hi.win_rate + "%" : "-"}</td></tr>` +
       `</tbody></table>` +
-      `<div class="lab-cost-note">成本档说明：低档=万3手续费+千1滑点(ETF/低费率)；高档=万5手续费+千2滑点(个股常规)。高频策略成本侵蚀更大。</div>` +
+      `<div class="lab-cost-note">成本档说明：低档=万3手续费+千1滑点(ETF/低费率)；高档=万5手续费+千2滑点(个股常规)。高频策略成本侵蚀更大。例(上证「Donchian20突破×MACD死叉」全仓进出·全史,看下表毛/低/高三行年化列)：毛年化 +20.4% → 含费低档 +18.9% → 高档 +17.5%,逐档约降 1.5~2.9 个百分点(手续费/滑点越重侵蚀越多)【核实源:lab_cost_compare.json】</div>` +
       `</div>`;
   } else {
     costBlock = `<div class="lab-cost-block lab-cost-block-generic"><div class="lab-cost-warn">⚠ 以上为<strong>毛收益</strong>,未计手续费/滑点,实际收益约低 5%~30%(高频交易成本侵蚀更大)</div></div>`;
@@ -2806,7 +2806,7 @@ function _labFmtQuality(v, kind) {
 // 质量指标5字段 HTML(盈亏比/利润因子/夏普/索提诺/期望值),复用于主榜与retest榜行。
 // 紧凑灰字单行,hover title 给中文释义,详细解释见术语词典(_labHelpIcon)。
 function _labQualityHTML(row) {
-  return `<span class="lab-rank-quality" title="质量指标(点页内❓查词典): 盈亏比=平均盈利/平均亏损; 利润因子=总盈利/总亏损; 夏普/索提诺=年化风险调整收益(索提诺仅算下行波动); 期望值=单笔期望收益率%">` +
+  return `<span class="lab-rank-quality" title="质量指标(点页内❓查词典): 盈亏比=平均盈利/平均亏损; 利润因子=总盈利/总亏损; 夏普/索提诺=年化风险调整收益(索提诺仅算下行波动); 期望值=单笔期望收益率%。例(上证「BB下轨反抽×BB中轨突破」全仓进出·全史,n=141笔): 胜率55.3%+盈亏比1.59+期望+2.38%怎么一起读→约10笔里5.5笔赚;赚的一笔平均是亏的一笔的1.59倍(赚的厚度盖过胜率不足);单笔平均期望+2.38%(三数都高=稳赚,胜率低但盈亏比高也ok)【核实源:lab_sim_sh_stats.json】">` +
     `盈亏比${_labFmtQuality(row.payoff_ratio, "sentinel")} · 利润因子${_labFmtQuality(row.profit_factor, "sentinel")} · 夏普${_labFmtQuality(row.sharpe)} · 索提诺${_labFmtQuality(row.sortino)} · 期望${_labFmtQuality(row.expectancy, "pct")}</span>`;
 }
 
@@ -8655,7 +8655,7 @@ var _kellyComboPresets = {
   // 年末季节 = n2+n3+v4d (并集standalone 6.50/+29万, 4窗口全>2最稳健, maxSh0.35, wf两段>2)
   yearEnd: {
     label: "年末季节",
-    tip: "组合「年末季节」(n2+n3+v4d): 一键勾选这3个成员。经济逻辑=年末止损潮,历史最稳健组合(并集4窗口全>2)。⚠n2已是AI降亏过滤默认键,再勾本组合仅新增n3+v4d,G模式边际≈0(-0.9万,微负无增益)——非默认推荐,可选分析。",
+    tip: "组合「年末季节」(n2+n3+v4d): 一键勾选这3个成员。经济逻辑=年末止损潮,历史最稳健组合(并集4窗口全>2)。⚠n2已是AI降亏过滤默认键,再勾本组合仅新增n3+v4d,G模式边际≈0(-0.9万,微负无增益)——非默认推荐,可选分析。1:1例: 单独跑它=并集比值6.50(4窗口 y1 14.33/y3 9.72/y10 7.14/all 6.50 全>2)、+29万,最稳;但叠在AI降亏默认上再勾,净利几乎不变(边际-0.9万)→想加稳健可勾、想冲收益可跳过【核实源:kelly-combo-round3-verify.md】。",
     members: [
       { k: "n2NovSpecialIndustry", cls: "lab-sigkelly-toggle-n2" },
       { k: "n3NovSpecialMon", cls: "lab-sigkelly-toggle-n3" },
@@ -8665,7 +8665,7 @@ var _kellyComboPresets = {
   // 稳健核心 = 仅r8 (5.95/+30.8万; v4c/v4b部署数据净负已剔除勿含)
   stableCore: {
     label: "稳健核心",
-    tip: "组合「稳健核心」(仅r8): 一键勾选纯非五月3稳定组件R8。2021-2026连续6年全正,完全避开5月shift争议,损盈最低之一。注:r8≡n1∪n2∪n3恒等;v4c/v4b部署净负已剔除不在此组合。可选分析非默认推荐。",
+    tip: "组合「稳健核心」(仅r8): 一键勾选纯非五月3稳定组件R8。2021-2026连续6年全正,完全避开5月shift争议,损盈最低之一。注:r8≡n1∪n2∪n3恒等;v4c/v4b部署净负已剔除不在此组合。可选分析非默认推荐。1:1例: 单勾它=年化5.95、净+30.8万,2021-2026每年都正→想要「年年不亏」选它;vs「最大化降亏」(greedy15)是A/F短线收益率唯一大增来源(去之暴跌19-26pt)但G模式建议别勾→先想清楚你在用哪种玩法【核实源:kelly-combo-round3-verify.md】。",
     members: [
       { k: "r8PureNonMay", cls: "lab-sigkelly-toggle-r8" }
     ]
@@ -8673,7 +8673,7 @@ var _kellyComboPresets = {
   // 最大化降亏 = greedy15 (2026-08-13 穷举v2 已并入 AI宏 默认3元: A/F 收益率唯一大增来源; standalone 1.90<2标注风险)
   maxLossCut: {
     label: "最大化降亏",
-    tip: "组合「最大化降亏」(greedy15): ⚠greedy15 已在 AI降亏过滤 默认内(核心3键之一), 本组合成员与核心3键完全重复, 无需再勾——勾 AI降亏过滤 即已含 greedy15(勾选幂等无害)。价值=A/F(短持)收益率唯一大增来源(去之暴跌19-26pt);但用G模式(推荐卖出法)建议去掉。勿单开(每日池比值1.28<2)。",
+    tip: "组合「最大化降亏」(greedy15): ⚠greedy15 已在 AI降亏过滤 默认内(核心3键之一), 本组合成员与核心3键完全重复, 无需再勾——勾 AI降亏过滤 即已含 greedy15(勾选幂等无害)。价值=A/F(短持)收益率唯一大增来源(去之暴跌19-26pt);但用G模式(推荐卖出法)建议去掉。勿单开(每日池比值1.28<2)。1:1例: 你跑A/F短线,开它收益率能高19-26个百分点(核心价值),默认已含不用手动勾;但你是G长线玩法就别关/别管它,G靠21-100天长持利润引擎、不靠砍量提收益率【核实源:kelly-combo-round3-verify.md】。",
     members: [
       { k: "greedy15", cls: "lab-sigkelly-toggle-greedy15" }
     ]
@@ -8682,7 +8682,7 @@ var _kellyComboPresets = {
   // 只做1月中旬(11-20日): 1月上旬=盈利口袋(全负-56万)不可动; 两成员重叠~96%(mid⊂special), 偏好surgical开1月中旬+中评级, 偏好覆盖开1月中旬+追关注
   janAdjust: {
     label: "1月调整",
-    tip: "组合「1月调整」(1月中旬+中评级 + 1月中旬+追关注): 一键勾选2个1月保护键。1月上旬=盈利口袋(全负-56万)不可动,只做1月中旬。⚠两键带监控(maxSh0.62/0.79,2026单年主导),每年1月后检查1月中旬子集是否转盈。两键均已并入AI降亏过滤默认,勾选幂等无害。",
+    tip: "组合「1月调整」(1月中旬+中评级 + 1月中旬+追关注): 一键勾选2个1月保护键。1月上旬=盈利口袋(全负-56万)不可动,只做1月中旬。⚠两键带监控(maxSh0.62/0.79,2026单年主导),每年1月后检查1月中旬子集是否转盈。两键均已并入AI降亏过滤默认,勾选幂等无害。1:1例: 每年1月11-20日这批信号,过去整体是亏损区(1月上旬-56万),勾它=只对1月中旬的中评级/追关注信号做降亏剔除、不动1月上旬盈利段→年初想躲1月坑可勾,但2026单年主导需每年1月后回查【核实源:kelly-combo-element-mining.md】。",
     members: [
       { k: "janMidRating", cls: "lab-sigkelly-toggle-janmidrating" },
       { k: "janMidSpecial", cls: "lab-sigkelly-toggle-janmidspecial" }
@@ -9118,7 +9118,7 @@ function _renderSigKellyBar(bar, data, period) {
   const aihlineCompareHTML =
     `<div id="lab-kelly-gih-compare-body" class="lab-sigkelly-ai-macro-body" style="${_gihCompareOpen ? "" : "display:none"}">` +
       `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap">` +
-        `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">G/H/I 仓位管理 · 开关前后对比(推荐 K=1 口径, 前端内核已对齐报告§21)。数据来源 G=「G模式复核」 <button type="button" class="lab-kelly-repo-btn" data-repo-id="kelly-g-mode-recheck">🔍</button> · H/I=「G/H/I连续资金扫描」 <button type="button" class="lab-kelly-repo-btn" data-repo-id="kelly-ghi-continuous-cap-sweep">🔍</button>。G=P≤3d先卖年轻仓(可切档, b0/b1区间窄可信), H=满仓不买@7万, I=满仓不买@15万(H/I 手段A 无强平 b0=b1)。收益率=净利÷峰值占用资金; 保守b0=强平按0利计, 乐观b1=按持有时间线性, 真实值在区间。</div>` +
+        `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">G/H/I 仓位管理 · 开关前后对比(推荐 K=1 口径, 前端内核已对齐报告§21)。数据来源 G=「G模式复核」 <button type="button" class="lab-kelly-repo-btn" data-repo-id="kelly-g-mode-recheck">🔍</button> · H/I=「G/H/I连续资金扫描」 <button type="button" class="lab-kelly-repo-btn" data-repo-id="kelly-ghi-continuous-cap-sweep">🔍</button>。G=P≤3d先卖年轻仓(可切档, b0/b1区间窄可信), H=满仓不买@7万, I=满仓不买@15万(H/I 手段A 无强平 b0=b1)。收益率=净利÷峰值占用资金; 保守b0=强平按0利计, 乐观b1=按持有时间线性, 真实值在区间。例(G 模式开关前后, K=1 口径)：关(旧FIFO)峰值同时持仓 136 万(136 倍单次本金1万,远超20倍可操作线)→ 即便净利 +64.2万 全模式最高也不可实操;开(现档13万 P≤3d)峰值压到 13 万(13 倍本金,可操作)→ 收益率口径=净利÷峰值占用资金 → 保守 b0 155.8%(净 +20.3万)/乐观 b1 179.7%(净 +23.4万)【核实源:kelly-g-mode-recheck.md + lab.js _gihRefRows/_gihGTierB】。</div>` +
         `<div class="lab-sigkelly-table-scroll">${_gihCompareTableHTML}</div>` +
         `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-warn">诚实标注: G 的 P≤3d 全面超旧 FIFO(15起始年全胜/随机0/30负/区间窄4-24pp, 强平的为新仓未攒利润); H/I 手段A 无强平完全确定, 但 H 小本金档净利绝对值低(7.5万)可自行放宽; 三模式峰持仓均≤20倍本金=可操作。</div>` +
       `</div>` +
@@ -10272,7 +10272,7 @@ function _sigKellyWmPopupHtml(wm) {
         `<div class="lab-sigkelly-wm-li"><b>TOP1·X</b>: 可操作层各方案最终盈亏全为正,X 为推荐方案(收益率最高)</div>` +
         `<div class="lab-sigkelly-wm-li"><b>分化·X</b>: 可操作层有正有负,X 为推荐方案</div>` +
         `<div class="lab-sigkelly-wm-li"><b>淘汰</b>: 可操作层各方案最终盈亏全≤0</div>` +
-        `<div class="lab-sigkelly-wm-li lab-sigkelly-wm-li-x">推荐规则: ①先看可操作性(峰值同时持仓≤20万=≤20倍单次本金, 不可操作模式不推荐) ②再看收益率(峰值资金收益率 return_pct_max_holding) ③净盈亏/最大持仓只是佐证, 不比排序。X = 可操作层中收益率最高的方案字母</div>` +
+        `<div class="lab-sigkelly-wm-li lab-sigkelly-wm-li-x">推荐规则: ①先看可操作性(峰值同时持仓≤20万=≤20倍单次本金, 不可操作模式不推荐) ②再看收益率(峰值资金收益率 return_pct_max_holding) ③净盈亏/最大持仓只是佐证, 不比排序。X = 可操作层中收益率最高的方案字母。例(G 模式开关对比, 决策链走①②③)：关(旧FIFO)峰值持仓 136 万=不可操作, 即便净利 +64.2万 全模式最高也先被①淘汰; 开(13万 P≤3d)峰值 13 万=可操作, 再按②收益率排, b0 155.8% 胜出→推荐 G@13万, 净利/持仓只当佐证不当排序【核实源:kelly-g-mode-recheck.md】</div>` +
         `<div class="lab-sigkelly-wm-li lab-sigkelly-wm-li-noop">删除线/无操作性标灰=峰值同时持仓超20倍单次本金, 不可操作(不参与推荐)。两种触发: 需求②GIH未开(原始 G/H/I 136万/45万/111万)→开「ai长线(G/H/I)仓位管理」套对应模式仓位法(G=P≤3d三档/H=满仓不买7万/I=满仓不买15万, 峰持仓≤20倍可操作); 需求D K档关(无仓位限制每笔1万全买)→切K=1-4(每笔=10000/N有仓位控制)。本卡A-F在该口径下峰持仓≤20倍则可操作仍参与推荐</div>` +
       `</div>` +
       `<div class="lab-sigkelly-wm-sec">` +
