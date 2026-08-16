@@ -2710,10 +2710,9 @@ def notify_daily_brief(brief: dict, cfg: dict, log, dry_run: bool = False) -> di
             lines.append([notify.post_md("🤔 **四角色结论**")])
             for k, v in roles.items():
                 lines.append([notify.post_text(f"· {k}: {str(v)[:50]}")])
-        if len(lines) > notify.FEISHU_POST_MAX_ROWS:
-            n_omit = len(lines) - notify.FEISHU_POST_MAX_ROWS
-            lines = lines[:notify.FEISHU_POST_MAX_ROWS] + [
-                [notify.post_text(f"… 其余 {n_omit} 行省略，完整见邮件/页面")]]
+        # 超 80 行分段由 send_feishu 内部处理（2026-08-16 用户定：放开行数+超长分段连发）。
+        # 此处不再截断省略；完整 lines（含细讲/风险项/辩论/四角色）交 build_feishu_post，
+        # send_feishu 按 FEISHU_POST_MAX_ROWS 每段切分、多段连发（标题带 N/M 序号），与页面一致。
         lines.append([notify.post_text("免责: AI 生成,研究用途,不构成投资建议")])
         feishu_post = notify.build_feishu_post(subject, lines)
 

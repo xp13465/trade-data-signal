@@ -301,7 +301,8 @@ def build_feishu_post(subject: str, signals: list[dict], agg: dict) -> dict:
     （FEISHU_POST_EMOJI 映射 SIG_COLOR 语义：进=资金进场红/出=资金离场绿/量=放量橙；
     飞书 post text 不支持 style.color，用 emoji 前缀实现，见 notify.py 注释），
     分组表头用 md **加粗**；每 ETF 一行精简（名称/代码/份额变动/量比/z分/备注摘要），
-    共振时首行 🐾 加粗高亮。超行数上限 notify.FEISHU_POST_MAX_ROWS 时省略尾部（防超长）。
+    共振时首行 🐾 加粗高亮。超 notify.FEISHU_POST_MAX_ROWS 行时由 send_feishu 分段连发
+    （2026-08-16 用户定：放开行数+超长分段连发，标题带 N/M 序号，不省略行）。
     """
     lines: list[list[dict]] = []
 
@@ -339,12 +340,9 @@ def build_feishu_post(subject: str, signals: list[dict], agg: dict) -> dict:
                 parts.append(note)
             lines.append([notify.post_text(" · ".join(parts))])
 
-    # 超行数上限省略尾部（信息量优先：保留分组标题+前 N 行，省略明细行）
-    if len(lines) > notify.FEISHU_POST_MAX_ROWS:
-        n_omit = len(lines) - notify.FEISHU_POST_MAX_ROWS
-        lines = lines[:notify.FEISHU_POST_MAX_ROWS] + [
-            [notify.post_text(f"… 其余 {n_omit} 条省略，详见邮件")]
-        ]
+    # 超 80 行分段由 send_feishu 内部处理（2026-08-16 用户定：放开行数+超长分段连发，不省略）。
+    # 此处不再截断省略尾部；完整 lines 交 build_feishu_post，send_feishu 按 FEISHU_POST_MAX_ROWS
+    # 每段切分、多段连发（标题带 N/M 序号），杜绝丢「明细行」。
 
     # 规则/免责精简为一行（完整在邮件；ETF份额 T+1 提示保留）
     lines.append([notify.post_text("📋 份额 T+1 数据 · 完整规则与免责见邮件")])
