@@ -27,8 +27,9 @@ env:
   TTP_INJECT_MODELS=deepseek-v4-flash   # 逗号分隔,匹配 model 字段子串;未匹配的 model 不注入(保思考)
   TTP_ALIAS_MODELS=deepseek-v4-think    # 判断类别名(flash 底保思考):不注入 + 改写 ALIAS_TARGET 转发
   TTP_ALIAS_TARGET=deepseek-v4-flash    # 别名改写成的真实 model(官方只认 pro/flash;别名直发 400/404)
-  TTP_PROVIDER=ark|official             # 快捷切换双端 upstream(优先,覆盖下面三个 TTP_UPSTREAM_*)
+  TTP_PROVIDER=ark|official|ark-plan    # 快捷切换双端 upstream(优先,覆盖下面三个 TTP_UPSTREAM_*)
                                         #   ark      = 火山方舟  ark.cn-beijing.volces.com:443/api/coding
+                                        #   ark-plan = 火山方舟 agent plan 端点 ark.cn-beijing.volces.com:443/api/plan
                                         #   official = 官方 DeepSeek api.deepseek.com:443/anthropic
   TTP_UPSTREAM_HOST/PORT/BASE           # 自定义 upstream(未设 TTP_PROVIDER 时用),默认官方
 """
@@ -36,13 +37,15 @@ import http.server, json, http.client, threading, time, sys, ssl, re, os
 
 LOG = os.environ.get("TTP_LOG", "/Users/linhuichen/code/trade-data/data/logs/thinking-proxy-req.log")
 # upstream 配置化。默认官方 DeepSeek Anthropic 兼容端点;火山兼容:host=ark.cn-beijing.volces.com base=/api/coding。
-# TTP_PROVIDER=ark|official 快捷切换双端(2026-08-14 加,一套脚本眷顾官方/火山)。
+# TTP_PROVIDER=ark|official|ark-plan 快捷切换双端(2026-08-14 加,一套脚本眷顾官方/火山;2026-08-16 加 ark-plan agent plan 端点)。
 PROVIDER = os.environ.get("TTP_PROVIDER", "")
 PROVIDERS = {
     # 官方 DeepSeek Anthropic 兼容端点(2026-08-14 实测仍可用,disabled 真关)
     "official": {"host": "api.deepseek.com", "port": 443, "base": "/anthropic"},
-    # 火山方舟 coding 端点(现网默认,2026-08-14 实测 disabled 真关/别名直发 404)
+    # 火山方舟 coding 端点(2026-08-14 实测 disabled 真关/别名直发 404)
     "ark": {"host": "ark.cn-beijing.volces.com", "port": 443, "base": "/api/coding"},
+    # 火山方舟 agent plan 端点(现网,2026-08-16 切换;agent plan 不认 think 名,走代理 think→flash 改写)
+    "ark-plan": {"host": "ark.cn-beijing.volces.com", "port": 443, "base": "/api/plan"},
 }
 if PROVIDER in PROVIDERS:
     UPSTREAM_HOST = PROVIDERS[PROVIDER]["host"]

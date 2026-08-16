@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- thinking-proxy launchd 守护(2026-08-16 agent plan 版:TTP_PROVIDER 一键切官方/火山方舟 coding/火山方舟 agent plan)
+<!-- thinking-proxy launchd 守护(2026-08-14 双端版:TTP_PROVIDER 一键切官方/火山方舟)
      用途:常驻 thinking_proxy.py,对 deepseek-v4-flash 注入 thinking:disabled 省 token(per-role 执行类);
-          deepseek-v4-think 别名改写回 flash(判断类保思考;agent plan/coding/官方直发别名都报错,须走代理改写)
-     切端:改 TTP_PROVIDER = ark-plan(现网,火山 agent plan 端点) | ark(方舟 coding 端点) | official(官方 api.deepseek.com/anthropic),
+          deepseek-v4-think 别名改写回 flash(判断类保思考,官方/方舟直发别名都 400/404)
+     切端:改 TTP_PROVIDER = ark(现网,方舟 coding 端点) | official(官方 api.deepseek.com/anthropic),
           然后 launchctl unload + load。settings.json 的 ANTHROPIC_AUTH_TOKEN 需对应 provider 的 key。
      详见 docs/thinking-off-optimization.md §九(方舟版)/§八(官方版)
      激活:launchctl load scripts/com.trade.thinking-proxy.plist
@@ -30,13 +30,13 @@
         <key>TTP_ALIAS_TARGET</key>
         <string>deepseek-v4-flash</string>
         <key>TTP_PROVIDER</key>
-        <string>ark-plan</string>
+        <string>official</string>
         <key>TTP_UPSTREAM_HOST</key>
         <string>ark.cn-beijing.volces.com</string>
         <key>TTP_UPSTREAM_PORT</key>
         <string>443</string>
         <key>TTP_UPSTREAM_BASE</key>
-        <string>/api/plan</string>
+        <string>/api/coding</string>
     </dict>
     <key>KeepAlive</key>
     <true/>

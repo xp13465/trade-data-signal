@@ -3,9 +3,10 @@
 #
 # 用途:代理出问题/需停用时,一键还原到对应 provider 的直连原态。
 # 幂等,可重复执行。支持双端:
-#   bash scripts/thinking-proxy-rollback.sh            # 还原到 方舟直连(现网默认,无参)
+#   bash scripts/thinking-proxy-rollback.sh            # 还原到 火山agent plan直连(现网默认,无参)
 #   bash scripts/thinking-proxy-rollback.sh official    # 还原到 官方直连(api.deepseek.com)
-#   bash scripts/thinking-proxy-rollback.sh ark         # 显式还原到 方舟直连
+#   bash scripts/thinking-proxy-rollback.sh ark         # 还原到 方舟 coding 直连
+#   bash scripts/thinking-proxy-rollback.sh arkplan     # 显式还原到 火山 agent plan 直连
 #
 # 说明:
 #   - 只还原 ~/.claude/settings.json 的 ANTHROPIC_BASE_URL/MODEL 到对应 provider 直连备份,
@@ -16,7 +17,7 @@
 
 set -u
 
-PROVIDER="${1:-ark}"   # 默认方舟直连
+PROVIDER="${1:-arkplan}"   # 默认:方舟 agent plan 直连
 TS=$(date +%Y%m%d-%H%M%S)
 
 # 各 provider 的直连备份(settings.json.bak-*-fallback 或官方直连)
@@ -24,16 +25,21 @@ TS=$(date +%Y%m%d-%H%M%S)
 # 官方直连备份:  bak-official-direct-20260814(官方 key sk-b0d32*** + api.deepseek.com/anthropic,由 trade-data/.env 生成)
 ARK_BAK="$HOME/.claude/settings.json.bak-ark-fallback-20260814-094337"
 OFFICIAL_BAK="$HOME/.claude/settings.json.bak-official-direct-20260814"
+# 火山 agent plan 直连原态备份(8/14 配过 agent plan 又切走,含同款 plan key + /api/plan + deepseek-v4-flash-ga 模型)
+ARKPLAN_BAK="$HOME/.claude/settings.json.bak-20260814-192000-ark-plan-direct"
 
 case "$PROVIDER" in
   ark)
-    BAK="$ARK_BAK"; DESC="方舟直连(ark.cn-beijing.volces.com/api/coding)"
+    BAK="$ARK_BAK"; DESC="方舟 coding 直连(ark.cn-beijing.volces.com/api/coding)"
+    ;;
+  arkplan)
+    BAK="$ARKPLAN_BAK"; DESC="火山 agent plan 直连(ark.cn-beijing.volces.com/api/plan)"
     ;;
   official)
     BAK="$OFFICIAL_BAK"; DESC="官方直连(api.deepseek.com/anthropic)"
     ;;
   *)
-    echo "未知 provider: $PROVIDER (可用 ark|official)"; exit 1
+    echo "未知 provider: $PROVIDER (可用 arkplan|ark|official)"; exit 1
     ;;
 esac
 
