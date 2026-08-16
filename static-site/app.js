@@ -10140,7 +10140,7 @@ async function renderOverview() {
         const snapBadge = `<span class="summary-snap-tag" style="color:#e6a23c">⏰ ${_lunch ? "午休小结" : "盘中动态小结"}</span>`;
         const _tLabel = _lunch ? "13:00复牌" : `更新于 ${_intradayDynamicTime || hhmm}`;
         const _pulse = '<span class="dyn-pulse" id="banner-pulse"><span class="dyn-pulse-dot"></span>1min</span>';
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中（每日 20:40 更新）">🤖 AI 预测</button><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap)}</div>`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中（每日 20:40 更新）">🤖 AI 预测</button><button class="summary-news-btn" title="查看当日新闻速递与大事预告">📰 新闻</button><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap)}</div>`;
         _bannerRenderCtx = { el: banner, s: null, snap, type: "intraday" };
       } else {
         // 收盘后/同日：原逻辑（标题用 summary.generated_at，chips 用 summary+snap 同日覆盖）
@@ -10175,7 +10175,7 @@ async function renderOverview() {
         const sentimentBadge = s.sentiment_label ? `<span class="summary-fg-tag">${s.sentiment_label}</span>` : "";
         // 情绪标签+恐贪标签移到第二行(与 summary-meta 同行),行1只留日期标题
         const titleTags = (sentimentBadge || fgBadge || freezeBadge) ? `${sentimentBadge}${fgBadge}${freezeBadge}` : "";
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中（每日 20:40 更新）">🤖 AI 预测</button>${titleTags ? `<span class="summary-title-tags">${titleTags}</span>` : ""}<span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中（每日 20:40 更新）">🤖 AI 预测</button><button class="summary-news-btn" title="查看当日新闻速递与大事预告">📰 新闻</button>${titleTags ? `<span class="summary-title-tags">${titleTags}</span>` : ""}<span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
         _bannerRenderCtx = { el: banner, s, snap, type: "summary" };
       }
       content.insertBefore(banner, content.firstChild);
@@ -10183,6 +10183,8 @@ async function renderOverview() {
       if (histBtn) histBtn.addEventListener("click", openSummaryHistoryModal);
       const aiBtn = banner.querySelector(".summary-ai-btn");
       if (aiBtn) aiBtn.addEventListener("click", openDailyBriefModal);
+      const newsBtn = banner.querySelector(".summary-news-btn");
+      if (newsBtn) newsBtn.addEventListener("click", openNewsDigestModal);
       // 2026-08-16 首页 AI 预测卡新闻外露两行(消费 _loadNewsDigest 缓存 news/upcoming,各行的 guard=内部无数据返回空串,整行不显示):
       // 「📣 今日要闻」外露速览行(重要优先 ≤3,标日期) + 「📅 明日关键事件」行(标日期),一上一下相邻排列
       _loadNewsDigest().then((nd) => {
@@ -21221,9 +21223,17 @@ function _summaryHistoryItemHtml(s, briefByDate, newsDigest) {
     const meta = it.meta || {};
     aiBlock = `<div class="sh-ai-brief"><div class="sh-ai-brief-head"><span class="db-dir">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}<span class="sh-ai-brief-title">🤖 AI预测</span>${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}${_dbHitHtml(meta)}${_dbActualHtml(meta)}${_dbPlayBtn(meta, it.date || meta.date)}</div>${_dbBriefDetailHtml(it)}</div>`;
   }
-  // 2026-08-16 历史「事件对照」:当日大事 1-3 条(仅日期==news_digest.date,否则空态)
-  const histNews = _dbHistoryNewsHtml(newsDigest || null, s.date);
-  const histNewsBlock = histNews ? `<div class="sh-hist-news">${histNews}</div>` : "";
+  // 2026-08-16 历史「事件对照」:当日大事 1-3 条。日期==news_digest.date 用已加载缓存(同步);
+  // 否则占位容器(data-arch-date), 渲染后由 _loadHistNewsAsync 异步读归档 news_digest/<date>.json 注入, 无归档显示空态。
+  const _sDateNorm = String(s.date || "").replace(/-/g, "");
+  const _ndDateNorm = String((newsDigest && newsDigest.date) || "").replace(/-/g, "");
+  let histNewsBlock = "";
+  if (_sDateNorm && _sDateNorm === _ndDateNorm) {
+    const histNews = _dbHistoryNewsHtml(newsDigest || null, s.date);
+    histNewsBlock = histNews ? `<div class="sh-hist-news">${histNews}</div>` : "";
+  } else if (_sDateNorm) {
+    histNewsBlock = `<div class="sh-hist-news" data-arch-date="${_sDateNorm}"><div class="db-hist-news-loading">📰 当日大事加载中…</div></div>`;
+  }
   return `<div class="summary-history-item"><div class="sh-date">${date} <span class="sh-label">${s.sentiment_label || ""}</span>${fg}${freeze}</div>${renderSummaryChips(s, null)}${aiBlock}${histNewsBlock}</div>`;
 }
 
@@ -21263,6 +21273,7 @@ async function _loadSummaryHistoryPage() {
   const items = _summaryHistoryState.cache.slice(offset, offset + limit);
   list.innerHTML = items.map((s) => _summaryHistoryItemHtml(s, _summaryHistoryState.briefByDate || {}, _summaryHistoryState.newsDigest || null)).join("") || '<div class="summary-history-empty">暂无历史数据</div>';
   _dbTtsBind(list);  // edge-tts 语音播报按钮事件委托
+  _loadHistNewsAsync(list);  // 历史「事件对照」: 非当日历史项异步读归档 news_digest/<date>.json 注入
   // 翻页后列表回顶（用户想看新页内容，不是底部）
   list.scrollTop = 0;
   _renderSummaryPager(modal);
@@ -21811,6 +21822,249 @@ function _dbHistoryNewsHtml(nuth, date) {
     `<li><span class="db-news-time">${_esc(n.time || "")}</span><span class="db-news-title">${_esc(String(n.title || "").slice(0, 80))}</span></li>`
   ).join("");
   return `<div class="db-hist-news"><div class="db-hist-news-t">${label}</div><ul class="db-news-ul">${items}</ul></div>`;
+}
+
+// ---- 历史「事件对照」异步归档加载(日期 != news_digest.date 的非当日历史项)----
+// 渲染后遍历 [data-arch-date] 占位,异步 fetch news_digest/<date>.json(与当日同 schema),有则注入当日大事 1-3 条,失败/无归档空态。
+function _loadHistNewsAsync(root) {
+  if (!root) return;
+  root.querySelectorAll(".sh-hist-news[data-arch-date]").forEach((el) => {
+    const dd = el.getAttribute("data-arch-date");
+    if (!dd || el.dataset.loaded) return;
+    el.dataset.loaded = "1";
+    const fname = `${dd.slice(0, 4)}-${dd.slice(4, 6)}-${dd.slice(6, 8)}`;
+    const dateCn = _dbNewsDateCn(fname);
+    fetchJSON(`./data/news_digest/${fname}.json`).then((arch) => {
+      const news = _dbTodayNews({ news: (arch && arch.news) || [], date: fname });
+      if (!news.length) {
+        el.innerHTML = `<div class="db-hist-news-empty">📰 ${dateCn || "该日"} 当日大事：该日新闻未归档或无要闻</div>`;
+        return;
+      }
+      el.innerHTML = _dbHistoryNewsHtml({ news: arch.news, date: fname }, dd);
+    }).catch(() => {
+      el.innerHTML = `<div class="db-hist-news-empty">📰 ${dateCn || "该日"} 当日大事：该日新闻未归档</div>`;
+    });
+  });
+}
+
+// ---- 新闻速递弹窗(📰 新闻按钮触发,独立于 AI 预测弹窗;数据源当日 news_digest.json + 归档)----
+// 内容 4 项: ①当日全量新闻(时间倒序,标来源+重要度) ②重要/预告置顶分组(重要新闻+明日预告) ③按来源筛选 chip ④分时/涨幅对照迷你图。
+let _newsModalState = null; // { date, all:[], upcoming:[], src:'all' }
+let _newsModalSparkCached = null; // 上证分时 points 缓存(fetchTencentMinute("sh") 结果)
+let _newsModalSparkStatic = null; // 分时不可得时静态降级用 intraday_snapshot 指数项
+
+// 来源 id -> 中文名(三源: eastmoney 东财 / cls 财联社 / jin10 金十),用于分组/chip/每条标注。
+const _NEWS_SRC_NAMES = { eastmoney: "东财", cls: "财联社", jin10: "金十" };
+function _dbNewsSrcName(src) { return _NEWS_SRC_NAMES[src] || src || "未知"; }
+
+// 同时间倒序排序(时间同则保持原序,越晚越靠前)。
+function _dbNewsSortDesc(arr) {
+  return (arr || []).slice().sort((a, b) => String(a.time || "").localeCompare(String(b.time || "")));
+}
+
+// 当日全部新闻(可选按来源过滤),时间倒序。
+function _dbNewsAll(nd, src) {
+  let arr = _dbNewsSortDesc((nd && nd.news) || []);
+  if (src && src !== "all") arr = arr.filter((n) => n && (n.source === src));
+  return arr;
+}
+
+// 重要/预告置顶分组: 重要新闻(时间倒序) + 明日预告(全量 upcoming)。
+function _dbNewsImportant(nd) {
+  const imp = _dbNewsSortDesc(((nd && nd.news) || []).filter((n) => n && n.important));
+  const up = ((nd && nd.upcoming) || []).slice();
+  return { imp, up };
+}
+
+// 分时/涨幅对照迷你图: 自绘内联 SVG 折线(上证) + 重要新闻时点打标记。
+// 数据= fetchTencentMinute("sh") 当日分时 points; 不可得(休市/失败/空)则降级静态「当日大盘涨跌 x%」(读 intraday_snapshot)。
+function _dbNewsSpark(points, marks) {
+  if (!points || points.length < 2) return "";
+  const w = 720, h = 64;   // viewBox 参考宽高, preserveAspectRatio 下自适应
+  const prices = points.map((p) => p.price);
+  let min = Math.min.apply(null, prices), max = Math.max.apply(null, prices);
+  if (max === min) { max += 1; min -= 1; }
+  const span = max - min;
+  const px = (i) => (w - 8) * (i / (points.length - 1)) + 4;
+  const py = (v) => h - 8 - ((v - min) / span) * (h - 16);
+  const up = prices[prices.length - 1] >= prices[0];
+  const color = up ? "#e6492e" : "#2e8b57";
+  const step = Math.max(1, Math.ceil(points.length / 120)); // 点数多时抽样聚线
+  const linePts = [];
+  for (let i = 0; i < points.length; i += step) linePts.push(`${px(i).toFixed(1)},${py(prices[i]).toFixed(1)}`);
+  if (linePts[linePts.length - 1] !== `${px(points.length - 1).toFixed(1)},${py(prices[prices.length - 1]).toFixed(1)}`) linePts.push(`${px(points.length - 1).toFixed(1)},${py(prices[prices.length - 1]).toFixed(1)}`);
+  const area = `${px(0).toFixed(1)},${(h - 2).toFixed(1)} ${linePts.join(" ")} ${px(points.length - 1).toFixed(1)},${(h - 2).toFixed(1)}`;
+  // 重要新闻时点标记: marks = [{time:'HH:MM'}]
+  const maxTime = points[points.length - 1].time || "15:00";
+  const markDots = (marks || []).map((m) => {
+    const t = m.time || "";
+    if (!t) return "";
+    const idx = points.findIndex((p) => String(p.time || "") >= t);
+    if (idx < 0) return "";
+    return `<circle cx="${px(idx).toFixed(1)}" cy="${py(prices[idx]).toFixed(1)}" r="3" fill="#7c4dff" stroke="#fff" stroke-width="1" data-news-time="${_esc(t)}"/>`;
+  }).join("");
+  return `<div class="db-news-spark"><svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><path d="M${linePts.join(" L")}" fill="none" stroke="${color}" stroke-width="1.6"/><path d="M${area}" fill="${color}" opacity="0.08"/><text x="6" y="${h - (h - 8)}" fill="${color}" font-size="11" font-weight="700">${up ? "▲" : "▼"} 09:30-${maxTime} 上证分时</text>${markDots}</svg></div>`;
+}
+
+// 渲染新闻弹窗内容(数据 + 来源筛选 + 分时对照均注入 #news-digest-body)。
+function _renderNewsDigestBody() {
+  const modal = _newsDigestModalElCached ? _newsDigestModalElCached : null;
+  const body = modal ? modal.querySelector("#news-digest-body") : null;
+  if (!body) return;
+  const st = _newsModalState || { all: [], upcoming: [], date: "", src: "all" };
+  const src = st.src || "all";
+  const dateCn = _dbNewsDateCn(st.date);
+  const dateLine = dateCn
+    ? `<div class="news-version"><span class="news-version-k">📰 新闻界面</span><span class="news-version-v">${dateCn}${st.date ? " · " + _esc(st.date) : ""}<span class="news-archive-hint">（新闻按日期归档，历史收盘分析可回看当日大事）</span></span></div>`
+    : `<div class="news-version"><span class="news-version-k">📰 新闻界面</span><span class="news-version-v">无当日新闻数据</span></div>`;
+  // ④分时对照
+  let sparkHtml = "";
+  // sparks: 取已缓存的分时 points(头部已拉,存 _newsModalSpark)
+  const pts = (_newsModalSparkCached && _newsModalSparkCached.points) || null;
+  const marks = (st.all || []).filter((n) => n && n.important).map((n) => ({ time: n.time }));
+  sparkHtml = pts && pts.length >= 2
+    ? _dbNewsSpark(pts, marks)
+    : (_newsModalSparkStatic ? _dbNewsSparkStatic(_newsModalSparkStatic) : "");
+  // ②重要/预告置顶分组
+  const { imp, up } = _dbNewsImportant(st);
+  const impHtml = imp.length
+    ? `<div class="news-group"><div class="news-group-t">⭐ 重要新闻</div><ul class="db-news-ul">${imp.map((n) => _dbNewsItemHtml(n, "imp")).join("")}</ul></div>` : "";
+  const upHtml = up.length
+    ? `<div class="news-group"><div class="news-group-t">📅 明日预告</div><ul class="db-news-ul">${up.map((n) => _dbNewsUpItemHtml(n)).join("")}</ul></div>` : "";
+  // ③来源筛选 chips
+  const chips = ["all", "eastmoney", "cls", "jin10"].map((c) => {
+    const name = c === "all" ? "全部" : _dbNewsSrcName(c);
+    const count = c === "all" ? (st.all || []).length : (st.all || []).filter((n) => n && n.source === c).length;
+    const cls = src === c ? " active" : "";
+    return `<button class="news-src-chip${cls}" data-src="${c}">${name}<em>${count}</em></button>`;
+  }).join("");
+  const chipsBar = `<div class="news-src-bar">${chips}</div>`;
+  // ①当日全量新闻(按来源过滤,时间倒序)
+  const filtered = _dbNewsAll(st, src);
+  const allHtml = filtered.length
+    ? `<ul class="db-news-ul">${filtered.map((n) => _dbNewsItemHtml(n, "all")).join("")}</ul>`
+    : `<div class="news-empty">${src === "all" ? "❌ 当日无新闻数据" : `📭 ${_dbNewsSrcName(src)} 当日无该源新闻`}</div>`;
+  if (!st.all.length) {
+    body.innerHTML = dateLine + `<div class="news-empty">📭 当日新闻未归档或无数据，稍后再来（每日 17:50 后更新）</div>`;
+    _bindNewsChips(body);
+    _bindNewsOpen(body);
+    return;
+  }
+  body.innerHTML = dateLine + (sparkHtml ? sparkHtml : "") + "<div class=\"news-scroll\">" + chipsBar + impHtml + upHtml + `<div class="news-group"><div class="news-group-t">📰 当日全量新闻（时间倒序）</div>${allHtml}</div>` + "</div>";
+  _bindNewsChips(body);
+  _bindNewsOpen(body);
+}
+
+// 分时不可得时的静态降级: 「当日大盘 涨/跌 x%」一句对照(读 intraday_snapshot 上证指数 pct_change)。
+function _dbNewsSparkStatic(idx) {
+  if (!idx) return "";
+  const pct = idx.pct_change;
+  const up = pct != null && pct >= 0;
+  const color = up ? "#e6492e" : "#2e8b57";
+  const sign = pct == null ? "" : (up ? "+" : "");
+  const dt = String(idx.datetime || "");
+  const dtCn = dt.length >= 8 ? `${parseInt(dt.slice(4, 6), 10)}月${parseInt(dt.slice(6, 8), 10)}日` : "";
+  return `<div class="db-news-spark-static" style="color:${color}">当日大盘 ${dtCn || ""}：${sign}${pct == null ? "--" : Number(pct).toFixed(2)}%（${_esc(idx.name || "上证指数")}，休市时点为上一交易日收盘快照）</div>`;
+}
+
+// 每条新闻 li: 时间 + 来源标 + 重要度标 + 标题(截断 120 字,溢出省略)。
+function _dbNewsItemHtml(n, tag) {
+  const time = _esc(n.time || "");
+  const src = `<span class="news-src ${tag}">${_esc(_dbNewsSrcName(n.source))}</span>`;
+  const imp = n.important ? `<span class="news-imp">⭐</span>` : "";
+  const title = _esc(String(n.title || "").slice(0, 120));
+  return `<li class="db-news-li" data-time="${time}" title="${title}"><span class="db-news-time">${time}</span>${src}${imp}<span class="db-news-title">${title}</span></li>`;
+}
+
+// 明日预告 li(无 important 字段,统一标「预告」)。
+function _dbNewsUpItemHtml(n) {
+  const time = _esc(n.time || "");
+  const src = `<span class="news-src up">预告</span>`;
+  const title = _esc(String(n.title || "").slice(0, 120));
+  return `<li class="db-news-li" data-time="${time}"><span class="db-news-time">${time}</span>${src}<span class="db-news-title">${title}</span></li>`;
+}
+
+// 绑定来源 chips 切换 + 新闻 li 点击联动分时标记高亮。
+function _bindNewsChips(body) {
+  body.querySelectorAll(".news-src-chip").forEach((c) => {
+    c.addEventListener("click", () => {
+      if (!_newsModalState) return;
+      _newsModalState.src = c.getAttribute("data-src");
+      body.querySelectorAll(".news-src-chip").forEach((x) => x.classList.toggle("active", x === c));
+      _renderNewsDigestBody();
+    });
+  });
+}
+function _bindNewsOpen(body) {
+  // 点新闻 li 时,若分时图存在则高亮该时点(简单闪烁标记,不做滚动定位——实现深度: 静态标注,不强求精确对齐)。
+  body.querySelectorAll(".db-news-li").forEach((li) => {
+    li.addEventListener("click", () => {
+      const svg = body.querySelector(".db-news-spark svg");
+      if (!svg) return;
+      const t = li.getAttribute("data-time");
+      const circle = svg.querySelectorAll("circle");
+      let found = null;
+      circle.forEach((c) => {
+        if (c.getAttribute("data-news-time") === t) found = c;
+      });
+      if (found) {
+        svg.querySelectorAll("circle").forEach((c) => { c.setAttribute("class", ""); });
+        found.setAttribute("class", "news-mark-hot");
+      }
+    });
+  });
+}
+
+let _newsDigestModalElCached = null;
+function newsDigestModalEl() {
+  if (_newsDigestModalElCached) return _newsDigestModalElCached;
+  const modal = document.createElement("div");
+  modal.id = "newsDigestModal";
+  modal.className = "rule-modal hidden";
+  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body news-modal-body"><div class="rule-modal-header"><h3>📰 新闻速递</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content"><div id="news-digest-body"><div class="news-empty">加载中…</div></div></div></div>';
+  document.body.appendChild(modal);
+  modal.querySelector(".rule-modal-overlay").addEventListener("click", closeNewsDigestModal);
+  modal.querySelector(".rule-modal-close").addEventListener("click", closeNewsDigestModal);
+  _newsDigestModalElCached = modal;
+  return modal;
+}
+
+// 打开新闻弹窗: 加载当日 news_digest.json + 上证分时序列(可分时则渲染迷你图,否则静态降级)。
+async function openNewsDigestModal() {
+  newsDigestModalEl().classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  const body = document.getElementById("news-digest-body");
+  if (body) body.innerHTML = '<div class="news-empty">加载中…</div>';
+  try {
+    const raw = await fetchJSON("./data/news_digest.json");
+    const all = (raw && Array.isArray(raw.news)) ? raw.news : [];
+    const upcoming = (raw && Array.isArray(raw.upcoming)) ? raw.upcoming : [];
+    _newsModalState = { all, upcoming, date: (raw && raw.date) || "", src: _newsModalState && _newsModalState.src ? _newsModalState.src : "all" };
+  } catch (e) {
+    _newsModalState = { all: [], upcoming: [], date: "", src: "all" };
+    _newsModalState.err = String((e && e.message) || e);
+  }
+  // ④分时序列: 拉上证分时(有则迷你图示;失败/休市空则由静态降级补一句)。
+  try {
+    if (!_newsModalSparkCached) {
+      const md = await fetchTencentMinute("sh");
+      if (md && md.points && md.points.length) _newsModalSparkCached = md;
+    }
+  } catch (e2) { /* 分时不可得: 走静态降级 */ }
+  try {
+    if (!_newsModalSparkStatic) {
+      const snap = await fetchJSON("./data/intraday_snapshot.json");
+      const idx = (snap && Array.isArray(snap.indices)) ? (snap.indices.find((i) => i && i.name === "上证指数") || snap.indices[0]) : null;
+      _newsModalSparkStatic = idx;
+    }
+  } catch (e3) { /* 静态降级数据不可得: 不显示分时区 */ }
+  _renderNewsDigestBody();
+}
+
+function closeNewsDigestModal() {
+  const modal = document.getElementById("newsDigestModal");
+  if (modal) modal.classList.add("hidden");
+  document.body.style.overflow = "";
 }
 
 // 分页器：与历史收盘分析同款（上一页/下一页 + 页码按钮 + 顶部 info 行）
