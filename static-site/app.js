@@ -2961,20 +2961,20 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
 // 完整版定稿(17:50含港股/欧股/国债)。由 signals_meta 驱动, 前端不硬编码时间。
 function _signalFinalizeBannerHtml(meta) {
   if (!meta) return "";
+  const _note = meta.finalized_note || "";
   let barCls = "sig-finalize-bar sig-finalize-pre";
-  let barTxt = "⚠ 盘中预估 · 收盘后(15:03)重算定版，信号可能消失";
+  let barTxt = "⚠ " + (_note || "盘中预估 · 收盘后重算定版，信号可能消失");
   if (meta.finalized && meta.version === "a-share-close") {
     barCls = "sig-finalize-bar sig-finalize-ashare";
-    barTxt = "✅ 当日 A 股信号已固化(15:03 收盘价版)，不会再消失 · 15:05-15:30 盘后窗口可按收盘价操作(AI 建议 1/2/3 为当日可执行标的) · 港股/全球/国债待 17:50 完整版";
+    barTxt = "✅ " + _note + " · 15:05-15:30 盘后窗口可按收盘价操作(AI 建议 1/2/3 为当日可执行标的)";
   } else if (meta.finalized && (meta.version === "full" || meta.version === "evening")) {
     barCls = "sig-finalize-bar sig-finalize-full";
-    // W1(2026-08-14): 17:50 update_all 起跑到 ~18:42 才完成信号重算(欧股/国债晚间入库),
-    // 期间数据仍为 A 股收盘价版。文案放宽为"陆续补齐", 与后端 signals_meta.finalized_note 一致。
-    // W2(2026-08-14 首页8/14信号补): 21:00 backfill-benign 指数(港股/欧股/国债/晚发指标)数据源晚到才补采,
-    //   signal_daily 可能仍在该时点后新增/变动信号, 20:36 并非真"最终"。文案对齐 21:00 补采后定稿(与后端 finalized_note 一致)。
-    barTxt = "✅ 当日完整版信号 17:50 起陆续补齐(港股/欧股/国债) · 21:00 指数补采后最终定稿";
+    // W3(2026-08-16 用户定修法①): barTxt 直接消费 meta.finalized_note(后端注入, 单一事实源)。
+    //   full 与 evening 的完整时间文案由后端各自区分(见 queries.py _finalized_note W3 分支),
+    //   此处前端不再硬编码任何 full/evening 时间文案, 只加 ✅ 前缀。
+    barTxt = "✅ " + _note;
   }
-  return '<div class="' + barCls + '" data-tip="' + (meta.finalized_note || "") + '">' + barTxt + "</div>";
+  return '<div class="' + barCls + '" data-tip="' + (_note) + '">' + barTxt + "</div>";
 }
 
 // D 方案(2026-07-29): sigCard 自动更新 - ts:overview-refreshed hook 增量重绘。
