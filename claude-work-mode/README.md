@@ -173,6 +173,7 @@ Claude Code 启动时自动加载 `~/.claude/CLAUDE.md`，对所有项目生效�
 
 > **统计口径**：命中率 = `cache_read / (cache_read + input)`（cache_read 为缓存命中读、input 为冷启动重读），按天求和聚合。**数据源** = `~/.claude/projects/-Users-linhuichen-code-trade/*.jsonl`（Claude Code 会话 JSONL，只读不改业务文件）。**纯本地统计，跑脚本不消耗任何 LLM token**。每日 23:30 由 launchd 任务 `com.trade.token-cache-stats` 自动追加当天数据（当天会话截至 23:30）。**健康标准：命中率 > 0.7**。
 > **版本/改动列**：claude 版本 = 当天实际运行 `claude --version`；当日改动 = 当天 trade 仓库 `claude-work-mode/CLAUDE.md` 或根 `CLAUDE.md` 的 git commit（hash 前 8 位 + 主题），详细版本变更见下方「版本/改动日志」。
+> **复现/手动追加**：`python3 scripts/token_cache_stats.py --append-daily`（追加今天）；`python3 scripts/token_cache_stats.py --append-daily <YYYY-MM-DD>`（追加指定日期）；统计报告模式（默认窗口）见 `scripts/token_cache_stats.py` 脚本 docstring。
 
 <!-- token-cache-trend-begin -->
 | 日期 | 命中率 | 冷读input | claude版本 | 当日改动 |
