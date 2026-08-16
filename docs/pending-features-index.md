@@ -110,7 +110,7 @@
 | # | 项 | 出处 | 说明 | 状态 |
 |---|---|---|---|---|
 | 56 | **signal_notified.json 双副本清理** | 2026-08-15 部署核验 | trade-data/data(权威,8/14=13条) vs trade/data(旧,8/14=11条) 双份;check_signals 读权威份无重发风险,但"直接 cd trade 跑 python"会误读旧副本重发;处置=同步旧副本或 symlink+断言(REPO 必须落 trade-data) | **待办**(低优先,已同步 md5 一致) |
-| 57 | **sw.js 版本注释过时修正** | reviewer S1(2026-08-14) | sw.js 注释堆里 `_sigFilterViewOn` 旧变量名残留 1 处(在 CACHE_VERSION 版本变更注释里,该变量已不存在);新注释「两开关正交」已随后续 bump 写入 | **半完成**(仅 CACHE_VERSION 注释堆 1 处旧名残留,随下次 bump 顺手清,不值得单独动) |
+| 57 | **sw.js 版本注释过时修正** | reviewer S1(2026-08-14) | sw.js 注释堆里 `_sigFilterViewOn` 旧变量名残留 1 处(在 CACHE_VERSION 版本变更注释里,该变量已不存在);新注释「两开关正交」已随后续 bump 写入 | **已完成**(2026-08-17 上线:commit 2d6bc6207 清残留+push,CF 主站 purge /sw.js 后三站+本地 curl 全 0 残留,不 bump CACHE_VERSION=纯注释零行为零产物变化) |
 
 ## 十、分析参考点AI监控增补(2026-08-16 cron 同步)
 
