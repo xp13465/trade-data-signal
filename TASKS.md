@@ -930,3 +930,9 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 3. **#25 凯利首列 2 行版**（commit d6b8b8135）：lab.css modelbl display:inline，纯 CSS。
 4. **#26 文档资产收口**（commit 12143e1d5 等）：ts-segment-loss 报告三件套 + qvix-rv 四件套补档 + TASKS/pending-features 索引修正。
 
+### 傍晚批次（CF edge 缓存根治 + §5.6 + tag 补打）
+
+1. **CF edge 缓存根治**（commit c5a064478 + 31f0cc991）：`dataCacheTtl` NO_CACHE 扩至 10 文件 —— daily_brief(+_history) + signal_kelly_backtest/trades + overfit_monitor + news_digest + signal_stats。根因：CF 把 MED 600s 实际拉成 4h(max-age=14400)edge 残留，前端 `?_=` 绕不了 CF edge，重跑后用户仍见旧版。现 10 文件 no-store 每次回源 R2，purge 链路已核。记忆 `edge-cache-ttl-stretch-no-cache`。
+2. **DeepSeek 官方峰谷定价铁律 §5.6**（commit e4861253f）：官方 2026-08-17 起高峰(9-12/14-18)=2 倍价；官方 API 高峰不用、使用须用户拍板；方舟豁免。审计：daily_brief 20:40 低谷天然安全；thinking_proxy 高峰可切方舟。同步 claude-work-mode。
+3. **git tag 补打 v1.1.0/v1.1.1**：v1.1.0@073dedfb6（定名基础5 merge 点，比 v1.0.0 多 K2C5 并入基础5/5+3+1=8键+1类/后端7→9对齐）；v1.1.1@HEAD（比 v1.1.0 多 7 项收尾）。教训：此前只做页面版本串 a2xx 标记漏打 git tag，已补并落档 L40。
+4. **§18 过错索引 L40**（commit 9e1243fee）：打 tag 只做点名处没举一反三，版本链 v1.1.0 漏打没暴露 → 防重犯条款 + 计数 39→40。
