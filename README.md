@@ -148,6 +148,8 @@
 - **策略实验室** `/lab`（备买 chip 三档 + 参数优化 + 凯利回测 + 费率/收益口径客调）
 - 数据挖掘方法论实战（决策树/beam search/对比集/贪心，详见「参考与致敬」）
 - **统一数据查询 API（2026-08-17 新增，`/api/data/*`）**：为 UUMit 平台付费提供**结构化查询服务**（数据本体仍公开走原 `/data/` URL，本 API 卖的是 **latest/range/summary 加工能力**）：最新快照、按 `?start=&end=` 时间区间切片、跨类别今日聚合。API key 鉴权（只存 hash）+ 按 key 分钟/日限流 + 每 5 分钟聚合计量（计费依据）。**已加满 16 类**：sentiment/alert/signals + market（综合评分/信号）/a_stock（宽度指标）/rotation/position/ma_alignment/volume_ratio/new_high_low/futures/signal_freq/fund_score/etf_score/etf_national_team；summary 按「轻量状态组」聚合（sentiment+alert+market+signal_freq，不拉大文件）。**合规红线**：a_stock 只开放 metrics 宽度指标、绝不开放 indices 原始行情，不新增 global/hk/industry（第三方行情不可转售）；两融/ETF跟踪数据未上线，二期上线后再加。详见 [`docs/api-data-query.md`](docs/api-data-query.md) + 管理脚本 [`scripts/api_key_mgmt.py`](scripts/api_key_mgmt.py)。
+- **AI 每日速递订阅推送服务（2026-08-17 新增，`/api/subscribe/*`）**：为 UUMit 平台「订阅推送」做订阅者管理端点——`register`（管理员鉴权生成 `sub_` key）/`unregister`（订阅者自鉴权退订）/`status`/`recipients`（管理员拉 active 订阅者列表）。本地 `scripts/brief_push_wrapper.sh` → `scripts/brief_push.py` 在每日 `daily_brief.json` 生成后（20:45 launchd `com.trade.brief-push`）自动推送给订阅者：email（复用 `config/email.json` SMTP）+ webhook（POST 订阅者 URL）+ 飞书报告群；失败重试 1 次 + 按 date 防重复 + 非交易日跳过（复用 `app/calendar.py`）。**公开免费展示不动**（§23.7 只增不改），订阅/推送是付费服务、本期不做自动扣费（留 `BILLING_HOOK` 计费钩子，上架后接 UUMit 平台回调）。推送内容与 `daily_brief.json` 逐位一致（§22）。详见 [`docs/api-data-query.md`](docs/api-data-query.md)「AI 每日速递订阅服务」节。
+- **历史数据包（知识商店数字资产，2026-08-17 新增）**：核心衍生数据全史打包成 `data_packs/<YYYYMMDD>/financial-data-pack-<YYYYMMDD>.zip` + `SHA256SUMS` + 包级 README（版本号/生成日期/数据截止日期/字段说明/合规声明），可上架 UUMit 知识商店。`scripts/gen_data_pack.py` 支持 `--date`/`--list`，每次跑输出新目录不覆盖旧包。**只含自研衍生数据**（sentiment/国家队/ETF评分/信号频率/轮动/均线/量能/新高新低/期货/overview + a-stock 宽度指标），**绝不打包第三方原始行情**（a-stock 已剥离 indices；global/hk/industry 不在清单）。未裁剪文件 zip 内字节与源文件**逐位一致**（sha256 校验通过）。详见 [`docs/data-pack.md`](docs/data-pack.md)。
 
 ---
 
@@ -284,6 +286,7 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 
 **用途**：`每日速递` 邮件 —— 收盘后由 [DeepSeek](https://platform.deepseek.com/) 生成 **daily_brief 白话解读**（情绪拐点 + 信号汇总 + 合规 gating），
 邮件正文对 **期货风向 / 公募基金** 做白话化改写，让"机器算出来的数字"变成"人读得懂的话"。
+**订阅推送延伸（2026-08-17）**：速递内容经 [Cloudflare Workers KV](https://developers.cloudflare.com/kv/)（订阅者管理 + api_key 鉴权）与标准 SMTP（`config/email.json`，smtp.163.com）实现「生成即推送」订阅服务，`daily_brief.json` 生成后自动送达订阅者邮箱/Webhook/飞书，避免用户自行上站查看。
 
 ### 🔉 AI 预测语音播报（edge-tts）
 
