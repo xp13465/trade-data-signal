@@ -619,12 +619,14 @@ def load_signal_grade_map():
 
 def bucket_actual(by_date, close_map, latest_date, grade_map=None, universe=None):
     """实盘口径按日打点: 信号日收盘 -> 最新收盘方向。与首页 since_correct 同口径。
-    2026-08-17 用户拍板方案A「实盘限定回测宇宙」: 只统计回测宇宙内信号, 使实盘线与回测线比同一批买入信号。
+    2026-08-17 方案A「实盘限定回测宇宙」: 买类只统计回测宇宙内信号, 使实盘线与回测线比同一批买入信号。
     universe = {index_id: track_score|None}(来自 board_etf_map, 同 §23.6 _bt_in_universe 判定):
-      - 信号类型必须 ∈ BUY_SIGNALS(buy/buy_aux/buy_special/buy_backup) —— 回测只测买入白名单信号(§23.6 buy_whitelist);
+      - 买信号类型必须 ∈ BUY_SIGNALS(buy/buy_aux/buy_special/buy_backup) —— 回测只测买入白名单信号(§23.6 buy_whitelist);
         卖(sell/sell_stop_loss)/情绪类/全球商品利率/港股行业等回测不测的信号剔除。
       - index 必须 _bt_in_universe=True(universe[iid] is not None, 即 board_etf_map 有 key 且有非空 track_score)。
       - band_hold 中性不计(原逻辑)。
+    2026-08-17 方案B(卖类): sell/sell_stop_loss **不过滤宇宙**, 统计全部卖信号实盘实际命中率(卖后跌=对),
+      无回测对照(回测交易本体全为买信号, 卖信号不独立成回测交易)。
     returns {date: {total, by_mode(占位), by_signal, by_grade}}
     """
     out = []
@@ -646,11 +648,14 @@ def bucket_actual(by_date, close_map, latest_date, grade_map=None, universe=None
             iid = s["index_id"]
             if sig == "band_hold":
                 continue  # 中性不计
-            # 实盘限定回测宇宙(2026-08-17 方案A): 只统计回测会测的买入白名单信号 + 已入样(_bt_in_universe)
-            if sig not in BUY_SIGNALS:
-                continue  # 卖/止损卖/情绪类等回测不测, 剔除(避免 22% 命中率混入实盘总样本拉低)
-            if universe.get(iid) is None:
-                continue  # 不在回测宇宙(board_etf_map 无 key 或无非空 track_score = _bt_in_universe False)
+            # 2026-08-17 方案B: 卖类(sell/sell_stop_loss)不过滤宇宙, 统计全部卖信号实盘实际命中率(无回测对照);
+            # 买类仍限定回测宇宙(方案A): 只统计回测会测的买入白名单信号 + 已入样(_bt_in_universe)。
+            is_sell = sig in SELL_SIGNALS
+            if not is_sell:
+                if sig not in BUY_SIGNALS:
+                    continue  # 情绪类/全球商品利率/港股行业等回测不测、非卖类, 剔除(避免 22% 命中率混入实盘总样本拉低)
+                if universe.get(iid) is None:
+                    continue  # 不在回测宇宙(board_etf_map 无 key 或无非空 track_score = _bt_in_universe False)
             cm = close_map.get(iid)
             if not cm:
                 continue
@@ -663,15 +668,19 @@ def bucket_actual(by_date, close_map, latest_date, grade_map=None, universe=None
             if d >= latest_date:
                 continue  # 今日信号无"至今"语义(与 queries.py L914-916 一致)
             since_ret = (today_close - sig_close) / sig_close
-            is_win = since_ret > 0  # 已限定回测宇宙买入白名单, 方向恒为看多(sell 类已剔除)
-            n += 1
-            if is_win:
-                win += 1
+            # 方向判定: 买类恒看多(涨=对); 卖类(sell/sell_stop_loss)看空(卖后跌=对, 2026-08-17 方案B)
+            is_win = (since_ret < 0) if is_sell else (since_ret > 0)
+            if not is_sell:
+                # total 只含买类(方案A 实盘总样本=回测宇宙内买入信号); 卖类仅入 by_signal, 不混入总样本
+                n += 1
+                if is_win:
+                    win += 1
             _bucket_add(by_signal[sig], is_win)
             g = grade_map.get((iid, sig))
             if g in ("high", "mid", "low"):
                 _bucket_add(by_grade[g], is_win)
-        if n > 0:
+        # 2026-08-17 方案B: 日期可能只有卖类信号(total=0 但 by_signal 有值), 仍须入点以保 sell 维度曲线
+        if n > 0 or by_signal:
             out.append({"date": d, "total": _bucket_final(n, win),
                         "by_signal": {k: v for k, v in by_signal.items() if v["n"]},
                         "by_grade": {k: v for k, v in by_grade.items() if v["n"]}})
