@@ -38,6 +38,7 @@ import datetime as _dt
 import json
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -2793,14 +2794,35 @@ def main() -> int:
     # 成本日志
     log_cost(repo, cfg, date, version, usage, ok=(version in ("ai", "ai-multi")))
 
-    # R2 上传(主数据 2 件 + tts mp3(若有);run_log 在 write_run_log 后单独传,保证本 run 的 run_log 随本 run 上线)
-    files_out = [BRIEF_FILE, HISTORY_FILE] + ([tts_file] if tts_ok and tts_file else [])
+    # 新闻快讯独立产物上线闭环(2026-08-16 §22): news_digest.json(fetch_news.py 16:45 产,仅落 data/)
+    # 需随 daily_brief 一起同步到 static-site/data/ + R2 data/ 前缀 + staticdata,前端"今日要闻/明日关键事件/历史事件对照"
+    # 三个展示位才读得到(只写 data/ 不随 deploy 上线=前端 404)。当 news 面可用且为当日数据时复制,否则不强制(前端空态)。
+    news_meta = (data.get("news") or {})
+    if news_meta.get("available"):
+        # 源文件 = 后端 _load_news_inject 读到的 news_digest.json(trade-data/data/ 或 ROOT/data 兜底)
+        news_src = db_path.parent / "news_digest.json"
+        if not news_src.exists():
+            news_src = ROOT / "data" / "news_digest.json"
+        if news_src.exists():
+            try:
+                shutil.copy2(news_src, static_dir / "news_digest.json")
+                files_out_n = [BRIEF_FILE, HISTORY_FILE, "news_digest.json"] \
+                    + ([tts_file] if tts_ok and tts_file else [])
+                log("news_digest.json 已同步到 static_dir + 加入 R2/staticdata 上传链")
+            except Exception as e:
+                log(f"⚠ news_digest.json 复制/加入上传链失败(不阻塞): {e}")
+                files_out_n = files_out
+        else:
+            files_out_n = files_out
+    else:
+        files_out_n = files_out
+    # R2 上传(主数据 2 件 + news_digest.json(当日可用时) + tts mp3(若有);run_log 在 write_run_log 后单独传)
     tu = time.time()
-    upload_to_r2(repo, args.no_upload, files=files_out)
+    upload_to_r2(repo, args.no_upload, files=files_out_n)
     timings["r2"] = round(time.time() - tu, 2)
     # staticdata 同步(数据仓库留档,防 deploy 外生成器留旧版;best-effort)
     ts2 = time.time()
-    staticdata_sync(repo, args.no_upload, files=files_out)
+    staticdata_sync(repo, args.no_upload, files=files_out_n)
     timings["staticdata"] = round(time.time() - ts2, 2)
 
     # 结构化运行日志双写(run_log 审计缺口#4: 每步耗时+数据量+新鲜度+AI参数+输出摘要)

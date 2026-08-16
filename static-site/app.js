@@ -10183,6 +10183,17 @@ async function renderOverview() {
       if (histBtn) histBtn.addEventListener("click", openSummaryHistoryModal);
       const aiBtn = banner.querySelector(".summary-ai-btn");
       if (aiBtn) aiBtn.addEventListener("click", openDailyBriefModal);
+      // 2026-08-16 首页 AI 预测卡「📅 明日关键事件」行(消费 news_digest.json,无数据整行不显示 guard)
+      _loadNewsDigest().then((nd) => {
+        const evts = _dbUpcomingEvents(nd);
+        const rowHtml = _dbNextDayRowHtml(evts);
+        if (!rowHtml) return;
+        const row = document.createElement("div");
+        row.className = "summary-news-row";
+        row.innerHTML = rowHtml;
+        if (banner.isConnected) banner.after(row);
+        else content.insertBefore(row, banner.nextSibling);
+      }).catch(() => {});
       // P0-2 多指数共振冰点：≥3 个宽基情绪分同时冰点(<20)时，横幅转红 + 共振聚合提示
       // 数据来自 overview today.scores（6 宽基：上证50/沪深300/中证500/中证1000/创业板/科创50情绪分）
       const _BROAD_SENT_IDS = ["sentiment_sz50", "sentiment_hs300", "sentiment_csi500", "sentiment_csi1000", "sentiment_cyb", "sentiment_kc50"];
@@ -21176,7 +21187,7 @@ function initBackToTop() {
 
 // ---- 历史收盘分析弹窗（横幅"更多"按钮触发）----
 // limit=30：每页 30 条（约 3 个月每日），90 条数据分 3 页，第 1 页能显示到约 2 个月前
-let _summaryHistoryState = { page: 0, limit: 30, total: 0, cache: null, briefByDate: null };
+let _summaryHistoryState = { page: 0, limit: 30, total: 0, cache: null, briefByDate: null, newsDigest: null };
 
 function _summaryHistoryModalEl() {
   let modal = document.getElementById("summaryHistoryModal");
@@ -21198,7 +21209,7 @@ function _summaryHistoryModalEl() {
   return modal;
 }
 
-function _summaryHistoryItemHtml(s, briefByDate) {
+function _summaryHistoryItemHtml(s, briefByDate, newsDigest) {
   const date = s.date ? `${s.date.substring(0,4)}-${s.date.substring(4,6)}-${s.date.substring(6,8)}` : "";
   const fg = s.fear_greed_label ? `<span class="sh-fg">😐 ${s.fear_greed_label} ${s.fear_greed_value != null ? s.fear_greed_value.toFixed(0) : ""}</span>` : "";
   const freeze = s.is_freeze ? `<span class="sh-freeze">❄️冰点</span>` : "";
@@ -21210,7 +21221,10 @@ function _summaryHistoryItemHtml(s, briefByDate) {
     const meta = it.meta || {};
     aiBlock = `<div class="sh-ai-brief"><div class="sh-ai-brief-head"><span class="db-dir">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}<span class="sh-ai-brief-title">🤖 AI预测</span>${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}${_dbHitHtml(meta)}${_dbActualHtml(meta)}${_dbPlayBtn(meta, it.date || meta.date)}</div>${_dbBriefDetailHtml(it)}</div>`;
   }
-  return `<div class="summary-history-item"><div class="sh-date">${date} <span class="sh-label">${s.sentiment_label || ""}</span>${fg}${freeze}</div>${renderSummaryChips(s, null)}${aiBlock}</div>`;
+  // 2026-08-16 历史「事件对照」:当日大事 1-3 条(仅日期==news_digest.date,否则空态)
+  const histNews = _dbHistoryNewsHtml(newsDigest || null, s.date);
+  const histNewsBlock = histNews ? `<div class="sh-hist-news">${histNews}</div>` : "";
+  return `<div class="summary-history-item"><div class="sh-date">${date} <span class="sh-label">${s.sentiment_label || ""}</span>${fg}${freeze}</div>${renderSummaryChips(s, null)}${aiBlock}${histNewsBlock}</div>`;
 }
 
 async function _loadSummaryHistoryPage() {
@@ -21240,10 +21254,14 @@ async function _loadSummaryHistoryPage() {
     } catch (e2) {
       _summaryHistoryState.briefByDate = {};
     }
+    // 2026-08-16 历史「事件对照」:加载当日 news_digest.json(仅 date==该历史日期才显示大事,否则空态)
+    try {
+      if (!_summaryHistoryState.newsDigest) _summaryHistoryState.newsDigest = await _loadNewsDigest();
+    } catch (e3) { /* 无新闻数据: 事件对照空态,不阻塞 */ }
   }
   const offset = page * limit;
   const items = _summaryHistoryState.cache.slice(offset, offset + limit);
-  list.innerHTML = items.map((s) => _summaryHistoryItemHtml(s, _summaryHistoryState.briefByDate || {})).join("") || '<div class="summary-history-empty">暂无历史数据</div>';
+  list.innerHTML = items.map((s) => _summaryHistoryItemHtml(s, _summaryHistoryState.briefByDate || {}, _summaryHistoryState.newsDigest || null)).join("") || '<div class="summary-history-empty">暂无历史数据</div>';
   _dbTtsBind(list);  // edge-tts 语音播报按钮事件委托
   // 翻页后列表回顶（用户想看新页内容，不是底部）
   list.scrollTop = 0;
@@ -21307,7 +21325,7 @@ function closeSummaryHistoryModal() {
 
 // ---- 每日AI预测弹窗（横幅"🤖 AI 预测"按钮触发；复用历史收盘分析组件/分页样式，不加新交互）----
 // 数据源 static-site/data/daily_brief_history.json（后端 gen_daily_brief.py 归档，90天滚动 + 次日 hit 回填 + 命中率 stats）
-let _dailyBriefState = { page: 0, limit: 30, total: 0, cache: null, cacheBrief: null, todayBrief: null, todayFetched: false };
+let _dailyBriefState = { page: 0, limit: 30, total: 0, cache: null, cacheBrief: null, todayBrief: null, todayFetched: false, newsBlockRendered: false };
 
 function _dailyBriefModalEl() {
   let modal = document.getElementById("dailyBriefModal");
@@ -21654,7 +21672,16 @@ async function _loadDailyBriefPage() {
   }
   const offset = page * limit;
   const items = _dailyBriefState.cache.slice(offset, offset + limit);
-  list.innerHTML = items.map(_dailyBriefItemHtml).join("") || '<div class="summary-history-empty">暂无历史预测数据</div>';
+  // 2026-08-16 弹窗「今日要闻/宏观日历」区块:列表顶部一次性渲染今日要闻(≤10)+ 明日预告(消费 news_digest.json,无数据空态)
+  let newsBlockHtml = "";
+  if (_dailyBriefState.newsBlockRendered !== true) {
+    _dailyBriefState.newsBlockRendered = true;
+    try {
+      const nd = await _loadNewsDigest();
+      newsBlockHtml = _dbNewsBlockHtml(nd);
+    } catch (e) { /* 无新闻数据: 区块空态,不阻塞 */ }
+  }
+  list.innerHTML = (newsBlockHtml ? `<div class="db-news-modal">${newsBlockHtml}</div>` : "") + items.map(_dailyBriefItemHtml).join("") || '<div class="summary-history-empty">暂无历史预测数据</div>';
   _dbTtsBind(list);  // edge-tts 语音播报按钮事件委托
   list.scrollTop = 0;
   // 点开某日=展开预测内容+meta断言（事件委托，列表重渲染后仍可点）
@@ -21690,8 +21717,96 @@ function _renderDailyBriefStats(brief) {
       `<span class="db-stats-item db-stats-sched">🕗 每日 20:40 更新${genAt}${todayConf ? ` · 今日${todayConf}` : ""}</span>` +
       `<span class="db-stats-item">近30日：<b>${s30 && s30.n ? `${s30.hit}/${s30.n}（${rate(s30)}）` : "暂无样本"}</b></span>` +
       `<span class="db-stats-item">近90日：<b>${s90 && s90.n ? `${s90.hit}/${s90.n}（${rate(s90)}）` : "暂无样本"}</b></span>` +
-      '<span class="db-stats-how">AI每日盘后基于当日收盘数据，默认由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测 + 🎯今日要点 + 多角色讨论（展开可看四角色结论与多空辩论）；任一环节失败自动降级单模型生成兜底。meta结构化断言：预测给出<b>明确方向 + 具体涨跌幅区间</b>（大盘上证 + <b>中间层7个全押</b>（深证成指/创业板指/科创50/北证50/恒生指数/恒生科技涨跌幅% + 10年国债收益率变化基点）+ 1-3个领涨/领跌板块次日涨跌幅区间，区间宽度≤0.5%，越窄越准；方向由区间体现：全正=涨/全负=跌/含0=平震荡）。<b>10年国债</b>预测口径为<b>次日收益率变化基点</b>（1基点=0.01%，区间如 +1~-1 即预期次日收益率在 当日−1bp~+1bp，用整数基点、宽度≤3bp），命中=次日实际收益率减当日收益率（×100）落在预期基点区间。命中判定=<b>三层全命中</b>：大盘实际涨跌幅 ∈ 大盘预测区间，且<b>中间层7个全部命中</b>（前6涨跌幅%落各自区间 + 10年国债基点落区间），且所有预测板块实际涨跌幅 ∈ 各自区间（大盘+中间层7押+板块=✅三层命中；任一层数据缺失 N/A 则整体不硬判，标"层级N/A"）。<b>历史老条目</b>（改造前无区间/无中间层的预测）不伪造区间，只保留旧"方向相等"判定（✅仅方向命中），区间命中标"层级N/A"（不算中不算不中），故命中率为新老口径混合统计。<b>命中率</b>仅对改造后含区间的条目计，老条目 N/A 不计入。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。<b>版本徽标</b>：🤖多角色=6角色完整版（默认）／旧版单模型=多角色版上线前旧版（已被取代）／⚠️降级版=AI生成失败规则兜底（无多角色辩论）／⚠️精简版=最小兜底；降级/精简版仅供参考。每条预测含<b>🧭结论</b>行（融合结论=研究员多空辩论收敛结果，不展开即可见），<b>辩论详情</b>折叠面板可展开看四角色结论与多空论据（含论据数）。命中率仅为历史统计，不构成投资建议。</span>' +
+      '<span class="db-stats-how">AI每日盘后基于当日收盘数据，默认由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测 + 🎯今日要点 + 多角色讨论（展开可看四角色结论与多空辩论）；任一环节失败自动降级单模型生成兜底。meta结构化断言：预测给出<b>明确方向 + 具体涨跌幅区间</b>（大盘上证 + <b>中间层7个全押</b>（深证成指/创业板指/科创50/北证50/恒生指数/恒生科技涨跌幅% + 10年国债收益率变化基点）+ 1-3个领涨/领跌板块次日涨跌幅区间，区间宽度≤0.5%，越窄越准；方向由区间体现：全正=涨/全负=跌/含0=平震荡）。<b>10年国债</b>预测口径为<b>次日收益率变化基点</b>（1基点=0.01%，区间如 +1~-1 即预期次日收益率在 当日−1bp~+1bp，用整数基点、宽度≤3bp），命中=次日实际收益率减当日收益率（×100）落在预期基点区间。命中判定=<b>三层全命中</b>：大盘实际涨跌幅 ∈ 大盘预测区间，且<b>中间层7个全部命中</b>（前6涨跌幅%落各自区间 + 10年国债基点落区间），且所有预测板块实际涨跌幅 ∈ 各自区间（大盘+中间层7押+板块=✅三层命中；任一层数据缺失 N/A 则整体不硬判，标"层级N/A"）。<b>历史老条目</b>（改造前无区间/无中间层的预测）不伪造区间，只保留旧"方向相等"判定（✅仅方向命中），区间命中标"层级N/A"（不算中不算不中），故命中率为新老口径混合统计。<b>命中率</b>仅对改造后含区间的条目计，老条目 N/A 不计入。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。<b>版本徽标</b>：🤖多角色=6角色完整版（默认）／旧版单模型=多角色版上线前旧版（已被取代）／⚠️降级版=AI生成失败规则兜底（无多角色辩论）／⚠️精简版=最小兜底；降级/精简版仅供参考。每条预测含<b>🧭结论</b>行（融合结论=研究员多空辩论收敛结果，不展开即可见），<b>辩论详情</b>折叠面板可展开看四角色结论与多空论据（含论据数）。<b>增量参考面</b>：预测已综合当天新闻快讯/宏观事件（今日要闻/明日关键事件）/8宽基估值位置（1y/3y历史百分位）等增量参考——AI 在这些面之上判断方向，但这些面本身不参与区间命中判定。命中率仅为历史统计，不构成投资建议。</span>' +
     '</div>';
+}
+
+// ---- 新闻快讯展示位(2026-08-16 AI 预测增强前端 §22)────────
+// 单一数据源 = static-site/data/news_digest.json(fetch_news.py 16:45 产,gen_daily_brief.py 随 R2 data/ + staticdata 同步上线)。
+// 与后端 _load_news_inject 同源:今日要闻(news,≤10 条)+ 明日关键事件(upcoming)。
+// 三展示位共用:①首页 AI 预测卡「📅明日关键事件」行 ②AI预测弹窗「今日要闻/宏观日历」区块 ③历史收盘分析「事件对照」。
+// 数据缺失(未上线/非当日/空/解析失败)=各展示位空态 guard,不渲染不报错(§23.2 后端与前端同一数据源,展示位不自行重算)。
+let _newsDigestCache = null;
+
+// 加载 news_digest.json 一次并缓存;失败缓存为全空对象(标记 err),避免反复重试空转。
+async function _loadNewsDigest() {
+  if (_newsDigestCache) return _newsDigestCache;
+  try {
+    const raw = await fetchJSON("./data/news_digest.json");
+    _newsDigestCache = {
+      news: (raw && Array.isArray(raw.news)) ? raw.news : [],
+      upcoming: (raw && Array.isArray(raw.upcoming)) ? raw.upcoming : [],
+      date: (raw && raw.date) || "",
+      err: "",
+    };
+  } catch (e) {
+    _newsDigestCache = { news: [], upcoming: [], date: "", err: String((e && e.message) || e) };
+  }
+  return _newsDigestCache;
+}
+
+// 明日关键事件:从 upcoming 取重要优先 ≤5;upcoming 空则回退 news 重要 ≤3。
+function _dbUpcomingEvents(nuth) {
+  const up = (nuth && nuth.upcoming) || [];
+  const imp = up.filter((u) => u && u.important);
+  const rest = up.filter((u) => u && !u.important);
+  const picked = (imp.length ? imp : rest).slice(0, 5);
+  if (picked.length) return picked;
+  const ns = (nuth && nuth.news) || [];
+  const nimp = ns.filter((n) => n && n.important);
+  return (nimp.length ? nimp : ns).slice(0, 3).map((n) => ({ time: n.time, title: n.title }));
+}
+
+// 今日要闻:重要优先 ≤10 条。
+function _dbTodayNews(nuth) {
+  const ns = (nuth && nuth.news) || [];
+  const imp = ns.filter((n) => n && n.important);
+  return (imp.length ? imp : ns).slice(0, 10);
+}
+
+// 首页 AI 预测卡「📅 明日关键事件」行:压缩单行(无数据返回空串,guard 不显示)。
+function _dbNextDayRowHtml(evts) {
+  if (!evts || !evts.length) return "";
+  const items = evts.slice(0, 3).map((e) =>
+    `${_esc(e.time || "")} ${_esc(String(e.title || "").slice(0, 42))}`
+  ).join("　|　");
+  return `<div class="db-nextday-row"><span class="db-nextday-k">📅 明日关键事件</span><span class="db-nextday-v">${items}</span></div>`;
+}
+
+// 弹窗「今日要闻/宏观日历」区块:今日要闻(≤10) + 明日关键事件预告。无数据返回空串。
+function _dbNewsBlockHtml(nuth) {
+  const news = _dbTodayNews(nuth);
+  const up = (nuth && nuth.upcoming) || [];
+  const upImp = up.filter((u) => u && u.important);
+  const upPicked = (upImp.length ? upImp : up).slice(0, 5);
+  if (!news.length && !upPicked.length) return "";
+  const newsUl = news.length
+    ? `<ul class="db-news-ul">${news.map((n) =>
+        `<li><span class="db-news-time">${_esc(n.time || "")}</span><span class="db-news-title">${_esc(String(n.title || "").slice(0, 120))}</span></li>`
+      ).join("")}</ul>`
+    : "";
+  const upUl = upPicked.length
+    ? `<ul class="db-news-ul">${upPicked.map((u) =>
+        `<li><span class="db-news-time">${_esc(u.time || "")}</span><span class="db-news-title">${_esc(String(u.title || "").slice(0, 120))}</span></li>`
+      ).join("")}</ul>`
+    : "";
+  return `<div class="db-news-block">
+    ${news.length ? `<div class="db-news-sec"><div class="db-news-sec-t">📣 今日要闻</div>${newsUl}</div>` : ""}
+    ${upPicked.length ? `<div class="db-news-sec"><div class="db-news-sec-t">📅 明日关键事件（预告）</div>${upUl}</div>` : ""}
+  </div>`;
+}
+
+// 历史收盘分析「事件对照」:当日大事 1-3 条(仅当历史日期 == news_digest.date 才显示,否则空态)。
+function _dbHistoryNewsHtml(nuth, date) {
+  if (!nuth || !date) return "";
+  const nd = String(nuth.date || "").replace(/-/g, "");
+  if (nd && date && nd !== String(date).replace(/-/g, "")) return "";
+  const news = _dbTodayNews(nuth);
+  if (!news.length) return "";
+  const items = news.slice(0, 3).map((n) =>
+    `<li><span class="db-news-time">${_esc(n.time || "")}</span><span class="db-news-title">${_esc(String(n.title || "").slice(0, 80))}</span></li>`
+  ).join("");
+  return `<div class="db-hist-news"><div class="db-hist-news-t">📰 当日大事（事件对照）</div><ul class="db-news-ul">${items}</ul></div>`;
 }
 
 // 分页器：与历史收盘分析同款（上一页/下一页 + 页码按钮 + 顶部 info 行）

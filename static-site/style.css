@@ -3396,6 +3396,40 @@ main { padding: 16px 24px; }
 .db-debate-sum { font-size: 12.5px; color: var(--text-1); margin: 2px 0 0; }
 .db-debate-conf { font-size: 11px; font-weight: 600; color: var(--text-2); }
 
+/* ---- 新闻快讯展示位(AI 预测增强 2026-08-16 §22)---- */
+.summary-news-row {
+  display: block;
+  margin-top: 7px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border-left: 3px solid #7c4dff;
+  background: linear-gradient(90deg, rgba(124, 77, 255, 0.10), rgba(124, 77, 255, 0.03));
+}
+.db-nextday-row { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; line-height: 1.6; }
+.db-nextday-k { flex-shrink: 0; font-weight: 700; color: #7c4dff; }
+.db-nextday-v { color: var(--text-1); word-break: break-word; }
+
+.db-news-modal { margin-bottom: 10px; }
+.db-news-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-hover);
+}
+.db-news-sec { display: flex; flex-direction: column; gap: 4px; }
+.db-news-sec-t { font-size: 12.5px; font-weight: 700; color: #7c4dff; margin-bottom: 2px; }
+.db-news-ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.db-news-ul li { display: flex; align-items: flex-start; gap: 6px; font-size: 12.5px; line-height: 1.6; color: var(--text-1); }
+.db-news-time { flex-shrink: 0; font-family: monospace; font-size: 11px; color: var(--text-3); padding-top: 2px; }
+.db-news-title { word-break: break-word; }
+
+.sh-hist-news { margin-top: 6px; }
+.db-hist-news { padding: 8px 12px; border-radius: 6px; border-left: 3px solid #2e7d32; background: linear-gradient(90deg, rgba(46, 125, 50, 0.10), rgba(46, 125, 50, 0.03)); }
+.db-hist-news-t { font-size: 12.5px; font-weight: 700; color: #2e7d32; margin-bottom: 4px; }
+
 /* ---- 大盘位置感卡片 ---- */
 .position-card { padding: 16px; }
 .position-card h3 { margin: 0 0 12px; font-size: 14px; color: var(--text-1); }
