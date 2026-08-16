@@ -116,7 +116,7 @@
 
 | # | 项 | 出处 | 说明 | 状态 |
 |---|---|---|---|---|
-| 58 | **分析参考点AI监控三合一** | 2026-08-16 用户拍板 | AI降亏过滤默认开(首次无 localStorage 默认 true,手动关记住) + **K档启用**(by_k/filtered_by_k,与首页AI仓位建议top-K同口径,降亏开关×K档两开关独立)+ 双图轻量SVG(_lwSetup,绿黄红分段+30/60参考线) + ❓hover短+click详版弹窗 + reviewer返修(P1 localStorage try/catch/P2-1空态删_lwRenderers/P2-2 pb44/P2-3 y轴0-100) + SVG 3色为基准(echarts fallback 去固定色) | **已完成**(2026-08-16 二次迭代,版本串 a275,评审后补 commit hash) |
+| 58 | **分析参考点AI监控三合一** | 2026-08-16 用户拍板 | AI降亏过滤默认开(首次无 localStorage 默认 true,手动关记住) + **K档启用**(by_k/filtered_by_k,与首页AI仓位建议top-K同口径,降亏开关×K档两开关独立)+ 双图轻量SVG(_lwSetup,绿黄红分段+30/60参考线) + ❓hover短+click详版弹窗 + reviewer返修(P1 localStorage try/catch/P2-1空态删_lwRenderers/P2-2 pb44/P2-3 y轴0-100) + SVG 3色为基准(echarts fallback 去固定色) + **P2修法①K档by_k排除未入样**(build_topk_kept_map 跳 ts=None 未入样,与首页同人口,全史剔1172条,commit ac61248a4+merge 33c722997) | **已完成**(2026-08-16 二次迭代,版本串 a275→a279,commit ac61248a4/33c722997) |
 | 59 | **K2C5 补跑每日池同口径比值** | 2026-08-16 用户拍板 | 凯利区降亏开关 K2C5 ratio"待实测"→补跑每日池减亏%/损盈%/比值(researcher 预跑:减亏2.88%/损盈0.63%/比值4.55) + 凯利区 advice 文案精简 | **进行中**(implementer 实施中,与本次监控卡迭代并行不同模块) |
 | 60 | **分析参考点AI监控窗口语义改数据范围** | 2026-08-16 用户观察"窗口切换没实质影响" | 窗口按钮(30/60/90)从"滚动计算宽度"改为"整个曲线图数据范围"(更名「显示范围」):点N日=两图显示最近N天曲线段(前端截取,统计口径固定60日滚动,后端 rolling 只留60一套降体积);卡 tooltip+help 弹窗补说明 | **已完成**(2026-08-16 二次迭代,版本串 a275) |
 
