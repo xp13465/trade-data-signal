@@ -49,8 +49,11 @@ schema(钉死):
 import argparse
 import datetime as dt
 import json
+import os
 import re
+import shutil
 import ssl
+import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -369,6 +372,86 @@ def main():
     print(f"[fetch_news] 已写 {OUT_FILE} + 归档 {archive_file} date={day_str} "
           f"news={len(news)} upcoming={len(upcoming)} "
           f"sources={digest['sources']}")
+
+    # ── 采集成功后直接同步上线(2026-08-16 §22/reviewer#1: 不依赖 gen_daily_brief 20:40 上传链)──
+    # 问题: 16:45 采完只落 data/news_digest.json,上线完全依赖 gen_daily_brief 20:40 的上传链,
+    #       导致 16:45→20:40 线上 news_digest.json 还是昨日,前端展示旧闻+「明日关键事件」日期错位;
+    #       且 gen_daily_brief 当天失败/非交易日手动采集时当日新闻面滞后。
+    # 修法: 采完当日 news_digest.json + 归档后,直接 copy 到 static-site/data/ + 上传 R2 data/ 前缀
+    #       + staticdata 同步(与 gen_daily_brief 同链路,gen_daily_brief 20:40 再跑幂等覆盖不冲突)。
+    sync_news_digest_live(day_str)
+
+
+# ── 采集后直接同步上线(2026-08-16 §22/reviewer#1: 不依赖 gen_daily_brief 上传链)─────────────
+def sync_news_digest_live(day_str: str) -> None:
+    """把当日 news_digest.json + 全部日期归档,同步到 static-site/data/ + R2 + staticdata。
+
+    参考 gen_daily_brief.py L2817-2857 的上传链(copy → upload-data-files → staticdata_sync.sh),
+    让 fetch_news(launchd 16:45)采集完即上线,前端 16:45 后就读到当日新闻,不等 20:40。
+    REPO=Path(__file__).resolve().parent.parent 在 launchd(WorkingDirectory=trade-data,
+    ProgramArguments 显式传 trade/scripts/fetch_news.py 真实路径)下解析为 trade/;
+    而 trade-data/static-site 是 symlink 指向 trade/static-site,故写 REPO/static-site/data 即正确
+    (与 gen_daily_brief 用 pick_newest_repo 挑 trade-data 殊途同归,同 §22 一致性)。
+    失败不阻塞主流程(采集已落盘,盘后 gen_daily_brief 20:40 兜底再同步)。
+    """
+    try:
+        static_dir = REPO / "static-site" / "data"
+        static_dir.mkdir(parents=True, exist_ok=True)
+        # ① copy 当日 news_digest.json -> static-site/data/
+        if OUT_FILE.exists():
+            shutil.copy2(OUT_FILE, static_dir / "news_digest.json")
+        # ② 归档目录累积: data/news_digest/<date>.json 全量 copy 到 static-site/data/news_digest/,
+        #    让历史日归档也被前端/README 历史入口读到(幂等覆盖,不删历史)。
+        arch_files: list[str] = ["news_digest.json"]
+        if ARCHIVE_DIR.is_dir():
+            (static_dir / "news_digest").mkdir(parents=True, exist_ok=True)
+            for arch_f in sorted(ARCHIVE_DIR.glob("*.json")):
+                shutil.copy2(arch_f, static_dir / "news_digest" / arch_f.name)
+                arch_files.append(f"news_digest/{arch_f.name}")
+        # ③ R2 上传(data/ 前缀,upload-data-files 支持相对 data_dir 的子目录路径) — 读 .env 拿凭证
+        env = dict(os.environ)
+        env.setdefault("REPO", str(REPO))
+        env.setdefault("GIT_REPO", str(REPO))
+        _load_dotenv(env)
+        r = subprocess.run(
+            [str(REPO / ".venv/bin/python"), str(REPO / "scripts/upload_r2.py"),
+             "upload-data-files"] + arch_files,
+            cwd=str(REPO), env=env, timeout=120, capture_output=True, check=False)
+        if r.returncode == 0:
+            out = (r.stdout or b"").decode("utf-8", errors="replace").strip()
+            print(f"[fetch_news] R2 同步 OK {out.splitlines()[-1] if out else ''}")
+        else:
+            err = (r.stderr or b"").decode("utf-8", errors="replace").strip()
+            print(f"⚠ [fetch_news] R2 上传 rc={r.returncode} {(r.stdout or b'').decode('utf-8','replace')[-300:] if r.stdout else ''} {err[-300:] if err else ''}")
+        # ④ staticdata 同步(best-effort,防 deploy 外生成器留旧版;触发名 news-fetch)
+        r2 = subprocess.run(
+            ["bash", str(REPO / "scripts/staticdata_sync.sh"), "news-fetch"] + arch_files,
+            cwd=str(REPO), env=env, timeout=600, capture_output=True, check=False)
+        if r2.returncode != 0:
+            err2 = (r2.stderr or b"").decode("utf-8", errors="replace").strip()
+            print(f"⚠ [fetch_news] staticdata 同步 rc={r2.returncode} {(r2.stdout or b'').decode('utf-8','replace')[-200:] if r2.stdout else ''} {err2[-200:] if err2 else ''}")
+        print(f"[fetch_news] 同步上线完成 date={day_str} (news_digest.json + {len(arch_files)-1} 个日期归档)")
+    except Exception as e:  # noqa: BLE001
+        print(f"⚠ [fetch_news] 同步上线异常(不阻塞,盘后 gen_daily_brief 20:40 兜底): {e}")
+
+
+def _load_dotenv(env: dict) -> None:
+    """把 .env(R2 凭证)读进 env(仿 gen_daily_brief load_config 的候选路径,setdefault 不覆盖)。"""
+    cands = [
+        REPO / ".env",
+        Path(env.get("REPO", "")) / ".env" if env.get("REPO") else None,
+        Path(env.get("GIT_REPO", "")) / ".env" if env.get("GIT_REPO") else None,
+        Path("/Users/linhuichen/code/trade/.env"),
+    ]
+    for c in cands:
+        if not c or not c.exists():
+            continue
+        for line in c.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            env.setdefault(k.strip(), v.strip())
 
 
 if __name__ == "__main__":

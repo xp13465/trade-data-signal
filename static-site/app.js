@@ -10186,13 +10186,33 @@ async function renderOverview() {
       const newsBtn = banner.querySelector(".summary-news-btn");
       if (newsBtn) newsBtn.addEventListener("click", openNewsDigestModal);
       // 2026-08-16 首页 AI 预测卡新闻外露两行(消费 _loadNewsDigest 缓存 news/upcoming,各行的 guard=内部无数据返回空串,整行不显示):
-      // 「📣 今日要闻」外露速览行(重要优先 ≤3,标日期) + 「📅 明日关键事件」行(标日期),一上一下相邻排列
+      // 「📣 今日要闻」外露速览行(重要优先 ≤3,标日期) + 「📅 明日关键事件」行(标日期),一上一下相邻排列。
+      // 用户决策 #12(2026-08-16): ①外露行整行可点进(点击打开新闻面弹窗 openNewsDigestModal)+ 行内「更多 →」视觉暗示;
+      //   ②两行都无数据时,横幅位置兜底渲染「📰 历史新闻入口」行(点击同样打开新闻面弹窗,弹窗顶部已有"新闻按日期归档"提示,可回看历史)。
       _loadNewsDigest().then((nd) => {
-        const rowsHtml = _dbHomeTodayNewsRowHtml(nd) + _dbNextDayRowHtml(_dbUpcomingEvents(nd), nd);
-        if (!rowsHtml) return;
+        const rowToday = _dbHomeTodayNewsRowHtml(nd);
+        const rowNext = _dbNextDayRowHtml(_dbUpcomingEvents(nd), nd);
+        // 兜底: 两行都无数据 → 渲染「历史新闻入口」行(点击打开新闻面弹窗,弹窗支持历史归档回看)。
+        if (!rowToday && !rowNext) {
+          const fb = document.createElement("div");
+          fb.className = "summary-news-row summary-news-fallback";
+          fb.innerHTML = '<div class="db-nextday-row summary-news-entry"><span class="db-nextday-k">📰 历史新闻入口</span><span class="db-nextday-v">点此打开新闻面，按日期查看已归档新闻与大事预告</span><span class="news-more-hint">更多 →</span></div>';
+          fb.addEventListener("click", openNewsDigestModal);
+          if (banner.isConnected) banner.after(fb);
+          else content.insertBefore(fb, banner.nextSibling);
+          return;
+        }
+        // 正常外露两行(至少一行有数据): 整行可点进,行尾「更多 →」。
+        const rowsHtml = rowToday + rowNext;
         const wrap = document.createElement("div");
-        wrap.className = "summary-news-row";
-        wrap.innerHTML = rowsHtml;
+        wrap.className = "summary-news-row summary-news-entry";
+        wrap.innerHTML = rowsHtml + '<div class="summary-news-more">更多 →</div>';
+        wrap.addEventListener("click", (e) => {
+          // 行内无子链接/按钮,统一打开新闻面弹窗(不拦截其他事件)。
+          const t = e.target;
+          if (t && t.closest && t.closest("a,button")) return;
+          openNewsDigestModal();
+        });
         if (banner.isConnected) banner.after(wrap);
         else content.insertBefore(wrap, banner.nextSibling);
       }).catch(() => {});
@@ -21732,14 +21752,32 @@ function _renderDailyBriefStats(brief) {
 let _newsDigestCache = null;
 
 // 加载 news_digest.json 一次并缓存;失败缓存为全空对象(标记 err),避免反复重试空转。
+// 本地"当日" 日期(YYYY-MM-DD,本地时区)。news_digest 的 date 为采集目标日,故用本地今日比对判断"是否为今日新闻"。
+function _newsTodayStr() {
+  const n = new Date();
+  const mo = String(n.getMonth() + 1).padStart(2, "0");
+  const dd = String(n.getDate()).padStart(2, "0");
+  return `${n.getFullYear()}-${mo}-${dd}`;
+}
+
+// 新闻日期守卫(reviewer#1 §22/§23.2): 读到的 news_digest 若 date 非当日,news 置空不显示
+// (「今日要闻」不冒充当日,16:45 采完上线前/断更时前端不显示昨日新闻顶替今日);
+// upcoming 若仍指向未来日期可保留(明日关键事件不受"非当日 news"连坐)。
+// 所有消费点统一走此 guards:_dbHomeTodayNewsRowHtml|_dbNextDayRowHtml|弹窗|历史对照均读本缓存。
 async function _loadNewsDigest() {
   if (_newsDigestCache) return _newsDigestCache;
   try {
     const raw = await fetchJSON("./data/news_digest.json");
+    const date = (raw && raw.date) || "";
+    let news = (raw && Array.isArray(raw.news)) ? raw.news : [];
+    // 当日守卫: date 与本地今日不一致 → 当日 news 视为不可用,置空(upcoming 保留供明日预告)。
+    if (date && date !== _newsTodayStr()) {
+      news = [];
+    }
     _newsDigestCache = {
-      news: (raw && Array.isArray(raw.news)) ? raw.news : [],
+      news,
       upcoming: (raw && Array.isArray(raw.upcoming)) ? raw.upcoming : [],
-      date: (raw && raw.date) || "",
+      date,
       err: "",
     };
   } catch (e) {

@@ -3411,6 +3411,32 @@ main { padding: 16px 24px; }
 /* 2026-08-16 首页 AI 预测卡新闻外露两行(今日要闻 + 明日关键事件)一上一下,第二行与第一行留间距 */
 .summary-news-row > .db-nextday-row + .db-nextday-row { margin-top: 6px; }
 
+/* 2026-08-16 用户决策 #12: 外露行整行可点进(打开新闻面弹窗)+ 行内「更多 →」暗示 + hover 高亮。
+   .summary-news-entry = 可点行的容器(正常外露行 + 兜底「历史新闻入口」行共用)。 */
+.summary-news-entry { cursor: pointer; position: relative; }
+.summary-news-entry:hover {
+  background: linear-gradient(90deg, rgba(124, 77, 255, 0.18), rgba(124, 77, 255, 0.06));
+  border-left-color: #7c4dff;
+  box-shadow: 0 1px 5px rgba(124, 77, 255, 0.22);
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+.summary-news-more {
+  display: block;
+  margin-top: 5px;
+  text-align: right;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #7c4dff;
+  opacity: 0.8;
+}
+.summary-news-entry:hover .summary-news-more { opacity: 1; }
+.news-more-hint { margin-left: 6px; font-weight: 700; color: #7c4dff; opacity: 0.9; }
+.summary-news-fallback {
+  border-left-color: #7c4dff;
+  background: linear-gradient(90deg, rgba(124, 77, 255, 0.12), rgba(124, 77, 255, 0.04));
+}
+
+
 .db-news-ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
 .db-news-ul li { display: flex; align-items: flex-start; gap: 6px; font-size: 12.5px; line-height: 1.6; color: var(--text-1); }
 .db-news-time { flex-shrink: 0; font-family: monospace; font-size: 11px; color: var(--text-3); padding-top: 2px; }
