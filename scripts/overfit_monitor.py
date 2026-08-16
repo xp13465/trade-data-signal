@@ -15,6 +15,8 @@
 - 4 维过拟合风险分(0-100): risk_score = 0.40*D1(回测-实盘偏离) + 0.25*D2(滚动样本外衰减) + 0.20*D3(参数稳定) + 0.15*D4(象限退化)。
   等级: 绿 <30(正常) / 黄 30-60(关注) / 红 >60(高风险)。
 - 各维度按滚动窗口 w30/w60/w90 加权偏重最新(30 灵敏 / 90 稳健)。
+- 样本充足阈值随窗口缩放(2026-08-17 方案A): 每窗口 eff_min = min(min_n, ceil(w*0.5)), 10→5、15→8、30→15、60/100→20,
+  防默认 K=1 人口下 10/15 窗口被锁死 n=10/15(永远 < 20)而空白。落地于 rolling_win_rates, 前端 _overfitSampleInsufficient 同口径。
 
 输入依赖
 --------
@@ -47,6 +49,7 @@ cd /Users/linhuichen/code/trade-data
 """
 import argparse
 import json
+import math
 import os
 import sqlite3
 import subprocess
@@ -688,11 +691,14 @@ def _bucket_at(point, key_path):
 def rolling_win_rates(daily_points, dates, windows=WINDOWS, key_path=None, min_n=20):
     """把每日 {date,total:{win_rate}} 聚合成滚动窗口序列(key_path 默认 total; 可传 ['by_grade','high'] 等)。
     返回 {w: [{date, win_rate, n}]}(仅在窗口内有 signal 的日期出现)。
+    样本充足阈值随窗口缩放(2026-08-17): eff_min = min(min_n, ceil(w*0.5)),
+    即 10→5、15→8、30→15、60/100→20, 防默认 K=1 人口下 10/15 窗口被锁死 n=10/15 永远空白。
     """
     points = sorted(daily_points, key=lambda x: x["date"])
     key_path = key_path or ["total"]
     out = {}
     for w in windows:
+        eff_min = min(min_n, math.ceil(w * 0.5))
         seq = []
         for i, p in enumerate(points):
             b = _bucket_at(p, key_path)
@@ -703,7 +709,7 @@ def rolling_win_rates(daily_points, dates, windows=WINDOWS, key_path=None, min_n
             n = sum((_bucket_at(x, key_path) or {}).get("n", 0) for x in window)
             win = sum((_bucket_at(x, key_path) or {}).get("win", 0) for x in window)
             # 跳过样本不足(早期窗口不满 / 该维度样本稀疏) -> win_rate=None
-            if n < min_n:
+            if n < eff_min:
                 seq.append({"date": p["date"], "n": n, "win_rate": None})
                 continue
             seq.append({"date": p["date"], "n": n, "win_rate": (win / n * 100) if n else None})
@@ -714,6 +720,7 @@ def rolling_win_rates(daily_points, dates, windows=WINDOWS, key_path=None, min_n
 def rolling_win_rates_by_dim(bt_buckets, act_buckets, bt_keys, act_keys, windows=WINDOWS, min_n=20):
     """多个维度的滚动聚合: {key: {bt: {w:[..]}, act: {w:[..]}}}。
     bt_buckets: {date: bt_daily[d]}   act_buckets: [ {date,total,by_signal,by_grade} ]
+    样本充足阈值随窗口缩放语义见 rolling_win_rates(eff_min = min(min_n, ceil(w*0.5))), 本函数仅透传。
     """
     out = {}
     bt_points_list = [{"date": d, **bt_buckets[d]} for d in sorted(bt_buckets.keys())]
@@ -1027,6 +1034,8 @@ def load_prev_state():
 
 def _derive_daily_series(bt_roll, act_roll, current_risk, latest_date, win=60, min_n=20):
     """从「实盘 vs 回测 W 日滚动胜率偏离」派生历史每日过拟合风险分序列(无前视)。
+    注意: 本函数消费 rolling_win_rates 已算好的序列, 内部无 flat n<min_n 判断(阈值缩放已在 rolling_win_rates 落地,
+    eff_min = min(min_n, ceil(win*0.5)); min_n 参数仅为透传占位)。
 
     设计(公示): 过拟合监控核心 = 「回测预期好但实盘表现差」的偏离信号。
     对每个历史日 T, 用截至 T 的实盘 __win__ 日滚动胜率 vs 回测 __win__ 日滚动胜率偏离(pp) 映射风险分:
@@ -1068,7 +1077,8 @@ def _derive_daily_series(bt_roll, act_roll, current_risk, latest_date, win=60, m
 
 
 def derive_daily_for_rolls(bt_roll, act_roll, latest_date, min_n=20):
-    """对单维度 bt/act 滚动序列, 派生 WINDOWS(10/15/30/60/100)多套 daily(统计口径可切)。"""
+    """对单维度 bt/act 滚动序列, 派生 WINDOWS(10/15/30/60/100)多套 daily(统计口径可切)。
+    阈值缩放语义随 rolling_win_rates(eff_min = min(min_n, ceil(w*0.5))), 本函数仅透传。"""
     return {
         str(w): _derive_daily_series(bt_roll, act_roll, None, latest_date, win=w, min_n=min_n)
         for w in WINDOWS

@@ -1544,7 +1544,7 @@ function _overfitHelpModalHTML() {
       '<div class="rule-card-head"><span class="rule-badge">📈 图怎么看</span></div>' +
       '<p><b>上=准确率曲线</b>：信号方向命中的比率(%)，<span style="color:#e6492e">实盘实际(红实线)</span> vs <span style="color:#409eff">回测预期(蓝虚线)</span>。准确率大于预期 → 策略在实战中未退化；低于预期 → 可能历史拟合过好、未来失灵。</p>' +
       '<p><b>下=综合过拟合风险分(0-100)</b>：绿(&lt;30 正常)、黄(30-60 关注)、红(&gt;60 高风险)，虚线参考线 30/60。分越高代表「回测好但实盘差」的偏离越严重，越需要留意参数是否过拟合。</p>' +
-      '<p><b>口径</b>：实盘=信号日收盘→最新收盘方向；回测=按卖出模式到期收益方向。样本去重：回测按(模式+信号日+标的+信号)去重，n 为真实唯一成交数。近窗口 n&lt;20 的档位样本不足会显示空态、不画误导曲线。</p>' +
+      '<p><b>口径</b>：实盘=信号日收盘→最新收盘方向；回测=按卖出模式到期收益方向。样本去重：回测按(模式+信号日+标的+信号)去重，n 为真实唯一成交数。样本充足阈值随窗口缩放：n 需 ≥ min(20, ⌈窗口×0.5⌉)(10日→5、15日→8、30日→15、60/100日→20)，低于阈值的档位样本不足会显示空态、不画误导曲线。</p>' +
     '</div>' +
     '<div class="rule-card">' +
       '<div class="rule-card-head"><span class="rule-badge">🔘 按钮怎么用</span></div>' +
@@ -1613,12 +1613,14 @@ function _overfitDimRoll(data, kind) {
   return acc && acc[kind] ? pick(acc[kind]) : [];
 }
 
-// 当前窗口该维度样本是否充足(取回测与实盘任一有值点的末点 n; <20 视为样本不足 -> 空态提示)
+// 当前窗口该维度样本是否充足(取回测与实盘任一有值点的末点 n; 样本充足阈值随窗口缩放, 见后端 rolling_win_rates)
+// 2026-08-17 方案A: 阈值 = min(20, ceil(roll*0.5)) -> 10→5、15→8、30→15、60/100→20, 防默认 K=1 人口下 10/15 窗口永远空白
 function _overfitSampleInsufficient(data, kind) {
   const arr = _overfitDimRoll(data, kind);
   if (!arr.length) return true;
   const last = arr[arr.length - 1];
-  return !(last && last.n != null && last.n >= 20);
+  const minN = Math.min(20, Math.ceil((_overfitState.roll || 60) * 0.5));
+  return !(last && last.n != null && last.n >= minN);
 }
 
 // 取滚动序列 -> {dates[], actual[], backtest[], btEmpty} (可按 grade/sigType 维度, 见 _overfitDimRoll; w=显示范围交易日数)
@@ -1657,8 +1659,9 @@ function _renderOverfitAcc(data) {
     if (typeof _lwCfgMap !== "undefined") _lwCfgMap.delete(_overfitAccEl);
     const dimName = _overfitState.sigType ? (_overfitDimLabels.sig[_overfitState.sigType] || _overfitState.sigType)
       : (_overfitState.grade ? (_overfitDimLabels.grade[_overfitState.grade] || _overfitState.grade) : "该维度");
+    const _ovMinN = Math.min(20, Math.ceil((_overfitState.roll || 60) * 0.5));  // 样本充足阈值随窗口缩放(2026-08-17 方案A)
     _overfitAccEl.innerHTML = '<div class="overfit-lite-empty" style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-3);font-size:11px;padding:0 6px;text-align:center">' +
-      dimName + " " + _overfitState.roll + "日滚动窗口样本不足(n<20), 不画误导曲线</div>";
+      dimName + " " + _overfitState.roll + "日滚动窗口样本不足(n<" + _ovMinN + "), 不画误导曲线</div>";
     return;
   }
   // 准确率双曲线 lite cfg(实盘 actual 红实线 + 回测 backtest 蓝虚线, 双 series; 对齐 _kpiLiteCfg multi-series 模式)

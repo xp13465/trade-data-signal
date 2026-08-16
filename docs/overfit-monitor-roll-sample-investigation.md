@@ -59,7 +59,7 @@
 ## 方案建议(供主控拍板,未动代码)
 
 按 §5 默认准则给一步到位默认集,方向性分叉让用户 veto:
-- **方案 A(推荐):样本充足阈值随窗口缩放**。把「flat n>=20」改为 `min_n = min(20, ceil(window*0.5))`(10→5、15→8、30→15、60/100→20),后端 `rolling_win_rates/rolling_win_rates_by_dim/_derive_daily_series` 的 min_n 与前端 `_overfitSampleInsufficient` 同步改;K=1 的 10/15、K=2 的 w=10 随之放行,空态文案同步显示按窗口阈值。统计意义诚实标注:10 例/15 例样本小,曲线工具提示已有「仅供参考」语境。
+- **方案 A(推荐,✅ 2026-08-17 已实施)**:样本充足阈值随窗口缩放。把「flat n>=20」改为 `min_n = min(20, ceil(window*0.5))`(10→5、15→8、30→15、60/100→20),后端 `rolling_win_rates`(其余 `rolling_win_rates_by_dim/_derive_daily_series/derive_daily_for_rolls` 仅透传,无自身 flat 判断)与前端 `_overfitSampleInsufficient`+空态文案+tooltip 公示+README 同步改;K=1 的 10/15、K=2 的 w=10 随之放行。统计意义诚实标注:10 例/15 例样本小,曲线工具提示已有「仅供参考」语境。
 - **方案 B:默认态(K=1)禁用/置灰 10/15 档**,仅 K≥2 或无 K 档可用 —— 保统计门槛但不提供死档位。
 - 涉及改「已发布功能行为/展示」,按 §23.7 需用户确认后主控才派实施。
 
@@ -76,6 +76,6 @@
   for w in ['10','15','30']:
       arr=a[w]; print(w, 'len=',len(arr), 'last_n=',arr[-1]['n'], 'last_wr=',arr[-1]['win_rate'])
   "
-  # 期望输出: 10 len=200 last_n=10 last_wr=None / 15 len=200 last_n=15 last_wr=None / 30 len=200 last_n=30 last_wr=50.0
+  # 期望输出(2026-08-17 方案A已实施后): 10 len=200 last_n=10 last_wr=<非None> / 15 len=200 last_n=15 last_wr=<非None> / 30 len=200 last_n=30 last_wr=50.0
   ```
-- **口径一句话**:滚动窗口 n = 窗口内每日 top-K 保留买入信号唯一计数(实盘侧 K=1 每 1 信号/日);n<20 判样本不足(后端 win_rate 置 null + 前端末点 n<20 走空态)。数据截止:signal_daily_max_date=20260814。
+- **口径一句话**:滚动窗口 n = 窗口内每日 top-K 保留买入信号唯一计数(实盘侧 K=1 每 1 信号/日);**样本充足阈值随窗口缩放(2026-08-17 方案A已实施)**:n 需 ≥ min(20, ceil(window*0.5))(10→5、15→8、30→15、60/100→20),低于阈值的档位后端 win_rate 置 null + 前端末点走空态;10/15 窗口现已有 win_rate 值(不再是 None)。数据截止:signal_daily_max_date=20260814(重跑后见 generated_at 最新)。
