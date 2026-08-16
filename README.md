@@ -147,6 +147,7 @@
 - **走势图轻量渲染（2026-08-12）**：首页**全部** ECharts 图表换**轻量 SVG**（外观逐项对等：网格/坐标轴/图例/平滑曲线 + 面积 + 涨跌分色 + 阈值线/买卖点信号 pin(含多信号拼色渐变)/热力图 + hover tooltip），消灭首页全部 echarts.init（~39 sparkline + 恐贪/A股情绪分/市场宽度/跨市场/腾落线/成交额与量比/新高新低 + 行业热力图 + KPI 详情弹窗 + 信号弹窗 + 分时图）提速 200-500ms；皮肤弹窗「⚡ 走势图渲染」一键切回 ECharts 完整版（localStorage 记忆，即时双向重渲染），ETF 评分弹窗近30日走势同开关
 - **策略实验室** `/lab`（备买 chip 三档 + 参数优化 + 凯利回测 + 费率/收益口径客调）
 - 数据挖掘方法论实战（决策树/beam search/对比集/贪心，详见「参考与致敬」）
+- **统一数据查询 API（2026-08-17 新增，`/api/data/*`）**：为 UUMit 平台付费提供**结构化查询服务**（数据本体仍公开走原 `/data/` URL，本 API 卖的是 **latest/range/summary 加工能力**）：恐贪/跨市场等字段最新快照、按 `?start=&end=` 时间区间切片、跨类别今日聚合（恐贪+A股情绪+跨市场+大盘预警）。API key 鉴权（只存 hash）+ 按 key 分钟/日限流 + 每 5 分钟聚合计量（计费依据）。首批类别 sentiment/alert/signals，二期可扩两融/ETF（加一行路由即可）。详见 [`docs/api-data-query.md`](docs/api-data-query.md) + 管理脚本 [`scripts/api_key_mgmt.py`](scripts/api_key_mgmt.py)。
 
 ---
 

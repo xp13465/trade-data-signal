@@ -7,6 +7,8 @@
 import subscribeHandler from './subscribe.js';
 // OAuth 接口 handler（2026-08-03：/api/auth/* 分发到此，Web Crypto HMAC session + KV users）
 import authHandler from './auth.js';
+// 统一数据查询 API handler（2026-08-17：/api/data/* 分发到此，KV api_key + 限流 + 计量）
+import dataQueryHandler from './dataQuery.js';
 
 const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
@@ -265,6 +267,10 @@ export default {
       return purgeCacheHandler(request, env, url);
     }
     // /api/* 路由分发（生产无 FastAPI：/api/auth/* 与 /api/feedback* -> authHandler 复用 session 认证，其余 /api/* -> subscribeHandler）
+    // 2026-08-17 新增 /api/data/*：统一数据查询 API（鉴权/限流/计量），在 subscribeHandler 前判（避免被通用 /api/* 吞）
+    if (url.pathname.startsWith('/api/data/')) {
+      return dataQueryHandler(request, env);
+    }
     if (url.pathname.startsWith('/api/')) {
       if (url.pathname.startsWith('/api/auth/') || url.pathname.startsWith('/api/feedback')) {
         return authHandler(request, env);
