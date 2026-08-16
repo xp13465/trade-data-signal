@@ -3206,6 +3206,35 @@ main { padding: 16px 24px; }
   padding-top: 6px;
   margin-top: 2px;
 }
+.db-stats-how-fold {
+  flex: 1 1 100%;
+  margin-top: 2px;
+}
+.db-stats-how-fold > summary {
+  cursor: pointer;
+  user-select: none;
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.6;
+  border-top: 1px dashed var(--border);
+  padding-top: 6px;
+  margin-top: 2px;
+}
+.db-stats-how-fold > summary:hover { color: var(--primary); }
+.db-stats-how-fold > summary::-webkit-details-marker { display: none; }
+.db-stats-how-fold > summary::before {
+  content: "▸ ";
+  color: var(--text-4);
+}
+.db-stats-how-fold[open] > summary::before { content: "▾ "; }
+.db-stats-how-fold[open] > .db-stats-how {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 0;
+}
+.db-stats-how-fold > .db-stats-how {
+  margin-top: 4px;
+}
 .db-item { cursor: pointer; transition: border-color 0.15s; }
 .db-item:hover { border-color: #7c4dff; }
 .db-dir {
