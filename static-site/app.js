@@ -1544,7 +1544,7 @@ function _overfitHelpModalHTML() {
       '<div class="rule-card-head"><span class="rule-badge">📈 图怎么看</span></div>' +
       '<p><b>上=准确率曲线</b>：信号方向命中的比率(%)，<span style="color:#e6492e">实盘实际(红实线)</span> vs <span style="color:#409eff">回测预期(蓝虚线)</span>。准确率大于预期 → 策略在实战中未退化；低于预期 → 可能历史拟合过好、未来失灵。</p>' +
       '<p><b>下=综合过拟合风险分(0-100)</b>：绿(&lt;30 正常)、黄(30-60 关注)、红(&gt;60 高风险)，虚线参考线 30/60。分越高代表「回测好但实盘差」的偏离越严重，越需要留意参数是否过拟合。</p>' +
-      '<p><b>口径</b>：实盘=信号日收盘→最新收盘方向；回测=按卖出模式到期收益方向。样本去重：回测按(模式+信号日+标的+信号)去重，n 为真实唯一成交数。样本充足阈值随窗口缩放：n 需 ≥ min(20, ⌈窗口×0.5⌉)(10日→5、15日→8、30日→15、60/100日→20)，低于阈值的档位样本不足会显示空态、不画误导曲线。</p>' +
+      '<p><b>口径</b>：实盘=信号日收盘→最新收盘方向，回测=按卖出模式到期收益方向。<b>实盘线只统计回测宇宙内信号</b>（信号类型∈买入白名单 buy/buy_aux/buy_special/buy_backup + 该指数已入样 _bt_in_universe），卖/止损卖/情绪类/全球商品利率/港股行业等回测不测的信号全部剔除，确保实盘线与回测线比的是<b>同一批买入信号</b>。样本去重：回测按(模式+信号日+标的+信号)去重，n 为真实唯一成交数。<b>不设样本数下限</b>：各统计口径有多少样本画多少；早期窗口不满或过滤后样本少的档位照常画线，n 越小曲线越仅供参考（tooltip 看 n 判断可信度），不再因样本不足而空态。</p>' +
     '</div>' +
     '<div class="rule-card">' +
       '<div class="rule-card-head"><span class="rule-badge">🔘 按钮怎么用</span></div>' +
@@ -1553,8 +1553,8 @@ function _overfitHelpModalHTML() {
       '<p><b>显示范围(30/60/90/180日)</b>：控制横轴展示最近 N 个交易日，<b>只影响显示截取、不改变统计</b>——即无论选 30 还是 180，都只是图上看多少范围，曲线按当前「统计口径」算。</p>' +
       '<p><b>统计口径(10/15/30/60/100日，默认15)</b>：准确率 + 过拟合风险分<u>两图都按选中的 N 日滚动重算</u>（即重算滚动窗口，而非只截取展示）。两图曲线随选中口径滚动展示。<b>左上大数字「综合风险分」与曲线不同</b>：它是固定 4 维加权合成（0.4×回测-实盘偏离 + 0.25×样本外衰减 + 0.2×参数稳定 + 0.15×象限退化）的独立指标，固定 60 窗口口径=后端单一权威值，<b>不随所选统计口径变</b>。</p>' +
       '<p><b>📖 白话版本(选哪档)</b>：<br>· <b>10日</b>≈最近2周，超短期快速体检。最灵敏但样本最少、曲线容易抖，适合"刚改完东西想立刻看反应"，参考价值有限。<br>· <b>15日(默认)</b>≈最近3周，日常短检，默认够看"最近信号准不准"；比如昨天新开了某个降亏过滤，想看它最近三周表现就选15日。<br>· <b>30日</b>≈最近1个多月，短中期平衡；想确认"最近一两个月策略有没有掉链子"看它。<br>· <b>60日</b>≈最近1个季度，中期稳定性；想判断"策略整体还行不行、有没有过拟合"看它。<br>· <b>100日</b>≈接近半年，长期视角；样本最足曲线最稳但反应最慢，适合看长期平均表现。<br><span style="color:#f0a020"><b>一句话总原则</b></span>：窗口越短→越灵敏但越抖(看短期准不准)；窗口越长→越稳但反应越慢(看长期稳不稳)。想抓短期异常选小的，想验整体稳定性选大的。</p>' +
-      '<p><b>🎯 1:1 直白举例(拿"8/14 看到过拟合"说事)</b>：打开监控卡时，曲线最右端的点=数据最末交易日。由于回测结算滞后一天，8/14 当天打开看到的最新点实际是 8/13。<b>「8/14 看到的过拟合」</b>=系统拿 8/13 往前 15 个有信号的交易日（约 2026-07-24 到 08-13，跳开周末/无信号日）内共 181 个买入信号：实盘命中率 40.9%，远低于回测预期的 58.7%，差 17.9 个百分点 → 过拟合风险分 82（红，&gt;60 高风险）。<br><b>别混两个数</b>：曲线点（8/13=82 红）=单一 15 日窗口"实盘 vs 回测"胜率差映射的分数，随统计口径变；左上大数字综合风险分（8/14=39 黄）=固定 4 维加权（0.4×回测-实盘偏离+0.25×样本外+0.2×参数稳定+0.15×象限退化），独立于口径。当前 39 黄=参数稳定 90 + 象限退化 80 推起来的，不是曲线红。<br><b>怎么读</b>：选 15 日=看某日期往前 15 个有信号的交易日（约 3 周）内信号的命中率；10/30/60/100 同理。</p>' +
-      '<p><b>评级/类型</b>：切换只看高/中/低评级 或 主买/辅买/追买/备买/卖/止损卖 子集。卖/止损卖回测仅买入信号，故只显示实盘单曲线。</p>' +
+      '<p><b>🎯 1:1 直白举例(拿"实盘 vs 回测同批"说事)</b>：打开监控卡时，曲线最右端的点=数据最末交易日。由于回测结算滞后一天，当前最新点=8/13。<b>实盘线已限定回测宇宙</b>：系统拿 8/13 往前 15 个有信号的交易日（约 2026-07-24 到 08-13，跳开周末/无信号日）内<b>回测宇宙内的买入信号</b>来比——实盘 n=105 个信号命中 60.0%，回测 n=315 命中 58.7%，两者几乎一致（差 +1.3pp，实盘略好）→ 同批信号实盘未退化。改口径前这里把卖/情绪类（命中率仅约 22%）也混进实盘样本，同窗口实盘被拉到 40.9%、对回测 58.7% 差 17.9pp，造成虚假的"过拟合"红警；对齐宇宙后该偏差消失。<br><b>别混两个数</b>：曲线点=单一窗口"实盘 vs 回测"胜率差映射的分数，随统计口径(10/15/30/60/100)变；左上大数字综合风险分=固定 4 维加权（0.4×回测-实盘偏离+0.25×样本外+0.2×参数稳定+0.15×象限退化）的独立指标，固定 60 窗口口径，不随所选统计口径变。<br><b>怎么读</b>：选 15 日=看某日期往前 15 个有信号的交易日（约 3 周）内同批买入信号的命中率；10/30/60/100 同理。n 越小（如过滤后只剩几条）曲线越仅供参考，tooltip 看 n 判断可信度。</p>' +
+      '<p><b>评级/类型</b>：切换只看高/中/低评级 或 主买/辅买/追买/备买/卖/止损卖 子集。卖/止损卖不在回测宇宙内（回测只测买入白名单），实盘线也已限定回测宇宙，故选卖/止损卖时两线均无数据、显示空态——这是口径对齐的预期行为，不是 bug。</p>' +
     '</div>' +
     '<div class="rule-card">' +
       '<div class="rule-card-head"><span class="rule-badge">⚠ 注意</span></div>' +
@@ -1615,14 +1615,10 @@ function _overfitDimRoll(data, kind) {
   return acc && acc[kind] ? pick(acc[kind]) : [];
 }
 
-// 当前窗口该维度样本是否充足(取回测与实盘任一有值点的末点 n; 样本充足阈值随窗口缩放, 见后端 rolling_win_rates)
-// 2026-08-17 方案A: 阈值 = min(20, ceil(roll*0.5)) -> 10→5、15→8、30→15、60/100→20, 防默认 K=1 人口下 10/15 窗口永远空白
+// 2026-08-17 用户拍板「样本数不要做限制」: 完全去掉样本数下限判定, 有多少样本画多少。
+// 恒放行(不因样本少画空态); 前端/后端不再有样本充足阈值(n 值照常展示, 用户看 n 判断可信度)。
 function _overfitSampleInsufficient(data, kind) {
-  const arr = _overfitDimRoll(data, kind);
-  if (!arr.length) return true;
-  const last = arr[arr.length - 1];
-  const minN = Math.min(20, Math.ceil((_overfitState.roll || 60) * 0.5));
-  return !(last && last.n != null && last.n >= minN);
+  return false;
 }
 
 // 取滚动序列 -> {dates[], actual[], backtest[], btEmpty} (可按 grade/sigType 维度, 见 _overfitDimRoll; w=显示范围交易日数)
@@ -1654,16 +1650,16 @@ function _renderOverfitAcc(data) {
   const w = _overfitState.win;
   const { dates, actual, backtest, btEmpty } = _overfitAccSeries(data, w);
   const hasBt = !btEmpty && backtest.length > 0;
-  // 样本不足(近窗 n<20) -> 直接空态提示, 不画误导曲线(lite/echarts 两模式通用居中提示)
-  if (dates.length === 0 || _overfitSampleInsufficient(data, "actual")) {
+  // 2026-08-17 无样本数下限(用户拍板「样本数不要做限制」): 仅当该维度确实无任何数据点(dates 为空)才显示空态;
+  // 样本少也照常画线(n 值随 tooltip 展示, 看 n 判断可信度)。
+  if (dates.length === 0) {
     // P2-1(2026-08-16 reviewer返修): 空态前删 lite 注册, 防残留 render 下次 ⚡ 重渲染旧曲线
     if (typeof _lwRenderers !== "undefined") _lwRenderers.delete(_overfitAccEl);
     if (typeof _lwCfgMap !== "undefined") _lwCfgMap.delete(_overfitAccEl);
     const dimName = _overfitState.sigType ? (_overfitDimLabels.sig[_overfitState.sigType] || _overfitState.sigType)
       : (_overfitState.grade ? (_overfitDimLabels.grade[_overfitState.grade] || _overfitState.grade) : "该维度");
-    const _ovMinN = Math.min(20, Math.ceil((_overfitState.roll || 60) * 0.5));  // 样本充足阈值随窗口缩放(2026-08-17 方案A)
     _overfitAccEl.innerHTML = '<div class="overfit-lite-empty" style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-3);font-size:11px;padding:0 6px;text-align:center">' +
-      dimName + " " + _overfitState.roll + "日滚动窗口样本不足(n<" + _ovMinN + "), 不画误导曲线</div>";
+      dimName + " " + _overfitState.roll + "日滚动窗口暂无数据</div>";
     return;
   }
   // 准确率双曲线 lite cfg(实盘 actual 红实线 + 回测 backtest 蓝虚线, 双 series; 对齐 _kpiLiteCfg multi-series 模式)
@@ -1745,7 +1741,7 @@ function _renderOverfitRisk(data) {
     if (typeof _lwRenderers !== "undefined") _lwRenderers.delete(_overfitRiskEl);
     if (typeof _lwCfgMap !== "undefined") _lwCfgMap.delete(_overfitRiskEl);
     _overfitRiskEl.innerHTML = '<div class="overfit-lite-empty" style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-3);font-size:11px;text-align:center">' +
-      (dimName ? dimName + " 无风险分曲线(回测仅买入信号/样本不足)" : "暂无风险分曲线") + "</div>";
+      (dimName ? dimName + " 无风险分曲线(该维度无数据)" : "暂无风险分曲线") + "</div>";
     return;
   }
   const hasScorePoints = daily.filter((p) => p.risk_score != null);
@@ -1834,7 +1830,7 @@ async function _appendOverfitCard(colA2, r, snap) {
           }).join("");
       })(_overfitState)) +
       '</div>' +
-    '<div class="overfit-tip" data-tip="双曲线监控 · 综合过拟合风险分(0-100)。显示范围(30/60/90/180日)=横轴截取最近 N 个交易日展示, 只影响显示不重算；统计口径(10/15/30/60/100日, 默认15)=两图(准确率+风险分)按选中口径滚动重算；评级/类型=看子集；K档(关/K1主推★)=每日最优先选K个买入信号(top-K), 与首页AI仓位建议同口径, 与AI降亏两开关独立(降亏开=过滤后选, 关=全信号选)；AI降亏=只统计未被AI宏删线过滤的信号。绿&lt;30正常 黄30-60关注 红&gt;60高风险。完整说明见标题❓">' +
+    '<div class="overfit-tip" data-tip="双曲线监控 · 综合过拟合风险分(0-100)。显示范围(30/60/90/180日)=横轴截取最近 N 个交易日展示, 只影响显示不重算；统计口径(10/15/30/60/100日, 默认15)=两图(准确率+风险分)按选中口径滚动重算；评级/类型=看子集；K档(关/K1主推★)=每日最优先选K个买入信号(top-K), 与首页AI仓位建议同口径, 与AI降亏两开关独立(降亏开=过滤后选, 关=全信号选)；AI降亏=只统计未被AI宏删线过滤的信号；实盘线限定回测宇宙(与回测同批买入信号, 卖/情绪类不计入)；不设样本数下限, 样本少照常画线(看n判断可信度)。绿&lt;30正常 黄30-60关注 红&gt;60高风险。完整说明见标题❓">' +
       '双曲线监控 · 综合过拟合风险分0-100 · <span class="overfit-legend">绿&lt;30正常 黄30-60关注 红&gt;60高风险</span>' +
       '<span class="overfit-tip-help" data-overfit-help="1" style="cursor:pointer;text-decoration:underline;margin-left:6px">❓完整指南</span></div>' +
     // 一行: 显示范围 + 统计口径(两个"范围类"合一行, 2026-08-16 布局重排)
