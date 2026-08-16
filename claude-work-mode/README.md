@@ -48,22 +48,40 @@
 
 ### 给自己新项目用（全局，所有项目自动加载，通用部分）
 
+角色化拆分后，全局部署不再只是单拷根文件——子 agent 靠 `.claude/agents/` + `.claude/skills/role-*/` 注入角色规范，只拷根文件 = 子 agent 无角色执行层。完整三步：
+
+**① 全局共享核心**
+
 ```bash
 cp CLAUDE.md ~/.claude/CLAUDE.md
 ```
 
-Claude Code 启动时自动加载 `~/.claude/CLAUDE.md`，对所有项目生效。移植时把 `<占位符>`（如 `<docs/main-governance.md>`/`<deploy脚本>`/`<主域名>`/`<模型名>`/`<定时任务时点>`/`<数据校验脚本>`/`<docs/smoke-checklist.md>`/`<skill库名及版本>`/`<高峰时段>`/`<任务调度器>`/`<数据产物A>`）替换为该项目的实际值，或删去不适用的章节。
+Claude Code 启动时自动加载 `~/.claude/CLAUDE.md`，对所有项目生效，只承载"所有角色都该无条件知道"的共享核心。
+
+**② 项目角色执行层**
+
+```bash
+cp -r .claude/agents .claude/skills <新项目根>/.claude/
+```
+
+拷贝 `.claude/agents/ + .claude/skills/role-*/` 到新项目根（角色 agent 定义 + 角色规范全文，子 agent 启动经 agent 定义 `skills` 字段全文注入；缺 = 子 agent 无角色规范）。角色层放**项目 `.claude/`** 而非全局，因为 agent 定义是项目级（`model:` 为项目私有配置），全局全拷会污染所有项目的子 agent。
+
+**③ 项目专项**
+
+新建 `PROJECT-SPECIFIC.md` 填项目专项（域名/DB/数据产物/定时任务时点），并在全局 `~/.claude/CLAUDE.md` 里引用它（开工先读）。
+
+移植时把 `<占位符>`（如 `<docs/main-governance.md>`/`<deploy脚本>`/`<主域名>`/`<模型名>`/`<定时任务时点>`/`<数据校验脚本>`/`<docs/smoke-checklist.md>`/`<skill库名及版本>`/`<高峰时段>`/`<任务调度器>`/`<数据产物A>`）替换为该项目的实际值，或删去不适用的章节。
 
 ### 给单个项目用（仅该项目生效，通用+该项目专项）
 
 1. 把通用 `CLAUDE.md` 复制到项目根（或 `~/.claude/CLAUDE.md` 全局）
 2. 新建项目自己的 `PROJECT-SPECIFIC.md`（参考本包 `PROJECT-SPECIFIC.md` 的结构，填该项目的域名/DB/数据产物/定时任务等）
 3. 在通用 `CLAUDE.md` 里引用 `PROJECT-SPECIFIC.md`（开工先读）
-4. （可选，角色化进阶）建 `.claude/agents/<role>.md` + `.claude/skills/<role>/SKILL.md` 按角色注入专属规范，见 §0 设计原则
+4. 建 `.claude/agents/<role>.md` + `.claude/skills/<role>/SKILL.md` 按角色注入专属规范 **（执行层必需**，不是可选——子 agent 启动经 agent 定义 `skills` 字段注入角色规范全文，缺 = 子 agent 无角色规范），可参考本包 `.claude/` 的 4 角色模板（implementer/researcher/reviewer/tester）。见 §0 设计原则
 
 ### 给其他人用
 
-让对方把通用 `CLAUDE.md` 内容贴到他自己的 `~/.claude/CLAUDE.md`（全局）或项目根 `CLAUDE.md`（单项目），并按上面「给单个项目用」补项目专项。
+让对方一并拷贝「`CLAUDE.md`（放 `~/.claude/` 全局或项目根）」+「`.claude/agents/ + .claude/skills/role-*/`（放项目内，角色执行层）」+「新建 `PROJECT-SPECIFIC.md` 填项目专项」，再按上面「给单个项目用」整体走一遍。只贴 `CLAUDE.md` 漏掉角色执行层，子 agent 无角色规范。
 
 ## 拆分原则（2026-08-12 更新）
 
@@ -72,6 +90,8 @@ Claude Code 启动时自动加载 `~/.claude/CLAUDE.md`，对所有项目生效�
 - **角色拆分核心原则**：根 CLAUDE.md 删不掉、躲不开子 agent（启动全量注入），所以根文件只留"所有角色都该无条件知道"的共享核心；角色专属规范进 `.claude/skills/<role>/SKILL.md` 经 agent 定义 `skills` 字段**启动全文注入**（确定性）；主控专属进 `docs/main-governance.md`（主控按需 Read，子 agent 永不读）。业界共识：指令文件要小、按需加载、按角色/目录拆分。
 
 边界章节（如 §7 落档、§8 推送、§11 子 agent、§13 模型、§15 回归、§17 高峰）按「通用模式 + 专项配置」拆：通用机制放 `CLAUDE.md`，具体值/事故 id/项目文件名放 `PROJECT-SPECIFIC.md`。
+
+> **部署落点**：`~/.claude/CLAUDE.md`（全局）只承载共享核心；角色规范放**项目 `.claude/`**（`.claude/agents/` + `.claude/skills/role-*/`），因为 agent 定义是项目级（如 `model:` 代理白名单为项目私有），全局全拷会污染所有项目的子 agent。
 
 ## 通用规范清单（CLAUDE.md）
 
