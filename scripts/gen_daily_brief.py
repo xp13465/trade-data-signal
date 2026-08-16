@@ -223,6 +223,80 @@ def _db_metrics(conn: sqlite3.Connection, date: str, metric_ids: list[str]) -> d
     return out
 
 
+# ── 申万一级行业 code→name 映射(2026-08-16 AI 预测注入增强)────────────────
+# 数据源: daily_metric `ind_flow_sw_<code>` 31 申万一级行业主力资金流向。
+# 注入时压缩为 top5/bottom5(长度控制,见 ai-predict-inject-research.md §4.2)。
+SW_INDUSTRY_NAME = {
+    "sw_801010": "农林牧渔", "sw_801030": "化工", "sw_801040": "钢铁",
+    "sw_801050": "有色金属", "sw_801080": "电子", "sw_801110": "家用电器",
+    "sw_801120": "食品饮料", "sw_801130": "纺织服饰", "sw_801140": "轻工制造",
+    "sw_801150": "医药生物", "sw_801160": "公用事业", "sw_801170": "交通运输",
+    "sw_801180": "房地产", "sw_801200": "商贸零售", "sw_801210": "社会服务",
+    "sw_801230": "综合", "sw_801710": "建筑材料", "sw_801720": "建筑装饰",
+    "sw_801730": "电力设备", "sw_801740": "国防军工", "sw_801750": "计算机",
+    "sw_801760": "传媒", "sw_801770": "通信", "sw_801780": "银行",
+    "sw_801790": "非银金融", "sw_801880": "汽车", "sw_801890": "机械设备",
+    "sw_801950": "煤炭", "sw_801960": "石油石化", "sw_801970": "环保",
+    "sw_801980": "美容护理",
+}
+
+
+def _db_metric_latest(conn: sqlite3.Connection, date: str, metric_id: str):
+    """读 daily_metric 指定日期单值(停更字段: 若最新行≠date 仍返回 None=不注入)。"""
+    cur = conn.cursor()
+    # 停更过滤(guard 策略 §4.3-1): 先取该 metric 最新日期,非当日=停更/降级不注入。
+    cur.execute("SELECT MAX(date) FROM daily_metric WHERE metric_id=?", (metric_id,))
+    latest = cur.fetchone()
+    if not latest or latest[0] is None or latest[0] != date:
+        return None
+    cur.execute("SELECT value FROM daily_metric WHERE date=? AND metric_id=?", (date, metric_id))
+    row = cur.fetchone()
+    if not row or row[0] is None:
+        return None
+    return row[0]
+
+
+def _load_news_inject(root_data_dir: Path, date: str) -> dict:
+    """读新闻面(2026-08-16 注入增强): data/news_digest.json(fetch_news.py launchd 16:45 产).
+
+    guard 策略(ai-predict-inject-research.md §4.3):
+      - 文件缺失 / 解析失败 → 静默跳过(返回空,不报错)。
+      - news 当日重要优先,量控 ≤25 条;upcoming(次日预告)单独【明日关键事件】段。
+      - date 格式: news_digest.date 为 YYYY-MM-DD,入参 date 为 YYYYMMDD,转一致再比(当日数据)。
+    返回 {"news": [...], "upcoming": [...], "available": bool},无值则各为空 list。
+    """
+    path = root_data_dir / "news_digest.json"
+    # 兜底: picked repo 数据目录无新闻时,回退代码仓 ROOT/data(手动跑 fetch_news 的落盘位置)
+    if not path.exists():
+        alt = ROOT / "data" / "news_digest.json"
+        if alt.exists():
+            path = alt
+    raw = _read_json(path)
+    if not isinstance(raw, dict):
+        return {"news": [], "upcoming": [], "available": False}
+    file_date = raw.get("date") or ""
+    target = file_date
+    # 统一到 YYYYMMDD 对比;不一致(如缺 date)仍尝试注入当日 news(以 available 为实)
+    norm = lambda s: s.replace("-", "")
+    if target and norm(target) != norm(date):
+        return {"news": [], "upcoming": [], "available": False}
+    news_raw = raw.get("news") or []
+    # 重要优先 + 当日量控 ≤25 条
+    important = [n for n in news_raw if n.get("important")]
+    others = [n for n in news_raw if not n.get("important")]
+    pick = (important[:15] + others[:10])[:25]
+    news = [{
+        "time": n.get("time"),
+        "title": (n.get("title") or "")[:120],
+        "important": bool(n.get("important")),
+    } for n in pick]
+    upcoming = [{
+        "time": u.get("time"),
+        "title": (u.get("title") or "")[:120],
+    } for u in (raw.get("upcoming") or [])[:10]]
+    return {"news": news, "upcoming": upcoming, "available": bool(news or upcoming)}
+
+
 def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
     """注入数据聚合(全部站点已有,JSON 结构化给模型)。"""
     d: dict = {"date": date}
@@ -525,8 +599,146 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
         q.execute("SELECT value FROM daily_metric WHERE date=? AND metric_id='cn10y'", (date,))
         mrow = q.fetchone()
         d["cn10y"] = round(mrow[0], 4) if mrow and mrow[0] is not None else None
+
+        # ── AI 预测注入面增强(2026-08-16,调研 ai-predict-inject-research.md §4)──
+        # 原则: 全部站内已有数据(接入成本≈0);guard 四策略——停更过滤(_db_metric_latest
+        # 校验最新行=当日,seal/zhaban/new_high_low/ind_turn 停更自动跳过)、None 跳过、
+        # 大面积0拦截(新高新低本次不注入)、usdcnh 量纲÷100 标注。不改任何既有字段(§23.7 只增不改)。
+        def _m(mid):  # 便捷读当日 metric(None=无值/停更,不注入)
+            return _db_metric_latest(q.connection, date, mid)
+
+        # cross_market 跨市场/全球面: 美股期货4 + 欧亚期货9(合并为 chg 序列,长度控制)
+        us_futures = {
+            "es": _m("us_futures_es_chg"), "nq": _m("us_futures_nq_chg"),
+            "ym": _m("us_futures_ym_chg"), "rty": _m("us_futures_rty_chg"),
+        }
+        euasia = {
+            "dax": _m("us_futures_dax_chg"), "cac40": _m("us_futures_cac40_chg"),
+            "ftse100": _m("us_futures_ftse100_chg"), "sx5e": _m("us_futures_sx5e_chg"),
+            "sensex": _m("us_futures_sensex_chg"), "asx200": _m("us_futures_asx200_chg"),
+            "kospi": _m("us_futures_kospi_chg"), "nikkei225": _m("us_futures_nikkei225_chg"),
+            "hsi": _m("us_futures_hsi_chg"),
+        }
+        if any(v is not None for v in us_futures.values()):
+            d["cross_market"] = {
+                "us_futures": us_futures, "euroasia_futures": euasia,
+                "note": "us_futures=美股期货涨跌幅%(es标普/nq纳指/ym道指/rty罗素),euroasia="
+                        "欧亚期货涨跌幅%(dax德股/kospi韩股/nikkei225日经/hsi恒指)。美股隔夜方向"
+                        "对A股开盘领先(跌时传染更强),作方向参考。",
+            }
+
+        # forex_commodity 汇金商品: 含汇率利差/美债/贵金属原油,量纲标注
+        _usdcnh_raw = _m("usdcnh")
+        forex_com = {
+            "usdcnh": (round(_usdcnh_raw / 100, 4) if _usdcnh_raw is not None else None),
+            "cn_us_spread": _m("cn_us_spread"), "us10y": _m("us10y"),
+            "gold": _m("gold"), "wti_oil": _m("wti_oil"),
+            "brent": _m("brent"), "comex_silver": _m("comex_silver"),
+        }
+        if any(v is not None for v in forex_com.values()):
+            d["forex_commodity"] = {
+                **{k: v for k, v in forex_com.items() if v is not None},
+                "note": ("usdcnh=离岸人民币汇率(原始值含×100 量纲,已 ÷100 归一化,如 6.79);"
+                         "cn_us_spread=中美10年国债利差%(中cn10y-美us10y);us10y=美10年收益率%;"
+                         "gold/wti_oil/brent/comex_silver=贵金属原油价格。跨市场风险参考。"),
+            }
+
+        # lhb 龙虎榜机构净买(资金面增量)
+        _lhb_net = _m("lhb_inst_net")
+        _lhb_cnt = _m("lhb_count")
+        if _lhb_net is not None or _lhb_cnt is not None:
+            d["lhb"] = {
+                "count": _lhb_cnt, "inst_net_yi": round(_lhb_net, 2) if _lhb_net is not None else None,
+                "note": "inst_net_yi=龙虎榜机构净买额(亿元,正=机构净买入),机构席位活跃度资金风向参考。",
+            }
+
+        # unlock_ipo 供给/事件面(解禁+IPO)
+        _unc, _una, _ipc, _ipa = _m("unlock_count"), _m("unlock_amount"), _m("ipo_count"), _m("ipo_amount")
+        if any(v is not None for v in (_unc, _una, _ipc, _ipa)):
+            d["unlock_ipo"] = {
+                "unlock_count": _unc,
+                "unlock_amount_yi": round(_una, 2) if _una is not None else None,
+                "ipo_count": _ipc,
+                "ipo_amount_yi": round(_ipa, 2) if _ipa is not None else None,
+                "note": "unlock_amount_yi=解禁金额(亿元),ipo_amount_yi=IPO募资金额(亿元)。供给压力参考。",
+            }
+
+        # daban 打板溢价(情绪/打板增强;seal_rate/zhaban_count 停更不注入)
+        _db = _m("a_width_daban_premium")
+        if _db is not None:
+            d["daban"] = {
+                "premium": round(_db, 4) if _db is not None else None,
+                "note": "premium=打板溢价(封板资金次日兑现意愿,低=打板资金兑现意愿弱)。",
+            }
+
+        # ind_flow 行业主力资金流(31申万一级,压缩 top5/bottom5 长度控制)
+        q.execute("SELECT metric_id, value FROM daily_metric WHERE date=? AND metric_id LIKE 'ind_flow_sw_%' "
+                  "AND value IS NOT NULL", (date,))
+        _flow_rows = q.fetchall()
+        if _flow_rows:
+            # ind_flow_sw_801770 -> sw 码 ind_flow_sw_801770 去前缀 -> SW_INDUSTRY_NAME
+            _flow = sorted(
+                [(SW_INDUSTRY_NAME.get(mid[len("ind_flow_"):], mid), round(val, 1))
+                 for mid, val in _flow_rows],
+                key=lambda x: x[1], reverse=True)
+            d["ind_flow"] = {
+                "top5_inflow": _flow[:5],
+                "bottom5_outflow": _flow[-5:],
+                "note": "ind_flow=申万31一级行业主力净流入(亿元):top5=净流入前5,bottom5=净流出前5,"
+                        "行业资金轮动方向参考。",
+            }
     finally:
         conn.close()
+    # ── 注入面增强:JSON 产物键(估值/宽度/均线/新闻)───────────────
+    # positions 估值位置(8宽基 1y/3y百分位+label+股息率→ERP 中期位置参考)
+    pos = (_read_json(static_dir / "position.json") or {}).get("positions") or []
+    pos_list = []
+    for x in pos:
+        p1, p3 = x.get("percentile_1y"), x.get("percentile_3y")
+        if p1 is None and p3 is None:
+            continue
+        pos_list.append({
+            "index_id": x.get("index_id"), "name": x.get("name"),
+            "pct_1y": round(p1, 1) if p1 is not None else None,
+            "pct_3y": round(p3, 1) if p3 is not None else None,
+            "label": x.get("label"),
+        })
+    if pos_list:
+        d["positions"] = {
+            "positions": pos_list,
+            "note": "positions=8宽基估值位置(1y/3y 历史百分位+语义label):低位<30=便宜,高位>70=偏贵,"
+                    "作中期位置参考非次日方向主依据。",
+        }
+
+    # ad_line 腾落线/宽度(ad_line.json data[-1] 当日,不注历史数组)
+    adl = (_read_json(static_dir / "ad_line.json") or {}).get("data") or []
+    if adl:
+        last = adl[-1]
+        if last.get("ad_line") is not None:
+            d["ad_line"] = {
+                "ad_line": round(last["ad_line"], 1),
+                "ma5": round(last["ad_line_ma5"], 1) if last.get("ad_line_ma5") is not None else None,
+                "ratio": round(last["ratio"], 3) if last.get("ratio") is not None else None,
+                "note": "ad_line=腾落线(涨跌家数累计差,负=宽度偏弱);ratio=涨跌比。宽度/参与度参考。",
+            }
+
+    # ma_cross 均线金叉(ma_alignment.json data[-1] 当日 bullish/bearish/cross)
+    maa = (_read_json(static_dir / "ma_alignment.json") or {}).get("data") or []
+    if maa:
+        last = maa[-1]
+        if last.get("bullish") is not None:
+            d["ma_cross"] = {
+                "bullish": int(last["bullish"] or 0), "bearish": int(last["bearish"] or 0),
+                "cross": int(last["cross"] or 0),
+                "note": "ma_cross=8宽基均线状态: bullish=多头排列数, bearish=空头排列数, cross=当日金叉/死叉数。",
+            }
+
+    # 新闻面(data/news_digest.json,缺失/非当日静默跳过)
+    news = _load_news_inject(db_path.parent, date)
+    if news["available"]:
+        d["news"] = news
+    else:
+        d["news_inject_skipped"] = True  # 仅标记跳过,不报错(guard)
     return d
 
 
@@ -722,6 +934,13 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
         "etf_national_team(ETF汪汪队异动信号+份额变化 share_change_yi+is_resonance 共振,见 "
         "etf_national_team_note 口径)+etf_national_team_share(12只跟踪ETF近5日份额变化)。"
         "这些是机构/护盘资金态度的重要证据,应在 trend/risk 中引用具体数值。\n"
+        "4d.【宏观/跨市场/估值/新闻面】可引用注入数据中的估值位置(positions 1y/3y百分位+label)、"
+        "跨市场(cross_market 美股期货es/nq/ym/rty+欧亚期货,美股隔夜方向对A股开盘领先尤其跌时更强)、"
+        "汇率利差(gold/oil/usdcnh/cn_us_spread,注意 usdcnh 已归一化为如 6.79)、腾落线/宽度(ad_line/ma_cross)、"
+        "龙虎榜(lhb 机构净买)、行业资金流(ind_flow top5/bottom5)、解禁IPO(unlock_ipo 供给压力)、"
+        "打板溢价(daban)。这些作**方向与风险参考**;positions 为中期位置参考不作次日方向主依据。"
+        "若存在 news 字段则可用于当日政策/外围事件提示(事件驱动),upcoming 可提示「明日关键事件」"
+        "(如国新办发布会/宏观数据公布前波动不确定)。只引用注入数据,不得编造 news 里没有的新闻。\n"
         "5. text.review(今日复盘,约80字)、text.trend(趋势研判,约60字)、text.watch(明日关注,约80字)、text.risk(风险点,约60字),总长 ≤300 字。\n"
         "6. 只做\"关注/观察/警惕/留意/注意/谨慎\"表述,给出方向和风险即可,不做任何交易指令。\n"
         "7. 当前北京时间 " + now_str + ",数据截至 " + date + " 收盘。忽略任何 " + date + " 之后发生的事件、消息或数据(那些尚未发生,不得当作已知信息使用)。输出需标注\"基于 " + date + " 收盘数据\"。\n"
@@ -982,9 +1201,13 @@ def split_domains(d: dict) -> dict:
             "signal_stats_buy_top": d.get("signal_stats_buy_top"),
             "summary": {k: s.get(k) for k in (
                 "sh_pct", "sh_close", "ma_bullish", "ma_bearish",
-                "nh_count", "nl_count", "nhnl", "volume_amount", "volume_label",
+                "volume_amount", "volume_label",
                 "tradable_buy_count", "tradable_sell_count", "buy_count", "sell_count")},
             "signals_note": d.get("signals_note"),
+            # 2026-08-16 注入增强: 宽度/技术面 + 美股领先
+            "ad_line": d.get("ad_line"),
+            "ma_cross": d.get("ma_cross"),
+            "cross_market": d.get("cross_market"),
         },
         "fund": {
             "funds": funds,
@@ -995,6 +1218,10 @@ def split_domains(d: dict) -> dict:
             "inst_ih_note": d.get("inst_ih_note"),
             "north_quarterly": d.get("north_quarterly"),
             "funds_note": d.get("funds_note"),
+            # 2026-08-16 注入增强: 资金面增量(龙虎榜/行业资金流/供给)
+            "lhb": d.get("lhb"),
+            "ind_flow": d.get("ind_flow"),
+            "unlock_ipo": d.get("unlock_ipo"),
         },
         "sentiment": {
             "scores": d.get("scores"),
@@ -1013,6 +1240,9 @@ def split_domains(d: dict) -> dict:
             "etf_national_team": d.get("etf_national_team"),
             "etf_national_team_share": d.get("etf_national_team_share"),
             "etf_national_team_note": d.get("etf_national_team_note"),
+            # 2026-08-16 注入增强: 打板情绪 + 估值位置(中期参考)
+            "daban": d.get("daban"),
+            "positions": d.get("positions"),
         },
         "risk": {
             "alert": d.get("alert"),
@@ -1021,6 +1251,10 @@ def split_domains(d: dict) -> dict:
                 "a_fund_main", "hk_south", "a_turnover_mean", "a_turnover_p90",
                 "a_turnover_gt5_pct")},
             "industry_heatmap_top": d.get("industry_heatmap_top"),
+            # 2026-08-16 注入增强: 跨市场/汇率利差风险 + 新闻事件风险
+            "cross_market": d.get("cross_market"),
+            "forex_commodity": d.get("forex_commodity"),
+            "news": d.get("news"),
         },
     }
 
