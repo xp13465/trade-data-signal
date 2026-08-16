@@ -21894,7 +21894,7 @@ function _loadHistNewsAsync(root) {
 
 // ---- 新闻速递弹窗(📰 新闻按钮触发,独立于 AI 预测弹窗;数据源当日 news_digest.json + 归档)----
 // 内容 4 项: ①当日全量新闻(时间倒序,标来源+重要度) ②重要/预告置顶分组(重要新闻+明日预告) ③按来源筛选 chip ④分时/涨幅对照迷你图。
-let _newsModalState = null; // { date, all:[], upcoming:[], src:'all' }
+let _newsModalState = null; // { date, all:[], news: all, upcoming:[], src:'all' }  // news 与 all 同源, 列表/重要分组读 news, 按钮计数读 all
 let _newsModalSparkCached = null; // 上证分时 points 缓存(fetchTencentMinute("sh") 结果)
 let _newsModalSparkStatic = null; // 分时不可得时静态降级用 intraday_snapshot 指数项
 
@@ -22084,7 +22084,7 @@ async function openNewsDigestModal() {
     const raw = await fetchJSON("./data/news_digest.json");
     const all = (raw && Array.isArray(raw.news)) ? raw.news : [];
     const upcoming = (raw && Array.isArray(raw.upcoming)) ? raw.upcoming : [];
-    _newsModalState = { all, upcoming, date: (raw && raw.date) || "", src: _newsModalState && _newsModalState.src ? _newsModalState.src : "all" };
+    _newsModalState = { all, news: all, upcoming, date: (raw && raw.date) || "", src: _newsModalState && _newsModalState.src ? _newsModalState.src : "all" };
   } catch (e) {
     _newsModalState = { all: [], upcoming: [], date: "", src: "all" };
     _newsModalState.err = String((e && e.message) || e);
