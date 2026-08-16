@@ -2082,7 +2082,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
     const loDecay = costData.low_decay_ratio != null ? Math.abs(costData.low_decay_ratio).toFixed(0) : null;
     const hiDecay = costData.high_decay_ratio != null ? Math.abs(costData.high_decay_ratio).toFixed(0) : null;
     costBlock = `<div class="lab-cost-block">` +
-      `<div class="lab-cost-warn">⚠ 以上为<strong>毛收益</strong>,未计手续费/滑点。计入成本后年化约降 ${loDecay || "?"}~${hiDecay || "?"}%</div>` +
+      `<div class="lab-cost-warn">⚠ 以上为<strong>毛收益</strong>,未计手续费/滑点。计入成本后<strong>总收益</strong>约降 ${loDecay || "?"}~${hiDecay || "?"}%(折算年化约降 0.4~5.4 个百分点,视成本档与策略而定,见下表年化列)【核实源:lab_cost_compare.json】</div>` +
       `<table class="lab-cost-table"><thead><tr><th>成本档</th><th>手续费</th><th>滑点</th><th>年化</th><th>总收益</th><th>胜率</th></tr></thead><tbody>` +
       `<tr><td>毛收益</td><td>-</td><td>-</td><td>${fmtPct(g.annual_ret)}</td><td>${fmtPct(g.total_ret)}</td><td>${g.win_rate != null ? g.win_rate + "%" : "-"}</td></tr>` +
       `<tr><td>低档</td><td>万3</td><td>千1</td><td>${fmtPct(lo.annual_ret)}</td><td>${fmtPct(lo.total_ret)}</td><td>${lo.win_rate != null ? lo.win_rate + "%" : "-"}</td></tr>` +
@@ -3892,13 +3892,27 @@ const LAB_RETEST_RANK_TABS = [
 
 // min-max 归一化工厂：返回 fn(v)->0~1。null/NaN 返回 0.5（中性，不奖惩缺失数据）。
 // 调用方按方向使用：正向（越大越好）直接 norm；负向（越小越好，如回撤/波动/过拟合）用 1-norm。
-function _labRetestMinMax(rows, key) {
-  const vals = rows.map((r) => r[key]).filter((v) => v != null && !isNaN(v));
+function _labRetestMinMax(rows, key, pctCap) {
+  let vals = rows.map((r) => r[key]).filter((v) => v != null && !isNaN(v));
   if (vals.length === 0) return () => 0.5;
+  // pctCap(0-1)分位截断抗极端离群值：超分位的钳到分位值再算 min/max，防单个离群值压平整个 min-max 归一化。
+  // 与全站 _labWinsor 抗极端惯例一致；仅 overfit 维度使用(样本外榜「低过拟合」曾因 full_in 全仓复利 519.63 离群被压平)。
+  let cap = null;
+  if (pctCap != null && pctCap > 0 && pctCap < 1 && vals.length >= 4) {
+    const vs = vals.slice().sort((a, b) => a - b);
+    const i = pctCap * (vals.length - 1), f = Math.floor(i), c = Math.ceil(i);
+    cap = f === c ? vs[f] : vs[f] + (vs[c] - vs[f]) * (i - f);
+    vals = vals.map((v) => Math.min(v, cap));
+  }
   const mn = Math.min.apply(null, vals);
   const mx = Math.max.apply(null, vals);
   const rng = mx - mn;
-  return (v) => (v == null || isNaN(v)) ? 0.5 : (rng === 0 ? 0.5 : (v - mn) / rng);
+  // 归一化时同样把输入钳到 cap，保证超分位值映射到 1.0（与建 min/max 用的截断数组一致）
+  return (v) => {
+    if (v == null || isNaN(v)) return 0.5;
+    const cv = cap != null ? Math.min(v, cap) : v;
+    return rng === 0 ? 0.5 : (cv - mn) / rng;
+  };
 }
 
 // 聚合 retest pairs -> 行：算8维指标（归一化 across 全部9指数所有 pair）+ 各综合分。
@@ -4018,7 +4032,7 @@ function _labRetestRankRows(allPairs, simMap, winKey) {
   const minYearRetN = _labRetestMinMax(raw, "minYearRet");
   const yearVolN = _labRetestMinMax(raw, "yearVol");
   const testRetN = _labRetestMinMax(raw, "testRet");
-  const overfitN = _labRetestMinMax(raw, "overfit");
+  const overfitN = _labRetestMinMax(raw, "overfit", 0.95); // 95%分位截断抗 full_in 全仓复利极端离群值
   const testWinN = _labRetestMinMax(raw, "testWin");
   const crashDdN = _labRetestMinMax(raw, "crashDd");
   const bearDdN = _labRetestMinMax(raw, "bearDd");
@@ -4266,7 +4280,7 @@ function _labRetestRankHTML(allPairs, simMap) {
             : tab === "yearly"
               ? "分年榜=0.4最差年收益+0.4盈利年占比+0.2低波动（防某年暴利拉高整体）。"
               : tab === "oos"
-                ? "样本外榜=0.4test收益+0.4低过拟合+0.2test胜率（前70%训练后30%验证防过拟合）。1:1例(科创50·唐奇安20上轨买×MACD死叉卖,核实源=lab_retest_kc50.json)：样本外(后30%验证)收益+135.8%→归一0.80、低过拟合0.998(该轴按全部配对min-max归一,全局存在一个极端离群样本外收益把轴拉平,多数配对此项≈满分,为本维度当前局限)、样本外胜率88.9%→归一0.89→0.4×0.80+0.4×0.998+0.2×0.89=样本外分0.90。"
+                ? "样本外榜=0.4test收益+0.4低过拟合+0.2test胜率（前70%训练后30%验证防过拟合）。低过拟合维度已按95%分位截断抗极端值（防单个full_in全仓复利离群把轴拉平，与全站winsorize抗极端惯例一致）。1:1例(科创50·唐奇安20上轨买×MACD死叉卖,核实源=lab_retest_kc50.json)：样本外(后30%验证)收益+135.8%→归一0.80、低过拟合0.983(该轴按全部配对min-max归一+95%分位截断)、样本外胜率88.9%→归一0.89→0.4×0.80+0.4×0.983+0.2×0.89=样本外分0.89。本维度当前局限：已截断抗离群，但全仓复利与定额两种收益尺度仍同池，跨模式比较需谨慎。"
                 : "极端行情榜=股灾/熊市抗跌+反弹能涨（疫情无交易则跳过不扣分）。";
   return `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${winTabsHTML}<span class="lab-win-bar-cur">${(LAB_WIN_DEFS.find((w) => w.k === winKey) || {}).l || ""}</span></div>` +
     `<div class="lab-rank-tabs">${tabsHTML}</div>` +
