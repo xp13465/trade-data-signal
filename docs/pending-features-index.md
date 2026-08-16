@@ -13,7 +13,7 @@
 
 | # | 功能 | 出处 | 方案摘要 | 依赖/前置 | 状态 |
 |---|---|---|---|---|---|
-| 1 | **edge-tts 语音播报**(首页 AI 预测上方播放按钮朗读) | docs/ai-predict-tts-plan.md §三(主方案:后端生成 mp3→R2→前端播放按钮) | 用户 00:53 需求;B 级,落地步骤/验收/风险已齐;edge-tts 未安装于两 .venv | 等 AI 回填修复完成避免撞车;pip install edge-tts 到 trade-data/.venv | **排队中**(参考确认:已派调研,待实施) |
+| 1 | **edge-tts 语音播报**(首页 AI 预测上方播放按钮朗读) | docs/ai-predict-tts-plan.md §三(主方案:后端生成 mp3→R2→前端播放按钮) | 用户 00:53 需求;B 级,落地步骤/验收/风险已齐;edge-tts 未安装于两 .venv | 等 AI 回填修复完成避免撞车;pip install edge-tts 到 trade-data/.venv | **已完成**(2026-08-16 上线 a8a4d632f,版本串 a281;见文末【已排除清单】) |
 | 2 | **AI 预测前端「辩论详情入口」+「弃用标志」+「结论展示」** | TASKS.md L25/26(待派) | 多角色后端已实施(gen_daily_brief.py L1333 run_multi_agent,meta 含 roles/debate,线上 meta.version=ai-multi),前端完整辩论详情展示入口未做 | 无(后端数据已就绪) | **已完成**(2026-08-12 上线 4bc48da1a) |
 | 3 | **daily_brief P1-1 周期定位/钟摆位置模板**(恐贪分位+极端提示) | docs/daily-brief-optimization.md §3 P1-1 | trend 段加周期定位模板:恐贪/情绪/新高新低在历史分位,极端值逆向提示 | 需 30 日内 summary_history 支持 | **未实施**(规则版有冰点反向雏形 L540) |
 | 4 | **daily_brief P1-3 公募基金持仓/行业配置注入**(中期风格参考) | docs/daily-brief-optimization.md §3 P1-3 | 注入 public_fund_summary 加仓/减仓行业 top 到【趋势研判/中期】,标注季报滞后 | 数据已有(public_fund_summary) | **未实施** |
@@ -123,7 +123,7 @@
 ## 【已排除清单】已上线/已在跑(不要重复派)
 
 - **凯利**:默认最优组合(仓位K=2+4降亏)、**金额口径=每日资金池等分+top-K**(2026-08-14 恢复 c951dafa8,修正 K=3 33万虚假杠杆;旧"每笔固定1万"为过时口径)、1月调整 J1/J2 并入、positionCap K档、G公示、**全信号表+组合使用建议**(lab.js L8503,2026-08-12)、MA60择时 toggle⑭、降亏过滤31 toggle、凯利费率客调、fade 交互方案一(lab-custom-host--loading,L7620)、稳健核心组合=仅 r8、次日开盘回测报告本身(仅建议未实施,见 #15)、**K档位评级标注+hover评级理由表格**(2026-08-13 上线 4fe5d45bc,展示层不改算法)、**凯利 top-K+质量约束+选择器前向测试 #18**(已关闭 2026-08-13:质量约束两口径负边际不实施;前向测试简单切分已有结论,滚动版并入 #16)
-- **daily_brief**:**辩论详情入口+弃用标志+结论展示**(2026-08-12 上线 4bc48da1a)
+- **daily_brief**:**辩论详情入口+弃用标志+结论展示**(2026-08-12 上线 4bc48da1a)、**edge-tts 语音播报**(2026-08-16 上线 a8a4d632f,版本串 a281:后端 gen_daily_brief.py 服务端 edge-tts 合成 daily_brief_tts_<date>.mp3 上传 R2 metadata audio/mpeg,前端 _dbPlayBtn 🔊 按钮 + <audio> 经 /r2/ 代理播,弹窗+历史收盘分析两处 §22 一致,仅 meta.tts_available=true 渲染,rule/minimal 兜底不播,失败不阻塞)
 - **SVG**:轻量走势图 P0+P1 全站扩展(首页 sparkline/KPI/分时,app.js L11059/L11077)、SVG 修正主链 a149、home-svg-fix P1-1/P1-2
 - **daily_brief**:后端 P0-1/2/3/4 + P1-2(多空辩论随 P0-4)/P1-7/P1-8/P1-9/P1-10/P1-11(配置)/P2-1(cost_log)/P2-2(已知偏差),前端 AI 预测弹窗+命中率+历史结合展示(2026-08-11,app.js L20066-20377)
 - **飞书**:阶段1 发送 + 阶段2 接收(lark-oapi 长连接+落盘+launchd)
