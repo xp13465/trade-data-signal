@@ -2817,7 +2817,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     //   AI仓位关(=全量视图无AI建议语义)时不渲染, 避免误导。文案按用户口径改直白。
     let _emptyUniverseBanner = "";
     if (kind === "signal" && _pcOn && !_dateHasInUniverseBuy[dt]) {
-      _emptyUniverseBanner = `<div class="sig-empty-universe" data-tip="该日信号均为风险/持有类(卖出/跟踪止损/波段)或未入样宇宙的标的（如债类 cgb_*/ 情绪 s.*/ 全球商品利率 g.*/ 港股行业 hk_*，§23.6 入样宇宙规则），因此当日无 AI 建议买入标的，属正常空态而非功能未开。">今日无 AI 建议买入信号，仅风险/持有状态</div>`;
+      _emptyUniverseBanner = `<div class="sig-empty-universe" data-tip="该日(${dateLabel})信号均为风险/持有类(卖出/跟踪止损/波段)或未入样宇宙的标的（如债类 cgb_*/ 情绪 s.*/ 全球商品利率 g.*/ 港股行业 hk_*，§23.6 入样宇宙规则），因此该日无 AI 建议买入标的，属正常空态而非功能未开。">${dateLabel} 当日无 AI 建议买入信号，仅风险/持有状态</div>`;
     } else {
       _emptyUniverseBanner = "";
     }
