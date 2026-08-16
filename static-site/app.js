@@ -1551,7 +1551,7 @@ function _overfitHelpModalHTML() {
       '<p><b>AI降亏过滤(开关)</b>：开启(默认)=只统计「未被 AI 宏删线过滤」的信号(未命中 8 键降亏且已入样)；关闭=统计全信号。仅买信号判降亏，卖/止损卖不判。与「K档」两开关独立。</p>' +
       '<p><b>K档(关/K=1/2/3/4)</b>：与首页「AI仓位建议 K」按钮组同交互（关在前、K1主推★高亮）。每日只保留当日最优 K 个买入信号来监控，同口径（排序=跟踪分↓→评级→信号类型）。<b>点「关」</b>=无K档，退化为普通列表（降亏开关控制 filtered/raw 两bank）。<b>两开关独立</b>：降亏开=先滤降亏再选 top-K(filtered_by_k)，降亏关=全信号直接选 top-K(by_k)，K 独立可用不依赖降亏开关。K 越大纳入的标的越多、样本越足。</p>' +
       '<p><b>显示范围(30/60/90/180日)</b>：控制横轴展示最近 N 个交易日，<b>只影响显示截取、不改变统计</b>——即无论选 30 还是 180，都只是图上看多少范围，曲线按当前「统计口径」算。</p>' +
-      '<p><b>统计口径(10/15/30/60/100日，默认60)</b>：准确率 + 综合过拟合风险分<u>两图都按选中的 N 日滚动重算</u>（即重算滚动窗口，而非只截取展示）。默认沿用 60 日滚动（当前行为不变）。顶部卡片左上角综合风险分固定按 60 日口径显示（单一权威值，前端不重算），曲线口径可切换。</p>' +
+      '<p><b>统计口径(10/15/30/60/100日，默认60)</b>：准确率 + 综合过拟合风险分<u>两图都按选中的 N 日滚动重算</u>（即重算滚动窗口，而非只截取展示）。综合风险分本身按 60 日窗口计算（后端单一权威值），两图曲线随选中口径滚动展示。</p>' +
       '<p><b>评级/类型</b>：切换只看高/中/低评级 或 主买/辅买/追买/备买/卖/止损卖 子集。卖/止损卖回测仅买入信号，故只显示实盘单曲线。</p>' +
     '</div>' +
     '<div class="rule-card">' +
@@ -1829,7 +1829,7 @@ async function _appendOverfitCard(colA2, r, snap) {
           }).join("");
       })(_overfitState)) +
       '</div>' +
-    '<div class="overfit-tip" data-tip="双曲线监控 · 综合过拟合风险分(0-100)。<b>显示范围</b>(30/60/90/180日)=横轴截取最近 N 个交易日展示, 只影响显示不重算；<b>统计口径</b>(10/15/30/60/100日, 默认60)=两图(准确率+风险分)按选中口径滚动重算；<b>评级/类型</b>=看子集；<b>K档</b>(关/K1主推★)=每日最优先选K个买入信号(top-K), 与首页AI仓位建议同口径, 与AI降亏两开关独立(降亏开=过滤后选, 关=全信号选)；<b>AI降亏</b>=只统计未被AI宏删线过滤的信号。绿&lt;30正常 黄30-60关注 红&gt;60高风险。完整说明见标题❓">' +
+    '<div class="overfit-tip" data-tip="双曲线监控 · 综合过拟合风险分(0-100)。显示范围(30/60/90/180日)=横轴截取最近 N 个交易日展示, 只影响显示不重算；统计口径(10/15/30/60/100日, 默认60)=两图(准确率+风险分)按选中口径滚动重算；评级/类型=看子集；K档(关/K1主推★)=每日最优先选K个买入信号(top-K), 与首页AI仓位建议同口径, 与AI降亏两开关独立(降亏开=过滤后选, 关=全信号选)；AI降亏=只统计未被AI宏删线过滤的信号。绿&lt;30正常 黄30-60关注 红&gt;60高风险。完整说明见标题❓">' +
       '双曲线监控 · 综合过拟合风险分0-100 · <span class="overfit-legend">绿&lt;30正常 黄30-60关注 红&gt;60高风险</span>' +
       '<span class="overfit-tip-help" data-overfit-help="1" style="cursor:pointer;text-decoration:underline;margin-left:6px">❓完整指南</span></div>' +
     // 一行: 显示范围 + 统计口径(两个"范围类"合一行, 2026-08-16 布局重排)
@@ -21941,9 +21941,12 @@ function _dbNewsAll(nd, src) {
 }
 
 // 重要/预告置顶分组: 重要新闻(时间倒序) + 明日预告(全量 upcoming)。
-function _dbNewsImportant(nd) {
-  const imp = _dbNewsSortDesc(((nd && nd.news) || []).filter((n) => n && n.important));
-  const up = ((nd && nd.upcoming) || []).slice();
+// 2026-08-16 随来源筛选: src=all 取全部, 否则该源;空分组不渲染(切到无该源重要新闻的源时隐藏=预期)。
+function _dbNewsImportant(nd, src) {
+  const base = ((nd && nd.news) || []).filter((n) => n && n.important);
+  const imp = _dbNewsSortDesc(src && src !== "all" ? base.filter((n) => n && n.source === src) : base);
+  const upBase = ((nd && nd.upcoming) || []).slice();
+  const up = src && src !== "all" ? upBase.filter((n) => n && n.source === src) : upBase;
   return { imp, up };
 }
 
@@ -21972,9 +21975,11 @@ function _dbNewsSpark(points, marks) {
     if (!t) return "";
     const idx = points.findIndex((p) => String(p.time || "") >= t);
     if (idx < 0) return "";
-    return `<circle cx="${px(idx).toFixed(1)}" cy="${py(prices[idx]).toFixed(1)}" r="3" fill="#7c4dff" stroke="#fff" stroke-width="1" data-news-time="${_esc(t)}"/>`;
+    // 2026-08-16 紫点补交互: cursor:pointer + data-prow=(time,idx) 供点紫点滚动定位 li
+    return `<circle cx="${px(idx).toFixed(1)}" cy="${py(prices[idx]).toFixed(1)}" r="4" fill="#7c4dff" stroke="#fff" stroke-width="1" class="news-mark" style="cursor:pointer" data-news-time="${_esc(t)}" data-pidx="${idx}"/>`;
   }).join("");
-  return `<div class="db-news-spark"><svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><path d="M${linePts.join(" L")}" fill="none" stroke="${color}" stroke-width="1.6"/><path d="M${area}" fill="${color}" opacity="0.08"/><text x="6" y="${h - (h - 8)}" fill="${color}" font-size="11" font-weight="700">${up ? "▲" : "▼"} 09:30-${maxTime} 上证分时</text>${markDots}</svg></div>`;
+  // 2026-08-16 迷你图补交互: SVG 带 data-step(抽样步长)+ data-n(点数), hover 反推 idx; 容器内嵌 tooltip 气泡元素。
+  return `<div class="db-news-spark"><svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" data-step="${step}" data-n="${points.length}"><path d="M${linePts.join(" L")}" fill="none" stroke="${color}" stroke-width="1.6"/><path d="M${area}" fill="${color}" opacity="0.08"/><text x="6" y="${h - (h - 8)}" fill="${color}" font-size="11" font-weight="700">${up ? "▲" : "▼"} 09:30-${maxTime} 上证分时</text>${markDots}</svg><div class="db-news-spark-tip" style="display:none;position:absolute;pointer-events:none;z-index:5;background:rgba(20,20,30,.88);color:#fff;font-size:11px;padding:3px 6px;border-radius:4px;white-space:nowrap"></div></div>`;
 }
 
 // 渲染新闻弹窗内容(数据 + 来源筛选 + 分时对照均注入 #news-digest-body)。
@@ -21996,8 +22001,8 @@ function _renderNewsDigestBody() {
   sparkHtml = pts && pts.length >= 2
     ? _dbNewsSpark(pts, marks)
     : (_newsModalSparkStatic ? _dbNewsSparkStatic(_newsModalSparkStatic) : "");
-  // ②重要/预告置顶分组
-  const { imp, up } = _dbNewsImportant(st);
+  // ②重要/预告置顶分组(2026-08-16 随来源筛选: imp/up 也按当前 src 过滤,与最下全量一致)
+  const { imp, up } = _dbNewsImportant(st, src);
   const impHtml = imp.length
     ? `<div class="news-group"><div class="news-group-t">⭐ 重要新闻</div><ul class="db-news-ul">${imp.map((n) => _dbNewsItemHtml(n, "imp")).join("")}</ul></div>` : "";
   const upHtml = up.length
@@ -22038,12 +22043,26 @@ function _dbNewsSparkStatic(idx) {
   return `<div class="db-news-spark-static" style="color:${color}">当日大盘 ${dtCn || ""}：${sign}${pct == null ? "--" : Number(pct).toFixed(2)}%（${_esc(idx.name || "上证指数")}，休市时点为上一交易日收盘快照）</div>`;
 }
 
+// HTML 纯文本化(2026-08-16 前端兜底): 剥标签→解实体→连续空白折叠→截断 120→_esc 转义。
+// 双层防 XSS: 即使后端 fetch_news 已源头清洗, 历史脏数据/未来未清洗数据到前端仍先剥标签再 _esc,
+// 绝不把未清洗 HTML 直接 innerHTML。覆盖全量/重要/预告三板块 + 历史日期切换读取。
+function _dbNewsCleanHtml(v, limit) {
+  let s = String(v == null ? "" : v);
+  s = s.replace(/<br\s*\/?\s*>/gi, " ").replace(/<[^>]*>/g, "");  // br→空格,其余标签剥
+  s = s.replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<")
+       .replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/&#39;/gi, "'")
+       .replace(/\s+/g, " ").trim();
+  const lim = limit || 120;
+  if (s.length > lim) s = s.slice(0, lim);
+  return _esc(s);
+}
+
 // 每条新闻 li: 时间 + 来源标 + 重要度标 + 标题(截断 120 字,溢出省略)。
 function _dbNewsItemHtml(n, tag) {
   const time = _esc(n.time || "");
   const src = `<span class="news-src ${tag}">${_esc(_dbNewsSrcName(n.source))}</span>`;
   const imp = n.important ? `<span class="news-imp">⭐</span>` : "";
-  const title = _esc(String(n.title || "").slice(0, 120));
+  const title = _dbNewsCleanHtml(n.title, 120);
   return `<li class="db-news-li" data-time="${time}" title="${title}"><span class="db-news-time">${time}</span>${src}${imp}<span class="db-news-title">${title}</span></li>`;
 }
 
@@ -22051,7 +22070,7 @@ function _dbNewsItemHtml(n, tag) {
 function _dbNewsUpItemHtml(n) {
   const time = _esc(n.time || "");
   const src = `<span class="news-src up">预告</span>`;
-  const title = _esc(String(n.title || "").slice(0, 120));
+  const title = _dbNewsCleanHtml(n.title, 120);
   return `<li class="db-news-li" data-time="${time}"><span class="db-news-time">${time}</span>${src}<span class="db-news-title">${title}</span></li>`;
 }
 
@@ -22067,23 +22086,122 @@ function _bindNewsChips(body) {
   });
 }
 function _bindNewsOpen(body) {
-  // 点新闻 li 时,若分时图存在则高亮该时点(简单闪烁标记,不做滚动定位——实现深度: 静态标注,不强求精确对齐)。
+  // ── 点 news 分类(紫点)闪烁 ÷ 双向联动(2026-08-16 追加: 点紫点→定位 li 高亮滚动) ──
+  // SVG 交互复用: hover 出十字线+数值气泡; 紫点 hover 高亮; 点紫点滚动定位对应 li 高亮。
+  const sparkDiv = body.querySelector(".db-news-spark");
+  const svg = sparkDiv ? sparkDiv.querySelector("svg") : null;
+  const tip = sparkDiv ? sparkDiv.querySelector(".db-news-spark-tip") : null;
+  const pts = (_newsModalSparkCached && _newsModalSparkCached.points) || null;
+
+  // 高亮图中紫点(t=HH:MM),并清除其他。
+  function _markCircleHot(svgEl, t) {
+    if (!svgEl) return;
+    let found = null;
+    svgEl.querySelectorAll("circle").forEach((c) => {
+      if (c.getAttribute("data-news-time") === t) found = c;
+      c.setAttribute("class", t === c.getAttribute("data-news-time") ? "news-mark-hot" : "news-mark");
+    });
+    return found;
+  }
+  // 点紫点 → 定位对应 li 高亮滚动
+  function _scrollToNewsLi(t) {
+    let target = null;
+    body.querySelectorAll(".db-news-li").forEach((li) => {
+      const ok = li.getAttribute("data-time") === t;
+      li.classList.toggle("news-li-hot", ok);
+      if (ok) target = li;
+    });
+    if (target && target.scrollIntoView) {
+      try { target.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) { target.scrollIntoView(); }
+    }
+    // 点击后 1.6s 渐变移除 li 高亮(避免长期残留)
+    setTimeout(() => { body.querySelectorAll(".db-news-li.news-li-hot").forEach((li) => li.classList.remove("news-li-hot")); }, 1600);
+  }
+
+  // ── 点 news 分类(紫点)闪烁: 点 li → 高亮对应紫点 (2026-08-16 反向改为也滚动定位紫点)
   body.querySelectorAll(".db-news-li").forEach((li) => {
     li.addEventListener("click", () => {
-      const svg = body.querySelector(".db-news-spark svg");
-      if (!svg) return;
       const t = li.getAttribute("data-time");
-      const circle = svg.querySelectorAll("circle");
-      let found = null;
-      circle.forEach((c) => {
-        if (c.getAttribute("data-news-time") === t) found = c;
-      });
-      if (found) {
-        svg.querySelectorAll("circle").forEach((c) => { c.setAttribute("class", ""); });
-        found.setAttribute("class", "news-mark-hot");
+      if (!t) return;
+      if (!_markCircleHot(svg, t) && svg) {
+        // 无对应紫点(重要新闻为空/静态降级)也清除旧高亮
+        svg.querySelectorAll("circle").forEach((c) => c.setAttribute("class", "news-mark"));
       }
+      // 图里定位: 让紫点所在 x 可见(滚动 body 内 .db-news-li 所在滚动容器到 top? 图在最上面, 这里跳 li 自身即可)
     });
   });
+
+  // ── 迷你图 hover: 十字线 + 数值气泡(该时点 price vs 当日开盘 涨跌幅%) + 紫点 hover 高亮 ──
+  if (svg && tip && pts && pts.length >= 2) {
+    const n = parseInt(svg.getAttribute("data-n"), 10) || pts.length;
+    const step = parseInt(svg.getAttribute("data-step"), 10) || 1;
+    const vbW = 720, vbH = 64;
+    // 用 step 反推「离 viewBox x 最近的折线顶点」→ 原始点索引
+    function _idxFromX(vx) {
+      // 折线顶点 index: k*step (0..n-1), 最后一个补 n-1
+      if (vx <= 0) return 0;
+      const slots = Math.max(1, Math.floor((n - 1) / step));
+      const xPerSlot = (vbW - 8) / slots;
+      let k = Math.round(vx / xPerSlot);
+      if (k < 0) k = 0;
+      return Math.min(k * step, n - 1);
+    }
+    function _showTip(vx, vy, idx, ev) {
+      const price = pts[idx].price;
+      const open = pts[0].price;
+      const pct = open ? ((price - open) / open) * 100 : 0;
+      const tm = pts[idx].time || "--:--";
+      const absPrice = price >= 1000 ? price.toFixed(2) : (price >= 100 ? price.toFixed(2) : price.toFixed(3));
+      tip.innerHTML = `${_esc(tm)} &nbsp;<b>${absPrice}</b> &nbsp;${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%  <span style="opacity:.7">(vs 开盘)</span>`;
+      // 显示 tooltip(相对画布定位): 用事件客户端坐标 - 容器左上
+      const r = sparkDiv.getBoundingClientRect();
+      let tx = ev.clientX - r.left + 10, ty = ev.clientY - r.top - 28;
+      if (tx + 140 > r.width) tx = ev.clientX - r.left - 140;
+      if (ty < 2) ty = ev.clientY - r.top + 14;
+      tip.style.left = tx + "px";
+      tip.style.top = ty + "px";
+      tip.style.display = "block";
+    }
+    svg.addEventListener("mousemove", (ev) => {
+      const r = svg.getBoundingClientRect();
+      const vx = (ev.clientX - r.left) / r.width * vbW;
+      const vy = (ev.clientY - r.top) / r.height * vbH;
+      const idx = _idxFromX(vx);
+      _showTip(vx, vy, idx, ev);
+    });
+    svg.addEventListener("mouseleave", () => {
+      if (tip) tip.style.display = "none";
+    });
+    // 紫点 hover: 高亮该紫点 + 显示气泡（用该紫点自身 idx, 精确到抓取点）
+    svg.querySelectorAll("circle").forEach((c) => {
+      c.addEventListener("mouseover", (ev) => {
+        // 高亮紫点(focus via class), 并显示该抓取点气泡
+        svg.querySelectorAll("circle").forEach((x) => x.setAttribute("class", x === c ? "news-mark-hot" : "news-mark"));
+        const idx = parseInt(c.getAttribute("data-pidx"), 10);
+        if (isFinite(idx)) _showTip(0, 0, idx, ev);
+      });
+      c.addEventListener("mouseleave", () => {
+        // 还原为仅 li 选中的高亮(清 hover 高亮但保留 news-mark-hot 由点击维持)
+      });
+      // 点紫点 → 定位对应 li 高亮滚动(移动端点击即触发) + 也对自己高亮闪烁
+      c.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const t = c.getAttribute("data-news-time");
+        if (!t) return;
+        _markCircleHot(svg, t);
+        _scrollToNewsLi(t);
+      });
+      // 触摸友好: 确保移动端点紫点也定位 li
+      c.addEventListener("touchend", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const t = c.getAttribute("data-news-time");
+        if (!t) return;
+        _markCircleHot(svg, t);
+        _scrollToNewsLi(t);
+      }, { passive: false });
+    });
+  }
 }
 
 let _newsDigestModalElCached = null;

@@ -51,6 +51,7 @@ schema(钉死):
 """
 import argparse
 import datetime as dt
+import html as _html
 import json
 import os
 import re
@@ -107,6 +108,30 @@ def _http_get_json(url, headers=None, timeout=15, retries=2):
     return None
 
 
+def _clean_html(text) -> str:
+    """HTML 纯文本化清洗(2026-08-16 修 bug:金十 title/summary 直接存 HTML 源码泄漏)。
+
+    剥标签(<br>/<b>/<span class=...> 等) → 标签换成空白/换行, 解 HTML 实体(html.unescape),
+    连续空白折叠为单空格, 收尾 strip。三源 title/summary 都过此清洗(源头根治);
+    前端另有 _dbNewsCleanHtml 兜底清洗(双层,防历史/未来脏数据 XSS + 纯文本化)。
+    不碰 _norm_title(去重仍用原始粗粒度归一化,清洗只影响存储文本,不影响去重幂等)。
+    """
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
+    # 块级/换行标签换成换行, 其余标签(<b>/<span>/... )换成空, 保留实体待 unescape
+    text = re.sub(r"<(br|/br|p|/p|div|/div|li|/li|tr|/tr)[^>]*>", "\n", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = _html.unescape(text)
+    # 兜底: title 由 content[:120] 截断可能留下未闭合标签残尾(如 "…<span class=\"secti" 无 ">"),
+    # 剥掉「行尾以 < 开头的未闭合标签残尾」(新闻纯文本里基本不出现此形态, 剥之安全)。
+    text = re.sub(r"<\s*/?\s*[a-zA-Z][^>]*$", "", text).strip()
+    # 连续空白(含换行)折叠为单空格
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
 def _norm_title(t: str) -> str:
     """title 归一化,用于跨源相似去重。"""
     if not t:
@@ -148,8 +173,8 @@ def fetch_eastmoney(day_str: str):
         out.append({
             "source": "eastmoney",
             "time": show[11:16] if len(show) >= 16 else "",
-            "title": (it.get("title") or "").strip(),
-            "summary": (it.get("summary") or "").strip().replace("\n", " "),
+            "title": _clean_html(it.get("title") or ""),
+            "summary": _clean_html(it.get("summary") or ""),
             "url": it.get("url") or it.get("uniqueUrl") or "",
             "important": _is_important_title(it.get("title") or ""),
         })
@@ -185,7 +210,7 @@ def fetch_cls(day_str: str, today_ts: float, max_pages: int = 30):
             dt_local = dt.datetime.fromtimestamp(ctime_f)
             if dt_local.strftime("%Y-%m-%d") != day_str:
                 continue
-            title = (it.get("title") or "").strip()
+            title = _clean_html(it.get("title") or "")
             if not title:
                 continue
             level_raw = (it.get("level") or "C").strip().lower()
@@ -193,7 +218,7 @@ def fetch_cls(day_str: str, today_ts: float, max_pages: int = 30):
                 "source": "cls",
                 "time": dt_local.strftime("%H:%M"),
                 "title": title,
-                "summary": (it.get("brief") or it.get("content") or "").strip().replace("\n", " "),
+                "summary": _clean_html(it.get("brief") or it.get("content") or ""),
                 "url": f"https://www.cls.cn/detail/{it.get('id')}" if it.get("id") else "",
                 "important": level_raw in ("a", "b"),  # A/B 级视为重要
             })
@@ -238,8 +263,9 @@ def fetch_jin10(day_str: str, max_pages: int = 30):
             if not ts_str.startswith(day_str):
                 continue
             inner = it.get("data") or {}
-            content = (inner.get("content") or "").strip()
-            title = (inner.get("title") or "").strip() or content[:120]
+            content = _clean_html(inner.get("content") or "")
+            raw_title = (inner.get("title") or "").strip()
+            title = _clean_html(raw_title) or content[:120]
             if not title:
                 continue
             important = bool(it.get("important"))
