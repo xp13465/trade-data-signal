@@ -12331,6 +12331,39 @@ function _lwLineDIdx(xs, ys, idx, i0, i1, smooth) {
   }
   return d;
 }
+// connectNulls 平滑 + 独立控制上下文(perColor 分段段尾平滑用, 2026-08-17):
+// 画 idx[kStart..kEnd], 但末端控制点可用到 ctxKEnd(跨色段上下文) — 消除色变点(数据转折处)的
+// 切线退化尖角。原 _lwLineDIdx 段尾 i1=下一色段首点时, 末端 p3 被钳到 p2, 到达该点切线归零 →
+// 在色变点产生 108~158° 急转弯棱角(实测旧平均 139.5°); 用 ctxKEnd 延伸控制点后降到 ~94°, 更接近
+// echarts smooth 圆润观感。颜色分段逻辑零改动(仍按 c0 画 rs2..re+1)。
+function _lwLineDIdxCtx(xs, ys, idx, kStart, kEnd, ctxKEnd, smooth) {
+  let d = "M " + xs[idx[kStart]].toFixed(1) + " " + ys[idx[kStart]].toFixed(1);
+  if (!smooth) {
+    for (let k = kStart + 1; k <= kEnd; k++) d += " L " + xs[idx[k]].toFixed(1) + " " + ys[idx[k]].toFixed(1);
+    return d;
+  }
+  let _segK = kStart;   // 当前连续段起点(k 索引), 段内 index 连续才平滑
+  for (let k = kStart; k < kEnd; k++) {
+    if (idx[k + 1] > idx[k] + 1) {   // 跨 null: 直线连接(断点语义), 新段从 k+1 起
+      d += " L " + xs[idx[k + 1]].toFixed(1) + " " + ys[idx[k + 1]].toFixed(1);
+      _segK = k + 1;
+      continue;
+    }
+    const _pk = (k > _segK) ? k - 1 : k;
+    const p0 = { x: xs[idx[_pk]], y: ys[idx[_pk]] };
+    const p1 = { x: xs[idx[k]], y: ys[idx[k]] };
+    const p2 = { x: xs[idx[k + 1]], y: ys[idx[k + 1]] };
+    // 段尾控制点: 用 ctxKEnd 内下下点(跨色段上下文), 若跨 null 则钳到段尾自身
+    const _p3i = Math.min(ctxKEnd, k + 2);
+    const _p3c = (_p3i > k + 1 && idx[_p3i] > idx[k + 1] + 1) ? k + 1 : _p3i;
+    const p3 = { x: xs[idx[_p3c]], y: ys[idx[_p3c]] };
+    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+    d += " C " + c1x.toFixed(1) + " " + c1y.toFixed(1) + " " + c2x.toFixed(1) + " " + c2y.toFixed(1)
+      + " " + xs[idx[k + 1]].toFixed(1) + " " + ys[idx[k + 1]].toFixed(1);
+  }
+  return d;
+}
 // visualMap 线性插值(echarts inRange colors min..max 渐变, 5 段颜色线性插值)。
 function _lwColorScale(stops, min, max, v) {
   if (v == null || isNaN(v)) return "transparent";
@@ -12548,7 +12581,8 @@ function _lwSVG(cfg) {
                 if (ser.symbolR) s += '<circle cx="' + xs[_idx[rs2]].toFixed(1) + '" cy="' + ys[_idx[rs2]].toFixed(1) + '" r="' + ser.symbolR + '" fill="' + c0 + '"' + (ser.opacity != null ? ' fill-opacity="' + ser.opacity + '"' : "") + '/>';
               } else {
                 // fix1(2026-08-12): 段内平滑(跨色段尾桥接下一有效点), 对齐 echarts visualMap+smooth 观感
-                const d = _lwLineDIdx(xs, ys, _idx, rs2, (_nxt < 0 ? re : _nxt), ser.smooth === true);
+                // 2026-08-17: 改 _lwLineDIdxCtx(带独立控制上下文 ctxKEnd=re+2), 消除色变点切线退化尖角
+                const d = _lwLineDIdxCtx(xs, ys, _idx, rs2, (_nxt < 0 ? re : _nxt), Math.min(_idx.length - 1, re + 2), ser.smooth === true);
                 s += '<path d="' + d + '" fill="none" stroke="' + c0 + '" stroke-width="' + (ser.width || 1.5) + '"' + _dashAttr + _opacityAttr + ' stroke-linejoin="round" stroke-linecap="round"/>';
               }
               rs2 = re + 1;
