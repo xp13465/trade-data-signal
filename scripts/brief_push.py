@@ -107,7 +107,14 @@ def fetch_recipients(cfg: dict, dry_run: bool = False) -> list:
         print("[brief_push] 配置缺失 api_base/admin_key（config/brief_push.json），跳过订阅者推送", file=sys.stderr)
         return []
     url = f"{api_base}/api/subscribe/recipients"
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {admin_key}"})
+    # 带浏览器 UA：CF WAF 会 403 拦截 Python urllib 默认 UA（curl 能过因为 UA 正常）
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {admin_key}",
+            "User-Agent": "Mozilla/5.0 (brief-push-subscription-service)",
+        },
+    )
     try:
         with _urlopen_retry_ssl(req) as r:
             data = json.loads(r.read().decode("utf-8"))
@@ -155,7 +162,10 @@ def push_webhook(recipient: dict, brief: dict, date: str, dry_run: bool = False)
     req = urllib.request.Request(
         url,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (brief-push-subscription-service)",
+        },
         method="POST",
     )
     try:

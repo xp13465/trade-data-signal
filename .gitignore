@@ -212,3 +212,6 @@ docs/*_progress.txt
 data_packs/
 # AI 每日速递订阅推送配置（含管理员 api_key，敏感 -- 用 brief_push.json.example 作模板）
 config/brief_push.json
+
+# AI 每日速递订阅推送去重持久化（2026-08-17）：brief_push 按 date 防重复推送，仅本地跨进程去重用
+data/brief_push_state.json
