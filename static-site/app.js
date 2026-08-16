@@ -10140,7 +10140,7 @@ async function renderOverview() {
         const snapBadge = `<span class="summary-snap-tag" style="color:#e6a23c">⏰ ${_lunch ? "午休小结" : "盘中动态小结"}</span>`;
         const _tLabel = _lunch ? "13:00复牌" : `更新于 ${_intradayDynamicTime || hhmm}`;
         const _pulse = '<span class="dyn-pulse" id="banner-pulse"><span class="dyn-pulse-dot"></span>1min</span>';
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中（每日 20:40 更新）">🤖 AI 预测</button><button class="summary-news-btn" title="查看当日新闻速递与大事预告">📰 新闻</button><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap)}</div>`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中（每日 20:40 更新）">🤖 AI 预测</button><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap)}</div>`;
         _bannerRenderCtx = { el: banner, s: null, snap, type: "intraday" };
       } else {
         // 收盘后/同日：原逻辑（标题用 summary.generated_at，chips 用 summary+snap 同日覆盖）
@@ -10175,7 +10175,7 @@ async function renderOverview() {
         const sentimentBadge = s.sentiment_label ? `<span class="summary-fg-tag">${s.sentiment_label}</span>` : "";
         // 情绪标签+恐贪标签移到第二行(与 summary-meta 同行),行1只留日期标题
         const titleTags = (sentimentBadge || fgBadge || freezeBadge) ? `${sentimentBadge}${fgBadge}${freezeBadge}` : "";
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中（每日 20:40 更新）">🤖 AI 预测</button><button class="summary-news-btn" title="查看当日新闻速递与大事预告">📰 新闻</button>${titleTags ? `<span class="summary-title-tags">${titleTags}</span>` : ""}<span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中（每日 20:40 更新）">🤖 AI 预测</button>${titleTags ? `<span class="summary-title-tags">${titleTags}</span>` : ""}<span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
         _bannerRenderCtx = { el: banner, s, snap, type: "summary" };
       }
       content.insertBefore(banner, content.firstChild);
@@ -10183,8 +10183,6 @@ async function renderOverview() {
       if (histBtn) histBtn.addEventListener("click", openSummaryHistoryModal);
       const aiBtn = banner.querySelector(".summary-ai-btn");
       if (aiBtn) aiBtn.addEventListener("click", openDailyBriefModal);
-      const newsBtn = banner.querySelector(".summary-news-btn");
-      if (newsBtn) newsBtn.addEventListener("click", openNewsDigestModal);
       // 2026-08-16 首页 AI 预测卡新闻外露两行(消费 _loadNewsDigest 缓存 news/upcoming,各行的 guard=内部无数据返回空串,整行不显示):
       // 「📣 今日要闻」外露速览行(重要优先 ≤3,标日期) + 「📅 明日关键事件」行(标日期),一上一下相邻排列。
       // 用户决策 #12(2026-08-16): ①外露行整行可点进(点击打开新闻面弹窗 openNewsDigestModal)+ 行内「更多 →」视觉暗示;
