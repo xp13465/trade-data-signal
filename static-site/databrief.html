@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0b1a2e">
+<title>金融数据在线速递 · 每日更新看板</title>
+<style>
+  :root {
+    --bg0:#0b1a2e;
+    --bg1:#132a45;
+    --card:#12233c;
+    --card2:#162a47;
+    --line:#1e3a5c;
+    --txt:#e8eef7;
+    --sub:#9db1c8;
+    --accent:#2a9d8f;
+    --up:#e05252;
+    --down:#3ba55d;
+    --flat:#8a94a6;
+    --warn:#e8a33d;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body {
+    margin:0; padding:0;
+    font-family:-apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    background:linear-gradient(160deg, var(--bg0) 0%, var(--bg1) 100%) fixed;
+    color:var(--txt); min-height:100vh; line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:720px; margin:0 auto; padding:16px 14px 48px; }
+
+  /* ---------- 解锁门 ---------- */
+  #gate {
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    padding:20px;
+  }
+  .gate-card {
+    width:100%; max-width:380px; background:linear-gradient(160deg,var(--card),var(--card2));
+    border:1px solid var(--line); border-radius:16px; padding:34px 26px; text-align:center;
+    box-shadow:0 20px 60px rgba(0,0,0,.45);
+  }
+  .gate-logo { font-size:34px; }
+  .gate-title { font-size:20px; font-weight:700; margin:10px 0 4px; letter-spacing:.5px; }
+  .gate-sub { font-size:13px; color:var(--sub); margin-bottom:22px; }
+  .gate-input {
+    width:100%; padding:13px 14px; border-radius:10px; border:1px solid var(--line);
+    background:#0d1c33; color:var(--txt); font-size:16px; letter-spacing:2px; text-align:center;
+    outline:none; transition:border .2s;
+  }
+  .gate-input:focus { border-color:var(--accent); }
+  .gate-btn {
+    width:100%; margin-top:14px; padding:13px; border:none; border-radius:10px;
+    background:var(--accent); color:#06221d; font-size:16px; font-weight:700; cursor:pointer;
+    transition:filter .2s;
+  }
+  .gate-btn:active { filter:brightness(.85); }
+  .gate-err { color:var(--up); font-size:13px; margin-top:12px; min-height:18px; }
+  .gate-hint { color:var(--sub); font-size:12px; margin-top:16px; }
+
+  /* ---------- 顶部 ---------- */
+  header.top {
+    text-align:center; padding:22px 0 6px;
+  }
+  .top-kicker { color:var(--accent); font-size:12px; letter-spacing:2px; font-weight:600; }
+  header.top h1 { font-size:24px; margin:8px 0 6px; font-weight:800; }
+  .meta-line { color:var(--sub); font-size:13px; }
+  .meta-line b { color:var(--txt); }
+  .update-tag {
+    display:inline-block; margin-top:10px; padding:5px 12px; border-radius:999px;
+    background:rgba(42,157,143,.15); border:1px solid rgba(42,157,143,.4);
+    color:var(--accent); font-size:12px;
+  }
+
+  /* ---------- 卡片 ---------- */
+  .card {
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:16px; margin-top:14px;
+  }
+  .card h2 {
+    font-size:15px; font-weight:700; margin:0 0 12px; display:flex; align-items:center; gap:7px;
+    color:var(--txt);
+  }
+  .card h2 .ico { }
+  .sec { margin-top:14px; }
+
+  /* AI 预测卡 */
+  .dir-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .dir-badge {
+    font-size:20px; font-weight:800; padding:6px 16px; border-radius:10px;
+  }
+  .dir-badge.up { background:rgba(224,82,82,.15); color:var(--up); }
+  .dir-badge.down { background:rgba(59,165,93,.15); color:var(--down); }
+  .dir-badge.flat { background:rgba(138,148,166,.18); color:var(--flat); }
+  .range { font-size:15px; color:var(--txt); }
+  .conf { margin-top:8px; font-size:13px; color:var(--sub); }
+  .conf-bar { height:6px; border-radius:4px; background:#0d1c33; margin-top:6px; overflow:hidden; }
+  .conf-bar i { display:block; height:100%; background:linear-gradient(90deg,var(--accent),#46c9b8); border-radius:4px; }
+  .conf-reason { margin-top:8px; font-size:13px; color:var(--sub); border-left:3px solid var(--line); padding-left:10px; }
+
+  /* 四维 */
+  .dims { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .dim {
+    background:var(--card2); border:1px solid var(--line); border-radius:11px; padding:12px;
+  }
+  .dim .lbl { font-size:12px; font-weight:700; color:var(--accent); margin-bottom:6px; }
+  .dim p { margin:0; font-size:13px; color:var(--txt); }
+
+  /* 列表 */
+  ul.plain { list-style:none; margin:0; padding:0; }
+  ul.plain li {
+    padding:9px 0 9px 20px; position:relative; font-size:13.5px; color:var(--txt);
+    border-bottom:1px dashed rgba(30,58,92,.6);
+  }
+  ul.plain li:last-child { border-bottom:none; }
+  ul.plain li::before { content:"▪"; position:absolute; left:0; top:8px; color:var(--accent); font-size:11px; }
+  ul.plain li.risk::before { content:"⚠"; color:var(--warn); font-size:12px; top:8px; left:2px; }
+  ul.plain li.watch::before { content:"◎"; color:var(--accent); font-size:12px; }
+
+  /* 今日速览 */
+  .gauges { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .gauge {
+    background:var(--card2); border:1px solid var(--line); border-radius:11px; padding:12px; text-align:center;
+  }
+  .gauge .name { font-size:12px; color:var(--sub); }
+  .gauge .val { font-size:20px; font-weight:800; margin-top:2px; }
+  .gauge .tag { font-size:11px; color:var(--sub); margin-top:2px; }
+  .gauge .tag.up { color:var(--up); }
+  .gauge .tag.down { color:var(--down); }
+  .gauge .tag.flat { color:var(--flat); }
+  .gauge .tag.accent { color:var(--accent); }
+  .signals { margin-top:12px; }
+  .sig-item {
+    font-size:13px; padding:8px 10px; border-radius:8px; background:rgba(232,163,61,.08);
+    border:1px solid rgba(232,163,61,.3); margin-top:7px; color:var(--txt);
+  }
+  .sig-item b { color:var(--warn); }
+  .sig-item .reason { color:var(--sub); font-size:12px; margin-top:3px; }
+
+  /* 文案 */
+  .text-block p { margin:0 0 12px; font-size:14px; color:var(--txt); }
+  .text-block p:last-child { margin-bottom:0; }
+  .text-block h3 { font-size:14px; margin:0 0 6px; color:var(--accent); }
+
+  /* 兜底 / 加载 */
+  .status {
+    text-align:center; padding:50px 20px; color:var(--sub); font-size:14px;
+  }
+  .status .big { font-size:20px; margin-bottom:8px; }
+  .spinner {
+    width:28px; height:28px; margin:0 auto 12px; border:3px solid var(--line);
+    border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  footer {
+    text-align:center; color:var(--sub); font-size:12px; margin-top:24px;
+  }
+  .disclaimer { color:var(--sub); font-size:12px; }
+  .brand { margin-top:10px; color:var(--accent); font-weight:600; letter-spacing:1px; }
+
+  @media (max-width:480px) {
+    .dims { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 密码门 -->
+<div id="gate">
+  <div class="gate-card">
+    <div class="gate-logo">📈</div>
+    <div class="gate-title">金融数据在线速递</div>
+    <div class="gate-sub">输入访问密码以解锁每日数据看板</div>
+    <input id="gateInput" class="gate-input" type="password" placeholder="输入提取码" autocomplete="off">
+    <button id="gateBtn" class="gate-btn">解锁</button>
+    <div id="gateErr" class="gate-err"></div>
+    <div class="gate-hint">提取码见购买凭证,请妥善保管</div>
+  </div>
+</div>
+
+<!-- 内容区 -->
+<div id="app" class="wrap" style="display:none;">
+
+  <header class="top">
+    <div class="top-kicker">FX8 STORE · DAILY DATA BRIEF</div>
+    <h1>金融数据在线速递</h1>
+    <div class="meta-line">数据日期：<b id="dataDate">--</b>　·　生成于 <span id="genAt">--</span></div>
+    <div class="update-tag">每个交易日收盘后自动更新</div>
+  </header>
+
+  <div id="loading" class="status"><div class="spinner"></div>正在加载每日数据…</div>
+  <div id="errorBox" class="status" style="display:none;">
+    <div class="big">🗓️</div>
+    <div>数据待更新,请交易日收盘后查看</div>
+    <div style="margin-top:8px;font-size:12px">每个交易日收盘后自动刷新当日数据</div>
+  </div>
+
+  <div id="content" style="display:none;">
+
+    <!-- AI 今日预测卡 -->
+    <section class="card" id="secPredict">
+      <h2>🤖 AI 今日预测</h2>
+      <div class="dir-row">
+        <span id="dirBadge" class="dir-badge">--</span>
+        <span class="range" id="rangeText">--</span>
+      </div>
+      <div class="conf">
+        预测把握度 <b id="confPct">--</b>
+        <div class="conf-bar"><i id="confBar" style="width:0%"></i></div>
+      </div>
+      <div class="conf-reason" id="confReason">--</div>
+    </section>
+
+    <!-- 四维解读 -->
+    <section class="card" id="secDims">
+      <h2>🧭 四维解读</h2>
+      <div class="dims">
+        <div class="dim"><div class="lbl">🛡️ 风险面</div><p id="dimRisk">--</p></div>
+        <div class="dim"><div class="lbl">💰 资金面</div><p id="dimFund">--</p></div>
+        <div class="dim"><div class="lbl">😌 情绪面</div><p id="dimSentiment">--</p></div>
+        <div class="dim"><div class="lbl">📊 技术面</div><p id="dimTech">--</p></div>
+      </div>
+    </section>
+
+    <!-- 风险点 / 亮点 / 关注 -->
+    <section class="card" id="secRisks">
+      <h2>⚠️ 今日风险点</h2>
+      <ul class="plain" id="riskItems"></ul>
+    </section>
+
+    <section class="card" id="secHighlights">
+      <h2>✨ 今日亮点</h2>
+      <ul class="plain" id="highlights"></ul>
+    </section>
+
+    <section class="card" id="secWatch">
+      <h2>👀 关注指数</h2>
+      <ul class="plain" id="watchList"></ul>
+    </section>
+
+    <!-- 今日速览 -->
+    <section class="card" id="secGauges">
+      <h2>🌡️ 今日速览</h2>
+      <div class="gauges">
+        <div class="gauge">
+          <div class="name">恐贪指数</div>
+          <div class="val" id="gFear">--</div>
+          <div class="tag" id="gFearTag">--</div>
+        </div>
+        <div class="gauge">
+          <div class="name">A股情绪分</div>
+          <div class="val" id="gSentiment">--</div>
+          <div class="tag" id="gSentimentTag">--</div>
+        </div>
+        <div class="gauge">
+          <div class="name">跨市场评分</div>
+          <div class="val" id="gCross">--</div>
+          <div class="tag" id="gCrossTag">--</div>
+        </div>
+      </div>
+      <div class="signals" id="signalsBox" style="display:none">
+        <h3 style="font-size:13px;color:var(--warn);margin:12px 0 4px">🚨 大盘预警信号</h3>
+        <div id="signalsList"></div>
+      </div>
+    </section>
+
+    <!-- 详细速递文案 -->
+    <section class="card" id="secText">
+      <h2>📝 详细速递</h2>
+      <div class="text-block">
+        <h3>📋 今日复盘</h3><p id="tReview">--</p>
+        <h3>📈 趋势研判</h3><p id="tTrend">--</p>
+        <h3>👀 关注要点</h3><p id="tWatch">--</p>
+        <h3>⚠️ 风险提示</h3><p id="tRisk">--</p>
+      </div>
+    </section>
+
+    <footer>
+      <div class="disclaimer" id="disclaimer">--</div>
+      <div class="brand">FX8 STORE · 数据持续更新</div>
+    </footer>
+
+  </div>
+</div>
+
+<script>
+(function () {
+  var CODE = "FX8-2026";
+  var STORE_KEY = "fx8_databrief_unlocked";
+  var CODE_KEY = "fx8_databrief_code";
+
+  // ---------- 解锁逻辑 ----------
+  function isUnlocked() {
+    try {
+      return localStorage.getItem(STORE_KEY) === "1" && localStorage.getItem(CODE_KEY) === CODE;
+    } catch (e) { return false; }
+  }
+  function unlock(code) {
+    if (code === CODE) {
+      try {
+        localStorage.setItem(STORE_KEY, "1");
+        localStorage.setItem(CODE_KEY, CODE);
+      } catch (e) {}
+      return true;
+    }
+    return false;
+  }
+
+  var gate = document.getElementById("gate");
+  var app = document.getElementById("app");
+  var gateInput = document.getElementById("gateInput");
+  var gateBtn = document.getElementById("gateBtn");
+  var gateErr = document.getElementById("gateErr");
+
+  function enter() {
+    gate.style.display = "none";
+    app.style.display = "block";
+    load();
+  }
+
+  function tryUnlock() {
+    var v = (gateInput.value || "").trim();
+    if (unlock(v)) { enter(); }
+    else { gateErr.textContent = "密码错误,请确认购买凭证中的提取码"; }
+  }
+
+  gateBtn.addEventListener("click", tryUnlock);
+  gateInput.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") tryUnlock();
+  });
+
+  if (isUnlocked()) { enter(); }
+
+  // ---------- 工具 ----------
+  function el(id) { return document.getElementById(id); }
+  function setTxt(id, t) { var e = el(id); if (e) e.textContent = t == null || t === "" ? "--" : t; }
+  function fmtNum(v) {
+    if (v == null || isNaN(v)) return "--";
+    return (Math.round(v * 100) / 100).toString();
+  }
+
+  function stateTag(value) {
+    // 0-100 评分:值越高越热,状态色随高低温
+    if (value == null || isNaN(value)) return { txt: "--", cls: "flat" };
+    var v = Number(value);
+    if (v >= 60) return { txt: "偏热", cls: "up" };
+    if (v <= 40) return { txt: "偏冷", cls: "down" };
+    return { txt: "中性", cls: "flat" };
+  }
+
+  function dirInfo(d) {
+    if (d === "up") return { txt: "📈 上涨", cls: "up" };
+    if (d === "down") return { txt: "📉 下跌", cls: "down" };
+    return { txt: "➖ 震荡/平", cls: "flat" };
+  }
+
+  // ---------- 渲染 ----------
+  function renderDaily(b) {
+    var m = b.meta || {};
+    setTxt("dataDate", String(m.date || "--").replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3"));
+    setTxt("genAt", (b.generated_at || "--").slice(0, 16));
+
+    // 预测
+    var di = dirInfo(m.direction);
+    var db = el("dirBadge");
+    db.textContent = di.txt;
+    db.className = "dir-badge " + di.cls;
+    setTxt("rangeText", "区间 " + m.range.lo + "% ~ " + m.range.hi + "%");
+    var conf = m.confidence;
+    setTxt("confPct", conf + "%");
+    var bar = el("confBar");
+    bar.style.width = Math.max(0, Math.min(100, Number(conf) || 0)) + "%";
+    setTxt("confReason", m.confidence_reason || "--");
+
+    // 四维
+    var roles = m.roles || {};
+    setTxt("dimRisk", roles.risk);
+    setTxt("dimFund", roles.fund);
+    setTxt("dimSentiment", roles.sentiment);
+    setTxt("dimTech", roles.tech);
+
+    // 风险点 / 亮点 / 关注
+    renderList("riskItems", m.risk_items, "risk");
+    renderList("highlights", m.highlights, "hl");
+    renderWatch(m.watch_list);
+  }
+
+  function renderList(id, arr, type) {
+    var box = el(id);
+    box.innerHTML = "";
+    if (!arr || !arr.length) {
+      box.innerHTML = '<li style="border:none;color:var(--sub)">暂无</li>';
+      return;
+    }
+    arr.forEach(function (item) {
+      var li = document.createElement("li");
+      if (type === "risk") li.className = "risk";
+      if (type === "watch") li.className = "watch";
+      li.textContent = item;
+      box.appendChild(li);
+    });
+  }
+
+  function renderWatch(list) {
+    var box = el("watchList");
+    box.innerHTML = "";
+    if (!list || !list.length) {
+      box.innerHTML = '<li style="border:none;color:var(--sub)">暂无</li>';
+      return;
+    }
+    list.forEach(function (w) {
+      var li = document.createElement("li");
+      li.className = "watch";
+      var t = w.name || "--";
+      if (w.win_rate != null) t += " · 历史胜率 " + (w.win_rate * 100).toFixed(0) + "%";
+      li.textContent = t;
+      box.appendChild(li);
+    });
+  }
+
+  function renderOverview(o) {
+    var today = o.today || {};
+
+    // 恐贪 / 情绪 / 跨市场
+    var fg = lastOf(o.fear_greed_6m) || valOf(today.scores && today.scores.fear_greed);
+    var se = lastOf(o.a_sentiment_6m) || valOf(today.scores && today.scores.a_sentiment);
+    var cm = lastOf(o.cross_market_6m) || valOf(today.scores && today.scores.cross_market);
+
+    setTxt("gFear", fg != null ? fmtNum(fg) : "--");
+    setTxt("gSentiment", se != null ? fmtNum(se) : "--");
+    setTxt("gCross", cm != null ? fmtNum(cm) : "--");
+
+    var fgTag = stateTag(fg), seTag = stateTag(se), cmTag = stateTag(cm);
+    var fgLbl = labelOf(today.scores && today.scores.fear_greed) || fgTag.txt;
+    setTag("gFearTag", fgLbl, fgTag.cls);
+    setTag("gSentimentTag", seTag.txt, seTag.cls);
+    setTag("gCrossTag", cmTag.txt, cmTag.cls);
+
+    // 预警信号(仅卖出/止损类,band_hold 波段持有=中性不列预警)
+    var sigs = o.signals_today || [];
+    var warnSigs = sigs.filter(function (s) {
+      return s && s.signal && /^sell(_stop_loss)?$|^risk$/i.test(s.signal);
+    });
+    var box = el("signalsBox");
+    var list = el("signalsList");
+    if (warnSigs.length) {
+      box.style.display = "block";
+      list.innerHTML = "";
+      warnSigs.slice(0, 8).forEach(function (s) {
+        var d = document.createElement("div");
+        d.className = "sig-item";
+        d.innerHTML = "<b>" + esc(s.name || s.index_id || "--") + "</b> · " + esc(s.signal || "");
+        if (s.reason) {
+          var r = document.createElement("div");
+          r.className = "reason";
+          r.textContent = s.reason;
+          d.appendChild(r);
+        }
+        list.appendChild(d);
+      });
+    } else {
+      box.style.display = "none";
+    }
+  }
+
+  function lastOf(arr) {
+    if (!arr || !arr.length) return null;
+    var last = arr[arr.length - 1];
+    return last && last.value != null ? last.value : null;
+  }
+  function valOf(score) {
+    return score && score.value != null ? score.value : null;
+  }
+  function labelOf(score) {
+    return score && score.components && score.components.label ? score.components.label : null;
+  }
+  function setTag(id, txt, cls) {
+    var e = el(id);
+    e.textContent = txt || "--";
+    e.className = "tag " + (cls || "flat");
+  }
+  function esc(s) {
+    var d = document.createElement("div");
+    d.textContent = s == null ? "" : String(s);
+    return d.innerHTML;
+  }
+
+  // ---------- 文案 ----------
+  function renderText(t) {
+    t = t || {};
+    setTxt("tReview", t.review);
+    setTxt("tTrend", t.trend);
+    setTxt("tWatch", t.watch);
+    setTxt("tRisk", t.risk);
+  }
+
+  // ---------- 加载 ----------
+  function load() {
+    var loading = el("loading");
+    var errorBox = el("errorBox");
+    var content = el("content");
+    loading.style.display = "block";
+    errorBox.style.display = "none";
+    content.style.display = "none";
+
+    var briefP = fetch("data/daily_brief.json").then(function (r) { return r.ok ? r.json() : Promise.reject(); });
+    var ovP = fetch("data/overview.json").then(function (r) { return r.ok ? r.json() : Promise.reject(); });
+
+    Promise.all([briefP, ovP]).then(function (res) {
+      var brief = res[0], ov = res[1];
+      renderDaily(brief);
+      renderOverview(ov);
+      renderText(brief.text);
+      setTxt("disclaimer", brief.disclaimer || "");
+      loading.style.display = "none";
+      content.style.display = "block";
+    }).catch(function () {
+      loading.style.display = "none";
+      errorBox.style.display = "block";
+    });
+  }
+})();
+</script>
+</body>
+</html>
