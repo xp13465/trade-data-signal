@@ -213,3 +213,7 @@ curl -s -H "Authorization: Bearer <admin_key>" https://ss.fx8.store/api/subscrib
 - 飞书报告群：`notify.send_feishu`。
 - 失败重试 1 次 + 按 date 防重复 + 非交易日跳过（复用 `app/calendar.py is_trading_day`）。
 - 计费 hook：本期不做自动扣费，`brief_push.py` 留 `BILLING_HOOK` 注释，上架后接 UUMit 平台计费回调。
+
+## 支持与反馈
+
+- **API 问题 / 报错反馈**：[support@fx8.store](mailto:support@fx8.store)（技术支持邮箱，请在反馈中附上调用 URL、时间与返回的错误信息，便于定位）。

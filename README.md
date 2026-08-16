@@ -465,3 +465,8 @@ docs/kelly/             # 凯利回测专题文档子目录（2026-08-14 按主�
 数据来源均为公开免费数据源（akshare / mootdx / BaoStock / HKEX / CCASS / 东财 / 同花顺 / 申万 / 中证指数公司 / 新浪 / 腾讯 / CFFEX / cninfo），详见 [docs/data-sources.md](docs/data-sources.md) 与上方「参考与致敬」段。
 
 本看板仅供学习研究，**不构成投资建议**，详见上方免责声明。
+
+## 📬 联系我们
+
+- **联系 / 商务**：[contact@fx8.store](mailto:contact@fx8.store)（合作洽谈、商务咨询）
+- **技术支持**：见 [docs/api-data-query.md](docs/api-data-query.md)「支持与反馈」段（[support@fx8.store](mailto:support@fx8.store)）
