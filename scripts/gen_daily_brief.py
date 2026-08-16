@@ -2947,6 +2947,10 @@ def main() -> int:
     # 新闻快讯独立产物上线闭环(2026-08-16 §22): news_digest.json(fetch_news.py 16:45 产,仅落 data/)
     # 需随 daily_brief 一起同步到 static-site/data/ + R2 data/ 前缀 + staticdata,前端"今日要闻/明日关键事件/历史事件对照"
     # 三个展示位才读得到(只写 data/ 不随 deploy 上线=前端 404)。当 news 面可用且为当日数据时复制,否则不强制(前端空态)。
+    # 根因修(2026-08-16,§23.2): files_out 必须在分支判断前兜底初始化,否则 news_meta.available=False 走
+    # else 分支时引用未定义变量 files_out 直接 NameError,导致 R2/staticdata 上传被整段跳过(主站留旧版)。
+    # 上传清单 = 主数据 2 件(BRIEF_FILE + HISTORY_FILE) + tts mp3(若有);news_digest 同步只在基础上 append。
+    files_out = [BRIEF_FILE, HISTORY_FILE] + ([tts_file] if tts_ok and tts_file else [])
     news_meta = (data.get("news") or {})
     if news_meta.get("available"):
         # 源文件 = 后端 _load_news_inject 读到的 news_digest.json(trade-data/data/ 或 ROOT/data 兜底)
@@ -2985,17 +2989,13 @@ def main() -> int:
                         shutil.copy2(arch_f, sd_nd / arch_f.name)
                         if f"news_digest/{arch_f.name}" not in arch_files:
                             arch_files.append(f"news_digest/{arch_f.name}")
-                files_out_n = [BRIEF_FILE, HISTORY_FILE] \
-                    + arch_files \
-                    + ([tts_file] if tts_ok and tts_file else [])
+                files_out = files_out + arch_files
                 log(f"news_digest.json + {len(arch_files)-1} 个日期归档已同步到 static_dir + 加入 R2/staticdata 上传链")
             except Exception as e:
                 log(f"⚠ news_digest.json 复制/加入上传链失败(不阻塞): {e}")
-                files_out_n = files_out
-        else:
-            files_out_n = files_out
-    else:
-        files_out_n = files_out
+                # files_out 已有主数据 2 件 + tts 兜底,不上传 news_digest 也能保证主数据上线
+    # 无论 news_meta.available True/False、news_src 是否存在、复制成功与否,files_out 均含完整上传清单
+    files_out_n = files_out
     # R2 上传(主数据 2 件 + news_digest.json(当日可用时) + tts mp3(若有);run_log 在 write_run_log 后单独传)
     tu = time.time()
     upload_to_r2(repo, args.no_upload, files=files_out_n)
