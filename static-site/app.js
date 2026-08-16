@@ -1508,10 +1508,10 @@ function _sigTodayHint() {
 }
 // ── 分析参考点AI监控卡(过拟合监控走势图, B 档 2026-08-15 → 二次迭代 2026-08-16) ──
 // 数据源 static-site/data/overfit_monitor.json(每日多维打点 + 自2011历史回算)。
-// 双曲线: ①准确率(实盘 actual vs 回测 backtest, 显示范围30/60/90/180交易日, 统计口径10/15/30/60/100默认60) ②综合过拟合风险分(0-100, 绿黄红分段+参考线30/60)。
+// 双曲线: ①准确率(实盘 actual vs 回测 backtest, 显示范围30/60/90/180交易日, 统计口径10/15/30/60/100默认15) ②综合过拟合风险分(0-100, 绿黄红分段+参考线30/60)。
 // 2026-08-16 二迭代: ①K档启用(by_k/filtered_by_k, 与首页AI仓位建议top-K同口径, 降亏开关×K档两开关独立)
 //   ②窗口语义改「显示范围」= 横轴截取最近N日展示; 统计口径(rolling)改为 10/15/30/60/100 可切(2026-08-16 v2 布局重排),
-//     后端 rolling/daily_by_win/daily_by_dim 各按 WINDOWS 输出多套, 前端按选中口径换 key 读取(默认60)。
+//     后端 rolling/daily_by_win/daily_by_dim 各按 WINDOWS 输出多套, 前端按选中口径换 key 读取(默认15)。
 //   ③SVG 3色为基准(echarts fallback 去固定色让 visualMap 生效) ④reviewer 返修4项(P1 localStorage try/catch
 //   /P2-1 空态删 _lwRenderers /P2-2 dataZoom pb 44 /P2-3 y轴固定0-100) ⑤标题❓hover短+click详版弹窗(rule-modal)。
 // 口径公示(卡内 tooltip + help 弹窗 + purpose-notes §21): 准确率=信号后方向命中(回测=按卖出模式到期收益方向;
@@ -1522,7 +1522,7 @@ function _sigTodayHint() {
 // 随 charts.lightweight 开关切换, 零常驻 echarts.init)。
 let _overfitAccEl = null;    // #overfit-acc-chart 容器(lite SVG 或 echarts fallback)
 let _overfitRiskEl = null;   // #overfit-risk-chart 容器
-let _overfitState = { win: 60, roll: 60, grade: null, sigType: null, k: 1 };  // win=显示范围(30/60/90/180交易日), roll=统计口径(10/15/30/60/100, 默认60), grade=评级(null=全部), sigType=信号类型(null=全部), k=K档(1/2/3/4, 默认1同首页, 两开关独立)
+let _overfitState = { win: 60, roll: 15, grade: null, sigType: null, k: 1 };  // win=显示范围(30/60/90/180交易日), roll=统计口径(10/15/30/60/100, 默认15), grade=评级(null=全部), sigType=信号类型(null=全部), k=K档(1/2/3/4, 默认1同首页, 两开关独立)
 // 分析参考点AI监控卡维度按钮中文标签(全局: 空态提示 + 标题副标共用)
 const _overfitDimLabels = {
   win: { 30: "30日", 60: "60日", 90: "90日", 180: "180日" },
@@ -1551,7 +1551,7 @@ function _overfitHelpModalHTML() {
       '<p><b>AI降亏过滤(开关)</b>：开启(默认)=只统计「未被 AI 宏删线过滤」的信号(未命中 8 键降亏且已入样)；关闭=统计全信号。仅买信号判降亏，卖/止损卖不判。与「K档」两开关独立。</p>' +
       '<p><b>K档(关/K=1/2/3/4)</b>：与首页「AI仓位建议 K」按钮组同交互（关在前、K1主推★高亮）。每日只保留当日最优 K 个买入信号来监控，同口径（排序=跟踪分↓→评级→信号类型）。<b>点「关」</b>=无K档，退化为普通列表（降亏开关控制 filtered/raw 两bank）。<b>两开关独立</b>：降亏开=先滤降亏再选 top-K(filtered_by_k)，降亏关=全信号直接选 top-K(by_k)，K 独立可用不依赖降亏开关。K 越大纳入的标的越多、样本越足。</p>' +
       '<p><b>显示范围(30/60/90/180日)</b>：控制横轴展示最近 N 个交易日，<b>只影响显示截取、不改变统计</b>——即无论选 30 还是 180，都只是图上看多少范围，曲线按当前「统计口径」算。</p>' +
-      '<p><b>统计口径(10/15/30/60/100日，默认60)</b>：准确率 + 综合过拟合风险分<u>两图都按选中的 N 日滚动重算</u>（即重算滚动窗口，而非只截取展示）。综合风险分本身按 60 日窗口计算（后端单一权威值），两图曲线随选中口径滚动展示。</p>' +
+      '<p><b>统计口径(10/15/30/60/100日，默认15)</b>：准确率 + 综合过拟合风险分<u>两图都按选中的 N 日滚动重算</u>（即重算滚动窗口，而非只截取展示）。综合风险分本身按 60 日窗口计算（后端单一权威值），两图曲线随选中口径滚动展示。</p>' +
       '<p><b>评级/类型</b>：切换只看高/中/低评级 或 主买/辅买/追买/备买/卖/止损卖 子集。卖/止损卖回测仅买入信号，故只显示实盘单曲线。</p>' +
     '</div>' +
     '<div class="rule-card">' +
@@ -1594,7 +1594,7 @@ function _openOverfitHelpModal() {
 })();
 
 // 维度取值: 返回当前选中的滚动 .{actual|backtest} 的 [统计口径 roll] 窗口全量序列。
-// 2026-08-16 窗口语义改造v2: 统计口径可切 10/15/30/60/100(默认60), 后端按选中口径输出多套窗口,
+// 2026-08-16 窗口语义改造v2: 统计口径可切 10/15/30/60/100(默认15), 后端按选中口径输出多套窗口,
 // 前端按 _overfitState.roll 换 key 读取(无对应窗口时 fallback 60)。
 // 前端「显示范围」30/60/90/180 只对全量序列做 slice(-w) 截取展示, 不改变统计窗口(_overfitAccSeries 截取)。
 // grade/sigType 都 null -> total; sigType 优先(类型比评级更细分)。
@@ -1832,7 +1832,7 @@ async function _appendOverfitCard(colA2, r, snap) {
           }).join("");
       })(_overfitState)) +
       '</div>' +
-    '<div class="overfit-tip" data-tip="双曲线监控 · 综合过拟合风险分(0-100)。显示范围(30/60/90/180日)=横轴截取最近 N 个交易日展示, 只影响显示不重算；统计口径(10/15/30/60/100日, 默认60)=两图(准确率+风险分)按选中口径滚动重算；评级/类型=看子集；K档(关/K1主推★)=每日最优先选K个买入信号(top-K), 与首页AI仓位建议同口径, 与AI降亏两开关独立(降亏开=过滤后选, 关=全信号选)；AI降亏=只统计未被AI宏删线过滤的信号。绿&lt;30正常 黄30-60关注 红&gt;60高风险。完整说明见标题❓">' +
+    '<div class="overfit-tip" data-tip="双曲线监控 · 综合过拟合风险分(0-100)。显示范围(30/60/90/180日)=横轴截取最近 N 个交易日展示, 只影响显示不重算；统计口径(10/15/30/60/100日, 默认15)=两图(准确率+风险分)按选中口径滚动重算；评级/类型=看子集；K档(关/K1主推★)=每日最优先选K个买入信号(top-K), 与首页AI仓位建议同口径, 与AI降亏两开关独立(降亏开=过滤后选, 关=全信号选)；AI降亏=只统计未被AI宏删线过滤的信号。绿&lt;30正常 黄30-60关注 红&gt;60高风险。完整说明见标题❓">' +
       '双曲线监控 · 综合过拟合风险分0-100 · <span class="overfit-legend">绿&lt;30正常 黄30-60关注 红&gt;60高风险</span>' +
       '<span class="overfit-tip-help" data-overfit-help="1" style="cursor:pointer;text-decoration:underline;margin-left:6px">❓完整指南</span></div>' +
     // 一行: 显示范围 + 统计口径(两个"范围类"合一行, 2026-08-16 布局重排)
