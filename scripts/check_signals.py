@@ -1155,7 +1155,8 @@ def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str
     飞书 post text 不支持 style.color，见 notify.py 注释）；分组表头用 md **加粗**。
     每个信号一行精简（类型/品种/触发条件摘要/凯利建议），不冗长；触发条件截断
     FEISHU_POST_REASON_MAX 字符；规则说明省略为一行指引（完整在邮件）。
-    超行数上限 notify.FEISHU_POST_MAX_ROWS 时省略尾部（信息量优先，防超长）。
+    超 notify.FEISHU_POST_MAX_ROWS 行时由 send_feishu 分段连发（2026-08-16 用户定：
+    放开行数+超长分段连发，标题带 N/M 序号，不省略行，和页面一致）。
     """
     stats = load_signal_stats()
     groups = _group_signals(signals)
@@ -1193,12 +1194,9 @@ def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str
         suffix = "等" if fade_n > 5 else ""
         lines.append([notify.post_md(f"⚠️ **信号消失/变化 {fade_n} 条**：{names}{suffix}（详见邮件）")])
 
-    # 超行数上限省略尾部（信息量优先：保留分组标题+前 N 行，省略明细行）
-    if len(lines) > notify.FEISHU_POST_MAX_ROWS:
-        n_omit = len(lines) - notify.FEISHU_POST_MAX_ROWS
-        lines = lines[:notify.FEISHU_POST_MAX_ROWS] + [
-            [notify.post_text(f"… 其余 {n_omit} 条省略，详见邮件")]
-        ]
+    # 超 80 行分段由 send_feishu 内部处理（2026-08-16 用户定：放开行数+超长分段连发，不省略）。
+    # 此处不再截断省略尾部；完整 lines 交 build_feishu_post，send_feishu 按 FEISHU_POST_MAX_ROWS
+    # 每段切分、多段连发（标题带 N/M 序号），杜绝丢「明细行」。
 
     # 规则说明省略为一行指引（完整在邮件；飞书 post 不支持折叠，故精简）
     lines.append([notify.post_text("📋 完整规则与免责见邮件 · 以收盘最终版为准")])

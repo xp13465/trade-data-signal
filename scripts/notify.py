@@ -80,9 +80,13 @@ TG_TEXT_LIMIT = 4096
 # 飞书 text 消息单条长度上限（约 1-2K 量级，取保守 2000；超长截断）
 FEISHU_TEXT_LIMIT = 2000
 
-# 飞书 post 富文本（msg_type=post）行数上限：超出省略尾部（信息量优先，防超长半截）。
-# 报告群买卖点/汪汪队信号 post 版按此截断（20 行 × ~70 字符 ≈ 1400 字符，远低于 2000）。
-FEISHU_POST_MAX_ROWS = 20
+# 飞书 post 富文本（msg_type=post）每段行数上限（2026-08-16 用户定：放开行数+超长分段连发）。
+#   - 旧：20 行即截断省略尾部（信息量优先），超长会丢「细讲/风险项/辩论/四角色」。
+#   - 新：单条 post 真实上限约 30KB（样式标签占体积），80 行≈5.6K 字符离上限很远；
+#         20→80 放宽让 AI预测/买卖点等日常内容完整落一条，不省略。
+#   - 仍可能超 80 行（如买卖点全量触发）时，send_feishu 内部按此值每段切分、多段连发
+#     （标题带 N/M 序号），绝不省略行（和页面一致）。由此跳过 20 行截断省略逻辑。
+FEISHU_POST_MAX_ROWS = 80
 
 # P1-1（2026-08-11 稳定性修复）：飞书发送有限重试 3 次（指数退避 1s/3s/7s）。
 # 网络瞬时错误（URLError/HTTP 5xx）与飞书服务端瞬时错误码重试；确定性错误（4xx/
@@ -214,6 +218,73 @@ def build_feishu_post(title: str, lines: list[list[dict]]) -> dict:
     send_feishu(feishu_post=本返回值) 即以 post 富文本发送（仅 report 群生效）。
     """
     return {"zh_cn": {"title": str(title), "content": [list(line) for line in lines]}}
+
+
+def _split_post_segments(post_dict: dict, max_rows: int | None = None) -> list[dict]:
+    """把 build_feishu_post 产物按 max_rows 每段切分成多个 post dict（标题带 N/M 序号）。
+
+    - 不超过 max_rows 时返回 [post_dict]（一条原样发送，内容不变）。
+    - 超过时每段最多 max_rows 行，段标题追加「N/M」序号标识分段连发（第 1 段也带，
+      让多段消息清楚可辨），行内容原样保留不进省略行。
+    - max_rows 默认 FEISHU_POST_MAX_ROWS（80）。每一行不会被截断、不丢失任何内容。
+    """
+    if max_rows is None:
+        max_rows = FEISHU_POST_MAX_ROWS
+    zh = post_dict.get("zh_cn", {}) or {}
+    title = str(zh.get("title", ""))
+    content = zh.get("content", []) or []
+    rows_total = len(content)
+    if rows_total <= max_rows:
+        return [post_dict]
+    n_seg = (rows_total + max_rows - 1) // max_rows
+    out: list[dict] = []
+    for i in range(n_seg):
+        chunk = content[i * max_rows:(i + 1) * max_rows]
+        out.append({
+            "zh_cn": {
+                "title": f"{title} {i + 1}/{n_seg}",
+                "content": [list(line) for line in chunk],
+            }
+        })
+    return out
+
+
+def send_feishu_post_segmented(subject: str, lines: list[list[dict]],
+                               max_rows: int | None = None,
+                               reply_to_message_id: str | None = None,
+                               dry_run: bool = False, from_prefix: str | None = None
+                               ) -> bool:
+    """逐条连发飞书 post 富文本，超行数自动分段不省略（2026-08-16 用户定放开行数+分段）。
+
+    - lines: build_feishu_post 的行列表（每行 = tag 列表，post_text()/post_md() 产出）。
+    - 单次通知内分段连发：≤max_rows(默认 80) 一条发；超过按每段 max_rows 切分，标题带
+      「N/M」序号连续发送（每段一个 post 消息），绝不省略行（和页面一致）。
+    - 只发飞书 report 群这一个渠道，不走 notify.send 的邮件/Telegram 分发（适合调用方
+      已另行处理邮件、仅需飞书分段连发的场景）。用 send()/send_to() 传 feishu_post= 时，
+      send_feishu 内部也会自动分段（见 send_feishu），无需显式调本函数。
+    - dry_run=True 只 print 不真发。返回 True 表示发出（或 dry_run 模拟成功）。
+    - 分段只在单次通知内连发；「同日只发一次」的 dedup 由调用方在 send 前统一做一次
+      （本函数不重复检查 dedup，首条后各段不再检查）。
+    """
+    post = build_feishu_post(subject, lines)
+    segments = _split_post_segments(post, max_rows)
+    if len(segments) == 1:
+        return send_feishu(subject, "", dry_run=dry_run, from_prefix=from_prefix,
+                           chat_key="report",
+                           reply_to_message_id=reply_to_message_id,
+                           feishu_post=post)
+    n = len(segments)
+    ok = True
+    for i, pd in enumerate(segments, 1):
+        seg_title = pd.get("zh_cn", {}).get("title", subject)
+        print(f"[notify] 分段 {i}/{n} 发出：{seg_title}（{len(pd['zh_cn']['content'])} 行），"
+              f"同一通知连发，dedup 只由调用方查一次", file=sys.stderr)
+        if not send_feishu(subject, "", dry_run=dry_run, from_prefix=from_prefix,
+                           chat_key="report",
+                           reply_to_message_id=reply_to_message_id,
+                           feishu_post=pd):
+            ok = False
+    return ok
 
 
 def send_telegram(subject: str, body: str, dry_run: bool = False,
@@ -569,9 +640,19 @@ def send_feishu(subject: str, body: str, chat_key: str | None = None,
     # 实测加 {"post": ...} 外层会报 230001 invalid message content）；webhook 模式才需 post 外层包
     # （_send_feishu_webhook 内部处理）。build_feishu_post 已返回 {"zh_cn": ...}。
     msg_type, content = "text", None
+    post_segments: list[dict] | None = None  # 分段 post（仅 report 群 + 超行数时非 None）
     if feishu_post and chat_key == "report":
-        msg_type, content = "post", feishu_post
-        log_text = f"{subject}\n\n[post 富文本 {len(feishu_post.get('zh_cn', {}).get('content', []))} 行]"
+        # 超 FEISHU_POST_MAX_ROWS 行时按每段切分、多段连发（标题带 N/M 序号），绝不省略行
+        # （2026-08-16 用户定：放开行数+超长分段连发，和页面一致，不丢细讲/风险/辩论/角色）。
+        decoded = feishu_post.get("zh_cn", {})
+        rows = decoded.get("content", [])
+        if len(rows) > FEISHU_POST_MAX_ROWS:
+            post_segments = _split_post_segments(feishu_post, FEISHU_POST_MAX_ROWS)
+            log_text = (f"{subject}\n\n[post 富文本 {len(rows)} 行超上限，"
+                        f"分段 {len(post_segments)} 条连发]")
+        else:
+            msg_type, content = "post", feishu_post
+            log_text = f"{subject}\n\n[post 富文本 {len(rows)} 行]"
     else:
         log_text = f"{subject}\n\n{_html_to_text(body)}"
         if len(log_text) > FEISHU_TEXT_LIMIT:
@@ -593,8 +674,26 @@ def send_feishu(subject: str, body: str, chat_key: str | None = None,
                   file=sys.stderr)
             return False
         # webhook 模式不支持引用回复（im/v1/messages 专属能力），忽略 reply_to_message_id
+        # 分段：每段一个 webhook 消息连发
+        if post_segments is not None:
+            ok = True
+            for i, pd in enumerate(post_segments, 1):
+                if not _send_feishu_webhook(url, subject,
+                                            f"[post 第{i}/{len(post_segments)}段]",
+                                            msg_type="post", content=pd):
+                    ok = False
+            return ok
         return _send_feishu_webhook(url, subject, log_text,
                                     msg_type=msg_type, content=content)
+    # 分段：每段一次 im/v1/messages 调用连发（首条带原 subject，后续 post 标题已含 N/M）
+    if post_segments is not None:
+        ok = True
+        for i, pd in enumerate(post_segments, 1):
+            if not _send_feishu_api(chat_id, subject, f"[post 第{i}/{len(post_segments)}段]",
+                                    reply_to_message_id=reply_to_message_id,
+                                    msg_type="post", content=pd):
+                ok = False
+        return ok
     return _send_feishu_api(chat_id, subject, log_text,
                             reply_to_message_id=reply_to_message_id,
                             msg_type=msg_type, content=content)
