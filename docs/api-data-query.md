@@ -1,6 +1,7 @@
 # 统一数据查询 API（/api/data/*）
 
 > 2026-08-17 上线 · B 级新功能 · 为 UUMit 平台上架售卖金融情绪数据查询服务做基础。
+> 2026-08-17 第二批：一次性加满 12 个新类别（market/a_stock/rotation/position/ma_alignment/volume_ratio/new_high_low/futures/signal_freq/fund_score/etf_score/etf_national_team）。
 
 ## 定位
 
@@ -23,11 +24,36 @@ key 只在 KV 存 SHA-256 hash（键 `api_key:<hash>`），真实 key 由 `scrip
 
 ### `GET /api/data/<category>/latest` — 最新一天快照（轻量，几百字节）
 
-| category | 返回 |
-|---|---|
-| `sentiment` | `{date, fear_greed, a_sentiment, cross_market}` 三字段今日值 |
-| `alert` | `{date, high, low}` 大盘预警今日值 |
-| `signals` | `?target=<标的id>` 读 `alert_analyze_<target>.json`；缺 target 返回支持列表 |
+| category | 数据文件 | 返回 |
+|---|---|---|
+| `sentiment` | sentiment-3m.json | `{date, fear_greed, a_sentiment, cross_market}` 三字段今日值 |
+| `alert` | alert.json | `{date, high, low}` 大盘预警今日值 |
+| `signals` | alert_analyze_<target>.json | `?target=<标的id>`；缺 target 返回支持列表 |
+| `market` | overview.json | `{date, scores, signals_today}` 综合评分+信号灯+今日信号 |
+| `a_stock` | a-stock-3m.json | `{metrics}` 宽度指标今日值（上涨家数/涨停等）——**只开放 metrics，绝不开放 indices 原始行情** |
+| `rotation` | rotation.json | `{date, latest}` 板块轮动速度（speed_5d/10d/20d） |
+| `position` | position.json | `{positions}` 各大指数点位+分位数（全部 8 个） |
+| `ma_alignment` | ma_alignment.json | `{date, latest}` 多头/空头/金叉死叉家数 |
+| `volume_ratio` | volume_ratio.json | `{date, latest}` 全市场量能（amount/ma5/ma20/ratio） |
+| `new_high_low` | new_high_low.json | `{date, latest}` 52周/20日新高新低家数 |
+| `futures` | futures.json | `{summary, latest_positions, latest_positions_ratio}` 机构多空持仓/多空比 |
+| `signal_freq` | signal_freq.json | 买卖信号频率聚合（monthly_avg/year_count/total_count 全字段） |
+| `fund_score` | fund_score_top.json | `{date, count, method, data}` 基金评分 top 列表 |
+| `etf_score` | etf_score_list.json | `{date, updated_at, limit, total, buy_list, sell_list, hold_list}` ETF 评分（**大文件，?limit=N 防读全量，默认 20 最大 100**） |
+| `etf_national_team` | etf_national_team-1y.json | `{updated_at, etfs}` 国家队 ETF 持仓 |
+
+> 合规红线：`a_stock` 只开放 `metrics` 宽度指标（上涨家数/涨停/炸板率/量能等自研加工值），**绝不开放 `indices` 原始行情字段**（open/high/low/close 等第三方行情不可转售）。本次**不新增** global/hk/industry 类别（原始第三方行情，不合规）。两融(margin)/ETF跟踪(etf_track)二期数据上线后再加（见下文「待确认类别」）。
+
+### `GET /api/data/<category>/range?start=YYYYMMDD&end=YYYYMMDD` — 时间区间切片
+
+- start/end 缺省给合理默认（缺 start = 最早，缺 end = 最新）
+- 支持 `YYYY-MM-DD` 与 `YYYYMMDD` 两种格式
+- `sentiment` 返回三字段在区间内的历史数组；`alert` 返回 `history` 数组切片
+- `rotation`/`ma_alignment`/`volume_ratio`/`new_high_low` 返回 `data` 数组按日期切片
+- `a_stock` 返回 `{metrics}` 各指标在区间内的 data 数组
+- `futures` 返回 `{positions, positions_ratio}` 双数组切片
+- 快照类（market/position/signal_freq/fund_score/etf_score/etf_national_team）range 等价 latest（数据非时间序列，返回最新快照，不报错）
+- `signals` 是单标的快照（alert/reason 非时间序列），不支持 range
 
 ### `GET /api/data/<category>/range?start=YYYYMMDD&end=YYYYMMDD` — 时间区间切片
 
@@ -36,9 +62,11 @@ key 只在 KV 存 SHA-256 hash（键 `api_key:<hash>`），真实 key 由 `scrip
 - `sentiment` 返回三字段在区间内的历史数组；`alert` 返回 `history` 数组切片
 - `signals` 是单标的快照（alert/reason 非时间序列），不支持 range
 
-### `GET /api/data/<category>/summary` — 跨类别聚合今日值
+### `GET /api/data/<category>/summary` — 跨类别聚合今日值（按组聚合设计）
 
-一个请求返回恐贪 + A股情绪 + 跨市场 + 大盘预警的今日值（`{sentiment: {...}, alert: {...}}`）。未来可扩两融/ETF。
+**按组聚合设计（2026-08-17）**：summary 只聚合「轻量状态组」小文件（sentiment + alert + market + signal_freq），一次请求拿到今日市场全景概览（`{sentiment, alert, market, signal_freq, group:"lightweight_status"}`）。**不拉大文件**（etf_score 17MB / etf_national_team / fund_score / futures 等走各自 `latest` 单独查），避免 summary 每次调用都读全量大数据文件拖慢+费带宽。分组由 `group` 字段标识，未来新增轻量类别可扩进本组。
+
+⚠️ 注意：summary 是「按组聚合」，不返回全部 16 类的今日值；查单类别详情请用 `/<category>/latest`。
 
 ## 错误格式
 
@@ -69,7 +97,18 @@ key 只在 KV 存 SHA-256 hash（键 `api_key:<hash>`），真实 key 由 `scrip
 
 ## 类别路由扩展
 
-代码 `worker/dataQuery.js` 用 `CATEGORY_SOURCES` 路由表——**加类别 = 加一行**（声明源文件 R2 key + 字段）。二期两融/ETF 在此加行即可。
+代码 `worker/dataQuery.js` 用 `CATEGORY_SOURCES` 路由表——**加类别 = 加一行**（声明源文件 R2 key + `shape` 提取器）。当前 16 类 = sentiment/alert/signals + 12 个新类别（market/a_stock/rotation/position/ma_alignment/volume_ratio/new_high_low/futures/signal_freq/fund_score/etf_score/etf_national_team）。每种 `shape` 对应一个提取函数（array 通用日期切片 / a_stock / market / futures / position / etf_score 等），加类别优先复用既有 shape。
+
+## 待确认类别（数据未上线，二期）
+
+1. **margin（两融）**：前端 `static-site/app.js` 有 `rzhb`/`a_fund_margin` 引用，但**无独立 JSON 数据源文件**——两融数据（`stock_margin_sse/szse`）由 `scripts/rzhb_backfill.sh` 采集写入 **DB**（sentiment.db 序列指标，T+1 08:00），前端 app.js 内嵌 `next_day` 判断消费，且为原始第三方行情（SSE/SSZE 官方）。本 API 是「读 static-site/data/ JSON 文件」架构，两融无持久化 JSON 文件、非自研加工独立产物 → **本次跳过**。二期若需卖两融：先在 export 落 JSON 文件并 R2 上线，再加 `margin` 类别。
+2. **etf_track（ETF 跟踪）**：`data/etf_track_index.json` 只在本地 data/ 根、**git untracked（未上线）**，`static-site/data/` 无对应文件 → **数据未上线，本次跳过**。二期先跑上线链路（static-site/data/ + R2 + staticdata 同步）再加 `etf_track` 类别。
+
+## 合规说明
+
+- **绝不暴露原始行情字段**：`a_stock` 只开放 `metrics` 宽度指标（上涨家数/涨停/炸板率/量能/换手/北向/两融余额等自研加工值），`indices` 的 open/high/low/close 等第三方原始行情**全部不开放**。
+- **不新增 global/hk/industry 类别**（原始第三方行情，不合规转售）。
+- 数据一致性（§22/§23.6）：本 API 只读源 JSON + 取最新/切片/聚合，不加工出源文件没有的数字，返回每个数字都能从 `static-site/data/` 源文件逐位对上（自验已比对，见复现）。
 
 ## 示例 curl
 
@@ -85,9 +124,19 @@ curl -s -H "Authorization: Bearer <key>" \
 curl -s -H "Authorization: Bearer <key>" \
   "https://ss.fx8.store/api/data/sentiment/range?start=20260801&end=20260810"
 
-# summary
+# summary（按组聚合：sentiment+alert+market+signal_freq）
 curl -s -H "Authorization: Bearer <key>" \
   https://ss.fx8.store/api/data/summary
+
+# 新类别示例
+curl -s -H "Authorization: Bearer <key>" \
+  https://ss.fx8.store/api/data/market/latest
+curl -s -H "Authorization: Bearer <key>" \
+  https://ss.fx8.store/api/data/a_stock/latest
+curl -s -H "Authorization: Bearer <key>" \
+  "https://ss.fx8.store/api/data/rotation/range?start=20260801&end=20260814"
+curl -s -H "Authorization: Bearer <key>" \
+  "https://ss.fx8.store/api/data/etf_score/latest?limit=20"
 
 # signals（按标的）
 curl -s -H "Authorization: Bearer <key>" \
@@ -100,5 +149,6 @@ curl -s https://ss.fx8.store/api/data/sentiment/latest
 ## 复现
 
 - 生成/吊销/列表 key：`python3 scripts/api_key_mgmt.py {gen|revoke|list|usage}`（需仓库根目录跑，wrangler 读 `wrangler.jsonc` 的 KV namespace id `7d373c3365314ec7a334ac47a73f1578`）
-- 数据加工逻辑自验：`node /tmp/uqtest.mjs`（对 `static-site/data/` 源文件比对 latest/range/summary 输出与源文件逐位一致）
-- 数据源文件：`static-site/data/sentiment-3m.json` / `alert.json` / `alert_analyze_*.json`（R2 key 同 `data/` 前缀，worker 复用 `dataRewriteHandler` 模式读取，R2 404 回退 ASSETS）
+- 数据加工逻辑自验：`node /tmp/uqtest.mjs`（对 `static-site/data/` 源文件比对 latest/range/summary 输出与源文件逐位一致，覆盖全部 16 类 + 合规断言）
+- 数据源文件：`static-site/data/sentiment-3m.json` / `alert.json` / `alert_analyze_*.json` / `overview.json` / `a-stock-3m.json` / `rotation.json` / `position.json` / `ma_alignment.json` / `volume_ratio.json` / `new_high_low.json` / `futures.json` / `signal_freq.json` / `fund_score_top.json` / `etf_score_list.json` / `etf_national_team-1y.json`（R2 key 同 `data/` 前缀，worker 复用 `dataRewriteHandler` 模式读取，R2 404 回退 ASSETS）
+- 合规自验：a_stock 提取只含 `metrics` 不含 `indices`（`node /tmp/uqtest.mjs` 含断言）
