@@ -10186,7 +10186,7 @@ async function renderOverview() {
       // 2026-08-16 首页 AI 预测卡「📅 明日关键事件」行(消费 news_digest.json,无数据整行不显示 guard)
       _loadNewsDigest().then((nd) => {
         const evts = _dbUpcomingEvents(nd);
-        const rowHtml = _dbNextDayRowHtml(evts);
+        const rowHtml = _dbNextDayRowHtml(evts, nd);
         if (!rowHtml) return;
         const row = document.createElement("div");
         row.className = "summary-news-row";
@@ -21761,21 +21761,34 @@ function _dbTodayNews(nuth) {
   return (imp.length ? imp : ns).slice(0, 10);
 }
 
-// 首页 AI 预测卡「📅 明日关键事件」行:压缩单行(无数据返回空串,guard 不显示)。
-function _dbNextDayRowHtml(evts) {
+// 首页 AI 预测卡「📅 明日关键事件」行:压缩单行(无数据返回空串,guard 不显示)。nuth 用于取 date 推断明日日期标注(label)。
+function _dbNextDayRowHtml(evts, nuth) {
   if (!evts || !evts.length) return "";
+  const dayCn = _dbTomorrowDateCn(nuth && nuth.date);
+  const label = dayCn ? `📅 明日关键事件（${dayCn}）` : "📅 明日关键事件";
   const items = evts.slice(0, 3).map((e) =>
-    `${_esc(e.time || "")} ${_esc(String(e.title || "").slice(0, 42))}`
+    `${_esc(String(e.time || ""))} ${_esc(String(e.title || "").slice(0, 42))}`
   ).join("　|　");
-  return `<div class="db-nextday-row"><span class="db-nextday-k">📅 明日关键事件</span><span class="db-nextday-v">${items}</span></div>`;
+  return `<div class="db-nextday-row"><span class="db-nextday-k">${label}</span><span class="db-nextday-v">${items}</span></div>`;
 }
 
-// 归一化 news_digest.date 为「X月X日」(支持 2026-08-16 或 20260816;非法/空返回空串)。三展示位标题共用的日期后缀。
+// 归一化 news_digest.date 为「X月X日」(支持 2026-08-16 或 20260816;非法/空返回空串)。各展示位标题共用的日期后缀。
 function _dbNewsDateCn(date) {
   if (!date) return "";
   const m = String(date).match(/(\d{4})[-]?(\d{2})[-]?(\d{2})/);
   if (!m) return "";
   return `${parseInt(m[2], 10)}月${parseInt(m[3], 10)}日`;
+}
+
+// 由 news_digest.date 推断「明日」的「X月X日」(→ 8月17日)。upcoming 无结构化日期字段,标题统一标明日日期(宁缺毋滥);非法/空返回空串。
+function _dbTomorrowDateCn(date) {
+  if (!date) return "";
+  const m = String(date).match(/(\d{4})[-]?(\d{2})[-]?(\d{2})/);
+  if (!m) return "";
+  const y = parseInt(m[1], 10), mo = parseInt(m[2], 10), dd = parseInt(m[3], 10);
+  const dt = new Date(Date.UTC(y, mo - 1, dd));
+  dt.setUTCDate(dt.getUTCDate() + 1);
+  return `${dt.getUTCMonth() + 1}月${dt.getUTCDate()}日`;
 }
 
 // 弹窗「今日要闻/宏观日历」区块:今日要闻(≤10) + 明日关键事件预告。无数据返回空串。
@@ -21787,6 +21800,8 @@ function _dbNewsBlockHtml(nuth) {
   if (!news.length && !upPicked.length) return "";
   const dateCn = _dbNewsDateCn(nuth && nuth.date);
   const newsLabel = dateCn ? `📣 今日要闻（${dateCn}）` : "📣 今日要闻";
+  const tmrCn = _dbTomorrowDateCn(nuth && nuth.date);
+  const upLabel = tmrCn ? `📅 明日关键事件（${tmrCn}）` : "📅 明日关键事件（预告）";
   const newsUl = news.length
     ? `<ul class="db-news-ul">${news.map((n) =>
         `<li><span class="db-news-time">${_esc(n.time || "")}</span><span class="db-news-title">${_esc(String(n.title || "").slice(0, 120))}</span></li>`
@@ -21799,7 +21814,7 @@ function _dbNewsBlockHtml(nuth) {
     : "";
   return `<div class="db-news-block">
     ${news.length ? `<div class="db-news-sec"><div class="db-news-sec-t">${newsLabel}</div>${newsUl}</div>` : ""}
-    ${upPicked.length ? `<div class="db-news-sec"><div class="db-news-sec-t">📅 明日关键事件（预告）</div>${upUl}</div>` : ""}
+    ${upPicked.length ? `<div class="db-news-sec"><div class="db-news-sec-t">${upLabel}</div>${upUl}</div>` : ""}
   </div>`;
 }
 
