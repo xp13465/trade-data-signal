@@ -260,12 +260,46 @@ def _db_metric_latest(conn: sqlite3.Connection, date: str, metric_id: str):
 def _load_news_inject(root_data_dir: Path, date: str) -> dict:
     """读新闻面(2026-08-16 注入增强): data/news_digest.json(fetch_news.py launchd 16:45 产).
 
+    2026-08-16 用户追加(归档累积读侧): 重跑历史日期预测时,优先读按日期归档
+      data/news_digest/<date>.json(fetch_news.py 同期同写归档),让「重跑某历史日预测」能拿到
+      当日新闻,真正可复现可校对 AI 预测逻辑。归档优先,归档无/不可用才 fallback 当日
+      news_digest.json(当日默认逻辑不变,行为与之前一致)。
+
     guard 策略(ai-predict-inject-research.md §4.3):
       - 文件缺失 / 解析失败 → 静默跳过(返回空,不报错)。
       - news 当日重要优先,量控 ≤25 条;upcoming(次日预告)单独【明日关键事件】段。
       - date 格式: news_digest.date 为 YYYY-MM-DD,入参 date 为 YYYYMMDD,转一致再比(当日数据)。
     返回 {"news": [...], "upcoming": [...], "available": bool},无值则各为空 list。
     """
+    norm = lambda s: s.replace("-", "")
+
+    def _pick(full: dict) -> dict:
+        """从完整 digest 挑 news/upcoming(重要优先 + 量控,复用原逻辑)。"""
+        news_raw = full.get("news") or []
+        important = [n for n in news_raw if n.get("important")]
+        others = [n for n in news_raw if not n.get("important")]
+        pick = (important[:15] + others[:10])[:25]
+        news = [{
+            "time": n.get("time"),
+            "title": (n.get("title") or "")[:120],
+            "important": bool(n.get("important")),
+        } for n in pick]
+        upcoming = [{
+            "time": u.get("time"),
+            "title": (u.get("title") or "")[:120],
+        } for u in (full.get("upcoming") or [])[:10]]
+        return news, upcoming
+
+    # ① 优先读按日期归档 news_digest/<YYYY-MM-DD>.json(重跑历史日期预测时命中)
+    #    date 入参 YYYYMMDD → 转 YYYY-MM-DD 对齐归档命名(与 news_digest.date 同格式)。
+    date_hyphen = f"{date[:4]}-{date[4:6]}-{date[6:8]}"
+    archive_path = root_data_dir / "news_digest" / f"{date_hyphen}.json"
+    archive_raw = _read_json(archive_path) if archive_path.exists() else None
+    if isinstance(archive_raw, dict) and (archive_raw.get("date") or "").replace("-", "") == norm(date):
+        news, upcoming = _pick(archive_raw)
+        return {"news": news, "upcoming": upcoming, "available": bool(news or upcoming)}
+
+    # ② fallback: 当日 news_digest.json(现有默认逻辑,行为不变)
     path = root_data_dir / "news_digest.json"
     # 兜底: picked repo 数据目录无新闻时,回退代码仓 ROOT/data(手动跑 fetch_news 的落盘位置)
     if not path.exists():
@@ -278,23 +312,9 @@ def _load_news_inject(root_data_dir: Path, date: str) -> dict:
     file_date = raw.get("date") or ""
     target = file_date
     # 统一到 YYYYMMDD 对比;不一致(如缺 date)仍尝试注入当日 news(以 available 为实)
-    norm = lambda s: s.replace("-", "")
     if target and norm(target) != norm(date):
         return {"news": [], "upcoming": [], "available": False}
-    news_raw = raw.get("news") or []
-    # 重要优先 + 当日量控 ≤25 条
-    important = [n for n in news_raw if n.get("important")]
-    others = [n for n in news_raw if not n.get("important")]
-    pick = (important[:15] + others[:10])[:25]
-    news = [{
-        "time": n.get("time"),
-        "title": (n.get("title") or "")[:120],
-        "important": bool(n.get("important")),
-    } for n in pick]
-    upcoming = [{
-        "time": u.get("time"),
-        "title": (u.get("title") or "")[:120],
-    } for u in (raw.get("upcoming") or [])[:10]]
+    news, upcoming = _pick(raw)
     return {"news": news, "upcoming": upcoming, "available": bool(news or upcoming)}
 
 
@@ -2806,9 +2826,20 @@ def main() -> int:
         if news_src.exists():
             try:
                 shutil.copy2(news_src, static_dir / "news_digest.json")
-                files_out_n = [BRIEF_FILE, HISTORY_FILE, "news_digest.json"] \
+                # 归档目录累积同步(2026-08-16 用户定): 把 data/news_digest/*.json 全量
+                # copy 到 static-site/data/news_digest/ + 追加 R2 data/news_digest/<date>.json
+                # 与 staticdata 上传链,让历史日归档也能被前端/重跑读到(幂等覆盖,不删除历史)。
+                arch_files: list[str] = ["news_digest.json"]
+                arch_src_dir = news_src.parent / "news_digest"
+                if arch_src_dir.is_dir():
+                    (static_dir / "news_digest").mkdir(parents=True, exist_ok=True)
+                    for arch_f in sorted(arch_src_dir.glob("*.json")):
+                        shutil.copy2(arch_f, static_dir / "news_digest" / arch_f.name)
+                        arch_files.append(f"news_digest/{arch_f.name}")
+                files_out_n = [BRIEF_FILE, HISTORY_FILE] \
+                    + arch_files \
                     + ([tts_file] if tts_ok and tts_file else [])
-                log("news_digest.json 已同步到 static_dir + 加入 R2/staticdata 上传链")
+                log(f"news_digest.json + {len(arch_files)-1} 个日期归档已同步到 static_dir + 加入 R2/staticdata 上传链")
             except Exception as e:
                 log(f"⚠ news_digest.json 复制/加入上传链失败(不阻塞): {e}")
                 files_out_n = files_out

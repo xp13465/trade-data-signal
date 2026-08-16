@@ -20,6 +20,8 @@
 
 输出:
   - data/news_digest.json,单日文件,当天重复跑覆盖当天,不累积(幂等)。
+  - data/news_digest/<date>.json,按日期归档累积(2026-08-16 用户定):每次成功采集同写一份归档,
+    历史 AI 预测重跑/校对时按目标日期读对应归档(_load_news_inject 读侧)。当天重跑覆盖当天归档,不累积重复。
 
 schema(钉死):
   {
@@ -57,6 +59,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO / "data"
 OUT_FILE = DATA_DIR / "news_digest.json"
+ARCHIVE_DIR = DATA_DIR / "news_digest"  # 按日期归档累积: news_digest/<date>.json
 
 # 允许 app.calendar 被 import（同 daily_summary_email.py 做法）
 if str(REPO) not in sys.path:
@@ -357,7 +360,13 @@ def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with open(OUT_FILE, "w", encoding="utf-8") as f:
         json.dump(digest, f, ensure_ascii=False, indent=2)
-    print(f"[fetch_news] 已写 {OUT_FILE} date={day_str} "
+    # 归档累积: 同写一份 data/news_digest/<date>.json(历史 AI 预测重跑/校对按目标日期读,见读侧配套)。
+    # 幂等: 当天重跑覆盖当天归档文件,不累积重复;非交易日由上方闸门挡,不写。
+    archive_file = ARCHIVE_DIR / f"{day_str}.json"
+    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(archive_file, "w", encoding="utf-8") as f:
+        json.dump(digest, f, ensure_ascii=False, indent=2)
+    print(f"[fetch_news] 已写 {OUT_FILE} + 归档 {archive_file} date={day_str} "
           f"news={len(news)} upcoming={len(upcoming)} "
           f"sources={digest['sources']}")
 
