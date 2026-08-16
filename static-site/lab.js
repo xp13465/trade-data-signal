@@ -10012,7 +10012,7 @@ function _renderSigKellyQuadrants(host, data, period) {
       `<span class="lab-kelly-tier lab-kelly-aggressive">激进 ≥60%</span>` +
       `<span class="lab-kelly-tier lab-kelly-balanced">均衡 30-60%</span>` +
       `<span class="lab-kelly-tier lab-kelly-conservative">保守 <30%</span>` +
-      `<span class="lab-sigkelly-note">⚠️ 样本量 n<100 统计意义弱,仅供参考,非投资建议。半凯利=凯利比例/2(更保守)。</span>` +
+      `<span class="lab-sigkelly-note">⚠️ 样本量 n<100 统计意义弱,仅供参考,非投资建议。半凯利=凯利比例/2(更保守)。🎯 1:1 举例（核实源=signal_kelly_backtest.json quadrants.mkt_global.periods.all.G）：全球大类·卖出信号·全部周期 半凯利=<b>41.1%→均衡档（30-60%）</b>——这组 600 个样本胜率 84%、盈亏比 8.88，凯利公式算出全凯利 82.2% 太激进，折半取 41.1% 下注，意思=建议把可投入资金约四成用于下注（保守+平衡的选择）；样本 n<100 的行才挂 ⚠️。</span>` +
     `</div>`;
   host.innerHTML = html;
   _bindSigKellyCardEvents(host);
