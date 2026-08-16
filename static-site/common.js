@@ -547,6 +547,7 @@ function _aiPoscapRatingPopHtml() {
       '<div class="lab-sigkelly-posrate-pop-title">AI仓位建议 · K 档位评级（评级依据=下方回撤矩阵）</div>' +
       '<table class="lab-sigkelly-posrate-table"><thead><tr><th>档位</th><th>收益率</th><th>峰值资金回撤</th><th>风险调整<br>(收益/回撤)</th><th>样本</th><th>评级理由</th></tr></thead><tbody>' + rows + '</tbody></table>' +
       '<div class="lab-sigkelly-posrate-pop-note">⚠ 口径：动态=当前降亏勾选(AI降亏过滤 8 键或用户自定义) + A模式(固定10天) + 每日资金池等分+top-K + 当前费率档(默认etf_def含最低佣金5元) + 最新数据全周期；静态快照=同上默认配置+费率重算口径(2026-08-14 #48+#BC, 含最低佣金5元, 与动态一致§22)。与「历史回测数据」G模式口径不同，勿混用数值。峰值资金回撤=最大回撤金额÷本金(concCap, 峰值同时持仓资金；与回测报告 ddPct=最大回撤÷资金池 口径不同, 数值勿直接对照)</div>' +
+      '<div class="lab-sigkelly-posrate-pop-note"><b>K 档到底在选什么（举个 1:1 例子）</b>：每日资金池=每天总共投入 1 万，均分给当日保留的前 K 个信号。选 <b>K1</b>=当天只买最优的那 1 个信号，单笔就是 1 万（全押 1 个，持仓最集中）→ 收益率最高 <b>86.6%</b>；选 <b>K3</b>=当天买最优的 3 个信号，每个 10000÷3≈<b>3333 元</b>（鸡蛋分 3 篮子，持仓更分散）→ 收益率降到 <b>66.2%</b>。价格：K 越大越分散、单日冲高收益越低，但波动和风险也摊薄——想要集中吃大肉就 K1（主推★），想要分散稳健就调大 K。<i>核实源=common.js _AI_POSCAP_RATING 快照(K1 86.60% / K3 66.24%, 2026-08-14 每日池+费率重算口径)</i></div>' +
       '<div class="lab-sigkelly-posrate-pop-note">' + srcLabel + '</div>' +
     '</div>' +
   '</span>';
