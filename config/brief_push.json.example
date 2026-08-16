@@ -1,0 +1,4 @@
+{
+  "api_base": "https://ss.fx8.store",
+  "admin_key": "tk_xxxx (用 scripts/api_key_mgmt.py gen 生成，只打印一次)"
+}

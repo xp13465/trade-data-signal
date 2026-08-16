@@ -207,3 +207,8 @@ static-site/data/*
 # agent 运行进度文件(临时产物,不提交;commit 前检查勿 add)
 docs/agent-progress.txt
 docs/*_progress.txt
+
+# 历史数据包产物（知识商店数字资产，本地生成，zip+README+SHA256SUMS 不推 git）
+data_packs/
+# AI 每日速递订阅推送配置（含管理员 api_key，敏感 -- 用 brief_push.json.example 作模板）
+config/brief_push.json

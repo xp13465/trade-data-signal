@@ -152,3 +152,64 @@ curl -s https://ss.fx8.store/api/data/sentiment/latest
 - 数据加工逻辑自验：`node /tmp/uqtest.mjs`（对 `static-site/data/` 源文件比对 latest/range/summary 输出与源文件逐位一致，覆盖全部 16 类 + 合规断言）
 - 数据源文件：`static-site/data/sentiment-3m.json` / `alert.json` / `alert_analyze_*.json` / `overview.json` / `a-stock-3m.json` / `rotation.json` / `position.json` / `ma_alignment.json` / `volume_ratio.json` / `new_high_low.json` / `futures.json` / `signal_freq.json` / `fund_score_top.json` / `etf_score_list.json` / `etf_national_team-1y.json`（R2 key 同 `data/` 前缀，worker 复用 `dataRewriteHandler` 模式读取，R2 404 回退 ASSETS）
 - 合规自验：a_stock 提取只含 `metrics` 不含 `indices`（`node /tmp/uqtest.mjs` 含断言）
+
+---
+
+# AI 每日速递订阅服务（/api/subscribe/*）
+
+> 2026-08-17 上线 · B 级新功能 · 为 UUMit 平台「AI 每日速递订阅推送服务」做订阅者管理端点。
+> 每日 `daily_brief.json` 一生成（20:40），本地 `scripts/brief_push.py` 拉取 active 订阅者并推送（email/webhook + 飞书报告群）。
+
+## 鉴权（两级）
+
+- **管理员端点**（register/recipients）：`Authorization: Bearer <admin_key>` 或 `X-API-Key: <admin_key>`，
+  复用 `scripts/api_key_mgmt.py gen` 生成的 api_key（KV `api_key:<hash>` 同一 key 池）。
+- **订阅者端点**（status/unregister）：`?key=<sub_key>` 或 `X-Sub-Key` 头，比对 KV `sub:<key>` 是否存在。
+- 错误统一 `{error:{code,message}}`。
+
+## 端点
+
+### `POST /api/subscribe/register` — 注册订阅（管理员鉴权）
+
+body `{email 或 webhook_url}` → 生成 `sub_` 前缀 key + 写 KV（`sub:<key>` = `{email|webhook_url, created_at, status:"active"}`）。
+返回 key（**只打印一次**，务必立即保存）。
+
+```bash
+# email 订阅者
+curl -s -X POST -H "Authorization: Bearer <admin_key>" -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com"}' https://ss.fx8.store/api/subscribe/register
+
+# webhook 订阅者
+curl -s -X POST -H "Authorization: Bearer <admin_key>" -H "Content-Type: application/json" \
+  -d '{"webhook_url":"https://example.com/hook"}' https://ss.fx8.store/api/subscribe/register
+```
+
+### `GET /api/subscribe/status?key=<sub_key>` — 查订阅状态（订阅者自鉴权）
+
+返回 `{key, status: active|revoked, type, created_at}`。
+
+### `POST /api/subscribe/unregister` — 退订（订阅者自鉴权）
+
+`X-Sub-Key: <sub_key>` 或 body `{key}` → 置 `status:"revoked"`。
+
+### `GET /api/subscribe/recipients` — 管理员鉴权，返回所有 active 订阅者
+
+供本地 `scripts/brief_push.py` 拉取推送。
+
+```bash
+curl -s -H "Authorization: Bearer <admin_key>" https://ss.fx8.store/api/subscribe/recipients
+```
+
+## KV 键空间（SUBSCRIBE_KV）
+
+- `sub:<key>` = 订阅记录 JSON（active/revoked）
+- `api_key:<hash>` = 管理员 key（复用 api_key_mgmt）
+
+## 推送链路（本地）
+
+`scripts/brief_push_wrapper.sh` → `scripts/brief_push.py`：
+- 读 `static-site/data/daily_brief.json` + 拉 recipients。
+- email 订阅者：复用 `config/email.json` SMTP（smtp.163.com:465）；webhook 订阅者：POST 订阅者 URL。
+- 飞书报告群：`notify.send_feishu`。
+- 失败重试 1 次 + 按 date 防重复 + 非交易日跳过（复用 `app/calendar.py is_trading_day`）。
+- 计费 hook：本期不做自动扣费，`brief_push.py` 留 `BILLING_HOOK` 注释，上架后接 UUMit 平台计费回调。
