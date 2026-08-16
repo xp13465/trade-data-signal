@@ -47,5 +47,29 @@ input_price_per_million: 2.0             # ¥/百万 input tokens(deepseek-chat 
 output_price_per_million: 8.0            # ¥/百万 output tokens
 monthly_warn_yuan: 20.0                  # 月度累计费用超此阈值 -> notify.py 告警
 
+# ── 深度思考能力「连接配置」(2026-08-16 部署,仅影响 AI 预测 API 调用)─────────
+# 只做「连路」:把 call_deepseek() 从单官方端点扩展为 官方+火山方舟 双 provider 可配,
+# thinking 档位作为可选参数注入 API 调用。默认零变化(官方 deepseek-chat、thinking 不启用)。
+# 使用说明:
+#   1) 切换 provider   : 只改下方 `provider` 一行(official 或 ark)。
+#   2) 启用思考        : 把 `thinking.enabled` 改成 true + effort 选 high/max,
+#                        模型自动切到 v4 推理模型(thinking.model)。
+#   3) 改回恢复        : enabled 还原 false 即恢复官方 deepseek-chat 现状。
+# ⚠️ 成本提醒: max 档 ≈3-5 倍于 high 的 token 成本。若预测开始不准,可临时把 effort
+#    改成 max 测几天作对照,测完务必改回 high 或 disabled,别长期挂 max。
+providers:                            # 双 provider 定义(键名即 provider 名)
+  official:                           # 官方 DeepSeek(OpenAI 兼容 /chat/completions)
+    base_url: https://api.deepseek.com/v1
+    supports_thinking: true           # 官方可用 deepseek-v4-flash/pro 推理模型,支持思考;默认 deepseek-chat 非思考不变
+  ark:                                # 火山方舟(OpenAI 兼容 /v3/chat/completions)
+    base_url: https://ark.cn-beijing.volces.com/api/v3
+    supports_thinking: true           # 方舟用 v4 推理模型接入点,支持思考
+provider: official                    # 当前用哪个 provider: official | ark(默认官方,改这一行即切火山)
+thinking:                             # 深度思考「档位」配置
+  enabled: false                      # 默认关= 官方 deepseek-chat 现状,线上预测零变化
+  effort: high                        # high | max | disabled(默认 high;max 更贵,见上方成本提醒)
+  disabled: false                     # effort=disabled 时等效 thinking 不启用(兼容旧格式,可省略)
+  model: deepseek-v4-flash            # 启用思考时的模型:v4 推理模型(flash 性价比高;pro 更强更贵)。实际按方舟/官方可用模型名配。
+
 # ── 月度回顾反思(P2-2,阶段1 骨架:数据采集+偏差注入 prompt)────────────
 review_enabled: true          # 生成时把 history 近30日方向偏差统计注入 prompt 的"已知偏差"字段

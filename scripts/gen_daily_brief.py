@@ -188,6 +188,18 @@ def load_config() -> dict:
     cfg.setdefault("researcher_model", "deepseek-chat")  # 可选 deepseek-reasoner(R1 深度辩论,P1-11)
     cfg.setdefault("multi_agent_timeout_seconds", 90)
     cfg.setdefault("max_role_retries", 1)
+    # ── 深度思考能力「连接配置」(2026-08-16,兼容旧配置无此块)────────────
+    # 默认零变化:官方 deepseek-chat、thinking 不启用。老 yaml 缺此块也能跑(setdefault 兜底)。
+    cfg.setdefault("provider", "official")
+    cfg.setdefault("providers", {
+        "official": {"base_url": "https://api.deepseek.com/v1", "supports_thinking": True},
+        "ark": {"base_url": "https://ark.cn-beijing.volces.com/api/v3", "supports_thinking": True},
+    })
+    cfg.setdefault("thinking", {
+        "enabled": False,
+        "effort": "high",
+        "model": "deepseek-v4-flash",
+    })
     return cfg
 
 
@@ -747,7 +759,7 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
     ]
 
 
-# ── deepseek 调用(超时60s/重试2次/429退避 P1-9)───────────────────────────
+# ── deepseek 调用(超时60s/重试2次/429退避 P1-9;双 provider + 思考档位 2026-08-16)───
 def call_deepseek(messages: list[dict], cfg: dict, log_fn, model: str | None = None) -> dict | None:
     if requests is None:
         log_fn("requests 未安装,无法调 AI")
@@ -756,17 +768,42 @@ def call_deepseek(messages: list[dict], cfg: dict, log_fn, model: str | None = N
     if not key:
         log_fn("未找到 DEEPSEEK_API_KEY(.env),跳过 AI")
         return None
-    base = (os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com/v1").rstrip("/")
-    model = model or os.environ.get("DEEPSEEK_MODEL") or cfg.get("model", "deepseek-chat")
+    # ── provider 解析(官方/火山方舟双端)。env DEEPSEEK_BASE_URL 最高优先,否则按 provider 配置。──
+    provider = cfg.get("provider") or "official"
+    providers_cfg = cfg.get("providers") or {}
+    pcfg = providers_cfg.get(provider) or {}
+    base = (os.environ.get("DEEPSEEK_BASE_URL")
+            or pcfg.get("base_url")
+            or "https://api.deepseek.com/v1").rstrip("/")
+    # ── 思考档位解析:thinking.enabled=true 时切 v4 推理模型 + 注入思考参数;默认 false 零变化。──
+    thinking_cfg = cfg.get("thinking") or {}
+    thinking_on = bool(thinking_cfg.get("enabled")) and bool(pcfg.get("supports_thinking"))
+    eff = str(thinking_cfg.get("effort") or "high").lower()
+    if eff == "disabled":
+        thinking_on = False            # effort=disabled 等效不启用
+    # 模型优先级:思考开启->thinking.model(v4 推理模型);否则沿用传入/env/cfg.model(现状 deepseek-chat)
+    use_model = None
+    if thinking_on:
+        use_model = thinking_cfg.get("model") or cfg.get("model", "deepseek-chat")
+    else:
+        use_model = model or os.environ.get("DEEPSEEK_MODEL") or cfg.get("model", "deepseek-chat")
     url = base + "/chat/completions"
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     payload = {
-        "model": model,
+        "model": use_model,
         "messages": messages,
         "temperature": float(cfg.get("temperature", 0.4)),
         "max_tokens": 1200,
         "response_format": {"type": "json_object"},
     }
+    if thinking_on:
+        # deepseek-v4 推理模型思考生效方式:thinking 对象 + reasoning_effort 档位。
+        # high/max 映射见官方思考模式文档;disabled 走上方 eff 分支关闭。thinking 模式不支持 temperature(无效,去掉)。
+        payload["thinking"] = {"type": "enabled"}
+        if eff in ("high", "max"):
+            payload["reasoning_effort"] = eff
+        payload.pop("temperature", None)
+        log_fn(f"deepseek 思考模式开思考: model={use_model} effort={eff} provider={provider} base={base}")
     timeout = float(cfg.get("timeout_seconds", 60))
     retries = int(cfg.get("max_retries", 2))
     for attempt in range(retries + 1):
