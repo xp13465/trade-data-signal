@@ -34,6 +34,7 @@
 
 - `CLAUDE.md` - **通用工作模式规范**（可移植，无项目业务知识；项目专项配置用 `<占位符>` 标注，移植时替换为实际值）。= 根 `CLAUDE.md` 共享核心的**通用部分** + 被瘦身移出但通用可移植的章节（§0.1/§5.1-§5.5/§8.1/§9 隔离/§10 破缓存/§11 子agent生命周期/§12 API错误不卡死/§13 模型约束/§15 回归分级/§16 角色画像/§17 superpowers/§23.4-§23.7/§24 前端防撕裂 等）
 - `PROJECT-SPECIFIC.md` - **A股看板项目专项规范**（域名/DB/数据产物/采集脚本/launchd 定时任务时点/R2 架构/上传链路/§4.1 前端防撕裂·§4.2 测试基准定义/§22 一致性项目化/§23 项目验收口径 9.1-9.6/角色拆分后各文件定位）
+- `.claude/agents/ + .claude/skills/role-*/` - **角色 agent 定义 + 角色规范全文**（执行层，8 文件：`agents/{implementer,researcher,reviewer,tester}.md` 4 个 + `skills/role-{implementer,researcher,reviewer,tester}/SKILL.md` 4 个；镜像项目结构，移植时整体回拷）。agent `model:` 为项目私有配置（代理白名单），移植到其他环境按需替换
 - `README.md` - 本说明文件（含 📈 命中率走势结果报告 —— claude-work-mode/ 内嵌的每日追加工作表）
 
 ## 怎么用
