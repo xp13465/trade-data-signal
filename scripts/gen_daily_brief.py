@@ -257,21 +257,41 @@ def _db_metric_latest(conn: sqlite3.Connection, date: str, metric_id: str):
     return row[0]
 
 
-def _load_news_inject(root_data_dir: Path, date: str) -> dict:
-    """读新闻面(2026-08-16 注入增强): data/news_digest.json(fetch_news.py launchd 16:45 产).
+def _load_last_generated_at(candidates: list) -> str:
+    """读上一份 daily_brief.json 的 generated_at(增量续接游标)。回 ''(取不到)。
 
-    2026-08-16 用户追加(归档累积读侧): 重跑历史日期预测时,优先读按日期归档
-      data/news_digest/<date>.json(fetch_news.py 同期同写归档),让「重跑某历史日预测」能拿到
-      当日新闻,真正可复现可校对 AI 预测逻辑。归档优先,归档无/不可用才 fallback 当日
-      news_digest.json(当日默认逻辑不变,行为与之前一致)。
+    候选路径按序尝试: static_dir/daily_brief.json、root_data_dir/daily_brief.json、代码仓 ROOT/data。
+    daily_brief.generated_at 格式 "YYYY-MM-DD HH:MM:SS"(已验证,如 2026-08-15 21:02:37),
+    表示上一次预测实际喂到新闻面的时刻。增量续接即以它为起点。
+    """
+    for p in candidates:
+        try:
+            if p and Path(p).exists():
+                raw = _read_json(p)
+                ga = (raw or {}).get("generated_at") or ""
+                if isinstance(ga, str) and len(ga) >= 10 and ga[:4].isdigit():
+                    return ga
+        except Exception:
+            continue
+    return ""
 
-    guard 策略(ai-predict-inject-research.md §4.3):
-      - 文件缺失 / 解析失败 → 静默跳过(返回空,不报错)。
-      - news 当日重要优先,量控 ≤25 条;upcoming(次日预告)单独【明日关键事件】段。
-      - date 格式: news_digest.date 为 YYYY-MM-DD,入参 date 为 YYYYMMDD,转一致再比(当日数据)。
+
+def _load_news_inject(root_data_dir: Path, date: str, last_brief_candidates: list = None) -> dict:
+    """读新闻面。
+
+    模式 A(重跑历史日期,date != 今日,可复现): 读对应日期归档 news_digest/<date>.json
+      当日完整新闻 —— 保持既有可复现语义(该日期预测应看到该日期当日完整新闻面)。
+
+    模式 B(增量续接,date == 今日,2026-08-16 用户定,时间窗口根治): 生成当天预测时,
+      新闻面不是「固定最近24h/只读当天」,而是「自上次预测喂到什么时候 → 现在」之间的所有增量:
+        - 游标 = 上一份 daily_brief.json 的 generated_at(如 2026-08-15 21:02:37)。
+        - 拼接: 游标所在日归档的「游标时刻之后」条目 + 中间每一天完整归档 + 今日完整归档。
+        - 周六/周日/节假日档案同样按自然日归档(fetch_news 已 7×24 每小时累积),照常拼接。
+        - 首次无上一份(游标取不到) → fallback 读「最近 N 天归档拼接」,honest 标注 available。
     返回 {"news": [...], "upcoming": [...], "available": bool},无值则各为空 list。
     """
     norm = lambda s: s.replace("-", "")
+    today_ymd = _dt.date.today().strftime("%Y%m%d")
 
     def _pick(full: dict) -> dict:
         """从完整 digest 挑 news/upcoming(重要优先 + 量控,复用原逻辑)。"""
@@ -290,32 +310,135 @@ def _load_news_inject(root_data_dir: Path, date: str) -> dict:
         } for u in (full.get("upcoming") or [])[:10]]
         return news, upcoming
 
-    # ① 优先读按日期归档 news_digest/<YYYY-MM-DD>.json(重跑历史日期预测时命中)
-    #    date 入参 YYYYMMDD → 转 YYYY-MM-DD 对齐归档命名(与 news_digest.date 同格式)。
+    # 归档目录(从 root_data_dir 或 ROOT/data 找)
+    archive_dir = root_data_dir / "news_digest"
+    if not archive_dir.is_dir():
+        alt_dir = ROOT / "data" / "news_digest"
+        if alt_dir.is_dir():
+            archive_dir = alt_dir
+
+    def _read_archive(day_str: str):
+        """读指定自然日新闻_digest 归档;返回 dict 或 None。
+        优先年目录 news_digest/<YYYY>/<date>.json(2026-08-16 主控存储结构决定),
+        fallback 旧扁平 news_digest/<date>.json(迁移期兼容)。"""
+        y = day_str[:4]
+        p = archive_dir / y / f"{day_str}.json"
+        if p.exists():
+            raw = _read_json(p)
+            if isinstance(raw, dict) and (raw.get("date") or "").replace("-", "") == day_str.replace("-", ""):
+                return raw
+        legacy = archive_dir / f"{day_str}.json"
+        if legacy.exists():
+            raw = _read_json(legacy)
+            if isinstance(raw, dict) and (raw.get("date") or "").replace("-", "") == day_str.replace("-", ""):
+                return raw
+        return None
+
+    # 模式 A: 重跑历史日期(date != 今日)读该日期归档当日完整(可复现,保持既有语义)
     date_hyphen = f"{date[:4]}-{date[4:6]}-{date[6:8]}"
-    archive_path = root_data_dir / "news_digest" / f"{date_hyphen}.json"
-    archive_raw = _read_json(archive_path) if archive_path.exists() else None
-    if isinstance(archive_raw, dict) and (archive_raw.get("date") or "").replace("-", "") == norm(date):
-        news, upcoming = _pick(archive_raw)
+    if date != today_ymd:
+        archive_raw = _read_archive(date_hyphen)
+        if archive_raw:
+            news, upcoming = _pick(archive_raw)
+            return {"news": news, "upcoming": upcoming, "available": bool(news or upcoming)}
+        # 无归档: fallback 当日 news_digest.json(旧行为)
+        path = root_data_dir / "news_digest.json"
+        if not path.exists():
+            alt = ROOT / "data" / "news_digest.json"
+            if alt.exists():
+                path = alt
+        raw = _read_json(path)
+        if not isinstance(raw, dict):
+            return {"news": [], "upcoming": [], "available": False}
+        if (raw.get("date") or "") and norm(raw.get("date")) != norm(date):
+            return {"news": [], "upcoming": [], "available": False}
+        news, upcoming = _pick(raw)
         return {"news": news, "upcoming": upcoming, "available": bool(news or upcoming)}
 
-    # ② fallback: 当日 news_digest.json(现有默认逻辑,行为不变)
-    path = root_data_dir / "news_digest.json"
-    # 兜底: picked repo 数据目录无新闻时,回退代码仓 ROOT/data(手动跑 fetch_news 的落盘位置)
-    if not path.exists():
-        alt = ROOT / "data" / "news_digest.json"
-        if alt.exists():
-            path = alt
-    raw = _read_json(path)
-    if not isinstance(raw, dict):
+    # ============ 模式 B: 增量续接(生成当天预测,date == 今日) ============
+    cursor = _load_last_generated_at(last_brief_candidates or [])
+    today_digest = _read_archive(today_ymd[:4] + "-" + today_ymd[4:6] + "-" + today_ymd[6:8])
+
+    if not cursor:
+        # 首跑无上一份: fallback 读「最近 7 天归档拼接」(honest: 给最近历史新闻,不冒充精确增量)
+        merged = []
+        days = []
+        for i in range(7):
+            dd = _dt.date.today() - _dt.timedelta(days=i)
+            d_raw = _read_archive(dd.strftime("%Y-%m-%d"))
+            if d_raw:
+                days.append(dd.strftime("%Y-%m-%d"))
+                merged.extend(d_raw.get("news") or [])
+        combo = {"news": merged, "upcoming": (today_digest or {}).get("upcoming") or []}
+        if merged:
+            news, upcoming = _pick(combo)
+            # honest 标注: 首跑无游标,新闻面为最近 N 天 fallback(标记,前端不消费;仅供审计)
+            return {"news": news, "upcoming": upcoming, "available": True,
+                    "_cursor": "", "_fallback_days": days}
+        # 无归档也无当日 → 空
         return {"news": [], "upcoming": [], "available": False}
-    file_date = raw.get("date") or ""
-    target = file_date
-    # 统一到 YYYYMMDD 对比;不一致(如缺 date)仍尝试注入当日 news(以 available 为实)
-    if target and norm(target) != norm(date):
-        return {"news": [], "upcoming": [], "available": False}
-    news, upcoming = _pick(raw)
-    return {"news": news, "upcoming": upcoming, "available": bool(news or upcoming)}
+
+    # 有游标: 解析游标时刻,截游标所在日归档「游标时刻之后」 + 中间每天完整 + 今日完整
+    try:
+        cursor_dt = _dt.datetime.strptime(cursor, "%Y-%m-%d %H:%M:%S")
+        cursor_ymd = cursor_dt.strftime("%Y%m%d")
+        cursor_date_str = cursor_dt.strftime("%Y-%m-%d")
+    except Exception:
+        cursor_dt, cursor_ymd, cursor_date_str = None, "", cursor
+
+    merged_news = []
+    merged_upcoming = []
+    covered = []
+
+    # ① 游标所在日: 归档该日,取 time >= 游标时刻之后的条目
+    if cursor_ymd and cursor_ymd != today_ymd:
+        cursor_day_raw = _read_archive(cursor_date_str) if cursor_date_str else None
+        if cursor_day_raw:
+            covered.append(cursor_date_str)
+            cursor_time = cursor_dt.strftime("%H:%M") if cursor_dt else ""
+            for n in (cursor_day_raw.get("news") or []):
+                # 游标时刻之后的条目(time >= cursor 的 HH:MM;同小时视为可能已喂过,保守排除)
+                nt = (n.get("time") or "")
+                if nt and cursor_time and nt >= cursor_time:
+                    merged_news.append(n)
+
+    # ② 中间天(游标次日 → 今日前一天)完整归档
+    if cursor_ymd:
+        cur = _dt.datetime.strptime(today_ymd, "%Y%m%d").date()
+        start = _dt.datetime.strptime(cursor_ymd, "%Y%m%d").date() + _dt.timedelta(days=1)
+        d = start
+        while d < cur:
+            dd_raw = _read_archive(d.strftime("%Y-%m-%d"))
+            if dd_raw:
+                covered.append(d.strftime("%Y-%m-%d"))
+                merged_news.extend(dd_raw.get("news") or [])
+            d += _dt.timedelta(days=1)
+
+    # ③ 今日完整归档(今天截止现在,每小时采集累积)
+    if today_digest:
+        today_str = today_ymd[:4] + "-" + today_ymd[4:6] + "-" + today_ymd[6:8]
+        covered.append(today_str)
+        merged_news.extend(today_digest.get("news") or [])
+        merged_upcoming.extend(today_digest.get("upcoming") or [])
+
+    # 跨日拼接去重(title 归一化),重要优先 + 时间新优先截断
+    seen = set()
+    unique_news = []
+    # 重要优先在前(跨日合并后,保持 order 稳定: 先按重要,后按 time)
+    ordered = sorted(merged_news, key=lambda n: (not bool(n.get("important")), str(n.get("time"))))
+    for n in ordered:
+        nt = (n.get("title") or "").strip()
+        key = re.sub(r"[\s·—\-:：,，。.、()（）\'\"“”]+", "", nt.upper()) if nt else ""
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        unique_news.append(n)
+    combo = {"news": unique_news[:25], "upcoming": merged_upcoming[:10]}
+    news, upcoming = _pick(combo)
+
+    ok = bool(news or upcoming)
+    return {"news": news, "upcoming": upcoming, "available": ok,
+            "_cursor": cursor, "_covered": covered}
 
 
 def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
@@ -754,8 +877,15 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
                 "note": "ma_cross=8宽基均线状态: bullish=多头排列数, bearish=空头排列数, cross=当日金叉/死叉数。",
             }
 
-    # 新闻面(data/news_digest.json,缺失/非当日静默跳过)
-    news = _load_news_inject(db_path.parent, date)
+    # 新闻面(增量续接,2026-08-16: 生成当天预测读「上次 generated_at → 现在」增量;
+    #   重跑历史日期读该日期归档可复现)。缺失/无可用静默跳过。
+    # 上一份 daily_brief.json 作为增量游标来源(static_dir 优先,root_data_dir/ROOT/data 兜底)。
+    last_brief_cands = [
+        static_dir / "daily_brief.json",
+        db_path.parent / "daily_brief.json",
+        Path(str(ROOT / "data" / "daily_brief.json")),
+    ]
+    news = _load_news_inject(db_path.parent, date, last_brief_cands)
     if news["available"]:
         d["news"] = news
     else:
@@ -2832,10 +2962,29 @@ def main() -> int:
                 arch_files: list[str] = ["news_digest.json"]
                 arch_src_dir = news_src.parent / "news_digest"
                 if arch_src_dir.is_dir():
-                    (static_dir / "news_digest").mkdir(parents=True, exist_ok=True)
-                    for arch_f in sorted(arch_src_dir.glob("*.json")):
-                        shutil.copy2(arch_f, static_dir / "news_digest" / arch_f.name)
-                        arch_files.append(f"news_digest/{arch_f.name}")
+                    sd_nd = static_dir / "news_digest"
+                    sd_nd.mkdir(parents=True, exist_ok=True)
+                    # 年目录结构 news_digest/<YYYY>/<date>.json(2026-08-16 主控存储结构决定)全量同步
+                    for ydir in sorted(arch_src_dir.iterdir()):
+                        if not ydir.is_dir() or not ydir.name.isdigit():
+                            continue
+                        dest_y = sd_nd / ydir.name
+                        dest_y.mkdir(parents=True, exist_ok=True)
+                        for arch_f in sorted(ydir.glob("*.json")):
+                            shutil.copy2(arch_f, dest_y / arch_f.name)
+                            arch_files.append(f"news_digest/{ydir.name}/{arch_f.name}")
+                    # 索引
+                    idx = arch_src_dir / "_index.json"
+                    if idx.exists():
+                        shutil.copy2(idx, sd_nd / "_index.json")
+                        arch_files.append("news_digest/_index.json")
+                    # 旧扁平路径(迁移期)同步到 static-site 扁平位(前端旧路径 fallback 兼容 #13)
+                    for arch_f in arch_src_dir.glob("*.json"):
+                        if arch_f.name == "_index.json":
+                            continue
+                        shutil.copy2(arch_f, sd_nd / arch_f.name)
+                        if f"news_digest/{arch_f.name}" not in arch_files:
+                            arch_files.append(f"news_digest/{arch_f.name}")
                 files_out_n = [BRIEF_FILE, HISTORY_FILE] \
                     + arch_files \
                     + ([tts_file] if tts_ok and tts_file else [])

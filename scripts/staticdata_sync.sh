@@ -69,6 +69,9 @@ else
     esac
     f="$a"
     if [ -f "$REPO/static-site/data/$f" ]; then
+      # 目标父目录先确保存在(支持子目录路径如 news_digest/2026/2026-08-16.json,
+      # 2026-08-16 新闻归档按年分目录; mkdir -p 幂等)
+      mkdir -p "$(dirname "$STATICDATA_REPO/data/$f")"
       if ! cp "$REPO/static-site/data/$f" "$STATICDATA_REPO/data/$f"; then
         echo "⚠ staticdata cp 失败: $f"
         SYNC_FAIL=1

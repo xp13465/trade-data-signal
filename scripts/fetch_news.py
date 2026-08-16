@@ -2,26 +2,31 @@
 # -*- coding: utf-8 -*-
 """新闻三源采集:东财7x24 / 财联社电报 / 金十flash → data/news_digest.json
 
-目的:盘后(16:45 launchd)采集当日重要财经快讯,供 AI 每日预测(gen_daily_brief.py)的
-      新闻面/宏观事件日历维度消费(见 docs/ai-predict-news-macro-research-sources.md 实测报告)。
+目的:每小时(7×24,launchd)采集财经快讯,供 AI 每日预测(gen_daily_brief.py)的
+      新闻面/宏观事件日历维度消费 + 前端「今日要闻/明日关键事件」实时展示。
 
-口径:
+核心口径(2026-08-16 用户定,时间窗口根治):
+  - 新闻无「交易日/工作日」概念(主控认知修正):交易盘面(指数/分时/K线)才用 is_trading_day,
+    新闻采集 365 天 7×24 每小时照采,周末/节假日就是当日新闻(对周一预测有价值)。
+  - 每小时增量采集 + 按当天累积归档:每次采集把「当前这一小时内新增/回归」的条目
+    合并进当天归档 news_digest/<date>.json + 当日 news_digest.json(title 归一化去重,幂等);
+    重复跑不重复,弥补「16:45 后 ~23:59 新闻永远丢失」的固定窗口缺陷。
+  - 每月/每天不变式:date 字段=采集的自然日(日历日),不随交易日概念变化。
+
+口径(单次采集内的稳定部分,与之前一致):
   - 三源独立 try/except,单源失败不影响其他源落盘。
   - 只保留「目标日期当天」的条目;总量 ≤ NEWS_CAP 条,重要(important/level)优先。
   - title 跨源相似去重(归一化:转大写 + 去空白/标点 后比较)。
   - 预告提取:标题含「预告/将于/公布/举行/发布」等关键词 → kind=upcoming,另入 upcoming 段。
-  - 交易日闸门:默认仅交易日写文件(is_trading_day,读 trade/data/trade_dates.txt 缓存,
-    non-交易日不写);--force 跳过闸门(测试采集链路用,临时跑)。
 
 输入依赖:
   - 数据源:三源公开 HTTP 接口(免签,仅 UA / 固定 header)。
-  - 交易日:app.calendar.is_trading_day()(读 trade/data/trade_dates.txt 本地缓存)。
   - 日期:默认 datetime.date.today();可用 --date YYYY-MM-DD 指定(测试历史/补采)。
 
 输出:
-  - data/news_digest.json,单日文件,当天重复跑覆盖当天,不累积(幂等)。
-  - data/news_digest/<date>.json,按日期归档累积(2026-08-16 用户定):每次成功采集同写一份归档,
-    历史 AI 预测重跑/校对时按目标日期读对应归档(_load_news_inject 读侧)。当天重跑覆盖当天归档,不累积重复。
+  - data/news_digest.json,单日「累积快照」文件,前端今日要闻实时读。
+  - data/news_digest/<date>.json,按日期归档累积:每小时把当天新增合并进去(累积幂等),
+    历史 AI 预测重跑/校对按目标日期读对应归档(_load_news_inject 读侧增量续接)。
 
 schema(钉死):
   {
@@ -33,18 +38,16 @@ schema(钉死):
     "upcoming": [{"source":"...","title":"国新办17日下午发布会...","time":"..."}]
   }
 
-复现命令:
-  # 交易日默认跑(非交易日自动跳过)
+复现命令(7×24 直接跑,无交易日闸门):
   /Users/linhuichen/code/trade-data/.venv/bin/python scripts/fetch_news.py
-  # 测试采集链路(非交易日 --force 也能落盘,验证三源可达)
-  /Users/linhuichen/code/trade-data/.venv/bin/python scripts/fetch_news.py --force
-  # 指定日期
-  /Users/linhuichen/code/trade-data/.venv/bin/python scripts/fetch_news.py --date 2026-08-14 --force
+  # 指定日期补采
+  /Users/linhuichen/code/trade-data/.venv/bin/python scripts/fetch_news.py --date 2026-08-14
 
 关键示例口径:东财 page_size=50 取第一页当天;财联社 rn 上限 20 用 lastTime 循环翻页;
   金十 max_time 翻页取当天;时效取三源各自字段 showTime / ctime / time 归一化。
 
-历史教训引用:§23.2 L37/L38 非交易日不触发(launchd 与脚本双重交易日闸门)。
+历史教训引用:§23.2 L37/L38(非交易日不触发的教训)已被 2026-08-16 用户/主控认知修正取代——
+  该教训只适用于交易盘面数据,不适用于新闻采集(新闻 7×24 无日历概念)。
 """
 import argparse
 import datetime as dt
@@ -80,11 +83,6 @@ UA = {
     )
 }
 
-# ── 交易日判断(读项目缓存,较 akshare 每次联网最快且不依赖 akshare)──
-def is_trading_day(d=None) -> bool:
-    from app.calendar import is_trading_day as _isd
-    return _isd(d)
-
 
 # ── 三源 HTTP 采集 ──
 def _http_get_json(url, headers=None, timeout=15, retries=2):
@@ -114,6 +112,14 @@ def _norm_title(t: str) -> str:
     if not t:
         return ""
     return re.sub(r"[\s·—\-:：,，。.、()（）\'\"“”]+", "", t.upper())
+
+
+def _read_json(path: Path):
+    """读 JSON;缺失/解析失败返回 None(不抛)。"""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
 
 # ── 东财 7x24 ──
@@ -309,10 +315,123 @@ def build_digest(day_str, sources_map):
     return news, upcoming
 
 
+def _dedup_news_items(items: list) -> list:
+    """按 (归一化 title, time) 去重(跨源相似 title 同判),返回去重后的 items(保持给出顺序)。"""
+    seen = set()
+    out = []
+    for it in items:
+        key = (_norm_title(it.get("title") or ""), it.get("time") or "")
+        if not key[0] or key in seen:
+            continue
+        seen.add(key)
+        out.append(it)
+    return out
+
+
+def _merge_new_into_archive(archive_raw: dict, new_raw: list, sources_map: dict) -> tuple:
+    """把本次采集的当天条目(new_raw)合并进既有归档(archive_raw),累积幂等。
+
+    新闻数据源(东财 page_size=50 / 财联社 / 金十)每次拉取基本是「当天全量快照」,
+    叠加每小时跑 = 把既有归档所有条目 union 本次条目再整体去重/排序/截断:
+      - 既有 + 本次 一起 title 归一化去重(补之前因数据源翻页波动漏掉的条目 / 新到条目)。
+      - 排序规则沿用 build_digest(重要优先 → 预告优先 → 时间新优先),截断 NEWS_CAP。
+    返回 (news, upcoming)。archive_raw 可为 None(首采/无归档)。
+    """
+    combined = list((archive_raw or {}).get("news") or []) + list(new_raw)
+    combined = _dedup_news_items(combined)
+
+    # 补 kind(归档里已带;新拉取的由 build_digest 已带,兜底补)
+    for it in combined:
+        it.setdefault("kind", classify_kind(it.get("title") or ""))
+
+    # 排序 + 截断(复用 build_digest 内联规则,保证首采/合并同序)
+    def score(it):
+        s = SCORE_IMPORTANT if it.get("important") else 0
+        if it.get("kind") == "upcoming":
+            s += SCORE_KIND_UPCOMING
+        s += SCORE_BASE
+        return s
+
+    combined.sort(key=lambda it: (score(it), it.get("time", "")), reverse=True)
+    capped = combined[:NEWS_CAP]
+    upcoming = [it for it in capped if it["kind"] == "upcoming"]
+    news = [it for it in capped if it["kind"] != "upcoming"]
+    return news, upcoming
+
+
+# ── 归档路径(按年分目录 news_digest/<YYYY>/<date>.json,2026-08-16 主控存储结构决定)──
+def archive_path(day_str: str) -> Path:
+    """当日归档路径 = news_digest/<YYYY>/<date>.json。
+    年目录下旧扁平路径 data/news_digest/<date>.json(迁移期)兼容读/写(见 _read_existing_archive)。"""
+    y = day_str[:4]
+    return ARCHIVE_DIR / y / f"{day_str}.json"
+
+
+def read_existing_archive(day_str: str) -> dict:
+    """读当日既有归档以便增量合并。优先读年目录, fallback 旧扁平路径(迁移兼容)。"""
+    p = archive_path(day_str)
+    raw = _read_json(p)
+    if isinstance(raw, dict):
+        return raw
+    legacy = ARCHIVE_DIR / f"{day_str}.json"
+    if legacy.exists():
+        return _read_json(legacy) or {}
+    return {}
+
+
+def _write_index() -> None:
+    """写 news_digest/_index.json: 每天一条 {date, count, path},供前端"有哪些天有数据"展示。
+    扫描年目录下所有 <today.json 及今天}(避免把未来日期误列; 已存在的扁平旧档也计入)。"""
+    index_file = ARCHIVE_DIR / "_index.json"
+    entries = []
+    seen_dates = set()
+    if ARCHIVE_DIR.is_dir():
+        # 年目录 2026/2026-08-16.json
+        for ydir in sorted(ARCHIVE_DIR.iterdir()):
+            if not ydir.is_dir() or not ydir.name.isdigit():
+                continue
+            for pf in sorted(ydir.glob("*.json")):
+                dd = pf.stem  # YYYY-MM-DD
+                if dd[:4] != ydir.name or dd in seen_dates:
+                    continue
+                seen_dates.add(dd)
+                cnt = 0
+                try:
+                    cnt = len((json.loads(pf.read_text(encoding="utf-8")) or {}).get("news") or [])
+                except Exception:
+                    cnt = 0
+                entries.append({"date": dd, "count": cnt,
+                                "path": f"news_digest/{ydir.name}/{pf.name}"})
+        # 旧扁平路径(迁移期)仍存在的也计入(去重)
+        for pf in ARCHIVE_DIR.glob("*.json"):
+            if pf.name == "_index.json":
+                continue
+            dd = pf.stem
+            if dd in seen_dates:
+                continue
+            seen_dates.add(dd)
+            cnt = 0
+            try:
+                cnt = len((json.loads(pf.read_text(encoding="utf-8")) or {}).get("news") or [])
+            except Exception:
+                cnt = 0
+            entries.append({"date": dd, "count": cnt, "path": f"news_digest/{pf.name}"})
+    entries.sort(key=lambda e: e["date"], reverse=True)
+    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        index_file.write_text(
+            json.dumps({"generated_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "days": entries}, ensure_ascii=False, indent=2),
+            encoding="utf-8")
+    except Exception as e:  # noqa: BLE001
+        print(f"⚠ [fetch_news] 写 _index.json 失败(不阻塞): {e}")
+
+
 def main():
-    ap = argparse.ArgumentParser(description="新闻三源采集 → data/news_digest.json")
+    ap = argparse.ArgumentParser(description="新闻三源采集 → data/news_digest.json(7×24 每小时增量累积)")
     ap.add_argument("--date", default=None, help="目标日期 YYYY-MM-DD,默认今天")
-    ap.add_argument("--force", action="store_true", help="非交易日也写文件(测试采集链路用)")
+    ap.add_argument("--force", action="store_true",
+                    help="兼容保留: 新闻采集无交易日概念,本参数已无闸门作用(历史调用兼容)")
     args = ap.parse_args()
 
     if args.date:
@@ -322,19 +441,25 @@ def main():
     day_str = target.strftime("%Y-%m-%d")
     today_ts = dt.datetime.combine(target, dt.time()).timestamp()
 
-    # 交易日闸门:非交易日不写新文件(L37/L38 教训)
-    if not is_trading_day(target) and not args.force:
-        print(f"[fetch_news] {day_str} 非交易日,跳过(不写文件)。如需测试链路加 --force")
-        return
+    # 新闻采集无交易日/工作日概念(2026-08-16 主控认知修正): 7×24 每小时照采,无闸门。
+    # 交易盘面(指数/分时/K线)才有 is_trading_day,新闻无日历概念。
 
-    # 三源独立采集
+    # 三源独立采集(本次抓到当天条目)
     sources_map = {
         "eastmoney": fetch_eastmoney(day_str),
         "cls": fetch_cls(day_str, today_ts),
         "jin10": fetch_jin10(day_str),
     }
+    new_news, new_upcoming = build_digest(day_str, sources_map)
+    new_items = new_news + new_upcoming
 
-    news, upcoming = build_digest(day_str, sources_map)
+    # 每小时增量合并: 先读既有当日归档,把本次 new_items 合并进去累积(首采 archive 为空)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    archive_file = archive_path(day_str)  # news_digest/<YYYY>/<date>.json
+    archive_raw = read_existing_archive(day_str)
+    news, upcoming = _merge_new_into_archive(archive_raw, new_items, sources_map)
+    merge_from = "合并已有归档" if isinstance(archive_raw, dict) and archive_raw else "首采新建"
 
     digest = {
         "date": day_str,
@@ -360,23 +485,21 @@ def main():
         } for it in upcoming],
     }
 
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    # 当日 news_digest.json(累积快照,前端实时读) + 归档同写(年目录) + 每天索引
     with open(OUT_FILE, "w", encoding="utf-8") as f:
         json.dump(digest, f, ensure_ascii=False, indent=2)
-    # 归档累积: 同写一份 data/news_digest/<date>.json(历史 AI 预测重跑/校对按目标日期读,见读侧配套)。
-    # 幂等: 当天重跑覆盖当天归档文件,不累积重复;非交易日由上方闸门挡,不写。
-    archive_file = ARCHIVE_DIR / f"{day_str}.json"
-    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    archive_file.parent.mkdir(parents=True, exist_ok=True)
     with open(archive_file, "w", encoding="utf-8") as f:
         json.dump(digest, f, ensure_ascii=False, indent=2)
+    _write_index()
     print(f"[fetch_news] 已写 {OUT_FILE} + 归档 {archive_file} date={day_str} "
-          f"news={len(news)} upcoming={len(upcoming)} "
+          f"[{merge_from}] news={len(news)} upcoming={len(upcoming)} "
           f"sources={digest['sources']}")
 
     # ── 采集成功后直接同步上线(2026-08-16 §22/reviewer#1: 不依赖 gen_daily_brief 20:40 上传链)──
     # 问题: 16:45 采完只落 data/news_digest.json,上线完全依赖 gen_daily_brief 20:40 的上传链,
     #       导致 16:45→20:40 线上 news_digest.json 还是昨日,前端展示旧闻+「明日关键事件」日期错位;
-    #       且 gen_daily_brief 当天失败/非交易日手动采集时当日新闻面滞后。
+    #       且 gen_daily_brief 当天失败时当日新闻面滞后。
     # 修法: 采完当日 news_digest.json + 归档后,直接 copy 到 static-site/data/ + 上传 R2 data/ 前缀
     #       + staticdata 同步(与 gen_daily_brief 同链路,gen_daily_brief 20:40 再跑幂等覆盖不冲突)。
     sync_news_digest_live(day_str)
@@ -400,14 +523,35 @@ def sync_news_digest_live(day_str: str) -> None:
         # ① copy 当日 news_digest.json -> static-site/data/
         if OUT_FILE.exists():
             shutil.copy2(OUT_FILE, static_dir / "news_digest.json")
-        # ② 归档目录累积: data/news_digest/<date>.json 全量 copy 到 static-site/data/news_digest/,
+        # ② 归档目录累积(按年分目录 news_digest/<YYYY>/<date>.json 全量 copy,含 _index.json):
         #    让历史日归档也被前端/README 历史入口读到(幂等覆盖,不删历史)。
+        #    兼容: 旧扁平 data/news_digest/<date>.json(迁移期)也一并 copy 到 static-site 对应扁平位,
+        #    保证前端旧路径 fallback 仍读得到(不破坏 #13 已上线前端)。
         arch_files: list[str] = ["news_digest.json"]
         if ARCHIVE_DIR.is_dir():
-            (static_dir / "news_digest").mkdir(parents=True, exist_ok=True)
-            for arch_f in sorted(ARCHIVE_DIR.glob("*.json")):
-                shutil.copy2(arch_f, static_dir / "news_digest" / arch_f.name)
-                arch_files.append(f"news_digest/{arch_f.name}")
+            sd_nd = static_dir / "news_digest"
+            sd_nd.mkdir(parents=True, exist_ok=True)
+            # 年目录结构
+            for ydir in sorted(ARCHIVE_DIR.iterdir()):
+                if not ydir.is_dir() or not ydir.name.isdigit():
+                    continue
+                dest_y = sd_nd / ydir.name
+                dest_y.mkdir(parents=True, exist_ok=True)
+                for arch_f in sorted(ydir.glob("*.json")):
+                    shutil.copy2(arch_f, dest_y / arch_f.name)
+                    arch_files.append(f"news_digest/{ydir.name}/{arch_f.name}")
+            # 索引
+            idx = ARCHIVE_DIR / "_index.json"
+            if idx.exists():
+                shutil.copy2(idx, sd_nd / "_index.json")
+                arch_files.append("news_digest/_index.json")
+            # 旧扁平路径(迁移期)仍存在的 copy 到 static-site 扁平位(前端旧路径 fallback)
+            for arch_f in ARCHIVE_DIR.glob("*.json"):
+                if arch_f.name == "_index.json":
+                    continue
+                shutil.copy2(arch_f, sd_nd / arch_f.name)
+                if f"news_digest/{arch_f.name}" not in arch_files:
+                    arch_files.append(f"news_digest/{arch_f.name}")
         # ③ R2 上传(data/ 前缀,upload-data-files 支持相对 data_dir 的子目录路径) — 读 .env 拿凭证
         env = dict(os.environ)
         env.setdefault("REPO", str(REPO))

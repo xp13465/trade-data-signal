@@ -21760,9 +21760,10 @@ function _newsTodayStr() {
   return `${n.getFullYear()}-${mo}-${dd}`;
 }
 
-// 新闻日期守卫(reviewer#1 §22/§23.2): 读到的 news_digest 若 date 非当日,news 置空不显示
-// (「今日要闻」不冒充当日,16:45 采完上线前/断更时前端不显示昨日新闻顶替今日);
-// upcoming 若仍指向未来日期可保留(明日关键事件不受"非当日 news"连坐)。
+// 新闻日期守卫(2026-08-16 主控认知修正 + reviewer#1 §22/§23.2): 新闻无「交易日/工作日」概念,
+// fetch_news 已 7×24 每小时增量采集,当日 news_digest.json 就是「当天截止现在」的累积快照,
+// 非交易日(周六/周日)的当日新闻也真实存在并对周一预测有价值,照常显示。
+// 故不再强求 date==本地今日 0 点(周末/跨零点仍显示当日累积),仅当 news 为空才不显示。
 // 所有消费点统一走此 guards:_dbHomeTodayNewsRowHtml|_dbNextDayRowHtml|弹窗|历史对照均读本缓存。
 async function _loadNewsDigest() {
   if (_newsDigestCache) return _newsDigestCache;
@@ -21770,8 +21771,9 @@ async function _loadNewsDigest() {
     const raw = await fetchJSON("./data/news_digest.json");
     const date = (raw && raw.date) || "";
     let news = (raw && Array.isArray(raw.news)) ? raw.news : [];
-    // 当日守卫: date 与本地今日不一致 → 当日 news 视为不可用,置空(upcoming 保留供明日预告)。
-    if (date && date !== _newsTodayStr()) {
+    // 当日 news_digest.json 存在即有值得显示(每小时采集的当日累积);不过滤 date==今日(非交易日也显示)。
+    // 空 news(数据源全失败但文件在)也置空,避免展示空态占位。
+    if (Array.isArray(news) && news.length === 0) {
       news = [];
     }
     _newsDigestCache = {
@@ -21872,7 +21874,12 @@ function _loadHistNewsAsync(root) {
     el.dataset.loaded = "1";
     const fname = `${dd.slice(0, 4)}-${dd.slice(4, 6)}-${dd.slice(6, 8)}`;
     const dateCn = _dbNewsDateCn(fname);
-    fetchJSON(`./data/news_digest/${fname}.json`).then((arch) => {
+    // 归档存储结构(2026-08-16 主控决定): 按年分目录 news_digest/<YYYY>/<date>.json;
+    // 优先读年目录, fallback 旧扁平 news_digest/<date>.json(迁移期兼容,不破坏 #13 已上线)。
+    const yearDir = fname.slice(0, 4);
+    const pfPromise = fetchJSON(`./data/news_digest/${yearDir}/${fname}.json`)
+      .catch(() => fetchJSON(`./data/news_digest/${fname}.json`));
+    pfPromise.then((arch) => {
       const news = _dbTodayNews({ news: (arch && arch.news) || [], date: fname });
       if (!news.length) {
         el.innerHTML = `<div class="db-hist-news-empty">📰 ${dateCn || "该日"} 当日大事：该日新闻未归档或无要闻</div>`;
