@@ -10183,16 +10183,16 @@ async function renderOverview() {
       if (histBtn) histBtn.addEventListener("click", openSummaryHistoryModal);
       const aiBtn = banner.querySelector(".summary-ai-btn");
       if (aiBtn) aiBtn.addEventListener("click", openDailyBriefModal);
-      // 2026-08-16 首页 AI 预测卡「📅 明日关键事件」行(消费 news_digest.json,无数据整行不显示 guard)
+      // 2026-08-16 首页 AI 预测卡新闻外露两行(消费 _loadNewsDigest 缓存 news/upcoming,各行的 guard=内部无数据返回空串,整行不显示):
+      // 「📣 今日要闻」外露速览行(重要优先 ≤3,标日期) + 「📅 明日关键事件」行(标日期),一上一下相邻排列
       _loadNewsDigest().then((nd) => {
-        const evts = _dbUpcomingEvents(nd);
-        const rowHtml = _dbNextDayRowHtml(evts, nd);
-        if (!rowHtml) return;
-        const row = document.createElement("div");
-        row.className = "summary-news-row";
-        row.innerHTML = rowHtml;
-        if (banner.isConnected) banner.after(row);
-        else content.insertBefore(row, banner.nextSibling);
+        const rowsHtml = _dbHomeTodayNewsRowHtml(nd) + _dbNextDayRowHtml(_dbUpcomingEvents(nd), nd);
+        if (!rowsHtml) return;
+        const wrap = document.createElement("div");
+        wrap.className = "summary-news-row";
+        wrap.innerHTML = rowsHtml;
+        if (banner.isConnected) banner.after(wrap);
+        else content.insertBefore(wrap, banner.nextSibling);
       }).catch(() => {});
       // P0-2 多指数共振冰点：≥3 个宽基情绪分同时冰点(<20)时，横幅转红 + 共振聚合提示
       // 数据来自 overview today.scores（6 宽基：上证50/沪深300/中证500/中证1000/创业板/科创50情绪分）
@@ -21672,13 +21672,8 @@ async function _loadDailyBriefPage() {
   }
   const offset = page * limit;
   const items = _dailyBriefState.cache.slice(offset, offset + limit);
-  // 2026-08-16 弹窗「今日要闻/宏观日历」区块:每次打开都渲染今日要闻(≤10)+ 明日预告(_loadNewsDigest 有 _newsDigestCache 缓存,重复调用不重复请求;渲染幂等,无数据空态)
-  let newsBlockHtml = "";
-  try {
-    const nd = await _loadNewsDigest();
-    newsBlockHtml = _dbNewsBlockHtml(nd);
-  } catch (e) { /* 无新闻数据: 区块空态,不阻塞 */ }
-  list.innerHTML = (newsBlockHtml ? `<div class="db-news-modal">${newsBlockHtml}</div>` : "") + items.map(_dailyBriefItemHtml).join("") || '<div class="summary-history-empty">暂无历史预测数据</div>';
+  // 2026-08-16 用户决策: AI预测弹窗顶部独立「今日要闻/明日事件」区块移除(弹窗是看AI预测不是看新闻); 新闻外露改走首页AI预测卡下方+历史事件对照(见 _dbNextDayRowHtml/_dbHomeTodayNewsRow)
+  list.innerHTML = items.map(_dailyBriefItemHtml).join("") || '<div class="summary-history-empty">暂无历史预测数据</div>';
   _dbTtsBind(list);  // edge-tts 语音播报按钮事件委托
   list.scrollTop = 0;
   // 点开某日=展开预测内容+meta断言（事件委托，列表重渲染后仍可点）
@@ -21791,31 +21786,16 @@ function _dbTomorrowDateCn(date) {
   return `${dt.getUTCMonth() + 1}月${dt.getUTCDate()}日`;
 }
 
-// 弹窗「今日要闻/宏观日历」区块:今日要闻(≤10) + 明日关键事件预告。无数据返回空串。
-function _dbNewsBlockHtml(nuth) {
-  const news = _dbTodayNews(nuth);
-  const up = (nuth && nuth.upcoming) || [];
-  const upImp = up.filter((u) => u && u.important);
-  const upPicked = (upImp.length ? upImp : up).slice(0, 5);
-  if (!news.length && !upPicked.length) return "";
+// 首页 AI 预测卡「📣 今日要闻」外露速览行:重要优先 ≤3 (时间+标题,压缩显示,与「📅明日关键事件」行同风格;无数据返回空串,guard 不显示)。nuth 用于取 date 标日期。
+function _dbHomeTodayNewsRowHtml(nuth) {
+  const today = _dbTodayNews(nuth);
+  if (!today.length) return "";
   const dateCn = _dbNewsDateCn(nuth && nuth.date);
-  const newsLabel = dateCn ? `📣 今日要闻（${dateCn}）` : "📣 今日要闻";
-  const tmrCn = _dbTomorrowDateCn(nuth && nuth.date);
-  const upLabel = tmrCn ? `📅 明日关键事件（${tmrCn}）` : "📅 明日关键事件（预告）";
-  const newsUl = news.length
-    ? `<ul class="db-news-ul">${news.map((n) =>
-        `<li><span class="db-news-time">${_esc(n.time || "")}</span><span class="db-news-title">${_esc(String(n.title || "").slice(0, 120))}</span></li>`
-      ).join("")}</ul>`
-    : "";
-  const upUl = upPicked.length
-    ? `<ul class="db-news-ul">${upPicked.map((u) =>
-        `<li><span class="db-news-time">${_esc(u.time || "")}</span><span class="db-news-title">${_esc(String(u.title || "").slice(0, 120))}</span></li>`
-      ).join("")}</ul>`
-    : "";
-  return `<div class="db-news-block">
-    ${news.length ? `<div class="db-news-sec"><div class="db-news-sec-t">${newsLabel}</div>${newsUl}</div>` : ""}
-    ${upPicked.length ? `<div class="db-news-sec"><div class="db-news-sec-t">${upLabel}</div>${upUl}</div>` : ""}
-  </div>`;
+  const label = dateCn ? `📣 今日要闻（${dateCn}）` : "📣 今日要闻";
+  const items = today.slice(0, 3).map((n) =>
+    `${_esc(String(n.time || ""))} ${_esc(String(n.title || "").slice(0, 42))}`
+  ).join("　|　");
+  return `<div class="db-nextday-row"><span class="db-nextday-k">${label}</span><span class="db-nextday-v">${items}</span></div>`;
 }
 
 // 历史收盘分析「事件对照」:当日大事 1-3 条(仅当历史日期 == news_digest.date 才显示,否则空态)。

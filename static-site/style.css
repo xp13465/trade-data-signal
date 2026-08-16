@@ -3408,19 +3408,9 @@ main { padding: 16px 24px; }
 .db-nextday-row { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; line-height: 1.6; }
 .db-nextday-k { flex-shrink: 0; font-weight: 700; color: #7c4dff; }
 .db-nextday-v { color: var(--text-1); word-break: break-word; }
+/* 2026-08-16 首页 AI 预测卡新闻外露两行(今日要闻 + 明日关键事件)一上一下,第二行与第一行留间距 */
+.summary-news-row > .db-nextday-row + .db-nextday-row { margin-top: 6px; }
 
-.db-news-modal { margin-bottom: 10px; }
-.db-news-block {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-hover);
-}
-.db-news-sec { display: flex; flex-direction: column; gap: 4px; }
-.db-news-sec-t { font-size: 12.5px; font-weight: 700; color: #7c4dff; margin-bottom: 2px; }
 .db-news-ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
 .db-news-ul li { display: flex; align-items: flex-start; gap: 6px; font-size: 12.5px; line-height: 1.6; color: var(--text-1); }
 .db-news-time { flex-shrink: 0; font-family: monospace; font-size: 11px; color: var(--text-3); padding-top: 2px; }
