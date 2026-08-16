@@ -1548,7 +1548,7 @@ function _overfitHelpModalHTML() {
     '<div class="rule-card">' +
       '<div class="rule-card-head"><span class="rule-badge">🔘 按钮怎么用</span></div>' +
       '<p><b>AI降亏过滤(开关)</b>：开启(默认)=只统计「未被 AI 宏删线过滤」的信号(未命中 8 键降亏且已入样)；关闭=统计全信号。仅买信号判降亏，卖/止损卖不判。与「K档」两开关独立。</p>' +
-      '<p><b>K档(K=1/2/3/4)</b>：每日只保留当日最优 K 个买入信号来监控，与首页「AI仓位建议 top-K」同口径（排序=跟踪分↓→评级→信号类型）。<b>两开关独立</b>：降亏开=先滤降亏再选 top-K(filtered_by_k)，降亏关=全信号直接选 top-K(by_k)，K 独立可用不依赖降亏开关。K 越大纳入的标的越多、样本越足。</p>' +
+      '<p><b>K档(关/K=1/2/3/4)</b>：与首页「AI仓位建议 K」按钮组同交互（关在前、K1主推★高亮）。每日只保留当日最优 K 个买入信号来监控，同口径（排序=跟踪分↓→评级→信号类型）。<b>点「关」</b>=无K档，退化为普通列表（降亏开关控制 filtered/raw 两bank）。<b>两开关独立</b>：降亏开=先滤降亏再选 top-K(filtered_by_k)，降亏关=全信号直接选 top-K(by_k)，K 独立可用不依赖降亏开关。K 越大纳入的标的越多、样本越足。</p>' +
       '<p><b>显示范围(30/60/90日)</b>：控制横轴展示最近 N 个交易日，<b>只影响显示截取，统计口径固定 60 日滚动</b>——即无论你选 30 还是 90，风险分/准确率的滚动窗口始终按 60 交易日算，只是图上看多少范围。</p>' +
       '<p><b>评级/类型</b>：切换只看高/中/低评级 或 主买/辅买/追买/备买/卖/止损卖 子集。卖/止损卖回测仅买入信号，故只显示实盘单曲线。</p>' +
     '</div>' +
@@ -1812,10 +1812,15 @@ async function _appendOverfitCard(colA2, r, snap) {
       '<label class="overfit-fade-switch"><input type="checkbox" data-overfit-fade="1"> <span class="ov-sw"></span></label>' +
       '<span class="overfit-fade-state" style="color:var(--text-3);font-size:11px;margin-left:6px"></span>' +
       '<span class="overfit-fade-sep"></span>' +
-      '<span class="overfit-win-label" data-tip="K档(与首页AI仓位建议top-K同口径, 2026-08-16 启用): 每日只保留当日最优K个买入信号监控。两开关独立: 降亏开=过滤后人口选K(filtered_by_k), 降亏关=全信号人口选K(by_k)。排序=跟踪分↓→评级→信号类型。">K档</span>' +
-      [1, 2, 3, 4].map((k) => '<button data-overfit-k="' + k + '" class="overfit-win-btn overfit-kbtn' + ((_overfitState.k === k) ? ' active' : '') + '">K=' + k + '</button>').join("") +
+      '<span class="overfit-win-label" data-tip="K档(与首页AI仓位建议top-K同口径, 2026-08-16 启用): 每日只保留当日最优K个买入信号监控。两开关独立: 降亏开=过滤后人口选K(filtered_by_k), 降亏关=全信号人口选K(by_k)。排序=跟踪分↓→评级→信号类型。点「关」=无K档退化普通列表(降亏开关控制)。">K档</span>' +
+      ((function(_s){ var _r = { 1: "最激进", 2: "次稳健", 3: "最稳健", 4: "最保守" };
+        return '<button type="button" class="sig-kbtn sig-kbtn-off' + (_s.k == null ? ' active' : '') + '" data-overfit-k="off"><span class="sig-kbtn-k">关</span><span class="sig-kbtn-r">off</span></button>' +
+          [1, 3, 4, 2].map(function (kk) {
+            return '<button type="button" class="sig-kbtn' + ((_s.k === kk) ? ' active' : '') + (kk === 1 ? ' sig-kbtn-main' : '') + '" data-overfit-k="' + kk + '"><span class="sig-kbtn-k">' + kk + '</span><span class="sig-kbtn-r">' + _r[kk] + (kk === 1 ? '★主推' : '') + '</span></button>';
+          }).join("");
+      })(_overfitState)) +
       '</div>' +
-    '<div class="overfit-tip">双曲线监控 + 综合过拟合风险分(0-100)。显示范围/评级/类型切换, 两图联动。<b>显示范围</b>=横轴截取最近 N 日展示, 统计口径固定 60 日滚动(不随范围变)；<b>K档</b>=每日只保留最优K个买入信号监控, 与首页 AI仓位建议 top-K 同口径, 且与「AI降亏」两开关独立(降亏开=过滤后选, 关=全信号选)。' +
+    '<div class="overfit-tip">双曲线监控 + 综合过拟合风险分(0-100)。显示范围/评级/类型切换, 两图联动。<b>显示范围</b>=横轴截取最近 N 日展示, 统计口径固定 60 日滚动(不随范围变)；<b>K档</b>=与首页「AI仓位建议 K」同交互(关/K1主推★), 每日只保留最优K个买入信号监控, 与首页 AI仓位建议 top-K 同口径, 且与「AI降亏」两开关独立(降亏开=过滤后选, 关=全信号选)；点「关」=无K档退化普通列表。' +
       '<span class="overfit-legend">绿&lt;30 正常 · 黄30-60 关注 · 红&gt;60 高风险</span></div>' +
     '<div class="overfit-win-row"><span class="overfit-win-label">显示范围</span>' +
       [30, 60, 90].map((w) => '<button data-overfit-win="' + w + '" class="overfit-win-btn' + (w === 60 ? ' active' : '') + '">' + w + '日</button>').join("") +
@@ -1912,11 +1917,16 @@ async function _appendOverfitCard(colA2, r, snap) {
       sigBtn.classList.add("active");
       _overfitState.sigType = sigBtn.dataset.overfitSig || null;
     }
-    // 2026-08-16 K档可点选: 切 _overfitState.k -> _ovBank 读 by_k[k]/filtered_by_k[k] 联动重绘
+    // 2026-08-16 K档可点选: 切 _overfitState.k -> _ovBank 读 by_k[k]/filtered_by_k[k] 联动重绘;
+    // off(关)=null -> _ovBank 退化读 filtered/raw(降亏开关控制), 对齐首页「关=退化普通列表」语义
     if (kBtn) {
       card.querySelectorAll("[data-overfit-k]").forEach((x) => x.classList.remove("active"));
       kBtn.classList.add("active");
-      _overfitState.k = +kBtn.dataset.overfitK;
+      if (kBtn.dataset.overfitK === "off") {
+        _overfitState.k = null;
+      } else {
+        _overfitState.k = +kBtn.dataset.overfitK;
+      }
     }
     syncOverfitCharts();
   });

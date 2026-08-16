@@ -467,6 +467,12 @@ def build_topk_kept_map(by_date, ctx, grade_map, k):
             ts = s.get("track_score")
             if ts is None:
                 ts = ctx.ts_of(iid)
+            # P2 修法①: 排除未入样信号(ts=None, 债类/情绪/全球商品利率/港股行业/空数组等无 track_score,
+            #   board_etf_map 无 key 或该 index 无任何 ETF 有非空 track_score => _bt_in_universe=false)。
+            # 与首页 _posCapSortedFn 人口(_bt_in_universe !== false)同人口(§23.6),
+            # 真正做到 top-K 与首页 AI仓位建议同口径(by_k/filtered_by_k 均只从已入样信号选)。
+            if ts is None:
+                continue
             rating = s.get("rating") or grade_map.get(
                 (iid, sig), grade_map.get((iid, "buy_special" if sig == "buy_special_filtered" else sig), ""))
             by_signal_date[d].append({"iid": iid, "sig": sig, "ts": ts, "rating": rating})
