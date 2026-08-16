@@ -69,10 +69,11 @@ _BUY_SIG_SET = set(BUY_SIGNALS)
 _TOPK_RC = {"high": 0, "mid": 1, "low": 2, "": 3}
 _TOPK_SC = {"buy_backup": 0, "buy": 1, "buy_aux": 2, "buy_special": 3}
 AFG_MODES = ["A", "F", "G"]
-WINDOWS = [30, 60, 90]
+# 统计口径可选项(交易日): 10/15/30/60/100, 默认 60(2026-08-16 用户定: 显示可选口径, 两图随口径重算)
+WINDOWS = [10, 15, 30, 60, 100]
 DEFAULT_K = 1
 OVERFIT_MODE = "G"        # 主展示/预警口径的卖出模式(用户主推 G = 信号驱动卖出)
-SURFACE_DAYS = 365        # 维度滚动曲线体积裁剪窗口(现 365 天, 足够画长曲线; total 仍 730)
+SURFACE_DAYS = 200        # 曲线序列裁剪窗口(2026-08-16: 前端显示范围上限 180, 序列只需 ~200 天即够画; 体积控制)
 # 4 维权重
 W_D1, W_D2, W_D3, W_D4 = 0.40, 0.25, 0.20, 0.15
 
@@ -1067,7 +1068,7 @@ def _derive_daily_series(bt_roll, act_roll, current_risk, latest_date, win=60, m
 
 
 def derive_daily_for_rolls(bt_roll, act_roll, latest_date, min_n=20):
-    """对单维度 bt/act 滚动序列, 派生 30/60/90 三套 daily(支持风险分窗口切换)。"""
+    """对单维度 bt/act 滚动序列, 派生 WINDOWS(10/15/30/60/100)多套 daily(统计口径可切)。"""
     return {
         str(w): _derive_daily_series(bt_roll, act_roll, None, latest_date, win=w, min_n=min_n)
         for w in WINDOWS
@@ -1078,10 +1079,10 @@ def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal):
     """由（已可选过滤的）原始样本计算 accuracy + overfit 两棵子树。
     被 build_output 调用多次：未过滤(raw) + 过滤(filtered, AI宏删线层) + by_k(全信号top-K 4套) + filtered_by_k(降亏过滤后top-K 4套)。
     D2/D3/D4/象限用过滤后的 trades_by_date(保持一致, 见 §5.1/§5.4)。
-    2026-08-16 窗口语义改造: 统计口径固定 60 交易日滚动, 不再按 30/60/90 三套重复算(体积降 ~1/3);
-    前端「显示范围」只截取最近 N 日展示, 不改变统计窗口。"""
-    # 滚动仅保留 60 窗口一套(统计口径固定; 消除 30/90 重复序列, 配合前端显示范围截取)
-    _ROLL_WIN = [60]
+    2026-08-16 窗口语义改造v2: 统计口径可切 10/15/30/60/100(默认60), 输出多套滚动序列;
+    前端「显示范围」只截取最近 N 日展示(30/60/90/180), 不改变统计窗口。"""
+    # 滚动按全部候选口径各算一套(10/15/30/60/100); accuracy.rolling/daily_by_win/daily_by_dim 均多套
+    _ROLL_WIN = WINDOWS
     bt_daily = bucket_backtest_trades(trades_by_date, None)
     bt_dates = sorted(bt_daily.keys())
     actual_daily = bucket_actual(by_date, close_map, latest_signal, grade_map) if by_date else []
@@ -1129,7 +1130,9 @@ def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal):
             entry["actual"] = {}
         by_signal_out[sig] = entry
 
-    # 4 维过拟合
+    # 4 维过拟合。顶部综合分(current)固定 60 窗口口径=单一权威稳定值(前端只读不自算 §23.6,
+    # D2/D3/D4 不随窗口, 仅 D1 窗口相关; 前端切换统计口径时仅曲线(daily_by_win/daily_by_dim)随口径重算,
+    # 顶部综合分保持 60。公示见 purpose-notes/前端 tip)
     d1 = calc_d1_deviation(act_roll.get(60, []), bt_roll.get(60, []), 60)
     d2 = calc_d2_oos(trades_by_date)
     d3 = calc_d3_param(trades_by_date)
@@ -1140,13 +1143,13 @@ def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal):
     out = {
         "accuracy": {
             "backtest_daily": {d: {"n": bt_daily[d]["total"]["n"], "win": bt_daily[d]["total"]["win"],
-                                   "win_rate": bt_daily[d]["total"]["win_rate"]} for d in bt_dates[-730:]},
+                                   "win_rate": bt_daily[d]["total"]["win_rate"]} for d in bt_dates[-SURFACE_DAYS:]},
             "actual_daily": [{"date": p["date"], "n": p["total"]["n"], "win": p["total"]["win"],
                               "win_rate": p["total"]["win_rate"]}
-                             for p in actual_daily if p.get("date") <= latest_signal][-730:],
+                             for p in actual_daily if p.get("date") <= latest_signal][-SURFACE_DAYS:],
             "rolling": {
-                "backtest": {str(w): roll[-730:] for w, roll in bt_roll.items()},
-                "actual": {str(w): roll[-730:] for w, roll in act_roll.items()},
+                "backtest": {str(w): roll[-SURFACE_DAYS:] for w, roll in bt_roll.items()},
+                "actual": {str(w): roll[-SURFACE_DAYS:] for w, roll in act_roll.items()},
                 "by_signal": {
                     sig: {"backtest": by_signal_out[sig]["backtest"], "actual": by_signal_out[sig]["actual"]}
                     for sig in ("buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss")
@@ -1164,22 +1167,29 @@ def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal):
                 "risk_score": risk, "level": risk_level(risk),
                 "weighted": risk_detail["weighted"],
             },
-            "daily": _derive_daily_series(bt_roll, act_roll, risk, latest_signal, win=60)[-730:],
+            "daily": _derive_daily_series(bt_roll, act_roll, risk, latest_signal, win=60)[-SURFACE_DAYS:],
             "daily_by_win": {
-                # 窗口语义改造: 统计口径固定 60 窗口一套(前端显示范围 30/60/90 只截取展示, 不重算)
-                "60": _derive_daily_series(bt_roll, act_roll, risk, latest_signal, win=60)[-SURFACE_DAYS:]
+                # 统计口径多套(10/15/30/60/100), 前端按选中口径换 key 读取 → 两图随口径重算
+                str(w): _derive_daily_series(bt_roll, act_roll, risk, latest_signal, win=w)[-SURFACE_DAYS:]
+                for w in WINDOWS
             },
             "daily_by_dim": {
                 "grade": {
-                    g: _derive_daily_series(
-                        by_grade_out[g]["backtest"], by_grade_out[g]["actual"],
-                        risk, latest_signal, win=60)[-SURFACE_DAYS:]
+                    g: {
+                        str(w): _derive_daily_series(
+                            by_grade_out[g]["backtest"], by_grade_out[g]["actual"],
+                            risk, latest_signal, win=w)[-SURFACE_DAYS:]
+                        for w in WINDOWS
+                    }
                     for g in ("high", "mid", "low")
                 },
                 "sig_type": {
-                    sig: _derive_daily_series(
-                        by_signal_out[sig]["backtest"], by_signal_out[sig]["actual"],
-                        risk, latest_signal, win=60)[-SURFACE_DAYS:]
+                    sig: {
+                        str(w): _derive_daily_series(
+                            by_signal_out[sig]["backtest"], by_signal_out[sig]["actual"],
+                            risk, latest_signal, win=w)[-SURFACE_DAYS:]
+                        for w in WINDOWS
+                    }
                     for sig in ("buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss")
                 },
             },

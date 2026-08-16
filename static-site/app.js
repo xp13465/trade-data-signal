@@ -1508,23 +1508,24 @@ function _sigTodayHint() {
 }
 // ── 分析参考点AI监控卡(过拟合监控走势图, B 档 2026-08-15 → 二次迭代 2026-08-16) ──
 // 数据源 static-site/data/overfit_monitor.json(每日多维打点 + 自2011历史回算)。
-// 双曲线: ①准确率(实盘 actual vs 回测 backtest, 显示范围30/60/90交易日, 统计口径固定60日滚动) ②综合过拟合风险分(0-100, 绿黄红分段+参考线30/60)。
+// 双曲线: ①准确率(实盘 actual vs 回测 backtest, 显示范围30/60/90/180交易日, 统计口径10/15/30/60/100默认60) ②综合过拟合风险分(0-100, 绿黄红分段+参考线30/60)。
 // 2026-08-16 二迭代: ①K档启用(by_k/filtered_by_k, 与首页AI仓位建议top-K同口径, 降亏开关×K档两开关独立)
-//   ②窗口语义改「显示范围」= 横轴截取最近N日展示, 统计口径固定60日一 rolling.60/daily_by_win.60
+//   ②窗口语义改「显示范围」= 横轴截取最近N日展示; 统计口径(rolling)改为 10/15/30/60/100 可切(2026-08-16 v2 布局重排),
+//     后端 rolling/daily_by_win/daily_by_dim 各按 WINDOWS 输出多套, 前端按选中口径换 key 读取(默认60)。
 //   ③SVG 3色为基准(echarts fallback 去固定色让 visualMap 生效) ④reviewer 返修4项(P1 localStorage try/catch
 //   /P2-1 空态删 _lwRenderers /P2-2 dataZoom pb 44 /P2-3 y轴固定0-100) ⑤标题❓hover短+click详版弹窗(rule-modal)。
 // 口径公示(卡内 tooltip + help 弹窗 + purpose-notes §21): 准确率=信号后方向命中(回测=按卖出模式到期收益方向;
 //   实盘=信号日收盘→最新收盘方向, 与首页「近期技术参考点」汇总条 since_correct 同口径); band_hold/未结算不计。
 //   过拟合风险分 = 0.40*D1(回测-实盘偏离) + 0.25*D2(滚动样本外) + 0.20*D3(参数稳定) + 0.15*D4(象限退化);
-//   绿<30(正常)/黄30-60(关注)/红>60(高风险)。历史 daily 曲线=截至各日「实盘 vs 回测 60日滚动胜率偏离」派生(无前视)。
+//   绿<30(正常)/黄30-60(关注)/红>60(高风险)。曲线 daily 按选中统计口径滚动派生(无前视); 顶部综合分固定 60 窗口单一权威值。
 // 2026-08-16 三合一改造③: 两图从 echarts instance 改为 lite 容器引用(_lwSetup 在 _renderOverfitAcc/_renderOverfitRisk 内按 state 每次重建,
 // 随 charts.lightweight 开关切换, 零常驻 echarts.init)。
 let _overfitAccEl = null;    // #overfit-acc-chart 容器(lite SVG 或 echarts fallback)
 let _overfitRiskEl = null;   // #overfit-risk-chart 容器
-let _overfitState = { win: 60, grade: null, sigType: null, k: 1 };  // win=显示范围(30/60/90交易日), grade=评级(null=全部), sigType=信号类型(null=全部), k=K档(1/2/3/4, 默认1同首页, 两开关独立)
+let _overfitState = { win: 60, roll: 60, grade: null, sigType: null, k: 1 };  // win=显示范围(30/60/90/180交易日), roll=统计口径(10/15/30/60/100, 默认60), grade=评级(null=全部), sigType=信号类型(null=全部), k=K档(1/2/3/4, 默认1同首页, 两开关独立)
 // 分析参考点AI监控卡维度按钮中文标签(全局: 空态提示 + 标题副标共用)
 const _overfitDimLabels = {
-  win: { 30: "30日", 60: "60日", 90: "90日" },
+  win: { 30: "30日", 60: "60日", 90: "90日", 180: "180日" },
   grade: { high: "高评级", mid: "中评级", low: "低评级", "": "全部" },
   sig: { buy: "主买", buy_aux: "辅买", buy_special: "追买", buy_backup: "备买", sell: "卖", sell_stop_loss: "止损卖", "": "全部" },
 };
@@ -1549,7 +1550,8 @@ function _overfitHelpModalHTML() {
       '<div class="rule-card-head"><span class="rule-badge">🔘 按钮怎么用</span></div>' +
       '<p><b>AI降亏过滤(开关)</b>：开启(默认)=只统计「未被 AI 宏删线过滤」的信号(未命中 8 键降亏且已入样)；关闭=统计全信号。仅买信号判降亏，卖/止损卖不判。与「K档」两开关独立。</p>' +
       '<p><b>K档(关/K=1/2/3/4)</b>：与首页「AI仓位建议 K」按钮组同交互（关在前、K1主推★高亮）。每日只保留当日最优 K 个买入信号来监控，同口径（排序=跟踪分↓→评级→信号类型）。<b>点「关」</b>=无K档，退化为普通列表（降亏开关控制 filtered/raw 两bank）。<b>两开关独立</b>：降亏开=先滤降亏再选 top-K(filtered_by_k)，降亏关=全信号直接选 top-K(by_k)，K 独立可用不依赖降亏开关。K 越大纳入的标的越多、样本越足。</p>' +
-      '<p><b>显示范围(30/60/90日)</b>：控制横轴展示最近 N 个交易日，<b>只影响显示截取，统计口径固定 60 日滚动</b>——即无论你选 30 还是 90，风险分/准确率的滚动窗口始终按 60 交易日算，只是图上看多少范围。</p>' +
+      '<p><b>显示范围(30/60/90/180日)</b>：控制横轴展示最近 N 个交易日，<b>只影响显示截取、不改变统计</b>——即无论选 30 还是 180，都只是图上看多少范围，曲线按当前「统计口径」算。</p>' +
+      '<p><b>统计口径(10/15/30/60/100日，默认60)</b>：准确率 + 综合过拟合风险分<u>两图都按选中的 N 日滚动重算</u>（即重算滚动窗口，而非只截取展示）。默认沿用 60 日滚动（当前行为不变）。顶部卡片左上角综合风险分固定按 60 日口径显示（单一权威值，前端不重算），曲线口径可切换。</p>' +
       '<p><b>评级/类型</b>：切换只看高/中/低评级 或 主买/辅买/追买/备买/卖/止损卖 子集。卖/止损卖回测仅买入信号，故只显示实盘单曲线。</p>' +
     '</div>' +
     '<div class="rule-card">' +
@@ -1591,9 +1593,10 @@ function _openOverfitHelpModal() {
   }, true);
 })();
 
-// 维度取值: 返回当前选中的滚动容 .{actual|backtest} 的 60 窗口全量序列。
-// 2026-08-16 窗口语义改造: 后端统计口径固定 60 窗口一套(rolling 只存 "60"),
-// 前端「显示范围」30/60/90 只对全量序列做 slice(-w) 截取展示, 不改变统计窗口(_overfitAccSeries 截取)。
+// 维度取值: 返回当前选中的滚动 .{actual|backtest} 的 [统计口径 roll] 窗口全量序列。
+// 2026-08-16 窗口语义改造v2: 统计口径可切 10/15/30/60/100(默认60), 后端按选中口径输出多套窗口,
+// 前端按 _overfitState.roll 换 key 读取(无对应窗口时 fallback 60)。
+// 前端「显示范围」30/60/90/180 只对全量序列做 slice(-w) 截取展示, 不改变统计窗口(_overfitAccSeries 截取)。
 // grade/sigType 都 null -> total; sigType 优先(类型比评级更细分)。
 function _overfitDimRoll(data, kind) {
   const s = _overfitState;
@@ -1601,8 +1604,13 @@ function _overfitDimRoll(data, kind) {
   let groups = null;
   if (s.sigType) groups = acc && acc.by_signal ? acc.by_signal[s.sigType] : null;
   else if (s.grade) groups = acc && acc.by_grade ? acc.by_grade[s.grade] : null;
-  if (groups && groups[kind]) return groups[kind]["60"] || [];
-  return acc ? (acc[kind] ? (acc[kind]["60"] || []) : []) : [];
+  const pick = (obj) => {
+    if (obj && Array.isArray(obj[String(s.roll)])) return obj[String(s.roll)];
+    if (obj && Array.isArray(obj["60"])) return obj["60"];
+    return [];
+  };
+  if (groups && groups[kind]) return pick(groups[kind]);
+  return acc && acc[kind] ? pick(acc[kind]) : [];
 }
 
 // 当前窗口该维度样本是否充足(取回测与实盘任一有值点的末点 n; <20 视为样本不足 -> 空态提示)
@@ -1650,7 +1658,7 @@ function _renderOverfitAcc(data) {
     const dimName = _overfitState.sigType ? (_overfitDimLabels.sig[_overfitState.sigType] || _overfitState.sigType)
       : (_overfitState.grade ? (_overfitDimLabels.grade[_overfitState.grade] || _overfitState.grade) : "该维度");
     _overfitAccEl.innerHTML = '<div class="overfit-lite-empty" style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-3);font-size:11px;padding:0 6px;text-align:center">' +
-      dimName + " 60日滚动窗口样本不足(n<20), 不画误导曲线</div>";
+      dimName + " " + _overfitState.roll + "日滚动窗口样本不足(n<20), 不画误导曲线</div>";
     return;
   }
   // 准确率双曲线 lite cfg(实盘 actual 红实线 + 回测 backtest 蓝虚线, 双 series; 对齐 _kpiLiteCfg multi-series 模式)
@@ -1701,19 +1709,20 @@ function _renderOverfitAcc(data) {
   });
 }
 
-// 取风险分 daily 序列(按当前 state: 显示范围 win + grade/sigType 维度)
-// 2026-08-16 窗口语义改造: 统计口径固定 60 窗口(后端 daily_by_win 只存 "60"), 前端按显示范围 slice(-win)。
-//  - grade/sigType 都 null -> overfit.daily_by_win["60"](total 60 窗口)
-//  - 否则 -> overfit.daily_by_dim.{grade|sig_type}.{dim}(该维度 60 窗口派生)
+// 取风险分 daily 序列(按当前 state: 显示范围 win + 统计口径 roll + grade/sigType 维度)
+// 2026-08-16 窗口语义改造v2: 统计口径可切 10/15/30/60/100, 前端按选中口径取对应窗口的 daily 序列。
+//  - grade/sigType 都 null -> overfit.daily_by_win[roll](total 该口径滚动)
+//  - 否则 -> overfit.daily_by_dim.{grade|sig_type}.{dim}[roll](该维度该口径派生)
 //  返回已按显示范围截取的序列。
 function _overfitRiskSeries(data) {
   const s = _overfitState;
   const ov = data && data.overfit;
   if (!ov) return [];
+  const pick = (obj) => (obj && Array.isArray(obj[String(s.roll)])) ? obj[String(s.roll)] : (obj && Array.isArray(obj["60"])) ? obj["60"] : [];
   let daily;
-  if (s.sigType) daily = (ov.daily_by_dim && ov.daily_by_dim.sig_type && ov.daily_by_dim.sig_type[s.sigType]) || [];
-  else if (s.grade) daily = (ov.daily_by_dim && ov.daily_by_dim.grade && ov.daily_by_dim.grade[s.grade]) || [];
-  else daily = (ov.daily_by_win && ov.daily_by_win["60"]) || (ov.daily || []);
+  if (s.sigType) daily = pick(ov.daily_by_dim && ov.daily_by_dim.sig_type && ov.daily_by_dim.sig_type[s.sigType]);
+  else if (s.grade) daily = pick(ov.daily_by_dim && ov.daily_by_dim.grade && ov.daily_by_dim.grade[s.grade]);
+  else daily = (ov.daily_by_win && ov.daily_by_win[String(s.roll)]) || (ov.daily_by_win && ov.daily_by_win["60"]) || (ov.daily || []);
   // 显示范围截取(统计口径不变, 只展示最近 win 交易日)
   const n = (s.win && s.win > 0) ? s.win : 60;
   if (daily.length > n) daily = daily.slice(-n);
@@ -1820,26 +1829,38 @@ async function _appendOverfitCard(colA2, r, snap) {
           }).join("");
       })(_overfitState)) +
       '</div>' +
-    '<div class="overfit-tip">双曲线监控 + 综合过拟合风险分(0-100)。显示范围/评级/类型切换, 两图联动。<b>显示范围</b>=横轴截取最近 N 日展示, 统计口径固定 60 日滚动(不随范围变)；<b>K档</b>=与首页「AI仓位建议 K」同交互(关/K1主推★), 每日只保留最优K个买入信号监控, 与首页 AI仓位建议 top-K 同口径, 且与「AI降亏」两开关独立(降亏开=过滤后选, 关=全信号选)；点「关」=无K档退化普通列表。' +
-      '<span class="overfit-legend">绿&lt;30 正常 · 黄30-60 关注 · 红&gt;60 高风险</span></div>' +
-    '<div class="overfit-win-row"><span class="overfit-win-label">显示范围</span>' +
-      [30, 60, 90].map((w) => '<button data-overfit-win="' + w + '" class="overfit-win-btn' + (w === 60 ? ' active' : '') + '">' + w + '日</button>').join("") +
-      '</div>' +
-    '<div class="overfit-win-row"><span class="overfit-win-label">评级</span>' +
-      '<button data-overfit-grade="" class="overfit-win-btn active">全部</button>' +
+    '<div class="overfit-tip" data-tip="双曲线监控 · 综合过拟合风险分(0-100)。<b>显示范围</b>(30/60/90/180日)=横轴截取最近 N 个交易日展示, 只影响显示不重算；<b>统计口径</b>(10/15/30/60/100日, 默认60)=两图(准确率+风险分)按选中口径滚动重算；<b>评级/类型</b>=看子集；<b>K档</b>(关/K1主推★)=每日最优先选K个买入信号(top-K), 与首页AI仓位建议同口径, 与AI降亏两开关独立(降亏开=过滤后选, 关=全信号选)；<b>AI降亏</b>=只统计未被AI宏删线过滤的信号。绿&lt;30正常 黄30-60关注 红&gt;60高风险。完整说明见标题❓">' +
+      '双曲线监控 · 综合过拟合风险分0-100 · <span class="overfit-legend">绿&lt;30正常 黄30-60关注 红&gt;60高风险</span>' +
+      '<span class="overfit-tip-help" data-overfit-help="1" style="cursor:pointer;text-decoration:underline;margin-left:6px">❓完整指南</span></div>' +
+    // 一行: 显示范围 + 统计口径(两个"范围类"合一行, 2026-08-16 布局重排)
+    '<div class="overfit-win-row"><span class="overfit-row-group">' +
+      '<span class="overfit-win-label">显示范围</span>' +
+      [30, 60, 90, 180].map((w) => '<button data-overfit-win="' + w + '" class="overfit-win-btn' + (_overfitState.win === w ? ' active' : '') + '">' + w + '日</button>').join("") +
+      '</span>' +
+      '<span class="overfit-win-group-sep"></span>' +
+      '<span class="overfit-row-group">' +
+      '<span class="overfit-win-label">统计口径</span>' +
+      [10, 15, 30, 60, 100].map((w) => '<button data-overfit-roll="' + w + '" class="overfit-win-btn' + (_overfitState.roll === w ? ' active' : '') + '">' + w + '日</button>').join("") +
+      '</span></div>' +
+    // 一行: 评级 + 类型(合并, 2026-08-16 布局重排)
+    '<div class="overfit-win-row"><span class="overfit-row-group">' +
+      '<span class="overfit-win-label">评级</span>' +
+      '<button data-overfit-grade="" class="overfit-win-btn' + (_overfitState.grade == null ? ' active' : '') + '">全部</button>' +
       '<button data-overfit-grade="high" class="overfit-win-btn">高</button>' +
       '<button data-overfit-grade="mid" class="overfit-win-btn">中</button>' +
       '<button data-overfit-grade="low" class="overfit-win-btn">低</button>' +
-      '</div>' +
-    '<div class="overfit-win-row"><span class="overfit-win-label">类型</span>' +
-      '<button data-overfit-sig="" class="overfit-win-btn active">全部</button>' +
+      '</span>' +
+      '<span class="overfit-win-group-sep"></span>' +
+      '<span class="overfit-row-group">' +
+      '<span class="overfit-win-label">类型</span>' +
+      '<button data-overfit-sig="" class="overfit-win-btn' + (_overfitState.sigType == null ? ' active' : '') + '">全部</button>' +
       '<button data-overfit-sig="buy" class="overfit-win-btn">主买</button>' +
       '<button data-overfit-sig="buy_aux" class="overfit-win-btn">辅买</button>' +
       '<button data-overfit-sig="buy_special" class="overfit-win-btn">追买</button>' +
       '<button data-overfit-sig="buy_backup" class="overfit-win-btn">备买</button>' +
       '<button data-overfit-sig="sell" class="overfit-win-btn">卖</button>' +
       '<button data-overfit-sig="sell_stop_loss" class="overfit-win-btn">止损卖</button>' +
-      '</div>' +
+      '</span></div>' +
     '<div class="overfit-acc-title">准确率 <span class="ov-sub ov-sub-dim">实盘实际 vs 回测预期</span></div>' +
     '<div id="overfit-acc-chart" style="height:180px;width:100%"></div>' +
     '<div class="overfit-risk-title">综合过拟合风险分 <span class="ov-sub ov-sub-risk">绿黄红分段</span></div>' +
@@ -1898,14 +1919,21 @@ async function _appendOverfitCard(colA2, r, snap) {
   }
   card.addEventListener("click", (e) => {
     const winBtn = e.target.closest("[data-overfit-win]");
+    const rollBtn = e.target.closest("[data-overfit-roll]");
     const gradeBtn = e.target.closest("[data-overfit-grade]");
     const sigBtn = e.target.closest("[data-overfit-sig]");
     const kBtn = e.target.closest("[data-overfit-k]");
-    if (!winBtn && !gradeBtn && !sigBtn && !kBtn) return;
+    if (!winBtn && !rollBtn && !gradeBtn && !sigBtn && !kBtn) return;
     if (winBtn) {
       card.querySelectorAll("[data-overfit-win]").forEach((x) => x.classList.remove("active"));
       winBtn.classList.add("active");
       _overfitState.win = +winBtn.dataset.overfitWin;
+    }
+    // 2026-08-16 统计口径可切: 两图随选中口径重算(daily_by_win/daily_by_dim/accuracy.rolling 换 key 读取, 非自算)
+    if (rollBtn) {
+      card.querySelectorAll("[data-overfit-roll]").forEach((x) => x.classList.remove("active"));
+      rollBtn.classList.add("active");
+      _overfitState.roll = +rollBtn.dataset.overfitRoll;
     }
     if (gradeBtn) {
       card.querySelectorAll("[data-overfit-grade]").forEach((x) => x.classList.remove("active"));

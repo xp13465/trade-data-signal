@@ -6805,6 +6805,12 @@ main { padding: 16px 24px; }
   display: flex; align-items: center; gap: 4px; margin: 4px 0 8px; padding: 0 2px;
   flex-wrap: wrap; /* 桌面也允许换行: 类型钮 7 个防溢出 */
 }
+/* 2026-08-16 布局重排: 一行内两组范围/维度并排, 组间竖线分隔; label 窄、按钮紧凑 */
+.overfit-row-group { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+.overfit-win-group-sep {
+  width: 1px; height: 16px; background: var(--border-color, rgba(128,128,128,0.3));
+  margin: 0 2px; flex-shrink: 0; align-self: center;
+}
 
 .overfit-win-label { font-size: 11px; color: var(--text-3); margin-right: 4px; }
 .overfit-win-btn {
