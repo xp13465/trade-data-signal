@@ -5,6 +5,7 @@
 
 | 文档 | 说明 |
 |---|---|
+| kelly-walkforward-validate.md | **凯利组合 Walk-forward 滚动验证(样本外):v1.1.0 推荐最优组合(8键全开)样本外有效,不过拟合**——单次切分(选2011-2020/验2021-2026)验段 A收益率 45.17%→59.52%(唯一不衰减反升)、9模式合计 +431,799 领先选段最优 +109,368/基线 +174,161;扩展窗口滚动 3/3 段 ≥选段最优;「选段最优」反而过拟合(验段仅 +322,431);领先主要来自短持 A-F(+134,767),长持 G/H/I 8键不占优(与E24一致);分年 K2C5 正边际占比最高(76.9%)、g15 最不稳但大年贡献巨大(2026-08-16;数据 `kelly-walkforward-validate/data/kelly-walkforward.json`+脚本 `kelly-walkforward-validate/scripts/kelly_walkforward.py`+引擎副本) |
 | kelly-k2c5-return-quadrant-check.md | **K2C5 港股追涨剔除双维度校验:用户认知①(除G外净利+收益率双升)对 A-F/H 成立、I 轻微负(-1,365)、G 口径待定;认知②(象限卡片盈利巨多)成立(基线 127/144=88.2% 正,剔后 133/144),港股卡 6 行负全转正**(2026-08-15,本轮新增;v1.0.0 基准 21:14 批,基线 G b0=+203,594 复现;数据 `kelly-k2c5-return-quadrant-check/data/kelly-k2c5-return-quadrant.json`+脚本 `kelly-k2c5-return-quadrant-check/scripts/kelly_k2c5_return_quadrant.py`) |
 | kelly-k2c5-frontend-vs-report-reconcile.md | **K2C5 toggle 前端 vs 报告 §7 口径对账:前端=重跑完整 P3d 仿真(b1 乐观)≠简单剔除;报告 §7=b0 保守,G 双口径分裂(b0 -2,256 / b1 +11,779),真实在区间方向不确定**(2026-08-15;数据 `kelly-k2c5-reconcile/data/k2c5-caliber-compare.json`+脚本 `kelly-k2c5-reconcile/scripts/kelly_k2c5_caliber_compare.py`) |
 | kelly-k2c5-mode-yearly-breakdown.md | **K2C5 港股追涨剔除边际 9 模式全按年分解:短持 A-F/H 全正、可操作 G(-2,256)/长持 I(-1,365)负,正负交织路径噪声**(2026-08-15;数据 `data/kelly-k2c5-mode-yearly.json`+脚本 `scripts/quadrant_mining/kelly_opg_yearly_allmodes.py`) |
