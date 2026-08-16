@@ -42,7 +42,7 @@ bash /Users/linhuichen/code/trade/scripts/deploy.sh
 
 ### `check_signals.sh` — 买卖点信号邮件通知
 
-调 `scripts/check_signals.py`：查 `signal_daily` 当日（默认 today，可传日期参数）买卖点信号，有则发邮件（SMTP 163 SSL），无信号仅记日志。邮件发送失败不阻塞（退出码非 0 但脚本不崩）。
+调 `scripts/check_signals.py`：查 `signal_daily` 当日（默认 today，可传日期参数）买卖点信号，有则发邮件（SMTP SSL，2026-08-17 起走 Resend smtp.resend.com），无信号仅记日志。邮件发送失败不阻塞（退出码非 0 但脚本不崩）。
 
 ```bash
 bash /Users/linhuichen/code/trade/scripts/check_signals.sh            # 今天
@@ -57,12 +57,13 @@ bash /Users/linhuichen/code/trade/scripts/check_signals.sh 20260706   # 指定�
 
 #### 首次配置（必读）
 
-`config/email.json` 含 SMTP 授权码属敏感信息，已 gitignore 不进仓库。首次使用需：
+`config/email.json` 含 SMTP 密码（Resend API key）属敏感信息，已 gitignore 不进仓库。首次使用需：
 
 ```bash
 cp config/email.json.example config/email.json
-# 编辑 config/email.json，把 password 字段填上 163 邮箱 SMTP 授权码（非登录密码！）
-# 授权码获取：登录 mail.163.com → 设置 → POP3/SMTP/IMAP → 开启 SMTP 服务 → 生成授权码
+# 编辑 config/email.json，把 password 字段填上 Resend API key（非登录密码！）
+# smtp=smtp.resend.com / port=465 / user=resend / from=hi@fx8.store（Resend 已验证发件域）
+# key 获取：https://resend.com/api-keys 生成；发件域须先在 Resend Domains 完成验证
 ```
 
 未配置或 password 仍是占位符时，脚本只打印邮件内容到日志，不实际发送（便于测试）。
@@ -303,7 +304,7 @@ collect + deploy + check_signals 都幂等 → update_all 重跑安全。中断�
 
 - **`git push` 本身失败**（网络不通 / SSH key 不可用 / 权限拒绝）需重跑 `deploy.sh`：脚本退出码非 0，日志记 `✗ git push 失败`。重跑会再 export + git add（无新变更跳过 commit）+ git push 重试。
 - collect.sh 内部某 step 抛异常被 scheduler try/except 兜底（部分失败），退出码仍 0，不影响 deploy。
-- check_signals.sh 邮件发送失败（SMTP 拒绝 / 授权码失效 / 网络不通）退出码 2，但不阻塞 update_all.sh，公网部署仍正常完成。需手动看日志修复 email.json 后重跑 `bash scripts/check_signals.sh`。
+- check_signals.sh 邮件发送失败（SMTP 拒绝 / Resend API key 失效 / 发件域未验证 / 网络不通）退出码 2，但不阻塞 update_all.sh，公网部署仍正常完成。需手动看日志修复 email.json 后重跑 `bash scripts/check_signals.sh`。
 
 ## 文件位置
 
