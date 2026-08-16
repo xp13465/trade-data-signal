@@ -51,9 +51,11 @@ SMTP 密码仅用于 smtplib 连接,绝不 print / log / 写入邮件正文 / �
 from __future__ import annotations
 
 import argparse
+import certifi
 import json
 import logging
 import smtplib
+import ssl
 import sys
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
@@ -1528,6 +1530,9 @@ def send_email(cfg: dict, subject: str, text_body: str, html_body: str, from_tag
     port = int(cfg.get("port", 465))
     user = cfg.get("user", "")
     password = cfg.get("password", "")
+    # 发件人地址：优先用 from 字段（如 Resend 已验证域 hi@fx8.store），
+    # 缺省回退到 user（163 场景 user=发件邮箱）。认证仍用 user/password（Resend=resend/API key）。
+    from_addr = cfg.get("from") or user
     to_list = _resolve_recipients(cfg, user)
 
     if not user or not password or password == PLACEHOLDER_PASSWORD:
@@ -1536,16 +1541,18 @@ def send_email(cfg: dict, subject: str, text_body: str, html_body: str, from_tag
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = formataddr((f"[{from_tag}] {SITE_NAME}", user))
+    msg["From"] = formataddr((f"[{from_tag}] {SITE_NAME}", from_addr))
     msg["To"] = ", ".join(to_list)
     msg["Date"] = formatdate(localtime=True)
     msg.attach(MIMEText(text_body, "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
     try:
-        with smtplib.SMTP_SSL(smtp, port, timeout=30) as srv:
+        # 本地 python 默认 SSL 证书链缺失会 CERTIFICATE_VERIFY_FAILED，用 certifi 证书
+        ctx = ssl.create_default_context(cafile=certifi.where())
+        with smtplib.SMTP_SSL(smtp, port, timeout=30, context=ctx) as srv:
             srv.login(user, password)
-            srv.sendmail(user, to_list, msg.as_string())
+            srv.sendmail(from_addr, to_list, msg.as_string())
         log.info("✓ 邮件已发送至 %s:%s", ", ".join(to_list), subject)
         return True
     except Exception as e:  # noqa: BLE001

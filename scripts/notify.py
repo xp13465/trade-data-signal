@@ -39,6 +39,7 @@
 from __future__ import annotations
 
 import argparse
+import certifi
 import json
 import re
 import smtplib
@@ -726,6 +727,9 @@ def _send_email(subject: str, body: str, dry_run: bool = False,
     port = int(cfg.get("port", 465))
     user = cfg.get("user", "")
     password = cfg.get("password", "")
+    # 发件人地址：优先用 from 字段（如 Resend 已验证域 hi@fx8.store），
+    # 缺省回退到 user（163 场景 user=发件邮箱）。认证仍用 user/password（Resend=resend/API key）。
+    from_addr = cfg.get("from") or user
     default_to = cfg.get("to", user)
     # A12 订阅推送：to 参数优先于 config 默认
     to_addr = to if to else default_to
@@ -742,14 +746,16 @@ def _send_email(subject: str, body: str, dry_run: bool = False,
 
     msg = MIMEText(body, "html", "utf-8")
     msg["Subject"] = subject
-    msg["From"] = formataddr((from_name, user))
+    msg["From"] = formataddr((from_name, from_addr))
     msg["To"] = to_addr
     msg["Date"] = formatdate(localtime=True)
 
     try:
-        with smtplib.SMTP_SSL(smtp, port, timeout=30) as srv:
+        # 本地 python 默认 SSL 证书链缺失会 CERTIFICATE_VERIFY_FAILED，用 certifi 证书
+        ctx = ssl.create_default_context(cafile=certifi.where())
+        with smtplib.SMTP_SSL(smtp, port, timeout=30, context=ctx) as srv:
             srv.login(user, password)
-            srv.sendmail(user, [to_addr], msg.as_string())
+            srv.sendmail(from_addr, [to_addr], msg.as_string())
         print(f"[notify] 邮件已发送至 {to_addr}：{subject}", file=sys.stderr)
         return True
     except Exception as e:  # noqa: BLE001
