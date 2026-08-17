@@ -57,6 +57,11 @@ from pathlib import Path
 
 # 已抄送指纹文件（记录 "<模式>|<指纹>" 每行一个；/tmp 重启清空可接受：会话重启本就去重重置）
 SENT_FILE = Path("/tmp/feishu_hook_sent.txt")
+# 心跳戳文件（2026-08-17 #25 飞书 hook 心跳自检告警）：
+# 每次 hook 被触发(拿 flock 后无条件 touch 更新 mtime)，只证"hook 有被接线触发"，
+# 不依赖发送成败。发送层失败(配置丢失/网络)由 schedule_monitor 维度⑦(feishu.json 缺失)
+# 覆盖，二者互补。schedule_monitor 维度⑧ 检测"会话活跃但心跳陈旧"→ 告警。
+HEARTBEAT_FILE = Path("/tmp/feishu_hook_heartbeat")
 FEISHU_CHAT_KEY = "agent_done"  # 开发群
 BODY_LIMIT = 1800  # 留余量给 subject/截断尾注（notify 内部还会截到 2000）
 MAX_RETRY_READ = 5  # assistant 模式等 transcript 刷新的重试次数
@@ -507,6 +512,12 @@ def main(argv) -> int:
         import fcntl
         with open(SENT_FILE, "a+", encoding="utf-8") as lock_f:
             fcntl.flock(lock_f, fcntl.LOCK_EX)
+            # 心跳戳（#25）：hook 被调用=Claude Code 会话活跃。拿锁后无条件 touch 更新
+            # mtime，不依赖发送成败。schedule_monitor 维度⑧ 据此检测"活跃但心跳陈旧"。
+            try:
+                HEARTBEAT_FILE.touch(exist_ok=True)
+            except Exception as _e_hb:
+                _log(f"写心跳戳失败(忽略): {_e_hb}")
             try:
                 if mode == "user":
                     handle_user(data)
