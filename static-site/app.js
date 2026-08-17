@@ -21702,6 +21702,25 @@ function _dbConclusionHtml(meta) {
   return `<p class="db-line db-conclusion"><span class="db-k">🧭 结论</span>${_esc(concl)}</p>`;
 }
 
+// AI 预测自成长 Step 1 透明展示:本次预测实际注入的「历史反思校准」要点(meta.reflection)。
+// 后端 gen_daily_brief.py 与注入口径同源写进 meta;无 reflection(旧条目/兜底版/无注入样本)整块不渲染(优雅降级)。
+// §23.9 三档互证:标题白话一句 + 正文场景说明 + 下方 1:1 样本明细(日期+类型+简短归因)。
+function _dbReflectionHtml(meta) {
+  const rf = (meta && meta.reflection) || null;
+  if (!rf || !rf.n) return "";
+  const n = rf.n || 0;
+  const injN = rf.injected_n || n;
+  const dirFailN = rf.dir_fail || 0;
+  const samples = (rf.samples || []).map((s) => {
+    const d = String(s.date || "").replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
+    const typeLabel = ({ direction_fail: "方向误判", range_imprecise: "区间不准", partial: "部分命中" })[s.type] || (s.type || "");
+    return `<li><b>${_esc(d)}</b> ${_esc(typeLabel)}${s.summary ? `：${_esc(s.summary)}` : ""}</li>`;
+  }).join("");
+  return `<div class="db-reflection"><div class="db-reflection-title">🔍 含历史反思校准</div>
+    <p class="db-reflection-brief">本次预测生成前，先参考历史上 ${n} 次失败预测的反思${injN < n ? `（近 ${injN} 次）` : ""}做校准，不是凭空判断；其中方向误判 ${dirFailN} 次。失败教训只作谨慎权衡参考，结论仍以本次数据为准。</p>
+    ${samples ? `<ul class="db-reflection-samples">${samples}</ul>` : ""}</div>`;
+}
+
 // 复用:AI 预测内容块(复盘/趋势/关注/风险四段 + meta 断言 watch_list/risk_items + 免责)。
 // 供 AI 预测弹窗详情、历史收盘分析弹窗结合展示共用，保证两处渲染一致。
 // 2026-08-11 补齐:①🎯今日要点高亮区块(meta.highlights,后端 _ensure_highlights 兜底非空)
@@ -21803,6 +21822,7 @@ function _dbBriefDetailHtml(it) {
   const rolesHtml = _dbRolesHtml(meta);
   const debateHtml = _dbDebateHtml(meta);
   const conclusionHtml = _dbConclusionHtml(meta);
+  const reflectionHtml = _dbReflectionHtml(meta);
   let debateBlock = "";
   if (rolesHtml || debateHtml) {
     // 2026-08-12 辩论入口强化: 标题带角色数 + 多空论据数, 让用户点开前就感知内容量
@@ -21814,6 +21834,7 @@ function _dbBriefDetailHtml(it) {
     debateBlock = `<details class="db-debate-wrap"><summary class="db-debate-toggle">🧠 多角色讨论详情${tag}<span class="db-debate-arrow">▾</span></summary><div class="db-debate-body">${rolesHtml}${debateHtml}</div></details>`;
   }
   return `${rangeBlock}${indexBlock}${sectorBlock}${highlightsHtml}${conclusionHtml}${conf ? `<p class="db-line"><span class="db-k">把握度</span>${_dbConfidenceBadge(meta)}<span class="db-conf-reason">${_esc(conf.reason)}</span></p>` : ""}
+      ${reflectionHtml}
       <p class="db-line"><span class="db-k">复盘</span>${_esc(t.review || "")}</p>
       <p class="db-line"><span class="db-k">趋势</span>${_esc(t.trend || "")}</p>
       ${watchLine}
@@ -21903,7 +21924,7 @@ function _renderDailyBriefStats(brief) {
       `<span class="db-stats-item db-stats-sched">🕗 每日 20:40 更新${genAt}${todayConf ? ` · 今日${todayConf}` : ""}</span>` +
       `<span class="db-stats-item">近30日：<b>${s30 && s30.n ? `${s30.hit}/${s30.n}（${rate(s30)}）` : "暂无样本"}</b></span>` +
       `<span class="db-stats-item">近90日：<b>${s90 && s90.n ? `${s90.hit}/${s90.n}（${rate(s90)}）` : "暂无样本"}</b></span>` +
-      '<details class="db-stats-how-fold"><summary>📊 命中率统计与算法说明 ▸</summary><div class="db-stats-how">AI每日盘后基于当日收盘数据，默认由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测 + 🎯今日要点 + 多角色讨论（展开可看四角色结论与多空辩论）；任一环节失败自动降级单模型生成兜底。meta结构化断言：预测给出<b>明确方向 + 具体涨跌幅区间</b>（大盘上证 + <b>中间层7个全押</b>（深证成指/创业板指/科创50/北证50/恒生指数/恒生科技涨跌幅% + 10年国债收益率变化基点）+ 1-3个领涨/领跌板块次日涨跌幅区间，区间宽度≤0.5%，越窄越准；方向由区间体现：全正=涨/全负=跌/含0=平震荡）。<b>10年国债</b>预测口径为<b>次日收益率变化基点</b>（1基点=0.01%，区间如 +1~-1 即预期次日收益率在 当日−1bp~+1bp，用整数基点、宽度≤3bp），命中=次日实际收益率减当日收益率（×100）落在预期基点区间。命中判定=<b>三层全命中</b>：大盘实际涨跌幅 ∈ 大盘预测区间，且<b>中间层7个全部命中</b>（前6涨跌幅%落各自区间 + 10年国债基点落区间），且所有预测板块实际涨跌幅 ∈ 各自区间（大盘+中间层7押+板块=✅三层命中；任一层数据缺失 N/A 则整体不硬判，标"层级N/A"）。<b>历史老条目</b>（改造前无区间/无中间层的预测）不伪造区间，只保留旧"方向相等"判定（✅仅方向命中），区间命中标"层级N/A"（不算中不算不中），故命中率为新老口径混合统计。<b>命中率</b>仅对改造后含区间的条目计，老条目 N/A 不计入。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。<b>版本徽标</b>：🤖多角色=6角色完整版（默认）／旧版单模型=多角色版上线前旧版（已被取代）／⚠️降级版=AI生成失败规则兜底（无多角色辩论）／⚠️精简版=最小兜底；降级/精简版仅供参考。每条预测含<b>🧭结论</b>行（融合结论=研究员多空辩论收敛结果，不展开即可见），<b>辩论详情</b>折叠面板可展开看四角色结论与多空论据（含论据数）。<b>增量参考面</b>：预测已综合当天新闻快讯/宏观事件（今日要闻/明日关键事件）/8宽基估值位置（1y/3y历史百分位）等增量参考——AI 在这些面之上判断方向，但这些面本身不参与区间命中判定。命中率仅为历史统计，不构成投资建议。</div></details>' +
+      '<details class="db-stats-how-fold"><summary>📊 命中率统计与算法说明 ▸</summary><div class="db-stats-how">AI每日盘后基于当日收盘数据，默认由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测 + 🎯今日要点 + 多角色讨论（展开可看四角色结论与多空辩论）；任一环节失败自动降级单模型生成兜底。meta结构化断言：预测给出<b>明确方向 + 具体涨跌幅区间</b>（大盘上证 + <b>中间层7个全押</b>（深证成指/创业板指/科创50/北证50/恒生指数/恒生科技涨跌幅% + 10年国债收益率变化基点）+ 1-3个领涨/领跌板块次日涨跌幅区间，区间宽度≤0.5%，越窄越准；方向由区间体现：全正=涨/全负=跌/含0=平震荡）。<b>10年国债</b>预测口径为<b>次日收益率变化基点</b>（1基点=0.01%，区间如 +1~-1 即预期次日收益率在 当日−1bp~+1bp，用整数基点、宽度≤3bp），命中=次日实际收益率减当日收益率（×100）落在预期基点区间。命中判定=<b>三层全命中</b>：大盘实际涨跌幅 ∈ 大盘预测区间，且<b>中间层7个全部命中</b>（前6涨跌幅%落各自区间 + 10年国债基点落区间），且所有预测板块实际涨跌幅 ∈ 各自区间（大盘+中间层7押+板块=✅三层命中；任一层数据缺失 N/A 则整体不硬判，标"层级N/A"）。<b>历史老条目</b>（改造前无区间/无中间层的预测）不伪造区间，只保留旧"方向相等"判定（✅仅方向命中），区间命中标"层级N/A"（不算中不算不中），故命中率为新老口径混合统计。<b>命中率</b>仅对改造后含区间的条目计，老条目 N/A 不计入。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。<b>版本徽标</b>：🤖多角色=6角色完整版（默认）／旧版单模型=多角色版上线前旧版（已被取代）／⚠️降级版=AI生成失败规则兜底（无多角色辩论）／⚠️精简版=最小兜底；降级/精简版仅供参考。每条预测含<b>🧭结论</b>行（融合结论=研究员多空辩论收敛结果，不展开即可见），<b>辩论详情</b>折叠面板可展开看四角色结论与多空论据（含论据数）。<b>增量参考面</b>：预测已综合当天新闻快讯/宏观事件（今日要闻/明日关键事件）/8宽基估值位置（1y/3y历史百分位）等增量参考——AI 在这些面之上判断方向，但这些面本身不参与区间命中判定。<b>历史反思校准（自成长）</b>：每次预测生成前，系统会读历史失败预测样本（方向/区间误判+归因）做反思注入，让模型参考既往失误谨慎校准本次判断（严格时间隔离，只用本预测日之前已回填的失败样本，防未来函数）；有样本时预测详情块显示「🔍 含历史反思校准」及参考的具体失败样本（日期+类型+归因），样本积累中则暂不显示。命中率仅为历史统计，不构成投资建议。</div></details>' +
     '</div>';
 }
 

@@ -3387,6 +3387,19 @@ main { padding: 16px 24px; }
 .db-highlights-title { font-weight: 700; color: #c87a1a; font-size: 13px; margin-bottom: 4px; }
 .db-highlights ul { margin: 0; padding-left: 18px; }
 .db-highlights li { font-size: 13px; color: var(--text-1); line-height: 1.7; }
+/* AI 预测自成长 Step 1 透明展示:「含历史反思校准」区块(meta.reflection) */
+.db-reflection {
+  margin: 2px 0 4px;
+  padding: 8px 12px;
+  background: linear-gradient(90deg, rgba(100, 160, 255, 0.14), rgba(100, 160, 255, 0.04));
+  border-left: 3px solid #5a9bf0;
+  border-radius: 6px;
+}
+.db-reflection-title { font-weight: 700; color: #3a7bd5; font-size: 13px; margin-bottom: 3px; }
+.db-reflection-brief { margin: 0 0 4px; font-size: 12.5px; color: var(--text-1); line-height: 1.6; }
+.db-reflection-samples { margin: 0; padding-left: 18px; }
+.db-reflection-samples li { font-size: 12.5px; color: var(--text-2); line-height: 1.6; }
+.db-reflection-samples b { color: #3a7bd5; }
 .db-debate-wrap {
   margin-top: 6px;
   border: 1px solid var(--border);

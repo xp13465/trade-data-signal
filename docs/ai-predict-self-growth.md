@@ -1,7 +1,7 @@
 # AI 预测自成长(反思总结)体系方案
 
 > 2026-08-17 用户提出(原话要点):"现在每天 ai 预测有次日待回填功能。比如今天看上周五的预测大概率全失败了。回填失败后,不管是方向失败还是区间不精确,都应该有一个反思总结,这样才能让下次预测更好。自成长体系,比我一只给你传授经验要有用的多。"
-> 状态:**Step 1 闭环已实施(2026-08-17)**;Step 2 周反思报告待主控派。2026-08-17 用户拍板"不等样本攒够,边做边改边校准边成长,闭环立即转起来",Step 1 已按此落地(详见 §6.6)。调研已完成(2026-08-17 researcher 实证,6 问全答见 §六;线上 R2 与本地产物双向核实,L09 防线已验)。
+> 状态:**Step 1 闭环已实施(2026-08-17)**;Step 2 周反思报告待主控派。2026-08-17 用户拍板"不等样本攒够,边做边改边校准边成长,闭环立即转起来",Step 1 已按此落地(详见 §6.6)。**Step 1 透明展示已落地(2026-08-17)**:本次预测实际注入的反思要点(样本数/方向失败数/最近样本日期+类型+归因)随 `meta.reflection` 归档进 `daily_brief.json`/`daily_brief_history.json`,前端所有 AI 预测展示位统一展示「🔍 含历史反思校准」区块(§22 单一数据源)。调研已完成(2026-08-17 researcher 实证,6 问全答见 §六;线上 R2 与本地产物双向核实,L09 防线已验)。
 
 ## 一、背景:现有预测反馈链路缺哪一环
 
@@ -102,7 +102,7 @@
 - **Phase 3 注入(最后,walk-forward 验证后)**:方式 A 注入 prompt(先单 prompt 的 compute_known_bias 扩展,再多角色主编段),A/B 验证有效再全量;方式 B 区间校准系数同样 walk-forward。
 
 > **2026-08-17 用户拍板(实施依据)**:用户原话"不等 2-4 个月,边做边改边校准边成长,闭环立即转起来"——不等 Phase 1/2/3 按样本节奏,而是**从第一条失败样本起就自动运转的持续闭环**。据此 Step 1(2026-08-17 实施)把 §6.6 的 Phase 0(样本基建)+ Phase 3 的**方式 A 注入**(规则级,非模型级)合并落地:
-> ①失败样本自动落 `data/daily_brief_reflections.json`(从 8-10/8-14 起,幂等,根 data/ 本地不进 git);②规则级归因(failure_type/error_bps/expected_gap_summary/evidence_source);③confidence 分桶校准统计(机制先行,样本少如实输出);④方式 A 规则级注入(单 prompt `compute_known_bias` 扩展 + 多角色主编 sys_text,严格时间隔离 walk-forward,env `BRIEF_REFLECTION_INJECT=0` 可关,注入内容按 date 归档 `data/brief_reflections_injected.json` 可复现,过合规 scrub)。**Phase 1 归因错题本可视化 / Phase 2 周反思报告 / 方式 B 区间校准系数仍待 Step 2 及样本积累后推进(主控另派)**。
+> ①失败样本自动落 `data/daily_brief_reflections.json`(从 8-10/8-14 起,幂等,根 data/ 本地不进 git);②规则级归因(failure_type/error_bps/expected_gap_summary/evidence_source);③confidence 分桶校准统计(机制先行,样本少如实输出);④方式 A 规则级注入(单 prompt `compute_known_bias` 扩展 + 多角色主编 sys_text,严格时间隔离 walk-forward,env `BRIEF_REFLECTION_INJECT=0` 可关,注入内容按 date 归档 `data/brief_reflections_injected.json` 可复现,过合规 scrub)。**⑤透明展示(2026-08-17)**:每次 AI 预测生成时把本次实际注入的反思要点(样本数 `n`/方向失败数 `dir_fail`/最近样本 `samples[{date,type,summary}]`,与注入 `build_reflection_inject` 同源同时间隔离)结构化写进 `brief["meta"]["reflection"]`,随 `daily_brief.json`/`daily_brief_history.json` 归档;前端 AI 预测详情块新增 `_dbReflectionHtml` 统一读 `meta.reflection` 渲染「🔍 含历史反思校准」区块(白话一句+场景+1:1 样本明细),覆盖横幅 AI 预测弹窗/收盘分析结合块/AI 预测历史弹窗全部展示位(§22 单一数据源,§23.3 举一反三);无 reflection(旧条目/兜底版/无样本)优雅降级整块不渲染。**Phase 1 归因错题本可视化 / Phase 2 周反思报告 / 方式 B 区间校准系数仍待 Step 2 及样本积累后推进(主控另派)**。
 
 ### 6.7 1:1 举例(8-14 预测失败,真实日期+数字,§23.9 自查)
 **8-14(周五)预测**:"8-17(下周一)上证 direction=down,区间 -0.8%~-0.3%,confidence=60;中间层 7 个全押(如深成指 -0.5~0、科创50 -0.5~0、恒指 -1.5~-1.0);板块:电子 -1.0~-0.5、汽车 -0.8~-0.3;风险依据含'中信期货 d5_chg=-6.6% 资金面偏空''主力资金净流出 202.92 亿'"。**8-17 盘中(10:52 金十)**:沪指涨 0.61%、深成指/创业板涨 1%、科创50 涨超 3%——**方向失败(预测跌实际涨)、区间失败(预测 -0.8~-0.3 实际约 +0.6)、中间层/板块也全线反向**。8-17 收盘定论待 20:40 回填。这就是"方向失败"类型的第一个完整样本,也是用户说"上周五预测全失败"的数据落地。

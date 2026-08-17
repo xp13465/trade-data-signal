@@ -2677,6 +2677,38 @@ def build_reflection_inject(reflections: dict, date: str, cfg: dict) -> str:
     return scrub_text(text, cfg)
 
 
+def build_reflection_meta(reflections: dict, date: str, cfg: dict):
+    """生成用户可读的「历史反思校准」结构化要点(与 build_reflection_inject 同源同时间隔离)。
+
+    只取 backfilled_via < date 的样本(严格时间隔离 walk-forward,防未来函数),与注入口径完全一致,
+    保证前端展示的反思要点 = 本次预测实际注入的样本,不是另算一套(§22 一致)。
+    返回 dict {n, injected_n, dir_fail, samples:[{date,type,summary}], generated_at} 或 None(无注入样本/关闭)。"""
+    if os.environ.get(REFLECTION_INJECT_ENV) == "0":
+        return None
+    if not cfg.get("review_enabled", True):
+        return None
+    samples = reflections.get("samples") or []
+    past = [s for s in samples if s.get("backfilled_via") and s.get("backfilled_via") < date]
+    if not past:
+        return None
+    past_sorted = sorted(past, key=lambda s: (s.get("backfilled_via") or ""), reverse=True)[:3]
+    dir_fail = sum(1 for s in past_sorted if s.get("failure_type") == "direction_fail")
+    return {
+        "n": len(past),
+        "injected_n": len(past_sorted),
+        "dir_fail": dir_fail,
+        "samples": [
+            {
+                "date": s.get("date"),
+                "type": s.get("failure_type"),
+                "summary": (s.get("expected_gap_summary") or "")[:120],
+            }
+            for s in past_sorted
+        ],
+        "generated_at": _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
 def archive_injected_text(ref_path: Path, date: str, text: str) -> None:
     """按 date 归档注入文本(破坏模式 A 历史重跑可复现:重跑某历史日期能还原当时注入了什么)。"""
     if not text:
@@ -3244,6 +3276,14 @@ def main() -> int:
     else:
         brief["meta"]["tts_available"] = False
         timings["tts"] = 0
+    # AI 预测自成长闭环(Step 1 透明展示):本次预测实际注入的「历史反思校准」要点,随 meta 归档进
+    # daily_brief.json + history(§22 单一数据源)。与 build_reflection_inject 同源同时间隔离,
+    # 前端展示 = 本次实际注入的样本(样本数/方向失败数/最近样本日期+类型+简短归因),非另算一套。
+    # rule/minimal 兜底版无 AI 反思注入,meta.reflection 置 None(前端优雅降级,不显示反思块)。
+    refl_meta = None
+    if version in ("ai", "ai-multi"):
+        refl_meta = build_reflection_meta(reflections, date, cfg)
+    brief["meta"]["reflection"] = refl_meta
     tw = time.time()
     stats = write_outputs(static_dir, brief, cfg, history)
     timings["write"] = round(time.time() - tw, 2)
