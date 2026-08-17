@@ -118,12 +118,35 @@
 - **定价**:划线价 original_price_ut=260;现价 price_ut 未显式设置(产品无 price_ut 字段,买家端价格待观察,price_ut_min=80 为平台下限参考)。**待 1+4(买入信号/卖出警示)上架后 `POST /products/{id}/apis/{api_id}` 补挂进本套件**。
 - **封面**:套件专属封面 `scripts/uumit/gen_suite_cover.py` 生成(两接口卡:AI 市场预测/ETF 精选评分,中央平台标题叠加区无大色块),上传 UUMit OSS 得真实 URL `https://oss.uumit.com/uumit-service/prod/covers/2026/08/17/f608d36b99454e77.png`,封面安全+质量审核通过。
 - **上架坑(记录防重犯,与形态 6/7 同源)**:①**封面须与商品主题明显相关**——复用数据包封面(数据清单主题)被判 cover_quality failed("封面质量 AI 评估失败,请重新评估或人工处理"),换套件专属封面后 success ②封面更新后 safety/quality 回 pending,等 60-90s 再 `online` 重试(一次就过)③**产品无 price_ut 现价字段,只有 original_price_ut(划线)+ price_ut_min(下限)**,现价机制待确认。
+- **套内 API(2026-08-17 补全为 4 个)**:上架 1+4(当日买入信号/卖出警示)后 `POST /products/{id}/apis/{api_id}?sort_order=N` 补挂,套件 api_count 2→4,见形态 9/10。
 
-## 数据广场产品(套件)机制调研结论(2026-08-17,已落地:2+3 已挂套件上线)
+## 形态 9:FX8 当日买入信号 API(数据广场,已上线 online,2026-08-17)
+
+- **创建入口**:Skill API `POST /api/v1/data-marketplace/apis` → `POST /apis/{id}/test`(自动化连通测试)→ `POST /apis/{id}/submit`(数据广场审核自动化,提交即过,4 步 schema/connectivity/response/pricing 全 PASS)。api_id=`2915e7c7-ec85-4bea-a8b4-89903b19e53a`,状态 **`online`(可售)**
+- **名称**:FX8 当日买入信号 API
+- **类别**:finance;标签 买入信号/选股/每日更新/回测背书
+- **上游**:`GET https://ss.fx8.store/api/data/buy_signal/latest`(读 overview.json signals_today 两个窗口=当天+上个交易日,只取回测白名单 buy/buy_special/buy_aux/buy_backup 且 `_bt_in_universe=true`「宁可空不能错」,每条附 signal_stats 回测背书 win_rate/score/n 各 5/10/20 日)
+- **响应**:`{message(string|null), updated_at(string|null), windows[{date, count, signals[{date,index_id,name,symbol,signal,reason,close,etfs[],endorsement(object|null)}]}]}`
+- **认证**:`api_key` 型,`upstream_auth_type=api_key`,`upstream_auth_config={key_name:X-API-Key, key_value:FX8_DM_API_KEY, in:header}`,位置 header。平台代理转发时用它鉴权 ss.fx8.store(已实测平台 test 200 + 真实数据)
+- **定价**:80 UT/次(划线 120 UT),免费额度 none
+- **上架坑(记录防重犯)**:①**认证字段名是 `upstream_auth_type`+`upstream_auth_config`,不是 auth_type/key_name/key_value**——用后者创建后平台 test 401(没带上 key),需 PUT 修正为前者才 test 200 ②**RESPONSE_SCHEMA 可 null 字段必须写数组形式** `["object","null"]`/`["string","null"]`(message/updated_at/endorsement 可能为 null)③**cover_image_url 必填**,用 `publisher.js upload --file` 传 `/tmp/buy_signal_cover.png` 得真实 OSS URL(attachments 路径亦可作封面)
+
+## 形态 10:FX8 卖出警示 API(数据广场,已上线 online,2026-08-17)
+
+- **创建入口**:Skill API `POST /api/v1/data-marketplace/apis` → `POST /apis/{id}/test` → `POST /apis/{id}/submit`。api_id=`95701c83-799b-4b27-b861-5ba8c1da64a1`,状态 **`online`(可售)**
+- **名称**:FX8 卖出警示 API
+- **类别**:finance;标签 卖出警示/止损/风控/每日更新
+- **上游**:`GET https://ss.fx8.store/api/data/sell_alert/latest`(读 overview.json signals_today 最新日期 sell/sell_stop_loss,全品种覆盖含债类/全球/港股不限于买入宇宙;支持 ?code= 过滤,但 **UUMit 固定 URL 转发不传买家 query,故上架用无参 URL 返回全部**,code 过滤能力保留在 worker 供直连用)
+- **响应**:`{date(string|null), code(string|null), count(integer), alerts[{date,index_id,name,symbol,signal,reason,close,etfs[]}]}`
+- **认证**:`api_key` 型,同形态 9(upstream_auth_type=api_key, X-API-Key header)
+- **定价**:60 UT/次(划线 100 UT),免费额度 none
+- **上架坑(记录防重犯)**:同形态 9——认证字段名 upstream_auth_type/upstream_auth_config、RESPONSE_SCHEMA null 字段数组形式(date/code 可为 null)、cover_image_url 必填(publisher.js upload `/tmp/sell_alert_cover.png`)
+
+## 数据广场产品(套件)机制调研结论(2026-08-17,已落地:4 接口已全部挂套件上线)
 
 - **机制**:数据广场「产品/套件」= 把多个已上架 API 聚合为一个可售包(`POST /data-marketplace/products` 创建 → `POST /products/{id}/apis/{api_id}` 挂 API),产品独立 name/description/划线价 original_price_ut,可上下架;买家一次购买访问套内所有接口(页面实例「所属套件:…本产品全部接口」)。skill rest_request.js 白名单已支持全部产品路由。
-- **可行性**:4 接口(买入信号/AI预测/ETF评分/卖出警示)构成「每日决策闭环」(信号→预测→评分→警示),套装比散卖更有场景故事 + 独立曝光位 + 可做折扣价。**先决**:产品挂 API 需 API 已 online——2+3 已 online,1+4 待上架后补挂。
-- **节奏落地**:2+3 已上 → 建「FX8 每日决策套件」挂 2+3 上线(2026-08-17)→ 1+4 上线后补挂进套件。
+- **可行性**:4 接口(买入信号/AI预测/ETF评分/卖出警示)构成「每日决策闭环」(信号→预测→评分→警示),套装比散卖更有场景故事 + 独立曝光位 + 可做折扣价。**先决**:产品挂 API 需 API 已 online——2+3 已 online,1+4 上线后补挂(**2026-08-17 已全部完成**,套件 api_count=4,见形态 9/10)。
+- **节奏落地**:2+3 已上 → 建「FX8 每日决策套件」挂 2+3 上线(2026-08-17)→ 1+4 上线后补挂进套件(**2026-08-17 完成,套件 4 接口闭环:AI预测 sort1 / ETF评分 sort2 / 买入信号 sort3 / 卖出警示 sort4**)。
 - ⚠️ **封面 URL 记录修正(2026-08-17)**:本文档此前封面路径写 `covers/2026/08/16/xxx.png` 是本地简化记录,**真实封面 URL = `upload/file`(uumit-publisher `publisher.js upload --file` 受控直传)返回的 `https://oss.uumit.com/uumit-service/prod/covers/...`**,本地 static-site/covers/ 不存在,勿用 `ss.fx8.store/covers/...` 路径作为 cover_image_url。
 
 ## 操作注意(降低 3005/重审风险)
