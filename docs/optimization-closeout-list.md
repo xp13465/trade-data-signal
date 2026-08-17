@@ -49,8 +49,8 @@
 | pending-#42 | 上下文优化 3 项 | pending L91 | OPT-2 索引瘦身/OPT-1 轮询降本/OPT-3 会话瘦身 | memory/规范 | 未派 | 无 | **执行顺序** | 需拍板(已部分落地:P0-1 已落 memory persist-before-clear-compact) |
 | pending-#46 | 降亏面板①口径标注+真实对照行 | pending L95 | 补「不含仓位控制/峰值持仓991万」口径说明+真实对照行 | lab.js | 待处理(优先级中) | 数据/逻辑已有 | 无 | 本轮做(纯展示层口径标注,§21 公示同步) |
 | pending-#47 | K 档位评级 A 模式数值溯源落档+每日池重算 | pending L96 | 穷举数据落档;页面 _pcRating 重算 | lab.js/common.js | 部分完成(穷举已落档;页面重算已并入 #48 完成) | 无 | 无 | **可关闭**(#48 已重算落地,§22 三处一致) |
-| pending-#51 | §23.6 入样宇宙规则落地(首页 1:1 遵从/变更联动走查) | pending L100 | yaml+check 已上线;首页 1:1 遵从/8 步联动待全量验证 | app.js/export.py/check_universe_alignment.py | 部分完成(yaml+check 已上线 f27768c85) | 无 | 无 | **本轮做**(收尾验证:首页读标记无自算+8 步联动全量走查) |
-| pending-#56 | signal_notified.json 双副本清理 | pending L112 | trade-data/data(权威 13 条)vs trade/data(旧 11 条)双份;cd trade 跑 python 会误读旧副本重发 | check_signals.py+data/signal_notified.json | 待办(低优先,已同步 md5 一致) | 无 | 无 | **本轮做**(低风险:同步旧副本/symlink+断言 REPO 落 trade-data) |
+| pending-#51 | §23.6 入样宇宙规则落地(首页 1:1 遵从/变更联动走查) | pending L100 | yaml+check 已上线;首页 1:1 遵从/8 步联动待全量验证 | app.js/export.py/check_universe_alignment.py | **已完成**(2026-08-18 批次D收尾验证:①首页读 `_bt_in_universe` 标记无自算(app.js L2659-2661 过滤 `_bt_in_universe!==false`+排除卖类, 候选⊆BUY_SIGNALS) ②check_universe_alignment.py 四断言全 PASS(198信号对称/84候选⊆白名单/177096笔无排除/排除类别正确) ③三处公示全在(purpose-notes.js+app.js L2273+lab.js L8988/L9787) ④8步联动: deploy.sh 链 build_board_etf_map(L106)→export(L118)→check(L147)→§22三步(rsync+R2+push), **注: step3 重跑 signal_kelly_backtest 非自动, 手改回测标准须先手动重跑再 deploy**(本次收尾未重跑回测) ⑤举一反三: 首页/lab.js AI仓位/check_signals邮件/首页删除线 4 展示位均读标记不自算) | 无 | 无 | **已完成**(2026-08-18 批次D 收尾) |
+| pending-#56 | signal_notified.json 双副本清理 | pending L112 | trade-data/data(权威 13 条)vs trade/data(旧 11 条)双份;cd trade 跑 python 会误读旧副本重发 | check_signals.py+data/signal_notified.json | **已完成**(2026-08-18 批次D: check_signals.py 通知去重状态权威化——signal_notified/subscriptions_notified/fade_notified 三去重文件强制读写 trade-data/data 权威份, 非权威仓库运行(如 cd trade)自动重定向+启动告警, 防误读旧镜像重发; 与 app/db.py .absolute() 同口径) | 无 | 无 | **已完成**(2026-08-18 批次D) |
 | pending-#61 | 邮件/飞书信号带「回测宇宙+AI过滤+AI警示+AI建议」标记 | pending L122 | 每信号带首页同款标记提高可信度 | check_signals.py | **实际已完成**(commit a22aa741a 2026-08-17 19:14 已在 origin/main;check_signals.py L49/L544-790 全实现+README L103 已记录) | 无 | 无 | **可关闭**(pending 索引 8/17 早间同步,未赶上当晚上线) |
 | pending-#62 | overview.date 盘中过时不更新 | pending L123 | 盘中 date 停在评分日,前后端"今日"锚过时 | app.js(前端已修 121e6fb63)+queries.py(后端根修未定) | 待办(前端已修高亮;走势图 T 日待用户确认;后端根修未定) | 无 | **走势图 T 日是否连修(§23.7)** | 需拍板(动已发布功能行为) |
 
@@ -171,7 +171,7 @@
 | O4 check_version_consistency | 已上线且确认秒级非主因,可忽略(88min L86-87) |
 | ab-#39 deploy 增量导出 | 并合 O1(见 §2.1),不再是独立项 |
 | pending-#50 每日池默认 K/toggle 决策 | 用户 2026-08-14 已定,README 已含 6 处每日池/基础5/K2C5 落档 |
-| pending-#56 双副本清理 | 已同步 md5 一致,防重发风险已消除;仅剩「cd trade 跑 python 误读旧副本」小尾巴 → 归本轮批次 D 顺手收尾,不单列关闭 |
+| pending-#56 双副本清理 | **已完成(2026-08-18 批次D)**: check_signals.py 通知去重状态权威化(读写强制落 trade-data/data 权威份+非权威重定向告警),「cd trade 跑 python 误读旧副本重发」尾巴根治,详见 §1.2 行 |
 
 ## 四、统计
 
