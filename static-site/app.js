@@ -12637,17 +12637,30 @@ function _lwSVG(cfg) {
         // visualMap 分段着色: 同色连续段各自平滑路径(echarts 按 segment 分色)
         const perColor = typeof ser.itemColor === "function" ? ser.itemColor : null;
         if (perColor) {
+          // 2026-08-17 根治(与 connectNulls+perColor 分支同法, §23.3 排查同类): 同色连续段共享端点 +
+          // 段首跨段借前一色段末点(中心差分) → 色变点折角→0°、线连续不脱节。原 _lwLineD 逐段独立 M 起,
+          // 段边界无桥接会断线 + 色变点切线退化尖角(与 connectNulls 分支同一根因)。
           let rs2 = _a;
+          let _prevRe = -1;   // 上一色段末点(共享端点, 保线连续); -1 = 首段无前序
           for (let i = _a; i <= _b; i++) {
             const c1 = perColor(i, ser.data[i]);
             const c2 = (i < _b) ? perColor(i + 1, ser.data[i + 1]) : c1;
             if (i === _b || c1 !== c2) {
-              if (i === rs2) {
-                if (ser.symbolR) s += '<circle cx="' + xs[i].toFixed(1) + '" cy="' + ys[i].toFixed(1) + '" r="' + ser.symbolR + '" fill="' + c1 + '"' + (ser.opacity != null ? ' fill-opacity="' + ser.opacity + '"' : "") + '/>';
-              } else {
-                const d = _lwLineD(xs, ys, rs2, i, ser.smooth !== false);
+              const _drawStart = (_prevRe >= 0) ? _prevRe : rs2;
+              if (_drawStart !== i) {
+                // run 内 idx 连续整数(无 null): 以 _a 为锚构造 idx 数组(延伸至 min(_b, i+2) 供 ctxKEnd
+                // 中心差分到达切线, 不越过 run 尾 _b 防取 null), kStart=_drawStart 相对位置 →
+                // 段首跨段借前一色段末点(中心差分) 生效(首段 _ks=0 不借, 跨 null 边界无前点)。
+                const _idxEnd = Math.min(_b, i + 2);
+                const _idx = [];
+                for (let _q = _a; _q <= _idxEnd; _q++) _idx.push(_q);
+                const _ks = _drawStart - _a;
+                const d = _lwLineDIdxCtx(xs, ys, _idx, _ks, i - _a, Math.min(_idx.length - 1, (i - _a) + 2), ser.smooth !== false);
                 s += '<path d="' + d + '" fill="none" stroke="' + c1 + '" stroke-width="' + (ser.width || 1.5) + '"' + _dashAttr + _opacityAttr + ' stroke-linejoin="round" stroke-linecap="round"/>';
+              } else if (ser.symbolR) {
+                s += '<circle cx="' + xs[i].toFixed(1) + '" cy="' + ys[i].toFixed(1) + '" r="' + ser.symbolR + '" fill="' + c1 + '"' + (ser.opacity != null ? ' fill-opacity="' + ser.opacity + '"' : "") + '/>';
               }
+              _prevRe = i;
               rs2 = i + 1;
             }
           }
