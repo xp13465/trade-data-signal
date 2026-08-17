@@ -1360,11 +1360,21 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
                 _mk = _calc_signal_markers(s, om, stats, ai_sg)
                 _badge = _signal_marker_badge_html(_mk)
                 _ai_rank = _mk["ai_rank"]
-                _row_bg = ' style="background:#f6ffed;border-bottom:1px solid #b7eb8f;"' if _ai_rank is not None else ''
-                html_parts.append(f"""<tr{_row_bg}>
+                # 命中 AI 降亏(ai_fade)的信号行整行灰显弱化(对齐首页 .sig-ai-hit 删除线语义:
+                #   opacity~0.45 + line-through), 徽标单元格 text-decoration:none 保留「AI降亏·建议回避」不被划掉
+                if _mk["ai_fade"]:
+                    _row_style = ' style="opacity:0.45;text-decoration:line-through;background:#f7f8fa;"'
+                    _badge_td_extra = 'text-decoration:none;'
+                elif _ai_rank is not None:
+                    _row_style = ' style="background:#f6ffed;border-bottom:1px solid #b7eb8f;"'
+                    _badge_td_extra = ''
+                else:
+                    _row_style = ''
+                    _badge_td_extra = ''
+                html_parts.append(f"""<tr{_row_style}>
 <td style="padding:8px 10px;">{emoji} <b>{name}</b></td>
 <td style="padding:8px 10px;font-size:12px;">{label}</td>
-<td style="padding:8px 10px;font-size:11px;">{_badge}</td>
+<td style="padding:8px 10px;font-size:11px;{_badge_td_extra}">{_badge}</td>
 <td style="padding:8px 10px;font-size:12px;color:#4e5969;">{reason}</td>
 <td style="padding:8px 10px;text-align:center;font-weight:600;color:{wr_color};">{wr_str}</td>
 <td style="padding:8px 10px;text-align:center;">{pl_str}</td>
@@ -1422,12 +1432,18 @@ def _signal_post_row(s: dict, name_map: dict[str, str], stats: dict,
         reason = reason[:FEISHU_POST_REASON_MAX].rstrip() + "…"
     row_text = f"{emoji} {label} {name}"
     # #61: AI 标记文本(与邮件徽标内容一致, §23.10)。AI建议N 加 ⭐ 强化。
+    _ai_fade = False
     if om is not None and ai_sg is not None:
         _mk = _calc_signal_markers(s, om, stats, ai_sg)
+        _ai_fade = _mk["ai_fade"]
         _mt = _signal_marker_badge_text(_mk)
         if _mt:
             _star = "⭐" if _mk["ai_rank"] is not None else ""
             row_text += f" {_star}[{_mt}]"
+    # 命中 AI 降亏(ai_fade)信号行弱化(对齐邮件灰显删除线/首页「AI降亏·建议回避」语义;
+    #   飞书 post 纯文本不支持删除线, 用 ⛔ 建议回避 前缀弱化标注, 内容不删, §23.10/§23.3)
+    if _ai_fade:
+        row_text = f"⛔ 建议回避·{row_text}"
     if reason:
         row_text += f" | {reason}"
     # 凯利建议（复用邮件口径：10d 统计 win_rate/pl，样本≥10 才算）
