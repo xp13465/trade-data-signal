@@ -97,6 +97,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if any(m in str(model_field) for m in INJECT_MODELS) and INJECT:
                 obj["thinking"] = {"type": "disabled"}
                 injected = True
+                # 2026-08-17 fix: DeepSeek 官方对 thinking disabled 不接受 reasoning_effort
+                # (报 400 Invalid combination high+disabled)。Claude Code 会话 CLAUDE_EFFORT=high 会
+                # 透传为 reasoning_effort,flash(注入 disabled)必须剥离,否则 implementer/tester 一启动
+                # 就 400。think 请求(aliased)不 injected,不剥离,不受影响。
+                if "reasoning_effort" in obj:
+                    _re = obj.pop("reasoning_effort")
+                    logmsg(f"strip reasoning_effort={_re} for injected flash(thinking disabled, 400 fix)")
+                # 2026-08-17 fix2: Claude Code 新版把 effort 放 output_config.effort(非顶层 reasoning_effort),
+                # DeepSeek 兼容层映射成 reasoning_effort=high 遇 disabled 报 400。实测 agent 请求
+                # output_config={"effort":"high"} 顶层无 reasoning_effort。剥离 + 空则删整个。
+                _oc = obj.get("output_config")
+                if isinstance(_oc, dict):
+                    _ce = _oc.pop("effort", None)
+                    if _ce is not None:
+                        logmsg(f"strip output_config.effort={_ce} for injected flash(thinking disabled, 400 fix)")
+                    if not _oc:
+                        obj.pop("output_config", None)
             elif any(m in str(model_field) for m in ALIAS_MODELS):
                 obj["model"] = ALIAS_TARGET
                 aliased = True
