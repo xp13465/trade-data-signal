@@ -315,6 +315,14 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 > 📦 本仓库以 **git submodule** 方式关联 thsautoorder：`easytrader_deploy/` 目录 = submodule，指向 `https://github.com/xp13465/thsautoorder`（自动跟随新仓库迭代）。**git clone 本项目需加 `--recurse-submodules`** 才会拉取该子模块；已 clone 的项目用 `git submodule update --init` 补拉。
 > ⚠️ 合规：程序化交易（含低频）须备案，未备案即交易 = 违规（详见 NOTES.md 调研）。本看板只出信号不自动下单，自动执行模块独立可选。
 
+### 🧪 前端验收脚手架（Playwright）
+
+**用途**：把「看图验收」变成「程序化断言」的通用内部工具 —— 主控看不了图片，用
+[Playwright](https://playwright.dev)（MIT）headless Chromium 抓 console 报错、网络请求、
+DOM 断言、语义结构树，全是文本可直接读。工具在 `scripts/playwright-accept/`（accept.js /
+snapshot.js / ticker-check.js），纯验收不碰业务代码，供 reviewer/tester 派单复用。
+> 仅内部开发/测试工具，不进站点运行链路；致敬 Playwright 驱动浏览器的 console/网络/DOM 自动化能力。
+
 ### 📚 公开数据源致谢
 
 本看板 100% 使用免费公开数据源，无 API key。没有这些开源项目与公开接口，就没有这个看板：
