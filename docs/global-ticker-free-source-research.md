@@ -161,3 +161,156 @@ curl -s -H "Referer: https://finance.sina.com.cn" -H "User-Agent: Mozilla/5.0" \
 curl -s -H "User-Agent: Mozilla/5.0" \
   "https://push2delay.eastmoney.com/api/qt/ulist.np/get?secids=122.XAU,122.XAG,102.CL00Y,112.B00Y,104.CN00Y,100.UDI,133.USDCNH,119.USDJPY&fields=f43,f58,f60,f86,f170"
 ```
+
+---
+
+# 2026-08-17 二轮:1主2备 纯客户端备源深化(追加,commit 后验)
+
+- 日期:2026-08-17 20:0x-20:12(周末贵金属/外汇 24h 盘活跃时段实测)
+- 目的:上一轮用户拍板「纯客户端直连东财单源、零服务器压力」后,再加码「1主2备」最佳状态——除东财主源外,再找 **2 个纯客户端可用备源**(全部前端直连,不允许任何后端)。本轮逐项实测出证据。
+- 结论一句话:**备源1 = 腾讯 qt.gtimg.cn(原报告误判,本次推翻——漏测 hf_/wh_ 前缀,实为 CORS * + 6/8 品种实时);备源2 = api.gold-api.com(黄金/白银现货)+ open.er-api.com(外汇日更)组合;新浪 script hack 实测 Referer 防盗链不可行;诚实标注缺口=富时A50 与美元指数除东财外无任何 CORS 备源。**
+
+## 2.1 任务1:腾讯 qt.gtimg.cn 重测结论(原报告误判,本次推翻)
+
+**原报告(620f7f20a)「腾讯 CORS * 但目标品种代码实测全空(usDINIW/hkFCHA50CFD 等)」——本次实测发现原报告只试了 us_/hk_ 前缀变体,漏测 hf_(外盘期货)/wh_(外汇)前缀,导致误判。**
+
+实测(2026-08-17 20:06-20:12,`curl https://qt.gtimg.cn/q=...` + iconv gbk):
+
+| 腾讯代码 | 名称 | 现价 | 昨收 | 时间 | 实时? | 对应品种/口径 |
+|---|---|---|---|---|---|---|
+| `hf_GC` | 纽约黄金 | 4451.58 | 4437.30 | 20:12:01 | ✓ | 黄金(**COMEX 期货**,现货 4393.84,基差 +56) |
+| `hf_SI` | 纽约白银 | 65.85 | 65.11 | 20:11:22 | ✓ | 白银(**COMEX 期货**,现货 65.63,差 +0.22) |
+| `hf_CL` | 纽约原油 | 81.70 | 81.47 | 20:12:00 | ✓ | WTI(与新浪 81.73 一致) |
+| `hf_OIL` | 布伦特原油 | 88.67 | 88.52 | 20:12:00 | ✓ | 布伦特(与新浪 88.73 一致) |
+| `whUSDJPY` | 美元日元 | 159.21 | 159.31 | 20:12:00 | ✓ | 美元日元 |
+| `whUSDCNY` | 美元人民币 | 6.7391 | 6.7421 | 20:11:55 | ✓ | 人民币(**在岸 CNY**,品种要求离岸 CNH) |
+| `whDINIW` | 美元指数 | 99.64 | 99.60 | **20260810160649=8/10 16:06** | ✗ **旧数据** | 美元指数(两次复验均停在 8/10,不实时) |
+| `whUSDCNH`/`whCNH`/`whCNY` | — | — | — | — | ✗ 全空 | 离岸人民币(腾讯无离岸代码) |
+| `hf_CHA50CFD`/`hf_A50`/`hkCHA50CFD`/`rt_hf_CHA50CFD`/`whCHA50CFD`/`sgA50`/`hf_CN00` | — | — | — | — | ✗ 全空 | 富时A50(腾讯无 A50) |
+
+- CORS 头:`HTTP/2 200, access-control-allow-origin: *, content-type: text/html; charset=GBK`(抓头确认)
+- 编码 GBK:fetch 需 `response.arrayBuffer() → new TextDecoder('gbk').decode()`(浏览器 TextDecoder 原生支持 gbk)
+- 批量:`qt.gtimg.cn/q=code1,code2,...` 一次多码,6 品种 1 请求;`v_pv_none_match="1"` 表示代码无效
+- 字段解析:`v_hf_GC="4451.58,0.32,4449.50,4449.90,4473.20,4422.30,20:12:01,4437.30,4440.00,0,3,2,2026-08-17,纽约黄金"` → `[0]`现价、`[1]`涨跌幅%、`[3]`开盘、`[4]`最高、`[5]`最低、`[6]`时间、`[7]`昨收、`[12]`日期、`[13]`名称;`v_whUSDJPY="310~美元日元~USDJPY~159.2100~0~20260817201200~..."` 按 `~` 分 `[1]`名称、`[2]`代码、`[3]`最新价、`[5]`时间戳(YYYYMMDDHHMMSS)、`[6]`昨收、`[12]`涨跌额、`[13]`涨跌幅%
+- **期货口径实锤**:东财 COMEX 黄金 `101.GC00Y` f43=44507≈4450.7、COMEX 白银 `101.SI00Y`=65780≈65.78,与腾讯 hf_GC 4451.58/hf_SI 65.85 一致;而东财现货 `122.XAU`=4393.84、`122.XAG`=65.63。**腾讯 hf_GC/hf_SI=COMEX 期货非现货,基差黄金+56/白银+0.22,备源切换该品种价格跳变,UI 需标注「期货口径」或接受跳变。**
+- **腾讯可作备源1:覆盖 6/8(WTI/布伦特/USDJPY 与现货一致,黄金/白银期货口径),缺 离岸人民币(无代码)/美元指数(8/10 旧数据)/富时A50(无)。**
+
+## 2.2 任务2:新浪 script 标签 hack 可行性(Referer 三态实测:不可行)
+
+**结论:新浪 hq.sinajs.cn 按 Referer 防盗链,script 标签从本站域加载必被拒,纯客户端 hack 不可行。**
+
+Referer 三态实测(2026-08-17 20:06,其余请求头一致仅换 Referer):
+
+| Referer | 返回 | 结论 |
+|---|---|---|
+| 无 | `Forbidden` | 拒绝 |
+| `https://ss.fx8.store/`(模拟本站页面加载 script) | `Forbidden` | 拒绝 |
+| `https://finance.sina.com.cn` | 正常返回 4 品种数据 | 仅新浪域通过 |
+
+- 浏览器 `<script src>` 跨域加载带当前页 URL 作 Referer(Chrome 默认 strict-origin-when-cross-origin,跨域发 origin)= 本站域 → **必 Forbidden**;script 标签无法自定义/伪造 Referer。
+- 附带验证:新浪 `hq2.sinajs.cn` 变体同样 Forbidden;新浪 JSONP 接口(stock.finance.sina.com.cn 与 stock2 的 /futures/api/jsonp.php/GlobalFuturesService)实测 `Service not found`(接口已下线,非防盗链问题,一并排除)。
+- **新浪 script hack 不可作纯客户端备源。**(上一轮「新浪需 Referer/无 CORS」判断正确,本轮补实锤:script 标签 hack 同样被 Referer 拦死。)
+
+## 2.3 任务3:第3源候选实测(当选:gold-api + open.er-api;失败源诚实清单)
+
+**✅ 入选 2 个(均 CORS `*` 抓头确认、免费无需 key):**
+| 源 | URL | CORS | 实测返回 | 覆盖 | 口径/时效 |
+|---|---|---|---|---|---|
+| **api.gold-api.com** | `https://api.gold-api.com/price/XAU` | `*` | `{"name":"Gold","price":4395.2,"symbol":"XAU","updatedAt":"2026-08-17T12:09:03Z"}` | XAU 黄金/XAG 白银(**现货**) | 实时("a few seconds ago");一次仅 1 symbol(不支持批量);无昨收→无涨跌幅 |
+| **open.er-api.com** | `https://open.er-api.com/v6/latest/USD` | `*` | `{"result":"success","rates":{...},"time_next_update_utc":...}` | 161 货币(USDCNH/USDJPY) | **日更非实时**(time_next_update=次日);无涨跌幅 |
+
+**❌ 失败/不可用源(诚实标注):**
+| 源 | 实测 | 原因 |
+|---|---|---|
+| Yahoo finance(query1/query2 的 v7/v8) | HTTP 403 | 数据中心 IP 被反爬;浏览器家庭 IP 可能可用但 403 无法验证 CORS,不作确定备源 |
+| stooq.com | 404 | 路径变更/不存在,无 CORS 头 |
+| 和讯 quote.hexun.com | 301→404 | 接口已下线 |
+| 同花顺 d.10jqka.com.cn | 404(fut_GC 路径) | CORS `*` 存在但外盘实时接口路径未找到,不作备源 |
+| api.frankfurter.app / .dev | 301/无响应 | 域名迁移中/Cloudflare 拦 |
+| data-asg.goldprice.org(金价官网) | 403 | 反爬无 CORS |
+| 金十 rtd.jin10.com | (上轮已测空) | 不公开 |
+
+## 2.4 任务4:1主2备 组合表 + 频率 + 降级顺序
+
+| | 源 | host | CORS | 覆盖 | 口径/时效 | 编码 | 请求数 |
+|---|---|---|---|---|---|---|---|
+| **主** | 东财 push2delay(单只 stock/get) | push2delay.eastmoney.com | `*`(抓头) | 8/8 | 现货/实时 | UTF-8 JSON | 8(单只)或 1(ulist 批量,当前失效) |
+| **备1** | 腾讯 qt.gtimg.cn | qt.gtimg.cn | `*`(抓头) | 6/8(黄金/白银期货) | 实时 | GBK | 1(6 码批量) |
+| **备2** | gold-api + open.er-api | 异 host ×2 | `*` ×2 | 4/8 | gold-api 实时、er-api 日更 | UTF-8 JSON | 2+1 |
+
+品种级覆盖矩阵:
+
+| 品种 | 主:东财 | 备1:腾讯 | 备2:gold-api/er-api |
+|---|---|---|---|
+| 现货黄金 | `122.XAU` ✓ | `hf_GC` ✓(期货+56) | `XAU` ✓(现货) |
+| 现货白银 | `122.XAG` ✓ | `hf_SI` ✓(期货+0.22) | `XAG` ✓(现货) |
+| WTI | `102.CL00Y` ✓ | `hf_CL` ✓ | ✗ |
+| 布伦特 | `112.B00Y` ✓ | `hf_OIL` ✓ | ✗ |
+| 富时A50 | `104.CN00Y` ✓ | ✗ | ✗ |
+| 美元指数 | `100.UDI` ✓ | `whDINIW` ✗(8/10 旧) | ✗ |
+| 离岸人民币 | `133.USDCNH` ✓ | ✗(只有岸 CNY) | `er-api USDCNH` ✓(日更) |
+| 美元日元 | `119.USDJPY` ✓ | `whUSDJPY` ✓ | `er-api USDJPY` ✓(日更) |
+
+**诚实标注缺口:富时A50 与美元指数除东财主源外无任何 CORS 备源**(新浪有对应码但 Referer 防盗链;腾讯无/旧;gold-api/er-api 无)。备源模式下这 2 品种显示「暂无数据/最后价」。**1主2备 在品种层面无法 100% 达成,请主控向用户说明:6/8 品种双备、A50/美元指数仅东财单源。**
+
+轮询频率建议(避免源被风控):
+
+| 源 | 频率 | 请求/轮询 | 次/min | 边界余量 |
+|---|---|---|---|---|
+| 东财(单只 8 请求) | 30s | 8 | 16 | 东财边界 60,余量 3.7x |
+| 东财(若 ulist 批量恢复) | 10s | 1 | 6 | 余量 10x |
+| 腾讯(批量 1 请求) | 10-15s | 1 | 4-6 | 边界 40 零 501,余量 6x |
+| gold-api(2 请求) | 15-30s | 2 | 4-8 | 未知边界,保守 |
+| er-api(日更数据) | 30-60min | 1 | — | 数据本身日更,高频无意义 |
+
+- 共用:setTimeout 递归(复用分时图模式)、tab 隐藏暂停/降频、单源连续失败 3 次→指数退避(30s/60s/120s)。
+
+前端自动降级顺序:
+1. 东财 8 只成功 → 展示东财(现货口径全 8)
+2. 东财失败 → 切腾讯批量(1 请求);离岸/A50/美元指数显示「——」或最后缓存价;黄金/白银 UI 标注「期货口径」
+3. 腾讯失败 → 切备源2(gold-api XAU/XAG + er-api USDCNH/USDJPY);其余品种「——」
+4. 全挂 → 显示「行情源暂不可用」+ 指数退避重试
+5. 同品种不混源(沿用上轮:固定单一源,降级整源切换不并存展示)
+6. 单品种失败保留最后成功价,不整行消失
+
+实施要点(最小实现):
+- 腾讯 GBK:`fetch(url).then(r=>r.arrayBuffer()).then(buf=>new TextDecoder('gbk').decode(buf))` → 逐行 `v_xxx="...";` 解析;`v_pv_none_match="1"`=无效代码
+- 东财/备源2 直接 `res.json()`;统一输出 `{name, price, pct, ts}`
+- 东财 f43 按品种缩放(外汇 ×10000,其余 ×100)、f170×100;腾讯 price=[0]、pct=[1](hf_)/[13](wh_);gold-api 无 pct 显示「—」
+
+## 2.5 任务5:东财 push2 主 host 确认 + ulist 批量增量发现
+
+- **push2 主 host(push2.eastmoney.com):实测返回 JSON 结构但 f43/f58/f86/f170 全 0(单只+批量两次确认),确认不可用,必须 push2delay。** 若备源只用东财体系(push2delay+push2)=同东财体系,主挂备大概率同挂=伪兜底——**故备源必须是异体系(本轮已落实:备1 腾讯=异 host,备2 gold-api/er-api=异 host),不违反同源兜底原则。**
+- **⚠️ 增量发现:push2delay 的 ulist.np/get 批量路径本轮多次复测全 0(8 码/3 码/单码均 0),而上轮 19:58 同路径有数据;同 host 的 stock/get 单只路径稳定有数据(8/8 逐一验证)。** 无法断定是间歇失效还是本轮连打触发 IP 风控,但结论明确:**实施主源必须用 stock/get 单只路径(8 请求/轮询),或 ulist 批量+失败自动降级单只(自愈)。**
+- 主源单只路径逐一验证(2026-08-17 20:10):
+
+| secid | f43 | 换算 | f58 名称 |
+|---|---|---|---|
+| 122.XAU | 439384 | 4393.84 | 黄金/美元 |
+| 122.XAG | 6563 | 65.63 | 白银/美元 |
+| 102.CL00Y | 8234 | 82.34 | NYMEX原油 |
+| 112.B00Y | 8878 | 88.78 | 布伦特原油当月连续 |
+| 104.CN00Y | 151400 | 15140.0 | A50期指当月连续 |
+| 100.UDI | 9944 | 99.44 | 美元指数 |
+| 133.USDCNH | 67408 | 6.7408 | 美元兑离岸人民币 |
+| 119.USDJPY | 1592045 | 159.2045 | 美元兑日元 |
+
+(与新浪对照:黄金 4393.84 vs 4394.86、白银 65.63 vs 65.66、美元指数 99.44 vs 99.44 一致 ✓)
+
+## 二轮复现命令
+
+```bash
+# 腾讯 6 码批量(CORS *,GBK)
+curl -s "https://qt.gtimg.cn/q=hf_GC,hf_SI,hf_CL,hf_OIL,whUSDJPY,whUSDCNY" | iconv -f gbk -t utf-8
+# 新浪 Referer 三态(script hack 可行性证据)
+curl -s "https://hq.sinajs.cn/list=hf_XAU" -H "Referer: https://ss.fx8.store/"        # Forbidden
+curl -s "https://hq.sinajs.cn/list=hf_XAU" -H "Referer: https://finance.sina.com.cn" # 正常
+# 第3源(均 CORS *)
+curl -s "https://api.gold-api.com/price/XAU"      # 黄金现货
+curl -s "https://open.er-api.com/v6/latest/USD"   # 外汇日更
+# 东财主源单只(ulist 批量本轮全 0,勿用)
+curl -s "https://push2delay.eastmoney.com/api/qt/stock/get?secid=122.XAU&fields=f43,f58,f60,f86,f170"
+```
+
+- 数据截止:2026-08-17 20:0x-20:12(北京时间,周末贵金属/外汇 24h 盘活跃时段)
+- 关键口径一句话:主源=东财 push2delay 单只 stock/get(现货全 8,ulist 批量当前失效);备1=腾讯 qt.gtimg.cn 批量 hf_+wh_(6/8,黄金/白银期货口径);备2=gold-api(XAU/XAG 现货)+open.er-api(USDCNH/USDJPY 日更);新浪 script hack 被 Referer 防盗链拒绝不可行。
