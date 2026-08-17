@@ -7,8 +7,11 @@
 - **报告**:
   - `market-state-analysis.md` — 四档定义 + 区分度数据 + 当前状态 + 复现段(展示层定稿)
   - `kelly-market-state-4tier-utility.md` — **四档接入凯利过滤效用评估(穷举回测)**:基线复现 PASS + 维度1 边际/维度2 仓位/维度3 按年稳定性/维度4 波浪不可回测 + 最终推荐(R1_all 替换式 +65,551 主推 / V4d_all 加法 +40,409 备选)
+  - `kelly-4tier-extreme-windows-9mode.md` — 极端行情窗口验证+9模式明细(R1_all 救 94 笔 +7,883 未放真熊,2020 滞后带 1 笔 -570 是唯一放行)
+  - `kelly-4tier-period-windows.md` — 分周期窗口 A/B 对比(四档状态段/大阶段/年度,增益集中下降期 +37,731)
+  - `kelly-4tier-lagexempt-compare.md` — **R1_lag 滞后带豁免变体四口径全表**(基线/R1_all/V4d_all/R1_lag)+ 2026 滞后带专项 + 分周期三表四口径 | 脚本 `scripts/kelly_4tier_lagexempt.py` | 数据 `data/results_4tier_lagexempt.json`
 - **脚本**:`scripts/` — 展示层调研 6 个(`market_state_analysis*.py`)+ 凯利接入回测 8 个(`kelly_4tier_*.py` + `kelly_engine.py`/`kelly_opg_engine.py` 依赖副本)
-- **数据**:`data/results_4tier_variants.json`(基线+11 变体全模式)+ `results_4tier_replace.json`(R1/R1b/R1c+重叠度)+ `results_4tier_extreme.json`(9 模式明细 + 5 极端窗口 + 94 笔救回单明细 + 滞后带统计);展示层复用 `data/sentiment.db`(index_daily hs300)+ `signal_kelly_trades.json`
+- **数据**:`data/results_4tier_variants.json`(基线+11 变体全模式)+ `results_4tier_replace.json`(R1/R1b/R1c+重叠度)+ `results_4tier_extreme.json`(9 模式明细 + 5 极端窗口 + 94 笔救回单明细 + 滞后带统计)+ `results_4tier_period.json`(分周期 A/B)+ `results_4tier_lagexempt.json`(四口径全表);展示层复用 `data/sentiment.db`(index_daily hs300)+ `signal_kelly_trades.json`
 
 ## 相关代码
 
