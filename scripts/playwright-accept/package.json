@@ -1,0 +1,16 @@
+{
+  "name": "playwright-accept",
+  "version": "1.0.0",
+  "description": "把「看图验收」变成「程序化断言」的通用工具。主控看不了图片,这里把所有验收证据 (console 报错、网络请求、DOM 断言、accessibility snapshot)变成文本,主控/ reviewer/ tester 可直接读。",
+  "main": "accept.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "playwright": "^1.62.1"
+  }
+}
