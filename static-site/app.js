@@ -2202,14 +2202,18 @@ function _topEtfByScore(etfs) {
 const _AI_MACRO_FILTER_NAMES = {
   n2NovSpecialIndustry: "11月+追关注+行业",
   excludeSpecialBear: "追关注×熊市交叉(四档)",
-  legacyMa60Special: "老MA60熊×追买",
-  declinePhaseSpecial: "下降期×追关注",
   janMidRating: "1月中旬+中评级",
   janMidSpecial: "1月中旬+追关注",
   k2c5HkChase: "港股追涨剔除",
   r7MayReinforced: "5月强化+3稳定非5月",
   excludeAuxCross: "辅关注×3/5月交叉",
   greedy15: "Greedy-15组合"
+};
+// v1.1.2 备选键(v1.1.2 凯利三键改造, 凯利区默认关可自开): 仅名称展示用, 不参与首页「AI降亏过滤」判定——
+//   首页固定 8 键白名单(基础5+核心3, 见 _AI_MACRO_FILTER_NAMES), 备选键须用户凯利区手动开才命中(§22 首页/凯利口径一致)。
+const _AI_MACRO_BACKUP_NAMES = {
+  legacyMa60Special: "老MA60熊×追买",
+  declinePhaseSpecial: "下降期×追关注"
 };
 // 读首页独立 AI降亏过滤开关(localStorage tds_home_fade, 布尔, 默认开启=按降亏策略判定+灰显删除线+标注)。
 // 与凯利区 tds_kelly_filters 完全解耦互不影响; 旧键 tds_poscap_aiDisplay(纯显示开关)已随合并废弃不再读取。
@@ -2590,7 +2594,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // ⚠️ 2026-08-13 融合口径: 本判定必须前移到 top-K 选取之前(先滤降亏、再选 top-K, 与凯利回测 lab.js _kellyCollectBasePool 先过 passesFade 一致)
   let _fadeOn = true;
   const _aiOnMembers = {};
-  for (const _amk in _AI_MACRO_FILTER_NAMES) _aiOnMembers[_amk] = true;  // 固定 8 键全开(基础5+核心3, v1.1.0 与凯利区默认策略一致)
+  // 固定 8 键白名单全开(基础5+核心3, _AI_MACRO_FILTER_NAMES 不含 v1.1.2 备选键 legacyMa60Special/declinePhaseSpecial——
+  // 备选键不进首页判定, 须凯利区手动开才命中, 与凯利区默认关口径一致 §22)。v1.1.0 与凯利区默认策略一致
+  for (const _amk in _AI_MACRO_FILTER_NAMES) _aiOnMembers[_amk] = true;
   if (kind === "signal") {
     _fadeOn = _readHomeFadeFlag();
   }
@@ -2784,7 +2790,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           const _hitOn = it.ai_macro.filters.filter((fk) => _aiOnMembers[fk]);
           if (_hitOn.length) {
             aiHitCls = " sig-ai-hit";
-            const _hitNames = _hitOn.map((fk) => _AI_MACRO_FILTER_NAMES[fk] || fk).join(" / ");
+            const _hitNames = _hitOn.map((fk) => _AI_MACRO_FILTER_NAMES[fk] || _AI_MACRO_BACKUP_NAMES[fk] || fk).join(" / ");
             aiHitBadge = `<sup class="sig-ai-hit-badge" data-tip="删除线原因: 本信号命中AI降亏过滤条件【${_hitNames}】→ 被过滤建议回避, 所以显示删除线, 且不占AI建议位(顺延补位给未命中信号)(由首页「AI降亏过滤」开关判定, 独立作用域与凯利区互不影响; 关闭首页「AI降亏过滤」开关即可恢复正常样式)">AI降亏</sup>`;
             aiHitAttr = ` data-ai-hit="1" data-ai-hit-names="${_escAttr(_hitNames)}"`;
           }
@@ -4690,7 +4696,7 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
 async function _renderTierTimelinePanel(container) {
   let data = null;
   try {
-    data = await fetchJSON("https://ss.fx8.store/r2/market_tier_history.json");
+    data = await fetchJSON(_R2_DATA_BASE + "market_tier_history.json");
   } catch (e) { data = null; }
   if (!data || !data.length) return;
   const _fmtD = (s) => (s ? s.slice(0, 4) + "-" + s.slice(4, 6) + "-" + s.slice(6, 8) : "");
@@ -4757,9 +4763,10 @@ async function _renderTierTimelinePanel(container) {
       }],
     }));
   }
-  _draw(null); // 默认全史(2002 起)
+  _draw(365); // 默认近1年(2026-08-17 v1.1.2 建议A:非阻断项, 默认近1年非全史)
   const _btns = _wrap.querySelectorAll(".tier-tl-btn");
   _btns.forEach((b) => {
+    if (b.getAttribute("data-r") === "365") { b.style.fontWeight = "bold"; b.style.color = "var(--text-1)"; }
     b.addEventListener("click", () => {
       _btns.forEach((x) => { x.style.fontWeight = "normal"; x.style.color = "var(--text-2)"; });
       b.style.fontWeight = "bold"; b.style.color = "var(--text-1)";
