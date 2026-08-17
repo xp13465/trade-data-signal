@@ -1515,7 +1515,7 @@ def build_researcher_messages(role_results: dict, date: str, cfg: dict) -> list[
 
 
 def build_editor_messages(role_results: dict, researcher: dict | None, date: str, cfg: dict,
-                          data: dict | None = None) -> list[dict]:
+                          data: dict | None = None, reflections: dict | None = None) -> list[dict]:
     now_str = _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     compliance = cfg.get("compliance_enabled", True)
     parts = [_role_block(role, role_results.get(role)) for role in ("tech", "fund", "sentiment", "risk")]
@@ -1578,9 +1578,18 @@ def build_editor_messages(role_results: dict, researcher: dict | None, date: str
         "7. 只做\"关注/观察/警惕/留意/注意/谨慎\"表述,不做任何交易指令。\n"
         f"8. 当前北京时间 {now_str},数据截至 {date} 收盘,忽略 {date} 之后事件。输出标注\"基于 {date} 收盘数据\"。\n"
     )
+    # 历史反思注入(AI 预测自成长 Step 1,2026-08-17):主编规则段后注入截至昨日的失败模式(时间隔离)
+    refl_inject = build_reflection_inject(reflections or {}, date, cfg)
+    if refl_inject:
+        sys_text += (
+            "9. " + refl_inject + "\n"
+        )
+        next_rule = 10
+    else:
+        next_rule = 9
     if compliance:
         sys_text += (
-            "9. 【合规红线】严禁使用:买入、卖出、加仓、建仓、清仓、减仓、重仓、满仓、抄底、逃顶、止损、止盈、"
+            f"{next_rule}. 【合规红线】严禁使用:买入、卖出、加仓、建仓、清仓、减仓、重仓、满仓、抄底、逃顶、止损、止盈、"
             "仓位、建议持有、加杠杆。只允许:关注、警惕、观察、留意、注意、谨慎。\n"
         )
     # 数据锚定(P1-8):与 parse_ai_output 同源,watch_list 只允许注入数据真实存在的 index_id
@@ -1635,6 +1644,15 @@ def scrub_text(text: str, cfg: dict) -> str:
 HISTORY_FILE = "daily_brief_history.json"
 BRIEF_FILE = "daily_brief.json"
 HISTORY_LIMIT = 90
+# ── AI 预测自成长闭环(Step 1,2026-08-17 实施,方案 docs/ai-predict-self-growth.md)──
+#   失败样本反思:回填失败 -> 规则级归因 -> confidence 分桶校准 -> 注入下次预测。
+#   数据落「根 data/」(本地,不进 git,§8 不 add 根 data/);注入内容按 date 归档可复现。
+REFLECTIONS_FILE = "daily_brief_reflections.json"          # 失败样本反思(根 data/)
+REFLECTIONS_INJECTED_FILE = "brief_reflections_injected.json"  # 按 date 归档注入文本
+REFLECTION_INJECT_ENV = "BRIEF_REFLECTION_INJECT"          # env=0 关闭注入(默认开)
+REFLECTION_ERROR_BPS = 0.5   # 方向对但实际偏离区间中点超该阈值(%)判 range_imprecise
+# confidence 分桶校准:按桶(0-59/60-69/70-100)累积命中率(样本少如实输出,不做虚假统计意义)
+CONFIDENCE_BUCKETS = [(0, 59), (60, 69), (70, 100)]
 HIT_THRESHOLD = 0.5  # 涨跌幅 >0.5% 才算 up/down,否则 flat(2026-08-14 口径变更 0.1->0.5:
 #                     模型被提示词引导倾向 flat,±0.1% 容忍带下 flat 天花板仅 ~8%(近30日6.7%),
 #                     致 0% 命中率是口径算出来的而非预测能力为 0;±0.5% 带下 flat 天花板 ~37%,
@@ -2399,6 +2417,284 @@ def compute_known_bias(history: list[dict]) -> str:
     return s
 
 
+# ── AI 预测自成长闭环 Step 1:失败样本落盘 + 规则级归因 + 分桶校准 + 注入(2026-08-17)──
+#   设计要点:
+#    - 数据落「根 data/」(repo/data/,本地不进 git);幂等(同 date 已落不重复落)。
+#    - 时间隔离(walk-forward):只记录/注入 backfilled_via <= 预测日-1 的样本,防未来函数。
+#    - 无证据标「无法归因」,不臆造(§5.1)。老格式(无区间)只能 direction 级分类。
+def _load_reflections(ref_path: Path) -> dict:
+    """读 reflections.json,返回 {"samples": [...], "stats": {...}};文件不存在返回空结构。"""
+    empty = {"samples": [], "stats": {}}
+    if not ref_path.exists():
+        return empty
+    try:
+        d = json.loads(ref_path.read_text(encoding="utf-8"))
+        if not isinstance(d, dict):
+            return empty
+        d.setdefault("samples", [])
+        d.setdefault("stats", {})
+        return d
+    except Exception:
+        return empty
+
+
+def _write_reflections(ref_path: Path, data: dict) -> None:
+    try:
+        ref_path.parent.mkdir(parents=True, exist_ok=True)
+        ref_path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    except Exception as e:
+        print(f"[gen_daily_brief] ⚠ reflections 写盘失败(不阻塞): {e}")
+
+
+def _confidence_bucket(conf) -> str:
+    """confidence -> 分桶标签(0-59/60-69/70-100)。"""
+    try:
+        c = int(round(float(conf)))
+    except (TypeError, ValueError):
+        return None
+    for lo, hi in CONFIDENCE_BUCKETS:
+        if lo <= c <= hi:
+            return f"{lo}-{hi}"
+    return None
+
+
+def _reflect_news_digest_ref(backfilled_via: str, db_path: Path) -> tuple[str, str]:
+    """判定次日新闻归档证据:backfilled_via(实际交易日)若有 news_digest 归档 -> evidence_source=news。
+    返回 (evidence_source, news_digest_ref)。只引用"归档存在",不臆造新闻内容(§5.1)。"""
+    if not backfilled_via or len(backfilled_via) != 8:
+        return "rule_based", None
+    day_hyphen = f"{backfilled_via[:4]}-{backfilled_via[4:6]}-{backfilled_via[6:8]}"
+    y = backfilled_via[:4]
+    # 优先年目录 news_digest/<YYYY>/<date>.json,fallback 扁平位;db_path 可能为 None(测试/纯函数调用)
+    db_news = (db_path.parent if db_path is not None else ROOT / "data")
+    cands = [
+        db_news / "news_digest" / y / f"{day_hyphen}.json",
+        db_news / "news_digest" / f"{day_hyphen}.json",
+        ROOT / "data" / "news_digest" / y / f"{day_hyphen}.json",
+        ROOT / "data" / "news_digest" / f"{day_hyphen}.json",
+    ]
+    for c in cands:
+        if c.exists():
+            return "news", day_hyphen
+    return "rule_based", None
+
+
+def _classify_failure(it: dict, db_path: Path) -> dict | None:
+    """对一个已回填历史条目做规则级失败归因;非失败(命中/N/A)返回 None。
+    返回记录结构(字段见 REFLECTIONS_FILE 语义),供落盘。"""
+    meta = it.get("meta") or {}
+    hit = meta.get("hit") or {}
+    pred = meta.get("direction")
+    actual = hit.get("actual_sh_pct")
+    actual_dir = hit.get("actual_direction")
+    if actual is None or actual_dir is None:
+        return None
+    # 整体命中(已判定且 true)= 非失败,不落盘
+    direction_hit = bool(hit.get("direction"))
+    if direction_hit:
+        return None
+    # 若 direction 未判定(None)= N/A,不落盘(不硬判失败)
+    if hit.get("direction") is None:
+        return None
+    date = it.get("date") or meta.get("date")
+    rng = meta.get("range")
+    pred_dirs = {"up": "看涨", "down": "看跌", "flat": "震荡"}
+    act_dirs = {"up": "上涨", "down": "下跌", "flat": "震荡"}
+    # ── failure_type / error_bps ──
+    # 方向失败 = 预测方向与次日实际方向不一致(如预测跌实际涨)
+    wrong_dir = bool(pred and actual_dir and pred != actual_dir)
+    # 区间失准 = 方向对但幅度偏(实际落区间外且偏离区间中点超阈值)
+    range_miss = False
+    error_bps = None
+    mid = None
+    if rng and rng.get("lo") is not None:
+        mid = (rng["lo"] + rng["hi"]) / 2.0
+        error_bps = round(actual - mid, 2)  # 预测误差(实际 - 区间中点,%)
+        if not (rng["lo"] <= actual <= rng["hi"]):
+            range_miss = True
+    # partial = 方向+大盘区间对但中间层/板块层有错(三层未全中)
+    middle_hit = hit.get("middle_hits")
+    sector_hits = hit.get("sector_hits")
+    partial = False
+    if not wrong_dir and (rng and rng.get("lo") is not None) and hit.get("range_hit"):
+        # 大盘区间命中,但中间层/板块层有失败项 -> partial
+        if isinstance(middle_hit, list) and any(x.get("hit") is False for x in middle_hit):
+            partial = True
+        elif isinstance(sector_hits, list) and any(x.get("hit") is False for x in sector_hits):
+            partial = True
+    if wrong_dir:
+        failure_type = "direction_fail"
+    elif partial:
+        failure_type = "partial"
+    elif range_miss and error_bps is not None and abs(error_bps) > REFLECTION_ERROR_BPS:
+        failure_type = "range_imprecise"
+    else:
+        # 老格式(无区间)/无区间样本:只能方向级分类(方向对即非失败已在上面拦截,方向错已走 direction_fail)
+        failure_type = "range_imprecise"
+    # ── evidence_source / news_digest_ref ──
+    bvia = it.get("_backfilled_via")
+    evidence_source, news_ref = _reflect_news_digest_ref(bvia, db_path)
+    # ── expected_gap_summary(规则级,只引用预测内已有依据 + 实际,不臆造)──
+    pred_label = pred_dirs.get(pred, str(pred))
+    act_label = act_dirs.get(actual_dir, str(actual_dir))
+    basis = []
+    ri = meta.get("risk_items") or []
+    for x in ri[:3]:
+        s = str(x)[:60]
+        if s:
+            basis.append(s)
+    if not basis and meta.get("confidence_reason"):
+        basis.append(str(meta["confidence_reason"])[:80])
+    gap = f"预测{pred_label}"
+    if rng and rng.get("lo") is not None:
+        gap += f"({rng['lo']}~{rng['hi']}%)"
+    gap += f",次日实际{act_label}({actual:+}%)"
+    if wrong_dir:
+        gap += "→方向误判"
+    elif error_bps is not None:
+        gap += f"→幅度偏差约{error_bps:+.2f}%"
+    if basis:
+        gap += ";预测依据:" + ";".join(basis)
+    if evidence_source == "news" and news_ref:
+        gap += f"(次日 {news_ref} 新闻归档可对照催化,未臆造内容)"
+    else:
+        gap += "(无次日新闻证据,规则级归因)"
+    return {
+        "date": date,
+        "predict_date": date,
+        "backfilled_via": bvia,
+        "direction_pred": pred,
+        "range_pred": rng,
+        "direction_actual": actual_dir,
+        "actual_pct": actual,
+        "direction_hit": direction_hit,
+        "range_hit": hit.get("range_hit"),
+        "middle_hits": hit.get("middle_hits"),
+        "sector_hits": hit.get("sector_hits"),
+        "failure_type": failure_type,
+        "error_bps": error_bps,
+        "expected_gap_summary": gap,
+        "evidence_source": evidence_source,
+        "news_digest_ref": news_ref,
+        "confidence": meta.get("confidence"),
+    }
+
+
+def _recompute_reflection_stats(samples: list[dict]) -> dict:
+    """按 confidence 分桶累积命中率(样本少如实输出,不做虚假统计意义标注)。"""
+    buckets = {}
+    for lo, hi in CONFIDENCE_BUCKETS:
+        key = f"{lo}-{hi}"
+        in_bucket = [s for s in samples if (s.get("confidence") is not None
+                                            and lo <= int(s["confidence"]) <= hi)]
+        n = len(in_bucket)
+        if n == 0:
+            buckets[key] = {"n": 0, "hit": 0, "hit_rate": None}
+            continue
+        hits = sum(1 for s in in_bucket if s.get("direction_hit"))
+        buckets[key] = {"n": n, "hit": hits, "hit_rate": round(hits / n, 3)}
+    return {
+        "buckets": buckets,
+        "note": "样本稀疏阶段统计仅累积参考,不构成显著统计意义(§5.1 诚实标注)",
+        "total_samples": len(samples),
+    }
+
+
+def record_reflections(history: list[dict], ref_path: Path, db_path: Path, today: str) -> dict:
+    """回填后扫描失败样本落盘(幂等,同 date 已落不重复落;只落 backfilled_via <= today-1)。
+
+    在 backfill_hits 之后调用:对每个「已回填且失败」的条目做规则级归因并追加 reflections.json。
+    时间隔离:只处理 _backfilled_via <= 预测日-1 的样本(今天预测不吃当日及之后的反思)。
+    返回更新后的 reflections dict(供注入侧复用,避免二次读盘)。
+    """
+    ref = _load_reflections(ref_path)
+    samples = ref.get("samples") or []
+    existing_dates = {s.get("date") for s in samples}
+    new_count = 0
+    for it in history:
+        meta = it.get("meta") or {}
+        hit = meta.get("hit") or {}
+        if hit.get("direction") is None:
+            continue  # 未回填/未判定,跳过
+        bvia = it.get("_backfilled_via")
+        if not bvia:
+            continue
+        # 时间隔离:只记录已回填且回填日 < 今天 的样本(预测日 T 不吃当日及之后反思)
+        if bvia >= today:
+            continue
+        d = it.get("date") or meta.get("date")
+        if not d or d in existing_dates:
+            continue  # 幂等
+        rec = _classify_failure(it, db_path)
+        if rec is None:
+            continue
+        samples.append(rec)
+        existing_dates.add(d)
+        new_count += 1
+    if new_count:
+        ref["samples"] = samples
+        ref["stats"] = _recompute_reflection_stats(samples)
+        ref["updated_at"] = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        _write_reflections(ref_path, ref)
+        print(f"[gen_daily_brief] reflections: 新增 {new_count} 条失败反思(累计 {len(samples)})")
+    return ref
+
+
+def build_reflection_inject(reflections: dict, date: str, cfg: dict) -> str:
+    """从 reflections.json 提取「预测日 date 之前已回填」的失败模式,生成注入文本(已 scrub)。
+
+    只注入 backfilled_via < date 的样本(严格时间隔离 walk-forward,防未来函数)。
+    规则级文本:近 N 次失败的方向/区间/误差模式,请模型参考历史失误校准本次判断。
+    返回注入文本;无可注入或注入关闭返回 ''。"""
+    if os.environ.get(REFLECTION_INJECT_ENV) == "0":
+        return ""
+    if not cfg.get("review_enabled", True):
+        return ""
+    samples = reflections.get("samples") or []
+    # 时间隔离:只取回填日在预测日之前的样本(backfilled_via < date 才可注入)
+    past = [s for s in samples if s.get("backfilled_via") and s.get("backfilled_via") < date]
+    if not past:
+        return ""
+    # 最近失败样本(按日期倒序,最多取 3 条做注入,控 prompt 长度)
+    past_sorted = sorted(past, key=lambda s: (s.get("backfilled_via") or ""), reverse=True)[:3]
+    lines = []
+    dir_fail = 0
+    for s in past_sorted:
+        d = s.get("date")
+        ft = s.get("failure_type")
+        summary = (s.get("expected_gap_summary") or "")[:200]
+        lines.append(f"{d}:{ft}({summary})")
+        if ft == "direction_fail":
+            dir_fail += 1
+    header = f"【历史反思校准】截至本预测日之前已回填的 {len(past)} 次失败预测反思:"
+    body = " ;".join(lines)
+    hint = "请参考上述历史失败模式校准本次判断(尤其方向与幅度),但仍只引用本次注入数据,不臆造。"
+    if dir_fail >= 2:
+        hint = ("近几次多次出现方向误判,请对方向结论更谨慎权衡、避免因单一资金面/情绪面论据直接下反向结论。"
+                "但仍只引用本次注入数据,不臆造。")
+    text = header + body + hint
+    # 合规 scrub:注入文本过现有脱敏(不注入内部敏感/密钥,只注入失败模式描述)
+    return scrub_text(text, cfg)
+
+
+def archive_injected_text(ref_path: Path, date: str, text: str) -> None:
+    """按 date 归档注入文本(破坏模式 A 历史重跑可复现:重跑某历史日期能还原当时注入了什么)。"""
+    if not text:
+        return
+    try:
+        ref_path.parent.mkdir(parents=True, exist_ok=True)
+        d = {}
+        if ref_path.exists():
+            try:
+                d = json.loads(ref_path.read_text(encoding="utf-8")) or {}
+            except Exception:
+                d = {}
+        d[date] = text
+        ref_path.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
+    except Exception as e:
+        print(f"[gen_daily_brief] ⚠ 注入归档写盘失败(不阻塞): {e}")
+
+
 def _merge_usage(usages: list[dict]) -> dict:
     """汇总多角色调用的 token 用量(成本监控)。"""
     pt = sum((u or {}).get("prompt_tokens") or 0 for u in usages)
@@ -2406,7 +2702,7 @@ def _merge_usage(usages: list[dict]) -> dict:
     return {"prompt_tokens": pt, "completion_tokens": ct}
 
 
-def run_multi_agent(date: str, data: dict, cfg: dict, log) -> tuple[dict | None, dict | None]:
+def run_multi_agent(date: str, data: dict, cfg: dict, log, reflections: dict | None = None) -> tuple[dict | None, dict | None]:
     """6 角色协作式生成(①②③④并行 -> ⑤研究员串行 -> ⑥主编组装)。
 
     返回 (brief, total_usage);任一关键环节失败 -> 返回 (None, None) 由调用方降级单 prompt。
@@ -2440,7 +2736,7 @@ def run_multi_agent(date: str, data: dict, cfg: dict, log) -> tuple[dict | None,
         log("研究员调用失败,跳过辩论段")
 
     # ⑥ 主编(串行)组装最终结构
-    e_raw = call_deepseek(build_editor_messages(role_results, researcher, date, cfg, data), cfg, log)
+    e_raw = call_deepseek(build_editor_messages(role_results, researcher, date, cfg, data, reflections), cfg, log)
     if not e_raw:
         log("主编调用失败,降级单 prompt")
         return None, None
@@ -2770,6 +3066,10 @@ def main() -> int:
     timings["load_data"] = round(time.time() - t0, 2)
     history = _load_history(static_dir)
 
+    # AI 预测自成长闭环(Step 1):加载失败反思(根 data/,本地不进 git),供注入与落盘
+    reflections_path = repo / "data" / REFLECTIONS_FILE
+    reflections = _load_reflections(reflections_path)
+
     # 数据源数据量(供 run_log + 监控)
     data_sources = {
         "signals_today": len(data.get("signals_today") or []),
@@ -2798,7 +3098,7 @@ def main() -> int:
         if args.multi or cfg.get("multi_agent_enabled", False):
             log("走多角色协作式编排(6角色)")
             tc = time.time()
-            _multi_brief, _multi_usage = run_multi_agent(date, data, cfg, log)
+            _multi_brief, _multi_usage = run_multi_agent(date, data, cfg, log, reflections)
             timings["call_api"] = round(time.time() - tc, 2)
             if _multi_brief:
                 usage = _multi_brief.pop("_usage", None)
@@ -2814,6 +3114,14 @@ def main() -> int:
                 log("多角色编排失败,降级单 prompt 主链路")
         if brief is None:
             known_bias = compute_known_bias(history) if cfg.get("review_enabled") else ""
+            # AI 预测自成长 Step 1:单 prompt 路径叠加反思注入(方向命中率 + 最近失败模式)
+            refl_inject = build_reflection_inject(reflections, date, cfg)
+            if refl_inject and known_bias:
+                known_bias += " " + refl_inject
+            elif refl_inject:
+                known_bias = refl_inject
+            if refl_inject:
+                archive_injected_text(repo / "data" / REFLECTIONS_INJECTED_FILE, date, refl_inject)
             tb = time.time()
             messages = build_prompt(date, data, cfg, known_bias)
             timings["build_prompt"] = round(time.time() - tb, 2)
@@ -2916,6 +3224,13 @@ def main() -> int:
 
     # 回填上一日 hit + 写输出(传入已回填 history,防 write_outputs 重载丢弃回填)
     backfill_hits(history, db_path, date)
+    # AI 预测自成长闭环(Step 1):回填后失败样本自动落盘(规则级归因 + 分桶校准统计,幂等)
+    reflections = record_reflections(history, reflections_path, db_path, date)
+    # 多角色路径的反思注入同样按 date 归档(可复现;单 prompt 路径已在生成段归档)
+    if version == "ai-multi":
+        multi_inject = build_reflection_inject(reflections, date, cfg)
+        if multi_inject:
+            archive_injected_text(repo / "data" / REFLECTIONS_INJECTED_FILE, date, multi_inject)
     # AI 预测语音播报(edge-tts): 只对 AI 完整版(ai/ai-multi)合成;rule/minimal 兜底版内容单薄不值得播(方案 §三)。
     #   先合成 mp3(成功 → meta.tts_available=True 才随 write_outputs 归档进 history);失败置 False,前端隐藏按钮不阻塞主流程。
     tts_file = None
