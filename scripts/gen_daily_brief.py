@@ -2258,7 +2258,8 @@ def _synth_tts(brief: dict, static_dir: Path, date: str, log) -> str | None:
     """组朗读文本 -> edge-tts 合成 mp3 -> 返回 mp3 相对 static-site/data/ 文件名;失败返回 None。
 
     只有 AI/AI-multi 完整版(meta.highlights 非空)才合成,rule/minimal 兜底版跳过(内容单薄不值得播)。
-    朗读文本(按序拼接): 方向+把握度 -> 🎯今日要点(highlights) -> 复盘(review) -> 趋势(trend) -> 关注(watch) -> 风险(risk)。
+    朗读文本(按序拼接,§22 与前端 _dbBriefDetailHtml 同源同口径): 方向+把握度 -> 大盘区间(meta.range) -> 🧭结论(debate.summary) -> 🎯今日要点(highlights) -> 复盘(review) -> 趋势(trend) -> 关注(watch) -> 风险(risk)。
+    方向措辞与前端 _dbDirLabel 一致(偏强/偏弱/震荡),结论回退口径与前端 _dbConclusionHtml 一致(debate.summary -> confidence_reason -> highlights[0])。
     失败(微软服务不可达/限流/调整协议)catch 记日志,不抛,不阻塞 daily_brief 主流程(风险见方案 §四)。
     """
     try:
@@ -2269,10 +2270,22 @@ def _synth_tts(brief: dict, static_dir: Path, date: str, log) -> str | None:
             return None
         text = brief.get("text") or {}
         parts = []
-        dir_label = {"up": "上涨", "down": "下跌", "flat": "震荡"}.get(meta.get("direction"), "")
+        # 方向措辞与前端 _dbDirLabel 一致(up=偏强/down=偏弱/其余=震荡,含 N/A),防"页面偏强/语音上涨"对不上(§22)
+        dir_label = {"up": "偏强", "down": "偏弱"}.get(meta.get("direction"), "震荡")
         conf = meta.get("confidence")
         if isinstance(conf, (int, float)) and not isinstance(conf, bool):
-            parts.append(f"今日上证指数方向{dir_label or '待定'}，把握度{int(round(conf))}。")
+            parts.append(f"今日上证指数方向{dir_label}，把握度{int(round(conf))}。")
+        # 大盘区间: 与前端「大盘区间」行同源(meta.range lo~hi); 老条目无 range 则跳过(不伪造,与前端一致)
+        rng = meta.get("range") or {}
+        lo, hi = rng.get("lo"), rng.get("hi")
+        if isinstance(lo, (int, float)) and not isinstance(lo, bool) and isinstance(hi, (int, float)) and not isinstance(hi, bool):
+            _fmt_pct = lambda v: (f"+{v:.2f}" if v > 0 else f"{v:.2f}")
+            parts.append(f"预计次日上证{_fmt_pct(lo)}至{_fmt_pct(hi)}。")
+        # 🧭结论: 与前端 _dbConclusionHtml 同源同回退口径; 缺则整句跳过
+        db = meta.get("debate") or {}
+        concl = db.get("summary") or meta.get("confidence_reason") or (hl[0] if hl else "")
+        if concl:
+            parts.append(f"结论：{concl}")
         if hl:
             parts.append("今日要点：" + "。".join(str(x) for x in hl) + "。")
         for key, label in (("review", "复盘"), ("trend", "趋势研判"), ("watch", "明日关注"), ("risk", "风险提示")):

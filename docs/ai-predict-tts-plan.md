@@ -83,7 +83,7 @@ asyncio.run(main())
 ## 三、推荐方案(主方案:后端生成 mp3 → R2 → 前端播放按钮)
 
 1. **合成**:gen_daily_brief.py 在 `write_outputs` 后合成 `static-site/data/daily_brief_tts_<date>.mp3`。
-   - 朗读文本建议(按序拼接,`zh-CN-XiaoxiaoNeural`):`方向+把握度(如:今日方向震荡,把握度60)` → `meta.highlights`(🎯今日要点) → `text.review` → `text.trend` → `text.watch` → `text.risk`。全程约 500 字 → 约 2 分钟音频 ~800KB(48kbps)。
+   - 朗读文本(按序拼接,`zh-CN-XiaoxiaoNeural`,§22 与前端 _dbBriefDetailHtml 同源同口径,2026-08-17 校准):`方向+把握度(措辞与前端 _dbDirLabel 一致:偏强/偏弱/震荡)` → `大盘区间(meta.range lo~hi)` → `🧭结论(meta.debate.summary,回退口径同前端 _dbConclusionHtml: confidence_reason→highlights[0])` → `meta.highlights`(🎯今日要点) → `text.review` → `text.trend` → `text.watch` → `text.risk`。全程约 600 字 → 约 2 分钟音频 ~800KB(48kbps)。旧条目无 range/结论字段时该句跳过(不伪造,与前端一致)。
    - 可选"要点版":只读 highlights+trend+watch(约 300 字,~1.2 分钟 ~450KB),省时省存储;默认给完整版,用户可 veto。
    - 合成失败(网络/微软调整)→ catch 异常记日志,**不阻塞** daily_brief 主流程,前端按钮隐藏(字段缺省)。
 2. **上传**:mp3 加入 `upload_to_r2`/`staticdata_sync` 的 files 列表(复用现有 `upload-data-files` → R2 `data/` 前缀)。`_CONTENT_TYPE_MAP` 加 `".mp3": "audio/mpeg"`。
