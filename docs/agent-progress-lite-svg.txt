@@ -3,3 +3,6 @@
 - ②颜色滞后: 段循环绘制起点与颜色判定起点分离, 共享端点, kEnd=_nxt->re
 - 自测: 三图色变点折角 0.0°, 共享端点 0.0°, 颜色去向色对齐, 线连续, 边界6用例无崩
 - 待办: build_min + bump_asset_version + bump sw.js + commit + push feat + merge main + push main
+--- 完成 ---
+- commit 16baa57f4 (feat/lite-svg-percolor-fix) merge main 16baa57f4, push origin/main OK
+- 三查: ①main含commit ✓ ②数据产物无改动(纯前端, 跳过) ③线上 index ?v=20260817-a307 + app.min.js md5 955cba96(主站+备站) == 本地 ✓ 无白屏(索引引用==内容哈希)

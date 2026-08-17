@@ -51,7 +51,7 @@
 |---|---|---|---|---|---|
 | 23 | **飞书阶段3 优化** | docs/feishu-bot-integration-plan.md 阶段3(行261) | 发送统一到应用 API(弃 webhook)、@成员/@all 关键字、入向消息转告警群 | 阶段1/2 已实施;富文本 post 已做(notify.py) | **部分完成**(@/入向转告警未确认) |
 | 24 | **飞书需求群硬编码判断(前缀判定是否必需)** | TASKS.md L59(+L56-58/L62 群处理规则) | 用户 17:55 需求"需求群硬编码不行吗,其他群用前缀合理";另有报告群/告警群处理规则待对齐 | 无 | **已完成**(scripts/feishu_ws_listener.py L737/781 已实现:白名单需求群免前缀直接落盘,非白名单群保留前缀过滤,全角/半角冒号都认) |
-| 25 | **飞书 hook 心跳自检告警** | docs/feishu-hook-stall-diagnosis.md L84 | 指纹文件 mtime 超阈值告警,防静默停摆再次发生 | 诊断标"可选增强" | **未实施**(需主控确认) |
+| 25 | **飞书 hook 心跳自检告警** | docs/feishu-hook-stall-diagnosis.md L84 | 指纹文件 mtime 超阈值告警,防静默停摆再次发生 | 诊断标"可选增强" | **已完成**(2026-08-17 上线 6edca04af:发送侧 hook 心跳维度⑧ + 接收侧 listener 心跳维度⑨,listener 事件成功落盘 touch `/tmp/feishu_ws_last_event`,schedule_monitor.sh 维度⑨ 24h 阈值+进程>30min 防误报+alert_state 去重,四态自测+33测试全过) |
 
 ## 五、R2 / 数据产物 / 运维
 
