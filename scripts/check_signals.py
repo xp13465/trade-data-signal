@@ -46,6 +46,18 @@ from app.db import get_conn  # noqa: E402
 DB_PATH = REPO / "data" / "sentiment.db"
 INDICATORS_CONFIG = REPO / "config" / "indicators.yaml"
 STATS_PATH = REPO / "data" / "signal_stats.json"
+# pending-#56(2026-08-18) 通知去重状态权威化: signal_notified/subscriptions_notified/fade_notified
+# 是**跨进程共享的去重状态**, 必须读写权威份(trade-data/data), 防 "cd trade 跑 python 读
+# trade/data 旧镜像(信号未记录)导致已通知信号重发"(pending-#56)。launchd 正常路径
+# REPO=trade-data 天然一致; 手动从生产 trade 仓库跑时把去重状态重定向到其兄弟 trade-data
+# 权威目录; 其余路径(worktree 隔离开发等)保留各自 data/(隔离, 非生产, 不影响线上去重)。
+# 与 app/db.py .absolute() 读权威主库同口径。非权威时启动打告警(见 log 定义后)。
+_AUTHORITY_REPO = REPO
+if str(REPO).endswith("trade-data"):
+    pass  # 已是最新权威仓库(trade-data)
+elif Path(str(REPO)).name == "trade":
+    _AUTHORITY_REPO = Path(str(REPO)).parent / "trade-data"
+_AUTHORITY_DATA = _AUTHORITY_REPO / "data"
 # #61(2026-08-17) 邮件/飞书信号带「回测宇宙+AI过滤+AI警示+AI建议」标记:
 # 数据源=overview.json 的 signals_today(queries.py 从回测侧注入 _bt_in_universe/ai_macro,
 # §23.6 ③ 禁止自行重算宇宙, 必须读回测侧注入标记)。launchd 跑时 REPO=trade-data 读权威份,
@@ -56,14 +68,15 @@ OVERVIEW_PATH = REPO / "static-site" / "data" / "overview.json"
 # F 方案（2026-07-21）：邮件去重持久化，记录当日已通知的 (index_id, signal) 集合。
 # 格式 {date_str: [[index_id, signal], ...]}，7 天自动清理旧记录（save_signal_notified）。
 # 仅在去重模式（默认）下读写；--full 全量模式不读只写（发后全标记已通知）。
-NOTIFIED_PATH = REPO / "data" / "signal_notified.json"
+# 去重状态走权威份(_AUTHORITY_DATA, 见上), 防误读 trade/data 旧镜像重发(pending-#56)。
+NOTIFIED_PATH = _AUTHORITY_DATA / "signal_notified.json"
 
 # A12 订阅推送（2026-07-24）：用户订阅关注的标的，有信号时推送邮件+Telegram。
 # 订阅配置 config/subscriptions.json（含邮箱/chat_id，已 gitignore，模板见 subscriptions.json.example）。
 # 订阅去重 data/subscriptions_notified.json，格式 {date_str: {sub_id: [[index_id, signal], ...]}}，
 # 每订阅每日每信号只推一次（独立于全局 signal_notified.json，互不影响），7 天自动清理。
 SUBSCRIPTIONS_PATH = REPO / "config" / "subscriptions.json"
-SUBS_NOTIFIED_PATH = REPO / "data" / "subscriptions_notified.json"
+SUBS_NOTIFIED_PATH = _AUTHORITY_DATA / "subscriptions_notified.json"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -71,6 +84,15 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger("check_signals")
+# pending-#56 权威重定向告警(见 _AUTHORITY_REPO 定义注释): 非权威仓库运行仅影响去重状态
+# 读取(已重定向到 trade-data/data 权威份), 不影响 DB/config/overview 的 REPO 相对读取(设计如此)。
+if _AUTHORITY_REPO != REPO:
+    log.warning(
+        "check_signals 从非权威仓库(%s)运行, 通知去重状态已重定向到权威份 %s（防误读 "
+        "trade/data 旧镜像导致已通知信号重发, pending-#56）",
+        REPO,
+        _AUTHORITY_DATA,
+    )
 
 # score_daily 中的综合分 score_id → 中文名（不入 indicators.yaml，硬编码）
 SCORE_NAME_MAP = {
@@ -210,7 +232,7 @@ def save_signal_notified(data: dict[str, list[list[str]]]) -> None:
 # 格式 {date_str: {"index_id|level|kind": iso_timestamp}}，仅当日保留（清理旧日期）。
 # 仅 intraday 模式使用（10min 一轮频繁，需去重防轰炸）；收盘模式跑一次无需去重。
 # 2026-08-10：key 加 kind(buy/sell)，防同日同 index 的 buy fade 与 sell fade 撞 key 漏推。
-FADE_NOTIFIED_PATH = REPO / "data" / "fade_notified.json"
+FADE_NOTIFIED_PATH = _AUTHORITY_DATA / "fade_notified.json"
 
 
 def filter_fade_alerts_intraday(alerts: list[dict], date: str) -> list[dict]:
