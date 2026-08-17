@@ -2472,6 +2472,18 @@ function _openRefHelpModal() {
 
 function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = true, signalsMeta = null) {
   if (!items || !items.length) return `<h3>${title}</h3><div class="empty-note">${emptyText}</div>`;
+  // 2026-08-17 fix(用户在线报"当日高亮背景色跟着旧日期"): overview.json 盘中 date 可能过时
+  // (如 date=20260814 未随 signals_today 更新, 但 signals_today 已含盘中最新 20260817)。
+  // 对信号卡(kind==="signal") items 即 signals_today, 以"items 最新日期"为今日高亮/排首锚,
+  // 而非过时的 r.date("20260817" 字符串可直接比较)。空 items 已在上面 return, 此处安全。
+  // 冰点卡(kind==="freeze")不在此分支, 仍用 r.date(当前交易日语义), 不受影响。
+  if (kind === "signal" && items && items.length) {
+    let _latestSigDate = "";
+    for (const _it of items) {
+      if (_it && _it.date && _it.date > _latestSigDate) _latestSigDate = _it.date;
+    }
+    if (_latestSigDate) todayDate = _latestSigDate;
+  }
   // A/B 方案(2026-07-29): 评级/对错筛选 - 汇总条数字仍用全量 items(_calcSignalAccuracy),
   // 列表渲染用 filtered(只显示符合筛选的参考点)。null=不筛; "high"/"mid"/"low"=评级;
   // "true"/"false"/"null"=对/错/未结算。点击汇总条 button toggle 筛选, 再点同档恢复。
