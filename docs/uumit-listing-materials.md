@@ -107,11 +107,24 @@
 
 ---
 
-## 数据广场产品(套件)机制调研结论(2026-08-17,待用户拍板是否建)
+## 形态 8:FX8 每日决策套件(数据广场产品/套件,已上线 online,2026-08-17)
 
-- **机制**:数据广场「产品/套件」= 把多个已上架 API 聚合为一个可售包(`POST /data-marketplace/products` 创建 → `POST /products/{id}/apis/{api_id}` 挂 API),产品独立 name/description/price_ut,可上下架;买家一次购买访问套内所有接口(页面实例「所属套件:…本产品全部接口」)。skill rest_request.js 白名单已支持全部产品路由。
+- **创建入口**:Skill API `POST /api/v1/data-marketplace/products` 创建产品 → `POST /products/{id}/apis/{api_id}?sort_order=N` 挂 API → `PUT /products/{id}/online` 上架。product_id=`8b69d327-d0e3-44ed-9b14-20998c114294`,状态 **`online`(可售)**
+- **名称**:FX8 每日决策套件
+- **描述**:FX8 每日决策闭环:AI 次日市场预测 + ETF 精选评分,一次购买访问套内全部接口,每日收盘后更新。
+- **套内 API(2 个,均已 online)**:
+  1. `c7faed48-ee2e-4af4-8451-11ce9865120d` AI 每日市场预测 API(sort_order=1)
+  2. `0bdd1b0a-2f89-478a-a32c-e1cf7393b860` ETF 精选评分快捷 API(sort_order=2)
+- **定价**:划线价 original_price_ut=260;现价 price_ut 未显式设置(产品无 price_ut 字段,买家端价格待观察,price_ut_min=80 为平台下限参考)。**待 1+4(买入信号/卖出警示)上架后 `POST /products/{id}/apis/{api_id}` 补挂进本套件**。
+- **封面**:套件专属封面 `scripts/uumit/gen_suite_cover.py` 生成(两接口卡:AI 市场预测/ETF 精选评分,中央平台标题叠加区无大色块),上传 UUMit OSS 得真实 URL `https://oss.uumit.com/uumit-service/prod/covers/2026/08/17/f608d36b99454e77.png`,封面安全+质量审核通过。
+- **上架坑(记录防重犯,与形态 6/7 同源)**:①**封面须与商品主题明显相关**——复用数据包封面(数据清单主题)被判 cover_quality failed("封面质量 AI 评估失败,请重新评估或人工处理"),换套件专属封面后 success ②封面更新后 safety/quality 回 pending,等 60-90s 再 `online` 重试(一次就过)③**产品无 price_ut 现价字段,只有 original_price_ut(划线)+ price_ut_min(下限)**,现价机制待确认。
+
+## 数据广场产品(套件)机制调研结论(2026-08-17,已落地:2+3 已挂套件上线)
+
+- **机制**:数据广场「产品/套件」= 把多个已上架 API 聚合为一个可售包(`POST /data-marketplace/products` 创建 → `POST /products/{id}/apis/{api_id}` 挂 API),产品独立 name/description/划线价 original_price_ut,可上下架;买家一次购买访问套内所有接口(页面实例「所属套件:…本产品全部接口」)。skill rest_request.js 白名单已支持全部产品路由。
 - **可行性**:4 接口(买入信号/AI预测/ETF评分/卖出警示)构成「每日决策闭环」(信号→预测→评分→警示),套装比散卖更有场景故事 + 独立曝光位 + 可做折扣价。**先决**:产品挂 API 需 API 已 online——2+3 已 online,1+4 待上架后补挂。
-- **建议节奏**:2+3 已上 → 建「FX8 每日决策套件」先挂 2+3 → 1+4 上线后补挂进套件。
+- **节奏落地**:2+3 已上 → 建「FX8 每日决策套件」挂 2+3 上线(2026-08-17)→ 1+4 上线后补挂进套件。
+- ⚠️ **封面 URL 记录修正(2026-08-17)**:本文档此前封面路径写 `covers/2026/08/16/xxx.png` 是本地简化记录,**真实封面 URL = `upload/file`(uumit-publisher `publisher.js upload --file` 受控直传)返回的 `https://oss.uumit.com/uumit-service/prod/covers/...`**,本地 static-site/covers/ 不存在,勿用 `ss.fx8.store/covers/...` 路径作为 cover_image_url。
 
 ## 操作注意(降低 3005/重审风险)
 
