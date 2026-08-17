@@ -1043,19 +1043,29 @@ def load_signal_intraday_timeline(date: str) -> list[dict]:
     return out
 
 
-def _build_timeline_html(timeline: list[dict], name_map: dict[str, str]) -> str:
+def _build_timeline_html(timeline: list[dict], name_map: dict[str, str],
+                         stats: dict, om: dict | None = None,
+                         ai_sg: dict | None = None) -> str:
     """构建当日信号时间线表格 HTML（收盘全过程复现，需求2 方案A）。
 
     每个信号显示 出现时间 / 状态（持续到收盘 或 消失）：
       - 持续到收盘（绿）：最后轮重算仍在
       - 盘中消失（橙/绿按信号类型）：sell 消失=减仓条件解除（绿，利好），buy 消失=风险（橙）
+    om/ai_sg（#61 2026-08-17 用户修正）：时间线信号照常带「AI 标记」列（回测宇宙/AI过滤/AI警示/
+      AI建议 top-K，与首页/盘中一致）。去重后只发时间线复盘时信号也带标记，不省略（用户原话：
+      "只要推给用户的信号都要带上这个标记，就和用户首页看到的一样"）。None 时降级为不标注。
     """
+    om = om if om is not None else {}
+    ai_sg = ai_sg if ai_sg is not None else {}
     rows_html = []
     for t in timeline:
         name = index_id_to_name(t["index_id"], name_map)
         label = _signal_label(t["signal"])
         emoji = _signal_emoji(t["signal"])
         reason = (t["reason"] or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        # #61(2026-08-17 用户修正): 时间线信号照常算 AI 标记(回测宇宙/AI过滤/AI警示/AI建议 top-K)
+        _mk = _calc_signal_markers(t, om, stats, ai_sg)
+        _badge = _signal_marker_badge_html(_mk)
         if t["persists"]:
             status = '<span style="color:#2e8b57;"><b>持续到收盘</b></span>'
         elif t["signal"] in SELL_TYPES:
@@ -1068,6 +1078,7 @@ def _build_timeline_html(timeline: list[dict], name_map: dict[str, str]) -> str:
             f'<td style="padding:7px 10px;font-size:12px;">{label}</td>'
             f'<td style="padding:7px 10px;font-size:12px;"><b>{t["appear_time"]}</b></td>'
             f'<td style="padding:7px 10px;font-size:12px;">{status}</td>'
+            f'<td style="padding:7px 10px;font-size:12px;">{_badge}</td>'
             f'<td style="padding:7px 10px;font-size:12px;color:#4e5969;">{reason}</td>'
             f'</tr>'
         )
@@ -1080,6 +1091,7 @@ def _build_timeline_html(timeline: list[dict], name_map: dict[str, str]) -> str:
         '<p style="margin:0 0 10px 0;color:#597ef7;font-size:13px;line-height:1.6;">'
         '盘中每轮重算实时记录：每个信号几点出现、几点消失（消失=该时点后重算不再出现）。'
         '<b>持续到收盘</b>=最后轮重算仍在；绿色=减仓条件解除（利好），橙色=信号消失（注意）。'
+        '信号行带「AI 标记」列（与首页/盘中一致）。'
         '</p>'
         '<table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;">'
         '<thead><tr style="background:#f0f5ff;text-align:left;">'
@@ -1087,6 +1099,7 @@ def _build_timeline_html(timeline: list[dict], name_map: dict[str, str]) -> str:
         '<th style="padding:7px 10px;border-bottom:2px solid #adc6ff;">信号</th>'
         '<th style="padding:7px 10px;border-bottom:2px solid #adc6ff;">出现时间</th>'
         '<th style="padding:7px 10px;border-bottom:2px solid #adc6ff;">状态</th>'
+        '<th style="padding:7px 10px;border-bottom:2px solid #adc6ff;">AI 标记</th>'
         '<th style="padding:7px 10px;border-bottom:2px solid #adc6ff;">触发条件</th>'
         '</tr></thead><tbody>'
         f'{rows}'
@@ -1296,19 +1309,13 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
 
     # 收盘全过程复现时间线（需求2 方案A，2026-08-10）：盘中每轮重算记录，
     # 收盘邮件展示每个信号几点出现/几点消失。放 fade 横幅之后、信号表之前。
+    # #61(2026-08-17 用户修正): 时间线信号照常带 AI 标记列(与首页/盘中一致, 去重只发时间线也带)。
     if timeline:
-        html_parts.append(_build_timeline_html(timeline, name_map))
+        html_parts.append(_build_timeline_html(timeline, name_map, stats, om, ai_sg))
 
     if n_total == 0:
         if timeline or fade_timeline:
-            html_parts.append('<p style="color:#86909c;">今日无新买卖点信号（已全部推送/消失），完整生命周期见上方时间线表格。</p>')
-            # 2026-08-17 reviewer 观察：去重后只发时间线、无 AI 标记，用户对不上"首页有 AI 建议1
-            # 邮件没标"。加注明解释原因（仅去重模式显示；--full 全量模式 n_total==0=当日真无信号，
-            # 非"已推送"，不加避免误导/噪音）。
-            if dedup_annotate:
-                html_parts.append(
-                    '<p style="color:#86909c;font-size:12px;">* 注：以下信号已在盘中推送过，'
-                    '收盘邮件不再重复标注 AI 标记；今日 AI 建议/AI 警示以首页与盘中推送为准。</p>')
+            html_parts.append('<p style="color:#86909c;">今日无新买卖点信号（已全部推送/消失），完整生命周期见上方时间线表格（信号行已带 AI 标记，与首页/盘中一致）。</p>')
         else:
             html_parts.append('<p style="color:#86909c;">今日无买卖点信号。</p>')
     else:
@@ -1508,6 +1515,14 @@ def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str
         for a in fade_alerts:
             _fname = index_id_to_name(a["index_id"], name_map)
             _flabel = _signal_label(a["intraday_signal"])
+            # #61(2026-08-17 用户修正): 飞书 fade 明细信号照常带 AI 标记(回测宇宙/AI过滤/AI警示/
+            #   AI建议 top-K, 与首页/盘中/邮件一致)。用户原话"只要推给用户的信号都要带上这个标记"。
+            #   fade 的 intraday_signal 即当日信号, 用其算标记; AI建议 top-K 用 ai_rank 时加 ⭐。
+            _fk = _calc_signal_markers(
+                {"index_id": a["index_id"], "signal": a["intraday_signal"]}, om, stats, ai_sg)
+            _fmt = _signal_marker_badge_text(_fk)
+            _fstar = "⭐" if _fk["ai_rank"] is not None else ""
+            _fmark = f" {_fstar}[{_fmt}]" if _fmt else ""
             # §23.10(2026-08-17 #61): 飞书 fade 明细补 suggestion(建议操作, 与邮件
             #   _build_fade_banner/_build_fade_detail_html 的建议列同字段), 飞书与邮件内容一致不精简。
             _sugg = (a.get("suggestion") or "").replace("\n", " ").replace("\r", " ").strip()
@@ -1517,7 +1532,7 @@ def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str
                 _reason = (_t.get("reason") or "").replace("\n", " ").replace("\r", " ").strip()
                 if len(_reason) > FEISHU_POST_REASON_MAX:
                     _reason = _reason[:FEISHU_POST_REASON_MAX].rstrip() + "…"
-                _detail = (f"    {_flabel} {_fname}：{_t['appear_time']} 出现 → "
+                _detail = (f"    {_flabel} {_fname}{_fmark}：{_t['appear_time']} 出现 → "
                            f"{_t['last_time']} 后消失")
                 # §23.10(2026-08-17 #61): 飞书 fade 明细 timeline 分支补 closing_status(收盘状态,
                 #   与邮件 _build_fade_banner 的 closing_status 列同字段), 飞书与邮件内容一致不精简。
@@ -1530,7 +1545,7 @@ def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str
             else:
                 # 时间线无该信号记录（log 缺失/早于记录起点）：退化只展示 fade 状态
                 _closing = (a.get("closing_status") or "").replace("\n", " ").replace("\r", " ").strip()
-                _detail = f"    {_flabel} {_fname}：本轮检测消失"
+                _detail = f"    {_flabel} {_fname}{_fmark}：本轮检测消失"
                 if _sugg:
                     _detail += f" | 建议：{_sugg}"
                 if _closing:
@@ -1541,11 +1556,10 @@ def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str
     # 此处不再截断省略尾部；完整 lines 交 build_feishu_post，send_feishu 按 FEISHU_POST_MAX_ROWS
     # 每段切分、多段连发（标题带 N/M 序号），杜绝丢「明细行」。
 
-    # 去重后只发时间线、无 AI 标记场景（§23.10 与邮件内容一致，2026-08-17 用户确认）：注明原因，
-    #   防用户对不上"首页有 AI 建议/邮件没标"。
-    if dedup_timeline_only:
-        lines.append([notify.post_text(
-            "* 注：以下信号已在盘中推送过，收盘不再重复标注 AI 标记；今日 AI 建议/AI 警示以首页与盘中推送为准。")])
+    # #61(2026-08-17 用户修正)：去重后只发时间线场景（dedup_timeline_only），信号照常带 AI 标记
+    #   （回测宇宙/AI过滤/AI警示/AI建议 top-K，与首页/盘中/邮件一致）。用户原话"只要推给用户的
+    #   信号都要带上这个标记"，故不再省略标记，也不加"不再重复标注"注（信号已带标记，注自相矛盾）。
+    # 该分支 signals_to_send 为空（无新信号），信号仅以 fade 明细行形式呈现（上方 fade 循环已补标记）。
 
     # 规则说明省略为一行指引（完整在邮件；飞书 post 不支持折叠，故精简）
     lines.append([notify.post_text("📋 完整规则与免责见邮件 · 以收盘最终版为准")])
