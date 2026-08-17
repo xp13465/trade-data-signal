@@ -108,12 +108,14 @@ def load_env() -> dict:
 
 def load_config() -> dict:
     if not CONFIG_PATH.exists():
-        log(f"config/feishu.json 不存在：{CONFIG_PATH}（跳过监听）")
+        log(f"config/feishu.json 不存在：{CONFIG_PATH}（跳过监听）。恢复："
+            "cp config/feishu.json.example config/feishu.json 后重启 com.trade.feishu-listener")
         sys.exit(1)
     try:
         return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except Exception as e:  # noqa: BLE001
-        log(f"config/feishu.json 解析失败：{e}")
+        log(f"config/feishu.json 解析失败：{e}。恢复：cp config/feishu.json.example "
+            "config/feishu.json 重置后重启 com.trade.feishu-listener")
         sys.exit(1)
 
 

@@ -17,6 +17,13 @@ DOC_FILES=()
 for f in docs/main-governance.md docs/role-based-context-research.md docs/smoke-checklist.md; do
   [ -f "$TRADE_DIR/$f" ] && DOC_FILES+=("$f")
 done
+# config/ 下 gitignore 配置文件（2026-08-17 三件套③备份）：feishu/email/telegram/subscriptions/
+# sub_pwd/brief_push 是 gitignore 不进 git，曾 feishu.json 丢失致飞书静默停摆数天，纳入每日异地备份。
+# 缺失的文件跳过不报错（仿 DOC_FILES 写法）。.env 含密钥不进备份包（R2 signal-backup 是私有桶仍避免）。
+CONFIG_FILES=()
+for f in config/feishu.json config/email.json config/telegram.json config/subscriptions.json config/sub_pwd.json config/brief_push.json; do
+  [ -f "$TRADE_DIR/$f" ] && CONFIG_FILES+=("$f")
+done
 TAR_ARGS=(
   -C "$HOME/.claude/projects/-Users-linhuichen-code-trade" memory
   -C "$TRADE_DIR" CLAUDE.md NOTES.md TASKS.md
@@ -25,6 +32,7 @@ TAR_ARGS=(
   -C "$TRADE_DIR" claude-work-mode
 )
 [ ${#DOC_FILES[@]} -gt 0 ] && TAR_ARGS+=(-C "$TRADE_DIR" "${DOC_FILES[@]}")
+[ ${#CONFIG_FILES[@]} -gt 0 ] && TAR_ARGS+=(-C "$TRADE_DIR" "${CONFIG_FILES[@]}")
 tar czf "$OUT" "${TAR_ARGS[@]}" 2>/dev/null
 # 保留 30 天滚动
 find "$BACKUP_DIR" -name 'claude-self-*.tar.gz' -mtime +30 -delete 2>/dev/null

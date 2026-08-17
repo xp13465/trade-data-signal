@@ -1,13 +1,13 @@
 {
-  "_help": "飞书通知配置模板。复制为 config/feishu.json（已 gitignore）填入真实值。app_id/app_secret 推荐放 .env（FEISHU_APP_ID/FEISHU_APP_SECRET，存 trade-data/.env，从 .env 读不硬编码不 echo）；也可在此显式覆盖。chat_ids 获取：应用进群后在群里发一条消息，从监听日志或事件 payload 读 oc_ 开头 id；或调 im.chat.list 按群名匹配。",
+  "_help": "飞书通知配置模板（本项目真实配置模板，2026-08-17 三件套②升级为可直接恢复的真实模板）。\n丢失后一键恢复：cp config/feishu.json.example config/feishu.json 后重启 com.trade.feishu-listener。\napp_id/app_secret 凭证走 .env 不填（FEISHU_APP_ID/FEISHU_APP_SECRET，存 trade-data/.env，从 .env 读不硬编码不 echo）。\nchat_ids 三项已填本项目实锤三群（alert=运维群/agent_done=开发群/report=报告群），丢失恢复后无需再改。\n缺失恢复三步：① cp config/feishu.json.example config/feishu.json ② 确认 chat_ids 三项非空 ③ launchctl kickstart -k gui/$(id -u)/com.trade.feishu-listener。\nchat_ids 获取（如需改群）：应用进群后群里发一条消息，从监听日志或事件 payload 读 oc_ 开头 id；或调 im.chat.list 按群名匹配。",
   "enabled": true,
   "mode": "app",
   "app_id": "cli_xxx",
   "app_secret": "YOUR_APP_SECRET",
   "chat_ids": {
-    "alert": "oc_xxx_运维群",
-    "agent_done": "oc_yyy_开发群",
-    "report": "oc_zzz_报告群"
+    "alert": "oc_7d8d3eb6b322ddeb6b8e3c53519fae7e",
+    "agent_done": "oc_98a49be023582358fa6cec24749907b5",
+    "report": "oc_edd9ac6dbe07303bed6f30d44b19604c"
   },
   "webhook_urls": {
     "alert": "",
@@ -15,7 +15,7 @@
     "report": ""
   },
   "receive": {
-    "chat_id_whitelist": ["oc_yyy_开发群"],
+    "chat_id_whitelist": ["oc_98a49be023582358fa6cec24749907b5"],
     "keyword_prefixes": ["需求:", "t:"],
     "inbox_dir": "data/feishu_requests"
   }

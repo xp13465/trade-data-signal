@@ -6,7 +6,7 @@
 # us_stock_morning。
 # 每个任务的计划时点表来自 ~/Library/LaunchAgents/com.trade.*.plist 的 StartCalendarInterval。
 #
-# 检查项（6 维度, R2迁移后72h监控 2026-08-08 扩展）：
+# 检查项（7 维度, R2迁移后72h监控 2026-08-08 扩展, 2026-08-17 加维度⑦飞书配置）：
 #   1) 漏跑：当前时间落在某任务计划时点 + 30min 容忍窗口内，但 last_run < 计划时点 = 漏跑告警
 #   2) 退出失败：schedule_stats.json 中 last_exit 非 0（非 null，null=进行中/无数据不算失败）
 #   2b) log异常关键词：scan_log_anomaly 抓 Traceback/异常类名/FATAL（exit=0 不可信, 脚本吞异常漏报）
@@ -16,6 +16,9 @@
 #   5) 产物时效（Worker路径）：线上 overview.json collected_at vs NOW, 3域名容错, 盘中<20min
 #   6) R2直连时效：ssd.fx8.store overview/intraday collected_at 时效 + R2可达性
 #      （R2直连stale+Worker stale=upload_r2断; R2直连fresh+Worker stale=CF cache purge失效）
+#   7) 飞书配置：config/feishu.json 缺失且 .env 有 FEISHU 凭证（配置丢失），或
+#      feishu_listener.err 尾部 10 条内含"feishu.json 不存在"（listener 停摆）
+#      （2026-08-17 三件套①防 feishu.json 丢失致飞书静默停摆数天）
 #
 # 告警链路：复用 scripts/notify.py（邮件 + data/alerts/latest.md），告警不阻塞、不重试。
 # 阶段3 R2上传失败 notify 已接入: intraday_snapshot.sh upload-index/upload-intraday 失败发
@@ -619,7 +622,7 @@ for _key, _info in list(alert_state.items()):
         continue
     if _info.get("status") != "active":
         continue
-    if _key == "overview_lag_3domain" or _key.startswith("r2_") or _key.startswith("72h_"):
+    if _key == "overview_lag_3domain" or _key.startswith("r2_") or _key.startswith("72h_") or _key.startswith("feishu_"):
         # overview 时效滞后的去重+恢复由 overview 检查块内联处理
         # （该块在恢复检测循环之后运行，不能复用此循环，否则未 seen 被误报恢复）
         # R2 keys(r2_unreachable/r2_overview_lag/r2_intraday_lag)同理: R2检查块在
@@ -628,6 +631,8 @@ for _key, _info in list(alert_state.items()):
         # schedule_monitor 不检查 72h 条件(sw_version/S5/stale_alert), 不应对其做
         # 恢复检测 -- 否则 72h_ active key 不在 seen_keys_this_run 被误判"已恢复"
         # -> :15/:45 误恢复 + :10/:40 72h重报 = 振荡(2026-08-10 修复)
+        # feishu_ keys(飞书配置缺失, 2026-08-17 三件套①)同理: 检查块在恢复循环之后运行,
+        # 由块内 inline 处理恢复(防未 seen 被误判已恢复, 与 r2_ 同模式)
         continue
     # 2026-08-14 告警优化 A1: 任务仍在进行中(dur=null + exit=null)时, 其历史异常 key
     # 不能判"已恢复" -> 防 8-14 误恢复(update_all 卡死 dur=null 未 seen 被误判异常已消失,
@@ -1043,6 +1048,93 @@ try:
 except Exception as e:
     print(f"[warn] R2 直连时效检查失败: {e}", file=sys.stderr)
 
+# 7) 飞书配置检查（维度⑦，2026-08-17 三件套①核心）
+#    防 config/feishu.json 丢失致飞书静默停摆数天（send_feishu 缺失直接 return False 静默跳过；
+#    listener 每 10s 报"feishu.json 不存在"但无告警，用户数天后才发现）。
+#    两个触发面：
+#      a) config/feishu.json 不存在 且 .env 有 FEISHU_APP_ID/FEISHU_APP_SECRET
+#         （=配置本该存在却异常丢失；全新环境未配置 .env 无凭证不告警防误报）
+#      b) feishu_listener.err 尾部 10 条内含"feishu.json 不存在"（listener 场景不调 send_feishu，
+#         靠本 15min 周期监控兜底发现）
+#    复用 alert_state.json 去重（key=feishu_config_missing，key 前缀 feishu_ 已加入主恢复循环
+#    特殊跳过，inline 处理恢复，与 r2_ 同模式防振荡）。
+try:
+    _feishu_cfg_path = REPO / "config" / "feishu.json"
+    _feishu_cfg_missing = not _feishu_cfg_path.exists()
+    # .env 是否有 FEISHU 凭证（区分配置丢失 vs 全新环境未配置）
+    _feishu_env_has_cred = False
+    for _env_path in (Path("/Users/linhuichen/code/trade-data/.env"), REPO / ".env"):
+        if not _env_path.exists():
+            continue
+        try:
+            _env_lines = _env_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except Exception:
+            continue
+        for _ln in _env_lines:
+            _ln = _ln.strip()
+            if _ln.startswith("FEISHU_APP_ID=") or _ln.startswith("FEISHU_APP_SECRET="):
+                _feishu_env_has_cred = True
+                break
+        if _feishu_env_has_cred:
+            break
+    # feishu_listener.err 尾部 10 条是否含"feishu.json 不存在"（listener 停摆信号）
+    _feishu_err_missing = False
+    _feishu_err_path = LOG_DIR / "feishu_listener.err"
+    if _feishu_err_path.exists():
+        try:
+            _tail_lines = _feishu_err_path.read_text(
+                encoding="utf-8", errors="replace").splitlines()[-10:]
+            if any("feishu.json 不存在" in _l for _l in _tail_lines):
+                _feishu_err_missing = True
+        except Exception:
+            _feishu_err_missing = False
+    _feishu_key = "feishu_config_missing"
+    _feishu_issue = None
+    if _feishu_cfg_missing and _feishu_env_has_cred:
+        _feishu_issue = ("config/feishu.json 缺失 且 .env 有 FEISHU 凭证"
+                         "（配置丢失，飞书通知已静默停摆）")
+    elif _feishu_err_missing:
+        _feishu_issue = ("feishu_listener.err 尾部报 config/feishu.json 不存在"
+                         "（listener 已停摆）")
+    if _feishu_issue:
+        seen_keys_this_run.add(_feishu_key)
+        _ex_fs = alert_state.get(_feishu_key)
+        if _ex_fs is None or _ex_fs.get("status") != "active":
+            alerts.append(
+                f"SEVERE: {_feishu_issue}。恢复：cp config/feishu.json.example "
+                "config/feishu.json 后 launchctl kickstart -k gui/$(id -u)/com.trade.feishu-listener"
+            )
+            alert_state[_feishu_key] = {
+                "status": "active",
+                "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                "keyword": "feishu_config_missing",
+                "line_sample": ("feishu_listener.err" if _feishu_err_missing
+                                else str(_feishu_cfg_path)),
+            }
+        else:
+            print(f"[suppress] 飞书配置缺失持续中, "
+                  f"last_alerted={_ex_fs.get('last_alerted')}, 不重发")
+    else:
+        # 恢复检测（inline，与 r2_ 同模式）：异常已消失 -> 发恢复邮件
+        _ex_fs = alert_state.get(_feishu_key)
+        if _ex_fs is not None and _ex_fs.get("status") == "active":
+            _emit = _recovery_cooldown_ok(_feishu_key, _ex_fs)
+            _ex_fs["status"] = "recovered"
+            _ex_fs["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+            if _emit:
+                recoveries.append({
+                    "task": "feishu_config", "keyword": "feishu_config_missing",
+                    "first_seen": _ex_fs.get("first_seen", "?"),
+                })
+            else:
+                print(f"[cooldown] feishu_config_missing 恢复邮件静默(上次恢复<30min前)")
+            print(f"[recovery] 飞书配置缺失已恢复 (首次发现: {_ex_fs.get('first_seen')})")
+    # 飞书检查在 save_alert_state(L509/L660) 之后运行, 需补存防状态丢失
+    save_alert_state(alert_state)
+except Exception as e:
+    print(f"[warn] 飞书配置检查失败: {e}", file=sys.stderr)
+
 # B2 告警正文模板化（2026-08-14 告警优化）: 原正文=纯 SEVERE 行列表, 改为每项 4 行模板
 #   [严重度] 任务 异常类型 / 影响:XX / 日志:路径 / 建议:XX。按任务写对应影响与建议。
 _IMPACT_MAP = {
@@ -1065,6 +1157,7 @@ _SUGGEST_MAP = {
     "etf_national_team": "自动恢复中; 若持续(进程池退化)请人工检查",
     "overview": "自动恢复中; 若持续请人工查 intraday/push 链路",
     "R2": "自动恢复中; 若持续请人工查 upload_r2/网络/R2 桶",
+    "feishu_config": "恢复：cp config/feishu.json.example config/feishu.json 后 launchctl kickstart com.trade.feishu-listener; 持续缺失=配置被删需重建",
 }
 _LOG_MAP = {t["task"]: str(LOG_DIR / t["log"]) for t in TASKS}
 

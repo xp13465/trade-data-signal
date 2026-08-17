@@ -368,13 +368,22 @@ def send_telegram(subject: str, body: str, dry_run: bool = False,
 
 
 def load_feishu_config() -> dict | None:
-    """读 config/feishu.json。不存在/解析失败返回 None（=未配置，静默跳过）。"""
+    """读 config/feishu.json。不存在/解析失败返回 None（=未配置，静默跳过）。
+
+    2026-08-17 三件套②：缺失/解析失败在 stderr 补恢复指引（cp example -> 重启 listener），
+    便于运维/告警排查时一键恢复。send_feishu 会在「缺失但 .env 有凭证」时发邮件告警（见
+    _alert_feishu_config_missing）。"""
     if not FEISHU_CONFIG.exists():
+        print("[notify] config/feishu.json 不存在（飞书未配置或配置丢失）。恢复："
+              "cp config/feishu.json.example config/feishu.json 后重启 com.trade.feishu-listener",
+              file=sys.stderr)
         return None
     try:
         return json.loads(FEISHU_CONFIG.read_text(encoding="utf-8"))
     except Exception as e:  # noqa: BLE001
-        print(f"[notify] config/feishu.json 解析失败：{e}", file=sys.stderr)
+        print(f"[notify] config/feishu.json 解析失败：{e}。恢复：检查 JSON 格式后重启 "
+              f"com.trade.feishu-listener（cp config/feishu.json.example config/feishu.json 重置）",
+              file=sys.stderr)
         return None
 
 
@@ -604,6 +613,44 @@ def _resolve_feishu_chat_key(subject: str, from_prefix: str | None,
     return "report"
 
 
+def _alert_feishu_config_missing(dry_run: bool = False) -> None:
+    """飞书配置缺失邮件告警（2026-08-17 三件套①核心）。
+
+    feishu.json 丢失但 .env 已有 FEISHU_APP_ID/FEISHU_APP_SECRET = 配置本该存在却异常
+    丢失（曾静默停摆数天），走邮件告警链提醒恢复。全新环境未配置（.env 无凭证）不告警
+    （由调用方判定，静默跳过）。走 data/notify_dedup.json 去重（key=feishu_config_missing，
+    30min 内不重复发防刷屏）。只发邮件（Telegram 是占位符不用），不调 send_feishu 防递归。
+    dry_run=True 时只 print 不真发（供测试验证告警路径）。"""
+    dedup_key = "feishu_config_missing"
+    dedup_window = 1800  # 30min 内不重复告警
+    if not dry_run and check_dedup(dedup_key, dedup_window):
+        return
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    subject = "[告警] 飞书配置缺失 feishu.json 已丢失"
+    body = f"""<div style="font-family: monospace; white-space: pre-wrap;">
+<b>[告警] 飞书配置缺失</b>
+时间：{now}
+
+现象：config/feishu.json 不存在，但 .env 已有 FEISHU_APP_ID/FEISHU_APP_SECRET
+      （说明配置本该存在，异常丢失）。飞书通知已静默停摆。
+
+根因：config/feishu.json 被删除/丢失（gitignore 不随 git 恢复）。
+
+恢复指引：
+1. 复制模板恢复：cp config/feishu.json.example config/feishu.json
+   （example 已含真实三群 chat_id，凭证走 .env 不填）
+2. 确认 chat_ids 三项非空（alert/agent_done/report）
+3. 重启 listener：launchctl kickstart -k gui/$(id -u)/com.trade.feishu-listener
+4. 校验：python scripts/notify.py --dry-run 测试发送
+
+---
+本告警由 notify.py send_feishu 配置缺失触发，30min 内不重复发。
+</div>"""
+    ok = _send_email(subject, body, dry_run=dry_run, from_prefix="[告警]")
+    if ok and not dry_run:
+        update_dedup(dedup_key)
+
+
 def send_feishu(subject: str, body: str, chat_key: str | None = None,
                 dry_run: bool = False, severe: bool = False,
                 from_prefix: str | None = None,
@@ -626,6 +673,14 @@ def send_feishu(subject: str, body: str, chat_key: str | None = None,
     """
     cfg = load_feishu_config()
     if cfg is None:
+        # 三件套①：配置缺失但 .env 有 FEISHU 凭证 = 配置本该存在却异常丢失 -> 发邮件告警。
+        # 全新环境未配置（.env 无凭证）则静默跳过，避免误报。
+        _app_id, _app_secret = _load_feishu_credentials()
+        if _app_id and _app_secret:
+            _alert_feishu_config_missing(dry_run=dry_run)
+        else:
+            print("[notify] config/feishu.json 缺失且 .env 无 FEISHU 凭证（全新环境未配置），静默跳过",
+                  file=sys.stderr)
         return False
     if not cfg.get("enabled", True):
         return False
