@@ -1415,9 +1415,11 @@
 .lab-sigkelly-fade-how-ok { background: rgba(56,158,13,0.08); color: #389e0d; }
 .lab-sigkelly-fade-how-mid { background: rgba(240,173,20,0.10); color: #ad6800; }
 .lab-sigkelly-fade-how-no { background: rgba(212,56,13,0.08); color: #d4380d; }
+.lab-sigkelly-fade-how-note { background: rgba(22,119,255,0.08); color: #0958d9; }
 [data-theme="dark"] .lab-sigkelly-fade-how-ok, [data-theme="redgold"] .lab-sigkelly-fade-how-ok { color: #95de64; background: rgba(56,158,13,0.12); }
 [data-theme="dark"] .lab-sigkelly-fade-how-mid, [data-theme="redgold"] .lab-sigkelly-fade-how-mid { color: #ffe58f; background: rgba(240,173,20,0.14); }
 [data-theme="dark"] .lab-sigkelly-fade-how-no, [data-theme="redgold"] .lab-sigkelly-fade-how-no { color: #ff9c9a; background: rgba(212,56,13,0.12); }
+[data-theme="dark"] .lab-sigkelly-fade-how-note, [data-theme="redgold"] .lab-sigkelly-fade-how-note { color: #91caff; background: rgba(22,119,255,0.12); }
 /* 默认推荐7键高亮区: 独立成块(已在 .lab-sigkelly-toggle-group-rec 底色), 内部稍外扩 */
 .lab-sigkelly-toggle-group-rec { align-items: flex-start; }
 /* ===== toggle 白话 advice 可见文本 ===== */
@@ -1620,6 +1622,8 @@
 .lab-sigkelly-advice-outer .lab-sigkelly-advice-body > .lab-sigkelly-advice-table td:nth-child(3) { width: 53%; }
 .lab-sigkelly-advice-hl td { background: rgba(212,160,23,0.12); }
 [data-theme="dark"] .lab-sigkelly-advice-hl td, [data-theme="redgold"] .lab-sigkelly-advice-hl td { background: rgba(240,185,11,0.14); }
+.lab-sigkelly-advice-cmp td { background: rgba(22,119,255,0.08); }
+[data-theme="dark"] .lab-sigkelly-advice-cmp td, [data-theme="redgold"] .lab-sigkelly-advice-cmp td { background: rgba(22,119,255,0.12); }
 .lab-sigkelly-advice-li { font-size: 13px; color: var(--text-1); line-height: 1.7; padding: 1px 0; }
 .lab-sigkelly-advice-li b { color: var(--text-1); }
 .lab-sigkelly-advice-warn { color: #d4380d; }
