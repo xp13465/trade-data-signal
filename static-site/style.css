@@ -3478,6 +3478,64 @@ main { padding: 16px 24px; }
   background: linear-gradient(90deg, rgba(124, 77, 255, 0.12), rgba(124, 77, 255, 0.04));
 }
 
+/* ---- 全球盘面跑马灯(2026-08-17,纯客户端零服务器压力,8全球品种实时价) ---- */
+.global-ticker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  padding: 6px 8px 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: linear-gradient(90deg, rgba(18, 26, 40, 0.55), rgba(18, 26, 40, 0.25));
+  overflow: hidden;
+}
+.gt-scroll { flex: 1; overflow: hidden; white-space: nowrap; }
+.gt-track { display: inline-block; white-space: nowrap; will-change: transform; }
+.gt-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-1);
+  padding: 3px 8px;
+  margin-right: 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  vertical-align: middle;
+}
+.gt-item .gt-name { font-weight: 600; }
+.gt-price { font-variant-numeric: tabular-nums; font-weight: 700; }
+.gt-pct { font-variant-numeric: tabular-nums; font-weight: 700; }
+/* 红涨绿跌:与站内 A股约定一致(涨红 #e6492e / 跌绿 #2e8b57 / 平 #909399) */
+.gt-pct.up { color: #e6492e; }
+.gt-pct.down { color: #2e8b57; }
+.gt-pct.flat { color: #909399; }
+.gt-na { opacity: 0.55; }
+.gt-na .gt-na-txt { color: var(--text-3); }
+.gt-src { font-style: normal; color: var(--text-3); font-size: 10px; margin-left: 2px; }
+.gt-gear {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text-2);
+  padding: 2px 4px;
+}
+.gt-gear:hover { color: var(--text-1); }
+.global-ticker.gt-degraded { opacity: 0.7; }
+@keyframes gt-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+/* 齿轮排序弹窗(复用 rule-modal 模式) */
+.gt-sort-body .rule-modal-content { padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; }
+.gt-sort-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; background: rgba(255, 255, 255, 0.04); }
+.gt-sort-move { background: none; border: 1px solid var(--border); color: var(--text-2); cursor: pointer; border-radius: 4px; width: 24px; height: 22px; line-height: 1; font-size: 12px; }
+.gt-sort-move:hover { color: var(--text-1); border-color: var(--text-2); }
+.gt-sort-name { flex: 1; font-size: 13px; color: var(--text-1); }
+.gt-sort-tip { font-size: 11px; color: var(--text-3); margin-top: 4px; }
+
 
 .db-news-ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
 .db-news-ul li { display: flex; align-items: flex-start; gap: 6px; font-size: 12.5px; line-height: 1.6; color: var(--text-1); }

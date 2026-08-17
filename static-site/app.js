@@ -10271,6 +10271,7 @@ async function renderOverview() {
           fb.addEventListener("click", openNewsDigestModal);
           if (banner.isConnected) banner.after(fb);
           else content.insertBefore(fb, banner.nextSibling);
+          _initGlobalTicker(banner); // 2026-08-17 全球盘面跑马灯(纯客户端,插新闻两行下方)
           return;
         }
         // 正常外露两行(至少一行有数据): 整行可点进,行尾「更多 →」。
@@ -10286,7 +10287,255 @@ async function renderOverview() {
         });
         if (banner.isConnected) banner.after(wrap);
         else content.insertBefore(wrap, banner.nextSibling);
+        _initGlobalTicker(banner); // 2026-08-17 全球盘面跑马灯(纯客户端,插新闻两行下方)
       }).catch(() => {});
+      // ================= 全球盘面跑马灯(2026-08-17,纯客户端零服务器压力) =================
+      // 8 全球品种实时价,1行横向滚动,红涨绿跌,齿轮自定排序(顺序存 localStorage)。
+      // 数据源(全部浏览器端 fetch 直连第三方,无后端代理/零服务器压力):
+      //   主=东财 push2delay 单只 stock/get(现货全8,8请求/轮询;ulist 批量当前实测失效)
+      //   备1=腾讯 qt.gtimg.cn 批量 hf_/wh_(6/8;黄金/白银为 COMEX 期货口径;离岸/A50/美元指数无)
+      //   备2=gold-api(XAU/XAG 现货)+ open.er-api(USDCNH/USDJPY 日更)(4/8)
+      //   诚实缺口:富时A50/美元指数除东财外无任何 CORS 备源,东财挂时渲染「暂无」。
+      // 降级顺序:东财 → 腾讯 → gold-api/er-api → 全挂显示降级文案。同品种固定单源不混源。
+      // 轮询30s,setTimeout递归,页面隐藏暂停(复用分时图模式),请求失败静默降级不弹错。
+      const GLOBAL_TICKER_ITEMS = [
+        { key: "gold",   name: "现货黄金",  em: "🟡", east: { secid: "122.XAU",    scale: 100,   fx: false }, tx: { code: "hf_GC",    kind: "hf" },  goldapi: "XAU",    erapi: null,   dec: 2 },
+        { key: "silver", name: "现货白银",  em: "⚪", east: { secid: "122.XAG",    scale: 100,   fx: false }, tx: { code: "hf_SI",    kind: "hf" },  goldapi: "XAG",    erapi: null,   dec: 2 },
+        { key: "wti",    name: "WTI原油",   em: "🛢️", east: { secid: "102.CL00Y",  scale: 100,   fx: false }, tx: { code: "hf_CL",    kind: "hf" },  goldapi: null,     erapi: null,   dec: 2 },
+        { key: "brent",  name: "布伦特油", em: "🛢️", east: { secid: "112.B00Y",   scale: 100,   fx: false }, tx: { code: "hf_OIL",   kind: "hf" },  goldapi: null,     erapi: null,   dec: 2 },
+        { key: "a50",    name: "富时A50",   em: "🇨🇳", east: { secid: "104.CN00Y",  scale: 100,   fx: false }, tx: null,                                    goldapi: null,     erapi: null,   dec: 1 },
+        { key: "usd",    name: "美元指数", em: "💵", east: { secid: "100.UDI",    scale: 100,   fx: false }, tx: null,                                    goldapi: null,     erapi: null,   dec: 2 },
+        { key: "cnh",    name: "离岸人民币", em: "🇨🇳", east: { secid: "133.USDCNH", scale: 10000, fx: true  }, tx: null,                                    goldapi: null,     erapi: "CNH",    dec: 4 },
+        { key: "jpy",    name: "美元日元", em: "🇯🇵", east: { secid: "119.USDJPY", scale: 10000, fx: true  }, tx: { code: "whUSDJPY", kind: "wh" },  goldapi: null,     erapi: "JPY",    dec: 3 },
+      ];
+      const GLOBAL_TICKER_STORAGE_KEY = "global_ticker_order_v1";
+      let _gtEl = null, _gtTrack = null, _gtTimer = null, _gtActive = false;
+      let _gtData = {}, _gtInFlight = false, _gtFailCount = 0, _gtVisBound = false, _gtGroupHtml = "";
+
+      function _gtOrder() {
+        let order = [];
+        try { order = JSON.parse(localStorage.getItem(GLOBAL_TICKER_STORAGE_KEY) || "[]"); } catch (e) { order = []; }
+        const valid = Array.isArray(order) ? order.filter(k => GLOBAL_TICKER_ITEMS.some(i => i.key === k)) : [];
+        const all = GLOBAL_TICKER_ITEMS.map(i => i.key);
+        return [...valid, ...all.filter(k => !valid.includes(k))];
+      }
+      function _gtSaveOrder(order) { try { localStorage.setItem(GLOBAL_TICKER_STORAGE_KEY, JSON.stringify(order)); } catch (e) {} }
+
+      // 主源:东财 push2delay 单只 stock/get(现货全8,逐只并行;ulist 批量当前失效走单只)
+      async function _gtFetchEast() {
+        const results = {};
+        await Promise.all(GLOBAL_TICKER_ITEMS.map(async (item) => {
+          const url = `https://push2delay.eastmoney.com/api/qt/stock/get?secid=${item.east.secid}&fields=f43,f58,f60,f86,f170`;
+          try {
+            const r = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+            if (!r.ok) return;
+            const j = await r.json();
+            const d = (j && j.data) || null;
+            if (!d) return;
+            const f43 = Number(d.f43);
+            if (!isFinite(f43) || f43 <= 0) return; // push2 主 host 或 ulist 会返回全 0,单只稳定
+            const price = f43 / item.east.scale;
+            const pct = isFinite(Number(d.f170)) ? Number(d.f170) / 100 : null;
+            const ts = isFinite(Number(d.f86)) ? Number(d.f86) * 1000 : null;
+            results[item.key] = { price, pct, ts, src: "east" };
+          } catch (e) { /* 静默降级 */ }
+        }));
+        return results;
+      }
+      // 备1:腾讯 qt.gtimg.cn(GBK 编码,批量 hf_/wh_)
+      async function _gtFetchTx(keys) {
+        const codes = [], keyByCode = {};
+        for (const k of keys) {
+          const item = GLOBAL_TICKER_ITEMS.find(i => i.key === k);
+          if (item && item.tx) { codes.push(item.tx.code); keyByCode[item.tx.code] = k; }
+        }
+        if (!codes.length) return {};
+        const results = {};
+        try {
+          const r = await fetch("https://qt.gtimg.cn/q=" + codes.join(","));
+          if (!r.ok) return results;
+          const buf = await r.arrayBuffer();
+          const text = new TextDecoder("gbk").decode(buf);
+          for (const line of text.split(";")) {
+            const m = line.match(/v_([^=]+)="([^"]*)"/);
+            if (!m) continue;
+            const key = keyByCode[m[1]];
+            if (!key) continue;
+            const item = GLOBAL_TICKER_ITEMS.find(i => i.key === key);
+            const p = m[2];
+            if (item.tx.kind === "wh") {
+              // wh_ 按 ~ 分:[3]最新价、[6]昨收、[13]涨跌幅%
+              const parts = p.split("~");
+              const price = Number(parts[3]);
+              if (!isFinite(price) || price <= 0) continue;
+              const pct = isFinite(Number(parts[13])) ? Number(parts[13]) : null;
+              results[key] = { price, pct, ts: null, src: "tx" };
+            } else {
+              // hf_ 按 , 分:[0]现价、[1]涨跌幅%、[7]昨收、[12]日期
+              const parts = p.split(",");
+              const price = Number(parts[0]);
+              if (!isFinite(price) || price <= 0) continue;
+              const pct = isFinite(Number(parts[1])) ? Number(parts[1]) : null;
+              results[key] = { price, pct, ts: null, src: "tx" };
+            }
+          }
+        } catch (e) { /* 静默降级 */ }
+        return results;
+      }
+      // 备2:gold-api(XAU/XAG 现货)+ open.er-api(USDCNH/USDJPY 日更)
+      async function _gtFetchBackup(keys) {
+        const results = {};
+        const goldKeys = keys.filter(k => GLOBAL_TICKER_ITEMS.find(i => i.key === k).goldapi);
+        const erKeys = keys.filter(k => GLOBAL_TICKER_ITEMS.find(i => i.key === k).erapi);
+        await Promise.all(goldKeys.map(async (k) => {
+          const item = GLOBAL_TICKER_ITEMS.find(i => i.key === k);
+          try {
+            const r = await fetch(`https://api.gold-api.com/price/${item.goldapi}`);
+            if (!r.ok) return;
+            const j = await r.json();
+            const p = Number(j.price);
+            if (isFinite(p) && p > 0) results[k] = { price: p, pct: null, ts: j.updatedAt ? Date.parse(j.updatedAt) : null, src: "goldapi" };
+          } catch (e) {}
+        }));
+        if (erKeys.length) {
+          try {
+            const r = await fetch("https://open.er-api.com/v6/latest/USD");
+            if (r.ok) {
+              const j = await r.json();
+              if (j && j.result === "success" && j.rates) {
+                for (const k of erKeys) {
+                  const item = GLOBAL_TICKER_ITEMS.find(i => i.key === k);
+                  const v = Number(j.rates[item.erapi]);
+                  if (isFinite(v) && v > 0) results[k] = { price: v, pct: null, ts: Date.now(), src: "erapi" };
+                }
+              }
+            }
+          } catch (e) {}
+        }
+        return results;
+      }
+
+      function _gtRender() {
+        if (!_gtEl || !_gtTrack) return;
+        const order = _gtOrder();
+        let html = "";
+        for (const key of order) {
+          const item = GLOBAL_TICKER_ITEMS.find(i => i.key === key);
+          const d = _gtData[key];
+          if (!d || d.price == null) {
+            html += `<span class="gt-item gt-na" title="${item.name} 暂无行情源">${item.em}<span class="gt-name">${item.name}</span><span class="gt-na-txt">暂无</span></span>`;
+            continue;
+          }
+          const cls = d.pct == null ? "flat" : (d.pct > 0 ? "up" : (d.pct < 0 ? "down" : "flat"));
+          const pctStr = d.pct == null ? "—" : (d.pct > 0 ? "+" : "") + d.pct.toFixed(2) + "%";
+          const srcMark = d.src === "tx" ? "<i class='gt-src' title='腾讯COMEX期货口径'>*</i>" : (d.src === "goldapi" || d.src === "erapi" ? "<i class='gt-src' title='备源'>†</i>" : "");
+          html += `<span class="gt-item" title="${item.name} 实时价 · 网络公开接口仅供参考">${item.em}<span class="gt-name">${item.name}</span><b class="gt-price">${d.price.toFixed(item.dec)}</b><span class="gt-pct ${cls}">${pctStr}</span>${srcMark}</span>`;
+        }
+        _gtGroupHtml = html;
+        _gtTrack.innerHTML = html;
+        _gtRefreshMarquee();
+      }
+      // 无缝滚动:内容超宽 → 复制一份做 translateX(-50%) 循环;不足一行则居中不滚
+      function _gtRefreshMarquee() {
+        if (!_gtEl || !_gtTrack) return;
+        const scroller = _gtEl.querySelector(".gt-scroll");
+        if (!scroller) return;
+        _gtTrack.style.animation = "none";
+        if (!_gtGroupHtml) return;
+        if (scroller.scrollWidth > scroller.clientWidth) {
+          _gtTrack.innerHTML = _gtGroupHtml + _gtGroupHtml;
+          _gtTrack.style.animation = "gt-marquee 30s linear infinite";
+        } else {
+          _gtTrack.innerHTML = _gtGroupHtml;
+          _gtTrack.style.animation = "none";
+        }
+      }
+      function _gtSchedule() {
+        if (!_gtActive) return;
+        if (_gtTimer) clearTimeout(_gtTimer);
+        const delay = _gtFailCount >= 6 ? 120000 : Math.min(30000 * Math.pow(2, _gtFailCount), 120000);
+        _gtTimer = setTimeout(() => {
+          _gtTimer = null;
+          if (!_gtActive) return;
+          if (document.hidden) { _gtSchedule(); return; } // 页面隐藏暂停(复用分时图习惯)
+          _gtTick(false);
+        }, delay);
+      }
+      async function _gtTick(force) {
+        if (!_gtActive) return;
+        if (_gtInFlight) { _gtSchedule(); return; }
+        _gtInFlight = true;
+        try {
+          let east = {};
+          try { east = await _gtFetchEast(); } catch (e) { east = {}; }
+          const missing = GLOBAL_TICKER_ITEMS.filter(i => !east[i.key]).map(i => i.key);
+          let tx = {};
+          if (missing.length) { try { tx = await _gtFetchTx(missing); } catch (e) {} }
+          const stillMissing = missing.filter(k => !tx[k]);
+          let backup = {};
+          if (stillMissing.length) { try { backup = await _gtFetchBackup(stillMissing); } catch (e) {} }
+          const merged = Object.assign({}, east, tx, backup); // 同品种只取东财→腾讯→备2 首个成功,不混源
+          let anyOk = false;
+          for (const k of Object.keys(merged)) {
+            if (merged[k] && merged[k].price != null) { _gtData[k] = merged[k]; anyOk = true; }
+          }
+          if (anyOk) _gtFailCount = 0;
+          else if (Object.keys(merged).length === 0) _gtFailCount++;
+          _gtRender();
+          const allEmpty = Object.keys(_gtData).length === 0;
+          _gtEl.classList.toggle("gt-degraded", allEmpty);
+          _gtEl.title = allEmpty ? "行情源暂不可用，稍后自动重试" : "全球行情来自网络公开接口，实时刷新，仅供参考，不构成投资建议";
+        } finally {
+          _gtInFlight = false;
+          _gtSchedule();
+        }
+      }
+      // 齿轮:排序弹窗(复用 rule-modal 模式,↑↓ 调顺序存 localStorage)
+      function _gtOpenSortModal() {
+        const order = _gtOrder();
+        const modal = document.createElement("div");
+        modal.className = "rule-modal";
+        let rows = "";
+        for (const key of order) {
+          const item = GLOBAL_TICKER_ITEMS.find(i => i.key === key);
+          rows += `<div class="gt-sort-row" data-key="${key}"><button class="gt-sort-move gt-sort-up" title="上移">↑</button><button class="gt-sort-move gt-sort-down" title="下移">↓</button><span class="gt-sort-name">${item.em} ${item.name}</span></div>`;
+        }
+        modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body gt-sort-body"><div class="rule-modal-header"><h3>🌐 全球盘面跑马灯 · 品种顺序</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content">' + rows + '<div class="gt-sort-tip">↑↓ 调整显示顺序，自动保存。数据来自网络公开接口，实时刷新，仅供参考，不构成投资建议。</div></div></div>';
+        document.body.appendChild(modal);
+        const close = () => { modal.remove(); document.body.style.overflow = ""; };
+        modal.querySelector(".rule-modal-overlay").addEventListener("click", close);
+        modal.querySelector(".rule-modal-close").addEventListener("click", close);
+        document.body.style.overflow = "hidden";
+        const reorder = (row, dir) => {
+          const rowsArr = Array.from(modal.querySelectorAll(".gt-sort-row"));
+          const idx = rowsArr.indexOf(row);
+          const nidx = idx + dir;
+          if (nidx < 0 || nidx >= rowsArr.length) return;
+          modal.querySelector(".rule-modal-content").insertBefore(row, dir > 0 ? rowsArr[nidx].nextSibling : rowsArr[nidx]);
+          _gtSaveOrder(Array.from(modal.querySelectorAll(".gt-sort-row")).map(r => r.dataset.key));
+          _gtRender();
+        };
+        modal.querySelectorAll(".gt-sort-up").forEach(b => b.addEventListener("click", e => reorder(e.currentTarget.closest(".gt-sort-row"), -1)));
+        modal.querySelectorAll(".gt-sort-down").forEach(b => b.addEventListener("click", e => reorder(e.currentTarget.closest(".gt-sort-row"), 1)));
+      }
+      function _initGlobalTicker(banner) {
+        if (_gtEl) return; // 已初始化,不重复
+        if (!banner || !banner.isConnected) return;
+        const wrap = document.createElement("div");
+        wrap.className = "global-ticker";
+        wrap.innerHTML = '<div class="gt-scroll"><div class="gt-track"></div></div><button class="gt-gear" title="自定义品种显示顺序">⚙️</button>';
+        banner.after(wrap);
+        _gtEl = wrap;
+        _gtTrack = wrap.querySelector(".gt-track");
+        wrap.querySelector(".gt-gear").addEventListener("click", _gtOpenSortModal);
+        _gtActive = true;
+        if (!_gtVisBound) {
+          _gtVisBound = true;
+          document.addEventListener("visibilitychange", () => { if (!document.hidden && _gtActive) { _gtTick(true); } });
+        }
+        _gtTick(true);
+      }
+      // ================= 全球盘面跑马灯 END =================
       // P0-2 多指数共振冰点：≥3 个宽基情绪分同时冰点(<20)时，横幅转红 + 共振聚合提示
       // 数据来自 overview today.scores（6 宽基：上证50/沪深300/中证500/中证1000/创业板/科创50情绪分）
       const _BROAD_SENT_IDS = ["sentiment_sz50", "sentiment_hs300", "sentiment_csi500", "sentiment_csi1000", "sentiment_cyb", "sentiment_kc50"];
