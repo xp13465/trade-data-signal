@@ -1503,6 +1503,7 @@ def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str
             # §23.10(2026-08-17 #61): 飞书 fade 明细补 suggestion(建议操作, 与邮件
             #   _build_fade_banner/_build_fade_detail_html 的建议列同字段), 飞书与邮件内容一致不精简。
             _sugg = (a.get("suggestion") or "").replace("\n", " ").replace("\r", " ").strip()
+            _closing = (a.get("closing_status") or "").replace("\n", " ").replace("\r", " ").strip()
             _t = fade_map.get((a["index_id"], a["intraday_signal"]))
             if _t:
                 _reason = (_t.get("reason") or "").replace("\n", " ").replace("\r", " ").strip()
@@ -1510,6 +1511,10 @@ def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str
                     _reason = _reason[:FEISHU_POST_REASON_MAX].rstrip() + "…"
                 _detail = (f"    {_flabel} {_fname}：{_t['appear_time']} 出现 → "
                            f"{_t['last_time']} 后消失")
+                # §23.10(2026-08-17 #61): 飞书 fade 明细 timeline 分支补 closing_status(收盘状态,
+                #   与邮件 _build_fade_banner 的 closing_status 列同字段), 飞书与邮件内容一致不精简。
+                if _closing:
+                    _detail += f" | 收盘状态：{_closing}"
                 if _sugg:
                     _detail += f" | 建议：{_sugg}"
                 if _reason:
