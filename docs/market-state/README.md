@@ -8,7 +8,7 @@
   - `market-state-analysis.md` — 四档定义 + 区分度数据 + 当前状态 + 复现段(展示层定稿)
   - `kelly-market-state-4tier-utility.md` — **四档接入凯利过滤效用评估(穷举回测)**:基线复现 PASS + 维度1 边际/维度2 仓位/维度3 按年稳定性/维度4 波浪不可回测 + 最终推荐(R1_all 替换式 +65,551 主推 / V4d_all 加法 +40,409 备选)
 - **脚本**:`scripts/` — 展示层调研 6 个(`market_state_analysis*.py`)+ 凯利接入回测 8 个(`kelly_4tier_*.py` + `kelly_engine.py`/`kelly_opg_engine.py` 依赖副本)
-- **数据**:`data/results_4tier_variants.json`(基线+11 变体全模式)+ `results_4tier_replace.json`(R1/R1b/R1c+重叠度);展示层复用 `data/sentiment.db`(index_daily hs300)+ `signal_kelly_trades.json`
+- **数据**:`data/results_4tier_variants.json`(基线+11 变体全模式)+ `results_4tier_replace.json`(R1/R1b/R1c+重叠度)+ `results_4tier_extreme.json`(9 模式明细 + 5 极端窗口 + 94 笔救回单明细 + 滞后带统计);展示层复用 `data/sentiment.db`(index_daily hs300)+ `signal_kelly_trades.json`
 
 ## 相关代码
 
