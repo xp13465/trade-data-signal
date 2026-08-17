@@ -2482,7 +2482,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     for (const _it of items) {
       if (_it && _it.date && _it.date > _latestSigDate) _latestSigDate = _it.date;
     }
-    if (_latestSigDate) todayDate = _latestSigDate;
+    // 2026-08-17 reviewer 观察点A: 无条件覆盖会把 todayDate 向后拉(极端场景评分日已到 8/17
+    // 但当日确无信号 items 最新=8/14 → 8/14 被误标"今日高亮")。改 max 语义: 只前进不后退。
+    if (_latestSigDate > todayDate) todayDate = _latestSigDate;
   }
   // A/B 方案(2026-07-29): 评级/对错筛选 - 汇总条数字仍用全量 items(_calcSignalAccuracy),
   // 列表渲染用 filtered(只显示符合筛选的参考点)。null=不筛; "high"/"mid"/"low"=评级;
