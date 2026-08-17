@@ -12478,6 +12478,51 @@ function _lwSVG(cfg) {
   const _clipId = (cfg.dataZoom ? "lwzc" + (++_lwZClipSeq) : "");   // 缩放后 markLine/markArea 超窗裁剪
   const _clipAttr = _clipId ? ' clip-path="url(#' + _clipId + ')"' : "";
   let _defs = "";
+  // 2026-08-17 最后修复(用户止损, 1:1 复刻 echarts 完整版): connectNulls+perColor 分段色线 → 整条 1 path +
+  // 垂直线性渐变(颜色随该点 y 值平滑过渡, 仅色阈值处硬切)。预扫所有 perColor line series, 由色函数 + 值域
+  // 生成渐变 stops(采样检测色变边界, 阈值处双 stop 硬切), 存 id 到 ser._lwGrad 供渲染分支引用。
+  // 复刻依据: docs/lite-svg-corner-vertex-a320-final.md §4(echarts 完整版 = 1 path + vertical linearGradient)。
+  {
+    let _lwGradSeq = 0;
+    for (const _gser of cfg.series || []) {
+      if (!(_gser.type === "line" && _gser.connectNulls && typeof _gser.itemColor === "function")) continue;
+      const _gai = _gser.yIndex || 0;
+      const _gex = axes[_gai] || axes[0];
+      const _gymin = _gex.yMin, _gymax = _gex.yMax;
+      if (!(_gymax > _gymin)) continue;
+      const _gspan = _gymax - _gymin;
+      const _gstep = Math.max(0.05, _gspan / 800);   // 采样分辨率: 阈值整数档位下足够细, 边界误差 <0.13%
+      const _gstops = [];
+      let _gprevCol = _gser.itemColor(0, _gymax);   // 顶=值大
+      let _gprevV = _gymax;
+      _gstops.push([0, _gprevCol]);
+      for (let _v = _gymax - _gstep; _v > _gymin; _v -= _gstep) {
+        const _gcol = _gser.itemColor(0, _v);
+        if (_gcol !== _gprevCol) {   // 色阈值硬切: 同 offset 双 stop(旧色→新色)
+          const _go = (_gymax - _gprevV) / _gspan;
+          _gstops.push([_go, _gprevCol]);
+          _gstops.push([_go, _gcol]);
+          _gprevCol = _gcol;
+        }
+        _gprevV = _v;
+      }
+      const _gbot = _gser.itemColor(0, _gymin);
+      if (_gbot !== _gprevCol) {
+        const _go = (_gymax - _gprevV) / _gspan;
+        _gstops.push([_go, _gprevCol]);
+        _gstops.push([_go, _gbot]);
+      }
+      _gstops.push([1, _gbot]);
+      const _gid = "lwGrad-" + (++_lwGradSeq);
+      _gser._lwGrad = _gid;
+      // userSpaceOnUse + 显式像素 y1/y2(值域 PT..PT+ih, 值大在上=渐变顶部), 与数据点像素坐标精确对齐
+      const _gy1 = _py(_gai, _gymax), _gy2 = _py(_gai, _gymin);
+      let _gdef = '<linearGradient id="' + _gid + '" gradientUnits="userSpaceOnUse" x1="0" y1="' + _gy1.toFixed(1) + '" x2="0" y2="' + _gy2.toFixed(1) + '">';
+      for (const _st of _gstops) _gdef += '<stop offset="' + (_st[0] * 100).toFixed(1) + '%" stop-color="' + _st[1] + '"/>';
+      _gdef += "</linearGradient>";
+      _defs += _gdef;
+    }
+  }
   for (const g of _grads) {
     _defs += '<linearGradient id="' + g.id + '" x1="0" y1="0" x2="0" y2="1">';
     for (const st of g.stops) _defs += '<stop offset="' + (st[0] * 100).toFixed(1) + '%" stop-color="' + st[1] + '"/>';
@@ -12610,34 +12655,21 @@ function _lwSVG(cfg) {
             }
             s += '<path d="' + d + '" fill="none" stroke="' + _stroke + '" stroke-width="' + (ser.width || 1.5) + '"' + _dashAttr + _opacityAttr + ' stroke-linejoin="round" stroke-linecap="round"/>';
           } else {
-            // P0 修复(2026-08-12): visualMap 分段色 connectNulls 线断成点根因 — 原按同色段各画独立 path,
-            // 段间(色变处)不连 + 单点段(无 symbol)整段不画 → 跨市场综合评分/恐贪指数/A股情绪分线断成一个个点。
-            // 修复: 每同色段路径在段尾桥接下一有效点(可能不同色), 相邻段共享端点 → 线连续(对齐 echarts visualMap)。
-            let rs2 = 0;
-            let _prevRe = -1;   // 上一色段末点(共享端点, 保线连续); -1 = 首段无前序
-            while (rs2 < _idx.length) {
-              let re = rs2;
-              const c0 = _perColor(_idx[rs2], ser.data[_idx[rs2]]);
-              while (re + 1 < _idx.length && _perColor(_idx[re + 1], ser.data[_idx[re + 1]]) === c0) re++;
-              // 2026-08-17 fix(颜色切换滞后): 绘制起点与颜色判定起点分离 —
-              // 首段绘制 [0, re0](旧色最后点止); 后续段绘制起点 = 上一段 re(共享端点, 线连续)、
-              // 颜色判定起点 = rs2(re+1 起新色)。kEnd 由桥接 _nxt(=re+1) 改为 re(画到本段旧色最后点止),
-              // 色变点 re→re+1 之间改由下一段新色绘制 → 颜色在色变数据点精确切换, 不再滞后一个点距。
-              const _drawStart = (_prevRe >= 0) ? _prevRe : rs2;
-              if (_drawStart === re) {
-                // 整段仅一个点(仅可能为首段单点): 若为全序列最后一点(无后续可过渡) → 有 symbol 画圆点,
-                // 无则略(同 echarts symbol:none); 否则由后续段从共享端点过渡, 本段不画(线由后续段接管)。
-                if (re + 1 >= _idx.length && ser.symbolR) {
-                  s += '<circle cx="' + xs[_idx[rs2]].toFixed(1) + '" cy="' + ys[_idx[rs2]].toFixed(1) + '" r="' + ser.symbolR + '" fill="' + c0 + '"' + (ser.opacity != null ? ' fill-opacity="' + ser.opacity + '"' : "") + '/>';
-                }
-              } else {
-                // fix1(2026-08-12): 段内平滑(跨色段尾桥接下一有效点), 对齐 echarts visualMap+smooth 观感
-                // 2026-08-17: 改 _lwLineDIdxCtx(带独立控制上下文 ctxKEnd=re+2), 消除色变点切线退化尖角
-                const d = _lwLineDIdxCtx(xs, ys, _idx, _drawStart, re, Math.min(_idx.length - 1, re + 2), ser.smooth === true);
-                s += '<path d="' + d + '" fill="none" stroke="' + c0 + '" stroke-width="' + (ser.width || 1.5) + '"' + _dashAttr + _opacityAttr + ' stroke-linejoin="round" stroke-linecap="round"/>';
+            // 2026-08-17 最后修复(用户止损, 1:1 复刻 echarts 完整版): 整条线画 1 条连续平滑 path,
+            // 颜色由该点 y 值经垂直线性渐变决定(仅色阈值处硬切) — 替代原「按同色段切 N 条独立纯色 path」。
+            // 原实现颜色每 1-2 个数据点大跨度硬切(去向色/起向色), 视觉参差斑马纹 = 用户报的"尖角/分段色不对";
+            // echarts 完整版 = 1 条 path + 垂直渐变(仅阈值硬切), 复刻依据 docs/lite-svg-corner-vertex-a320-final.md §4。
+            // 渐变 stops 由预扫生成并存 ser._lwGrad(见 defs 预扫), 未生成则退化用首点色(安全兜底)。
+            const _lwGradId = ser._lwGrad;
+            const _lwStroke = _lwGradId ? "url(#" + _lwGradId + ")" : _perColor(_idx[0], ser.data[_idx[0]]);
+            const _dAll = _lwLineDIdxCtx(xs, ys, _idx, 0, _idx.length - 1, _idx.length - 1, ser.smooth === true);
+            s += '<path d="' + _dAll + '" fill="none" stroke="' + _lwStroke + '" stroke-width="' + (ser.width || 1.5) + '"' + _dashAttr + _opacityAttr + ' stroke-linejoin="round" stroke-linecap="round"/>';
+            // 末端孤立单点(symbolR) 圆点(原色段循环单点段逻辑保留; 三张目标图无 symbolR 不触发)
+            if (ser.symbolR && _idx.length) {
+              const _li = _idx.length - 1;
+              if (_idx.length === 1 || _idx[_li] - _idx[_li - 1] > 1) {
+                s += '<circle cx="' + xs[_idx[_li]].toFixed(1) + '" cy="' + ys[_idx[_li]].toFixed(1) + '" r="' + ser.symbolR + '" fill="' + _perColor(_idx[_li], ser.data[_idx[_li]]) + '"' + (ser.opacity != null ? ' fill-opacity="' + ser.opacity + '"' : "") + '/>';
               }
-              _prevRe = re;
-              rs2 = re + 1;
             }
           }
         }
