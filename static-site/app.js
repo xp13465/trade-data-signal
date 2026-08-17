@@ -12424,6 +12424,7 @@ function _lwColorScale(stops, min, max, v) {
 }
 // 主 SVG 构建(网格/轴线/标签/legend/series/markLine/markPoints)。
 let _lwZClipSeq = 0; // dataZoom 缩放时 markLine/markArea 超窗裁剪 clipPath id 序号
+let _lwGradSeq = 0; // perColor 分段色线垂直渐变 id 全局序号(模块级, 保证渐变 id 全文档唯一, 防跨图 url(#lwGrad-N) 冲突解析)
 function _lwSVG(cfg) {
   if (cfg.heatmap) return _lwHeatmapSVG(cfg);
   const W = cfg.w || 640, H = cfg.h || 300;
@@ -12484,7 +12485,6 @@ function _lwSVG(cfg) {
   // 生成渐变 stops(采样检测色变边界, 阈值处双 stop 硬切), 存 id 到 ser._lwGrad 供渲染分支引用。
   // 复刻依据: docs/lite-svg-corner-vertex-a320-final.md §4(echarts 完整版 = 1 path + vertical linearGradient)。
   {
-    let _lwGradSeq = 0;
     for (const _gser of cfg.series || []) {
       if (!(_gser.type === "line" && _gser.connectNulls && typeof _gser.itemColor === "function")) continue;
       const _gai = _gser.yIndex || 0;
