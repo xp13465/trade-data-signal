@@ -556,17 +556,21 @@ def _format_stats_line(stats_entry: dict | None) -> str | None:
 # 不自行重算宇宙; AI 建议 top-K 排序读 overview 信号 etfs.track_score + signal_stats score
 # (与首页同数据源同排序), 非凭空自算。
 
-# 首页 AI宏 8 键(fixed 基础5+核心3, v1.1.0; queries.py _ai_macro_hit_filters 只输出这 8 键,
+# 首页 AI宏 8 键 + v1.1.2 三键(默认只开主键 excludeSpecialBear 四档; 备选键 legacyMa60Special/
+# declinePhaseSpecial 默认关, 仅凯利区手动开时命中; queries.py _ai_macro_hit_filters 输出,
 # 故 overview.ai_macro.hit===true 即代表命中降亏, 无需再按成员名二次过滤)。
 AI_MACRO_KEYS = {
     "n2NovSpecialIndustry", "excludeSpecialBear", "janMidRating",
     "janMidSpecial", "k2c5HkChase", "r7MayReinforced",
     "excludeAuxCross", "greedy15",
+    "legacyMa60Special", "declinePhaseSpecial",
 }
-# 8 键中文名映射(与 static-site/app.js _AI_MACRO_FILTER_NAMES 同源, §22 一致性; 邮件/飞书徽标缘由用)
+# 键中文名映射(与 static-site/app.js _AI_MACRO_FILTER_NAMES 同源, §22 一致性; 邮件/飞书徽标缘由用)
 AI_MACRO_KEY_CN = {
     "n2NovSpecialIndustry": "11月+追关注+行业",
-    "excludeSpecialBear": "追关注×熊市交叉",
+    "excludeSpecialBear": "追关注×熊市交叉(四档)",
+    "legacyMa60Special": "老MA60熊×追买",
+    "declinePhaseSpecial": "下降期×追关注",
     "janMidRating": "1月中旬+中评级",
     "janMidSpecial": "1月中旬+追关注",
     "k2c5HkChase": "港股追涨剔除",
