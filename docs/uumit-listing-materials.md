@@ -142,6 +142,18 @@
 - **定价**:60 UT/次(划线 100 UT),免费额度 none
 - **上架坑(记录防重犯)**:同形态 9——认证字段名 upstream_auth_type/upstream_auth_config、RESPONSE_SCHEMA null 字段数组形式(date/code 可为 null)、cover_image_url 必填(publisher.js upload `/tmp/sell_alert_cover.png`)
 
+## 形态 11:量化回测方法论+避坑小册(知识商店,已上架,2026-08-18)
+
+- **创建入口**:Skill API(`upload/file` → 内容审核 → `publish`)。**商品 = `265467f2-0915-4a6a-897e-2ab74b1a8021`**,状态 **published(已上架可售)**,2026-08-18 审核通过后发布。
+- **详情链接**:`https://m.uumit.com/digital-assets/my/265467f2-0915-4a6a-897e-2ab74b1a8021`
+- 封面:`covers/2026/08/17/c16f8a3fe0fc4cd9.png`
+- **名称**:量化回测方法论+避坑小册 · 量化实战看板 fx8.store
+- **计费模型**:one_time(买断)
+- **定价**:188 UT(划线 228 UT;2026-08-17 建议价发布,主流信号类知识商品 100-200 UT 区间)
+- **交付**:`retro-manual/00-index.md`(10 章读者视角成册,含复现段/口径声明/主站引流)
+- **审核记录**:content_review_status=`approved`(auto_approve「综合风险低」+ human_status=approved),review_summary 三通过后发布,无 3005 报错(凌晨低谷期发布,非 24h 内反复重发)
+- **引流**:title 带 `· 量化实战看板 fx8.store` 主站域名(§外部商品引流规范 memory external-product-info-security)
+
 ## 数据广场产品(套件)机制调研结论(2026-08-17,已落地:4 接口已全部挂套件上线)
 
 - **机制**:数据广场「产品/套件」= 把多个已上架 API 聚合为一个可售包(`POST /data-marketplace/products` 创建 → `POST /products/{id}/apis/{api_id}` 挂 API),产品独立 name/description/划线价 original_price_ut,可上下架;买家一次购买访问套内所有接口(页面实例「所属套件:…本产品全部接口」)。skill rest_request.js 白名单已支持全部产品路由。
