@@ -1302,6 +1302,13 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
     if n_total == 0:
         if timeline or fade_timeline:
             html_parts.append('<p style="color:#86909c;">今日无新买卖点信号（已全部推送/消失），完整生命周期见上方时间线表格。</p>')
+            # 2026-08-17 reviewer 观察：去重后只发时间线、无 AI 标记，用户对不上"首页有 AI 建议1
+            # 邮件没标"。加注明解释原因（仅去重模式显示；--full 全量模式 n_total==0=当日真无信号，
+            # 非"已推送"，不加避免误导/噪音）。
+            if dedup_annotate:
+                html_parts.append(
+                    '<p style="color:#86909c;font-size:12px;">* 注：以下信号已在盘中推送过，'
+                    '收盘邮件不再重复标注 AI 标记；今日 AI 建议/AI 警示以首页与盘中推送为准。</p>')
         else:
             html_parts.append('<p style="color:#86909c;">今日无买卖点信号。</p>')
     else:
@@ -1433,7 +1440,8 @@ def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str
                       fade_alerts: list[dict] | None = None,
                       fade_timeline: list[dict] | None = None,
                       overview_markers: dict | None = None,
-                      ai_suggest: dict | None = None) -> dict:
+                      ai_suggest: dict | None = None,
+                      dedup_timeline_only: bool = False) -> dict:
     """构建飞书 post 富文本（报告群版，notify.send(feishu_post=...) 用）。
 
     按 buy(买)/sell(卖)/hold(波段持有) 分组：买红/卖绿/持有灰（彩色 emoji 前缀实现，
@@ -1532,6 +1540,12 @@ def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str
     # 超 80 行分段由 send_feishu 内部处理（2026-08-16 用户定：放开行数+超长分段连发，不省略）。
     # 此处不再截断省略尾部；完整 lines 交 build_feishu_post，send_feishu 按 FEISHU_POST_MAX_ROWS
     # 每段切分、多段连发（标题带 N/M 序号），杜绝丢「明细行」。
+
+    # 去重后只发时间线、无 AI 标记场景（§23.10 与邮件内容一致，2026-08-17 用户确认）：注明原因，
+    #   防用户对不上"首页有 AI 建议/邮件没标"。
+    if dedup_timeline_only:
+        lines.append([notify.post_text(
+            "* 注：以下信号已在盘中推送过，收盘不再重复标注 AI 标记；今日 AI 建议/AI 警示以首页与盘中推送为准。")])
 
     # 规则说明省略为一行指引（完整在邮件；飞书 post 不支持折叠，故精简）
     lines.append([notify.post_text("📋 完整规则与免责见邮件 · 以收盘最终版为准")])
@@ -1753,11 +1767,15 @@ def main(argv: list[str] | None = None) -> int:
                                 dedup_annotate=(not args.full),
                                 overview_markers=_om, ai_suggest=_ai_suggest)
     # 飞书 post 富文本（报告群版）：buy/sell 分组 + 彩色，替代 _html_to_text 拍平成纯文本
+    # dedup_timeline_only（2026-08-17）：去重后无新增信号、只发时间线复盘时 True，
+    #   build_feishu_post 加注明（§23.10 与邮件一致）。
     feishu_post = build_feishu_post(subject, signals_to_send, name_map,
                                     intraday=args.intraday,
                                     fade_alerts=fade_alerts_for_email,
                                     fade_timeline=fade_timeline,
-                                    overview_markers=_om, ai_suggest=_ai_suggest)
+                                    overview_markers=_om, ai_suggest=_ai_suggest,
+                                    dedup_timeline_only=(not args.full)
+                                    and (not signals_to_send) and bool(timeline))
     # 始终打印邮件内容（便于日志/调试/未配置场景查看）
     log.info("===== 邮件主题 =====")
     log.info("%s", subject)
