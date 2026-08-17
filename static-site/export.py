@@ -112,6 +112,12 @@ def export_index_detail(conn, cfg, index_id):
                                 cache=_series_cache, stats_all_dict=_get_stats(), include_etf=True)
 
 
+def export_market_tier_history(conn):
+    """沪深300 四档大盘状态全历史序列(2002 起, 供前端历史四档轨迹图/色带/时间线面板)。
+    纯展示数据(§23.7 只增不改), 与回测/首页四档判定同口径(§22/§23.6)。"""
+    return queries.market_tier_history(conn)
+
+
 def export_futures(conn):
     """复刻 /api/futures。同时记录当日同向准确度快照到 futures_ih_detail_acc（写入 hook）。"""
     data = queries.futures_data(conn)
@@ -1191,6 +1197,11 @@ def main():
             data = export_index_detail(conn, cfg, iid)
             counts[f"index/{fname}"] = write_json(INDEX_DIR / fname, data)
         print(f"  index/*.json ({len(all_indices)} files)")
+
+    # 沪深300 四档大盘状态全历史序列(历史四档轨迹图/色带/时间线面板, 纯展示)
+    counts["market_tier_history.json"] = write_json(
+        DATA_DIR / "market_tier_history.json", export_market_tier_history(conn))
+    print(f"  market_tier_history.json ({counts['market_tier_history.json']} bytes)")
 
     conn.close()
 

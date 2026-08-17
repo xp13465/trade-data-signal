@@ -4563,7 +4563,15 @@ function statsHint(stats, strategy, indexId) {
 }
 
 // 指数图 + 买卖点标注
-function indexChart(title, ohlc, signals, stats, strategy, container = content, chartArr = charts, indexId) {
+// 四档大盘状态色带颜色(涨红跌绿, 与全站红涨绿跌一致; 纯展示)
+const _TIER_COLORS = {
+  "牛市·主升": "#e6492e",
+  "上升期": "#f2a06e",
+  "下降期": "#8fc29a",
+  "熊市·主跌": "#2e8b57",
+};
+
+function indexChart(title, ohlc, signals, stats, strategy, container = content, chartArr = charts, indexId, tiers) {
   const hint = statsHint(stats, strategy, indexId);
   // 标题追加最新日期+收盘价（OHLC 图，取最后一条 close）
   const _last = ohlc && ohlc.length ? ohlc[ohlc.length - 1] : null;
@@ -4583,6 +4591,17 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
   const markData = _buildSignalMarkData(signals, (date) => {
     const o = _ohlcMap[date]; return o ? o.close : null;
   });
+  // 四档大盘状态色带(纯展示, 仅 hs300): 底部细色带按日期标大盘四档状态, 涨红跌绿。
+  // tiers 与 ohlc 一一对应(缺 tier 的用前值前向填充/无值=灰)。
+  const _tierBand = [];
+  if (tiers && tiers.length) {
+    let _lastTier = null;
+    for (let i = 0; i < ohlc.length; i++) {
+      const _t = tiers[i] ? tiers[i].tier : null;
+      if (_t) _lastTier = _t;
+      _tierBand.push({ value: 0.5, itemStyle: { color: _TIER_COLORS[_lastTier] || "#9aa0a6", borderWidth: 0 }, date: ohlc[i].date, tier: _lastTier });
+    }
+  }
   c.setOption(withTheme({
     tooltip: {
       trigger: "axis",
@@ -4594,6 +4613,10 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
         if (o && o.close != null) {
           tip += "<br/>收盘 " + o.close.toFixed(2);
           if (o.pct_change != null) tip += ' <span style="color:' + (o.pct_change >= 0 ? "#e6492e" : "#2e8b57") + '">' + (o.pct_change >= 0 ? "+" : "") + o.pct_change.toFixed(2) + "%</span>";
+        }
+        if (_tierBand && _tierBand.length) {
+          const _tb = _tierBand.find((x) => x.date === dt);
+          if (_tb && _tb.tier) tip += '<br/>大盘四档：<b style="color:' + (_TIER_COLORS[_tb.tier] || "#9aa0a6") + '">● ' + _tb.tier + "</b>";
         }
         const marks = markData.filter((m) => m.coord[0] === dt && m.reason);
         for (const m of marks) {
@@ -4611,9 +4634,38 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
     },
     grid: { left: 55, right: 20, top: 30, bottom: 50 },
     xAxis: { type: "category", data: ohlc.map((d) => d.date) },
-    yAxis: { type: "value", scale: true },
+    yAxis: _tierBand.length ? [
+      { type: "value", scale: true },
+      { type: "value", show: false, min: 0, max: 1 },
+    ] : { type: "value", scale: true },
     dataZoom: dzOpts(),
-    series: [
+    series: _tierBand.length ? [
+      {
+        name: "大盘四档状态",
+        type: "bar",
+        yAxisIndex: 1,
+        stack: "tierband",
+        barCategoryGap: "0%",
+        barWidth: "99%",
+        silent: true,
+        z: 1,
+        data: _tierBand,
+      },
+      {
+        name: stripHtml(title),
+        type: "line",
+        smooth: true,
+        symbol: "none",
+        data: close,
+        lineStyle: { width: 1.5 },
+        markPoint: {
+          symbol: "pin",
+          symbolSize: 34,
+          label: { fontSize: 11, color: cssVar("--text-1") },
+          data: markData,
+        },
+      },
+    ] : [
       {
         name: stripHtml(title),
         type: "line",
@@ -4631,6 +4683,97 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
     ],
   }));
   return c;
+}
+
+// 沪深300 历史四档大盘状态时间线面板(纯展示, v1.1.2 2026-08-17)。
+// 横向四档色带 + 3 档时间范围切换(近1年默认/近5年/全史2002起)。不参与任何过滤(§23.7 只增不改)。
+async function _renderTierTimelinePanel(container) {
+  let data = null;
+  try {
+    data = await fetchJSON("https://ss.fx8.store/r2/market_tier_history.json");
+  } catch (e) { data = null; }
+  if (!data || !data.length) return;
+  const _fmtD = (s) => (s ? s.slice(0, 4) + "-" + s.slice(4, 6) + "-" + s.slice(6, 8) : "");
+  const _ranges = [
+    { label: "近1年", years: 1, days: 365 },
+    { label: "近5年", years: 5, days: 5 * 365 },
+    { label: "全史", years: null, days: null },
+  ];
+  const _today = new Date();
+  function _slice(days) {
+    if (days == null) return data;
+    const _cut = new Date(_today);
+    _cut.setDate(_cut.getDate() - days);
+    const _cutStr = _cut.getFullYear() * 10000 + (_cut.getMonth() + 1) * 100 + _cut.getDate();
+    const idx = data.findIndex((x) => Number(x.date) >= _cutStr);
+    return idx < 0 ? data : data.slice(idx);
+  }
+  const _legend = [
+    { t: "牛市·主升", c: _TIER_COLORS["牛市·主升"] },
+    { t: "上升期", c: _TIER_COLORS["上升期"] },
+    { t: "下降期", c: _TIER_COLORS["下降期"] },
+    { t: "熊市·主跌", c: _TIER_COLORS["熊市·主跌"] },
+  ];
+  const card = mkCard("沪深300 大盘四档状态轨迹", 110, null, container, charts);
+  const _wrap = card.getDom().parentElement;
+  // 标题行右侧加范围切换按钮
+  const _h3 = _wrap.querySelector("h3");
+  if (_h3) {
+    const _btnBox = document.createElement("span");
+    _btnBox.className = "tier-tl-range";
+    _btnBox.style.cssText = "float:right;font-size:11px;";
+    _btnBox.innerHTML = _ranges.map((r) => `<button class="tier-tl-btn" data-r="${r.years != null ? r.days : "all"}">${r.label}</button>`).join("");
+    _h3.appendChild(_btnBox);
+  }
+  function _draw(rangeDays) {
+    const _sliceArr = _slice(rangeDays);
+    if (!_sliceArr.length) return;
+    const _dates = _sliceArr.map((x) => x.date);
+    const _band = _sliceArr.map((x) => ({ value: 1, itemStyle: { color: _TIER_COLORS[x.tier] || "#9aa0a6", borderWidth: 0 }, date: x.date, tier: x.tier }));
+    card.setOption(withTheme({
+      tooltip: {
+        trigger: "axis",
+        formatter: function (params) {
+          const _p = params[0];
+          const _b = _band[Math.min(_p.dataIndex, _band.length - 1)];
+          if (!_b) return fmtDate(_p.axisValue);
+          let _s = fmtDate(_b.date) + '<br/><b style="color:' + (_TIER_COLORS[_b.tier] || "#9aa0a6") + '">● ' + _b.tier + "</b>";
+          if (_sliceArr[_p.dataIndex] && _sliceArr[_p.dataIndex].ma60_bull != null) {
+            _s += '<br/>MA60 多头：' + (_sliceArr[_p.dataIndex].ma60_bull ? "<b>是</b>" : "否");
+          }
+          return _s;
+        },
+      },
+      grid: { left: 45, right: 15, top: 15, bottom: 25 },
+      xAxis: { type: "category", data: _dates, axisLabel: { show: false } },
+      yAxis: { type: "value", show: false, min: 0, max: 1 },
+      series: [{
+        name: "大盘四档状态",
+        type: "bar",
+        barCategoryGap: "0%",
+        barWidth: "99%",
+        silent: true,
+        data: _band,
+      }],
+    }));
+  }
+  _draw(null); // 默认全史(2002 起)
+  const _btns = _wrap.querySelectorAll(".tier-tl-btn");
+  _btns.forEach((b) => {
+    b.addEventListener("click", () => {
+      _btns.forEach((x) => { x.style.fontWeight = "normal"; x.style.color = "var(--text-2)"; });
+      b.style.fontWeight = "bold"; b.style.color = "var(--text-1)";
+      const _rd = b.getAttribute("data-r");
+      _draw(_rd === "all" ? null : Number(_rd));
+    });
+  });
+  // 图例
+  const _lg = document.createElement("div");
+  _lg.className = "tier-tl-legend";
+  _lg.style.cssText = "padding:2px 12px 6px;font-size:11px;color:var(--text-2);";
+  _lg.innerHTML = "四档口径：" + _legend.map((x) => `<span style="margin-right:10px"><b style="color:${x.c}">●</b> ${x.t}</span>`).join("") +
+    '<span style="margin-left:6px;color:var(--text-3)">· 牛市·主升=价&gt;MA200且多头排列 / 上升期=价&gt;MA200非多头 / 下降期=价&lt;MA200非空头 / 熊市·主跌=价&lt;MA200且空头排列（沪深300）</span>';
+  _wrap.appendChild(_lg);
 }
 
 // 信号 markData(_buildSignalMarkData 输出) → 轻量 markPoints + gradients(拼色 linearGradient)。
@@ -5499,7 +5642,7 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow, extraGrou
         // 宽基/行业 index_id 本身是代码不重复显示（indexIdToCode 返回空串）。
         const _idxCodeForTitle = indexIdToCode(id, idx.symbol);
         const _idxCodeTag = _idxCodeForTitle ? ` <span class="idx-code-tag" title="${idxCodeTooltip(id, _idxCodeForTitle)}">${_idxCodeForTitle}</span>` : "";
-        const c = indexChart((_INDEX_NAME_MAP[id] || idx.name) + _idxCodeTag + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id);
+        const c = indexChart((_INDEX_NAME_MAP[id] || idx.name) + _idxCodeTag + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id, sig.tiers);
         sectionCharts.push(c);
         const cardEl = c.getDom().parentElement;
         // 目录锚点跳转目标 id + scroll spy observe(卡片渲染完后注册)
@@ -14858,8 +15001,10 @@ async function renderAStock(container = content) {
   // 静态版 fetcher：读 index/{id}-all.json 全历史，前端按 ohlc 日期范围过滤 signals
   await renderIndicesSection(indicesSection, r.indices, async (id, idx) => {
     const raw = await fetchJSON(`https://ss.fx8.store/r2/index/${id}-all.json`);
-    return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats };
+    return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats, tiers: raw.tiers || null };
   }, true);
+  // 沪深300 历史四档大盘状态时间线面板(纯展示, v1.1.2)
+  await _renderTierTimelinePanel(container);
 }
 
 // 港股快照 code -> index_id 映射（与 intraday_snapshot.py 的 _SNAPSHOT_TO_INDEX_ID 一致）。
@@ -14939,7 +15084,7 @@ async function renderHK(container = content) {
   await _ensureSigEtfCacheFromOverview();
   await renderIndicesSection(indicesSection, indices, async (id, idx) => {
     const raw = await fetchJSON(`https://ss.fx8.store/r2/index/${id}-all.json`);
-    return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats };
+    return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats, tiers: raw.tiers || null };
   }, true, extraGroups, anchorBarRef);
   // 港股板块指数（复用 renderIndustryGrid，与 A 股行业网格一致）
   if (hkIndEntries.length) {
@@ -15097,7 +15242,7 @@ async function renderGlobal(container = content) {
         // 2026-08-07 走势图卡片标题加指数代码（对齐 A 股做法 b7e0b96c1）
         const _idxCodeForTitle = indexIdToCode(id, idx.symbol);
         const _idxCodeTag = _idxCodeForTitle ? ` <span class="idx-code-tag" title="${idxCodeTooltip(id, _idxCodeForTitle)}">${_idxCodeForTitle}</span>` : "";
-        const chart = indexChart(idxName + _idxCodeTag, idx.data, sigs, sig.stats, idx.strategy, cardGrid, charts, id);
+        const chart = indexChart(idxName + _idxCodeTag, idx.data, sigs, sig.stats, idx.strategy, cardGrid, charts, id, sig.tiers);
         if (chart) {
           const cardEl = chart.getDom().parentElement;
           // 目录锚点跳转目标 id + scroll spy observe(卡片渲染完后注册)

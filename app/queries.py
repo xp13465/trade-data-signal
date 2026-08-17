@@ -623,6 +623,22 @@ def _ai_macro_ma60_bull_at(date_str: str, ma60_bull, dates) -> bool:
     return True
 
 
+def market_tier_history(conn):
+    """沪深300 四档大盘状态全历史序列(2002 起, 供前端历史四档轨迹图/色带/时间线面板)。
+    与 _ai_macro_build_market_state 同口径, 输出 [{date, tier, ma60_bull}] 按日期升序。
+    tier ∈ {"牛市·主升","上升期","下降期","熊市·主跌"}, ma60_bull 为老 MA60 备选键判定。
+    纯展示数据, 不影响过滤(§23.7 只增不改)。
+    """
+    tiers, dates, ma60_bull = _ai_macro_build_market_state(conn)
+    if not tiers:
+        return []
+    out = []
+    for d in dates:
+        if d in tiers:
+            out.append({"date": d, "tier": tiers[d], "ma60_bull": bool(ma60_bull.get(d, False))})
+    return out
+
+
 def _ai_macro_is_bull(date_str: str, state, dates) -> bool:
     """<= 信号日最近的 MA60 状态(多头 True)；无状态保守 True(不过滤)。
     (为兼容旧调用保留；主键已改为四档 tier 判定, 此函数不再被 _ai_macro_hit_filters 使用。)"""
@@ -1638,14 +1654,30 @@ def industry(conn, cfg, start, end, *, cache=None, stats_all_dict=None):
 
 
 def index_detail(conn, cfg, index_id, start, end, *, cache=None, stats_all_dict=None, include_etf=False):
-    """复刻 /api/index/{index_id}。include_etf=True 时注入 ETF 候选列表（export 用）。"""
+    """复刻 /api/index/{index_id}。include_etf=True 时注入 ETF 候选列表（export 用）。
+    index_id=='hs300' 时注入 tiers(四档大盘状态, 对齐 ohlc 日期)供前端色带/轨迹图(纯展示)。"""
     sa = stats_all_dict if stats_all_dict is not None else stats_all()
+    ohlc = index_series(conn, index_id, start, end, cache=cache)
     result = {
-        "ohlc": index_series(conn, index_id, start, end, cache=cache),
+        "ohlc": ohlc,
         "signals": signals(conn, index_id, start, end, cache=cache),
         "stats": stats_for(sa, index_id),
         "strategy": strategy_desc(index_id, cfg),
     }
+    # 沪深300 注入四档大盘状态(纯展示, 不影响过滤; 与回测/首页同口径 §22/§23.6)。
+    # tiers 数组与 ohlc 一一对应(每日期前向填充最近可用 tier, 无状态=None)。
+    if index_id == "hs300":
+        _tiers, _tier_dates, _ma60 = _ai_macro_build_market_state(conn)
+        if _tiers:
+            _tier_list = []
+            _last = None
+            for _o in ohlc:
+                _t = _ai_macro_tier_at(_o["date"], _tiers, _tier_dates)
+                _m = _ai_macro_ma60_bull_at(_o["date"], _ma60, _tier_dates)
+                _last = _t if _t is not None else _last
+                _tier_list.append({"date": _o["date"], "tier": _last,
+                                   "ma60_bull": bool(_m)})
+            result["tiers"] = _tier_list
     if include_etf:
         result.update(etf_for(index_id))
         # ETF本体兜底（cgb_10y_etf 等 fund_etf_hist_sina 指数）：board_etf_map.json 无此 key
