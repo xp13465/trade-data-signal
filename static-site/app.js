@@ -6185,6 +6185,7 @@ async function _loadKpiHistory(kpiId, cfg, period) {
     const list = r[kpiId] || [];
     return {
       series: [{ name, data: list.map(d => ({ date: d.date, value: d.value })) }],
+      yRange: [0, 100],   // 0-100 温度计分段色: 固定值域(与首页恐贪/情绪/跨市场对齐, 颜色切点精确落 20/40/60/80)
       visualMap: {
         show: false,
         pieces: [
@@ -6476,7 +6477,7 @@ async function openKpiDetailModal(kpiId, period = "3m") {
         legend: { top: 0, type: "scroll" },
         grid: { left: 65, right: 25, top: 35, bottom: 45 },
         xAxis: { type: "category", data: dates },
-        yAxis: { type: "value", scale: true, axisLabel: result.yLabel ? { formatter: result.yLabel } : undefined },
+        yAxis: { type: "value", scale: true, axisLabel: result.yLabel ? { formatter: result.yLabel } : undefined, ...(result.yRange ? { min: result.yRange[0], max: result.yRange[1] } : {}) },
         dataZoom: dzOpts(),
         series: seriesOpt,
         ...(result.visualMap ? { visualMap: result.visualMap } : {}),
@@ -13433,7 +13434,7 @@ function _kpiLiteCfg(result, dates, _estimates, _unit) {
     boundaryGap: true,
     dataZoom: true,
     xLabels: dates, xFmt: (v) => v,
-    ys: [{ scale: true, splitNumber: 5, formatter: yFmt }],
+    ys: [{ scale: true, splitNumber: 5, formatter: yFmt, ...(result.yRange ? { min: result.yRange[0], max: result.yRange[1] } : {}) }],
     legend: legend,
     series: series,
     tipFn: (i) => {
@@ -13473,7 +13474,7 @@ function _lwLineCard(title, series, opts, hint, container, height) {
     boundaryGap: true,
     dataZoom: true,
     xLabels: dates, xFmt: (v) => v,
-    ys: [{ splitLine: true }],
+    ys: [{ splitLine: true, min: 0, max: 100 }],
     legend: [{ name: seriesName, color: (opts && opts._lwColor) || "#5b8ff9" }],
     series: [{
       type: "line", data: vals, color: (opts && opts._lwColor) || "#5b8ff9", width: 1.5, smooth: true, connectNulls: true,
@@ -13489,7 +13490,7 @@ function _lwLineCard(title, series, opts, hint, container, height) {
       legend: { top: 0, type: "scroll" },
       grid: { left: 55, right: 20, top: 35, bottom: 35 },
       xAxis: { type: "category", data: dates },
-      yAxis: { type: "value", scale: true },
+      yAxis: { type: "value", scale: true, min: 0, max: 100 },
       dataZoom: dzOpts(),
       series: [{ name: seriesName, type: "line", smooth: true, symbol: "none", connectNulls: true, data: vals, lineStyle: { width: 1.5 } }],
     }, opts || {})));
