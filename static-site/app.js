@@ -10302,12 +10302,12 @@ async function renderOverview() {
         _initGlobalTicker(banner); // 2026-08-17 全球盘面跑马灯(纯客户端,插新闻两行下方)
       }).catch(() => {});
       // ================= 全球盘面跑马灯(2026-08-17,纯客户端零服务器压力) =================
-      // 8 全球品种实时价,1行横向滚动,红涨绿跌,齿轮自定排序(顺序存 localStorage)。
+      // 9 全球品种实时价,1行横向滚动,红涨绿跌,齿轮自定排序(顺序存 localStorage)。
       // 数据源(全部浏览器端 fetch 直连第三方,无后端代理/零服务器压力):
-      //   主=东财 push2delay 单只 stock/get(现货全8,8请求/轮询;ulist 批量当前实测失效)
-      //   备1=腾讯 qt.gtimg.cn 批量 hf_/wh_(6/8;黄金/白银为 COMEX 期货口径;离岸/A50/美元指数无)
-      //   备2=gold-api(XAU/XAG 现货)+ open.er-api(USDCNH/USDJPY 日更)(4/8)
-      //   诚实缺口:富时A50/美元指数除东财外无任何 CORS 备源,东财挂时渲染「暂无」。
+      //   主=东财 push2delay 单只 stock/get(现货全9,9请求/轮询;ulist 批量当前实测失效)
+      //   备1=腾讯 qt.gtimg.cn 批量 hf_/wh_/us_(7/9;黄金/白银为 COMEX 期货口径;离岸/A50/美元指数无)
+      //   备2=gold-api(XAU/XAG 现货)+ open.er-api(USDCNH/USDJPY 日更)(4/9)
+      //   诚实缺口:富时A50/美元指数除东财外无任何 CORS 备源,东财挂时渲染「暂无」;纳指100 东财+腾讯双源、无备2。
       // 降级顺序:东财 → 腾讯 → gold-api/er-api → 全挂显示降级文案。同品种固定单源不混源。
       // 轮询30s,setTimeout递归,页面隐藏暂停(复用分时图模式),请求失败静默降级不弹错。
       const GLOBAL_TICKER_ITEMS = [
@@ -10316,6 +10316,7 @@ async function renderOverview() {
         { key: "wti",    name: "WTI原油",   em: "🛢️", east: { secid: "102.CL00Y",  scale: 100,   fx: false }, tx: { code: "hf_CL",    kind: "hf" },  goldapi: null,     erapi: null,   dec: 2 },
         { key: "brent",  name: "布伦特油", em: "🛢️", east: { secid: "112.B00Y",   scale: 100,   fx: false }, tx: { code: "hf_OIL",   kind: "hf" },  goldapi: null,     erapi: null,   dec: 2 },
         { key: "a50",    name: "富时A50",   em: "🇨🇳", east: { secid: "104.CN00Y",  scale: 100,   fx: false }, tx: null,                                    goldapi: null,     erapi: null,   dec: 1 },
+        { key: "ndx100", name: "纳指100",  em: "🇺🇸", east: { secid: "100.NDX100", scale: 100,   fx: false }, tx: { code: "usNDX",    kind: "us" },  goldapi: null,     erapi: null,   dec: 2 },
         { key: "usd",    name: "美元指数", em: "💵", east: { secid: "100.UDI",    scale: 100,   fx: false }, tx: null,                                    goldapi: null,     erapi: null,   dec: 2 },
         { key: "cnh",    name: "离岸人民币", em: "🇨🇳", east: { secid: "133.USDCNH", scale: 10000, fx: true  }, tx: null,                                    goldapi: null,     erapi: "CNH",    dec: 4 },
         { key: "jpy",    name: "美元日元", em: "🇯🇵", east: { secid: "119.USDJPY", scale: 10000, fx: true  }, tx: { code: "whUSDJPY", kind: "wh" },  goldapi: null,     erapi: "JPY",    dec: 3 },
@@ -10382,6 +10383,14 @@ async function renderOverview() {
               if (!isFinite(price) || price <= 0) continue;
               const pct = isFinite(Number(parts[13])) ? Number(parts[13]) : null;
               results[key] = { price, pct, ts: null, src: "tx" };
+            } else if (item.tx.kind === "us") {
+              // us_ 按 ~ 分:[3]最新价、[30]时间(YYYY-MM-DD HH:MM:SS)、[32]涨跌幅%(腾讯美股接口,实测索引:涨跌幅在[32]非[33])
+              const parts = p.split("~");
+              const price = Number(parts[3]);
+              if (!isFinite(price) || price <= 0) continue;
+              const pct = isFinite(Number(parts[32])) ? Number(parts[32]) : null;
+              const ts = parts[30] ? Date.parse(parts[30].replace(" ", "T")) : null;
+              results[key] = { price, pct, ts, src: "tx" };
             } else {
               // hf_ 按 , 分:[0]现价、[1]涨跌幅%、[7]昨收、[12]日期
               const parts = p.split(",");
@@ -10440,7 +10449,7 @@ async function renderOverview() {
           }
           const cls = d.pct == null ? "flat" : (d.pct > 0 ? "up" : (d.pct < 0 ? "down" : "flat"));
           const pctStr = d.pct == null ? "—" : (d.pct > 0 ? "+" : "") + d.pct.toFixed(2) + "%";
-          const srcMark = d.src === "tx" ? "<i class='gt-src' title='腾讯COMEX期货口径'>*</i>" : (d.src === "goldapi" || d.src === "erapi" ? "<i class='gt-src' title='备源'>†</i>" : "");
+          const srcMark = d.src === "tx" ? `<i class='gt-src' title='${item.tx && item.tx.kind === "us" ? "腾讯美股口径" : "腾讯COMEX期货口径"}'>*</i>` : (d.src === "goldapi" || d.src === "erapi" ? "<i class='gt-src' title='备源'>†</i>" : "");
           html += `<span class="gt-item" title="${item.name} 实时价 · 网络公开接口仅供参考">${item.em}<span class="gt-name">${item.name}</span><b class="gt-price">${d.price.toFixed(item.dec)}</b><span class="gt-pct ${cls}">${pctStr}</span>${srcMark}</span>`;
         }
         _gtGroupHtml = html;
