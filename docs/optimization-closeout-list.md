@@ -47,7 +47,7 @@
 | pending-#34 | 场外基金阶段3:场内外联动 | pending L73 | ETF 联接跟踪误差 | 新功能 | 未派 | 阶段1/2 已上线 | 排期 | 需拍板(排期) |
 | pending-#35 | 理财专员使用指南 about 页上线 | pending L74 | 613 行指南上线 about 页或就放 docs | about 页 | 未派 | 无 | **上线位置:about 页 vs docs** | 需拍板 |
 | pending-#42 | 上下文优化 3 项 | pending L91 | OPT-2 索引瘦身/OPT-1 轮询降本/OPT-3 会话瘦身 | memory/规范 | 未派 | 无 | **执行顺序** | 需拍板(已部分落地:P0-1 已落 memory persist-before-clear-compact) |
-| pending-#46 | 降亏面板①口径标注+真实对照行 | pending L95 | 补「不含仓位控制/峰值持仓991万」口径说明+真实对照行 | lab.js | 待处理(优先级中) | 数据/逻辑已有 | 无 | 本轮做(纯展示层口径标注,§21 公示同步) |
+| pending-#46 | 降亏面板①口径标注+真实对照行 | pending L95 | 补「不含仓位控制/峰值持仓961万」口径说明+真实对照行 | lab.js | 已完成(2026-08-18,commit 63fb27391) | 数据/逻辑已有 | 无 | 已完成:口径行(fadeHow)+真实对照行(总建议)+purpose-notes公示;数字现网复算(991万→961万旧口径过时,17.7万替代23.9万),见分支 worktree-agent-a28682160e85b9dd4 |
 | pending-#47 | K 档位评级 A 模式数值溯源落档+每日池重算 | pending L96 | 穷举数据落档;页面 _pcRating 重算 | lab.js/common.js | 部分完成(穷举已落档;页面重算已并入 #48 完成) | 无 | 无 | **可关闭**(#48 已重算落地,§22 三处一致) |
 | pending-#51 | §23.6 入样宇宙规则落地(首页 1:1 遵从/变更联动走查) | pending L100 | yaml+check 已上线;首页 1:1 遵从/8 步联动待全量验证 | app.js/export.py/check_universe_alignment.py | **已完成**(2026-08-18 批次D收尾验证:①首页读 `_bt_in_universe` 标记无自算(app.js L2659-2661 过滤 `_bt_in_universe!==false`+排除卖类, 候选⊆BUY_SIGNALS) ②check_universe_alignment.py 四断言全 PASS(198信号对称/84候选⊆白名单/177096笔无排除/排除类别正确) ③三处公示全在(purpose-notes.js+app.js L2273+lab.js L8988/L9787) ④8步联动: deploy.sh 链 build_board_etf_map(L106)→export(L118)→check(L147)→§22三步(rsync+R2+push), **注: step3 重跑 signal_kelly_backtest 非自动, 手改回测标准须先手动重跑再 deploy**(本次收尾未重跑回测) ⑤举一反三: 首页/lab.js AI仓位/check_signals邮件/首页删除线 4 展示位均读标记不自算) | 无 | 无 | **已完成**(2026-08-18 批次D 收尾) |
 | pending-#56 | signal_notified.json 双副本清理 | pending L112 | trade-data/data(权威 13 条)vs trade/data(旧 11 条)双份;cd trade 跑 python 会误读旧副本重发 | check_signals.py+data/signal_notified.json | **已完成**(2026-08-18 批次D: check_signals.py 通知去重状态权威化——signal_notified/subscriptions_notified/fade_notified 三去重文件强制读写 trade-data/data 权威份, 非权威仓库运行(如 cd trade)自动重定向+启动告警, 防误读旧镜像重发; 与 app/db.py .absolute() 同口径) | 无 | 无 | **已完成**(2026-08-18 批次D) |
@@ -125,7 +125,7 @@
 | **批次 B:update_all 提速(采集层)** | ab-#37 + ab-#38 | 采集稳定/提速(宽 224s→更低) | baostock_worker.py/pipeline.sh/indicators.yaml/fetchers | 与 A 独立;删 sw 指数前 grep 全站引用(§22/§23.6) |
 | **批次 C:etf_score 提速** | O2 | 省 2-3min | scripts/export_etf_score_list.py L580 | 独立脚本,低风险,workers 6→8-10+空返缓存 |
 | **批次 D:宇宙规则收尾 + 一致性** | pending-#51 首页 1:1 遵从走查 + pending-#56 双副本清理 | 规则对齐 + 防误读旧副本重发 | app.js/export.py + check_signals.py/data | 已定项收尾;低风险 |
-| **批次 E:降亏面板口径标注** | pending-#46 | 用户可理解口径(不含仓位控制/峰值持仓991万) | lab.js | 纯展示文案,§21 公示同步 |
+| **批次 E:降亏面板口径标注** | pending-#46 | 用户可理解口径(不含仓位控制/峰值持仓961万) | lab.js | ✅已完成(2026-08-18,commit 63fb27391,分支 worktree-agent-a28682160e85b9dd4 待 merge):纯展示文案+§21 公示同步;数字现网复算(991万旧口径过时→961万;23.9万→17.7万) |
 
 ### 3.2 需拍板清单(每条写清要用户决定什么)
 
