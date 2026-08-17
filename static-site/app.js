@@ -2484,7 +2484,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     // 按 date 降序得到 dates 序列, 今日排首(与下方 groups 逻辑一致), 保证 y_15 排除今日
     const _allDates = [...new Set(items.map((it) => it.date))].sort((a, b) => (a < b ? 1 : -1));
     let _sortedDates = _allDates;
-    if (todayDate && _allDates.includes(todayDate)) {
+    // 2026-08-17 fix: 今日排首仅当今日为最新日期（与下方 groups dates 同款修复），过时 todayDate
+    // （如 date=20260814 但 signals 含 20260817）排首会让窗口切片（尤其 y_15 排除今日）切错日期。
+    if (todayDate && _allDates.includes(todayDate) && _allDates[0] <= todayDate) {
       _sortedDates = [todayDate, ..._allDates.filter((d) => d !== todayDate)];
     }
     let _lo = 0;
