@@ -84,6 +84,35 @@
 - **限流**:FX8 worker 侧 120 req/min / 5000 req/day(专用 key 配额)
 - **说明**:数据广场一个接口一个上游 URL(无路径模板),本次先上情绪聚合(sentiment/latest 信息量最大的轻量快照)。**用户新想法(2026-08-17):买入信号/AI预测/ETF评分/卖出警示 4 个更高价值接口待分析后增量上架,每类一个接口**
 
+## 形态 6:AI 每日市场预测 API(数据广场,已上线 online,2026-08-17)
+
+- **创建入口**:Skill API `POST /api/v1/data-marketplace/apis`,api_id=`c7faed48-ee2e-4af4-8451-11ce9865120d`,状态 **`online`(可售)**
+- **名称**:AI 每日市场预测 API
+- **类别**:finance;标签 AI/预测/每日更新/新闻
+- **上游**:`GET https://ss.fx8.store/api/data/ai_prediction/latest`(读 daily_brief.json meta+text + 基准日对应 news_digest,新闻对齐防 lookahead)
+- **认证**:`api_key` 型,X-API-Key header(FX8_DM_API_KEY 专用 key)
+- **响应**:`{date, meta(方向/区间/指数区间), text, disclaimer, generated_at, news(基准日新闻,无归档时 null), news_note}`
+- **定价**:120 UT/次(划线 180 UT),免费额度 none
+- **上架坑(记录防重犯)**:①封面安全审核异步——撞上"封面质量优化中/安全审核中"(code 4000)时等 60-90s 重试,或换已审核过封面 ②**RESPONSE_SCHEMA_MISMATCH**:平台可用性检测严格校验响应类型,字段实际可能为 null 时必须把 schema 类型写成 `["object","null"]`/`["string","null"]` 数组形式,不能只写 object/string(etf_pick 返回无 null 字段所以一次过,ai_prediction 的 news/news_note 可能为 null 必须放宽)
+
+## 形态 7:ETF 精选评分快捷 API(数据广场,已上线 online,2026-08-17)
+
+- **创建入口**:Skill API `POST /api/v1/data-marketplace/apis`,api_id=`0bdd1b0a-2f89-478a-a32c-e1cf7393b860`,状态 **`online`(可售)**
+- **名称**:ETF 精选评分快捷 API
+- **类别**:finance;标签 ETF/评分/精选/每日更新
+- **上游**:`GET https://ss.fx8.store/api/data/etf_pick/latest?count=5`(buy/sell/hold 三文件按「类别+评分档位 high/mid/low+汪汪队」去重挑 5 只,hold 17MB 头部切片)
+- **认证**:`api_key` 型,X-API-Key header(FX8_DM_API_KEY 专用 key)
+- **响应**:`{date, updated_at, count, total{buy,sell,hold}, picks[评分卡全字段]}`(上游 URL 自带 ?count=5,平台固定 URL 转发)
+- **定价**:80 UT/次(划线 120 UT),免费额度 none
+
+---
+
+## 数据广场产品(套件)机制调研结论(2026-08-17,待用户拍板是否建)
+
+- **机制**:数据广场「产品/套件」= 把多个已上架 API 聚合为一个可售包(`POST /data-marketplace/products` 创建 → `POST /products/{id}/apis/{api_id}` 挂 API),产品独立 name/description/price_ut,可上下架;买家一次购买访问套内所有接口(页面实例「所属套件:…本产品全部接口」)。skill rest_request.js 白名单已支持全部产品路由。
+- **可行性**:4 接口(买入信号/AI预测/ETF评分/卖出警示)构成「每日决策闭环」(信号→预测→评分→警示),套装比散卖更有场景故事 + 独立曝光位 + 可做折扣价。**先决**:产品挂 API 需 API 已 online——2+3 已 online,1+4 待上架后补挂。
+- **建议节奏**:2+3 已上 → 建「FX8 每日决策套件」先挂 2+3 → 1+4 上线后补挂进套件。
+
 ## 操作注意(降低 3005/重审风险)
 
 - **先测试再提交审核**:上架前用我方测试 key 全链路自测一次(已验:latest/range/summary/错误路径/限流全通过)。
