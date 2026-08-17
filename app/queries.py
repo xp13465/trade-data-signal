@@ -926,14 +926,17 @@ def overview(conn, cfg):
             # 两段式信号固化(2026-08-14): 每条信号补当日收盘价 close(该信号日指数收盘价),
             # 供前端"已固化·可操作"展示与盘后固定价格窗口参考。
             _s["close"] = _sig_close
-            _today_close = _cm.get(score_date)
-            if _today_close is None and _cm:
-                # 末日兜底：score_date 无 close 时取序列最大日期（最新可用）
-                _today_close = _cm[max(_cm.keys())]
+            # "至今"端收盘 = 最新可用收盘（非 score_date：score_date 是盘后评分日，盘中滞后于最新信号日，
+            # 用它做锚会让 8/14 信号拿 8/14 收盘当至今端算 0、8/17 信号拿 8/14 收盘反向判错）
+            _today_close = _cm.get(max(_cm.keys()))
             if _today_close is None:
                 continue
-            # 今日信号(date==score_date)无"至今"语义：since_return/since_correct 均 None
-            if _sig_date == score_date:
+            # 今日信号(date==最新信号日)无"至今"语义：since_return/since_correct 均 None
+            # （sig_dates DESC 降序第一个=最新信号日期，前端 _renderSignalGrid 以 items 最新日期为今日）
+            if _sig_date == sig_dates[0]:
+                continue
+            # 边界：最新可用收盘未超过信号日（如该指数 817 无收盘）→ 尚无一天走势，视为未结算（不算 0 硬判）
+            if max(_cm.keys()) <= _sig_date:
                 continue
             _since_ret = round((_today_close - _sig_close) / _sig_close * 100, 2)
             _s["since_return"] = _since_ret
@@ -1003,8 +1006,8 @@ def overview(conn, cfg):
                     _e["etf_close"] = _price_cm.get(_sig_date)
                     if _e["etf_close"] is None and _price_cm:
                         _e["etf_close"] = _price_cm.get(max(_price_cm.keys()))
-                # 今日信号(date==score_date)无"至今"语义，对齐 L446-447 指数口径
-                if _sig_date == score_date:
+                # 今日信号(date==最新信号日)无"至今"语义，对齐指数口径
+                if _sig_date == sig_dates[0]:
                     continue
                 if not _cm:
                     continue
