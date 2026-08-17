@@ -7813,14 +7813,14 @@ async function fetchQQMinute(code) {
 }
 
 // ============ 批量分时方案A (2026-08-06): 12图 -> 3请求 ============
-// 同花顺批量 10 只 1 请求（A股8+港股2）+ 东财 push2delay 单只 bj50/hstech 2 请求 = 3 请求
+// 同花顺批量 10 只 1 请求（仅 A股8；港股 hsi/hscei/hstech 不走同花顺，2026-08-17 已切东财/腾讯）+ 东财 push2delay 单只 bj50/hstech 2 请求
 // 原东财单源 12 并发 -> 3 请求，降并发 12->3（4x 提速 + 避频率风控）
 // 批量拉取结果填入 _batchMinuteCache，_renderIntradayChart 优先查此缓存复用，不再重复请求
 const _batchMinuteCache = new Map(); // code -> result（批量拉取后填充，_renderIntradayChart 优先查此缓存）
 
-// 2026-08-12 分时点排序去重(根治恒生指数/恒生国企分时乱序):
-// 同花顺港股源(hk_HSI/hk_HSCEI)返回的 data 字段点数组本身乱序——把最新几个下午盘点(13:38-13:46)拼在最前,
-// 再拼全天升序序列(09:30-13:37), 致配色错/大跳空坡/午休标记错位。全源统一按 "HH:MM" 字典序升序+同 time 去重。
+// 2026-08-12 分时点排序去重(根治历史同花顺港股源乱序问题; 2026-08-17 港股已切东财/腾讯, 本机制对全源通用):
+// 曾因同花顺港股源(hk_HSI/hk_HSCEI)返回的 data 点数组本身乱序——把最新下午盘拼在最前, 致配色错/大跳空坡/午休标记错位。
+// 全源统一按 "HH:MM" 字典序升序+同 time 去重。
 // 已升序的数据(东财/腾讯/A股源)排序幂等无副作用。放数据管道层, 与渲染实现(SVG/echarts/未来 canvas 统一组件)无关。
 function _sortMinutePoints(points) {
   if (!points || points.length < 2) return points;
@@ -7875,7 +7875,7 @@ async function fetchTHSBatchMinute(thsCodes) {
         const volume = parseInt(p[4], 10) || 0; // 成交量
         points.push({ time, price, volume, amount });
       }
-      // 2026-08-12 双保险: 同花顺港股源点数组乱序, 解析后即排序去重再填缓存
+      // 2026-08-12 双保险: 点数组解析后统一排序去重再填缓存
       // (顺带修正 curPrice=points[最末]=最新价; _batchMinuteCache 内保持有序)
       points = _sortMinutePoints(points);
       if (!points.length) continue;
@@ -7921,10 +7921,10 @@ function _dynPrice(id) {
 }
 
 // 批量拉取多个指数的动态值（方案A 2026-08-06: 12图 -> 3请求; 2026-08-05 加腾讯ifzq三源分散兜底）
-// 架构: 同花顺批量 10 只 1 请求 + 东财 push2delay 单只 bj50/hstech 2 请求 = 3 请求
+// 架构: 同花顺批量(仅 A股8) + 东财 push2delay bj50/hstech + 港股(hsi/hscei/hstech)走东财/腾讯双源
 // Fallback 层级（五层 L0-L4，三源互备: 同花顺/东财/腾讯ifzq）:
-//   L0: 同花顺批量 10 + 东财 push2delay bj50/hstech 2 = 3 请求（主路径）
-//   L1: 同花顺整批失败 -> 拆 8 A股 + 2 港股批量重试（2 请求）
+//   L0: 同花顺批量(A股8) + 东财 push2delay bj50/hstech 2 = 主路径; 港股走东财/腾讯
+//   L1: 同花顺整批失败 -> 拆 A股 8 批量重试（1 请求; 港股不涉同花顺）
 //   L2: 三源分散兜底（关键改进）-> 拆批/L0 仍失败的 ids 按源能力分配:
 //       thsIds 失败的 -> 轮询分到 ths/em/qq 三 bucket（同花顺有代码）
 //       emIds 失败的（bj50/hstech）-> 只分到 em/qq 两 bucket（同花顺无代码，不能进 ths）
@@ -7958,7 +7958,7 @@ async function _fetchDynamicPcts(ids, snap) {
       if (batch.ok) {
         thsResults = batch.results;
       } else {
-        // L1: 整批失败 -> 拆 8 A股 + 2 港股批量重试（2 请求）
+        // L1: 整批失败 -> 拆 A股批量重试（港股不涉同花顺，hkIds 现恒空）
         const cnIds = thsIds.filter((id) => _INDEX_MARKET[id] === "cn");
         const hkIds = thsIds.filter((id) => _INDEX_MARKET[id] === "hk");
         const tries = [];
@@ -8203,9 +8203,8 @@ function _renderIntradayChart(container, code, preClose, snapTime) {
       _renderIntradayFail(container, snapTime);
       return false;
     }
-    // 2026-08-12 根治恒指乱序: 全源统一排序去重后再渲染。
-    // 同花顺港股源点数组乱序(最新下午盘拼头部+全天升序序列), times/prices/lastPrice/
-    // 午休边界(morningLast·afternoonFirst·markArea)均须基于升序计算, 否则配色错+大跳空坡。
+    // 2026-08-12 根治乱序(曾因同花顺港股源点数组乱序; 2026-08-17 港股已切东财/腾讯, 机制对全源通用): 全源统一排序去重后再渲染。
+    // times/prices/lastPrice/午休边界(morningLast·afternoonFirst·markArea)均须基于升序计算, 否则配色错+大跳空坡。
     // 覆盖 _batchMinuteCache 与单只 fallback 两条数据链; 已升序源幂等无副作用。
     result.points = _sortMinutePoints(result.points);
     if (!result.points.length) {
