@@ -21899,7 +21899,7 @@ function _dbTtsBind(listEl) {
   if (listEl.__dbTtsBound) return;   // 防重复委托
   listEl.addEventListener("click", function (e) {
     const btn = e.target && e.target.closest ? e.target.closest(".db-play") : null;
-    if (btn) { _dbPlayClick(btn); e.preventDefault(); }
+    if (btn) { _dbPlayClick(btn); e.preventDefault(); e.stopPropagation(); }
   });
   listEl.__dbTtsBound = true;
 }
@@ -22144,7 +22144,8 @@ async function _loadDailyBriefPage() {
   list.querySelectorAll(".db-item").forEach((el) => {
     el.addEventListener("click", (ev) => {
       // 点击多角色讨论折叠面板(<details>/<summary>)不触发整条收起(2026-08-11 补齐辩论入口)
-      if (ev.target && ev.target.closest && ev.target.closest(".db-debate-wrap")) return;
+      // 2026-08-17: 语音播报按钮 .db-play 也不触发收起(独立操作;_dbTtsBind 已 stopPropagation,此处同容器兜底排除,两处同容器监听均需处理)
+      if (ev.target && ev.target.closest && (ev.target.closest(".db-debate-wrap") || ev.target.closest(".db-play"))) return;
       const detail = el.querySelector(".db-detail");
       if (!detail) return;
       const isHidden = detail.classList.toggle("hidden");
