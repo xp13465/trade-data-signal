@@ -208,6 +208,48 @@ class CheckSignalsPostTest(unittest.TestCase):
         self.assertIn("@media (max-width:600px)", body)
         self.assertIn("td{display:block", body)
 
+    def test_build_email_dedup_timeline_only_note(self):
+        """去重后只发时间线、无 AI 标记场景：邮件加注明（2026-08-17 用户确认）。"""
+        # 无新信号 + 有时间线 + 去重模式(dedup_annotate=True)
+        timeline = [{"index_id": "sh000300", "signal": "buy",
+                     "reason": "RSI 上穿 30", "appear_time": "09:26",
+                     "last_time": "13:56", "persists": False}]
+        _, body = check_signals.build_email(
+            "20260814", [], NAME_MAP, timeline=timeline,
+            dedup_annotate=True)
+        self.assertIn("已全部推送/消失", body)
+        self.assertIn("以下信号已在盘中推送过", body)
+        self.assertIn("不再重复标注 AI 标记", body)
+
+    def test_build_email_normal_no_note(self):
+        """正常有新增信号/全量模式：不加注明（避免噪音）。"""
+        # 有新增信号（n_total>0）→ 不加注明
+        _, body = check_signals.build_email(
+            "20260730", SAMPLE_SIGNALS, NAME_MAP, dedup_annotate=True)
+        self.assertNotIn("盘中推送过", body)
+        # 去重模式但 n_total==0 无时间线 → 也不加注明
+        _, body2 = check_signals.build_email(
+            "20260730", [], NAME_MAP, dedup_annotate=True)
+        self.assertNotIn("盘中推送过", body2)
+
+    def test_build_feishu_post_dedup_timeline_only_note(self):
+        """飞书 post 与邮件内容一致（§23.10）：去重时间线场景加注明，正常场景不加。"""
+        post = check_signals.build_feishu_post(
+            "[买卖点信号] 20260814 🕐 信号均已消失（见时间线）", [], NAME_MAP,
+            dedup_timeline_only=True)
+        joined = "\n".join(
+            " | ".join(t.get("text", "") for t in line)
+            for line in post["zh_cn"]["content"])
+        self.assertIn("盘中推送过", joined)
+        self.assertIn("不再重复标注 AI 标记", joined)
+        # 正常场景（dedup_timeline_only=False）不加
+        post2 = check_signals.build_feishu_post(
+            "[买卖点信号] 20260730", SAMPLE_SIGNALS, NAME_MAP, dedup_timeline_only=False)
+        joined2 = "\n".join(
+            " | ".join(t.get("text", "") for t in line)
+            for line in post2["zh_cn"]["content"])
+        self.assertNotIn("盘中推送过", joined2)
+
 
 if __name__ == "__main__":
     unittest.main()
