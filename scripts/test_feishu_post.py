@@ -208,18 +208,23 @@ class CheckSignalsPostTest(unittest.TestCase):
         self.assertIn("@media (max-width:600px)", body)
         self.assertIn("td{display:block", body)
 
-    def test_build_email_dedup_timeline_only_note(self):
-        """去重后只发时间线、无 AI 标记场景：邮件加注明（2026-08-17 用户确认）。"""
+    def test_build_email_dedup_timeline_only_marker(self):
+        """去重后只发时间线场景：信号行照常带 AI 标记列（2026-08-17 用户修正）。"""
         # 无新信号 + 有时间线 + 去重模式(dedup_annotate=True)
         timeline = [{"index_id": "sh000300", "signal": "buy",
                      "reason": "RSI 上穿 30", "appear_time": "09:26",
                      "last_time": "13:56", "persists": False}]
         _, body = check_signals.build_email(
             "20260814", [], NAME_MAP, timeline=timeline,
-            dedup_annotate=True)
+            dedup_annotate=True,
+            overview_markers={("sh000300", "buy"): {"_bt_in_universe": False,
+                                                    "ai_macro": {"hit": False}}},
+            ai_suggest={})
         self.assertIn("已全部推送/消失", body)
-        self.assertIn("以下信号已在盘中推送过", body)
-        self.assertIn("不再重复标注 AI 标记", body)
+        # 时间线信号照常带 AI 标记列，不再加"不再重复标注"注
+        self.assertIn("AI 标记", body)
+        self.assertNotIn("不再重复标注", body)
+        self.assertNotIn("盘中推送过", body)
 
     def test_build_email_normal_no_note(self):
         """正常有新增信号/全量模式：不加注明（避免噪音）。"""
@@ -232,23 +237,41 @@ class CheckSignalsPostTest(unittest.TestCase):
             "20260730", [], NAME_MAP, dedup_annotate=True)
         self.assertNotIn("盘中推送过", body2)
 
-    def test_build_feishu_post_dedup_timeline_only_note(self):
-        """飞书 post 与邮件内容一致（§23.10）：去重时间线场景加注明，正常场景不加。"""
+    def test_build_feishu_post_dedup_timeline_only_marker(self):
+        """飞书 post 与邮件内容一致（§23.10）：去重时间线场景信号带 AI 标记，不加"不再标注"注。"""
+        om = {
+            ("sh000300", "buy"): {"_bt_in_universe": True, "ai_macro": {"hit": False}},
+            ("sh000905", "sell"): {"_bt_in_universe": True, "ai_macro": {"hit": False}},
+        }
+        ai_sg = {("sh000300", "buy"): 1}
         post = check_signals.build_feishu_post(
             "[买卖点信号] 20260814 🕐 信号均已消失（见时间线）", [], NAME_MAP,
+            fade_alerts=[
+                {"index_id": "sh000300", "intraday_signal": "buy", "kind": "buy",
+                 "level": "red", "closing_signals": [], "closing_status": "无任何信号",
+                 "suggestion": "信号消失，建议人工复核行情"},
+                {"index_id": "sh000905", "intraday_signal": "sell", "kind": "sell",
+                 "level": "red", "closing_signals": [], "closing_status": "无任何信号",
+                 "suggestion": "减仓条件解除"},
+            ],
+            overview_markers=om, ai_suggest=ai_sg,
             dedup_timeline_only=True)
         joined = "\n".join(
             " | ".join(t.get("text", "") for t in line)
             for line in post["zh_cn"]["content"])
-        self.assertIn("盘中推送过", joined)
-        self.assertIn("不再重复标注 AI 标记", joined)
-        # 正常场景（dedup_timeline_only=False）不加
+        # 去重时间线场景信号照常带 AI 标记（AI建议1 带 ⭐），不再加"不再重复标注"注
+        self.assertIn("⭐[AI建议1]", joined)
+        self.assertNotIn("不再重复标注", joined)
+        self.assertNotIn("盘中推送过", joined)
+        # 正常场景（dedup_timeline_only=False）同样带标记
         post2 = check_signals.build_feishu_post(
-            "[买卖点信号] 20260730", SAMPLE_SIGNALS, NAME_MAP, dedup_timeline_only=False)
+            "[买卖点信号] 20260730", SAMPLE_SIGNALS, NAME_MAP,
+            overview_markers=om, ai_suggest=ai_sg, dedup_timeline_only=False)
         joined2 = "\n".join(
             " | ".join(t.get("text", "") for t in line)
             for line in post2["zh_cn"]["content"])
         self.assertNotIn("盘中推送过", joined2)
+        self.assertIn("AI建议1", joined2)
 
 
 if __name__ == "__main__":
