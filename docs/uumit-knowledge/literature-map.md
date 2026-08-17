@@ -1,0 +1,173 @@
+# 量化文献与方法论地图
+
+> 一句话:这是一份「量化交易怎么做」的导航地图——把做量化最常用的**数据源、回测方法、因子挖掘算法、AI 预测套路、踩坑教训**整理成一份带「我家实际用在哪」标注的清单。给正在搭自己量化体系的读者用:想知道某个方法该上哪找文献、该用什么数据源、实战里怎么落地,翻这张地图。
+> 怎么用:按章找需求 → 每条看「名字/出处/链接 + 我家用在哪」→ 有原书/原文想深入就点链接,想看我家的具体落地细节就追「项目内文档」。
+
+---
+
+## 第一章 · 数据源地图(行情 / 情绪 / 新闻宏观 / 资金持仓)
+
+> 为什么先讲数据源:量化一切结论建立在数据上。这张表是「我家实际在用的公开免费源」清单,每条标注拿它做什么、在项目哪块用。
+
+### 1.1 行情 / 日线(全 A 股 + 指数)
+
+| 名称 | 出处 / 链接 | 获取方式 | 本项目用在哪 |
+|---|---|---|---|
+| akshare | [akshare](https://akshare.akshare.xyz/) | Python 库(封装东财/新浪/腾讯/同花顺/申万/中证/CFFEX/cninfo 多源) | 主力数据源:A股宽度/资金/指数/行业/龙虎榜/解禁/IPO/可转债/港股/全球/商品/债券 |
+| mootdx | [mootdx](https://github.com/mootdx/mootdx) | TCP 7709(通达信),不走 HTTP 不被东财封 IP | 全 A 股日线 OHLC 10 年+ 回溯,5200 只约 10 分钟 |
+| BaoStock | [BaoStock](http://baostock.com) | HTTPS,独立服务 | 全 A 股日线(1990 起)封禁期替代源 + 补换手率 + 多源补采兜底 |
+| 腾讯财经 | `qt.gtimg.cn` | HTTP(GBK)实时行情 | 盘中实时主源 + 换手率 + 北证50 兜底(实时,不封 IP) |
+| 申万 / 中证指数 | swsresearch.com / csindex | HTTP | 申万一级 31 行业指数全历史 / 中证红利·红利低波指数 |
+| 同花顺 | akshare 封装 | HTTP | 概念板块/行业实时涨跌幅/盘中快照聚合 |
+| 新浪财经 | finance.sina.com.cn | HTTP | 指数/美股期货(ES/NQ 反映美股当晚方向)/商品/汇率/国债收益率 |
+
+### 1.2 情绪 / 市场宽度(恐贪类)
+
+| 名称 | 出处 | 获取方式 | 本项目用在哪 |
+|---|---|---|---|
+| 上交所期权 IV → QVIX | [query.sse.com.cn](https://query.sse.com.cn) option_risk_indicator_sse | 官方公开数据,T+1 可历史回填 | QVIX 备 A 指数自算原料(方差互换法 + sse 期权 IV 加权) |
+| [nkuguanrui/ivx](https://github.com/nkuguanrui/ivx) | 开源项目 | CBOE VIX 方差互换法参考 | QVIX 自算实现参考其思路 |
+| 涨停板池 / 龙虎榜 | akshare `stock_zt_pool_*` / `stock_lhb_*` | 东财 | 连板高度/炸板率/封板率/打板溢价 |
+| 两融余额 | akshare `stock_margin_sse` | 东财 | 融资融券资金 |
+
+### 1.3 新闻宏观 / 事件(喂 AI 预测)
+
+| 名称 | 出处 / 链接 | 获取方式 | 本项目用在哪 |
+|---|---|---|---|
+| 东财 7x24 快讯 | `np-listapi.eastmoney.com` | HTTP 免 token | 新闻快讯主推源,盘后 17:50 当日数据完整可得,喂 AI 预测 |
+| 财联社电报 | `www.cls.cn/api/cache` | HTTP 免签名 | 新闻快讯主推源,`level` 字段过滤重要电报,字段最全 |
+| 金十数据快讯 | `flash-api.jin10.com` | HTTP 固定 header | 新闻快讯主推源,`important` 标记含宏观事件预告 |
+| akshare 宏观单指标 | `macro_china_lpr/shrzgm/pmi/cpi` | Python 库 | LPR/社融/PMI/CPI 历史值锚点 |
+| akshare 交易日历 | `ak.tool_trade_date_hist_sina()` | Python 库 | 判断交易日(含未来全年) |
+
+### 1.4 资金 / 持仓(机构与北向)
+
+| 名称 | 出处 | 获取方式 | 本项目用在哪 |
+|---|---|---|---|
+| CFFEX 中金所 | akshare `get_cffex_rank_table` | HTTP | IF/IC/IH/IM 前 20 会员净多空持仓,机构跟随/逆向准确率 |
+| HKEX 官方 / CCASS | hkex.com.hk | HTTP JS / ASP.NET | 北向资金成交总额(HKEX 主源)+ 北向季度净买额反算 |
+| cninfo 巨潮 | cninfo.com.cn | HTTP / PDF(pdfplumber 解析) | ETF 持有人结构(机构/散户/内部),国家队席位代理推断 |
+| 东财 datacenter | datacenter-web.eastmoney.com | HTTP | 主力资金流/行业资金流/北向历史/宏观单指标,em_get 防封层直连 |
+| 美财政部 CSV | home.treasury.gov | 官方公开 CSV | `us10y` 异源兜底(东财失联时) |
+| legulegu | stockdata | HTTPS | 申万一级行业成分股映射(行业内宽度计算) |
+
+> **数据源方法论要点(本项目经验)**:任何单源指标都要有**异源兜底**(不同 host/协议/供应商),fallback 走同一源 = 伪多源 = 方案没做好。项目已落地真异源互备标杆:核心指数(新浪→baostock→腾讯)、主力净流入(东财→同花顺)、北向(HKEX→东财)、盘中实时(腾讯→新浪)、申万行业(申万→同花顺)。数据源可靠性需压测找边界。
+
+---
+
+## 第二章 · 回测与组合优化文献
+
+> 这一章回答:怎么把策略回测得**可信**(口径/费率/样本外),怎么把一堆信号组合成**稳健**的体系。
+
+| 名称 | 作者 / 出处 | 链接 / DOI | 本项目用在哪 |
+|---|---|---|---|
+| Walk-forward 滚动验证 | Pardo《The Evaluation and Optimization of Trading Strategies》(Wiley, 1992/2008) | 著作 | 组合评估标准流程:t-1 年选成员、t 年验证(组合降亏预设宏的评估方法) |
+| DSR / PBO 防过拟合度量 | Bailey & López de Prado (JPM 2014 / JCF 2017) | — | 1502 itemset 挖掘后组合选择的多重试验惩罚(本项目用 maxSh+4 窗口近似) |
+| 多重检验校正(t>3 / FDR) | Harvey, Liu & Zhu (RFS 2016); Benjamini & Hochberg (JRSS-B 1995) | — | 成员进组合阈值比单次检验更严(4 窗口全 >2 + maxSh<0.6 双门槛) |
+| 特征聚类 + 多重共线性 | López de Prado《Advances in Financial Machine Learning》(Wiley, 2018) Ch.8 | — | 组合成员先做交易集重叠聚类(同簇只留最强代表),重要性须 OOS 算、高相关特征先正交化 |
+| alpha 组合收缩 | Kakushadze《101 Formulaic Alphas》(2016) | — | 标志高度相关时组合权重应收缩 → 组合选低相关成员 |
+| 低相关因子分散组合 | Asness, Frazzini, Israel & Moskowitz (JPM 2014) | — | 组合跨独立经济逻辑线,不堆叠同逻辑标志 |
+| 决策集互斥规则集 | Lakkaraju, Bach & Leskovec (KDD 2016) | — | 组合优先低重叠成员(决策集宽松版),现用并集幂等无害 |
+
+> **回测口径要点(本项目硬约束)**:①「每日资金池等分」vs「每笔固定」是两种口径,结论会反转,不能混用;②费率必须客调;③**样本外验证**是防过拟合的核心(详见第三章+第五章);④组合的可操作性要盯「峰值持仓/单次本金」是否 ≤ 20 倍本金(凯利可操作性标准)。
+
+---
+
+## 第三章 · 因子与数据挖掘文献
+
+> 这一章是「降亏过滤」的核心方法论:从 44,832 笔真实模拟交易反推「系统性亏损特征组合」。所有条目都是我家**真实跑过**的方法(不只列书单)。
+
+| 名称 | 作者 / 出处 | 链接 / DOI | 本项目用在哪 |
+|---|---|---|---|
+| 子群发现 Subgroup Discovery | Lavrac/Flach/Kavsek (2002); Atzmueller (2015) 综述 | DOI:10.1109/icdm.2002.1183912 | v3 找高纯度"亏损显著过代表"子群,支撑"比值>2 高纯度子群"路线(pysubgroup WRAccQF) |
+| 子群发现精炼启发式 | Valmarska/Lavrač/Fürnkranz (2017) | DOI:10.1016/j.eswa.2017.03.041 | v3 子群候选搜索(beam search depth4 beam30) |
+| 子群发现综述 | Herrera et al. (2011) | Knowl. Inf. Syst. | v3 方法全景参考 |
+| 决策树 CART | Breiman et al. (1984) | — | v3 手写多路分裂(非 sklearn),路径提取 = 规则,路径亏损率 = 规则纯度 |
+| 对比集挖掘 Contrast Set Mining | Webb et al. | growth rate = supp_loss/supp_gain | v4 找"亏损组显著过代表"条件集(1-4 itemset 主路线) |
+| 涌现模式 / JEP | Dong & Li (1999) | Emerging Pattern | v4 识别"只出现在亏损组的模式"(盈利组 support=0) |
+| Apriori / Closed Itemset | Agrawal & Srikant (1994) | — | v4 4-itemset Apriori(1502 个 ratio>3)+ 去冗余验证 |
+| 贪心组合优化 | 经典贪心逐步选择 | — | v4 Greedy-7/15 从 930 候选产出最终 toggle 集(Greedy-15 净 +149 万/PF 1.713) |
+| IV 信息值 / WoE(评分卡) | Siddiqi《Credit Risk Scorecards》(Wiley, 2006) | — | 比值(降亏%/损盈%)= 亏损组 vs 盈利组偏斜强度的 WoE/IV 交易版,按比值排序选成员 |
+| mRMR 最小冗余最大相关 | Peng, Long & Ding (IEEE TPAMI, 2005) | — | 组合成员两两 Jaccard 重叠率 <40% 判据(低重叠 = 去相关互补) |
+| RFE 递归特征消除 | Guyon et al. (Machine Learning, 2002) | — | 组合成员逐一 drop 验证边际贡献(v4 Closed Itemset 去冗余已实现) |
+| Lasso / Elastic Net(L1 稀疏) | Tibshirani (JRSS-B, 1996); Zou & Hastie (JRSS-B, 2005) | — | 若未来做"成员加权评分"式组合,Lasso 给成员稀疏权重 |
+| ML 用于算法交易框架 | Feng | DOI:10.5220/0013264200004568 | 算法交易 ML 应用框架参考(方法选型背景) |
+| 技术分析策略类比 ML | Zhang & Pinsky | DOI:10.1177/21576203251360571 | 把"降亏标志"理解为"亏损 vs 盈利分类器" |
+| 多时间框架信号确认 | Goswami | DOI:10.2139/ssrn.6683818 | 过滤低质量信号 = 减亏,支撑"降亏标志"作为信号过滤器的定位 |
+| ML 技术交易系统应用 | Kissell《Machine Learning Techniques》 | DOI:10.1016/b978-0-12-815630-8.00009-0 | ML 技术交易应用参考(方法选型背景) |
+
+> **数据挖掘方法论要点(本项目经验)**:
+> - 比值(降亏%/损盈%)>2 满意、>3 更佳(自家硬口径)。
+> - 子群发现 + 决策树 + 对比集是「找差异化亏损共性」的标准范式组合。
+> - 每轮先列出数据源全部字段,标注是否已被挖掘覆盖——**未覆盖字段 = 优先挖掘目标**(历轮最大发现的来源)。
+> - 一个算法/数据源挖不出 ≠ 没有标志,换方法/换数据源/换关联维度后再下结论。
+
+---
+
+## 第四章 · AI 预测与方法论
+
+> 这一章讲:怎么用大模型把「机器算出的数字」变成「人读得懂的话」,并保证预测可信、不胡说。
+
+| 名称 | 出处 / 链接 | 本项目用在哪 |
+|---|---|---|
+| DeepSeek | [platform.deepseek.com](https://platform.deepseek.com/) | 每日速递 AI 预测大白话解读(情绪拐点 + 信号汇总 + 合规 gating) |
+| TradingAgents-CN 多角色辩论方案 | [TradingAgents-CN](https://github.com/hsliuping/TradingAgents-CN) / [原版 tradingagents](https://github.com/tauricresearch/tradingagents) | 每日速递 6 个角色子 prompt(技术/资金/情绪/风控/研究员/主编)各自只注入对应数据域、独立分析后互相校验/辩驳,再由主编合成白话解读 |
+| edge-tts | [edge-tts](https://github.com/rany2/edge-tts)(MIT) | AI 预测语音播报(免费在线 TTS,首页 🔊 朗读按钮) |
+| 多 Agent 协作模式 | traderagent 启发 | 工程协作:调研→实施→reviewer→测试四角色分工 + cron 兜底 |
+
+> **AI 预测方法论要点(本项目经验)**:
+> - **双命中口径**:预测难度优先于命中率(三层严格命中比两层含糊命中更有含金量)。
+> - **多角色辩论**:不同数据域独立分析后互辩,防单视角偏见。
+> - **降级契约**:AI 给跨 0 区间降级 = 模型不守约束 → 加强 prompt 不放松校验;非交易日不触发补发。
+
+---
+
+## 第五章 · 避坑参考(过拟合 / 数据一致性 / 口径切换)
+
+> 这一章是「我踩过的坑」的转译版——不丢原文工程细节,讲清每个坑的**本质**和**怎么防**。
+
+| 坑 | 本质 | 怎么防(本项目做法) |
+|---|---|---|
+| 过拟合(找到的历史标志只对历史有效) | 样本内高估 | 4 窗口稳定性验证(y1/y3/y10/all)+ maxSh<0.6 + 逐年验证;未来方向 Walk-forward 滚动验证 |
+| 5 月 shift 类机制漂移 | 标志有效性随时间漂移(2021-2023 盈/2024-2026 亏) | 逐年验证 + 漂移检测;比值>2 + maxSh<0.6 双门槛 |
+| 数据不一致(N 个展示位看到不同数) | 文件或缓存不同步 | 所有展示位同数据源,更新必 N 文件+N 缓存同步(§22 数据一致性) |
+| 口径切换反转结论 | 每日资金池 vs 每笔固定、费率、K 档 | 派任务先钉「测试基准 = 推荐最优组合」,偏离必须显式声明 |
+| 单源单点(数据源失联全崩) | 无兜底 | 每个数据源配异源兜底(不同 host/协议/供应商) |
+| 报告有索引没本体 | 落档不完整 | 报告四件套:本体 + 生成脚本 + 复现段 + 配套 commit |
+| 指标虚高无实操意义 | 峰值持仓超本金倍数 | 可操作性标准:峰值持仓/单次本金 ≤ 20 倍本金才可操作 |
+
+> **避坑方法论要点**:量化最大的坑是**过拟合**和**口径不一致**——前者让你以为策略赚钱,后者让你同一套规则算出互相矛盾的结论。解决方案都离不开「样本外验证 + 单一事实源 + 多展示位一致」。
+
+---
+
+## 定价建议(供用户过目,未上架)
+
+> 依据:平台定价建议接口 `GET /api/v1/pricing/suggestion` 实测返回 + 调研区间,取两者交集给建议。
+
+- **平台建议价(knowledge 类目 / one_time)**:建议 **200 UT**,区间 **100–500 UT**(同类 53 个,市场均价约 59 UT,平台建议略高于均价体现内容价值又保持买方接受度)。
+- **调研区间**(`docs/uumit-knowledge-products-research.md` §四):文献地图 30–80 UT 或 0 引流(对标 awesome-quant 免费获客逻辑)。
+- **综合建议**:
+  - 若定位「引流获客品」(立骨架、验证全链路)→ **0 UT** 或按调研区间低价(30–80 UT),靠免费/低价吸引流量。
+  - 若定位「有稀缺性付费品」(差异化 = 每条带"我家实际用在哪" 1:1 标注,这是市面教程少有的)→ **参考平台建议 100–200 UT**。
+  - 定价二选一,取决于用户对这本册子的定位(引流 vs 变现)。**建议先按引流定位 0 UT 上架验证通道**,回测方法论小册(A)再按高价值收费。
+- ⚠️ 本次仅为内容整理 + 定价建议,**未调用任何 publish/上架接口**,等用户拍板定位后由后续步骤上架。
+
+---
+
+## 方法论 / 来源说明(诚实声明)
+
+- **这些文献怎么被本项目用到的**:本册每一章的"本项目用在哪"标注,均来自本项目真实落地的**内部文档**——`README.md`「参考与致敬」段(30+ 文献含 DOI 逐条标用在哪)、`docs/kelly/mining/kelly-mining-literature.md`(回测/因子挖掘文献清单含 CrossRef 学术文献)、`docs/data-sources.md`(数据源清单)、`docs/ai-predict-news-macro-research-sources.md`(新闻宏观数据源实测)。不是搬运内部 md 原文,而是**转译成读者视角**并逐条核实"用在哪"。
+- **口径声明(诚实标注)**:
+  1. 回测结论(降亏比值>2、特定宇宙、K 档)基于本项目**特定口径**,本册只讲方法来源与落地方式,不当普适结论卖。做自己的回测请带适用边界/口径声明。
+  2. 数据挖掘发现的降亏标志为统计特征,存在过拟合与漂移风险,使用前复核 4 窗口稳定性。
+  3. 本看板仅供学习研究,不构成投资建议;买卖点信号为历史回测参考,胜率接近随机。
+- **深入阅读**:想追具体方法怎么落地(数据/脚本/推导),按各章条目追「项目内文档」(`docs/kelly/`、`docs/data-sources.md` 等),那里有真实数据 + 脚本 + 复现命令。
+
+---
+
+## 复现
+
+- **本册数据来源**:`README.md` §「参考与致敬」(L228 起)、`docs/kelly/mining/kelly-mining-literature.md`、`docs/data-sources.md`、`docs/ai-predict-news-macro-research-sources.md`。每条"用在哪"均从上述真实文件核实,无臆造。
+- **定价建议来源**:`GET https://api.uumit.com/api/v1/pricing/suggestion`(knowledge/one_time,2026-08-17 实测返回 200 UT/区间 100-500/同类 53)+ `docs/uumit-knowledge-products-research.md` §四(调研区间 30-80 UT 或 0 引流)。
+- **关键口径一句话**:本册 = 文献/数据源/方法论导航地图,差异化 = 每条带"本项目实际用在哪"的 1:1 标注;内容为读者视角转译,非内部文档搬运。
+- **生成日期**:2026-08-17。
