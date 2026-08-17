@@ -6,7 +6,7 @@
 # us_stock_morning。
 # 每个任务的计划时点表来自 ~/Library/LaunchAgents/com.trade.*.plist 的 StartCalendarInterval。
 #
-# 检查项（7 维度, R2迁移后72h监控 2026-08-08 扩展, 2026-08-17 加维度⑦飞书配置）：
+# 检查项（8 维度, R2迁移后72h监控 2026-08-08 扩展, 2026-08-17 加维度⑦飞书配置+维度⑧hook心跳）：
 #   1) 漏跑：当前时间落在某任务计划时点 + 30min 容忍窗口内，但 last_run < 计划时点 = 漏跑告警
 #   2) 退出失败：schedule_stats.json 中 last_exit 非 0（非 null，null=进行中/无数据不算失败）
 #   2b) log异常关键词：scan_log_anomaly 抓 Traceback/异常类名/FATAL（exit=0 不可信, 脚本吞异常漏报）
@@ -19,6 +19,9 @@
 #   7) 飞书配置：config/feishu.json 缺失且 .env 有 FEISHU 凭证（配置丢失），或
 #      feishu_listener.err 尾部 10 条内含"feishu.json 不存在"（listener 停摆）
 #      （2026-08-17 三件套①防 feishu.json 丢失致飞书静默停摆数天）
+#   8) 飞书 hook 心跳自检（#25）：Claude Code 会话活跃(pgrep claude 有进程)但
+#      /tmp/feishu_hook_heartbeat 缺失或 >90min 陈旧 → 告警（hook 未触发/静默停摆；
+#      文件缺失时额外要求 claude 进程存活 >30min 防刚开机误报；与维度⑦互补）
 #
 # 告警链路：复用 scripts/notify.py（邮件 + data/alerts/latest.md），告警不阻塞、不重试。
 # 阶段3 R2上传失败 notify 已接入: intraday_snapshot.sh upload-index/upload-intraday 失败发
@@ -1134,6 +1137,99 @@ try:
     save_alert_state(alert_state)
 except Exception as e:
     print(f"[warn] 飞书配置检查失败: {e}", file=sys.stderr)
+
+# 8) 飞书 hook 心跳自检（维度⑧，2026-08-17 #25）
+#    防 feishu_chat_hook 静默停摆（hook 判定 bug/配置丢失 → hook 静默跳过/发送失败 →
+#    用户发消息无回显且无任何告警，坏几天才发现；与维度⑦ feishu.json 缺失检测互补——
+#    ⑦ 覆盖"配置丢失"，本维度覆盖"hook 未接线/未触发"）。
+#    hook 每次被调用在 /tmp/feishu_hook_heartbeat 更新 mtime（见 feishu_chat_hook.py main）。
+#    判定：Claude Code 会话活跃(pgrep claude 有进程)但心跳缺失或 >90min 陈旧 → 告警。
+#    防误报：心跳文件缺失时(刚开机/刚清 /tmp)，额外要求 claude 进程存活 >30min 才告警。
+#    复用 alert_state.json 去重（key=feishu_hb_stale，key 前缀 feishu_ 已加入主恢复循环
+#    特殊跳过，inline 处理恢复，与维度⑦同模式）。
+try:
+    _hb_path = Path("/tmp/feishu_hook_heartbeat")
+    # 会话活跃判定：pgrep claude 有进程（monitor 自身是 bash，不含 claude 字样，无自匹配）
+    _hb_claude_pids = []
+    try:
+        _hb_pgrep = subprocess.run(["pgrep", "-f", "claude"],
+                                   capture_output=True, text=True, timeout=10)
+        _hb_claude_pids = [p for p in _hb_pgrep.stdout.split() if p]
+    except Exception as _e:
+        _hb_claude_pids = []
+    _hb_active = bool(_hb_claude_pids)
+    # 心跳新鲜度：文件存在则 mtime(BSD %m)距当前 <90min = 新鲜
+    _hb_fresh = False
+    _hb_missing = False
+    if _hb_path.exists():
+        try:
+            _hb_mtime = _hb_path.stat().st_mtime
+            _hb_fresh = (NOW.timestamp() - _hb_mtime) < 5400  # 90min
+        except Exception:
+            _hb_missing = True
+    else:
+        _hb_missing = True
+    # 防误报：文件缺失时额外要求 claude 进程存活 >30min（刚开机/刚清 /tmp 不误报）
+    _hb_old_proc = False
+    if _hb_missing and _hb_claude_pids:
+        try:
+            _hb_proc = subprocess.run(
+                ["ps", "-o", "lstart=", "-p", _hb_claude_pids[0]],
+                capture_output=True, text=True, timeout=10)
+            _hb_lstart_str = _hb_proc.stdout.strip()
+            if _hb_lstart_str:
+                # BSD ps lstart 格式：Mon Aug 17 10:30:00 2026
+                _hb_lstart = datetime.strptime(_hb_lstart_str, "%a %b %d %H:%M:%S %Y")
+                _hb_old_proc = (NOW - _hb_lstart) > timedelta(minutes=30)
+        except Exception:
+            _hb_old_proc = False
+    # 告警条件：活跃 + (陈旧 或 (缺失且进程存活>30min))
+    _hb_alert = _hb_active and (not _hb_fresh) and (_hb_old_proc or not _hb_missing)
+    _hb_key = "feishu_hb_stale"
+    _hb_reason = ""
+    if _hb_missing:
+        _hb_reason = "心跳文件缺失"
+    else:
+        _hb_reason = "心跳陈旧"
+    if _hb_alert:
+        seen_keys_this_run.add(_hb_key)
+        _ex_hb = alert_state.get(_hb_key)
+        if _ex_hb is None or _ex_hb.get("status") != "active":
+            alerts.append(
+                f"SEVERE: 飞书 hook 心跳自检（{_hb_reason}，Claude Code 会话活跃但 hook "
+                f"超90min未触发）。影响：飞书抄送可能静默停摆，用户消息无回显且无告警。"
+                f"恢复：确认 .claude/settings.json 的 UserPromptSubmit/Stop hooks 指向 "
+                f"scripts/feishu_chat_hook.py 且脚本无报错；或重启 Claude Code 会话"
+            )
+            alert_state[_hb_key] = {
+                "status": "active",
+                "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                "keyword": "feishu_hb_stale",
+                "line_sample": "feishu_hook_heartbeat 心跳陈旧/缺失",
+            }
+        else:
+            print(f"[suppress] 飞书 hook 心跳陈旧持续中, "
+                  f"last_alerted={_ex_hb.get('last_alerted')}, 不重发")
+    else:
+        # 恢复检测（inline，与维度⑦同模式）：异常已消失 -> 发恢复邮件
+        _ex_hb = alert_state.get(_hb_key)
+        if _ex_hb is not None and _ex_hb.get("status") == "active":
+            _emit = _recovery_cooldown_ok(_hb_key, _ex_hb)
+            _ex_hb["status"] = "recovered"
+            _ex_hb["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+            if _emit:
+                recoveries.append({
+                    "task": "feishu_hb", "keyword": "feishu_hb_stale",
+                    "first_seen": _ex_hb.get("first_seen", "?"),
+                })
+            else:
+                print(f"[cooldown] feishu_hb_stale 恢复邮件静默(上次恢复<30min前)")
+            print(f"[recovery] 飞书 hook 心跳已恢复 (首次发现: {_ex_hb.get('first_seen')})")
+    # 飞书心跳检查在 save_alert_state(L660) 之后运行, 需补存防状态丢失（同维度⑦）
+    save_alert_state(alert_state)
+except Exception as e:
+    print(f"[warn] 飞书 hook 心跳自检失败: {e}", file=sys.stderr)
 
 # B2 告警正文模板化（2026-08-14 告警优化）: 原正文=纯 SEVERE 行列表, 改为每项 4 行模板
 #   [严重度] 任务 异常类型 / 影响:XX / 日志:路径 / 建议:XX。按任务写对应影响与建议。
