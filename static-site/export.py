@@ -713,6 +713,114 @@ def write_json(path: Path, data):
     return len(text)
 
 
+# ============ O1/ab#39 增量导出（2026-08-17 批次A）============
+# 背景：update_all 88min 主因 = 4 条 pipeline 各跑一遍完整 deploy（export 全量重算 353 JSON ×4）。
+# O1 已把 deploy 收敛为末尾 1 遍；ab#39 让这一遍 export 增量——只重算"源数据已变化"的 JSON，
+# 其余复用现有文件（消除重复劳动）。
+# 安全设计（防 8/14 "带日期跳过=静默用旧数据" 同类事故，见 docs/ab-refactor-bug-reflection.md §三）：
+#   ① 判定依据 = DB 表级最新数据日期(MAX(date)) 与上次 export 记录的 manifest 对比：
+#      仅当某文件依赖的每张表 MAX(date) 与上次 export 时完全相同，才判定"数据未变"可跳过
+#      （表数据日期推进=必须重算；绝不因"文件名带旧日期"而跳过）。
+#   ② 必更白名单 MUST_RECOMPUTE：overview/signal_*/summary/futures 等核心+信号产物强制全量，
+#      不参与增量跳过（本文件未门控的块本就每次全量，此处对门控块双保险）。
+#   ③ 首次运行（无 manifest）→ 全量重算，落盘 manifest 后才享受增量。
+#   ④ 默认(不带 --incremental)行为不变 = 全量导出（§23.7 冻结契约：手动/其他调用方不受影响）。
+INCREMENTAL_MANIFEST = "export_manifest.json"
+_MANIFEST_PATH = DATA_DIR / INCREMENTAL_MANIFEST
+
+# 必更白名单（前缀匹配，命中强制全量）。信号类 + 核心产物 + 当前 deploy 每次都要刷新的。
+MUST_RECOMPUTE_PREFIX = (
+    "overview", "signal_stats", "signal_kelly", "signal_freq", "summary",
+    "futures", "ad_line", "rotation", "new_high_low", "ma_alignment",
+    "volume_ratio", "position", "intraday_snapshot", "boot",
+)
+
+
+def _sentiment_table_dates(conn) -> dict:
+    """sentiment.db 相关表 → 最新数据日期。MAX(date)；collect_log 用 MAX(run_date)。"""
+    spec = {
+        "index_daily": "date", "score_daily": "date", "signal_daily": "date",
+        "daily_metric": "date", "futures_position": "date", "futures_accuracy": "date",
+        "futures_ih_detail_acc": "date", "industry_width_daily": "date",
+        "board_daily": "date", "intraday_snapshot": "collected_at",
+        "collect_log": "run_date", "alert_log": "date", "manual_entry": "date",
+    }
+    out = {}
+    for tbl, col in spec.items():
+        try:
+            r = conn.execute(f"SELECT MAX({col}) FROM {tbl}").fetchone()
+            v = r[0] if r else None
+            out[tbl] = str(v) if v is not None else ""
+        except Exception:  # noqa: BLE001
+            out[tbl] = ""
+    return out
+
+
+def _etf_nt_date() -> str:
+    """etf_national_team.db 的 etf_daily 最新日期（独立库，独立 collector 写）。"""
+    try:
+        conn = sqlite3.connect(str(ROOT / "data/etf_national_team.db"))
+        try:
+            r = conn.execute("SELECT MAX(date) FROM etf_daily").fetchone()
+            return str(r[0]) if r and r[0] else ""
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _code_fingerprint() -> str:
+    """导出逻辑版本指纹：export.py + 其核心依赖(queries.py / signal_stats.py) 的 mtime。
+    用于增量失效：导出逻辑代码一变，指纹即变 -> 本次强制全量重算（防"改了导出算法但源数据日期
+    未变时增量跳过用旧算法产物"）。"""
+    parts = []
+    for _p in (__file__, str(ROOT / "app/queries.py"), str(ROOT / "app/compute/signal_stats.py")):
+        try:
+            parts.append(str(int(Path(_p).stat().st_mtime)))
+        except Exception:  # noqa: BLE001
+            parts.append("0")
+    return "-".join(parts)
+
+
+def _load_manifest():
+    """读取上次 export 的表日期快照；无 manifest/解析失败返回 None（=全量重算）。"""
+    try:
+        if _MANIFEST_PATH.exists():
+            return json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def _save_manifest(freshness: dict) -> None:
+    try:
+        import time
+        _MANIFEST_PATH.write_text(
+            json.dumps({"tables": freshness, "code": _code_fingerprint(),
+                        "written_at": time.strftime("%Y-%m-%d %H:%M:%S")},
+                       ensure_ascii=False),
+            encoding="utf-8")
+    except Exception as e:  # noqa: BLE001
+        print(f"  ⚠ 写增量 manifest 失败(不阻塞): {e}")
+
+
+def _incremental_skip(manifest, current: dict, fname: str, deps) -> bool:
+    """增量跳过判定（安全）：文件已存在 + 不在必更白名单 + 依赖表数据日期与上次 export 完全一致 -> 跳过。
+    返回 True=跳过复用现有文件；False=必须重算。"""
+    if manifest is None:
+        return False
+    for p in MUST_RECOMPUTE_PREFIX:
+        if fname.startswith(p):
+            return False
+    if not (DATA_DIR / fname).exists():
+        return False
+    prev_tables = manifest.get("tables", {})
+    for tbl in deps:
+        if current.get(tbl) != prev_tables.get(tbl):
+            return False
+    return True
+
+
 # ============ boot.json：首屏 11 JSON 合并（P1-8 性能优化）============
 # 首屏原 22 个 fetch（renderOverview + init 阶段），合并后 1 个 fetch boot.json 分发到各模块。
 # 首屏请求数减 95%，首屏体感最大。boot.json ~524KB 未压缩 / ~130-175KB br，走 CF Workers Static Assets
@@ -854,11 +962,25 @@ def write_industry_all_split(conn, cfg) -> tuple[dict, int, int]:
 
 
 def main():
+    # ab#39 增量导出：--incremental 开启（deploy.sh 传；手动跑不带 = 全量，行为不变）
+    incremental = "--incremental" in sys.argv
     cfg = load_config()
     conn = get_conn()
     counts = {}
+    manifest = None
+    current_fresh = {}
+    if incremental:
+        current_fresh = _sentiment_table_dates(conn)
+        current_fresh["etf_national_team"] = _etf_nt_date()
+        manifest = _load_manifest()
+        # 导出逻辑版本失效：export.py/queries.py 代码一变（指纹不同），本次强制全量重算，
+        # 防"改了导出算法但源数据日期未变时增量跳过用旧算法产物"。
+        if manifest is not None and manifest.get("code") != _code_fingerprint():
+            print("-> 导出逻辑代码已变更，本次强制全量重算（增量缓存失效）", flush=True)
+            manifest = None
+        print("-> 增量导出模式（--incremental）：仅重算源数据已变化的 JSON，其余复用现有文件", flush=True)
 
-    # 1. overview
+    # 1. overview（必更白名单：强制全量，不参与增量跳过）
     counts["overview.json"] = write_json(DATA_DIR / "overview.json", export_overview(conn, cfg))
     print(f"  overview.json ({counts['overview.json']} bytes)")
 
@@ -889,8 +1011,17 @@ def main():
     # all 全历史 29MB 超 Cloudflare Pages 25MB 单文件限制须拆；5y 14MB / 3y 9.2MB 虽未超限，
     # 但拆成 31 个小文件按需 fetch 提速首屏（前端 all/5y/3y 并发组装，见 app.js _loadIndustryData）。
     for rng in ("all", "5y", "3y"):
-        ind_counts, _n_ind, _n_concept = write_industry_split(conn, cfg, rng)
-        counts.update(ind_counts)
+        # ab#39 增量：industry 拆分（31 行业×3 range，全历史大文件）仅当依赖表数据日期变化才重算
+        ind_deps = ("industry_width_daily", "index_daily", "signal_daily", "daily_metric", "score_daily")
+        if incremental and _incremental_skip(manifest, current_fresh, f"industry-{rng}-meta.json", ind_deps):
+            print(f"  industry-{rng} 拆分: 源数据未变化，增量跳过(复用现有文件)", flush=True)
+            for f in (DATA_DIR / f"industry-{rng}-indices").glob("*.json"):
+                counts[f"industry-{rng}-indices/{f.name}"] = f.stat().st_size
+            counts[f"industry-{rng}-concepts.json"] = (DATA_DIR / f"industry-{rng}-concepts.json").stat().st_size
+            counts[f"industry-{rng}-meta.json"] = (DATA_DIR / f"industry-{rng}-meta.json").stat().st_size
+        else:
+            ind_counts, _n_ind, _n_concept = write_industry_split(conn, cfg, rng)
+            counts.update(ind_counts)
 
     # 7. metrics（已废弃：前端无 fetch 引用，2026-07-15 删除上线产物，不再生成）
     # counts["metrics.json"] = write_json(DATA_DIR / "metrics.json", export_metrics(cfg))
@@ -977,17 +1108,27 @@ def main():
     # 7.14. etf_national_team × range（默认1y≈0.67MB，all≈7.6MB；手机默认只下1y，避免7.6MB裸传卡顿）
     # 仿 sentiment 拆分：预生成 3m/6m/1y/3y/5y/all 六个文件，前端按 state.range 按需 fetch。
     from app.collector.etf_national_team import export_data as _nt_export_data
-    _nt_daily, _nt_quarterly, _nt_holders = _nt_export_data()
-    for rng in EXPORT_RANGES:
-        fname = f"etf_national_team-{rng}.json"
-        counts[fname] = write_json(DATA_DIR / fname, export_etf_national_team(rng))
-        print(f"  {fname} ({counts[fname]} bytes)")
-    counts["etf_national_team_quarterly.json"] = write_json(
-        DATA_DIR / "etf_national_team_quarterly.json", _nt_quarterly)
-    print(f"  etf_national_team_quarterly.json ({counts['etf_national_team_quarterly.json']} bytes)")
-    counts["etf_national_team_holders.json"] = write_json(
-        DATA_DIR / "etf_national_team_holders.json", _nt_holders)
-    print(f"  etf_national_team_holders.json ({counts['etf_national_team_holders.json']} bytes)")
+    # ab#39 增量：etf_national_team（6 range，all≈7.6MB）仅当 etf_daily 数据日期变化才重算
+    if incremental and _incremental_skip(manifest, current_fresh, "etf_national_team-3m.json", ("etf_national_team",)):
+        print("  etf_national_team: 源数据未变化，增量跳过(复用现有文件)", flush=True)
+        for rng in EXPORT_RANGES:
+            p = DATA_DIR / f"etf_national_team-{rng}.json"
+            counts[f"etf_national_team-{rng}.json"] = p.stat().st_size if p.exists() else 0
+        for _f in ("etf_national_team_quarterly.json", "etf_national_team_holders.json"):
+            p = DATA_DIR / _f
+            counts[_f] = p.stat().st_size if p.exists() else 0
+    else:
+        _nt_daily, _nt_quarterly, _nt_holders = _nt_export_data()
+        for rng in EXPORT_RANGES:
+            fname = f"etf_national_team-{rng}.json"
+            counts[fname] = write_json(DATA_DIR / fname, export_etf_national_team(rng))
+            print(f"  {fname} ({counts[fname]} bytes)")
+        counts["etf_national_team_quarterly.json"] = write_json(
+            DATA_DIR / "etf_national_team_quarterly.json", _nt_quarterly)
+        print(f"  etf_national_team_quarterly.json ({counts['etf_national_team_quarterly.json']} bytes)")
+        counts["etf_national_team_holders.json"] = write_json(
+            DATA_DIR / "etf_national_team_holders.json", _nt_holders)
+        print(f"  etf_national_team_holders.json ({counts['etf_national_team_holders.json']} bytes)")
 
     # 7.15. public_fund 7 类（公募基金 88 魔咒/抱团度/净申赎 + 行业下钻到基金）
     # collector 独立库 data/public_fund.db, 这里通过 queries 薄包装读最新小样本产物
@@ -1035,15 +1176,29 @@ def main():
         DATA_DIR / "public_fund_sw_industry_alloc.json", export_public_fund_sw_industry_alloc())
     print(f"  public_fund_sw_industry_alloc.json ({counts['public_fund_sw_industry_alloc.json']} bytes)")
 
-    # 8. index/{id}-all.json（44 个指数）
+    # 8. index/{id}-all.json（44 个指数，全历史大文件）
     all_indices = [i["id"] for i in cfg.get("indices", []) if i.get("enabled", True)]
-    for iid in all_indices:
-        fname = f"{iid}-all.json"
-        data = export_index_detail(conn, cfg, iid)
-        counts[f"index/{fname}"] = write_json(INDEX_DIR / fname, data)
-    print(f"  index/*.json ({len(all_indices)} files)")
+    idx_deps = ("index_daily", "score_daily", "signal_daily", "daily_metric")
+    if incremental and all_indices and _incremental_skip(
+            manifest, current_fresh, f"index/{all_indices[0]}-all.json", idx_deps):
+        print(f"  index/*.json: 源数据未变化，增量跳过({len(all_indices)} files 复用)", flush=True)
+        for iid in all_indices:
+            p = INDEX_DIR / f"{iid}-all.json"
+            counts[f"index/{iid}-all.json"] = p.stat().st_size if p.exists() else 0
+    else:
+        for iid in all_indices:
+            fname = f"{iid}-all.json"
+            data = export_index_detail(conn, cfg, iid)
+            counts[f"index/{fname}"] = write_json(INDEX_DIR / fname, data)
+        print(f"  index/*.json ({len(all_indices)} files)")
 
     conn.close()
+
+    # ab#39 增量：落盘 manifest（记录本次 export 时各依赖表最新数据日期）。
+    # 非门控块每次全量重算、门控块(industry/index/etf_nt)重算或复用后均反映 current_fresh，
+    # 故 manifest = current_fresh 为正确基线，供下次增量判定"数据是否变化"。
+    if incremental:
+        _save_manifest(current_fresh)
 
     total_files = len(counts) + len(all_indices)
     total_bytes = sum(counts.values())

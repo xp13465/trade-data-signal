@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # update_all.sh - 一键更新（并发流水线版）
 #
-# 把原串行 collect->deploy->check 拆成 4 条并行 pipeline，各自独立
-# 采集->计算->导出->commit+push，慢任务（mootdx 5072 只）不阻塞快核心上线：
-#   core        快核心（指数/指标/情绪分），分钟级先上线
-#   width       慢宽度（mootdx/行业宽度/全市场宽度），完成后覆盖上线
-#   futures     独立（期货机构持仓），独立上线
+# 把原串行 collect->deploy->check 拆成 4 条并行 pipeline，各自独立采集->计算，
+# 慢任务（mootdx 5072 只）不阻塞快核心：
+#   core        快核心（指数/指标/情绪分）
+#   width       慢宽度（mootdx/行业宽度/全市场宽度）
+#   futures     独立（期货机构持仓）
 #   stock_daily 后台死端（全 A 股日线备用源），不 export 不 push，不阻塞
-# 各 pipeline 的 commit+push 经 flock /tmp/trade_deploy.lock 串行，避免 git index.lock 冲突。
+#   turnover    慢（baostock 增量 + cleanup 算 a_turnover）
+# O1 收敛（2026-08-17 批次A）：deploy 由「每条 pipeline 各跑一遍完整 deploy（4 遍=88min 主因）」
+#   收敛为「末尾统一 1 次完整 deploy」——各 pipeline 只采集+计算写入 DB，等全部完成后再统一
+#   跑 1 次完整 deploy（覆盖全部 4 pipeline 产物，§22 一致性），配套 ab#39 增量导出提速。
+# 各 pipeline 不再各自 commit+push（原 flock /tmp/trade_deploy.lock 串行 git 只用于统一 deploy 与
+# 并发 backfill 竞争）。
 #
 # 非交易日：默认跳过采集仅 deploy 补推数据（不发买卖点信号邮件）；传 force 绕闸门强制采集（周末补数据/校准）。
 # 旧串行版备份：scripts/update_all_serial.sh。
@@ -16,7 +21,7 @@
 #   force: 绕过交易日闸门，非交易日也跑全量 pipeline（补漏跑数据/校准；当日快照采最近交易日值）
 # 日志：data/logs/update_all_YYYYMMDD_HHMM.log（汇总，含各 pipeline 交错输出）
 #       data/logs/pipeline_<name>_<STAMP>.log（各流水线独立日志）
-# 退出码：core pipeline 退出码（核心看板公网状态）。
+# 退出码：core pipeline 退出码（核心看板公网状态；统一 deploy 失败经 DEPLOY_ALL_RC 触发 SEVERE）。
 set -u
 
 # 防止脚本运行期间 mac 休眠（17:50 launchd 触发时若 mac 在睡眠边缘，跑期间不再睡；
@@ -88,6 +93,21 @@ wait "$PID_WIDTH";    RC_WIDTH=$?
 wait "$PID_FUTURES";  RC_FUTURES=$?
 wait "$PID_TURNOVER"; RC_TURNOVER=$?
 echo "pipeline 退出码: core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER (stock_daily PID=$PID_STOCK 仍在后台)" | tee -a "$LOG"
+
+# O1 收敛（2026-08-17 批次A）：4 条 pipeline 已各自完成采集+计算写入 DB，
+# deploy 从「每条 pipeline 各跑一遍完整 deploy（4 遍=88min 主因）」收敛为「统一 1 次完整 deploy」。
+# 此时所有 pipeline 采集已完成，build_board_etf_map/export 读到的 DB 是全量最新，
+# 单次完整 deploy 覆盖全部 4 pipeline 产物（§22 一致性：无一 pipeline 产物漏 deploy）。
+# 与并发 backfill 脚本共用 deploy.lock 串行化 git（防 index.lock 竞争）。
+echo "-> O1 统一 1 次完整 deploy（覆盖全部 pipeline 产物，原 4 遍→1 遍）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/with_lock.py" /tmp/trade_deploy.lock bash "$REPO/scripts/deploy.sh" all >> "$LOG" 2>&1
+DEPLOY_ALL_RC=$?
+if [ "$DEPLOY_ALL_RC" -ne 0 ]; then
+  echo "✗ O1 统一 deploy 失败 (rc=$DEPLOY_ALL_RC)" | tee -a "$LOG"
+  # 统一 deploy 失败仍继续后续（信号/快照/预警等不阻塞），但标记 SEVERE（下方 NOTIFY 判断）
+else
+  echo "✓ O1 统一 deploy 完成" | tee -a "$LOG"
+fi
 
 # 信号检测 + 邮件（失败不阻塞，保持原逻辑）
 echo "-> check_signals.sh ..." | tee -a "$LOG"
@@ -208,6 +228,7 @@ ELAPSED_MIN=$((ELAPSED / 60))
 SEVERE=0
 [ "$ELAPSED" -gt 3600 ] && SEVERE=1
 [ "$RC_CORE" -ne 0 ] && SEVERE=1
+[ "${DEPLOY_ALL_RC:-0}" -ne 0 ] && SEVERE=1
 [ "$FRESH_OK" != "1" ] && SEVERE=1
 NOW_STR=$(date '+%Y-%m-%d %H:%M:%S')
 # 邮件 subject 统一模板 [类型]关键信息 MM-DD HH:MM（2026-07-20 改造）
@@ -225,11 +246,12 @@ for _name in core width futures turnover; do
 done
 [ -n "$FAILED_DETAILS" ] && FAILED_DETAILS="<br>失败明细:${FAILED_DETAILS}"
 
-NOTIFY_BODY="update_all 完成<br>耗时：${ELAPSED_MIN} 分钟（${ELAPSED}秒）<br>退出码：core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER check_signals=$SIGNAL_RC${FAILED_DETAILS}<br>数据时效：$FRESH_MSG<br>日志：$LOG<br>结束时间：$NOW_STR"
+NOTIFY_BODY="update_all 完成<br>耗时：${ELAPSED_MIN} 分钟（${ELAPSED}秒）<br>退出码：core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER deploy_all=${DEPLOY_ALL_RC:-0} check_signals=$SIGNAL_RC${FAILED_DETAILS}<br>数据时效：$FRESH_MSG<br>日志：$LOG<br>结束时间：$NOW_STR"
 if [ "$SEVERE" -eq 1 ]; then
   ISSUE="update_all 严重告警："
   [ "$ELAPSED" -gt 3600 ] && ISSUE="${ISSUE}耗时超1h(${ELAPSED_MIN}分钟) "
   [ "$RC_CORE" -ne 0 ] && ISSUE="${ISSUE}core退出码非0($RC_CORE) "
+  [ "${DEPLOY_ALL_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}统一deploy失败(${DEPLOY_ALL_RC}) "
   [ "$FRESH_OK" != "1" ] && ISSUE="${ISSUE}数据时效异常($FRESH_MSG)"
   "$PY" "$REPO/scripts/notify.py" "[告警] update_all ${ISSUE} ${MM_DD_HM}" "$NOTIFY_BODY" --severe --from-prefix "[告警]" --alert-issue "$ISSUE" --alert-log "$LOG" || true
 else

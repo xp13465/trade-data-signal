@@ -111,8 +111,12 @@ if [ "$BUILD_RC" -ne 0 ]; then
 fi
 
 # 1. 导出 JSON
-echo "→ 运行 export.py 生成静态 JSON ..." | tee -a "$LOG"
-"$PY" "$EXPORT" 2>&1 | tee -a "$LOG"
+# ab#39 增量导出（2026-08-17 批次A）：--incremental 让 export 只重算源数据已变化的 JSON，
+# 其余复用现有文件（消除全量 353 JSON 重复重算）。安全：仅当依赖表 MAX(date) 与上次 export 相同才跳过，
+# 且 overview/signal_*/summary/futures 等必更白名单强制全量（防 8/14 "带日期跳过=静默旧数据"）。
+# 手动跑 export.py 不带 --incremental = 全量，行为不变。
+echo "→ 运行 export.py --incremental 生成静态 JSON ..." | tee -a "$LOG"
+"$PY" "$EXPORT" --incremental 2>&1 | tee -a "$LOG"
 EXPORT_RC=${PIPESTATUS[0]}
 if [ "$EXPORT_RC" -ne 0 ]; then
   echo "✗ export.py 失败(退出码 $EXPORT_RC)，终止部署" | tee -a "$LOG"
