@@ -175,7 +175,7 @@
                                                │  launchd 定时调度
         ┌─────────────────────────────┬───────────────────────────┬────────────────────┐
         │ 17:50 update_all 并行流水线 │ 盘中每10min intraday 快照 │ 盘后 export+deploy │
-        │ (core/width/futures/stock)  │    (R2 实时,不推 main)    │  (静态 JSON 产物)  │
+        │ (采集→末尾统一1次deploy)    │    (R2 实时,不推 main)    │  (增量导出,4遍→1遍) │
         └─────────────────────────────┴───────────────────────────┴────────────────────┘
                                                ▼
                     ┌─────────────────────────────────────────────────────┐
@@ -422,7 +422,7 @@ launchctl load ~/Library/LaunchAgents/com.trade.sentiment.plist
 
 ### 采集时点
 
-- **17:50（CST）** 主采集 [`scripts/update_all.sh`](scripts/update_all.sh)：4 条并行 pipeline（core 快核心 / width 慢宽度 / futures 期货 / stock_daily 后台死端），约 31 分钟跑完，当日下午即可看到当日数据
+- **17:50（CST）** 主采集 [`scripts/update_all.sh`](scripts/update_all.sh)：4 条并行 pipeline（core 快核心 / width 慢宽度 / futures 期货 / stock_daily 后台死端）只采集+计算写 DB，末尾**统一 1 次完整 deploy**（O1 收敛，原 4 遍→1 遍，省 50-58min）+ export **增量导出**（ab#39，只重算源数据已变化的 JSON，必更白名单 overview/信号类强制全量），约 30-40min 跑完，当日下午即可看到当日数据
 - **09:35–15:00 盘中** 每 10 分钟跑 `intraday_snapshot` 推 `intraday_snapshot.json` 实时快照（走 R2 实时，不推 main）
 - 另有 7 个辅助 launchd 任务（futures/lhb/rzhb/etf-national-team/backfill-evening/lab-auto/schedule-monitor）
 - 非交易日跳过采集仅 deploy + check_signals；交易日盘中 09:30-15:30 拒跑全量 export+deploy（防覆盖 intraday 实时版）
