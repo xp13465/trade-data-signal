@@ -556,17 +556,26 @@ def _format_stats_line(stats_entry: dict | None) -> str | None:
 # 不自行重算宇宙; AI 建议 top-K 排序读 overview 信号 etfs.track_score + signal_stats score
 # (与首页同数据源同排序), 非凭空自算。
 
-# 首页 AI宏 8 键(fixed 基础5+核心3, v1.1.0; queries.py _ai_macro_hit_filters 只输出这 8 键,
-# 故 overview.ai_macro.hit===true 即代表命中降亏, 无需再按成员名二次过滤)。
+# 首页 AI宏 8 键(基础5+核心3, 与 static-site/app.js _AI_MACRO_FILTER_NAMES 同源 §22)。
+# v1.1.2 备选键 legacyMa60Special/declinePhaseSpecial 默认关, 仅凯利区手动开时命中;
+# 首页/邮件/飞书永不因备选键判「AI降亏」(queries.py _ai_macro_hit_filters 无条件注入所有命中键,
+# 故此处须按 8 键白名单二次过滤, 不能直接用 overview.ai_macro.hit=true 当命中——备选键命中要剔除)。
 AI_MACRO_KEYS = {
     "n2NovSpecialIndustry", "excludeSpecialBear", "janMidRating",
     "janMidSpecial", "k2c5HkChase", "r7MayReinforced",
     "excludeAuxCross", "greedy15",
 }
-# 8 键中文名映射(与 static-site/app.js _AI_MACRO_FILTER_NAMES 同源, §22 一致性; 邮件/飞书徽标缘由用)
+# v1.1.2 备选键中文名(仅名称展示用, 不进 AI_MACRO_KEYS 判定; 与 app.js _AI_MACRO_BACKUP_NAMES 同源 §22)
+AI_MACRO_BACKUP_KEY_CN = {
+    "legacyMa60Special": "老MA60熊×追买",
+    "declinePhaseSpecial": "下降期×追关注",
+}
+# 键中文名映射(与 static-site/app.js _AI_MACRO_FILTER_NAMES 同源, §22 一致性; 邮件/飞书徽标缘由用)
 AI_MACRO_KEY_CN = {
     "n2NovSpecialIndustry": "11月+追关注+行业",
-    "excludeSpecialBear": "追关注×熊市交叉",
+    "excludeSpecialBear": "追关注×熊市交叉(四档)",
+    "legacyMa60Special": "老MA60熊×追买",
+    "declinePhaseSpecial": "下降期×追关注",
     "janMidRating": "1月中旬+中评级",
     "janMidSpecial": "1月中旬+追关注",
     "k2c5HkChase": "港股追涨剔除",
@@ -712,9 +721,10 @@ def _calc_signal_markers(sig: dict, overview_markers: dict, stats: dict,
     if marker is not None:
         in_universe = marker.get("_bt_in_universe")
         _am = marker.get("ai_macro", {})
-        ai_fade = bool(_am.get("hit"))
-        # 命中键英文数组 → 白名单过滤, 防未知键混入; 顺序随 overview 注入, 不重排
+        # 命中键英文数组 → 8 键白名单过滤(AI_MACRO_KEYS 不含 v1.1.2 备选键), 防未知/备选键混入;
+        # 顺序随 overview 注入, 不重排。首页/邮件/飞书仅 8 键命中才算「AI降亏」(备选键仅凯利区手动开时命中, §22)
         ai_fade_keys = [k for k in (_am.get("filters") or []) if k in AI_MACRO_KEYS]
+        ai_fade = bool(ai_fade_keys)
     sig_type = sig.get("signal") or ""
     # AI 警示: 入宇宙卖出(sell/sell_stop_loss), 首页 _isSellSig + _bt_in_universe!==false 同语义
     ai_warn = (sig_type in _AI_WARN_SELL_TYPES) and (in_universe is not False)
@@ -744,7 +754,7 @@ def _ai_fade_label(mk: dict) -> str:
     keys = mk.get("ai_fade_keys") or []
     if not keys:
         return base
-    cns = [AI_MACRO_KEY_CN.get(k, k) for k in keys]
+    cns = [AI_MACRO_KEY_CN.get(k, AI_MACRO_BACKUP_KEY_CN.get(k, k)) for k in keys]
     return f"{base}【{'、'.join(cns)}】"
 
 

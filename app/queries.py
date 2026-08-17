@@ -484,9 +484,12 @@ def stats_for(stats_all_dict: dict, index_id: str) -> dict:
 
 # ============ AI宏降亏命中标注(2026-08-13 首页 AI 开关) ============
 # 提取凯利回测区 lab.js _kellyPassesFadeFilters 的「AI宏默认降亏」8 键谓词
-# (基础 5 键 n2/excludeSpecialBear/janMidRating/janMidSpecial/k2c5HkChase 港股追涨剔除
+# (基础 5 键 n2/excludeSpecialBear四档/janMidRating/janMidSpecial/k2c5HkChase 港股追涨剔除
 #  + 3元核心 3 键 r7MayReinforced/excludeAuxCross/greedy15；K2C5 并基础5为第 8 键，
 #  v1.1.0 用户拍板 定名「基础5」, 穷举验证 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md)
+# v1.1.2(2026-08-17 用户拍板): excludeSpecialBear 语义从 MA60 熊 → 四档(熊市·主跌+下降期)，
+#   默认开=新主键(见 §5.4⑥ 发版本); 另新增 2 个默认关备选键 legacyMa60Special(老MA60熊×追买)
+#   与 declinePhaseSpecial(下降期×buy_special 全市场), 均带 NEW 标签。
 # 为可复用的信号级谓词，给 overview.json 每条信号注入 ai_macro:{hit, filters}。
 # 与凯利区降亏逻辑同源(§22)。
 # ⚠ 粒度降级(诚实标注)：凯利区基于交易级字段(含 ETF 买入价 buy_price 的
@@ -501,6 +504,8 @@ def stats_for(stats_all_dict: dict, index_id: str) -> dict:
 _AI_MACRO_TOGGLE_NAMES = {
     "n2NovSpecialIndustry": "11月+追关注+行业",
     "excludeSpecialBear": "追关注×熊市交叉",
+    "legacyMa60Special": "老MA60熊×追买",
+    "declinePhaseSpecial": "下降期×追关注",
     "janMidRating": "J1 1月中旬+mid评级",
     "janMidSpecial": "J2 1月中旬+追关注",
     "k2c5HkChase": "港股追涨剔除",
@@ -538,26 +543,105 @@ def _ai_macro_build_market_map(cfg) -> dict:
 
 
 def _ai_macro_build_market_state(conn):
-    """沪深300 close 相对 MA60 状态(凯利 MARKET_FILTER_MA_WINDOW=60)。
-    返回 ({date: bool}, 排序日期列表)；无数据返回 (None, None) 保守不过滤。"""
+    """沪深300 四档大盘状态 + MA60 择时(与凯利 kelly_4tier / market_summary._market_state_of 同口径)。
+    返回 (tiers, dates, ma60_bull)；无数据返回 (None, None, None) 保守不过滤。
+    tiers: {date: tier_str}, tier_str ∈ {"牛市·主升","上升期","下降期","熊市·主跌"}：
+      牛市·主升=价>MA200 且 多头排列(MA20>MA60>MA120)
+      上升期   =价>MA200 且 非多头
+      下降期   =价<MA200 且 非空头
+      熊市·主跌=价<MA200 且 空头排列(MA20<MA60<MA120)
+    ma60_bull: {date: close>MA60} 老 MA60 备选键(legacyMa60Special)判定源。
+    """
     rows = conn.execute(
         "SELECT date, close FROM index_daily WHERE index_id='hs300' "
         "AND close IS NOT NULL ORDER BY date"
     ).fetchall()
     if not rows:
-        return None, None
+        return None, None, None
     dates = [r["date"] for r in rows]
     closes = [r["close"] for r in rows]
-    w = 60
-    state = {}
-    for i in range(w - 1, len(dates)):
-        ma = sum(closes[i - w + 1: i + 1]) / w
-        state[dates[i]] = closes[i] > ma
-    return state, dates
+    n = len(dates)
+
+    def _ma(w: int, i: int):
+        if i < w - 1:
+            return None
+        return sum(closes[i - w + 1: i + 1]) / w
+
+    tiers = {}
+    ma60_bull = {}
+    for i in range(200 - 1, n):
+        c = closes[i]
+        m20 = _ma(20, i)
+        m60 = _ma(60, i)
+        m120 = _ma(120, i)
+        m200 = _ma(200, i)
+        ma60 = _ma(60, i)
+        if None in (m20, m60, m120, m200):
+            continue
+        bull = m20 > m60 > m120
+        bear = m20 < m60 < m120
+        if c > m200 and bull:
+            tier = "牛市·主升"
+        elif c > m200:
+            tier = "上升期"
+        elif c < m200 and bear:
+            tier = "熊市·主跌"
+        elif c < m200:
+            tier = "下降期"
+        else:
+            tier = "上升期"
+        tiers[dates[i]] = tier
+        if ma60 is not None:
+            ma60_bull[dates[i]] = closes[i] > ma60
+    return tiers, dates, ma60_bull
+
+
+def _ai_macro_tier_at(date_str: str, tiers, dates):
+    """<= 信号日最近的四档 tier_str；无状态返回 None(不过滤)。"""
+    if not tiers:
+        return None
+    idx = bisect.bisect_right(dates, date_str) - 1
+    while idx >= 0:
+        d = dates[idx]
+        if d in tiers:
+            return tiers[d]
+        idx -= 1
+    return None
+
+
+def _ai_macro_ma60_bull_at(date_str: str, ma60_bull, dates) -> bool:
+    """老 MA60 备选键：<= 信号日最近交易日 close>MA60(多头 True, 熊 False)。
+    与旧 excludeSpecialBear MA60 判定同口径；无状态保守 True(不过滤)。"""
+    if not ma60_bull:
+        return True
+    idx = bisect.bisect_right(dates, date_str) - 1
+    while idx >= 0:
+        d = dates[idx]
+        if d in ma60_bull:
+            return ma60_bull[d]
+        idx -= 1
+    return True
+
+
+def market_tier_history(conn):
+    """沪深300 四档大盘状态全历史序列(2002 起, 供前端历史四档轨迹图/色带/时间线面板)。
+    与 _ai_macro_build_market_state 同口径, 输出 [{date, tier, ma60_bull}] 按日期升序。
+    tier ∈ {"牛市·主升","上升期","下降期","熊市·主跌"}, ma60_bull 为老 MA60 备选键判定。
+    纯展示数据, 不影响过滤(§23.7 只增不改)。
+    """
+    tiers, dates, ma60_bull = _ai_macro_build_market_state(conn)
+    if not tiers:
+        return []
+    out = []
+    for d in dates:
+        if d in tiers:
+            out.append({"date": d, "tier": tiers[d], "ma60_bull": bool(ma60_bull.get(d, False))})
+    return out
 
 
 def _ai_macro_is_bull(date_str: str, state, dates) -> bool:
-    """<= 信号日最近的 MA60 状态(多头 True)；无状态保守 True(不过滤)。"""
+    """<= 信号日最近的 MA60 状态(多头 True)；无状态保守 True(不过滤)。
+    (为兼容旧调用保留；主键已改为四档 tier 判定, 此函数不再被 _ai_macro_hit_filters 使用。)"""
     if not state:
         return True
     idx = bisect.bisect_right(dates, date_str) - 1
@@ -607,7 +691,7 @@ def _ai_macro_hit_filters(sig: dict, ctx: dict) -> list:
     """信号级 AI宏(基础5+核心3 = 8 toggle, +1类剔除走 _bt_in_universe 字段)命中条件名列表
     (与凯利区 AI宏默认集同源, v1.1.0 基准, docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md)。
     ctx 需含: rating_of(sig)->str / market_of(iid)->str / track_score_of(sig)->float|None /
-    is_bull(date)->bool。price_bin 依赖子条件降级不参与命中(见模块级注释)。
+    tier_of(date)->str|None(四档) / ma60_bull_of(date)->bool(老MA60备选)。price_bin 依赖子条件降级不参与命中(见模块级注释)。
     仅买信号守卫(MED3): 非买信号直接返空(与凯利区"只对买交易过滤"同源)。"""
     _f = []
     _d = str(sig.get("date") or "")
@@ -618,7 +702,8 @@ def _ai_macro_hit_filters(sig: dict, ctx: dict) -> list:
     _rating = ctx["rating_of"](sig)
     _mkt = ctx["market_of"](sig.get("index_id") or "")
     _ts = ctx["track_score_of"](sig)
-    _bull = ctx["is_bull"](_d)
+    _tier = ctx["tier_of"](_d)
+    _ma60_bull = ctx["ma60_bull_of"](_d)
     _q = _ai_macro_quarter(_mm)
 
     # ⚠仅买信号守卫(与凯利区"只对买交易过滤"同源): 非买(band_hold/sell/sell_stop_loss)一律不判降亏
@@ -628,9 +713,17 @@ def _ai_macro_hit_filters(sig: dict, ctx: dict) -> list:
     # 1 n2: buy_special + 11月 + 行业指数
     if _sig == "buy_special" and _mm == "11" and _mkt == "mkt_industry":
         _f.append("n2NovSpecialIndustry")
-    # 2 excludeSpecialBear: buy_special + A股类 + MA60 熊市(大盘择时仅对A股类, 非A不过滤, 与凯利同源)
-    if _sig == "buy_special" and _mkt in _AI_MACRO_A_STOCK_MARKETS and not _bull:
+    # 2 excludeSpecialBear(v1.1.2 主键, 四档升级): buy_special + A股类 + 四档∈{熊市·主跌,下降期}
+    #   (大盘择时仅对A股类, 非A不过滤, 与凯利 kelly_4tier R1_all 判定同源; 老 MA60 语义降为备选键 legacyMa60Special)
+    if _sig == "buy_special" and _mkt in _AI_MACRO_A_STOCK_MARKETS and _tier in ("熊市·主跌", "下降期"):
         _f.append("excludeSpecialBear")
+    # 2b legacyMa60Special(默认关备选, v1.1.2): 老 excludeSpecialBear 的 MA60 熊×buy_special×A股类
+    #   close<MA60(ma60_bull=False) 判熊, 与 v1.1.0 旧语义完全一致(仅 A股类, 非A不过滤)
+    if _sig == "buy_special" and _mkt in _AI_MACRO_A_STOCK_MARKETS and not _ma60_bull:
+        _f.append("legacyMa60Special")
+    # 2c declinePhaseSpecial(默认关备选, v1.1.2): 下降期×buy_special×全市场(B 方案 V4d_all 增量, 不限于A股)
+    if _sig == "buy_special" and _tier == "下降期":
+        _f.append("declinePhaseSpecial")
     # 2b k2c5HkChase(K2C5, 并基础5 v1.1.0 第8键): signal∈{buy_special,buy_backup} × 港股
     #   与 lab.js _kellyPassesFadeFilters L7521 同谓词(_mktD3==="hk")。
     #   ⚠港股分类须对齐回测 MARKET_QUAD_MAP(scripts/signal_kelly_backtest.py L128-130):
@@ -1023,20 +1116,23 @@ def overview(conn, cfg):
                 _e["etf_price_diff"] = round(_today_close - _sig_close, 3)
 
     # AI宏降亏命中标注(2026-08-13 首页 AI 开关): 每条信号注入 ai_macro:{hit, filters}
-    # 8 键(toggle 基础5+核心3, v1.1.0)谓词与凯利区 AI宏默认降亏
+    # 8 键(toggle 基础5+核心3, v1.1.2 excludeSpecialBear 升四档)谓词与凯利区 AI宏默认降亏
     # (lab.js _kellyPassesFadeFilters + _kellyDefaultFilters)同源; +1类回测剔除由
     # 各信号 _bt_in_universe 字段承载(L840, 端到端三处一致, 见模块级注释)。
+    # 默认组合只开主键 excludeSpecialBear(四档); 备选键 legacyMa60Special/declinePhaseSpecial
+    # 默认关, 仅在用户于凯利区手动开启时参与命中(首页默认不标这两键)。
     # 信号级粒度降级: price_bin(ETF 买入价分位)依赖子条件在 overview 不可判定(无价格字段),
     # 不参与命中(漏标不误标, 诚实标注见 _ai_macro_hit_filters 模块级注释)。
     if sigs:
         _sig_stats = sigstats.load()  # 主库 data/signal_stats.json(与 overview 同源)
         _market_map = _ai_macro_build_market_map(cfg)
-        _bull_state, _bull_dates = _ai_macro_build_market_state(conn)
+        _tier_state, _tier_dates, _ma60_bull_state = _ai_macro_build_market_state(conn)
         _ctx = {
             "rating_of": lambda _s: _ai_macro_rating_of(_s, _sig_stats),
             "market_of": lambda _iid: _market_map.get(_iid or "", ""),
             "track_score_of": _ai_macro_track_score_of,
-            "is_bull": lambda _d: _ai_macro_is_bull(_d, _bull_state, _bull_dates),
+            "tier_of": lambda _d: _ai_macro_tier_at(_d, _tier_state, _tier_dates),
+            "ma60_bull_of": lambda _d: _ai_macro_ma60_bull_at(_d, _ma60_bull_state, _tier_dates),
         }
         for _s in sigs:
             _f = _ai_macro_hit_filters(_s, _ctx)
@@ -1558,14 +1654,30 @@ def industry(conn, cfg, start, end, *, cache=None, stats_all_dict=None):
 
 
 def index_detail(conn, cfg, index_id, start, end, *, cache=None, stats_all_dict=None, include_etf=False):
-    """复刻 /api/index/{index_id}。include_etf=True 时注入 ETF 候选列表（export 用）。"""
+    """复刻 /api/index/{index_id}。include_etf=True 时注入 ETF 候选列表（export 用）。
+    index_id=='hs300' 时注入 tiers(四档大盘状态, 对齐 ohlc 日期)供前端色带/轨迹图(纯展示)。"""
     sa = stats_all_dict if stats_all_dict is not None else stats_all()
+    ohlc = index_series(conn, index_id, start, end, cache=cache)
     result = {
-        "ohlc": index_series(conn, index_id, start, end, cache=cache),
+        "ohlc": ohlc,
         "signals": signals(conn, index_id, start, end, cache=cache),
         "stats": stats_for(sa, index_id),
         "strategy": strategy_desc(index_id, cfg),
     }
+    # 沪深300 注入四档大盘状态(纯展示, 不影响过滤; 与回测/首页同口径 §22/§23.6)。
+    # tiers 数组与 ohlc 一一对应(每日期前向填充最近可用 tier, 无状态=None)。
+    if index_id == "hs300":
+        _tiers, _tier_dates, _ma60 = _ai_macro_build_market_state(conn)
+        if _tiers:
+            _tier_list = []
+            _last = None
+            for _o in ohlc:
+                _t = _ai_macro_tier_at(_o["date"], _tiers, _tier_dates)
+                _m = _ai_macro_ma60_bull_at(_o["date"], _ma60, _tier_dates)
+                _last = _t if _t is not None else _last
+                _tier_list.append({"date": _o["date"], "tier": _last,
+                                   "ma60_bull": bool(_m)})
+            result["tiers"] = _tier_list
     if include_etf:
         result.update(etf_for(index_id))
         # ETF本体兜底（cgb_10y_etf 等 fund_etf_hist_sina 指数）：board_etf_map.json 无此 key

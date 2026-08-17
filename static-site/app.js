@@ -2201,13 +2201,19 @@ function _topEtfByScore(etfs) {
 // 基础5+核心3=8键, K2C5 港股追涨并入基础5, 见 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md; +1类回测剔除走 _bt_in_universe 字段)。
 const _AI_MACRO_FILTER_NAMES = {
   n2NovSpecialIndustry: "11月+追关注+行业",
-  excludeSpecialBear: "追关注×熊市交叉",
+  excludeSpecialBear: "追关注×熊市交叉(四档)",
   janMidRating: "1月中旬+中评级",
   janMidSpecial: "1月中旬+追关注",
   k2c5HkChase: "港股追涨剔除",
   r7MayReinforced: "5月强化+3稳定非5月",
   excludeAuxCross: "辅关注×3/5月交叉",
   greedy15: "Greedy-15组合"
+};
+// v1.1.2 备选键(v1.1.2 凯利三键改造, 凯利区默认关可自开): 仅名称展示用, 不参与首页「AI降亏过滤」判定——
+//   首页固定 8 键白名单(基础5+核心3, 见 _AI_MACRO_FILTER_NAMES), 备选键须用户凯利区手动开才命中(§22 首页/凯利口径一致)。
+const _AI_MACRO_BACKUP_NAMES = {
+  legacyMa60Special: "老MA60熊×追买",
+  declinePhaseSpecial: "下降期×追关注"
 };
 // 读首页独立 AI降亏过滤开关(localStorage tds_home_fade, 布尔, 默认开启=按降亏策略判定+灰显删除线+标注)。
 // 与凯利区 tds_kelly_filters 完全解耦互不影响; 旧键 tds_poscap_aiDisplay(纯显示开关)已随合并废弃不再读取。
@@ -2266,7 +2272,7 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
   return `<div class="sig-switch-row" data-no-pop="">` +
     `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(总开关, 首页独立, 删除线过滤层): 开启=①命中降亏条件(固定 8键=基础5+核心3, +1类回测剔除=_bt_in_universe)的买入信号=灰显+删除线+标注AI降亏建议回避(现状) + ②未入样宇宙信号(债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, 含波动相关/未入样本信号)=删除线+灰显+标注未入样本; 关闭=不画任何删除线、未入样本不标注, 信号恢复正常样式。结构=AI宏5+3+1(v1.1.0 定名「基础5」): 5+3=保留入样的8个降亏键(基础5=基础4+K2C5 港股追涨剔除), +1=回测剔除的波动相关/未入样本整类信号(AI建议不推荐)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。独立 localStorage 键 tds_home_fade 与凯利区互不影响; 与「AI仓位建议」两个开关正交(各自管一层, 不互相触发)">` +
       `<input type="checkbox" class="sig-switch-ai-cb"${_fadeOn ? " checked" : ""}> AI降亏过滤` +
-      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 删除线过滤层, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 结构=AI宏5+3+1(v1.1.0 定名「基础5」, 2026-08-15 补公示): 5=基础5键(基础4 + K2C5 港股追涨剔除), 3=核心3键, 两者 8 键都是「保留入样、可被AI建议推荐」的降亏开关; +1=回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(后端已剔除出回测宇宙 / 波动相关剔除), 故 AI建议 一律不推荐, 本开关开启时以「未入样本」+灰显+删除线标注表达"被过滤掉"。 开启=①首页按降亏策略判定, 固定 8键+1类 成员级(基础5= 追关注×熊市交叉 / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 / K2C5 港股追涨剔除 + 核心3= 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致 v1.1.0; +1=回测剔除的波动相关/未入样本信号整类)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。命中降亏条件(8键中任一键)的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); ②未入样宇宙信号(债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 后端已剔除出回测宇宙)=删除线+灰显+「未入样本」标注(AI过滤视图, 表达"被过滤掉"); 关闭=首页完全不判降亏、不画删除线、未入样本不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。⚠两开关正交: AI降亏层只产删除线/未入样本, 不产 AI建议N/当日已满/AI警示(那些归「AI仓位建议」开关控制)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号">ⓘ</span>` +
+      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 删除线过滤层, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 结构=AI宏5+3+1(v1.1.0 定名「基础5」, 2026-08-15 补公示): 5=基础5键(基础4 + K2C5 港股追涨剔除), 3=核心3键, 两者 8 键都是「保留入样、可被AI建议推荐」的降亏开关; +1=回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(后端已剔除出回测宇宙 / 波动相关剔除), 故 AI建议 一律不推荐, 本开关开启时以「未入样本」+灰显+删除线标注表达"被过滤掉"。 开启=①首页按降亏策略判定, 固定 8键+1类 成员级(基础5= 追关注×熊市交叉四档(v1.1.2 2026-08-17 主键判定 MA60→四档{熊市·主跌,下降期}×A股类升级; 老MA60熊×追买 / 下降期×追关注 两备选键默认关🆕NEW) / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 / K2C5 港股追涨剔除 + 核心3= 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致 v1.1.0/v1.1.2; +1=回测剔除的波动相关/未入样本信号整类)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。命中降亏条件(8键中任一键)的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); ②未入样宇宙信号(债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 后端已剔除出回测宇宙)=删除线+灰显+「未入样本」标注(AI过滤视图, 表达"被过滤掉"); 关闭=首页完全不判降亏、不画删除线、未入样本不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。⚠两开关正交: AI降亏层只产删除线/未入样本, 不产 AI建议N/当日已满/AI警示(那些归「AI仓位建议」开关控制)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号">ⓘ</span>` +
     `</label>` +
     `${_aShareFinalizedTag}` +
     `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap, badge标注层): 开启=同日只买最优K个买入类(进K=「AI建议N」亮绿 / 超K=「当日已满」灰显) + 入宇宙${_t("sell_short")}(sell/sell_stop_loss/${_t("type_band_sell")})=「AI警示」亮橙(${_t("sell_short")}无K约束不判K); 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表(无AI建议N/当日已满/AI警示), 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。⚠两开关正交: AI仓位层只产上面三类badge, 不产删除线过滤(删除线/未入样本归「AI降亏过滤」开关控制)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span>${_helpBtn}</span>` +
@@ -2588,7 +2594,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // ⚠️ 2026-08-13 融合口径: 本判定必须前移到 top-K 选取之前(先滤降亏、再选 top-K, 与凯利回测 lab.js _kellyCollectBasePool 先过 passesFade 一致)
   let _fadeOn = true;
   const _aiOnMembers = {};
-  for (const _amk in _AI_MACRO_FILTER_NAMES) _aiOnMembers[_amk] = true;  // 固定 8 键全开(基础5+核心3, v1.1.0 与凯利区默认策略一致)
+  // 固定 8 键白名单全开(基础5+核心3, _AI_MACRO_FILTER_NAMES 不含 v1.1.2 备选键 legacyMa60Special/declinePhaseSpecial——
+  // 备选键不进首页判定, 须凯利区手动开才命中, 与凯利区默认关口径一致 §22)。v1.1.0 与凯利区默认策略一致
+  for (const _amk in _AI_MACRO_FILTER_NAMES) _aiOnMembers[_amk] = true;
   if (kind === "signal") {
     _fadeOn = _readHomeFadeFlag();
   }
@@ -2782,7 +2790,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           const _hitOn = it.ai_macro.filters.filter((fk) => _aiOnMembers[fk]);
           if (_hitOn.length) {
             aiHitCls = " sig-ai-hit";
-            const _hitNames = _hitOn.map((fk) => _AI_MACRO_FILTER_NAMES[fk] || fk).join(" / ");
+            const _hitNames = _hitOn.map((fk) => _AI_MACRO_FILTER_NAMES[fk] || _AI_MACRO_BACKUP_NAMES[fk] || fk).join(" / ");
             aiHitBadge = `<sup class="sig-ai-hit-badge" data-tip="删除线原因: 本信号命中AI降亏过滤条件【${_hitNames}】→ 被过滤建议回避, 所以显示删除线, 且不占AI建议位(顺延补位给未命中信号)(由首页「AI降亏过滤」开关判定, 独立作用域与凯利区互不影响; 关闭首页「AI降亏过滤」开关即可恢复正常样式)">AI降亏</sup>`;
             aiHitAttr = ` data-ai-hit="1" data-ai-hit-names="${_escAttr(_hitNames)}"`;
           }
@@ -4561,7 +4569,15 @@ function statsHint(stats, strategy, indexId) {
 }
 
 // 指数图 + 买卖点标注
-function indexChart(title, ohlc, signals, stats, strategy, container = content, chartArr = charts, indexId) {
+// 四档大盘状态色带颜色(涨红跌绿, 与全站红涨绿跌一致; 纯展示)
+const _TIER_COLORS = {
+  "牛市·主升": "#e6492e",
+  "上升期": "#f2a06e",
+  "下降期": "#8fc29a",
+  "熊市·主跌": "#2e8b57",
+};
+
+function indexChart(title, ohlc, signals, stats, strategy, container = content, chartArr = charts, indexId, tiers) {
   const hint = statsHint(stats, strategy, indexId);
   // 标题追加最新日期+收盘价（OHLC 图，取最后一条 close）
   const _last = ohlc && ohlc.length ? ohlc[ohlc.length - 1] : null;
@@ -4581,6 +4597,17 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
   const markData = _buildSignalMarkData(signals, (date) => {
     const o = _ohlcMap[date]; return o ? o.close : null;
   });
+  // 四档大盘状态色带(纯展示, 仅 hs300): 底部细色带按日期标大盘四档状态, 涨红跌绿。
+  // tiers 与 ohlc 一一对应(缺 tier 的用前值前向填充/无值=灰)。
+  const _tierBand = [];
+  if (tiers && tiers.length) {
+    let _lastTier = null;
+    for (let i = 0; i < ohlc.length; i++) {
+      const _t = tiers[i] ? tiers[i].tier : null;
+      if (_t) _lastTier = _t;
+      _tierBand.push({ value: 0.5, itemStyle: { color: _TIER_COLORS[_lastTier] || "#9aa0a6", borderWidth: 0 }, date: ohlc[i].date, tier: _lastTier });
+    }
+  }
   c.setOption(withTheme({
     tooltip: {
       trigger: "axis",
@@ -4592,6 +4619,10 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
         if (o && o.close != null) {
           tip += "<br/>收盘 " + o.close.toFixed(2);
           if (o.pct_change != null) tip += ' <span style="color:' + (o.pct_change >= 0 ? "#e6492e" : "#2e8b57") + '">' + (o.pct_change >= 0 ? "+" : "") + o.pct_change.toFixed(2) + "%</span>";
+        }
+        if (_tierBand && _tierBand.length) {
+          const _tb = _tierBand.find((x) => x.date === dt);
+          if (_tb && _tb.tier) tip += '<br/>大盘四档：<b style="color:' + (_TIER_COLORS[_tb.tier] || "#9aa0a6") + '">● ' + _tb.tier + "</b>";
         }
         const marks = markData.filter((m) => m.coord[0] === dt && m.reason);
         for (const m of marks) {
@@ -4609,9 +4640,38 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
     },
     grid: { left: 55, right: 20, top: 30, bottom: 50 },
     xAxis: { type: "category", data: ohlc.map((d) => d.date) },
-    yAxis: { type: "value", scale: true },
+    yAxis: _tierBand.length ? [
+      { type: "value", scale: true },
+      { type: "value", show: false, min: 0, max: 1 },
+    ] : { type: "value", scale: true },
     dataZoom: dzOpts(),
-    series: [
+    series: _tierBand.length ? [
+      {
+        name: "大盘四档状态",
+        type: "bar",
+        yAxisIndex: 1,
+        stack: "tierband",
+        barCategoryGap: "0%",
+        barWidth: "99%",
+        silent: true,
+        z: 1,
+        data: _tierBand,
+      },
+      {
+        name: stripHtml(title),
+        type: "line",
+        smooth: true,
+        symbol: "none",
+        data: close,
+        lineStyle: { width: 1.5 },
+        markPoint: {
+          symbol: "pin",
+          symbolSize: 34,
+          label: { fontSize: 11, color: cssVar("--text-1") },
+          data: markData,
+        },
+      },
+    ] : [
       {
         name: stripHtml(title),
         type: "line",
@@ -4629,6 +4689,98 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
     ],
   }));
   return c;
+}
+
+// 沪深300 历史四档大盘状态时间线面板(纯展示, v1.1.2 2026-08-17)。
+// 横向四档色带 + 3 档时间范围切换(近1年默认/近5年/全史2002起)。不参与任何过滤(§23.7 只增不改)。
+async function _renderTierTimelinePanel(container) {
+  let data = null;
+  try {
+    data = await fetchJSON(_R2_DATA_BASE + "market_tier_history.json");
+  } catch (e) { data = null; }
+  if (!data || !data.length) return;
+  const _fmtD = (s) => (s ? s.slice(0, 4) + "-" + s.slice(4, 6) + "-" + s.slice(6, 8) : "");
+  const _ranges = [
+    { label: "近1年", years: 1, days: 365 },
+    { label: "近5年", years: 5, days: 5 * 365 },
+    { label: "全史", years: null, days: null },
+  ];
+  const _today = new Date();
+  function _slice(days) {
+    if (days == null) return data;
+    const _cut = new Date(_today);
+    _cut.setDate(_cut.getDate() - days);
+    const _cutStr = _cut.getFullYear() * 10000 + (_cut.getMonth() + 1) * 100 + _cut.getDate();
+    const idx = data.findIndex((x) => Number(x.date) >= _cutStr);
+    return idx < 0 ? data : data.slice(idx);
+  }
+  const _legend = [
+    { t: "牛市·主升", c: _TIER_COLORS["牛市·主升"] },
+    { t: "上升期", c: _TIER_COLORS["上升期"] },
+    { t: "下降期", c: _TIER_COLORS["下降期"] },
+    { t: "熊市·主跌", c: _TIER_COLORS["熊市·主跌"] },
+  ];
+  const card = mkCard("沪深300 大盘四档状态轨迹", 110, null, container, charts);
+  const _wrap = card.getDom().parentElement;
+  // 标题行右侧加范围切换按钮
+  const _h3 = _wrap.querySelector("h3");
+  if (_h3) {
+    const _btnBox = document.createElement("span");
+    _btnBox.className = "tier-tl-range";
+    _btnBox.style.cssText = "float:right;font-size:11px;";
+    _btnBox.innerHTML = _ranges.map((r) => `<button class="tier-tl-btn" data-r="${r.years != null ? r.days : "all"}">${r.label}</button>`).join("");
+    _h3.appendChild(_btnBox);
+  }
+  function _draw(rangeDays) {
+    const _sliceArr = _slice(rangeDays);
+    if (!_sliceArr.length) return;
+    const _dates = _sliceArr.map((x) => x.date);
+    const _band = _sliceArr.map((x) => ({ value: 1, itemStyle: { color: _TIER_COLORS[x.tier] || "#9aa0a6", borderWidth: 0 }, date: x.date, tier: x.tier }));
+    card.setOption(withTheme({
+      tooltip: {
+        trigger: "axis",
+        formatter: function (params) {
+          const _p = params[0];
+          const _b = _band[Math.min(_p.dataIndex, _band.length - 1)];
+          if (!_b) return fmtDate(_p.axisValue);
+          let _s = fmtDate(_b.date) + '<br/><b style="color:' + (_TIER_COLORS[_b.tier] || "#9aa0a6") + '">● ' + _b.tier + "</b>";
+          if (_sliceArr[_p.dataIndex] && _sliceArr[_p.dataIndex].ma60_bull != null) {
+            _s += '<br/>MA60 多头：' + (_sliceArr[_p.dataIndex].ma60_bull ? "<b>是</b>" : "否");
+          }
+          return _s;
+        },
+      },
+      grid: { left: 45, right: 15, top: 15, bottom: 25 },
+      xAxis: { type: "category", data: _dates, axisLabel: { show: false } },
+      yAxis: { type: "value", show: false, min: 0, max: 1 },
+      series: [{
+        name: "大盘四档状态",
+        type: "bar",
+        barCategoryGap: "0%",
+        barWidth: "99%",
+        silent: true,
+        data: _band,
+      }],
+    }));
+  }
+  _draw(365); // 默认近1年(2026-08-17 v1.1.2 建议A:非阻断项, 默认近1年非全史)
+  const _btns = _wrap.querySelectorAll(".tier-tl-btn");
+  _btns.forEach((b) => {
+    if (b.getAttribute("data-r") === "365") { b.style.fontWeight = "bold"; b.style.color = "var(--text-1)"; }
+    b.addEventListener("click", () => {
+      _btns.forEach((x) => { x.style.fontWeight = "normal"; x.style.color = "var(--text-2)"; });
+      b.style.fontWeight = "bold"; b.style.color = "var(--text-1)";
+      const _rd = b.getAttribute("data-r");
+      _draw(_rd === "all" ? null : Number(_rd));
+    });
+  });
+  // 图例
+  const _lg = document.createElement("div");
+  _lg.className = "tier-tl-legend";
+  _lg.style.cssText = "padding:2px 12px 6px;font-size:11px;color:var(--text-2);";
+  _lg.innerHTML = "四档口径：" + _legend.map((x) => `<span style="margin-right:10px"><b style="color:${x.c}">●</b> ${x.t}</span>`).join("") +
+    '<span style="margin-left:6px;color:var(--text-3)">· 牛市·主升=价&gt;MA200且多头排列 / 上升期=价&gt;MA200非多头 / 下降期=价&lt;MA200非空头 / 熊市·主跌=价&lt;MA200且空头排列（沪深300）</span>';
+  _wrap.appendChild(_lg);
 }
 
 // 信号 markData(_buildSignalMarkData 输出) → 轻量 markPoints + gradients(拼色 linearGradient)。
@@ -5497,7 +5649,7 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow, extraGrou
         // 宽基/行业 index_id 本身是代码不重复显示（indexIdToCode 返回空串）。
         const _idxCodeForTitle = indexIdToCode(id, idx.symbol);
         const _idxCodeTag = _idxCodeForTitle ? ` <span class="idx-code-tag" title="${idxCodeTooltip(id, _idxCodeForTitle)}">${_idxCodeForTitle}</span>` : "";
-        const c = indexChart((_INDEX_NAME_MAP[id] || idx.name) + _idxCodeTag + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id);
+        const c = indexChart((_INDEX_NAME_MAP[id] || idx.name) + _idxCodeTag + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id, sig.tiers);
         sectionCharts.push(c);
         const cardEl = c.getDom().parentElement;
         // 目录锚点跳转目标 id + scroll spy observe(卡片渲染完后注册)
@@ -14856,8 +15008,10 @@ async function renderAStock(container = content) {
   // 静态版 fetcher：读 index/{id}-all.json 全历史，前端按 ohlc 日期范围过滤 signals
   await renderIndicesSection(indicesSection, r.indices, async (id, idx) => {
     const raw = await fetchJSON(`https://ss.fx8.store/r2/index/${id}-all.json`);
-    return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats };
+    return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats, tiers: raw.tiers || null };
   }, true);
+  // 沪深300 历史四档大盘状态时间线面板(纯展示, v1.1.2)
+  await _renderTierTimelinePanel(container);
 }
 
 // 港股快照 code -> index_id 映射（与 intraday_snapshot.py 的 _SNAPSHOT_TO_INDEX_ID 一致）。
@@ -14937,7 +15091,7 @@ async function renderHK(container = content) {
   await _ensureSigEtfCacheFromOverview();
   await renderIndicesSection(indicesSection, indices, async (id, idx) => {
     const raw = await fetchJSON(`https://ss.fx8.store/r2/index/${id}-all.json`);
-    return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats };
+    return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats, tiers: raw.tiers || null };
   }, true, extraGroups, anchorBarRef);
   // 港股板块指数（复用 renderIndustryGrid，与 A 股行业网格一致）
   if (hkIndEntries.length) {
@@ -15095,7 +15249,7 @@ async function renderGlobal(container = content) {
         // 2026-08-07 走势图卡片标题加指数代码（对齐 A 股做法 b7e0b96c1）
         const _idxCodeForTitle = indexIdToCode(id, idx.symbol);
         const _idxCodeTag = _idxCodeForTitle ? ` <span class="idx-code-tag" title="${idxCodeTooltip(id, _idxCodeForTitle)}">${_idxCodeForTitle}</span>` : "";
-        const chart = indexChart(idxName + _idxCodeTag, idx.data, sigs, sig.stats, idx.strategy, cardGrid, charts, id);
+        const chart = indexChart(idxName + _idxCodeTag, idx.data, sigs, sig.stats, idx.strategy, cardGrid, charts, id, sig.tiers);
         if (chart) {
           const cardEl = chart.getDom().parentElement;
           // 目录锚点跳转目标 id + scroll spy observe(卡片渲染完后注册)

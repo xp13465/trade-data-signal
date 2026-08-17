@@ -7293,7 +7293,11 @@ function _kellyDefaultFilters() {
     // K2C5 港股追涨 / K3 主关注×概念 (2026-08-15 #86 新增 纯前端实验键; v1.1.0 2026-08-15 用户拍板升级)
     // K2C5 默认开(v1.1.0 用户拍板: 全信号除 G 外双升, 港股卡去除后 0 负全转正, 见 docs/kelly/analysis/kelly-k2c5-return-quadrant-check.md)
     // K3 维持默认关可自开(用户只拍板 K2C5, 未拍板 K3; 高波动+牺牲 2024/2025 大赚年, 报告建议默认关+监控)
-    k2c5HkChase: true, k3ConceptBuy: false
+    k2c5HkChase: true, k3ConceptBuy: false,
+    // v1.1.2(2026-08-17 用户拍板) 三键: excludeSpecialBear 语义升四档(默认开=新主键, 见上方已有 true);
+    //   新增 2 个默认关备选键 legacyMa60Special(老MA60熊×追买) / declinePhaseSpecial(下降期×buy_special全市场)。
+    //   默认组合=只开主键四档(= A 方案 R1_all 口径, 回测见 docs/market-state/kelly-4tier-*)。备选键默认关可自开。
+    legacyMa60Special: false, declinePhaseSpecial: false
   };
 }
 
@@ -7404,8 +7408,17 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
   if (filters.excludeRatingLow && fIdx.rating != null && t[fIdx.rating] === "low") return false;
   // 排除buy_aux+03/05月交叉(最外科手术式降亏标志, 比值2.52)
   if (filters.excludeAuxCross && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_aux" && fIdx.buy_date != null) { var _mmX = (t[fIdx.buy_date] || "").substring(4, 6); if (_mmX === "03" || _mmX === "05") return false; }
-  // 排除buy_special追关注+MA60熊市(追涨信号在熊市是雷区, 比值2.31)
-  if (filters.excludeSpecialBear && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_state != null && t[fIdx.market_state] === false) return false;
+  // v1.1.2(2026-08-17 用户拍板) 三键: excludeSpecialBear 升四档主键 + 老MA60备选 + 下降期备选
+  // 主键 excludeSpecialBear(默认开, 四档): buy_special × A股类 × 四档∈{熊市·主跌,下降期}
+  //   (market_tier 后端已按 A股类注入, 非A股为 "" 不过滤, 与凯利 kelly_4tier R1_all 同源; 老 MA60 语义降为备选 legacyMa60Special)
+  if (filters.excludeSpecialBear && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_tier != null) {
+    var _mt = t[fIdx.market_tier] || "";
+    if (_mt === "熊市·主跌" || _mt === "下降期") return false;
+  }
+  // 老MA60熊×追买(默认关备选): 保留 v1.1.0 旧 MA60 判定(buy_special × A股类 × close<MA60; market_state===false 后端已编码 A股守卫)
+  if (filters.legacyMa60Special && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_state != null && t[fIdx.market_state] === false) return false;
+  // 下降期×buy_special(默认关备选): 全市场 × 四档=下降期(market_tier_all 后端全市场注入, B 方案 V4d_all 增量)
+  if (filters.declinePhaseSpecial && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_tier_all != null && t[fIdx.market_tier_all] === "下降期") return false;
   // v3新9 toggle(比值>3, 按比值倒序: 10.06>6.63>5.87>5.24>4.67>4.18>4.02>3.35>3.31)
   var _v3On = filters.n1MarTueHigh || filters.n2NovSpecialIndustry || filters.r8PureNonMay || filters.n3NovSpecialMon || filters.n4AMay || filters.r7MayReinforced || filters.n5MayVlow || filters.n6MidMay || filters.r10May6NonMay;
   // v4新12 toggle(三梯队全量上线)
@@ -8867,10 +8880,15 @@ var _kellyFadeFlagGroups = [
       advice: "协同价值,勿单看比值 · 比值0.78", tip: "⭐ 默认推荐(默认开启)🔗: 排除buy_aux在3/5月的交叉标志。最外科手术式、双条件交集更稳定。核心3键成员之一。⚠每日池比值0.78<1且G模式负边际-49,796,主要价值在默认组合内与另6键协同,勿单开;用G卖出建议去掉本键。" }
   ]},
   { key: "market", title: "市场防御·大盘择时·ratio每日池口径", flags: [
-    { k: "excludeSpecialBear", cls: "lab-sigkelly-toggle-specialbear", name: "追关注×熊市交叉", ratio: 2.90, rec: true,
-      advice: "追涨只在牛市做 · 比值2.90", tip: "⭐ 默认推荐(默认开启,降亏推荐): 排除buy_special追关注在MA60熊市的交易。核心反模式——追涨在熊市被套,buy_special整体净正但熊市净亏。每日池减亏6.46%/损盈2.23%/比值2.90>2高性价比。G模式K1正边际+19,712(最强)。" },
+    { k: "excludeSpecialBear", cls: "lab-sigkelly-toggle-specialbear", name: "追关注×熊市交叉(四档)", ratio: 2.90, rec: true,
+      advice: "🆕追涨只在熊市主跌/下降期做 · 比值2.90", tip: "⭐ 默认推荐(默认开启, v1.1.2 2026-08-17 用户拍板 四档升级)🆕NEW: 排除buy_special追关注在四档{熊市·主跌,下降期}的A股类交易。原 v1.1.0 为 MA60 熊判定(已降为「老MA60熊×追买」备选键默认关)。四档=hs300 价 vs MA200 + MA20/60/120 排列: 牛市·主升=价>MA200且多头排列 / 上升期=价>MA200非多头 / 下降期=价<MA200非空头 / 熊市·主跌=价<MA200且空头排列; 主键命中=四档∈{熊市·主跌,下降期}×buy_special×A股类(= A 方案 R1_all 口径, 回测全周期 Δ+65,551, 见 docs/market-state/kelly-4tier-*)。默认组合=只开主键(8键, 基准= v1.1.0 推荐最优组合 + 主键四档升级), 两备选键默认关。G模式K1正边际+19,712。" },
     { k: "marketTiming", cls: "lab-sigkelly-toggle-mkt", name: "MA60大盘择时", ratio: 1.24, warn: "⚠️慎用(破坏性)",
       advice: "别单开,全模式净负 · 比值1.24", tip: "❌非默认⚠慎用(破坏性): MA60大盘择时(仅A股a/concept/industry,沪深300在60日均线之上才进场)。每日池减亏37.26%/损盈30.14%/比值1.24(降亏强但损盈更多,全模式净负-14.9万)。诚实标注:别单开。" },
+    // v1.1.2 三键备选(2026-08-17 用户拍板): 老MA60熊×追买 / 下降期×追关注, 均默认关带🆕NEW标签
+    { k: "legacyMa60Special", cls: "lab-sigkelly-toggle-legacyma60", name: "老MA60熊×追买", ratio: 2.31, warn: "🆕NEW默认关",
+      advice: "🆕旧MA60判定·默认关 · 比值2.31", tip: "🆕NEW(v1.1.2 2026-08-17 用户拍板)默认关备选: 保留 v1.1.0 excludeSpecialBear 原 MA60 判定——buy_special 追关注 × A股类 × close<MA60(MA60熊)。与主键四档(excludeSpecialBear)的差别: 主键用四档{熊市·主跌,下降期}判坏, 本键用旧 MA60 判熊。默认关, 如需「绝不放急跌段追高」可手动开(≈ R1_lag 收紧变体方向, 未入默认, 回测见 docs/market-state/kelly-4tier-lagexempt-compare.md)。" },
+    { k: "declinePhaseSpecial", cls: "lab-sigkelly-toggle-decline", name: "下降期×追关注", ratio: 1.38, warn: "🆕NEW默认关",
+      advice: "🆕下降期剔追涨·全市场 · 比值1.38", tip: "🆕NEW(v1.1.2 2026-08-17 用户拍板)默认关备选: 排除 buy_special 追关注 × 四档=下降期 × 全市场(不限于A股, = B 方案 V4d_all 增量, 回测全周期 Δ+40,409 见 docs/market-state/kelly-4tier-lagexempt-compare.md)。下降期=价<MA200 但均线纠缠(未空头排列)。默认关可自开。" },
     // K2C5/K3 (2026-08-15 #86 新增 纯前端实验键; v1.1.0 2026-08-15 用户拍板: K2C5 默认开, K3 维持默认关)
     { k: "k2c5HkChase", cls: "lab-sigkelly-toggle-k2c5", name: "港股追涨", ratio: 4.55, rec: true, warn: "⭐默认开(v1.1.0)",
       advice: "剔除港股追涨 · 比值4.55", tip: "⭐ 默认开(v1.1.0 2026-08-15 用户拍板 定名「基础5」) = AI宏组成**5+3+1 = 基础5(n2NovSpecialIndustry/excludeSpecialBear/janMidRating/janMidSpecial/k2c5HkChase 港股追涨剔除)+核心3(r7MayReinforced/excludeAuxCross/greedy15)+1类回测剔除(债类/波段不入宇宙 _bt_in_universe)=8键+1类**;K2C5 已穷举验证并入基础5(16组合全扫,与核心3无叠加冲突、8键全开A/F/9模式合计全局最优、去K2C5损失+41,445第二大贡献、y1样本外正贡献,见 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md)。剔除 signal∈{buy_special,buy_backup}×港股 的交易(当前数据文件实算:独立信号728个/全9模式占1431条)。每日池减亏2.88%/损盈0.63%/比值4.55(>2高性价比, 与其他键同口径 ALL9-K1; K2档损盈-0.03%不取, 见 docs/kelly/analysis/kelly-k2c5-dailypool-ratio.md)。全信号除 G 外双升(A/F/H 多年稳定,净利 Δ +4,458~+7,840),16象限 92.4% 正,港股卡剔除后 0 负全转正(它就是港股卡亏损主源);除G外唯一负贡献 I 微负 -1,365。诚实标注 G: 因强平兑现口径分裂, b0(保守,强平记0利)=-2,256 / b1(乐观,按持有时间线性兑现)=+11,755,方向依赖口径,真实强平收益在区间[b0,b1],不把 b1 当承诺。" },
@@ -9766,7 +9784,7 @@ function _kellyComboAdviceHtml() {
     `<div class="lab-sigkelly-advice">` +
       `<div class="lab-sigkelly-advice-title">🎯 全信号操作建议指南（真实回测 · 口径=每日资金池等分+top-K，2026-08-14 #48）</div>` +
       (state.labSigKellyMetaHTML || "") +
-      `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">默认最优组合已开启（AI降亏过滤=AI宏5+3+1=基础5+核心3+1类，数据支撑 「每日池穷举重跑」 <button type="button" class="lab-kelly-repo-btn" data-repo-id="kelly-dailypool-exhaustive-rerun">🔍查看报告</button>）：5=基础5键降亏推荐=基础4（追关注×熊市交叉 + 1月中旬+中评级 + 1月中旬+追关注 + n2 11月+追关注+行业）+ K2C5 港股追涨剔除（并入基础5，穷举验证 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md）+ 3=核心3键（r7 5月强化+3稳定非5月 + 辅关注×3/5月交叉 + Greedy-15组合），两者皆保留入样、可被 AI建议推荐；+1=回测/凯利模型层剔除的波动相关/未入样本信号整类（债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组，_bt_in_universe=false）——虽同属全信号，但被回测剔除，故 AI建议 一律不推荐，以「未入样本」+灰显+删除线表达。另加 AI仓位建议（技术别名：仓位控制过滤，每日只买最优K个，K=1主推，2026-08-14 #BC 默认 K 3→1）。每日池+费率重算口径（2026-08-14 #BC，含最低佣金5元）：A模式 K1(默认主推)=86.60%/K2=67.61%/K3=66.24%/K4=63.17%；F K1=78.71%/G K1=47.22%（#48 每日池口径）。旧 fixed 穷举v2（77.36/66.22/68.40，每笔1万）与 #48 每日池(比例法)均为历史决策基准已过时（#BC 改费率重算口径）。⚠G 模式（推荐卖出法）分裂结论：去掉 greedy15/excludeAuxCross/r7 并加 a45(11月中下旬+追关注)→ K1 收益升到 51.66%（净+82.6万），比现状 47.22%（+64.2万）双升；A/F（短持）维持现状默认最优（greedy15 是收益率大增来源，勿去）。A45/A5 不在默认组合。其余降亏 toggle 默认关（负边际/过拟合）。⚠J1/J2 带监控（maxSh 0.62/0.79，2026 单年主导，每年 1 月后检查）。下方「最后结果」全信号表即按当前组合实时计算。</div>` +
+      `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">默认最优组合已开启（AI降亏过滤=AI宏5+3+1=基础5+核心3+1类，数据支撑 「每日池穷举重跑」 <button type="button" class="lab-kelly-repo-btn" data-repo-id="kelly-dailypool-exhaustive-rerun">🔍查看报告</button>）：5=基础5键降亏推荐=基础4（追关注×熊市交叉四档🆕NEW + 1月中旬+中评级 + 1月中旬+追关注 + n2 11月+追关注+行业；v1.1.2 2026-08-17 主键 excludeSpecialBear 判定 MA60→四档升级，老MA60熊×追买/下降期×追关注 两备选键默认关带🆕NEW）+ K2C5 港股追涨剔除（并入基础5，穷举验证 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md）+ 3=核心3键（r7 5月强化+3稳定非5月 + 辅关注×3/5月交叉 + Greedy-15组合），两者皆保留入样、可被 AI建议推荐；+1=回测/凯利模型层剔除的波动相关/未入样本信号整类（债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组，_bt_in_universe=false）——虽同属全信号，但被回测剔除，故 AI建议 一律不推荐，以「未入样本」+灰显+删除线表达。另加 AI仓位建议（技术别名：仓位控制过滤，每日只买最优K个，K=1主推，2026-08-14 #BC 默认 K 3→1）。每日池+费率重算口径（2026-08-14 #BC，含最低佣金5元）：A模式 K1(默认主推)=86.60%/K2=67.61%/K3=66.24%/K4=63.17%；F K1=78.71%/G K1=47.22%（#48 每日池口径）。旧 fixed 穷举v2（77.36/66.22/68.40，每笔1万）与 #48 每日池(比例法)均为历史决策基准已过时（#BC 改费率重算口径）。⚠G 模式（推荐卖出法）分裂结论：去掉 greedy15/excludeAuxCross/r7 并加 a45(11月中下旬+追关注)→ K1 收益升到 51.66%（净+82.6万），比现状 47.22%（+64.2万）双升；A/F（短持）维持现状默认最优（greedy15 是收益率大增来源，勿去）。A45/A5 不在默认组合。其余降亏 toggle 默认关（负边际/过拟合）。⚠J1/J2 带监控（maxSh 0.62/0.79，2026 单年主导，每年 1 月后检查）。下方「最后结果」全信号表即按当前组合实时计算。</div>` +
       `<details class="lab-sigkelly-advice-details lab-sigkelly-advice-outer"${state.labSigKellyAdviceOpen ? " open" : ""}>` +
         `<summary><span class="lab-sigkelly-advice-summary-short">🎯 全信号操作建议指南（AI宏5+3+1=基础5+核心3 · G玩法P≤3d可操作）</span><span class="lab-sigkelly-advice-summary-full">🎯 全信号操作建议指南（AI宏5+3+1默认：5基础+3核心降亏键保留入样 + 1回测剔除波动相关/未入样本信号；G玩法P≤3d「先卖年轻仓」三档可操作）</span></summary>` +
         `<div class="lab-sigkelly-advice-panel">` +
