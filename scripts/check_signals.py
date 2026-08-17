@@ -563,6 +563,17 @@ AI_MACRO_KEYS = {
     "janMidSpecial", "k2c5HkChase", "r7MayReinforced",
     "excludeAuxCross", "greedy15",
 }
+# 8 键中文名映射(与 static-site/app.js _AI_MACRO_FILTER_NAMES 同源, §22 一致性; 邮件/飞书徽标缘由用)
+AI_MACRO_KEY_CN = {
+    "n2NovSpecialIndustry": "11月+追关注+行业",
+    "excludeSpecialBear": "追关注×熊市交叉",
+    "janMidRating": "1月中旬+中评级",
+    "janMidSpecial": "1月中旬+追关注",
+    "k2c5HkChase": "港股追涨剔除",
+    "r7MayReinforced": "5月强化+3稳定非5月",
+    "excludeAuxCross": "辅关注×3/5月交叉",
+    "greedy15": "Greedy-15组合",
+}
 # 首页 AI 建议 top-K 排序的信号类型优先级(buy_backup>buy>buy_aux>buy_special, 与 app.js _sc 同)
 _AI_RANK_SIG_ORDER = {"buy_backup": 0, "buy": 1, "buy_aux": 2, "buy_special": 3, "": 9}
 # 首页 AI 建议/警示判定(与 app.js _isSellSig/_isSellRow 同): 卖类信号 = sell/sell_stop_loss/波段减仓
@@ -689,6 +700,7 @@ def _calc_signal_markers(sig: dict, overview_markers: dict, stats: dict,
     返回 dict:
       in_universe: bool|None (None=overview 无该信号标记, 未知)
       ai_fade: bool 命中 8 键降亏(AI 降亏层)
+      ai_fade_keys: list[str] 命中的 8 键英文名(白名单过滤, 邮件/飞书徽标精简缘由用)
       ai_warn: bool 入样卖出信号 → AI 警示(离场保护, 与 AI 过滤正交)
       ai_rank: int|None 首页 K=1 top-K 内的排名(AI 建议 N, 从 1 起)
       ai_full: bool 满足 AI 建议候选条件但超出 top-K → 「当日已满」
@@ -696,9 +708,13 @@ def _calc_signal_markers(sig: dict, overview_markers: dict, stats: dict,
     marker = overview_markers.get((sig["index_id"], sig["signal"]))
     in_universe = None
     ai_fade = False
+    ai_fade_keys: list = []
     if marker is not None:
         in_universe = marker.get("_bt_in_universe")
-        ai_fade = bool(marker.get("ai_macro", {}).get("hit"))
+        _am = marker.get("ai_macro", {})
+        ai_fade = bool(_am.get("hit"))
+        # 命中键英文数组 → 白名单过滤, 防未知键混入; 顺序随 overview 注入, 不重排
+        ai_fade_keys = [k for k in (_am.get("filters") or []) if k in AI_MACRO_KEYS]
     sig_type = sig.get("signal") or ""
     # AI 警示: 入宇宙卖出(sell/sell_stop_loss), 首页 _isSellSig + _bt_in_universe!==false 同语义
     ai_warn = (sig_type in _AI_WARN_SELL_TYPES) and (in_universe is not False)
@@ -711,10 +727,25 @@ def _calc_signal_markers(sig: dict, overview_markers: dict, stats: dict,
     return {
         "in_universe": in_universe,
         "ai_fade": ai_fade,
+        "ai_fade_keys": ai_fade_keys,
         "ai_warn": ai_warn,
         "ai_rank": ai_rank,
         "ai_full": ai_full,
     }
+
+
+def _ai_fade_label(mk: dict) -> str:
+    """AI降亏徽标文案(邮件/飞书共用, §22/§23.10 一致性)。
+
+    命中键非空 → 「AI降亏·建议回避【中文名1、中文名2】」(多键用「、」分隔);
+    无命中键(理论不该发生, ai_fade 恒来自命中) → 回退原「AI降亏·建议回避」。
+    """
+    base = "AI降亏·建议回避"
+    keys = mk.get("ai_fade_keys") or []
+    if not keys:
+        return base
+    cns = [AI_MACRO_KEY_CN.get(k, k) for k in keys]
+    return f"{base}【{'、'.join(cns)}】"
 
 
 def _signal_marker_badge_html(mk: dict) -> str:
@@ -738,7 +769,7 @@ def _signal_marker_badge_html(mk: dict) -> str:
         badges.append(
             '<span style="background:#fff1f0;border:1px solid #ff4d4f;color:#cf1322;'
             'font-size:11px;font-weight:700;padding:1px 6px;border-radius:3px;margin-right:4px;">'
-            'AI降亏·建议回避</span>')
+            f'{_ai_fade_label(mk)}</span>')
     if mk["in_universe"] is False:
         badges.append(
             '<span style="background:#f7f8fa;border:1px solid #c9cdd4;color:#86909c;'
@@ -760,7 +791,7 @@ def _signal_marker_badge_text(mk: dict) -> str:
     if mk["ai_warn"]:
         parts.append("AI警示")
     if mk["ai_fade"]:
-        parts.append("AI降亏·建议回避")
+        parts.append(_ai_fade_label(mk))
     if mk["in_universe"] is False:
         parts.append("未入回测宇宙")
     if mk["ai_full"]:
