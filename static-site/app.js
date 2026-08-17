@@ -7617,8 +7617,9 @@ const _INDEX_TO_EASTMONEY_SECID = {
   csi500: "1.000905", csi1000: "1.000852",
   hsi: "100.HSI", hstech: "124.HSTECH", hscei: "100.HSCEI",
 };
-// 指数ID -> 同花顺分时代码映射（2026-08-06 批量方案A：同花顺 1 请求批量拉 10 只，省 10->1 并发）
-// bj50/hstech 无同花顺代码，走东财 push2delay 单只（2 请求）
+// 指数ID -> 同花顺分时代码映射（2026-08-06 批量方案A：同花顺 1 请求批量拉 A 股 8 只）
+// 仅 A 股纳入同花顺批量。bj50/hstech 无同花顺代码；hsi/hscei 同花顺港股源停更错位(2026-08-17 根治，
+// 曾致恒指分时 +5% 虚高)。以上三港股指数(含 hstech)统一走东财 push2delay 单只 + 腾讯双源。
 // 同花顺批量API: https://d.10jqka.com.cn/v6/time/{code1},{code2},.../last.js
 //   CORS Access-Control-Allow-Origin:* 已验收 10/10 稳定
 //   JSONP 包装 quotebridge_v6_time_{codes_with_underscore}_last({...})，函数名随 code 变
@@ -7626,8 +7627,9 @@ const _INDEX_TO_EASTMONEY_SECID = {
 const _INDEX_TO_THS_CODE = {
   sh: "zs_1A0001", sz: "zs_399001", hs300: "zs_1B0300", sz50: "zs_1B0016",
   cyb: "zs_399006", kc50: "zs_1B0688", csi500: "zs_1B0905", csi1000: "zs_1B0852",
-  hsi: "hk_HSI", hscei: "hk_HSCEI",
-  // bj50/hstech 无同花顺代码，走东财 push2delay 单只
+  // 同花顺批量只服务 A 股。港股指数(hsi/hscei/hstech)不纳入: 同花顺港股源停更错位(2026-08-17
+  // 日K最新仅到2026-04-21, 自带昨收实为停更前收盘), 曾致恒指分时 +5% 虚高。港股统一走东财
+  // push2delay(100.HSI/100.HSCEI/124.HSTECH)+腾讯(hkHSI/hkHSCEI/hkHSTECH) 双源, 与后端快照一致。
 };
 // 指数ID -> 市场类型（cn=A股 9:30-11:30/13:00-15:00，hk=港股 9:30-12:00/13:00-16:00）
 const _INDEX_MARKET = {};
@@ -7943,9 +7945,9 @@ async function _fetchDynamicPcts(ids, snap) {
   _inflightBatchP = (async () => {
     // 每轮刷新清空批量缓存（避免上一轮残留数据污染本轮渲染）
     _batchMinuteCache.clear();
-    // 分离: thsIds 走同花顺批量, emIds 走东财 push2delay 单只
+    // 分离: thsIds 走同花顺批量(仅A股), emIds 走东财/腾讯单只(含 bj50 + 港股 hsi/hscei/hstech)
     const thsIds = valid.filter((id) => _INDEX_TO_THS_CODE[id]);
-    const emIds = valid.filter((id) => !_INDEX_TO_THS_CODE[id]); // bj50, hstech
+    const emIds = valid.filter((id) => !_INDEX_TO_THS_CODE[id]); // bj50, hsi, hscei, hstech
     const results = {};
 
     // ---- 同花顺批量（L0 主路径）----
