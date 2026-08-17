@@ -61,10 +61,15 @@ const CATEGORY_SOURCES = {
   signal_freq: { file: 'data/signal_freq.json', shape: 'signal_freq' },
   // fund_score: 基金评分 top 列表（80KB 小文件）
   fund_score: { file: 'data/fund_score_top.json', shape: 'fund_score' },
-  // etf_score: ETF 评分列表（17MB 大文件，必须 ?limit=N 防读全量，默认 20 最大 100）
-  etf_score: { file: 'data/etf_score_list.json', shape: 'etf_score' },
+  // etf_score: ETF 评分列表（P0-2 拆分三文件，走 handleCategory 特殊分支读 buy/sell/hold；file 仅为元信息）
+  etf_score: { file: 'data/etf_score_list_buy.json', shape: 'etf_score' },
   // etf_national_team: 国家队 ETF 持仓（etfs 数组）
   etf_national_team: { file: 'data/etf_national_team-1y.json', shape: 'etf_national_team' },
+  // ---- 2026-08-17 第二批上架：AI 预测 + ETF 快捷挑选（UUMit 数据广场按次售卖）----
+  // ai_prediction: AI 每日预测（daily_brief.json meta+text）+ 预测基准日对应新闻（news_digest/<date>.json）
+  ai_prediction: { file: 'data/daily_brief.json', shape: 'ai_prediction' },
+  // etf_pick: ETF 评分快捷返回（buy/sell/hold 三文件，?count=N 默认5 上限10，挑不同档位）
+  etf_pick: { file: 'data/etf_score_list_buy.json', shape: 'etf_pick' },
 };
 
 // 支持的 alert_analyze 标的（前端 static-site/data/alert_analyze_*.json 一一对应）。
@@ -111,6 +116,99 @@ async function readJsonFile(env, request, key) {
   } catch (e) {
     return null;
   }
+}
+
+// ---- 大文件「数组头部」读取器（etf_score_list_hold.json 17MB，Worker 读全量会超时/烧内存）----
+// 只读文件头部 maxBytes 字节（R2 range / ASSETS Range），定位 "<listField>": [ 后，
+// 扫描提取前 n 个完整对象（处理字符串内括号/转义），拼成 {"<listField>":[...]} 再 JSON.parse。
+// 返回 { field, items, truncated }；文件不存在/解析失败返回 null。
+async function readJsonListHead(env, request, key, listField, n, maxBytes) {
+  const text = await readJsonHead(env, request, key, maxBytes);
+  if (text == null) return null;
+  const arr = extractArrayHead(text, listField, n);
+  if (arr == null) return null;
+  let parsed = null;
+  try {
+    // arr.json = "[ {...objN} "（缺闭合 ]），补上闭合括号再解析
+    parsed = JSON.parse(`{"${listField}":${arr.json}]}`);
+  } catch (e) {
+    parsed = null;
+  }
+  return parsed ? { items: parsed[listField], truncated: arr.truncated } : null;
+}
+
+// 读取文件头部 maxBytes 字节文本（R2 range -> ASSETS Range 兜底）
+async function readJsonHead(env, request, key, maxBytes) {
+  try {
+    const object = await env.R2_BUCKET.get(key, { range: { length: maxBytes } });
+    if (object && object.body) {
+      // R2 range 返回对象（httpEtag 可能为空但 size/body 可用）
+      const size = object.size != null ? object.size : maxBytes;
+      const reader = object.body.getReader();
+      let out = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        out += new TextDecoder().decode(value, { stream: true });
+        if (out.length >= maxBytes) break;
+      }
+      if (out.length) return out;
+    }
+  } catch (e) { /* 回退 ASSETS */ }
+  try {
+    const filePath = '/' + key;
+    const res = await env.ASSETS.fetch(new Request(request.url.origin + filePath, {
+      ...request,
+      headers: { ...request.headers, Range: `bytes=0-${maxBytes - 1}` },
+    }));
+    if (res.ok) {
+      const buf = await res.arrayBuffer();
+      const txt = new TextDecoder().decode(buf);
+      if (txt.length) return txt;
+    }
+  } catch (e) { /* ignore */ }
+  return null;
+}
+
+// 从头部文本提取 "<listField>": [ ... ] 的前 n 个完整对象。
+// 返回 { json: "[...]"（合法数组片段）, truncated: bool }；找不到字段/数组返回 null。
+function extractArrayHead(text, listField, n) {
+  const marker = `"${listField}":`;
+  const fi = text.indexOf(marker);
+  if (fi < 0) return null;
+  const openBracket = text.indexOf('[', fi);
+  if (openBracket < 0) return null;
+  let i = openBracket + 1;
+  const len = text.length;
+  let depth = 0;         // {} 嵌套深度
+  let inStr = false;
+  let escape = false;
+  let count = 0;
+  let lastObjEnd = -1;   // 最后一个完整对象结束的 } 下标
+  while (i < len) {
+    const c = text[i];
+    if (inStr) {
+      if (escape) { escape = false; }
+      else if (c === '\\') { escape = true; }
+      else if (c === '"') { inStr = false; }
+    } else {
+      if (c === '"') { inStr = true; }
+      else if (c === '{') { depth++; }
+      else if (c === '}') {
+        depth--;
+        if (depth === 0) {
+          // 完成一个顶层对象
+          lastObjEnd = i;
+          count++;
+          if (count >= n) break;
+        }
+      }
+    }
+    i++;
+  }
+  if (lastObjEnd < 0) return null;
+  const truncated = count < n;
+  return { json: text.slice(openBracket, lastObjEnd + 1), truncated };
 }
 
 // ---- 时间 ----
@@ -298,6 +396,17 @@ async function handleCategory(request, env, category, action, url) {
     return summaryHandler(request, env); // 跨类别聚合
   }
 
+  // 多文件/组合类 category 走专用 handler（不依赖单一 obj 预读）
+  if (category === 'etf_score') {
+    return shapeEtfScore(request, env, action, url);
+  }
+  if (category === 'etf_pick') {
+    return shapeEtfPick(request, env, action, url);
+  }
+  if (category === 'ai_prediction') {
+    return shapeAiPrediction(request, env, action, url);
+  }
+
   const obj = await readJsonFile(env, request, src.file);
   if (!obj) return jsonError('data_unavailable', '数据源暂不可用', 503);
 
@@ -445,24 +554,184 @@ function shapeFundScore(action, obj) {
   return jsonError('bad_request', `fund_score 类别不支持操作: ${action}`, 400);
 }
 
-// etf_score: ETF 评分列表（17MB 大文件，?limit=N 防读全量，默认 20 最大 100）
-function shapeEtfScore(action, obj, url) {
+// etf_score: ETF 评分列表（buy/sell/hold 拆分三文件，P0-2 后旧单文件 etf_score_list.json 已停更）
+// 只读各文件头部（?limit=N 防读全量，默认 20 最大 100；hold 17MB 走 readJsonListHead 切片）。
+// 保持旧响应结构 {date, updated_at, limit, total:{buy,sell,hold}, buy_list, sell_list, hold_list} 兼容。
+async function shapeEtfScore(request, env, action, url) {
   let limit = 20;
   const l = parseInt((url.searchParams.get('limit') || ''), 10);
   if (!isNaN(l) && l > 0) limit = Math.min(l, 100);
-  const firstN = (arr) => (Array.isArray(arr) ? arr.slice(0, limit) : []);
+  // 头部读取上限：每条带 30 行 ohlc 约 16KB，limit 条需 limit*17KB 余量
+  const headBytes = Math.max(limit * 20 * 1024, 300 * 1024);
+
+  // buy 文件 ~2MB 可读全量拿顶层 meta(date/updated_at/counts) + buy_list；sell/hold 读头部切片
+  const [buyFull, sell, hold] = await Promise.all([
+    readJsonFile(env, request, 'data/etf_score_list_buy.json'),
+    readJsonListHead(env, request, 'data/etf_score_list_sell.json', 'sell_list', limit, headBytes),
+    readJsonListHead(env, request, 'data/etf_score_list_hold.json', 'hold_list', limit, headBytes),
+  ]);
+  if (!buyFull && !sell && !hold) return jsonError('data_unavailable', '数据源暂不可用', 503);
+
+  const buyList = (buyFull && Array.isArray(buyFull.buy_list) ? buyFull.buy_list : []).slice(0, limit);
   if (action === 'latest' || action === 'range') {
     return jsonOk({
-      date: obj.date,
-      updated_at: obj.updated_at,
+      date: buyFull ? (buyFull.date || null) : null,
+      updated_at: buyFull ? (buyFull.updated_at || null) : null,
       limit,
-      total: { buy: (obj.buy_list || []).length, sell: (obj.sell_list || []).length, hold: (obj.hold_list || []).length },
-      buy_list: firstN(obj.buy_list),
-      sell_list: firstN(obj.sell_list),
-      hold_list: firstN(obj.hold_list),
+      total: {
+        buy: buyFull ? (buyFull.buy_count || null) : null,
+        sell: buyFull ? (buyFull.sell_count || null) : null,
+        hold: buyFull ? (buyFull.hold_count || null) : null,
+      },
+      buy_list: buyList,
+      sell_list: (sell && sell.items) || [],
+      hold_list: (hold && hold.items) || [],
     });
   }
   return jsonError('bad_request', `etf_score 类别不支持操作: ${action}`, 400);
+}
+
+// 按该列表 score 的 min-max 三等分判档位（high/mid/low），只读源数据不加工新数字
+function gradeOf(score, lo, hi) {
+  if (score == null || hi === lo) return 'mid';
+  const third = (hi - lo) / 3;
+  if (score >= hi - third) return 'high';
+  if (score <= lo + third) return 'low';
+  return 'mid';
+}
+
+// 评分卡字段白名单（去除 ohlc 30 行大数组，保留评分卡核心；字段全部直读源文件，§22 不加工）
+const ETF_PICK_FIELDS = ['etf_code', 'name', 'score', 'hands', 'amt_pct', 'dims', 'dim_hits', 'data_thresholds', 'history_analogy', 'confidence', 'sell_action', 'is_national_team'];
+
+// etf_pick: ETF 评分快捷返回（buy/sell/hold 三文件，?count=N 默认5 上限10，挑不同档位）
+// 口径（§23.3/§22）：按「买入/卖出/持有 + 评分档位(high/mid/low)+ 汪汪队」挑不同档位，
+// 默认 buy 优先、sell 次之、hold 补充；hold 17MB 只读头部高评分切片，仅作补充档位。
+async function shapeEtfPick(request, env, action, url) {
+  let count = 5;
+  const c = parseInt((url.searchParams.get('count') || ''), 10);
+  if (!isNaN(c) && c > 0) count = Math.min(c, 10);
+  if (action !== 'latest' && action !== 'range') {
+    return jsonError('bad_request', `etf_pick 类别不支持操作: ${action}（仅支持 latest/range）`, 400);
+  }
+  // hold 头部读取量：count 只补充用，读约 600KB 覆盖高评分若干（含汪汪队）
+  const headBytes = 600 * 1024;
+  const [buyFull, sellFull, holdHead] = await Promise.all([
+    readJsonFile(env, request, 'data/etf_score_list_buy.json'),
+    readJsonFile(env, request, 'data/etf_score_list_sell.json'),
+    readJsonListHead(env, request, 'data/etf_score_list_hold.json', 'hold_list', count * 2, headBytes),
+  ]);
+  const meta = buyFull || sellFull;
+
+  const toCand = (rec, category, lo, hi) => {
+    if (!rec) return null;
+    const grade = gradeOf(rec.score, lo, hi);
+    const pick = {};
+    for (const f of ETF_PICK_FIELDS) if (rec[f] !== undefined) pick[f] = rec[f];
+    pick.category = category;
+    pick.grade = grade;
+    return pick;
+  };
+
+  const buyList = (buyFull && Array.isArray(buyFull.buy_list)) ? buyFull.buy_list : [];
+  const sellList = (sellFull && Array.isArray(sellFull.sell_list)) ? sellFull.sell_list : [];
+  const holdList = (holdHead && holdHead.items) || [];
+
+  const bScores = buyList.map(x => x.score).filter(v => v != null);
+  const sScores = sellList.map(x => x.score).filter(v => v != null);
+  const hScores = holdList.map(x => x.score).filter(v => v != null);
+  const bRange = bScores.length ? [Math.min(...bScores), Math.max(...bScores)] : [0, 100];
+  const sRange = sScores.length ? [Math.min(...sScores), Math.max(...sScores)] : [0, 100];
+  const hRange = hScores.length ? [Math.min(...hScores), Math.max(...hScores)] : [0, 100];
+
+  // 候选池：buy -> sell -> hold（优先级），组内按 score 降序
+  const pool = [
+    ...buyList.map(r => toCand(r, 'buy', bRange[0], bRange[1])).filter(Boolean).sort((a, b) => (b.score || 0) - (a.score || 0)),
+    ...sellList.map(r => toCand(r, 'sell', sRange[0], sRange[1])).filter(Boolean).sort((a, b) => (b.score || 0) - (a.score || 0)),
+    ...holdList.map(r => toCand(r, 'hold', hRange[0], hRange[1])).filter(Boolean).sort((a, b) => (b.score || 0) - (a.score || 0)),
+  ];
+
+  // 按 (category, grade, is_national_team) 去重挑选，保证不同档位；不足则按优先级补足到 count
+  const chosen = [];
+  const used = new Set();
+  for (const cand of pool) {
+    if (chosen.length >= count) break;
+    const key = `${cand.category}|${cand.grade}|${cand.is_national_team ? 'nt' : 'normal'}`;
+    if (!used.has(key)) {
+      used.add(key);
+      chosen.push(cand);
+    }
+  }
+  // 若去重后仍不足 count（档位组合有限），从候选池补充（可重复档位）
+  if (chosen.length < count) {
+    for (const cand of pool) {
+      if (chosen.length >= count) break;
+      if (!chosen.includes(cand)) chosen.push(cand);
+    }
+  }
+  return jsonOk({
+    date: meta ? (meta.date || null) : null,
+    updated_at: meta ? (meta.updated_at || null) : null,
+    count: chosen.length,
+    total: meta ? { buy: meta.buy_count || null, sell: meta.sell_count || null, hold: meta.hold_count || null } : null,
+    picks: chosen,
+  });
+}
+
+// ai_prediction: AI 每日预测 + 预测基准日对应新闻（任务1，纯读，低成本）
+// 新闻对齐（§22/§23.6）：daily_brief.meta.date 是预测基准日（如 20260814），对应新闻是
+// news_digest/2026/<date>.json（基准日当天），不是"请求当天"。该日期文件不存在时附最近一份并标注。
+async function shapeAiPrediction(request, env, action, url) {
+  if (action !== 'latest' && action !== 'range') {
+    return jsonError('bad_request', `ai_prediction 类别不支持操作: ${action}（仅支持 latest/range）`, 400);
+  }
+  const brief = await readJsonFile(env, request, 'data/daily_brief.json');
+  if (!brief) return jsonError('data_unavailable', '数据源暂不可用', 503);
+
+  const baseDate = (brief.meta && brief.meta.date) || null; // "20260814"
+  const baseDash = baseDate ? `${baseDate.slice(0, 4)}-${baseDate.slice(4, 6)}-${baseDate.slice(6, 8)}` : null;
+
+  let news = null;
+  let news_note = null;
+  if (baseDash) {
+    const exact = await readJsonFile(env, request, `data/news_digest/2026/${baseDash}.json`);
+    if (exact) {
+      news = { date: exact.date || baseDash, sources: exact.sources || null, news: exact.news || [], upcoming: exact.upcoming || [] };
+    }
+  }
+  if (!news) {
+    // 基准日新闻文件不存在 -> 查 _index 找「<= 基准日」最接近的历史日（防 lookahead，绝不取未来新闻），并标注
+    const idx = await readJsonFile(env, request, 'data/news_digest/_index.json');
+    let nearest = null;
+    if (idx && Array.isArray(idx.days)) {
+      const target = (baseDash || '').replace(/-/g, '');
+      const days = idx.days.filter(d => d && d.path);
+      const le = days
+        .filter(d => (d.date || '').replace(/-/g, '') <= target)
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      if (le.length) nearest = le[0];
+      // le 为空（无 <= 基准日的历史归档）则不取未来新闻，走下方 news_note 标注
+    }
+    if (nearest && nearest.path) {
+      const fallback = await readJsonFile(env, request, `data/${nearest.path}`);
+      if (fallback) {
+        news = { date: fallback.date || nearest.date, sources: fallback.sources || null, news: fallback.news || [], upcoming: fallback.upcoming || [] };
+        news_note = `预测基准日 ${baseDash} 无对应新闻归档，已附最近一份（${fallback.date || nearest.date}）`;
+      } else {
+        news_note = `预测基准日 ${baseDash} 无对应新闻归档且无可用替代`;
+      }
+    } else {
+      news_note = `预测基准日 ${baseDash} 无对应新闻归档`;
+    }
+  }
+  return jsonOk({
+    date: baseDash,
+    meta: brief.meta || null,
+    text: brief.text || null,
+    disclaimer: brief.disclaimer || null,
+    generated_at: brief.generated_at || null,
+    news,
+    news_note,
+  });
 }
 
 // etf_national_team: 国家队 ETF 持仓（etfs 数组）
@@ -486,8 +755,8 @@ function handleShaped(request, env, category, action, url, obj) {
     futures: shapeFutures,
     signal_freq: shapeSignalFreq,
     fund_score: shapeFundScore,
-    etf_score: shapeEtfScore,
     etf_national_team: shapeEtfNationalTeam,
+    // 注：etf_score / etf_pick / ai_prediction 走 handleCategory 特殊分支（读多文件/组合数据），不入本 map
   };
   const fn = map[shape];
   if (!fn) return jsonError('bad_request', `类别 ${category} shape 未实现`, 500);
