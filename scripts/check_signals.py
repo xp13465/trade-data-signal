@@ -46,6 +46,13 @@ from app.db import get_conn  # noqa: E402
 DB_PATH = REPO / "data" / "sentiment.db"
 INDICATORS_CONFIG = REPO / "config" / "indicators.yaml"
 STATS_PATH = REPO / "data" / "signal_stats.json"
+# #61(2026-08-17) 邮件/飞书信号带「回测宇宙+AI过滤+AI警示+AI建议」标记:
+# 数据源=overview.json 的 signals_today(queries.py 从回测侧注入 _bt_in_universe/ai_macro,
+# §23.6 ③ 禁止自行重算宇宙, 必须读回测侧注入标记)。launchd 跑时 REPO=trade-data 读权威份,
+# 手动 trade/ 跑时读 trade 份; 标记字段(index_id 级 _bt_in_universe + 信号级 ai_macro)在
+# overview 近 15 日 signals_today 内稳定, 盘中(overview 未到当天)按 (index_id, signal) 降级取
+# 最近历史信号标记(收盘 17:50 后 overview 含当天, 用当天权威标记)。
+OVERVIEW_PATH = REPO / "static-site" / "data" / "overview.json"
 # F 方案（2026-07-21）：邮件去重持久化，记录当日已通知的 (index_id, signal) 集合。
 # 格式 {date_str: [[index_id, signal], ...]}，7 天自动清理旧记录（save_signal_notified）。
 # 仅在去重模式（默认）下读写；--full 全量模式不读只写（发后全标记已通知）。
@@ -349,7 +356,8 @@ def save_subs_notified(data: dict[str, dict[str, list[list[str]]]]) -> None:
 
 def push_subscriptions(all_signals: list[dict], name_map: dict[str, str],
                        date: str, intraday: bool = False,
-                       dry_run: bool = False) -> None:
+                       dry_run: bool = False,
+                       overview_markers: dict | None = None) -> None:
     """A12 订阅推送：对每个订阅，过滤匹配信号（从 all_signals），独立去重后推送。
 
     与全局推送独立：用 all_signals（不去重），每订阅用 subs_notified.json 独立去重，
@@ -361,6 +369,8 @@ def push_subscriptions(all_signals: list[dict], name_map: dict[str, str],
 
     推送内容：复用 build_email 构建邮件（按订阅者关心的信号过滤后），主题加 [订阅:name] 前缀。
     失败不阻塞（单订阅失败不影响其他订阅 + 不影响全局流程）。
+    overview_markers（#61 2026-08-17）：信号「回测宇宙+AI过滤」标记, 由 main 从 overview.json 读入;
+      AI 建议 top-K 在本函数内对每个订阅的 new_signals 单独算(见下方 _ai_sg)。
     """
     subs = load_subscriptions()
     if not subs:
@@ -381,11 +391,17 @@ def push_subscriptions(all_signals: list[dict], name_map: dict[str, str],
         if not new_signals:
             log.info("订阅 %s(%s)：当日匹配 %d 信号均已推送，跳过", sub_name, sub_id, len(sub_signals))
             continue
-        # 构建专属邮件（复用 build_email，只含该订阅关心的信号）
-        subject, body = build_email(date, new_signals, name_map, intraday=intraday)
+        # #61: 对该订阅实际推送的 new_signals 单独算 AI 建议 top-K(展示范围内谁最优, 与订阅邮件对应)
+        _ai_sg = build_ai_suggest_map(new_signals, overview_markers or {}, load_signal_stats())
+        # 构建专属邮件（复用 build_email，只含该订阅关心的信号；#61 带 AI 标记）
+        subject, body = build_email(date, new_signals, name_map, intraday=intraday,
+                                    overview_markers=overview_markers,
+                                    ai_suggest=_ai_sg)
         subject = f"[订阅:{sub_name}] {subject}"
-        # 飞书 post 富文本（订阅推送也走 report 群，3 群差异化同全局推送）
-        feishu_post = build_feishu_post(subject, new_signals, name_map, intraday=intraday)
+        # 飞书 post 富文本（订阅推送也走 report 群，3 群差异化同全局推送；#61 带 AI 标记）
+        feishu_post = build_feishu_post(subject, new_signals, name_map, intraday=intraday,
+                                        overview_markers=overview_markers,
+                                        ai_suggest=_ai_sg)
         email = (sub.get("email") or "").strip() or None
         chat_id = (sub.get("telegram_chat_id") or "").strip() or None
         try:
@@ -523,6 +539,233 @@ def _format_stats_line(stats_entry: dict | None) -> str | None:
         f"    回测(10日) 胜率{win_rate*100:.1f}% "
         f"盈亏比{pl:.2f} 样本{n} → {kelly_str}"
     )
+
+
+# ============ #61 邮件/飞书信号带「回测宇宙+AI过滤+AI警示+AI建议」标记 (2026-08-17) ============
+# 目标: 邮件/飞书每个信号带首页同款三层标记, 提高可信度——明确告诉用户"这个信号回测认不认、
+# AI 认不认"。口径以用户 2026-08-17 两轮澄清定稿为准(见 docs/pending-features-index.md #61)。
+#  ①回测宇宙: 不在 _bt_in_universe → 「未入回测宇宙」(历史表现不背书, =首页「未入样本」)
+#  ②AI 过滤(统称, 两开关正交的删除线过滤层): 命中降亏键(ai_macro.hit) → 「AI降亏·建议回避」;
+#     未入样本(_bt_in_universe===false) → 「未入样本」(归 AI过滤 类, 与①同判定不同展示角度)
+#  ③AI 警示(独立类别, 离场保护, 与 AI过滤 正交): 入宇宙卖出信号(sell/sell_stop_loss, _bt_in_universe)
+#     → 亮橙「AI警示」(首页 sig-poscap-warn 同语义, 卖出=保护已实现利润/离场, 无K约束不判K)
+#  ④AI 建议 top-K(强化展示): 入样买入类信号(非降亏/非卖/非 band_hold)按首页 K=1 主推档排序
+#     → 进 top1 = 「AI建议1」亮绿强化 / 其余满足条件 = 「当日已满」灰显(与首页 _posCapSortedFn
+#     逐字段同排序口径, 仅去掉前端用户个人档位筛选——邮件为通用广播, 用全档位人口)
+# 数据源一致性(§22/§23.6): _bt_in_universe + ai_macro 一律从 overview.json 读回测侧注入标记,
+# 不自行重算宇宙; AI 建议 top-K 排序读 overview 信号 etfs.track_score + signal_stats score
+# (与首页同数据源同排序), 非凭空自算。
+
+# 首页 AI宏 8 键(fixed 基础5+核心3, v1.1.0; queries.py _ai_macro_hit_filters 只输出这 8 键,
+# 故 overview.ai_macro.hit===true 即代表命中降亏, 无需再按成员名二次过滤)。
+AI_MACRO_KEYS = {
+    "n2NovSpecialIndustry", "excludeSpecialBear", "janMidRating",
+    "janMidSpecial", "k2c5HkChase", "r7MayReinforced",
+    "excludeAuxCross", "greedy15",
+}
+# 首页 AI 建议 top-K 排序的信号类型优先级(buy_backup>buy>buy_aux>buy_special, 与 app.js _sc 同)
+_AI_RANK_SIG_ORDER = {"buy_backup": 0, "buy": 1, "buy_aux": 2, "buy_special": 3, "": 9}
+# 首页 AI 建议/警示判定(与 app.js _isSellSig/_isSellRow 同): 卖类信号 = sell/sell_stop_loss/波段减仓
+_AI_WARN_SELL_TYPES = {"sell", "sell_stop_loss"}
+
+
+def load_overview_markers(date: str) -> tuple[dict, dict]:
+    """读 overview.json 的 signals_today, 建 (index_id, signal) -> 标记 映射。
+
+    返回 (exact, fallback) 两个 dict:
+      - exact:  仅收录 date==目标日 的信号(收盘 17:50 后 overview 含当天 → 权威标记)
+      - fallback: 收录所有日期(近 15 交易日), 供盘中(overview 未到当天)按 (index_id, signal)
+        降级取最近历史信号标记(_bt_in_universe 为 index_id 级稳定, ai_macro 为信号级近似)
+    marker = {"_bt_in_universe": bool|None, "ai_macro": dict, "signal": str, "etfs": list}
+    读失败/无 signals_today 返回 (dict(), dict()) 空映射(调用方降级为不标注)。
+    """
+    if not OVERVIEW_PATH.exists():
+        log.warning("overview.json 不存在：%s（#61 信号标记跳过）", OVERVIEW_PATH)
+        return {}, {}
+    try:
+        data = json.loads(OVERVIEW_PATH.read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("overview.json 读取失败：%s（#61 信号标记跳过）", e)
+        return {}, {}
+    st = data.get("signals_today")
+    if not isinstance(st, list):
+        return {}, {}
+    exact: dict = {}
+    fallback: dict = {}
+    for s in st:
+        if not isinstance(s, dict):
+            continue
+        iid = s.get("index_id")
+        sig = s.get("signal")
+        if not iid or not sig:
+            continue
+        marker = {
+            "_bt_in_universe": s.get("_bt_in_universe"),
+            "ai_macro": s.get("ai_macro") if isinstance(s.get("ai_macro"), dict) else {},
+            "signal": sig,
+            "etfs": s.get("etfs") if isinstance(s.get("etfs"), list) else [],
+        }
+        key = (iid, sig)
+        fallback[key] = marker  # 近 15 日同 (iid, sig) 后写入=最新(列表按日期, 直接覆盖)
+        if s.get("date") == date:
+            exact[key] = marker
+    return exact, fallback
+
+
+def _top_etf_by_score(etfs: list) -> dict | None:
+    """复刻首页 _topEtfByScore(app.js L2174): 回测冻结 _bk_top 优先, 否则 max(track_score)
+    降序(平手回退 similarity 降序)。返回 ETF dict 或 None。"""
+    if not etfs:
+        return None
+    for e in etfs:
+        if e and e.get("_bk_top") is True:
+            return e
+    def _ts(e):
+        return e.get("track_score") if isinstance(e.get("track_score"), (int, float)) else -1
+    def _sim(e):
+        return e.get("similarity") if isinstance(e.get("similarity"), (int, float)) else -1
+    return max(etfs, key=lambda e: (_ts(e), _sim(e)))
+
+
+def _ai_rating_of_signal(sig: dict, stats: dict) -> str:
+    """复刻首页 _ratingOf(app.js L2619): 用 signal_stats[index_id][sig]["10d"].score 分档评级。
+    score>=0.75 high / >=0.55 mid / 其他 low; 无 score 返回空串(排最后)。"""
+    sig_key = "buy_special" if sig.get("signal") == "buy_special_filtered" else sig.get("signal")
+    d = (stats.get(sig.get("index_id") or "", {}).get(sig_key or "", {}) or {}).get("10d")
+    sc = d.get("score") if d and isinstance(d.get("score"), (int, float)) else None
+    if sc is None:
+        return ""
+    if sc >= 0.75:
+        return "high"
+    if sc >= 0.55:
+        return "mid"
+    return "low"
+
+
+def build_ai_suggest_map(signals: list[dict], overview_markers: dict, stats: dict) -> dict:
+    """复刻首页 K=1 主推档 AI 建议 top-K, 建 (index_id, signal) -> rank 映射。
+
+    首页 _posCapKeptMap(L2641-2658) 口径: 对当日信号(首页 popItems 内), 过滤
+      signal not in (band_hold, sell, sell_stop_loss) 且 _bt_in_universe!==false 且非 AI 降亏命中,
+      按 _posCapSortedFn(track_score↓→评级high>mid>low→信号类型buy_backup>buy>buy_aux>buy_special)
+      排序取前 K 名(K=1 主推档)。
+    candidates 只取「本邮件要展示的当日 signals」内满足条件的(展示范围内谁最优, 与邮件展示一一对应;
+      邮件为通用广播, 用全量信号人口, 去掉前端用户个人档位筛选)。
+    只返回 top1(index_id, signal) -> rank=1(K=1 主推); 其余候选者为「当日已满」(调用方
+      _calc_signal_markers 判定 ai_full)。rank 从 1 起。
+    """
+    candidates = []
+    for s in signals:
+        iid = s.get("index_id")
+        sig = s.get("signal")
+        if sig in ("band_hold", "sell", "sell_stop_loss"):
+            continue
+        m = overview_markers.get((iid, sig))
+        if m is None or m.get("_bt_in_universe") is False:
+            continue
+        if m.get("ai_macro", {}).get("hit"):
+            continue
+        candidates.append({"index_id": iid, "signal": sig,
+                           "track_score": (_top_etf_by_score(m.get("etfs")) or {}).get("track_score"),
+                           "rating": _ai_rating_of_signal(s, stats)})
+    if not candidates:
+        return {}
+    # 排序: track_score DESC -> rating(high>mid>low>"") -> signal type(buy_backup>buy>buy_aux>buy_special)
+    _rating_rank = {"high": 0, "mid": 1, "low": 2, "": 3}
+    def _sort_key(c):
+        ts = c["track_score"] if isinstance(c["track_score"], (int, float)) else -1
+        rr = _rating_rank.get(c["rating"], 3)
+        sr = _AI_RANK_SIG_ORDER.get(c["signal"], 9)
+        return (-ts, rr, sr)
+    candidates.sort(key=_sort_key)
+    top = candidates[0]
+    return {(top["index_id"], top["signal"]): 1}
+
+
+def _calc_signal_markers(sig: dict, overview_markers: dict, stats: dict,
+                         ai_suggest: dict) -> dict:
+    """为单个信号计算 #61 标记集合(只读 overview 注入 + signal_stats, 不自行重算宇宙)。
+
+    返回 dict:
+      in_universe: bool|None (None=overview 无该信号标记, 未知)
+      ai_fade: bool 命中 8 键降亏(AI 降亏层)
+      ai_warn: bool 入样卖出信号 → AI 警示(离场保护, 与 AI 过滤正交)
+      ai_rank: int|None 首页 K=1 top-K 内的排名(AI 建议 N, 从 1 起)
+      ai_full: bool 满足 AI 建议候选条件但超出 top-K → 「当日已满」
+    """
+    marker = overview_markers.get((sig["index_id"], sig["signal"]))
+    in_universe = None
+    ai_fade = False
+    if marker is not None:
+        in_universe = marker.get("_bt_in_universe")
+        ai_fade = bool(marker.get("ai_macro", {}).get("hit"))
+    sig_type = sig.get("signal") or ""
+    # AI 警示: 入宇宙卖出(sell/sell_stop_loss), 首页 _isSellSig + _bt_in_universe!==false 同语义
+    ai_warn = (sig_type in _AI_WARN_SELL_TYPES) and (in_universe is not False)
+    ai_rank = ai_suggest.get((sig["index_id"], sig_type))
+    ai_full = False
+    if ai_rank is None and not ai_warn and in_universe is not False \
+            and sig_type not in ("band_hold",) and not ai_fade:
+        # 满足 AI 建议候选(入样买入/非降亏/非持有)但不在 top-K 内 → 当日已满
+        ai_full = True
+    return {
+        "in_universe": in_universe,
+        "ai_fade": ai_fade,
+        "ai_warn": ai_warn,
+        "ai_rank": ai_rank,
+        "ai_full": ai_full,
+    }
+
+
+def _signal_marker_badge_html(mk: dict) -> str:
+    """生成单个信号的 #61 标记徽标 HTML(空串=无标记)。在的强化展示, 不在的明确标注。
+
+    优先级: AI建议1(亮绿强化, 最高) > AI警示(亮橙) > AI降亏(橙红) > 未入样本(灰红) > 当日已满(灰)。
+    未入样本(未入回测宇宙)与 AI降亏 叠加展示; AI警示 与 AI过滤 正交可并存。
+    """
+    badges = []
+    if mk["ai_rank"] is not None:
+        badges.append(
+            '<span style="background:#f0fff4;border:1px solid #52c41a;color:#237804;'
+            'font-size:11px;font-weight:700;padding:1px 6px;border-radius:3px;margin-right:4px;">'
+            f'AI建议{mk["ai_rank"]}</span>')
+    if mk["ai_warn"]:
+        badges.append(
+            '<span style="background:#fff7e6;border:1px solid #fa8c16;color:#d46b08;'
+            'font-size:11px;font-weight:700;padding:1px 6px;border-radius:3px;margin-right:4px;">'
+            'AI警示</span>')
+    if mk["ai_fade"]:
+        badges.append(
+            '<span style="background:#fff1f0;border:1px solid #ff4d4f;color:#cf1322;'
+            'font-size:11px;font-weight:700;padding:1px 6px;border-radius:3px;margin-right:4px;">'
+            'AI降亏·建议回避</span>')
+    if mk["in_universe"] is False:
+        badges.append(
+            '<span style="background:#f7f8fa;border:1px solid #c9cdd4;color:#86909c;'
+            'font-size:11px;font-weight:700;padding:1px 6px;border-radius:3px;margin-right:4px;">'
+            '未入回测宇宙</span>')
+    if mk["ai_full"]:
+        badges.append(
+            '<span style="background:#f7f8fa;border:1px solid #c9cdd4;color:#86909c;'
+            'font-size:11px;font-weight:700;padding:1px 6px;border-radius:3px;margin-right:4px;">'
+            '当日已满</span>')
+    return "".join(badges)
+
+
+def _signal_marker_badge_text(mk: dict) -> str:
+    """生成单个信号的 #61 标记文本(飞书 post 用, 与邮件徽标内容一致, §23.10)。"""
+    parts = []
+    if mk["ai_rank"] is not None:
+        parts.append(f"AI建议{mk['ai_rank']}")
+    if mk["ai_warn"]:
+        parts.append("AI警示")
+    if mk["ai_fade"]:
+        parts.append("AI降亏·建议回避")
+    if mk["in_universe"] is False:
+        parts.append("未入回测宇宙")
+    if mk["ai_full"]:
+        parts.append("当日已满")
+    return " ".join(parts)
 
 
 def _detect_buy_fade(idx: str, intraday_sig: str, closing_sigs: set[str],
@@ -937,7 +1180,9 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
                 timeline: list[dict] | None = None,
                 fade_timeline: list[dict] | None = None,
                 subject_signals: list[dict] | None = None,
-                dedup_annotate: bool = False) -> tuple[str, str]:
+                dedup_annotate: bool = False,
+                overview_markers: dict | None = None,
+                ai_suggest: dict | None = None) -> tuple[str, str]:
     """构建邮件主题 + HTML 正文。返回 (subject, html_body)。
 
     intraday=True 时邮件标注【盘中实时】+ 风险提示横幅（盘中快照非最终，
@@ -951,8 +1196,13 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
     subject_signals：主题信号摘要用（预留，见 B1 说明；当前统一为与表体一致的去重新信号）。
     dedup_annotate（2026-08-14 告警优化 B1）：True 时正文统计行加"(当日去重后新信号 N 条)"，
       标注主题/正文统一为去重新信号口径。
+    overview_markers / ai_suggest（#61 2026-08-17）：信号「回测宇宙+AI过滤+AI警示+AI建议」标记，
+      由 main 从 overview.json 读入(load_overview_markers/build_ai_suggest_map)。None 时降级为
+      不标注(兼容 test_feishu_post.py 直接调用 build_email 的旧签名)。
     """
     stats = load_signal_stats()
+    om = overview_markers if overview_markers is not None else {}
+    ai_sg = ai_suggest if ai_suggest is not None else {}
 
     # 按 signal 类型分组（buy / buy_aux / buy_special / buy_backup / sell / sell_stop_loss）
     groups = _group_signals(signals)
@@ -1055,11 +1305,12 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
         else:
             html_parts.append('<p style="color:#86909c;">今日无买卖点信号。</p>')
     else:
-        # 信号表格
+        # 信号表格（#61 2026-08-17 加「AI 标记」列: 回测宇宙/AI过滤/AI警示/AI建议, 与首页同口径）
         html_parts.append("""<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;">
 <thead><tr style="background:#f2f3f5;text-align:left;">
 <th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;">品种</th>
 <th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:48px;">类型</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:230px;">AI 标记</th>
 <th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;">触发条件</th>
 <th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:56px;text-align:center;">胜率</th>
 <th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:56px;text-align:center;">盈亏比</th>
@@ -1091,9 +1342,15 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
                     kelly_str = f'样本不足({n_s or 0}例)' if n_s else "-"
                     kelly_color = "#c9cdd4"
                 wr_color = "#2e8b57" if (wr or 0) >= 0.6 else "#e6492e" if (wr or 0) < 0.4 else "#1d2129"
-                html_parts.append(f"""<tr style="border-bottom:1px solid #f2f3f5;">
+                # #61: 算该信号标记 + 渲染徽标; 「AI建议N」行整行浅绿强化(在的强化展示), 其他正常
+                _mk = _calc_signal_markers(s, om, stats, ai_sg)
+                _badge = _signal_marker_badge_html(_mk)
+                _ai_rank = _mk["ai_rank"]
+                _row_bg = ' style="background:#f6ffed;border-bottom:1px solid #b7eb8f;"' if _ai_rank is not None else ''
+                html_parts.append(f"""<tr{_row_bg}>
 <td style="padding:8px 10px;">{emoji} <b>{name}</b></td>
 <td style="padding:8px 10px;font-size:12px;">{label}</td>
+<td style="padding:8px 10px;font-size:11px;">{_badge}</td>
 <td style="padding:8px 10px;font-size:12px;color:#4e5969;">{reason}</td>
 <td style="padding:8px 10px;text-align:center;font-weight:600;color:{wr_color};">{wr_str}</td>
 <td style="padding:8px 10px;text-align:center;">{pl_str}</td>
@@ -1127,11 +1384,13 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
 
 
 def _signal_post_row(s: dict, name_map: dict[str, str], stats: dict,
-                     sig_type: str) -> list[dict]:
-    """单个信号 -> 飞书 post 一行（类型/品种/触发条件摘要/凯利建议）。
+                     sig_type: str, om: dict | None = None,
+                     ai_sg: dict | None = None) -> list[dict]:
+    """单个信号 -> 飞书 post 一行（类型/品种/AI标记/触发条件摘要/凯利建议）。
 
-    精简为一行：`{emoji} {类型} {品种} | {触发条件摘要}` + 凯利建议（若有）；
+    精简为一行：`{emoji} {类型} {品种}` + #61 AI 标记 + `| {触发条件摘要}` + 凯利建议（若有）；
     触发条件截断 FEISHU_POST_REASON_MAX 字符（完整在邮件）。
+    om/ai_sg（#61）：overview 标记映射 + AI 建议 top-K 映射，None 时降级为不标注。
     """
     name = index_id_to_name(s["index_id"], name_map)
     label = _signal_label(sig_type)
@@ -1148,6 +1407,13 @@ def _signal_post_row(s: dict, name_map: dict[str, str], stats: dict,
     if len(reason) > FEISHU_POST_REASON_MAX:
         reason = reason[:FEISHU_POST_REASON_MAX].rstrip() + "…"
     row_text = f"{emoji} {label} {name}"
+    # #61: AI 标记文本(与邮件徽标内容一致, §23.10)。AI建议N 加 ⭐ 强化。
+    if om is not None and ai_sg is not None:
+        _mk = _calc_signal_markers(s, om, stats, ai_sg)
+        _mt = _signal_marker_badge_text(_mk)
+        if _mt:
+            _star = "⭐" if _mk["ai_rank"] is not None else ""
+            row_text += f" {_star}[{_mt}]"
     if reason:
         row_text += f" | {reason}"
     # 凯利建议（复用邮件口径：10d 统计 win_rate/pl，样本≥10 才算）
@@ -1165,17 +1431,24 @@ def _signal_post_row(s: dict, name_map: dict[str, str], stats: dict,
 def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str],
                       intraday: bool = False,
                       fade_alerts: list[dict] | None = None,
-                      fade_timeline: list[dict] | None = None) -> dict:
+                      fade_timeline: list[dict] | None = None,
+                      overview_markers: dict | None = None,
+                      ai_suggest: dict | None = None) -> dict:
     """构建飞书 post 富文本（报告群版，notify.send(feishu_post=...) 用）。
 
     按 buy(买)/sell(卖)/hold(波段持有) 分组：买红/卖绿/持有灰（彩色 emoji 前缀实现，
     飞书 post text 不支持 style.color，见 notify.py 注释）；分组表头用 md **加粗**。
-    每个信号一行精简（类型/品种/触发条件摘要/凯利建议），不冗长；触发条件截断
+    每个信号一行精简（类型/品种/#61 AI标记/触发条件摘要/凯利建议），不冗长；触发条件截断
     FEISHU_POST_REASON_MAX 字符；规则说明省略为一行指引（完整在邮件）。
     超 notify.FEISHU_POST_MAX_ROWS 行时由 send_feishu 分段连发（2026-08-16 用户定：
     放开行数+超长分段连发，标题带 N/M 序号，不省略行，和页面一致）。
+    overview_markers / ai_suggest（#61 2026-08-17）：信号「回测宇宙+AI过滤+AI警示+AI建议」标记，
+      由 main 从 overview.json 读入(load_overview_markers/build_ai_suggest_map)。None 时降级为
+      不标注(兼容 test_feishu_post.py 直接调用 build_feishu_post 的旧签名)。
     """
     stats = load_signal_stats()
+    om = overview_markers if overview_markers is not None else {}
+    ai_sg = ai_suggest if ai_suggest is not None else {}
     groups = _group_signals(signals)
     n_buy = sum(len(groups[t]) for t in FEISHU_POST_BUY_TYPES)
     n_sell = sum(len(groups[t]) for t in FEISHU_POST_SELL_TYPES)
@@ -1190,19 +1463,19 @@ def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str
         lines.append([notify.post_md(f"🔴 **买入信号**{sub}")])
         for sig_type in FEISHU_POST_BUY_TYPES:
             for s in groups[sig_type]:
-                lines.append(_signal_post_row(s, name_map, stats, sig_type))
+                lines.append(_signal_post_row(s, name_map, stats, sig_type, om, ai_sg))
     # 卖出分组（🟢 A股绿=卖，与平台信号灯 sell 绿 #2e8b57 一致）
     if n_sell:
         sub = f"（卖{len(groups['sell'])} 追止损卖{len(groups['sell_stop_loss'])}）"
         lines.append([notify.post_md(f"🟢 **卖出信号**{sub}")])
         for sig_type in FEISHU_POST_SELL_TYPES:
             for s in groups[sig_type]:
-                lines.append(_signal_post_row(s, name_map, stats, sig_type))
+                lines.append(_signal_post_row(s, name_map, stats, sig_type, om, ai_sg))
     # 波段持有（⚪）
     if n_hold:
         lines.append([notify.post_md(f"⚪ **波段持有**（{n_hold}）")])
         for s in groups["band_hold"]:
-            lines.append(_signal_post_row(s, name_map, stats, "band_hold"))
+            lines.append(_signal_post_row(s, name_map, stats, "band_hold", om, ai_sg))
 
     # fade 警示：概要一行 + 每条 fade 附时间线明细（§23.10 飞书与邮件内容一致，不能少内容；
     # 与邮件 _build_fade_detail_html 同数据源 load_signal_intraday_timeline，格式可不同但内容对齐；
@@ -1227,6 +1500,9 @@ def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str
         for a in fade_alerts:
             _fname = index_id_to_name(a["index_id"], name_map)
             _flabel = _signal_label(a["intraday_signal"])
+            # §23.10(2026-08-17 #61): 飞书 fade 明细补 suggestion(建议操作, 与邮件
+            #   _build_fade_banner/_build_fade_detail_html 的建议列同字段), 飞书与邮件内容一致不精简。
+            _sugg = (a.get("suggestion") or "").replace("\n", " ").replace("\r", " ").strip()
             _t = fade_map.get((a["index_id"], a["intraday_signal"]))
             if _t:
                 _reason = (_t.get("reason") or "").replace("\n", " ").replace("\r", " ").strip()
@@ -1234,12 +1510,16 @@ def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str
                     _reason = _reason[:FEISHU_POST_REASON_MAX].rstrip() + "…"
                 _detail = (f"    {_flabel} {_fname}：{_t['appear_time']} 出现 → "
                            f"{_t['last_time']} 后消失")
+                if _sugg:
+                    _detail += f" | 建议：{_sugg}"
                 if _reason:
                     _detail += f" | {_reason}"
             else:
                 # 时间线无该信号记录（log 缺失/早于记录起点）：退化只展示 fade 状态
                 _closing = (a.get("closing_status") or "").replace("\n", " ").replace("\r", " ").strip()
                 _detail = f"    {_flabel} {_fname}：本轮检测消失"
+                if _sugg:
+                    _detail += f" | 建议：{_sugg}"
                 if _closing:
                     _detail += f" | {_closing}"
             lines.append([notify.post_text(_detail)])
@@ -1390,13 +1670,25 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     name_map = load_name_map()
+    # #61(2026-08-17): 读 overview.json 信号「回测宇宙+AI过滤」标记。exact(当天)优先, fallback
+    #   (近 15 日同 index_id+signal)盘中降级; 标记缺失时 build_email/build_feishu_post 内部降级为
+    #   该信号不标注(诚实不误标)。AI 建议 top-K 在 signals_to_send 确定后按当天展示信号单独算。
+    #   读失败不阻塞整个流程(降级为不标注)。
+    try:
+        _exact, _fallback = load_overview_markers(date)
+        _om = dict(_fallback); _om.update(_exact)  # 合并: exact 覆盖 fallback 同 key
+        log.info("#61 信号标记: overview 当天 %d 条 / 近15日 %d 条", len(_exact), len(_fallback))
+    except Exception as e:  # noqa: BLE001
+        log.warning("#61 overview 标记加载异常（降级为不标注）：%s", e)
+        _om = {}
     # A12 订阅推送（2026-07-24 P2-新-K）：独立于全局推送，用全部 signals（不去重），
     # 每订阅用 subs_notified.json 独立去重。放在 name_map 加载后、全局推送流程之前，
     # 保证退出点 2/3/4（无新信号/dry-run/全局推送失败）也执行，订阅者能收到匹配信号。
     # 失败不阻塞全局推送（push_subscriptions 内部 try/except 兜底）。
     try:
         push_subscriptions(signals, name_map, date,
-                           intraday=args.intraday, dry_run=args.dry_run)
+                           intraday=args.intraday, dry_run=args.dry_run,
+                           overview_markers=_om)
     except Exception as e:  # noqa: BLE001
         log.error("A12 订阅推送异常：%s（不阻塞全局推送）", e)
     # F 方案（2026-07-21）邮件去重：默认只发当日新 (index_id, signal)；
@@ -1441,16 +1733,26 @@ def main(argv: list[str] | None = None) -> int:
     #   去重新信号口径（subject_signals=None）。build_email 内 elif timeline 分支（parts 空）
     #   仅当日 signals 真为空（信号全部消失）时才触发"信号均已消失"，语义正确。
     subject_signals = signals if timeline else None
+    # #61: 对本邮件要展示的 signals_to_send 算 K=1 AI 建议 top-K(展示范围内谁最优, 与邮件对应)
+    _ai_suggest = build_ai_suggest_map(signals_to_send, _om, load_signal_stats())
+    log.info("#61 AI 建议 top-K(展示 %d 信号): %d 条入样买入候选, top1=%s",
+             len(signals_to_send), sum(1 for _s in signals_to_send
+             if _s.get("signal") not in ("band_hold", "sell", "sell_stop_loss")
+             and _om.get((_s["index_id"], _s["signal"]), {}).get("_bt_in_universe") is not False
+             and not _om.get((_s["index_id"], _s["signal"]), {}).get("ai_macro", {}).get("hit")),
+             next(iter(_ai_suggest), None))
     subject, body = build_email(date, signals_to_send, name_map,
                                 intraday=args.intraday, fade_alerts=fade_alerts_for_email,
                                 timeline=timeline, fade_timeline=fade_timeline,
                                 subject_signals=subject_signals,
-                                dedup_annotate=(not args.full))
+                                dedup_annotate=(not args.full),
+                                overview_markers=_om, ai_suggest=_ai_suggest)
     # 飞书 post 富文本（报告群版）：buy/sell 分组 + 彩色，替代 _html_to_text 拍平成纯文本
     feishu_post = build_feishu_post(subject, signals_to_send, name_map,
                                     intraday=args.intraday,
                                     fade_alerts=fade_alerts_for_email,
-                                    fade_timeline=fade_timeline)
+                                    fade_timeline=fade_timeline,
+                                    overview_markers=_om, ai_suggest=_ai_suggest)
     # 始终打印邮件内容（便于日志/调试/未配置场景查看）
     log.info("===== 邮件主题 =====")
     log.info("%s", subject)
