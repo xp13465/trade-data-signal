@@ -7463,6 +7463,18 @@ function renderSummaryChips(s, snap) {
     if (_dynPrice("sh") != null) shClose = _dynPrice("sh");
   }
   const chips = [];
+  // 大盘状态 chip（四档：牛市·主升/上升期/下降期/熊市·主跌；展示层，不参与任何过滤/回测）
+  // tooltip 即 §21 算法公示位：判定规则 + 当前各均线值 + 波浪弱叙事 + 主观参考声明
+  if (s.market_state && s.market_state.tier) {
+    const _ms = s.market_state;
+    const _msBull = _ms.tier.includes("牛市") || _ms.tier.includes("上升");
+    const _msColor = _msBull ? "#e6492e" : "#2e8b57";
+    const _msTip = `判定规则：价 vs 年线(MA200) + MA20/60/120 排列 → 四档[牛市·主升/上升期/下降期/熊市·主跌]。`
+      + `&#10;当前：close ${_ms.close} | MA20 ${_ms.ma20} | MA60 ${_ms.ma60} | MA120 ${_ms.ma120} | MA200 ${_ms.ma200}。`
+      + (_ms.wave_ref ? `&#10;${_ms.wave_ref}` : "")
+      + (_ms.wave_ref ? "" : "&#10;主观参考，非硬信号。");
+    chips.push(`<span class="summary-chip" style="color:${_msColor}" title="${_msTip}">大盘 · ${_ms.tier}</span>`);
+  }
   // 上证 chip（涨红跌绿，硬编码语义色）
   if (shPct != null) {
     const shColor = shPct >= 0 ? "#e6492e" : "#2e8b57";

@@ -68,6 +68,141 @@ def _pct_sign(v: float) -> str:
     return "+" if v >= 0 else ""
 
 
+# ============ 大盘状态四档判定(展示层) ============
+# 调研定稿(2026-08-17, docs/market-state/market-state-analysis.md, 沪深300 全史 5972 交易日回测):
+#   牛市·主升: 价>MA200 且 多头排列(MA20>MA60>MA120)
+#   上升期:    价>MA200 且 非多头(均线纠缠)
+#   下降期:    价<MA200 且 非空头
+#   熊市·主跌: 价<MA200 且 空头排列(MA20<MA60<MA120)
+# 区分度(牛侧 vs 熊侧 追关注胜率 54.9% vs 44.8%, 净利 +31.9万 vs -6.2万; hs300 未来20d +1.62% vs -0.11%)。
+# 仅展示层(首页 chips/tooltip + 收盘邮件文案)，不参与任何过滤/回测/凯利默认组合(§5.4/§23.7 冻结)。
+
+
+def _market_state_of(conn, date: str) -> dict | None:
+    """沪深300 四档大盘状态判定(复用 index_daily hs300 读库，MA 用含当日最近 w 根收盘均值)。
+
+    返回 {tier, desc, close, ma20, ma60, ma120, ma200, wave_ref} 或 None(数据不足)。
+    纯展示层，不参与任何过滤/回测。"""
+    rows = conn.execute(
+        "SELECT date, close FROM index_daily WHERE index_id='hs300' "
+        "AND close IS NOT NULL ORDER BY date"
+    ).fetchall()
+    if not rows:
+        return None
+    dates = [r["date"] for r in rows]
+    closes = [r["close"] for r in rows]
+    n = len(dates)
+
+    def ma(w: int, i: int) -> float | None:
+        if i < w - 1:
+            return None
+        return sum(closes[i - w + 1: i + 1]) / w
+
+    # 盘中快照仅含当日单点，均线态用"昨日收盘"(与 _ai_macro_build_market_state 取 ≤date 最近完整态同精神)。
+    _now = dt.datetime.now()
+    state_date = date
+    if date == _now.strftime("%Y%m%d") and _now.hour < 15:
+        state_date = dates[-1] if dates[-1] < date else state_date  # 昨日(最近已收盘交易日)
+
+    # 取 ≤ state_date 最近一个有完整 MA200 的交易日
+    import bisect
+    idx = bisect.bisect_right(dates, state_date) - 1
+    while idx >= 0:
+        c = closes[idx]
+        m20 = ma(20, idx)
+        m60 = ma(60, idx)
+        m120 = ma(120, idx)
+        m200 = ma(200, idx)
+        if m20 is not None and m60 is not None and m120 is not None and m200 is not None:
+            break
+        idx -= 1
+    if idx < 0:
+        return None
+    d = dates[idx]
+    c = closes[idx]
+    m20, m60, m120, m200 = ma(20, idx), ma(60, idx), ma(120, idx), ma(200, idx)
+    bull = m20 > m60 > m120
+    bear = m20 < m60 < m120
+
+    if c > m200 and bull:
+        tier, desc = "牛市·主升", "价在年线(MA200)上方且均线多头排列(MA20>MA60>MA120)，趋势主升"
+    elif c > m200:
+        tier, desc = "上升期", "价在年线(MA200)上方但均线纠缠(未多头排列)，上升蓄势"
+    elif c < m200 and bear:
+        tier, desc = "熊市·主跌", "价在年线(MA200)下方且均线空头排列(MA20<MA60<MA120)，趋势主跌"
+    elif c < m200:
+        tier, desc = "下降期", "价在年线(MA200)下方但均线纠缠(未空头排列)，下降过渡"
+    else:  # c == m200 极端情形
+        tier, desc = "上升期", "价在年线(MA200)附近，均线纠缠"
+
+    wave_ref = _wave_ref(d, c, m20, m60, m120, m200, closes, dates, idx)
+    return {
+        "tier": tier,
+        "desc": desc,
+        "close": round(c, 2),
+        "ma20": round(m20, 2),
+        "ma60": round(m60, 2),
+        "ma120": round(m120, 2),
+        "ma200": round(m200, 2),
+        "wave_ref": wave_ref,
+    }
+
+
+def _wave_ref(d: str, c: float, m20: float, m60: float, m120: float,
+              m200: float, closes: list, dates: list, idx: int) -> str:
+    """波浪理论弱叙事参考(纯叙事，非硬信号)。
+    锚点: 相对年线位置 + 距近 250 日前高回撤 vs 斐波那契 0.382/0.618 + 连续在年线侧天数。
+    字符串内标注「主观参考，非硬信号」。"""
+    vs_year = (c / m200 - 1) * 100 if m200 else 0.0
+
+    # 距近 250 日前高回撤
+    drawdown = None
+    seg = closes[max(0, idx - 249): idx + 1]
+    if seg:
+        high = max(seg)
+        drawdown = (c / high - 1) * 100 if high else None
+
+    # 连续在年线侧天数(截至 idx，含当日)
+    run = 0
+    j = idx
+    above = c > m200
+    while j >= 0:
+        mj = sum(closes[j - 199: j + 1]) / 200 if j >= 199 else None
+        if mj is None:
+            break
+        if (closes[j] > mj) != above:
+            break
+        run += 1
+        j -= 1
+
+    bull = m20 > m60 > m120
+    bear = m20 < m60 < m120
+
+    # 斐波那契位判定
+    fib = ""
+    if drawdown is not None:
+        if drawdown <= -61.8:
+            fib = "已深回撤接近斐波那契 0.618 关键位"
+        elif drawdown <= -38.2:
+            fib = "回撤接近斐波那契 0.382 关键位"
+        else:
+            fib = f"距近期高点回撤约{abs(drawdown):.1f}%(未到 0.382 关键位，仍处相对高位区)"
+
+    if bull and c > m200:
+        return (f"若按波浪框架，当前接近主升(第 3 浪)特征：价在年线上方 {vs_year:+.1f}%，"
+                f"多头排列强化趋势；{fib}。主观参考，非硬信号。")
+    if c > m200:
+        return (f"若按波浪框架，当前为突破年线后的上升期(或处第 1-2 浪蓄势)：价在年线上方 {vs_year:+.1f}%，"
+                f"连续{run}日站上年线，均线尚未多头排列；{fib}。主观参考，非硬信号。")
+    if bear and c < m200:
+        return (f"若按波浪框架，当前接近主跌(第 C 浪/5 浪)特征：价在年线下方 {vs_year:+.1f}%，"
+                f"空头排列强化下行；{fib}。主观参考，非硬信号。")
+    if c < m200:
+        return (f"若按波浪框架，当前为年线下方的下降期(或处调整尾声/主跌前过渡)：价在年线下方 {vs_year:+.1f}%，"
+                f"连续{run}日处于年线下方，均线尚未空头排列；{fib}。主观参考，非硬信号。")
+    return f"若按波浪框架，当前在年线附近纠缠。主观参考，非硬信号。"
+
+
 def generate_summary(date: str | None = None) -> dict:
     """生成一句话市场总结。
 
@@ -332,6 +467,9 @@ def generate_summary(date: str | None = None) -> dict:
             "net_inflow": r["net_inflow"],
         })
 
+    # ---- 大盘状态四档判定(展示层，盘中用昨日收盘状态) ----
+    market_state = _market_state_of(conn, date)
+
     conn.close()
 
     # ---- 构建总结文案 ----
@@ -347,11 +485,12 @@ def generate_summary(date: str | None = None) -> dict:
         generated_at = f"{date_prefix} 收盘分析"
 
     # 一句话短版（概览横幅）
+    ms_txt = f"，大盘状态：{market_state['tier']}" if market_state else ""
     summary_short = (
         f"{date_prefix}A股{sentiment_desc_str}，上证{direction}{abs(sh_pct or 0):.2f}%，"
         f"{width_desc}（{up_count}涨{down_count}跌），"
         f"成交额{vol_display}（{vol_label}）。"
-        f"热点：{hot_names}"
+        f"热点：{hot_names}{ms_txt}"
     )
 
     # 段落长版（含更多分析维度）
@@ -376,6 +515,9 @@ def generate_summary(date: str | None = None) -> dict:
 
     parts.append(f"{ma_desc}。")
 
+    if market_state:
+        parts.append(f"大盘状态：{market_state['tier']}（{market_state['desc']}）。")
+
     if hot_names:
         parts.append(f"领涨板块：{hot_names}。")
 
@@ -389,6 +531,7 @@ def generate_summary(date: str | None = None) -> dict:
         "generated_at": generated_at,
         "summary": summary,
         "summary_short": summary_short,
+        "market_state": market_state,
         "sentiment_label": sentiment_desc_str,
         "sentiment_score": sentiment_score,
         "fear_greed_value": fg_value,
