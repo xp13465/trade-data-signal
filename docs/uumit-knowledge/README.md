@@ -10,7 +10,7 @@
 |---|---|---|---|
 | 第一步 B · 量化文献与方法论地图 | [`literature-map.md`](literature-map.md) | ✅ 已上架,1 UT 引流价 published(资产 `649b30d2`,capability `d7ede493`) | 数据源/回测/因子挖掘/AI预测/避坑五章,每条带"本项目用在哪"1:1标注 + 主站落地举例(fx8.store 引流),读者视角白话;0 UT 被平台拒,用户拍板 1 UT 最低正数价上架(见册子「定价定位」段上架实测) |
 | 第一步 B · 文献地图交付版 | [`deliverables/literature-map.md`](deliverables/literature-map.md) | ✅ 已作为上架交付物发布 | 对外发布版,去掉内部 `docs/` 路径,保留主站域名引流;已上架知识商店 |
-| (规划)第一步 A · 量化回测方法论+避坑小册 | — | 待 B 验证后整理 | 从 `docs/kelly/analysis` 提炼口径/费率/K档/样本外/20倍可操作性 |
+| 第一步 A · 量化回测方法论+避坑小册 | [`retro-manual/00-index.md`](retro-manual/00-index.md) | 已成册(2026-08-17),待定价上架(后续独立任务) | 10 章读者视角手册(口径 / 每日池vs每笔 / 费率 / K档 / 20倍可操作 / walk-forward / K2C5挖掘 / 模式分裂 / 两把尺子 / 避坑+过拟合监控),每章真实 2011-2026 回测数据 + 1:1 落地例子 + 复现段;大纲 [`retro-manual-plan.md`](retro-manual-plan.md);定价参考 112-200 UT |
 | (规划)指标解读手册 | — | 待整理 | 三档互证指标字典(原料 `docs/理财专员使用指南.md` + `docs/explain-1to1-inventory.md`) |
 | (规划)AI 每日预测方法论 | — | 待整理 | 双命中口径/多角色辩论/降级契约 |
 
