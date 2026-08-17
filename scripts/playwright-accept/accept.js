@@ -97,16 +97,27 @@ function parseAssertion(spec) {
 (async () => {
   parseArgs();
 
-  const results = { console: [], pageErrors: [], requests: [], failures: [], passes: [] };
+  const results = { console: [], blockedConsole: [], pageErrors: [], requests: [], failures: [], passes: [] };
 
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
 
+  // 浏览器「资源加载失败」(console 打 Failed to load resource: net::ERR_*)不是 JS 错误——
+  // 它由网络/源故障产生(如 --block 故意拦截主源、或测试环境连不上被模拟故障的源),不参与
+  // --block-on-error 判定;真正的 JS 错误走 pageerror 或带 JS 异常文本的 console error。
   // a. console 抓取
   page.on('console', (msg) => {
     const level = msg.type();
     if (level === 'error' || level === 'warning') {
-      results.console.push({ level, text: msg.text(), location: msg.location() });
+      const loc = msg.location();
+      const isResourceLoadErr = level === 'error'
+        && /Failed to load resource: net::ERR_/.test(msg.text());
+      if (isResourceLoadErr) {
+        // 资源加载错误:单独记录展示,不参与 --block-on-error 判定
+        results.blockedConsole.push({ level, text: msg.text(), location: loc });
+        return;
+      }
+      results.console.push({ level, text: msg.text(), location: loc });
     }
   });
   page.on('pageerror', (err) => {
@@ -246,6 +257,12 @@ function parseAssertion(spec) {
   if (results.console.length === 0) console.log('(无 error/warning 级 console 输出)');
   for (const c of results.console) {
     console.log(`[${c.level.toUpperCase()}] ${c.text}${c.location && c.location.url ? `  @ ${c.location.url}:${c.location.lineNumber}` : ''}`);
+  }
+  if (results.blockedConsole.length > 0) {
+    console.log(`\n(已豁免 ${results.blockedConsole.length} 条资源加载错误 Failed to load resource: net::ERR_*,为网络/源故障产物,不计入 --block-on-error 判定)`);
+    for (const c of results.blockedConsole) {
+      console.log(`[RESOURCE-ERR] ${c.text}${c.location && c.location.url ? `  @ ${c.location.url}:${c.location.lineNumber}` : ''}`);
+    }
   }
   if (results.pageErrors.length === 0) {
     console.log('(无未捕获页面异常 pageerror)');

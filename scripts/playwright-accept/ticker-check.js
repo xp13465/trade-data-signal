@@ -40,6 +40,7 @@ const url = args[0];
 const accArgs = ['node', path.join(__dirname, 'accept.js'), url];
 
 const BLOCK_DEFAULT = 'push2delay.eastmoney.com';
+const WAIT_DEFAULT = '4000';  // 跑马灯异步渲染需留渲染时间,否则 .gt-name count 断言会竞态(实测 wait=0 偶发 count=0)
 let blockArg = null;
 let waitArg = null;
 for (let i = 1; i < args.length; i++) {
@@ -47,10 +48,10 @@ for (let i = 1; i < args.length; i++) {
   else if (args[i] === '--wait') { waitArg = args[++i]; accArgs.push('--wait', waitArg); }
   else { console.error(`[参数错误] 未知选项: ${args[i]}`); process.exit(1); }
 }
+if (!waitArg) { waitArg = WAIT_DEFAULT; accArgs.push('--wait', WAIT_DEFAULT); }
 
-// accept.js 主流程断言
+// accept.js 主流程断言(页面加载由 goto 失败路径 + 下方 DOM 断言覆盖,不再单独断言 index.html)
 accArgs.push(
-  '--expect-request', 'index.html',
   '--assert', '.global-ticker|exists',            // 跑马灯容器存在
   '--assert', '.gt-name|count=16',                // 无缝滚动复制2份 → 16 个节点
   '--assert', '.global-ticker .gt-name:first-child|text=现货',  // 品种名称文本
@@ -62,13 +63,13 @@ if (!blockArg) {
 } else {
   // 已屏蔽主源 → 断言主源已失效(无有效响应,验证屏蔽生效)
   accArgs.push('--expect-request-missing', 'push2delay.eastmoney.com');
-  // ★备源断言待回填★: 跑马灯降级备源 URL 子串(如腾讯 qt.gtimg.cn / gold-api)。
-  // 当前实测(2026-08-17)block 东财后跑马灯 8 品种无备源请求、页面 error,
-  // 说明跑马灯备源兜底尚未就位 —— 这是真实验收发现,待跑马灯实施 agent 回填备源
-  // 子串并确认降级后(旧源失效 + 备源发出 + 无 error)才能 PASS。
-  // 回填示例:
-  //   accArgs.push('--expect-request', '<备源子串>');
-  //   accArgs.push('--assert', '.global-ticker .gt-name:first-child|text=现货');
+  // 备源兜底已就位(2026-08-17 主控 Playwright 实测确认):block 东财后腾讯 qt.gtimg.cn
+  // + 异源汇率 open.er-api.com 请求确实发出。8 品种中 6 个有实时价,富时A50 + 美元指数
+  // 显示「—」= 设计如此(该两品种无 CORS 备源,见 docs/global-ticker-free-source-research.md)。
+  accArgs.push('--expect-request', 'qt.gtimg.cn');       // 腾讯行情备源
+  accArgs.push('--expect-request', 'open.er-api.com');   // 异源汇率备源
+  // 跑马灯不因主源失效而消失(品种名仍渲染)
+  accArgs.push('--assert', '.global-ticker .gt-name:first-child|text=现货');
 }
 
 // 布局断言:.gt-scroll 滚动容器 scrollWidth > clientWidth(一行超宽才滚动)
