@@ -70,6 +70,14 @@ const CATEGORY_SOURCES = {
   ai_prediction: { file: 'data/daily_brief.json', shape: 'ai_prediction' },
   // etf_pick: ETF 评分快捷返回（buy/sell/hold 三文件，?count=N 默认5 上限10，挑不同档位）
   etf_pick: { file: 'data/etf_score_list_buy.json', shape: 'etf_pick' },
+  // ---- 2026-08-17 第三批上架：当日买入信号 + 卖出警示（UUMit 数据广场「每日决策套件」1+4 闭环）----
+  // buy_signal: 当日买入信号（overview.json signals_today 两个窗口：当天+上个交易日；回测白名单
+  //   buy/buy_aux/buy_special/buy_backup 且 _bt_in_universe=true，排除 sell/债类/情绪等；
+  //   每个信号带 signal_stats.json 对应的高胜率/回测背书）
+  buy_signal: { file: 'data/overview.json', shape: 'buy_signal' },
+  // sell_alert: 卖出警示（overview.json signals_today 最新日期的 sell/sell_stop_loss；支持 ?code= 过滤，
+  //   code 匹配 ETF 代码/index_id/symbol；UUMit 固定 URL 转发不传 query，故上架用无参返回全部）
+  sell_alert: { file: 'data/overview.json', shape: 'sell_alert' },
 };
 
 // 支持的 alert_analyze 标的（前端 static-site/data/alert_analyze_*.json 一一对应）。
@@ -406,6 +414,12 @@ async function handleCategory(request, env, category, action, url) {
   if (category === 'ai_prediction') {
     return shapeAiPrediction(request, env, action, url);
   }
+  if (category === 'buy_signal') {
+    return shapeBuySignal(request, env, action, url);
+  }
+  if (category === 'sell_alert') {
+    return shapeSellAlert(request, env, action, url);
+  }
 
   const obj = await readJsonFile(env, request, src.file);
   if (!obj) return jsonError('data_unavailable', '数据源暂不可用', 503);
@@ -731,6 +745,128 @@ async function shapeAiPrediction(request, env, action, url) {
     generated_at: brief.generated_at || null,
     news,
     news_note,
+  });
+}
+
+// ---- 2026-08-17 第三批：当日买入信号 + 卖出警示（每日决策套件 1+4 闭环）----
+// 回测白名单买入信号类型（§23.6 宇宙规则：buy/buy_aux/buy_special/buy_backup，排除 sell/sell_stop_loss）。
+const BUY_SIGNAL_TYPES = new Set(['buy', 'buy_aux', 'buy_special', 'buy_backup']);
+// 卖出警示信号类型。
+const SELL_SIGNAL_TYPES = new Set(['sell', 'sell_stop_loss']);
+// 回测背书关注的持有窗口（signal_stats 各 index/signal 的 win_rate/score）。
+const BUY_BACKTEST_HORIZONS = ['5d', '10d', '20d'];
+
+// 从 signal_stats.json 取某 index 某信号类型的回测背书（高胜率/命中率/样本数），无则 null。
+function backtestEndorsement(stats, indexId, signalType) {
+  if (!stats || !stats[indexId] || !stats[signalType]) return null;
+  const rec = stats[indexId][signalType];
+  const out = {};
+  for (const h of BUY_BACKTEST_HORIZONS) {
+    if (rec[h]) {
+      out[`win_rate_${h}`] = rec[h].win_rate != null ? Number(rec[h].win_rate.toFixed(4)) : null;
+      out[`score_${h}`] = rec[h].score != null ? Number(rec[h].score.toFixed(3)) : null;
+      out[`n_${h}`] = rec[h].n != null ? rec[h].n : null;
+    } else {
+      out[`win_rate_${h}`] = null;
+      out[`score_${h}`] = null;
+      out[`n_${h}`] = null;
+    }
+  }
+  if (rec.frequency) {
+    out.frequency = {
+      total_count: rec.frequency.total_count != null ? rec.frequency.total_count : null,
+      year_count: rec.frequency.year_count != null ? rec.frequency.year_count : null,
+      monthly_avg: rec.frequency.monthly_avg != null ? Number(rec.frequency.monthly_avg.toFixed(2)) : null,
+    };
+  }
+  return out;
+}
+
+// 归一化一条 signals_today 信号为对外返回形态（只暴露自研/可展示字段，不含原始第三方行情详情）。
+function toSignalView(s) {
+  return {
+    date: s.date,
+    index_id: s.index_id,
+    name: s.name,
+    symbol: s.symbol,
+    signal: s.signal,
+    reason: s.reason,
+    close: s.close,
+    etfs: (s.etfs || []).map(e => ({
+      code: e.code,
+      name: e.name,
+      match_method: e.match_method,
+      track_score: e.track_score,
+      grade: e.grade,
+      is_national_team: !!e.is_national_team,
+    })),
+  };
+}
+
+// buy_signal: 当日买入信号。两个窗口 = 当天(最新日期) + 上个交易日(次新日期)，各窗口只取
+// 回测白名单买入信号且 _bt_in_universe=true（宁可空不能错：债类/情绪/全球/港股行业被宇宙规则排除，
+// 不在宇宙内的不硬凑），每条附 signal_stats 回测背书。两窗口皆 0 信号 → message 提示「今日没交易信号」。
+async function shapeBuySignal(request, env, action, url) {
+  if (action !== 'latest' && action !== 'range') {
+    return jsonError('bad_request', `buy_signal 类别不支持操作: ${action}（仅支持 latest/range）`, 400);
+  }
+  const [overview, stats] = await Promise.all([
+    readJsonFile(env, request, 'data/overview.json'),
+    readJsonFile(env, request, 'data/signal_stats.json'),
+  ]);
+  if (!overview) return jsonError('data_unavailable', '数据源暂不可用', 503);
+  const all = Array.isArray(overview.signals_today) ? overview.signals_today : [];
+  // 取最近两个日期窗口（signals_today 已按 date DESC 含近15交易日，这里显式取前两个不同日期）
+  const dates = [...new Set(all.map(s => s.date).filter(Boolean))].sort((a, b) => b.localeCompare(a));
+  const windows = dates.slice(0, 2);
+
+  const build = (date) => {
+    const sigs = all.filter(s => s.date === date && BUY_SIGNAL_TYPES.has(s.signal) && s._bt_in_universe === true);
+    const signals = sigs.map(s => ({
+      ...toSignalView(s),
+      endorsement: backtestEndorsement(stats, s.index_id, s.signal),
+    }));
+    return { date, count: signals.length, signals };
+  };
+
+  const result = windows.map(build);
+  const total = result.reduce((acc, w) => acc + w.count, 0);
+  return jsonOk({
+    message: total === 0 ? '今日没交易信号' : null,
+    updated_at: overview.date || null,
+    windows: result,
+  });
+}
+
+// sell_alert: 卖出警示。取最新日期窗口的 sell/sell_stop_loss 信号（卖出警示 = 减仓/止损提醒，
+// 覆盖全品种含债/全球/港股，不限于回测买入宇宙）。可选 ?code= 过滤（code 匹配 ETF 代码 / index_id / symbol），
+// 未带 code 返回最新日全部卖出警示。UUMit 数据广场固定 URL 转发不传买家 query 参数，故上架用无参 URL。
+async function shapeSellAlert(request, env, action, url) {
+  if (action !== 'latest') {
+    return jsonError('bad_request', `sell_alert 类别不支持操作: ${action}（仅支持 latest）`, 400);
+  }
+  const overview = await readJsonFile(env, request, 'data/overview.json');
+  if (!overview) return jsonError('data_unavailable', '数据源暂不可用', 503);
+  const all = Array.isArray(overview.signals_today) ? overview.signals_today : [];
+  const dates = [...new Set(all.map(s => s.date).filter(Boolean))].sort((a, b) => b.localeCompare(a));
+  const latestDate = dates[0] || null;
+
+  let alerts = all.filter(s => s.date === latestDate && SELL_SIGNAL_TYPES.has(s.signal));
+  const code = (url.searchParams.get('code') || '').trim().toUpperCase();
+  if (code) {
+    const matches = (s) =>
+      (s.index_id || '').toUpperCase() === code ||
+      (s.symbol || '').toUpperCase() === code ||
+      (s.etfs || []).some(e => String(e.code).toUpperCase() === code);
+    alerts = alerts.filter(matches);
+  }
+
+  const items = alerts.map(s => toSignalView(s));
+  return jsonOk({
+    date: latestDate,
+    code: code || null,
+    count: items.length,
+    alerts: items,
   });
 }
 
