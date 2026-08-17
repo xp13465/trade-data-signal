@@ -991,9 +991,25 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
     elif parts:
         parts_str = "  " + " | ".join(parts)
     elif timeline or fade_timeline:
-        # P2-3：时间线/盘中 fade 详情存在但当日信号空（信号均已消失）时，
-        # 主题不再显示"无信号"（与时间线内容矛盾），改为"信号均已消失（见时间线）"。
-        parts_str = "  信号均已消失（见时间线）"
+        # P2-3(2026-08-17 修订)：时间线/盘中 fade 详情存在但当日信号空时，不再笼统报
+        # 「信号均已消失」（可能只消失 1 条，误导以为全部信号都没了，尤其 sell 消失=
+        # 减仓条件解除属利好）。改为反映实际 fade 条数+品种：sell 消失单独语义化
+        # （与 _build_fade_banner 的 all_sell 语义一致）；fade_alerts 为空（如纯收盘时间线
+        # 复盘）才退化为「信号均已消失（见时间线）」。fade 标题同口径见 build_feishu_post。
+        if fade_alerts:
+            _fade_names = "、".join(index_id_to_name(a["index_id"], name_map)
+                                    for a in fade_alerts[:5])
+            _fade_suffix = "等" if len(fade_alerts) > 5 else ""
+            _has_sell = any(a.get("kind") == "sell" for a in fade_alerts)
+            _all_sell = _has_sell and all(a.get("kind") == "sell" for a in fade_alerts)
+            if _all_sell:
+                parts_str = (f"  {_fade_names}{_fade_suffix} 减仓条件解除"
+                             f"（{len(fade_alerts)} 条，见时间线）")
+            else:
+                parts_str = (f"  {len(fade_alerts)} 条信号消失/变化：{_fade_names}"
+                             f"{_fade_suffix}（见时间线）")
+        else:
+            parts_str = "  信号均已消失（见时间线）"
     else:
         parts_str = "  无信号"
     subject = (f"{fade_prefix}{timeline_prefix}[{title_prefix}买卖点信号] {date}"
@@ -1148,7 +1164,8 @@ def _signal_post_row(s: dict, name_map: dict[str, str], stats: dict,
 
 def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str],
                       intraday: bool = False,
-                      fade_alerts: list[dict] | None = None) -> dict:
+                      fade_alerts: list[dict] | None = None,
+                      fade_timeline: list[dict] | None = None) -> dict:
     """构建飞书 post 富文本（报告群版，notify.send(feishu_post=...) 用）。
 
     按 buy(买)/sell(卖)/hold(波段持有) 分组：买红/卖绿/持有灰（彩色 emoji 前缀实现，
@@ -1187,12 +1204,45 @@ def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str
         for s in groups["band_hold"]:
             lines.append(_signal_post_row(s, name_map, stats, "band_hold"))
 
-    # fade 警示一行概要（盘中 fade 通知/收盘含消失信号时，红/橙档）
+    # fade 警示：概要一行 + 每条 fade 附时间线明细（§23.10 飞书与邮件内容一致，不能少内容；
+    # 与邮件 _build_fade_detail_html 同数据源 load_signal_intraday_timeline，格式可不同但内容对齐；
+    # 超长由 send_feishu 按 FEISHU_POST_MAX_ROWS 自动分段连发，不省略明细行）。
     if fade_alerts:
         fade_n = len(fade_alerts)
         names = "、".join(index_id_to_name(a["index_id"], name_map) for a in fade_alerts[:5])
         suffix = "等" if fade_n > 5 else ""
-        lines.append([notify.post_md(f"⚠️ **信号消失/变化 {fade_n} 条**：{names}{suffix}（详见邮件）")])
+        _has_sell = any(a.get("kind") == "sell" for a in fade_alerts)
+        _all_sell = _has_sell and all(a.get("kind") == "sell" for a in fade_alerts)
+        if _all_sell:
+            lines.append([notify.post_md(
+                f"✅ **卖出/减仓信号解除 {fade_n} 条**：{names}{suffix}（减仓条件解除，利好方向，见明细）")])
+        else:
+            lines.append([notify.post_md(
+                f"⚠️ **信号消失/变化 {fade_n} 条**：{names}{suffix}（见明细）")])
+        # 每条 fade 附时间线明细：品种 信号 出现→消失 触发条件（与邮件 fade 详情口径一致）
+        fade_map = {}
+        if fade_timeline:
+            for t in fade_timeline:
+                fade_map.setdefault((t["index_id"], t["signal"]), t)
+        for a in fade_alerts:
+            _fname = index_id_to_name(a["index_id"], name_map)
+            _flabel = _signal_label(a["intraday_signal"])
+            _t = fade_map.get((a["index_id"], a["intraday_signal"]))
+            if _t:
+                _reason = (_t.get("reason") or "").replace("\n", " ").replace("\r", " ").strip()
+                if len(_reason) > FEISHU_POST_REASON_MAX:
+                    _reason = _reason[:FEISHU_POST_REASON_MAX].rstrip() + "…"
+                _detail = (f"    {_flabel} {_fname}：{_t['appear_time']} 出现 → "
+                           f"{_t['last_time']} 后消失")
+                if _reason:
+                    _detail += f" | {_reason}"
+            else:
+                # 时间线无该信号记录（log 缺失/早于记录起点）：退化只展示 fade 状态
+                _closing = (a.get("closing_status") or "").replace("\n", " ").replace("\r", " ").strip()
+                _detail = f"    {_flabel} {_fname}：本轮检测消失"
+                if _closing:
+                    _detail += f" | {_closing}"
+            lines.append([notify.post_text(_detail)])
 
     # 超 80 行分段由 send_feishu 内部处理（2026-08-16 用户定：放开行数+超长分段连发，不省略）。
     # 此处不再截断省略尾部；完整 lines 交 build_feishu_post，send_feishu 按 FEISHU_POST_MAX_ROWS
@@ -1399,7 +1449,8 @@ def main(argv: list[str] | None = None) -> int:
     # 飞书 post 富文本（报告群版）：buy/sell 分组 + 彩色，替代 _html_to_text 拍平成纯文本
     feishu_post = build_feishu_post(subject, signals_to_send, name_map,
                                     intraday=args.intraday,
-                                    fade_alerts=fade_alerts_for_email)
+                                    fade_alerts=fade_alerts_for_email,
+                                    fade_timeline=fade_timeline)
     # 始终打印邮件内容（便于日志/调试/未配置场景查看）
     log.info("===== 邮件主题 =====")
     log.info("%s", subject)

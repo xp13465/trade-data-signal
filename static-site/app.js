@@ -449,7 +449,8 @@ function _buildSignalMarkData(signals, getValueFn) {
     byDate[s.date].push(s);
   }
   const markData = [];
-  for (const date of Object.keys(byDate).sort()) {
+  // 2026-08-17 fix: 按日期降序(最新在上), 原 .sort() 字符串升序会把旧日期排前面。
+  for (const date of Object.keys(byDate).sort((a, b) => (b.localeCompare(a)))) {
     const daySigs = byDate[date];
     const y = getValueFn(date);
     if (daySigs.length === 1) {
@@ -2549,8 +2550,11 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     (groups[it.date] = groups[it.date] || []).push(it);
   }
   let dates = Object.keys(groups).sort((a, b) => (a < b ? 1 : -1));
-  // 今日组排首
-  if (todayDate && groups[todayDate]) {
+  // 今日组排首（2026-08-17 fix: 仅当今日为最新日期时才显式排首）。根因: overview.json date 字段盘中可能未随
+  // signals_today 一起更新(如 date=20260814 但 signals_today 已含盘中 20260817), 过时的 todayDate 若被强行排首
+  // 会把旧日期(8/14)提到最新日期(8/17)之前, 用户看到「第一行 8/14、第二行 8/17」顺序颠倒。
+  // 修法: 降序(最新在上)天然正确; 仅当 todayDate 已是最大(最新)时才无需变动即保持原意图, 否则不提前。
+  if (todayDate && groups[todayDate] && dates[0] <= todayDate) {
     dates = [todayDate, ...dates.filter((d) => d !== todayDate)];
   }
   // 2026-08-14 P1-1: 预计算「各日期是否有入样宇宙买入信号」(基于全量 signals_today=items, 不受用户 grade/correct/type/ETF
@@ -9897,7 +9901,10 @@ function _appendNtLocatePath(body) {
 function _renderNtSignalList(daily, todayDate) {
   if (!daily || !daily.length) return '<div class="empty-note">近期无汪汪队信号</div>';
   const sorted = daily.slice().sort((a, b) => (a.date < b.date ? 1 : -1));
-  if (todayDate) sorted.sort((a, b) => (a.date === todayDate ? -1 : b.date === todayDate ? 1 : 0));
+  // 今日排首（2026-08-17 fix: 仅当今日为最新日期时才排首, 与信号卡同款修复——过时 todayDate 提前会把旧日期排到最新前）
+  if (todayDate && sorted.length && sorted[0].date <= todayDate) {
+    sorted.sort((a, b) => (a.date === todayDate ? -1 : b.date === todayDate ? 1 : 0));
+  }
   let rows = "";
   for (const d of sorted) {
     const isToday = d.date === todayDate;
