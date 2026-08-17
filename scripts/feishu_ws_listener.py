@@ -62,6 +62,11 @@ CONFIG_PATH = REPO / "config" / "feishu.json"
 LOG_PATH = Path("/Users/linhuichen/code/trade-data/data/logs") / "feishu_listener.log"
 # 系统信任证书导出 PEM（本地 MITM 代理自签证书信任用，runtime 文件不进 git）
 CACERT_PATH = Path("/Users/linhuichen/code/trade-data/data/feishu_cacert.pem")
+# 接收侧静默假死心跳戳（researcher #25 缺口 A）：listener 每次成功处理一条事件 touch 更新
+# mtime。schedule_monitor 维度⑨ 据此检测"进程在+连接在但收不到事件"的半死态——KeepAlive
+# 和 auto_reconnect 都发现不了"连接在但无事件"（用户群消息没回执没落盘且无告警）。
+# 阈值用 24h（需求群低频，夜间/周末无消息正常，不用 hook 的 90min 短阈值）。
+WS_LAST_EVENT_FILE = Path("/tmp/feishu_ws_last_event")
 # 收到回执：飞书 open.feishu.cn（中国版域名）+ tenant_access_token 缓存（2h 有效，过期前 120s 刷新复用）
 FEISHU_API_BASE = "https://open.feishu.cn"
 _FEISHU_TOKEN_CACHE: dict = {"token": None, "expire_at": 0.0}
@@ -727,6 +732,19 @@ def _alert_process_failure(error: str, content: str) -> None:
         log(f"⚠ 异常消息告警失败（不阻塞）：{e}")
 
 
+def _touch_ws_last_event() -> None:
+    """成功处理事件后更新接收侧心跳戳 mtime（#25 缺口 A）。flock 防并发 touch 竞态，
+    best-effort：失败仅 log 不阻塞监听（心跳文件缺失由 schedule_monitor 维度⑨兜底告警）。"""
+    try:
+        import fcntl
+        with open(WS_LAST_EVENT_FILE, "a+", encoding="utf-8") as _f:
+            fcntl.flock(_f, fcntl.LOCK_EX)
+            WS_LAST_EVENT_FILE.touch(exist_ok=True)
+            fcntl.flock(_f, fcntl.LOCK_UN)
+    except Exception as _e_hb:  # noqa: BLE001
+        log(f"写接收侧心跳戳失败(忽略，schedule_monitor 维度⑨会告警)：{_e_hb}")
+
+
 def process_event(data, whitelist: set, prefixes: list[str],
                   inbox_dir: Path, once: bool = False,
                   chat_map: dict | None = None,
@@ -793,6 +811,8 @@ def process_event(data, whitelist: set, prefixes: list[str],
         if record is None:
             return None
         log(f"收到需求已落盘：{filename} sender={record['sender']} content={content[:80]}")
+        # #25 缺口 A：事件成功处理，更新接收侧心跳戳（schedule_monitor 维度⑨据此判半死）
+        _touch_ws_last_event()
         ts = int(record["ts"])
         # 需求自动进待办 + 即时回执（2026-08-11 起主控零轮询）：listener 收到需求自己完成
         # 落盘+进TASKS+回执，不再等主控 cron 扫描整理。best-effort，失败仅 log 不阻塞监听。

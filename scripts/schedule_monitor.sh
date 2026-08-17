@@ -1231,6 +1231,101 @@ try:
 except Exception as e:
     print(f"[warn] 飞书 hook 心跳自检失败: {e}", file=sys.stderr)
 
+# 9) 飞书 ws listener 接收侧静默假死心跳探测（维度⑨，2026-08-17 researcher #25 缺口 A）
+#    防 feishu_ws_listener 半死：进程在+ws 连接在但收不到事件时，KeepAlive 和 auto_reconnect
+#    都发现不了（用户群消息没回执没落盘且无告警，坏几天才发现）。
+#    listener 每次成功处理事件在 /tmp/feishu_ws_last_event 更新 mtime（见 feishu_ws_listener.py
+#    _touch_ws_last_event）。判定：listener 进程在跑 但 心跳缺失或 >24h 陈旧 → 告警。
+#    阈值 24h：需求群低频，夜间/周末无消息正常，不能用 hook 的 90min 短阈值（必误报）。
+#    防误报：心跳文件缺失时(刚重启/刚清 /tmp)，额外要求 listener 进程存活 >30min 才告警（同维度⑧）。
+#    走 notify.py 邮件告警（monitor 统一出口），不依赖飞书自身发送（防"飞书挂了告警发不出去"）。
+#    进程崩了由 launchd KeepAlive 自动拉起（不算 stale 告警范畴）；若进程彻底不在且不在被
+#    KeepAlive 拉（重启窗口外），此亦为异常——但以半死为主告警，进程缺失由其他维度/KeepAlive 覆盖。
+#    复用 alert_state.json 去重（key=feishu_ws_stale，key 前缀 feishu_ 已加入主恢复循环
+#    特殊跳过，inline 处理恢复，与维度⑦/⑧同模式）。
+try:
+    _ws_path = Path("/tmp/feishu_ws_last_event")
+    # listener 进程在跑判定：pgrep -f feishu_ws_listener.py（monitor 自身是 bash，无自匹配）
+    _ws_listener_pids = []
+    try:
+        _ws_pgrep = subprocess.run(["pgrep", "-f", "feishu_ws_listener.py"],
+                                   capture_output=True, text=True, timeout=10)
+        _ws_listener_pids = [p for p in _ws_pgrep.stdout.split() if p]
+    except Exception:
+        _ws_listener_pids = []
+    _ws_running = bool(_ws_listener_pids)
+    # 心跳新鲜度：文件存在则 mtime 距当前 <24h = 新鲜（86400s）
+    _ws_fresh = False
+    _ws_missing = False
+    if _ws_path.exists():
+        try:
+            _ws_mtime = _ws_path.stat().st_mtime
+            _ws_fresh = (NOW.timestamp() - _ws_mtime) < 86400  # 24h
+        except Exception:
+            _ws_missing = True
+    else:
+        _ws_missing = True
+    # 防误报：文件缺失时额外要求 listener 进程存活 >30min（刚重启/刚清 /tmp 不误报）
+    _ws_old_proc = False
+    if _ws_missing and _ws_listener_pids:
+        try:
+            _ws_proc = subprocess.run(
+                ["ps", "-o", "lstart=", "-p", _ws_listener_pids[0]],
+                capture_output=True, text=True, timeout=10)
+            _ws_lstart_str = _ws_proc.stdout.strip()
+            if _ws_lstart_str:
+                _ws_lstart = datetime.strptime(_ws_lstart_str, "%a %b %d %H:%M:%S %Y")
+                _ws_old_proc = (NOW - _ws_lstart) > timedelta(minutes=30)
+        except Exception:
+            _ws_old_proc = False
+    # 告警条件：listener 进程在跑 + (陈旧 或 (缺失且进程存活>30min))
+    _ws_alert = _ws_running and (not _ws_fresh) and (_ws_old_proc or not _ws_missing)
+    _ws_key = "feishu_ws_stale"
+    _ws_reason = ""
+    if _ws_missing:
+        _ws_reason = "心跳文件缺失"
+    else:
+        _ws_reason = "心跳陈旧(>24h 无事件)"
+    if _ws_alert:
+        seen_keys_this_run.add(_ws_key)
+        _ex_ws = alert_state.get(_ws_key)
+        if _ex_ws is None or _ex_ws.get("status") != "active":
+            alerts.append(
+                f"SEVERE: 飞书 ws listener 接收侧静默假死（{_ws_reason}，进程在跑但超24h "
+                f"未成功处理任何事件）。影响：用户群消息可能收不到——无回执无落盘且无告警。"
+                f"恢复：查 {LOG_DIR}/feishu_listener.log 确认 ws 连接/事件；必要时 "
+                f"launchctl kickstart -k gui/$(id -u)/com.trade.feishu-listener 重启监听"
+            )
+            alert_state[_ws_key] = {
+                "status": "active",
+                "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                "keyword": "feishu_ws_stale",
+                "line_sample": "feishu_ws_last_event 心跳陈旧/缺失",
+            }
+        else:
+            print(f"[suppress] 飞书 ws listener 心跳陈旧持续中, "
+                  f"last_alerted={_ex_ws.get('last_alerted')}, 不重发")
+    else:
+        # 恢复检测（inline，与维度⑦/⑧同模式）：异常已消失 -> 发恢复邮件
+        _ex_ws = alert_state.get(_ws_key)
+        if _ex_ws is not None and _ex_ws.get("status") == "active":
+            _emit = _recovery_cooldown_ok(_ws_key, _ex_ws)
+            _ex_ws["status"] = "recovered"
+            _ex_ws["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+            if _emit:
+                recoveries.append({
+                    "task": "feishu_ws", "keyword": "feishu_ws_stale",
+                    "first_seen": _ex_ws.get("first_seen", "?"),
+                })
+            else:
+                print(f"[cooldown] feishu_ws_stale 恢复邮件静默(上次恢复<30min前)")
+            print(f"[recovery] 飞书 ws listener 心跳已恢复 (首次发现: {_ex_ws.get('first_seen')})")
+    # 维度⑨在 save_alert_state(L660) 之后运行, 需补存防状态丢失（同维度⑦/⑧）
+    save_alert_state(alert_state)
+except Exception as e:
+    print(f"[warn] 飞书 ws listener 心跳自检失败: {e}", file=sys.stderr)
+
 # B2 告警正文模板化（2026-08-14 告警优化）: 原正文=纯 SEVERE 行列表, 改为每项 4 行模板
 #   [严重度] 任务 异常类型 / 影响:XX / 日志:路径 / 建议:XX。按任务写对应影响与建议。
 _IMPACT_MAP = {
