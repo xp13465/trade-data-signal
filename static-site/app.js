@@ -6016,7 +6016,16 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
     // _sigsSR 提前到此（原在 L3249 之后），供 _lagHint 条件 + 下方信号至今盈亏行共用。
     const _ovSR = _getCachedOverview();
     const _sigsSR = _ovSR && _ovSR.signals_today ? _ovSR.signals_today : [];
-    const _todayDateB2 = _ovSR && _ovSR.date ? _ovSR.date : "";
+    // 2026-08-17 fix(与 _renderSignalGrid L2480-2487 今日高亮同根因): overview.date 盘中可能过时
+    // (如 date=20260814 未随 signals_today 更新, 但 signals_today 已含盘中最新 20260817)。
+    // T 日提示锚改用 signals_today 最新日期(max 语义、只前进不后退), 而非过时的 overview.date,
+    // 否则"今日有信号的指数"会被误判为无 T 日信号/数据截止。
+    let _todayDateB2 = _ovSR && _ovSR.date ? _ovSR.date : "";
+    if (_sigsSR.length) {
+      for (const _sit of _sigsSR) {
+        if (_sit && _sit.date && _sit.date > _todayDateB2) _todayDateB2 = _sit.date;
+      }
+    }
     const _lastDateB2 = chartData && chartData.length ? chartData[chartData.length - 1].date : "";
     // 今日该指数有信号才提示（.some 过滤 signals_today 中 index_id 匹配且 date===T日）
     const _hasTodaySigB2 = _sigsSR.some(it => it.index_id === indexId && it.date === _todayDateB2);
