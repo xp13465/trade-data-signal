@@ -33,10 +33,16 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 # 进度文件里「已完成」标记: 出现任一即视为该 agent 已结束, 不占用
 DONE_MARKERS = ["DONE", "完成", "结束", "已上线", "已推送", "已 merge", "已合并", "PASS"]
+
+# mtime 新鲜度阈值: 进度文件修改时间距今超过该小时数, 一律视为历史文件放行
+# (在跑 agent 的任务通常几小时内完成, 24h 足够新鲜; 防历史遗留文件误判为「在跑占用」)
+MAX_AGE_HOURS = 24
+MAX_AGE_SECONDS = MAX_AGE_HOURS * 3600
 
 # 声明文件的行内关键词(行内同时出现「文件」和路径即视为声明)
 DECLARE_KEYWORDS = ["文件", "改动", "修改", "touch", "写", "编辑"]
@@ -86,6 +92,20 @@ def scan(progress_dir: str, target_rel: str, verbose: bool) -> tuple[list[str], 
         print(f"[verbose] 进度目录 {d} 找到 {len(files)} 个进度文件")
 
     for fp in sorted(files):
+        # mtime 新鲜度过滤: 超过 MAX_AGE_HOURS 未修改的历史进度文件, 一律放行不判占用
+        # (在跑 agent 的任务通常几小时内完成; 防历史遗留文件被误判为「在跑占用」)
+        try:
+            mtime = os.path.getmtime(fp)
+        except Exception:
+            # 取不到 mtime(文件被删/权限) → 容错放行, 不判占用
+            if verbose:
+                print(f"[verbose] {fp.name}: 取 mtime 失败, 视为历史文件放行")
+            continue
+        age = time.time() - mtime
+        if age > MAX_AGE_SECONDS:
+            if verbose:
+                print(f"[verbose] {fp.name}: mtime 距今 {age/3600:.1f}h > {MAX_AGE_HOURS}h, 视为历史文件放行")
+            continue
         try:
             text = fp.read_text(encoding="utf-8", errors="replace")
         except Exception:
