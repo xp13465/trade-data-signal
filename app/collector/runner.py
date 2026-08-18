@@ -137,6 +137,87 @@ def upsert_board_rows(rows):
     conn.close()
 
 
+def _collect_one_metric(m, date):
+    """采集单个指标并落库/记日志。返回 (st, msg)，st ∈ {"ok","fail"}。
+
+    ab-#38 提速：把 metrics 循环体抽成独立函数供 ThreadPool 并发调用。线程安全依据：
+    upsert_metric/upsert_metrics_many/log_collect 各自 get_conn+commit+close（独立连接），
+    fetchers 侧 _THROTTLE_LOCK 已线程安全；metrics 段无 V8 isolate 依赖（V8 只在
+    fund_etf_hist_sina，metrics 段没有）。被跳过/derived 的指标返回 (None, None) 由
+    调用方忽略。
+    """
+    if not m.get("enabled"):
+        return None, None
+    if m.get("type") == "derived":
+        return None, None  # 综合分/衍生指标由 compute 模块产出
+    mid = m["id"]
+    func = m.get("func", "")
+    if not func or func == "TODO":
+        return None, None  # 派生/专属采集器指标,主 pipeline 不采不记
+    try:
+        if func.startswith("direct:"):
+            rows, msg = fetchers.collect_direct(m)
+            if rows:
+                upsert_metrics_many(mid, rows)
+                log_collect(date, mid, "ok", f"{len(rows)} rows")
+                return "ok", f"{len(rows)} rows"
+            log_collect(date, mid, "error", msg)
+            return "fail", msg
+        elif func.startswith("tencent:"):
+            val, msg, src = fetchers.collect_tencent(m, date)
+            if val is not None:
+                upsert_metric(date, mid, val, source=src)
+                log_collect(date, mid, "ok", str(val))
+                return "ok", f"{val:.4g}"
+            log_collect(date, mid, "error", msg)
+            return "fail", msg
+        elif func in fetchers.SERIES_FUNCS:
+            rows, msg, src = fetchers.collect_series(m)
+            if rows:
+                upsert_metrics_many(mid, rows, source=src)
+                # msg 非 "ok" 时带 spike_guard 告警/异源兜底等，记入 collect_log 便于排查
+                log_msg = f"{len(rows)} rows" if not msg or msg == "ok" else f"{len(rows)} rows; {msg}"
+                log_collect(date, mid, "ok", log_msg)
+                return "ok", log_msg
+            log_collect(date, mid, "error", msg)
+            return "fail", msg
+        else:
+            val, msg = fetchers.collect_snapshot(m, date)
+            if val is not None:
+                upsert_metric(date, mid, val)
+                log_msg = str(val) if not msg or msg == "ok" else f"{val}; {msg}"
+                log_collect(date, mid, "ok", log_msg)
+                return "ok", log_msg
+            log_collect(date, mid, "error", msg)
+            return "fail", msg
+    except Exception as e:  # noqa: BLE001
+        log_collect(date, mid, "error", str(e))
+        return "fail", str(e)
+
+
+def _collect_one_index(idx, start, date):
+    """采集单个指数并落库。返回 (iid, st, msg)。ab-#38 indices 并行。"""
+    iid = idx["id"]
+    try:
+        rows, msg = fetchers.collect_index(idx, start, date)
+        if rows:
+            upsert_index_rows(rows)
+            return iid, "ok", f"{len(rows)} rows"
+        return iid, "fail", msg
+    except Exception as e:  # noqa: BLE001
+        return iid, "fail", str(e)
+
+
+def _is_sw_ths_source(idx):
+    """indices 并行时首版保守策略：sw/ths 源保持串行（反爬敏感），其余源并行。
+
+    按 func 判定：sw 用 index_hist_sw(swsresearch 源,反爬敏感)、ths 用
+    index_hist_ths_concept(同花顺,反爬敏感)。其余(sina/csindex/tencent/hk/us/global)并行。
+    """
+    func = idx.get("func", "")
+    return func.startswith("index_hist_sw") or func.startswith("index_hist_ths")
+
+
 def run(date=None, verbose=True, steps=None):
     if date is None:
         date = last_trading_day()
@@ -144,88 +225,63 @@ def run(date=None, verbose=True, steps=None):
     ok = fail = 0
     details = []
 
-    # 1) 单值指标
+    # 1) 单值指标（ab-#38 提速：ThreadPool 并行，最大慢指标决定总时长；env METRICS_WORKERS 可调）
     if _want(steps, "metrics"):
-        for m in cfg.get("metrics", []):
-            if not m.get("enabled"):
-                continue
-            if m.get("type") == "derived":
-                continue  # 综合分/衍生指标由 compute 模块产出
-            mid = m["id"]
-            func = m.get("func", "")
-            if not func or func == "TODO":
-                continue  # 派生/专属采集器指标(width_history/cleanup_d3d2 产出),主 pipeline 不采不记
-            try:
-                if func.startswith("direct:"):
-                    rows, msg = fetchers.collect_direct(m)
-                    if rows:
-                        upsert_metrics_many(mid, rows)
-                        ok += 1
-                        details.append((mid, "ok", f"{len(rows)} rows"))
-                        log_collect(date, mid, "ok", f"{len(rows)} rows")
-                    else:
-                        fail += 1
-                        details.append((mid, "fail", msg))
-                        log_collect(date, mid, "error", msg)
-                elif func.startswith("tencent:"):
-                    val, msg, src = fetchers.collect_tencent(m, date)
-                    if val is not None:
-                        upsert_metric(date, mid, val, source=src)
-                        ok += 1
-                        details.append((mid, "ok", f"{val:.4g}"))
-                        log_collect(date, mid, "ok", str(val))
-                    else:
-                        fail += 1
-                        details.append((mid, "fail", msg))
-                        log_collect(date, mid, "error", msg)
-                elif func in fetchers.SERIES_FUNCS:
-                    rows, msg, src = fetchers.collect_series(m)
-                    if rows:
-                        upsert_metrics_many(mid, rows, source=src)
-                        ok += 1
-                        details.append((mid, "ok", f"{len(rows)} rows"))
-                        # msg 非 "ok" 时带 spike_guard 告警/异源兜底等，记入 collect_log 便于排查
-                        log_msg = f"{len(rows)} rows" if not msg or msg == "ok" else f"{len(rows)} rows; {msg}"
-                        log_collect(date, mid, "ok", log_msg)
-                    else:
-                        fail += 1
-                        details.append((mid, "fail", msg))
-                        log_collect(date, mid, "error", msg)
-                else:
-                    val, msg = fetchers.collect_snapshot(m, date)
-                    if val is not None:
-                        upsert_metric(date, mid, val)
-                        ok += 1
-                        details.append((mid, "ok", f"{val:.4g}"))
-                        log_msg = str(val) if not msg or msg == "ok" else f"{val}; {msg}"
-                        log_collect(date, mid, "ok", log_msg)
-                    else:
-                        fail += 1
-                        details.append((mid, "fail", msg))
-                        log_collect(date, mid, "error", msg)
-            except Exception as e:  # noqa: BLE001
-                fail += 1
-                details.append((mid, "fail", str(e)))
-                log_collect(date, mid, "error", str(e))
-
-    # 2) 指数（拉近 400 天，等于自动回填）
-    if _want(steps, "indices"):
-        start = (dt.datetime.strptime(date, "%Y%m%d") - dt.timedelta(days=400)).strftime("%Y%m%d")
-        for idx in cfg.get("indices", []):
-            if not idx.get("enabled", True):
-                continue
-            try:
-                rows, msg = fetchers.collect_index(idx, start, date)
-                if rows:
-                    upsert_index_rows(rows)
+        _m_list = [m for m in cfg.get("metrics", [])
+                   if m.get("enabled") and m.get("type") != "derived"
+                   and m.get("func") and m.get("func") != "TODO"]
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        _m_workers = int(os.environ.get("METRICS_WORKERS", "4"))
+        with ThreadPoolExecutor(max_workers=_m_workers) as _ex:
+            _futs = {_ex.submit(_collect_one_metric, m, date): m["id"] for m in _m_list}
+            for _fut in as_completed(_futs):
+                mid = _futs[_fut]
+                try:
+                    st, msg = _fut.result()
+                except Exception as e:  # noqa: BLE001
+                    st, msg = "fail", str(e)
+                if st == "ok":
                     ok += 1
-                    details.append((idx["id"], "ok", f"{len(rows)} rows"))
+                    details.append((mid, "ok", msg))
                 else:
                     fail += 1
-                    details.append((idx["id"], "fail", msg))
-            except Exception as e:  # noqa: BLE001
+                    details.append((mid, "fail", msg))
+
+    # 2) 指数（拉近 400 天，等于自动回填）
+    # ab-#38 提速：sw/ths 源保持串行（反爬敏感），其余源 ThreadPool 并行（env INDICES_WORKERS 可调）
+    if _want(steps, "indices"):
+        start = (dt.datetime.strptime(date, "%Y%m%d") - dt.timedelta(days=400)).strftime("%Y%m%d")
+        _idx_all = [idx for idx in cfg.get("indices", []) if idx.get("enabled", True)]
+        _idx_serial = [idx for idx in _idx_all if _is_sw_ths_source(idx)]
+        _idx_par = [idx for idx in _idx_all if not _is_sw_ths_source(idx)]
+
+        def _settle(iid, st, msg):
+            nonlocal ok, fail
+            if st == "ok":
+                ok += 1
+                details.append((iid, "ok", msg))
+            else:
                 fail += 1
-                details.append((idx["id"], "fail", str(e)))
+                details.append((iid, "fail", msg))
+
+        # 串行源：sw/ths（反爬敏感，逐源慢拉，复用原循环语义）
+        for idx in _idx_serial:
+            iid, st, msg = _collect_one_index(idx, start, date)
+            _settle(iid, st, msg)
+        # 并行源：sina/csindex/tencent/hk/us/global/etf/futures
+        if _idx_par:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            _i_workers = int(os.environ.get("INDICES_WORKERS", "4"))
+            with ThreadPoolExecutor(max_workers=_i_workers) as _ex:
+                _futs = {_ex.submit(_collect_one_index, idx, start, date): idx["id"]
+                         for idx in _idx_par}
+                for _fut in as_completed(_futs):
+                    iid = _futs[_fut]
+                    try:
+                        _, st, msg = _fut.result()
+                    except Exception as e:  # noqa: BLE001
+                        st, msg = "fail", str(e)
+                    _settle(iid, st, msg)
 
         # step2 采后校验 + 多源补采（主源新浪当日延迟 -> baostock/腾讯兜底，
         # 避免首页涨幅 0% / 恐贪卡片缺失；详见 index_backfill.py）
@@ -299,7 +355,6 @@ def run(date=None, verbose=True, steps=None):
     # 重试耗时 ~1h，故日常不跑；需补数据时手动 `python -m app.collector.baostock_daily recent`，
     # 或设环境变量 RUN_BAOSTOCK=1 临时启用本步。
     if _want(steps, "baostock"):
-        import os
         if os.environ.get("RUN_BAOSTOCK"):
             try:
                 from . import baostock_daily, baostock_parallel
@@ -313,12 +368,26 @@ def run(date=None, verbose=True, steps=None):
                     prog = baostock_daily.load_progress()
                 todo = [c for c, v in prog.items() if v.get("r")]  # 已 backfill recent 段的 code
                 if todo:
-                    res = baostock_parallel.run_update_parallel(todo, n_workers=4, verbose=verbose)
+                    res = baostock_parallel.run_update_parallel(
+                        todo, n_workers=int(os.environ.get("BAOSTOCK_WORKERS", "3")),
+                        verbose=verbose)
                     ok += res["ok"]
                     fail += res["fail"]
                     details.append(("baostock_daily", "ok" if res["fail"] == 0 else "fail",
                                     f"+{res['total_rows']} rows, {res['ok']} ok/{res['fail']} fail "
                                     f"({len(todo)} codes, parallel)"))
+                    # ab-#37 A3:熔断 relay 到 runner + 告警(账号/IP 级封禁,非账号问题不
+                    # 盲试重跑,直接告警用户,窗口 86400 一天一次防轰炸)
+                    if res.get("blacklisted"):
+                        _notify(
+                            "[告警] baostock 封禁熔断(10001011)",
+                            "<b>baostock 采集检测到账号/IP 级封禁(10001011)</b><br>"
+                            f"本轮 {res.get('blacklist_workers', 0)} 个 worker 熔断,共享短路 "
+                            f"(ok={res['ok']} fail={res['fail']})。<br>"
+                            f"请检查 baostock 账号是否被封;解封后重跑 "
+                            f"<code>python -m app.collector.baostock_daily rebackfill</code>。",
+                            dedup_key="baostock_blacklist", dedup_window=86400,
+                        )
                 else:
                     details.append(("baostock_daily", "ok", "skip (no progress)"))
             except Exception as e:  # noqa: BLE001
@@ -460,7 +529,6 @@ def run(date=None, verbose=True, steps=None):
     # 仅 RUN_BAOSTOCK=1 时跑（turnover pipeline 设此 env）；cleanup_d3d2 增量快（只算新
     # 交易日），总是跑。历史根因：本步曾不自动跑 -> a_turnover 停滞 9 天（2026-07-15 修复）。
     if _want(steps, "turnover"):
-        import os
         if os.environ.get("RUN_BAOSTOCK"):
             try:
                 from . import baostock_daily, baostock_parallel
@@ -474,12 +542,25 @@ def run(date=None, verbose=True, steps=None):
                     prog = baostock_daily.load_progress()
                 todo = [c for c, v in prog.items() if v.get("r")]
                 if todo:
-                    res = baostock_parallel.run_update_parallel(todo, n_workers=4, verbose=verbose)
+                    res = baostock_parallel.run_update_parallel(
+                        todo, n_workers=int(os.environ.get("BAOSTOCK_WORKERS", "3")),
+                        verbose=verbose)
                     ok += res["ok"]
                     fail += res["fail"]
                     details.append(("baostock_turnover", "ok" if res["fail"] == 0 else "fail",
                                     f"+{res['total_rows']} rows, {res['ok']} ok/{res['fail']} fail "
                                     f"({len(todo)} codes, parallel)"))
+                    # ab-#37 A3:熔断 relay 到 runner + 告警(账号/IP 级封禁,window 86400 防轰炸)
+                    if res.get("blacklisted"):
+                        _notify(
+                            "[告警] baostock 封禁熔断(10001011)",
+                            "<b>baostock 采集检测到账号/IP 级封禁(10001011)</b><br>"
+                            f"本轮 {res.get('blacklist_workers', 0)} 个 worker 熔断,共享短路 "
+                            f"(ok={res['ok']} fail={res['fail']})。<br>"
+                            f"请检查 baostock 账号是否被封;解封后重跑 "
+                            f"<code>python -m app.collector.baostock_daily rebackfill</code>。",
+                            dedup_key="baostock_blacklist", dedup_window=86400,
+                        )
                     # 2026-08-14 方案B：当日覆盖率 <95% 时记 skipped_partial 告警。
                     # 真正的写入拦截已下沉到 cleanup_d3d2.run_turnover() 内部统一处理
                     # （reviewer FAIL P2-2），本处只保留快速告警，不阻断 run_turnover 调用

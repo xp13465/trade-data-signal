@@ -87,7 +87,7 @@ from app.alert_reason import build_reason  # noqa: E402
 from app.alert_score import compute_alert_for_target, ETF_ADJUST_ENABLED  # noqa: E402
 from app.collector.etf_national_team import (  # noqa: E402
     DB_PATH, ETF_LIST, fetch_etf_ohlc, get_conn, init_db, is_national_team,
-    universe_etf_codes, _upsert_daily,
+    universe_etf_codes, _upsert_daily, _get_worker_tdx,
 )
 
 DATA_DIR = ROOT / "static-site" / "data"
@@ -256,13 +256,15 @@ def _compute_confidence(dims: dict, adapt: dict) -> dict:
     }
 
 
-def _fetch_and_upsert_ohlc(code: str, name: str, conn) -> int:
+def _fetch_and_upsert_ohlc(code: str, name: str, conn, client=None) -> int:
     """动态采集单只 ETF 近 FETCH_DAYS 日 OHLC 并 upsert 入 etf_daily(含 open/high/low)。
     返回入库行数。失败返 0。自包含:不依赖外部 backfill 命令。
+    client: 可选 tdx_client 复用(ProcessPool worker 进程内只创建一次,避免每只
+    fallback 时重新 bestip 测速,见 etf_national_team._get_worker_tdx)。
     """
     start_yyyymmdd = (_dt.datetime.now() - _dt.timedelta(days=FETCH_DAYS)).strftime("%Y%m%d")
     try:
-        rows = fetch_etf_ohlc(code, start_yyyymmdd=start_yyyymmdd)
+        rows = fetch_etf_ohlc(code, start_yyyymmdd=start_yyyymmdd, client=client)
         if not rows:
             return 0
         for r in rows:
@@ -334,12 +336,17 @@ def _has_recent_data(conn, code: str, days: int = 5) -> bool:
     return r[0] > 0
 
 
-def _compute_volatility(code: str, conn, lookback_days: int = 30) -> float | None:
+def _compute_volatility(code: str, conn, lookback_days: int = 30, skip_refetch: bool = False) -> float | None:
     """计算 ETF 近期波动率(方案3 手数调整输入)。
 
     查 etf_daily 近 lookback_days 日前复权 OHLC,若完整行 < 20 则调
     fetch_etf_ohlc(code, start=FETCH_DAYS日前) + _upsert_daily 补采(单只~0.3s),
     再用 _atr(period=20, Wilder smoothing).iloc[-1] / close.iloc[-1] * 100 得波动率%。
+
+    skip_refetch=True(ab-#37 C3 空返降重试):worker 采集阶段已返 0 行(空返/QDII/停牌)
+    后不再进 mootdx 二次拉取——空返标的本轮已拉过 1 次,补采大概率仍空,省重复 mootdx
+    paged 拉取。仅当 _fetch_and_upsert_ohlc 返回 0 时传 True,正常数据不跳过补采(保
+    9 只汪汪队宽基历史 OHLC 缺失时仍能补)。
 
     前复权(2026-08-08 复权阶段2): adj_factor(t)=(accum_nav(t)/close(t))/(accum_nav(latest)/close(latest)),
     使 ATR 不受除权日跳变污染。accum_nav 缺失时降级用未复权 close。
@@ -360,7 +367,8 @@ def _compute_volatility(code: str, conn, lookback_days: int = 30) -> float | Non
     ).fetchall()
 
     # OHLC 完整行不足 20 -> 补采(9只汪汪队宽基历史 OHLC 缺失走此分支)
-    if len(rows) < 20:
+    # ab-#37 C3:skip_refetch=True 时跳过补采(空返 ETF 本轮已拉 1 次,不重复 mootdx 二次拉取)
+    if not skip_refetch and len(rows) < 20:
         start_yyyymmdd = (_dt.datetime.now() - _dt.timedelta(days=FETCH_DAYS)).strftime("%Y%m%d")
         try:
             new_rows = fetch_etf_ohlc(code, start_yyyymmdd=start_yyyymmdd)
@@ -461,13 +469,18 @@ def _process_one_etf_worker(args):
         conn = get_conn()
         try:
             # 动态采集(自包含):DB 无近5日数据 -> fetch+upsert
+            # ab-#37 C2:复用 _get_worker_tdx()(ProcessPool 进程内只创建一次 tdx_client,
+            # 避免每只 ETF fallback 时重新 bestip 测速);C3:采集返 0 行(空返)时后续
+            # _compute_volatility 传 skip_refetch=True 不再进 mootdx 二次拉取。
+            fetch_ok = False
             if not no_fetch:
                 if _has_recent_data(conn, code):
                     res["skip_count"] = 1
                 else:
-                    n = _fetch_and_upsert_ohlc(code, name, conn)
+                    n = _fetch_and_upsert_ohlc(code, name, conn, client=_get_worker_tdx())
                     if n > 0:
                         res["fetch_count"] = 1
+                        fetch_ok = True
 
             alert = compute_alert_for_target(code, "etf")
             high_alert = alert.get("high")
@@ -479,7 +492,8 @@ def _process_one_etf_worker(args):
             res["is_nt"] = is_national_team(code)
 
             # _compute_volatility 保留: 触发 OHLC 补采 + 输出 volatility 字段
-            vol = _compute_volatility(code, conn)
+            # ab-#37 C3:空返(fetch_ok=False)时 skip_refetch=True 不再 mootdx 二次拉取
+            vol = _compute_volatility(code, conn, skip_refetch=not fetch_ok)
             res["vol"] = vol
 
             # 导出近 N 日 OHLC K线(前端 sparkline 用, 数据不足返空列表)
@@ -577,7 +591,7 @@ def main() -> None:
     results: list[dict] = []
     use_parallel = args.full_market or len(universe) > 20
     if use_parallel and _worker_args:
-        n_workers = min(6, len(_worker_args))
+        n_workers = min(8, len(_worker_args))
         print(f"  [parallel] ProcessPool {n_workers} workers, {len(universe)} ETFs", flush=True)
         _t_par = time.time()
         try:
