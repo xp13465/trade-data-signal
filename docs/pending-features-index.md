@@ -44,6 +44,7 @@
 | 20 | **凯利交叉分组卡片可切换二级筛选** | docs/kelly/analysis/kelly-analysis.md L223 | 信号类型×大类交叉卡片数爆炸,建议做成可切换二级筛选而非平铺。交叉分组样本量易<30,实施前先确认象限样本>100 | 无 | **远期待办**(2026-08-13 用户定:交叉分组样本坍塌+置顶已缓解爆炸,ROI 低暂缓) |
 | 21 | **高胜率子群深化研究(并入 #17 v5 方向)** | docs/kelly/backtest-ai/kelly-backtest-deepseek-review.md L89 | 两象限表现优异但样本小,下一步分析行业/市值/技术形态特征,扩充样本或找适用场景 | 依赖新数据(行业/市值/技术形态字段,signal_kelly_trades.json 无),样本小(n=85) | **远期待办**(2026-08-13 用户定:并入 #17 v5,需先接入 ETF 属性维度/扩充样本再做) |
 | 22 | **凯利过滤层 walk-forward(调阈值验证持续)** | docs/archive/walk-forward-report.md L183 | 过滤层多轮迭代调参有过拟合风险,建议未来对过滤层做 walk-forward | 无 | **未实施**(研究项) |
+| 74 | **check_signals.py L708 ai_macro.hit 未做 AI_MACRO_KEYS 白名单二次过滤** | #69 reviewer 非阻断发现(2026-08-19) | 邮件广播候选判定 `if m.get("ai_macro", {}).get("hit"): continue` 只查 hit 原始值,默认关非推荐键(如刚上线的 excludeSpecialBearCyb)产生的 hit 也会把信号从广播候选剔除;对普通用户(默认关)本不该生效,建议二次过滤 AI_MACRO_KEYS 白名单(只承认默认组合内键的 hit) | 等 #69 上线后安排;改动小(A 级) | **待办**(非阻断,2026-08-19 建) |
 
 ## 四、飞书通知
 
