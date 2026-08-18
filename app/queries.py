@@ -1450,8 +1450,18 @@ def overview(conn, cfg):
         "operable_window": "15:05-15:30 盘后固定价格交易窗口可按收盘价操作",
     }
 
+    # 2026-08-18 后端根治「今日锚过时」(前端补丁 121e6fb63/b0c87c1831 同根因的源头修):
+    # 盘中 signal_daily 每轮 _recompute_signals 已写入今日(如 20260818)信号, 但 score_daily
+    # (a_sentiment 评分)可能尚未算到今日(score_date 停在 20260817/更早), 致 overview.date
+    # 过时 → 前端所有以 overview.date 为"今日锚"的消费点(信号卡今日高亮/走势图 T 日提示等)
+    # 误判"无今日信号/数据截止"。这里在源头让 overview.date = max(score_date, 最新信号日),
+    # 只前进不后退, 根治而非各消费点逐个补丁。sig_dates 按 date DESC, 首元素即最新信号日。
+    _overview_date = score_date
+    if sig_dates and sig_dates[0] > _overview_date:
+        _overview_date = sig_dates[0]
+
     return {
-        "date": score_date,
+        "date": _overview_date,
         "collected_at": collected_at,
         "collect_health": collect_health,
         "signals_meta": signals_meta,
