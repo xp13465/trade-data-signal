@@ -78,11 +78,24 @@ def _pct_sign(v: float) -> str:
 # 仅展示层(首页 chips/tooltip + 收盘邮件文案)，不参与任何过滤/回测/凯利默认组合(§5.4/§23.7 冻结)。
 
 
-def _market_state_of(conn, date: str) -> dict | None:
+def _market_state_of(conn, date: str, est_close: float | None = None) -> dict | None:
     """沪深300 四档大盘状态判定(复用 index_daily hs300 读库，MA 用含当日最近 w 根收盘均值)。
 
-    返回 {tier, desc, close, ma20, ma60, ma120, ma200, wave_ref} 或 None(数据不足)。
-    纯展示层，不参与任何过滤/回测。"""
+    返回 {tier, desc, close, ma20, ma60, ma120, ma200, wave_ref[, est]} 或 None(数据不足)。
+    纯展示层，不参与任何过滤/回测。
+
+    est_close(盘中预估实时价)提供时：判定用价 c=est_close(今日实时价)，但 MA 序列
+    (m20/m60/m120/m200)仍用 state_date=昨日(最近已收盘交易日)的 idx 值——当日日线未走完，
+    均线不更新，只换判定价；返回 dict 增加 "est": True 标记盘中预估档位。"""
+    rows = conn.execute(
+        "SELECT date, close FROM index_daily WHERE index_id='hs300' "
+        "AND close IS NOT NULL ORDER BY date"
+    ).fetchall()
+    if not rows:
+        return None
+    dates = [r["date"] for r in rows]
+    closes = [r["close"] for r in rows]
+    n = len(dates)
     rows = conn.execute(
         "SELECT date, close FROM index_daily WHERE index_id='hs300' "
         "AND close IS NOT NULL ORDER BY date"
@@ -119,7 +132,8 @@ def _market_state_of(conn, date: str) -> dict | None:
     if idx < 0:
         return None
     d = dates[idx]
-    c = closes[idx]
+    # 盘中预估：判定价换为今日实时价(est_close)，MA 仍取 state_date=昨日的 idx 值
+    c = closes[idx] if est_close is None else est_close
     m20, m60, m120, m200 = ma(20, idx), ma(60, idx), ma(120, idx), ma(200, idx)
     bull = m20 > m60 > m120
     bear = m20 < m60 < m120
@@ -145,6 +159,8 @@ def _market_state_of(conn, date: str) -> dict | None:
         "ma120": round(m120, 2),
         "ma200": round(m200, 2),
         "wave_ref": wave_ref,
+        "est": est_close is not None,  # 盘中预估档位标记(est_close 提供时为 True)
+        "date": d,  # 判定所用收盘交易日(state_date，盘中=昨日最近已收盘交易日)
     }
 
 
@@ -470,6 +486,19 @@ def generate_summary(date: str | None = None) -> dict:
     # ---- 大盘状态四档判定(展示层，盘中用昨日收盘状态) ----
     market_state = _market_state_of(conn, date)
 
+    # ---- 盘中今日预估档位(展示层，仅盘中输出) ----
+    # 盘中(date==今日 且 15:00 前未收盘)时，读当日 hs300 实时价(快照已反哺进 index_daily 当日 close)，
+    # 做"今日(预估) vs 昨日(实际)"对比；读不到实时价则降级不输出(前端回退现状)。盘后不输出。
+    market_state_est = None
+    _now_est = dt.datetime.now()
+    if date == _now_est.strftime("%Y%m%d") and _now_est.hour < 15:
+        _est_row = conn.execute(
+            "SELECT close FROM index_daily WHERE index_id='hs300' AND date=? AND close IS NOT NULL",
+            (date,),
+        ).fetchone()
+        if _est_row and _est_row["close"] is not None:
+            market_state_est = _market_state_of(conn, date, est_close=float(_est_row["close"]))
+
     conn.close()
 
     # ---- 构建总结文案 ----
@@ -532,6 +561,7 @@ def generate_summary(date: str | None = None) -> dict:
         "summary": summary,
         "summary_short": summary_short,
         "market_state": market_state,
+        "market_state_est": market_state_est,
         "sentiment_label": sentiment_desc_str,
         "sentiment_score": sentiment_score,
         "fear_greed_value": fg_value,
