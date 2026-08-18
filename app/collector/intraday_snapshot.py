@@ -1978,12 +1978,98 @@ def _export_affected_json(is_closed: bool = False) -> None:
           flush=True)
 
 
+# ============ 分时曲线序列（盘后兜底渲染昨日分时图，2026-08-18 加）============
+# 背景：首页分时图实时拉取失败 fallback 快照时，旧版只写一行文字「实时拉取失败·显示快照」，
+# 不画曲线（用户报 bug：上午看到快照，应看到快照分时图本身）。根因=快照 JSON 只有单点
+# (price/pre_close/datetime)，无分钟数组。此处盘后额外拉当日全天分时序列注入
+# indices[].minute_series = [{time:"HH:MM", price}...]，前端失败分支据此画昨日折线。
+# 数据源：东财 trends2/get（与前端实时分时同源同 API，push2delay 实测 36/36 稳定）。
+#   盘中 trends2?ndays=1 只返当日到当前分钟（取不到昨日）；盘后返全天 9:30-15:00 约 240 点。
+# 前端画线约定：time 用 "HH:MM"（与 fetchTencentMinute 的 points[].time 一致）。
+# 快照 snap code -> 东财 secid 映射（对齐前端 _INDEX_TO_EASTMONEY_SECID）。
+_SNAP_CODE_TO_SECID = {
+    "sh000001": "1.000001", "sz399001": "0.399001", "sh000300": "1.000300",
+    "sh000016": "1.000016", "sz399006": "0.399006", "sh000688": "1.000688",
+    "bj899050": "0.899050", "sh000905": "1.000905", "sh000852": "1.000852",
+    "hkHSI": "100.HSI", "hkHSTECH": "124.HSTECH", "hkHSCEI": "100.HSCEI",
+}
+_EM_TREND_HOSTS = ["push2delay.eastmoney.com", "push2.eastmoney.com",
+                   "2.push2.eastmoney.com", "10.push2.eastmoney.com", "20.push2.eastmoney.com"]
+
+
+def _fetch_minute_series(code: str) -> list[dict] | None:
+    """盘后拉某指数当日全天分时序列（东财 trends2/get?ndays=1）。
+
+    返回 [{time:"HH:MM", price}...]（9:30-15:00 约 240 点），失败/无数据返 None（不阻断快照）。
+    与前端 fetchTencentMinute 同源同字段解析（trends 每行 "日期 HH:MM,开,高,低,收,量,额,均价"，[4]=收）。
+    """
+    secid = _SNAP_CODE_TO_SECID.get(code)
+    if not secid:
+        return None
+    path = ("/api/qt/stock/trends2/get?secid=" + secid
+            + "&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13"
+            + "&fields2=f51,f52,f53,f54,f55,f56,f57,f58&iscr=0&ndays=1")
+    for host in _EM_TREND_HOSTS:
+        try:
+            throttle()
+            r = requests.get(
+                "https://" + host + path,
+                headers={"User-Agent": UA, "Referer": "https://quote.eastmoney.com/"},
+                timeout=15)
+            if r.status_code != 200:
+                continue
+            js = r.json()
+            if not js or js.get("rc") != 0 or not js.get("data") or not js["data"].get("trends"):
+                continue
+            points = []
+            for line in js["data"]["trends"]:
+                parts = str(line).split(",")
+                if len(parts) < 6:
+                    continue
+                seg = parts[0].split(" ")
+                tm = seg[1] if len(seg) > 1 else ""
+                try:
+                    price = float(parts[4])
+                except (TypeError, ValueError):
+                    continue
+                if not tm or price is None or price <= 0:
+                    continue
+                points.append({"time": tm, "price": price})
+            if points:
+                return points
+        except Exception as e:  # noqa: BLE001
+            print(f"  [intraday] {code} 分时序列请求失败({host}): {type(e).__name__} {e}", flush=True)
+            continue
+    return None
+
+
+def _attach_minute_series(indices: list[dict]) -> int:
+    """盘后给快照 indices 注入 minute_series（只覆盖有分时图展示的 9 A 股 + 3 港股）。
+
+    逐只拉东财全天分时（失败跳过不阻断）。返回成功注入条数。调用方只在 is_closed 时调用，
+    盘中不拉（东财盘中 ndays=1 只返当日到当前分钟，无昨日序列，拉也白拉且费时）。
+    """
+    n = 0
+    for d in indices:
+        code = d.get("code", "")
+        if code not in _SNAP_CODE_TO_SECID:
+            continue
+        series = _fetch_minute_series(code)
+        if series:
+            d["minute_series"] = series
+            n += 1
+    print(f"  [intraday] 分时序列注入：{n}/{len(indices)} 指数（仅盘后）", flush=True)
+    return n
+
+
 def build_snapshot() -> dict:
     """采集 + 组装快照 dict（不落库）。供 collect_and_save 和 API 共用。
 
     在采集前捕获 collected_at，传给 is_market_closed/is_hk_market_closed，
     使 JSON 里的 is_closed/label 反映"这份数据的时效"而非"写入时的时钟"
     （采集行业 summary 可能 20s+，跨 11:30 边界时 now 已进午休但数据是上午盘中的）。
+    盘后(is_closed)额外拉全天分时序列注入 indices[].minute_series，供首页分时图
+    fallback 快照时渲染昨日分时曲线（2026-08-18 bug 修复）。
     """
     collected_dt = datetime.now()  # 采集起始时刻 = 数据时间
     indices = fetch_index_realtime()
@@ -1998,6 +2084,13 @@ def build_snapshot() -> dict:
     for d in indices:
         code = d.get("code", "")
         d["is_closed"] = is_hk_closed if code.startswith("hk") else is_closed
+    # 盘后额外拉全天分时序列（前端 fallback 快照画昨日曲线用）。失败不阻断快照核心。
+    # 盘中不拉：东财 ndays=1 盘中只返当日到当前分钟（无昨日序列），且逐只拉 12 只费时。
+    if is_closed:
+        try:
+            _attach_minute_series(indices)
+        except Exception as e:  # noqa: BLE001
+            print(f"  [intraday] 分时序列注入失败（不阻断快照）: {type(e).__name__} {e}", flush=True)
     # prev_trading_day: 快照日的前一个交易日(YYYYMMDD)，供前端 pending 角标判断
     # 卡片 dataDate == prev_trading_day 为正常 T+1，< 则为数据滞后(采集断了)
     # 用交易日历而非自然日差值，避免周末/节假日误判
@@ -2271,9 +2364,22 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="盘中实时快照采集")
     parser.add_argument("--date", type=str, default=None,
                         help="补采指定日期(YYYYMMDD)的申万行业 close，不采集新快照")
+    parser.add_argument("--minute-series", type=str, default=None, metavar="CODE",
+                        help="盘后验证分时序列：只拉指定指数(如 sh000001)全天分时并打印条数/首末点，不采集新快照")
     args = parser.parse_args()
 
-    if args.date:
+    if args.minute_series:
+        # 盘后验证模式：只拉全天分时序列，看是否约 240 点(9:30-15:00)，不落库不覆盖快照
+        series = _fetch_minute_series(args.minute_series)
+        if not series:
+            print(f"[intraday] {args.minute_series} 分时序列为空（盘后才返全天，盘中只返当日到当前分钟）", flush=True)
+        else:
+            print(f"[intraday] {args.minute_series} 分时序列 {len(series)} 点", flush=True)
+            if series:
+                print(f"  first: {series[0]}", flush=True)
+                print(f"  last : {series[-1]}", flush=True)
+        sys.exit(0)
+    elif args.date:
         # 历史补采模式：只补 industry close，不覆盖今日 intraday_snapshot
         n = _backfill_industry_daily([], target_date=args.date)
         print(f"[intraday] 历史补采完成：{args.date} 共补 {n} 条行业 close", flush=True)
