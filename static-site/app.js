@@ -4569,7 +4569,7 @@ function statsHint(stats, strategy, indexId) {
 }
 
 // 指数图 + 买卖点标注
-// 四档大盘状态色带颜色(涨红跌绿, 与全站红涨绿跌一致; 纯展示)
+// 沪深300四档状态色带颜色(涨红跌绿, 与全站红涨绿跌一致; 纯展示)
 const _TIER_COLORS = {
   "牛市·主升": "#e6492e",
   "上升期": "#f2a06e",
@@ -4597,8 +4597,8 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
   const markData = _buildSignalMarkData(signals, (date) => {
     const o = _ohlcMap[date]; return o ? o.close : null;
   });
-  // 四档大盘状态色带(纯展示, 仅 hs300): 底部细色带按日期标大盘四档状态, 涨红跌绿。
-  // tiers 与 ohlc 一一对应(缺 tier 的用前值前向填充/无值=灰)。
+  // 沪深300四档色带(纯展示, 仅 hs300): 底部细色带按日期标沪深300四档状态, 涨红跌绿。
+  // tiers 与 ohlc 一一对应(缺 tier 的用前值前向填充/无值=灰)。单一指数口径=沪深300(非综合多指数)。
   const _tierBand = [];
   if (tiers && tiers.length) {
     let _lastTier = null;
@@ -4622,7 +4622,7 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
         }
         if (_tierBand && _tierBand.length) {
           const _tb = _tierBand.find((x) => x.date === dt);
-          if (_tb && _tb.tier) tip += '<br/>大盘四档：<b style="color:' + (_TIER_COLORS[_tb.tier] || "#9aa0a6") + '">● ' + _tb.tier + "</b>";
+          if (_tb && _tb.tier) tip += '<br/>沪深300四档：<b style="color:' + (_TIER_COLORS[_tb.tier] || "#9aa0a6") + '">● ' + _tb.tier + "</b>";
         }
         const marks = markData.filter((m) => m.coord[0] === dt && m.reason);
         for (const m of marks) {
@@ -4642,12 +4642,13 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
     xAxis: { type: "category", data: ohlc.map((d) => d.date) },
     yAxis: _tierBand.length ? [
       { type: "value", scale: true },
-      { type: "value", show: false, min: 0, max: 1 },
+      // 隐藏色带轴 max:1→max:2(2026-08-18 收窄版, 色带高度 1/2→1/4): value 0.5 在 0-2 轴上占 1/4 高度
+      { type: "value", show: false, min: 0, max: 2 },
     ] : { type: "value", scale: true },
     dataZoom: dzOpts(),
     series: _tierBand.length ? [
       {
-        name: "大盘四档状态",
+        name: "沪深300四档状态",
         type: "bar",
         yAxisIndex: 1,
         stack: "tierband",
@@ -4691,8 +4692,9 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
   return c;
 }
 
-// 沪深300 历史四档大盘状态时间线面板(纯展示, v1.1.2 2026-08-17)。
-// 横向四档色带 + 3 档时间范围切换(近1年默认/近5年/全史2002起)。不参与任何过滤(§23.7 只增不改)。
+// 沪深300 历史四档状态时间线面板(纯展示, v1.1.2 2026-08-17; 2026-08-18 文案改「沪深300四档」)。
+// 横向四档色带 + 3 档时间范围切换(近1年默认/近5年/全史2002起)。单一事实源=沪深300(非综合多指数)。
+// 不参与任何过滤(§23.7 只增不改)。
 async function _renderTierTimelinePanel(container) {
   let data = null;
   try {
@@ -4720,7 +4722,7 @@ async function _renderTierTimelinePanel(container) {
     { t: "下降期", c: _TIER_COLORS["下降期"] },
     { t: "熊市·主跌", c: _TIER_COLORS["熊市·主跌"] },
   ];
-  const card = mkCard("沪深300 大盘四档状态轨迹", 110, null, container, charts);
+  const card = mkCard("沪深300 四档状态轨迹", 110, null, container, charts);
   const _wrap = card.getDom().parentElement;
   // 标题行右侧加范围切换按钮
   const _h3 = _wrap.querySelector("h3");
@@ -4754,7 +4756,7 @@ async function _renderTierTimelinePanel(container) {
       xAxis: { type: "category", data: _dates, axisLabel: { show: false } },
       yAxis: { type: "value", show: false, min: 0, max: 1 },
       series: [{
-        name: "大盘四档状态",
+        name: "沪深300四档状态",
         type: "bar",
         barCategoryGap: "0%",
         barWidth: "99%",
@@ -4778,8 +4780,8 @@ async function _renderTierTimelinePanel(container) {
   const _lg = document.createElement("div");
   _lg.className = "tier-tl-legend";
   _lg.style.cssText = "padding:2px 12px 6px;font-size:11px;color:var(--text-2);";
-  _lg.innerHTML = "四档口径：" + _legend.map((x) => `<span style="margin-right:10px"><b style="color:${x.c}">●</b> ${x.t}</span>`).join("") +
-    '<span style="margin-left:6px;color:var(--text-3)">· 牛市·主升=价&gt;MA200且多头排列 / 上升期=价&gt;MA200非多头 / 下降期=价&lt;MA200非空头 / 熊市·主跌=价&lt;MA200且空头排列（沪深300）</span>';
+  _lg.innerHTML = "沪深300四档口径：" + _legend.map((x) => `<span style="margin-right:10px"><b style="color:${x.c}">●</b> ${x.t}</span>`).join("") +
+    '<span style="margin-left:6px;color:var(--text-3)">· 牛市·主升=价&gt;MA200且多头排列 / 上升期=价&gt;MA200非多头 / 下降期=价&lt;MA200非空头 / 熊市·主跌=价&lt;MA200且空头排列 · 本面板为<b>沪深300 单一指数口径</b>（非综合多指数）</span>';
   _wrap.appendChild(_lg);
 }
 
@@ -7592,7 +7594,7 @@ function injectSnapshotToSummary(text, s, snap) {
 // 收盘分析横幅/历史弹窗共用的指标 chips 渲染（双版一致）。
 // snap 存在且未收盘时优先用快照实时值覆盖上证涨跌幅/点位与领涨板块；s 缺值时兜底用快照。
 // 不含恐贪/冰点标签（由调用方自行放置），只返回指标 chips 行 + 领涨板块行。
-// 大盘状态 chip（四档：牛市·主升/上升期/下降期/熊市·主跌；展示层，不参与任何过滤/回测）
+// 沪深300四档 chip（四档：牛市·主升/上升期/下降期/熊市·主跌；沪深300 单一指数口径，非综合多指数；展示层，不参与任何过滤/回测）
 // tooltip 即 §21 算法公示位：判定规则 + 当前各均线值 + 波浪弱叙事 + 主观参考声明
 // 返回 chip HTML 或 ""（s 无 market_state 时）。供 renderSummaryChips / renderIntradayChips 共用，
 // 保证盘中/盘后/历史三处大盘档位 chip 渲染逻辑与 tooltip 完全一致（§21/§22）。
@@ -7604,7 +7606,7 @@ function _renderMarketStateChip(s) {
   const _main = _est || _ms;
   const _msBull = _main.tier.includes("牛市") || _main.tier.includes("上升");
   const _msColor = _msBull ? "#e6492e" : "#2e8b57";
-  let _msTip = `判定规则：价 vs 年线(MA200) + MA20/60/120 排列 → 四档[牛市·主升/上升期/下降期/熊市·主跌]。`;
+  let _msTip = `沪深300四档口径：价 vs 年线(MA200) + MA20/60/120 排列 → 四档[牛市·主升/上升期/下降期/熊市·主跌]（沪深300 单一指数口径，非综合多指数）。`;
   if (_est) {
     // 盘中：今日预估(实时价×昨日均线) vs 昨日实际(最近已收盘档位)
     // 今日日期用后端注入的 date_today(盘中实际今日)，不用 s.date——盘中 s.date 可能被 a_sentiment 回退成昨日
@@ -7625,7 +7627,7 @@ function _renderMarketStateChip(s) {
     // 盘中：今日预估为主、昨日实际为辅（两档都显示，即使相同）
     return `<span class="summary-chip" style="color:${_msColor}" title="${_msTip}">今日：${_est.tier}（预估）<span style="opacity:.62">｜昨日：${_ms.tier}</span></span>`;
   }
-  return `<span class="summary-chip" style="color:${_msColor}" title="${_msTip}">大盘 · ${_ms.tier}</span>`;
+  return `<span class="summary-chip" style="color:${_msColor}" title="${_msTip}">沪深300 · ${_ms.tier}</span>`;
 }
 
 function renderSummaryChips(s, snap) {
@@ -7651,7 +7653,7 @@ function renderSummaryChips(s, snap) {
     if (_dynPrice("sh") != null) shClose = _dynPrice("sh");
   }
   const chips = [];
-  // 大盘状态 chip（四档；展示层，不参与任何过滤/回测）——抽公共 helper，与盘中 renderIntradayChips 共用
+  // 沪深300四档 chip（四档；展示层，不参与任何过滤/回测）——抽公共 helper，与盘中 renderIntradayChips 共用
   const _msChip = _renderMarketStateChip(s);
   if (_msChip) chips.push(_msChip);
   // 上证 chip（涨红跌绿，硬编码语义色）
@@ -7754,7 +7756,7 @@ function renderSummaryChips(s, snap) {
 // 盘中横幅专用 chips：summary 是 T-1 收盘、snap 是 T 盘中时，横幅仅用 snap 实时数据。
 // 只显示 snap 有的字段（上证/深成/创业板/科创50 等指数实时 + 领涨板块），
 // 隐藏 summary 独有指标（恐贪/冰点/涨跌家数/成交额/涨跌停等，盘中不稳定且属 T-1，收盘才有意义）。
-// 大盘四档 chip 例外：盘中仍展示（用 summary.market_state = 最近已收盘档位，与收盘一致，§22 多展示位一致）。
+// 沪深300四档 chip 例外：盘中仍展示（用 summary.market_state = 最近已收盘档位，与收盘一致，§22 多展示位一致）。
 function renderIntradayChips(snap, s) {
   if (!snap || !snap.indices) return "";
   const mainCodes = [
@@ -7764,7 +7766,7 @@ function renderIntradayChips(snap, s) {
     { code: "sh000688", id: "kc50", label: "科创50" },
   ];
   const chips = [];
-  // 大盘状态 chip：盘中读 summary.market_state（最近已收盘档位），与 renderSummaryChips 共用 helper，保证 tooltip/颜色/档位一致
+  // 沪深300四档 chip：盘中读 summary.market_state（最近已收盘档位），与 renderSummaryChips 共用 helper，保证 tooltip/颜色/档位一致
   const _msChip = _renderMarketStateChip(s);
   if (_msChip) chips.push(_msChip);
   for (const { code, id, label } of mainCodes) {
@@ -10538,7 +10540,7 @@ async function renderOverview() {
         const _tLabel = _lunch ? "13:00复牌" : `更新于 ${_intradayDynamicTime || hhmm}`;
         const _pulse = '<span class="dyn-pulse" id="banner-pulse"><span class="dyn-pulse-dot"></span>1min</span>';
         banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中（每日 20:40 更新）">🤖 AI 预测</button><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap, s)}</div>`;
-        // s 保留给盘中轮询 _applyDynamicToChips 复用（大盘四档 chip 读 s.market_state = 最近收盘档位，§22 一致）
+        // s 保留给盘中轮询 _applyDynamicToChips 复用（沪深300四档 chip 读 s.market_state = 最近收盘档位，§22 一致）
         _bannerRenderCtx = { el: banner, s, snap, type: "intraday" };
       } else {
         // 收盘后/同日：原逻辑（标题用 summary.generated_at，chips 用 summary+snap 同日覆盖）
@@ -15171,7 +15173,7 @@ async function renderAStock(container = content) {
     const raw = await fetchJSON(`https://ss.fx8.store/r2/index/${id}-all.json`);
     return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats, tiers: raw.tiers || null };
   }, true);
-  // 沪深300 历史四档大盘状态时间线面板(纯展示, v1.1.2)
+  // 沪深300 历史四档状态时间线面板(纯展示, v1.1.2; 沪深300 单一口径)
   await _renderTierTimelinePanel(container);
 }
 
