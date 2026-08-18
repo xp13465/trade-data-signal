@@ -220,7 +220,7 @@
 - **与 §15/§18 互参**:§15 是"改坏老功能"回归复查(见 governance/reviewer skill),本条是"用户视角多展示位一致性"铁律,§18 记具体犯错(2026-08-09 量子科技3展示位不一致)。三者互补:§15 防改坏、§22 防不一致、§18 记教训
 
 ## 8. 改完必须推送(摘要;操作细节见 .claude/skills/role-implementer §3-§3.1)
-- 每次改完 commit + push feat + merge main + push main(不推=白干,别人无法验收);commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
+- **push main 统一入口(防再犯机制 D,2026-08-19)**:agent 只 commit + push **feat 分支**,**禁止 agent 直接 push main**;merge+push main 一律由主控走 `scripts/main-merge.sh <feat>` 统一入口(内含 §14 安全窗口/merge/base 新鲜/统一 build_min+bump/check_version_progress/push main)。改前端源码的 feat 由 main-merge.sh 统一 bump 版本串(机制 C,worktree agent 不自行 bump)。commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
 - 不 add **根目录 data/** 下任何文件(sentiment.db/etf_national_team.db/signal_stats.json 保持本地 M / untracked 不推);**`static-site/data/` 是正常上线渠道**,后端新增 JSON 字段/新品种必须跑 `bash scripts/deploy.sh` 推数据上线(R2 架构 §8.1 全文见 implementer skill §3.1)
 - 线上 curl 验证任一域名到新版即算上线 OK,不卡单域名 404(ss.fx8.store CF 主站优先 / sss.sugas.site / s.sugas.site)
 - ⚠️ **不 force**:force-with-lease / force push 是最后手段;non-fast-forward 优先 `git fetch + rebase origin/main + 重试 push`(deploy.sh L141-160 内置),rebase 失败 abort 等人工。agent 不得擅自强推,尤其 main
@@ -237,7 +237,7 @@
 - **核心一句话:生产稳定性是 P0 第一要素**。项目已上线生产(ss.fx8.store/sss.sugas.site/s.sugas.site + ssd.fx8.store R2),定时任务撞车会导致线上数据覆盖事故/DB锁/用户看到错误数据,是不可逆生产故障
 - **任务冲突检查不应由用户提醒才做**:每次派任务/设 cron/推 main 前**必须主动查 launchd 定时任务清单**(`launchctl list | grep trade` + 查 plist `StartCalendarInterval`),列当日盘后任务时点确认不撞,并主动给用户时点建议
 - **盘后定时任务时点(15:35/16:00/17:50/20:35/22:00)不推 main 不写 public_fund.db**;**交易日盘中(09:30-15:30)不跑全量 export+deploy**(§8 已有,休市可随时跑);**安全窗口 23:00 后**无推 main/评分/采集任务
-- **agent 自己 push feat:main 也要避开**盘后定时任务时点(尤其 17:50 update_all deploy.sh 推 main non-ff 竞争;盘中 push 代码不避 intraday——R2 迁移后 intraday 走 R2 不推 main)
+- **push main 要避开**盘后定时任务时点(尤其 17:50 update_all deploy.sh 推 main non-ff 竞争;盘中 push 代码不避 intraday——R2 迁移后 intraday 走 R2 不推 main)。main-merge.sh 内含 §14 安全窗口检查,盘后时点自动拒绝;agent 只 push feat 不 push main(机制 D)
 
 ## 21. 算法改动同步公示(指针,全文在 .claude/skills/role-implementer §2)
 改算法逻辑(track_score/评分/权重/分段函数/匹配规则等)必须同步改前端算法公示文案(purpose-notes.js + app.js/lab.js 的算法/跟踪分/TE/R²/IR/权重/百分位/match_method 等说明)。用户铁律,已复发 2 次(教训 L18/L25),全文+强化款见 implementer skill §2。

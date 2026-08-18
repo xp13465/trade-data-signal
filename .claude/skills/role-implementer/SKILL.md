@@ -7,14 +7,24 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 
 > 本 skill 由 implementer agent 定义 `skills: [role-implementer]` 启动全文注入,确定性加载不依赖主动读。共享核心在根 CLAUDE.md(自动注入),此处只放角色专属规范 + 操作细节。
 
+## 关联规范源(§23.8 skill 维护同步,2026-08-19)
+- §3 push main 统一入口(agent 只推 feat)/版本串统一 bump/完成报告带 base commit → 根 CLAUDE.md §8「改完必须推送」+ §23.11(git 冲突绝不静默)+ 机制 C/D(防再犯,docs/conflict-overwrite-rootcause-2026-08-18.md)
+- §3 开工强制 rebase + base 新鲜校验 → 防再犯缺口①(docs/conflict-overwrite-triggers-2026-08-18.md)
+- §1 单版前端铁律(build_min/bump sw.js/export 路径同步) → 根 CLAUDE.md §24 前端部署缓存防撕裂
+- §2 算法公示 → 根 CLAUDE.md §21
+- §4 生产稳定时点 → 根 CLAUDE.md §14
+- §5 修 bug 三铁律 / §6 举一反三 → 根 CLAUDE.md §23.2/§23.3
+- §8 团队协作 → 根 CLAUDE.md §23.4/§23.5
+> 改了对应源头(§8/§14/§21/§24/§23.x/CLAUDE.md),顺着本节反向查同步本 skill。
+
 ## 0. quickstart 约定遵循检查清单(关思考补偿,2026-08-15 优化 P0-2 加)
 > 执行 agent 常被配置 flash+关思考以省 token(省 97-99% output token),但关思考后对 B 级跨文件/约定遵循任务有降质风险(benvanik 数据:thinking 降 67-75% 时约定遵循违规 0→173 次),被 reviewer 打回=返工更费 token。本清单把实施 agent 最容易违反的规范浓缩成 8 条硬勾选,**开工前读一遍、完工自验逐条勾**,靠 prompt 不看 thinking 也守住核心约定。逐条对应的规范全文见下方对应节,参考实现见 `docs/agent-quickstart.md`。
 - [ ] **§21 算法公示**:改算法逻辑/数值(评分/权重/匹配/分段),必 grep 前端公示文案 purpose-notes.js + app.js/lab.js(算法/跟踪分/TE/R²/IR/权重/百分位/match_method)同步改,不只 tooltip 实施点
 - [ ] **§22 数据一致性**:改数据产物,必重跑 + 同步 static-site/ + R2(三步),N 展示位一致,不进根 data/ 目录
 - [ ] **§23.2 修 bug 三铁律**:修完整(先列同类错误面清单)+ 自测完成(全覆盖)+ 排查同类(根因修,不逐文件补丁)
 - [ ] **§23.3 举一反三**:做 A 主动覆盖同模式/同数据源/同组件所有消费点+相关展示位,不只用户点名处(自验列清单)
-- [ ] **§24 改前端源码** app.js/lab.js/common.js/index.html:必同 commit bump 版本串(bump_asset_version.py)+ 重建 min(build_min.py)+ bump sw.js CACHE_VERSION
-- [ ] **§8 上线链路**:改完必 commit+push feat+merge main+push main(commit message 加 Co-Authored-By 行)
+- [ ] **§24 改前端源码** app.js/lab.js/common.js/index.html:改完 commit+push feat,**不自行 bump 版本串**(机制 C:主控 merge 走 main-merge.sh 统一 build_min+bump,防多 agent bump 撞号);完成报告必带 base commit + 版本串前后值
+- [ ] **§8 上线链路**:改完必 commit+push **feat**(commit message 加 Co-Authored-By 行);**禁止 agent 直接 push main**,merge+push main 由主控统一走 scripts/main-merge.sh(机制 D)
 - [ ] **§23.5 新产物落档**:新增报告/脚本/数据当场落最合适目录+建/跟索引+git 已跟踪,不靠定期整理
 - [ ] **data/ 隔离**:不 add/提交根目录 data/(sentiment.db/etf_national_team.db/signal_stats.json 等留本地);static-site/data/ 走 deploy.sh 正常上线
 
@@ -36,7 +46,11 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - **历史教训**:曾算法改了公示没改用户看老规则,修复需重新定位所有公示点+更新+重新上线,成本高
 
 ## 3. 上线操作细节(原 §8 操作层,摘要见根共享核心)
-- 每次改完 commit + push feat + merge main + push main(不推=白干,别人无法验收);commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
+- ⚠️ **push main 统一入口(防再犯机制 D,2026-08-19)**:agent 只 push **feat 分支**,**禁止 agent 直接 push main**。merge+push main 一律由主控走 `scripts/main-merge.sh <feat>` 统一入口(内含 base 新鲜校验 + merge + 统一 build_min/bump + §24⑤/check_version_progress + push main)。push main 不归 agent。
+- ⚠️ **worktree agent 改前端源码不自行 bump 版本串**(防再犯机制 C,2026-08-19):改 app.js/lab.js/common.js/style.css 的 worktree agent **不自行跑 bump_asset_version.py**(多 agent 各自 bump 会撞号/stale bump,08-18 根因 §三.2),由主控 merge 时 main-merge.sh 统一跑 build_min+bump(版本串唯一权威入口,回归 08-13「merge 收尾统一 bump」模式)。
+- ⚠️ **完成报告必带「base commit + 版本串前后值」**(防再犯机制 D,2026-08-19):agent 完成报告必须写明 base commit(开工时基于的 origin/main 或 merge-base)+ 改动前后版本串值(若改前端源码,记录改动前版本串,由主控 merge 统一 bump 成新值)。
+- **开工强制 rebase origin/main + base 新鲜校验(防再犯缺口①,2026-08-19)**:worktree 或分支开工前先 `git fetch origin && git rebase origin/main`;提交前用 `git merge-base --is-ancestor origin/main HEAD && echo base-fresh || echo base-stale` 校验 base 新鲜(base 落后则先 rebase 再提交,防基于旧 base 提交静默覆盖最近改动)。
+- 每次改完 commit + push feat + merge main + push main(不推=白干,别人无法验收);commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`(注:merge main + push main 改由主控走 main-merge.sh,agent 只 commit + push feat)
 - 不 add **根目录 data/** 下任何文件(sentiment.db/etf_national_team.db/signal_stats.json 保持本地 M / untracked 不推);**`static-site/data/` 是正常上线渠道**(deploy.sh 的 git add 只加 static-site/data/ + min JS,不碰根 data/)。后端新增 JSON 字段/新品种后**必须跑 `bash scripts/deploy.sh` 推数据上线**,否则前端读旧数据
 - 线上 curl 验证/测试:任一域名(ss.fx8.store CF 主站优先 / sss.sugas.site GitHub Pages / s.sugas.site MaoziYun)验证到新版即算上线 OK,不卡单域名 404;`_headers`+br 压缩仅 CF 主站生效
 - ⚠️ **force-with-lease / force push 是最后手段,不是首选**:non-fast-forward 优先 `git fetch + rebase origin/main + 重试 push`(deploy.sh L141-160 内置),rebase 失败 abort 等人工。**不得擅自强推,尤其 main**;确需强推须主控确认

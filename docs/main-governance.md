@@ -76,6 +76,7 @@
   - **A 级 小(纯显示)**:同时满足 5 条=①纯显示/文案/CSS/常量配置(不动 if/for/事件绑定/数据结构/SQL/数据产物) ②定位已知:用户指明或 agent 已定位行号,grep 即得 ③量级:≤30 行纯改 ④验证:grep/读单点即确认(不需 smoke/curl) ⑤风险:前端代码可 git revert(不碰 DB/数据产物/后端/定时任务)。**主控直接改 + grep 自验 + push feat+main,不派实施/reviewer**。核心两条:纯显示不动逻辑 + 定位已知不需调研,任一不满足升级派 agent
   - **B 级 大(逻辑)**:逻辑分支/if/for/事件绑定/数据结构/跨函数/跨模块。派 agent 实施 + reviewer 通过后主控 push main。**reviewer 按影响面分级**(2026-08-07 补,省 token):①无隐藏影响面(单点逻辑,不被轮询/事件/跨函数引用):agent 自验+主控§0单点,不派 reviewer ②有隐藏影响面(轮询/事件/跨函数/数据被多模块读):reviewer 只查影响面+相关 smoke ③广涉及面(跨模块/数据产物/定时任务/后端):完整 reviewer(全 P0 smoke+check_data_integrity)
   - **C 级 数据/后端**:数据产物/SQL/后端/定时任务。派 agent 实施 + 派 reviewer + 数据完整性校验(check_data_integrity.py deploy 前置) + reviewer 通过主控 push main
+- **⚠️ push main 统一入口(防再犯机制 D,2026-08-19)**:merge+push main 一律由主控走 `bash scripts/main-merge.sh <feat 分支>`(唯一权威入口,内含:§14 安全窗口检查 → fetch + main 同步 → base 新鲜校验 → merge feat(冲突即停 §23.11)→ 前端源码统一 build_min+bump(机制 C,版本串唯一权威)→ check_version_progress A/B 校验 → push main)。**agent 只 push feat 分支,禁止 agent 直接 push main**(08-18 多 agent 各自 push 缺 commit / deploy 非 main 分支 push HEAD:main 带上 feat 的根因 §三.4 根治)。改前端源码的 feat,版本串由本脚本 merge 时统一 bump(worktree agent 不自行 bump,防撞号)。
   - **小口子打包原则**:多个 A 级小改动(≥3 个 或合计 >50 行)凑一起=派 agent 合适(打包一次实施省 cherry-pick,主控改多个分散点易漏)。单个 A 级主控改,多个打包派 agent。是否"过多"看分散度+总行数
   - **08-06 教训对应 C 级**(board_etf_map.json 数据产物损坏),非显示改。教训针对数据/逻辑,纯显示改不威胁逻辑,A 级不派 reviewer 合理
 - **大阶段回归必行**:当天开发功能多后/大阶段结束/上线前,必须做主功能快速全量回归,不等用户发现再修(那都晚了)
