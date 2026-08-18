@@ -455,6 +455,9 @@ def _run_multisource(metric, key):
         if rows:
             return rows, "gold 主源新浪宕机, 切东财futsseapi沪金主连(em)", SOURCE_EM
     return None
+
+
+def cross_check_zt_pool(func_name: str, date: str):
     """zt_pool 系列空时交叉验证(2026-07-31 跌停池空修复,2026-07-20 提取公共函数)。
 
     场景:大盘反弹日跌停池(stock_zt_pool_dtgc_em)空=真0跌停,但涨停池
