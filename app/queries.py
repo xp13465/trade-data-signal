@@ -596,6 +596,62 @@ def _ai_macro_build_market_state(conn):
     return tiers, dates, ma60_bull
 
 
+def _ai_macro_classify_tiers(dates, closes):
+    """四档大盘状态分类(共享纯函数, 供 hs300/cyb 等任意指数复用, 避免复制分叉)。
+    tiers: {date: tier_str}, tier_str ∈ {"牛市·主升","上升期","下降期","熊市·主跌"}：
+      牛市·主升=价>MA200 且 多头排列(MA20>MA60>MA120)
+      上升期   =价>MA200 且 非多头
+      下降期   =价<MA200 且 非空头
+      熊市·主跌=价<MA200 且 空头排列(MA20<MA60<MA120)
+    """
+    n = len(dates)
+
+    def _ma(w: int, i: int):
+        if i < w - 1:
+            return None
+        return sum(closes[i - w + 1: i + 1]) / w
+
+    tiers = {}
+    for i in range(200 - 1, n):
+        c = closes[i]
+        m20 = _ma(20, i)
+        m60 = _ma(60, i)
+        m120 = _ma(120, i)
+        m200 = _ma(200, i)
+        if None in (m20, m60, m120, m200):
+            continue
+        bull = m20 > m60 > m120
+        bear = m20 < m60 < m120
+        if c > m200 and bull:
+            tier = "牛市·主升"
+        elif c > m200:
+            tier = "上升期"
+        elif c < m200 and bear:
+            tier = "熊市·主跌"
+        elif c < m200:
+            tier = "下降期"
+        else:
+            tier = "上升期"
+        tiers[dates[i]] = tier
+    return tiers
+
+
+def _ai_macro_build_cyb_tier(conn):
+    """创业板指(cyb)四档大盘状态(#69 新键 excludeSpecialBearCyb 判定源)。
+    返回 (tiers, dates)；无数据返回 ({}, [])。与 hs300 _ai_macro_build_market_state 同口径算法
+    (共享 _ai_macro_classify_tiers)。cyb=创业板指, 数据 2010+ 起, 足够长。
+    """
+    rows = conn.execute(
+        "SELECT date, close FROM index_daily WHERE index_id='cyb' "
+        "AND close IS NOT NULL ORDER BY date"
+    ).fetchall()
+    if not rows:
+        return {}, []
+    dates = [r["date"] for r in rows]
+    closes = [r["close"] for r in rows]
+    return _ai_macro_classify_tiers(dates, closes), dates
+
+
 def _ai_macro_tier_at(date_str: str, tiers, dates):
     """<= 信号日最近的四档 tier_str；无状态返回 None(不过滤)。"""
     if not tiers:
@@ -704,6 +760,7 @@ def _ai_macro_hit_filters(sig: dict, ctx: dict) -> list:
     _ts = ctx["track_score_of"](sig)
     _tier = ctx["tier_of"](_d)
     _ma60_bull = ctx["ma60_bull_of"](_d)
+    _cyb_tier = ctx["cyb_tier_of"](_d)
     _q = _ai_macro_quarter(_mm)
 
     # ⚠仅买信号守卫(与凯利区"只对买交易过滤"同源): 非买(band_hold/sell/sell_stop_loss)一律不判降亏
@@ -724,6 +781,11 @@ def _ai_macro_hit_filters(sig: dict, ctx: dict) -> list:
     # 2c declinePhaseSpecial(默认关备选, v1.1.2): 下降期×buy_special×全市场(B 方案 V4d_all 增量, 不限于A股)
     if _sig == "buy_special" and _tier == "下降期":
         _f.append("declinePhaseSpecial")
+    # 2d excludeSpecialBearCyb(#69 新键, 默认关非默认推荐): cyb(创业板指)四档版 excludeSpecialBear——
+    #   与主键 excludeSpecialBear 判定语义完全一致, 仅判定源 hs300 四档 → cyb 四档:
+    #   buy_special × A股类 × cyb 四档∈{熊市·主跌, 下降期}。默认不进首页/凯利默认组合, 凯利区独立开关供人工复测。
+    if _sig == "buy_special" and _mkt in _AI_MACRO_A_STOCK_MARKETS and _cyb_tier in ("熊市·主跌", "下降期"):
+        _f.append("excludeSpecialBearCyb")
     # 2b k2c5HkChase(K2C5, 并基础5 v1.1.0 第8键): signal∈{buy_special,buy_backup} × 港股
     #   与 lab.js _kellyPassesFadeFilters L7521 同谓词(_mktD3==="hk")。
     #   ⚠港股分类须对齐回测 MARKET_QUAD_MAP(scripts/signal_kelly_backtest.py L128-130):
@@ -1135,16 +1197,24 @@ def overview(conn, cfg):
         _sig_stats = sigstats.load()  # 主库 data/signal_stats.json(与 overview 同源)
         _market_map = _ai_macro_build_market_map(cfg)
         _tier_state, _tier_dates, _ma60_bull_state = _ai_macro_build_market_state(conn)
+        # #69: cyb(创业板指)四档状态, 供新键 excludeSpecialBearCyb 谓词 + 注入 overview 信号供未来前端用
+        _cyb_state, _cyb_dates = _ai_macro_build_cyb_tier(conn)
         _ctx = {
             "rating_of": lambda _s: _ai_macro_rating_of(_s, _sig_stats),
             "market_of": lambda _iid: _market_map.get(_iid or "", ""),
             "track_score_of": _ai_macro_track_score_of,
             "tier_of": lambda _d: _ai_macro_tier_at(_d, _tier_state, _tier_dates),
             "ma60_bull_of": lambda _d: _ai_macro_ma60_bull_at(_d, _ma60_bull_state, _tier_dates),
+            "cyb_tier_of": lambda _d: _ai_macro_tier_at(_d, _cyb_state, _cyb_dates),
         }
         for _s in sigs:
             _f = _ai_macro_hit_filters(_s, _ctx)
-            _s["ai_macro"] = {"hit": bool(_f), "filters": _f}
+            _s["ai_macro"] = {
+                "hit": bool(_f),
+                "filters": _f,
+                # #69: 注入 cyb 四档供未来前端用(新键 excludeSpecialBearCyb 展示可读, 不参与默认判定)
+                "cyb_tier": _ai_macro_tier_at(str(_s.get("date") or ""), _cyb_state, _cyb_dates),
+            }
 
     freeze_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=120)).strftime("%Y%m%d")
     freeze_dates = [r[0] for r in conn.execute(
