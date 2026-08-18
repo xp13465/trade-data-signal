@@ -7297,7 +7297,10 @@ function _kellyDefaultFilters() {
     // v1.1.2(2026-08-17 用户拍板) 三键: excludeSpecialBear 语义升四档(默认开=新主键, 见上方已有 true);
     //   新增 2 个默认关备选键 legacyMa60Special(老MA60熊×追买) / declinePhaseSpecial(下降期×buy_special全市场)。
     //   默认组合=只开主键四档(= A 方案 R1_all 口径, 回测见 docs/market-state/kelly-4tier-*)。备选键默认关可自开。
-    legacyMa60Special: false, declinePhaseSpecial: false
+    // #69(2026-08-19) 新增第 4 个降亏键 excludeSpecialBearCyb(默认关非默认推荐): cyb(创业板指)四档版
+    //   excludeSpecialBear, 判定语义与主键完全一致, 仅判定源 hs300 四档 → cyb 四档。默认不进默认组合,
+    //   供用户凯利区人工复测看数据变化。
+    legacyMa60Special: false, declinePhaseSpecial: false, excludeSpecialBearCyb: false
   };
 }
 
@@ -7419,6 +7422,13 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
   if (filters.legacyMa60Special && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_state != null && t[fIdx.market_state] === false) return false;
   // 下降期×buy_special(默认关备选): 全市场 × 四档=下降期(market_tier_all 后端全市场注入, B 方案 V4d_all 增量)
   if (filters.declinePhaseSpecial && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_tier_all != null && t[fIdx.market_tier_all] === "下降期") return false;
+  // #69(2026-08-19) excludeSpecialBearCyb(默认关非默认推荐): cyb(创业板指)四档版 excludeSpecialBear——
+  //   判定语义与主键完全一致, 仅判定源 hs300 四档 → cyb 四档: buy_special × A股类 × cyb四档∈{熊市·主跌,下降期}。
+  //   market_tier_cyb 后端已按 A股类注入(非A股为 "", 与 market_tier 同构守卫); 默认关, 供用户凯利区人工复测看数据变化。
+  if (filters.excludeSpecialBearCyb && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_tier_cyb != null) {
+    var _mtc = t[fIdx.market_tier_cyb] || "";
+    if (_mtc === "熊市·主跌" || _mtc === "下降期") return false;
+  }
   // v3新9 toggle(比值>3, 按比值倒序: 10.06>6.63>5.87>5.24>4.67>4.18>4.02>3.35>3.31)
   var _v3On = filters.n1MarTueHigh || filters.n2NovSpecialIndustry || filters.r8PureNonMay || filters.n3NovSpecialMon || filters.n4AMay || filters.r7MayReinforced || filters.n5MayVlow || filters.n6MidMay || filters.r10May6NonMay;
   // v4新12 toggle(三梯队全量上线)
@@ -8889,6 +8899,9 @@ var _kellyFadeFlagGroups = [
       advice: "🆕旧MA60判定·默认关 · 比值2.31", tip: "🆕NEW(v1.1.2 2026-08-17 用户拍板)默认关备选: 保留 v1.1.0 excludeSpecialBear 原 MA60 判定——buy_special 追关注 × A股类 × close<MA60(MA60熊)。与主键四档(excludeSpecialBear)的差别: 主键用四档{熊市·主跌,下降期}判坏, 本键用旧 MA60 判熊。默认关, 如需「绝不放急跌段追高」可手动开(≈ R1_lag 收紧变体方向, 未入默认, 回测见 docs/market-state/kelly-4tier-lagexempt-compare.md)。" },
     { k: "declinePhaseSpecial", cls: "lab-sigkelly-toggle-decline", name: "下降期×追关注", ratio: 1.38, warn: "🆕NEW默认关",
       advice: "🆕下降期剔追涨·全市场 · 比值1.38", tip: "🆕NEW(v1.1.2 2026-08-17 用户拍板)默认关备选: 排除 buy_special 追关注 × 四档=下降期 × 全市场(不限于A股, = B 方案 V4d_all 增量, 回测全周期 Δ+40,409 见 docs/market-state/kelly-4tier-lagexempt-compare.md)。下降期=价<MA200 但均线纠缠(未空头排列)。默认关可自开。" },
+    // #69(2026-08-19 用户拍板) cyb 四档版降亏新键: excludeSpecialBearCyb, 默认关非默认推荐(判定源 hs300→cyb 创业板指)
+    { k: "excludeSpecialBearCyb", cls: "lab-sigkelly-toggle-specialbearcyb", name: "追关注×熊市交叉(cyb四档)", ratio: null, warn: "🆕NEW默认关(非默认推荐)",
+      advice: "🆕cyb四档剔追涨·非默认 · 比值待用户实测", tip: "🆕NEW(#69 2026-08-19 用户拍板)非默认推荐, 默认关: cyb(创业板指)四档版 excludeSpecialBear——判定语义与主键完全一致, 仅判定源 hs300 四档 → cyb(创业板指)四档: buy_special 追关注 × A股类 × cyb四档∈{熊市·主跌,下降期}。四档定义同主键(价 vs MA200 + MA20/60/120 排列)。默认不进默认组合(生产推荐保持稳定 §23.7), 供用户凯利区人工复测看数据变化; 判定源差异: 主键看沪深300大盘四档, 本键看创业板指四档(创业板指代表成长/中小盘风险偏好, 与沪深300大盘四档可能不同步)。人工开启后, 凯利区「最后结果」按本键重算, 可对比 hs300 版 vs cyb 版过滤差异。" },
     // K2C5/K3 (2026-08-15 #86 新增 纯前端实验键; v1.1.0 2026-08-15 用户拍板: K2C5 默认开, K3 维持默认关)
     { k: "k2c5HkChase", cls: "lab-sigkelly-toggle-k2c5", name: "港股追涨", ratio: 4.55, rec: true, warn: "⭐默认开(v1.1.0)",
       advice: "剔除港股追涨 · 比值4.55", tip: "⭐ 默认开(v1.1.0 2026-08-15 用户拍板 定名「基础5」) = AI宏组成**5+3+1 = 基础5(n2NovSpecialIndustry/excludeSpecialBear/janMidRating/janMidSpecial/k2c5HkChase 港股追涨剔除)+核心3(r7MayReinforced/excludeAuxCross/greedy15)+1类回测剔除(债类/波段不入宇宙 _bt_in_universe)=8键+1类**;K2C5 已穷举验证并入基础5(16组合全扫,与核心3无叠加冲突、8键全开A/F/9模式合计全局最优、去K2C5损失+41,445第二大贡献、y1样本外正贡献,见 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md)。剔除 signal∈{buy_special,buy_backup}×港股 的交易(当前数据文件实算:独立信号728个/全9模式占1431条)。每日池减亏2.88%/损盈0.63%/比值4.55(>2高性价比, 与其他键同口径 ALL9-K1; K2档损盈-0.03%不取, 见 docs/kelly/analysis/kelly-k2c5-dailypool-ratio.md)。全信号除 G 外双升(A/F/H 多年稳定,净利 Δ +4,458~+7,840),16象限 92.4% 正,港股卡剔除后 0 负全转正(它就是港股卡亏损主源);除G外唯一负贡献 I 微负 -1,365。诚实标注 G: 因强平兑现口径分裂, b0(保守,强平记0利)=-2,256 / b1(乐观,按持有时间线性兑现)=+11,755,方向依赖口径,真实强平收益在区间[b0,b1],不把 b1 当承诺。" },
@@ -9470,6 +9483,14 @@ function _renderSigKellyBar(bar, data, period) {
   if (declinePhaseCb) declinePhaseCb.onchange = function () {
     if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
     state.labSigKellyFilters.declinePhaseSpecial = declinePhaseCb.checked;
+    _kellyOnFilterChange();
+  };
+  // #69(2026-08-19 用户拍板) cyb 四档版降亏新键: excludeSpecialBearCyb(默认关非默认推荐)
+  // 谓词见 _kellyPassesFadeFilters(excludeSpecialBearCyb 用 market_tier_cyb 字段, 无需特征计算)
+  var specialBearCybCb = bar.querySelector(".lab-sigkelly-toggle-specialbearcyb");
+  if (specialBearCybCb) specialBearCybCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.excludeSpecialBearCyb = specialBearCybCb.checked;
     _kellyOnFilterChange();
   };
   // 组合降亏「预设宏」(2026-08-11用户定: 1+2+3全要,按需选择,组合可叠加=成员并集OR):

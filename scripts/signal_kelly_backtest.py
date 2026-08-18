@@ -271,15 +271,15 @@ def _load_market_state(conn):
     return state, dates
 
 
-def _load_market_tiers(conn):
-    """沪深300 四档大盘状态(与 app/queries.py _ai_macro_build_market_state 同口径)。
+def _load_market_tiers(conn, index_id='hs300'):
+    """指定指数(index_id, 默认 hs300)四档大盘状态(与 app/queries.py 同口径算法)。
     返回 {date: tier_str} (tier_str ∈ {"牛市·主升","上升期","下降期","熊市·主跌"})；
-    无数据返回 {}。仅注入 trade 供前端三键(v1.1.2)判定用, 不参与回测过滤本身
+    无数据返回 {}。仅注入 trade 供前端判定用, 不参与回测过滤本身
     (过滤由前端 lab.js _kellyPassesFadeFilters 对 trade 数据重算)。
     """
     rows = conn.execute(
-        "SELECT date, close FROM index_daily WHERE index_id='hs300' "
-        "AND close IS NOT NULL ORDER BY date"
+        "SELECT date, close FROM index_daily WHERE index_id=? "
+        "AND close IS NOT NULL ORDER BY date", (index_id,)
     ).fetchall()
     if not rows:
         return {}
@@ -428,7 +428,7 @@ def _calendar_days(d1, d2):
 def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, stop_profit,
                   index_id=None, signal=None, track_tier=None, track_score=None,
                   match_method=None, track_low_confidence=None, today=None, hold_days=HOLD_DAYS,
-                  market_state=None, rating=None, sell_mode=None, sell_signals=None, market_tier=None, market_tier_all=None):
+                  market_state=None, rating=None, sell_mode=None, sell_signals=None, market_tier=None, market_tier_all=None, market_tier_cyb=None):
     """单笔信号回测: 信号日买入 1000 元, 持有期内止盈或满 hold_days 卖出。
 
     prices: 该 ETF 的 {date: accum_nav} 字典(已由调用方从 price_map 取出)。
@@ -470,6 +470,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
             signal_date, prices, dates, etf_code, sell_mode, signal, sell_signals, today,
             index_id, etf_name, track_tier, track_score, match_method, track_low_confidence,
             market_state, rating, buy_price, shares, market_tier, market_tier_all,
+            market_tier_cyb,
         )
 
     future_dates = dates[idx:idx + hold_days]
@@ -518,6 +519,8 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
             "market_state": market_state,
             "market_tier": market_tier,
             "market_tier_all": market_tier_all,
+        "market_tier_cyb": market_tier_cyb,
+            "market_tier_cyb": market_tier_cyb,
             "rating": rating,
         }
 
@@ -563,13 +566,14 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
         "market_state": market_state,
         "market_tier": market_tier,
         "market_tier_all": market_tier_all,
+        "market_tier_cyb": market_tier_cyb,
         "rating": rating,
     }
 
 
 def _backtest_signal_sell(signal_date, prices, dates, etf_code, sell_mode, signal, sell_signals,
                           today, index_id, etf_name, track_tier, track_score, match_method,
-                          track_low_confidence, market_state, rating, buy_price, shares, market_tier=None, market_tier_all=None):
+                          track_low_confidence, market_state, rating, buy_price, shares, market_tier=None, market_tier_all=None, market_tier_cyb=None):
     """模式 G/H/I 信号驱动卖出(每笔交易独立, 混合指数回测)。
 
     G: 对应指数后续第一个 sell 信号日卖出, 无 sell 信号则持有至回测结束。
@@ -638,6 +642,8 @@ def _backtest_signal_sell(signal_date, prices, dates, etf_code, sell_mode, signa
             "market_state": market_state,
             "market_tier": market_tier,
             "market_tier_all": market_tier_all,
+        "market_tier_cyb": market_tier_cyb,
+            "market_tier_cyb": market_tier_cyb,
             "rating": rating,
         }
 
@@ -673,6 +679,7 @@ def _backtest_signal_sell(signal_date, prices, dates, etf_code, sell_mode, signa
         "market_state": market_state,
         "market_tier": market_tier,
         "market_tier_all": market_tier_all,
+        "market_tier_cyb": market_tier_cyb,
         "rating": rating,
     }
 
@@ -983,6 +990,10 @@ def compute():
     print("-> 加载 hs300 四档大盘状态(v1.1.2)...", flush=True)
     market_tiers = _load_market_tiers(conn)
     print(f"   {len(market_tiers)} 个交易日有四档状态")
+    # 加载创业板指(cyb)四档大盘状态(#69 新键 excludeSpecialBearCyb, 注入 market_tier_cyb 供前端判定)
+    print("-> 加载 cyb 四档大盘状态(#69)...", flush=True)
+    cyb_tiers = _load_market_tiers(conn, index_id='cyb')
+    print(f"   {len(cyb_tiers)} 个交易日有 cyb 四档状态")
     conn.close()
     print(f"   {len(buy_rows)} 条买信号")
 
@@ -1050,8 +1061,11 @@ def compute():
         # 四档 market_tier(v1.1.2 三键): hs300 四档判定。
         #   market_tier = A股类(a/concept/industry)四档, 非A股类为 ""(主键 excludeSpecialBear 仅A股类, 与 market_state 同守卫);
         #   market_tier_all = 全市场四档(备选键 declinePhaseSpecial 下降期×buy_special 全市场用)。
+        #   market_tier_cyb(#69): A股类信号注入 cyb(创业板指)四档, 非A股类为 ""(新键 excludeSpecialBearCyb 用, 与 market_tier 同构守卫)。
         mt_all = _market_tier_at(date, market_tiers, market_dates)
         mt = mt_all if market in A_STOCK_MARKETS else ""
+        mt_cyb = _market_tier_at(date, cyb_tiers, market_dates)
+        mt_cyb = mt_cyb if market in A_STOCK_MARKETS else ""
 
         # 9 模式回测(A-F 固定规则 + G/H/I 信号驱动)
         prices = price_map.get(etf_code, {})
@@ -1063,7 +1077,8 @@ def compute():
                                    iid, sig, be.get("track_tier"), be.get("track_score"),
                                    be.get("match_method"), be.get("track_low_confidence"),
                                    today=today_str, hold_days=mode_def["hold_days"], market_state=ms, rating=rating,
-                                   sell_mode=mode_key, sell_signals=sell_signals, market_tier=mt, market_tier_all=mt_all)
+                                   sell_mode=mode_key, sell_signals=sell_signals, market_tier=mt, market_tier_all=mt_all,
+                                   market_tier_cyb=mt_cyb)
             if result is None:
                 continue  # 数据不足(信号日无价格/未来不足 hold_days 天)
             any_valid = True
@@ -1123,7 +1138,7 @@ def compute():
     TRADE_FIELDS = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name",
                     "track_tier", "track_score", "match_method", "track_low_confidence",
                     "buy_price", "sell_price", "shares", "profit", "return_pct",
-                    "hold_days", "sell_reason", "current_price", "market_state", "market_tier", "market_tier_all", "rating"]
+                    "hold_days", "sell_reason", "current_price", "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
     trades_output = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "buy_amount": BUY_AMOUNT,
