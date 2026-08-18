@@ -8388,10 +8388,125 @@ function _renderIntradayFail(container, snapTime) {
   container.innerHTML = '<div class="intraday-fail">实时拉取失败' + (snapTime ? "·显示快照 " + snapTime : "") + "</div>";
 }
 
+// 实时拉取失败时，用快照的 minute_series 渲染昨日分时曲线本身（2026-08-18 bug 修复）。
+// 用户报：实时拉取失败 fallback 快照时只显示文字，应看到快照分时图本身。
+// 复用 _renderIntradayChart 成功分支同一渲染管线（_lwSetup SVG 自绘 / echarts fallback），
+// X 轴用昨日 09:30-15:00 时间轴（minute_series 的 time 即昨日 "HH:MM"），可加昨收虚线。
+// 有 minute_series 数据 -> 渲染并返 true；无数据/旧快照未升级 -> 返 false（调用方保持文字降级）。
+// snap 优先用调用方传入的渲染快照（与 _snapPreClose/_snapTimeStr 同一份，防 boot 旧快照未含
+// minute_series 的竞态），无则回退 state.intradaySnapshot。
+function _renderSnapMinuteSeries(container, code, preClose, snapTime, snap) {
+  if (!container || !container.isConnected) return false;
+  const tcCode = _INDEX_TO_TENCENT_MINUTE[code] || "";
+  snap = snap || state.intradaySnapshot;
+  const idx = snap && snap.indices ? snap.indices.find((i) => i.code === tcCode) : null;
+  const series = idx && idx.minute_series;
+  if (!series || !series.length) return false;
+  const times = series.map((p) => p.time);
+  const prices = series.map((p) => (p.price != null ? Number(p.price) : NaN));
+  if (!times.length) return false;
+  const pc = preClose || idx.pre_close || null;
+  const lastPrice = prices[prices.length - 1];
+  const up = pc != null && !isNaN(lastPrice) ? lastPrice >= pc : true;
+  const color = up ? "#e6492e" : "#2e8b57"; // 红涨绿跌（中国风，与实时分支一致）
+  // 午休边界：找最后午前点和首个午后点，markArea标注午休（与实时分支一致）
+  let morningLast = null, afternoonFirst = null;
+  for (const p of series) {
+    if (p.time < "13:00") morningLast = p.time;
+    else if (!afternoonFirst) { afternoonFirst = p.time; break; }
+  }
+  const _mi0 = times.indexOf(morningLast), _mi1 = times.indexOf(afternoonFirst);
+  const _lwMA = (_mi0 >= 0 && _mi1 > _mi0) ? [{ i0: _mi0, i1: _mi1, color: "rgba(128,128,128,0.08)", label: "午休" }] : [];
+  const _lwML = pc != null ? [{ y: pc, color: cssVar("--text-3"), label: "昨收", pos: "end", fontSize: 9, width: 1 }] : [];
+  // 用 chartWrap 子容器承载 _lwSetup（它会 clear 自己的 innerHTML + 随 resize 重渲染），
+  // 顶部「快照」标签 append 到外层 container（chartWrap 的兄弟），重渲染不会清掉标签。
+  container.innerHTML = "";
+  container.style.position = "relative";
+  const _chartWrap = document.createElement("div");
+  container.appendChild(_chartWrap);
+  _lwSetup(_chartWrap, {
+    h: _chartWrap.offsetHeight || 100, pl: 38, pr: 6, pt: 8, pb: 18,
+    boundaryGap: false, axisFontSize: 10,
+    xLabels: times, xFmt: (v) => v, xStep: Math.max(1, Math.floor(times.length / 4)),
+    ys: [{ scale: true, splitNumber: 2, formatter: (v) => Number(v).toFixed(0) }],
+    series: [{
+      type: "line", data: prices, color: color, width: 1.2, smooth: false,
+      areaOpacity: 0.1, markLine: _lwML, markArea: _lwMA,
+    }],
+    tipFn: (i) => {
+      const price = prices[i];
+      let line = times[i] + "<br/>" + (price == null || isNaN(price) ? "-" : Number(price).toFixed(2));
+      if (pc != null && price != null && !isNaN(price)) {
+        const diff = price - pc;
+        const pct = (diff / pc) * 100;
+        const u2 = diff >= 0;
+        const c2 = u2 ? "#e6492e" : "#2e8b57";
+        const sign = u2 ? "+" : "";
+        line += `<br/><span style="color:${c2}">涨跌 ${sign}${diff.toFixed(2)}</span>`;
+        line += `<br/><span style="color:${c2}">幅度 ${sign}${pct.toFixed(2)}%</span>`;
+      }
+      return line;
+    },
+  }, (container2) => {
+    const chart = echarts.init(container2);
+    chart.setOption(withTheme({
+      grid: { left: 38, right: 6, top: 8, bottom: 18 },
+      xAxis: { type: "category", data: times, boundaryGap: false,
+               axisLabel: { interval: Math.max(1, Math.floor(times.length / 4)), fontSize: 10 } },
+      yAxis: { type: "value", scale: true, splitNumber: 2,
+               axisLabel: { fontSize: 10, formatter: (v) => v.toFixed(0) } },
+      tooltip: {
+        trigger: "axis",
+        formatter: (p) => {
+          if (!p[0]) return "";
+          const price = p[0].value != null ? Number(p[0].value) : NaN;
+          let line = p[0].axisValue + "<br/>" + (isNaN(price) ? "-" : price.toFixed(2));
+          if (pc != null && !isNaN(price)) {
+            const diff = price - pc;
+            const pct = (diff / pc) * 100;
+            const up = diff >= 0;
+            const color2 = up ? "#e6492e" : "#2e8b57";
+            const sign = up ? "+" : "";
+            line += `<br/><span style="color:${color2}">涨跌 ${sign}${diff.toFixed(2)}</span>`;
+            line += `<br/><span style="color:${color2}">幅度 ${sign}${pct.toFixed(2)}%</span>`;
+          }
+          return line;
+        },
+      },
+      series: [{
+        type: "line", data: prices, symbol: "none", connectNulls: false,
+        lineStyle: { color, width: 1.2 }, areaStyle: { color, opacity: 0.1 },
+        markLine: pc != null ? {
+          symbol: "none", silent: true,
+          lineStyle: { type: "dashed", color: cssVar("--text-3"), width: 1 },
+          data: [{ yAxis: pc, label: { formatter: "昨收", position: "end", fontSize: 9, color: cssVar("--text-3") } }],
+        } : undefined,
+        markArea: (_mi0 >= 0 && _mi1 > _mi0) ? {
+          silent: true, itemStyle: { color: "rgba(128,128,128,0.08)" },
+          label: { show: true, position: "insideTop", formatter: "午休", fontSize: 9, color: cssVar("--text-4") },
+          data: [[{ xAxis: morningLast }, { xAxis: afternoonFirst }]],
+        } : undefined,
+      }],
+    }));
+    charts.push(chart);
+  });
+  // 顶部标「快照 HH:MM」区分实时/快照（2026-08-18：实时失败时画的是昨日快照分时曲线，非实时）。
+  // 绝对定位贴左上角，append 到外层 container（chartWrap 的兄弟），_lwSetup 重渲染只清 chartWrap 不清标签。
+  try {
+    const _lb = document.createElement("div");
+    _lb.className = "intraday-snap-label";
+    _lb.textContent = "快照" + (snapTime ? " " + snapTime : "");
+    _lb.style.cssText = "position:absolute;top:2px;left:2px;z-index:6;background:rgba(0,0,0,0.55);"
+      + "color:#fff;font-size:10px;line-height:1;padding:3px 6px;border-radius:3px;pointer-events:none;";
+    container.appendChild(_lb);
+  } catch (e) {}
+  return true;
+}
+
 // 渲染单个指数分时图。返回 Promise<boolean>（true=成功 false=失败）
 // 方案A 2026-08-06: 优先查 _batchMinuteCache 复用批量拉取结果（3请求架构），
 //                   缓存未命中才 fallback 调 fetchTencentMinute 单只（renderIntradaySection 初始展开单卡时）
-function _renderIntradayChart(container, code, preClose, snapTime) {
+function _renderIntradayChart(container, code, preClose, snapTime, snap) {
   if (!container || !container.isConnected) return Promise.resolve(false);
   // 优先用批量缓存（_fetchDynamicPcts 已批量拉取填入），避免重复请求
   const cached = _batchMinuteCache.get(code);
@@ -8399,6 +8514,8 @@ function _renderIntradayChart(container, code, preClose, snapTime) {
   return p.then((result) => {
     if (!container.isConnected) return false;
     if (!result || !result.points || !result.points.length) {
+      // 实时无数据 -> 优先用快照 minute_series 渲染昨日分时曲线（2026-08-18 bug 修复）
+      if (_renderSnapMinuteSeries(container, code, preClose, snapTime, snap)) return true;
       _renderIntradayFail(container, snapTime);
       return false;
     }
@@ -8407,6 +8524,8 @@ function _renderIntradayChart(container, code, preClose, snapTime) {
     // 覆盖 _batchMinuteCache 与单只 fallback 两条数据链; 已升序源幂等无副作用。
     result.points = _sortMinutePoints(result.points);
     if (!result.points.length) {
+      // 实时排序后空 -> 优先用快照 minute_series 渲染昨日分时曲线
+      if (_renderSnapMinuteSeries(container, code, preClose, snapTime, snap)) return true;
       _renderIntradayFail(container, snapTime);
       return false;
     }
@@ -8505,7 +8624,12 @@ function _renderIntradayChart(container, code, preClose, snapTime) {
       charts.push(chart);
     });
     return true;
-  }).catch(() => { _renderIntradayFail(container, snapTime); return false; });
+  }).catch(() => {
+    // 实时拉取异常 -> 优先用快照 minute_series 渲染昨日分时曲线，无则文字降级
+    if (_renderSnapMinuteSeries(container, code, preClose, snapTime, snap)) return true;
+    _renderIntradayFail(container, snapTime);
+    return false;
+  });
 }
 
 // 渲染分时图到 spark-cell 内的 .spark-intraday 容器（仅渲染可见容器）
@@ -8517,7 +8641,7 @@ function _renderIntradayInSparkCells(sparkGrid, snap) {
     const code = el.getAttribute("data-intraday-code");
     if (!_INDEX_TO_TENCENT_MINUTE[code]) return;
     const preClose = _snapPreClose(snap, code);
-    _renderIntradayChart(el, code, preClose, snapTime);
+    _renderIntradayChart(el, code, preClose, snapTime, snap);
   });
 }
 
@@ -8589,7 +8713,7 @@ function renderIntradaySection(sparkGrid, snap) {
         if (code && _INDEX_TO_TENCENT_MINUTE[code]) {
           const preClose = _snapPreClose(snap, code);
           const snapTime = _snapTimeStr(snap);
-          _renderIntradayChart(el, code, preClose, snapTime);
+          _renderIntradayChart(el, code, preClose, snapTime, snap);
         }
       }
     });
@@ -8714,7 +8838,7 @@ async function _doIntradayRefresh() {
   chartEls.forEach((chartEl) => {
     const code = chartEl.getAttribute("data-intraday-code");
     const preClose = _snapPreClose(curSnap, code);
-    promises.push(_renderIntradayChart(chartEl, code, preClose, snapTime));
+    promises.push(_renderIntradayChart(chartEl, code, preClose, snapTime, curSnap));
   });
   const results = await Promise.all(promises);
   _applyDynamicToSparkFoot(dynResult && dynResult.results); // 补更新底部 spark-foot(用腾讯实时价+昨收，与右上角pct同维度，不再卡 renderOverview 旧值)

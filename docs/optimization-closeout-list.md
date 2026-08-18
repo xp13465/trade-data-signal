@@ -126,6 +126,7 @@
 | **批次 C:etf_score 提速** | O2 | 省 2-3min | scripts/export_etf_score_list.py L580 | 独立脚本,低风险,workers 6→8-10+空返缓存 |
 | **批次 D:宇宙规则收尾 + 一致性** | pending-#51 首页 1:1 遵从走查 + pending-#56 双副本清理 | 规则对齐 + 防误读旧副本重发 | app.js/export.py + check_signals.py/data | 已定项收尾;低风险 |
 | **批次 E:降亏面板口径标注** | pending-#46 | 用户可理解口径(不含仓位控制/峰值持仓961万) | lab.js | ✅已完成(2026-08-18,commit 63fb27391,分支 worktree-agent-a28682160e85b9dd4 待 merge):纯展示文案+§21 公示同步;数字现网复算(991万旧口径过时→961万;23.9万→17.7万) |
+| **批次 F:首页分时快照兜底渲染昨日曲线(bug修复,2026-08-18)** | 用户报:实时拉取失败 fallback 快照只显示文字,应看快照分时图本身 | 分时图实时失败时仍可看昨日全天曲线(而非一行文字) | app/collector/intraday_snapshot.py + static-site/app.js | 数据层盘后(is_closed)拉东财 trends2 ndays=1 全天分时注入 indices[].minute_series(约240点 9:30-15:00);前端 `_renderIntradayChart` 失败分支优先 `_renderSnapMinuteSeries` 复用 _lwSetup 渲染管线画昨日折线(昨收虚线+午休),无 minute_series 保持文字平滑降级。本地 Playwright 模拟验证:注入331点→block 东财→sh svg path 出现/intraday-fail=0;未注入 sz→文字降级;未 block→实时分支无回归。盘后需主控验证线上全天序列(盘中接口只返到当前分钟)。分支 feat/snapshot-intraday-curve |
 
 ### 3.2 需拍板清单(每条写清要用户决定什么)
 
