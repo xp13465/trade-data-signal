@@ -72,6 +72,42 @@ DATA_DIR = REPO / "data"
 OUT_FILE = DATA_DIR / "news_digest.json"
 ARCHIVE_DIR = DATA_DIR / "news_digest"  # 按日期归档累积: news_digest/<date>.json
 
+# launchd 主库/主数据 = 部署源树(trade-data),update_all/deploy.sh 从它 rsync 到 trade 上线
+MAIN_REPO = Path("/Users/linhuichen/code/trade-data")
+
+
+def _candidate_repos() -> list:
+    out: list = []
+    for c in ([str(MAIN_REPO), str(REPO), os.environ.get("GIT_REPO", ""), os.environ.get("REPO", "")]):
+        if not c:
+            continue
+        p = Path(c).resolve()
+        if p not in out:
+            out.append(p)
+    return out
+
+
+def pick_repo() -> Path:
+    """挑数据最新的 repo(static-site/data/overview.json.date 最大者),同 gen_daily_brief 逻辑。
+    launchd/update_all 从 trade-data(主/部署源)跑,手动从 trade 跑;同日期优先 trade-data。
+    目的: fetch_news 采完要同步的 static-site/data + R2 + staticdata 落到「部署源树」,
+    避免只写 trade/static-site/data、而 deploy.sh(REPO=trade-data)rsync trade-data/static-site/data
+    把当天新版 clobber 回旧版(2026-08-18 断点根因: news_digest 8/18 被 19:30 lhb-backfill deploy 覆盖回 8/17)。"""
+    best, best_date = None, ""
+    for r in _candidate_repos():
+        ov = r / "static-site" / "data" / "overview.json"
+        if not ov.exists():
+            continue
+        try:
+            d = json.loads(ov.read_text(encoding="utf-8")).get("date", "")
+        except Exception:
+            d = ""
+        if d > best_date:  # 严格大于:同日期保留先出现者(trade-data 在前)
+            best_date, best = d, r
+    if best is None:
+        best = _candidate_repos()[0]
+    return best
+
 # 允许 app.calendar 被 import（同 daily_summary_email.py 做法）
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
@@ -618,19 +654,37 @@ def main():
 def sync_news_digest_live(day_str: str) -> None:
     """把当日 news_digest.json + 全部日期归档,同步到 static-site/data/ + R2 + staticdata。
 
-    参考 gen_daily_brief.py L2817-2857 的上传链(copy → upload-data-files → staticdata_sync.sh),
-    让 fetch_news(launchd 16:45)采集完即上线,前端 16:45 后就读到当日新闻,不等 20:40。
-    REPO=Path(__file__).resolve().parent.parent 在 launchd(WorkingDirectory=trade-data,
-    ProgramArguments 显式传 trade/scripts/fetch_news.py 真实路径)下解析为 trade/。
-    注意: trade-data/static-site 是「实体目录」(非 symlink),由 gen_daily_brief 等采集器
-    (pick_newest_repo 挑 trade-data)作为写入位置;本脚本统一读写自身 REPO=trade,
-    并在下方强制覆盖上传子进程 env.REPO=trade(818-fix 根修),保证
-    读(上传/staticdata 源目录)与写(static_dir)同走 trade/static-site/data,不读 trade-data 旧版。
+    参考 gen_daily_brief.py 的上传链(copy → upload-data-files → staticdata_sync.sh),
+    让 fetch_news(launchd 每小时 :01)采集完即上线,前端随即读到当日新闻,不等 20:40。
+    写位置 = pick_repo()(同 gen_daily_brief,优先 trade-data=部署源树):
+    部署链 update_all/deploy.sh 从 trade-data rsync 到 trade 上线,若只写 trade/static-site/data,
+    下一次 deploy(REPO=trade-data)会把 trade-data/static-site/data 旧版 rsync 覆盖新版(8/18 断点根因)。
+    故写 + 上传/staticdata 源目录全部走 pick_repo() 选中的同一树,保证部署链读到新版不 clobber。
     失败不阻塞主流程(采集已落盘,盘后 gen_daily_brief 20:40 兜底再同步)。
     """
     try:
-        static_dir = REPO / "static-site" / "data"
+        repo = pick_repo()
+        static_dir = repo / "static-site" / "data"
         static_dir.mkdir(parents=True, exist_ok=True)
+        # 0. 把当日根快照 + 归档也镜像到所选 repo 的 data/(部署源树根数据,gen_daily_brief news_src 先读它)
+        try:
+            (repo / "data").mkdir(parents=True, exist_ok=True)
+            if OUT_FILE.exists():
+                shutil.copy2(OUT_FILE, repo / "data" / "news_digest.json")
+            if ARCHIVE_DIR.is_dir():
+                dst_arch = repo / "data" / "news_digest"
+                dst_arch.mkdir(parents=True, exist_ok=True)
+                for ydir in sorted(ARCHIVE_DIR.iterdir()):
+                    if not ydir.is_dir() or not ydir.name.isdigit():
+                        continue
+                    d_y = dst_arch / ydir.name
+                    d_y.mkdir(parents=True, exist_ok=True)
+                    for f in sorted(ydir.glob("*.json")):
+                        shutil.copy2(f, d_y / f.name)
+                if (ARCHIVE_DIR / "_index.json").exists():
+                    shutil.copy2(ARCHIVE_DIR / "_index.json", dst_arch / "_index.json")
+        except Exception as _e:  # noqa: BLE001
+            print(f"⚠ [fetch_news] 根 data 镜像失败(不阻塞): {_e}")
         # ① copy 当日 news_digest.json -> static-site/data/
         if OUT_FILE.exists():
             shutil.copy2(OUT_FILE, static_dir / "news_digest.json")
@@ -665,18 +719,15 @@ def sync_news_digest_live(day_str: str) -> None:
                     arch_files.append(f"news_digest/{arch_f.name}")
         # ③ R2 上传(data/ 前缀,upload-data-files 支持相对 data_dir 的子目录路径) — 读 .env 拿凭证
         env = dict(os.environ)
-        # 818-fix 根修(2026-08-18): launchd 注入 REPO=/Users/linhuichen/code/trade-data,
-        # setdefault 不覆盖已有值 → 上传子进程 upload_r2/staticdata 按 env.REPO=trade-data
-        # 拼源目录 = trade-data/static-site/data(旧文件),每次「R2 同步 OK」实际传旧版。
-        # 改为强制覆盖 = 本脚本自身 REPO(trade),使上传/staticdata 源目录与上面 static_dir
-        # (REPO/static-site/data=trade/static-site/data)一致,读新版上传。
-        env["REPO"] = str(REPO)
-        env["GIT_REPO"] = str(REPO)
+        # REPO 强制覆盖 = pick_repo() 选中的同一 repo(部署源树),使上传/staticdata 源目录
+        # 与上面 static_dir 一致,读新版上传,不读另一树旧版(818-fix 精神,扩展到部署源树)。
+        env["REPO"] = str(repo)
+        env["GIT_REPO"] = str(repo)
         _load_dotenv(env)
         r = subprocess.run(
-            [str(REPO / ".venv/bin/python"), str(REPO / "scripts/upload_r2.py"),
+            [str(repo / ".venv/bin/python"), str(repo / "scripts/upload_r2.py"),
              "upload-data-files"] + arch_files,
-            cwd=str(REPO), env=env, timeout=120, capture_output=True, check=False)
+            cwd=str(repo), env=env, timeout=120, capture_output=True, check=False)
         if r.returncode == 0:
             out = (r.stdout or b"").decode("utf-8", errors="replace").strip()
             print(f"[fetch_news] R2 同步 OK {out.splitlines()[-1] if out else ''}")
@@ -685,12 +736,12 @@ def sync_news_digest_live(day_str: str) -> None:
             print(f"⚠ [fetch_news] R2 上传 rc={r.returncode} {(r.stdout or b'').decode('utf-8','replace')[-300:] if r.stdout else ''} {err[-300:] if err else ''}")
         # ④ staticdata 同步(best-effort,防 deploy 外生成器留旧版;触发名 news-fetch)
         r2 = subprocess.run(
-            ["bash", str(REPO / "scripts/staticdata_sync.sh"), "news-fetch"] + arch_files,
-            cwd=str(REPO), env=env, timeout=600, capture_output=True, check=False)
+            ["bash", str(repo / "scripts/staticdata_sync.sh"), "news-fetch"] + arch_files,
+            cwd=str(repo), env=env, timeout=600, capture_output=True, check=False)
         if r2.returncode != 0:
             err2 = (r2.stderr or b"").decode("utf-8", errors="replace").strip()
             print(f"⚠ [fetch_news] staticdata 同步 rc={r2.returncode} {(r2.stdout or b'').decode('utf-8','replace')[-200:] if r2.stdout else ''} {err2[-200:] if err2 else ''}")
-        print(f"[fetch_news] 同步上线完成 date={day_str} (news_digest.json + {len(arch_files)-1} 个日期归档)")
+        print(f"[fetch_news] 同步上线完成 date={day_str} (news_digest.json + {len(arch_files)-1} 个日期归档, repo={repo})")
     except Exception as e:  # noqa: BLE001
         print(f"⚠ [fetch_news] 同步上线异常(不阻塞,盘后 gen_daily_brief 20:40 兜底): {e}")
 
