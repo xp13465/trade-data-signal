@@ -7602,6 +7602,7 @@ function _renderMarketStateChip(s) {
   const _msBull = _ms.tier.includes("牛市") || _ms.tier.includes("上升");
   const _msColor = _msBull ? "#e6492e" : "#2e8b57";
   const _msTip = `判定规则：价 vs 年线(MA200) + MA20/60/120 排列 → 四档[牛市·主升/上升期/下降期/熊市·主跌]。`
+    + `&#10;档位基于最近已收盘交易日收盘数据：盘中显示昨日收盘档位(当日日线未定，不更新)，每日收盘后(约17:00-17:50 update_all)重算为当日档位。`
     + `&#10;当前：close ${_ms.close} | MA20 ${_ms.ma20} | MA60 ${_ms.ma60} | MA120 ${_ms.ma120} | MA200 ${_ms.ma200}。`
     + (_ms.wave_ref ? `&#10;${_ms.wave_ref}` : "")
     + (_ms.wave_ref ? "" : "&#10;主观参考，非硬信号。");
