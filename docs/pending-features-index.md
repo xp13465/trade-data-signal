@@ -150,7 +150,7 @@
 
 | # | 项 | 出处 | 说明 | 状态 |
 |---|---|---|---|---|
-| 73 | **多指数四档展示:cyb/kc50/sh/sz/csi500/sz50/csi1000 各自四档色带/轨迹图**(hs300 已有) | docs/market-state/kelly-fourtier-v2-multiindex-stability.md + 用户 2026-08-19 拍板 | 后端 per-index 注入 tiers(现仅 hs300:app/queries.py index_detail L1683 写死 `index_id=='hs300'`),四档算法按各指数自己的价 vs MA200 + MA20/60/120 排列(index_daily 已含 8 宽基数据);前端色带/轨迹图放开给 7 指数;纯展示不影响过滤(§23.7 只增不改);走 §24 版本串+§22 三步同步;core5/core8 融合四档不在本项(研究层,仅当未来做判定源才需报告) | **待办**(2026-08-19 用户定,等安排再实施) | **未派** |
+| 73 | **8代宽基四档展示(core8 全家):sh/sz/hs300/csi500/cyb/sz50/csi1000/kc50 各自走势图四档色带/轨迹图** | docs/market-state/kelly-fourtier-v2-multiindex-stability.md + 用户 2026-08-19 拍板 | **hs300 已完成(历史轨迹图 #64)**;其余 7 个(sh/sz/csi500/cyb/sz50/csi1000/kc50)待做。后端 per-index 注入 tiers(现仅 hs300:app/queries.py index_detail L1683 写死 `index_id=='hs300'`),四档算法按各指数自己的价 vs MA200 + MA20/60/120 排列(index_daily 已含 8 宽基数据);前端色带/轨迹图放开给 7 指数;纯展示不影响过滤(§23.7 只增不改);走 §24 版本串+§22 三步同步;core5/core8 融合四档不在本项(研究层,仅当未来做判定源才需报告) | **待办**(2026-08-19 用户定,等安排再实施) | **未派** |
 
 ## 【已排除清单】已上线/已在跑(不要重复派)
 
