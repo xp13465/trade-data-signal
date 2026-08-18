@@ -473,10 +473,12 @@ def _process_one_etf_worker(args):
             # 避免每只 ETF fallback 时重新 bestip 测速);C3:采集返 0 行(空返)时后续
             # _compute_volatility 传 skip_refetch=True 不再进 mootdx 二次拉取。
             fetch_ok = False
+            executed_fetch = False
             if not no_fetch:
                 if _has_recent_data(conn, code):
                     res["skip_count"] = 1
                 else:
+                    executed_fetch = True
                     n = _fetch_and_upsert_ohlc(code, name, conn, client=_get_worker_tdx())
                     if n > 0:
                         res["fetch_count"] = 1
@@ -492,8 +494,11 @@ def _process_one_etf_worker(args):
             res["is_nt"] = is_national_team(code)
 
             # _compute_volatility 保留: 触发 OHLC 补采 + 输出 volatility 字段
-            # ab-#37 C3:空返(fetch_ok=False)时 skip_refetch=True 不再 mootdx 二次拉取
-            vol = _compute_volatility(code, conn, skip_refetch=not fetch_ok)
+            # ab-#37 C3:仅"执行了 fetch 且返 0 行"(空返/QDII/停牌)时 skip_refetch=True 不再
+            # mootdx 二次拉取;skip 分支(近5日有数据)与 --no-fetch 分支保持 False 维持补采能力
+            # (近5日有数据但近30日完整行<20 的宽基 ETF 仍会补采历史,见 L497 注释场景)。
+            skip_refetch = (executed_fetch and n == 0)
+            vol = _compute_volatility(code, conn, skip_refetch=skip_refetch)
             res["vol"] = vol
 
             # 导出近 N 日 OHLC K线(前端 sparkline 用, 数据不足返空列表)

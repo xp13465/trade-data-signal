@@ -53,6 +53,7 @@ def run_parallel(seg="r", n_workers=3, limit=None):
     """
     from app.collector.baostock_daily import fetch_stock_codes, to_baostock_code, init_db
     init_db()
+    _clean_blacklist_flag()  # 启动清旧状态，避免上一轮残留 flag 误伤本轮(段模式 worker 也写 flag)
     codes = fetch_stock_codes()
     if limit:
         codes = codes[:limit]
@@ -73,6 +74,7 @@ def run_parallel(seg="r", n_workers=3, limit=None):
     print(f"parallel {seg}: {len(todo)} codes to fetch, {n_workers} workers", flush=True)
     if not todo:
         print("nothing to do", flush=True)
+        _clean_blacklist_flag()  # 结束清残留，避免影响下一轮启动判断
         return
 
     chunks = chunk_list(todo, n_workers)
@@ -116,6 +118,7 @@ def run_parallel(seg="r", n_workers=3, limit=None):
     prog = load_progress()
     n_done = sum(1 for v in prog.values() if v.get(seg))
     print(f"total {seg} done: {n_done}/{len(todo)}", flush=True)
+    _clean_blacklist_flag()  # 结束清残留，避免影响下一轮启动判断
 
 
 def run_update_parallel(codes, n_workers=3, verbose=True):
