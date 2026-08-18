@@ -327,6 +327,22 @@ run_r2_upload "purge-low-freq" purge-low-freq || {
     --severe --from-prefix "[告警]" --dedup-key deploy_purge_low_freq_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
 }
 
+# 1.10 防再犯机制 A/B：版本串倒退哨兵 + merge 净回退校验（2026-08-18）
+# 背景（docs/conflict-overwrite-rootcause-2026-08-18.md）：bf8841966(四档收窄,a350)被 e3fa985c3
+# (首页要闻,旧base,a349)静默覆盖，merge 无冲突静默吃掉 app.js 改动，最早可见信号=版本串 a350→a349 倒退，
+# 但无任何环节校验。本步在 push main 之前（安全网阶段）校验：
+#   A. 版本串必须 ≥ 最近 first-parent 链天花板（倒退=大概率旧base提交,可能静默覆盖最近改动）
+#   B. 版本串未前进且内容净回退到历史旧 commit = 静默回退
+# 任一 FAIL → 非0退出阻断上线（§23.11 发现问题绝不静默吞掉）。
+echo "-> 运行 check_version_progress.py 版本串倒退/净回退校验（防再犯机制 A/B）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/check_version_progress.py" --site-dir "$GIT_REPO/static-site" --repo "$GIT_REPO" --deploy-mode 2>&1 | tee -a "$LOG"
+PROG_RC=${PIPESTATUS[0]}
+if [ "$PROG_RC" -ne 0 ]; then
+  echo "✗ 版本串倒退/净回退校验失败(退出码 $PROG_RC)，终止部署(防再犯机制 A/B FAIL 阻断上线, 2026-08-18 §23.11)" | tee -a "$LOG"
+  exit "$PROG_RC"
+fi
+echo "✓ 版本串倒退/净回退校验通过（防再犯机制 A/B）" | tee -a "$LOG"
+
 # 2. git add min JS/CSS（阶段3：数据走 R2，只 push 代码）
 # 原数据 JSON 已由上面 R2 上传（upload-all-data 等）推到 R2，不再 git push。
 # feed.xml 也走 R2（2026-08-10）：gen_rss 生成后 upload-data-files 上传 R2，不再 git push。
