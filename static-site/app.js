@@ -7607,7 +7607,8 @@ function _renderMarketStateChip(s) {
   let _msTip = `判定规则：价 vs 年线(MA200) + MA20/60/120 排列 → 四档[牛市·主升/上升期/下降期/熊市·主跌]。`;
   if (_est) {
     // 盘中：今日预估(实时价×昨日均线) vs 昨日实际(最近已收盘档位)
-    const _dDate = (s.date || "").slice(4, 8); // 今日 MMDD
+    // 今日日期用后端注入的 date_today(盘中实际今日)，不用 s.date——盘中 s.date 可能被 a_sentiment 回退成昨日
+    const _dDate = (_est.date_today || s.date || "").slice(4, 8); // 今日 MMDD
     const _yDate = (_ms.date || "").slice(4, 8); // 昨日 MMDD
     _msTip += `&#10;【今日(${_dDate})预估】盘中实时价 ${_est.close} × 昨日均线(MA200 ${_ms.ma200})判定 = ${_est.tier}。`
       + `&#10;盘中未收盘、随实时价变动，仅供盘中参考；收盘后(约17:00-17:50 update_all)重算为当日实际档位。`

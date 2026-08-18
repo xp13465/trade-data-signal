@@ -114,7 +114,16 @@ def _market_state_of(conn, date: str, est_close: float | None = None) -> dict | 
     # 盘中快照仅含当日单点，均线态用"昨日收盘"(与 _ai_macro_build_market_state 取 ≤date 最近完整态同精神)。
     _now = dt.datetime.now()
     state_date = date
-    if date == _now.strftime("%Y%m%d") and _now.hour < 15:
+    if est_close is not None:
+        # 盘中预估(est_close)：MA 必须用"最近已收盘交易日"(严格早于 date 的最后一日)的 idx，
+        # 因为盘中快照已把当日实时价反哺进 index_daily(date 当日有行)，若用 date 当日 idx 会把
+        # 未走完的当日单点算进均线。只换判定价 c=est_close，均线不更新。
+        import bisect as _bisect
+        _bi = _bisect.bisect_left(dates, date) - 1
+        if _bi < 0:
+            return None
+        state_date = dates[_bi]
+    elif date == _now.strftime("%Y%m%d") and _now.hour < 15:
         state_date = dates[-1] if dates[-1] < date else state_date  # 昨日(最近已收盘交易日)
 
     # 取 ≤ state_date 最近一个有完整 MA200 的交易日
@@ -501,6 +510,10 @@ def generate_summary(date: str | None = None) -> dict:
         ).fetchone()
         if _est_row and _est_row["close"] is not None:
             market_state_est = _market_state_of(conn, _today_est, est_close=float(_est_row["close"]))
+            # date_today = 盘中实际今日(20260818)。注意:generate_summary 的 date 可能被 a_sentiment
+            # 回退改写(如盘中→20260817)，前端「今日」标签须用此字段而非 s.date(否则标成昨日)。
+            if market_state_est:
+                market_state_est["date_today"] = _today_est
 
     conn.close()
 
