@@ -53,6 +53,11 @@
 
 ## 11. 子agent卡死/429处理(主动轮询+唤醒+重派读遗留)
 - **通知兜底机制(唯一权威,2026-08-05 定,2026-08-09 调研穷尽修正)**:派 agent 后**立即设 cron 兜底**(不设=傻等,2026-08-08 教训):`durable:true`,每15分钟 `3,18,33,48`(08-08 用户改15分钟省cron调用),prompt 查进度文件 `## DONE` + `stat -L` jsonl mtime(>900s 卡死)。DONE->落档 TASKS+推进;卡死->resume/重派;运行中->极简报。agent 处理完 CronDelete。**为什么**:harness 无"子agent完成结论可靠送达主控"的完美主动通知方案(根因=消息队列"单消息注入清除其余"+task-notification 优先级 later+多 agent 竞争 96% 丢;SendMessage~1.9%/task-notification~12% 走同一队列;SubagentStop hook 注入子 agent 非主控;无 CLI 向运行中 session 注入)。cron 兜底是**架构限制下最优残余**(不阻塞前提下主控自主唯一可靠,15min 延迟+token 是代价),非"治标待替代";notify.py 邮件只重要节点(上线完成/生产异常/需用户介入)。曾误判 notify.py 为标准方案并实施,调研穷尽后推翻(08-09 修正)
+- **OPT-1 轮询降本强化(2026-08-18 决策清单#12 落档,与 2026-08-15 §5.5 token 6 条同精神)**:
+  ①**门控零输出**:轮询 cron prompt 加「若 jsonl mtime 较上次轮询无变化 且 进度文件无 DONE → 只输出一行 `<agent名> 无进展` 即结束,不重复报运行中、不贴进度」——避免每 15min 刷屏报"运行中"占 token(56% turn 编排开销的主控侧大头)
+  ②**夜间降频**:23:00-次日 09:00 轮询间隔 15min→60min(夜间在跑 agent 少、缓存命中低,降频省 cron 调用+token 且不影响时效;次日 9:00 恢复 15min)
+  ③**批量轮询**:多 agent 在跑时**一个 cron prompt 一次查全部**(逐个 `stat -L` jsonl mtime + grep 进度文件 DONE),不每 agent 一个 cron——减少 cron 触发次数与上下文注入
+  ④(远期)**SubagentStop hook**(E18 演进方向):hook 注入主控替代轮询,待验证后替换轮询模式
 - 派 agent 的 prompt 要求写进度文件:**每完成一步立即 echo**(每个 grep/Edit 都回写,非每大步骤;2026-07-15 a194f 只写"开始"641 秒不回写致盲区),echo 到 `/tmp/agent-progress-<名>.md`,主控 Bash 查(轻量不 overflow),不依赖 jsonl(大)/通知(会丢)/返回(429 空)任一渠道
 - **卡死**(jsonl mtime>900秒没动,15分钟轮询阈值):先SendMessage试唤醒原会话(成本低,agent可能卡在长工具如grep/curl没退出,SendMessage排队等它下轮处理),下次轮询(15分钟)仍卡死=进程已死,重派新会话
 - **429配额失败**:agent came to rest 但 task-id 保留,配额恢复后**优先 SendMessage resume 原会话**(保留上下文比重派高效);resume 不响应/状态乱才重派。**2026-07-15 教训(底线:不重复犯错)**:曾误判 429 原会话已终止只能重派(a194f 重派 afe9 从头跑,浪费已查的 32 tool_use 上下文),实际可 resume——**配额恢复后第一动作是 SendMessage resume,不是重派**
