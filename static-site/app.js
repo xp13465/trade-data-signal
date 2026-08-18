@@ -8094,7 +8094,12 @@ function _snapTimeStr(snap) {
   if (!snap || !snap.indices) return "";
   const sh = snap.indices.find((i) => i.code === "sh000001");
   if (!sh || !sh.datetime) return "";
-  return sh.datetime.slice(8, 10) + ":" + sh.datetime.slice(10, 12);
+  // 时间戳带日期显示: 日期==今天只显 HH:MM(盘中实时场景不歧义); 跨日/昨日快照显 MM-DD HH:MM(如 08-17 16:14,防用户分不清哪天)
+  const hhmm = sh.datetime.slice(8, 10) + ":" + sh.datetime.slice(10, 12);
+  const day = sh.datetime.slice(0, 8);
+  if (day === _bjTodayStr()) return hhmm;
+  const mmdd = day.length === 8 ? day.slice(4, 6) + "-" + day.slice(6, 8) : day;
+  return mmdd + " " + hhmm;
 }
 
 // 从snap获取指数preClose（snap.indices的code是sh000001等腾讯code）
