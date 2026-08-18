@@ -996,6 +996,73 @@ def run_fade_detect(date: str, closing_signals: list[dict],
     return fade_alerts
 
 
+def _reset_fade_notified(date: str, fade_alerts: list[dict]) -> bool:
+    """盘中模式「消失即重置」：信号消失(fade)时把其已通知状态移除，再现时重新通知（无冷却）。
+
+    用户原则（2026-08-18）：重复通知=状态不变还重复；状态一变（出现→消失→再现→再消失，
+    可无限循环）每个动作都是新事件都要通知；消失就重置；不设冷却。
+    只 remove 不 add：只清 fade 中信号的已通知标记，其余已通知保留。
+    返回是否发生了重置（用于日志）。
+    """
+    if not fade_alerts:
+        return False
+    notified = load_signal_notified()
+    today = {tuple(x) for x in notified.get(date, [])}
+    n = 0
+    for a in fade_alerts:
+        k = (a["index_id"], a["intraday_signal"])
+        if k in today:
+            today.discard(k)
+            n += 1
+    if n:
+        notified[date] = sorted([list(x) for x in today])
+        save_signal_notified(notified)
+        log.info("fade-reset：盘中消失 %d 条已重置已通知状态（再现将重新通知）", n)
+    return n > 0
+
+
+def _clear_fade_dedup_for_reappear(date: str, signals: list[dict]) -> int:
+    """盘中「再现即清 fade 去重」：信号再现时清其 fade_notified.json 去重，
+    下次再消失能再次发 fade 通知。
+
+    与 _reset_fade_notified（消失即重置 signal_notified）对称，构成
+    「出现→消失→再现→再消失…可无限循环，每个动作都通知」完整闭环
+    （用户原则 2026-08-18）。无此对称，fade_notified 的「同日同 key 只保留首次」
+    去重会吞掉第二次消失（再消失）的 fade 通知。只 remove 不 add。
+    返回清理条数。
+    """
+    if not signals or not FADE_NOTIFIED_PATH.exists():
+        return 0
+    try:
+        dedup = json.loads(FADE_NOTIFIED_PATH.read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("fade_notified.json 清理读取失败（降级）：%s", e)
+        return 0
+    if not isinstance(dedup, dict):
+        dedup = {}
+    today = dedup.get(date, {})
+    if not isinstance(today, dict) or not today:
+        return 0
+    idxs = {s["index_id"] for s in signals}
+    n = 0
+    for k in list(today.keys()):
+        if k.split("|", 1)[0] in idxs:
+            del today[k]
+            n += 1
+    if n:
+        dedup[date] = today
+        try:
+            FADE_NOTIFIED_PATH.parent.mkdir(parents=True, exist_ok=True)
+            tmp = FADE_NOTIFIED_PATH.parent / (FADE_NOTIFIED_PATH.name + ".tmp")
+            tmp.write_text(json.dumps(dedup, ensure_ascii=False, separators=(",", ":")),
+                           encoding="utf-8")
+            tmp.replace(FADE_NOTIFIED_PATH)
+            log.info("fade-dedup-clear：再现 %d 条已清 fade 去重（下次再消失将再发 fade 通知）", n)
+        except Exception as e:  # noqa: BLE001
+            log.warning("fade_notified.json 清理写入失败（降级）：%s", e)
+    return n
+
+
 def _build_fade_banner(fade_alerts: list[dict], name_map: dict[str, str],
                        intraday: bool = False) -> str:
     """构建 fade 警示横幅 HTML（红/橙/黄三档表格 + sell 行绿色系）。
@@ -1064,9 +1131,19 @@ def load_signal_intraday_timeline(date: str) -> list[dict]:
 
     intraday_snapshot._recompute_signals 每轮重算后追加当日信号 + HH:MM 时间戳
     （方案A，2026-08-10）。返回 list[dict]，按出现时间排序，每项含:
-      index_id / signal / appear_time / last_time / persists(bool) / reason
+      index_id / signal / appear_time / last_time / persists(bool) / reason / segment
     persists=True=在最后轮（最后出现时间）仍存在，即持续到收盘；
     persists=False=盘中已消失（最后出现后下一轮重算不再出现）。
+
+    分段（2026-08-18 用户原则「状态一变每次都是新事件」）：同一 (index_id, signal)
+    出现→消失→再现→再消失...会按时间升序切出多段，每段一条 dict：
+      - 段切分：该 key 相邻两次出现时间之间，若当日全量时间集合里存在「中间轮」
+        （其它 key 有记录、该 key 缺席）→ 断段，新段开始。
+      - appear_time=段首（该段第一次出现时点）；last_time=段末（该段最后一次出现时点）。
+      - persists 仅最后一段 = key 在最后轮 last_round_pairs 中；之前各段恒 False。
+      - segment = 1-based 段序号。
+    消费方（_build_timeline_html 收盘全貌）同一 key 多段显示多行，展示完整序列；
+    fade 通知消费方（_build_fade_detail_html / build_feishu_post）取最后一段（最近一次出现）。
     无记录返回 []。
     """
     conn = get_conn()
@@ -1080,29 +1157,62 @@ def load_signal_intraday_timeline(date: str) -> list[dict]:
         conn.close()
     if not rows:
         return []
-    last_round_time = rows[-1]["time"]
+    all_times = sorted({r["time"] for r in rows})
+    last_round_time = all_times[-1]
     last_round_pairs = {(r["index_id"], r["signal"]) for r in rows if r["time"] == last_round_time}
-    by_key: dict[tuple[str, str], dict] = {}
+    # key -> time -> 该轮该 key 的 reason（取第一个非空）
+    reason_at: dict[tuple[str, str], dict[str, str]] = {}
+    present_at: dict[str, set[tuple[str, str]]] = {t: set() for t in all_times}
     for r in rows:
         key = (r["index_id"], r["signal"])
-        e = by_key.setdefault(key, {
-            "index_id": r["index_id"], "signal": r["signal"],
-            "appear_time": r["time"], "last_time": r["time"], "reason": r["reason"] or "",
-        })
-        e["last_time"] = r["time"]  # 时间升序，后出现的覆盖 = 最后出现
-        if not e["reason"] and r["reason"]:
-            e["reason"] = r["reason"]
-    out = []
-    for key, e in by_key.items():
-        out.append({
-            "index_id": e["index_id"],
-            "signal": e["signal"],
-            "appear_time": e["appear_time"],
-            "last_time": e["last_time"],
-            "persists": key in last_round_pairs,
-            "reason": e["reason"],
-        })
-    out.sort(key=lambda x: (x["appear_time"], x["index_id"]))
+        present_at[r["time"]].add(key)
+        if r["reason"]:
+            reason_at.setdefault(key, {})[r["time"]] = r["reason"]
+
+    out: list[dict] = []
+    # 每 key 沿全量时间集合顺序走一遍：出现→(缺席中间轮)→再现 即断段
+    all_keys = set()
+    for keys in present_at.values():
+        all_keys |= keys
+    for key in all_keys:
+        index_id, signal = key
+        cur: dict | None = None
+        prev_present = False
+        for t in all_times:
+            present = key in present_at[t]
+            if present:
+                if cur is None or not prev_present:
+                    if cur is not None:
+                        out.append(cur)
+                    cur = {
+                        "index_id": index_id,
+                        "signal": signal,
+                        "appear_time": t,
+                        "last_time": t,
+                        "persists": False,
+                        "reason": (reason_at.get(key, {}).get(t) or ""),
+                        "segment": 1,
+                    }
+                else:
+                    cur["last_time"] = t
+                    if not cur["reason"] and reason_at.get(key, {}).get(t):
+                        cur["reason"] = reason_at[key][t]
+            prev_present = present
+        if cur is not None:
+            out.append(cur)
+    # 赋段序号 + 最后一段 persists 语义（key 在最后轮=持续到收盘）
+    for e in out:
+        e["reason"] = e.get("reason") or ""
+    per_key = {}
+    for e in out:
+        per_key.setdefault((e["index_id"], e["signal"]), []).append(e)
+    for key, segs in per_key.items():
+        segs.sort(key=lambda x: x["appear_time"])
+        for i, e in enumerate(segs, 1):
+            e["segment"] = i
+            if i == len(segs):
+                e["persists"] = key in last_round_pairs
+    out.sort(key=lambda x: (x["appear_time"], x["index_id"], x["signal"]))
     return out
 
 
@@ -1189,9 +1299,10 @@ def _build_fade_detail_html(fade_alerts: list[dict], timeline: list[dict],
         matches = [t for t in timeline
                    if t["index_id"] == a["index_id"] and t["signal"] == a["intraday_signal"]]
         if matches:
-            m = matches[0]
+            # 取最后一段（最近一次出现 → 本轮消失段），fade 通知不需要历史段（那是收盘时间线的活）
+            m = matches[-1]
             reason = (m.get("reason") or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            # "14:55 出现 → 15:02 消失"：appear_time=产生(通知)时间, last_time=最后出现, 本轮检测消失
+            # "14:55 出现 → 15:02 消失"：appear_time=本段首次出现(通知)时间, last_time=本段最后出现, 本轮检测消失
             status = f'<b>{m["last_time"]}</b> 后消失（本轮 {now_hm} 检测）'
             rows_html.append(
                 f'<tr style="border-bottom:1px solid #d9f7be;background:#f6ffed;">'
@@ -1589,8 +1700,9 @@ def build_feishu_post(subject: str, signals: list[dict], name_map: dict[str, str
         # 每条 fade 附时间线明细：品种 信号 出现→消失 触发条件（与邮件 fade 详情口径一致）
         fade_map = {}
         if fade_timeline:
+            # 取最后一段（最近一次出现 → 本轮消失段），fade 通知不需要历史段（那是收盘时间线的活）
             for t in fade_timeline:
-                fade_map.setdefault((t["index_id"], t["signal"]), t)
+                fade_map[(t["index_id"], t["signal"])] = t
         for a in fade_alerts:
             _fname = index_id_to_name(a["index_id"], name_map)
             _flabel = _signal_label(a["intraday_signal"])
@@ -1731,6 +1843,12 @@ def main(argv: list[str] | None = None) -> int:
                          len(fade_alerts))
         else:
             fade_alerts_for_email = fade_alerts
+
+    # 盘中「消失即重置」（2026-08-18 用户原则）：信号消失(fade)时重置其已通知状态，
+    # 再现时重新通知，无冷却。放在所有退出点之前（含 step3 无信号/step4 无新信号 return 0、
+    # 以及发送成功段），确保盘中每轮 fade 都被处理。dry-run 不写文件。
+    if args.intraday and fade_alerts and not args.dry_run:
+        _reset_fade_notified(date, fade_alerts)
 
     # 时间线读取（signal_intraday_log → "信号几点出现/几点消失"），盘中/收盘两模式分离：
     # 收盘模式（非 intraday）：读当日全量时间线，展示当天全貌（需求2 方案A，2026-08-10）。
@@ -1905,6 +2023,11 @@ def main(argv: list[str] | None = None) -> int:
         today_set.add((s["index_id"], s["signal"]))
     notified[date] = sorted([list(x) for x in today_set])
     save_signal_notified(notified)
+    # 盘中「再现即清 fade 去重」：本次发送的信号=再现（或新出现），清其 fade_notified
+    #   （同根因：去重状态阻断循环动作通知），下次再消失能再发 fade 通知（用户原则 2026-08-18
+    #   「出现→消失→再现→再消失…无限循环，每个动作都通知」）。与上面 _reset_fade_notified 对称。
+    if args.intraday and signals_to_send:
+        _clear_fade_dedup_for_reappear(date, signals_to_send)
     log.info(
         "已更新 signal_notified.json：当日已通知 %d 条（%s）",
         len(notified[date]),
