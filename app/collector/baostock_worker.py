@@ -25,6 +25,19 @@ from app.collector.baostock_daily import (
 )
 import baostock as bs
 
+# ab-#37 共享熔断 flag(与 baostock_parallel.BLACKLIST_FLAG 同路径):任一 worker 撞
+# 10001011 黑名单写此文件,其余 worker 下一 code 读到即短路(账号/IP 级封禁对所有并发
+# 连接同效,不各自盲试)。run_update_parallel 启动/结束时清理。
+_BLACKLIST_FLAG = Path(__file__).absolute().parent.parent.parent / "data" / "baostock_blacklist.flag"
+
+
+def _set_blacklist_flag():
+    """写共享熔断 flag(写失败不阻塞采集,熔断仍以本地 circuit_open 为准)。"""
+    try:
+        _BLACKLIST_FLAG.write_text(dt.datetime.now().isoformat(), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
 
 def is_conn_error(msg: str) -> bool:
     """检测 BaoStock 连接断开错误（需 re-login）。
@@ -110,6 +123,13 @@ def main():
                 print(f"  [{os.getpid()}] 熔断: baostock 账号/IP 被封(10001011),"
                       f"跳过后续 code,当前已处理 {i}/{len(items)}", flush=True)
             continue
+        if not circuit_open and _BLACKLIST_FLAG.exists():
+            # ab-#37 共享熔断:其他 worker 撞 10001011 后写 flag,本 worker 下一 code 短路
+            circuit_open = True
+            print(f"  [{os.getpid()}] 检测到共享黑名单 flag(其他 worker 已熔断),短路后续 code",
+                  flush=True)
+            fail += 1
+            continue
         end_yyyymmdd = end.replace("-", "")
         retries = 0
         success = False
@@ -143,6 +163,7 @@ def main():
                         if "10001011" in msg:
                             # 账号/IP 级封禁,relogin 无法解封 -> 整 worker 熔断
                             circuit_open = True
+                            _set_blacklist_flag()  # ab-#37:写共享 flag 通知其他 worker
                             fail += 1
                             print(f"  [{os.getpid()}] {i+1}/{len(items)} {code}: "
                                   f"检测到 10001011 黑名单,整 worker 熔断(不再盲试)", flush=True)
@@ -151,6 +172,7 @@ def main():
                         if not relogin():
                             # login 仍失败(大概率同为 10001011) -> 熔断,不盲试
                             circuit_open = True
+                            _set_blacklist_flag()  # ab-#37:写共享 flag 通知其他 worker
                             fail += 1
                             print(f"  [{os.getpid()}] {i+1}/{len(items)} {code}: "
                                   f"relogin 失败(账号/IP 封禁),整 worker 熔断", flush=True)
@@ -169,6 +191,7 @@ def main():
                 if is_conn_error(emsg) and retries < 2:
                     if "10001011" in emsg:
                         circuit_open = True
+                        _set_blacklist_flag()  # ab-#37:写共享 flag 通知其他 worker
                         fail += 1
                         print(f"  [{os.getpid()}] {i+1}/{len(items)} {code}: "
                               f"异常含 10001011 黑名单,整 worker 熔断", flush=True)
@@ -176,6 +199,7 @@ def main():
                         break
                     if not relogin():
                         circuit_open = True
+                        _set_blacklist_flag()  # ab-#37:写共享 flag 通知其他 worker
                         fail += 1
                         print(f"  [{os.getpid()}] {i+1}/{len(items)} {code}: "
                               f"relogin 失败(账号/IP 封禁),整 worker 熔断", flush=True)

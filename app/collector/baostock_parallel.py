@@ -19,6 +19,18 @@ PROGRESS_PATH = DATA_DIR / "baostock_progress.json"
 LOG_DIR = DATA_DIR / "baostock_logs"
 WORKER_SCRIPT = Path(__file__).absolute().parent / "baostock_worker.py"
 
+# 共享熔断 flag(ab-#37):任一 worker 撞 10001011 黑名单后写此文件,其余 worker 下一
+# code 读到即短路,不再各自盲试。启动/结束时由 run_update_parallel 清理。
+BLACKLIST_FLAG = DATA_DIR / "baostock_blacklist.flag"
+
+
+def _clean_blacklist_flag():
+    """启动/结束时清理共享熔断 flag(幂等,残留旧状态不误伤本轮)。"""
+    try:
+        BLACKLIST_FLAG.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001  清理失败不阻塞采集
+        pass
+
 
 def load_progress():
     if PROGRESS_PATH.exists():
@@ -35,12 +47,13 @@ def chunk_list(lst, n):
     return [lst[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n)]
 
 
-def run_parallel(seg="r", n_workers=4, limit=None):
+def run_parallel(seg="r", n_workers=3, limit=None):
     """Run N parallel subprocesses, each fetching a chunk of codes for given segment.
     seg='r' (recent 2016-2026) or 'o' (old 1990-2015).
     """
     from app.collector.baostock_daily import fetch_stock_codes, to_baostock_code, init_db
     init_db()
+    _clean_blacklist_flag()  # 启动清旧状态，避免上一轮残留 flag 误伤本轮(段模式 worker 也写 flag)
     codes = fetch_stock_codes()
     if limit:
         codes = codes[:limit]
@@ -61,6 +74,7 @@ def run_parallel(seg="r", n_workers=4, limit=None):
     print(f"parallel {seg}: {len(todo)} codes to fetch, {n_workers} workers", flush=True)
     if not todo:
         print("nothing to do", flush=True)
+        _clean_blacklist_flag()  # 结束清残留，避免影响下一轮启动判断
         return
 
     chunks = chunk_list(todo, n_workers)
@@ -104,16 +118,17 @@ def run_parallel(seg="r", n_workers=4, limit=None):
     prog = load_progress()
     n_done = sum(1 for v in prog.values() if v.get(seg))
     print(f"total {seg} done: {n_done}/{len(todo)}", flush=True)
+    _clean_blacklist_flag()  # 结束清残留，避免影响下一轮启动判断
 
 
-def run_update_parallel(codes, n_workers=4, verbose=True):
+def run_update_parallel(codes, n_workers=3, verbose=True):
     """并行增量更新（recent 段增量）。codes 是已筛选的 todo（有 progress['r'] 的）。
 
     对每个 code 算 start=progress['r']+1 天, end=today，跳过 up-to-date。
     分 chunk 给 worker subprocess（--mode=update，chunk=[(code,start,end),...]）。
     每个 worker 独立 BaoStock login + 独立 DB conn（WAL 兜底并发写）。
 
-    返回 {ok, fail, skip_bj, skip_done, total_rows, processed, details}，
+    返回 {ok, fail, skip_bj, skip_done, total_rows, processed, details, blacklisted, blacklist_workers}，
     与 baostock_daily.run_update 返回结构兼容（runner.py 直接用）。
     """
     import re
@@ -121,6 +136,7 @@ def run_update_parallel(codes, n_workers=4, verbose=True):
         to_baostock_code, init_db, RECENT_START, TODAY,
     )
     init_db()
+    _clean_blacklist_flag()  # 启动清旧状态，避免上一轮残留 flag 误伤本轮
     progress_before = load_progress()
     today_ymd = TODAY()
 
@@ -147,8 +163,10 @@ def run_update_parallel(codes, n_workers=4, verbose=True):
 
     if not tasks:
         print("parallel update: nothing to do (all up-to-date)", flush=True)
+        _clean_blacklist_flag()
         return {"ok": 0, "fail": 0, "skip_bj": skip_bj, "skip_done": skip_done,
-                "total_rows": 0, "processed": len(codes), "details": []}
+                "total_rows": 0, "processed": len(codes), "details": [],
+                "blacklisted": False, "blacklist_workers": 0}
 
     print(f"parallel update: {len(tasks)} codes to fetch, {n_workers} workers",
           flush=True)
@@ -205,17 +223,27 @@ def run_update_parallel(codes, n_workers=4, verbose=True):
         except Exception:  # noqa: BLE001
             pass
 
+    # ab-#37 A3:熔断事件 relay 到 runner + 告警。任一 worker exit 3(封禁) 或共享 flag
+    # 仍在(本 worker 写了 flag 但可能 exit 前没清) -> 判定本轮发生封禁熔断。
+    blacklisted = any(p.returncode == 3 for p, _, _ in procs) or BLACKLIST_FLAG.exists()
+    blacklist_workers = sum(1 for p, _, _ in procs if p.returncode == 3)
+    _clean_blacklist_flag()  # 结束清残留，避免影响下一轮启动判断
+
     if verbose:
         print(f"parallel update done: ok={ok} fail={fail} rows={total_rows} "
               f"({len(tasks)} codes, {elapsed_min:.1f}min)", flush=True)
+        if blacklisted:
+            print(f"  [blacklist] 本轮 {blacklist_workers}/{len(procs)} worker 检测到 "
+                  f"10001011 黑名单熔断,共享短路", flush=True)
 
     return {"ok": ok, "fail": fail, "skip_bj": skip_bj, "skip_done": skip_done,
-            "total_rows": total_rows, "processed": len(codes), "details": []}
+            "total_rows": total_rows, "processed": len(codes), "details": [],
+            "blacklisted": blacklisted, "blacklist_workers": blacklist_workers}
 
 
 if __name__ == "__main__":
     seg = "r"
-    n_workers = 4
+    n_workers = 3
     limit = None
     for a in sys.argv[1:]:
         if a.startswith("--seg="):
