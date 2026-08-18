@@ -519,7 +519,6 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
             "market_state": market_state,
             "market_tier": market_tier,
             "market_tier_all": market_tier_all,
-        "market_tier_cyb": market_tier_cyb,
             "market_tier_cyb": market_tier_cyb,
             "rating": rating,
         }
@@ -642,7 +641,6 @@ def _backtest_signal_sell(signal_date, prices, dates, etf_code, sell_mode, signa
             "market_state": market_state,
             "market_tier": market_tier,
             "market_tier_all": market_tier_all,
-        "market_tier_cyb": market_tier_cyb,
             "market_tier_cyb": market_tier_cyb,
             "rating": rating,
         }
