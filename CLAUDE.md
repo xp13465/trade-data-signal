@@ -364,4 +364,4 @@
 6. **时点约束**:当日禁区时点(15:35/16:00/17:50/20:35/22:00)+ 安全窗口 23:00 后,merge main 避开
 7. **已落档规范**:本会话新落档的 CLAUDE.md 节/memory(如 §5.2/§5.3/新 memory),防 compact 后丢约束
 8. **未决事项**:用户的待确认问题 + 我对用户的承诺(如"第一个执行类任务用 effort=low 实跑")
-9. **主控主动瘦身(2026-08-15 P0-1 落档)**:主控主会话 jsonl 曾达 212MB(每轮基础重发超长历史,输入:输出≈36:1,最大单点漏损)。**每完成一个大任务就 /clear 或 /compact,不依赖会话内存记得起**:趁缓存热 compact 成本 ~10%(比无限膨胀后 auto-compact 省太多);`~/.claude/settings.json` 已设 `CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000`(auto-compact 兜底阈值,防膨胀到百万才 compact)。
+9. **主控主动瘦身(2026-08-15 P0-1 落档)**:主控主会话 jsonl 曾达 212MB(每轮基础重发超长历史,输入:输出≈36:1,最大单点漏损)。**每完成一个大任务就 /clear 或 /compact,不依赖会话内存记得起**:趁缓存热 compact 成本 ~10%(比无限膨胀后 auto-compact 省太多);`~/.claude/settings.json` 已设 `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1048576`(auto-compact 兜底阈值,防膨胀到百万才 compact)。
