@@ -214,6 +214,62 @@ def check_overview(data_dir: Path) -> CheckResult:
     return _ok(name, f"date={date_str} (滞后 {days} 天)")
 
 
+# 首页 9 张情绪卡 score_id（与 overview today.scores 消费点一致，见 app/queries.py overview()）
+EMOTION_SCORE_IDS = [
+    "a_sentiment", "cross_market", "fear_greed",
+    "sentiment_sz50", "sentiment_hs300", "sentiment_csi500",
+    "sentiment_csi1000", "sentiment_cyb", "sentiment_kc50",
+]
+
+
+def check_sentiment_card_date(data_dir: Path) -> CheckResult:
+    """校验首页情绪卡「当前值」date 与 sentiment 序列末尾 date 一致（§22 一致性扩展）。
+
+    事故场景(2026-08-18)：overview today.scores 单一锚定 a_sentiment -> a_sentiment 缺当日
+    (width 采集 ImportError)时 9 卡全停 T-1，而 sentiment-1y/6m 逐 score_id 取 max 已有当日
+    -> 用户看到「弹窗读到 818、卡片读到 817」不一致。本校验对每张情绪卡比对：
+    overview.today.scores.<id>.date == sentiment-1y.json.<id> 数组末尾 date。
+    任一不一致 = FAIL 阻断上线（防「文件有最新、当前值停旧」再犯）。
+    """
+    name = "sentiment_card_date"
+    ov, ov_err = _load_json(data_dir / "overview.json")
+    if ov_err:
+        return _fail(name, f"无法读 overview.json: {ov_err}")
+    if not isinstance(ov, dict):
+        return _fail(name, "overview.json 不是 dict")
+    today = ov.get("today") if isinstance(ov.get("today"), dict) else {}
+    ov_scores = today.get("scores") if isinstance(today.get("scores"), dict) else {}
+
+    s1y, s1y_err = _load_json(data_dir / "sentiment-1y.json")
+    if s1y_err:
+        return _fail(name, f"无法读 sentiment-1y.json: {s1y_err}")
+    if not isinstance(s1y, dict):
+        return _fail(name, "sentiment-1y.json 不是 dict")
+
+    mism = []
+    for sid in EMOTION_SCORE_IDS:
+        os_ = ov_scores.get(sid)
+        if not (isinstance(os_, dict) and os_.get("date")):
+            # 该卡未出现在 overview（数据层异常，非本校验比对范围），跳过避免误报
+            continue
+        ov_date = str(os_["date"])
+        seq = s1y.get(sid)
+        if not (isinstance(seq, list) and seq):
+            mism.append(f"{sid}: overview 卡 date={ov_date} 但 sentiment-1y 无序列")
+            continue
+        last = seq[-1]
+        last_date = last.get("date") if isinstance(last, dict) else None
+        if last_date is None:
+            continue
+        if str(last_date) != ov_date:
+            mism.append(f"{sid}: overview.today.scores.date={ov_date} != sentiment-1y 末尾={last_date}")
+
+    if mism:
+        return _fail(name, "情绪卡当前值 date 与 sentiment 序列末尾不一致(文件已有最新但当前值停旧): "
+                           + "; ".join(mism))
+    return _ok(name, f"{len(EMOTION_SCORE_IDS)} 张情绪卡 date 与 sentiment-1y 末尾一致")
+
+
 def check_boot(data_dir: Path) -> CheckResult:
     """校验 boot.json：overview.date 与 overview.json.date 一致（"成交额显示昨日值"事故拦截）。
 
@@ -831,6 +887,7 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     # 15 个校验函数
     results.append(check_board_etf_map(repo_data_dir))
     results.append(check_overview(data_dir))
+    results.append(check_sentiment_card_date(data_dir))
     results.append(check_boot(data_dir))
     results.append(check_intraday_fresh(data_dir))
     results.append(check_alert(data_dir))

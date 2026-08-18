@@ -1447,9 +1447,15 @@ def _collect_intraday_width_metrics() -> dict:
     from ..calendar import is_trading_day
     import akshare as ak
     from .base import safe_call
-    from .fetchers import cross_check_zt_pool
     from .runner import upsert_metric
     from ..compute import volume_ratio
+    # 2026-08-18 容错: cross_check_zt_pool 定义若缺失(8/15 异源兜底重构误删曾致 ImportError),
+    # 不能让它整个 width 采集崩(step1/step4 仍可写入部分指标 -> a_sentiment 有 ≥3 分项可出分)。
+    # 失败仅让 step2/step3 的"池空交叉验证"降级为"直接记 error",不影响其它 step。
+    try:
+        from .fetchers import cross_check_zt_pool
+    except Exception:  # noqa: BLE001
+        cross_check_zt_pool = None
 
     today = datetime.now().strftime("%Y%m%d")
     if not is_trading_day(today):
@@ -1517,7 +1523,10 @@ def _collect_intraday_width_metrics() -> dict:
         if isinstance(df, Exception) or df is None or len(df) == 0:
             print(f"  [intraday] stock_zt_pool_em 失败/空 ({time.time()-t0:.1f}s)", flush=True)
             # 交叉验证:涨停池也空=源失败(error);跌停池有数据=本池空=真0(ok写0)
-            cross_count, cross_msg = cross_check_zt_pool("stock_zt_pool_em", today)
+            if cross_check_zt_pool is None:
+                cross_count, cross_msg = None, "cross_check_zt_pool 不可用(定义缺失/import失败)"
+            else:
+                cross_count, cross_msg = cross_check_zt_pool("stock_zt_pool_em", today)
             if cross_count == 0:
                 upsert_metric(today, "a_width_zt_count", 0, source="intraday_cross")
                 log_collect(today, "a_width_zt_count", "ok",
@@ -1553,7 +1562,10 @@ def _collect_intraday_width_metrics() -> dict:
         if isinstance(df, Exception) or df is None or len(df) == 0:
             print(f"  [intraday] stock_zt_pool_dtgc_em 失败/空 ({time.time()-t0:.1f}s)", flush=True)
             # 交叉验证:跌停池也空=源失败(error);涨停池有数据=本池空=真0(ok写0)
-            cross_count, cross_msg = cross_check_zt_pool("stock_zt_pool_dtgc_em", today)
+            if cross_check_zt_pool is None:
+                cross_count, cross_msg = None, "cross_check_zt_pool 不可用(定义缺失/import失败)"
+            else:
+                cross_count, cross_msg = cross_check_zt_pool("stock_zt_pool_dtgc_em", today)
             if cross_count == 0:
                 upsert_metric(today, "a_width_dt_count", 0, source="intraday_cross")
                 log_collect(today, "a_width_dt_count", "ok",

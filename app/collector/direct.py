@@ -15,6 +15,26 @@ HKEX_DAILY_STAT_URL = "https://www.hkex.com.hk/eng/csm/DailyStat/data_tab_daily_
 HKEX_DAILY_STAT_REFERER = "https://www.hkex.com.hk/Mutual-Market/Stock-Connect/Statistics/Historical-Daily"
 
 
+def _drop_preopen_today(rows):
+    """盘前(未开盘)过滤「今日行」, 防 a_fund_main 跨日标注污染。
+
+    2026-08-18 根治: A 股开盘前(本地 <09:30)东财 daykline/akshare 会预生成「今日行」,
+    值为上一交易日收盘的主力净流入(如 8/18 凌晨采集到 8/18 行=8/17 收盘 800.70),
+    日期却标为今日 -> daily_metric 出现「昨日值标当日行」(8/17 与 8/18 同值 800.70)。
+    a_fund_main 是当日盘中/盘后指标, 盘前不可能有当日真实值, 故丢弃今日行
+    (当日真实值盘中 9:30 后/盘后 15:00 由 intraday 或正式采集覆盖, 不会丢数据)。
+    主源/akshare 返回近 120 日多行, 仅过滤今日行保留历史; 第四/五源盘前返回空 ->
+    collect_direct 转 fail 记 error(宁可 error 也不污染当日)。
+    """
+    from datetime import datetime
+    _now = datetime.now()
+    _hhmm = _now.hour * 100 + _now.minute
+    if _hhmm >= 930:  # A股开盘后(含盘中/盘后), 今日行是真实值, 不过滤
+        return rows
+    _today = _now.strftime("%Y%m%d")
+    return [r for r in rows if r[0] != _today]
+
+
 def fetch_market_fund_flow():
     """主力资金流（沪+深合计），返回 [(date_YYYYMMDD, 主力净流入_元), ...]。
 
@@ -72,7 +92,7 @@ def fetch_market_fund_flow():
             except (IndexError, ValueError):
                 continue
         if rows:
-            return rows
+            return _drop_preopen_today(rows)
     except Exception:
         pass  # 东财封禁/网络异常 -> 走 fallback
 
@@ -89,7 +109,7 @@ def fetch_market_fund_flow():
             except (KeyError, ValueError, TypeError):
                 continue
         if rows:
-            return rows
+            return _drop_preopen_today(rows)
     except Exception:
         pass  # akshare 同步被封（底层走 push2his） -> 走第三源
 
@@ -127,7 +147,7 @@ def fetch_market_fund_flow():
             except (IndexError, ValueError):
                 continue
         if rows:
-            return rows
+            return _drop_preopen_today(rows)
     except Exception:
         pass  # 第三源也失败 -> 走第四源
     # 第四源：东财 push2/api/qt/clist/get 汇总全 A 股主力净流入（不同 API 路径重型兜底）
@@ -178,7 +198,7 @@ def fetch_market_fund_flow():
             import time as _t
             _t.sleep(0.7)
         if total_net != 0:
-            return [(today_str, total_net)]
+            return _drop_preopen_today([(today_str, total_net)])
     except Exception:
         pass
 
@@ -208,7 +228,7 @@ def fetch_market_fund_flow():
                 d -= _td(days=1)
             today_str = d.strftime("%Y%m%d")
             # 同花顺净额单位亿元，转元（与主源 f52 单位一致）
-            return [(today_str, total_net_yi * 1e8)]
+            return _drop_preopen_today([(today_str, total_net_yi * 1e8)])
     except Exception:
         pass
 

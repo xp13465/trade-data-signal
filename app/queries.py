@@ -810,10 +810,18 @@ def overview(conn, cfg):
     # 6宽基: sz50/csi500/cyb/kc50 各2维(rsi/pct_change); hs300/csi1000 各3维(+qvix)
     # fear_greed: {label, available_scores}
     # high_alert/low_alert 8维(H1-H8/L1-L8)亦一并 parse，P2 方案J 前端渲染时直接可用
+    #
+    # 2026-08-18 根治「当前值停旧、文件已有最新」：每张卡独立取自身 score_id 的
+    # max(date)<=最近交易日(anchor)，单指标缺失(如 a_sentiment 因 width 采集失败缺当日)
+    # 不再拖垮其它 8 张卡(旧逻辑单一锚定 a_sentiment，见下方 score_date 兜底注释)。
+    # 与 sentiment-1y/6m 序列(score_series 逐 score_id 取 max)口径一致(§22 一致性)。
+    # 每行自带 date=该卡实际最新日期，L1456 today.scores 不再强制覆盖为 score_date。
     scores = {}
     for _r in conn.execute(
-        "SELECT score_id, value, is_freeze, is_overheat, components FROM score_daily WHERE date=?",
-        (score_date,)
+        "SELECT score_id, value, is_freeze, is_overheat, components, date FROM score_daily "
+        "WHERE date=(SELECT max(date) FROM score_daily s2 "
+        "            WHERE s2.score_id=score_daily.score_id AND s2.date<=?)",
+        (last_trading_day(),)
     ).fetchall():
         _d = dict(_r)
         _comp_raw = _d.get("components")
@@ -1451,9 +1459,10 @@ def overview(conn, cfg):
         "scores": scores,
         "signals_today": sigs,
         "recent_freeze": freeze_days,
-        # 新增：今日快照
+        # 今日快照：每张卡自带独立 date(自身 score_id 的 max(date))，
+        # 单指标缺失不拖垮其它卡；无 date 的行(理论上不会发生)回退 score_date。
         "today": {
-            "scores": {k: {**v, "date": score_date} for k, v in scores.items()},
+            "scores": {k: {**v, "date": v.get("date") or score_date} for k, v in scores.items()},
             "metrics": today_metrics,
         },
         "indices_sparkline": indices_sparkline,
