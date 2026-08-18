@@ -156,7 +156,7 @@ echo "✓ 入样宇宙规则校验通过" | tee -a "$LOG"
 # 适配 #46 日期+批次版本串机制: index引用版本串格式/与sw批次一致/资源存在/min比源新,
 # 任一 FAIL → 非0退出阻断上线(防孤儿快照再产生, 2026-08-14 全站白屏事故根因⑤)。
 echo "-> 运行 check_version_consistency.py 版本一致性校验 ..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/check_version_consistency.py" --site-dir "$GIT_REPO/static-site" --deploy-mode 2>&1 | tee -a "$LOG"
+GIT_REPO="$GIT_REPO" "$PY" "$REPO/scripts/check_version_consistency.py" --site-dir "$GIT_REPO/static-site" --deploy-mode 2>&1 | tee -a "$LOG"
 VER_RC=${PIPESTATUS[0]}
 if [ "$VER_RC" -ne 0 ]; then
   echo "✗ 版本一致性校验失败(退出码 $VER_RC)，终止部署(§24⑤ FAIL 阻断上线)" | tee -a "$LOG"
@@ -210,7 +210,9 @@ fi
 # 安全网：dev 改了 app.js 源码但忘跑 build_min.py 时，此处补生成。
 # build_min.py 失败不阻断数据部署（已有 min 文件仍可用），仅告警。
 echo "→ 运行 build_min.py 重新生成 min JS ..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/build_min.py" 2>&1 | tee -a "$LOG"
+# B1(2026-08-18): 传 GIT_REPO 让 build_min 从 git HEAD 读源生成 min（根治脏工作区覆盖），
+# trade-data 跑时 BASE 非 git 仓库，必须靠环境变量定位 trade git 仓库。
+GIT_REPO="$GIT_REPO" "$PY" "$REPO/scripts/build_min.py" 2>&1 | tee -a "$LOG"
 BUILD_RC=${PIPESTATUS[0]}
 if [ "$BUILD_RC" -ne 0 ]; then
   echo "⚠ build_min.py 失败(退出码 $BUILD_RC)，min JS 可能过期，继续数据部署" | tee -a "$LOG"
@@ -329,8 +331,17 @@ else
 fi
 
 # 5. 总是 git push（幂等：有未 push commit 就推，无则 "Everything up-to-date"）
-echo "→ git push ..." | tee -a "$LOG"
-git -C "$GIT_REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
+# 5.0 B3(2026-08-18): push 前强制校验分支 == main，非 main 拒绝并告警退出。
+#     根治 091f26e5b 事件: deploy 在非 main 分支跑时 push HEAD:main 会把 fix/feat commit 带上 main。
+#     双保险: ①分支校验(非 main 拒绝) ②push 用显式 main:main(即使误在非 main 跑也不把当前分支带上去)。
+CUR_BRANCH=$(git -C "$GIT_REPO" rev-parse --abbrev-ref HEAD)
+if [ "$CUR_BRANCH" != "main" ]; then
+  echo "✗ deploy 必须在 main 分支跑（当前分支: $CUR_BRANCH）" | tee -a "$LOG"
+  echo "  请先切回 main 再跑 deploy，避免把 $CUR_BRANCH 分支 commit 带上 main" | tee -a "$LOG"
+  exit 1
+fi
+echo "→ git push（分支校验通过: main）..." | tee -a "$LOG"
+git -C "$GIT_REPO" push origin main:main 2>&1 | tee -a "$LOG"
 # :-1 防御 set -u 未绑定（macOS bash 3.2 数组边界用例）；默认失败不掩盖真实 rc（区别于旧 :-0）
 PUSH_RC=${PIPESTATUS[0]:-1}
 if [ "$PUSH_RC" -ne 0 ]; then
@@ -413,7 +424,7 @@ if [ "$PUSH_RC" -ne 0 ]; then
     git -C "$GIT_REPO" rebase origin/main 2>&1 | tee -a "$LOG"
     REBASE_RC=${PIPESTATUS[0]:-1}
     if [ "$REBASE_RC" -eq 0 ]; then
-      git -C "$GIT_REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
+      git -C "$GIT_REPO" push origin main:main 2>&1 | tee -a "$LOG"
       PUSH_RC=${PIPESTATUS[0]:-1}
       pop_rebase_stash   # push 后恢复工作区 M 文件（无论 push 成功失败都 pop）
       if [ "$PUSH_RC" -eq 0 ]; then
@@ -496,7 +507,7 @@ if [ "$PUSH_RC" -ne 0 ]; then
             echo "-> 第 $ATTEMPT 次循环：数据冲突已解决(--theirs=本地最新)，继续 rebase..." | tee -a "$LOG"
           done
           if [ "$REBASE_DONE" -eq 1 ]; then
-            git -C "$GIT_REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
+            git -C "$GIT_REPO" push origin main:main 2>&1 | tee -a "$LOG"
             PUSH_RC=${PIPESTATUS[0]:-1}
             pop_rebase_stash
             if [ "$PUSH_RC" -eq 0 ]; then

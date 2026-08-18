@@ -17,9 +17,12 @@ SW更新接管 + 数据同步」三处设计未闭环。
           再读 sw.js `CACHE_VERSION = 'v<N>-<YYYYMMDD>-a<M>'` 的 M, 与 index 批次数字比对, 不等 → FAIL。
   校验2 - index 引用的所有资源文件存在:
           每个 `./<asset>?v=...` 引用, 确认 --site-dir/<asset> 文件实际存在(防版本串指向不存在的产物)。
-  校验3 - min 版比源版新:
-          每个 build_min 映射 .min.js 对应 .js 源 / .min.css 对应 .css 源, mtime 上 min ≥ 源
-          (防 build 漏跑导致 min 过期上线)。源缺失视为跳过(与 build_min.py 缺源跳过语义一致, 不 FAIL)。
+  校验3 - min 内容 == git HEAD 源重建内容 (B2, 2026-08-18 升级, 防"工作区源脏+min旧版"内容覆盖):
+          每个 build_min 映射, 从 git HEAD 源重新生成 min(build_min.build_pairs_in_memory 复用 B1 同一套
+          生成逻辑), 与当前 min 文件内容 md5 比对, 不一致即 FAIL。
+          根治 16:30 事故: 原校验3只比 mtime(min ≥ 源), 拦不住「工作区源被 reset --soft 停旧版、min 是旧版」
+          的内容覆盖(mtime 上 min 仍 ≥ 工作区旧源)。升级后 min 必须 == git HEAD 源重建结果, 脏工作区
+          旧源生成的旧 min 过不了。源缺失/生成失败视为跳过(与 build_min.py 缺源跳过语义一致, 不 FAIL)。
 
 用法:
   python3 scripts/check_version_consistency.py --site-dir /path/to/static-site [--deploy-mode]
@@ -37,10 +40,11 @@ deploy.sh 接入(step 1.2 宇宙校验之后, 见部署 §24⑤):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import re
+import subprocess
 import sys
-import time
 from pathlib import Path
 
 # 遗留旧 md5 版本串的文件(不做日期+批次格式校验, 直接跳过)
@@ -156,8 +160,41 @@ def check2(index_refs, site_dir: Path) -> tuple[bool, str]:
     return (not missing, det)
 
 
+def _git_repo_of(site_dir: Path):
+    """解析 site_dir 所在 git 仓库根。优先环境变量 GIT_REPO，否则 git -C site_dir rev-parse。"""
+    env = os.environ.get("GIT_REPO")
+    if env and os.path.isdir(os.path.join(env, ".git")):
+        return env
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(site_dir), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode == 0:
+            top = r.stdout.strip()
+            if top and os.path.isdir(os.path.join(top, ".git")):
+                return top
+    except Exception:
+        pass
+    return None
+
+
+def _md5hex(b: bytes) -> str:
+    return hashlib.md5(b).hexdigest()
+
+
 def check3(site_dir: Path) -> tuple[bool, str]:
-    """校验3: 每个 build_min 映射的 min 版 mtime ≥ 源(防 build 漏跑 min 过期上线)。"""
+    """校验3(B2): min 内容 == 从 git HEAD 源重建的 min 内容(防"工作区源脏+min旧版"内容覆盖)。
+
+    复用 build_min.build_pairs_in_memory(同一套 terser keep_fnames / rcssmin 生成逻辑, 杜绝两处算法分叉)。
+    """
+    scripts_dir = os.path.dirname(os.path.abspath(__file__))
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    from build_min import build_pairs_in_memory
+
+    repo = _git_repo_of(site_dir)
+    rebuilt = build_pairs_in_memory(base=site_dir, repo=repo)
     problems = []
     n_checked = 0
     n_skipped = 0
@@ -170,18 +207,23 @@ def check3(site_dir: Path) -> tuple[bool, str]:
         if not dp.exists():
             problems.append(f"缺 min 版(源在 min 无): {dst}  <-  {src}")
             continue
+        rebuilt_key = "static-site/" + dst
+        if rebuilt_key not in rebuilt:
+            # git HEAD 源重建失败/被 skip(如新源未 commit 到 HEAD) → 保守不 FAIL(避免误伤首次未 commit)
+            n_skipped += 1
+            continue
         n_checked += 1
-        src_mt = sp.stat().st_mtime
-        dst_mt = dp.stat().st_mtime
-        if dst_mt < src_mt:
+        cur_md5 = _md5hex(dp.read_bytes())
+        head_md5 = _md5hex(rebuilt[rebuilt_key])
+        if cur_md5 != head_md5:
             problems.append(
-                f"min 版比源旧: {dst}({time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(dst_mt))}) "
-                f"< {src}({time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(src_mt))})"
+                f"min 内容与 git HEAD 源重建不一致(工作区源脏或 min 过期): {dst}"
+                f"(当前 {cur_md5[:8]} ≠ HEAD重建 {head_md5[:8]})"
             )
     if problems:
-        det = f"共 {n_checked} 对映射, {len(problems)} 处 min 过期:\n    " + "\n    ".join(problems)
+        det = f"共 {n_checked} 对映射, {len(problems)} 处 min 与 git HEAD 源不一致:\n    " + "\n    ".join(problems)
     else:
-        det = f"build_min 映射 {n_checked} 对全部 min≥源({n_skipped} 对源缺失跳过)"
+        det = (f"build_min 映射 {n_checked} 对 min 内容均 == git HEAD 源重建({n_skipped} 对源缺失/重建跳过)")
     return (not problems, det)
 
 
@@ -218,7 +260,7 @@ def main() -> int:
     checks = [
         ("校验1:index版本串格式/批次与sw一致", check1, (index_refs, site_dir)),
         ("校验2:index引用资源文件存在", check2, (index_refs, site_dir)),
-        ("校验3:min版比源版新(build_min映射)", check3, (site_dir,)),
+        ("校验3:min内容==git HEAD源重建(B2防脏工作区覆盖)", check3, (site_dir,)),
     ]
 
     for title, fn, tup in checks:

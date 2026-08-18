@@ -104,6 +104,7 @@
 | L05 | 08-08 | trade/trade-data混淆 | agent关键结论§0验(路径/文件数类) | archive:L17 |
 | L34 | 08-15 | 报告索引有但报告本体未提交/配套脚本缺指向(用户:"提交记录里看到了次日的报告索引 怎么没看到报告本体?") | 报告落档必走 §23.5 四件套:报告本体+生成脚本+##复现段+配套commit;commit 前 `git ls-files` 验本体/脚本已 tracked,缺=验收不过 | archive:L104 |
 | L42 | 08-17 | UI视觉问题三次声称修好实际零变化(SVG三图「尖角+颜色不对」第4次才成功;根因三层:①问题定义错=把100段纯色斑马纹观感当几何折角修 ②自验脚本bug算假角78-169°给错误方向背书(尺子本身坏) ③自验口径≠用户感知口径=验色变点折角度数、用户看整条线观感) | ①定位UI视觉/观感问题先穷举式从零验证(每点几何+渲染结构+基线对比),复用旧自验脚本前先核对脚本判定逻辑与真实代码路径一致(验证的验证) ②自验口径必须产出用户描述同一视角的证据(尖角→验路径条数/色段密度/渐变,不只折角度数) ③三次修不好=假设可能整个错了(方向/工具),停方向换人从零定义,主控不转达"修好"直到用户确认(→memory lite-svg-four-attempts-rootcause) | archive:锚点块本条(L42) |
+| L43 | 08-18 | 主控抢跑亲手验证+数据生成违反"只派发"(L29变种:没Edit代码,但亲手干跑export_summary验证/手动生成summary.json+上传R2/手动curl验收,用户质疑「怎么你亲自在干?符合工作模式么」) | 子agent卡住等时点+用户催=派tester/implementer接手当前验证/数据任务,主控只做派单锚点grep(§8.1)+§0验线上最终结果;数据操作(生成产物/上传R2/重跑)默认归agent,主控不抢跑亲手干(→memory main-controller-ran-verification-hands-on) | archive:锚点块本条(L43) |
 
 **② 主控专属(16 条):主控全栈需要,全文进 docs/main-governance.md「主控专属教训」段**
 | 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
@@ -338,7 +339,7 @@
 **背景(2026-08-14 P0 全站白屏事故)**:版本串=内容 md5 哈希(bump_asset_version.py"内容相同则版本号相同"),A+B实施期集中改前端+备站数据不同步+中间"改源码漏bump"断链点→CDN/浏览器缓存滞留「孤儿旧快照」(引不存在对应内容产物的版本串)→SW更新清缓存重建时裸崩全白。根因=「版本串机制 + SW更新接管 + 数据同步」三处设计未闭环。
 **核心一句话:版本串必须随内容强制刷新(杜绝指纹断链),SW 更新接管必须壳芯配套+失败回退,部署后必须验"内容哈希==index引用版本串"。**
 - **① 版本串改「发布序号(日期+批次)」而非纯内容哈希**(2026-08-14 定):每次部署强制换新串,内容相同也换,杜绝"指纹断链、旧缓存不清、不触发更新"死角。改 `scripts/bump_asset_version.py` 由内容md5换为 日期+自增/哈希混合,保证每次不同
-- **② 改前端源码必同 commit bump 版本串(§22 扩展硬约束)**:改 app.js/lab.js/common.js/index.html → **必须同 commit 跑 bump_asset_version.py + push + 验线上 index 引用`?v=`与实际文件内容md5一致**;禁止"源码改了版本串没跟着变"漏跑
+- **② 改前端源码必同 commit bump 版本串 + 同 commit 重建 min(§22 扩展硬约束,2026-08-18 B 强化)**:改 app.js/lab.js/common.js/style.css 等前端源 → **必须同 commit 跑 build_min.py(现在从 git HEAD 读源生成 min)+ bump_asset_version.py + push + 验线上 index 引用`?v=`与实际文件内容md5一致**;禁止"源码改了版本串/没重建 min 没跟着变"漏跑。**⚠️ 禁 reset --soft 对齐分支**(16:30 事故根因):reset --soft 只移 HEAD 不动工作区,会留旧版 M 脏文件,deploy 安全网 build_min 读工作区旧源生成旧 min 覆盖正确版;要让 HEAD 对齐用 checkout <commit> -- <文件> 或正常 checkout,确需 reset --soft 事后必 git status 核对工作区无 M 脏文件再 push。**deploy 只在 main 分支跑**(deploy.sh 已加分支校验+显式 main:main push)。
 - **③ SW 更新接管需「壳与芯配套 + 失败回退」安全网**:activate 清缓存/claim 接管前,先确认 app shell(app.min.js/common.min.js/index)已预缓存就绪;未就绪不 claim 不强推,失败回退旧SW/旧缓存,绝不全白(sw.js 实现,参考 §0 sw 模式)
 - **④ 数据全站同步(§22 三步)覆盖盘后核心产物**:overview.json/a-stock-3m.json 等盘后产物必须随 §22 三步同步到备站(GH/Maozi)或可靠 fallback 主站,备站不得缺核心文件
 - **⑤ 部署后自动校验「内容哈希==index版本串」**:deploy 链加 check(如对 app/lab/common 每文件算 md5 前8,与 index 引用比对),不一致即阻断上线,防孤儿快照再产生
