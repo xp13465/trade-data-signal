@@ -8963,12 +8963,15 @@ function _renderSigKellyBar(bar, data, period) {
     }
     return f.rec ? " lab-sigkelly-fade-warn-green" : "";
   };
+  // v1.1.2 红色 NEW 徽章(2026-08-18 用户定: 🆕 emoji 浏览器兼容差, 改红色 NEW 小徽章; 与「⚠️慎用红」区分=红底白字小徽章, 非整行警示)
+  const _kellyNewBadge = '<span class="lab-sigkelly-toggle-new">NEW</span>';
+  const _kellyAdviceHtml = (advice) => advice.replace(/^🆕/, _kellyNewBadge + " ");
   const _flagToggleHTML = (f) => {
     return `<label class="lab-sigkelly-toggle${f.rec ? " lab-sigkelly-rec" : ""}${_fadeWarnCls(f)}" tabindex="0" data-no-pop="" data-tip="${f.tip}">` +
       `<input type="checkbox" class="${f.cls}"${_filters[f.k] ? " checked" : ""}>` +
       (f.rec ? _kellyRecBadge(!!_filters[f.k]) : "") +
       (f.linked ? `<span class="lab-sigkelly-toggle-linked">🔗核心3键</span>` : "") +
-      `<span class="lab-sigkelly-fade-advice">${f.advice}</span>` +
+      `<span class="lab-sigkelly-fade-advice">${_kellyAdviceHtml(f.advice)}</span>` +
       `<span class="lab-sigkelly-toggle-tip" title="${f.tip}">ⓘ</span></label>`;
   };
   // 顶部「怎么用」三行汇总(默认即可/进阶调法/别做啥), 用户不必读长 tip
@@ -9453,6 +9456,20 @@ function _renderSigKellyBar(bar, data, period) {
   if (janMidSpecialCb) janMidSpecialCb.onchange = function () {
     if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
     state.labSigKellyFilters.janMidSpecial = janMidSpecialCb.checked;
+    _kellyOnFilterChange();
+  };
+  // v1.1.2(2026-08-17 用户拍板) 三键之 2 备选键: 老MA60熊×追买 / 下降期×追关注(默认关, 2026-08-18 修漏绑 onchange: 开关不刷新象限表/全信号表)
+  // 谓词见 _kellyPassesFadeFilters(legacyMa60Special 用 market_state, declinePhaseSpecial 用 market_tier_all, 无需特征计算)
+  var legacyMa60Cb = bar.querySelector(".lab-sigkelly-toggle-legacyma60");
+  if (legacyMa60Cb) legacyMa60Cb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.legacyMa60Special = legacyMa60Cb.checked;
+    _kellyOnFilterChange();
+  };
+  var declinePhaseCb = bar.querySelector(".lab-sigkelly-toggle-decline");
+  if (declinePhaseCb) declinePhaseCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.declinePhaseSpecial = declinePhaseCb.checked;
     _kellyOnFilterChange();
   };
   // 组合降亏「预设宏」(2026-08-11用户定: 1+2+3全要,按需选择,组合可叠加=成员并集OR):
