@@ -538,9 +538,11 @@ def sync_news_digest_live(day_str: str) -> None:
     参考 gen_daily_brief.py L2817-2857 的上传链(copy → upload-data-files → staticdata_sync.sh),
     让 fetch_news(launchd 16:45)采集完即上线,前端 16:45 后就读到当日新闻,不等 20:40。
     REPO=Path(__file__).resolve().parent.parent 在 launchd(WorkingDirectory=trade-data,
-    ProgramArguments 显式传 trade/scripts/fetch_news.py 真实路径)下解析为 trade/;
-    而 trade-data/static-site 是 symlink 指向 trade/static-site,故写 REPO/static-site/data 即正确
-    (与 gen_daily_brief 用 pick_newest_repo 挑 trade-data 殊途同归,同 §22 一致性)。
+    ProgramArguments 显式传 trade/scripts/fetch_news.py 真实路径)下解析为 trade/。
+    注意: trade-data/static-site 是「实体目录」(非 symlink),由 gen_daily_brief 等采集器
+    (pick_newest_repo 挑 trade-data)作为写入位置;本脚本统一读写自身 REPO=trade,
+    并在下方强制覆盖上传子进程 env.REPO=trade(818-fix 根修),保证
+    读(上传/staticdata 源目录)与写(static_dir)同走 trade/static-site/data,不读 trade-data 旧版。
     失败不阻塞主流程(采集已落盘,盘后 gen_daily_brief 20:40 兜底再同步)。
     """
     try:
@@ -580,8 +582,13 @@ def sync_news_digest_live(day_str: str) -> None:
                     arch_files.append(f"news_digest/{arch_f.name}")
         # ③ R2 上传(data/ 前缀,upload-data-files 支持相对 data_dir 的子目录路径) — 读 .env 拿凭证
         env = dict(os.environ)
-        env.setdefault("REPO", str(REPO))
-        env.setdefault("GIT_REPO", str(REPO))
+        # 818-fix 根修(2026-08-18): launchd 注入 REPO=/Users/linhuichen/code/trade-data,
+        # setdefault 不覆盖已有值 → 上传子进程 upload_r2/staticdata 按 env.REPO=trade-data
+        # 拼源目录 = trade-data/static-site/data(旧文件),每次「R2 同步 OK」实际传旧版。
+        # 改为强制覆盖 = 本脚本自身 REPO(trade),使上传/staticdata 源目录与上面 static_dir
+        # (REPO/static-site/data=trade/static-site/data)一致,读新版上传。
+        env["REPO"] = str(REPO)
+        env["GIT_REPO"] = str(REPO)
         _load_dotenv(env)
         r = subprocess.run(
             [str(REPO / ".venv/bin/python"), str(REPO / "scripts/upload_r2.py"),

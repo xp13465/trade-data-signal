@@ -3450,6 +3450,13 @@ main { padding: 16px 24px; }
 .db-nextday-row { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; line-height: 1.6; }
 .db-nextday-k { flex-shrink: 0; font-weight: 700; color: #7c4dff; }
 .db-nextday-v { color: var(--text-1); word-break: break-word; }
+/* 2026-08-18 818-fix 移动端布局: 窄屏 k(标题)+v(内容)各占整行,内容换行铺满左半块,
+   不再把内容挤在右半块(k 缩窄换行 + v 延伸用满整行);PC(>768px)保持 k/v 同行紧凑。 */
+@media (max-width: 768px) {
+  .db-nextday-row { flex-wrap: wrap; }
+  .db-nextday-k { width: 100%; flex-shrink: 1; }
+  .db-nextday-v { flex: 1 1 100%; min-width: 0; }
+}
 /* 2026-08-16 首页 AI 预测卡新闻外露两行(今日要闻 + 明日关键事件)一上一下,第二行与第一行留间距 */
 .summary-news-row > .db-nextday-row + .db-nextday-row { margin-top: 6px; }
 

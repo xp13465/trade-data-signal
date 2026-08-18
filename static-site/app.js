@@ -22550,10 +22550,13 @@ async function _loadNewsDigest() {
       news,
       upcoming: (raw && Array.isArray(raw.upcoming)) ? raw.upcoming : [],
       date,
+      // 数据日期过期守卫(2026-08-18 818-fix): date 存在且早于本地今日 = 采集/上线滞后的旧数据,
+      // stale=true。明日关键事件/今日要闻行据此不把「昨日当明日/当日」,改标「(数据待更新)」。
+      stale: !!(date && date < _newsTodayStr()),
       err: "",
     };
   } catch (e) {
-    _newsDigestCache = { news: [], upcoming: [], date: "", err: String((e && e.message) || e) };
+    _newsDigestCache = { news: [], upcoming: [], date: "", stale: false, err: String((e && e.message) || e) };
   }
   return _newsDigestCache;
 }
@@ -22580,8 +22583,11 @@ function _dbTodayNews(nuth) {
 // 首页 AI 预测卡「📅 明日关键事件」行:压缩单行(无数据返回空串,guard 不显示)。nuth 用于取 date 推断明日日期标注(label)。
 function _dbNextDayRowHtml(evts, nuth) {
   if (!evts || !evts.length) return "";
-  const dayCn = _dbTomorrowDateCn(nuth && nuth.date);
-  const label = dayCn ? `📅 明日关键事件（${dayCn}）` : "📅 明日关键事件";
+  // 数据过期守卫(2026-08-18 818-fix): 数据 date 早于今日时,不把「昨日当明日」(否则显示错位的明日=今日),
+  // 改标「(数据待更新)」提示数据滞后;upcoming 预告仍保留展示,但不标误导日期。
+  const stale = nuth && nuth.stale;
+  const dayCn = stale ? "" : _dbTomorrowDateCn(nuth && nuth.date);
+  const label = stale ? "📅 明日关键事件（数据待更新）" : (dayCn ? `📅 明日关键事件（${dayCn}）` : "📅 明日关键事件");
   const items = evts.slice(0, 3).map((e) =>
     `${_esc(String(e.time || ""))} ${_esc(String(e.title || "").slice(0, 42))}`
   ).join("　|　");
@@ -22611,8 +22617,11 @@ function _dbTomorrowDateCn(date) {
 function _dbHomeTodayNewsRowHtml(nuth) {
   const today = _dbTodayNews(nuth);
   if (!today.length) return "";
-  const dateCn = _dbNewsDateCn(nuth && nuth.date);
-  const label = dateCn ? `📣 今日要闻（${dateCn}）` : "📣 今日要闻";
+  // 数据过期守卫(2026-08-18 818-fix): 同明日行,数据旧时不把「昨日新闻」标成「今日要闻(date)」,
+  // 改标「(数据待更新)」避免误导为当日新闻。
+  const stale = nuth && nuth.stale;
+  const dateCn = stale ? "" : _dbNewsDateCn(nuth && nuth.date);
+  const label = stale ? "📣 今日要闻（数据待更新）" : (dateCn ? `📣 今日要闻（${dateCn}）` : "📣 今日要闻");
   const items = today.slice(0, 3).map((n) =>
     `${_esc(String(n.time || ""))} ${_esc(String(n.title || "").slice(0, 42))}`
   ).join("　|　");
