@@ -110,6 +110,17 @@ if [ "$BUILD_RC" -ne 0 ]; then
   exit "$BUILD_RC"
 fi
 
+# 项6: build 成功后同步新版 board_etf_map.json 到 static-site/data/（前端 R2 上传源，2026-08-18）。
+# 背景: build_board_etf_map.py 只写 data/board_etf_map.json（export_overview 读它），但前端 R2 的
+#   board_etf_map.json 由 upload-all-data 从 static-site/data/board_etf_map.json 上传。此前 static-site/data/
+#   停留旧版，deploy 上传旧版 → 前端读旧版与 overview（读 data/ 新版）不一致（§22 一致性破坏）。
+# 此步 build 成功后复制新版到 static-site/data/，消除时序不同步窗口：export --incremental 强制全量重算
+#   overview（读 data/ 新版），前端 R2 的 board_etf_map 也是新版，三处一致。
+# cp 失败不阻断（export 仍用 data/ 新版，仅前端 R2 board_etf_map 可能旧版，warn 提示）。
+cp "$REPO/data/board_etf_map.json" "$GIT_REPO/static-site/data/board_etf_map.json" 2>>"$LOG" \
+  && echo "✓ board_etf_map.json 已同步到 static-site/data/（build 后自动联动，前端 R2 与 overview 一致）" | tee -a "$LOG" \
+  || echo "⚠ 同步 board_etf_map.json 到 static-site/data/ 失败（不阻断，export 仍用 data/ 新版）" | tee -a "$LOG"
+
 # 1. 导出 JSON
 # ab#39 增量导出（2026-08-17 批次A）：--incremental 让 export 只重算源数据已变化的 JSON，
 # 其余复用现有文件（消除全量 353 JSON 重复重算）。安全：仅当依赖表 MAX(date) 与上次 export 相同才跳过，
@@ -300,6 +311,18 @@ run_r2_upload "upload-feed" upload-data-files feed.xml || { echo "⚠ upload fee
 if [ -n "$R2_FAIL" ]; then
   "$PY" "$REPO/scripts/notify.py" "[告警] deploy R2上传失败" "deploy.sh R2 上传失败:$R2_FAIL<br>前端可能读旧数据，需手动补刷: bash scripts/upload_r2.py upload-all-data<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_r2_upload_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
 fi
+
+# 1.9 末尾统一 purge 低频文件（决策清单项5+项8，2026-08-18）
+# 低频文件(LOW_FREQ 3600s 档) CF 会把 max-age 拉长成 4h edge 残留，上传时 purge 若失败/漏跑
+# 前端读最长 4h 旧版。此步 deploy 末尾统一 purge 低频档文件消除残留窗口（项5）。
+# purge 失败告警：upload_r2.py purge_cache 内部已对「部分批失败/无 PURGE_SECRET」notify 告警（项8）；
+# 命令自身失败/超时（如 HTTP 连接异常）由 run_r2_upload 失败分支在此 notify 兜底。
+run_r2_upload "purge-low-freq" purge-low-freq || {
+  echo "⚠ purge-low-freq 失败/超时, 低频文件 edge cache 可能残留 4h 旧版" | tee -a "$LOG"
+  "$PY" "$REPO/scripts/notify.py" "[告警] deploy 末尾 purge 低频文件失败" \
+    "deploy.sh 末尾统一 purge 低频文件失败(purge-low-freq 命令失败/超时)，CF edge cache 低频文件可能残留最长 4h 旧版。<br>建议手动重试: bash scripts/upload_r2.py purge-low-freq<br>日志: $LOG" \
+    --severe --from-prefix "[告警]" --dedup-key deploy_purge_low_freq_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+}
 
 # 2. git add min JS/CSS（阶段3：数据走 R2，只 push 代码）
 # 原数据 JSON 已由上面 R2 上传（upload-all-data 等）推到 R2，不再 git push。

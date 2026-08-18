@@ -808,6 +808,64 @@ def cmd_upload_data_files(filenames):
     purge_cache(purge_keys)
 
 
+# ---- deploy 末尾统一 purge 低频文件(决策清单项5+项8, 2026-08-18) ----
+# 背景: worker dataRewriteHandler 分层 TTL, 低频文件落 LOW_FREQ(3600s) 档。
+#   CF 会把 3600s 实际拉长成 max-age=14400(4h) edge 残留, 上传时 purge 若失败/漏跑,
+#   前端会读到最长 4h 的旧版。决策清单项5: deploy 末尾统一 purge 低频文件消除 4h 残留窗口;
+#   项8: purge 失败 notify 告警(purge_cache 内部已对部分失败/无 secret 告警, 此处命令级失败由
+#   deploy.sh 侧 notify 兜底)。
+# 只 purge 低频档(3600s): 高频(60s)/关键(ttl=0)/MED(600s) 文件要么不缓存要么很快过期,
+#   purge 无意义且浪费 R2 调用。低频档是 4h 残留的唯一来源。
+#
+# ⚠️ _data_cache_ttl 必须与 worker/headers.js dataCacheTtl 判定保持同步!
+#   改 worker 分层 TTL 时同步改本函数, 否则 purge 集合与 edge 缓存实际残留集偏差(漏 purge 或多余)。
+def _data_cache_ttl(pathname):
+    """镜像 worker/headers.js dataCacheTtl 判定 /data/<name>.json 的 edge cache TTL 秒数。
+
+    返回 0(no-cache)/60/600/3600(秒)。与 worker/headers.js dataCacheTtl 逐行对应。
+    """
+    import re as _re
+    if _re.search(r'^/data/(?:overview|intraday_snapshot|board_etf_map|daily_brief|'
+                  r'daily_brief_history|signal_kelly_backtest|signal_kelly_trades|'
+                  r'overfit_monitor|news_digest|signal_stats)\.json$', pathname):
+        return 0
+    if _re.search(r'^/data/(?:boot|notifications|summary|summary_history|schedule_stats|alert)\.json$',
+                  pathname) or pathname == '/data/feed.xml':
+        return 60
+    if _re.search(r'-(?:1m|3m|6m|1y)\.json$', pathname):
+        return 60
+    if _re.search(r'^/data/(?:futures|ad_line|new_high_low|position|rotation|volume_ratio|'
+                  r'ma_alignment|signal_freq|etf_national_team_holders|etf_national_team_quarterly|'
+                  r'global-extras-all)\.json$', pathname):
+        return 60
+    if _re.search(r'^/data/(?:signal_stats|futures_acc_trend|futures_acc_conclusion|'
+                  r'fund_score_top|trade_sim_indices)\.json$', pathname):
+        return 600
+    return 3600
+
+
+def cmd_purge_low_freq():
+    """deploy 末尾统一 purge 低频文件(决策清单项5, 2026-08-18)。
+
+    扫描 static-site/data/ 下所有 .json, 筛出落在 LOW_FREQ(3600s) 档的文件,
+    调 purge_cache(prefix="/") 清 CF edge cache, 消除低频文件最长 4h 旧版残留窗口。
+    高频/关键(ttl=0/60s)/MED(600s) 文件不 purge(不缓存或很快过期)。
+    purge_cache 内部已对「部分批失败」「PURGE_SECRET 未设」notify 告警(项8);
+    命令自身异常(如 HTTP 连接问题)由 deploy.sh 侧 run_r2_upload 失败分支 notify 兜底。
+    """
+    data_dir = STATIC_DIR / "data"
+    keys = []
+    for f in sorted(data_dir.glob("*.json")):
+        pathname = f"/data/{f.name}"
+        if _data_cache_ttl(pathname) == 3600 and f.exists():
+            keys.append(f"data/{f.name}")
+    if not keys:
+        print("ℹ 无低频文件需 purge")
+        return
+    print(f"→ 低频文件统一 purge: {len(keys)} 个(决策清单项5, 消除 4h 旧版残留)")
+    purge_cache(keys)
+
+
 def _list_keys(prefix, bucket=None):
     """list bucket 下 prefix 的对象 key 列表（list-type=2）。"""
     import re
@@ -1094,6 +1152,9 @@ if __name__ == "__main__":
         if not files:
             sys.exit("用法: upload-data-files <file1> [file2] ...")
         cmd_upload_data_files(files)
+    elif cmd == "purge-low-freq":
+        # purge-low-freq  deploy 末尾统一 purge 低频文件(决策清单项5, 2026-08-18)
+        cmd_purge_low_freq()
     elif cmd == "upload-db":
         cmd_upload_db()
     elif cmd == "upload-claude-backup":
@@ -1119,5 +1180,5 @@ if __name__ == "__main__":
             "upload-trade-sim-json|upload-index|upload-industry|upload-public-fund|"
             "upload-offshore-fund|upload-fund-score|upload-etf-score|upload-data-large|upload-db|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup|"
-            "upload-claude-backup [path]|upload-all-data|upload-intraday]"
+            "upload-claude-backup [path]|upload-all-data|upload-intraday|purge-low-freq]"
         )
