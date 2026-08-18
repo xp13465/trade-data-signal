@@ -7592,6 +7592,22 @@ function injectSnapshotToSummary(text, s, snap) {
 // 收盘分析横幅/历史弹窗共用的指标 chips 渲染（双版一致）。
 // snap 存在且未收盘时优先用快照实时值覆盖上证涨跌幅/点位与领涨板块；s 缺值时兜底用快照。
 // 不含恐贪/冰点标签（由调用方自行放置），只返回指标 chips 行 + 领涨板块行。
+// 大盘状态 chip（四档：牛市·主升/上升期/下降期/熊市·主跌；展示层，不参与任何过滤/回测）
+// tooltip 即 §21 算法公示位：判定规则 + 当前各均线值 + 波浪弱叙事 + 主观参考声明
+// 返回 chip HTML 或 ""（s 无 market_state 时）。供 renderSummaryChips / renderIntradayChips 共用，
+// 保证盘中/盘后/历史三处大盘档位 chip 渲染逻辑与 tooltip 完全一致（§21/§22）。
+function _renderMarketStateChip(s) {
+  if (!s || !s.market_state || !s.market_state.tier) return "";
+  const _ms = s.market_state;
+  const _msBull = _ms.tier.includes("牛市") || _ms.tier.includes("上升");
+  const _msColor = _msBull ? "#e6492e" : "#2e8b57";
+  const _msTip = `判定规则：价 vs 年线(MA200) + MA20/60/120 排列 → 四档[牛市·主升/上升期/下降期/熊市·主跌]。`
+    + `&#10;当前：close ${_ms.close} | MA20 ${_ms.ma20} | MA60 ${_ms.ma60} | MA120 ${_ms.ma120} | MA200 ${_ms.ma200}。`
+    + (_ms.wave_ref ? `&#10;${_ms.wave_ref}` : "")
+    + (_ms.wave_ref ? "" : "&#10;主观参考，非硬信号。");
+  return `<span class="summary-chip" style="color:${_msColor}" title="${_msTip}">大盘 · ${_ms.tier}</span>`;
+}
+
 function renderSummaryChips(s, snap) {
   // 快照同日校验（避免旧快照覆盖新数据）：以 sh000001 的 datetime 判定
   let snapSameDay = false, snapShIdx = null;
@@ -7615,18 +7631,9 @@ function renderSummaryChips(s, snap) {
     if (_dynPrice("sh") != null) shClose = _dynPrice("sh");
   }
   const chips = [];
-  // 大盘状态 chip（四档：牛市·主升/上升期/下降期/熊市·主跌；展示层，不参与任何过滤/回测）
-  // tooltip 即 §21 算法公示位：判定规则 + 当前各均线值 + 波浪弱叙事 + 主观参考声明
-  if (s.market_state && s.market_state.tier) {
-    const _ms = s.market_state;
-    const _msBull = _ms.tier.includes("牛市") || _ms.tier.includes("上升");
-    const _msColor = _msBull ? "#e6492e" : "#2e8b57";
-    const _msTip = `判定规则：价 vs 年线(MA200) + MA20/60/120 排列 → 四档[牛市·主升/上升期/下降期/熊市·主跌]。`
-      + `&#10;当前：close ${_ms.close} | MA20 ${_ms.ma20} | MA60 ${_ms.ma60} | MA120 ${_ms.ma120} | MA200 ${_ms.ma200}。`
-      + (_ms.wave_ref ? `&#10;${_ms.wave_ref}` : "")
-      + (_ms.wave_ref ? "" : "&#10;主观参考，非硬信号。");
-    chips.push(`<span class="summary-chip" style="color:${_msColor}" title="${_msTip}">大盘 · ${_ms.tier}</span>`);
-  }
+  // 大盘状态 chip（四档；展示层，不参与任何过滤/回测）——抽公共 helper，与盘中 renderIntradayChips 共用
+  const _msChip = _renderMarketStateChip(s);
+  if (_msChip) chips.push(_msChip);
   // 上证 chip（涨红跌绿，硬编码语义色）
   if (shPct != null) {
     const shColor = shPct >= 0 ? "#e6492e" : "#2e8b57";
@@ -7727,7 +7734,8 @@ function renderSummaryChips(s, snap) {
 // 盘中横幅专用 chips：summary 是 T-1 收盘、snap 是 T 盘中时，横幅仅用 snap 实时数据。
 // 只显示 snap 有的字段（上证/深成/创业板/科创50 等指数实时 + 领涨板块），
 // 隐藏 summary 独有指标（恐贪/冰点/涨跌家数/成交额/涨跌停等，盘中不稳定且属 T-1，收盘才有意义）。
-function renderIntradayChips(snap) {
+// 大盘四档 chip 例外：盘中仍展示（用 summary.market_state = 最近已收盘档位，与收盘一致，§22 多展示位一致）。
+function renderIntradayChips(snap, s) {
   if (!snap || !snap.indices) return "";
   const mainCodes = [
     { code: "sh000001", id: "sh", label: "上证" },
@@ -7736,6 +7744,9 @@ function renderIntradayChips(snap) {
     { code: "sh000688", id: "kc50", label: "科创50" },
   ];
   const chips = [];
+  // 大盘状态 chip：盘中读 summary.market_state（最近已收盘档位），与 renderSummaryChips 共用 helper，保证 tooltip/颜色/档位一致
+  const _msChip = _renderMarketStateChip(s);
+  if (_msChip) chips.push(_msChip);
   for (const { code, id, label } of mainCodes) {
     const idx = snap.indices.find((i) => i.code === code);
     // 盘中优先用腾讯动态值（与分时图/卡片badge同源），无则回退snap
@@ -8323,7 +8334,7 @@ function _applyDynamicToChips(snap) {
   if (!host) return;
   const { s, type } = _bannerRenderCtx;
   if (type === "intraday") {
-    host.innerHTML = renderIntradayChips(snap); // renderIntradayChips 内部优先读 _intradayDynamicPct
+    host.innerHTML = renderIntradayChips(snap, s); // renderIntradayChips 内部优先读 _intradayDynamicPct；s 提供 market_state 大盘 chip
   } else {
     host.innerHTML = renderSummaryChips(s, snap);
   }
@@ -10506,8 +10517,9 @@ async function renderOverview() {
         const snapBadge = `<span class="summary-snap-tag" style="color:#e6a23c">⏰ ${_lunch ? "午休小结" : "盘中动态小结"}</span>`;
         const _tLabel = _lunch ? "13:00复牌" : `更新于 ${_intradayDynamicTime || hhmm}`;
         const _pulse = '<span class="dyn-pulse" id="banner-pulse"><span class="dyn-pulse-dot"></span>1min</span>';
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中（每日 20:40 更新）">🤖 AI 预测</button><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap)}</div>`;
-        _bannerRenderCtx = { el: banner, s: null, snap, type: "intraday" };
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中（每日 20:40 更新）">🤖 AI 预测</button><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap, s)}</div>`;
+        // s 保留给盘中轮询 _applyDynamicToChips 复用（大盘四档 chip 读 s.market_state = 最近收盘档位，§22 一致）
+        _bannerRenderCtx = { el: banner, s, snap, type: "intraday" };
       } else {
         // 收盘后/同日：原逻辑（标题用 summary.generated_at，chips 用 summary+snap 同日覆盖）
         const _lunch2 = snap && snap.label && /午休/.test(snap.label);
