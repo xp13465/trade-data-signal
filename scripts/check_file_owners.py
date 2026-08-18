@@ -42,8 +42,13 @@ DONE_MARKERS = ["DONE", "完成", "结束", "已上线", "已推送", "已 merge
 DECLARE_KEYWORDS = ["文件", "改动", "修改", "touch", "写", "编辑"]
 
 def _is_done(text: str) -> bool:
+    """判断进度文件是否已完成。只在文件末尾 4 行检测 DONE 标记(约定 agent 收尾时
+    末尾写 DONE 标记行), 防「STEP2: 完成 app.js 修改(继续改 lab.js)」这类中途"完成"
+    字样误标 DONE 导致占用漏检(机制 C 同模块冲突预防)。"""
+    tail_lines = text.strip().splitlines()[-4:]
+    tail = "\n".join(tail_lines)
     for m in DONE_MARKERS:
-        if m in text:
+        if m in tail:
             return True
     return False
 

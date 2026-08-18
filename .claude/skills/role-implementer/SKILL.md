@@ -30,10 +30,10 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 
 ## 1. 单版前端铁律(原 §9 全文,2026-07-15 web/ 弃用)
 - 前端源码统一在 static-site/(web/ 已删,不再双写);app/main.py 挂载 static-site/ 到根 /,/api/* 读 DB 不变
-- 改 CSS/JS 后跑 `scripts/build_min.py`(terser minify,仅 app.js+lab.js 2对)+ `scripts/bump_asset_version.py`(md5 前 8 位破缓存)
+- **worktree agent 不自行 bump 版本串**(机制 C,与 §3 同口径):改前端源码后,本地验证产物可用 `scripts/build_min.py` 确认,但**不 commit bump_asset_version 改动**——版本串统一由主控 merge 走 `scripts/main-merge.sh` 跑 build_min+bump(版本串唯一权威入口)。产物共 **8 对**(非 2 对):common/purpose-notes/kelly-review-notes/kelly-reports-content/app/lab 的 .min.js + style.min.css + lab.min.css;版本串格式为 `YYYYMMDD-a<N>`(非 md5 前 8 位),每次 bump 强制换新串
 - 本地开发:`cd /Users/linhuichen/code/trade-data && /Users/linhuichen/code/trade/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000`(看页面+调API)或 `python -m http.server -d static-site`
 - ⚠️ **uvicorn cwd 必须是 trade-data/**(2026-07-20 方案B,根治线上读滞后镜像):app/db.py 用 `.absolute()` 读最新主库 `trade-data/data/sentiment.db`(launchd 写 trade-data/data/),从 trade/ 跑读滞后镜像(仅 deploy.sh rsync 同步)致 export 漏数据;resolve 修复 f0f6df78 需 cwd 切 trade-data 才生效。trade-data/app 是 symlink 指向 trade/app
-- ⚠️ **改 app.js/lab.js 必 bump sw.js CACHE_VERSION**(2026-08-07 补):否则旧 Service Worker CacheFirst 缓存旧 app.min.js 致用户拿不到新代码(硬刷后退回旧数据)。build_min + bump_asset_version + **bump sw.js CACHE_VERSION** 三步缺一不可
+- ⚠️ **sw.js CACHE_VERSION 与版本串同源, 由 main-merge.sh 统一 bump**(2026-08-07 补 + 2026-08-19 机制 C 改造):否则旧 Service Worker CacheFirst 缓存旧 app.min.js 致用户拿不到新代码(硬刷后退回旧数据)。`bump_asset_version.py` 已内置把 sw.js CACHE_VERSION 同步为同一 `YYYYMMDD-a<N>`(与 index 同源,不再手工维护);**agent 不自行 bump**,由主控 merge 走 main-merge.sh 统一 build_min+bump(含 sw.js)
 - ⚠️ **min 版 JS 验证用字符串非变量名**(2026-08-07 补):terser mangle 重命名 let 局部变量(_compBarsHtml 等),grep 验 min 版上线用 class 名/中文字符串(kst-comp-fill/分项构成/优秀)非变量名
 - ⚠️ **export 输出路径同步**(2026-08-07 补,§9 cwd trade-data 衍生陷阱):export.py cwd trade-data 写 JSON 落 trade-data/static-site/data/,但 deploy.sh 从 trade/static-site/data/ 推 git,两路径不同步推旧版。export 后必须 cp 或确认 rsync 同步
 
@@ -74,7 +74,7 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - **任务冲突检查不应由用户提醒才做**:每次派任务/设 cron/推 main 前**必须主动查 launchd 定时任务清单**(`launchctl list | grep trade` + 查 plist `StartCalendarInterval`),列当日盘后任务时点确认不撞,并主动给用户时点建议
 - **核心冲突类型**:①推 main(intraday-snapshot 15:35/20:35 + update-all 17:50 + deploy)vs 另一推 main = 互相覆盖事故 ②写 DB(评分/采集)vs 同 DB 任务 = DB锁/progress撞 ③采集脚本并发 = 限流空转
 - **盘后定时任务时点(15:35/16:00/17:50/20:35/22:00)不推 main 不写 public_fund.db**;安全窗口 23:00 后无推 main/评分/采集任务
-- **agent 自己 push feat:main 也要避开**盘后定时任务时点,不只 cron 任务。prompt 须写明"避开 15:35/16:00/17:50/20:35 push main,撞 intraday-snapshot/update-all 推 main = 互相覆盖事故"
+- **agent 只 push feat 分支,不碰 main**(机制 D):agent 不 push main,盘后时点(15:35/16:00/17:50/20:35/22:00 ±5min 缓冲)与 cron 任务撞车由主控 `scripts/main-merge.sh` 统一检查拦截,agent 无需也不得自行判断 main 时点(避撞=主控 merge 入口职责)
 - ⚠️[2026-08-10 R2迁移阶段3 更新]盘中 push 代码 main 不避 intraday(intraday-snapshot 走 R2 上传不推 main);**仍避盘后 17:50 update_all deploy.sh 推 main non-ff 竞争**(deploy.sh 有 rebase 重试,non-ff 自动 rebase);盘中全量 export+deploy 仍禁(防覆盖 R2 实时数据)
 
 ## 5. 修 bug 三铁律操作化(原 §23.2,用户 2026-08-11 定)

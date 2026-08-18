@@ -15,7 +15,8 @@
          ※ 不只比 immediate 父: 本次事故 a350→a349 在 merge 提交 efa92ffd8 处
            immediate 父 a084cd74a 已是 a348(倒退), 直接比父(a349>a348)抓不到,
            须比"最近祖先天花板"(含 bf 的 a350)才能抓到 a349<a350。
-       - 关键源文件(app.js/lab.js/common.js/style.css)相对 first-parent 有 diff
+       - 关键源文件(8 源: app/lab/common/style/lab.css/purpose-notes/kelly-review-notes/kelly-reports-content,
+         与 build_min.py 8 对 min 产物对齐)相对 first-parent 有 diff
          但版本串未前进(同值) → 告警(提示"改源码未 bump")
      → 逻辑: "版本串必须 ≥ 最近祖先天花板; 且当源码文件有 diff 时版本串必须 > 父"
      版本串可能因文件本身没变而合法不变(如纯数据改动), 不误报。
@@ -55,9 +56,18 @@ VERSION_REF_RE = re.compile(r"(\./[^\s\"'<>]+?)\?v=\s*([A-Za-z0-9-]+)")
 VERSION_PATTERN = re.compile(r"^(\d{8})-a(\d+)$")
 
 # 关键源文件(相对 --site-dir): 版本串必须随这些文件的 diff 前进
-KEY_SOURCES = ["app.js", "lab.js", "common.js", "style.css"]
+# ⚠️ 与 build_min.py 的 8 对 min 产物全量对齐(§21/§23.8 举一反三):
+#   6 个源 .js(app/common/purpose-notes/kelly-review-notes/kelly-reports-content/app/lab)
+#   + 2 个源 .css(style/lab)。漏 3 个 notes 源(§21 公示典型场景)= 改公示检测不到版本串不前进。
+KEY_SOURCES = [
+    "app.js", "lab.js", "common.js", "style.css", "lab.css",
+    "purpose-notes.js", "kelly-review-notes.js", "kelly-reports-content.js",
+]
 # B 净回退校验覆盖的关键文件(相对 --site-dir), 取源文件(内容可读、在历史里可比对)
-B_FILES = ["app.js", "lab.js", "common.js", "style.css"]
+B_FILES = [
+    "app.js", "lab.js", "common.js", "style.css", "lab.css",
+    "purpose-notes.js", "kelly-review-notes.js", "kelly-reports-content.js",
+]
 # B 回看历史 commit 窗口大小(遍历父之前最多 N 个 commit 比对内容)
 B_HISTORY_WINDOW = 40
 # A 天花板回看: 沿 first-parent 链回看最近 N 个 commit 取最大版本串为天花板
@@ -155,6 +165,18 @@ def _first_parent_chain(repo: str, parent: str, window: int) -> list[str]:
     return [c.strip() for c in out.split() if c.strip()]
 
 
+def _min_asset(src: str) -> str:
+    """源文件 → index.html 里带 ?v= 的 min 产物引用(与 build_min.py 8 对产物对齐)。
+
+    .js 源 → <base>.min.js; style.css → style.min.css; lab.css → lab.min.css。
+    """
+    if src == "style.css":
+        return "./style.min.css"
+    if src == "lab.css":
+        return "./lab.min.css"
+    return f"./{os.path.splitext(src)[0]}.min.js"
+
+
 def check_a(
     repo: str, site_dir: Path, parent: str, versions: dict[str, str]
 ) -> tuple[bool, list[str], list[str]]:
@@ -180,9 +202,7 @@ def check_a(
         )
 
     for src in KEY_SOURCES:
-        min_asset = f"./{os.path.splitext(src)[0]}.min.js"
-        if src == "style.css":
-            min_asset = "./style.min.css"
+        min_asset = _min_asset(src)
         cur_ver = versions.get(min_asset)
         if cur_ver is None:
             continue
@@ -233,7 +253,7 @@ def check_b(
 ) -> tuple[bool, list[str]]:
     """任务 B: merge 净回退校验。
 
-    对关键文件(app.js/lab.js/common.js/style.css):
+    对关键文件(8 源: app/lab/common/style/lab.css/purpose-notes/kelly-review-notes/kelly-reports-content):
       若版本串 ≤ 父 且 当前内容 ≠ 父内容, 把当前内容 md5 与父之前的历史 commit 逐一比对,
       若与某个更旧 commit 内容相同 = 净回退(把最近改动删回去了) → FAIL。
     """
@@ -242,9 +262,7 @@ def check_b(
     # 当前 index 相对父版本串是否未前进(≤ 父)
     cur_advance = True
     for src in KEY_SOURCES:
-        min_asset = f"./{os.path.splitext(src)[0]}.min.js"
-        if src == "style.css":
-            min_asset = "./style.min.css"
+        min_asset = _min_asset(src)
         cur_ver = versions.get(min_asset)
         if cur_ver is None:
             continue
