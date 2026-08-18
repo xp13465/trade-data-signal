@@ -487,17 +487,20 @@ def generate_summary(date: str | None = None) -> dict:
     market_state = _market_state_of(conn, date)
 
     # ---- 盘中今日预估档位(展示层，仅盘中输出) ----
-    # 盘中(date==今日 且 15:00 前未收盘)时，读当日 hs300 实时价(快照已反哺进 index_daily 当日 close)，
+    # 注意:此处 date 可能被上方 a_sentiment 回退改写(盘中当日情绪分未生成→date 回退最近有情绪分的交易日)，
+    # 故盘中判定必须用"当前时刻的今日"(_today_est = 盘中实际日期)，而非回退后的 date。
+    # 盘中(今日为最近交易日且 15:00 前未收盘)时，读当日 hs300 实时价(快照已反哺进 index_daily 当日 close)，
     # 做"今日(预估) vs 昨日(实际)"对比；读不到实时价则降级不输出(前端回退现状)。盘后不输出。
     market_state_est = None
     _now_est = dt.datetime.now()
-    if date == _now_est.strftime("%Y%m%d") and _now_est.hour < 15:
+    _today_est = _now_est.strftime("%Y%m%d")
+    if _now_est.hour < 15 and _today_est == last_trading_day():
         _est_row = conn.execute(
             "SELECT close FROM index_daily WHERE index_id='hs300' AND date=? AND close IS NOT NULL",
-            (date,),
+            (_today_est,),
         ).fetchone()
         if _est_row and _est_row["close"] is not None:
-            market_state_est = _market_state_of(conn, date, est_close=float(_est_row["close"]))
+            market_state_est = _market_state_of(conn, _today_est, est_close=float(_est_row["close"]))
 
     conn.close()
 
