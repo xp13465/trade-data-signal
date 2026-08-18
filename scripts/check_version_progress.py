@@ -281,7 +281,13 @@ def check_b(
             f"static-site/{src}",
         )
         if not hist:
-            continue
+            # 版本串未前进且内容 ≠ 父, 但历史不可得(rev-list 失败)→ 净回退无法判定,
+            # 宁拦不放(§23.11 绝不静默), 不静默跳过
+            problems.append(
+                f"{src} 净回退无法判定: 版本串未前进(≤ 父)且内容 ≠ 父, 但 rev-list 历史不可得,"
+                f"阻断上线而非静默放行(§23.11)"
+            )
+            break
         for c in hist.split():
             c = c.strip()
             if not c:
