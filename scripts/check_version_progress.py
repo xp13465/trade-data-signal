@@ -172,6 +172,12 @@ def check_a(
     problems, warnings = [], []
 
     chain = _first_parent_chain(repo, parent, CEILING_WINDOW)
+    if not chain:
+        # first-parent 链历史不可得(rev-list 失败)→ 天花板无法计算, 宁拦不放(§23.11)
+        problems.append(
+            f"无法获取 first-parent 链历史(rev-list 失败)。版本串倒退哨兵无法计算天花板,"
+            f"阻断上线而非静默放行(§23.11)"
+        )
 
     for src in KEY_SOURCES:
         min_asset = f"./{os.path.splitext(src)[0]}.min.js"
@@ -311,10 +317,16 @@ def main() -> int:
     # 当前 HEAD 与 first-parent
     head = _run_git(repo, "rev-parse", "HEAD")
     parent = _run_git(repo, "rev-parse", "HEAD^")
-    if not head or not parent:
-        print("✗ 无法解析 HEAD / HEAD^(首提交无父时跳过)", file=sys.stderr)
-        return 0 if not parent else 1
-    head, parent = head.strip(), parent.strip()
+    if not head:
+        # 非 git 仓库 / 无任何提交 → 校验不可执行, 宁拦不放(§23.11 发现问题绝不静默)
+        print("✗ 无法解析 HEAD(非 git 仓库或无任何提交)。校验不可执行, 阻断上线而非静默放行(§23.11)", file=sys.stderr)
+        return 1
+    head = head.strip()
+    if not parent:
+        # 仅「首提交」(HEAD 存在、无父) 才合法 PASS(无历史可比对, 天然无倒退)
+        print("✓ 首提交(HEAD^ 无父), 版本串倒退/净回退校验 PASS", file=sys.stderr)
+        return 0
+    parent = parent.strip()
     print(f"  HEAD     : {head[:10]}")
     print(f"  first-parent: {parent[:10]}")
     print()

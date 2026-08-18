@@ -21,6 +21,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 # 部署源树(上传源树, 非 git 仓): launchd/update_all 写主数据的位置
@@ -79,6 +81,24 @@ def _read_overview_date(ov: Path) -> str:
         return ""
 
 
+def _alert_guard_blocked(msg: str) -> None:
+    """守卫阻断时主动告警(飞书/邮件, 参考 scripts/notify.py CLI)。
+
+    P3-1 增强(2026-08-19): guard 触发 SystemExit 阻断时, launchd 下仅 stderr traceback 进日志,
+    可能静默失败一段时间。这里调 notify.py 发告警; 告警本身失败不阻断阻断逻辑(§23.11
+    阻断是主, 告警是辅——不能因告警失败而放行阻断, 也不能因告警异常反伤主流程)。"""
+    script = Path(__file__).resolve().parent / "notify.py"
+    subject = "[防再犯E守卫] 写部署源树目标错误(SystemExit 阻断)"
+    try:
+        subprocess.run(
+            [sys.executable, str(script), subject, msg, "--severe"],
+            capture_output=True, timeout=60,
+        )
+    except Exception:
+        # 告警失败不阻断阻断本身(不影响 SystemExit 已触发的阻断语义)
+        pass
+
+
 def guard_deploy_source_tree(repo: Path | str) -> Path:
     """写源树守卫(§23.11): 写部署源树的目标必须 = trade-data(上传源树)。
 
@@ -93,12 +113,14 @@ def guard_deploy_source_tree(repo: Path | str) -> Path:
     # repo == git 仓(trade): 若 trade-data(部署源树)存在, 则本次写目标是 git 仓 = 误写
     trade_data = MAIN_REPO.resolve()
     if trade_data.exists() and trade_data.is_dir():
-        raise SystemExit(
+        msg = (
             f"✗ 写部署源树目标错误: pick_repo() 解析到 git 仓 {git}(/trade), 而非部署源树 "
             f"{trade_data}(/trade-data)。误写 git 仓会导致 deploy rsync 把 trade-data 新版 "
             f"clobber 回旧版(2026-08-18 断点根因, §23.11 发现问题绝不静默)。"
             f"请检查 REPO/GIT_REPO 环境变量与数据写入逻辑。"
         )
+        _alert_guard_blocked(msg)
+        raise SystemExit(msg)
     # trade-data 不存在(dev 环境) → 回退 git 仓合法
     return repo
 
