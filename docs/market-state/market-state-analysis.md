@@ -51,6 +51,7 @@
 - 前端:`app.js` `renderSummaryChips` chips 首位「大盘 · 上升期」chip,hover tooltip = §21 算法公示位(判定规则 + 各均线值 + wave_ref 波浪弱叙事 + 「主观参考,非硬信号」)。
 - `wave_ref`:波浪理论弱叙事参考,基于客观锚点(相对年线位置、距近 250 日前高回撤 vs 斐波那契 0.382/0.618、连续在年线侧天数),**纯叙事不参与任何过滤/回测**,字符串内标注「主观参考,非硬信号」。
 - 盘中:均线态用昨日收盘(与 queries.py `_ai_macro_build_market_state` 取 ≤ 信号日最近完整态同精神)。
+- **盘中「今日预估 vs 昨日实际」对比(2026-08-18 新增)**:`_market_state_of` 增 `est_close` 参数——盘中(hour<15 且今日=last_trading_day)读当日 hs300 实时价(快照反哺进 index_daily 当日 close),判定用价 c=今日实时价,但 MA 序列(m20/m60/m120/m200)仍用昨日(最近已收盘交易日)idx 值(当日日线未走完均线不更新,只换判定价),返回 dict 增 `est:True` 标记。`generate_summary()` 输出新增 `market_state_est`(盘中预估)字段,`market_state`(昨日/最近收盘实际)保持不动(§22 一致)。⚠️ 判定盘中须用 `dt.datetime.now()` 的今日日期而非 `generate_summary` 内被 a_sentiment 回退改写后的 `date`(盘中当日情绪分未生成→date 回退最近有情绪分交易日,若用回退 date 则盘中预估永不输出,2026-08-18 根因修复)。前端 `_renderMarketStateChip` 有 `market_state_est` 时 chip 显示「今日:XX(预估) | 昨日:XX」对比(tooltip 含预估/未收盘/重算提示),盘后无该字段维持「大盘 · XX」。
 
 ## 五、约束遵守
 
