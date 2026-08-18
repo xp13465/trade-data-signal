@@ -7599,13 +7599,31 @@ function injectSnapshotToSummary(text, s, snap) {
 function _renderMarketStateChip(s) {
   if (!s || !s.market_state || !s.market_state.tier) return "";
   const _ms = s.market_state;
-  const _msBull = _ms.tier.includes("牛市") || _ms.tier.includes("上升");
+  const _est = s.market_state_est && s.market_state_est.tier ? s.market_state_est : null;
+  // 颜色以主档位为准：盘中=今日预估为主，盘后=当日实际
+  const _main = _est || _ms;
+  const _msBull = _main.tier.includes("牛市") || _main.tier.includes("上升");
   const _msColor = _msBull ? "#e6492e" : "#2e8b57";
-  const _msTip = `判定规则：价 vs 年线(MA200) + MA20/60/120 排列 → 四档[牛市·主升/上升期/下降期/熊市·主跌]。`
-    + `&#10;档位基于最近已收盘交易日收盘数据：盘中显示昨日收盘档位(当日日线未定，不更新)，每日收盘后(约17:00-17:50 update_all)重算为当日档位。`
-    + `&#10;当前：close ${_ms.close} | MA20 ${_ms.ma20} | MA60 ${_ms.ma60} | MA120 ${_ms.ma120} | MA200 ${_ms.ma200}。`
+  let _msTip = `判定规则：价 vs 年线(MA200) + MA20/60/120 排列 → 四档[牛市·主升/上升期/下降期/熊市·主跌]。`;
+  if (_est) {
+    // 盘中：今日预估(实时价×昨日均线) vs 昨日实际(最近已收盘档位)
+    const _dDate = (s.date || "").slice(4, 8); // 今日 MMDD
+    const _yDate = (_ms.date || "").slice(4, 8); // 昨日 MMDD
+    _msTip += `&#10;【今日(${_dDate})预估】盘中实时价 ${_est.close} × 昨日均线(MA200 ${_ms.ma200})判定 = ${_est.tier}。`
+      + `&#10;盘中未收盘、随实时价变动，仅供盘中参考；收盘后(约17:00-17:50 update_all)重算为当日实际档位。`
+      + `&#10;【昨日(${_yDate})实际】${_ms.tier}（close ${_ms.close}），最近已收盘交易日收盘档位。`;
+  } else {
+    // 盘后：当日实际档位
+    _msTip += `&#10;档位基于最近已收盘交易日收盘数据：盘中显示昨日收盘档位(当日日线未定，不更新)，每日收盘后(约17:00-17:50 update_all)重算为当日档位。`
+      + `&#10;当前：close ${_ms.close}`;
+  }
+  _msTip += ` | MA20 ${_ms.ma20} | MA60 ${_ms.ma60} | MA120 ${_ms.ma120} | MA200 ${_ms.ma200}。`
     + (_ms.wave_ref ? `&#10;${_ms.wave_ref}` : "")
     + (_ms.wave_ref ? "" : "&#10;主观参考，非硬信号。");
+  if (_est) {
+    // 盘中：今日预估为主、昨日实际为辅（两档都显示，即使相同）
+    return `<span class="summary-chip" style="color:${_msColor}" title="${_msTip}">今日：${_est.tier}（预估）<span style="opacity:.62">｜昨日：${_ms.tier}</span></span>`;
+  }
   return `<span class="summary-chip" style="color:${_msColor}" title="${_msTip}">大盘 · ${_ms.tier}</span>`;
 }
 
