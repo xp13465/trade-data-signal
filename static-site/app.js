@@ -4569,7 +4569,7 @@ function statsHint(stats, strategy, indexId) {
 }
 
 // 指数图 + 买卖点标注
-// 沪深300四档状态色带颜色(涨红跌绿, 与全站红涨绿跌一致; 纯展示)
+// 四档大盘状态色带颜色(涨红跌绿, 与全站红涨绿跌一致; 纯展示)
 const _TIER_COLORS = {
   "牛市·主升": "#e6492e",
   "上升期": "#f2a06e",
@@ -4597,8 +4597,8 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
   const markData = _buildSignalMarkData(signals, (date) => {
     const o = _ohlcMap[date]; return o ? o.close : null;
   });
-  // 沪深300四档色带(纯展示, 仅 hs300): 底部细色带按日期标沪深300四档状态, 涨红跌绿。
-  // tiers 与 ohlc 一一对应(缺 tier 的用前值前向填充/无值=灰)。单一指数口径=沪深300(非综合多指数)。
+  // 四档大盘状态色带(纯展示, 仅 hs300): 底部细色带按日期标大盘四档状态, 涨红跌绿。
+  // tiers 与 ohlc 一一对应(缺 tier 的用前值前向填充/无值=灰)。
   const _tierBand = [];
   if (tiers && tiers.length) {
     let _lastTier = null;
@@ -4622,7 +4622,7 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
         }
         if (_tierBand && _tierBand.length) {
           const _tb = _tierBand.find((x) => x.date === dt);
-          if (_tb && _tb.tier) tip += '<br/>沪深300四档：<b style="color:' + (_TIER_COLORS[_tb.tier] || "#9aa0a6") + '">● ' + _tb.tier + "</b>";
+          if (_tb && _tb.tier) tip += '<br/>大盘四档：<b style="color:' + (_TIER_COLORS[_tb.tier] || "#9aa0a6") + '">● ' + _tb.tier + "</b>";
         }
         const marks = markData.filter((m) => m.coord[0] === dt && m.reason);
         for (const m of marks) {
@@ -4642,13 +4642,12 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
     xAxis: { type: "category", data: ohlc.map((d) => d.date) },
     yAxis: _tierBand.length ? [
       { type: "value", scale: true },
-      // 隐藏色带轴 max:1→max:2(2026-08-18 收窄版, 色带高度 1/2→1/4): value 0.5 在 0-2 轴上占 1/4 高度
-      { type: "value", show: false, min: 0, max: 2 },
+      { type: "value", show: false, min: 0, max: 1 },
     ] : { type: "value", scale: true },
     dataZoom: dzOpts(),
     series: _tierBand.length ? [
       {
-        name: "沪深300四档状态",
+        name: "大盘四档状态",
         type: "bar",
         yAxisIndex: 1,
         stack: "tierband",
@@ -4692,9 +4691,8 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
   return c;
 }
 
-// 沪深300 历史四档状态时间线面板(纯展示, v1.1.2 2026-08-17; 2026-08-18 文案改「沪深300四档」)。
-// 横向四档色带 + 3 档时间范围切换(近1年默认/近5年/全史2002起)。单一事实源=沪深300(非综合多指数)。
-// 不参与任何过滤(§23.7 只增不改)。
+// 沪深300 历史四档大盘状态时间线面板(纯展示, v1.1.2 2026-08-17)。
+// 横向四档色带 + 3 档时间范围切换(近1年默认/近5年/全史2002起)。不参与任何过滤(§23.7 只增不改)。
 async function _renderTierTimelinePanel(container) {
   let data = null;
   try {
@@ -4722,7 +4720,7 @@ async function _renderTierTimelinePanel(container) {
     { t: "下降期", c: _TIER_COLORS["下降期"] },
     { t: "熊市·主跌", c: _TIER_COLORS["熊市·主跌"] },
   ];
-  const card = mkCard("沪深300 四档状态轨迹", 110, null, container, charts);
+  const card = mkCard("沪深300 大盘四档状态轨迹", 110, null, container, charts);
   const _wrap = card.getDom().parentElement;
   // 标题行右侧加范围切换按钮
   const _h3 = _wrap.querySelector("h3");
@@ -4756,7 +4754,7 @@ async function _renderTierTimelinePanel(container) {
       xAxis: { type: "category", data: _dates, axisLabel: { show: false } },
       yAxis: { type: "value", show: false, min: 0, max: 1 },
       series: [{
-        name: "沪深300四档状态",
+        name: "大盘四档状态",
         type: "bar",
         barCategoryGap: "0%",
         barWidth: "99%",
@@ -4780,8 +4778,8 @@ async function _renderTierTimelinePanel(container) {
   const _lg = document.createElement("div");
   _lg.className = "tier-tl-legend";
   _lg.style.cssText = "padding:2px 12px 6px;font-size:11px;color:var(--text-2);";
-  _lg.innerHTML = "沪深300四档口径：" + _legend.map((x) => `<span style="margin-right:10px"><b style="color:${x.c}">●</b> ${x.t}</span>`).join("") +
-    '<span style="margin-left:6px;color:var(--text-3)">· 牛市·主升=价&gt;MA200且多头排列 / 上升期=价&gt;MA200非多头 / 下降期=价&lt;MA200非空头 / 熊市·主跌=价&lt;MA200且空头排列 · 本面板为<b>沪深300 单一指数口径</b>（非综合多指数）</span>';
+  _lg.innerHTML = "四档口径：" + _legend.map((x) => `<span style="margin-right:10px"><b style="color:${x.c}">●</b> ${x.t}</span>`).join("") +
+    '<span style="margin-left:6px;color:var(--text-3)">· 牛市·主升=价&gt;MA200且多头排列 / 上升期=价&gt;MA200非多头 / 下降期=价&lt;MA200非空头 / 熊市·主跌=价&lt;MA200且空头排列（沪深300）</span>';
   _wrap.appendChild(_lg);
 }
 
@@ -7594,7 +7592,7 @@ function injectSnapshotToSummary(text, s, snap) {
 // 收盘分析横幅/历史弹窗共用的指标 chips 渲染（双版一致）。
 // snap 存在且未收盘时优先用快照实时值覆盖上证涨跌幅/点位与领涨板块；s 缺值时兜底用快照。
 // 不含恐贪/冰点标签（由调用方自行放置），只返回指标 chips 行 + 领涨板块行。
-// 沪深300四档 chip（四档：牛市·主升/上升期/下降期/熊市·主跌；沪深300 单一指数口径，非综合多指数；展示层，不参与任何过滤/回测）
+// 大盘状态 chip（四档：牛市·主升/上升期/下降期/熊市·主跌；展示层，不参与任何过滤/回测）
 // tooltip 即 §21 算法公示位：判定规则 + 当前各均线值 + 波浪弱叙事 + 主观参考声明
 // 返回 chip HTML 或 ""（s 无 market_state 时）。供 renderSummaryChips / renderIntradayChips 共用，
 // 保证盘中/盘后/历史三处大盘档位 chip 渲染逻辑与 tooltip 完全一致（§21/§22）。
@@ -7606,7 +7604,7 @@ function _renderMarketStateChip(s) {
   const _main = _est || _ms;
   const _msBull = _main.tier.includes("牛市") || _main.tier.includes("上升");
   const _msColor = _msBull ? "#e6492e" : "#2e8b57";
-  let _msTip = `沪深300四档口径：价 vs 年线(MA200) + MA20/60/120 排列 → 四档[牛市·主升/上升期/下降期/熊市·主跌]（沪深300 单一指数口径，非综合多指数）。`;
+  let _msTip = `判定规则：价 vs 年线(MA200) + MA20/60/120 排列 → 四档[牛市·主升/上升期/下降期/熊市·主跌]。`;
   if (_est) {
     // 盘中：今日预估(实时价×昨日均线) vs 昨日实际(最近已收盘档位)
     // 今日日期用后端注入的 date_today(盘中实际今日)，不用 s.date——盘中 s.date 可能被 a_sentiment 回退成昨日
@@ -7627,7 +7625,7 @@ function _renderMarketStateChip(s) {
     // 盘中：今日预估为主、昨日实际为辅（两档都显示，即使相同）
     return `<span class="summary-chip" style="color:${_msColor}" title="${_msTip}">今日：${_est.tier}（预估）<span style="opacity:.62">｜昨日：${_ms.tier}</span></span>`;
   }
-  return `<span class="summary-chip" style="color:${_msColor}" title="${_msTip}">沪深300 · ${_ms.tier}</span>`;
+  return `<span class="summary-chip" style="color:${_msColor}" title="${_msTip}">大盘 · ${_ms.tier}</span>`;
 }
 
 function renderSummaryChips(s, snap) {
@@ -7653,7 +7651,7 @@ function renderSummaryChips(s, snap) {
     if (_dynPrice("sh") != null) shClose = _dynPrice("sh");
   }
   const chips = [];
-  // 沪深300四档 chip（四档；展示层，不参与任何过滤/回测）——抽公共 helper，与盘中 renderIntradayChips 共用
+  // 大盘状态 chip（四档；展示层，不参与任何过滤/回测）——抽公共 helper，与盘中 renderIntradayChips 共用
   const _msChip = _renderMarketStateChip(s);
   if (_msChip) chips.push(_msChip);
   // 上证 chip（涨红跌绿，硬编码语义色）
@@ -7756,7 +7754,7 @@ function renderSummaryChips(s, snap) {
 // 盘中横幅专用 chips：summary 是 T-1 收盘、snap 是 T 盘中时，横幅仅用 snap 实时数据。
 // 只显示 snap 有的字段（上证/深成/创业板/科创50 等指数实时 + 领涨板块），
 // 隐藏 summary 独有指标（恐贪/冰点/涨跌家数/成交额/涨跌停等，盘中不稳定且属 T-1，收盘才有意义）。
-// 沪深300四档 chip 例外：盘中仍展示（用 summary.market_state = 最近已收盘档位，与收盘一致，§22 多展示位一致）。
+// 大盘四档 chip 例外：盘中仍展示（用 summary.market_state = 最近已收盘档位，与收盘一致，§22 多展示位一致）。
 function renderIntradayChips(snap, s) {
   if (!snap || !snap.indices) return "";
   const mainCodes = [
@@ -7766,7 +7764,7 @@ function renderIntradayChips(snap, s) {
     { code: "sh000688", id: "kc50", label: "科创50" },
   ];
   const chips = [];
-  // 沪深300四档 chip：盘中读 summary.market_state（最近已收盘档位），与 renderSummaryChips 共用 helper，保证 tooltip/颜色/档位一致
+  // 大盘状态 chip：盘中读 summary.market_state（最近已收盘档位），与 renderSummaryChips 共用 helper，保证 tooltip/颜色/档位一致
   const _msChip = _renderMarketStateChip(s);
   if (_msChip) chips.push(_msChip);
   for (const { code, id, label } of mainCodes) {
@@ -10540,7 +10538,7 @@ async function renderOverview() {
         const _tLabel = _lunch ? "13:00复牌" : `更新于 ${_intradayDynamicTime || hhmm}`;
         const _pulse = '<span class="dyn-pulse" id="banner-pulse"><span class="dyn-pulse-dot"></span>1min</span>';
         banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中（每日 20:40 更新）">🤖 AI 预测</button><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap, s)}</div>`;
-        // s 保留给盘中轮询 _applyDynamicToChips 复用（沪深300四档 chip 读 s.market_state = 最近收盘档位，§22 一致）
+        // s 保留给盘中轮询 _applyDynamicToChips 复用（大盘四档 chip 读 s.market_state = 最近收盘档位，§22 一致）
         _bannerRenderCtx = { el: banner, s, snap, type: "intraday" };
       } else {
         // 收盘后/同日：原逻辑（标题用 summary.generated_at，chips 用 summary+snap 同日覆盖）
@@ -10587,34 +10585,11 @@ async function renderOverview() {
       // 「📣 今日要闻」外露速览行(重要优先 ≤3,标日期) + 「📅 明日关键事件」行(标日期),一上一下相邻排列。
       // 用户决策 #12(2026-08-16): ①外露行整行可点进(点击打开新闻面弹窗 openNewsDigestModal)+ 行内「更多 →」视觉暗示;
       //   ②两行都无数据时,横幅位置兜底渲染「📰 历史新闻入口」行(点击同样打开新闻面弹窗,弹窗顶部已有"新闻按日期归档"提示,可回看历史)。
+      // 首次渲染 + 启动定时自动刷新(2026-08-18 用户理念"看板不刷新":外露两行每 5 分钟静默重拉 news_digest.json 原地更新,
+      // 不打断页面其他部分;详见 _renderHomeNewsRows/_startHomeNewsPoll 注释)。
       _loadNewsDigest().then((nd) => {
-        const rowToday = _dbHomeTodayNewsRowHtml(nd);
-        const rowNext = _dbNextDayRowHtml(_dbUpcomingEvents(nd), nd);
-        // 兜底: 两行都无数据 → 渲染「历史新闻入口」行(点击打开新闻面弹窗,弹窗支持历史归档回看)。
-        if (!rowToday && !rowNext) {
-          const fb = document.createElement("div");
-          fb.className = "summary-news-row summary-news-fallback";
-          fb.innerHTML = '<div class="db-nextday-row summary-news-entry"><span class="db-nextday-k">📰 历史新闻入口</span><span class="db-nextday-v">点此打开新闻面，按日期查看已归档新闻与大事预告</span><span class="news-more-hint">更多 →</span></div>';
-          fb.addEventListener("click", openNewsDigestModal);
-          if (banner.isConnected) banner.after(fb);
-          else content.insertBefore(fb, banner.nextSibling);
-          _initGlobalTicker(banner); // 2026-08-17 全球盘面跑马灯(纯客户端,插新闻两行下方)
-          return;
-        }
-        // 正常外露两行(至少一行有数据): 整行可点进,行尾「更多 →」。
-        const rowsHtml = rowToday + rowNext;
-        const wrap = document.createElement("div");
-        wrap.className = "summary-news-row summary-news-entry";
-        wrap.innerHTML = rowsHtml + '<div class="summary-news-more">更多 →</div>';
-        wrap.addEventListener("click", (e) => {
-          // 行内无子链接/按钮,统一打开新闻面弹窗(不拦截其他事件)。
-          const t = e.target;
-          if (t && t.closest && t.closest("a,button")) return;
-          openNewsDigestModal();
-        });
-        if (banner.isConnected) banner.after(wrap);
-        else content.insertBefore(wrap, banner.nextSibling);
-        _initGlobalTicker(banner); // 2026-08-17 全球盘面跑马灯(纯客户端,插新闻两行下方)
+        _renderHomeNewsRows(nd, banner, content);
+        _startHomeNewsPoll(banner, content); // 只启动一次,后续轮询原地更新
       }).catch(() => {});
       // ================= 全球盘面跑马灯(2026-08-17,纯客户端零服务器压力) =================
       // 9 全球品种实时价,1行横向滚动,红涨绿跌,齿轮自定排序(顺序存 localStorage)。
@@ -15173,7 +15148,7 @@ async function renderAStock(container = content) {
     const raw = await fetchJSON(`https://ss.fx8.store/r2/index/${id}-all.json`);
     return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats, tiers: raw.tiers || null };
   }, true);
-  // 沪深300 历史四档状态时间线面板(纯展示, v1.1.2; 沪深300 单一口径)
+  // 沪深300 历史四档大盘状态时间线面板(纯展示, v1.1.2)
   await _renderTierTimelinePanel(container);
 }
 
@@ -22292,25 +22267,19 @@ function _dbConclusionHtml(meta) {
 // AI 预测自成长 Step 1 透明展示:本次预测实际注入的「历史反思校准」要点(meta.reflection)。
 // 后端 gen_daily_brief.py 与注入口径同源写进 meta;无 reflection(旧条目/兜底版/无注入样本)整块不渲染(优雅降级)。
 // §23.9 三档互证:标题白话一句 + 正文场景说明 + 下方 1:1 样本明细(日期+类型+简短归因)。
-// 三档联动(2026-08-18):按严格口径命中率档位展示不同标题/强度(及格线以下=加强/及格=正常/良好=轻量/优秀=参考成功模式)。
 function _dbReflectionHtml(meta) {
   const rf = (meta && meta.reflection) || null;
   if (!rf || !rf.n) return "";
   const n = rf.n || 0;
   const injN = rf.injected_n || n;
   const dirFailN = rf.dir_fail || 0;
-  const tier = rf.tier || "normal";
-  const tierTitle = ({ reinforce: "🔍 加强历史反思校准（命中率低于及格线）", normal: "🔍 含历史反思校准", light: "🔍 轻量历史参考（命中率良好）", success: "🔍 参考成功模式（命中率优秀）" })[tier] || "🔍 含历史反思校准";
   const samples = (rf.samples || []).map((s) => {
     const d = String(s.date || "").replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
-    const typeLabel = ({ direction_fail: "方向误判", range_imprecise: "区间不准", partial: "部分命中", direction_only: "仅方向命中" })[s.type] || (s.type || "");
+    const typeLabel = ({ direction_fail: "方向误判", range_imprecise: "区间不准", partial: "部分命中" })[s.type] || (s.type || "");
     return `<li><b>${_esc(d)}</b> ${_esc(typeLabel)}${s.summary ? `：${_esc(s.summary)}` : ""}</li>`;
   }).join("");
-  const brief = (tier === "success")
-    ? `本次预测生成前，系统按严格口径评估近期命中率${rf.hit_rate != null ? `约 ${(rf.hit_rate * 100).toFixed(0)}%` : "--"}（优秀档），建议保持当前分析框架与成功推理模式，避免过度调整已有效的判断方法；结论仍以本次数据为准。`
-    : `本次预测生成前，先参考历史上 ${n} 次失败预测的反思${injN < n ? `（近 ${injN} 次）` : ""}做校准，不是凭空判断；其中方向误判 ${dirFailN} 次${tier === "reinforce" ? "，因近期命中率低于及格线采取加强反思" : tier === "light" ? "，命中率良好仅轻量参考" : ""}。失败教训只作谨慎权衡参考，结论仍以本次数据为准。`;
-  return `<div class="db-reflection"><div class="db-reflection-title">${tierTitle}</div>
-    <p class="db-reflection-brief">${brief}</p>
+  return `<div class="db-reflection"><div class="db-reflection-title">🔍 含历史反思校准</div>
+    <p class="db-reflection-brief">本次预测生成前，先参考历史上 ${n} 次失败预测的反思${injN < n ? `（近 ${injN} 次）` : ""}做校准，不是凭空判断；其中方向误判 ${dirFailN} 次。失败教训只作谨慎权衡参考，结论仍以本次数据为准。</p>
     ${samples ? `<ul class="db-reflection-samples">${samples}</ul>` : ""}</div>`;
 }
 
@@ -22518,7 +22487,7 @@ function _renderDailyBriefStats(brief) {
       `<span class="db-stats-item db-stats-sched">🕗 每日 20:40 更新${genAt}${todayConf ? ` · 今日${todayConf}` : ""}</span>` +
       `<span class="db-stats-item">近30日：<b>${s30 && s30.n ? `${s30.hit}/${s30.n}（${rate(s30)}）` : "暂无样本"}</b></span>` +
       `<span class="db-stats-item">近90日：<b>${s90 && s90.n ? `${s90.hit}/${s90.n}（${rate(s90)}）` : "暂无样本"}</b></span>` +
-      '<details class="db-stats-how-fold"><summary>📊 命中率统计与算法说明 ▸</summary><div class="db-stats-how">AI每日盘后基于当日收盘数据，默认由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测 + 🎯今日要点 + 多角色讨论（展开可看四角色结论与多空辩论）；任一环节失败自动降级单模型生成兜底。meta结构化断言：预测给出<b>明确方向 + 具体涨跌幅区间</b>（大盘上证 + <b>中间层7个全押</b>（深证成指/创业板指/科创50/北证50/恒生指数/恒生科技涨跌幅% + 10年国债收益率变化基点）+ 1-3个领涨/领跌板块次日涨跌幅区间，区间宽度≤0.5%，越窄越准；方向由区间体现：全正=涨/全负=跌/含0=平震荡）。<b>10年国债</b>预测口径为<b>次日收益率变化基点</b>（1基点=0.01%，区间如 +1~-1 即预期次日收益率在 当日−1bp~+1bp，用整数基点、宽度≤3bp），命中=次日实际收益率减当日收益率（×100）落在预期基点区间。命中判定=<b>三层全命中</b>：大盘实际涨跌幅 ∈ 大盘预测区间，且<b>中间层7个全部命中</b>（前6涨跌幅%落各自区间 + 10年国债基点落区间），且所有预测板块实际涨跌幅 ∈ 各自区间（大盘+中间层7押+板块=✅三层命中；任一层数据缺失 N/A 则整体不硬判，标"层级N/A"）。<b>历史老条目</b>（改造前无区间/无中间层的预测）不伪造区间，只保留旧"方向相等"判定（✅仅方向命中）；<b>严格口径（2026-08-18 起）</b>下，<b>仅方向命中（无区间/幅度层可校准）= 未中</b>：计入分母但不计中，同样进入失败反思库。<b>命中率</b>按严格口径计：仅当含区间且三层全命中才算"中"，老条目仅方向命中=未中。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。<b>版本徽标</b>：🤖多角色=6角色完整版（默认）／旧版单模型=多角色版上线前旧版（已被取代）／⚠️降级版=AI生成失败规则兜底（无多角色辩论）／⚠️精简版=最小兜底；降级/精简版仅供参考。每条预测含<b>🧭结论</b>行（融合结论=研究员多空辩论收敛结果，不展开即可见），<b>辩论详情</b>折叠面板可展开看四角色结论与多空论据（含论据数）。<b>增量参考面</b>：预测已综合当天新闻快讯/宏观事件（今日要闻/明日关键事件）/8宽基估值位置（1y/3y历史百分位）等增量参考——AI 在这些面之上判断方向，但这些面本身不参与区间命中判定。<b>历史反思校准（自成长，三档联动）</b>：每次预测生成前，系统按<b>严格口径近30日命中率</b>分档决定反思注入——<b>&lt;50%</b>（及格线以下）=加强反思（注入全部失败样本）；<b>50-75%</b>及格档=正常反思（近3次）；<b>75-90%</b>良好=轻量参考（仅最近一次）；<b>≥90%</b>优秀=参考借鉴（不注入失败样本，改为提示保持近期成功推理模式）。注入样本<b>严格时间隔离</b>（只用本预测日之前已回填的失败样本，防未来函数）；有样本时预测详情块显示反思校准（日期+类型+归因），样本积累中则暂不显示。命中率仅为历史统计，不构成投资建议。</div></details>' +
+      '<details class="db-stats-how-fold"><summary>📊 命中率统计与算法说明 ▸</summary><div class="db-stats-how">AI每日盘后基于当日收盘数据，默认由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测 + 🎯今日要点 + 多角色讨论（展开可看四角色结论与多空辩论）；任一环节失败自动降级单模型生成兜底。meta结构化断言：预测给出<b>明确方向 + 具体涨跌幅区间</b>（大盘上证 + <b>中间层7个全押</b>（深证成指/创业板指/科创50/北证50/恒生指数/恒生科技涨跌幅% + 10年国债收益率变化基点）+ 1-3个领涨/领跌板块次日涨跌幅区间，区间宽度≤0.5%，越窄越准；方向由区间体现：全正=涨/全负=跌/含0=平震荡）。<b>10年国债</b>预测口径为<b>次日收益率变化基点</b>（1基点=0.01%，区间如 +1~-1 即预期次日收益率在 当日−1bp~+1bp，用整数基点、宽度≤3bp），命中=次日实际收益率减当日收益率（×100）落在预期基点区间。命中判定=<b>三层全命中</b>：大盘实际涨跌幅 ∈ 大盘预测区间，且<b>中间层7个全部命中</b>（前6涨跌幅%落各自区间 + 10年国债基点落区间），且所有预测板块实际涨跌幅 ∈ 各自区间（大盘+中间层7押+板块=✅三层命中；任一层数据缺失 N/A 则整体不硬判，标"层级N/A"）。<b>历史老条目</b>（改造前无区间/无中间层的预测）不伪造区间，只保留旧"方向相等"判定（✅仅方向命中），区间命中标"层级N/A"（不算中不算不中），故命中率为新老口径混合统计。<b>命中率</b>仅对改造后含区间的条目计，老条目 N/A 不计入。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。<b>版本徽标</b>：🤖多角色=6角色完整版（默认）／旧版单模型=多角色版上线前旧版（已被取代）／⚠️降级版=AI生成失败规则兜底（无多角色辩论）／⚠️精简版=最小兜底；降级/精简版仅供参考。每条预测含<b>🧭结论</b>行（融合结论=研究员多空辩论收敛结果，不展开即可见），<b>辩论详情</b>折叠面板可展开看四角色结论与多空论据（含论据数）。<b>增量参考面</b>：预测已综合当天新闻快讯/宏观事件（今日要闻/明日关键事件）/8宽基估值位置（1y/3y历史百分位）等增量参考——AI 在这些面之上判断方向，但这些面本身不参与区间命中判定。<b>历史反思校准（自成长）</b>：每次预测生成前，系统会读历史失败预测样本（方向/区间误判+归因）做反思注入，让模型参考既往失误谨慎校准本次判断（严格时间隔离，只用本预测日之前已回填的失败样本，防未来函数）；有样本时预测详情块显示「🔍 含历史反思校准」及参考的具体失败样本（日期+类型+归因），样本积累中则暂不显示。命中率仅为历史统计，不构成投资建议。</div></details>' +
     '</div>';
 }
 
@@ -22528,8 +22497,11 @@ function _renderDailyBriefStats(brief) {
 // 三展示位共用:①首页 AI 预测卡「📅明日关键事件」行 ②AI预测弹窗「今日要闻/宏观日历」区块 ③历史收盘分析「事件对照」。
 // 数据缺失(未上线/非当日/空/解析失败)=各展示位空态 guard,不渲染不报错(§23.2 后端与前端同一数据源,展示位不自行重算)。
 let _newsDigestCache = null;
+let _newsDigestTs = 0;              // 缓存时间戳(ms)
+const _NEWS_DIGEST_TTL = 5 * 60 * 1000; // 缓存有效期 5 分钟:超时后即使不带 force 也自动重拉(弹窗/历史对照点开即拿到新数据,符合"看板不刷新"理念)
 
-// 加载 news_digest.json 一次并缓存;失败缓存为全空对象(标记 err),避免反复重试空转。
+// 加载 news_digest.json 并缓存;失败缓存为全空对象(标记 err),避免反复重试空转。
+// force=true 强制绕过缓存重拉(fetchJSON 结果缓存 + 浏览器缓存,用带时间戳 URL 破两处),供首页外露行轮询使用。
 // 本地"当日" 日期(YYYY-MM-DD,本地时区)。news_digest 的 date 为采集目标日,故用本地今日比对判断"是否为今日新闻"。
 function _newsTodayStr() {
   const n = new Date();
@@ -22543,10 +22515,14 @@ function _newsTodayStr() {
 // 非交易日(周六/周日)的当日新闻也真实存在并对周一预测有价值,照常显示。
 // 故不再强求 date==本地今日 0 点(周末/跨零点仍显示当日累积),仅当 news 为空才不显示。
 // 所有消费点统一走此 guards:_dbHomeTodayNewsRowHtml|_dbNextDayRowHtml|弹窗|历史对照均读本缓存。
-async function _loadNewsDigest() {
-  if (_newsDigestCache) return _newsDigestCache;
+async function _loadNewsDigest(force) {
+  const now = Date.now();
+  // 缓存有效期内直接返回(不带 force 或未超 TTL);force=true 或缓存超 5 分钟自动重拉。
+  if (_newsDigestCache && !force && (now - _newsDigestTs) < _NEWS_DIGEST_TTL) return _newsDigestCache;
+  // force 重拉:给 URL 加时间戳,同时绕过 fetchJSON 结果缓存(_resultCache 按完整 url 含 query 缓存)与浏览器 HTTP 缓存。
+  const url = force ? "./data/news_digest.json?_=" + Date.now() : "./data/news_digest.json";
   try {
-    const raw = await fetchJSON("./data/news_digest.json");
+    const raw = await fetchJSON(url);
     const date = (raw && raw.date) || "";
     let news = (raw && Array.isArray(raw.news)) ? raw.news : [];
     // 当日 news_digest.json 存在即有值得显示(每小时采集的当日累积);不过滤 date==今日(非交易日也显示)。
@@ -22558,15 +22534,89 @@ async function _loadNewsDigest() {
       news,
       upcoming: (raw && Array.isArray(raw.upcoming)) ? raw.upcoming : [],
       date,
-      // 数据日期过期守卫(2026-08-18 818-fix): date 存在且早于本地今日 = 采集/上线滞后的旧数据,
-      // stale=true。明日关键事件/今日要闻行据此不把「昨日当明日/当日」,改标「(数据待更新)」。
-      stale: !!(date && date < _newsTodayStr()),
       err: "",
     };
+    _newsDigestTs = Date.now();
   } catch (e) {
-    _newsDigestCache = { news: [], upcoming: [], date: "", stale: false, err: String((e && e.message) || e) };
+    // 重拉失败:保留旧缓存内容(不覆盖),仅更新失败标记,避免首页外露行闪空/闪烁。
+    if (_newsDigestCache) _newsDigestCache.err = String((e && e.message) || e);
+    else _newsDigestCache = { news: [], upcoming: [], date: "", err: String((e && e.message) || e) };
+    _newsDigestTs = Date.now();
   }
   return _newsDigestCache;
+}
+
+// ================= 首页新闻外露行渲染 + 定时自动刷新(2026-08-18 用户理念"看板不刷新") =================
+// 首页 AI 预测卡下方「📣 今日要闻 / 📅 明日关键事件」两行,默认只在页面加载时渲染一次。
+// 后端 fetch_news 每 1 小时增量采集 news_digest.json(累积当日快照),若不刷新页面外露行会停在下拉时的旧快照。
+// 故:①首次渲染同原有逻辑 ②启动 _startHomeNewsPoll 每 5 分钟轮询 _loadNewsDigest(true) 强制重拉并原地更新两行,
+//   不打断用户、不动页面其他部分、失败保持旧内容不闪动(§23.3 弹窗/历史对照仍走 _loadNewsDigest 缓存,靠 TTL 自动重拉拿新数据)。
+let _homeNewsWrap = null;      // 正常两行容器(轮询原地更新用)
+let _homeNewsFallback = null;  // 兜底「历史新闻入口」行容器
+function _renderHomeNewsRows(nd, banner, content) {
+  const rowToday = _dbHomeTodayNewsRowHtml(nd);
+  const rowNext = _dbNextDayRowHtml(_dbUpcomingEvents(nd), nd);
+  const hasData = !!(rowToday || rowNext);
+  // 形态切换:正常两行 ↔ 兜底历史入口行 之间互斥,切换时移除另一形态(轮询后数据有无变化也能正确切换)。
+  if (hasData && _homeNewsFallback) { _homeNewsFallback.remove(); _homeNewsFallback = null; }
+  if (!hasData && _homeNewsWrap) { _homeNewsWrap.remove(); _homeNewsWrap = null; }
+  if (hasData) {
+    // 已存在则原地更新内容(不加加载态/不闪烁),否则首次创建并插入。
+    if (_homeNewsWrap) {
+      _homeNewsWrap.innerHTML = rowToday + rowNext + '<div class="summary-news-more">更多 →</div>';
+      return;
+    }
+    const wrap = document.createElement("div");
+    wrap.className = "summary-news-row summary-news-entry";
+    wrap.innerHTML = rowToday + rowNext + '<div class="summary-news-more">更多 →</div>';
+    wrap.addEventListener("click", (e) => {
+      // 行内无子链接/按钮,统一打开新闻面弹窗(不拦截其他事件)。
+      const t = e.target;
+      if (t && t.closest && t.closest("a,button")) return;
+      openNewsDigestModal();
+    });
+    _homeNewsWrap = wrap;
+    if (banner.isConnected) banner.after(wrap);
+    else content.insertBefore(wrap, banner.nextSibling);
+    _initGlobalTicker(banner); // 2026-08-17 全球盘面跑马灯(纯客户端,插新闻两行下方)
+    return;
+  }
+  // 兜底: 两行都无数据 → 渲染「历史新闻入口」行(点击打开新闻面弹窗,弹窗支持历史归档回看)。
+  if (_homeNewsFallback) return; // 已存在不动
+  const fb = document.createElement("div");
+  fb.className = "summary-news-row summary-news-fallback";
+  fb.innerHTML = '<div class="db-nextday-row summary-news-entry"><span class="db-nextday-k">📰 历史新闻入口</span><span class="db-nextday-v">点此打开新闻面，按日期查看已归档新闻与大事预告</span><span class="news-more-hint">更多 →</span></div>';
+  fb.addEventListener("click", openNewsDigestModal);
+  _homeNewsFallback = fb;
+  if (banner.isConnected) banner.after(fb);
+  else content.insertBefore(fb, banner.nextSibling);
+  _initGlobalTicker(banner); // 2026-08-17 全球盘面跑马灯(纯客户端,插新闻两行下方)
+}
+
+// 定时自动刷新:setTimeout 递归(复用分时图/全球跑马灯 _gtSchedule 惯例),每 5 分钟轮询一次;
+// 页面隐藏暂停,重拉失败保持旧内容(next 轮再试),单飞防重入。跨日时 news_digest.date 切新一天,
+// _dbTomorrowDateCn/_dbNewsDateCn 自动跟随新日期标注,无需额外处理。
+let _homeNewsTimer = null;
+let _homeNewsPolling = false;
+function _startHomeNewsPoll(banner, content) {
+  if (_homeNewsTimer) return; // 只启动一次
+  const POLL_MS = 5 * 60 * 1000; // 5 分钟,覆盖 fetch_news 每小时增量
+  const poll = () => {
+    _homeNewsTimer = setTimeout(async () => {
+      _homeNewsTimer = null;
+      if (document.hidden) { poll(); return; } // 页面隐藏暂停(复用分时图习惯)
+      if (_homeNewsPolling) { poll(); return; } // 单飞防重入
+      _homeNewsPolling = true;
+      try {
+        const nd = await _loadNewsDigest(true); // 强制绕过缓存重拉
+        if (document.hidden) { poll(); return; }
+        _renderHomeNewsRows(nd, banner, content); // 原地更新两行(失败时 _loadNewsDigest 保留旧缓存,这里不闪空)
+      } catch (e) { /* 重拉失败保持旧内容,下一轮再试 */ }
+      _homeNewsPolling = false;
+      poll();
+    }, POLL_MS);
+  };
+  poll();
 }
 
 // 明日关键事件:从 upcoming 取重要优先 ≤5;upcoming 空则回退 news 重要 ≤3。
@@ -22591,11 +22641,8 @@ function _dbTodayNews(nuth) {
 // 首页 AI 预测卡「📅 明日关键事件」行:压缩单行(无数据返回空串,guard 不显示)。nuth 用于取 date 推断明日日期标注(label)。
 function _dbNextDayRowHtml(evts, nuth) {
   if (!evts || !evts.length) return "";
-  // 数据过期守卫(2026-08-18 818-fix): 数据 date 早于今日时,不把「昨日当明日」(否则显示错位的明日=今日),
-  // 改标「(数据待更新)」提示数据滞后;upcoming 预告仍保留展示,但不标误导日期。
-  const stale = nuth && nuth.stale;
-  const dayCn = stale ? "" : _dbTomorrowDateCn(nuth && nuth.date);
-  const label = stale ? "📅 明日关键事件（数据待更新）" : (dayCn ? `📅 明日关键事件（${dayCn}）` : "📅 明日关键事件");
+  const dayCn = _dbTomorrowDateCn(nuth && nuth.date);
+  const label = dayCn ? `📅 明日关键事件（${dayCn}）` : "📅 明日关键事件";
   const items = evts.slice(0, 3).map((e) =>
     `${_esc(String(e.time || ""))} ${_esc(String(e.title || "").slice(0, 42))}`
   ).join("　|　");
@@ -22625,11 +22672,8 @@ function _dbTomorrowDateCn(date) {
 function _dbHomeTodayNewsRowHtml(nuth) {
   const today = _dbTodayNews(nuth);
   if (!today.length) return "";
-  // 数据过期守卫(2026-08-18 818-fix): 同明日行,数据旧时不把「昨日新闻」标成「今日要闻(date)」,
-  // 改标「(数据待更新)」避免误导为当日新闻。
-  const stale = nuth && nuth.stale;
-  const dateCn = stale ? "" : _dbNewsDateCn(nuth && nuth.date);
-  const label = stale ? "📣 今日要闻（数据待更新）" : (dateCn ? `📣 今日要闻（${dateCn}）` : "📣 今日要闻");
+  const dateCn = _dbNewsDateCn(nuth && nuth.date);
+  const label = dateCn ? `📣 今日要闻（${dateCn}）` : "📣 今日要闻";
   const items = today.slice(0, 3).map((n) =>
     `${_esc(String(n.time || ""))} ${_esc(String(n.title || "").slice(0, 42))}`
   ).join("　|　");
