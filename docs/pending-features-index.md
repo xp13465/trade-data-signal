@@ -128,7 +128,7 @@
 |---|---|---|---|---|
 | 63 | **v1.1.2 凯利三键改造** | 2026-08-17 用户拍板三开关设计 + §5.4⑥ 版本升级原则 | excludeSpecialBear 从 MA60 熊 升级四档判定(默认开主键)+ 2 默认关备选键(legacyMa60Special 老MA60熊×追买 / declinePhaseSpecial 下降期×buy_special)+ NEW 徽标;tag v1.1.2,§5.4 基准升级(四档升级仍 8 键+2 备选默认关不计数);R1_all +65,551 复现 | **已实施待 merge 验收**(2026-08-18 implementer 完成,feat/v112-kelly-3keys-plus-track,reviewer 验收中) |
 | 64 | **历史四档轨迹图** | 2026-08-17 用户拍板形态 | hs300 走势图底部四档色带(涨红跌绿)+独立时间线面板(近1年/近5年/全史2002切换)+tooltip 显示大盘四档;market_tier_history.json 5773条(2002-11-08起);纯展示不影响过滤(§23.7) | **已实施待 merge 验收**(2026-08-18,同 v1.1.2 分支;数据产物 gitignored 待 R2/deploy 上线) |
-| 69 | **四档升级 v2:excludeSpecialBear 判定源换单指数 cyb(创业板)** | docs/market-state/kelly-fourtier-v2-multiindex.md(2026-08-18 researcher 穷举) | v1.1.2 已上线主键 excludeSpecialBear 现判定源硬编码 hs300,回测实测 G 模式负边际(-8,053 vs 无键);15 套判定源穷举全 ≥ 基准,最优=单指数 cyb 四档排除{熊市·主跌,下降期}(G +16,720/+12.86pp,9 模式 8 正,cap/分半全优,按年总量正分布不均 2023 -10,237;**稳定性补测(kelly-fourtier-v2-multiindex-stability.md):cyb 是总量赢家非逐年稳定赢家,按年 Δ=-9,703 有负年,需用户知悉此权衡再拍板**);次优=投票 core8 最差(G +15,504 但 A-F 短持模式负);另议首页「多指数档位展示」副 chip(研究层,纯展示) | **未派待用户拍板**(§23.7 动 v1.1.2 默认主键判定源=B+级,须用户确认;实施走 §21 公示+§23.6 联动+§22 三步) | **未派** |
+| 69 | **四档升级 v2:excludeSpecialBear 判定源换单指数 cyb(创业板)** | docs/market-state/kelly-fourtier-v2-multiindex.md(2026-08-18 researcher 穷举) | v1.1.2 已上线主键 excludeSpecialBear 现判定源硬编码 hs300,回测实测 G 模式负边际(-8,053 vs 无键);15 套判定源穷举全 ≥ 基准,最优=单指数 cyb 四档排除{熊市·主跌,下降期}(G +16,720/+12.86pp,9 模式 8 正,cap/分半全优,按年总量正分布不均 2023 -10,237;**稳定性补测(kelly-fourtier-v2-multiindex-stability.md):cyb 是总量赢家非逐年稳定赢家,按年 Δ=-9,703 有负年,需用户知悉此权衡再拍板**);次优=投票 core8 最差(G +15,504 但 A-F 短持模式负);另议首页「多指数档位展示」副 chip(研究层,纯展示) | **待办(2026-08-19 用户定方向,等安排再实施)**:不动 v1.1.2 默认主键(保留 hs300 判定源),改为新增**非默认推荐的降亏新标志**(excludeSpecialBear 的 cyb 四档版,默认关+NEW 标),页面加开关供人工复测看数据变化;实施走 §21 公示+§23.6 联动+§22 三步 | **未派** |
 | 65 | **优化批次 B:采集层提速** | docs/ab-refactor-bug-reflection.md + docs/optimization-closeout-list.md §3.1 | ab37 baostock 降并发+熔断(10001011 黑名单 re-login 增强)/ ab38 core 采集提速(删 sw 指数注意波及 board_etf_map/凯利/首页 §22/§23.6) | **待办**(2026-08-18 建,任务 #21) |
 | 66 | **优化批次 C:O2 etf_score 提速** | docs/update-all-20260817-88min-analysis.md | export_etf_score_list.py L580 workers 6→8-10+空返降重试,省 2-3min | **待办**(2026-08-18 建,任务 #21) |
 | 67 | **优化批次 D:宇宙规则首页 1:1 走查+双副本清理** | pending #51/#56 | 首页读 _bt_in_universe 无自算+8 步联动走查(#51);signal_notified.json 双副本 symlink+断言 REPO 落 trade-data(#56) | **待办**(2026-08-18 建,任务 #22,等 v1.1.2 合完避同文件冲突) |
@@ -143,6 +143,14 @@
 | 70 | **三缺口① base 新鲜度事前校验**(开工强制 rebase origin/main + commit 前校验 base 新鲜) | docs/conflict-overwrite-triggers-2026-08-18.md 三缺口 | worktree 开工前强制 `git rebase origin/main` 或校验 base 新鲜度;commit 前校验「工作树内容==提交基点」防 stale base 提交(本次 bf8841966 被 e3fa985c3 覆盖根因) | **待办**(2026-08-19 建,任务 #21) |
 | 71 | **C 同文件并发串行工具化 + worktree agent 不 bump 版本串** | docs/conflict-overwrite-rootcause-2026-08-18.md 建议C | app.js/lab.js/common.js 等大文件同时只允许 1 个 agent 持有改动权(主控派单前核对在跑 agent 文件范围,工具化串行排队);版本串统一由主控 merge 时跑一次 build_min+bump(消 aXXX 撞号 + stale bump),worktree agent 不自行 bump | **待办**(2026-08-19 建,任务 #21) |
 | 72 | **D push main 统一入口 + 三缺口③ bump 模式唯一权威** | docs/conflict-overwrite-rootcause-2026-08-18.md 建议D | agent 只推 feat 分支,merge+push main 由主控统一走(含 §24⑤+bump 校验);agent 完成报告必带「base commit + 版本串前后值」;bump 模式唯一权威入口(消除 §24 撞号二义) | **待办**(2026-08-19 建,任务 #21) |
+
+## 十三、多指数四档展示扩展(2026-08-19 用户定,纯展示,等安排再实施)
+
+> 背景:hs300 已有四档色带/轨迹图(历史轨迹图 #64 已实施待 merge)。用户 2026-08-19 看四档升级 v2 多指数稳定性报告后,想其他宽基也展示各自四档。**已明确:纯展示(每个指数自己的四档,价 vs 自己 MA200 + MA排列),不影响过滤;不需要回测报告(展示自己状态无选优问题,与 hs300 现有色带同构)**。用户问过 sh 用 core5/core8 还是独立 → 拍板独立做(core5/core8 融合四档是判定源/全局市场状态概念,不进单指数卡片,语义会乱)。实施前确认各指数 index_daily 数据起点长度(kc50 起点 2020,历史色带短一截属正常)。
+
+| # | 项 | 出处 | 说明 | 状态 |
+|---|---|---|---|---|
+| 73 | **多指数四档展示:cyb/kc50/sh/sz/csi500/sz50/csi1000 各自四档色带/轨迹图**(hs300 已有) | docs/market-state/kelly-fourtier-v2-multiindex-stability.md + 用户 2026-08-19 拍板 | 后端 per-index 注入 tiers(现仅 hs300:app/queries.py index_detail L1683 写死 `index_id=='hs300'`),四档算法按各指数自己的价 vs MA200 + MA20/60/120 排列(index_daily 已含 8 宽基数据);前端色带/轨迹图放开给 7 指数;纯展示不影响过滤(§23.7 只增不改);走 §24 版本串+§22 三步同步;core5/core8 融合四档不在本项(研究层,仅当未来做判定源才需报告) | **待办**(2026-08-19 用户定,等安排再实施) | **未派** |
 
 ## 【已排除清单】已上线/已在跑(不要重复派)
 
