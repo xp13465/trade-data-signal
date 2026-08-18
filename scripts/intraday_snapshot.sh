@@ -153,10 +153,17 @@ fi
 #       必须同时接 ①R2 上传 ②staticdata 同步」）。用户已确认盘中每 10 分钟同步。
 #       文件列表与 upload-intraday 清单一致（intraday 盘中实际更新的小 json），
 #       非 --all 全量（避免拖慢高频任务+引入无关文件）。staticdata_sync.sh 内部
-#       持 /tmp/trade_deploy.lock 阻塞（与 deploy 串行化）+ best-effort 失败不阻塞，
-#       无需额外 try/catch。放 R2 上传成功后（R2 失败也不重复告警）。
+#       持 /tmp/trade_deploy.lock + best-effort 失败不阻塞，无需额外 try/catch。
+#       放 R2 上传成功后（R2 失败也不重复告警）。
+#       2026-08-18 修复:STATICDATA_SYNC_NONBLOCK=1 让本调用走 with_lock.py --nb 非阻塞锁。
+#       背景:20:35 盘后轮 staticdata 同步曾被 20:07 etf 全量 deploy(持锁 21min)+20:05
+#       futures deploy 背靠背占锁卡死 → intraday_snapshot 701s 超 600s 告警。改 skip-if-busy:
+#       锁被 deploy 占用则跳过本次同步（灾备缺口由 etf deploy 的 staticdata 全量 rsync 兜底,
+#       20:46 那轮 etf deploy 已把 intraday 文件一起 rsync 掉,故跳过显示"无新变更"正常）,
+#       不阻塞快照流程。改后 20:35 轮应回到 ~440s。其余调用方(gen_daily_brief/fetch_news)
+#       不置此 env,仍走阻塞版,不受影响。
 echo "-> 同步 intraday 数据到 staticdata 仓库（灾备留档）..." | tee -a "$LOG"
-bash "$GIT_REPO/scripts/staticdata_sync.sh" intraday \
+STATICDATA_SYNC_NONBLOCK=1 bash "$GIT_REPO/scripts/staticdata_sync.sh" intraday \
   intraday_snapshot.json overview.json summary.json summary_history.json \
   notifications.json boot.json schedule_stats.json \
   a-stock-3m.json a-stock-6m.json a-stock-1y.json \

@@ -30,10 +30,19 @@ PY="${PY:-$REPO/.venv/bin/python}"
 LOCK="/tmp/trade_deploy.lock"
 
 # ── 持锁重入 ──
-# 整个同步在 /tmp/trade_deploy.lock 内执行(阻塞等 deploy 完成再同步),避免并发写。
+# 整个同步在 /tmp/trade_deploy.lock 内执行,避免并发写同一 staticdata git 仓库
+# (git index.lock 冲突 + add 半截 JSON)。
+#   默认阻塞等 deploy 完成再同步(与 deploy.sh/pipeline 串行化,防并发写)。
+#   STATICDATA_SYNC_NONBLOCK=1 时用 with_lock.py --nb 非阻塞:锁被 deploy 占用即跳过本次,
+#   不等待(用于高频 intraday 快照:灾备缺口由 etf deploy 的 staticdata 全量 rsync 兜底,
+#   锁忙时跳过不阻塞快照流程,见 intraday_snapshot.sh 2.53 注释)。
 if [ "${STATICDATA_SYNC_LOCKED:-}" != "1" ]; then
   export STATICDATA_SYNC_LOCKED=1
-  exec "$PY" "$GIT_REPO/scripts/with_lock.py" "$LOCK" bash "$0" "$@"
+  if [ "${STATICDATA_SYNC_NONBLOCK:-}" = "1" ]; then
+    exec "$PY" "$GIT_REPO/scripts/with_lock.py" --nb "$LOCK" bash "$0" "$@"
+  else
+    exec "$PY" "$GIT_REPO/scripts/with_lock.py" "$LOCK" bash "$0" "$@"
+  fi
 fi
 
 TRIGGER="${1:-manual}"

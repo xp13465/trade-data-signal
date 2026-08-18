@@ -295,7 +295,7 @@ DUR_THRESHOLDS = {
     "intraday_snapshot": 600,   # 10min
     "update_all": 4200,         # 70min(实测 max 3609s, 2026-08-14)
     "backfill_evening": 4500,   # 75min(实测 max ~3707s 21:00槽 08-10)
-    "us_stock_morning": 900,    # 15min
+    "us_stock_morning": 1800,   # 30min(任务本身秒级,慢在全量 deploy 17-26min 恒超 900s;2026-08-18 900->1800)
 }
 # stats 初始化(2026-08-14 A1 补): A1 进行中检测块引用 stats, 须保证 STATS_FILE 不存在/
 #   解析失败时 stats 仍为 [] 而非 NameError(否则进行中检测整块崩溃)。
@@ -410,7 +410,7 @@ if STATS_FILE.exists():
             # intraday ~7min正常 >600s(10min)告警(重叠下一10min槽=下轮读旧数据);
             # update_all 正常 max~60min(实测3609s) >4200s(70min)告警; backfill 正常 max~62min
             #   (21:00槽08-10 3707s) >4500s(75min)告警; (2026-08-14 依实测重标)
-            # us_stock_morning ~10min >900s(15min)告警。
+            # us_stock_morning 任务本身秒级,但全量 deploy(17-26min)恒超 900s;2026-08-18 阈值 900->1800(30min)。
             # 只检查最近 24h 内完成的任务(stale 不重复告警,同 exit/log_anomaly 逻辑)。
             # 恢复检测: dur 降回阈值内 -> key 未 seen -> L476 恢复循环自动发恢复邮件。
             _dur = s.get("last_duration_sec")
