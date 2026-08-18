@@ -17,7 +17,11 @@
   - 三源独立 try/except,单源失败不影响其他源落盘。
   - 只保留「目标日期当天」的条目;总量 ≤ NEWS_CAP 条,重要(important/level)优先。
   - title 跨源相似去重(归一化:转大写 + 去空白/标点 后比较)。
-  - 预告提取:标题含「预告/将于/公布/举行/发布」等关键词 → kind=upcoming,另入 upcoming 段。
+  - 排序口径(2026-08-18 用户定):upcoming 段最前 → 段内(重要度 → 时间新)优先,
+    今日要闻按重要程度排序(不用时间序)。
+  - 明日关键事件(upcoming)判定(2026-08-18 修 bug):基于标题日期解析,仅当解析出的
+    事件日期 == 目标日+1(明天)才进 upcoming;今天已发布/已发生(日期=今天或解析不出
+    明确未来日期)一律 news,宁缺毋滥,绝不把当日新闻/隔多天事件当「明日关键事件」。
 
 输入依赖:
   - 数据源:三源公开 HTTP 接口(免签,仅 UA / 固定 header)。
@@ -73,9 +77,6 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 NEWS_CAP = 40          # news 总量上限
-SCORE_IMPORTANT = 2    # important 条目 +2 分
-SCORE_BASE = 1         # 普通当天条目 +1 分
-SCORE_KIND_UPCOMING = 3  # 预告类额外加权,保证预告优先保留
 
 UA = {
     "User-Agent": (
@@ -284,22 +285,106 @@ def fetch_jin10(day_str: str, max_pages: int = 30):
     return out
 
 
-# ── 预告提取 ──
-_UPCOMING_KW = ("预告", "将于", "公布", "举行", "发布")
+# ── 预告提取(2026-08-18 修 bug:基于「标题日期解析」判定是否明日事件,不再用关键词) ──
+# 背景(用户点名):upcoming 段被「今天已发布/已发生的新闻」污染(海康威视发布/黄金震荡/英国失业率
+#   公布/高盛发布研报等,全是含「发布/公布」等动词的当日新闻),也有隔多天的未来事件(上合论坛 9/14、
+#   商务部 8/20、交通部 8/20)。根因 = 旧 classify_kind 用 _UPCOMING_KW=("预告","将于","公布","举行","发布")
+#   只要标题含任一关键词就归 upcoming,完全没解析标题里的日期 → 今日新闻被误判为「明日关键事件」。
+# 修法(§23.2 修完整/宁缺毋滥,用户原话「明日关键事件必须全是明天的事件」):
+#   - upcoming 判定的唯一依据 = 标题解析出的明确事件日期 == 目标日+1(明天);
+#   - 今天已发布/已发生(日期=今天或解析不出明确未来日期)一律 news,绝不进 upcoming;
+#   - 解析不出明确「明天」日期的宁缺毋滥不进 upcoming。
+
+
+def _parse_event_date(title: str, target) -> "dt.date | None":
+    """从标题解析「事件发生的绝对日期」,返回 dt.date 或 None(解析不出/不明确)。
+
+    支持模式(宁缺毋滥,解析不出明确未来日期返回 None):
+      - 「YYYY年X月X日」(显式年份,处理跨年)
+      - 「明日」/「明天」→ target+1
+      - 「X月X日」/「X月X-Y日」/「X月X日至X日」(取起始日;无年份时 mo<target.month 视为跨年次年)
+      - 「X日」(无月份,归属 target 当月,当月已过则归属下月)
+      - 「周X」(星期X:只收「==明天」的周X,其余跨周边界宁缺毋滥返回 None)
+    返回的日期用于与 target+1 比较判定是否「明日事件」。
+    """
+    # 显式年份 + 月日(如「2026年8月20日」;「2027年预算」的 2027 不是事件日期,不匹配)
+    m = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})[日号]", title)
+    if m:
+        y, mo, d = int(m[1]), int(m[2]), int(m[3])
+        try:
+            return dt.date(y, mo, d)
+        except ValueError:
+            return None
+    # 明日 / 明天
+    if re.search(r"明日|明天", title):
+        return target + dt.timedelta(days=1)
+    # X月X日(可能带范围 至/到/[-—],取起始日)
+    m = re.search(r"(\d{1,2})月(\d{1,2})(?:[日号])(?:\s*(?:至|到|[-—])\s*\d{1,2}[日号])?", title)
+    if m:
+        mo, d = int(m[1]), int(m[2])
+        y = target.year
+        if mo < target.month:  # 无年份且月份已过 → 跨年(如 12月→次年1月)
+            y += 1
+        try:
+            return dt.date(y, mo, d)
+        except ValueError:
+            return None
+    # X日(无月份):归属 target 当月(若已过则下月)
+    m = re.search(r"(?<![0-9月])(\d{1,2})[日号]", title)
+    if m:
+        d = int(m[1])
+        cands = [(target.year, target.month)]
+        if target.month == 12:
+            cands.append((target.year + 1, 1))
+        else:
+            cands.append((target.year, target.month + 1))
+        for y, mo in cands:
+            try:
+                cand = dt.date(y, mo, d)
+            except ValueError:
+                continue
+            if cand >= target:
+                return cand
+        return None
+    # 周X(星期):只收「==明天」的周X,否则不确定(跨周边界)宁缺毋滥
+    weekday_map = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6}
+    m = re.search(r"周([一二三四五六日天])", title)
+    if m:
+        wd = weekday_map[m.group(1)]
+        tomorrow = target + dt.timedelta(days=1)
+        return tomorrow if tomorrow.weekday() == wd else None
+    return None
+
+
+# 东财 7x24 无重要度字段,用「前瞻/重磅/宏观机构」等关键词做重要度近似(cls/jin10 用数据源自带 important)。
+# 2026-08-18 收紧:去掉「发布/公布/举行」等纯状态动词(它们不表示重要,是「发生了」),避免营销/行情标题
+#   (黄金震荡—增强版发布/新版发布/高盛发布研报)被标重要挤占「今日要闻按重要度排序」的头部。
+_IMPORTANT_KW = ("预告", "将于", "定于", "即将", "重磅", "突发", "首次", "首发",
+                 "央行", "国常会", "证监会", "统计局", "发布会", "国务院", "财政部")
 
 
 def _is_important_title(t: str) -> bool:
-    return any(k in t for k in _UPCOMING_KW)
+    return any(k in t for k in _IMPORTANT_KW)
 
 
-def classify_kind(title: str) -> str:
-    return "upcoming" if _is_important_title(title) else "news"
+def classify_kind(title: str, target) -> str:
+    """upcoming 判定 = 标题解析出的事件日期 == 明天(target+1);否则 news(宁缺毋滥)。"""
+    try:
+        d = _parse_event_date(title, target)
+    except Exception:  # noqa: BLE001
+        d = None
+    return "upcoming" if (d is not None and d == target + dt.timedelta(days=1)) else "news"
 
 
 # ── 汇总 + 去重 + 排序 ──
-def build_digest(day_str, sources_map):
-    """三源 raw 列表 → (news, upcoming) 两个已排序截断列表。"""
-    # 评分排序准备
+def build_digest(day_str, sources_map, target):
+    """三源 raw 列表 → (news, upcoming) 两个已排序截断列表。
+
+    排序口径(2026-08-18 用户定「今日要闻按重要程度排序,不要时间序」):
+      - upcoming 段整体排最前(防被 cap 截断,保证明日事件优先保留);
+      - 段内统一 (重要度 important 优先 → 时间新优先) 二级排序;
+      - news 段 = 重要度优先 → 时间新优先,不再让时间主导。
+    """
     combined = []
     for src, items in (
         ("eastmoney", sources_map.get("eastmoney")),
@@ -319,19 +404,17 @@ def build_digest(day_str, sources_map):
         if not nt or nt in seen_titles:
             continue
         seen_titles.add(nt)
-        kind = classify_kind(it["title"])
+        kind = classify_kind(it["title"], target)
         it["kind"] = kind
         unique.append(it)
 
-    # 排序:重要优先 → 预告优先 → 时间新优先
-    def score(it):
-        s = SCORE_IMPORTANT if it.get("important") else 0
-        if it.get("kind") == "upcoming":
-            s += SCORE_KIND_UPCOMING
-        s += SCORE_BASE
-        return s
+    # 排序:upcoming 段最前 → 段内 (重要度 → 时间新) 优先
+    def sort_key(it):
+        return (1 if it["kind"] == "upcoming" else 0,
+                1 if it.get("important") else 0,
+                it.get("time", ""))
 
-    unique.sort(key=lambda it: (score(it), it.get("time", "")), reverse=True)
+    unique.sort(key=sort_key, reverse=True)
 
     # news 总量控制
     capped = unique[:NEWS_CAP]
@@ -354,31 +437,31 @@ def _dedup_news_items(items: list) -> list:
     return out
 
 
-def _merge_new_into_archive(archive_raw: dict, new_raw: list, sources_map: dict) -> tuple:
+def _merge_new_into_archive(archive_raw: dict, new_raw: list, sources_map: dict, target) -> tuple:
     """把本次采集的当天条目(new_raw)合并进既有归档(archive_raw),累积幂等。
 
     新闻数据源(东财 page_size=50 / 财联社 / 金十)每次拉取基本是「当天全量快照」,
     叠加每小时跑 = 把既有归档所有条目 union 本次条目再整体去重/排序/截断:
       - 既有 + 本次 一起 title 归一化去重(补之前因数据源翻页波动漏掉的条目 / 新到条目)。
-      - 排序规则沿用 build_digest(重要优先 → 预告优先 → 时间新优先),截断 NEWS_CAP。
+      - 2026-08-18 修 bug:kind 一律用新日期解析重算(不沿用归档旧 kind,清掉旧代码误分的
+        「今天已发布却标 upcoming」残留,保证明日关键事件全为明天事件)。
+      - 排序规则沿用 build_digest(upcoming 段最前 → 段内 重要度 → 时间新优先),截断 NEWS_CAP。
     返回 (news, upcoming)。archive_raw 可为 None(首采/无归档)。
     """
     combined = list((archive_raw or {}).get("news") or []) + list(new_raw)
     combined = _dedup_news_items(combined)
 
-    # 补 kind(归档里已带;新拉取的由 build_digest 已带,兜底补)
+    # 补 kind(强制用新日期解析重算,不沿用归档旧 kind)
     for it in combined:
-        it.setdefault("kind", classify_kind(it.get("title") or ""))
+        it["kind"] = classify_kind(it.get("title") or "", target)
 
     # 排序 + 截断(复用 build_digest 内联规则,保证首采/合并同序)
-    def score(it):
-        s = SCORE_IMPORTANT if it.get("important") else 0
-        if it.get("kind") == "upcoming":
-            s += SCORE_KIND_UPCOMING
-        s += SCORE_BASE
-        return s
+    def sort_key(it):
+        return (1 if it["kind"] == "upcoming" else 0,
+                1 if it.get("important") else 0,
+                it.get("time", ""))
 
-    combined.sort(key=lambda it: (score(it), it.get("time", "")), reverse=True)
+    combined.sort(key=sort_key, reverse=True)
     capped = combined[:NEWS_CAP]
     upcoming = [it for it in capped if it["kind"] == "upcoming"]
     news = [it for it in capped if it["kind"] != "upcoming"]
@@ -476,7 +559,7 @@ def main():
         "cls": fetch_cls(day_str, today_ts),
         "jin10": fetch_jin10(day_str),
     }
-    new_news, new_upcoming = build_digest(day_str, sources_map)
+    new_news, new_upcoming = build_digest(day_str, sources_map, target)
     new_items = new_news + new_upcoming
 
     # 每小时增量合并: 先读既有当日归档,把本次 new_items 合并进去累积(首采 archive 为空)
@@ -484,7 +567,7 @@ def main():
     ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
     archive_file = archive_path(day_str)  # news_digest/<YYYY>/<date>.json
     archive_raw = read_existing_archive(day_str)
-    news, upcoming = _merge_new_into_archive(archive_raw, new_items, sources_map)
+    news, upcoming = _merge_new_into_archive(archive_raw, new_items, sources_map, target)
     merge_from = "合并已有归档" if isinstance(archive_raw, dict) and archive_raw else "首采新建"
 
     digest = {
