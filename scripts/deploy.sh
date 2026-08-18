@@ -117,7 +117,10 @@ fi
 # 此步 build 成功后复制新版到 static-site/data/，消除时序不同步窗口：export --incremental 强制全量重算
 #   overview（读 data/ 新版），前端 R2 的 board_etf_map 也是新版，三处一致。
 # cp 失败不阻断（export 仍用 data/ 新版，仅前端 R2 board_etf_map 可能旧版，warn 提示）。
-cp "$REPO/data/board_etf_map.json" "$GIT_REPO/static-site/data/board_etf_map.json" 2>>"$LOG" \
+# ⚠ 目标必须用 $REPO（trade-data，upload 源）而非 $GIT_REPO（trade）：launchd 自动 deploy 在 trade-data 跑，
+#   upload_r2.py STATIC_DIR=trade-data/static-site 从 $REPO 上传；cp 到 $GIT_REPO（trade）会被下方
+#   rsync "$REPO/static-site/data/" -> "$GIT_REPO/static-site/data/" 用 trade-data 侧 8/9 旧版反覆盖（7e19a5bb6 项6 错位）。
+cp "$REPO/data/board_etf_map.json" "$REPO/static-site/data/board_etf_map.json" 2>>"$LOG" \
   && echo "✓ board_etf_map.json 已同步到 static-site/data/（build 后自动联动，前端 R2 与 overview 一致）" | tee -a "$LOG" \
   || echo "⚠ 同步 board_etf_map.json 到 static-site/data/ 失败（不阻断，export 仍用 data/ 新版）" | tee -a "$LOG"
 
