@@ -76,37 +76,18 @@ ARCHIVE_DIR = DATA_DIR / "news_digest"  # 按日期归档累积: news_digest/<da
 MAIN_REPO = Path("/Users/linhuichen/code/trade-data")
 
 
-def _candidate_repos() -> list:
-    out: list = []
-    for c in ([str(MAIN_REPO), str(REPO), os.environ.get("GIT_REPO", ""), os.environ.get("REPO", "")]):
-        if not c:
-            continue
-        p = Path(c).resolve()
-        if p not in out:
-            out.append(p)
-    return out
-
-
-def pick_repo() -> Path:
-    """挑数据最新的 repo(static-site/data/overview.json.date 最大者),同 gen_daily_brief 逻辑。
-    launchd/update_all 从 trade-data(主/部署源)跑,手动从 trade 跑;同日期优先 trade-data。
-    目的: fetch_news 采完要同步的 static-site/data + R2 + staticdata 落到「部署源树」,
-    避免只写 trade/static-site/data、而 deploy.sh(REPO=trade-data)rsync trade-data/static-site/data
-    把当天新版 clobber 回旧版(2026-08-18 断点根因: news_digest 8/18 被 19:30 lhb-backfill deploy 覆盖回 8/17)。"""
-    best, best_date = None, ""
-    for r in _candidate_repos():
-        ov = r / "static-site" / "data" / "overview.json"
-        if not ov.exists():
-            continue
-        try:
-            d = json.loads(ov.read_text(encoding="utf-8")).get("date", "")
-        except Exception:
-            d = ""
-        if d > best_date:  # 严格大于:同日期保留先出现者(trade-data 在前)
-            best_date, best = d, r
-    if best is None:
-        best = _candidate_repos()[0]
-    return best
+# 统一部署源树/上传 helper(防再犯机制 E, 2026-08-18): pick_repo/pick_git_repo/force_env/guard
+# 写部署源树(static-site/data) + R2 上传 + staticdata 同步统一走 scripts/pick_repo.py,
+# env 用 force_env 强制覆盖 REPO/GIT_REPO(不用 setdefault),防子进程解析到与写入不一致的目录
+# (2026-08-18 断点根因: fetch_news/项6 写错源树 → deploy rsync 反覆盖线上, §23.11 不静默)。
+try:
+    from scripts.pick_repo import (  # noqa: E402  (REPO 在 sys.path 时)
+        candidate_repos, pick_repo, pick_git_repo, force_env, guard_deploy_source_tree,
+    )
+except Exception:  # noqa: BLE001  (scripts/ 在 sys.path 时)
+    from pick_repo import (  # noqa: E402
+        candidate_repos, pick_repo, pick_git_repo, force_env, guard_deploy_source_tree,
+    )
 
 # 允许 app.calendar 被 import（同 daily_summary_email.py 做法）
 if str(REPO) not in sys.path:
@@ -718,11 +699,10 @@ def sync_news_digest_live(day_str: str) -> None:
                 if f"news_digest/{arch_f.name}" not in arch_files:
                     arch_files.append(f"news_digest/{arch_f.name}")
         # ③ R2 上传(data/ 前缀,upload-data-files 支持相对 data_dir 的子目录路径) — 读 .env 拿凭证
-        env = dict(os.environ)
-        # REPO 强制覆盖 = pick_repo() 选中的同一 repo(部署源树),使上传/staticdata 源目录
-        # 与上面 static_dir 一致,读新版上传,不读另一树旧版(818-fix 精神,扩展到部署源树)。
-        env["REPO"] = str(repo)
-        env["GIT_REPO"] = str(repo)
+        # 统一 helper force_env(防再犯机制 E, 2026-08-18): 强制覆盖 REPO/GIT_REPO(不用 setdefault),
+        # REPO=pick_repo() 选中的部署源树, GIT_REPO=trade git 仓, 使上传/staticdata 源目录
+        # 与上面 static_dir 一致, 读新版上传, 不读另一树旧版(818-fix 精神, 扩展到部署源树)。
+        env = force_env(dict(os.environ), repo)
         _load_dotenv(env)
         r = subprocess.run(
             [str(repo / ".venv/bin/python"), str(repo / "scripts/upload_r2.py"),

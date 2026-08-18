@@ -92,41 +92,20 @@ STRONG_INSTRUCTION_RE = re.compile(
 
 
 # ── 工具:repo/DB/数据目录定位 ───────────────────────────────────────────
-def _candidate_repos() -> list[Path]:
-    out: list[Path] = []
-    for c in ([os.environ.get("REPO"), str(MAIN_REPO), str(ROOT)]):
-        if not c:
-            continue
-        p = Path(c).resolve()
-        if p not in out:
-            out.append(p)
-    return out
-
-
-def pick_repo() -> Path:
-    """挑数据最新的 repo(static-site/data/overview.json.date 最大者)。
-    launchd/update_all 从 trade-data(主)跑,手动从 trade 跑;同日期时优先 trade-data,
-    保证写入位置与 deploy.sh/upload_r2(REPO=trade-data)一致,避免双副本写偏。"""
-    best, best_date = None, ""
-    for r in _candidate_repos():
-        ov = r / "static-site" / "data" / "overview.json"
-        if not ov.exists():
-            continue
-        try:
-            d = json.loads(ov.read_text(encoding="utf-8")).get("date", "")
-        except Exception:
-            d = ""
-        if d > best_date:  # 严格大于:同日期保留先出现者(trade-data 在前)
-            best_date, best = d, r
-    if best is None:
-        best = _candidate_repos()[0]
-    return best
+# 统一部署源树/上传 helper(防再犯机制 E, 2026-08-18): pick_repo/pick_git_repo/force_env/guard
+# 写部署源树(static-site/data) + R2 上传 + staticdata 同步统一走 scripts/pick_repo.py,
+# env 用 force_env 强制覆盖 REPO/GIT_REPO(不用 setdefault),防子进程解析到与写入不一致的目录
+# (2026-08-18 断点根因: fetch_news/项6 写错源树 → deploy rsync 反覆盖线上, §23.11 不静默)。
+# scripts/ 已在上面 L64 sys.path.insert, 直接 import。
+from pick_repo import (  # noqa: E402
+    candidate_repos, pick_repo, pick_git_repo, force_env, guard_deploy_source_tree,
+)
 
 
 def pick_db(repo: Path) -> Path:
     """挑 daily_metric MAX(date) 最新的 sentiment.db(主库优先,镜像兜底;同日期优先 trade-data)。"""
     best, best_date = None, ""
-    for r in _candidate_repos():
+    for r in candidate_repos():
         db = r / "data" / "sentiment.db"
         if not db.exists():
             continue
@@ -2377,10 +2356,10 @@ def upload_to_r2(repo: Path, no_upload: bool, files: list[str] | None = None) ->
     if no_upload:
         return
     files = files if files is not None else [BRIEF_FILE, HISTORY_FILE, RUN_LOG_FILE]
-    # REPO 强制覆盖(不用 setdefault,同 fetch_news.py 818 根修):本脚本已用 pick_repo() 选定写入位置 repo,
-    # 上传链必须传同一个 repo,防 launchd 注入 REPO 与 pick_repo 决策不一致导致 STATIC_DIR 错位读旧版。
-    env = dict(os.environ)
-    env["REPO"] = str(repo)
+    # 统一 helper force_env(防再犯机制 E, 2026-08-18): 强制覆盖 REPO/GIT_REPO(不用 setdefault),
+    # REPO=pick_repo() 选中的部署源树, GIT_REPO=trade git 仓, 上传链与写入位置同树,
+    # 防 launchd 注入 REPO 与 pick_repo 决策不一致导致 STATIC_DIR 错位读旧版。
+    env = force_env(dict(os.environ), repo)
     try:
         r = subprocess.run(
             [str(repo / ".venv/bin/python"), str(repo / "scripts/upload_r2.py"),
@@ -2410,9 +2389,9 @@ def staticdata_sync(repo: Path, no_upload: bool, files: list[str] | None = None)
     if no_upload:
         return
     files = files if files is not None else [BRIEF_FILE, HISTORY_FILE, RUN_LOG_FILE]
-    # REPO 强制覆盖(同 upload_to_r2,防 staticdata_sync.sh 解析 repo 与 pick_repo 写入位置不一致)
-    env = dict(os.environ)
-    env["REPO"] = str(repo)
+    # 统一 helper force_env(防再犯机制 E): 同 upload_to_r2, 防 staticdata_sync.sh 解析 repo
+    # 与 pick_repo 写入位置不一致(强制覆盖 REPO/GIT_REPO, 不用 setdefault)。
+    env = force_env(dict(os.environ), repo)
     try:
         r = subprocess.run(
             ["bash", str(repo / "scripts/staticdata_sync.sh"), "daily-brief"] + files,

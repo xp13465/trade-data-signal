@@ -66,8 +66,11 @@ import yaml
 
 # ── 路径 ──────────────────────────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))   # trade-data/scripts/
-REPO = os.path.dirname(SCRIPT_DIR)                        # trade-data/
 sys.path.insert(0, SCRIPT_DIR)
+# 统一部署源树/上传 helper(防再犯机制 E, 2026-08-18): REPO = 部署源树(trade-data),
+# guard_deploy_source_tree 防误写 git 仓(trade); R2 上传 env 用 force_env 强制覆盖。
+from pick_repo import pick_repo, pick_git_repo, force_env, guard_deploy_source_tree  # noqa: E402
+REPO = str(guard_deploy_source_tree(pick_repo()))         # trade-data/(部署源树)
 
 # ── 常量 ──────────────────────────────────────────────────────────────────────
 BUY_SIGNALS = ("buy", "buy_aux", "buy_special", "buy_backup")
@@ -1390,8 +1393,8 @@ def build_output(rebuild=False, dry_run=False):
             # ⚠ 必须传 REPO=trade-data: upload_r2 的 ROOT 经 .resolve() 解析到 trade/(trade-data/scripts
             # 是 trade/scripts symlink), 不传则读 trade/static-site/data(旧版), 与本脚本写盘
             # trade-data/static-site/data(新版) 不一致(§22 三步同步, L33 STATIC_DIR=REPO/static-site)。
-            _env = dict(os.environ)
-            _env["REPO"] = REPO
+            # 统一 helper force_env(防再犯机制 E): 强制覆盖 REPO/GIT_REPO, 不用 setdefault。
+            _env = force_env(dict(os.environ), REPO)
             r = _sp.run(
                 [sys.executable, os.path.join(SCRIPT_DIR, "upload_r2.py"), "upload-data-large"],
                 capture_output=True, text=True, timeout=120, env=_env)
