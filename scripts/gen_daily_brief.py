@@ -2377,8 +2377,10 @@ def upload_to_r2(repo: Path, no_upload: bool, files: list[str] | None = None) ->
     if no_upload:
         return
     files = files if files is not None else [BRIEF_FILE, HISTORY_FILE, RUN_LOG_FILE]
+    # REPO 强制覆盖(不用 setdefault,同 fetch_news.py 818 根修):本脚本已用 pick_repo() 选定写入位置 repo,
+    # 上传链必须传同一个 repo,防 launchd 注入 REPO 与 pick_repo 决策不一致导致 STATIC_DIR 错位读旧版。
     env = dict(os.environ)
-    env.setdefault("REPO", str(repo))
+    env["REPO"] = str(repo)
     try:
         r = subprocess.run(
             [str(repo / ".venv/bin/python"), str(repo / "scripts/upload_r2.py"),
@@ -2408,8 +2410,9 @@ def staticdata_sync(repo: Path, no_upload: bool, files: list[str] | None = None)
     if no_upload:
         return
     files = files if files is not None else [BRIEF_FILE, HISTORY_FILE, RUN_LOG_FILE]
+    # REPO 强制覆盖(同 upload_to_r2,防 staticdata_sync.sh 解析 repo 与 pick_repo 写入位置不一致)
     env = dict(os.environ)
-    env.setdefault("REPO", str(repo))
+    env["REPO"] = str(repo)
     try:
         r = subprocess.run(
             ["bash", str(repo / "scripts/staticdata_sync.sh"), "daily-brief"] + files,
