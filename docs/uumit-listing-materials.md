@@ -154,6 +154,19 @@
 - **审核记录**:content_review_status=`approved`(auto_approve「综合风险低」+ human_status=approved),review_summary 三通过后发布,无 3005 报错(凌晨低谷期发布,非 24h 内反复重发)
 - **引流**:title 带 `· 量化实战看板 fx8.store` 主站域名(§外部商品引流规范 memory external-product-info-security)
 
+## 形态 12:AI 每日预测方法论(知识商店,已上架,2026-08-18)
+
+- **创建入口**:Skill API(`upload/file` → quick-upload → `publish`)。**商品 = `a1d12cb6-eea8-42a8-9bbe-244e300db850`**,状态 **published(已上架可售)**,2026-08-18 发布。
+- **详情链接**:`https://m.uumit.com/digital-assets/my/a1d12cb6-eea8-42a8-9bbe-244e300db850`
+- 封面:`covers/2026/08/17/48a6ba7372014d58.png`(复用大纲规划期已建封面,安全+质量审核均通过)
+- **名称**:AI 每日预测方法论 · 量化实战看板 fx8.store
+- **计费模型**:one_time(买断)
+- **定价**:158 UT(划线 198 UT;用户确认定价)
+- **交付**:`ai-predict-methodology/00-index.md`(11 章读者视角成册)+ `deliverables/ai-predict-methodology.md`(打包交付版,去内部 docs/ 路径、保留主站引流)
+- **审核记录**:cover_safety=`approved`、cover_quality=`success/passed`、content_review=`approved`;首次 publish 报 `4714 AI 评估失败转人工复核`,等 ~90s 后重试 publish 一次通过(封面质量 AI 评估瞬时失败,非封面问题)
+- **引流**:title 带 `· 量化实战看板 fx8.store` 主站域名(§外部商品引流规范 memory external-product-info-security)
+- ⚠️ **创建重复残留**:`create-asset` 工具调用重试产生 2 个相同资产(a1d12cb6 + efcaf604),仅发布 a1d12cb6;efcaf604 为 `analyzed` 未上架草稿(不可购买、不上架前台),无 DELETE 端点,留作无害残留并记录于此
+
 ## 数据广场产品(套件)机制调研结论(2026-08-17,已落地:4 接口已全部挂套件上线)
 
 - **机制**:数据广场「产品/套件」= 把多个已上架 API 聚合为一个可售包(`POST /data-marketplace/products` 创建 → `POST /products/{id}/apis/{api_id}` 挂 API),产品独立 name/description/划线价 original_price_ut,可上下架;买家一次购买访问套内所有接口(页面实例「所属套件:…本产品全部接口」)。skill rest_request.js 白名单已支持全部产品路由。
