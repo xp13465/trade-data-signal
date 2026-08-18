@@ -530,7 +530,7 @@ def generate_summary(date: str | None = None) -> dict:
         generated_at = f"{date_prefix} 收盘分析"
 
     # 一句话短版（概览横幅）
-    ms_txt = f"，大盘状态：{market_state['tier']}" if market_state else ""
+    ms_txt = f"，沪深300四档状态：{market_state['tier']}" if market_state else ""
     summary_short = (
         f"{date_prefix}A股{sentiment_desc_str}，上证{direction}{abs(sh_pct or 0):.2f}%，"
         f"{width_desc}（{up_count}涨{down_count}跌），"
@@ -561,7 +561,7 @@ def generate_summary(date: str | None = None) -> dict:
     parts.append(f"{ma_desc}。")
 
     if market_state:
-        parts.append(f"大盘状态：{market_state['tier']}（{market_state['desc']}）。")
+        parts.append(f"沪深300四档状态：{market_state['tier']}（{market_state['desc']}）。")
 
     if hot_names:
         parts.append(f"领涨板块：{hot_names}。")
