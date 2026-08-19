@@ -153,6 +153,23 @@
 |---|---|---|---|---|
 | 73 | **8代宽基四档展示(core8 全家):sh/sz/hs300/csi500/cyb/sz50/csi1000/kc50 各自走势图四档色带/轨迹图** | docs/market-state/kelly-fourtier-v2-multiindex-stability.md + 用户 2026-08-19 拍板 | **hs300 已完成(历史轨迹图 #64)**;其余 7 个(sh/sz/csi500/cyb/sz50/csi1000/kc50)待做。后端 per-index 注入 tiers(现仅 hs300:app/queries.py index_detail L1683 写死 `index_id=='hs300'`),四档算法按各指数自己的价 vs MA200 + MA20/60/120 排列(index_daily 已含 8 宽基数据);前端色带/轨迹图放开给 7 指数;纯展示不影响过滤(§23.7 只增不改);走 §24 版本串+§22 三步同步;core5/core8 融合四档不在本项(研究层,仅当未来做判定源才需报告) | **待办**(2026-08-19 用户定,等安排再实施) | **未派** |
 
+## 十四、R2 覆盖防护根治(方案1)(2026-08-19 用户定:等稳定后跟进)
+
+> 背景:2026-08-19 盘中线上 overview.json 被 trade 侧旧库(8-18)覆盖(手动 upload_r2.py 未带 REPO,STATIC_DIR 缺省回退 trade,抓走 trade/static-site 旧库 631607B 覆盖 R2)。已实现 方案2(盘中读 trade 侧 abort 哨兵)+ 方案3(统一入口+skill 条款)+ 方案4(上传前 STATIC_DIR vs REPO 一致性比对),根因报告见 `docs/archive/overview-r2-overwrite-repo-env-20260819.md`(implementer 落档)。**方案1(读路径强校验:REPO 缺省不回退 trade)因涉及 lab/trade_sim 合法 trade 回退产物甄别,误伤面需细判,2026-08-19 用户定「落待办,等 2/3/4 稳定后再跟进」**。
+
+| # | 项 | 出处 | 说明 | 状态 |
+|---|---|---|---|---|
+| 75 | **方案1:upload_r2.py 读路径强校验(REPO 缺省不回退 trade)** | docs/archive/overview-r2-overwrite-repo-env-20260819.md(researcher 方案1) | STATIC_DIR = `os.environ.get("REPO", str(ROOT))` 缺省回退 trade 是破防线点。根治:REPO 未设置 → 拒绝 upload_intraday 级命令(或改 STATIC_DIR 必须显式指向)。**关键难点**:需甄别 upload_r2.py:255(lab JSON)与 :369(trade_sim HTML)两处「design 上允许回退 trade 侧」的合法产物,一刀切拒 trade 会误伤盘后正常上传 → 逐一 cmd_upload_* 甄别哪些该回退、哪些强制 REPO。⚠️**注意(2026-08-19 reviewer 修正)**:原以为「被方案4(一致性比对)兜底覆盖」,但 reviewer 证实方案4 为结构性死闸(源根由 REPO 一次性派生恒一致,不单独触发),实际拦截由方案2(盘中哨兵)承担 → **方案1 并无方案4 兜底,若要在盘后再用手动不带 REPO 上传 trade 侧,仍需方案1 兜底**。故方案1 建议再上,不只「耐心等稳定」 | **待办**(2026-08-19 用户定:等稳定后跟进;reviewer 修正兜底前提后建议再上) | **未派** |
+
+## 十五、TASKS.md 归档盲区改进(2026-08-19 用户催归档清理时发现)
+
+> 背景:TASKS.md 已 233KB。自动归档脚本 `scripts/tasks_archive.py` dry-run 只归 0 块+压缩 1 行,几乎不瘦身。根因:脚本归档规则 `tasks_archive.py` L256 只认 **level 2(`##`)/level 4(`####`)** 的已完成标题,而 TASKS.md 里 **16 个 `###`(level 3)层级的已完成小块**(`### P2-新-A 采集健康度小灯 ✅` 等,全为 2026-07-20~07-29 老堆积)无法被自动识别归档。用户 2026-08-19 要求「做完的都归档,让文件小点可读性高点」。
+
+| # | 项 | 出处 | 说明 | 状态 |
+|---|---|---|---|---|
+| 76 | **改进 tasks_archive.py 支持 level 3 已完成块归档(治本:让 TASKS.md 真瘦身)** | docs/tasks-archive-maintain.md + 2026-08-19 用户催清理时实测(dry-run 归0) | 脚本 L256 只归档 level 2/4 已完成标题,漏掉 level 3(`###`);TASKS.md 16 个 `### P2-新-X ✅`(7-20~7-29)老已完成块堆积不归。需扩为「level 3 且标题含 ✅/已完成/已上线」也算已完成节并入归档。**难点**:必保待办保护(归档前提取 `- [ ]` 活跃待办+`### 保留*` 子节并入 `#### 待办`,不误删;§5.3 核心保障),且 level3 非全归——只归标题明确已完成(`✅`/`已完成`/`已上线`),「### 🔴 近期/进行中/保留」等不归。B 级,涉脚本+待办保护逻辑,派 implementer 改 + 幂等重跑验 | **已完成**(2026-08-19 implementer 改 L257 level(2,4)→(2,3,4) 且 is_done_title 把关+reviewer PASS 条件性+main-merge 合 9359f798f:TASKS.md 233258→204213B 瘦身、16块归档精确、待办64→64零丢失、幂等过) | — |
+| 77 | **tasks_archive.py compress_status_line 缺尾换行致 L32 行熔行(L32 熔行修复)** | #76 main-merge 后 reviewer 发现(find #1,2026-08-19) | `compress_status_line`(tasks_archive.py L98-116) 返回缺尾 `\n`(根因),归档时把「状态行」与下一行 `- **#16 重归类**` 熔成同一物理行(实测 L32,纯格式零数据丢失,与 level3 归档无关,是既有 bug)。修复:`compress_status_line` 返回 `head + marker + "\n"` 补尾换行 + 手动把 TASKS.md L32 熔行的 `- **#16 重归类**` 拆回独立行 + 幂等重跑验。A 级(单函数补换行+格式修正),但涉既有归档脚本行为,按 §23.7 用户确认后才动 | **待办**(2026-08-19 建,reviewer 完整证明链路见 #76 review;用户上一轮「听你建议」=记待办后续修) | **未派** |
+
 ## 【已排除清单】已上线/已在跑(不要重复派)
 
 - **凯利**:默认最优组合(仓位K=2+4降亏)、**金额口径=每日资金池等分+top-K**(2026-08-14 恢复 c951dafa8,修正 K=3 33万虚假杠杆;旧"每笔固定1万"为过时口径)、1月调整 J1/J2 并入、positionCap K档、G公示、**全信号表+组合使用建议**(lab.js L8503,2026-08-12)、MA60择时 toggle⑭、降亏过滤31 toggle、凯利费率客调、fade 交互方案一(lab-custom-host--loading,L7620)、稳健核心组合=仅 r8、次日开盘回测报告本身(仅建议未实施,见 #15)、**K档位评级标注+hover评级理由表格**(2026-08-13 上线 4fe5d45bc,展示层不改算法)、**凯利 top-K+质量约束+选择器前向测试 #18**(已关闭 2026-08-13:质量约束两口径负边际不实施;前向测试简单切分已有结论,滚动版并入 #16)、**K2C5 每日池同口径比值补测 #59**(2026-08-16 上线 f5d218492:K2C5 比值4.55(减亏2.88%/损盈0.63%,>2高性价比)K1档取用/K2档不取,K3 比值1.29 维持默认关,落档 kelly-k2c5-dailypool-ratio.md)
