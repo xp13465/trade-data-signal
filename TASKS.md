@@ -8,7 +8,10 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-19 12:05(**代理切官方+按需thinking+两个脚本修复上线**)。**此前**:2026-08-19 03:30(**#69 cyb 四档降亏新键实施上线完成**)。本轮:
+**最后更新**:2026-08-19 13:5x(**TASKS 归档清理 #76 + 熔行修复 #77 闭环;等 18:00 用户安排 #73/#74**)。**此前**:2026-08-19 12:05(**代理切官方+按需thinking+两个脚本修复上线**)。本轮:
+- **📌 #76 TASKS.md 归档清理已完成并合 main(9359f798f)**:`tasks_archive.py` L257 归档规则扩为 level(2,3,4),支持 level3(`###`)已完成块归档。TASKS.md 233258→204213B(瘦身 87.5%),16 个历史 `### P2-新-X ✅`(7-20~7-29)老已完成块精确归档进 docs/archive/TASKS-done.md,64 个活跃待办零丢失,幂等过(dry-run 归档 0 块不再重复)。评审 2026-08-19 reviewer 条件性 PASS。**pending-features-index #76 已标完成**。
+- **📌 #77 compress_status_line 熔行已修复并合 main(e54adcb1f)**:根因=`tasks_archive.py L98-116 compress_status_line` 压缩超长状态行返回缺尾 `\n`,归档时把「下一行」熔成同一物理行(既有 bug,与 level3 无关,reviewer find #1)。**排查同类抓出 2 处历史熔行**:TASKS.md L32(`- **#16 重归类**`)+ L58(`**AI 预测缺口核实**`),均拆回独立行。修复=`return head + marker + "\n"` 补尾换行根治 + 拆两处熔行 + 自测(py_compile/dry-run 幂等压缩 0 行/§48】 复查清零)。用户确认「做掉吧」后修(§23.7 既有 bug 需确认)。**pending-features-index #77 已标完成**。
+- **⏳ 等用户 18:00 后安排**:#73(8 宽基四档展示)/#74(邮件广播 hit 白名单过滤)。#75(方案1 REPO 强校验)等稳定后跟进。17:50 deploy 自动推上生产验证(update_all→O1 deploy 自动 fetch main 上线今天修复,无需手动)。首页新闻三任务 implementer in-flight(线上 a354 已含 _startHomeNewsPoll,采集 plist 已改 48 项 30 分钟);
 - **📌 代理切官方+按需thinking 落地(commit 206c6143e,memory kickstart 教训)**:thinking_proxy.py 注入逻辑升级=flash 默认注入 disabled 关思考(执行类省 token),仅请求显式 `thinking.type=enabled` 时放行思考(`explicit=True` 日志),adaptive 仍按默认关;plist 改 TTP_PROVIDER=official(api.deepseek.com/anthropic)+settings sk-key 走代理;三态 curl 200 验证。⚠️ 代理配置下次重启别用 kickstart(不读 plist,本次两次改坏的根因,见 memory [[launchctl-kickstart-does-not-reread-plist]]),改 plist 用 bootout+bootstrap。
 - **📌 hooks 飞书抄送已补回**:用户重置配置丢了 hooks,从模板(tpl-proxy-full)补回 hooks.Stop(claude-says 0token 抄送),保留官方 env。**下次重启会话生效**。
 - **📌 main-merge.sh commit 分支修好 + token_cache_stats 自动 commit+push 上线(8b63a7b9c)**:①main-merge.sh commit 分支改为只盯 BUMP_PRODUCTS(10 个前端产物)diff,不再用整个工作区 diff(原 bug:工作区有无关 M 如 README→误入 commit 分支→bump 无变更→空提交 exit 1 卡死,本次实测已修好,推送过程正常)②token_cache_stats.py --append-daily 追加 README 命中率走势后自动 add+commit+push main,幂等跳过/遇冲突不静默(方案①,绕开 main-merge 统一入口)。
