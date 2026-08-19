@@ -69,6 +69,10 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - **上线流程**:export.py 生成 JSON -> 末尾自动跑 R2 上传(EXPORT_SKIP_R2=1 跳过,deploy.sh 自己跑)-> git push 触发 CF deploy -> 前端 fetch
 - **新数据类别上线 checklist(2026-08-11 定,同 §22 三步同步)**:写 `static-site/data/` 的生成器必须同时接 ①R2 上传(upload_r2 清单或 export 自动) ②staticdata 同步(**scripts/staticdata_sync.sh** 或跑 deploy.sh 覆盖)。尤其「只写 static-site/data + 调 upload_r2 不跑 deploy.sh」的独立生成器(如 gen_daily_brief.py),缺 staticdata 留旧版直到下次 deploy
 - **判断 checklist(扫描 agent 用)**:①该类别是否有 upload-{prefix} 命令? ②前端 fetch 是否用 R2 URL 或 dataUrl 走 R2? ③upload-data-large exclude 是否含该前缀(防双副本)? 三条齐全=架构合规
+- ⚠️**[2026-08-19 事故]盘中手动 upload/export 必须显式 REPO**:任何 agent 盘中手动跑 `upload_r2.py upload-intraday` / export 相关脚本覆盖 R2,**必须带 `REPO=/Users/linhuichen/code/trade-data` 前缀**(正确:`REPO=/Users/linhuichen/code/trade-data python scripts/upload_r2.py upload-intraday`)。
+  - **为什么**:upload_r2.py `STATIC_DIR` 缺省回退 `ROOT`(=trade),带 REPO 才读到 trade-data 实时库。手动命令若忘带 REPO,STATIC_DIR 落到 trade/static-site,抓走 trade 侧旧库整体覆盖 R2 → 线上退回旧数据(事故 2026-08-19:8-18 旧库覆盖线上)。
+  - **盘中哨兵兜底**(upload_r2.py `cmd_upload_intraday` 开头 `_guard_upload_intraday`):「STATIC_DIR 在 trade 侧 + 交易日盘中(09:30-15:30 北京)」双条件同时成立 → abort(退出码非0)拒传,打印正确手动跑法。定时链路(intraday_snapshot.sh)显式 REPO 不受影响。
+  - **关联规范源**:`scripts/upload_r2.py:33 STATIC_DIR 缺省回退 trade`(哨兵注释) + `scripts/intraday_snapshot.sh` 显式 `REPO=...; export REPO`(定时链路默认 REPO=trade-data)。改了 REPO 默认/STATIC_DIR 逻辑/交易日时段口径,同步此条款。
 
 ## 4. 生产稳定时点(原 §14 操作层,核心摘要见根共享核心)
 - **任务冲突检查不应由用户提醒才做**:每次派任务/设 cron/推 main 前**必须主动查 launchd 定时任务清单**(`launchctl list | grep trade` + 查 plist `StartCalendarInterval`),列当日盘后任务时点确认不撞,并主动给用户时点建议

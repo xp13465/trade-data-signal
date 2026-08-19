@@ -33,6 +33,64 @@ ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(os.environ.get("REPO", str(ROOT))) / "static-site"
 
 
+# ---- 防「盘中手动 upload 未带 REPO → 读 trade 侧旧库整体覆盖 R2」哨兵 (2026-08-19) ----
+# 事故:agent 手动跑 `upload_r2.py upload-intraday` 未带 REPO= env,STATIC_DIR 缺省回退到
+# ROOT=trade/static-site,抓走 trade 侧 8-18 旧库整体覆盖 R2,线上退回旧数据。
+# 定时链路安全:launchd intraday plist 显式设 REPO=trade-data,intraday_snapshot.sh:25-28 也 export REPO,
+# 故定时读 trade-data 新库正确;唯一区别是手动命令没继承 REPO → 退化成读 trade 旧库。
+# 正确手动跑法(必须显式 REPO,缺省即读 trade 旧库覆盖线上):
+#   REPO=/Users/linhuichen/code/trade-data python scripts/upload_r2.py upload-intraday
+_TRADE_STATIC = str((Path("/Users/linhuichen/code/trade") / "static-site").resolve())
+
+
+def _is_trade_side_dir() -> bool:
+    """当前 STATIC_DIR 是否落在 trade/static-site(非 trade-data/static-site)。
+
+    launchd 定时(REPO=trade-data)解析到 trade-data/static-site,不命中;
+    手动未带 REPO 时 STATIC_DIR=ROOT=trade/static-site,命中 → 读滞后库风险。
+    """
+    s = str(STATIC_DIR.resolve() if STATIC_DIR.is_absolute() else STATIC_DIR)
+    return s == _TRADE_STATIC or "/trade/static-site" in s
+
+
+def _is_trading_day() -> bool:
+    """复用项目 app.calendar.is_trading_day(读 data/trade_dates.txt,__file__ 定位不受 cwd 影响);
+    异常(如 app 不可导入)降级为周末判断。"""
+    try:
+        from app.calendar import is_trading_day
+        return bool(is_trading_day())
+    except Exception:
+        return datetime.date.today().weekday() < 5
+
+
+def _is_intraday_hours() -> bool:
+    """北京时区 09:30-15:30 盘中窗口。"""
+    try:
+        from zoneinfo import ZoneInfo
+        now = datetime.datetime.now(ZoneInfo("Asia/Shanghai"))
+    except Exception:
+        now = datetime.datetime.now()  # 降级本地时区(本机即北京)
+    hhmm = now.strftime("%H%M")
+    return "0930" <= hhmm <= "1530"
+
+
+def _guard_upload_intraday():
+    """盘中 + 读 trade 侧 → abort,防旧库整体覆盖 R2。仅双条件同时成立才拒(盘后跑 trade 侧正常放行)。
+
+    判别口径:①STATIC_DIR 落在 trade/static-site(非 trade-data) ②交易日盘中(09:30-15:30 北京)。
+    退出码非 0,不执行上传。
+    """
+    if not _is_trade_side_dir():
+        return
+    if not (_is_trading_day() and _is_intraday_hours()):
+        return
+    print("⚠ 疑似读滞后库:STATIC_DIR 落在 trade 侧(非 trade-data),盘中拒绝 upload-intraday,防覆盖线上",
+          file=sys.stderr)
+    print("   正确手动跑法:REPO=/Users/linhuichen/code/trade-data python scripts/upload_r2.py upload-intraday",
+          file=sys.stderr)
+    sys.exit(2)
+
+
 def _find_env():
     """按优先级找 .env：脚本所在 ROOT/.env -> $GIT_REPO/.env -> $REPO/.env -> 默认 trade 仓库。
     背景：launchd 实际在 trade-data/（运行副本）下跑，trade-data/.env 不存在，
@@ -763,7 +821,11 @@ def cmd_upload_intraday():
     只传 .json(CF 自动 br 压缩)。8线程并发,~23文件秒级完成。
     index/ 已由 upload-index(intraday_snapshot.sh L249 独立调用)处理,不在此上传。
     部分文件可能不存在(notifications/summary_history 某些时点未生成),_upload_glob 自动过滤。
+
+    盘中手动跑必须显式 REPO=/Users/linhuichen/code/trade-data(缺省 STATIC_DIR 回退 trade 侧旧库,
+    会覆盖 R2,见顶部 _guard_upload_intraday 注释)。定时链路(intraday_snapshot.sh)已显式 export REPO。
     """
+    _guard_upload_intraday()
     data_dir = STATIC_DIR / "data"
     files = [
         "intraday_snapshot.json", "overview.json", "summary.json",
