@@ -1394,7 +1394,9 @@ function _emotionIndexCurve(key) {
   if (_emotionIndexCurveCache.has(base)) return _emotionIndexCurveCache.get(base);
   const p = (async () => {
     try {
-      const r = await fetchJSON(dataUrl(`index/${base}-all.json`));
+      // BLOCK-1(2026-08-20 修复): index/{base}-all.json 走 R2 直链(同文件 L6241 正确写法)。
+      // 勿用 dataUrl() —— 它对子目录 + -all.json 命中 _R2_LARGE_RANGE_RE 拼成 /r2/data/index/* 404(R2 key 实际为 index/{id}-all.json, 无 data/ 前缀)。
+      const r = await fetchJSON(`https://ss.fx8.store/r2/index/${base}-all.json`);
       const ohlc = (r && r.ohlc) || [];
       const series = [];
       for (const d of ohlc) {
@@ -5075,7 +5077,11 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
     legend: idxOv
       ? { top: 0, type: "scroll", data: [stripHtml(title), idxOv.name || "指数"] }
       : undefined,
-    ...opts,
+    // P1-1(2026-08-20 修复): 叠指数(B 6宽基卡 echarts 兜底)时 visualMap 只作用于情绪分主系列(seriesIndex:[0]),
+    // 防指数曲线(值~2500 命中 {gt:80} 红#e6492e)被情绪 0-100 分段色误染色覆盖棕色虚线; 对齐 C 路径 L6788 写法。
+    ...(idxOv && opts && opts.visualMap
+      ? { ...opts, visualMap: Object.assign({}, opts.visualMap, { seriesIndex: [0] }) }
+      : opts),
   }));
   // 轻量 SVG 模式(默认): _lwCardShell(等价 mkCard 但不在建卡时立即 echarts.init) + _lwSetup 注册
   // _lwRenderers(⚡ 开关可即时重渲染; 开关 false 时经 echartsFn 回退重建 echarts 不空白)。
