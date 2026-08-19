@@ -356,6 +356,7 @@ function signalColor(s) {
   if (s.signal === "sell_stop_loss") return "#3498db";  // 追止损卖 蓝（ATR×3.5 止损，底层规则从 Donchian20 下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频）
   if (s.signal === "band_hold") return "#ff9800";  // 波段持有 橙（国债波段仓位管理，中性状态，2026-07-24）
   if (s.signal === "estimate") return "#909399";  // 盘中预估点 灰（方案A补T日点，非真实信号，视觉区分）
+  if (s.signal === "freeze") return "#42a5f5";  // 冰点 蓝（弹窗≤20 冰点标注，2026-08-19，与恐贪/情绪分 visualMap ≤20 冰点蓝一致）
   const r = s.reason || "";
   // 波段减仓 草绿 #8bc34a（国债波段仓管，减仓非清仓，与卖 #2e8b57 区分体现"没卖重"，2026-07-20）
   // 注意：波段止损仍走默认 #2e8b57（趋势破位清仓，归卖类）；止盈/趋势转弱/前买失效也不受影响
@@ -414,6 +415,7 @@ function signalLabel(s) {
   }
   if (s.signal === "band_hold") return _t("band_hold");  // 国债波段仓位管理 持有状态（2026-07-24）
   if (s.signal === "estimate") return "预估";  // 盘中预估点（方案A补T日点，非真实信号）
+  if (s.signal === "freeze") return s.value != null ? "冰点" + Math.round(s.value) : "冰点";  // 冰点标注（≤20 蓝，带数值，2026-08-19）
   const r = s.reason || "";
   // 波段减仓/止损（国债波段仓位管理，2026-07-24）：reason 含"波段减仓X%"/"波段止损X%"
   if (r.includes("波段减仓") || r.includes("波段止损")) {
@@ -6143,7 +6145,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
     }
     // 冰点模式：在原买卖点标注基础上追加冰点标注（≤20 蓝色），走势图同时显示买卖点+冰点
     if (isFreeze) {
-      const freezePts = chartData.filter((d) => d.value != null && d.value <= 20).map((d) => ({ date: d.date, signal: "freeze" }));
+      const freezePts = chartData.filter((d) => d.value != null && d.value <= 20).map((d) => ({ date: d.date, signal: "freeze", value: d.value }));
       sigs = [...sigs, ...freezePts];
     }
     body.innerHTML = "";
