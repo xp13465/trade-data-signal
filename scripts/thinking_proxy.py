@@ -27,6 +27,8 @@ env:
   TTP_INJECT_MODELS=deepseek-v4-flash   # 逗号分隔,匹配 model 字段子串;未匹配的 model 不注入(保思考)
   TTP_ALIAS_MODELS=deepseek-v4-think    # 判断类别名(flash 底保思考):不注入 + 改写 ALIAS_TARGET 转发
   TTP_ALIAS_TARGET=deepseek-v4-flash    # 别名改写成的真实 model(官方只认 pro/flash;别名直发 400/404)
+  # 按需 thinking(2026-08-19 用户定,默认关+显式开):INJECT_MODELS 命中时默认注入 thinking:disabled 关思考;
+  # 仅当请求显式带 {"thinking":{"type":"enabled"}} 时放行思考(不注入、不剥 effort)。adaptive 仍按默认关处理。
   TTP_PROVIDER=ark|official|ark-plan    # 快捷切换双端 upstream(优先,覆盖下面三个 TTP_UPSTREAM_*)
                                         #   ark      = 火山方舟  ark.cn-beijing.volces.com:443/api/coding
                                         #   ark-plan = 火山方舟 agent plan 端点 ark.cn-beijing.volces.com:443/api/plan
@@ -92,28 +94,38 @@ class Handler(http.server.BaseHTTPRequestHandler):
         injected = False
         aliased = False
         fallback = False
+        explicit_thinking = False
         if is_message_post and length and obj is not None and model_field is not None:
             # GET/静态请求不解析不清除(is_message_post=False),不会走到这里
             if any(m in str(model_field) for m in INJECT_MODELS) and INJECT:
-                obj["thinking"] = {"type": "disabled"}
-                injected = True
-                # 2026-08-17 fix: DeepSeek 官方对 thinking disabled 不接受 reasoning_effort
-                # (报 400 Invalid combination high+disabled)。Claude Code 会话 CLAUDE_EFFORT=high 会
-                # 透传为 reasoning_effort,flash(注入 disabled)必须剥离,否则 implementer/tester 一启动
-                # 就 400。think 请求(aliased)不 injected,不剥离,不受影响。
-                if "reasoning_effort" in obj:
-                    _re = obj.pop("reasoning_effort")
-                    logmsg(f"strip reasoning_effort={_re} for injected flash(thinking disabled, 400 fix)")
-                # 2026-08-17 fix2: Claude Code 新版把 effort 放 output_config.effort(非顶层 reasoning_effort),
-                # DeepSeek 兼容层映射成 reasoning_effort=high 遇 disabled 报 400。实测 agent 请求
-                # output_config={"effort":"high"} 顶层无 reasoning_effort。剥离 + 空则删整个。
-                _oc = obj.get("output_config")
-                if isinstance(_oc, dict):
-                    _ce = _oc.pop("effort", None)
-                    if _ce is not None:
-                        logmsg(f"strip output_config.effort={_ce} for injected flash(thinking disabled, 400 fix)")
-                    if not _oc:
-                        obj.pop("output_config", None)
+                # 按需 thinking(2026-08-19 用户定,默认关+显式开):默认注入 disabled 关思考省 token;
+                # 仅当请求显式带 {"thinking":{"type":"enabled"}} 时放行思考(按需开),不注入、不剥 effort。
+                # adaptive(Claude Code 默认对 deepseek 发的)≠enabled,仍按默认关处理(adaptive 在方舟=ON 最费)。
+                _t = obj.get("thinking")
+                _explicit_enabled = isinstance(_t, dict) and _t.get("type") == "enabled"
+                if not _explicit_enabled:
+                    obj["thinking"] = {"type": "disabled"}
+                    injected = True
+                    # 2026-08-17 fix: DeepSeek 官方对 thinking disabled 不接受 reasoning_effort
+                    # (报 400 Invalid combination high+disabled)。Claude Code 会话 CLAUDE_EFFORT=high 会
+                    # 透传为 reasoning_effort,flash(注入 disabled)必须剥离,否则 implementer/tester 一启动
+                    # 就 400。think 请求(aliased)不 injected,不剥离,不受影响。
+                    if "reasoning_effort" in obj:
+                        _re = obj.pop("reasoning_effort")
+                        logmsg(f"strip reasoning_effort={_re} for injected flash(thinking disabled, 400 fix)")
+                    # 2026-08-17 fix2: Claude Code 新版把 effort 放 output_config.effort(非顶层 reasoning_effort),
+                    # DeepSeek 兼容层映射成 reasoning_effort=high 遇 disabled 报 400。实测 agent 请求
+                    # output_config={"effort":"high"} 顶层无 reasoning_effort。剥离 + 空则删整个。
+                    _oc = obj.get("output_config")
+                    if isinstance(_oc, dict):
+                        _ce = _oc.pop("effort", None)
+                        if _ce is not None:
+                            logmsg(f"strip output_config.effort={_ce} for injected flash(thinking disabled, 400 fix)")
+                        if not _oc:
+                            obj.pop("output_config", None)
+                else:
+                    explicit_thinking = True
+                    logmsg("ONDEMAND 显式 thinking enabled,放行思考(不注入 disabled)")
             elif any(m in str(model_field) for m in ALIAS_MODELS):
                 obj["model"] = ALIAS_TARGET
                 aliased = True
@@ -135,7 +147,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_response(502); self.end_headers()
                 self.wfile.write(f"model rewrite failed, refusing to forward".encode())
                 return
-        logmsg(f"REQ {self.command} {self.path} model={model_field}->{obj.get('model') if obj else None} thinking={json.dumps(thinking_field, ensure_ascii=False) if thinking_field is not None else None} injected={injected} aliased={aliased} fallback={fallback}")
+        logmsg(f"REQ {self.command} {self.path} model={model_field}->{obj.get('model') if obj else None} thinking={json.dumps(thinking_field, ensure_ascii=False) if thinking_field is not None else None} injected={injected} aliased={aliased} fallback={fallback} explicit={explicit_thinking}")
         conn = http.client.HTTPSConnection(UPSTREAM_HOST, UPSTREAM_PORT, timeout=180, context=SSL_CTX)
         upstream_path = UPSTREAM_BASE + self.path
         headers = {k: v for k, v in self.headers.items() if k.lower() not in ("host", "content-length", "connection")}

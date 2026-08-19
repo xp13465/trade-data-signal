@@ -9,10 +9,10 @@
 ```
 Claude Code → 127.0.0.1:8899(本地代理)→ 火山 agent plan(现网,api/plan)
 ```
-代理负责 **per-role thinking**:
-- `flash` 请求 → 注入 `thinking:{type:disabled}` → 关深度思考(执行类,省 token)
+代理负责 **per-role thinking(默认关 + 显式开,2026-08-19 升级)**:
+- `flash` 请求 → 默认注入 `thinking:{type:disabled}` → 关深度思考(执行类,省 token);**仅当请求显式带 `{"thinking":{"type":"enabled"}}` 时放行思考**(按需开,日志 `explicit=True`)
 - `think` 别名请求 → 不改注入 + 改写 model 为 flash 转发 → 保思考(判断类)
-- 实测(2026-08-16):agent plan 端点认 `disabled` 字段,响应无 thinking 块 = 真关,非静默。
+- 实测:agent plan / coding 端点认 `disabled` 字段,响应无 thinking 块 = 真关,非静默;`adaptive`(Claude Code 对 deepseek 默认发)按默认关处理(=ON 最费,必须注入掉)
 
 ## 关键原则(违反 = 卡死,血泪教训 L33 两次)
 
@@ -24,10 +24,10 @@ Claude Code → 127.0.0.1:8899(本地代理)→ 火山 agent plan(现网,api/pla
 
 | 项 | 值 |
 |---|---|
-| 端点 | 火山 agent plan(ark.cn-beijing.volces.com:443/api/plan) |
+| 端点 | 火山方舟 coding(ark.cn-beijing.volces.com:443/api/coding,2026-08-19 确认现网) |
 | key | `ark-****`(现网值在 `~/.claude/settings.json` 与模板 `~/.claude/settings.json.tpl-proxy-full`,**禁止写进 git/文档**) |
-| settings.json | 走代理 `http://127.0.0.1:8899` + MODEL=deepseek-v4-think + hooks(claude-says 飞书)+ CLAUDE_CODE_AUTO_COMPACT_WINDOW=600000 |
-| 代理进程 env | TTP_PROVIDER=ark-plan / TTP_UPSTREAM_BASE=/api/plan / TTP_INJECT=1 / TTP_INJECT_MODELS=deepseek-v4-flash / TTP_ALIAS_MODELS=deepseek-v4-think / TTP_ALIAS_TARGET=deepseek-v4-flash |
+| settings.json | 走代理 `http://127.0.0.1:8899` + MODEL=deepseek-v4-think + hooks(claude-says 飞书)+ CLAUDE_CODE_AUTO_COMPACT_WINDOW=1048576 |
+| 代理进程 env | TTP_PROVIDER=ark / TTP_UPSTREAM_BASE=/api/coding / TTP_INJECT=1 / TTP_INJECT_MODELS=deepseek-v4-flash / TTP_ALIAS_MODELS=deepseek-v4-think / TTP_ALIAS_TARGET=deepseek-v4-flash |
 
 > 火山方舟有 coding plan 和 agent plan 两个端点,**地址、token 都不同**,切换要整套换(key + 端点)。
 
@@ -70,11 +70,15 @@ curl -s -o /dev/null -w "flash HTTP %{http_code}\n" -X POST http://127.0.0.1:889
 curl -s -o /dev/null -w "think HTTP %{http_code}\n" -X POST http://127.0.0.1:8899/v1/messages \
   -H "Content-Type: application/json" -H "x-api-key: $KEY" -H "anthropic-version: 2023-06-01" \
   -d '{"model":"deepseek-v4-think","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}'
+# 通路3(按需 thinking): flash 显式 enabled → 期望 200 + 日志 explicit=True(不注入,放行思考)
+curl -s -o /dev/null -w "flash-enabled HTTP %{http_code}\n" -X POST http://127.0.0.1:8899/v1/messages \
+  -H "Content-Type: application/json" -H "x-api-key: $KEY" -H "anthropic-version: 2023-06-01" \
+  -d '{"model":"deepseek-v4-flash","thinking":{"type":"enabled","budget_tokens":1024},"max_tokens":8,"messages":[{"role":"user","content":"hi"}]}'
 # 看标记
-grep REQ /Users/linhuichen/code/trade-data/data/logs/thinking-proxy-req.log | tail -3
-# 期望最后两条: flash...injected=True aliased=False / think...injected=False aliased=True
+grep REQ /Users/linhuichen/code/trade-data/data/logs/thinking-proxy-req.log | tail -4
+# 期望: flash...injected=True / think...aliased=True / flash+enabled...explicit=True
 ```
-> 响应体对照(更强证据):think 返回含 `"type":"thinking"` 块,flash 返回**无** thinking 块只有 text——同模型同端点,差别只在是否注入 disabled,证明真关。
+> 响应体对照(更强证据):think / flash+enabled 返回含 `"type":"thinking"` 块,flash 默认返回**无** thinking 块只有 text——同模型同端点,差别只在是否注入 disabled,证明真关真开。
 
 ### Step 5 让用户重启会话
 改 settings 只对**新启动的会话**生效。明确告诉用户「重启会话验证」。
@@ -107,3 +111,4 @@ bash scripts/thinking-proxy-rollback.sh ark      # 方舟 coding 直连
 
 ## 落档时间线
 - 2026-08-16:切火山 agent plan 端点(api/plan)+ 新 plan key;两次栽「子 agent 改 key 自杀」后固化本 SOP + 完整版模板;模板 `~/.claude/settings.json.tpl-proxy-full`。
+- 2026-08-19:按需 thinking 升级(用户定「默认关+显式开」):thinking_proxy.py 注入逻辑改为——flash 默认注入 disabled,仅请求显式 `thinking.type=enabled` 时放行思考(`explicit=True`),adaptive 仍按默认关;think 别名保思考照旧。备份 `thinking_proxy.py.bak-20260819-on-demand`。现网端点确认为 coding(api/coding,ark)。
