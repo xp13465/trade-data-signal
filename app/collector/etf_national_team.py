@@ -486,6 +486,44 @@ def _timeout_handler(signum, frame):
     os._exit(2)
 
 
+def _start_timeout_watchdog(deadline_sec: int | float, cmd: str):
+    """看门狗线程超时强杀(2026-08-19 修复, 8-19 21:30 etf daily 卡死 2h19m 根因)。
+
+    【为什么 signal.alarm 会失效】
+    daily 走 ProcessPoolExecutor 8 worker 并发,主进程阻塞在
+    `as_completed(fut_to_idx)` / `Future.result()` -> `threading.Condition.wait()`。
+    macOS(Darwin)下 `pthread_cond_wait`(`__psynch_cvwait` 内核调用)对信号**不可中断**——
+    信号到达时不返回 EINTR,主线程一直睡在 condition wait 里,SIGALRM 一直 pending
+    未交付,600s 到点 _timeout_handler 不触发(os._exit 不执行),锁不释放,
+    21:30 兜底槽卡死,明天 20:07/21:30 两槽会全跳过断更。
+
+    【修复方案】
+    改用**独立 daemon 看门狗线程**强杀:线程调度独立于主线程阻塞状态,
+    不管主线程卡在哪(condition wait / socket recv / C 扩展),到点都能准时
+    os._exit(2) 释放 fcntl 锁。看门狗线程自己用 `Event.wait(deadline)`(定时等待
+    到时必然返回),不依赖信号。signal.alarm 保留作 socket syscall 场景兜底
+    (线程替不了 signal.alarm 在 socket EINTR 中断的场景)。
+
+    返回 Event,主线程 finally 正常完成时 set() 取消看门狗,避免误杀后续操作。
+    """
+    done = threading.Event()
+    t_start = time.monotonic()
+
+    def _watcher():
+        if done.wait(deadline_sec):
+            return  # 主线程已正常完成,取消看门狗
+        elapsed = time.monotonic() - t_start
+        print(f"[etf_nt] {cmd} 看门狗超时({deadline_sec}s)退出: 已运行 {elapsed:.0f}s, "
+              f"强制 os._exit(2) 释放锁(防 mootdx 卡死拖垮后续调度, 看门狗线程触发)",
+              file=sys.stderr, flush=True)
+        os._exit(2)
+
+    watchdog = threading.Thread(target=_watcher, daemon=True,
+                                name=f"etf-watchdog-{cmd}")
+    watchdog.start()
+    return done
+
+
 # ── Fetcher A: 沪市 ETF 每日份额（上交所）─────────────────────────────────────
 def fetch_sse_shares(date_yyyymmdd: str) -> dict[str, float]:
     """上交所某日全量 ETF 份额。返回 {code: fund_share}（仅本清单沪市 ETF）。
@@ -2021,13 +2059,19 @@ def main():
         # 2026-07-31 事故:7-31 21:30 etf daily 进程卡死23h未退出(mootdx 采集卡住无超时),
         # launchd 同名任务不重叠 -> 8-01 20:07/21:30 不启动新进程 -> etf log 8-01 完全空 -> 报漏跑。
         # signal.alarm 超时 -> _timeout_handler os._exit(2) 强制退出释放锁;socket 超时兜底单次调用。
+        # 2026-08-19 修复:8-19 21:30 daily 卡死 2h19m,根因=signal.alarm 在主线程阻塞于
+        #   ProcessPoolExecutor 的 Condition.wait(macOS pthread_cond_wait 对信号不可中断)时
+        #   不触发。补 _start_timeout_watchdog 看门狗线程强杀(独立线程调度,到点必 os._exit)。
         timeout_sec = _TIMEOUT_SEC.get(cmd, 600)
         socket.setdefaulttimeout(_SOCKET_TIMEOUT)
         signal.signal(signal.SIGALRM, _timeout_handler)
         _TIMEOUT_STATE.update(cmd=cmd, t_start=time.time(), timeout_sec=timeout_sec)
         signal.alarm(timeout_sec)
-        print(f"[etf_nt] {cmd} 全局超时 {timeout_sec}s + socket 超时 {_SOCKET_TIMEOUT}s 已设", flush=True)
+        _wd_done = _start_timeout_watchdog(timeout_sec, cmd)
+        print(f"[etf_nt] {cmd} 全局超时 {timeout_sec}s + socket 超时 {_SOCKET_TIMEOUT}s + "
+              f"看门狗线程 已设", flush=True)
 
+    _wd_done = None  # 看门狗取消句柄,置 None 防 NameError(locked=False 时未设置)
     try:
         if cmd == "daily":
             stats = pipeline_daily()
@@ -2064,9 +2108,12 @@ def main():
             pipeline_accum_nav(lookback_days=lookback)
     finally:
         # 正常完成取消 alarm(finally 在 os._exit 时不执行,仅正常路径走;
-        # 超时路径 _timeout_handler 内 os._exit(2) 直接终止,alarm 无所谓)
+        # 超时路径 _timeout_handler / 看门狗线程 内 os._exit(2) 直接终止,alarm 无所谓)
         if locked:
             signal.alarm(0)
+            # 取消看门狗线程(Event.set 后线程的 done.wait 返回,不 os._exit)
+            if _wd_done is not None:
+                _wd_done.set()
 
 
 if __name__ == "__main__":

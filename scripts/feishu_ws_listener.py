@@ -50,6 +50,7 @@ import os
 import ssl
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -866,6 +867,54 @@ def _run_startup_missed_fetch(inbox_dir: Path) -> None:
         log(f"启动补拉漏收消息异常（best-effort 不阻塞监听）：{e}")
 
 
+# 接收侧假死自愈看门狗（2026-08-19 修复：8-19 告警 feishu 实时事件流断 48h+ 根因根治）。
+# 背景：lark-oapi ws.Client(auto_reconnect=True) 的 _receive_message_loop 阻塞在
+#   `self._conn.recv()`。当 WS 连接"半死/僵尸"（TCP 仍 ESTABLISHED、服务器停止推事件，
+#   但 recv() 不抛 ConnectionClosed）时，auto_reconnect 永不触发（它只在 recv 抛异常时重连），
+#   client.start() 的 loop.run_until_complete(_select()) 永远阻塞 -> 外层 while True 也不走，
+#   -> 整个 listener 假死，用户群发"需求:"既不落盘也不回执，且无任何告警。
+# 修复：进程内起一个 daemon 看门狗线程，monitor ws_last_event 心跳戳（process_event 每成功
+#   处理一条就 touch），若"心跳戳持续 N 分钟不再前进"（说明收到实时事件流的接收侧死了），
+#   主动 os._exit(2) 退出整个进程 -> launchd KeepAlive=true 自动拉起 -> 重启时 RunAtLoad
+#   + _run_startup_missed_fetch 补拉漏收窗口 -> 全新 WS 连接 + 补拉，自愈闭环。
+#   用"不前进 N 分钟"而非"距上次事件超 N 分钟"：安静时段（无新事件=正常）不误杀，
+#   只在"本应持续有事件流动证明活着、却停更 N 分钟"时才判定假死。
+def _start_liveness_watchdog(stale_limit: int) -> threading.Event:
+    """启动接收侧假死看门狗。stale_limit：心跳戳停止前进后判定死亡的秒数。
+    返回 Event，供正常退出时 set() 取消看门狗（不进 os._exit）。"""
+    stop_evt = threading.Event()
+
+    def _now_mtime() -> float:
+        try:
+            return WS_LAST_EVENT_FILE.stat().st_mtime
+        except OSError:
+            return -1.0  # 文件缺失=从未有事件，交给"不前进"再等一轮
+
+    def _watcher() -> None:
+        last_mtime = _now_mtime()
+        stale_since = time.time()
+        # 1s 小步节拍轮询：既要及时捕捉心跳前进（reset 停更计时），也要在停更超阈值时
+        #   尽量准点触发（生产 default 7200s 阈值下有 1s 粒度足够；测试小阈值也能验证）。
+        while True:
+            if stop_evt.wait(1.0):
+                return  # 正常退出取消，不误杀
+            m = _now_mtime()
+            if m > last_mtime:
+                # 心跳前进：接收侧活着，重置"停更计时"
+                last_mtime = m
+                stale_since = time.time()
+            elif time.time() - stale_since > stale_limit:
+                log(f"接收侧假死看门狗触发：ws_last_event({WS_LAST_EVENT_FILE}) 已 {stale_limit}s "
+                    f"无事件，判定 WS 假死（TCP 半开 recv 不抛异常致 auto_reconnect 失效），"
+                    f"os._exit(2) 触发 launchd KeepAlive 重启 + 补拉漏收")
+                os._exit(2)
+
+    watchdog = threading.Thread(target=_watcher, daemon=True,
+                                name="feishu-liveness-watchdog")
+    watchdog.start()
+    return stop_evt
+
+
 def run_listener(app_id: str, app_secret: str, cfg: dict, once: bool = False) -> int:
     """启动长连接监听。once=True 收到一条合法请求后退出（测试用）。"""
     receive = cfg.get("receive") or {}
@@ -899,15 +948,30 @@ def run_listener(app_id: str, app_secret: str, cfg: dict, once: bool = False) ->
         log("SDK 长连接不可用，无法启动监听（需手动联调，见 docs/feishu-bot-integration-plan.md）")
         return 1
     log("启动飞书长连接监听（im.message.receive_v1）…")
-    while True:
-        try:
-            client.start()  # 内部自带断线重连（auto_reconnect=True）
-        except KeyboardInterrupt:
-            log("收到 Ctrl-C，退出")
-            return 0
-        except Exception as e:  # noqa: BLE001
-            log(f"长连接异常退出（launchd KeepAlive 或本循环兜底重连）：{e}")
-        time.sleep(30)
+    # 2026-08-19 假死自愈：起 daemon 看门狗，WS 半死（recv 不抛异常 auto_reconnect 失效）时
+    #   心跳戳 ws_last_event 停更超阈值 -> os._exit(2) -> launchd KeepAlive 重启 + 补拉自愈。
+    #   阈值默认 7200s(2h) 可经环境变量 FEISHU_LIVENESS_STALE_LIMIT 覆盖。
+    stop_wd = None
+    try:
+        stale_limit = int(os.environ.get("FEISHU_LIVENESS_STALE_LIMIT", "7200"))
+        stale_limit = max(stale_limit, 300)  # 下限 5min 防误配过小狂重启
+        stop_wd = _start_liveness_watchdog(stale_limit)
+        log(f"接收侧假死看门狗已启动（心跳戳停更 {stale_limit}s 判定假死 -> 重启自愈）")
+    except Exception as e:  # noqa: BLE001
+        log(f"接收侧假死看门狗启动失败（不阻塞监听）：{e}")
+    try:
+        while True:
+            try:
+                client.start()  # 内部自带断线重连（auto_reconnect=True）
+            except KeyboardInterrupt:
+                log("收到 Ctrl-C，退出")
+                return 0
+            except Exception as e:  # noqa: BLE001
+                log(f"长连接异常退出（launchd KeepAlive 或本循环兜底重连）：{e}")
+            time.sleep(30)
+    finally:
+        if stop_wd is not None:
+            stop_wd.set()
 
 
 def main(argv: list[str] | None = None) -> int:
