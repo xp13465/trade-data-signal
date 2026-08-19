@@ -10782,8 +10782,20 @@ async function renderOverview() {
           _gtTick(false);
         }, delay);
       }
+      // 2026-08-19 死闭包守卫根治:_gtEl/_gtActive 是 _summaryP.then 大回调的闭包局部变量,每次 renderOverview 重建首页
+      //   会新开闭包,但旧闭包的行情轮询定时器(_gtSchedule→_gtTick)与 visibilitychange 监听器永远活着,其 _gtActive 恒 true,
+      //   且已脱离 DOM 的死 wrap 不再经 _initGlobalTicker 守卫(_initGlobalTicker 只在重入时判 isConnected 复位)。
+      //   这里在定时器层兜底:wrap 已脱离 DOM/不存在 → 置 _gtActive=false + clearTimeout,彻底停掉死闭包继续白耗 9 路行情 fetch。
+      //   正常场景(节点仍在 DOM)恒通过守卫,不改任何可见行为。
+      function _gtDeadGuard() {
+        if (_gtEl && _gtEl.isConnected) return true; // 节点仍在 DOM=活闭包,放行
+        _gtActive = false; // 死闭包:终止轮询
+        if (_gtTimer) { clearTimeout(_gtTimer); _gtTimer = null; }
+        return false;
+      }
       async function _gtTick(force) {
         if (!_gtActive) return;
+        if (!_gtDeadGuard()) return; // 死闭包(wrap 已脱离 DOM):停止,不再发请求也不再重排循环
         if (_gtInFlight) { _gtSchedule(); return; }
         _gtInFlight = true;
         try {
@@ -10856,7 +10868,7 @@ async function renderOverview() {
         _gtActive = true;
         if (!_gtVisBound) {
           _gtVisBound = true;
-          document.addEventListener("visibilitychange", () => { if (!document.hidden && _gtActive) { _gtTick(true); } });
+          document.addEventListener("visibilitychange", () => { if (!document.hidden && _gtActive) { if (!_gtDeadGuard()) return; _gtTick(true); } });
         }
         _gtTick(true);
       }
