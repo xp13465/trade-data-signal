@@ -957,7 +957,18 @@ def _build_result(scenario_name, cash, positions, rounds, ledger, last_close,
 
     if first_buy_date:
         years = _days_between(first_buy_date, last_date) / 365.25
-        annualized = ((final_total / TOTAL_CAPITAL) ** (1 / years) - 1) * 100 if years > 0 else 0
+        # 年化对"终值本金倍数 <=0"健壮化（2026-08-19 修 g.cn_us_spread 负数利差崩溃）：
+        # 终值/本金倍数<=0（如利差指数终值可为负）没有实数复合年化率，返回 None 标"不可算"，
+        # 不进 round、不生成 complex（原 `(负)**分数` 返回 Python complex 抛
+        # TypeError: type complex doesn't define __round__，该索引 JSON 永远生成失败）。
+        # 正常正收益指数（终值倍数>0）维持原公式逐位不变。
+        multiple = final_total / TOTAL_CAPITAL
+        if multiple <= 0:
+            annualized = None
+        elif years > 0:
+            annualized = (multiple ** (1 / years) - 1) * 100
+        else:
+            annualized = 0
     else:
         years = 0
         annualized = 0
@@ -1110,7 +1121,7 @@ def _build_result(scenario_name, cash, positions, rounds, ledger, last_close,
             "open_count": len(positions),
             "ledger_count": len(ledger),
             "years": round(years, 1),
-            "annualized": round(annualized, 1),
+            "annualized": round(annualized, 1) if annualized is not None else None,
             "sharpe": round(sharpe, 2),
             "win_count": win_count,
             "lose_count": lose_count,
@@ -1387,7 +1398,7 @@ def _scenario_panel(data, index_name="上证指数"):
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">{format_num(s['total_capital'])} → {format_num(s['final_total'])} 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 {format_num(s['final_holdings'])} 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">{format_num(s['max_holding'])} 元（{s['max_holding_pct']}%）<div class="sub">{s['max_holding_date']}</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:{color_for_pct(s['total_return'])}">{format_num(s['total_return'])} 元（{s['total_return_pct']:+.2f}%）</span></div>
-      <div class="sim-card"><span class="k" title="{_ts_text_compliance('首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。')}">年化收益率</span><span class="v" style="color:{color_for_pct(s['annualized'])}">{s['annualized']:+.1f}%<div class="sub">{_ts_text_compliance('首笔买入至今')} {s['years']} 年</div></span></div>
+      <div class="sim-card"><span class="k" title="{_ts_text_compliance('首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。')}">年化收益率</span><span class="v" style="color:{color_for_pct(s['annualized']) if s['annualized'] is not None else 'var(--text-3)'}">{f"{s['annualized']:+.1f}%" if s['annualized'] is not None else 'N/A（终值倍数≤0，无实数复合年化）'}<div class="sub">{_ts_text_compliance('首笔买入至今')} {s['years']} 年</div></span></div>
       <div class="sim-card"><span class="k" title="年化夏普(无风险0)=equity_curve 相邻点收益率 mean/std × sqrt(252)。事件稀疏序列近似年化值(与 lab 同口径),值偏高。>3 可疑过拟合(Bailey 2014)">夏普比率</span><span class="v" style="color:{'#c0392b' if s.get('sharpe') is not None and s['sharpe'] > 3 else 'var(--text-1)'}">{s['sharpe']:.2f}{(' ⚠>3' if s.get('sharpe') is not None and s['sharpe'] > 3 else '')}<div class="sub">事件稀疏 sqrt(252) 年化</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">{format_num(s['total_assets_peak'])} 元<div class="sub">{s['total_assets_peak_date']}</div></span></div>
       <div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:{color_for_pct(-s['max_drawdown'])}">{dd_str}<div class="sub">{dd_date}</div></span></div>
@@ -1459,6 +1470,8 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
         最好=金底加粗(var(--bg-best)跟主题)，最坏=灰底加粗(var(--bg-worst)跟主题)，最好优先(列内全同标金底)。
         signed=True 时字色按正红负绿0灰(正=#e6492e 负=#2e8b57 0=#9e9e9e)；signed=False 黑字。
         底色与字色不冲突：底色高亮最好/最坏，字色留给正负。"""
+        if val is None or best is None or worst is None:
+            return f'<span style="color:var(--text-3)">N/A</span>'
         is_best = abs(val - best) < 0.001
         is_worst = abs(val - worst) < 0.001
         style_parts = []
@@ -1502,12 +1515,13 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
         if not wrows:
             return ""
         b_final = max(r["final_total"] for r in wrows); b_return = max(r["total_return_pct"] for r in wrows)
-        b_annual = max(r["annualized"] for r in wrows); b_sharpe = max(r["sharpe"] for r in wrows)
+        _annuals = [r["annualized"] for r in wrows if r["annualized"] is not None]
+        b_annual = max(_annuals) if _annuals else None; b_sharpe = max(r["sharpe"] for r in wrows)
         b_dd = min(r["max_drawdown"] for r in wrows); b_mdd = min(r["median_drawdown"] for r in wrows)
         b_tdd = min(r["trimmed_mean_drawdown"] for r in wrows); b_win = max(r["win_rate"] for r in wrows)
         b_ops = max(r["total_ops"] for r in wrows)
         w_final = min(r["final_total"] for r in wrows); w_return = min(r["total_return_pct"] for r in wrows)
-        w_annual = min(r["annualized"] for r in wrows); w_sharpe = min(r["sharpe"] for r in wrows)
+        w_annual = min(_annuals) if _annuals else None; w_sharpe = min(r["sharpe"] for r in wrows)
         w_dd = max(r["max_drawdown"] for r in wrows); w_mdd = max(r["median_drawdown"] for r in wrows)
         w_tdd = max(r["trimmed_mean_drawdown"] for r in wrows); w_win = min(r["win_rate"] for r in wrows)
         w_ops = min(r["total_ops"] for r in wrows)
@@ -2024,7 +2038,8 @@ def compare_fee_configs(index_id, custom_fee_config=None):
         },
         'diff': {
             'return_pct_diff': round(c_sum['total_return_pct'] - d_sum['total_return_pct'], 2),
-            'annualized_diff': round(c_sum['annualized'] - d_sum['annualized'], 2),
+            'annualized_diff': round(c_sum['annualized'] - d_sum['annualized'], 2)
+                              if c_sum['annualized'] is not None and d_sum['annualized'] is not None else None,
             'max_drawdown_diff': round(c_sum['max_drawdown'] - d_sum['max_drawdown'], 2),
             'win_rate_diff': round(c_sum['win_rate'] - d_sum['win_rate'], 2),
             'fee_cost_diff': round(c_sum['fee_cost'] - d_sum['fee_cost'], 2),
