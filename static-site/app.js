@@ -24497,6 +24497,8 @@ async function _simOnFeeChange(presetKey) {
   if (presetKey === 'custom') {
     m.feeParams = _simReadCustomParams();
   } else {
+    // 预设档切换: 先清掉自定义档 pending 的本地重算防抖定时器, 避免 400ms 后被 _tradeSimCompareLocal 重算结果覆盖刚读出的静态精确档(§23.2 race 防御)
+    if (_simFeeCompareDebounceTimer) { clearTimeout(_simFeeCompareDebounceTimer); _simFeeCompareDebounceTimer = null; }
     var preset = _SIM_FEE_PRESETS.find(function(p) { return p.key === presetKey; });
     if (preset) {
       m.feeParams = {
@@ -24799,6 +24801,8 @@ function _tradeSimRecalcCompare() {
 async function _tradeSimCompareLocal() {
   var m = _tradeSimState;
   if (!m || !m.statsData) return;
+  // 守卫: 仅自定义档走本地精确重算; 预设档已被误触发时直接返回, 防本地重算结果污染预设档静态展示(§23.2 race 防御)
+  if (m.feePreset !== 'custom') return;
   m.feeCompareMode = 'local';
   m.feeCompareLoading = true;
   m.feeCompareErr = null;
@@ -24823,7 +24827,7 @@ async function _tradeSimCompareLocal() {
     var origNode = sd.data[win] && sd.data[win][pathLabel] && sd.data[win][pathLabel][scenLabel];
     var fullNode = fullData.data[win] && fullData.data[win][pathLabel] && fullData.data[win][pathLabel][scenLabel];
     if (!origNode || !fullNode) throw new Error('该标的全历史窗口(' + pathLabel + '/' + scenLabel + ')明细缺失, 无法本地精确重算');
-    // 默认费率=原始回测费率参数; 当前费率=用户手改 feeParams
+    // 默认费率=原始回测费率参数(仅用于 fee_config 展示标签); 当前费率=用户手改 feeParams
     var fpDef = {
       commission_rate: sd.commission_rate || 0.0003, min_commission: sd.min_commission || 5,
       slippage: origSlippage, transfer_fee_rate_sh: sd.transfer_fee_rate_sh || 0.00001,
@@ -24832,15 +24836,18 @@ async function _tradeSimCompareLocal() {
     var fpCus = m.feeParams || fpDef;
     var signalFirstDate = sd.signal_first_date || null;
     var signalLastDate = sd.signal_last_date || null;
+    // 默认费率列直接复用后端原始 run 完整精确结果(origNode.summary/equity_curve), 不再本地重放——
+    //   本地重放 fullNode.ledger 逐笔价格精度被截断会漂移(§22 一致性, total_return 52.90 vs 53.04 分歧根因),
+    //   复用后端值保证「默认费率」在预设档(读静态)/自定义档(本地重算)完全一致零漂移
+    var dSum = origNode.summary;
+    var dOrigCurve = origNode.equity_curve || [];
     // winStartDate: all 窗口 s==signalFirstDate → recomputeNode 内部走 ledger[0].date 起(同后端 w_start is None)
-    var dNode = _simRecomputeNode(fullNode.ledger, fullNode.rounds, fullNode.open_positions,
-      initCap, posSize, etfCode, fpDef, pathLabel, origNode.summary, origSlippage,
-      null, signalFirstDate, signalLastDate);
+    // 仅 custom(当前费率)侧走前端本地精确重算
     var cNode = _simRecomputeNode(fullNode.ledger, fullNode.rounds, fullNode.open_positions,
       initCap, posSize, etfCode, fpCus, pathLabel, origNode.summary, origSlippage,
       null, signalFirstDate, signalLastDate);
-    if (!dNode || !cNode || !dNode.summary || !cNode.summary) throw new Error('本地精确重算失败');
-    var dSum = dNode.summary, cSum = cNode.summary;
+    if (!cNode || !cNode.summary || !dSum) throw new Error('本地精确重算失败');
+    var cSum = cNode.summary;
     // 净值序列 = equity_curve / initCap（1 起点, 供双曲线叠加, 对齐后端 compare_fee_configs._net_value）
     function _netValue(curve) {
       return (curve || []).map(function (pt) {
@@ -24858,7 +24865,7 @@ async function _tradeSimCompareLocal() {
       return keys.map(function (k) { return curve[k]; });
     }
     // 双曲线先采样再换算净值, 保首尾 + 逐点日期对齐(同后端 _sample_curve 后再 _net_value)
-    var dCurve = sampleCurve(dNode.equity_curve, 100);
+    var dCurve = sampleCurve(dOrigCurve, 100);
     var cCurve = sampleCurve(cNode.equity_curve, 100);
     var dc = dSum.fee_cost || 0, cc = cSum.fee_cost || 0;
     var dp = dSum.fee_pct || 0, cp = cSum.fee_pct || 0;
