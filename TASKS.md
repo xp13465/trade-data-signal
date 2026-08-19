@@ -8,7 +8,11 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-19 03:30(**#69 cyb 四档降亏新键实施上线完成**)。本轮:
+**最后更新**:2026-08-19 12:05(**代理切官方+按需thinking+两个脚本修复上线**)。**此前**:2026-08-19 03:30(**#69 cyb 四档降亏新键实施上线完成**)。本轮:
+- **📌 代理切官方+按需thinking 落地(commit 206c6143e,memory kickstart 教训)**:thinking_proxy.py 注入逻辑升级=flash 默认注入 disabled 关思考(执行类省 token),仅请求显式 `thinking.type=enabled` 时放行思考(`explicit=True` 日志),adaptive 仍按默认关;plist 改 TTP_PROVIDER=official(api.deepseek.com/anthropic)+settings sk-key 走代理;三态 curl 200 验证。⚠️ 代理配置下次重启别用 kickstart(不读 plist,本次两次改坏的根因,见 memory [[launchctl-kickstart-does-not-reread-plist]]),改 plist 用 bootout+bootstrap。
+- **📌 hooks 飞书抄送已补回**:用户重置配置丢了 hooks,从模板(tpl-proxy-full)补回 hooks.Stop(claude-says 0token 抄送),保留官方 env。**下次重启会话生效**。
+- **📌 main-merge.sh commit 分支修好 + token_cache_stats 自动 commit+push 上线(8b63a7b9c)**:①main-merge.sh commit 分支改为只盯 BUMP_PRODUCTS(10 个前端产物)diff,不再用整个工作区 diff(原 bug:工作区有无关 M 如 README→误入 commit 分支→bump 无变更→空提交 exit 1 卡死,本次实测已修好,推送过程正常)②token_cache_stats.py --append-daily 追加 README 命中率走势后自动 add+commit+push main,幂等跳过/遇冲突不静默(方案①,绕开 main-merge 统一入口)。
+- **⏳ 待办 main-merge.sh 残余抖动**:本次 merge 最后一步 push 走非 0 分支 exit 1(手动 push 成功、origin/main 已确认 8b63a7b9c),疑似 push 瞬间网络抖动触发重试、重试 rebase 撞工作区 plist M 改动,交付未受影响但脚本有残余抖动待修。
 - **📌 #69 已完整上线**:新增**非默认推荐**降亏键 `excludeSpecialBearCyb`(excludeSpecialBear 的创业板 cyb 四档版,默认关+🆕NEW,凯利区独立开关供人工复测;2026-08-19 用户拍板:不动 v1.1.2 默认主键 hs300,8键+1类默认组合零改动)。链路:signal_kelly_backtest.py 注入 market_tier_cyb + queries.py cyb 四档谓词 + lab.js 新键 toggle + app.js/purpose-notes 公示 → reviewer PASS(公示数字修复为「收益待用户实测」)→ main-merge.sh 统一 merge+bump(版本串 **20260819-a353**)+ deploy 上线(§24⑤ 校验 + 版本进度 A/B PASS)+ §0 三查齐(线上 signal_kelly_trades.json 含 market_tier_cyb 153 条 cyb≠hs300 独立计算 / overview 含 cyb_tier / app+lab.min.js 含新键 / index 版本串一致)。commit 链:c8095538c(merge+bump) + 57f6a1c66(子页 about/guide/privacy 版本串同步)。
 - **📌 新增待办 #74**(pending-features-index,commit 869af405a):check_signals.py L708 `ai_macro.hit` 未做 AI_MACRO_KEYS 白名单二次过滤(reviewer 非阻断发现——默认关非推荐键的 hit 也会把信号从邮件广播候选剔除,对普通用户本不该生效)。
 - **⏳ 待安排/待办**:①#73 8 宽基四档展示(sh/sz/csi500/cyb/sz50/csi1000/kc50 走势图四档色带,hs300 已完成,纯展示,用户 2026-08-19 拍板待安排)②#74 邮件广播 hit 白名单过滤 ③用户实测凯利区 excludeSpecialBearCyb 开关(数据口径/开关/公示已就绪,公示写「收益待用户实测」)。
