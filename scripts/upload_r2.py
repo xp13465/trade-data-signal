@@ -769,6 +769,11 @@ def cmd_upload_intraday():
         "intraday_snapshot.json", "overview.json", "summary.json",
         "summary_history.json", "notifications.json", "boot.json",
         "schedule_stats.json",
+        # 大盘结构套件（2026-08-19 修复：随 intraday _recompute_scores 盘中重算后一并上传 R2，
+        # 否则前端 position/ma_alignment/ad_line/new_high_low/volume_ratio 卡盘中停在 T-1，
+        # 与情绪分/恐贪不同步；edge TTL=60s(_data_cache_ttl L837) 上传即近乎实时可见）
+        "position.json", "ma_alignment.json", "ad_line.json",
+        "new_high_low.json", "volume_ratio.json",
         "a-stock-3m.json", "a-stock-6m.json", "a-stock-1y.json",
         "hk-3m.json", "hk-6m.json", "hk-1y.json",
         "global-3m.json", "global-6m.json", "global-1y.json",

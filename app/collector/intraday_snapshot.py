@@ -17,6 +17,8 @@ import json
 import subprocess
 import sys
 import time
+
+import pandas as pd
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -1680,7 +1682,8 @@ def _collect_intraday_width_metrics() -> dict:
 
 
 def _recompute_scores() -> None:
-    """反哺后重算 6 个 per-index 情绪分 + 恐贪指数 + a_sentiment + cross_market。
+    """反哺后重算 6 个 per-index 情绪分 + 恐贪指数 + a_sentiment + cross_market
+        + 大盘结构套件（position/ma_alignment/ad_line/new_high_low/volume_ratio） + high_alert/low_alert。
 
     per-index 情绪分（sentiment_sz50/hs300/csi500/csi1000/cyb/kc50）依赖 index_daily OHLC，
     反哺当日数据后重算即可得到当日值。恐贪 = 8 子情绪分等权平均，6 个 per-index 更新后
@@ -1690,8 +1693,14 @@ def _recompute_scores() -> None:
     _collect_intraday_width_metrics 已采这些 daily_metric 并 source='intraday'，故重算能
     产生当日值（ratio/zt/zhaban/amount 4+ 分项 >= 3 出分）。cross_market 同理（依赖全部
     simple 指标，trim_mean 去 max/min）。重算失败不阻断（已有历史值不受影响，UPSERT 幂等）。
+
+    2026-08-19 修复:大盘结构套件（position/ma_alignment/ad_line/new_high_low/volume_ratio，
+    消费这些数据源的首页卡片=大盘位置感/均线排列/腾落线/新高新低明细/新高新低家数）
+    原仅 17:50 EOD export.py 重算，盘中停在 T-1，与盘中已刷新的情绪分/恐贪不同步
+    （用户报 8-19 盘中散度线卡显示 8-18）。现并入盘中重算，与情绪分套件同期刷新到当日
+    （UPSERT 幂等，盘中为当日盘中值，17:50 EOD 以收盘值覆盖，口径与情绪分一致）。
     """
-    from ..compute import sentiment, fear_greed, cross
+    from ..compute import sentiment, fear_greed, cross, position, ma_alignment, ad_line, new_high_low, volume_ratio
 
     index_ids = ["sz50", "hs300", "csi500", "csi1000", "cyb", "kc50"]
     for idx_id in index_ids:
@@ -1730,6 +1739,80 @@ def _recompute_scores() -> None:
         print(f"  [intraday] cross_market: {n_cross}天, 末日={last_date}={last_val}", flush=True)
     except Exception as e:  # noqa: BLE001
         print(f"  [intraday] cross_market 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
+
+    # ===== 大盘结构套件盘中刷新（2026-08-19 修复：原 EOD-only 致盘中停 T-1）=====
+    # 消费源=首页 大盘位置感(position.json)/均线排列(ma_alignment.json)/腾落线(ad_line.json)/
+    # 新高新低(new_high_low.json)/成交量对比(volume_ratio.json)。compute+store 口径与 runner.run()
+    # 一致，每项独立 try/except 不阻断。UPSERT 幂等，17:50 EOD 以收盘值覆盖。
+    try:
+        _pos_positions = position.compute_position()
+        _n_pos = position.store_position(_pos_positions)
+        _nd = (_pos_positions[0].get("current_date", "?") if _pos_positions else "?")
+        print(f"  [intraday] position: {_n_pos}条, 当前日期={_nd}", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] position 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
+    try:
+        _ma = ma_alignment.compute_ma_alignment()
+        _n_ma = ma_alignment.store_ma_alignment(_ma)
+        print(f"  [intraday] ma_alignment: {_n_ma}条", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] ma_alignment 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
+    try:
+        _ad = ad_line.compute_ad_line()
+        _n_ad = ad_line.store_ad_line(_ad)
+        print(f"  [intraday] ad_line: {_n_ad}条", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] ad_line 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
+    try:
+        _nhl = new_high_low.compute_new_highs_lows()
+        _n_nhl = new_high_low.store_new_highs_lows(_nhl)
+        _ld = str(_nhl.get("latest", {}).get("date", "?"))
+        print(f"  [intraday] new_high_low: {_n_nhl}条, 最新={_ld}", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] new_high_low 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
+    try:
+        _n_vr = volume_ratio.compute_volume_ratio()
+        print(f"  [intraday] volume_ratio: {_n_vr}条", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] volume_ratio 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
+
+    # high_alert/low_alert（综合预警，消费=KPI 高位预警/低位机会卡，缺失时同 EOD-only 停 T-1）
+    # store 口径与 scripts/export_alert.py _store_score 完全一致（score_daily 同 schema），
+    # 只重算入库供 overview 复用；alert.json（预警条）仍由 17:50 export_alert 导出。
+    try:
+        from ..alert_score import compute_alert_scores, HIGH_WEIGHTS, LOW_WEIGHTS
+        _today = datetime.now().strftime("%Y%m%d")
+        _adf = compute_alert_scores(end=_today)
+        if _adf.empty:
+            print("  [intraday] high_alert/low_alert 无当日数据（跳过）", flush=True)
+        else:
+            _row = _adf.iloc[-1]
+            _date = str(_adf.index[-1])
+            _hkeys = list(HIGH_WEIGHTS)
+            _lkeys = list(LOW_WEIGHTS)
+            _now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            _hcomps = {k: (None if pd.isna(_row.get(k)) else round(float(_row[k]), 2)) for k in _hkeys}
+            _lcomps = {k: (None if pd.isna(_row.get(k)) else round(float(_row[k]), 2)) for k in _lkeys}
+            _conn = get_conn()
+            _ha = _row.get("high_alert")
+            _la = _row.get("low_alert")
+            _conn.execute(
+                "INSERT OR REPLACE INTO score_daily (date, score_id, value, is_freeze, is_overheat, components, updated_at) "
+                "VALUES (?, 'high_alert', ?, 0, ?, ?, ?)",
+                (_date, None if pd.isna(_ha) else round(float(_ha), 4),
+                 1 if (not pd.isna(_ha) and _ha > 75) else 0,
+                 json.dumps(_hcomps, ensure_ascii=False), _now))
+            _conn.execute(
+                "INSERT OR REPLACE INTO score_daily (date, score_id, value, is_freeze, is_overheat, components, updated_at) "
+                "VALUES (?, 'low_alert', ?, ?, 0, ?, ?)",
+                (_date, None if pd.isna(_la) else round(float(_la), 4),
+                 1 if (not pd.isna(_la) and _la > 75) else 0,
+                 json.dumps(_lcomps, ensure_ascii=False), _now))
+            _conn.commit()
+            _conn.close()
+            print(f"  [intraday] high_alert/low_alert: date={_date} high={_ha} low={_la}", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] high_alert/low_alert 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
 
 def _log_signal_intraday(sigs: list[tuple]) -> int:
@@ -1971,6 +2054,22 @@ def _export_affected_json(is_closed: bool = False) -> None:
                               export_mod.export_rotation(conn))
     except Exception as e:  # noqa: BLE001
         print(f"  [intraday] rotation 导出失败（不阻断）: {type(e).__name__} {e}", flush=True)
+
+    # 大盘结构套件（2026-08-19 修复：原 EOD-only 盘中停在 T-1，与用户报的大盘位置感/均线排列/
+    # 腾落线/新高新低/成交量对比卡滞后一致；_recompute_scores 已重算当日 daily_metric，此处随
+    # 情绪分同期导出到当日。17:50 EOD export.py 全量再覆盖为收盘值）
+    for _name, _fn, _need_conn in (
+        ("position.json", export_mod.export_position, False),
+        ("ma_alignment.json", export_mod.export_ma_alignment, True),
+        ("ad_line.json", export_mod.export_ad_line, True),
+        ("volume_ratio.json", export_mod.export_volume_ratio, True),
+        ("new_high_low.json", export_mod.export_new_high_low, True),
+    ):
+        try:
+            _data = _fn(conn) if _need_conn else _fn()
+            export_mod.write_json(export_mod.DATA_DIR / _name, _data)
+        except Exception as e:  # noqa: BLE001
+            print(f"  [intraday] {_name} 盘中导出失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
     # 方案B(2026-08-06): 重新生成 boot.json, 保证 boot.overview 始终最新.
     # 根因: boot.json 只在 export.py(17:50/23:00) 生成, 盘中 intraday 每10min 刷新了
