@@ -466,11 +466,16 @@ def cmd_upload_trade_sim_json():
     ts_dir = STATIC_DIR / "data/trade_sim"
     if not ts_dir.exists() or not any(ts_dir.glob("*.json")):
         ts_dir = ROOT / "static-site" / "data" / "trade_sim"
-    ok, total, _, _ = _upload_glob(ts_dir, ["*.json"], "trade_sim_data")
+    ok, total, _, uploaded_keys = _upload_glob(ts_dir, ["*.json"], "trade_sim_data")
     if total == 0:
         sys.exit(f"无 trade_sim json: {ts_dir}")
     if ok != total:
         sys.exit(1)
+    # 清 CF 边缘缓存(同其他 R2 前缀命令模式):uploaded_keys 含 "trade_sim_data/" 前缀,
+    # cache_prefix="/r2/" -> "/r2/trade_sim_data/{id}_stats.json" 匹配 r2ProxyHandler cacheKey。
+    # 2026-08-19 补:此前本命令从不 purge, trade_sim JSON 在 CF edge 残留最长 4h,
+    # 19:00 重跑后被旧快照遮挡新费率数据(cmd_purge_low_freq 也只扫 data/ 顶层不递归此子目录)。
+    purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
 def cmd_upload_index():
