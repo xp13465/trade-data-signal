@@ -19,20 +19,16 @@
 
 > **结构明示**:真完成落完成文件(待 7 天自动归档);完成文件 = 7 天自动归档候选池;未满 7 天的不进 docs/archive。本次 TASKS.md 尾部「归档/远期指针」段已按 4 态标注去处。
 
-## 对照表一:完成/关闭了哪些(43 完成 → tasks-done-list.md 完成文件待 7 天归档;3 关闭 → TASKS-done.md 留记录)
+## 对照表一:完成/关闭了哪些(53 完成 → tasks-done-list.md 完成文件待 7 天归档;3 关闭 → TASKS-done.md 留记录)
+
+> **费率 10 条(后端/全量重生,2026-08-20 用户「完成就按完成的走」核实)**:原留 task 的 10 条费率待办经代码 grep + 线上 R2 curl **逐条实测均已实现**(费率改造 #13/14/18/22 早已上线),全部移入完成文件 docs/tasks-done-list.md(43→53)。判据见该文件「2026-08-20 费率改造已实现(10条)」段(印花税 simulate_trade.py:57、过户费3模式 :58-59、抽核心 :45/73、修bug :40、对比 app.js feeCompare、API app/main.py:586、全量重生 trade_sim_hs300_stats.json generated_at 08-19 含 fee_config.stamp_tax/transfer_fee_mode、线上含印花税已 curl)。
 
 | 类 | 数量 | 内容 |
 |---|---|---|
-| 飞书群处理 | 5 | 漏收补拉/报告群/告警群/需求群硬编码/终端待办同步群 |
-| 全球指数盘中实时 | 3(完成) | P1 采全球5指数实时/P2 港股板块8个盘中/前端配套角标 |
-| accum_nav 前复权修正 | 13(完成) | accum_nav 除权不跳/1520只回填/10处计算层改用/159536 TE/TE用前复权/check_data/实时close未复权/92%覆盖率/<10s/board<700KB/双标签/降序/overview含track_score/sw bump |
-| etf 通知 | 1 | 🐾 进/离/放量弹窗 |
-| 降亏组合+全信号表 | 1 | L41 已上线(组合建议+quadMeta.all,lab.js L8503) |
-| 全站性能 P0/P1 | 6 | P1-6 并行/P1-7 preconnect(半)/P1-8 boot合并/P2-12 rootMargin/P2-13 CSS transition/P2-14 分时SVG/P2-16 换源 |
-| 费率前端已完成 | 7 | 滑点定比/面板/对比区/localStorage/upload_r2/deploy/双净值/3域名 |
-| 场外方案C step0 | 1 | upload_r2 调用 bug 修复 |
+| TASKS 治理完成(43 不含费率后端) | 43 | 飞书群处理5/全球指数盘中实时3/accum_nav前复权13/etf通知1/降亏组合+全信号表1/全站性能P0/P1 6/费率前端7/场外方案C step0 1(注:含费率前端7条,前端部分已在43内) |
+| 费率改造后端/全量重生(新核,10 条) | 10 | 费率可配置后端/印花税/过户费3模式/对比函数/API路由/重新回测按钮/印花税+过户费bug/全量重生/验证R2含印花税/对比正确性 |
 | 用户关闭(3) | 3 | NIFTY50(L59)/159536 track_score(L68)/avg_dev(L77) |
-| **合计** | **46** | 43 完成 + 3 关闭,追加 TASKS-done.md |
+| **合计(完成文件)** | **53** | 43 TASKS治理 + 10 费率 = 53,落 docs/tasks-done-list.md;**另有 3 关闭**留 TASKS-done.md 记录 |
 
 ## 对照表二:移到 todolist 了哪些(远期/搁置 → pending-index 模块十六)
 
@@ -42,44 +38,46 @@
 | 80 | 全站性能 P2-10/11/15 | TASKS.md「08-04 性能」3 个 `[ ]` | 按需滚动优化;P2-11 = L42 SVG P1 未做部分 |
 | 81 | 管理端任务看板 kanban | TASKS.md L47 | 远期(排期周末或下周),pending #33 已登记同项 |
 | 90 | 场外阶段2/3 | TASKS.md L45-46 | 阶段3 远期(阶段1/2 已完成),#34 已登记同项 |
+| 91 | 次日开盘口径确认 | TASKS.md「次日开盘口径」待办(2026-08-20 再收尾移出) | 🔶部分完成:②次日分批挂单SOP按钮已上线,①默认改次日开盘口径未改待用户拍板;报告 kelly-nextday-open-backtest.md |
+| 92 | SVG 大盘 tab P2-11 | TASKS.md「SVG P1」待办未做部分(L42,2026-08-20 改判远期移出) | P1 全站扩展已上线(293b1d101+d9a465dc6),剩大盘 tab renderAStock 30+ echarts 改 SVG;= pending #80 P2-11 同项 |
 
 > 8 项归档活跃需求补登记(pending #82-89)对照:留言箱(#82)/ETF485扩采+OHLC(#84)/公募筛选器实战版(#83)/板块轮动(#85)/真pin(#86)/PWA(#87)/订阅推送(#88)/overlap delta(#89)。出处均指向 TASKS-history-archive-20260820.md 对应行号(在每行「出处」列标出)。
 
-## 对照表三:留 active 哪些(TASKS.md,12 条 checkbox + 2 非checkbox活跃需求指针)
+## 对照表三:留 active 哪些(TASKS.md,0 条 checkbox + 即时待安排指针非checkbox)
+
+> **2026-08-20 再收尾(user 拍板「task 剩的待办全判远期移 todolist,不留活跃」)**:原本站 12 条 checkbox 全部清零——次日开盘 + SVG 大盘 tab 两条也判远期移 pending-index 模块十六 **#91/#92**;费率 10 条早核实已实现移完成文件。**TASKS.md 无活跃 checkbox**。
 
 | 类型 | 条数 | 内容 |
 |---|---|---|
-| 次日开盘口径确认 | 1 | 真实跟信号操作口径确认(待用户确认是否切次日开盘默认),L36 |
-| SVG 大盘 tab P2-11 | 1 | L42 改回 `[ ]`,剩大盘 tab 30+ echarts 改 SVG |
-| 费率可配置后端/全量重生 | 10 | simulate_trade 抽核心/印花税/过户费3模式/对比函数/API路由/重新回测按钮/印花税+过户费bug/全量重生/验证R2含印花税/对比正确性 |
-| 即时待安排(非checkbox,近期) | 若干 | #73 8宽基四档 / #74 邮件广播hit白名单 / excludeSpecialBearCyb 实测 |
+| 暂无活跃 checkbox | 0 | 全部待办已移 todolist(pending-index 模块十六)或完成文件,等有真正在做再放回 |
+| 即时待安排(非checkbox,近期指针) | 若干 | #73 8宽基四档 / #74 邮件广播hit白名单 / excludeSpecialBearCyb 实测 / 次日开盘切默认待用户拍板(见 pending #91) |
 
 ## 关键校验
 
-- **活 `[ ]` 待办数**:治理前 22 + L42 改回 = 23 → 治理后 12(本站)+ 11(pending 远期)= 23,**零丢失** ✓
-- **4 态/4 文件流转对齐**:43 真完成落完成文件 docs/tasks-done-list.md(③完成态,待 7 天归档)✓;3 关闭留 TASKS-done.md 记录(关闭态)✓;11 远期 + 8 需求入 pending-index(②待办态)✓;docs/archive 现仅为 7 天归档落点和关闭记录 ✓
-- **完成文件可反查**:docs/tasks-done-list.md 含 43 条完整 `- [x]` 内容 + 完成态标注 + 治理解释 ✓
-- **远期逐条在**:pending #79(8步)/#80(3子项)/#81/#90 完整保留 ✓
+- **活 `[ ]` 待办数**:治理前 22 + L42 改回 = 23 → 完成文件 53 条(43 TASKS治理 + 10 费率)✓ → 关闭 3 条 ✓ → **远期全数移入 pending-index 模块十六 #79-92(含 22 条原始待办归类 + 8 归档需求补登记)** ✓ → **TASKS.md 活跃 checkbox = 0** ✓ 全链路零丢失
+- **4 态/4 文件流转对齐**:53 真完成落完成文件 docs/tasks-done-list.md(③完成态,待 7 天归档)✓;3 关闭留 TASKS-done.md 记录(关闭态)✓;**全待办远期入 pending-index 模块十六 #79-92**(②待办态)✓;docs/archive 现仅为 7 天归档落点和关闭记录 ✓
+- **完成文件可反查**:docs/tasks-done-list.md 含 53 条完整 `- [x]` 内容(43 TASKS治理 + 10 费率改造已实现证据)+ 完成态标注 ✓
+- **远期逐条在**:pending #79(8步)/#80(3子项)/#81/#90 + **#91 次日开盘 / #92 SVG 大盘 tab** 完整保留 ✓
 - **8 项需求补登记**:pending #82-89,出处可反查 archive ✓
-- **L42 状态真实**:改回 `[ ]`,正文同步「P0+P1 已上线剩 P2-11」✓
+- **L42 状态真实**:SVG 大盘 tab 由 `[ ]` 改判远期入 pending #92(「P0+P1 已上线剩 P2-11」正文同步)✓
 - **L60 akshare 前置验证**:已 `[x]` 归完成文件(验证完成=akshare 不可用已换新浪源),尾部 `[待做]` 残留随整条移除 ✓
 - **cron 兼容**:pending-index 新增「模块十六」用既有标准表格格式(#/项/出处/方案/依赖/状态),不破坏既有节结构,23:45 cron 重建可认 ✓
 
 ## 涉及文件
 
 - `TASKS.md`(重写,只留活跃)
-- `docs/tasks-done-list.md`(**新增完成文件**,43 条真完成,待 7 天自动归档)
+- `docs/tasks-done-list.md`(**新增完成文件**,53 条真完成 = 43 TASKS治理 + 10 费率,待 7 天自动归档)
 - `docs/archive/TASKS-done.md`(本次追加「2026-08-20 任务治理归档段」= 3 关闭记录 + 完成文件指针)
-- `docs/pending-features-index.md`(新增模块十六 #79-90 + 头部更新)
+- `docs/pending-features-index.md`(模块十六 range 扩为 **#79-92**,新增 #91 次日开盘 / #92 SVG 大盘 tab + 头部更新)
 - `docs/tasks-active-only-clean-20260820.md`(本报告)
 
 ## ## 复现
 
-- 活跃待办守恒(4 态):治理后 `grep -c '^\- \[ \]' TASKS.md` = 12(活跃态①)+ pending 模块十六 #79(8)/#80(3)= 11(待办/远期态②)→ 总 23 = 治理前 22 + L42 改回;零丢失。
-- 完成文件:`grep -c '^\- \[x\]' docs/tasks-done-list.md` = 43(完成态③,待 7 天自动归档)。
+- **活跃待办守恒(4 态,2026-08-20 再收尾)**:治理后 `grep -c '^\- \[ \]' TASKS.md` = **0**(活跃态①清零,非丢失,系用户拍板「task 剩的待办全判远期移 todolist」);原 23 条待办(22 原始 + L42 改回)去路 = 10 费率已核实实现→完成文件 + 11 远期→pending-index 模块十六 + **2(次日开盘/SVG 大盘 tab)→pending-index #91/#92**;**零丢失**。
+- **完成文件**:`grep -c '^\- \[x\]' docs/tasks-done-list.md` = **53**(43 TASKS治理 + 10 费率改造已实现,完成态③,待 7 天自动归档)。
 - 关闭记录:`sed -n '/### 二、3 条用户拍板关闭/,/^---/p' docs/archive/TASKS-done.md` = 3 条。
-- 远期逐条:pending #79-90 节 `sed -n '/## 十六/,/已排除/p' docs/pending-features-index.md`(79/80/81/90 覆盖 11 条移出 + 82-89 补登记 8 项)。
-- L42 改回:`grep -n 'SVG P1' TASKS.md` 确认 `[ ]`。
+- 远期逐条:pending #79-92 节 `sed -n '/## 十六/,/已排除/p' docs/pending-features-index.md`(79/80/81/90/91/92 覆盖 11+2 条移出 + 82-89 补登记 8 项)。
+- L42 去向:`grep -n 'SVG 大盘 tab\|#92' docs/pending-features-index.md` 确认在模块十六 #92(正文「P0+P1 已上线剩 P2-11」同步)。
 - 依赖文件:docs/tasks-governance-scan-20260819.md(researcher 核验脚本/证据,untracked 主仓本地)、docs/archive/TASKS-history-archive-20260820.md(8 项需求出处)。
 - 数据截止:2026-08-20(治理当日)。
 - 关键口径:判「完成」= 代码 grep + 数据产物 + commit 三重至少两重(researcher);「远期/搁置」= 明确标待排期/周末或下周/按需滚动;「补登记」= 被 #27 归档但语义活跃/待排期需求,出处指 archive 对应段;「完成态 7 天归档」= 完成文件呆满 7 天自动移 docs/archive。

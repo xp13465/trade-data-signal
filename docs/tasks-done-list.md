@@ -51,3 +51,18 @@
 - [x] P2-14: 分时图 11 个 echarts 改 SVG（2-3h，展开分时图 -300~600ms）
 - [x] P2-16: update_all core pipeline 20 分钟东财封 IP，启动 industry 换源（2-4h，memory `industry-source-switch-trigger` 解除暂缓，东财 -> 同花顺/新浪）
 
+
+## 2026-08-20 费率改造已实现(10 条,用户「完成就按完成的走」移入)
+
+> **修正背景(2026-08-20 用户拍板)**:费率可配置(#13/14/18/22)早已上线,原被 TASKS.md 误留为活跃的 10 条费率待办,经逐条代码 grep + 线上 R2 curl 实测均**已实现**,移入完成文件。判据:simulate_trade.py(印花税 :57 / 过户费3模式 :58-59+_transfer_applies / 抽核心 fee_config :45+_normalize_fee_config / 修 bug :40)、app/main.py:586 /api/trade_sim_recalc、static-site/app.js feeCompare+双净值不重算、线上 R2 trade_sim_hs300_stats.json(generated_at 2026-08-19)含 fee_config.stamp_tax/transfer_fee_mode。
+
+- [x] simulate_trade.py 抽核心为可调用函数（传 fee_config 参数）→ simulate_trade.py:45 fee_config 9字段 + L73 _normalize_fee_config + L537/659/789 simulate_fixed_1w/simulate_all_in/simulate_sell_all 均接 fee_config 参数 + L444 _buy_with_fees/L484 _sell_with_fees 均接 fee_config
+- [x] 加印花税：卖出收 0.05%（万5，默认值，可配）→ simulate_trade.py:57 stamp_tax:0.0005 + L501 _sell_with_fees stamp_tax=sell_amount*fc['stamp_tax'](+前端 _SIM_FEE_PRESETS stock_def)
+- [x] 过户费3模式：沪市/深市/沪深统一（默认沪深统一 0.001% 买卖都收）→ simulate_trade.py:58-59 transfer_fee 0.00001 + transfer_fee_mode:hs_unified(默认) + L427 _transfer_applies 三模式(sh/sz/hs_unified)
+- [x] 费率对比函数：默认配置 vs 自定义配置 双回测结果对比 → app.js L23845-25026 feeCompare+feeCompareMode('static'读预生成/localt本地精确重算)+双净值曲线叠加(L24878)
+- [x] FastAPI 路由 /api/trade_sim_recalc（POST body index_id+fee_config）→ app/main.py:586 @app.post("/api/trade_sim_recalc") def api_trade_sim_recalc(body:TradeSimRecalcBody)
+- [x] "重新回测"按钮调 API → 实现方式演进(2026-08-15):前端去掉「按钮调 API」,改由费率变化驱动——预设档→读预生成静态 fee_compare.json 精确档,custom 手改→前端本地精确重算。目标(费率可配+重算对比)达成(A-L25011 注释「已去按钮」)
+- [x] 修正 simulate_trade.py 印花税万5 + 过户费沪深统一 bug → simulate_trade.py:40 注释(2026-08-19 根治:漏印花税+过户费只沪市ETF两 bug)+ L57/58-59(印花税卖出收、transfer_fee_mode 沪深统一)
+- [x] 全量重生 103 个 trade_sim_{idx}_stats.json + _full.json（印花税万5+过户费沪深统一）→ 线上 R2 trade_sim_hs300_stats.json generated_at 2026-08-19 19:22 已含 fee_config(含 stamp_tax 0.0005/transfer_fee_mode hs_unified);103 个通配批量于 #18 全量重生
+- [x] 验证线上 R2 JSON 含印花税字段 → curl https://ss.fx8.store/r2/trade_sim_data/trade_sim_hs300_stats.json 实测含 fee_config.stamp_tax
+- [x] 默认配置 vs 自定义费率对比正确性 → app.js 对比区块(默认 vs 当前,全历史窗口)+ 双净值叠加 + 前端本地精确重算验证(预设/自定义两态都覆盖)
