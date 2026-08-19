@@ -55,7 +55,11 @@ def _is_trade_side_dir() -> bool:
 
 def _is_trading_day() -> bool:
     """复用项目 app.calendar.is_trading_day(读 data/trade_dates.txt,__file__ 定位不受 cwd 影响);
-    异常(如 app 不可导入)降级为周末判断。"""
+    异常(如 app 不可导入)降级为周末判断。
+    真实降级路径:`python scripts/upload_r2.py` 的 sys.path[0]=scripts/,`from app.calendar` 触发
+    ModuleNotFoundError(scripts/ 下无 app 包)→ caught 降级到工作日(weekday<5)判断。
+    工作日⊇交易日,降级只会多拦(工作日节假日盘中误拦本就不会有对应实时 upload),安全侧保守,不构成漏拦/数据风险。
+    要严格读交易日历,须以 repo 根为 sys.path 跑(如 `python scripts/upload_r2.py`,`app` 在 repo 根可直接导入)。"""
     try:
         from app.calendar import is_trading_day
         return bool(is_trading_day())
@@ -91,26 +95,11 @@ def _guard_upload_intraday():
     sys.exit(2)
 
 
-def _guard_repo_consistency():
-    """方案4 一致性兜底(最后一道闸,不管盘中/盘后):
-
-    仅当 REPO env 显式设置且 STATIC_DIR 解析出的仓库根 ≠ REPO 指向路径时 → 拒传(退出码非0)。
-    「要传的源目录与 REPO 指向的仓库对不上」即停机,防手动缺省读错库覆盖线上。
-    保守:REPO 未设置的盘后场景不碰(避免误拦盘后正常上传)。
-    只在本函数被 cmd_upload_intraday 调用(不伤 lab/trade_sim 的 design 合法回退 trade 侧)。
-    """
-    repo = os.environ.get("REPO")
-    if not repo:
-        return
-    repo_root = Path(repo).resolve()
-    static_root = STATIC_DIR.resolve().parent  # static-site 的父 = 仓库根
-    if static_root == repo_root:
-        return
-    print(f"⚠ 源目录与 REPO 不一致:REPO 显式指向 {repo_root} ,但 STATIC_DIR 解析到 {static_root} (非同一仓库)",
-          file=sys.stderr)
-    print("   防读错库覆盖线上,拒绝 upload-intraday;正确:REPO=/Users/linhuichen/code/trade-data python scripts/upload_r2.py upload-intraday",
-          file=sys.stderr)
-    sys.exit(3)
+# ⚠ 方案4一致性兜底已废弃(2026-08-19 reviewer 返修):原想加「REPO 显式但 STATIC_DIR 源根≠REPO 拒传」
+# 的独立闸(exit3),但结构上不成立:STATIC_DIR = Path(REPO or ROOT)/"static-site" 在模块加载时由 REPO
+# 一次性派生,static_root==repo_root 恒成立,故「源根≠REPO」在物理上永不发生,该闸结构性不可达、无可拦截面。
+# 实际拦截由上方方案2(`_guard_upload_intraday`)承担。此处只保留说明,不再实现假兜底,防后续误读为独立防护。
+# 若未来有人想加「REPO 一致性校验」,须换掉「由 REPO 派生 STATIC_DIR」的既有机制(改模块级派生或运行时重解析),否则同样死锁。
 
 
 def _find_env():
@@ -846,9 +835,8 @@ def cmd_upload_intraday():
 
     盘中手动跑必须显式 REPO=/Users/linhuichen/code/trade-data(缺省 STATIC_DIR 回退 trade 侧旧库,
     会覆盖 R2,见顶部 _guard_upload_intraday 注释)。定时链路(intraday_snapshot.sh)已显式 export REPO。
+    方案4一致性兜底已废弃(结构性死閪,见其废弃注释),实际拦截由 _guard_upload_intraday 单一承担。
     """
-    # 双闸:① 盘中+trade侧(方案2) ② REPO 显式但源目录≠REPO(方案4 一致性兜底,不管盘中/盘后)。
-    _guard_repo_consistency()
     _guard_upload_intraday()
     data_dir = STATIC_DIR / "data"
     files = [

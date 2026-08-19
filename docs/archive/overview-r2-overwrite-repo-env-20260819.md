@@ -40,11 +40,11 @@ cd /Users/linhuichen/code/trade-data && python .../trade/scripts/upload_r2.py up
 ### C. implementer skill 加条款(`.claude/skills/role-implementer/SKILL.md` §3.1 R2 段)
 任何 agent 盘中手动跑 `upload_r2.py` / export 相关脚本覆盖 R2,必须带 `REPO=/Users/linhuichen/code/trade-data` 前缀;哨兵兜底说明;标注「关联规范源」(`upload_r2.py:33 STATIC_DIR 缺省回退 trade` + `intraday_snapshot.sh` 显式 REPO),按 §23.8 skill 维护同步。事故:2026-08-19。
 
-### D. 方案4 一致性兜底(最后一道闸,不管盘中/盘后)
-`cmd_upload_intraday` 双闸:
-- 方案2 哨兵(`_guard_upload_intraday`):盘中 + 读 trade 侧 → abort(exit 2)。
-- 方案4 一致性兜底(`_guard_repo_consistency`):REPO env 显式设置,但 STATIC_DIR 解析出的仓库根 ≠ REPO 指向路径 → abort(exit 3),「要传的源目录和 REPO 指向的仓库对不上」即停机。
-- 保守口径:**REPO 未设置的盘后场景不碰**(避免误拦盘后正常上传);lab/trade_sim 的 design 合法回退 trade 侧不受影响(本守卫只在 cmd_upload_intraday 调用,不涉及 lab/trade_sim)。
+### D. 方案4 一致性兜底(已废弃,2026-08-19 reviewer 返修)
+原尝试给 `cmd_upload_intraday` 加「REPO 显式但 STATIC_DIR 源根≠REPO → abort(exit 3)」的独立闸,但 **结构性死闸,不成立**:
+- 根因:`upload_r2.py:33` `STATIC_DIR = Path(REPO or ROOT)/"static-site"` 在模块加载时由 REPO 一次性派生,`_guard_repo_consistency` 里 `static_root=STATIC_DIR.resolve().parent` 恒等于 `repo_root=Path(REPO).resolve()`,「源根≠REPO」物理上永不发生,`sys.exit(3)` 结构性不可达。
+- 结论:事故漏洞**已由方案2(盘中哨兵)单独关闭**;方案4 不构成独立防护,已从代码删除(仅留解释注释)。
+- 若未来想要「REPO 一致性校验」,须换掉「由 REPO 派生 STATIC_DIR」的既有机制(改模块级派生或运行时重解析),否则同样死锁。
 
 ## 三、点检
 
@@ -53,16 +53,16 @@ cd /Users/linhuichen/code/trade-data && python .../trade/scripts/upload_r2.py up
 | A 哨兵(abort 判定+注释) | ✅ |
 | B 统一入口注释 | ✅ |
 | C skill 条款(§3.1 + 关联规范源) | ✅ |
-| D 方案4 一致性兜底(REPO显式但源≠REPO 拒传) | ✅ |
+| D 方案4 一致性兜底(已废弃,见上,非独立防护) | ✅(废弃) |
 | 落档报告(本文件 + ## 复现) | ✅ |
 
-**双闸判定表**:
-| 场景 | 方案2(盘中+trade侧) | 方案4(REPO≠源) | 结果 |
-|---|---|---|---|
-| 无 REPO + trade 侧 + 盘中(事故) | abort 2 | 跳过(REPO 未设) | 拒传 |
-| 无 REPO + trade 侧 + 盘后 | 放行 | 跳过 | 放行(防误拦) |
-| REPO=trade-data + 源=trade-data | 放行 | 放行(一致) | 放行(定时链路) |
-| REPO=trade-data + 源=trade(盘中/盘后) | (盘中拦/盘后放) | abort 3(始终拦) | 拒传 |
+**判定表(仅方案2实际拦截)**:
+| 场景 | 方案2(盘中+trade侧) | 结果 |
+|---|---|---|
+| 无 REPO + trade 侧 + 盘中(事故) | abort 2 | 拒传 |
+| 无 REPO + trade 侧 + 盘后 | 放行 | 放行(防误拦) |
+| REPO=trade-data + 源=trade-data | 放行 | 放行(定时链路) |
+| 其他(REPO 显式/trade-data 侧) | 放行 | 放行(方案4已废弃,无独立拦截) |
 
 ## 五、同类排查(§23.2③ 评估,不擅自扩大)
 
