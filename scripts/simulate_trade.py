@@ -2048,6 +2048,112 @@ def compare_fee_configs(index_id, custom_fee_config=None):
     }
 
 
+# 费率影响对比的预设档（对齐前端 app.js _SIM_FEE_PRESETS 的 5 个 5 参数预设）。
+# 纯静态适配：后端发布时对每个标的按这 5 档 + 默认档各跑一次回测，预生成合并 JSON，
+# 前端切费率档时读对应标的 _fee_compare.json 静态结果展示"默认 vs 当前档"对比（无运行时后端接口）。
+# config 为空 dict = 默认费率（_normalize_fee_config({}) -> DEFAULT_FEE_CONFIG 印花万5+沪深统一）
+_FEE_CMP_PRESETS = [
+    {"key": "zero",      "label": "0%剥离",    "config": {"buy_commission": 0, "sell_commission": 0, "min_commission": 0, "slippage": 0, "transfer_fee": 0, "transfer_fee_mode": TRANSFER_MODE_HS, "stamp_tax": 0}},
+    {"key": "etf_def",   "label": "ETF默认",   "config": {}},
+    {"key": "etf_main",  "label": "ETF主流",   "config": {"buy_commission": 0.00005, "sell_commission": 0.00005, "min_commission": 0.1, "slippage": 0.001, "transfer_fee": 0.00001, "stamp_tax": 0}},
+    {"key": "etf_cheap", "label": "ETF最便宜", "config": {"buy_commission": 0.00001, "sell_commission": 0.00001, "min_commission": 0, "slippage": 0.001, "transfer_fee": 0.00001, "stamp_tax": 0}},
+    {"key": "stock_def", "label": "股票默认",   "config": {"buy_commission": 0.0005, "sell_commission": 0.0005, "min_commission": 5, "slippage": 0.002, "transfer_fee": 0.00001, "stamp_tax": 0.0005}},
+]
+
+
+def _fee_compare_node(stats_json):
+    """从单次回测 stats_json 提取费率对比节点：{fee_config, summary, equity_curve, net_value}。
+
+    对比取 'all'(全历史) × 首位路径 × 首个信号组合（同 compare_fee_configs 口径）。
+    net_value = equity_curve 换算为相对初始资金倍数（供双曲线叠加，1 起点）。
+    """
+    init_cap = stats_json['initial_capital']
+    node = stats_json['data']['all'][_DEFAULT_CMP_PATH][_DEFAULT_CMP_SIG]
+
+    def _net_value(equity_curve):
+        return [{'date': pt['date'], 'np': round(pt['value'] / init_cap, 6)} for pt in equity_curve]
+
+    return {
+        'fee_config': stats_json['fee_config'],
+        'summary': node['summary'],
+        'equity_curve': node['equity_curve'],
+        'net_value': _net_value(node['equity_curve']),
+    }
+
+
+def _fee_diff(default_node, custom_node):
+    """计算"默认 vs 自定义" 6 项 diff（与 compare_fee_configs 相同的增减口径）。"""
+    d_sum = default_node['summary']
+    c_sum = custom_node['summary']
+    return {
+        'return_pct_diff': round(c_sum['total_return_pct'] - d_sum['total_return_pct'], 2),
+        'annualized_diff': round(c_sum['annualized'] - d_sum['annualized'], 2)
+                          if c_sum['annualized'] is not None and d_sum['annualized'] is not None else None,
+        'max_drawdown_diff': round(c_sum['max_drawdown'] - d_sum['max_drawdown'], 2),
+        'win_rate_diff': round(c_sum['win_rate'] - d_sum['win_rate'], 2),
+        'fee_cost_diff': round(c_sum['fee_cost'] - d_sum['fee_cost'], 2),
+        'fee_pct_diff': round(c_sum['fee_pct'] - d_sum['fee_pct'], 4),
+    }
+
+
+def _generate_fee_compare(index_id, out_dir_data):
+    """预生成费率影响对比静态 JSON（纯静态适配，无运行时后端接口）。
+
+    对单个标的按 5 个预设档 + 默认档各跑一次回测，产出合并静态 JSON：
+      static-site/data/trade_sim/trade_sim_{index}_fee_compare.json = {
+        generated_at, index_id, path, scenario, window(all),
+        default: {fee_config, summary, equity_curve, net_value},
+        by_fee: { preset_key: {key, label, fee_config, summary, equity_curve, net_value, diff} }
+      }
+    默认回测只跑一次（复用 _run_trade_sim_inner），预设档逐个注入费率重跑。
+    供前端"默认 vs 当前档"对比 + 双净值曲线 + 6 项 diff 消费。
+    走 deploy.sh 传 R2（trade_sim_data/ 前缀，前端读 https://ss.fx8.store/r2/trade_sim_data/trade_sim_{id}_fee_compare.json）。
+
+    返回 True 成功；无数据（signals 为空或 all 窗口缺失）时返回 False 不写文件。
+    """
+    default_ret = _run_trade_sim_inner(index_id, None)
+    if default_ret is None:
+        return False
+    default_stats, _ = default_ret
+    if 'all' not in default_stats.get('data', {}):
+        return False
+    default_node = _fee_compare_node(default_stats)
+
+    by_fee = {}
+    for preset in _FEE_CMP_PRESETS:
+        key = preset['key']
+        custom_ret = _run_trade_sim_inner(index_id, dict(preset['config']))
+        if custom_ret is None:
+            continue
+        custom_stats, _ = custom_ret
+        if 'all' not in custom_stats.get('data', {}):
+            continue
+        custom_node = _fee_compare_node(custom_stats)
+        node = dict(custom_node)
+        node['key'] = key
+        node['label'] = preset['label']
+        node['diff'] = _fee_diff(default_node, custom_node)
+        node['is_approx'] = False  # 预生成档=精确档（前端 custom 就近映射才标 is_approx）
+        by_fee[key] = node
+
+    out_json = {
+        'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
+        'index_id': index_id,
+        'path': _DEFAULT_CMP_PATH,
+        'scenario': _DEFAULT_CMP_SIG,
+        'window': 'all',
+        'default': default_node,
+        'by_fee': by_fee,
+    }
+    out_dir = os.path.join(out_dir_data, 'trade_sim')
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, f'trade_sim_{index_id}_fee_compare.json')
+    with open(out_path, 'w', encoding='utf-8') as f:
+        json.dump(out_json, f, ensure_ascii=False, separators=(',', ':'))
+    print(f"FEE_COMPARE Generated: {index_id} -> {out_path}")
+    return True
+
+
 def _generate_one(index_id, name_map, out_dir_static, output=None):
     """生成单个品种的回测 HTML。
 
@@ -2186,6 +2292,11 @@ def main():
                 except Exception as e:
                     fail += 1
                     print(f"FAIL: {index_id} - {e}", file=sys.stderr)
+                # 预生成费率影响对比静态 JSON（纯静态适配，前端读静态不调后端接口）
+                try:
+                    _generate_fee_compare(index_id, out_dir_data)
+                except Exception as e:
+                    print(f"FEE_COMPARE FAIL: {index_id} - {e}", file=sys.stderr)
             print(f"JSON 完成: 成功 {ok} / 跳过 {skip} / 失败 {fail} / 共 {len(ids)}")
             _generate_indices_list(out_dir_data)
             return
@@ -2197,6 +2308,8 @@ def main():
         else:
             print(f"无数据: {index_id}", file=sys.stderr)
             sys.exit(1)
+        # 预生成费率影响对比静态 JSON
+        _generate_fee_compare(index_id, out_dir_data)
         _generate_indices_list(out_dir_data)
         return
 
