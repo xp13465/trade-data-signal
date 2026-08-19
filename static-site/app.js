@@ -23999,6 +23999,8 @@ function _tradeSimPanelHTML(winData, fullNode, indexName, initCap, gradId, etfCo
 // trade_sim 由 simulate_trade.py 生成, ledger.close = 原始收盘价(round 2位) 可直接用于重算
 
 // 费率预设(同凯利 KELLY_FEE_PRESETS, app.js 独立定义因 lab.js 懒加载不保证已注入)
+// ⚠️ 本份已对齐后端模拟回测新默认(印花万5+过户沪深统一);lab.js 凯利 KELLY_FEE_PRESETS 有意保持免印花档(凯利既有口径, etf_def stamp=0),
+//    两处语义不同, 勿机械同步(动 lab.js 凯利预设会破坏凯利回测基准, 主控定论保护凯利口径>机械同步副本)
 var _SIM_FEE_PRESETS = [
   { key: "zero",      label: "0%剥离",    commission_rate: 0,       min_commission: 0,   slippage: 0,     transfer_fee_rate_sh: 0,       stamp_duty_rate: 0,      desc: "看纯信号alpha",           shortcut: "0" },
   // etf_def 默认对齐后端新的默认费率（印花万5卖出 + 过户费沪深统一万0.1 买卖都收），desc 同步；
@@ -24072,7 +24074,8 @@ function _simIsShEtf(etfCode) {
 function _simBuyWithFees(budget, close, etfCode, fp) {
   var buyPrice = close * (1 + fp.slippage);
   if (buyPrice <= 0) return { buyPrice: 0, shares: 0, commission: 0, transferFee: 0 };
-  var sh = _simIsShEtf(etfCode) ? fp.transfer_fee_rate_sh : 0;
+  // 过户费沪深统一: 有 ETF(替代成交)就统一收 fp.transfer_fee_rate_sh(不分沪深), 纯指数(无 etfCode)不收 —— 对齐后端 _transfer_applies(hs_unified: 纯指数None仍不收)(2026-08-19 pre-existing bug 对齐后端)
+  var sh = etfCode ? fp.transfer_fee_rate_sh : 0;
   var shares = budget / (buyPrice * (1 + fp.commission_rate + sh));
   var gross = shares * buyPrice;
   var comm = gross * fp.commission_rate;
@@ -24090,7 +24093,8 @@ function _simSellWithFees(shares, close, etfCode, fp) {
   var sellPrice = close * (1 - fp.slippage);
   var sellAmount = shares * sellPrice;
   var comm = Math.max(sellAmount * fp.commission_rate, fp.min_commission);
-  var sh = _simIsShEtf(etfCode) ? fp.transfer_fee_rate_sh : 0;
+  // 过户费沪深统一: 有 ETF(替代成交)就统一收 fp.transfer_fee_rate_sh(不分沪深), 纯指数(无 etfCode)不收 —— 对齐后端 _transfer_applies(hs_unified: 纯指数None仍不收)(2026-08-19 pre-existing bug 对齐后端)
+  var sh = etfCode ? fp.transfer_fee_rate_sh : 0;
   var transferFee = sellAmount * sh;
   var stampDuty = sellAmount * (fp.stamp_duty_rate || 0);
   var net = sellAmount - comm - transferFee - stampDuty;
