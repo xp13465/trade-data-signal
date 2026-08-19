@@ -23591,6 +23591,9 @@ async function _tradeSimOpenModal(indexId, openView) {
     feePreset: null,   // 费率客调: 预设档 key (初始化在 _tradeSimModalRender 中从 sd 读取)
     feeParams: null,   // 费率客调: 5参数 {commission_rate, min_commission, slippage, transfer_fee_rate_sh, stamp_duty_rate}
     feeRecomputed: null, // 费率客调: 重算数据 (null=用原始数据)
+    feeCompare: null,     // 费率影响对比: 后端 /api/trade_sim_recalc 返回 {default,custom,diff} (null=未请求)
+    feeCompareErr: null,  // 费率影响对比: 接口失败降级信息 (null=无错)
+    feeCompareLoading: false, // 费率影响对比: 请求中标志
   };
   var body = ov.querySelector('.trade-sim-modal-body');
   body.innerHTML = '<div class="trade-sim-loading"><span class="sim-spinner"></span>加载回测中…</div>';
@@ -23998,13 +24001,67 @@ function _tradeSimPanelHTML(winData, fullNode, indexName, initCap, gradId, etfCo
 // 费率预设(同凯利 KELLY_FEE_PRESETS, app.js 独立定义因 lab.js 懒加载不保证已注入)
 var _SIM_FEE_PRESETS = [
   { key: "zero",      label: "0%剥离",    commission_rate: 0,       min_commission: 0,   slippage: 0,     transfer_fee_rate_sh: 0,       stamp_duty_rate: 0,      desc: "看纯信号alpha",           shortcut: "0" },
-  { key: "etf_def",   label: "ETF默认",   commission_rate: 0.0003,  min_commission: 5,   slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0,      desc: "万3 最低5 当前",          shortcut: "1" },
+  // etf_def 默认对齐后端新的默认费率（印花万5卖出 + 过户费沪深统一万0.1 买卖都收），desc 同步；
+  // 兼容旧 stats 无 stamp_duty_rate(0) 时前端重算用回退默认（见 _simFeeBarHTML/m.recomputed 初始化, 仍用 sd 原始值兜底）
+  { key: "etf_def",   label: "ETF默认",   commission_rate: 0.0003,  min_commission: 5,   slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0.0005, desc: "万3 最低5 印花万5 沪深统一", shortcut: "1" },
   { key: "etf_main",  label: "ETF主流",   commission_rate: 0.00005, min_commission: 0.1, slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0,      desc: "万0.5 最低0.1",           shortcut: "2" },
   { key: "etf_cheap", label: "ETF最便宜", commission_rate: 0.00001, min_commission: 0,   slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0,      desc: "万0.1 免5",               shortcut: "3" },
   { key: "stock_def", label: "股票默认",  commission_rate: 0.0005,  min_commission: 5,   slippage: 0.002, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0.0005, desc: "万5 印花税万5 对比",       shortcut: "4" },
   { key: "custom",    label: "自定义",    desc: "5参数任意组合",                                                                shortcut: "C" },
 ];
 
+// 费率客调: localStorage 持久化 key（跨会话保留用户费率设置, 回退=后端默认费率）
+// 存储内容 = 用户当前费率映射的 9 字段 fee_config（默认费率也存, 重开不丢）
+var _SIM_FEE_PERSIST_KEY = 'tds_trade_sim_fee_config';
+// 默认费率的 9 字段（对齐后端 simulate_trade.DEFAULT_FEE_CONFIG, 与后端一致）
+var _SIM_DEFAULT_FEE_CONFIG = {
+  buy_commission: 0.0003, sell_commission: 0.0003, stamp_tax: 0.0005,
+  transfer_fee: 0.00001, transfer_fee_mode: 'hs_unified',
+  slippage: 0.001, slippage_mode: 'fixed', slippage_sigma: 0.0, min_commission: 5.0
+};
+// 5参数(feeParams) → 9字段 fee_config（前端 replay 模型转后端 API 模型）
+function _feeParamsToConfig(fp) {
+  var c = {
+    buy_commission: (fp && fp.commission_rate != null) ? fp.commission_rate : 0.0003,
+    sell_commission: (fp && fp.commission_rate != null) ? fp.commission_rate : 0.0003,
+    stamp_tax: (fp && fp.stamp_duty_rate != null) ? fp.stamp_duty_rate : 0.0005,
+    transfer_fee: (fp && fp.transfer_fee_rate_sh != null) ? fp.transfer_fee_rate_sh : 0.00001,
+    transfer_fee_mode: 'hs_unified',
+    slippage: (fp && fp.slippage != null) ? fp.slippage : 0.001,
+    slippage_mode: 'fixed', slippage_sigma: 0.0,
+    min_commission: (fp && fp.min_commission != null) ? fp.min_commission : 5.0
+  };
+  return c;
+}
+// 9字段 fee_config → 5参数 feeParams（打开弹窗时还原用户费率）
+function _feeConfigToParams(fc) {
+  fc = fc || _SIM_DEFAULT_FEE_CONFIG;
+  return {
+    commission_rate: (fc.buy_commission != null) ? fc.buy_commission : 0.0003,
+    min_commission: (fc.min_commission != null) ? fc.min_commission : 5.0,
+    slippage: (fc.slippage != null) ? fc.slippage : 0.001,
+    transfer_fee_rate_sh: (fc.transfer_fee != null) ? fc.transfer_fee : 0.00001,
+    stamp_duty_rate: (fc.stamp_tax != null) ? fc.stamp_tax : 0.0,
+  };
+}
+// 持久化当前费率（把 feeParams 映射成 fee_config 存 localStorage）
+function _tradeSimPersistFee() {
+  var m = _tradeSimState;
+  if (!m || !m.feeParams) return;
+  try {
+    localStorage.setItem(_SIM_FEE_PERSIST_KEY, JSON.stringify(_feeParamsToConfig(m.feeParams)));
+  } catch (e) {}
+}
+// 读回持久化费率 -> {feeConfig, feeParams} 或 null（无记忆用默认）
+function _tradeSimLoadPersistedFee() {
+  try {
+    var raw = localStorage.getItem(_SIM_FEE_PERSIST_KEY);
+    if (!raw) return null;
+    var fc = JSON.parse(raw);
+    if (!fc || typeof fc !== 'object') return null;
+    return { feeConfig: fc, feeParams: _feeConfigToParams(fc) };
+  } catch (e) { return null; }
+}
 // 沪市 ETF 判断(复用 simulate_trade.py _is_sh_etf 逻辑)
 function _simIsShEtf(etfCode) {
   if (!etfCode) return false;
@@ -24447,6 +24504,7 @@ async function _simOnFeeChange(presetKey) {
     };
     m.feeRecomputed = null;
   }
+  _tradeSimPersistFee();   // 费率客调: 持久化当前费率（跨会话保留）
   if (ov) _tradeSimModalRender(ov);
 }
 
@@ -24470,6 +24528,7 @@ async function _simOnFormChange() {
   var result = await _simApplyFeeRecompute(m.feeParams);
   if (result) m.feeRecomputed = result;
   else m.feeRecomputed = null;
+  _tradeSimPersistFee();   // 费率客调: 持久化当前费率（跨会话保留）
   if (ov) _tradeSimModalRender(ov);
 }
 
@@ -24531,7 +24590,170 @@ function _simFeeBarHTML(sd) {
       '<span class="sim-fee-hint">快捷键 0-4+C</span>' +
     '</div>' +
     customHTML +
+    '<div class="sim-fee-comparison-row">' +
+      '<button type="button" class="sim-fee-recalc-btn" data-recalc-compare="" title="用当前费率调后端 /api/trade_sim_recalc 重算, 对比默认费率的收益/年化/回撤/胜率/费率成本/占比 + 净值曲线">⚖ 费率影响对比 · 重新回测</button>' +
+      '<span class="sim-fee-hint">对比默认费率 vs 当前费率（后端重算, 全历史窗口）</span>' +
+    '</div>' +
     '</div>';
+}
+
+// === 费率影响对比(后端 /api/trade_sim_recalc) ===
+// 双净值曲线叠加: 输入两根 net_value [{date, np}]（相对初始资金倍数, 1 起点）, 起点对齐可比
+function _tradeSimCompareEquitySVG(nvDef, nvCus) {
+  if (!nvDef || !nvDef.length || !nvCus || !nvCus.length) {
+    return '<div style="padding:16px;color:var(--text-3);text-align:center">净值曲线数据不足</div>';
+  }
+  // 采同样的日期序列图（两序列同窗口同取点, 长度/首尾基本一致）
+  var a = nvDef, b = nvCus;
+  var xDate = a.map(function (e) { return e.date; });
+  var valA = a.map(function (e) { return e.np; });
+  var valB = b.map(function (e) { return e.np; });
+  var all = valA.concat(valB).concat([1]);
+  var yMin = Math.min.apply(null, all);
+  var yMax = Math.max.apply(null, all);
+  if (yMax <= yMin) yMax = yMin + 1;
+  var pad = (yMax - yMin) * 0.15; yMin -= pad; yMax += pad;
+  var W = 800, H = 160, ml = 58, mr = 10, mt = 5, mb = 24;
+  var pw = W - ml - mr, ph = H - mt - mb;
+  var n = valA.length;
+  var sy = function (v) { return mt + ph - ((v - yMin) / (yMax - yMin)) * ph; };
+  var sx = function (i) { return ml + (n > 1 ? (i / (n - 1)) * pw : 0); };
+  var baseY = sy(1); // 1 起点基准线
+  function linePts(vals) {
+    return vals.map(function (v, i) { return sx(i).toFixed(1) + ',' + sy(v).toFixed(1); }).join(' ');
+  }
+  var tickCount = Math.min(7, Math.max(3, Math.floor(n / 3)));
+  var step = n > 1 ? (n - 1) / (tickCount - 1) : 1;
+  var xLabels = [];
+  for (var k = 0; k < tickCount; k++) {
+    var i = Math.min(Math.round(k * step), n - 1);
+    xLabels.push('<text x="' + sx(i).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle" font-size="9" fill="var(--text-3)">' + (xDate[i] || '').substring(0, 7) + '</text>');
+  }
+  // y 轴刻度: 3-4 档
+  var yTicks = [];
+  for (var t = 0; t <= 3; t++) {
+    var v = yMin + (yMax - yMin) * (t / 3);
+    yTicks.push('<text x="' + (ml - 4) + '" y="' + sy(v).toFixed(1) + '" text-anchor="end" font-size="9" fill="var(--text-3)" dominant-baseline="middle">' + v.toFixed(2) + '</text>');
+  }
+  return '<div class="sim-compare-legend"><span class="sim-curve-def">— 默认费率</span><span class="sim-curve-cus">— 自定义费率</span><span class="sim-curve-base">┄ 初始资金(1.0)</span></div>' +
+    '<svg width="100%" height="150" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:6px;border-radius:6px;background:var(--bg-hover)">' +
+    '<line x1="' + ml + '" y1="' + baseY.toFixed(1) + '" x2="' + sx(n - 1).toFixed(1) + '" y2="' + baseY.toFixed(1) + '" stroke="var(--border)" stroke-dasharray="6,4" stroke-width="1"/>' +
+    // 先画自定义(橙)再加默认(蓝), 默认在上层便于区分
+    '<polyline points="' + linePts(valB) + '" fill="none" stroke="#e67e22" stroke-width="2" stroke-linejoin="round"/>' +
+    '<polyline points="' + linePts(valA) + '" fill="none" stroke="#3370ff" stroke-width="2" stroke-linejoin="round"/>' +
+    // 端点圆标
+    '<circle cx="' + sx(n - 1).toFixed(1) + '" cy="' + sy(valB[n - 1]).toFixed(1) + '" r="3" fill="#e67e22" stroke="#fff" stroke-width="1"/>' +
+    '<circle cx="' + sx(n - 1).toFixed(1) + '" cy="' + sy(valA[n - 1]).toFixed(1) + '" r="3" fill="#3370ff" stroke="#fff" stroke-width="1"/>' +
+    yTicks.join('') +
+    xLabels.join('') +
+    '</svg>';
+}
+
+// 把 9 字段 fee_config 格式化成人类可读成本明细（对齐后端默认口径: 印花万5卖出+过户沪深统一万1买卖都收）
+// 数值统一用 _feeDecimal 去浮点(如 0.0003*10000=2.9999999999999996 -> 3)
+function _feeDecimal(v) {
+  var r = Math.round(v * 100) / 100;   // 万分/千分显示保留 2 位内
+  var s = String(r);
+  if (s.indexOf('.') >= 0) s = s.replace(/\.?0+$/, '');
+  return s;
+}
+function _tradeSimFeeConfigLabel(fc) {
+  fc = fc || {};
+  var parts = [];
+  var comm = (fc.buy_commission != null) ? (fc.buy_commission * 10000) : 3;
+  var sellComm = (fc.sell_commission != null) ? (fc.sell_commission * 10000) : comm;
+  parts.push('佣金万' + _feeDecimal(comm) + '(买卖' + _feeDecimal(sellComm) + ')');
+  if (fc.min_commission != null) parts.push('最低' + _feeDecimal(fc.min_commission) + '元');
+  var slip = (fc.slippage != null) ? (fc.slippage * 1000) : 1;
+  if (slip > 0) parts.push('滑点千' + _feeDecimal(slip));
+  var tf = (fc.transfer_fee != null) ? (fc.transfer_fee * 10000) : 0.1;
+  if (tf > 0) parts.push('过户费万' + _feeDecimal(tf) + '(沪深统一)');
+  var stamp = (fc.stamp_tax != null) ? (fc.stamp_tax * 10000) : 0;
+  if (stamp > 0) parts.push('印花万' + _feeDecimal(stamp) + '(卖)');
+  return parts.join(' + ') || '原始费率';
+}
+
+// 费率影响对比区块 HTML（含对比表 + 成本明细 + 双净值曲线）, 三态: loading / err / 有数据 / 空
+function _tradeSimCompareSectionHTML() {
+  var m = _tradeSimState;
+  if (m.feeCompareLoading) {
+    return '<div class="sim-compare-block"><div class="sim-compare-title">⚖ 费率影响对比</div><div class="trade-sim-loading"><span class="sim-spinner"></span>后端重算对比中…</div></div>';
+  }
+  if (m.feeCompareErr) {
+    return '<div class="sim-compare-block"><div class="sim-compare-title">⚖ 费率影响对比</div><div class="trade-sim-empty">⚠ ' + m.feeCompareErr + '<br><span style="font-size:11px;color:var(--text-3)">可先切换费率档/调整自定义后点「重新回测」重试；接口需要后端已上线 + 有该指数回测数据。</span></div></div>';
+  }
+  if (!m.feeCompare) return '';
+  var c = m.feeCompare;
+  var d = c.default || {}, u = c.custom || {}, df = c.diff || {};
+  var ds = d.summary || {}, us = u.summary || {};
+  function pctVal(v, plus) {
+    if (typeof v !== 'number' || isNaN(v)) return '-';
+    return (plus && v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+  }
+  function ma(v) { return typeof v === 'number' && isFinite(v) ? _tradeSimFmtNum(v) + ' 元' : '-'; }
+  function diffCell(v, kind) {
+    if (typeof v !== 'number' || isNaN(v)) return '<span style="color:var(--text-3)">-</span>';
+    var bad = v > 0; // 收益/年化/胜率增加=好; 回撤/费率成本/占比增加=坏
+    if (kind === 'dd' || kind === 'cost' || kind === 'pct') bad = v > 0;
+    if (kind === 'ret' || kind === 'ann' || kind === 'wr') bad = v < 0;
+    var col = bad ? '#e6492e' : '#2e8b57';
+    return '<span style="color:' + col + ';font-weight:700">' + (v >= 0 ? '+' : '') + v.toFixed(2) + (kind === 'cost' ? '</span><span style="color:var(--text-3)"> 元</span>' : kind === 'pct' ? ' pp</span>' : '%</span>');
+  }
+  var fecLabel = _tradeSimFeeConfigLabel(u.fee_config) || '自定义';
+  var rows =
+    '<tr><td>总收益</td><td>' + pctVal(ds.total_return_pct, true) + '</td><td>' + pctVal(us.total_return_pct, true) + '</td><td>' + diffCell(df.return_pct_diff, 'ret') + '</td></tr>' +
+    '<tr><td>年化</td><td>' + pctVal(ds.annualized, true) + '</td><td>' + pctVal(us.annualized, true) + '</td><td>' + diffCell(df.annualized_diff, 'ann') + '</td></tr>' +
+    '<tr><td>最大回撤</td><td>' + pctVal(ds.max_drawdown) + '</td><td>' + pctVal(us.max_drawdown) + '</td><td>' + diffCell(df.max_drawdown_diff, 'dd') + '</td></tr>' +
+    '<tr><td>胜率</td><td>' + pctVal(ds.win_rate) + '</td><td>' + pctVal(us.win_rate) + '</td><td>' + diffCell(df.win_rate_diff, 'wr') + '</td></tr>' +
+    '<tr><td>费率成本</td><td>' + ma(ds.fee_cost) + '</td><td>' + ma(us.fee_cost) + '</td><td>' + diffCell(df.fee_cost_diff, 'cost') + '</td></tr>' +
+    '<tr><td>费率占比</td><td>' + pctVal(ds.fee_pct) + '</td><td>' + pctVal(us.fee_pct) + '</td><td>' + diffCell(df.fee_pct_diff, 'pct') + '</td></tr>';
+  var costHtml =
+    '<div class="sim-compare-cost"><div class="sim-compare-cost-row"><span class="sim-compare-cost-k">默认费率</span><span class="sim-compare-cost-v">' + _tradeSimFeeConfigLabel(d.fee_config) + '</span></div>' +
+    '<div class="sim-compare-cost-row"><span class="sim-compare-cost-k">当前费率</span><span class="sim-compare-cost-v">' + fecLabel + '</span></div></div>';
+  return '<div class="sim-compare-block">' +
+    '<div class="sim-compare-title">⚖ 费率影响对比 <span style="font-size:10px;color:var(--text-3);font-weight:400">默认 vs 当前（后端重算, 全历史窗口）</span></div>' +
+    costHtml +
+    '<div class="sim-compare-table-wrap"><table class="sim-cmp-table"><thead><tr><th>指标</th><th>默认</th><th>当前</th><th>增减</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+    '<div class="sim-compare-curve">' + _tradeSimCompareEquitySVG(d.net_value, u.net_value) + '</div>' +
+    '</div>';
+}
+
+// 「重新回测」按钮: 调后端 /api/trade_sim_recalc 拿双回测结果（默认 vs 当前费率）对比
+function _tradeSimRecalcCompare() {
+  var m = _tradeSimState;
+  if (!m || !m.statsData) return;
+  m.feeCompareLoading = true;
+  m.feeCompareErr = null;
+  var ov = _tradeSimOverlay;
+  if (ov) _tradeSimModalRender(ov);
+  var body = { index_id: m.indexId, fee_config: _feeParamsToConfig(m.feeParams) };
+  fetch('/api/trade_sim_recalc', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(function (r) {
+    if (!r.ok) {
+      if (r.status === 404) throw new Error('后端接口未就绪或无该指数回测数据（HTTP 404，请确认后端已更新）');
+      if (r.status === 429) throw new Error('请求过于频繁，请 1 分钟后再试（限流 10 次/分）');
+      if (r.status === 400) throw new Error('请求参数无效（HTTP 400）');
+      throw new Error('费率对比接口错误（HTTP ' + r.status + '）');
+    }
+    return r.json();
+  }).then(function (data) {
+    if (_tradeSimState !== m) return;
+    if (!data || !data.default || !data.custom) throw new Error('接口返回数据不完整，无法对比');
+    m.feeCompare = data;
+    m.feeCompareLoading = false;
+    m.feeCompareErr = null;
+    _tradeSimPersistFee();
+    if (ov) _tradeSimModalRender(ov);
+  }).catch(function (e) {
+    if (_tradeSimState !== m) return;
+    m.feeCompare = null;
+    m.feeCompareLoading = false;
+    m.feeCompareErr = (e && e.message) || '费率对比加载失败';
+    if (ov) _tradeSimModalRender(ov);
+  });
 }
 
 // 费率客调快捷键 0-4+C (trade_sim modal 打开时生效)
@@ -24561,14 +24783,21 @@ function _tradeSimModalRender(ov) {
   var scenLabel = sd.scenarios[scenIdx];
   var indexName = sd.index_name;
   var initCap = sd.initial_capital || 100000;
-  // Initialize fee params from stats data (default = original backend fees)
+  // 初始化 feeParams（默认=后端原始费率; 有 localStorage 持久化费率则还原, 跨会话保留）
   if (!m.feeParams) {
-    m.feePreset = 'etf_def';
-    m.feeParams = {
-      commission_rate: sd.commission_rate || 0.0003, min_commission: sd.min_commission || 5,
-      slippage: sd.slippage || 0.001, transfer_fee_rate_sh: sd.transfer_fee_rate_sh || 0.00001,
-      stamp_duty_rate: sd.stamp_duty_rate || 0,
-    };
+    var _persisted = _tradeSimLoadPersistedFee();
+    if (_persisted) {
+      // 用户上次自定义费率, 标记 custom 档（展示可继续微调, 不强制触发重算）
+      m.feePreset = 'custom';
+      m.feeParams = _persisted.feeParams;
+    } else {
+      m.feePreset = 'etf_def';
+      m.feeParams = {
+        commission_rate: sd.commission_rate || 0.0003, min_commission: sd.min_commission || 5,
+        slippage: sd.slippage || 0.001, transfer_fee_rate_sh: sd.transfer_fee_rate_sh || 0.00001,
+        stamp_duty_rate: sd.stamp_duty_rate || 0,
+      };
+    }
   }
   // 2026-07-20 infoBar: 回测标的 + 费率明细（modal 详情明确标注 ETF 代码/名称 + 完整费率, 区分 ETF 替代 vs 纯指数）
   // 2026-07-28 统一：sd.etf_name/etf_approx 由 simulate_trade.py 从 board_etf_map 首位写入；
@@ -24681,7 +24910,9 @@ function _tradeSimModalRender(ov) {
   var gradId = 'tradeSimGrad_' + win + '_' + pathIdx + '_' + scenIdx;
   var panel = _tradeSimPanelHTML(winData, fullNode, indexName, initCap, gradId, etfCode);
   var feeBar = _simFeeBarHTML(sd);
-  body.innerHTML = viewTabs + infoBar + purposeNote + feeBar + winBar + cmpTable + mainTabs + '<div class="sim-path-group active">' + subTabs + panel + '</div>';
+  // 费率影响对比区块（有数据/请求中/失败时渲染, 无则空串）
+  var compareSection = _tradeSimCompareSectionHTML();
+  body.innerHTML = viewTabs + infoBar + purposeNote + feeBar + compareSection + winBar + cmpTable + mainTabs + '<div class="sim-path-group active">' + subTabs + panel + '</div>';
   // 绑定视图切换（A10）+ 窗口切换
   body.querySelectorAll('.sim-view-tab[data-view]').forEach(function (btn) {
     btn.onclick = function () { m.view = btn.dataset.view; _tradeSimModalRender(ov); };
@@ -24713,6 +24944,11 @@ function _tradeSimModalRender(ov) {
   body.querySelectorAll('.sim-fee-custom input').forEach(function (inp) {
     inp.onchange = function () { _simOnFormChange(); };
   });
+  // 「费率影响对比」重新回测按钮
+  var recalcBtn = body.querySelector('.sim-fee-recalc-btn[data-recalc-compare]');
+  if (recalcBtn) {
+    recalcBtn.onclick = function () { _tradeSimRecalcCompare(); };
+  }
   // 对比表列标题点击排序：同列=切方向，不同列=换列+用该列默认方向
   body.querySelectorAll('.sim-cmp-table th[data-cmp-col]').forEach(function (th) {
     th.onclick = function () {
