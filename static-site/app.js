@@ -4910,11 +4910,13 @@ function _lwSignalMarkPoints(markData, dates) {
 }
 // 信号弹窗 lite cfg 构建(外观对等原 echarts valueChartWithSignals): 单序列 value 折线 + 信号 pin + tooltip。
 // visualMap pieces(情绪分分段色) → _lwColorFn(与恐贪/A股情绪分同款口径); 无 visualMap(首页信号弹窗) 用 echarts 默认首色。
-function _lwSignalLiteCfg(title, data, markData, opts, indexOverlay) {
+function _lwSignalLiteCfg(title, data, markData, opts, indexOverlay, isSentiment) {
   // 情绪分走势图叠指数曲线(2026-08-19): indexOverlay={name,series:[{date,value}]} 非空时,
   // 把 indexOverlay.series 对齐到情绪分日期轴, 新增右侧 y 轴(index 量级 1000-4000) + 第二条虚线细线。
   // 白名单过滤已在上游 _emotionIndexCurve 判定, 此函数只负责渲染(传 null/综合类 indexId 不叠加)。
   const idxOv = (indexOverlay && Array.isArray(indexOverlay.series) && indexOverlay.series.length) ? indexOverlay : null;
+  // 需求B tooltip 增强(2026-08-20): 与 valueChartWithSignals echarts 态同口径 —— 情绪分类带"指数名 情绪分"标签, 综合类带"情绪分", 全球extras 不带。
+  const _sentimentLabel = isSentiment ? ((idxOv && idxOv.name) ? idxOv.name + " 情绪分" : "情绪分") : null;
   const dates = (data || []).map((d) => d.date);
   // 叠加指数时, 对齐到情绪分日期轴(指数是全史, 只显示情绪分窗口内对应点; 同交易日数据缺失留 null 由 connectNulls 桥接)
   let idxVals = null;
@@ -4968,10 +4970,15 @@ function _lwSignalLiteCfg(title, data, markData, opts, indexOverlay) {
       const dt = xLabel;
       const p = (data || []).find((x) => x.date === dt);
       let tip = fmtDate(dt);
-      if (p && p.value != null) tip += "<br/>" + Number(p.value).toFixed(2);
+      // 需求B(2026-08-20): 情绪分 lite tooltip 与 echarts 态同口径对齐 —— "07-17  科创50 情绪分 15.82 / ─ 科创50指数:1715.40"
+      if (_sentimentLabel && p && p.value != null) {
+        tip += "  " + _sentimentLabel + " " + "<b>" + Number(p.value).toFixed(2) + "</b>";
+      } else if (p && p.value != null) {
+        tip += "<br/>" + Number(p.value).toFixed(2);
+      }
       if (idxOv) {
         const iv = idxVals[i];
-        if (iv != null && !isNaN(iv)) tip += '<br/><span style="display:inline-block;width:8px;height:2px;background:#b08d57;margin-right:4px;vertical-align:middle"></span>' + (idxOv.name || "指数") + ": " + Number(iv).toFixed(2);
+        if (iv != null && !isNaN(iv)) tip += '<br/><span style="display:inline-block;width:8px;height:2px;background:#b08d57;margin-right:4px;vertical-align:middle"></span>' + (idxOv.name || "指数") + "指数: " + Number(iv).toFixed(2);
       }
       const marks = (markData || []).filter((m) => m.coord[0] === dt && m.reason);
       for (const m of marks) {
@@ -4990,11 +4997,15 @@ function _lwSignalLiteCfg(title, data, markData, opts, indexOverlay) {
 // 单序列 value 折线 + 买卖点 markPoint（B 扩展：指标/情绪分用，数据是 [{date,value}]）
 // 与 indexChart 区别：数据结构是 value 单序列（无 close/high），量级差异大（gold 100-1249 /
 // cn10y 1.5-4 / usdcnh 680-722），用通用折线 + markPoint。opts 透传 visualMap 等（cross_market 用）。
-function valueChartWithSignals(title, data, signals, opts, stats, strategy, indexId, container = content, chartArr = charts, indexOverlay) {
+function valueChartWithSignals(title, data, signals, opts, stats, strategy, indexId, container = content, chartArr = charts, indexOverlay, isSentiment = false) {
   const sigs = signals || [];
   const hint = statsHint(stats, strategy, indexId);
   // 情绪分走势图叠指数曲线(2026-08-19): 6 宽基情绪分传 indexOverlay={name,series}; 恐贪/综合/跨市场/全球extras 传 null 不叠。
   const idxOv = (indexOverlay && Array.isArray(indexOverlay.series) && indexOverlay.series.length) ? indexOverlay : null;
+  // 需求B tooltip 增强(2026-08-20): 情绪分类(isSentiment=true, s.* 弹窗/B卡6宽基/恐贪/A股综合/跨市场)
+  // 语义标签名: 叠指数(idxOv.name 如"科创50")→ "科创50 情绪分"; 综合类无指数名→ 通用"情绪分"。
+  // 非情绪分类(全球extras g.* gold/cn10y/usdcnh 指标) isSentiment=false → 保持 日期+裸值 不贴标签, 不误伤。
+  const _sentimentLabel = isSentiment ? ((idxOv && idxOv.name) ? idxOv.name + " 情绪分" : "情绪分") : null;
   // 4色买点拼色 pin（同日多买点合并1个拼色 pin，参照汪汪队），卖绿独立 pin
   const _dataMap = {}; for (const p of data) _dataMap[p.date] = p;
   const markData = _buildSignalMarkData(sigs, (date) => {
@@ -5015,10 +5026,15 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
         const d = params[0], dt = d.axisValue;
         const p = data.find((x) => x.date === dt);
         let tip = fmtDate(dt);
-        if (p && p.value != null) tip += "<br/>" + Number(p.value).toFixed(2);
+        // 需求B(2026-08-20): 情绪分 axis tooltip 对齐指数曲线带标题格式 —— "07-17  科创50 情绪分 15.82 / ─ 科创50指数:1715.40"
+        if (_sentimentLabel && p && p.value != null) {
+          tip += "  " + _sentimentLabel + " " + "<b>" + Number(p.value).toFixed(2) + "</b>";
+        } else if (p && p.value != null) {
+          tip += "<br/>" + Number(p.value).toFixed(2);
+        }
         if (idxOv && _idxAlign) {
           const iv = _idxAlign[data.findIndex((x) => x.date === dt)];
-          if (iv != null && !isNaN(iv)) tip += '<br/><span style="display:inline-block;width:8px;height:2px;background:#b08d57;margin-right:4px;vertical-align:middle"></span>' + (idxOv.name || "指数") + ": " + Number(iv).toFixed(2);
+          if (iv != null && !isNaN(iv)) tip += '<br/><span style="display:inline-block;width:8px;height:2px;background:#b08d57;margin-right:4px;vertical-align:middle"></span>' + (idxOv.name || "指数") + "指数: " + Number(iv).toFixed(2);
         }
         const marks = markData.filter((m) => m.coord[0] === dt && m.reason);
         for (const m of marks) {
@@ -5092,7 +5108,7 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
     const card = div.parentElement;
     _prependSimBtn(card, indexId);
     _bindFreqPopupToHintRows(card, stats);
-    const liteCfg = _lwSignalLiteCfg(title, data, markData, opts, indexOverlay);
+    const liteCfg = _lwSignalLiteCfg(title, data, markData, opts, indexOverlay, isSentiment);
     _lwSetup(div, liteCfg, (container) => {
       const inst = echarts.init(container);
       _sigSetOption(inst);
@@ -6275,7 +6291,8 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       sigs = (r.signals && r.signals[key]) || [];
       stats = (r.stats && r.stats[key]) || {};
       strategy = r.strategy && r.strategy[key];
-      chartData = data.map((d) => ({ date: d.date, value: d.value }));
+      // 2026-08-20 需求A: chartData 保留 is_freeze 字段(s.* 情绪分元素含 is_freeze=1 标记冰点), 供冰点 pin 恒显判定读取(数据标记优先)。
+      chartData = data.map((d) => ({ date: d.date, value: d.value, is_freeze: d.is_freeze }));
       // 根据period过滤数据（截止日基于数据末日，非今天）
       const filterDate = _signalModalCutoff(chartData, period);
       if (filterDate) {
@@ -6307,9 +6324,12 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       body.innerHTML = `<div class="empty-note">暂无「${name}」走势数据</div>`;
       return;
     }
-    // 冰点模式：在原买卖点标注基础上追加冰点标注（≤20 蓝色），走势图同时显示买卖点+冰点
-    if (isFreeze) {
-      const freezePts = chartData.filter((d) => d.value != null && d.value <= 20).map((d) => ({ date: d.date, signal: "freeze", value: d.value }));
+    // 需求A(2026-08-20): 冰点 pin 恒显 —— 对 s.* 情绪分类弹窗不依赖入口 isFreeze, 恒追加冰点标注。
+    // 从冰点 cell(入口 isFreeze=true, 原 #20)或买卖点信号 cell(入口 isFreeze=false, 用户报缺)打开弹窗,
+    // 冰点日都恒有蓝 pin(复用 signalColor freeze=#42a5f5 / signalLabel"冰点"+round(value) 现有机制)。
+    // 判定: 数据标记 is_freeze===1 优先(L6294 chartData 保留), 回退 value<=20(双保险, 防数据字段缺失漏冰点)。
+    if (indexId.startsWith("s.")) {
+      const freezePts = chartData.filter((d) => (d.value != null && (d.is_freeze === 1 || d.value <= 20))).map((d) => ({ date: d.date, signal: "freeze", value: d.value }));
       sigs = [...sigs, ...freezePts];
     }
     body.innerHTML = "";
@@ -6402,7 +6422,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
     const title = name + _idxCodeTag + latestSuffix(chartData);
     // 2026-08-06 捕获 chart 实例(need3-②)：chart card 渲染后对 cardEl 调 _appendEtfLinkTag，把相关 ETF 加到模拟回测按钮后。
     const _sigChart = isValue
-      ? valueChartWithSignals(title, chartData, sigs, {}, stats, strategy, indexId, body, _signalModalCharts, chartOverlay)
+      ? valueChartWithSignals(title, chartData, sigs, {}, stats, strategy, indexId, body, _signalModalCharts, chartOverlay, indexId.startsWith("s."))
       : indexChart(title, chartData, sigs, stats, strategy, body, _signalModalCharts, indexId);
     // need3-②：弹窗模拟回测按钮后加相关 ETF（复用指数表现 _appendEtfLinkTag，仅常规指数分支 _modalEtfs 非 null 时渲染）。
     // _prependSimBtn 已在 indexChart/valueChartWithSignals 内调用（h3 顺序 [标题][❓][模拟回测]），此处追加 ETF tag 排末尾。
@@ -18264,7 +18284,7 @@ async function renderSentimentMarketTemp(container) {
         ],
         dimension: 1,
       },
-    }, undefined, undefined, "fear_greed", cell);
+    }, undefined, undefined, "fear_greed", cell, undefined, true);
     // 冰点(≤25)/过热(≥75)阈值线 + 最新值标记（保留信号 pin）
     {
       const _fgOpt = chart.getOption();
@@ -18338,7 +18358,7 @@ async function renderSentimentMarketTemp(container) {
         ],
         dimension: 1,
       },
-    }, stats.a_sentiment, strat.a_sentiment, "a_sentiment", cell);
+    }, stats.a_sentiment, strat.a_sentiment, "a_sentiment", cell, undefined, true);
     chart.setOption({ series: [{ markLine: {
       silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
       data: [
@@ -18387,7 +18407,7 @@ async function renderSentimentMarketTemp(container) {
             ],
             dimension: 1,
           },
-        }, stats[key], strat[key], key, cell, undefined, keyOverlay);
+        }, stats[key], strat[key], key, cell, undefined, keyOverlay, true);
       // 冰点(≤20)/过热(≥80)阈值线（情绪分口径，与恐贪25/75区分）
       chart.setOption({ series: [{ markLine: {
         silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
@@ -18425,7 +18445,7 @@ async function renderSentimentMarketTemp(container) {
         ],
         dimension: 1,
       },
-    }, stats.cross_market, strat.cross_market, "cross_market", cell);
+    }, stats.cross_market, strat.cross_market, "cross_market", cell, undefined, true);
     // 冰点(≤20)/过热(≥80)阈值线（情绪分口径，与恐贪25/75区分）
     chart.setOption({ series: [{ markLine: {
       silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
