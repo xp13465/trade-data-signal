@@ -10490,6 +10490,7 @@ async function renderOverview() {
     _setCachedOverview(null);
     if (!_overviewRefreshActive) _startOverviewRefresh();
     content.innerHTML = "";
+    _homeNewsReset(); // 2026-08-19:失败重建也重置首页新闻板块缓存+杀旧轮询,防旧轮询残留往死节点挂
     renderPurposeNote(content, PURPOSE_NOTES["overview"]);
     renderErrorState(content, "overview 数据加载失败" + (r && r.error ? "（" + r.error + "）" : ""), () => renderOverview());
     return;
@@ -10506,6 +10507,7 @@ async function renderOverview() {
     _startOverviewRefresh();
   }
   content.innerHTML = "";
+  _homeNewsReset(); // 2026-08-19:清空内容重建后,重置首页新闻板块节点缓存+杀掉旧轮询,防轮询往旧 banner 后重挂死节点/重复堆积(根治"板块消失/不更新"反复复发)
   renderPurposeNote(content, PURPOSE_NOTES["overview"]);
   // C6 综合风险预警条:high_alert>=72(高位红)/low_alert>=85(低位蓝)时顶部提示(异步,不阻塞渲染)
   renderAlertBar(content);
@@ -22530,9 +22532,15 @@ async function _loadNewsDigest(force) {
     const date = (raw && raw.date) || "";
     let news = (raw && Array.isArray(raw.news)) ? raw.news : [];
     // 当日 news_digest.json 存在即有值得显示(每30分钟采集的当日累积);不过滤 date==今日(非交易日也显示)。
-    // 空 news(数据源全失败但文件在)也置空,避免展示空态占位。
-    if (Array.isArray(news) && news.length === 0) {
-      news = [];
+    // 空 news:若已存在旧缓存则保留旧内容(只更新日期/清错误标记),对齐下方 catch 分支"保留旧缓存,避免外露行闪空/闪烁"意图。
+    // 根因(2026-08-19):数据侧 fetch_news 三源全失败返回空 news(或每日首采 00:01 空窗口),fetch 仍 200+合法 JSON,
+    //   此前成功分支会用空 news 直接覆盖旧缓存 → 首页外露行 hasData=false → _renderHomeNewsRows remove 掉整个板块 = 永久消失/不更新。
+    //   保留旧缓存后:轮询重拉虽回空,hasData 仍从旧缓存算真 → 板块不因一次空快照消失;下轮采到新数据再刷新(陈旧≤5min 轮询窗口)。
+    if (Array.isArray(news) && news.length === 0 && _newsDigestCache && _newsDigestCache.news && _newsDigestCache.news.length) {
+      _newsDigestCache.err = "";
+      _newsDigestCache.date = date;
+      _newsDigestTs = Date.now();
+      return _newsDigestCache;
     }
     _newsDigestCache = {
       news,
@@ -22557,16 +22565,30 @@ async function _loadNewsDigest(force) {
 //   不打断用户、不动页面其他部分、失败保持旧内容不闪动(§23.3 弹窗/历史对照仍走 _loadNewsDigest 缓存,靠 TTL 自动重拉拿新数据)。
 let _homeNewsWrap = null;      // 正常两行容器(轮询原地更新用)
 let _homeNewsFallback = null;  // 兜底「历史新闻入口」行容器
+// 2026-08-19 根治"板块消失/不更新"反复复发:页面重建时重置模块级节点缓存与轮询定时器。
+// 根因=renderOverview 每次 content.innerHTML="" 重建 banner/清空内容区,但模块级 _homeNewsWrap 仍指向已分离旧节点;
+//   旧轮询闭包捕获旧 banner,重建后仍往死 banner 后/死 content 里重挂 → 新闻板块消失或重复堆积。
+// 本函数在 renderOverview 清空内容后调用:clearTimeout 杀掉旧轮询(防重复堆积),置空缓存(新 render 的 .then 用新 banner 重建节点+重启轮询)。
+function _homeNewsReset() {
+  if (_homeNewsTimer) { clearTimeout(_homeNewsTimer); _homeNewsTimer = null; }
+  _homeNewsPolling = false;
+  _homeNewsWrap = null;
+  _homeNewsFallback = null;
+}
 function _renderHomeNewsRows(nd, banner, content) {
   const rowToday = _dbHomeTodayNewsRowHtml(nd);
   const rowNext = _dbNextDayRowHtml(_dbUpcomingEvents(nd), nd);
   const hasData = !!(rowToday || rowNext);
   // 形态切换:正常两行 ↔ 兜底历史入口行 之间互斥,切换时移除另一形态(轮询后数据有无变化也能正确切换)。
-  if (hasData && _homeNewsFallback) { _homeNewsFallback.remove(); _homeNewsFallback = null; }
-  if (!hasData && _homeNewsWrap) { _homeNewsWrap.remove(); _homeNewsWrap = null; }
+  // 2026-08-19 根治"板块消失/不更新"反复复发:复用分支必须判 isConnected——
+  //   根因=renderOverview 每次重建 banner/content(content.innerHTML="" 移除旧节点),但模块级 _homeNewsWrap 仍指向已分离旧节点,
+  //   轮询 if(_homeNewsWrap) 只更新死节点并 return → 用户看不到新闻;且不判 isConnected 会在重建后往死 banner 后重挂 → 可能重复堆积。
+  //   改判 isConnected:节点仍在 DOM 才复用;脱离 DOM(旧 banner 已重建)=当成不存在 →走下方用"当前 banner"重建新节点。
+  if (hasData && _homeNewsFallback && _homeNewsFallback.isConnected) { _homeNewsFallback.remove(); _homeNewsFallback = null; }
+  if (!hasData && _homeNewsWrap && _homeNewsWrap.isConnected) { _homeNewsWrap.remove(); _homeNewsWrap = null; }
   if (hasData) {
-    // 已存在则原地更新内容(不加加载态/不闪烁),否则首次创建并插入。
-    if (_homeNewsWrap) {
+    // 已存在且仍在 DOM 则原地更新内容(不加加载态/不闪烁),否则用当前 banner 首次创建并插入。
+    if (_homeNewsWrap && _homeNewsWrap.isConnected) {
       _homeNewsWrap.innerHTML = rowToday + rowNext + '<div class="summary-news-more">更多 →</div>';
       return;
     }
@@ -22586,7 +22608,7 @@ function _renderHomeNewsRows(nd, banner, content) {
     return;
   }
   // 兜底: 两行都无数据 → 渲染「历史新闻入口」行(点击打开新闻面弹窗,弹窗支持历史归档回看)。
-  if (_homeNewsFallback) return; // 已存在不动
+  if (_homeNewsFallback && _homeNewsFallback.isConnected) return; // 已存在且仍在 DOM 不动(2026-08-19:脱离 DOM=旧 banner 已重建,用当前 banner 重建)
   const fb = document.createElement("div");
   fb.className = "summary-news-row summary-news-fallback";
   fb.innerHTML = '<div class="db-nextday-row summary-news-entry"><span class="db-nextday-k">📰 历史新闻入口</span><span class="db-nextday-v">点此打开新闻面，按日期查看已归档新闻与大事预告</span><span class="news-more-hint">更多 →</span></div>';
