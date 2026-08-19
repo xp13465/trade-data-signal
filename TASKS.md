@@ -8,10 +8,12 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-20(TASKS.md **任务治理已完成落地**)。本轮:
+**最后更新**:2026-08-20(系统复核→v1.1.3 tag + pending-index 归位).本轮:
 - **📌 #78 TASKS.md 任务治理已实施合并(2026-08-20)**:researcher 全量盘(aade4fd)核 47 个 `[x]` = 43 真完成 + 3 用户拍板关闭(L59 NIFTY50 / L68 159536 track_score / L77 avg_dev) + 1 误标待办(L42 SVG P1,剩大盘 tab P2-11 未做,改回 active)。处置:43 完成 + 3 关闭归档 TASKS-done.md「任务治理段」;L42 改回 `[ ]`;远期/搁置 11 条(场外方案C 8步/性能P2 3条)移 pending-index 模块十六;8 项归档活跃需求补登记 #82-89。报告 docs/tasks-active-only-clean-20260820.md。
 - **📌 #18 费率修正(2026-08-20 用户「完成就按完成的走」)**:原留本站的 **10 条费率待办逐条实测均已实现**(费率改造 #13/14/18/22 早已上线)——印花税simulate_trade.py:57/stamp_tax 0.0005、过户费3模式:58-59+_transfer_applies、抽核心fee_config:45+_normalize_fee_config、修bug:40、对比函数app.js feeCompare、API路由app/main.py:586、全量重生+线上R2 trade_sim_hs300_stats.json(generated_at 08-19)含fee_config、验证线上含印花税已curl → **全部移入完成文件 docs/tasks-done-list.md**(完成文件 43→53)。
 - **📌 待办清零(2026-08-20 用户「task 剩的待办全判远期移 todolist,不留活跃」)**:原留本站的次日开盘 + SVG 大盘 tab 两条 `[ ]` 也判远期 → 移入 pending-index 模块十六 **#91 次日开盘 / #92 SVG 大盘 tab**。**TASKS.md 活跃 checkbox = 0**,当前无活跃待办,后续有真正在做再放回。
+- **📌 系统复核 v1.1.2→main 回测宇宙/推荐算法/信号口径(2026-08-20)**:reviewer 审逻辑 + tester Playwright 验线上两路全 PASS(默认组合8键+1类零改动/宇宙规则1:1/首页技术参考信号vs凯利回测同源/线上badge渲染正确)。**v1.1.3 tag 已打已 push**(8cb60a5a7,版本链 v1.0.0→v1.1.3 五连齐)。存量观察项=首页 AI建议N 无 `tds_poscap` key 时(首次访问)不显示,非回归,登记待办。
+- **📌 pending-index 归位(2026-08-20,#30)**:researcher 全量盘 92 条→ implementer 归位 **done 37 条**(docs/tasks-done-list.md,带 commit 实证)/ **archive 3 条**(#23 飞书阶段3 + #33/#81 管理端看板)/ **远期 50 条全保留零丢失**,刷新 5 条过时状态列 + 处理 5 组重复登记,feat `docs-tasks-4state-tidy`@9eb250568 main-merge 上线。
 - **📌 归档/移出说明**:📍当前会话状态的历史交接轮次(L22-34 的 #69/excludeSpecialBearCyb 上线、818-fix、四档收窄、并行降级安全B、代理切官方等完成陈述)已精简,关键待办提炼到下方"待安排";细节可反查 TASKS-done.md 或对应 commit。
 - **⏳ 待安排/待办(即时)**:①#73 8 宽基四档展示(sh/sz/csi500/cyb/sz50/csi1000/kc50 走势图四档色带,hs300 已完成,纯展示,用户 2026-08-19 拍板待安排,pending #73)②#74 邮件广播 ai_macro.hit 白名单二次过滤(pending #74,非阻断)③用户实测凯利区 excludeSpecialBearCyb 开关(数据/开关/公示已就绪,公示写「收益待用户实测」)④次日开盘口径待用户确认是否切默认。
 - **📋 活跃待办计数**:0 条 checkbox(**已全移 todolist/pending-index**,本文件无活跃待办;次日后台+SVG 大盘 tab 在 pending #91/#92),详见下方「待办」。
