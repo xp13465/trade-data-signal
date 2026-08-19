@@ -23684,7 +23684,9 @@ function _tradeSimCardsHTML(s, initCap, etfCode) {
     '<div class="sim-card"><span class="k">总资产变化</span><span class="v">' + _tradeSimFmtNum(s.total_capital) + ' -> ' + _tradeSimFmtNum(s.final_total) + ' 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 ' + _tradeSimFmtNum(s.final_holdings) + ' 元' + _assetSub + '</div></span></div>' +
     '<div class="sim-card"><span class="k">最大持仓</span><span class="v">' + _tradeSimFmtNum(s.max_holding) + ' 元（' + s.max_holding_pct + '%）<div class="sub">' + s.max_holding_date + '</div></span></div>' +
     '<div class="sim-card"><span class="k">总收益</span><span class="v" style="color:' + _tradeSimColorPct(s.total_return) + '">' + _tradeSimFmtNum(s.total_return) + ' 元（' + (s.total_return_pct >= 0 ? '+' : '') + s.total_return_pct.toFixed(2) + '%）</span></div>' +
-    '<div class="sim-card"><span class="k" title="' + _t('trade_sim_cagr_title') + '">年化收益率</span><span class="v" style="color:' + _tradeSimColorPct(s.annualized) + '">' + (s.annualized >= 0 ? '+' : '') + s.annualized.toFixed(1) + '%<div class="sub">' + _t('trade_sim_first_buy') + ' ' + s.years + ' ' + _t('trade_sim_years_unit') + '</div></span></div>' +
+    (typeof s.annualized === 'number' && isFinite(s.annualized)
+      ? '<div class="sim-card"><span class="k" title="' + _t('trade_sim_cagr_title') + '">年化收益率</span><span class="v" style="color:' + _tradeSimColorPct(s.annualized) + '">' + (s.annualized >= 0 ? '+' : '') + s.annualized.toFixed(1) + '%<div class="sub">' + _t('trade_sim_first_buy') + ' ' + s.years + ' ' + _t('trade_sim_years_unit') + '</div></span></div>'
+      : '<div class="sim-card"><span class="k" title="' + _t('trade_sim_cagr_title') + '">年化收益率</span><span class="v" style="color:var(--text-3)">N/A<div class="sub">终值倍数≤0 不可算</div></span></div>') +
     '<div class="sim-card"><span class="k" title="年化夏普(无风险0)=净值曲线相邻点收益率 mean/std × √252。事件稀疏序列近似年化值(与 lab 同口径),值偏高。>3 可疑过拟合(Bailey(2014)学术红线)。颜色分级: >3红(可疑过拟合)/2-3橙(中等警示)/1-2默认(正常)/<1灰(弱)">夏普比率</span><span class="v" style="color:' + _tradeSimSharpeColor(s.sharpe) + '">' + (typeof s.sharpe === 'number' ? s.sharpe.toFixed(2) : '-') + _tradeSimSharpeSuffix(s.sharpe) + '<div class="sub">事件稀疏 √252 年化 · 分级&gt;3红/2-3橙/&lt;1灰</div></span></div>' +
     '<div class="sim-card"><span class="k">总资产峰值</span><span class="v">' + _tradeSimFmtNum(s.total_assets_peak) + ' 元<div class="sub">' + s.total_assets_peak_date + '</div></span></div>' +
     '<div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:' + _tradeSimColorPct(-s.max_drawdown) + '">' + ddStr + '<div class="sub">' + ddDate + '</div></span></div>' +
@@ -23905,7 +23907,8 @@ function _tradeSimComparisonTableHTML(sd, win, recomputedData) {
   }
   var bestFinal = Math.max.apply(null, rows.map(function (r) { return r.final_total; }));
   var bestReturn = Math.max.apply(null, rows.map(function (r) { return r.total_return_pct; }));
-  var bestAnnual = Math.max.apply(null, rows.map(function (r) { return r.annualized; }));
+  var _annVals = rows.map(function (r) { return r.annualized; }).filter(function (v) { return typeof v === 'number' && isFinite(v); });
+  var bestAnnual = _annVals.length ? Math.max.apply(null, _annVals) : null;
   var bestDd = Math.min.apply(null, rows.map(function (r) { return r.max_drawdown; }));
   var bestMedianDd = Math.min.apply(null, rows.map(function (r) { return r.median_drawdown; }));
   var bestTrimmedDd = Math.min.apply(null, rows.map(function (r) { return r.trimmed_mean_drawdown; }));
@@ -23913,7 +23916,7 @@ function _tradeSimComparisonTableHTML(sd, win, recomputedData) {
   var bestOps = Math.max.apply(null, rows.map(function (r) { return r.total_ops; }));
   var worstFinal = Math.min.apply(null, rows.map(function (r) { return r.final_total; }));
   var worstReturn = Math.min.apply(null, rows.map(function (r) { return r.total_return_pct; }));
-  var worstAnnual = Math.min.apply(null, rows.map(function (r) { return r.annualized; }));
+  var worstAnnual = _annVals.length ? Math.min.apply(null, _annVals) : null;
   var worstDd = Math.max.apply(null, rows.map(function (r) { return r.max_drawdown; }));
   var worstMedianDd = Math.max.apply(null, rows.map(function (r) { return r.median_drawdown; }));
   var worstTrimmedDd = Math.max.apply(null, rows.map(function (r) { return r.trimmed_mean_drawdown; }));
@@ -23924,6 +23927,8 @@ function _tradeSimComparisonTableHTML(sd, win, recomputedData) {
   var bestFeeCost = _feeVals.length ? Math.min.apply(null, _feeVals) : null;
   var worstFeeCost = _feeVals.length ? Math.max.apply(null, _feeVals) : null;
   function cmpCell(val, best, worst, isPct, signed) {
+    // null 守卫: annualized 可为 null(终值倍数≤0 不可算, 后端标 null), 显示 N/A 不进 toFixed/best-worst 判定
+    if (val === null || typeof val !== 'number' || !isFinite(val)) return '<span style="color:var(--text-3)">N/A</span>';
     var isBest = Math.abs(val - best) < 0.001;
     var isWorst = Math.abs(val - worst) < 0.001;
     var styles = [];
