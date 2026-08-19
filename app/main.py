@@ -5,9 +5,11 @@
 """
 import json
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 
+from typing import Optional
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -544,6 +546,77 @@ def favicon():
 @app.get("/trade_sim.html")
 def trade_sim():
     return FileResponse(WEB_DIR / "trade_sim.html")
+
+
+# ============================================================
+#  /api/trade_sim_recalc — 模拟回测费率可配重算（后端）
+#  - POST body: {index_id, fee_config（9字段可选缺省, TASKS L637）}
+#  - 返回：默认费率 vs 自定义费率 双回测对比（收益/年化/回撤/胜率/费率成本/费率占比 + 双净值序列）
+#  - 缓存 5 分钟（同 index_id+fee_config 命中即复用）；限流 10 次/分
+# ============================================================
+_TRADE_SIM_RECALC_CACHE = {}     # {cache_key: (expire_ts, payload)}
+_TRADE_SIM_RECALC_WINDOW = []    # [(ts, key), ...] 用于 60s 窗口限流
+_TRADE_SIM_LOADED = {}           # importlib 加载 scripts.simulate_trade（脚本非 package，按路径加载）
+
+
+def _trade_sim_module():
+    """按路径加载 scripts/simulate_trade.py（singleton）。
+
+    ⚠️ 不 resolve 符号链接：用 `.absolute()`(同 app/db.py DB_PATH 口径,不追 symlink)，
+    保证 simulate_trade 的 `from app.db import get_conn` 落回 cwd 侧(trade-data)读主库，
+    而非 trade 侧滞后镜像（§1 读滞后镜像陷阱 / memory export-syspath-rootcause）。
+    """
+    if _TRADE_SIM_LOADED:
+        return _TRADE_SIM_LOADED["mod"]
+    import importlib.util
+    mod_path = Path(__file__).absolute().parent.parent / "scripts" / "simulate_trade.py"
+    spec = importlib.util.spec_from_file_location("simulate_trade", mod_path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["simulate_trade"] = mod
+    spec.loader.exec_module(mod)
+    _TRADE_SIM_LOADED["mod"] = mod
+    return mod
+
+
+class TradeSimRecalcBody(BaseModel):
+    index_id: str
+    fee_config: Optional[dict] = None  # 9 字段，某字段缺失用默认值（可为 None=用默认费率）
+
+
+@app.post("/api/trade_sim_recalc")
+def api_trade_sim_recalc(body: TradeSimRecalcBody):
+    """模拟回测按自定义费率重算并对比默认费率（双回测结果 + 双净值序列）。
+
+    缓存 5 分钟；限流 10 次/分（超限 429）。
+    """
+    now = datetime.now().timestamp()
+    index_id = (body.index_id or "").strip()
+    if not index_id:
+        raise HTTPException(status_code=400, detail="index_id 不能为空")
+    fc = body.fee_config or {}
+
+    # ---- 限流 10 次/分（滑动窗口） ----
+    _TRADE_SIM_RECALC_WINDOW[:] = [it for it in _TRADE_SIM_RECALC_WINDOW if it[0] > now - 60]
+    if len(_TRADE_SIM_RECALC_WINDOW) >= 10:
+        raise HTTPException(status_code=429, detail="请求过于频繁，请 1 分钟后再试（限流 10 次/分）")
+    _TRADE_SIM_RECALC_WINDOW.append((now, index_id))
+
+    # ---- 缓存 key（index_id + 规范化的 fee_config json） ----
+    import json as _json
+    cache_key = f"{index_id}:{_json.dumps(fc, sort_keys=True)}"
+    cached = _TRADE_SIM_RECALC_CACHE.get(cache_key)
+    if cached and cached[0] > now:
+        return cached[1]
+
+    mod = _trade_sim_module()
+    result = mod.compare_fee_configs(index_id, fc)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"index_id={index_id} 无回测数据")
+    _TRADE_SIM_RECALC_CACHE[cache_key] = (now + 300, result)  # 缓存 5 分钟
+    # 防缓存无限增长：超 200 条清空（内存缓存，宽松上限）
+    if len(_TRADE_SIM_RECALC_CACHE) > 200:
+        _TRADE_SIM_RECALC_CACHE.clear()
+    return result
 
 
 @app.get("/og.png")

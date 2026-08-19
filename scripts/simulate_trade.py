@@ -37,14 +37,56 @@ MAX_POSITIONS = 10        # 最多同时持仓 10 笔
 # 每窗口独立 sim 的起始资金（= TOTAL_CAPITAL，别名，与 lab_simulate.py 一致）
 INITIAL_CAPITAL = TOTAL_CAPITAL
 
-# 回测费率参数（2026-07-28 加：手续费万3 + 滑点千1 + 沪市过户费万0.1）
-# ETF 替代指数时，沪市 ETF（51xxxx/58xxxx 开头）收过户费；深市 ETF（15/16 开头）与纯指数不收。
-# 纯指数模拟也加 commission+slippage，统一费率横向对比，避免 ETF 替代后回测变差误归因跟踪误差。
+# 回测费率参数（2026-07-28 加：手续费万3 + 滑点千1 + 沪市过户费万0.1；2026-08-19 根治：漏印花税 + 过户费只沪市ETF两 bug）
+# 2026-08-19 用户拍板（TASKS L605-614 + §5.4）：
+#   - 印花税 0.05%（万5）卖出单边收（2023.8.28 现行标准）
+#   - 过户费 沪深两市统一 0.001%（万0.1）买卖都收（2024 现行标准）——修掉"仅沪市 ETF 51/58 收"旧规则
+#   - 滑点固定百分比千1（单边，简单透明可观测，不用波动率模型）
+# 费率已从模块级常量升级为 fee_config 字典（9 字段，TASKS L637），支持单次回测注入自定义费率。
 # 参考风格：scripts/lab/lab_simulate.py:289 simulate_full_in(commission_rate, slippage)。
-COMMISSION_RATE = 0.0003         # 券商佣金万3（单边，按成交金额计）
-SLIPPAGE = 0.001                 # 滑点千1（单边，买入价=close*(1+s)升高，卖出价=close*(1-s)降低）
-MIN_COMMISSION = 5.0             # 单笔最低佣金5元（小单兜底，万3 不足 5 元按 5 元收）
-TRANSFER_FEE_RATE_SH = 0.00001   # 沪市过户费万0.1（仅沪市 ETF 51xxxx/58xxxx 收，深市 ETF 与纯指数不收）
+
+# ---- 过户费 3 模式常量 ----
+TRANSFER_MODE_SH = 'sh'            # 沪市：仅 51/58 开头 ETF 收
+TRANSFER_MODE_SZ = 'sz'            # 深市：仅 15/16 开头 ETF 收
+TRANSFER_MODE_HS = 'hs_unified'    # 沪深统一：所有 ETF 都收（默认，2024 现行标准）
+
+# ---- 默认费率配置（9 字段，TASKS L637）----
+DEFAULT_FEE_CONFIG = {
+    'buy_commission': 0.0003,      # 买入佣金万3（单边，按成交金额计）
+    'sell_commission': 0.0003,     # 卖出佣金万3（单边）
+    'stamp_tax': 0.0005,           # 印花税万5（0.05%），仅卖出单边收
+    'transfer_fee': 0.00001,       # 过户费万0.1（0.001%），买卖都收（沪深统一）
+    'transfer_fee_mode': TRANSFER_MODE_HS,  # 过户费收取范围：sh/sz/hs_unified（默认沪深统一）
+    'slippage': 0.001,             # 滑点千1（单边，固定百分比，不用波动率模型）
+    'slippage_mode': 'fixed',      # 滑点模式：fixed（默认）
+    'slippage_sigma': 0.0,         # 波动率滑点 sigma（fixed 模式未用，预留）
+    'min_commission': 5.0,         # 单笔最低佣金5元（小单兜底，万3 不足 5 元按 5 元收）
+}
+
+# 兼容别名：直接用默认费率配置的值（供其他脚本/旧引用使用，不再作为 sim 内取费来源）
+COMMISSION_RATE = DEFAULT_FEE_CONFIG['buy_commission']
+SLIPPAGE = DEFAULT_FEE_CONFIG['slippage']
+MIN_COMMISSION = DEFAULT_FEE_CONFIG['min_commission']
+TRANSFER_FEE_RATE_SH = DEFAULT_FEE_CONFIG['transfer_fee']
+
+
+def _normalize_fee_config(fee_config):
+    """校验并补全 fee_config 字典（缺省字段用默认值），非法字段抛 ValueError。
+
+    供 trade_sim API / 全量重生共用：单次回测可注入自定义费率，未给字段回退默认。
+    """
+    if fee_config is None:
+        return dict(DEFAULT_FEE_CONFIG)
+    if not isinstance(fee_config, dict):
+        raise ValueError("fee_config 必须是 JSON 对象")
+    config = dict(DEFAULT_FEE_CONFIG)
+    config.update(fee_config)
+    # 过户费模式白名单校验
+    if config['transfer_fee_mode'] not in (TRANSFER_MODE_SH, TRANSFER_MODE_SZ, TRANSFER_MODE_HS):
+        raise ValueError("transfer_fee_mode 必须是 sh/sz/hs_unified")
+    if config['slippage_mode'] not in ('fixed',):
+        raise ValueError("slippage_mode 当前仅支持 fixed")
+    return config
 
 # 指数 -> ETF 代码映射（成交在 ETF，信号仍在指数生成，跟踪误差自然反映）
 # 不映射的品种（行业 sw_xxx / 概念 thsc_xxx / 国债 cgb_idx / 海外 nikkei/dax / 商品 gold/oil 等）降级纯指数+手续费
@@ -369,64 +411,96 @@ def get_signals(index_id="sh"):
 
 
 def _is_sh_etf(etf_code):
-    """沪市 ETF 判断：51xxxx/58xxxx 开头收过户费，深市 15/16 开头不收。纯指数（None）不收。"""
+    """沪市 ETF 判断：51xxxx/58xxxx 开头。纯指数（None）返回 False。"""
     if not etf_code:
         return False
     return etf_code.startswith('51') or etf_code.startswith('58')
 
 
-def _buy_with_fees(budget, close, etf_code=None):
-    """买入扣费（手续费 + 滑点 + 沪市过户费）。
+def _is_sz_etf(etf_code):
+    """深市 ETF 判断：15xxxx/16xxxx 开头。纯指数（None）返回 False。"""
+    if not etf_code:
+        return False
+    return etf_code.startswith('15') or etf_code.startswith('16')
+
+
+def _transfer_applies(etf_code, mode):
+    """按过户费模式判定该 etf_code 是否该收过户费。
+
+    mode ∈ sh/sz/hs_unified：
+      - sh:      仅沪市 ETF（51/58）收
+      - sz:      仅深市 ETF（15/16）收
+      - hs_unified: 沪深统一（默认，2024 现行标准），所有 ETF 都收（纯指数 None 无实质 ETF 成交仍不收）
+    """
+    if not etf_code:
+        return False  # 纯指数模拟（etf_code=None，无实质 ETF 成交），不收过户费
+    if mode == TRANSFER_MODE_SH:
+        return _is_sh_etf(etf_code)
+    if mode == TRANSFER_MODE_SZ:
+        return _is_sz_etf(etf_code)
+    return True  # hs_unified：所有 ETF 都收（默认）
+
+
+def _buy_with_fees(budget, close, etf_code=None, fee_config=None):
+    """买入扣费（佣金 + 滑点 + 过户费。
 
     budget: 买入总预算（含费），花光为止。
     close: 当日收盘价（指数收盘或 ETF 收盘，由 get_signals 替换）。
     etf_code: ETF 代码，None=纯指数（不收过户费，仍收佣金+滑点）。
+    fee_config: 费率配置字典（9 字段，TASKS L637），None=用默认费率。
 
     返回 (buy_price, shares, commission, transfer_fee)：
-      - buy_price = close*(1+SLIPPAGE)  实际成交价（升高）
+      - buy_price = close*(1+slippage)  实际成交价（升高）
       - shares = 预算扣费后能买的份额
-      - commission = max(成交金额*COMMISSION_RATE, MIN_COMMISSION)
-      - transfer_fee = 沪市 ETF 收成交金额*TRANSFER_FEE_RATE_SH，其余 0
+      - commission = max(成交金额*buy_commission, min_commission)
+      - transfer_fee = 按 transfer_fee_mode 判定收 transfer_fee*成交金额，否则 0
+      买入不收印花税（印花税仅卖出单边收）。
 
     数学（budget = buy_price*shares + commission + transfer_fee）：
-      一般情况（无最低佣金触发，commission=gross*rate, transfer=gross*sh_rate）:
-        budget = gross*(1+rate+sh_rate) => shares = budget/(buy_price*(1+rate+sh_rate))
-      最低佣金触发（gross*rate < MIN_COMMISSION, commission=MIN_COMMISSION 固定）:
-        budget = gross + MIN_COMMISSION + gross*sh_rate
-        => shares = (budget-MIN_COMMISSION)/(buy_price*(1+sh_rate))
+      一般情况（无最低佣金触发，commission=gross*rate, transfer=gross*tf_rate）:
+        budget = gross*(1+rate+tf_rate) => shares = budget/(buy_price*(1+rate+tf_rate))
+      最低佣金触发（gross*rate < min_commission, commission=MIN_COMMISSION 固定）:
+        budget = gross + MIN_COMMISSION + gross*tf_rate
+        => shares = (budget-MIN_COMMISSION)/(buy_price*(1+tf_rate))
     """
-    buy_price = close * (1 + SLIPPAGE)
-    sh_rate = TRANSFER_FEE_RATE_SH if _is_sh_etf(etf_code) else 0.0
+    fc = _normalize_fee_config(fee_config)
+    buy_price = close * (1 + fc['slippage'])
+    tf_rate = fc['transfer_fee'] if _transfer_applies(etf_code, fc['transfer_fee_mode']) else 0.0
+    comm_rate = fc['buy_commission']
+    min_comm = fc['min_commission']
     # 先按一般情况算（佣金 = 成交金额*rate）
-    shares = budget / (buy_price * (1 + COMMISSION_RATE + sh_rate))
+    shares = budget / (buy_price * (1 + comm_rate + tf_rate))
     gross = shares * buy_price
-    commission = gross * COMMISSION_RATE
-    # 最低佣金触发：重算 shares（commission 固定 5 元）
-    if commission < MIN_COMMISSION:
-        shares = (budget - MIN_COMMISSION) / (buy_price * (1 + sh_rate))
+    commission = gross * comm_rate
+    # 最低佣金触发：重算 shares（commission 固定 min_comm 元）
+    if commission < min_comm:
+        shares = (budget - min_comm) / (buy_price * (1 + tf_rate))
         gross = shares * buy_price
-        commission = MIN_COMMISSION
-    transfer_fee = gross * sh_rate
+        commission = min_comm
+    transfer_fee = gross * tf_rate
     return buy_price, shares, commission, transfer_fee
 
 
-def _sell_with_fees(shares, close, etf_code=None):
-    """卖出扣费（手续费 + 滑点 + 沪市过户费）。
+def _sell_with_fees(shares, close, etf_code=None, fee_config=None):
+    """卖出扣费（佣金 + 滑点 + 过户费 + 印花税）。
 
-    返回 (sell_price, sell_amount, commission, transfer_fee, net_proceeds)：
-      - sell_price = close*(1-SLIPPAGE)  实际成交价（降低）
+    返回 (sell_price, sell_amount, commission, transfer_fee, net_proceeds, stamp_tax)：
+      - sell_price = close*(1-slippage)  实际成交价（降低）
       - sell_amount = shares*sell_price  成交金额
-      - commission = max(sell_amount*COMMISSION_RATE, MIN_COMMISSION)
-      - transfer_fee = 沪市 ETF 收 sell_amount*TRANSFER_FEE_RATE_SH，其余 0
-      - net_proceeds = sell_amount - commission - transfer_fee  实际到账现金
+      - commission = max(sell_amount*sell_commission, min_commission)
+      - transfer_fee = 按 transfer_fee_mode 判定收 transfer_fee*成交金额，否则 0
+      - stamp_tax = sell_amount*stamp_tax  印花税（0.05% 万5，仅卖出收）
+      - net_proceeds = sell_amount - commission - transfer_fee - stamp_tax  实际到账现金
     """
-    sell_price = close * (1 - SLIPPAGE)
+    fc = _normalize_fee_config(fee_config)
+    sell_price = close * (1 - fc['slippage'])
     sell_amount = shares * sell_price
-    commission = max(sell_amount * COMMISSION_RATE, MIN_COMMISSION)
-    sh_rate = TRANSFER_FEE_RATE_SH if _is_sh_etf(etf_code) else 0.0
-    transfer_fee = sell_amount * sh_rate
-    net = sell_amount - commission - transfer_fee
-    return sell_price, sell_amount, commission, transfer_fee, net
+    commission = max(sell_amount * fc['sell_commission'], fc['min_commission'])
+    tf_rate = fc['transfer_fee'] if _transfer_applies(etf_code, fc['transfer_fee_mode']) else 0.0
+    transfer_fee = sell_amount * tf_rate
+    stamp_tax = sell_amount * fc['stamp_tax']
+    net = sell_amount - commission - transfer_fee - stamp_tax
+    return sell_price, sell_amount, commission, transfer_fee, net, stamp_tax
 
 
 def _ledger(date, op, amount, cash, positions, close, prev_close=None, holdings_cost_before=None, shares_traded=0):
@@ -460,7 +534,7 @@ def _ledger(date, op, amount, cash, positions, close, prev_close=None, holdings_
 # ============================================================
 #  路径 A：固定 1w(10%) 进出（FIFO）
 # ============================================================
-def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close, sell_types=None, w_start=None, etf_code=None):
+def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close, sell_types=None, w_start=None, etf_code=None, fee_config=None):
     if sell_types is None:
         sell_types = {"sell"}
     # 窗口过滤：只保留 date >= w_start 的信号（每窗口独立从 INITIAL_CAPITAL 起算）
@@ -476,6 +550,8 @@ def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close, 
     drawdown_peak = TOTAL_CAPITAL
     max_drawdown = 0.0
     max_drawdown_date = None
+    total_fees = 0.0          # 累计费用（佣金+过户费+印花税，元），供费率影响对比
+    total_turnover = 0.0      # 累计成交额（买+卖双向），供费率占比
 
     rounds = []
     ledger = []
@@ -497,10 +573,12 @@ def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close, 
                 first_buy_date = date
             buy_count += 1
             hc_before = sum(POSITION_SIZE for _ in positions)
-            # 含费买入：buy_price=close*(1+SLIPPAGE), shares 扣佣金+过户费, budget=POSITION_SIZE 花光为止
-            buy_price, shares, _comm, _tf = _buy_with_fees(POSITION_SIZE, close, etf_code)
+            # 含费买入：buy_price=close*(1+slippage), shares 扣佣金+过户费, budget=POSITION_SIZE 花光为止
+            buy_price, shares, _comm, _tf = _buy_with_fees(POSITION_SIZE, close, etf_code, fee_config)
             positions.append((date, buy_price, shares))  # buy_close 记实际成交价(含滑点)
             cash -= POSITION_SIZE
+            total_fees += _comm + _tf
+            total_turnover += shares * buy_price
             hv = sum(s * close for _, _, s in positions)
             if hv > max_holding:
                 max_holding = hv
@@ -517,9 +595,11 @@ def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close, 
             sell_count += 1
             hc_before = sum(POSITION_SIZE for _ in positions)
             buy_date, buy_close, shares = positions.pop(0)
-            # 含费卖出：sell_price=close*(1-SLIPPAGE), net 扣佣金+过户费
-            sell_price, sell_amount, _comm, _tf, net_proceeds = _sell_with_fees(shares, close, etf_code)
+            # 含费卖出：sell_price=close*(1-slippage), net 扣佣金+过户费+印花税
+            sell_price, sell_amount, _comm, _tf, net_proceeds, _st = _sell_with_fees(shares, close, etf_code, fee_config)
             cash += net_proceeds
+            total_fees += sell_amount - net_proceeds  # 卖出扣费=佣金+过户费+印花税
+            total_turnover += sell_amount
             pct = (sell_price - buy_close) / buy_close * 100  # 用实际成交价算盈亏%
             profit = net_proceeds - POSITION_SIZE
             rounds.append({
@@ -569,13 +649,14 @@ def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close, 
         skip1_label="仓位已满", skip2_label="现金不足", skip3_label="无持仓可卖",
         round_drawdowns=round_dds,
         w_start=w_start,
+        total_fees=total_fees, total_turnover=total_turnover,
     )
 
 
 # ============================================================
 #  路径 B：全仓进出（一次一笔，买用全部现金，卖清仓）
 # ============================================================
-def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close, sell_types=None, w_start=None, etf_code=None):
+def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close, sell_types=None, w_start=None, etf_code=None, fee_config=None):
     """全仓进出：买→清仓→买→清仓，跳过连续同向信号。"""
     if sell_types is None:
         sell_types = {"sell"}
@@ -592,6 +673,8 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close, se
     drawdown_peak = TOTAL_CAPITAL
     max_drawdown = 0.0
     max_drawdown_date = None
+    total_fees = 0.0
+    total_turnover = 0.0
 
     rounds = []
     ledger = []
@@ -615,11 +698,13 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close, se
             if first_buy_date is None:
                 first_buy_date = date
             buy_count += 1
-            # 含费全仓买入：budget=cash 花光为止, buy_price=close*(1+SLIPPAGE)
-            buy_price, shares, _comm, _tf = _buy_with_fees(cash, close, etf_code)
+            # 含费全仓买入：budget=cash 花光为止, buy_price=close*(1+slippage)
+            buy_price, shares, _comm, _tf = _buy_with_fees(cash, close, etf_code, fee_config)
             holding = (date, buy_price, shares)  # buy_close 记实际成交价(含滑点)
             buy_amount = cash  # all-in (预算=成交前现金)
             cash = 0.0
+            total_fees += _comm + _tf
+            total_turnover += shares * buy_price
             hv = shares * close  # 持仓市值用收盘价估值(非成交价)
             if hv > max_holding:
                 max_holding = hv
@@ -638,9 +723,11 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close, se
             sell_count += 1
             buy_date, buy_close, shares = holding
             hc_before = round(shares * buy_close, 2)
-            # 含费清仓卖出：sell_price=close*(1-SLIPPAGE), net 扣佣金+过户费
-            sell_price, sell_amount, _comm, _tf, net_proceeds = _sell_with_fees(shares, close, etf_code)
+            # 含费清仓卖出：sell_price=close*(1-slippage), net 扣佣金+过户费+印花税
+            sell_price, sell_amount, _comm, _tf, net_proceeds, _st = _sell_with_fees(shares, close, etf_code, fee_config)
             cash = net_proceeds
+            total_fees += sell_amount - net_proceeds
+            total_turnover += sell_amount
             pct = (sell_price - buy_close) / buy_close * 100  # 用实际成交价算盈亏%
             profit = net_proceeds - (shares * buy_close)
             amount_in = round(shares * buy_close, 2)
@@ -692,13 +779,14 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close, se
         skip1_label="连续同向买入", skip2_label="", skip3_label="无持仓可卖",
         round_drawdowns=round_dds,
         w_start=w_start,
+        total_fees=total_fees, total_turnover=total_turnover,
     )
 
 
 # ============================================================
 #  路径 C：买固定 1w(10%) + 卖清仓
 # ============================================================
-def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, sell_types=None, w_start=None, etf_code=None):
+def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, sell_types=None, w_start=None, etf_code=None, fee_config=None):
     """每次买 1 万（最多 10 笔），出现卖点则清仓全部。"""
     if sell_types is None:
         sell_types = {"sell"}
@@ -715,6 +803,8 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, 
     drawdown_peak = TOTAL_CAPITAL
     max_drawdown = 0.0
     max_drawdown_date = None
+    total_fees = 0.0
+    total_turnover = 0.0
 
     rounds = []
     ledger = []
@@ -737,10 +827,12 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, 
                 first_buy_date = date
             buy_count += 1
             hc_before = sum(POSITION_SIZE for _ in positions)
-            # 含费买入：buy_price=close*(1+SLIPPAGE), shares 扣佣金+过户费, budget=POSITION_SIZE 花光为止
-            buy_price, shares, _comm, _tf = _buy_with_fees(POSITION_SIZE, close, etf_code)
+            # 含费买入：buy_price=close*(1+slippage), shares 扣佣金+过户费, budget=POSITION_SIZE 花光为止
+            buy_price, shares, _comm, _tf = _buy_with_fees(POSITION_SIZE, close, etf_code, fee_config)
             positions.append((date, buy_price, shares))  # buy_close 记实际成交价(含滑点)
             cash -= POSITION_SIZE
+            total_fees += _comm + _tf
+            total_turnover += shares * buy_price
             hv = sum(s * close for _, _, s in positions)
             if hv > max_holding:
                 max_holding = hv
@@ -759,7 +851,7 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, 
                 continue
             sell_count += 1
             hc_before = sum(POSITION_SIZE for _ in positions)
-            # 清仓全部（每笔独立扣费：sell_price=close*(1-SLIPPAGE), net 扣佣金+过户费）
+            # 清仓全部（每笔独立扣费：sell_price=close*(1-slippage), net 扣佣金+过户费+印花税）
             sold = []
             total_amount_in = 0.0
             total_amount_out = 0.0  # 累计实际到账(net_proceeds)
@@ -771,9 +863,11 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, 
                 if first_buy_date_raw is None:
                     first_buy_date_raw = buy_date  # positions FIFO：第一笔是最早买入
                 total_shares_sold += shares
-                # 含费卖出：每笔独立扣佣金+过户费(简化:不合并单笔订单;万3+最低5元对1w单影响<0.5%)
-                sell_price, _sa, _c, _t, net_proceeds = _sell_with_fees(shares, close, etf_code)
+                # 含费卖出：每笔独立扣佣金+过户费+印花税(简化:不合并单笔订单;万3+最低5元对1w单影响<0.5%)
+                sell_price, _sa, _c, _t, net_proceeds, _st = _sell_with_fees(shares, close, etf_code, fee_config)
                 cash += net_proceeds
+                total_fees += _sa - net_proceeds
+                total_turnover += _sa
                 total_amount_in += POSITION_SIZE
                 total_amount_out += net_proceeds
                 total_profit += net_proceeds - POSITION_SIZE
@@ -841,6 +935,7 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, 
         skip1_label="仓位已满", skip2_label="现金不足", skip3_label="无持仓可卖",
         round_drawdowns=round_dds,
         w_start=w_start,
+        total_fees=total_fees, total_turnover=total_turnover,
     )
 
 
@@ -853,7 +948,8 @@ def _build_result(scenario_name, cash, positions, rounds, ledger, last_close,
                   skip1, skip2, skip3, max_positions_ever, strategy_desc="",
                   max_drawdown=0.0, max_drawdown_date=None,
                   skip1_label="跳过", skip2_label="跳过", skip3_label="跳过",
-                  round_drawdowns=None, w_start=None):
+                  round_drawdowns=None, w_start=None,
+                  total_fees=0.0, total_turnover=0.0):
     holdings_value = sum(s * last_close for _, _, s in positions)
     final_total = cash + holdings_value
     total_return = final_total - TOTAL_CAPITAL
@@ -1024,6 +1120,8 @@ def _build_result(scenario_name, cash, positions, rounds, ledger, last_close,
             "avg_pl_ratio": round(avg_pl_ratio, 2) if avg_pl_ratio is not None else None,
             "median_drawdown": round(median_dd, 2),
             "trimmed_mean_drawdown": round(trimmed_mean_dd, 2),
+            "fee_cost": round(total_fees, 2),            # 累计费用（佣金+过户费+印花税，元），供费率影响对比
+            "fee_pct": round(total_fees / total_turnover * 100, 4) if total_turnover > 0 else 0.0,  # 费率占比（费用/双向成交额）
             "flow_desc": flow_desc,
         },
     }
@@ -1755,19 +1853,16 @@ def _windows_meta(signals, last_date):
     return meta
 
 
-def _generate_json(index_id, name_map, out_dir_data):
-    """生成单个品种的 JSON 回测数据（5窗口，每窗口独立 sim 从 INITIAL_CAPITAL 起算）。
+def _run_trade_sim_inner(index_id, fee_config=None):
+    """核心：运行单个品种的完整回测（5窗口 × 3路径 × 11信号组合）。
 
-    输出两个文件到 out_dir_data/trade_sim/：
-    - trade_sim_{index}_stats.json：每窗口 summary + 采样 equity_curve(100点)（小，秒开）
-    - trade_sim_{index}_full.json：rounds/ledger/open_positions（大，懒加载）
-
-    返回 True 成功；无数据（signals 为空或 last 为 None）时返回 False 不写文件。
+    返回 (stats_json, full_data) 两元组；无数据（signals 为空或 last 为 None）时返回 None。
+    fee_config: 自定义费率（None=默认费率），单次回测可注入自定义费率重跑——/api/trade_sim_recalc 与全量默认数据生成共用本入口。
     """
-    index_name = name_map.get(index_id, index_id)
+    fc = _normalize_fee_config(fee_config)
     signals, last = get_signals(index_id)
     if not signals or last is None:
-        return False
+        return None
     last_date, last_close = last
     signal_first_date = signals[0][0]
     signal_last_date = signals[-1][0]
@@ -1780,7 +1875,6 @@ def _generate_json(index_id, name_map, out_dir_data):
 
     stats_data = {}  # {win_key: {path: {scenario: {summary, equity_curve}}}}
     full_data = {}   # {win_key: {path: {scenario: {rounds, ledger, open_positions}}}}
-
     for wm in wins:
         wk = wm['k']
         w_start = wm['w_start']
@@ -1791,7 +1885,7 @@ def _generate_json(index_id, name_map, out_dir_data):
             full_data[wk][plabel] = {}
             for slabel, btypes, stypes in zip(_SIG_LABELS, _SIG_TYPES, _SIG_SELL_TYPES):
                 result = pfunc(slabel, signals, btypes, last_date, last_close,
-                               sell_types=stypes, w_start=w_start, etf_code=etf_code)
+                               sell_types=stypes, w_start=w_start, etf_code=etf_code, fee_config=fc)
                 # stats：summary + 采样 equity_curve（前端渲染对比表+12卡+曲线）
                 stats_data[wk][plabel][slabel] = {
                     'summary': result['summary'],
@@ -1807,16 +1901,19 @@ def _generate_json(index_id, name_map, out_dir_data):
     stats_json = {
         'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
         'index_id': index_id,
-        'index_name': index_name,
         'initial_capital': INITIAL_CAPITAL,
         'total_capital': TOTAL_CAPITAL,
         'position_size': POSITION_SIZE,
-        # 2026-07-28 回测精准模拟：手续费万3+滑点千1+沪市过户费万0.1，ETF 替代指数（含跟踪误差）
+        # 2026-08-19 回测费率根治：印花税万5(卖出)+过户费沪深统一万0.1(买卖都收)+佣金买/卖万3+滑点千1
         # etf_code=None=纯指数模拟（仍加 commission+slippage，统一费率横向对比）
-        'commission_rate': COMMISSION_RATE,
-        'slippage': SLIPPAGE,
-        'min_commission': MIN_COMMISSION,
-        'transfer_fee_rate_sh': TRANSFER_FEE_RATE_SH,
+        # 兼容字段：保留旧 top-level 费率字段（前端 app.js L24431-24433 读 sd.slippage/sd.transfer_fee_rate_sh），
+        # 新增 fee_config（9 字段，供前端费率对比区块消费）+ stamp_duty_rate（前端 _simFee 模型已读到）。
+        'fee_config': fc,  # 本次回测实际使用费率（9 字段：buy_commission/sell_commission/stamp_tax/transfer_fee/transfer_fee_mode/slippage/slippage_mode/slippage_sigma/min_commission）
+        'commission_rate': fc['buy_commission'],
+        'slippage': fc['slippage'],
+        'min_commission': fc['min_commission'],
+        'transfer_fee_rate_sh': fc['transfer_fee'],  # 前端读 sd.transfer_fee_rate_sh（兼容）
+        'stamp_duty_rate': fc['stamp_tax'],          # 前端读 sd.stamp_duty_rate（兼容）
         'etf_code': etf_code,  # None=纯指数，否则为首位 ETF 代码（成交在 ETF，信号在指数）
         'etf_name': etf_name,  # 首位 ETF 名称（board_etf_map 候选 name，供前端显示，前端 fallback _TRADE_SIM_ETF_NAMES）
         'etf_approx': etf_approx,  # True=首位 ETF 为近似替代（如 sh 用上证50近似上证指数），前端标注"近似替代"
@@ -1827,6 +1924,25 @@ def _generate_json(index_id, name_map, out_dir_data):
         'scenarios': _SIG_LABELS,
         'data': stats_data,
     }
+    return stats_json, full_data
+
+
+def _generate_json(index_id, name_map, out_dir_data, fee_config=None):
+    """生成单个品种的 JSON 回测数据（5窗口，每窗口独立 sim 从 INITIAL_CAPITAL 起算）。
+
+    输出两个文件到 out_dir_data/trade_sim/：
+    - trade_sim_{index}_stats.json：每窗口 summary + 采样 equity_curve(100点)（小，秒开）
+    - trade_sim_{index}_full.json：rounds/ledger/open_positions（大，懒加载）
+    fee_config: 自定义费率（None=默认费率，全量重生用默认配置）。
+
+    返回 True 成功；无数据（signals 为空或 last 为 None）时返回 False 不写文件。
+    """
+    ret = _run_trade_sim_inner(index_id, fee_config)
+    if ret is None:
+        return False
+    stats_json, full_data = ret
+    # stats_json 不带 index_name（核心函数只存 index_id）——回填供写文件
+    stats_json['index_name'] = name_map.get(index_id, index_id)
     full_json = {
         'index_id': index_id,
         'data': full_data,
@@ -1841,6 +1957,80 @@ def _generate_json(index_id, name_map, out_dir_data):
     with open(full_path, 'w', encoding='utf-8') as f:
         json.dump(full_json, f, ensure_ascii=False, separators=(',', ':'))
     return True
+
+
+# 费率对比的默认对比口径：全历史窗口 × 首位路径 × 首个信号组合（主买+卖）
+# 供 /api/trade_sim_recalc 与前端"费率影响对比"区块消费：输出 收益/年化/回撤/胜率/费率成本/费率占比 + 净值序列
+_DEFAULT_CMP_PATH = _PATH_LABELS[0]   # "买固定1w(10%)+卖清仓"
+_DEFAULT_CMP_SIG = _SIG_LABELS[0]     # "主买+卖"
+
+
+def compare_fee_configs(index_id, custom_fee_config=None):
+    """费率对比：默认费率 vs 自定义费率 双回测结果对比（为前端对比区块/双净值曲线服务）。
+
+    返回 dict（可直接 JSON 序列化）：
+      {
+        'index_id': ...,
+        'path': ...,
+        'scenario': ...,
+        'default': { 'fee_config': {...}, 'summary': {...}, 'equity_curve': [...], 'net_value': [...] },
+        'custom':  { 'fee_config': {...}, 'summary': {...}, 'equity_curve': [...], 'net_value': [...] },
+        'diff': { 'return_pct_diff': ..., 'annualized_diff': ..., 'max_drawdown_diff': ..., 'win_rate_diff': ...,
+                  'fee_cost_diff': ..., 'fee_pct_diff': ... },
+      }
+    对比取 'all'(全历史) 窗口。净值序列 = equity_curve 换算为相对初始资金倍数（供双曲线叠加，1 起点）。
+    index_id 无数据或窗口缺 all 时返回 None。
+    """
+    custom_fc = _normalize_fee_config(custom_fee_config)
+    default_ret = _run_trade_sim_inner(index_id, None)       # 默认费率（DEFAULT_FEE_CONFIG）
+    if default_ret is None:
+        return None
+    custom_ret = _run_trade_sim_inner(index_id, custom_fc)   # 自定义费率
+    if custom_ret is None:
+        return None
+    default_stats, _ = default_ret
+    custom_stats, _ = custom_ret
+
+    if 'all' not in default_stats['data'] or 'all' not in custom_stats['data']:
+        return None
+    path = _DEFAULT_CMP_PATH
+    sig = _DEFAULT_CMP_SIG
+    d_s = default_stats['data']['all'][path][sig]
+    c_s = custom_stats['data']['all'][path][sig]
+    d_sum = d_s['summary']
+    c_sum = c_s['summary']
+    init_cap = default_stats['initial_capital']
+
+    def _net_value(equity_curve):
+        """equity_curve [{date,value}] -> [{date, np=value/init_cap}]（相对初始资金倍数，1 起点，供双曲线叠加）"""
+        return [{'date': pt['date'], 'np': round(pt['value'] / init_cap, 6)} for pt in equity_curve]
+
+    return {
+        'index_id': index_id,
+        'path': path,
+        'scenario': sig,
+        'window': 'all',
+        'default': {
+            'fee_config': default_stats['fee_config'],
+            'summary': d_sum,
+            'equity_curve': d_s['equity_curve'],
+            'net_value': _net_value(d_s['equity_curve']),
+        },
+        'custom': {
+            'fee_config': custom_stats['fee_config'],
+            'summary': c_sum,
+            'equity_curve': c_s['equity_curve'],
+            'net_value': _net_value(c_s['equity_curve']),
+        },
+        'diff': {
+            'return_pct_diff': round(c_sum['total_return_pct'] - d_sum['total_return_pct'], 2),
+            'annualized_diff': round(c_sum['annualized'] - d_sum['annualized'], 2),
+            'max_drawdown_diff': round(c_sum['max_drawdown'] - d_sum['max_drawdown'], 2),
+            'win_rate_diff': round(c_sum['win_rate'] - d_sum['win_rate'], 2),
+            'fee_cost_diff': round(c_sum['fee_cost'] - d_sum['fee_cost'], 2),
+            'fee_pct_diff': round(c_sum['fee_pct'] - d_sum['fee_pct'], 4),
+        },
+    }
 
 
 def _generate_one(index_id, name_map, out_dir_static, output=None):
