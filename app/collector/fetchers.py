@@ -41,8 +41,8 @@ def _is_eastmoney_func(func_name: str) -> bool:
         return False
     if func_name.endswith("_em"):
         return True
-    # 东财接口但不以 _em 结尾的特例(us10y 主源 bond_zh_us_rate 也是东财 host)
-    if func_name in {"bond_zh_us_rate"}:
+    # 东财接口但不以 _em 结尾的特例(us10y 主源 bond_zh_us_rate、可转债 cov_premium/cov_count 的 bond_zh_cov 系列也是东财 datacenter host)
+    if func_name in {"bond_zh_us_rate", "bond_zh_cov", "bond_zh_cov_value_analysis"}:
         return True
     return False
 
@@ -516,7 +516,7 @@ def cross_check_zt_pool(func_name: str, date: str):
     cross_fn = (ak.stock_zt_pool_em
                 if func_name != "stock_zt_pool_em"
                 else ak.stock_zt_pool_dtgc_em)
-    cross_df = safe_call(cross_fn, date=date)
+    cross_df = _safe_call_em(cross_fn, date=date)  # 东财 zt_pool 接口无 timeout,走超时保护(防同 hk_south 假死)
     if (not isinstance(cross_df, Exception)
             and cross_df is not None
             and len(cross_df) > 0):
