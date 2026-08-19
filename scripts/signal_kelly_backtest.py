@@ -49,6 +49,22 @@ from simulate_trade import (  # noqa: E402
 )
 from app.db import get_conn  # noqa: E402
 
+# 凯利回测默认费率(保持该回测的既定口径, 不受 simulate_trade 重构影响)
+# simulate_trade._sell_with_fees 重构后默认新增印花税万5 + 过户费沪深统一;
+# 凯利回测按原口径走: 佣金万3 min5 + 滑点千1 + 沪市过户费万0.1(仅沪市 ETF) + 印花税恒0
+# (与 purpose-notes lab.sigkelly "费率口径/ETF档印花税恒0" 公示一致, 避免重构侧漏到凯利)
+_KELLY_FEE_CONFIG = {
+    'buy_commission': COMMISSION_RATE,
+    'sell_commission': COMMISSION_RATE,
+    'stamp_tax': 0.0,
+    'transfer_fee': TRANSFER_FEE_RATE_SH,
+    'transfer_fee_mode': 'sh',
+    'slippage': SLIPPAGE,
+    'slippage_mode': 'fixed',
+    'slippage_sigma': 0.0,
+    'min_commission': MIN_COMMISSION,
+}
+
 # ── 常量 ──────────────────────────────────────────────────────────────────────
 BUY_AMOUNT = 10000         # 每笔买入金额(元) -- 1000->10000 降低最低佣金占比(往返费率~1%->~0.3%)
 HOLD_DAYS = 10             # 默认最大持有交易日(ABCD 模式用; E=5/F=15 per-mode 覆盖)
@@ -455,7 +471,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
         return None  # 信号日无 ETF 价格
 
     # 买入(含费率)
-    buy_price, shares, _comm, _tf = _buy_with_fees(BUY_AMOUNT, buy_nav, etf_code)
+    buy_price, shares, _comm, _tf = _buy_with_fees(BUY_AMOUNT, buy_nav, etf_code, _KELLY_FEE_CONFIG)
     if shares <= 0:
         return None
 
@@ -485,7 +501,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
             price_date = dates[-1]
         if current_nav is None or current_nav <= 0:
             return None  # 无当前价, 无法预估
-        _sp, _sell_amount, _comm2, _tf2, net = _sell_with_fees(shares, current_nav, etf_code)
+        _sp, _sell_amount, _comm2, _tf2, net, _st = _sell_with_fees(shares, current_nav, etf_code, _KELLY_FEE_CONFIG)
         profit = net - BUY_AMOUNT
         return_pct = profit / BUY_AMOUNT * 100
         # hold_days 用交易日口径(与已卖出 L264 一致): price_date 在 future_dates 的序号+1.
@@ -536,7 +552,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
                 break
 
     sell_nav = prices[sell_date]
-    sell_price, _sell_amount, _comm2, _tf2, net = _sell_with_fees(shares, sell_nav, etf_code)
+    sell_price, _sell_amount, _comm2, _tf2, net, _st = _sell_with_fees(shares, sell_nav, etf_code, _KELLY_FEE_CONFIG)
 
     profit = net - BUY_AMOUNT
     return_pct = profit / BUY_AMOUNT * 100
@@ -611,7 +627,7 @@ def _backtest_signal_sell(signal_date, prices, dates, etf_code, sell_mode, signa
             price_date = dates[-1]
         if current_nav is None or current_nav <= 0:
             return None
-        _sp, _sell_amount, _comm2, _tf2, net = _sell_with_fees(shares, current_nav, etf_code)
+        _sp, _sell_amount, _comm2, _tf2, net, _st = _sell_with_fees(shares, current_nav, etf_code, _KELLY_FEE_CONFIG)
         profit = net - BUY_AMOUNT
         return_pct = profit / BUY_AMOUNT * 100
         try:
@@ -647,7 +663,7 @@ def _backtest_signal_sell(signal_date, prices, dates, etf_code, sell_mode, signa
 
     # 有匹配卖出信号日: 当日收盘卖出
     sell_nav = prices[sell_date]
-    sell_price, _sell_amount, _comm2, _tf2, net = _sell_with_fees(shares, sell_nav, etf_code)
+    sell_price, _sell_amount, _comm2, _tf2, net, _st = _sell_with_fees(shares, sell_nav, etf_code, _KELLY_FEE_CONFIG)
     profit = net - BUY_AMOUNT
     return_pct = profit / BUY_AMOUNT * 100
     try:

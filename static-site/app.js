@@ -1015,12 +1015,12 @@ function _backupSignalChipRender(sd, id) {
     if (c.kind === 'lowdraw') {
       line2 += ' · 最大回撤' + e.maxDdAll.toFixed(1) + '%';  // 回撤最小档明示 5 窗口最大回撤（核心指标）
     }
-    // 含费标注：ETF 替代品种显示 "ETF 代码·含费万3"，纯指数显示 "纯指数模拟·无ETF可交易"
+    // 含费标注：ETF 替代品种显示 "ETF 代码·含费佣金万3+印花万5"，纯指数显示 "纯指数模拟·无ETF可交易"
     // sd.etf_code 由 simulate_trade.py _generate_json 写入（None=纯指数，agent3 重新生成 JSON 后才有值；
     // 旧 JSON 无此字段时 undefined -> 当作纯指数显示，避免 NaN/undefined 泄漏到 UI）
     // 2026-07-28 统一：board_etf_map 首位（approx 优先 false）。关联不到 ETF（如 nikkei/g.gold）-> 纯指数模拟·无ETF可交易
     var etfCode = sd && sd.etf_code;
-    var line3 = etfCode ? ('ETF ' + etfCode + ' 模拟 · 含费万3') : '纯指数模拟 · 无ETF可交易';
+    var line3 = etfCode ? ('ETF ' + etfCode + ' 模拟 · 含费佣金万3+印花万5') : '纯指数模拟 · 无ETF可交易';
     // 2026-07-20 改动2(方案C): line3 追加该档策略 maxSharpe(5窗口 winSummaries.sharpe 的 max), 越线(>3)加⚠
     //   让用户看三档各自策略真实夏普, 不被全局10.59误导(三档实际maxSharpe是6.91/6.91/3.43, 非10.59)
     if (e.winSummaries) {
@@ -1110,11 +1110,11 @@ function _backupSignalChipTip(sd, scored, chip) {
     lines.push('  ' + (i + 1) + '. ' + _t.tsText(t.label) + '·' + _t.tsText(t.pathShort) + '  盈利' + t.profitWins + '/5 │ 年化中位' + t.medianAnn.toFixed(1) + '% │ 年化均值' + t.meanAnn.toFixed(1) + '% │ 回撤中位' + t.medianDd.toFixed(1) + '% │ 最大回撤' + t.maxDdAll.toFixed(1) + '% │ 样本' + t.totalOpsSum);
   }
   lines.push(SEP);
-  // 2026-07-28 回测精准模拟说明：手续费万3 + 滑点千1 + 沪市过户费万0.1，ETF 替代指数含跟踪误差
+  // 2026-07-28 回测精准模拟说明：手续费万3 + 滑点千1 + 印花税万5(卖) + 过户费沪深统一万0.1，ETF 替代指数含跟踪误差
   var etfCodeTip = sd && sd.etf_code;
   var feeLine = etfCodeTip
-    ? '回测含费：佣金万3 + 滑点千1 + 沪市过户费万0.1，成交在 ETF ' + etfCodeTip + '（信号在指数生成，含跟踪误差）'
-    : '回测含费：佣金万3 + 滑点千1（纯指数模拟，无过户费；ETF 替代品种才收沪市过户费）';
+    ? '回测含费：佣金万3 + 滑点千1 + 印花税万5(卖) + 过户费沪深统一万0.1(买卖都收)，成交在 ETF ' + etfCodeTip + '（信号在指数生成，含跟踪误差）'
+    : '回测含费：佣金万3 + 滑点千1 + 印花税万5(卖)；纯指数模拟无实质 ETF 成交不收过户费（ETF 替代品种才收过户费沪深统一万0.1，买卖都收）';
   lines.push(feeLine);
   lines.push('⚠ 研究参考，不构成投资建议 · 历史回测不代表未来');
   lines.push('方案D 多窗口综合分：打分单元为策略（path+场景二元组），聚合 5 窗口指标（盈利窗口数/年化中位/回撤中位/最大回撤/样本总数）后归一化打分，防近1年单窗口虚高被推为"稳健"。');
@@ -24581,7 +24581,7 @@ function _tradeSimModalRender(ov) {
   var _fp = m.feeParams;
   var _commRate = '佣金万' + (_fp.commission_rate * 10000).toFixed(1).replace(/\.0$/, '');
   var _slipRate = '滑点千' + (_fp.slippage * 1000).toFixed(1).replace(/\.0$/, '');
-  var _transferFee = '沪市过户费万' + (_fp.transfer_fee_rate_sh * 10000).toFixed(1).replace(/\.0$/, '');
+  var _transferFee = '过户费(沪深统一)万' + (_fp.transfer_fee_rate_sh * 10000).toFixed(1).replace(/\.0$/, '');
   var _minComm = '最低' + _fp.min_commission + '元/笔';
   var _stampDuty = _fp.stamp_duty_rate > 0 ? ' + 印花税万' + (_fp.stamp_duty_rate * 10000).toFixed(1).replace(/\.0$/, '') : '';
   var _targetText = etfCode
