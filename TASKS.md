@@ -8,12 +8,16 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-19(**并行降级安全 B 方案落地 + 防再犯五条机制全上线**)。本轮:
+**最后更新**:2026-08-19 03:30(**#69 cyb 四档降亏新键实施上线完成**)。本轮:
+- **📌 #69 已完整上线**:新增**非默认推荐**降亏键 `excludeSpecialBearCyb`(excludeSpecialBear 的创业板 cyb 四档版,默认关+🆕NEW,凯利区独立开关供人工复测;2026-08-19 用户拍板:不动 v1.1.2 默认主键 hs300,8键+1类默认组合零改动)。链路:signal_kelly_backtest.py 注入 market_tier_cyb + queries.py cyb 四档谓词 + lab.js 新键 toggle + app.js/purpose-notes 公示 → reviewer PASS(公示数字修复为「收益待用户实测」)→ main-merge.sh 统一 merge+bump(版本串 **20260819-a353**)+ deploy 上线(§24⑤ 校验 + 版本进度 A/B PASS)+ §0 三查齐(线上 signal_kelly_trades.json 含 market_tier_cyb 153 条 cyb≠hs300 独立计算 / overview 含 cyb_tier / app+lab.min.js 含新键 / index 版本串一致)。commit 链:c8095538c(merge+bump) + 57f6a1c66(子页 about/guide/privacy 版本串同步)。
+- **📌 新增待办 #74**(pending-features-index,commit 869af405a):check_signals.py L708 `ai_macro.hit` 未做 AI_MACRO_KEYS 白名单二次过滤(reviewer 非阻断发现——默认关非推荐键的 hit 也会把信号从邮件广播候选剔除,对普通用户本不该生效)。
+- **⏳ 待安排/待办**:①#73 8 宽基四档展示(sh/sz/csi500/cyb/sz50/csi1000/kc50 走势图四档色带,hs300 已完成,纯展示,用户 2026-08-19 拍板待安排)②#74 邮件广播 hit 白名单过滤 ③用户实测凯利区 excludeSpecialBearCyb 开关(数据口径/开关/公示已就绪,公示写「收益待用户实测」)。
+**前·最后更新**:2026-08-19(**并行降级安全 B 方案落地 + 防再犯五条机制全上线**)。本轮:
 - **📌 五条防再犯机制全部上线 main(523af2813)**:A 版本串倒退哨兵+B merge 净回退校验(scripts/check_version_progress.py,挂 deploy 安全网,P1 静默口子已修 fc6248ffc/cad362838)+ C 同文件并发串行(scripts/check_file_owners.py,扫 /tmp 进度文件,mtime>24h 视为历史)+ D push main 统一入口(scripts/main-merge.sh,8 源检测+三态 rebase+±5min 时点缓冲+统一 build_min+bump)+ E 写源树统一 helper(scripts/pick_repo.py,守卫阻断主动告警)。前序 A/B/E merge main 782af79d1(含诱因链报告 docs/conflict-overwrite-triggers-2026-08-18.md + 收益成本报告 docs/parallel-cost-benefit-2026-08-18.md)。
 - **📌 用户拍板「B 降级安全并行」(2026-08-19)**:docs/parallel-cost-benefit-2026-08-18.md 净账打平到略亏(收益 3-5 天 vs 成本 4.5-8 天,merge 吞吐 19/天 10x 但代码量没涨)→ 保留研究并行+版本发布速度(6天4 tag),从根因堵 worktree 三洞(stale base/同文件并发/版本串撞号);不做 A 废除(太极端)不做 C 现状(密度会复现)。
 - **📌 新工作流规范生效**(已同步 role-implementer SKILL.md §0/§1/§3/§4 + docs/main-governance.md + CLAUDE.md §8/§14):agent 只 push feat 禁直接 push main;worktree 不自行 bump 版本串(主控 merge 走 main-merge.sh 统一 build_min+bump);完成报告必带 base commit+版本串前后值;开工强制 rebase origin/main;主控 merge 冲突即停报(§23.11)。
 - **📌 pending-features-index 已同步(7fd035cfb)**:五条机制已完成移已排除清单;#70-72(C/D 实施)已完成。
-- **⏳ 待用户拍板**:①#69 四档判定源 cyb vs hs300——数据已备(cyb 总量赢家非逐年稳定,按年 Δ=-9,703 2023 负,详见 docs/market-state/kelly-fourtier-v2-multiindex.md + stability 补测)②优化清单 docs/optimization-decision-checklist.md #1 次日开盘/#4 R2 阻断/#7 百分位/#9/#14/#15。
+- **⏳ 待用户拍板**:①~~#69 四档判定源 cyb vs hs300~~(**2026-08-19 已拍板实施上线**:改非默认新键 excludeSpecialBearCyb,见上方本轮块)②优化清单 docs/optimization-decision-checklist.md #1 次日开盘/#4 R2 阻断/#7 百分位/#9/#14/#15。
 - **📋 备注**:claude-work-mode/README.md 有预先存在 M 改动(08-18 token 走势表追加,非本会话,未动未 commit)。
 **前·最后更新**:2026-08-18(**AI 预测历史反思严格口径+三档联动已实施**——gen_daily_brief.py:①_classify_failure 升级:老条目(无区间)仅方向命中=未中进反思(direction_only 新 type),新格式含区间三层全命中才不算失败;②_history_stats 改严格口径(仅方向命中不计中,计分母);③三档联动 _reflection_tier/<50%加强/50-75正常/75-90轻量/>90参考借鉴+build_reflection_inject/meta 按档位出文案与强度;④8/11-13 三条自动进反思库(direction_only)、8/14 direction_fail 时间隔离 8/18 自动补录;⑤§21 公示同步 app.js L22513 严格口径+三档,前端 _dbReflectionHtml 加 direction_only+档位标题;§24 bump a348→a349+build_min)。
 
