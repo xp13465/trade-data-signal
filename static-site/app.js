@@ -10836,6 +10836,7 @@ async function renderOverview() {
         modal.querySelectorAll(".gt-sort-down").forEach(b => b.addEventListener("click", e => reorder(e.currentTarget.closest(".gt-sort-row"), 1)));
       }
       function _initGlobalTicker(banner) {
+        console.log('[GT-DEBUG-CATCH] _initGlobalTicker CALLED, _gtEl=', !!_gtEl, 'banner=', !!banner, 'bannerConn=', banner && banner.isConnected);
         if (_gtEl) { console.log('[GT-DEBUG] return guard1 _gtEl!=null', _gtEl.isConnected); return; } // 已初始化,不重复
         if (!banner || !banner.isConnected) { console.log('[GT-DEBUG] return guard2 banner/isConnected', !!banner, banner && banner.isConnected); return; }
         console.log('[GT-DEBUG] create wrap _gtEl was null, banner connected', _gtEl, banner && banner.isConnected);
@@ -10843,6 +10844,7 @@ async function renderOverview() {
         wrap.className = "global-ticker";
         wrap.innerHTML = '<div class="gt-scroll"><div class="gt-track"></div></div><button class="gt-gear" title="自定义品种显示顺序">⚙️</button>';
         banner.after(wrap);
+        console.log('[GT-DEBUG] after banner.after, wrap in DOM?', !!wrap.isConnected, 'qtpls=', document.querySelectorAll('.global-ticker').length);
         _gtEl = wrap;
         _gtTrack = wrap.querySelector(".gt-track");
         wrap.querySelector(".gt-gear").addEventListener("click", _gtOpenSortModal);
