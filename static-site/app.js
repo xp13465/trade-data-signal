@@ -10596,6 +10596,10 @@ async function renderOverview() {
       _loadNewsDigest().then((nd) => {
         _renderHomeNewsRows(nd, banner, content);
         _startHomeNewsPoll(banner, content); // 只启动一次,后续轮询原地更新
+        _initGlobalTicker(banner); // 2026-08-17 全球盘面跑马灯(纯客户端,插新闻两行下方)
+        // 2026-08-19 根治"跑马灯运行时不渲染":_initGlobalTicker 是 _summaryP.then 大回调的闭包局部函数,
+        //   而 _renderHomeNewsRows 是模块级顶层函数,在其内部调 _initGlobalTicker 会跨闭包解析=ReferenceError,
+        //   异常被本链 .catch 吞掉 → 跑马灯永不创建(代码在 min 里但运行时死了)。本处闭包内调用才能正确解析,是唯一生效点。
       }).catch(() => {});
       // ================= 全球盘面跑马灯(2026-08-17,纯客户端零服务器压力) =================
       // 9 全球品种实时价,1行横向滚动,红涨绿跌,齿轮自定排序(顺序存 localStorage)。
@@ -10836,16 +10840,16 @@ async function renderOverview() {
         modal.querySelectorAll(".gt-sort-down").forEach(b => b.addEventListener("click", e => reorder(e.currentTarget.closest(".gt-sort-row"), 1)));
       }
       function _initGlobalTicker(banner) {
-        console.log('[GT-CALL]');
-        window.__gtCallCnt = (window.__gtCallCnt || 0) + 1;
-        if (_gtEl) { console.log('[GT-G1]'); window.__gtG1 = (window.__gtG1 || 0) + 1; return; } // 已初始化,不重复
-        if (!banner || !banner.isConnected) { console.log('[GT-G2]'); window.__gtG2 = (window.__gtG2 || 0) + 1; return; }
-        console.log('[GT-CREATE]');
+        // 2026-08-19 守卫改判 isConnected:_gtEl 是 _summaryP.then 大回调的闭包局部变量,每次 renderOverview 重建新闭包会重置为 null。
+        //   但 runOverview 同一闭包内若被调多次(content.innerHTML="" 重建 banner,旧 wrap 脱离 DOM),_gtEl 已指向死 wrap——
+        //   判 isConnected 可让"旧 wrap 已脱离 DOM"的重建用当前 banner 重新挂,根治"切 tab 回 overview 后跑马灯消失"(与 _homeNewsWrap 同款防重建消失)。
+        if (_gtEl && _gtEl.isConnected) return; // 已初始化且仍在 DOM,不重复堆积
+        if (_gtEl && !_gtEl.isConnected) { _gtEl = null; _gtTrack = null; _gtTimer = null; _gtActive = false; } // 旧 wrap 已脱离 DOM(renderOverview 重建),复位让下方用当前 banner 重建
+        if (!banner || !banner.isConnected) return;
         const wrap = document.createElement("div");
         wrap.className = "global-ticker";
         wrap.innerHTML = '<div class="gt-scroll"><div class="gt-track"></div></div><button class="gt-gear" title="自定义品种显示顺序">⚙️</button>';
         banner.after(wrap);
-        window.__gtAfter = (window.__gtAfter || 0) + 1;
         _gtEl = wrap;
         _gtTrack = wrap.querySelector(".gt-track");
         wrap.querySelector(".gt-gear").addEventListener("click", _gtOpenSortModal);
@@ -22593,11 +22597,9 @@ function _renderHomeNewsRows(nd, banner, content) {
   if (hasData) {
     // 已存在且仍在 DOM 则原地更新内容(不加加载态/不闪烁),否则用当前 banner 首次创建并插入。
     if (_homeNewsWrap && _homeNewsWrap.isConnected) {
-      console.log('[GT-DEBUG] _renderHomeNewsRows -> 原地更新分支(22591), _initGlobalTicker将跳过', 'hasData=', hasData);
       _homeNewsWrap.innerHTML = rowToday + rowNext + '<div class="summary-news-more">更多 →</div>';
       return;
     }
-    console.log('[GT-DEBUG] _renderHomeNewsRows -> 新建分支(22595), 将调 _initGlobalTicker', 'hasData=', hasData);
     const wrap = document.createElement("div");
     wrap.className = "summary-news-row summary-news-entry";
     wrap.innerHTML = rowToday + rowNext + '<div class="summary-news-more">更多 →</div>';
@@ -22610,8 +22612,8 @@ function _renderHomeNewsRows(nd, banner, content) {
     _homeNewsWrap = wrap;
     if (banner.isConnected) banner.after(wrap);
     else content.insertBefore(wrap, banner.nextSibling);
-    _initGlobalTicker(banner); // 2026-08-17 全球盘面跑马灯(纯客户端,插新闻两行下方)
     return;
+    // _initGlobalTicker 已上移到 _loadNewsDigest().then 闭包内(L10597 后)调用——本函数是模块级顶层,跨闭包调 _initGlobalTicker 会 ReferenceError。
   }
   // 兜底: 两行都无数据 → 渲染「历史新闻入口」行(点击打开新闻面弹窗,弹窗支持历史归档回看)。
   if (_homeNewsFallback && _homeNewsFallback.isConnected) return; // 已存在且仍在 DOM 不动(2026-08-19:脱离 DOM=旧 banner 已重建,用当前 banner 重建)
@@ -22622,7 +22624,7 @@ function _renderHomeNewsRows(nd, banner, content) {
   _homeNewsFallback = fb;
   if (banner.isConnected) banner.after(fb);
   else content.insertBefore(fb, banner.nextSibling);
-  _initGlobalTicker(banner); // 2026-08-17 全球盘面跑马灯(纯客户端,插新闻两行下方)
+  // _initGlobalTicker 已上移到 _loadNewsDigest().then 闭包内(L10597 后)调用——本函数是模块级顶层,跨闭包调会 ReferenceError。
 }
 
 // 定时自动刷新:setTimeout 递归(复用分时图/全球跑马灯 _gtSchedule 惯例),每 5 分钟轮询一次;
