@@ -18383,7 +18383,7 @@ async function renderSentimentMarketTemp(container) {
             ],
             dimension: 1,
           },
-        }, stats[key], strat[key], key, cell, keyOverlay);
+        }, stats[key], strat[key], key, cell, undefined, keyOverlay);
       // 冰点(≤20)/过热(≥80)阈值线（情绪分口径，与恐贪25/75区分）
       chart.setOption({ series: [{ markLine: {
         silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
