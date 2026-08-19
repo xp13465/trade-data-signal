@@ -22515,7 +22515,7 @@ function _newsTodayStr() {
 }
 
 // 新闻日期守卫(2026-08-16 主控认知修正 + reviewer#1 §22/§23.2): 新闻无「交易日/工作日」概念,
-// fetch_news 已 7×24 每小时增量采集,当日 news_digest.json 就是「当天截止现在」的累积快照,
+// fetch_news 已 7×24 每30分钟增量采集,当日 news_digest.json 就是「当天截止现在」的累积快照,
 // 非交易日(周六/周日)的当日新闻也真实存在并对周一预测有价值,照常显示。
 // 故不再强求 date==本地今日 0 点(周末/跨零点仍显示当日累积),仅当 news 为空才不显示。
 // 所有消费点统一走此 guards:_dbHomeTodayNewsRowHtml|_dbNextDayRowHtml|弹窗|历史对照均读本缓存。
@@ -22529,7 +22529,7 @@ async function _loadNewsDigest(force) {
     const raw = await fetchJSON(url);
     const date = (raw && raw.date) || "";
     let news = (raw && Array.isArray(raw.news)) ? raw.news : [];
-    // 当日 news_digest.json 存在即有值得显示(每小时采集的当日累积);不过滤 date==今日(非交易日也显示)。
+    // 当日 news_digest.json 存在即有值得显示(每30分钟采集的当日累积);不过滤 date==今日(非交易日也显示)。
     // 空 news(数据源全失败但文件在)也置空,避免展示空态占位。
     if (Array.isArray(news) && news.length === 0) {
       news = [];
@@ -22552,7 +22552,7 @@ async function _loadNewsDigest(force) {
 
 // ================= 首页新闻外露行渲染 + 定时自动刷新(2026-08-18 用户理念"看板不刷新") =================
 // 首页 AI 预测卡下方「📣 今日要闻 / 📅 明日关键事件」两行,默认只在页面加载时渲染一次。
-// 后端 fetch_news 每 1 小时增量采集 news_digest.json(累积当日快照),若不刷新页面外露行会停在下拉时的旧快照。
+// 后端 fetch_news 每 30 分钟增量采集 news_digest.json(累积当日快照),若不刷新页面外露行会停在下拉时的旧快照。
 // 故:①首次渲染同原有逻辑 ②启动 _startHomeNewsPoll 每 5 分钟轮询 _loadNewsDigest(true) 强制重拉并原地更新两行,
 //   不打断用户、不动页面其他部分、失败保持旧内容不闪动(§23.3 弹窗/历史对照仍走 _loadNewsDigest 缓存,靠 TTL 自动重拉拿新数据)。
 let _homeNewsWrap = null;      // 正常两行容器(轮询原地更新用)
@@ -22604,7 +22604,7 @@ let _homeNewsTimer = null;
 let _homeNewsPolling = false;
 function _startHomeNewsPoll(banner, content) {
   if (_homeNewsTimer) return; // 只启动一次
-  const POLL_MS = 5 * 60 * 1000; // 5 分钟,覆盖 fetch_news 每小时增量
+  const POLL_MS = 5 * 60 * 1000; // 5 分钟,覆盖 fetch_news 每30分钟增量
   const poll = () => {
     _homeNewsTimer = setTimeout(async () => {
       _homeNewsTimer = null;
@@ -22840,6 +22840,50 @@ function _renderNewsDigestBody() {
   _bindNewsOpen(body);
 }
 
+// —— 新闻弹窗完整列表自动刷新(2026-08-19,与首页两行同节奏 5 分钟)——
+// 弹窗开着时每 5 分钟静默 force 重拉 news_digest.json,原地更新列表(_renderNewsDigestBody 重建内层,
+// 复用 _loadNewsDigest(true) 破缓存),不重置弹窗滚动位置(保存滚动容器 .news-scroll 的 scrollTop,重渲染后恢复);
+// 失败保留旧内容下一轮再试;页面隐藏暂停;单飞防重入。跨日时 news_digest.date 切新一天,日期标注自动跟随。
+let _newsModalPollTimer = null;
+let _newsModalPolling = false;
+function _startNewsDigestModalPoll() {
+  if (_newsModalPollTimer) return; // 只启动一次(打开弹窗时调;关闭时 _stop 清定时器)
+  const POLL_MS = 5 * 60 * 1000; // 5 分钟,与首页两行同节奏,覆盖 fetch_news 采集(每30分钟增量)
+  const poll = () => {
+    _newsModalPollTimer = setTimeout(async () => {
+      _newsModalPollTimer = null;
+      const modal = document.getElementById("newsDigestModal");
+      if (!modal || modal.classList.contains("hidden")) return; // 弹窗已关,停轮询
+      if (document.hidden) { poll(); return; } // 页面隐藏暂停
+      if (_newsModalPolling) { poll(); return; } // 单飞防重入
+      _newsModalPolling = true;
+      const body = document.getElementById("news-digest-body");
+      const sc = body ? body.querySelector(".news-scroll") : null;
+      const scrollTop = sc ? sc.scrollTop : -1; // 保存列表滚动位置
+      try {
+        const nd = await _loadNewsDigest(true); // 复用缓存函数,force 破缓存重拉
+        if (!nd || !nd.news || !nd.news.length) { _newsModalPolling = false; poll(); return; } // 无数据/失败保留旧内容,下一轮再试
+        _newsModalState = {
+          all: nd.news, news: nd.news,
+          upcoming: nd.upcoming || [],
+          date: nd.date || "",
+          src: (_newsModalState && _newsModalState.src) || "all",
+        };
+        _renderNewsDigestBody();
+        // 恢复滚动位置(重渲染后 .news-scroll 是新节点,重新查找设置;滚动位置本身不变,不闪回顶部)
+        const sc2 = body ? body.querySelector(".news-scroll") : null;
+        if (sc2 && scrollTop >= 0) sc2.scrollTop = scrollTop;
+      } catch (e) { /* 重拉失败保留旧内容,下一轮再试 */ }
+      _newsModalPolling = false;
+      poll();
+    }, POLL_MS);
+  };
+  poll();
+}
+function _stopNewsDigestModalPoll() {
+  if (_newsModalPollTimer) { clearTimeout(_newsModalPollTimer); _newsModalPollTimer = null; }
+}
+
 // 分时不可得时的静态降级: 「当日大盘 涨/跌 x%」一句对照(读 intraday_snapshot 上证指数 pct_change)。
 function _dbNewsSparkStatic(idx) {
   if (!idx) return "";
@@ -23057,12 +23101,14 @@ async function openNewsDigestModal() {
     }
   } catch (e3) { /* 静态降级数据不可得: 不显示分时区 */ }
   _renderNewsDigestBody();
+  _startNewsDigestModalPoll(); // 2026-08-19 弹窗开着时每 5 分钟静默重拉原地更新(不重置滚动位置)
 }
 
 function closeNewsDigestModal() {
   const modal = document.getElementById("newsDigestModal");
   if (modal) modal.classList.add("hidden");
   document.body.style.overflow = "";
+  _stopNewsDigestModalPoll(); // 2026-08-19 弹窗关闭即停轮询
 }
 
 // 分页器：与历史收盘分析同款（上一页/下一页 + 页码按钮 + 顶部 info 行）

@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 """新闻三源采集:东财7x24 / 财联社电报 / 金十flash → data/news_digest.json
 
-目的:每小时(7×24,launchd)采集财经快讯,供 AI 每日预测(gen_daily_brief.py)的
+目的:每30分钟(7×24,launchd :01/:31 两档)采集财经快讯,供 AI 每日预测(gen_daily_brief.py)的
       新闻面/宏观事件日历维度消费 + 前端「今日要闻/明日关键事件」实时展示。
 
 核心口径(2026-08-16 用户定,时间窗口根治):
   - 新闻无「交易日/工作日」概念(主控认知修正):交易盘面(指数/分时/K线)才用 is_trading_day,
-    新闻采集 365 天 7×24 每小时照采,周末/节假日就是当日新闻(对周一预测有价值)。
-  - 每小时增量采集 + 按当天累积归档:每次采集把「当前这一小时内新增/回归」的条目
+    新闻采集 365 天 7×24 每30分钟照采,周末/节假日就是当日新闻(对周一预测有价值)。
+  - 每30分钟增量采集 + 按当天累积归档:每次采集把「当前这一时间段内新增/回归」的条目
     合并进当天归档 news_digest/<date>.json + 当日 news_digest.json(title 归一化去重,幂等);
     重复跑不重复,弥补「16:45 后 ~23:59 新闻永远丢失」的固定窗口缺陷。
   - 每月/每天不变式:date 字段=采集的自然日(日历日),不随交易日概念变化。
@@ -554,7 +554,7 @@ def _write_index() -> None:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="新闻三源采集 → data/news_digest.json(7×24 每小时增量累积)")
+    ap = argparse.ArgumentParser(description="新闻三源采集 → data/news_digest.json(7×24 每30分钟:01/:31 增量累积)")
     ap.add_argument("--date", default=None, help="目标日期 YYYY-MM-DD,默认今天")
     ap.add_argument("--force", action="store_true",
                     help="兼容保留: 新闻采集无交易日概念,本参数已无闸门作用(历史调用兼容)")
@@ -567,7 +567,7 @@ def main():
     day_str = target.strftime("%Y-%m-%d")
     today_ts = dt.datetime.combine(target, dt.time()).timestamp()
 
-    # 新闻采集无交易日/工作日概念(2026-08-16 主控认知修正): 7×24 每小时照采,无闸门。
+    # 新闻采集无交易日/工作日概念(2026-08-16 主控认知修正): 7×24 每30分钟照采,无闸门。
     # 交易盘面(指数/分时/K线)才有 is_trading_day,新闻无日历概念。
 
     # 三源独立采集(本次抓到当天条目)
@@ -579,7 +579,7 @@ def main():
     new_news, new_upcoming = build_digest(day_str, sources_map, target)
     new_items = new_news + new_upcoming
 
-    # 每小时增量合并: 先读既有当日归档,把本次 new_items 合并进去累积(首采 archive 为空)
+    # 每30分钟增量合并: 先读既有当日归档,把本次 new_items 合并进去累积(首采 archive 为空)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
     archive_file = archive_path(day_str)  # news_digest/<YYYY>/<date>.json
@@ -636,7 +636,7 @@ def sync_news_digest_live(day_str: str) -> None:
     """把当日 news_digest.json + 全部日期归档,同步到 static-site/data/ + R2 + staticdata。
 
     参考 gen_daily_brief.py 的上传链(copy → upload-data-files → staticdata_sync.sh),
-    让 fetch_news(launchd 每小时 :01)采集完即上线,前端随即读到当日新闻,不等 20:40。
+    让 fetch_news(launchd 每30分钟 :01/:31)采集完即上线,前端随即读到当日新闻,不等 20:40。
     写位置 = pick_repo()(同 gen_daily_brief,优先 trade-data=部署源树):
     部署链 update_all/deploy.sh 从 trade-data rsync 到 trade 上线,若只写 trade/static-site/data,
     下一次 deploy(REPO=trade-data)会把 trade-data/static-site/data 旧版 rsync 覆盖新版(8/18 断点根因)。
