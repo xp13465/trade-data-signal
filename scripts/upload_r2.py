@@ -91,6 +91,28 @@ def _guard_upload_intraday():
     sys.exit(2)
 
 
+def _guard_repo_consistency():
+    """方案4 一致性兜底(最后一道闸,不管盘中/盘后):
+
+    仅当 REPO env 显式设置且 STATIC_DIR 解析出的仓库根 ≠ REPO 指向路径时 → 拒传(退出码非0)。
+    「要传的源目录与 REPO 指向的仓库对不上」即停机,防手动缺省读错库覆盖线上。
+    保守:REPO 未设置的盘后场景不碰(避免误拦盘后正常上传)。
+    只在本函数被 cmd_upload_intraday 调用(不伤 lab/trade_sim 的 design 合法回退 trade 侧)。
+    """
+    repo = os.environ.get("REPO")
+    if not repo:
+        return
+    repo_root = Path(repo).resolve()
+    static_root = STATIC_DIR.resolve().parent  # static-site 的父 = 仓库根
+    if static_root == repo_root:
+        return
+    print(f"⚠ 源目录与 REPO 不一致:REPO 显式指向 {repo_root} ,但 STATIC_DIR 解析到 {static_root} (非同一仓库)",
+          file=sys.stderr)
+    print("   防读错库覆盖线上,拒绝 upload-intraday;正确:REPO=/Users/linhuichen/code/trade-data python scripts/upload_r2.py upload-intraday",
+          file=sys.stderr)
+    sys.exit(3)
+
+
 def _find_env():
     """按优先级找 .env：脚本所在 ROOT/.env -> $GIT_REPO/.env -> $REPO/.env -> 默认 trade 仓库。
     背景：launchd 实际在 trade-data/（运行副本）下跑，trade-data/.env 不存在，
@@ -825,6 +847,8 @@ def cmd_upload_intraday():
     盘中手动跑必须显式 REPO=/Users/linhuichen/code/trade-data(缺省 STATIC_DIR 回退 trade 侧旧库,
     会覆盖 R2,见顶部 _guard_upload_intraday 注释)。定时链路(intraday_snapshot.sh)已显式 export REPO。
     """
+    # 双闸:① 盘中+trade侧(方案2) ② REPO 显式但源目录≠REPO(方案4 一致性兜底,不管盘中/盘后)。
+    _guard_repo_consistency()
     _guard_upload_intraday()
     data_dir = STATIC_DIR / "data"
     files = [

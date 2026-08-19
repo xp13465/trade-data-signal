@@ -71,7 +71,7 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - **判断 checklist(扫描 agent 用)**:①该类别是否有 upload-{prefix} 命令? ②前端 fetch 是否用 R2 URL 或 dataUrl 走 R2? ③upload-data-large exclude 是否含该前缀(防双副本)? 三条齐全=架构合规
 - ⚠️**[2026-08-19 事故]盘中手动 upload/export 必须显式 REPO**:任何 agent 盘中手动跑 `upload_r2.py upload-intraday` / export 相关脚本覆盖 R2,**必须带 `REPO=/Users/linhuichen/code/trade-data` 前缀**(正确:`REPO=/Users/linhuichen/code/trade-data python scripts/upload_r2.py upload-intraday`)。
   - **为什么**:upload_r2.py `STATIC_DIR` 缺省回退 `ROOT`(=trade),带 REPO 才读到 trade-data 实时库。手动命令若忘带 REPO,STATIC_DIR 落到 trade/static-site,抓走 trade 侧旧库整体覆盖 R2 → 线上退回旧数据(事故 2026-08-19:8-18 旧库覆盖线上)。
-  - **盘中哨兵兜底**(upload_r2.py `cmd_upload_intraday` 开头 `_guard_upload_intraday`):「STATIC_DIR 在 trade 侧 + 交易日盘中(09:30-15:30 北京)」双条件同时成立 → abort(退出码非0)拒传,打印正确手动跑法。定时链路(intraday_snapshot.sh)显式 REPO 不受影响。
+  - **双闸兜底**(upload_r2.py `cmd_upload_intraday` 开头):①方案2 `_guard_upload_intraday` 「STATIC_DIR 在 trade 侧 + 交易日盘中(09:30-15:30 北京)」双条件同时成立 → abort(exit 2)拒传,打印正确手动跑法;②方案4 `_guard_repo_consistency` REPO 显式设置但 STATIC_DIR 源根 ≠ REPO 指向仓库 → abort(exit 3),不管盘中/盘后。定时链路(intraday_snapshot.sh)显式 REPO 双闸均不触发,不受影响。
   - **关联规范源**:`scripts/upload_r2.py:33 STATIC_DIR 缺省回退 trade`(哨兵注释) + `scripts/intraday_snapshot.sh` 显式 `REPO=...; export REPO`(定时链路默认 REPO=trade-data)。改了 REPO 默认/STATIC_DIR 逻辑/交易日时段口径,同步此条款。
 
 ## 4. 生产稳定时点(原 §14 操作层,核心摘要见根共享核心)
