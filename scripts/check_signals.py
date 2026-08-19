@@ -705,7 +705,10 @@ def build_ai_suggest_map(signals: list[dict], overview_markers: dict, stats: dic
         m = overview_markers.get((iid, sig))
         if m is None or m.get("_bt_in_universe") is False:
             continue
-        if m.get("ai_macro", {}).get("hit"):
+        _am = m.get("ai_macro", {})
+        # AI 降亏命中须过 8 键白名单(AI_MACRO_KEYS): 与 _calc_signal_markers L748 同口径 §22,
+        # 不能直接用 overview.ai_macro.hit —— v1.1.2 备选键(默认关)命中不该让该信号从 AI 主推剔除(#74)
+        if any(k in AI_MACRO_KEYS for k in (_am.get("filters") or [])):
             continue
         candidates.append({"index_id": iid, "signal": sig,
                            "track_score": (_top_etf_by_score(m.get("etfs")) or {}).get("track_score"),
@@ -1969,7 +1972,8 @@ def main(argv: list[str] | None = None) -> int:
              len(signals_to_send), sum(1 for _s in signals_to_send
              if _s.get("signal") not in ("band_hold", "sell", "sell_stop_loss")
              and _om.get((_s["index_id"], _s["signal"]), {}).get("_bt_in_universe") is not False
-             and not _om.get((_s["index_id"], _s["signal"]), {}).get("ai_macro", {}).get("hit")),
+             and not any(k in AI_MACRO_KEYS for k in (
+                 _om.get((_s["index_id"], _s["signal"]), {}).get("ai_macro") or {}).get("filters") or [])),
              next(iter(_ai_suggest), None))
     subject, body = build_email(date, signals_to_send, name_map,
                                 intraday=args.intraday, fade_alerts=fade_alerts_for_email,
