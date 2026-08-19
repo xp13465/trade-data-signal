@@ -2,7 +2,8 @@
 """tasks_archive.py - TASKS.md 定期归档压缩脚本（2026-08-11 建立，机制见 docs/tasks-archive-maintain.md）
 
 目标：TASKS.md 因历史已完成小节 + 会话状态超长行堆积而膨胀（曾 429KB），本脚本：
-  ① 剪切归档：✅/已完成/已上线/全闭环 标题的已完成历史小节 + `### 会话状态(日期)`/`### 每日总结(日期)`
+  ① 剪切归档：✅/已完成/已上线/全闭环 标题的已完成历史小节（level 2/3/4，2026-08-19 扩 level3）
+     + `### 会话状态(日期)`/`### 每日总结(日期)`
      历史块 + 待办小节内旧会话状态块 + `#### ... 已完成` 锚点 -> append 到 docs/archive/TASKS-done.md
   ② 压缩超长行：`## 📍 当前会话状态` 小节的 `**最后更新**`/`**进行中**`/`**前·最后更新**` 超长行
      （>400ch）压缩为摘要（保留最新状态关键信息+日期+指向 git history 说明）
@@ -253,8 +254,10 @@ class Renderer:
                 i = j
                 continue
 
-            # 归档判定：level 2/4 已完成标题 或 任意层会话状态历史块
-            if (level in (2, 4) and is_done_title(title)) or (level in (2, 3, 4) and is_session_block(title)):
+            # 归档判定：level 2/3/4 已完成标题 或 任意层会话状态历史块
+            #   (2026-08-19 扩 level3：`### P2-新-X ✅` 等老已完成小块也归档，仅归 is_done_title 明确
+            #    标注 已完成/已上线/全闭环/已归档/✅ 的；`### 保留*`/进行中/近期/下轮起点 非已完成不归)
+            if (level in (2, 3, 4) and is_done_title(title)) or (level in (2, 3, 4) and is_session_block(title)):
                 self._archive(block)
                 i = j
                 continue
