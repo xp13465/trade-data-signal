@@ -23282,6 +23282,7 @@ function _tradeSimOverlayEl() {
 }
 
 function _tradeSimCloseModal() {
+  if (_simFeeCompareDebounceTimer) { clearTimeout(_simFeeCompareDebounceTimer); _simFeeCompareDebounceTimer = null; }
   if (_tradeSimOverlay) _tradeSimOverlay.classList.remove('show');
   document.body.style.overflow = '';
 }
@@ -23594,6 +23595,7 @@ async function _tradeSimOpenModal(indexId, openView) {
     feeCompare: null,     // 费率影响对比: 预生成静态 JSON 解析出 {default,custom,diff} (null=未请求)
     feeCompareErr: null,  // 费率影响对比: 接口失败降级信息 (null=无错)
     feeCompareLoading: false, // 费率影响对比: 请求中标志
+    feeCompareMode: null, // 费率影响对比: 当前对比来源 'static'=读预生成静态精确档(预设) / 'local'=本地精确重算(custom手改) / null=无
   };
   var body = ov.querySelector('.trade-sim-modal-body');
   body.innerHTML = '<div class="trade-sim-loading"><span class="sim-spinner"></span>加载回测中…</div>';
@@ -23616,6 +23618,9 @@ async function _tradeSimOpenModal(indexId, openView) {
       if (result) {
         _m.feeRecomputed = result;
         _tradeSimModalRender(ov);
+        // 首次打开自动展示费率影响对比(去按钮后唯一入口=费率变化; 打开即呈现, 无操作也能看到)
+        // fullData 已由本次 _simApplyFeeRecompute 加载完成, 本地/静态两条路径都可就绪
+        _tradeSimTriggerCompare();
       }
     })();
   }
@@ -24128,6 +24133,7 @@ function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfC
   var roundDrawdowns = [];
   var buyCount = 0, sellCount = 0;
   var totalFeeCost = 0; // 费率消耗累计(佣金+过户费+印花税), 同凯利 fee_cost 模式
+  var totalTurnover = 0; // 累计成交额(买+卖双向) , 供费率占比 fee_pct —— 对齐后端 simulate_trade.py total_turnover 口径
 
   for (var i = 0; i < ledger.length; i++) {
     var e = ledger[i];
@@ -24142,6 +24148,7 @@ function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfC
       var br = _simBuyWithFees(budget, close, etfCode, fp);
       var buyFeeCost = br.commission + br.transferFee; // 买fee=佣金+过户费
       totalFeeCost += buyFeeCost;
+      totalTurnover += br.shares * br.buyPrice; // 买成交额(=shares×buy_price), 对齐后端 L581/L707/L835
       cash -= budget;
       positions.push({ date: e.date, close: br.buyPrice, shares: br.shares });
       totalShares += br.shares;
@@ -24167,6 +24174,7 @@ function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfC
         var sr = _simSellWithFees(pos.shares, close, etfCode, fp);
         var sellFeeCost = sr.commission + sr.transferFee + sr.stampDuty; // 卖fee=佣金+过户费+印花税
         totalFeeCost += sellFeeCost;
+        totalTurnover += sr.sellAmount; // 卖成交额(=shares×sell_price), 对齐后端 L602/L730/L870
         cash += sr.net;
         totalShares -= pos.shares;
         var hv2 = totalShares * close, ta2 = cash + hv2;
@@ -24190,6 +24198,7 @@ function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfC
           totalNet += srA.net;
           totalSharesSold += posA.shares;
           totalSellFeeCost += srA.commission + srA.transferFee + srA.stampDuty; // 卖fee=佣金+过户费+印花税
+          totalTurnover += srA.sellAmount; // 卖成交额(卖清仓逐笔累计), 对齐后端 L602/L730/L870
         }
         totalFeeCost += totalSellFeeCost;
         totalShares = 0;
@@ -24347,6 +24356,8 @@ function _simRecomputeNode(ledger, rounds, openPositions, initCap, posSize, etfC
     total_rounds: newRounds.length, open_count: positions.length,
     buy_count: buyCount, sell_count: sellCount,
     total_fee_cost: Math.round(totalFeeCost * 100) / 100, // 费率消耗(佣金+过户费+印花税之和), 同凯利 total_fee_cost
+    fee_cost: Math.round(totalFeeCost * 100) / 100, // 累计费用(元), 对齐后端 simulate_trade.py fee_cost 口径(供费率影响对比区块展示)
+    fee_pct: totalTurnover > 0 ? Math.round(totalFeeCost / totalTurnover * 100 * 10000) / 10000 : 0, // 费率占比=费用/双向成交额×100, 对齐后端 fee_pct(round4)
   });
 
   return { summary: newSummary, equity_curve: equityCurve, ledger: newLedger, rounds: newRounds, open_positions: newOpenPositions };
@@ -24515,6 +24526,8 @@ async function _simOnFeeChange(presetKey) {
   }
   _tradeSimPersistFee();   // 费率客调: 持久化当前费率（跨会话保留）
   if (ov) _tradeSimModalRender(ov);
+  // 费率对比随预设切换立即生效: 预设档→读静态精确档; 切 custom 由表单输入触发(不走此)
+  if (presetKey !== 'custom') _tradeSimTriggerCompare();
 }
 
 // Form change handler (custom input, preserve input focus)
@@ -24539,6 +24552,9 @@ async function _simOnFormChange() {
   else m.feeRecomputed = null;
   _tradeSimPersistFee();   // 费率客调: 持久化当前费率（跨会话保留）
   if (ov) _tradeSimModalRender(ov);
+  // 手改任意费用数值 → 前端本地即时精确重算对比(防抖, 避免连续输入重复拉 full.json + 重算)
+  if (_simFeeCompareDebounceTimer) clearTimeout(_simFeeCompareDebounceTimer);
+  _simFeeCompareDebounceTimer = setTimeout(function () { _tradeSimCompareLocal(); }, 400);
 }
 
 // Read custom fee params from input fields
@@ -24600,8 +24616,8 @@ function _simFeeBarHTML(sd) {
     '</div>' +
     customHTML +
     '<div class="sim-fee-comparison-row">' +
-      '<button type="button" class="sim-fee-recalc-btn" data-recalc-compare="" title="读取该标的预生成的费率档静态回测结果, 对比默认费率的收益/年化/回撤/胜率/费率成本/占比 + 净值曲线（纯静态, 无后端接口）">⚖ 费率影响对比 · 重新回测</button>' +
-      '<span class="sim-fee-hint">对比默认费率 vs 当前费率（读预生成静态, 全历史窗口）</span>' +
+      '<span class="sim-fee-label">费率影响对比: </span>' +
+      '<span class="sim-fee-hint">切换预设档=读预生成静态精确档; 手改自定义费率=前端本地即时精确重算(加载交易明细, 全历史窗口)</span>' +
     '</div>' +
     '</div>';
 }
@@ -24686,10 +24702,11 @@ function _tradeSimFeeConfigLabel(fc) {
 function _tradeSimCompareSectionHTML() {
   var m = _tradeSimState;
   if (m.feeCompareLoading) {
-    return '<div class="sim-compare-block"><div class="sim-compare-title">⚖ 费率影响对比</div><div class="trade-sim-loading"><span class="sim-spinner"></span>读预生成静态对比中…</div></div>';
+    var loadingTxt = (m.feeCompareMode === 'local') ? '加载交易明细重算中…' : '读预生成静态对比中…';
+    return '<div class="sim-compare-block"><div class="sim-compare-title">⚖ 费率影响对比</div><div class="trade-sim-loading"><span class="sim-spinner"></span>' + loadingTxt + '</div></div>';
   }
   if (m.feeCompareErr) {
-    return '<div class="sim-compare-block"><div class="sim-compare-title">⚖ 费率影响对比</div><div class="trade-sim-empty">⚠ ' + m.feeCompareErr + '<br><span style="font-size:11px;color:var(--text-3)">该标的费率对比数据未预生成（发布时静态产物）；已预生成 5 档预设（0=0%剥离/默认/主流/最便宜/股票默认），可切换预设档或自定义就近映射「近似档」展示。</span></div></div>';
+    return '<div class="sim-compare-block"><div class="sim-compare-title">⚖ 费率影响对比</div><div class="trade-sim-empty">⚠ ' + m.feeCompareErr + '<br><span style="font-size:11px;color:var(--text-3)">该标的费率对比未生成或本地精确重算失败。预设档走预生成静态 5 档（0=0%剥离/默认/主流/最便宜/股票默认）；自定义档走前端本地精确重算（读全量交易明细，不就近映射近似档）。</span></div></div>';
   }
   if (!m.feeCompare) return '';
   var c = m.feeCompare;
@@ -24709,8 +24726,11 @@ function _tradeSimCompareSectionHTML() {
     return '<span style="color:' + col + ';font-weight:700">' + (v >= 0 ? '+' : '') + v.toFixed(2) + (kind === 'cost' ? '</span><span style="color:var(--text-3)"> 元</span>' : kind === 'pct' ? ' pp</span>' : '%</span>');
   }
   var fecLabel = _tradeSimFeeConfigLabel(u.fee_config) || '自定义';
-  // 自定义档就近映射到最接近预设档时，明显标注"近似档"（纯静态无运行时后端，无法精确重算自定义费率）
+  // 预设档命中静态精确档(u._approx=false/缺省)直接用; 自定义档走本地精确重算(u._localMark=1), 均非"近似档"——去除旧近似标注
+  // 保留 _approx 兼容旧静态 JSON(历史缓存含旧 custom 近似档), 新代码 custom 一律走本地精确重算不置 _approx
   var approxMark = u._approx ? '<span style="font-size:10px;color:#e67e22;font-weight:700">（近似档: ' + (u._approx_label || '最接近预设') + '，纯静态非精确重算）</span>' : '';
+  // 标注数据来源: 预设静态(默认) vs 本地精确重算(自定义, 逐笔 ledger 重算两遍)
+  var srcMark = (m.feeCompareMode === 'local') ? '<span style="font-size:10px;color:#2e8b57;font-weight:600">本地即时精确重算</span>' : '<span style="font-size:10px;color:var(--text-3)">读预生成静态精确档</span>';
   var rows =
     '<tr><td>总收益</td><td>' + pctVal(ds.total_return_pct, true) + '</td><td>' + pctVal(us.total_return_pct, true) + '</td><td>' + diffCell(df.return_pct_diff, 'ret') + '</td></tr>' +
     '<tr><td>年化</td><td>' + pctVal(ds.annualized, true) + '</td><td>' + pctVal(us.annualized, true) + '</td><td>' + diffCell(df.annualized_diff, 'ann') + '</td></tr>' +
@@ -24720,19 +24740,30 @@ function _tradeSimCompareSectionHTML() {
     '<tr><td>费率占比</td><td>' + pctVal(ds.fee_pct) + '</td><td>' + pctVal(us.fee_pct) + '</td><td>' + diffCell(df.fee_pct_diff, 'pct') + '</td></tr>';
   var costHtml =
     '<div class="sim-compare-cost"><div class="sim-compare-cost-row"><span class="sim-compare-cost-k">默认费率</span><span class="sim-compare-cost-v">' + _tradeSimFeeConfigLabel(d.fee_config) + '</span></div>' +
-    '<div class="sim-compare-cost-row"><span class="sim-compare-cost-k">当前费率</span><span class="sim-compare-cost-v">' + fecLabel + approxMark + '</span></div></div>';
+    '<div class="sim-compare-cost-row"><span class="sim-compare-cost-k">当前费率</span><span class="sim-compare-cost-v">' + fecLabel + approxMark + ' ' + srcMark + '</span></div></div>';
   return '<div class="sim-compare-block">' +
-    '<div class="sim-compare-title">⚖ 费率影响对比 <span style="font-size:10px;color:var(--text-3);font-weight:400">默认 vs 当前（读预生成静态, 全历史窗口）</span></div>' +
+    '<div class="sim-compare-title">⚖ 费率影响对比 <span style="font-size:10px;color:var(--text-3);font-weight:400">默认 vs 当前（' + (m.feeCompareMode === 'local' ? '前端本地即时重算' : '读预生成静态') + ', 全历史窗口）</span></div>' +
     costHtml +
     '<div class="sim-compare-table-wrap"><table class="sim-cmp-table"><thead><tr><th>指标</th><th>默认</th><th>当前</th><th>增减</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
     '<div class="sim-compare-curve">' + _tradeSimCompareEquitySVG(d.net_value, u.net_value) + '</div>' +
     '</div>';
 }
 
-// 「重新回测」按钮: 读预生成静态 JSON（纯静态适配，无运行时后端接口）
+// 预设档静态对比: 读预生成静态 JSON（纯静态适配，无运行时后端接口）
 // 每个标的发布时预生成 trade_sim_{id}_fee_compare.json（static-site/data/trade_sim/ → R2 trade_sim_data/ 前缀）
-// 命中预设档 → 直接展示"默认 vs 当前档"对比；custom 档 → 就近映射最接近预设档 + 明显标注"近似档"
+// 仅预设档(etf_def 等非 custom)走上此路径: 命中 by_fee 精确档直接展示"默认 vs 当前档"对比
+// custom 手改档由 _tradeSimTriggerCompare 分流到 _tradeSimCompareLocal(前端本地精确重算, 不走此静态/就近映射)
 var _tradeSimFeeCompareCache = {};
+var _simFeeCompareDebounceTimer = null; // 自定义费率本地重算防抖定时器(连续输入不重复拉 full.json+重算)
+
+// 费率影响对比统一触发(去按钮, 由费率变化驱动): 预设档→读静态精确档; custom手改→本地精确重算
+function _tradeSimTriggerCompare() {
+  var m = _tradeSimState;
+  if (!m || !m.statsData) return;
+  if (m.feePreset === 'custom') { _tradeSimCompareLocal(); }
+  else { _tradeSimRecalcCompare(); }  // 预设档: 读预生成静态 fee_compare.json 精确档(_feeCompareResolve 命中直接取, 不改)
+}
+
 function _tradeSimRecalcCompare() {
   var m = _tradeSimState;
   if (!m || !m.statsData) return;
@@ -24745,7 +24776,9 @@ function _tradeSimRecalcCompare() {
     if (_tradeSimState !== m) return;
     var cmp = _feeCompareResolve(data, m.feePreset, m.feeParams);
     if (!cmp) throw new Error('该标的费率对比数据未预生成或当前费率档不匹配，无法对比');
+    cmp.custom._localMark = 0; // 预设静态精确档(非本地)
     m.feeCompare = cmp;
+    m.feeCompareMode = 'static';
     m.feeCompareLoading = false;
     m.feeCompareErr = null;
     _tradeSimPersistFee();
@@ -24753,16 +24786,122 @@ function _tradeSimRecalcCompare() {
   }).catch(function (e) {
     if (_tradeSimState !== m) return;
     m.feeCompare = null;
+    m.feeCompareMode = null;
     m.feeCompareLoading = false;
     m.feeCompareErr = (e && e.message) || '费率对比加载失败';
     if (ov) _tradeSimModalRender(ov);
   });
 }
 
+// 自定义档本地精确重算: 读 full.json(每标的全部窗口逐笔成交 ledger), 用 _simRecomputeNode 按当前 feeParams 精确重算两遍
+//   "默认费率" + "当前费率" → 产出 {default, custom, diff} + 双净值曲线(net_value, 1 起点)
+// 对比口径固定: all 全历史窗口 × 买固定1w(10%)+卖清仓(sd.paths[0]=_DEFAULT_CMP_PATH) × 主买+卖(sd.scenarios[0]=_DEFAULT_CMP_SIG), 对齐后端 simulate_trade.py
+async function _tradeSimCompareLocal() {
+  var m = _tradeSimState;
+  if (!m || !m.statsData) return;
+  m.feeCompareMode = 'local';
+  m.feeCompareLoading = true;
+  m.feeCompareErr = null;
+  var ov = _tradeSimOverlay;
+  if (ov) _tradeSimModalRender(ov);
+  try {
+    // 拉全量 ledger(主视图 _simApplyFeeRecompute 已拉则复用 _tradeSimFullCache)
+    if (!m.fullLoaded) {
+      m.fullData = _tradeSimFullCache[m.indexId] || await _tradeSimFetchFull(m.indexId);
+      _tradeSimFullCache[m.indexId] = m.fullData;
+      m.fullLoaded = true;
+    }
+    var sd = m.statsData;
+    var fullData = m.fullData;
+    var win = 'all';
+    var pathLabel = sd.paths[0];       // "买固定1w(10%)+卖清仓" = 后端 _DEFAULT_CMP_PATH
+    var scenLabel = sd.scenarios[0];   // "主买+卖" = 后端 _DEFAULT_CMP_SIG
+    var initCap = sd.initial_capital || 100000;
+    var posSize = sd.position_size || 10000;
+    var etfCode = sd.etf_code;
+    var origSlippage = sd.slippage || 0.001;
+    var origNode = sd.data[win] && sd.data[win][pathLabel] && sd.data[win][pathLabel][scenLabel];
+    var fullNode = fullData.data[win] && fullData.data[win][pathLabel] && fullData.data[win][pathLabel][scenLabel];
+    if (!origNode || !fullNode) throw new Error('该标的全历史窗口(' + pathLabel + '/' + scenLabel + ')明细缺失, 无法本地精确重算');
+    // 默认费率=原始回测费率参数; 当前费率=用户手改 feeParams
+    var fpDef = {
+      commission_rate: sd.commission_rate || 0.0003, min_commission: sd.min_commission || 5,
+      slippage: origSlippage, transfer_fee_rate_sh: sd.transfer_fee_rate_sh || 0.00001,
+      stamp_duty_rate: sd.stamp_duty_rate || 0,
+    };
+    var fpCus = m.feeParams || fpDef;
+    var signalFirstDate = sd.signal_first_date || null;
+    var signalLastDate = sd.signal_last_date || null;
+    // winStartDate: all 窗口 s==signalFirstDate → recomputeNode 内部走 ledger[0].date 起(同后端 w_start is None)
+    var dNode = _simRecomputeNode(fullNode.ledger, fullNode.rounds, fullNode.open_positions,
+      initCap, posSize, etfCode, fpDef, pathLabel, origNode.summary, origSlippage,
+      null, signalFirstDate, signalLastDate);
+    var cNode = _simRecomputeNode(fullNode.ledger, fullNode.rounds, fullNode.open_positions,
+      initCap, posSize, etfCode, fpCus, pathLabel, origNode.summary, origSlippage,
+      null, signalFirstDate, signalLastDate);
+    if (!dNode || !cNode || !dNode.summary || !cNode.summary) throw new Error('本地精确重算失败');
+    var dSum = dNode.summary, cSum = cNode.summary;
+    // 净值序列 = equity_curve / initCap（1 起点, 供双曲线叠加, 对齐后端 compare_fee_configs._net_value）
+    function _netValue(curve) {
+      return (curve || []).map(function (pt) {
+        return { date: pt.date, np: Math.round(pt.value / initCap * 1000000) / 1000000 };
+      });
+    }
+    function sampleCurve(curve, maxPoints) {
+      maxPoints = maxPoints || 100;
+      if (!curve || curve.length <= maxPoints) return curve || [];
+      var step = curve.length / maxPoints;
+      var idx = {};
+      for (var i = 0; i < maxPoints; i++) idx[Math.floor(i * step)] = true;
+      idx[curve.length - 1] = true;
+      var keys = Object.keys(idx).map(function (k) { return +k; }).sort(function (a, b) { return a - b; });
+      return keys.map(function (k) { return curve[k]; });
+    }
+    // 双曲线先采样再换算净值, 保首尾 + 逐点日期对齐(同后端 _sample_curve 后再 _net_value)
+    var dCurve = sampleCurve(dNode.equity_curve, 100);
+    var cCurve = sampleCurve(cNode.equity_curve, 100);
+    var dc = dSum.fee_cost || 0, cc = cSum.fee_cost || 0;
+    var dp = dSum.fee_pct || 0, cp = cSum.fee_pct || 0;
+    var cmp = {
+      index_id: m.indexId, path: pathLabel, scenario: scenLabel, window: win,
+      default: {
+        fee_config: _feeParamsToConfig(fpDef),  // 5参数→9字段后端 fee_config(供 _tradeSimFeeConfigLabel 读)
+        summary: dSum, equity_curve: dCurve,
+        net_value: _netValue(dCurve),
+      },
+      custom: {
+        fee_config: _feeParamsToConfig(fpCus), summary: cSum, equity_curve: cCurve,
+        net_value: _netValue(cCurve), _approx: false, _localMark: 1,
+      },
+      diff: {
+        return_pct_diff: Math.round(((cSum.total_return_pct || 0) - (dSum.total_return_pct || 0)) * 100) / 100,
+        annualized_diff: (typeof cSum.annualized === 'number' && typeof dSum.annualized === 'number')
+          ? Math.round((cSum.annualized - dSum.annualized) * 100) / 100 : null,
+        max_drawdown_diff: Math.round(((cSum.max_drawdown || 0) - (dSum.max_drawdown || 0)) * 100) / 100,
+        win_rate_diff: Math.round(((cSum.win_rate || 0) - (dSum.win_rate || 0)) * 100) / 100,
+        fee_cost_diff: Math.round((cc - dc) * 100) / 100,
+        fee_pct_diff: Math.round((cp - dp) * 10000) / 10000,
+      },
+    };
+    m.feeCompare = cmp;
+    m.feeCompareLoading = false;
+    m.feeCompareErr = null;
+    _tradeSimPersistFee();
+    if (ov) _tradeSimModalRender(ov);
+  } catch (e) {
+    if (_tradeSimState !== m) return;
+    m.feeCompare = null;
+    m.feeCompareMode = null;
+    m.feeCompareLoading = false;
+    m.feeCompareErr = (e && e.message) || '本地费率重算加载失败';
+    if (ov) _tradeSimModalRender(ov);
+  }
+}
+
 // 把预生成 JSON + 当前费率档解析成前端 _tradeSimCompareSectionHTML 需要的 {default, custom, diff} 结构
-//   presetKey 命中 by_fee 精确档 → custom 直接取该档（is_approx=false）
-//   custom 档 或 未命中 → 就近映射最接近预设档 + custom.is_approx=true（标注"近似档"）
+//   仅预设档(非 custom)走此: presetKey 命中 by_fee 精确档 → custom 直接取该档（is_approx=false）
 //   完全无匹配 → 返回 null（前端走 feeCompareErr 降级提示）
+//   ⚠️ custom 手改档已由 _tradeSimTriggerCompare 分流到 _tradeSimCompareLocal(前端本地精确重算), 不再走此就近映射近似档
 function _feeCompareResolve(data, presetKey, feeParams) {
   if (!data || !data.default || !data.by_fee) return null;
   var byFee = data.by_fee;
@@ -25012,11 +25151,7 @@ function _tradeSimModalRender(ov) {
   body.querySelectorAll('.sim-fee-custom input').forEach(function (inp) {
     inp.onchange = function () { _simOnFormChange(); };
   });
-  // 「费率影响对比」重新回测按钮
-  var recalcBtn = body.querySelector('.sim-fee-recalc-btn[data-recalc-compare]');
-  if (recalcBtn) {
-    recalcBtn.onclick = function () { _tradeSimRecalcCompare(); };
-  }
+  // 「费率影响对比」已去按钮: 对比触发改由费率变化驱动(预设档切换→静态精确档; 手改自定义→本地精确重算, 见 _simOnFeeChange/_simOnFormChange)
   // 对比表列标题点击排序：同列=切方向，不同列=换列+用该列默认方向
   body.querySelectorAll('.sim-cmp-table th[data-cmp-col]').forEach(function (th) {
     th.onclick = function () {
