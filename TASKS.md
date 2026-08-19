@@ -75,13 +75,13 @@
 
 #### 待办
 - [ ] (次日开盘回测 2026-08-12 用户"弄好后落档报告放待办,我明天起床看") 真实跟信号操作口径确认【🔶 部分完成:②已做成「次日分批挂单SOP」按钮 lab.js(2026-08-15 SOP,「次日买入玩法」lab-sigkelly-nextday),①「前端展示/回测默认改次日开盘口径」未改——默认仍当日收盘口径,待用户确认是否切】:信号收盘后固化、次日开盘买入是真实可执行口径,成本极低(每日池净利差 -0.01%、每笔1万 -0.57%,"竞价高开吃掉利润"不成立,跳空均值 +0.031%/中位0/>1%仅6.2%)。建议①后续回测/前端展示默认改「次日开盘」口径(数据100%覆盖实现成本低)②操作:开盘不追,挂开盘下方 -1% 限价单(未触达按开盘价兜底)→K=1 +844,931/52.81%(+3.8pt)触达率39.8%,挂-2%更深处不划算。报告 docs/kelly/position/kelly-nextday-open-backtest.md(基线可复现/伪跳空剔除/覆盖率100%/A-F二阶近似诚实标注)
-- [ ] (飞书 2026-08-11 18:16) 前面发的两句消息漏收了吗，是否还能读取到
-- [ ] (飞书 2026-08-11 18:12) 报告群也是一样的，我会对里面的结果对你问做，你正常就是只出处理给答复就好，有改动也要转到开发群
-- [ ] (飞书 2026-08-11 18:12) 告警群一般我也会回复，虽然不是需求，但是属于对告警内容的问询，比如有没有处理好，是否自愈等，可能上升不到需求大任务，但是如果产出的东西需要大改代码，就需要转回…
-- [ ] (飞书 2026-08-11 17:55) 需求：一定要靠前缀判断需求吗，这个需求群硬编码不行吗，其他群使用前缀是合理的
+- [x] (飞书 2026-08-11 18:16) 前面发的两句消息漏收了吗，是否还能读取到
+- [x] (飞书 2026-08-11 18:12) 报告群也是一样的，我会对里面的结果对你问做，你正常就是只出处理给答复就好，有改动也要转到开发群
+- [x] (飞书 2026-08-11 18:12) 告警群一般我也会回复，虽然不是需求，但是属于对告警内容的问询，比如有没有处理好，是否自愈等，可能上升不到需求大任务，但是如果产出的东西需要大改代码，就需要转回…
+- [x] (飞书 2026-08-11 17:55) 需求：一定要靠前缀判断需求吗，这个需求群硬编码不行吗，其他群使用前缀是合理的
 - [x] **(用户核心需求·最优先 2026-08-11) 降亏组合使用建议分析 + 全信号表**【已上线 ✓:组合使用建议分析+全信号表(quadMeta.all)落地 docs/kelly/combo/kelly-combo-usage-advice.md + lab.js 凯利区置顶两块,§0 验过 in main】。用户原话"我靠4个组合降亏信号一起使用感觉还不错。你评价一下这样的使用方法是否好。并且你回测一下你推荐怎么用（分用户投资习惯：追高趋势/短线/长线等细分行为建议 + 总建议=全量信号都看完全遵守交易页面展示的交易方法）。可以页面展示建议和理由（必须真实数据跑过回测结果才能提供建议）。其次新增一个表=全信号表（不做信号分拆测试，就全亮信号融合在一起，看全信号都用最新降亏组合的收益预估，这是最后结果，因为正常人也一定是全亮信号都看）"。**现状：代码/前端全未落地**（前端无全信号表/组合建议，grep 无结果）。已误派过 J1/J2 1月调整 toggle（那是降亏增量非核心需求，已上线）。**待办动作**：①用 signal_kelly_trades.json 66,591 笔真实回测 4 组合全开评价 + 分投资习惯细分建议 + 总建议 ②实施前端展示建议和理由 ③新增全信号表（全亮信号+最新降亏组合收益预估，不拆分象限）
 - [x] (SVG P1 2026-08-11) 走势图轻量扩展【已上线 ✓:首页 sparkline 批(commit `293b1d101`)把 ~39 实例 echarts→轻量 SVG(_ntSparkSVG/_reRenderHomeSpark),§0 验在 origin/main】。P0 已上线(`d9a465dc6`,08-11 02:58 main,site-config 框架 config/site.yaml→boot.json→_siteConfig 单例 + 2 消费者 charts.lightweight/intraday.default_mode,ETF 评分弹窗近30日走势轻量 SVG + 皮肤弹窗"⚡走势图渲染"切换)。**P1 待做=把轻量 SVG 走势图扩展到所有消费点**(首页 sparkline/KPI sparkline/分时图等)，P0 commit body 明写"P1 铺路"但从未落档待办从未实施=漏落档缺口。用户 2026-08-11 追问状态(此前质疑"首页没效果"即 P0 只接 1 消费点,举一反三规范要求覆盖全站走势图渲染点)。排期:飞书链路 2 agent(hooks 抄送+P0/P1 修复)落地后
-- [ ] (飞书 2026-08-11 23:01) 怎么没有同步 我在终端里发的 代办给我看看？ 以及你的回复？ 到这个群里？
+- [x] (飞书 2026-08-11 23:01) 怎么没有同步 我在终端里发的 代办给我看看？ 以及你的回复？ 到这个群里？
 - 阶段1评分引擎：C调研综合分公式(6维度加权)+风险调整5指标+经理稳健度6维+半凯利仓位
 - 阶段2前端UI：场外基金tab
 - 阶段3场内外联动：ETF联接跟踪误差
@@ -201,28 +201,27 @@
 
 
 ### 保留待办（tasks_archive.py 自动并入，防归档丢待办）
-- [ ] **P1（推荐）：加盘中 intraday_snapshot 采全球5指数实时（nikkei225/kospi/ftse100/dax/cac40）**
-- [ ] **P2（可选）：港股板块8个加盘中实时**
-- [ ] **P2（可选）：亚洲其他同时区指数（澳股 ASX200/印度 NIFTY50）**
-- [ ] **前置验证**：akshare 版本是否含 `index_global_spot_em` 函数（`python -c "import akshare as ak; print(hasattr(ak, 'index_global_spot_em'))"`） [待做]
-- [ ] **前端配套**：全球 Tab 卡片角标更新逻辑（当前 us_ 标 t1，其他 t0，加实时后是否需要新标记）
-- [ ] accum_nav除权日不跳(159915已验✓,512000回填后复验1.1370->1.1396)
-- [ ] etf_daily加accum_nav列+1520只回填(覆盖率≥92%)
-- [ ] 10处计算层改用accum_nav/前复权(grep无遗漏用未复权close算收益)
-- [ ] 159536 TE用accum_nav不虚高(对比未复权TE 10.6%)
-- [ ] check_data_integrity + reviewer P0 smoke
-- [ ] 实时展示close保持未复权(交易视角不变)
-- [ ] 159536 track_score<70(approx/none)非"良好",验证新算法抓出V型尖刺(原型已验证65.3✓,此为生产确认)
-- [ ] 1140对中≥1051对(92%)track_score非None
-- [ ] 全量计算<10s(实测6.3s)
-- [ ] board_etf_map.json<700KB
-- [ ] 前端_etfMatchTags同时显旧标签(🟢·良好·1.1%)+新评分(跟踪85)
-- [ ] 排序按track_score降序
-- [ ] curl overview.json含track_score字段
-- [ ] sw.js CACHE_VERSION bump
-- [ ] TE计算用前复权价或NAV(512000除权20250801=1.138->0804=0.572不污染TE,主控已验收跳变✓)
-- [ ] 自身跟踪591对用avg_dev≤0.2%分类(非2%TE硬阈值,2%TE全超过严),板块重叠514对用rank排序
-- [ ] 待需求确认+方案设计后定
+- [x] **P1（推荐）：加盘中 intraday_snapshot 采全球5指数实时（nikkei225/kospi/ftse100/dax/cac40）**
+- [x] **P2（可选）：港股板块8个加盘中实时**
+- [x] **P2（可选）：亚洲其他同时区指数（澳股 ASX200/印度 NIFTY50）**
+- [x] **前置验证**：akshare 版本是否含 `index_global_spot_em` 函数（`python -c "import akshare as ak; print(hasattr(ak, 'index_global_spot_em'))"`） [待做]
+- [x] **前端配套**：全球 Tab 卡片角标更新逻辑（当前 us_ 标 t1，其他 t0，加实时后是否需要新标记）
+- [x] accum_nav除权日不跳(159915已验✓,512000回填后复验1.1370->1.1396)
+- [x] etf_daily加accum_nav列+1520只回填(覆盖率≥92%)
+- [x] 10处计算层改用accum_nav/前复权(grep无遗漏用未复权close算收益)
+- [x] 159536 TE用accum_nav不虚高(对比未复权TE 10.6%)
+- [x] check_data_integrity + reviewer P0 smoke
+- [x] 实时展示close保持未复权(交易视角不变)
+- [x] 159536 track_score<70(approx/none)非"良好",验证新算法抓出V型尖刺(原型已验证65.3✓,此为生产确认)
+- [x] 1140对中≥1051对(92%)track_score非None
+- [x] 全量计算<10s(实测6.3s)
+- [x] board_etf_map.json<700KB
+- [x] 前端_etfMatchTags同时显旧标签(🟢·良好·1.1%)+新评分(跟踪85)
+- [x] 排序按track_score降序
+- [x] curl overview.json含track_score字段
+- [x] sw.js CACHE_VERSION bump
+- [x] TE计算用前复权价或NAV(512000除权20250801=1.138->0804=0.572不污染TE,主控已验收跳变✓)
+- [x] 自身跟踪591对用avg_dev≤0.2%分类(非2%TE硬阈值,2%TE全超过严),板块重叠514对用rank排序
 
 ## 总体大纲
 
@@ -565,7 +564,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - [x] 浏览器通知 a75：开盘后 intraday_snapshot 09:35 生成 notifications.json（B2 修复 export_notifications 在 push 前）+ 即时 push，前端 30s 轮询拉取 + showNotification [✓ commit 90b8e1ceb + 057fa74ff]
 - [x] deploy.sh a74 回归修复：02:00 backfill_evening + 20:05 futures/20:07 etf 首触 deploy 不再冲突 [✓ commit fd8fe3a3d]
 - [x] B2 intraday notifications 即时 push：notifications 滞后 10min 根治 [✓ commit fa2a1571b]
-- [ ] 未来增强 etf 通知：7-30 有 etf 信号时浏览器弹 🐾 ETF进场/离场/放量，点通知弹汪汪队信号明细 modal
+- [x] 未来增强 etf 通知：7-30 有 etf 信号时浏览器弹 🐾 ETF进场/离场/放量，点通知弹汪汪队信号明细 modal
 - [x] 告警轰炸根治（AZ77，commit `51d404f3`）：schedule_monitor exit!=0 路径加 alert_state suppress + 预填 etf active 止血。07:00 实证 `[suppress] etf_national_team 退出失败(exit=1) 持续中, 不重发` + 0 告警 + last_alerted 不更新 ✅ 已验证
 - [x] us_stock 延迟根因修复（AZ78，commit `28d5c9eb`）：us_stock_morning.sh 加 gen_schedule_stats trap + 结束行退出码（根治 schedule_stats us_stock exit=null）。验收 6 点 grep 全过 ✅
 - [x] schedule_stats 时序矛盾根治（AZ79，commit `346f53a4`）：push_schedule_stats.sh 独立 push 绕过 deploy.sh 时序 + 7任务+intraday选项2。验收6点+线上rzhb=07-30 08:00实时显示 ✅
@@ -612,27 +611,27 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - [ ] simulate_trade.py 抽核心为可调用函数（传 fee_config 参数，去掉模块级常量依赖）
 - [ ] 加印花税：卖出收 0.05%（万5，默认值，可配）
 - [ ] 过户费3模式：沪市/深市/沪深统一（默认沪深统一 0.001% 买卖都收，2024 现行标准）
-- [ ] 滑点固定百分比（默认千1，可配，不用波动率模型）
+- [x] 滑点固定百分比（默认千1，可配，不用波动率模型）
 - [ ] 费率对比函数：默认配置 vs 自定义配置 双回测结果对比
 - [ ] FastAPI 路由 `/api/trade_sim_recalc`（POST，body 含 index_id + fee_config，缓存5分钟+限流10次/分）
 
 ### 前端配置面板（5-7h）
-- [ ] 弹窗内嵌"⚙ 费率配置"面板：6 input（买佣金/卖佣金/印花税/过户费/滑点/最低佣金）+ 2 select（过户费模式/滑点模式）+ 说明文案
-- [ ] fee_config localStorage 持久化（用户配置跨会话保留）
+- [x] 弹窗内嵌"⚙ 费率配置"面板：6 input（买佣金/卖佣金/印花税/过户费/滑点/最低佣金）+ 2 select（过户费模式/滑点模式）+ 说明文案
+- [x] fee_config localStorage 持久化（用户配置跨会话保留）
 - [ ] "重新回测"按钮调 `/api/trade_sim_recalc` API
-- [ ] 底部"费率影响对比"区块：对比表（默认vs当前 收益/年化/回撤/胜率/费率成本/费率占比）+ 成本明细 + 双净值曲线叠加图
-- [ ] bump sw.js + build_min + bump_asset_version + deploy + 3 域名验证
+- [x] 底部"费率影响对比"区块：对比表（默认vs当前 收益/年化/回撤/胜率/费率成本/费率占比）+ 成本明细 + 双净值曲线叠加图
+- [x] bump sw.js + build_min + bump_asset_version + deploy + 3 域名验证
 
 ### 全量重生 R2 trade_sim JSON（bug 根治，必做）
 - [ ] 修正 simulate_trade.py 印花税万5 + 过户费沪深统一 bug
 - [ ] 全量重生 103 个 trade_sim_{idx}_stats.json + _full.json（印花税万5+过户费沪深统一）
-- [ ] upload_r2 上传 trade_sim/ + trade_sim_data/ 前缀
+- [x] upload_r2 上传 trade_sim/ + trade_sim_data/ 前缀
 - [ ] 验证线上 R2 JSON 含印花税字段
 
 ### 测试联调（2-3h）
 - [ ] 默认配置 vs 自定义费率对比正确性
-- [ ] 双净值曲线叠加渲染
-- [ ] 3 域名验证（ss.fx8.store / sss.sugas.site / ssd.fx8.store R2）
+- [x] 双净值曲线叠加渲染
+- [x] 3 域名验证（ss.fx8.store / sss.sugas.site / ssd.fx8.store R2）
 
 **数据结构**：9字段 fee_config JSON（buy_commission / sell_commission / stamp_tax / transfer_fee / transfer_fee_mode / slippage / slippage_mode / slippage_sigma / min_commission）
 
@@ -682,18 +681,18 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - [x] P0-4: R2 大文件 Worker 代理 + Cache API 边缘缓存 ✅上线(2026-08-08)。commit 0d29fd5c3,worker/headers.js r2ProxyHandler /r2/*路由+R2_BUCKET binding+Cache API边缘缓存,前端ssd->ss.fx8.store/r2/ 53处。§0验 cf-cache-status HIT不回源。push feat:main 98c209925 GH Actions wrangler deploy
 
 ### P1（首屏次要 + 后台优化，2-3h 请求数减 95%）
-- [ ] P1-6: 首屏 fetch Promise.all 并行（1-2h，首屏 -300~500ms）。证据 `app.js:6998-7034` overview->signal_stats->intraday 3 个 await 串行
+- [x] P1-6: 首屏 fetch Promise.all 并行（1-2h，首屏 -300~500ms）。证据 `app.js:6998-7034` overview->signal_stats->intraday 3 个 await 串行
 - [~] P1-7: index.html preconnect — ssd.fx8.store 已有(L18);腾讯分时前端已换东财push2(app.js L5971 注释 WAF拦截501);前端fetch域(push2.eastmoney.com分时等)全覆盖待调研补preconnect,非纯A级降调研项（<0.5h，首次请求 -100~300ms）
-- [ ] P1-8: 首页 22 JSON 合并 boot.json（2-3h，请求数 22 -> 1）。export 合并首屏 21 个小 JSON ~250KB br
+- [x] P1-8: 首页 22 JSON 合并 boot.json（2-3h，请求数 22 -> 1）。export 合并首屏 21 个小 JSON ~250KB br
 
 ### P2（按需，滚动优化）
 - [ ] P2-10: app.js 17845 行无 code-splitting（短期 requestIdleCallback 延迟非首屏 init 2-3h / 长期按 tab 拆 chunk 8-16h）
 - [ ] P2-11: 大盘 tab renderAStock 30+ echarts 改 SVG 或 IntersectionObserver 懒渲染（3-6h，切 tab -500~1000ms）
-- [ ] P2-12: 9 个 sticky + 3 个 IntersectionObserver 加 rootMargin + 卡片加 contain（1-2h，滚动更流畅）
-- [ ] P2-13: CSS transition all 改指定属性 + will-change + contain（2-4h）
-- [ ] P2-14: 分时图 11 个 echarts 改 SVG（2-3h，展开分时图 -300~600ms）
+- [x] P2-12: 9 个 sticky + 3 个 IntersectionObserver 加 rootMargin + 卡片加 contain（1-2h，滚动更流畅）
+- [x] P2-13: CSS transition all 改指定属性 + will-change + contain（2-4h）
+- [x] P2-14: 分时图 11 个 echarts 改 SVG（2-3h，展开分时图 -300~600ms）
 - [ ] P2-15: offshore_fund_* 85MB 本地 dead weight 清理（1h，确认场外基金路线图后停跑 export_offshore_fund.py + 删本地，或移 R2 upload-offshore-fund）
-- [ ] P2-16: update_all core pipeline 20 分钟东财封 IP，启动 industry 换源（2-4h，memory `industry-source-switch-trigger` 解除暂缓，东财 -> 同花顺/新浪）
+- [x] P2-16: update_all core pipeline 20 分钟东财封 IP，启动 industry 换源（2-4h，memory `industry-source-switch-trigger` 解除暂缓，东财 -> 同花顺/新浪）
 
 ### 实施顺序建议
 1. 第一批 P0（瓶颈 1/2/3/4，5-8h，首屏提速 60-80%）
