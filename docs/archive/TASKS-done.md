@@ -2529,3 +2529,23 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - 信号看板 + AI 评分 + 买卖清单 + ETF 评分弹窗 + 回测实验室均已上线
 - 人工决策+手动下单，零合规风险，当前状态
 
+
+
+---
+
+## 2026-08-20 任务治理归档段(TASKS.md 瘦身移除的完成/关闭项)
+
+> 触发:TASKS.md 任务治理(用户定方向 #78)——43 条真完成 + 3 条用户拍板关闭从 TASKS.md 移除归档,可反查。依据:docs/tasks-governance-scan-20260819.md(researcher 逐条核清单)+ 各 commit/上线证据。§5.3 核心保留:每条含原出处状态。TASKS.md 现在只留活跃待办(报告 docs/tasks-active-only-clean-20260820.md;远期/搁置待办已移 docs/pending-features-index.md 模块十六)。
+
+### 一、43 条真完成(→ docs/tasks-done-list.md,已完成态待 7 天自动归档)
+
+> 说明:43 条真完成按 4 态/4 文件流转(2026-08-20 用户定)已落**完成文件** docs/tasks-done-list.md(非直接归档)。本段在此仅留指针:完成明细见 [docs/tasks-done-list.md](../tasks-done-list.md)「2026-08-20 任务治理移入(43 条真完成,待 7 天自动归档)」。**呆满 7 天后**自动归档回本文件。治理对照见 docs/tasks-active-only-clean-20260820.md。
+
+### 二、3 条用户拍板关闭(2026-08-19 用户:「没啥用就关了吧/不要了」,关篇从 TASKS.md 移除)
+
+- [x] **P2（可选）：亚洲其他同时区指数（澳股 ASX200/印度 NIFTY50）**
+- [x] 159536 track_score<70(approx/none)非"良好",验证新算法抓出V型尖刺(原型已验证65.3✓,此为生产确认)
+- [x] 自身跟踪591对用avg_dev≤0.2%分类(非2%TE硬阈值,2%TE全超过严),板块重叠514对用rank排序
+
+- ⚠️ **关闭说明(2026-08-19 用户拍板,researcher 记录)**:①L59 NIFTY50(亚洲其他同时区)=用户「没啥用不要了」,接受 SENSEX 代表关;②L68 159536 track_score 验证=用户「没啥就关了吧」(生产 72.2 分+approx 已标,新算法已抓 V 型尖刺);③L77 avg_dev 阈值=用户「没啥就关了吧」(avg_dev 指标+grade 分类已产出但仍上线)。三条均为「验证/可选扩展」类,功能主体已实现,关闭不影响已上线功能。
+
