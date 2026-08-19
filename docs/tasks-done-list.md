@@ -66,3 +66,46 @@
 - [x] 全量重生 103 个 trade_sim_{idx}_stats.json + _full.json（印花税万5+过户费沪深统一）→ 线上 R2 trade_sim_hs300_stats.json generated_at 2026-08-19 19:22 已含 fee_config(含 stamp_tax 0.0005/transfer_fee_mode hs_unified);103 个通配批量于 #18 全量重生
 - [x] 验证线上 R2 JSON 含印花税字段 → curl https://ss.fx8.store/r2/trade_sim_data/trade_sim_hs300_stats.json 实测含 fee_config.stamp_tax
 - [x] 默认配置 vs 自定义费率对比正确性 → app.js 对比区块(默认 vs 当前,全历史窗口)+ 双净值叠加 + 前端本地精确重算验证(预设/自定义两态都覆盖)
+
+
+## 2026-08-20 pending-features-index.md 治理批量移入(37 条真完成,待 7 天自动归档)
+
+> 按 researcher 逐条核 commit 实锤(见 pending-features-index.md 各条 commit 证据,均已在 origin/main)。从 todolist 移除真完成项 + 刷新 #63/#64/#69/#73/#74 状态(已合 main)。来源:docs/pending-features-index.md 模块一~十六。以下每条标注「原编号 + 标题 + commit/上线证据」。§23.3 举一反三:done 后全站无同编号残留(见#XX交叉引用已保留原位)。
+
+- [x] **#1 edge-tts 语音播报**(首页 AI 预测上方播放按钮朗读) — 2026-08-16 上线 a8a4d632f,版本串 a281;后端 edge-tts 合成 mp3 传 R2,前端 _dbPlayBtn 🔊 + <audio> 经 /r2/ 代理播
+- [x] **#2 AI 预测前端「辩论详情入口」+「弃用标志」+「结论展示」** — 2026-08-12 上线 4bc48da1a(meta.version=ai-multi)
+- [x] **#7 daily_brief P1-6 新闻舆情/宏观事件维度** — 2026-08-16 注入侧+前端展示位全落地(244c00cff/a7925c77d/a283/a284 系列 + 33ef7bd33 + 49be3c317 + 70c625386,版本串 a285→a296)
+- [x] **#16 凯利组合 Walk-forward 滚动验证(样本外)** — 2026-08-16 commit 299db6167 在 origin/main + 落档 kelly-walkforward-validate.md(v1.1.0 8键全开样本外有效不过拟合)
+- [x] **#24 飞书需求群硬编码判断** — scripts/feishu_ws_listener.py L737/781 已实现(白名单需求群免前缀直接落盘)
+- [x] **#25 飞书 hook 心跳自检告警** — 2026-08-17 上线 6edca04af(发送侧+listener 接收侧心跳维度,四态自测+33测试全过)
+- [x] **#35 理财专员使用指南 about 页上线** — 2026-08-18 上线 scripts/gen_guide_html.py 渲染 → static-site/guide.html;about 目录+互链;README 已补
+- [x] **#36 signal-finalize-time 两段式 15:05 A股初版** — 2026-08-14 overview signals_meta 三态 + 2026-08-15 W1 放宽 71d238785 + 三态提示 3311eca8d 已合
+- [x] **#39 AI降亏过滤开关(宏 + 三级级联UI)** — 三级级联 UI 已实现(lab.js `#lab-kelly-ai-macro-body` + _kellyAiMacroMembers 联动 8 键),"AI宏=新默认"90f948e3c 上线;穷举见 kelly-k2c5-exhaust-interaction.md
+- [x] **#40 凯利降亏折叠区重归类** — 2026-08-12 上线 bacdf8c9b(4 组经济逻辑分类+组内比值降序+⚠️监控置尾)
+- [x] **#41 首页 AI 仓位建议 rename + 范围扩展(#4)** — 2026-08-12 上线 760aa9ffb(positionCap 改名 + pop tooltip + 范围扩展)
+- [x] **#43 feishu 抄送「整段全抄送」** — 2026-08-12 上线 9694f8fe7
+- [x] **#44 分时图 3 条低危改进** — 2026-08-12 上线 537109553(跨空泄漏钳制/legend 超宽/5字行业 legY)
+- [x] **#45 凯利「4组合全开」建议文案修正** — 组合降亏行标题改「组合降亏(可选分析非默认推荐)」,随 #39 一起落地
+- [x] **#46 降亏面板①口径标注 + 真实对照行** — 2026-08-18,commit 63fb27391(991万→961万/23.9万→17.7万旧口径过时)
+- [x] **#47 K档位评级 A 模式数值数据溯源落档 + 每日池重算** — 穷举数据已落档;_pcRating 重算并入 #48 已完成
+- [x] **#48 页面 `_kellyFadeFlagGroups` 31键 ratio 每日池口径重算 + _pcRating 重算(§22)** — 2026-08-14 重算落地(lab.js 31键 + _pcRating static 快照 + common.js _AI_POSCAP_RATING + app.js tooltip 三处一致,主推 K1)
+- [x] **#49 G/H/I 长持模式持仓≤20倍本金硬控手段** — 2026-08-14 上线(lab.js 凯利回测区「ai长线模式(G/H/I)仓位管理」开关,fifo20w,峰值持仓≤20倍本金;FIFO 内核与报告 §7.2 K1 口径逐位对齐§21;purpose-notes/README 同步)
+- [x] **#50 每日池口径默认 K 档/toggle 决策落档** — 决策已定+落档 README L78/L117(默认 AI宏7键 + G 用 13万 P≤3d 可操作口径 155.78%/+202,508);实施并入 #48
+- [x] **#52 §23.6 ②公示:入样宇宙规则三处公示文案** — 2026-08-14 上线 d798854aa(AI建议 badge + AI警示 + 未入样本 + 凯利区);AI过滤视图补充公示 489f0bdb4
+- [x] **#53 首页「AI过滤视图」两开关正交** — 2026-08-14 上线 489f0bdb4,review PASS(AI降亏=删除线层/AI仓位=badge层)
+- [x] **#54 公示补「+1」(AI宏4+3+1)** — 2026-08-14 上线 cfd37057e
+- [x] **#55 $压缩冲突 P0 修复** — 08-15 根治上线(build_min.py keep_fnames/保留函数名,terser 不再 mangle 成单字符)
+- [x] **#57 sw.js 版本注释过时修正** — 2026-08-17 上线 2d6bc6207(清残留,purge 后三站零残留,纯注释零行为)
+- [x] **#58 分析参考点AI监控三合一** — 2026-08-16 二次迭代,版本串 a275→a279,commit ac61248a4/33c722997(K档启用+双图轻量SVG+❓hover+SVG3色基准+by_k排除未入样1172条)
+- [x] **#59 K2C5 补跑每日池同口径比值** — 2026-08-16 commit f5d218492 在 origin/main + 落档 kelly-k2c5-dailypool-ratio.md(比值4.55)
+- [x] **#60 分析参考点AI监控窗口语义改数据范围** — 2026-08-16 二次迭代,版本串 a275(30/60/90 改「显示范围」)
+- [x] **#61 邮件/飞书信号带「回测宇宙+AI过滤+AI警示+AI建议」标记** — 2026-08-17 commit a22aa741a 在 origin/main:check_signals.py L49/L544-790 + README L103
+- [x] **#63 v1.1.2 凯利三键改造** — tag v1.1.2 已打;excludeSpecialBear 升四档判定 + 2 默认关备选键;R1_all +65,551 复现(commit 已在 origin/main)
+- [x] **#64 历史四档轨迹图** — 2026-08-18 实施,commit 2d5e1621b 在 origin/main(纯展示不影响过滤)
+- [x] **#68 优化批次 E:降亏面板口径标注** — 2026-08-18,commit 63fb27391(与 #46 同 commit,待 merge 现已合 main)
+- [x] **#69 四档升级 v2:excludeSpecialBearCyb 新键** — 2026-08-19 commit eaff6d781 在 origin/main(后端回测注入 cyb 四档 + queries.py 谓词 + lab.js 新键 + app.js/purpose-notes 公示)
+- [x] **#73 8代宽基四档展示(核心已上线)** — 2026-08-19 commit 7872cccbf 已合 main:后端 index_detail 注入 8 宽基 tiers + 前端色带动态化
+- [x] **#74 check_signals.py L708 ai_macro.hit 白名单二次过滤** — 2026-08-19 commit 41105d6a8 在 origin/main:与 _calc_signal_markers L748 同口径(§22)
+- [x] **#76 tasks_archive.py 支持 level 3 已完成块归档** — main-merge 合 9359f798f:TASKS.md 233258→204213B 瘦身、16块精确归档、待办零丢失
+- [x] **#77 tasks_archive.py compress_status_line 缺尾换行致熔行** — commit e54adcb1f push main:补尾换行根治 + 拆 L32/L58 两处熔行
+- [x] **#78 TASKS.md 瘦身:任务治理方向已定且已实施** — 2026-08-20 治理落地:43 完成归档 + 3 关闭 + 远期 11 移本表十六节 + TASKS.md 只留活跃(报告 tasks-active-only-clean-20260820.md)

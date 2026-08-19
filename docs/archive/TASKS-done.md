@@ -2549,3 +2549,11 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 
 - ⚠️ **关闭说明(2026-08-19 用户拍板,researcher 记录)**:①L59 NIFTY50(亚洲其他同时区)=用户「没啥用不要了」,接受 SENSEX 代表关;②L68 159536 track_score 验证=用户「没啥就关了吧」(生产 72.2 分+approx 已标,新算法已抓 V 型尖刺);③L77 avg_dev 阈值=用户「没啥就关了吧」(avg_dev 指标+grade 分类已产出但仍上线)。三条均为「验证/可选扩展」类,功能主体已实现,关闭不影响已上线功能。
 
+### 三、pending-features-index.md 治理关闭记录(3 条,2026-08-20 从 todolist 移除留档)
+
+> 背景:docs/pending-features-index.md(4 态 todolist)治理,researcher 逐条核后用户拍板关 3 条。从 todolist 移除,此处留关闭记录可反查。原编号=模块号。§5.3 核心保留:标题+结论+关闭理由。
+
+- [x] **#23 飞书阶段3 优化**(docs/feishu-bot-integration-plan.md 阶段3:发送统一到应用 API、@成员/@all、入向消息转告警群)— **关闭**:阶段1/2 已实施+富文本 post 已做(notify.py);阶段3 剩余(@/入向转告警)优先级低不再推进,关闭留记录。
+- [x] **#33 管理端任务看板(kanban)**— **关闭**:与 #81(模块十六)重复登记(同项);#81 为 TASKS L47 移出确认。两项合一关闭,看板需求保留在远期(#81 若后续排期)。原#33 在 pending#33 的「4列+Card/Feature数据模型+worker /api/kanban+KV+admin/kanban.html」方案已设计完整,关闭不回退。
+- [x] **#81 管理端任务看板(kanban,与 #33 同项)** — **关闭**:重复登记项与 #33 合并,留档防丢。同一看板需求,原 #33(pending 模块六)已关闭,本项为模块十六 TASKS 移出确认,一并关闭。
+
