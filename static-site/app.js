@@ -8550,7 +8550,9 @@ function _applyDynamicToSparkFoot(results) {
 
 // 重渲染横幅 chips（盘中用动态值覆盖指数chip）
 function _applyDynamicToChips(snap) {
-  if (!_bannerRenderCtx || !_bannerRenderCtx.el) return;
+  // 2026-08-20 #12 同类排查: _bannerRenderCtx.el 可能指向 renderOverview 重建后已脱离 DOM 的横幅
+  //   (和 _homeNewsWrap 同类反模式) — 脱离节点的 querySelector/innerHTML 是静默 no-op,加 isConnected 守卫避免对死节点空操作。
+  if (!_bannerRenderCtx || !_bannerRenderCtx.el || !_bannerRenderCtx.el.isConnected) return;
   const host = _bannerRenderCtx.el.querySelector("#banner-chips-host");
   if (!host) return;
   const { s, type } = _bannerRenderCtx;
@@ -8563,7 +8565,7 @@ function _applyDynamicToChips(snap) {
 
 // 更新横幅时间标签 + 采集时间后缀（盘中用腾讯时间，收盘用snap时间）
 function _applyDynamicToBannerTime(snap) {
-  if (_bannerRenderCtx && _bannerRenderCtx.el) {
+  if (_bannerRenderCtx && _bannerRenderCtx.el && _bannerRenderCtx.el.isConnected) { // 2026-08-20 #12 同类: 防操作已脱离 DOM 的横幅(与 _homeNewsWrap 同反模式)
     const tl = _bannerRenderCtx.el.querySelector("#banner-time-label");
     if (tl) {
       const intraday = snap && snap.is_closed === false;
@@ -8603,7 +8605,7 @@ function _onMarketClosed() {
     el.classList.remove("dyn-updated");
   });
   const snap = state.intradaySnapshot;
-  if (_bannerRenderCtx) {
+  if (_bannerRenderCtx && _bannerRenderCtx.el && _bannerRenderCtx.el.isConnected) { // 2026-08-20 #12 同类: 防操作已脱离 DOM 的横幅
     _applyDynamicToChips(snap);
     _applyDynamicToBannerTime(snap);
     const p = _bannerRenderCtx.el.querySelector("#banner-pulse");
@@ -10790,7 +10792,9 @@ async function renderOverview() {
       //   ②两行都无数据时,横幅位置兜底渲染「📰 历史新闻入口」行(点击同样打开新闻面弹窗,弹窗顶部已有"新闻按日期归档"提示,可回看历史)。
       // 首次渲染 + 启动定时自动刷新(2026-08-18 用户理念"看板不刷新":外露两行每 5 分钟静默重拉 news_digest.json 原地更新,
       // 不打断页面其他部分;详见 _renderHomeNewsRows/_startHomeNewsPoll 注释)。
+      const _hnLoadEpoch = _homeNewsEpoch; // 捕获本 renderOverview 的新闻纪元(2026-08-20 #12:若 await 期间被更新的 renderOverview 重建,旧代作废)
       _loadNewsDigest().then((nd) => {
+        if (_homeNewsEpoch !== _hnLoadEpoch) return; // 已有更新的 renderOverview 重建(新纪元),本代渲染作废,不碰当前 DOM
         _renderHomeNewsRows(nd, banner, content);
         _startHomeNewsPoll(banner, content); // 只启动一次,后续轮询原地更新
         _initGlobalTicker(banner); // 2026-08-17 全球盘面跑马灯(纯客户端,插新闻两行下方)
@@ -22800,7 +22804,13 @@ let _homeNewsFallback = null;  // 兜底「历史新闻入口」行容器
 // 根因=renderOverview 每次 content.innerHTML="" 重建 banner/清空内容区,但模块级 _homeNewsWrap 仍指向已分离旧节点;
 //   旧轮询闭包捕获旧 banner,重建后仍往死 banner 后/死 content 里重挂 → 新闻板块消失或重复堆积。
 // 本函数在 renderOverview 清空内容后调用:clearTimeout 杀掉旧轮询(防重复堆积),置空缓存(新 render 的 .then 用新 banner 重建节点+重启轮询)。
+// 2026-08-20 #12 补强:引入「纪元」token(_homeNewsEpoch)。每次 renderOverview 清空内容都自增纪元,
+//   使"上一代 renderOverview 的异步新闻回调/轮询"在 DOM 写前能识别自己已过期而作废,不碰当前代已重建的 DOM。
+//   与 isConnected 自愈形成双保险:isConnected 保证脱节节点不操作,纪元保证过期代的回调/轮询不再介入。
+let _homeNewsEpoch = 0;           // 首页新闻板块纪元(每次重建 +1,旧代异步/轮询以此判失效)
+let _homeNewsPollEpoch = 0;       // 当前已挂轮询所属纪元(用于接管/单飞判断)
 function _homeNewsReset() {
+  _homeNewsEpoch++;               // 新纪元:旧代异步回调/轮询判失效
   if (_homeNewsTimer) { clearTimeout(_homeNewsTimer); _homeNewsTimer = null; }
   _homeNewsPolling = false;
   _homeNewsWrap = null;
@@ -22856,16 +22866,25 @@ function _renderHomeNewsRows(nd, banner, content) {
 let _homeNewsTimer = null;
 let _homeNewsPolling = false;
 function _startHomeNewsPoll(banner, content) {
-  if (_homeNewsTimer) return; // 只启动一次
+  const epoch = _homeNewsEpoch; // 本调用所属纪元(当前 renderOverview 代)
+  if (_homeNewsTimer) {
+    // 已有轮询在跑: 同代单飞不变动; 旧代遗留则杀掉重建当前代(防旧代轮询长期持有死 banner/死 content 的资源,
+    //   虽然其 fire 走 isConnected 自愈,但纪元接管更彻底——旧代直接不再介入当前代)。
+    if (_homeNewsPollEpoch === epoch) return; // 同代单飞,保持现状
+    clearTimeout(_homeNewsTimer); _homeNewsTimer = null; _homeNewsPolling = false;
+  }
+  _homeNewsPollEpoch = epoch;
   const POLL_MS = 5 * 60 * 1000; // 5 分钟,覆盖 fetch_news 每30分钟增量
   const poll = () => {
     _homeNewsTimer = setTimeout(async () => {
       _homeNewsTimer = null;
+      if (_homeNewsEpoch !== _homeNewsPollEpoch) return; // 轮询等待期间被重建(新纪元),本代作废,不碰当前 DOM
       if (document.hidden) { poll(); return; } // 页面隐藏暂停(复用分时图习惯)
       if (_homeNewsPolling) { poll(); return; } // 单飞防重入
       _homeNewsPolling = true;
       try {
         const nd = await _loadNewsDigest(true); // 强制绕过缓存重拉
+        if (_homeNewsEpoch !== _homeNewsPollEpoch) { _homeNewsPolling = false; return; } // 重拉期间被重建,丢弃本次结果
         if (document.hidden) { poll(); return; }
         _renderHomeNewsRows(nd, banner, content); // 原地更新两行(失败时 _loadNewsDigest 保留旧缓存,这里不闪空)
       } catch (e) { /* 重拉失败保持旧内容,下一轮再试 */ }
