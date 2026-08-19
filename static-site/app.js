@@ -10836,8 +10836,9 @@ async function renderOverview() {
         modal.querySelectorAll(".gt-sort-down").forEach(b => b.addEventListener("click", e => reorder(e.currentTarget.closest(".gt-sort-row"), 1)));
       }
       function _initGlobalTicker(banner) {
-        if (_gtEl) return; // 已初始化,不重复
-        if (!banner || !banner.isConnected) return;
+        if (_gtEl) { console.log('[GT-DEBUG] return guard1 _gtEl!=null', _gtEl.isConnected); return; } // 已初始化,不重复
+        if (!banner || !banner.isConnected) { console.log('[GT-DEBUG] return guard2 banner/isConnected', !!banner, banner && banner.isConnected); return; }
+        console.log('[GT-DEBUG] create wrap _gtEl was null, banner connected', _gtEl, banner && banner.isConnected);
         const wrap = document.createElement("div");
         wrap.className = "global-ticker";
         wrap.innerHTML = '<div class="gt-scroll"><div class="gt-track"></div></div><button class="gt-gear" title="自定义品种显示顺序">⚙️</button>';
@@ -22589,9 +22590,11 @@ function _renderHomeNewsRows(nd, banner, content) {
   if (hasData) {
     // 已存在且仍在 DOM 则原地更新内容(不加加载态/不闪烁),否则用当前 banner 首次创建并插入。
     if (_homeNewsWrap && _homeNewsWrap.isConnected) {
+      console.log('[GT-DEBUG] _renderHomeNewsRows -> 原地更新分支(22591), _initGlobalTicker将跳过', 'hasData=', hasData);
       _homeNewsWrap.innerHTML = rowToday + rowNext + '<div class="summary-news-more">更多 →</div>';
       return;
     }
+    console.log('[GT-DEBUG] _renderHomeNewsRows -> 新建分支(22595), 将调 _initGlobalTicker', 'hasData=', hasData);
     const wrap = document.createElement("div");
     wrap.className = "summary-news-row summary-news-entry";
     wrap.innerHTML = rowToday + rowNext + '<div class="summary-news-more">更多 →</div>';
