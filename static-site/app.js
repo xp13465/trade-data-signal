@@ -3026,6 +3026,48 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   return `${_h3Html}${_finalizeBarHtml}${_sigSwitchHtmlStr}${_accHtml}<div class="signal-grid">${rows}</div>`;
 }
 
+// #19 近90日情绪日历(2026-08-19): 首页「近期冰点日」区块改造成"近90日情绪日历"。
+// 数据源 overview.json sentiment_calendar(后端旁路字段: 按 date 降序, 同日 {freeze:[{score_id,value}], signals:[{index_id,signal,reason}]},
+// 与市场温度 tab renderSentimentSignalList 同源 signal_daily s.*, 买>buy_aux>卖 排序已由后端完成, 此处再兜底排一次防乱序)。
+// 每日期行 = 冰点列(freeze 蓝) + 信号列, 同日双列并存(20260708/20260623 样例)。
+// 冰点格复用 freeze cell 渲染(L2876): .sig-freeze-name 灰名 + .freeze-val 蓝值, data-sig=freeze 走 #20 冰点蓝 pin;
+// 信号格复用 renderSentimentSignalList cell 渲染(L18390): b.sell/buy/buy_aux 色由 CSS 定, data-sig 走对应 s.* 分支弹窗。
+// 无 sentiment_calendar(旧数据)由调用方降级回 _renderSignalGrid(recent_freeze) 兜底, 不白屏不消失(§5.3 核心保障)。
+// 返回: 仅 <div class="signal-grid"> 内容(不含 h3, h3 由调用方拼), 空日历返回 ""。
+function _renderSentimentCalendar(cal) {
+  if (!Array.isArray(cal) || !cal.length) return "";
+  let rows = "";
+  for (const day of cal) {
+    const dt = day && day.date;
+    if (!dt) continue;
+    const dateLabel = fmtDate(dt);
+    const fr = Array.isArray(day.freeze) ? day.freeze : [];
+    let sigs = Array.isArray(day.signals) ? day.signals.slice() : [];
+    // 组内按信号优先级排(买>辅买>卖), 与市场温度 tab renderSentimentSignalList 口径一致(防后端未排或姿势漂移)
+    const ord = { buy: 0, buy_aux: 1, sell: 2 };
+    sigs.sort((a, b) => (ord[a.signal] ?? 9) - (ord[b.signal] ?? 9));
+    // 冰点格: 复用 freeze cell(data-sig=freeze → openSignalChartModal s.* 分支 + #20 冰点蓝 pin)
+    const freezeCells = fr.map((it) => {
+      const _name = indexIdToName(it.score_id);
+      const _val = it.value != null ? it.value.toFixed(1) : "-";
+      return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${dt}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" data-idx-name="${_escAttr(_name)}" title="点击查看走势图"><span class="sig-freeze-name">${_name}</span>=<b class="freeze-val">${_val}</b></span>`;
+    }).join("");
+    // 信号格: 复用 renderSentimentSignalList cell(信号文案 signalLabel + 色 CSS + s.* 分支弹窗)
+    const sigCells = sigs.map((s) => {
+      const _label = signalLabel(s);
+      const _name = indexIdToName(s.index_id);
+      const _titleParts = [_label, _name];
+      if (s.reason) _titleParts.push(s.reason);
+      _titleParts.push("点击查看走势图");
+      return `<span class="sig-item sig-clickable" data-idx="${s.index_id}" data-sig="${s.signal}" data-date="${dt}" data-idx-name="${_escAttr(_name)}" title="${_escAttr(_titleParts.join(" · "))}"><b class="${s.signal}">${_label}</b> <span class="sig-idx-name">${_name}</span></span>`;
+    }).join("");
+    const cells = freezeCells + sigCells;
+    if (!cells) continue;
+    rows += `<div class="sig-day-row"><span class="sig-day-date">${dateLabel}</span><div class="sig-items">${cells}</div></div>`;
+  }
+  return rows ? `<div class="signal-grid">${rows}</div>` : "";
+}
+
 // 两段式信号固化三态提示条(2026-08-14, 方案 docs/signal-finalize-time.md §5.3):
 // 盘中预估(未收盘, 信号可能消失) / A股已固化(15:03收盘价版, 不会再消失, 盘后窗口可操作) /
 // 完整版定稿(17:50含港股/欧股/国债)。由 signals_meta 驱动, 前端不硬编码时间。
@@ -11822,10 +11864,15 @@ async function renderOverview() {
     }
   }
 
-  // 右列：冰点日卡片（近120日，按日分组4个/行）
+  // 右列：冰点日卡片（#19 改造成近90日情绪日历；按日分组4个/行）
   const freezeCard = document.createElement("div");
   freezeCard.className = "chart-card";
-  freezeCard.innerHTML = _renderSignalGrid(r.recent_freeze, r.date, "近期冰点日（近 120 日）" + termTip("近120日情绪冰点日(恐贪指数<20)，常对应阶段性底部"), "freeze", "无近期冰点日");
+  // #19(2026-08-19): 优先用 overview.json 新旁路字段 sentiment_calendar 渲染"近90日情绪日历"(冰点+情绪分买卖点按日期合并);
+  // 无该字段(旧数据/后端未部署)降级回原 recent_freeze 冰点展示(不白屏不消失, §5.3 核心保障)。
+  const _sentCal = Array.isArray(r.sentiment_calendar) ? r.sentiment_calendar : null;
+  freezeCard.innerHTML = (_sentCal && _sentCal.length)
+    ? `<h3>近 90 日情绪日历<span class="chart-latest"> · ${_sentCal.length} 天</span>${termTip("近90日情绪分信号+冰点日合并日历：每个有内容的日期一行。冰点日=任一情绪分<20(蓝值的超卖极值)；情绪分买/卖点=情绪分自身曲线技术事件化(与市场温度 tab 同源同口径)。同日两列并存(如7/8、6/23)。点击冰点/信号查看该指数走势+标注。")}</h3>` + _renderSentimentCalendar(_sentCal)
+    : _renderSignalGrid(r.recent_freeze, r.date, "近期冰点日（近 120 日）" + termTip("近120日情绪冰点日(恐贪指数<20)，常对应阶段性底部"), "freeze", "无近期冰点日");
   // 方案A(2026-08-07): 冰点日专用中性角标。recent_freeze[0].date 是"冰点发生日"(历史事件)非数据日期,
   // 复用 addCardTimeBadge 会被 getCardTimeBadge 判"⚠ 滞后·MM-DD"误报异常(8/3<今日8/7 差4天)。
   // 改专用 t1-event 中性角标"📅 最新冰点日·MM-DD"+hover 缘由(冰点值+此后无新冰点+数据更新日期)。
