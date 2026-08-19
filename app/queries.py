@@ -1247,6 +1247,46 @@ def overview(conn, cfg):
             freeze_dates
         ).fetchall()]
 
+    # 近90日「情绪日历」：#19 首页近期冰点与情绪分买卖点信号合并(只后端, 前端另派)。
+    # 背景: 近期冰点卡现有9日(recent_freeze, 近120日 LIMIT 9)硬塞当日信号=9/9全空, 必须扩到近90日
+    # 合并进"情绪日历"才有内容。数据源全现成, 无新算法, 纯按 date join:
+    #   - freeze: score_daily WHERE is_freeze=1 (近90日), 过滤低质 low_alert(值75-77 是"低位机会>75"口径,
+    #     非<20冰点混标, 合并数组里不作为冰点展示, 见 research 文档 §4「展示形态 schema 提案」)。
+    #   - signals: signal_daily WHERE index_id LIKE 's.%' (情绪分买卖点信号, 同 sentiment-*.json r.signals 同源,
+    #     信号算法 app/compute/signals.py)。
+    #   - 按 date join, 同日 freeze+signals 都并进同一天; signals 组内 buy>buy_aux>sell 排序
+    #     (对齐前端 renderSentimentSignalList 口径)。
+    #   - 日期降序; 新增旁路字段, 不动既存 recent_freeze / signals_today 行为(§5.3 核心保障)。
+    #   研究文档: docs/market-state/sentiment-signal-freeze-merge-research.md
+    _cal_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=90)).strftime("%Y%m%d")
+    _cal_freeze_rows = conn.execute(
+        "SELECT date, score_id, value FROM score_daily "
+        "WHERE is_freeze=1 AND score_id!='low_alert' AND date>=? ORDER BY date",
+        (_cal_start,)
+    ).fetchall()
+    _cal_sig_rows = conn.execute(
+        "SELECT date, index_id, signal, reason FROM signal_daily "
+        "WHERE index_id LIKE 's.%' AND date>=? ORDER BY date",
+        (_cal_start,)
+    ).fetchall()
+    _cal_by_date = {}
+    for _r in _cal_freeze_rows:
+        _d = _cal_by_date.setdefault(_r["date"], {"date": _r["date"], "freeze": [], "signals": []})
+        _val = _r["value"]
+        _d["freeze"].append({"score_id": _r["score_id"], "value": (round(_val, 2) if _val is not None else None)})
+    _sig_ord = {"buy": 0, "buy_aux": 1, "sell": 2}
+    for _r in _cal_sig_rows:
+        _d = _cal_by_date.setdefault(_r["date"], {"date": _r["date"], "freeze": [], "signals": []})
+        _d["signals"].append({
+            "index_id": _r["index_id"],
+            "signal": _r["signal"],
+            "reason": _r["reason"],
+        })
+    for _d in _cal_by_date.values():
+        _d["signals"].sort(key=lambda _s: _sig_ord.get(_s["signal"], 9))
+    sentiment_calendar = [dict(_d) for _d in sorted(
+        _cal_by_date.values(), key=lambda _d: _d["date"], reverse=True)]
+
     # 指数 sparkline：近 30 个交易日收盘 + 当日涨跌幅
     spark_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=60)).strftime("%Y%m%d")
     indices_cfg = {i["id"]: i for i in cfg.get("indices", []) if i.get("enabled", True)}
@@ -1557,6 +1597,9 @@ def overview(conn, cfg):
         "scores": scores,
         "signals_today": sigs,
         "recent_freeze": freeze_days,
+        # #19 近90日「情绪日历」：按 date 合并冰点+情绪分信号(date → {freeze, signals})。
+        # 新增旁路字段, 与既存 recent_freeze/signals_today 兼容不冲突(§22/§5.3)。
+        "sentiment_calendar": sentiment_calendar,
         # 今日快照：每张卡自带独立 date(自身 score_id 的 max(date))，
         # 单指标缺失不拖垮其它卡；无 date 的行(理论上不会发生)回退 score_date。
         "today": {
