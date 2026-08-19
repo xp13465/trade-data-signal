@@ -114,7 +114,8 @@ def compress_status_line(line: str) -> str:
         f"……【本行原 {len(line)} 字符超长，已压缩为摘要（保留最新状态）；"
         f"完整历史见 git log -- TASKS.md 或 NOTES §48】"
     )
-    return head + marker
+    # ⚠️ 必须补尾换行，否则压缩行输出后缺 \n，会把「下一行」熔成同一物理行(#77 L32 熔行根因)
+    return head + marker + "\n"
 
 
 def extract_live_todos(block: list[str]) -> list[str]:
