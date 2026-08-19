@@ -146,11 +146,25 @@ def _minify_js_content(content: bytes, src_name: str):
         #      内联掉, 多语句被 keep_fnames 保名, 二者都不留可撞车的单字符函数调用。
         #   ⚠️ keep_fnames 不保护 const x = ()=>{} 这种箭头绑定(已实证 rename 照旧), 故新增布尔助手应写 function 声明。
         # 不再用 reserved=['$'](打地鼠, 只把冲突转移); keep_fnames + fn声明 从机制上根治。
-        cmd = [
-            "npx", "--yes", "terser", src_name,
-            "--compress", "--mangle", "keep_fnames",
-            "-o", tmp_dst_name,
-        ]
+        # 2026-08-19 首页全球盘面跑马灯线上缺失根治(rootcause-doc): terser 的 --compress unused(未使用消除)
+        #   优化会把被 async/闭包链(如 _loadNewsDigest().then 回调 + _startHomeNewsPoll setTimeout 递归)调用的
+        #   顶层功能段整体误判为 unreachable 而删除(跑马灯段 _initGlobalTicker→_gtRender 链就在 e3fa985c3
+        #   引入该轮询结构后被每次 build 确定性删掉)。仅对 app.js 加 "unused=false" 保被动态调用段;
+        #   只影响 app.js, 不碰 lab.js/common.js 等其余 JS 的 unused 消除行为。体积代价 +1.7%(832533→847037B)。
+        #   ⚠️ 参数必须拆成两个独立 argv 元素(subprocess list 不走 shell, 含空格合并串会被 terser 当字面 flag 误解析)。
+        if src_name == "app.js":
+            cmd = [
+                "npx", "--yes", "terser", src_name,
+                "--compress", "unused=false",
+                "--mangle", "keep_fnames",
+                "-o", tmp_dst_name,
+            ]
+        else:
+            cmd = [
+                "npx", "--yes", "terser", src_name,
+                "--compress", "--mangle", "keep_fnames",
+                "-o", tmp_dst_name,
+            ]
         r = subprocess.run(cmd, capture_output=True, text=True, cwd=tmp, timeout=300)
         if r.returncode != 0:
             err = (r.stderr or r.stdout or "").strip()[:400]

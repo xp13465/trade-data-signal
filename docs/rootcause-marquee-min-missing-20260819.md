@@ -47,3 +47,27 @@ npx terser full.js --compress --mangle keep_fnames   # gt-sort-body=0(删)
 npx terser full.js --compress unused=false --mangle keep_fnames  # gt-sort-body=1(复活)
 git log -S "gt-sort-body" -- static-site/app.min.js  # 127c3e7b3(引入) + e3fa985c3(误删)
 ```
+
+## 更新(2026-08-19 用户拍板 A+B 后补充)
+
+### 方案A 已落地(止血,已在 feat/marquee-min-rebuild 分支改 build_min.py)
+- 改动:`scripts/build_min.py` `_minify_js_content` 对 `app.js` 把 terser 参数从 `--compress` 改为两独立 argv `--compress unused=false`(说明:subprocess list 不走 shell,含空格合并串如 `"--compress unused=false"` 当单 argv 传会被 terser 误当作字面 flag 而**实际未关闭 unused**——第一次实测产物 875,670B 大于预期即此;必须拆成 `"--compress","unused=false"` 两个元素)。
+- 只对 app.js 生效,lab.js/common.js 等其余 JS 的 unused 行为不变(实测 lab.min.js/common.min.js/style.min.css 体积与修复前逐字节一致)。
+- 重建后 app.min.js:体积 847,037B(默认 832,533B,+14,504B/+1.7%),跑马灯复活(gt-sort-body=1 / global_ticker_order_v1=1 / 现货黄金=1 / global-ticker=1)。
+- §15 回归:`scripts/check_data_integrity.py` = 28 ok / 1 warn(etf_since_return 91.1%<95%,与本次改动无关的数据层告警)/ 0 fail;app/lab/关键 class(今日要闻/明日关键事件/kst-comp-fill/AI 预测/凯利/回测)均保留。
+
+### 方案B 挖根结论(为什么 terser 误删)
+**根因(决定性)**:terser 的 `--compress unused`(变量/函数未使用消除)对 app.js 全部顶层功能段做全局可达性裁剪。跑马灯段(`GLOBAL_TICKER_ITEMS` + `_gtRender/_gtRefreshMarquee/_gtTick/_gtSchedule/_initGlobalTicker` 等)是**纯客户端副作用段**,启动入口是 `renderOverview → _loadNewsDigest().then((nd)=>{ _renderHomeNewsRows(...) }) → _startHomeNewsPoll(setTimeout async 闭包递归) → _initGlobalTicker(banner)`,全部在 **async/Promise 回调 + 闭包递归链**里被启动,不挂任何全局对象、无 DOMContentLoaded 直接同步引用。terser 对该异步链的可达性做**保守判定**,认为不可达 → 将整段判未使用而删。
+关键佐证:
+- 跑马灯首次引入 `127c3e7b3` 时,调用点寄生于 `async function renderOverview`(reachable 顶层主函数)**直接路径**,默认 terser **保留**(gt-sort-body=1)。
+- `e3fa985c3` 把调用点挪进新函数 `_renderHomeNewsRows`(仅在 `_loadNewsDigest().then` 回调 + `_startHomeNewsPoll` 闭包里调用),默认 terser 从此**删除**跑马灯段,每次 build 都删 → 线上丢失至今。
+- 隔离实验确认:**单纯打断 `_renderHomeNewsRows` 的 unused(index 引用 window.__gtchain)无效**(还删)→ 裁剪发生在更内层(跑马灯段整体);**段内加 window 强锚 `window.__gtAnchor = { GT: GLOBAL_TICKER_ITEMS, init: _initGlobalTicker, render: _gtRender }` 后默认 terser 复活**(gt-sort-body=1)→ 证因:"整段被判 unused",任何能被外部 case 引用到的锚即可拉活。
+- 去 `_startHomeNewsPoll`、`.then` 改同步均**无效**(仍删)→ 不是单一孤立函数/语法触发,是 e3fa985c3 整体改变调用链写法的全局可达性影响。
+
+### 排查同类(§23.2③):有没有其他同款被静默误删
+- 方法:对比 `default(min,删跑马灯)` vs `unused=false(救回)` 产物的 class 集合差。
+- 结论:**被 unused=false 额外救回的 class 全部是跑马灯自身**(gt-scroll/gt-track/gt-item/gt-name/gt-price/gt-pct/gt-gear/gt-sign/global-ticker/gt-sort-*/gt-degraded + 品种键 a50/cnh/goldapi/erapi/wti/silver/usd/jpy/ndx100/hf/wh/us/east/tx),**没有发现任何其他独立功能段被静默误删**。同款隐患仅跑马灯这一处。
+- 通用结论沉淀:凡"纯客户端副作用、只在 async/闭包回调链启动、不挂全局对象"的顶层功能段,若用 terser 默认 `unused` 压缩,都有被整体剪除风险;新增此类功能应显式挂一个 `window.x` 锚或确认 build 后 grep 关键 class 在 min 里。
+
+### 备选精准修法(方案B落地选项,若未来想省掉全局 unused 关闭)
+在跑马灯段 END 处加一行 `window.__gtAnchor = { GT: GLOBAL_TICKER_ITEMS, init: _initGlobalTicker };`,即可在**保持默认 unused** 下让 terser 保留该段(已验证)。体积/行为影响更小(不动全局压缩),但需改 app.js 源码 + 重 build + bump 上线,属"改已上线功能源码",按 §23.7 需用户确认。当前以方案A(build_min 侧,不改业务源码)先止血上线。
