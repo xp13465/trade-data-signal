@@ -1367,6 +1367,48 @@ function indexIdToName(indexId) {
   return _INDEX_NAME_MAP[key] || indexId;
 }
 
+// ===== 情绪分走势图叠对应指数曲线(2026-08-19 新功能, 用户定判据) =====
+// 判据: 情绪分名字**明确对应单一指数**才叠曲线。仅 6 宽基情绪分可映射单指数:
+//   sentiment_sz50→sz50(上证50) / sentiment_hs300→hs300 / sentiment_csi500→csi500 /
+//   sentiment_csi1000→csi1000 / sentiment_cyb→cyb(创业板) / sentiment_kc50→kc50(科创50)。
+// 综合类(恐贪 fear_greed / A股综合 a_sentiment / 跨市场 cross_market)不明确对应单指数, 一律不叠。
+// 共享绘制函数 valueChartWithSignals / _lwSignalLiteCfg / _kpiLiteCfg 内按此白名单过滤 indexId,
+// 白名单外(indexId 非 6 宽基, 如恐贪/综合/跨市场/全球extras)传进来也不叠, 才是总兜底。
+const _EMOTION_INDEX_WHITELIST = { sz50: 1, hs300: 1, csi500: 1, csi1000: 1, cyb: 1, kc50: 1 };
+// 情绪分 key(sentiment_{idx} 或 s.sentiment_{idx}) → 对应宽基指数 id。非 6 宽基返回 null。
+// 注意 a_sentiment 不含 "sentiment_" 前缀(indexOf!=0), fear_greed/cross_market 亦无, 自然排除。
+function _emotionIndexBaseId(key) {
+  const k = String(key || "").replace(/^s\./, "");
+  if (k.indexOf("sentiment_") === 0) {
+    const base = k.slice("sentiment_".length);
+    return _EMOTION_INDEX_WHITELIST[base] ? base : null;
+  }
+  return null;
+}
+// 情绪分走势图叠指数曲线数据源(展示位 A/B/C 共享, 同源 `index/{base}-all.json` ohlc 收盘价)。
+// 返回 { base, name, series:[{date,value}] } 或 null(非白名单 / 无数据 / fetch 失败)。带缓存(同 base 只拉一次)。
+let _emotionIndexCurveCache = new Map();  // base -> Promise<result|null>
+function _emotionIndexCurve(key) {
+  const base = _emotionIndexBaseId(key);
+  if (!base) return Promise.resolve(null);
+  if (_emotionIndexCurveCache.has(base)) return _emotionIndexCurveCache.get(base);
+  const p = (async () => {
+    try {
+      const r = await fetchJSON(dataUrl(`index/${base}-all.json`));
+      const ohlc = (r && r.ohlc) || [];
+      const series = [];
+      for (const d of ohlc) {
+        if (d && d.close != null && d.date) series.push({ date: d.date, value: d.close });
+      }
+      return series.length
+        ? { base, name: indexIdToName(base) || base, series }
+        : null;
+    } catch (e) { return null; }
+  })();
+  _emotionIndexCurveCache.set(base, p);
+  return p;
+}
+
 // 返回 index_id 对应的展示代码（无映射返回空串）。
 // 优先级：thsc_300xxx -> 885xxx/886xxx（_INDEX_CODE_MAP 人工对照同花顺）；
 // 否则用后端注入的 symbol（indicators.yaml 单一来源）按 index_id 前缀派生展示代码：
@@ -4866,8 +4908,19 @@ function _lwSignalMarkPoints(markData, dates) {
 }
 // 信号弹窗 lite cfg 构建(外观对等原 echarts valueChartWithSignals): 单序列 value 折线 + 信号 pin + tooltip。
 // visualMap pieces(情绪分分段色) → _lwColorFn(与恐贪/A股情绪分同款口径); 无 visualMap(首页信号弹窗) 用 echarts 默认首色。
-function _lwSignalLiteCfg(title, data, markData, opts) {
+function _lwSignalLiteCfg(title, data, markData, opts, indexOverlay) {
+  // 情绪分走势图叠指数曲线(2026-08-19): indexOverlay={name,series:[{date,value}]} 非空时,
+  // 把 indexOverlay.series 对齐到情绪分日期轴, 新增右侧 y 轴(index 量级 1000-4000) + 第二条虚线细线。
+  // 白名单过滤已在上游 _emotionIndexCurve 判定, 此函数只负责渲染(传 null/综合类 indexId 不叠加)。
+  const idxOv = (indexOverlay && Array.isArray(indexOverlay.series) && indexOverlay.series.length) ? indexOverlay : null;
   const dates = (data || []).map((d) => d.date);
+  // 叠加指数时, 对齐到情绪分日期轴(指数是全史, 只显示情绪分窗口内对应点; 同交易日数据缺失留 null 由 connectNulls 桥接)
+  let idxVals = null;
+  if (idxOv) {
+    const m = new Map();
+    for (const p of idxOv.series) m.set(p.date, p.value);
+    idxVals = dates.map((d) => (m.has(d) ? m.get(d) : null));
+  }
   const vals = (data || []).map((d) => d.value);
   const mp = _lwSignalMarkPoints(markData, dates);
   const _pieces = opts && opts.visualMap && opts.visualMap.pieces;
@@ -4882,23 +4935,42 @@ function _lwSignalLiteCfg(title, data, markData, opts) {
       return "#5470c6";
     };
   }
+  const _series = [{
+    type: "line", data: vals, color: "#5470c6", width: 1.5, smooth: true, connectNulls: true,
+    itemColor: _colorFn,
+    markPoints: mp.markPoints,
+  }];
+  const _ys = [{ scale: true, splitNumber: 5 }];
+  if (idxOv) {
+    idxVals = idxVals.map((v) => (v == null ? null : Number(v)));
+    _series.push({
+      type: "line", data: idxVals, color: "#b08d57", // 指数曲线用棕色虚线细线, 与情绪主线区分开
+      width: 1, smooth: true, connectNulls: true,
+      dash: "5 5", opacity: 0.75, yIndex: 1,
+    });
+    _ys.push({ side: "right", scale: true, splitNumber: 5 });
+  }
   return {
-    h: 300, pl: 55, pr: 20, pt: 30, pb: 50,
+    h: 300, pl: 55, pr: idxOv ? 50 : 20, pt: 30, pb: 50,
     boundaryGap: true,
     dataZoom: true,
     xLabels: dates, xFmt: (v) => v,
-    ys: [{ scale: true, splitNumber: 5 }],
-    series: [{
-      type: "line", data: vals, color: "#5470c6", width: 1.5, smooth: true, connectNulls: true,
-      itemColor: _colorFn,
-      markPoints: mp.markPoints,
-    }],
+    ys: _ys,
+    legend: idxOv ? [
+      { name: stripHtml(title), color: "#5470c6" },
+      { name: idxOv.name || "指数", color: "#b08d57" },
+    ] : undefined,
+    series: _series,
     gradients: mp.gradients,
     tipFn: (i, xLabel) => {
       const dt = xLabel;
       const p = (data || []).find((x) => x.date === dt);
       let tip = fmtDate(dt);
       if (p && p.value != null) tip += "<br/>" + Number(p.value).toFixed(2);
+      if (idxOv) {
+        const iv = idxVals[i];
+        if (iv != null && !isNaN(iv)) tip += '<br/><span style="display:inline-block;width:8px;height:2px;background:#b08d57;margin-right:4px;vertical-align:middle"></span>' + (idxOv.name || "指数") + ": " + Number(iv).toFixed(2);
+      }
       const marks = (markData || []).filter((m) => m.coord[0] === dt && m.reason);
       for (const m of marks) {
         if (Array.isArray(m.tipColors) && Array.isArray(m.tipLabels)) {
@@ -4916,14 +4988,22 @@ function _lwSignalLiteCfg(title, data, markData, opts) {
 // 单序列 value 折线 + 买卖点 markPoint（B 扩展：指标/情绪分用，数据是 [{date,value}]）
 // 与 indexChart 区别：数据结构是 value 单序列（无 close/high），量级差异大（gold 100-1249 /
 // cn10y 1.5-4 / usdcnh 680-722），用通用折线 + markPoint。opts 透传 visualMap 等（cross_market 用）。
-function valueChartWithSignals(title, data, signals, opts, stats, strategy, indexId, container = content, chartArr = charts) {
+function valueChartWithSignals(title, data, signals, opts, stats, strategy, indexId, container = content, chartArr = charts, indexOverlay) {
   const sigs = signals || [];
   const hint = statsHint(stats, strategy, indexId);
+  // 情绪分走势图叠指数曲线(2026-08-19): 6 宽基情绪分传 indexOverlay={name,series}; 恐贪/综合/跨市场/全球extras 传 null 不叠。
+  const idxOv = (indexOverlay && Array.isArray(indexOverlay.series) && indexOverlay.series.length) ? indexOverlay : null;
   // 4色买点拼色 pin（同日多买点合并1个拼色 pin，参照汪汪队），卖绿独立 pin
   const _dataMap = {}; for (const p of data) _dataMap[p.date] = p;
   const markData = _buildSignalMarkData(sigs, (date) => {
     const p = _dataMap[date]; return p ? p.value : null;
   });
+  // 指数 alignment 到情绪分日期轴(同 key date 值)
+  const _idxAlign = idxOv ? (() => {
+    const m = new Map();
+    for (const p of idxOv.series) m.set(p.date, p.value);
+    return data.map((d) => (m.has(d.date) ? Number(m.get(d.date)) : null));
+  })() : null;
   // echarts 版 setOption 配置(两种模式共享: lite 开关 false 回退重建时复用)
   const _sigSetOption = (c) => c.setOption(withTheme({
     tooltip: {
@@ -4934,6 +5014,10 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
         const p = data.find((x) => x.date === dt);
         let tip = fmtDate(dt);
         if (p && p.value != null) tip += "<br/>" + Number(p.value).toFixed(2);
+        if (idxOv && _idxAlign) {
+          const iv = _idxAlign[data.findIndex((x) => x.date === dt)];
+          if (iv != null && !isNaN(iv)) tip += '<br/><span style="display:inline-block;width:8px;height:2px;background:#b08d57;margin-right:4px;vertical-align:middle"></span>' + (idxOv.name || "指数") + ": " + Number(iv).toFixed(2);
+        }
         const marks = markData.filter((m) => m.coord[0] === dt && m.reason);
         for (const m of marks) {
           if (Array.isArray(m.tipColors) && Array.isArray(m.tipLabels)) {
@@ -4948,25 +5032,49 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
         return tip;
       }
     },
-    grid: { left: 55, right: 20, top: 30, bottom: 50 },
+    grid: { left: 55, right: idxOv ? 50 : 20, top: 30, bottom: 50 },
     xAxis: { type: "category", data: data.map((d) => d.date) },
-    yAxis: { type: "value", scale: true },
+    // 单轴(仅情绪 0-100) 或 双轴(叠指数右侧 1000-4000)
+    yAxis: idxOv
+      ? [
+          { type: "value", scale: true },
+          { type: "value", scale: true, position: "right", splitLine: { show: false } },
+        ]
+      : { type: "value", scale: true },
     dataZoom: dzOpts(),
-    series: [{
-      name: stripHtml(title),
-      type: "line",
-      smooth: true,
-      symbol: "none",
-      connectNulls: true,
-      data: data.map((d) => [d.date, d.value]),
-      lineStyle: { width: 1.5 },
-      markPoint: {
-        symbol: "pin",
-        symbolSize: 34,
-        label: { fontSize: 11, color: cssVar("--text-1"), hideOverlap: true },
-        data: markData,
+    series: [
+      {
+        name: stripHtml(title),
+        type: "line",
+        smooth: true,
+        symbol: "none",
+        connectNulls: true,
+        data: data.map((d) => [d.date, d.value]),
+        lineStyle: { width: 1.5 },
+        markPoint: {
+          symbol: "pin",
+          symbolSize: 34,
+          label: { fontSize: 11, color: cssVar("--text-1"), hideOverlap: true },
+          data: markData,
+        },
       },
-    }],
+      ...(idxOv && _idxAlign
+        ? [{
+            name: idxOv.name || "指数",
+            type: "line",
+            yAxisIndex: 1,           // 右侧指数轴
+            smooth: true,
+            symbol: "none",
+            connectNulls: true,
+            data: data.map((d, i) => [d.date, _idxAlign[i]]),
+            lineStyle: { width: 1, type: "dashed", color: "#b08d57", opacity: 0.75 },
+            itemStyle: { color: "#b08d57" },
+          }]
+        : []),
+    ],
+    legend: idxOv
+      ? { top: 0, type: "scroll", data: [stripHtml(title), idxOv.name || "指数"] }
+      : undefined,
     ...opts,
   }));
   // 轻量 SVG 模式(默认): _lwCardShell(等价 mkCard 但不在建卡时立即 echarts.init) + _lwSetup 注册
@@ -4978,7 +5086,7 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
     const card = div.parentElement;
     _prependSimBtn(card, indexId);
     _bindFreqPopupToHintRows(card, stats);
-    const liteCfg = _lwSignalLiteCfg(title, data, markData, opts);
+    const liteCfg = _lwSignalLiteCfg(title, data, markData, opts, indexOverlay);
     _lwSetup(div, liteCfg, (container) => {
       const inst = echarts.init(container);
       _sigSetOption(inst);
@@ -6134,6 +6242,8 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
   modal._ctx = { indexId, signal, date, freezeVal, idxName, idxCode };
   try {
     let chartData, sigs, stats, strategy, isValue = false;
+    // 情绪分走势图叠对应指数曲线占位(2026-08-19): s.* 6宽基情绪分分支赋值, 其余分支保持 null 不叠。
+    let chartOverlay = null;
     // 2026-08-06 弹窗 chart card 模拟回测按钮后加相关 ETF（复用指数表现 _appendEtfLinkTag）。
     // g./s. 分支无 etfs 字段（_modalEtfs 保持 null，不渲染 ETF tag）；else 分支（常规指数）赋值 r.etfs。
     let _modalEtfs = null;
@@ -6166,6 +6276,9 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
         chartData = chartData.filter(d => d.date >= filterDate);
       }
       isValue = true;
+      // 情绪分走势图叠对应指数曲线(2026-08-19): 仅 6 宽基情绪分(s.sentiment_{sz50/hs300/csi500/csi1000/cyb/kc50})
+      // 拉对应指数全史, 叠加到走势图对照。恐贪/综合/跨市场等综合类 _emotionIndexCurve 内部判定返回 null 不叠。
+      chartOverlay = await _emotionIndexCurve(key);
     } else {
       const r = await fetchJSON(`https://ss.fx8.store/r2/index/${indexId}-all.json`);
       chartData = r.ohlc || [];
@@ -6283,7 +6396,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
     const title = name + _idxCodeTag + latestSuffix(chartData);
     // 2026-08-06 捕获 chart 实例(need3-②)：chart card 渲染后对 cardEl 调 _appendEtfLinkTag，把相关 ETF 加到模拟回测按钮后。
     const _sigChart = isValue
-      ? valueChartWithSignals(title, chartData, sigs, {}, stats, strategy, indexId, body, _signalModalCharts)
+      ? valueChartWithSignals(title, chartData, sigs, {}, stats, strategy, indexId, body, _signalModalCharts, chartOverlay)
       : indexChart(title, chartData, sigs, stats, strategy, body, _signalModalCharts, indexId);
     // need3-②：弹窗模拟回测按钮后加相关 ETF（复用指数表现 _appendEtfLinkTag，仅常规指数分支 _modalEtfs 非 null 时渲染）。
     // _prependSimBtn 已在 indexChart/valueChartWithSignals 内调用（h3 顺序 [标题][❓][模拟回测]），此处追加 ETF tag 排末尾。
@@ -6386,8 +6499,28 @@ async function _loadKpiHistory(kpiId, cfg, period) {
   if (cfg.src === "sentiment") {
     const r = await fetchJSON(dataUrl(`sentiment-${period}.json`));
     const list = r[kpiId] || [];
+    const _series = [{ name, data: list.map(d => ({ date: d.date, value: d.value })) }];
+    // 情绪分走势图叠对应指数曲线(2026-08-19): 6 宽基情绪分(kpiId=sentiment_{sz50/hs300/csi500/csi1000/cyb/kc50})
+    // 叠对应指数曲线对照。综合类(恐贪/跨市场/A股综合) _emotionIndexCurve 内部判定返回 null 不叠。
+    // 指数走 -all 全史, 需裁剪到情绪分当前 period 日期窗(防 x 轴被全史撑爆, 只显情绪分窗口内对应点)。
+    const _ov = await _emotionIndexCurve(kpiId);
+    if (_ov && list.length) {
+      let _minD = list[0].date, _maxD = list[list.length - 1].date;
+      if (_minD > _maxD) { const t = _minD; _minD = _maxD; _maxD = t; }
+      const _ovClip = _ov.series.filter(d => d.date >= _minD && d.date <= _maxD);
+      if (_ovClip.length) {
+        _series.push({
+          name: _ov.name,
+          data: _ovClip,
+          color: "#b08d57",
+          lineStyle: { type: "dashed", width: 1, opacity: 0.75 },
+          itemStyle: { color: "#b08d57" },
+          _idxAxis: true,   // 右侧独立 y 轴标记: openKpiDetailModal echarts + _kpiLiteCfg 据此放右轴
+        });
+      }
+    }
     return {
-      series: [{ name, data: list.map(d => ({ date: d.date, value: d.value })) }],
+      series: _series,
       yRange: [0, 100],   // 0-100 温度计分段色: 固定值域(与首页恐贪/情绪/跨市场对齐, 颜色切点精确落 20/40/60/80)
       visualMap: {
         show: false,
@@ -6628,6 +6761,8 @@ async function openKpiDetailModal(kpiId, period = "3m") {
     body.appendChild(chartCard);
     const chartEl = chartCard.querySelector(".chart");
     const dates = [...new Set(result.series.flatMap(s => (s.data || []).map(d => d.date)))].sort();
+    // 情绪分叠指数曲线(2026-08-19): 任一 series 标记 _idxAxis(右侧指数轴) → 双 yAxis + visualMap 只作用于情绪分主系列
+    const _esHasIdxAxis = !!result.series.find((s) => s && s._idxAxis);
     const seriesOpt = result.series.map((s, idx) => {
       // P0-1: 补了预估点的 series 加灰色"预估"markPoint（与信号弹窗 estimate pin 风格一致）
       const est = _estimates.find(e => e.seriesIdx === idx);
@@ -6648,6 +6783,8 @@ async function openKpiDetailModal(kpiId, period = "3m") {
         ...(s.symbolSize != null ? { symbolSize: s.symbolSize } : {}),
         connectNulls: true,
         data: dates.map(d => { const p = (s.data || []).find(x => x.date === d); return p ? p.value : null; }),
+        // 情绪分叠指数曲线(2026-08-19): _idxAxis 系列放右侧指数轴(_esHasIdxAxis 时右轴存在)
+        ...(_esHasIdxAxis && s._idxAxis ? { yAxisIndex: 1 } : {}),
         ...(s.color ? { color: s.color } : {}),
         ...(Object.keys(_lineStyle).length ? { lineStyle: _lineStyle } : {}),
         ...(s.itemStyle ? { itemStyle: s.itemStyle } : {}),
@@ -6678,12 +6815,19 @@ async function openKpiDetailModal(kpiId, period = "3m") {
           },
         },
         legend: { top: 0, type: "scroll" },
-        grid: { left: 65, right: 25, top: 35, bottom: 45 },
+        grid: { left: 65, right: _esHasIdxAxis ? 50 : 25, top: 35, bottom: 45 },
         xAxis: { type: "category", data: dates },
-        yAxis: { type: "value", scale: true, axisLabel: result.yLabel ? { formatter: result.yLabel } : undefined, ...(result.yRange ? { min: result.yRange[0], max: result.yRange[1] } : {}) },
+        // 单轴(仅情绪 0-100) 或 双轴(叠指数右侧 1000-4000)
+        yAxis: _esHasIdxAxis
+          ? [
+              { type: "value", scale: true, axisLabel: result.yLabel ? { formatter: result.yLabel } : undefined, ...(result.yRange ? { min: result.yRange[0], max: result.yRange[1] } : {}) },
+              { type: "value", scale: true, position: "right", splitLine: { show: false } },
+            ]
+          : { type: "value", scale: true, axisLabel: result.yLabel ? { formatter: result.yLabel } : undefined, ...(result.yRange ? { min: result.yRange[0], max: result.yRange[1] } : {}) },
         dataZoom: dzOpts(),
         series: seriesOpt,
-        ...(result.visualMap ? { visualMap: result.visualMap } : {}),
+        // visualMap 分段色只作用于情绪分主系列(seriesIndex:[0]), 防指数曲线被情绪 0-100 分段色误染色
+        ...(result.visualMap ? { visualMap: Object.assign({}, result.visualMap, { seriesIndex: _esHasIdxAxis ? [0] : undefined }) } : {}),
       }));
       requestAnimationFrame(() => chart.resize());
     });
@@ -11266,12 +11410,12 @@ async function renderOverview() {
       fear_greed: "综合5类市场情绪等权算的0-100温度计。≤25极度恐惧、≥75极度贪婪。作逆向参考。",
       a_sentiment: "6项A股指标加权算的0-100情绪分。≤20冰点、≥80过热。",
       cross_market: "A股+港股+全球等多维度等权均值0-100。看跨市场整体冷热。",
-      sentiment_sz50: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
-      sentiment_hs300: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
-      sentiment_csi500: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
-      sentiment_csi1000: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
-      sentiment_cyb: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
-      sentiment_kc50: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
+      sentiment_sz50: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
+      sentiment_hs300: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
+      sentiment_csi500: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
+      sentiment_csi1000: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
+      sentiment_cyb: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
+      sentiment_kc50: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照。",
       a_width_zt_count: "收盘仍封死涨停的股票数,多=追涨情绪强。",
       a_width_dt_count: "收盘仍封死跌停的股票数,多=恐慌抛售强。",
       a_width_zhaban_rate: "当日曾涨停但收盘未封住的比例,高=封板资金不稳。",
@@ -14018,6 +14162,8 @@ function _kpiLiteCfg(result, dates, _estimates, _unit) {
       symbolR: s.symbol === "circle" ? ((s.symbolSize != null ? s.symbolSize : 6) / 2) : undefined,
       connectNulls: true,
       markLine: [], markPoints: [],
+      // 情绪分叠指数曲线(2026-08-19): _idxAxis 系列放右侧独立指数轴
+      yIndex: s._idxAxis ? 1 : 0,
     };
     if (s.areaStyle) ser.areaOpacity = (s.areaStyle.opacity != null ? s.areaStyle.opacity : 0.6);
     // markLine(阈值 {yAxis,label} 或 线段 [[{coord:[date,val]},{coord:[date,val]}]] )
@@ -14067,12 +14213,17 @@ function _kpiLiteCfg(result, dates, _estimates, _unit) {
   let yFmt;
   if (typeof result.yLabel === "function") yFmt = result.yLabel;
   else if (typeof result.yLabel === "string") yFmt = (v) => String(result.yLabel).replace("{value}", String(Number(v).toFixed(0)));
+  const _idxAxisExists = !!result.series.find((s) => s && s._idxAxis);
   return {
-    h: 380, pl: 65, pr: 25, pt: 35, pb: 45,
+    h: 380, pl: 65, pr: _idxAxisExists ? 50 : 25, pt: 35, pb: 45,
     boundaryGap: true,
     dataZoom: true,
     xLabels: dates, xFmt: (v) => v,
-    ys: [{ scale: true, splitNumber: 5, formatter: yFmt, ...(result.yRange ? { min: result.yRange[0], max: result.yRange[1] } : {}) }],
+    // 情绪分叠指数曲线(2026-08-19): 右侧独立指数轴(量级 1000-4000)
+    ys: _idxAxisExists
+      ? [{ scale: true, splitNumber: 5, formatter: yFmt, ...(result.yRange ? { min: result.yRange[0], max: result.yRange[1] } : {}) },
+         { side: "right", scale: true, splitNumber: 5 }]
+      : [{ scale: true, splitNumber: 5, formatter: yFmt, ...(result.yRange ? { min: result.yRange[0], max: result.yRange[1] } : {}) }],
     legend: legend,
     series: series,
     tipFn: (i) => {
@@ -18208,9 +18359,11 @@ async function renderSentimentMarketTemp(container) {
     if (r[key] && r[key].length) {
       const data = r[key].map(d => ({date: d.date, value: d.value, components: d.components}));
       const latest = data[data.length - 1] && data[data.length - 1].value;
-      const title = `${baseTitle}（0-100）` + termTip("该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。") + (latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : "");
+      const title = `${baseTitle}（0-100）` + termTip("该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。走势图叠加对应指数价格曲线(右轴,虚线)对照情绪与指数走势。") + (latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : "");
       const cell = document.createElement("div");
       cardGrid.appendChild(cell);
+      // 情绪分走势图叠对应指数曲线(2026-08-19): 6 宽基情绪分卡叠对应指数全史曲线对照。
+      const keyOverlay = await _emotionIndexCurve(key);
       const chart = valueChartWithSignals(title, data,
         sig[key] || [], {
           visualMap: {
@@ -18224,7 +18377,7 @@ async function renderSentimentMarketTemp(container) {
             ],
             dimension: 1,
           },
-        }, stats[key], strat[key], key, cell);
+        }, stats[key], strat[key], key, cell, keyOverlay);
       // 冰点(≤20)/过热(≥80)阈值线（情绪分口径，与恐贪25/75区分）
       chart.setOption({ series: [{ markLine: {
         silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
