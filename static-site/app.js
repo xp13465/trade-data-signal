@@ -24521,7 +24521,7 @@ function _simFeeBarHTML(sd) {
       '<label>佣金:万分之<input type="number" class="lab-input sim-fee-input-comm" value="' + commVal + '" step="0.01" min="0" style="width:48px"></label>' +
       '<label>最低:<input type="number" class="lab-input sim-fee-input-min" value="' + minVal + '" step="0.1" min="0" style="width:42px">元</label>' +
       '<label>滑点:千分之<input type="number" class="lab-input sim-fee-input-slip" value="' + slipVal + '" step="0.1" min="0" style="width:42px"></label>' +
-      '<label>过户费:万分之<input type="number" class="lab-input sim-fee-input-transfer" value="' + transferVal + '" step="0.01" min="0" style="width:42px">(沪)</label>' +
+      '<label>过户费:万分之<input type="number" class="lab-input sim-fee-input-transfer" value="' + transferVal + '" step="0.01" min="0" style="width:42px">(沪深统一)</label>' +
       '<label>印花税:万分之<input type="number" class="lab-input sim-fee-input-stamp" value="' + stampVal + '" step="0.01" min="0" style="width:42px">(卖)</label>' +
     '</div>';
   return '<div class="sim-fee-bar">' +
