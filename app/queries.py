@@ -652,6 +652,24 @@ def _ai_macro_build_cyb_tier(conn):
     return _ai_macro_classify_tiers(dates, closes), dates
 
 
+def _ai_macro_build_index_tiers(conn, index_id):
+    """任意宽基指数四档大盘状态(纯展示, 供 index_detail 注入 tiers, #73 8 宽基四档色带)。
+    返回 ({date: tier}, [dates])；无数据返回 ({}, [])。
+    与 hs300(_ai_macro_build_market_state) / cyb(_ai_macro_build_cyb_tier) 同口径算法
+    (共享 _ai_macro_classify_tiers): 读 index_daily 该指数全部 close →
+    价 vs MA200 + MA20/60/120 排列四档。纯展示, 不影响过滤(§23.7 只增不改)。
+    """
+    rows = conn.execute(
+        "SELECT date, close FROM index_daily WHERE index_id=? "
+        "AND close IS NOT NULL ORDER BY date", (index_id,)
+    ).fetchall()
+    if not rows:
+        return {}, []
+    dates = [r["date"] for r in rows]
+    closes = [r["close"] for r in rows]
+    return _ai_macro_classify_tiers(dates, closes), dates
+
+
 def _ai_macro_tier_at(date_str: str, tiers, dates):
     """<= 信号日最近的四档 tier_str；无状态返回 None(不过滤)。"""
     if not tiers:
@@ -1744,7 +1762,8 @@ def industry(conn, cfg, start, end, *, cache=None, stats_all_dict=None):
 
 def index_detail(conn, cfg, index_id, start, end, *, cache=None, stats_all_dict=None, include_etf=False):
     """复刻 /api/index/{index_id}。include_etf=True 时注入 ETF 候选列表（export 用）。
-    index_id=='hs300' 时注入 tiers(四档大盘状态, 对齐 ohlc 日期)供前端色带/轨迹图(纯展示)。"""
+    8 宽基(hs300/sh/sz/csi500/cyb/sz50/csi1000/kc50)注入 tiers(四档大盘状态, 对齐 ohlc 日期)
+    供前端走势图四档色带(纯展示, #73)。"""
     sa = stats_all_dict if stats_all_dict is not None else stats_all()
     ohlc = index_series(conn, index_id, start, end, cache=cache)
     result = {
@@ -1753,19 +1772,31 @@ def index_detail(conn, cfg, index_id, start, end, *, cache=None, stats_all_dict=
         "stats": stats_for(sa, index_id),
         "strategy": strategy_desc(index_id, cfg),
     }
-    # 沪深300 注入四档大盘状态(纯展示, 不影响过滤; 与回测/首页同口径 §22/§23.6)。
+    # 8 宽基注入四档大盘状态(纯展示, 不影响过滤; 与回测/首页同口径 §22/§23.6, #73)。
     # tiers 数组与 ohlc 一一对应(每日期前向填充最近可用 tier, 无状态=None)。
-    if index_id == "hs300":
-        _tiers, _tier_dates, _ma60 = _ai_macro_build_market_state(conn)
+    # hs300 保持原路径(含 ma60_bull, 逐位与现状一致); cyb 复用 _ai_macro_build_cyb_tier;
+    # 其余 sh/sz/csi500/sz50/csi1000/kc50 用 _ai_macro_build_index_tiers(同口径算法)。
+    _WIDE_BASE_TIER_IDS = {"hs300", "sh", "sz", "csi500", "cyb", "sz50", "csi1000", "kc50"}
+    if index_id in _WIDE_BASE_TIER_IDS:
+        if index_id == "hs300":
+            _tiers, _tier_dates, _ma60 = _ai_macro_build_market_state(conn)
+        elif index_id == "cyb":
+            _tiers, _tier_dates = _ai_macro_build_cyb_tier(conn)
+        else:
+            _tiers, _tier_dates = _ai_macro_build_index_tiers(conn, index_id)
         if _tiers:
             _tier_list = []
             _last = None
             for _o in ohlc:
                 _t = _ai_macro_tier_at(_o["date"], _tiers, _tier_dates)
-                _m = _ai_macro_ma60_bull_at(_o["date"], _ma60, _tier_dates)
-                _last = _t if _t is not None else _last
-                _tier_list.append({"date": _o["date"], "tier": _last,
-                                   "ma60_bull": bool(_m)})
+                if index_id == "hs300":
+                    _m = _ai_macro_ma60_bull_at(_o["date"], _ma60, _tier_dates)
+                    _last = _t if _t is not None else _last
+                    _tier_list.append({"date": _o["date"], "tier": _last,
+                                       "ma60_bull": bool(_m)})
+                else:
+                    _last = _t if _t is not None else _last
+                    _tier_list.append({"date": _o["date"], "tier": _last})
             result["tiers"] = _tier_list
     if include_etf:
         result.update(etf_for(index_id))

@@ -4589,6 +4589,9 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
   const _pctSuffix = (_pct != null) ? ` <span class="pct-badge" style="color:${_up ? "#e6492e" : "#2e8b57"}">${_up ? "+" : ""}${_pct.toFixed(2)}%</span>` : "";
   const _suffix = _closeSuffix + _pctSuffix;
   const c = mkCard(title + _suffix, 300, hint, container, chartArr);
+  // 四档状态展示名(动态化, #73 8 宽基): 沪深300/上证指数/深证成指/中证500/创业板指/上证50/中证1000/科创50。
+  // 查不到 indexId 时退回通用"行情"(旧行为对非 8 宽基不闪色带, 此处无语义影响)。
+  const _tierName = (_INDEX_NAME_MAP[indexId] || "行情") + "四档";
   // 模拟回测按钮：注入 h3 末尾排在❓后（标题行内排列，挪出策略区块）
   _prependSimBtn(c.getDom().parentElement, indexId);
   // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
@@ -4599,8 +4602,8 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
   const markData = _buildSignalMarkData(signals, (date) => {
     const o = _ohlcMap[date]; return o ? o.close : null;
   });
-  // 沪深300四档色带(纯展示, 仅 hs300): 底部细色带按日期标沪深300四档状态, 涨红跌绿。
-  // tiers 与 ohlc 一一对应(缺 tier 的用前值前向填充/无值=灰)。单一指数口径=沪深300(非综合多指数)。
+  // 四档色带(纯展示, #73 8 宽基): 底部细色带按日期标该指数四档状态, 涨红跌绿。
+  // tiers 与 ohlc 一一对应(缺 tier 的用前值前向填充/无值=灰)。单一指数口径=各宽基自身(非综合多指数)。
   const _tierBand = [];
   if (tiers && tiers.length) {
     let _lastTier = null;
@@ -4624,7 +4627,7 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
         }
         if (_tierBand && _tierBand.length) {
           const _tb = _tierBand.find((x) => x.date === dt);
-          if (_tb && _tb.tier) tip += '<br/>沪深300四档：<b style="color:' + (_TIER_COLORS[_tb.tier] || "#9aa0a6") + '">● ' + _tb.tier + "</b>";
+          if (_tb && _tb.tier) tip += '<br/>' + _tierName + '：<b style="color:' + (_TIER_COLORS[_tb.tier] || "#9aa0a6") + '">● ' + _tb.tier + "</b>";
         }
         const marks = markData.filter((m) => m.coord[0] === dt && m.reason);
         for (const m of marks) {
@@ -4650,7 +4653,7 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
     dataZoom: dzOpts(),
     series: _tierBand.length ? [
       {
-        name: "沪深300四档状态",
+        name: _tierName + "状态",
         type: "bar",
         yAxisIndex: 1,
         stack: "tierband",
