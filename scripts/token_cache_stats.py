@@ -15,6 +15,10 @@
      顺带抓当天 claude 版本(claude --version)+ 当天 claude-work-mode/根 CLAUDE.md git commit 改动,
      幂等地追加/更新 claude-work-mode/README.md 的「命中率走势」表与「版本/改动日志」小节
      (按日期去重:当天已存在则更新不重复追加)。
+     追加成功后自动收尾: git add/commit + push origin main(2026-08-19 用户拍板方案①,
+     绕开 main-merge.sh 统一入口,只动这一个文档文件、23:30 安全窗口跑)。
+     幂等无实际变更时跳过 commit+push;push non-ff 自动 fetch+rebase+重试,不 force,
+     rebase 冲突 abort + 告警退出非 0(§8/§23.11)。
 
 输入依赖:会话 JSONL 目录(默认 ~/.claude/projects/-Users-linhuichen-code-trade/),逐行读不进内存。
         追加模式另依赖:claude-work-mode/README.md(读写)、git -C trade log(读当日规范改动)。
@@ -211,6 +215,72 @@ def _replace_block(text, start_mark, end_mark, new_content):
     return pre + new_content + "\n" + end_mark + tail
 
 
+def _git_commit_push_readme(date_str):
+    """append_daily 写 README 后自动 commit + push main(2026-08-19 用户拍板方案①)。
+
+    背景: 本脚本由 launchd(com.trade.token-cache-stats)每天 23:30 跑 --append-daily,
+          追加 README 命中率走势。原设计"不推 git"导致 README 长期留未提交 M,
+          污染工作区并卡死其他流程(如 main-merge.sh 全工作区 diff 误入 commit 分支)。
+          用户确认: 追加完自动 commit + push main。绕开 main-merge.sh 统一入口
+          (只动这一个文档文件、23:30 安全窗口跑, 走统一入口太重)。
+
+    幂等: README 无实际变更(同日重复跑=更新不重复追加)时跳过 commit+push, 不制造空提交。
+
+    push 失败(non-fast-forward)按 §8 处理: git fetch + rebase origin/main + 重试,
+    不 force;rebase 失败/仍失败则打日志告警退出非 0, 绝不静默吞掉(§23.11)。
+    全程 print 日志(launchd 写 stdout/err 文件), 不打印 key/token。
+    """
+    import subprocess
+    git = ["git", "-C", TRADE_ROOT]
+
+    # 1. README 是否真的变了(相对 HEAD, 覆盖工作区+暂存区);幂等无变更→跳过
+    r = subprocess.run(git + ["diff", "--quiet", "--", README_REL],
+                       cwd=TRADE_ROOT, capture_output=True, text=True)
+    if r.returncode == 0:
+        print("README 无实际变更, 跳过 commit+push(幂等 %s)" % date_str)
+        return
+
+    # 2. add + commit
+    subprocess.run(git + ["add", README_REL],
+                   cwd=TRADE_ROOT, capture_output=True, text=True, check=True)
+    msg = (
+        "chore(命中率走势): %s 自动追加(token-cache-stats 每日收尾)\n\n"
+        "Co-Authored-By: Claude <noreply@anthropic.com>" % date_str
+    )
+    c = subprocess.run(git + ["commit", "-m", msg],
+                       cwd=TRADE_ROOT, capture_output=True, text=True)
+    if c.returncode != 0:
+        print("✗ commit README 失败: %s" % (c.stderr or "").strip()[-500:], file=sys.stderr)
+        sys.exit(1)
+    commit_tail = (c.stdout or "").strip().splitlines()
+    print("commit 完成: %s" % (commit_tail[-1] if commit_tail else c.returncode))
+
+    # 3. push origin main(§8: non-ff 优先 fetch+rebase+重试, 不 force, 失败告警非 0 绝不静默)
+    p = subprocess.run(git + ["push", "origin", "main"],
+                       cwd=TRADE_ROOT, capture_output=True, text=True)
+    if p.returncode == 0:
+        print("push origin main 成功")
+        return
+    err_tail = (p.stderr or "").strip().splitlines()
+    print("push origin main 失败(%s), 尝试 git fetch + rebase + 重试(§8 不 force)"
+          % (err_tail[-1] if err_tail else p.returncode))
+    subprocess.run(git + ["fetch", "origin"], cwd=TRADE_ROOT, capture_output=True, text=True)
+    reb = subprocess.run(git + ["rebase", "origin/main"],
+                         cwd=TRADE_ROOT, capture_output=True, text=True)
+    if reb.returncode != 0:
+        subprocess.run(git + ["rebase", "--abort"], cwd=TRADE_ROOT, capture_output=True, text=True)
+        print("✗ rebase origin/main 失败, 已 abort。请人工处理(§23.11 绝不静默)", file=sys.stderr)
+        print((reb.stderr or "").strip()[-500:], file=sys.stderr)
+        sys.exit(1)
+    p2 = subprocess.run(git + ["push", "origin", "main"],
+                        cwd=TRADE_ROOT, capture_output=True, text=True)
+    if p2.returncode != 0:
+        print("✗ 重试 push origin main 仍失败, 绝不静默吞掉(§23.11): %s"
+              % (p2.stderr or "").strip()[-500:], file=sys.stderr)
+        sys.exit(1)
+    print("push origin main 成功(经 rebase 重试)")
+
+
 def append_daily(date_str, jsonl_dir):
     """追加/更新 date_str 当天命中率走势 + 版本/改动。幂等:同天重复跑=更新不重复追加。"""
     files = glob.glob(os.path.join(jsonl_dir, "*.jsonl"))
@@ -283,6 +353,10 @@ def append_daily(date_str, jsonl_dir):
         "appended %s: hit=%.4f cache_read=%s input=%s claude=%s changes=%s"
         % (date_str, hit, read, cold, claude_ver, change_txt)
     )
+
+    # 2026-08-19 用户拍板方案①: 追加完自动 commit + push main(绕开 main-merge.sh 统一入口,
+    # 只动这一个文档文件、每天 23:30 安全窗口跑)。幂等无变更时跳过, 不制造空提交。
+    _git_commit_push_readme(date_str)
 
 
 def main():
