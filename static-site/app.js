@@ -8550,7 +8550,9 @@ function _applyDynamicToSparkFoot(results) {
 
 // 重渲染横幅 chips（盘中用动态值覆盖指数chip）
 function _applyDynamicToChips(snap) {
-  if (!_bannerRenderCtx || !_bannerRenderCtx.el) return;
+  // 2026-08-20 #12 同类排查: _bannerRenderCtx.el 可能指向 renderOverview 重建后已脱离 DOM 的横幅
+  //   (和 _homeNewsWrap 同类反模式) — 脱离节点的 querySelector/innerHTML 是静默 no-op,加 isConnected 守卫避免对死节点空操作。
+  if (!_bannerRenderCtx || !_bannerRenderCtx.el || !_bannerRenderCtx.el.isConnected) return;
   const host = _bannerRenderCtx.el.querySelector("#banner-chips-host");
   if (!host) return;
   const { s, type } = _bannerRenderCtx;
@@ -8563,7 +8565,7 @@ function _applyDynamicToChips(snap) {
 
 // 更新横幅时间标签 + 采集时间后缀（盘中用腾讯时间，收盘用snap时间）
 function _applyDynamicToBannerTime(snap) {
-  if (_bannerRenderCtx && _bannerRenderCtx.el) {
+  if (_bannerRenderCtx && _bannerRenderCtx.el && _bannerRenderCtx.el.isConnected) { // 2026-08-20 #12 同类: 防操作已脱离 DOM 的横幅(与 _homeNewsWrap 同反模式)
     const tl = _bannerRenderCtx.el.querySelector("#banner-time-label");
     if (tl) {
       const intraday = snap && snap.is_closed === false;
@@ -8603,7 +8605,7 @@ function _onMarketClosed() {
     el.classList.remove("dyn-updated");
   });
   const snap = state.intradaySnapshot;
-  if (_bannerRenderCtx) {
+  if (_bannerRenderCtx && _bannerRenderCtx.el && _bannerRenderCtx.el.isConnected) { // 2026-08-20 #12 同类: 防操作已脱离 DOM 的横幅
     _applyDynamicToChips(snap);
     _applyDynamicToBannerTime(snap);
     const p = _bannerRenderCtx.el.querySelector("#banner-pulse");
