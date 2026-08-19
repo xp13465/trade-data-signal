@@ -4,6 +4,7 @@
 供应商),source 标记透传到 daily_metric.source 便于溯源。fallback 抓取器实现在
 multisource.py(美财政部/HKEX官方/东财 push2delay/futsseapi/上交所IV自算QVIX)。
 """
+import threading
 from pathlib import Path
 
 import akshare as ak
@@ -26,6 +27,45 @@ SOURCE_HKEX = "hkex"          # hk_south: HKEX 官方 JS 反算南向净买额
 SOURCE_EM = "em"              # cn10y/a_turnover_rate/gold/美股全球指数: 东财
 SOURCE_SSE = "sse"            # qvix: 上交所官方 IV 方差互换自算(真异源,权威)
 SOURCE_RV_LOCAL = "rv_local"  # qvix 网底: 本地已实现波动率(口径差异,已公示)
+
+# ── 东财接口假死超时保护(2026-08-19 事故根因:akshare stock_hsgt_hist_em 内部 requests.get 无 timeout,
+# 东财连接挂起不返回时 safe_call 永久阻塞,backfill_evening 卡 4.7h + 21:00 漏跑;同类东财 _em 接口同隐患)。
+# daemon 线程 + join(timeout):东财挂起超时即放弃等待返回异常对象(fail → 异源兜底),不永久卡主流程。
+# 正常东财接口秒级返回,阈值足够宽裕,正常行为不变。
+_EM_SOCKET_TIMEOUT = 20.0
+
+
+def _is_eastmoney_func(func_name: str) -> bool:
+    """东财接口判定(内部 requests 无 timeout、源假死会永久挂起的集合)。"""
+    if not func_name:
+        return False
+    if func_name.endswith("_em"):
+        return True
+    # 东财接口但不以 _em 结尾的特例(us10y 主源 bond_zh_us_rate 也是东财 host)
+    if func_name in {"bond_zh_us_rate"}:
+        return True
+    return False
+
+
+def _safe_call_em(fn, **kwargs):
+    """东财接口 (akshare) 的超时 safe_call:daemon 线程执行 + join 超时,防东财假死永久卡死采集。
+
+    返回语义与 safe_call 一致(成功返回 df,失败返回异常对象;超时返回 TimeoutError 对象),
+    由调用方沿用既有的 `isinstance(res, Exception)` 判断走 fail / 异源兜底,不改变正常采集行为。
+    """
+    box = {}
+
+    def _run():
+        box["res"] = safe_call(fn, **kwargs)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(_EM_SOCKET_TIMEOUT)
+    if t.is_alive():
+        # 东财挂起:主流程放弃等待,返回超时异常走 fail/兜底;后台 daemon 线程在进程结束自动清理,
+        # 采集进程是定时任务,极端假死场景结束即回收,不阻塞本次其它指标采集。
+        return TimeoutError(f"东财接口 {getattr(fn, '__name__', fn)} 超过 {_EM_SOCKET_TIMEOUT}s 未返回(源假死),已放弃等待")
+    return box.get("res")
 
 
 def load_config():
@@ -277,7 +317,10 @@ def collect_series(metric, _source="akshare"):
         if df is None or len(df) == 0:
             return [], f"{metric['func']} empty", _source
     else:
-        df = safe_call(fn, **params)
+        if _is_eastmoney_func(metric["func"]):
+            df = _safe_call_em(fn, **params)  # 东财接口超时保护(防假死永久卡)
+        else:
+            df = safe_call(fn, **params)
         if isinstance(df, Exception) or df is None or len(df) == 0:
             # QVIX daily k.csv 主源(optbbs)空/错误:真异源链 sse -> RV(网底)
             if metric["func"] in RV_ETFS:
@@ -398,6 +441,8 @@ def _series_from_main(metric, fn):
             params.setdefault("end_date", today.strftime("%Y%m%d"))
         if metric["func"] == "bond_china_yield":
             df = _fetch_bond_china_yield(fn, int(metric.get("lookback_days", 3650)))
+        elif _is_eastmoney_func(metric["func"]):
+            df = _safe_call_em(fn, **params)  # 东财接口超时保护(防假死永久卡,超时 fail → 兜底)
         else:
             df = safe_call(fn, **params)
         if isinstance(df, Exception) or df is None or len(df) == 0:
@@ -511,7 +556,10 @@ def collect_snapshot(metric, date):
             params["date"] = date
         if func_name in DATE_RANGE_FUNCS:
             params.update(start_date=date, end_date=date)
-        df = safe_call(fn, **params)
+        if _is_eastmoney_func(func_name):
+            df = _safe_call_em(fn, **params)  # 东财接口超时保护(防假死永久卡)
+        else:
+            df = safe_call(fn, **params)
         if isinstance(df, Exception):
             return None, f"{func_name} error: {df}"
         if df is None or len(df) == 0:
@@ -602,7 +650,10 @@ def _apply_transform(df, metric, date):
             zt = 0.0
             f2 = metric.get("func2")
             if f2:
-                df2 = safe_call(getattr(ak, f2), date=date)
+                if _is_eastmoney_func(f2):
+                    df2 = _safe_call_em(getattr(ak, f2), date=date)  # 东财接口超时保护
+                else:
+                    df2 = safe_call(getattr(ak, f2), date=date)
                 if not isinstance(df2, Exception) and df2 is not None:
                     zt = float(len(df2))
             denom = zt + zhaban
@@ -735,7 +786,10 @@ def collect_board(board, date):
     fn = getattr(ak, board["func"], None)
     if fn is None:
         return [], f"no attr {board['func']}"
-    df = safe_call(fn)
+    if _is_eastmoney_func(board["func"]):
+        df = _safe_call_em(fn)  # 东财接口超时保护(防假死永久卡)
+    else:
+        df = safe_call(fn)
     if isinstance(df, Exception) or df is None or len(df) == 0:
         return [], f"{board['func']} empty/err"
     name_col = "板块名称" if "板块名称" in df.columns else df.columns[1]
