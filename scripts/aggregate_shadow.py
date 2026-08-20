@@ -204,9 +204,13 @@ def main() -> int:
 
     # 渲染影子追踪 md(维护 docs/ai-predict-shadow-track.md):回填后刷新"次日实际/命中"列。
     # 幂等——md 由 brief_shadow.json 全量渲染,重跑只反映"新增行/回填列"差异,不覆盖丢历史。
-    from pick_repo import pick_git_repo as _pick_git  # noqa: F401
-    from shadow_track_md import update_shadow_track_md as _upd_md
-    _upd_md(repo, _pick_git())  # repo=trade-data 数据根(JSON 所在);md 落 git 仓 trade/docs
+    try:
+        from pick_repo import pick_git_repo as _pick_git  # noqa: F401
+        from shadow_track_md import update_shadow_track_md as _upd_md
+        _upd_md(repo, _pick_git())  # repo=trade-data 数据根(JSON 所在);md 落 git 仓 trade/docs
+    except Exception:
+        # md 渲染失败不阻断聚算主链(影子 JSON 对账已落盘,下次还能补渲染)
+        pass
 
     _agg = _aggregate(rows)
     _agg["shadow_path"] = str(shadow_path)
