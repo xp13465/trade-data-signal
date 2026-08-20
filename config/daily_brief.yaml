@@ -83,3 +83,12 @@ review_enabled: true          # 生成时把 history 近30日方向偏差统计�
 #   ⚠️ 只加 T 不加 L 会让 8/18 这类「全席位大幅转多却次日暴跌」样本改错
 #      (2026-08-18 nq_chg=-1.302 纳指大跌压制转多)，故 T/L 必须一起加。
 direction_anchor_enabled: false
+
+# ── 反思=因子归因回灌(TA Reflector 内核,AI预测自成长轮次3,2026-08-20,默认关=线上注入逐字不变)──
+#   true  = build_reflection_inject 追加「待规避因子」段:聚合历史失败样本的 factor_attribution
+#           (_classify_failure 落盘归因到具体误导因子: L3纳指大跌压制看多/转空信号被当偏空/
+#           T1顺势看涨或均线多头强规则/T1当日失效/板块层失真)，把「该误导因子近期待规避倾向」
+#           回灌下次 build_prompt 系统提示作为约束，规避/加权已证误导的因子。
+#           与方向锚(语义教学)互补不互斥:归因列"某因子误导"，注入列"待规避"；同源同 DB 只读。
+#   false = 线上注入文本与改造前逐字一致(生产默认，§23.7 零改动)。
+reflection_factor_attribution_enabled: false

@@ -184,6 +184,10 @@ def load_config() -> dict:
     #   开关关→build_prompt/build_editor_messages 不注入方向锚,输出与改造前逐字一致(§23.7)；
     #   开关开→注入转折因子 T + 联动/压制因子 L 语义教学(见 _direction_anchor_semantics)。
     cfg.setdefault("direction_anchor_enabled", False)
+    # ── 反思=因子归因回灌开关(AI预测自成长轮次3,2026-08-20,默认关=线上注入逐字不变)──
+    #   开关关→build_reflection_inject 不追加「待规避因子」段,注入文本与改造前一致(§23.7)；
+    #   开关开→聚合历史失败样本 factor_attribution 回灌下次预测(见 build_attribut_inject)。
+    cfg.setdefault("reflection_factor_attribution_enabled", False)
     return cfg
 
 
@@ -2665,6 +2669,63 @@ def _reflect_news_digest_ref(backfilled_via: str, db_path: Path) -> tuple[str, s
     return "rule_based", None
 
 
+# ── 反思=因子归因回灌(TA Reflector 内核,2026-08-20):把错归因到具体误导因子 ──
+#   现状旧版只做规则级归因(direction_fail/partial/range_imprecise)+一句 summary,
+#   没归因到「具体哪个因子误导了方向」,也没把「该因子近期表现」回灌下次预测。
+#   本函数对失败日复用 _compute_direction_anchor(与方向锚同源同 DB 只读)现算当日因子状态,
+#   判断「预测方向 vs 当日因子语义方向」是否被某因子误导,产出 factor_attribution 归因列表。
+#   归因随样本落盘(reflections 记录),注入时聚合 top 误导因子 → 回灌下次 prompt 约束(见 build_attribut_inject)。
+def _attribut_factor(db_path: Path, date: str, pred: str, failure_type: str,
+                     actual_dir: str) -> list[dict]:
+    """对失败日做因子归因。返回 [{factor, dir, detail}] 或 [](无归因/db 不可用)。"""
+    if not db_path or failure_type == "direction_only":
+        return []
+    try:
+        f = _compute_direction_anchor(db_path, date)
+    except Exception:
+        return []
+    attrs: list[dict] = []
+    turns = f.get("turns") or []
+    to_long = [t for t in turns if t.get("turn_type") == "to_long"]
+    to_short = [t for t in turns if t.get("turn_type") == "to_short"]
+    ma_bull = f.get("ma_bull")
+    nq_low = bool(f.get("nq_open_low"))
+    nq_chg = f.get("nq_chg")
+    # 方向误判(direction_fail/老格式 direction_only)：归因到与预测反向冲突的当日因子语义
+    if failure_type in ("direction_fail", "direction_only", "range_imprecise") and pred and actual_dir:
+        if pred == "up" and nq_low:
+            attrs.append({
+                "factor": "L3纳指大跌压制看多", "dir": "外部压制",
+                "detail": f"当日纳指期货 nq_chg={nq_chg if nq_chg is not None else '--'}% 明显大跌，压制看多/转多信号"
+                          f"(方向锚 L3: 2026-08-18 全席位大幅转多却次日 -2.4 暴跌同因)。预测看涨被外部压制证伪。",
+            })
+        if pred == "down" and to_short:
+            attrs.append({
+                "factor": "转空信号被当偏空", "dir": "逆势",
+                "detail": "当日存在机构仓位转空信号(T)，方向锚语义=转空次日『逆势看涨』(全时段净流出≠偏空，8/14/8/17 验证；"
+                          "top20IC转空+均线多头=84%)。预测偏空与 T2/T3 逆势看涨语义冲突，被当日量价强空覆盖，"
+                          "提示勿把转空直接当偏空。",
+            })
+        if pred == "down" and to_long and ma_bull:
+            attrs.append({
+                "factor": "T1顺势看涨/均线多头强规则", "dir": "顺势",
+                "detail": "当日存在机构转多信号(T1，顺势看涨 64-66% 白名单)且 sh 收盘>20日线(均线多头,84% 强化)。"
+                          "预测偏空与 T1+均线多头看涨语义冲突。",
+            })
+        if pred == "up" and to_long and not nq_low and actual_dir == "down":
+            attrs.append({
+                "factor": "T1顺势看涨当日失效", "dir": "顺势失效",
+                "detail": "当日存在机构转多信号(T1)且无 L3 纳指外部压制，方向锚语义应顺势看涨，但次日实际下跌，"
+                          "T1 因子当日未兑现。(诚实标注:证明链路为当日因子状态，是否为长期失效需连续多日观测)",
+            })
+    elif failure_type == "partial":
+        attrs.append({
+            "factor": "板块/中间层失真", "dir": "区间层",
+            "detail": "方向对但板块/中间层判定有误(partial)，归因到板块层而非方向因子。",
+        })
+    return attrs
+
+
 def _classify_failure(it: dict, db_path: Path) -> dict | None:
     """对一个已回填历史条目做规则级失败归因;非失败(命中/N/A)返回 None。
     返回记录结构(字段见 REFLECTIONS_FILE 语义),供落盘。"""
@@ -2772,6 +2833,9 @@ def _classify_failure(it: dict, db_path: Path) -> dict | None:
         "evidence_source": evidence_source,
         "news_digest_ref": news_ref,
         "confidence": meta.get("confidence"),
+        # 反思=因子归因(TA Reflector 内核,2026-08-20):把错归因到具体误导因子。
+        #   只落盘,注入见 build_attribut_inject(受 cfg.reflection_factor_attribution_enabled 栅)。
+        "factor_attribution": _attribut_factor(db_path, date, pred, failure_type, actual_dir),
     }
 
 
@@ -2869,6 +2933,55 @@ def _reflection_tier(hit_rate):
     return "success"
 
 
+def build_attribut_inject(reflections: dict, date: str, cfg: dict, history: list | None = None) -> str:
+    """反思=因子归因回灌(TA Reflector 内核,2026-08-20):把「该误导因子近期待规避倾向」回灌下次预测。
+
+    与 build_reflection_inject 同源同时间隔离(walk-forward):只取 backfilled_via < date 的样本，
+    聚合这些失败样本的 factor_attribution(落盘于 _classify_failure),统计 top 误导因子、
+    连续出错倾向,生成「待规避因子约束」段叠加进 build_reflection_inject 的注入文本(作为第9条后追加约束)。
+
+    与方向锚语义互补不互斥:归因列的是「某因子当天误导了方向」,注入的是「该因子近期待规避」,
+    方向锚(语义教学)照常独立注入;两者同源同 DB,开 attr 注入时方向锚建议同时开(否则纯规避无正向替代)。
+    开关 cfg.reflection_factor_attribution_enabled(false 默认=线上注入文本逐字不变,可 A/B)。
+    返回注入约束段;未开/无可聚合/优秀档返回 ''。"""
+    if not cfg.get("reflection_factor_attribution_enabled", False):
+        return ""
+    if not cfg.get("review_enabled", True):
+        return ""
+    samples = reflections.get("samples") or []
+    past = [s for s in samples if s.get("backfilled_via") and s.get("backfilled_via") < date
+            and s.get("factor_attribution")]
+    if not past:
+        return ""
+    # 优秀档(>=90% 命中)不注入失败归因(与 build_reflection_inject 优秀档同口径,避免干扰已成功模式)
+    _, _, hit_rate = _strict_hit_rate(history, window=30)
+    if _reflection_tier(hit_rate) == "success":
+        return ""
+    # top 误导因子聚合:统计每个 factor 出现次数 + 最新一次详情
+    agg: dict[str, dict] = {}
+    for s in past:
+        for a in (s.get("factor_attribution") or []):
+            fac = a.get("factor") or ""
+            if not fac:
+                continue
+            e = agg.setdefault(fac, {"count": 0, "detail": "", "date": ""})
+            e["count"] += 1
+            if s.get("date", "") > e.get("date", ""):
+                e["date"], e["detail"] = s["date"], a.get("detail") or ""
+    # 按次数降序取 top3
+    top = sorted(agg.items(), key=lambda kv: kv[1]["count"], reverse=True)[:3]
+    if not top:
+        return ""
+    lines = []
+    for fac, e in top:
+        suffix = "（连续多次，建议重点规避）" if e["count"] >= 2 else ""
+        lines.append(f"  · {fac}：近 {e['count']} 次失败误判{suffix}。{e['detail']}")
+    header = (f"【待规避因子(反思归因回灌)】以下因子在近 {len(past)} 次失败预测中反复误导方向，"
+              "若本日出现该因子同态信号，请降低其权重或以反向结论交叉验证，勿直接依它下单向结论；"
+              f"但仍只引用本次注入数据，不臆造：\n")
+    return scrub_text(header + "\n".join(lines), cfg)
+
+
 def build_reflection_inject(reflections: dict, date: str, cfg: dict, history: list | None = None) -> str:
     """从 reflections.json 提取「预测日 date 之前已回填」的失败模式,生成注入文本(已 scrub)。
 
@@ -2931,6 +3044,11 @@ def build_reflection_inject(reflections: dict, date: str, cfg: dict, history: li
     else:
         hint = "请参考上述历史失败模式校准本次判断(尤其方向与幅度),但仍只引用本次注入数据,不臆造。"
     text = header + body + hint
+    # 反思=因子归因回灌(2026-08-20,TA Reflector 内核):聚合 top 误导因子待规避约束,叠加进注入文本。
+    #   受 cfg.reflection_factor_attribution_enabled 栅(false 默认=线上注入文本逐字不变)。
+    attr_inject = build_attribut_inject(reflections, date, cfg, history)
+    if attr_inject:
+        text += "\n" + attr_inject
     # 合规 scrub:注入文本过现有脱敏(不注入内部敏感/密钥,只注入失败模式描述)
     return scrub_text(text, cfg)
 
