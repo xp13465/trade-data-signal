@@ -7240,44 +7240,76 @@ function addCardTimeBadge(cardEl, dataDate, snap, srcClass, srcKey, isIndexSpark
   }
 }
 
-// 方案A(2026-08-07): 冰点日专用中性角标。近期冰点日卡片(recent_freeze 非空时)不复用 addCardTimeBadge,
-// 因 recent_freeze[0].date 是"冰点发生日"(历史事件),非"数据日期",用时效角标会被 getCardTimeBadge 判
-// "⚠ 滞后·MM-DD"(8/3<今日8/7 差4天)误报采集异常。改中性 t1-event 角标"📅 最新冰点日·MM-DD",
-// hover tooltip 说清缘由(冰点值+此后无新冰点+数据更新日期)。
-// recent_freeze 为空(120日无冰点)时不调用本函数,回退 addCardTimeBadge 用绿色 ovDate 时效角标(无 bug)。
+// 方案A(2026-08-07) 角标语义, 2026-08-20 #96 升级为"最新情绪日融合口径"。
+// 近90日情绪日历主体已融合(读 overview.sentiment_calendar, 每行 date+freeze[]+signals[] 双列),
+// 但角标原只读 recent_freeze(仅冰点日, 停在08-03, 08-18情绪信号没显示)=前端滞后。
+// 现升级: 角标读 sentiment_calendar[0] 最新情绪日, 动态显示该日信号/冰点两类徽标,
+// 语义从"最新冰点日"改为"最新情绪日"。仍用 t1-event 中性角标(情绪/冰点是历史事件,非数据日期,
+// 复用 addCardTimeBadge 会被 getCardTimeBadge 判"⚠ 滞后"误报采集异常)。
+// sentiment_calendar 缺失(旧数据源/后端未部署)时降级回 recent_freeze 渲染旧"最新冰点日"角标(§5.3 不白屏),
+// 两源皆空(120日无内容)回退 addCardTimeBadge 用绿色 ovDate 时效角标。
 function _fmtFreezeMmdd(dateStr) {
   if (!dateStr || dateStr.length !== 8) return dateStr || "";
   return `${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
 }
-function getFreezeEventBadgeHTML(recent_freeze, ovDate) {
+// 融合口径角标 HTML(2026-08-20 #96): 读 sentiment_calendar[0] 最新情绪日。
+// 角标文本: 两列并存→"冰点N+信号N"; 仅信号→"信号N条"; 仅冰点→"冰点N个"。
+// tip: 该日冰点值列表 + 信号条数 + 数据更新日期。数据是情绪分非恐贪, 不再沿用旧"恐贪<20 极度恐惧"口径。
+function getEmotionDayBadgeHTML(sentCal, ovDate) {
+  if (!Array.isArray(sentCal) || !sentCal.length || !sentCal[0] || !sentCal[0].date) return "";
+  const day = sentCal[0];
+  const mmdd = _fmtFreezeMmdd(day.date);
+  const ovMmdd = _fmtFreezeMmdd(ovDate);
+  const fr = Array.isArray(day.freeze) ? day.freeze : [];
+  const sigs = Array.isArray(day.signals) ? day.signals : [];
+  let label = `📅 最新情绪日·${mmdd}`;
+  if (fr.length && sigs.length) label += `(冰点${fr.length}+信号${sigs.length})`;
+  else if (sigs.length) label += `(信号${sigs.length}条)`;
+  else if (fr.length) label += `(冰点${fr.length}个)`;
+  const tipParts = [`📅 最新情绪日 ${mmdd}(近90日情绪日历最新一行, 冰点+情绪信号两列融合)`];
+  if (fr.length) {
+    tipParts.push("冰点值: " + fr.map((f) => `${indexIdToName(f.score_id)}${f.value != null ? Number(f.value).toFixed(1) : "--"}`).join("、"));
+  }
+  if (sigs.length) tipParts.push(`情绪信号${sigs.length}条(点击该日查看走势标注)`);
+  tipParts.push(`数据更新至 ${ovMmdd}`);
+  const tip = tipParts.join("；");
+  return `<span class="card-time-badge t1-event" data-tip="${tip.replace(/"/g, "&quot;")}">${label}</span>`;
+}
+// 旧口径角标 HTML(降级保留, 2026-08-20 #96): 仅当 sentiment_calendar 缺失时回退用。
+// recent_freeze 数据 = {date, value}(冰点值), 无 signals。仍显示"最新冰点日"。
+function getLegacyFreezeBadgeHTML(recent_freeze, ovDate) {
   if (!Array.isArray(recent_freeze) || !recent_freeze.length || !recent_freeze[0] || !recent_freeze[0].date) return "";
   const fr = recent_freeze[0];
   const mmdd = _fmtFreezeMmdd(fr.date);
-  const v = (fr.value != null && !isNaN(fr.value)) ? Number(fr.value).toFixed(2) : "--";
+  const v = (fr.value != null && !isNaN(fr.value)) ? Number(fr.value).toFixed(1) : "--";
   const ovMmdd = _fmtFreezeMmdd(ovDate);
-  const tip = `最新冰点日 ${mmdd}(恐贪${v},<20 极度恐惧)。此后至今无新冰点日(恐贪回升均>20,市场正常回升),非数据异常。数据更新至 ${ovMmdd}。`;
+  const tip = `最新冰点日 ${mmdd}(冰点值${v})。此后至今无新冰点日(情绪分回升>20,市场正常回升),非数据异常。数据更新至 ${ovMmdd}。`;
   return `<span class="card-time-badge t1-event" data-tip="${tip.replace(/"/g, "&quot;")}">📅 最新冰点日·${mmdd}</span>`;
 }
-// cardEl: 冻点卡片节点; recent_freeze: overview.recent_freeze; ovDate: overview.date; snap: intraday 快照
-// recent_freeze 为空(120日无冰点): 回退 addCardTimeBadge 用 ovDate + useOverviewDate=true(原 LOW-1 行为,轮询刷新)
-// recent_freeze 非空: 渲染 t1-event 中性角标, 打 data-badge-freeze/ovdate/date 供 refreshCardTimeBadges 重绘
-function addFreezeEventBadge(cardEl, recent_freeze, ovDate, snap) {
+// cardEl: 情绪日历卡片节点; sentCal: overview.sentiment_calendar(融合口径, 首选);
+// recentFreeze: overview.recent_freeze(旧口径, sentCal 缺失时降级); ovDate: overview.date; snap: intraday 快照
+// 两源皆空(120日无内容): 回退 addCardTimeBadge 用 ovDate + useOverviewDate=true(原 LOW-1 行为,轮询刷新)
+// 任一源有内容: 渲染 t1-event 中性角标, 打 data-badge-freeze/ovdate/date 供 refreshCardTimeBadges 重绘
+function addFreezeEventBadge(cardEl, sentCal, recentFreeze, ovDate, snap) {
   if (!cardEl) return;
-  if (!Array.isArray(recent_freeze) || !recent_freeze.length || !recent_freeze[0] || !recent_freeze[0].date) {
-    // 空 recent_freeze(120日无冰点): 保持原绿色时效角标行为(useOverviewDate=true 轮询刷新 ovDate), 无回归
+  const scOk = Array.isArray(sentCal) && sentCal.length && sentCal[0] && sentCal[0].date;
+  const rfOk = Array.isArray(recentFreeze) && recentFreeze.length && recentFreeze[0] && recentFreeze[0].date;
+  if (!scOk && !rfOk) {
+    // 两源皆空(120日无内容): 保持原绿色时效角标行为(useOverviewDate=true 轮询刷新 ovDate), 无回归
     addCardTimeBadge(cardEl, ovDate, snap, "t0", "", false, true);
     return;
   }
-  const html = getFreezeEventBadgeHTML(recent_freeze, ovDate);
+  const html = scOk ? getEmotionDayBadgeHTML(sentCal, ovDate) : getLegacyFreezeBadgeHTML(recentFreeze, ovDate);
+  const dateStr = scOk ? (sentCal[0].date || "") : (recentFreeze[0].date || "");
   if (!html) return;
   const tmp = document.createElement("div");
   tmp.innerHTML = html;
   const badge = tmp.firstElementChild;
   if (!badge) return;
-  // data-badge-date: 选择器匹配(.card-time-badge[data-badge-date]) + 存冰点日供兜底;
-  // data-badge-freeze="1": refreshCardTimeBadges 据此走冰点专用重绘(读最新 _ov.recent_freeze+_ov.date);
-  // data-badge-ovdate="1": 语义同原(overview 刷新后角标需更新), 冰点分支已统一处理
-  badge.setAttribute("data-badge-date", recent_freeze[0].date || "");
+  // data-badge-date: 选择器匹配(.card-time-badge[data-badge-date]) + 存最新情绪日/冰点日供兜底;
+  // data-badge-freeze="1": refreshCardTimeBadges 据此走情绪日专用重绘(读最新 _ov.sentiment_calendar[0]/recent_freeze[0]+_ov.date);
+  // data-badge-ovdate="1": 语义同原(overview 刷新后角标需更新), 情绪日分支已统一处理
+  badge.setAttribute("data-badge-date", dateStr);
   badge.setAttribute("data-badge-src", "t0");
   badge.setAttribute("data-badge-freeze", "1");
   badge.setAttribute("data-badge-ovdate", "1");
@@ -7386,24 +7418,30 @@ function refreshCardTimeBadges(snap) {
     }
   }
   document.querySelectorAll(".card-time-badge[data-badge-date]").forEach((badge) => {
-    // 方案A(2026-08-07): 冰点日专用中性角标, 不走 getCardTimeBadge 时效判定(冰点日是历史事件非数据日期)。
-    // 打了 data-badge-freeze="1" 的角标, 用最新 _ov.recent_freeze[0] + _ov.date 重算中性角标(刷新冰点值/数据日期)。
+    // 方案A(2026-08-07)+#96融合口径: 情绪日专用中性角标, 不走 getCardTimeBadge 时效判定(情绪/冰点是历史事件非数据日期)。
+    // 打了 data-badge-freeze="1" 的角标, 首选读最新 _ov.sentiment_calendar[0](融合最新情绪日)重算;
+    // 缺失降级读 _ov.recent_freeze[0](冰点日), 均用 _ov.date 刷新数据日期。
     if (badge.getAttribute("data-badge-freeze") === "1") {
-      const rf = _ov && Array.isArray(_ov.recent_freeze) ? _ov.recent_freeze : [];
-      const newHTML = getFreezeEventBadgeHTML(rf, _ov ? _ov.date : "");
+      const _sc = _ov && Array.isArray(_ov.sentiment_calendar) ? _ov.sentiment_calendar : [];
+      const _rf = _ov && Array.isArray(_ov.recent_freeze) ? _ov.recent_freeze : [];
+      const _scOk = _sc.length && _sc[0] && _sc[0].date;
+      const _rfOk = _rf.length && _rf[0] && _rf[0].date;
+      const newHTML = _scOk ? getEmotionDayBadgeHTML(_sc, _ov ? _ov.date : "")
+                            : (_rfOk ? getLegacyFreezeBadgeHTML(_rf, _ov ? _ov.date : "") : "");
       if (newHTML) {
+        const newDate = _scOk ? (_sc[0].date || "") : (_rf[0].date || "");
         const tmp = document.createElement("div");
         tmp.innerHTML = newHTML;
         const newBadge = tmp.firstElementChild;
         if (newBadge) {
-          newBadge.setAttribute("data-badge-date", rf && rf[0] && rf[0].date ? rf[0].date : "");
+          newBadge.setAttribute("data-badge-date", newDate);
           newBadge.setAttribute("data-badge-src", "t0");
           newBadge.setAttribute("data-badge-freeze", "1");
           newBadge.setAttribute("data-badge-ovdate", "1");
           badge.replaceWith(newBadge);
         }
       }
-      return;  // 跳过下方 getCardTimeBadge 时效判定路径(冰点角标非时效语义)
+      return;  // 跳过下方 getCardTimeBadge 时效判定路径(情绪日角标非时效语义)
     }
     let dataDate = badge.getAttribute("data-badge-date") || "";
     const srcClass = badge.getAttribute("data-badge-src") || "t0";
@@ -12050,8 +12088,9 @@ async function renderOverview() {
   // 方案A(2026-08-07): 冰点日专用中性角标。recent_freeze[0].date 是"冰点发生日"(历史事件)非数据日期,
   // 复用 addCardTimeBadge 会被 getCardTimeBadge 判"⚠ 滞后·MM-DD"误报异常(8/3<今日8/7 差4天)。
   // 改专用 t1-event 中性角标"📅 最新冰点日·MM-DD"+hover 缘由(冰点值+此后无新冰点+数据更新日期)。
-  // recent_freeze 为空(120日无冰点)时 addFreezeEventBadge 内部回退 addCardTimeBadge 用绿色 r.date 角标(无 bug)。
-  addFreezeEventBadge(freezeCard, r.recent_freeze, r.date, snap);
+  // 融合口径角标(2026-08-20 #96): 读 _sentCal(sentiment_calendar[0] 最新情绪日), 缺失降级 r.recent_freeze(旧冰点),
+  // 两源皆空回退 addCardTimeBadge 绿色 r.date 角标(内部处理, 无 bug)。
+  addFreezeEventBadge(freezeCard, _sentCal, r.recent_freeze, r.date, snap);
   // 点击冰点日卡片弹窗：展示该情绪分走势图+冰点(≤20)标注
   freezeCard.addEventListener("click", (e) => {
     const item = e.target.closest(".sig-clickable");
