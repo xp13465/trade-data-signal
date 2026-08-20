@@ -24,6 +24,7 @@
 | `docs/ai-predict-offtrack-rootcause-20260820.md` | 三层缺环根因 | ✅ 已落档 |
 | `docs/ai-predict-direction-market-winning-signals-20260820.md` | 信号胜率榜+影响面图谱(311行,10脚本) | ✅ 已落档 |
 | `docs/ai-predict-director-industry-method-20260820.md` | 业界多因子/背向修正/HMM/漂移监控(178行,36URL) | ✅ 已落档 |
+| `docs/ai-predict-shadow-validate-20260820.md` | 方向锚/归因影子模式 7 天 A/B 验证(定义+协议+复现) | ✅ 已落档(实施期) |
 
 **已确证方向锚（白名单）：**
 - 任一强转向 OR → 次日涨 65%（n=254，逐年55/66/79）——喂预测首选合成器
@@ -75,6 +76,17 @@
 - **实现（commit 9a47bae97）**：`gen_daily_brief.py` 新增 `_attribut_factor`（失败日复用 `_compute_direction_anchor` 现算当日因子，归因到 L3纳指大跌压制看多/转空信号被当偏空/T1顺势看涨或均线多头强规则/T1当日失效/板块层失真，落盘 `factor_attribution`）+ `build_attribut_inject`（聚合 top 误导因子+连续出错倾向，生成「待规避因子」约束段叠加进 `build_reflection_inject`）。config 开关 `reflection_factor_attribution_enabled: false` 默认关=线上注入逐字不变。与方向锚互补不互斥（同源同 DB 只读）。
 - **README 措辞修正**：AI 速递编排受 TradingAgents-CN/原版多智能体辩论架构启发，但预测所用方向锚信号胜率/因子权重为自研 8 年数据挖掘成果，非抄；致敬 TradingAgents 段保留。
 - **自验**：真实 DB 三样本 8/18→L3纳指大跌压制看多（nq=-1.302）、8/17/8/14→转空信号被当偏空+T1顺势看涨，归因与方向锚回放结论一致；cfg 无开关 key 与显式 False 时注入文本逐字一致（off 线上不变）；on 聚合归因段正确。详见 `docs/ai-predict-reflection-factor-attribution-20260820.md`。
+
+**✅ 影子模式验证实施记录（2026-08-20,implementer,用户拍板"7 真实交易日用数据决定开/不开/改"）**
+- **动机**：方向锚/归因都已合入但全默认关——"关着=一点数据都不采"；用户要 7 天真实 A/B，必须先有影子旁路把"方向锚会预测什么方向"逐日落盘，次日回填实际，聚算命中率再拍板。契约全文 `docs/ai-predict-shadow-validate-20260820.md`。
+- **实现**：
+  1. `gen_daily_brief.py` 新增 `_shadow_lean(factors)`（与 `_direction_anchor_semantics`/**`_attribut_factor`** 同源同因子字段合成 lean：任一强转多→up；强转空→逆势 up；L3 纳指大跌→压过看多打回 flat；无T+均线多头→soft up；均无→flat）+ `record_shadow(date,cfg,db,repo)`（按 date 旁路落盘 `data/brief_shadow.json`，幂等去重老日期保留）。
+  2. `main()` load_data 后新增旁路调用（无论方向锚开关开否都算一次，写在 AI 生成前保证 AI 降级也有影子样本）；`_compute_direction_anchor` 加同 (db,date) FIFO 缓存，影子+实列同键只读一次 DB（"不算双份"）。
+  3. `scripts/aggregate_shadow.py`（新建）：回填影子记录下一交易日 sh 实际方向（index_daily，HIT_THRESHOLD=0.5 同 `_actual_direction` 口径，幂等）+ 聚算（命中率/按lean分桶/top误导向量/flat空转单列），支持 `--date` 单日对账、无 DB/无下一交易日落空不硬判。
+  4. `config/daily_brief.yaml` 加 `shadow_mode_enabled: true`（默认开=收集数据，但只控制旁路落盘，不注入线上——线上仍由 direction/reflection 两闸决定，默认关=prompt 逐字不变）。
+- **零注入自验证据**：`direction_anchor_enabled=false` 时 dump `build_prompt` sys_text，`方向锚/T2/T3逆势看涨/压制信号/转空/shadow` 全 False（影子串零泄漏，线上文本逐字一致）。
+- **影子语义与实列同源证据**：影子 lean 与回放/归因读同一批 `turns(MA)/ma_bull/nq_chg/nq_open_low/rate_down_channel` ，8/19 真实样本 to_short×4 且无 L3 → lean=up("T2/T3转空×4(逆势看涨8/14·8/17)")，与语义"转空逆势看涨"逐字同构。
+- **待 7 天数据决策**：满 7 真实交易日后跑 `python scripts/aggregate_shadow.py` 最终聚算，主控报用户拍板开/不开/改（shadow 不影响线上默认，§5.4⑥ 未发版本）。
 
 ### 后续轮次（每轮独立验证，不一口吞）
 1. **打分制合成**（华泰 A₂ 分层投票，每信号+1/0/-1，只留方向不带仓位）

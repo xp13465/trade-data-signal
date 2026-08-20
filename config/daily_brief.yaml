@@ -92,3 +92,12 @@ direction_anchor_enabled: false
 #           与方向锚(语义教学)互补不互斥:归因列"某因子误导"，注入列"待规避"；同源同 DB 只读。
 #   false = 线上注入文本与改造前逐字一致(生产默认，§23.7 零改动)。
 reflection_factor_attribution_enabled: false
+
+# ── 影子模式(2026-08-20,验证机制,默认 true=好收集数据)──────────────────
+#   true  = 主流程后台旁路调用一次 _compute_direction_anchor(db,date) 合成影子 lean,
+#           按 date 落盘 data/brief_shadow.json；次日由 scripts/aggregate_shadow.py 回填实际
+#           方向聚算 7 天命中率，供用户拍板开/不开/改(§5.4 当前基准 v1.1.2 未动)。
+#   ⚠️ 影子是"旁路记录,零注入":即使 true，线上 prompt(direction_anchor_enabled/reflection
+#      _factor_attribution_enabled)仍全关时逐字不变——shadow 只写 data/，不发邮件/通知/不写主链。
+#   验证期默认开；正式决策后再决定保留/关闭(影子文件根 data/,本地不进 git)。
+shadow_mode_enabled: true

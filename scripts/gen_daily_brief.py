@@ -188,6 +188,10 @@ def load_config() -> dict:
     #   开关关→build_reflection_inject 不追加「待规避因子」段,注入文本与改造前一致(§23.7)；
     #   开关开→聚合历史失败样本 factor_attribution 回灌下次预测(见 build_attribut_inject)。
     cfg.setdefault("reflection_factor_attribution_enabled", False)
+    # ── 影子模式开关(2026-08-20,验证机制,默认 true=好收集数据)：──
+    #   只控制「旁路落盘 data/brief_shadow.json + 影子 lean」，不注入线上——即使 true,
+    #   线上 prompt 仍逐字不变(direction_anchor_enabled/reflection 才是注入闸)。验证期默认开。
+    cfg.setdefault("shadow_mode_enabled", True)
     return cfg
 
 
@@ -202,10 +206,20 @@ _ROLE_LABEL = {"中信期货": "中信", "top20": "机构top20", "国泰君安":
 _VAR_ORDER = ("综合", "IC", "IM", "IF", "IH")
 
 
+_DIRECTION_ANCHOR_CACHE: dict = {}
+_DIRECTION_ANCHOR_CACHE_MAX = 16
+
+
 def _compute_direction_anchor(db_path: Path, date: str) -> dict:
     """按 date 从 DB 计算方向锚因子（转折 T + 联动/压制 L），返回 dict 供语义教学。
 
     口径对齐 docs/ai-predict-direction-market-winning-signals-20260820.md：
+    - 同 (db_path, date) 结果确定性唯一；影子模式(旁路后台计算)与实列(注入)共用本函数，
+      用模块级小缓存 LRU 去重，避免同 date「影子算一次 + 注入算一次」双份重复读 DB。
+      （仅键命中同 (db, date) 才复用，scoping 见 _DIRECTION_ANCHOR_CACHE_MAX 上限，不会过期污染——
+       方向锚因子都按 date 从 DB 只读取当日值，同 (db,date) 结果恒定。）
+
+    旧注释口径保留：
     - net_chg = long_chg - short_chg；转多日=连续≥2日 net<0 后当日转 net>0；
       转空日=连续≥2日 net>0 后当日转 net<0。
     - 均线多头 = 上证 sh 当日 close > 20日 close 均值（滚动，含当日）。
@@ -213,6 +227,10 @@ def _compute_direction_anchor(db_path: Path, date: str) -> dict:
     - 美债10Y上行→黄金跌 = 当日 us10y 变化的负相关背景（L1）。
     - 纳指期货大跌 = us_futures_nq_chg 明显为负（L3 压制看多）。
     """
+    ck = (str(db_path), str(date))
+    cached = _DIRECTION_ANCHOR_CACHE.get(ck)
+    if cached is not None:
+        return dict(cached)  # 影子/实列同 (db,date) 共用，避免双份重复读 DB
     out = {
         "date": date, "turns": [], "ma_bull": None, "us10y": None,
         "rate_down_channel": None, "gold": None, "nq_chg": None,
@@ -221,7 +239,8 @@ def _compute_direction_anchor(db_path: Path, date: str) -> dict:
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=15)
     except Exception:
-        return out
+        _DIRECTION_ANCHOR_CACHE[ck] = dict(out)
+        return dict(out)
     try:
         cur = conn.cursor()
         # ── 转折 T:按 (role,variety) 的 net_chg 序列检测转向日 ──
@@ -295,9 +314,14 @@ def _compute_direction_anchor(db_path: Path, date: str) -> dict:
         out["nq_chg"] = nq
         # 纳指大跌判断：当日纳指期货涨跌幅明显为负（<= -0.8% 视为压制看多阈值，对齐 8/18=-1.302 样本）
         out["nq_open_low"] = bool(nq is not None and nq <= -0.8)
+        # 写入确定性缓存（同 (db,date) 结果恒定）：简单 FIFO 淘汰,超上限只丢最旧键,不影响正确性
+        _DIRECTION_ANCHOR_CACHE[ck] = dict(out)
+        if len(_DIRECTION_ANCHOR_CACHE) > _DIRECTION_ANCHOR_CACHE_MAX:
+            _evict = next(iter(_DIRECTION_ANCHOR_CACHE))
+            _DIRECTION_ANCHOR_CACHE.pop(_evict, None)
     finally:
         conn.close()
-    return out
+    return dict(out)
 
 
 def _direction_anchor_semantics(factors: dict, date: str) -> str:
@@ -351,6 +375,118 @@ def _direction_anchor_semantics(factors: dict, date: str) -> str:
     lines.append("  方向合成: 转折因子 T 为主权重(64-84%)、联动因子 L 为辅助(53-60%),"
                  "L3 纳指大跌可压过 T1 转多看涨。")
     return "\n".join(lines)
+
+
+# ── 影子模式：方向锚影子 lean 合成 + 逐日落盘(2026-08-20,验证机制,不注入线上)──
+# 定义:影子模式在线上输出完全不变的前提下，后台把「方向锚/归因会预测什么方向」按 date
+#       落盘(data/brief_shadow.json)，次日真实盘后回填实际方向，聚算 7 天命中率供用户拍板
+#       开/不开/改(§5.4 当前基准 v1.1.2 未动——影子不改变任何线上默认输出)。
+# 核心约束:与 _direction_anchor_semantics 同源同因子字段，绝不再造一套语义（防影子与实列不同构）。
+#          开关 direction_anchor_enabled 只控制「注入」，不控制「影子计算」——影子永远旁路算。
+SHADOW_FILE = "brief_shadow.json"   # 影子预测逐日落盘(根 data/,本地不进 git)
+
+
+def _shadow_lean(factors: dict) -> dict:
+    """把方向锚因子合成一个影子方向 lean(up/down/flat)。语义规则必须与
+    _direction_anchor_semantics / _attribut_factor 完全同构（读同一批因子字段），
+    不新造口径。返回值: {lean, basis: [短依据...], strength, date}。
+    """
+    turns = factors.get("turns") or []
+    to_long = [t for t in turns if t.get("turn_type") == "to_long"]
+    to_short = [t for t in turns if t.get("turn_type") == "to_short"]
+    ma_bull = factors.get("ma_bull")
+    nq_low = bool(factors.get("nq_open_low"))
+    nq_chg = factors.get("nq_chg")
+    basis: list[str] = []
+
+    # 主权重 T：任一强转多(T1 顺势看涨,64-66%)→ lean=up；任一强转空(T2/T3)→ 逆势看涨,lean=up(非 down!)
+    has_to_long = bool(to_long)
+    has_to_short = bool(to_short)
+    if has_to_long:
+        basis.append(f"T1转多×{len(to_long)}(顺势看涨64-66%)")
+    if has_to_short:
+        basis.append(f"T2/T3转空×{len(to_short)}(逆势看涨8/14·8/17)")
+    # 辅助:L3 纳指大跌可压过 T1 转多看涨(2026-08-18 样本);与 lean 冲突按压制处理
+    if nq_low:
+        basis.append(f"L3纳指大跌(nq={nq_chg if nq_chg is not None else '--'}%)压制看多")
+
+    # 合成 lean(与 _direction_anchor_semantics 方向合成句同逻辑):
+    #   T1 and not L3压制 → up；T2逆势看涨 → up(只要 has_to_short 也偏 up,除非 L3 压制把 up 打回 down/flat)
+    #   L3 是唯一能把 up 打回非 up 的压制因子(权重最大,可压过 T1)。
+    if has_to_long or has_to_short:
+        if nq_low:
+            # L3 压过 T：看多被打压 → lean 回归中性(不硬猜 down,压制≠转空证据)
+            lean = "flat"
+            basis.append("L3压制>看多信号→转震荡(压过T)")
+        else:
+            lean = "up"
+    elif ma_bull is True:
+        # 无转向信号但均线多头：方向强度偏多但无 T 主权重,给 soft up
+        lean = "up"
+        basis.append("无T转向+sh>20日线均线多头(弱顺势)")
+    else:
+        # 无强 T 信号且无均线多头：无方向依据 → flat
+        lean = "flat"
+        basis.append("无T转向/无均线多头→中性")
+
+    return {
+        "lean": lean,
+        "basis": basis,
+        "strength": "strong" if (has_to_long or has_to_short) and not nq_low else "weak",
+        "date": factors.get("date"),
+    }
+
+
+def _load_shadow(shadow_path: Path) -> list[dict]:
+    try:
+        obj = json.loads(shadow_path.read_text(encoding="utf-8"))
+        if isinstance(obj, list):
+            return obj
+    except Exception:
+        pass
+    return []
+
+
+def record_shadow(date: str, cfg: dict, db_path: Path, repo: Path) -> dict | None:
+    """影子模式旁路记录(不注入、不写主链、不发邮件/通知)。无论 direction_anchor_enabled
+    开否,都在主流程调一次 _compute_direction_anchor(db,date) 合成本日影子 lean,按 date 追加
+    落盘 data/brief_shadow.json(不去重旧日期)。返回记录的 dict(供日志),失败=None。
+    """
+    try:
+        factors = _compute_direction_anchor(db_path, date)   # 复用缓存,影子与实列同源
+        lean = _shadow_lean(factors)
+        shadow_path = repo / "data" / SHADOW_FILE
+        rows = _load_shadow(shadow_path)
+        # 幂等:同 date 已记录则覆盖旧记录(同 date 只保留一条最新,去重=不重复算),
+        # 老日期都保留不用新覆盖(append 语义对"7天逐日"正确)。
+        rec = {
+            "date": date,
+            "shadow_mode_enabled": bool(cfg.get("shadow_mode_enabled", True)),
+            "direction_anchor_enabled": bool(cfg.get("direction_anchor_enabled", False)),
+            "reflection_factor_attribution_enabled": bool(
+                cfg.get("reflection_factor_attribution_enabled", False)),
+            "direction_anchor_computed": bool(factors.get("turns")),
+            "pred_shadow": lean["lean"],
+            "strength": lean["strength"],
+            "basis": lean["basis"],
+            "factors": {
+                "turns": factors.get("turns"),
+                "ma_bull": factors.get("ma_bull"),
+                "rate_down_channel": factors.get("rate_down_channel"),
+                "us10y": factors.get("us10y"),
+                "gold": factors.get("gold"),
+                "nq_chg": factors.get("nq_chg"),
+                "nq_open_low": factors.get("nq_open_low"),
+            },
+            "actual": None,  # 次日真实盘后由 aggregate_shadow 回填(sh 涨跌幅+方向)
+        }
+        rows = [r for r in rows if r.get("date") != date] + [rec]
+        shadow_path.parent.mkdir(parents=True, exist_ok=True)
+        shadow_path.write_text(
+            json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+        return rec
+    except Exception:
+        return None
 
 
 # ── 数据加载(P1-8 数据锚定:以 JSON 结构给模型)────────────────────────────
@@ -3491,6 +3627,17 @@ def main() -> int:
     # AI 预测自成长闭环(Step 1):加载失败反思(根 data/,本地不进 git),供注入与落盘
     reflections_path = repo / "data" / REFLECTIONS_FILE
     reflections = _load_reflections(reflections_path)
+
+    # ── 影子模式旁路记录(2026-08-20,验证机制)：无论 direction_anchor_enabled 开否,都后台
+    #   算一次方向锚 + 合成影子 lean 按 date 落盘 data/brief_shadow.json(不注入,不发邮件/通知)。
+    #   写在 AI 生成之前:即使 AI 降级 rule/minimal,影子照样记录(影子价值=独立于线上预测的
+    #   备选信号,需 7 天逐日样本)。开关只在 config 控制,线上 prompt 逐字不受影响。
+    _shadow_rec = None
+    if cfg.get("shadow_mode_enabled", True):
+        _shadow_rec = record_shadow(date, cfg, db_path, repo)
+        if _shadow_rec:
+            log(f"影子记录 date={date} lean={_shadow_rec['pred_shadow']} "
+                f"strength={_shadow_rec['strength']} basis={len(_shadow_rec['basis'])}")
 
     # 数据源数据量(供 run_log + 监控)
     data_sources = {
