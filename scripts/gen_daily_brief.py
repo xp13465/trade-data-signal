@@ -180,7 +180,173 @@ def load_config() -> dict:
         "effort": "high",
         "model": "deepseek-v4-flash",
     })
+    # ── 方向锚语义教学开关(AI预测升级第一步,2026-08-20,默认关=线上 prompt 零改动)──
+    #   开关关→build_prompt/build_editor_messages 不注入方向锚,输出与改造前逐字一致(§23.7)；
+    #   开关开→注入转折因子 T + 联动/压制因子 L 语义教学(见 _direction_anchor_semantics)。
+    cfg.setdefault("direction_anchor_enabled", False)
     return cfg
+
+
+# ── 方向锚语义教学:数据因子计算 + 教学文生成(2026-08-20,AI预测升级第一步)──
+# 对应影响面知识图谱 C 节调用逻辑(转折因子 T 主权重 + 联动/压制因子 L 辅助权重)。
+# 核心设计（主控数据自检确认）：T/L 必须一起加——只加 T 不加 L，8/14 改对但 8/18
+# 反而改错（2026-08-18 全席位大幅转多却次日 -2.4 暴跌，需 L3 纳指大跌压制 T1）。
+# 数据全从 sentiment.db 按 date 实时取（futures_position/daily_metric/index_daily），全只读，
+# 与 `--date` 历史回放天然对齐（障碍① 的 inst_ih_trend 读当前 futures.json 不在此列）。
+# 本函数自开只读连接，不依赖 load_data 已开连接，故不改变 data 注入域（开关关=线上 prompt 零改动）。
+_ROLE_LABEL = {"中信期货": "中信", "top20": "机构top20", "国泰君安": "国泰君安"}
+_VAR_ORDER = ("综合", "IC", "IM", "IF", "IH")
+
+
+def _compute_direction_anchor(db_path: Path, date: str) -> dict:
+    """按 date 从 DB 计算方向锚因子（转折 T + 联动/压制 L），返回 dict 供语义教学。
+
+    口径对齐 docs/ai-predict-direction-market-winning-signals-20260820.md：
+    - net_chg = long_chg - short_chg；转多日=连续≥2日 net<0 后当日转 net>0；
+      转空日=连续≥2日 net>0 后当日转 net<0。
+    - 均线多头 = 上证 sh 当日 close > 20日 close 均值（滚动，含当日）。
+    - 利率下行通道 = us10y 当日 < 20日 us10y 均值（共同因子 L2）。
+    - 美债10Y上行→黄金跌 = 当日 us10y 变化的负相关背景（L1）。
+    - 纳指期货大跌 = us_futures_nq_chg 明显为负（L3 压制看多）。
+    """
+    out = {
+        "date": date, "turns": [], "ma_bull": None, "us10y": None,
+        "rate_down_channel": None, "gold": None, "nq_chg": None,
+        "nq_open_low": None,
+    }
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=15)
+    except Exception:
+        return out
+    try:
+        cur = conn.cursor()
+        # ── 转折 T:按 (role,variety) 的 net_chg 序列检测转向日 ──
+        rows = cur.execute(
+            "SELECT date,variety,role,long_chg,short_chg FROM futures_position ORDER BY date"
+        ).fetchall()
+        series: dict = {}  # (role,var) -> [(date,net_chg)]
+        for d, var, role, lc, sc in rows:
+            if lc is None or sc is None:
+                continue
+            series.setdefault((role, var), []).append((d, lc - sc))
+        for (role, var), seq in series.items():
+            netmap = dict(seq)
+            if date not in netmap:
+                continue
+            all_dates = [d for d, _ in seq]
+            i = all_dates.index(date)
+            net_now = netmap[date]
+            if net_now == 0:
+                continue
+            sig_now = 1 if net_now > 0 else -1
+            # 向前数连续同符号日（run>=2 才构成"转向"基准，对齐 mine_turn_split_stability）
+            prev_sig = None
+            run = 0
+            j = i - 1
+            while j >= 0:
+                n = netmap.get(all_dates[j])
+                if n is None or n == 0:
+                    j -= 1
+                    continue
+                s = 1 if n > 0 else -1
+                if prev_sig is None or s == prev_sig:
+                    prev_sig, run = s, run + 1
+                    j -= 1
+                else:
+                    break
+            turn_type = None
+            if prev_sig is not None and run >= 2 and sig_now != prev_sig:
+                turn_type = "to_long" if sig_now == 1 else "to_short"
+            out["turns"].append({
+                "role": role, "variety": var,
+                "net_chg": int(net_now), "net_position": None,
+                "turn_type": turn_type, "prev_sig": prev_sig, "run": run,
+            })
+        # ── 均线多头（sh close > ma20, 含当日滚动）──
+        mrows = cur.execute(
+            "SELECT date,close FROM index_daily WHERE index_id='sh' AND date<=? "
+            "AND close IS NOT NULL ORDER BY date DESC LIMIT 20", (date,)
+        ).fetchall()
+        if len(mrows) >= 20:
+            closes = [r[1] for r in mrows]
+            ma20 = sum(closes) / 20.0
+            out["ma_bull"] = bool(closes[0] > ma20)  # 当日 close > ma20
+        # ── 联动/压制 L:利率/黄金/纳指 ──
+        def _m(mid):
+            r = cur.execute(
+                "SELECT value FROM daily_metric WHERE date=? AND metric_id=?",
+                (date, mid)).fetchone()
+            return r[0] if r and r[0] is not None else None
+        us10y_now = _m("us10y")
+        out["us10y"] = us10y_now
+        urows = cur.execute(
+            "SELECT value FROM daily_metric WHERE metric_id='us10y' AND date<=? "
+            "AND value IS NOT NULL ORDER BY date DESC LIMIT 20", (date,)
+        ).fetchall()
+        if us10y_now is not None and len(urows) >= 20:
+            u_ma20 = sum(r[0] for r in urows) / 20.0
+            out["rate_down_channel"] = bool(us10y_now < u_ma20)
+        out["gold"] = _m("gold")
+        nq = _m("us_futures_nq_chg")
+        out["nq_chg"] = nq
+        # 纳指大跌判断：当日纳指期货涨跌幅明显为负（<= -0.8% 视为压制看多阈值，对齐 8/18=-1.302 样本）
+        out["nq_open_low"] = bool(nq is not None and nq <= -0.8)
+    finally:
+        conn.close()
+    return out
+
+
+def _direction_anchor_semantics(factors: dict, date: str) -> str:
+    """把方向锚因子转成中文语义教学段（喂 build_prompt/build_editor_messages 系统提示）。
+    转折因子 T=主权重、联动/压制因子 L=辅助权重。只返回教学规则+当日因子状态，
+    不给指令词、不越合规红线（讲解用"转多/转空/看涨/看跌"方向语义，非交易指令）。
+    """
+    if not factors or not factors.get("turns"):
+        return ""
+    lines = [
+        f"【方向锚(影响面知识图谱 C 节,仅供参考方向研判)】基准=全时段机构持仓逆向无效(49.2%)，"
+        "只有机构『仓位转向日』才有方向信号。转折因子 T（主权重）:"
+        "机构转多(连续≥2日减多后转加多)→次日顺势看涨(64-66%)；"
+        "机构转空(连续≥2日减多后转加空)→次日『逆势看涨』(转空次日不跌、全时段净流出=偏空是错的,"
+        "8/14/8/17 验证;top20IC转空+均线多头=84%,任一强转向OR=65%)。"
+    ]
+    turns = factors["turns"]
+    to_long = [t for t in turns if t["turn_type"] == "to_long"]
+    to_short = [t for t in turns if t["turn_type"] == "to_short"]
+    if to_long:
+        desc = "；".join(f"{_ROLE_LABEL.get(t['role'], t['role'])}{t['variety']}净加仓+{t['net_chg']}"
+                         for t in to_long[:6])
+        lines.append(f"  当日转多信号(T1 顺势看涨): {desc}。")
+    if to_short:
+        desc = "；".join(f"{_ROLE_LABEL.get(t['role'], t['role'])}{t['variety']}净减多-{-t['net_chg']}"
+                         for t in to_short[:6])
+        lines.append(f"  当日转空信号(T2/T3 逆势看涨,别当偏空): {desc}。")
+    ma = factors.get("ma_bull")
+    if ma is not None:
+        lines.append(f"  均线多头={ma and '是' or '否'}" + ("(sh 收盘>20日线,转空+均线多头→84%强规则)"
+                     if ma else "(sh 收盘≤20日线,方向强度下降)"))
+    # 联动/压制 L（辅助权重,必须与 T 同判）
+    lparts = []
+    rd = factors.get("rate_down_channel")
+    if rd is not None:
+        lparts.append("利率下行通道(us10y<20日线)=A股+黄金同向偏强背景(54.5%/57.0%)" if rd
+                      else "利率上行/盘整通道=宽松背景弱,A股+黄金难同强")
+    us = factors.get("us10y")
+    if us is not None:
+        lparts.append(f"美债10Y={us}%（上行→黄金跌、避险资产承压；下行→风险偏好回升）")
+    if factors.get("gold") is not None:
+        lparts.append(f"金价={factors['gold']}")
+    if lparts:
+        lines.append("  联动因子 L（辅助权重,宏观环境约束）: " + "；".join(lparts) + "。")
+    if factors.get("nq_open_low"):
+        lines.append(
+            "  ⚠️ 压制信号(L3 纳指期货大跌): 当日纳指期货 nq_chg="
+            f"{factors['nq_chg']:.2f}% 明显大跌，压制转多/看多(2026-08-18 全席位大幅转多却次日-2.4暴跌"
+            "即 nq 大跌压制 T 因子失效样本)。若非纳指大跌,转多信号可大胆顺势看涨。"
+        )
+    lines.append("  方向合成: 转折因子 T 为主权重(64-84%)、联动因子 L 为辅助(53-60%),"
+                 "L3 纳指大跌可压过 T1 转多看涨。")
+    return "\n".join(lines)
 
 
 # ── 数据加载(P1-8 数据锚定:以 JSON 结构给模型)────────────────────────────
@@ -1084,6 +1250,12 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
         sys_text += (
             "9. 【已知偏差(历史机检统计)】" + known_bias + "。请避免重复上述系统性偏差,但仍只引用本次注入数据。\n"
         )
+    # ── 方向锚语义教学(AI预测升级第一步,2026-08-20):开关 off=跳过,线上 prompt 逐字不变 ──
+    if cfg.get("direction_anchor_enabled"):
+        _anchor_text = _direction_anchor_semantics(_compute_direction_anchor(
+            pick_db(pick_repo()), date), date)
+        if _anchor_text:
+            sys_text += "9a.【方向锚(方向研判辅助)】" + _anchor_text + "\n"
     sys_text += "请严格按照 JSON 结构输出。"
 
     user = {
@@ -1573,6 +1745,12 @@ def build_editor_messages(role_results: dict, researcher: dict | None, date: str
             f"{next_rule}. 【合规红线】严禁使用:买入、卖出、加仓、建仓、清仓、减仓、重仓、满仓、抄底、逃顶、止损、止盈、"
             "仓位、建议持有、加杠杆。只允许:关注、警惕、观察、留意、注意、谨慎。\n"
         )
+    # ── 方向锚语义教学(AI预测升级第一步,2026-08-20):开关 off=跳过,线上 prompt 逐字不变 ──
+    if cfg.get("direction_anchor_enabled"):
+        _anchor_text = _direction_anchor_semantics(_compute_direction_anchor(
+            pick_db(pick_repo()), date), date)
+        if _anchor_text:
+            sys_text += f"{next_rule+1}.【方向锚(方向研判辅助)】" + _anchor_text + "\n"
     # 数据锚定(P1-8):与 parse_ai_output 同源,watch_list 只允许注入数据真实存在的 index_id
     injected_ids = {
         x.get("index_id") for x in (data.get("signals_today") or []) if data
