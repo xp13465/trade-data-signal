@@ -12,3 +12,4 @@
 | kelly-backtest-comprehensive-review.md | 回测综合审查 |
 | kelly-backtest-deepseek-review.md | DeepSeek 回测审查 |
 | v4-impl-spec.md | v4 实现规格 |
+| etf-weight-leader/kelly-etf-weight-leader-data-verify.md | ETF→权重龙头个股分支回测:数据验证+方案(#93) |

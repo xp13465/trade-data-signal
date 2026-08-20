@@ -59,7 +59,16 @@
 - **config 开关**：`daily_brief.yaml` `direction_anchor_enabled: false`（默认关=线上 prompt 逐字不变，可 A/B）。
 - **独立回放脚本** `scripts/replay_direction_anchor.py`（方案A 零侵入）：`--date --direction-anchor on/off --no-call --dump [--multi]`，复用 build_prompt/build_editor_messages/call_deepseek/parse_ai_output，**绝不 write_outputs/不通知/不上传/不写 history**（障碍②绕过）。`--no-call` 0 成本 dry 校验方向锚语义是否进 sys_text。
 - **dry 自验（--no-call）**：三样本 8/14（top20IC转空-1293+均线多头→逆势 up）8/17（国泰综合+3447转多→顺势 up）8/18（中信综合+4858转多+**L3 nq=-1.30 压制看多→应 down**）方向锚语义均正确注入；off 开关下 dump sys_text 无『方向锚』=线上 prompt 逐字一致。
-- **下一步（18:00 高峰后）**：跑离线回放调 API（3样本×开/关 单 prompt=6 次），观测 8/18 是否用 L3 压住 T1 输出 down；多角色主编链路 --multi 复核。真实交易日 7 天严格 A/B 待后续。
+- **✅ 离线回放 A/B 验证（2026-08-20 18:03 高峰后跑完，单 prompt off/on 三样本）**：
+  | 样本 | 实际 | off(原prompt) | on(方向锚) | 效果 |
+  |---|---|---|---|---|
+  | 8/14 | up +1.41 | down ❌ | down ❌ | 未修正 |
+  | 8/17 | flat +0.19 | down ❌ | **up ✔** | **修正** |
+  | 8/18 | down -2.40 | down ✔ | down ✔（引用L3压制转多） | 保持对+更稳 |
+  - **结论**：方向锚对 2/3 有效（8/17 修正、8/18 L3 纳指压制 T1 转多=方向锚设计关键验证点通过），8/14 未修正（模型读到"机构转空+均线多头矛盾"但受量价齐跌强空覆盖，仍判 down）。
+  - **迭代点**：8/14 暴露 prompt 语义教学边界——80%+ 逆势锚被模型当"参考"而非"倾向结论"，量价齐跌可覆盖。下一迭代把方向锚从"参考"提升为"倾向性结论"（机构转空+均线多头→应明确偏涨，除非强反证）。
+  - **诚实标注**：3 样本为方向性前测非统计显著；严格 A/B 需真实交易日 7 天。
+- **key 依赖 note**：回放脚本需 DEEPSEEK 变量加载自 `../trade-data/.env`（本仓库 .env 无 key），跑前 `set -a; source ../trade-data/.env; set +a`。
 
 **✅ 反思=因子归因回灌实施记录（2026-08-20,implementer,提前落地「后续轮次3」TA Reflector 内核）**
 - **动机**：用户质疑「只肤浅套用 TradingAgents 多 agent 辩论」。TA 价值内核=反思不只记"错了"，而是把错归因到某方/某因子→调该方 memory→回灌下次辩论上下文。我们旧反思只规则级归因（failure_type+一句 summary），没归因到具体误导因子，也没回灌该因子近期表现。
