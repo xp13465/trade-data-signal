@@ -15,7 +15,7 @@
 - **📌 系统复核 v1.1.2→main 回测宇宙/推荐算法/信号口径(2026-08-20)**:reviewer 审逻辑 + tester Playwright 验线上两路全 PASS(默认组合8键+1类零改动/宇宙规则1:1/首页技术参考信号vs凯利回测同源/线上badge渲染正确)。**v1.1.3 tag 已打已 push**(8cb60a5a7,版本链 v1.0.0→v1.1.3 五连齐)。存量观察项=首页 AI建议N 无 `tds_poscap` key 时(首次访问)不显示,非回归,登记待办。
 - **📌 pending-index 归位(2026-08-20,#30)**:researcher 全量盘 92 条→ implementer 归位 **done 37 条**(docs/tasks-done-list.md,带 commit 实证)/ **archive 3 条**(#23 飞书阶段3 + #33/#81 管理端看板)/ **远期 50 条全保留零丢失**,刷新 5 条过时状态列 + 处理 5 组重复登记,feat `docs-tasks-4state-tidy`@9eb250568 main-merge 上线。
 - **📌 归档/移出说明**:📍当前会话状态的历史交接轮次(L22-34 的 #69/excludeSpecialBearCyb 上线、818-fix、四档收窄、并行降级安全B、代理切官方等完成陈述)已精简,关键待办提炼到下方"待安排";细节可反查 TASKS-done.md 或对应 commit。
-- **⏳ 待安排/待办(即时)**:①#73 8 宽基四档展示(sh/sz/csi500/cyb/sz50/csi1000/kc50 走势图四档色带,hs300 已完成,纯展示,用户 2026-08-19 拍板待安排,pending #73)②#74 邮件广播 ai_macro.hit 白名单二次过滤(pending #74,非阻断)③用户实测凯利区 excludeSpecialBearCyb 开关(数据/开关/公示已就绪,公示写「收益待用户实测」)④次日开盘口径待用户确认是否切默认。
+- **⏳ 待安排/待办(即时)**:①用户实测凯利区 excludeSpecialBearCyb 开关(数据/开关/公示已就绪,公示写「收益待用户实测」)②次日开盘口径待用户确认是否切默认(#91)。**2026-08-21 状态同步**:原列 #73 8宽基四档 / #74 邮件广播hit白名单 均已核已完成(commit 7872cccbf@main / 41105d6a8@main),done-list 已登记(L107/108),从待安排移除。
 - **📋 活跃待办计数**:0 条 checkbox(**已全移 todolist/pending-index**,本文件无活跃待办;次日后台+SVG 大盘 tab 在 pending #91/#92),详见下方「待办」。
 - **📋 备注**:claude-work-mode/README.md、static-site/about.html/guide.html/privacy.html 有预先存在本地改动(非本任务,未 add 未 commit)。
 
@@ -25,7 +25,7 @@
 > - 真完成 53 条 → [docs/tasks-done-list.md](docs/tasks-done-list.md)(完成文件:43 TASKS治理 + 10 费率;待 7 天自动归档)
 > - 用户关闭 3 条 → [docs/archive/TASKS-done.md](docs/archive/TASKS-done.md) 关闭记录
 > - **待办/远期全在 [docs/pending-features-index.md](docs/pending-features-index.md) 模块十六**:#79 场外方案C(8步)/#80 性能P2/#81 管理端看板/#82-89 八项归档活跃需求/#90 场外阶段/**#91 次日开盘口径**/**#92 SVG 大盘 tab P2-11**
-> - 待安排指针(近期):#73 8宽基四档 / #74 邮件广播hit白名单 / excludeSpecialBearCyb 实测,均见 pending-index 对应节。
+> - 待安排指针(近期):excludeSpecialBearCyb 实测 / 次日开盘口径(#91),见 pending-index 对应节。#73 8宽基四档 / #74 邮件广播hit白名单 已完成 done-list 登记(2026-08-21 同步)。
 > - 后续新增真实待办(有活在做)再写回本节。
 
 ## 总体大纲

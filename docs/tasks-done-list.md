@@ -110,6 +110,20 @@
 - [x] **#77 tasks_archive.py compress_status_line 缺尾换行致熔行** — commit e54adcb1f push main:补尾换行根治 + 拆 L32/L58 两处熔行
 - [x] **#78 TASKS.md 瘦身:任务治理方向已定且已实施** — 2026-08-20 治理落地:43 完成归档 + 3 关闭 + 远期 11 移本表十六节 + TASKS.md 只留活跃(报告 tasks-active-only-clean-20260820.md)
 
+## 2026-08-21 状态同步补登记(做了没标,9 条真完成,待 7 天归档)
+
+> 代理背景:2026-08-21 用户发现 #73/#74 做完未更新状态(pending-index/done-list 未同步),主控核对 git 链发现同类漏网 7 条(#65/66/67/70/71/72/62)。逐条 `git cat-file -e origin/main:<hash>` 实锤均在 main 链。从 pending-index 状态列「待办/未实施」刷新为已完成 + 补登记本文件。§23.12 4 态流转:完成→完成文件。
+
+- [x] **#65 优化批次 B:采集层提速(ab37 baostock 降并发+熔断 / ab38 core 采集提速)** — merge 571c18ef7 + 7ab3dc3fa 在 origin/main(采集提速 ab37 降并发+共享熔断/ab38 core 提速/O2 etf_score)
+- [x] **#66 优化批次 C:O2 etf_score 提速** — 同 571c18ef7 合入(export_etf_score_list.py workers 6→8-10+空返降重试,省 2-3min)
+- [x] **#67 优化批次 D:宇宙规则首页 1:1 走查 + signal_notified 双副本权威化** — merge b317d85c3 + e4fdcead4 在 origin/main(宇宙规则收尾 8 步联动缺口 + signal_notified 双副本权威化)
+- [x] **#70 防再犯 C/D:三缺口① base 新鲜度事前校验** — b74368b5a + 2cbec0452 在 origin/main(main-merge.sh 三态 rebase + base 新鲜校验)
+- [x] **#71 防再犯 C/D:同文件并发串行 + worktree agent 不 bump** — 同 b74368b5a(check_file_owners 同文件并发串行 + SKILL.md 不自行 bump+只 push feat)
+- [x] **#72 防再犯 C/D:push main 统一入口 + bump 唯一权威** — b74368b5a 在 origin/main(main-merge.sh 统一入口,机制 C/D,后续各 merge 均走此入口)
+- [x] **#62 overview.date 盘中过时后端根治** — b59c08838 在 origin/main(后端根治今日锚根因)+ 走势图 T 日锚 b0c87c183(a320,前端 T 日提示用 signals_today 最新日期)——pending 原标「后端根修未定」已闭环
+- [x] **#51 §23.6 入样宇宙规则首页 1:1 遵从 + 8 步联动走查** — b317d85c3/e4fdcead4 覆盖(批次D 宇宙规则收尾,原 pending 标「8 步联动走查待全量验证」已闭环)
+- [x] **#56 signal_notified.json 双副本权威化** — e4fdcead4 覆盖(批次D 一并处理,REPO 必须落 trade-data 断言链路)
+
 ## 2026-08-20 会话收尾移入(AI 预测体系升级 + 四档色带 bug 修复,完成态待 7 天归档)
 
 > 来源:方向锚/反思/影子/影子md/四档色带 5 项,main-merge 统一入口合并(main-merge.sh + worktree 复刻防线),全部 commit 已在 origin/main(git branch --contains 实测)。这批是「听你的」批准的多阶段 AI 预测升级落档闭环,§23.5 四件套(报告本体+脚本+复现段+commit)齐。

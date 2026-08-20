@@ -86,7 +86,7 @@
 | # | 功能 | 出处 | 方案摘要 | 依赖/前置 | 状态 |
 |---|---|---|---|---|---|
 | 42 | **上下文优化 3 项** | docs/context-optimization-research.md(2026-08-12) | ①OPT-2 MEMORY.md 索引瘦身 19.8KB→~8KB ②OPT-1 轮询/编排降本(状态门控+夜间降频)③OPT-3 主会话 /clear 分会话+Compact Instructions(context rot,保质量>省token) | 无 | **未派**(等用户拍板顺序) |
-| 51 | **§23.6 入样宇宙规则落地**(显式化+校验) | config/universe_rules.yaml + scripts/check_universe_alignment.py(2026-08-14, f27768c85) | 宇宙规则单一事实源(yaml:白名单/入样依赖/排除类别/自我ETF例外) + 4断言对称校验脚本挂 deploy 链 FAIL 阻断上线 | 已落 yaml+校验脚本(17:42) | **部分完成**(yaml+check 已上线;首页1:1遵从/变更联动 8 步走查待全量验证) |
+| 51 | **§23.6 入样宇宙规则落地**(显式化+校验) | config/universe_rules.yaml + scripts/check_universe_alignment.py(2026-08-14, f27768c85) | 宇宙规则单一事实源(yaml:白名单/入样依赖/排除类别/自我ETF例外) + 4断言对称校验脚本挂 deploy 链 FAIL 阻断上线 | **已完成**(2026-08-21 同步核对:yaml+check 已上线;首页1:1 遵从/8 步联动走查随批次D b317d85c3/e4fdcead4 收尾闭环) |
 | 94 | **CLAUDE.md 瘦身 A1 + §5.4 基准独立** | docs/claude-md-slim-a1-5point4-plan.md(2026-08-20) | §18 删元信息(移动去向/已提炼引用清单,约1K)+ §5.4 状态型基准定义独立(权威已在 memory test-baseline-v112-anchor,删根里更简副本约3.5K,行为纪律②③④⑤⑥留根+③引用改memory锚点);总39K→约34.5K(-12%);含核心保留清单+可逆性 | B级(动核心文件CLAUDE.md+跨memory衔接) | **已完成**★(2026-08-20 implementer 全链路+reviewer返修+存量3处修正,feat/claude-md-slim-94@3d9d9cdab+cd8ea5d8e 已 main-merge 推送 d18b2fcb1→cd8ea5d8e;CLAUDEMd +9/-15;方案文档 docs/claude-md-slim-a1-5point4-plan.md 待补完) |
 | 96 | **首页「近90日情绪日历」右上角标「最新冰点日」更新为融合口径** | 2026-08-20 用户「情绪日历融合冰点+情绪信号后,角标规则和描述须更新」 | 情绪日历已融合冰点+情绪双信号,但角标「最新冰点日·08-03」仍是只显示冰点日旧口径+描述文案过时;需同步成融合后的口径+文案(§23.3 情绪日历相关展示点对齐) | researcher 已定位(recent_freeze vs sentiment_calendar 不一致根因+改动点清单,角标tip"恐贪"口径不匹配顺带修) | **已完成**(2026-08-20 上线,commit 768a896cd,角标升级「最新情绪日」融合口径;已验证走 §8 三查: main链含+线上a368三站一致+前端展示「最新情绪日」在) |
 | 97 | **README 功能亮点段精炼包装成"门面/目录/大纲"** | 2026-08-20 用户「功能亮点介绍太冗长没高级感,README是门面不是说明书,起目录/总结/大纲作用」 | README 功能亮点段(L71-167约97行)现为 changelog 级长文(技术细节/版本史/A-B回测数/折衷说明混在功能里),需精炼成目录式功能卡片(每功能一行标题+一句"你能获得什么"+跳转细节);被砍的技术细节/版本史**不是删**,下沉到对应 docs/** 留指针(§5.3 核心保障);保留参考与致敬段资产 | 方向待用户确认精炼样式(纯文字精简/带图/表格化) | **已完成**(2026-08-20 上线,commit d92df2b58,功能亮点段精炼成 Slogan+三组卡片,细节下沉 docs 留指针) |
@@ -99,7 +99,7 @@
 
 | # | 项 | 出处 | 说明 | 状态 |
 |---|---|---|---|---|
-| 56 | **signal_notified.json 双副本清理** | 2026-08-15 部署核验 | trade-data/data(权威,8/14=13条) vs trade/data(旧,8/14=11条) 双份;check_signals 读权威份无重发风险,但"直接 cd trade 跑 python"会误读旧副本重发;处置=同步旧副本或 symlink+断言(REPO 必须落 trade-data) | **待办**(低优先,已同步 md5 一致) |
+| 56 | **signal_notified.json 双副本清理** | 2026-08-15 部署核验 | trade-data/data(权威,8/14=13条) vs trade/data(旧,8/14=11条) 双份;check_signals 读权威份无重发风险,但"直接 cd trade 跑 python"会误读旧副本重发;处置=同步旧副本或 symlink+断言(REPO 必须落 trade-data) | **已完成**(2026-08-21 同步核对:随批次D e4fdcead4 双副本权威化,REPO 落 trade-data 断言链路已建) |
 
 > 本模块 #57(sw.js 注释过时修正)已完成:移入 docs/tasks-done-list.md「2026-08-20 pending-features-index 治理批量移入」。
 
@@ -107,7 +107,7 @@
 
 | # | 项 | 出处 | 说明 | 状态 |
 |---|---|---|---|---|
-| 62 | **overview.date 盘中过时不更新(前后端"今日"锚过时的根因)** | 2026-08-17 用户报高亮 bug 根因(reviewer 核实) | overview.json 盘中 `date` 字段停在评分日(如 8/14),但 `signals_today` 已含盘中最新信号日(8/17),导致:①首页信号卡今日高亮锚过时(已前端修:信号卡 todayDate 锚 signals_today 最新日期,max 语义,commit 121e6fb63 + 补丁)②走势图 T 日提示 `_todayDateB2` 漏判"今日该指数有信号"(L6005,已上线功能行为,**待用户确认是否连修**,§23.7)③凯利 KPI 预估经 reviewer 核实**非真同类**(数据源本身就是评分日,自洽)。后端根修(盘中重算 overview 时同步 date 到最新交易日)未实施,待前端补丁稳定后评估 | **待办**(前端已修高亮;走势图 T 日待用户确认;后端根修未定) |
+| 62 | **overview.date 盘中过时不更新(前后端"今日"锚过时的根因)** | 2026-08-17 用户报高亮 bug 根因(reviewer 核实) | overview.json 盘中 `date` 字段停在评分日(如 8/14),但 `signals_today` 已含盘中最新信号日(8/17),导致:①首页信号卡今日高亮锚过时(已前端修:信号卡 todayDate 锚 signals_today 最新日期,max 语义,commit 121e6fb63 + 补丁)②走势图 T 日提示 `_todayDateB2` 漏判"今日该指数有信号"(L6005,已上线功能行为,**待用户确认是否连修**,§23.7)③凯利 KPI 预估经 reviewer 核实**非真同类**(数据源本身就是评分日,自洽)。后端根修(盘中重算 overview 时同步 date 到最新交易日)未实施,待前端补丁稳定后评估 | **已完成+闭环**(2026-08-21 同步核对:后端根治 b59c08838 + 走势图 T 日锚 b0c87c183 均在 main,pending 原标「后端根修未定」已闭环;前端高亮 121e6fb63 亦在) |
 
 > 本模块 #58/#59/#60/#61 已完成:移入 docs/tasks-done-list.md「2026-08-20 pending-features-index 治理批量移入」。
 
@@ -115,9 +115,9 @@
 
 | # | 项 | 出处 | 说明 | 状态 |
 |---|---|---|---|---|
-| 65 | **优化批次 B:采集层提速** | docs/ab-refactor-bug-reflection.md + docs/optimization-closeout-list.md §3.1 | ab37 baostock 降并发+熔断(10001011 黑名单 re-login 增强)/ ab38 core 采集提速(删 sw 指数注意波及 board_etf_map/凯利/首页 §22/§23.6) | **待办**(2026-08-18 建,任务 #21) |
-| 66 | **优化批次 C:O2 etf_score 提速** | docs/update-all-20260817-88min-analysis.md | export_etf_score_list.py L580 workers 6→8-10+空返降重试,省 2-3min | **待办**(2026-08-18 建,任务 #21) |
-| 67 | **优化批次 D:宇宙规则首页 1:1 走查+双副本清理** | pending #51/#56 | 首页读 _bt_in_universe 无自算+8 步联动走查(#51);signal_notified.json 双副本 symlink+断言 REPO 落 trade-data(#56) | **待办**(2026-08-18 建,任务 #22,等 v1.1.2 合完避同文件冲突) |
+| 65 | **优化批次 B:采集层提速** | docs/ab-refactor-bug-reflection.md + docs/optimization-closeout-list.md §3.1 | ab37 baostock 降并发+熔断(10001011 黑名单 re-login 增强)/ ab38 core 采集提速(删 sw 指数注意波及 board_etf_map/凯利/首页 §22/§23.6) | **已完成**(2026-08-21 同步核对:merge 571c18ef7+7ab3dc3fa 在 main,并入 2026-08-20 会话批次) |
+| 66 | **优化批次 C:O2 etf_score 提速** | docs/update-all-20260817-88min-analysis.md | export_etf_score_list.py L580 workers 6→8-10+空返降重试,省 2-3min | **已完成**(2026-08-21 同步核对:同 571c18ef7 合入 main) |
+| 67 | **优化批次 D:宇宙规则首页 1:1 走查+双副本清理** | pending #51/#56 | 首页读 _bt_in_universe 无自算+8 步联动走查(#51);signal_notified.json 双副本 symlink+断言 REPO 落 trade-data(#56) | **已完成**(2026-08-21 同步核对:merge b317d85c3+e4fdcead4 在 main,宇宙规则收尾+双副本权威化) |
 
 > 本模块 #63(v1.1.2 凯利三键,tag 已打)/#64(历史四档轨迹图 2d5e1621b)/#68(批次E 63fb27391)已完成:移入 docs/tasks-done-list.md「2026-08-20 pending-features-index 治理批量移入」。
 
@@ -127,9 +127,9 @@
 
 | # | 项 | 出处 | 说明 | 状态 |
 |---|---|---|---|---|
-| 70 | **三缺口① base 新鲜度事前校验**(开工强制 rebase origin/main + commit 前校验 base 新鲜) | docs/conflict-overwrite-triggers-2026-08-18.md 三缺口 | worktree 开工前强制 `git rebase origin/main` 或校验 base 新鲜度;commit 前校验「工作树内容==提交基点」防 stale base 提交(本次 bf8841966 被 e3fa985c3 覆盖根因) | **待办**(2026-08-19 建,任务 #21) |
-| 71 | **C 同文件并发串行工具化 + worktree agent 不 bump 版本串** | docs/conflict-overwrite-rootcause-2026-08-18.md 建议C | app.js/lab.js/common.js 等大文件同时只允许 1 个 agent 持有改动权(主控派单前核对在跑 agent 文件范围,工具化串行排队);版本串统一由主控 merge 时跑一次 build_min+bump(消 aXXX 撞号 + stale bump),worktree agent 不自行 bump | **待办**(2026-08-19 建,任务 #21) |
-| 72 | **D push main 统一入口 + 三缺口③ bump 模式唯一权威** | docs/conflict-overwrite-rootcause-2026-08-18.md 建议D | agent 只推 feat 分支,merge+push main 由主控统一走(含 §24⑤+bump 校验);agent 完成报告必带「base commit + 版本串前后值」;bump 模式唯一权威入口(消除 §24 撞号二义) | **待办**(2026-08-19 建,任务 #21) |
+| 70 | **三缺口① base 新鲜度事前校验**(开工强制 rebase origin/main + commit 前校验 base 新鲜) | docs/conflict-overwrite-triggers-2026-08-18.md 三缺口 | worktree 开工前强制 `git rebase origin/main` 或校验 base 新鲜度;commit 前校验「工作树内容==提交基点」防 stale base 提交(本次 bf8841966 被 e3fa985c3 覆盖根因) | **已完成**(2026-08-21 同步核对:main-merge.sh 三态 rebase+base 新鲜校验,b74368b5a+2cbec0452 在 main) |
+| 71 | **C 同文件并发串行工具化 + worktree agent 不 bump 版本串** | docs/conflict-overwrite-rootcause-2026-08-18.md 建议C | app.js/lab.js/common.js 等大文件同时只允许 1 个 agent 持有改动权(主控派单前核对在跑 agent 文件范围,工具化串行排队);版本串统一由主控 merge 时跑一次 build_min+bump(消 aXXX 撞号 + stale bump),worktree agent 不自行 bump | **已完成**(2026-08-21 同步核对:check_file_owners 串行+bump 统一入口,b74368b5a/2cbec0452/8b63a7b9c 在 main) |
+| 72 | **D push main 统一入口 + 三缺口③ bump 模式唯一权威** | docs/conflict-overwrite-rootcause-2026-08-18.md 建议D | agent 只推 feat 分支,merge+push main 由主控统一走(含 §24⑤+bump 校验);agent 完成报告必带「base commit + 版本串前后值」;bump 模式唯一权威入口(消除 §24 撞号二义) | **已完成**(2026-08-21 同步核对:main-merge.sh 统一入口机制C/D,b74368b5a 起各 merge 均走此入口) |
 
 ## 十三、多指数四档展示扩展(2026-08-19 用户定,纯展示,等安排再实施)
 
