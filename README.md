@@ -220,7 +220,7 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 - 数据产品线：采集 agent（多源互备）→ 计算 agent → 上线 agent（deploy 三站验证）
 - 开发质量线：实施 → reviewer（独立 review 防改坏老功能）→ 主控逐字验收
 - 复盘线：总结 agent（过错/经验沉淀）→ 复核 agent（独立复核防总结跑偏）
-- 内容生产线：`每日 AI 速递` 的预测同样借鉴 **TradingAgents-CN 的多角色辩论方案**——6 个角色子 prompt（技术/资金/情绪/风控/研究员/主编）各自只注入对应数据域、独立分析后互相校验/辩驳，再由主编合成白话解读（不做交易决策角色，合规）
+- 内容生产线：`每日 AI 速递` 的预测编排受 **TradingAgents-CN/原版 TradingAgents 多智能体辩论架构**启发（多角色辩论收敛）——6 个角色子 prompt（技术/资金/情绪/风控/研究员/主编）各自只注入对应数据域、独立分析后互相校验/辩驳，再由主编合成白话解读（不做交易决策角色，合规）。**但预测所用的方向锚信号胜率、因子权重为自研 8 年数据挖掘成果（见 [`docs/ai-predict-direction-market-winning-signals-20260820.md`](docs/ai-predict-direction-market-winning-signals-20260820.md)），非抄 TradingAgents**；TA 仅提供多角色辩论编排的组织形式启发。
 
 > 工程规范与协作机制详见 [`CLAUDE.md`](CLAUDE.md)（§2 监工 loop / §11 通知兜底 / §15 回归 / §16 agent 画像）。
 

@@ -180,7 +180,177 @@ def load_config() -> dict:
         "effort": "high",
         "model": "deepseek-v4-flash",
     })
+    # ── 方向锚语义教学开关(AI预测升级第一步,2026-08-20,默认关=线上 prompt 零改动)──
+    #   开关关→build_prompt/build_editor_messages 不注入方向锚,输出与改造前逐字一致(§23.7)；
+    #   开关开→注入转折因子 T + 联动/压制因子 L 语义教学(见 _direction_anchor_semantics)。
+    cfg.setdefault("direction_anchor_enabled", False)
+    # ── 反思=因子归因回灌开关(AI预测自成长轮次3,2026-08-20,默认关=线上注入逐字不变)──
+    #   开关关→build_reflection_inject 不追加「待规避因子」段,注入文本与改造前一致(§23.7)；
+    #   开关开→聚合历史失败样本 factor_attribution 回灌下次预测(见 build_attribut_inject)。
+    cfg.setdefault("reflection_factor_attribution_enabled", False)
     return cfg
+
+
+# ── 方向锚语义教学:数据因子计算 + 教学文生成(2026-08-20,AI预测升级第一步)──
+# 对应影响面知识图谱 C 节调用逻辑(转折因子 T 主权重 + 联动/压制因子 L 辅助权重)。
+# 核心设计（主控数据自检确认）：T/L 必须一起加——只加 T 不加 L，8/14 改对但 8/18
+# 反而改错（2026-08-18 全席位大幅转多却次日 -2.4 暴跌，需 L3 纳指大跌压制 T1）。
+# 数据全从 sentiment.db 按 date 实时取（futures_position/daily_metric/index_daily），全只读，
+# 与 `--date` 历史回放天然对齐（障碍① 的 inst_ih_trend 读当前 futures.json 不在此列）。
+# 本函数自开只读连接，不依赖 load_data 已开连接，故不改变 data 注入域（开关关=线上 prompt 零改动）。
+_ROLE_LABEL = {"中信期货": "中信", "top20": "机构top20", "国泰君安": "国泰君安"}
+_VAR_ORDER = ("综合", "IC", "IM", "IF", "IH")
+
+
+def _compute_direction_anchor(db_path: Path, date: str) -> dict:
+    """按 date 从 DB 计算方向锚因子（转折 T + 联动/压制 L），返回 dict 供语义教学。
+
+    口径对齐 docs/ai-predict-direction-market-winning-signals-20260820.md：
+    - net_chg = long_chg - short_chg；转多日=连续≥2日 net<0 后当日转 net>0；
+      转空日=连续≥2日 net>0 后当日转 net<0。
+    - 均线多头 = 上证 sh 当日 close > 20日 close 均值（滚动，含当日）。
+    - 利率下行通道 = us10y 当日 < 20日 us10y 均值（共同因子 L2）。
+    - 美债10Y上行→黄金跌 = 当日 us10y 变化的负相关背景（L1）。
+    - 纳指期货大跌 = us_futures_nq_chg 明显为负（L3 压制看多）。
+    """
+    out = {
+        "date": date, "turns": [], "ma_bull": None, "us10y": None,
+        "rate_down_channel": None, "gold": None, "nq_chg": None,
+        "nq_open_low": None,
+    }
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=15)
+    except Exception:
+        return out
+    try:
+        cur = conn.cursor()
+        # ── 转折 T:按 (role,variety) 的 net_chg 序列检测转向日 ──
+        rows = cur.execute(
+            "SELECT date,variety,role,long_chg,short_chg FROM futures_position ORDER BY date"
+        ).fetchall()
+        series: dict = {}  # (role,var) -> [(date,net_chg)]
+        for d, var, role, lc, sc in rows:
+            if lc is None or sc is None:
+                continue
+            series.setdefault((role, var), []).append((d, lc - sc))
+        for (role, var), seq in series.items():
+            netmap = dict(seq)
+            if date not in netmap:
+                continue
+            all_dates = [d for d, _ in seq]
+            i = all_dates.index(date)
+            net_now = netmap[date]
+            if net_now == 0:
+                continue
+            sig_now = 1 if net_now > 0 else -1
+            # 向前数连续同符号日（run>=2 才构成"转向"基准，对齐 mine_turn_split_stability）
+            prev_sig = None
+            run = 0
+            j = i - 1
+            while j >= 0:
+                n = netmap.get(all_dates[j])
+                if n is None or n == 0:
+                    j -= 1
+                    continue
+                s = 1 if n > 0 else -1
+                if prev_sig is None or s == prev_sig:
+                    prev_sig, run = s, run + 1
+                    j -= 1
+                else:
+                    break
+            turn_type = None
+            if prev_sig is not None and run >= 2 and sig_now != prev_sig:
+                turn_type = "to_long" if sig_now == 1 else "to_short"
+            out["turns"].append({
+                "role": role, "variety": var,
+                "net_chg": int(net_now), "net_position": None,
+                "turn_type": turn_type, "prev_sig": prev_sig, "run": run,
+            })
+        # ── 均线多头（sh close > ma20, 含当日滚动）──
+        mrows = cur.execute(
+            "SELECT date,close FROM index_daily WHERE index_id='sh' AND date<=? "
+            "AND close IS NOT NULL ORDER BY date DESC LIMIT 20", (date,)
+        ).fetchall()
+        if len(mrows) >= 20:
+            closes = [r[1] for r in mrows]
+            ma20 = sum(closes) / 20.0
+            out["ma_bull"] = bool(closes[0] > ma20)  # 当日 close > ma20
+        # ── 联动/压制 L:利率/黄金/纳指 ──
+        def _m(mid):
+            r = cur.execute(
+                "SELECT value FROM daily_metric WHERE date=? AND metric_id=?",
+                (date, mid)).fetchone()
+            return r[0] if r and r[0] is not None else None
+        us10y_now = _m("us10y")
+        out["us10y"] = us10y_now
+        urows = cur.execute(
+            "SELECT value FROM daily_metric WHERE metric_id='us10y' AND date<=? "
+            "AND value IS NOT NULL ORDER BY date DESC LIMIT 20", (date,)
+        ).fetchall()
+        if us10y_now is not None and len(urows) >= 20:
+            u_ma20 = sum(r[0] for r in urows) / 20.0
+            out["rate_down_channel"] = bool(us10y_now < u_ma20)
+        out["gold"] = _m("gold")
+        nq = _m("us_futures_nq_chg")
+        out["nq_chg"] = nq
+        # 纳指大跌判断：当日纳指期货涨跌幅明显为负（<= -0.8% 视为压制看多阈值，对齐 8/18=-1.302 样本）
+        out["nq_open_low"] = bool(nq is not None and nq <= -0.8)
+    finally:
+        conn.close()
+    return out
+
+
+def _direction_anchor_semantics(factors: dict, date: str) -> str:
+    """把方向锚因子转成中文语义教学段（喂 build_prompt/build_editor_messages 系统提示）。
+    转折因子 T=主权重、联动/压制因子 L=辅助权重。只返回教学规则+当日因子状态，
+    不给指令词、不越合规红线（讲解用"转多/转空/看涨/看跌"方向语义，非交易指令）。
+    """
+    if not factors or not factors.get("turns"):
+        return ""
+    lines = [
+        f"【方向锚(影响面知识图谱 C 节,仅供参考方向研判)】基准=全时段机构持仓逆向无效(49.2%)，"
+        "只有机构『仓位转向日』才有方向信号。转折因子 T（主权重）:"
+        "机构转多(连续≥2日减多后转加多)→次日顺势看涨(64-66%)；"
+        "机构转空(连续≥2日减多后转加空)→次日『逆势看涨』(转空次日不跌、全时段净流出=偏空是错的,"
+        "8/14/8/17 验证;top20IC转空+均线多头=84%,任一强转向OR=65%)。"
+    ]
+    turns = factors["turns"]
+    to_long = [t for t in turns if t["turn_type"] == "to_long"]
+    to_short = [t for t in turns if t["turn_type"] == "to_short"]
+    if to_long:
+        desc = "；".join(f"{_ROLE_LABEL.get(t['role'], t['role'])}{t['variety']}净加仓+{t['net_chg']}"
+                         for t in to_long[:6])
+        lines.append(f"  当日转多信号(T1 顺势看涨): {desc}。")
+    if to_short:
+        desc = "；".join(f"{_ROLE_LABEL.get(t['role'], t['role'])}{t['variety']}净减多-{-t['net_chg']}"
+                         for t in to_short[:6])
+        lines.append(f"  当日转空信号(T2/T3 逆势看涨,别当偏空): {desc}。")
+    ma = factors.get("ma_bull")
+    if ma is not None:
+        lines.append(f"  均线多头={ma and '是' or '否'}" + ("(sh 收盘>20日线,转空+均线多头→84%强规则)"
+                     if ma else "(sh 收盘≤20日线,方向强度下降)"))
+    # 联动/压制 L（辅助权重,必须与 T 同判）
+    lparts = []
+    rd = factors.get("rate_down_channel")
+    if rd is not None:
+        lparts.append("利率下行通道(us10y<20日线)=A股+黄金同向偏强背景(54.5%/57.0%)" if rd
+                      else "利率上行/盘整通道=宽松背景弱,A股+黄金难同强")
+    us = factors.get("us10y")
+    if us is not None:
+        lparts.append(f"美债10Y={us}%（上行→黄金跌、避险资产承压；下行→风险偏好回升）")
+    if factors.get("gold") is not None:
+        lparts.append(f"金价={factors['gold']}")
+    if lparts:
+        lines.append("  联动因子 L（辅助权重,宏观环境约束）: " + "；".join(lparts) + "。")
+    if factors.get("nq_open_low"):
+        lines.append(
+            "  ⚠️ 压制信号(L3 纳指期货大跌): 当日纳指期货 nq_chg="
+            f"{factors['nq_chg']:.2f}% 明显大跌，压制转多/看多(2026-08-18 全席位大幅转多却次日-2.4暴跌"
+            "即 nq 大跌压制 T 因子失效样本)。若非纳指大跌,转多信号可大胆顺势看涨。"
+        )
+    lines.append("  方向合成: 转折因子 T 为主权重(64-84%)、联动因子 L 为辅助(53-60%),"
+                 "L3 纳指大跌可压过 T1 转多看涨。")
+    return "\n".join(lines)
 
 
 # ── 数据加载(P1-8 数据锚定:以 JSON 结构给模型)────────────────────────────
@@ -1084,6 +1254,12 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
         sys_text += (
             "9. 【已知偏差(历史机检统计)】" + known_bias + "。请避免重复上述系统性偏差,但仍只引用本次注入数据。\n"
         )
+    # ── 方向锚语义教学(AI预测升级第一步,2026-08-20):开关 off=跳过,线上 prompt 逐字不变 ──
+    if cfg.get("direction_anchor_enabled"):
+        _anchor_text = _direction_anchor_semantics(_compute_direction_anchor(
+            pick_db(pick_repo()), date), date)
+        if _anchor_text:
+            sys_text += "9a.【方向锚(方向研判辅助)】" + _anchor_text + "\n"
     sys_text += "请严格按照 JSON 结构输出。"
 
     user = {
@@ -1573,6 +1749,12 @@ def build_editor_messages(role_results: dict, researcher: dict | None, date: str
             f"{next_rule}. 【合规红线】严禁使用:买入、卖出、加仓、建仓、清仓、减仓、重仓、满仓、抄底、逃顶、止损、止盈、"
             "仓位、建议持有、加杠杆。只允许:关注、警惕、观察、留意、注意、谨慎。\n"
         )
+    # ── 方向锚语义教学(AI预测升级第一步,2026-08-20):开关 off=跳过,线上 prompt 逐字不变 ──
+    if cfg.get("direction_anchor_enabled"):
+        _anchor_text = _direction_anchor_semantics(_compute_direction_anchor(
+            pick_db(pick_repo()), date), date)
+        if _anchor_text:
+            sys_text += f"{next_rule+1}.【方向锚(方向研判辅助)】" + _anchor_text + "\n"
     # 数据锚定(P1-8):与 parse_ai_output 同源,watch_list 只允许注入数据真实存在的 index_id
     injected_ids = {
         x.get("index_id") for x in (data.get("signals_today") or []) if data
@@ -2487,6 +2669,63 @@ def _reflect_news_digest_ref(backfilled_via: str, db_path: Path) -> tuple[str, s
     return "rule_based", None
 
 
+# ── 反思=因子归因回灌(TA Reflector 内核,2026-08-20):把错归因到具体误导因子 ──
+#   现状旧版只做规则级归因(direction_fail/partial/range_imprecise)+一句 summary,
+#   没归因到「具体哪个因子误导了方向」,也没把「该因子近期表现」回灌下次预测。
+#   本函数对失败日复用 _compute_direction_anchor(与方向锚同源同 DB 只读)现算当日因子状态,
+#   判断「预测方向 vs 当日因子语义方向」是否被某因子误导,产出 factor_attribution 归因列表。
+#   归因随样本落盘(reflections 记录),注入时聚合 top 误导因子 → 回灌下次 prompt 约束(见 build_attribut_inject)。
+def _attribut_factor(db_path: Path, date: str, pred: str, failure_type: str,
+                     actual_dir: str) -> list[dict]:
+    """对失败日做因子归因。返回 [{factor, dir, detail}] 或 [](无归因/db 不可用)。"""
+    if not db_path or failure_type == "direction_only":
+        return []
+    try:
+        f = _compute_direction_anchor(db_path, date)
+    except Exception:
+        return []
+    attrs: list[dict] = []
+    turns = f.get("turns") or []
+    to_long = [t for t in turns if t.get("turn_type") == "to_long"]
+    to_short = [t for t in turns if t.get("turn_type") == "to_short"]
+    ma_bull = f.get("ma_bull")
+    nq_low = bool(f.get("nq_open_low"))
+    nq_chg = f.get("nq_chg")
+    # 方向误判(direction_fail/老格式 direction_only)：归因到与预测反向冲突的当日因子语义
+    if failure_type in ("direction_fail", "direction_only", "range_imprecise") and pred and actual_dir:
+        if pred == "up" and nq_low:
+            attrs.append({
+                "factor": "L3纳指大跌压制看多", "dir": "外部压制",
+                "detail": f"当日纳指期货 nq_chg={nq_chg if nq_chg is not None else '--'}% 明显大跌，压制看多/转多信号"
+                          f"(方向锚 L3: 2026-08-18 全席位大幅转多却次日 -2.4 暴跌同因)。预测看涨被外部压制证伪。",
+            })
+        if pred == "down" and to_short:
+            attrs.append({
+                "factor": "转空信号被当偏空", "dir": "逆势",
+                "detail": "当日存在机构仓位转空信号(T)，方向锚语义=转空次日『逆势看涨』(全时段净流出≠偏空，8/14/8/17 验证；"
+                          "top20IC转空+均线多头=84%)。预测偏空与 T2/T3 逆势看涨语义冲突，被当日量价强空覆盖，"
+                          "提示勿把转空直接当偏空。",
+            })
+        if pred == "down" and to_long and ma_bull:
+            attrs.append({
+                "factor": "T1顺势看涨/均线多头强规则", "dir": "顺势",
+                "detail": "当日存在机构转多信号(T1，顺势看涨 64-66% 白名单)且 sh 收盘>20日线(均线多头,84% 强化)。"
+                          "预测偏空与 T1+均线多头看涨语义冲突。",
+            })
+        if pred == "up" and to_long and not nq_low and actual_dir == "down":
+            attrs.append({
+                "factor": "T1顺势看涨当日失效", "dir": "顺势失效",
+                "detail": "当日存在机构转多信号(T1)且无 L3 纳指外部压制，方向锚语义应顺势看涨，但次日实际下跌，"
+                          "T1 因子当日未兑现。(诚实标注:证明链路为当日因子状态，是否为长期失效需连续多日观测)",
+            })
+    elif failure_type == "partial":
+        attrs.append({
+            "factor": "板块/中间层失真", "dir": "区间层",
+            "detail": "方向对但板块/中间层判定有误(partial)，归因到板块层而非方向因子。",
+        })
+    return attrs
+
+
 def _classify_failure(it: dict, db_path: Path) -> dict | None:
     """对一个已回填历史条目做规则级失败归因;非失败(命中/N/A)返回 None。
     返回记录结构(字段见 REFLECTIONS_FILE 语义),供落盘。"""
@@ -2594,6 +2833,9 @@ def _classify_failure(it: dict, db_path: Path) -> dict | None:
         "evidence_source": evidence_source,
         "news_digest_ref": news_ref,
         "confidence": meta.get("confidence"),
+        # 反思=因子归因(TA Reflector 内核,2026-08-20):把错归因到具体误导因子。
+        #   只落盘,注入见 build_attribut_inject(受 cfg.reflection_factor_attribution_enabled 栅)。
+        "factor_attribution": _attribut_factor(db_path, date, pred, failure_type, actual_dir),
     }
 
 
@@ -2691,6 +2933,55 @@ def _reflection_tier(hit_rate):
     return "success"
 
 
+def build_attribut_inject(reflections: dict, date: str, cfg: dict, history: list | None = None) -> str:
+    """反思=因子归因回灌(TA Reflector 内核,2026-08-20):把「该误导因子近期待规避倾向」回灌下次预测。
+
+    与 build_reflection_inject 同源同时间隔离(walk-forward):只取 backfilled_via < date 的样本，
+    聚合这些失败样本的 factor_attribution(落盘于 _classify_failure),统计 top 误导因子、
+    连续出错倾向,生成「待规避因子约束」段叠加进 build_reflection_inject 的注入文本(作为第9条后追加约束)。
+
+    与方向锚语义互补不互斥:归因列的是「某因子当天误导了方向」,注入的是「该因子近期待规避」,
+    方向锚(语义教学)照常独立注入;两者同源同 DB,开 attr 注入时方向锚建议同时开(否则纯规避无正向替代)。
+    开关 cfg.reflection_factor_attribution_enabled(false 默认=线上注入文本逐字不变,可 A/B)。
+    返回注入约束段;未开/无可聚合/优秀档返回 ''。"""
+    if not cfg.get("reflection_factor_attribution_enabled", False):
+        return ""
+    if not cfg.get("review_enabled", True):
+        return ""
+    samples = reflections.get("samples") or []
+    past = [s for s in samples if s.get("backfilled_via") and s.get("backfilled_via") < date
+            and s.get("factor_attribution")]
+    if not past:
+        return ""
+    # 优秀档(>=90% 命中)不注入失败归因(与 build_reflection_inject 优秀档同口径,避免干扰已成功模式)
+    _, _, hit_rate = _strict_hit_rate(history, window=30)
+    if _reflection_tier(hit_rate) == "success":
+        return ""
+    # top 误导因子聚合:统计每个 factor 出现次数 + 最新一次详情
+    agg: dict[str, dict] = {}
+    for s in past:
+        for a in (s.get("factor_attribution") or []):
+            fac = a.get("factor") or ""
+            if not fac:
+                continue
+            e = agg.setdefault(fac, {"count": 0, "detail": "", "date": ""})
+            e["count"] += 1
+            if s.get("date", "") > e.get("date", ""):
+                e["date"], e["detail"] = s["date"], a.get("detail") or ""
+    # 按次数降序取 top3
+    top = sorted(agg.items(), key=lambda kv: kv[1]["count"], reverse=True)[:3]
+    if not top:
+        return ""
+    lines = []
+    for fac, e in top:
+        suffix = "（连续多次，建议重点规避）" if e["count"] >= 2 else ""
+        lines.append(f"  · {fac}：近 {e['count']} 次失败误判{suffix}。{e['detail']}")
+    header = (f"【待规避因子(反思归因回灌)】以下因子在近 {len(past)} 次失败预测中反复误导方向，"
+              "若本日出现该因子同态信号，请降低其权重或以反向结论交叉验证，勿直接依它下单向结论；"
+              f"但仍只引用本次注入数据，不臆造：\n")
+    return scrub_text(header + "\n".join(lines), cfg)
+
+
 def build_reflection_inject(reflections: dict, date: str, cfg: dict, history: list | None = None) -> str:
     """从 reflections.json 提取「预测日 date 之前已回填」的失败模式,生成注入文本(已 scrub)。
 
@@ -2753,6 +3044,11 @@ def build_reflection_inject(reflections: dict, date: str, cfg: dict, history: li
     else:
         hint = "请参考上述历史失败模式校准本次判断(尤其方向与幅度),但仍只引用本次注入数据,不臆造。"
     text = header + body + hint
+    # 反思=因子归因回灌(2026-08-20,TA Reflector 内核):聚合 top 误导因子待规避约束,叠加进注入文本。
+    #   受 cfg.reflection_factor_attribution_enabled 栅(false 默认=线上注入文本逐字不变)。
+    attr_inject = build_attribut_inject(reflections, date, cfg, history)
+    if attr_inject:
+        text += "\n" + attr_inject
     # 合规 scrub:注入文本过现有脱敏(不注入内部敏感/密钥,只注入失败模式描述)
     return scrub_text(text, cfg)
 
