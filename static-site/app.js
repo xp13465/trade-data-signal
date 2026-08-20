@@ -4691,14 +4691,20 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
     const o = _ohlcMap[date]; return o ? o.close : null;
   });
   // 四档色带(纯展示, #73 8 宽基): 底部细色带按日期标该指数四档状态, 涨红跌绿。
-  // tiers 与 ohlc 一一对应(缺 tier 的用前值前向填充/无值=灰)。单一指数口径=各宽基自身(非综合多指数)。
+  // 按 date 匹配 tier(非按索引, 2026-08-20 修"单色+无hover"bug): ohlc 可能是 3m/6m/1y/full 等任意窗口,
+  // 整体短于 tiers 全史(2881)。若按索引 i 取 tiers[i], ohlc=63条(3m)时会错位取到全史开头(2014年 tier 全 None)
+  // → _lastTier 恒 None → 色带整条默认灰"只有一个颜色"。改用 date 精确命中 tier, 任意窗口都对齐真实走势。
+  // 缺 tier 的日期(如 tiers 未更新到最新)沿用前一根真实 tier(前向填充), 无色带语义仍在灰色系之外。
   const _tierBand = [];
   if (tiers && tiers.length) {
+    const _tierMap = {};
+    for (const _t of tiers) if (_t && _t.date != null) _tierMap[_t.date] = _t.tier;
     let _lastTier = null;
     for (let i = 0; i < ohlc.length; i++) {
-      const _t = tiers[i] ? tiers[i].tier : null;
-      if (_t) _lastTier = _t;
-      _tierBand.push({ value: 0.5, itemStyle: { color: _TIER_COLORS[_lastTier] || "#9aa0a6", borderWidth: 0 }, date: ohlc[i].date, tier: _lastTier });
+      const _d = ohlc[i] ? ohlc[i].date : null;
+      const _tk = _d != null ? _tierMap[_d] : undefined;
+      if (_tk) _lastTier = _tk;
+      _tierBand.push({ value: 0.5, itemStyle: { color: _TIER_COLORS[_lastTier] || "#9aa0a6", borderWidth: 0 }, date: _d, tier: _lastTier });
     }
   }
   c.setOption(withTheme({
@@ -4747,7 +4753,10 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
         stack: "tierband",
         barCategoryGap: "0%",
         barWidth: "99%",
-        silent: true,
+        // 2026-08-20 修"hover 色带无提示": silent:true 使该 bar series 不参与 axis tooltip 触发,
+        // formatter 里已有的 ●tier 逻辑永不执行。改 false 让 axis 触发时 params 含色带, 但 formatter
+        // 只取 params[0] 的 axisValue 拼 HTML, 不影响 line tooltip 展示。
+        silent: false,
         z: 1,
         data: _tierBand,
       },
@@ -6269,6 +6278,9 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
     // 2026-08-06 弹窗 chart card 模拟回测按钮后加相关 ETF（复用指数表现 _appendEtfLinkTag）。
     // g./s. 分支无 etfs 字段（_modalEtfs 保持 null，不渲染 ETF tag）；else 分支（常规指数）赋值 r.etfs。
     let _modalEtfs = null;
+    // 2026-08-20 修"信号弹窗无色带"：#73 8 宽基走势图色带也应在信号弹窗显示。
+    // else 分支（常规指数）赋 r.tiers；g./s. 情绪分支无 tiers 保持 null（不闪色带）。
+    let _modalTiers = null;
 
     if (indexId.startsWith("g.")) {
       const key = indexId.slice(2);
@@ -6319,6 +6331,8 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       // 标题去重(need3-③)：header 不再显 ETF，避免 chart card 已显 ETF 时重复。
       // r.etfs 空（海外/国债无跟踪ETF）显示"无ETF"灰占位（同指数表现）；g./s. 分支 _modalEtfs=null 不渲染。
       _modalEtfs = r.etfs || [];
+      // 2026-08-20 信号弹窗补传四档 tier（8 宽基色带在弹窗也显示；indexChart 按 date 匹配对齐）
+      _modalTiers = r.tiers || null;
     }
     if (!chartData || !chartData.length) {
       body.innerHTML = `<div class="empty-note">暂无「${name}」走势数据</div>`;
@@ -6423,7 +6437,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
     // 2026-08-06 捕获 chart 实例(need3-②)：chart card 渲染后对 cardEl 调 _appendEtfLinkTag，把相关 ETF 加到模拟回测按钮后。
     const _sigChart = isValue
       ? valueChartWithSignals(title, chartData, sigs, {}, stats, strategy, indexId, body, _signalModalCharts, chartOverlay, indexId.startsWith("s."))
-      : indexChart(title, chartData, sigs, stats, strategy, body, _signalModalCharts, indexId);
+      : indexChart(title, chartData, sigs, stats, strategy, body, _signalModalCharts, indexId, _modalTiers);
     // need3-②：弹窗模拟回测按钮后加相关 ETF（复用指数表现 _appendEtfLinkTag，仅常规指数分支 _modalEtfs 非 null 时渲染）。
     // _prependSimBtn 已在 indexChart/valueChartWithSignals 内调用（h3 顺序 [标题][❓][模拟回测]），此处追加 ETF tag 排末尾。
     if (_sigChart && _modalEtfs) {
