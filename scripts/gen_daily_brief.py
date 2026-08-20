@@ -3638,6 +3638,14 @@ def main() -> int:
         if _shadow_rec:
             log(f"影子记录 date={date} lean={_shadow_rec['pred_shadow']} "
                 f"strength={_shadow_rec['strength']} basis={len(_shadow_rec['basis'])}")
+            # 刷新影子追踪 md(维护 docs/ai-predict-shadow-track.md):当日行 lean/basis 有值,次日待回填。
+            # 幂等——md 由 brief_shadow.json 全量渲染,重跑不重复加行/覆盖历史(§5.3 核心保留)。
+            try:
+                from shadow_track_md import update_shadow_track_md as _upd_md
+                _upd_md(repo, pick_git_repo(), silent=True)
+            except Exception:
+                # md 渲染失败不阻断主链(影子记录已落盘,md 次日 aggregate 还能补渲染)
+                pass
 
     # 数据源数据量(供 run_log + 监控)
     data_sources = {

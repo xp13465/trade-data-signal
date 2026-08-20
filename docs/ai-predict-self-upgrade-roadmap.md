@@ -25,6 +25,7 @@
 | `docs/ai-predict-direction-market-winning-signals-20260820.md` | 信号胜率榜+影响面图谱(311行,10脚本) | ✅ 已落档 |
 | `docs/ai-predict-director-industry-method-20260820.md` | 业界多因子/背向修正/HMM/漂移监控(178行,36URL) | ✅ 已落档 |
 | `docs/ai-predict-shadow-validate-20260820.md` | 方向锚/归因影子模式 7 天 A/B 验证(定义+协议+复现) | ✅ 已落档(实施期) |
+| `docs/ai-predict-shadow-track.md` | 影子模式 7 天验证追踪总表(**影子追踪见本表**,每日 md 双向维护,用户直接可查不用敲命令) | ✅ 已落档(实施期,自动生成) |
 
 **已确证方向锚（白名单）：**
 - 任一强转向 OR → 次日涨 65%（n=254，逐年55/66/79）——喂预测首选合成器

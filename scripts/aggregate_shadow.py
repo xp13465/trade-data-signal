@@ -30,6 +30,7 @@ SHADOW_FILE = "brief_shadow.json"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pick_repo import pick_repo  # noqa: E402
+from shadow_track_md import update_shadow_track_md  # noqa: E402  (维护 docs/ai-predict-shadow-track.md)
 
 
 def _pick_db() -> Path:
@@ -200,6 +201,12 @@ def main() -> int:
             shadow_path.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
     else:
         n_new = 0
+
+    # 渲染影子追踪 md(维护 docs/ai-predict-shadow-track.md):回填后刷新"次日实际/命中"列。
+    # 幂等——md 由 brief_shadow.json 全量渲染,重跑只反映"新增行/回填列"差异,不覆盖丢历史。
+    from pick_repo import pick_git_repo as _pick_git  # noqa: F401
+    from shadow_track_md import update_shadow_track_md as _upd_md
+    _upd_md(repo, _pick_git())  # repo=trade-data 数据根(JSON 所在);md 落 git 仓 trade/docs
 
     _agg = _aggregate(rows)
     _agg["shadow_path"] = str(shadow_path)
