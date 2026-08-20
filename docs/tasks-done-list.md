@@ -109,3 +109,14 @@
 - [x] **#76 tasks_archive.py 支持 level 3 已完成块归档** — main-merge 合 9359f798f:TASKS.md 233258→204213B 瘦身、16块精确归档、待办零丢失
 - [x] **#77 tasks_archive.py compress_status_line 缺尾换行致熔行** — commit e54adcb1f push main:补尾换行根治 + 拆 L32/L58 两处熔行
 - [x] **#78 TASKS.md 瘦身:任务治理方向已定且已实施** — 2026-08-20 治理落地:43 完成归档 + 3 关闭 + 远期 11 移本表十六节 + TASKS.md 只留活跃(报告 tasks-active-only-clean-20260820.md)
+
+## 2026-08-20 会话收尾移入(AI 预测体系升级 + 四档色带 bug 修复,完成态待 7 天归档)
+
+> 来源:方向锚/反思/影子/影子md/四档色带 5 项,main-merge 统一入口合并(main-merge.sh + worktree 复刻防线),全部 commit 已在 origin/main(git branch --contains 实测)。这批是「听你的」批准的多阶段 AI 预测升级落档闭环,§23.5 四件套(报告本体+脚本+复现段+commit)齐。
+
+- [x] **AI 预测根因调研 + TradingAgents-CN 底层深挖(用户质疑「只肤浅套用多agent辩论?」)** — commit(调研为文档非代码)。结论:TA 底层=langgraph 多智能体辩论编排(setup.py)+各 analyst prompt 内领域软因子+唯一硬权重=舆情三源加权(chinese_finance_utils.py 331行);我们诚实承认只复用了多agent辩论编排,但方向锚信号胜率(转空+均线多头84.2%)为自研8年数据挖掘,超越之;README 措辞已修正(致敬TA保留)。报告 docs/ai-predict-direction-market-winning-signals-20260820.md
+- [x] **方向发展锚(第一步)+ 离线回放A/B** — commit 5bbc8fbe1(方向锚语义教学+config默认关+replay脚本)/30ed2c94c(merge main)。A/B结果:8/17修正(down→up)、8/18保持对+L3压制转多设计点通过、8/14未修正(80%+逆势锚被当参考,迭代点晋升"倾向性结论")。迭代跟踪总纲 docs/ai-predict-self-upgrade-roadmap.md
+- [x] **反思=因子归因回灌(TA Reflector 内核,提前落地后续轮次3)** — commit 9a47bae97。失败归因到具体误导因子(_attribut_factor,复用方向锚)+「待规避因子」约束段回灌(build_attribut_inject);cfg 默认关reflection_factor_attribution_enabled=false=线上逐字不变。报告 docs/ai-predict-reflection-factor-attribution-20260820.md
+- [x] **影子模式 7 真实交易日 A/B 验证(用户拍板数据决定开/不开/改)** — commit 52813c924。方向锚/归因全默认关但旁路算+落盘(brief_shadow.json)+聚算(aggregate_shadow.py);shadow_mode_enabled=true只控旁路不注入线上。契约 docs/ai-predict-shadow-validate-20260820.md + roadmap 第四步实施记录
+- [x] **影子模式项目下 md 追踪总表(用户要求项目下 md 文件记录可实时看,非黑盒)** — commit a63a13e87 + 77ffd7041(渲染 try 防阻断)。md=data/brief_shadow.json 唯一事实源全量渲染,幂等双向维护,进 main 可从 commit 检索。追踪表 docs/ai-predict-shadow-track.md(自动生成勿手改)
+- [x] **四档色带单色+无hover bug 修复(中证1000/创业板指/科创50)** — commit bb20755be + 836c1f95c(merge main)。根治:per-date匹配tier+silent:false+弹窗补tiers;本地与线上 app.min.js md5 均=d3e0a537
