@@ -208,6 +208,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-08-16 | 0.9746 | 5,912,792 | 2.1.224 | e32017f69 docs(CLAUDE.md): 新增 §23.8 skill 维护同步铁律 — skill 是活资产与项目一致迭代,过时比没有更危险; f34211e79 chore(反思落档): §18 过错索引加 L41(同步任务验收口径做窄——同步 claude-work-mode 只同步根 CLAUDE.md,漏 agents/skills 执行层+README 部署指引过时,用户点破才发现)——归档锚点+主控专属表+计数40→41; a0986a60a docs(claude-work-mode): 使用指引升级为「全局共享核心+项目角色执行层+项目专项」完整部署; 8818f53c7 feat(claude-work-mode全量同步): 补全执行层 .claude/agents/ + .claude/skills/role-*/ 8 文件 (此前只同步根 CLAUDE.md, 漏了角色执行层, 拓扑图与实物脱节); 9e1243fee chore(反思落档): §18 过错索引加 L40(打tag只做点名处没举一反三,版本链v1.1.0漏打没暴露)——归档锚点+主控专属表+计数39→40; e4861253f chore(规范): 新增 §5.6 DeepSeek 官方 API 峰谷定价铁律(2026-08-17 生效)+同步 claude-work-mode; deef6c5bf chore(命中率走势): 08-16 当天数据实时刷新(0.9830)——幂等更新同一行不重复追加; 76613a2d0 chore(命中率走势): 08-16 当天数据刷新至最新(0.9828/2,937,926)+当日改动列并入新commit; 9a31f21df chore(README走势段): 补复现/手动追加命令一句(§23.5复现段); e8bbd4c1d feat(claude-work-mode全量同步+命中率走势): 08-12后新增规范同步进备份包 + token缓存命中率每日追加走势; 2bb4f1e08 chore(收尾): 标记 v1.1.1 + 补 about/privacy 版本串 a279 + TASKS 登记今日4项; b46660a1c docs(§19每日总结): 8/15当天归纳落档 — 新过错L34-L39+经验E27-E30 |
 | 2026-08-18 | 0.9741 | 5,705,391 | ? | e24d42a54 docs(compact): AUTO_COMPACT_WINDOW 数字校正 600000→1048576 对齐 settings.json 实况; 222db1844 fix(构建): build_min 从 git HEAD 读源+§24⑤内容校验+deploy push 限 main 根治 min 被脏工作区覆盖; 1eec05cdd feat(kelly): v1.1.2 凯利三键改造 — excludeSpecialBear 升四档判定 + 2备选键 + 历史四档轨迹图后端 |
 | 2026-08-19 | 0.9747 | 3,989,072 | ? | ce5ca8dce docs(规范+待办): 全局核心问题报告维度全铁律(§5.1⑤+researcher skill§3⑤) + 落档#69 CYB降亏新标志方向 + 新增#73 多指数四档展示; b74368b5a feat(防再犯CD): push main 统一入口 main-merge.sh + 同文件并发串行 check_file_owners(用户拍板 B 降级安全并行) |
+| 2026-08-20 | 0.9869 | 746,855 | ? | cd8ea5d8e docs(CLAUDE.md): 存量修正3处(用户已拍板全修) 版本基准引用过时+§18过错索引计数; 3d9d9cdab docs(CLAUDE.md): 瘦身方案#94 A1+§5.4状态独立 删§18元信息+基准定义挪memory权威; 8cb60a5a7 docs(CLAUDE.md): §23.12 TASKS任务治理4态流转规范落档(用户2026-08-20定,task活跃/todolist远期/完成文件/归档7天) |
 <!-- token-cache-trend-end -->
 
 **ASCII 迷你柱状图**（每格 = 0.01 命中率，刻度 0.70~1.00，一眼看升降；由脚本 `--append-daily` 随走势表同步更新，保证与实际命中率一致）：
@@ -224,6 +225,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 08-16  ███████████████████████████(27)  5,912,792     0.9746
 08-18  ███████████████████████████(27)  5,705,391     0.9741
 08-19  ███████████████████████████(27)  3,989,072     0.9747
+08-20  █████████████████████████████(29)  746,855       0.9869
 ```
 <!-- token-cache-ascii-end -->
 
@@ -239,4 +241,5 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-08-16 | 2.1.224 | e32017f69 docs(CLAUDE.md): 新增 §23.8 skill 维护同步铁律 — skill 是活资产与项目一致迭代,过时比没有更危险; f34211e79 chore(反思落档): §18 过错索引加 L41(同步任务验收口径做窄——同步 claude-work-mode 只同步根 CLAUDE.md,漏 agents/skills 执行层+README 部署指引过时,用户点破才发现)——归档锚点+主控专属表+计数40→41; a0986a60a docs(claude-work-mode): 使用指引升级为「全局共享核心+项目角色执行层+项目专项」完整部署; 8818f53c7 feat(claude-work-mode全量同步): 补全执行层 .claude/agents/ + .claude/skills/role-*/ 8 文件 (此前只同步根 CLAUDE.md, 漏了角色执行层, 拓扑图与实物脱节); 9e1243fee chore(反思落档): §18 过错索引加 L40(打tag只做点名处没举一反三,版本链v1.1.0漏打没暴露)——归档锚点+主控专属表+计数39→40; e4861253f chore(规范): 新增 §5.6 DeepSeek 官方 API 峰谷定价铁律(2026-08-17 生效)+同步 claude-work-mode; deef6c5bf chore(命中率走势): 08-16 当天数据实时刷新(0.9830)——幂等更新同一行不重复追加; 76613a2d0 chore(命中率走势): 08-16 当天数据刷新至最新(0.9828/2,937,926)+当日改动列并入新commit; 9a31f21df chore(README走势段): 补复现/手动追加命令一句(§23.5复现段); e8bbd4c1d feat(claude-work-mode全量同步+命中率走势): 08-12后新增规范同步进备份包 + token缓存命中率每日追加走势; 2bb4f1e08 chore(收尾): 标记 v1.1.1 + 补 about/privacy 版本串 a279 + TASKS 登记今日4项; b46660a1c docs(§19每日总结): 8/15当天归纳落档 — 新过错L34-L39+经验E27-E30 |
 | 2026-08-18 | ? | e24d42a54 docs(compact): AUTO_COMPACT_WINDOW 数字校正 600000→1048576 对齐 settings.json 实况; 222db1844 fix(构建): build_min 从 git HEAD 读源+§24⑤内容校验+deploy push 限 main 根治 min 被脏工作区覆盖; 1eec05cdd feat(kelly): v1.1.2 凯利三键改造 — excludeSpecialBear 升四档判定 + 2备选键 + 历史四档轨迹图后端 |
 | 2026-08-19 | ? | ce5ca8dce docs(规范+待办): 全局核心问题报告维度全铁律(§5.1⑤+researcher skill§3⑤) + 落档#69 CYB降亏新标志方向 + 新增#73 多指数四档展示; b74368b5a feat(防再犯CD): push main 统一入口 main-merge.sh + 同文件并发串行 check_file_owners(用户拍板 B 降级安全并行) |
+| 2026-08-20 | ? | cd8ea5d8e docs(CLAUDE.md): 存量修正3处(用户已拍板全修) 版本基准引用过时+§18过错索引计数; 3d9d9cdab docs(CLAUDE.md): 瘦身方案#94 A1+§5.4状态独立 删§18元信息+基准定义挪memory权威; 8cb60a5a7 docs(CLAUDE.md): §23.12 TASKS任务治理4态流转规范落档(用户2026-08-20定,task活跃/todolist远期/完成文件/归档7天) |
 <!-- token-cache-changelog-end -->
