@@ -61,6 +61,12 @@
 - **dry 自验（--no-call）**：三样本 8/14（top20IC转空-1293+均线多头→逆势 up）8/17（国泰综合+3447转多→顺势 up）8/18（中信综合+4858转多+**L3 nq=-1.30 压制看多→应 down**）方向锚语义均正确注入；off 开关下 dump sys_text 无『方向锚』=线上 prompt 逐字一致。
 - **下一步（18:00 高峰后）**：跑离线回放调 API（3样本×开/关 单 prompt=6 次），观测 8/18 是否用 L3 压住 T1 输出 down；多角色主编链路 --multi 复核。真实交易日 7 天严格 A/B 待后续。
 
+**✅ 反思=因子归因回灌实施记录（2026-08-20,implementer,提前落地「后续轮次3」TA Reflector 内核）**
+- **动机**：用户质疑「只肤浅套用 TradingAgents 多 agent 辩论」。TA 价值内核=反思不只记"错了"，而是把错归因到某方/某因子→调该方 memory→回灌下次辩论上下文。我们旧反思只规则级归因（failure_type+一句 summary），没归因到具体误导因子，也没回灌该因子近期表现。
+- **实现（commit 9a47bae97）**：`gen_daily_brief.py` 新增 `_attribut_factor`（失败日复用 `_compute_direction_anchor` 现算当日因子，归因到 L3纳指大跌压制看多/转空信号被当偏空/T1顺势看涨或均线多头强规则/T1当日失效/板块层失真，落盘 `factor_attribution`）+ `build_attribut_inject`（聚合 top 误导因子+连续出错倾向，生成「待规避因子」约束段叠加进 `build_reflection_inject`）。config 开关 `reflection_factor_attribution_enabled: false` 默认关=线上注入逐字不变。与方向锚互补不互斥（同源同 DB 只读）。
+- **README 措辞修正**：AI 速递编排受 TradingAgents-CN/原版多智能体辩论架构启发，但预测所用方向锚信号胜率/因子权重为自研 8 年数据挖掘成果，非抄；致敬 TradingAgents 段保留。
+- **自验**：真实 DB 三样本 8/18→L3纳指大跌压制看多（nq=-1.302）、8/17/8/14→转空信号被当偏空+T1顺势看涨，归因与方向锚回放结论一致；cfg 无开关 key 与显式 False 时注入文本逐字一致（off 线上不变）；on 聚合归因段正确。详见 `docs/ai-predict-reflection-factor-attribution-20260820.md`。
+
 ### 后续轮次（每轮独立验证，不一口吞）
 1. **打分制合成**（华泰 A₂ 分层投票，每信号+1/0/-1，只留方向不带仓位）
 2. **状态识别**：先四子路径状态依赖（追高/抄底/追空/逃顶），进阶 HMM 状态机
