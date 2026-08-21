@@ -2627,9 +2627,6 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   //   popItems = 信号列表人口(含降亏命中, 保持列表完整展示);
   //   _statItems = 统计人口(排除降亏命中, 使准确率+分栏计数随过滤联动)
   let _statItems = _fadeOn ? popItems.filter((it) => !_isAiFadeHit(it)) : popItems;
-  // 2026-08-21: ETF 档位按钮计数基线——只排除降亏命中, 不含 grade/type/ETF 筛选
-  // 告诉用户"该档位还有多少信号可看", 不因其他筛选显示 0 导致用户不敢点
-  const _tierCountItems = _fadeOn ? windowedItems.filter((it) => !_isAiFadeHit(it)) : windowedItems;
   // 列表 = 人口 ∩ 列表子筛选(grade/correct/type)；5 个筛选正交组合(AND)
   let filtered = (kind === "signal") ? popItems.filter(_listFilter) : windowedItems;
   // 按 date 分组（降序），今日组单独提到最前
@@ -2732,6 +2729,11 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       return kept && kept.has(it);
     });
   }
+  // 2026-08-21: ETF 档位按钮计数——fade + kept 过滤后、ETF 档位筛选前的基线
+  // 告诉用户"该档还有多少信号可看"，随 K 档/降亏联动，但不受 ETF 档位筛选影响（选了某档不影响其他档计数）
+  const _tierCountItems = _pcOn && _posCapKeptMap
+    ? windowedItems.filter((it) => !_isAiFadeHit(it) && (() => { const k = _posCapKeptMap.get(it.date); return k && k.has(it); })())
+    : (_fadeOn ? windowedItems.filter((it) => !_isAiFadeHit(it)) : windowedItems);
   // 2026-08-13 重构: 显示随过滤开关走(合并后单开关, 无独立显示层); 开关行 HTML 用 _fadeOn 渲染「AI降亏过滤」勾选态
   const _sigSwitchHtmlStr = (kind === "signal") ? _sigSwitchHtml(_fadeOn, _posCapK || 1, _pcOn, signalsMeta) : "";
   // 2026-08-14 AI过滤视图(用户澄清口径, 两开关正交不绑定):
