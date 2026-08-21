@@ -2627,6 +2627,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   //   popItems = 信号列表人口(含降亏命中, 保持列表完整展示);
   //   _statItems = 统计人口(排除降亏命中, 使准确率+分栏计数随过滤联动)
   let _statItems = _fadeOn ? popItems.filter((it) => !_isAiFadeHit(it)) : popItems;
+  // 2026-08-21: ETF 档位按钮计数基线——只排除降亏命中, 不含 grade/type/ETF 筛选
+  // 告诉用户"该档位还有多少信号可看", 不因其他筛选显示 0 导致用户不敢点
+  const _tierCountItems = _fadeOn ? windowedItems.filter((it) => !_isAiFadeHit(it)) : windowedItems;
   // 列表 = 人口 ∩ 列表子筛选(grade/correct/type)；5 个筛选正交组合(AND)
   let filtered = (kind === "signal") ? popItems.filter(_listFilter) : windowedItems;
   // 按 date 分组（降序），今日组单独提到最前
@@ -3051,7 +3054,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _etfBtn = (label, f, tip, gradeCls) =>
       `<button class="sig-acc-seg sig-acc-filter${gradeCls ? " " + gradeCls : ""}${_eActive(f)}" data-etf-filter="${f}" data-tip="${_escAttr(tip)}">${label}</button>`;
     const _tierCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-    for (const it of _statItems) {
+    for (const it of _tierCountItems) {
       const _t = _signalTiers(it);
       _tierCounts[_t] = (_tierCounts[_t] || 0) + 1;
     }
