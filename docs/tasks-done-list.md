@@ -134,3 +134,7 @@
 - [x] **影子模式 7 真实交易日 A/B 验证(用户拍板数据决定开/不开/改)** — commit 52813c924。方向锚/归因全默认关但旁路算+落盘(brief_shadow.json)+聚算(aggregate_shadow.py);shadow_mode_enabled=true只控旁路不注入线上。契约 docs/ai-predict-shadow-validate-20260820.md + roadmap 第四步实施记录
 - [x] **影子模式项目下 md 追踪总表(用户要求项目下 md 文件记录可实时看,非黑盒)** — commit a63a13e87 + 77ffd7041(渲染 try 防阻断)。md=data/brief_shadow.json 唯一事实源全量渲染,幂等双向维护,进 main 可从 commit 检索。追踪表 docs/ai-predict-shadow-track.md(自动生成勿手改)
 - [x] **四档色带单色+无hover bug 修复(中证1000/创业板指/科创50)** — commit bb20755be + 836c1f95c(merge main)。根治:per-date匹配tier+silent:false+弹窗补tiers;本地与线上 app.min.js md5 均=d3e0a537
+
+## 2026-08-21 回测结论落档(95)
+
+- [x] **#95 ETF→权重龙头个股回测结论** — 无实际价值,不推荐,维持 v1.1.3。结论:同 ¥10,000/信号基准,A(ETF)全面优于 B1/B2(TOP1个股),B3(TOP1-3并集)与A持平但3倍操作量且半凯利低4pp;ETF免印花税+单标的决策+无停牌退市风险。详见 docs/kelly/backtest-ai/etf-weight-leader/etf-weight-leader-conclusion.md
