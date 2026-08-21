@@ -62,9 +62,9 @@
 | 27 | **R2 P2:R2 上传失败阻断 push + 版本校验** | docs/r2-migration-implementation-report.md §3.3/§6.1 方案3 | deploy.sh 关键文件 R2 上传失败则阻断 push;dataRewriteHandler 对关键文件加 last-modified 校验 | P0 方案1 已加"upload_r2 空时 notify 告警" | **需确认** |
 | 28 | **R2 P2:edge cache purge 兜底(deploy.sh 末尾统一 purge / Worker 定时清理 / HIGH_FREQ TTL=5s)** | docs/r2-migration-implementation-report.md §3.3/§6.1 方案5 | deploy.sh 末尾统一调一次 purge_cache 或 Worker 定时清理 | upload_r2 各命令已 purge;deploy 末尾统一 purge 未加 | **部分完成/需确认** |
 | 29 | **R2 审计 P1:159335 track_score 跨文件不一致 + 百分位基线动态变化** | docs/r2-migration-implementation-report.md §3.2/§6.2 | board_etf_map=30.2 / index_detail=30.2 / overview=30.9(match_method 不同);基线随候选集变化 | 非 bug 但需关注一致性 | **待办/需确认** |
-| 30 | **R2 审计 P2×4:purge 失败告警 / check_data_integrity 覆盖 / _headers 不生效 / upload_r2 不设 Cache-Control** | docs/r2-migration-implementation-report.md §3.3/§6.2 | 详见报告 | check_data_integrity 已补 etf_since_return + trade_sim_indices 校验(脚本 L48/548),其余未做 | **部分完成**(check 已补,其余待办) |
 | 31 | **simulate_trade JSON 模式自动调度(launchd 定时)** | docs/r2-migration-implementation-report.md §3.2 P1-2 | update_lab.sh 只跑 --html 模式,trade_sim JSON 需手动触发,建议加 launchd 定时 | update_lab.sh 已含 --all JSON 生成+ R2 上传(2026-08-09 补) | **部分完成/需确认**(定时调度未确认) |
-| 32 | **perf 剩余小优化:etf_nt 缓存 / industry 批查** | docs/perf-p1-plan.md L264 | 共省 ~0.9s,收益小改动风险,建议暂不动;若做优先 etf_nt 缓存 | 无 | **未实施**(低优先,建议暂不动) |
+
+> ~~#30 R2审计P2×4、#32 perf小优化~~ 已移入废弃清单(docs/abandoned-features.md, 2026-08-21)。
 
 ## 六、管理端 / 新功能
 
@@ -76,10 +76,7 @@
 
 ## 七、数据采集 / 数据源缺口(已识别非功能方案)
 
-| # | 项 | 出处 | 说明 | 状态 |
-|---|---|---|---|---|
-| 37 | **美股 VIX 采集** | docs/理财专员使用指南.md §5.6(L458) | 无直接 akshare 函数,未采集 | 数据缺口 |
-| 38 | **乐咕活跃度 / 东财情绪源** | docs/理财专员使用指南.md §5.6(L459) | 源不稳定/接口待验证,已禁用 | 数据源状态 |
+> ~~#37 美股VIX采集、#38 乐咕活跃度/东财情绪源~~ 已移入废弃清单(docs/abandoned-features.md, 2026-08-21)。本模块暂无活跃项。
 
 ## 八、会话新待办增补(2026-08-12,来源:TASKS #4/#16/#17 + 当日会话产出;由每日 23:45 cron 自动同步维护)
 
@@ -170,10 +167,11 @@
 | 86 | **真pin 复盘(**多周期同屏对照**)** | docs/archive/TASKS-history-archive-20260820.md L464 | 大工作量 B-2b「真pin 复盘」(200 行)待实施;同批 H 相似形态/各种通知已上线。具体方案见 archive 上下文(价值排序表主控建议:E>B-2a>A>E>…,真pin 属 B-2b 大工作量) | 无 | **待排期**(大工作量,价值排序中游,未派) |
 | 87 | **PWA 体验增强(150 行,未实施)** | docs/archive/TASKS-history-archive-20260820.md L464(价值排序表 A6 PWA 未实施)+ L145(A6 PWA 三件套修正已上线) | 已存在(PWA 三件套 044fd34d 已修正 theme_color+sw.js 重写 App Shell CacheFirst);**剩余 PWA 体验增强**(150 行)未实施(价值排序表中 C PWA 位列靠后) | 无(App Shell 已就绪) | **待排期**(三件套已上线,PWA 增益项未派) |
 | 88 | **订阅推送(410 行,待实施)** | docs/archive/TASKS-history-archive-20260820.md L464 | 订阅推送(410 行)为剩余 6 方向大工作量项;第一批已做(留言箱/浏览器通知等),订阅推送未派 | 无 | **待排期**(大工作量,未派) |
-| 89 | **overlap delta 可比口径** | docs/archive/TASKS-history-archive-20260820.md L97-114 | overlap delta 中报 vs 年报披露范围差异导致偏大(中报2835只 vs 年报5285只);需调研2-4个可比口径方案+推荐+工时 | 调研未产出(2026-08-19 派出后 context 丢失无产出文件),需重新派 | **未派**(调研需重派,非进行中;本表补登记防丢) |
+| ~~89~~ | ~~overlap delta 可比口径~~ | — | — | — | **已废弃**(2026-08-21,见 docs/abandoned-features.md) |
 | 90 | **场外基金阶段2 UI / 阶段3 场内外联动(远期子项)** | TASKS.md L45-46(tasks-active-clean 治理移出)+ pending #34(阶段3) | 阶段1 评分引擎+阶段2 UI 已在已排除清单(完成);**阶段3**:场内外联动(ETF 联接跟踪误差)未做;阶段2 UI 属方案C 一部分已在 #79。⚠**重复登记:阶段3 主登记 = 模块六 #34(本行为远期链确认,见 #34)** | 阶段1/2 已上线 | **待排期/见 #34**(阶段3 主登记 #34;本条为场外阶段远期链确认不重复实施) |
 | 91 | **次日开盘口径确认(真实可执行口径,待用户拍板是否切默认)** | TASKS.md「次日开盘口径」待办(2026-08-20 治理全判远期移出)+ 模块三 #15 | 信号收盘后固化、次日开盘买入是真实可执行口径,成本极低(每日池净利差 -0.01%、每笔1万 -0.57%,"竞价高开吃掉利润"不成立,跳空均值 +0.031%/中位0/>1%仅6.2%)。**🔶 部分完成**:②已做成「次日分批挂单SOP」按钮 lab.js(2026-08-15 SOP,「次日买入玩法」lab-sigkelly-nextday),①「前端展示/回测默认改次日开盘口径」未改——默认仍当日收盘口径,待用户确认是否切。**建议**:①后续回测/前端展示默认改「次日开盘」口径(数据100%覆盖实现成本低)②操作:开盘不追,挂开盘下方 -1% 限价单(未触达按开盘价兜底)→K=1 +844,931/52.81%(+3.8pt)触达率39.8%,挂-2%更深处不划算。报告 docs/kelly/position/kelly-nextday-open-backtest.md(基线可复现/伪跳空剔除/覆盖率100%/A-F二阶近似诚实标注) | 默认当日收盘口径需用户拍板切换 | **待排期/待用户拍板**(用户"明天起床看"后未定,现挂远期;待用户明说再捞回;模块三 #15 已标见本条) |
-| 93 | **首页 AI建议N 无 `tds_poscap` key 时不显示(存量非回归)** | 2026-08-20 tester Playwright 线上核验 #29 时发现(上报 §23.7,未改代码) | 首页 AI建议 在 localStorage 无 `tds_poscap` key 时(首次访问)→ kept map 不 build → **AI建议N badge 不亮(显示 0)**;代码 L2666 注释声称"无 key 保持 K=1 主推高亮"但 L2669 `if(_raw)` 实际需要 key。**不影响回测宇宙/推荐算法核心判定**(判核心全 PASS),独立展示层小茬 | 无 | **待做**(存量行为,非 1.1.3 回归;用户 clear 前已被告知,待用户明说或下轮顺手修) | | TASKS.md「SVG P1」待办未做部分(2026-08-20 治理全判远期移出)+ pending #80 P2-11 | **P1 全站扩展已上线(2026-08-20 home SVG 批 commit 293b1d101 + P0 site-config/ETF评分弹窗/皮肤切换 d9a465dc6)**,剩**大盘 tab renderAStock 30+ echarts 改 SVG 或 IntersectionObserver 懒渲染(P2-11,3-6h,切 tab -500~1000ms)**。用户 2026-08-11 追问状态(此前质疑"首页没效果"即 P0 只接 1 消费点,§23.3 举一反三要求覆盖全站走势图渲染点)。⚠**重复登记:同项 = #80 P2-11(本行为待办移出确认,见 #80)** | 与 #80 P2-11 同项(大盘 tab 展示优化) | **待排期/见 #80**(主登记 #80 P2-11;本条为待办移出确认不重复实施) |
+| ~~93~~ | ~~首页 AI建议N 无 `tds_poscap` key 时不显示~~ | — | — | — | **已完成**(2026-08-21 a376 上线,无 key 时默认 on:true/k:1 写入 localStorage) |
+| ~~92~~ | ~~SVG 大盘 tab 优化~~ | — | — | — | **见 #80 P2-11**(同项,主登记 #80) |
 
 ## 【已排除清单】已上线/已在跑(不要重复派)
 
