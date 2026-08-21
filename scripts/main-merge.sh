@@ -218,10 +218,15 @@ if ! $GIT diff --cached --quiet; then
   # merge 本身已有 index 变更(merge commit 已生成), 不重复 add
   :
 fi
-# 若 bump 后工作区有未暂存变更(第 6 步 build_min/bump 产生的 min/index/sw.js 变更), 需 add
-# ⚠️ 10 个 bump 产物全量 add(与 build_min.py 对齐): 8 对 min 产物 + index.html + sw.js,
-#    含 3 个 notes min(purpose-notes/kelly-review-notes/kelly-reports-content)——漏 add =
-#    index 引用新版本串但线上文件是旧内容。
+# 若 bump 后工作区有未暂存变更(第 6 步 build_min/bump 产生的 min/html/sw.js 变更), 需 add
+# ⚠️ 13 个 bump 产物全量 add(与 bump_asset_version.py 实际写入对齐):
+#    8 个 min 产物(common/purpose-notes/kelly-review-notes/kelly-reports-content/app/lab
+#    的 .min.js + style.min.css + lab.min.css)
+#    + 4 个 html(index/about/guide/privacy——bump 脚本对 static-site/*.html 全量 glob,
+#    当前含 ?v= 引用会被写入的就是这 4 个; 其余 8 个 html(databrief/trade_sim*)无资源引用
+#    不会被写入, 不列) + sw.js。
+#    漏 add = 版本串更新残留工作区进不了 git, 线上引用旧版本串(CSS 一变即 §24 孤儿快照断链;
+#    2026-08-22 凌晨两次 merge 后 about/guide/privacy 均复现, main 7cb8208a0 手工补提交)。
 # ⚠️ 判断条件只盯 bump 产物 diff, 不用整个工作区 diff(2026-08-19 实测卡死根因):
 #    工作区若存在与本次 merge 无关的未提交改动(如 claude-work-mode/README.md 由
 #    token-cache-stats 定时任务追加命中率走势产生), 全工作区 diff 会误入本分支,
@@ -230,7 +235,9 @@ BUMP_PRODUCTS=(static-site/app.min.js static-site/lab.min.js static-site/common.
                static-site/purpose-notes.min.js static-site/kelly-review-notes.min.js \
                static-site/kelly-reports-content.min.js \
                static-site/style.min.css static-site/lab.min.css \
-               static-site/index.html static-site/sw.js)
+               static-site/index.html static-site/about.html \
+               static-site/guide.html static-site/privacy.html \
+               static-site/sw.js)
 if ! $GIT diff --quiet -- "${BUMP_PRODUCTS[@]}"; then
   $GIT add "${BUMP_PRODUCTS[@]}"
   $GIT commit -m "build(统一bump): main-merge.sh 统一 build_min+bump 版本串(机制C, feat=$FEAT)
