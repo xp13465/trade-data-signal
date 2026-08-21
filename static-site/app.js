@@ -2626,7 +2626,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // 2026-08-21: 准确率/分栏计数排除降亏命中信号(当 AI降亏过滤开启时), 与列表展示解耦:
   //   popItems = 信号列表人口(含降亏命中, 保持列表完整展示);
   //   _statItems = 统计人口(排除降亏命中, 使准确率+分栏计数随过滤联动)
-  const _statItems = _fadeOn ? popItems.filter((it) => !_isAiFadeHit(it)) : popItems;
+  let _statItems = _fadeOn ? popItems.filter((it) => !_isAiFadeHit(it)) : popItems;
   // 列表 = 人口 ∩ 列表子筛选(grade/correct/type)；5 个筛选正交组合(AND)
   let filtered = (kind === "signal") ? popItems.filter(_listFilter) : windowedItems;
   // 按 date 分组（降序），今日组单独提到最前
@@ -2720,6 +2720,13 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         }
       }
     } catch (e) {}
+  }
+  // 2026-08-21: 仓位建议联动——当 _posCapKeptMap 存在时(仓位建议 ON 且 K>=1), 统计人口只保留被 kept 的信号(得「AI建议N」徽章), 使分栏计数和准确率随 K 档切换联动
+  if (_posCapKeptMap) {
+    _statItems = _statItems.filter((it) => {
+      const kept = _posCapKeptMap.get(it.date);
+      return kept && kept.has(it);
+    });
   }
   // 2026-08-13 重构: 显示随过滤开关走(合并后单开关, 无独立显示层); 开关行 HTML 用 _fadeOn 渲染「AI降亏过滤」勾选态
   const _sigSwitchHtmlStr = (kind === "signal") ? _sigSwitchHtml(_fadeOn, _posCapK || 1, _pcOn, signalsMeta) : "";
