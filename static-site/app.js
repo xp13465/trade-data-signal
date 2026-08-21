@@ -2724,8 +2724,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       }
     } catch (e) {}
   }
-  // 2026-08-21: 仓位建议联动——当 _posCapKeptMap 存在时(仓位建议 ON 且 K>=1), 统计人口只保留被 kept 的信号(得「AI建议N」徽章), 使分栏计数和准确率随 K 档切换联动
-  if (_posCapKeptMap) {
+  // 2026-08-21: 仓位建议联动——_pcOn 且 _posCapKeptMap 存在时(仓位建议 ON 且 K>=1), 统计人口只保留被 kept 的信号(得「AI建议N」徽章), 使分栏计数和准确率随 K 档切换联动
+  // ⚠️ 必须同时检查 _pcOn：off 时 _posCapKeptMap 仍存在(旧 Map 未清空), 不加 _pcOn 则 off 状态仍被过滤导致统计不变
+  if (_pcOn && _posCapKeptMap) {
     _statItems = _statItems.filter((it) => {
       const kept = _posCapKeptMap.get(it.date);
       return kept && kept.has(it);
