@@ -58,13 +58,13 @@
 
 | # | 功能 | 出处 | 方案摘要 | 依赖/前置 | 状态 |
 |---|---|---|---|---|---|
-| 26 | **R2 P1:board_etf_map 与 overview 同步(刷新后自动触发重算)+ track_score 百分位基线固定化** | docs/r2-migration-implementation-report.md §3.2/§6.1 | build_board_etf_map.py 刷新后自动触发 export_overview 重算;百分位基线预计算固定化(工作量大可选) | deploy.sh step 0.8 已刷 map;自动联动未做 | **部分完成/需确认** |
-| 27 | **R2 P2:R2 上传失败阻断 push + 版本校验** | docs/r2-migration-implementation-report.md §3.3/§6.1 方案3 | deploy.sh 关键文件 R2 上传失败则阻断 push;dataRewriteHandler 对关键文件加 last-modified 校验 | P0 方案1 已加"upload_r2 空时 notify 告警" | **需确认** |
-| 28 | **R2 P2:edge cache purge 兜底(deploy.sh 末尾统一 purge / Worker 定时清理 / HIGH_FREQ TTL=5s)** | docs/r2-migration-implementation-report.md §3.3/§6.1 方案5 | deploy.sh 末尾统一调一次 purge_cache 或 Worker 定时清理 | upload_r2 各命令已 purge;deploy 末尾统一 purge 未加 | **部分完成/需确认** |
+| ~~26~~ | ~~R2 board_etf_map与overview自动联动~~ | — | — | — | **已废弃**(2026-08-21,见 docs/abandoned-features.md) |
+| ~~27~~ | ~~R2上传失败阻断push~~ | — | — | — | **已废弃**(2026-08-21,见 docs/abandoned-features.md) |
+| ~~28~~ | ~~R2 edge cache purge兜底~~ | — | — | — | **已废弃**(2026-08-21,见 docs/abandoned-features.md) |
 | 29 | **R2 审计 P1:159335 track_score 跨文件不一致 + 百分位基线动态变化** | docs/r2-migration-implementation-report.md §3.2/§6.2 | board_etf_map=30.2 / index_detail=30.2 / overview=30.9(match_method 不同);基线随候选集变化 | 非 bug 但需关注一致性 | **待办/需确认** |
 | 31 | **simulate_trade JSON 模式自动调度(launchd 定时)** | docs/r2-migration-implementation-report.md §3.2 P1-2 | update_lab.sh 只跑 --html 模式,trade_sim JSON 需手动触发,建议加 launchd 定时 | update_lab.sh 已含 --all JSON 生成+ R2 上传(2026-08-09 补) | **部分完成/需确认**(定时调度未确认) |
 
-> ~~#30 R2审计P2×4、#32 perf小优化~~ 已移入废弃清单(docs/abandoned-features.md, 2026-08-21)。
+> ~~#26/#27/#28 R2加固3项、#30 R2审计P2×4、#32 perf小优化~~ 已移入废弃清单(docs/abandoned-features.md, 2026-08-21)。稳定系统不画蛇添足。
 
 ## 六、管理端 / 新功能
 
