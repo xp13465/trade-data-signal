@@ -18,3 +18,4 @@
 | 26 | **R2 board_etf_map与overview自动联动+百分位基线固定化** | P0已解决核心(部署流程已自动联动,百分位漂移极小),再做是画蛇添足——稳定系统不做没验证的加固 | 2026-08-21 | docs/r2-migration-implementation-report.md §3.2/§6.1 |
 | 27 | **R2上传失败阻断push+版本校验** | P0告警已加(上传失败notify),阻断是锦上添花;稳定系统不做,怕坏了没验证到 | 2026-08-21 | docs/r2-migration-implementation-report.md §3.3/§6.1 方案3 |
 | 28 | **R2 edge cache purge兜底** | P0高频文件ttl=0已根治核心问题,统一purge是仪式感;稳定系统不做多余加固 | 2026-08-21 | docs/r2-migration-implementation-report.md §3.3/§6.1 方案5 |
+| 34 | **场外基金阶段3 场内外联动(ETF联接跟踪误差)** | 用户不关注该功能模块,对用户无关 | 2026-08-21 | TASKS.md L65 |
