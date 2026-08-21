@@ -27,6 +27,8 @@ temperature: 0.4              # 生成确定性
 #   false = 单 prompt 主链路(默认);true = 每次生成(含 launchd)走 6 角色编排。
 multi_agent_enabled: true     # 生产=多角色(技术/资金/情绪/风控->研究员多空辩论->主编组装)
 researcher_model: deepseek-chat  # ⑤研究员模型:deepseek-chat(V3)/deepseek-reasoner(R1 深度辩论,P1-11)
+researcher_use_reasoner: false    # #9 开关:true→研究员用 deepseek-reasoner(R1),false→用 researcher_model
+researcher_timeout_seconds: 120   # #9 reasoner 专用超时(普通角色 90s,R1 推理更长)
 multi_agent_timeout_seconds: 90  # 单角色调用超时
 max_role_retries: 1              # 角色失败重试次数(4 角色并行,失败过多降级单 prompt)
 

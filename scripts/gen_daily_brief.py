@@ -166,6 +166,8 @@ def load_config() -> dict:
     #   false = 默认单 prompt 主链路;true = --multi 时走 6 角色编排(验证质量后再开)
     cfg.setdefault("multi_agent_enabled", False)
     cfg.setdefault("researcher_model", "deepseek-chat")  # 可选 deepseek-reasoner(R1 深度辩论,P1-11)
+    cfg.setdefault("researcher_use_reasoner", False)  # #9 开关: true→研究员用 deepseek-reasoner(R1)
+    cfg.setdefault("researcher_timeout_seconds", 120)  # #9 reasoner 专用超时(普通角色 90s)
     cfg.setdefault("multi_agent_timeout_seconds", 90)
     cfg.setdefault("max_role_retries", 1)
     # ── 深度思考能力「连接配置」(2026-08-16,兼容旧配置无此块)────────────
@@ -487,6 +489,69 @@ def record_shadow(date: str, cfg: dict, db_path: Path, repo: Path) -> dict | Non
         return rec
     except Exception:
         return None
+
+
+# ── #6 日历效应/节假日提示 ─────────────────────────────────────────────
+# 2026 年 A 股节假日表(硬编码;未来年份需更新,注释提醒)
+_HOLIDAYS_2026 = {
+    "spring": [("20260128", "20260203")],   # 春节 1/28-2/3
+    "qingming": [("20260404", "20260406")], # 清明 4/4-4/6
+    "labor": [("20260501", "20260505")],    # 五一 5/1-5/5
+    "dragon": [("20260531", "20260602")],   # 端午 5/31-6/2
+    "mid_autumn": [("20260925", "20260927")],  # 中秋 9/25-9/27
+    "national": [("20261001", "20261007")], # 国庆 10/1-10/7
+}
+
+
+def _calendar_hint(date_str: str) -> str:
+    """根据日期返回日历效应提示(月末/季末/长假前/财报季)。
+    date_str 格式 YYYYMMDD。返回提示字符串或空字符串。
+    ⚠️ 节假日表每年需更新(当前硬编码 2026 年 A 股休市日)。"""
+    if not date_str or len(date_str) != 8:
+        return ""
+    try:
+        dt = _dt.date(int(date_str[:4]), int(date_str[4:6]), int(date_str[6:8]))
+    except (ValueError, TypeError):
+        return ""
+    hints = []
+    month = dt.month
+    day = dt.day
+    # 财报季: 4月(一季报)/8月(中报)/10月(三季报) 为财报密集期
+    if month in (4, 8, 10):
+        label = {4: "一季报", 8: "中报", 10: "三季报"}.get(month, "")
+        hints.append(f"本月为{label}披露密集期,个股业绩波动可能加大")
+    # 季末: 3/6/9/12 月最后 1-2 个交易日→资金面/调仓扰动
+    if month in (3, 6, 9, 12):
+        # 简化判断:月末 3 天内视为季末窗口(精确需交易日历,此处保守提示)
+        import calendar as _cal
+        last_day = _cal.monthrange(dt.year, month)[1]
+        if day >= last_day - 2:
+            hints.append("月末季末窗口,注意机构调仓和资金面扰动")
+    elif day >= 25:
+        # 非季末月末:月末最后几个交易日
+        import calendar as _cal
+        last_day = _cal.monthrange(dt.year, month)[1]
+        if day >= last_day - 2:
+            hints.append("月末最后交易日,注意资金面扰动")
+    # 长假前: 假期前最后 1-2 个交易日
+    for _name, ranges in _HOLIDAYS_2026.items():
+        for start, end in ranges:
+            if start <= date_str <= end:
+                break  # 当天在假期内,不提示
+            # 判断是否在假期前 2 天内
+            try:
+                holiday_start = _dt.date(int(start[:4]), int(start[4:6]), int(start[6:8]))
+                days_before = (holiday_start - dt).days
+                if 0 < days_before <= 2:
+                    label_map = {
+                        "spring": "春节", "qingming": "清明", "labor": "五一",
+                        "dragon": "端午", "mid_autumn": "中秋", "national": "国庆",
+                    }
+                    hints.append(f"距{label_map.get(_name, _name)}长假仅{days_before}个交易日,注意节前避险和资金面收紧")
+                    break
+            except (ValueError, TypeError):
+                pass
+    return "；".join(hints) if hints else ""
 
 
 # ── 数据加载(P1-8 数据锚定:以 JSON 结构给模型)────────────────────────────
@@ -828,6 +893,101 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
     buy_rank.sort(key=lambda x: (x["win_rate"], x["n"]), reverse=True)
     d["signal_stats_buy_top"] = buy_rank[:10]
 
+    # ── #4 公募基金行业配置(中期风格参考,季报滞后约2月)──────────────────────
+    try:
+        pf_alloc = _read_json(static_dir / "public_fund_sw_industry_alloc.json") or {}
+        pf_industries = pf_alloc.get("industries") or []
+        if pf_industries:
+            # 按 total_weight 降序排列(权重越高=公募越重仓)
+            sorted_inds = sorted(pf_industries, key=lambda x: x.get("total_weight", 0), reverse=True)
+            pf_top5 = [{
+                "name": x.get("industry_name"),
+                "weight": round(x.get("total_weight", 0), 2),
+                "avg_weight": round(x.get("avg_weight", 0), 2),
+                "fund_count": x.get("fund_count", 0),
+            } for x in sorted_inds[:5]]
+            pf_bottom5 = [{
+                "name": x.get("industry_name"),
+                "weight": round(x.get("total_weight", 0), 2),
+                "avg_weight": round(x.get("avg_weight", 0), 2),
+                "fund_count": x.get("fund_count", 0),
+            } for x in sorted_inds[-5:]]
+            d["public_fund_industry"] = {
+                "top5": pf_top5,
+                "bottom5": pf_bottom5,
+                "report_date": pf_alloc.get("report_date", ""),
+                "fund_count": pf_alloc.get("fund_count", 0),
+                "note": ("公募基金行业配置(申万一级,季报滞后约2个月,反映中期风格偏好,非明日方向)。"
+                         "top5=权重最高行业(公募重仓),bottom5=权重最低行业(公募低配)。"),
+            }
+    except Exception:
+        pass  # 文件不存在不阻断
+
+    # ── #5 明日关注排序分(综合胜率×凯利仓位×一致性×近期确认)──────────────────
+    # 从 signal_kelly_backtest.json 提取按信号类型的凯利仓位;
+    # 从 signal_stats_buy_top 已有的 5d/10d/20d 胜率计算排序分。
+    try:
+        kelly_bt = _read_json(static_dir / "signal_kelly_backtest.json") or {}
+        bt_quads = kelly_bt.get("quadrants") or {}
+        # 信号类型→凯利象限映射: buy→sig_main, buy_aux→sig_aux, buy_special→sig_special, buy_backup→sig_backup
+        sig_quad_map = {
+            "buy": "sig_main", "buy_aux": "sig_aux",
+            "buy_special": "sig_special", "buy_backup": "sig_backup",
+        }
+        # 每个象限取 all 周期 mode A 的 kelly_f/mean_return/win_rate 作为代表值
+        quad_kelly: dict = {}
+        for sig_type, quad_name in sig_quad_map.items():
+            q = bt_quads.get(quad_name, {})
+            periods = q.get("periods", {})
+            all_p = periods.get("all", {})
+            mode_a = all_p.get("A", {}) if isinstance(all_p, dict) else {}
+            if mode_a.get("kelly_f") is not None:
+                quad_kelly[sig_type] = {
+                    "kelly_f": mode_a.get("kelly_f"),
+                    "mean_return": mode_a.get("mean_return"),
+                    "win_rate": mode_a.get("win_rate"),
+                }
+        # 计算排序分: sort_score = win_rate_20d × (1 + kelly_f) × consistency × recency
+        signal_ranking = []
+        for x in data.get("signal_stats_buy_top") or []:
+            sig = x.get("signal", "")
+            wr20 = x.get("win_rate", 0)
+            n = x.get("n", 0)
+            if n < 5 or wr20 is None:
+                continue
+            # 从 kelly_backtest 取凯利因子
+            kq = quad_kelly.get(sig, {})
+            kf = kq.get("kelly_f") or 0
+            mr = kq.get("mean_return") or 0
+            # 一致性加分: 5d/10d/20d 胜率均>0.5 → 1.2; 两个>0.5 → 1.1; 否则 1.0
+            # 从 signal_stats 取 5d/10d 胜率
+            iid = x.get("index_id", "")
+            full_st = (stats.get(iid) or {}).get(sig) or {}
+            wr5 = (full_st.get("5d") or {}).get("win_rate")
+            wr10 = (full_st.get("10d") or {}).get("win_rate")
+            above_half = sum(1 for w in (wr5, wr10, wr20) if w is not None and w > 0.5)
+            consistency = 1.2 if above_half >= 3 else (1.1 if above_half >= 2 else 1.0)
+            # 近期确认加分: 信号在最近 5 日内 → 1.1; 否则 1.0
+            # 用 signals_today 匹配(信号日期=当日=最近)
+            in_recent = any(s.get("index_id") == iid for s in data.get("signals_today") or [])
+            recency = 1.1 if in_recent else 1.0
+            sort_score = round(wr20 * (1 + kf) * consistency * recency, 4)
+            signal_ranking.append({
+                "index_id": iid,
+                "name": x.get("name", iid),
+                "signal": sig,
+                "sort_score": sort_score,
+                "win_rate_20d": wr20,
+                "kelly_f": round(kf, 4) if kf else None,
+                "mean_return": round(mr, 2) if mr else None,
+                "consistency": consistency,
+                "recency": recency,
+            })
+        signal_ranking.sort(key=lambda x: x["sort_score"], reverse=True)
+        d["signal_ranking"] = signal_ranking[:10]
+    except Exception:
+        pass  # 文件不存在不阻断
+
     # 期货机构净多(P0-2 主维度) + 结论
     # 2026-08-11 审计缺口#1修复: export 实际产出结构为
     #   {dates:[...], series:{系列名:[{date,accuracy,follow_ratio,dominant_dir,...}]}, latest:{date,roles}}。
@@ -1162,6 +1322,11 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
                 "note": "ma_cross=8宽基均线状态: bullish=多头排列数, bearish=空头排列数, cross=当日金叉/死叉数。",
             }
 
+    # ── #6 日历效应/节假日提示 ────────────────────────────────────────────
+    cal_hint = _calendar_hint(date)
+    if cal_hint:
+        d["calendar_hint"] = cal_hint
+
     # 新闻面(增量续接,2026-08-16: 生成当天预测读「上次 generated_at → 现在」增量;
     #   重跑历史日期读该日期归档可复现)。缺失/无可用静默跳过。
     # 上一份 daily_brief.json 作为增量游标来源(static_dir 优先,root_data_dir/ROOT/data 兜底)。
@@ -1377,6 +1542,22 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
         "打板溢价(daban)。这些作**方向与风险参考**;positions 为中期位置参考不作次日方向主依据。"
         "若存在 news 字段则可用于当日政策/外围事件提示(事件驱动),upcoming 可提示「明日关键事件」"
         "(如国新办发布会/宏观数据公布前波动不确定)。只引用注入数据,不得编造 news 里没有的新闻。\n"
+        "4e.【#3 周期定位/钟摆位置】趋势研判先做周期定位:引用恐贪值(fear_greed_value)和"
+        "情绪分(scores.a_sentiment)在估值位置(positions 1y/3y 历史百分位)的定位,给出当前市场处于"
+        "历史什么位置(如'恐贪65,处于近1年60%分位,偏暖但未过热')。极端值给逆向提示:"
+        "恐贪>85=情绪亢奋注意降温,恐贪<15=冰点区域观察反转。结合均线多空(ma_cross)和量能(volume_ratio)"
+        "给出周期判断(如'底部区间/上升途中/高位震荡/下行通道')。\n"
+        "4f.【#4 公募基金行业配置】若注入 public_fund_industry 字段,引用其中 top5(公募重仓行业)"
+        "和 bottom5(公募低配行业),在 trend 段作为中期风格参考。必须标注'季报滞后约2个月,反映中期风格偏好,"
+        "非明日方向'。可用于判断当前行业轮动与公募持仓的偏离度。\n"
+        "4g.【#5 明日关注排序】若注入 signal_ranking 字段,watch_list 优先从前 5 名中选择标的,"
+        "每个附 sort_score(排序分=综合胜率×凯利仓位×一致性×近期确认)。排序分越高=数据支撑越强。\n"
+        "4h.【#6 日历效应】若存在 calendar_hint 字段(非空),在 trend 段附加日历提示"
+        "(如'月末最后交易日,注意资金面扰动')。日历效应为弱信号,仅作辅助提示不作为主依据。\n"
+        "4i.【#8 事件/新闻面】若 news 字段可用,从 news 中提取 1-2 条最重要的事件(重要优先),"
+        "在 trend 段引用作为方向/风险依据(如'某行业政策利好'或'外围市场大跌影响'),"
+        "标注新闻来源和时间(如'据XX社X月X日报道')。upcoming 可提示明日关键事件。"
+        "若 news 为空或不可用,跳过此条不报错。\n"
         "5. text.review(今日复盘,约80字)、text.trend(趋势研判,约60字)、text.watch(明日关注,约80字)、text.risk(风险点,约60字),总长 ≤300 字。\n"
         "6. 只做\"关注/观察/警惕/留意/注意/谨慎\"表述,给出方向和风险即可,不做任何交易指令。\n"
         "7. 当前北京时间 " + now_str + ",数据截至 " + date + " 收盘。忽略任何 " + date + " 之后发生的事件、消息或数据(那些尚未发生,不得当作已知信息使用)。输出需标注\"基于 " + date + " 收盘数据\"。\n"
@@ -1868,6 +2049,14 @@ def build_editor_messages(role_results: dict, researcher: dict | None, date: str
         "6. 【信号口径红线】引用卖/买信号数量时区分:真实指数可交易信号(非 s.*)与情绪分模拟信号(s.*,"
         "非可交易标的)。情绪分信号必须标注'情绪分信号',不得表述为'卖信号 N 个'。\n"
         "7. 只做\"关注/观察/警惕/留意/注意/谨慎\"表述,不做任何交易指令。\n"
+        "7a.【#3 周期定位/钟摆位置】趋势研判先做周期定位:引用恐贪值和情绪分在估值位置(1y/3y 历史百分位)"
+        "的定位,给出当前市场处于历史什么位置。极端值给逆向提示:恐贪>85=亢奋降温,恐贪<15=冰点反转。"
+        "结合均线多空和量能给出周期判断(底部/上升/高位/下行)。\n"
+        "7b.【#4 公募基金行业配置】若注入 public_fund_industry,引用 top5/bottom5 作为中期风格参考,"
+        "必须标注'季报滞后约2个月,非明日方向'。\n"
+        "7c.【#5 明日关注排序】若注入 signal_ranking,watch_list 优先从前 5 名中选择,每个附 sort_score。\n"
+        "7d.【#6 日历效应】若存在 calendar_hint(非空),在 trend 段附加日历提示(弱信号,仅辅助)。\n"
+        "7e.【#8 事件/新闻面】若 news 可用,提取 1-2 条最重要事件引用为方向/风险依据,标注来源和时间。\n"
         f"8. 当前北京时间 {now_str},数据截至 {date} 收盘,忽略 {date} 之后事件。输出标注\"基于 {date} 收盘数据\"。\n"
     )
     # 历史反思注入(AI 预测自成长 Step 1,2026-08-17):主编规则段后注入截至昨日的失败模式(时间隔离)
@@ -3274,8 +3463,12 @@ def run_multi_agent(date: str, data: dict, cfg: dict, log, reflections: dict | N
     log(f"4 角色并行完成: {', '.join(sorted(role_results.keys()))}")
 
     # ⑤ 研究员(多空辩论,串行;失败跳过辩论段,主编直接基于角色论据)
+    # #9 reasoner 深度辩论开关: researcher_use_reasoner=true 时切 deepseek-reasoner(R1)
     researcher = None
     researcher_model = cfg.get("researcher_model") or "deepseek-chat"
+    if cfg.get("researcher_use_reasoner", False):
+        researcher_model = "deepseek-reasoner"
+        log(f"#9 reasoner 深度辩论开启: model={researcher_model}")
     r_raw = call_deepseek(build_researcher_messages(role_results, date, cfg), cfg, log,
                           model=researcher_model)
     if r_raw:
@@ -3286,8 +3479,13 @@ def run_multi_agent(date: str, data: dict, cfg: dict, log, reflections: dict | N
         rp = _extract_json(r_content)
         if rp:
             researcher = rp
-            usages.append(r_raw.get("usage") or {})
-            log(f"研究员多空辩论完成 lean={rp.get('lean')} conf={rp.get('confidence')}")
+            r_usage = r_raw.get("usage") or {}
+            # #9 标注 reasoner 调用(便于成本追踪)
+            if cfg.get("researcher_use_reasoner", False):
+                r_usage["_model"] = "deepseek-reasoner"
+                r_usage["_note"] = "reasoner"
+            usages.append(r_usage)
+            log(f"研究员多空辩论完成 model={researcher_model} lean={rp.get('lean')} conf={rp.get('confidence')}")
         else:
             log("研究员输出解析失败,跳过辩论段")
     else:
