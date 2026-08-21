@@ -68,7 +68,7 @@ STOCK_FEE_CONFIG = {
 ARMS = ("A", "B1", "B2", "B3")
 ARM_LABELS = {
     "A": "ETF本身(基准)", "B1": "第一ETF-TOP1个股",
-    "B2": "前3ETF各TOP1去重", "B3": "前3ETF各TOP1-3去重",
+    "B2": "前3ETF各TOP1去重", "B3": "前3ETF各TOP1-3去重等权(每信号总资金¥10000,N只股等权分)",
 }
 
 FOREIGN_KEYS = {"hsi", "hstech", "hscei", "us_dji", "us_spx", "us_ndx",
@@ -268,7 +268,8 @@ def _stock_trade_dict(signal_date, index_id, signal, sell_date, code, name,
                        track_tier, track_score, match_method, track_low_confidence,
                        buy_price, sell_price, shares, profit, return_pct, hold_days,
                        sell_reason, current_price, market_state, market_tier,
-                       market_tier_all, market_tier_cyb, rating, arm, source_etf):
+                       market_tier_all, market_tier_cyb, rating, arm, source_etf,
+                       buy_amount=BUY_AMOUNT):
     return {
         "signal_date": signal_date, "index_id": index_id, "signal": signal,
         "buy_date": signal_date, "sell_date": sell_date,
@@ -283,6 +284,7 @@ def _stock_trade_dict(signal_date, index_id, signal, sell_date, code, name,
         "market_state": market_state, "market_tier": market_tier,
         "market_tier_all": market_tier_all, "market_tier_cyb": market_tier_cyb,
         "rating": rating, "_arm": arm, "_source_etf": source_etf or "",
+        "_buy_amount": buy_amount,
     }
 
 
@@ -292,8 +294,9 @@ def _backtest_stock_one(signal_date, stock_prices, stock_sorted_dates, code, nam
                         track_tier=None, track_score=None, match_method=None,
                         track_low_confidence=None, market_state=None, rating=None,
                         market_tier=None, market_tier_all=None, market_tier_cyb=None,
-                        arm="B1", source_etf=None):
-    """个股版单笔回测: 信号日收盘买10000元, 按模式卖出。"""
+                        arm="B1", source_etf=None, buy_amount=None):
+    """个股版单笔回测: 信号日收盘买N元, 按模式卖出。"""
+    buy_amount = buy_amount or BUY_AMOUNT
     prices = stock_prices.get(code, {})
     dates = stock_sorted_dates.get(code, [])
     if not prices or not dates:
@@ -301,7 +304,7 @@ def _backtest_stock_one(signal_date, stock_prices, stock_sorted_dates, code, nam
     buy_nav = prices.get(signal_date, {}).get("close")
     if buy_nav is None or buy_nav <= 0:
         return None
-    buy_price, shares, _, _ = _buy_with_fees(BUY_AMOUNT, buy_nav, code, STOCK_FEE_CONFIG)
+    buy_price, shares, _, _ = _buy_with_fees(buy_amount, buy_nav, code, STOCK_FEE_CONFIG)
     if shares <= 0:
         return None
 
@@ -311,7 +314,7 @@ def _backtest_stock_one(signal_date, stock_prices, stock_sorted_dates, code, nam
             sell_signals, today, index_id, track_tier, track_score,
             match_method, track_low_confidence, market_state, rating,
             buy_price, shares, market_tier, market_tier_all, market_tier_cyb,
-            arm=arm, source_etf=source_etf)
+            arm=arm, source_etf=source_etf, buy_amount=buy_amount)
 
     idx = bisect.bisect_right(dates, signal_date)
     future_dates = dates[idx:idx + hold_days]
@@ -325,8 +328,8 @@ def _backtest_stock_one(signal_date, stock_prices, stock_sorted_dates, code, nam
         if cur is None or cur["close"] <= 0:
             return None
         _, _, _, _, net, _ = _sell_with_fees(shares, cur["close"], code, STOCK_FEE_CONFIG)
-        profit = net - BUY_AMOUNT
-        rpct = profit / BUY_AMOUNT * 100
+        profit = net - buy_amount
+        rpct = profit / buy_amount * 100
         try:
             hold = future_dates.index(pdate) + 1
         except ValueError:
@@ -335,15 +338,15 @@ def _backtest_stock_one(signal_date, stock_prices, stock_sorted_dates, code, nam
             track_tier, track_score, match_method, track_low_confidence,
             buy_price, 0, shares, profit, rpct, hold, "持有中", cur["close"],
             market_state, market_tier, market_tier_all, market_tier_cyb, rating,
-            arm, source_etf)
+            arm, source_etf, buy_amount=buy_amount)
 
     sell_date = future_dates[-1]
     sd = prices.get(sell_date)
     if not sd or sd["close"] <= 0:
         return None
     _, _, _, _, net, _ = _sell_with_fees(shares, sd["close"], code, STOCK_FEE_CONFIG)
-    profit = net - BUY_AMOUNT
-    rpct = profit / BUY_AMOUNT * 100
+    profit = net - buy_amount
+    rpct = profit / buy_amount * 100
     try:
         hold = dates.index(sell_date) - dates.index(signal_date)
     except ValueError:
@@ -353,7 +356,7 @@ def _backtest_stock_one(signal_date, stock_prices, stock_sorted_dates, code, nam
         buy_price, sd["close"], shares, profit, rpct, hold,
         "到期卖出" if stop_profit is None else "止盈/到期", 0,
         market_state, market_tier, market_tier_all, market_tier_cyb, rating,
-        arm, source_etf)
+        arm, source_etf, buy_amount=buy_amount)
 
 
 def _backtest_stock_signal_sell(signal_date, prices, dates, code, name, sell_mode,
@@ -361,8 +364,10 @@ def _backtest_stock_signal_sell(signal_date, prices, dates, code, name, sell_mod
                                  track_tier, track_score, match_method,
                                  track_low_confidence, market_state, rating,
                                  buy_price, shares, market_tier, market_tier_all,
-                                 market_tier_cyb, arm="B1", source_etf=None):
+                                 market_tier_cyb, arm="B1", source_etf=None,
+                                 buy_amount=None):
     """G/H/I 信号驱动卖出(个股版)。"""
+    buy_amount = buy_amount or BUY_AMOUNT
     mode_def = SELL_MODES[sell_mode]
     special_types = mode_def.get("special_sell_types")
     sell_types = special_types if signal == "buy_special" and special_types else mode_def.get("sell_types") or ("sell",)
@@ -382,7 +387,7 @@ def _backtest_stock_signal_sell(signal_date, prices, dates, code, name, sell_mod
         if cur is None or cur["close"] <= 0:
             return None
         _, _, _, _, net, _ = _sell_with_fees(shares, cur["close"], code, STOCK_FEE_CONFIG)
-        profit = net - BUY_AMOUNT; rpct = profit / BUY_AMOUNT * 100
+        profit = net - buy_amount; rpct = profit / buy_amount * 100
         try:
             hold = dates.index(pdate) - dates.index(signal_date)
         except ValueError:
@@ -391,13 +396,13 @@ def _backtest_stock_signal_sell(signal_date, prices, dates, code, name, sell_mod
             track_tier, track_score, match_method, track_low_confidence,
             buy_price, 0, shares, profit, rpct, hold, "持有中", cur["close"],
             market_state, market_tier, market_tier_all, market_tier_cyb, rating,
-            arm, source_etf)
+            arm, source_etf, buy_amount=buy_amount)
 
     sd = prices.get(sell_date)
     if not sd or sd["close"] <= 0:
         return None
     _, _, _, _, net, _ = _sell_with_fees(shares, sd["close"], code, STOCK_FEE_CONFIG)
-    profit = net - BUY_AMOUNT; rpct = profit / BUY_AMOUNT * 100
+    profit = net - buy_amount; rpct = profit / buy_amount * 100
     try:
         hold = dates.index(sell_date) - dates.index(signal_date)
     except ValueError:
@@ -406,7 +411,7 @@ def _backtest_stock_signal_sell(signal_date, prices, dates, code, name, sell_mod
         track_tier, track_score, match_method, track_low_confidence,
         buy_price, sd["close"], shares, profit, rpct, hold, sell_reason, 0,
         market_state, market_tier, market_tier_all, market_tier_cyb, rating,
-        arm, source_etf)
+        arm, source_etf, buy_amount=buy_amount)
 
 
 def _backtest_etf_one(signal_date, prices, dates, etf_code, etf_name, stop_profit,
@@ -629,6 +634,8 @@ def compute():
             else:
                 # B2/B3 可能有多只股票(stocks 列表), B1 只有 code(单只)
                 stock_codes = av.get("stocks", [av["code"]])
+                # B3: 每信号总资金¥10000, N只股等权分; B1/B2: 单只股=¥10000
+                per_stock_buy = BUY_AMOUNT / len(stock_codes) if arm_key == "B3" else BUY_AMOUNT
                 etf_fallback_used = False
                 for scode in stock_codes:
                     if scode not in stock_pm:
@@ -640,7 +647,8 @@ def compute():
                             index_id=iid, signal=sig, track_tier=tier, track_score=be.get("track_score"),
                             match_method=be.get("match_method"), track_low_confidence=be.get("track_low_confidence"),
                             market_state=ms, rating=rating, market_tier=mt, market_tier_all=mt_all,
-                            market_tier_cyb=mt_cyb, arm=arm_key, source_etf=av.get("source",""))
+                            market_tier_cyb=mt_cyb, arm=arm_key, source_etf=av.get("source",""),
+                            buy_amount=per_stock_buy)
                         if r is not None:
                             r["_mode_key"] = mk; any_valid = True
                             _put_trade(r, quadrants[arm_key], etf_quad, sig_quad, mkt_quad)
@@ -697,7 +705,9 @@ def compute():
                 for mk in SELL_MODES:
                     all_t = quadrants[arm_key][qk][mk]
                     pt = [t for t in all_t if t["buy_date"] >= cutoff] if cutoff and cutoff != "0" else list(all_t)
-                    pdata[mk] = _compute_stats(pt, pk)
+                    # 从交易记录取实际 buy_amount(B3 每只股资金不同)
+                    ba = pt[0].get("_buy_amount", BUY_AMOUNT) if pt else BUY_AMOUNT
+                    pdata[mk] = _compute_stats(pt, pk, buy_amount=ba)
                 qd["periods"][pk] = pdata
             arm_stats[qk] = qd
         output["arms_stats"][arm_key] = arm_stats

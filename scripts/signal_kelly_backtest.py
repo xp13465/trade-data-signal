@@ -761,11 +761,13 @@ def _years_from_trades(trades):
     return max(days / 365.25, 1.0 / 365.25)  # 至少1天
 
 
-def _max_drawdown(trades):
+def _max_drawdown(trades, buy_amount=None):
     """最大累计收益回撤(按 sell_date 时序): 返回 (abs元, pct%)。
 
     pct = 回撤绝对值 / 总投入 × 100。
     """
+    if buy_amount is None:
+        buy_amount = BUY_AMOUNT
     if not trades:
         return 0.0, 0.0
     # 持仓中trade(sell_date 空)排到时序末尾(预估盈亏在"现在"实现)
@@ -780,7 +782,7 @@ def _max_drawdown(trades):
         dd = peak - cumulative
         if dd > max_dd_abs:
             max_dd_abs = dd
-    total_invest = len(trades) * BUY_AMOUNT
+    total_invest = len(trades) * buy_amount
     pct = (max_dd_abs / total_invest * 100) if total_invest > 0 else 0.0
     return round(max_dd_abs, 4), round(pct, 4)
 
@@ -828,8 +830,10 @@ def _guidance(quad_key, mode_key):
     return f"看到{quad_label} → 信号日收盘买{BUY_AMOUNT}元匹配ETF → {sell_str}"
 
 
-def _compute_stats(trades, period_key="all"):
+def _compute_stats(trades, period_key="all", buy_amount=None):
     """聚合统计: 胜率/盈亏比/mean_return/凯利/连胜连败等。"""
+    if buy_amount is None:
+        buy_amount = BUY_AMOUNT
     n = len(trades)
     if n == 0:
         return {
@@ -865,7 +869,7 @@ def _compute_stats(trades, period_key="all"):
         pl_ratio = None  # 无胜或全零
 
     mean_return = sum(t["return_pct"] for t in trades) / n
-    total_return = sum(t["profit"] for t in trades) / BUY_AMOUNT * 100
+    total_return = sum(t["profit"] for t in trades) / buy_amount * 100
     avg_hold = sum(t["hold_days"] for t in trades) / n
 
     kelly_f, half_kelly, kelly_tier = _compute_kelly(win_rate, pl_ratio)
@@ -889,12 +893,12 @@ def _compute_stats(trades, period_key="all"):
             max_lose_streak = max(max_lose_streak, lose_streak)
 
     # 金额 + 总收益(口径修正)
-    total_invest = n * BUY_AMOUNT
+    total_invest = n * buy_amount
     total_profit = round(sum(t["profit"] for t in trades), 4)
     total_return_pct = round(total_profit / total_invest * 100, 4) if total_invest > 0 else 0
     # 最大同时持仓资金占用
     max_conc = _max_concurrent(trades)
-    max_concurrent_capital = max_conc * BUY_AMOUNT
+    max_concurrent_capital = max_conc * buy_amount
     # 最大持仓收益率 = 最终盈亏 / 峰值占用资金
     return_pct_max_holding = round(total_profit / max_concurrent_capital * 100, 4) if max_concurrent_capital > 0 else 0
     # 年化收益(D修正: 基于峰值资金收益率 return_pct_max_holding 开方, 非平均化 total_return_pct)
@@ -909,12 +913,12 @@ def _compute_stats(trades, period_key="all"):
     else:
         sharpe = 0
     # 最大回撤
-    max_dd_abs, max_dd_pct = _max_drawdown(trades)
+    max_dd_abs, max_dd_pct = _max_drawdown(trades, buy_amount)
     # 卡尔玛比率
     calmar = round(annualized / max_dd_pct, 4) if max_dd_pct > 0 else 0
     # 持仓中trade计数(预估盈亏已计入上面 total_profit/胜率/凯利等, 不隔离; 此处仅计数+标注)
     holding_count = sum(1 for t in trades if not t.get("sell_date"))
-    holding_capital = holding_count * BUY_AMOUNT
+    holding_capital = holding_count * buy_amount
 
     return {
         "n": n,
