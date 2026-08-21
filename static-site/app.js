@@ -2673,6 +2673,13 @@ function _openSimBacktestModal() {
     document.body.appendChild(modal);
   }
   const _close = () => { modal.classList.add("hidden"); document.body.style.overflow = ""; };
+  // 默认时间范围 = 最近30天(止=今天, 起=今天-30天)(2026-08-22 用户定)。innerHTML 每次打开全量重建,
+  // 天然"每次打开重置为最近30天"。用本地时区分量拼接格式化(不用 toISOString: 其按 UTC, 东八区 8 点前会偏到昨天)。
+  const _pad2 = (n) => (n < 10 ? "0" + n : "" + n);
+  const _fmtLocal = (d) => d.getFullYear() + "-" + _pad2(d.getMonth() + 1) + "-" + _pad2(d.getDate());
+  const _now = new Date();
+  const _defStart = _fmtLocal(new Date(_now.getFullYear(), _now.getMonth(), _now.getDate() - 30));
+  const _defEnd = _fmtLocal(_now);
   // 交易模式下拉(默认 A, 来自 sell_modes)
   const _sm = (_simKellyCfg && _simKellyCfg.sell_modes) || {};
   const _modeOpts = Object.keys(_sm).map((mk) => `<option value="${mk}">${mk} · ${_sm[mk].label || ""}</option>`).join("");
@@ -2680,8 +2687,8 @@ function _openSimBacktestModal() {
     '<div class="rule-modal-body rule-modal-body-wide"><div class="rule-modal-header"><h3>📊 模拟回测 · 全历史真实过滤</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
     '<div class="rule-modal-content">' +
       '<div class="sim-ctrl-row">' +
-        '<div class="sim-ctrl-block"><label>时间范围(起)</label><input type="date" class="sim-date-start"></div>' +
-        '<div class="sim-ctrl-block"><label>时间范围(止)</label><input type="date" class="sim-date-end"></div>' +
+        '<div class="sim-ctrl-block"><label>时间范围(起)</label><input type="date" class="sim-date-start" value="' + _defStart + '"></div>' +
+        '<div class="sim-ctrl-block"><label>时间范围(止)· 最长500天</label><input type="date" class="sim-date-end" value="' + _defEnd + '"></div>' +
         '<div class="sim-ctrl-block"><label>AI降亏过滤</label><label class="sim-cb-wrap"><input type="checkbox" class="sim-fade-cb" checked> 开启(默认8键)</label></div>' +
         '<div class="sim-ctrl-block"><label>AI仓位建议 K</label><div class="sim-kbtns">' +
           '<button type="button" class="sim-kbtn" data-k="0">关</button>' +
@@ -2768,6 +2775,22 @@ async function _simRender(modal) {
   const mode = modal.querySelector(".sim-mode-sel").value || "A";
   const feeBuy = (parseFloat(modal.querySelector(".sim-fee-buy").value) || 0) / 100;
   const feeSell = (parseFloat(modal.querySelector(".sim-fee-sell").value) || 0) / 100;
+
+  // 时间跨度硬限制 ≤500 天(2026-08-22 用户定): 超限不执行查询(连基笔池构建都不跑), 红字提示后直接返回;
+  // 恰好 500 天放行(>500 才拦); 起>止时 spanDays 为负不在此拦, 保持既有空结果处理; 单边为空(空=不筛)不算跨度。
+  // 注: 本弹窗无独立「开始回测」按钮, 所有筛选入口(date/费率 change、K档按钮、首开渲染)均汇于本函数,
+  // 此闸即提交口拦截——任何触发路径超限都到不了查询。
+  if (startD && endD) {
+    const _dS = new Date(parseInt(startD.slice(0, 4), 10), parseInt(startD.slice(4, 6), 10) - 1, parseInt(startD.slice(6, 8), 10));
+    const _dE = new Date(parseInt(endD.slice(0, 4), 10), parseInt(endD.slice(4, 6), 10) - 1, parseInt(endD.slice(6, 8), 10));
+    const _spanDays = Math.round((_dE - _dS) / 86400000);
+    if (_spanDays > 500) {
+      summaryEl.innerHTML = "";
+      pagerEl.innerHTML = "";
+      bodyEl.innerHTML = '<div class="sim-err">时间范围最长 500 天, 当前 ' + _spanDays + ' 天, 请缩小范围</div>';
+      return;
+    }
+  }
 
   // ① 模式: signal_kelly_trades.json 的 quadrants[qk][mode] 每模式是完整副本(同 base 在不同 mode 下
   //    sell_date/sell_price 不同), 必须按所选 mode 从 quadrants[*][mode] 现筛构建基笔池(去重+聚合维度),
