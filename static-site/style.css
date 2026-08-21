@@ -6966,3 +6966,28 @@ main { padding: 16px 24px; }
   .overfit-win-row { flex-wrap: wrap; }
   .overfit-card #overfit-acc-chart, .overfit-card #overfit-risk-chart { width: 100% !important; }
 }
+
+/* 首页「模拟回测」弹窗(2026-08-21, 纯展示) */
+.rule-modal-body-wide { max-width: 1180px; width: 96vw; }
+.sim-ctrl-row { display: flex; flex-wrap: wrap; gap: 14px 22px; padding: 10px 4px 14px; border-bottom: 1px solid var(--border); align-items: flex-end; }
+.sim-ctrl-block { display: flex; flex-direction: column; gap: 4px; }
+.sim-ctrl-block > label { font-size: 11px; color: var(--text-dim, #9aa); }
+.sim-ctrl-block input[type="date"], .sim-ctrl-block input[type="number"], .sim-mode-sel { padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-card); color: var(--text-1); font-size: 12px; }
+.sim-cb-wrap { flex-direction: row; align-items: center; gap: 6px; font-size: 12px; color: var(--text-1); }
+.sim-kbtns { display: flex; gap: 4px; }
+.sim-kbtn { padding: 4px 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-card); color: var(--text-2); cursor: pointer; font-size: 12px; }
+.sim-kbtn.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700; }
+.sim-summary { padding: 8px 4px; font-size: 12px; color: var(--text-1); }
+.sim-table-wrap { max-height: 56vh; overflow: auto; }
+.sim-tbl { width: 100%; border-collapse: collapse; font-size: 11px; }
+.sim-tbl th, .sim-tbl td { padding: 4px 8px; border: 1px solid var(--border); white-space: nowrap; text-align: right; }
+.sim-tbl th { position: sticky; top: 0; background: var(--bg-card); z-index: 1; color: var(--text-1); font-weight: 700; }
+.sim-tbl td:nth-child(2), .sim-tbl td:nth-child(3), .sim-tbl td:nth-child(4), .sim-tbl td:nth-child(5) { text-align: left; }
+.sim-up { color: #cf1322; }
+.sim-down { color: #389e0d; }
+[data-theme="dark"] .sim-up, [data-theme="redgold"] .sim-up { color: #ff4d4f; }
+[data-theme="dark"] .sim-down, [data-theme="redgold"] .sim-down { color: #52c41a; }
+.sim-pager { display: flex; align-items: center; gap: 12px; justify-content: center; padding: 10px; }
+.sim-pg { padding: 4px 12px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-card); color: var(--text-1); cursor: pointer; font-size: 12px; }
+.sim-pg-info { font-size: 12px; color: var(--text-dim, #9aa); }
+.sim-err { color: #cf1322; padding: 16px; }

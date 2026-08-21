@@ -2315,6 +2315,9 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
     `<button type="button" class="sig-kbtn sig-kbtn-help" data-k="help" data-no-pop="" title=""><span class="sig-kbtn-k">推荐方法</span><span class="sig-kbtn-r">参考说明</span></button>` +
     `<span class="sig-kbtn-help-pop-wrap">` + _sigHelpPopHtml() + `</span>` +
     `</span>`;
+  // 模拟回测按钮(2026-08-21 新增, 纯展示): 复用 .sig-kbtn 样式, data-k="sim" 由 _bindSigSwitchRow 委托弹「模拟回测」弹窗。
+  // 点击打开全历史真实过滤弹窗(读 signal_kelly_trades.json 实时过滤+费后盈亏累积), 与首页 AI降亏/AI仓位建议 两开关语义一致(§23.7 纯新增, 不改已发布功能)。
+  const _simBtn = `<button type="button" class="sig-kbtn sig-kbtn-sim" data-k="sim" data-no-pop="" title="打开「模拟回测」弹窗: 用全历史真实信号交易记录(2011-2026), 按当前 AI降亏过滤 / AI仓位建议K档 / 交易模式 / 费率, 实时过滤并算出费后逐笔盈亏与累积收益(纯展示, 不改任何已发布功能)"><span class="sig-kbtn-k">模拟回测</span><span class="sig-kbtn-r">全历史</span></button>`;
   // 2026-08-13 hoverpop 升级: K 按钮组复用凯利区评级表格 hoverpop(共享 common.js _aiPoscapRatingPopHtml/_bindAiPoscapRatePop, §22 两处数据一致)
   const _ratingPop = (window._aiPoscapRatingPopHtml ? window._aiPoscapRatingPopHtml() : "");
   return `<div class="sig-switch-row" data-no-pop="">` +
@@ -2323,7 +2326,7 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
       `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 删除线过滤层, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 结构=AI宏5+3+1(v1.1.0 定名「基础5」, 2026-08-15 补公示): 5=基础5键(基础4 + K2C5 港股追涨剔除), 3=核心3键, 两者 8 键都是「保留入样、可被AI建议推荐」的降亏开关; +1=回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(后端已剔除出回测宇宙 / 波动相关剔除), 故 AI建议 一律不推荐, 本开关开启时以「未入样本」+灰显+删除线标注表达"被过滤掉"。 开启=①首页按降亏策略判定, 固定 8键+1类 成员级(基础5= 追关注×熊市交叉四档(v1.1.2 2026-08-17 主键判定 MA60→四档{熊市·主跌,下降期}×A股类升级; 老MA60熊×追买 / 下降期×追关注 两备选键默认关🆕NEW) / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 / K2C5 港股追涨剔除 + 核心3= 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致 v1.1.0/v1.1.2; +1=回测剔除的波动相关/未入样本信号整类)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。命中降亏条件(8键中任一键)的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); ②未入样宇宙信号(债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 后端已剔除出回测宇宙)=删除线+灰显+「未入样本」标注(AI过滤视图, 表达"被过滤掉"); 关闭=首页完全不判降亏、不画删除线、未入样本不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。⚠两开关正交: AI降亏层只产删除线/未入样本, 不产 AI建议N/当日已满/AI警示(那些归「AI仓位建议」开关控制)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号">ⓘ</span>` +
     `</label>` +
     `${_aShareFinalizedTag}` +
-    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap, badge标注层): 开启=同日只买最优K个买入类(进K=「AI建议N」亮绿 / 超K=「当日已满」灰显) + 入宇宙${_t("sell_short")}(sell/sell_stop_loss/${_t("type_band_sell")})=「AI警示」亮橙(${_t("sell_short")}无K约束不判K); 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表(无AI建议N/当日已满/AI警示), 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。⚠两开关正交: AI仓位层只产上面三类badge, 不产删除线过滤(删除线/未入样本归「AI降亏过滤」开关控制)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span>${_helpBtn}</span>` +
+    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap, badge标注层): 开启=同日只买最优K个买入类(进K=「AI建议N」亮绿 / 超K=「当日已满」灰显) + 入宇宙${_t("sell_short")}(sell/sell_stop_loss/${_t("type_band_sell")})=「AI警示」亮橙(${_t("sell_short")}无K约束不判K); 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表(无AI建议N/当日已满/AI警示), 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。⚠两开关正交: AI仓位层只产上面三类badge, 不产删除线过滤(删除线/未入样本归「AI降亏过滤」开关控制)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span>${_helpBtn}${_simBtn}</span>` +
     `</div>`;
 }
 // 参考说明按钮独立 hoverpop HTML(2026-08-14): 不复用 K 评级表 _aiPoscapRatingPopHtml(仓位评级表语义不符),
@@ -2405,6 +2408,11 @@ function _bindSigSwitchRow(sigCard) {
         _openRefHelpModal();
         return;
       }
+      if (kb.dataset.k === "sim") {
+        // 模拟回测按钮(2026-08-21): 弹「模拟回测」全历史真实过滤弹窗, 纯展示不改任何状态
+        _openSimBacktestModal();
+        return;
+      }
       if (kb.dataset.k === "off") {
         // AI仓位建议 off 按钮(2026-08-13): 写 tds_poscap {on:false}, 与凯利区 _kellySetSharedPosCap(false,k) 同键同语义(§22 联动),
         // 关闭后该区域退化为普通信号列表(无「AI建议N」「当日已满」badge), 再点某 K 档恢复 {on:true,k}
@@ -2446,6 +2454,513 @@ function _bindSigSwitchRow(sigCard) {
   _bindPoscapTitleSuppress(sigCard);
   // 2026-08-14 参考说明按钮独立 hoverpop 绑定(自包含, 与 K 评级 pop 互不干扰; 初次渲染绑一次, 重绘后由 _rerenderSigCardContent 末尾重绑)
   _bindSigHelpPop(sigCard);
+}
+
+// === 首页「模拟回测」弹窗(2026-08-21 新增, 纯展示) ===
+// 用全历史真实信号交易记录(signal_kelly_trades.json, 2011-2026 全历史 27万条), 按当前
+// AI降亏过滤 / AI仓位建议K档 / 交易模式(A-I) / 费率设置, 实时过滤并算出费后逐笔盈亏与累积收益。
+// 纯新增展示, 不引用 lab.js 任何全局函数(首页不加载 lab.js, 引用会运行时报错), 自带轻量版过滤逻辑。
+// 降亏判定: 与首页默认8键(_AI_MACRO_FILTER_NAMES)在 trades 侧等价——首页8键 ⊂ 凯利默认filters(_kellyDefaultFilters),
+//   本弹窗直接复用 _kellyDefaultFilters 默认开启的 8 个键(excludeSpecialBear/n2NovSpecialIndustry/janMidRating/janMidSpecial/
+//   k2c5HkChase/r7MayReinforced/excludeAuxCross/greedy15), 在其余键全关时, 与首页8键判定完全一致。
+//   trades 记录无 ai_macro 字段, 且维度(mkt/etf/rating)分散在16个子域qk副本中, 故先跨全 qk 去重聚合出带全部维度的基笔池,
+//   再对每笔独立判定(等价 lab.js _kellyPassesFadeFilters + _kellyCollectBasePool 去重)。
+var _simKellyData = null;     // signal_kelly_trades.json 解析后的 {fields, fIdx, records}(records=去重基笔池, 带 mktD/etfD/ratD)
+var _simKellyCfg = null;      // signal_kelly_backtest.json 解析后的 {sell_modes, ...}
+var _simKellyLoading = false;
+var _simKellyLoadErr = null;
+
+// 读取数据版本号(破缓存, 与 lab.js 同机制: <meta name="lab-asset-url"> 持有 ?v=)
+function _simCacheBust() {
+  try {
+    const meta = document.querySelector('meta[name="lab-asset-url"]');
+    if (meta && meta.content && meta.content.indexOf("?v=") >= 0) {
+      return meta.content.split("?v=")[1];
+    }
+  } catch (e) {}
+  return "";
+}
+
+// 凯利默认降亏 filters(与 _kellyDefaultFilters 默认集 1:1, 仅保留首页8键需的字段; 其余键恒 false 不影响默认8键判定)
+// 8 键语义: excludeSpecialBear(追关注×熊市交叉四档, 主键) / n2NovSpecialIndustry(11月+追关注+行业) /
+//   janMidRating(1月中旬+中评级) / janMidSpecial(1月中旬+追关注) / k2c5HkChase(港股追涨剔除) /
+//   r7MayReinforced(5月强化+3稳定非5月) / excludeAuxCross(辅关注×3/5月交叉) / greedy15(Greedy-15组合)
+// 注意: 以上8键依赖 buy_date月份 / signal类型 / market_tier(追关注) / 维度(mkt/etf/rating, 来自 qk 子类), 全部可用 trades 字段+聚合维度判定。
+function _simDefaultFadeFilters() {
+  return {
+    excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false,
+    excludeAuxCross: true, excludeSpecialBear: true, excludeMonthDummy: false,
+    n1MarTueHigh: false, n2NovSpecialIndustry: true, r8PureNonMay: false,
+    n3NovSpecialMon: false, n4AMay: false, r7MayReinforced: true,
+    n5MayVlow: false, n6MidMay: false, r10May6NonMay: false,
+    v4cSimple: false, v4b: false, greedy7: false, greedy10: false,
+    v4d: false, v4j: false, v4i: false, greedy15: true, v4f: false, v4g: false, v4m: false, v4k: false,
+    janMidRating: true, janMidSpecial: true,
+    k2c5HkChase: true, k3ConceptBuy: false,
+    legacyMa60Special: false, declinePhaseSpecial: false, excludeSpecialBearCyb: false,
+    a5NovMidSpecial: false, a45NovMidLateSpecial: false
+  };
+}
+
+// 各降亏谓词所需维度标记: 从 qk 子域名前缀推断(mkt_/etf_/sig_/rating_)
+function _simQkDim(qk) {
+  if (qk.startsWith("mkt_")) return { type: "mkt", val: qk.slice(4) };
+  if (qk.startsWith("etf_")) return { type: "etf", val: qk.slice(4) };
+  if (qk.startsWith("sig_")) return { type: "sig", val: qk.slice(4) };
+  if (qk.startsWith("rating_")) return { type: "rating", val: qk.slice(7) };
+  return null;
+}
+
+// 月门控掩码(与 lab.js _kellyMonthMask 同值, 仅含本弹窗8键涉及的键)
+var _simMonthMask = {
+  a5NovMidSpecial: 1 << 10, a45NovMidLateSpecial: 1 << 10,
+  n1MarTueHigh: 1 << 2, n2NovSpecialIndustry: 1 << 10, r8PureNonMay: (1 << 2) | (1 << 10),
+  n3NovSpecialMon: 1 << 10, n4AMay: 1 << 4, r7MayReinforced: (1 << 4) | (1 << 2) | (1 << 10),
+  n5MayVlow: 1 << 4, n6MidMay: 1 << 4, r10May6NonMay: (1 << 4) | (1 << 2) | (1 << 10),
+  v4cSimple: 1 << 2, v4b: 1 << 4, greedy7: 0x1FFF, v4d: 1 << 11, v4j: 1 << 4, v4i: 1 << 4,
+  greedy10: 0x1FFF, v4f: 1 << 5, v4g: (1 << 0) | (1 << 1) | (1 << 2), v4m: 1 << 8, v4k: 1 << 0,
+  greedy15: 0x1FFF, janMidRating: 1 << 0, janMidSpecial: 1 << 0,
+  k2c5HkChase: 0x1FFF, k3ConceptBuy: 0x1FFF
+};
+function _simActiveMonthMask(filters) {
+  var mask = 0;
+  for (var k in _simMonthMask) { if (filters[k]) mask |= _simMonthMask[k]; }
+  return mask;
+}
+
+// 买入日星期(0=Mon..6=Sun, 与 lab.js _kellyBuyWeekday 同)
+function _simBuyWeekday(buyDateStr) {
+  if (!buyDateStr) return -1;
+  var s = String(buyDateStr);
+  if (s.length < 8) return -1;
+  var jsDay = new Date(parseInt(s.substring(0, 4), 10), parseInt(s.substring(4, 6), 10) - 1, parseInt(s.substring(6, 8), 10)).getDay();
+  return (jsDay + 6) % 7;
+}
+// 买入价分桶(与 lab.js _kellyBuypriceBin 同)
+function _simBuypriceBin(price) {
+  if (price == null) return "";
+  if (price <= 0.841441) return "vlow";
+  if (price <= 1.015314) return "low";
+  if (price <= 1.194593) return "mid";
+  if (price <= 1.446645) return "high";
+  return "vhigh";
+}
+
+// 单笔降亏判定(等价 lab.js _kellyPassesFadeFilters, 但输入 t 为带 mktD/etfD/ratD 聚合维度的基笔记录)
+// 返回 true = 通过(不被降亏命中, 保留); false = 命中降亏(剔除)
+function _simPassesFade(t, fIdx, filters, monthMask) {
+  if (filters.excludeAux && (t[fIdx.signal] || "") === "buy_aux") return false;
+  if (filters.marketTiming && t[fIdx.market_state] !== true) return false;
+  if (filters.excludeMonth) { var _mm = (t[fIdx.buy_date] || "").substring(4, 6); if (_mm === "03" || _mm === "05") return false; }
+  if (filters.excludeRatingLow && t[fIdx.rating] === "low") return false;
+  if (filters.excludeAuxCross && (t[fIdx.signal] || "") === "buy_aux") { var _mmX = (t[fIdx.buy_date] || "").substring(4, 6); if (_mmX === "03" || _mmX === "05") return false; }
+  if (filters.excludeSpecialBear && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_tier != null) {
+    var _mt = t[fIdx.market_tier] || "";
+    if (_mt === "熊市·主跌" || _mt === "下降期") return false;
+  }
+  if (filters.legacyMa60Special && (t[fIdx.signal] || "") === "buy_special" && t[fIdx.market_state] === false) return false;
+  if (filters.declinePhaseSpecial && (t[fIdx.signal] || "") === "buy_special" && t[fIdx.market_tier_all] === "下降期") return false;
+  if (filters.excludeSpecialBearCyb && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_tier_cyb != null) {
+    var _mtc = t[fIdx.market_tier_cyb] || ""; if (_mtc === "熊市·主跌" || _mtc === "下降期") return false;
+  }
+  var _v3On = filters.n1MarTueHigh || filters.n2NovSpecialIndustry || filters.r8PureNonMay || filters.n3NovSpecialMon || filters.n4AMay || filters.r7MayReinforced || filters.n5MayVlow || filters.n6MidMay || filters.r10May6NonMay;
+  var _v4On = filters.greedy7 || filters.greedy10 || filters.greedy15 || filters.v4cSimple || filters.v4b || filters.v4d || filters.v4j || filters.v4i || filters.v4f || filters.v4g || filters.v4m || filters.v4k;
+  var _r3On = filters.a5NovMidSpecial || filters.a45NovMidLateSpecial;
+  var _janOn = filters.janMidRating || filters.janMidSpecial;
+  var _k2On = filters.k2c5HkChase || filters.k3ConceptBuy;
+  if (_v3On || _v4On || _r3On || _janOn || _k2On) {
+    if (monthMask) {
+      var _mmG = (t[fIdx.buy_date] || "").substring(4, 6);
+      var _mmInt = _mmG ? parseInt(_mmG, 10) : 0;
+      if (_mmInt && !(monthMask & (1 << (_mmInt - 1)))) return true;
+    }
+    var _mm3 = (t[fIdx.buy_date] || "").substring(4, 6);
+    var _dd3 = parseInt((t[fIdx.buy_date] || "").substring(6, 8), 10) || 0;
+    var _sig3 = (t[fIdx.signal] || "");
+    var _wd3 = _simBuyWeekday(t[fIdx.buy_date]);
+    var _bpb3 = _simBuypriceBin(t[fIdx.buy_price]);
+    var _mktD3 = t._mktD || "";
+    var _etfD3 = t._etfD || "";
+    var _ratD3 = t._ratD || "";
+    var _ts3 = fIdx.track_score != null ? Number(t[fIdx.track_score]) : 999;
+    var _q3 = _mm3 ? Math.ceil(parseInt(_mm3, 10) / 3) : 0;
+    if (_v3On) {
+      if (filters.n1MarTueHigh && _mm3 === "03" && _wd3 === 2 && _bpb3 === "high") return false;
+      if (filters.n2NovSpecialIndustry && _sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") return false;
+      if (filters.r8PureNonMay && ((_mm3 === "03" && _wd3 === 2 && _bpb3 === "high") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0))) return false;
+      if (filters.n3NovSpecialMon && _sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0) return false;
+      if (filters.n4AMay && _mktD3 === "a" && _mm3 === "05") return false;
+      if (filters.r7MayReinforced && ((_mktD3 === "a" && _mm3 === "05") || (_ratD3 === "mid" && _mm3 === "05") || (_mm3 === "05" && _bpb3 === "vlow") || (_mm3 === "03" && _wd3 === 2 && _bpb3 === "high") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0))) return false;
+      if (filters.n5MayVlow && _mm3 === "05" && _bpb3 === "vlow") return false;
+      if (filters.n6MidMay && _ratD3 === "mid" && _mm3 === "05") return false;
+      if (filters.r10May6NonMay && (_mm3 === "05" || (_mm3 === "03" && _wd3 === 2 && _bpb3 === "high") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0) || (_sig3 === "buy_special" && _mm3 === "11" && _bpb3 === "low") || (_sig3 === "buy_special" && _mm3 === "03" && _mktD3 === "industry") || (_mm3 === "03" && _wd3 === 2 && _sig3 === "buy_aux"))) return false;
+    }
+    if (_v4On) {
+      if (filters.v4cSimple && _mm3 === "03" && _wd3 === 2 && _sig3 === "buy_aux") return false;
+      if (filters.v4b && _mktD3 === "a" && _mm3 === "05" && _sig3 === "buy_special" && _etfD3 === "related") return false;
+      if (filters.greedy7 && ((_sig3 === "buy_special" && _mm3 === "05") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "concept") || (_sig3 === "buy_special" && _mm3 === "03") || (_sig3 === "buy_aux" && _mm3 === "01") || (_q3 === 2 && _bpb3 === "vlow" && _sig3 === "buy_aux" && _mktD3 === "concept") || (_sig3 === "buy" && _mm3 === "01") || (_mm3 === "03" && _wd3 === 2 && _mktD3 === "concept" && _ratD3 === "low"))) return false;
+      if (filters.v4d && _mm3 === "12" && _wd3 === 1 && _sig3 === "buy_aux" && _ts3 < 50) return false;
+      if (filters.v4j && _mm3 === "05" && _bpb3 === "vlow" && _sig3 === "buy_special") return false;
+      if (filters.v4i && _sig3 === "buy_special" && _mm3 === "05" && _mktD3 === "concept" && _wd3 === 0) return false;
+      if (filters.greedy10 && ((_sig3 === "buy_special" && _mm3 === "05") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "concept") || (_sig3 === "buy_special" && _mm3 === "03") || (_sig3 === "buy_aux" && _mm3 === "01") || (_q3 === 2 && _bpb3 === "vlow" && _sig3 === "buy_aux" && _mktD3 === "concept") || (_sig3 === "buy" && _mm3 === "01") || (_mm3 === "03" && _wd3 === 2 && _mktD3 === "concept" && _ratD3 === "low") || (_sig3 === "buy_aux" && _mm3 === "12" && _ts3 < 50) || (_mm3 === "06" && _bpb3 === "vlow" && _ratD3 === "low") || (_sig3 === "buy_aux" && _mm3 === "05"))) return false;
+      if (filters.v4f && _sig3 === "buy" && _mm3 === "06" && _wd3 === 2 && _etfD3 === "related") return false;
+      if (filters.v4g && _mktD3 === "global" && _q3 === 1 && _sig3 === "buy_aux" && _ratD3 === "low") return false;
+      if (filters.v4m && _sig3 === "buy_special" && _mm3 === "09" && _wd3 === 2) return false;
+      if (filters.v4k && _sig3 === "buy" && _mm3 === "01" && _bpb3 === "high") return false;
+      if (filters.greedy15 && ((_sig3 === "buy_special" && _mm3 === "05") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "concept") || (_sig3 === "buy_special" && _mm3 === "03") || (_sig3 === "buy_aux" && _mm3 === "01") || (_q3 === 2 && _bpb3 === "vlow" && _sig3 === "buy_aux" && _mktD3 === "concept") || (_sig3 === "buy" && _mm3 === "01") || (_mm3 === "03" && _wd3 === 2 && _mktD3 === "concept" && _ratD3 === "low") || (_sig3 === "buy_aux" && _mm3 === "12" && _ts3 < 50) || (_mm3 === "06" && _bpb3 === "vlow" && _ratD3 === "low") || (_sig3 === "buy_aux" && _mm3 === "05") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_mm3 === "04" && _wd3 === 1 && _mktD3 === "concept" && _ts3 < 50) || (_mktD3 === "global" && _q3 === 1 && _sig3 === "buy_aux" && _ratD3 === "low") || (_mm3 === "01" && _bpb3 === "low" && _sig3 === "buy_special" && _mktD3 === "concept") || (_sig3 === "buy_special" && _mm3 === "09" && _wd3 === 2))) return false;
+    }
+    if (_r3On) {
+      if (filters.a5NovMidSpecial && _sig3 === "buy_special" && _mm3 === "11" && _dd3 >= 11 && _dd3 <= 20) return false;
+      if (filters.a45NovMidLateSpecial && _sig3 === "buy_special" && _mm3 === "11" && _dd3 >= 11) return false;
+    }
+    if (_janOn) {
+      if (filters.janMidRating && _mm3 === "01" && _dd3 >= 11 && _dd3 <= 20 && _ratD3 === "mid") return false;
+      if (filters.janMidSpecial && _sig3 === "buy_special" && _mm3 === "01" && _dd3 >= 11 && _dd3 <= 20) return false;
+    }
+    if (_k2On) {
+      if (filters.k2c5HkChase && (_sig3 === "buy_special" || _sig3 === "buy_backup") && _mktD3 === "hk") return false;
+      if (filters.k3ConceptBuy && _sig3 === "buy" && _mktD3 === "concept") return false;
+    }
+  }
+  return true;
+}
+
+// 基笔 key(买侧身份, 与 lab.js _kellyBaseKey 同)
+function _simBaseKey(t, fIdx) {
+  return (t[fIdx.signal_date] || "") + "|" + (t[fIdx.index_id] || "") + "|" + (t[fIdx.signal] || "") + "|" + (t[fIdx.buy_date] || "") + "|" + (t[fIdx.etf_code] || "");
+}
+
+// 首次开弹窗加载数据(全历史 trades + backtest config), 解析平行数组→带聚合维度的基笔池, 缓存模块级
+async function _loadSimKellyData() {
+  if (_simKellyData || _simKellyLoading) return _simKellyData;
+  _simKellyLoading = true;
+  _simKellyLoadErr = null;
+  try {
+    const v = _simCacheBust();
+    const trUrl = "https://ss.fx8.store/data/signal_kelly_trades.json" + (v ? "?v=" + v : "");
+    const cfgUrl = "./data/signal_kelly_backtest.json" + (v ? "?v=" + v : "");
+    const [tr, cfg] = await Promise.all([
+      fetchJSON(trUrl),
+      fetchJSON(cfgUrl).catch(() => null)
+    ]);
+    const fields = tr.fields;
+    const fIdx = {};
+    fields.forEach((f, i) => { fIdx[f] = i; });
+    // 跨全 qk × 全模式去重聚合基笔池(同 base key 在16个qk副本中维度分散, 需聚合 mktD/etfD/ratD)
+    const seen = {};
+    const records = [];
+    const RATING_RANK_POOL = ["rating_high", "rating_mid", "rating_low"];
+    const allModes = cfg && cfg.config && cfg.config.sell_modes ? Object.keys(cfg.config.sell_modes) : ["A","B","C","D","E","F","G","H","I"];
+    for (const qk in tr.quadrants) {
+      const dim = _simQkDim(qk);
+      for (const mk in tr.quadrants[qk]) {
+        const arr = tr.quadrants[qk][mk] || [];
+        for (let i = 0; i < arr.length; i++) {
+          const orig = arr[i];
+          const bk = _simBaseKey(orig, fIdx);
+          let rec = seen[bk];
+          if (!rec) {
+            // 用原平行数组(对象化便于按字段名取), 同时挂聚合维度占位
+            rec = orig.slice();
+            rec._mktD = ""; rec._etfD = ""; rec._ratD = "";
+            seen[bk] = rec;
+            records.push(rec);
+          }
+          if (dim) {
+            if (dim.type === "mkt") { if (!rec._mktD) rec._mktD = dim.val; }
+            else if (dim.type === "etf") { if (!rec._etfD) rec._etfD = dim.val; }
+            else if (dim.type === "rating") { if (!rec._ratD) rec._ratD = dim.val; }
+            // sig_ 维度暂不做降亏判定用(本弹窗8键不依赖 sig 维), 忽略
+          }
+        }
+      }
+    }
+    _simKellyData = { fields, fIdx, records };
+    _simKellyCfg = (cfg && cfg.config) ? cfg.config : { sell_modes: {} };
+  } catch (e) {
+    _simKellyLoadErr = e && e.message ? e.message : String(e);
+    _simKellyData = null;
+  } finally {
+    _simKellyLoading = false;
+  }
+  return _simKellyData;
+}
+
+// 打开「模拟回测」弹窗(复用 .rule-modal 机制, 与 _openRefHelpModal 同款)
+function _openSimBacktestModal() {
+  let modal = document.getElementById("simBacktestModal");
+  const isFirst = !modal;
+  if (isFirst) {
+    modal = document.createElement("div");
+    modal.id = "simBacktestModal";
+    modal.className = "rule-modal hidden";
+    document.body.appendChild(modal);
+  }
+  const _close = () => { modal.classList.add("hidden"); document.body.style.overflow = ""; };
+  // 交易模式下拉(默认 A, 来自 sell_modes)
+  const _sm = (_simKellyCfg && _simKellyCfg.sell_modes) || {};
+  const _modeOpts = Object.keys(_sm).map((mk) => `<option value="${mk}">${mk} · ${_sm[mk].label || ""}</option>`).join("");
+  modal.innerHTML = '<div class="rule-modal-overlay"></div>' +
+    '<div class="rule-modal-body rule-modal-body-wide"><div class="rule-modal-header"><h3>📊 模拟回测 · 全历史真实过滤</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
+    '<div class="rule-modal-content">' +
+      '<div class="sim-ctrl-row">' +
+        '<div class="sim-ctrl-block"><label>时间范围(起)</label><input type="date" class="sim-date-start"></div>' +
+        '<div class="sim-ctrl-block"><label>时间范围(止)</label><input type="date" class="sim-date-end"></div>' +
+        '<div class="sim-ctrl-block"><label>AI降亏过滤</label><label class="sim-cb-wrap"><input type="checkbox" class="sim-fade-cb" checked> 开启(默认8键)</label></div>' +
+        '<div class="sim-ctrl-block"><label>AI仓位建议 K</label><div class="sim-kbtns">' +
+          '<button type="button" class="sim-kbtn" data-k="0">关</button>' +
+          '<button type="button" class="sim-kbtn active" data-k="1">K1★主推</button>' +
+          '<button type="button" class="sim-kbtn" data-k="2">K2</button>' +
+          '<button type="button" class="sim-kbtn" data-k="3">K3</button>' +
+          '<button type="button" class="sim-kbtn" data-k="4">K4</button></div></div>' +
+        '<div class="sim-ctrl-block"><label>交易模式</label><select class="sim-mode-sel">' + (_modeOpts || '<option value="A">A · 固定10天</option>') + '</select></div>' +
+        '<div class="sim-ctrl-block"><label>买入费率%</label><input type="number" step="0.001" min="0" value="0.03" class="sim-fee-buy"></div>' +
+        '<div class="sim-ctrl-block"><label>卖出费率%</label><input type="number" step="0.001" min="0" value="0.03" class="sim-fee-sell"></div>' +
+      '</div>' +
+      '<div class="sim-summary"></div>' +
+      '<div class="sim-table-wrap"><div class="sim-table-loading" style="display:none">数据加载中…(全历史27万条, 首次约数秒)</div>' +
+        '<div class="sim-table-body"></div>' +
+        '<div class="sim-pager"></div>' +
+      '</div>' +
+      '<div class="rule-modal-footer">⚠ 纯展示: 用全历史真实信号交易记录(2011-2026), 按上述条件实时过滤并算费后盈亏; 每笔本金固定 ¥10000, 不与任何实盘/下单关联。具体口径以「信号凯利回测」页为准。</div>' +
+    '</div></div>';
+  modal.querySelector(".rule-modal-overlay").addEventListener("click", _close);
+  modal.querySelector(".rule-modal-close").addEventListener("click", _close);
+  if (isFirst) {
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.classList.contains("hidden")) _close(); });
+  }
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  _bindSimBacktestControls(modal, _close);
+  _simRender(modal);
+}
+
+// 绑定弹窗控件事件 + K档按钮高亮
+function _bindSimBacktestControls(modal, _close) {
+  const kbtns = modal.querySelectorAll(".sim-kbtn");
+  kbtns.forEach((b) => {
+    b.addEventListener("click", () => {
+      kbtns.forEach((x) => x.classList.remove("active"));
+      b.classList.add("active");
+      _simRender(modal);
+    });
+  });
+  modal.querySelectorAll(".sim-date-start,.sim-date-end,.sim-fade-cb,.sim-mode-sel,.sim-fee-buy,.sim-fee-sell").forEach((el) => {
+    el.addEventListener("change", () => _simRender(modal));
+  });
+}
+
+// 主渲染: 加载数据 → 过滤 → 算费后 + 累积 → 渲染表格(分页)
+async function _simRender(modal) {
+  const loadingEl = modal.querySelector(".sim-table-loading");
+  const bodyEl = modal.querySelector(".sim-table-body");
+  const summaryEl = modal.querySelector(".sim-summary");
+  const pagerEl = modal.querySelector(".sim-pager");
+  if (!_simKellyData && !_simKellyLoading) {
+    // 首次加载
+    loadingEl.style.display = "block";
+    bodyEl.innerHTML = "";
+    await _loadSimKellyData();
+    loadingEl.style.display = "none";
+    if (_simKellyLoadErr) {
+      bodyEl.innerHTML = '<div class="sim-err">数据加载失败: ' + _simKellyLoadErr + '</div>';
+      return;
+    }
+    // 数据加载完(可能 sell_modes 才有), 若模式下拉为空则补选项
+    const _sm = (_simKellyCfg && _simKellyCfg.sell_modes) || {};
+    const sel = modal.querySelector(".sim-mode-sel");
+    if (sel && !sel.options.length) {
+      Object.keys(_sm).forEach((mk) => { const o = document.createElement("option"); o.value = mk; o.textContent = mk + " · " + (_sm[mk].label || ""); sel.appendChild(o); });
+    }
+  } else if (_simKellyLoading) {
+    loadingEl.style.display = "block";
+    return;
+  }
+  // 读取控件状态
+  const fIdx = _simKellyData.fIdx;
+  const startD = modal.querySelector(".sim-date-start").value || "";
+  const endD = modal.querySelector(".sim-date-end").value || "";
+  const fadeOn = modal.querySelector(".sim-fade-cb").checked;
+  const kRaw = (modal.querySelector(".sim-kbtn.active") || {}).dataset ? (modal.querySelector(".sim-kbtn.active")).dataset.k : "1";
+  const K = parseInt(kRaw, 10) || 0;  // 0 = 关(不过滤)
+  const mode = modal.querySelector(".sim-mode-sel").value || "A";
+  const feeBuy = (parseFloat(modal.querySelector(".sim-fee-buy").value) || 0) / 100;
+  const feeSell = (parseFloat(modal.querySelector(".sim-fee-sell").value) || 0) / 100;
+
+  // ① 模式: 取 quadrants[*][mode] 全部子域副本(含重复), 但判定/去重用 records 基笔池更稳——
+  //    这里直接用 records(已去重基笔池, 跨全qk), 按 mode 仅用于展示(全模式共享同批基笔, mode 影响的是 sell_date 等已固化值, records 已含按 mode 的副本? 不, records 是去重并集)
+  // 说明: signal_kelly_trades.json 的 quadrants[qk][mode] 每模式是完整副本(同 base 在不同 mode 下 sell_date 不同)。
+  //    本弹窗要按所选 mode 取对应 sell_date, 故必须从 quadrants[*][mode] 取, 而非去重并集(并集会丢失 mode 维度)。
+  //    因此: 重新基于 quadrants[*][mode] 构建该模式的基笔池(带聚合维度), 再判定。
+  const recs = _simBuildModePool(_simKellyData, mode);
+
+  // ② 降亏过滤
+  const filters = _simDefaultFadeFilters();
+  const monthMask = _simActiveMonthMask(filters);
+  let kept = recs;
+  if (fadeOn) {
+    kept = recs.filter((t) => _simPassesFade(t, fIdx, filters, monthMask));
+  }
+  // ③ K档: 按 signal_date 分组取 top-K(排序口径 track_score DESC → rating → signal → buy_date ASC, 与首页/凯利一致)
+  if (K > 0) {
+    const byDate = {};
+    kept.forEach((t) => { const sd = String(t[fIdx.signal_date] || ""); (byDate[sd] || (byDate[sd] = [])).push(t); });
+    const RATING_RANK = { high: 0, mid: 1, low: 2, _d: 3 };
+    const SIG_RANK = { buy_backup: 0, buy: 1, buy_aux: 2, buy_special: 3, _d: 9 };
+    const _rk = (r) => (Object.prototype.hasOwnProperty.call(RATING_RANK, r) ? RATING_RANK[r] : 3);
+    const _sk = (s) => (Object.prototype.hasOwnProperty.call(SIG_RANK, s) ? SIG_RANK[s] : 9);
+    const out = [];
+    for (const sd in byDate) {
+      const rows = byDate[sd];
+      rows.sort((a, b) => {
+        const sa = Number(a[fIdx.track_score]); const sb = Number(b[fIdx.track_score]);
+        if (sb !== sa) return sb - sa;
+        const ra = _rk(String(a[fIdx.rating] || "")); const rb = _rk(String(b[fIdx.rating] || ""));
+        if (ra !== rb) return ra - rb;
+        const sga = _sk(String(a[fIdx.signal] || "")); const sgb = _sk(String(b[fIdx.signal] || ""));
+        if (sga !== sgb) return sga - sgb;
+        const da = String(a[fIdx.buy_date] || ""), db = String(b[fIdx.buy_date] || "");
+        return da < db ? -1 : (da > db ? 1 : 0);
+      });
+      for (let j = 0; j < Math.min(K, rows.length); j++) out.push(rows[j]);
+    }
+    kept = out;
+  }
+  // ④ 日期切片(按 signal_date 字符串比较, 空=不筛)
+  if (startD || endD) {
+    kept = kept.filter((t) => {
+      const sd = String(t[fIdx.signal_date] || "");
+      if (startD && sd < startD) return false;
+      if (endD && sd > endD) return false;
+      return true;
+    });
+  }
+  // 按 signal_date 倒序(最新在上)
+  kept.sort((a, b) => { const sa = String(a[fIdx.signal_date] || ""), sb = String(b[fIdx.signal_date] || ""); return sa < sb ? 1 : (sa > sb ? -1 : 0); });
+  _simRenderTable(modal, kept, fIdx, feeBuy, feeSell, startD, endD, fadeOn, K, mode);
+}
+
+// 基于 quadrants[*][mode] 构建该模式基笔池(带聚合维度, 去重)
+function _simBuildModePool(data, mode) {
+  const { fIdx, fields, quadrants } = data;
+  const seen = {};
+  const records = [];
+  for (const qk in quadrants) {
+    const dim = _simQkDim(qk);
+    const arr = (quadrants[qk] && quadrants[qk][mode]) || [];
+    for (let i = 0; i < arr.length; i++) {
+      const orig = arr[i];
+      const bk = _simBaseKey(orig, fIdx);
+      let rec = seen[bk];
+      if (!rec) {
+        rec = orig.slice();
+        rec._mktD = ""; rec._etfD = ""; rec._ratD = "";
+        seen[bk] = rec;
+        records.push(rec);
+      }
+      if (dim) {
+        if (dim.type === "mkt") { if (!rec._mktD) rec._mktD = dim.val; }
+        else if (dim.type === "etf") { if (!rec._etfD) rec._etfD = dim.val; }
+        else if (dim.type === "rating") { if (!rec._ratD) rec._ratD = dim.val; }
+      }
+    }
+  }
+  return records;
+}
+
+// 渲染结果表(11列 + 分页, 前500条) + 累积列(从最早日逐笔累加)
+function _simRenderTable(modal, rows, fIdx, feeBuy, feeSell, startD, endD, fadeOn, K, mode) {
+  const bodyEl = modal.querySelector(".sim-table-body");
+  const summaryEl = modal.querySelector(".sim-summary");
+  const pagerEl = modal.querySelector(".sim-pager");
+  const PRIN = 10000; // 每笔本金 ¥10000
+  const n = rows.length;
+  // 累积 + 当前持仓: 按 signal_date 正序扫描
+  const asc = rows.slice().sort((a, b) => { const sa = String(a[fIdx.signal_date] || ""), sb = String(b[fIdx.signal_date] || ""); return sa < sb ? -1 : (sa > sb ? 1 : 0); });
+  let cumPct = 0, cumYuan = 0, rightN = 0, wrongN = 0;
+  const cumMap = {};  // basekey -> {cumPct, cumYuan, acc, rate}
+  const posMap = {};  // basekey -> 截至本行 signal_date 的开放持仓手数(每笔=1手=¥10000)
+  const openMap = {}; // 当前仍开放的笔 basekey -> 1
+  for (let i = 0; i < asc.length; i++) {
+    const t = asc[i];
+    const bk = _simBaseKey(t, fIdx);
+    const sd = String(t[fIdx.signal_date] || "");
+    const bd = String(t[fIdx.buy_date] || "");
+    const sld = String(t[fIdx.sell_date] || "");
+    // 本笔截至本行是否仍开放(已买入且(未卖出或卖出日>本行日期))
+    const open = bd && bd <= sd && (sld === "" || sld > sd);
+    if (open && !Object.prototype.hasOwnProperty.call(openMap, bk)) openMap[bk] = 1;
+    posMap[bk] = Object.keys(openMap).length; // 当前仍开放笔数 = 当前持仓(手)
+    const bp = Number(t[fIdx.buy_price]) || 0;
+    const sp = Number(t[fIdx.sell_price]) || 0;
+    const buyAmt = PRIN;                 // 每笔本金固定 ¥10000(基准)
+    const sellAmt = PRIN * (sp / bp);    // 卖出额按份额=本金×价格比(份额=本金/买入价)
+    const feeB = buyAmt * feeBuy;
+    const feeS = sellAmt * feeSell;
+    const pnlYuan = sellAmt - buyAmt - feeB - feeS;
+    const pnlPct = buyAmt > 0 ? (pnlYuan / buyAmt) * 100 : 0;
+    cumPct += pnlPct;
+    cumYuan += pnlYuan;
+    if (pnlYuan > 0) rightN++; else wrongN++;
+    cumMap[bk] = { cumPct, cumYuan, acc: rightN + "/" + wrongN, rate: ((rightN / (rightN + wrongN)) * 100).toFixed(1) };
+  }
+  const PAGE = 500;
+  let page = 0;
+  const totalPages = Math.max(1, Math.ceil(n / PAGE));
+  const _draw = () => {
+    const slice = rows.slice(page * PAGE, (page + 1) * PAGE);
+    let html = '<table class="sim-tbl"><thead><tr>' +
+      '<th>日期</th><th>当前持仓(手)</th><th>信号</th><th>关联跟踪ETF</th><th>买入时间</th><th>卖出时间</th>' +
+      '<th>买入手续费¥</th><th>卖出手续费¥</th><th>本笔盈亏%</th><th>本笔盈亏¥</th>' +
+      '<th>累积收益%</th><th>累积盈亏¥</th><th>累积对错</th></tr></thead><tbody>';
+    for (const t of slice) {
+      const bk = _simBaseKey(t, fIdx);
+      const bp = Number(t[fIdx.buy_price]) || 0;
+      const sp = Number(t[fIdx.sell_price]) || 0;
+      const buyAmt = PRIN;
+      const sellAmt = PRIN * (sp / bp);
+      const feeB = buyAmt * feeBuy;
+      const feeS = sellAmt * feeSell;
+      const pnlYuan = sellAmt - buyAmt - feeB - feeS;
+      const pnlPct = buyAmt > 0 ? (pnlYuan / buyAmt) * 100 : 0;
+      const cum = cumMap[bk] || { cumPct: 0, cumYuan: 0, acc: "0/0", rate: "0.0" };
+      const pos = posMap[bk] || 0;
+      const cls = pnlYuan > 0 ? "sim-up" : "sim-down";
+      html += '<tr>' +
+        '<td>' + (t[fIdx.signal_date] || "") + '</td>' +
+        '<td>' + pos + '</td>' +
+        '<td>' + (t[fIdx.signal] || "") + '</td>' +
+        '<td>' + (t[fIdx.etf_code] || "") + ' ' + (t[fIdx.etf_name] || "") + '</td>' +
+        '<td>' + (t[fIdx.buy_date] || "") + '</td>' +
+        '<td>' + (t[fIdx.sell_date] || "") + '</td>' +
+        '<td>' + feeB.toFixed(2) + '</td>' +
+        '<td>' + feeS.toFixed(2) + '</td>' +
+        '<td class="' + cls + '">' + pnlPct.toFixed(2) + '%</td>' +
+        '<td class="' + cls + '">' + pnlYuan.toFixed(2) + '</td>' +
+        '<td>' + cum.cumPct.toFixed(2) + '%</td>' +
+        '<td>' + cum.cumYuan.toFixed(2) + '</td>' +
+        '<td>' + cum.acc + ' (' + cum.rate + '%)</td>' +
+        '</tr>';
+    }
+    html += '</tbody></table>';
+    bodyEl.innerHTML = html;
+    summaryEl.innerHTML = '筛选结果: <b>' + n + '</b> 笔(模式 ' + mode + ' · 降亏' + (fadeOn ? '开' : '关') + ' · K=' + (K || '关') +
+      ') · 本金每笔 ¥10000 · 买入费率 ' + (feeBuy * 100).toFixed(3) + '% / 卖出费率 ' + (feeSell * 100).toFixed(3) + '%';
+    if (totalPages > 1) {
+      let pg = '';
+      if (page > 0) pg += '<button type="button" class="sim-pg sim-pg-prev">← 上一页</button>';
+      pg += '<span class="sim-pg-info">第 ' + (page + 1) + ' / ' + totalPages + ' 页(每页' + PAGE + '条)</span>';
+      if (page < totalPages - 1) pg += '<button type="button" class="sim-pg sim-pg-next">下一页 →</button>';
+      pagerEl.innerHTML = pg;
+      const prevB = pagerEl.querySelector(".sim-pg-prev");
+      const nextB = pagerEl.querySelector(".sim-pg-next");
+      if (prevB) prevB.addEventListener("click", () => { page--; _draw(); });
+      if (nextB) nextB.addEventListener("click", () => { page++; _draw(); });
+    } else {
+      pagerEl.innerHTML = '';
+    }
+  };
+  _draw();
 }
 
 // === 推荐操作方法「参考说明」弹窗(2026-08-14) ===
