@@ -2578,7 +2578,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     }
   }
   // 列表子筛选谓词（grade/correct/type）：只影响列表显示，不影响汇总条（汇总条显人口全量便于对比）。
-  // 提取为谓词供 popItems->filtered 与 ETF 按钮计数基线(_etfBaseItems)复用，确保 5 个筛选正交联动：
+  // 提取为谓词供 popItems->filtered 与 ETF 按钮计数基线(_statItems)复用，确保 5 个筛选正交联动：
   // 汇总条随人口筛选(window+ETF)更新；ETF 按钮计数随列表子筛选(grade/correct/type)更新；反之亦然。
   const _listFilter = (it) => {
     if (state.sigGradeFilter) {
@@ -2602,6 +2602,19 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     if (state.sigTypeFilter && _sigKey !== state.sigTypeFilter) return false;
     return true;
   };
+  // 2026-08-13 重构: 首页 AI降亏过滤开关(独立键 tds_home_fade, 默认开启) → 开启时按固定 8 键成员级判定(基础5+核心3键全生效, v1.1.0 与凯利区默认策略一致);
+  // 关闭时首页完全不判降亏(_isAiFadeHit 恒 false → 不灰显不删除线不标注, top-K 不滤不补位正常取)。
+  // 不再读凯利区 tds_kelly_filters(解耦, 互不影响)。
+  // ⚠️ 2026-08-13 融合口径: 本判定必须前移到 top-K 选取之前(先滤降亏、再选 top-K, 与凯利回测 lab.js _kellyCollectBasePool 先过 passesFade 一致)
+  // ⚠️ 2026-08-21 前移到 popItems 之前, 使分栏计数和准确率统计也能排除降亏命中信号
+  let _fadeOn = true;
+  const _aiOnMembers = {};
+  // 固定 8 键白名单全开(基础5+核心3, _AI_MACRO_FILTER_NAMES 不含 v1.1.2 备选键 legacyMa60Special/declinePhaseSpecial——
+  // 备选键不进首页判定, 须凯利区手动开才命中, 与凯利区默认关口径一致 §22)。v1.1.0 与凯利区默认策略一致
+  for (const _amk in _AI_MACRO_FILTER_NAMES) _aiOnMembers[_amk] = true;
+  if (kind === "signal") {
+    _fadeOn = _readHomeFadeFlag();
+  }
   // 人口筛选（window+ETF）：定义汇总条统计人口。ETF 视为人口筛选(同 window)，汇总条随 ETF 切换更新。
   // 2026-08-07 归一档：sigEtfFilterSet 是选中档位数组(如["1","2","3"])，
   //   空 = 全显(等同"全部")；signal 归档(最佳档)在选中集内才显示。各档独立不重叠，无跨档重复。
@@ -2610,10 +2623,12 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _selSet = new Set(state.sigEtfFilterSet);
     popItems = windowedItems.filter((it) => _selSet.has(String(_signalTiers(it))));
   }
+  // 2026-08-21: 准确率/分栏计数排除降亏命中信号(当 AI降亏过滤开启时), 与列表展示解耦:
+  //   popItems = 信号列表人口(含降亏命中, 保持列表完整展示);
+  //   _statItems = 统计人口(排除降亏命中, 使准确率+分栏计数随过滤联动)
+  const _statItems = _fadeOn ? popItems.filter((it) => !_isAiFadeHit(it)) : popItems;
   // 列表 = 人口 ∩ 列表子筛选(grade/correct/type)；5 个筛选正交组合(AND)
   let filtered = (kind === "signal") ? popItems.filter(_listFilter) : windowedItems;
-  // ETF 按钮计数基线 = window ∩ 列表子筛选(不含 ETF 自身维度)，使 ETF 计数随 grade/correct/type 联动
-  const _etfBaseItems = (kind === "signal") ? windowedItems.filter(_listFilter) : windowedItems;
   // 按 date 分组（降序），今日组单独提到最前
   const groups = {};
   for (const it of filtered) {
@@ -2635,18 +2650,6 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     for (const it of items) {
       if (it && it.date && it._bt_in_universe !== false && _BUY_UNI_SIGS[it.signal]) _dateHasInUniverseBuy[it.date] = true;
     }
-  }
-  // 2026-08-13 重构: 首页 AI降亏过滤开关(独立键 tds_home_fade, 默认开启) → 开启时按固定 8 键成员级判定(基础5+核心3键全生效, v1.1.0 与凯利区默认策略一致);
-  // 关闭时首页完全不判降亏(_isAiFadeHit 恒 false → 不灰显不删除线不标注, top-K 不滤不补位正常取)。
-  // 不再读凯利区 tds_kelly_filters(解耦, 互不影响)。
-  // ⚠️ 2026-08-13 融合口径: 本判定必须前移到 top-K 选取之前(先滤降亏、再选 top-K, 与凯利回测 lab.js _kellyCollectBasePool 先过 passesFade 一致)
-  let _fadeOn = true;
-  const _aiOnMembers = {};
-  // 固定 8 键白名单全开(基础5+核心3, _AI_MACRO_FILTER_NAMES 不含 v1.1.2 备选键 legacyMa60Special/declinePhaseSpecial——
-  // 备选键不进首页判定, 须凯利区手动开才命中, 与凯利区默认关口径一致 §22)。v1.1.0 与凯利区默认策略一致
-  for (const _amk in _AI_MACRO_FILTER_NAMES) _aiOnMembers[_amk] = true;
-  if (kind === "signal") {
-    _fadeOn = _readHomeFadeFlag();
   }
   // 2026-08-13 融合口径: 判断信号是否「命中降亏」(固定 8 键成员级, 与凯利回测 passesFade 同语义 v1.1.0)。
   // 受首页 AI降亏过滤开关(_fadeOn)门控: 开关关→恒 false 不判降亏; 开关开→ ai_macro.hit 且命中任一 8 键即为命中。
@@ -2957,8 +2960,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   let _accHtml = "";
   let _windowBtnsHtml = "";  // E 方案 UI: 窗口按钮组(仅 signal), 移到标题行❓后, 不再独立成行
   if (kind === "signal") {
-    // E 方案 + ETF 人口筛选: 汇总条基于人口(window+ETF)算准确率(非全量), 窗口/ETF 筛选影响总数+总准确率
-    const _acc = _calcSignalAccuracy(popItems);
+    // E 方案 + ETF 人口筛选: 汇总条基于统计人口(_statItems, 排除降亏命中)算准确率, 窗口/ETF 筛选影响总数+总准确率
+    const _acc = _calcSignalAccuracy(_statItems);
     const _fmt = (pct) => (pct == null ? "-" : pct.toFixed(0) + "%");
     const _gActive = (g) => (state.sigGradeFilter === g ? " sig-acc-filter-active" : "");
     const _cActive = (k) => (state.sigCorrectFilter === k ? " sig-acc-filter-active" : "");
@@ -3041,7 +3044,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _etfBtn = (label, f, tip, gradeCls) =>
       `<button class="sig-acc-seg sig-acc-filter${gradeCls ? " " + gradeCls : ""}${_eActive(f)}" data-etf-filter="${f}" data-tip="${_escAttr(tip)}">${label}</button>`;
     const _tierCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-    for (const it of _etfBaseItems) {
+    for (const it of _statItems) {
       const _t = _signalTiers(it);
       _tierCounts[_t] = (_tierCounts[_t] || 0) + 1;
     }
