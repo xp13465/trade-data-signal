@@ -2697,15 +2697,14 @@ function _openSimBacktestModal() {
           '<button type="button" class="sim-kbtn" data-k="3">K3</button>' +
           '<button type="button" class="sim-kbtn" data-k="4">K4</button></div></div>' +
         '<div class="sim-ctrl-block"><label>交易模式</label><select class="sim-mode-sel">' + (_modeOpts || '<option value="A">A · 固定10天</option>') + '</select></div>' +
-        '<div class="sim-ctrl-block"><label>买入费率%</label><input type="number" step="0.001" min="0" value="0.03" class="sim-fee-buy"></div>' +
-        '<div class="sim-ctrl-block"><label>卖出费率%</label><input type="number" step="0.001" min="0" value="0.03" class="sim-fee-sell"></div>' +
+        '<div class="sim-ctrl-block simbt-fee-block"><label>费率档(同「交易模拟」区 6 档 + 5 参数自定义)</label>' + _simBtFeeBarHTML(_simBtInitFee()) + '</div>' +
       '</div>' +
       '<div class="sim-summary"></div>' +
       '<div class="sim-table-wrap"><div class="sim-table-loading" style="display:none">数据加载中…(全历史27万条, 首次约数秒)</div>' +
         '<div class="sim-table-body"></div>' +
         '<div class="sim-pager"></div>' +
       '</div>' +
-      '<div class="rule-modal-footer">⚠ 纯展示: 用全历史真实信号交易记录(2011-2026), 按上述条件实时过滤并算费后盈亏; 每笔本金固定 ¥10000, 不与任何实盘/下单关联。具体口径以「信号凯利回测」页为准。</div>' +
+      '<div class="rule-modal-footer">⚠ 纯展示: 用全历史真实信号交易记录(2011-2026), 按上述条件实时过滤并算费后盈亏; 费率为 5 参数模型(佣金万分之/最低佣金元/滑点千分之/过户费万分之沪深统一/印花税万分之卖出单边收, 与「交易模拟」区同模型); 持仓中未卖出笔按最新收盘价预估浮盈(标「预估」, 计入累积列与对错计数); 每笔本金固定 ¥10000, 不与任何实盘/下单关联。具体口径以「信号凯利回测」页为准。</div>' +
     '</div></div>';
   modal.querySelector(".rule-modal-overlay").addEventListener("click", _close);
   modal.querySelector(".rule-modal-close").addEventListener("click", _close);
@@ -2728,8 +2727,39 @@ function _bindSimBacktestControls(modal, _close) {
       _simRender(modal);
     });
   });
-  modal.querySelectorAll(".sim-date-start,.sim-date-end,.sim-fade-cb,.sim-mode-sel,.sim-fee-buy,.sim-fee-sell").forEach((el) => {
+  modal.querySelectorAll(".sim-date-start,.sim-date-end,.sim-fade-cb,.sim-mode-sel").forEach((el) => {
     el.addEventListener("change", () => _simRender(modal));
+  });
+  // 费率档位按钮: 点档位=快捷填入表单+重跑(custom 档只切高亮不回填, 表单保持手输值)
+  modal.querySelectorAll(".simbt-fee-btn").forEach((b) => {
+    b.addEventListener("click", () => {
+      const key = b.dataset.fee;
+      const fee = _simBtInitFee();
+      if (key === "custom") {
+        fee.preset = "custom";
+        fee.fp = _simBtReadFp(modal);
+      } else {
+        const p = _SIM_FEE_PRESETS.find((x) => x.key === key);
+        if (!p) return;
+        fee.preset = key;
+        fee.fp = { commission_rate: p.commission_rate, min_commission: p.min_commission, slippage: p.slippage, transfer_fee_rate_sh: p.transfer_fee_rate_sh, stamp_duty_rate: p.stamp_duty_rate };
+        _simBtFillInputs(modal, fee.fp);
+      }
+      modal.querySelectorAll(".simbt-fee-btn").forEach((x) => x.classList.toggle("active", x.dataset.fee === fee.preset));
+      _simBtPersistFee();
+      _simRender(modal);
+    });
+  });
+  // 费率自定义输入: 手输→自动切 custom 档+重跑(change 触发, 与交易模拟区同款不逐键重算)
+  modal.querySelectorAll(".simbt-fee-custom input").forEach((inp) => {
+    inp.addEventListener("change", () => {
+      const fee = _simBtInitFee();
+      fee.preset = "custom";
+      fee.fp = _simBtReadFp(modal);
+      modal.querySelectorAll(".simbt-fee-btn").forEach((x) => x.classList.toggle("active", x.dataset.fee === "custom"));
+      _simBtPersistFee();
+      _simRender(modal);
+    });
   });
 }
 
@@ -2773,8 +2803,8 @@ async function _simRender(modal) {
   const kRaw = (modal.querySelector(".sim-kbtn.active") || {}).dataset ? (modal.querySelector(".sim-kbtn.active")).dataset.k : "1";
   const K = parseInt(kRaw, 10) || 0;  // 0 = 关(不过滤)
   const mode = modal.querySelector(".sim-mode-sel").value || "A";
-  const feeBuy = (parseFloat(modal.querySelector(".sim-fee-buy").value) || 0) / 100;
-  const feeSell = (parseFloat(modal.querySelector(".sim-fee-sell").value) || 0) / 100;
+  // 费率: 5 参数模型(表单输入为唯一事实源——点档位已回填表单), 复用交易模拟区 _simBuyWithFees/_simSellWithFees 计算
+  const fp = _simBtReadFp(modal);
 
   // 时间跨度硬限制 ≤500 天(2026-08-22 用户定): 超限不执行查询(连基笔池构建都不跑), 红字提示后直接返回;
   // 恰好 500 天放行(>500 才拦); 起>止时 spanDays 为负不在此拦, 保持既有空结果处理; 单边为空(空=不筛)不算跨度。
@@ -2840,7 +2870,7 @@ async function _simRender(modal) {
   }
   // 按 signal_date 倒序(最新在上)
   kept.sort((a, b) => { const sa = String(a[fIdx.signal_date] || ""), sb = String(b[fIdx.signal_date] || ""); return sa < sb ? 1 : (sa > sb ? -1 : 0); });
-  _simRenderTable(modal, kept, fIdx, feeBuy, feeSell, startD, endD, fadeOn, K, mode);
+  _simRenderTable(modal, kept, fIdx, fp, startD, endD, fadeOn, K, mode);
 }
 
 // 基于 quadrants[*][mode] 构建该模式基笔池(带聚合维度, 去重)
@@ -2872,15 +2902,15 @@ function _simBuildModePool(data, mode) {
 }
 
 // 渲染结果表(13列 + 分页, 每页500条) + 累积列(从最早日逐笔累加)
-function _simRenderTable(modal, rows, fIdx, feeBuy, feeSell, startD, endD, fadeOn, K, mode) {
+// 费率: 5 参数模型 fp(复用交易模拟区 _simBuyWithFees/_simSellWithFees); 持仓中笔(sell_date 空)按 current_price 预估浮盈并入累积
+function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
   const bodyEl = modal.querySelector(".sim-table-body");
   const summaryEl = modal.querySelector(".sim-summary");
   const pagerEl = modal.querySelector(".sim-pager");
-  const PRIN = 10000; // 每笔本金 ¥10000
   const n = rows.length;
   // 累积 + 当前持仓: 按 signal_date 正序扫描
   const asc = rows.slice().sort((a, b) => { const sa = String(a[fIdx.signal_date] || ""), sb = String(b[fIdx.signal_date] || ""); return sa < sb ? -1 : (sa > sb ? 1 : 0); });
-  let cumPct = 0, cumYuan = 0, rightN = 0, wrongN = 0;
+  let cumPct = 0, cumYuan = 0, rightN = 0, wrongN = 0, holdingN = 0;
   const cumMap = {};  // basekey -> {cumPct, cumYuan, acc, rate}
   const posMap = {};  // basekey -> 截至本行 signal_date 的开放持仓手数(每笔=1手=¥10000)
   // 当日持仓: 按 signal_date 分组扫描(P2-1 修复: 先删已卖出笔再计新开笔, 同日各行为同一真实持仓数)
@@ -2913,17 +2943,11 @@ function _simRenderTable(modal, rows, fIdx, feeBuy, feeSell, startD, endD, fadeO
   for (let i = 0; i < asc.length; i++) {
     const t = asc[i];
     const bk = _simBaseKey(t, fIdx);
-    const bp = Number(t[fIdx.buy_price]) || 0;
-    const sp = Number(t[fIdx.sell_price]) || 0;
-    const buyAmt = PRIN;                 // 每笔本金固定 ¥10000(基准)
-    const sellAmt = PRIN * (sp / bp);    // 卖出额按份额=本金×价格比(份额=本金/买入价)
-    const feeB = buyAmt * feeBuy;
-    const feeS = sellAmt * feeSell;
-    const pnlYuan = sellAmt - buyAmt - feeB - feeS;
-    const pnlPct = buyAmt > 0 ? (pnlYuan / buyAmt) * 100 : 0;
-    cumPct += pnlPct;
-    cumYuan += pnlYuan;
-    if (pnlYuan > 0) rightN++; else wrongN++;
+    const c = _simBtCalcRow(t, fIdx, fp);
+    if (c.isHolding) holdingN++;
+    cumPct += c.pnlPct;
+    cumYuan += c.pnlYuan;
+    if (c.pnlYuan > 0) rightN++; else wrongN++;
     cumMap[bk] = { cumPct, cumYuan, acc: rightN + "/" + wrongN, rate: ((rightN / (rightN + wrongN)) * 100).toFixed(1) };
   }
   const PAGE = 500;
@@ -2937,28 +2961,24 @@ function _simRenderTable(modal, rows, fIdx, feeBuy, feeSell, startD, endD, fadeO
       '<th>累积盈亏</th><th>累积金额</th><th>累积对错</th></tr></thead><tbody>';
     for (const t of slice) {
       const bk = _simBaseKey(t, fIdx);
-      const bp = Number(t[fIdx.buy_price]) || 0;
-      const sp = Number(t[fIdx.sell_price]) || 0;
-      const buyAmt = PRIN;
-      const sellAmt = PRIN * (sp / bp);
-      const feeB = buyAmt * feeBuy;
-      const feeS = sellAmt * feeSell;
-      const pnlYuan = sellAmt - buyAmt - feeB - feeS;
-      const pnlPct = buyAmt > 0 ? (pnlYuan / buyAmt) * 100 : 0;
+      const c = _simBtCalcRow(t, fIdx, fp);
       const cum = cumMap[bk] || { cumPct: 0, cumYuan: 0, acc: "0/0", rate: "0.0" };
       const pos = posMap[bk] || 0;
-      const cls = pnlYuan > 0 ? "sim-up" : "sim-down";
-      html += '<tr>' +
+      const cls = c.pnlYuan > 0 ? "sim-up" : "sim-down";
+      // 持仓中笔(lab.js 全信号记录同口径): 卖出时间列=「持仓中」标签, 盈亏单元格加「预估」角标+斜体区分
+      const estCls = c.isHolding ? " simbt-est" : "";
+      const estTag = c.isHolding ? '<span class="simbt-est-tag">预估</span>' : "";
+      html += '<tr' + (c.isHolding ? ' class="simbt-holding-row"' : '') + '>' +
         '<td>' + (t[fIdx.signal_date] || "") + '</td>' +
         '<td>' + pos + '</td>' +
         '<td>' + (t[fIdx.signal] || "") + '</td>' +
         '<td>' + (t[fIdx.etf_code] || "") + ' ' + (t[fIdx.etf_name] || "") + '</td>' +
         '<td>' + (t[fIdx.buy_date] || "") + '</td>' +
-        '<td>' + feeB.toFixed(2) + '</td>' +
-        '<td>' + (t[fIdx.sell_date] || "") + '</td>' +
-        '<td>' + feeS.toFixed(2) + '</td>' +
-        '<td class="' + cls + '">' + pnlPct.toFixed(2) + '%</td>' +
-        '<td class="' + cls + '">' + pnlYuan.toFixed(2) + '</td>' +
+        '<td>' + c.buyFee.toFixed(2) + '</td>' +
+        '<td>' + (c.isHolding ? '<span class="simbt-holding-tag">持仓中</span>' : (t[fIdx.sell_date] || "")) + '</td>' +
+        '<td>' + c.sellFee.toFixed(2) + '</td>' +
+        '<td class="' + cls + estCls + '">' + c.pnlPct.toFixed(2) + '%' + estTag + '</td>' +
+        '<td class="' + cls + estCls + '">' + c.pnlYuan.toFixed(2) + '</td>' +
         '<td>' + cum.cumPct.toFixed(2) + '%</td>' +
         '<td>' + cum.cumYuan.toFixed(2) + '</td>' +
         '<td>' + cum.acc + ' (' + cum.rate + '%)</td>' +
@@ -2966,8 +2986,14 @@ function _simRenderTable(modal, rows, fIdx, feeBuy, feeSell, startD, endD, fadeO
     }
     html += '</tbody></table>';
     bodyEl.innerHTML = html;
+    const _fee = _simBtInitFee();
+    const _presetObj = _SIM_FEE_PRESETS.find((p) => p.key === _fee.preset);
+    const feeDesc = _fee.preset === "custom"
+      ? "自定义(佣" + _simBtWan(fp.commission_rate) + "/最低" + fp.min_commission + "元/滑" + _simBtQian(fp.slippage) + "/过户" + _simBtWan(fp.transfer_fee_rate_sh) + "/印" + _simBtWan(fp.stamp_duty_rate) + ", 万分之·滑点千分之)"
+      : (_presetObj ? _presetObj.label + "(" + _presetObj.desc + ")" : "");
     summaryEl.innerHTML = '筛选结果: <b>' + n + '</b> 笔(模式 ' + mode + ' · 降亏' + (fadeOn ? '开' : '关') + ' · K=' + (K || '关') +
-      ') · 本金每笔 ¥10000 · 买入费率 ' + (feeBuy * 100).toFixed(3) + '% / 卖出费率 ' + (feeSell * 100).toFixed(3) + '%';
+      ') · 本金每笔 ¥10000 · 费率[' + feeDesc + ']' +
+      (holdingN > 0 ? ' · <span class="simbt-est">含 ' + holdingN + ' 笔预估</span>(持仓中按最新收盘价计浮盈, 已并入累积列与对错计数)' : '');
     if (totalPages > 1) {
       let pg = '';
       if (page > 0) pg += '<button type="button" class="sim-pg sim-pg-prev">← 上一页</button>';
@@ -2983,6 +3009,101 @@ function _simRenderTable(modal, rows, fIdx, feeBuy, feeSell, startD, endD, fadeO
     }
   };
   _draw();
+}
+
+// === 模拟回测弹窗费率: 快捷档位+自定义(2026-08-22) ===
+// 只读复用交易模拟区既有资产(_SIM_FEE_PRESETS/_simBuyWithFees/_simSellWithFees, 本体不动 §23.7);
+// 持久化 key 独立(tds_simbt_fee_config), 不与交易模拟区 tds_trade_sim_fee_config 共用防互相覆盖。
+var _SIMBT_FEE_PERSIST_KEY = "tds_simbt_fee_config";
+var _simBtFee = null; // { preset, fp:{commission_rate, min_commission, slippage, transfer_fee_rate_sh, stamp_duty_rate} }
+// 比例→展示值(万分之/千分之), toFixed 消浮点尾差(0.0003*10000=3.0000000000000004 → 3)
+function _simBtWan(v) { return parseFloat(((Number(v) || 0) * 10000).toFixed(4)); }
+function _simBtQian(v) { return parseFloat(((Number(v) || 0) * 1000).toFixed(4)); }
+function _simBtValidFp(fp) {
+  return !!fp && ["commission_rate", "min_commission", "slippage", "transfer_fee_rate_sh", "stamp_duty_rate"].every((k) => typeof fp[k] === "number" && isFinite(fp[k]));
+}
+// 初始化费率状态: localStorage 读回 → 无记忆/损坏回退默认档 etf_def(对齐交易模拟区默认)
+function _simBtInitFee() {
+  if (_simBtFee) return _simBtFee;
+  try {
+    const raw = localStorage.getItem(_SIMBT_FEE_PERSIST_KEY);
+    if (raw) {
+      const o = JSON.parse(raw);
+      if (o && typeof o === "object" && _SIM_FEE_PRESETS.some((p) => p.key === o.preset) && _simBtValidFp(o.fp)) {
+        _simBtFee = { preset: o.preset, fp: o.fp };
+        return _simBtFee;
+      }
+    }
+  } catch (e) {}
+  const p = _SIM_FEE_PRESETS.find((x) => x.key === "etf_def");
+  _simBtFee = { preset: "etf_def", fp: { commission_rate: p.commission_rate, min_commission: p.min_commission, slippage: p.slippage, transfer_fee_rate_sh: p.transfer_fee_rate_sh, stamp_duty_rate: p.stamp_duty_rate } };
+  return _simBtFee;
+}
+function _simBtPersistFee() {
+  try { localStorage.setItem(_SIMBT_FEE_PERSIST_KEY, JSON.stringify(_simBtFee)); } catch (e) {}
+}
+// 费率条 HTML(仿交易模拟区 _simFeeBarHTML 结构; 类名 simbt- 前缀自建——交易模拟区样式作用域在 .trade-sim-modal-body 内不通用, 且防事件串扰)
+function _simBtFeeBarHTML(fee) {
+  const btns = _SIM_FEE_PRESETS.map((p) =>
+    '<button type="button" class="simbt-fee-btn' + (p.key === fee.preset ? " active" : "") + '" data-fee="' + p.key + '" title="' + (p.desc || "") + '">' + p.label + '</button>'
+  ).join("");
+  const fp = fee.fp;
+  return '<div class="simbt-fee-bar">' +
+    '<div class="simbt-fee-row">' + btns + '</div>' +
+    '<div class="simbt-fee-custom">' +
+      '<label>佣金:万分之<input type="number" class="simbt-fee-input-comm" value="' + _simBtWan(fp.commission_rate) + '" step="0.01" min="0"></label>' +
+      '<label>最低:<input type="number" class="simbt-fee-input-min" value="' + fp.min_commission + '" step="0.1" min="0">元</label>' +
+      '<label>滑点:千分之<input type="number" class="simbt-fee-input-slip" value="' + _simBtQian(fp.slippage) + '" step="0.1" min="0"></label>' +
+      '<label>过户费:万分之<input type="number" class="simbt-fee-input-transfer" value="' + _simBtWan(fp.transfer_fee_rate_sh) + '" step="0.01" min="0">(沪深统一)</label>' +
+      '<label>印花税:万分之<input type="number" class="simbt-fee-input-stamp" value="' + _simBtWan(fp.stamp_duty_rate) + '" step="0.01" min="0">(卖)</label>' +
+    '</div></div>';
+}
+// 从弹窗表单读 5 参数(表单=唯一事实源: 点档位已回填表单, 手输即 custom)
+function _simBtReadFp(modal) {
+  const val = (cls) => { const el = modal.querySelector(cls); return el ? (parseFloat(el.value) || 0) : 0; };
+  return {
+    commission_rate: val(".simbt-fee-input-comm") / 10000,
+    min_commission: val(".simbt-fee-input-min"),
+    slippage: val(".simbt-fee-input-slip") / 1000,
+    transfer_fee_rate_sh: val(".simbt-fee-input-transfer") / 10000,
+    stamp_duty_rate: val(".simbt-fee-input-stamp") / 10000,
+  };
+}
+// 点档位快捷填入表单(程序赋值不触发 change, 由调用方手动重跑)
+function _simBtFillInputs(modal, fp) {
+  const set = (cls, v) => { const el = modal.querySelector(cls); if (el) el.value = v; };
+  set(".simbt-fee-input-comm", _simBtWan(fp.commission_rate));
+  set(".simbt-fee-input-min", fp.min_commission);
+  set(".simbt-fee-input-slip", _simBtQian(fp.slippage));
+  set(".simbt-fee-input-transfer", _simBtWan(fp.transfer_fee_rate_sh));
+  set(".simbt-fee-input-stamp", _simBtWan(fp.stamp_duty_rate));
+}
+// 单笔费用后盈亏(5 参数模型): 已卖出=按 sell_price; 持仓中(sell_date 空)=按 current_price 最新收盘预估
+// (买侧费用照收, 卖侧费用按预估卖价计, lab.js 全信号记录同口径); current_price 缺失/为0 的持仓笔兜底按 0 浮盈不炸。
+function _simBtCalcRow(t, fIdx, fp) {
+  const PRIN = 10000; // 每笔本金固定 ¥10000(基准)
+  const bp = Number(t[fIdx.buy_price]) || 0;
+  const isHolding = !String(t[fIdx.sell_date] || "");
+  let effSp;
+  if (isHolding) {
+    const cp = Number(t[fIdx.current_price]);
+    effSp = cp > 0 ? cp : 0;
+  } else {
+    effSp = Number(t[fIdx.sell_price]) || 0;
+  }
+  const etfCode = t[fIdx.etf_code] || "";
+  const br = _simBuyWithFees(PRIN, bp, etfCode, fp);
+  const buyFee = br.commission + br.transferFee;
+  let sellFee = 0, pnlYuan;
+  if (isHolding && !(effSp > 0)) {
+    pnlYuan = 0; // 兜底: 无现价按 0 浮盈
+  } else {
+    const sr = _simSellWithFees(br.shares, effSp, etfCode, fp);
+    sellFee = sr.commission + sr.transferFee + sr.stampDuty;
+    pnlYuan = sr.net - PRIN;
+  }
+  const pnlPct = PRIN > 0 ? (pnlYuan / PRIN) * 100 : 0;
+  return { isHolding, buyFee, sellFee, pnlYuan, pnlPct };
 }
 
 // === 推荐操作方法「参考说明」弹窗(2026-08-14) ===

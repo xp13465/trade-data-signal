@@ -6991,3 +6991,20 @@ main { padding: 16px 24px; }
 .sim-pg { padding: 4px 12px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-card); color: var(--text-1); cursor: pointer; font-size: 12px; }
 .sim-pg-info { font-size: 12px; color: var(--text-dim, #9aa); }
 .sim-err { color: #cf1322; padding: 16px; }
+/* 模拟回测弹窗: 费率快捷档位+自定义(2026-08-22, 仿交易模拟区 sim-fee-bar; 类名 simbt- 前缀独立, 交易模拟区样式作用域 .trade-sim-modal-body 内不通用) */
+.simbt-fee-block { flex: 1 1 100%; }
+.simbt-fee-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); }
+.simbt-fee-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.simbt-fee-btn { font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-3); cursor: pointer; white-space: nowrap; transition: all 0.15s; }
+.simbt-fee-btn:hover { border-color: var(--accent, var(--primary, #3b82f6)); color: var(--text-1); }
+.simbt-fee-btn.active { background: var(--accent, var(--primary, #3b82f6)); color: #fff; border-color: var(--accent, var(--primary, #3b82f6)); }
+.simbt-fee-custom { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 11px; color: var(--text-3); }
+.simbt-fee-custom label { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+.simbt-fee-custom input { padding: 1px 4px; font-size: 11px; height: 22px; width: 54px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-1); }
+/* 模拟回测弹窗: 持仓中预估行(lab-sigkelly-holding/est 同视觉, 类名 simbt- 前缀自建) */
+.simbt-holding-row { background: rgba(250,173,20,0.07); }
+.simbt-holding-row td { border-bottom: 1px dashed rgba(250,140,22,0.35); }
+[data-theme="dark"] .simbt-holding-row, [data-theme="redgold"] .simbt-holding-row { background: rgba(250,173,20,0.12); }
+.simbt-holding-tag { display: inline-block; color: #fa8c16; background: rgba(250,140,22,0.12); border: 1px dashed rgba(250,140,22,0.45); border-radius: 3px; padding: 1px 5px; font-size: 11px; font-weight: 600; }
+.simbt-est { font-style: italic; opacity: 0.85; }
+.simbt-est-tag { font-size: 10px; color: var(--text-dim, #9aa); font-style: italic; margin-left: 3px; font-weight: 400; }
