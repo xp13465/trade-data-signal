@@ -2670,8 +2670,13 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   if (kind === "signal") {
     try {
       const _raw = localStorage.getItem("tds_poscap");
-      if (_raw) {
-        const _pc = JSON.parse(_raw);
+      // 2026-08-21 #93 fix: 首次访问无 tds_poscap key 时, 默认 on:true/k:1 写入 localStorage,
+      // 使 AI建议 badge 与 lab.js 默认语义对齐(K=1 主推高亮), 与 L2669 _pcOn=true 注释一致
+      if (!_raw) {
+        localStorage.setItem("tds_poscap", JSON.stringify({ on: true, k: 1 }));
+      }
+      {
+        const _pc = JSON.parse(_raw || '{"on":true,"k":1}');
         _pcOn = !!( _pc && _pc.on );  // off 状态(凯利区/首页 off 按钮写 {on:false})时显示「关」按钮高亮, K 档不高亮
         if (_pc && _pc.on && _pc.k >= 1 && _pc.k <= 4) {
           _posCapK = _pc.k;
