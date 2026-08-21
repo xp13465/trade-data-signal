@@ -13,14 +13,14 @@
 
 | # | 功能 | 出处 | 方案摘要 | 依赖/前置 | 状态 |
 |---|---|---|---|---|---|
-| 3 | **daily_brief P1-1 周期定位/钟摆位置模板**(恐贪分位+极端提示) | docs/daily-brief-optimization.md §3 P1-1 | trend 段加周期定位模板:恐贪/情绪/新高新低在历史分位,极端值逆向提示 | 需 30 日内 summary_history 支持 | **未实施**(规则版有冰点反向雏形 L540) |
-| 4 | **daily_brief P1-3 公募基金持仓/行业配置注入**(中期风格参考) | docs/daily-brief-optimization.md §3 P1-3 | 注入 public_fund_summary 加仓/减仓行业 top 到【趋势研判/中期】,标注季报滞后 | 数据已有(public_fund_summary) | **未实施** |
-| 5 | **daily_brief P1-4 明日关注排序分**(胜率×凯利×一致性×近期确认) | docs/daily-brief-optimization.md §3 P1-4 | 用站点回测数据把 AI 关注列表从"模型猜"变"数据排序" | signal_kelly_backtest + signal_stats 已有 | **部分完成**(win_rate 已注入,L302-310;完整排序分未做) |
-| 6 | **daily_brief P1-5 日历效应/节假日/月末季末提示** | docs/daily-brief-optimization.md §3 P1-5 | 注入「明日是否月末/季末/长假前/财报季」,仅提示性段落 | 硬编码节假日表,成本低 | **未实施** |
-| 8 | **多角色阶段三:事件/新闻面分析师** | docs/ai-predict-multiagent-plan.md §3.2 阶段三 + 数据源实测[`docs/ai-predict-news-macro-research-sources.md`](docs/ai-predict-news-macro-research-sources.md) | ④事件/新闻面分析师,输入当日快讯摘要 | 需事件面数据采集;注入侧 2026-08-16 已把 news 分布进 risk 域(fetch_news 采集已就绪) | **部分完成**(news 数据+注入已进 risk 域;独立的「事件/新闻面分析角色」未新增,仍分布进既有域) |
-| 9 | **daily_brief P1-11 reasoner(R1)深度辩论增强** | docs/daily-brief-optimization.md §3 P1-11 | 研究员角色可切 deepseek-reasoner 深度对抗,成本贵 3-5 倍 | 配置已支持(cfg.researcher_model,gen_daily_brief.py L188),默认 deepseek-chat | **未启用**(可选开关,默认关) |
+| ~~3~~ | ~~daily_brief 周期定位/钟摆位置模板~~ | — | — | — | **已完成**(2026-08-21 dba8d2091,prompt规则4e:恐贪+情绪分+估值百分位做周期定位+极端逆向提示) |
+| ~~4~~ | ~~daily_brief 公募基金行业配置注入~~ | — | — | — | **已完成**(2026-08-21 dba8d2091,load_data读public_fund_sw_industry_alloc.json注入top5/bottom5+prompt规则4f,标注季报滞后) |
+| ~~5~~ | ~~daily_brief 明日关注排序分~~ | — | — | — | **已完成**(2026-08-21 dba8d2091,signal_kelly_backtest接入+sort_score=胜率×凯利×一致性×近期+prompt规则4g) |
+| ~~6~~ | ~~daily_brief 日历效应/节假日提示~~ | — | — | — | **已完成**(2026-08-21 dba8d2091,新增_calendar_hint()函数+2026年节假日表+prompt规则4h) |
+| ~~8~~ | ~~事件/新闻面分析师(轻量版)~~ | — | — | — | **已完成**(2026-08-21 dba8d2091,prompt规则4i:news提取1-2条重要事件引用为方向依据) |
+| ~~9~~ | ~~daily_brief reasoner深度辩论开关~~ | — | — | — | **已完成**(2026-08-21 dba8d2091,yaml新增researcher_use_reasoner:false+model切换逻辑+超时保护) |
 
-> 本模块 #1/#2/#7 已完成:移入 docs/tasks-done-list.md「2026-08-20 pending-features-index 治理批量移入」,见文末【已排除清单】对应段口。
+> 本模块 #1/#2/#3/#4/#5/#6/#7/#8/#9 全部完成。#3-#9 于 2026-08-21 dba8d2091 一次上线。
 
 ## 二、走势图 / 图表
 
