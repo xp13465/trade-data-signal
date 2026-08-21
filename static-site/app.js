@@ -2456,9 +2456,11 @@ function _bindSigSwitchRow(sigCard) {
   _bindSigHelpPop(sigCard);
 }
 
-// === 首页「模拟回测」弹窗(2026-08-21 新增, 纯展示) ===
-// 用全历史真实信号交易记录(signal_kelly_trades.json, 2011-2026 全历史 27万条), 按当前
+// === 首页「模拟回测」弹窗(2026-08-21 新增, 纯展示; 2026-08-22 分片加载提速+信号列格式+ETF信号灯) ===
+// 用全历史真实信号交易记录(2011-2026 全历史 27万条), 按当前
 // AI降亏过滤 / AI仓位建议K档 / 交易模式(A-I) / 费率设置, 实时过滤并算出费后逐笔盈亏与累积收益。
+// 数据分片加载: 打开只拉 recent.json 热区片(最近约60天, ≤3MB 秒开); 提交范围超出热区时按年并行拉
+// signal_kelly_trades_parts/t{YYYY}.json(模块级缓存); 任一分片失败回退全量 signal_kelly_trades.json(老路径兜底)。
 // 纯新增展示, 不引用 lab.js 任何全局函数(首页不加载 lab.js, 引用会运行时报错), 自带轻量版过滤逻辑。
 // 降亏判定: 与首页默认8键(_AI_MACRO_FILTER_NAMES)在 trades 侧等价——首页8键 ⊂ 凯利默认filters(_kellyDefaultFilters),
 //   本弹窗直接复用 _kellyDefaultFilters 默认开启的 8 个键(excludeSpecialBear/n2NovSpecialIndustry/janMidRating/janMidSpecial/
@@ -2469,6 +2471,12 @@ var _simKellyData = null;     // signal_kelly_trades.json 解析后的 {fields, 
 var _simKellyCfg = null;      // signal_kelly_backtest.json 解析后的 {sell_modes, ...}
 var _simKellyLoading = false;
 var _simKellyLoadErr = null;
+// 分片加载(2026-08-22): 打开弹窗只拉 recent.json 热区片秒开; 提交范围超出热区时按年并行拉 t{YYYY}.json。
+// 两策略互斥(热区内只用 recent / 超出只用年片覆盖), 合并不重复计数。任一分片失败回退拉全量(老路径兜底)。
+var _simPartsCache = new Map();  // "recent" | "t2011"... -> 已解析分片(切范围不重复拉)
+var _simHotMinDate = "";         // recent 片最小 signal_date(热区下界 YYYYMMDD, 空=未加载)
+var _simHotMaxDate = "";         // recent 片最大 signal_date(=数据最新日, 热区上界)
+var _simFullFallback = false;    // 分片链路失败已回退全量(true 后跳过分片逻辑)
 
 // 读取数据版本号(破缓存, 与 lab.js 同机制: <meta name="lab-asset-url"> 持有 ?v=)
 function _simCacheBust() {
@@ -2631,35 +2639,134 @@ function _simBaseKey(t, fIdx) {
 }
 
 // 首次开弹窗加载数据(全历史 trades + backtest config), 解析平行数组→带聚合维度的基笔池, 缓存模块级
+// 分片/全量 URL 双通道(与 lab.js _kellyApplyFeeRecompute 同模式): R2 直链失败 → CF 相对路径兜底
+// (备站由 fetchJSON 主动域名重写接管); P1-2 口径保留: trades 类大 JSON 自带 60s 长超时(全局默认 15s 不变)
+function _simTradesUrl(name) {
+  const v = _simCacheBust();
+  return "https://ss.fx8.store/data/" + name + (v ? "?v=" + v : "");
+}
+function _simTradesUrlCf(name) {
+  const v = _simCacheBust();
+  return "./data/" + name + (v ? "?v=" + v : "");
+}
+function _fetchSimTrades(name) {
+  return fetchJSON(_simTradesUrl(name), 60000).catch(() => fetchJSON(_simTradesUrlCf(name), 60000));
+}
+// 分片/全量统一解析(fields 列式 → fIdx 下标表; 不预聚合全模式并集, 按 mode 在 _simBuildModePool 现筛)
+function _simParseTrades(tr) {
+  const fields = tr.fields;
+  const fIdx = {};
+  fields.forEach((f, i) => { fIdx[f] = i; });
+  return { fields, fIdx, quadrants: tr.quadrants || {} };
+}
+// 兜底全量加载(老路径 signal_kelly_trades.json 仍在, 分片任一步失败即走此路, 天然兜底)
+async function _simLoadFull() {
+  try {
+    console.warn("[simbt] 分片加载失败, 回退全量 signal_kelly_trades.json(约64MB, 首次数秒)");
+    const tr = await _fetchSimTrades("signal_kelly_trades.json");
+    _simKellyData = _simParseTrades(tr);
+    _simFullFallback = true;
+    return true;
+  } catch (e) {
+    _simKellyLoadErr = e && e.message ? e.message : String(e);
+    _simKellyData = null;
+    return false;
+  }
+}
+// 已缓存分片合并(quadrants 同 key 数组拼接; 调用方保证各分片行集互斥, 拼接不重复计数)
+function _simMergeShards(shards) {
+  const first = shards[0];
+  const quadrants = {};
+  for (const s of shards) {
+    for (const qk in s.quadrants) {
+      const dst = quadrants[qk] || (quadrants[qk] = {});
+      const srcq = s.quadrants[qk];
+      for (const mk in srcq) {
+        dst[mk] = dst[mk] ? dst[mk].concat(srcq[mk]) : srcq[mk];
+      }
+    }
+  }
+  return { fields: first.fields, fIdx: first.fIdx, quadrants };
+}
+// 一级加载(打开弹窗): 只拉 recent.json 热区片(≤3MB 秒开), 记录热区上下界; recent 失败回退全量
 async function _loadSimKellyData() {
   if (_simKellyData || _simKellyLoading) return _simKellyData;
   _simKellyLoading = true;
   _simKellyLoadErr = null;
+  // cfg 独立并行拉(recent 失败走全量兜底时也要有 sell_modes)
+  const cfgUrl = "./data/signal_kelly_backtest.json" + (_simCacheBust() ? "?v=" + _simCacheBust() : "");
+  const cfgP = fetchJSON(cfgUrl).catch(() => null);
   try {
-    const v = _simCacheBust();
-    // P1-2 修复: trades 实测 64MB, 弱网下全局默认 15s 必超时 → 本调用自带 60s 长超时(fetchJSON 默认仍 15s 不变);
-    // 双通道(与 lab.js _kellyApplyFeeRecompute 同模式): R2 直链失败 → CF 相对路径兜底(备站由 fetchJSON 主动域名重写接管)
-    const trUrlR2 = "https://ss.fx8.store/data/signal_kelly_trades.json" + (v ? "?v=" + v : "");
-    const trUrlCf = "./data/signal_kelly_trades.json" + (v ? "?v=" + v : "");
-    const cfgUrl = "./data/signal_kelly_backtest.json" + (v ? "?v=" + v : "");
-    const [tr, cfg] = await Promise.all([
-      fetchJSON(trUrlR2, 60000).catch(() => fetchJSON(trUrlCf, 60000)),
-      fetchJSON(cfgUrl).catch(() => null)
-    ]);
-    const fields = tr.fields;
-    const fIdx = {};
-    fields.forEach((f, i) => { fIdx[f] = i; });
-    // 不预聚合全模式并集(27万级×全模式副本常驻内存浪费): 只存原始 quadrants 引用,
-    // 按选中 mode 在 _simBuildModePool 现筛去重+聚合维度(单 mode 基笔池约 1-3 万条, 用完即弃)
-    _simKellyData = { fields, fIdx, quadrants: tr.quadrants || {} };
+    const recent = await _fetchSimTrades("signal_kelly_trades_parts/recent.json");
+    const parsed = _simParseTrades(recent);
+    _simPartsCache.set("recent", parsed);
+    // 热区上下界 = recent 片内 signal_date 最小/最大(供提交时判断范围是否落在热区内)
+    let mn = "", mx = "";
+    const sdI = parsed.fIdx.signal_date;
+    for (const qk in parsed.quadrants) {
+      const mks = parsed.quadrants[qk];
+      for (const mk in mks) {
+        const arr = mks[mk];
+        for (let i = 0; i < arr.length; i++) {
+          const sd = String(arr[i][sdI] || "");
+          if (sd && (!mn || sd < mn)) mn = sd;
+          if (sd && sd > mx) mx = sd;
+        }
+      }
+    }
+    _simHotMinDate = mn;
+    _simHotMaxDate = mx;
+    _simKellyData = parsed;
+    const cfg = await cfgP;
     _simKellyCfg = (cfg && cfg.config) ? cfg.config : { sell_modes: {} };
   } catch (e) {
-    _simKellyLoadErr = e && e.message ? e.message : String(e);
-    _simKellyData = null;
+    console.warn("[simbt] recent.json 加载失败, 回退全量:", e);
+    const okF = await _simLoadFull();
+    if (okF) {
+      const cfg = await cfgP;
+      _simKellyCfg = (cfg && cfg.config) ? cfg.config : { sell_modes: {} };
+    }
   } finally {
     _simKellyLoading = false;
   }
   return _simKellyData;
+}
+// 二级加载(提交时): 所选范围超出热区下界(或未设下界) → 并行拉缺失的 tYYYY.json 年片(模块级 Map 缓存,
+// 切范围不重复拉), 全部到位合并后渲染; 任一年片失败回退全量。返回 true=就绪 / false=失败(_simKellyLoadErr 已置)。
+// onStep(msg): 拉片期间更新 loading 文案(如「正在加载 2020 年数据…」)。
+async function _simEnsureRange(startD, endD, onStep) {
+  if (_simFullFallback) return !_simKellyLoadErr;
+  if (!_simKellyData || !_simHotMinDate) return !!_simKellyData;
+  // 热区判定: 仅当「设了下界且下界落在热区内」时 recent 已覆盖所选范围(startD 为空=不筛下界=要最老数据, 须拉年片)
+  if (startD && startD >= _simHotMinDate) return true;
+  const toY = parseInt((endD || _simHotMaxDate || "").slice(0, 4), 10);
+  // 数据最早 2011 年(signal_date 自 20110119 起), 早于 2011 无片可拉
+  const fromY = Math.max(2011, parseInt(String(startD || "2011").slice(0, 4), 10));
+  if (!toY || isNaN(toY)) return true;  // 无法定上界(异常数据), 交由现有过滤逻辑处理
+  const years = [];
+  for (let y = fromY; y <= toY; y++) years.push("t" + y);
+  const missing = years.filter((nm) => !_simPartsCache.has(nm));
+  if (missing.length) {
+    let doneN = 0;
+    const results = await Promise.all(missing.map((nm) =>
+      _fetchSimTrades("signal_kelly_trades_parts/" + nm + ".json")
+        .then((tr) => {
+          _simPartsCache.set(nm, _simParseTrades(tr));
+          doneN++;
+          if (onStep) onStep("正在加载 " + nm.slice(1) + " 年数据…" + (doneN < missing.length ? "(" + doneN + "/" + missing.length + ")" : ""));
+          return true;
+        })
+        .catch((e) => {
+          console.warn("[simbt] 分片 " + nm + ".json 加载失败, 回退全量:", e);
+          return false;
+        })
+    ));
+    if (results.some((r) => !r)) return _simLoadFull();
+  }
+  // 合并年片(互斥策略: 走年片就不用 recent —— 年片覆盖含热区内全部日期, 拼接无重复行)
+  const shards = years.map((nm) => _simPartsCache.get(nm)).filter(Boolean);
+  if (shards.length) _simKellyData = _simMergeShards(shards);
+  return true;
 }
 
 // 打开「模拟回测」弹窗(复用 .rule-modal 机制, 与 _openRefHelpModal 同款)
@@ -2700,11 +2807,11 @@ function _openSimBacktestModal() {
         '<div class="sim-ctrl-block simbt-fee-block"><label>费率档(同「交易模拟」区 6 档 + 5 参数自定义)</label>' + _simBtFeeBarHTML(_simBtInitFee()) + '</div>' +
       '</div>' +
       '<div class="sim-summary"></div>' +
-      '<div class="sim-table-wrap"><div class="sim-table-loading" style="display:none">数据加载中…(全历史27万条, 首次约数秒)</div>' +
+      '<div class="sim-table-wrap"><div class="sim-table-loading" style="display:none">数据加载中…</div>' +
         '<div class="sim-table-body"></div>' +
         '<div class="sim-pager"></div>' +
       '</div>' +
-      '<div class="rule-modal-footer">⚠ 纯展示: 用全历史真实信号交易记录(2011-2026), 按上述条件实时过滤并算费后盈亏; 费率为 5 参数模型(佣金万分之/最低佣金元/滑点千分之/过户费万分之沪深统一/印花税万分之卖出单边收, 与「交易模拟」区同模型); 持仓中未卖出笔按最新收盘价预估浮盈(标「预估」, 计入累积列与对错计数); 每笔本金固定 ¥10000, 不与任何实盘/下单关联。具体口径以「信号凯利回测」页为准。</div>' +
+      '<div class="rule-modal-footer">⚠ 纯展示: 用全历史真实信号交易记录(2011-2026), 按上述条件实时过滤并算费后盈亏; 费率为 5 参数模型(佣金万分之/最低佣金元/滑点千分之/过户费万分之沪深统一/印花税万分之卖出单边收, 与「交易模拟」区同模型); 持仓中未卖出笔按最新收盘价计当前盈亏(计入累积列与对错计数); 每笔本金固定 ¥10000, 不与任何实盘/下单关联。具体口径以「信号凯利回测」页为准。</div>' +
     '</div></div>';
   modal.querySelector(".rule-modal-overlay").addEventListener("click", _close);
   modal.querySelector(".rule-modal-close").addEventListener("click", _close);
@@ -2822,6 +2929,23 @@ async function _simRender(modal) {
     }
   }
 
+  // 分片二级加载(2026-08-22): 所选范围超出 recent 热区(或未设下界)时并行拉缺失年片, 全部到位再渲染;
+  // 热区内直接用已加载的 recent 渲染(不触发任何新请求)。年片走模块级 Map 缓存, 切范围不重复拉;
+  // 任一年片失败自动回退全量(老路径兜底)。500 天闸在前, 超限请求到不了这里不会触发拉片。
+  if (!_simFullFallback && !(startD && _simHotMinDate && startD >= _simHotMinDate)) {
+    loadingEl.style.display = "block";
+    loadingEl.textContent = "正在加载数据分片…";
+    bodyEl.innerHTML = "";
+    summaryEl.innerHTML = "";
+    pagerEl.innerHTML = "";
+    const okR = await _simEnsureRange(startD, endD, (m) => { loadingEl.textContent = m; });
+    loadingEl.style.display = "none";
+    if (!okR) {
+      bodyEl.innerHTML = '<div class="sim-err">数据加载失败: ' + (_simKellyLoadErr || "分片加载失败") + '</div>';
+      return;
+    }
+  }
+
   // ① 模式: signal_kelly_trades.json 的 quadrants[qk][mode] 每模式是完整副本(同 base 在不同 mode 下
   //    sell_date/sell_price 不同), 必须按所选 mode 从 quadrants[*][mode] 现筛构建基笔池(去重+聚合维度),
   //    不能跨模式取并集(会丢失 mode 维度的卖出值)。
@@ -2901,8 +3025,91 @@ function _simBuildModePool(data, mode) {
   return records;
 }
 
+// ── 当日信号列中文标签(2026-08-22) ──
+// 复用首页信号列表同一映射与开关: _SIG_TYPE_META(labelKey) + _t()(i18n 合规模式切换, 精简=主关注/
+// 辅关注/追关注/备关注, 完整=主买/辅买/追买/备买), 与首页信号列表语义/视觉一致(§22 多展示位一致 +
+// §23.3 举一反三)。trades 实测只含4买类; band_hold/band_sell/sell/sell_stop_loss 也在 _SIG_TYPE_META
+// 内天然覆盖; 未知值兜底显示原始串——sim 本地适配, 不改首页映射本体(§23.7)。
+function _simSigTypeLabel(sig) {
+  const meta = _SIG_TYPE_META.find((m) => m.key === sig);
+  return meta ? _t(meta.labelKey) : (sig || "");
+}
+// ── 关联ETF列信号灯(2026-08-22) ──
+// 复用首页 _etfLightInfo 本体(只读调用不改动 §23.7): trades 行自带 track_tier(fields[7])/
+// track_score([8])/match_method([9])/track_low_confidence([10]), 值域实测(strong/related/approx/
+// none/null)与首页 etf 对象输入完全兼容。match_method 含首页没有的 kw_global/holdings_overlap,
+// 来源中文用 sim 本地适配表补齐(tooltip 格式对齐首页: 来源 · 跟踪分 · 档位)。
+function _simEtfSrcLabel(mm) {
+  return mm === "track_index" ? "跟踪指数"
+    : (mm === "overlap" || mm === "holdings_overlap") ? "成分重叠"
+    : mm === "kw" ? "关键词" : mm === "kw_global" ? "全球关键词" : mm === "self" ? "本体"
+    : mm === "name_match" ? "名称匹配" : mm === "manual_fallback" ? "手动兜底" : (mm || "未知");
+}
+function _simEtfLightHtml(t, fIdx) {
+  var _obj = {
+    match_method: t[fIdx.match_method],
+    track_tier: t[fIdx.track_tier],
+    track_low_confidence: t[fIdx.track_low_confidence] === true,
+  };
+  var _ts = t[fIdx.track_score];
+  if (_ts !== null && _ts !== undefined && _ts !== "") _obj.track_score = Number(_ts);
+  var _info = _etfLightInfo(_obj);
+  var _tp = ["来源: " + _simEtfSrcLabel(_obj.match_method)];
+  if (typeof _obj.track_score === "number") _tp.push("跟踪分: " + _obj.track_score.toFixed(1));
+  if (_obj.track_low_confidence) _tp.push("估算(共同交易日N=30-59,降权分)");
+  else if (_obj.track_score == null) _tp.push("无数据(共同交易日不足)");
+  if (_info.label) _tp.push("档位: " + _info.label);
+  return '<span class="etf-light ' + _info.cls + '" title="' + _tp.join(" · ").replace(/"/g, "&quot;") + '"></span> ';
+}
+// ── 观察期倒计时(需求③ 2026-08-22): 持仓中行提示「还剩几天观察期固化」──
+// 计划卖出时间 = 买入日后第 hold_days 个交易日(与回测 bisect_right 切片同口径, hold_days 取
+// signal_kelly_backtest.json config.sell_modes[mode].hold_days, A-D=10/E=5/F=15; G/H/I=null 信号驱动无固定观察期)。
+// 交易日历 = 已加载 trades 自身 signal/buy/sell 日期并集(真实交易日序列, 复用站内数据非新造);
+// 计划日在最后数据日之后的未来段无人能预知节假日 → 剔周末近似, tooltip 注明。
+function _simBuildTradeCal(data, fIdx) {
+  const set = {};
+  const qs = data.quadrants;
+  for (const qk in qs) {
+    const mks = qs[qk];
+    for (const mk in mks) {
+      const arr = mks[mk];
+      for (let i = 0; i < arr.length; i++) {
+        const r = arr[i];
+        if (r[fIdx.signal_date]) set[r[fIdx.signal_date]] = 1;
+        if (r[fIdx.buy_date]) set[r[fIdx.buy_date]] = 1;
+        if (r[fIdx.sell_date]) set[r[fIdx.sell_date]] = 1;
+      }
+    }
+  }
+  return Object.keys(set).sort();
+}
+// 单笔观察期信息: {expired, remain, estDate}; expired=true=已过计划卖出日仍未卖(待固化)
+function _simObsInfo(buyDate, hd, cal, lastDate) {
+  if (!hd || !buyDate || !cal || !cal.length || !lastDate) return null;
+  // 二分: cal 中 (buyDate, lastDate] 的真实交易日数 = 已持有交易日数
+  let lo = 0, hi = cal.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (cal[mid] <= buyDate) lo = mid + 1; else hi = mid; }
+  let lo2 = 0, hi2 = cal.length;
+  while (lo2 < hi2) { const mid = (lo2 + hi2) >> 1; if (cal[mid] <= lastDate) lo2 = mid + 1; else hi2 = mid; }
+  const remain = hd - (lo2 - lo);
+  if (remain <= 0) return { expired: true, remain: 0, estDate: "" };
+  // 未来段估计: 从最后数据日起向后数 remain 个非周末自然日 → 预计固化日 MM-DD(剔周末近似)
+  let y = parseInt(lastDate.slice(0, 4), 10), m = parseInt(lastDate.slice(4, 6), 10) - 1, dd = parseInt(lastDate.slice(6, 8), 10);
+  let left = remain;
+  while (left > 0) {
+    dd++;
+    const dim = new Date(y, m + 1, 0).getDate();
+    if (dd > dim) { dd = 1; m++; if (m > 11) { m = 0; y++; } }
+    const wd = new Date(y, m, dd).getDay();
+    if (wd !== 0 && wd !== 6) left--;
+  }
+  const pad = (n2) => (n2 < 10 ? "0" + n2 : "" + n2);
+  return { expired: false, remain, estDate: pad(m + 1) + "-" + pad(dd) };
+}
+
 // 渲染结果表(13列 + 分页, 每页500条) + 累积列(从最早日逐笔累加)
-// 费率: 5 参数模型 fp(复用交易模拟区 _simBuyWithFees/_simSellWithFees); 持仓中笔(sell_date 空)按 current_price 预估浮盈并入累积
+// 费率: 5 参数模型 fp(复用交易模拟区 _simBuyWithFees/_simSellWithFees); 持仓中笔(sell_date 空)按
+// current_price 最新收盘计当前盈亏直接展示现状并入累积(需求③ 2026-08-22 去「预估」措辞, 加观察期倒计时)
 function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
   const bodyEl = modal.querySelector(".sim-table-body");
   const summaryEl = modal.querySelector(".sim-summary");
@@ -2953,6 +3160,16 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
   const PAGE = 500;
   let page = 0;
   const totalPages = Math.max(1, Math.ceil(n / PAGE));
+  // 观察期倒计时用交易日历(懒构建: 首个持仓中行才建一次; 来自已加载 trades 自身日期并集)
+  const _sellModes = (_simKellyCfg && _simKellyCfg.sell_modes) || null;
+  let _obsCal = null, _obsLast = "";
+  const _getObsCal = () => {
+    if (!_obsCal) {
+      _obsCal = _simBuildTradeCal(_simKellyData, fIdx);
+      _obsLast = _obsCal.length ? _obsCal[_obsCal.length - 1] : "";
+    }
+    return _obsCal;
+  };
   const _draw = () => {
     const slice = rows.slice(page * PAGE, (page + 1) * PAGE);
     let html = '<table class="sim-tbl"><thead><tr>' +
@@ -2965,20 +3182,28 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
       const cum = cumMap[bk] || { cumPct: 0, cumYuan: 0, acc: "0/0", rate: "0.0" };
       const pos = posMap[bk] || 0;
       const cls = c.pnlYuan > 0 ? "sim-up" : "sim-down";
-      // 持仓中笔(lab.js 全信号记录同口径): 卖出时间列=「持仓中」标签, 盈亏单元格加「预估」角标+斜体区分
-      const estCls = c.isHolding ? " simbt-est" : "";
-      const estTag = c.isHolding ? '<span class="simbt-est-tag">预估</span>' : "";
+      // 持仓中笔(lab.js 全信号记录同口径): 卖出时间列=「持仓中」标签, 盈亏=按最新收盘价的当前至今
+      // 盈亏直接展示现状(需求③ 2026-08-22 去「预估」措辞); 固定期模式(A-F)附观察期倒计时小字
+      let obsHtml = "";
+      if (c.isHolding && _sellModes && _sellModes[mode] && _sellModes[mode].hold_days) {
+        const oi = _simObsInfo(String(t[fIdx.buy_date] || ""), _sellModes[mode].hold_days, _getObsCal(), _obsLast);
+        if (oi && !oi.expired) {
+          obsHtml = '<div class="simbt-obs" title="观察期终点=按「' + mode + ' · ' + (_sellModes[mode].label || "") + '」计划的卖出日(买入后第' + _sellModes[mode].hold_days + '个交易日)。剩余交易日按已加载真实交易日序列计; 未来段为剔周末近似, 法定节假日可能有±1日偏差。">观察期剩' + oi.remain + '个交易日·预计' + oi.estDate + '固化</div>';
+        } else if (oi && oi.expired) {
+          obsHtml = '<div class="simbt-obs simbt-obs-expired" title="已过计划卖出日仍未卖出, 待下次回测重跑固化卖出结果。">已到期待固化</div>';
+        }
+      }
       html += '<tr' + (c.isHolding ? ' class="simbt-holding-row"' : '') + '>' +
         '<td>' + (t[fIdx.signal_date] || "") + '</td>' +
         '<td>' + pos + '</td>' +
-        '<td>' + (t[fIdx.signal] || "") + '</td>' +
-        '<td>' + (t[fIdx.etf_code] || "") + ' ' + (t[fIdx.etf_name] || "") + '</td>' +
+        '<td>' + _simSigTypeLabel(t[fIdx.signal]) + '</td>' +
+        '<td>' + _simEtfLightHtml(t, fIdx) + (t[fIdx.etf_code] || "") + ' ' + (t[fIdx.etf_name] || "") + '</td>' +
         '<td>' + (t[fIdx.buy_date] || "") + '</td>' +
         '<td>' + c.buyFee.toFixed(2) + '</td>' +
         '<td>' + (c.isHolding ? '<span class="simbt-holding-tag">持仓中</span>' : (t[fIdx.sell_date] || "")) + '</td>' +
         '<td>' + c.sellFee.toFixed(2) + '</td>' +
-        '<td class="' + cls + estCls + '">' + c.pnlPct.toFixed(2) + '%' + estTag + '</td>' +
-        '<td class="' + cls + estCls + '">' + c.pnlYuan.toFixed(2) + '</td>' +
+        '<td class="' + cls + '">' + c.pnlPct.toFixed(2) + '%' + obsHtml + '</td>' +
+        '<td class="' + cls + '">' + c.pnlYuan.toFixed(2) + '</td>' +
         '<td>' + cum.cumPct.toFixed(2) + '%</td>' +
         '<td>' + cum.cumYuan.toFixed(2) + '</td>' +
         '<td>' + cum.acc + ' (' + cum.rate + '%)</td>' +
@@ -2993,7 +3218,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
       : (_presetObj ? _presetObj.label + "(" + _presetObj.desc + ")" : "");
     summaryEl.innerHTML = '筛选结果: <b>' + n + '</b> 笔(模式 ' + mode + ' · 降亏' + (fadeOn ? '开' : '关') + ' · K=' + (K || '关') +
       ') · 本金每笔 ¥10000 · 费率[' + feeDesc + ']' +
-      (holdingN > 0 ? ' · <span class="simbt-est">含 ' + holdingN + ' 笔预估</span>(持仓中按最新收盘价计浮盈, 已并入累积列与对错计数)' : '');
+      (holdingN > 0 ? ' · <span class="simbt-est">含 ' + holdingN + ' 笔持仓中</span>(按最新收盘价计当前盈亏, 已并入累积列与对错计数)' : '');
     if (totalPages > 1) {
       let pg = '';
       if (page > 0) pg += '<button type="button" class="sim-pg sim-pg-prev">← 上一页</button>';
@@ -3078,8 +3303,8 @@ function _simBtFillInputs(modal, fp) {
   set(".simbt-fee-input-transfer", _simBtWan(fp.transfer_fee_rate_sh));
   set(".simbt-fee-input-stamp", _simBtWan(fp.stamp_duty_rate));
 }
-// 单笔费用后盈亏(5 参数模型): 已卖出=按 sell_price; 持仓中(sell_date 空)=按 current_price 最新收盘预估
-// (买侧费用照收, 卖侧费用按预估卖价计, lab.js 全信号记录同口径); current_price 缺失/为0 的持仓笔兜底按 0 浮盈不炸。
+// 单笔费用后盈亏(5 参数模型): 已卖出=按 sell_price; 持仓中(sell_date 空)=按 current_price 最新收盘计当前盈亏
+// (买侧费用照收, 卖侧费用按收盘价计, lab.js 全信号记录同口径); current_price 缺失/为0 的持仓笔兜底按 0 盈亏不炸。
 function _simBtCalcRow(t, fIdx, fp) {
   const PRIN = 10000; // 每笔本金固定 ¥10000(基准)
   const bp = Number(t[fIdx.buy_price]) || 0;
