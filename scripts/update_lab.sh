@@ -18,10 +18,9 @@
 #   [10/12] lab_param_scan 参数敏感扫描（static-site/data/lab_param_scan.json，顶层）
 #   [11/12] lab_short_symmetry 多空对称（static-site/data/lab_short_symmetry.json，顶层）
 #   [11.5/12] simulate_trade --all（static-site/data/trade_sim/ 全品种 JSON + trade_sim_indices.json）
-#   [12/12] simulate_trade --html（static-site/trade_sim.html，sh 旧版静态 HTML 兜底入口）
 #   -> upload_r2.py upload-lab 刷 R2 上线（lab/ 子目录 65 文件）
 #   -> upload_r2.py upload-trade-sim-json 刷 R2 trade_sim JSON（trade_sim/ 子目录 + trade_sim_indices.json）
-#   -> git push 顶层 lab_*.json + trade_sim.html（static-site/data/ 4 顶层 + static-site/ 根 trade_sim.html 走 deploy）
+#   注：static-site/trade_sim.html（旧版全品种打包 HTML）已停用，不再每日重生 + commit（2026-08-21 清理）
 #
 # P1-7 修复（2026-07-21）：原脚本只跑 lab_simulate + lab_retest，漏跑 lab_matrix 和
 # backtest_strategies，致 lab_backtest*.json 系列停滞（lab_backtest.json 停 7/10 滞后 11 天，
@@ -225,19 +224,10 @@ else
   echo "✓ trade_sim JSON 全品种生成完成" | tee -a "$LOG"
 fi
 
-# [12/12] simulate_trade --html（生成 static-site/trade_sim.html，sh 旧版静态 HTML 兜底入口）
-# 2026-07-29 纳入 update_lab.sh：原手动跑，现每日自动重生。
-# --output 指定生成 static-site/trade_sim.html（git tracked，走 git deploy）；
-# 其他品种 trade_sim_*.html 走 R2（upload-trade-sim），此处只重生 sh 主入口。
-# 失败不阻塞：trade_sim.html 过期不影响 lab 主流程（JSON 由 simulate_trade 默认生成，本步骤只补 HTML 兜底）。
-echo "-> [12/12] simulate_trade --html（trade_sim.html，sh 旧版静态 HTML）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/simulate_trade.py" --html --output "$REPO/static-site/trade_sim.html" 2>&1 | tee -a "$LOG"
-RC_TS=${PIPESTATUS[0]:-1}
-if [ "$RC_TS" -ne 0 ]; then
-  echo "⚠ simulate_trade --html 失败（退出码 ${RC_TS}），trade_sim.html 可能过期" | tee -a "$LOG"
-else
-  echo "✓ trade_sim.html 重生完成" | tee -a "$LOG"
-fi
+# [11.5/12] 已生成全品种 JSON（见上 step 11.5）。旧版 static-site/trade_sim.html（全品种打包 HTML）已停用：
+# 2026-08-21 清理——前端走 R2 上按指数拆开的 trade_sim_{iid}_stats.json + _full.json，
+# 加载失败兜底链接也已指向 R2 per-index 版 trade_sim_{iid}.html（app.js）。
+# 不再每日重生 + commit trade_sim.html（2.5MB 每天变，纯噪音；历史快照文件保留不删）。
 
 # 上线分两路：
 # A) lab/ 子目录 65 文件（lab_backtest*.json / lab_sim_*.json / lab_retest_*.json /
@@ -262,11 +252,7 @@ if [ "$REPO" != "/Users/linhuichen/code/trade" ] && [ -d "$TRADE_LAB" ]; then
     fi
   done
   echo "✓ 同步顶层 lab_*.json $REPO -> trade/（供 git deploy 读取）" | tee -a "$LOG"
-  # C) 同步 trade_sim.html（sh 旧版静态 HTML，根目录）-> git deploy 读取
-  if [ -f "$REPO/static-site/trade_sim.html" ]; then
-    cp "$REPO/static-site/trade_sim.html" "/Users/linhuichen/code/trade/static-site/trade_sim.html"
-    echo "✓ 同步 trade_sim.html $REPO -> trade/（供 git deploy 读取）" | tee -a "$LOG"
-  fi
+  # 注：static-site/trade_sim.html 已停用（2026-08-21 清理），不再同步 + commit。
   # D) 同步 trade_sim/ 子目录 + trade_sim_indices.json -> upload_r2 读取
   #    2026-08-09 补：simulate_trade --all 生成 JSON 需同步到 trade/ 供 upload-trade-sim-json 上传 R2
   rsync -a "$REPO/static-site/data/trade_sim/" "$TRADE_DATA/trade_sim/"
@@ -311,7 +297,6 @@ fi
 
 # B) 上传顶层 lab_*.json 到 R2（阶段3：去 git push 数据，前端走 R2）
 #    lab/ 子目录已由上面 upload-lab 上传。顶层 4 个 lab_*.json 走 upload-data-files + purge。
-#    trade_sim.html 仍走 git push（static-site/ 根目录，非 data/，非 JSON，不走 R2）。
 echo "-> 上传顶层 lab_*.json 到 R2（upload-data-files + purge）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/upload_r2.py" upload-data-files \
   lab_ablation.json lab_cost_compare.json lab_param_scan.json lab_short_symmetry.json 2>&1 | tee -a "$LOG"
@@ -326,94 +311,10 @@ if [ "$LAB_R2_RC" -ne 0 ]; then
     --dedup-key update_lab_labjson_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
 fi
 
-# C) git push trade_sim.html（static-site/ 根目录，非 data/，阶段3 保留代码 push）
-GIT_REPO="/Users/linhuichen/code/trade"
+# C) git push trade_sim.html（static-site/ 根目录，非 data/）已停用（2026-08-21 清理）。
+# 旧版全品种打包 HTML 不再每日重生 + commit；前端走 R2 per-index 版本，
+# 历史快照文件 static-site/trade_sim.html 保留不删。GIT_DEPLOY_RC 置 0 保持后续汇总逻辑兼容。
 GIT_DEPLOY_RC=0
-git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
-git -C "$GIT_REPO" add static-site/trade_sim.html 2>/dev/null || true
-if git -C "$GIT_REPO" diff --cached --quiet 2>/dev/null; then
-  echo "  trade_sim.html 无变更，跳过 commit" | tee -a "$LOG"
-else
-  COMMIT_MSG="data update [lab-tl] $(date +%Y-%m-%d_%H:%M)"
-  echo "-> git commit: $COMMIT_MSG" | tee -a "$LOG"
-  git -C "$GIT_REPO" commit -m "$COMMIT_MSG" 2>&1 | tee -a "$LOG"
-  COMMIT_RC=${PIPESTATUS[0]:-1}
-  if [ "$COMMIT_RC" -ne 0 ]; then
-    echo "⚠ git commit 失败（退出码 ${COMMIT_RC}）" | tee -a "$LOG"
-    GIT_DEPLOY_RC=$COMMIT_RC
-  fi
-fi
-# 总是 push（幂等：有未 push commit 就推，无则 up-to-date）
-echo "-> git push trade_sim.html ..." | tee -a "$LOG"
-# 2026-08-10 修复: 原 push origin main 推本地 main ref(落后 origin/main 时 non-ff 失败)，
-# 改 push origin HEAD:main(推当前分支 tip, 与 deploy.sh L302 一致)。commit 落在当前分支,
-# HEAD:main 保证 trade_sim.html 变更到达 main; 本地 main 是否落后无关。
-git -C "$GIT_REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
-PUSH_RC=${PIPESTATUS[0]:-1}
-if [ "$PUSH_RC" -ne 0 ]; then
-  echo "⚠ git push 失败（退出码 ${PUSH_RC}），尝试 fetch + rebase 重试..." | tee -a "$LOG"
-  git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
-  # stash 全仓库 tracked M + untracked（防 rebase 撞 dirty working tree，复用 deploy.sh 机制）
-  STASH_CNT_BEFORE=$(git -C "$GIT_REPO" stash list 2>/dev/null | wc -l | tr -d ' ')
-  git -C "$GIT_REPO" stash push --include-untracked -m "update_lab-rebase-$(date +%Y%m%d_%H%M%S)" 2>&1 | tee -a "$LOG" || true
-  STASH_CNT_AFTER=$(git -C "$GIT_REPO" stash list 2>/dev/null | wc -l | tr -d ' ')
-  LAB_STASHED=0
-  if [ "$STASH_CNT_AFTER" -gt "$STASH_CNT_BEFORE" ]; then
-    LAB_STASHED=1
-    echo "✓ rebase 前已 stash 全仓库 tracked M + untracked 文件（stash@{0}）" | tee -a "$LOG"
-  fi
-  if git -C "$GIT_REPO" rebase origin/main 2>&1 | tee -a "$LOG"; then
-    git -C "$GIT_REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
-    PUSH2_RC=${PIPESTATUS[0]:-1}
-    # pop stash（恢复工作区改动，数据文件冲突自动解决，复用 deploy.sh pop_rebase_stash 机制）
-    if [ "$LAB_STASHED" = "1" ]; then
-      _pop_out=$(git -C "$GIT_REPO" stash pop 2>&1)
-      _pop_rc=$?
-      echo "$_pop_out" | tee -a "$LOG"
-      if [ "$_pop_rc" -ne 0 ]; then
-        _conflicted=$(git -C "$GIT_REPO" diff --name-only --diff-filter=U 2>/dev/null)
-        if [ -n "$_conflicted" ]; then
-          _non_data=""
-          for _f in $_conflicted; do
-            case "$_f" in
-              static-site/data/*.json|static-site/data/feed.xml)
-                git -C "$GIT_REPO" checkout --theirs -- "$_f" 2>&1 | tee -a "$LOG"
-                git -C "$GIT_REPO" add -- "$_f" 2>&1 | tee -a "$LOG"
-                ;;
-              *)
-                _non_data="$_non_data $_f"
-                ;;
-            esac
-          done
-          if [ -z "$_non_data" ]; then
-            git -C "$GIT_REPO" stash drop 2>&1 | tee -a "$LOG"
-            echo "✓ stash pop 数据文件冲突已自动解决(--theirs)，stash 已 drop" | tee -a "$LOG"
-          else
-            echo "⚠ stash pop 有非数据文件冲突($_non_data)，保留 stash@{0} 待手动 git stash pop" | tee -a "$LOG"
-          fi
-        else
-          echo "⚠ stash pop 失败(无冲突文件信息)，保留 stash@{0} 待手动处理" | tee -a "$LOG"
-        fi
-      fi
-    fi
-    if [ "$PUSH2_RC" -eq 0 ]; then
-      echo "✓ rebase + 重试 push 成功" | tee -a "$LOG"
-    else
-      echo "⚠ rebase 后重试 push 仍失败" | tee -a "$LOG"
-      GIT_DEPLOY_RC=1
-    fi
-  else
-    git -C "$GIT_REPO" rebase --abort 2>/dev/null || true
-    # rebase 失败也恢复 stash（避免丢工作区改动）
-    if [ "$LAB_STASHED" = "1" ]; then
-      git -C "$GIT_REPO" stash pop 2>&1 | tee -a "$LOG" || true
-    fi
-    echo "⚠ rebase origin/main 失败，已 abort 保持工作区干净" | tee -a "$LOG"
-    GIT_DEPLOY_RC=1
-  fi
-else
-  echo "✓ git push 完成" | tee -a "$LOG"
-fi
 
 END_TS=$(date +%s)
 ELAPSED=$((END_TS - START_TS))
@@ -429,12 +330,6 @@ echo "退出码汇总: sim=$RC1 fusion=$RC2 matrix=$RC3 fusion_matrix=$RC4 retes
 # 独立 push schedule_stats.json 到 main（2026-07-30 方案C+R2：gen_stats 后立即 push 绕过 deploy.sh 时序）
 bash "$REPO/scripts/push_schedule_stats.sh" || echo "⚠ push_schedule_stats 失败" | tee -a "$LOG"
 
-# 2026-08-10 修复: git deploy(trade_sim.html push) 失败必须传播非零退出。
-# 原脚本末尾为 summary echo, 无论 GIT_DEPLOY_RC 多少都 exit=0, 监控 exit!=0 路径漏报,
-# 只靠 log 关键词(error: failed to push)抓(2026-08-10 lab_auto 误报邮件 exit=0 场景)。
-# 传播后 schedule_monitor 的 exit!=0 路径也能捕获, 双路径兜底。
-if [ "$GIT_DEPLOY_RC" -ne 0 ]; then
-  echo "⚠ git deploy(trade_sim.html push) 失败(退出码 ${GIT_DEPLOY_RC})，返回非零退出供监控 exit!=0 捕获" | tee -a "$LOG"
-  exit 1
-fi
+# 注：原 "git deploy(trade_sim.html push) 失败传播非零退出" 机制（2026-08-10 修复）随
+# section C git push 块一并移除（2026-08-21 清理）；GIT_DEPLOY_RC 恒为 0，无需再判。
 exit 0

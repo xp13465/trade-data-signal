@@ -2890,7 +2890,7 @@ function _simRenderTable(modal, rows, fIdx, feeBuy, feeSell, startD, endD, fadeO
     // 本笔截至本行是否仍开放(已买入且(未卖出或卖出日>本行日期))
     const open = bd && bd <= sd && (sld === "" || sld > sd);
     if (open && !Object.prototype.hasOwnProperty.call(openMap, bk)) openMap[bk] = 1;
-    posMap[bk] = Object.keys(openMap).length; // 当前仍开放笔数 = 当前持仓(手)
+    posMap[bk] = Object.keys(openMap).length; // 当前仍开放笔数 = 当日持仓
     const bp = Number(t[fIdx.buy_price]) || 0;
     const sp = Number(t[fIdx.sell_price]) || 0;
     const buyAmt = PRIN;                 // 每笔本金固定 ¥10000(基准)
@@ -2910,9 +2910,9 @@ function _simRenderTable(modal, rows, fIdx, feeBuy, feeSell, startD, endD, fadeO
   const _draw = () => {
     const slice = rows.slice(page * PAGE, (page + 1) * PAGE);
     let html = '<table class="sim-tbl"><thead><tr>' +
-      '<th>日期</th><th>当前持仓(手)</th><th>信号</th><th>关联跟踪ETF</th><th>买入时间</th><th>卖出时间</th>' +
-      '<th>买入手续费¥</th><th>卖出手续费¥</th><th>本笔盈亏%</th><th>本笔盈亏¥</th>' +
-      '<th>累积收益%</th><th>累积盈亏¥</th><th>累积对错</th></tr></thead><tbody>';
+      '<th>日期</th><th>当日持仓</th><th>当日信号</th><th>信号关联ETF</th><th>计划买入时间</th><th>买入手续费</th>' +
+      '<th>计划卖出时间</th><th>卖出手续费</th><th>本笔交易盈亏%</th><th>本笔盈亏金额</th>' +
+      '<th>累积盈亏</th><th>累积金额</th><th>累积对错</th></tr></thead><tbody>';
     for (const t of slice) {
       const bk = _simBaseKey(t, fIdx);
       const bp = Number(t[fIdx.buy_price]) || 0;
@@ -2932,8 +2932,8 @@ function _simRenderTable(modal, rows, fIdx, feeBuy, feeSell, startD, endD, fadeO
         '<td>' + (t[fIdx.signal] || "") + '</td>' +
         '<td>' + (t[fIdx.etf_code] || "") + ' ' + (t[fIdx.etf_name] || "") + '</td>' +
         '<td>' + (t[fIdx.buy_date] || "") + '</td>' +
-        '<td>' + (t[fIdx.sell_date] || "") + '</td>' +
         '<td>' + feeB.toFixed(2) + '</td>' +
+        '<td>' + (t[fIdx.sell_date] || "") + '</td>' +
         '<td>' + feeS.toFixed(2) + '</td>' +
         '<td class="' + cls + '">' + pnlPct.toFixed(2) + '%</td>' +
         '<td class="' + cls + '">' + pnlYuan.toFixed(2) + '</td>' +
