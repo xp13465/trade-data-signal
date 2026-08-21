@@ -775,6 +775,25 @@ def _etf_nt_date() -> str:
         return ""
 
 
+def _board_etf_map_hash() -> str:
+    """data/board_etf_map.json 内容 md5（#29 track_score 跨产物一致性，2026-08-22）。
+
+    track_score 唯一计算源 = build_board_etf_map.py（写 data/board_etf_map.json），
+    index/{id}-all.json 的 etfs 是它的快照（queries.etf_for 读同一文件透传）。
+    map 会在 DB 表日期未推进时单独刷新（如盘后 21:58 评分任务重跑 build），
+    旧的表级门控（idx_deps 仅 4 张表）此时误判"源数据未变化"跳过重导 →
+    index 详情滞后 1-2 天、与首页 track_score 不一致（#29 审计实测 733/1412 对）。
+    故把 map 内容哈希作为伪表 key 并入 freshness/manifest：map 变 = index 必重导；
+    map 未变（如周末无评分刷新）哈希相同 → 照常跳过，不引入"永远重导"。
+    读不到文件返回 ""（与上次哈希不同则触发重导，缺失态下重导无害）。
+    """
+    try:
+        import hashlib
+        return hashlib.md5((ROOT / "data/board_etf_map.json").read_bytes()).hexdigest()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _code_fingerprint() -> str:
     """导出逻辑版本指纹：export.py + 其核心依赖(queries.py / signal_stats.py) 的 mtime。
     用于增量失效：导出逻辑代码一变，指纹即变 -> 本次强制全量重算（防"改了导出算法但源数据日期
@@ -978,6 +997,8 @@ def main():
     if incremental:
         current_fresh = _sentiment_table_dates(conn)
         current_fresh["etf_national_team"] = _etf_nt_date()
+        # #29: map 内容哈希作伪表 key 入 manifest，map 单独刷新也能触发 index 重导
+        current_fresh["board_etf_map"] = _board_etf_map_hash()
         manifest = _load_manifest()
         # 导出逻辑版本失效：export.py/queries.py 代码一变（指纹不同），本次强制全量重算，
         # 防"改了导出算法但源数据日期未变时增量跳过用旧算法产物"。
@@ -1183,8 +1204,11 @@ def main():
     print(f"  public_fund_sw_industry_alloc.json ({counts['public_fund_sw_industry_alloc.json']} bytes)")
 
     # 8. index/{id}-all.json（44 个指数，全历史大文件）
+    # #29: board_etf_map 是 index 详情 etfs 的数据源（queries.etf_for 透传 track_score），
+    # map 单独刷新（表日期未变）时旧门控误判跳过 → 详情滞后。伪表 key "board_etf_map"
+    # 存内容 md5，map 变 = 本批必重导（_incremental_skip 通用比对逻辑，无特判）。
     all_indices = [i["id"] for i in cfg.get("indices", []) if i.get("enabled", True)]
-    idx_deps = ("index_daily", "score_daily", "signal_daily", "daily_metric")
+    idx_deps = ("index_daily", "score_daily", "signal_daily", "daily_metric", "board_etf_map")
     if incremental and all_indices and _incremental_skip(
             manifest, current_fresh, f"index/{all_indices[0]}-all.json", idx_deps):
         print(f"  index/*.json: 源数据未变化，增量跳过({len(all_indices)} files 复用)", flush=True)

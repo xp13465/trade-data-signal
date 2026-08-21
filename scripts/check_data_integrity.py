@@ -41,10 +41,12 @@ AMOUNT_FORECAST_FAIL = 50000        # amount_forecast > 50000 亿 = FAIL（9.52 
 STALE_DAYS_WARN = 3                 # date 滞后 >3 天 = WARN（日频数据可能停更）
 STALE_DAYS_FAIL = 7                 # date 滞后 >7 天 = FAIL
 
-# track_score 三版本一致性容差（防 159335 类三版本不一致事故，§22 数据一致性铁律）
-# board_etf_map vs overview signal vs index detail 三处同 ETF track_score 容差 ±1.0
-# 超容差 = 不同 build 产物混用，>=2 指数不一致 = FAIL
-TRACK_SCORE_TOLERANCE = 1.0
+# track_score 跨产物一致性（#29, 2026-08-22 全量两两对比替代旧 5 样本三版本抽样）
+# overview.json 与 index/{id}-all.json 都是 board_etf_map.json 的快照（同源透传），
+# 快照语义 = 全等（浮点安全容差 _TS_EQ_TOL）；不等 = 不同 build 产物混用：
+#   map vs index 不等 = 增量门控漏依赖回归（#29 本体：733/1412 对滞后 1-2 天）
+#   overview vs map 不等 = 必更白名单(MUST_RECOMPUTE)失效回归信号
+_TS_EQ_TOL = 1e-6
 # etf_since_return 非 null 占比阈值（走势卡 ETF 至今盈亏注入失败拦截）
 ETF_SINCE_RETURN_FAIL_RATIO = 0.90  # <90% = FAIL（后端注入失败）
 ETF_SINCE_RETURN_WARN_RATIO = 0.95  # <95% = WARN
@@ -765,93 +767,163 @@ def check_a_fund_north_quarterly() -> CheckResult:
                  f"（季度闸门/采集异常致指标滞后，应 02:00 强制重算补回）")
 
 
-def check_track_score_consistency(data_dir: Path, repo_data_dir: Path) -> CheckResult:
-    """校验 track_score 三版本一致性：board_etf_map vs overview signal vs index detail。
+def _load_track_map(repo_data_dir: Path) -> tuple[dict | None, str | None]:
+    """读 board_etf_map.json -> {index_id: {code: entry}}（_meta/非 list 值跳过）。
 
-    事故场景：overview 用旧 board_etf_map 致 track_score 不一致（159335 三版本不一致事故，
-    §22 数据一致性铁律）。三处同 ETF track_score 容差 ±TRACK_SCORE_TOLERANCE，超容差 = 不同
-    build 产物混用。5 个样本指数中 >=2 不一致 = FAIL，>=1 = WARN。
-    """
-    name = "track_score_consistency"
-    # 1. board_etf_map.json
+    读不到/结构坏返回 (None, err)；调用方转 FAIL。"""
     bmap, err = _load_json(repo_data_dir / "board_etf_map.json")
     if err:
-        return _fail(name, f"无法读 board_etf_map: {err}")
+        return None, err
     if not isinstance(bmap, dict):
-        return _fail(name, f"board_etf_map.json 不是 dict: {type(bmap).__name__}")
+        return None, f"board_etf_map.json 不是 dict: {type(bmap).__name__}"
+    out: dict[str, dict] = {}
+    for idx, v in bmap.items():
+        if idx.startswith("_") or not isinstance(v, list):
+            continue
+        out[idx] = {e.get("code"): e for e in v if isinstance(e, dict) and e.get("code")}
+    return out, None
 
-    # 2. overview.json -> index_id -> {code: track_score}
+
+def _ts_float(v) -> float | None:
+    """track_score 值 -> float；None/解析失败返回 None（灰灭/脏值，与对侧 None 同判）。"""
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _ts_equal(a: float | None, b: float | None) -> bool:
+    """快照全等判定：双方同 None（一致灰灭）= 等；单侧 None = 不等；数值比 ±_TS_EQ_TOL。"""
+    if a is None and b is None:
+        return True
+    if a is None or b is None:
+        return False
+    return abs(a - b) <= _TS_EQ_TOL
+
+
+def check_track_score_map_vs_index(data_dir: Path, repo_data_dir: Path) -> CheckResult:
+    """校验① board_etf_map vs index/{id}-all.json 全量 pair track_score 全等（#29）。
+
+    index 详情 etfs 是 map 的快照（queries.etf_for 读同一文件透传），快照应全等。
+    不等 = 增量门控漏依赖回归（#29 本体：map 单独刷新后 index 停旧快照，审计实测
+    733/1412 对滞后 1-2 天，见 docs/r2-track-score-consistency-audit-20260822.md）。
+    旧校验（5 样本 top1 抽样）对 55.6% 不一致率几乎无检出力，升级为全量两两对比。
+    口径：code 集合双向相等 + 交集内 track_score 全等（双方同 None = 一致灰灭）。
+    排除 match_method=="self"（ETF 本体兜底注入，board_etf_map 无 key 属设计内，
+    queries._self_etf_for）。任何不一致 = FAIL 阻断 deploy（§22 数据一致性铁律）。
+    """
+    name = "track_score_map_vs_index"
+    tmap, err = _load_track_map(repo_data_dir)
+    if err:
+        return _fail(name, f"无法读 board_etf_map: {err}")
+
+    idx_dir = data_dir / "index"
+    files = sorted(idx_dir.glob("*-all.json")) if idx_dir.exists() else []
+    if not files:
+        return _fail(name, f"index 详情产物缺失: {idx_dir} 无 *-all.json")
+
+    total = 0        # 双方可比 pair 数（含同 None）
+    bad: list[tuple] = []          # 分数不等
+    missing: list[tuple] = []      # 单侧缺失（快照集合不等 = 滞后）
+    worst = 0.0
+    for f in files:
+        d, derr = _load_json(f)
+        if derr or not isinstance(d, dict):
+            continue
+        iid = f.name[: -len("-all.json")]
+        mmap = tmap.get(iid)
+        if mmap is None:
+            continue  # map 未收录该指数（无快照关系，如 self 注入类），非比对对象
+        seen: set[str] = set()
+        for e in d.get("etfs") or []:
+            if not (isinstance(e, dict) and e.get("code")):
+                continue
+            code = e["code"]
+            seen.add(code)
+            if e.get("match_method") == "self":
+                continue
+            ref = mmap.get(code)
+            if ref is None:
+                missing.append((iid, code, "index有/map无"))
+                continue
+            a = _ts_float(e.get("track_score"))
+            b = _ts_float(ref.get("track_score"))
+            total += 1
+            if not _ts_equal(a, b):
+                diff = abs((a or 0.0) - (b or 0.0))
+                worst = max(worst, diff)
+                bad.append((iid, code, f"map={b} index={a}"))
+        for code in mmap:
+            if code not in seen:
+                missing.append((iid, code, "map有/index无"))
+
+    problems = bad + missing
+    if problems:
+        head = "; ".join(f"{i}/{c}({w})" if w != "index有/map无" and w != "map有/index无"
+                         else f"{i}/{c} {w}" for i, c, w in problems[:3])
+        more = f" 等{len(problems)}对" if len(problems) > 3 else ""
+        return _fail(name, f"board_etf_map vs index 详情 {len(problems)} 对不一致"
+                     f"(分数不等{len(bad)}/单侧缺失{len(missing)}, 最大分差{worst:.2f}, "
+                     f"可比{total}对) = 增量门控漏依赖回归(#29): {head}{more}")
+    return _ok(name, f"board_etf_map vs index 详情全量一致({len(files)} 文件/{total} 对, "
+               f"含同灰灭, 容差±{_TS_EQ_TOL})")
+
+
+def check_track_score_overview_vs_map(data_dir: Path, repo_data_dir: Path) -> CheckResult:
+    """校验② overview vs board_etf_map 今日 pair track_score 全等（#29 配套回归哨兵）。
+
+    overview 已进必更白名单（export.py MUST_RECOMPUTE，每次全量重算读当前 map），
+    今日 pair 应恒等；不等 = 必更白名单失效回归信号（overview 停旧 map 快照）。
+    排除两类设计内注入（queries.py）：
+      - match_method=="self"（ETF 本体兜底，map 无 key）
+      - code 不在 map 的 _bk_top 条目（#60 方案A 冻结 ETF 被 map 换代后 prepend，带冻结时旧分，
+        首页 1:1 对齐回测属设计内）；_bk_top 且 code 在 map 的条目数值=当前 map，正常比对。
+    指数整体不在 map（tmap 无 key）时跳过该信号（无快照关系，防边界误报）。
+    """
+    name = "track_score_overview_vs_map"
+    tmap, err = _load_track_map(repo_data_dir)
+    if err:
+        return _fail(name, f"无法读 board_etf_map: {err}")
     ov, ov_err = _load_json(data_dir / "overview.json")
-    ov_scores: dict[str, dict[str, float]] = {}
-    if not ov_err and isinstance(ov, dict):
-        for s in ov.get("signals_today") or []:
-            if not isinstance(s, dict):
-                continue
-            idx = s.get("index_id")
-            etfs = s.get("etfs")
-            if not idx or not isinstance(etfs, list):
-                continue
-            m = ov_scores.setdefault(idx, {})
-            for e in etfs:
-                if isinstance(e, dict) and e.get("code") and e.get("track_score") is not None:
-                    try:
-                        m[e["code"]] = float(e["track_score"])
-                    except (TypeError, ValueError):
-                        pass
+    if ov_err or not isinstance(ov, dict):
+        return _fail(name, f"无法读 overview.json: {ov_err or '非 dict'}")
 
-    # 选 5 个有 ETF 的指数（broad 优先）
-    sample_indices = []
-    candidate_keys = BROAD_INDICES + [k for k in bmap
-                                      if k not in BROAD_INDICES and not k.startswith("_")]
-    for idx in candidate_keys:
-        if len(sample_indices) >= 5:
-            break
-        etfs = bmap.get(idx)
-        if not (isinstance(etfs, list) and etfs and isinstance(etfs[0], dict)
-                and etfs[0].get("code")):
+    total = 0
+    bad: list[tuple] = []
+    worst = 0.0
+    for s in ov.get("signals_today") or []:
+        if not isinstance(s, dict):
             continue
-        ts = etfs[0].get("track_score")
-        if ts is None:
+        iid = s.get("index_id")
+        mmap = tmap.get(iid)
+        if not isinstance(mmap, dict):
             continue
-        try:
-            sample_indices.append((idx, etfs[0]["code"], float(ts)))
-        except (TypeError, ValueError):
-            pass
+        for e in s.get("etfs") or []:
+            if not (isinstance(e, dict) and e.get("code")) or e.get("match_method") == "self":
+                continue
+            ref = mmap.get(e["code"])
+            if ref is None:
+                if e.get("_bk_top"):
+                    continue  # 冻结 prepend（设计内）
+                bad.append((iid, e["code"], "overview有/map无"))
+                continue
+            a = _ts_float(e.get("track_score"))
+            b = _ts_float(ref.get("track_score"))
+            total += 1
+            if not _ts_equal(a, b):
+                diff = abs((a or 0.0) - (b or 0.0))
+                worst = max(worst, diff)
+                bad.append((iid, e["code"], f"map={b} overview={a}"))
 
-    if not sample_indices:
-        return _warn(name, "board_etf_map 中无可用 top1 ETF track_score（无法比对）")
-
-    inconsistent = []
-    for idx, code, bmap_score in sample_indices:
-        scores = [bmap_score]
-        # overview signal
-        if code in ov_scores.get(idx, {}):
-            scores.append(ov_scores[idx][code])
-        # index detail
-        detail_path = data_dir / "index" / f"{idx}-all.json"
-        detail, d_err = _load_json(detail_path)
-        if not d_err and isinstance(detail, dict):
-            for e in detail.get("etfs") or []:
-                if isinstance(e, dict) and e.get("code") == code and e.get("track_score") is not None:
-                    try:
-                        scores.append(float(e["track_score"]))
-                    except (TypeError, ValueError):
-                        pass
-                    break
-        diff = max(scores) - min(scores)
-        if diff > TRACK_SCORE_TOLERANCE:
-            inconsistent.append((idx, code, scores, round(diff, 2)))
-
-    if len(inconsistent) >= 2:
-        detail = "; ".join(f"{i}/{c} scores={s} diff={d}" for i, c, s, d in inconsistent)
-        return _fail(name, f"{len(inconsistent)} 个指数 track_score 三版本不一致"
-                     f"(容差±{TRACK_SCORE_TOLERANCE}): {detail}")
-    if len(inconsistent) == 1:
-        idx, code, scores, diff = inconsistent[0]
-        return _warn(name, f"{idx}/{code} track_score 不一致 scores={scores} diff={diff}"
-                     f" (容差±{TRACK_SCORE_TOLERANCE})")
-    return _ok(name, f"{len(sample_indices)} 个指数 top1 ETF track_score 三版本一致"
-               f"(容差±{TRACK_SCORE_TOLERANCE})")
+    if bad:
+        head = "; ".join(f"{i}/{c}({w})" for i, c, w in bad[:3])
+        more = f" 等{len(bad)}对" if len(bad) > 3 else ""
+        return _fail(name, f"overview vs board_etf_map {len(bad)} 对今日 track_score 不一致"
+                     f"(最大分差{worst:.2f}, 可比{total}对) = 必更白名单失效回归信号: {head}{more}")
+    return _ok(name, f"overview vs board_etf_map 今日 pair 全量一致({total} 对, "
+               f"容差±{_TS_EQ_TOL})")
 
 
 # ── 关键文件存在性校验 ────────────────────────────────────────────────────────
@@ -900,7 +972,9 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     results.append(check_signal_kelly_backtest(data_dir))
     results.append(check_trade_sim_indices(data_dir))
     results.append(check_etf_since_return(data_dir))
-    results.append(check_track_score_consistency(data_dir, repo_data_dir))
+    # #29 track_score 跨产物一致性（2026-08-22 起两路全量对比，替代旧 5 样本三版本抽样）
+    results.append(check_track_score_map_vs_index(data_dir, repo_data_dir))
+    results.append(check_track_score_overview_vs_map(data_dir, repo_data_dir))
     results.append(check_a_fund_north_quarterly())
 
     # 关键文件存在性
