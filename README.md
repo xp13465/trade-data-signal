@@ -86,6 +86,7 @@
 - 🔹 **买卖点信号** — 主买/辅买/卖点信号，每个附回测胜率+凯利仓位；A股指数信号收盘即固化、不再消失（详见 [`docs/signal-finalize-time.md`](docs/signal-finalize-time.md)）
 - 🔹 **ETF 评分弹窗** — 一个弹窗给全决策（手数/置信度/8 维评分/历史类比/仓位红线），指数↔ETF 全匹配（数据层详见 [`docs/data-dictionary.md`](docs/data-dictionary.md)）
 - 🔹 **信号灯 + 降亏过滤 + AI 仓位** — AI 一键降亏，把数据挖掘发现的「系统性亏损特征」自动剔除；再按每日资金池 + top-K 给「AI 建议」与凯利仓位，过滤后只剩可操作信号（详见 [`docs/kelly/`](docs/kelly/) 分析与报告、[`docs/kelly/position/kelly-position-cap-k-sensitivity.md`](docs/kelly/position/kelly-position-cap-k-sensitivity.md)）
+- 🔹 **首页模拟回测弹窗** — AI 仓位建议行「参考说明」旁的「模拟回测」按钮一键打开：用 2011-2026 全历史真实信号交易记录（R2 `signal_kelly_trades.json`），按时间范围 / AI 降亏过滤 / K 档 / 交易模式 / 费率 5 组条件实时过滤，13 列明细表逐笔算费后盈亏与累积收益，与凯利回测页同源口径、纯展示不与实盘关联
 - 🔹 **每日 AI 速递** — 收盘一份白话解读直发邮箱：多角色辩论 + 方向/区间三层命中回填 + 自成长反思校准 + 新闻面 + 语音播报 + 把握度，每天知道自己的判断准不准（详见 [`docs/daily-brief-research.md`](docs/daily-brief-research.md)、[`docs/ai-predict-self-growth.md`](docs/ai-predict-self-growth.md)、[`docs/ai-predict-inject-research.md`](docs/ai-predict-inject-research.md)）
 
 ### C. 集成与体验

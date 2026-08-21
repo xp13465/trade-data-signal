@@ -2465,7 +2465,7 @@ function _bindSigSwitchRow(sigCard) {
 //   k2c5HkChase/r7MayReinforced/excludeAuxCross/greedy15), 在其余键全关时, 与首页8键判定完全一致。
 //   trades 记录无 ai_macro 字段, 且维度(mkt/etf/rating)分散在16个子域qk副本中, 故先跨全 qk 去重聚合出带全部维度的基笔池,
 //   再对每笔独立判定(等价 lab.js _kellyPassesFadeFilters + _kellyCollectBasePool 去重)。
-var _simKellyData = null;     // signal_kelly_trades.json 解析后的 {fields, fIdx, records}(records=去重基笔池, 带 mktD/etfD/ratD)
+var _simKellyData = null;     // signal_kelly_trades.json 解析后的 {fields, fIdx, quadrants}(quadrants=原始分域×分模式平行数组, 按选中 mode 在 _simBuildModePool 现筛)
 var _simKellyCfg = null;      // signal_kelly_backtest.json 解析后的 {sell_modes, ...}
 var _simKellyLoading = false;
 var _simKellyLoadErr = null;
@@ -2637,45 +2637,21 @@ async function _loadSimKellyData() {
   _simKellyLoadErr = null;
   try {
     const v = _simCacheBust();
-    const trUrl = "https://ss.fx8.store/data/signal_kelly_trades.json" + (v ? "?v=" + v : "");
+    // P1-2 修复: trades 实测 64MB, 弱网下全局默认 15s 必超时 → 本调用自带 60s 长超时(fetchJSON 默认仍 15s 不变);
+    // 双通道(与 lab.js _kellyApplyFeeRecompute 同模式): R2 直链失败 → CF 相对路径兜底(备站由 fetchJSON 主动域名重写接管)
+    const trUrlR2 = "https://ss.fx8.store/data/signal_kelly_trades.json" + (v ? "?v=" + v : "");
+    const trUrlCf = "./data/signal_kelly_trades.json" + (v ? "?v=" + v : "");
     const cfgUrl = "./data/signal_kelly_backtest.json" + (v ? "?v=" + v : "");
     const [tr, cfg] = await Promise.all([
-      fetchJSON(trUrl),
+      fetchJSON(trUrlR2, 60000).catch(() => fetchJSON(trUrlCf, 60000)),
       fetchJSON(cfgUrl).catch(() => null)
     ]);
     const fields = tr.fields;
     const fIdx = {};
     fields.forEach((f, i) => { fIdx[f] = i; });
-    // 跨全 qk × 全模式去重聚合基笔池(同 base key 在16个qk副本中维度分散, 需聚合 mktD/etfD/ratD)
-    const seen = {};
-    const records = [];
-    const RATING_RANK_POOL = ["rating_high", "rating_mid", "rating_low"];
-    const allModes = cfg && cfg.config && cfg.config.sell_modes ? Object.keys(cfg.config.sell_modes) : ["A","B","C","D","E","F","G","H","I"];
-    for (const qk in tr.quadrants) {
-      const dim = _simQkDim(qk);
-      for (const mk in tr.quadrants[qk]) {
-        const arr = tr.quadrants[qk][mk] || [];
-        for (let i = 0; i < arr.length; i++) {
-          const orig = arr[i];
-          const bk = _simBaseKey(orig, fIdx);
-          let rec = seen[bk];
-          if (!rec) {
-            // 用原平行数组(对象化便于按字段名取), 同时挂聚合维度占位
-            rec = orig.slice();
-            rec._mktD = ""; rec._etfD = ""; rec._ratD = "";
-            seen[bk] = rec;
-            records.push(rec);
-          }
-          if (dim) {
-            if (dim.type === "mkt") { if (!rec._mktD) rec._mktD = dim.val; }
-            else if (dim.type === "etf") { if (!rec._etfD) rec._etfD = dim.val; }
-            else if (dim.type === "rating") { if (!rec._ratD) rec._ratD = dim.val; }
-            // sig_ 维度暂不做降亏判定用(本弹窗8键不依赖 sig 维), 忽略
-          }
-        }
-      }
-    }
-    _simKellyData = { fields, fIdx, records };
+    // 不预聚合全模式并集(27万级×全模式副本常驻内存浪费): 只存原始 quadrants 引用,
+    // 按选中 mode 在 _simBuildModePool 现筛去重+聚合维度(单 mode 基笔池约 1-3 万条, 用完即弃)
+    _simKellyData = { fields, fIdx, quadrants: tr.quadrants || {} };
     _simKellyCfg = (cfg && cfg.config) ? cfg.config : { sell_modes: {} };
   } catch (e) {
     _simKellyLoadErr = e && e.message ? e.message : String(e);
@@ -2766,11 +2742,16 @@ async function _simRender(modal) {
       bodyEl.innerHTML = '<div class="sim-err">数据加载失败: ' + _simKellyLoadErr + '</div>';
       return;
     }
-    // 数据加载完(可能 sell_modes 才有), 若模式下拉为空则补选项
+    // 数据加载完(可能 sell_modes 才有), 无条件重建模式下拉 options(P1-1 修复: 首开 HTML 有 fallback A 项,
+    // 旧条件 !sel.options.length 永不成立致只有 A; 重建时保留当前已选值, 若仍有效)
     const _sm = (_simKellyCfg && _simKellyCfg.sell_modes) || {};
     const sel = modal.querySelector(".sim-mode-sel");
-    if (sel && !sel.options.length) {
+    if (sel && Object.keys(_sm).length) {
+      const prev = sel.value;
+      sel.innerHTML = "";
       Object.keys(_sm).forEach((mk) => { const o = document.createElement("option"); o.value = mk; o.textContent = mk + " · " + (_sm[mk].label || ""); sel.appendChild(o); });
+      if ([].some.call(sel.options, (o) => o.value === prev)) sel.value = prev;
+      else if (sel.querySelector('option[value="A"]')) sel.value = "A";
     }
   } else if (_simKellyLoading) {
     loadingEl.style.display = "block";
@@ -2778,8 +2759,9 @@ async function _simRender(modal) {
   }
   // 读取控件状态
   const fIdx = _simKellyData.fIdx;
-  const startD = modal.querySelector(".sim-date-start").value || "";
-  const endD = modal.querySelector(".sim-date-end").value || "";
+  // date input 值为 YYYY-MM-DD, signal_date 为 YYYYMMDD: 归一化去掉连字符再比(P0-2 修复)
+  const startD = (modal.querySelector(".sim-date-start").value || "").replaceAll("-", "");
+  const endD = (modal.querySelector(".sim-date-end").value || "").replaceAll("-", "");
   const fadeOn = modal.querySelector(".sim-fade-cb").checked;
   const kRaw = (modal.querySelector(".sim-kbtn.active") || {}).dataset ? (modal.querySelector(".sim-kbtn.active")).dataset.k : "1";
   const K = parseInt(kRaw, 10) || 0;  // 0 = 关(不过滤)
@@ -2787,11 +2769,9 @@ async function _simRender(modal) {
   const feeBuy = (parseFloat(modal.querySelector(".sim-fee-buy").value) || 0) / 100;
   const feeSell = (parseFloat(modal.querySelector(".sim-fee-sell").value) || 0) / 100;
 
-  // ① 模式: 取 quadrants[*][mode] 全部子域副本(含重复), 但判定/去重用 records 基笔池更稳——
-  //    这里直接用 records(已去重基笔池, 跨全qk), 按 mode 仅用于展示(全模式共享同批基笔, mode 影响的是 sell_date 等已固化值, records 已含按 mode 的副本? 不, records 是去重并集)
-  // 说明: signal_kelly_trades.json 的 quadrants[qk][mode] 每模式是完整副本(同 base 在不同 mode 下 sell_date 不同)。
-  //    本弹窗要按所选 mode 取对应 sell_date, 故必须从 quadrants[*][mode] 取, 而非去重并集(并集会丢失 mode 维度)。
-  //    因此: 重新基于 quadrants[*][mode] 构建该模式的基笔池(带聚合维度), 再判定。
+  // ① 模式: signal_kelly_trades.json 的 quadrants[qk][mode] 每模式是完整副本(同 base 在不同 mode 下
+  //    sell_date/sell_price 不同), 必须按所选 mode 从 quadrants[*][mode] 现筛构建基笔池(去重+聚合维度),
+  //    不能跨模式取并集(会丢失 mode 维度的卖出值)。
   const recs = _simBuildModePool(_simKellyData, mode);
 
   // ② 降亏过滤
@@ -2842,7 +2822,7 @@ async function _simRender(modal) {
 
 // 基于 quadrants[*][mode] 构建该模式基笔池(带聚合维度, 去重)
 function _simBuildModePool(data, mode) {
-  const { fIdx, fields, quadrants } = data;
+  const { fIdx, quadrants } = data;
   const seen = {};
   const records = [];
   for (const qk in quadrants) {
@@ -2868,7 +2848,7 @@ function _simBuildModePool(data, mode) {
   return records;
 }
 
-// 渲染结果表(11列 + 分页, 前500条) + 累积列(从最早日逐笔累加)
+// 渲染结果表(13列 + 分页, 每页500条) + 累积列(从最早日逐笔累加)
 function _simRenderTable(modal, rows, fIdx, feeBuy, feeSell, startD, endD, fadeOn, K, mode) {
   const bodyEl = modal.querySelector(".sim-table-body");
   const summaryEl = modal.querySelector(".sim-summary");
@@ -2880,17 +2860,36 @@ function _simRenderTable(modal, rows, fIdx, feeBuy, feeSell, startD, endD, fadeO
   let cumPct = 0, cumYuan = 0, rightN = 0, wrongN = 0;
   const cumMap = {};  // basekey -> {cumPct, cumYuan, acc, rate}
   const posMap = {};  // basekey -> 截至本行 signal_date 的开放持仓手数(每笔=1手=¥10000)
-  const openMap = {}; // 当前仍开放的笔 basekey -> 1
+  // 当日持仓: 按 signal_date 分组扫描(P2-1 修复: 先删已卖出笔再计新开笔, 同日各行为同一真实持仓数)
+  {
+    const openMap = {}; // 仍开放的笔 basekey -> 卖出日(YYYYMMDD, 空串=未卖出; 用于到期删除)
+    let gi = 0;
+    while (gi < asc.length) {
+      const sd = String(asc[gi][fIdx.signal_date] || "");
+      let gj = gi;
+      while (gj < asc.length && String(asc[gj][fIdx.signal_date] || "") === sd) gj++;
+      // 先删: 已开放笔中卖出日 ≤ 本信号日的移出(只进不出致当日持仓虚高的根因; 同日先卖后买=先删后加)
+      for (const ok in openMap) {
+        const osld = openMap[ok];
+        if (osld && osld <= sd) delete openMap[ok];
+      }
+      // 后加: 本信号日组内已买入且仍未卖出(或卖出日在未来)的笔
+      for (let i = gi; i < gj; i++) {
+        const bd = String(asc[i][fIdx.buy_date] || "");
+        const sld = String(asc[i][fIdx.sell_date] || "");
+        if (bd && bd <= sd && (sld === "" || sld > sd)) {
+          const bk2 = _simBaseKey(asc[i], fIdx);
+          if (!Object.prototype.hasOwnProperty.call(openMap, bk2)) openMap[bk2] = sld;
+        }
+      }
+      const posN = Object.keys(openMap).length; // 该信号日当天真实持有笔数
+      for (let i = gi; i < gj; i++) posMap[_simBaseKey(asc[i], fIdx)] = posN;
+      gi = gj;
+    }
+  }
   for (let i = 0; i < asc.length; i++) {
     const t = asc[i];
     const bk = _simBaseKey(t, fIdx);
-    const sd = String(t[fIdx.signal_date] || "");
-    const bd = String(t[fIdx.buy_date] || "");
-    const sld = String(t[fIdx.sell_date] || "");
-    // 本笔截至本行是否仍开放(已买入且(未卖出或卖出日>本行日期))
-    const open = bd && bd <= sd && (sld === "" || sld > sd);
-    if (open && !Object.prototype.hasOwnProperty.call(openMap, bk)) openMap[bk] = 1;
-    posMap[bk] = Object.keys(openMap).length; // 当前仍开放笔数 = 当日持仓
     const bp = Number(t[fIdx.buy_price]) || 0;
     const sp = Number(t[fIdx.sell_price]) || 0;
     const buyAmt = PRIN;                 // 每笔本金固定 ¥10000(基准)
@@ -5732,7 +5731,7 @@ const _R2_FALLBACK_BASE = "https://ss.fx8.store/data/";
 function dataUrl(filename) {
   return _R2_LARGE_RANGE_RE.test(filename) ? _R2_DATA_BASE + filename : "./data/" + filename;
 }
-async function fetchJSON(url) {
+async function fetchJSON(url, timeoutMs) {
   // 主动域名策略(2026-08-11 备站主动域名方案A): 备站(sss.sugas.site/s.sugas.site 等非主站非本地)首次加载
   // 即把 ./data/* 直接重写为主站 /data/ rewrite, 不等 404 探测再 fallback(现状每请求慢一拍)。
   // 主站/localhost 同源不变; 大 range(-all/-5y/-3y) 已在 dataUrl() L3658 直链 _R2_DATA_BASE(/r2/ 代理),
@@ -5781,7 +5780,9 @@ async function fetchJSON(url) {
   // 实际请求URL(带cache-busting): 时效敏感用_bustQuery, 其他用原query
   const _fetchUrl = _base + _bustQuery;
   const controller = new AbortController();
-  const slowTimer = setTimeout(() => controller.abort(), 15000);
+  // 超时可参数化(2026-08-21 P1-2): 默认仍 15s 不影响既有调用; 大文件调用方(如 sim 弹窗 64MB trades)传 60000
+  const _timeoutMs = timeoutMs || 15000;
+  const slowTimer = setTimeout(() => controller.abort(), _timeoutMs);
   // cache: 'no-cache' 走条件请求(带 If-None-Match/If-Modified-Since), 绕过 R2 .gz 的 cache-control: max-age=14400 强制缓存
   // 否则 stats 等数据更新后浏览器仍读 4h 旧缓存 (2026-07-22 csi_div tooltip 显示旧版 sell_stop_loss n 而非新版 86 的根因)
   // 时效敏感URL用no-store(浏览器完全不读HTTP缓存每次发GET, 避免CF HIT旧etag返回304浏览器读旧缓存)
@@ -5831,7 +5832,7 @@ async function fetchJSON(url) {
         let finalErr = e;
         for (let i = 0; i < 2; i++) {
           const fc = new AbortController();
-          const ft = setTimeout(() => fc.abort(), 15000);
+          const ft = setTimeout(() => fc.abort(), _timeoutMs);
           try {
             resp = await fetch(_r2Url, { signal: fc.signal, cache: _cacheMode })
               .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status + " " + _r2Url); return r; });
@@ -5852,7 +5853,7 @@ async function fetchJSON(url) {
             const _r2DUrl = _R2_DATA_BASE + _baseFile + _bustQuery;
             console.warn("[fetchJSON] 主站/data/重写失败, 二级兜底 R2 直链: " + url + " -> " + _r2DUrl, finalErr?.message || finalErr);
             const fc = new AbortController();
-            const ft = setTimeout(() => fc.abort(), 15000);
+            const ft = setTimeout(() => fc.abort(), _timeoutMs);
             try {
               resp = await fetch(_r2DUrl, { signal: fc.signal, cache: _cacheMode })
                 .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status + " " + _r2DUrl); return r; });
@@ -5877,7 +5878,7 @@ async function fetchJSON(url) {
     .catch((e) => {
       // 超时（abort）：renderFailCard 存在则向上抛由调用方兜底渲染，否则 console.error 并返回 null
       if (e && e.name === "AbortError") {
-        console.error("fetchJSON timeout (15s): " + url);
+        console.error("fetchJSON timeout (" + _timeoutMs + "ms): " + url);
         if (typeof renderFailCard !== "function") return null;
       } else {
         // 非 abort 错误(网络/CORS/解析/HTTP)也记 console, 便于排查"暂无数据"类故障
