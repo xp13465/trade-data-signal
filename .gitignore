@@ -215,3 +215,6 @@ config/brief_push.json
 
 # AI 每日速递订阅推送去重持久化（2026-08-17）：brief_push 按 date 防重复推送，仅本地跨进程去重用
 data/brief_push_state.json
+
+# Wrangler 本地 dev secrets（.dev.vars 含真实 key，禁进 git）
+.dev.vars
