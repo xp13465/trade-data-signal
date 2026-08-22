@@ -893,6 +893,8 @@ async function sendFeedbackNotifyEmail(env, fb) {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
+      // 5s 超时保护（reviewer 建议）：极端挂起不拖住留言响应；超时抛 TimeoutError 由外层 try/catch 吸收
+      signal: AbortSignal.timeout(5000),
       body: JSON.stringify({
         from: 'hi@fx8.store',
         to: [to],
