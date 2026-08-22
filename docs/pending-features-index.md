@@ -142,7 +142,7 @@
 
 | # | 项 | 出处 | 方案摘要 | 依赖/前置 | 状态 |
 |---|---|---|---|---|---|
-| 80 | **全站性能优化 P2(滚动优化按需)** | TASKS.md「📋 2026-08-04 全站性能优化」P2 段(tasks-active-clean 治理移出,P0/P1 已完成归档) | **P2-10 长期**(app.js 按 tab 拆 chunk code-splitting,8-16h 未做;短期 requestIdleCallback 延迟非首屏 init 已上线);**P2-11**(大盘 tab renderAStock 30+ echarts 改 SVG 或 IntersectionObserver 懒渲染,3-6h,切 tab -500~1000ms;= 原 #92 同项,TASKS L42 SVG P1 的未做部分) | 无 | **待排期**(2026-08-22 治理:P2-15 offshore 停链已关闭见 done-list 4289d50a7;**P2-11 实施中**(feat/p2-11-dapan-lazy 分支已预开);P2-10 长期项保留远期按需) |
+| 80 | **全站性能优化 P2(滚动优化按需)** | TASKS.md「📋 2026-08-04 全站性能优化」P2 段(tasks-active-clean 治理移出,P0/P1 已完成归档) | **P2-10 长期**(app.js 按 tab 拆 chunk code-splitting,8-16h 未做;短期 requestIdleCallback 延迟非首屏 init 已上线);~~P2-11~~(大盘 tab 懒渲染已完成,见 done-list「2026-08-22 会话收尾移入」,e01de0423/af0fc35d6,a384;遗留:板块分化 subtab renderIndustryGrid spark 格切 tab 753ms 同根因待拍板) | 无 | **待排期**(2026-08-22 收尾更新:P2-11 已完成上线;仅剩 P2-10 长期项保留远期按需) |
 | 86 | **真pin 复盘(**多周期同屏对照**)** | docs/archive/TASKS-history-archive-20260820.md L464 | 大工作量 B-2b「真pin 复盘」(200 行)待实施;同批 H 相似形态/各种通知已上线。具体方案见 archive 上下文(价值排序表主控建议:E>B-2a>A>E>…,真pin 属 B-2b 大工作量) | 无 | **待排期**(大工作量,价值排序中游,未派) |
 | 88 | **订阅推送(410 行,待实施)** | docs/archive/TASKS-history-archive-20260820.md L464 | 订阅推送(410 行)为剩余 6 方向大工作量项;第一批已做(留言箱/浏览器通知等),订阅推送未派 | KV 订阅基础已在(worker/subscribe.js) | **用户确认保留**(2026-08-22 拍板:KV 基础已在;手中活清完后评估启动) |
 

@@ -8,9 +8,13 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-21(opencode 调研落档 + #95 续停 + 状态同步).本轮:
-- **🔍 opencode 端点调研落档(2026-08-21)**:用户换用 cc-switch 管理的 OpenCode Go provider(endpoint opencode.ai/zen/go, OpenAI 格式 /v1/chat/completions, model 全档位 deepseek-v4-flash)。调研两份报告落档 `docs/thinking-off-opencodego-research-20260821.md`(关思考 + 缓存命中率):①**关思考不可用**——cc-switch openai_chat 转换丢弃 Anthropic 的 thinking 参数,opencode 对 deepseek-v4-flash 默认 reasoning ON 且无可配关闭项。②**缓存实测修正**——opencode 底层 DeepSeek 自动前缀缓存真实高效(cold→hot 99.6%),命中率差主因=主控主会话上下文抖动打断前缀(主会话5.8%/子agent 52-54%),非网关缺陷;方案一 attribution header 无效、方案二 opencode-deepseek-cache 插件对纯HTTP链路不生效、cc-switch 已剥 cch= 动态行。**可提命中=行为层**:主会话及时 /clear//compact 固化前缀、长输出落盘不贴回、子agent只回结论。→ memory `opencode-cache-think-findings`
-- **⏸️ #95 ETF权重龙头采集续停(2026-08-21)**:凌晨拍板续跑,implementer 启动 Step1 续采(10/112只,进度文件 data/etf_hold_collect_progress.json 断点可续),因换 opencode 调研未完成先停;**用户定"等 opencode 调研优化完再 resume"**。Step1 进度10只/result缺/stock_top_weights.db缺。pending-index #95 已标注。
+**最后更新**:2026-08-22(周末清账批次收官).本轮:
+- **✅ 首页「模拟回测」弹窗上线+三轮迭代(a377→a385)**:全历史真实过滤+费后盈亏累积 13 列表;迭代=13列定宽+hover持仓格→ETF联动高亮+四列红正绿负(a383)→累积盈亏口径修正=÷(峰值持仓笔数×¥10000)+tooltip三档1:1公式(a385)→费率6档快捷+持仓中预估浮盈(b13d93592);§0 三站验证过。
+- **✅ P2-11 大盘 tab 懒渲染上线(a384,e01de0423→af0fc35d6)**:IntersectionObserver+懒代理,首帧 canvas 23→5/长任务59ms→0/像素diff≈0;评审加固修切皮肤×懒加载交叉丢主题色时序 bug。遗留:板块分化 subtab spark 格 753ms 同根因待拍板。
+- **✅ P2-15 offshore 定时链停用(4289d50a7)/ #82 留言箱收官(worker Resend 邮件通知+QQ实收验证)/ todolist 全量治理(20ab5ab9d,8关+2废+1留+#10刷新)** —— 详见 done-list 对应段。
+- **✅ #95 ETF权重龙头回测完结(结论=无实际价值不推荐,维持 v1.1.3)**:A(买ETF)全面优于 B1/B2,B3 持平需3倍操作量;done-list「2026-08-21 回测结论落档」段+docs/kelly/backtest-ai/etf-weight-leader/。
+- **⏳ 待用户拍板**:①板块分化 subtab spark 格懒渲染排不排(同 P2-11 根因)②main-merge.sh 销账提醒软提示(commit 含 #NN 时提醒顺手销账 pending)③#88 订阅推送启动时点(手中活清完后评估)。#10 ETF弹窗长历史阻塞解除可直派未启动。
+- **🔍 opencode 端点调研落档(2026-08-21)**:两份报告 `docs/thinking-off-opencodego-research-20260821.md`:关思考不可用(cc-switch 丢弃 thinking 参数);缓存命中率差主因=主会话上下文抖动(提命中=/clear 固化前缀+长输出落盘+子agent只回结论)。→ memory `opencode-cache-think-findings`
 - **✅ 状态同步 commit a40b21507(2026-08-21)**:done-list 补登记 9 条做了未标(#65/66/67/70/71/72/62/51/56)+ pending-index 同步 9 处 + TASKS 待安排移除 #73/#74。已 push main。
 - **📌 #78 TASKS.md 任务治理已实施合并(2026-08-20)**:researcher 全量盘(aade4fd)核 47 个 `[x]` = 43 真完成 + 3 用户拍板关闭(L59 NIFTY50 / L68 159536 track_score / L77 avg_dev) + 1 误标待办(L42 SVG P1,剩大盘 tab P2-11 未做,改回 active)。处置:43 完成 + 3 关闭归档 TASKS-done.md「任务治理段」;L42 改回 `[ ]`;远期/搁置 11 条(场外方案C 8步/性能P2 3条)移 pending-index 模块十六;8 项归档活跃需求补登记 #82-89。报告 docs/tasks-active-only-clean-20260820.md。
 - **📌 #18 费率修正(2026-08-20 用户「完成就按完成的走」)**:原留本站的 **10 条费率待办逐条实测均已实现**(费率改造 #13/14/18/22 早已上线)——印花税simulate_trade.py:57/stamp_tax 0.0005、过户费3模式:58-59+_transfer_applies、抽核心fee_config:45+_normalize_fee_config、修bug:40、对比函数app.js feeCompare、API路由app/main.py:586、全量重生+线上R2 trade_sim_hs300_stats.json(generated_at 08-19)含fee_config、验证线上含印花税已curl → **全部移入完成文件 docs/tasks-done-list.md**(完成文件 43→53)。

@@ -152,3 +152,10 @@
 - [x] **#82 留言箱完整方案剩余(整条关闭)** — 邮件通知已上线(main 436f6d6bf merge 链,生产端到端验证通过:KV nickname 实锤+站主 QQ 实收);管理端审核页 admin/feedback.html + 防滥用四层(worker/auth.js L731-796 频控/honeypot/内容约束/审核闸门)均在 main(4b384b473/f3f4cd838);留言墙经用户拍板砍除(定位私密信箱不上墙);原行内悬空 hash b53a312e7 随行移除清除(实际承载 eb288f443/4b384b473/f3f4cd838)
 - [x] **#83 公募基金筛选器实战版(被 #79 覆盖)** — 前置阻塞解除实锤:export_fund_score.py L8-10 注释「#83 公募筛选器字段前置」,fund_company/manager/scale 等 9 字段已补;指标体系(sharpe/drawdown/stability/manager_score/star_rating)+筛选(type)/排序/搜索+详情弹窗均被 #79 实现;若未来要做「多条件区间组合筛选」增强,重新登记新项
 - [x] **#22 凯利过滤层 walk-forward(方法论沉淀)** — #16(commit 299db6167)已建完整 walk-forward 方法论+kelly_walkforward.py(docs/kelly/analysis/kelly-walkforward-validate/),结论「推荐组合样本外有效,选段最优才过拟合」;本条诉求=未来调参用 walk-forward 防过拟合,方法论+脚本沉淀后独立挂待办无增量
+
+## 2026-08-22 会话收尾移入(首页模拟回测弹窗全链 + P2-11 大盘懒渲染)
+
+> 来源:周末清账批次,main-merge 统一入口合并,版本串链 a377→a385 全部 §0 线上验证(curl 主站+备站)。
+
+- [x] **首页「模拟回测」弹窗上线+三轮迭代** — a377 上线(main 2dd0feaa1):5 操作块+13 列费后盈亏累积表,R2 signal_kelly_trades.json 全历史 27 万笔,过滤口径与首页 AI 建议 1:1;迭代①13 列定宽+hover 当日持仓格→信号关联 ETF 对应高亮(高亮数==持仓数)+四列红正绿负(a383,4602b3232);迭代②累积盈亏口径修正=累计盈亏÷(窗口峰值同时持仓笔数×¥10000),不再按每笔 1 万简单相加(E23 虚假杠杆口径根治),tooltip 三档互证含动态 1:1 公式(a385,0c876ebe5 merge 链);迭代③费率块 6 档快捷+5 参数计费+持仓中笔按最新价预估浮盈(b13d93592)
+- [x] **P2-11 大盘 tab 懒渲染(#80/#92 同项)** — e01de0423(+评审加固)经 af0fc35d6 merge 上线,a384:IntersectionObserver 单例+_marketLazyProxy 懒代理(setOption 入队 init 后回放/getOption 回退/dispose 完整),首帧 canvas 23→5、init 长任务 59ms→0、像素 diff≈0 外观零变化(reviewer 8 项 PASS);加固项=getOption 未 init 返回缓存首帧配置(修切皮肤×懒加载交叉丢主题色时序 bug)+_disposeContainerCharts 错位约束注释;遗留:板块分化 subtab renderIndustryGrid spark 格同根因待拍板
