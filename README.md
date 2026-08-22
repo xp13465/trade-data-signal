@@ -231,12 +231,17 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 
 **用途**：`每日速递` 邮件 —— 收盘后由 [DeepSeek](https://platform.deepseek.com/) 生成 **daily_brief 白话解读**（情绪拐点 + 信号汇总 + 合规 gating），
 邮件正文对 **期货风向 / 公募基金** 做白话化改写，让"机器算出来的数字"变成"人读得懂的话"。
-**订阅推送延伸（2026-08-17）**：速递内容经 [Cloudflare Workers KV](https://developers.cloudflare.com/kv/)（订阅者管理 + api_key 鉴权）与标准 SMTP（`config/email.json`，smtp.163.com）实现「生成即推送」订阅服务，`daily_brief.json` 生成后自动送达订阅者邮箱/Webhook/飞书，避免用户自行上站查看。
+**订阅推送延伸（2026-08-17）**：速递内容经 [Cloudflare Workers KV](https://developers.cloudflare.com/kv/)（订阅者管理 + api_key 鉴权）与标准 SMTP（`config/email.json`，smtp.resend.com，2026-08-17 起）实现「生成即推送」订阅服务，`daily_brief.json` 生成后自动送达订阅者邮箱/Webhook/飞书，避免用户自行上站查看。
 **影子模式验证（2026-08-20，验证期）**：`AI 预测` 方向锚/归因升级处于**影子验证期**——线上输出零改动（`direction_anchor_enabled`/`reflection_factor_attribution_enabled` 默认关，prompt 逐字不变），后台按 date 把「方向锚会预测什么方向」旁路落盘 `data/brief_shadow.json`，次日盘后由 [`scripts/aggregate_shadow.py`](scripts/aggregate_shadow.py) 对账真实方向，聚算 7 个真实交易日影子命中率，用数据决定开/不开/改（契约全文见 [`docs/ai-predict-shadow-validate-20260820.md`](docs/ai-predict-shadow-validate-20260820.md)）。影子是旁路记录，不发邮件/通知、不写主链。
 
 ### 🔉 AI 预测语音播报（edge-tts）
 
 **用途**：首页 AI 预测 🔊 播放按钮朗读预测文本。基于开源库 [edge-tts](https://github.com/rany2/edge-tts)（MIT）—— 调用微软 Edge"大声朗读"的**免费在线 TTS**（非 Azure 商用，无 key/无计费），在服务端（`gen_daily_brief.py`）把 AI 预测合成 `daily_brief_tts_<date>.mp3`（音色 `zh-CN-XiaoxiaoNeural`）上传 R2，前端用 `<audio>` 播放；合成失败不阻塞主流程、前端隐藏按钮降级（备选浏览器 `speechSynthesis` 兜底）。依赖微软免费服务、无 SLA，微软调整协议时升级 edge-tts 包即可（见 [docs/ai-predict-tts-plan.md](docs/ai-predict-tts-plan.md)）。
+
+### 📧 邮件通知（Resend）
+
+**用途**：全站邮件通道 —— 信号/每日速递/告警/订阅推送 + **留言箱新留言提醒站主**（#82：留言保存成功后由 Cloudflare Worker 直调 [Resend HTTP API](https://resend.com/docs/api-reference/)（`api.resend.com/emails`，Bearer 认证）发提醒邮件，try/catch 尽力而为，任何邮件失败不影响留言主流程）。2026-08-17 起邮件发送从 smtp.163.com 切换到 [Resend](https://resend.com/)（`smtp.resend.com` SMTP + HTTP API 双通路共用一把 key，发件地址 hi@fx8.store），Python 侧走 SMTP、Worker 侧走 HTTP API。
+> Worker 内发信原方案 MailChannels 免费集成已于 2024-06-30 停运（[官方公告](https://blog.mailchannels.com/important-update-mailchannels-email-sending-api-for-cloudflare-workers-to-be-terminated/)），故改走 Resend。
 
 ### 🎨 顶部 SVG banner 艺术字（DeepSeek 辅助设计）
 
