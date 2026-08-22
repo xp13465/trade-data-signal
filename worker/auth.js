@@ -65,7 +65,9 @@ const ALLOWED_REDIRECT_HOSTS = new Set([
   '127.0.0.1',
 ]);
 
-function corsHeaders(request) {
+// #79 方案C（2026-08-22）: 以下 helper 加 export 供 worker/fund_score.js 复用
+// （session/Bearer 双模式鉴权 + CORS + JSON 响应），行为零变更。
+export function corsHeaders(request) {
   const origin = request ? (request.headers.get('Origin') || '') : '';
   const h = {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -86,7 +88,7 @@ function corsHeaders(request) {
 
 // ============ helpers ============
 
-function jsonResponse(body, status = 200, opts = {}) {
+export function jsonResponse(body, status = 200, opts = {}) {
   const h = new Headers();
   h.set('Content-Type', 'application/json; charset=utf-8');
   const cors = corsHeaders(opts.request || null);
@@ -732,7 +734,7 @@ function notImplemented(provider, request) {
 // 路由：POST /api/feedback 提交留言；GET /api/feedback 列当前用户留言（倒序）
 //   GET/POST /api/feedback/admin 管理端审核（X-Admin-Pwd + env.FEEDBACK_ADMIN_PASSWORD 认证）
 
-async function getSessionUser(request, env) {
+export async function getSessionUser(request, env) {
   const sessionSecret = env.SESSION_SECRET || '';
   if (!sessionSecret) return null;
   // 1) Bearer token 模式（备站跨域 fetch，与 me 同模式）

@@ -5,10 +5,21 @@
   1. fund_score.json      头部2000只明细(按综合分降序), 含6维度+5指标+经理+凯利完整字段
   2. fund_score_top.json  Top100 精选(按综合分降序), 同结构
 
+#79 step1 字段补齐(2026-08-22): JOIN fund_basic 带出扩展 9 字段(详情弹窗基础信息+
+    #83 公募筛选器字段前置): fund_company/fund_manager/setup_date/scale/
+    management_fee/custody_fee/purchase_fee/strategy/benchmark_text。
+    ⚠️ b.benchmark(业绩比较基准文本)输出改名 benchmark_text, 避免覆盖
+    s.benchmark(评分基准指数 hs300/csi500/gem)。
+    数据覆盖率: 扩展字段由 stage0 Fetcher N fetch_fund_overview 逐只补全,
+    未采集到的基金这些字段为 null(前端需容错)。
+
 输出路径: static-site/data/(deploy.sh rsync 同步到 trade/static-site/data/ 推 git)
 R2 上传: upload_r2.py upload-fund-score(§8.1 新类别按前缀命令)
 
 用法: python scripts/export_fund_score.py [--top-n 2000]
+
+复现: cd /Users/linhuichen/code/trade-data && .venv/bin/python scripts/export_fund_score.py --top-n 2000
+依赖: data/public_fund.db (fund_score 最新 score_date + fund_basic 扩展字段)
 """
 from __future__ import annotations
 
@@ -43,9 +54,18 @@ def _row_to_dict(r) -> dict:
 
 
 def _query_top_funds(conn: sqlite3.Connection, top_n: int) -> list[dict]:
-    """查 fund_score 头部 N 只 (按综合分降序), JOIN fund_basic 拿基金名+类型。"""
+    """查 fund_score 头部 N 只 (按综合分降序), JOIN fund_basic 拿基金名+类型+扩展字段。
+
+    #79 step1(2026-08-22): 补 fund_company/fund_manager/setup_date/scale/
+    management_fee/custody_fee/purchase_fee/strategy/benchmark_text 9 字段
+    (详情弹窗基础信息区块 + #83 公募筛选器字段前置)。
+    b.benchmark 改名 benchmark_text 输出, 不覆盖 s.benchmark(评分基准指数)。
+    """
     rows = conn.execute(
         "SELECT s.fund_code, b.fund_name, b.fund_type, "
+        "b.fund_company, b.fund_manager, b.setup_date, b.scale, "
+        "b.management_fee, b.custody_fee, b.purchase_fee, "
+        "b.strategy, b.benchmark AS benchmark_text, "
         "s.composite_score, s.star_rating, "
         "s.score_return, s.score_risk_adjusted, s.score_drawdown, "
         "s.score_stability, s.score_scale, s.score_fee, "

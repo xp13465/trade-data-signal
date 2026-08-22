@@ -12,6 +12,9 @@ import dataQueryHandler from './dataQuery.js';
 // AI 每日速递订阅服务 handler（2026-08-17：/api/subscribe/register|unregister|status|recipients 分发到此）
 // 与 subscribe.js（信号订阅）路径前缀相同但端点不同，需在本文件先于通用 /api/* 分发判。
 import subscriptionServiceHandler from './subscription_service.js';
+// 场外基金评分全量查询 handler（#79 方案C 2026-08-22：/api/fund_score 分页/筛选/排序/搜索，
+// D1 trade-fund-score 数据源，session 鉴权复用 auth.js，需先于通用 /api/* 分发判）
+import fundScoreHandler from './fund_score.js';
 
 const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
@@ -276,6 +279,10 @@ export default {
     // 2026-08-17 新增 /api/data/*：统一数据查询 API（鉴权/限流/计量），在 subscribeHandler 前判（避免被通用 /api/* 吞）
     if (url.pathname.startsWith('/api/data/')) {
       return dataQueryHandler(request, env);
+    }
+    // #79 方案C（2026-08-22）：场外基金评分全量分页 API（D1 数据源），通用 /api/* 前判
+    if (url.pathname === '/api/fund_score') {
+      return fundScoreHandler(request, env);
     }
     // 2026-08-17 AI 每日速递订阅服务：/api/subscribe/register|unregister|status|recipients 分发到此
     // 在通用 /api/*（subscribe.js 信号订阅）前判，避免被其 404 吞掉。

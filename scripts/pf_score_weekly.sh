@@ -41,6 +41,9 @@ RC2=$?
 rsync -a --checksum "$REPO/static-site/data/fund_score"* "/Users/linhuichen/code/trade/static-site/data/" 2>/dev/null || true
 "$PY" "$REPO/scripts/upload_r2.py" upload-fund-score
 RC3=$?
+# D1 全量同步（#79 方案C step3: /api/fund_score 数据源; 失败告警不阻塞评分主流程）
+bash /Users/linhuichen/code/trade/scripts/sync_fund_score_to_d1.sh || \
+  echo "⚠ sync_fund_score_to_d1 失败（不阻塞主流程, D1 数据滞后一轮）"
 echo "=== $(date '+%F %T') pf-score-weekly end compute=$RC1 export=$RC2 upload=$RC3 ==="
 exit $RC1
 } >>"$LOG" 2>&1

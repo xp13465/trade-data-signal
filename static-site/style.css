@@ -6316,6 +6316,25 @@ main { padding: 16px 24px; }
   .fund-score-list { grid-template-columns: 1fr; } /* 窄屏单列,避免卡片过挤 */
 }
 
+/* #79 方案C（2026-08-22）: API 分页加载态 + 详情弹窗新增样式 */
+.fund-score-loading {
+  padding: 28px 16px; text-align: center; color: var(--text-3); font-size: 14px;
+}
+/* 弹窗头类型 chip（与 fund-kelly-tier 同风格） */
+.fund-type-chip {
+  display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px;
+  border: 1px solid var(--border-strong, var(--border)); color: var(--text-2);
+  background: var(--bg-card);
+}
+/* 六维雷达 SVG 居中限宽 */
+.fund-radar-svg { display: block; max-width: 340px; margin: 4px auto 0; }
+/* 基础信息表（区块5）: 键列窄灰、值列正文色，随皮肤变量 */
+.fund-info-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.fund-info-table td { padding: 5px 6px; border-bottom: 1px dashed var(--border, rgba(128,128,128,0.2)); vertical-align: top; }
+.fund-info-table tr:last-child td { border-bottom: none; }
+.fund-info-k { width: 118px; color: var(--text-3); white-space: nowrap; }
+.fund-info-v { color: var(--text-1); word-break: break-all; }
+
 /* === A5 真 pin 复盘（2026-07-24）=== */
 /* 📌 按钮：h3 末尾，默认灰色描边圆角；active 状态用 primary 实心高亮 */
 .pin-btn {

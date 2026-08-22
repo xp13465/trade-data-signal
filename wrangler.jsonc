@@ -28,5 +28,15 @@
 	// upload_r2.py 仍上传到 signal-data bucket，Worker 用 binding 直读，前端改走 ss.fx8.store/r2/。
 	"r2_buckets": [
 		{ "binding": "R2_BUCKET", "bucket_name": "signal-data" }
+	],
+	// D1 数据库 binding（#79 方案C 2026-08-22）：场外基金评分全量 27418 只分页查询。
+	// 数据由 scripts/sync_fund_score_to_d1.sh 从本地 public_fund.db fund_score 全量同步（幂等可重跑），
+	// worker/fund_score.js 提供 /api/fund_score 分页/筛选/排序/搜索接口。
+	"d1_databases": [
+		{
+			"binding": "FUND_SCORE_DB",
+			"database_name": "trade-fund-score",
+			"database_id": "68c19715-3570-4f1d-8430-ec43dd856b5e"
+		}
 	]
 }

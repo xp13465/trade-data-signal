@@ -22632,15 +22632,21 @@ async function renderFund() {
   else await renderEtfScore(subContent); // 默认 场内ETF
 }
 
-// ============ 场外基金评分排行（Phase A：Top100 列表 + 排序/搜索/筛选） ============
-// 数据源: R2 直链 https://ss.fx8.store/r2/fund_score/fund_score_top.json（83KB, Top100）
-// CF fallback: ./data/fund_score_top.json（按 §8.1 优先 R2，CF 也 200 作兜底）
-// 34 字段: fund_code/name/type/composite_score/star_rating + 6维度 + 5风险 + 经理6维 + 凯利 + 市场乘数 + final_suggestion
+// ============ 场外基金评分排行（Phase B/C 全量化 #79 方案C, 2026-08-22） ============
+// 主数据源: /api/fund_score（CF Worker + D1 trade-fund-score, 全市场 ≈27600 只分页,
+//   服务端分页/筛选/排序/搜索; scripts/sync_fund_score_to_d1.sh 每日同步）
+// fallback 数据源（API 失败/未就绪时保底不白屏, 既有链路不动摇）:
+//   R2 直链 https://ss.fx8.store/r2/fund_score/fund_score_top.json（Top100）
+//   CF fallback: ./data/fund_score_top.json
+// 43 字段: fund_code/name/type/composite_score/star_rating + 6维度 + 5风险 + 经理6维
+//   + 凯利 + 市场乘数 + final_suggestion + #79 step1 扩展(fund_company/fund_manager/
+//   setup_date/scale/management_fee/custody_fee/purchase_fee/strategy/benchmark_text)
 // 复用 ETF 评分成熟模式: _etfScoreState / _renderEtfScoreBody / _etfScoreTier / _etfScoreColor
-// Phase A: 列表 + 排序/搜索/筛选; Phase B: 详情弹窗 5 区块; Phase C: 雷达图 + 实战筛选器
 const FUND_SCORE_TOP_URL_R2 = "https://ss.fx8.store/r2/fund_score/fund_score_top.json";
 const FUND_SCORE_TOP_URL_CF = "./data/fund_score_top.json";
-const FUND_SCORE_PAGE_SIZE = 50;  // Top100 分 2 页（移动端单列浏览友好）
+const FUND_SCORE_PAGE_SIZE = 50;  // API 模式服务端分页 50/页（27600只≈553页）; fallback Top100 同尺寸
+// API 排序键白名单（须与 worker/fund_score.js SORTABLE 一致）
+const FUND_SCORE_API_SORT_KEYS = ["composite_score", "half_kelly_position", "final_suggestion", "sharpe", "manager_score", "star_rating", "score_drawdown", "score_stability"];
 
 // tier: 基于 composite_score 分 5 档（参考 ETF 5 档但阈值不同; 基金评分分布偏中高, 阈值更严）
 //   >=85 strong-buy(重点留意) / 75-85 buy(关注机会) / 65-75 hold(持有观察) / 50-65 sell(风险提示) / <50 strong-sell(重点规避)
@@ -22650,10 +22656,14 @@ const FUND_SCORE_TIER_LABEL = {
 };
 // fundTypeFilter: "all" 或具体 fund_type 字符串（如下拉选择 "债券型-混合二级"）
 // sortKey/sortDir: 排序键与方向，默认 composite_score 降序
+// source: "api"=D1 服务端分页模式 / "static"=fund_score_top.json 本地分页模式（fallback）
+//   api 模式: all=当前页行, total/pages 由服务端返回, 筛选/排序/搜索/翻页走服务端
+//   static 模式: all=全量 Top100, 前端本地过滤排序分页（原 Phase A 行为不变）
 const _fundScoreState = {
   all: [], filtered: [], page: 1, search: "",
   meta: null, fundTypeFilter: "all",
   sortKey: "composite_score", sortDir: "desc",
+  total: 0, pages: 1, typeCounts: [], source: "static",
   loaded: false, loading: false, error: null
 };
 
@@ -22677,7 +22687,61 @@ function _fundScoreColor(score) {
 }
 
 function _fundScorePages() {
+  // api 模式: 服务端返回的 pages（按 total/size 算）; static 模式: 本地 filtered 算
+  if (_fundScoreState.source === "api") {
+    return Math.max(1, _fundScoreState.pages || 1);
+  }
   return Math.max(1, Math.ceil(_fundScoreState.filtered.length / FUND_SCORE_PAGE_SIZE));
+}
+
+// API 请求 helper(#79 step5): 复用 auth 的基地址/token 双模式
+//   主站: 同源相对路径 + credentials:include(session cookie)
+//   备站: https://ss.fx8.store 绝对路径 + Authorization Bearer(localStorage auth_token)
+function _fundScoreApiFetch(params) {
+  const base = _authApiBase();
+  const token = _getAuthToken();
+  const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
+  const credentials = _isMainSite() ? 'include' : 'omit';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  return fetch(base + "/api/fund_score?" + params, {
+    headers, credentials, signal: controller.signal, cache: "no-cache",
+  }).then((r) => {
+    clearTimeout(timer);
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }).catch((e) => {
+    clearTimeout(timer);
+    throw e;
+  });
+}
+
+// API 模式拉取当前页（筛选/排序/搜索/翻页统一入口），成功更新 state 重渲列表区,
+// 失败抛错由调用方决定 fallback（首次加载 fallback 到 Top100 JSON; 翻页失败保留旧页+提示）
+async function _loadFundScorePage() {
+  const st = _fundScoreState;
+  const p = new URLSearchParams({
+    page: String(st.page || 1),
+    size: String(FUND_SCORE_PAGE_SIZE),
+    sort: FUND_SCORE_API_SORT_KEYS.indexOf(st.sortKey) >= 0 ? st.sortKey : "composite_score",
+    dir: st.sortDir === "asc" ? "asc" : "desc",
+  });
+  if (st.search && st.search.trim()) p.set("search", st.search.trim());
+  if (st.fundTypeFilter && st.fundTypeFilter !== "all") p.set("type", st.fundTypeFilter);
+  const isFirstPage = (st.page || 1) <= 1;
+  if (isFirstPage) p.set("types", "1");  // 首页附带类型分布（工具栏下拉）
+  const r = await _fundScoreApiFetch(p.toString());
+  if (!r || !Array.isArray(r.data)) throw new Error("API 返回结构异常");
+  st.source = "api";
+  st.all = r.data;
+  st.total = r.total || 0;
+  st.pages = r.pages || 1;
+  if (r.type_counts) st.typeCounts = r.type_counts;
+  if (r.date || r.method) {
+    st.meta = Object.assign({}, st.meta || {}, { date: r.date || (st.meta && st.meta.date), method: r.method || (st.meta && st.meta.method) });
+  }
+  st.page = Math.min(Math.max(r.page || 1, 1), st.pages);
+  _renderFundScoreBody();
 }
 
 // 排序标签（中文，用于统计条副标题）
@@ -22709,6 +22773,19 @@ function _sortFundScoreList(arr) {
 }
 
 function _applyFundScoreFilter() {
+  // api 模式(#79): 筛选/排序/搜索全部走服务端, 回第 1 页拉取; 失败保留旧页并提示
+  if (_fundScoreState.source === "api") {
+    _fundScoreState.page = 1;
+    const body = document.getElementById("fund-score-body");
+    if (body) body.innerHTML = '<div class="fund-score-loading">加载中…</div>';
+    _loadFundScorePage().catch((err) => {
+      console.warn("[fund_score] API 翻页/筛选失败, 保留旧数据:", err);
+      const b = document.getElementById("fund-score-body");
+      if (b) b.insertAdjacentHTML("afterbegin",
+        '<div class="fund-score-empty">' + _t("fund_score_load_failed") + '：' + (err && err.message ? err.message : "") + '（展示上一次结果）</div>');
+    });
+    return;
+  }
   const s = _fundScoreState.search.trim().toLowerCase();
   let filtered = _fundScoreState.all.slice();
   if (s) {
@@ -22746,7 +22823,7 @@ function _renderFundScoreRow(e, rank) {
     ? '<span class="fund-sharpe" title="' + _t("fund_score_sharpe") + '">' + _t("fund_score_sharpe") + ' ' + e.sharpe.toFixed(2) + '</span>' : '';
   const mgrTag = e.manager_score != null
     ? '<span class="fund-mgr" title="' + _t("fund_score_manager_score") + '">' + _t("fund_score_manager_score") + ' ' + e.manager_score.toFixed(0) + '</span>' : '';
-  return '<div class="fund-score-row fund-tier-' + tier + '">'
+  return '<div class="fund-score-row fund-tier-' + tier + '" data-fund-code="' + _esc(e.fund_code) + '" title="点击查看评分详情">'
     + '<div class="fund-row-main">'
     + '<span class="fund-rank">#' + rank + '</span>'
     + '<span class="fund-code">' + _esc(e.fund_code) + '</span>'
@@ -22792,49 +22869,287 @@ function _renderFundScoreBody() {
   const body = document.getElementById("fund-score-body");
   if (!body) return;
   const st = _fundScoreState;
+  const isApi = st.source === "api";
   const filtered = st.filtered;
 
-  // 统计条
-  let html = '<div class="fund-score-stat">共 ' + st.all.length + ' ' + _t("fund_score_count_unit")
-    + (st.meta && st.meta.count ? '（Top ' + st.meta.count + '）' : '')
-    + (st.search || st.fundTypeFilter !== "all" ? ' · 筛选命中 ' + filtered.length : '')
-    + ' · 按' + _fundScoreSortLabel() + _t("fund_score_sort_dir_suffix")
-    + (st.meta && st.meta.date ? ' · ' + _t("fund_score_data_label") + ' ' + _esc(st.meta.date) : '')
-    + '</div>';
+  // 统计条（api 模式: 全量 total + 页码; static 模式: Top100 口径保持原文案）
+  let html;
+  if (isApi) {
+    html = '<div class="fund-score-stat">共 ' + st.total + ' ' + _t("fund_score_count_unit")
+      + ' · 第 ' + st.page + '/' + _fundScorePages() + ' 页'
+      + (st.search || st.fundTypeFilter !== "all" ? ' · 本页 ' + st.all.length + ' 只' : '')
+      + ' · 按' + _fundScoreSortLabel() + _t("fund_score_sort_dir_suffix")
+      + (st.meta && st.meta.date ? ' · ' + _t("fund_score_data_label") + ' ' + _esc(st.meta.date) : '')
+      + '</div>';
+  } else {
+    html = '<div class="fund-score-stat">共 ' + st.all.length + ' ' + _t("fund_score_count_unit")
+      + (st.meta && st.meta.count ? '（Top ' + st.meta.count + '）' : '')
+      + (st.search || st.fundTypeFilter !== "all" ? ' · 筛选命中 ' + filtered.length : '')
+      + ' · 按' + _fundScoreSortLabel() + _t("fund_score_sort_dir_suffix")
+      + (st.meta && st.meta.date ? ' · ' + _t("fund_score_data_label") + ' ' + _esc(st.meta.date) : '')
+      + '</div>';
+  }
 
-  if (filtered.length === 0) {
+  const rows = isApi ? st.all : filtered;
+  if (!rows || rows.length === 0) {
     html += '<div class="fund-score-empty">' + _t("fund_score_empty") + '</div>';
     body.innerHTML = html;
     return;
   }
 
-  // 单区列表（Top100, 50/页分页）
+  // 列表（api 模式 all 即当前页; static 模式本地切片）
   const pages = _fundScorePages();
-  if (st.page > pages) st.page = pages;
-  const start = (st.page - 1) * FUND_SCORE_PAGE_SIZE;
-  const slice = filtered.slice(start, start + FUND_SCORE_PAGE_SIZE);
+  if (!isApi) {
+    if (st.page > pages) st.page = pages;
+    if (st.page < 1) st.page = 1;
+  }
+  const start = isApi ? 0 : (st.page - 1) * FUND_SCORE_PAGE_SIZE;
+  const slice = isApi ? rows : rows.slice(start, start + FUND_SCORE_PAGE_SIZE);
   html += '<div class="fund-score-list">';
   slice.forEach((e, i) => { html += _renderFundScoreRow(e, start + i + 1); });
   html += '</div>';
-  if (pages > 1) html += _renderFundScorePager(st.page, pages, filtered.length);
+  if (pages > 1) html += _renderFundScorePager(st.page, pages, isApi ? st.total : filtered.length);
   body.innerHTML = html;
+
+  // 绑定行点击 -> 详情弹窗(#79 step6)
+  body.querySelectorAll(".fund-score-row[data-fund-code]").forEach((rowEl) => {
+    rowEl.onclick = () => openFundScoreDetailModal(rowEl.dataset.fundCode);
+  });
 
   // 绑定分页按钮
   body.querySelectorAll(".fund-page-btn[data-page]").forEach((b) => {
     b.onclick = () => {
       if (b.disabled) return;
       _fundScoreState.page = parseInt(b.dataset.page, 10) || 1;
-      _renderFundScoreBody();
+      if (_fundScoreState.source === "api") {
+        // api 模式: 服务端翻页（保留旧页内容 + loading 覆盖层防闪白）
+        body.insertAdjacentHTML("afterbegin", '<div class="fund-score-loading">加载中…</div>');
+        _loadFundScorePage().catch((err) => {
+          console.warn("[fund_score] API 翻页失败:", err);
+          const lb = document.querySelector("#fund-score-body .fund-score-loading");
+          if (lb) lb.remove();
+          const bb = document.getElementById("fund-score-body");
+          if (bb) bb.insertAdjacentHTML("afterbegin",
+            '<div class="fund-score-empty">' + _t("fund_score_load_failed") + '：' + (err && err.message ? err.message : "") + '</div>');
+        });
+      } else {
+        _renderFundScoreBody();
+      }
       const top = body.getBoundingClientRect().top + window.scrollY - 80;
       window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
     };
   });
 }
 
-// 场外基金评分排行（Phase A：Top100 列表 + 排序/搜索/筛选）
-// 数据源: R2 直链 https://ss.fx8.store/r2/fund_score/fund_score_top.json (Top100, 83KB)
-// 失败 fallback: ./data/fund_score_top.json (CF Static Assets)
-// 复用 ETF 评分成熟模式（_etfScoreState / _renderEtfScoreBody），平行实现 _fundScoreState
+// ===== 基金评分详情弹窗（#79 方案C step6）=====
+// 复用 ETF 弹窗成熟模式（rule-modal + signal-chart-modal-body + lab-custom-score-card 区块）。
+// 5 区块: ①决策头(名称/代码/类型/星级/tier chip/综合分/数据日期) ②凯利仓位
+//         ③6维雷达SVG(D1业绩/D2风险调整/D3回撤控制/D4稳定性/D5规模流动性/D6费率友好,
+//           标签对齐 purpose-notes "offshore" 公示口径) ④5风险指标(夏普/索提诺/卡玛/
+//           信息比率/Alpha)+经理6维(任职/规模/稳定度/回撤/一致性/专注度)
+//         ⑤基础信息(#79 step1 扩展字段; 部分基金 fund_basic 缺失显 '-' 注明逐步补全)
+function _fundScoreRadarSVG(e) {
+  const dims = [
+    { key: "score_return", zh: "业绩" },
+    { key: "score_risk_adjusted", zh: "风险调整" },
+    { key: "score_drawdown", zh: "回撤控制" },
+    { key: "score_stability", zh: "稳定性" },
+    { key: "score_scale", zh: "规模流动性" },
+    { key: "score_fee", zh: "费率友好" }
+  ];
+  const cx = 140, cy = 104, R = 72;
+  const pt = (i, r) => {
+    const ang = (-90 + i * 60) * Math.PI / 180;
+    return [cx + r * Math.cos(ang), cy + r * Math.sin(ang)];
+  };
+  const ringPts = [];
+  for (let i = 0; i < 6; i++) { const p = pt(i, R); ringPts.push(p[0].toFixed(1) + "," + p[1].toFixed(1)); }
+  const color = _fundScoreColor(e.composite_score);
+  // 数据多边形（null 按 0 画, 分值标签如实显示 '-'）
+  const dpts = [];
+  for (let i = 0; i < 6; i++) {
+    const v = e[dims[i].key];
+    const val = (v == null || isNaN(v)) ? 0 : Math.max(0, Math.min(100, v));
+    const p = pt(i, R * val / 100);
+    dpts.push(p[0].toFixed(1) + "," + p[1].toFixed(1));
+  }
+  // 网格（25/50/75/100 四环同心六边形）+ 轴线（内联 SVG + CSS 变量, 随皮肤自动跟随）
+  let svg = "";
+  [25, 50, 75, 100].forEach((lv) => {
+    const ps = [];
+    for (let i = 0; i < 6; i++) { const p = pt(i, R * lv / 100); ps.push(p[0].toFixed(1) + "," + p[1].toFixed(1)); }
+    svg += '<polygon points="' + ps.join(" ") + '" fill="none" stroke="var(--border,#d0d7de)" stroke-width="0.6" opacity="0.55"/>';
+  });
+  for (let i = 0; i < 6; i++) {
+    const p = pt(i, R);
+    svg += '<line x1="' + cx + '" y1="' + cy + '" x2="' + p[0].toFixed(1) + '" y2="' + p[1].toFixed(1) + '" stroke="var(--border,#d0d7de)" stroke-width="0.6" opacity="0.55"/>';
+  }
+  // 外侧标签 + 分值小字（按角度定 text-anchor: 顶部/底部 middle, 右半 start, 左半 end）
+  for (let i = 0; i < 6; i++) {
+    const p = pt(i, R + 15);
+    const anchor = (i === 0 || i === 3) ? "middle" : (i < 3 ? "start" : "end");
+    const dy = i === 0 ? -4 : (i === 3 ? 10 : 4);
+    const v = e[dims[i].key];
+    svg += '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] + dy).toFixed(1) + '" text-anchor="' + anchor + '" font-size="11" fill="var(--text-2,#4a5568)">' + dims[i].zh + '</text>'
+      + '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] + dy + 13).toFixed(1) + '" text-anchor="' + anchor + '" font-size="10" font-weight="600" fill="' + color + '">' + ((v != null && !isNaN(v)) ? v.toFixed(1) : "-") + '</text>';
+  }
+  return '<svg class="fund-radar-svg" viewBox="0 0 280 228" width="100%" role="img" aria-label="六维评分雷达图">'
+    + svg
+    + '<polygon points="' + dpts.join(" ") + '" fill="' + color + '" fill-opacity="0.18" stroke="' + color + '" stroke-width="1.6"/>'
+    + dpts.map((s) => { const xy = s.split(","); return '<circle cx="' + xy[0] + '" cy="' + xy[1] + '" r="2.4" fill="' + color + '"/>'; }).join("")
+    + '</svg>';
+}
+
+function openFundScoreDetailModal(code) {
+  // 从当前列表 state 查 item（api 模式 all=当前页; static 模式 all=Top100）
+  const e = (_fundScoreState.all || []).find((x) => x.fund_code === code);
+  if (!e) return;
+  let modal = document.getElementById("fundScoreDetailModal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "fundScoreDetailModal";
+    modal.className = "rule-modal hidden";
+    modal.innerHTML = `<div class="rule-modal-overlay"></div>
+      <div class="rule-modal-body signal-chart-modal-body">
+        <div class="rule-modal-header">
+          <h3 class="fund-detail-title">🧾 场外基金评分详情</h3>
+          <button class="rule-modal-close" aria-label="关闭">&times;</button>
+        </div>
+        <div class="rule-modal-content fund-detail-content"></div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector(".rule-modal-overlay").onclick = closeFundScoreDetailModal;
+    modal.querySelector(".rule-modal-close").onclick = closeFundScoreDetailModal;
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && !modal.classList.contains("hidden")) closeFundScoreDetailModal();
+    });
+  }
+  modal.querySelector(".fund-detail-title").textContent = "🧾 " + (e.fund_name || code) + " 评分详情";
+  const body = modal.querySelector(".fund-detail-content");
+
+  // 数字格式 helper: null/NaN -> '-'
+  const fnum = (v, d, suf) => ((v == null || isNaN(v)) ? "-" : (v.toFixed(d == null ? 2 : d) + (suf || "")));
+  const tier = _fundScoreTier(e);
+  const tierLabel = ({ "strong-buy": "强力", "buy": "优秀", "hold": "均衡", "sell": "偏弱", "strong-sell": "较差" })[tier] || "";
+  const col = _fundScoreColor(e.composite_score);
+  const starN = Math.max(0, Math.min(5, parseInt(e.star_rating, 10) || 0));
+  const starTxt = "★".repeat(starN) + '<span style="opacity:.3">' + "★".repeat(5 - starN) + "</span>";
+  const srcTxt = _fundScoreState.source === "api"
+    ? (_t("fund_score_data_label") + " " + _esc((_fundScoreState.meta && _fundScoreState.meta.date) || "-") + " · 全市场")
+    : (_t("fund_score_data_label") + " " + _esc((_fundScoreState.meta && _fundScoreState.meta.date) || "-") + " · Top100 兜底");
+
+  // 区块1: 决策头（名称/代码/类型 + tier chip + 星级 + 综合分大字 + 数据时点）
+  const headHTML = `<div class="lab-custom-score-card lab-custom-block-gap">
+    <div class="lab-custom-score-head">
+      <div class="lab-custom-score-title">${_esc(e.fund_name || "")} <span class="lab-custom-score-date">📅 ${_esc(e.fund_code || "")}</span></div>
+      <div class="lab-custom-adapt">
+        <span class="fund-type-chip">${_esc(e.fund_type || "-")}</span>
+        <span class="etf-tier-chip etf-tier-chip-${tier}">${tierLabel}</span>
+        <span style="margin-left:6px;color:#e6a23c;letter-spacing:1px">${starTxt}</span>
+      </div>
+    </div>
+    <div class="lab-custom-score-grid">
+      <div class="lab-custom-score-cell">
+        <div class="lab-custom-cell-label">综合评分<span class="lab-custom-cell-sublabel">6维加权</span></div>
+        <div class="lab-custom-cell-score" style="color:${col}">${fnum(e.composite_score)}</div>
+      </div>
+      <div class="lab-custom-score-cell">
+        <div class="lab-custom-cell-label">建议仓位<span class="lab-custom-cell-sublabel">含市场乘数</span></div>
+        <div class="lab-custom-cell-score" style="color:${col}">${fnum(e.final_suggestion, 1, "%")}</div>
+      </div>
+      <div class="lab-custom-score-cell">
+        <div class="lab-custom-cell-label">经理综合分<span class="lab-custom-cell-sublabel">经理6维加权</span></div>
+        <div class="lab-custom-cell-score">${fnum(e.manager_score, 1)}</div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text-3);margin-top:6px">${srcTxt}${e.data_completeness != null ? " · 数据完整度 " + (e.data_completeness * 100).toFixed(0) + "%" : ""}</div>
+  </div>`;
+
+  // 区块2: 凯利仓位（档位/半凯利/建议仓位/凯利分数/胜率/盈亏比/市场乘数）
+  // 口径对齐公示: 建议仓位=半凯利×市场乘数; 凯利参数=该基金历史净值回测
+  const kellyHTML = `<div class="lab-custom-score-card lab-custom-block-gap">
+    <div class="lab-custom-section-title">🎲 凯利仓位</div>
+    <div class="lab-custom-score-grid">
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">凯利档位</div><div class="lab-custom-cell-score">${_esc(e.kelly_tier || "-")}</div></div>
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">半凯利仓位</div><div class="lab-custom-cell-score">${fnum(e.half_kelly_position, 1, "%")}</div></div>
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">市场乘数</div><div class="lab-custom-cell-score">${fnum(e.market_adjustment)}</div></div>
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">凯利分数</div><div class="lab-custom-cell-score">${fnum(e.kelly_fraction, 1, "%")}</div></div>
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">回测胜率</div><div class="lab-custom-cell-score">${fnum(e.kelly_win_rate != null ? e.kelly_win_rate * 100 : null, 1, "%")}</div></div>
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">盈亏比</div><div class="lab-custom-cell-score">${fnum(e.kelly_win_loss_ratio)}</div></div>
+    </div>
+    <div style="font-size:11px;color:var(--text-3);margin-top:6px">建议仓位 = 半凯利 × 市场乘数；凯利参数来自该基金历史净值回测，历史统计参考，非投资建议。</div>
+  </div>`;
+
+  // 区块3: 6维雷达 SVG
+  const radarHTML = `<div class="lab-custom-score-card lab-custom-block-gap">
+    <div class="lab-custom-section-title">📡 六维评分雷达</div>
+    ${_fundScoreRadarSVG(e)}
+  </div>`;
+
+  // 区块4: 5风险指标 + 经理6维
+  const riskHTML = `<div class="lab-custom-score-card lab-custom-block-gap">
+    <div class="lab-custom-section-title">⚠️ 风险指标（近3年年化口径）</div>
+    <div class="lab-custom-score-grid">
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">夏普比率</div><div class="lab-custom-cell-score">${fnum(e.sharpe)}</div></div>
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">索提诺比率</div><div class="lab-custom-cell-score">${fnum(e.sortino)}</div></div>
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">卡玛比率</div><div class="lab-custom-cell-score">${fnum(e.calmar)}</div></div>
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">信息比率</div><div class="lab-custom-cell-score">${fnum(e.information_ratio)}</div></div>
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">Alpha</div><div class="lab-custom-cell-score">${fnum(e.alpha)}</div></div>
+    </div>
+  </div>
+  <div class="lab-custom-score-card lab-custom-block-gap">
+    <div class="lab-custom-section-title">👨‍💼 基金经理六维</div>
+    <div class="lab-custom-score-grid">
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">经理综合分</div><div class="lab-custom-cell-score">${fnum(e.manager_score, 1)}</div></div>
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">任职年限</div><div class="lab-custom-cell-score">${fnum(e.m1_tenure, 1)}</div></div>
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">管理规模</div><div class="lab-custom-cell-score">${fnum(e.m2_scale, 1)}</div></div>
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">业绩稳定度</div><div class="lab-custom-cell-score">${fnum(e.m3_perf_stability, 1)}</div></div>
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">回撤控制</div><div class="lab-custom-cell-score">${fnum(e.m4_drawdown, 1)}</div></div>
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">风格一致性</div><div class="lab-custom-cell-score">${fnum(e.m5_coherence, 1)}</div></div>
+      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">行业专注度</div><div class="lab-custom-cell-score">${fnum(e.m6_focus, 1)}</div></div>
+    </div>
+  </div>`;
+
+  // 区块5: 基础信息（#79 step1 扩展字段; fund_basic 未覆盖的基金显 '-'，随 akshare 覆盖度逐步补全）
+  const infoRows = [
+    ["基金公司", e.fund_company],
+    ["基金经理", e.fund_manager],
+    ["成立日期", e.setup_date],
+    ["最新规模（亿元）", e.scale != null ? Number(e.scale).toFixed(2) : null],
+    ["管理费（年）", e.management_fee != null ? (e.management_fee * 100).toFixed(2) + "%" : null],
+    ["托管费（年）", e.custody_fee != null ? (e.custody_fee * 100).toFixed(2) + "%" : null],
+    ["申购费", e.purchase_fee != null ? (e.purchase_fee * 100).toFixed(2) + "%" : null],
+    ["投资策略", e.strategy],
+    ["业绩基准", e.benchmark_text]
+  ];
+  const infoHTML = `<div class="lab-custom-score-card lab-custom-block-gap">
+    <div class="lab-custom-section-title">📋 基础信息</div>
+    <table class="fund-info-table"><tbody>
+      ${infoRows.map(([k, v]) => `<tr><td class="fund-info-k">${k}</td><td class="fund-info-v">${_esc(v == null || v === "" ? "-" : v)}</td></tr>`).join("")}
+    </tbody></table>
+    <div style="font-size:11px;color:var(--text-3);margin-top:6px">'-' 表示该字段暂缺（akshare 基础信息覆盖度逐步补全）。</div>
+  </div>`;
+
+  // 合规底栏（复用站内既有 helper）
+  const footerHTML = (typeof _labCustomFooterHTML === "function")
+    ? _labCustomFooterHTML(null, null) : "";
+
+  body.innerHTML = headHTML + kellyHTML + radarHTML + riskHTML + infoHTML + footerHTML;
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+
+function closeFundScoreDetailModal() {
+  const modal = document.getElementById("fundScoreDetailModal");
+  if (modal) modal.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+// 场外基金评分排行（Phase B/C 全量化 #79 方案C: D1 服务端分页 + Top100 fallback）
+// 主数据源: /api/fund_score（worker/fund_score.js, 全市场 ≈27600 只分页/筛选/排序/搜索）
+// fallback（API 失败/未就绪/未登录 401 保底, 不白屏）:
+//   R2 直链 https://ss.fx8.store/r2/fund_score/fund_score_top.json (Top100, 83KB)
+//   失败再 fallback: ./data/fund_score_top.json (CF Static Assets)
 async function renderOffshoreFund(container) {
   const _c = container || content;
   _c.innerHTML = "";
@@ -22846,43 +23161,16 @@ async function renderOffshoreFund(container) {
   loadingEl.innerHTML = '<span class="loading__spinner"></span><span class="loading__text">' + _t("fund_score_loading") + '</span>';
   _c.appendChild(loadingEl);
 
-  // fetchJSON R2 直链，失败 fallback CF（§8.1 优先 R2；CF 实测 200 作兜底）
-  let r = null;
-  let err = null;
-  try {
-    r = await fetchJSON(FUND_SCORE_TOP_URL_R2);
-  } catch (e1) {
-    try {
-      r = await fetchJSON(FUND_SCORE_TOP_URL_CF);
-    } catch (e2) {
-      err = (e2 && e2.message) ? e2.message : String(e2);
-    }
-  }
-  if (loadingEl.parentNode) loadingEl.parentNode.removeChild(loadingEl);
-
-  if (!r || !r.data) {
-    const fail = document.createElement("div");
-    fail.className = "fund-score-empty";
-    fail.textContent = _t("fund_score_load_failed") + (err ? '：' + err : '');
-    _c.appendChild(fail);
-    return;
-  }
-
-  // 数据填充到 state
-  const all = (r.data || []).slice();
-  _fundScoreState.all = all;
-  _fundScoreState.filtered = all.slice();
-  _fundScoreState.meta = {
-    date: r.date,
-    count: r.count,
-    method: r.method,
-    update_date: all[0] && all[0].update_date
-  };
+  // state 重置（排序偏好下方从 localStorage 恢复）
   _fundScoreState.page = 1;
   _fundScoreState.search = "";
   _fundScoreState.fundTypeFilter = "all";
   _fundScoreState.sortKey = "composite_score";
   _fundScoreState.sortDir = "desc";
+  _fundScoreState.total = 0;
+  _fundScoreState.pages = 1;
+  _fundScoreState.typeCounts = [];
+  _fundScoreState.source = "static";
   _fundScoreState.loaded = true;
   _fundScoreState.loading = false;
   _fundScoreState.error = null;
@@ -22900,23 +23188,81 @@ async function renderOffshoreFund(container) {
     }
   } catch (e) {}
 
+  // 1) 主链: /api/fund_score（D1 服务端分页; 此刻列表容器未建, _renderFundScoreBody
+  //    内部 getElementById 找不到容器安全 no-op, state 填充后下方统一渲染）
+  let apiOk = false;
+  let apiErr = null;
+  try {
+    await _loadFundScorePage();
+    apiOk = true;
+  } catch (e) {
+    apiErr = e;
+  }
+
+  // 2) fallback: R2 Top100 -> CF Top100（API 失败/未就绪/未登录 401 保底, 既有链路不动摇）
+  let r = null;
+  let err = apiErr ? ((apiErr && apiErr.message) ? apiErr.message : String(apiErr)) : null;
+  if (!apiOk) {
+    console.warn("[fund_score] API 不可用, fallback fund_score_top.json:", err);
+    try {
+      r = await fetchJSON(FUND_SCORE_TOP_URL_R2);
+    } catch (e1) {
+      try {
+        r = await fetchJSON(FUND_SCORE_TOP_URL_CF);
+      } catch (e2) {
+        err = (e2 && e2.message) ? e2.message : String(e2);
+      }
+    }
+  }
+  if (loadingEl.parentNode) loadingEl.parentNode.removeChild(loadingEl);
+
+  if (apiOk) {
+    // api 模式: state 已由 _loadFundScorePage 填充（all=当前页, total/pages 服务端）
+  } else if (r && r.data) {
+    // static 模式: Top100 全量进 state, 前端本地过滤排序分页（原 Phase A 行为）
+    const all = (r.data || []).slice();
+    _fundScoreState.all = all;
+    _fundScoreState.filtered = all.slice();
+    _fundScoreState.meta = {
+      date: r.date,
+      count: r.count,
+      method: r.method,
+      update_date: all[0] && all[0].update_date
+    };
+    _fundScoreState.source = "static";
+  } else {
+    const fail = document.createElement("div");
+    fail.className = "fund-score-empty";
+    fail.textContent = _t("fund_score_load_failed") + (err ? '：' + err : '');
+    _c.appendChild(fail);
+    return;
+  }
+
   // 工具栏：搜索 + 类型筛选 + 排序
   const bar = document.createElement("div");
   bar.className = "fund-score-bar";
-  // 构造 fund_type 下拉选项（按出现次数降序，动态生成以兼容新类型）
-  const typeCounts = Object.create(null);
-  all.forEach((e) => {
-    const t = e.fund_type || "";
-    if (!t) return;
-    typeCounts[t] = (typeCounts[t] || 0) + 1;
-  });
-  const types = Object.keys(typeCounts).sort((a, b) => typeCounts[b] - typeCounts[a]);
+  // 类型下拉数据源: api 模式用服务端 type_counts（首页附带）; static 模式本地统计（原逻辑）
+  let typePairs;
+  let allCount;
+  if (_fundScoreState.source === "api") {
+    typePairs = (_fundScoreState.typeCounts || []).map((x) => [x.type, x.n]);
+    allCount = _fundScoreState.total;
+  } else {
+    const typeCounts = Object.create(null);
+    _fundScoreState.all.forEach((e) => {
+      const t = e.fund_type || "";
+      if (!t) return;
+      typeCounts[t] = (typeCounts[t] || 0) + 1;
+    });
+    typePairs = Object.keys(typeCounts).sort((a, b) => typeCounts[b] - typeCounts[a]).map((t) => [t, typeCounts[t]]);
+    allCount = _fundScoreState.all.length;
+  }
   const sortVal = _fundScoreState.sortKey + "-" + _fundScoreState.sortDir;
   bar.innerHTML =
     '<input id="fund-score-search" type="search" placeholder="' + _esc(_t("fund_score_search_placeholder")) + '" autocomplete="off" value="' + _esc(_fundScoreState.search) + '">'
     + '<select id="fund-score-type" class="fund-score-select" title="' + _esc(_t("fund_score_fund_type")) + '" aria-label="' + _esc(_t("fund_score_fund_type")) + '">'
-    + '<option value="all">' + _t("fund_score_all_types") + ' ' + all.length + '</option>'
-    + types.map((t) => '<option value="' + _esc(t) + '"' + (_fundScoreState.fundTypeFilter === t ? " selected" : "") + '>' + _esc(t) + ' (' + typeCounts[t] + ')</option>').join("")
+    + '<option value="all">' + _t("fund_score_all_types") + ' ' + allCount + '</option>'
+    + typePairs.map(([t, n]) => '<option value="' + _esc(t) + '"' + (_fundScoreState.fundTypeFilter === t ? " selected" : "") + '>' + _esc(t) + ' (' + n + ')</option>').join("")
     + '</select>'
     + '<select id="fund-score-sort" class="fund-score-select" title="' + _esc(_t("fund_score_sort_label_title")) + '" aria-label="' + _esc(_t("fund_score_sort_label_title")) + '">'
     + '<option value="composite_score-desc"' + (sortVal === "composite_score-desc" ? " selected" : "") + '>' + _t("fund_score_sort_composite") + '</option>'
@@ -22929,7 +23275,7 @@ async function renderOffshoreFund(container) {
     + '<option value="score_drawdown-desc"' + (sortVal === "score_drawdown-desc" ? " selected" : "") + '>' + _t("fund_score_sort_drawdown") + '</option>'
     + '<option value="score_stability-desc"' + (sortVal === "score_stability-desc" ? " selected" : "") + '>' + _t("fund_score_sort_stability") + '</option>'
     + '</select>'
-    + '<span class="fund-score-updated">' + _t("fund_score_data_label") + ' ' + _esc(r.date || '-') + (r.method ? ' · ' + _esc(r.method) : '') + '</span>';
+    + '<span class="fund-score-updated">' + _t("fund_score_data_label") + ' ' + _esc((_fundScoreState.meta && _fundScoreState.meta.date) || '-') + (_fundScoreState.meta && _fundScoreState.meta.method ? ' · ' + _esc(_fundScoreState.meta.method) : '') + '</span>';
   _c.appendChild(bar);
 
   // 搜索（防抖）
@@ -22966,7 +23312,7 @@ async function renderOffshoreFund(container) {
   const body = document.createElement("div");
   body.id = "fund-score-body";
   _c.appendChild(body);
-  _applyFundScoreFilter();
+  _renderFundScoreBody();
 }
 
 // ============ B4 持仓面板: 输入/保存/清空 + chips 显示评分排名 ============

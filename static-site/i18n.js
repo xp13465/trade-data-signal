@@ -109,7 +109,8 @@
       trade_sim_ops_buy: "关注",
       trade_sim_ops_sell: "风险提醒",
       trade_sim_skip_tooltip: "仓位已满/现金不足/无持仓可退时跳过不执行",
-      // 第4阶段：场外基金评分排行（Phase A，fund_score_top.json Top100 列表）
+      // 第4阶段：场外基金评分排行（#79 方案C: /api/fund_score 全市场分页为主,
+      //   fund_score_top.json Top100 仅作 API 失败时的兜底 fallback）
       // 指标名非交易指令词，compliance/original 同文案
       fund_score_loading: "加载评分数据…",
       fund_score_load_failed: "加载评分数据失败",

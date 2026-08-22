@@ -88,6 +88,7 @@
 - 🔹 **信号灯 + 降亏过滤 + AI 仓位** — AI 一键降亏，把数据挖掘发现的「系统性亏损特征」自动剔除；再按每日资金池 + top-K 给「AI 建议」与凯利仓位，过滤后只剩可操作信号（详见 [`docs/kelly/`](docs/kelly/) 分析与报告、[`docs/kelly/position/kelly-position-cap-k-sensitivity.md`](docs/kelly/position/kelly-position-cap-k-sensitivity.md)）
 - 🔹 **首页模拟回测弹窗** — AI 仓位建议行「参考说明」旁的「模拟回测」按钮一键打开：用 2011-2026 全历史真实信号交易记录（R2 `signal_kelly_trades.json`），按时间范围 / AI 降亏过滤 / K 档 / 交易模式 / 费率 5 组条件实时过滤，13 列明细表逐笔算费后盈亏与累积收益，与凯利回测页同源口径、纯展示不与实盘关联
 - 🔹 **每日 AI 速递** — 收盘一份白话解读直发邮箱：多角色辩论 + 方向/区间三层命中回填 + 自成长反思校准 + 新闻面 + 语音播报 + 把握度，每天知道自己的判断准不准（详见 [`docs/daily-brief-research.md`](docs/daily-brief-research.md)、[`docs/ai-predict-self-growth.md`](docs/ai-predict-self-growth.md)、[`docs/ai-predict-inject-research.md`](docs/ai-predict-inject-research.md)）
+- 🔹 **场外基金评分排行（#79 方案C 全量化）** — 对全市场约 2.7 万只场外公募基金（申赎型）按「6 维业绩/风险调整/回撤/稳定性/规模流动性/费率 + 5 风险指标夏普/索提诺/卡玛/信息比率/Alpha + 经理 6 维 + 半凯利仓位 + 市场乘数」综合评分；登录用户经 CF Workers + D1 服务端分页查询全市场（每页 50，支持排序/搜索/类型筛选），点击任一基金卡片弹出「决策头/凯利仓位/六维雷达/风险与经理六维/基础信息」5 区块详情；API 不可用时自动降级 Top100 兜底数据不白屏。数据源覆盖 akshare 基金基础信息（公司/经理/费率/规模等）
 
 ### C. 集成与体验
 > 让数据不止在看板里：主动推送、移动端、多主题随取随用。
@@ -269,7 +270,7 @@ snapshot.js / ticker-check.js），纯验收不碰业务代码，供 reviewer/te
 |---|---|---|
 | [mootdx](https://github.com/mootdx/mootdx) | 全 A 股 TCP 日线（历史 10 年回溯） | 开源库 |
 | [BaoStock](https://github.com/baostock) | 指数/日线校验与补采（8/10 指数 + kc50 兜底） | 开源库 |
-| [akshare](https://github.com/akfamily/akshare) | 东财/新浪/腾讯行情统一接口 | 开源库 |
+| [akshare](https://github.com/akfamily/akshare) | 东财/新浪/腾讯行情统一接口 + 场外公募基金基础信息（基金经理/费率/规模/成立日/投资策略等，#79 基金评分基础字段） | 开源库 |
 | [a-stock-data](https://github.com/simonlin1212/a-stock-data) | 策略实验室回测信号生成（`scripts/lab/*.py` runtime import `gen_buy_signals` / `gen_sell_signals`）+ 采集层东财防封 / 腾讯行情实现参考其 SKILL.md | 开源仓库（代码复用） |
 | 腾讯行情 / 东财 push2 | 盘中分时批量实时 + 主力资金 | 公开接口 |
 | 同花顺 | 概念板块/行情批量 | 公开接口 |
