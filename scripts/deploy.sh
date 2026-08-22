@@ -297,7 +297,7 @@ run_r2_upload() {
   return "$rc"
 }
 
-echo "-> 上传 lab/trade_sim/index/industry/public_fund/offshore_fund/etf_score/data-large/all-data 到 R2 ..." | tee -a "$LOG"
+echo "-> 上传 lab/trade_sim/index/industry/public_fund/etf_score/data-large/all-data 到 R2 ..." | tee -a "$LOG"
 # 阶段3：数据唯一走 R2，上传失败需 notify 告警让 schedule_monitor 发现
 R2_FAIL=""
 run_r2_upload "upload-lab" upload-lab || { echo "⚠ upload-lab 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-lab"; }
@@ -306,7 +306,6 @@ run_r2_upload "upload-trade-sim-json" upload-trade-sim-json || { echo "⚠ uploa
 run_r2_upload "upload-index" upload-index || { echo "⚠ upload-index 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-index"; }
 run_r2_upload "upload-industry" upload-industry || { echo "⚠ upload-industry 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-industry"; }
 run_r2_upload "upload-public-fund" upload-public-fund || { echo "⚠ upload-public-fund 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-public-fund"; }
-run_r2_upload "upload-offshore-fund" upload-offshore-fund || { echo "⚠ upload-offshore-fund 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-offshore-fund"; }
 run_r2_upload "upload-etf-score" upload-etf-score || { echo "⚠ upload-etf-score 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-score"; }
 run_r2_upload "upload-data-large" upload-data-large || { echo "⚠ upload-data-large 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-data-large"; }
 run_r2_upload "upload-kelly-parts" upload-kelly-parts || { echo "⚠ upload-kelly-parts 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-parts"; }

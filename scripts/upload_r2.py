@@ -9,7 +9,7 @@
   python3 scripts/upload_r2.py upload-index               # 上传 data/index/*.json -> index/
   python3 scripts/upload_r2.py upload-industry            # 上传 data/industry-* -> industry/
   python3 scripts/upload_r2.py upload-public-fund         # 上传 data/public_fund* -> public_fund/
-  python3 scripts/upload_r2.py upload-offshore-fund       # 上传 data/offshore_fund* -> offshore_fund/ (筛选器阶段0)
+  python3 scripts/upload_r2.py upload-offshore-fund       # 上传 data/offshore_fund* -> offshore_fund/ (定时链已停用,仅手动使用)
   python3 scripts/upload_r2.py upload-data-large          # 上传 data/ 顶层 >1MB .json -> data/
   python3 scripts/upload_r2.py upload-all-data            # 上传 data/ 全量小 .json -> data/ (阶段1a双写)
   python3 scripts/upload_r2.py upload-db                  # 每日 DB 备份推 R2(signal-backup)
@@ -583,6 +583,7 @@ def cmd_upload_public_fund():
 def cmd_upload_offshore_fund():
     """上传 static-site/data/offshore_fund*.json 到 R2 offshore_fund/ 前缀。
 
+    ⚠ 定时链已停用(2026-08-22 P2-15, 用户确认): update_all.sh/deploy.sh 不再调用, 仅手动使用(#84 未来用 export_offshore_fund.py 生成后手动上传)。
     筛选器阶段0(2026-08-02 新增): 7 类 JSON(5 大文件 >1MB + 2 小文件, 全量后均大)。
     按类别走 R2(§8.1 新类别按前缀建独立命令, 不依赖 1MB 阈值兜底)。
     offshore_fund_basic 13MB / performance 5.8MB / manager 6.7MB / purchase_status 4.9MB / rating 2.4MB。
@@ -843,7 +844,7 @@ def cmd_upload_all_data():
       - index/ lab/ trade_sim/ 子目录: *.json glob 不递归,天然不匹配
       - industry-* (upload-industry -> industry/ 前缀)
       - public_fund* (upload-public-fund -> public_fund/ 前缀)
-      - offshore_fund* (upload-offshore-fund -> offshore_fund/ 前缀)
+      - offshore_fund* (upload-offshore-fund -> offshore_fund/ 前缀; 定时链已停用 P2-15, exclude 保留防手动场景双副本)
       - fund_score* (upload-fund-score -> fund_score/ 前缀)
       - etf_score_list* (upload-etf-score -> data/ 前缀,独立命令已处理)
       - signal_kelly_trades* (5.84MB >=1MB,upload-data-large 已覆盖,防双副本)
