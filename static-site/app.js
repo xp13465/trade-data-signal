@@ -6715,12 +6715,15 @@ function _marketLazyUnobserve(cardEl) {
   _mktLazyIO.unobserve(cardEl);
   cardEl._mktLazyFn = null;
 }
+// ⚠️ 约束(评审项B): 勿将含大盘懒卡的容器传给 _disposeContainerCharts——它按 DOM 的 _echarts_instance_
+// 属性找实例再 charts.indexOf(inst) 移除,而 charts 里存的是本代理对象(indexOf 错位 → 实例 dispose 了
+// 但代理残留悬空)。当前 _disposeContainerCharts 全部调用点的容器均不含大盘懒卡;未来要接入需先让它认得代理。
 // 兼容代理: 未 init 前对外暴露与 echarts 实例一致的消费面。全局 charts 数组全消费面已核:
 // resize(window resize L50/setupOneRowToggle)/dispose(clearCharts/disposeSectionCharts)/
-// isDisposed+getOption+setOption(rethemeCharts 切皮肤重注入)。未 init 时 setOption 进队列,init 后按序回放
-// (覆盖"切皮肤早于滚动到该卡"场景: 首帧配置 withTheme 已带当时主题色,回放补丁后与同步渲染结果一致);
-// getOption 回退 {} 防 retheme 读属性抛错中断整轮重注入。
-function _mktLazyProxy(chartEl, cardEl, chartArr) {
+// isDisposed+getOption+setOption(rethemeCharts 切皮肤重注入)。未 init 时 setOption 进队列,init 后按序回放;
+// getOption 回首帧配置缓存(firstOpt, 注册时即存非 init 时才存),retheme 才能读 dataZoom/series(markPoint
+// pin label 色)构造完整补丁入队 —— 回 {} 会丢这两类补丁,"不滚动→切皮肤→再滚动"的卡残留旧配色(评审项A)。
+function _mktLazyProxy(chartEl, cardEl, chartArr, firstOpt) {
   let inst = null;
   let disposed = false;
   const pendingSet = [];
@@ -6729,17 +6732,18 @@ function _mktLazyProxy(chartEl, cardEl, chartArr) {
     getDom: () => chartEl,
     isDisposed: () => disposed,
     resize: () => { if (inst) inst.resize(); },
-    getOption: () => (inst ? inst.getOption() : {}),
+    getOption: () => (inst ? inst.getOption() : (firstOpt || {})),
     setOption: (o, notMerge) => { if (disposed) return; if (inst) inst.setOption(o, notMerge); else pendingSet.push([o, notMerge]); },
     dispose: () => {
       disposed = true;
       _marketLazyUnobserve(cardEl);
       pendingSet.length = 0;
+      firstOpt = null;
       if (inst) { inst.dispose(); inst = null; }
     },
   };
   // 由懒回调调用: 真正 echarts.init + 首帧 setOption + 回放排队中的补丁
-  api._mktInit = (firstOpt) => {
+  api._mktInit = () => {
     if (disposed || inst) return;
     inst = echarts.init(chartEl);
     if (firstOpt) inst.setOption(firstOpt);
@@ -6759,9 +6763,9 @@ function _marketLineCardLazy(title, series, opts = {}, hint = null, container = 
   cardEl.innerHTML = `<h3>${title}</h3>${hint ? `<div class="chart-hint">${hint}</div>` : ""}<div class="chart" style="height:${height}px"></div>`;
   container.appendChild(cardEl);
   const chartEl = cardEl.querySelector(".chart");
-  const api = _mktLazyProxy(chartEl, cardEl, charts); // 原 lineChart 经 mkCard 默认入全局 charts
   const opt = _lineChartBuildOption(title, arr, dates, opts);
-  _marketLazyRegister(cardEl, () => api._mktInit(opt));
+  const api = _mktLazyProxy(chartEl, cardEl, charts, opt); // 原 lineChart 经 mkCard 默认入全局 charts; opt 注册时即存(评审项A)
+  _marketLazyRegister(cardEl, () => api._mktInit());
   return api;
 }
 // 大盘专用懒渲染指数卡: 与 indexChart 同签名同 DOM,数据准备/配置构造共用 _indexChartPrepare/_indexChartBuildOption。
@@ -6773,11 +6777,11 @@ function _marketIndexCardLazy(title, ohlc, signals, stats, strategy, container =
   cardEl.innerHTML = `<h3>${p.fullTitle}</h3>${p.hint ? `<div class="chart-hint">${p.hint}</div>` : ""}<div class="chart" style="height:300px"></div>`;
   container.appendChild(cardEl);
   const chartEl = cardEl.querySelector(".chart");
-  const api = _mktLazyProxy(chartEl, cardEl, chartArr);
+  const opt = _indexChartBuildOption(title, ohlc, p.close, p.markData, p.tierBand, p.tierName);
+  const api = _mktLazyProxy(chartEl, cardEl, chartArr, opt);
   _prependSimBtn(cardEl, indexId);
   _bindFreqPopupToHintRows(cardEl, stats);
-  const opt = _indexChartBuildOption(title, ohlc, p.close, p.markData, p.tierBand, p.tierName);
-  _marketLazyRegister(cardEl, () => api._mktInit(opt));
+  _marketLazyRegister(cardEl, () => api._mktInit());
   return api;
 }
 
