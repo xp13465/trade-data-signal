@@ -68,6 +68,13 @@ _KELLY_FEE_CONFIG = {
 # ── 常量 ──────────────────────────────────────────────────────────────────────
 BUY_AMOUNT = 10000         # 每笔买入金额(元) -- 1000->10000 降低最低佣金占比(往返费率~1%->~0.3%)
 HOLD_DAYS = 10             # 默认最大持有交易日(ABCD 模式用; E=5/F=15 per-mode 覆盖)
+# 买入价口径: 1=次日开盘(真实跟单口径, v1.1.4 起默认, 见 kelly-nextday-open-backtest.md)
+#            0=信号日收盘等价 accum_nav(旧基线, 用于回退验证)
+KELLY_BUY_NEXTDAY = int(os.environ.get("KELLY_BUY_NEXTDAY", "1"))
+# 份额折算伪跳空阈值(|次日open/信号日close - 1| > 该值即剔除该笔, 见报告 §1.4)
+PSEUDO_GAP_EXCLUDE = 0.20
+# 数据截止日(仅用于自验复现报告 §2.1 数字, 默认不设=全量; 不进线上默认路径)
+KELLY_ASOF = os.environ.get("KELLY_ASOF", "")
 # 入样信号白名单(§23.6 单一事实源 = config/universe_rules.yaml buy_whitelist, 此处为对齐副本)。
 # 改动必须与 yaml 同步, 并跑 scripts/check_universe_alignment.py 对称校验(断言3 会拦截白名单漂移)。
 BUY_SIGNALS = ("buy", "buy_aux", "buy_special", "buy_backup")
@@ -390,18 +397,21 @@ def _get_etf_db_path():
 
 
 def _batch_load_etf_prices(etf_codes):
-    """批量加载 ETF 价格(accum_nav), 返回 {etf_code: {date: accum_nav}} + {etf_code: [sorted_dates]}。
+    """批量加载 ETF 价格(accum_nav + 原始 open/close), 供次日开盘买入口径(gap 换算)使用。
 
     单次 SQL 查询所有需要的 ETF, 比 per-ETF 查询快 ~100x。
     """
     if not etf_codes:
-        return {}, {}
+        return {}, {}, {}, {}
+
     db_path = _get_etf_db_path()
     if not os.path.exists(db_path):
         print(f"  ⚠ ETF DB 不存在: {db_path}", file=sys.stderr)
-        return {}, {}
+        return {}, {}, {}, {}
 
-    price_map = {c: {} for c in etf_codes}
+    nav_map = {c: {} for c in etf_codes}
+    open_map = {c: {} for c in etf_codes}
+    close_map = {c: {} for c in etf_codes}
     sorted_dates = {c: [] for c in etf_codes}
     conn = sqlite3.connect(db_path, timeout=30.0)
     try:
@@ -412,24 +422,36 @@ def _batch_load_etf_prices(etf_codes):
             batch = codes[i:i + batch_size]
             placeholders = ",".join("?" * len(batch))
             rows = conn.execute(
-                f"SELECT etf_code, date, accum_nav FROM etf_daily "
+                f"SELECT etf_code, date, accum_nav, open, close FROM etf_daily "
                 f"WHERE etf_code IN ({placeholders}) AND accum_nav IS NOT NULL "
                 f"ORDER BY etf_code, date",
                 batch,
             ).fetchall()
-            for code, date, nav in rows:
-                price_map[code][date] = nav
+            for code, date, nav, op, cl in rows:
+                nav_map[code][date] = nav
+                if op is not None:
+                    open_map[code][date] = op
+                if cl is not None:
+                    close_map[code][date] = cl
     finally:
         conn.close()
 
-    # 预排序日期列表(供 bisect 查找)
+    # 预排序日期列表(供 bisect 查找, 基于有 accum_nav 的交易日)
     for code in etf_codes:
-        sorted_dates[code] = sorted(price_map[code].keys())
+        sorted_dates[code] = sorted(nav_map[code].keys())
 
-    return price_map, sorted_dates
+    return nav_map, open_map, close_map, sorted_dates
 
 
 # ── 回测 ──────────────────────────────────────────────────────────────────────
+
+def _next_trading_day(signal_date, sorted_dates_list):
+    """返回 signal_date 之后第一个交易日(次日开盘定价用)。无则返回 None。"""
+    idx = bisect.bisect_right(sorted_dates_list, signal_date)
+    if idx < len(sorted_dates_list):
+        return sorted_dates_list[idx]
+    return None
+
 
 def _calendar_days(d1, d2):
     """两个 YYYYMMDD 日期字符串间的自然日天数(max 0)。"""
@@ -444,7 +466,8 @@ def _calendar_days(d1, d2):
 def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, stop_profit,
                   index_id=None, signal=None, track_tier=None, track_score=None,
                   match_method=None, track_low_confidence=None, today=None, hold_days=HOLD_DAYS,
-                  market_state=None, rating=None, sell_mode=None, sell_signals=None, market_tier=None, market_tier_all=None, market_tier_cyb=None):
+                  market_state=None, rating=None, sell_mode=None, sell_signals=None, market_tier=None, market_tier_all=None, market_tier_cyb=None,
+                  open_map=None, close_map=None):
     """单笔信号回测: 信号日买入 1000 元, 持有期内止盈或满 hold_days 卖出。
 
     prices: 该 ETF 的 {date: accum_nav} 字典(已由调用方从 price_map 取出)。
@@ -469,6 +492,23 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
     buy_nav = prices.get(signal_date)
     if buy_nav is None or buy_nav <= 0:
         return None  # 信号日无 ETF 价格
+
+    # 买入价口径:
+    #  - KELLY_BUY_NEXTDAY=1(v1.1.4 起默认, 真实跟单): 信号日收盘后固化, 实际次日开盘才能成交。
+    #    买入价 = 信号日 accum_nav × (次日原始 open / 信号日原始 close), 即把次日开盘价
+    #    换算成 accum_nav 等价值(scale-free, 正确处理分红/份额折算, 见 kelly-nextday-open-backtest.md §1.1)。
+    #  - KELLY_BUY_NEXTDAY=0(旧基线): 直接取信号日 accum_nav(当日收盘等价)。
+    # 伪跳空剔除(报告 §1.4): 若 |次日open/信号日close - 1| > 20%(份额折算等, 非真实可交易跳空),
+    # 次日开盘价不可用, 整笔剔除(基线与次日同口径剔除, 保证可比)。
+    if KELLY_BUY_NEXTDAY:
+        sig_close = close_map.get(etf_code, {}).get(signal_date) if close_map else None
+        nxt_open = open_map.get(etf_code, {}).get(_next_trading_day(signal_date, sorted_dates_list)) if open_map else None
+        if sig_close is None or sig_close <= 0 or nxt_open is None or nxt_open <= 0:
+            return None  # 缺原始价, 无法按次日开盘重定价
+        gap = nxt_open / sig_close - 1.0
+        if abs(gap) > PSEUDO_GAP_EXCLUDE:
+            return None  # 伪跳空(份额折算), 剔除该笔
+        buy_nav = buy_nav * (1.0 + gap)
 
     # 买入(含费率)
     buy_price, shares, _comm, _tf = _buy_with_fees(BUY_AMOUNT, buy_nav, etf_code, _KELLY_FEE_CONFIG)
@@ -1018,8 +1058,8 @@ def compute():
         be, _frozen = _resolve_etf(_date, iid, _sig, best_etf, etf_freeze)
         if be:
             needed_etfs.add(be["code"])
-    print(f"-> 批量加载 {len(needed_etfs)} 只 ETF 的 accum_nav ...", flush=True)
-    price_map, sorted_dates_map = _batch_load_etf_prices(needed_etfs)
+    print(f"-> 批量加载 {len(needed_etfs)} 只 ETF 的 accum_nav/open/close ...", flush=True)
+    price_map, open_map, close_map, sorted_dates_map = _batch_load_etf_prices(needed_etfs)
     total_price_rows = sum(len(v) for v in price_map.values())
     print(f"   {total_price_rows} 行价格数据")
 
@@ -1039,6 +1079,8 @@ def compute():
     etf_quad_map = {"strong": "strong", "related": "related", "approx": "approx", "none": "has_track"}
 
     for date, iid, sig in buy_rows:
+        if KELLY_ASOF and date > KELLY_ASOF:
+            continue  # 仅验证用: 数据截止复现报告数字
         be, be_frozen = _resolve_etf(date, iid, sig, best_etf, etf_freeze)
         if not be:
             skipped_no_etf += 1
@@ -1092,7 +1134,7 @@ def compute():
                                    be.get("match_method"), be.get("track_low_confidence"),
                                    today=today_str, hold_days=mode_def["hold_days"], market_state=ms, rating=rating,
                                    sell_mode=mode_key, sell_signals=sell_signals, market_tier=mt, market_tier_all=mt_all,
-                                   market_tier_cyb=mt_cyb)
+                                   market_tier_cyb=mt_cyb, open_map=open_map, close_map=close_map)
             if result is None:
                 continue  # 数据不足(信号日无价格/未来不足 hold_days 天)
             any_valid = True
@@ -1144,6 +1186,7 @@ def compute():
             "buy_signals": list(BUY_SIGNALS),
             "signal_type_quads": SIG_QUAD_MAP,
             "market_quads": MARKET_QUAD_MAP,
+            "buy_price_basis": "next_day_open" if KELLY_BUY_NEXTDAY else "signal_day_close",
         },
         "quadrants": {},
     }
