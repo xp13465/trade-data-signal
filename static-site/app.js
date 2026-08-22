@@ -3120,6 +3120,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
   let cumPct = 0, cumYuan = 0, rightN = 0, wrongN = 0, holdingN = 0;
   const cumMap = {};  // basekey -> {cumPct, cumYuan, acc, rate}
   const posMap = {};  // basekey -> 截至本行 signal_date 的开放持仓手数(每笔=1手=¥10000)
+  const posSetMap = {}; // signal_date -> 当日仍持有笔的 basekey 集合(与 posMap 同点快照, |Set| 恒等于该日显示持仓数; 供 hover 高亮联动)
   // 当日持仓: 按 signal_date 分组扫描(P2-1 修复: 先删已卖出笔再计新开笔, 同日各行为同一真实持仓数)
   {
     const openMap = {}; // 仍开放的笔 basekey -> 卖出日(YYYYMMDD, 空串=未卖出; 用于到期删除)
@@ -3143,6 +3144,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
         }
       }
       const posN = Object.keys(openMap).length; // 该信号日当天真实持有笔数
+      posSetMap[sd] = new Set(Object.keys(openMap)); // 同点快照: 集合大小 == 上行 posN(§23.9 一致性锚点)
       for (let i = gi; i < gj; i++) posMap[_simBaseKey(asc[i], fIdx)] = posN;
       gi = gj;
     }
@@ -3160,6 +3162,10 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
   const PAGE = 500;
   let page = 0;
   const totalPages = Math.max(1, Math.ceil(n / PAGE));
+  const _escAttr = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  // 符号着色(2026-08-22 用户追加「红正 绿负」): 累积盈亏/累积金额/买卖手续费复用本表 sim-up/sim-down
+  // 同口径(与「本笔交易盈亏%」列同色变量); 按数据实际符号如实渲染, 0/空不着色
+  const _signCls = (v) => (v > 0 ? " sim-up" : (v < 0 ? " sim-down" : ""));
   // 观察期倒计时用交易日历(懒构建: 首个持仓中行才建一次; 来自已加载 trades 自身日期并集)
   const _sellModes = (_simKellyCfg && _simKellyCfg.sell_modes) || null;
   let _obsCal = null, _obsLast = "";
@@ -3193,19 +3199,19 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
           obsHtml = '<div class="simbt-obs simbt-obs-expired" title="已过计划卖出日仍未卖出, 待下次回测重跑固化卖出结果。">已到期待固化</div>';
         }
       }
-      html += '<tr' + (c.isHolding ? ' class="simbt-holding-row"' : '') + '>' +
+      html += '<tr' + (c.isHolding ? ' class="simbt-holding-row"' : '') + ' data-sd="' + _escAttr(t[fIdx.signal_date]) + '" data-bk="' + _escAttr(bk) + '">' +
         '<td>' + (t[fIdx.signal_date] || "") + '</td>' +
-        '<td>' + pos + '</td>' +
+        '<td class="sim-pos-cell" title="当日仍持有的笔数。悬停本格高亮对应笔的「信号关联ETF」; 持仓笔可能开于此前交易日(高亮跨日分布), 未渲染的分页行不点亮。">' + pos + '</td>' +
         '<td>' + _simSigTypeLabel(t[fIdx.signal]) + '</td>' +
         '<td>' + _simEtfLightHtml(t, fIdx) + (t[fIdx.etf_code] || "") + ' ' + (t[fIdx.etf_name] || "") + '</td>' +
         '<td>' + (t[fIdx.buy_date] || "") + '</td>' +
-        '<td>' + c.buyFee.toFixed(2) + '</td>' +
+        '<td class="' + _signCls(c.buyFee) + '">' + c.buyFee.toFixed(2) + '</td>' +
         '<td>' + (c.isHolding ? '<span class="simbt-holding-tag">持仓中</span>' : (t[fIdx.sell_date] || "")) + '</td>' +
-        '<td>' + c.sellFee.toFixed(2) + '</td>' +
+        '<td class="' + _signCls(c.sellFee) + '">' + c.sellFee.toFixed(2) + '</td>' +
         '<td class="' + cls + '">' + c.pnlPct.toFixed(2) + '%' + obsHtml + '</td>' +
         '<td class="' + cls + '">' + c.pnlYuan.toFixed(2) + '</td>' +
-        '<td>' + cum.cumPct.toFixed(2) + '%</td>' +
-        '<td>' + cum.cumYuan.toFixed(2) + '</td>' +
+        '<td class="' + _signCls(cum.cumPct) + '">' + cum.cumPct.toFixed(2) + '%</td>' +
+        '<td class="' + _signCls(cum.cumYuan) + '">' + cum.cumYuan.toFixed(2) + '</td>' +
         '<td>' + cum.acc + ' (' + cum.rate + '%)</td>' +
         '</tr>';
     }
@@ -3233,6 +3239,40 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
       pagerEl.innerHTML = '';
     }
   };
+  // 当日持仓 hover → 高亮当日仍持有笔的「信号关联ETF」格(2026-08-22 用户追加):
+  // 监听只绑一次(flag 防 _simRender 重渲染重复绑), 数据经 bodyEl._simPosSetMap 每次渲染刷新(防闭包持旧数据);
+  // 高亮数 == 该日格子显示的持仓数(posSetMap 同点快照, 结构性恒等); 持仓笔可能开于此前交易日 →
+  // 高亮跨日分布属预期语义, 未渲染的分页行不点亮(单元格 tooltip 已注明)
+  bodyEl._simPosSetMap = posSetMap;
+  if (!bodyEl._simPosHoverBound) {
+    bodyEl._simPosHoverBound = true;
+    let _hotCell = null, _hitCells = [];
+    const _clearHot = () => {
+      if (_hotCell) { _hotCell.classList.remove("sim-pos-hot"); _hotCell = null; }
+      for (const c4 of _hitCells) c4.classList.remove("sim-pos-hit");
+      _hitCells = [];
+    };
+    bodyEl.addEventListener("mouseover", (e) => {
+      const tgt = e.target;
+      const td = tgt && tgt.closest ? tgt.closest("td") : null;
+      if (td === _hotCell) return;
+      _clearHot();
+      if (!td || td.cellIndex !== 1) return;
+      const tr = td.parentElement;
+      const set = (bodyEl._simPosSetMap || {})[String(tr.dataset.sd || "")];
+      if (!set || !set.size) return;
+      _hotCell = td;
+      td.classList.add("sim-pos-hot");
+      const tbody = tr.parentElement;
+      for (const row of tbody.rows) {
+        if (set.has(row.dataset.bk)) {
+          const c4 = row.cells[3];
+          if (c4) { c4.classList.add("sim-pos-hit"); _hitCells.push(c4); }
+        }
+      }
+    });
+    bodyEl.addEventListener("mouseleave", _clearHot);
+  }
   _draw();
 }
 

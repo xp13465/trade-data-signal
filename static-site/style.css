@@ -6987,7 +6987,9 @@ main { padding: 16px 24px; }
 }
 
 /* 首页「模拟回测」弹窗(2026-08-21, 纯展示) */
-.rule-modal-body-wide { max-width: 1180px; width: 96vw; }
+/* 仅「模拟回测」弹窗使用(app.js _openSimBacktestModal): 13列表格需更宽容器让信息长列展开,
+   max-width 1180→1560(2026-08-22 列宽控制配套; 其余弹窗 .rule-modal-body 820px 不动 §23.7) */
+.rule-modal-body-wide { max-width: 1560px; width: 96vw; }
 .sim-ctrl-row { display: flex; flex-wrap: wrap; gap: 14px 22px; padding: 10px 4px 14px; border-bottom: 1px solid var(--border); align-items: flex-end; }
 .sim-ctrl-block { display: flex; flex-direction: column; gap: 4px; }
 .sim-ctrl-block > label { font-size: 11px; color: var(--text-dim, #9aa); }
@@ -6998,10 +7000,29 @@ main { padding: 16px 24px; }
 .sim-kbtn.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700; }
 .sim-summary { padding: 8px 4px; font-size: 12px; color: var(--text-1); }
 .sim-table-wrap { max-height: 56vh; overflow: auto; }
-.sim-tbl { width: 100%; border-collapse: collapse; font-size: 11px; }
-.sim-tbl th, .sim-tbl td { padding: 4px 8px; border: 1px solid var(--border); white-space: nowrap; text-align: right; }
+/* 列宽策略(2026-08-22 用户反馈「数值列宽度应固定, 正常百分比不会太长」): table-layout:fixed +
+   逐列定宽 → 数值列宽不随数据长短跳动; 省出的空间由不定宽的「信号关联ETF」列吃掉(全表最长内容列);
+   min-width 保证窄屏走 .sim-table-wrap 横向滚动不被挤坏; ellipsis 仅作极端值兜底(定宽已按内容上限预估) */
+.sim-tbl { width: 100%; min-width: 1330px; table-layout: fixed; border-collapse: collapse; font-size: 11px; }
+.sim-tbl th, .sim-tbl td { padding: 4px 8px; border: 1px solid var(--border); white-space: nowrap; text-align: right; overflow: hidden; text-overflow: ellipsis; }
 .sim-tbl th { position: sticky; top: 0; background: var(--bg-card); z-index: 1; color: var(--text-1); font-weight: 700; }
 .sim-tbl td:nth-child(2), .sim-tbl td:nth-child(3), .sim-tbl td:nth-child(4), .sim-tbl td:nth-child(5) { text-align: left; }
+/* 13列逐列定宽: 内容上限=日期8位/金额9位(含负号)/对错计数~19字符/盈亏%含观察期倒计时小字一行;
+   定宽合计1128px, 配合弹窗加宽(1560)后 1440 屏 ETF 列仍可得 ~206px(最长ETF名~200px)不裁剪;
+   各列均留 ≥4px 余量防 bold 表头 CJK 渲染偏宽(教训: 当日持仓58px 曾卡住4字表头) */
+.sim-tbl th:nth-child(1) { width: 78px; }   /* 日期 */
+.sim-tbl th:nth-child(2) { width: 64px; }   /* 当日持仓(hover 热区) */
+.sim-tbl th:nth-child(3) { width: 88px; }   /* 当日信号 */
+/* 第4列信号关联ETF 不定宽 = 剩余全部空间 */
+.sim-tbl th:nth-child(5) { width: 88px; }   /* 计划买入时间 */
+.sim-tbl th:nth-child(6) { width: 76px; }   /* 买入手续费 */
+.sim-tbl th:nth-child(7) { width: 88px; }   /* 计划卖出时间 */
+.sim-tbl th:nth-child(8) { width: 76px; }   /* 卖出手续费 */
+.sim-tbl th:nth-child(9) { width: 178px; }  /* 本笔交易盈亏%(最长内容=观察期倒计时小字) */
+.sim-tbl th:nth-child(10) { width: 94px; }  /* 本笔盈亏金额 */
+.sim-tbl th:nth-child(11) { width: 84px; }  /* 累积盈亏 */
+.sim-tbl th:nth-child(12) { width: 90px; }  /* 累积金额 */
+.sim-tbl th:nth-child(13) { width: 124px; } /* 累积对错 */
 .sim-up { color: #cf1322; }
 .sim-down { color: #389e0d; }
 [data-theme="dark"] .sim-up, [data-theme="redgold"] .sim-up { color: #ff4d4f; }
@@ -7029,3 +7050,7 @@ main { padding: 16px 24px; }
 /* 观察期倒计时小字(需求③ 2026-08-22): 持仓中笔盈亏%下方, 过期态转红 */
 .simbt-obs { font-size: 10px; font-weight: 400; color: #fa8c16; margin-top: 2px; white-space: nowrap; }
 .simbt-obs-expired { color: #f5222d; }
+/* 当日持仓 hover 联动高亮(2026-08-22 用户追加): 蓝色系=关联提示, 与红涨绿跌盈亏/橙色持仓中行区分;
+   hot=被悬停的持仓数量格, hit=当日仍持有笔的「信号关联ETF」格 */
+.sim-tbl td.sim-pos-hot { background: rgba(59,130,246,0.14); box-shadow: inset 0 0 0 1px rgba(59,130,246,0.8); }
+.sim-tbl td.sim-pos-hit { background: rgba(59,130,246,0.10); box-shadow: inset 0 0 0 1px rgba(59,130,246,0.45); }
