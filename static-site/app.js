@@ -6733,9 +6733,9 @@ function _marketLazyUnobserve(cardEl) {
   _mktLazyIO.unobserve(cardEl);
   cardEl._mktLazyFn = null;
 }
-// ⚠️ 约束(评审项B): 勿将含大盘懒卡的容器传给 _disposeContainerCharts——它按 DOM 的 _echarts_instance_
-// 属性找实例再 charts.indexOf(inst) 移除,而 charts 里存的是本代理对象(indexOf 错位 → 实例 dispose 了
-// 但代理残留悬空)。当前 _disposeContainerCharts 全部调用点的容器均不含大盘懒卡;未来要接入需先让它认得代理。
+// ⚠️ 约束(评审项B,2026-08-22 更新): _disposeContainerCharts 现已通过 chartEl.__mktLazyProxy 反查标记认得
+// 懒代理(含未 init 卡),含懒卡的容器可直接传入(proxy.dispose 会 unobserve+出 charts+清 pending)。
+// 板块分化网格(renderIndustryGrid)搜索重渲 _applyIndustryFilter 即依赖此能力;大盘调用点行为不变(无懒卡容器时反查不命中)。
 // 兼容代理: 未 init 前对外暴露与 echarts 实例一致的消费面。全局 charts 数组全消费面已核:
 // resize(window resize L50/setupOneRowToggle)/dispose(clearCharts/disposeSectionCharts)/
 // isDisposed+getOption+setOption(rethemeCharts 切皮肤重注入)。未 init 时 setOption 进队列,init 后按序回放;
@@ -6750,24 +6750,29 @@ function _mktLazyProxy(chartEl, cardEl, chartArr, firstOpt) {
     getDom: () => chartEl,
     isDisposed: () => disposed,
     resize: () => { if (inst) inst.resize(); },
-    getOption: () => (inst ? inst.getOption() : (firstOpt || {})),
+    // firstOpt 为函数(板块分化延伸用法)= option 延迟构建: 未 init 时无可回放配置返回 {}(retheme 只会入队主题补丁,
+    // init 时 builder 读实时皮肤色构建完整首帧,再回放补丁幂等);大盘传对象用法行为不变
+    getOption: () => (inst ? inst.getOption() : ((typeof firstOpt === "function") ? {} : (firstOpt || {}))),
     setOption: (o, notMerge) => { if (disposed) return; if (inst) inst.setOption(o, notMerge); else pendingSet.push([o, notMerge]); },
     dispose: () => {
       disposed = true;
       _marketLazyUnobserve(cardEl);
       pendingSet.length = 0;
       firstOpt = null;
+      chartEl.__mktLazyProxy = null; // 反查标记清空(见下)
       if (inst) { inst.dispose(); inst = null; }
     },
   };
-  // 由懒回调调用: 真正 echarts.init + 首帧 setOption + 回放排队中的补丁
+  // 由懒回调调用: 真正 echarts.init + 首帧 setOption(firstOpt 可为函数=延迟构建)+ 回放排队中的补丁
   api._mktInit = () => {
     if (disposed || inst) return;
     inst = echarts.init(chartEl);
-    if (firstOpt) inst.setOption(firstOpt);
+    const fo = (typeof firstOpt === "function") ? firstOpt() : firstOpt;
+    if (fo) inst.setOption(fo);
     for (const [o, nm] of pendingSet) inst.setOption(o, nm);
     pendingSet.length = 0;
   };
+  chartEl.__mktLazyProxy = api; // DOM→代理反查标记: 让 _disposeContainerCharts 认得懒卡(大盘路径无消费方,行为等价)
   chartArr.push(api); // 与原 mkCard 同步入全局 charts(resize/retheme/clearCharts 消费)
   return api;
 }
@@ -6801,6 +6806,28 @@ function _marketIndexCardLazy(title, ohlc, signals, stats, strategy, container =
   _bindFreqPopupToHintRows(cardEl, stats);
   _marketLazyRegister(cardEl, () => api._mktInit());
   return api;
+}
+
+// ---- 板块分化网格懒渲染·时间切片排水(P2-11 延伸,2026-08-22) ----
+// 大盘卡高(~300px)可视区内个位数张,IO 回调同步 init 无长任务;行业格小(~260px 高×4 列),可视区一次可达
+// 12-16 格 ×4-5 图 ≈ 60+ 图,IO 回调里同步 init 仍是数百 ms 长任务 → 改入队 + 每 tick 时间盒 12ms 分帧排空,
+// 单任务恒 <<50ms。已 dispose 的代理(切 subtab/搜索重渲后仍滞留队列)出队即弃,_mktInit 自身 disposed 幂等双保险。
+let _indLazyQueue = [];
+let _indLazyDraining = false;
+function _indLazyEnqueue(proxies) {
+  for (const p of proxies) { if (p && !p.isDisposed()) _indLazyQueue.push(p); }
+  if (!_indLazyDraining) _indLazyDrainStep();
+}
+function _indLazyDrainStep() {
+  _indLazyDraining = true;
+  const t0 = performance.now();
+  while (_indLazyQueue.length) {
+    if (performance.now() - t0 >= 12) { setTimeout(_indLazyDrainStep, 0); return; } // 预算用尽,下个宏任务续排(flag 保持 true 防并行排水)
+    const p = _indLazyQueue.shift();
+    if (p.isDisposed()) continue;
+    try { p._mktInit(); } catch (err) { console.error("[industry-grid] lazy chart init failed:", err); }
+  }
+  _indLazyDraining = false;
 }
 
 function renderIndicesSection(container, indices, fetcher, foldOneRow, extraGroups, anchorBarRef) {
@@ -20960,44 +20987,53 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     // 行业绿色(最新)档专属 tip（补充申万/baostock 源说明）；滞后/异常档保留通用 tip
     const _indBdg = cell.querySelector(".card-time-badge.intraday");
     if (_indBdg) _indBdg.setAttribute("data-tip", "行业指数T+1(申万/baostock收盘后次日补全,逢周末顺延到下一交易日),已更新到最新交易日");
+    // ---- P2-11 延伸(板块分化懒渲染,2026-08-22): 本格全部 echarts 图(主 spark+F2 迷你×3+F3 宽度)延迟到进视口 ----
+    // 根因: 切板块分化一次性 echarts.init 30+ 格×4-5 图≈150 实例,单帧长任务 753ms(P2-11 大盘同根因延伸)。
+    // 方式: DOM 骨架同步建(上方 innerHTML,CSS min-height 保布局零变化);图表经 _mktLazyProxy 入全局 charts
+    //      (resize/retheme/dispose 消费面同真实实例),option 以闭包函数传入(init 时才构建,读实时皮肤色),
+    //      进视口后经 _indLazyEnqueue 时间切片分帧 init;滚动到可见后渲染结果与一次性渲染逐像素一致。
+    const _cellProxies = [];
+    const _lazyCellChart = (el, buildOpt) => {
+      const p = _mktLazyProxy(el, cell, charts, buildOpt);
+      _cellProxies.push(p);
+      return p;
+    };
     const chartDom = cell.querySelector(".spark-chart");
-    const exist = echarts.getInstanceByDom(chartDom);
-    if (exist) exist.dispose();
-    const sc = echarts.init(chartDom);
-    const markData = signals.map((s) => {
-      const o = ohlc.find((x) => x.date === s.date);
-      return {
-        coord: [s.date, o ? o.close : null],
-        value: signalLabel(s),
-        reason: s.reason || "",  // P0-3: 完整 reason 收进 hover tooltip
-        itemStyle: { color: signalColor(s) },
-        label: { color: _autoLabelColor(signalColor(s)) },
-      };
+    _lazyCellChart(chartDom, () => {
+      const markData = signals.map((s) => {
+        const o = ohlc.find((x) => x.date === s.date);
+        return {
+          coord: [s.date, o ? o.close : null],
+          value: signalLabel(s),
+          reason: s.reason || "",  // P0-3: 完整 reason 收进 hover tooltip
+          itemStyle: { color: signalColor(s) },
+          label: { color: _autoLabelColor(signalColor(s)) },
+        };
+      });
+      return withTheme({
+        grid: { left: 2, right: 2, top: 6, bottom: 18 },
+        xAxis: { type: "category", show: true, data: ohlc.map((d) => d.date), axisLabel: { fontSize: 8, color: cssVar("--text-1"), interval: Math.max(1, Math.floor(ohlc.length / 5)), formatter: (v) => v.slice(0, 4) + "-" + v.slice(4, 6) }, axisTick: { show: false }, axisLine: { show: false }, splitLine: { show: false } },
+        yAxis: { type: "value", show: false, scale: true },
+        tooltip: { trigger: "axis", formatter: (p) => {
+          const d = ohlc[p[0].dataIndex];
+          if (!d || d.close == null) return `${p[0].axisValue}<br/>-`;
+          const lines = [p[0].axisValue, `收盘 ${d.close.toFixed(2)}`];
+          if (d.pct_change != null) lines.push(`涨跌 ${d.pct_change >= 0 ? "+" : ""}${d.pct_change.toFixed(2)}%`);
+          const od = _indOHL(id, idx, p[0].dataIndex);
+          if (od.open != null && od.high != null && od.low != null) lines.push(`开 ${od.open.toFixed(2)} 高 ${od.high.toFixed(2)} 低 ${od.low.toFixed(2)}`);
+          // P0-3: 信号日追加完整 reason
+          const marks = markData.filter((m) => m.coord[0] === p[0].axisValue && m.reason);
+          for (const m of marks) lines.push(`<b style="color:${m.itemStyle.color}">● ${m.value}</b> ${_fmtReasonWithBand(m.reason)}`);
+          return lines.join("<br/>");
+        } },
+        series: [{
+          type: "line", smooth: true, symbol: "none",
+          data: ohlc.map((d) => [d.date, d.close]),
+          lineStyle: { color, width: 1.5 }, areaStyle: { color, opacity: 0.12 },
+          markPoint: { symbol: "pin", symbolSize: 26, label: { fontSize: 9, color: cssVar("--text-1") }, data: markData },
+        }],
+      });
     });
-    sc.setOption(withTheme({
-      grid: { left: 2, right: 2, top: 6, bottom: 18 },
-      xAxis: { type: "category", show: true, data: ohlc.map((d) => d.date), axisLabel: { fontSize: 8, color: cssVar("--text-1"), interval: Math.max(1, Math.floor(ohlc.length / 5)), formatter: (v) => v.slice(0, 4) + "-" + v.slice(4, 6) }, axisTick: { show: false }, axisLine: { show: false }, splitLine: { show: false } },
-      yAxis: { type: "value", show: false, scale: true },
-      tooltip: { trigger: "axis", formatter: (p) => {
-        const d = ohlc[p[0].dataIndex];
-        if (!d || d.close == null) return `${p[0].axisValue}<br/>-`;
-        const lines = [p[0].axisValue, `收盘 ${d.close.toFixed(2)}`];
-        if (d.pct_change != null) lines.push(`涨跌 ${d.pct_change >= 0 ? "+" : ""}${d.pct_change.toFixed(2)}%`);
-        const od = _indOHL(id, idx, p[0].dataIndex);
-        if (od.open != null && od.high != null && od.low != null) lines.push(`开 ${od.open.toFixed(2)} 高 ${od.high.toFixed(2)} 低 ${od.low.toFixed(2)}`);
-        // P0-3: 信号日追加完整 reason
-        const marks = markData.filter((m) => m.coord[0] === p[0].axisValue && m.reason);
-        for (const m of marks) lines.push(`<b style="color:${m.itemStyle.color}">● ${m.value}</b> ${_fmtReasonWithBand(m.reason)}`);
-        return lines.join("<br/>");
-      } },
-      series: [{
-        type: "line", smooth: true, symbol: "none",
-        data: ohlc.map((d) => [d.date, d.close]),
-        lineStyle: { color, width: 1.5 }, areaStyle: { color, opacity: 0.12 },
-        markPoint: { symbol: "pin", symbolSize: 26, label: { fontSize: 9, color: cssVar("--text-1") }, data: markData },
-      }],
-    }));
-    charts.push(sc);
 
     // F2：行业资金流 / 成交额 / 换手率 mini sparklines
     const metricsBox = cell.querySelector(".ind-metrics");
@@ -21024,8 +21060,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
         <div class="ind-metric-chart"></div>
         <span class="ind-metric-val">${lastVal == null ? "-" : spec.fmt(lastVal)}</span>`;
       metricsBox.appendChild(row);
-      const mc = echarts.init(row.querySelector(".ind-metric-chart"));
-      mc.setOption(withTheme({
+      _lazyCellChart(row.querySelector(".ind-metric-chart"), () => withTheme({
         grid: { left: 1, right: 1, top: 1, bottom: 1 },
         xAxis: { type: "category", show: false, data: spec.data.map((d) => d.date) },
         yAxis: { type: "value", show: false, scale: true },
@@ -21041,7 +21076,6 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
           areaStyle: { color: spec.color, opacity: 0.1 },
         }],
       }));
-      charts.push(mc);
     }
     if (!hasAnyMetric) {
       const emptyNote = document.createElement("div");
@@ -21061,8 +21095,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
         <div class="ind-metric-chart"></div>
         <span class="ind-metric-val" title="行业内成分股涨跌家数">涨${lastW.up_count == null ? "-" : lastW.up_count} 跌${lastW.down_count == null ? "-" : lastW.down_count}</span>`;
       metricsBox.appendChild(row);
-      const wc = echarts.init(row.querySelector(".ind-metric-chart"));
-      wc.setOption(withTheme({
+      _lazyCellChart(row.querySelector(".ind-metric-chart"), () => withTheme({
         grid: { left: 1, right: 1, top: 1, bottom: 1 },
         legend: { show: false },
         xAxis: { type: "category", show: false, data: widthData.map((d) => d.date) },
@@ -21082,8 +21115,11 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
             lineStyle: { color: "#2e8b57", width: 0.8 }, areaStyle: { color: "#2e8b57", opacity: 0.35 } },
         ],
       }));
-      charts.push(wc);
     }
+    // 进视口注册(一格一注册): IO 回调只把本格代理入队,由 _indLazyDrainStep 时间切片分帧 init
+    // (可视区一次可达 60+ 图,同步 init 仍会长任务;时间盒 12ms/tick 单任务恒 <<50ms)
+    // IO 不支持环境由 _marketLazyRegister 同步兜底调 initFn → 入队后照样分帧排空,行为退化为渐进渲染不白屏。
+    _marketLazyRegister(cell, () => _indLazyEnqueue(_cellProxies));
   }
 }
 
@@ -21327,7 +21363,19 @@ function disconnectAllIndexNavSpies() {
 // 释放指定容器内 ECharts 实例并从全局 charts 移除（搜索重渲染前清理）
 function _disposeContainerCharts(container) {
   if (!container) return;
-  container.querySelectorAll(".spark-chart, [_echarts_instance_]").forEach((dom) => {
+  // .ind-metric-chart 为行业格迷你图容器(仅 renderIndustryGrid 使用,他处无此类);未 init 的懒卡无 [_echarts_instance_] 属性
+  container.querySelectorAll(".spark-chart, .ind-metric-chart, [_echarts_instance_]").forEach((dom) => {
+    // 懒代理卡先走 proxy.dispose(unobserve+出 charts+清 pending),防「实例 dispose 了但代理悬空」
+    // (评审项B闭环: 2026-08-22 起 _disposeContainerCharts 认懒卡,__mktLazyProxy 反查;无懒卡容器反查不命中行为不变)
+    const lazy = dom.__mktLazyProxy;
+    if (lazy) {
+      if (!lazy.isDisposed()) {
+        const li = charts.indexOf(lazy);
+        if (li >= 0) charts.splice(li, 1);
+        lazy.dispose();
+      }
+      return;
+    }
     const inst = echarts.getInstanceByDom(dom);
     if (inst) {
       inst.dispose();

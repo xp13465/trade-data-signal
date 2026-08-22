@@ -17,6 +17,7 @@
 #   6. 若 feat 改了前端源码(8 源: app/lab/common/style/lab.css/purpose-notes/kelly-review-notes/kelly-reports-content, 与 build_min.py 对齐): 统一跑 build_min + bump_asset_version(版本串唯一权威入口, 机制 C)
 #   7. §24⑤ 校验 index 引用 == 实际文件内容 md5(统一 bump 后内容哈希==引用)
 #   8. 调 check_version_progress.py(A/B: 版本串倒退哨兵 + merge 净回退校验) → FAIL 阻断
+#   8.5 pending-index 销账软提醒(只提醒不阻断不自动改, 2026-08-22 用户授权流程小机制)
 #   9. commit(自动追加 Co-Authored-By) + push main
 #
 # 用法:
@@ -146,6 +147,9 @@ if [[ "$BEHIND_COUNT" -gt 0 ]]; then
   echo "  (缺口① base 新鲜度事前校验: base 落后仍可继续, 但 merge 前请确认无冲突/无净回退)"
 fi
 
+# 4.5 记录 merge 前 origin/main 位置(供 8.5 步销账提醒划定「本次 merge 带入的 commit」范围; fetch/rebase 后已定型)
+PRE_MERGE_BASE="$($GIT rev-parse origin/main)"
+
 # 5. merge feat(冲突即停, 绝不静默 §23.11)
 echo "--- merge $FEAT into main ---"
 echo "  checkout main"
@@ -206,7 +210,42 @@ else
   fi
 fi
 
-# 8. commit(自动追加 Co-Authored-By) + push main
+# 8.5 pending-index 销账软提醒(2026-08-22 用户授权流程小机制: 只提醒不阻断不自动改文件)
+#     背景: merge 进 main 的 commit message 常引用 docs/pending-features-index.md 的 #NN 编号但没人顺手销账。
+#     逻辑: 从本次 merge 带入的 commit message(标题+body, 范围=merge 前 origin/main..HEAD)提取 #编号,
+#           对照 pending-index 该编号是否仍以活跃形式出现——词边界精确匹配(#15 不误配 #150),
+#           先剔除 ~~…~~ 划线墓碑段再查(墓碑=已销账不算活跃);命中则 echo 提醒。dry-run 跳过。
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo "  [dry-run] 跳过 pending-index 销账提醒"
+else
+  PENDING_IDX="$REPO/docs/pending-features-index.md"
+  HIT_NUMS=""
+  if [[ -f "$PENDING_IDX" ]]; then
+    # 提取编号去重升序(|| true 防 grep 空匹配非零退出触发 set -e)
+    REF_NUMS="$($GIT log --format=%B "$PRE_MERGE_BASE"..HEAD 2>/dev/null | grep -oE '#[0-9]+' | tr -d '#' | sort -un || true)"
+    for n in $REF_NUMS; do
+      # 活跃判定(两种活跃形态任一命中即算): ①行内词边界精确 #n 引用(#15 不误配 #150)
+      #   ②表格行首列裸编号 | n |(pending-index 主表行的主键形态)
+      # 先 sed 剔除 ~~…~~ 划线墓碑段再查(墓碑=已销账不算活跃);日期/普通数字不受影响(锚定 # 或 | )
+      _pat='(^|[^0-9])#'"${n}"'([^0-9]|$)|(^[[:space:]]*[|][[:space:]]*'"${n}"'[[:space:]]*[|])'
+      if grep -E "$_pat" "$PENDING_IDX" 2>/dev/null \
+          | sed -E 's/~~[^~]*~~//g' \
+          | grep -qE "$_pat"; then
+        HIT_NUMS="$HIT_NUMS #${n}"
+      fi
+    done
+  fi
+  if [[ -n "$HIT_NUMS" ]]; then
+    echo ""
+    echo "ℹ️ 销账软提醒(pending-index 对账, 只提醒不阻断): 本次 merge 带入的 commit 引用了${HIT_NUMS}"
+    echo "   以上编号在 docs/pending-features-index.md 仍以活跃形式出现, 考虑顺手销账(移 done-list / 标完成)。"
+    echo ""
+  else
+    echo "✓ pending-index 销账对账: 本次 merge 无仍活跃的 #编号引用(或无引用/索引文件不在)"
+  fi
+fi
+
+# 9. commit(自动追加 Co-Authored-By) + push main
 if [[ "$DRY_RUN" == "1" ]]; then
   echo "[dry-run] 跳过 commit + push main"
   echo "=== dry-run 演练完成(未实际 merge/push) ==="
