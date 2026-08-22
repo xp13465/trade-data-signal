@@ -3119,6 +3119,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
   const asc = rows.slice().sort((a, b) => { const sa = String(a[fIdx.signal_date] || ""), sb = String(b[fIdx.signal_date] || ""); return sa < sb ? -1 : (sa > sb ? 1 : 0); });
   let cumPct = 0, cumYuan = 0, rightN = 0, wrongN = 0, holdingN = 0;
   const cumMap = {};  // basekey -> {cumPct, cumYuan, acc, rate}
+  let peakPosN = 0;   // 窗口内峰值同时持仓笔数(各日 openMap 快照最大值; 累积盈亏% 分母口径, 2026-08-22 用户定)
   const posMap = {};  // basekey -> 截至本行 signal_date 的开放持仓手数(每笔=1手=¥10000)
   const posSetMap = {}; // signal_date -> 当日仍持有笔的 basekey 集合(与 posMap 同点快照, |Set| 恒等于该日显示持仓数; 供 hover 高亮联动)
   // 当日持仓: 按 signal_date 分组扫描(P2-1 修复: 先删已卖出笔再计新开笔, 同日各行为同一真实持仓数)
@@ -3144,6 +3145,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
         }
       }
       const posN = Object.keys(openMap).length; // 该信号日当天真实持有笔数
+      if (posN > peakPosN) peakPosN = posN;     // 窗口峰值同时持仓(=「当日持仓」列各日最大值, 累积盈亏%分母)
       posSetMap[sd] = new Set(Object.keys(openMap)); // 同点快照: 集合大小 == 上行 posN(§23.9 一致性锚点)
       for (let i = gi; i < gj; i++) posMap[_simBaseKey(asc[i], fIdx)] = posN;
       gi = gj;
@@ -3154,8 +3156,11 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
     const bk = _simBaseKey(t, fIdx);
     const c = _simBtCalcRow(t, fIdx, fp);
     if (c.isHolding) holdingN++;
-    cumPct += c.pnlPct;
     cumYuan += c.pnlYuan;
+    // 累积盈亏%(2026-08-22 用户定口径修正): = 累计盈亏金额 ÷(窗口内峰值同时持仓笔数×¥10000),
+    // 真实资金占用收益率; 不再按每笔 ¥10000 收益率简单相加(多笔同持时为虚假杠杆口径, memory E23 同源)。
+    // 分母为窗口级常数, 每行随 cumYuan 更新; peakPosN=0(病态窗口无任何买入)兜底按 1 笔防除零。
+    cumPct = (cumYuan / (Math.max(peakPosN, 1) * 10000)) * 100;
     if (c.pnlYuan > 0) rightN++; else wrongN++;
     cumMap[bk] = { cumPct, cumYuan, acc: rightN + "/" + wrongN, rate: ((rightN / (rightN + wrongN)) * 100).toFixed(1) };
   }
@@ -3163,9 +3168,22 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
   let page = 0;
   const totalPages = Math.max(1, Math.ceil(n / PAGE));
   const _escAttr = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-  // 符号着色(2026-08-22 用户追加「红正 绿负」): 累积盈亏/累积金额/买卖手续费复用本表 sim-up/sim-down
-  // 同口径(与「本笔交易盈亏%」列同色变量); 按数据实际符号如实渲染, 0/空不着色
+  // 符号着色(2026-08-22 用户追加「红正 绿负」, 本轮收窄): 仅累积盈亏/累积金额复用 _signCls,
+  // 与「本笔交易盈亏%」列同色变量; 按数据实际符号如实渲染, 0/空不着色。
+  // 手续费两列不再走 _signCls(用户定: 手续费恒为扣费语义恒绿负, 见 _feeCell)
   const _signCls = (v) => (v > 0 ? " sim-up" : (v < 0 ? " sim-down" : ""));
+  // 手续费列(2026-08-22 用户定, 推翻上轮「按数据符号如实着色」): 手续费=支出扣费 → 恒负号+绿色(sim-down),
+  // 不随数据符号; 数据源 _simBtCalcRow 存正数, 渲染取负显示不改数据; 0 费显 0.00 不着色(无扣费, 防出现 -0.00)
+  const _feeCell = (fee) => {
+    const v = Number(fee) || 0;
+    return v > 0 ? '<td class="sim-down">-' + v.toFixed(2) + '</td>' : '<td>0.00</td>';
+  };
+  // 累积两列 hoverpop(§23.9 三档互证: 白话+场景+1:1 举例); 数字全部来自当前行真实 cum 值+本窗口真实
+  // 峰值持仓(动态生成, hover 哪行就对上哪行显示的数, 1:1 可对账无编造)
+  const _cumTip = (cum) =>
+    '【累积盈亏 · 真实资金口径】①白话: 累计盈亏金额 ÷(本窗口峰值同时持仓笔数×¥10000)=真实资金占用收益率; 不是每笔收益率简单相加(每笔按1万简单相加会虚假放大约等于峰值持仓倍数)。②场景: 衡量该策略窗口内真金白银占用了多少、赚了多少, 用于跨策略对比/对照实盘资金效率。③1:1举例: 本窗口峰值同时持仓 ' + Math.max(peakPosN, 1) + ' 笔(峰值占用 ¥' + (Math.max(peakPosN, 1) * 10000).toLocaleString() + '), 截至本行累计盈亏 ' + cum.cumYuan.toFixed(2) + ' 元 → 真实累积收益率 ' + cum.cumPct.toFixed(2) + '%。';
+  const _cumYuanTip = (cum) =>
+    '【累积金额】①白话: 截至本行所有笔的费后盈亏真实金额累加(Σ每笔盈亏元, 含持仓中笔按最新收盘计的当前盈亏), 是绝对赚赔金额, 未除以资金占用。②场景: 看「总共赚/赔了多少钱」用本列; 看「资金效率/收益率」看「累积盈亏」列。③1:1举例: 本行累计 ' + cum.cumYuan.toFixed(2) + ' 元 ÷(峰值持仓 ' + Math.max(peakPosN, 1) + ' 笔×¥10000)=「累积盈亏」' + cum.cumPct.toFixed(2) + '%。';
   // 观察期倒计时用交易日历(懒构建: 首个持仓中行才建一次; 来自已加载 trades 自身日期并集)
   const _sellModes = (_simKellyCfg && _simKellyCfg.sell_modes) || null;
   let _obsCal = null, _obsLast = "";
@@ -3179,9 +3197,9 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
   const _draw = () => {
     const slice = rows.slice(page * PAGE, (page + 1) * PAGE);
     let html = '<table class="sim-tbl"><thead><tr>' +
-      '<th>日期</th><th>当日持仓</th><th>当日信号</th><th>信号关联ETF</th><th>计划买入时间</th><th>买入手续费</th>' +
-      '<th>计划卖出时间</th><th>卖出手续费</th><th>本笔交易盈亏%</th><th>本笔盈亏金额</th>' +
-      '<th>累积盈亏</th><th>累积金额</th><th>累积对错</th></tr></thead><tbody>';
+      '<th>日期</th><th>当日持仓</th><th>当日信号</th><th>信号关联ETF</th><th>计划买入时间</th><th title="手续费恒为支出扣费语义: 显示负数(绿色), 详见各行悬停提示">买入手续费</th>' +
+      '<th>计划卖出时间</th><th title="手续费恒为支出扣费语义: 显示负数(绿色)">卖出手续费</th><th>本笔交易盈亏%</th><th>本笔盈亏金额</th>' +
+      '<th title="公式: 累计盈亏金额 ÷(窗口峰值同时持仓×¥10000)=真实资金占用收益率, 非每笔收益率简单相加; 详见各行悬停提示">累积盈亏</th><th title="Σ每笔费后盈亏真实金额累加, 绝对赚赔额(未除以资金占用)">累积金额</th><th>累积对错</th></tr></thead><tbody>';
     for (const t of slice) {
       const bk = _simBaseKey(t, fIdx);
       const c = _simBtCalcRow(t, fIdx, fp);
@@ -3205,13 +3223,13 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
         '<td>' + _simSigTypeLabel(t[fIdx.signal]) + '</td>' +
         '<td>' + _simEtfLightHtml(t, fIdx) + (t[fIdx.etf_code] || "") + ' ' + (t[fIdx.etf_name] || "") + '</td>' +
         '<td>' + (t[fIdx.buy_date] || "") + '</td>' +
-        '<td class="' + _signCls(c.buyFee) + '">' + c.buyFee.toFixed(2) + '</td>' +
+        _feeCell(c.buyFee) +
         '<td>' + (c.isHolding ? '<span class="simbt-holding-tag">持仓中</span>' : (t[fIdx.sell_date] || "")) + '</td>' +
-        '<td class="' + _signCls(c.sellFee) + '">' + c.sellFee.toFixed(2) + '</td>' +
+        _feeCell(c.sellFee) +
         '<td class="' + cls + '">' + c.pnlPct.toFixed(2) + '%' + obsHtml + '</td>' +
         '<td class="' + cls + '">' + c.pnlYuan.toFixed(2) + '</td>' +
-        '<td class="' + _signCls(cum.cumPct) + '">' + cum.cumPct.toFixed(2) + '%</td>' +
-        '<td class="' + _signCls(cum.cumYuan) + '">' + cum.cumYuan.toFixed(2) + '</td>' +
+        '<td class="' + _signCls(cum.cumPct) + '" title="' + _escAttr(_cumTip(cum)) + '">' + cum.cumPct.toFixed(2) + '%</td>' +
+        '<td class="' + _signCls(cum.cumYuan) + '" title="' + _escAttr(_cumYuanTip(cum)) + '">' + cum.cumYuan.toFixed(2) + '</td>' +
         '<td>' + cum.acc + ' (' + cum.rate + '%)</td>' +
         '</tr>';
     }
@@ -3223,7 +3241,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
       ? "自定义(佣" + _simBtWan(fp.commission_rate) + "/最低" + fp.min_commission + "元/滑" + _simBtQian(fp.slippage) + "/过户" + _simBtWan(fp.transfer_fee_rate_sh) + "/印" + _simBtWan(fp.stamp_duty_rate) + ", 万分之·滑点千分之)"
       : (_presetObj ? _presetObj.label + "(" + _presetObj.desc + ")" : "");
     summaryEl.innerHTML = '筛选结果: <b>' + n + '</b> 笔(模式 ' + mode + ' · 降亏' + (fadeOn ? '开' : '关') + ' · K=' + (K || '关') +
-      ') · 本金每笔 ¥10000 · 费率[' + feeDesc + ']' +
+      ') · 本金每笔 ¥10000 · 累积收益率口径=累计金额÷(峰值同时持仓 <b>' + Math.max(peakPosN, 1) + '</b> 笔×¥10000) · 费率[' + feeDesc + ']' +
       (holdingN > 0 ? ' · <span class="simbt-est">含 ' + holdingN + ' 笔持仓中</span>(按最新收盘价计当前盈亏, 已并入累积列与对错计数)' : '');
     if (totalPages > 1) {
       let pg = '';
