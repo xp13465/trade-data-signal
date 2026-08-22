@@ -33,6 +33,7 @@
 //   GITEE_CLIENT_ID / GITEE_CLIENT_SECRET / GITEE_REDIRECT_URI（生产=https://ss.fx8.store/api/auth/callback/gitee）/ SESSION_SECRET
 //   GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET / GITHUB_REDIRECT_URI（生产=https://ss.fx8.store/api/auth/callback/github）
 //   Google 未实现，占位
+//   RESEND_API_KEY（Resend HTTP API 发信 key，#82 新留言邮件通知）/ FEEDBACK_NOTIFY_TO（通知收件邮箱=站主）
 // KV binding 复用 SUBSCRIBE_KV（见 wrangler.jsonc kv_namespaces）。
 
 const SESSION_COOKIE_NAME = 'session';
@@ -726,11 +727,14 @@ function notImplemented(provider, request) {
 // ============ 留言箱 ============
 // 复用 session cookie（主站）+ Bearer token（备站跨域）双模式认证，与 me 函数同模式，KV 存储：
 //   key   = feedback:<provider>:<provider_uid>:<timestamp_ms>
-//   value = JSON{id, user_id, provider, content, created_at, status, ip_hash}
+//   value = JSON{id, user_id, provider, nickname, content, created_at, status, ip_hash}
 // 用户身份主键用 provider+provider_uid（session/bearer payload 必带，稳定唯一），user_id 作冗余字段
 // 防滥用四层：①频控(同IP 10min≤1, KV feedback:rate:<hash>:<window> TTL 600s)
 //   ②honeypot(body.website 非空=机器人,返200假成功) ③内容约束 50-2000 字 ④审核闸门 status=pending
 // 频控 key 前缀 feedback:rate: 与留言 key feedback:<provider>: 隔离，admin list 时排除 rate 前缀
+// #82 邮件通知：留言保存成功后尽力而为发 Resend 邮件提醒站主（sendFeedbackNotifyEmail，
+//   secret RESEND_API_KEY + FEEDBACK_NOTIFY_TO 任一未配置则跳过；try/catch 全包，任何邮件失败只 console 不影响留言主流程；
+//   通路依据：MailChannels Workers 免费 API 已于 2024-06-30 停运，改走 Resend HTTP API api.resend.com/emails Bearer 认证）
 // 路由：POST /api/feedback 提交留言；GET /api/feedback 列当前用户留言（倒序）
 //   GET/POST /api/feedback/admin 管理端审核（X-Admin-Pwd + env.FEEDBACK_ADMIN_PASSWORD 认证）
 
@@ -807,10 +811,18 @@ async function submitFeedback(request, env) {
   const ts = Date.now();
   const id = crypto.randomUUID();
   const created_at = new Date(ts).toISOString();
+  // 昵称：KV user 表 name（OAuth 登录时 upsert，与 me 路由同模式读取），读取失败兜底 provider:uid（不阻塞留言）
+  let nickname = '';
+  try {
+    const fbUser = await getUserByProviderUid(env, session.provider, session.providerUid);
+    nickname = (fbUser && fbUser.name) || '';
+  } catch {}
+  if (!nickname) nickname = userKey;
   const feedback = {
     id,
     user_id: session.userId || userKey,
     provider: session.provider,
+    nickname,
     content,
     created_at,
     // ④ 审核闸门：新留言 pending，管理端 approve 后 approved / reject 后 rejected
@@ -825,7 +837,82 @@ async function submitFeedback(request, env) {
   } catch (e) {
     return jsonResponse({ detail: '留言保存失败' }, 500, { request });
   }
+  // #82 最后一环：新留言邮件提醒站主（尽力而为：try/catch 全包，任何失败只 console 不影响已保存成功的留言）
+  try {
+    await sendFeedbackNotifyEmail(env, feedback);
+  } catch (e) {
+    console.warn('[feedback] 邮件通知异常（不影响留言）:', e && (e.message || String(e)));
+  }
   return jsonResponse({ ok: true, id, created_at }, 200, { request });
+}
+
+// 新留言邮件通知（#82）：Resend HTTP API 直调（fetch + Bearer 认证，Workers 环境原生可用）
+// 通路依据：MailChannels Workers 免费集成已于 2024-06-30 停运（官方 blog 宣布终止免费 API），故走项目现有 Resend
+// 配置：wrangler secret put RESEND_API_KEY / FEEDBACK_NOTIFY_TO（收件=站主邮箱，与 config/email.json 的 to 一致）
+// from 固定 hi@fx8.store（Resend 已验证域名）。任一 secret 未配置则跳过并 console 提示。
+async function sendFeedbackNotifyEmail(env, fb) {
+  const apiKey = env.RESEND_API_KEY || '';
+  const to = env.FEEDBACK_NOTIFY_TO || '';
+  if (!apiKey || !to) {
+    console.warn('[feedback] 未配置 RESEND_API_KEY / FEEDBACK_NOTIFY_TO secret，跳过邮件通知');
+    return;
+  }
+  const escapeHtml = (s) => String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const nickname = fb.nickname || fb.user_id || '匿名';
+  const timeStr = (fb.created_at || '').replace('T', ' ').replace('Z', ' UTC');
+  const adminUrl = 'https://ss.fx8.store/admin/feedback.html';
+  const subject = `【ss.fx8.store】新留言 来自 ${nickname}`;
+  const text = [
+    '收到一条新留言（待审核）：',
+    '',
+    `昵称：${nickname}`,
+    `时间：${timeStr}`,
+    '',
+    '留言全文：',
+    fb.content || '',
+    '',
+    '--',
+    `请到留言管理页审核：${adminUrl}`,
+  ].join('\n');
+  const html = [
+    '<div style="font-family:-apple-system,\'Segoe UI\',\'PingFang SC\',sans-serif;max-width:640px;color:#222">',
+    '<h3 style="margin:0 0 12px">收到一条新留言<span style="color:#c00">（待审核）</span></h3>',
+    `<p style="margin:4px 0"><b>昵称：</b>${escapeHtml(nickname)}</p>`,
+    `<p style="margin:4px 0"><b>时间：</b>${timeStr}</p>`,
+    `<div style="border-left:3px solid #ddd;padding:8px 12px;margin:12px 0;white-space:pre-wrap;color:#333">${escapeHtml(fb.content || '')}</div>`,
+    `<p style="color:#888;font-size:13px">请到 <a href="${adminUrl}">留言管理页</a> 审核通过后才会展示。</p>`,
+    '</div>',
+  ].join('\n');
+  let resp;
+  try {
+    resp = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: 'hi@fx8.store',
+        to: [to],
+        subject,
+        text,
+        html,
+      }),
+    });
+  } catch (e) {
+    console.warn('[feedback] 邮件发送请求失败（不影响留言）:', e && (e.message || String(e)));
+    return;
+  }
+  if (!resp.ok) {
+    // 尽力而为：非 2xx 只记日志（含 Resend 错误体），不抛错不重试
+    let detail = '';
+    try { detail = await resp.text(); } catch {}
+    console.warn(`[feedback] 邮件发送失败 status=${resp.status}（不影响留言）:`, detail.slice(0, 500));
+    return;
+  }
+  console.log('[feedback] 新留言邮件通知已发出 ->', to);
 }
 
 // IP hash（脱敏）：取 CF-Connecting-IP 或 x-forwarded-for 首段，SHA-256 取前 16 hex 字符
@@ -923,6 +1010,7 @@ async function adminListFeedback(request, env, url) {
             kv_key: p.k,
             user_id: fb.user_id || '',
             provider: fb.provider || '',
+            nickname: fb.nickname || '',
             content: fb.content || '',
             created_at: fb.created_at || '',
             status: st,
