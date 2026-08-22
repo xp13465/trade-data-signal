@@ -210,6 +210,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-08-19 | 0.9747 | 3,989,072 | ? | ce5ca8dce docs(规范+待办): 全局核心问题报告维度全铁律(§5.1⑤+researcher skill§3⑤) + 落档#69 CYB降亏新标志方向 + 新增#73 多指数四档展示; b74368b5a feat(防再犯CD): push main 统一入口 main-merge.sh + 同文件并发串行 check_file_owners(用户拍板 B 降级安全并行) |
 | 2026-08-20 | 0.9869 | 746,855 | ? | cd8ea5d8e docs(CLAUDE.md): 存量修正3处(用户已拍板全修) 版本基准引用过时+§18过错索引计数; 3d9d9cdab docs(CLAUDE.md): 瘦身方案#94 A1+§5.4状态独立 删§18元信息+基准定义挪memory权威; 8cb60a5a7 docs(CLAUDE.md): §23.12 TASKS任务治理4态流转规范落档(用户2026-08-20定,task活跃/todolist远期/完成文件/归档7天) |
 | 2026-08-21 | 0.1473 | 47,686,787 | ? | 无 |
+| 2026-08-22 | 0.8589 | 12,999,772 | ? | 无 |
 <!-- token-cache-trend-end -->
 
 **ASCII 迷你柱状图**（每格 = 0.01 命中率，刻度 0.70~1.00，一眼看升降；由脚本 `--append-daily` 随走势表同步更新，保证与实际命中率一致）：
@@ -228,6 +229,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 08-19  ███████████████████████████(27)  3,989,072     0.9747
 08-20  █████████████████████████████(29)  746,855       0.9869
 08-21  (0)  47,686,787    0.1473
+08-22  ████████████████(16)  12,999,772    0.8589
 ```
 <!-- token-cache-ascii-end -->
 
@@ -245,4 +247,5 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-08-19 | ? | ce5ca8dce docs(规范+待办): 全局核心问题报告维度全铁律(§5.1⑤+researcher skill§3⑤) + 落档#69 CYB降亏新标志方向 + 新增#73 多指数四档展示; b74368b5a feat(防再犯CD): push main 统一入口 main-merge.sh + 同文件并发串行 check_file_owners(用户拍板 B 降级安全并行) |
 | 2026-08-20 | ? | cd8ea5d8e docs(CLAUDE.md): 存量修正3处(用户已拍板全修) 版本基准引用过时+§18过错索引计数; 3d9d9cdab docs(CLAUDE.md): 瘦身方案#94 A1+§5.4状态独立 删§18元信息+基准定义挪memory权威; 8cb60a5a7 docs(CLAUDE.md): §23.12 TASKS任务治理4态流转规范落档(用户2026-08-20定,task活跃/todolist远期/完成文件/归档7天) |
 | 2026-08-21 | ? | — |
+| 2026-08-22 | ? | — |
 <!-- token-cache-changelog-end -->
