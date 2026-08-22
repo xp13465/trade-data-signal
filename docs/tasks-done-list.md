@@ -159,3 +159,10 @@
 
 - [x] **首页「模拟回测」弹窗上线+三轮迭代** — a377 上线(main 2dd0feaa1):5 操作块+13 列费后盈亏累积表,R2 signal_kelly_trades.json 全历史 27 万笔,过滤口径与首页 AI 建议 1:1;迭代①13 列定宽+hover 当日持仓格→信号关联 ETF 对应高亮(高亮数==持仓数)+四列红正绿负(a383,4602b3232);迭代②累积盈亏口径修正=累计盈亏÷(窗口峰值同时持仓笔数×¥10000),不再按每笔 1 万简单相加(E23 虚假杠杆口径根治),tooltip 三档互证含动态 1:1 公式(a385,0c876ebe5 merge 链);迭代③费率块 6 档快捷+5 参数计费+持仓中笔按最新价预估浮盈(b13d93592)
 - [x] **P2-11 大盘 tab 懒渲染(#80/#92 同项)** — e01de0423(+评审加固)经 af0fc35d6 merge 上线,a384:IntersectionObserver 单例+_marketLazyProxy 懒代理(setOption 入队 init 后回放/getOption 回退/dispose 完整),首帧 canvas 23→5、init 长任务 59ms→0、像素 diff≈0 外观零变化(reviewer 8 项 PASS);加固项=getOption 未 init 返回缓存首帧配置(修切皮肤×懒加载交叉丢主题色时序 bug)+_disposeContainerCharts 错位约束注释;遗留:板块分化 subtab renderIndustryGrid spark 格同根因待拍板
+
+## 2026-08-22 晚间收尾移入(#88 销号 + #10 ETF 长历史上线)
+
+> 来源:#88 订阅推送差距调研(researcher,docs/subscribe-push-gap-research-20260822.md)+ #10 实施(reviewer 10 项 PASS)。
+
+- [x] **#88 订阅推送(整条关闭销号)** — 调研定性=「已完成未销号」:原始设想(存储/订阅过滤推送/前端 UI/邮件通道)已于 2026-07-24 由 A12 全量实施上线(commit c703a584f 前端 + 3d29c05c4 后端,NOTES L2290 标✅),8-20 补登记时按旧快照误判"未实施"。现状:链路每天在跑(check_signals 日志「2 个有效订阅」),零发出=订阅标的(sh/sz 指数类)7-21 后无新信号属数据事实;TG 通道代码在但 bot_token 从未配置。零代码增量选项留用户拍板:①订阅加自选高活跃标的②填 token 启用 TG。报告 docs/subscribe-push-gap-research-20260822.md(含宽基零信号定性附录:行情原因+卖点双过滤设计行为,非 bug)
+- [x] **#10 ETF 评分弹窗 30 天外长历史** — fa1ca6e3b 经 bc187f5ce merge 上线(a387):数据层 scripts/export_etf_hist.py(etf_daily 表→1532 只 per-ETF 全史前复权日K,87MB 走 R2 etf/ 前缀,4.2s 全量生成)+upload_r2 upload-etf-hist 分批 purge+update_all/deploy 定时链软挂载+check_etf_hist 挂 integrity 校验(C30);前端 openEtfScoreDetailModal period tab(默认 30 日零变化,点 3m~all 懒加载 r2/etf/{code}-all.json,内存缓存+竞态序号+缺数容错),SVG/echarts 双渲染路径兼容;Playwright 24 断言全过,R2 线上抽验 510300=3461 行逐位对 DB;reviewer 上报项 D(smoke-checklist 滞后)本批补 C30

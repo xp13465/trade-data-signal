@@ -45,6 +45,7 @@
 | C27 | `alert_analyze_{iid}.json` | `static-site/data/` | enabled 指数/行业有文件 + 含 `high`/`low` | 存在 | warn | `scripts/export_alert_analyze.py` | 信号走势弹窗空 |
 | C28 | `ad_line.json` | `static-site/data/` | `data` list 非空 | 非空 | warn | `export.py` | 涨跌家数空 |
 | C29 | `etf_score_list_{buy,sell,hold}.json` | R2 `ssd.fx8.store/data/` | 文件存在 + 非空 | 存在 | warn | lab 相关 | ETF评分列表空 |
+| C30 | `etf/{code}-all.json` | R2 `ssd.fx8.store/etf/` | 抽查 510050/510300/159915 有文件 + `count`>0 且 ==len(ohlc) | >0 | **fail**(check_etf_hist 挂 check_data_integrity) | `scripts/export_etf_hist.py` | ETF弹窗长历史空(#10) |
 
 ### 校验命令模板（reviewer agent 逐项 curl）
 
