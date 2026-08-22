@@ -28,7 +28,7 @@ _HEADER = [
     "",
     "> 影子模式 = 线上输出完全不变,后台把「方向锚/归因会预测什么方向」按日旁路落盘,",
     "> 次日真实盘后回填实际方向,聚算命中率供拍板开/不开/改(契约见 "
-    "`docs/ai-predict-shadow-validate-20260820.md`)。",
+    "`docs/ai-predict/ai-predict-shadow-validate-20260820.md`)。",
     "> 本表由 `data/brief_shadow.json` 自动渲染,每日维护两份落点(gen_daily_brief 当日写入 + "
     "aggregate_shadow 对账回填),**手改此 md 会被覆盖,以 JSON 为准**。",
     "",

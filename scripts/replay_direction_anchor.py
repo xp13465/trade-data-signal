@@ -9,7 +9,7 @@ AI 预测「方向锚」离线回放 A/B 验证脚本（2026-08-20,AI 预测升�
 复用 gen_daily_brief 改造后的 build_prompt/build_editor_messages/call_deepseek/parse_ai_output，
 喂给模型，只打印 direction/range，验证「方向锚」语义教学是否把旧 AI 猜反的方向修正。
 
-关键设计（对齐 docs/ai-predict-offline-ab-frontvalidate-20260820.md 方案A 零侵入）
+关键设计（对齐 docs/ai-predict/ai-predict-offline-ab-frontvalidate-20260820.md 方案A 零侵入）
 - 只 import gen_daily_brief 复用其函数，不调用其 main()，绝不触发 write_outputs/notify/R2
   /history 追加/backfill_hits —— 绝不覆盖生产 daily_brief.json（障碍② 绕过）。
 - --direction-anchor off（默认）→ build_prompt 与线上开关关时逐字一致（线上基准对照）；

@@ -215,7 +215,7 @@ _DIRECTION_ANCHOR_CACHE_MAX = 16
 def _compute_direction_anchor(db_path: Path, date: str) -> dict:
     """按 date 从 DB 计算方向锚因子（转折 T + 联动/压制 L），返回 dict 供语义教学。
 
-    口径对齐 docs/ai-predict-direction-market-winning-signals-20260820.md：
+    口径对齐 docs/ai-predict/ai-predict-direction-market-winning-signals-20260820.md：
     - 同 (db_path, date) 结果确定性唯一；影子模式(旁路后台计算)与实列(注入)共用本函数，
       用模块级小缓存 LRU 去重，避免同 date「影子算一次 + 注入算一次」双份重复读 DB。
       （仅键命中同 (db, date) 才复用，scoping 见 _DIRECTION_ANCHOR_CACHE_MAX 上限，不会过期污染——
@@ -576,7 +576,7 @@ def _db_metrics(conn: sqlite3.Connection, date: str, metric_ids: list[str]) -> d
 
 # ── 申万一级行业 code→name 映射(2026-08-16 AI 预测注入增强)────────────────
 # 数据源: daily_metric `ind_flow_sw_<code>` 31 申万一级行业主力资金流向。
-# 注入时压缩为 top5/bottom5(长度控制,见 ai-predict-inject-research.md §4.2)。
+# 注入时压缩为 top5/bottom5(长度控制,见 docs/ai-predict/ai-predict-inject-research.md §4.2)。
 SW_INDUSTRY_NAME = {
     "sw_801010": "农林牧渔", "sw_801030": "化工", "sw_801040": "钢铁",
     "sw_801050": "有色金属", "sw_801080": "电子", "sw_801110": "家用电器",
@@ -1189,7 +1189,7 @@ def load_data(static_dir: Path, db_path: Path, date: str) -> dict:
         mrow = q.fetchone()
         d["cn10y"] = round(mrow[0], 4) if mrow and mrow[0] is not None else None
 
-        # ── AI 预测注入面增强(2026-08-16,调研 ai-predict-inject-research.md §4)──
+        # ── AI 预测注入面增强(2026-08-16,调研 docs/ai-predict/ai-predict-inject-research.md §4)──
         # 原则: 全部站内已有数据(接入成本≈0);guard 四策略——停更过滤(_db_metric_latest
         # 校验最新行=当日,seal/zhaban/new_high_low/ind_turn 停更自动跳过)、None 跳过、
         # 大面积0拦截(新高新低本次不注入)、usdcnh 量纲÷100 标注。不改任何既有字段(§23.7 只增不改)。
@@ -1807,7 +1807,7 @@ def parse_ai_output(raw: dict | None, data: dict, date: str) -> dict | None:
 # ═══ 多角色协作式编排(P0-4,2026-08-11 实施) ═══════════════════════════
 # 6 角色: ①技术面 ②资金面 ③情绪面 ④风控(①②③④并行) -> ⑤研究员(多空辩论,串行)
 #       -> ⑥主编(组装+meta+合规) -> 复用 parse_ai_output 结构(前端零改动)。
-# 每角色只喂自己数据域(缩小数据域控幻觉,见 docs/ai-predict-multiagent-plan.md §3.1)。
+# 每角色只喂自己数据域(缩小数据域控幻觉,见 docs/ai-predict/ai-predict-multiagent-plan.md §3.1)。
 # 降级链: 任一环节失败 -> 该角色论据缺失或整体降级单 prompt 主链路(保底不破 §3.4)。
 # 合规: 主编 sys_text 复用指令词黑名单 + 最终 scrub_text 正则兜底(P0-3)。
 # 模型: ①②③④⑥ deepseek-chat;⑤ 研究员 cfg.researcher_model(默认 deepseek-chat,
@@ -2132,7 +2132,7 @@ def scrub_text(text: str, cfg: dict) -> str:
 HISTORY_FILE = "daily_brief_history.json"
 BRIEF_FILE = "daily_brief.json"
 HISTORY_LIMIT = 90
-# ── AI 预测自成长闭环(Step 1,2026-08-17 实施,方案 docs/ai-predict-self-growth.md)──
+# ── AI 预测自成长闭环(Step 1,2026-08-17 实施,方案 docs/ai-predict/ai-predict-self-growth.md)──
 #   失败样本反思:回填失败 -> 规则级归因 -> confidence 分桶校准 -> 注入下次预测。
 #   数据落「根 data/」(本地,不进 git,§8 不 add 根 data/);注入内容按 date 归档可复现。
 REFLECTIONS_FILE = "daily_brief_reflections.json"          # 失败样本反思(根 data/)
@@ -2740,7 +2740,7 @@ def write_outputs(static_dir: Path, brief: dict, cfg: dict, history: list | None
     return stats
 
 
-# ── AI 预测语音播报(edge-tts,2026-08-16,方案 docs/ai-predict-tts-plan.md §三)────────
+# ── AI 预测语音播报(edge-tts,2026-08-16,方案 docs/ai-predict/ai-predict-tts-plan.md §三)────────
 #   用微软 Edge "大声朗读"免费在线 TTS(edge-tts 包,非 Azure 商用)把 AI 预测合成 mp3,
 #   写 static-site/data/daily_brief_tts_<date>.mp3,前端 <audio> 播放。合成失败不阻塞主流程,
 #   不写 meta.tts_available(前端据此隐藏播放按钮,降级不破)。

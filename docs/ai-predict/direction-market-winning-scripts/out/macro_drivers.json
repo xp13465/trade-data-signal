@@ -1,0 +1,83 @@
+[
+ {
+  "n": 2244,
+  "hit": 879,
+  "same_rate": 0.3917112299465241,
+  "up_asset": 1203,
+  "down_asset": 1041,
+  "macro_up": 0,
+  "name": "us10y→黄金"
+ },
+ {
+  "n": 2263,
+  "hit": 1138,
+  "same_rate": 0.5028722934158197,
+  "up_asset": 1184,
+  "down_asset": 1079,
+  "macro_up": 0,
+  "name": "us10y→A股"
+ },
+ {
+  "n": 2187,
+  "hit": 1049,
+  "same_rate": 0.479652491998171,
+  "up_asset": 1210,
+  "down_asset": 977,
+  "macro_up": 0,
+  "name": "us10y→美股"
+ },
+ {
+  "n": 2214,
+  "hit": 1080,
+  "same_rate": 0.4878048780487805,
+  "up_asset": 1133,
+  "down_asset": 1081,
+  "macro_up": 0,
+  "name": "us10y→港股"
+ },
+ {
+  "n": 4488,
+  "hit": 2274,
+  "same_rate": 0.5066844919786097,
+  "up_asset": 2350,
+  "down_asset": 2138,
+  "macro_up": 0,
+  "name": "gold→A股"
+ },
+ {
+  "n": 4336,
+  "hit": 2218,
+  "same_rate": 0.5115313653136532,
+  "up_asset": 2364,
+  "down_asset": 1972,
+  "macro_up": 0,
+  "name": "gold→美股"
+ },
+ {
+  "n": 3037,
+  "hit": 1513,
+  "same_rate": 0.49818900230490615,
+  "up_asset": 1546,
+  "down_asset": 1491,
+  "macro_up": 0,
+  "name": "gold→港股"
+ },
+ {
+  "n": 3421,
+  "hit": 1744,
+  "same_rate": 0.509792458345513,
+  "up_asset": 1813,
+  "down_asset": 1608,
+  "macro_up": 0,
+  "name": "qvix→A股"
+ },
+ {
+  "n": 2353,
+  "hit": 1183,
+  "same_rate": 0.5027624309392266,
+  "up_asset": 1240,
+  "down_asset": 1113,
+  "macro_up": 0,
+  "name": "spread→A股"
+ }
+]

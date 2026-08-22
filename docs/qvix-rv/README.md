@@ -4,6 +4,7 @@ QVIX（中国波指，期权隐含波动率）主源 optbbs 宕机时的真异�
 
 ## 文档
 - [qvix-rv-fallback.md](qvix-rv-fallback.md) — 设计报告（背景/方案/RV 口径/fallback 链路/代码改动/数值验证/复现）
+- [qvix-data-sources.md](qvix-data-sources.md) — QVIX 免费异源穷举实测（optbbs→上交所 IV 自算→本地 RV 三重兜底；算法公示位 README L145 引用，2026-08-22 自 docs/ 根归位）
 
 ## 脚本
 - [scripts/calc_rv.py](scripts/calc_rv.py) — RV 独立复现脚本（拉 510050/510300 日线 → 20 日滚动年化波动率 → 沉淀 JSON）

@@ -88,7 +88,7 @@
 - 🔹 **ETF 评分弹窗** — 一个弹窗给全决策（手数/置信度/8 维评分/历史类比/仓位红线），指数↔ETF 全匹配；走势区支持周期切换（30日默认 / 3月~5年 / 全部历史），长周期懒加载 R2 `etf/{code}-all.json` 全史前复权日K（`etf_daily` 表，2005 年起 21 年、1500+ 只 ETF，与指数全史同模式托管）（数据层详见 [`docs/data-dictionary.md`](docs/data-dictionary.md)）
 - 🔹 **信号灯 + 降亏过滤 + AI 仓位** — AI 一键降亏，把数据挖掘发现的「系统性亏损特征」自动剔除；再按每日资金池 + top-K 给「AI 建议」与凯利仓位，过滤后只剩可操作信号（详见 [`docs/kelly/`](docs/kelly/) 分析与报告、[`docs/kelly/position/kelly-position-cap-k-sensitivity.md`](docs/kelly/position/kelly-position-cap-k-sensitivity.md)）。2026-08-22 新增第 5 个手动降亏键「牛市×辅备买全停」（默认关 🆕NEW 供实测）：牛市·主升（hs300 四档）×辅买/备买信号时段级全停——补位口径（前端真实链路，被拦天的次优信号自动顶上）下 5-8 月连亏窗口 mode A K1 由 -5,166 收窄到 -1,030、全史 +66,530→+73,103（改善 +6,573，近1/2/3/5 年五窗全改善）；理想对照（被拦笔直接消失口径）为 -256 / 全史 +9,895；变差年 4 个合计 -5,825（理想对照口径）已诚实标注，lab 凯利区 / 首页模拟回测弹窗 / 首页信号网格三处同一开关联动，数据支撑见 [`docs/kelly/analysis/sim-window-loss-mining-20260822.md`](docs/kelly/analysis/sim-window-loss-mining-20260822.md)）
 - 🔹 **首页模拟回测弹窗** — AI 仓位建议行「参考说明」旁的「模拟回测」按钮一键打开：用 2011-2026 全历史真实信号交易记录（R2 `signal_kelly_trades.json`），按时间范围 / AI 降亏过滤 / K 档 / 交易模式 / 费率 5 组条件实时过滤，13 列明细表逐笔算费后盈亏与累积收益，与凯利回测页同源口径、纯展示不与实盘关联。累积收益率=累计盈亏金额÷(窗口内峰值同时持仓笔数×¥10000)真实资金占用口径（非每笔收益率简单相加）；手续费列恒为支出扣费语义（负数+绿色）
-- 🔹 **每日 AI 速递** — 收盘一份白话解读直发邮箱：多角色辩论 + 方向/区间三层命中回填 + 自成长反思校准 + 新闻面 + 语音播报 + 把握度，每天知道自己的判断准不准（详见 [`docs/daily-brief-research.md`](docs/daily-brief-research.md)、[`docs/ai-predict-self-growth.md`](docs/ai-predict-self-growth.md)、[`docs/ai-predict-inject-research.md`](docs/ai-predict-inject-research.md)）
+- 🔹 **每日 AI 速递** — 收盘一份白话解读直发邮箱：多角色辩论 + 方向/区间三层命中回填 + 自成长反思校准 + 新闻面 + 语音播报 + 把握度，每天知道自己的判断准不准（详见 [`docs/ai-predict/daily-brief-research.md`](docs/ai-predict/daily-brief-research.md)、[`docs/ai-predict/ai-predict-self-growth.md`](docs/ai-predict/ai-predict-self-growth.md)、[`docs/ai-predict/ai-predict-inject-research.md`](docs/ai-predict/ai-predict-inject-research.md)）
 - 🔹 **场外基金评分排行（#79 方案C 全量化）** — 对全市场约 2.7 万只场外公募基金（申赎型）按「6 维业绩/风险调整/回撤/稳定性/规模流动性/费率 + 5 风险指标夏普/索提诺/卡玛/信息比率/Alpha + 经理 6 维 + 半凯利仓位 + 市场乘数」综合评分；登录用户经 CF Workers + D1 服务端分页查询全市场（每页 50，支持排序/搜索/类型筛选），点击任一基金卡片弹出「决策头/凯利仓位/六维雷达/风险与经理六维/基础信息」5 区块详情；API 不可用时自动降级 Top100 兜底数据不白屏。数据源覆盖 akshare 基金基础信息（公司/经理/费率/规模等）
 
 ### C. 集成与体验
@@ -142,7 +142,7 @@
 
 **数据流**：多源采集（防单源封禁，互备降并发）→ SQLite 主库（`sentiment.db` / `etf_national_team.db`）→
 指标计算 → 静态 JSON 产物 → R2/CF 分发 → 前端渲染；小文件走 CF，大文件走 R2 直链，`manifest.json + sha256` 全程可校验。
-**异源兜底（2026-08-15 新增）**：核心指标自动切换**真异源**（不同 host/供应商，非伪多源）多重兜底——`us10y`（东财▶美财政部 CSV）、`hk_south`（东财▶HKEX 官方 JS 反算南向净买额）、`cn10y`（中债▶东财 datacenter）、`gold 沪金`（新浪▶东财 futsseapi）、`a_turnover_rate`（腾讯▶东财 push2delay）、美股/全球指数（新浪▶东财 push2）；**QVIX 3 重**：主源 optbbs → 备 A 上交所官方期权 IV 方差互换自算（T+1 可历史回填）→ 网底本地 RV（口径不同已公示）。每次采集落 `daily_metric.source` 归属标记（treasury/hkex/em/sse/rv_local）溯源，`collect_health/log` 记录切源，消费方零改动；QVIX 算法公示见 [`docs/qvix-data-sources.md`](docs/qvix-data-sources.md)（CBOE VIX 方差互换、math.erf 无 scipy 依赖）。
+**异源兜底（2026-08-15 新增）**：核心指标自动切换**真异源**（不同 host/供应商，非伪多源）多重兜底——`us10y`（东财▶美财政部 CSV）、`hk_south`（东财▶HKEX 官方 JS 反算南向净买额）、`cn10y`（中债▶东财 datacenter）、`gold 沪金`（新浪▶东财 futsseapi）、`a_turnover_rate`（腾讯▶东财 push2delay）、美股/全球指数（新浪▶东财 push2）；**QVIX 3 重**：主源 optbbs → 备 A 上交所官方期权 IV 方差互换自算（T+1 可历史回填）→ 网底本地 RV（口径不同已公示）。每次采集落 `daily_metric.source` 归属标记（treasury/hkex/em/sse/rv_local）溯源，`collect_health/log` 记录切源，消费方零改动；QVIX 算法公示见 [`docs/qvix-rv/qvix-data-sources.md`](docs/qvix-rv/qvix-data-sources.md)（CBOE VIX 方差互换、math.erf 无 scipy 依赖）。
 前端展示的交易信号可接**自动交易执行**（可选，easytrader 二次开发 → [thsautoorder](https://github.com/xp13465/thsautoorder)，独立仓库）。
 
 ---
@@ -223,7 +223,7 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 - 数据产品线：采集 agent（多源互备）→ 计算 agent → 上线 agent（deploy 三站验证）
 - 开发质量线：实施 → reviewer（独立 review 防改坏老功能）→ 主控逐字验收
 - 复盘线：总结 agent（过错/经验沉淀）→ 复核 agent（独立复核防总结跑偏）
-- 内容生产线：`每日 AI 速递` 的预测编排受 **TradingAgents-CN/原版 TradingAgents 多智能体辩论架构**启发（多角色辩论收敛）——6 个角色子 prompt（技术/资金/情绪/风控/研究员/主编）各自只注入对应数据域、独立分析后互相校验/辩驳，再由主编合成白话解读（不做交易决策角色，合规）。**但预测所用的方向锚信号胜率、因子权重为自研 8 年数据挖掘成果（见 [`docs/ai-predict-direction-market-winning-signals-20260820.md`](docs/ai-predict-direction-market-winning-signals-20260820.md)），非抄 TradingAgents**；TA 仅提供多角色辩论编排的组织形式启发。
+- 内容生产线：`每日 AI 速递` 的预测编排受 **TradingAgents-CN/原版 TradingAgents 多智能体辩论架构**启发（多角色辩论收敛）——6 个角色子 prompt（技术/资金/情绪/风控/研究员/主编）各自只注入对应数据域、独立分析后互相校验/辩驳，再由主编合成白话解读（不做交易决策角色，合规）。**但预测所用的方向锚信号胜率、因子权重为自研 8 年数据挖掘成果（见 [`docs/ai-predict/ai-predict-direction-market-winning-signals-20260820.md`](docs/ai-predict/ai-predict-direction-market-winning-signals-20260820.md)），非抄 TradingAgents**；TA 仅提供多角色辩论编排的组织形式启发。
 
 > 工程规范与协作机制详见 [`CLAUDE.md`](CLAUDE.md)（§2 监工 loop / §11 通知兜底 / §15 回归 / §16 agent 画像）。
 
@@ -232,11 +232,11 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 **用途**：`每日速递` 邮件 —— 收盘后由 [DeepSeek](https://platform.deepseek.com/) 生成 **daily_brief 白话解读**（情绪拐点 + 信号汇总 + 合规 gating），
 邮件正文对 **期货风向 / 公募基金** 做白话化改写，让"机器算出来的数字"变成"人读得懂的话"。
 **订阅推送延伸（2026-08-17）**：速递内容经 [Cloudflare Workers KV](https://developers.cloudflare.com/kv/)（订阅者管理 + api_key 鉴权）与标准 SMTP（`config/email.json`，smtp.resend.com，2026-08-17 起）实现「生成即推送」订阅服务，`daily_brief.json` 生成后自动送达订阅者邮箱/Webhook/飞书，避免用户自行上站查看。
-**影子模式验证（2026-08-20，验证期）**：`AI 预测` 方向锚/归因升级处于**影子验证期**——线上输出零改动（`direction_anchor_enabled`/`reflection_factor_attribution_enabled` 默认关，prompt 逐字不变），后台按 date 把「方向锚会预测什么方向」旁路落盘 `data/brief_shadow.json`，次日盘后由 [`scripts/aggregate_shadow.py`](scripts/aggregate_shadow.py) 对账真实方向，聚算 7 个真实交易日影子命中率，用数据决定开/不开/改（契约全文见 [`docs/ai-predict-shadow-validate-20260820.md`](docs/ai-predict-shadow-validate-20260820.md)）。影子是旁路记录，不发邮件/通知、不写主链。
+**影子模式验证（2026-08-20，验证期）**：`AI 预测` 方向锚/归因升级处于**影子验证期**——线上输出零改动（`direction_anchor_enabled`/`reflection_factor_attribution_enabled` 默认关，prompt 逐字不变），后台按 date 把「方向锚会预测什么方向」旁路落盘 `data/brief_shadow.json`，次日盘后由 [`scripts/aggregate_shadow.py`](scripts/aggregate_shadow.py) 对账真实方向，聚算 7 个真实交易日影子命中率，用数据决定开/不开/改（契约全文见 [`docs/ai-predict/ai-predict-shadow-validate-20260820.md`](docs/ai-predict/ai-predict-shadow-validate-20260820.md)）。影子是旁路记录，不发邮件/通知、不写主链。
 
 ### 🔉 AI 预测语音播报（edge-tts）
 
-**用途**：首页 AI 预测 🔊 播放按钮朗读预测文本。基于开源库 [edge-tts](https://github.com/rany2/edge-tts)（MIT）—— 调用微软 Edge"大声朗读"的**免费在线 TTS**（非 Azure 商用，无 key/无计费），在服务端（`gen_daily_brief.py`）把 AI 预测合成 `daily_brief_tts_<date>.mp3`（音色 `zh-CN-XiaoxiaoNeural`）上传 R2，前端用 `<audio>` 播放；合成失败不阻塞主流程、前端隐藏按钮降级（备选浏览器 `speechSynthesis` 兜底）。依赖微软免费服务、无 SLA，微软调整协议时升级 edge-tts 包即可（见 [docs/ai-predict-tts-plan.md](docs/ai-predict-tts-plan.md)）。
+**用途**：首页 AI 预测 🔊 播放按钮朗读预测文本。基于开源库 [edge-tts](https://github.com/rany2/edge-tts)（MIT）—— 调用微软 Edge"大声朗读"的**免费在线 TTS**（非 Azure 商用，无 key/无计费），在服务端（`gen_daily_brief.py`）把 AI 预测合成 `daily_brief_tts_<date>.mp3`（音色 `zh-CN-XiaoxiaoNeural`）上传 R2，前端用 `<audio>` 播放；合成失败不阻塞主流程、前端隐藏按钮降级（备选浏览器 `speechSynthesis` 兜底）。依赖微软免费服务、无 SLA，微软调整协议时升级 edge-tts 包即可（见 [docs/ai-predict/ai-predict-tts-plan.md](docs/ai-predict/ai-predict-tts-plan.md)）。
 
 ### 📧 邮件通知（Resend）
 

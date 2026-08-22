@@ -12,19 +12,19 @@
 2. **反思不注入本质**：只记录"错了"（失败描述），没「归因到具体因子→调系数」；且 8/14 归因学错固化了错误。
 3. **关键信号未用对**：影响面图谱缺失——行业联动/宏观共同因子/转向信号没进预测的调用逻辑。
 
-详见根因报告 `docs/ai-predict-offtrack-rootcause-20260820.md`。
+详见根因报告 `docs/ai-predict/ai-predict-offtrack-rootcause-20260820.md`。
 
 ## 二、目标（北极星）
 **影响面知识图谱**：AI 一看到某个消息/信号，就能瞬间定位它会扩散到哪（联动因子）、是否触发转向（转折因子），从而精准预测方向。用户原话：「你要挖掘出这些联动因子和转折因子，才能让你捕获一些消息就知道影响面，然后预测精准。」
-已落成的图谱：`docs/ai-predict-direction-market-winning-signals-20260820.md`「影响面知识图谱」节（A 联动 L1-L10 / B 转折 T1-T8 / C 调用逻辑）。
+已落成的图谱：`docs/ai-predict/ai-predict-direction-market-winning-signals-20260820.md`「影响面知识图谱」节（A 联动 L1-L10 / B 转折 T1-T8 / C 调用逻辑）。
 
 ## 三、已闭环调研（成果基线，勿重挖）
 | 报告 | 核心结论 | 状态 |
 |---|---|---|
-| `docs/ai-predict-offtrack-rootcause-20260820.md` | 三层缺环根因 | ✅ 已落档 |
-| `docs/ai-predict-direction-market-winning-signals-20260820.md` | 信号胜率榜+影响面图谱(311行,10脚本) | ✅ 已落档 |
-| `docs/ai-predict-director-industry-method-20260820.md` | 业界多因子/背向修正/HMM/漂移监控(178行,36URL) | ✅ 已落档 |
-| `docs/ai-predict-shadow-validate-20260820.md` | 方向锚/归因影子模式 7 天 A/B 验证(定义+协议+复现) | ✅ 已落档(实施期) |
+| `docs/ai-predict/ai-predict-offtrack-rootcause-20260820.md` | 三层缺环根因 | ✅ 已落档 |
+| `docs/ai-predict/ai-predict-direction-market-winning-signals-20260820.md` | 信号胜率榜+影响面图谱(311行,10脚本) | ✅ 已落档 |
+| `docs/ai-predict/ai-predict-director-industry-method-20260820.md` | 业界多因子/背向修正/HMM/漂移监控(178行,36URL) | ✅ 已落档 |
+| `docs/ai-predict/ai-predict-shadow-validate-20260820.md` | 方向锚/归因影子模式 7 天 A/B 验证(定义+协议+复现) | ✅ 已落档(实施期) |
 | `docs/ai-predict-shadow-track.md` | 影子模式 7 天验证追踪总表(**影子追踪见本表**,每日 md 双向维护,用户直接可查不用敲命令) | ✅ 已落档(实施期,自动生成) |
 
 **已确证方向锚（白名单）：**
@@ -76,10 +76,10 @@
 - **动机**：用户质疑「只肤浅套用 TradingAgents 多 agent 辩论」。TA 价值内核=反思不只记"错了"，而是把错归因到某方/某因子→调该方 memory→回灌下次辩论上下文。我们旧反思只规则级归因（failure_type+一句 summary），没归因到具体误导因子，也没回灌该因子近期表现。
 - **实现（commit 9a47bae97）**：`gen_daily_brief.py` 新增 `_attribut_factor`（失败日复用 `_compute_direction_anchor` 现算当日因子，归因到 L3纳指大跌压制看多/转空信号被当偏空/T1顺势看涨或均线多头强规则/T1当日失效/板块层失真，落盘 `factor_attribution`）+ `build_attribut_inject`（聚合 top 误导因子+连续出错倾向，生成「待规避因子」约束段叠加进 `build_reflection_inject`）。config 开关 `reflection_factor_attribution_enabled: false` 默认关=线上注入逐字不变。与方向锚互补不互斥（同源同 DB 只读）。
 - **README 措辞修正**：AI 速递编排受 TradingAgents-CN/原版多智能体辩论架构启发，但预测所用方向锚信号胜率/因子权重为自研 8 年数据挖掘成果，非抄；致敬 TradingAgents 段保留。
-- **自验**：真实 DB 三样本 8/18→L3纳指大跌压制看多（nq=-1.302）、8/17/8/14→转空信号被当偏空+T1顺势看涨，归因与方向锚回放结论一致；cfg 无开关 key 与显式 False 时注入文本逐字一致（off 线上不变）；on 聚合归因段正确。详见 `docs/ai-predict-reflection-factor-attribution-20260820.md`。
+- **自验**：真实 DB 三样本 8/18→L3纳指大跌压制看多（nq=-1.302）、8/17/8/14→转空信号被当偏空+T1顺势看涨，归因与方向锚回放结论一致；cfg 无开关 key 与显式 False 时注入文本逐字一致（off 线上不变）；on 聚合归因段正确。详见 `docs/ai-predict/ai-predict-reflection-factor-attribution-20260820.md`。
 
 **✅ 影子模式验证实施记录（2026-08-20,implementer,用户拍板"7 真实交易日用数据决定开/不开/改"）**
-- **动机**：方向锚/归因都已合入但全默认关——"关着=一点数据都不采"；用户要 7 天真实 A/B，必须先有影子旁路把"方向锚会预测什么方向"逐日落盘，次日回填实际，聚算命中率再拍板。契约全文 `docs/ai-predict-shadow-validate-20260820.md`。
+- **动机**：方向锚/归因都已合入但全默认关——"关着=一点数据都不采"；用户要 7 天真实 A/B，必须先有影子旁路把"方向锚会预测什么方向"逐日落盘，次日回填实际，聚算命中率再拍板。契约全文 `docs/ai-predict/ai-predict-shadow-validate-20260820.md`。
 - **实现**：
   1. `gen_daily_brief.py` 新增 `_shadow_lean(factors)`（与 `_direction_anchor_semantics`/**`_attribut_factor`** 同源同因子字段合成 lean：任一强转多→up；强转空→逆势 up；L3 纳指大跌→压过看多打回 flat；无T+均线多头→soft up；均无→flat）+ `record_shadow(date,cfg,db,repo)`（按 date 旁路落盘 `data/brief_shadow.json`，幂等去重老日期保留）。
   2. `main()` load_data 后新增旁路调用（无论方向锚开关开否都算一次，写在 AI 生成前保证 AI 降级也有影子样本）；`_compute_direction_anchor` 加同 (db,date) FIFO 缓存，影子+实列同键只读一次 DB（"不算双份"）。
@@ -104,6 +104,6 @@
 5. **测试基准**：本体系升级属 AI 预测核心（§5.4⑥动核心必发版本）；涉及回测/验证落当前基准 memory `test-baseline-v112-anchor`。
 
 ## 六、复现/追踪
-- 各报告复现段见各自 md；信号挖掘脚本在 `docs/ai-predict-direction-market-winning-signals-20260820/scripts/`。
+- 各报告复现段见各自 md；信号挖掘脚本在 `docs/ai-predict/direction-market-winning-scripts/`。
 - 本路线图为跟踪总纲，每轮实施完毕后 update；不重挖已闭环调研。
-- 相关既有文档：`docs/daily-brief-research.md` / `docs/ai-predict-self-growth.md` / `docs/ai-predict-inject-research.md` / `docs/ai-predict-multiagent-plan.md`。
+- 相关既有文档：`docs/ai-predict/daily-brief-research.md` / `docs/ai-predict/ai-predict-self-growth.md` / `docs/ai-predict/ai-predict-inject-research.md` / `docs/ai-predict/ai-predict-multiagent-plan.md`。
