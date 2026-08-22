@@ -316,12 +316,10 @@ function mkCard(title, height = 300, hint = null, container = content, chartArr 
 
 // 通用折线：series = [{name, data:[{date,value}]}] 或单条 [{date,value}]
 // height 可选（第6参数，默认 300），用于单独压缩某张卡片图表高度。
-function lineChart(title, series, opts = {}, hint = null, container = content, height = 300) {
-  const multi = Array.isArray(series) && series.length && series[0] && series[0].data;
-  const arr = multi ? series : [{ name: stripHtml(title), data: series }];
-  const dates = [...new Set(arr.flatMap((s) => s.data.map((d) => d.date)))].sort();
-  const c = mkCard(title, height, hint, container);
-  c.setOption(withTheme({
+// P2-11 纯搬运(2026-08-22): setOption 配置构造抽为 _lineChartBuildOption,大盘懒渲染卡(_marketLineCardLazy)
+// 与本函数共用同一份配置,防双份分叉(§22 同源精神)。
+function _lineChartBuildOption(title, arr, dates, opts) {
+  return withTheme({
     tooltip: { trigger: "axis" },
     legend: { top: 0, type: "scroll" },
     grid: { left: 55, right: 20, top: 35, bottom: 35 },
@@ -340,7 +338,14 @@ function lineChart(title, series, opts = {}, hint = null, container = content, h
       }),
     })),
     ...opts,
-  }));
+  });
+}
+function lineChart(title, series, opts = {}, hint = null, container = content, height = 300) {
+  const multi = Array.isArray(series) && series.length && series[0] && series[0].data;
+  const arr = multi ? series : [{ name: stripHtml(title), data: series }];
+  const dates = [...new Set(arr.flatMap((s) => s.data.map((d) => d.date)))].sort();
+  const c = mkCard(title, height, hint, container);
+  c.setOption(_lineChartBuildOption(title, arr, dates, opts));
   return c;
 }
 
@@ -5611,7 +5616,10 @@ const _TIER_COLORS = {
   "熊市·主跌": "#2e8b57",
 };
 
-function indexChart(title, ohlc, signals, stats, strategy, container = content, chartArr = charts, indexId, tiers) {
+// P2-11 拆分(2026-08-22): indexChart 数据准备段抽为 _indexChartPrepare、setOption 配置构造抽为
+// _indexChartBuildOption,indexChart 与大盘懒渲染卡(_marketIndexCardLazy)共用同一份实现,防双份分叉。
+// 纯搬运不改任何逻辑: 两函数体与原内联逐行一致(仅 _tierBand/_tierName 形参化)。
+function _indexChartPrepare(title, ohlc, signals, stats, strategy, indexId, tiers) {
   const hint = statsHint(stats, strategy, indexId);
   // 标题追加最新日期+收盘价（OHLC 图，取最后一条 close）
   const _last = ohlc && ohlc.length ? ohlc[ohlc.length - 1] : null;
@@ -5620,14 +5628,9 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
   const _closeSuffix = _last && _last.close != null ? `<span class="chart-latest"> · ${fmtDate(_last.date)} ${_last.close.toFixed(2)}<small style="color:var(--text-3)"> 收</small></span>` : "";
   const _pctSuffix = (_pct != null) ? ` <span class="pct-badge" style="color:${_up ? "#e6492e" : "#2e8b57"}">${_up ? "+" : ""}${_pct.toFixed(2)}%</span>` : "";
   const _suffix = _closeSuffix + _pctSuffix;
-  const c = mkCard(title + _suffix, 300, hint, container, chartArr);
   // 四档状态展示名(动态化, #73 8 宽基): 沪深300/上证指数/深证成指/中证500/创业板指/上证50/中证1000/科创50。
   // 查不到 indexId 时退回通用"行情"(旧行为对非 8 宽基不闪色带, 此处无语义影响)。
   const _tierName = (_INDEX_NAME_MAP[indexId] || "行情") + "四档";
-  // 模拟回测按钮：注入 h3 末尾排在❓后（标题行内排列，挪出策略区块）
-  _prependSimBtn(c.getDom().parentElement, indexId);
-  // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
-  _bindFreqPopupToHintRows(c.getDom().parentElement, stats);
   const close = ohlc.map((d) => [d.date, d.close]);
   // 4色买点拼色 pin（同日多买点合并1个拼色 pin，参照汪汪队），卖绿独立 pin
   const _ohlcMap = {}; for (const o of ohlc) _ohlcMap[o.date] = o;
@@ -5651,7 +5654,12 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
       _tierBand.push({ value: 0.5, itemStyle: { color: _TIER_COLORS[_lastTier] || "#9aa0a6", borderWidth: 0 }, date: _d, tier: _lastTier });
     }
   }
-  c.setOption(withTheme({
+  return { fullTitle: title + _suffix, hint, close, markData, tierBand: _tierBand, tierName: _tierName };
+}
+
+// P2-11 纯搬运: 原 indexChart 内联 setOption 配置对象原样抽出,逐字未改。
+function _indexChartBuildOption(title, ohlc, close, markData, tierBand, tierName) {
+  return withTheme({
     tooltip: {
       trigger: "axis",
       // P0-3: hover 信号日时追加完整 reason（主标签已在 pin 上，技术细节进 tooltip）
@@ -5663,9 +5671,9 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
           tip += "<br/>收盘 " + o.close.toFixed(2);
           if (o.pct_change != null) tip += ' <span style="color:' + (o.pct_change >= 0 ? "#e6492e" : "#2e8b57") + '">' + (o.pct_change >= 0 ? "+" : "") + o.pct_change.toFixed(2) + "%</span>";
         }
-        if (_tierBand && _tierBand.length) {
-          const _tb = _tierBand.find((x) => x.date === dt);
-          if (_tb && _tb.tier) tip += '<br/>' + _tierName + '：<b style="color:' + (_TIER_COLORS[_tb.tier] || "#9aa0a6") + '">● ' + _tb.tier + "</b>";
+        if (tierBand && tierBand.length) {
+          const _tb = tierBand.find((x) => x.date === dt);
+          if (_tb && _tb.tier) tip += '<br/>' + tierName + '：<b style="color:' + (_TIER_COLORS[_tb.tier] || "#9aa0a6") + '">● ' + _tb.tier + "</b>";
         }
         const marks = markData.filter((m) => m.coord[0] === dt && m.reason);
         for (const m of marks) {
@@ -5683,15 +5691,15 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
     },
     grid: { left: 55, right: 20, top: 30, bottom: 50 },
     xAxis: { type: "category", data: ohlc.map((d) => d.date) },
-    yAxis: _tierBand.length ? [
+    yAxis: tierBand.length ? [
       { type: "value", scale: true },
       // 隐藏色带轴 max:1→max:2(2026-08-18 收窄版, 色带高度 1/2→1/4): value 0.5 在 0-2 轴上占 1/4 高度
       { type: "value", show: false, min: 0, max: 2 },
     ] : { type: "value", scale: true },
     dataZoom: dzOpts(),
-    series: _tierBand.length ? [
+    series: tierBand.length ? [
       {
-        name: _tierName + "状态",
+        name: tierName + "状态",
         type: "bar",
         yAxisIndex: 1,
         stack: "tierband",
@@ -5702,7 +5710,7 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
         // 只取 params[0] 的 axisValue 拼 HTML, 不影响 line tooltip 展示。
         silent: false,
         z: 1,
-        data: _tierBand,
+        data: tierBand,
       },
       {
         name: stripHtml(title),
@@ -5734,7 +5742,17 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
         },
       },
     ],
-  }));
+  });
+}
+
+function indexChart(title, ohlc, signals, stats, strategy, container = content, chartArr = charts, indexId, tiers) {
+  const p = _indexChartPrepare(title, ohlc, signals, stats, strategy, indexId, tiers);
+  const c = mkCard(p.fullTitle, 300, p.hint, container, chartArr);
+  // 模拟回测按钮：注入 h3 末尾排在❓后（标题行内排列，挪出策略区块）
+  _prependSimBtn(c.getDom().parentElement, indexId);
+  // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
+  _bindFreqPopupToHintRows(c.getDom().parentElement, stats);
+  c.setOption(_indexChartBuildOption(title, ohlc, p.close, p.markData, p.tierBand, p.tierName));
   return c;
 }
 
@@ -6660,6 +6678,109 @@ function closeIndexAnalyzeModal() {
   document.body.style.overflow = "";
 }
 
+// ============ P2-11 大盘 tab 懒渲染(2026-08-22) ============
+// 根因: 切大盘 tab/subtab 时 renderAStock/renderHK/renderGlobal 同帧同步 echarts.init+setOption 20-30+ 张图,
+// 单帧长任务数百 ms 明显卡顿。方案: 占位卡片即时建好(DOM 结构与 mkCard 完全一致,布局零变化),
+// 画布 init+setOption 交由 IntersectionObserver 单例在卡片临近可视(提前 250px)时触发,首帧只渲染首屏。
+// 外观零变化: 默认仍是完整 ECharts; charts.lightweight 开关对大盘 tab 行为不变(§23.7 冻结;
+// SVG 轻量接入为后续独立任务, 见 docs/p2-11-dapan-lazy-plan.md)。
+let _mktLazyIO = null;
+function _ensureMarketLazyIO() {
+  if (_mktLazyIO) return _mktLazyIO;
+  _mktLazyIO = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      _mktLazyIO.unobserve(e.target);
+      const fn = e.target._mktLazyFn;
+      if (!fn) continue;
+      e.target._mktLazyFn = null;
+      try { fn(); } catch (err) { console.error("[p2-11] lazy chart init failed:", err); }
+    }
+  }, { rootMargin: "250px 0px" }); // 提前 250px 预渲染,滚动临近即出图肉眼无感
+  return _mktLazyIO;
+}
+// renderMarket 重入统一复位: 每次 subtab 重渲染入口断开全部旧观察(旧卡片 DOM 已随 innerHTML 清空,
+// 挂在 detached 节点上的观察项一并释放,防 IO 强引用泄漏),新渲染重新注册 → 同卡片不存在重复绑/重复 init。
+function _marketLazyReset() {
+  if (_mktLazyIO) { _mktLazyIO.disconnect(); _mktLazyIO = null; }
+}
+// 注册懒初始化。IO 不支持环境(老 webview)直接同步兜底=行为退回改动前。
+function _marketLazyRegister(cardEl, initFn) {
+  if (typeof IntersectionObserver === "undefined") { initFn(); return; }
+  cardEl._mktLazyFn = initFn;
+  _ensureMarketLazyIO().observe(cardEl);
+}
+function _marketLazyUnobserve(cardEl) {
+  if (!_mktLazyIO || !cardEl._mktLazyFn) return;
+  _mktLazyIO.unobserve(cardEl);
+  cardEl._mktLazyFn = null;
+}
+// 兼容代理: 未 init 前对外暴露与 echarts 实例一致的消费面。全局 charts 数组全消费面已核:
+// resize(window resize L50/setupOneRowToggle)/dispose(clearCharts/disposeSectionCharts)/
+// isDisposed+getOption+setOption(rethemeCharts 切皮肤重注入)。未 init 时 setOption 进队列,init 后按序回放
+// (覆盖"切皮肤早于滚动到该卡"场景: 首帧配置 withTheme 已带当时主题色,回放补丁后与同步渲染结果一致);
+// getOption 回退 {} 防 retheme 读属性抛错中断整轮重注入。
+function _mktLazyProxy(chartEl, cardEl, chartArr) {
+  let inst = null;
+  let disposed = false;
+  const pendingSet = [];
+  const api = {
+    __mktLazy: true,
+    getDom: () => chartEl,
+    isDisposed: () => disposed,
+    resize: () => { if (inst) inst.resize(); },
+    getOption: () => (inst ? inst.getOption() : {}),
+    setOption: (o, notMerge) => { if (disposed) return; if (inst) inst.setOption(o, notMerge); else pendingSet.push([o, notMerge]); },
+    dispose: () => {
+      disposed = true;
+      _marketLazyUnobserve(cardEl);
+      pendingSet.length = 0;
+      if (inst) { inst.dispose(); inst = null; }
+    },
+  };
+  // 由懒回调调用: 真正 echarts.init + 首帧 setOption + 回放排队中的补丁
+  api._mktInit = (firstOpt) => {
+    if (disposed || inst) return;
+    inst = echarts.init(chartEl);
+    if (firstOpt) inst.setOption(firstOpt);
+    for (const [o, nm] of pendingSet) inst.setOption(o, nm);
+    pendingSet.length = 0;
+  };
+  chartArr.push(api); // 与原 mkCard 同步入全局 charts(resize/retheme/clearCharts 消费)
+  return api;
+}
+// 大盘专用懒渲染折线卡: 与 lineChart 同签名同 DOM(mkCard 结构逐字一致),仅画布延迟。仅大盘 tab 调用点换用。
+function _marketLineCardLazy(title, series, opts = {}, hint = null, container = content, height = 300) {
+  const multi = Array.isArray(series) && series.length && series[0] && series[0].data;
+  const arr = multi ? series : [{ name: stripHtml(title), data: series }];
+  const dates = [...new Set(arr.flatMap((s) => s.data.map((d) => d.date)))].sort();
+  const cardEl = document.createElement("div");
+  cardEl.className = "chart-card";
+  cardEl.innerHTML = `<h3>${title}</h3>${hint ? `<div class="chart-hint">${hint}</div>` : ""}<div class="chart" style="height:${height}px"></div>`;
+  container.appendChild(cardEl);
+  const chartEl = cardEl.querySelector(".chart");
+  const api = _mktLazyProxy(chartEl, cardEl, charts); // 原 lineChart 经 mkCard 默认入全局 charts
+  const opt = _lineChartBuildOption(title, arr, dates, opts);
+  _marketLazyRegister(cardEl, () => api._mktInit(opt));
+  return api;
+}
+// 大盘专用懒渲染指数卡: 与 indexChart 同签名同 DOM,数据准备/配置构造共用 _indexChartPrepare/_indexChartBuildOption。
+// 标题行 DOM 绑定(sim 按钮/频率 hover)即时做(卡片已在 DOM,仅画布延迟),与 indexChart 同序。
+function _marketIndexCardLazy(title, ohlc, signals, stats, strategy, container = content, chartArr = charts, indexId, tiers) {
+  const p = _indexChartPrepare(title, ohlc, signals, stats, strategy, indexId, tiers);
+  const cardEl = document.createElement("div");
+  cardEl.className = "chart-card";
+  cardEl.innerHTML = `<h3>${p.fullTitle}</h3>${p.hint ? `<div class="chart-hint">${p.hint}</div>` : ""}<div class="chart" style="height:300px"></div>`;
+  container.appendChild(cardEl);
+  const chartEl = cardEl.querySelector(".chart");
+  const api = _mktLazyProxy(chartEl, cardEl, chartArr);
+  _prependSimBtn(cardEl, indexId);
+  _bindFreqPopupToHintRows(cardEl, stats);
+  const opt = _indexChartBuildOption(title, ohlc, p.close, p.markData, p.tierBand, p.tierName);
+  _marketLazyRegister(cardEl, () => api._mktInit(opt));
+  return api;
+}
+
 function renderIndicesSection(container, indices, fetcher, foldOneRow, extraGroups, anchorBarRef) {
   const entries = Object.entries(indices || {});
   if (!entries.length) return Promise.resolve();
@@ -6785,7 +6906,7 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow, extraGrou
         // 宽基/行业 index_id 本身是代码不重复显示（indexIdToCode 返回空串）。
         const _idxCodeForTitle = indexIdToCode(id, idx.symbol);
         const _idxCodeTag = _idxCodeForTitle ? ` <span class="idx-code-tag" title="${idxCodeTooltip(id, _idxCodeForTitle)}">${_idxCodeForTitle}</span>` : "";
-        const c = indexChart((_INDEX_NAME_MAP[id] || idx.name) + _idxCodeTag + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id, sig.tiers);
+        const c = _marketIndexCardLazy((_INDEX_NAME_MAP[id] || idx.name) + _idxCodeTag + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id, sig.tiers); // P2-11 大盘懒渲染
         sectionCharts.push(c);
         const cardEl = c.getDom().parentElement;
         // 目录锚点跳转目标 id + scroll spy observe(卡片渲染完后注册)
@@ -13671,6 +13792,7 @@ async function renderOverview() {
 // 大盘Tab：二级Tab切换（A股/港股/全球），渲染 subtab 栏 + 对应子内容
 async function renderMarket() {
   content.innerHTML = "";
+  _marketLazyReset(); // P2-11: subtab 重渲染入口统一断开旧懒观察(防 detached 节点泄漏/重复绑)
   renderPurposeNote(content, PURPOSE_NOTES["market"]);
   content.insertAdjacentHTML("beforeend", '<div class="tab-crosslink-note">ℹ️ 本页看指数<b>价格走势</b>+' + _t("crosslink_signal") + ';想看市场<b>盘面温测</b>(恐贪指数/冰点过热热力图)-> 去<a data-goto="sentiment" role="button" tabindex="0">【盘面温测】</a></div>');
   _bindTabCrosslink(content, "sentiment");
@@ -16383,7 +16505,7 @@ async function renderAStock(container = content) {
   for (const [g, ids] of entries) {
     const series = buildSeries(g, ids);
     if (series.length && series.some((s) => s.data.length)) {
-      const chart = lineChart(g + (groupTermTips[g] ? termTip(groupTermTips[g]) : "") + latestSuffixMulti(series), series, {}, groupHints[g] || null, grid2col);
+      const chart = _marketLineCardLazy(g + (groupTermTips[g] ? termTip(groupTermTips[g]) : "") + latestSuffixMulti(series), series, {}, groupHints[g] || null, grid2col); // P2-11 大盘懒渲染
       if (chart) {
         let lastDate = "";
         for (const s of series) { if (s && s.data && s.data.length) { const d = s.data[s.data.length - 1]; if (d && d.date && d.date > lastDate) lastDate = d.date; } }
@@ -16468,7 +16590,7 @@ async function renderHK(container = content) {
   renderPurposeNote(container, PURPOSE_NOTES["market.hk"]);
   if (r.hk_south && r.hk_south.length) {
     const hks = r.hk_south.map((d) => ({ date: d.date, value: d.value }));
-    const chart = lineChart("港股通净买入（亿元）" + termTip("港股通南向资金净买入。内地投资者借港股通通道买港股,净流入为正=内地资金净买入港股(看好)。T+1数据。") + latestSuffixPct(hks), hks, {}, null, container);
+    const chart = _marketLineCardLazy("港股通净买入（亿元）" + termTip("港股通南向资金净买入。内地投资者借港股通通道买港股,净流入为正=内地资金净买入港股(看好)。T+1数据。") + latestSuffixPct(hks), hks, {}, null, container); // P2-11 大盘懒渲染
     if (chart) addCardTimeBadge(chart.getDom().parentElement, hks.length ? hks[hks.length - 1].date : "", snap, "t1", "hk_south");
   }
   const indices = _injectHkSnapshot(r.indices, snap);
@@ -16645,7 +16767,7 @@ async function renderGlobal(container = content) {
         // 2026-08-07 走势图卡片标题加指数代码（对齐 A 股做法 b7e0b96c1）
         const _idxCodeForTitle = indexIdToCode(id, idx.symbol);
         const _idxCodeTag = _idxCodeForTitle ? ` <span class="idx-code-tag" title="${idxCodeTooltip(id, _idxCodeForTitle)}">${_idxCodeForTitle}</span>` : "";
-        const chart = indexChart(idxName + _idxCodeTag, idx.data, sigs, sig.stats, idx.strategy, cardGrid, charts, id, sig.tiers);
+        const chart = _marketIndexCardLazy(idxName + _idxCodeTag, idx.data, sigs, sig.stats, idx.strategy, cardGrid, charts, id, sig.tiers); // P2-11 大盘懒渲染
         if (chart) {
           const cardEl = chart.getDom().parentElement;
           // 目录锚点跳转目标 id + scroll spy observe(卡片渲染完后注册)
