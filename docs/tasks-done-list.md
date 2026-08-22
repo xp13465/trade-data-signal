@@ -138,3 +138,17 @@
 ## 2026-08-21 回测结论落档(95)
 
 - [x] **#95 ETF→权重龙头个股回测结论** — 无实际价值,不推荐,维持 v1.1.3。结论:同 ¥10,000/信号基准,A(ETF)全面优于 B1/B2(TOP1个股),B3(TOP1-3并集)与A持平但3倍操作量且半凯利低4pp;ETF免印花税+单标的决策+无停牌退市风险。详见 docs/kelly/backtest-ai/etf-weight-leader/etf-weight-leader-conclusion.md
+
+## 2026-08-22 todolist 治理移入(8 条关闭 + #82 整条关闭,researcher 盘查+用户拍板)
+
+> 来源:docs/todolist-cleanup-20260822.md 全量盘查报告(researcher 三重交叉核实:文档自述+commit 在 main+产物/前端/线上 API 实测),用户 2026-08-22 逐条拍板。§23.12 4 态流转:完成→完成文件;从 pending-features-index.md 移除,每条带 commit 实锤可反查。
+
+- [x] **#15+#91 凯利回测「次日开盘」口径(切默认闭环)** — 371434fdc「回测默认买入口径切次日开盘(v1.1.4)」在 main,git tag v1.1.4 已打;lab.js L9846 前端已公示「v1.1.4 起默认=信号次日开盘」;907b76777 README 已补;「次日分批挂单SOP」按钮②早已上线(lab.js L9736)
+- [x] **#29 R2 审计 P1:track_score 跨文件不一致** — 6e0f70eb6「增量门控纳入 board_etf_map + 全量一致性校验(#29)」在 main,check_data_integrity.py L44 全量两两对比挂 deploy 链常态化;基线漂移子问题已随 #26 废弃时定性「漂移极小」
+- [x] **#42 上下文优化 3 项(OPT-1/2/3)** — OPT-3 Compact Instructions 已进 CLAUDE.md(grep 命中);OPT-2 MEMORY 瘦身 2026-08-12 已做一轮(§5.3 记录 20.6KB→9.6KB,若要重做另开新项);OPT-1 被 E17 hooks 0 token 抄送(2d1b9206e)+token-cache-stats 每日收尾(92c303963)+§5.5 行为层吸收
+- [x] **#75 upload_r2.py REPO 读路径强校验(方案1)** — a956cbe5a「REPO 缺省分级闸 #75,防手动裸跑旧库盖线上」在 main:upload_r2.py L36-54 显式态放行/缺省拦截,reviewer 当年「方案1 无兜底须再上」诉求已实现
+- [x] **#79 场外基金方案C 全量化(step1-8)** — 28314d030「feat(#79 方案C) D1 服务端分页+详情弹窗 5 区块」在 main;step1 export_fund_score.py 九字段/step2 weekly top_n=None/step3 wrangler.jsonc FUND_SCORE_DB binding+sync 脚本/step4 worker/fund_score.js/step5 app.js /api/fund_score 分页 fetch/step6 openFundScoreDetailModal/step7 统一 bump(1985b733f)/step8 weekly 挂 sync 全落地;线上 curl /api/fund_score 返回 401 登录特权鉴权正常(生产实证)
+- [x] **#80-P2-15 offshore_fund dead weight 停链** — 4289d50a7「chore(P2-15): 停用 offshore_fund JSON 定时生成链(用户已确认)」在 main;P2-10 长期 code-splitting 与 P2-11 保留 pending #80(P2-11 feat/p2-11-dapan-lazy 分支预开,实施中)
+- [x] **#82 留言箱完整方案剩余(整条关闭)** — 邮件通知已上线(main 436f6d6bf merge 链,生产端到端验证通过:KV nickname 实锤+站主 QQ 实收);管理端审核页 admin/feedback.html + 防滥用四层(worker/auth.js L731-796 频控/honeypot/内容约束/审核闸门)均在 main(4b384b473/f3f4cd838);留言墙经用户拍板砍除(定位私密信箱不上墙);原行内悬空 hash b53a312e7 随行移除清除(实际承载 eb288f443/4b384b473/f3f4cd838)
+- [x] **#83 公募基金筛选器实战版(被 #79 覆盖)** — 前置阻塞解除实锤:export_fund_score.py L8-10 注释「#83 公募筛选器字段前置」,fund_company/manager/scale 等 9 字段已补;指标体系(sharpe/drawdown/stability/manager_score/star_rating)+筛选(type)/排序/搜索+详情弹窗均被 #79 实现;若未来要做「多条件区间组合筛选」增强,重新登记新项
+- [x] **#22 凯利过滤层 walk-forward(方法论沉淀)** — #16(commit 299db6167)已建完整 walk-forward 方法论+kelly_walkforward.py(docs/kelly/analysis/kelly-walkforward-validate/),结论「推荐组合样本外有效,选段最优才过拟合」;本条诉求=未来调参用 walk-forward 防过拟合,方法论+脚本沉淀后独立挂待办无增量
