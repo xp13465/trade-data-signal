@@ -8686,12 +8686,9 @@ async function renderSigKellyLab() {
       }
     }
   } catch (e) {}
-  // (2026-08-22 用户拍板) 新降亏键 bullAuxBackupStop 持久化: 独立 key tds_bull_aux_backup_stop("1"/"0"),
-  // 与首页 sim 弹窗/首页 AI 建议/技术分析参考点三处共用(§22 跨页一致); 不动 tds_kelly_filters 固定成员结构
-  try {
-    var _savedBull = localStorage.getItem("tds_bull_aux_backup_stop");
-    if (_savedBull === "1" || _savedBull === "0") state.labSigKellyFilters.bullAuxBackupStop = (_savedBull === "1");
-  } catch (e) {}
+  // (2026-08-22 用户拍板) 新降亏键 bullAuxBackupStop: lab 凯利区独立开关, UI 态不落盘(state-only,
+  // 与 cyb/specialbearcyb 等默认关实验键同模式), 不写 tds_kelly_filters 固定成员结构; 刷新页面回默认关
+  // (2026-08-22 二次变更) 各处独立: 本开关只管 lab 凯利区, 与首页 AI 建议/模拟回测弹窗互不影响
   // 金额口径=每日资金池等分+top-K(2026-08-13 恢复, 每笔=10000/当日保留数, K档最大持仓恒定); positionCap 开关/K 与交易页共享localStorage
   var _sharedPC = _kellySharedPosCap();
   // 2026-08-12 默认开启 positionCap(用户:默认最优组合要开启): 首次访问(无 tds_poscap)写入默认{on:true,k:3}(2026-08-13 K默认3), 与 app.js 首页联动一致(§22)
@@ -9552,12 +9549,12 @@ function _renderSigKellyBar(bar, data, period) {
     _kellyOnFilterChange();
   };
   // (2026-08-22 用户拍板) 第 5 个降亏键: bullAuxBackupStop 牛市·主升×(辅买∪备买)全停(默认关, 仅 A-F 短线; G/H/I 豁免)
-  // 谓词见 _kellyPassesFadeFilters(bullAuxBackupStop 用 market_tier 字段, 无需特征计算); 独立持久化键 tds_bull_aux_backup_stop(sim弹窗/首页共用 §22)
+  // 谓词见 _kellyPassesFadeFilters(bullAuxBackupStop 用 market_tier 字段, 无需特征计算); lab 独立开关 state-only 不落盘(与 cyb 同模式)
+  // (2026-08-22 二次变更) 各处独立: 只管 lab 凯利区, 与首页 AI 建议/模拟回测弹窗开关互不影响
   var bullStopCb = bar.querySelector(".lab-sigkelly-toggle-bullstop");
   if (bullStopCb) bullStopCb.onchange = function () {
     if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
     state.labSigKellyFilters.bullAuxBackupStop = bullStopCb.checked;
-    try { localStorage.setItem("tds_bull_aux_backup_stop", bullStopCb.checked ? "1" : "0"); } catch (e) {}
     _kellyOnFilterChange();
   };
   // 组合降亏「预设宏」(2026-08-11用户定: 1+2+3全要,按需选择,组合可叠加=成员并集OR):
@@ -9707,8 +9704,7 @@ function _renderSigKellyBar(bar, data, period) {
     _aiResetBtn.addEventListener("click", function () {
       var host = document.querySelector(".lab-sigkelly-host");
       if (!host || !state.labSigKellyData) return;
-      state.labSigKellyFilters = _kellyDefaultFilters();
-      try { localStorage.removeItem("tds_bull_aux_backup_stop"); } catch (e) {} // (2026-08-22) 同步清新降亏键独立持久化(重置=默认关)
+      state.labSigKellyFilters = _kellyDefaultFilters(); // bullAuxBackupStop 为 state-only 不落盘, 重置随默认值回关
       _kellySetSharedPosCap(true, 1);
       _kellyPersistFilters(); // 重写 tds_kelly_filters(8键全开含K2C5 + aiMacro:true), 持久化恢复默认
       _kellyRunRecompute(host,
