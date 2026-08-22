@@ -163,6 +163,9 @@ function dataCacheTtl(pathname) {
   //   回测/监控/速递类文件，CF 会把 MED 600s 实际拉长成 4h(max-age=14400)edge 残留，用户重跑后仍见旧版。
   //   stale 不可接受，与 overview 同属数据一致性核心(memory 同源事故)。
   if (/^\/data\/(?:overview|intraday_snapshot|board_etf_map|daily_brief|daily_brief_history|signal_kelly_backtest|signal_kelly_trades|overfit_monitor|news_digest|signal_stats)\.json$/.test(pathname)) return 0;
+  //   2026-08-22 补 signal_kelly_trades_parts/ 分片(recent+tYYYY, 首页模拟回测弹窗): 每日随全量重跑,
+  //   同属「重跑后立即看」的回测类文件, stale 不可接受(同 signal_kelly_trades.json 口径)。
+  if (pathname.startsWith('/data/signal_kelly_trades_parts/')) return 0;
   // HIGH_FREQ 60s：盘中高频更新（boot/notifications/summary 等；overview/intraday_snapshot 已拆到 NO_CACHE）
   // feed.xml（RSS）：收盘后更新，盘中 RSS 阅读器可能轮询，60s 平衡时效与回源成本。
   if (/^\/data\/(?:boot|notifications|summary|summary_history|schedule_stats|alert)\.json$/.test(pathname) || pathname === '/data/feed.xml') return 60;

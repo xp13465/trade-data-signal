@@ -595,6 +595,24 @@ def cmd_upload_etf_score():
     purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
+def cmd_upload_kelly_parts():
+    """上传 static-site/data/signal_kelly_trades_parts/*.json 到 R2 data/signal_kelly_trades_parts/ 前缀。
+
+    2026-08-22 首页模拟回测弹窗分片加载(recent.json 热区片 + t{YYYY}.json 年片)。
+    §8.1 新类别按前缀建独立命令(子目录不被 upload-data-large/upload-all-data 的非递归
+    *.json glob 覆盖, 必须独立命令)。前端走 /data/ rewrite 原生 URL, R2 key =
+    data/signal_kelly_trades_parts/<name>, purge 用默认 cache_prefix="/"(匹配 dataRewriteHandler)。
+    """
+    parts_dir = STATIC_DIR / "data" / "signal_kelly_trades_parts"
+    ok, total, _, uploaded_keys = _upload_glob(parts_dir, ["*.json"], "data/signal_kelly_trades_parts")
+    if total == 0:
+        print(f"⚠ 无分片文件: {parts_dir}/*.json (先跑 signal_kelly_backtest.py 生成分片)")
+        return
+    if ok != total:
+        sys.exit(1)
+    purge_cache(uploaded_keys)
+
+
 def cmd_upload_data_large():
     """上传 static-site/data/ 顶层 >=1MB 或大 range(-all/-5y/-3y) 的 .json 到 R2 data/ 前缀。
 
@@ -792,6 +810,7 @@ def cmd_upload_all_data():
       - fund_score* (upload-fund-score -> fund_score/ 前缀)
       - etf_score_list* (upload-etf-score -> data/ 前缀,独立命令已处理)
       - signal_kelly_trades* (5.84MB >=1MB,upload-data-large 已覆盖,防双副本)
+      - signal_kelly_trades_parts/ 子目录(upload-kelly-parts 独立命令; *.json glob 不递归天然不匹配,此处记录防漏)
       - 大 range 文件 *-{all,5y,3y}.json (upload-data-large -> data/ 前缀)
       - .gz 不再生成(CF 自动 br 压缩替代),只传 *.json pattern
       - feed.xml: 非 .json,*.json glob 天然不匹配
@@ -1225,6 +1244,9 @@ if __name__ == "__main__":
         cmd_upload_etf_score()
     elif cmd == "upload-data-large":
         cmd_upload_data_large()
+    elif cmd == "upload-kelly-parts":
+        # signal_kelly_trades_parts/ 分片(recent+tYYYY, 首页模拟回测弹窗分片加载)
+        cmd_upload_kelly_parts()
     elif cmd == "upload-all-data":
         cmd_upload_all_data()
     elif cmd == "upload-intraday":
@@ -1262,7 +1284,7 @@ if __name__ == "__main__":
         sys.exit(
             "用法: upload_r2.py [list [prefix]|upload-lab|upload-trade-sim|"
             "upload-trade-sim-json|upload-index|upload-industry|upload-public-fund|"
-            "upload-offshore-fund|upload-fund-score|upload-etf-score|upload-data-large|upload-db|"
+            "upload-offshore-fund|upload-fund-score|upload-etf-score|upload-data-large|upload-kelly-parts|upload-db|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup|"
             "upload-claude-backup [path]|upload-all-data|upload-intraday|purge-low-freq]"
         )

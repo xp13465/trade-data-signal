@@ -1200,10 +1200,118 @@ def compute():
     return output, trades_output
 
 
+def _export_trades_parts(trades_data, trades_path):
+    """追加分片导出(2026-08-22 首页模拟回测弹窗提速): 同目录 signal_kelly_trades_parts/ 下
+    - recent.json: signal_date 最近 N 天热区片(N 自适应从 [120,90,60] 选第一个序列化 <=3MB 的窗口;
+      首页弹窗打开只拉这一片秒开)
+    - t{YYYY}.json: 按 signal_date 年份切片(空年份不出文件; 弹窗超出热区时按年并行拉)
+
+    每片结构与全量完全一致 {generated_at,buy_amount,period_cutoffs,fields,quadrants},
+    quadrants[qk][mk] 只含属于该片/该窗口的行(空 qk 整键省略)。前端两策略互斥取用
+    (热区内只用 recent / 超出只用年片), 拼接不会重复计数。
+    全量 signal_kelly_trades.json 本体不动(lab.js 凯利区依赖 + §23.7 冻结契约),
+    本函数只在 main() 末尾追加调用。分片不生成 .gz(前端 fetchJSON 全走 .json, CF 自动 br)。
+    """
+    from datetime import datetime as _dt, timedelta as _td
+
+    parts_dir = os.path.join(os.path.dirname(trades_path), "signal_kelly_trades_parts")
+    fields = trades_data["fields"]
+    sig_i = fields.index("signal_date")
+
+    def _dump(name, rows_by_qm):
+        shard = {
+            "generated_at": trades_data["generated_at"],
+            "buy_amount": trades_data["buy_amount"],
+            "period_cutoffs": trades_data["period_cutoffs"],
+            "fields": fields,
+            "quadrants": {},
+        }
+        n = 0
+        for qk, mk_map in rows_by_qm.items():
+            if not mk_map:
+                continue
+            shard["quadrants"][qk] = {}
+            for mk, rows in mk_map.items():
+                if rows:
+                    shard["quadrants"][qk][mk] = rows
+                    n += len(rows)
+        payload = json.dumps(shard, ensure_ascii=False, separators=(",", ":"))
+        with open(os.path.join(parts_dir, name), "w", encoding="utf-8") as f:
+            f.write(payload)
+        return len(payload), n
+
+    # 全量行按 (qk, mk) 分组引用(不拷贝行内容, 切片只筛引用)
+    grouped = {}
+    all_rows = []
+    for qk, mk_map in trades_data.get("quadrants", {}).items():
+        for mk, arr in mk_map.items():
+            grouped[(qk, mk)] = arr
+            all_rows.extend(arr)
+    if not all_rows:
+        print("⚠ 分片导出跳过: 无交易记录")
+        return
+
+    max_date = max(r[sig_i] for r in all_rows)
+    max_d = _dt.strptime(max_date, "%Y%m%d")
+
+    os.makedirs(parts_dir, exist_ok=True)
+
+    def _rows_in_window(cut):
+        rows_by_qm = {}
+        cnt = 0
+        for (qk, mk), arr in grouped.items():
+            sel = [r for r in arr if r[sig_i] >= cut]
+            if sel:
+                rows_by_qm.setdefault(qk, {})[mk] = sel
+                cnt += len(sel)
+        return rows_by_qm, cnt
+
+    # recent 热区片: 窗口自适应(目标<=2MB, 硬上限3MB; 2026-08-21 实测 120天≈4.6MB/90天≈3.4MB,
+    # 故从大到小选第一个 <=3MB 的窗口, 保证弹窗首开秒开)
+    recent_done = False
+    for win in (120, 90, 60):
+        cut = (max_d - _td(days=win)).strftime("%Y%m%d")
+        rows_by_qm, cnt = _rows_in_window(cut)
+        size, _n = _dump("_probe.json", rows_by_qm)
+        probe = os.path.join(parts_dir, "_probe.json")
+        if size <= 3 * 1024 * 1024:
+            os.replace(probe, os.path.join(parts_dir, "recent.json"))
+            print(f"✓ 分片 recent.json ({win}天窗口, {cnt} 行, {size / 1024:.1f} KB)")
+            recent_done = True
+            break
+        os.remove(probe)
+    if not recent_done:
+        # 兜底: 全超限也落 60 天最小片(前端另有全量兜底链路)
+        cut = (max_d - _td(days=60)).strftime("%Y%m%d")
+        rows_by_qm, cnt = _rows_in_window(cut)
+        size, _n = _dump("recent.json", rows_by_qm)
+        print(f"✓ 分片 recent.json (60天兜底, {cnt} 行, {size / 1024:.1f} KB)")
+
+    # 年份切片(空年份不出文件; 用 id(row) 集合按年筛引用)
+    by_year = {}
+    for r in all_rows:
+        by_year.setdefault(r[sig_i][:4], set()).add(id(r))
+    total_size = 0
+    for y in sorted(by_year):
+        ids = by_year[y]
+        rows_by_qm = {}
+        cnt = 0
+        for (qk, mk), arr in grouped.items():
+            sel = [r for r in arr if id(r) in ids]
+            if sel:
+                rows_by_qm.setdefault(qk, {})[mk] = sel
+                cnt += len(sel)
+        size, _n = _dump(f"t{y}.json", rows_by_qm)
+        total_size += size
+        print(f"✓ 分片 t{y}.json ({cnt} 行, {size / 1024:.1f} KB)")
+    print(f"✓ 分片导出完成: {parts_dir} ({len(by_year)} 个年片 + recent)")
+
+
 def main():
     parser = argparse.ArgumentParser(description="信号凯利回测")
     parser.add_argument("--output", default=None, help="输出 JSON 路径(默认 static-site/data/signal_kelly_backtest.json)")
     parser.add_argument("--trades-output", default=None, help="交易记录 JSON 路径(默认 static-site/data/signal_kelly_trades.json)")
+    parser.add_argument("--skip-parts", action="store_true", help="跳过分片导出(signal_kelly_trades_parts/, 默认生成)")
     args = parser.parse_args()
 
     output_path = args.output or os.path.join(ROOT, "static-site", "data", "signal_kelly_backtest.json")
@@ -1231,6 +1339,13 @@ def main():
     t_size = os.path.getsize(trades_path)
     total_trades = sum(len(v) for q in trades_data.get("quadrants", {}).values() for v in q.values())
     print(f"✓ 交易记录: {trades_path} ({t_size} bytes = {t_size / 1024:.1f} KB, {total_trades} 笔)")
+
+    # 分片导出(首页模拟回测弹窗提速, 2026-08-22 追加; --skip-parts 可跳过; 失败不影响全量文件)
+    if not args.skip_parts:
+        try:
+            _export_trades_parts(trades_data, trades_path)
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠ 分片导出失败(不影响全量文件): {type(e).__name__}: {e}", file=sys.stderr)
 
     # 生成 .gz
     import gzip
