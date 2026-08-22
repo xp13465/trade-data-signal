@@ -2277,6 +2277,35 @@ function _readHomeFadeFlag() {
   } catch (e) {}
   return true;
 }
+// ===== (2026-08-22 用户拍板) 新降亏键「牛市×辅备买全停」首页侧 =====
+// 独立开关读 localStorage tds_bull_aux_backup_stop(默认关, 与 lab 凯利区/sim 弹窗/技术分析参考点区块共用同一键 §22 跨页一致);
+// tier 数据= R2 market_tier_history.json 模块级缓存(date→hs300四档, 与 _renderTierTimelinePanel 同源同 URL);
+// 判定= 信号∈{buy_aux,buy_backup} × 该信号日四档=牛市·主升 → 命中(等价 lab.js _kellyPassesFadeFilters bullAuxBackupStop 分支, §22 同源)。
+// tier map 未加载/日期缺失时保守放行不拦(宁漏勿误, 盘中新信号 date 不在文件内不误杀), 加载完成后触发一次重绘补上视觉区分。
+function _readBullStopFlag() {
+  try { return localStorage.getItem("tds_bull_aux_backup_stop") === "1"; } catch (e) { return false; }
+}
+let _sigTierByDate = null;
+let _sigTierMapLoading = null;
+function _ensureSigTierMap() {
+  if (_sigTierByDate) return Promise.resolve(_sigTierByDate);
+  if (!_sigTierMapLoading) {
+    _sigTierMapLoading = fetchJSON(_R2_DATA_BASE + "market_tier_history.json").then((arr) => {
+      const m = new Map();
+      (Array.isArray(arr) ? arr : []).forEach((r) => { if (r && r.date != null) m.set(String(r.date), r.tier || ""); });
+      _sigTierByDate = m;
+      return m;
+    }).catch(() => { _sigTierMapLoading = null; return null; }); // 失败清 loading 态允许下次重试, 返回 null 不重绘
+  }
+  return _sigTierMapLoading;
+}
+function _isBullStopHit(it) {
+  if (!it) return false;
+  const sig = it.signal || "";
+  if (sig !== "buy_aux" && sig !== "buy_backup") return false;
+  if (!_sigTierByDate) return false; // tier map 未就绪 → 保守放行
+  return _sigTierByDate.get(String(it.date || "")) === "牛市·主升";
+}
 // 2026-08-13 简单全局 toast(首页「AI降亏过滤(3元)」点击无可见变化时反馈用; 项目无全局 toast 机制, 自建 fixed 定位元素, 3.2s 自动消失)
 let _sigToastEl = null;
 let _sigToastTimer = null;
@@ -2325,11 +2354,17 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
   const _simBtn = `<button type="button" class="sig-kbtn sig-kbtn-sim" data-k="sim" data-no-pop="" title="打开「模拟回测」弹窗: 用全历史真实信号交易记录(2011-2026), 按当前 AI降亏过滤 / AI仓位建议K档 / 交易模式 / 费率, 实时过滤并算出费后逐笔盈亏与累积收益(纯展示, 不改任何已发布功能)"><span class="sig-kbtn-k">模拟回测</span><span class="sig-kbtn-r">全历史</span></button>`;
   // 2026-08-13 hoverpop 升级: K 按钮组复用凯利区评级表格 hoverpop(共享 common.js _aiPoscapRatingPopHtml/_bindAiPoscapRatePop, §22 两处数据一致)
   const _ratingPop = (window._aiPoscapRatingPopHtml ? window._aiPoscapRatingPopHtml() : "");
+  // (2026-08-22 用户拍板) 新降亏键独立开关: 默认关🆕NEW, 与 lab 凯利区/模拟回测弹窗共用 tds_bull_aux_backup_stop(§22 跨页一致);
+  // 开启=命中「牛市·主升×辅买/备买」的买入信号灰显+删除线+标注AI降亏(与 8 键同视觉链), 关闭=零变化
+  const _bullSw = `<label class="sig-switch-lab sig-switch-bullstop" data-no-pop="" title="牛市×辅备买全停(A-F短线口径, 默认关 🆕NEW, 2026-08-22 用户拍板): 牛市·主升(hs300四档)×信号∈{辅买buy_aux,备买buy_backup}→该买入信号灰显+删除线+标注AI降亏、不占AI建议位。白话: 牛市主升末段(MA排列滞后判定已走一大段后)的低质量买入(辅买/备买)是历史稳定毒药, 全史合计净亏 -9,895 元。场景: 5-8月连亏想减亏时开启实测; 无命中信号时列表无变化属正常。1:1举例: 2026年5-8月 mode A K1 基线 -5,166 → 开启后 -256(砍26笔); 2026全年 +5,626 → +10,596, 几乎追平「4月末空仓」锚点 +10,792。诚实标注: 全史 +66,530→+76,426(+9,895); 变差年4个合计 -5,825(2014/-938、2018/-2,109、2020/-2,039、2025/-739 均牛市年边缘利润)。适用口径: 仅 A-F 短线(G/H/I 长线模式不套用); 首页信号网格无模式维度, 全部按短线口径判定。默认关不入默认组合(§23.7), 未来若并入默认组合走版本升级流程(§5.4⑥)。与 lab 凯利区/模拟回测弹窗共用同一开关(localStorage), 三处联动。数据支撑: docs/kelly/analysis/sim-window-loss-mining-20260822.md">` +
+    `<input type="checkbox" class="sig-switch-bullstop-cb"${_readBullStopFlag() ? " checked" : ""}> <span>牛市×辅备买全停</span><span class="lab-sigkelly-toggle-new">NEW</span>` +
+    `</label>`;
   return `<div class="sig-switch-row" data-no-pop="">` +
     `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(总开关, 首页独立, 删除线过滤层): 开启=①命中降亏条件(固定 8键=基础5+核心3, +1类回测剔除=_bt_in_universe)的买入信号=灰显+删除线+标注AI降亏建议回避(现状) + ②未入样宇宙信号(债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, 含波动相关/未入样本信号)=删除线+灰显+标注未入样本; 关闭=不画任何删除线、未入样本不标注, 信号恢复正常样式。结构=AI宏5+3+1(v1.1.0 定名「基础5」): 5+3=保留入样的8个降亏键(基础5=基础4+K2C5 港股追涨剔除), +1=回测剔除的波动相关/未入样本整类信号(AI建议不推荐)。另有 cyb 四档版降亏新键 excludeSpecialBearCyb(默认关, 非默认推荐, 判定源 hs300 四档→创业板指 cyb 四档, #69 2026-08-19, 不进首页默认判定, 凯利区可人工开复测)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。独立 localStorage 键 tds_home_fade 与凯利区互不影响; 与「AI仓位建议」两个开关正交(各自管一层, 不互相触发)">` +
       `<input type="checkbox" class="sig-switch-ai-cb"${_fadeOn ? " checked" : ""}> AI降亏过滤` +
       `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 删除线过滤层, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 结构=AI宏5+3+1(v1.1.0 定名「基础5」, 2026-08-15 补公示): 5=基础5键(基础4 + K2C5 港股追涨剔除), 3=核心3键, 两者 8 键都是「保留入样、可被AI建议推荐」的降亏开关; +1=回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(后端已剔除出回测宇宙 / 波动相关剔除), 故 AI建议 一律不推荐, 本开关开启时以「未入样本」+灰显+删除线标注表达"被过滤掉"。 开启=①首页按降亏策略判定, 固定 8键+1类 成员级(基础5= 追关注×熊市交叉四档(v1.1.2 2026-08-17 主键判定 MA60→四档{熊市·主跌,下降期}×A股类升级; 老MA60熊×追买 / 下降期×追关注 两备选键默认关🆕NEW) / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 / K2C5 港股追涨剔除 + 核心3= 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致 v1.1.0/v1.1.2; +1=回测剔除的波动相关/未入样本信号整类)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。命中降亏条件(8键中任一键)的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); ②未入样宇宙信号(债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 后端已剔除出回测宇宙)=删除线+灰显+「未入样本」标注(AI过滤视图, 表达"被过滤掉"); 关闭=首页完全不判降亏、不画删除线、未入样本不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。⚠两开关正交: AI降亏层只产删除线/未入样本, 不产 AI建议N/当日已满/AI警示(那些归「AI仓位建议」开关控制)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号">ⓘ</span>` +
     `</label>` +
+    `${_bullSw}` +
     `${_aShareFinalizedTag}` +
     `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap, badge标注层): 开启=同日只买最优K个买入类(进K=「AI建议N」亮绿 / 超K=「当日已满」灰显) + 入宇宙${_t("sell_short")}(sell/sell_stop_loss/${_t("type_band_sell")})=「AI警示」亮橙(${_t("sell_short")}无K约束不判K); 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表(无AI建议N/当日已满/AI警示), 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。⚠两开关正交: AI仓位层只产上面三类badge, 不产删除线过滤(删除线/未入样本归「AI降亏过滤」开关控制)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span>${_helpBtn}${_simBtn}</span>` +
     `</div>`;
@@ -2436,6 +2471,18 @@ function _bindSigSwitchRow(sigCard) {
     }
   });
   sigCard.addEventListener("change", (e) => {
+    // (2026-08-22 用户拍板) 新降亏键开关「牛市×辅备买全停」: 写 tds_bull_aux_backup_stop(与 lab 凯利区/sim 弹窗共用 §22), 重绘生效
+    const bullCb = e.target.closest(".sig-switch-bullstop-cb");
+    if (bullCb) {
+      e.preventDefault();
+      e.stopPropagation();
+      try { localStorage.setItem("tds_bull_aux_backup_stop", bullCb.checked ? "1" : "0"); } catch (err) {}
+      _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
+      _showSigToast(bullCb.checked
+        ? "牛市×辅备买全停已开启(默认关·实测用): 命中「牛市·主升×辅买/备买」的信号将灰显+删除线+标AI降亏; 当前无命中=列表无变化属正常"
+        : "牛市×辅备买全停已关闭, 恢复默认视图");
+      return;
+    }
     const aiCb = e.target.closest(".sig-switch-ai-cb");
     if (!aiCb) return;
     e.preventDefault();
@@ -2638,6 +2685,16 @@ function _simPassesFade(t, fIdx, filters, monthMask) {
   return true;
 }
 
+// (2026-08-22 用户拍板) 新降亏键独立谓词: 牛市·主升(hs300四档) × 信号∈{buy_aux辅买, buy_backup备买} → 拦下
+// 与 lab.js _kellyPassesFadeFilters 的 bullAuxBackupStop 分支同源(§22 一致); market_tier 为空(hk/global 类)=天然不命中=A股限定。
+// sim 弹窗内为独立开关(不并入 8 键 filters 对象), 与「默认8键」AND 叠加; 仅 A-F 短线模式生效(G/H/I 由调用方强制关闭)。
+function _simPassesBullStop(t, fIdx) {
+  if (fIdx.market_tier == null) return true;
+  var sig = t[fIdx.signal] || "";
+  if (sig !== "buy_aux" && sig !== "buy_backup") return true;
+  return (t[fIdx.market_tier] || "") !== "牛市·主升";
+}
+
 // 基笔 key(买侧身份, 与 lab.js _kellyBaseKey 同)
 function _simBaseKey(t, fIdx) {
   return (t[fIdx.signal_date] || "") + "|" + (t[fIdx.index_id] || "") + "|" + (t[fIdx.signal] || "") + "|" + (t[fIdx.buy_date] || "") + "|" + (t[fIdx.etf_code] || "");
@@ -2801,7 +2858,10 @@ function _openSimBacktestModal() {
       '<div class="sim-ctrl-row">' +
         '<div class="sim-ctrl-block"><label>时间范围(起)</label><input type="date" class="sim-date-start" value="' + _defStart + '"></div>' +
         '<div class="sim-ctrl-block"><label>时间范围(止)· 最长500天</label><input type="date" class="sim-date-end" value="' + _defEnd + '"></div>' +
-        '<div class="sim-ctrl-block"><label>AI降亏过滤</label><label class="sim-cb-wrap"><input type="checkbox" class="sim-fade-cb" checked> 开启(默认8键)</label></div>' +
+        '<div class="sim-ctrl-block"><label>AI降亏过滤</label><label class="sim-cb-wrap"><input type="checkbox" class="sim-fade-cb" checked> 开启(默认8键)</label>' +
+          '<label class="sim-cb-wrap sim-bullstop-wrap" data-no-pop=""><input type="checkbox" class="sim-bullstop-cb"> <span>牛市×辅备买全停(A-F)</span><span class="lab-sigkelly-toggle-new">NEW</span></label>' +
+          '<label class="sim-bullstop-tip" title="牛市·主升(hs300四档)×信号∈{辅买,备买} → 拦下(时段级全停)。白话: 牛市主升末段的低质量买入(辅买/备买)是历史稳定毒药(全史净亏 -9,895 元)。场景: 5-8月连亏想减亏时开启实测。1:1: 2026年 5-8月 mode A K1 基线 -5,166 → 开启后 -256(砍26笔); 2026 全年 +5,626 → +10,596, 几乎追平「4月末空仓」锚点 +10,792。诚实标注: 全史 +66,530→+76,426(+9,895); 变差年 4 个合计 -5,825(2014/-938、2018/-2,109、2020/-2,039、2025/-739 均牛市年边缘利润); 仅 A-F 短线适用, G/H/I 长线模式自动豁免; 默认关不入默认组合(§23.7)。数据支撑: docs/kelly/analysis/sim-window-loss-mining-20260822.md">ⓘ</label>' +
+          '<div class="sim-bullstop-note" style="display:none">仅适用 A-F 短线(G/H/I 自动豁免)</div></div>' +
         '<div class="sim-ctrl-block"><label>AI仓位建议 K</label><div class="sim-kbtns">' +
           '<button type="button" class="sim-kbtn" data-k="0">关</button>' +
           '<button type="button" class="sim-kbtn active" data-k="1">K1★主推</button>' +
@@ -2842,6 +2902,27 @@ function _bindSimBacktestControls(modal, _close) {
   modal.querySelectorAll(".sim-date-start,.sim-date-end,.sim-fade-cb,.sim-mode-sel").forEach((el) => {
     el.addEventListener("change", () => _simRender(modal));
   });
+  // (2026-08-22 用户拍板) 新降亏键「牛市×辅备买全停」: 打开时从 localStorage 恢复(tds_bull_aux_backup_stop,
+  // 与 lab 凯利区/首页 AI 建议/技术分析参考点共用 §22), change 写回; G/H/I 长线模式置灰+提示「仅适用 A-F 短线」
+  const bullCb = modal.querySelector(".sim-bullstop-cb");
+  const modeSel = modal.querySelector(".sim-mode-sel");
+  function _syncBullStopDisabled() {
+    if (!bullCb) return;
+    const m = modeSel ? (modeSel.value || "A") : "A";
+    const isLong = m === "G" || m === "H" || m === "I";
+    bullCb.disabled = isLong;
+    const note = modal.querySelector(".sim-bullstop-note");
+    if (note) note.style.display = isLong ? "" : "none";
+  }
+  if (bullCb) {
+    try { bullCb.checked = localStorage.getItem("tds_bull_aux_backup_stop") === "1"; } catch (e) {}
+    bullCb.addEventListener("change", () => {
+      try { localStorage.setItem("tds_bull_aux_backup_stop", bullCb.checked ? "1" : "0"); } catch (e) {}
+      _simRender(modal);
+    });
+  }
+  if (modeSel) modeSel.addEventListener("change", _syncBullStopDisabled);
+  _syncBullStopDisabled();
   // 费率档位按钮: 点档位=快捷填入表单+重跑(custom 档只切高亮不回填, 表单保持手输值)
   modal.querySelectorAll(".simbt-fee-btn").forEach((b) => {
     b.addEventListener("click", () => {
@@ -2959,9 +3040,16 @@ async function _simRender(modal) {
   // ② 降亏过滤
   const filters = _simDefaultFadeFilters();
   const monthMask = _simActiveMonthMask(filters);
+  // (2026-08-22 用户拍板) 新降亏键: UI 状态读取 + G/H/I 长线模式强制不生效(仅 A-F 短线; 与置灰双保险)
+  const _bullCbEl = modal.querySelector(".sim-bullstop-cb");
+  const _isLongMode = mode === "G" || mode === "H" || mode === "I";
+  const bullStopOn = !!(_bullCbEl && _bullCbEl.checked && !_isLongMode);
   let kept = recs;
   if (fadeOn) {
     kept = recs.filter((t) => _simPassesFade(t, fIdx, filters, monthMask));
+  }
+  if (bullStopOn) {
+    kept = kept.filter((t) => _simPassesBullStop(t, fIdx)); // 与默认8键 AND 叠加(可单独开=仅新键过滤)
   }
   // ③ K档: 按 signal_date 分组取 top-K(排序口径 track_score DESC → rating → signal → buy_date ASC, 与首页/凯利一致)
   if (K > 0) {
@@ -3561,6 +3649,15 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   if (kind === "signal") {
     _fadeOn = _readHomeFadeFlag();
   }
+  // (2026-08-22 用户拍板) 新降亏键「牛市×辅备买全停」: 开关开时命中(tier=牛市·主升 × 辅买/备买)也走 AI降亏视觉链
+  // (置灰+删除线+标注+top-K 补位, 与 8 键同链同源); tier map 未就绪先保守放行, 就绪后重绘一次补上视觉区分。
+  // 消费点: 首页 AI 建议 top-K/统计人口/行渲染 + 「近期技术分析参考点」区块(同一 _renderSignalGrid 渲染链, §22 一致)
+  const _bullStopActive = (kind === "signal") ? _readBullStopFlag() : false;
+  if (_bullStopActive && !_sigTierByDate && typeof _rerenderSigCardContent === "function") {
+    _ensureSigTierMap().then((m) => {
+      if (m) { try { _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot); } catch (e) {} }
+    }).catch(() => {});
+  }
   // 人口筛选（window+ETF）：定义汇总条统计人口。ETF 视为人口筛选(同 window)，汇总条随 ETF 切换更新。
   // 2026-08-07 归一档：sigEtfFilterSet 是选中档位数组(如["1","2","3"])，
   //   空 = 全显(等同"全部")；signal 归档(最佳档)在选中集内才显示。各档独立不重叠，无跨档重复。
@@ -3603,8 +3700,12 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   //   与大型压缩文件既有变量撞车致 "c is not a function"。改为 function 声明 + build_min keep_fnames:
   //   single-statement 会内联、multi-statement 保留原名, 二者都不会留下可撞车的单字符函数调用。
   function _isAiFadeHit(it) {
-    return _fadeOn && !!(it && it.ai_macro && it.ai_macro.hit && Array.isArray(it.ai_macro.filters)
-      && it.ai_macro.filters.some((fk) => _aiOnMembers[fk]));
+    if (!_fadeOn) return false;
+    if (it && it.ai_macro && it.ai_macro.hit && Array.isArray(it.ai_macro.filters)
+      && it.ai_macro.filters.some((fk) => _aiOnMembers[fk])) return true;
+    // (2026-08-22 用户拍板) 新降亏键分支: 牛市·主升 × 辅买/备买(tier 由前端 R2 map join;
+    // map 未就绪/日期缺失=不命中=保守放行; 开关关时 _bullStopActive=false 恒不命中, 关闭零变化)
+    return _bullStopActive && _isBullStopHit(it);
   }
   // positionCap 仓位控制过滤(2026-08-12): 凯利回测页 toggle 共享设置(localStorage "tds_poscap", 双页联动)
   // #4 范围扩展(2026-08-12): 从凯利区扩展到整个信号列表——近15交易日每个日期各自按同一排序算 top-K, 所有日期都展示 AI建议(AI建议买入/当日已满), 不只今日
@@ -3802,10 +3903,13 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // 开关关闭时 _isAiFadeHit 恒 false, 整块自然跳过(不灰显不删除线不标注, hoverpop 原因行也不渲染);
         // 命中判定用共享谓词 _isAiFadeHit 与 top-K 补位同源
         if (_isAiFadeHit(it)) {
-          const _hitOn = it.ai_macro.filters.filter((fk) => _aiOnMembers[fk]);
-          if (_hitOn.length) {
+          // (2026-08-22) 原因名来源两路: 后端 ai_macro.filters(8键) + 新降亏键前端判定(bullAuxBackupStop); 防旧数据无 filters 数组报错加守卫
+          const _hitOn = (it.ai_macro && Array.isArray(it.ai_macro.filters)) ? it.ai_macro.filters.filter((fk) => _aiOnMembers[fk]) : [];
+          const _bullHit = _bullStopActive && _isBullStopHit(it);
+          if (_hitOn.length || _bullHit) {
             aiHitCls = " sig-ai-hit";
-            const _hitNames = _hitOn.map((fk) => _AI_MACRO_FILTER_NAMES[fk] || _AI_MACRO_BACKUP_NAMES[fk] || fk).join(" / ");
+            const _hitNames = _hitOn.map((fk) => _AI_MACRO_FILTER_NAMES[fk] || _AI_MACRO_BACKUP_NAMES[fk] || fk)
+              .concat(_bullHit ? ["牛市·主升×辅买/备买全停"] : []).join(" / ");
             aiHitBadge = `<sup class="sig-ai-hit-badge" data-tip="删除线原因: 本信号命中AI降亏过滤条件【${_hitNames}】→ 被过滤建议回避, 所以显示删除线, 且不占AI建议位(顺延补位给未命中信号)(由首页「AI降亏过滤」开关判定, 独立作用域与凯利区互不影响; 关闭首页「AI降亏过滤」开关即可恢复正常样式)">AI降亏</sup>`;
             aiHitAttr = ` data-ai-hit="1" data-ai-hit-names="${_escAttr(_hitNames)}"`;
           }

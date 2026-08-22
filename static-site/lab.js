@@ -7300,7 +7300,15 @@ function _kellyDefaultFilters() {
     // #69(2026-08-19) 新增第 4 个降亏键 excludeSpecialBearCyb(默认关非默认推荐): cyb(创业板指)四档版
     //   excludeSpecialBear, 判定语义与主键完全一致, 仅判定源 hs300 四档 → cyb 四档。默认不进默认组合,
     //   供用户凯利区人工复测看数据变化。
-    legacyMa60Special: false, declinePhaseSpecial: false, excludeSpecialBearCyb: false
+    legacyMa60Special: false, declinePhaseSpecial: false, excludeSpecialBearCyb: false,
+    // #xx(2026-08-22 用户拍板) 新增第 5 个降亏键 bullAuxBackupStop(默认关, 纯新增 §23.7): 牛市·主升×(辅买∪备买)全停——
+    //   hs300四档=「牛市·主升」 且 signal∈{buy_aux,buy_backup} → 该买入信号被拦下(时段级全停)。
+    //   判定源=trades market_tier 字段(后端已按 A股类注入, 非A股为 "" 天然不命中 = A股限定, 与主键 excludeSpecialBear 同构守卫)。
+    //   ⚠作用域: 仅适用 mode A-F(A股短线); G/H/I 长线不适配不套用(挖掘报告 §6.4: G/I 全史 +3,624 长线持有逻辑不同)——
+    //   豁免由统计链桶过滤层实现(见 _kellyStatsFor passesFadeNoBull / 弹窗 _pcFadePasses), 谓词本身不带 mode。
+    //   数据支撑: docs/kelly/analysis/sim-window-loss-mining-20260822.md(mode A K1: 5-8月 -5,166→-256 / 4月零误伤 /
+    //   2026全年 +5,626→+10,596 / 全史 +66,530→+76,426(+9,895) / A-F 六模式全部同向改善)。默认关供用户实测。
+    bullAuxBackupStop: false
   };
 }
 
@@ -7428,6 +7436,14 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
   if (filters.excludeSpecialBearCyb && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_tier_cyb != null) {
     var _mtc = t[fIdx.market_tier_cyb] || "";
     if (_mtc === "熊市·主跌" || _mtc === "下降期") return false;
+  }
+  // #xx(2026-08-22 用户拍板) bullAuxBackupStop(默认关, 纯新增): 牛市·主升×(辅买∪备买)全停——
+  //   hs300四档=牛市·主升 × signal∈{buy_aux,buy_backup} × A股类 → 拦下(时段级全停)。
+  //   market_tier 后端已按 A股类注入(非A股为 "", 空串≠"牛市·主升" 天然不命中), 与主键同构守卫。
+  //   ⚠G/H/I 长线豁免不在本谓词(谓词无 mode 参数), 由调用侧传 filtersNoBull 变体实现(见 _kellyStatsFor/弹窗)。
+  if (filters.bullAuxBackupStop && fIdx.signal != null && fIdx.market_tier != null) {
+    var _sigBull = t[fIdx.signal] || "";
+    if ((_sigBull === "buy_aux" || _sigBull === "buy_backup") && (t[fIdx.market_tier] || "") === "牛市·主升") return false;
   }
   // v3新9 toggle(比值>3, 按比值倒序: 10.06>6.63>5.87>5.24>4.67>4.18>4.02>3.35>3.31)
   var _v3On = filters.n1MarTueHigh || filters.n2NovSpecialIndustry || filters.r8PureNonMay || filters.n3NovSpecialMon || filters.n4AMay || filters.r7MayReinforced || filters.n5MayVlow || filters.n6MidMay || filters.r10May6NonMay;
@@ -8114,13 +8130,39 @@ async function _kellyApplyFeeRecompute(feeParams) {
   var passesFade = function (t) {
     return _kellyPassesFadeFilters(t, fIdx, filters, _kellyTradeFeatureCache, _tradeDims, monthMask);
   };
+  // #xx(2026-08-22) bullAuxBackupStop(牛市·主升×辅备买全停) G/H/I 长线豁免: 该键仅适用 mode A-F 短线,
+  //   G/H/I 长线不适配不套用(挖掘报告 §6.4)。实现=构造 filtersNoBull 变体(仅 bullAuxBackupStop=false, 其余同),
+  //   G/H/I 桶的 fade 谓词与 positionCap 基笔池/每日池计数都用 NoBull 版 → 开关键后 G/H/I 统计与关时逐位一致(§22)。
+  //   默认关(_bullOn=false)时 NoBull 变体恒 null, 全部回落原路径, 零行为差异(§23.7 纯新增)。
+  var _bullOn = !!filters.bullAuxBackupStop;
+  var passesFadeNoBull = null;
+  if (_bullOn) {
+    var filtersNoBull = {};
+    for (var _fbk in filters) filtersNoBull[_fbk] = filters[_fbk];
+    filtersNoBull.bullAuxBackupStop = false;
+    passesFadeNoBull = (function (_fNB) {
+      return function (t) {
+        return _kellyPassesFadeFilters(t, fIdx, _fNB, _kellyTradeFeatureCache, _tradeDims, monthMask);
+      };
+    })(filtersNoBull);
+  }
+  // G/H/I 判定助手(与 _sigKellyModeSpanKey/_kellyIsGih 同口径: G/H/I=中长线)
+  var _isLongMode = function (mk) { return mk === "G" || mk === "H" || mk === "I"; };
   // positionCap 仓位控制过滤: 统一在模式之前生效(9模式共享同一批基笔, 同一信号同一天只算一次跨模式不重复计)
+  // #xx: 新键开启时基笔池算两份(A-F 口径含新键 / G-H-I 豁免版不含), 两模式组各用各的 kept/dayCounts(§22)
   var posCapKept = null;
   var posDayCounts = null; // 每日资金池等分: 当日保留基笔数{signal_date:count}, 基于保留集合全集(跨mode)统计(2026-08-13恢复)
+  var posCapKeptNB = null; // G/H/I 豁免版(仅 _bullOn 时计算)
+  var posDayCountsNB = null;
   if (filters.positionCap && filters.positionCapK > 0) {
     var basePool = _kellyCollectBasePool(quads, sellModes, fIdx, passesFade);
     posCapKept = _kellyPositionCapKeptKeys(basePool, fIdx, filters.positionCapK);
     posDayCounts = _kellyKeptDayCounts(posCapKept);
+    if (_bullOn) {
+      var basePoolNB = _kellyCollectBasePool(quads, sellModes, fIdx, passesFadeNoBull);
+      posCapKeptNB = _kellyPositionCapKeptKeys(basePoolNB, fIdx, filters.positionCapK);
+      posDayCountsNB = _kellyKeptDayCounts(posCapKeptNB);
+    }
   }
   // ① 按(qk,mode)只过滤一次(不含period cutoff), 5个period从过滤结果按cutoff取子集(扫描5->1遍)
   // ② v3/v4特征经缓存Map只算一次, 后续O(1)查表
@@ -8130,9 +8172,12 @@ async function _kellyApplyFeeRecompute(feeParams) {
     var toggledByMode = {};
     for (var modeKey in sellModes) {
       var rawTrades = (qk === "all") ? (quadsAll[modeKey] || []) : ((quads[qk] || {})[modeKey] || []);
+      // #xx: G/H/I 且新键开 → 用豁免版谓词+kept(同步 filter, 闭包捕获当前 _pf/_pk 无延迟执行问题)
+      var _pf = (_bullOn && _isLongMode(modeKey)) ? passesFadeNoBull : passesFade;
+      var _pk = (_bullOn && _isLongMode(modeKey) && posCapKeptNB) ? posCapKeptNB : posCapKept;
       toggledByMode[modeKey] = rawTrades.filter(function (t) {
-        if (!passesFade(t)) return false;
-        if (posCapKept && !posCapKept[_kellyBaseKey(t, fIdx)]) return false;
+        if (!_pf(t)) return false;
+        if (_pk && !_pk[_kellyBaseKey(t, fIdx)]) return false;
         return true;
       });
     }
@@ -8160,8 +8205,10 @@ async function _kellyApplyFeeRecompute(feeParams) {
             trades = toggled;
           }
           // ③ 费率重算缓存(feeParams+单笔金额未变同一trade只算一次, 消灭跨bucket重复)
+          // #xx: G/H/I 且新键开 → 每日池计数用豁免版(与该桶 kept 口径一致 §22)
+          var _pdcM = (_bullOn && _isLongMode(modeKey) && posDayCountsNB) ? posDayCountsNB : posDayCounts;
           var recomputed = trades.map(function (t) {
-            var amt = _kellyPerTradeAmount(t, fIdx, buyAmount, posDayCounts ? posDayCounts[t[fIdx.signal_date]] : null);
+            var amt = _kellyPerTradeAmount(t, fIdx, buyAmount, _pdcM ? _pdcM[t[fIdx.signal_date]] : null);
             var c = _kellyRecomputeCache.get(t);
             if (!c || c.sig !== feeSig || c.amt !== amt) {
               var r = _kellyRecomputeTrade(t, fIdx, feeParams, amt);
@@ -8207,13 +8254,13 @@ async function _kellyApplyFeeRecompute(feeParams) {
     //   每个模式用 toggledByMode[modeKey](已随降亏组合/费率/周期过滤) → 与 toggle/费率/周期联动(§22); 重算复用 _kellyRecomputeCache 不重复计算。
     if (qk === "all") {
       // 2026-08-12 按年峰值资金收益率 = 该年累计净盈亏 / 该年峰值同时持仓资金 × 100 (与卡面/建议面板 return_pct_max_holding 同口径, §22)
-      var _aggYearlyMap = function (_ymTrades) {
+      var _aggYearlyMap = function (_ymTrades, _pdcY) {
         var _ymap = {};
         for (var _bi = 0; _bi < _ymTrades.length; _bi++) {
           var _bT = _ymTrades[_bi];
           var _bYr = (_bT[fIdx.buy_date] || "").substring(0, 4);
           if (!_bYr) continue;
-          var _bAmt = _kellyPerTradeAmount(_bT, fIdx, buyAmount, posDayCounts ? posDayCounts[_bT[fIdx.signal_date]] : null);
+          var _bAmt = _kellyPerTradeAmount(_bT, fIdx, buyAmount, _pdcY ? _pdcY[_bT[fIdx.signal_date]] : null);
           var _bC = _kellyRecomputeCache.get(_bT);
           if (!_bC || _bC.sig !== feeSig || _bC.amt !== _bAmt) {
             var _bR = _kellyRecomputeTrade(_bT, fIdx, feeParams, _bAmt);
@@ -8240,11 +8287,13 @@ async function _kellyApplyFeeRecompute(feeParams) {
         return _ymap;
       };
       // 逐模式独立按年聚合(A-G 全模式; 无 signal 的模式(如 H/I 某些档)留空表)
+      // #xx: G/H/I 且新键开 → 按年聚合金额用豁免版每日池计数(与该模式桶口径一致 §22)
       var allYearlyByMode = {};
       for (var _amk in sellModes) {
         var _amTrades = toggledByMode[_amk] || [];
         if (!_amTrades.length) continue; // 无 signal 的模式不出表(留空, 前端显示暂无数据)
-        allYearlyByMode[_amk] = _aggYearlyMap(_amTrades);
+        var _pdcY = (_bullOn && _isLongMode(_amk) && posDayCountsNB) ? posDayCountsNB : posDayCounts;
+        allYearlyByMode[_amk] = _aggYearlyMap(_amTrades, _pdcY);
       }
       // 总建议语义: 优先 G 模式(当前推荐卖出法; 若卖出模式结构变化, 取 signal:true 的推荐模式), 兼容原 allYearly 展示
       var _yyModeKey = null;
@@ -8637,6 +8686,12 @@ async function renderSigKellyLab() {
       }
     }
   } catch (e) {}
+  // (2026-08-22 用户拍板) 新降亏键 bullAuxBackupStop 持久化: 独立 key tds_bull_aux_backup_stop("1"/"0"),
+  // 与首页 sim 弹窗/首页 AI 建议/技术分析参考点三处共用(§22 跨页一致); 不动 tds_kelly_filters 固定成员结构
+  try {
+    var _savedBull = localStorage.getItem("tds_bull_aux_backup_stop");
+    if (_savedBull === "1" || _savedBull === "0") state.labSigKellyFilters.bullAuxBackupStop = (_savedBull === "1");
+  } catch (e) {}
   // 金额口径=每日资金池等分+top-K(2026-08-13 恢复, 每笔=10000/当日保留数, K档最大持仓恒定); positionCap 开关/K 与交易页共享localStorage
   var _sharedPC = _kellySharedPosCap();
   // 2026-08-12 默认开启 positionCap(用户:默认最优组合要开启): 首次访问(无 tds_poscap)写入默认{on:true,k:3}(2026-08-13 K默认3), 与 app.js 首页联动一致(§22)
@@ -8902,6 +8957,9 @@ var _kellyFadeFlagGroups = [
     // #69(2026-08-19 用户拍板) cyb 四档版降亏新键: excludeSpecialBearCyb, 默认关非默认推荐(判定源 hs300→cyb 创业板指)
     { k: "excludeSpecialBearCyb", cls: "lab-sigkelly-toggle-specialbearcyb", name: "追关注×熊市交叉(cyb四档)", ratio: null, warn: "🆕NEW默认关(非默认推荐)",
       advice: "🆕cyb四档剔追涨·非默认 · 比值待用户实测", tip: "🆕NEW(#69 2026-08-19 用户拍板)非默认推荐, 默认关: cyb(创业板指)四档版 excludeSpecialBear——判定语义与主键完全一致, 仅判定源 hs300 四档 → cyb(创业板指)四档: buy_special 追关注 × A股类 × cyb四档∈{熊市·主跌,下降期}。四档定义同主键(价 vs MA200 + MA20/60/120 排列)。默认不进默认组合(生产推荐保持稳定 §23.7), 供用户凯利区人工复测看数据变化; 判定源差异: 主键看沪深300大盘四档, 本键看创业板指四档(创业板指代表成长/中小盘风险偏好, 与沪深300大盘四档可能不同步)。人工开启后, 凯利区「最后结果」按本键重算, 可对比 hs300 版 vs cyb 版过滤差异。" },
+    // (2026-08-22 用户拍板) 第 5 个降亏键 bullAuxBackupStop: 牛市·主升×(辅买∪备买)全停, 默认关纯新增(§23.7); 仅 A-F 短线适用, G/H/I 长线豁免(桶级选路径)
+    { k: "bullAuxBackupStop", cls: "lab-sigkelly-toggle-bullstop", name: "牛市×辅备买全停(A-F)", ratio: null, warn: "🆕NEW默认关(非默认推荐)",
+      advice: "🆕牛主升停辅备买·默认关 · 全史+9,895", tip: "🆕NEW(2026-08-22 用户拍板)非默认推荐, 默认关: 牛市·主升(hs300四档) × 信号∈{buy_aux辅买, buy_backup备买} → 该买入信号拦下(时段级全停)。【白话】牛市主升末段(MA排列滞后判定已走一大段后)的低质量买入(辅买/备买)是历史稳定毒药, 全史合计净亏 -9,895 元。【场景】5-8月连亏想减亏时开此键实测; 开启后牛主升段不再接辅买/备买。【1:1】2026年 5-8月 mode A K1 基线 -5,166 → 开启后 -256(砍26笔); 2026 全年 +5,626 → +10,596, 几乎追平「4月末空仓」锚点 +10,792。【诚实标注】全史 +66,530→+76,426(+9,895); 变差年 4 个合计 -5,825(2014/-938、2018/-2,109、2020/-2,039、2025/-739, 均牛市年边缘利润); 仅 A-F 短线适用, G/H/I 长线模式自动豁免(选中 G/H/I 时本键不生效); 默认关不入默认组合(§23.7), 未来若并入默认组合走版本升级流程(§5.4⑥)。数据支撑: docs/kelly/analysis/sim-window-loss-mining-20260822.md。" },
     // K2C5/K3 (2026-08-15 #86 新增 纯前端实验键; v1.1.0 2026-08-15 用户拍板: K2C5 默认开, K3 维持默认关)
     { k: "k2c5HkChase", cls: "lab-sigkelly-toggle-k2c5", name: "港股追涨", ratio: 4.55, rec: true, warn: "⭐默认开(v1.1.0)",
       advice: "剔除港股追涨 · 比值4.55", tip: "⭐ 默认开(v1.1.0 2026-08-15 用户拍板 定名「基础5」) = AI宏组成**5+3+1 = 基础5(n2NovSpecialIndustry/excludeSpecialBear/janMidRating/janMidSpecial/k2c5HkChase 港股追涨剔除)+核心3(r7MayReinforced/excludeAuxCross/greedy15)+1类回测剔除(债类/波段不入宇宙 _bt_in_universe)=8键+1类**;K2C5 已穷举验证并入基础5(16组合全扫,与核心3无叠加冲突、8键全开A/F/9模式合计全局最优、去K2C5损失+41,445第二大贡献、y1样本外正贡献,见 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md)。剔除 signal∈{buy_special,buy_backup}×港股 的交易(当前数据文件实算:独立信号728个/全9模式占1431条)。每日池减亏2.88%/损盈0.63%/比值4.55(>2高性价比, 与其他键同口径 ALL9-K1; K2档损盈-0.03%不取, 见 docs/kelly/analysis/kelly-k2c5-dailypool-ratio.md)。全信号除 G 外双升(A/F/H 多年稳定,净利 Δ +4,458~+7,840),16象限 92.4% 正,港股卡剔除后 0 负全转正(它就是港股卡亏损主源);除G外唯一负贡献 I 微负 -1,365。诚实标注 G: 因强平兑现口径分裂, b0(保守,强平记0利)=-2,256 / b1(乐观,按持有时间线性兑现)=+11,755,方向依赖口径,真实强平收益在区间[b0,b1],不把 b1 当承诺。" },
@@ -9493,6 +9551,15 @@ function _renderSigKellyBar(bar, data, period) {
     state.labSigKellyFilters.excludeSpecialBearCyb = specialBearCybCb.checked;
     _kellyOnFilterChange();
   };
+  // (2026-08-22 用户拍板) 第 5 个降亏键: bullAuxBackupStop 牛市·主升×(辅买∪备买)全停(默认关, 仅 A-F 短线; G/H/I 豁免)
+  // 谓词见 _kellyPassesFadeFilters(bullAuxBackupStop 用 market_tier 字段, 无需特征计算); 独立持久化键 tds_bull_aux_backup_stop(sim弹窗/首页共用 §22)
+  var bullStopCb = bar.querySelector(".lab-sigkelly-toggle-bullstop");
+  if (bullStopCb) bullStopCb.onchange = function () {
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    state.labSigKellyFilters.bullAuxBackupStop = bullStopCb.checked;
+    try { localStorage.setItem("tds_bull_aux_backup_stop", bullStopCb.checked ? "1" : "0"); } catch (e) {}
+    _kellyOnFilterChange();
+  };
   // 组合降亏「预设宏」(2026-08-11用户定: 1+2+3全要,按需选择,组合可叠加=成员并集OR):
   // 2026-08-13 融合 #39: 组合宏改顶部快捷按钮(一键勾选/取消全部成员toggle, 过滤零改动(成员谓词并集), 幂等+§22一致; 组合勾选态由成员派生(不新增第三份过滤状态))
   // 按钮无 change 事件, 需手动刷新 AI宏 三态(最大化降亏组合含核心3键 greedy15)
@@ -9641,6 +9708,7 @@ function _renderSigKellyBar(bar, data, period) {
       var host = document.querySelector(".lab-sigkelly-host");
       if (!host || !state.labSigKellyData) return;
       state.labSigKellyFilters = _kellyDefaultFilters();
+      try { localStorage.removeItem("tds_bull_aux_backup_stop"); } catch (e) {} // (2026-08-22) 同步清新降亏键独立持久化(重置=默认关)
       _kellySetSharedPosCap(true, 1);
       _kellyPersistFilters(); // 重写 tds_kelly_filters(8键全开含K2C5 + aiMacro:true), 持久化恢复默认
       _kellyRunRecompute(host,
@@ -10709,30 +10777,45 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   // positionCap 仓位控制过滤(2026-08-13): 与卡片统计口径一致(§22数据一致性); 金额口径=每日资金池等分+top-K(每笔=10000/当日保留数, 恢复2026-08-13)
   // 降亏过滤谓词抽成命名函数供基笔池复用(不含period cutoff: cutoff只用于弹窗当前周期显示, 池需全周期一致)
   // 2026-08-12 P2-2修复: 直接调共享谓词 _kellyPassesFadeFilters(消除逐条复制漂移, 补齐 v4 12 toggle 生效, 弹窗与卡片统计一致 §22)
+  // #xx(2026-08-22) bullAuxBackupStop G/H/I 豁免: 本弹窗 modeKey∈{G,H,I} 且新键开 → 谓词/基笔池/每日池计数全用
+  //   NoBull 变体(bullAuxBackupStop=false 其余同), 与卡片统计桶层豁免同口径(§22); A-F 短线模式不受影响。
   var _pcMonthMask = _kellyActiveMonthMask(_filters);
-  function _pcFadePasses(t) {
-    return _kellyPassesFadeFilters(t, _fIdx, _filters, _kellyTradeFeatureCache, _tradeDims2, _pcMonthMask);
+  var _bullOnM = !!_filters.bullAuxBackupStop && (modeKey === "G" || modeKey === "H" || modeKey === "I");
+  var _pcFadeFn;
+  if (_bullOnM) {
+    var _fNB2 = {};
+    for (var _fk2 in _filters) _fNB2[_fk2] = _filters[_fk2];
+    _fNB2.bullAuxBackupStop = false;
+    _pcFadeFn = (function (_fNB) {
+      return function (t) {
+        return _kellyPassesFadeFilters(t, _fIdx, _fNB, _kellyTradeFeatureCache, _tradeDims2, _pcMonthMask);
+      };
+    })(_fNB2);
+  } else {
+    _pcFadeFn = function (t) {
+      return _kellyPassesFadeFilters(t, _fIdx, _filters, _kellyTradeFeatureCache, _tradeDims2, _pcMonthMask);
+    };
   }
   // positionCap: 跨全部卖出模式×rating三分区收集基笔池(去重, 9模式共享同一批基笔, 模式之前统一生效)
   var _posCapKept = null;
   var _posDayCounts = null; // 每日资金池等分(2026-08-13恢复): 当日保留基笔数, 与卡片/评级同口径(§22跨展示位一致)
   if (_filters.positionCap && _filters.positionCapK > 0) {
-    var _basePool = _kellyCollectBasePool(td.quadrants, cfg.sell_modes || {}, _fIdx, _pcFadePasses);
+    var _basePool = _kellyCollectBasePool(td.quadrants, cfg.sell_modes || {}, _fIdx, _pcFadeFn);
     _posCapKept = _kellyPositionCapKeptKeys(_basePool, _fIdx, _filters.positionCapK);
     _posDayCounts = _kellyKeptDayCounts(_posCapKept);
   }
   let trades = rawTrades.filter(function (t) {
     if (cutoff && cutoff !== "0" && (t[_fIdx.buy_date] || "") < cutoff) return false;
-    if (!_pcFadePasses(t)) return false;
+    if (!_pcFadeFn(t)) return false;
     if (_posCapKept && !_posCapKept[_kellyBaseKey(t, _fIdx)]) return false;
     return true;
   });
 
   // 2026-08-12 需求B: 被降亏过滤/仓位控制淘汰的交易(显示+删除线灰化, 让用户看到"被淘汰了"而非只消失)
-  // 淘汰=未通过 _pcFadePasses(降亏toggle) 或 未被 positionCap 前K保留; 周期cutoff不算淘汰(原语义过滤)
+  // 淘汰=未通过 _pcFadeFn(降亏toggle) 或 未被 positionCap 前K保留; 周期cutoff不算淘汰(原语义过滤)
   let eliminated = rawTrades.filter(function (t) {
     if (cutoff && cutoff !== "0" && (t[_fIdx.buy_date] || "") < cutoff) return false;
-    return !_pcFadePasses(t) || (_posCapKept && !_posCapKept[_kellyBaseKey(t, _fIdx)]);
+    return !_pcFadeFn(t) || (_posCapKept && !_posCapKept[_kellyBaseKey(t, _fIdx)]);
   });
 
   // 始终重算(含默认档)以获取费率消耗: 重算 profit/return_pct/fee_cost
