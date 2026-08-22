@@ -213,3 +213,35 @@ config/site.yaml          ← 用户直接改的配置文件（单一事实源�
 2. **降亏 toggle（29 个策略开关）是否纳入站点配置化**（建议不并：属策略实验参数集，独立维护）
 3. **canvas 轻量首期覆盖范围**（建议只 A 类 4 处；分时图/行业网格二期评估）
 4. **需求2/3 数据源调研**是否随 P0/P1 并行派（建议并行，不阻塞 P1）
+
+## 8. 需求2 实施记录（2026-08-22 完成，feat/etf-score-hist）
+
+P2 需求2「ETF 评分弹窗 30 天外长历史」已实施上线（feat 分支，merge 由主控统一走 main-merge.sh）。数据源未走外部 API 调研路线，直接复用 DB `etf_daily` 表既有 21 年全史（docs/chart-p2p3-data-source-research.md P2 节结论：缺口仅导出产物）。
+
+### 改动清单
+| 层 | 文件 | 内容 |
+|---|---|---|
+| 数据层 | `scripts/export_etf_hist.py`（新） | 从 etf_daily 表生成 per-ETF 全史前复权日K → `static-site/data/etf/{code}-all.json`；复用 `_fetch_recent_ohlc` 单一事实源（accum_nav 前复权因子）；1532 只 87MB 全量 4.2s |
+| 上传通道 | `scripts/upload_r2.py` | 新 `upload-etf-hist` 命令（glob + purge_cache，照 upload-index 模式，R2 前缀 `etf/`） |
+| 定时链 | `scripts/deploy.sh` / `scripts/update_all.sh` | deploy 加 run_r2_upload；update_all 在 upload-etf-score 后加 export→rsync→upload 块 |
+| 完整性 | `scripts/check_data_integrity.py` | 新 `check_etf_hist`：目录存在+文件数+抽样 date/count/ohlc 结构 |
+| 前端 | `static-site/app.js` | ETF 弹窗加 period tab（30日默认/3m~5y/all），30d 读 overview e.ohlc 零请求零行为变化；长周期懒加载 R2 `etf/{code}-all.json` + 内存缓存；`_signalModalCutoff` 复用过滤；轻量 SVG（>300点省略逐点圆）与 echarts 双路径均支持 |
+
+### 自验结果（全部通过）
+- 默认 30 日图与改前逐项一致（SVG/circle 数/标题/tab 态，Playwright 断言）
+- 各长周期 tab：拉取正确文件+渲染+条数合理（3m=66 交易日、5y=1211、all=上市至今全量）
+- lightweight 两态都验（SVG 与 echarts 渲染条数一致）
+- 大数据量：510050 全史 5226 点 fetch+渲染约 1s，SVG 仅 68 节点，缓存切回重渲 434ms
+- DB 抽查逐位核对 3 只（count/首末日日期/close）：510050（5226,20050223→20260821）/510300（3461）/159915（3569）
+- R2 线上确认：https://ss.fx8.store/r2/etf/510050-all.json 200
+
+### 复现
+```bash
+# 生成全量产物（REPO 指 trade-data 读实时库）
+cd /Users/linhuichen/code/trade-data && python scripts/export_etf_hist.py
+# 上传 R2
+python scripts/upload_r2.py upload-etf-hist
+# 完整性校验
+python scripts/check_data_integrity.py --data-dir static-site/data
+```
+输入依赖：`$REPO/data/etf_national_team.db` etf_daily 表。数据截止 20260821。

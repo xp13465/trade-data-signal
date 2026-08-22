@@ -149,6 +149,15 @@ rsync -a --checksum "$REPO/static-site/data/etf_score_list_"* "/Users/linhuichen
 "$PY" "$REPO/scripts/upload_r2.py" upload-etf-score >> "$LOG" 2>&1 || \
   echo "⚠ upload-etf-score R2上传失败（不阻塞主流程）" | tee -a "$LOG"
 
+# #10 ETF弹窗长历史(2026-08-22): ETF 全史日K etf/{code}-all.json (1532只~87MB, ~5s)
+# 前端 period tab 懒加载 R2 etf/ 前缀; 跟随 etf_score_list 每日重算后同步导出, 失败不阻塞
+echo "-> ETF全史日K（export_etf_hist, 弹窗长历史数据源）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/export_etf_hist.py" >> "$LOG" 2>&1 || \
+  echo "⚠ export_etf_hist 失败（不阻塞主流程）" | tee -a "$LOG"
+rsync -a --delete --checksum "$REPO/static-site/data/etf/" "/Users/linhuichen/code/trade/static-site/data/etf/" 2>/dev/null || true
+"$PY" "$REPO/scripts/upload_r2.py" upload-etf-hist >> "$LOG" 2>&1 || \
+  echo "⚠ upload-etf-hist R2上传失败（不阻塞主流程）" | tee -a "$LOG"
+
 # P2-新-W 浏览器通知源 JSON（根因①修复：收盘全量后导出 notifications.json，覆盖 post_close 场景）
 # 读 DB 当日信号/预警/恐贪/异动 + post_close=True 标志（18:00 后），前端弹"收盘速递"通知。
 # 失败不阻塞；口径同 export_alert（本地更新，下次 pipeline deploy 推上线）。

@@ -730,6 +730,42 @@ def _latest_published_quarter_end(today: datetime) -> datetime | None:
     return None
 
 
+def check_etf_hist(data_dir: Path) -> CheckResult:
+    """校验 etf/ 全史日K产物目录（#10，export_etf_hist.py 生成）。
+
+    事故场景：etf/ 目录丢失或文件为空 -> 前端 ETF 评分弹窗长周期 tab（3m~全部）
+    fetchJSON 404 -> 走势区空白。默认 30 日不受影响（读 overview e.ohlc）。
+    校验：目录存在 + 文件数>0 + 抽样 date/count/ohlc 结构非空。
+    """
+    import random
+
+    name = "etf_hist"
+    etf_dir = data_dir / "etf"
+    if not etf_dir.is_dir():
+        return _warn(name, f"etf/ 目录不存在: {etf_dir}（长周期 tab 将空白，"
+                     f"跑 export_etf_hist.py 生成；默认30日不受影响）")
+
+    files = sorted(etf_dir.glob("*.json"))
+    if not files:
+        return _warn(name, f"etf/ 目录无 JSON 文件: {etf_dir}")
+
+    # 抽样最多 5 只验结构（date 非空 / count>0 / ohlc 数组非空）
+    sample = random.sample(files, min(5, len(files)))
+    bad = []
+    for f in sample:
+        d, err = _load_json(f)
+        if err:
+            bad.append(f"{f.name}: {err}")
+            continue
+        if not d.get("date") or not d.get("count") or not d.get("ohlc"):
+            bad.append(f"{f.name}: date/count/ohlc 有空值")
+        elif len(d["ohlc"]) != d["count"]:
+            bad.append(f"{f.name}: count={d['count']} != len(ohlc)={len(d['ohlc'])}")
+    if bad:
+        return _fail(name, "; ".join(bad))
+    return _ok(name, f"{len(files)} 只 ETF 全史日K，抽样 {len(sample)} 只结构正常")
+
+
 def check_a_fund_north_quarterly() -> CheckResult:
     """校验主库 daily_metric 的 a_fund_north_quarterly 最新季度行存在。
 
@@ -972,6 +1008,8 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     results.append(check_signal_kelly_backtest(data_dir))
     results.append(check_trade_sim_indices(data_dir))
     results.append(check_etf_since_return(data_dir))
+    # #10 ETF 全史日K产物目录（export_etf_hist.py -> R2 etf/ 前缀）
+    results.append(check_etf_hist(data_dir))
     # #29 track_score 跨产物一致性（2026-08-22 起两路全量对比，替代旧 5 样本三版本抽样）
     results.append(check_track_score_map_vs_index(data_dir, repo_data_dir))
     results.append(check_track_score_overview_vs_map(data_dir, repo_data_dir))

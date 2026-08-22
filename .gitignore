@@ -108,6 +108,9 @@ static-site/data/index/
 static-site/data/industry-*-indices/
 static-site/trade_sim_*.html
 static-site/data/trade_sim/
+# ETF 全史日K(#10 2026-08-22):etf/{code}-all.json 1532 只 ~87MB, R2 etf/ 前缀托管
+# (upload-etf-hist, 同 index/ 模式本地 untracked 不进 git), 生成 scripts/export_etf_hist.py
+static-site/data/etf/
 
 # R2 阶段4 顶层大 JSON 瘦身（2026-07-24）：industry 顶层大文件前端已从 R2 industry/ 读
 # （app.js _loadIndustryData L8249/8251 走 https://ssd.fx8.store/industry/），git 带是冗余。

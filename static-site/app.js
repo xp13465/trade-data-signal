@@ -21815,9 +21815,14 @@ function _etfTrendSVG(ohlc, w) {
     s += '<path d="' + _d + '" fill="none" stroke="' + _stroke + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>';
   }
   // 每点 r2 小圆(echarts symbolSize 4 = 半径 2; null 点不画) + hover 十字线/高亮点
-  for (let i = 0; i < _n; i++) {
-    if (_vals[i] == null || isNaN(_vals[i])) continue;
-    s += '<circle cx="' + _px(i).toFixed(1) + '" cy="' + _py(_vals[i]).toFixed(1) + '" r="2" fill="' + _stroke + '"/>';
+  // #10 ETF弹窗长历史(2026-08-22): 点数>300 时省略逐点圆(全史 21 年 ~5200 点 SVG DOM 数千
+  // circle 卡顿; 折线/面积/十字线/hover 高亮全保留, 视觉密度由折线本身承担, 同 echarts 大数据量
+  // 自动隐藏 symbol 的行为)。30日默认(30点)<=300 不受影响, §23.7 默认行为零变化。
+  if (_n <= 300) {
+    for (let i = 0; i < _n; i++) {
+      if (_vals[i] == null || isNaN(_vals[i])) continue;
+      s += '<circle cx="' + _px(i).toFixed(1) + '" cy="' + _py(_vals[i]).toFixed(1) + '" r="2" fill="' + _stroke + '"/>';
+    }
   }
   s += '<line class="etf-trend-cursor" x1="0" y1="' + PT + '" x2="0" y2="' + _baseY + '" stroke="var(--border-strong)" stroke-width="1" opacity="0"/>';
   s += '<circle class="etf-trend-hover-pt" r="4" fill="' + _stroke + '" opacity="0"/>';
@@ -22095,6 +22100,132 @@ function _renderEtfPager(scope, page, pages, total) {
 // 不放入全局 charts 数组（弹窗 open/close 生命周期与 charts 的 tab 切换 dispose 不同步，避免数组堆积死实例），
 // window resize / H5 切换时单独 resize 它。
 let _etfTrendChart = null;
+
+// ============ #10 ETF弹窗长历史(2026-08-22): period tab + 懒加载 R2 etf/{code}-all.json ============
+// 数据产物: scripts/export_etf_hist.py -> static-site/data/etf/{code}-all.json (全史前复权日K,
+//   R2 etf/ 前缀, 同 index/{iid}-all.json 模式)。结构 {date, code, name, count, adj, ohlc}。
+// UI/交互 pattern 复用 openSignalChartModal(_signalChartModalEl): .signal-chart-periods +
+//   .lab-signal-period-btn + modal._ctx 重入。默认 "30d"=e.ohlc 内置近30日零 fetch(默认行为零变化,
+//   §23.7); 其余周期客户端按 _signalModalCutoff 过滤(基于数据末日回推, 与信号弹窗同口径)。
+// 缓存: 模块级 per-code 全量 payload(均 ~58KB), 弹窗关开/切周期不重复拉取。
+const _etfHistCache = {};
+// [period, tab 文案, 区块标题] — 顺序即 tab 排列(30d 在前为默认, 其余对齐信号弹窗 6 键)
+const _ETF_TREND_PERIODS = [
+  ["30d", "30日", "近30日走势"],
+  ["3m", "3月", "近3月走势"],
+  ["6m", "6月", "近6月走势"],
+  ["1y", "1年", "近1年走势"],
+  ["3y", "3年", "近3年走势"],
+  ["5y", "5年", "近5年走势"],
+  ["all", "全部", "全部历史走势"],
+];
+
+async function _renderEtfTrendSection(modal, code, period) {
+  const body = modal && modal.querySelector(".etf-detail-content");
+  const sec = body && body.querySelector("#etfTrendSection");
+  if (!sec || !code) return;
+  const e = (_etfScoreState.all || []).find((x) => x.etf_code === code);
+  if (!e) return;
+  const meta = _ETF_TREND_PERIODS.find((p) => p[0] === period) || _ETF_TREND_PERIODS[0];
+  // 竞态防护: 快速切 tab 时旧 fetch 回来不得覆盖新周期渲染(弹窗级序号, 渲染前校验)
+  const reqId = (modal._ctx.trendReqId = (modal._ctx.trendReqId || 0) + 1);
+
+  let ohlc = null;
+  let histName = e.name || code;
+  if (period === "30d") {
+    ohlc = e.ohlc || [];
+  } else {
+    let hist = _etfHistCache[code];
+    if (!hist) {
+      sec.innerHTML = '<div class="lab-custom-loading">⏳ 长历史加载中…</div>';
+      try {
+        // 硬编码 R2 直链(同 openSignalChartModal 常规指数分支 L7434 模式; /r2/ 代理路由)
+        hist = await fetchJSON(`https://ss.fx8.store/r2/etf/${code}-all.json`);
+        _etfHistCache[code] = hist;
+      } catch (_err) {
+        if (modal._ctx.trendReqId !== reqId) return; // 已有更新请求,丢弃过期失败
+        sec.innerHTML = '<div class="etf-trend-hist-err" style="padding:14px;font-size:13px;color:var(--text-3);background:var(--bg-2,rgba(128,128,128,0.08));border-radius:8px">⚠ 长历史数据加载失败，请稍后重试（默认 30 日走势不受影响）</div>';
+        return;
+      }
+    }
+    if (hist && hist.name) histName = hist.name;
+    ohlc = (hist && hist.ohlc) || [];
+    // 客户端 period 过滤(复用 _signalModalCutoff: 输入需 {date} 对象数组, 传末元素包装;
+    // all 返回 null 不过滤)。date 为 YYYYMMDD 字符串直接字典序比较。
+    if (ohlc.length >= 2) {
+      const filterDate = _signalModalCutoff([{ date: ohlc[ohlc.length - 1][0] }], period);
+      if (filterDate) ohlc = ohlc.filter((r) => r[0] >= filterDate);
+    }
+  }
+
+  if (modal._ctx.trendReqId !== reqId) return; // 过期响应丢弃
+
+  // 重渲染前 dispose 旧走势实例(切周期 innerHTML 重写防泄漏; 关闭弹窗由 closeEtfScoreDetailModal 兜底)
+  _disposeContainerCharts(sec);
+  _etfTrendChart = null;
+
+  if (!ohlc || ohlc.length < 2) {
+    sec.innerHTML = '<div class="lab-custom-score-card lab-custom-block-gap"><div class="lab-custom-section-title">📈 ' + meta[2] + '</div><div style="padding:14px;font-size:13px;color:var(--text-3)">该周期暂无足够数据（上市时间可能不足）</div></div>';
+    return;
+  }
+
+  const _liteTrend = !!siteCfg("charts.lightweight", true);
+  sec.innerHTML = '<div class="lab-custom-score-card lab-custom-block-gap"><div class="lab-custom-section-title">📈 ' + meta[2]
+    + (period !== "30d" ? ' <span style="font-weight:400;font-size:11px;color:var(--text-3)" title="数据源: etf_daily 表全史前复权日K(accum_nav 因子)">' + _esc(histName) + ' · ' + ohlc.length + ' 个交易日</span>' : '')
+    + '</div>'
+    + (_liteTrend
+        ? _etfTrendLiteHTML(ohlc)
+        : '<div id="etfTrendChart" style="height:200px"></div>')
+    + '</div>';
+
+  // 轻量 SVG 版补逐点 hover(2026-08-11, 零 echarts 依赖): 十字线 + 点高亮 + 浮层 tooltip
+  const _liteSvg = sec.querySelector(".etf-trend-lite");
+  if (_liteSvg) _etfTrendLiteBind(_liteSvg, ohlc);
+  // echarts 完整版(body.innerHTML 设置后容器存在才 init；轻量 SVG 版无 #etfTrendChart 容器自然跳过)
+  const _trendEl = sec.querySelector("#etfTrendChart");
+  if (_trendEl && typeof echarts !== "undefined") {
+    const _dates = ohlc.map((d) => d[0]);
+    const _closes = ohlc.map((d) => d[4]);
+    // 末点可能为 null, 涨跌色基准=最后一个有效值(与轻量 SVG 版 _lastV 同口径, P2-3)
+    let _lastC = null;
+    for (let i = _closes.length - 1; i >= 0; i--) { const v = _closes[i]; if (v != null && !isNaN(v)) { _lastC = v; break; } }
+    const _isUp = _lastC != null && _lastC >= _closes[0];
+    const _trendColor = _isUp ? "#e6492e" : "#2e8b57";
+    try {
+      _etfTrendChart = echarts.init(_trendEl);
+      // 视觉对等(方案B, 2026-08-11): setOption 包 withTheme() 让 echarts 版随皮肤——轴线/网格/坐标字
+      // /tooltip 读 --text-1/--border-strong/--border/--bg-card(chartThemeOpts), 与轻量 SVG 版引用
+      // 同一批 CSS 变量同源配色, 任何皮肤下两版逐项一致。入全局 charts 注册表 -> 切皮肤 rethemeCharts
+      // 也覆盖(与 SVG 的 var() 自动跟随一致); 弹窗关闭/切周期 _disposeContainerCharts 自动 dispose+splice 无泄漏。
+      if (charts.indexOf(_etfTrendChart) < 0) charts.push(_etfTrendChart);
+      _etfTrendChart.setOption(withTheme({
+        tooltip: {
+          trigger: "axis",
+          formatter: (p) => {
+            const dt = p[0] && p[0].axisValue;
+            const v = p[0] && p[0].data;
+            return fmtDate(dt) + "<br/>收盘 " + (v != null ? v.toFixed(3) : "-");
+          },
+        },
+        grid: { left: 50, right: 15, top: 15, bottom: 25 },
+        // 十字线实线随皮肤轴线色(与 SVG hover 十字线 var(--border-strong) 同源)
+        axisPointer: { type: "line", lineStyle: { color: cssVar("--border-strong") } },
+        xAxis: { type: "category", data: _dates, axisLabel: { fontSize: 10, formatter: (v) => fmtDate(v) } },
+        yAxis: { type: "value", scale: true, axisLabel: { fontSize: 10 } },
+        series: [{
+          type: "line", smooth: true, symbol: "circle", symbolSize: 4,
+          data: _closes,
+          lineStyle: { color: _trendColor, width: 1.5 },
+          itemStyle: { color: _trendColor },
+          areaStyle: { color: _isUp ? "rgba(230,73,46,0.12)" : "rgba(46,139,87,0.12)" },
+        }],
+      }));
+      // 弹窗 resize 时同步（modal 已 display，requestAnimationFrame 确保 DOM 布局完成）
+      requestAnimationFrame(() => _etfTrendChart && _etfTrendChart.resize());
+    } catch (_e) { /* echarts init 失败不阻塞弹窗其余区块 */ }
+  }
+}
+
 function openEtfScoreDetailModal(code) {
   // 从 _etfScoreState.all 查 item(已合并 buy/sell/hold, 含新字段)
   const e = (_etfScoreState.all || []).find((x) => x.etf_code === code);
@@ -22108,10 +22239,21 @@ function openEtfScoreDetailModal(code) {
       <div class="rule-modal-body signal-chart-modal-body">
         <div class="rule-modal-header">
           <h3 class="etf-detail-title">🔬 ETF 决策依据</h3>
+          <div class="signal-chart-periods"><button class="lab-signal-period-btn active" data-period="30d">30日</button><button class="lab-signal-period-btn" data-period="3m">3月</button><button class="lab-signal-period-btn" data-period="6m">6月</button><button class="lab-signal-period-btn" data-period="1y">1年</button><button class="lab-signal-period-btn" data-period="3y">3年</button><button class="lab-signal-period-btn" data-period="5y">5年</button><button class="lab-signal-period-btn" data-period="all">全部</button></div>
           <button class="rule-modal-close" aria-label="关闭">&times;</button>
         </div>
         <div class="rule-modal-content etf-detail-content"></div>
       </div>`;
+    // #10 ETF弹窗长历史(2026-08-22): period tab 切换(UI/交互 pattern 复用 openSignalChartModal
+    // _signalChartModalEl L7310: .signal-chart-periods + .lab-signal-period-btn + modal._ctx 重入)。
+    // 30d=默认(e.ohlc 内置近30日, 零 fetch 默认行为零变化); 其余周期懒加载 R2 etf/{code}-all.json。
+    modal.querySelectorAll(".lab-signal-period-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        modal.querySelectorAll(".lab-signal-period-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        _renderEtfTrendSection(modal, modal._ctx && modal._ctx.code, btn.dataset.period);
+      });
+    });
     document.body.appendChild(modal);
     modal.querySelector(".rule-modal-overlay").onclick = closeEtfScoreDetailModal;
     modal.querySelector(".rule-modal-close").onclick = closeEtfScoreDetailModal;
@@ -22120,6 +22262,9 @@ function openEtfScoreDetailModal(code) {
     });
   }
   modal.querySelector(".etf-detail-title").textContent = "🔬 " + (e.name || code) + " 决策依据";
+  // #10: period tab 上下文(切换事件读 code 重渲染走势区块); 每次打开重置 tab 到默认 30日
+  modal._ctx = { code };
+  modal.querySelectorAll(".lab-signal-period-btn").forEach((b) => b.classList.toggle("active", b.dataset.period === "30d"));
   const body = modal.querySelector(".etf-detail-content");
   // 重开弹窗前 dispose 旧走势图实例：body 内旧 #etfTrendChart DOM 还在，_disposeContainerCharts 通过
   // [_echarts_instance_] 属性捕获并 dispose（代码库既定模式，同 openIndexAnalyzeModal/_disposeContainerCharts）。
@@ -22254,63 +22399,14 @@ function openEtfScoreDetailModal(code) {
   // 放 headHTML 后（决策头后先看走势再看手数/卖出/置信度），echarts line+areaStyle，涨红跌绿跟主题。
   // 站点统一配置框架(P0, 2026-08-11): charts.lightweight=true(默认) 走轻量 SVG 渲染(_etfTrendLiteHTML),
   //   false 回 echarts 完整版(带 hover tooltip)。用户可在皮肤弹窗 ⚡ 走势图渲染 切换/localStorage 覆盖。
-  const _liteTrend = !!siteCfg("charts.lightweight", true);
-  const trendHTML = (e.ohlc && e.ohlc.length >= 2)
-    ? (_liteTrend
-        ? `<div class="lab-custom-score-card lab-custom-block-gap"><div class="lab-custom-section-title">📈 近30日走势</div>${_etfTrendLiteHTML(e.ohlc)}</div>`
-        : `<div class="lab-custom-score-card lab-custom-block-gap"><div class="lab-custom-section-title">📈 近30日走势</div><div id="etfTrendChart" style="height:200px"></div></div>`)
-    : "";
+  // #10 长历史(2026-08-22): 区块改为容器占位 + _renderEtfTrendSection 异步渲染(period tab 切换共用),
+  //   默认 period="30d" 仍用 e.ohlc 内置数据零 fetch, 默认行为零变化(§23.7)。
+  const trendHTML = '<div id="etfTrendSection"></div>';
 
   body.innerHTML = headHTML + trendHTML + actionHTML + confHTML + dimsHTML + histHTML + threshHTML + footerHTML;
 
-  // 需求1：echarts init 近30日走势（body.innerHTML 设置后容器存在才 init；轻量 SVG 版无 #etfTrendChart 容器自然跳过）
-  if (trendHTML) {
-    // 轻量 SVG 版补逐点 hover(2026-08-11, 零 echarts 依赖): 十字线 + 点高亮 + 浮层 tooltip
-    const _liteSvg = body.querySelector(".etf-trend-lite");
-    if (_liteSvg && e.ohlc) _etfTrendLiteBind(_liteSvg, e.ohlc);
-    const _trendEl = body.querySelector("#etfTrendChart");
-    if (_trendEl && typeof echarts !== "undefined") {
-      const _dates = e.ohlc.map((d) => d[0]);
-      const _closes = e.ohlc.map((d) => d[4]);
-      // 末点可能为 null, 涨跌色基准=最后一个有效值(与轻量 SVG 版 _lastV 同口径, P2-3)
-      let _lastC = null;
-      for (let i = _closes.length - 1; i >= 0; i--) { const v = _closes[i]; if (v != null && !isNaN(v)) { _lastC = v; break; } }
-      const _isUp = _lastC != null && _lastC >= _closes[0];
-      const _trendColor = _isUp ? "#e6492e" : "#2e8b57";
-      try {
-        _etfTrendChart = echarts.init(_trendEl);
-        // 视觉对等(方案B, 2026-08-11): setOption 包 withTheme() 让 echarts 版随皮肤——轴线/网格/坐标字
-        // /tooltip 读 --text-1/--border-strong/--border/--bg-card(chartThemeOpts), 与轻量 SVG 版引用
-        // 同一批 CSS 变量同源配色, 任何皮肤下两版逐项一致。入全局 charts 注册表 -> 切皮肤 rethemeCharts
-        // 也覆盖(与 SVG 的 var() 自动跟随一致); 弹窗关闭 _disposeContainerCharts 自动 dispose+splice 无泄漏。
-        if (charts.indexOf(_etfTrendChart) < 0) charts.push(_etfTrendChart);
-        _etfTrendChart.setOption(withTheme({
-          tooltip: {
-            trigger: "axis",
-            formatter: (p) => {
-              const dt = p[0] && p[0].axisValue;
-              const v = p[0] && p[0].data;
-              return fmtDate(dt) + "<br/>收盘 " + (v != null ? v.toFixed(3) : "-");
-            },
-          },
-          grid: { left: 50, right: 15, top: 15, bottom: 25 },
-          // 十字线实线随皮肤轴线色(与 SVG hover 十字线 var(--border-strong) 同源)
-          axisPointer: { type: "line", lineStyle: { color: cssVar("--border-strong") } },
-          xAxis: { type: "category", data: _dates, axisLabel: { fontSize: 10, formatter: (v) => fmtDate(v) } },
-          yAxis: { type: "value", scale: true, axisLabel: { fontSize: 10 } },
-          series: [{
-            type: "line", smooth: true, symbol: "circle", symbolSize: 4,
-            data: _closes,
-            lineStyle: { color: _trendColor, width: 1.5 },
-            itemStyle: { color: _trendColor },
-            areaStyle: { color: _isUp ? "rgba(230,73,46,0.12)" : "rgba(46,139,87,0.12)" },
-          }],
-        }));
-        // 弹窗 resize 时同步（modal 已 display，requestAnimationFrame 确保 DOM 布局完成）
-        requestAnimationFrame(() => _etfTrendChart && _etfTrendChart.resize());
-      } catch (_e) { /* echarts init 失败不阻塞弹窗其余区块 */ }
-    }
-  }
+  // 需求1 + #10: 走势区块异步渲染(30d 默认 / 长周期懒加载 R2 etf/{code}-all.json)
+  _renderEtfTrendSection(modal, code, "30d");
 
   // 折叠阈值表交互(同 openIndexAnalyzeModal)
   const toggle = body.querySelector(".lab-custom-thresh-toggle");

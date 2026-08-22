@@ -537,6 +537,27 @@ def cmd_upload_index():
     purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
+def cmd_upload_etf_hist():
+    """上传 static-site/data/etf/*.json 到 R2 etf/ 前缀(#10 ETF 弹窗长历史, 2026-08-22)。
+
+    R2 key = etf/{code}-all.json(1532 只全史日K, scripts/export_etf_hist.py 生成)。
+    前端 ETF 评分弹窗 period tab 懒加载 fetchJSON -> https://ss.fx8.store/r2/etf/{code}-all.json
+    (同 cmd_upload_index 模式:硬编码 R2 URL + /r2/ 代理路由)。
+    §8.1 按前缀建独立命令; etf/ 子目录不被 upload-data-large/upload-all-data 的非递归
+    *.json glob 覆盖, 无双副本风险。update_all.sh / deploy.sh 已接入本命令。
+    """
+    etf_dir = STATIC_DIR / "data/etf"
+    ok, total, failed_rels, uploaded_keys = _upload_glob(etf_dir, ["*.json"], "etf")
+    if total == 0:
+        sys.exit(f"无 etf json: {etf_dir} (先跑 scripts/export_etf_hist.py 生成)")
+    if ok != total:
+        print(f"FAILED_FILES: {', '.join(failed_rels)}")
+        sys.exit(1)
+    # 清 CF 边缘缓存(同 cmd_upload_index 模式):cache_prefix="/r2/" ->
+    # "/r2/etf/{code}-all.json" 匹配 r2ProxyHandler cacheKey。
+    purge_cache(uploaded_keys, cache_prefix="/r2/")
+
+
 def cmd_upload_industry():
     """上传 static-site/data/industry-* 到 R2 industry/ 前缀（保留原相对路径）。
 
@@ -1271,6 +1292,9 @@ if __name__ == "__main__":
         cmd_upload_trade_sim_json()
     elif cmd == "upload-index":
         cmd_upload_index()
+    elif cmd == "upload-etf-hist":
+        # upload-etf-hist  ETF 全史日K etf/{code}-all.json -> R2 etf/ 前缀(#10, 2026-08-22)
+        cmd_upload_etf_hist()
     elif cmd == "upload-industry":
         cmd_upload_industry()
     elif cmd == "upload-public-fund":

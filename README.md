@@ -85,7 +85,7 @@
 
 - 🔹 **买卖点信号** — 主买/辅买/卖点信号，每个附回测胜率+凯利仓位；A股指数信号收盘即固化、不再消失（详见 [`docs/signal-finalize-time.md`](docs/signal-finalize-time.md)）
 - 🔹 **回测买入价口径（v1.1.4 起默认=信号次日开盘）** — 凯利回测默认买入价由「信号日收盘等价 accum_nav」切换为「信号次日开盘价」（信号收盘后固化、次日开盘才能真实成交，按 gap 比例换算到 accum_nav 口径，正确处理分红/份额折算）；量化证明切换成本极小（净利仅微降 0.01%~0.57%、收益率基本不变、相对结论原样成立），详见 [`docs/kelly/position/kelly-nextday-open-backtest.md`](docs/kelly/position/kelly-nextday-open-backtest.md)
-- 🔹 **ETF 评分弹窗** — 一个弹窗给全决策（手数/置信度/8 维评分/历史类比/仓位红线），指数↔ETF 全匹配（数据层详见 [`docs/data-dictionary.md`](docs/data-dictionary.md)）
+- 🔹 **ETF 评分弹窗** — 一个弹窗给全决策（手数/置信度/8 维评分/历史类比/仓位红线），指数↔ETF 全匹配；走势区支持周期切换（30日默认 / 3月~5年 / 全部历史），长周期懒加载 R2 `etf/{code}-all.json` 全史前复权日K（`etf_daily` 表，2005 年起 21 年、1500+ 只 ETF，与指数全史同模式托管）（数据层详见 [`docs/data-dictionary.md`](docs/data-dictionary.md)）
 - 🔹 **信号灯 + 降亏过滤 + AI 仓位** — AI 一键降亏，把数据挖掘发现的「系统性亏损特征」自动剔除；再按每日资金池 + top-K 给「AI 建议」与凯利仓位，过滤后只剩可操作信号（详见 [`docs/kelly/`](docs/kelly/) 分析与报告、[`docs/kelly/position/kelly-position-cap-k-sensitivity.md`](docs/kelly/position/kelly-position-cap-k-sensitivity.md)）
 - 🔹 **首页模拟回测弹窗** — AI 仓位建议行「参考说明」旁的「模拟回测」按钮一键打开：用 2011-2026 全历史真实信号交易记录（R2 `signal_kelly_trades.json`），按时间范围 / AI 降亏过滤 / K 档 / 交易模式 / 费率 5 组条件实时过滤，13 列明细表逐笔算费后盈亏与累积收益，与凯利回测页同源口径、纯展示不与实盘关联。累积收益率=累计盈亏金额÷(窗口内峰值同时持仓笔数×¥10000)真实资金占用口径（非每笔收益率简单相加）；手续费列恒为支出扣费语义（负数+绿色）
 - 🔹 **每日 AI 速递** — 收盘一份白话解读直发邮箱：多角色辩论 + 方向/区间三层命中回填 + 自成长反思校准 + 新闻面 + 语音播报 + 把握度，每天知道自己的判断准不准（详见 [`docs/daily-brief-research.md`](docs/daily-brief-research.md)、[`docs/ai-predict-self-growth.md`](docs/ai-predict-self-growth.md)、[`docs/ai-predict-inject-research.md`](docs/ai-predict-inject-research.md)）
