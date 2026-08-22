@@ -33,6 +33,43 @@ ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(os.environ.get("REPO", str(ROOT))) / "static-site"
 
 
+# ---- REPO 缺省分级闸 (2026-08-22, #75) ----
+# 捕获须在 load_env() 之前(下方 L146),防 .env setdefault 污染判定(加注释钉死顺序)。
+_RAW_REPO = os.environ.get("REPO")            # 原始 env,捕获时机早于 load_env
+REPO_EXPLICIT = bool(_RAW_REPO)
+
+# A 类与 REPO 无关(读显式路径或私有桶固定 key)→ 放行
+_A_CLASS = {"list", "upload", "upload-claude-backup", "download-db", "delete", "clean-data-backup"}
+# B 类 design 合法回退:生成器按 __file__ 写 trade 树,trade-data 侧天然缺/滞后(update_lab.sh rsync 补偿)→ 白名单放行
+_TRADE_FALLBACK_OK = {"upload-lab", "upload-trade-sim", "upload-trade-sim-json"}
+
+
+def guard_repo_default(cmd: str) -> None:
+    """REPO 缺省(手动裸跑)分级闸;dispatch 层 cmd 解析后立即调用(见 docs/r2-upload-repo-guard-plan-20260822.md)。
+
+    显式态(launchd/force_env/export.py 注入 REPO)零行为变化,信任调用方;
+    只拦真正危险的「缺省 + 非白名单」组合,防旧数据盖线上。
+    未列入 A/B 白名单的其余命令(含 upload-kelly-parts / C 类 11 个数据上传命令)一律 exit 3 拒绝。
+    """
+    if REPO_EXPLICIT:
+        return                                  # 显式态:launchd/force_env/export.py,信任调用方
+    if cmd in _A_CLASS:
+        return
+    if cmd in _TRADE_FALLBACK_OK:
+        print(f"ℹ REPO 未设,{cmd} 按 design 回退 trade 树产物", file=sys.stderr)
+        return
+    if cmd == "purge-low-freq":
+        print("⚠ REPO 未设:purge 集合按 trade 侧扫描,可能与 trade-data 有差异", file=sys.stderr)
+        return
+    print(
+        f"✗ REPO 未设:STATIC_DIR 将回退 {ROOT}/static-site(trade 旧库快照),\n"
+        f"  拒绝上传 {cmd}(防旧数据盖线上,2026-08-19 intraday 事故同类)\n"
+        f"  正确跑法:REPO=/Users/linhuichen/code/trade-data python scripts/upload_r2.py {cmd}",
+        file=sys.stderr,
+    )
+    sys.exit(3)
+
+
 # ---- 防「盘中手动 upload 未带 REPO → 读 trade 侧旧库整体覆盖 R2」哨兵 (2026-08-19) ----
 # 事故:agent 手动跑 `upload_r2.py upload-intraday` 未带 REPO= env,STATIC_DIR 缺省回退到
 # ROOT=trade/static-site,抓走 trade 侧 8-18 旧库整体覆盖 R2,线上退回旧数据。
@@ -1219,6 +1256,7 @@ def cmd_download_latest_db(name, out_dir=None):
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    guard_repo_default(cmd)                     # #75 分级闸:REPO 缺省且非白名单命令 → exit 3
     if cmd == "list":
         prefix = sys.argv[2] if len(sys.argv) > 2 else ""
         cmd_list(prefix)

@@ -23,6 +23,7 @@ export EXPORT_SKIP_R2=1
 
 REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"   # git 始终在 trade 仓库(trade-data 不 git init,采集后 rsync 到 trade 上线)
+export REPO GIT_REPO   # #75 显式导出,确保 upload_r2.py 子进程继承 REPO(防缺省回退读 trade 旧库)
 PY="$REPO/.venv/bin/python"
 EXPORT="$REPO/static-site/export.py"
 LOGDIR="$REPO/data/logs"
