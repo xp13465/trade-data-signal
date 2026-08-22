@@ -1,0 +1,590 @@
+{
+ "generated_at": "2026-08-22T21:57:56.833864",
+ "block_by_key": {
+  "键9 牛主升辅备": 139
+ },
+ "filled_rows": [
+  {
+   "sd": "20150630",
+   "sig": "buy",
+   "index_id": "sw_801150",
+   "rating": "low",
+   "ts": 66.4,
+   "month": "06",
+   "dom": "industry",
+   "pnl": -848.8870758858884,
+   "nearest_miss": "键5 greedy15·缺[vlow价]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20161108",
+   "sig": "buy_special",
+   "index_id": "sz_div",
+   "rating": "low",
+   "ts": 67.4,
+   "month": "11",
+   "dom": "A股",
+   "pnl": 318.368808838266,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20161110",
+   "sig": "buy_aux",
+   "index_id": "hscei",
+   "rating": "low",
+   "ts": 65.1,
+   "month": "11",
+   "dom": "hk",
+   "pnl": 351.9331716546767,
+   "nearest_miss": "键1 aux跨月·缺[月∈{3,5}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20170413",
+   "sig": "buy_special",
+   "index_id": "csi_000827",
+   "rating": "mid",
+   "ts": 65.2,
+   "month": "04",
+   "dom": "concept",
+   "pnl": -429.32873764633405,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20170719",
+   "sig": "buy",
+   "index_id": "sw_801150",
+   "rating": "low",
+   "ts": 66.4,
+   "month": "07",
+   "dom": "industry",
+   "pnl": -82.77712078960212,
+   "nearest_miss": "键4 五月强化·缺[月=3]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20170814",
+   "sig": "buy_aux",
+   "index_id": "hscei",
+   "rating": "low",
+   "ts": 65.1,
+   "month": "08",
+   "dom": "hk",
+   "pnl": 422.6212681280376,
+   "nearest_miss": "键1 aux跨月·缺[月∈{3,5}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20171101",
+   "sig": "buy_special",
+   "index_id": "sz_div",
+   "rating": "low",
+   "ts": 67.4,
+   "month": "11",
+   "dom": "A股",
+   "pnl": 428.79907386378363,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20180212",
+   "sig": "buy",
+   "index_id": "sz_div",
+   "rating": "low",
+   "ts": 67.4,
+   "month": "02",
+   "dom": "A股",
+   "pnl": -48.550485278967244,
+   "nearest_miss": "键5 greedy15·缺[月=1]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20200108",
+   "sig": "buy_special",
+   "index_id": "sz_div",
+   "rating": "low",
+   "ts": 67.4,
+   "month": "01",
+   "dom": "A股",
+   "pnl": -302.9525593992839,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20200211",
+   "sig": "buy",
+   "index_id": "csi_399986",
+   "rating": "mid",
+   "ts": 59.8,
+   "month": "02",
+   "dom": "concept",
+   "pnl": -33.0233564192622,
+   "nearest_miss": "键4 五月强化·缺[月=5]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20200911",
+   "sig": "buy",
+   "index_id": "sw_801770",
+   "rating": "low",
+   "ts": 53.8,
+   "month": "09",
+   "dom": "industry",
+   "pnl": -340.24275336856044,
+   "nearest_miss": "键5 greedy15·缺[月=1]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20201214",
+   "sig": "buy",
+   "index_id": "sw_801770",
+   "rating": "low",
+   "ts": 53.8,
+   "month": "12",
+   "dom": "industry",
+   "pnl": -660.6275553426349,
+   "nearest_miss": "键5 greedy15·缺[月=1]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20201223",
+   "sig": "buy_special",
+   "index_id": "csi_000827",
+   "rating": "mid",
+   "ts": 65.2,
+   "month": "12",
+   "dom": "concept",
+   "pnl": 1164.7587721500058,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20201225",
+   "sig": "buy_special",
+   "index_id": "csi_000827",
+   "rating": "mid",
+   "ts": 65.2,
+   "month": "12",
+   "dom": "concept",
+   "pnl": 323.8233087597637,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20210201",
+   "sig": "buy",
+   "index_id": "sw_801180",
+   "rating": "low",
+   "ts": 69.9,
+   "month": "02",
+   "dom": "industry",
+   "pnl": 495.7584346643216,
+   "nearest_miss": "键4 五月强化·缺[月=5]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20210209",
+   "sig": "buy",
+   "index_id": "sw_801790",
+   "rating": "low",
+   "ts": 62.5,
+   "month": "02",
+   "dom": "industry",
+   "pnl": -164.991988707985,
+   "nearest_miss": "键5 greedy15·缺[月=1]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20230207",
+   "sig": "buy_special",
+   "index_id": "thsc_300082",
+   "rating": "mid",
+   "ts": 40.2,
+   "month": "02",
+   "dom": "concept",
+   "pnl": -195.52416933722998,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20230428",
+   "sig": "buy",
+   "index_id": "csi_930721",
+   "rating": "low",
+   "ts": 87.2,
+   "month": "04",
+   "dom": "concept",
+   "pnl": -120.77124145491689,
+   "nearest_miss": "键4 五月强化·缺[月=5]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20240603",
+   "sig": "buy_special",
+   "index_id": "csi_H30199",
+   "rating": "low",
+   "ts": 71.5,
+   "month": "06",
+   "dom": "concept",
+   "pnl": -12.352116958112674,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20240604",
+   "sig": "buy_special",
+   "index_id": "csi_H30199",
+   "rating": "low",
+   "ts": 71.5,
+   "month": "06",
+   "dom": "concept",
+   "pnl": -185.64566139808812,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20240614",
+   "sig": "buy",
+   "index_id": "sz_div",
+   "rating": "low",
+   "ts": 67.4,
+   "month": "06",
+   "dom": "A股",
+   "pnl": -340.7888848078637,
+   "nearest_miss": "键5 greedy15·缺[vlow价]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20241220",
+   "sig": "buy",
+   "index_id": "us_dji",
+   "rating": "low",
+   "ts": 66.5,
+   "month": "12",
+   "dom": "global",
+   "pnl": -281.1901630264365,
+   "nearest_miss": "键5 greedy15·缺[月=1]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20250905",
+   "sig": "buy_special",
+   "index_id": "us_spx",
+   "rating": "low",
+   "ts": 65.9,
+   "month": "09",
+   "dom": "global",
+   "pnl": 266.11483817379485,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20251014",
+   "sig": "buy_special",
+   "index_id": "csi_399991",
+   "rating": "low",
+   "ts": 50.5,
+   "month": "10",
+   "dom": "concept",
+   "pnl": 9.659323443453104,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20251015",
+   "sig": "buy_special",
+   "index_id": "csi_000010",
+   "rating": "low",
+   "ts": 77.7,
+   "month": "10",
+   "dom": "concept",
+   "pnl": 165.82305516296583,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20251016",
+   "sig": "buy_special",
+   "index_id": "csi_H30199",
+   "rating": "low",
+   "ts": 71.5,
+   "month": "10",
+   "dom": "concept",
+   "pnl": 274.03554791617717,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20251020",
+   "sig": "buy_aux",
+   "index_id": "hsi",
+   "rating": "low",
+   "ts": 72.3,
+   "month": "10",
+   "dom": "hk",
+   "pnl": -65.90326442436344,
+   "nearest_miss": "键1 aux跨月·缺[月∈{3,5}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20251113",
+   "sig": "buy_special",
+   "index_id": "div_lowvol",
+   "rating": "low",
+   "ts": 67.6,
+   "month": "11",
+   "dom": "A股",
+   "pnl": -409.30662211718663,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20251119",
+   "sig": "buy_aux",
+   "index_id": "us_ndx",
+   "rating": "low",
+   "ts": 68.7,
+   "month": "11",
+   "dom": "global",
+   "pnl": 84.40238865097854,
+   "nearest_miss": "键1 aux跨月·缺[月∈{3,5}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20260105",
+   "sig": "buy_special",
+   "index_id": "csi_930997",
+   "rating": "high",
+   "ts": 90.7,
+   "month": "01",
+   "dom": "concept",
+   "pnl": 18.29041841569051,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20260109",
+   "sig": "buy_special",
+   "index_id": "csi_399971",
+   "rating": "low",
+   "ts": 66.8,
+   "month": "01",
+   "dom": "concept",
+   "pnl": 22.714603200698548,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20260209",
+   "sig": "buy_aux",
+   "index_id": "hstech",
+   "rating": "low",
+   "ts": 69.5,
+   "month": "02",
+   "dom": "hk",
+   "pnl": -1115.7147667869594,
+   "nearest_miss": "键1 aux跨月·缺[月∈{3,5}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20260224",
+   "sig": "buy_special",
+   "index_id": "csi_931752",
+   "rating": "low",
+   "ts": 76.4,
+   "month": "02",
+   "dom": "concept",
+   "pnl": -385.1894398337845,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20260227",
+   "sig": "buy_special",
+   "index_id": "cac40",
+   "rating": "low",
+   "ts": 53.2,
+   "month": "02",
+   "dom": "global",
+   "pnl": -872.7021551193466,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20260601",
+   "sig": "buy",
+   "index_id": "csi_931946",
+   "rating": "low",
+   "ts": 72.0,
+   "month": "06",
+   "dom": "concept",
+   "pnl": -647.2786179257546,
+   "nearest_miss": "键5 greedy15·缺[vlow价]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20260602",
+   "sig": "buy_special",
+   "index_id": "us_spx",
+   "rating": "low",
+   "ts": 65.9,
+   "month": "06",
+   "dom": "global",
+   "pnl": -242.0110111231843,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20260605",
+   "sig": "buy_special",
+   "index_id": "us_dji",
+   "rating": "low",
+   "ts": 66.5,
+   "month": "06",
+   "dom": "global",
+   "pnl": 293.9664607993418,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20260609",
+   "sig": "buy",
+   "index_id": "csi_931151",
+   "rating": "low",
+   "ts": 93.0,
+   "month": "06",
+   "dom": "concept",
+   "pnl": -253.00507185668175,
+   "nearest_miss": "键5 greedy15·缺[vlow价]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20260612",
+   "sig": "buy",
+   "index_id": "csi_932315",
+   "rating": "mid",
+   "ts": 68.5,
+   "month": "06",
+   "dom": "concept",
+   "pnl": -393.74286472110543,
+   "nearest_miss": "键4 五月强化·缺[月=5]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20260618",
+   "sig": "buy",
+   "index_id": "sw_801150",
+   "rating": "low",
+   "ts": 66.4,
+   "month": "06",
+   "dom": "industry",
+   "pnl": 1037.464351747496,
+   "nearest_miss": "键5 greedy15·缺[vlow价]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20260623",
+   "sig": "buy_special",
+   "index_id": "us_dji",
+   "rating": "low",
+   "ts": 66.5,
+   "month": "06",
+   "dom": "global",
+   "pnl": 138.71879251785685,
+   "nearest_miss": "键2 special熊跌·缺[档位∈{熊主跌,下降期}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20260624",
+   "sig": "buy_aux",
+   "index_id": "hsi",
+   "rating": "low",
+   "ts": 72.3,
+   "month": "06",
+   "dom": "hk",
+   "pnl": 283.4996389207354,
+   "nearest_miss": "键1 aux跨月·缺[月∈{3,5}]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20260629",
+   "sig": "buy",
+   "index_id": "hsi",
+   "rating": "mid",
+   "ts": 72.3,
+   "month": "06",
+   "dom": "hk",
+   "pnl": 453.58406323724193,
+   "nearest_miss": "键4 五月强化·缺[月=5]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20260630",
+   "sig": "buy",
+   "index_id": "thsc_309128",
+   "rating": "low",
+   "ts": 43.1,
+   "month": "06",
+   "dom": "concept",
+   "pnl": -987.1416689631988,
+   "nearest_miss": "键5 greedy15·缺[vlow价]",
+   "miss_n": 1
+  },
+  {
+   "sd": "20260714",
+   "sig": "buy",
+   "index_id": "csi_930997",
+   "rating": "low",
+   "ts": 90.7,
+   "month": "07",
+   "dom": "concept",
+   "pnl": -457.9029886277858,
+   "nearest_miss": "键5 greedy15·缺[月=1]",
+   "miss_n": 1
+  }
+ ],
+ "group_stat": {
+  "buy×industry": {
+   "n": 7,
+   "pnl": -564.3037076828532
+  },
+  "buy_special×A股": {
+   "n": 4,
+   "pnl": 34.90870118557905
+  },
+  "buy_aux×hk": {
+   "n": 5,
+   "pnl": -123.56395250787318
+  },
+  "buy_special×concept": {
+   "n": 12,
+   "pnl": 771.0649038752053
+  },
+  "buy×A股": {
+   "n": 2,
+   "pnl": -389.33937008683097
+  },
+  "buy×concept": {
+   "n": 7,
+   "pnl": -2892.8658099687054
+  },
+  "buy×global": {
+   "n": 1,
+   "pnl": -281.1901630264365
+  },
+  "buy_special×global": {
+   "n": 5,
+   "pnl": -415.91307475153735
+  },
+  "buy_aux×global": {
+   "n": 1,
+   "pnl": 84.40238865097854
+  },
+  "buy×hk": {
+   "n": 1,
+   "pnl": 453.58406323724193
+  }
+ }
+}
