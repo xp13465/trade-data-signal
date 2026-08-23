@@ -52,7 +52,7 @@
 **结论:当前配置没有也不会产生这笔费用,零动作即安全。**
 1. OpenRouter 服务端搜索只在**显式 opt-in** 时触发:`plugins:[{id:"web"}]`、`:online` 后缀(**FAQ 已标 deprecated**,替代品是新 server tool `openrouter:web_search`)、或 preset 里挂了 web 工具。不传任何这些=无插件无费用,**不需要显式 plugins:[]**。
 2. 计费标准(若误触发):native 引擎按 provider 原生价透传(Anthropic web search 约 $10/千次量级);Exa $0.007/起;Parallel/Perplexity $0.001-0.005/次(web-search 文档 Pricing 节)。
-3. **与 Claude Code 自带 WebSearch 完全独立**:Claude Code 的 WebSearch 是客户端工具(模型发调用→本地执行→结果回灌),只产生普通 token 计费,不走 OpenRouter 服务端插件。只要不用 :online 后缀、不自建挂 web 工具的 preset,服务端搜索费恒为零。社区也警告":online 贵且效果差"(aireiter.com 聚合 Reddit 反馈)。
+3. ~~与 Claude Code 自带 WebSearch 完全独立~~ → **【2026-08-23 用户实际账单证伪并已处置】**:走第三方端点(OpenRouter Anthropic Skin)时,Claude Code 的 WebSearch **就是以 server tool 形式透传给底层 provider 执行的,每调用一次按次计费**(native 引擎按 provider 原生价透传,见上条)——前期调研任务 WebSearch 用得勤,费用即来源于此,并非 plugins/:online 配置问题。**处置:全局 settings.json `permissions.deny: ["WebSearch"]`(2026-08-23)**;联网调研改走免费通路=WebFetch(客户端抓取转 markdown)+ Bash curl(搜索引擎/DoH),只计普通 token。社区也警告":online 贵且效果差"(aireiter.com 聚合 Reddit 反馈)。
 
 ## 四、方向4:额外方向自查
 
@@ -72,7 +72,7 @@
 2. **【防坑】** settings.json env 补 `"ANTHROPIC_API_KEY": ""`(官方 Quick Start 要求,防未来 shell 残留真 key 时静默切直连计费);AUTH_TOKEN 建议挪 macOS keychain(`security find-generic-password` 方案,官方 Secret hygiene 段)——明文 key 本次调研已被读到过上下文,顺手轮换更稳。**需用户拍板后实施**。
 3. **【省输出费】** CLAUDE_EFFORT 从 high 降 medium 作日常默认,重活临时调回;实施/测试类子 agent 派单按官方建议用 low effort。**不要用 exclude:true(不省钱)、不要 MAX_THINKING_TOKENS 设高值(全局强开思考+子 agent 崩溃风险)**。预期:thinking 相关输出费降 50%+(high 80%→low 20% budget)。**需用户拍板后实施**。
 4. **【保缓存·行为纪律】** 前缀稳定(高频改动内容不进 CLAUDE.md/agent 定义前段)+ 会话连续(<10 分钟间隔)+ 少 spawn 小 agent(§5.5⑤ 本就有)。预期:多轮会话输入费最多省 70%(官方博客 6.0x→1.75x)。
-5. **【不做清单(等于省)】** 不给任何模型加 :floor/:nitro/order(毁缓存);不用 :online(弃用+贵);不自建挂 web 工具的 preset。当前配置在这三项上已经是干净的,保持即可。
+5. **【不做清单(等于省)】** 不给任何模型加 :floor/:nitro/order(毁缓存);不用 :online(弃用+贵);不自建挂 web 工具的 preset;WebSearch 工具已 deny(见 §三.3),不再调用即零搜索费。当前配置在这几项上已全部处置完毕,保持即可。
 6. **【可选·中期】** 若拿到官方 Anthropic key,评估 BYOK(月 $25k 内零手续费、官方原生缓存费率、key 优先路由);ox-alpha 主力模型不受影响。
 7. **【监控】** 装官方 cost statusline 或继续用 ccusage,让花费可见(看不见=管不住)。
 
