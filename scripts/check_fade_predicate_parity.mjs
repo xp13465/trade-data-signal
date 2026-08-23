@@ -113,7 +113,8 @@ function sliceDecl(src, name) {
 
 function buildContext(sources) {
   // sources: [{rel, text}]; 先 common 后 lab/app(消费方依赖 common 符号)
-  const ctx = vm.createContext({ console, JSON, Math, Date, isFinite, parseFloat, parseInt, String, Number, Boolean, Array, Object });
+  // T3-2: 加 Map/Set(首页 _isBullStopHit 的 _sigTierByDate stub 用 Map)
+  const ctx = vm.createContext({ console, JSON, Math, Date, isFinite, parseFloat, parseInt, String, Number, Boolean, Array, Object, Map, Set });
   const missing = [];
   for (const s of sources) {
     ctx.__srcRel__ = s.rel;
@@ -133,6 +134,7 @@ function buildContext(sources) {
 const COMMON_SYMBOLS = [
   "_KELLY_FADE_LEGACY_SPECS", "_KELLY_FADE_GATE_KEY_ORDER", "_KELLY_FADE_FRONT_KEY_ORDER",
   "_tdsFadeSpecHit", "_KELLY_FADE_MODE_PRESETS", "_tdsFadeModeApply", "_tdsFadeModeSelectHTML",
+  "_tdsFadeModeById",   // T3-2 任务④: 首页白名单断言(p8.keys ≡ _AI_MACRO_FILTER_NAMES)需要
 ];
 const LAB_SYMBOLS = [
   "_KELLY_LOSS_NEW_KEYS", "_kellyBuyWeekday", "_kellyBuypriceBin", "_kellyBuildTradeDims",
@@ -143,6 +145,8 @@ const APP_SYMBOLS = [
   "_SIM_LOSS_NEW_KEYS", "_simBuyWeekday", "_simBuypriceBin", "_simQkDim", "_simBaseKey",
   "_simBuildModePool", "_simDefaultFadeFilters", "_simMonthMask", "_simActiveMonthMask",
   "_simLossRuleHit", "_simPassesFade", "_simPassesBullStop",
+  // T3-2 任务④: 首页作用域(_isBullStopHit 迁规格单源; _AI_MACRO_FILTER_NAMES 保留中文名映射, 键集合须≡p8.keys)
+  "_isBullStopHit", "_AI_MACRO_FILTER_NAMES",
 ];
 
 // 老 37 键(bullAuxBackupStop 在 app 侧为独立谓词, 由 _simPassesBullStop 单独校验)
@@ -189,6 +193,7 @@ function runSide(tag) {
     var __stubState = { kellyLossFeatData: null, kellyLossSpecMap: {} };
     var state = __stubState;
     var _simLossFeatData = null;   // app.js 模块级 let 的沙箱替身
+    var _sigTierByDate = null;     // T3-2: 首页 tier map 模块级 let 的沙箱替身(_isBullStopHit 引用)
   `, ctx);
   if (featDoc) {
     vm.runInContext(`
@@ -250,6 +255,35 @@ function runSide(tag) {
       return hits;
     })()
   `, ctx);
+  // --- T3-2 任务④: 首页作用域 ---
+  // ① _isBullStopHit 迁规格前后逐位比对: stub _sigTierByDate(date→market_tier 四档, 与首页
+  //   _ensureSigTierMap 读 market_tier_history.json 同为四档值域), 对全量行调 app.js 真实函数。
+  //   cur 版内部走 _tdsFadeSpecHit("bullAuxBackupStop"); REF 老版走内联 sig/tier 判定。输入一致→输出须全等。
+  const tierByIdx = fIdx.market_tier;
+  if (tierByIdx == null) throw new Error("fields 缺 market_tier");
+  const tierMap = new Map();
+  for (const r of rowsLab) { const d = String(r[fIdx.signal_date]); if (!tierMap.has(d)) tierMap.set(d, r[tierByIdx] || ""); }
+  const homeHitIdx = vm.runInContext(`
+    (function () {
+      _sigTierByDate = __TIERMAP__;   // 首页模块级 let 的沙箱替身(全局 var, _isBullStopHit 闭包可见)
+      var hits = [];
+      for (var i = 0; i < rowsRef.length; i++) {
+        var r0 = rowsRef[i];
+        if (_isBullStopHit({ signal: r0[__FIDX__.signal], date: r0[__FIDX__.signal_date] })) hits.push(i);
+      }
+      return hits;
+    })()
+  `, Object.assign(ctx, { __TIERMAP__: tierMap, rowsRef: rowsLab }));
+  result.homeBullStop = homeHitIdx.map((i) => rowId(rowsLab[i]));
+  // ② 白名单单源断言: cur 版 p8.keys ≡ _AI_MACRO_FILTER_NAMES 键集合(p8≡固定8键=默认零变化的机器断言);
+  //   REF 老版 common.js 无预设表 → homeWhitelist 记 _AI_MACRO_FILTER_NAMES 自身键, 对比时跳过。
+  result.homeWhitelist = vm.runInContext(`
+    (function () {
+      var names = Object.keys(_AI_MACRO_FILTER_NAMES || {}).sort().join(",");
+      var preset = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById("p8") : null;
+      return { names: names, p8: preset ? (preset.keys || []).slice().sort().join(",") : null };
+    })()
+  `, ctx);
   return result;
 }
 
@@ -293,6 +327,26 @@ for (const side of ["lab", "sim"]) {
   if (d > 0) badKeys.push(`sim.bullstop(±${d})`);
   totalDiff += d;
   report.push(`sim  bullstop(独立谓词)      cur=${cur.simBullStop.length} old=${old.simBullStop.length} diff=${d}`);
+}
+// --- T3-2 任务④: 首页作用域比对 ---
+{
+  const d = diffSets(cur.homeBullStop, old.homeBullStop);
+  if (d > 0) badKeys.push(`home.bullstop(±${d})`);
+  totalDiff += d;
+  report.push(`home bullstop(规格迁移)      cur=${cur.homeBullStop.length} old=${old.homeBullStop.length} diff=${d}`);
+  // 白名单单源断言: cur 版 p8.keys 必须与 _AI_MACRO_FILTER_NAMES 键集合全等(p8≡固定8键=默认零变化);
+  // old 版(REF) common.js 无预设表 → p8=null, 只做 cur 自断言。
+  if (!cur.homeWhitelist.p8) {
+    badKeys.push("home.whitelist(cur 无 p8 预设)");
+    totalDiff++;
+    report.push("home whitelist                cur: p8 预设缺失 ❌");
+  } else if (cur.homeWhitelist.p8 !== cur.homeWhitelist.names) {
+    badKeys.push(`home.whitelist(p8≠names: ${cur.homeWhitelist.p8} vs ${cur.homeWhitelist.names})`);
+    totalDiff++;
+    report.push(`home whitelist                cur p8≡names 断言 FAIL ❌`);
+  } else {
+    report.push(`home whitelist                cur p8≡_AI_MACRO_FILTER_NAMES 全等 PASS(${cur.homeWhitelist.names.split(",").length}键)`);
+  }
 }
 console.log(report.join("\n"));
 console.log(`[parity] 总结: 键数=${Object.keys(cur.lab).length + Object.keys(cur.sim).length + 1} 总不一致=${totalDiff} ${totalDiff === 0 ? "PASS ✅" : "FAIL ❌ " + badKeys.join(", ")}`);
