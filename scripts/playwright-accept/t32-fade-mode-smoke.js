@@ -40,6 +40,14 @@ function check(tag, cond, detail) {
   await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(6000);   // 数据 fetch + 首屏渲染
 
+  // 新手引导弹窗(rule-modal-overlay)会挡后续点击, 先关掉(仅本浏览器会话)
+  await page.evaluate(() => {
+    document.querySelectorAll('.rule-modal .rule-modal-close').forEach((b) => b.click());
+    document.querySelectorAll('.rule-modal').forEach((m) => m.classList.add('hidden'));
+    document.querySelectorAll('.rule-modal-overlay').forEach((o) => o.remove());
+  });
+  await page.waitForTimeout(500);
+
   // ---- ① 首页: 下拉存在 + 与 AI降亏过滤 同行 ----
   const homeSel = await page.$('#sig-home-fade-mode-sel');
   check('首页模式下拉存在', !!homeSel);
