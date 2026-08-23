@@ -1866,6 +1866,222 @@ function _renderOverfitRisk(data) {
 }
 
 // 建分析参考点AI监控卡 + 异步加载数据渲染(调用点 renderOverview sigCard 之后)
+// ===== T3-2(2026-08-23) 监控卡 7 模式·recent 明细组集聚合(数据层=overfit_monitor.json recent) =====
+// 【架构】后端不为 7 模式各预切一份 bank(体积灾难), 改为逐信号打点明细(每键命中标注+回测A/F/G胜负+
+// 实盘胜负); 前端按所选模式组集成员键后复刻聚合链(bucket去重语义→rolling_win_rates→_derive_daily_series),
+// 输出与 bank 同构对象喂给既有渲染层(_renderOverfitAcc/_renderOverfitRisk 零改动 §23.7)。
+// 一致性由 scripts/check_overfit_recent_parity.mjs 断言: 组集(raw人口,p8成员) vs bank_raw 曲线逐位一致。
+const _OV_WINDOWS = [10, 15, 30, 60, 100];
+const _OV_SURFACE_DAYS = 200;   // 与后端 SURFACE_DAYS 一致(裁剪口径)
+const _OV_BT_BUY4 = { buy: 1, buy_aux: 1, buy_special: 1, buy_backup: 1 };
+const _OV_SELL2 = { sell: 1, sell_stop_loss: 1 };
+function _ovRiskLevel(sc) {
+  if (sc == null) return "gray";
+  if (sc < 30) return "green";
+  if (sc <= 60) return "yellow";
+  return "red";
+}
+function _ovBucketNew() { return { n: 0, win: 0 }; }
+function _ovBucketAdd(b, hit) { b.n++; if (hit) b.win++; }
+// 行是否被 AI降亏过滤层拦截(signal_ai_filtered 同语义): 仅买信号判; t=null=未入样(+1类);
+// k(命中键"|"-join)与模式成员集交集非空=拦; bullstop(+1独立开关)AND 叠加(tier短码1=牛市·主升)。
+function _ovRecentRowFiltered(r, memberSet, bullStopOn) {
+  const sig = r.s || "";
+  if (!(sig === "buy" || sig === "buy_aux" || sig === "buy_special" || sig === "buy_special_filtered" || sig === "buy_backup")) return false;
+  if (r.t == null) return true;
+  if (r.k) {
+    const ks = r.k.split("|");
+    for (let i = 0; i < ks.length; i++) { if (memberSet[ks[i]]) return true; }
+  }
+  if (bullStopOn && (sig === "buy_aux" || sig === "buy_backup") && r.tier === 1) return true;
+  return false;
+}
+// rolling 复刻(scripts/overfit_monitor.py rolling_win_rates): points=[{date,buckets:{key:{n,win}}}],
+// 每 window 对每个有样本点做滑窗累计(样本数下限已去掉, 有多少画多少)。
+function _ovRolling(points, pathKey, windows) {
+  const out = {};
+  for (let wi = 0; wi < windows.length; wi++) {
+    const w = windows[wi];
+    const seq = [];
+    for (let i = 0; i < points.length; i++) {
+      const b = points[i].buckets[pathKey];
+      if (!b || !b.n) continue;
+      const start = Math.max(0, i - w + 1);
+      let n = 0, win = 0;
+      for (let j = start; j <= i; j++) {
+        const bb = points[j].buckets[pathKey];
+        if (bb) { n += bb.n; win += bb.win; }
+      }
+      seq.push({ date: points[i].date, n: n, win_rate: n ? (win / n * 100) : null });
+    }
+    out[String(w)] = seq;
+  }
+  return out;
+}
+// daily 风险分派生复刻(_derive_daily_series): dev=实盘-回测滚动胜率(pp)分段映射; current_risk 未参与(同后端)。
+// ⚠舍入对齐(memory frontend-replay-align-backend): Python round()=banker's rounding(22.5→22),
+// JS Math.round()=half-up(22.5→23) —— 组集曲线点须与后端同口径, 自实现 half-even。
+function _ovRoundHalfEven(x) {
+  const f = Math.floor(x), d = x - f;
+  if (d === 0.5) return (f % 2 === 0) ? f : f + 1;
+  if (d === -0.5) return (f % 2 === 0) ? f : f - 1;
+  return Math.round(x);
+}
+function _ovDeriveDaily(btSeq, actSeq) {
+  const actMap = {};
+  (actSeq || []).forEach((p) => { actMap[p.date] = p.win_rate; });
+  const seq = [];
+  const src = btSeq || [];
+  for (let i = 0; i < src.length; i++) {
+    const wr = src[i].win_rate;
+    if (wr == null) continue;
+    const a = actMap[src[i].date];
+    let sc;
+    if (a == null) { sc = 40.0; }
+    else {
+      const dev = a - wr;
+      if (dev > 10) sc = Math.max(10, 25 - (dev - 10) * 0.5);
+      else if (dev > 0) sc = 35 - dev * 1.0;
+      else if (dev > -10) sc = 55 - dev * 1.0;
+      else sc = Math.min(95, 70 - (dev + 10) * 1.5);
+    }
+    sc = Math.max(0, Math.min(100, sc));
+    seq.push({ date: src[i].date, risk_score: _ovRoundHalfEven(sc), level: _ovRiskLevel(sc), win_rate: _ovRoundHalfEven(wr * 10) / 10 });
+  }
+  return seq;
+}
+function _ovTrim(seq) { return (seq && seq.length > _OV_SURFACE_DAYS) ? seq.slice(-_OV_SURFACE_DAYS) : (seq || []); }
+function _ovTrimObj(o) { const x = {}; for (const w in o) x[w] = _ovTrim(o[w]); return x; }
+// 主聚合: recent 明细 × 模式成员集 → bank 同构子集(accuracy.rolling + overfit.daily_by_win/daily_by_dim,
+// 恰为渲染层消费的全部字段; current/d2-d4 不输出——它们不进前端曲线链且属预警主口径, 保持后端权威)。
+function _ovAggregateRecent(recent, modeId, bullStopOn, fadeOn, k) {
+  try {
+    if (!recent || !Array.isArray(recent.rows) || !recent.rows.length) return null;
+    const preset = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(modeId) : null;
+    if (!preset) return null;
+    const memberSet = {};
+    for (let i = 0; i < preset.keys.length; i++) memberSet[preset.keys[i]] = true;
+    // ① 过滤层(fadeOn=false 时不过滤=全信号人口, 与 bank raw 语义一致)
+    let pop = recent.rows;
+    if (fadeOn) pop = pop.filter(function (r) { return !_ovRecentRowFiltered(r, memberSet, bullStopOn); });
+    // ② top-K(build_topk_kept_map 同口径: ts DESC→rating→signal; ts None 排除; 仅买类入位;
+    //    kept 过滤同时剔除非保留行含卖类——与 filter_by_date_by_kept 同语义, K档下卖类维度自然为空)
+    if (k != null && k >= 1 && k <= 4) {
+      const byDate = {};
+      for (let i = 0; i < pop.length; i++) {
+        const r = pop[i];
+        if (r.t == null) continue;
+        const sigN = r.s === "buy_special_filtered" ? "buy_special" : r.s;
+        if (!_OV_BT_BUY4[sigN]) continue;
+        (byDate[r.d] || (byDate[r.d] = [])).push(r);
+      }
+      const RC = { high: 0, mid: 1, low: 2, "": 3 };
+      const SC = { buy_backup: 0, buy: 1, buy_aux: 2, buy_special: 3 };
+      const kept = new Set();
+      for (const d in byDate) {
+        byDate[d].sort(function (a, b) {
+          const ta = (a.t == null ? -1 : Number(a.t)), tb = (b.t == null ? -1 : Number(b.t));
+          if (tb !== ta) return tb - ta;
+          const ra = RC[a.g == null ? "" : a.g] != null ? RC[a.g == null ? "" : a.g] : 3;
+          const rb = RC[b.g == null ? "" : b.g] != null ? RC[b.g == null ? "" : b.g] : 3;
+          if (ra !== rb) return ra - rb;
+          const saN = a.s === "buy_special_filtered" ? "buy_special" : a.s;
+          const sbN = b.s === "buy_special_filtered" ? "buy_special" : b.s;
+          const sa = SC[saN] != null ? SC[saN] : 9, sb = SC[sbN] != null ? SC[sbN] : 9;
+          return sa - sb;
+        });
+        for (let j = 0; j < Math.min(k, byDate[d].length); j++) {
+          const r = byDate[d][j];
+          kept.add(r.d + "|" + r.i + "|" + (r.s === "buy_special_filtered" ? "buy_special" : r.s));
+        }
+      }
+      pop = pop.filter(function (r) {
+        return kept.has(r.d + "|" + r.i + "|" + (r.s === "buy_special_filtered" ? "buy_special" : r.s));
+      });
+    }
+    // ③④ 打桶(回测=每行 per A/F/G 基笔; 实盘=v!=null 行; 维度键 t/s:xxx/g:xxx)
+    const btPts = {}, actPts = {};
+    for (let i = 0; i < pop.length; i++) {
+      const r = pop[i];
+      if (r.w) {
+        for (let mi = 0; mi < r.w.length; mi++) {
+          const wv = r.w[mi];
+          if (wv == null) continue;
+          let pt = btPts[r.d]; if (!pt) pt = btPts[r.d] = { date: r.d, buckets: {} };
+          _ovBucketAdd(pt.buckets.t || (pt.buckets.t = _ovBucketNew()), wv);
+          if (_OV_BT_BUY4[r.s]) _ovBucketAdd(pt.buckets["s:" + r.s] || (pt.buckets["s:" + r.s] = _ovBucketNew()), wv);
+          else if (_OV_SELL2[r.s]) _ovBucketAdd(pt.buckets["s:" + r.s] || (pt.buckets["s:" + r.s] = _ovBucketNew()), wv);
+          if (r.gr === "high" || r.gr === "mid" || r.gr === "low") _ovBucketAdd(pt.buckets["g:" + r.gr] || (pt.buckets["g:" + r.gr] = _ovBucketNew()), wv);
+        }
+      }
+      if (r.v != null) {
+        let pt = actPts[r.d]; if (!pt) pt = actPts[r.d] = { date: r.d, buckets: {} };
+        if (!_OV_SELL2[r.s]) _ovBucketAdd(pt.buckets.t || (pt.buckets.t = _ovBucketNew()), r.v);   // total 只含买类(方案A)
+        _ovBucketAdd(pt.buckets["s:" + r.s] || (pt.buckets["s:" + r.s] = _ovBucketNew()), r.v);
+        if (r.g === "high" || r.g === "mid" || r.g === "low") _ovBucketAdd(pt.buckets["g:" + r.g] || (pt.buckets["g:" + r.g] = _ovBucketNew()), r.v);
+      }
+    }
+    const btPoints = Object.keys(btPts).sort().map(function (d) { return btPts[d]; });
+    const actPoints = Object.keys(actPts).sort().map(function (d) { return actPts[d]; });
+    const bySignal = {}, byGrade = {};
+    const SIGS = ["buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss"];
+    const GRADES = ["high", "mid", "low"];
+    const btTotalRaw = _ovRolling(btPoints, "t", _OV_WINDOWS);
+    const actTotalRaw = _ovRolling(actPoints, "t", _OV_WINDOWS);
+    for (let si = 0; si < SIGS.length; si++) {
+      const sg = SIGS[si];
+      bySignal[sg] = {
+        backtest: _OV_BT_BUY4[sg] ? _ovTrimObj(_ovRolling(btPoints, "s:" + sg, _OV_WINDOWS)) : {},
+        actual: _ovTrimObj(_ovRolling(actPoints, "s:" + sg, _OV_WINDOWS)),
+      };
+    }
+    for (let gi = 0; gi < GRADES.length; gi++) {
+      const g = GRADES[gi];
+      byGrade[g] = {
+        backtest: _ovTrimObj(_ovRolling(btPoints, "g:" + g, _OV_WINDOWS)),
+        actual: _ovTrimObj(_ovRolling(actPoints, "g:" + g, _OV_WINDOWS)),
+      };
+    }
+    const dailyByWin = {};
+    for (let wi = 0; wi < _OV_WINDOWS.length; wi++) {
+      const w = String(_OV_WINDOWS[wi]);
+      dailyByWin[w] = _ovTrim(_ovDeriveDaily(btTotalRaw[w], actTotalRaw[w]));
+    }
+    const dailyByDim = { grade: {}, sig_type: {} };
+    for (let gi = 0; gi < GRADES.length; gi++) {
+      const g = GRADES[gi]; dailyByDim.grade[g] = {};
+      for (let wi = 0; wi < _OV_WINDOWS.length; wi++) {
+        const w = String(_OV_WINDOWS[wi]);
+        dailyByDim.grade[g][w] = _ovTrim(_ovDeriveDaily(byGrade[g].backtest[w], byGrade[g].actual[w]));
+      }
+    }
+    for (let si = 0; si < SIGS.length; si++) {
+      const sg = SIGS[si]; dailyByDim.sig_type[sg] = {};
+      for (let wi = 0; wi < _OV_WINDOWS.length; wi++) {
+        const w = String(_OV_WINDOWS[wi]);
+        dailyByDim.sig_type[sg][w] = _ovTrim(_ovDeriveDaily(bySignal[sg].backtest[w], bySignal[sg].actual[w]));
+      }
+    }
+    return {
+      accuracy: { rolling: { backtest: _ovTrimObj(btTotalRaw), actual: _ovTrimObj(actTotalRaw), by_signal: bySignal, by_grade: byGrade } },
+      overfit: { daily_by_win: dailyByWin, daily_by_dim: dailyByDim },
+    };
+  } catch (e) { return null; }   // 组集异常优雅回退现有 bank(老 json/结构变更不裸崩)
+}
+
+// 监控卡 7 模式/独立+1开关 读取(独立 localStorage 键: tds_overfit_fade_mode 默认 p8=8键默认组合≡现网,
+// tds_overfit_bull_stop 默认关; 与首页 tds_home_fade_mode/凯利区 tds_kelly_fade_mode 三处独立 §22)。
+function _readOverfitFadeMode() {
+  try {
+    const v = localStorage.getItem("tds_overfit_fade_mode");
+    if (v && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(v)) return v;
+  } catch (e) {}
+  return "p8";
+}
+function _readOverfitBullStop() {
+  try { return localStorage.getItem("tds_overfit_bull_stop") === "1"; } catch (e) { return false; }
+}
+
 async function _appendOverfitCard(colA2, r, snap) {
   const card = document.createElement("div");
   card.className = "chart-card overfit-card";
@@ -1878,6 +2094,17 @@ async function _appendOverfitCard(colA2, r, snap) {
       '<span class="overfit-fade-label" data-tip="AI降亏过滤开关(默认开, 独立记忆): 开启=监控只统计「未被AI宏删线过滤」的信号(未命中8键降亏且已入样); 关闭=统计全信号。仅买信号判降亏(${_t("sell_short")}/${_t("type_sell_stop_loss")}不判)。本开关只切 bank 读取, 不前端重算(§23.6)。">AI降亏过滤</span>' +
       '<label class="overfit-fade-switch"><input type="checkbox" data-overfit-fade="1"> <span class="ov-sw"></span></label>' +
       '<span class="overfit-fade-state" style="color:var(--text-3);font-size:11px;margin-left:6px"></span>' +
+      // T3-2(2026-08-23): 模式下拉+「牛市×辅备买全停」独立+1开关, 紧跟「AI降亏过滤」同一行(UI 落点铁律)。
+      // 默认 p8≡现网零变化(§23.7); 非 p8 或 +1 开启时走 recent 明细前端组集(§23.6 键命中=后端打标, parity 校验);
+      // 数据未含 recent(老 json)时优雅回退现有 bank(下拉不生效, 不裸崩)。
+      '<span class="overfit-fade-label" data-tip="降亏模式(T3-2 2026-08-23, 与凯利区/模拟回测弹窗同款7模式): p8=8键默认组合(≡现网, 对照基线) / 9键=8键+候选1 / A进攻王 / B均衡卡 / C防守=叠9键口径 / NEW14·NEW18=重构换基座。切换后监控两图按所选模式的降亏成员键组集重算(recent明细逐信号键命中标注, 后端打标)。仅 AI降亏过滤开关开启时生效; 老数据无明细时自动回退现有bank。">降亏模式</span>' +
+      (typeof _tdsFadeModeSelectHTML === "function"
+        ? _tdsFadeModeSelectHTML("overfit-fade-mode-sel", _readOverfitFadeMode(), false, "sim-mode-sel ov-mode-sel",
+            "AI降亏模式(7预设): 切换后准确率/风险分两图按所选模式重算。p8=8键默认(≡现网零变化); 9键/A/B/C=叠9键口径; NEW14/NEW18=重构换基座。⚠非p8口径为 v1.1.2 四档判定源(recent明细), 与老filtered bank的MA60口径存在 excludeSpecialBear 微差; price_bin/ETF相关性组件信号级不可判已降级跳过。")
+        : "") +
+      '<label class="overfit-bullstop-lab" data-tip="牛市×辅备买全停(+1 候选1, 独立开关, 默认关; 2026-08-22 用户拍板对齐其他消费点同款交互): 牛市·主升(hs300四档)×信号∈{辅买buy_aux,备买buy_backup}→从监控人口剔除(AND叠加在当前模式之上, 可单独开)。开启后走 recent 明细组集(v1.1.2 四档口径), 关闭=零变化。与首页/凯利区/模拟回测弹窗各自独立。">' +
+        '<input type="checkbox" data-overfit-bullstop="1"> <span>牛市×辅备买全停</span><span class="lab-sigkelly-toggle-new">NEW</span></label>' +
+      '<span class="overfit-fade-state2" style="color:var(--text-3);font-size:11px;margin-left:6px"></span>' +
       '<span class="overfit-fade-sep"></span>' +
       '<span class="overfit-win-label" data-tip="K档(与首页AI仓位建议top-K同口径, 2026-08-16 启用): 每日只保留当日最优K个买入信号监控。两开关独立: 降亏开=过滤后人口选K(filtered_by_k), 降亏关=全信号人口选K(by_k)。排序=跟踪分↓→评级→信号类型。点「关」=无K档退化普通列表(降亏开关控制)。">K档</span>' +
       ((function(_s){ var _r = { 1: "最激进", 2: "次稳健", 3: "最稳健", 4: "最保守" };
@@ -1932,6 +2159,14 @@ async function _appendOverfitCard(colA2, r, snap) {
   function _ovBank() {
     if (!_overfitData) return null;
     const k = _overfitState.k;
+    // T3-2(2026-08-23): 模式≠p8 或 独立+1开关开启(且降亏开关开)且 recent 明细可用 → 前端组集。
+    // p8 且 +1 关(默认态)=不走组集 → 现有 bank 原样读取(数字逐位不变 §23.7 默认零变化);
+    // 组集失败(recent 缺失/结构异常/聚合异常)自动回退现有 bank 不裸崩。
+    if (_ovFade && (_ovModeId !== "p8" || _ovBullStop)) {
+      const agg = _ovAggregateRecent(_overfitData.recent, _ovModeId, _ovBullStop, true,
+        (k != null && k >= 1 && k <= 4) ? k : null);
+      if (agg) return agg;
+    }
     if (k != null && k >= 1 && k <= 4) {
       // K档: 降亏开=filtered_by_k[k](过滤人口top-K), 降亏关=by_k[k](全信号top-K), 两开关独立
       const kk = String(k);
@@ -1953,12 +2188,25 @@ async function _appendOverfitCard(colA2, r, snap) {
     const fadeStateEl = card.querySelector(".overfit-fade-state");
     if (fadeStateEl) {
       const inK = _overfitState.k != null && _overfitState.k >= 1 && _overfitState.k <= 4;
+      // T3-2: 组集生效(非p8或+1开且明细可用)时标注当前模式名, 让用户明确两图口径来源
+      const _presetNow = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(_ovModeId) : null;
+      const _aggOn = _ovFade && (_ovModeId !== "p8" || _ovBullStop)
+        && !!(_overfitData && _overfitData.recent && Array.isArray(_overfitData.recent.rows) && _overfitData.recent.rows.length);
+      const _modeTag = (_aggOn && _presetNow) ? (" · " + _presetNow.name + (_ovBullStop ? "+1" : "")) : "";
       if (inK) {
         // K档模式: 降亏开=filtered_by_k(过滤后top-K), 关=by_k(全信号top-K)
-        fadeStateEl.textContent = "K=" + _overfitState.k + (_ovFade ? " · 已过滤top-K" : " · 全信号top-K");
+        fadeStateEl.textContent = "K=" + _overfitState.k + (_ovFade ? " · 已过滤top-K" : " · 全信号top-K") + _modeTag;
       } else {
-        fadeStateEl.textContent = _ovFade ? "已过滤(仅未命中删线信号)" : "全信号";
+        fadeStateEl.textContent = (_ovFade ? "已过滤(仅未命中删线信号)" : "全信号") + _modeTag;
       }
+    }
+    // T3-2: 模式行状态(老 json 无 recent 明细=回退提示)
+    const modeStateEl = card.querySelector(".overfit-fade-state2");
+    if (modeStateEl) {
+      const hasRecent = !!(_overfitData && _overfitData.recent && Array.isArray(_overfitData.recent.rows) && _overfitData.recent.rows.length);
+      if (!_ovFade) modeStateEl.textContent = "";
+      else if (!hasRecent && (_ovModeId !== "p8" || _ovBullStop)) modeStateEl.textContent = "(数据未含模式明细, 已回退8键bank)";
+      else modeStateEl.textContent = "";
     }
     // 更新准确率/风险分标题副标(反映当前维度; 卖类无回测对照 -> 注"仅实盘实际、无回测对照/风险分不适用")
     const accSub = card.querySelector(".ov-sub-dim");
@@ -2033,6 +2281,9 @@ async function _appendOverfitCard(colA2, r, snap) {
     const _fadeRaw = localStorage.getItem("tds_overfit_fade");
     _ovFade = _fadeRaw === null ? true : (_fadeRaw === "1");
   } catch (e) { _ovFade = true; }
+  // T3-2(2026-08-23): 模式(默认 p8≡现网) + 独立+1开关(默认关), 各自独立记忆
+  let _ovModeId = _readOverfitFadeMode();
+  let _ovBullStop = _readOverfitBullStop();
   // 回填开关初值(默认开, 首次无记忆=checked) + change 监听(用户点 label/开关均触发, 手动切换后写 localStorage 记住)
   const fadeCb = card.querySelector("[data-overfit-fade]");
   if (fadeCb) {
@@ -2041,6 +2292,26 @@ async function _appendOverfitCard(colA2, r, snap) {
       if (!_overfitData) return;
       _ovFade = !!fadeCb.checked;
       try { localStorage.setItem("tds_overfit_fade", _ovFade ? "1" : "0"); } catch (e2) {}
+      syncOverfitCharts();
+    });
+  }
+  // T3-2(2026-08-23): 模式下拉 + 独立+1开关 绑定(change 即写独立键 + 两图重绘)
+  const modeSelEl = card.querySelector("#overfit-fade-mode-sel");
+  if (modeSelEl) {
+    modeSelEl.addEventListener("change", () => {
+      if (!_overfitData) return;
+      _ovModeId = modeSelEl.value || "p8";
+      try { localStorage.setItem("tds_overfit_fade_mode", _ovModeId); } catch (e2) {}
+      syncOverfitCharts();
+    });
+  }
+  const bullStopCb = card.querySelector("[data-overfit-bullstop]");
+  if (bullStopCb) {
+    bullStopCb.checked = _ovBullStop;
+    bullStopCb.addEventListener("change", () => {
+      if (!_overfitData) return;
+      _ovBullStop = !!bullStopCb.checked;
+      try { localStorage.setItem("tds_overfit_bull_stop", _ovBullStop ? "1" : "0"); } catch (e2) {}
       syncOverfitCharts();
     });
   }
@@ -2297,6 +2568,17 @@ function _readHomeFadeFlag() {
 function _readBullStopFlag() {
   try { return localStorage.getItem("tds_home_bull_aux_backup_stop") === "1"; } catch (e) { return false; }
 }
+// T3-2(2026-08-23) 首页 AI降亏·模式下拉: 独立 localStorage 键 tds_home_fade_mode(默认 p8=8键默认组合,
+// 与原固定8键白名单逐位一致=默认行为零变化 §23.7; 键集合从 common.js _KELLY_FADE_MODE_PRESETS 单源拉取,
+// 任务④迁移: _AI_MACRO_FILTER_NAMES 保留中文名映射仅供标注展示, 不再作键集合事实源)。
+// 与凯利区 tds_kelly_fade_mode/监控卡 tds_overfit_fade_mode 三处独立作用域(§22 各自独立互不影响)。
+function _readHomeFadeMode() {
+  try {
+    const v = localStorage.getItem("tds_home_fade_mode");
+    if (v && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(v)) return v;
+  } catch (e) {}
+  return "p8";
+}
 let _sigTierByDate = null;
 let _sigTierMapLoading = null;
 function _ensureSigTierMap() {
@@ -2311,12 +2593,21 @@ function _ensureSigTierMap() {
   }
   return _sigTierMapLoading;
 }
+// T3-2 任务④迁移(2026-08-23): bullAuxBackupStop 谓词迁 common.js 规格单源(_KELLY_FADE_LEGACY_SPECS),
+// 与 lab/sim/监控卡同源咬合 §22; 本地仅组装 ctx(sig/tier), 不再自持判定逻辑。
+// 硬编码谓词原文(迁移前, 逐位等价): sig∈{buy_aux,buy_backup} && tier==="牛市·主升"; tier map 未就绪=保守放行。
+// 双重降级: _tdsFadeSpecHit 不可用(老 common.js 缓存)或 tier map 未就绪 → 均按未就绪口径保守放行(false), 行为不变。
 function _isBullStopHit(it) {
   if (!it) return false;
   const sig = it.signal || "";
   if (sig !== "buy_aux" && sig !== "buy_backup") return false;
   if (!_sigTierByDate) return false; // tier map 未就绪 → 保守放行
-  return _sigTierByDate.get(String(it.date || "")) === "牛市·主升";
+  const tier = _sigTierByDate.get(String(it.date || ""));
+  if (typeof _tdsFadeSpecHit === "function") {
+    try { return !!_tdsFadeSpecHit("bullAuxBackupStop", { sig: sig, tier: tier }); } catch (e) { /* fallthrough */ }
+  }
+  // 规格层不可用 → 老内联判定兜底(逐位=迁移前行为)
+  return tier === "牛市·主升";
 }
 // 2026-08-13 简单全局 toast(首页「AI降亏过滤(3元)」点击无可见变化时反馈用; 项目无全局 toast 机制, 自建 fixed 定位元素, 3.2s 自动消失)
 let _sigToastEl = null;
@@ -2373,11 +2664,20 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
   const _bullSw = `<label class="sig-switch-lab sig-switch-bullstop" data-no-pop="" title="牛市×辅备买全停(A-F短线口径, 默认关 🆕NEW, 2026-08-22 用户拍板): 牛市·主升(hs300四档)×信号∈{辅买buy_aux,备买buy_backup}→该买入信号灰显+删除线+标注AI降亏、不占AI建议位。白话: 牛市主升末段(MA排列滞后判定已走一大段后)的低质量买入(辅买/备买)是历史稳定毒药, 开启后全史 +66,530→+73,103(改善+6,573; 理想对照=被拦笔直接消失口径 +9,895)。场景: 5-8月连亏想减亏时开启实测; 无命中信号时列表无变化属正常。1:1举例: 2026年5-8月 mode A K1 基线 50笔 -5,166 → 开启后 41笔 -1,030(补位口径=前端真实链路); 2026全年 +5,626 → +7,490(理想对照 +10,596)。⚠口径说明: 实测显示的是补位口径(被拦天的次优信号自动顶上), 与理想对照略有差异(理想对照: 5-8月 -256)。诚实标注: 近1/2/3/5年五窗全改善(+16,653/+43,084/+45,839/+36,503); 变差年4个(理想对照口径)合计 -5,825(2014/-938、2018/-2,109、2020/-2,039、2025/-739 均牛市年边缘利润)。适用口径: 仅 A-F 短线(G/H/I 长线模式不套用); 首页信号网格无模式维度, 全部按短线口径判定。默认关不入默认组合(§23.7), 未来若并入默认组合走版本升级流程(§5.4⑥)。各处独立: 本开关只管首页(lab 凯利区有独立小标签; 模拟回测弹窗 2026-08-23 起无独立勾选, 由其「AI降亏过滤」模式下拉 9键 一并套用, G/H/I 豁免同口径)。数据支撑: docs/kelly/analysis/sim-window-loss-mining-20260822.md">` +
     `<input type="checkbox" class="sig-switch-bullstop-cb"${_readBullStopFlag() ? " checked" : ""}> <span>牛市×辅备买全停</span><span class="lab-sigkelly-toggle-new">NEW</span>` +
     `</label>`;
+  // T3-2 任务①(2026-08-23) 首页「AI降亏·模式」下拉: 与 lab 凯利区/模拟回测弹窗同款交互(common.js 单源 _tdsFadeModeSelectHTML),
+  // 独立 localStorage 键 tds_home_fade_mode(与 tds_kelly_fade_mode/tds_overfit_fade_mode 三处独立互不影响 §22);
+  // 默认 p8 = 原「固定 8 键」逐位一致 → 不动它=现网行为零变化 §23.7; 选含 bullAuxBackupStop 的模式(p9/a9/b9/c9)
+  // 等价同时点亮下方「牛市×辅备买全停」判定(OR 叠加, 见 _renderSignalGrid _bullStopActive 注释)。
+  const _homeModeSel = (typeof _tdsFadeModeSelectHTML === "function")
+    ? _tdsFadeModeSelectHTML("sig-home-fade-mode-sel", _readHomeFadeMode(), false, "sim-mode-sel home-mode-sel",
+      "AI降亏·模式(首页独立作用域, 默认=8键默认组合p8, 与现网固定8键逐位一致; 换模式只改本区块判定键集合, 不影响凯利区/模拟回测/AI监控卡各自的模式下拉)。7个预设: 8键默认组合 / 8键+1(牛市辅备买全停) / a9 aggressive / b9 balanced / c9 conservative / new14 重构换基座 / new18 全量重构——键集合单源来自 common.js 预设表, 与 lab 页同款同源(§21 公示 purpose-notes lab.sigkelly)")
+    : "";
   return `<div class="sig-switch-row" data-no-pop="">` +
-    `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(总开关, 首页独立, 删除线过滤层): 开启=①命中降亏条件(固定 8键=基础5+核心3, +1类回测剔除=_bt_in_universe)的买入信号=灰显+删除线+标注AI降亏建议回避(现状) + ②未入样宇宙信号(债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, 含波动相关/未入样本信号)=删除线+灰显+标注未入样本; 关闭=不画任何删除线、未入样本不标注, 信号恢复正常样式。结构=AI宏5+3+1(v1.1.0 定名「基础5」): 5+3=保留入样的8个降亏键(基础5=基础4+K2C5 港股追涨剔除), +1=回测剔除的波动相关/未入样本整类信号(AI建议不推荐)。另有 cyb 四档版降亏新键 excludeSpecialBearCyb(默认关, 非默认推荐, 判定源 hs300 四档→创业板指 cyb 四档, #69 2026-08-19, 不进首页默认判定, 凯利区可人工开复测)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。独立 localStorage 键 tds_home_fade 与凯利区互不影响; 与「AI仓位建议」两个开关正交(各自管一层, 不互相触发)">` +
+    `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(总开关, 首页独立, 删除线过滤层): 开启=①命中降亏条件(默认固定 8键=基础5+核心3, 可经「AI降亏·模式」下拉切 7 预设 T3-2; +1类回测剔除=_bt_in_universe)的买入信号=灰显+删除线+标注AI降亏建议回避(现状) + ②未入样宇宙信号(债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, 含波动相关/未入样本信号)=删除线+灰显+标注未入样本; 关闭=不画任何删除线、未入样本不标注, 信号恢复正常样式。结构=AI宏5+3+1(v1.1.0 定名「基础5」): 5+3=保留入样的8个降亏键(基础5=基础4+K2C5 港股追涨剔除), +1=回测剔除的波动相关/未入样本整类信号(AI建议不推荐)。另有 cyb 四档版降亏新键 excludeSpecialBearCyb(默认关, 非默认推荐, 判定源 hs300 四档→创业板指 cyb 四档, #69 2026-08-19, 不进首页默认判定, 凯利区可人工开复测)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。独立 localStorage 键 tds_home_fade 与凯利区互不影响; 与「AI仓位建议」两个开关正交(各自管一层, 不互相触发)">` +
       `<input type="checkbox" class="sig-switch-ai-cb"${_fadeOn ? " checked" : ""}> AI降亏过滤` +
-      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 删除线过滤层, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 结构=AI宏5+3+1(v1.1.0 定名「基础5」, 2026-08-15 补公示): 5=基础5键(基础4 + K2C5 港股追涨剔除), 3=核心3键, 两者 8 键都是「保留入样、可被AI建议推荐」的降亏开关; +1=回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(后端已剔除出回测宇宙 / 波动相关剔除), 故 AI建议 一律不推荐, 本开关开启时以「未入样本」+灰显+删除线标注表达"被过滤掉"。 开启=①首页按降亏策略判定, 固定 8键+1类 成员级(基础5= 追关注×熊市交叉四档(v1.1.2 2026-08-17 主键判定 MA60→四档{熊市·主跌,下降期}×A股类升级; 老MA60熊×追买 / 下降期×追关注 两备选键默认关🆕NEW) / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 / K2C5 港股追涨剔除 + 核心3= 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致 v1.1.0/v1.1.2; +1=回测剔除的波动相关/未入样本信号整类)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。命中降亏条件(8键中任一键)的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); ②未入样宇宙信号(债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 后端已剔除出回测宇宙)=删除线+灰显+「未入样本」标注(AI过滤视图, 表达"被过滤掉"); 关闭=首页完全不判降亏、不画删除线、未入样本不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。⚠两开关正交: AI降亏层只产删除线/未入样本, 不产 AI建议N/当日已满/AI警示(那些归「AI仓位建议」开关控制)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号">ⓘ</span>` +
+      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 删除线过滤层, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 结构=AI宏5+3+1(v1.1.0 定名「基础5」, 2026-08-15 补公示): 5=基础5键(基础4 + K2C5 港股追涨剔除), 3=核心3键, 两者 8 键都是「保留入样、可被AI建议推荐」的降亏开关; +1=回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(后端已剔除出回测宇宙 / 波动相关剔除), 故 AI建议 一律不推荐, 本开关开启时以「未入样本」+灰显+删除线标注表达"被过滤掉"。 开启=①首页按降亏策略判定, 默认固定 8键+1类 成员级(2026-08-23 T3-2 起可经旁侧「AI降亏·模式」下拉切换 7 预设, 独立键 tds_home_fade_mode, 默认 p8=固定8键逐位一致零变化)(基础5= 追关注×熊市交叉四档(v1.1.2 2026-08-17 主键判定 MA60→四档{熊市·主跌,下降期}×A股类升级; 老MA60熊×追买 / 下降期×追关注 两备选键默认关🆕NEW) / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 / K2C5 港股追涨剔除 + 核心3= 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致 v1.1.0/v1.1.2; +1=回测剔除的波动相关/未入样本信号整类)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。命中降亏条件(8键中任一键)的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); ②未入样宇宙信号(债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 后端已剔除出回测宇宙)=删除线+灰显+「未入样本」标注(AI过滤视图, 表达"被过滤掉"); 关闭=首页完全不判降亏、不画删除线、未入样本不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。⚠两开关正交: AI降亏层只产删除线/未入样本, 不产 AI建议N/当日已满/AI警示(那些归「AI仓位建议」开关控制)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号">ⓘ</span>` +
     `</label>` +
+    `${_homeModeSel}` +
     `${_bullSw}` +
     `${_aShareFinalizedTag}` +
     `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap, badge标注层): 开启=同日只买最优K个买入类(进K=「AI建议N」亮绿 / 超K=「当日已满」灰显) + 入宇宙${_t("sell_short")}(sell/sell_stop_loss/${_t("type_band_sell")})=「AI警示」亮橙(${_t("sell_short")}无K约束不判K); 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表(无AI建议N/当日已满/AI警示), 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。⚠两开关正交: AI仓位层只产上面三类badge, 不产删除线过滤(删除线/未入样本归「AI降亏过滤」开关控制)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span>${_helpBtn}${_simBtn}</span>` +
@@ -2485,6 +2785,22 @@ function _bindSigSwitchRow(sigCard) {
     }
   });
   sigCard.addEventListener("change", (e) => {
+    // T3-2 任务①(2026-08-23) 首页「AI降亏·模式」下拉: 写独立键 tds_home_fade_mode 后重绘生效;
+    // 与 lab(tds_kelly_fade_mode)/监控卡(tds_overfit_fade_mode) 三处独立互不影响(§22 各自作用域);
+    // toast 提示所选模式键数与是否含「+1」类判定, 与 sim 弹窗/监控卡同款交互。
+    const homeModeSel = e.target.closest(".sig-home-fade-mode-sel");
+    if (homeModeSel) {
+      e.preventDefault();
+      e.stopPropagation();
+      const mv = homeModeSel.value || "p8";
+      try { localStorage.setItem("tds_home_fade_mode", mv); } catch (err) {}
+      _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
+      const mp = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(mv) : null;
+      const nKeys = (mp && Array.isArray(mp.keys)) ? mp.keys.length : 0;
+      const hasBull = !!(mp && mp.keys && mp.keys.indexOf("bullAuxBackupStop") >= 0);
+      _showSigToast("AI降亏·模式已切换: " + ((mp && mp.name) || mv) + "(" + nKeys + "键" + (hasBull ? ", 含牛市×辅备买全停" : "") + "); 切回「8键默认组合」即恢复默认视图");
+      return;
+    }
     // (2026-08-22 用户拍板) 新降亏键开关「牛市×辅备买全停」: 首页独立键 tds_home_bull_aux_backup_stop, 重绘生效
     const bullCb = e.target.closest(".sig-switch-bullstop-cb");
     if (bullCb) {
@@ -3831,16 +4147,27 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // ⚠️ 2026-08-21 前移到 popItems 之前, 使分栏计数和准确率统计也能排除降亏命中信号
   let _fadeOn = true;
   const _aiOnMembers = {};
-  // 固定 8 键白名单全开(基础5+核心3, _AI_MACRO_FILTER_NAMES 不含 v1.1.2 备选键 legacyMa60Special/declinePhaseSpecial——
-  // 备选键不进首页判定, 须凯利区手动开才命中, 与凯利区默认关口径一致 §22)。v1.1.0 与凯利区默认策略一致
-  for (const _amk in _AI_MACRO_FILTER_NAMES) _aiOnMembers[_amk] = true;
+  // T3-2(2026-08-23) 模式化: 键集合从 common.js _KELLY_FADE_MODE_PRESETS 单源拉取(任务①④)。
+  // 默认 p8 的 keys ≡ 原固定 8 键(_AI_MACRO_FILTER_NAMES 逐位一致) → 默认行为零变化 §23.7;
+  // _AI_MACRO_FILTER_NAMES 保留中文名映射仅供 badge 标注展示, 不再作键集合事实源。
+  // preset 不可用(老缓存 common.js)时回退遍历 _AI_MACRO_FILTER_NAMES = 老行为, 零变化兜底。
+  const _homeFadePreset = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(_readHomeFadeMode()) : null;
+  if (_homeFadePreset && Array.isArray(_homeFadePreset.keys)) {
+    for (const _amk of _homeFadePreset.keys) _aiOnMembers[_amk] = true;
+  } else {
+    for (const _amk in _AI_MACRO_FILTER_NAMES) _aiOnMembers[_amk] = true;
+  }
   if (kind === "signal") {
     _fadeOn = _readHomeFadeFlag();
   }
   // (2026-08-22 用户拍板) 新降亏键「牛市×辅备买全停」: 开关开时命中(tier=牛市·主升 × 辅买/备买)也走 AI降亏视觉链
   // (置灰+删除线+标注+top-K 补位, 与 8 键同链同源); tier map 未就绪先保守放行, 就绪后重绘一次补上视觉区分。
   // 消费点: 首页 AI 建议 top-K/统计人口/行渲染 + 「近期技术分析参考点」区块(同一 _renderSignalGrid 渲染链, §22 一致)
-  const _bullStopActive = (kind === "signal") ? _readBullStopFlag() : false;
+  // T3-2: 并入模式体系(任务③同精神)——所选模式 keys 含 bullAuxBackupStop(p9/a9/b9/c9)时自动激活,
+  // 与独立 checkbox 为 OR 叠加; p8 默认不含 → 默认行为零变化。
+  const _bullStopActive = (kind === "signal")
+    ? (_readBullStopFlag() || !!(_homeFadePreset && _homeFadePreset.keys && _homeFadePreset.keys.indexOf("bullAuxBackupStop") >= 0))
+    : false;
   if (_bullStopActive && !_sigTierByDate && typeof _rerenderSigCardContent === "function") {
     _ensureSigTierMap().then((m) => {
       if (m) { try { _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot); } catch (e) {} }

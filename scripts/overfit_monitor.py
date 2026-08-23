@@ -417,6 +417,297 @@ class FilterCtx(object):
         return signal_ai_filtered(date_str, signal, mkt, rating, ts, bull)
 
 
+# ── T3-2(2026-08-23) AI降亏 7 模式·recent 明细块(前端组集数据层) ─────────────────
+# 【目的】监控卡接入 7 模式下拉(T3-1 lab/弹窗同款交互): 后端不为 7 模式各预切一份 bank
+#   (26.5MB×7 体积灾难), 改为打点「近 N 日逐信号明细」(每键命中标注+回测/实盘胜负), 前端按
+#   所选模式组集后复刻聚合链(bucket 去重→rolling_win_rates→_derive_daily_series)。
+#   可行性已验证: 前端两图只消费 accuracy.rolling + overfit.daily_by_win/daily_by_dim;
+#   daily 曲线=_derive_daily_series 纯滚动胜率偏差派生(current_risk 参数未被引用),
+#   d2(OOS)/d3(参数扰动)/d4(象限退化)是回测级重算但不进前端渲染链路(仅预警主口径)。
+# 【口径】明细命中键 = v1.1.2 四档口径(与 queries._ai_macro_hit_filters 同源), 与老 filtered bank
+#   的 MA60 口径(历史遗留, §23.7⑤ 已上报)存在 excludeSpecialBear 微差 —— 默认 p8 走现有 bank
+#   数字不变, 仅非 p8 模式/独立+1开关开启时走组集(新交互无现网行为可对齐), tooltip 诚实标注。
+# 【信号级子集】老键中依赖 price_bin(bpb)/ETF相关性(etf) 的组件信号级不可判, 降级跳过
+#   (与 queries greedy15/r7 同原则, 首页 ai_macro.filters 同为信号级子集口径, 公示已声明)。
+# 【打标键集合】= common.js _KELLY_FADE_MODE_PRESETS 7 模式 keys 并集 + bullAuxBackupStop(独立开关)。
+#   ⚠同步纪律: common.js 预设增改模式时本集合必须同步(§23.8 关联更新), 否则新模式组集缺键。
+RECENT_KEYS = [
+    # p8 ∪ p9 基座(8键 + 候选1)
+    "excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial",
+    "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop",
+    # a9/b9/c9 增量(T1 新键 + k3)
+    "t1LowTurnSpecial", "q1QvixLowPct", "m1MarginDownBull", "v1HighVol20", "r1VolRatioLow",
+    "k3ConceptBuy", "r2bSpecialGlobal", "r2gLowRatingQ3", "n1NorthOutflow", "d1LowDivYield",
+    "h1VolChgHighA", "p1LowDivBackup",
+    # new14/new18 增量(老键: 5月族/下降期备选/greedy7/v4f)
+    "r10May6NonMay", "declinePhaseSpecial", "greedy7", "v4f",
+]
+# 明细覆盖交易日数(≥ SURFACE_DAYS=200 + 最大统计窗口 100 + 余量; 前端滚动窗口最长 100 日)
+RECENT_DAYS = 340
+# hs300 四档短码(明细行 tier 字段, 省体积: 中文档名 10B+ → 1 字符)
+_TIER_CODES = {"牛市·主升": 1, "上升期": 2, "下降期": 3, "熊市·主跌": 4}
+
+
+def load_market_tier_map():
+    """market_tier_history.json(export 链 queries.market_tier_history 同源产物) ->
+    (tier_map, ma60_map): {date: tier_str} / {date: bool}。文件缺失/损坏返回 ({}, {})。
+    供 recent 明细的 v1.1.2 四档判定(与 queries tier_of/ma60_bull_of 同源, §22)。"""
+    for p in (os.path.join(REPO, "static-site", "data", "market_tier_history.json"),
+              os.path.join(REPO, "data", "market_tier_history.json")):
+        if os.path.exists(p):
+            try:
+                with open(p, encoding="utf-8") as f:
+                    arr = json.load(f)
+                tier_map, ma60_map = {}, {}
+                for r in arr if isinstance(arr, list) else []:
+                    if r and r.get("date"):
+                        tier_map[str(r["date"])] = r.get("tier") or ""
+                        ma60_map[str(r["date"])] = bool(r.get("ma60_bull"))
+                return tier_map, ma60_map
+            except (json.JSONDecodeError, OSError):
+                return {}, {}
+    return {}, {}
+
+
+def _recent_map_lookup(m, date_str, default):
+    """<= date_str 最近日查找(对齐 queries._ai_macro_tier_at 的 bisect_right 语义)。"""
+    if not m:
+        return default
+    d = date_str
+    guard = 0
+    while d and guard < 40:
+        if d in m:
+            return m[d]
+        guard += 1
+        try:
+            dt = datetime(int(d[0:4]), int(d[4:6]), int(d[6:8]))
+            d = (dt - timedelta(days=1)).strftime("%Y%m%d")
+        except Exception:
+            return default
+    return default
+
+
+def load_loss_rules_recent():
+    """loss_rules.py 单源 + 特征序列(T1 20新键判定用; 与 queries._ai_macro_loss_rules 同源加载)。
+    返回 (module|None, feat_at)；module 缺失/特征缺失均降级(新键不打标, 不阻断主链路)。"""
+    try:
+        import importlib.util
+        mod_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "loss_rules.py")
+        spec = importlib.util.spec_from_file_location("loss_rules", mod_path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["loss_rules"] = mod
+        spec.loader.exec_module(mod)
+        feats = mod.load_features()   # static-site/data/kelly_loss_features.json(REPO 侧)
+        return mod, mod.make_feat_at(feats)
+    except Exception:
+        return None, (lambda name, date: None)
+
+
+def recent_hit_keys(date_str, signal, mkt, rating, ts, tier, ma60_bull, lr, feat_at):
+    """recent 明细行命中键判定(v1.1.2 四档口径, 逐字对齐 queries._ai_macro_hit_filters 信号级子集):
+    8键(excludeSpecialBear=四档) + bullAuxBackupStop + 备选键(legacyMa60/declinePhase;
+    excludeSpecialBearCyb 无 cyb tier 数据源不打标, 诚实降级) + T1 新键(loss_rules.rule_hit 单源)。
+    仅买信号守卫(MED3); tier 仅 A股类注入(对齐 queries L812); bpb/etf 组件降级跳过。返回键名列表。"""
+    _sig = signal or ""
+    if _sig not in _AI_MACRO_BUY_SIGNALS:
+        return []
+    _sig_n = "buy_special" if _sig == "buy_special_filtered" else _sig
+    _mm = date_str[4:6] if len(date_str) >= 8 else ""
+    try:
+        _dd = int(date_str[6:8])
+    except (ValueError, IndexError):
+        _dd = 0
+    _wd = _ai_weekday(date_str) if date_str else -1
+    _q = _ai_quarter(_mm)
+    _is_a = mkt in _AI_MACRO_A_STOCK_MARKETS
+    _tier = (tier or "") if _is_a else ""
+    _f = []
+    # 1 n2
+    if _sig_n == "buy_special" and _mm == "11" and mkt == "mkt_industry":
+        _f.append("n2NovSpecialIndustry")
+    # 2 excludeSpecialBear(v1.1.2 主键, 四档)
+    if _sig_n == "buy_special" and _is_a and _tier in ("熊市·主跌", "下降期"):
+        _f.append("excludeSpecialBear")
+    # 2b legacyMa60Special(备选, 老 MA60 语义)
+    if _sig_n == "buy_special" and _is_a and not ma60_bull:
+        _f.append("legacyMa60Special")
+    # 2c declinePhaseSpecial(备选, 下降期×buy_special×全市场)
+    if _sig_n == "buy_special" and _tier == "下降期":
+        _f.append("declinePhaseSpecial")
+    # 2d excludeSpecialBearCyb: 无 cyb tier 数据源, 明细不打标(诚实降级)
+    # 2e bullAuxBackupStop(+1 候选1: 牛市·主升×辅买/备买, 四档)
+    if _sig in ("buy_aux", "buy_backup") and _tier == "牛市·主升":
+        _f.append("bullAuxBackupStop")
+    # 2f k2c5HkChase
+    if _sig_n in ("buy_special", "buy_backup") and mkt == "mkt_hk":
+        _f.append("k2c5HkChase")
+    # 3 janMidRating / 4 janMidSpecial
+    if _mm == "01" and 11 <= _dd <= 20 and rating == "mid":
+        _f.append("janMidRating")
+    if _sig_n == "buy_special" and _mm == "01" and 11 <= _dd <= 20:
+        _f.append("janMidSpecial")
+    # 5 r7MayReinforced(bpb vlow 组件降级跳过)
+    if ((mkt == "mkt_a" and _mm == "05") or (rating == "mid" and _mm == "05")
+            or (_sig_n == "buy_special" and _mm == "11" and mkt == "mkt_industry")
+            or (_sig_n == "buy_special" and _mm == "11" and _wd == 0)):
+        _f.append("r7MayReinforced")
+    # 6 excludeAuxCross
+    if _sig_n == "buy_aux" and (_mm == "03" or _mm == "05"):
+        _f.append("excludeAuxCross")
+    # 7 greedy15(bpb/q 组件降级跳过, 与 queries L896-907 逐字同)
+    if ((_sig_n == "buy_special" and _mm == "05")
+            or (_sig_n == "buy_special" and _mm == "11" and mkt == "mkt_concept")
+            or (_sig_n == "buy_special" and _mm == "03")
+            or (_sig_n == "buy_aux" and _mm == "01")
+            or (_sig_n == "buy" and _mm == "01")
+            or (_mm == "03" and _wd == 2 and mkt == "mkt_concept" and rating == "low")
+            or (_sig_n == "buy_aux" and _mm == "12" and ts is not None and ts < 50)
+            or (_sig_n == "buy_aux" and _mm == "05")
+            or (_sig_n == "buy_special" and _mm == "11" and mkt == "mkt_industry")
+            or (_mm == "04" and _wd == 1 and mkt == "mkt_concept" and ts is not None and ts < 50)
+            or (mkt == "mkt_global" and _q == 1 and _sig_n == "buy_aux" and rating == "low")
+            or (_sig_n == "buy_special" and _mm == "09" and _wd == 2)):
+        _f.append("greedy15")
+    # new14/new18 增量老键(信号级可判组件; bpb/etf 组件降级跳过, 对齐 queries 降级原则)
+    if _mm == "05":
+        _f.append("r10May6NonMay")   # r10 组件1 {mm:"05"}
+    if _sig_n == "buy_special" and _mm == "11" and mkt == "mkt_industry":
+        _f.append("r10May6NonMay")   # r10 组件3
+    if _sig_n == "buy_special" and _mm == "11" and _wd == 0:
+        _f.append("r10May6NonMay")   # r10 组件4
+    if _sig_n == "buy_special" and _mm == "03" and mkt == "mkt_industry":
+        _f.append("r10May6NonMay")   # r10 组件6
+    if _mm == "03" and _wd == 2 and _sig_n == "buy_aux":
+        _f.append("r10May6NonMay")   # r10 组件7
+    if _sig_n == "buy_special" and _mm == "05":
+        _f.append("greedy7")   # greedy7 组件1
+    if _sig_n == "buy_special" and _mm == "11" and mkt == "mkt_concept":
+        _f.append("greedy7")   # 组件2
+    if _sig_n == "buy_special" and _mm == "03":
+        _f.append("greedy7")   # 组件3
+    if _sig_n == "buy_aux" and _mm == "01":
+        _f.append("greedy7")   # 组件4
+    if _sig_n == "buy" and _mm == "01":
+        _f.append("greedy7")   # 组件6
+    if _mm == "03" and _wd == 2 and mkt == "mkt_concept" and rating == "low":
+        _f.append("greedy7")   # 组件7
+    # v4f 组件 {buy,06,wd2,etf:related}: etf 相关性信号级不可判 → 整键降级不打标(new18 组集该键恒 false)
+    # T1 20 新键(loss_rules 单源; rating/ts 语义对齐 queries._ai_macro_hit_new_keys)
+    if lr is not None:
+        _c = {"sig": _sig, "mkt": lr.MKT_LONG2SHORT.get(mkt, ""), "tier": _tier,
+              "date": date_str, "smonth": _mm, "rating": rating or "", "ts": ts, "feat_at": feat_at}
+        _have = set(_f)
+        for _pk in lr.NEW_KEYS_PROD:
+            if _pk in _have:
+                continue
+            try:
+                if _pk in RECENT_KEYS and lr.rule_hit(_pk, _c):
+                    _f.append(_pk)
+            except Exception:
+                continue
+    # 只保留 RECENT_KEYS 集合内的键(老键判定产生的键若不在集合=组集用不到, 丢弃省体积)
+    return [k for k in _f if k in _RECENT_KEY_SET]
+
+
+_RECENT_KEY_SET = set(RECENT_KEYS)
+
+
+def build_recent_block(by_date_raw, close_map, trades_by_date_raw, grade_map, latest_signal, ctx,
+                       tier_map, ma60_map, lr, feat_at):
+    """近 RECENT_DAYS 日逐信号明细(前端 7 模式组集数据层)。
+
+    行结构(字段名压缩省体积):
+      d=signal_date  i=index_id  s=signal(买5类+卖2类; band_hold/情绪类对曲线无贡献不打)
+      g=实盘评级(grade_map high/mid/low|null, 实盘桶 by_grade 用)
+      t=track_score(ctx.ts_of(index 级 board_etf_map top1); null=未入样, 过滤判定+top-K 用)
+      tier=hs300四档短码(0=非A股类/无数据 1=牛市·主升 2=上升期 3=下降期 4=熊市·主跌)
+      k=命中键"|"-join(空串=无; v1.1.2 四档口径, 见 recent_hit_keys)
+      w=[A,F,G] 回测胜负 1/0(null=该 mode 无基笔; bucket_backtest_trades 同款 (mode,d,i,s) 去重)
+      gr=回测交易冻结 rating(high/mid/low|null, 回测桶 by_grade 用)
+      v=实盘胜负 1/0(null=不计入; bucket_actual 同款条件链: band_hold/非买非卖/未入样/无收盘/当日)
+    返回 {"days": RECENT_DAYS, "latest": latest_signal, "keys": RECENT_KEYS, "rows": [...]}。
+    """
+    all_dates = sorted(by_date_raw.keys())
+    recent_dates = set(all_dates[-RECENT_DAYS:]) if all_dates else set()
+    # 回测侧 w/gr: per (d, i, s) first-wins per mode(bucket_backtest_trades seen 去重同款)
+    bt_map = {}
+    for d in sorted(trades_by_date_raw.keys()):
+        if d not in recent_dates:
+            continue
+        seen = set()
+        for t in trades_by_date_raw.get(d, []):
+            mode = t.get("mode")
+            if mode not in AFG_MODES:
+                continue
+            key = (d, t.get("index_id"), t.get("signal"))
+            dk = (mode,) + key
+            if dk in seen:
+                continue
+            seen.add(dk)
+            ent = bt_map.setdefault(key, {"w": {}, "gr": None})
+            if mode not in ent["w"]:
+                ent["w"][mode] = 1 if (t.get("return_pct") or 0) > 0 else 0
+                # gr 守卫(与 bucket_backtest_trades by_grade 同款 in 校验): ⚠历史遗留(load_trades 硬编码
+                # FIELD 21 项 vs trades schema 实际 24 项——index20-22 为 market_tier 三兄弟, rating 在 23),
+                # t["rating"] 现读到 market_tier 字符串 → 校验不通过恒 None=诚实降级(前端组集 by_grade 回测
+                # 桶为空, 与现有 bank by_grade backtest 空曲线行为一致)。FIELD 修正属已上线行为变化,
+                # 按 §23.7⑤ 上报待用户确认, 不在本任务默认修。
+                if ent["gr"] is None and t.get("rating") in ("high", "mid", "low"):
+                    ent["gr"] = t.get("rating")
+    # 实盘侧 v: bucket_actual 单信号判定(条件链逐字对齐 L649-684)
+    latest_close = {}
+    for iid, m in close_map.items():
+        if m:
+            latest_close[iid] = m[max(m.keys())]
+    rows = []
+    for d in all_dates[-RECENT_DAYS:]:
+        for s in by_date_raw.get(d, []):
+            sig = s.get("signal")
+            iid = s.get("index_id")
+            is_sell = sig in SELL_SIGNALS
+            if not is_sell and sig not in _BUY_SIG_SET and sig != "buy_special_filtered":
+                continue  # band_hold/情绪类等: bucket_actual/过滤链均不计, 不打
+            # 实盘胜负(bucket_actual 条件链)
+            v = None
+            if sig == "band_hold":
+                v = None
+            else:
+                sig_n = "buy_special" if sig == "buy_special_filtered" else sig
+                is_sell_n = sig_n in SELL_SIGNALS
+                ok = True
+                if not is_sell_n:
+                    if sig_n not in BUY_SIGNALS or ctx.ts_of(iid) is None:
+                        ok = False
+                if ok:
+                    cm = close_map.get(iid)
+                    sig_close = cm.get(d) if cm else None
+                    today_close = latest_close.get(iid)
+                    if sig_close is None or today_close is None or d >= latest_signal:
+                        ok = False
+                    else:
+                        since_ret = (today_close - sig_close) / sig_close
+                        v = 1 if ((since_ret < 0) if is_sell_n else (since_ret > 0)) else 0
+            # 命中键(v1.1.2 四档)
+            mkt = ctx.mkt_of(iid)
+            rating = grade_map.get((iid, sig),
+                                   grade_map.get((iid, "buy_special" if sig == "buy_special_filtered" else sig), ""))
+            tier = _recent_map_lookup(tier_map, d, "")
+            ma60 = _recent_map_lookup(ma60_map, d, True)
+            keys = recent_hit_keys(d, sig, mkt, rating, ctx.ts_of(iid), tier, ma60, lr, feat_at)
+            bt = bt_map.get((d, iid, sig))
+            rows.append({
+                "d": d, "i": iid, "s": sig,
+                "g": rating if rating in ("high", "mid", "low") else None,
+                "t": ctx.ts_of(iid),
+                "tier": _TIER_CODES.get(tier, 0),
+                "k": "|".join(keys),
+                "w": [(bt or {}).get("w", {}).get(m) for m in AFG_MODES],
+                "gr": (bt or {}).get("gr"),
+                "v": v,
+            })
+    return {"days": RECENT_DAYS, "latest": latest_signal, "keys": RECENT_KEYS, "rows": rows}
+
+
 def filter_trades_by_date(trades_by_date, ctx, mode_filt=None):
     """过滤回测交易: 只保留 not signal_ai_filtered 的交易(仍按 mode 区分, 不破坏 A/F/G 差异)。
     回测 rating 用交易冻结值; track_score 用交易冻结值(优先)否则 ctx.ts_map。
@@ -1329,6 +1620,11 @@ def build_output(rebuild=False, dry_run=False):
                 "desc": "K档 × 降亏开关两开关独立(2026-08-16): by_k=全信号人口top-K, filtered_by_k=降亏过滤人口top-K(降亏开用)。排序口径=track_score DESC→评级→信号类型, 与首页AI建议top-K同源(§23.6)。K独立可用不依赖降亏开关。",
                 "k_allowed": [1, 2, 3, 4],
             },
+            "recent": {
+                "desc": "T3-2(2026-08-23) 近N日逐信号明细(每键命中标注+回测A/F/G胜负+实盘胜负), 供监控卡7模式下拉前端组集。键命中=v1.1.2四档口径(与首页/凯利同源); 老filtered bank仍为MA60口径(历史遗留待用户拍板)。信号级子集: price_bin/ETF相关性组件不可判降级跳过。",
+                "days": RECENT_DAYS,
+                "tier_codes": {"0": "非A股类/无数据", "1": "牛市·主升", "2": "上升期", "3": "下降期", "4": "熊市·主跌"},
+            },
         },
     }
     out["accuracy"] = bank_raw["accuracy"]
@@ -1336,6 +1632,20 @@ def build_output(rebuild=False, dry_run=False):
     out["filtered"] = bank_filt
     out["by_k"] = by_k
     out["filtered_by_k"] = filtered_by_k
+
+    # T3-2(2026-08-23) recent 明细块: 近 RECENT_DAYS 日逐信号打点(每键命中+回测/实盘胜负),
+    # 供前端监控卡 7 模式下拉组集(键命中是后端打的标记; 前端只组集所选模式的键集合,
+    # 聚合链一致性由 scripts/check_overfit_recent_parity.mjs 断言与 bank raw 口径逐位对照)。
+    try:
+        tier_map, ma60_map = load_market_tier_map()
+        lr_mod, lr_feat = load_loss_rules_recent()
+        out["recent"] = build_recent_block(by_date_raw, close_map, trades_by_date_raw, grade_map,
+                                           latest_signal, ctx, tier_map, ma60_map, lr_mod, lr_feat)
+        print(f"   recent 明细块: {len(out['recent']['rows'])} 行(近 {RECENT_DAYS} 日, "
+              f"{sum(1 for r in out['recent']['rows'] if r['k'])} 行带键)")
+    except Exception as e:  # noqa: BLE001
+        out["recent"] = None   # 明细失败不阻断主产物(前端回退现有 bank)
+        print(f"⚠ recent 明细块生成失败(前端回退现有 bank): {e}", file=sys.stderr)
 
     # 体积控制日志
     print(f"   accuracy.rolling.by_signal {[s for s in out['accuracy']['rolling']['by_signal']]}")
