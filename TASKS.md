@@ -51,7 +51,8 @@
 - [x] T0 调研完成(2026-08-23,报告 docs/kelly/toggle/ai-mode-dropdown-research-20260823.md):四消费点=①首页参考点③AI监控卡沿**后端预计算**延伸(queries.py `_ai_macro_hit_filters` L764/overfit bank),②sim弹窗④lab 沿**前端重放**延伸;三处独立化已就绪(a389)沿用。⚠️ **5 套模式(A/B/C/NEW14/NEW18)规则键在生产前后端零实现**:20 条新谓词需 Python+JS 双实现,15 条依赖特征数据通道(mine10_features 12 特征,gzip~300KB R2 懒加载)+分位阈值快照固化;9键零成本现成。
 - [x] T1 完成并上 main(2026-08-23,feat/ai-loss-keys-20 c54eb89a6→merge 5a299d243 + 收尾 feat/t1-followup→69b1a88c5):20 键规格单源 scripts/loss_rules.py RULE_SPECS+特征 JSON(kelly_loss_features.json 已上线 R2+主站 curl 200)+双端谓词(lab/app)+37 标签链扩展+§21 公示+check_data_integrity 兜底断言;reviewer PASS 零阻断;一致性抽查 89,100 判定 0 不一致、默认行为零漂移
 - [x] T2 完成并上 main(2026-08-23,c3f214a99→merge e1b4440c6):lab 凯利区新增「🧩 AI 降亏组成对比」折叠区(默认收起+展开态持久化),7 方案卡=短标语+口径红字标注+97 键构成 chip(金基座/绿叠加/蓝重构)+权威数字尾行+§23.9 三档 tooltip;顺手纠速查卡 B_on9 恢复天数笔误(约200→json 权威 267 天)
-- [ ] T3 交互主体:单开关+模式下拉 7 种+四消费点接入+3+1 补漏(implementer worktree 隔离,依赖 T1)
+- [x] T3-1 前端重放侧完成并上 main(2026-08-23,c7a9bdf82+B1修复 40ed3d5d9→merge 241a89d08):lab 页+sim 弹窗改「总开关+模式下拉 7 种」(默认 p8≡现网逐位一致),57 标签保留为自定义态(手动勾→⚙️自定义,点下拉→回预设);老 37 键迁 common.js `_KELLY_FADE_LEGACY_SPECS` 规格单源,parity 两步法 30098 行×115 集合 diff=0;reviewer PASS(B1 循环体错位已修)
+- [ ] T3-2 后端预计算侧进行中(worktree):首页技术分析参考点+AI 监控卡接模式下拉(每键命中标注→前端组集原则)+**AI 监控卡补齐「+1」开关**(用户拍板核心补漏)+首页第三份硬编码谓词迁移(reviewer 备注1);完成后走 T4
 
 ### 「3+1 处补漏」定案(2026-08-23 用户拍板,并入 T3/T4)
 > 用户原话:「3处已有的 +1 就是这个ai监控量化里 现在还停留在ai降亏过滤开关 没有同步前面的+1多选 这次直接对齐其他3处做 一样的交互」+ 全选三项附加。
