@@ -2854,6 +2854,23 @@ def log_cost(repo: Path, cfg: dict, date: str, version: str, usage: dict | None,
         pass
 
 
+def _sync_warn_extra(tag: str, out: str, err: str = "") -> str:
+    """子进程同步输出中的 ⚠/✗ 告警明细行拼接(2026-08-23 P1-E3 防再犯)。
+
+    只打 splitlines()[-1] 汇总末行的旧写法曾把 upload_r2 purge_cache 部分失败的
+    批次 HTTP status/异常明细吃掉(rc=0 但 ⚠ 行在 stdout 中段), 排障只见汇总不见
+    原因; 同款问题 fetch_news.py 已修(commit 801de1632), 本函数把 gen_daily_brief
+    同族(upload_to_r2/staticdata_sync)一并收口。stderr 一并扫(upload_r2 的 purge
+    重试告警走 stderr)。返回 "\\n[tag]   行" 逐行拼接串, 无告警返回空串。
+    """
+    lines: list[str] = []
+    for chunk in (out, err):
+        if chunk:
+            lines.extend(chunk.splitlines())
+    warns = [l.strip() for l in lines if ("⚠" in l or "✗" in l)]
+    return "".join(f"\n[{tag}]   {l}" for l in warns)
+
+
 # ── R2 上传(数据走 R2,上传后前端可读)─────────────────────────────────────
 def upload_to_r2(repo: Path, no_upload: bool, files: list[str] | None = None) -> None:
     """上传 daily_brief*.json 到 R2 data/ 前缀 + purge edge cache。
@@ -2875,7 +2892,9 @@ def upload_to_r2(repo: Path, no_upload: bool, files: list[str] | None = None) ->
         out = (r.stdout or b"").decode("utf-8", errors="replace").strip()
         err = (r.stderr or b"").decode("utf-8", errors="replace").strip()
         if r.returncode == 0 and out:
-            print(f"[R2] {out.splitlines()[-1]}")
+            # P1-E3: 汇总末行之外, 全部 ⚠/✗ 告警明细行一并打印(purge 部分失败批次
+            # 明细不再被 splitlines()[-1] 吃掉; 同 fetch_news.py 801de1632 修法)
+            print(f"[R2] {out.splitlines()[-1]}{_sync_warn_extra('R2', out, err)}")
         else:
             print(f"⚠ R2 上传 rc={r.returncode} {out[-300:] if out else ''} {err[-300:] if err else ''}")
     except Exception as e:
@@ -2906,7 +2925,10 @@ def staticdata_sync(repo: Path, no_upload: bool, files: list[str] | None = None)
         out = (r.stdout or b"").decode("utf-8", errors="replace").strip()
         err = (r.stderr or b"").decode("utf-8", errors="replace").strip()
         if r.returncode == 0 and out:
-            print(f"[staticdata] {out.splitlines()[-1]}")
+            # P1-E3 举一反三: staticdata_sync 与 upload_to_r2 同款只打末行写法,
+            # 同步失败的 ⚠ 明细行(best-effort rsync/cp/commit 失败)同样会被吃掉
+            print(f"[staticdata] {out.splitlines()[-1]}"
+                  f"{_sync_warn_extra('staticdata', out, err)}")
         elif r.returncode != 0:
             print(f"⚠ staticdata 同步 rc={r.returncode} {out[-300:] if out else ''} {err[-300:] if err else ''}")
     except Exception as e:

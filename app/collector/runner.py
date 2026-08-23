@@ -26,22 +26,47 @@ def _now():
     return dt.datetime.now().isoformat()
 
 
+def _notify_fail_trace(subject: str, detail: str) -> None:
+    """告警发送失败的落痕双通道（P1-E4，2026-08-23）。
+
+    ① collect_log DB 行（metric_id=alert_notify）——log 扫描层/memory
+      monitor-blindspot-exit0 可兜；② stderr 打印——进 launchd 重定向日志。
+    落痕本身再失败只保留 stderr（已打出），不再向上放大阻塞采集。
+    """
+    print(f"[alert-notify] 告警发送失败 subject={subject!r} {detail}",
+          file=sys.stderr, flush=True)
+    try:
+        log_collect(dt.datetime.now().strftime("%Y%m%d"), "alert_notify", "error",
+                    f"{subject} | {detail}")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _notify(subject: str, body: str, *, dedup_key: str, dedup_window: int = 86400):
     """subprocess 调 scripts/notify.py 发告警（邮件+TG+飞书），失败不抛异常。
 
     2026-08-14 reviewer FAIL P3-②：覆盖率<95% 等采集异常仅 fail+=1 进日志不达用户，
     此处走 notify.py 触发通知。--dedup-key 一天一次防轰炸（same 日不重复告警）。
+    2026-08-23 P1-E4（docs/bug-pattern-site-audit-20260823.md E 族）：原
+    stdout/stderr 双 DEVNULL + except pass，告警通道自身故障时零痕迹——恰在
+    最需要告警的时刻失聪。改为捕获子进程输出与返回码，非 0/异常/超时经
+    _notify_fail_trace 落双通道痕迹；成功仍静默，主功能行为不变（check=False
+    不阻塞采集、timeout=60 不变）。
     """
     try:
-        subprocess.run(
+        r = subprocess.run(
             [sys.executable, str(_NOTIFY_PY), subject, body,
              "--severe", "--from-prefix", "[告警]",
              "--dedup-key", dedup_key, "--dedup-window", str(dedup_window)],
             timeout=60, check=False,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            capture_output=True, text=True,
         )
-    except Exception:  # noqa: BLE001  通知失败不阻塞采集
-        pass
+    except Exception as e:  # noqa: BLE001  通知失败不阻塞采集，但必须留痕
+        _notify_fail_trace(subject, f"subprocess 异常 {type(e).__name__}: {e}")
+        return
+    if r.returncode != 0:
+        tail = (((r.stderr or "") + " " + (r.stdout or "")).strip())[-300:]
+        _notify_fail_trace(subject, f"rc={r.returncode} {tail}")
 
 
 def _want(steps, name):

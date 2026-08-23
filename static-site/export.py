@@ -700,6 +700,117 @@ def export_public_fund_position_estimate():
     return queries.public_fund_position_estimate()
 
 
+# ============ 导出产物清单·单一事实源(P1-D2, 2026-08-23)============
+# scripts/check_data_integrity.py check_export_manifest 以本清单为唯一权威做
+# 「export 导出面 ⟺ static-site/data/ 本地在位」全量断言(E16 防新数据类别
+# 「生成了没上线」静默缺失盲区, 排查报告 docs/bug-pattern-site-audit-20260823.md D 族)。
+# 新增导出类别时: 在 build_export_manifest() 登记一行即自动纳入校验; main() 末尾
+# manifest_alignment_check() 会把本次实际导出键与清单对账, 未登记/过期都打 ⚠,
+# 清单自身不会漂移。校验脚本经 importlib 动态加载本模块取清单(不在对方文件抄
+# 第二份字面量)。
+#
+# 缺失处置分级: 默认缺失=FAIL(每日必有, export 能跑完必然生成); 仅
+# EXPORT_MANIFEST_WARN 内条目缺失=WARN(设计内可缺)。
+TAB_EXPORTER_FUNCS = {
+    "a-stock": export_a_stock,
+    "hk": export_hk,
+    "global": export_global,
+    "sentiment": export_sentiment,
+    "industry": export_industry,
+}
+
+# 设计内可缺(WARN): signal_kelly_backtest.py 以 subprocess 调用, 失败不阻塞 export,
+# 前端 fallback null(main() 7.9.2 段注释即依据); trades 件由该脚本附带产出(R2 类)。
+EXPORT_MANIFEST_WARN = {
+    "signal_kelly_backtest.json": "subprocess 失败不阻塞 export, 前端 fallback null(设计内可缺)",
+    "signal_kelly_trades.json": "signal_kelly_backtest.py 附带产出(R2 类), 同上设计内可缺",
+}
+
+# 目录/动态名产物(glob 相对 static-site/data/): 文件名含运行期变量(cfg enabled
+# indices / 31 行业), 按目录族校验「至少有文件」而非逐名。
+EXPORT_MANIFEST_DIR_GLOBS = (
+    "index/*-all.json",              # cfg.indices enabled 动态(44 个指数全历史)
+    "industry-all-indices/*.json",   # 31 行业拆分(all range 另含 *-detail.json)
+    "industry-5y-indices/*.json",
+    "industry-3y-indices/*.json",
+)
+
+
+def build_export_manifest() -> dict[str, str]:
+    """导出产物全量清单: {json 文件名: 生成条件一句话}(单一事实源, 见上段注释)。"""
+    m: dict[str, str] = {}
+    for name in TAB_EXPORTER_FUNCS:
+        for rng in EXPORT_RANGES:
+            if name == "industry" and rng in ("all", "5y", "3y"):
+                continue  # industry all/5y/3y 为拆分目录(concepts/meta/indices), 见下
+            m[f"{name}-{rng}.json"] = f"tab {name} × range {rng}(main 循环)"
+    m["global-extras-all.json"] = "global-all 循环附带轻量版(extras 四件套)"
+    for rng in ("all", "5y", "3y"):
+        m[f"industry-{rng}-concepts.json"] = f"industry-{rng} 拆分(概念+当日实时行)"
+        m[f"industry-{rng}-meta.json"] = f"industry-{rng} 拆分(热力图 meta)"
+    m["overview.json"] = "main 必更白名单首件"
+    m["boot.json"] = "main 末尾 export_boot 合并首屏 11 JSON"
+    m["intraday_snapshot.json"] = "盘中实时快照, 盘后 export 也从 DB 最新行重写"
+    m["futures.json"] = "futures_position 采集表日更"
+    m["futures_acc_trend.json"] = "期货同向准确度每日趋势"
+    m["futures_acc_conclusion.json"] = "期货准确度规律结论(4 规律+触发状态)"
+    m["ad_line.json"] = "腾落线+涨跌家数比派生"
+    m["volume_ratio.json"] = "量比分布"
+    m["position.json"] = "持仓快照"
+    m["summary.json"] = "每日总结"
+    m["summary_history.json"] = "总结历史(读旧件合并重写)"
+    m["signal_freq.json"] = "信号频次统计"
+    m["signal_stats.json"] = "per-index 回测统计(_get_stats 现算)"
+    m.update(EXPORT_MANIFEST_WARN)  # WARN 级也入清单(存在性检查降级为 WARN)
+    m["rotation.json"] = "行业轮动"
+    m["new_high_low.json"] = "新高新低"
+    m["ma_alignment.json"] = "均线多排"
+    m["market_tier_history.json"] = "沪深300 四档大盘状态全历史"
+    for rng in EXPORT_RANGES:
+        m[f"etf_national_team-{rng}.json"] = f"国家队 6 range 拆分(range {rng})"
+    m["etf_national_team_quarterly.json"] = "国家队季度汇总"
+    m["etf_national_team_holders.json"] = "国家队具名持有人(v2)"
+    for k in (
+        "public_fund_summary", "public_fund_holdings", "public_fund_industry",
+        "public_fund_top20", "public_fund_asset_alloc", "public_fund_industry_fund_map",
+        "public_fund_manuf_subind_fund_map", "public_fund_position_backtest",
+        "public_fund_scale_change_ts", "public_fund_industry_rotation_ts",
+        "public_fund_position_estimate", "public_fund_sw_industry_alloc",
+    ):
+        m[f"{k}.json"] = "公募基金 queries 薄包装(public_fund.db 直连无容错, export 跑完必生成)"
+    return m
+
+
+EXPORT_MANIFEST: dict[str, str] = build_export_manifest()
+
+
+def manifest_alignment_check(counts: dict) -> tuple[list[str], list[str]]:
+    """main() 实际导出键 vs EXPORT_MANIFEST 清单对账(防清单自身漂移,P1-D2 自守)。
+
+    返回 (missing, extra):
+      missing = 清单登记但本次未导出(WARN 级设计内可缺不计; 目录族按前缀命中判定);
+                非 0 时可能是清单过期或生成链断裂;
+      extra   = 本次导出了但清单未登记 -> check_data_integrity 校验不到, 提醒补登记。
+    """
+    prefixes = tuple(p.split("*")[0] for p in EXPORT_MANIFEST_DIR_GLOBS)
+    actual_names: set[str] = set()
+    dir_hits: set[str] = set()
+    for k in counts:
+        if k.startswith(prefixes):
+            for p in EXPORT_MANIFEST_DIR_GLOBS:
+                if k.startswith(p.split("*")[0]):
+                    dir_hits.add(p)
+                    break
+        else:
+            actual_names.add(k)
+    missing = sorted(
+        [f for f in EXPORT_MANIFEST
+         if f not in actual_names and f not in EXPORT_MANIFEST_WARN]
+        + [p for p in EXPORT_MANIFEST_DIR_GLOBS if p not in dir_hits])
+    extra = sorted(actual_names - set(EXPORT_MANIFEST))
+    return missing, extra
+
+
 # ============ JSON 序列化 + 写盘 ============
 
 def _json_default(o):
@@ -1011,15 +1122,9 @@ def main():
     counts["overview.json"] = write_json(DATA_DIR / "overview.json", export_overview(conn, cfg))
     print(f"  overview.json ({counts['overview.json']} bytes)")
 
-    # 2-6. tab 端点 × 5 ranges
-    tab_exporters = {
-        "a-stock": export_a_stock,
-        "hk": export_hk,
-        "global": export_global,
-        "sentiment": export_sentiment,
-        "industry": export_industry,
-    }
-    for name, fn in tab_exporters.items():
+    # 2-6. tab 端点 × 5 ranges(端点映射用模块级 TAB_EXPORTER_FUNCS, 与 EXPORT_MANIFEST
+    # 清单同源, 防新增 tab 时清单漏登记 -> check_data_integrity 校验不到)
+    for name, fn in TAB_EXPORTER_FUNCS.items():
         for rng in EXPORT_RANGES:
             if name == "industry" and rng in ("all", "5y", "3y"):
                 continue  # industry-all/5y/3y 拆分为多文件（见下方），避免大单文件拖慢首屏
@@ -1235,6 +1340,17 @@ def main():
     if incremental:
         _save_manifest(current_fresh)
 
+    # P1-D2(2026-08-23): 实际导出 vs EXPORT_MANIFEST 清单对账, 防清单自身漂移。
+    # extra=新增导出未登记(check_data_integrity 将校验不到, 提醒补 build_export_manifest);
+    # missing=登记了但本次没导出(WARN 级设计内可缺不计), 可能是清单过期或生成链断裂。
+    _m_missing, _m_extra = manifest_alignment_check(counts)
+    if _m_extra:
+        print(f"⚠ EXPORT_MANIFEST 未登记的新导出产物(请补 build_export_manifest, "
+              f"否则完整性校验覆盖不到): {_m_extra}", flush=True)
+    if _m_missing:
+        print(f"⚠ EXPORT_MANIFEST 登记但本次未导出(清单过期? 或生成链断裂): {_m_missing}",
+              flush=True)
+
     total_files = len(counts) + len(all_indices)
     total_bytes = sum(counts.values())
     print(f"\n导出完成：{len(counts)} 个 JSON 文件，{total_bytes / 1024 / 1024:.1f} MB")
@@ -1246,7 +1362,9 @@ def main():
 
     # P1-8: 合并首屏 11 个小 JSON 到 boot.json
     # 前端首屏单 fetch boot.json 分发，请求数 22 -> 1。详见 export_boot() 注释。
-    export_boot()
+    # review R1(2026-08-23): 写盘进 counts 与 EXPORT_MANIFEST 登记对齐, 否则
+    # manifest_alignment_check 全量成功也常驻误报 missing=['boot.json'](狼来了效应)。
+    counts["boot.json"] = export_boot()
 
     # 生成文件后自动走 R2 优化（用户规则：不等超 300MB 才发起）
     # EXPORT_SKIP_R2=1 时跳过（deploy.sh/intraday_snapshot.sh 自己跑 R2，避免重复）
