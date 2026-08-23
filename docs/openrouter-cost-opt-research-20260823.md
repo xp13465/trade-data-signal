@@ -78,7 +78,17 @@
 
 ## 六、待验证项(诚实标注)
 
-① ox-alpha 实际单价与缓存折扣(Activity 页可查,需登录);② Claude Code 是否自发 session_id/x-session-id(现版无证据,不影响默认哈希粘性);③ preset 能否覆盖消息级 cache TTL(大概率不能);④ **effort=max 对 ox-alpha 是否真生效(2026-08-23 更新,最重要)**:重启实测发现 settings.json 的 `CLAUDE_EFFORT` env **不控制 effort**(文件 max、进程仍 high,真入口=/model 面板)→ 待用户在面板调到 max 后,再做行为侧验证(同类任务 high/max 各跑几次,Activity 页对比 reasoning tokens 与耗时;无差异=模型忽略参数无害白设;400 则回退 high)。⑤ Anthropic Skin 对 `output_config.effort` 字段的透传行为(关联 memory `claude-code-output-config-effort-400`)。
+① ox-alpha 实际单价与缓存折扣(Activity 页可查,需登录);② Claude Code 是否自发 session_id/x-session-id(现版无证据,不影响默认哈希粘性);③ preset 能否覆盖消息级 cache TTL(大概率不能);⑤ Anthropic Skin 对 `output_config.effort` 字段的透传行为(关联 memory `claude-code-output-config-effort-400`)。
+
+### ④ effort 参数对照实验(2026-08-23 已完成,直调 OR API,与 Claude Code 内部机制解耦)
+
+**方法**:新 key 直调 `openrouter.ai/api/v1/chat/completions`,model=stealth/ox-alpha,同题只变 `reasoning.effort`,high/max 各多次。
+**结果**:
+1. **参数被接受**:无 400,行为真改变——同一道概率题 completion tokens:high 三次 441/531/575 vs max 三次 1231/1160/1235,**max 稳定为 high 的 2.3~2.8 倍**(系统性差异非采样波动);
+2. **正确率未测出差距**:6 道推理题(摸球概率/信箱容斥/不含7计数/欧拉多项式/三开关/阶乘末尾100个零)n=405,两档**全对**(该难度下模型已饱和,effort 的智力增量在中档题测不出);
+3. **⚠️ 新风险发现:max 档会打满 max_tokens**——12球称重题 high 1476 token 正常收尾,**max 打满 6000 上限被截断(finish=length)**。Claude Code 实际请求上限大(32k+)实战影响小,但小预算调用场景要防截断;
+4. **成本=0**:全程 cost=0(印证计次制),reasoning_tokens 计数不外显(completion_details.reasoning=0,思考不独立计道)。
+**结论**:effort 对 ox-alpha 是「真实生效但智力增量未证实」——确定的代价=更慢更啰嗦(输出翻倍),确定的收益=0 成本;是否带来复杂任务质量提升,靠日常重活(researcher/reviewer/主会话)体感观察,观察期 1~2 周再定去留。
 
 ## 七、配置变更台账(2026-08-23 落地,切换/回滚唯一对照表)
 
