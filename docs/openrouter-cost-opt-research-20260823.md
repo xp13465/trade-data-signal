@@ -78,7 +78,7 @@
 
 ## 六、待验证项(诚实标注)
 
-① ox-alpha 实际单价与缓存折扣(Activity 页可查,需登录);② Claude Code 是否自发 session_id/x-session-id(现版无证据,不影响默认哈希粘性);③ preset 能否覆盖消息级 cache TTL(大概率不能);④ **CLAUDE_EFFORT=max 对 ox-alpha 是否真生效(2026-08-23 新增,最重要)**:机制上 OR 透传 effort 参数,但 stealth 内部模型是否响应无文档承诺,**未经数据验证**(落地当天会话仍跑 high,settings 重启才生效)。验证法:重启后 `echo $CLAUDE_EFFORT` 确认注入成功 → 同类任务在 high/max 下各跑几次 → OR Activity 页开 generation 详情对比 reasoning tokens 与耗时;max 与 high 行为无差异=模型忽略该参数(无害白设);若出现 400(极小概率,关联 memory `claude-code-output-config-effort-400`)立即回滚 high。⑤ Anthropic Skin 对 `output_config.effort` 字段的透传行为(关联同上 memory)。
+① ox-alpha 实际单价与缓存折扣(Activity 页可查,需登录);② Claude Code 是否自发 session_id/x-session-id(现版无证据,不影响默认哈希粘性);③ preset 能否覆盖消息级 cache TTL(大概率不能);④ **effort=max 对 ox-alpha 是否真生效(2026-08-23 更新,最重要)**:重启实测发现 settings.json 的 `CLAUDE_EFFORT` env **不控制 effort**(文件 max、进程仍 high,真入口=/model 面板)→ 待用户在面板调到 max 后,再做行为侧验证(同类任务 high/max 各跑几次,Activity 页对比 reasoning tokens 与耗时;无差异=模型忽略参数无害白设;400 则回退 high)。⑤ Anthropic Skin 对 `output_config.effort` 字段的透传行为(关联 memory `claude-code-output-config-effort-400`)。
 
 ## 七、配置变更台账(2026-08-23 落地,切换/回滚唯一对照表)
 
@@ -86,11 +86,11 @@
 
 | # | 文件 | 位置 | 变更(旧→新) | 目的 | 切回方法 |
 |---|---|---|---|---|---|
-| 1 | `~/.claude/settings.json` | env.CLAUDE_EFFORT | (无显式键,运行时 high)→ `"max"` | 计次制下升智力 | 改回 `"high"`(或删行回到运行时默认) |
-| 2 | `~/.claude/settings.json` | permissions.deny | 新增 `["WebSearch"]` | 断 OR server tool 按次搜索计费 | 仅当不再走 OR 计费通道才删;换官方直连可解除 |
-| 3 | `~/.claude/settings.json` | env.ANTHROPIC_API_KEY | 新增 `""` 占位 | 防 shell 残留真 key 静默直连计费 | 永久保留(与模型无关) |
-| 4 | `~/.zshrc` + macOS keychain | ANTHROPIC_AUTH_TOKEN | settings.json 明文 → keychain(service=`claude-code-openrouter`)+ zshrc 启动取值 | 密钥安全 | 永久保留;401 第一步 `echo ${ANTHROPIC_AUTH_TOKEN:+ok}` |
-| 5 | `.claude/agents/implementer.md`、`tester.md` | frontmatter | 新增 `effort: medium` | 执行类(deepseek-v4-flash)防全局 max 透传拖慢 | 删行=继承全局 |
+| 1 | `~/.claude/settings.json` | env.CLAUDE_EFFORT | (无显式键)→ `"max"`,**【2026-08-23 重启实测:无效】**——文件为 max、进程 env 仍 high;新版 Claude Code 的 effort **不吃这个 env 变量**,运行值由 /model 面板(内部配置)决定并反向投影进 env | ~~计次制升智力~~ → 该键留文件里无害但不生效 | **真入口 = `/model` 面板调 effort 档位**(用户侧 UI;切回 flash 时同样在面板调回 high) |
+| 2 | `~/.claude/settings.json` | permissions.deny | 新增 `["WebSearch"]`,重启后已在位生效 | 断 OR server tool 按次搜索计费 | 仅当不再走 OR 计费通道才删;换官方直连可解除 |
+| 3 | `~/.claude/settings.json` | env.ANTHROPIC_API_KEY | `""` 占位 → **用户轮换后的新 key(明文,当前实际认证通路,2026-08-23 重启后认证正常)** | — | 当前工作通路,保留 |
+| 4 | `~/.zshrc` + macOS keychain | ANTHROPIC_AUTH_TOKEN | 明文迁 keychain(service=`claude-code-openrouter`)→ **keychain 已同步轮换后新 key;但 zshrc→AUTH_TOKEN 通路未接通**(claude 进程 AUTH_TOKEN 为空:Bash 非交互 shell 不 source zshrc) | 密钥安全备份+以后轮换只动一处 | 已知妥协项:认证暂靠 #3 明文;后续若收口需先验证启动终端对 zshrc 的依赖再切,不为整洁制造断供(§23.11 精神) |
+| 5 | `.claude/agents/implementer.md`、`tester.md` | frontmatter | 新增 `effort: medium`(是否对 deepseek-v4-flash 生效待观察) | 执行类防全局高档透传拖慢 | 删行=继承全局 |
 
 **未来切回 deepseek-v4-flash 主力时的对照清单(按序)**:
 1. **#1 必切**:`CLAUDE_EFFORT` max→**high**(flash 定位便宜快档,0.95 思考预算对它纯拖慢;OR 统一 reasoning 参数会向 flash 透传,实际行为差异届时实测)——high 就是原状态;
