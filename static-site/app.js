@@ -2100,7 +2100,7 @@ async function _appendOverfitCard(colA2, r, snap) {
       '<span class="overfit-fade-label" data-tip="降亏模式(T3-2 2026-08-23, 与凯利区/模拟回测弹窗同款7模式): p8=8键默认组合(≡现网, 对照基线) / 9键=8键+候选1 / A进攻王 / B均衡卡 / C防守=叠9键口径 / NEW14·NEW18=重构换基座。切换后监控两图按所选模式的降亏成员键组集重算(recent明细逐信号键命中标注, 后端打标)。仅 AI降亏过滤开关开启时生效; 老数据无明细时自动回退现有bank。">降亏模式</span>' +
       (typeof _tdsFadeModeSelectHTML === "function"
         ? _tdsFadeModeSelectHTML("overfit-fade-mode-sel", _readOverfitFadeMode(), false, "sim-mode-sel ov-mode-sel",
-            "AI降亏模式(7预设): 切换后准确率/风险分两图按所选模式重算。p8=8键默认(≡现网零变化); 9键/A/B/C=叠9键口径; NEW14/NEW18=重构换基座。⚠非p8口径为 v1.1.2 四档判定源(recent明细), 与老filtered bank的MA60口径存在 excludeSpecialBear 微差; price_bin/ETF相关性组件信号级不可判已降级跳过。")
+            "AI降亏模式(7预设): 切换后准确率/风险分两图按所选模式重算。p8=8键默认(≡现网零变化); 9键/A/B/C=叠9键口径; NEW14/NEW18=重构换基座。⚠非p8口径为 v1.1.2 四档判定源(recent明细), 与老filtered bank的MA60口径存在 excludeSpecialBear 微差; price_bin/ETF相关性组件信号级不可判已降级跳过(v4f 恒不命中); NEW18 北向流出×概念类(n2NorthOutConcept)已接入打标(2026-08-23 修复后端漏列), 评级维度回测曲线同步恢复出数(FIELD 列修复)。")
         : "") +
       '<label class="overfit-bullstop-lab" data-tip="牛市×辅备买全停(+1 候选1, 独立开关, 默认关; 2026-08-22 用户拍板对齐其他消费点同款交互): 牛市·主升(hs300四档)×信号∈{辅买buy_aux,备买buy_backup}→从监控人口剔除(AND叠加在当前模式之上, 可单独开)。开启后走 recent 明细组集(v1.1.2 四档口径), 关闭=零变化。与首页/凯利区/模拟回测弹窗各自独立。">' +
         '<input type="checkbox" data-overfit-bullstop="1"> <span>牛市×辅备买全停</span><span class="lab-sigkelly-toggle-new">NEW</span></label>' +

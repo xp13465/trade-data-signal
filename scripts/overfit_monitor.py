@@ -321,14 +321,15 @@ def load_trades():
         else:
             raise FileNotFoundError("signal_kelly_trades.json 未找到 (static-site/data/ 和 data/ 都没有)")
 
-    # trade_tier/字段: ['signal_date','index_id','signal','buy_date','sell_date','etf_code',
-    #   'etf_name','track_tier','track_score','match_method','track_low_confidence',
-    #   'buy_price','sell_price','shares','profit','return_pct','hold_days',
-    #   'sell_reason','current_price','market_state','rating']
+    # trade 行字段(2026-08-23 收尾修复): schema 实际 24 列, index20-22 为 market_tier 三兄弟
+    # (signal_kelly_backtest.py L469/L576-577: market_tier/market_tier_all/market_tier_cyb),
+    # rating 在 index 23。原硬编码 21 项缺这 3 列 → t["rating"] 读到 market_tier 字符串,
+    # by_grade 回测桶/评级类过滤键(janMidRating 等)全部静默失效(§23.7⑤ 上报后用户确认修)。
     FIELD = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code",
              "etf_name", "track_tier", "track_score", "match_method", "track_low_confidence",
              "buy_price", "sell_price", "shares", "profit", "return_pct", "hold_days",
-             "sell_reason", "current_price", "market_state", "rating"]
+             "sell_reason", "current_price", "market_state",
+             "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
     IDX = {f: i for i, f in enumerate(FIELD)}
 
     with open(p, encoding="utf-8") as f:
@@ -439,8 +440,11 @@ RECENT_KEYS = [
     "t1LowTurnSpecial", "q1QvixLowPct", "m1MarginDownBull", "v1HighVol20", "r1VolRatioLow",
     "k3ConceptBuy", "r2bSpecialGlobal", "r2gLowRatingQ3", "n1NorthOutflow", "d1LowDivYield",
     "h1VolChgHighA", "p1LowDivBackup",
-    # new14/new18 增量(老键: 5月族/下降期备选/greedy7/v4f)
-    "r10May6NonMay", "declinePhaseSpecial", "greedy7", "v4f",
+    # new14/new18 增量(老键: 5月族/下降期备选/greedy7/v4f + NEW18 北向流出×概念类)
+    #   n2NorthOutConcept 2026-08-23 收尾补列(reviewer 终审 FAIL 单点): 原 25 键漏列 →
+    #   recent_hit_keys 双重门控(_pk in RECENT_KEYS)致 NEW18 组集该键恒 false, 人口偏松。
+    #   补列后走 lr.rule_hit T1 分支自动判定(特征=north_d20, loss_rules.py N2 规格单源)。
+    "r10May6NonMay", "declinePhaseSpecial", "greedy7", "v4f", "n2NorthOutConcept",
 ]
 # 明细覆盖交易日数(≥ SURFACE_DAYS=200 + 最大统计窗口 100 + 余量; 前端滚动窗口最长 100 日)
 RECENT_DAYS = 340
@@ -489,7 +493,10 @@ def _recent_map_lookup(m, date_str, default):
 
 def load_loss_rules_recent():
     """loss_rules.py 单源 + 特征序列(T1 20新键判定用; 与 queries._ai_macro_loss_rules 同源加载)。
-    返回 (module|None, feat_at)；module 缺失/特征缺失均降级(新键不打标, 不阻断主链路)。"""
+    返回 (module|None, feat_at)；module 缺失/特征缺失均降级(新键不打标, 不阻断主链路)。
+    ⚠特征文件显式走 REPO 双路回退(2026-08-23 收尾修复): loss_rules.load_features 默认按自身位置
+    ../static-site/data 找, worktree/异 cwd 跑会静默落空 → T1 特征类新键全部不打标(组集人口偏松,
+    无报错难察觉)。与 load_market_tier_map/load_trades 同款 REPO 回退风格根治。"""
     try:
         import importlib.util
         mod_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "loss_rules.py")
@@ -497,7 +504,12 @@ def load_loss_rules_recent():
         mod = importlib.util.module_from_spec(spec)
         sys.modules["loss_rules"] = mod
         spec.loader.exec_module(mod)
-        feats = mod.load_features()   # static-site/data/kelly_loss_features.json(REPO 侧)
+        feats = None
+        for fp in (os.path.join(REPO, "static-site", "data", "kelly_loss_features.json"),
+                   os.path.join(REPO, "data", "kelly_loss_features.json")):
+            if os.path.exists(fp):
+                feats = mod.load_features(fp)
+                break
         return mod, mod.make_feat_at(feats)
     except Exception:
         return None, (lambda name, date: None)
@@ -647,11 +659,10 @@ def build_recent_block(by_date_raw, close_map, trades_by_date_raw, grade_map, la
             ent = bt_map.setdefault(key, {"w": {}, "gr": None})
             if mode not in ent["w"]:
                 ent["w"][mode] = 1 if (t.get("return_pct") or 0) > 0 else 0
-                # gr 守卫(与 bucket_backtest_trades by_grade 同款 in 校验): ⚠历史遗留(load_trades 硬编码
-                # FIELD 21 项 vs trades schema 实际 24 项——index20-22 为 market_tier 三兄弟, rating 在 23),
-                # t["rating"] 现读到 market_tier 字符串 → 校验不通过恒 None=诚实降级(前端组集 by_grade 回测
-                # 桶为空, 与现有 bank by_grade backtest 空曲线行为一致)。FIELD 修正属已上线行为变化,
-                # 按 §23.7⑤ 上报待用户确认, 不在本任务默认修。
+                # gr 守卫(与 bucket_backtest_trades by_grade 同款 in 校验): 2026-08-23 收尾修复——
+                # 原历史遗留=load_trades FIELD 21 项 vs trades schema 24 项(rating 实在 index 23),
+                # t["rating"] 读到 market_tier 字符串 → 校验恒 None(by_grade 回测桶空+评级类过滤键失效)。
+                # FIELD 已补齐 market_tier 三兄弟(§23.7⑤ 上报后用户确认修), gr 正常取冻结评级。
                 if ent["gr"] is None and t.get("rating") in ("high", "mid", "low"):
                     ent["gr"] = t.get("rating")
     # 实盘侧 v: bucket_actual 单信号判定(条件链逐字对齐 L649-684)

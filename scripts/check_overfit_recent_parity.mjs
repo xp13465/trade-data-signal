@@ -13,18 +13,19 @@
  *         E K档: k=1 每日买类保留 ≤1; 卖类信号维度桶无点(kept 剔除非保留行含卖类)
  *         F derive 分段映射抽查: 构造已知 dev 输入逐点断言(40/22.5/30/60/85 五段+clamp)
  *         G trim 裁剪: 序列长度 >200 时截尾 200
- * 【输入】env RECENT_JSON(默认 /tmp/overfit_test2.json)。生成方式(只读生产源+输出独立,
- *         memory unreleased-feature-isolation; worktree 缺 gitignored 特征文件故指向主仓库同份):
+ *         H 完整性(2026-08-23 补, 根治 new18 缺键类): 7 模式 keys ∪ bullAuxBackupStop ⊆ recent.keys,
+ *           防后端 RECENT_KEYS 漏列致组集缺键(reviewer 终审 FAIL 单点的机器断言化)
+ * 【输入】env RECENT_JSON(默认 /tmp/overfit_test3.json)。生成方式(只读生产源+输出独立,
+ *         memory unreleased-feature-isolation; 特征文件已由 load_loss_rules_recent 显式走 REPO
+ *         双路回退, worktree 直跑即可打全 T1 特征键, 无需再 monkeypatch):
  *   python3 - <<'EOF'
  *   import importlib.util, sys
  *   spec = importlib.util.spec_from_file_location("ovm", "scripts/overfit_monitor.py")
  *   m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
- *   m.OUT_JSON = "/tmp/overfit_test2.json"       # 输出指 /tmp, 不触生产产物
- *   sys.argv = ["overfit_monitor.py", "--dry-run"]  # dry-run 不发通知不上 R2
+ *   m.OUT_JSON = "/tmp/overfit_test3.json"       # 输出指 /tmp, 不触生产产物
+ *   sys.argv = ["overfit_monitor.py", "--dry-run"]  # ⚠必须 --dry-run, 漏加会真发告警邮件
  *   m.main()
  *   EOF
- *   (worktree 内跑 T1 特征键会因缺 kelly_loss_features.json 降级不打标——生产 trade-data 树有该文件不受影响;
- *    要补齐特征键验证可临时 monkeypatch load_loss_rules_recent 指主仓库, 见会话进度 /tmp/agent-progress-t3-2.md)
  * 【复现】node scripts/check_overfit_recent_parity.mjs          (默认路径)
  *         RECENT_JSON=/path/overfit.json node scripts/check_overfit_recent_parity.mjs
  */
@@ -33,7 +34,7 @@ import path from "node:path";
 import vm from "node:vm";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
-const RECENT_JSON = process.env.RECENT_JSON || "/tmp/overfit_test2.json";
+const RECENT_JSON = process.env.RECENT_JSON || "/tmp/overfit_test3.json";
 
 // --- 切片提取(同 check_fade_predicate_parity.mjs) ---
 function sliceDecl(src, name) {
@@ -317,6 +318,40 @@ check("A 结构: overfit.daily_by_win/daily_by_dim",
 // ---- G trim 裁剪 ----
 check("G daily_by_win 15 序列 ≤200 点", (a9.overfit.daily_by_win["15"] || []).length <= 200,
   `len=${(a9.overfit.daily_by_win["15"] || []).length}`);
+
+// ---- H 完整性: 所有模式 keys ∪ 独立开关键 ⊆ recent.keys(2026-08-23 补, new18 缺键根治) ----
+// 后端 RECENT_KEYS 漏列某键时 recent_hit_keys 双重门控静默不打标 → 该键组集恒 false,
+// 组集人口偏松且无报错。本断言把「common.js 预设增改模式时 RECENT_KEYS 必须同步」纪律
+// (overfit_monitor.py 同步纪律注释)机器化: 任一模式任一键缺失即 FAIL。
+{
+  const rk = new Set(recent.keys || []);
+  const modes = vm.runInContext("_KELLY_FADE_MODE_PRESETS", ctx);
+  const miss = [];
+  for (const m of (Array.isArray(modes) ? modes : Object.values(modes))) {
+    for (const k of (m.keys || [])) if (!rk.has(k)) miss.push(`${m.id || "?"}:${k}`);
+  }
+  if (!rk.has("bullAuxBackupStop")) miss.push("+1开关:bullAuxBackupStop");
+  check("H 7模式 keys ∪ bullstop 全部 ⊆ recent.keys(缺键即组集恒 false)", miss.length === 0,
+    miss.length ? "缺=" + miss.join(", ") : `全齐(recent.keys=${rk.size}键, 含 NEW18 n2NorthOutConcept)`);
+}
+
+// ---- I FIELD 修复验证(2026-08-23 用户确认修): by_grade 回测桶出数 + gr 值域合法 ----
+// 历史遗留=load_trades FIELD 21 项(rating 错读到 market_tier 字符串)→ by_grade 回测桶恒空。
+// 修复后: ①recent 行 gr ∈ {high,mid,low,null} 且非 null 占比 >0; ②组集 by_grade 回测序列非空。
+{
+  const GR = new Set(["high", "mid", "low"]);
+  let grN = 0, grBad = 0;
+  for (const r of recent.rows) {
+    if (r.gr == null) continue;
+    if (GR.has(r.gr)) grN++; else grBad++;
+  }
+  check("I1 recent.gr 值域 ⊆ {high,mid,low}(无 market_tier 字符串混入)", grBad === 0 && grN > 0,
+    `合法=${grN} 非法=${grBad}`);
+  const bg = agg("p8", false, true, null).accuracy.rolling.by_grade || {};
+  const btLens = ["high", "mid", "low"].map((g) => ((bg[g] || {}).backtest || {})["15"]?.length || 0);
+  check("I2 组集 by_grade 回测桶出数(high/mid/low 序列非空)", btLens.every((l) => l > 0),
+    `len high/mid/low=${btLens.join("/")}`);
+}
 
 console.log(`\n[ov-parity] 总结: ${fails.length === 0 ? "PASS ✅" : "FAIL ❌ " + fails.join(", ")}`);
 process.exit(fails.length === 0 ? 0 : 1);
