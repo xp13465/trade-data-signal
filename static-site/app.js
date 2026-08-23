@@ -2289,7 +2289,8 @@ function _readHomeFadeFlag() {
 }
 // ===== (2026-08-22 用户拍板) 新降亏键「牛市×辅备买全停」首页侧 =====
 // 首页独立开关读 localStorage tds_home_bull_aux_backup_stop(默认关; 2026-08-22 二次变更各处独立:
-// 只管首页 AI 建议+同链技术分析参考点区块, 与 lab 凯利区/模拟回测弹窗开关互不影响; 独立作用域命名照 tds_home_fade 族);
+// 只管首页 AI 建议+同链技术分析参考点区块, 与 lab 凯利区互不影响; 模拟回测弹窗 2026-08-23 起无独立勾选、
+// 由其模式下拉 9键 套用; 独立作用域命名照 tds_home_fade 族);
 // tier 数据= R2 market_tier_history.json 模块级缓存(date→hs300四档, 与 _renderTierTimelinePanel 同源同 URL);
 // 判定= 信号∈{buy_aux,buy_backup} × 该信号日四档=牛市·主升 → 命中(等价 lab.js _kellyPassesFadeFilters bullAuxBackupStop 分支, §22 同源)。
 // tier map 未加载/日期缺失时保守放行不拦(宁漏勿误, 盘中新信号 date 不在文件内不误杀), 加载完成后触发一次重绘补上视觉区分。
@@ -2366,9 +2367,10 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
   // 2026-08-13 hoverpop 升级: K 按钮组复用凯利区评级表格 hoverpop(共享 common.js _aiPoscapRatingPopHtml/_bindAiPoscapRatePop, §22 两处数据一致)
   const _ratingPop = (window._aiPoscapRatingPopHtml ? window._aiPoscapRatingPopHtml() : "");
   // (2026-08-22 用户拍板) 新降亏键独立开关: 默认关🆕NEW, 首页独立键 tds_home_bull_aux_backup_stop;
-  // (2026-08-22 二次变更) 各处独立: 只管首页 AI 建议+同链技术分析参考点区块, 与 lab 凯利区/模拟回测弹窗互不影响;
+  // (2026-08-22 二次变更) 各处独立: 只管首页 AI 建议+同链技术分析参考点区块, 与 lab 凯利区互不影响
+  // (模拟回测弹窗 2026-08-23 起由模式下拉 9键 套用该键, 无独立勾选);
   // 开启=命中「牛市·主升×辅买/备买」的买入信号灰显+删除线+标注AI降亏(与 8 键同视觉链), 关闭=零变化
-  const _bullSw = `<label class="sig-switch-lab sig-switch-bullstop" data-no-pop="" title="牛市×辅备买全停(A-F短线口径, 默认关 🆕NEW, 2026-08-22 用户拍板): 牛市·主升(hs300四档)×信号∈{辅买buy_aux,备买buy_backup}→该买入信号灰显+删除线+标注AI降亏、不占AI建议位。白话: 牛市主升末段(MA排列滞后判定已走一大段后)的低质量买入(辅买/备买)是历史稳定毒药, 开启后全史 +66,530→+73,103(改善+6,573; 理想对照=被拦笔直接消失口径 +9,895)。场景: 5-8月连亏想减亏时开启实测; 无命中信号时列表无变化属正常。1:1举例: 2026年5-8月 mode A K1 基线 50笔 -5,166 → 开启后 41笔 -1,030(补位口径=前端真实链路); 2026全年 +5,626 → +7,490(理想对照 +10,596)。⚠口径说明: 实测显示的是补位口径(被拦天的次优信号自动顶上), 与理想对照略有差异(理想对照: 5-8月 -256)。诚实标注: 近1/2/3/5年五窗全改善(+16,653/+43,084/+45,839/+36,503); 变差年4个(理想对照口径)合计 -5,825(2014/-938、2018/-2,109、2020/-2,039、2025/-739 均牛市年边缘利润)。适用口径: 仅 A-F 短线(G/H/I 长线模式不套用); 首页信号网格无模式维度, 全部按短线口径判定。默认关不入默认组合(§23.7), 未来若并入默认组合走版本升级流程(§5.4⑥)。各处独立: 本开关只管首页(lab 凯利区/模拟回测弹窗各有独立开关, 互不影响)。数据支撑: docs/kelly/analysis/sim-window-loss-mining-20260822.md">` +
+  const _bullSw = `<label class="sig-switch-lab sig-switch-bullstop" data-no-pop="" title="牛市×辅备买全停(A-F短线口径, 默认关 🆕NEW, 2026-08-22 用户拍板): 牛市·主升(hs300四档)×信号∈{辅买buy_aux,备买buy_backup}→该买入信号灰显+删除线+标注AI降亏、不占AI建议位。白话: 牛市主升末段(MA排列滞后判定已走一大段后)的低质量买入(辅买/备买)是历史稳定毒药, 开启后全史 +66,530→+73,103(改善+6,573; 理想对照=被拦笔直接消失口径 +9,895)。场景: 5-8月连亏想减亏时开启实测; 无命中信号时列表无变化属正常。1:1举例: 2026年5-8月 mode A K1 基线 50笔 -5,166 → 开启后 41笔 -1,030(补位口径=前端真实链路); 2026全年 +5,626 → +7,490(理想对照 +10,596)。⚠口径说明: 实测显示的是补位口径(被拦天的次优信号自动顶上), 与理想对照略有差异(理想对照: 5-8月 -256)。诚实标注: 近1/2/3/5年五窗全改善(+16,653/+43,084/+45,839/+36,503); 变差年4个(理想对照口径)合计 -5,825(2014/-938、2018/-2,109、2020/-2,039、2025/-739 均牛市年边缘利润)。适用口径: 仅 A-F 短线(G/H/I 长线模式不套用); 首页信号网格无模式维度, 全部按短线口径判定。默认关不入默认组合(§23.7), 未来若并入默认组合走版本升级流程(§5.4⑥)。各处独立: 本开关只管首页(lab 凯利区有独立小标签; 模拟回测弹窗 2026-08-23 起无独立勾选, 由其「AI降亏过滤」模式下拉 9键 一并套用, G/H/I 豁免同口径)。数据支撑: docs/kelly/analysis/sim-window-loss-mining-20260822.md">` +
     `<input type="checkbox" class="sig-switch-bullstop-cb"${_readBullStopFlag() ? " checked" : ""}> <span>牛市×辅备买全停</span><span class="lab-sigkelly-toggle-new">NEW</span>` +
     `</label>`;
   return `<div class="sig-switch-row" data-no-pop="">` +
@@ -2949,13 +2951,15 @@ function _openSimBacktestModal() {
       '<div class="sim-ctrl-row">' +
         '<div class="sim-ctrl-block"><label>时间范围(起)</label><input type="date" class="sim-date-start" value="' + _defStart + '"></div>' +
         '<div class="sim-ctrl-block"><label>时间范围(止)· 最长500天</label><input type="date" class="sim-date-end" value="' + _defEnd + '"></div>' +
-        '<div class="sim-ctrl-block"><label>AI降亏过滤</label><label class="sim-cb-wrap"><input type="checkbox" class="sim-fade-cb" checked> 开启(默认8键)</label>' +
-          '<div class="sim-fade-mode-wrap" style="margin-top:6px"><label class="sim-cb-wrap">模式 </label>' +
-          (window._tdsFadeModeSelectHTML ? window._tdsFadeModeSelectHTML("sim-fade-mode-sel", "p8", false, "sim-fade-mode-sel", "AI降亏过滤模式: 一键套用整套键组合(与凯利页/「AI 降亏组成对比」卡同源口径; 默认 8键=现网基线)。关闭总开关时本下拉不生效") : "") +
+        // (2026-08-23 用户拍板) 旧「开启(默认8键)」+「牛市×辅备买全停」两 checkbox 删除, 模式下拉=本弹窗降亏唯一入口:
+        // 默认 p8≡旧默认(开总开关+默认8键); 要候选1(bullAuxBackupStop)选 p9——语义映射无损(§23.7 已确认记录)。
+        // sim-fade-cb/sim-bullstop-cb 无持久化字段(仅费率落盘), 无迁移残留。
+        '<div class="sim-ctrl-block"><label>AI降亏过滤</label>' +
+          // 下拉由 _bindSimBacktestControls 里 _tdsFadeModeSelectMount 挂载(四消费点统一组件挂载层);
+          // onchange 走既有 .sim-fade-mode-sel 选择器循环绑定, mount 不再绑避免双触发
+          '<div class="tds-fade-mode-wrap sim-fade-mode-wrap">' +
+          '<span class="sim-feat-note" style="display:none">⏳ 新键特征加载中, 就绪前新键暂不拦截…</span>' +
           '</div>' +
-          '<label class="sim-cb-wrap sim-bullstop-wrap" data-no-pop=""><input type="checkbox" class="sim-bullstop-cb"> <span>牛市×辅备买全停(A-F)</span><span class="lab-sigkelly-toggle-new">NEW</span></label>' +
-          '<label class="sim-bullstop-tip" title="牛市·主升(hs300四档)×信号∈{辅买,备买} → 拦下(时段级全停)。白话: 牛市主升末段的低质量买入(辅买/备买)是历史稳定毒药, 开启后全史 +66,530→+73,103(改善+6,573; 理想对照=被拦笔直接消失口径 +9,895)。场景: 5-8月连亏想减亏时开启实测。1:1: 2026年 5-8月 mode A K1 基线 50笔 -5,166 → 开启后 41笔 -1,030; 2026 全年 +5,626 → +7,490。⚠口径说明: 本弹窗实测显示的是补位口径(被拦天的次优信号自动顶上), 与理想对照略有差异(理想对照: 5-8月 -256 / 2026全年 +10,596)。诚实标注: 近1/2/3/5年 +15,154→+16,653 / +39,682→+43,084 / +41,523→+45,839 / +31,647→+36,503 五窗全改善; 变差年 4 个(理想对照口径)合计 -5,825(2014/-938、2018/-2,109、2020/-2,039、2025/-739 均牛市年边缘利润); 仅 A-F 短线适用, G/H/I 长线模式自动豁免; 默认关不入默认组合(§23.7)。数据支撑: docs/kelly/analysis/sim-window-loss-mining-20260822.md">ⓘ</label>' +
-          '<div class="sim-bullstop-note" style="display:none">仅适用 A-F 短线(G/H/I 自动豁免)</div></div>' +
         '<div class="sim-ctrl-block"><label>AI仓位建议 K</label><div class="sim-kbtns">' +
           '<button type="button" class="sim-kbtn" data-k="0">关</button>' +
           '<button type="button" class="sim-kbtn active" data-k="1">K1★主推</button>' +
@@ -2985,6 +2989,18 @@ function _openSimBacktestModal() {
 
 // 绑定弹窗控件事件 + K档按钮高亮
 function _bindSimBacktestControls(modal, _close) {
+  // T3-1修复批④(2026-08-23): 模式下拉改用四消费点统一组件挂载层(common.js _tdsFadeModeSelectMount);
+  // onchange 不经 mount(留空), 由下方 .sim-fade-mode-sel 选择器循环统一绑, 避免双触发
+  const _fmWrapEl = modal.querySelector(".sim-fade-mode-wrap");
+  if (_fmWrapEl && window._tdsFadeModeSelectMount) {
+    window._tdsFadeModeSelectMount(_fmWrapEl, {
+      id: "sim-fade-mode-sel",
+      value: "p8",           // 默认 p8=旧默认(开总开关+默认8键)逐位一致(§23.7)
+      withCustom: false,     // 弹窗无标签区, 无自定义态
+      cls: "sim-fade-mode-sel",
+      title: "AI降亏过滤模式: 一键套用整套键组合(与凯利页/「AI 降亏组成对比」卡同源口径; 默认 8键=现网基线)。四消费点统一下拉组件(lab 凯利区/本弹窗/T3-2 首页与监控卡待接)",
+    });
+  }
   const kbtns = modal.querySelectorAll(".sim-kbtn");
   kbtns.forEach((b) => {
     b.addEventListener("click", () => {
@@ -2993,27 +3009,12 @@ function _bindSimBacktestControls(modal, _close) {
       _simRender(modal);
     });
   });
-  modal.querySelectorAll(".sim-date-start,.sim-date-end,.sim-fade-cb,.sim-fade-mode-sel,.sim-mode-sel").forEach((el) => {
+  modal.querySelectorAll(".sim-date-start,.sim-date-end,.sim-fade-mode-sel,.sim-mode-sel").forEach((el) => {
     el.addEventListener("change", () => _simRender(modal));
   });
-  // (2026-08-22 用户拍板) 新降亏键「牛市×辅备买全停」: sim 弹窗独立开关, UI 态不落盘(与 sim-fade-cb 同模式,
-  // 每次打开弹窗默认关); (2026-08-22 二次变更) 各处独立: 只管本弹窗, 与首页/lab 凯利区开关互不影响;
-  // G/H/I 长线模式置灰+提示「仅适用 A-F 短线」
-  const bullCb = modal.querySelector(".sim-bullstop-cb");
-  const modeSel = modal.querySelector(".sim-mode-sel");
-  function _syncBullStopDisabled() {
-    if (!bullCb) return;
-    const m = modeSel ? (modeSel.value || "A") : "A";
-    const isLong = m === "G" || m === "H" || m === "I";
-    bullCb.disabled = isLong;
-    const note = modal.querySelector(".sim-bullstop-note");
-    if (note) note.style.display = isLong ? "" : "none";
-  }
-  if (bullCb) {
-    bullCb.addEventListener("change", () => _simRender(modal));
-  }
-  if (modeSel) modeSel.addEventListener("change", _syncBullStopDisabled);
-  _syncBullStopDisabled();
+  // (2026-08-23 用户拍板) sim-bullstop-cb/sim-fade-cb 两旧控件删除, 其绑定一并移除(防删定义留调用);
+  // 模式下拉的 change 由上面统一选择器接管(G/H/I 长线豁免语义保留在渲染端: p9 等含候选1的模式在
+  // G/H/I 下由 _simPassesBullStop 的 tier 判定天然只拦 A-F 适用笔——见该函数注释)。
   // 费率档位按钮: 点档位=快捷填入表单+重跑(custom 档只切高亮不回填, 表单保持手输值)
   modal.querySelectorAll(".simbt-fee-btn").forEach((b) => {
     b.addEventListener("click", () => {
@@ -3047,21 +3048,45 @@ function _bindSimBacktestControls(modal, _close) {
   });
 }
 
-// 主渲染: 加载数据 → 过滤 → 算费后 + 累积 → 渲染表格(分页)
+// 主渲染入口(合批防抖, 2026-08-23 性能专项): 快速连切模式/连点控件时, 每次触发只置 pending 标记,
+// 由 do-while 循环用最新控件状态重跑一次(lab 页 _kellyRunRecompute 同款成熟模式)——
+// 连切 7 模式只产生「进行中这一次 + 收尾最新一次」两轮计算, UI 始终有喘息帧, 不假死。
+let _simRenderBusy = false, _simRenderPending = false;
 async function _simRender(modal) {
+  if (_simRenderBusy) { _simRenderPending = true; return; }
+  _simRenderBusy = true;
+  try {
+    do {
+      _simRenderPending = false;
+      await _simRenderOnce(modal);
+    } while (_simRenderPending);
+  } finally { _simRenderBusy = false; }
+}
+
+// 单轮渲染体: 加载数据 → 过滤 → 算费后 + 累积 → 渲染表格(分页)
+async function _simRenderOnce(modal) {
   const loadingEl = modal.querySelector(".sim-table-loading");
   const bodyEl = modal.querySelector(".sim-table-body");
   const summaryEl = modal.querySelector(".sim-summary");
   const pagerEl = modal.querySelector(".sim-pager");
-  // T1(2026-08-23) 预热降亏特征 JSON(20 新键谓词查值; 异步不阻塞, 未就绪时新键判定降级不拦);
-  //   晚到且已有新键开启(首渲被降级) → 补一次渲染对齐 §22。
-  _ensureSimLossFeat().then((d) => {
-    const _fmHasNewKey = (() => { const s = modal.querySelector(".sim-fade-mode-sel"); if (!s || !window._KELLY_FADE_MODE_PRESETS) return false;
-        const p = window._KELLY_FADE_MODE_PRESETS.find((x) => x.id === s.value); return !!(p && p.keys.some((k) => _SIM_LOSS_NEW_KEYS.some((q) => q[0] === k))); })();
-      if (d && (_fmHasNewKey || _SIM_LOSS_NEW_KEYS.some((p) => (modal.querySelector(".sim-fade-cb-" + p[0]) || {}).checked))) {
-      try { _simRender(modal); } catch (e) {}
-    }
-  }).catch(() => {});
+  // T1(2026-08-23) 预热降亏特征 JSON(20 新键谓词查值; 异步不阻塞, 未就绪时新键判定降级不拦)。
+  //   【P0 卡死根修 2026-08-23】旧实现把补渲挂在 .then 里且无「进入时是否已就绪」判断——特征 JSON
+  //   缓存后每次调用立即 resolve(d=真值), 只要当前模式含新键(p9/a9/b9/c9/new14/new18 全含)就再调
+  //   _simRender → 无限自递归(微任务链持续霸占主线程)=用户实测「切模式下拉后页面卡死」。改为只在
+  //   「未就绪→就绪」跃迁时经合批标记补渲一次(至多一次), 不再成环。
+  const _featReadyBefore = !!_simLossFeatData;
+  if (!_featReadyBefore) {
+    _ensureSimLossFeat().then((d) => {
+      if (!d || modal.classList.contains("hidden")) return;
+      const _s = modal.querySelector(".sim-fade-mode-sel");
+      const _p = (_s && window._KELLY_FADE_MODE_PRESETS) ? window._KELLY_FADE_MODE_PRESETS.find((x) => x.id === _s.value) : null;
+      const _hasNewKey = !!(_p && _p.keys.some((k) => _SIM_LOSS_NEW_KEYS.some((q) => q[0] === k)));
+      const _cbAny = _SIM_LOSS_NEW_KEYS.some((q) => { const el = modal.querySelector(".sim-fade-cb-" + q[0]); return !!(el && el.checked); });
+      if (!_hasNewKey && !_cbAny) return;
+      _simRenderPending = true;              // 合批: 渲染中则由循环兜底; 空闲则立即补一次(仅此一次)
+      if (!_simRenderBusy) _simRender(modal);
+    }).catch(() => {});
+  }
   if (!_simKellyData && !_simKellyLoading) {
     // 首次加载
     loadingEl.style.display = "block";
@@ -3092,7 +3117,9 @@ async function _simRender(modal) {
   // date input 值为 YYYY-MM-DD, signal_date 为 YYYYMMDD: 归一化去掉连字符再比(P0-2 修复)
   const startD = (modal.querySelector(".sim-date-start").value || "").replaceAll("-", "");
   const endD = (modal.querySelector(".sim-date-end").value || "").replaceAll("-", "");
-  const fadeOn = modal.querySelector(".sim-fade-cb").checked;
+  // 旧「开启(默认8键)」总开关删除(2026-08-23 用户拍板, §23.7 记录在案): 模式下拉=本弹窗降亏唯一入口,
+  // 过滤恒生效; 默认 p8 与旧默认(开总开关+默认8键)逐位一致。
+  const fadeOn = true;
   const kRaw = (modal.querySelector(".sim-kbtn.active") || {}).dataset ? (modal.querySelector(".sim-kbtn.active")).dataset.k : "1";
   const K = parseInt(kRaw, 10) || 0;  // 0 = 关(不过滤)
   const mode = modal.querySelector(".sim-mode-sel").value || "A";
@@ -3135,7 +3162,7 @@ async function _simRender(modal) {
   // ① 模式: signal_kelly_trades.json 的 quadrants[qk][mode] 每模式是完整副本(同 base 在不同 mode 下
   //    sell_date/sell_price 不同), 必须按所选 mode 从 quadrants[*][mode] 现筛构建基笔池(去重+聚合维度),
   //    不能跨模式取并集(会丢失 mode 维度的卖出值)。
-  const recs = _simBuildModePool(_simKellyData, mode);
+  const recs = _simPoolCached(mode);
 
   // ② 降亏过滤
   const filters = _simDefaultFadeFilters();
@@ -3146,17 +3173,27 @@ async function _simRender(modal) {
   if (_fmSelEl && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(_fmSelEl.value)) {
     _tdsFadeModeApply(_fmSelEl.value, filters);
   }
+  // 特征未就绪降级反馈(2026-08-23 性能专项): 当前模式含新键且特征 JSON 未就绪 → 下拉旁提示条展开
+  // (语义=新键暂不拦截, 与后端 load_features 缺失同语义); 就绪/无新键即收起。不冻结不静默。
+  {
+    const _noteEl = modal.querySelector(".sim-feat-note");
+    if (_noteEl) {
+      const _pCur = window._KELLY_FADE_MODE_PRESETS ? window._KELLY_FADE_MODE_PRESETS.find((x) => x.id === ((_fmSelEl || {}).value)) : null;
+      _noteEl.style.display = (!_simLossFeatData && _pCur && _pCur.keys.some((k) => _SIM_LOSS_NEW_KEYS.some((q) => q[0] === k))) ? "" : "none";
+    }
+  }
   const monthMask = _simActiveMonthMask(filters);
-  // (2026-08-22 用户拍板) 新降亏键: UI 状态读取 + G/H/I 长线模式强制不生效(仅 A-F 短线; 与置灰双保险)
-  const _bullCbEl = modal.querySelector(".sim-bullstop-cb");
+  // (2026-08-23 控件删除后语义迁移) 候选1 bullAuxBackupStop 改由模式下拉携带: p9/a9/b9/c9 预设含此键,
+  // filters.bullAuxBackupStop=true 时走 _simPassesBullStop(与 lab 谓词同源 §22); G/H/I 长线强制不生效
+  // (仅 A-F 短线; 与旧置灰双保险同语义, §23.7 行为零变化: p8 不含此键=恒 false)。
   const _isLongMode = mode === "G" || mode === "H" || mode === "I";
-  const bullStopOn = !!(_bullCbEl && _bullCbEl.checked && !_isLongMode);
+  const bullStopOn = !!(filters.bullAuxBackupStop && !_isLongMode);
   let kept = recs;
   if (fadeOn) {
     kept = recs.filter((t) => _simPassesFade(t, fIdx, filters, monthMask));
-  }
-  if (bullStopOn) {
-    kept = kept.filter((t) => _simPassesBullStop(t, fIdx)); // 与默认8键 AND 叠加(可单独开=仅新键过滤)
+    if (bullStopOn) {
+      kept = kept.filter((t) => _simPassesBullStop(t, fIdx)); // 候选1(牛市×辅备买全停), 与所选模式键组合叠加
+    }
   }
   // ③ K档: 按 signal_date 分组取 top-K(排序口径 track_score DESC → rating → signal → buy_date ASC, 与首页/凯利一致)
   if (K > 0) {
@@ -3195,6 +3232,21 @@ async function _simRender(modal) {
   // 按 signal_date 倒序(最新在上)
   kept.sort((a, b) => { const sa = String(a[fIdx.signal_date] || ""), sb = String(b[fIdx.signal_date] || ""); return sa < sb ? 1 : (sa > sb ? -1 : 0); });
   _simRenderTable(modal, kept, fIdx, fp, startD, endD, fadeOn, K, mode);
+}
+
+// 基笔池按 mode 缓存(2026-08-23 性能专项): 池=纯函数(数据引用,mode), 与筛选/费率/K 无关;
+// 快切模式时命中缓存免掉全史 quadrants 重扫+去重(每轮省一次 O(全记录) 长任务)。
+// 数据引用变化(分片加载替换 _simKellyData)即整体失效重建, 不吃脏数据。
+let _simPoolCacheRef = null;
+const _simPoolCache = {};
+function _simPoolCached(mode) {
+  if (_simPoolCacheRef !== _simKellyData) {
+    _simPoolCacheRef = _simKellyData;
+    for (const k in _simPoolCache) delete _simPoolCache[k];
+  }
+  let p = _simPoolCache[mode];
+  if (!p) { p = _simBuildModePool(_simKellyData, mode); _simPoolCache[mode] = p; }
+  return p;
 }
 
 // 基于 quadrants[*][mode] 构建该模式基笔池(带聚合维度, 去重)
