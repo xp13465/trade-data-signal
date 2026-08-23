@@ -7,6 +7,8 @@
 3. intraday_snapshot amount_forecast 异常爆炸（"9.52 万亿/15 万亿"事故）
 4. 关键文件不存在（etf_index_map.json 丢了 / boot.json 丢了 等）
 5. a_fund_north_quarterly 最新季度行存在（CCASS 季度闸门/采集异常致指标缺失/滞后时静默）
+6. export 导出面全量在位（P1-D2，单一事实源=export.py EXPORT_MANIFEST，防新数据类别
+   「生成了没上线」静默缺失盲区，见 docs/bug-pattern-site-audit-20260823.md D 族）
 
 用法:
   python scripts/check_data_integrity.py                     # 全量校验
@@ -994,6 +996,97 @@ def check_kelly_loss_features(data_dir: Path) -> CheckResult:
     return _ok(name, f"rules={len(keys)}键, thresholds={len(thresholds)}项, features={n_feat}序列")
 
 
+# ── P1-D2: export 导出面 ⟺ 本地在位 全量断言(2026-08-23) ─────────────────────
+
+def _load_export_manifest(data_dir: Path):
+    """从 static-site/export.py 动态加载导出清单单一事实源（P1-D2）。
+
+    importlib 按路径加载（export.py 非包成员；其顶层 sys.path.insert(ROOT) 后
+    import app.* 与本脚本同根兼容，实测加载无副作用）。刻意不在本文件抄第二份
+    文件名字面量——清单漂移由 export.py main() 末尾 manifest_alignment_check
+    自守，本脚本只消费。返回 (files, warn_set, dir_globs, err)；加载失败返回 err，
+    由上层 FAIL 显性暴露（校验器自身不可用时绝不静默跳过，§23.11 精神）。
+    """
+    import importlib.util
+    export_py = data_dir.parent / "export.py"
+    if not export_py.exists():
+        return None, None, None, f"未找到 export.py(单一事实源不可用): {export_py}"
+    try:
+        spec = importlib.util.spec_from_file_location("_trade_export_manifest", export_py)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception as e:  # noqa: BLE001
+        return None, None, None, f"加载 export.py 失败: {type(e).__name__}: {e}"
+    files = getattr(mod, "EXPORT_MANIFEST", None)
+    if not isinstance(files, dict) or not files:
+        return None, None, None, f"export.py 无有效 EXPORT_MANIFEST 清单: {export_py}"
+    warn_set = set(getattr(mod, "EXPORT_MANIFEST_WARN", {}) or ())
+    globs = list(getattr(mod, "EXPORT_MANIFEST_DIR_GLOBS", ()) or ())
+    return files, warn_set, globs, None
+
+
+def check_export_manifest(data_dir: Path) -> CheckResult:
+    """P1-D2：export 清单全量在位断言（E16 防「生成了没上线」静默缺失盲区）。
+
+    事故场景（docs/bug-pattern-site-audit-20260823.md D 族）：export.py 导出面
+    39 个 JSON 名中 31 个不在既有校验范围（public_fund_* 12 件/futures/metrics/
+    signal_stats/signal_kelly_trades 等），新数据类别静默缺失无拦截。
+    单一事实源 = static-site/export.py EXPORT_MANIFEST（动态 import，不抄字面量）：
+    逐名检查存在 + 非空(size>0)；目录级动态名（index/*-all 等 cfg/31 行业变量名）
+    按 EXPORT_MANIFEST_DIR_GLOBS 查「至少有文件」。缺失处置分级：WARN 集内 =
+    WARN（signal_kelly 两件 subprocess 失败不阻塞 export 属设计内可缺），其余
+    缺失/空文件 = FAIL（每日必有，缺失=生成链断裂）。
+    """
+    name = "export_manifest"
+    files, warn_set, globs, err = _load_export_manifest(data_dir)
+    if err:
+        return _fail(name, err)
+
+    missing: list[str] = []
+    empty: list[str] = []
+    warn_missing: list[str] = []
+    for fname in sorted(files):
+        p = data_dir / fname
+        if not p.exists():
+            if fname in warn_set:
+                warn_missing.append(fname)
+            else:
+                missing.append(fname)
+            continue
+        try:
+            if p.stat().st_size == 0:
+                empty.append(fname)
+        except OSError as e:
+            empty.append(f"{fname}({e})")
+
+    dir_missing: list[str] = []
+    dir_hits = 0
+    for pat in globs:
+        hits = sorted(data_dir.glob(pat)) if data_dir.is_dir() else []
+        if hits:
+            dir_hits += 1
+        else:
+            dir_missing.append(pat)
+
+    total_named = len(files)
+    if missing or empty or dir_missing:
+        parts = []
+        if missing:
+            parts.append(f"缺失{len(missing)}件: {missing[:6]}{'...' if len(missing) > 6 else ''}")
+        if empty:
+            parts.append(f"空文件{len(empty)}件: {empty[:6]}{'...' if len(empty) > 6 else ''}")
+        if dir_missing:
+            parts.append(f"目录族无文件: {dir_missing}")
+        return _fail(name, f"export 清单全量断言失败({'; '.join(parts)}); "
+                     f"清单源=export.py EXPORT_MANIFEST({total_named} 具名 + "
+                     f"{len(globs)} 目录族)")
+    msg = (f"清单全量在位: {total_named} 个具名产物非空 + {dir_hits}/{len(globs)} "
+           f"目录族有文件(单一事实源=export.py EXPORT_MANIFEST)")
+    if warn_missing:
+        return _warn(name, msg + f"; 设计内可缺未生成: {warn_missing}")
+    return _ok(name, msg)
+
+
 # ── 关键文件存在性校验 ────────────────────────────────────────────────────────
 
 def check_key_files(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
@@ -1021,7 +1114,8 @@ def check_key_files(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
 # ── 全量校验编排 ──────────────────────────────────────────────────────────────
 
 def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
-    """运行全部 15 个校验函数 + 关键文件存在性校验。"""
+    """运行全部校验函数 + 关键文件存在性校验（新增校验在 run_all_checks 末尾按
+    时间序追加，历史"15 个"计数已不准确，以本函数 append 清单为准）。"""
     results = []
 
     # 15 个校验函数
@@ -1048,6 +1142,9 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     results.append(check_a_fund_north_quarterly())
     # T1 AI降亏特征通道（2026-08-23）：规格单源完整性（E16 防静默缺失）
     results.append(check_kelly_loss_features(data_dir))
+    # P1-D2 export 导出面全量断言（2026-08-23，单一事实源=export.py EXPORT_MANIFEST，
+    # E16 防「生成了没上线」31 产物盲区，见 docs/bug-pattern-site-audit-20260823.md D 族）
+    results.append(check_export_manifest(data_dir))
 
     # 关键文件存在性
     results.extend(check_key_files(data_dir, repo_data_dir))
