@@ -8696,6 +8696,9 @@ async function renderSigKellyLab() {
       for (var _kmi = 0; _kmi < _kellyPersistMemberKeys.length; _kmi++) {
         var _kmk = _kellyPersistMemberKeys[_kmi];
         if (typeof _savedKF.members[_kmk] === "boolean") state.labSigKellyFilters[_kmk] = _savedKF.members[_kmk];
+      }
+    }
+  } catch (e) {}
 
   // T3-1(2026-08-23): AI降亏模式持久化(lab 独立 key tds_kelly_fade_mode): 在 tds_kelly_filters 8成员覆盖之后应用,
   // 完整模式组合覆盖成员级状态(模式=57键全集, 成员键只是子集); 无 key(用户从未选过模式)=跳过=零变化
@@ -8705,9 +8708,6 @@ async function renderSigKellyLab() {
     if (_savedFM && _savedFM.mode && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(_savedFM.mode)) {
       _tdsFadeModeApply(_savedFM.mode, state.labSigKellyFilters);
       state.labSigKellyFadeModeBase = _savedFM.mode;
-    }
-  } catch (e) {}
-      }
     }
   } catch (e) {}
   // (2026-08-22 用户拍板) 新降亏键 bullAuxBackupStop: lab 凯利区独立开关, UI 态不落盘(state-only,
