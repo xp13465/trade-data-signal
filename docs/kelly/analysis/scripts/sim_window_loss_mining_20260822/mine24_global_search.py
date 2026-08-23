@@ -232,6 +232,10 @@ def main():
         fdef = {kk: False for kk in DEFAULT_FILTERS}
         for c8 in DEFAULT8: fdef[c8] = True
         mm8 = active_month_mask(fdef)
+        # ⚠️已知bug(2026-08-23审查,不修逻辑,历史产物以 mine24_compare.json modes_af_audit 为准):
+        # rm 已是 8 默认过滤后的池(passes_fade 幂等),此处 not passes_fade 取的是被拦空集
+        # → b8tot=0 → 下游 modes_af「vs 该模式8键」列实为 NEW 绝对总额而非增量。
+        # 真实增量见 mine24_compare.json modes_af_audit.true_improve_vs_mode8_top1(B +43,776/C +52,178/D +48,243/E +48,738/F +46,544)。
         b8sel = [t for t in rm if not passes_fade(t, fm_, fdef, mm8, len(fm_), len(fm_) + 1, len(fm_) + 2)]
         gm = {}
         for t in rm: gm.setdefault(str(t[0]), []).append((base_key(t, fm_), t))
