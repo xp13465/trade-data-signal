@@ -7634,9 +7634,13 @@ function _kellyPositionCapKeptKeys(pool, fIdx, K) {
   return kept;
 }
 // 收集 positionCap 基笔池: 跨全部卖出模式 × rating 三分区(互斥全量), 按 baseKey 去重, 只保留通过 passFn 的基笔
-function _kellyCollectBasePool(quads, sellModes, fIdx, passFn) {
+// 基笔池构建改异步分片(2026-08-23 性能专项): 原 3象限×9模式 ≈90k 次谓词判定一个同步块(~200-400ms),
+// 改为每 (象限,模式) 桶后让步一帧; 唯一调用方 _kellyApplyFeeRecompute 本就是 async, 语义零变化。
+async function _kellyCollectBasePool(quads, sellModes, fIdx, passFn) {
   var pool = [], seen = {};
-  ["rating_high", "rating_mid", "rating_low"].forEach(function (_rk) {
+  var _rks = ["rating_high", "rating_mid", "rating_low"];
+  for (var _ri = 0; _ri < _rks.length; _ri++) {
+    var _rk = _rks[_ri];
     for (var _mk in sellModes) {
       var _arr = (quads[_rk] || {})[_mk] || [];
       for (var _i = 0; _i < _arr.length; _i++) {
@@ -7645,8 +7649,9 @@ function _kellyCollectBasePool(quads, sellModes, fIdx, passFn) {
         var _bk = _kellyBaseKey(_t, fIdx);
         if (!seen[_bk]) { seen[_bk] = 1; pool.push(_t); }
       }
+      await _kellyYield();
     }
-  });
+  }
   return pool;
 }
 // 每日资金池等分+top-K 金额口径(2026-08-13 恢复, 用户纠正最初理解错误):
@@ -8051,6 +8056,13 @@ function _kellyNextPaint() {
 
 // 凯利重算统一入口(方案B: loading真显示+防重入)
 // busy flag防交错; latest-wins: 重算中再来点击记pending, 本轮跑完按最新状态再跑一轮, 最终渲染一次
+// 让出主线程一帧(2026-08-23 性能专项): 重算按 (象限×模式) 桶分片, 桶间 setTimeout(0) 让步,
+// 把原本 ~600-900ms 的单个同步长任务拆成多个 <200ms 短任务(硬指标), 输入/输出/计算顺序零改动。
+// 合批仍由 _kellyRunRecompute 的 busy/pending 负责: 让步期间的新触发只置 pending, 收尾用最新态重跑一次。
+function _kellyYield() {
+  return new Promise(function (r) { setTimeout(r, 0); });
+}
+
 async function _kellyRunRecompute(host, loadingHtml, onResult, onDone) {
   if (_kellyRecomputeBusy) { _kellyRecomputePending = true; return; }
   _kellyRecomputeBusy = true;
@@ -8114,7 +8126,10 @@ async function _kellyApplyFeeRecompute(feeParams) {
     quadsAll[_qmk] = _qa;
   }
   // 降亏过滤toggle(正交叠加: filter交易集 vs 费率改profit, 独立不互斥)
-  var filters = state.labSigKellyFilters || _kellyDefaultFilters();
+  // 性能专项(2026-08-23): 本函数含 await 让步(桶间分片), 让步期间用户可能继续改 toggle 原地 mutate
+  // labSigKellyFilters → 单轮内口径撕裂。此处拍快照(浅拷贝), 本轮全程用快照算完; 用户新态由
+  // _kellyRunRecompute 的 pending 合批收尾再跑一轮, 最终一致。
+  var filters = Object.assign({}, state.labSigKellyFilters || _kellyDefaultFilters());
   // v3标志需维度查找map(mkt_dim/rating_dim不在trade数组内,编码在quadrant key里)
   var _tradeDims = state.labSigKellyTradeDims;
   if (!_tradeDims && td.quadrants) {
@@ -8161,11 +8176,11 @@ async function _kellyApplyFeeRecompute(feeParams) {
   var posCapKeptNB = null; // G/H/I 豁免版(仅 _bullOn 时计算)
   var posDayCountsNB = null;
   if (filters.positionCap && filters.positionCapK > 0) {
-    var basePool = _kellyCollectBasePool(quads, sellModes, fIdx, passesFade);
+    var basePool = await _kellyCollectBasePool(quads, sellModes, fIdx, passesFade);
     posCapKept = _kellyPositionCapKeptKeys(basePool, fIdx, filters.positionCapK);
     posDayCounts = _kellyKeptDayCounts(posCapKept);
     if (_bullOn) {
-      var basePoolNB = _kellyCollectBasePool(quads, sellModes, fIdx, passesFadeNoBull);
+      var basePoolNB = await _kellyCollectBasePool(quads, sellModes, fIdx, passesFadeNoBull);
       posCapKeptNB = _kellyPositionCapKeptKeys(basePoolNB, fIdx, filters.positionCapK);
       posDayCountsNB = _kellyKeptDayCounts(posCapKeptNB);
     }
@@ -8186,6 +8201,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
         if (_pk && !_pk[_kellyBaseKey(t, fIdx)]) return false;
         return true;
       });
+      await _kellyYield(); // 桶间让步(2026-08-23 性能专项): 单模式过滤 ~10-30ms, 9 模式连排原为 ~100-300ms 同步块
     }
     // 阶段2: 每个period从toggled结果按cutoff取子集(轻量字符串比较)
     // 逐桶缓存: toggle改动只影响匹配到删除trade的桶, 未被影响的桶(feeSig+toggled数组未变)直接复用上次stats(纯函数, 结果精确一致; fixed口径每笔金额恒定, 桶缓存安全)
@@ -8251,6 +8267,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
           }
         }
       }
+      await _kellyYield(); // 桶间让步(2026-08-23 性能专项): 冷桶(费率重算+统计)单桶可达 ~50-150ms, 桶间让步防 >200ms 连排
     }
     // 全信号伪象限: 按年聚合(「最后结果」表用, 全周期口径非当前period窗口, 与toggle/费率联动)
     // 2026-08-14 #BC 按年窗口口径归正(方案1): 仅累加 G 模式(当前推荐卖出法, 与「总建议=遵守G模式卖出」语义对齐);
@@ -8300,6 +8317,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
         if (!_amTrades.length) continue; // 无 signal 的模式不出表(留空, 前端显示暂无数据)
         var _pdcY = (_bullOn && _isLongMode(_amk) && posDayCountsNB) ? posDayCountsNB : posDayCounts;
         allYearlyByMode[_amk] = _aggYearlyMap(_amTrades, _pdcY);
+        await _kellyYield(); // 桶间让步(2026-08-23 性能专项): 全信号按年聚合逐模式分片
       }
       // 总建议语义: 优先 G 模式(当前推荐卖出法; 若卖出模式结构变化, 取 signal:true 的推荐模式), 兼容原 allYearly 展示
       var _yyModeKey = null;
@@ -8322,10 +8340,11 @@ async function _kellyApplyFeeRecompute(feeParams) {
         for (var _pmk2 in sellModes) { if (String((sellModes[_pmk2] || {}).label || "").indexOf("固定10") >= 0) { _posModeKey = _pmk2; break; } }
       }
       if (_posModeKey && quadsAll[_posModeKey]) {
-        var _posBase = basePool || _kellyCollectBasePool(quads, sellModes, fIdx, passesFade);
+        var _posBase = basePool || (await _kellyCollectBasePool(quads, sellModes, fIdx, passesFade));
         var _posRaw = quadsAll[_posModeKey];
         var _posVals = {};
         for (var _pk = 1; _pk <= 4; _pk++) {
+          await _kellyYield(); // K档间让步(2026-08-23 性能专项): 每档全池 kept 重算 ~50-150ms
           var _kept = _kellyPositionCapKeptKeys(_posBase, fIdx, _pk);
           // 每日资金池等分(2026-08-13恢复): 该K档当月的当日保留基笔数, 与卡片/弹窗同口径(§22)
           var _posDayCounts = _kellyKeptDayCounts(_kept);
@@ -9373,20 +9392,25 @@ function _renderSigKellyBar(bar, data, period) {
     ? _fadeDisp.caliber
     : ("⚙️ 自定义组合(基于「" + _fadeDisp.name.replace(/\(默认\)$/, "") + "」手动调整, 口径见各标签 tip)");
   const fadeModeTitle = "AI降亏过滤模式: 一键套用整套键组合(与「AI 降亏组成对比」卡同源口径); 手动勾/取消下方任一小标签即进入自定义态, 再选任意模式回到预设";
+  // T3-1修复批④(2026-08-23): 类名换公共组件段 .tds-fade-mode-wrap/.tds-fade-mode-sel(style.css 公共段单份,
+  // 各页不留私有样式副本); 渲染函数=common.js _tdsFadeModeSelectHTML/_tdsFadeModeSelectMount 四消费点统一组件。
+  // T3-1修复批③(2026-08-23): 本下拉落点移至「AI降亏过滤」总开关文字同一行紧跟其后(用户铁律: 一个功能的交互不拆两处),
+  // 由下方 positionCapHTML 中 aiMacroLabelHTML + fadeModeHTML 相邻拼接保证。
   const fadeModeHTML =
-    `<span class="lab-sigkelly-fade-mode-wrap" style="display:inline-flex;align-items:center;gap:6px;margin-left:12px;vertical-align:middle">` +
+    `<span class="tds-fade-mode-wrap">` +
       `<span class="lab-sigkelly-fee-label" style="font-weight:600">模式:</span>` +
-      (window._tdsFadeModeSelectHTML ? window._tdsFadeModeSelectHTML("lab-kelly-fade-mode-sel", _fadeMatchedId || "custom", true, "lab-sigkelly-fade-mode", fadeModeTitle) : "") +
+      (window._tdsFadeModeSelectHTML ? window._tdsFadeModeSelectHTML("lab-kelly-fade-mode-sel", _fadeMatchedId || "custom", true, "tds-fade-mode-sel", fadeModeTitle) : "") +
       `<span id="lab-kelly-fade-mode-caliber" class="lab-sigkelly-fee-label" title="${fadeModeTitle}"${_fadeDisp.calWarn ? ' style="color:#b45309;font-weight:600"' : ""}>${_fadeCaliberHTML}</span>` +
     `</span>`;
   const positionCapHTML =
     `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap">` +
     `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启): AI仓位建议(技术别名:仓位控制过滤)=仅在凯利回测入样宇宙内选择。★结构=AI宏5+3+1(2026-08-15 定名「基础5」): 5+3=保留入样、可被AI建议推荐的降亏键(基础5=基础4+K2C5 港股追涨, 加核心3); +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 即下述排除类别)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(已剔除出回测宇宙), 故 AI建议 一律不推荐, 首页/本区以「未入样本」+灰显+删除线标注。§23.6 入样宇宙规则, 权威=官方入样规则: 入样白名单只收买入类信号: ${_t("type_buy")}/${_t("buy_aux")}/${_t("buy_special")}/${_t("buy_backup")}; 入样依赖=标的有ETF跟踪且有跟踪分(即回测入样判定); 排除类别=债类/情绪类/全球商品利率/港股行业/无ETF的空类别; 自我ETF唯一例外=10年国债ETF 由 self-ETF 兜底; 首页/本区 1:1 遵从回测入样判定不自行重算), 卖类(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不入位——同日只买最优K个买入类信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型${_t("buy_backup")}&gt;${_t("type_buy")}&gt;${_t("buy_aux")}&gt;${_t("buy_special")}→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。**K档评级(2026-08-13 #54 动态化: 随当前降亏勾选/费率档/最新数据实时重算, 与首页/凯利K按钮评级 hoverpop 同源 common.js, §22 一致)**: ${_aiPoscapRatingSummary()}。主推 K1(收益率最高 86.60%); K越大收益率递减(K2=67.61%/K3=66.24%/K4=63.17%, 含最低佣金5元费率重算口径)。每日池口径下 K 越大净利反升(每日资金池恒定, 砍量越少持仓越多)。G模式历史口径(关32.27%/K1 48.58%/K2 40.41%/K3 38.96%等, 每笔固定1万·positionCap单独回测未叠加AI降亏过滤)为已废弃的旧口径(2026-08-13 起默认=每日资金池等分), 以本 K 档评级 hoverpop(每日池+top-K, 实时随勾选动态)与下方「全信号表 · 按年窗口增长」表(每日池实时, 可切 G 并跟 K 档联动)为准, 旧口径数值不再单独公示。OFF按钮(关)=写 tds_poscap {on:false} 关闭AI仓位建议、该区退化普通列表(不再显示「AI建议N」「当日已满」), 再点某 K 档恢复 {on:true,k}(与首页/交易页共享键联动)。与降亏同开仅推荐默认组合(AI降亏过滤: excludeSpecialBear/janMidRating/janMidSpecial/n2NovSpecialIndustry/k2c5HkChase/r7MayReinforced/excludeAuxCross/greedy15,每日池+K=1下边际≈0无害); ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开; 勿再叠加 greedy7/10 等其他广谱(greedy15 已在 AI降亏过滤 默认内); B模式(3%止盈)仓位控制下转负建议关。范围扩展: 交易页整个信号列表(近15交易日)按同一排序展示 AI建议(AI建议买入/当日已满)。⚠2026-08-14 首页「AI过滤视图」两开关正交不绑定(§21): 开关1「AI降亏」(tds_home_fade)=删除线过滤层——开启时未入样宇宙(债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 已剔除出回测宇宙)信号=删线+灰显+「未入样本」标注; 开关2「AI仓位」(tds_poscap.on)=badge标注层——开启时入宇宙${_t("sell_short")}(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")})=亮色「AI警示」(${_t("sell_short")}无K约束不判K), 买入进K=「AI建议N」/超K=「当日已满」; 全关=全量视图全亮不标注, band_hold波段持有=中性不标; 迟到入宇宙${_t("sell_short")}(如8/14中证银行${_t("sell_short")})「AI警示」+「盘后补齐」角标共存不冲突。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}>${_kellyRecBadge(_filters.positionCap)} AI仓位建议 K: <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
     `<span class="lab-sigkelly-kbtns lab-sigkelly-posrate" tabindex="0">${_pcKbtns}${_pcOffBtn}${_pcRatingPop}</span>` +
+    // 修复批③: 模式下拉紧跟「AI降亏过滤」总开关文字(同一 flex 行, 不再拆到组尾), 细节见上方 fadeModeHTML 注释
     aiMacroLabelHTML +
+    fadeModeHTML +
     aiMacroDetailBtnHTML +
     aiMacroResetBtnHTML +
-    fadeModeHTML +
     `</div>`;
   // #83(2026-08-15): 移除「AI仓位建议 · 历史回测(G模式口径)」面板——每笔固定1万+裸G口径已废弃(现默认=每日资金池等分), 核心结论已被按年窗口增长表(每日池实时)+K按钮评级(common.js)+全信号建议指南完整继承(详见 docs/kelly/position/kelly-poscap-history-panel-removal-check.md)
   // #49+#xx ai长线模式(G/H/I)仓位管理: 按钮(长线族群总入口, 默认关, v2 三模式独立策略; 架构支持后续按模式独立换策略)
@@ -11084,7 +11108,8 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   var _posCapKept = null;
   var _posDayCounts = null; // 每日资金池等分(2026-08-13恢复): 当日保留基笔数, 与卡片/评级同口径(§22跨展示位一致)
   if (_filters.positionCap && _filters.positionCapK > 0) {
-    var _basePool = _kellyCollectBasePool(td.quadrants, cfg.sell_modes || {}, _fIdx, _pcFadeFn);
+    // 2026-08-23 性能专项: _kellyCollectBasePool 改 async 分片, 本函数本就是 async, await 即可(语义零变化)
+    var _basePool = await _kellyCollectBasePool(td.quadrants, cfg.sell_modes || {}, _fIdx, _pcFadeFn);
     _posCapKept = _kellyPositionCapKeptKeys(_basePool, _fIdx, _filters.positionCapK);
     _posDayCounts = _kellyKeptDayCounts(_posCapKept);
   }

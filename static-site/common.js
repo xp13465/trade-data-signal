@@ -779,8 +779,14 @@ function _tdsFadeModeMatch(filters) {
   return null;
 }
 // 模式下拉 HTML(withCustom=true 时附加「自定义」占位项, lab 标签区用; 弹窗无标签区不需要)
+// ── 四消费点统一下拉组件(T3-1修复批 2026-08-23, §23.3 举一反三)──
+//   HTML 层=_tdsFadeModeSelectHTML(id, 当前值, 是否含自定义项, 类名, tooltip);
+//   挂载层=_tdsFadeModeSelectMount(挂载点, {id/value/withCustom/cls/title/onchange});
+//   样式=.tds-fade-mode-wrap/.tds-fade-mode-sel(style.css 公共段单份, 各页不留私有副本)。
+//   已接入: lab 凯利区(lab.js _renderSigKellyBar)、模拟回测弹窗(app.js _openSimBacktestModal);
+//   待接(T3-2): 首页 AI 建议卡、AI 监控卡——直接复用本组件, 不再各写一份 select。
 function _tdsFadeModeSelectHTML(id, selectedId, withCustom, cls, title) {
-  var h = '<select id="' + id + '" class="' + (cls || "sim-mode-sel") + '"' + (title ? ' title="' + title + '"' : "") + '>';
+  var h = '<select id="' + id + '" class="' + (cls || "tds-fade-mode-sel") + '"' + (title ? ' title="' + title + '"' : "") + '>';
   for (var i = 0; i < _KELLY_FADE_MODE_PRESETS.length; i++) {
     var p = _KELLY_FADE_MODE_PRESETS[i];
     h += '<option value="' + p.id + '"' + (p.id === selectedId ? " selected" : "") + ">" + p.name + " · " + p.tagline + (p.calWarn ? " ⚠" : "") + "</option>";
@@ -790,6 +796,20 @@ function _tdsFadeModeSelectHTML(id, selectedId, withCustom, cls, title) {
   }
   h += "</select>";
   return h;
+}
+// 挂载层: 往挂载点(元素或 id)渲染下拉并绑 onchange(value)=>; 返回 select 元素(失败返回 null)。
+// 注: 若宿主已有委托/change 统一绑定(如 sim 弹窗 .sim-fade-mode-sel 选择器循环), cfg.onchange 留空避免双触发。
+function _tdsFadeModeSelectMount(mount, cfg) {
+  cfg = cfg || {};
+  var el = typeof mount === "string" ? document.getElementById(mount) : mount;
+  if (!el) return null;
+  var selId = cfg.id || ("tds-fade-mode-sel-" + Date.now() + "-" + Math.floor(Math.random() * 1e4));
+  el.innerHTML = _tdsFadeModeSelectHTML(selId, cfg.value || _KELLY_FADE_DEFAULT_MODE, !!cfg.withCustom, "tds-fade-mode-sel" + (cfg.cls ? " " + cfg.cls : ""), cfg.title || "");
+  var sel = el.firstElementChild;
+  if (sel && typeof cfg.onchange === "function") {
+    sel.addEventListener("change", function () { cfg.onchange(sel.value, sel); });
+  }
+  return sel;
 }
 window._KELLY_FADE_LEGACY_SPECS = _KELLY_FADE_LEGACY_SPECS;
 window._KELLY_FADE_FRONT_KEY_ORDER = _KELLY_FADE_FRONT_KEY_ORDER;
@@ -802,3 +822,4 @@ window._tdsFadeModeById = _tdsFadeModeById;
 window._tdsFadeModeApply = _tdsFadeModeApply;
 window._tdsFadeModeMatch = _tdsFadeModeMatch;
 window._tdsFadeModeSelectHTML = _tdsFadeModeSelectHTML;
+window._tdsFadeModeSelectMount = _tdsFadeModeSelectMount;

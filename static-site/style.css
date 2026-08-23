@@ -6993,7 +6993,8 @@ main { padding: 16px 24px; }
 .sim-ctrl-row { display: flex; flex-wrap: wrap; gap: 14px 22px; padding: 10px 4px 14px; border-bottom: 1px solid var(--border); align-items: flex-end; }
 .sim-ctrl-block { display: flex; flex-direction: column; gap: 4px; }
 .sim-ctrl-block > label { font-size: 11px; color: var(--text-dim, #9aa); }
-.sim-ctrl-block input[type="date"], .sim-ctrl-block input[type="number"], .sim-mode-sel, .sim-fade-mode-sel { padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-card); color: var(--text-1); font-size: 12px; }
+.sim-ctrl-block input[type="date"], .sim-ctrl-block input[type="number"], .sim-mode-sel { padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-card); color: var(--text-1); font-size: 12px; }
+/* (2026-08-23) .sim-fade-mode-sel 移出上组: 模式下拉样式统一走 .tds-fade-mode-sel 公共段(文件尾), 不再双份 */
 .sim-cb-wrap { flex-direction: row; align-items: center; gap: 6px; font-size: 12px; color: var(--text-1); }
 /* (2026-08-22 用户拍板) sim 弹窗新降亏键「牛市×辅备买全停(A-F)」开关行: 与「开启(默认8键)」同 block 竖排,
    NEW 徽章复用 lab.css .lab-sigkelly-toggle-new(同前 4 键既有红色样式, 不自造); G/H/I 选中时 note 显示置灰提示 */
@@ -7059,3 +7060,20 @@ main { padding: 16px 24px; }
    hot=被悬停的持仓数量格, hit=当日仍持有笔的「信号关联ETF」格 */
 .sim-tbl td.sim-pos-hot { background: rgba(59,130,246,0.14); box-shadow: inset 0 0 0 1px rgba(59,130,246,0.8); }
 .sim-tbl td.sim-pos-hit { background: rgba(59,130,246,0.10); box-shadow: inset 0 0 0 1px rgba(59,130,246,0.45); }
+
+/* ===== AI降亏模式·统一下拉组件公共段(T3-1修复批 2026-08-23, §23.3/§23.5)=====
+   四消费点: lab 凯利区 / 模拟回测弹窗 / T3-2 首页 AI 建议卡与 AI 监控卡(待接)。
+   渲染函数=common.js _tdsFadeModeSelectHTML / _tdsFadeModeSelectMount(单一事实源);
+   本段=唯一样式定义, 各页不留私有副本(改这里=全站生效)。视觉对齐相邻控件:
+   字号 11px≈lab-sigkelly-fee-btn, 圆角 4px, 配色走主题变量; max-width 压住长 option 防铺满。 */
+.tds-fade-mode-wrap { display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; white-space: nowrap; }
+.tds-fade-mode-wrap .tds-fade-mode-label { font-weight: 600; }
+select.tds-fade-mode-sel {
+  width: auto; max-width: 232px;
+  padding: 2px 6px; font-size: 11px; line-height: 1.6;
+  border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg-card); color: var(--text-1);
+  cursor: pointer; text-overflow: ellipsis;
+  transition: border-color 0.15s;
+}
+select.tds-fade-mode-sel:hover, select.tds-fade-mode-sel:focus { border-color: var(--primary); outline: none; }
