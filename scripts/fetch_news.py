@@ -710,7 +710,13 @@ def sync_news_digest_live(day_str: str) -> None:
             cwd=str(repo), env=env, timeout=120, capture_output=True, check=False)
         if r.returncode == 0:
             out = (r.stdout or b"").decode("utf-8", errors="replace").strip()
-            print(f"[fetch_news] R2 同步 OK {out.splitlines()[-1] if out else ''}")
+            # 打印结果汇总行 + 全部 ⚠/✗ 告警明细行（2026-08-23 防再犯：只打最后一行曾把
+            # purge 批次失败的 HTTP status/异常明细丢掉，排障只见汇总不见原因）
+            lines = out.splitlines() if out else []
+            warn_lines = [l for l in lines if ("⚠" in l or "✗" in l)]
+            tail = lines[-1] if lines else ""
+            extra = "".join(f"\n[fetch_news]   {l}" for l in warn_lines)
+            print(f"[fetch_news] R2 同步 OK {tail}{extra}")
         else:
             err = (r.stderr or b"").decode("utf-8", errors="replace").strip()
             print(f"⚠ [fetch_news] R2 上传 rc={r.returncode} {(r.stdout or b'').decode('utf-8','replace')[-300:] if r.stdout else ''} {err[-300:] if err else ''}")

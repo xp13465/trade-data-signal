@@ -905,34 +905,48 @@ def purge_cache(r2_keys, cache_prefix="/"):
     print(f"→ Cache purge 分批: {total_keys} keys / {total_batches} 批 "
           f"(每批 {PURGE_BATCH_SIZE} keys, 间隔 {PURGE_BATCH_SLEEP}s)")
 
+    # 批次级重试（2026-08-23 防再犯）：偶发网络抖动/Worker 瞬时 5xx 会致单批失败即告警
+    # （实测 2026-08-23 20:30 fetch_news 单批 11 keys 全失败、前后批次均正常=瞬时故障），
+    # 失败批原样重试 PURGE_RETRY 次（退避递增），仍失败才计 failed_batches 触发告警。
+    PURGE_RETRY = 2          # 每批失败后重试次数（首发 + 2 重试 = 最多 3 次）
+    PURGE_RETRY_BACKOFF = 1  # 首次重试退避秒数，第 n 次重试退避 n * PURGE_RETRY_BACKOFF
+
     for idx, batch in enumerate(batches, 1):
         body = json.dumps({"secret": secret, "keys": batch}).encode()
-        conn = http.client.HTTPSConnection("ss.fx8.store", timeout=30, context=_CTX)
-        try:
-            conn.request("POST", "/api/purge-cache", body=body,
-                         headers={"Content-Type": "application/json"})
-            resp = conn.getresponse()
-            data = resp.read().decode()
-            if resp.status == 200:
-                # 解析 {purged: N, total: M} 累计进度
-                try:
-                    j = json.loads(data)
-                    purged = j.get("purged", len(batch))
-                except Exception:
-                    purged = len(batch)
-                total_purged += purged
-                print(f"  ✓ 批次 {idx}/{total_batches}: purged={purged} "
-                      f"(累计 {total_purged}/{total_keys})")
-            else:
-                failed_batches += 1
-                print(f"  ⚠ 批次 {idx}/{total_batches} failed: "
-                      f"{resp.status} {data[:200]}")
-        except Exception as e:
+        purged = None
+        last_err = ""
+        attempts = PURGE_RETRY + 1
+        for attempt in range(attempts):
+            conn = http.client.HTTPSConnection("ss.fx8.store", timeout=30, context=_CTX)
+            try:
+                conn.request("POST", "/api/purge-cache", body=body,
+                             headers={"Content-Type": "application/json"})
+                resp = conn.getresponse()
+                data = resp.read().decode()
+                if resp.status == 200:
+                    # 解析 {purged: N, total: M} 累计进度
+                    try:
+                        j = json.loads(data)
+                        purged = j.get("purged", len(batch))
+                    except Exception:
+                        purged = len(batch)
+                    break
+                last_err = f"HTTP {resp.status} {data[:200]}"
+            except Exception as e:
+                last_err = f"{type(e).__name__}: {e}"
+            finally:
+                conn.close()
+            if attempt < attempts - 1:
+                time.sleep(PURGE_RETRY_BACKOFF * (attempt + 1))
+        if purged is not None:
+            total_purged += purged
+            retried = f"（重试{attempt}次后成功）" if attempt > 0 else ""
+            print(f"  ✓ 批次 {idx}/{total_batches}: purged={purged} "
+                  f"(累计 {total_purged}/{total_keys}){retried}")
+        else:
             failed_batches += 1
-            print(f"  ⚠ 批次 {idx}/{total_batches} 异常: "
-                  f"{type(e).__name__}: {e}")
-        finally:
-            conn.close()
+            print(f"  ⚠ 批次 {idx}/{total_batches} failed after {attempts} 次尝试: "
+                  f"{last_err}")
         # 批间 sleep（最后一批不 sleep）
         if idx < total_batches:
             time.sleep(PURGE_BATCH_SLEEP)
