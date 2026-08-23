@@ -53,7 +53,7 @@
 - [ ] T2 「AI 降亏组成对比」展示区+七模式短标语落位(implementer,依赖 T1)
 - [ ] T3 交互主体:单开关+模式下拉 7 种+四消费点接入+3+1 补漏(implementer worktree 隔离,依赖 T0 定案)
 - [ ] T4 公示 §21 同步(purpose-notes/lab tooltip)+README §23.1+版本号 bump+reviewer 审查(依赖 T1-T3)
-- [ ] T5 主控验收 merge 上线 → 用户手动切换校验 → 校验满意另立 NEW 设默认任务
+- [ ] T5 主控验收 merge 上线 → 用户手动切换校验 → **用户验收数据通过且 NEW 14键确实如预期**才走 NEW 设默认任务:届时打 **v1.1.5 tag**(2026-08-23 用户定)+ 同步把测试基准锚点 memory(`test-baseline-v112-anchor`)升级为 v1.1.5(未来一切回测/挖掘以 v1.1.5 为前提)+ 前端默认值 + §21 公示 + README 四件套联动
 
 ### 📚 本轮降亏挖掘战役 README 总结导航(2026-08-23 用户点名,收尾必做)
 > 背景:mine22/23/24 全员竞赛+mine25 可操作长线+g2 门审计修正+速查卡等扩容产物多,`docs/kelly/analysis/README.md` 只有平铺逐行索引,缺总览入口。
