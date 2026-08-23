@@ -13,6 +13,7 @@
 import bisect
 import json
 import re
+import sys
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -761,6 +762,63 @@ _AI_MACRO_A_STOCK_MARKETS = {"mkt_a", "mkt_concept", "mkt_industry"}
 _AI_MACRO_BUY_SIGNALS = {"buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup"}
 
 
+# ============ AI降亏 20 条新键(T1 2026-08-23, 规格单源=scripts/loss_rules.py) ============
+# 二轮挖掘成员规则(A/B/C/NEW14/NEW18 五套模式的成员键)生产化: 此前只活在挖掘脚本内存里(T0 调研定案)。
+# 规格/阈值快照/键名映射全部单源于 scripts/loss_rules.py(前端经 data/kelly_loss_features.json 的
+# meta 读同一份, §22 同源咬合); 本文件只组装 ctx 调 rule_hit, 不重复谓词逻辑。
+# ⚠默认关纪律(§23.7): 这里只是给每条信号多标注命中哪些新键(供模式切换/凯利区人工开启后展示),
+#   前端首页白名单 _AI_MACRO_FILTER_NAMES(app.js)不含新键 → 默认行为零变化。
+_AI_LOSS_RULES_LOADED = {}      # importlib 单例(照 main.py._trade_sim_module 模式)
+_AI_LOSS_FEATS = {"data": None, "tried": False}   # 特征序列懒加载缓存(缺失降级: 特征类键不拦)
+
+
+def _ai_macro_loss_rules():
+    """按路径加载 scripts/loss_rules.py(singleton)。不 resolve symlink(同 db.py 口径,
+    保证读 cwd 侧 static-site/data 特征产物; export cwd=trade-data 时读 trade-data 实时生成版)。"""
+    if _AI_LOSS_RULES_LOADED:
+        return _AI_LOSS_RULES_LOADED["mod"]
+    import importlib.util
+    mod_path = Path(__file__).absolute().parent.parent / "scripts" / "loss_rules.py"
+    spec = importlib.util.spec_from_file_location("loss_rules", mod_path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["loss_rules"] = mod
+    spec.loader.exec_module(mod)
+    _AI_LOSS_RULES_LOADED["mod"] = mod
+    return mod
+
+
+def _ai_macro_feat_at():
+    """特征查值闭包(懒加载一次; 文件缺失返回恒 None 闭包=特征类键全不命中, 纯字段键照判)。"""
+    if not _AI_LOSS_FEATS["tried"]:
+        _AI_LOSS_FEATS["tried"] = True
+        _AI_LOSS_FEATS["data"] = _ai_macro_loss_rules().load_features()
+    return _ai_macro_loss_rules().make_feat_at(_AI_LOSS_FEATS["data"])
+
+
+def _ai_macro_hit_new_keys(sig: dict, ctx: dict, feat_at) -> list:
+    """20 条新键命中判定(仅买信号调用方已守卫)。返回命中的生产键名列表。
+
+    ctx 对齐 trades 字段语义(signal_kelly_backtest.py):
+    - tier: market_tier 字段=hs300四档×仅A股类注入(非A股 "") → 加 A股类守卫后传值;
+    - mkt: _mktD 象限维度短名(mkt_a→a 等, loss_rules.MKT_LONG2SHORT 同源映射);
+    - date: buy_date ≡ signal_date(backtest L559 直接赋信号日), 特征查询日无漂移;
+    - smonth/rating/ts: R2g 用(rating=该信号 best ETF 评级, ts 缺失视为 999)。"""
+    _lr = _ai_macro_loss_rules()
+    _d = str(sig.get("date") or "")
+    _mkt_long = ctx["market_of"](sig.get("index_id") or "")
+    _c = {
+        "sig": sig.get("signal") or "",
+        "mkt": _lr.MKT_LONG2SHORT.get(_mkt_long, ""),
+        "tier": (ctx["tier_of"](_d) or "") if _mkt_long in _AI_MACRO_A_STOCK_MARKETS else "",
+        "date": _d,
+        "smonth": _d[4:6] if len(_d) >= 6 else "",
+        "rating": ctx["rating_of"](sig) or "",
+        "ts": ctx["track_score_of"](sig),
+        "feat_at": feat_at,
+    }
+    return [pk for pk in _lr.NEW_KEYS_PROD if _lr.rule_hit(pk, _c)]
+
+
 def _ai_macro_hit_filters(sig: dict, ctx: dict) -> list:
     """信号级 AI宏(基础5+核心3 = 8 toggle, +1类剔除走 _bt_in_universe 字段)命中条件名列表
     (与凯利区 AI宏默认集同源, v1.1.0 基准, docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md)。
@@ -848,6 +906,14 @@ def _ai_macro_hit_filters(sig: dict, ctx: dict) -> list:
             or (_mkt == "mkt_global" and _q == 1 and _sig == "buy_aux" and _rating == "low")
             or (_sig == "buy_special" and _mm == "09" and _wd == 2)):
         _f.append("greedy15")
+
+    # T1(2026-08-23) 20 条新键命中标注(规格单源=scripts/loss_rules.py; 全部默认关, 首页白名单
+    # _AI_MACRO_FILTER_NAMES 不含 → 默认行为零变化 §23.7)。特征类键依赖 data/kelly_loss_features.json
+    # (gen_kelly_loss_features.py 产出), 文件缺失时特征类键不判(降级不误标), 纯字段键照判。
+    try:
+        _f.extend(_ai_macro_hit_new_keys(sig, ctx, _ai_macro_feat_at()))
+    except Exception:
+        pass  # 新键标注失败不阻断 overview 主链路(诚实降级: 少标注优于导出失败)
     return _f
 
 

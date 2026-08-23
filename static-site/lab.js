@@ -7308,7 +7308,19 @@ function _kellyDefaultFilters() {
     //   豁免由统计链桶过滤层实现(见 _kellyStatsFor passesFadeNoBull / 弹窗 _pcFadeFn), 谓词本身不带 mode。
     //   数据支撑: docs/kelly/analysis/sim-window-loss-mining-20260822.md(补位口径=前端真实链路: mode A K1 5-8月 -5,166→-1,030 / 4月零误伤 /
     //   2026全年 +5,626→+7,490 / 全史 +66,530→+73,103(+6,573) / 五窗全改善; 理想对照=被拦笔直接消失口径: -256 / +10,596 / +76,426(+9,895))。默认关供用户实测。
-    bullAuxBackupStop: false
+    bullAuxBackupStop: false,
+    // T1(2026-08-23 用户拍板·AI降亏方法池57→全量) 20 条新键, 全部默认关(§23.7 冻结契约: 默认组合零改动):
+    //   规格单源=scripts/loss_rules.py(RULE_SPECS/QTH 阈值快照), 前端经 data/kelly_loss_features.json
+    //   的 meta.rules 读同一份规格驱动判定(spec-driven, 与 queries.py rule_hit 同构), 不在前端硬编码阈值。
+    //   成员构成=二轮挖掘新池13(N1/T1/D1/Q1/H1/M1/D2/P1/V1/S1/R1/R2b/R2g; R2a≡k3ConceptBuy 已有)+落池7(N2/V2/S2/W1/A1/V3/AD1),
+    //   即 A/B/C/NEW14/NEW18 五套模式成员里的全部零实现键(T0 调研 ai-mode-dropdown-research-20260823.md Q4)。
+    //   ⚠语义与挖掘版逐字对齐(层2 校验 scripts/check_loss_rules_vs_mining.py 5100 行全等): 特征按 buy_date 查值
+    //   (回测 buy_date≡signal_date)/缺失值不拦/无月门(独立于上方 monthMask 门控组)。
+    n1NorthOutflow: false, t1LowTurnSpecial: false, d1LowDivYield: false, q1QvixLowPct: false,
+    h1VolChgHighA: false, m1MarginDownBull: false, d2LowDivBull: false, p1LowDivBackup: false,
+    v1HighVol20: false, s1SentALow: false, r1VolRatioLow: false, r2bSpecialGlobal: false, r2gLowRatingQ3: false,
+    n2NorthOutConcept: false, v2Vol20Gt25: false, s2SentHs300Low: false, w1BackupDecline: false,
+    a1BullAllStop: false, v3Vol20LowPct: false, ad1AdlineHot: false
   };
 }
 
@@ -7369,6 +7381,62 @@ function _kellyTradeFeatures(t, fIdx, _tradeDims) {
   var etfD = fIdx.track_tier != null ? String(t[fIdx.track_tier] || "") : "";
   var q = mm ? Math.ceil(parseInt(mm, 10) / 3) : 0;
   return { mm: mm, dd: dd, sig: sig, wd: wd, bpb: bpb, mktD: mktD, ratD: ratD, ts: ts, etfD: etfD, q: q };
+}
+
+// ===== T1(2026-08-23) AI降亏 20 条新键·特征数据通道 + spec-driven 谓词 =====
+// 数据=data/kelly_loss_features.json(scripts/gen_kelly_loss_features.py 产出, R2 data/ 前缀上线):
+//   meta.rules=规格单源(与 scripts/loss_rules.py RULE_SPECS 同源, queries.py rule_hit 同构判定),
+//   features=12 特征全史序列{feat: {YYYYMMDD: value}}。阈值=硬编码快照不滚动重算(§23.6 口径一致性)。
+// 加载策略: renderSigKellyLab 拉凯利数据时并行预取(state.kellyLossFeatData); 失败容忍=null
+//   (特征类键降级不拦, 与后端 load_features 缺失降级同语义, 纯字段键 w1/a1/r2b/r2g 照判)。
+// state.kellyLossFeatData / state.kellyLossSpecMap 由 _kellyEnsureLossFeatData 填充
+async function _kellyEnsureLossFeatData() {
+  if (state.kellyLossFeatData !== undefined && state.kellyLossFeatData !== null) return state.kellyLossFeatData;
+  if (!state.kellyLossFeatPromise) {
+    state.kellyLossFeatPromise = fetchJSON("./data/kelly_loss_features.json").then((d) => {
+      state.kellyLossFeatData = d || null;
+      state.kellyLossSpecMap = {};
+      ((d && d.meta && d.meta.rules) || []).forEach((r) => { state.kellyLossSpecMap[r.key] = r; });
+      return state.kellyLossFeatData;
+    }).catch(() => { state.kellyLossFeatData = null; return null; });
+  }
+  await state.kellyLossFeatPromise;
+  return state.kellyLossFeatData;
+}
+// spec-driven 谓词: 与 Python loss_rules.rule_hit 逐分支同构(缺失值→不拦; low=v<th high=v>th;
+// R2g ts 缺失视为 999)。ctx={sig,mkt,tier,date,smonth,rating,ts}。
+// T1 新键清单单源(JS 侧): [filterKey, toggleCls后缀]; _kellyDefaultFilters 内 20 个 false 显式条目
+//   与此一一对应, 新增键须同步两处 + scripts/loss_rules.py RULE_SPECS(§22 单源咬合)。
+const _KELLY_LOSS_NEW_KEYS = [
+  ["r2gLowRatingQ3", "r2gq3"],
+  ["n1NorthOutflow", "n1out"], ["t1LowTurnSpecial", "t1turn"], ["d1LowDivYield", "d1div"],
+  ["q1QvixLowPct", "q1qvix"], ["h1VolChgHighA", "h1volchg"], ["m1MarginDownBull", "m1margin"],
+  ["d2LowDivBull", "d2div"], ["p1LowDivBackup", "p1div"], ["v1HighVol20", "v1vol20"],
+  ["s1SentALow", "s1senta"], ["r1VolRatioLow", "r1volratio"], ["r2bSpecialGlobal", "r2bglobal"],
+  ["n2NorthOutConcept", "n2nout"], ["v2Vol20Gt25", "v2vol25"], ["s2SentHs300Low", "s2sent300"],
+  ["w1BackupDecline", "w1backup"], ["a1BullAllStop", "a1bull"], ["v3Vol20LowPct", "v3vollow"],
+  ["ad1AdlineHot", "ad1hot"]
+];
+function _kellyLossRuleHit(key, ctx) {
+  const spec = state.kellyLossSpecMap && state.kellyLossSpecMap[key];
+  if (!spec) return false;                       // 规格未加载(特征JSON缺失/键未知) → 不拦, 诚实降级
+  if (spec.feature) {
+    const series = state.kellyLossFeatData && state.kellyLossFeatData.features && state.kellyLossFeatData.features[spec.feature];
+    const v = series ? series[String(ctx.date || "")] : null;
+    if (v == null) return false;                 // FR 工厂语义: 特征缺失该日 → 整条不命中
+    if (spec.direction === "low") { if (!(v < spec.threshold)) return false; }
+    else { if (!(v > spec.threshold)) return false; }
+  }
+  if (spec.sig != null && String(ctx.sig || "") !== spec.sig) return false;
+  if (spec.tier != null && String(ctx.tier || "") !== spec.tier) return false;
+  if (spec.mkt != null && String(ctx.mkt || "") !== spec.mkt) return false;
+  if (spec.rating != null) {
+    if (String(ctx.rating || "") !== spec.rating) return false;
+    const tv = (ctx.ts == null || ctx.ts === "") ? 999 : Number(ctx.ts);
+    if (!(tv < spec.max_ts)) return false;       // mine22: 空 ts 视为 999 → 不命中
+    if ((spec.months || []).indexOf(String(ctx.smonth || "")) < 0) return false;  // signal_date 月(mine22 str(t[0]))
+  }
+  return true;
 }
 
 // 月门控: 每个v3/v4谓词都有月或季度约束(逐条核对), 该trade月份不可能匹配任何活跃toggle则直接通过,
@@ -7575,6 +7643,56 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
       // K3 主关注×概念: 剔除 buy × 概念 (当前数据文件实算: 独立信号3775个/全9模式6480条)
       if (filters.k3ConceptBuy && _sig3 === "buy" && _mktD3 === "concept") return false;
     }
+  }
+  // === T1(2026-08-23) AI降亏 20 条新键(spec-driven, 规格单源=scripts/loss_rules.py) ===
+  // ⚠独立于上方月门控块: 新键语义与挖掘版逐字对齐=无月门(mine21 FR 工厂/mine22 build_r2 均无月份短路),
+  //   故不能放进上面的 if(_v3On||...) 门控内(会被 monthMask 短路漏拦)。新键全关时 _m20On=false 零开销。
+  var _m20On = filters.n1NorthOutflow || filters.t1LowTurnSpecial || filters.d1LowDivYield || filters.q1QvixLowPct ||
+    filters.h1VolChgHighA || filters.m1MarginDownBull || filters.d2LowDivBull || filters.p1LowDivBackup ||
+    filters.v1HighVol20 || filters.s1SentALow || filters.r1VolRatioLow || filters.r2bSpecialGlobal || filters.r2gLowRatingQ3 ||
+    filters.n2NorthOutConcept || filters.v2Vol20Gt25 || filters.s2SentHs300Low || filters.w1BackupDecline ||
+    filters.a1BullAllStop || filters.v3Vol20LowPct || filters.ad1AdlineHot;
+  if (_m20On) {
+    // 组装判定 ctx(trades 字段直读; mktD 从 _tradeDims 维度表取, 与 _kellyTradeFeatures dk 同构):
+    // tier=market_tier 字段(A股类限定注入, 非A股 "" 天然不命中); date=buy_date(≡signal_date);
+    // smonth 取 signal_date 月(R2g 口径=mine22 str(t[0]))。
+    var _bd20 = String(t[fIdx.buy_date] || "");
+    var _sd20 = String(fIdx.signal_date != null ? t[fIdx.signal_date] || "" : "");
+    var _sig20 = fIdx.signal != null ? String(t[fIdx.signal] || "") : "";
+    var _mkt20 = "";
+    if (_tradeDims) {
+      var _dk20 = _sd20 + "|" + (fIdx.index_id != null ? t[fIdx.index_id] || "" : "") + "|" + _sig20 + "|" + _bd20 + "|" + (fIdx.etf_code != null ? t[fIdx.etf_code] || "" : "") + "|" + (fIdx.sell_date != null ? t[fIdx.sell_date] || "" : "");
+      _mkt20 = (_tradeDims[_dk20] || {}).mkt || "";
+    }
+    var _ctx20 = {
+      sig: _sig20,
+      mkt: _mkt20,
+      tier: fIdx.market_tier != null ? String(t[fIdx.market_tier] || "") : "",
+      date: _bd20,
+      smonth: _sd20.substring(4, 6),
+      rating: fIdx.rating != null ? String(t[fIdx.rating] || "") : "",
+      ts: fIdx.track_score != null ? t[fIdx.track_score] : null
+    };
+    if (filters.n1NorthOutflow && _kellyLossRuleHit("n1NorthOutflow", _ctx20)) return false;
+    if (filters.t1LowTurnSpecial && _kellyLossRuleHit("t1LowTurnSpecial", _ctx20)) return false;
+    if (filters.d1LowDivYield && _kellyLossRuleHit("d1LowDivYield", _ctx20)) return false;
+    if (filters.q1QvixLowPct && _kellyLossRuleHit("q1QvixLowPct", _ctx20)) return false;
+    if (filters.h1VolChgHighA && _kellyLossRuleHit("h1VolChgHighA", _ctx20)) return false;
+    if (filters.m1MarginDownBull && _kellyLossRuleHit("m1MarginDownBull", _ctx20)) return false;
+    if (filters.d2LowDivBull && _kellyLossRuleHit("d2LowDivBull", _ctx20)) return false;
+    if (filters.p1LowDivBackup && _kellyLossRuleHit("p1LowDivBackup", _ctx20)) return false;
+    if (filters.v1HighVol20 && _kellyLossRuleHit("v1HighVol20", _ctx20)) return false;
+    if (filters.s1SentALow && _kellyLossRuleHit("s1SentALow", _ctx20)) return false;
+    if (filters.r1VolRatioLow && _kellyLossRuleHit("r1VolRatioLow", _ctx20)) return false;
+    if (filters.r2bSpecialGlobal && _kellyLossRuleHit("r2bSpecialGlobal", _ctx20)) return false;
+    if (filters.r2gLowRatingQ3 && _kellyLossRuleHit("r2gLowRatingQ3", _ctx20)) return false;
+    if (filters.n2NorthOutConcept && _kellyLossRuleHit("n2NorthOutConcept", _ctx20)) return false;
+    if (filters.v2Vol20Gt25 && _kellyLossRuleHit("v2Vol20Gt25", _ctx20)) return false;
+    if (filters.s2SentHs300Low && _kellyLossRuleHit("s2SentHs300Low", _ctx20)) return false;
+    if (filters.w1BackupDecline && _kellyLossRuleHit("w1BackupDecline", _ctx20)) return false;
+    if (filters.a1BullAllStop && _kellyLossRuleHit("a1BullAllStop", _ctx20)) return false;
+    if (filters.v3Vol20LowPct && _kellyLossRuleHit("v3Vol20LowPct", _ctx20)) return false;
+    if (filters.ad1AdlineHot && _kellyLossRuleHit("ad1AdlineHot", _ctx20)) return false;
   }
   return true;
 }
@@ -8647,6 +8765,13 @@ async function renderSigKellyLab() {
       return;
     }
   }
+  // T1(2026-08-23) 并行预取降亏特征 JSON(20 新键谓词查值用); 失败容忍(null→特征键不拦, 与后端同语义), 不阻塞主数据。
+  //   晚到补渲染: 首渲时特征未就绪而新键已开启(判定被降级) → 加载完成后补一次渲染对齐 §22 一致性。
+  _kellyEnsureLossFeatData().then((d) => {
+    if (d && state.labSigKellyFilters && _KELLY_LOSS_NEW_KEYS.some((p) => state.labSigKellyFilters[p[0]])) {
+      renderSigKellyLab();
+    }
+  });
   const data = state.labSigKellyData;
   if (!data || !data.quadrants) {
     host.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 数据为空或结构异常</div><button type="button" class="lab-custom-retry">重试</button></div>`;
@@ -8915,7 +9040,10 @@ var _kellyFadeFlagGroups = [
     { k: "v4k", cls: "lab-sigkelly-toggle-v4k", name: "1月+主关注+高价", ratio: 0, warn: "⚠️监控",
       advice: "无净效应,稳定性不足 · 比值≈0", tip: "❌非默认⚠监控: 排除1月+主关注+高价。每日池比值≈0(无净效应)。旧每笔1万比值10.11,每日池下广谱效应消失。⚠有子集盈利年(2017/2025),3/5年净正非全正,稳定性不足。" },
     { k: "v4f", cls: "lab-sigkelly-toggle-v4f", name: "6月+周三+主关注+关联", ratio: -5.1, warn: "⚠️监控",
-      advice: "转负最末位,样本太小 · 比值-5.1", tip: "❌非默认⚠监控: 排除6月+周三+主关注+关联。每日池比值-5.1(组合总盈亏转坏,最末位)。旧每笔1万比值999(JEP虚高),每日池下转负。⚠n=60太小只3年数据,每年6月检查。" }
+      advice: "转负最末位,样本太小 · 比值-5.1", tip: "❌非默认⚠监控: 排除6月+周三+主关注+关联。每日池比值-5.1(组合总盈亏转坏,最末位)。旧每笔1万比值999(JEP虚高),每日池下转负。⚠n=60太小只3年数据,每年6月检查。" },
+    // T1(2026-08-23) 新键·日历族(R2 替补族): 月份主导(仅7-9月生效)归本组; 规格单源=scripts/loss_rules.py
+    { k: "r2gLowRatingQ3", cls: "lab-sigkelly-toggle-r2gq3", name: "7-9月+低评+低分", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕三季末砍低评低分 · vs9键+19,442", tip: "🆕NEW(T1 2026-08-23 方法池全量落库, 非默认推荐)默认关: 排除 rating=low 低评级 × 月份∈{07,08,09}(signal_date) × track_score<75 的交易(空分数视为999不拦)。挖掘代号 R2g(R2 三轮替补族之一, 与 R2a≡主关注×概念/R2b 同族)。【白话】三季度末(7-9月)低评级+低分的信号是历史亏损密集区, 开启后整段剔除。【场景】7-9月回撤放大时开启实测减亏效果; 其余月份本键不产生任何过滤。【1:1】vs9键边际 +19,442 元(round3 口径, docs/kelly/analysis round3 mine14_substitute_validate; 与 R2a +9,681 / R2b +8,254 同批验证)。⚠诚实标注: 上数为 vs9 键边际(补位口径 K1, mode A), 非每日池比值——每日池口径比值待补测, 不编数; 门字段数字以 g2 修正重跑后为准。规格与阈值单源=scripts/loss_rules.py, 判定与凯利区/首页同源(§22)。" }
   ]},
   { key: "combo", title: "复合并集·广谱管理·ratio每日池口径", flags: [
     { k: "r8PureNonMay", cls: "lab-sigkelly-toggle-r8", name: "纯非5月三稳", ratio: 2.11,
@@ -8961,7 +9089,49 @@ var _kellyFadeFlagGroups = [
     { k: "k2c5HkChase", cls: "lab-sigkelly-toggle-k2c5", name: "港股追涨", ratio: 4.55, rec: true, warn: "⭐默认开(v1.1.0)",
       advice: "剔除港股追涨 · 比值4.55", tip: "⭐ 默认开(v1.1.0 2026-08-15 用户拍板 定名「基础5」) = AI宏组成**5+3+1 = 基础5(n2NovSpecialIndustry/excludeSpecialBear/janMidRating/janMidSpecial/k2c5HkChase 港股追涨剔除)+核心3(r7MayReinforced/excludeAuxCross/greedy15)+1类回测剔除(债类/波段不入宇宙 _bt_in_universe)=8键+1类**;K2C5 已穷举验证并入基础5(16组合全扫,与核心3无叠加冲突、8键全开A/F/9模式合计全局最优、去K2C5损失+41,445第二大贡献、y1样本外正贡献,见 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md)。剔除 signal∈{buy_special,buy_backup}×港股 的交易(当前数据文件实算:独立信号728个/全9模式占1431条)。每日池减亏2.88%/损盈0.63%/比值4.55(>2高性价比, 与其他键同口径 ALL9-K1; K2档损盈-0.03%不取, 见 docs/kelly/analysis/kelly-k2c5-dailypool-ratio.md)。全信号除 G 外双升(A/F/H 多年稳定,净利 Δ +4,458~+7,840),16象限 92.4% 正,港股卡剔除后 0 负全转正(它就是港股卡亏损主源);除G外唯一负贡献 I 微负 -1,365。诚实标注 G: 因强平兑现口径分裂, b0(保守,强平记0利)=-2,256 / b1(乐观,按持有时间线性兑现)=+11,755,方向依赖口径,真实强平收益在区间[b0,b1],不把 b1 当承诺。" },
     { k: "k3ConceptBuy", cls: "lab-sigkelly-toggle-k3", name: "主关注×概念", ratio: 1.29, warn: "⚠️默认关",
-      advice: "剔除主关注概念 · 比值1.29", tip: "❌非默认⚠默认关: 剔除 signal=buy×概念 的交易(当前数据文件实算:独立信号3775个/全9模式占6480条)。报告: 剔除后 y1 提升最大,但高波动+牺牲 2024/2025 大赚年,报告建议默认关+监控。故默认关,自己开关看效果。每日池减亏2.84%/损盈2.20%/比值1.29(<2性价比一般, ALL9-K1, 见 docs/kelly/analysis/kelly-k2c5-dailypool-ratio.md)。" }
+      advice: "剔除主关注概念 · 比值1.29", tip: "❌非默认⚠默认关: 剔除 signal=buy×概念 的交易(当前数据文件实算:独立信号3775个/全9模式占6480条)。报告: 剔除后 y1 提升最大,但高波动+牺牲 2024/2025 大赚年,报告建议默认关+监控。故默认关,自己开关看效果。每日池减亏2.84%/损盈2.20%/比值1.29(<2性价比一般, ALL9-K1, 见 docs/kelly/analysis/kelly-k2c5-dailypool-ratio.md)。" },
+    // ===== T1(2026-08-23) AI降亏方法池57→全量·20条新键(19条市场防御族 + 日历族R2g见上) =====
+    //   成员=二轮挖掘新池13+落池7(R2a≡k3ConceptBuy 已有); 规格单源=scripts/loss_rules.py,
+    //   阈值=qth快照(mine10_features.json 2026-08-22版全史分位固化, 不滚动重算); 特征数据=data/kelly_loss_features.json。
+    //   ratio=null=每日池口径比值无现成数字待补测(诚实不编数 §23.9), tip 内给 vs9键边际(vs9_net, mine20_pool.json 补位口径 K1 mode A; R2 族=round3 9键边际)。门字段以 g2 修正重跑后为准。
+    { k: "n1NorthOutflow", cls: "lab-sigkelly-toggle-n1out", name: "北向20日净流出", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕北向流出期全停 · vs9键+13,695", tip: "🆕NEW(T1 2026-08-23 方法池全量落库, 默认关): 排除 north_d20(北向资金近20日净流入,亿)<全史30分位(-58.3) 的全部买入交易。【白话】北向连续净流出时外资在撤, 全类型追买历史亏损密集。【场景】外资大幅流出周开启实测; 流入期本键零过滤。【1:1】vs9键边际 +13,695 元 / 命中1480笔(mode A K1 补位口径, mine20_pool.json), 池内11键中边际第1。⚠每日池比值待补测。" },
+    { k: "t1LowTurnSpecial", cls: "lab-sigkelly-toggle-t1turn", name: "换手冰点×追关注", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕缩量行情别追高 · vs9键+10,549", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 turn_pct(全市场换手率3年滚动分位)<30 × buy_special 追关注。【白话】全市场换手降到冰点(近3年最冷的30%时段)还去追涨的信号, 胜率差。【场景】地量行情期开启。【1:1】vs9键边际 +10,549 / 命中144笔(mine20_pool.json)。⚠每日池比值待补测。" },
+    { k: "d1LowDivYield", cls: "lab-sigkelly-toggle-d1div", name: "股息率低位(估值贵)", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕整体估值贵时停手 · vs9键+8,552", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 div_yield(a_div_yield 全市场股息率%)<全史50分位(2.59) 的全部买入。【白话】股息率低=市场整体贵, 贵的时候少进场。【场景】指数高位/股息率压到2.6%下方时开启。【1:1】vs9键边际 +8,552 / 命中621笔(mine20_pool.json)。⚠每日池比值待补测。" },
+    { k: "q1QvixLowPct", cls: "lab-sigkelly-toggle-q1qvix", name: "QVIX低分位(自满)", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕波动率过低=暴风雨前 · vs9键+4,341", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 qvix_pct(QVIX 3年滚动分位)<10 的全部买入。【白话】隐含波动率压到历史最低一档, 市场过度自满, 后面容易变盘。【场景】QVIX 分位跌破10时开启。【1:1】vs9键边际 +4,341 / 命中461笔(mine20_pool.json)。⚠每日池比值待补测。" },
+    { k: "h1VolChgHighA", cls: "lab-sigkelly-toggle-h1volchg", name: "升波×A股", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕波动放大期停A股 · vs9键+6,647", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 h_volchg(hs300 5日std/20日std年化比-1,% )>全史30分位(-23.6) × A股类(mkt=a)。【白话】短端波动比长端明显放大(升波)时,A股信号先撤——升波常伴随急跌启动。【场景】大盘开始放量异动时开启。【1:1】vs9键边际 +6,647 / 命中605笔(mine20_pool.json)。⚠每日池比值待补测。" },
+    { k: "m1MarginDownBull", cls: "lab-sigkelly-toggle-m1margin", name: "牛主升×两融降温", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕杠杆退潮的牛市别信 · vs9键+3,035", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 margin_chg20(两融余额20日变化率%)<全史70分位(2.08) × hs300四档=牛市·主升(A股类)。【白话】名义上是牛市主升, 但两融(杠杆资金)在退潮, 这种背离段的买入不可信。【场景】牛市段发现两融连续下降时开启。【1:1】vs9键边际 +3,035 / 命中348笔(mine20_pool.json)。⚠每日池比值待补测; 两融序列仅2021-02起(源边界, 更早日期本键不拦)。" },
+    { k: "d2LowDivBull", cls: "lab-sigkelly-toggle-d2div", name: "牛主升×股息率低位", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕牛市末段估值贵 · vs9键+5,301", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 div_yield<全史70分位(2.93) × 牛市·主升(A股类四档)。【白话】牛市主升+市场贵(股息率低)的组合≈牛市后半场追高。【场景】牛主升段里股息率再破2.93时开启。【1:1】vs9键边际 +5,301 / 命中1062笔(mine20_pool.json, 过 g1/g3 门)。⚠每日池比值待补测。" },
+    { k: "p1LowDivBackup", cls: "lab-sigkelly-toggle-p1div", name: "备买×股息率分位低", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕便宜市也别接备买刀 · vs9键+571", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 div_pct(div_yield 3年滚动分位)<30 × buy_backup 备买。【白话】即便估值分位不高, 备买(兜底型信号)在股息率偏低的时段接飞刀依然亏。【场景】想收紧备买信号时叠加本键。【1:1】vs9键边际 +571 / 命中195笔(mine20_pool.json)。⚠每日池比值待补测。" },
+    { k: "v1HighVol20", cls: "lab-sigkelly-toggle-v1vol20", name: "高波动>90分位", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕恐慌顶部全停 · vs9键+3,566", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 h_vol20(hs300 20日年化已实现波动%)>全史90分位(30.7) 的全部买入。【白话】20日实现波动冲进历史最高一档=市场正在剧烈动荡, 此时任何买入都是赌。【场景】暴跌震荡期开启。【1:1】vs9键边际 +3,566 / 命中189笔(mine20_pool.json)。⚠每日池比值待补测。" },
+    { k: "s1SentALow", cls: "lab-sigkelly-toggle-s1senta", name: "A股情绪冰点", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕情绪<20分位全停 · vs9键+982", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 sent_a(a_sentiment A股情绪分)<全史20分位(33.27) 的全部买入。【白话】情绪分压到历史最低两成时, 反转没来之前继续阴跌。【场景】情绪指标长期低迷段开启。【1:1】vs9键边际 +982 / 命中382笔(mine20_pool.json)。⚠g3 门未过(前瞻弱), 每日池比值待补测。" },
+    { k: "r1VolRatioLow", cls: "lab-sigkelly-toggle-r1volratio", name: "量能萎缩<10分位", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕极端地量全停 · vs9键+1,553", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 vol_ratio_all(a_volume_ratio 全市场量比)<全史10分位(0.876) 的全部买入。【白话】量比缩到历史最低一档=流动性枯竭, 买入滑点与假突破风险都大。【场景】节假日前后/地量段开启。【1:1】vs9键边际 +1,553 / 命中391笔(mine20_pool.json)。⚠g3 未过, 每日池比值待补测。" },
+    { k: "r2bSpecialGlobal", cls: "lab-sigkelly-toggle-r2bglobal", name: "追关注×全球类", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕全球类追涨剔除 · vs9键+8,254", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 buy_special 追关注 × mkt=global 全球类的交易。挖掘代号 R2b(R2 三轮替补族)。【白话】全球类(海外指数ETF)的追关注信号历史胜率差, 与 K2C5 港股追涨同思路、不同域类。【场景】想比 K2C5 收得更紧时叠加(港股之外再把全球类追涨去掉)。【1:1】vs9键边际 +8,254 元(round3 口径, 同批 R2a +9,681 / R2g +19,442)。⚠每日池比值待补测。" },
+    { k: "n2NorthOutConcept", cls: "lab-sigkelly-toggle-n2nout", name: "北向流出×概念类", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕外资撤+题材炒作双杀 · vs9键+7,054", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 north_d20<全史30分位(-58.3亿) × mkt=concept 概念类(N1 的子集变体)。【白话】外资在撤的同时还在炒题材概念, 双重风险叠加。【场景】北向流出期只想收概念仓时用(比 N1 精准、砍量更少)。【1:1】vs9键边际 +7,054 / 命中784笔(mine20_pool.json; 开 N1 时本键不再新增过滤, 属其子集)。⚠每日池比值待补测。" },
+    { k: "v2Vol20Gt25", cls: "lab-sigkelly-toggle-v2vol25", name: "波动≥25%(固定线)", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕波动破25%全停 · vs9键-8,636", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 h_vol20≥25%(固定常数, 非分位) 的全部买入。一轮候选3 变体(V1 的放宽版)。【白话】波动一旦越过25%这条固定警戒线就停手。【场景】想用绝对阈值(而非历史分位)控波动暴露时开。【1:1】vs9键边际 -8,635.64 / 命中688笔(mine20_pool.json)。⚠诚实标注: 边际为负(单开损净利), 落池键仅作协同定性参考; 每日池比值待补测。" },
+    { k: "s2SentHs300Low", cls: "lab-sigkelly-toggle-s2sent300", name: "HS300情绪冰点", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕300情绪冰点全停 · vs9键-879", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 sent_hs300(score_daily sentiment_hs300)<全史20分位(35.07) 的全部买入(S1 的 hs300 版)。【白话】沪深300维度情绪同样冰冷时的停手变体。【场景】对比 S1(A股情绪版)哪个更贴身时开。【1:1】vs9键边际 -879.07 / 命中437笔(mine20_pool.json)。⚠诚实标注: 单开边际为负; 每日池比值待补测。" },
+    { k: "w1BackupDecline", cls: "lab-sigkelly-toggle-w1backup", name: "备买×下降期", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕下降期别接备买 · vs9键-2,485", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 buy_backup 备买 × hs300四档=下降期(A股类)。一轮观察型候选(W 族)。【白话】下降趋势里的兜底型买入=接飞刀变体, 但样本小效果不稳。【场景】下降期想单独收紧备买(不动其他信号)时开。【1:1】vs9键边际 -2,484.65 / 命中40笔(mine20_pool.json, 三门全未过)。⚠诚实标注: 单开边际为负+样本小; 每日池比值待补测。" },
+    { k: "a1BullAllStop", cls: "lab-sigkelly-toggle-a1bull", name: "牛主升全停(超集)", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕牛主升全类型停 · vs9键-11,884", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 hs300四档=牛市·主升(A股类)的全部买入——bullAuxBackupStop(只停辅买∪备买)的全类型超集。一轮候选2激进版。【白话】把牛市主升段所有买入全停掉, 比 bullAuxBackupStop 狠得多。【场景】仅在「牛市末段全面避险」实验时开。【1:1】vs9键边际 -11,884.00 / 命中1767笔(mine20_pool.json)。⚠诚实标注: 单开边际大幅为负(误伤牛市盈利主体), 落池键仅作对照; 每日池比值待补测。" },
+    { k: "v3Vol20LowPct", cls: "lab-sigkelly-toggle-v3vollow", name: "低波动<10分位", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕极度平静期也危险 · vs9键-2,470", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 h_vol20<全史10分位(10.73) 的全部买入(V1 的反面: 低波不动段)。【白话】波动压到历史最低一档=多空都没劲, 信号质量普遍差。【场景】窄幅横盘段实验开启。【1:1】vs9键边际 -2,470.24 / 命中1057笔(mine20_pool.json)。⚠诚实标注: 单开边际为负且砍量大(命中1057笔); 每日池比值待补测。" },
+    { k: "ad1AdlineHot", cls: "lab-sigkelly-toggle-ad1hot", name: "AD线广度过热", ratio: null, warn: "🆕NEW默认关",
+      advice: "🆕普涨过热期停手 · vs9键-236", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 adline_gap((a_ad_line-a_ad_line_ma20)/|ma20|)>全史70分位(0.060) 的全部买入。【白话】腾落线(AD)远高于其20日线=个股普涨过热, 追买容易买在短期顶部。【场景】普涨大阳线频出时实验开启。【1:1】vs9键边际 -235.61 / 命中845笔(mine20_pool.json)。⚠诚实标注: 单开微负(接近零效应); 每日池比值待补测。" }
   ]}
 ];
 
@@ -9459,6 +9629,17 @@ function _renderSigKellyBar(bar, data, period) {
     state.labSigKellyFilters.k3ConceptBuy = k3Cb.checked;
     _kellyOnFilterChange();
   };
+  // T1(2026-08-23) AI降亏方法池57→全量: 20 条新键开关绑定(全部默认关 §23.7; 规格单源=scripts/loss_rules.py,
+  //   键名/cls 与 _kellyFadeFlagGroups 标签一致; 循环绑定替代 20 段复制块)
+  _KELLY_LOSS_NEW_KEYS.forEach(function (pair) {
+    var key = pair[0];
+    var cb = bar.querySelector(".lab-sigkelly-toggle-" + pair[1]);
+    if (cb) cb.onchange = function () {
+      if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+      state.labSigKellyFilters[key] = cb.checked;
+      _kellyOnFilterChange();
+    };
+  });
   // 现有6 toggle(比值<3)
   // 辅关注×3/5月交叉(排除buy_aux在3/5月)
   var auxCrossCb = bar.querySelector(".lab-sigkelly-toggle-auxcross");

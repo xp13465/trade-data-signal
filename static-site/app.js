@@ -2266,7 +2266,17 @@ const _AI_MACRO_BACKUP_NAMES = {
   legacyMa60Special: "老MA60熊×追买",
   declinePhaseSpecial: "下降期×追关注",
   // #69(2026-08-19 用户拍板) cyb 四档版降亏新键: 默认关非默认推荐, 不进首页默认判定(凯利区可人工开)
-  excludeSpecialBearCyb: "追关注×熊市交叉(cyb四档)"
+  excludeSpecialBearCyb: "追关注×熊市交叉(cyb四档)",
+  // T1(2026-08-23) AI降亏方法池57→全量·20 新键中文名映射(仅名称展示用; 首页判定仍走固定8键白名单
+  //   _aiOnMembers 不含新键=默认行为零变化 §23.7; 后端 queries.py 会把新键命中名注入 ai_macro.filters,
+  //   未来交互重构接入首页判定/显示时此处提供中文名防原始键名裸奔。规格单源=scripts/loss_rules.py)
+  n1NorthOutflow: "北向20日净流出", t1LowTurnSpecial: "换手冰点×追关注", d1LowDivYield: "股息率低位(估值贵)",
+  q1QvixLowPct: "QVIX低分位(自满)", h1VolChgHighA: "升波×A股", m1MarginDownBull: "牛主升×两融降温",
+  d2LowDivBull: "牛主升×股息率低位", p1LowDivBackup: "备买×股息率分位低", v1HighVol20: "高波动>90分位",
+  s1SentALow: "A股情绪冰点", r1VolRatioLow: "量能萎缩<10分位", r2bSpecialGlobal: "追关注×全球类",
+  r2gLowRatingQ3: "7-9月+低评+低分", n2NorthOutConcept: "北向流出×概念类", v2Vol20Gt25: "波动≥25%(固定线)",
+  s2SentHs300Low: "HS300情绪冰点", w1BackupDecline: "备买×下降期", a1BullAllStop: "牛主升全停(超集)",
+  v3Vol20LowPct: "低波动<10分位", ad1AdlineHot: "AD线广度过热"
 };
 // 读首页独立 AI降亏过滤开关(localStorage tds_home_fade, 布尔, 默认开启=按降亏策略判定+灰显删除线+标注)。
 // 与凯利区 tds_kelly_filters 完全解耦互不影响; 旧键 tds_poscap_aiDisplay(纯显示开关)已随合并废弃不再读取。
@@ -2560,7 +2570,13 @@ function _simDefaultFadeFilters() {
     janMidRating: true, janMidSpecial: true,
     k2c5HkChase: true, k3ConceptBuy: false,
     legacyMa60Special: false, declinePhaseSpecial: false, excludeSpecialBearCyb: false,
-    a5NovMidSpecial: false, a45NovMidLateSpecial: false
+    a5NovMidSpecial: false, a45NovMidLateSpecial: false,
+    // T1(2026-08-23) 20 新键默认全关(§23.7 默认行为零变化; 键清单单源=scripts/loss_rules.py NEW_KEYS_PROD)
+    n1NorthOutflow: false, t1LowTurnSpecial: false, d1LowDivYield: false, q1QvixLowPct: false,
+    h1VolChgHighA: false, m1MarginDownBull: false, d2LowDivBull: false, p1LowDivBackup: false,
+    v1HighVol20: false, s1SentALow: false, r1VolRatioLow: false, r2bSpecialGlobal: false,
+    r2gLowRatingQ3: false, n2NorthOutConcept: false, v2Vol20Gt25: false, s2SentHs300Low: false,
+    w1BackupDecline: false, a1BullAllStop: false, v3Vol20LowPct: false, ad1AdlineHot: false
   };
 }
 
@@ -2606,6 +2622,57 @@ function _simBuypriceBin(price) {
   if (price <= 1.194593) return "mid";
   if (price <= 1.446645) return "high";
   return "vhigh";
+}
+
+// ===== T1(2026-08-23) AI降亏方法池57→全量·app.js 同步(§23.3 举一反三: 模拟回测弹窗与凯利区同链) =====
+// 规格单源=scripts/loss_rules.py RULE_SPECS(经 data/kelly_loss_features.json meta.rules 下发),
+// 谓词与 lab.js _kellyLossRuleHit / Python loss_rules.rule_hit 三端同构。
+// 数据通道=R2 直链→CF 相对路径兜底(_fetchSimTrades 同模式); 未就绪/失败=降级不拦(与后端同语义)。
+const _SIM_LOSS_NEW_KEYS = [
+  ["r2gLowRatingQ3", "r2gq3"],
+  ["n1NorthOutflow", "n1out"], ["t1LowTurnSpecial", "t1turn"], ["d1LowDivYield", "d1div"],
+  ["q1QvixLowPct", "q1qvix"], ["h1VolChgHighA", "h1volchg"], ["m1MarginDownBull", "m1margin"],
+  ["d2LowDivBull", "d2div"], ["p1LowDivBackup", "p1div"], ["v1HighVol20", "v1vol20"],
+  ["s1SentALow", "s1senta"], ["r1VolRatioLow", "r1volratio"], ["r2bSpecialGlobal", "r2bglobal"],
+  ["n2NorthOutConcept", "n2nout"], ["v2Vol20Gt25", "v2vol25"], ["s2SentHs300Low", "s2sent300"],
+  ["w1BackupDecline", "w1backup"], ["a1BullAllStop", "a1bull"], ["v3Vol20LowPct", "v3vollow"],
+  ["ad1AdlineHot", "ad1hot"]
+];
+let _simLossFeatData = null;
+let _simLossFeatLoading = null;
+function _ensureSimLossFeat() {
+  if (_simLossFeatData) return Promise.resolve(_simLossFeatData);
+  if (!_simLossFeatLoading) {
+    _simLossFeatLoading = fetchJSON(_simTradesUrl("kelly_loss_features.json"), 60000)
+      .catch(() => fetchJSON(_simTradesUrlCf("kelly_loss_features.json"), 60000))
+      .then((d) => { _simLossFeatData = d || null; return _simLossFeatData; })
+      .catch(() => { _simLossFeatLoading = null; return null; }); // 失败清 loading 态允许重试, 返回 null=降级不拦
+  }
+  return _simLossFeatLoading;
+}
+// spec-driven 谓词(app.js 版): 与 lab.js _kellyLossRuleHit 逐分支同构
+function _simLossRuleHit(key, ctx) {
+  const doc = _simLossFeatData;
+  const spec = doc && doc.meta && doc.meta.rules ? doc.meta.rules.find((r) => r.key === key) : null;
+  if (!spec) return false;
+  const feats = doc.features || {};
+  if (spec.feature) {
+    const series = feats[spec.feature];
+    const v = series ? series[String(ctx.date || "")] : null;
+    if (v == null) return false;
+    if (spec.direction === "low") { if (!(v < spec.threshold)) return false; }
+    else { if (!(v > spec.threshold)) return false; }
+  }
+  if (spec.sig != null && String(ctx.sig || "") !== spec.sig) return false;
+  if (spec.tier != null && String(ctx.tier || "") !== spec.tier) return false;
+  if (spec.mkt != null && String(ctx.mkt || "") !== spec.mkt) return false;
+  if (spec.rating != null) {
+    if (String(ctx.rating || "") !== spec.rating) return false;
+    const tv = (ctx.ts == null || ctx.ts === "") ? 999 : Number(ctx.ts);
+    if (!(tv < spec.max_ts)) return false;
+    if ((spec.months || []).indexOf(String(ctx.smonth || "")) < 0) return false;
+  }
+  return true;
 }
 
 // 单笔降亏判定(等价 lab.js _kellyPassesFadeFilters, 但输入 t 为带 mktD/etfD/ratD 聚合维度的基笔记录)
@@ -2682,6 +2749,29 @@ function _simPassesFade(t, fIdx, filters, monthMask) {
     if (_k2On) {
       if (filters.k2c5HkChase && (_sig3 === "buy_special" || _sig3 === "buy_backup") && _mktD3 === "hk") return false;
       if (filters.k3ConceptBuy && _sig3 === "buy" && _mktD3 === "concept") return false;
+    }
+  }
+  // T1(2026-08-23) 20 条新键(mine20/21/22 方法池全量): 独立于上面 v3/v4/r3/jan/k2 门控组之外——
+  //   挖掘语义即无月门, 放门控内会被 monthMask 短路漏拦(lab.js 同款位置与注释)。
+  //   全部默认 false(§23.7 默认行为零变化); 特征未就绪时降级不拦(与后端 load_features 缺失同语义)。
+  var _m20On = filters.n1NorthOutflow || filters.t1LowTurnSpecial || filters.d1LowDivYield || filters.q1QvixLowPct ||
+    filters.h1VolChgHighA || filters.m1MarginDownBull || filters.d2LowDivBull || filters.p1LowDivBackup ||
+    filters.v1HighVol20 || filters.s1SentALow || filters.r1VolRatioLow || filters.r2bSpecialGlobal ||
+    filters.r2gLowRatingQ3 || filters.n2NorthOutConcept || filters.v2Vol20Gt25 || filters.s2SentHs300Low ||
+    filters.w1BackupDecline || filters.a1BullAllStop || filters.v3Vol20LowPct || filters.ad1AdlineHot;
+  if (_m20On && _simLossFeatData) {
+    var _ctx20 = {
+      sig: t[fIdx.signal] || "",
+      mkt: t._mktD || "",
+      tier: fIdx.market_tier != null ? (t[fIdx.market_tier] || "") : "",
+      date: t[fIdx.buy_date] || "",
+      smonth: String(t[fIdx.signal_date] || "").substring(4, 6),
+      rating: t[fIdx.rating] || "",
+      ts: fIdx.track_score != null ? t[fIdx.track_score] : null
+    };
+    for (var _i20 = 0; _i20 < _SIM_LOSS_NEW_KEYS.length; _i20++) {
+      var _k20 = _SIM_LOSS_NEW_KEYS[_i20][0];
+      if (filters[_k20] && _simLossRuleHit(_k20, _ctx20)) return false;
     }
   }
   return true;
@@ -2961,6 +3051,13 @@ async function _simRender(modal) {
   const bodyEl = modal.querySelector(".sim-table-body");
   const summaryEl = modal.querySelector(".sim-summary");
   const pagerEl = modal.querySelector(".sim-pager");
+  // T1(2026-08-23) 预热降亏特征 JSON(20 新键谓词查值; 异步不阻塞, 未就绪时新键判定降级不拦);
+  //   晚到且已有新键开启(首渲被降级) → 补一次渲染对齐 §22。
+  _ensureSimLossFeat().then((d) => {
+    if (d && _SIM_LOSS_NEW_KEYS.some((p) => (modal.querySelector(".sim-fade-cb-" + p[0]) || {}).checked)) {
+      try { _simRender(modal); } catch (e) {}
+    }
+  }).catch(() => {});
   if (!_simKellyData && !_simKellyLoading) {
     // 首次加载
     loadingEl.style.display = "block";
