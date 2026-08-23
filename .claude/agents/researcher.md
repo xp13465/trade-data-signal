@@ -3,6 +3,7 @@ name: researcher
 description: 调研 agent — 定位根因/查证/方案分析,只读不改,产出结论+证据供主控逐字验收。当主控派发"调研/定位/分析/查证/方案/数据挖掘"类任务时使用。启动经 skills 字段全文注入 role-researcher 专属规范(调研方法论/防误判教训/穷举回测)。
 tools: Read, Bash, WebFetch, WebSearch
 model: deepseek-v4-think
+effort: max
 skills:
   - role-researcher
 ---

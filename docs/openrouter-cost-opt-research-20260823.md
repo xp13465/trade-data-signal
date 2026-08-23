@@ -100,7 +100,7 @@
 | 2 | `~/.claude/settings.json` | permissions.deny | 新增 `["WebSearch"]`,重启后已在位生效 | 断 OR server tool 按次搜索计费 | 仅当不再走 OR 计费通道才删;换官方直连可解除 |
 | 3 | `~/.claude/settings.json` | env.ANTHROPIC_API_KEY | `""` 占位 → **用户轮换后的新 key(明文,当前实际认证通路,2026-08-23 重启后认证正常)** | — | 当前工作通路,保留 |
 | 4 | `~/.zshrc` + macOS keychain | ANTHROPIC_AUTH_TOKEN | 明文迁 keychain(service=`claude-code-openrouter`)→ **keychain 已同步轮换后新 key;但 zshrc→AUTH_TOKEN 通路未接通**(claude 进程 AUTH_TOKEN 为空:Bash 非交互 shell 不 source zshrc) | 密钥安全备份+以后轮换只动一处 | 已知妥协项:认证暂靠 #3 明文;后续若收口需先验证启动终端对 zshrc 的依赖再切,不为整洁制造断供(§23.11 精神) |
-| 5 | `.claude/agents/implementer.md`、`tester.md` | frontmatter | 新增 `effort: medium`(是否对 deepseek-v4-flash 生效待观察) | 执行类防全局高档透传拖慢 | 删行=继承全局 |
+| 5 | `.claude/agents/*.md`(4 角色全量) | frontmatter | implementer/tester 初钉 `medium` → **2026-08-23 用户拍板全量切 `effort: max`**(4 角色=implementer/tester/reviewer/researcher),主控在 /model 面板同步调 max,实战实测体验中;对照实验见 §六④ | 计次制零成本,智力优先实战实测 | 单角色降档=改对应 md 的 effort 行;全退=删行继承全局 |
 
 **未来切回 deepseek-v4-flash 主力时的对照清单(按序)**:
 1. **#1 必切**:`CLAUDE_EFFORT` max→**high**(flash 定位便宜快档,0.95 思考预算对它纯拖慢;OR 统一 reasoning 参数会向 flash 透传,实际行为差异届时实测)——high 就是原状态;
