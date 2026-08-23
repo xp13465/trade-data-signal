@@ -3237,15 +3237,28 @@ async function _simRenderOnce(modal) {
 // 基笔池按 mode 缓存(2026-08-23 性能专项): 池=纯函数(数据引用,mode), 与筛选/费率/K 无关;
 // 快切模式时命中缓存免掉全史 quadrants 重扫+去重(每轮省一次 O(全记录) 长任务)。
 // 数据引用变化(分片加载替换 _simKellyData)即整体失效重建, 不吃脏数据。
+// 【P0 内存防御 2026-08-23】改 Map+LRU: 每池=全史基笔指针数组常驻不小, 原实现 7 模式全存无上限;
+// 上限 3(最近使用的 3 个模式)+ 触碰刷新序, 长驻内存有界, 快切来回仍高命中。
 let _simPoolCacheRef = null;
-const _simPoolCache = {};
+const _simPoolCache = new Map();
+const _SIM_POOL_CACHE_MAX = 3;
 function _simPoolCached(mode) {
   if (_simPoolCacheRef !== _simKellyData) {
     _simPoolCacheRef = _simKellyData;
-    for (const k in _simPoolCache) delete _simPoolCache[k];
+    _simPoolCache.clear();
   }
-  let p = _simPoolCache[mode];
-  if (!p) { p = _simBuildModePool(_simKellyData, mode); _simPoolCache[mode] = p; }
+  let p = _simPoolCache.get(mode);
+  if (p) { // LRU 触碰: 移到最新端
+    _simPoolCache.delete(mode);
+    _simPoolCache.set(mode, p);
+  } else {
+    p = _simBuildModePool(_simKellyData, mode);
+    _simPoolCache.set(mode, p);
+    while (_simPoolCache.size > _SIM_POOL_CACHE_MAX) {
+      const oldest = _simPoolCache.keys().next().value; // Map 保插入序, 首个=最久未用
+      _simPoolCache.delete(oldest);
+    }
+  }
   return p;
 }
 

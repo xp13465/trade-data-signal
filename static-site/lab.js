@@ -8674,11 +8674,23 @@ async function renderSigKellyLab() {
   }
   // T1(2026-08-23) 并行预取降亏特征 JSON(20 新键谓词查值用); 失败容忍(null→特征键不拦, 与后端同语义), 不阻塞主数据。
   //   晚到补渲染: 首渲时特征未就绪而新键已开启(判定被降级) → 加载完成后补一次渲染对齐 §22 一致性。
-  _kellyEnsureLossFeatData().then((d) => {
-    if (d && state.labSigKellyFilters && _KELLY_LOSS_NEW_KEYS.some((p) => state.labSigKellyFilters[p[0]])) {
-      renderSigKellyLab();
-    }
-  });
+  //   【P0 卡死根修 2026-08-23】旧实现补渲 .then 无「进入时是否已就绪」判断——特征 JSON 就绪后
+  //   每次 renderSigKellyLab 调用的 _kellyEnsureLossFeatData 都立即 resolve, 只要 filters 含任一新键
+  //   (new14/new18/a9/b9/c9 或手动勾新键, 含 tds_kelly_fade_mode 记忆刷新/冷启动特征在途切模式两条路径)
+  //   就再调 renderSigKellyLab → 无限自递归(与 sim 弹窗 P0 同款; playwright 实测 R1/R2 探针第 2 点起全 F
+  //   彻底冻结, 且每轮全量重建 DOM=用户报的「内存占用异常」同源)。修=①只在首渲发生于就绪前才挂补渲
+  //   (就绪后调用零挂载, 环消失) ②就绪跃迁补渲至多一次(state.kellyLossFeatReadyApplied 单向阀)双保险。
+  if (state.kellyLossFeatData === undefined) {
+    // undefined=尚未完成(进行中/未开始); null=已失败(容忍不补, 降级语义不变); 对象=已就绪
+    _kellyEnsureLossFeatData().then((d) => {
+      if (!d) return;
+      if (state.kellyLossFeatReadyApplied) return; // 单向阀: 就绪跃迁补渲至多一次
+      state.kellyLossFeatReadyApplied = true;
+      if (state.labSigKellyFilters && _KELLY_LOSS_NEW_KEYS.some((p) => state.labSigKellyFilters[p[0]])) {
+        renderSigKellyLab();
+      }
+    });
+  }
   const data = state.labSigKellyData;
   if (!data || !data.quadrants) {
     host.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 数据为空或结构异常</div><button type="button" class="lab-custom-retry">重试</button></div>`;
