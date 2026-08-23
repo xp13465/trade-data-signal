@@ -6993,7 +6993,7 @@ main { padding: 16px 24px; }
 .sim-ctrl-row { display: flex; flex-wrap: wrap; gap: 14px 22px; padding: 10px 4px 14px; border-bottom: 1px solid var(--border); align-items: flex-end; }
 .sim-ctrl-block { display: flex; flex-direction: column; gap: 4px; }
 .sim-ctrl-block > label { font-size: 11px; color: var(--text-dim, #9aa); }
-.sim-ctrl-block input[type="date"], .sim-ctrl-block input[type="number"], .sim-mode-sel { padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-card); color: var(--text-1); font-size: 12px; }
+.sim-ctrl-block input[type="date"], .sim-ctrl-block input[type="number"], .sim-mode-sel, .sim-fade-mode-sel { padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-card); color: var(--text-1); font-size: 12px; }
 .sim-cb-wrap { flex-direction: row; align-items: center; gap: 6px; font-size: 12px; color: var(--text-1); }
 /* (2026-08-22 用户拍板) sim 弹窗新降亏键「牛市×辅备买全停(A-F)」开关行: 与「开启(默认8键)」同 block 竖排,
    NEW 徽章复用 lab.css .lab-sigkelly-toggle-new(同前 4 键既有红色样式, 不自造); G/H/I 选中时 note 显示置灰提示 */

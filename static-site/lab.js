@@ -7481,39 +7481,25 @@ function _kellyActiveMonthMask(filters) {
 // 降亏toggle过滤谓词(不含period cutoff, 语义与原filter的toggle部分逐条一致)
 // featCache: 特征缓存Map(trade对象->特征), v3/v4开启时才惰性取/算特征(和原filter一致: 全关时零特征开销)
 function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthMask) {
-  if (filters.excludeAux && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_aux") return false;
-  if (filters.marketTiming && fIdx.market_state != null && t[fIdx.market_state] !== true) return false;
-  // 排除3+5月(季节性): buy_date月份03/05过滤
-  if (filters.excludeMonth && fIdx.buy_date != null) { var _mm = (t[fIdx.buy_date] || "").substring(4, 6); if (_mm === "03" || _mm === "05") return false; }
-  // 排除rating=low(低评级最大亏损源)
-  if (filters.excludeRatingLow && fIdx.rating != null && t[fIdx.rating] === "low") return false;
-  // 排除buy_aux+03/05月交叉(最外科手术式降亏标志, 比值2.52)
-  if (filters.excludeAuxCross && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_aux" && fIdx.buy_date != null) { var _mmX = (t[fIdx.buy_date] || "").substring(4, 6); if (_mmX === "03" || _mmX === "05") return false; }
-  // v1.1.2(2026-08-17 用户拍板) 三键: excludeSpecialBear 升四档主键 + 老MA60备选 + 下降期备选
-  // 主键 excludeSpecialBear(默认开, 四档): buy_special × A股类 × 四档∈{熊市·主跌,下降期}
-  //   (market_tier 后端已按 A股类注入, 非A股为 "" 不过滤, 与凯利 kelly_4tier R1_all 同源; 老 MA60 语义降为备选 legacyMa60Special)
-  if (filters.excludeSpecialBear && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_tier != null) {
-    var _mt = t[fIdx.market_tier] || "";
-    if (_mt === "熊市·主跌" || _mt === "下降期") return false;
-  }
-  // 老MA60熊×追买(默认关备选): 保留 v1.1.0 旧 MA60 判定(buy_special × A股类 × close<MA60; market_state===false 后端已编码 A股守卫)
-  if (filters.legacyMa60Special && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_state != null && t[fIdx.market_state] === false) return false;
-  // 下降期×buy_special(默认关备选): 全市场 × 四档=下降期(market_tier_all 后端全市场注入, B 方案 V4d_all 增量)
-  if (filters.declinePhaseSpecial && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_tier_all != null && t[fIdx.market_tier_all] === "下降期") return false;
-  // #69(2026-08-19) excludeSpecialBearCyb(默认关非默认推荐): cyb(创业板指)四档版 excludeSpecialBear——
-  //   判定语义与主键完全一致, 仅判定源 hs300 四档 → cyb 四档: buy_special × A股类 × cyb四档∈{熊市·主跌,下降期}。
-  //   market_tier_cyb 后端已按 A股类注入(非A股为 "", 与 market_tier 同构守卫); 默认关, 供用户凯利区人工复测看数据变化。
-  if (filters.excludeSpecialBearCyb && fIdx.signal != null && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_tier_cyb != null) {
-    var _mtc = t[fIdx.market_tier_cyb] || "";
-    if (_mtc === "熊市·主跌" || _mtc === "下降期") return false;
-  }
-  // #xx(2026-08-22 用户拍板) bullAuxBackupStop(默认关, 纯新增): 牛市·主升×(辅买∪备买)全停——
-  //   hs300四档=牛市·主升 × signal∈{buy_aux,buy_backup} × A股类 → 拦下(时段级全停)。
-  //   market_tier 后端已按 A股类注入(非A股为 "", 空串≠"牛市·主升" 天然不命中), 与主键同构守卫。
-  //   ⚠G/H/I 长线豁免不在本谓词(谓词无 mode 参数), 由调用侧传 filtersNoBull 变体实现(见 _kellyStatsFor/弹窗)。
-  if (filters.bullAuxBackupStop && fIdx.signal != null && fIdx.market_tier != null) {
-    var _sigBull = t[fIdx.signal] || "";
-    if ((_sigBull === "buy_aux" || _sigBull === "buy_backup") && (t[fIdx.market_tier] || "") === "牛市·主升") return false;
+  // 前置简单键 spec-driven(T3-1 迁移): 规格单源=common.js _KELLY_FADE_LEGACY_SPECS(gate=0), 判定与原逐条
+  // 硬编码逐位一致(parity 校验脚本断言)。ctx 惰性组装=全关时零开销(与原行为同); 原 fIdx.xxx != null 守卫
+  // 为死代码(fields 静态含全列), ctx 组装侧已保留同源守卫语义。
+  var _frontCtx = null;
+  for (var _fki = 0; _fki < _KELLY_FADE_FRONT_KEY_ORDER.length; _fki++) {
+    var _fkF = _KELLY_FADE_FRONT_KEY_ORDER[_fki];
+    if (!filters[_fkF]) continue;
+    if (!_frontCtx) {
+      _frontCtx = {
+        sig: fIdx.signal != null ? String(t[fIdx.signal] || "") : "",
+        mm: fIdx.buy_date != null ? String(t[fIdx.buy_date] || "").substring(4, 6) : "",
+        rating: fIdx.rating != null ? String(t[fIdx.rating] || "") : "",
+        tier: fIdx.market_tier != null ? String(t[fIdx.market_tier] || "") : "",
+        tierAll: fIdx.market_tier_all != null ? String(t[fIdx.market_tier_all] || "") : "",
+        tierCyb: fIdx.market_tier_cyb != null ? String(t[fIdx.market_tier_cyb] || "") : "",
+        mstate: fIdx.market_state != null ? t[fIdx.market_state] : undefined
+      };
+    }
+    if (_tdsFadeSpecHit(_fkF, _frontCtx)) return false;
   }
   // v3新9 toggle(比值>3, 按比值倒序: 10.06>6.63>5.87>5.24>4.67>4.18>4.02>3.35>3.31)
   var _v3On = filters.n1MarTueHigh || filters.n2NovSpecialIndustry || filters.r8PureNonMay || filters.n3NovSpecialMon || filters.n4AMay || filters.r7MayReinforced || filters.n5MayVlow || filters.n6MidMay || filters.r10May6NonMay;
@@ -7537,113 +7523,13 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
     if (!feats) { feats = _kellyTradeFeatures(t, fIdx, _tradeDims); featCache.set(t, feats); }
     var _mm3 = feats.mm, _dd3 = feats.dd, _sig3 = feats.sig, _wd3 = feats.wd, _bpb3 = feats.bpb;
     var _mktD3 = feats.mktD, _ratD3 = feats.ratD, _ts3 = feats.ts, _etfD3 = feats.etfD, _q3 = feats.q;
-    // v3新9 toggle
-    if (_v3On) {
-      // N1: 3月+周三+高价ETF, 比值10.06, 7/7年全亏
-      if (filters.n1MarTueHigh && _mm3 === "03" && _wd3 === 2 && _bpb3 === "high") return false;
-      // N2: 11月+追关注+行业指数, 比值6.63
-      if (filters.n2NovSpecialIndustry && _sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") return false;
-      // R8: 纯非五月3稳定(N1∪N2∪N3), 比值5.87, 6年全正
-      if (filters.r8PureNonMay && ((_mm3 === "03" && _wd3 === 2 && _bpb3 === "high") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0))) return false;
-      // N3: 11月+追关注+周一, 比值5.24
-      if (filters.n3NovSpecialMon && _sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0) return false;
-      // N4: A股指数+5月, 比值4.67(5月系最稳)
-      if (filters.n4AMay && _mktD3 === "a" && _mm3 === "05") return false;
-      // R7: 5月强化+3非五月(N4∪N6∪N5∪N1∪N2∪N3), 比值4.18, 损盈1.73%最surgical
-      if (filters.r7MayReinforced && ((_mktD3 === "a" && _mm3 === "05") || (_ratD3 === "mid" && _mm3 === "05") || (_mm3 === "05" && _bpb3 === "vlow") || (_mm3 === "03" && _wd3 === 2 && _bpb3 === "high") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0))) return false;
-      // N5: 5月+极低价ETF, 比值4.02(附监控,2026占66%)
-      if (filters.n5MayVlow && _mm3 === "05" && _bpb3 === "vlow") return false;
-      // N6: 中评级+5月, 比值3.35(附监控,2026占71%)
-      if (filters.n6MidMay && _ratD3 === "mid" && _mm3 === "05") return false;
-      // R10: 5月+6非五月组件(5月整体∪N1∪N2∪N3∪11月追关注低价∪3月追关注行业∪3月周三辅关注), 比值3.31, 净+676k全场最大
-      if (filters.r10May6NonMay && (_mm3 === "05" || (_mm3 === "03" && _wd3 === 2 && _bpb3 === "high") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0) || (_sig3 === "buy_special" && _mm3 === "11" && _bpb3 === "low") || (_sig3 === "buy_special" && _mm3 === "03" && _mktD3 === "industry") || (_mm3 === "03" && _wd3 === 2 && _sig3 === "buy_aux"))) return false;
-    }
-    // === v4 新标志(三梯队全量上线, 12 toggle) ===
-    if (_v4On) {
-      // 第一梯队
-      // V4-C简化: 3月+周三+辅关注(去低分), 比值7.84, 净+11.3万
-      if (filters.v4cSimple && _mm3 === "03" && _wd3 === 2 && _sig3 === "buy_aux") return false;
-      // V4-B: A股+5月+追关注+related, 比值53.96, 6年全正
-      if (filters.v4b && _mktD3 === "a" && _mm3 === "05" && _sig3 === "buy_special" && _etfD3 === "related") return false;
-      // Greedy-7: 7step并集, 比值3.15, 净+100.7万, maxSh0.28
-      if (filters.greedy7 && (
-        (_sig3 === "buy_special" && _mm3 === "05") ||
-        (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "concept") ||
-        (_sig3 === "buy_special" && _mm3 === "03") ||
-        (_sig3 === "buy_aux" && _mm3 === "01") ||
-        (_q3 === 2 && _bpb3 === "vlow" && _sig3 === "buy_aux" && _mktD3 === "concept") ||
-        (_sig3 === "buy" && _mm3 === "01") ||
-        (_mm3 === "03" && _wd3 === 2 && _mktD3 === "concept" && _ratD3 === "low")
-      )) return false;
-      // 第二梯队
-      // V4-D: 12月+周二+辅关注+低分, 比值12.20, 5年全正
-      if (filters.v4d && _mm3 === "12" && _wd3 === 1 && _sig3 === "buy_aux" && _ts3 < 50) return false;
-      // V4-J: 5月+vlow+追关注, 比值15.55, 5年全正(maxSh 66%->40%)
-      if (filters.v4j && _mm3 === "05" && _bpb3 === "vlow" && _sig3 === "buy_special") return false;
-      // V4-I: 追关注+5月+概念+周一, 比值27.04
-      if (filters.v4i && _sig3 === "buy_special" && _mm3 === "05" && _mktD3 === "concept" && _wd3 === 0) return false;
-      // Greedy-10: 10step并集(=Greedy-7+step8-10), 比值3.06, 净+123万
-      if (filters.greedy10 && (
-        (_sig3 === "buy_special" && _mm3 === "05") ||
-        (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "concept") ||
-        (_sig3 === "buy_special" && _mm3 === "03") ||
-        (_sig3 === "buy_aux" && _mm3 === "01") ||
-        (_q3 === 2 && _bpb3 === "vlow" && _sig3 === "buy_aux" && _mktD3 === "concept") ||
-        (_sig3 === "buy" && _mm3 === "01") ||
-        (_mm3 === "03" && _wd3 === 2 && _mktD3 === "concept" && _ratD3 === "low") ||
-        (_sig3 === "buy_aux" && _mm3 === "12" && _ts3 < 50) ||
-        (_mm3 === "06" && _bpb3 === "vlow" && _ratD3 === "low") ||
-        (_sig3 === "buy_aux" && _mm3 === "05")
-      )) return false;
-      // 第三梯队(附监控)
-      // V4-F: 6月+周三+主关注+related, 比值999 JEP, ⚠n=60太小
-      if (filters.v4f && _sig3 === "buy" && _mm3 === "06" && _wd3 === 2 && _etfD3 === "related") return false;
-      // V4-G: 全球+Q1+辅关注+低评级, 比值6.25, ⚠近年才转亏
-      if (filters.v4g && _mktD3 === "global" && _q3 === 1 && _sig3 === "buy_aux" && _ratD3 === "low") return false;
-      // V4-M: 9月+周三+追关注, 比值115.56, ⚠只3年数据
-      if (filters.v4m && _sig3 === "buy_special" && _mm3 === "09" && _wd3 === 2) return false;
-      // V4-K: 1月+主关注+高价, 比值10.11, ⚠有子集盈利年
-      if (filters.v4k && _sig3 === "buy" && _mm3 === "01" && _bpb3 === "high") return false;
-      // Greedy-15: 15step并集(=Greedy-10+step11-15), 比值3.29, 净+149万, 损盈9.84%
-      if (filters.greedy15 && (
-        (_sig3 === "buy_special" && _mm3 === "05") ||
-        (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "concept") ||
-        (_sig3 === "buy_special" && _mm3 === "03") ||
-        (_sig3 === "buy_aux" && _mm3 === "01") ||
-        (_q3 === 2 && _bpb3 === "vlow" && _sig3 === "buy_aux" && _mktD3 === "concept") ||
-        (_sig3 === "buy" && _mm3 === "01") ||
-        (_mm3 === "03" && _wd3 === 2 && _mktD3 === "concept" && _ratD3 === "low") ||
-        (_sig3 === "buy_aux" && _mm3 === "12" && _ts3 < 50) ||
-        (_mm3 === "06" && _bpb3 === "vlow" && _ratD3 === "low") ||
-        (_sig3 === "buy_aux" && _mm3 === "05") ||
-        (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") ||
-        (_mm3 === "04" && _wd3 === 1 && _mktD3 === "concept" && _ts3 < 50) ||
-        (_mktD3 === "global" && _q3 === 1 && _sig3 === "buy_aux" && _ratD3 === "low") ||
-        (_mm3 === "01" && _bpb3 === "low" && _sig3 === "buy_special" && _mktD3 === "concept") ||
-        (_sig3 === "buy_special" && _mm3 === "09" && _wd3 === 2)
-      )) return false;
-    }
-    // === round3 新候选(11月系, 2026-08-10 verify验证) ===
-    if (_r3On) {
-      // A5: 11月中旬(11-20日)+追关注(buy_special), 比值5.49, 最稳(2016-2025连续有交易无空窗)
-      if (filters.a5NovMidSpecial && _sig3 === "buy_special" && _mm3 === "11" && _dd3 >= 11 && _dd3 <= 20) return false;
-      // A45: 11月中旬+下旬(11日及以后)+追关注(buy_special), 比值5.75, 净影响最大(+49.9万)
-      if (filters.a45NovMidLateSpecial && _sig3 === "buy_special" && _mm3 === "11" && _dd3 >= 11) return false;
-    }
-    // === 1月调整(2026-08-11 元素级重组挖掘, 部署9模式数据验证 docs/kelly/combo/kelly-jan-adjust-combo-verify.md) ===
-    // 只做1月中旬(11-20日): 1月上旬(1-10日)=盈利口袋(全负-56万)明确排除, 不做1月全月(早段亏损稀释)
-    if (_janOn) {
-      // J1: 1月中旬(11-20日)+中评级, standalone比值4.71/净+18.7万, 4窗口全>2, 与现有标志90%不重叠, ⚠maxSh0.62略超0.60(2026单年主导)附监控
-      if (filters.janMidRating && _mm3 === "01" && _dd3 >= 11 && _dd3 <= 20 && _ratD3 === "mid") return false;
-      // J2: 1月中旬(11-20日)+追关注(buy_special), standalone比值4.49/净+38.9万, 4窗口全>2, 覆盖更广但maxSh0.79更差
-      if (filters.janMidSpecial && _sig3 === "buy_special" && _mm3 === "01" && _dd3 >= 11 && _dd3 <= 20) return false;
-    }
-    // === K2C5/K3 (2026-08-15 #86 新增实验键, 默认关, 用户自开关看效果) ===
-    if (_k2On) {
-      // K2C5 港股追涨: 剔除 buy_special/buy_backup × 港股 (当前数据文件实算: 独立信号728个/全9模式1431条)
-      if (filters.k2c5HkChase && (_sig3 === "buy_special" || _sig3 === "buy_backup") && _mktD3 === "hk") return false;
-      // K3 主关注×概念: 剔除 buy × 概念 (当前数据文件实算: 独立信号3775个/全9模式6480条)
-      if (filters.k3ConceptBuy && _sig3 === "buy" && _mktD3 === "concept") return false;
+    // v3/v4/r3/jan/k2 共27键 spec-driven(T3-1 迁移): 规格单源=common.js _KELLY_FADE_LEGACY_SPECS(gate=1),
+    // feats 字段名(mm/dd/sig/wd/bpb/mktD/ratD/ts/etfD/q)即评估器 ctx, 判定与原逐条硬编码逐位一致
+    // (scripts/check_fade_predicate_parity.mjs 断言)。月门 mask 表与短路逻辑保留原值不动(mask 手工值
+    // 含 q 组件隐含季度展开, 不从规格派生——见 common.js 头注)。
+    for (var _gki = 0; _gki < _KELLY_FADE_GATE_KEY_ORDER.length; _gki++) {
+      var _gkG = _KELLY_FADE_GATE_KEY_ORDER[_gki];
+      if (filters[_gkG] && _tdsFadeSpecHit(_gkG, feats)) return false;
     }
   }
   // === T1(2026-08-23) AI降亏 20 条新键(spec-driven, 规格单源=scripts/loss_rules.py) ===
@@ -8810,6 +8696,17 @@ async function renderSigKellyLab() {
       for (var _kmi = 0; _kmi < _kellyPersistMemberKeys.length; _kmi++) {
         var _kmk = _kellyPersistMemberKeys[_kmi];
         if (typeof _savedKF.members[_kmk] === "boolean") state.labSigKellyFilters[_kmk] = _savedKF.members[_kmk];
+
+  // T3-1(2026-08-23): AI降亏模式持久化(lab 独立 key tds_kelly_fade_mode): 在 tds_kelly_filters 8成员覆盖之后应用,
+  // 完整模式组合覆盖成员级状态(模式=57键全集, 成员键只是子集); 无 key(用户从未选过模式)=跳过=零变化
+  // (默认8键, 与现网逐位一致 §23.7 冻结契约)。sim 弹窗不读此 key(弹窗每次打开=关+8键, a389 既有约定)。
+  try {
+    var _savedFM = JSON.parse(localStorage.getItem("tds_kelly_fade_mode") || "null");
+    if (_savedFM && _savedFM.mode && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(_savedFM.mode)) {
+      _tdsFadeModeApply(_savedFM.mode, state.labSigKellyFilters);
+      state.labSigKellyFadeModeBase = _savedFM.mode;
+    }
+  } catch (e) {}
       }
     }
   } catch (e) {}
@@ -9457,7 +9354,7 @@ function _renderSigKellyBar(bar, data, period) {
     return { allOn: allOn, anyOn: anyOn };
   })();
   const aiMacroLabelHTML =
-    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ AI降亏过滤(总开关, 默认开启): 结构=AI宏5+3+1(2026-08-15 定名「基础5」)——5+3=保留入样、可被AI建议推荐的降亏键(5: 基础5 追关注×熊市/1月中旬+中评级/1月中旬+追关注/n2 11月+追关注+行业 + K2C5 港股追涨剔除(并入基础5,穷举验证见 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md) + 3: 核心3 r7 5月强化+3稳定非5月 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合); +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 已剔除出回测宇宙)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除, 故 AI建议 一律不推荐, 以「未入样本」+灰显+删除线标注。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。= AI仓位建议(K=1 默认=主推, 收益率最高, 可手动切换, 见 K 按钮评级) + 默认组合(高亮8键=基础5+核心3(含K2C5港股追涨) + 1类回测剔除 = AI宏5+3+1共8键+1类, K2C5 由总开关联动控制)。每日池+费率重算口径(2026-08-14 #BC, 含最低佣金5元): A模式 K1(默认主推)=86.60%/K2=67.61%/K3=66.24%/K4=63.17%。A/F(短持)维持现状默认最优;用G卖出(推荐法)可试去 greedy15/auxCross/r7 +加a45→收益升到51.66%(净+82.6万)。勾选=联动下方默认推荐高亮8键(基础5+核心3, 含K2C5)子复选框 + 1类只读, = 9规则全控(AI宏总开关联动控制K2C5, 2026-08-15 用户拍板), 取消=关8键(K2C5 一并关); ⚠4组合全开=可选分析非默认推荐(与默认差仅0.3-0.7pt, 勿误解为默认)。「重置为AI默认推荐」按钮=一键恢复本默认(高亮8键=基础5+核心3含K2C5 + 1类回测剔除 = 9规则) + AI仓位建议K=1 并重写本地记忆。"><input type="checkbox" class="lab-sigkelly-toggle-aimacro"${_aiMacroAll.allOn ? " checked" : ""}>${_kellyRecBadgeState(_aiMacroAll.allOn, _aiMacroAll.anyOn)} AI降亏过滤(总开关,默认开启) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>`;
+    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ AI降亏过滤(总开关, 默认开启): 结构=AI宏5+3+1(2026-08-15 定名「基础5」)——5+3=保留入样、可被AI建议推荐的降亏键(5: 基础5 追关注×熊市/1月中旬+中评级/1月中旬+追关注/n2 11月+追关注+行业 + K2C5 港股追涨剔除(并入基础5,穷举验证见 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md) + 3: 核心3 r7 5月强化+3稳定非5月 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合); +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 已剔除出回测宇宙)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除, 故 AI建议 一律不推荐, 以「未入样本」+灰显+删除线标注。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。= AI仓位建议(K=1 默认=主推, 收益率最高, 可手动切换, 见 K 按钮评级) + 默认组合(高亮8键=基础5+核心3(含K2C5港股追涨) + 1类回测剔除 = AI宏5+3+1共8键+1类, K2C5 由总开关联动控制)。每日池+费率重算口径(2026-08-14 #BC, 含最低佣金5元): A模式 K1(默认主推)=86.60%/K2=67.61%/K3=66.24%/K4=63.17%。A/F(短持)维持现状默认最优;用G卖出(推荐法)可试去 greedy15/auxCross/r7 +加a45→收益升到51.66%(净+82.6万)。勾选=联动下方默认推荐高亮8键(基础5+核心3, 含K2C5)子复选框 + 1类只读, = 9规则全控(AI宏总开关联动控制K2C5, 2026-08-15 用户拍板), 取消=关8键(K2C5 一并关); ⚠4组合全开=可选分析非默认推荐(与默认差仅0.3-0.7pt, 勿误解为默认)。T3-1 模式下拉(2026-08-23): 本开关旁「模式」下拉=7 种预设一键套用(8键默认/9键/A进攻王/B均衡卡/C防守/NEW 14键/NEW2 18键), 选中即整套键组合写入下方标签勾选态并重算; 手动勾/取消任一小标签→进入「⚙️自定义组合」态; 再选任意模式回到预设; 模式记忆存 tds_kelly_fade_mode(lab 独立键), 默认 p8=8键与本开关默认逐位一致。「重置为AI默认推荐」按钮=一键恢复本默认(高亮8键=基础5+核心3含K2C5 + 1类回测剔除 = 9规则) + AI仓位建议K=1 并重写本地记忆。"><input type="checkbox" class="lab-sigkelly-toggle-aimacro"${_aiMacroAll.allOn ? " checked" : ""}>${_kellyRecBadgeState(_aiMacroAll.allOn, _aiMacroAll.anyOn)} AI降亏过滤(总开关,默认开启) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>`;
   // 问题1修复(2026-08-15): AI降亏过滤详情 展开/收起 初始态持久化到 state.labSigKellyAiDetailOpen(参照 labSigKellyMoreOpen 模式), 重渲染后保持展开态
   const _aiDetailText = state.labSigKellyAiDetailOpen ? "AI降亏过滤详情收起 ▲" : "AI降亏过滤详情展开 ▼";
   const aiMacroDetailBtnHTML =
@@ -9465,6 +9362,23 @@ function _renderSigKellyBar(bar, data, period) {
   // #54 2026-08-13 (用户20:27 必做): 「重置为AI默认推荐」按钮——尝试各种组合后一键恢复 AI默认勾选(_kellyDefaultFilters 8键全开含K2C5+AI仓位建议K=1), 重写 tds_kelly_filters 持久化, 刷新三态/hoverpop动态值
   const aiMacroResetBtnHTML =
     `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-reset" style="margin-left:8px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="一键恢复 AI 默认推荐勾选(AI降亏过滤 5+3+1: 8键+1类回测剔除, 基础5含K2C5, 其中+1类只读不可勾选; + AI仓位建议 K=1), 重写本地记忆并刷新统计">重置为AI默认推荐</button>`;
+  // T3-1(2026-08-23): AI降亏模式下拉(7预设一键套用) —— 总开关保留, 原「多选标签直选」升级为「模式预设+细粒度自定义」双层;
+  // 选下拉=一键套用该模式完整键组合(标签勾选态由 _kellyOnFilterChange 完成回调重渲染 bar 自动点亮);
+  // 手动勾/取消任一标签 -> _tdsFadeModeMatch 反查不匹配任何预设 -> 下拉显示「自定义」占位态(option disabled hidden 仅展示);
+  // 再点任意模式 -> 回到预设。持久化=lab 独立 key tds_kelly_fade_mode(a389 三处独立化纪律), 默认 p8=8键(不开总开关=一切如旧)。
+  const _fadeMatchedId = (window._tdsFadeModeMatch ? window._tdsFadeModeMatch(_filters) : null);
+  const _fadeBaseId = state.labSigKellyFadeModeBase || "p8";
+  const _fadeDisp = (window._tdsFadeModeById ? window._tdsFadeModeById(_fadeMatchedId || _fadeBaseId) : null) || { name: "8键(默认)", caliber: "", calWarn: false };
+  const _fadeCaliberHTML = _fadeMatchedId
+    ? _fadeDisp.caliber
+    : ("⚙️ 自定义组合(基于「" + _fadeDisp.name.replace(/\(默认\)$/, "") + "」手动调整, 口径见各标签 tip)");
+  const fadeModeTitle = "AI降亏过滤模式: 一键套用整套键组合(与「AI 降亏组成对比」卡同源口径); 手动勾/取消下方任一小标签即进入自定义态, 再选任意模式回到预设";
+  const fadeModeHTML =
+    `<span class="lab-sigkelly-fade-mode-wrap" style="display:inline-flex;align-items:center;gap:6px;margin-left:12px;vertical-align:middle">` +
+      `<span class="lab-sigkelly-fee-label" style="font-weight:600">模式:</span>` +
+      (window._tdsFadeModeSelectHTML ? window._tdsFadeModeSelectHTML("lab-kelly-fade-mode-sel", _fadeMatchedId || "custom", true, "lab-sigkelly-fade-mode", fadeModeTitle) : "") +
+      `<span id="lab-kelly-fade-mode-caliber" class="lab-sigkelly-fee-label" title="${fadeModeTitle}"${_fadeDisp.calWarn ? ' style="color:#b45309;font-weight:600"' : ""}>${_fadeCaliberHTML}</span>` +
+    `</span>`;
   const positionCapHTML =
     `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap">` +
     `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启): AI仓位建议(技术别名:仓位控制过滤)=仅在凯利回测入样宇宙内选择。★结构=AI宏5+3+1(2026-08-15 定名「基础5」): 5+3=保留入样、可被AI建议推荐的降亏键(基础5=基础4+K2C5 港股追涨, 加核心3); +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 即下述排除类别)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(已剔除出回测宇宙), 故 AI建议 一律不推荐, 首页/本区以「未入样本」+灰显+删除线标注。§23.6 入样宇宙规则, 权威=官方入样规则: 入样白名单只收买入类信号: ${_t("type_buy")}/${_t("buy_aux")}/${_t("buy_special")}/${_t("buy_backup")}; 入样依赖=标的有ETF跟踪且有跟踪分(即回测入样判定); 排除类别=债类/情绪类/全球商品利率/港股行业/无ETF的空类别; 自我ETF唯一例外=10年国债ETF 由 self-ETF 兜底; 首页/本区 1:1 遵从回测入样判定不自行重算), 卖类(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不入位——同日只买最优K个买入类信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型${_t("buy_backup")}&gt;${_t("type_buy")}&gt;${_t("buy_aux")}&gt;${_t("buy_special")}→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。**K档评级(2026-08-13 #54 动态化: 随当前降亏勾选/费率档/最新数据实时重算, 与首页/凯利K按钮评级 hoverpop 同源 common.js, §22 一致)**: ${_aiPoscapRatingSummary()}。主推 K1(收益率最高 86.60%); K越大收益率递减(K2=67.61%/K3=66.24%/K4=63.17%, 含最低佣金5元费率重算口径)。每日池口径下 K 越大净利反升(每日资金池恒定, 砍量越少持仓越多)。G模式历史口径(关32.27%/K1 48.58%/K2 40.41%/K3 38.96%等, 每笔固定1万·positionCap单独回测未叠加AI降亏过滤)为已废弃的旧口径(2026-08-13 起默认=每日资金池等分), 以本 K 档评级 hoverpop(每日池+top-K, 实时随勾选动态)与下方「全信号表 · 按年窗口增长」表(每日池实时, 可切 G 并跟 K 档联动)为准, 旧口径数值不再单独公示。OFF按钮(关)=写 tds_poscap {on:false} 关闭AI仓位建议、该区退化普通列表(不再显示「AI建议N」「当日已满」), 再点某 K 档恢复 {on:true,k}(与首页/交易页共享键联动)。与降亏同开仅推荐默认组合(AI降亏过滤: excludeSpecialBear/janMidRating/janMidSpecial/n2NovSpecialIndustry/k2c5HkChase/r7MayReinforced/excludeAuxCross/greedy15,每日池+K=1下边际≈0无害); ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开; 勿再叠加 greedy7/10 等其他广谱(greedy15 已在 AI降亏过滤 默认内); B模式(3%止盈)仓位控制下转负建议关。范围扩展: 交易页整个信号列表(近15交易日)按同一排序展示 AI建议(AI建议买入/当日已满)。⚠2026-08-14 首页「AI过滤视图」两开关正交不绑定(§21): 开关1「AI降亏」(tds_home_fade)=删除线过滤层——开启时未入样宇宙(债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 已剔除出回测宇宙)信号=删线+灰显+「未入样本」标注; 开关2「AI仓位」(tds_poscap.on)=badge标注层——开启时入宇宙${_t("sell_short")}(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")})=亮色「AI警示」(${_t("sell_short")}无K约束不判K), 买入进K=「AI建议N」/超K=「当日已满」; 全关=全量视图全亮不标注, band_hold波段持有=中性不标; 迟到入宇宙${_t("sell_short")}(如8/14中证银行${_t("sell_short")})「AI警示」+「盘后补齐」角标共存不冲突。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}>${_kellyRecBadge(_filters.positionCap)} AI仓位建议 K: <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
@@ -9472,6 +9386,7 @@ function _renderSigKellyBar(bar, data, period) {
     aiMacroLabelHTML +
     aiMacroDetailBtnHTML +
     aiMacroResetBtnHTML +
+    fadeModeHTML +
     `</div>`;
   // #83(2026-08-15): 移除「AI仓位建议 · 历史回测(G模式口径)」面板——每笔固定1万+裸G口径已废弃(现默认=每日资金池等分), 核心结论已被按年窗口增长表(每日池实时)+K按钮评级(common.js)+全信号建议指南完整继承(详见 docs/kelly/position/kelly-poscap-history-panel-removal-check.md)
   // #49+#xx ai长线模式(G/H/I)仓位管理: 按钮(长线族群总入口, 默认关, v2 三模式独立策略; 架构支持后续按模式独立换策略)
@@ -10049,12 +9964,28 @@ function _renderSigKellyBar(bar, data, period) {
   }
   // #54 2026-08-13 (用户20:27 必做): 「重置为AI默认推荐」——恢复 AI默认勾选(_kellyDefaultFilters 8键全开含K2C5+AI仓位建议K=1), 重写 tds_kelly_filters 持久化, 重算统计+刷新 hoverpop 动态值
   // 2026-08-14 #BC: 默认 K 3→1 主推
+
+  // T3-1(2026-08-23): AI降亏模式下拉 onchange —— apply 预设到 filters 后只调 _kellyOnFilterChange():
+  // 其完成回调会重渲染 bar(标签勾选态/口径标注/AI宏三态/组合三态全部按新 filters 派生刷新), 无需手动同步 57 个 checkbox。
+  var _fadeModeSelEl = bar.querySelector("#lab-kelly-fade-mode-sel");
+  if (_fadeModeSelEl) _fadeModeSelEl.onchange = function () {
+    var mid = _fadeModeSelEl.value;
+    if (!mid || mid === "custom") return; // custom 为 disabled 占位项, 正常不可触发(兜底还原)
+    if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    if (!_tdsFadeModeApply(mid, state.labSigKellyFilters)) return;
+    state.labSigKellyFadeModeBase = mid;
+    try { localStorage.setItem("tds_kelly_fade_mode", JSON.stringify({ mode: mid })); } catch (e) {}
+    _kellyOnFilterChange();
+  };
   var _aiResetBtn = bar.querySelector("#lab-kelly-ai-macro-reset");
   if (_aiResetBtn) {
     _aiResetBtn.addEventListener("click", function () {
       var host = document.querySelector(".lab-sigkelly-host");
       if (!host || !state.labSigKellyData) return;
       state.labSigKellyFilters = _kellyDefaultFilters(); // bullAuxBackupStop 为 state-only 不落盘, 重置随默认值回关
+      // T3-1: 重置同步回落默认模式 p8(8键), 模式记忆一并重写
+      state.labSigKellyFadeModeBase = "p8";
+      try { localStorage.setItem("tds_kelly_fade_mode", JSON.stringify({ mode: "p8" })); } catch (e) {}
       _kellySetSharedPosCap(true, 1);
       _kellyPersistFilters(); // 重写 tds_kelly_filters(8键全开含K2C5 + aiMacro:true), 持久化恢复默认
       _kellyRunRecompute(host,

@@ -628,3 +628,177 @@ window._labCustomThresholdsHTML = _labCustomThresholdsHTML;
 window._labCustomFooterHTML = _labCustomFooterHTML;
 window._labCustomPositionDetailHTML = _labCustomPositionDetailHTML;
 window.renderPurposeNote = renderPurposeNote;
+
+// ===== T3-1(2026-08-23) AI降亏·老37键规格单源 + 7模式预设(common.js 两页常载单源) =====
+// 【为什么放 common.js】lab.min.js 由 app 动态注入(lab tab), 首页模拟回测弹窗场景 lab.js 不在场;
+//   index.html 常载 common.min.js → 规格层/评估器/模式预设只有这里能让 lab 与弹窗两消费点同源(§22)。
+// 【为什么内嵌常量而非走 meta.rules(kelly_loss_features.json)】现状老37键=硬编码谓词零异步依赖;
+//   若改读远程 JSON, R2/CF 拉取失败=AI降亏整体失效, 引入新生产故障面违反 §23.7。T1 20新键通道
+//   (meta.rules)保持不动; 本表与 meta.rules 同为 spec-driven 风格, 未来后端 per-mode(T3-2)可对齐。
+// 【迁移一致性】本表由 lab.js/app.js 旧硬编码谓词逐条转录(scripts/check_fade_predicate_parity.mjs
+//   断言迁移前后全量行×57键命中集合逐位一致); 月门 mask 表(_kellyMonthMask/_simMonthMask)保留原值
+//   不从规格派生(greedy7 的 q2 组件隐含季度展开成手工 mask, 派生会变宽改变行为)。
+// ctx 字段约定: sig/mm/wd/bpb/q/ts/mktD/ratD/etfD = lab _kellyTradeFeatures feats 同名;
+//   dd=日; tier/tierAll/tierCyb/rating/mstate = trades 原始字段(market_tier/market_tier_all/
+//   market_tier_cyb/rating/market_state)。组件内各条件 AND, any 数组内组件 OR。
+var _KELLY_FADE_LEGACY_SPECS = {
+  // ---- 前置简单键(gate=0, 判定不进月门块, 输入=trades 原始字段组装的 ctx) ----
+  excludeAux:            { gate: 0, any: [{ sig: "buy_aux" }] },
+  marketTiming:          { gate: 0, any: [{ mstateNotTrue: 1 }] },
+  excludeMonth:          { gate: 0, any: [{ mmIn: ["03", "05"] }] },
+  excludeRatingLow:      { gate: 0, any: [{ ratingIsLow: 1 }] },
+  excludeAuxCross:       { gate: 0, any: [{ sig: "buy_aux", mmIn: ["03", "05"] }] },
+  excludeSpecialBear:    { gate: 0, any: [{ sig: "buy_special", tierIn: ["熊市·主跌", "下降期"] }] },
+  legacyMa60Special:     { gate: 0, any: [{ sig: "buy_special", mstateFalse: 1 }] },
+  declinePhaseSpecial:   { gate: 0, any: [{ sig: "buy_special", tierAll: "下降期" }] },
+  excludeSpecialBearCyb: { gate: 0, any: [{ sig: "buy_special", tierCybIn: ["熊市·主跌", "下降期"] }] },
+  bullAuxBackupStop:     { gate: 0, any: [{ sigIn: ["buy_aux", "buy_backup"], tier: "牛市·主升" }] },
+  // ---- 门控块键(gate=1, v3/v4/r3/jan/k2 五组共享月门短路, 输入=feats 缓存对象) ----
+  n1MarTueHigh:          { gate: 1, any: [{ mm: "03", wd: 2, bpb: "high" }] },
+  n2NovSpecialIndustry:  { gate: 1, any: [{ sig: "buy_special", mm: "11", mkt: "industry" }] },
+  r8PureNonMay:          { gate: 1, any: [{ mm: "03", wd: 2, bpb: "high" }, { sig: "buy_special", mm: "11", mkt: "industry" }, { sig: "buy_special", mm: "11", wd: 0 }] },
+  n3NovSpecialMon:       { gate: 1, any: [{ sig: "buy_special", mm: "11", wd: 0 }] },
+  n4AMay:                { gate: 1, any: [{ mkt: "a", mm: "05" }] },
+  r7MayReinforced:       { gate: 1, any: [{ mkt: "a", mm: "05" }, { rat: "mid", mm: "05" }, { mm: "05", bpb: "vlow" }, { mm: "03", wd: 2, bpb: "high" }, { sig: "buy_special", mm: "11", mkt: "industry" }, { sig: "buy_special", mm: "11", wd: 0 }] },
+  n5MayVlow:             { gate: 1, any: [{ mm: "05", bpb: "vlow" }] },
+  n6MidMay:              { gate: 1, any: [{ rat: "mid", mm: "05" }] },
+  r10May6NonMay:         { gate: 1, any: [{ mm: "05" }, { mm: "03", wd: 2, bpb: "high" }, { sig: "buy_special", mm: "11", mkt: "industry" }, { sig: "buy_special", mm: "11", wd: 0 }, { sig: "buy_special", mm: "11", bpb: "low" }, { sig: "buy_special", mm: "03", mkt: "industry" }, { mm: "03", wd: 2, sig: "buy_aux" }] },
+  v4cSimple:             { gate: 1, any: [{ mm: "03", wd: 2, sig: "buy_aux" }] },
+  v4b:                   { gate: 1, any: [{ mkt: "a", mm: "05", sig: "buy_special", etf: "related" }] },
+  greedy7:               { gate: 1, any: [{ sig: "buy_special", mm: "05" }, { sig: "buy_special", mm: "11", mkt: "concept" }, { sig: "buy_special", mm: "03" }, { sig: "buy_aux", mm: "01" }, { q: 2, bpb: "vlow", sig: "buy_aux", mkt: "concept" }, { sig: "buy", mm: "01" }, { mm: "03", wd: 2, mkt: "concept", rat: "low" }] },
+  v4d:                   { gate: 1, any: [{ mm: "12", wd: 1, sig: "buy_aux", tsMax: 50 }] },
+  v4j:                   { gate: 1, any: [{ mm: "05", bpb: "vlow", sig: "buy_special" }] },
+  v4i:                   { gate: 1, any: [{ sig: "buy_special", mm: "05", mkt: "concept", wd: 0 }] },
+  greedy10:              { gate: 1, any: [{ sig: "buy_special", mm: "05" }, { sig: "buy_special", mm: "11", mkt: "concept" }, { sig: "buy_special", mm: "03" }, { sig: "buy_aux", mm: "01" }, { q: 2, bpb: "vlow", sig: "buy_aux", mkt: "concept" }, { sig: "buy", mm: "01" }, { mm: "03", wd: 2, mkt: "concept", rat: "low" }, { sig: "buy_aux", mm: "12", tsMax: 50 }, { mm: "06", bpb: "vlow", rat: "low" }, { sig: "buy_aux", mm: "05" }] },
+  v4f:                   { gate: 1, any: [{ sig: "buy", mm: "06", wd: 2, etf: "related" }] },
+  v4g:                   { gate: 1, any: [{ mkt: "global", q: 1, sig: "buy_aux", rat: "low" }] },
+  v4m:                   { gate: 1, any: [{ sig: "buy_special", mm: "09", wd: 2 }] },
+  v4k:                   { gate: 1, any: [{ sig: "buy", mm: "01", bpb: "high" }] },
+  greedy15:              { gate: 1, any: [{ sig: "buy_special", mm: "05" }, { sig: "buy_special", mm: "11", mkt: "concept" }, { sig: "buy_special", mm: "03" }, { sig: "buy_aux", mm: "01" }, { q: 2, bpb: "vlow", sig: "buy_aux", mkt: "concept" }, { sig: "buy", mm: "01" }, { mm: "03", wd: 2, mkt: "concept", rat: "low" }, { sig: "buy_aux", mm: "12", tsMax: 50 }, { mm: "06", bpb: "vlow", rat: "low" }, { sig: "buy_aux", mm: "05" }, { sig: "buy_special", mm: "11", mkt: "industry" }, { mm: "04", wd: 1, mkt: "concept", tsMax: 50 }, { mkt: "global", q: 1, sig: "buy_aux", rat: "low" }, { mm: "01", bpb: "low", sig: "buy_special", mkt: "concept" }, { sig: "buy_special", mm: "09", wd: 2 }] },
+  a5NovMidSpecial:       { gate: 1, any: [{ sig: "buy_special", mm: "11", ddMin: 11, ddMax: 20 }] },
+  a45NovMidLateSpecial:  { gate: 1, any: [{ sig: "buy_special", mm: "11", ddMin: 11 }] },
+  janMidRating:          { gate: 1, any: [{ mm: "01", ddMin: 11, ddMax: 20, rat: "mid" }] },
+  janMidSpecial:         { gate: 1, any: [{ sig: "buy_special", mm: "01", ddMin: 11, ddMax: 20 }] },
+  k2c5HkChase:           { gate: 1, any: [{ sigIn: ["buy_special", "buy_backup"], mkt: "hk" }] },
+  k3ConceptBuy:          { gate: 1, any: [{ sig: "buy", mkt: "concept" }] }
+};
+var _KELLY_FADE_FRONT_KEY_ORDER = [
+  "excludeAux", "marketTiming", "excludeMonth", "excludeRatingLow", "excludeAuxCross",
+  "excludeSpecialBear", "legacyMa60Special", "declinePhaseSpecial", "excludeSpecialBearCyb",
+  "bullAuxBackupStop"
+];
+var _KELLY_FADE_GATE_KEY_ORDER = [
+  "n1MarTueHigh", "n2NovSpecialIndustry", "r8PureNonMay", "n3NovSpecialMon", "n4AMay",
+  "r7MayReinforced", "n5MayVlow", "n6MidMay", "r10May6NonMay",
+  "v4cSimple", "v4b", "greedy7", "v4d", "v4j", "v4i", "greedy10", "v4f", "v4g", "v4m", "v4k", "greedy15",
+  "a5NovMidSpecial", "a45NovMidLateSpecial", "janMidRating", "janMidSpecial",
+  "k2c5HkChase", "k3ConceptBuy"
+];
+function _tdsFadeSpecHit(key, c) {
+  var sp = _KELLY_FADE_LEGACY_SPECS[key];
+  if (!sp) return false;
+  var arr = sp.any;
+  for (var i = 0; i < arr.length; i++) {
+    var p = arr[i];
+    if (p.sig != null && c.sig !== p.sig) continue;
+    if (p.sigIn != null && p.sigIn.indexOf(c.sig) < 0) continue;
+    if (p.mm != null && c.mm !== p.mm) continue;
+    if (p.mmIn != null && p.mmIn.indexOf(c.mm) < 0) continue;
+    if (p.ddMin != null && !(c.dd >= p.ddMin)) continue;
+    if (p.ddMax != null && !(c.dd <= p.ddMax)) continue;
+    if (p.wd != null && c.wd !== p.wd) continue;
+    if (p.bpb != null && c.bpb !== p.bpb) continue;
+    if (p.q != null && c.q !== p.q) continue;
+    if (p.tsMax != null && !(Number(c.ts) < p.tsMax)) continue;
+    if (p.mkt != null && c.mktD !== p.mkt) continue;
+    if (p.etf != null && c.etfD !== p.etf) continue;
+    if (p.rat != null && c.ratD !== p.rat) continue;
+    if (p.tier != null && c.tier !== p.tier) continue;
+    if (p.tierIn != null && p.tierIn.indexOf(c.tier) < 0) continue;
+    if (p.tierAll != null && c.tierAll !== p.tierAll) continue;
+    if (p.tierCybIn != null && p.tierCybIn.indexOf(c.tierCyb) < 0) continue;
+    if (p.ratingIsLow != null && c.rating !== "low") continue;
+    if (p.mstateNotTrue != null && c.mstate === true) continue;
+    if (p.mstateFalse != null && c.mstate !== false) continue;
+    return true;
+  }
+  return false;
+}
+
+// ---- AI降亏 7 模式预设(权威=T2 卡 _KELLY_MODE_COMPARE_CARDS+mine24_compare.json; 文案从卡转录) ----
+// keys 全部 ⊆ 57 键(FRONT 10 + GATE 27 + T1 20); caliber 口径标注随选项展示(A/B/C=叠9键 / NEW 族=换基座)。
+var _KELLY_FADE_T1_KEYS = [
+  "r2gLowRatingQ3", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct",
+  "h1VolChgHighA", "m1MarginDownBull", "d2LowDivBull", "p1LowDivBackup", "v1HighVol20",
+  "s1SentALow", "r1VolRatioLow", "r2bSpecialGlobal", "n2NorthOutConcept", "v2Vol20Gt25",
+  "s2SentHs300Low", "w1BackupDecline", "a1BullAllStop", "v3Vol20LowPct", "ad1AdlineHot"
+];
+var _KELLY_FADE_ALL_KEYS = _KELLY_FADE_FRONT_KEY_ORDER.concat(_KELLY_FADE_GATE_KEY_ORDER, _KELLY_FADE_T1_KEYS);
+var _KELLY_FADE_MODE_PRESETS = [
+  { id: "p8", name: "8键(默认)", tagline: "现役地基·稳定参照", caliber: "✓ 默认组合(对照基线)", calWarn: false,
+    keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15"] },
+  { id: "p9", name: "9键", tagline: "8键+候选1·牛市辅备买拦截", caliber: "✓ 叠 8 键(+候选1)", calWarn: false,
+    keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop"] },
+  { id: "a9", name: "A 进攻王", tagline: "近端牛市吃满·回撤恢复99天", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true,
+    keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "t1LowTurnSpecial", "q1QvixLowPct", "m1MarginDownBull", "v1HighVol20", "r1VolRatioLow", "k3ConceptBuy", "r2bSpecialGlobal", "r2gLowRatingQ3"] },
+  { id: "b9", name: "B 均衡卡", tagline: "每项不差无短板·K档最钝感", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true,
+    keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "t1LowTurnSpecial", "q1QvixLowPct", "m1MarginDownBull", "r1VolRatioLow", "r2bSpecialGlobal", "r2gLowRatingQ3"] },
+  { id: "c9", name: "C 防守", tagline: "笔数最少·熊市少亏", caliber: "⚠ 叠 9 键口径(速查卡注: 真选 C 应叠 8 键下线候选1)", calWarn: true,
+    keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] },
+  { id: "new14", name: "NEW 14键", tagline: "新防守王·全史第一+回撤最浅", caliber: "⚠ 重构换基座(弃候选1, 非「叠加」结构)", calWarn: true,
+    keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "declinePhaseSpecial", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] },
+  { id: "new18", name: "NEW2 18键", tagline: "NEW 影子·入选差31笔次优对照", caliber: "⚠ 重构换基座(NEW 族次优解)", calWarn: true,
+    keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "excludeSpecialBear", "n2NovSpecialIndustry", "greedy7", "v4f", "n2NorthOutConcept", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] }
+];
+var _KELLY_FADE_DEFAULT_MODE = "p8";
+function _tdsFadeModeById(id) {
+  for (var i = 0; i < _KELLY_FADE_MODE_PRESETS.length; i++) {
+    if (_KELLY_FADE_MODE_PRESETS[i].id === id) return _KELLY_FADE_MODE_PRESETS[i];
+  }
+  return null;
+}
+// 把模式键组合写进 filters 对象: 57 个 fade 键先全部置 false 再按预设点亮(non-fade 键如 positionCap/K 不动)
+function _tdsFadeModeApply(modeId, filters) {
+  var p = _tdsFadeModeById(modeId);
+  if (!p || !filters) return false;
+  for (var i = 0; i < _KELLY_FADE_ALL_KEYS.length; i++) filters[_KELLY_FADE_ALL_KEYS[i]] = false;
+  for (var j = 0; j < p.keys.length; j++) filters[p.keys[j]] = true;
+  return true;
+}
+// 由 filters 反查当前匹配的模式 id(全等匹配; 不匹配任何预设=null=自定义态)
+function _tdsFadeModeMatch(filters) {
+  if (!filters) return null;
+  for (var i = 0; i < _KELLY_FADE_MODE_PRESETS.length; i++) {
+    var p = _KELLY_FADE_MODE_PRESETS[i], ok = true;
+    for (var j = 0; j < _KELLY_FADE_ALL_KEYS.length; j++) {
+      var k = _KELLY_FADE_ALL_KEYS[j];
+      if (!!filters[k] !== (p.keys.indexOf(k) >= 0)) { ok = false; break; }
+    }
+    if (ok) return p.id;
+  }
+  return null;
+}
+// 模式下拉 HTML(withCustom=true 时附加「自定义」占位项, lab 标签区用; 弹窗无标签区不需要)
+function _tdsFadeModeSelectHTML(id, selectedId, withCustom, cls, title) {
+  var h = '<select id="' + id + '" class="' + (cls || "sim-mode-sel") + '"' + (title ? ' title="' + title + '"' : "") + '>';
+  for (var i = 0; i < _KELLY_FADE_MODE_PRESETS.length; i++) {
+    var p = _KELLY_FADE_MODE_PRESETS[i];
+    h += '<option value="' + p.id + '"' + (p.id === selectedId ? " selected" : "") + ">" + p.name + " · " + p.tagline + (p.calWarn ? " ⚠" : "") + "</option>";
+  }
+  if (withCustom) {
+    h += '<option value="custom"' + ("custom" === selectedId ? " selected" : "") + ' disabled hidden>⚙️ 自定义(手动勾选生成)</option>';
+  }
+  h += "</select>";
+  return h;
+}
+window._KELLY_FADE_LEGACY_SPECS = _KELLY_FADE_LEGACY_SPECS;
+window._KELLY_FADE_FRONT_KEY_ORDER = _KELLY_FADE_FRONT_KEY_ORDER;
+window._KELLY_FADE_GATE_KEY_ORDER = _KELLY_FADE_GATE_KEY_ORDER;
+window._tdsFadeSpecHit = _tdsFadeSpecHit;
+window._KELLY_FADE_MODE_PRESETS = _KELLY_FADE_MODE_PRESETS;
+window._KELLY_FADE_ALL_KEYS = _KELLY_FADE_ALL_KEYS;
+window._KELLY_FADE_DEFAULT_MODE = _KELLY_FADE_DEFAULT_MODE;
+window._tdsFadeModeById = _tdsFadeModeById;
+window._tdsFadeModeApply = _tdsFadeModeApply;
+window._tdsFadeModeMatch = _tdsFadeModeMatch;
+window._tdsFadeModeSelectHTML = _tdsFadeModeSelectHTML;

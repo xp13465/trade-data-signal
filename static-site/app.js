@@ -2782,9 +2782,8 @@ function _simPassesFade(t, fIdx, filters, monthMask) {
 // sim 弹窗内为独立开关(不并入 8 键 filters 对象), 与「默认8键」AND 叠加; 仅 A-F 短线模式生效(G/H/I 由调用方强制关闭)。
 function _simPassesBullStop(t, fIdx) {
   if (fIdx.market_tier == null) return true;
-  var sig = t[fIdx.signal] || "";
-  if (sig !== "buy_aux" && sig !== "buy_backup") return true;
-  return (t[fIdx.market_tier] || "") !== "牛市·主升";
+  // T3-1: 判定表达式换 spec(规格=common.js bullAuxBackupStop, 与 lab 谓词分支同源 §22); 开关语义不变
+  return !_tdsFadeSpecHit("bullAuxBackupStop", { sig: t[fIdx.signal] || "", tier: (t[fIdx.market_tier] || "") });
 }
 
 // 基笔 key(买侧身份, 与 lab.js _kellyBaseKey 同)
@@ -2951,6 +2950,9 @@ function _openSimBacktestModal() {
         '<div class="sim-ctrl-block"><label>时间范围(起)</label><input type="date" class="sim-date-start" value="' + _defStart + '"></div>' +
         '<div class="sim-ctrl-block"><label>时间范围(止)· 最长500天</label><input type="date" class="sim-date-end" value="' + _defEnd + '"></div>' +
         '<div class="sim-ctrl-block"><label>AI降亏过滤</label><label class="sim-cb-wrap"><input type="checkbox" class="sim-fade-cb" checked> 开启(默认8键)</label>' +
+          '<div class="sim-fade-mode-wrap" style="margin-top:6px"><label class="sim-cb-wrap">模式 </label>' +
+          (window._tdsFadeModeSelectHTML ? window._tdsFadeModeSelectHTML("sim-fade-mode-sel", "p8", false, "sim-fade-mode-sel", "AI降亏过滤模式: 一键套用整套键组合(与凯利页/「AI 降亏组成对比」卡同源口径; 默认 8键=现网基线)。关闭总开关时本下拉不生效") : "") +
+          '</div>' +
           '<label class="sim-cb-wrap sim-bullstop-wrap" data-no-pop=""><input type="checkbox" class="sim-bullstop-cb"> <span>牛市×辅备买全停(A-F)</span><span class="lab-sigkelly-toggle-new">NEW</span></label>' +
           '<label class="sim-bullstop-tip" title="牛市·主升(hs300四档)×信号∈{辅买,备买} → 拦下(时段级全停)。白话: 牛市主升末段的低质量买入(辅买/备买)是历史稳定毒药, 开启后全史 +66,530→+73,103(改善+6,573; 理想对照=被拦笔直接消失口径 +9,895)。场景: 5-8月连亏想减亏时开启实测。1:1: 2026年 5-8月 mode A K1 基线 50笔 -5,166 → 开启后 41笔 -1,030; 2026 全年 +5,626 → +7,490。⚠口径说明: 本弹窗实测显示的是补位口径(被拦天的次优信号自动顶上), 与理想对照略有差异(理想对照: 5-8月 -256 / 2026全年 +10,596)。诚实标注: 近1/2/3/5年 +15,154→+16,653 / +39,682→+43,084 / +41,523→+45,839 / +31,647→+36,503 五窗全改善; 变差年 4 个(理想对照口径)合计 -5,825(2014/-938、2018/-2,109、2020/-2,039、2025/-739 均牛市年边缘利润); 仅 A-F 短线适用, G/H/I 长线模式自动豁免; 默认关不入默认组合(§23.7)。数据支撑: docs/kelly/analysis/sim-window-loss-mining-20260822.md">ⓘ</label>' +
           '<div class="sim-bullstop-note" style="display:none">仅适用 A-F 短线(G/H/I 自动豁免)</div></div>' +
@@ -2991,7 +2993,7 @@ function _bindSimBacktestControls(modal, _close) {
       _simRender(modal);
     });
   });
-  modal.querySelectorAll(".sim-date-start,.sim-date-end,.sim-fade-cb,.sim-mode-sel").forEach((el) => {
+  modal.querySelectorAll(".sim-date-start,.sim-date-end,.sim-fade-cb,.sim-fade-mode-sel,.sim-mode-sel").forEach((el) => {
     el.addEventListener("change", () => _simRender(modal));
   });
   // (2026-08-22 用户拍板) 新降亏键「牛市×辅备买全停」: sim 弹窗独立开关, UI 态不落盘(与 sim-fade-cb 同模式,
@@ -3054,7 +3056,9 @@ async function _simRender(modal) {
   // T1(2026-08-23) 预热降亏特征 JSON(20 新键谓词查值; 异步不阻塞, 未就绪时新键判定降级不拦);
   //   晚到且已有新键开启(首渲被降级) → 补一次渲染对齐 §22。
   _ensureSimLossFeat().then((d) => {
-    if (d && _SIM_LOSS_NEW_KEYS.some((p) => (modal.querySelector(".sim-fade-cb-" + p[0]) || {}).checked)) {
+    const _fmHasNewKey = (() => { const s = modal.querySelector(".sim-fade-mode-sel"); if (!s || !window._KELLY_FADE_MODE_PRESETS) return false;
+        const p = window._KELLY_FADE_MODE_PRESETS.find((x) => x.id === s.value); return !!(p && p.keys.some((k) => _SIM_LOSS_NEW_KEYS.some((q) => q[0] === k))); })();
+      if (d && (_fmHasNewKey || _SIM_LOSS_NEW_KEYS.some((p) => (modal.querySelector(".sim-fade-cb-" + p[0]) || {}).checked))) {
       try { _simRender(modal); } catch (e) {}
     }
   }).catch(() => {});
@@ -3135,6 +3139,13 @@ async function _simRender(modal) {
 
   // ② 降亏过滤
   const filters = _simDefaultFadeFilters();
+  // T3-1(2026-08-23): 模式下拉(7预设一键套用) —— fadeOn=true 时套用所选模式的完整键组合覆盖默认8键基座;
+  // 默认值 p8=8键 与原默认逐位一致(不开总开关/不切模式=一切如旧 §23.7); 弹窗无标签区无自定义态(withCustom=false);
+  // 每次打开 innerHTML 全量重建=天然重置为 关+p8(a389 既有约定); 持久化不引入(弹窗态零记忆)
+  const _fmSelEl = modal.querySelector(".sim-fade-mode-sel");
+  if (_fmSelEl && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(_fmSelEl.value)) {
+    _tdsFadeModeApply(_fmSelEl.value, filters);
+  }
   const monthMask = _simActiveMonthMask(filters);
   // (2026-08-22 用户拍板) 新降亏键: UI 状态读取 + G/H/I 长线模式强制不生效(仅 A-F 短线; 与置灰双保险)
   const _bullCbEl = modal.querySelector(".sim-bullstop-cb");
