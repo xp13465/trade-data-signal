@@ -2071,15 +2071,23 @@ function _ovAggregateRecent(recent, modeId, bullStopOn, fadeOn, k) {
 
 // 监控卡 7 模式/独立+1开关 读取(独立 localStorage 键: tds_overfit_fade_mode 默认 p8=8键默认组合≡现网,
 // tds_overfit_bull_stop 默认关; 与首页 tds_home_fade_mode/凯利区 tds_kelly_fade_mode 三处独立 §22)。
+// T3-2 二轮适配(2026-08-23 用户拍板): 模式记忆不做永久保留——两键读写全走 common.js 公共 TTL 工具
+// (_tdsLoadWithTTL/_tdsStoreWithTTL, 时长单源引用 _TDS_FADE_TTL_MS=18h 不各自写死); 滑动过期=每次切换
+// 重写 ts; 过期/无 ts(旧格式)/解析异常 → 回默认并清键(工具内置 removeItem)。
 function _readOverfitFadeMode() {
   try {
-    const v = localStorage.getItem("tds_overfit_fade_mode");
+    const v = (typeof _tdsLoadWithTTL === "function")
+      ? _tdsLoadWithTTL("tds_overfit_fade_mode", _TDS_FADE_TTL_MS) : null;
     if (v && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(v)) return v;
   } catch (e) {}
   return "p8";
 }
 function _readOverfitBullStop() {
-  try { return localStorage.getItem("tds_overfit_bull_stop") === "1"; } catch (e) { return false; }
+  try {
+    const v = (typeof _tdsLoadWithTTL === "function")
+      ? _tdsLoadWithTTL("tds_overfit_bull_stop", _TDS_FADE_TTL_MS) : null;
+    return v === "1";
+  } catch (e) { return false; }
 }
 
 async function _appendOverfitCard(colA2, r, snap) {
@@ -2100,7 +2108,7 @@ async function _appendOverfitCard(colA2, r, snap) {
       '<span class="overfit-fade-label" data-tip="降亏模式(T3-2 2026-08-23, 与凯利区/模拟回测弹窗同款7模式): p8=8键默认组合(≡现网, 对照基线) / 9键=8键+候选1 / A进攻王 / B均衡卡 / C防守=叠9键口径 / NEW14·NEW18=重构换基座。切换后监控两图按所选模式的降亏成员键组集重算(recent明细逐信号键命中标注, 后端打标)。仅 AI降亏过滤开关开启时生效; 老数据无明细时自动回退现有bank。">降亏模式</span>' +
       (typeof _tdsFadeModeSelectHTML === "function"
         ? _tdsFadeModeSelectHTML("overfit-fade-mode-sel", _readOverfitFadeMode(), false, "sim-mode-sel ov-mode-sel",
-            "AI降亏模式(7预设): 切换后准确率/风险分两图按所选模式重算。p8=8键默认(≡现网零变化); 9键/A/B/C=叠9键口径; NEW14/NEW18=重构换基座。⚠非p8口径为 v1.1.2 四档判定源(recent明细), 与老filtered bank的MA60口径存在 excludeSpecialBear 微差; price_bin/ETF相关性组件信号级不可判已降级跳过(v4f 恒不命中); NEW18 北向流出×概念类(n2NorthOutConcept)已接入打标(2026-08-23 修复后端漏列), 评级维度回测曲线同步恢复出数(FIELD 列修复)。")
+            "AI降亏模式(7预设): 切换后准确率/风险分两图按所选模式重算。p8=8键默认(≡现网零变化); 9键/A/B/C=叠9键口径; NEW14/NEW18=重构换基座。⚠非p8口径为 v1.1.2 四档判定源(recent明细), 与老filtered bank的MA60口径存在 excludeSpecialBear 微差; price_bin/ETF相关性组件信号级不可判已降级跳过(v4f 恒不命中); NEW18 北向流出×概念类(n2NorthOutConcept)已接入打标(2026-08-23 修复后端漏列), 评级维度回测曲线同步恢复出数(FIELD 列修复)。⚠模式与+1开关记忆均仅保留 18 小时(TDS_FADE_TTL 单源, 滑动过期=每次切换刷新计时, 超时回默认 p8/关 并清记忆)。")
         : "") +
       '<label class="overfit-bullstop-lab" data-tip="牛市×辅备买全停(+1 候选1, 独立开关, 默认关; 2026-08-22 用户拍板对齐其他消费点同款交互): 牛市·主升(hs300四档)×信号∈{辅买buy_aux,备买buy_backup}→从监控人口剔除(AND叠加在当前模式之上, 可单独开)。开启后走 recent 明细组集(v1.1.2 四档口径), 关闭=零变化。与首页/凯利区/模拟回测弹窗各自独立。">' +
         '<input type="checkbox" data-overfit-bullstop="1"> <span>牛市×辅备买全停</span><span class="lab-sigkelly-toggle-new">NEW</span></label>' +
@@ -2301,7 +2309,7 @@ async function _appendOverfitCard(colA2, r, snap) {
     modeSelEl.addEventListener("change", () => {
       if (!_overfitData) return;
       _ovModeId = modeSelEl.value || "p8";
-      try { localStorage.setItem("tds_overfit_fade_mode", _ovModeId); } catch (e2) {}
+      if (typeof _tdsStoreWithTTL === "function") _tdsStoreWithTTL("tds_overfit_fade_mode", _ovModeId); // TTL 18h 滑动过期
       syncOverfitCharts();
     });
   }
@@ -2311,7 +2319,7 @@ async function _appendOverfitCard(colA2, r, snap) {
     bullStopCb.addEventListener("change", () => {
       if (!_overfitData) return;
       _ovBullStop = !!bullStopCb.checked;
-      try { localStorage.setItem("tds_overfit_bull_stop", _ovBullStop ? "1" : "0"); } catch (e2) {}
+      if (typeof _tdsStoreWithTTL === "function") _tdsStoreWithTTL("tds_overfit_bull_stop", _ovBullStop ? "1" : "0"); // TTL 18h
       syncOverfitCharts();
     });
   }
@@ -2572,9 +2580,12 @@ function _readBullStopFlag() {
 // 与原固定8键白名单逐位一致=默认行为零变化 §23.7; 键集合从 common.js _KELLY_FADE_MODE_PRESETS 单源拉取,
 // 任务④迁移: _AI_MACRO_FILTER_NAMES 保留中文名映射仅供标注展示, 不再作键集合事实源)。
 // 与凯利区 tds_kelly_fade_mode/监控卡 tds_overfit_fade_mode 三处独立作用域(§22 各自独立互不影响)。
+// T3-2 二轮适配(2026-08-23 用户拍板): 记忆仅保留 18 小时——读写全走 common.js 公共 TTL 工具
+// (_TDS_FADE_TTL_MS 单源), 滑动过期=每次切换重写 ts; 过期/无 ts/异常 → 回默认 p8 并清键。
 function _readHomeFadeMode() {
   try {
-    const v = localStorage.getItem("tds_home_fade_mode");
+    const v = (typeof _tdsLoadWithTTL === "function")
+      ? _tdsLoadWithTTL("tds_home_fade_mode", _TDS_FADE_TTL_MS) : null;
     if (v && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(v)) return v;
   } catch (e) {}
   return "p8";
@@ -2670,12 +2681,12 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
   // 等价同时点亮下方「牛市×辅备买全停」判定(OR 叠加, 见 _renderSignalGrid _bullStopActive 注释)。
   const _homeModeSel = (typeof _tdsFadeModeSelectHTML === "function")
     ? _tdsFadeModeSelectHTML("sig-home-fade-mode-sel", _readHomeFadeMode(), false, "sim-mode-sel home-mode-sel",
-      "AI降亏·模式(首页独立作用域, 默认=8键默认组合p8, 与现网固定8键逐位一致; 换模式只改本区块判定键集合, 不影响凯利区/模拟回测/AI监控卡各自的模式下拉)。7个预设: 8键默认组合 / 8键+1(牛市辅备买全停) / a9 aggressive / b9 balanced / c9 conservative / new14 重构换基座 / new18 全量重构——键集合单源来自 common.js 预设表, 与 lab 页同款同源(§21 公示 purpose-notes lab.sigkelly)")
+      "AI降亏·模式(首页独立作用域, 默认=8键默认组合p8, 与现网固定8键逐位一致; 换模式只改本区块判定键集合, 不影响凯利区/模拟回测/AI监控卡各自的模式下拉)。7个预设: 8键默认组合 / 8键+1(牛市辅备买全停) / a9 aggressive / b9 balanced / c9 conservative / new14 重构换基座 / new18 全量重构——键集合单源来自 common.js 预设表, 与 lab 页同款同源(§21 公示 purpose-notes lab.sigkelly); 所选模式记忆仅保留 18 小时(滑动过期, 超时回默认 p8)")
     : "";
   return `<div class="sig-switch-row" data-no-pop="">` +
     `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(总开关, 首页独立, 删除线过滤层): 开启=①命中降亏条件(默认固定 8键=基础5+核心3, 可经「AI降亏·模式」下拉切 7 预设 T3-2; +1类回测剔除=_bt_in_universe)的买入信号=灰显+删除线+标注AI降亏建议回避(现状) + ②未入样宇宙信号(债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, 含波动相关/未入样本信号)=删除线+灰显+标注未入样本; 关闭=不画任何删除线、未入样本不标注, 信号恢复正常样式。结构=AI宏5+3+1(v1.1.0 定名「基础5」): 5+3=保留入样的8个降亏键(基础5=基础4+K2C5 港股追涨剔除), +1=回测剔除的波动相关/未入样本整类信号(AI建议不推荐)。另有 cyb 四档版降亏新键 excludeSpecialBearCyb(默认关, 非默认推荐, 判定源 hs300 四档→创业板指 cyb 四档, #69 2026-08-19, 不进首页默认判定, 凯利区可人工开复测)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。独立 localStorage 键 tds_home_fade 与凯利区互不影响; 与「AI仓位建议」两个开关正交(各自管一层, 不互相触发)">` +
       `<input type="checkbox" class="sig-switch-ai-cb"${_fadeOn ? " checked" : ""}> AI降亏过滤` +
-      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 删除线过滤层, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 结构=AI宏5+3+1(v1.1.0 定名「基础5」, 2026-08-15 补公示): 5=基础5键(基础4 + K2C5 港股追涨剔除), 3=核心3键, 两者 8 键都是「保留入样、可被AI建议推荐」的降亏开关; +1=回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(后端已剔除出回测宇宙 / 波动相关剔除), 故 AI建议 一律不推荐, 本开关开启时以「未入样本」+灰显+删除线标注表达"被过滤掉"。 开启=①首页按降亏策略判定, 默认固定 8键+1类 成员级(2026-08-23 T3-2 起可经旁侧「AI降亏·模式」下拉切换 7 预设, 独立键 tds_home_fade_mode, 默认 p8=固定8键逐位一致零变化)(基础5= 追关注×熊市交叉四档(v1.1.2 2026-08-17 主键判定 MA60→四档{熊市·主跌,下降期}×A股类升级; 老MA60熊×追买 / 下降期×追关注 两备选键默认关🆕NEW) / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 / K2C5 港股追涨剔除 + 核心3= 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致 v1.1.0/v1.1.2; +1=回测剔除的波动相关/未入样本信号整类)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。命中降亏条件(8键中任一键)的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); ②未入样宇宙信号(债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 后端已剔除出回测宇宙)=删除线+灰显+「未入样本」标注(AI过滤视图, 表达"被过滤掉"); 关闭=首页完全不判降亏、不画删除线、未入样本不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。⚠两开关正交: AI降亏层只产删除线/未入样本, 不产 AI建议N/当日已满/AI警示(那些归「AI仓位建议」开关控制)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号">ⓘ</span>` +
+      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 删除线过滤层, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 结构=AI宏5+3+1(v1.1.0 定名「基础5」, 2026-08-15 补公示): 5=基础5键(基础4 + K2C5 港股追涨剔除), 3=核心3键, 两者 8 键都是「保留入样、可被AI建议推荐」的降亏开关; +1=回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(后端已剔除出回测宇宙 / 波动相关剔除), 故 AI建议 一律不推荐, 本开关开启时以「未入样本」+灰显+删除线标注表达"被过滤掉"。 开启=①首页按降亏策略判定, 默认固定 8键+1类 成员级(2026-08-23 T3-2 起可经旁侧「AI降亏·模式」下拉切换 7 预设, 独立键 tds_home_fade_mode, 默认 p8=固定8键逐位一致零变化; 该记忆仅保留 18 小时滑动过期, 超时自动回 p8)(基础5= 追关注×熊市交叉四档(v1.1.2 2026-08-17 主键判定 MA60→四档{熊市·主跌,下降期}×A股类升级; 老MA60熊×追买 / 下降期×追关注 两备选键默认关🆕NEW) / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 / K2C5 港股追涨剔除 + 核心3= 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致 v1.1.0/v1.1.2; +1=回测剔除的波动相关/未入样本信号整类)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。命中降亏条件(8键中任一键)的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); ②未入样宇宙信号(债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 后端已剔除出回测宇宙)=删除线+灰显+「未入样本」标注(AI过滤视图, 表达"被过滤掉"); 关闭=首页完全不判降亏、不画删除线、未入样本不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。⚠两开关正交: AI降亏层只产删除线/未入样本, 不产 AI建议N/当日已满/AI警示(那些归「AI仓位建议」开关控制)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号">ⓘ</span>` +
     `</label>` +
     `${_homeModeSel}` +
     `${_bullSw}` +
@@ -2793,7 +2804,7 @@ function _bindSigSwitchRow(sigCard) {
       e.preventDefault();
       e.stopPropagation();
       const mv = homeModeSel.value || "p8";
-      try { localStorage.setItem("tds_home_fade_mode", mv); } catch (err) {}
+      if (typeof _tdsStoreWithTTL === "function") _tdsStoreWithTTL("tds_home_fade_mode", mv); // TTL 18h 滑动过期
       _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
       const mp = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(mv) : null;
       const nKeys = (mp && Array.isArray(mp.keys)) ? mp.keys.length : 0;

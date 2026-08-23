@@ -8736,7 +8736,8 @@ async function renderSigKellyLab() {
   // 8成员覆盖之后应用, 完整模式组合覆盖成员级状态(模式=57键全集, 成员键只是子集); 无 key/超时/旧格式
   // (用户从未选过或距上次切换>18h)=跳过=零变化回默认 p8(2026-08-23 用户拍板: 不做永久记忆, 阉割版只留
   // 18 小时防刷新闪回且覆盖隔夜; 工具函数 _tdsLoadWithTTL 单源在 common.js, T3-2 同款记忆直接复用)
-  // (默认8键, 与现网逐位一致 §23.7 冻结契约)。sim 弹窗不读此 key(弹窗每次打开=关+8键, a389 既有约定)。
+  // (默认8键, 与现网逐位一致 §23.7 冻结契约)。sim 弹窗记忆已独立(tds_sim_fade_mode, 2026-08-23 hotfix,
+  // 同走 TTL 工具), 与本 key/首页/AI监控卡互不干预——旧「弹窗每次打开=关+8键」约定已废止。
   try {
     var _savedFM = (typeof _tdsLoadWithTTL === "function")
       ? _tdsLoadWithTTL("tds_kelly_fade_mode", typeof _TDS_FADE_TTL_MS !== "undefined" ? _TDS_FADE_TTL_MS : 18 * 3600 * 1000)

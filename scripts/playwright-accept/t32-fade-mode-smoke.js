@@ -7,6 +7,7 @@
  *   ② AI 监控卡模式下拉+「牛市×辅备买全停」+1开关与「AI降亏过滤」同一行
  *   ③ 快速连切 7 模式(p8→p9→a9→b9→c9→new14→new18)无卡死: 无 pageerror/console error,
  *      localStorage 写入正确(tds_home_fade_mode / tds_overfit_fade_mode), 切完页面仍响应
+ *      (2026-08-23 二轮适配起三键为 TTL JSON 格式 {v, ts}, common.js _tdsStoreWithTTL 单源——断言按 .v 取值+验 ts 在)
  *
  * 用法:
  *   cd scripts/playwright-accept && node t32-fade-mode-smoke.js http://localhost:8000 [--mobile]
@@ -93,16 +94,18 @@ function check(tag, cond, detail) {
       await page.waitForTimeout(60);   // 60ms 快切, 故意不留渲染余地
     }
     await page.waitForTimeout(1500);
-    const homeStored = await page.evaluate(() => localStorage.getItem('tds_home_fade_mode'));
-    check('首页快速连切7模式: localStorage=最后选择(new18)', homeStored === 'new18', `got=${homeStored}`);
+    const homeStored = await page.evaluate(() => { const o = JSON.parse(localStorage.getItem('tds_home_fade_mode') || 'null'); return o ? o.v : null; });
+    const homeTsOk = await page.evaluate(() => { const o = JSON.parse(localStorage.getItem('tds_home_fade_mode') || 'null'); return !!(o && typeof o.ts === 'number'); });
+    check('首页快速连切7模式: localStorage=最后选择(new18)+TTL格式', homeStored === 'new18' && homeTsOk, `got=${homeStored}`);
     const respOK = await page.evaluate(() => {
       const s = document.querySelector('#sig-home-fade-mode-sel');
       s.value = 'p8'; s.dispatchEvent(new Event('change', { bubbles: true }));
-      return localStorage.getItem('tds_home_fade_mode') === 'p8';
+      const o = JSON.parse(localStorage.getItem('tds_home_fade_mode') || 'null');
+      return !!(o && o.v === 'p8' && typeof o.ts === 'number');
     });
     await page.waitForTimeout(500);
     check('首页连切后仍响应(切回 p8 成功)', respOK);
-    check('首页默认回落 p8(≡现网基线)', (await page.evaluate(() => localStorage.getItem('tds_home_fade_mode'))) === 'p8');
+    check('首页默认回落 p8(≡现网基线)', (await page.evaluate(() => { const o = JSON.parse(localStorage.getItem('tds_home_fade_mode') || 'null'); return o ? o.v : null; })) === 'p8');
   }
 
   // ---- ③b 快速连切 7 模式(监控卡) ----
@@ -116,12 +119,13 @@ function check(tag, cond, detail) {
       await page.waitForTimeout(60);
     }
     await page.waitForTimeout(2500);   // 组集重绘两图留渲染时间
-    const ovStored = await page.evaluate(() => localStorage.getItem('tds_overfit_fade_mode'));
-    check('监控卡快速连切7模式: localStorage=最后选择(new18)', ovStored === 'new18', `got=${ovStored}`);
+    const ovStored = await page.evaluate(() => { const o = JSON.parse(localStorage.getItem('tds_overfit_fade_mode') || 'null'); return o ? o.v : null; });
+    check('监控卡快速连切7模式: localStorage=最后选择(new18)+TTL格式', ovStored === 'new18', `got=${ovStored}`);
     const ovResp = await page.evaluate(() => {
       const s = document.querySelector('#overfit-fade-mode-sel');
       s.value = 'p8'; s.dispatchEvent(new Event('change', { bubbles: true }));
-      return localStorage.getItem('tds_overfit_fade_mode') === 'p8';
+      const o = JSON.parse(localStorage.getItem('tds_overfit_fade_mode') || 'null');
+      return !!(o && o.v === 'p8' && typeof o.ts === 'number');
     });
     await page.waitForTimeout(1000);
     check('监控卡连切后仍响应(切回 p8 成功)', ovResp);
@@ -132,10 +136,10 @@ function check(tag, cond, detail) {
   if (bsCb) {
     await bsCb.click();
     await page.waitForTimeout(400);
-    const bsOn = await page.evaluate(() => localStorage.getItem('tds_overfit_bull_stop'));
+    const bsOn = await page.evaluate(() => { const o = JSON.parse(localStorage.getItem('tds_overfit_bull_stop') || 'null'); return o ? o.v : null; });
     await bsCb.click();               // 还原关闭
     await page.waitForTimeout(400);
-    check('监控卡+1开关注入/还原正常', bsOn === '1' && (await page.evaluate(() => localStorage.getItem('tds_overfit_bull_stop')) !== '1'),
+    check('监控卡+1开关注入/还原正常(TTL格式)', bsOn === '1' && (await page.evaluate(() => { const o = JSON.parse(localStorage.getItem('tds_overfit_bull_stop') || 'null'); return o ? o.v : null; })) !== '1',
       `点击后=${bsOn}`);
   }
 
