@@ -811,9 +811,12 @@ function _tdsFadeModeSelectMount(mount, cfg) {
   }
   return sel;
 }
-// ── localStorage 带 TTL 的读写工具(2026-08-23 用户拍板: 模式记忆不做永久保留, 阉割版只留 1 小时)──
+// ── localStorage 带 TTL 的读写工具(2026-08-23 用户拍板: 模式记忆不做永久保留; 同日二次拍板 TTL=18 小时,
+//    覆盖隔夜——今天收盘后切的模式, 明天开盘仍在, 但不会永久滞留)──
 //   存格式 = JSON.stringify({ v: <任意可序列化值>, ts: Date.now() }); 取时超时/无 ts(旧格式兼容)/解析失败 → 返回 null 并顺手清键。
 //   设计为通用工具(T3-2 首页 tds_home_fade_mode / 监控卡 tds_overfit_fade_mode 直接复用), 不绑定具体 key。
+//   ⚠️ 模式记忆 TTL 单一常量源 = _TDS_FADE_TTL_MS(所有调用方引用它, 不各自写 3600*1000, 防再调时长漏改)。
+var _TDS_FADE_TTL_MS = 18 * 3600 * 1000;
 function _tdsStoreWithTTL(key, val) {
   try { localStorage.setItem(key, JSON.stringify({ v: val, ts: Date.now() })); } catch (e) {}
 }
@@ -845,3 +848,4 @@ window._tdsFadeModeSelectHTML = _tdsFadeModeSelectHTML;
 window._tdsFadeModeSelectMount = _tdsFadeModeSelectMount;
 window._tdsStoreWithTTL = _tdsStoreWithTTL;
 window._tdsLoadWithTTL = _tdsLoadWithTTL;
+window._TDS_FADE_TTL_MS = _TDS_FADE_TTL_MS;

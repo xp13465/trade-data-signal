@@ -2,8 +2,8 @@
 /**
  * verify_fade_mode_ttl.mjs — AI降亏模式记忆 TTL 验收(2026-08-23 用户拍板)
  *
- * 【目的】验证模式记忆「1 小时滑动过期 + 四区域独立记忆体」行为:
- *   T1 过期回退: 写伪造 2 小时前 {mode:new14,ts} → reload → 下拉=p8(键被清)
+ * 【目的】验证模式记忆「18 小时滑动过期 + 四区域独立记忆体」行为:
+ *   T1 过期回退: 写伪造 20 小时前 {mode:new14,ts} → reload → 下拉=p8(键被清)
  *   T2 TTL 内保持: 写当前 ts → reload → 保持 new14
  *   T3 滑动续期: lab 切两次模式, 键内 ts 单调增(每次切换刷新计时)
  *   T4 旧格式兼容: 写无 ts 的 {mode:new14}(TTL 上线前老用户数据)→ reload → 回 p8 且键被清
@@ -47,7 +47,7 @@ const readKey = (p, k) => Promise.race([
 {
   const p = await ctx.newPage();
   await p.addInitScript(() => { try { localStorage.clear(); } catch (e) {} });
-  const stale = JSON.stringify({ mode: 'new14', ts: Date.now() - 2 * HOUR });
+  const stale = JSON.stringify({ mode: 'new14', ts: Date.now() - 20 * HOUR }); // >18h TTL(2026-08-23 二次拍板)
   await p.addInitScript((v) => { try { localStorage.setItem('tds_kelly_fade_mode', v); } catch (e) {} }, stale);
   await p.goto(LAB_URL, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
   const ok = await waitLabSel(p);
