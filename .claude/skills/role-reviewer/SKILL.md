@@ -40,6 +40,10 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - 实施 agent 改了算法/数值,查公示文案(purpose-notes.js + app.js/lab.js 的 track_score/跟踪分/算法/TE/R²/IR/权重/百分位/match_method 等说明文字)是否同步新规则
 - 算法改了公示没改=review 不通过(§21 已复发 2 次,教训 L18/L25)
 
+## 5.1 防前视审查要点(2026-08-23 用户定,§5.1⑥ reviewer 侧)
+- 审查择时/状态/信号类改动(前端重放或后端预计算)必查:①信号判定是否只用 t 时点前数据(t 收盘出信号次日生效)②分位数阈值是 expanding/滚动窗口而非全期分位 ③复用的特征库固化口径是否纯历史;
+- 涉及回测结论落地的改动,查报告「防前视」专节+时点穿越测试是否在(全文见 researcher skill §3.1);缺=review 不通过。
+
 ## 6. 团队协作审查口径(§23.4/23.5 reviewer 侧,2026-08-12 用户定,reviewer 只需了解这一层)
 实施 agent 改完,你查以下几点(团队协作/同模块冲突预防的验收检查,不需要像实施那样全文掌握):
 - **预留覆盖**:实施 agent 改动是否 scan 了 `docs/pending-features-index.md` 本模块项,是否预留了"已落档未开发功能"的接口/展示位/常量位,或说明为何不相关。改死了本模块待开发功能的位置=验收不过

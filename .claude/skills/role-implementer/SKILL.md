@@ -26,6 +26,7 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - [ ] **§24 改前端源码** app.js/lab.js/common.js/index.html:改完 commit+push feat,**不自行 bump 版本串**(机制 C:主控 merge 走 main-merge.sh 统一 build_min+bump,防多 agent bump 撞号);完成报告必带 base commit + 版本串前后值
 - [ ] **§8 上线链路**:改完必 commit+push **feat**(commit message 加 Co-Authored-By 行);**禁止 agent 直接 push main**,merge+push main 由主控统一走 scripts/main-merge.sh(机制 D)
 - [ ] **§23.5 新产物落档**:新增报告/脚本/数据当场落最合适目录+建/跟索引+git 已跟踪,不靠定期整理
+- [ ] **§5.1⑥ 防前视铁律**(2026-08-23):实现择时/状态/信号类功能(前端重放或后端预计算同规)时,信号判定在 t 时点只能用 t 之前数据(t 收盘出信号次日生效);分位数阈值禁用全期分位(用 expanding/滚动窗口);复用特征库先核查固化口径。全文见 researcher skill §3.1
 - [ ] **data/ 隔离**:不 add/提交根目录 data/(sentiment.db/etf_national_team.db/signal_stats.json 等留本地);static-site/data/ 走 deploy.sh 正常上线
 
 ## 1. 单版前端铁律(原 §9 全文,2026-07-15 web/ 弃用)

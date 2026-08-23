@@ -312,3 +312,11 @@ collect + deploy + check_signals 都幂等 → update_all 重跑安全。中断�
 - 日志目录：`/Users/linhuichen/code/trade/data/logs/`（已在 `.gitignore`，不进仓库）
 - 静态 JSON：`/Users/linhuichen/code/trade/static-site/data/`（进仓库，push 部署）
 - 数据库：`/Users/linhuichen/code/trade/data/sentiment.db`（进仓库）/ `stock_daily.db`（已 gitignore，4.6GB）
+
+### `bug-pattern-audit-20260823/audit_bug_patterns.py` — 全站 bug 模式机检（2026-08-23）
+
+四连 bug 举一反三的固化排查脚本，配套报告 [`docs/bug-pattern-site-audit-20260823.md`](../docs/bug-pattern-site-audit-20260823.md)。三项对账：①TRADE_FIELDS vs overfit FIELD 逐列 diff ②loss_rules 20 新键后端 vs 前端三处字面量清单 ③export 导出 JSON vs check_data_integrity 覆盖差集；外加 requests 无 timeout 扫描与 localStorage/sessionStorage 键读写方全量映射表。纯静态源码扫描，无 DB/网络依赖。
+
+```bash
+python3 /Users/linhuichen/code/trade/scripts/bug-pattern-audit-20260823/audit_bug_patterns.py   # 有 DIFF 时退出码 1
+```
