@@ -3375,10 +3375,10 @@ function _bindSimBacktestControls(modal, _close) {
     const _savedMid = _savedSimFM && _savedSimFM.mode && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(_savedSimFM.mode) ? _savedSimFM.mode : (typeof window._KELLY_FADE_DEFAULT_MODE === "string" ? window._KELLY_FADE_DEFAULT_MODE : "new14"); // v1.1.5: 兜底=NEW14
     window._tdsFadeModeSelectMount(_fmWrapEl, {
       id: "sim-fade-mode-sel",
-      value: _savedMid,      // 上次所选(TTL 内); 无记忆=p8 默认
+      value: _savedMid,      // 上次所选(TTL 内); 无记忆=v1.1.5 默认 new14
       withCustom: false,     // 弹窗无标签区, 无自定义态
       cls: "sim-fade-mode-sel",
-      title: "AI降亏过滤模式: 一键套用整套键组合(与凯利页/「AI 降亏组成对比」卡同源口径; 默认 8键=现网基线)。记住上次选择 18 小时(独立于凯利页记忆, 超时自动回默认 8键)。四消费点统一下拉组件(lab 凯利区/本弹窗/T3-2 首页与监控卡待接)",
+      title: "AI降亏过滤模式: 一键套用整套键组合(与凯利页/「AI 降亏组成对比」卡同源口径; v1.1.5 起默认=new14·NEW 14键防守王, p8=旧 8键对照档)。记住上次选择 18 小时(独立于凯利页记忆, 超时自动回默认 new14)。四消费点统一下拉组件(lab 凯利区/本弹窗/首页/监控卡)",
     });
   }
   const kbtns = modal.querySelectorAll(".sim-kbtn");
