@@ -1826,7 +1826,12 @@
 .lab-sigkelly-opelim-row td { text-decoration: line-through; color: var(--text-2); } /* text-2 中间灰: 仍表"旧数据"但文字可辨 */
 .lab-sigkelly-exec-badge { display: block; margin-top: 2px; margin-left: 0; padding: 0 5px; border-radius: 4px; font-size: 11px; line-height: 1.7; color: #fff; font-weight: 600; background: #c62828; box-shadow: 0 0 0 1px rgba(255,255,255,0.35) inset; white-space: nowrap; } /* 2026-08-14 #firstcol: display:block 使淘汰角标在首列独立一行 */
 .lab-sigkelly-opelim-modal-note { color: #fa541c; font-weight: 600; }
-.lab-sigkelly-modal-elimwrap { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; }
+/* 2026-08-24 bug修复(全信号卡片交易弹窗主表被压没): elimwrap 原先无 max-height, 弹窗 flex column 下
+   淘汰表按内容撑开(50行/页可达数千px), 把 flex:1+overflow:auto 的主表容器压成 0 高, 超出部分被
+   modal 的 overflow:hidden 裁掉 → 满屏只剩淘汰删除线表且无处滚动。根修=淘汰区自身限高 40vh,
+   内部表格包独立滚动容器(elimtablewrap), 分页条留在底部不随内容滚走。 */
+.lab-sigkelly-modal-elimwrap { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; max-height: 40vh; display: flex; flex-direction: column; min-height: 0; }
+.lab-sigkelly-modal-elimtablewrap { overflow: auto; flex: 1; min-height: 0; }
 .lab-sigkelly-modal-elimtitle { font-size: 11px; font-weight: 700; color: #868e96; margin-bottom: 6px; }
 @media (max-width: 760px) {
   .lab-sigkelly-modal { max-width: 100%; max-height: 95vh; }
