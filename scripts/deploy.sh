@@ -272,8 +272,17 @@ fi
 # macOS 无 timeout/gtimeout 命令，用 bash 原生 background+sleep+kill 实现：
 # 后台跑 upload_r2，每 5s 探活，超 R2_UPLOAD_TIMEOUT（默认 300s=5min）即 kill 释放锁。
 R2_UPLOAD_TIMEOUT="${R2_UPLOAD_TIMEOUT:-300}"
+# 单通道超时覆盖(2026-08-23): run_r2_upload 第二参若为纯数字, 则作为本通道专属超时秒数,
+# 缺省仍用全局 R2_UPLOAD_TIMEOUT。upload-etf-hist(1532 只全史日K ~87MB)量大且总量随每日
+# 新增K线累积缓慢变大, 曾在 300s 线间歇性被 kill 触发「deploy R2上传失败」告警;
+# 配合 upload_r2.py 增量上传(正常增量秒级~分钟级), 全量兜底(首跑/周日)放宽到 900s。
 run_r2_upload() {
   local desc="$1"; shift
+  local ch_timeout=""
+  if [[ "${1:-}" =~ ^[0-9]+$ ]]; then
+    ch_timeout="$1"; shift
+  fi
+  local ch_limit="${ch_timeout:-$R2_UPLOAD_TIMEOUT}"
   local tmp_log pid slept rc
   tmp_log=$(mktemp)
   "$PY" "$REPO/scripts/upload_r2.py" "$@" >"$tmp_log" 2>&1 &
@@ -282,8 +291,8 @@ run_r2_upload() {
   while kill -0 "$pid" 2>/dev/null; do
     sleep 5
     slept=$((slept + 5))
-    if [ "$slept" -ge "$R2_UPLOAD_TIMEOUT" ]; then
-      echo "⚠ $desc 超 ${R2_UPLOAD_TIMEOUT}s 未退出，kill pid=$pid 释放 deploy.lock" | tee -a "$LOG"
+    if [ "$slept" -ge "$ch_limit" ]; then
+      echo "⚠ $desc 超 ${ch_limit}s 未退出，kill pid=$pid 释放 deploy.lock" | tee -a "$LOG"
       kill -TERM "$pid" 2>/dev/null; sleep 2
       kill -KILL "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
@@ -304,8 +313,10 @@ run_r2_upload "upload-lab" upload-lab || { echo "⚠ upload-lab 失败/超时,�
 run_r2_upload "upload-trade-sim" upload-trade-sim || { echo "⚠ upload-trade-sim 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-trade-sim"; }
 run_r2_upload "upload-trade-sim-json" upload-trade-sim-json || { echo "⚠ upload-trade-sim-json 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-trade-sim-json"; }
 run_r2_upload "upload-index" upload-index || { echo "⚠ upload-index 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-index"; }
-# ETF 全史日K etf/{code}-all.json -> R2 etf/ 前缀(#10 ETF弹窗长历史, 2026-08-22; 1532只~87MB, 8线程并发~1min)
-run_r2_upload "upload-etf-hist" upload-etf-hist || { echo "⚠ upload-etf-hist 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-hist"; }
+# ETF 全史日K etf/{code}-all.json -> R2 etf/ 前缀(#10 ETF弹窗长历史, 2026-08-22; 1532只~87MB, 8线程并发)
+# 2026-08-23: 改增量上传(upload_r2.py 状态清单只传变化文件)+ 本通道超时放宽 900s(根治间歇超时告警);
+# 首跑/每周日强制全量一次防状态漂移, 增量正常秒级~分钟级完成。
+run_r2_upload "upload-etf-hist" 900 upload-etf-hist || { echo "⚠ upload-etf-hist 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-hist"; }
 run_r2_upload "upload-industry" upload-industry || { echo "⚠ upload-industry 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-industry"; }
 run_r2_upload "upload-public-fund" upload-public-fund || { echo "⚠ upload-public-fund 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-public-fund"; }
 run_r2_upload "upload-etf-score" upload-etf-score || { echo "⚠ upload-etf-score 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-score"; }
