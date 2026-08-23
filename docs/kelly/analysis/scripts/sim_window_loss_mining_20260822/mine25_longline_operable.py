@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
-"""mine25 长线模式(G/H/I)可实操口径方案对比(2026-08-23 主控令)。
+"""mine25 九模式(A-I)可操作口径方案对比(2026-08-23 主控令;原长线 G/H/I 版扩展为全九模式)。
 背景: §15.13.7 九模式表 G/I 绝对额(+595,916/+410,235)为不可实操口径(SELL_MODES G/H/I 无卖出信号
 则持有至回测结束, 未平仓浮盈当已实现计入、并发无上限、资金占用百万级=136倍本金不可操作, L32)。
-本脚本在「可操作约束」下重跑 G/H/I × 6 方案对比:
+本脚本在「可操作约束」下重跑 A-I 全九模式 × 6 方案对比(A-F 短线纳入=统一排序对比+cap 咬合交叉验证:
+A-F 为固定持有期(5/10/15 天,SELL_MODES A=固定10天/B/C/D=10天止盈/E=5天/F=15天)资金滚动释放,
+K1 下峰值持仓有限 → cap20/cap50 应完全不咬合、数字==no-cap 权威值,若咬合即停):
   可操作口径:
    ①并发持仓上限 cap ∈ {10, 20, 50}(默认 20 笔≈20 万本金, 对齐 kelly-operability-20x-principal
      的 20 倍本金硬控);新信号到达时在途持仓已满 cap → 该信号跳过不买(按 signal_date 升序重放,
@@ -20,7 +22,8 @@
 锚点断言(必过):
   mode A: P0=+66,530.38 / P1=+73,102.53 / A9 vs9键=+46,007 / B9=+36,469 / C9=+34,011 /
           NEW14=+122,648.33 & mdd=-4,178.01;
-  no-cap crosscheck: G/H/I × 6 项目 no-cap 总额 == mine24_compare.json modes[m] 权威数字(<0.5)。
+  no-cap crosscheck: A-I × 6 项目 no-cap 总额 == mine24_compare.json modes[m] 权威数字(<0.5),54 断言。
+  短线咬合校验: A-F × 6 项目 cap20/cap50 必须 n_skipped=0 且合计额==no-cap(cap10 允许轻度咬合仅记录)。
 输出: data/mine25_longline_operable.json
 复现: python3 mine25_longline_operable.py
 依赖: signal_kelly_trades.json(generated_at=2026-08-23 05:09) + mine10_features.json +
@@ -45,6 +48,9 @@ B_SUB = ('T1','Q1','M1','R1','R2b','R2g')
 C_SUB = ('N1','T1','D1','H1','M1','P1','R2b')
 CAPS = [10, 20, 50]
 PROJECTS = ['P0_8键', 'P1_9键', 'A_on9', 'B_on9', 'C_on9', 'NEW_mine24_14键']
+MODES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
+MODE_LABEL = {'A': '固定10天', 'B': '3%止盈(10天上限)', 'C': '5%止盈(10天上限)', 'D': '7%止盈(10天上限)',
+              'E': '持有5天', 'F': '持有15天', 'G': '卖出信号', 'H': '卖出+追止损', 'I': '追关注加追止损'}
 
 M24 = json.load(open(M24GS_PATH))
 DOMS = M24['dominators_of_A']
@@ -244,11 +250,11 @@ def main():
     print(f'锚点 PASS: modeA P0={st0["total"]:+,.2f} P1={st1["total"]:+,.2f} '
           f'A9/B9/C9 vs9键=+46,007/+36,469/+34,011 NEW14={stN["total"]:+,.2f}')
 
-    # ================= Part2: G/H/I 可实操口径 =================
+    # ================= Part2: 九模式 A-I 可实操口径 =================
     runs = {}       # runs[mode][project][cap_key] = operable_stats
     xcheck = {}     # no-cap vs mine24_compare.modes
     delta_vs_p0 = {}  # [mode][cap_key][project] = total_merged 差(vs P0 同 cap)
-    for m in ['G', 'H', 'I']:
+    for m in MODES:
         rws, fm = prep_mode_local(tr, fIdx, m)
         assert len(fm) == len(fIdx)
         R.init(rws, fm)
@@ -291,8 +297,31 @@ def main():
               ' | '.join(f'cap{ck}: ' + ', '.join(f"{pj.split('_')[0]}{delta_vs_p0[m][ck][pj]:+,.0f}" for pj in PROJECTS[1:])
                          for ck in ['10', '20', '50']))
 
+    # ================= Part3: 短线 A-F cap 咬合校验(预期: 固定持有期<=15天 → cap20/50 不咬合) =================
+    shortline_check = {}
+    for m in ['A', 'B', 'C', 'D', 'E', 'F']:
+        per = {}
+        for pj in PROJECTS:
+            r = runs[m][pj]
+            nc_tot = r['nocap']['total_merged']
+            per[pj] = dict(
+                nocap_peak_pos_n=r['nocap']['peak_pos_n'],
+                caps={ck: dict(n_skipped=r[ck]['n_skipped'],
+                               total_eq_nocap=abs(r[ck]['total_merged'] - nc_tot) < 0.005)
+                      for ck in ['10', '20', '50']})
+            # 预期校验硬断言: 主推档 cap20 与宽档 cap50 必须不咬合(n_skipped=0 且合计额==no-cap)
+            for ck in ['20', '50']:
+                assert per[pj]['caps'][ck]['n_skipped'] == 0 and per[pj]['caps'][ck]['total_eq_nocap'], ('短线下cap意外咬合停手上报', m, pj, ck)
+
+        bind10 = {pj: per[pj]['caps']['10']['n_skipped'] for pj in PROJECTS if per[pj]['caps']['10']['n_skipped']}
+        shortline_check[m] = dict(label=MODE_LABEL[m], projects=per, cap10_bind_projects=bind10,
+                                  conclusion=(f"{MODE_LABEL[m]}: cap20/cap50 六项目全不咬合(合计==no-cap 权威); "
+                                              f"cap10 咬合={bind10 if bind10 else '无'}"))
+        print('咬合校验:', shortline_check[m]['conclusion'])
+
     out = dict(
-        meta=dict(script='mine25_longline_operable.py', generated_at_data=gen_at,
+        meta=dict(
+            modes=MODES, mode_label=MODE_LABEL,script='mine25_longline_operable.py', generated_at_data=gen_at,
                   caps=CAPS, projects=PROJECTS, new_keys=NEW_KEYS,
                   caliber=dict(
                       cap_skip='按 signal_date 升序重放, 先删后加(sell_date<=当日先释放), 在途>=cap 该日信号跳过不买',
@@ -309,7 +338,12 @@ def main():
         nocap_crosscheck=xcheck,
         runs=runs,
         delta_vs_p0=delta_vs_p0,
-        note='no-cap 行即 §15.13.7 老口径数字(逐位复现), 仅作对照不作主推; 主推口径=cap20。',
+        shortline_cap_bind_check=shortline_check,
+        note='no-cap 行即 §15.13.7/mine24 老口径数字(逐位复现), 仅作对照不作主推; 主推口径=cap20。'
+             'A-F 短线纳入目的: ①与 G/H/I 同框架出九模式统一排序; ②交叉验证 cap 层在固定持有期模式下'
+             '不咬合(shortline_cap_bind_check), 即短线的 cap 口径数字==既有 no-cap 权威(mine24_compare.modes)。'
+             '注意 mode A 的 NEW 在本框架=叠在模式 8 默认过滤池上(no-cap=117,797.87, 与 mine24_compare.modes.A.NEW 一致),'
+             '区别于独立重构口径全池版锚点 +122,648.33(mine24 anchor.new_net), 两口径并存已诚实标注。',
     )
     with open(OUT_PATH, 'w') as f:
         json.dump(out, f, ensure_ascii=False)
