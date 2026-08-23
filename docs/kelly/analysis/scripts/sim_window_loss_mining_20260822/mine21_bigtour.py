@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """二轮挖掘 补测⑥(2026-08-22 开工令):N=11 全子集穷举(2^11-1=2047)。
 池子 = mine20_pool.json pool_in(N1/T1/D1/Q1/H1/M1/D2/P1/V1/S1/R1,全部 vs9键边际>0 且无池内超集)。
-每子集全维: 全史/近1年/近3年增量、5-8月减亏、4月保利润、回撤改善、按年负占比、四大熊市合计、
+每子集全维: 全史/近1年/近3年增量、5-8月改善(new−base)、4月改善(负=误伤)、回撤改善、按年负占比、四大熊市合计、
 跨模式同向数(A-F 逐组合实跑)、过门数、被拦/替补分解、频次降幅、零触发标注、协同比。
 排名: 效果8维 ε=1000 帕累托支配(mine19 同口径);前沿组补 K1-K4 敏感性+五窗口+四熊市专项。
 落池 7 条(mine20)补「单独无用/协同无用」定性(强加进前沿最优组合测增量变化)。
@@ -168,7 +168,7 @@ def main():
             d_full=det['net_improve'],
             d_1y=round(R.stats_of(R.window(ns_A, w1))['total'] - base_win['近1年'], 2),
             d_3y=round(R.stats_of(R.window(ns_A, w3))['total'] - base_win['近3年'], 2),
-            d_mayaug=g['mayaug_improve'], d_apr=-g['apr_hurt'],
+            d_mayaug=g['mayaug_improve'], d_apr=g['apr_hurt'],
             d_dd_impr=round(mdd_base - mdd_new, 2),
             d_negyear=-neg_ratio if neg_ratio is not None else -1.0,
             d_bear_sum=round(sum(bears.values()), 2), bears=bears,
@@ -203,7 +203,7 @@ def main():
     frontier.sort(key=lambda x: -x[0]['d_full'])
     print(f'\n== 帕累托前沿({len(frontier)} 非劣 / {len(dominated_list)} 被支配)==')
     for a, _ in frontier[:12]:
-        print('  {:<28s} 全史{:+8,.0f} 近1年{:+7,.0f} 近3年{:+8,.0f} 5-8月{:+7,.0f} 4月保{:+7,.0f} 回撤{:+8,.0f} 熊合{:+8,.0f} 模式{}/6'.format(
+        print('  {:<28s} 全史{:+8,.0f} 近1年{:+7,.0f} 近3年{:+8,.0f} 5-8月{:+7,.0f} 4月改善{:+7,.0f} 回撤{:+8,.0f} 熊合{:+8,.0f} 模式{}/6'.format(
             a['subset'], a['d_full'], a['d_1y'], a['d_3y'], a['d_mayaug'], a['d_apr'],
             a['d_dd_impr'], a['d_bear_sum'], a['d_modes']))
 
@@ -280,7 +280,7 @@ def main():
                frontier=[dict(a) for a, _ in frontier],
                dominated=[dict(c, dominated_by=db) for c, db in dominated_list],
                frontier_detail=detail, dropped_qual=qual, loo=loo,
-               dims_doc=['d_full全史','d_1y近1年','d_3y近3年','d_mayaug 5-8月减亏','d_apr 4月保利润',
+               dims_doc=['d_full全史','d_1y近1年','d_3y近3年','d_mayaug 5-8月改善(new−base)','d_apr 4月改善(负=误伤)',
                          'd_dd_impr回撤改善','d_bear_sum四熊合计','d_modes跨模式同向数/6'],
                pareto_note='效果8维 ε=1000 容差支配;代价类(拦笔数/负占比)为画像列不参与支配')
     with open(OUT_PATH, 'w') as f:

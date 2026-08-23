@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """二轮挖掘 补测④(2026-08-22 用户追加质疑):31 组合全维画像 + 帕累托前沿。
 维度清单(先列后跑,方向统一为越大越好):
-  d1 全史增量 / d2 近1年增量 / d3 近3年增量 / d4 5-8月减亏 / d5 4月保利润(=-apr_hurt)
+  d1 全史增量 / d2 近1年增量 / d3 近3年增量 / d4 5-8月改善(new−base) / d5 4月改善(负=误伤)
   d6 回撤改善(vs9键最大回撤差额) / d7 新增被拦按年负占比取负 / d8 四大熊市合计净改善
   d9 跨模式同向数(A-F 六模式 improve>0) / d10 操作性代价取负(-新增被拦笔数)
 支配判定用效果 8 维(d_full/d_1y/d_3y/d_mayaug/d_apr/d_dd_impr/d_bear_sum/d_modes);
@@ -108,7 +108,7 @@ def main():
                 d_full=det['net_improve'],
                 d_1y=round(R.stats_of(R.window(ns, w1))['total'] - R.stats_of(R.window(base9, w1))['total'], 2),
                 d_3y=round(R.stats_of(R.window(ns, w3))['total'] - R.stats_of(R.window(base9, w3))['total'], 2),
-                d_mayaug=g['mayaug_improve'], d_apr=-g['apr_hurt'],
+                d_mayaug=g['mayaug_improve'], d_apr=g['apr_hurt'],
                 d_dd_impr=round(mdd_base - mdd_new, 2), mdd_base=mdd_base, mdd_new=mdd_new,
                 d_negyear=-neg_ratio if neg_ratio is not None else -1.0,
                 d_bear_sum=round(sum(bears.values()), 2),
@@ -153,11 +153,11 @@ def main():
     print(f"\n== 帕累托前沿({len(frontier)}个非劣)==")
     for a, _ in frontier:
         print(f"  {a['subset']:16s} 全史{a['d_full']:+8,.0f} 近1年{a['d_1y']:+7,.0f} 近3年{a['d_3y']:+8,.0f} "
-              f"5-8月{a['d_mayaug']:+7,.0f} 4月保{a['d_apr']:+7,.0f} 回撤改善{a['d_dd_impr']:+7,.0f} "
+              f"5-8月{a['d_mayaug']:+7,.0f} 4月改善{a['d_apr']:+7,.0f} 回撤改善{a['d_dd_impr']:+7,.0f} "
               f"熊合{a['d_bear_sum']:+8,.0f} 模式{a['d_modes']}/6 拦{a['blocked_n']}笔(-{a['freq_drop_pct']}%)")
     out = dict(baseline=dict(n=st_base['n'], total=st_base['total'], maxdd=mdd_base),
-               dims_doc=['d_full全史增量','d_1y近1年增量','d_3y近3年增量','d_mayaug 5-8月减亏',
-                         'd_apr 4月保利润(=-apr_hurt)','d_dd_impr回撤改善','d_negyear 负的按年负占比',
+               dims_doc=['d_full全史增量','d_1y近1年增量','d_3y近3年增量','d_mayaug 5-8月改善(new−base)',
+                         'd_apr 4月改善(负=误伤)','d_dd_impr回撤改善','d_negyear 负的按年负占比',
                          'd_bear_sum四大熊市合计','d_modes跨模式同向数/6','d_cost负的被拦笔数'],
                frontier=[dict(a) for a, _ in frontier],
                dominated=[dict(c, dominated_by=db) for c, db in dominated_list])

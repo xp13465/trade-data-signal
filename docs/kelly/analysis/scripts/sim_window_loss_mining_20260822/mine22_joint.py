@@ -136,7 +136,7 @@ def main():
             d_full=det['net_improve'],
             d_1y=round(R.stats_of(R.window(ns_A, w1))['total'] - base_win['近1年'], 2),
             d_3y=round(R.stats_of(R.window(ns_A, w3))['total'] - base_win['近3年'], 2),
-            d_mayaug=g['mayaug_improve'], d_apr=-g['apr_hurt'],
+            d_mayaug=g['mayaug_improve'], d_apr=g['apr_hurt'],
             d_dd_impr=round(mdd_base - mdd_new, 2),
             d_negyear=-neg_ratio if neg_ratio is not None else -1.0,
             d_bear_sum=round(sum(bears.values()), 2), bears=bears,
@@ -168,7 +168,7 @@ def main():
     frontier.sort(key=lambda x: -x[0]['d_full'])
     print(f'\n== 帕累托前沿 {len(frontier)} 非劣 / {len(dominated_list)} 被支配;头部:==')
     for a, _ in frontier[:8]:
-        print('  {:<34s} 全史{:+9,.0f} 近1年{:+8,.0f} 近3年{:+9,.0f} 5-8月{:+7,.0f} 4月保{:+7,.0f} 回撤{:+9,.0f} 熊合{:+9,.0f} 模式{}/6'.format(
+        print('  {:<34s} 全史{:+9,.0f} 近1年{:+8,.0f} 近3年{:+9,.0f} 5-8月{:+7,.0f} 4月改善{:+7,.0f} 回撤{:+9,.0f} 熊合{:+9,.0f} 模式{}/6'.format(
             a['subset'], a['d_full'], a['d_1y'], a['d_3y'], a['d_mayaug'], a['d_apr'],
             a['d_dd_impr'], a['d_bear_sum'], a['d_modes']))
 

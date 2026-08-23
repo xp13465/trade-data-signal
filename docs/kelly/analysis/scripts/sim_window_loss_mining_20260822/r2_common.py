@@ -104,13 +104,15 @@ def init(rows, fIdx):
 def three_gates(base_sel, new_sel, det):
     """门① blocked_n>=30;门② 2026双向(4月误伤>=-1500 且 5-8月改善>=+2500);
     门③ 前向2024-26 net_improve>=0 且 blocked类按年负占比>=55%。
+    符号约定(2026-08-23 修正后):改善一律=new−base(过滤后多赚为正),误伤=负值;
+    mayaug_improve 即真实 5-8月改善(new−base),apr_hurt 即 4月增量(new−base,负=误伤)。
     返回 dict(g1,g2,g3,pass_all, blocked_yearly_neg_ratio,...)"""
     apr_new = stats_of(window(new_sel, '20260401', '20260430'))
     may_aug_new = stats_of(window(new_sel, '20260501', '20260831'))
     apr_base = stats_of(window(base_sel, '20260401', '20260430'))
     may_aug_base = stats_of(window(base_sel, '20260501', '20260831'))
     apr_hurt = apr_new['total'] - apr_base['total']
-    ma_impr = may_aug_base['total'] - may_aug_new['total']
+    ma_impr = may_aug_new['total'] - may_aug_base['total']
     fwd = forward_2024_26(base_sel, new_sel)
     # blocked 按年桶
     def keyset(sel):

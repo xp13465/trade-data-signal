@@ -32,7 +32,8 @@ from mine17_modes import prep_mode
 
 OUT_PATH = os.path.join(BASE, 'data', 'mine24_compare.json')
 M24_PATH = os.path.join(BASE, 'data', 'mine24_global_search.json')
-BULLS23_PATH = os.path.join(BASE, 'data', 'mine23_bulls.json')
+# mine23_bulls.json 已被 E3 审查判定为孤儿(on8 混口径)移入归档目录,此处仅作历史端点断言对照读取
+BULLS23_PATH = os.path.join(BASE, 'data', 'deprecated_orphans_20260823', 'mine23_bulls.json')
 
 A_SUB = ('T1','Q1','M1','V1','R1','R2a','R2b','R2g')
 B_SUB = ('T1','Q1','M1','R1','R2b','R2g')
