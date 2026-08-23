@@ -727,6 +727,10 @@ function _tdsFadeSpecHit(key, c) {
 
 // ---- AI降亏 7 模式预设(权威=T2 卡 _KELLY_MODE_COMPARE_CARDS+mine24_compare.json; 文案从卡转录) ----
 // keys 全部 ⊆ 57 键(FRONT 10 + GATE 27 + T1 20); caliber 口径标注随选项展示(A/B/C=叠9键 / NEW 族=换基座)。
+// ⚠ v1.1.5(2026-08-24 用户拍板): 默认基座从 p8(8键, v1.1.2) 切换为 new14(NEW 14键)——依据 mine28(AUTO 轮动
+//   样本外全 FAIL+天花板作弊仍输单持)+mine30 记分板(NEW14 全史第一 +122,648/mdd -4,178 vs 八键 +66,530/-18,190,
+//   费后 K1 V2 回补 cap13 口径)。p8 保留为可手动选的对照档位不删(§23.7 只增不改精神: 老口径可回选)。
+//   所有「null/缺失回退默认」消费点统一引用 _KELLY_FADE_DEFAULT_MODE 单源, 禁止各自硬编码 "p8"/"new14" 字面量。
 var _KELLY_FADE_T1_KEYS = [
   "r2gLowRatingQ3", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct",
   "h1VolChgHighA", "m1MarginDownBull", "d2LowDivBull", "p1LowDivBackup", "v1HighVol20",
@@ -735,7 +739,7 @@ var _KELLY_FADE_T1_KEYS = [
 ];
 var _KELLY_FADE_ALL_KEYS = _KELLY_FADE_FRONT_KEY_ORDER.concat(_KELLY_FADE_GATE_KEY_ORDER, _KELLY_FADE_T1_KEYS);
 var _KELLY_FADE_MODE_PRESETS = [
-  { id: "p8", name: "8键(默认)", tagline: "现役地基·稳定参照", caliber: "✓ 默认组合(对照基线)", calWarn: false,
+  { id: "p8", name: "8键(旧默认·对照)", tagline: "v1.1.2 基座·稳定参照", caliber: "✓ v1.1.4 及以前默认(现对照档)", calWarn: false,
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15"] },
   { id: "p9", name: "9键", tagline: "8键+候选1·牛市辅备买拦截", caliber: "✓ 叠 8 键(+候选1)", calWarn: false,
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop"] },
@@ -745,12 +749,12 @@ var _KELLY_FADE_MODE_PRESETS = [
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "t1LowTurnSpecial", "q1QvixLowPct", "m1MarginDownBull", "r1VolRatioLow", "r2bSpecialGlobal", "r2gLowRatingQ3"] },
   { id: "c9", name: "C 防守", tagline: "笔数最少·熊市少亏", caliber: "⚠ 叠 9 键口径(速查卡注: 真选 C 应叠 8 键下线候选1)", calWarn: true,
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] },
-  { id: "new14", name: "NEW 14键", tagline: "新防守王·全史第一+回撤最浅", caliber: "⚠ 重构换基座(弃候选1, 非「叠加」结构)", calWarn: true,
+  { id: "new14", name: "NEW 14键(默认)", tagline: "新防守王·全史第一+回撤最浅", caliber: "✓ 现役默认(v1.1.5 起·重构换基座)", calWarn: false,
     keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "declinePhaseSpecial", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] },
   { id: "new18", name: "NEW2 18键", tagline: "NEW 影子·入选差31笔次优对照", caliber: "⚠ 重构换基座(NEW 族次优解)", calWarn: true,
     keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "excludeSpecialBear", "n2NovSpecialIndustry", "greedy7", "v4f", "n2NorthOutConcept", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] }
 ];
-var _KELLY_FADE_DEFAULT_MODE = "p8";
+var _KELLY_FADE_DEFAULT_MODE = "new14"; // v1.1.5 起默认=NEW 14键(v1.1.2 及以前=p8/8键; 单源, 各消费点回退统一引用本常量)
 function _tdsFadeModeById(id) {
   for (var i = 0; i < _KELLY_FADE_MODE_PRESETS.length; i++) {
     if (_KELLY_FADE_MODE_PRESETS[i].id === id) return _KELLY_FADE_MODE_PRESETS[i];
@@ -849,3 +853,86 @@ window._tdsFadeModeSelectMount = _tdsFadeModeSelectMount;
 window._tdsStoreWithTTL = _tdsStoreWithTTL;
 window._tdsLoadWithTTL = _tdsLoadWithTTL;
 window._TDS_FADE_TTL_MS = _TDS_FADE_TTL_MS;
+
+// ===== v1.1.5(2026-08-24) 「连续 N 日无放行」枯竭提示(纯展示层, 单源在此; 消费点=首页 AI 建议区 + lab 凯利区信号区) =====
+// 【数据源】overfit_monitor.json 的 recent 块(T3-2 已建产物字段, 后端 overfit_monitor.py build_recent_block,
+//   近 RECENT_DAYS=340 个交易日逐信号明细: d=signal_date / s=signal / t=track_score(null=未入样) /
+//   k=命中键"|"join(v1.1.2 四档口径) / tier)。零新增后端任务, 纯复用现有产物(每晚 21:40 随监控卡打点更新)。
+//   老版 json 无 recent 块 → 静默不显示(优雅降级), 不报错不占位。
+// 【放行定义】与首页 AI 建议/凯利回测同链口径(§22): 买入类信号(buy/buy_aux/buy_special(+filtered)/buy_backup)
+//   × 已入样(t≠null, 等价 _bt_in_universe 回测入样判定, 前端不自算宇宙 §23.6) × 当前默认模式(new14)键集
+//   与该信号命中键集(k)无交集=未被任何降亏键拦下。
+// 【防前视声明】本提示为「截至最新交易日的累计状态 + mine30 静态历史统计」纯展示, 零时变判定/零切换规则,
+//   不含任何未来信息(§5.1⑥ 自查通过)。
+var _TDS_DROUGHT_THRESHOLD = 20;   // N≥20 才显示(≈年均触发 2.4 次, mine30 §五)
+var _TDS_DROUGHT_LONG = 40;        // N≥40 追加历史长度对照句(≈一年一遇, mine30 §五)
+var _TDS_BUY_SIGNAL_SET = { buy: 1, buy_aux: 1, buy_special: 1, buy_special_filtered: 1, buy_backup: 1 };
+var _tdsRecentBlockPromise = null;
+// 共享获取器: overfit_monitor.json recent 块(app.js 监控卡/lab 凯利区共用一个 promise 防 27MB 双拉; 失败 resolve null)
+function _tdsFetchRecentBlock(fetchFn) {
+  if (_tdsRecentBlockPromise) return _tdsRecentBlockPromise;
+  var _f = fetchFn || (typeof fetchJSON === "function" ? fetchJSON : null);
+  _tdsRecentBlockPromise = (_f ? _f("./data/overfit_monitor.json") : Promise.reject(new Error("no fetch")))
+    .then(function (d) { return (d && d.recent && Array.isArray(d.recent.rows)) ? d.recent : null; })
+    .catch(function () { return null; });
+  return _tdsRecentBlockPromise;
+}
+// 计算: 截至 latest 的连续无放行买入信号交易日数 N。
+// recent={rows:[{d,s,t,k,...}], latest} / modeKeys=当前默认模式键数组(默认取 new14 预设 keys)。
+// 返回 {n, latest, window} 或 null(rows 缺失/空)。n 封顶=窗口内交易日数(全窗口无放行时)。
+function _tdsComputeDrought(recent, modeKeys) {
+  try {
+    if (!recent || !Array.isArray(recent.rows) || !recent.rows.length) return null;
+    var keys = Array.isArray(modeKeys) ? modeKeys : [];
+    // 按日期聚合「该日是否有放行买入信号」+ 收集交易日序列
+    var dayHasPass = {};
+    for (var i = 0; i < recent.rows.length; i++) {
+      var r = recent.rows[i];
+      if (!r || !r.d || !_TDS_BUY_SIGNAL_SET[r.s]) continue;      // 仅买类参与放行判定
+      if (r.t == null) continue;                                   // 未入样(无跟踪分)不算放行
+      var hit = (typeof r.k === "string" && r.k) ? r.k.split("|") : [];
+      var blocked = false;
+      for (var j = 0; j < hit.length; j++) { if (keys.indexOf(hit[j]) >= 0) { blocked = true; break; } }
+      if (!blocked) dayHasPass[r.d] = true;                        // 未命中任一默认键=放行
+    }
+    var seen = {};
+    var allDays = [];
+    for (var m = 0; m < recent.rows.length; m++) {
+      var dd = recent.rows[m] && recent.rows[m].d;
+      if (dd && !seen[dd]) { seen[dd] = 1; allDays.push(dd); }
+    }
+    if (!allDays.length) return null;
+    allDays.sort();
+    var latest = (recent.latest && seen[recent.latest]) ? recent.latest : allDays[allDays.length - 1];
+    var idxLatest = allDays.indexOf(latest);
+    if (idxLatest < 0) return null;
+    var n = 0;
+    for (var b = idxLatest; b >= 0; b--) {
+      if (dayHasPass[allDays[b]]) break;
+      n++;
+    }
+    return { n: n, latest: latest, window: allDays.length };
+  } catch (e) { return null; }
+}
+// 文案生成(N≥阈值才返回 HTML; 数字全部来自 mine30(docs/kelly/analysis/new14-default-challenge-mine30-20260824.md §五), 零编造)
+function _tdsDroughtChipHtml(info) {
+  if (!info || !(info.n >= _TDS_DROUGHT_THRESHOLD)) return "";
+  var base = "已连续 <b>" + info.n + "</b> 个交易日无放行信号 · 历史上类似枯竭结束后 3 个月约 <b>72%</b> 为正, 常由下跌触发放行";
+  var src = "(口径: NEW14 默认过滤下实时统计; 72%=mine30 全史 37 次≥20 交易日枯竭恢复后 26/36 为正)";
+  var longNote = info.n >= _TDS_DROUGHT_LONG
+    ? " · 本轮已超历史上多数枯竭长度(≥40 交易日共 13 次、≥60 日 10 次、最长 484 日)"
+    : "";
+  var tip = "信号枯竭提示(v1.1.5 新增, 纯展示层): 当前默认过滤组合下连续无放行买入信号的交易日数。" +
+    "【白话】NEW14 是防守反击刀——长时间不开枪、只开高置信度的枪, 枯竭是它的常态运作方式而非异常" +
+    "(全史 ≥20 交易日枯竭 37 次≈年均 2.4 次)。【场景】看到本提示不必恐慌: 历史上类似枯竭结束后 3 个月约 72% 为正," +
+    "且最肥的反弹全部紧随大跌(报复性信号簇正是 NEW14 高净利的来源形态)。【1:1】2026-07-21 起 NEW14 进入本轮枯竭," +
+    "至 08-21 已 23 个交易日(mine30 实测), 与本提示实时数字同源可对照。【数据源】overfit_monitor.json recent 明细块" +
+    "(近 340 交易日逐信号打标, 放行=买入类×已入样×未命中当前模式键); 历史统计=mine30 报告 §五。";
+  return '<span class="sig-drought-chip tds-drought-chip" data-no-pop="" data-tip="' + tip.replace(/"/g, "&quot;") + '" title="">' +
+    '⏳ ' + base + longNote + ' <span style="opacity:.75;font-size:.92em">' + src + '</span>' +
+    '</span>';
+}
+window._TDS_DROUGHT_THRESHOLD = _TDS_DROUGHT_THRESHOLD;
+window._tdsFetchRecentBlock = _tdsFetchRecentBlock;
+window._tdsComputeDrought = _tdsComputeDrought;
+window._tdsDroughtChipHtml = _tdsDroughtChipHtml;
