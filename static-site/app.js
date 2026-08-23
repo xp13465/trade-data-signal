@@ -2788,7 +2788,7 @@ function _bindSigSwitchRow(sigCard) {
     // T3-2 任务①(2026-08-23) 首页「AI降亏·模式」下拉: 写独立键 tds_home_fade_mode 后重绘生效;
     // 与 lab(tds_kelly_fade_mode)/监控卡(tds_overfit_fade_mode) 三处独立互不影响(§22 各自作用域);
     // toast 提示所选模式键数与是否含「+1」类判定, 与 sim 弹窗/监控卡同款交互。
-    const homeModeSel = e.target.closest(".sig-home-fade-mode-sel");
+    const homeModeSel = e.target.closest("#sig-home-fade-mode-sel");
     if (homeModeSel) {
       e.preventDefault();
       e.stopPropagation();
