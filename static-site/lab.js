@@ -9137,6 +9137,171 @@ var _kellyFadeFlagGroups = [
   ]}
 ];
 
+// ===== T2(2026-08-23) AI 降亏组成对比展示区(纯展示零交互 §23.7) =====
+//   数据权威=docs/kelly/analysis/sim-combo-cheatsheet-20260823.md + mine24_compare.json(anchor 已逐位核对,
+//   B_on9 恢复天数速查卡"约200天"系笔误, 以 json=267 天为准; C_on9 json 记 18 天=日历日差19-1 口径);
+//   规则中文名单源=_kellyFadeFlagGroups(既有键 label)+ scripts/loss_rules.py RULE_SPECS(T1 新键 desc, 不裸奔英文键名);
+//   纯展示层: 不接开关/下拉/谓词(交互归 T3), 默认行为零改动; 数字为静态快照禁止前端自算。
+//   chip 类型: base=叠放基座键(金底) / add=本方案叠加键(绿底) / reb=重构口径成员键(蓝底, 无基座概念)。
+var _KELLY_MODE_COMPARE_CARDS = [
+  { id: "p0", name: "8键", tagline: "现役地基·稳定参照", caliber: "✓ 默认组合(对照基线)", calWarn: false, best: false,
+    keys: [
+      ["excludeSpecialBear", "追关注×熊市交叉(四档)", "base"],
+      ["n2NovSpecialIndustry", "11月+追关注+行业", "base"],
+      ["janMidRating", "1月中旬+中评级", "base"],
+      ["janMidSpecial", "1月中旬+追关注", "base"],
+      ["k2c5HkChase", "港股追涨(K2C5)", "base"],
+      ["r7MayReinforced", "5月强化+3稳定非5月", "base"],
+      ["excludeAuxCross", "辅关注×3/5月交叉", "base"],
+      ["greedy15", "Greedy-15广谱组合", "base"]
+    ],
+    perf: { net: "+66,530", y1: "+15,714", mdd: "-18,190", rec: "350天", n: "1126笔/胜率52.6%" },
+    tip: "【8键 · 现役地基·稳定参照】✓ 默认组合。【白话】现役默认组合(基础5+核心3=8键), 是一切方案对比的地基参照系。【场景】不想折腾、保持现状就选它; 衡量其他方案多赚多少/少回撤多少都拿它当基准。【1:1】全史净利 +66,530 元, 最大回撤 -18,190 元(2023-10-31 见底, 2024-10-16 收复, 恢复 350 天); 近1年 +15,714 / 2026YTD +5,626; 1126 笔胜率 52.6%。诚实标注: 速查卡结论=已被全面超越, 唯一价值=稳定参照系。" },
+  { id: "p1", name: "9键", tagline: "8+候选1·牛市辅备买拦截", caliber: "✓ 叠 8 键(+候选1)", calWarn: false, best: false,
+    keys: [
+      ["excludeSpecialBear", "追关注×熊市交叉(四档)", "base"],
+      ["n2NovSpecialIndustry", "11月+追关注+行业", "base"],
+      ["janMidRating", "1月中旬+中评级", "base"],
+      ["janMidSpecial", "1月中旬+追关注", "base"],
+      ["k2c5HkChase", "港股追涨(K2C5)", "base"],
+      ["r7MayReinforced", "5月强化+3稳定非5月", "base"],
+      ["excludeAuxCross", "辅关注×3/5月交叉", "base"],
+      ["greedy15", "Greedy-15广谱组合", "base"],
+      ["bullAuxBackupStop", "牛市×辅备买全停(候选1)", "add"]
+    ],
+    perf: { net: "+73,103", y1: "+17,213", mdd: "-17,650", rec: "349天", n: "1032笔/胜率53.1%" },
+    tip: "【9键 · 现状版】✓ 叠 8 键再开候选1(bullAuxBackupStop 牛市·主升×辅买∪备买全停)。【白话】比 8键全面小胜 +6,572 元, 但也只是「8键 plus」无质变。【场景】A/B/C 三张卡的叠放基座就是它; 单独用它=比默认稍好一步的稳妥现状。【1:1】全史净利 +73,103 元, 最大回撤 -17,650 元(恢复 349 天); 近1年 +17,213 / 2026YTD +7,490; 1032 笔胜率 53.1%。" },
+  { id: "a9", name: "A on9", tagline: "进攻王·近端牛市吃满", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true, best: true,
+    keys: [
+      ["excludeSpecialBear", "追关注×熊市交叉(四档)", "base"],
+      ["n2NovSpecialIndustry", "11月+追关注+行业", "base"],
+      ["janMidRating", "1月中旬+中评级", "base"],
+      ["janMidSpecial", "1月中旬+追关注", "base"],
+      ["k2c5HkChase", "港股追涨(K2C5)", "base"],
+      ["r7MayReinforced", "5月强化+3稳定非5月", "base"],
+      ["excludeAuxCross", "辅关注×3/5月交叉", "base"],
+      ["greedy15", "Greedy-15广谱组合", "base"],
+      ["bullAuxBackupStop", "牛市×辅备买全停(候选1)", "base"],
+      ["t1LowTurnSpecial", "换手冰点×追关注(T1)", "add"],
+      ["q1QvixLowPct", "QVIX低分位(Q1)", "add"],
+      ["m1MarginDownBull", "牛主升×两融降温(M1)", "add"],
+      ["v1HighVol20", "高波动&gt;90分位(V1)", "add"],
+      ["r1VolRatioLow", "量能萎缩&lt;10分位(R1)", "add"],
+      ["k3ConceptBuy", "主关注×概念(≡R2a)", "add"],
+      ["r2bSpecialGlobal", "追关注×全球类(R2b)", "add"],
+      ["r2gLowRatingQ3", "7-9月+低评+低分(R2g)", "add"]
+    ],
+    perf: { net: "+119,110", y1: "+26,630", mdd: "-6,784", rec: "99天", n: "574笔/胜率63.1%" },
+    tip: "【A on9 · 进攻王】⚠ 叠 9 键口径: 在 9 键基座上再叠 8 条规则(T1/Q1/M1/V1/R1/R2a≡主关注×概念/R2b/R2g), 不是独立组合。【白话】赚最多跑最快: 频次砍半、胜率升到 63%, 近端牛市吃满。【场景】要历史利润最大化且回撤可控、能接受偶发砍牛市利润时选它。【1:1】全史净利 +119,110 元(vs 8键 +66,530); 回撤 -6,784 元恢复 99 天(8键 350 天的不到三分之一); 近1年 +26,630 全场第一 / 2026YTD +15,574 第一; 574 笔胜率 63.1%。弱=新方案里回撤最大、2019-20 结构牛会砍利润、G/I 长线不适配。" },
+  { id: "b9", name: "B on9", tagline: "均衡卡·K档最钝感", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true, best: false,
+    keys: [
+      ["excludeSpecialBear", "追关注×熊市交叉(四档)", "base"],
+      ["n2NovSpecialIndustry", "11月+追关注+行业", "base"],
+      ["janMidRating", "1月中旬+中评级", "base"],
+      ["janMidSpecial", "1月中旬+追关注", "base"],
+      ["k2c5HkChase", "港股追涨(K2C5)", "base"],
+      ["r7MayReinforced", "5月强化+3稳定非5月", "base"],
+      ["excludeAuxCross", "辅关注×3/5月交叉", "base"],
+      ["greedy15", "Greedy-15广谱组合", "base"],
+      ["bullAuxBackupStop", "牛市×辅备买全停(候选1)", "base"],
+      ["t1LowTurnSpecial", "换手冰点×追关注(T1)", "add"],
+      ["q1QvixLowPct", "QVIX低分位(Q1)", "add"],
+      ["m1MarginDownBull", "牛主升×两融降温(M1)", "add"],
+      ["r1VolRatioLow", "量能萎缩&lt;10分位(R1)", "add"],
+      ["r2bSpecialGlobal", "追关注×全球类(R2b)", "add"],
+      ["r2gLowRatingQ3", "7-9月+低评+低分(R2g)", "add"]
+    ],
+    perf: { net: "+109,572", y1: "+22,905", mdd: "-12,408", rec: "267天", n: "628笔/胜率61.5%" },
+    tip: "【B on9 · 均衡卡】⚠ 叠 9 键口径: 在 9 键基座上叠 6 条规则(T1/Q1/M1/R1/R2b/R2g)。【白话】每项都不差、无单项冠军也无短板, K 档最不敏感(±710)。【场景】想要 K 档敏感性最小的稳妥叠加、不追求单项极致时选它。【1:1】全史净利 +109,572 元; 回撤 -12,408 元恢复 267 天; 近1年 +22,905 / 2026YTD +11,849; 628 笔胜率 61.5%。弱=回撤明显大于 A/C/NEW。诚实标注: 速查卡曾写恢复「约200天」, mine24_compare.json 原始值=267 天(trough 2022-05-10 → recover 2023-02-02), 以 json 为准。" },
+  { id: "c9", name: "C on9", tagline: "保守防守·熊市少亏", caliber: "⚠ 叠 9 键口径(注: 选 C 更优应叠 8 键并下线候选1)", calWarn: true, best: false,
+    keys: [
+      ["excludeSpecialBear", "追关注×熊市交叉(四档)", "base"],
+      ["n2NovSpecialIndustry", "11月+追关注+行业", "base"],
+      ["janMidRating", "1月中旬+中评级", "base"],
+      ["janMidSpecial", "1月中旬+追关注", "base"],
+      ["k2c5HkChase", "港股追涨(K2C5)", "base"],
+      ["r7MayReinforced", "5月强化+3稳定非5月", "base"],
+      ["excludeAuxCross", "辅关注×3/5月交叉", "base"],
+      ["greedy15", "Greedy-15广谱组合", "base"],
+      ["bullAuxBackupStop", "牛市×辅备买全停(候选1)", "base"],
+      ["n1NorthOutflow", "北向20日净流出(N1)", "add"],
+      ["t1LowTurnSpecial", "换手冰点×追关注(T1)", "add"],
+      ["d1LowDivYield", "股息率低位(D1)", "add"],
+      ["h1VolChgHighA", "升波×A股(H1)", "add"],
+      ["m1MarginDownBull", "牛主升×两融降温(M1)", "add"],
+      ["p1LowDivBackup", "备买×股息率分位低(P1)", "add"],
+      ["r2bSpecialGlobal", "追关注×全球类(R2b)", "add"]
+    ],
+    perf: { net: "+107,113", y1: "+16,800", mdd: "-4,332", rec: "18天", n: "438笔/胜率64.4%" },
+    tip: "【C on9 · 极简防守】⚠ 叠 9 键口径: 在 9 键基座上叠 7 条规则(N1/T1/D1/H1/M1/P1/R2b)。⚠速查卡结论: 若真选 C 应改叠 8 键并下线候选1(on8 +112,141 > on9 +107,113), 本卡数字为 on9 口径仅供横向对比。【白话】笔数最少回撤第二浅的防守卡, 但牛市系统性少赚。【场景】求稳防守时考虑; 注意它近1年几乎白干, 别只盯回撤数字。【1:1】on9 口径全史净利 +107,113 元; 回撤 -4,332 元恢复最快(json 记 18 天, 日历日差 19); 近1年 +16,800 还低于 P1 的 +17,213; 438 笔胜率 64.4%。2014-15/2020-21 两轮牛都被砍。" },
+  { id: "new14", name: "NEW 14键", tagline: "新防守王·全史第一+回撤最浅", caliber: "⚠ 重构换基座(弃候选1, 与 A/B/C 完全不同结构)", calWarn: true, best: true,
+    keys: [
+      ["r10May6NonMay", "5月+6非5月组合(r10)", "reb"],
+      ["greedy15", "Greedy-15广谱组合(greedy15)", "reb"],
+      ["janMidSpecial", "1月中旬+追关注(janMidSpecial)", "reb"],
+      ["k2c5HkChase", "港股追涨(K2C5)", "reb"],
+      ["k3ConceptBuy", "主关注×概念(k3ConceptBuy)", "reb"],
+      ["declinePhaseSpecial", "下降期×追关注(declinePhaseSpecial)", "reb"],
+      ["n1NorthOutflow", "北向20日净流出(N1)", "reb"],
+      ["t1LowTurnSpecial", "换手冰点×追关注(T1)", "reb"],
+      ["d1LowDivYield", "股息率低位(D1)", "reb"],
+      ["q1QvixLowPct", "QVIX低分位(Q1)", "reb"],
+      ["h1VolChgHighA", "升波×A股(H1)", "reb"],
+      ["m1MarginDownBull", "牛主升×两融降温(M1)", "reb"],
+      ["p1LowDivBackup", "备买×股息率分位低(P1)", "reb"],
+      ["r2bSpecialGlobal", "追关注×全球类(R2b)", "reb"]
+    ],
+    perf: { net: "+122,648", y1: "+18,189", mdd: "-4,178", rec: "26天", n: "429笔/胜率66.9%" },
+    tip: "【NEW 14键 · 新防守王】⚠ 重构换基座口径: 从全池出发仅这 14 键即完整黑名单(不预设 8 默认键在场、弃候选1), 与 A/B/C 的「叠加」完全不同结构, 不能混为一谈。【白话】全史利润第一 + 回撤最浅恢复最快的双冠王。【场景】要「睡得着觉」——回撤最浅恢复最快且全史还最高; 接受近端弹性让位 A + 落地要换基座重构(工程上不是加开关)。【1:1】全史净利 +122,648 元(全场第一) vs 8键 +66,530; 回撤 -4,178 元恢复 26 天 vs 8键 -18,190 恢复 350 天(浅约 77%、恢复快约 13 倍); 近1年 +18,189(少赚 A 约 8,441)/ 2026YTD +10,016; 429 笔胜率 66.9% 全场最高; 四熊合计第一(2018 唯一转正)、十大亏月减亏第一。诚实标注: 同效果支配解族还有 15/16/17/19/21/24 键共 7 种表达逐笔等价, 落地取最简 14 键即可; 优势集中在 K1(K4 被 A 反超)。" },
+  { id: "new18", name: "NEW2 18键", tagline: "NEW 影子·入选差31笔次优对照", caliber: "⚠ 重构换基座(NEW 族次优解)", calWarn: true, best: false,
+    keys: [
+      ["r10May6NonMay", "5月+6非5月组合(r10)", "reb"],
+      ["greedy15", "Greedy-15广谱组合(greedy15)", "reb"],
+      ["janMidSpecial", "1月中旬+追关注(janMidSpecial)", "reb"],
+      ["k2c5HkChase", "港股追涨(K2C5)", "reb"],
+      ["k3ConceptBuy", "主关注×概念(k3ConceptBuy)", "reb"],
+      ["excludeSpecialBear", "追关注×熊市交叉(四档)(excludeSpecialBear)", "reb"],
+      ["n2NovSpecialIndustry", "11月+追关注+行业(n2NovSpecialIndustry)", "reb"],
+      ["greedy7", "Greedy-7广谱组合(greedy7)", "reb"],
+      ["v4f", "6月+周三+主关注+关联(v4f)", "reb"],
+      ["n2NorthOutConcept", "北向流出×概念类(N2)", "reb"],
+      ["n1NorthOutflow", "北向20日净流出(N1)", "reb"],
+      ["t1LowTurnSpecial", "换手冰点×追关注(T1)", "reb"],
+      ["d1LowDivYield", "股息率低位(D1)", "reb"],
+      ["q1QvixLowPct", "QVIX低分位(Q1)", "reb"],
+      ["h1VolChgHighA", "升波×A股(H1)", "reb"],
+      ["m1MarginDownBull", "牛主升×两融降温(M1)", "reb"],
+      ["p1LowDivBackup", "备买×股息率分位低(P1)", "reb"],
+      ["r2bSpecialGlobal", "追关注×全球类(R2b)", "reb"]
+    ],
+    perf: { net: "+120,565", y1: "+18,189", mdd: "-4,084", rec: "26天", n: "410笔/胜率67.1%" },
+    tip: "【NEW2 18键 · NEW 影子】⚠ 重构换基座口径: NEW 族内唯一真不同的次优解(与 NEW 入选集合差 31 笔)。【白话】NEW 的影子对照: 净利略少、回撤略浅, 无独立价值。【场景】仅作对照研究参考; 实际落地取 NEW 14键即可(支配解族最简形态)。【1:1】全史净利 +120,565 元(比 NEW 少 2,084); 回撤 -4,084 元恢复 26 天(比 NEW 浅 94); 近1年 +18,189 与 NEW 相同 / 2026YTD +10,016; 410 笔胜率 67.1%。键构成=NEW14 去「下降期×追关注」再加 追关注×熊市交叉(四档)/11月+追关注+行业/Greedy-7/6月+周三+主关注+关联(v4f)/北向流出×概念类(N2) 共 18 键。" }
+];
+
+// T2(2026-08-23): 组成对比折叠区 HTML(纯展示, <details> 默认收起; 展开态持久化 state.labSigKellyModeCompareOpen)
+function _kellyModeCompareHTML() {
+  var _chipCls = { base: "lab-sigkelly-mode-chip-base", add: "lab-sigkelly-mode-chip-add", reb: "lab-sigkelly-mode-chip-reb" };
+  var cardsHTML = _KELLY_MODE_COMPARE_CARDS.map(function (c) {
+    var chips = c.keys.map(function (kv) {
+      return `<span class="lab-sigkelly-mode-chip ${_chipCls[kv[2]] || ""}" title="${kv[0]}">${kv[1]}</span>`;
+    }).join("");
+    return `<div class="lab-sigkelly-mode-card${c.best ? " lab-sigkelly-mode-card-best" : ""}" tabindex="0" data-no-pop="" data-tip="${c.tip}">` +
+        `<div class="lab-sigkelly-mode-card-head"><span class="lab-sigkelly-mode-card-name">${c.name}</span><span class="lab-sigkelly-mode-tagline">${c.tagline}</span>${c.best ? '<span class="lab-sigkelly-mode-star">★</span>' : ""}</div>` +
+        `<div class="lab-sigkelly-mode-caliber${c.calWarn ? " warn" : ""}">${c.caliber}</div>` +
+        `<div class="lab-sigkelly-mode-keys">${chips}</div>` +
+        `<div class="lab-sigkelly-mode-perf">全史净利 <b>${c.perf.net}</b> 元 · 回撤 <b>${c.perf.mdd}</b>(恢复 ${c.perf.rec}) · 近1年 ${c.perf.y1} · ${c.perf.n}<span class="lab-sigkelly-toggle-tip" title="${c.tip}">ⓘ</span></div>` +
+      `</div>`;
+  }).join("");
+  return `<details class="lab-sigkelly-mode-compare"${state.labSigKellyModeCompareOpen ? " open" : ""}>` +
+      `<summary class="lab-sigkelly-mode-compare-summary">🧩 AI 降亏组成对比(7 方案各由哪些规则叠加而成 · 点开看构成) <span class="lab-sigkelly-toggle-cat-caret">▼</span></summary>` +
+      `<div class="lab-sigkelly-mode-compare-body">` +
+        `<div class="lab-sigkelly-mode-compare-note">⚠ 先看清口径: <b>A/B/C</b> 是在 9 键基座上加规则(叠加口径, 金色=基座键/绿色=本方案叠加键); <b>NEW 14键/NEW2 18键</b> 是完全不同的组合结构(重构换基座, 蓝色=成员键, 不预设 8 默认在场、弃候选1), 两者不能混为一谈。</div>` +
+        `<div class="lab-sigkelly-mode-cards">${cardsHTML}</div>` +
+        `<div class="lab-sigkelly-mode-compare-foot">📐 数字口径: mode A + K1 + etf_def 费后补位口径(signal_date 切片); 数据版本 signal_kelly_trades generated_at=2026-08-23 05:09, 权威值=mine24_compare.json(经独立审查二次验证, docs/kelly/analysis/sim-combo-cheatsheet-20260823.md)。★=该维度冠军(A=近端收益冠军 / NEW=全史净利+回撤双冠)。本区为纯展示快照, 不随页面开关重算(交互切换归后续版本)。</div>` +
+      `</div>` +
+    `</details>`;
+}
+
 function _renderSigKellyBar(bar, data, period) {
   // B级UI(2026-08-15): 移动端吸顶条默认折叠成1行(周期+「参数」按钮), 全部控制台收进展开区, 点「参数」展开。用户方案A。
   // 展开/收起态持久化 localStorage lab_sigkelly_params_open; 未设置过则按设备宽度默认(≤600px 收起 / >600px 展开=PC现状)。重渲染后保持, 不回落默认。
@@ -9417,6 +9582,8 @@ function _renderSigKellyBar(bar, data, period) {
       fadeHowHTML +
       recZoneHTML +
       moreZoneHTML +
+      // T2(2026-08-23): AI 降亏组成对比折叠区(纯展示, 7 方案构成+短标语+权威数字; 默认收起, 零交互逻辑 §23.7)
+      _kellyModeCompareHTML() +
       `</div>` +
       // D需求(2026-08-15): hint 文案 7 -> 4+3+1; v1.1.0(2026-08-15) 5+3+1 = 8键+1类=9规则
       `<span class="lab-sigkelly-toggle-hint">AI降亏过滤=总开关(联动下方默认推荐 5+3+1: 8键+1类回测剔除, 其中+1类只读不可勾选; 5=基础5含K2C5港股追涨并入);组合预设/单标志独立开启,实时过滤重算</span>` +
@@ -9923,6 +10090,13 @@ function _renderSigKellyBar(bar, data, period) {
   if (_moreDtl) {
     _moreDtl.addEventListener("toggle", function () {
       state.labSigKellyMoreOpen = _moreDtl.open;
+    });
+  }
+  // T2(2026-08-23): 「AI 降亏组成对比」折叠区 open 态持久化(参照 labSigKellyMoreOpen 模式, 重渲染后保持)
+  var _modeCmpDtl = bar.querySelector(".lab-sigkelly-mode-compare");
+  if (_modeCmpDtl) {
+    _modeCmpDtl.addEventListener("toggle", function () {
+      state.labSigKellyModeCompareOpen = _modeCmpDtl.open;
     });
   }
   // 2026-08-14 组合使用建议外层折叠区 open 状态持久化(默认收缩, 展开后重渲染保持), 写入 state 供下次 render 读

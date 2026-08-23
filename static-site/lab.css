@@ -1441,6 +1441,38 @@
 .lab-sigkelly-toggle-more-summary .lab-sigkelly-toggle-cat-caret { font-size: 9px; opacity: 0.8; margin-left: 2px; }
 .lab-sigkelly-toggle-more-body { padding: 4px 6px 2px; }
 .lab-sigkelly-fee-hint { font-size: 10px; color: var(--text-3); margin-left: 4px; }
+/* ===== T2(2026-08-23) AI 降亏组成对比折叠区(纯展示; 数据权威=mine24_compare.json) ===== */
+.lab-sigkelly-mode-compare { width: 100%; border: 1px dashed var(--border); border-radius: 5px; background: var(--bg-hover, rgba(0,0,0,0.02)); }
+.lab-sigkelly-mode-compare-summary { cursor: pointer; user-select: none; font-size: 11.5px; font-weight: 700; color: var(--text-2); padding: 4px 8px; border-radius: 5px; list-style: none; }
+.lab-sigkelly-mode-compare-summary::-webkit-details-marker { display: none; }
+.lab-sigkelly-mode-compare-summary:hover { color: var(--primary); }
+.lab-sigkelly-mode-compare-body { padding: 4px 6px 6px; display: flex; flex-direction: column; gap: 6px; }
+.lab-sigkelly-mode-compare-note { font-size: 10.5px; line-height: 1.55; color: #d4380d; background: rgba(212,56,13,0.07); border-radius: 4px; padding: 3px 8px; }
+[data-theme="dark"] .lab-sigkelly-mode-compare-note, [data-theme="redgold"] .lab-sigkelly-mode-compare-note { color: #ff9c9a; background: rgba(212,56,13,0.12); }
+.lab-sigkelly-mode-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 6px; }
+.lab-sigkelly-mode-card { position: relative; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-hover, rgba(0,0,0,0.02)); padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; font-size: 11px; cursor: help; outline: none; }
+.lab-sigkelly-mode-card:hover, .lab-sigkelly-mode-card:focus { border-color: var(--primary); }
+.lab-sigkelly-mode-card-best { border-color: rgba(250,173,20,0.55); background: rgba(250,173,20,0.05); }
+.lab-sigkelly-mode-card-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; padding-right: 14px; }
+.lab-sigkelly-mode-card-name { font-size: 12.5px; font-weight: 700; color: var(--text-1); white-space: nowrap; }
+.lab-sigkelly-mode-tagline { font-size: 10.5px; color: var(--primary); font-weight: 600; }
+.lab-sigkelly-mode-star { color: #faad14; font-weight: 700; }
+.lab-sigkelly-mode-caliber { font-size: 10px; font-weight: 700; color: #0958d9; }
+.lab-sigkelly-mode-caliber.warn { color: #d4380d; }
+[data-theme="dark"] .lab-sigkelly-mode-caliber, [data-theme="redgold"] .lab-sigkelly-mode-caliber { color: #91caff; }
+[data-theme="dark"] .lab-sigkelly-mode-caliber.warn, [data-theme="redgold"] .lab-sigkelly-mode-caliber.warn { color: #ff9c9a; }
+.lab-sigkelly-mode-keys { display: flex; flex-wrap: wrap; gap: 2px 3px; }
+.lab-sigkelly-mode-chip { display: inline-block; font-size: 9.5px; line-height: 1.5; padding: 0 4px; border-radius: 3px; border: 1px solid transparent; white-space: nowrap; }
+.lab-sigkelly-mode-chip-base { background: rgba(250,173,20,0.12); border-color: rgba(250,173,20,0.45); }
+.lab-sigkelly-mode-chip-add { background: rgba(56,158,13,0.10); border-color: rgba(56,158,13,0.40); }
+.lab-sigkelly-mode-chip-reb { background: rgba(22,119,255,0.10); border-color: rgba(22,119,255,0.35); }
+[data-theme="dark"] .lab-sigkelly-mode-chip-base, [data-theme="redgold"] .lab-sigkelly-mode-chip-base { background: rgba(240,185,11,0.16); }
+[data-theme="dark"] .lab-sigkelly-mode-chip-add, [data-theme="redgold"] .lab-sigkelly-mode-chip-add { background: rgba(56,158,13,0.18); }
+[data-theme="dark"] .lab-sigkelly-mode-chip-reb, [data-theme="redgold"] .lab-sigkelly-mode-chip-reb { background: rgba(22,119,255,0.18); }
+.lab-sigkelly-mode-perf { font-size: 10px; color: var(--text-3); border-top: 1px dashed var(--border); padding-top: 3px; line-height: 1.6; }
+.lab-sigkelly-mode-perf b { color: var(--text-1); }
+.lab-sigkelly-mode-card .lab-sigkelly-toggle-tip { position: absolute; top: 5px; right: 6px; }
+.lab-sigkelly-mode-compare-foot { font-size: 10px; color: var(--text-3); line-height: 1.6; }
 .lab-sigkelly-fee-custom { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; width: 100%; font-size: 11px; color: var(--text-3); padding: 4px 0; }
 .lab-sigkelly-fee-custom label { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
 .lab-sigkelly-fee-custom .lab-input { padding: 1px 4px; font-size: 11px; height: 22px; }
