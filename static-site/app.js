@@ -2991,14 +2991,22 @@ function _openSimBacktestModal() {
 function _bindSimBacktestControls(modal, _close) {
   // T3-1修复批④(2026-08-23): 模式下拉改用四消费点统一组件挂载层(common.js _tdsFadeModeSelectMount);
   // onchange 不经 mount(留空), 由下方 .sim-fade-mode-sel 选择器循环统一绑, 避免双触发
+  // (2026-08-23 用户拍板二次变更) sim 弹窗建独立记忆体 tds_sim_fade_mode(与 lab 的 tds_kelly_fade_mode
+  // 完全独立互不读写, 「4个区域=4个记忆体」); 同款 TTL 滑动过期 18 小时(常量单源 common.js _TDS_FADE_TTL_MS),
+  // 过期/无值/旧格式 → 回默认 p8(开总开关+默认8键逐位一致 §23.7)
   const _fmWrapEl = modal.querySelector(".sim-fade-mode-wrap");
   if (_fmWrapEl && window._tdsFadeModeSelectMount) {
+    let _savedSimFM = null;
+    try {
+      _savedSimFM = (typeof _tdsLoadWithTTL === "function") ? _tdsLoadWithTTL("tds_sim_fade_mode", (typeof _TDS_FADE_TTL_MS !== "undefined") ? _TDS_FADE_TTL_MS : 18 * 3600 * 1000) : null;
+    } catch (e) {}
+    const _savedMid = _savedSimFM && _savedSimFM.mode && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(_savedSimFM.mode) ? _savedSimFM.mode : "p8";
     window._tdsFadeModeSelectMount(_fmWrapEl, {
       id: "sim-fade-mode-sel",
-      value: "p8",           // 默认 p8=旧默认(开总开关+默认8键)逐位一致(§23.7)
+      value: _savedMid,      // 上次所选(TTL 内); 无记忆=p8 默认
       withCustom: false,     // 弹窗无标签区, 无自定义态
       cls: "sim-fade-mode-sel",
-      title: "AI降亏过滤模式: 一键套用整套键组合(与凯利页/「AI 降亏组成对比」卡同源口径; 默认 8键=现网基线)。四消费点统一下拉组件(lab 凯利区/本弹窗/T3-2 首页与监控卡待接)",
+      title: "AI降亏过滤模式: 一键套用整套键组合(与凯利页/「AI 降亏组成对比」卡同源口径; 默认 8键=现网基线)。记住上次选择 18 小时(独立于凯利页记忆, 超时自动回默认 8键)。四消费点统一下拉组件(lab 凯利区/本弹窗/T3-2 首页与监控卡待接)",
     });
   }
   const kbtns = modal.querySelectorAll(".sim-kbtn");
@@ -3010,7 +3018,14 @@ function _bindSimBacktestControls(modal, _close) {
     });
   });
   modal.querySelectorAll(".sim-date-start,.sim-date-end,.sim-fade-mode-sel,.sim-mode-sel").forEach((el) => {
-    el.addEventListener("change", () => _simRender(modal));
+    el.addEventListener("change", () => {
+      // sim 独立记忆体(2026-08-23 用户拍板): 切模式写 tds_sim_fade_mode(TTL 工具, ts=本次切换时间滑动续期);
+      // 只写本键不碰 lab/首页/监控卡键(4 记忆体互不干预)
+      if (el.classList.contains("sim-fade-mode-sel") && typeof _tdsStoreWithTTL === "function" && el.value) {
+        _tdsStoreWithTTL("tds_sim_fade_mode", { mode: el.value });
+      }
+      _simRender(modal);
+    });
   });
   // (2026-08-23 用户拍板) sim-bullstop-cb/sim-fade-cb 两旧控件删除, 其绑定一并移除(防删定义留调用);
   // 模式下拉的 change 由上面统一选择器接管(G/H/I 长线豁免语义保留在渲染端: p9 等含候选1的模式在
@@ -3168,7 +3183,8 @@ async function _simRenderOnce(modal) {
   const filters = _simDefaultFadeFilters();
   // T3-1(2026-08-23): 模式下拉(7预设一键套用) —— fadeOn=true 时套用所选模式的完整键组合覆盖默认8键基座;
   // 默认值 p8=8键 与原默认逐位一致(不开总开关/不切模式=一切如旧 §23.7); 弹窗无标签区无自定义态(withCustom=false);
-  // 每次打开 innerHTML 全量重建=天然重置为 关+p8(a389 既有约定); 持久化不引入(弹窗态零记忆)
+  // (2026-08-23 用户拍板二次变更) 弹窗态记忆=tds_sim_fade_mode 独立键(TTL 1h 滑动过期, mount 时读),
+  // 过期/无值回 p8; 与 lab/首页/监控卡记忆互不读写(4 区域=4 记忆体)
   const _fmSelEl = modal.querySelector(".sim-fade-mode-sel");
   if (_fmSelEl && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(_fmSelEl.value)) {
     _tdsFadeModeApply(_fmSelEl.value, filters);
@@ -3237,15 +3253,28 @@ async function _simRenderOnce(modal) {
 // 基笔池按 mode 缓存(2026-08-23 性能专项): 池=纯函数(数据引用,mode), 与筛选/费率/K 无关;
 // 快切模式时命中缓存免掉全史 quadrants 重扫+去重(每轮省一次 O(全记录) 长任务)。
 // 数据引用变化(分片加载替换 _simKellyData)即整体失效重建, 不吃脏数据。
+// 【P0 内存防御 2026-08-23】改 Map+LRU: 每池=全史基笔指针数组常驻不小, 原实现 7 模式全存无上限;
+// 上限 3(最近使用的 3 个模式)+ 触碰刷新序, 长驻内存有界, 快切来回仍高命中。
 let _simPoolCacheRef = null;
-const _simPoolCache = {};
+const _simPoolCache = new Map();
+const _SIM_POOL_CACHE_MAX = 3;
 function _simPoolCached(mode) {
   if (_simPoolCacheRef !== _simKellyData) {
     _simPoolCacheRef = _simKellyData;
-    for (const k in _simPoolCache) delete _simPoolCache[k];
+    _simPoolCache.clear();
   }
-  let p = _simPoolCache[mode];
-  if (!p) { p = _simBuildModePool(_simKellyData, mode); _simPoolCache[mode] = p; }
+  let p = _simPoolCache.get(mode);
+  if (p) { // LRU 触碰: 移到最新端
+    _simPoolCache.delete(mode);
+    _simPoolCache.set(mode, p);
+  } else {
+    p = _simBuildModePool(_simKellyData, mode);
+    _simPoolCache.set(mode, p);
+    while (_simPoolCache.size > _SIM_POOL_CACHE_MAX) {
+      const oldest = _simPoolCache.keys().next().value; // Map 保插入序, 首个=最久未用
+      _simPoolCache.delete(oldest);
+    }
+  }
   return p;
 }
 
