@@ -8731,11 +8731,15 @@ async function renderSigKellyLab() {
     }
   } catch (e) {}
 
-  // T3-1(2026-08-23): AI降亏模式持久化(lab 独立 key tds_kelly_fade_mode): 在 tds_kelly_filters 8成员覆盖之后应用,
-  // 完整模式组合覆盖成员级状态(模式=57键全集, 成员键只是子集); 无 key(用户从未选过模式)=跳过=零变化
+  // T3-1(2026-08-23): AI降亏模式持久化(lab 独立 key tds_kelly_fade_mode, TTL 1 小时): 在 tds_kelly_filters
+  // 8成员覆盖之后应用, 完整模式组合覆盖成员级状态(模式=57键全集, 成员键只是子集); 无 key/超时/旧格式
+  // (用户从未选过或距上次选择>1h)=跳过=零变化回默认 p8(2026-08-23 用户拍板: 不做永久记忆, 阉割版只留
+  // 1 小时防刷新闪回; 工具函数 _tdsLoadWithTTL 单源在 common.js, T3-2 同款记忆直接复用)
   // (默认8键, 与现网逐位一致 §23.7 冻结契约)。sim 弹窗不读此 key(弹窗每次打开=关+8键, a389 既有约定)。
   try {
-    var _savedFM = JSON.parse(localStorage.getItem("tds_kelly_fade_mode") || "null");
+    var _savedFM = (typeof _tdsLoadWithTTL === "function")
+      ? _tdsLoadWithTTL("tds_kelly_fade_mode", 3600 * 1000)
+      : JSON.parse(localStorage.getItem("tds_kelly_fade_mode") || "null"); // 兜底: common 未加载时不至于崩(common 先于 lab 载入, 正常不走这)
     if (_savedFM && _savedFM.mode && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(_savedFM.mode)) {
       _tdsFadeModeApply(_savedFM.mode, state.labSigKellyFilters);
       state.labSigKellyFadeModeBase = _savedFM.mode;
@@ -9385,7 +9389,7 @@ function _renderSigKellyBar(bar, data, period) {
     return { allOn: allOn, anyOn: anyOn };
   })();
   const aiMacroLabelHTML =
-    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ AI降亏过滤(总开关, 默认开启): 结构=AI宏5+3+1(2026-08-15 定名「基础5」)——5+3=保留入样、可被AI建议推荐的降亏键(5: 基础5 追关注×熊市/1月中旬+中评级/1月中旬+追关注/n2 11月+追关注+行业 + K2C5 港股追涨剔除(并入基础5,穷举验证见 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md) + 3: 核心3 r7 5月强化+3稳定非5月 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合); +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 已剔除出回测宇宙)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除, 故 AI建议 一律不推荐, 以「未入样本」+灰显+删除线标注。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。= AI仓位建议(K=1 默认=主推, 收益率最高, 可手动切换, 见 K 按钮评级) + 默认组合(高亮8键=基础5+核心3(含K2C5港股追涨) + 1类回测剔除 = AI宏5+3+1共8键+1类, K2C5 由总开关联动控制)。每日池+费率重算口径(2026-08-14 #BC, 含最低佣金5元): A模式 K1(默认主推)=86.60%/K2=67.61%/K3=66.24%/K4=63.17%。A/F(短持)维持现状默认最优;用G卖出(推荐法)可试去 greedy15/auxCross/r7 +加a45→收益升到51.66%(净+82.6万)。勾选=联动下方默认推荐高亮8键(基础5+核心3, 含K2C5)子复选框 + 1类只读, = 9规则全控(AI宏总开关联动控制K2C5, 2026-08-15 用户拍板), 取消=关8键(K2C5 一并关); ⚠4组合全开=可选分析非默认推荐(与默认差仅0.3-0.7pt, 勿误解为默认)。T3-1 模式下拉(2026-08-23): 本开关旁「模式」下拉=7 种预设一键套用(8键默认/9键/A进攻王/B均衡卡/C防守/NEW 14键/NEW2 18键), 选中即整套键组合写入下方标签勾选态并重算; 手动勾/取消任一小标签→进入「⚙️自定义组合」态; 再选任意模式回到预设; 模式记忆存 tds_kelly_fade_mode(lab 独立键), 默认 p8=8键与本开关默认逐位一致。「重置为AI默认推荐」按钮=一键恢复本默认(高亮8键=基础5+核心3含K2C5 + 1类回测剔除 = 9规则) + AI仓位建议K=1 并重写本地记忆。"><input type="checkbox" class="lab-sigkelly-toggle-aimacro"${_aiMacroAll.allOn ? " checked" : ""}>${_kellyRecBadgeState(_aiMacroAll.allOn, _aiMacroAll.anyOn)} AI降亏过滤(总开关,默认开启) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>`;
+    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ AI降亏过滤(总开关, 默认开启): 结构=AI宏5+3+1(2026-08-15 定名「基础5」)——5+3=保留入样、可被AI建议推荐的降亏键(5: 基础5 追关注×熊市/1月中旬+中评级/1月中旬+追关注/n2 11月+追关注+行业 + K2C5 港股追涨剔除(并入基础5,穷举验证见 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md) + 3: 核心3 r7 5月强化+3稳定非5月 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合); +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 已剔除出回测宇宙)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除, 故 AI建议 一律不推荐, 以「未入样本」+灰显+删除线标注。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。= AI仓位建议(K=1 默认=主推, 收益率最高, 可手动切换, 见 K 按钮评级) + 默认组合(高亮8键=基础5+核心3(含K2C5港股追涨) + 1类回测剔除 = AI宏5+3+1共8键+1类, K2C5 由总开关联动控制)。每日池+费率重算口径(2026-08-14 #BC, 含最低佣金5元): A模式 K1(默认主推)=86.60%/K2=67.61%/K3=66.24%/K4=63.17%。A/F(短持)维持现状默认最优;用G卖出(推荐法)可试去 greedy15/auxCross/r7 +加a45→收益升到51.66%(净+82.6万)。勾选=联动下方默认推荐高亮8键(基础5+核心3, 含K2C5)子复选框 + 1类只读, = 9规则全控(AI宏总开关联动控制K2C5, 2026-08-15 用户拍板), 取消=关8键(K2C5 一并关); ⚠4组合全开=可选分析非默认推荐(与默认差仅0.3-0.7pt, 勿误解为默认)。T3-1 模式下拉(2026-08-23): 本开关旁「模式」下拉=7 种预设一键套用(8键默认/9键/A进攻王/B均衡卡/C防守/NEW 14键/NEW2 18键), 选中即整套键组合写入下方标签勾选态并重算; 手动勾/取消任一小标签→进入「⚙️自定义组合」态; 再选任意模式回到预设; 模式记忆存 tds_kelly_fade_mode(lab 独立键, 仅保留 1 小时滑动过期——每次切换刷新计时, 超时自动回默认 8键; 与模拟回测弹窗/首页/监控卡的记忆互不干预), 默认 p8=8键与本开关默认逐位一致。「重置为AI默认推荐」按钮=一键恢复本默认(高亮8键=基础5+核心3含K2C5 + 1类回测剔除 = 9规则) + AI仓位建议K=1 并重写本地记忆。"><input type="checkbox" class="lab-sigkelly-toggle-aimacro"${_aiMacroAll.allOn ? " checked" : ""}>${_kellyRecBadgeState(_aiMacroAll.allOn, _aiMacroAll.anyOn)} AI降亏过滤(总开关,默认开启) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>`;
   // 问题1修复(2026-08-15): AI降亏过滤详情 展开/收起 初始态持久化到 state.labSigKellyAiDetailOpen(参照 labSigKellyMoreOpen 模式), 重渲染后保持展开态
   const _aiDetailText = state.labSigKellyAiDetailOpen ? "AI降亏过滤详情收起 ▲" : "AI降亏过滤详情展开 ▼";
   const aiMacroDetailBtnHTML =
@@ -10010,7 +10014,9 @@ function _renderSigKellyBar(bar, data, period) {
     if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
     if (!_tdsFadeModeApply(mid, state.labSigKellyFilters)) return;
     state.labSigKellyFadeModeBase = mid;
-    try { localStorage.setItem("tds_kelly_fade_mode", JSON.stringify({ mode: mid })); } catch (e) {}
+    // TTL 记忆(2026-08-23 用户拍板): {mode, ts} 滑动过期——每次切换重写 ts=最后切换时间, 距上次切换>1h 回默认 p8
+    if (typeof _tdsStoreWithTTL === "function") _tdsStoreWithTTL("tds_kelly_fade_mode", { mode: mid });
+    else try { localStorage.setItem("tds_kelly_fade_mode", JSON.stringify({ mode: mid })); } catch (e) {}
     _kellyOnFilterChange();
   };
   var _aiResetBtn = bar.querySelector("#lab-kelly-ai-macro-reset");
@@ -10019,9 +10025,10 @@ function _renderSigKellyBar(bar, data, period) {
       var host = document.querySelector(".lab-sigkelly-host");
       if (!host || !state.labSigKellyData) return;
       state.labSigKellyFilters = _kellyDefaultFilters(); // bullAuxBackupStop 为 state-only 不落盘, 重置随默认值回关
-      // T3-1: 重置同步回落默认模式 p8(8键), 模式记忆一并重写
+      // T3-1: 重置同步回落默认模式 p8(8键), 模式记忆一并重写(TTL 工具, ts 刷新=重置也续期)
       state.labSigKellyFadeModeBase = "p8";
-      try { localStorage.setItem("tds_kelly_fade_mode", JSON.stringify({ mode: "p8" })); } catch (e) {}
+      if (typeof _tdsStoreWithTTL === "function") _tdsStoreWithTTL("tds_kelly_fade_mode", { mode: "p8" });
+      else try { localStorage.setItem("tds_kelly_fade_mode", JSON.stringify({ mode: "p8" })); } catch (e) {}
       _kellySetSharedPosCap(true, 1);
       _kellyPersistFilters(); // 重写 tds_kelly_filters(8键全开含K2C5 + aiMacro:true), 持久化恢复默认
       _kellyRunRecompute(host,
