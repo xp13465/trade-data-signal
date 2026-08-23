@@ -962,6 +962,38 @@ def check_track_score_overview_vs_map(data_dir: Path, repo_data_dir: Path) -> Ch
                f"容差±{_TS_EQ_TOL})")
 
 
+# T1 AI降亏特征通道（2026-08-23）：kelly_loss_features.json 存在且规格完整（E16 防静默缺失）。
+# 该文件是前端 20 条 AI 降亏新键 spec-driven 谓词的唯一规格源（meta.rules），
+# 缺失/空 rules 时前端整体不拦（诚实降级）= 过滤静默失效，故 FAIL 阻断上线。
+def check_kelly_loss_features(data_dir: Path) -> CheckResult:
+    """校验 kelly_loss_features.json：存在 + meta.rules 含 20 键 + meta.thresholds 有值。"""
+    name = "kelly_loss_features"
+    path = data_dir / "kelly_loss_features.json"
+    data, err = _load_json(path)
+    if err:
+        return _fail(name, err)
+    if not isinstance(data, dict):
+        return _fail(name, f"kelly_loss_features.json 不是 dict: {type(data).__name__}")
+
+    meta = data.get("meta")
+    if not isinstance(meta, dict):
+        return _fail(name, "meta 缺失或非 dict")
+
+    # 键数 20 = T1 全量新键单源数（scripts/loss_rules.py RULE_SPECS，lab.js _KELLY_LOSS_NEW_KEYS 同源）
+    rules = meta.get("rules")
+    keys = {r.get("key") for r in rules} if isinstance(rules, list) else set()
+    if len(keys) != 20:
+        return _fail(name, f"meta.rules 含 {len(keys)} 键 != 20（T1 全量新键，前端过滤将静默失效）")
+
+    thresholds = meta.get("thresholds")
+    if not isinstance(thresholds, dict) or not thresholds:
+        return _fail(name, "meta.thresholds 缺失或空（分位阈值快照缺失）")
+
+    features = data.get("features")
+    n_feat = len(features) if isinstance(features, dict) else 0
+    return _ok(name, f"rules={len(keys)}键, thresholds={len(thresholds)}项, features={n_feat}序列")
+
+
 # ── 关键文件存在性校验 ────────────────────────────────────────────────────────
 
 def check_key_files(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
@@ -1014,6 +1046,8 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     results.append(check_track_score_map_vs_index(data_dir, repo_data_dir))
     results.append(check_track_score_overview_vs_map(data_dir, repo_data_dir))
     results.append(check_a_fund_north_quarterly())
+    # T1 AI降亏特征通道（2026-08-23）：规格单源完整性（E16 防静默缺失）
+    results.append(check_kelly_loss_features(data_dir))
 
     # 关键文件存在性
     results.extend(check_key_files(data_dir, repo_data_dir))

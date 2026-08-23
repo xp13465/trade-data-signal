@@ -11,8 +11,12 @@
 【输出】static-site/data/kelly_loss_features.json:
           { meta: {generated_at, source, thresholds(QTH快照), rules(20键规格+生产键名)},
             features: {12特征名: {YYYYMMDD: value}} }
-        上线渠道 = git(static-site/data/) → deploy.sh 三站同步; 单文件 <1MB 按 §3.1 小文件类走
-        CF Workers Static Assets, 不进 R2(upload-data-large 仅 >=1MB 兜底, 无需 exclude)。
+        上线渠道(static-site/data/ 自 2026-08-08 起 .gitignore `static-site/data/*` 全量排除,
+          本体不入 git): ①R2 = REPO=<仓库根> python3 scripts/upload_r2.py upload-data-files
+          kelly_loss_features.json —— R2 data/ 前缀=唯一数据来源(前端 ./data/ 相对路径经
+          worker rewrite 读 R2), 上传后自动 purge CF 边缘缓存; ②bash scripts/deploy.sh 推
+          代码/min(git 只带非 ignore 文件)。upload_r2 需显式 REPO(#75 缺省分级闸): 本生成器
+          按 __file__ 写 trade 树, 故传 REPO=<trade 仓库根>。
 【口径】特征算法与挖掘版 mine10_features.py 逐字一致(无前视: 当日值用截至当日收盘数据):
     north_d20=a_fund_north 年内累计的 20 日差 / turn_pct=turn_mean 滚动3年分位 / div_yield=a_div_yield /
     qvix_pct=qvix100 滚动3年分位 / h_volchg=hs300 (5日std/20日std-1)*100(均年化) /

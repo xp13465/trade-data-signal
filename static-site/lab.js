@@ -7388,7 +7388,9 @@ function _kellyTradeFeatures(t, fIdx, _tradeDims) {
 //   meta.rules=规格单源(与 scripts/loss_rules.py RULE_SPECS 同源, queries.py rule_hit 同构判定),
 //   features=12 特征全史序列{feat: {YYYYMMDD: value}}。阈值=硬编码快照不滚动重算(§23.6 口径一致性)。
 // 加载策略: renderSigKellyLab 拉凯利数据时并行预取(state.kellyLossFeatData); 失败容忍=null
-//   (特征类键降级不拦, 与后端 load_features 缺失降级同语义, 纯字段键 w1/a1/r2b/r2g 照判)。
+//   (规格单源=meta.rules, JSON 加载失败时 spec 取不到一律 return false 不拦——特征类键与
+//    纯字段键 w1/a1/r2b/r2g 同此诚实降级; 「纯字段键照判」仅对后端 queries.py 成立,
+//    因 loss_rules.py 内存规格不依赖 JSON)。
 // state.kellyLossFeatData / state.kellyLossSpecMap 由 _kellyEnsureLossFeatData 填充
 async function _kellyEnsureLossFeatData() {
   if (state.kellyLossFeatData !== undefined && state.kellyLossFeatData !== null) return state.kellyLossFeatData;
