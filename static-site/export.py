@@ -1362,7 +1362,9 @@ def main():
 
     # P1-8: 合并首屏 11 个小 JSON 到 boot.json
     # 前端首屏单 fetch boot.json 分发，请求数 22 -> 1。详见 export_boot() 注释。
-    export_boot()
+    # review R1(2026-08-23): 写盘进 counts 与 EXPORT_MANIFEST 登记对齐, 否则
+    # manifest_alignment_check 全量成功也常驻误报 missing=['boot.json'](狼来了效应)。
+    counts["boot.json"] = export_boot()
 
     # 生成文件后自动走 R2 优化（用户规则：不等超 300MB 才发起）
     # EXPORT_SKIP_R2=1 时跳过（deploy.sh/intraday_snapshot.sh 自己跑 R2，避免重复）
