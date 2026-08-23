@@ -49,7 +49,7 @@
 > 版本:发 v1.1.3/v1.1.4(默认组合不动但功能面大改,§5.4⑥ 精神);v1.1.5 留给将来 NEW 设默认。
 
 - [x] T0 调研完成(2026-08-23,报告 docs/kelly/toggle/ai-mode-dropdown-research-20260823.md):四消费点=①首页参考点③AI监控卡沿**后端预计算**延伸(queries.py `_ai_macro_hit_filters` L764/overfit bank),②sim弹窗④lab 沿**前端重放**延伸;三处独立化已就绪(a389)沿用。⚠️ **5 套模式(A/B/C/NEW14/NEW18)规则键在生产前后端零实现**:20 条新谓词需 Python+JS 双实现,15 条依赖特征数据通道(mine10_features 12 特征,gzip~300KB R2 懒加载)+分位阈值快照固化;9键零成本现成。
-- [ ] T1 方法池 57→最新全量+生产键实现:20 条新键 sim_core/queries/signal_kelly_backtest 后端实现+前端 JS 谓词对齐+37 标签链路扩展(默认关+联动照抄 `_kellyOnFilterChange` L8461)+15 条特征数据通道与阈值快照(implementer,依赖 T0 已毕)
+- [x] T1 完成并上 main(2026-08-23,feat/ai-loss-keys-20 c54eb89a6→merge 5a299d243 + 收尾 feat/t1-followup→69b1a88c5):20 键规格单源 scripts/loss_rules.py RULE_SPECS+特征 JSON(kelly_loss_features.json 已上线 R2+主站 curl 200)+双端谓词(lab/app)+37 标签链扩展+§21 公示+check_data_integrity 兜底断言;reviewer PASS 零阻断;一致性抽查 89,100 判定 0 不一致、默认行为零漂移
 - [ ] T2 「AI 降亏组成对比」展示区+七模式短标语落位(implementer,依赖 T1)
 - [ ] T3 交互主体:单开关+模式下拉 7 种+四消费点接入+3+1 补漏(implementer worktree 隔离,依赖 T1)
 
