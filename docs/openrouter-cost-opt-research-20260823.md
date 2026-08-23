@@ -78,7 +78,26 @@
 
 ## 六、待验证项(诚实标注)
 
-① ox-alpha 实际单价与缓存折扣(Activity 页可查,需登录);② Claude Code 是否自发 session_id/x-session-id(现版无证据,不影响默认哈希粘性);③ preset 能否覆盖消息级 cache TTL(大概率不能);④ Anthropic Skin 对 `output_config.effort` 字段的透传行为(关联 memory `claude-code-output-config-effort-400`)。
+① ox-alpha 实际单价与缓存折扣(Activity 页可查,需登录);② Claude Code 是否自发 session_id/x-session-id(现版无证据,不影响默认哈希粘性);③ preset 能否覆盖消息级 cache TTL(大概率不能);④ **CLAUDE_EFFORT=max 对 ox-alpha 是否真生效(2026-08-23 新增,最重要)**:机制上 OR 透传 effort 参数,但 stealth 内部模型是否响应无文档承诺,**未经数据验证**(落地当天会话仍跑 high,settings 重启才生效)。验证法:重启后 `echo $CLAUDE_EFFORT` 确认注入成功 → 同类任务在 high/max 下各跑几次 → OR Activity 页开 generation 详情对比 reasoning tokens 与耗时;max 与 high 行为无差异=模型忽略该参数(无害白设);若出现 400(极小概率,关联 memory `claude-code-output-config-effort-400`)立即回滚 high。⑤ Anthropic Skin 对 `output_config.effort` 字段的透传行为(关联同上 memory)。
+
+## 七、配置变更台账(2026-08-23 落地,切换/回滚唯一对照表)
+
+> 本轮全部环境配置变更集中在此,任何"切回/换端点/换主力模型"场景先读本表再动手,不做记忆里的改动。
+
+| # | 文件 | 位置 | 变更(旧→新) | 目的 | 切回方法 |
+|---|---|---|---|---|---|
+| 1 | `~/.claude/settings.json` | env.CLAUDE_EFFORT | (无显式键,运行时 high)→ `"max"` | 计次制下升智力 | 改回 `"high"`(或删行回到运行时默认) |
+| 2 | `~/.claude/settings.json` | permissions.deny | 新增 `["WebSearch"]` | 断 OR server tool 按次搜索计费 | 仅当不再走 OR 计费通道才删;换官方直连可解除 |
+| 3 | `~/.claude/settings.json` | env.ANTHROPIC_API_KEY | 新增 `""` 占位 | 防 shell 残留真 key 静默直连计费 | 永久保留(与模型无关) |
+| 4 | `~/.zshrc` + macOS keychain | ANTHROPIC_AUTH_TOKEN | settings.json 明文 → keychain(service=`claude-code-openrouter`)+ zshrc 启动取值 | 密钥安全 | 永久保留;401 第一步 `echo ${ANTHROPIC_AUTH_TOKEN:+ok}` |
+| 5 | `.claude/agents/implementer.md`、`tester.md` | frontmatter | 新增 `effort: medium` | 执行类(deepseek-v4-flash)防全局 max 透传拖慢 | 删行=继承全局 |
+
+**未来切回 deepseek-v4-flash 主力时的对照清单(按序)**:
+1. **#1 必切**:`CLAUDE_EFFORT` max→**high**(flash 定位便宜快档,0.95 思考预算对它纯拖慢;OR 统一 reasoning 参数会向 flash 透传,实际行为差异届时实测)——high 就是原状态;
+2. **#5 可选**:执行类 `effort: medium` 可保留(flash 下影响小)或删行回到继承;
+3. **"按需关思考"不走 OR 这层**:沿用既有 thinking_proxy 方案(memory `deepseek-thinking-perrole-proxy`,SOP=`scripts/thinking-proxy-config-sop.md`,方舟直连+代理注入 disabled);
+4. **#2/#3/#4 与主力模型无关**:还走 OR 就保留 #2 防搜索费;#3/#4 任何时候都不回退;
+5. 切完跑一次小任务冒烟(Activity 页看 generation 正常+无 400)才算切换完成。
 
 ## 复现
 
