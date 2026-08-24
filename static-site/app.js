@@ -15689,6 +15689,16 @@ function _lwSVG(cfg) {
     const x = _px(i);
     s += '<text x="' + x.toFixed(1) + '" y="' + _xLabelY.toFixed(1) + '" font-size="' + _axFont + '" text-anchor="middle" style="fill:var(--text-1)">' + _xFmt(cfg.xLabels[i]) + '</text>';
   }
+  // markPoint hideOverlap(fix5, 复刻 echarts markPoint label.hideOverlap): 包围盒相交检测+贪心隐藏,
+  // 后画者与先画者相交则整牌跳过(先画者优先保留)。仅 pin 形参与(小圆点 r3 重叠是 band_hold 设计语义,
+  // 同原版不藏); 与 echarts label-only 隐藏的差异=整牌跳过 — 相邻信号 pin 叠成色块时 label 也无处安放,
+  // 整牌避让视觉更干净且 tooltip 数据仍全量可 hover。bbox: 横向 ±1.2r(覆盖 label 文字微超圆), 纵向 y-3r..y(圆+三角)。
+  const _mpBoxes = [];
+  const _mpHit = (x, y, r) => {
+    const bx0 = x - r * 1.2, bx1 = x + r * 1.2, by0 = y - 3 * r, by1 = y;
+    for (const b of _mpBoxes) { if (bx0 < b.x1 && bx1 > b.x0 && by0 < b.y1 && by1 > b.y0) return true; }
+    return false;
+  };
   // series(顺序: stack area 先底后顶, bar, line)
   for (const ser of cfg.series || []) {
     const ai = ser.yIndex || 0;
@@ -15884,6 +15894,9 @@ function _lwSVG(cfg) {
         const _stroke = mp.borderColor ? ' stroke="' + mp.borderColor + '" stroke-width="' + (mp.borderWidth || 3) + '"' : "";
         const _fo = mp.opacity != null ? ' fill-opacity="' + mp.opacity + '"' : "";
         if (mp.pin) {
+          // hideOverlap(fix5): 与先画 pin 包围盒相交则整牌跳过(贪心, 先画者优先), 复刻 echarts label.hideOverlap
+          if (_mpHit(x, y, r)) continue;
+          _mpBoxes.push({ x0: x - r * 1.2, x1: x + r * 1.2, y0: y - 3 * r, y1: y });
           // echarts 'pin' 形(圆顶+下三角指向数据点): label 居中在圆内; 三角尖对准数据点 (x,y)
           const cy = y - 2 * r;
           if (mp.glow) s += '<circle cx="' + x.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' + (r * 1.45).toFixed(1) + '" fill="' + mp.glow + '" opacity="0.35"/>';   // 金描边光晕(shadowBlur8 rgba(255,215,0,.6) 近似)
@@ -16073,6 +16086,9 @@ function _lwHeatmapBind(wrap, cfg) {
     if (left + tipW > svgRect.width) left = svgRect.width - tipW;
     let top = cssY - tipH - 10;
     if (top < 0) top = cssY + 12;
+    // P2-3(fix) 同款: 底部 clamp — heatmap tooltip 超出 wrap 底沿时上移(与 _lwBind._show 同模式)
+    const _wrapH = wrapRect.height || 0;
+    if (_wrapH > 0 && top + tipH > _wrapH) top = Math.max(0, _wrapH - tipH - 2);
     tip.style.left = left.toFixed(1) + "px";
     tip.style.top = top.toFixed(1) + "px";
   };
@@ -16238,6 +16254,9 @@ function _lwBind(wrap, cfg) {
       if (left + tipW > svgRect.width) left = svgRect.width - tipW;
       let top = cssY - tipH - 12;
       if (top < 0) top = cssY + 14;
+      // P2-3(fix): 底部 clamp — tooltip 超出 wrap 底沿时上移, 防图卡在页面底部时浮层被截断
+      const _wrapH = wrapRect.height || 0;
+      if (_wrapH > 0 && top + tipH > _wrapH) top = Math.max(0, _wrapH - tipH - 2);
       tip.style.left = left.toFixed(1) + "px";
       tip.style.top = top.toFixed(1) + "px";
     }
@@ -16276,6 +16295,11 @@ function _lwBind(wrap, cfg) {
       if (s < 0) s = 0;
       if (e > 1) e = 1;
       cfg.zoomStart = s; cfg.zoomEnd = e;
+      // P2-2b(fix): 缩放状态同步存 _lwZoomMap(key=container), 重渲染时由 _lwSetup 回填 —
+      // 否则浅拷贝 cfg 上的缩放在皮肤切换/⚡/setOption 重渲染后丢失重置回 [0,1]
+      try { _lwZoomMap.set(wrap, { start: s, end: e }); } catch (_e) {}
+      // P2-2a(fix): 缩放后隐藏旧 tooltip/十字线 — 窗口几何已变, 残留在旧位置误导(下次 mousemove 再现)
+      _hide();
       _recalc();
       _render();
     };
@@ -16402,6 +16426,9 @@ function _lwBind(wrap, cfg) {
 // 注册进 _lwRenderers 供 ⚡ 开关 _reRenderHomeCharts() 即时重渲染(双向 dispose 旧实例)。
 const _lwRenderers = new Map();
 const _lwCfgMap = new WeakMap(); // container -> cfg(供外部改尺寸后重渲染)
+// P2-2b(fix): container -> {start,end} 用户缩放状态。_lwBind 写在浅拷贝 liteCfg 上, 重渲染即丢;
+// 存此处由 _lwSetup.render() 每次回填进 liteCfg, 皮肤切换/⚡/setOption 重渲染均保留用户缩放。
+const _lwZoomMap = new WeakMap();
 function _lwSetup(container, cfg, echartsFn) {
   if (!container) return container;
   _lwCfgMap.set(container, cfg);
@@ -16421,6 +16448,9 @@ function _lwSetup(container, cfg, echartsFn) {
       // 高度取实测(响应式容器, 如分时图 desktop 100px / mobile 80px), 兜底 cfg.h
       const _hMeas = (container.offsetHeight || cfg.h || 300);
       const liteCfg = Object.assign({}, cfg, { h: _hMeas });
+      // P2-2b(fix): 回填用户缩放状态(若有) — 重渲染不再把缩放重置回 [0,1]
+      const _zSaved = _lwZoomMap.get(container);
+      if (_zSaved) { liteCfg.zoomStart = _zSaved.start; liteCfg.zoomEnd = _zSaved.end; }
       container.innerHTML = _lwHTML(liteCfg);
       _lwBind(container, liteCfg);
     } else if (typeof echarts !== "undefined" && echartsFn) {
