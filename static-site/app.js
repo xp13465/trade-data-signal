@@ -23248,6 +23248,10 @@ function _renderEtfPager(scope, page, pages, total) {
 // 不放入全局 charts 数组（弹窗 open/close 生命周期与 charts 的 tab 切换 dispose 不同步，避免数组堆积死实例），
 // window resize / H5 切换时单独 resize 它。
 let _etfTrendChart = null;
+// 走势区请求序号: 模块级全局单调递增(2026-08-25 F2 修跨弹窗竞态)。原存 modal._ctx 会随每次
+// open 重置、close 不失效——A 基金 fetch in-flight 中关开到 B, A 晚到仍通过校验把 A 的走势
+// 画进 B 弹窗。全局计数器不复位即天然失效旧请求, 同弹窗切 tab 防护语义不变。
+let _etfTrendReqSeq = 0;
 
 // ============ #10 ETF弹窗长历史(2026-08-22): period tab + 懒加载 R2 etf/{code}-all.json ============
 // 数据产物: scripts/export_etf_hist.py -> static-site/data/etf/{code}-all.json (全史前复权日K,
@@ -23275,8 +23279,8 @@ async function _renderEtfTrendSection(modal, code, period) {
   const e = (_etfScoreState.all || []).find((x) => x.etf_code === code);
   if (!e) return;
   const meta = _ETF_TREND_PERIODS.find((p) => p[0] === period) || _ETF_TREND_PERIODS[0];
-  // 竞态防护: 快速切 tab 时旧 fetch 回来不得覆盖新周期渲染(弹窗级序号, 渲染前校验)
-  const reqId = (modal._ctx.trendReqId = (modal._ctx.trendReqId || 0) + 1);
+  // 竞态防护: 快速切 tab / 关开弹窗时旧 fetch 回来不得覆盖新渲染(模块级全局序号, 渲染前校验)
+  const reqId = ++_etfTrendReqSeq;
 
   let ohlc = null;
   let histName = e.name || code;
@@ -23291,7 +23295,7 @@ async function _renderEtfTrendSection(modal, code, period) {
         hist = await fetchJSON(`https://ss.fx8.store/r2/etf/${code}-all.json`);
         _etfHistCache[code] = hist;
       } catch (_err) {
-        if (modal._ctx.trendReqId !== reqId) return; // 已有更新请求,丢弃过期失败
+        if (_etfTrendReqSeq !== reqId) return; // 已有更新请求/已换弹窗,丢弃过期失败
         sec.innerHTML = '<div class="etf-trend-hist-err" style="padding:14px;font-size:13px;color:var(--text-3);background:var(--bg-2,rgba(128,128,128,0.08));border-radius:8px">⚠ 长历史数据加载失败，请稍后重试（默认 30 日走势不受影响）</div>';
         return;
       }
@@ -23306,7 +23310,7 @@ async function _renderEtfTrendSection(modal, code, period) {
     }
   }
 
-  if (modal._ctx.trendReqId !== reqId) return; // 过期响应丢弃
+  if (_etfTrendReqSeq !== reqId) return; // 过期响应丢弃
 
   // 重渲染前 dispose 旧走势实例(切周期 innerHTML 重写防泄漏; 关闭弹窗由 closeEtfScoreDetailModal 兜底)
   _disposeContainerCharts(sec);
@@ -24486,15 +24490,18 @@ function _fundScoreRadarSVG(e) {
 // - 缓存: 模块级 per-code 全量 payload(~26KB/只), 弹窗关开/切周期不重复拉取
 const _fundNavCache = {};
 let _fundNavChart = null;
+// 净值请求序号: 模块级全局单调递增(F2, 同 _etfTrendReqSeq)——modal._ctx 随 open 重置、
+// close 不失效, A 基金 fetch in-flight 中关开到 B 会把 A 的走势画进 B 弹窗; 全局计数器不复位。
+let _fundNavReqSeq = 0;
 
 async function _renderFundNavSection(modal, code, period) {
   const body = modal && modal.querySelector(".fund-detail-content");
   const sec = body && body.querySelector("#fundNavTrendSection");
   if (!sec || !code) return;
   const meta = _ETF_TREND_PERIODS.find((p) => p[0] === period) || _ETF_TREND_PERIODS[0];
-  // 竞态防护: 快速切 tab 时旧 fetch 回来不得覆盖新周期渲染(弹窗级序号, 渲染前校验,
+  // 竞态防护: 快速切 tab / 关开弹窗时旧 fetch 回来不得覆盖新渲染(模块级全局序号, 渲染前校验,
   // 同 _renderEtfTrendSection 模式)
-  const reqId = (modal._ctx.navReqId = (modal._ctx.navReqId || 0) + 1);
+  const reqId = ++_fundNavReqSeq;
 
   let hist = _fundNavCache[code];
   if (!hist) {
@@ -24504,12 +24511,12 @@ async function _renderFundNavSection(modal, code, period) {
       hist = await fetchJSON(`https://ss.fx8.store/r2/fund_nav/${code}.json`);
       _fundNavCache[code] = hist;
     } catch (_err) {
-      if (modal._ctx.navReqId !== reqId) return; // 已有更新请求,丢弃过期失败
+      if (_fundNavReqSeq !== reqId) return; // 已有更新请求/已换弹窗,丢弃过期失败
       sec.innerHTML = '<div style="padding:14px;font-size:13px;color:var(--text-3);background:var(--bg-2,rgba(128,128,128,0.08));border-radius:8px">⚠ 净值历史数据加载失败，请稍后重试（评分/凯利等其他区块不受影响）</div>';
       return;
     }
   }
-  if (modal._ctx.navReqId !== reqId) return; // 过期响应丢弃
+  if (_fundNavReqSeq !== reqId) return; // 过期响应丢弃
 
   let nav = (hist && hist.nav) || [];
   // 客户端 period 过滤: 30d 取末 30 个净值点; 3m~5y 复用 _signalModalCutoff(基于数据末日
