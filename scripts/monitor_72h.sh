@@ -884,6 +884,16 @@ try:
 except Exception as e:
     print(f"[warn] heartbeat 写入失败: {e}", file=sys.stderr)
 
+# 复用心跳点顺手 touch START_FILE 保 mtime 新鲜（2026-08-24 reviewer P3）：
+# macOS /tmp 定期清理 >=3 天未访问的文件，极端下 START_FILE 被清而监控还活着 ->
+# schedule_monitor 孤儿回收块误判"监控已停摆"，把仍 active/pending 的告警误翻
+# recovered（重复噪音）。touch 只刷 mtime 不改内容（72h 计时读的是文件内容不受影响）；
+# 到期自停路径 rm 掉 START_FILE 后不再 touch，孤儿回收照常工作。无新增定时器。
+try:
+    Path("/tmp/monitor_72h_start").touch()
+except Exception as e:
+    print(f"[warn] START_FILE touch 失败: {e}", file=sys.stderr)
+
 # 2026-08-24 三级分级接线: 冲出 warning 缓冲区里到期的条目(30min 聚合窗口,
 # 满窗聚合一封发出); 本脚本自身告警全走 self_heal/severe 直发, 此处只兜底
 # flush 其他链路(schedule_monitor 等)攒下的到期 warning, 与主监控双保险。

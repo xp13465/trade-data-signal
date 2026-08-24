@@ -1133,8 +1133,32 @@ def flush_warning_batch(dry_run: bool = False) -> dict:
       from_prefix 默认 [告警·聚合]。
     - 发送成功才清掉已发条目（失败留下轮重试，宁可重发不丢告警）。
     - dry_run=True 只打印不发不清（自验用）。
+    - 竞态安全（2026-08-24 reviewer P2）：读取阶段在 flock 内做快照并记下文件字节数
+      pre_offset；发送期间（邮件+飞书重试可达秒级）其他进程 defer_warning 追加的条目
+      全部落在 pre_offset 之后，重写阶段只回写 keep + pre_offset 之后的新增行，
+      不再整文件覆盖——旧实现 open("w") 先 truncate 后才 flock，窗口内新追加条目被静默清掉。
     """
-    entries = _read_jsonl(WARNING_BUFFER_FILE)
+    import fcntl
+    try:
+        with open(WARNING_BUFFER_FILE, "rb") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            raw = f.read()
+            fcntl.flock(f, fcntl.LOCK_UN)
+    except FileNotFoundError:
+        return {"sent_batch": False, "n_due": 0, "n_remaining": 0}
+    except OSError as e:
+        print(f"[notify] warning buffer 读取失败：{e}", file=sys.stderr)
+        return {"sent_batch": False, "n_due": 0, "n_remaining": 0}
+    pre_offset = len(raw)  # 锁内快照字节数（行边界；append 单行持锁写入）
+    entries = []
+    for line in raw.decode("utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue  # 坏行跳过（fail-open 不丢推送，同 _read_jsonl 口径）
     if not entries:
         return {"sent_batch": False, "n_due": 0, "n_remaining": 0}
     now = datetime.now()
@@ -1159,14 +1183,26 @@ def flush_warning_batch(dry_run: bool = False) -> dict:
                    from_prefix=prefix, feishu_group="alert")
     sent = any(results.values())
     if sent and not dry_run:
-        # 发送成功才清已发条目（原子：整文件重写为剩余条目）
+        # 发送成功才清已发条目。不整文件覆盖：flock 内重读当前内容，pre_offset 之后的
+        # 字节 = 发送期间其他进程 defer_warning 追加的新条目，原样保留（下轮照发）；
+        # truncate 在锁内做，杜绝旧实现「先 truncate 后 flock」窗口丢条目。
+        # 不用 tmp+rename：rename 换 inode 后，阻塞在本文件 flock 上的 append 方
+        # 醒来会写到旧 inode（孤儿 fd），条目静默丢失——原地重写保住同一 inode，
+        # 与 _append_jsonl 的 flock-append 互斥语义一致，且持锁仅毫秒级。
         try:
-            WARNING_BUFFER_FILE.parent.mkdir(parents=True, exist_ok=True)
-            import fcntl
-            with open(WARNING_BUFFER_FILE, "w", encoding="utf-8") as f:
+            with open(WARNING_BUFFER_FILE, "rb+") as f:
                 fcntl.flock(f, fcntl.LOCK_EX)
-                for e in keep:
-                    f.write(json.dumps(e, ensure_ascii=False) + "\n")
+                cur = f.read()
+                tail = [ln for ln in cur[pre_offset:].splitlines() if ln.strip()]
+                out = b"".join(
+                    json.dumps(e, ensure_ascii=False).encode("utf-8") + b"\n"
+                    for e in keep
+                )
+                out += b"".join(ln.rstrip(b"\r") + b"\n" for ln in tail)
+                f.seek(0)
+                f.truncate()
+                f.write(out)
+                f.flush()
                 fcntl.flock(f, fcntl.LOCK_UN)
         except Exception as e:  # noqa: BLE001
             print(f"[notify] warning buffer 清理失败（下轮可能重发）：{e}", file=sys.stderr)
@@ -1189,6 +1225,14 @@ def send_tiered(subject: str, body: str, tier: str = TIER_CRITICAL,
     返回 dict 含 tier 字段便于调用方日志。未知 tier 按 critical 处理（fail-critical：
     分级配置错误时宁多勿漏，绝不因降级逻辑吞掉真故障）。
     """
+    if tier not in (TIER_CRITICAL, TIER_WARNING, TIER_INFO):
+        # fail-critical（2026-08-24 reviewer P2 兑现本 docstring 承诺）：tier 不在
+        # 白名单一律按 critical 立即全渠道发送，并 log 一行便于暴露拼写错误调用方；
+        # 空/None 视为缺省 critical 不打告警（与旧「缺省走 send()」向后兼容语义一致）。
+        if tier:
+            print(f"[notify][tier] 未知 tier={tier!r} 按 critical 处理"
+                  f"(fail-critical 宁多勿漏)", file=sys.stderr)
+        tier = TIER_CRITICAL
     if tier == TIER_INFO:
         log_info(subject, body)
         return {"tier": tier, "email": False, "telegram": False, "feishu": False, "info_logged": True}
@@ -1198,7 +1242,7 @@ def send_tiered(subject: str, body: str, tier: str = TIER_CRITICAL,
     res = send(subject, body, severe=(tier == TIER_CRITICAL), dry_run=dry_run,
                from_prefix=from_prefix, feishu_group=feishu_group,
                reply_to_message_id=reply_to_message_id)
-    return {"tier": tier or TIER_CRITICAL, **res}
+    return {"tier": tier, **res}
 
 
 def main(argv: list[str] | None = None) -> int:

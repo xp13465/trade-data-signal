@@ -745,9 +745,12 @@ for _key, _info in list(alert_state.items()):
 # 前缀 active/pending key 永久卡死(生产实证: 72h_r2_prefix_industry_fail /
 # 72h_sw_version_mismatch 两条 08-12 起卡 active 至今, 主恢复循环 L628 起
 # 显式跳过 72h_ 前缀防振荡, 更不会回收它们)。
-# 判定=START_FILE 不存在(监控已停摆; 在跑时每次都会重建该文件) 且 告警最后动作
-# 距今>1h(宽限, 防与刚启动的 72h 会话竞态) -> 翻 recovered 静默(不发恢复邮件:
-# 监控停摆不是"异常消失", 发恢复邮件反而误导)。
+# 判定=START_FILE 不存在 且 告警最后动作距今>1h(宽限, 防与刚启动的 72h 会话竞态)
+# -> 翻 recovered 静默(不发恢复邮件: 监控停摆不是"异常消失", 发恢复邮件反而误导)。
+# START_FILE 生命周期如实描述(2026-08-24 reviewer P3 修注释失实): monitor_72h.sh 只在
+# 启动发现缺失时写一次时间戳, 运行期从不重建; 每轮心跳处会 touch 刷新 mtime(防 macOS
+# /tmp 对 >=3 天未访问文件的清理把它删掉造成监控还活却被判停摆)。故本判定成立=
+# 到期自停时被 rm(正常交接) 或从未启动/被手动清掉且 72h 监控已不再运行。
 _72H_START_FILE = Path("/tmp/monitor_72h_start")
 if not _72H_START_FILE.exists():
     for _ok, _oinfo in list(alert_state.items()):
