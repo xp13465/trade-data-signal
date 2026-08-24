@@ -4829,6 +4829,57 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         return acc + sep + chip;
       }, "");
     const _byTypeRow = _typeChips ? `<div class="sig-acc-by-type">${_typeChips}</div>` : "";
+    // ── 警示信号正确率独立模块(2026-08-24 方案B, 用户拍板「现版本纯买入口径挺好, 警示类单独出」) ──
+    // 上方总准确率/byType 人口保持不动(买类=AI仓位建议 top-K 口径, 卖类被 kept 排除的现状不改); 本模块单独
+    //   统计四类警示信号: sell(纯卖)/sell_stop_loss(止损卖)/band_sell(波段减仓, reason 含'波段减仓'识别,
+    //   与 _calcSignalAccuracy 同源判定)/band_hold(波段持有, 中性 since_correct 恒 null 不计对错只计数量)。
+    // 数据源=items(signals_today 全量近30交易日)的 since_correct: 看空信号发出后指数至今跌=对(与监控卡
+    //   2026-08-17 方案B 卖类口径同款)。固定口径不随窗口/K档/AI仓位/降亏/ETF档筛选联动(tooltip 已公示),
+    //   恒显示与 AI 仓位开关无关。样式全复用 .sig-acc-by-type/.sig-acc-seg/.sig-acc-dot, 零新 CSS。
+    let _warnAccRow = "";
+    {
+      // ⚠️ 只统计四类警示信号(_WARN_KEYS): 买类不进本模块(其正确率归上方总准确率 AI建议 top-K 口径,
+      //   两口径并存会让用户看到两个买类数字打架, 恰是用户否掉方案A的原因), filter 双保险防 META 全类放行。
+      const _warnKeys = ["band_hold", "band_sell", "sell", "sell_stop_loss"];
+      const _wbins = Object.fromEntries(_warnKeys.map((s) => [s, { t: 0, f: 0, n: 0 }]));
+      for (const it of items) {
+        const _wk = (it.reason || "").includes("波段减仓") ? "band_sell" : it.signal;
+        const _wb = _wbins[_wk];
+        if (!_wb) continue;
+        if (it.since_correct === true) _wb.t++;
+        else if (it.since_correct === false) _wb.f++;
+        else _wb.n++;
+      }
+      const _wSettled = (_wb2) => _wb2.t + _wb2.f;
+      // §23.9 三档互证 tooltip: 白话(是什么)+场景(什么时候看)+1:1 真实数字举例。
+      // 1:1 数字核实源=trade-data/static-site/data/overview.json signals_today 数据基准日 20260824:
+      //   止损卖65条33对32错≈51% / 纯卖14条8对6错≈57% / 波段减仓19条1对18错≈5% / 波段持有70条中性。
+      //   数字为快照, 随每日收盘更新, 实时值以行内 chip 为准(tooltip 已标注快照性质)。
+      const _warnTip =
+        "警示信号正确率（独立统计，2026-08-24 新增）\n" +
+        "白话：上方总准确率只算买入类信号（AI仓位建议每日top-K入选的纯买入口径）；这里单独统计四类警示信号——卖/止损卖/波段减仓/波段持有。它们不是买入候选，是风险提示：发出后指数至今跌=对（看空方向命中），至今涨=错；波段持有是中性持有状态，不计对错只计数量。\n" +
+        "场景：想验证「系统喊卖的准不准」、评估风险提示可信度时看这里；上方总准确率看不到这类信号（被AI建议买入口径排除），只有这里有。\n" +
+        "口径：固定=近30交易日全部警示信号，不随上方窗口/K档/AI仓位/降亏/ETF档筛选联动；数据随每日收盘更新。\n" +
+        "🎯 1:1 直白举例（20260824 数据快照）：止损卖近30日共发出65次→其中33次卖出后指数至今跌(对)、32次至今涨(错)，正确率33/65≈51%；纯卖(不含波段减仓)14次→8对6错≈57%；波段减仓19次→仅1对18错≈5%（多数减仓提示后指数仍涨，该提示更偏锁盈提醒而非判顶）；波段持有70次为中性持有不计对错。实际数值以本行实时统计为准。";
+      const _wChips = _SIG_TYPE_META
+        .filter((m) => {
+          if (!_warnKeys.includes(m.key)) return false;
+          const b = _wbins[m.key];
+          return b && (b.t + b.f + b.n) > 0;
+        })
+        .map((m) => {
+          const b = _wbins[m.key];
+          const dot = `<span class="sig-acc-dot" style="color:${m.color}">●</span>`;
+          const body = m.key === "band_hold"
+            ? `${_t(m.labelKey)} ${b.n}个·中性不计对错`
+            : `${_t(m.labelKey)} ${_fmt(_wSettled(b) > 0 ? (b.t / _wSettled(b)) * 100 : null)} (${b.t}对/${b.f}错·${_wSettled(b)}条${b.n > 0 ? `+未结算${b.n}` : ""})`;
+          return `<span class="sig-acc-seg">${dot}${body}</span>`;
+        })
+        .join(' · ');
+      if (_wChips) {
+        _warnAccRow = `<div class="sig-acc-by-type"><span class="sig-acc-total-label" data-tip="${_escAttr(_warnTip)}">⚠️ 警示信号正确率❓</span>${_wChips}</div>`;
+      }
+    }
     // E 方案(2026-07-31): 时间窗口筛选按钮组 - 4 窗口按钮 + 恢复全部(窗口激活时显示)
     // 再点同窗口按钮 = 恢复 "0_15"(toggle), 与 grade/correct/type 筛选互不影响(正交)
     // UI(2026-07-31): 按钮组改为 span(inline-flex), 移到标题行❓后(h3.sig-title-row flex 布局),
@@ -4860,7 +4911,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _etfFilterRow = `<div class="sig-acc-by-type sig-acc-etf-filter">ETF: ${_etfBtn("全部", "all", "显示全部参考点（含强关联/相关/近似/有跟踪/概念全部5档）")} · ${_etfBtn("强关联ETF " + _tierCounts[1], "1", "档1强关联：ETF本体自跟踪(self)或 track_tier=strong（绿灯，跟踪分≥75），跟踪误差最小", "etf-pop-grade-excellent")} · ${_etfBtn("相关ETF " + _tierCounts[2], "2", "档2相关：track_tier=related（草绿灯，跟踪分60-74），跟踪误差较小", "etf-pop-grade-good")} · ${_etfBtn("有近似ETF " + _tierCounts[3], "3", "档3近似：track_tier=approx（橙灯，跟踪分50-59），有跟踪ETF但误差较大", "etf-pop-grade-warn")} · ${_etfBtn("有跟踪ETF " + _tierCounts[4], "4", "档4跟踪：track_tier=none/null（暗橙/灰灯，跟踪分<50或数据不足），误差较大/来源间接，信号偏弱", "etf-pop-grade-warn")} · ${_etfBtn("概念无ETF " + _tierCounts[5], "5", "档5概念：该概念无对应ETF（如部分综合指数），显灰色无ETF标", "etf-pop-grade-warn")}${_etfReset}</div>`;
     // 问题3 fix(2026-07-31): _accHtml 用 .sig-acc-wrap 包裹(summary+byType), _rerenderSigCardContent
     //   整体替换 .sig-acc-wrap, 否则切窗口时 byType 各类型数量/准确率不更新(只 summary 更新)
-    _accHtml = `<div class="sig-acc-wrap">${_etfFilterRow}<div class="signal-accuracy-summary"><span class="sig-acc-total-label" data-tip="${_escAttr(_totalTip)}">总准确率 ${_fmt(_acc.total.pct)}</span> (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}</div>`;
+    _accHtml = `<div class="sig-acc-wrap">${_etfFilterRow}<div class="signal-accuracy-summary"><span class="sig-acc-total-label" data-tip="${_escAttr(_totalTip)}">总准确率 ${_fmt(_acc.total.pct)}</span> (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}${_warnAccRow}</div>`;
   }
   // 筛选后无匹配: 汇总条仍显示(窗口内统计), 列表区给提示
   // v1.1.5(2026-08-24) 枯竭引导空态: 开了「仅显示可用信号」且近30交易日全窗口无任何放行买入信号时,
