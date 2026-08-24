@@ -108,17 +108,30 @@ try:
 except: print('C26 $id: parse error FAIL')
 "
 done
+
+# C30: etf/{code}-all.json ETF 全史日K (#10 长历史批新增, check_etf_hist 挂 check_data_integrity)
+# 抽查 510050/510300/159915 有文件 + count>0 且 ==len(ohlc) (R2 ssd.fx8.store/etf/)
+for code in 510050 510300 159915; do
+  curl -s "https://ssd.fx8.store/etf/${code}-all.json" | python3 -c "
+import sys,json
+try:
+  d=json.load(sys.stdin); c=d.get('count',0); o=d.get('ohlc',[])
+  ok = c>0 and c==len(o)
+  print('C30 $code count:', c, 'ohlc_len:', len(o), 'OK' if ok else 'FAIL')
+except Exception as e: print('C30 $code: parse error FAIL')
+"
+done
 ```
 
 ---
 
 ## Part 2: check_data_integrity.py（已实施）
 
-> 对应 CLAUDE.md §15 ①。**已实施**: `scripts/check_data_integrity.py`(commit f00978545,12 校验函数),已接入 `scripts/deploy.sh` L122-123(`--deploy-mode` fail 则 exit 阻断 deploy)。校验规则见 Part 1 表。
+> 对应 CLAUDE.md §15 ①。**已实施**: `scripts/check_data_integrity.py`(commit f00978545 起步 12 校验函数,现已演进至 22 个:含 #10 `check_etf_hist`(C30)/#29 track_score 双路一致性/T1 kelly_loss_features/P1-D2 export_manifest 等),已接入 `scripts/deploy.sh` L122-123(`--deploy-mode` fail 则 exit 阻断 deploy)。校验规则见 Part 1 表。
 >
 > 运行: `python3 scripts/check_data_integrity.py [--deploy-mode] [--strict]`
 >
-> 以下为设计参考(与已实施脚本一致,保留作阈值依据文档):
+> ⚠️ 以下代码块为**初始 12 函数设计快照**(保留作阈值依据文档),**非当前全量**;新增校验以 `scripts/check_data_integrity.py` 实际代码为唯一权威(挂载清单见其 `collect_results`),本快照不再逐版同步:
 
 ### 脚本设计（设计参考,已实施于 scripts/check_data_integrity.py）
 

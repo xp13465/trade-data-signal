@@ -31,6 +31,13 @@ function _swrOf(it) {
   if (_sigWinN() === 15 && it.since_win_return_w15 !== undefined) return it.since_win_return_w15;
   return it.since_win_return;
 }
+// 该信号实际生效的判定窗长: 波段减仓固定 5 日(后端 queries.py _WIN_BAND_SELL_N=5 唯一权威,
+// 其默认档字段即 w5 结果、w15 复制 w5), 其余信号=当前判定窗档位(_sigWinN 10/15)。
+// data-idx-n 属性与走势弹窗「N日窗盈亏」标签统一走此函数取 n——
+// 2026-08-24 P3-2 修正: 原恒传 _sigWinN() 致波段减仓标签写「10日窗」但数值是 5 日窗结果的失实。
+function _effWinN(it) {
+  return (it && (it.reason || '').includes('波段减仓')) ? 5 : _sigWinN();
+}
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -2643,7 +2650,7 @@ function _topEtfByScore(etfs) {
 // 后端 overview.json 每条信号注入 ai_macro: {hit, filters:[命中的降亏条件key...]}(queries.py, 谓词规格单源
 // scripts/loss_rules.py RULE_SPECS 与凯利回测三端同构; 默认基座沿革 八键 v1.1.0 → NEW14 十四键 v1.1.5;
 // +1类回测剔除走 _bt_in_universe 字段)。
-// ⚠ 本表自 v1.1.5 起=纯中文名映射(badge 标注展示用, L4330 兜底键集已拆到 _AI_MACRO_FALLBACK_KEYS),
+// ⚠ 本表自 v1.1.5 起=纯中文名映射(badge 标注展示用, 兜底键集已拆到 _AI_MACRO_FALLBACK_KEYS(L2696)),
 //   不再作键集合事实源——键集合单源=common.js _KELLY_FADE_MODE_PRESETS(T3-2 任务④迁移)。
 //   旧八键条目保留: 对照档 p8 手选时 badge 缘由仍需其中文名(§23.7 老口径可回选不删档);
 //   NEW14 新增两键 r10May6NonMay/k3ConceptBuy 补入防裸奔(其余规则键经 _AI_MACRO_BACKUP_NAMES fallback)。
@@ -2678,7 +2685,7 @@ const _AI_MACRO_BACKUP_NAMES = {
   s2SentHs300Low: "HS300情绪冰点", w1BackupDecline: "备买×下降期", a1BullAllStop: "牛主升全停(超集)",
   v3Vol20LowPct: "低波动<10分位", ad1AdlineHot: "AD线广度过热",
   // X1(mine29c 2026-08-24, NEW14+1·15键可选档成员): 与 common.js _KELLY_FADE_T1_KEYS/lab.js 映射段同步(audit D2 三处对账)
-  excludeTierNone: "整剔无跟踪ETF象限"
+  excludeTierNone: "整剔有跟踪ETF象限"
 };
 // 首页判定兜底键集(v1.1.5 起=NEW14 十四键生产键): 仅当 preset 不可用(老缓存 common.js 无
 // _tdsFadeModeById/_KELLY_FADE_MODE_PRESETS 或 preset.keys 缺失)时作「按默认档 NEW14 判定」的兜底,
@@ -4735,15 +4742,16 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // 2026-08-06 至今收益（指数 since_return + ETF etf_since_return）从 title 文本流移到 hoverpop 专属两行对比块：
         // cell 加 data-idx-ret/data-idx-correct 传指数收益/对错，hoverpop show() 渲染指数走势行，
         // 紧接 etfHtml"ETF 至今"行，两行对比方便查看指数信号 vs 相关 ETF 至今走势（原 title 里 ETF-preferred return 与 etfHtml 重复）。
-        // 2026-08-24 到期冻结窗：ret/correct 改为跟随判定窗档位（_swrOf/_scOf），并带 data-idx-n(10/15)+
-        // data-idx-settled(是否满窗定案)，hoverpop 据此拼「指数N日窗」标签与「暂计·未定案」提示；
+        // 2026-08-24 到期冻结窗：ret/correct 改为跟随判定窗档位（_swrOf/_scOf），并带 data-idx-n
+        // (实际生效窗长 _effWinN: 波段减仓固定5/其余=判定窗10·15)+ data-idx-settled(是否满窗定案)，
+        // hoverpop 据此拼「指数N日窗」标签与「暂计·未定案」提示；
         // band_hold 中性无窗口字段(since_win_return=null)回退 since_return 保持纯盈亏展示。
         var _hasWinRet = _swrOf(it) != null;
         var _idxRetVal = _hasWinRet ? _swrOf(it) : it.since_return;
         var _idxRetAttr = (_idxRetVal != null && isFinite(_idxRetVal)) ? ` data-idx-ret="${_idxRetVal}"` : "";
         var _scv2 = _scOf(it);
         var _idxCorrectAttr = (_scv2 === true || _scv2 === false) ? ` data-idx-correct="${_scv2}"` : "";
-        var _idxWinNAttr = _hasWinRet ? ` data-idx-n="${_sigWinN()}"` : "";
+        var _idxWinNAttr = _hasWinRet ? ` data-idx-n="${_effWinN(it)}"` : "";
         var _idxSettledAttr = _hasWinRet ? ` data-idx-settled="${_settledOf(it) === true ? "1" : "0"}"` : "";
         // 2026-08-06 hoverpop 指数至今行加指数名+代码前缀（复用 L1603-1604 _idxName/_sigIdxCode）；
         // name 含中文/空格/括号（如"德国DAX"/"汽车芯片"）用 _escAttr 转义防属性截断，code 同理。
@@ -5555,13 +5563,14 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
             var _idxCorrectRaw = el.getAttribute("data-idx-correct");
             var _idxDirS = _idxCorrectRaw === "true" ? " · 符合预测" : (_idxCorrectRaw === "false" ? " · 不符预测" : "");
             // 2026-08-24 到期冻结窗：带 data-idx-n 的按「指数N日窗」标注；未满窗(settled=0)为暂计值并标"未定案"
-            // (波段减仓固定5日窗, 后端 n 恒传当前判定窗档位, 其对错两档相同故显示不受切换影响)。
+            // (n=该信号实际生效窗长 _effWinN: 波段减仓固定5日、其余=判定窗档位; 2026-08-24 P3-2 修正
+            // 原白名单只认10/15致波段减仓的5会误落「指数至今」)。
             // 无 data-idx-n(band_hold 中性/旧缓存数据)=无窗口语义, 保持"指数至今"纯盈亏展示。
-            var _idxWinNRaw = el.getAttribute("data-idx-n");
+            var _idxWinN = parseInt(el.getAttribute("data-idx-n"), 10);
             var _winLabel;
-            if (_idxWinNRaw === "10" || _idxWinNRaw === "15") {
+            if (_idxWinN > 0) {
               var _wSettled = el.getAttribute("data-idx-settled") === "1";
-              _winLabel = '指数' + _idxWinNRaw + '日窗' + (_wSettled ? '' : '·暂计至今');
+              _winLabel = '指数' + _idxWinN + '日窗' + (_wSettled ? '' : '·暂计至今');
               if (!_wSettled) _idxDirS += '（未定案）';
             } else {
               _winLabel = '指数至今';
@@ -8513,8 +8522,8 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
         // 补的预估点用 "estimate" 信号 pin 标注，视觉区分（灰色虚线 pin）
       }
     }
-    // 信号对错盈亏行（方案B后端算）：文案=成功/失败·N日窗盈亏 ±X%（2026-08-24 到期冻结窗：跟随判定窗档位,
-    // 未满窗为至今暂计并标注; since_correct=null 今日/band_hold 仅显示盈亏不带成功失败）；
+    // 信号对错盈亏行（方案B后端算）：文案=成功/失败·N日窗盈亏 ±X%（2026-08-24 到期冻结窗：N=实际生效窗长
+    // _effWinN(波段减仓固定5/其余=判定窗档位), 未满窗为至今暂计并标注; since_correct=null 今日/band_hold 仅显示盈亏不带成功失败）；
     // 颜色=A股红涨绿跌按收益正负（>0红/<0绿/==0灰）
     const _matchSR = _sigsSR.find((it) => it.index_id === indexId && it.signal === signal && it.date === date);
     if (_matchSR && _matchSR.since_return != null) {
@@ -8541,10 +8550,12 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       const _sigColor = _meta ? _meta.color : '#6b7280';
       const _descHtml = `<b style="color:${_sigColor};font-weight:700;">${fmtDate(_matchSR.date)}的${_typeLabel} · ${_subLabel}</b>`;
       // 成功/失败 + 窗口盈亏 继承整行 _color(红涨绿跌); 描述段内联信号配色
-      // 有窗口字段=按当前判定窗标注(N日窗盈亏/未满窗标暂计); 无(band_hold/旧数据)=保持"至今盈亏"
+      // 有窗口字段=按实际生效窗长标注(_effWinN: 波段减仓固定5日, 其余=判定窗档位; P3-2 同款修正);
+      // 无(band_hold/旧数据)=保持"至今盈亏"
       const _prefix = _correct === true ? '成功' : (_correct === false ? '失败' : '');
+      const _effN = _hasWin ? _effWinN(_matchSR) : 0;
       const _pnlLabel = _hasWin
-        ? (_settledOf(_matchSR) === true ? ` ${_sigWinN()}日窗盈亏 ` : ` 至今暂计(未满${_sigWinN()}日窗·未定案) `)
+        ? (_settledOf(_matchSR) === true ? ` ${_effN}日窗盈亏 ` : ` 至今暂计(未满${_effN}日窗·未定案) `)
         : '  至今盈亏 ';
       _srLine.innerHTML = _prefix
         ? `${_prefix}  ·  ${_descHtml}${_pnlLabel}${_retStr}`
