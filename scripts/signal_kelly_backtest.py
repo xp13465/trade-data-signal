@@ -232,13 +232,63 @@ def _save_etf_freeze(freeze):
     os.replace(tmp, p)
 
 
+# ── 宇宙感知剪枝(v1.1.7 实施批, 2026-08-24 用户拍板) ─────────────────────────
+# 背景: 冻结固化机制(#58)对已固化信号事件直接返回冻结 ETF, 绕过当前宇宙判定——
+# board_etf_map 已把 bj50(北证50) 等改为空数组(显式不收录, build_board_etf_map.py 不留兜底),
+# 但 20260813 中间版 map 时代固化的 72 个 bj50 键仍从冻结路径穿透入样, trades 残留
+# 41 笔底层交易 / 1476 展示行(has_track 卡每卡 41 笔)。
+# 修复: 解析前先查 config/universe_rules.yaml excluded_categories 排除声明(§23.6 单一事实源,
+# 禁止硬编码任何指数 id 字面量), 命中即视为无效不入样, 返回 (None, False) 与
+# "map 无此 key" 路径同语义; 新信号与已冻结信号一视同仁(冻结值不得穿透排除类别)。
+# 铁律: freeze 文件本体不动(只读旁路, 不删不改键), 剪枝发生在读取侧。
+# 影响面佐证: docs/kelly/analysis/bj50-residue-pruning-impact-20260824.md
+# (NEW14 默认组合 +0.26% 且堵「过滤真空日垫底替补」洞; 2011-2024 十四年零变化)。
+
+_PRUNED_UNIVERSE_N = 0     # 剪枝计数(调用级: needed_etfs 与分类循环各扫一遍, 全量跑下≈事件数×2)
+_EXCLUDED_MATCHERS_CACHE = None
+
+
+def _excluded_matchers():
+    """读 config/universe_rules.yaml excluded_categories, 返回 ((name, mode, patterns), ...) 缓存版。"""
+    global _EXCLUDED_MATCHERS_CACHE
+    if _EXCLUDED_MATCHERS_CACHE is None:
+        cfg_path = os.path.join(ROOT, "config", "universe_rules.yaml")
+        matchers = []
+        if os.path.exists(cfg_path):
+            with open(cfg_path, encoding="utf-8") as f:
+                rules = yaml.safe_load(f) or {}
+            for cat in rules.get("excluded_categories") or []:
+                m = cat.get("match")
+                pats = (m,) if isinstance(m, str) else tuple(m or ())
+                matchers.append((cat.get("name", "?"), cat.get("mode", "?"), pats))
+        else:
+            print(f"  ⚠ universe_rules.yaml 未找到({cfg_path}), 宇宙感知剪枝不生效", file=sys.stderr)
+        _EXCLUDED_MATCHERS_CACHE = tuple(matchers)
+    return _EXCLUDED_MATCHERS_CACHE
+
+
+def _iid_in_excluded_category(iid):
+    """index_id 是否命中排除类别(匹配口径与 check_universe_alignment._match_any 一致: 前缀或全等)。"""
+    for _name, _mode, pats in _excluded_matchers():
+        if any(iid.startswith(p) or iid == p for p in pats):
+            return True
+    return False
+
+
 def _resolve_etf(date, iid, sig, best_etf, freeze):
     """解析某信号事件 (date,index_id,signal) 匹配的 ETF。
 
+    - 宇宙感知剪枝(v1.1.7): 该指数命中 config/universe_rules.yaml 排除类别(债/情绪/
+      全球商品利率/港股行业/空数组)→视为无效不入样, 返回 (None, False)(与 "map 无此 key"
+      同语义); 冻结值也不得穿透排除类别(freeze 文件本体不动, 读取侧剪枝)。
     - 若该信号事件已在冻结查找表: 返回冻结的 ETF 值(历史成交固化, 不再随当前 best 变更)。
     - 若未冻结(新信号): 用当前 best ETF, 并就地写入 freeze(便于 compute() 结束时持久化)。
     返回 (etf_dict, is_frozen)。best_etf 无此指数时返回 (None, False)。
     """
+    global _PRUNED_UNIVERSE_N
+    if _iid_in_excluded_category(iid):
+        _PRUNED_UNIVERSE_N += 1
+        return None, False
     key = _signal_key(date, iid, sig)
     frozen = freeze.get(key)
     if frozen is not None:
@@ -1164,6 +1214,8 @@ def compute():
     print(f"   分类完成: {classified} 信号有有效回测")
     print(f"   跳过: 无ETF映射={skipped_no_etf}, 无评级score={skipped_no_score}, 无ETF价格/未来不足={skipped_no_price}")
     print(f"   换标漂移修复: 使用已固化ETF的信号事件={frozen_used}, 本次新固化={len(etf_freeze) - frozen_prev_count}")
+    print(f"   宇宙感知剪枝(v1.1.7): 排除类别信号事件跳过(调用级)={_PRUNED_UNIVERSE_N} "
+          f"(冻结穿透路径一并剪除, freeze 文件本体不动)")
 
     # 换标漂移修复: 持久化冻结查找表(含本轮新固化), 供下次回测保持历史成交固化。
     try:

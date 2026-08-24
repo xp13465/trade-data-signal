@@ -127,3 +127,44 @@
 - 输出:`docs/kelly/analysis/data/bj50-prune-impact-20260824.json`
 - 数据截止:trades generated_at=2026-08-24 20:06(signal 至 20260820 前后);freeze/board_etf_map 为 2026-08-24 当日版本
 - 关键口径一句话:从每模式去重池删 index_id=bj50 全部交易后走同一管线(NEW14/P0 黑名单+K1 补位+费后),对照基线;静态展示层口径单列
+
+## v1.1.7 实施结果(2026-08-24 实施批,已验证·待上线)
+
+> 实施:feat 分支 `v1.1.7-prune`(base=origin/main@91303132b)。**隔离红线**:重跑在 worktree 内完成,剪枝后产物落 `/tmp/v117/`(验证用临时件)——**未写生产树任何活产物,未 deploy/R2/上线**。v1.1.7 版本号暂不打 tag(用户观察期,待 NEW14→14+1 默认切换时一并发版)。**freeze 文件本体零改动**(读取侧剪枝,72 个 bj50 键原样保留)。
+
+### 改动清单(feat commit)
+
+| 文件 | 改动 |
+|---|---|
+| `scripts/signal_kelly_backtest.py` | `_resolve_etf` 前置宇宙感知剪枝:判定源=`config/universe_rules.yaml` excluded_categories(匹配口径与 `check_universe_alignment._match_any` 一致=前缀或全等,禁止硬编码指数 id);命中返回 `(None, False)` 与「map 无此 key」同语义;新信号/冻结值一视同仁,freeze 只读不删键;附调用级剪枝计数日志 |
+| `config/universe_rules.yaml` | 空数组 match 正式补登 `bj50`(33→34);注1「尚有历史兜底残留 738 笔」过时表述更新为已剪枝事实(v1.1.7 补登说明+影响面报告指向) |
+| `static-site/purpose-notes.js` | lab.sigkelly 公示空数组枚举补 bj50 及剪枝事实(§23.6 公示同步,最小改动一处;lab.js/app.js 其余公示均为类别级表述剪枝后仍准确,经逐一 grep 核实不改) |
+| `README.md` | 大 JSON 瘦身体积数字校正:-49.5%(四舍五入值预估口径)→ -47.6%(实测字节 16,396,654→8,594,279) |
+
+### 实测 vs 预期逐项对照
+
+实测源:`/tmp/v117/signal_kelly_trades.json`(gen=2026-08-24 20:46,worktree 剪枝代码 × 生产数据只读 × freeze 副本);基线=活产物 gen=2026-08-24 20:18。NEW14 管线复用本报告同款挖掘引擎(sim_window_loss_mining_20260822,K1 补位,费后)。
+
+| 锚点 | 预期(本报告§三) | 实测 | 判定 |
+|---|---|---|---|
+| etf_has_track 卡 | 每卡 1982→1941(-41) | 9 卡全部 1982→1941 | PASS |
+| 全象限行数差 | §3.2 表(mkt_a -41 / rating_low -24 / rating_mid -17 / sig_aux -17 / sig_main -17 / sig_backup -4 / sig_special -3) | 逐项一致;总行 274,284→272,808(Δ=-1,476,与§一「41×4象限×9卡」换算精确吻合) | PASS |
+| trades 无 bj50 | 0 行 | 0 行(且 cgb_/s./g./hk_ 前缀扫描全 0) | PASS |
+| NEW14 默认组合 | +122,967.16(n=428,mdd -4,178.01 不变) | **+122,967.16**(n=428,胜率 66.9→67.1%,mdd -4,178.01);同轮基线锚点 +122,648.33/-4,178.01 复现 PASS | PASS(逐位) |
+| ΔNEW14 | +318.83(+0.26%) | +318.83 | PASS |
+| 十四年零变化 | 2011~2024 RAW/NEW14 双口径 0 | 2011~2024 双口径逐年逐位 0.00;2025 RAW Δ=-81.05(预期 -81.05);2026 NEW14 Δ=+318.82(预期 +318.83,差 0.01=浮点求和舍入,量级方向一致) | PASS |
+
+### 机检与单测
+
+- `check_universe_alignment.py` 四断言全 PASS(断言3 校验对象=272,808 行剪枝后产物;assertion4 empty_array 含 bj50 共 34 项)。
+- **对照组**:同一新 yaml 对活产物(未剪枝)= 断言3 FAIL「违规 1476 条类别」——闸门真实生效且违规数=残留精确数。⚠️ **协调点:本 feat merge 后必须先重刷 signal_kelly_trades.json 再过 deploy 链,否则宇宙校验会阻断上线**(盘后定时链若先于 merge 重刷则短暂回退旧口径,属预期)。
+- `check_data_integrity.py`:31 ok / 2 warn / 0 fail(warn 为 worktree 环境缺 `etf_index_map.json` 未链入的环境性提示,生产侧文件在位,非本次改动);kelly_loss_features #43 动态断言 PASS(rules=21 键/thresholds=14 项,不受本改动影响)。
+- `check_fade_keys_alignment.py`:PASS(RECENT_KEYS 28 ⊇ 默认档 14 键;app.js 兜底键集逐位相等)。
+- 剪枝逻辑正负例单测 5 项 PASS(①冻结 bj50→剪除且 freeze 键保留 ②新信号 bj50→剪除不写入 ③冻结 hs300→正常返回 ④ftse100/cgb_10y_etf→按声明命中 ⑤新信号 hs300→固化写入路径不变)。
+
+### 边界与诚实标注
+
+- 剪枝计数日志为**调用级 27,660**:含债/情绪/全球商品利率/港股行业等本就不入样指数的信号事件(此前走「map 无此 key」路径被跳过),并非 27,660 笔交易被剪;唯一行为变化点=bj50 的 72 个冻结键穿透路径,四锚点已证其余路径零影响。
+- 「十四年零变化」为池级口径(RAW/NEW14 的 K1 选择池);展示层行级 2023~2026 各有对应 -n 行删除(41 笔底层交易所分布年份),两口径并行不矛盾(同 §八.1)。
+- 本节验证产物(/tmp/v117)为临时件不入 git;merge 后标准复现=跑 `scripts/signal_kelly_backtest.py` 重刷产物 + 三件机检(命令见 yaml 注5 与各脚本 docstring),预期数字即上表实测列。
+
