@@ -63,10 +63,13 @@ CONFIG_PATH = REPO / "config" / "feishu.json"
 LOG_PATH = Path("/Users/linhuichen/code/trade-data/data/logs") / "feishu_listener.log"
 # 系统信任证书导出 PEM（本地 MITM 代理自签证书信任用，runtime 文件不进 git）
 CACERT_PATH = Path("/Users/linhuichen/code/trade-data/data/feishu_cacert.pem")
-# 接收侧静默假死心跳戳（researcher #25 缺口 A）：listener 每次成功处理一条事件 touch 更新
-# mtime。schedule_monitor 维度⑨ 据此检测"进程在+连接在但收不到事件"的半死态——KeepAlive
-# 和 auto_reconnect 都发现不了"连接在但无事件"（用户群消息没回执没落盘且无告警）。
-# 阈值用 24h（需求群低频，夜间/周末无消息正常，不用 hook 的 90min 短阈值）。
+# 接收侧静默假死心跳戳（researcher #25 缺口 A；2026-08-24 语义升级=「WS 帧活性」）：
+# listener 收到任意 WS 帧（服务端 PING/PONG 往返/事件，见 run_listener 的 _handle_message
+# 包装 + handle 入口前置 touch）即更新 mtime。证明的是「连接活性」而非「需求消息流」——
+# 健康连接每 120s ping 必有 PONG 回帧，安静期（群里无需求）心跳照常前进。schedule_monitor
+# 维度⑨据此检测"进程在+连接在但收不到任何帧"的半死态——KeepAlive 和 auto_reconnect 都
+# 发现不了 TCP 半开僵尸（用户群消息没回执没落盘且无告警）。阈值 24h（原注释"需求群低频，
+# 夜间/周末无消息正常"的顾虑已随埋点前移消解：现在安静期心跳也前进，24h 无帧=真断）。
 WS_LAST_EVENT_FILE = Path("/tmp/feishu_ws_last_event")
 # 收到回执：飞书 open.feishu.cn（中国版域名）+ tenant_access_token 缓存（2h 有效，过期前 120s 刷新复用）
 FEISHU_API_BASE = "https://open.feishu.cn"
@@ -812,7 +815,10 @@ def process_event(data, whitelist: set, prefixes: list[str],
         if record is None:
             return None
         log(f"收到需求已落盘：{filename} sender={record['sender']} content={content[:80]}")
-        # #25 缺口 A：事件成功处理，更新接收侧心跳戳（schedule_monitor 维度⑨据此判半死）
+        # #25 缺口 A：需求落盘兜底 touch（主 touch 已前移到 handle 入口/_handle_message 包装，
+        # 此处保留双保险幂等无害——2026-08-24 误报根修：原版只在这里 touch，前面 5 个
+        # early-return（空内容/非人类/闲聊/非需求）全不 touch → 安静期心跳停更 → 看门狗
+        # 每 2h 自杀重启空转 12 轮 + schedule_monitor 误报 stale。详见 run_listener 内注释。）
         _touch_ws_last_event()
         ts = int(record["ts"])
         # 需求自动进待办 + 即时回执（2026-08-11 起主控零轮询）：listener 收到需求自己完成
@@ -873,12 +879,15 @@ def _run_startup_missed_fetch(inbox_dir: Path) -> None:
 #   但 recv() 不抛 ConnectionClosed）时，auto_reconnect 永不触发（它只在 recv 抛异常时重连），
 #   client.start() 的 loop.run_until_complete(_select()) 永远阻塞 -> 外层 while True 也不走，
 #   -> 整个 listener 假死，用户群发"需求:"既不落盘也不回执，且无任何告警。
-# 修复：进程内起一个 daemon 看门狗线程，monitor ws_last_event 心跳戳（process_event 每成功
-#   处理一条就 touch），若"心跳戳持续 N 分钟不再前进"（说明收到实时事件流的接收侧死了），
-#   主动 os._exit(2) 退出整个进程 -> launchd KeepAlive=true 自动拉起 -> 重启时 RunAtLoad
+# 修复：进程内起一个 daemon 看门狗线程，monitor ws_last_event 心跳戳（2026-08-24 起语义=
+#   「WS 帧活性」：run_listener 包装 client._handle_message，任意帧（服务端 PING/PONG 往返/
+#   事件）到达即 touch；健康连接每 120s ping 必有 PONG 回帧，安静期心跳照常前进），若
+#   "心跳戳持续 N 分钟不再前进"（说明连 PONG 都收不到=TCP 半开僵尸），主动 os._exit(2)
+#   退出整个进程 -> launchd KeepAlive=true 自动拉起 -> 重启时 RunAtLoad
 #   + _run_startup_missed_fetch 补拉漏收窗口 -> 全新 WS 连接 + 补拉，自愈闭环。
-#   用"不前进 N 分钟"而非"距上次事件超 N 分钟"：安静时段（无新事件=正常）不误杀，
-#   只在"本应持续有事件流动证明活着、却停更 N 分钟"时才判定假死。
+#   ⚠ 2026-08-24 前 bug：touch 只在 process_event 合法需求落盘后调 → 群里没需求时心跳停更
+#   → 看门狗每 2h 自杀重启空转 12 轮（8-20 起 feishu_listener.log 实证）。根修=埋点前移，
+#   心跳证明「连接活性」而非「需求消息流」，安静期不再误杀。
 def _start_liveness_watchdog(stale_limit: int) -> threading.Event:
     """启动接收侧假死看门狗。stale_limit：心跳戳停止前进后判定死亡的秒数。
     返回 Event，供正常退出时 set() 取消看门狗（不进 os._exit）。"""
@@ -938,6 +947,11 @@ def run_listener(app_id: str, app_secret: str, cfg: dict, once: bool = False) ->
     _run_startup_missed_fetch(inbox_dir)
 
     def handle(data) -> None:  # P2ImMessageReceiveV1
+        # 2026-08-24 心跳语义前移（误报根修）：收到**任意** im.message.receive_v1 事件即 touch，
+        # 不再等"合法需求落盘"——心跳证明的是「连接活性」而非「需求消息流」。原版只在
+        # process_event 深处落盘后 touch，前面 5 个 early-return 路径全不 touch → 群里没需求
+        # 时心跳停更 → 看门狗 2h 自杀重启空转 12 轮 + schedule_monitor 维度⑨误报 stale。
+        _touch_ws_last_event()
         process_event(data, whitelist, prefixes, inbox_dir, once=once,
                       chat_map=chat_map, forwarded_ids=forwarded_ids,
                       dedup_path=dedup_path,
@@ -947,6 +961,24 @@ def run_listener(app_id: str, app_secret: str, cfg: dict, once: bool = False) ->
     if client is None:
         log("SDK 长连接不可用，无法启动监听（需手动联调，见 docs/feishu-bot-integration-plan.md）")
         return 1
+
+    # ── 2026-08-24 连接活性埋点前移到 WS 帧层（区分「连接活性」与「需求消息流」的闭环）──
+    # SDK lark_oapi.ws.Client._handle_message 是所有 WS 帧的总入口：CONTROL 帧（服务端 PING /
+    # 对我方 ping 的 PONG 应答）+ DATA 帧（事件）都经过它，但 CONTROL 不走用户 event 回调。
+    # 客户端 _ping_loop 每 120s 发一次 PING；连接健康时服务端必回 PONG → _handle_message 被
+    # 调用 → 心跳最多 2min 前进一次。TCP 半开僵尸时 recv() 挂死收不到任何帧（含 PONG）→
+    # 心跳停更 → 看门狗 stale_limit 触发 os._exit 重启自愈——这才是看门狗注释想要的
+    # 「本应有帧流证明活着、却停更」的正确实现（安静期不再误杀：健康连接总有 PONG 往返）。
+    # 包装实例方法不改 SDK 文件（venv 只读），_receive_message_loop 经 self._handle_message
+    # 动态查找调用，实例属性覆盖生效。
+    _orig_handle_message = client._handle_message
+
+    async def _touch_then_handle_message(msg):  # noqa: ANN001
+        _touch_ws_last_event()
+        await _orig_handle_message(msg)
+
+    client._handle_message = _touch_then_handle_message
+
     log("启动飞书长连接监听（im.message.receive_v1）…")
     # 2026-08-19 假死自愈：起 daemon 看门狗，WS 半死（recv 不抛异常 auto_reconnect 失效）时
     #   心跳戳 ws_last_event 停更超阈值 -> os._exit(2) -> launchd KeepAlive 重启 + 补拉自愈。

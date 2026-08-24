@@ -95,6 +95,22 @@ FEISHU_POST_MAX_ROWS = 80
 _FEISHU_SEND_ATTEMPTS = 3
 _FEISHU_RETRYABLE_CODES = {99999, 9999, 10001, 10002}
 
+# ── 告警三级分级（2026-08-24，codex 审计降噪改造）─────────────────────────────
+# 背景：alert_state.json 59 条告警 54 条 recovered（91.5% 自愈率），大部分推送是瞬时网络
+# 抖动而非真实故障，轰炸稀释真故障敏感度。三级路由（冻结契约：只减假警报，critical 真故
+# 障仍即时可达用户，行为对照表见 docs/alert-tier-refactor-20260824.md）：
+#   critical = 真故障（服务宕/数据丢失/卡死/最终失败）→ 立即邮件+飞书 alert 群（=原 severe 行为）
+#   warning  = 高概率自愈类（瞬时超时抖动/rebase 中间态/smoke curl 抖动/监控交接类）
+#              → 写 buffer，30min 聚合一批由 flush_warning_batch 发出（schedule_monitor/
+#              monitor_72h 每轮尾部调用；满窗口条目合并一封，绝不丢条目）
+#   info     = 单次瞬时抖动自愈/已确认项的重复提醒 → 只记 dashboard（info_log.jsonl），不推送
+TIER_CRITICAL = "critical"
+TIER_WARNING = "warning"
+TIER_INFO = "info"
+WARNING_BUFFER_FILE = ALERTS_DIR / "warning_buffer.jsonl"
+INFO_LOG_FILE = ALERTS_DIR / "info_log.jsonl"
+WARNING_BATCH_WINDOW = 1800  # 30min 聚合窗口（秒）
+
 
 def _feishu_backoff(attempt: int) -> float:
     """指数退避：attempt=0->1s, 1->3s, 2->7s。返回 sleep 秒数。"""
@@ -1036,15 +1052,217 @@ Agent：{agent_name}
     return results
 
 
+def _append_jsonl(path: Path, rec: dict) -> None:
+    """jsonl 追加（flock 防并发交错；schedule_monitor 15min / monitor_72h 30min 错峰，
+    同刻概率低但 flock 保险）。失败只 print 不抛（分级降噪绝不反噬主告警链路）。"""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        import fcntl
+        with open(path, "a", encoding="utf-8") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            fcntl.flock(f, fcntl.LOCK_UN)
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify] jsonl 写入失败 {path.name}：{e}", file=sys.stderr)
+
+
+def _read_jsonl(path: Path) -> list[dict]:
+    """读 jsonl 全部行；文件不存在/解析失败返回 []（fail-open 不丢推送）。"""
+    if not path.exists():
+        return []
+    out = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify] jsonl 读取失败 {path.name}：{e}", file=sys.stderr)
+    return out
+
+
+def log_info(subject: str, detail: str = "") -> bool:
+    """info 级：只记 dashboard（data/alerts/info_log.jsonl），不推送任何渠道。
+
+    用途：单次瞬时抖动自愈 / acknowledged 窗口内的重复提醒。供排查与页面展示；
+    文件增长控制：>2000 行时截断保留最近 1000 行（dashboard 是滚动日志非审计账本）。
+    """
+    rec = {"ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "subject": subject}
+    if detail:
+        rec["detail"] = str(detail)[:500]
+    _append_jsonl(INFO_LOG_FILE, rec)
+    # 截断防无限增长（best-effort）
+    try:
+        lines = INFO_LOG_FILE.read_text(encoding="utf-8").splitlines()
+        if len(lines) > 2000:
+            INFO_LOG_FILE.write_text(
+                "\n".join(lines[-1000:]) + "\n", encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+    print(f"[notify][info] 记 dashboard 不推送：{subject}", file=sys.stderr)
+    return True
+
+
+def defer_warning(subject: str, body: str, from_prefix: str | None = None) -> bool:
+    """warning 级：写入聚合 buffer（warning_buffer.jsonl），等 flush_warning_batch 批发。
+
+    不直接推送——由 schedule_monitor/monitor_72h 每轮尾部调 flush_warning_batch()，
+    满 WARNING_BATCH_WINDOW(30min) 的条目聚合成一封发出（高概率自愈类延迟可达用户可接受，
+    换取瞬时抖动不轰炸）。
+    """
+    _append_jsonl(WARNING_BUFFER_FILE, {
+        "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "subject": subject,
+        "body": str(body)[:3000],
+        "from_prefix": from_prefix or "[告警·聚合]",
+    })
+    print(f"[notify][warning] 入聚合 buffer（30min 批发）：{subject}", file=sys.stderr)
+    return True
+
+
+def flush_warning_batch(dry_run: bool = False) -> dict:
+    """把 buffer 中满 30min 窗口的 warning 条目聚合成一封发出（未满窗口的留下轮）。
+
+    返回 {"sent_batch": bool, "n_due": int, "n_remaining": int}。
+    - due 条目全部合并为一条消息（标题 N 条聚合 + 正文逐条列出，内容一条不少——
+      与 §23.10「拆条拼接不精简」同精神），走 critical 同款渠道（邮件+飞书 alert 群），
+      from_prefix 默认 [告警·聚合]。
+    - 发送成功才清掉已发条目（失败留下轮重试，宁可重发不丢告警）。
+    - dry_run=True 只打印不发不清（自验用）。
+    - 竞态安全（2026-08-24 reviewer P2）：读取阶段在 flock 内做快照并记下文件字节数
+      pre_offset；发送期间（邮件+飞书重试可达秒级）其他进程 defer_warning 追加的条目
+      全部落在 pre_offset 之后，重写阶段只回写 keep + pre_offset 之后的新增行，
+      不再整文件覆盖——旧实现 open("w") 先 truncate 后才 flock，窗口内新追加条目被静默清掉。
+    """
+    import fcntl
+    try:
+        with open(WARNING_BUFFER_FILE, "rb") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            raw = f.read()
+            fcntl.flock(f, fcntl.LOCK_UN)
+    except FileNotFoundError:
+        return {"sent_batch": False, "n_due": 0, "n_remaining": 0}
+    except OSError as e:
+        print(f"[notify] warning buffer 读取失败：{e}", file=sys.stderr)
+        return {"sent_batch": False, "n_due": 0, "n_remaining": 0}
+    pre_offset = len(raw)  # 锁内快照字节数（行边界；append 单行持锁写入）
+    entries = []
+    for line in raw.decode("utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue  # 坏行跳过（fail-open 不丢推送，同 _read_jsonl 口径）
+    if not entries:
+        return {"sent_batch": False, "n_due": 0, "n_remaining": 0}
+    now = datetime.now()
+    due, keep = [], []
+    for e in entries:
+        try:
+            ts = datetime.strptime(str(e.get("ts", "")), "%Y-%m-%d %H:%M:%S")
+            (due if (now - ts).total_seconds() >= WARNING_BATCH_WINDOW else keep).append(e)
+        except ValueError:
+            due.append(e)  # 时间戳坏行按到期处理（不静默积压）
+    if not due:
+        return {"sent_batch": False, "n_due": 0, "n_remaining": len(keep)}
+    n = len(due)
+    subject = f"[告警·聚合] {n}条 warning 汇总 {now.strftime('%m-%d %H:%M')}"
+    esc = lambda s: str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")  # noqa: E731
+    body = "<hr>".join(
+        f"<b>{esc(e.get('ts', ''))} {esc(e.get('subject', ''))}</b><br>{esc(e.get('body', ''))}"
+        for e in due
+    )
+    prefix = str(due[0].get("from_prefix") or "[告警·聚合]")
+    results = send(subject, body, severe=False, dry_run=dry_run,
+                   from_prefix=prefix, feishu_group="alert")
+    sent = any(results.values())
+    if sent and not dry_run:
+        # 发送成功才清已发条目。不整文件覆盖：flock 内重读当前内容，pre_offset 之后的
+        # 字节 = 发送期间其他进程 defer_warning 追加的新条目，原样保留（下轮照发）；
+        # truncate 在锁内做，杜绝旧实现「先 truncate 后 flock」窗口丢条目。
+        # 不用 tmp+rename：rename 换 inode 后，阻塞在本文件 flock 上的 append 方
+        # 醒来会写到旧 inode（孤儿 fd），条目静默丢失——原地重写保住同一 inode，
+        # 与 _append_jsonl 的 flock-append 互斥语义一致，且持锁仅毫秒级。
+        try:
+            with open(WARNING_BUFFER_FILE, "rb+") as f:
+                fcntl.flock(f, fcntl.LOCK_EX)
+                cur = f.read()
+                tail = [ln for ln in cur[pre_offset:].splitlines() if ln.strip()]
+                out = b"".join(
+                    json.dumps(e, ensure_ascii=False).encode("utf-8") + b"\n"
+                    for e in keep
+                )
+                out += b"".join(ln.rstrip(b"\r") + b"\n" for ln in tail)
+                f.seek(0)
+                f.truncate()
+                f.write(out)
+                f.flush()
+                fcntl.flock(f, fcntl.LOCK_UN)
+        except Exception as e:  # noqa: BLE001
+            print(f"[notify] warning buffer 清理失败（下轮可能重发）：{e}", file=sys.stderr)
+    print(f"[notify][warning] 批发 {n} 条（剩余 {len(keep)} 条未满窗口）："
+          f"{'已发' if sent else '发送失败留待下轮'}", file=sys.stderr)
+    return {"sent_batch": sent, "n_due": n, "n_remaining": len(keep)}
+
+
+def send_tiered(subject: str, body: str, tier: str = TIER_CRITICAL,
+                dry_run: bool = False, from_prefix: str | None = None,
+                feishu_group: str | None = None,
+                reply_to_message_id: str | None = None) -> dict:
+    """三级分级统一入口（2026-08-24）。按 tier 路由：
+
+    - critical：立即全渠道（=send(severe=True)，真故障即时可达用户，冻结契约不变）
+    - warning：defer_warning 入 buffer，30min 聚合批发（调用方须在其监控循环尾部
+      定期调 flush_warning_batch() 完成实际发送）
+    - info：log_info 只记 dashboard 不推送
+
+    返回 dict 含 tier 字段便于调用方日志。未知 tier 按 critical 处理（fail-critical：
+    分级配置错误时宁多勿漏，绝不因降级逻辑吞掉真故障）。
+    """
+    if tier not in (TIER_CRITICAL, TIER_WARNING, TIER_INFO):
+        # fail-critical（2026-08-24 reviewer P2 兑现本 docstring 承诺）：tier 不在
+        # 白名单一律按 critical 立即全渠道发送，并 log 一行便于暴露拼写错误调用方；
+        # 空/None 视为缺省 critical 不打告警（与旧「缺省走 send()」向后兼容语义一致）。
+        if tier:
+            print(f"[notify][tier] 未知 tier={tier!r} 按 critical 处理"
+                  f"(fail-critical 宁多勿漏)", file=sys.stderr)
+        tier = TIER_CRITICAL
+    if tier == TIER_INFO:
+        log_info(subject, body)
+        return {"tier": tier, "email": False, "telegram": False, "feishu": False, "info_logged": True}
+    if tier == TIER_WARNING:
+        defer_warning(subject, body, from_prefix=from_prefix)
+        return {"tier": tier, "email": False, "telegram": False, "feishu": False, "deferred": True}
+    res = send(subject, body, severe=(tier == TIER_CRITICAL), dry_run=dry_run,
+               from_prefix=from_prefix, feishu_group=feishu_group,
+               reply_to_message_id=reply_to_message_id)
+    return {"tier": tier, **res}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="update_all 监控通知（邮件 + Telegram + alerts 文件）"
     )
-    parser.add_argument("subject", help="主题（--agent-done 模式下为结论摘要）")
+    parser.add_argument("subject", nargs="?", default="",
+                        help="主题（--agent-done 模式下为结论摘要；--flush-warnings 模式可省略）")
     parser.add_argument("body", nargs="?", default="", help="正文（HTML，邮件原样发送；Telegram 转纯文本）。"
                         "--agent-done 模式下可省略")
     parser.add_argument("--severe", action="store_true",
                         help="严重标记：用于 write_alert 语义（2026-07-20 改造：不再修改 subject 前缀）")
+    parser.add_argument("--tier", choices=[TIER_CRITICAL, TIER_WARNING, TIER_INFO], default=None,
+                        help="告警三级分级（2026-08-24）：critical=立即邮件+飞书 alert 群；"
+                             "warning=入 buffer 由 --flush-warnings 30min 聚合批发；"
+                             "info=只记 dashboard(data/alerts/info_log.jsonl) 不推送。"
+                             "缺省=走原 send() 行为（向后兼容，既有调用方零改动）")
+    parser.add_argument("--flush-warnings", action="store_true",
+                        help="批发 warning 聚合 buffer 中满 30min 窗口的条目（schedule_monitor/"
+                             "monitor_72h 每轮尾部调用），发送成功才清已发条目")
     parser.add_argument("--alert-issue", help="写 data/alerts/latest.md，值为问题一句话")
     parser.add_argument("--alert-log", help="配合 --alert-issue，日志文件路径")
     parser.add_argument("--agent-done", metavar="NAME", default=None,
@@ -1068,6 +1286,23 @@ def main(argv: list[str] | None = None) -> int:
                              "（body 加 reply_to_message_id，回复挂靠在原消息下方，"
                              "任务状态可挂靠追踪）。仅飞书应用模式生效，email/telegram 忽略")
     args = parser.parse_args(argv)
+
+    # warning 聚合批发模式（schedule_monitor/monitor_72h 每轮尾部调用）
+    if args.flush_warnings:
+        r = flush_warning_batch(dry_run=args.dry_run)
+        print(f"[notify] flush-warnings: {r}", file=sys.stderr)
+        return 0
+
+    # 三级分级路由（--tier 显式指定时走分级入口；缺省保持原 send() 行为向后兼容）
+    if args.tier:
+        res = send_tiered(args.subject, args.body, tier=args.tier, dry_run=args.dry_run,
+                          from_prefix=args.from_prefix, feishu_group=args.feishu_group,
+                          reply_to_message_id=args.reply_to_message_id)
+        print(f"[notify][tier={args.tier}] 路由完成：{res}", file=sys.stderr)
+        # critical 且带 --alert-issue 仍写 latest.md（与原 severe 语义对齐）
+        if args.tier == TIER_CRITICAL and args.alert_issue:
+            write_alert(args.alert_issue, args.body or args.subject, log_path=args.alert_log)
+        return 0
 
     # agent 完成通知模式：subject=结论摘要，直达用户绕过主控队列
     if args.agent_done:
