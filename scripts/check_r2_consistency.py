@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import ssl
 import sys
 import urllib.request
@@ -28,6 +29,14 @@ except Exception:
     _SSL_CTX = ssl.create_default_context()  # 兜底：系统证书
 
 LOCAL_DATA = Path(__file__).resolve().parent.parent / "static-site" / "data"
+
+# overfit 条目 local 双树探测的默认树序(B件 #57, 2026-08-25; 权威树优先):
+#   权威树=trade-data(overfit_monitor.sh REPO 打点后即时 upload_r2 上传源);
+#   git 渠道树=trade(deploy.sh rsync 兜底副本, 相对新打点滞后 ~20h 属常态非异常)。
+OVERFIT_LOCAL_TREES = [
+    "/Users/linhuichen/code/trade-data",
+    "/Users/linhuichen/code/trade",
+]
 TIMEOUT = 12
 # track_score 跨源容差（同 build 产物应完全一致，留 0.01 防 JSON float repr 误差）
 FLOAT_TOLERANCE = 0.01
@@ -149,30 +158,42 @@ def _values_equal(a: object, b: object) -> bool:
     return a == b
 
 
-def check_file(kind: str, local_rel: str, r2_url: str, cf_url: str, quiet: bool) -> list[str]:
-    """比对单文件三版本指纹，返回问题行列表。"""
-    problems: list[str] = []
-    local_data, lerr = _load_local(LOCAL_DATA / local_rel)
-    r2_data, r2err = _fetch_json(r2_url)
-    cf_data, cferr = _fetch_json(cf_url)
+def _local_candidates(kind: str, local_rel: str) -> list[Path]:
+    """local 校验候选路径(有序, 权威优先)。
 
-    sources = {"local": (local_data, lerr), "R2": (r2_data, r2err), "CF": (cf_data, cferr)}
-    # 网络错误单独报
-    for sname, (_, e) in sources.items():
-        if e:
-            problems.append(f"[{kind}] {sname} 拉取失败: {e}")
+    病灶(#57 P2-B): overfit 产物权威树=trade-data(打点后即时 upload_r2, 不经 deploy.sh
+    rsync 同步到 git 渠道树 trade), 固定单树口径(resolve 到脚本所在树=trade 渠道树)在每天
+    21:40 打点后 ~20h 必假阳(local 旧 vs R2 新)。
+    选型=双树任一与远端一致即 PASS(方案①强化), 不选「砍 local 只比 R2/CF」(方案②):
+    「local 权威树 vs R2」是抓 R2 被旧库覆盖事故的唯一探针(2026-08-19 手动忘带 REPO 致
+    R2 被 trade 侧旧库整体覆盖), 砍掉 local=把刚补上的盲区再挖开。
+    树序: REPO env > GIT_REPO env > 默认权威树 > 默认渠道树(env 缺省回落现值, 行为不变)。
+    非 overfit 条目维持单树旧行为(走 deploy 链, local 与 R2 同批快照无此病灶)。
+    """
+    if not kind.startswith("overfit"):
+        return [LOCAL_DATA / local_rel]
+    seen: set[Path] = set()
+    out: list[Path] = []
+    for tree in (
+        os.environ.get("REPO"),
+        os.environ.get("GIT_REPO"),
+        *OVERFIT_LOCAL_TREES,
+    ):
+        if not tree:
+            continue
+        cand = (Path(tree) / "static-site" / "data" / local_rel).resolve()
+        if cand not in seen:
+            seen.add(cand)
+            out.append(cand)
+    return out or [LOCAL_DATA / local_rel]
 
-    fps = {sname: _fingerprint(d, kind) for sname, (d, e) in sources.items() if not e}
-    if len(fps) < 2:
-        if not quiet:
-            print(f"  ~ {kind}: 可用源 {list(fps)} < 2，跳过比对")
-        return problems
 
-    # 比对所有 key（union）
-    all_keys = set()
+def _mismatches(fps: dict[str, dict[str, object]]) -> tuple[list[str], int]:
+    """跨源指纹 union key 逐项比对，返回 (不一致描述行, 参比指纹项数)。空列表=一致。"""
+    all_keys: set[str] = set()
     for fp in fps.values():
         all_keys.update(fp.keys())
-    mismatches = []
+    mismatches: list[str] = []
     for key in sorted(all_keys):
         vals = {sname: fp.get(key) for sname, fp in fps.items()}
         present = {s: v for s, v in vals.items() if v is not None}
@@ -183,15 +204,84 @@ def check_file(kind: str, local_rel: str, r2_url: str, cf_url: str, quiet: bool)
             if not _values_equal(ref_v, v):
                 mismatches.append(f"{key}: {dict(present)}")
                 break
+    return mismatches, len(all_keys)
 
-    if mismatches:
-        problems.append(f"[{kind}] 三版本 track_score/top1 不一致: {'; '.join(mismatches[:5])}")
+
+def check_file(kind: str, local_rel: str, r2_url: str, cf_url: str, quiet: bool) -> tuple[list[str], list[str]]:
+    """比对单文件多版本指纹，返回 (问题行, WARN 行)。
+
+    WARN(P1-b review 2026-08-25): 「primary 权威树滞后、后续候选与远端一致」判据仍 PASS
+    (正常打点窗口合法滞后不误伤), 但该形态=2026-08-19 R2 被渠道树旧库覆盖的事故同款,
+    唯一探针不可静默——独立 WARN 行+汇总段重复计数, 不进 problems 不阻断。
+    """
+    problems: list[str] = []
+    r2_data, r2err = _fetch_json(r2_url)
+    cf_data, cferr = _fetch_json(cf_url)
+    # 远端网络错误单独报
+    for sname, e in (("R2", r2err), ("CF", cferr)):
+        if e:
+            problems.append(f"[{kind}] {sname} 拉取失败: {e}")
+    remote_fps = {
+        sname: _fingerprint(d, kind)
+        for sname, d in (("R2", r2_data), ("CF", cf_data))
+        if d is not None
+    }
+
+    loaded: list[tuple[Path, object, str | None]] = [
+        (cand, *_load_local(cand)) for cand in _local_candidates(kind, local_rel)
+    ]
+    # local 全候选不可读: 单独报(保留 local 维度审计), 远端仍照比(与旧版行为一致)
+    if loaded and all(err for _, _, err in loaded):
+        for cand, _, err in loaded:
+            problems.append(f"[{kind}] local({cand}) 拉取失败: {err}")
+
+    passed: tuple[int, Path] | None = None      # (指纹项数, 命中路径)
+    lagged_primary: Path | None = None          # 先于命中路径出现的不一致候选(滞后树)
+    mismatch_report: str | None = None          # 全候选不一致时的首个报告
+    for cand, data, err in loaded:
+        if err:
+            continue
+        fps = dict(remote_fps)
+        fps["local"] = _fingerprint(data, kind)
+        if len(fps) < 2:
+            continue  # 可用源 <2 无从比对(网络问题已单独报)
+        mm, n_keys = _mismatches(fps)
+        if not mm:
+            passed = (n_keys, cand)
+            break
+        if lagged_primary is None:
+            lagged_primary = cand
+            mismatch_report = f"[{kind}] 三版本 track_score/top1 不一致: {'; '.join(mm[:5])} (local={cand})"
+
+    warnings: list[str] = []
+    if passed is not None:
+        n_keys, cand = passed
+        line = f"  ✓ {kind}: 三版本一致 ({n_keys} 项指纹)"
+        if lagged_primary is not None:
+            line += f" [primary({lagged_primary}) 滞后, 以 {cand} 为 local 权威源]"
+            warnings.append(
+                f"[{kind}] primary({lagged_primary}) 滞后于远端(local 权威={cand})"
+                "——若非刚打点窗口期(21:40 后短窗口属合法滞后), 请人工核查是否渠道树旧库覆盖事故"
+            )
+            if not quiet:
+                print(line)
+                print(
+                    f"  ⚠️ WARN {kind}: primary 树滞后于远端, 若非刚打点窗口期"
+                    "请人工核查是否覆盖事故(判据仍 PASS, 汇总段有计数)"
+                )
+        else:
+            if len(loaded) > 1 and not quiet:
+                line += f" [local={cand}]"
+            if not quiet:
+                print(line)
+    elif mismatch_report is not None:
+        problems.append(mismatch_report)
         if not quiet:
-            print(f"  ✗ {kind}: {len(mismatches)} 项不一致")
+            print(f"  ✗ {kind}: local 候选均与远端不一致")
     elif not quiet:
-        print(f"  ✓ {kind}: 三版本一致 ({len(all_keys)} 项指纹)")
+        print(f"  ~ {kind}: 可用源不足，跳过比对")
 
-    return problems
+    return problems, warnings
 
 
 def main() -> int:
@@ -207,8 +297,19 @@ def main() -> int:
         print()
 
     all_problems: list[str] = []
+    all_warnings: list[str] = []
     for kind, local_rel, r2_url, cf_url in FILES:
-        all_problems.extend(check_file(kind, local_rel, r2_url, cf_url, args.quiet))
+        probs, warns = check_file(kind, local_rel, r2_url, cf_url, args.quiet)
+        all_problems.extend(probs)
+        all_warnings.extend(warns)
+
+    # P1-b: WARN 汇总段重复计数(「primary 滞后靠后续候选救回」不阻断但必须醒目可见,
+    # 防 8-19 R2 被渠道树覆盖类事故在唯一探针处静默滑过)
+    if all_warnings:
+        print()
+        print(f"=== {len(all_warnings)} 条 WARN(primary 树滞后, 判据仍 PASS) ===")
+        for w in all_warnings:
+            print(f"  ⚠️ {w}")
 
     if all_problems:
         print()

@@ -20,9 +20,11 @@
 # 日志: data/logs/overfit_monitor_launchd.log
 set -u
 
-PY=/Users/linhuichen/code/trade-data/.venv/bin/python
-REPO=/Users/linhuichen/code/trade-data
-TRADE_REPO=/Users/linhuichen/code/trade   # git 渠道树(mjs 校验的前端源码所在)
+# 树路径 env 化(P3-D 2026-08-25): 缺省回落现值行为不变; TRADE_REPO 更名 GIT_REPO
+# 与全站惯例一致(intraday_snapshot/self_heal/update_all/staticdata_sync/push_schedule_stats)。
+REPO="${REPO:-/Users/linhuichen/code/trade-data}"
+GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"   # git 渠道树(mjs 校验的前端源码所在)
+PY="${PY:-$REPO/.venv/bin/python}"
 LOGDIR=$REPO/data/logs
 mkdir -p "$LOGDIR"
 cd "$REPO"
@@ -73,7 +75,7 @@ fi
 if [ "$RC" -eq 0 ]; then
   if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ]; then
     RECENT_JSON="$REPO/static-site/data/overfit_monitor.json" \
-      "$NODE_BIN" "$TRADE_REPO/scripts/check_overfit_recent_parity.mjs" >> "$LOG" 2>&1
+      "$NODE_BIN" "$GIT_REPO/scripts/check_overfit_recent_parity.mjs" >> "$LOG" 2>&1
     RECENT_RC=$?
     if [ "$RECENT_RC" -ne 0 ]; then
       echo "==== overfit_monitor 组集一致性校验 FAIL rc=$RECENT_RC ====" >> "$LOG"
@@ -88,4 +90,24 @@ if [ "$RC" -eq 0 ]; then
 fi
 echo "=== overfit_monitor.sh 结束 $(date '+%F %T') 退出码=$RC ===" >> "$LOG"
 echo "==== overfit_monitor 结束 rc=$RC $(date '+%F %T') ====" >> "$LOG"
+# 记账自刷(P1-a review 修正 2026-08-25): 置于两条「结束行」之后、exit 之前——
+# gen 解析日志按「开始+结束」对配对 exit/dur, 若在结束行之前跑, 本轮日志只有开始行,
+# 当天 overfit 行记成 exit=None/dur=None(reviewer 实证 04:11 那次)。
+# 同序先例=update_all.sh L289「在'结束'行后调用...正确配对当前任务 exit/dur, 不再 pending null」。
+# 打点+双校验全绿(rc=0)才刷; gen 失败跳推送/push 失败仅告警, 均不改变打点 rc(记账非打点职责);
+# 打点失败分支不刷——记账如实反映「未跑成」。
+if [ "$RC" -eq 0 ]; then
+  echo "---- 自刷 schedule_stats 记账 ----" >> "$LOG"
+  "$PY" "${REPO}/scripts/gen_schedule_stats.py" >> "$LOG" 2>&1
+  GEN_RC=$?
+  if [ "$GEN_RC" -ne 0 ]; then
+    echo "⚠ gen_schedule_stats.py 失败(rc=${GEN_RC}), 跳过推送待下次任务刷新" >> "$LOG"
+  else
+    if bash "${REPO}/scripts/push_schedule_stats.sh" >> "$LOG" 2>&1; then
+      echo "==== schedule_stats 自刷推送 PASS ====" >> "$LOG"
+    else
+      echo "⚠ push_schedule_stats 失败(明细见其自身日志), schedule_stats 待下次任务刷新" >> "$LOG"
+    fi
+  fi
+fi
 exit $RC
