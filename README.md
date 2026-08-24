@@ -103,6 +103,16 @@
 - 🔹 **每日 AI 速递** — 收盘一份白话解读直发邮箱：多角色辩论 + 方向/区间三层命中回填 + 自成长反思校准 + 新闻面 + 语音播报 + 把握度，每天知道自己的判断准不准（详见 [`docs/ai-predict/daily-brief-research.md`](docs/ai-predict/daily-brief-research.md)、[`docs/ai-predict/ai-predict-self-growth.md`](docs/ai-predict/ai-predict-self-growth.md)、[`docs/ai-predict/ai-predict-inject-research.md`](docs/ai-predict/ai-predict-inject-research.md)）
 - 🔹 **场外基金评分排行（#79 方案C 全量化）** — 对全市场约 2.7 万只场外公募基金（申赎型）按「6 维业绩/风险调整/回撤/稳定性/规模流动性/费率 + 5 风险指标夏普/索提诺/卡玛/信息比率/Alpha + 经理 6 维 + 半凯利仓位 + 市场乘数」综合评分；登录用户经 CF Workers + D1 服务端分页查询全市场（每页 50，支持排序/搜索/类型筛选），点击任一基金卡片弹出「决策头/凯利仓位/六维雷达/风险与经理六维/基础信息」5 区块详情；API 不可用时自动降级 Top100 兜底数据不白屏。数据源覆盖 akshare 基金基础信息（公司/经理/费率/规模等）
 
+#### v1.1.6 前置批次（2026-08-24 合入）
+
+- 🔹 **has_track 口径三源统一** — 「有跟踪ETF」归类实现 bug 根修：初版只装 none 漏装 null，补装后 UI 文案/产品文档/代码三源对齐；实测成交基笔 1,604→1,982（+378，null 全部进卡，九模式同值），勘误与复核见 [`docs/kelly/analysis/has-track-null-count-audit-20260825.md`](docs/kelly/analysis/has-track-null-count-audit-20260825.md)
+- 🔹 **X1 键扩围 none+null 整卡** — NEW14+1·15键可选档的「整剔有跟踪ETF象限」从只剔 none 扩为 none+null 整卡，与凯利区 etf_has_track 卡 / 首页筛选档4口径完全统一；扩围前宣传数字已作废标注，正式穷举回测待重算
+- 🔹 **北证50 兜底入样关停** — board_etf_map 空数组指数不再从冻结表 prepend 兜底（[`config/universe_rules.yaml`](config/universe_rules.yaml) 显式登记），兜底唯一实例 bj50→159543 为全站最弱关联（3.9 分/近一年反向 49pp）；新信号不再兜底入样，738 笔历史残留交易待下次重跑回测自然清除
+- 🔹 **信号对错判定窗统一 N 日到期冻结窗（#46）** — 全站信号至今盈亏/对错统计统一「N 交易日到期冻结」口径（根治卖类近半错被 V 回冤枉/买类四成水分的双向失实），默认 10 日可切 15 日（前端 `_sigWinN` 一键切换，w15 字段全量产出）
+- 🔹 **大 JSON 瘦身** — etf_score_list hold/buy/sell 三分件去 indent 改 compact 序列化，hold 实测 15.6MB→7.89MB 省 49.5%（round-trip 解析结构零变化）；大文件 fetch 超时批量补齐至 60s
+- 🔹 **机检路径根修** — `check_universe_alignment.py` trades 校验改 static-site/data 活产物优先 + data/ 回退，根治「断言3 长期校验旧副本」的机检盲区
+- 🔹 **外部 reviewer（codex）协作机制上线** — git ref 通道发起独立交叉验证（外部沙箱只读盲审，防内部结论锚定），两轮审计 PASS 报告归档 [`docs/codex-reviews/`](docs/codex-reviews/)（协议见 [`docs/codex-collab-protocol.md`](docs/codex-collab-protocol.md)）
+
 ### C. 集成与体验
 > 让数据不止在看板里：主动推送、移动端、多主题随取随用。
 
@@ -238,6 +248,10 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 - 内容生产线：`每日 AI 速递` 的预测编排受 **TradingAgents-CN/原版 TradingAgents 多智能体辩论架构**启发（多角色辩论收敛）——6 个角色子 prompt（技术/资金/情绪/风控/研究员/主编）各自只注入对应数据域、独立分析后互相校验/辩驳，再由主编合成白话解读（不做交易决策角色，合规）。**但预测所用的方向锚信号胜率、因子权重为自研 8 年数据挖掘成果（见 [`docs/ai-predict/ai-predict-direction-market-winning-signals-20260820.md`](docs/ai-predict/ai-predict-direction-market-winning-signals-20260820.md)），非抄 TradingAgents**；TA 仅提供多角色辩论编排的组织形式启发。
 
 > 工程规范与协作机制详见 [`CLAUDE.md`](CLAUDE.md)（§2 监工 loop / §11 通知兜底 / §15 回归 / §16 agent 画像）。
+
+### 🤖 外部交叉验证 reviewer（codex CLI）
+
+**用途**：版本发布前的**外部独立盲审**——经 [OpenAI codex CLI](https://github.com/openai/codex) 以只读沙箱身份做交叉验证，防「内部实施↔内部 review 同源盲区」。协作机制：Claude 主控调 `scripts/codex-review-request.sh` 把审计范围打包成 git ref（`refs/codex/req/<id>`）→ codex 在独立环境读仓库执行影响面 grep / smoke 验证 / 口径交叉核对 → 报告 JSON 回传 `/tmp/codex-reports/` → 主控校验归档至 [`docs/codex-reviews/`](docs/codex-reviews/)。codex 不 commit、不 push、不改源码；2026-08-24 首轮 v1.1.4→v1.1.6 前置两轮审计均 PASS，揪出 QTH 全史快照前视取舍、tester skill 缺规范挂接等内部 review 未覆盖项。协议全文见 [`docs/codex-collab-protocol.md`](docs/codex-collab-protocol.md)。
 
 ### 🧠 AI 预测与解读（DeepSeek）
 

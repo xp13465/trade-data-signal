@@ -1,0 +1,52 @@
+{
+  "request_id": "rev-20260824-001",
+  "verdict": "PASS",
+  "summary": "v1.1.4→aabafdcc4 深度交叉验证（第二轮全面复查）。九项功能面逐一独立核查，发现3个Claude内部review未覆盖的问题：①bj50兜底关停后1476笔历史残留交易仍参与回测计算（has_track卡n=1982中含41笔bj50），止血批预期落空——request已声明本轮暂缓处置合理但影响面需明确标注；②X1扩围数字「8099→~9962去重笔」与实际产物数据不符（实际has_track G模式=1982笔/模式×9模式=17838行，全站唯一信号=7619笔），request中的预期值可能引用了不同口径或中间版数据；③QTH分位阈值为全史快照非expanding窗口（已知设计取舍）。其余六项检查通过。",
+  "issues": [
+    {
+      "severity": "P2",
+      "file": "static-site/data/signal_kelly_trades.json",
+      "description": "bj50北证50兜底关停后，trades文件仍有1476行历史兜底残留（unique pair=bj50→159543），其中has_track/G卡含41笔。这些信号仍在参与回测统计（胜率/盈亏比/凯利仓位建议），但按新universe规则bj50应属不入样。config注释明写「暂未列入match——列入即触发assertion3 FAIL」，属于已知债务而非遗漏。但如果用户查看has_track卡的回测结果，其中包含已被判定为「不应有ETF映射」的bj50信号，可能导致对卡片数据的误解。建议在TASKS.md登记为高优先级技术债，下次重跑回测时自然清除。",
+      "evidence": "trades G mode: bj50 trades=41; unique (index_id,etf_code)=(bj50,159543); universe_rules.yaml L60 注释「暂未列入 match」"
+    },
+    {
+      "severity": "P2",
+      "file": "scripts/loss_rules.py QTH",
+      "description": "QTH分位阈值为全史快照(mine10_features.json 2026-08-22版)，非expanding/滚动窗口。特征层(rolling_pctile win=756)本身无前视，但阈值层用全史数据定固定值对所有时间点统一应用=样本内优化。§5.1⑥要求expanding/rolling。NEW14是挖掘产出非实时系统，实际影响有限，但如果未来用于实盘择时需改用expanding窗口。",
+      "evidence": "loss_rules.py L42注释「全史分位」; mine10_features.py L84 rolling_pctile(win=756)仅用于特征计算"
+    },
+    {
+      "severity": "P2",
+      "file": "docs/kelly/analysis/has-track-caliber-fix-plan-20260824.md",
+      "description": "request requirement中写「has_track卡从8099扩到~9962去重笔」，但实际trades数据显示has_track/G模式仅1982笔(none:1604+null:378)。8099/9962可能是扩围前的不同计数方式（如所有象限去重信号数7619或其他口径），与当前产物数据不匹配。如果这是修复方案文档的预估而非实测值，建议标注口径差异防止后续误读。",
+      "evidence": "trades etf_has_track/G n=1982; 全站唯一信号=7619; request notes写「has_track卡n=1982(null补装)」与此一致，但fix-plan文档写8099→9962"
+    },
+    {
+      "severity": "P3",
+      "file": "static-site/lab.js:9338",
+      "description": "new15 tooltip扩围前数字标为「作废待重算」，正确诚实标注。正式穷举回测重算完成后需同步更新并移除标注。",
+      "evidence": "lab.js new15 tip含⚠诚实标注+作废声明"
+    }
+  ],
+  "impact_surface": [
+    "worker/auth.js 留言箱+Resend邮件通知(新增92行): 安全审查通过,escapeHtml防XSS,AbortSignal.timeout(5000)防挂起,try-catch全包不影响主流程 ✓",
+    "bj50兜底: universe_rules已加34个空数组显式排除,queries.py _align_home_top1_to_backtest已收窄不prepend ✓; 但trades残留1476笔未清(P2)",
+    "信号冻结窗10→15: app.js _sigWinN()切换正确,since_settled_w15字段存在,波段减仓w5修正到位(P3-2) ✓",
+    "行业卡片盘中计算: prev_close×(1+pct/100)+junction修复代码存在 ✓",
+    "全球跑马灯纳斯达克100(us_ndx): 前端名称/代码/特殊强化样式已添加 ✓",
+    "AI降亏NEW14默认: check_fade_keys_alignment六项全PASS + check_loss_rules_vs_mining三层全PASS ✓",
+    "has_track归类: 后端None→has_track + loss_rules X1=[none,null] + 前端筛选档4 + 公示文案 四源统一 ✓",
+    "数据完整性: 32ok/0warn/1fail(a_fund_north_quarterly=DB schema列名差异非权限问题,DB内数据正常date=20260630)"
+  ],
+  "smoke_results": {
+    "键集跨端一致性": "check_fade_keys_alignment 六项全PASS",
+    "谓词全等校验": "check_loss_rules_vs_mining 三层全PASS",
+    "has_track数据验证": "G模式 n=1982 = none:1604 + null:378 与预期吻合",
+    "bj50残留审计": "发现1476笔残留含在回测统计中(P2)",
+    "X1扩围数字核验": "request预期~9962与实际1982/mode不符(P2)",
+    "浏览器测试": "Playwright启动失败(沙箱环境限制),无法验证前端交互",
+    "线上curl": "三站全部http_code=000(沙箱网络限制),无法验证线上部署状态",
+    "数据完整性脚本": "32ok/0warn/1fail(schema列名差异)"
+  },
+  "recommendation": "可打v1.1.6 tag。三个P2均为已知设计取舍或技术债而非新引入bug，不阻断发版。关键行动项：①bj50残留1476笔需在下一次重跑回测时自然清除并在TASKS.md登记；②X1扩围数字口径差异需澄清；③QTH全史快照作为已知取舍标注即可。浏览器测试和线上smoke因沙箱环境限制未能执行，这两项由Claude内部reviewer覆盖。"
+}

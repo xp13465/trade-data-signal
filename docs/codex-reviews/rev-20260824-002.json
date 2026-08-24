@@ -1,0 +1,28 @@
+{
+  "request_id": "rev-20260824-002",
+  "verdict": "PASS",
+  "summary": "增量审(v1.1.6 前最后合入三批纯文档/脚本)。①check_universe_alignment trades 路径根修：static-site/data 优先+data/ 回退，解决了断言3 长期校验旧副本的机检盲区。回退策略本身有风险（如果 static-site/data/ 文件被误删会静默回退到旧 data/），但当前场景下 static-site/data/ 是 gitignored 活产物、data/ 是 tracked 备份，两者同时存在时优先活产物是正确行为；建议后续加 mtime 对比或行数差异 WARN。②codex 协作协议 status+原子写入修订：request.sh 先清场再立 ref+必填校验，protocol.md 写入与清理规范，report.sh status 显示，governance E31 入档——四项全部到位。③has_track P0 教训全链落档：CLAUDE.md L44 入档、archive 原文补录零丢失等式修复(44条)、governance 回填 E25-E30+E31 共28条、四个 role skill 三源对照条款挂接(implementer:1处/reviewer:2处/researcher:1处/tester:0处——tester 缺挂接为 P3)。",
+  "issues": [
+    {
+      "severity": "P3",
+      "file": ".claude/skills/role-tester/SKILL.md",
+      "description": "§23.13 三源对照条款未挂接到 tester role skill。implementer/reviewer/researcher 各有1-2处引用，但 tester 为0。tester 作为机检执行者应知晓「机检备独立于被校验双方的参照锚点+业务守恒断言」这一要求。建议补一行引用。",
+      "evidence": "rg '三源|§23.13' .claude/skills/role-tester/SKILL.md → 0 hits"
+    }
+  ],
+  "impact_surface": [
+    "check_universe_alignment.py 断言3 (trades 路径已修正为活产物 ✓)",
+    "codex-review-request.sh (清场+校验逻辑 ✓)",
+    "docs/codex-collab-protocol.md (写入与清理规范 ✓)",
+    "scripts/codex-review-report.sh (status 显示 ✓)",
+    "CLAUDE.md §18 L44 (has_track P0 教训 ✓)",
+    "docs/archive/CLAUDE-errors-2026-08.md (44条零丢失 ✓)",
+    "docs/main-governance.md §18.1 (E25-E30+E31 回填 28条 ✓)"
+  ],
+  "smoke_results": {
+    "check_universe_alignment path": "static-site/data/ 优先 + data/ 回退 ✓",
+    "request.sh 必填校验": "status/request_id/repo/base/head/task_type/requirement 七字段 ✓",
+    "governance 条目计数": "过错16+经验11+E31=28 与头部声明一致 ✓"
+  },
+  "recommendation": "可合入 main。P3(tester skill 缺三源引用)不阻断，建议下次触碰 tester skill 时顺手补上。关于 request notes 提到的「回退策略风险」：我认为当前设计可接受——static-site/data/ 不存在意味着产物尚未生成，此时用 data/ 的 tracked 副本做基本校验比直接 FAIL 更有实用价值。但如果未来引入自动 deploy 链，建议改为 FAIL 以防静默校验旧数据。"
+}

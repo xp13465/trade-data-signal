@@ -774,11 +774,19 @@ def check_a_fund_north_quarterly() -> CheckResult:
     事故场景：季度闸门/采集异常（CCASS 爬取失败/写穿缓存被杀）致指标缺失或冻结时静默——
     前端北向季度指标卡显示旧值/空。期望最新行 date = 最近已发布季度末（季度末+20 天 < 今天），
     缺失或滞后 = FAIL（闸门每天 16:35/21:00 跳过、02:00 强制重算，正常应始终有当季行）。
+
+    2026-08-24 codex 外审误报教训（rev-20260824-001）：外部 reviewer 沙箱环境审计时段撞上
+    采集进程写库，connect 后查询报错走 except -> FAIL，而其手工 sqlite3 另一时刻能查到数据；
+    因 FAIL msg 不带库路径与异常语境，reviewer 无法对齐环境，臆断为「查询列名与 schema 不匹配」
+    （实证：metric_id 列名全历史正确，git log -S 'metric_name' 全历史 0 命中）。防再犯：
+    本项所有 FAIL/WARN/OK msg 一律带 db 路径，锁竞争类异常显式标注语境——机检失败必须
+    环境可对齐、根因可自解释，禁止让 reviewer 猜（§23.11 绝不静默精神）。
     """
     name = "a_fund_north_quarterly"
     db = _find_sentiment_db()
     if db is None:
-        return _warn(name, "sentiment.db 未找到，无法校验 a_fund_north_quarterly")
+        return _warn(name, "sentiment.db 未找到（trade-data 主库与 trade 镜像均不存在），"
+                     "无法校验 a_fund_north_quarterly")
     try:
         conn = sqlite3.connect(str(db), timeout=5.0)
         row = conn.execute(
@@ -788,21 +796,25 @@ def check_a_fund_north_quarterly() -> CheckResult:
         ).fetchone()
         conn.close()
     except Exception as e:
-        return _fail(name, f"读 sentiment.db 失败: {e}")
+        # 锁竞争专项提示：审计/机检若在采集时点（16:35/17:50/21:00 前后）撞写锁会到这，
+        # 属环境时点问题非数据缺失，msg 必须说清，防被误读为 schema/权限问题。
+        hint = "（库被占用，疑似采集进程持写锁，请避开采集时点重跑复验；非数据缺失/schema 问题）" \
+            if "locked" in str(e).lower() else ""
+        return _fail(name, f"读 sentiment.db 失败{hint}: db={db}: {e}")
 
     expected = _latest_published_quarter_end(datetime.now())
     if expected is None:
-        return _warn(name, "无法确定最近已发布季度末")
+        return _warn(name, f"无法确定最近已发布季度末 (db={db})")
     expected_str = expected.strftime("%Y%m%d")
 
     if not row:
         return _fail(name, f"daily_metric 无 a_fund_north_quarterly 非空行"
-                     f"（季度采集异常/闸门冻结，应至少存在最近已发布季度末 {expected_str}）")
+                     f"（季度采集异常/闸门冻结，应至少存在最近已发布季度末 {expected_str}；db={db}）")
     rdate, rval = row
     if rdate == expected_str:
-        return _ok(name, f"最新季度行存在 date={rdate} value={rval:.2f} 亿")
+        return _ok(name, f"最新季度行存在 date={rdate} value={rval:.2f} 亿 (db={db})")
     return _fail(name, f"最新季度行 date={rdate} != 期望 {expected_str}"
-                 f"（季度闸门/采集异常致指标滞后，应 02:00 强制重算补回）")
+                 f"（季度闸门/采集异常致指标滞后，应 02:00 强制重算补回；db={db}）")
 
 
 def _load_track_map(repo_data_dir: Path) -> tuple[dict | None, str | None]:

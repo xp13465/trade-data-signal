@@ -44,7 +44,7 @@ description: 测试 agent 专属规范 — 由 .claude/agents/tester.md 的 skil
 - **E16 check_data_integrity"该有的数据在不在"校验**:C 级任务防静默缺失 | archive:L75
 
 ### 新增教训(非 §18 归属拆分存量锚点)
-- **数据校验警惕「报告↔代码」互证闭环**(2026-08-24 has_track 口径 P0):报告与实现可能同源带 bug,两者一致≠正确;机检设计须含独立于被校验双方的参照锚点(UI 文案/产品文档/用户拍板记录);业务守恒断言(如卡数归零)不能只靠键集比对(实例:has_track 键集机检全绿但 14+1 卡不归零,用户肉眼发现)| 来源:archive:L44 + memory has-track-caliber-p0-reflection
+- **数据校验警惕「报告↔代码」互证闭环**(2026-08-24 has_track 口径 P0):报告与实现可能同源带 bug,两者一致≠正确;机检设计须含独立于被校验双方的参照锚点(UI 文案/产品文档/用户拍板记录);业务守恒断言(如卡数归零)不能只靠键集比对(实例:has_track 键集机检全绿但 14+1 卡不归零,用户肉眼发现)| 来源:archive:L44 + memory has-track-caliber-p0-reflection + CLAUDE.md §23.13
 
 ## 6. 相关文件指针
 - docs/smoke-checklist.md(P0/P1 主功能清单+数据校验规则,必读执行)

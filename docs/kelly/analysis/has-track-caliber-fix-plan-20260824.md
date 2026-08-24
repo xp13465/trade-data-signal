@@ -2,7 +2,7 @@
 
 日期:2026-08-24 | 角色:researcher(a8a3043)产出,主控搬运落档 | 关联:P0 反思 CLAUDE.md §23.13(memory has-track-caliber-p0-reflection)
 
-> **⚠️ 口径勘误(2026-08-25 复核,a90f 复核报告定论)**:本文档 §一「38,199 笔 / null 1,863 笔 / 卡 8,099→9,962」为**跨模式伪成交笔口径**(按 signal_date,index_id,signal,sell_date 去重,A-D 四档未触止盈同日卖出并 1 行,机制性放大约 5 倍),且为两版本数字混加——**公示与核对一律不采用**。正确口径=成交基笔(事件级 (signal_date,index_id,signal)):has_track 卡 **1,604→1,982(+378,null 全部进卡,九模式同值)**;X1 命中 G 模式 K1 重放层 **795→978(+183)**。复核全文见 `/tmp/agent-progress-null-count-audit.md`(含六口径对照表与逐位复现命令)。§一以下原文保留供溯源,数字以本勘误为准。
+> **⚠️ 口径勘误(2026-08-25 复核,a90f 复核报告定论)**:本文档 §一「38,199 笔 / null 1,863 笔 / 卡 8,099→9,962」为**跨模式伪成交笔口径**(按 signal_date,index_id,signal,sell_date 去重,A-D 四档未触止盈同日卖出并 1 行,机制性放大约 5 倍),且为两版本数字混加——**公示与核对一律不采用**。正确口径=成交基笔(事件级 (signal_date,index_id,signal)):has_track 卡 **1,604→1,982(+378,null 全部进卡,九模式同值)**;X1 命中 G 模式 K1 重放层 **795→978(+183)**。复核全文见 `/tmp/agent-progress-null-count-audit.md`,**已正式落档 [`docs/kelly/analysis/has-track-null-count-audit-20260825.md`](has-track-null-count-audit-20260825.md)(含六口径对照表与逐位复现命令);勘误 commit `0a85c3963`(2026-08-24 下午)**。§一以下原文保留供溯源,数字以本勘误为准;引用本文档数字的外部材料(rev-20260824-001 codex 报告 P2 等)一律以本勘误口径纠正。
 
 ## 〇、定案(实锤)
 
