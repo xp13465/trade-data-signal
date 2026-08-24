@@ -1134,11 +1134,26 @@ def overview(conn, cfg):
             _seen = (_s["date"], _iid, _s["signal"]) in _il_first
             _bt_late = _cov_ok and not _seen
         _s["_bt_late"] = _bt_late
-    # 信号至今盈亏（方案B后端算）：为每条信号算 since_return（至今涨跌%）+ since_correct（对错）。
+    # 信号对错判定（2026-08-24 用户拍板「N交易日到期冻结窗」，替代原"至今"口径）：
+    #   为每条信号算 since_return（至今涨跌%，纯盈亏展示不变）+ 各档窗口对错。
     # 缓存 {index_id: {date: close/value}} 避免 N+1（同 index_id 多信号只查一次）。
     # 用传入 conn 查（不调 normalize.load_* 避免新建连接，遵守模块无状态原则）。
-    # 方向判定：看多(buy/buy_aux/buy_special/buy_special_filtered/buy_backup)至今涨=对；
-    # 看空(sell/sell_stop_loss)至今跌=对；band_hold 中性 since_correct=None 但 since_return 照算。
+    # ── 到期冻结窗机制（唯一权威定义处；前端 app.js 切换控件 + scripts/overfit_monitor.py
+    #    bucket_actual 同步引用此语义，禁多处硬编码 N，§22 一致性）──
+    #   满窗定案：信号日后第 N 个交易日的收盘价 vs 信号日收盘价，此后不再变；
+    #   未满窗暂计：不满 N 个交易日时用至今走势暂计（settled=false），随时间推移满窗自动定案；
+    #   今日新信号 / 序列尚无一天走势 → 全部 None（前端显示"未结算"，与原逻辑一致）。
+    #   窗长表：买入四类(buy/buy_aux/buy_special/buy_backup)+sell/sell_stop_loss 默认 10 日
+    #   （与 A 方法 10 日固定卖出周期一致）、可切 15 日对照（F 方法历史口径）；波段减仓
+    #   （reason 含「波段减仓」的 sell 变体）固定 5 日（调研 docs/kelly/analysis/
+    #     warn-signal-window-caliber-research-20260825.md §7.1 近八年 5 日档逐年全胜）；band_hold 中性不计。
+    # 输出字段（双档，前端切换读对应字段）：
+    #   since_correct      默认档对错 bool|null（buy*/sell/sell_stop_loss=w10；波段减仓=w5；band_hold/今日=null）
+    #   since_settled      默认档是否已满窗定案 bool
+    #   since_win_return   默认档窗口收益%（定案=第N日收盘收益；未满窗=至今暂计值）
+    #   since_correct_w15 / since_settled_w15 / since_win_return_w15   对照档(15日)；波段减仓无 15 档，
+    #                      复制 w5 值（防前端切 15 时 null 被误计"未结算"）
+    # 方向判定不变：看多涨=对；看空跌=对。
     if sigs:
         _close_map_cache: dict[str, dict[str, float]] = {}
 
@@ -1170,7 +1185,20 @@ def overview(conn, cfg):
             _close_map_cache[iid] = m
             return m
 
+        _WIN_DEFAULT_N = 10   # 默认档：买入四类+卖/止损卖（A 方法 10 日固定卖出周期）
+        _WIN_ALT_N = 15       # 对照档：F 方法 15 日（历史既有窗口口径，前端可切）
+        _WIN_BAND_SELL_N = 5  # 波段减仓固定档（逃顶提示价值在头几天，调研 §7.1）
         _SELL_SIGNALS = {"sell", "sell_stop_loss"}
+
+        # 序列缓存 iid -> (排序日期列表, close_map)：bisect 定位信号日后第 N 个交易日，O(logK)/条
+        _seq_cache: dict[str, tuple[list, dict[str, float]]] = {}
+
+        def _seq_for(iid: str):
+            if iid not in _seq_cache:
+                m = _load_close_map(iid)
+                _seq_cache[iid] = (sorted(m.keys()), m)
+            return _seq_cache[iid]
+
         for _s in sigs:
             _sig_type = _s.get("signal")
             _iid = _s.get("index_id")
@@ -1184,26 +1212,54 @@ def overview(conn, cfg):
             # 两段式信号固化(2026-08-14): 每条信号补当日收盘价 close(该信号日指数收盘价),
             # 供前端"已固化·可操作"展示与盘后固定价格窗口参考。
             _s["close"] = _sig_close
-            # "至今"端收盘 = 最新可用收盘（非 score_date：score_date 是盘后评分日，盘中滞后于最新信号日，
-            # 用它做锚会让 8/14 信号拿 8/14 收盘当至今端算 0、8/17 信号拿 8/14 收盘反向判错）
-            _today_close = _cm.get(max(_cm.keys()))
-            if _today_close is None:
-                continue
-            # 今日信号(date==最新信号日)无"至今"语义：since_return/since_correct 均 None
+            # 今日信号(date==最新信号日)无"至今/窗口"语义：全部 None
             # （sig_dates DESC 降序第一个=最新信号日期，前端 _renderSignalGrid 以 items 最新日期为今日）
             if _sig_date == sig_dates[0]:
                 continue
             # 边界：最新可用收盘未超过信号日（如该指数 817 无收盘）→ 尚无一天走势，视为未结算（不算 0 硬判）
             if max(_cm.keys()) <= _sig_date:
                 continue
+            # "至今"端收盘 = 最新可用收盘（非 score_date：score_date 是盘后评分日，盘中滞后于最新信号日，
+            # 用它做锚会让 8/14 信号拿 8/14 收盘当至今端算 0、8/17 信号拿 8/14 收盘反向判错）
+            _today_close = _cm[max(_cm.keys())]
             _since_ret = round((_today_close - _sig_close) / _sig_close * 100, 2)
             _s["since_return"] = _since_ret
-            # band_hold 中性 -> since_correct=None（since_return 照算）
+            # band_hold 中性 -> 对错恒 None（since_return 照算），不进窗口判定
             if _sig_type == "band_hold":
-                _s["since_correct"] = None
+                continue
+            # 波段减仓=sell 的 reason 变体（app.js _calcSignalAccuracy 同款 reason 识别）
+            _is_band_sell = (_sig_type == "sell") and ("波段减仓" in (_s.get("reason") or ""))
+            if _is_band_sell:
+                _win_pairs = ((_WIN_BAND_SELL_N, ""),)
             else:
-                _is_sell = _sig_type in _SELL_SIGNALS
-                _s["since_correct"] = (_since_ret < 0) if _is_sell else (_since_ret > 0)
+                _win_pairs = ((_WIN_DEFAULT_N, ""), (_WIN_ALT_N, "_w15"))
+            _dates_sorted, _seq_cm = _seq_for(_iid)
+            _i0 = bisect.bisect_right(_dates_sorted, _sig_date)  # 第一个晚于信号日的位置
+            _is_sell_like = (_sig_type in _SELL_SIGNALS) or _is_band_sell
+            for _n, _suf in _win_pairs:
+                if _i0 + _n <= len(_dates_sorted):
+                    # 满窗定案：第 N 个后继交易日收盘
+                    _c_n = _seq_cm[_dates_sorted[_i0 + _n - 1]]
+                    _ret_n = round((_c_n - _sig_close) / _sig_close * 100, 2)
+                    _settled = True
+                else:
+                    # 未满窗暂计：沿用至今走势（随时间推移满窗后自动转定案）
+                    _ret_n = _since_ret
+                    _settled = False
+                _corr = (_ret_n < 0) if _is_sell_like else (_ret_n > 0)
+                if _suf:
+                    _s["since_correct" + _suf] = _corr
+                    _s["since_settled" + _suf] = _settled
+                    _s["since_win_return" + _suf] = _ret_n
+                else:
+                    _s["since_correct"] = _corr
+                    _s["since_settled"] = _settled
+                    _s["since_win_return"] = _ret_n
+                    if _is_band_sell:
+                        # 波段减仓固定 5 日无对照档：w15 字段复制 w5，防切档误计"未结算"
+                        _s["since_correct_w15"] = _corr
+                        _s["since_settled_w15"] = _settled
+                        _s["since_win_return_w15"] = _ret_n
 
         # ETF 至今盈亏（2026-08-05）：基于 ETF 累计净值(accum_nav)算信号日至今涨跌幅，注入 etfs[] 每个候选。
         # 和指数 since_return（L449）口径一致：信号日累计净值 vs 最新累计净值。今日信号无"至今"语义=None。

@@ -8,7 +8,29 @@
 // BUG-E：交互增强状态--industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 注：原 indexFilter（A 股/港股 指数筛选 select）已重构为目录锚点 chip(2026-07-20), 始终全部渲染, 点击 chip 跳转吸顶, 不再需要筛选状态
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "3m", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null, sigTypeFilter: null, sigWindowFilter: "0_15", sigEtfFilterSet: ["1","2","3","4"] };
+const state = { tab: "overview", range: "3m", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null, sigTypeFilter: null, sigWindowFilter: "0_15", sigEtfFilterSet: ["1","2","3","4"], sigJudgeWin: 10 };
+// 对错判定窗 N(2026-08-24 用户拍板「N交易日到期冻结窗」): 10=默认档(A方法10日固定卖出周期),
+// 15=F方法15日对照档(localStorage tds_sig_judge_win 记忆)。后端双档字段:
+// since_correct/since_settled/since_win_return(默认档, 买入四类+卖/止损卖=w10, 波段减仓=w5 固定)
+// 与 *_w15 对照档(波段减仓的 w15 字段由后端复制 w5 值)。窗长参数唯一权威定义在 app/queries.py _WIN_*。
+try { if (localStorage.getItem("tds_sig_judge_win") === "15") state.sigJudgeWin = 15; } catch (e) {}
+// 对错判定当前档读取 helpers(2026-08-24): total/byType/评级/警示块/对错筛选/hoverpop/成功失败前缀
+// 全部消费点统一走这三个, 禁直读 it.since_correct 造成切档不一致(§22)。老缓存 overview 无新字段时
+// undefined 回退 since_correct(旧口径数据), 平滑过渡不崩。
+function _sigWinN() { return state.sigJudgeWin === 15 ? 15 : 10; }
+function _scOf(it) {
+  if (_sigWinN() === 15 && it.since_correct_w15 !== undefined) return it.since_correct_w15;
+  return it.since_correct;
+}
+function _settledOf(it) {
+  if (_sigWinN() === 15 && it.since_settled_w15 !== undefined) return it.since_settled_w15;
+  return it.since_settled;
+}
+// 当前档窗口收益%(定案=第N日收盘收益; 未满窗=至今暂计; band_hold/今日信号=null)
+function _swrOf(it) {
+  if (_sigWinN() === 15 && it.since_win_return_w15 !== undefined) return it.since_win_return_w15;
+  return it.since_win_return;
+}
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -1489,7 +1511,12 @@ const _SIG_TYPE_META = [
   { key: "sell", labelKey: "sell_short", color: "#2e8b57" },
   { key: "sell_stop_loss", labelKey: "type_sell_stop_loss", color: "#3498db" },
 ];
-function _calcSignalAccuracy(items) {
+// items: 统计人口; winN: 对错判定窗档位(10=默认/15=对照, 缺省读 state.sigJudgeWin)。
+// 2026-08-24 到期冻结窗: 后端双档字段 since_correct(w10/波段减仓w5) + since_correct_w15(F方法对照),
+// 切档时传不同 winN 读对应字段(波段减仓 w15=w5 复制值, 两档数字相同属预期)。
+function _calcSignalAccuracy(items, winN) {
+  const _w = winN === 15 ? 15 : (_sigWinN());
+  const _sc = (it) => (_w === 15 && it.since_correct_w15 !== undefined ? it.since_correct_w15 : it.since_correct);
   const _newBin = () => ({ t: 0, f: 0, n: 0, pct: null });
   const acc = {
     total: { t: 0, f: 0, n: 0, pct: null },
@@ -1502,8 +1529,9 @@ function _calcSignalAccuracy(items) {
   };
   if (!items || !items.length) return acc;
   const _tally = (bin, it) => {
-    if (it.since_correct === true) bin.t++;
-    else if (it.since_correct === false) bin.f++;
+    const v = _sc(it);
+    if (v === true) bin.t++;
+    else if (v === false) bin.f++;
     else bin.n++;
   };
   for (const it of items) {
@@ -1567,7 +1595,9 @@ function _sigTodayHint() {
 //   ③SVG 3色为基准(echarts fallback 去固定色让 visualMap 生效) ④reviewer 返修4项(P1 localStorage try/catch
 //   /P2-1 空态删 _lwRenderers /P2-2 dataZoom pb 44 /P2-3 y轴固定0-100) ⑤标题❓hover短+click详版弹窗(rule-modal)。
 // 口径公示(卡内 tooltip + help 弹窗 + purpose-notes §21): 准确率=信号后方向命中(回测=按卖出模式到期收益方向;
-//   实盘=信号日收盘→最新收盘方向, 与首页「近期技术参考点」汇总条 since_correct 同口径); band_hold/未结算不计。
+//   实盘=2026-08-24 起改 N 交易日到期冻结窗: 满窗以第 N 个交易日收盘定案, 未满窗暂计至今;
+//   默认 10 日(与首页判定窗默认档一致), 波段减仓固定 5 日; 与首页「近期技术参考点」since_correct 同口径);
+//   band_hold/未结算不计。
 //   过拟合风险分 = 0.40*D1(回测-实盘偏离) + 0.25*D2(滚动样本外) + 0.20*D3(参数稳定) + 0.15*D4(象限退化);
 //   绿<30(正常)/黄30-60(关注)/红>60(高风险)。曲线 daily 按选中统计口径滚动派生(无前视); 顶部综合分固定 60 窗口单一权威值。
 // 2026-08-16 三合一改造③: 两图从 echarts instance 改为 lite 容器引用(_lwSetup 在 _renderOverfitAcc/_renderOverfitRisk 内按 state 每次重建,
@@ -1596,7 +1626,7 @@ function _overfitHelpModalHTML() {
       '<div class="rule-card-head"><span class="rule-badge">📈 图怎么看</span></div>' +
       '<p><b>上=准确率曲线</b>：信号方向命中的比率(%)，<span style="color:#e6492e">实盘实际(红实线)</span> vs <span style="color:#409eff">回测预期(蓝虚线)</span>。准确率大于预期 → 策略在实战中未退化；低于预期 → 可能历史拟合过好、未来失灵。</p>' +
       '<p><b>下=综合过拟合风险分(0-100)</b>：绿(&lt;30 正常)、黄(30-60 关注)、红(&gt;60 高风险)，虚线参考线 30/60。分越高代表「回测好但实盘差」的偏离越严重，越需要留意参数是否过拟合。</p>' +
-      '<p><b>口径</b>：实盘=信号日收盘→最新收盘方向，回测=按卖出模式到期收益方向。<b>买类实盘线只统计回测宇宙内信号</b>（信号类型∈买入白名单 buy/buy_aux/buy_special/buy_backup + 该指数已入样 _bt_in_universe），情绪类/全球商品利率/港股行业等回测不测的信号剔除，确保买类实盘线与回测线比的是<b>同一批买入信号</b>。<b>卖类(sell/止损卖)特殊口径(2026-08-17 方案B)</b>：回测交易本体全为买信号、卖信号不独立成回测交易，故卖类<b>不过滤宇宙、统计全部卖信号的实盘实际命中率</b>（卖后跌=对），只有实盘实际线、无回测对照、风险分不适用。样本去重：回测按(模式+信号日+标的+信号)去重，n 为真实唯一成交数。<b>不设样本数下限</b>：各统计口径有多少样本画多少；早期窗口不满或过滤后样本少的档位照常画线，n 越小曲线越仅供参考（tooltip 看 n 判断可信度），不再因样本不足而空态。</p>' +
+      '<p><b>口径</b>：实盘=信号后 <b>N 交易日到期冻结窗</b>方向命中（满窗以信号日后第 N 个交易日收盘价定案，此后不再变；未满窗的按至今走势暂计并标「未定案」。默认 10 日，与首页「判定窗」默认档一致；波段减仓固定 5 日），回测=按卖出模式到期收益方向。<b>买类实盘线只统计回测宇宙内信号</b>（信号类型∈买入白名单 buy/buy_aux/buy_special/buy_backup + 该指数已入样 _bt_in_universe），情绪类/全球商品利率/港股行业等回测不测的信号剔除，确保买类实盘线与回测线比的是<b>同一批买入信号</b>。<b>卖类(sell/止损卖)特殊口径(2026-08-17 方案B)</b>：回测交易本体全为买信号、卖信号不独立成回测交易，故卖类<b>不过滤宇宙、统计全部卖信号的实盘实际命中率</b>（N 日窗内跌=对），只有实盘实际线、无回测对照、风险分不适用。样本去重：回测按(模式+信号日+标的+信号)去重，n 为真实唯一成交数。<b>不设样本数下限</b>：各统计口径有多少样本画多少；早期窗口不满或过滤后样本少的档位照常画线，n 越小曲线越仅供参考（tooltip 看 n 判断可信度），不再因样本不足而空态。</p>' +
     '</div>' +
     '<div class="rule-card">' +
       '<div class="rule-card-head"><span class="rule-badge">🔘 按钮怎么用</span></div>' +
@@ -1605,7 +1635,7 @@ function _overfitHelpModalHTML() {
       '<p><b>显示范围(30/60/90/180日)</b>：控制横轴展示最近 N 个交易日，<b>只影响显示截取、不改变统计</b>——即无论选 30 还是 180，都只是图上看多少范围，曲线按当前「统计口径」算。</p>' +
       '<p><b>统计口径(10/15/30/60/100日，默认15)</b>：准确率 + 过拟合风险分<u>两图都按选中的 N 日滚动重算</u>（即重算滚动窗口，而非只截取展示）。两图曲线随选中口径滚动展示。<b>左上大数字「综合风险分」与曲线不同</b>：它是固定 4 维加权合成（0.4×回测-实盘偏离 + 0.25×样本外衰减 + 0.2×参数稳定 + 0.15×象限退化）的独立指标，固定 60 窗口口径=后端单一权威值，<b>不随所选统计口径变</b>。</p>' +
       '<p><b>📖 白话版本(选哪档)</b>：<br>· <b>10日</b>≈最近2周，超短期快速体检。最灵敏但样本最少、曲线容易抖，适合"刚改完东西想立刻看反应"，参考价值有限。<br>· <b>15日(默认)</b>≈最近3周，日常短检，默认够看"最近信号准不准"；比如昨天新开了某个降亏过滤，想看它最近三周表现就选15日。<br>· <b>30日</b>≈最近1个多月，短中期平衡；想确认"最近一两个月策略有没有掉链子"看它。<br>· <b>60日</b>≈最近1个季度，中期稳定性；想判断"策略整体还行不行、有没有过拟合"看它。<br>· <b>100日</b>≈接近半年，长期视角；样本最足曲线最稳但反应最慢，适合看长期平均表现。<br><span style="color:#f0a020"><b>一句话总原则</b></span>：窗口越短→越灵敏但越抖(看短期准不准)；窗口越长→越稳但反应越慢(看长期稳不稳)。想抓短期异常选小的，想验整体稳定性选大的。</p>' +
-      '<p><b>🎯 1:1 直白举例(拿"实盘 vs 回测同批"说事)</b>：打开监控卡时，曲线最右端的点=数据最末交易日。由于回测结算滞后一天，当前最新点=8/13。<b>实盘线已限定回测宇宙</b>：系统拿 8/13 往前 15 个有信号的交易日（约 2026-07-24 到 08-13，跳开周末/无信号日）内<b>回测宇宙内的买入信号</b>来比——实盘 n=105 个信号命中 60.0%，回测 n=315 命中 58.7%，两者几乎一致（差 +1.3pp，实盘略好）→ 同批信号实盘未退化。改口径前这里把卖/情绪类（命中率仅约 22%）也混进实盘样本，同窗口实盘被拉到 40.9%、对回测 58.7% 差 17.9pp，造成虚假的"过拟合"红警；对齐宇宙后该偏差消失。<br><b>别混两个数</b>：曲线点=单一窗口"实盘 vs 回测"胜率差映射的分数，随统计口径(10/15/30/60/100)变；左上大数字综合风险分=固定 4 维加权（0.4×回测-实盘偏离+0.25×样本外+0.2×参数稳定+0.15×象限退化）的独立指标，固定 60 窗口口径，不随所选统计口径变。<br><b>怎么读</b>：选 15 日=看某日期往前 15 个有信号的交易日（约 3 周）内同批买入信号的命中率；10/30/60/100 同理。n 越小（如过滤后只剩几条）曲线越仅供参考，tooltip 看 n 判断可信度。</p>' +
+      '<p><b>🎯 1:1 直白举例(拿"实盘 vs 回测同批"说事)</b>：打开监控卡时，曲线最右端的点=数据最末交易日（下例为 2026-08-24 撰写时快照，实际以曲线 tooltip 为准）。<b>实盘线已限定回测宇宙</b>：系统拿数据末端往前 15 个有信号的交易日（2026-07-31 到 08-20，跳开周末/无信号日）内<b>回测宇宙内的买入信号</b>来比——实盘 n=75 个信号命中 16 次≈21.3%（每条按 10 交易日到期冻结窗定案），回测同窗 n=219 命中 52 次≈23.7%，两者接近（差 -2.4pp）→ 同批信号实盘未明显退化。对照：同批若按旧「至今」口径算只有 18.7%——A股长期向上时「至今口径」系统性压低买类、抬高卖类（选啥都对/错都失去区分度），这正是 2026-08-24 全站改 N 日到期冻结窗的原因。另：近期行情偏弱，两线都在 20% 上下远低于长期均值（全史买类≈55%），属行情阶段现象而非策略失灵，看「差值」比看「绝对值」更有意义。<br><b>别混两个数</b>：曲线点=单一窗口"实盘 vs 回测"胜率差映射的分数，随统计口径(10/15/30/60/100)变；左上大数字综合风险分=固定 4 维加权（0.4×回测-实盘偏离+0.25×样本外+0.2×参数稳定+0.15×象限退化）的独立指标，固定 60 窗口口径，不随所选统计口径变。<br><b>怎么读</b>：选 15 日=看某日期往前 15 个有信号的交易日（约 3 周）内同批买入信号的命中率；10/30/60/100 同理。注意统计口径（滚动取多少个交易日）与判定窗（每条信号等几个交易日定案，默认10日）是两个独立概念。n 越小（如过滤后只剩几条）曲线越仅供参考，tooltip 看 n 判断可信度。</p>' +
       '<p><b>评级/类型</b>：切换只看高/中/低评级 或 主买/辅买/追买/备买/卖/止损卖 子集。买类（主买/辅买/追买/备买）=限定回测宇宙，实盘线+回测线双线对照。<b>卖/止损卖（2026-08-17 方案B）</b>：卖信号是 G/H/I 信号驱动卖出模式的卖出触发器，其准确率（发出后方向对不对）直接影响收益，故单独监控——切卖/止损卖档位时显示<b>实盘实际命中率单线（不过滤宇宙，卖后跌=对）</b>，标注「仅实盘实际、无回测对照」；因回测不把卖信号独立成交易，<b>无回测对照线、综合风险分不适用</b>。</p>' +
     '</div>' +
     '<div class="rule-card">' +
@@ -4334,7 +4364,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       if (state.sigGradeFilter === "low" && !(s < 0.55)) return false;
     }
     if (state.sigCorrectFilter) {
-      const v = it.since_correct;
+      const v = _scOf(it);  // 2026-08-24 到期冻结窗: 跟随判定窗档位(10/15)
       const k = v === true ? "true" : v === false ? "false" : "null";
       if (k !== state.sigCorrectFilter) return false;
     }
@@ -4672,8 +4702,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // 2026-08-06 ☑️/✖️ 的 data-tip 移除：指数至今收益统一到 cell hoverpop 两行对比块（指数行+ETF行），
         // hover badge 时冒泡到 cell data-tip 显完整 hoverpop，避免指数收益分散在 badge 单独 popup。
         let correctBadge = "";
-        if (it.since_correct === true || it.since_correct === false) {
-          const _mark = it.since_correct ? "☑️" : "✖️";
+        const _scv = _scOf(it);  // 2026-08-24 到期冻结窗: 跟随判定窗档位(10/15)
+        if (_scv === true || _scv === false) {
+          const _mark = _scv ? "☑️" : "✖️";
           correctBadge = `<sup class="sig-correct">${_mark}</sup>`;
         }
         // DOM 顺序(2026-07-28 调整): [信号标签b][⚠][评级高/中/低][☑️/✖️][指数名]
@@ -4695,10 +4726,18 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         _titleParts.push("点击查看走势图");
         const _hoverTitle = _titleParts.join(" · ");
         // 2026-08-06 至今收益（指数 since_return + ETF etf_since_return）从 title 文本流移到 hoverpop 专属两行对比块：
-        // cell 加 data-idx-ret/data-idx-correct 传指数 since_return/since_correct，hoverpop show() 渲染"指数至今"行，
+        // cell 加 data-idx-ret/data-idx-correct 传指数收益/对错，hoverpop show() 渲染指数走势行，
         // 紧接 etfHtml"ETF 至今"行，两行对比方便查看指数信号 vs 相关 ETF 至今走势（原 title 里 ETF-preferred return 与 etfHtml 重复）。
-        var _idxRetAttr = (it.since_return != null && isFinite(it.since_return)) ? ` data-idx-ret="${it.since_return}"` : "";
-        var _idxCorrectAttr = (it.since_correct === true || it.since_correct === false) ? ` data-idx-correct="${it.since_correct}"` : "";
+        // 2026-08-24 到期冻结窗：ret/correct 改为跟随判定窗档位（_swrOf/_scOf），并带 data-idx-n(10/15)+
+        // data-idx-settled(是否满窗定案)，hoverpop 据此拼「指数N日窗」标签与「暂计·未定案」提示；
+        // band_hold 中性无窗口字段(since_win_return=null)回退 since_return 保持纯盈亏展示。
+        var _hasWinRet = _swrOf(it) != null;
+        var _idxRetVal = _hasWinRet ? _swrOf(it) : it.since_return;
+        var _idxRetAttr = (_idxRetVal != null && isFinite(_idxRetVal)) ? ` data-idx-ret="${_idxRetVal}"` : "";
+        var _scv2 = _scOf(it);
+        var _idxCorrectAttr = (_scv2 === true || _scv2 === false) ? ` data-idx-correct="${_scv2}"` : "";
+        var _idxWinNAttr = _hasWinRet ? ` data-idx-n="${_sigWinN()}"` : "";
+        var _idxSettledAttr = _hasWinRet ? ` data-idx-settled="${_settledOf(it) === true ? "1" : "0"}"` : "";
         // 2026-08-06 hoverpop 指数至今行加指数名+代码前缀（复用 L1603-1604 _idxName/_sigIdxCode）；
         // name 含中文/空格/括号（如"德国DAX"/"汽车芯片"）用 _escAttr 转义防属性截断，code 同理。
         var _idxNameAttr = _idxName ? ` data-idx-name="${_escAttr(_idxName)}"` : "";
@@ -4726,7 +4765,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           _cellName = _idxName;
           _cellCode = _sigIdxCode;
         }
-        return `<span class="${cls}${scoreCls}${posCapCls}${aiHitCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr}${aiHitAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${_cellLight}${posCapBadge}${aiHitBadge}${warnBadge}${lateBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_cellName}${_cellCode ? ` <span class="idx-code-tag">${_cellCode}</span>` : ""}</span></span>`;
+        return `<span class="${cls}${scoreCls}${posCapCls}${aiHitCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxWinNAttr}${_idxSettledAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr}${aiHitAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${_cellLight}${posCapBadge}${aiHitBadge}${warnBadge}${lateBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_cellName}${_cellCode ? ` <span class="idx-code-tag">${_cellCode}</span>` : ""}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
@@ -4769,16 +4808,17 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   let _windowBtnsHtml = "";  // E 方案 UI: 窗口按钮组(仅 signal), 移到标题行❓后, 不再独立成行
   if (kind === "signal") {
     // E 方案 + ETF 人口筛选: 汇总条基于统计人口(_statItems, 排除降亏命中)算准确率, 窗口/ETF 筛选影响总数+总准确率
-    const _acc = _calcSignalAccuracy(_statItems);
+    // 第二参=对错判定窗档位(2026-08-24 到期冻结窗, 默认10可切15), 切档经 _rerenderSigCardContent 重绘自动跟随
+    const _acc = _calcSignalAccuracy(_statItems, _sigWinN());
     const _fmt = (pct) => (pct == null ? "-" : pct.toFixed(0) + "%");
     const _gActive = (g) => (state.sigGradeFilter === g ? " sig-acc-filter-active" : "");
     const _cActive = (k) => (state.sigCorrectFilter === k ? " sig-acc-filter-active" : "");
     const _tActive = (t) => (state.sigTypeFilter === t ? " sig-acc-filter-active" : "");
     const _seg = (label, bin, dotCls, grade) =>
       `<button class="sig-acc-seg sig-acc-filter${_gActive(grade)}" data-grade-filter="${grade}" data-tip="${_escAttr("点击只看评级" + label + "的参考点")}"><span class="sig-acc-dot ${dotCls}">●</span>${label} ${_fmt(bin.pct)} (${bin.t}/${bin.f})</button>`;
-    const _unsettledTip = _t.tsText('未结算=信号已发出但尚未验证对错。含：①今日新信号(无至今走势数据);②等待收盘价回填。收盘后update_all重算since_correct后转为"对"或"错"。点击只看未结算项(波段持有非操作项,不计入未结算)');
-    // "总准确率 X%" hover pop:标注完整统计口径(2026-07-20 补)
-    // 口径:近30交易日 signals_today 的 since_correct 至今盈亏方向命中率(v1.1.5 2026-08-24 窗口由15扩30)
+    const _unsettledTip = _t.tsText('未结算=信号已发出但尚未验证对错。含：①今日新信号(无至今走势数据);②等待收盘价回填。收盘后update_all重算后转为"对"或"错"。注意「未定案」≠未结算：未定案=已有暂计对错值但尚未满N交易日判定窗(满窗即以第N个交易日收盘定案,此后不变)。点击只看未结算项(波段持有非操作项,不计入未结算)');
+    // "总准确率 X%" hover pop:标注完整统计口径(2026-07-20 补; 2026-08-24 改 N 交易日到期冻结窗)
+    // 口径:近30交易日 signals_today 的到期冻结窗方向命中(v1.1.5 2026-08-24 窗口由15扩30+口径由至今改冻结窗)
     const _wfLabel = { "0_15": "近30交易日全部(默认)", "10_15": "第10-30交易日", "7_15": "第7-30交易日", "3_15": "第3-30交易日", "y_15": "排除今日(昨日~30日)" }[state.sigWindowFilter] || "近30交易日";
     // 2026-08-07 归一档适配：sigEtfFilterSet 空显""(全部)，非空显选中档名（如"（强关联ETF+相关ETF）"）
     const _etfTierName = { "1": "强关联ETF", "2": "相关ETF", "3": "有近似ETF", "4": "有跟踪ETF", "5": "概念无ETF" };
@@ -4790,14 +4830,21 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       `总准确率统计口径\n` +
       `范围：${_wfLabel}技术分析参考点${_etfScopeLabel}\n` +
       `公式：命中率 = 对数 / (对+错) × 100%（排除未结算+波段持有）\n` +
-      `对错判定：看多信号(主买/辅买/追买/备买)至今涨=对；看空信号(卖/止损)至今跌=对；波段持有=中性不计\n` +
-      `基准：信号日收盘价 -> 今日收盘价 涨跌方向\n` +
-      `当前：${_acc.total.t}对 / ${_acc.total.f}错 / ${_acc.total.n}未结算，命中率 ${_fmt(_acc.total.pct)}\n` +
+      `对错判定=N交易日窗到期冻结：信号发出后满 N 个交易日，用第 N 个交易日收盘价定案（此后不再变）；未满窗的按至今走势暂计并标「未定案」。默认 10 日（与 A 方法 10 日固定卖出周期一致，可切 15 日对照 F 方法），波段减仓固定 5 日，波段持有=中性不计。为什么要有时间窗：A股长期向上，无窗口的「至今口径」把买类抬到 75~80%、卖类压到 25~30%（选啥都对=失去区分度），固定短期窗才反映信号真实的短期兑现质量。\n` +
+      `基准：已满窗=信号日收盘价 -> 第 N 个交易日收盘价；未满窗=信号日收盘价 -> 今日收盘价（暂计值，随走势变，满窗定案）\n` +
+      `当前：${_acc.total.t}对 / ${_acc.total.f}错 / ${_acc.total.n}未结算，命中率 ${_fmt(_acc.total.pct)}（当前判定窗=${_sigWinN()}日）\n` +
       `数据基准日：${_todayFmt}\n` +
-      `🎯 1:1 直白举例（核实源=overview.json signals_today+本函数 _calcSignalAccuracy；下列数字为窗口扩容前(近15交易日、数据最末交易日 8/14)的核实快照——2026-08-24 窗口已扩至近30交易日，人口随之扩大且逐日变动，实际数值以本汇总条实时统计为准，下例用于理解公式逻辑）：该快照 ETF档1-4共 119 个参考点，排除波段持有后 108 个计入：已定对错的 103 个里 50 个至今方向对、53 个错，命中率 50/103≈48.5%；另有 5 个未结算（都是当时数据最末交易日那批新信号，尚无至今走势）。若把「未结算」误当对错算进分母，命中率会被拉低（48.5% vs 错误算法 50/108≈46.3%）——这就是为什么未结算不计入分母。切到「10日~30日」只看第10天起的那几档，分子分母都变，命中率跟着变。\n` +
+      `🎯 1:1 直白举例（机制演示，核实源=docs/kelly/analysis/scripts/verify_window_freeze_impl_20260825.py 对线上 overview 快照实算）：①定案示例——2026-08-14 发出的波段减仓信号（10年国债ETF），其后第 5 个交易日=08-21 收盘 135.848 vs 信号日 135.752，涨 +0.01%，看空未跌→判「错」并永久定格（波段减仓固定 5 日窗）；②暂计示例——08-20 的新信号还不满 10 日窗，先按至今走势暂计并标「未定案」，之后每天可能变，满第 10 个交易日那天用当天收盘定案；③「未结算」仍不计入分母（今日新信号无任何走势），误算会拉低命中率——这就是为什么未结算单独列。\n` +
       `分评级：高 ${_fmt(_acc.grade.high.pct)}(${_acc.grade.high.t}/${_acc.grade.high.f}) · 中 ${_fmt(_acc.grade.mid.pct)}(${_acc.grade.mid.t}/${_acc.grade.mid.f}) · 低 ${_fmt(_acc.grade.low.pct)}(${_acc.grade.low.t}/${_acc.grade.low.f})\n` +
-      `注：未结算=今日新信号+待收盘回填，收盘后 update_all 重算 since_correct 转为对/错；评级 score=历史10d窗口胜率/盈亏比/样本加权（非本汇总条口径）`
+      `注：未结算=今日新信号+待收盘回填；未定案=已有暂计值但未满 N 日窗。评级 score=历史10d窗口胜率/盈亏比/样本加权（非本汇总条口径）`
     );
+    // 对错判定窗切换(2026-08-24 用户拍板「N交易日到期冻结窗」): 默认10日(A方法10日固定卖出周期),
+    // 可切15日(F方法15日历史对照档); localStorage tds_sig_judge_win 记忆; total/byType/评级/警示块
+    // 全部跟随(_calcSignalAccuracy 第二参 + _scOf helpers), 切换后走 data-judge-win 委托重绘。
+    // 波段减仓固定5日不受切换影响; 波段持有中性不计。
+    const _judgeWinTip = "对错判定=N交易日窗到期冻结：信号发出后满 N 个交易日，用第 N 个交易日收盘价定案（此后不变）；未满窗的按至今走势暂计并标注「未定案」。\n默认 10 日=与 A 方法 10 日固定卖出周期一致；15 日=F 方法 15 日固定卖出的历史对照档；波段减仓固定 5 日（短期逃顶提示）不受切换影响；波段持有为中性不计对错。\n为什么要有时间窗：A股长期向上，不设窗口则「至今口径」把买入正确率抬到 75~80%、把卖出压到 25~30%（选啥都对=失去区分度）；固定短期窗后才反映信号真实的短期兑现质量。";
+    const _jwActive = (n) => (_sigWinN() === n ? " sig-acc-filter-active" : "");
+    const _judgeWinHtml = `<span class="sig-acc-window">判定窗: <button class="sig-acc-seg sig-acc-filter${_jwActive(10)}" data-judge-win="10" data-tip="${_escAttr(_judgeWinTip)}">10日</button>·<button class="sig-acc-seg sig-acc-filter${_jwActive(15)}" data-judge-win="15" data-tip="${_escAttr(_judgeWinTip)}">15日</button> | </span>`;
     const _reset = (state.sigGradeFilter || state.sigCorrectFilter || state.sigTypeFilter)
       ? ` <button class="sig-acc-reset" data-grade-filter-reset="1">恢复全部</button>`
       : "";
@@ -4836,9 +4883,10 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     //   统计三类警示信号: sell(纯卖)/sell_stop_loss(止损卖)/band_sell(波段减仓, reason 含'波段减仓'识别,
     //   与 _calcSignalAccuracy 同源判定)。band_hold(波段持有)2026-08-24 用户定不再展示("没必要展示浪费展位",
     //   中性 since_correct 恒 null 不计对错), 已从 _WARN_KEYS 移除——上方 byType 行的中性 chip 不受影响仍保留。
-    // 数据源=items(signals_today 全量近30交易日)的 since_correct: 看空信号发出后指数至今跌=对(与监控卡
-    //   2026-08-17 方案B 卖类口径同款)。固定口径不随窗口/K档/AI仓位/降亏/ETF档筛选联动(tooltip 已公示),
-    //   恒显示与 AI 仓位开关无关。样式全复用 .sig-acc-by-type/.sig-acc-seg/.sig-acc-dot, 零新 CSS。
+    // 数据源=items(signals_today 全量近30交易日)的到期冻结窗对错(_scOf 跟随判定窗 10/15; 波段减仓固定5日):
+    //   满窗以第N个交易日收盘定案, 未满窗暂计至今(与监控卡 bucket_actual 2026-08-17 方案B 卖类人口同源)。
+    //   人口固定不随窗口/K档/AI仓位/降亏/ETF档筛选联动(tooltip 已公示), 恒显示与 AI 仓位开关无关。
+    //   样式全复用 .sig-acc-by-type/.sig-acc-seg/.sig-acc-dot, 零新 CSS。
     let _warnAccRow = "";
     {
       // ⚠️ 只统计三类警示信号(_WARN_KEYS): 买类不进本模块(其正确率归上方总准确率 AI建议 top-K 口径,
@@ -4850,38 +4898,40 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         const _wk = (it.reason || "").includes("波段减仓") ? "band_sell" : it.signal;
         const _wb = _wbins[_wk];
         if (!_wb) continue;
-        if (it.since_correct === true) _wb.t++;
-        else if (it.since_correct === false) _wb.f++;
+        const _wv = _scOf(it);  // 2026-08-24 到期冻结窗: 跟随判定窗档位(10/15; 波段减仓两档同值)
+        if (_wv === true) _wb.t++;
+        else if (_wv === false) _wb.f++;
         else _wb.n++;
       }
       const _wSettled = (_wb2) => _wb2.t + _wb2.f;
       // §23.9 三档互证 tooltip: 白话(是什么)+场景(什么时候看)+1:1 真实数字举例。行级 label 一份总览 +
       //   三 chip 各配独立 data-tip hoverpop(2026-08-24 用户定, 复用全局 [data-tip] 委托零新机制零新 CSS)。
-      // 1:1 数字核实源=线上 overview.json signals_today 数据基准日 20260824 实算(复刻本函数统计逻辑):
-      //   止损卖65条33对32错≈50.8% / 纯卖14条8对6错≈57.1% / 波段减仓19条1对18错≈5.3%(band_hold 70条中性已下线)。
+      // 1:1 数字核实源=docs/kelly/analysis/scripts/verify_window_freeze_impl_20260825.py 对线上 overview
+      //   快照(数据基准日 20260824)按新算法实算: 10日窗 止损卖33对32错≈51%/纯卖8对6错≈57%/
+      //   波段减仓1对18错≈5%; 切15日窗 止损卖29对36错≈45%(纯卖/波段减仓两档不变)。
       //   数字为快照, 随每日收盘更新, 实时值以行内 chip 为准(tooltip 已标注快照性质)。
       const _warnTip =
-        "警示信号正确率（独立统计，2026-08-24 新增）\n" +
-        "白话：本行=三类警示信号（波段减仓/卖/止损卖）单独汇总的正确率，固定=近30交易日全量口径，不随窗口/K档/AI仓位开关联动。它们不是买入候选，是风险提示，对错公式统一为：信号日收盘→今日收盘，跌了=对（看空方向命中，无 N 日时间窗的至今口径），至今涨=错；未结算（今日新信号等尚无至今走势的）不对错计数，收盘回填后自动转对/错。注：AI 仓位建议开启时，上方总准确率只统计 AI 建议入选的买入类（top-K 口径），看空警示只有这里能看到全貌；关闭 AI 仓位建议时上方 byType 行也会出现卖类数字（其人口随窗口/ETF 档筛选变化，切档后数值可能与本行不一致）。\n" +
+        "警示信号正确率（独立统计，2026-08-24 新增；同日起对错判定改为 N 交易日到期冻结窗）\n" +
+        "白话：本行=三类警示信号（波段减仓/卖/止损卖）单独汇总的正确率，固定=近30交易日全量口径，不随窗口/K档/AI仓位开关联动。它们不是买入候选，是风险提示。对错判定统一为 N 交易日窗到期冻结：满窗以信号日后第 N 个交易日收盘价定案（此后不再变），未满窗按至今走势暂计并标「未定案」；跌了=对（看空方向命中），涨=错。窗长：止损卖/纯卖默认 10 日（可切 15 日对照），波段减仓固定 5 日；未结算（今日新信号等尚无走势的）不对错计数。为什么要有时间窗：A股长期向上，「至今口径」把卖类压到 25~30%（卖啥都判错=失去区分度），固定短期窗才反映看空提示真实的短期兑现质量。\n" +
         "场景：开着 AI 仓位建议、想单独检查卖/止损/减仓提示到底准不准时看这行；评估风险提示可信度也在这里。\n" +
-        "口径：固定=近30交易日全部警示信号，不随上方窗口/K档/AI仓位/降亏/ETF档筛选联动；数据随每日收盘更新。\n" +
-        "🎯 1:1 直白举例（20260824 数据快照）：止损卖近30日共发出65次→其中33次卖出后指数至今跌(对)、32次至今涨(错)，正确率33/65≈51%；纯卖(不含波段减仓)14次→8对6错≈57%；波段减仓19次→仅1对18错≈5%（多数减仓提示后指数仍涨，该提示更偏锁盈提醒而非判顶）。各类详细说明与举例见各 chip 自带的悬浮说明。实际数值以本行实时统计为准。";
+        "口径：固定=近30交易日全部警示信号，不随上方窗口/K档/AI仓位/降亏/ETF档筛选联动；判定窗随上方「判定窗 10日/15日」切换（波段减仓除外）；数据随每日收盘更新。\n" +
+        "🎯 1:1 直白举例（20260824 数据快照·默认10日窗）：止损卖近30日共发出65次→33次判对、32次错≈51%；切到15日窗对照档变为29对36错≈45%（同一批信号，更长窗里近期反弹把更多止损「平反」成错——两档差异正是固定窗呈现的真实信息）；纯卖(不含波段减仓)14次→8对6错≈57%；波段减仓19次→仅1对18错≈5%（固定5日窗）。各类详细说明与举例见各 chip 自带的悬浮说明。实际数值以本行实时统计为准。";
       // 三 chip 独立 hoverpop 文案(§23.9 三档互证: 白话+场景+1:1 举例; 2026-08-24 用户定)。
-      // 对错公式三类相同(信号日收盘→今日收盘跌=对, 看空至今口径, 无 N 日时间窗; 未结算不对错计数),
-      // 1:1 举例数字各用本类真实数据(核实源同上注释, 20260824 快照)。
+      // 对错公式=N交易日到期冻结窗(止损卖/纯卖默认10可切15; 波段减仓固定5), 未满窗暂计, 未结算不对错计数,
+      // 1:1 举例数字各用本类真实数据(核实源=verify_window_freeze_impl_20260825.py, 20260824 快照)。
       const _warnChipTips = {
         band_sell: "波段减仓\n" +
-          "白话：波段管理中的「先卖一部分」提示——识别方式=调仓理由含「波段减仓」（信号类型本质=sell，故对错判定与卖完全相同）。对错公式：信号日收盘→今日收盘，跌了=对（看空口径，无 N 日时间窗，至今口径）；未结算（今日新信号）不对错计数，收盘回填后转对/错。\n" +
+          "白话：波段管理中的「先卖一部分」提示——识别方式=调仓理由含「波段减仓」（信号类型本质=sell）。对错公式：固定 5 交易日到期冻结窗——满窗以信号日后第 5 个交易日收盘价定案（此后不再变），未满窗按至今走势暂计并标「未定案」；跌了=对（看空口径）；未结算（今日新信号）不对错计数。窗长取 5 是数据选型：逃顶提示的价值在头几天（近八年逐年对比 5 日档最优），且不随上方「判定窗 10/15 日」切换变化。\n" +
           "场景：持仓中被提示「先减一点落袋」时，回看这类提示历史上有没有压对短期回撤，决定下次信多少——它更像锁盈提醒而非见顶判断。\n" +
-          "🎯 1:1 直白举例（20260824 数据快照）：近30交易日共发出19次波段减仓→其中仅1次发出后指数至今跌(对)、18次至今涨(错)，正确率1/19≈5%。多数减仓提示后指数仍续涨，所以别把它当逃顶信号用。实际数值以本 chip 实时统计为准。",
+          "🎯 1:1 直白举例（20260824 数据快照·5日窗）：近30交易日共发出19次波段减仓→仅1次在第5个交易日前跌了(对)、18次涨(错)，正确率1/19≈5%。多数减仓提示后指数仍续涨，所以别把它当逃顶信号用。实际数值以本 chip 实时统计为准。",
         sell: "卖\n" +
-          "白话：纯卖出提示（波段减仓已单独归类，不混入本类）。对错公式：信号日收盘→今日收盘，跌了=对（看空口径，无 N 日时间窗，至今口径）；未结算（今日新信号）不对错计数，收盘回填后转对/错。\n" +
+          "白话：纯卖出提示（波段减仓已单独归类，不混入本类）。对错公式：默认 10 交易日到期冻结窗（可切 15 日对照）——满窗以信号日后第 N 个交易日收盘价定案，未满窗按至今走势暂计并标「未定案」；跌了=对（看空口径）；未结算（今日新信号）不对错计数。\n" +
           "场景：收到清仓/离场提示时，先瞄一眼这类提示的历史看空命中率，再决定执行力度。\n" +
-          "🎯 1:1 直白举例（20260824 数据快照）：近30交易日共发出14次纯卖→其中8次发出后指数至今跌(对)、6次至今涨(错)，正确率8/14≈57%，三类警示里最高。实际数值以本 chip 实时统计为准。",
+          "🎯 1:1 直白举例（20260824 数据快照·默认10日窗）：近30交易日共发出14次纯卖→8次判对、6次错≈57%，三类警示里最高（15日窗同读数8对6错）。实际数值以本 chip 实时统计为准。",
         sell_stop_loss: "止损卖\n" +
-          "白话：跌破止损位的强制离场提示（风控动作）。对错公式与另两类相同：信号日收盘→今日收盘，跌了=对（看空口径，无 N 日时间窗，至今口径）；未结算（今日新信号）不对错计数，收盘回填后转对/错。\n" +
+          "白话：跌破止损位的强制离场提示（风控动作）。对错公式：默认 10 交易日到期冻结窗（可切 15 日对照）——满窗以信号日后第 N 个交易日收盘价定案，未满窗按至今走势暂计并标「未定案」；跌了=对（看空口径）；未结算（今日新信号）不对错计数。\n" +
           "场景：止损被触发后想复盘「这次止损卖得值不值」时看它——正确率接近五成说明止损本质是截断大亏的风控动作，不是方向预测。\n" +
-          "🎯 1:1 直白举例（20260824 数据快照）：近30交易日共触发65次止损卖(三类中最多)→其中33次发出后指数至今跌(对)、32次至今涨(错)，正确率33/65≈51%，接近抛硬币——价值在控单笔最大亏损而非猜方向。实际数值以本 chip 实时统计为准。",
+          "🎯 1:1 直白举例（20260824 数据快照）：近30交易日共触发65次止损卖(三类中最多)：默认10日窗33对32错≈51%；切15日窗对照档29对36错≈45%——更长窗里近期反弹把更多止损「平反」，两档差异正是到期冻结窗呈现的真实波动。价值在控单笔最大亏损而非猜方向。实际数值以本 chip 实时统计为准。",
       };
       const _wChips = _SIG_TYPE_META
         .filter((m) => {
@@ -4932,7 +4982,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _etfFilterRow = `<div class="sig-acc-by-type sig-acc-etf-filter">ETF: ${_etfBtn("全部", "all", "显示全部参考点（含强关联/相关/近似/有跟踪/概念全部5档）")} · ${_etfBtn("强关联ETF " + _tierCounts[1], "1", "档1强关联：ETF本体自跟踪(self)或 track_tier=strong（绿灯，跟踪分≥75），跟踪误差最小", "etf-pop-grade-excellent")} · ${_etfBtn("相关ETF " + _tierCounts[2], "2", "档2相关：track_tier=related（草绿灯，跟踪分60-74），跟踪误差较小", "etf-pop-grade-good")} · ${_etfBtn("有近似ETF " + _tierCounts[3], "3", "档3近似：track_tier=approx（橙灯，跟踪分50-59），有跟踪ETF但误差较大", "etf-pop-grade-warn")} · ${_etfBtn("有跟踪ETF " + _tierCounts[4], "4", "档4跟踪：track_tier=none/null（暗橙/灰灯，跟踪分<50或数据不足），误差较大/来源间接，信号偏弱", "etf-pop-grade-warn")} · ${_etfBtn("概念无ETF " + _tierCounts[5], "5", "档5概念：该概念无对应ETF（如部分综合指数），显灰色无ETF标", "etf-pop-grade-warn")}${_etfReset}</div>`;
     // 问题3 fix(2026-07-31): _accHtml 用 .sig-acc-wrap 包裹(summary+byType), _rerenderSigCardContent
     //   整体替换 .sig-acc-wrap, 否则切窗口时 byType 各类型数量/准确率不更新(只 summary 更新)
-    _accHtml = `<div class="sig-acc-wrap">${_etfFilterRow}<div class="signal-accuracy-summary"><span class="sig-acc-total-label" data-tip="${_escAttr(_totalTip)}">总准确率 ${_fmt(_acc.total.pct)}</span> (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}${_warnAccRow}</div>`;
+    _accHtml = `<div class="sig-acc-wrap">${_etfFilterRow}<div class="signal-accuracy-summary">${_judgeWinHtml}<span class="sig-acc-total-label" data-tip="${_escAttr(_totalTip)}">总准确率 ${_fmt(_acc.total.pct)}</span> (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}${_warnAccRow}</div>`;
   }
   // 筛选后无匹配: 汇总条仍显示(窗口内统计), 列表区给提示
   // v1.1.5(2026-08-24) 枯竭引导空态: 开了「仅显示可用信号」且近30交易日全窗口无任何放行买入信号时,
@@ -5488,7 +5538,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
       var _idxRetPart = "";
       var _idxUnsettled = el.getAttribute("data-idx-unsettled");
       if (_idxUnsettled === "1") {
-        _idxRetPart = ' 指数至今: 今日信号未结算（收盘后更新）';
+        _idxRetPart = ' 指数走势: 今日信号未结算（收盘后更新）';
       } else {
         var _idxRetRaw = el.getAttribute("data-idx-ret");
         if (_idxRetRaw != null && _idxRetRaw !== "") {
@@ -5497,8 +5547,20 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
             var _idxRetStr = (_idxRet >= 0 ? "+" : "") + _idxRet.toFixed(2) + "%";
             var _idxCorrectRaw = el.getAttribute("data-idx-correct");
             var _idxDirS = _idxCorrectRaw === "true" ? " · 符合预测" : (_idxCorrectRaw === "false" ? " · 不符预测" : "");
+            // 2026-08-24 到期冻结窗：带 data-idx-n 的按「指数N日窗」标注；未满窗(settled=0)为暂计值并标"未定案"
+            // (波段减仓固定5日窗, 后端 n 恒传当前判定窗档位, 其对错两档相同故显示不受切换影响)。
+            // 无 data-idx-n(band_hold 中性/旧缓存数据)=无窗口语义, 保持"指数至今"纯盈亏展示。
+            var _idxWinNRaw = el.getAttribute("data-idx-n");
+            var _winLabel;
+            if (_idxWinNRaw === "10" || _idxWinNRaw === "15") {
+              var _wSettled = el.getAttribute("data-idx-settled") === "1";
+              _winLabel = '指数' + _idxWinNRaw + '日窗' + (_wSettled ? '' : '·暂计至今');
+              if (!_wSettled) _idxDirS += '（未定案）';
+            } else {
+              _winLabel = '指数至今';
+            }
             var _idxColor = _idxRet >= 0 ? "#e6492e" : "#2e8b57";
-            _idxRetPart = ' <span style="color:' + _idxColor + '">指数至今 ' + _idxRetStr + _idxDirS + '</span>';
+            _idxRetPart = ' <span style="color:' + _idxColor + '">' + _winLabel + ' ' + _idxRetStr + _idxDirS + '</span>';
           }
         }
       }
@@ -8444,13 +8506,17 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
         // 补的预估点用 "estimate" 信号 pin 标注，视觉区分（灰色虚线 pin）
       }
     }
-    // 信号至今盈亏行（方案B后端算）：文案=成功/失败·至今盈亏 ±X%（since_correct=null 今日/band_hold 仅显示盈亏不带成功失败）；颜色=A股红涨绿跌按since_return正负（>0红/<0绿/==0灰）
+    // 信号对错盈亏行（方案B后端算）：文案=成功/失败·N日窗盈亏 ±X%（2026-08-24 到期冻结窗：跟随判定窗档位,
+    // 未满窗为至今暂计并标注; since_correct=null 今日/band_hold 仅显示盈亏不带成功失败）；
+    // 颜色=A股红涨绿跌按收益正负（>0红/<0绿/==0灰）
     const _matchSR = _sigsSR.find((it) => it.index_id === indexId && it.signal === signal && it.date === date);
     if (_matchSR && _matchSR.since_return != null) {
       const _srLine = document.createElement("div");
       _srLine.setAttribute("style", "margin-bottom:8px;padding:6px 10px;font-size:12px;border-radius:4px;line-height:1.5;");
-      const _ret = _matchSR.since_return;
-      const _correct = _matchSR.since_correct;
+      const _winRet = _swrOf(_matchSR);
+      const _hasWin = _winRet != null;
+      const _ret = _hasWin ? _winRet : _matchSR.since_return;
+      const _correct = _scOf(_matchSR);
       const _retStr = (_ret > 0 ? "+" : "") + _ret.toFixed(2) + "%";
       let _color;
       // 颜色按 since_return 盈亏正负（A股红涨绿跌：>0红/<0绿/==0灰）
@@ -8467,11 +8533,15 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       const _subLabel = signalLabel(_matchSR);
       const _sigColor = _meta ? _meta.color : '#6b7280';
       const _descHtml = `<b style="color:${_sigColor};font-weight:700;">${fmtDate(_matchSR.date)}的${_typeLabel} · ${_subLabel}</b>`;
-      // 成功/失败 + 至今盈亏 继承整行 _color(红涨绿跌); 描述段内联信号配色
+      // 成功/失败 + 窗口盈亏 继承整行 _color(红涨绿跌); 描述段内联信号配色
+      // 有窗口字段=按当前判定窗标注(N日窗盈亏/未满窗标暂计); 无(band_hold/旧数据)=保持"至今盈亏"
       const _prefix = _correct === true ? '成功' : (_correct === false ? '失败' : '');
+      const _pnlLabel = _hasWin
+        ? (_settledOf(_matchSR) === true ? ` ${_sigWinN()}日窗盈亏 ` : ` 至今暂计(未满${_sigWinN()}日窗·未定案) `)
+        : '  至今盈亏 ';
       _srLine.innerHTML = _prefix
-        ? `${_prefix}  ·  ${_descHtml}  至今盈亏 ${_retStr}`
-        : `${_descHtml}  至今盈亏 ${_retStr}`;
+        ? `${_prefix}  ·  ${_descHtml}${_pnlLabel}${_retStr}`
+        : `${_descHtml}${_pnlLabel}${_retStr}`;
       body.appendChild(_srLine);
     }
     // 2026-08-06 走势图卡片标题加指数代码(need3-①)：复用 header _idxCodeTag（L4244 已定义 _sigIdxCode），
@@ -14263,7 +14333,7 @@ async function renderOverview() {
   // A/B 方案(2026-07-29): 汇总条 button click 委托 toggle 评级/对错筛选, 优先于 .sig-clickable 弹窗。
   // E 方案(2026-07-31): 加时间窗口筛选 toggle, 与 grade/correct/type 正交(互不影响)。
   sigCard.addEventListener("click", (e) => {
-    const filterBtn = e.target.closest("[data-grade-filter], [data-correct-filter], [data-type-filter], [data-grade-filter-reset], [data-window-filter], [data-window-filter-reset], [data-etf-filter], [data-etf-filter-reset]");
+    const filterBtn = e.target.closest("[data-grade-filter], [data-correct-filter], [data-type-filter], [data-grade-filter-reset], [data-window-filter], [data-window-filter-reset], [data-etf-filter], [data-etf-filter-reset], [data-judge-win]");
     if (filterBtn) {
       e.preventDefault();
       e.stopPropagation();
@@ -14296,6 +14366,14 @@ async function renderOverview() {
           const fs = String(f);
           const arr = state.sigEtfFilterSet || [];
           state.sigEtfFilterSet = arr.includes(fs) ? arr.filter((x) => x !== fs) : [...arr, fs];
+        }
+      } else if (filterBtn.dataset.judgeWin != null) {
+        // 2026-08-24 对错判定窗切换(10=默认/15=对照): 写 state + localStorage 记忆, 尾部统一重绘后
+        // total/byType/评级/警示块/对错筛选/角标/hoverpop 全部跟随新档字段。
+        const nw = filterBtn.dataset.judgeWin === "15" ? 15 : 10;
+        if (state.sigJudgeWin !== nw) {
+          state.sigJudgeWin = nw;
+          try { localStorage.setItem("tds_sig_judge_win", String(nw)); } catch (e2) {}
         }
       }
       // 用最新 overview + snap 重绘(不依赖闭包 r/snap, 盘中自动更新后筛选也生效)
