@@ -58,11 +58,18 @@ common = rd("static-site/common.js")
 t1 = set(re.findall(r'"([A-Za-z0-9]+)"', re.search(
     r"_KELLY_FADE_T1_KEYS = \[(.*?)\]", common, re.S).group(1)))
 pairs = {}
-for rel in ("static-site/app.js", "static-site/lab.js"):
+# 2026-08-24 基座对齐批: 锚定从文本片段('"n2NorthOutConcept", "n2nout"')改为符号名切片——
+# 旧锚点在数组增键/换序时 find 落空(-1)会静默切错段误判(审计报告 §四 D2 锚点脆弱项)。
+# 两处宿主符号: app.js=_SIM_LOSS_NEW_KEYS / lab.js=_KELLY_LOSS_NEW_KEYS(均为 [key, code] 对数组)。
+for rel, sym in (("static-site/app.js", "_SIM_LOSS_NEW_KEYS"), ("static-site/lab.js", "_KELLY_LOSS_NEW_KEYS")):
     txt = rd(rel)
-    idx = txt.find('"n2NorthOutConcept", "n2nout"')
-    seg = txt[max(0, idx - 3000):idx + 2000]
-    pairs[rel] = set(re.findall(r'\["([A-Za-z0-9]+)",\s*"[a-zA-Z0-9]+"\]', seg))
+    m = re.search(re.escape(sym) + r"\s*=\s*\[(.*?)\];", txt, re.S)
+    if not m:
+        msg = f"{rel} 未找到 {sym} 数组声明(符号被改名? 请同步本脚本锚点)"
+        print("DIFF", msg)
+        issues.append(("D2", msg))
+        continue
+    pairs[rel] = set(re.findall(r'\["([A-Za-z0-9]+)",\s*"[a-zA-Z0-9]+"\]', m.group(1)))
 print(f"backend={len(bk)} commonT1={len(t1)} appMap={len(pairs['static-site/app.js'])} labMap={len(pairs['static-site/lab.js'])}")
 for name, s in [("common._KELLY_FADE_T1_KEYS", t1)] + [(f"{k} map", v) for k, v in pairs.items()]:
     if s != bk:

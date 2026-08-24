@@ -483,37 +483,27 @@ def stats_for(stats_all_dict: dict, index_id: str) -> dict:
     return stats_all_dict.get(index_id, {})
 
 
-# ============ AI宏降亏命中标注(2026-08-13 首页 AI 开关) ============
-# 提取凯利回测区 lab.js _kellyPassesFadeFilters 的「AI宏默认降亏」8 键谓词
-# (基础 5 键 n2/excludeSpecialBear四档/janMidRating/janMidSpecial/k2c5HkChase 港股追涨剔除
-#  + 3元核心 3 键 r7MayReinforced/excludeAuxCross/greedy15；K2C5 并基础5为第 8 键，
-#  v1.1.0 用户拍板 定名「基础5」, 穷举验证 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md)
-# v1.1.2(2026-08-17 用户拍板): excludeSpecialBear 语义从 MA60 熊 → 四档(熊市·主跌+下降期)，
-#   默认开=新主键(见 §5.4⑥ 发版本); 另新增 2 个默认关备选键 legacyMa60Special(老MA60熊×追买)
-#   与 declinePhaseSpecial(下降期×buy_special 全市场), 均带 NEW 标签。
-# 为可复用的信号级谓词，给 overview.json 每条信号注入 ai_macro:{hit, filters}。
-# 与凯利区降亏逻辑同源(§22)。
+# ============ AI宏降亏命中标注(2026-08-13 首页 AI 开关; v1.1.5 起默认基座=NEW14) ============
+# 本模块为可复用的信号级谓词层：给 overview.json 每条信号注入 ai_macro:{hit, filters}
+# (filters=该信号命中的全部降亏条件键, 无条件注入、不做默认档裁剪——前端/check_signals 各自按
+# 所选模式键集二次过滤)。谓词规格单源=scripts/loss_rules.py RULE_SPECS(hist 键+规则键),
+# 与凯利区 lab.js _kellyPassesFadeFilters/_kellyLossRuleHit 三端同构(§22)。
+# 默认基座沿革: v1.1.0 八键(基础5+核心3, docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md)
+# → v1.1.2 excludeSpecialBear 升四档+备选键 → **v1.1.5(2026-08-24 用户拍板)=NEW14 十四键**
+#   (hist 键 6 + 规则键 8; 权威键集=mine24_compare.json new_keys 经 MINING_TO_PROD_KEY 映射;
+#   p8 八键保留为可手选对照档 §23.7)。默认档单源在前端 common.js _KELLY_FADE_DEFAULT_MODE,
+#   后端邮件白名单登记点=scripts/check_signals.py AI_MACRO_KEYS(机检 check_fade_keys_alignment.py)。
 # ⚠ 粒度降级(诚实标注)：凯利区基于交易级字段(含 ETF 买入价 buy_price 的
 # price_bin 五分位)，overview 信号级无价格字段 → price_bin 依赖子条件在信号级
 # **不可判定、不参与命中**(漏标不误标，宁保守不误杀)。其余字段(信号日/信号类型/
 # 指数大类 mkt_*/评级 high-mid-low/weekday/top1 track_score)均与凯利同源同口径。
-# ⚠ +1类回测剔除(债类/波段不入宇宙)不在此 8 键内：由 overview 每条信号的
+# ⚠ +1类回测剔除(债类/波段不入宇宙)不在任何降亏键内：由 overview 每条信号的
 # _bt_in_universe 字段承载(L840 注入, 等价回测 _build_best_etf 入样判定, §23.6)。
-# 前端首页删除线 = ①ai_macro.filters 命中 8 键之一(→「AI降亏」标注) +
-# ②_bt_in_universe===false(→「未入样本」标注), 两者正交叠加 = 8键+1类 = 9 (v1.1.0)。
-# 首页开关=AI宏总开关(tds_kelly_filters.aiMacro)：on → ai_macro.hit 信号灰显对照。
-_AI_MACRO_TOGGLE_NAMES = {
-    "n2NovSpecialIndustry": "11月+追关注+行业",
-    "excludeSpecialBear": "追关注×熊市交叉",
-    "legacyMa60Special": "老MA60熊×追买",
-    "declinePhaseSpecial": "下降期×追关注",
-    "janMidRating": "J1 1月中旬+mid评级",
-    "janMidSpecial": "J2 1月中旬+追关注",
-    "k2c5HkChase": "港股追涨剔除",
-    "r7MayReinforced": "5月强化+3非五月R7",
-    "excludeAuxCross": "辅关注×3/5月交叉",
-    "greedy15": "Greedy-15组合",
-}
+# 前端首页删除线 = ①ai_macro.filters 命中所选模式键集之一(v1.1.5 起=new14 preset 十四键,
+# 单源 common.js _KELLY_FADE_MODE_PRESETS)(→「AI降亏」标注) +
+# ②_bt_in_universe===false(→「未入样本」标注), 两者正交叠加。
+# 首页 AI降亏过滤=独立总开关 tds_home_fade(与凯利区解耦); 模式记忆 tds_home_fade_mode;
+# 凯利区模式记忆 tds_kelly_fade_mode(不再读写旧 tds_kelly_filters.aiMacro 总开关语义)。
 
 
 def _ai_macro_weekday(date_str: str) -> int:

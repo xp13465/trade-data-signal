@@ -167,6 +167,20 @@ if [ "$UNIV_RC" -ne 0 ]; then
 fi
 echo "✓ 入样宇宙规则校验通过" | tee -a "$LOG"
 
+# 1.2.1 AI降亏默认档键集跨端一致性机检(CLAUDE.md §22 代码内常量登记点 + §5.4⑥ 键集机检,
+# 审计报告 docs/kelly/analysis/v115-new14-baseline-alignment-audit.md §五)。
+# 默认档键集在 common.js preset / check_signals.py 白名单+中文名两表 / overfit_monitor RECENT_KEYS /
+# app.js 兜底键集各有一份常量副本(v1.1.5 切 NEW14 漏 check_signals 即此病灶 R1/R2), 任一份漏同步
+# =邮件不标「AI降亏·建议回避」而首页灰显删除线的跨端不一致。任一断言 FAIL → 非0退出阻断上线。
+echo "-> 运行 check_fade_keys_alignment.py AI降亏默认档键集一致性机检 ..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/check_fade_keys_alignment.py" --repo "$REPO" --deploy-mode 2>&1 | tee -a "$LOG"
+FADE_RC=${PIPESTATUS[0]}
+if [ "$FADE_RC" -ne 0 ]; then
+  echo "✗ AI降亏默认档键集一致性机检失败(退出码 $FADE_RC)，终止部署(§22 登记点机检 FAIL 阻断上线)" | tee -a "$LOG"
+  exit "$FADE_RC"
+fi
+echo "✓ AI降亏默认档键集一致性机检通过" | tee -a "$LOG"
+
 # 1.3 版本一致性校验(CLAUDE.md §24⑤, 2026-08-15 补; #48)
 # 适配 #46 日期+批次版本串机制: index引用版本串格式/与sw批次一致/资源存在/min比源新,
 # 任一 FAIL → 非0退出阻断上线(防孤儿快照再产生, 2026-08-14 全站白屏事故根因⑤)。

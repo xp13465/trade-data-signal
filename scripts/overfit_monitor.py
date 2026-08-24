@@ -469,8 +469,9 @@ class FilterCtx(object):
 #   daily 曲线=_derive_daily_series 纯滚动胜率偏差派生(current_risk 参数未被引用),
 #   d2(OOS)/d3(参数扰动)/d4(象限退化)是回测级重算但不进前端渲染链路(仅预警主口径)。
 # 【口径】明细命中键 = v1.1.2 四档口径(与 queries._ai_macro_hit_filters 同源), 与老 filtered bank
-#   的 MA60 口径(历史遗留, §23.7⑤ 已上报)存在 excludeSpecialBear 微差 —— 默认 p8 走现有 bank
-#   数字不变, 仅非 p8 模式/独立+1开关开启时走组集(新交互无现网行为可对齐), tooltip 诚实标注。
+#   的 MA60 口径(历史遗留, §23.7⑤ 已上报)存在 excludeSpecialBear 微差 —— v1.1.5 起默认 new14 走
+#   组集(recent 明细逐信号打标→前端组集), 仅 p8 对照档走 filtered bank 现有数字不变
+#   (新交互无现网行为可对齐), tooltip 诚实标注。
 # 【信号级子集】老键中依赖 price_bin(bpb)/ETF相关性(etf) 的组件信号级不可判, 降级跳过
 #   (与 queries greedy15/r7 同原则, 首页 ai_macro.filters 同为信号级子集口径, 公示已声明)。
 # 【打标键集合】= common.js _KELLY_FADE_MODE_PRESETS 7 模式 keys 并集 + bullAuxBackupStop(独立开关)。

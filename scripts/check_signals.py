@@ -578,35 +578,56 @@ def _format_stats_line(stats_entry: dict | None) -> str | None:
 # 不自行重算宇宙; AI 建议 top-K 排序读 overview 信号 etfs.track_score + signal_stats score
 # (与首页同数据源同排序), 非凭空自算。
 
-# 首页 AI宏 8 键(基础5+核心3, 与 static-site/app.js _AI_MACRO_FILTER_NAMES 同源 §22)。
-# v1.1.2 备选键 legacyMa60Special/declinePhaseSpecial 默认关, 仅凯利区手动开时命中;
-# 首页/邮件/飞书永不因备选键判「AI降亏」(queries.py _ai_macro_hit_filters 无条件注入所有命中键,
-# 故此处须按 8 键白名单二次过滤, 不能直接用 overview.ai_macro.hit=true 当命中——备选键命中要剔除)。
+# AI降亏默认档白名单(v1.1.5 起=NEW14 十四键生产键, 与前端单源 common.js _KELLY_FADE_DEFAULT_MODE
+# ="new14" 的 preset keys 同源 §22/§5.4⑥)。本表为代码内常量登记点(§22: 切基座必须全登记点同步),
+# 由 mine24 权威 new_keys(docs/kelly/analysis/scripts/sim_window_loss_mining_20260822/data/
+# mine24_compare.json)经 scripts/loss_rules.py MINING_TO_PROD_KEY 映射推导生成(6 个 hist 键直接为
+# 生产键 + 8 个挖掘代号经映射), 推导工具化过程见 audit 报告 §六复现段;
+# 跨端一致性由 scripts/check_fade_keys_alignment.py 挂 deploy 链机检 FAIL 阻断(§22 机制兜底)。
+# 消费点: L711 候选过滤 / L754 徽标过滤 / L1978 日志统计——三处行为随本表对齐 NEW14 基座。
 AI_MACRO_KEYS = {
-    "n2NovSpecialIndustry", "excludeSpecialBear", "janMidRating",
-    "janMidSpecial", "k2c5HkChase", "r7MayReinforced",
-    "excludeAuxCross", "greedy15",
+    "r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy",
+    "declinePhaseSpecial", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield",
+    "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup",
+    "r2bSpecialGlobal",
 }
-# v1.1.2 备选键中文名(仅名称展示用, 不进 AI_MACRO_KEYS 判定; 与 app.js _AI_MACRO_BACKUP_NAMES 同源 §22)
+# 备选/可选档键中文名(仅名称展示用, 不进 AI_MACRO_KEYS 判定; 与 app.js _AI_MACRO_BACKUP_NAMES 同源 §22):
+#   legacyMa60Special=v1.1.2 默认关备选键; X1(mine29c 2026-08-24 用户拍板)=NEW14+1·15键可选档成员,
+#   不在 NEW14 默认档(§23.7), 中文名仅备映射完整(audit D2 三处对账口径)。
+# 注: declinePhaseSpecial 是 NEW14 hist6 成员 → 已归位主表 AI_MACRO_KEY_CN, 不再留此备选表。
 AI_MACRO_BACKUP_KEY_CN = {
     "legacyMa60Special": "老MA60熊×追买",
-    "declinePhaseSpecial": "下降期×追关注",
     # X1(mine29c 2026-08-24 用户拍板) NEW14+1·15键可选档成员, 默认不在任何白名单(邮件判定零变化 §23.7);
     #   中文名仅备映射完整(audit D2 三处对账口径), 与 app.js/_AI_MACRO_BACKUP_NAMES 同步登记。
     "excludeTierNone": "整剔无跟踪档位象限(track_tier=none)",
 }
-# 键中文名映射(与 static-site/app.js _AI_MACRO_FILTER_NAMES 同源, §22 一致性; 邮件/飞书徽标缘由用)
+# 键中文名映射(v1.1.5 起覆盖 NEW14 全部十四键; 与 app.js _AI_MACRO_BACKUP_NAMES/lab.js toggle 展示名
+# 同源 §22 一致性; 邮件/飞书徽标缘由 _ai_fade_label 用, 缺失即英文裸键名直出)。旧八键专属条目保留:
+# 对照档 p8 手选时徽标仍需其中文名(§23.7 老口径可回选不删档)。
 AI_MACRO_KEY_CN = {
-    "n2NovSpecialIndustry": "11月+追关注+行业",
-    "excludeSpecialBear": "追关注×熊市交叉(四档)",
-    "legacyMa60Special": "老MA60熊×追买",
-    "declinePhaseSpecial": "下降期×追关注",
-    "janMidRating": "1月中旬+中评级",
+    # ---- NEW14 hist 键 6 ----
+    "r10May6NonMay": "5月+6非5月组合",
+    "greedy15": "Greedy-15组合",
     "janMidSpecial": "1月中旬+追关注",
     "k2c5HkChase": "港股追涨剔除",
+    "k3ConceptBuy": "主关注×概念",
+    "declinePhaseSpecial": "下降期×追关注",
+    # ---- NEW14 规则键 8(经 loss_rules.MINING_TO_PROD_KEY 映射的生产键)----
+    "n1NorthOutflow": "北向20日净流出",
+    "t1LowTurnSpecial": "换手冰点×追关注",
+    "d1LowDivYield": "股息率低位(估值贵)",
+    "q1QvixLowPct": "QVIX低分位(自满)",
+    "h1VolChgHighA": "升波×A股",
+    "m1MarginDownBull": "牛主升×两融降温",
+    "p1LowDivBackup": "备买×股息率分位低",
+    "r2bSpecialGlobal": "追关注×全球类",
+    # ---- v1.1.2~v1.1.4 旧默认键(p8 对照档手选时徽标缘由仍用)----
+    "n2NovSpecialIndustry": "11月+追关注+行业",
+    "excludeSpecialBear": "追关注×熊市交叉(四档)",
+    "janMidRating": "1月中旬+中评级",
     "r7MayReinforced": "5月强化+3稳定非5月",
     "excludeAuxCross": "辅关注×3/5月交叉",
-    "greedy15": "Greedy-15组合",
+    "legacyMa60Special": "老MA60熊×追买",
 }
 # 首页 AI 建议 top-K 排序的信号类型优先级(buy_backup>buy>buy_aux>buy_special, 与 app.js _sc 同)
 _AI_RANK_SIG_ORDER = {"buy_backup": 0, "buy": 1, "buy_aux": 2, "buy_special": 3, "": 9}
@@ -709,8 +730,8 @@ def build_ai_suggest_map(signals: list[dict], overview_markers: dict, stats: dic
         if m is None or m.get("_bt_in_universe") is False:
             continue
         _am = m.get("ai_macro", {})
-        # AI 降亏命中须过 8 键白名单(AI_MACRO_KEYS): 与 _calc_signal_markers L748 同口径 §22,
-        # 不能直接用 overview.ai_macro.hit —— v1.1.2 备选键(默认关)命中不该让该信号从 AI 主推剔除(#74)
+        # AI 降亏命中须过默认档白名单(AI_MACRO_KEYS, v1.1.5 起=NEW14 十四键): 与 _calc_signal_markers
+        # 同口径 §22, 不能直接用 overview.ai_macro.hit —— 备选键/可选档键(X1 等, 默认关)命中不该让该信号从 AI 主推剔除(#74)
         if any(k in AI_MACRO_KEYS for k in (_am.get("filters") or [])):
             continue
         candidates.append({"index_id": iid, "signal": sig,
@@ -736,8 +757,8 @@ def _calc_signal_markers(sig: dict, overview_markers: dict, stats: dict,
 
     返回 dict:
       in_universe: bool|None (None=overview 无该信号标记, 未知)
-      ai_fade: bool 命中 8 键降亏(AI 降亏层)
-      ai_fade_keys: list[str] 命中的 8 键英文名(白名单过滤, 邮件/飞书徽标精简缘由用)
+      ai_fade: bool 命中默认档降亏键(AI 降亏层; v1.1.5 起 AI_MACRO_KEYS=NEW14 十四键)
+      ai_fade_keys: list[str] 命中键英文名(白名单过滤, 邮件/飞书徽标精简缘由用)
       ai_warn: bool 入样卖出信号 → AI 警示(离场保护, 与 AI 过滤正交)
       ai_rank: int|None 首页 K=1 top-K 内的排名(AI 建议 N, 从 1 起)
       ai_full: bool 满足 AI 建议候选条件但超出 top-K → 「当日已满」
@@ -749,8 +770,9 @@ def _calc_signal_markers(sig: dict, overview_markers: dict, stats: dict,
     if marker is not None:
         in_universe = marker.get("_bt_in_universe")
         _am = marker.get("ai_macro", {})
-        # 命中键英文数组 → 8 键白名单过滤(AI_MACRO_KEYS 不含 v1.1.2 备选键), 防未知/备选键混入;
-        # 顺序随 overview 注入, 不重排。首页/邮件/飞书仅 8 键命中才算「AI降亏」(备选键仅凯利区手动开时命中, §22)
+        # 命中键英文数组 → 默认档白名单过滤(AI_MACRO_KEYS=v1.1.5 NEW14 十四键, 不含备选/可选档键),
+        # 防未知/备选键混入; 顺序随 overview 注入, 不重排。首页/邮件/飞书仅默认档键命中才算「AI降亏」
+        # (备选键 legacyMa60Special/X1 等默认关, 仅凯利区手动开时命中, §22)
         ai_fade_keys = [k for k in (_am.get("filters") or []) if k in AI_MACRO_KEYS]
         ai_fade = bool(ai_fade_keys)
     sig_type = sig.get("signal") or ""
