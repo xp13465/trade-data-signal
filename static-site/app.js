@@ -2101,6 +2101,12 @@ async function _appendOverfitCard(colA2, r, snap) {
     _overfitHoverTip("AI监控2.0: 上=准确率(实盘 vs 回测) 下=综合过拟合风险分(0-100)。点击❓看完整使用指南") +
       '</h3>' +
       // 2026-08-16 二次迭代: 降亏开关 + K档 同一行(K档 × 降亏两开关独立, 用户拍板)
+      // 2026-08-24 控件行重排(纯展示层, 主控派单): 单行两组控件超长自动换行混乱 → 外层纵向 stack 明确两行——
+      //   行1=AI降亏过滤组(总开关+降亏模式下拉+该组状态标签 .overfit-fade-state2)
+      //   行2=AI仓位建议组(K档按钮组+K读数徽章 .overfit-k-state);
+      //   只动 DOM 分组/CSS 布局, 控件事件绑定/读写逻辑/判定链零变化(本卡所有控件定位均按 class/attr
+      //   card.querySelector, 与嵌套层级无关); 原 .overfit-fade-sep 竖线为行内组分隔, 拆行后随之删除。
+    '<div class="overfit-ctrl-stack">' +
     '<div class="overfit-fade-row">' +
       '<span class="overfit-fade-label" data-tip="AI降亏过滤开关(默认开, 独立记忆): 开启=监控只统计「未被AI宏删线过滤」的信号(未命中8键降亏且已入样); 关闭=统计全信号。仅买信号判降亏(${_t("sell_short")}/${_t("type_sell_stop_loss")}不判)。本开关只切 bank 读取, 不前端重算(§23.6)。">AI降亏过滤</span>' +
       '<label class="overfit-fade-switch"><input type="checkbox" data-overfit-fade="1"> <span class="ov-sw"></span></label>' +
@@ -2115,7 +2121,9 @@ async function _appendOverfitCard(colA2, r, snap) {
             "AI降亏模式(7预设): 切换后准确率/风险分两图按所选模式重算。v1.1.5(2026-08-24 用户拍板)起默认=new14·NEW 14键(与全站一致); p8=8键旧默认·对照(走老filtered bank); 9键/A/B/C=叠9键口径(含牛市×辅备买全停); NEW18=全量重构。⚠非p8口径为 v1.1.2 四档判定源(recent明细), 与老filtered bank的MA60口径存在 excludeSpecialBear 微差; price_bin/ETF相关性组件信号级不可判已降级跳过(v4f 恒不命中); NEW18 北向流出×概念类(n2NorthOutConcept)已接入打标(2026-08-23 修复后端漏列), 评级维度回测曲线同步恢复出数(FIELD 列修复)。⚠模式记忆仅保留 18 小时(TDS_FADE_TTL 单源, 滑动过期=每次切换刷新计时, 超时回默认 new14 并清记忆)。旧独立+1开关已删(2026-08-24), 牛市×辅备买全停由 9键/A/B/C 模式一并启用。")
         : "") +
       '<span class="overfit-fade-state2" style="color:var(--text-3);font-size:11px;margin-left:6px"></span>' +
-      '<span class="overfit-fade-sep"></span>' +
+      '</div>' +
+      // 行2=AI仓位建议组: K档按钮组 + K读数徽章(2026-08-24 控件行重排)
+      '<div class="overfit-fade-row">' +
       '<span class="overfit-win-label" data-tip="K档(与首页AI仓位建议top-K同口径, 2026-08-16 启用): 每日只保留当日最优K个买入信号监控。两开关独立: 降亏开=过滤后人口选K(filtered_by_k), 降亏关=全信号人口选K(by_k)。排序=跟踪分↓→评级→信号类型。点「关」=无K档退化普通列表(降亏开关控制)。">K档</span>' +
       ((function(_s){ var _r = { 1: "最激进", 2: "次稳健", 3: "最稳健", 4: "最保守" };
         return '<button type="button" class="sig-kbtn sig-kbtn-off' + (_s.k == null ? ' active' : '') + '" data-overfit-k="off"><span class="sig-kbtn-k">关</span><span class="sig-kbtn-r">off</span></button>' +
@@ -2129,6 +2137,7 @@ async function _appendOverfitCard(colA2, r, snap) {
       //    fade 区只留降亏模式下拉文案; 回退说明改动态附加 tooltip)
       '<span class="overfit-k-state" style="color:var(--text-3);font-size:11px;margin-left:6px"></span>' +
       '</div>' +
+    '</div>' +
     '<div class="overfit-tip" data-tip="双曲线监控 · 综合过拟合风险分(0-100)。显示范围(30/60/90/180日)=横轴截取最近 N 个交易日展示, 只影响显示不重算；统计口径(10/15/30/60/100日, 默认15)=两图(准确率+风险分)按选中口径滚动重算；评级/类型=看子集；K档(关/K1主推★)=每日最优先选K个买入信号(top-K), 与首页AI仓位建议同口径, 与AI降亏两开关独立(降亏开=过滤后选, 关=全信号选)；AI降亏=只统计未被AI宏删线过滤的信号；实盘线限定回测宇宙(与回测同批买入信号, 卖/情绪类不计入)；不设样本数下限, 样本少照常画线(看n判断可信度)。绿&lt;30正常 黄30-60关注 红&gt;60高风险。完整说明见标题❓">' +
       '双曲线监控 · 综合过拟合风险分0-100 · <span class="overfit-legend">绿&lt;30正常 黄30-60关注 红&gt;60高风险</span>' +
       '<span class="overfit-tip-help" data-overfit-help="1" style="cursor:pointer;text-decoration:underline;margin-left:6px">❓完整指南</span></div>' +

@@ -6945,17 +6945,19 @@ main { padding: 16px 24px; }
   opacity: 0.5; cursor: not-allowed; color: var(--text-4, #999); border-style: dashed;
 }
 /* 2026-08-15 AI降亏过滤开关：复用 notify-toggle 开关样式 */
+/* 2026-08-24 控件行重排(纯展示层): 外层纵向 stack 统管外距, 内两行各自面板框——
+   行1=AI降亏过滤组(总开关+降亏模式下拉+状态标签) / 行2=K档AI仓位组(按钮组+读数徽章);
+   窄屏各自 flex-wrap 自然换行不溢出; .overfit-fade-sep 竖线随拆行删除(无引用) */
+.overfit-ctrl-stack { display: flex; flex-direction: column; gap: 5px; margin: 2px 0 8px; }
+.overfit-ctrl-stack .overfit-fade-row { margin: 0; }
 .overfit-fade-row {
   display: flex; align-items: center; gap: 6px; margin: 2px 0 8px; padding: 3px 8px;
   border: 1px solid var(--border-color, rgba(128,128,128,0.25)); border-radius: 4px;
   background: var(--bg-2, rgba(128,128,128,0.05)); flex-wrap: wrap;
 }
 .overfit-fade-label { font-size: 11px; color: var(--text-2); font-weight: 600; cursor: help; }
-/* 2026-08-16 二次迭代: 降亏开关与K档同行的分隔竖线 + K档按钮(K与win-btn同视觉, 可点选active高亮) */
-.overfit-fade-sep {
-  width: 1px; height: 18px; background: var(--border-color, rgba(128,128,128,0.3));
-  margin: 0 2px; flex-shrink: 0;
-}
+/* (2026-08-24 清理) .overfit-fade-sep 分隔竖线死样式已删: DOM 节点随控件行重排(拆两行)删除,
+   全站无其他引用(§23.3 已 grep app/lab/common/index.html/app 后端确认); K按钮样式见 .sig-kbtn 段 */
 .overfit-kbtn { min-width: 34px; text-align: center; }
 .overfit-kbtn.active { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
 .overfit-fade-switch {
