@@ -1679,7 +1679,8 @@ async function fetchLabFusionSimFullData(index, onProgress, signal) {
   if (!stats) return null;
   state.labSimFusionFullMap[index] = "loading";
   try {
-    const full = await fetchJSONProgress("https://ss.fx8.store/r2/lab/lab_sim_" + index + "_fusion_full.json", onProgress, signal);
+    // perf批一 P8-D(2026-08-24): 补 timeoutMs=60000, 有进度+abort 但原无超时, 弱网挂起可自救。
+    const full = await fetchJSONProgress("https://ss.fx8.store/r2/lab/lab_sim_" + index + "_fusion_full.json", onProgress, signal, 60000);
     if (full && full.pairs && stats.pairs) {
       for (const pk in full.pairs) {
         const fp = full.pairs[pk];
@@ -1738,7 +1739,9 @@ function _labSimFullLoaded(index) {
 
 // 带 HTTP 进度的 fetch JSON（读 ReadableStream 累计 received/Content-Length 算百分比）
 // 无 Content-Length 或不支持流时降级为普通 fetchJSON，onProgress(-1) 表示无法测算
-async function fetchJSONProgress(url, onProgress, signal) {
+// timeoutMs(perf批一 P8-D 2026-08-24): 可选超时(ms), 大文件 _full.json 弱网防永久挂起; 不传=原行为零变化。
+// 超时/外部 signal 取消统一走内部 controller abort(AbortError 向上抛不降级); fallback fetchJSON 透传同额超时。
+async function fetchJSONProgress(url, onProgress, signal, timeoutMs) {
   // 2026-08-01 全部跳过 .gz，统一走 .json + CF br 压缩（与 app.js fetchJSON 同步，根治 CF .gz 4h edge 缓存滞后）
   // .gz fallback 逻辑保留(防御性), 但 tryGz=false 时 gzUrl=null 不触发。
   const _qIdx = url.indexOf("?");
@@ -1746,9 +1749,25 @@ async function fetchJSONProgress(url, onProgress, signal) {
   const _query = _qIdx >= 0 ? url.slice(_qIdx) : "";
   const tryGz = false;
   const gzUrl = tryGz ? _base + ".gz" + _query : null;
+  // 超时装配: 仅传了 timeoutMs 才接管信号(内部 controller 链接外部 signal, 任一触发都 abort)
+  const _useTimeout = timeoutMs && timeoutMs > 0;
+  const _timeoutCtrl = new AbortController();
+  const _ctrlAbort = () => _timeoutCtrl.abort();
+  let _timer = null, _timedOut = false, _onOuterAbort = null;
+  if (_useTimeout) {
+    if (signal) {
+      if (signal.aborted) _ctrlAbort();
+      else {
+        _onOuterAbort = _ctrlAbort;
+        signal.addEventListener("abort", _onOuterAbort);
+      }
+    }
+    _timer = setTimeout(() => { _timedOut = true; _ctrlAbort(); }, timeoutMs);
+  }
+  const _sig = _useTimeout ? _timeoutCtrl.signal : signal;
   try {
     const fetchUrl = gzUrl || url;
-    const resp = await fetch(fetchUrl, signal ? { signal } : undefined);
+    const resp = await fetch(fetchUrl, _sig ? { signal: _sig } : undefined);
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     const total = parseInt(resp.headers.get("Content-Length") || "0", 10);
     // .gz 路径: 先按压缩流累计进度,再 pipe DecompressionStream 解压
@@ -1787,15 +1806,23 @@ async function fetchJSONProgress(url, onProgress, signal) {
     const txt = await blob.text();
     return JSON.parse(txt);
   } catch (e) {
-    if (e && e.name === "AbortError") throw e; // 中止不降级，向上抛
-    // .gz 失败(404/解压错/不支持) -> fallback 原 .json 走 fetchJSON
+    if (e && e.name === "AbortError") {
+      // perf批一 P8-D: 超时触发的 abort 记日志便于排查弱网问题(外部手动取消不打扰)
+      if (_timedOut) console.error("fetchJSONProgress timeout (" + timeoutMs + "ms): " + url);
+      throw e; // 中止不降级，向上抛
+    }
+    // .gz 失败(404/解压错/不支持) -> fallback 原 .json 走 fetchJSON (透传同额超时)
     if (gzUrl) {
       if (onProgress) onProgress(-1, 0);
-      return fetchJSON(url);
+      return fetchJSON(url, timeoutMs);
     }
-    // 流式读取失败（如浏览器不支持），降级普通 fetch
+    // 流式读取失败（如浏览器不支持），降级普通 fetch (透传同额超时)
     if (onProgress) onProgress(-1, 0);
-    return fetchJSON(url);
+    return fetchJSON(url, timeoutMs);
+  } finally {
+    // perf批一 P8-D: 清理超时定时器+外部 signal 监听(所有返回路径统一走 finally, 防泄漏)
+    if (_timer) clearTimeout(_timer);
+    if (_onOuterAbort && signal) signal.removeEventListener("abort", _onOuterAbort);
   }
 }
 
@@ -1820,7 +1847,8 @@ async function fetchLabSimFullData(index, onProgress, signal) {
   if (!stats) return null;
   state.labSimFullMap[index] = "loading";
   try {
-    const full = await fetchJSONProgress("https://ss.fx8.store/r2/lab/lab_sim_" + index + "_full.json", onProgress, signal);
+    // perf批一 P8-D(2026-08-24): 补 timeoutMs=60000(同 fusion_full 点)。
+    const full = await fetchJSONProgress("https://ss.fx8.store/r2/lab/lab_sim_" + index + "_full.json", onProgress, signal, 60000);
     if (full && full.pairs && stats.pairs) {
       for (const pk in full.pairs) {
         const fp = full.pairs[pk];
@@ -6313,8 +6341,9 @@ async function renderAIScoreListLab() {
   let dataBuy = null, dataSell = null;
   try {
     [dataBuy, dataSell] = await Promise.all([
-      fetchJSON(urlBuy),
-      fetchJSON(urlSell),
+      // perf批一 P3-D(2026-08-24): buy/sell 分件与 hold 同源同参统一 timeoutMs=60000。
+      fetchJSON(urlBuy, 60000),
+      fetchJSON(urlSell, 60000),
     ]);
   } catch (e) {
     buyHost.innerHTML = `<div class="lab-custom-error">` +
@@ -6400,7 +6429,8 @@ async function _ensureLabHoldLoaded(holdHost, codeToIid, dateStr, holdCount) {
   if (st.holdLoading) return st.holdLoading;
   st.holdLoading = (async () => {
     try {
-      const r = await fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_hold.json");
+      // perf批一 P3-D(2026-08-24): hold 分件大, 补 timeoutMs=60000(对齐 app.js _ensureHoldLoaded 同源点)。
+      const r = await fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_hold.json", 60000);
       const holdItems = Array.isArray(r.hold_list) ? r.hold_list : [];
       if (st.data) st.data.hold_list = holdItems;
       st.holdLoaded = true;

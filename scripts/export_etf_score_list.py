@@ -176,7 +176,9 @@ REPRESENTATIVE_ETF_CODES: list[tuple[str, str, str]] = [
 
 def _write_json_gz(out_path: Path, payload: dict) -> None:
     """写 JSON + 同名 .json.gz (前端 fetchJSON 优先 .gz 通道)。"""
-    text = json.dumps(payload, ensure_ascii=False, indent=2)
+    # perf批一 P3-A(2026-08-24): 去 indent=2 改 compact separators, hold/buy/sell 三分件同源同参一处生效;
+    # indent 纯缩进空白占 ~49% 体积(16.4MB->7.9MB), 前端 JSON.parse 不受影响(结构零变化)。
+    text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     out_path.write_text(text, encoding="utf-8")
     with gzip.open(out_path.with_suffix(out_path.suffix + ".gz"), "wb") as f:
         f.write(text.encode("utf-8"))

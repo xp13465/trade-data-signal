@@ -18163,7 +18163,8 @@ let _industryFundMapLoading = null;  // Promise 防并发重复 fetch
 async function _loadIndustryFundMap() {
   if (_industryFundMapCache) return _industryFundMapCache;
   if (_industryFundMapLoading) return _industryFundMapLoading;
-  _industryFundMapLoading = fetchJSON("https://ss.fx8.store/r2/public_fund/public_fund_industry_fund_map.json")
+  // perf批一 P9-D(2026-08-24): 补 timeoutMs=60000, 6.5MB 行业基金映射弱网防默认 15s 误炸。
+  _industryFundMapLoading = fetchJSON("https://ss.fx8.store/r2/public_fund/public_fund_industry_fund_map.json", 60000)
     .catch((e) => { console.warn("[pf-fund-map] fetch failed", e?.message || e); return null; })
     .finally(() => { _industryFundMapLoading = null; });
   _industryFundMapCache = await _industryFundMapLoading;
@@ -23118,7 +23119,8 @@ async function _ensureHoldLoaded() {
   if (_etfScoreState.holdLoading) return _etfScoreState.holdLoading;
   _etfScoreState.holdLoading = (async () => {
     try {
-      const r = await fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_hold.json");
+      // perf批一 P3-D(2026-08-24): hold 分件大(~16MB,去indent后~8MB), 补 timeoutMs=60000 防弱网撞默认 15s。
+      const r = await fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_hold.json", 60000);
       // hold_list item -> 统一格式(同 renderEtfScore 合并逻辑, side="hold")
       const holdItems = (r.hold_list || []).map((e) => ({
         etf_code: e.etf_code, name: e.name, score: e.score, side: "hold",
@@ -23813,8 +23815,9 @@ async function renderEtfScore(container) {
   // R2 代理(ss.fx8.store/r2/data/ + Worker Cache API 边缘缓存1h), 原 18MB 单文件 -> buy 1.4MB + sell 1.2MB + hold 13MB(懒加载)
   // buy/sell JSON 各含完整 meta + 三分类计数(buy_count/sell_count/hold_count), 从 buy 取 meta 即可
   const [rBuy, rSell] = await Promise.all([
-    fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_buy.json"),
-    fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_sell.json"),
+    // perf批一 P3-D(2026-08-24): buy/sell 分件与 hold 同源同参统一 timeoutMs=60000。
+    fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_buy.json", 60000),
+    fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_sell.json", 60000),
   ]);
   const r = rBuy; // meta 从 buy JSON 取(buy/sell 同源同 meta)
   _etfScoreState.meta = {
@@ -26304,7 +26307,9 @@ async function _tradeSimFetchStats(indexId) {
 }
 
 async function _tradeSimFetchFull(indexId) {
-  return await fetchJSON('https://ss.fx8.store/r2/trade_sim_data/trade_sim_' + encodeURIComponent(indexId) + '_full.json');
+  // perf批一 P4-D(2026-08-24): 补 timeoutMs=60000(对齐 overfit 大文件先例), 防弱网/无br环境
+  // 撞默认 15s abort(cgb_idx full 实测 7.4s, 20.2MB); 超时由调用方 catch 兜底。
+  return await fetchJSON('https://ss.fx8.store/r2/trade_sim_data/trade_sim_' + encodeURIComponent(indexId) + '_full.json', 60000);
 }
 
 // === A10 历史相似形态匹配（皮尔逊相关 + 滑窗，O(n) 前端实时算）===
