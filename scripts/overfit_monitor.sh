@@ -86,6 +86,25 @@ if [ "$RC" -eq 0 ]; then
     RC=1
   fi
 fi
+# 记账自刷(P3-C 2026-08-25): 打点+双校验全绿(rc=0)后立即刷新 schedule_stats 并推 R2,
+# 此前 overfit 行滞后到次日其他任务触发 gen_schedule_stats 才更新(执行统计少一行/旧值)。
+# 调用链与 update_all.sh 收尾同款: 先 gen_schedule_stats.py(standard 模式已含 overfit 行)
+# 刷新本地, 再 push_schedule_stats.sh 上传 R2; 刷新失败不阻塞不改变打点 rc(记账非打点职责);
+# 打点失败分支不刷——记账如实反映「未跑成」。
+if [ "$RC" -eq 0 ]; then
+  echo "---- 自刷 schedule_stats 记账 ----" >> "$LOG"
+  "$PY" "${REPO}/scripts/gen_schedule_stats.py" >> "$LOG" 2>&1
+  GEN_RC=$?
+  if [ "$GEN_RC" -ne 0 ]; then
+    echo "⚠ gen_schedule_stats.py 失败(rc=${GEN_RC}), 跳过推送待下次任务刷新" >> "$LOG"
+  else
+    if bash "${REPO}/scripts/push_schedule_stats.sh" >> "$LOG" 2>&1; then
+      echo "==== schedule_stats 自刷推送 PASS ====" >> "$LOG"
+    else
+      echo "⚠ push_schedule_stats 失败(明细见其自身日志), schedule_stats 待下次任务刷新" >> "$LOG"
+    fi
+  fi
+fi
 echo "=== overfit_monitor.sh 结束 $(date '+%F %T') 退出码=$RC ===" >> "$LOG"
 echo "==== overfit_monitor 结束 rc=$RC $(date '+%F %T') ====" >> "$LOG"
 exit $RC
