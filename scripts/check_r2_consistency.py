@@ -207,8 +207,13 @@ def _mismatches(fps: dict[str, dict[str, object]]) -> tuple[list[str], int]:
     return mismatches, len(all_keys)
 
 
-def check_file(kind: str, local_rel: str, r2_url: str, cf_url: str, quiet: bool) -> list[str]:
-    """比对单文件多版本指纹，返回问题行列表(local 口径见 _local_candidates)。"""
+def check_file(kind: str, local_rel: str, r2_url: str, cf_url: str, quiet: bool) -> tuple[list[str], list[str]]:
+    """比对单文件多版本指纹，返回 (问题行, WARN 行)。
+
+    WARN(P1-b review 2026-08-25): 「primary 权威树滞后、后续候选与远端一致」判据仍 PASS
+    (正常打点窗口合法滞后不误伤), 但该形态=2026-08-19 R2 被渠道树旧库覆盖的事故同款,
+    唯一探针不可静默——独立 WARN 行+汇总段重复计数, 不进 problems 不阻断。
+    """
     problems: list[str] = []
     r2_data, r2err = _fetch_json(r2_url)
     cf_data, cferr = _fetch_json(cf_url)
@@ -248,15 +253,27 @@ def check_file(kind: str, local_rel: str, r2_url: str, cf_url: str, quiet: bool)
             lagged_primary = cand
             mismatch_report = f"[{kind}] 三版本 track_score/top1 不一致: {'; '.join(mm[:5])} (local={cand})"
 
+    warnings: list[str] = []
     if passed is not None:
         n_keys, cand = passed
         line = f"  ✓ {kind}: 三版本一致 ({n_keys} 项指纹)"
         if lagged_primary is not None:
             line += f" [primary({lagged_primary}) 滞后, 以 {cand} 为 local 权威源]"
-        elif len(loaded) > 1 and not quiet:
-            line += f" [local={cand}]"
-        if not quiet:
-            print(line)
+            warnings.append(
+                f"[{kind}] primary({lagged_primary}) 滞后于远端(local 权威={cand})"
+                "——若非刚打点窗口期(21:40 后短窗口属合法滞后), 请人工核查是否渠道树旧库覆盖事故"
+            )
+            if not quiet:
+                print(line)
+                print(
+                    f"  ⚠️ WARN {kind}: primary 树滞后于远端, 若非刚打点窗口期"
+                    "请人工核查是否覆盖事故(判据仍 PASS, 汇总段有计数)"
+                )
+        else:
+            if len(loaded) > 1 and not quiet:
+                line += f" [local={cand}]"
+            if not quiet:
+                print(line)
     elif mismatch_report is not None:
         problems.append(mismatch_report)
         if not quiet:
@@ -264,7 +281,7 @@ def check_file(kind: str, local_rel: str, r2_url: str, cf_url: str, quiet: bool)
     elif not quiet:
         print(f"  ~ {kind}: 可用源不足，跳过比对")
 
-    return problems
+    return problems, warnings
 
 
 def main() -> int:
@@ -280,8 +297,19 @@ def main() -> int:
         print()
 
     all_problems: list[str] = []
+    all_warnings: list[str] = []
     for kind, local_rel, r2_url, cf_url in FILES:
-        all_problems.extend(check_file(kind, local_rel, r2_url, cf_url, args.quiet))
+        probs, warns = check_file(kind, local_rel, r2_url, cf_url, args.quiet)
+        all_problems.extend(probs)
+        all_warnings.extend(warns)
+
+    # P1-b: WARN 汇总段重复计数(「primary 滞后靠后续候选救回」不阻断但必须醒目可见,
+    # 防 8-19 R2 被渠道树覆盖类事故在唯一探针处静默滑过)
+    if all_warnings:
+        print()
+        print(f"=== {len(all_warnings)} 条 WARN(primary 树滞后, 判据仍 PASS) ===")
+        for w in all_warnings:
+            print(f"  ⚠️ {w}")
 
     if all_problems:
         print()
