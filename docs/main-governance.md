@@ -87,6 +87,7 @@
 - **2026-08-06 教训**:`board_etf_map.json` 因 `etf_index_map.json` 缺失常 27/72 空数组,致指数表现模块 ETF 全失效("全部无ETF")用户发现时已上线。根因=数据产物损坏无校验拦截,此 bug 触发本规范建立
 - **smoke 清单落档**:主功能清单+数据校验规则放 `docs/smoke-checklist.md` 进 git(非 memory),reviewer agent 读取执行
 - 模型只文本不能看 UI,回归验证用 curl JSON 数据层 + 关键交互文字描述 + 让用户确认显示三层
+- **审查方法论增强**(2026-08-25,吸收官方 code review 方法论):B级②③/C 级广涉及面改动可拆多视角独立审(规范/大bug浅扫/git blame历史意图/静默失败专查)+ finding 置信度过滤(<80 不进报告)+ 六类误报清单 + 静默失败专查;全文见 `.claude/skills/role-reviewer` §10(小改动仍单 reviewer 单遍审)
 
 ## 16. agent 角色画像与协作规范(2026-08-06 计入,2026-08-12 更新:角色定义落 .claude/agents/*.md)
 主控 + 子 agent 分工 + 通知兜底 + prompt 写作,集中规范(§2/§11/§15 细节互参,本节为总览)

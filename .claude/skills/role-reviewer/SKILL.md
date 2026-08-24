@@ -1,6 +1,6 @@
 ---
 name: role-reviewer
-description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 skills 字段启动全文注入。含主功能回归复查(原 §15 操作层)、改动分级 A/B/C 审查口径、回归机制三层、smoke 清单执行、数据完整性校验、§21 公示查证、reviewer 专属教训蒸馏。共享核心(§6/§22/§23/§8§14摘要/§18索引)在根 CLAUDE.md 自动注入,本 skill 只放角色专属。
+description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 skills 字段启动全文注入。含主功能回归复查(原 §15 操作层)、改动分级 A/B/C 审查口径、回归机制三层、smoke 清单执行、数据完整性校验、§21 公示查证、reviewer 专属教训蒸馏、审查方法论增强(多维独立审查/置信度过滤/误报清单/静默失败专查)。共享核心(§6/§22/§23/§8§14摘要/§18索引)在根 CLAUDE.md 自动注入,本 skill 只放角色专属。
 ---
 
 # reviewer agent 专属规范(role-reviewer)
@@ -76,3 +76,55 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - **无隐藏影响面由主控§0单点验收**:明显无隐藏影响面(单点逻辑,不被轮询/事件/跨函数引用)的改动,可由主控 §0 单点验收替代完整 reviewer(呼应 §15 分级口径 §2①);有隐藏影响面仍走 reviewer
 - **复用近时段结论**:同一改动链(同 commit/同功能)已 review 过的关键点不重复全文重读,聚焦新增/变化部分(§22 一致性复用 prior 校验结果时标注来源)
 - **model/thinking**:reviewer 属复杂判断/口径/公示把关类,**保留 thinking/保留较高 model 档**,不降级(§5.2 ③ 判断类保留)
+
+## 10. 审查方法论增强(2026-08-25 吸收官方 code review 方法论,四件套)
+> 来源:Anthropic 官方插件 `~/.claude/plugins/marketplaces/claude-plugins-official/plugins/code-review/commands/code-review.md` + `plugins/pr-review-toolkit/`(review-pr.md + agents/code-reviewer·silent-failure-hunter 等)+ superpowers `requesting-code-review`。只吸收方法论进本 skill,**不装插件本体**(GitHub PR 工作流与本仓本地 git 流不匹配;插件指定 haiku/sonnet 固定模型绕过代理白名单有 v4-pro 计费泄漏风险,L35 教训)。**关联规范源**:根 CLAUDE.md §15(review 分级)/§23.7(冻结契约:误报清单第⑤条)/§23.11(绝不静默:专查④对齐)/§23.13(档位语义第三方锚点=视角①的锚点来源);governance §15 派单段有一行指针。改这些条款时反向同步本节。
+
+### 10.1 多维独立审查(B 级②③/C 级广涉及面适用;小改动仍单 reviewer)
+- **分级触发(成本约束)**:
+  - **B级①无隐藏影响面 / A 级**:单 reviewer 单遍审,不做多维(每多一个视角=fresh context 重读一遍 diff,小改动不值得,§5.5⑤ 同精神)
+  - **B级②有隐藏影响面 或 B级③广涉及面 / C 级**:可拆多视角独立审。改动跨模块/动数据产物/定时任务/后端算法时默认启用
+- **四个视角(各视角独立出 finding,互不见对方结论防锚定,最后汇总去重)**:
+  1. **规范合规视角**:对照 CLAUDE.md 条款+skill 条款逐条核(§21 公示/§22 一致性/§23.4 预留位/§23.7 冻结契约),档位/阈值语义必附三源对照记录(§23.13,见 §7 L44 条)
+  2. **大 bug 浅扫视角**:只看 diff 本身,扫明显逻辑 bug(空指针/分支漏/边界错),刻意不读 diff 外上下文——聚焦大问题,忽略 nitpick 与疑似误报
+  3. **历史意图视角**:`git log -p --follow <file>` / `git blame` 看被改代码的历史,识别「看似冗余实为修过某 bug 的防御代码被删」「本次改动推翻了历史 commit 特意做的事」
+  4. **静默失败专查视角**:按 §10.4 清单执行(diff 含 try-except/catch/fallback 时此项必查)
+- **执行方式二选一**:主控并行派多个 reviewer(各带单一视角 prompt,广涉及面用)或单 reviewer 内部按四轮顺序扫(省 spawn 成本,中改动用)。汇总时同根因 finding 合并为一条
+- **反例**:多视角结论互相污染(先做浅扫再做规范审,规范审被浅扫的"这段没问题"带偏)=失去独立性;正确做法是各视角出完整 finding 清单后再放一起比
+
+### 10.2 置信度过滤(<80 不进正式报告)
+每个 finding 先自打分 0-100(rubric 已本地化到本项目口径):
+| 分 | 判定 |
+|---|---|
+| 0 | 误报,经不起一点推敲;或 pre-existing(不是本次 diff 引入) |
+| 25 | 可能真可能误报,**未能验证**(没跑 curl/没读数据文件确认);风格类且 CLAUDE.md/skill 无明文要求 |
+| 50 | 验证为真但**不重要/很少发生**,相对本次改动属 nitpick |
+| 75 | 复核过高置信且重要(直接影响功能/数据),或 CLAUDE.md/skill **明文违反**(能引到具体条款) |
+| 100 | 必现且已拿到直接证据(复现过/curl 验过/逐字段比对过) |
+- **执行**:`≥80` 才进正式 review 报告;`<80` 全部滤掉,但报告末尾必须附一句「另 N 个低分项(<80)已滤」防黑箱(让主控知道滤了多少,可疑时可追问明细)
+- **为什么**:不加过滤的 review 报告 nitpick 淹没真问题(官方实测教训);本项目三层验收(agent 自验+reviewer+主控 §0)里 reviewer 是唯一批判层,报告噪音直接浪费主控注意力
+- **反例**:报 12 条 finding 里 9 条是 25 分猜测,实施 agent 花一小时逐条排查全是误报,真正的 75 分 fallback 掩盖根因排在最后没被看
+
+### 10.3 误报清单(本地化;以下六类不算本次改动的 finding)
+1. **pre-existing 问题**:diff 之前就存在的 bug。**不算 finding 但也不许默默吞**——走 §23.7⑤ 上报通道(提醒用户+证明链路+问要不要修),不当 finding 也不忽略
+2. **机检脚本能抓的**:lint_scripts.sh / check_data_integrity.py / check_r2_consistency.py / check_universe_alignment.py / check_version_progress 等 deploy 前置校验覆盖项,不人肉报;但「该挂机检链却没挂」本身就是 finding(如新数据类别没进 check_data_integrity 清单)
+3. **senior 不会提的 nitpick**:变量命名偏好/注释措辞/可有可无的重构建议
+4. **未改动行上的问题**:与本次 diff 无关行的风格/结构问题(处理同①)
+5. **用户故意保留的行为**(§23.7 冻结契约):看着像 bug 但可能是用户拍板保留的历史行为。**拿不准 = 上报问,不自行定性为 finding 也不当误报滤掉**
+6. **已在决策队列的待拍板项**:实施 agent 已按 §23.11/§23.7⑤ 上报、等用户拍板的项,不重复报(核对实施报告的上报记录)
+
+### 10.4 静默失败专查(对齐项目三大教训;diff 含 try-except/catch/fallback 必查)
+- **触发条件**:diff 出现 `except` / `catch` / `finally` / `?.` / `|| 兜底` / `or default` / `fallback` 字样,或改动涉及错误处理/fallback 链路 → 此项从"抽查"升级为"必查"
+- **模式清单(逐个 grep diff 核)**:
+  - 空 except/catch(`except: pass` / `catch (e) {}`)
+  - `except Exception` 宽捕吞错继续跑(把无关异常一起埋了)
+  - fallback 链多层切换但不留痕迹掩盖根因(如数据源 A 失败静默切 B,用户永远不知道 A 坏了)
+  - 可选链 `?.` 静默跳过本应失败的操作
+  - 错误仅 print/console.log 不上抛(上层以为成功)
+  - return None/null 掩盖异常(调用方拿到 null 当正常值继续算)
+- **三大教训对齐(命中即 FAIL)**:
+  - **#90 删 def 忘删调用 = NameError 静默失败**:diff 删函数/定义/键,必 grep 全仓调用方是否同步删(memory refactor-delete-keep-callers-synced)
+  - **监控脚本 exit0 不可信**:try-except 包全量+最后 exit 0 = 监控盲区,语法错/中途崩全被吞(memory monitor-blindspot-exit0-syntax-error);审监控/采集脚本改动重点看 except 后是否 re-raise/非零退出/告警
+  - **§23.11 冲突绝不静默**:git 层面发现版本倒退/文件被覆盖/diff 异常,绝不静默 resolve 继续审,停下上报
+- **四问法(每个捕获点过一遍)**:这个错误谁会看到?日志够不够半年后排障?fallback 行为用户是否可见/可知?该不该上抛给上层统一处理?
+- **反例**:review 数据导出脚本改动只验产物 JSON 对不对,没注意生成器把 KeyError 吞成 warning 继续 export——产物缺一列上线,check 校验又恰好不覆盖该列,用户两周后发现(静默失败+机检缺口双重漏网)
