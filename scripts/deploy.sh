@@ -25,6 +25,12 @@ REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"   # git 始终在 trade 仓库(trade-data 不 git init,采集后 rsync 到 trade 上线)
 export REPO GIT_REPO   # #75 显式导出,确保 upload_r2.py 子进程继承 REPO(防缺省回退读 trade 旧库)
 PY="$REPO/.venv/bin/python"
+# NODE_BIN: node 二进制探测(1.2.3 段 check_overfit_recent_parity.mjs 用)。
+# launchd 环境无 nvm PATH, 交互 shell 走 command -v, launchd 回退扫 ~/.nvm 版本目录取最新。
+NODE_BIN="$(command -v node 2>/dev/null || true)"
+if [ -z "$NODE_BIN" ]; then
+  NODE_BIN="$(ls -1 "$HOME"/.nvm/versions/node/*/bin/node 2>/dev/null | sort -V | tail -1)"
+fi
 EXPORT="$REPO/static-site/export.py"
 LOGDIR="$REPO/data/logs"
 STAMP=$(date +%Y%m%d_%H%M)
@@ -78,7 +84,7 @@ if [ -n "$UNMERGED" ]; then
       static-site/data/*)
         git -C "$GIT_REPO" reset HEAD -- "$_u" 2>/dev/null || true
         git -C "$GIT_REPO" checkout origin/main -- "$_u" 2>&1 | tee -a "$LOG"
-        echo "⚠ 清理 unmerged 数据文件: $_u（已 reset HEAD + checkout origin/main）" | tee -a "$LOG"
+        echo "⚠ 清理 unmerged 数据文件: ${_u}（已 reset HEAD + checkout origin/main）" | tee -a "$LOG"
         ;;
       *)
         NON_DATA_UNMERGED="$NON_DATA_UNMERGED $_u"
@@ -86,7 +92,7 @@ if [ -n "$UNMERGED" ]; then
     esac
   done
   if [ -n "$NON_DATA_UNMERGED" ]; then
-    echo "✗ 工作区有非数据文件 unmerged: $NON_DATA_UNMERGED，拒绝 deploy（需手动解决代码冲突）" | tee -a "$LOG"
+    echo "✗ 工作区有非数据文件 unmerged: ${NON_DATA_UNMERGED}，拒绝 deploy（需手动解决代码冲突）" | tee -a "$LOG"
     exit 1
   fi
 fi
@@ -107,7 +113,7 @@ echo "-> 刷新 board_etf_map.json (ETF 联动 tag 数据源) ..." | tee -a "$LO
 "$PY" "$REPO/scripts/build_board_etf_map.py" >> "$LOG" 2>&1
 BUILD_RC=$?
 if [ "$BUILD_RC" -ne 0 ]; then
-  echo "✗ build_board_etf_map.py 失败(退出码 $BUILD_RC，14 宽基校验未过/akshare 兜底也失败)，终止 deploy（防静默覆盖空 map）" | tee -a "$LOG"
+  echo "✗ build_board_etf_map.py 失败(退出码 ${BUILD_RC}，14 宽基校验未过/akshare 兜底也失败)，终止 deploy（防静默覆盖空 map）" | tee -a "$LOG"
   exit "$BUILD_RC"
 fi
 
@@ -197,6 +203,27 @@ if [ "$OVP_RC" -ne 0 ]; then
   exit "$OVP_RC"
 fi
 echo "✓ AI监控卡拆分产物结构校验通过" | tee -a "$LOG"
+
+# 1.2.3 AI监控卡组集一致性校验(scripts/check_overfit_recent_parity.mjs, 2026-08-25 挂自动链)
+# 病灶同类: 该脚本 2026-08-23 起就存在(18 断言: 组集函数 vs recent 明细独立复刻逐点对比),
+# 但从未挂任何自动链——「校验存在≠校验生效」(filtered 键事故同款教训)。本步常驻拦截:
+# 前端 _ovAggregateRecent(app.js 真实切片进 vm 沙箱)对生产 recent 明细的聚合结果,
+# 与独立直数复刻逐位一致 + 7模式键完整性(recent.keys 漏列即 FAIL)。
+# 输入=打点侧主文件($REPO/static-site/data/overfit_monitor.json 的 recent 块),
+# 校验的前端源码=$GIT_REPO/static-site/app.js+common.js(即将上线代码本身)。
+# node 探测失败/断言 FAIL → 非0退出阻断上线(fail-safe, 不静默跳过)。
+if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then
+  echo "✗ 找不到可执行的 node(launchd PATH 与 ~/.nvm 均无)，AI监控卡组集校验无法执行，终止部署" | tee -a "$LOG"
+  exit 1
+fi
+echo "-> 运行 check_overfit_recent_parity.mjs AI监控卡组集一致性校验 ..." | tee -a "$LOG"
+RECENT_JSON="$REPO/static-site/data/overfit_monitor.json" "$NODE_BIN" "$GIT_REPO/scripts/check_overfit_recent_parity.mjs" 2>&1 | tee -a "$LOG"
+OVR_RC=${PIPESTATUS[0]}
+if [ "$OVR_RC" -ne 0 ]; then
+  echo "✗ AI监控卡组集一致性校验失败(退出码 $OVR_RC)，终止部署(组集聚合/recent.keys 完整性断言 FAIL)" | tee -a "$LOG"
+  exit "$OVR_RC"
+fi
+echo "✓ AI监控卡组集一致性校验通过" | tee -a "$LOG"
 
 # 1.3 版本一致性校验(CLAUDE.md §24⑤, 2026-08-15 补; #48)
 # 适配 #46 日期+批次版本串机制: index引用版本串格式/与sw批次一致/资源存在/min比源新,
@@ -423,8 +450,11 @@ fi
 #     双保险: ①分支校验(非 main 拒绝) ②push 用显式 main:main(即使误在非 main 跑也不把当前分支带上去)。
 CUR_BRANCH=$(git -C "$GIT_REPO" rev-parse --abbrev-ref HEAD)
 if [ "$CUR_BRANCH" != "main" ]; then
-  echo "✗ deploy 必须在 main 分支跑（当前分支: $CUR_BRANCH）" | tee -a "$LOG"
-  echo "  请先切回 main 再跑 deploy，避免把 $CUR_BRANCH 分支 commit 带上 main" | tee -a "$LOG"
+  # ⚠ macOS 系统 bash 3.2 + set -u 下, $VAR 后紧跟多字节字符(如全角括号)会把其首字节
+  #   吞进变量名 → "VAR）: unbound variable" 报错文案本身崩掉(2026-08-25 实测复现,
+  #   /bin/bash 3.2.57 最小用例 echo "$X）" rc=127)。变量一律加 {} 显式边界。
+  echo "✗ deploy 必须在 main 分支跑（当前分支: ${CUR_BRANCH}）" | tee -a "$LOG"
+  echo "  请先切回 main 再跑 deploy，避免把 ${CUR_BRANCH} 分支 commit 带上 main" | tee -a "$LOG"
   exit 1
 fi
 echo "→ git push（分支校验通过: main）..." | tee -a "$LOG"

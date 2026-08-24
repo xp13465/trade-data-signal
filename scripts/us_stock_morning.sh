@@ -47,7 +47,7 @@ COLLECT_RC=${PIPESTATUS[0]}
 echo "采集退出码=$COLLECT_RC" | tee -a "$LOG"
 
 if [ "$COLLECT_RC" != "0" ]; then
-  echo "✗ 采集失败（退出码 $COLLECT_RC），跳过 deploy" | tee -a "$LOG"
+  echo "✗ 采集失败（退出码 ${COLLECT_RC}），跳过 deploy" | tee -a "$LOG"
   echo "=== us_stock_morning.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=$COLLECT_RC ===" | tee -a "$LOG"
   exit "$COLLECT_RC"
 fi

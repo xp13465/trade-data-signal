@@ -63,7 +63,7 @@ echo "-> 采集盘中快照 ..." | tee -a "$LOG"
 "$PY" -m app.collector.intraday_snapshot 2>&1 | tee -a "$LOG"
 SNAP_RC=${PIPESTATUS[0]}
 if [ "$SNAP_RC" -ne 0 ]; then
-  echo "✗ 快照采集失败（退出码 $SNAP_RC），写 stderr 告警" | tee -a "$LOG" >&2
+  echo "✗ 快照采集失败（退出码 ${SNAP_RC}），写 stderr 告警" | tee -a "$LOG" >&2
   exit "$SNAP_RC"
 fi
 

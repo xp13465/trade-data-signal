@@ -52,6 +52,21 @@ FILES = [
         "https://ssd.fx8.store/industry/industry-all-concepts.json",
         "https://ss.fx8.store/r2/industry/industry-all-concepts.json",
     ),
+    # overfit_monitor 主+ext(2026-08-25 监控盲区收尾批补入): 首页 AI 监控卡盘后核心产物,
+    # 2026-08-24 B拆分起走 R2 /data/ 前缀(upload_r2 _OVERFIT_FORCE), 此前审计不查
+    # 本地 vs R2 一致性=盲区。指纹=generated_at+综合风险分三件套(主)/键集(ext)。
+    (
+        "overfit_monitor",
+        "overfit_monitor.json",
+        "https://ssd.fx8.store/data/overfit_monitor.json",
+        "https://ss.fx8.store/r2/data/overfit_monitor.json",
+    ),
+    (
+        "overfit_monitor_ext",
+        "overfit_monitor_ext.json",
+        "https://ssd.fx8.store/data/overfit_monitor_ext.json",
+        "https://ss.fx8.store/r2/data/overfit_monitor_ext.json",
+    ),
 ]
 
 
@@ -104,6 +119,26 @@ def _fingerprint(data: object, kind: str) -> dict[str, object]:
                     code, ts = etfs[0].get("code"), etfs[0].get("track_score")
                     if code and ts is not None:
                         fp[f"{cid}_{code}"] = ts
+    elif kind == "overfit_monitor":
+        # 指纹=generated_at(同次打点必一致, 旧版滞留即报)+综合风险分三件套
+        # (overfit.current: date/d1-d4 加权前的分维度值+risk_score 总分)。
+        fp["generated_at"] = data.get("generated_at")
+        ov = data.get("overfit")
+        cur = (ov.get("current") or {}) if isinstance(ov, dict) else {}
+        fp["of_date"] = cur.get("date")
+        fp["risk_score"] = cur.get("risk_score")
+        for dkey in ("d1", "d2", "d3", "d4"):
+            fp[dkey] = cur.get(dkey)
+    elif kind == "overfit_monitor_ext":
+        # ext 拆分产物(2026-08-24 B拆分): 指纹=generated_at+by_k/filtered_by_k 键集
+        # (K档位缺失=拆分病灶复发, filtered 键丢失同款; 值体量大取键集足够定位版本错位)。
+        fp["generated_at"] = data.get("generated_at")
+        by_k = data.get("by_k")
+        if isinstance(by_k, dict):
+            fp["by_k_keys"] = ",".join(sorted(by_k.keys()))
+        fbk = data.get("filtered_by_k")
+        if isinstance(fbk, dict):
+            fp["filtered_by_k_keys"] = ",".join(sorted(fbk.keys()))
     return fp
 
 

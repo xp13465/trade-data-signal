@@ -34,7 +34,7 @@ case "$NAME" in
   futures)     STEPS="futures";                                DO_COMPUTE=0; DO_EXPORT=1; DO_PUSH=1 ;;
   stock_daily) STEPS="stock_daily";                            DO_COMPUTE=0; DO_EXPORT=0; DO_PUSH=0 ;;
   turnover)    STEPS="turnover";                               DO_COMPUTE=0; DO_EXPORT=1; DO_PUSH=1 ;;
-  *) echo "✗ 未知 pipeline: $NAME（可选: core|width|futures|stock_daily|turnover）" | tee -a "$LOG"; exit 2 ;;
+  *) echo "✗ 未知 pipeline: ${NAME}（可选: core|width|futures|stock_daily|turnover）" | tee -a "$LOG"; exit 2 ;;
 esac
 
 # turnover pipeline 需跑 baostock（慢），设 RUN_BAOSTOCK=1 启用 runner turnover step 的 baostock 子步。

@@ -62,6 +62,13 @@ TASKS = [
     # (硬编码 TASKS L43-61)，但前端 schedule_stats.json 仍漏显示，此处补齐。
     {"task": "lab_auto", "name": "策略实验室", "script": "update_lab.sh",
      "schedule": "19:00", "log": "update_lab_launchd.log", "mode": "standard"},
+    # overfit-monitor: 2026-08-25 监控盲区收尾批补入(用户拍板)。launchd
+    # com.trade.overfit-monitor 交易日 21:40 跑 overfit_monitor.sh(AI监控卡每日打点+预警)。
+    # 此前打点 rc!=0 无任何自动消费方(上报链盲区, filtered 键事故同款「校验存在≠校验生效」)。
+    # 配套: overfit_monitor.sh 日志同批从 STAMP 多文件改固定 append + 标准开始/结束行,
+    # standard 模式零特殊逻辑直读; schedule_monitor.sh TASKS 同步加漏跑检查条目。
+    {"task": "overfit_monitor", "name": "过拟合监控", "script": "overfit_monitor.sh",
+     "schedule": "21:40", "log": "overfit_monitor_launchd.log", "mode": "standard"},
 ]
 
 _TS = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})'
@@ -89,6 +96,7 @@ LABEL_MAP = {
     "us_stock_morning": "com.trade.us-stock-morning",
     "etf_national_team": "com.trade.etf-national-team",
     "lab_auto": "com.trade.lab-auto",
+    "overfit_monitor": "com.trade.overfit-monitor",
 }
 
 # launchctl print "last exit code = N" 行（N 可为 143/0/1/None，None 显 "last exit code = (none)"）

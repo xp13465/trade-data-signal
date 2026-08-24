@@ -112,6 +112,13 @@ TASKS = [
     {"task": "us_stock_morning",    "log": "us_stock_morning_launchd.log",
      "trading_day_only": False,  # 无交易日闸门, 每天跑(美股周末休但脚本仍启动采旧数据 exit=0)
      "schedules": ["05:00"]},  # 2026-07-29 新增：美股04:00收盘后1h采集+deploy，原监控盲区补齐
+    # overfit_monitor: 2026-08-25 监控盲区收尾批补入(用户拍板)。此前打点 rc!=0 无自动
+    # 消费方(filtered 键事故「校验存在≠校验生效」同款); 配套 overfit_monitor.sh 日志已改
+    # 固定 append + 标准开始行(START_RE 可解析)。退出失败/log 异常路径走 schedule_stats.json
+    # 全量遍历(gen_schedule_stats TASKS 已加), 此处只管漏跑+进行中超时。
+    {"task": "overfit_monitor",     "log": "overfit_monitor_launchd.log",
+     "trading_day_only": True,  # 非交易日脚本闸门跳过不写开始行, 必需跳过漏跑检查避免周末误报
+     "schedules": ["21:40"]},
 ]
 
 # 标准任务开始行：=== xxx.sh 开始 YYYY-MM-DD HH:MM:SS ===
@@ -302,6 +309,7 @@ DUR_THRESHOLDS = {
     "update_all": 4200,         # 70min(实测 max 3609s, 2026-08-14)
     "backfill_evening": 4500,   # 75min(实测 max ~3707s 21:00槽 08-10)
     "us_stock_morning": 1800,   # 30min(任务本身秒级,慢在全量 deploy 17-26min 恒超 900s;2026-08-18 900->1800)
+    "overfit_monitor": 900,     # 15min(实测打点+双 parity 自检 76s, 2026-08-25; 大裕量防 trades 重算抖动)
 }
 # stats 初始化(2026-08-14 A1 补): A1 进行中检测块引用 stats, 须保证 STATS_FILE 不存在/
 #   解析失败时 stats 仍为 [] 而非 NameError(否则进行中检测整块崩溃)。

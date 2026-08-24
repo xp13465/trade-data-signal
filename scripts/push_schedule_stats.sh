@@ -44,7 +44,7 @@ echo "REPO=$REPO GIT_REPO=$GIT_REPO" | tee -a "$LOG"
 # 源文件校验：gen_schedule_stats.py 未运行或失败致 schedule_stats.json 缺失 -> 不 push 旧版
 SRC="$REPO/static-site/data/schedule_stats.json"
 if [ ! -f "$SRC" ]; then
-  echo "✗ 源文件不存在：$SRC（gen_schedule_stats.py 未运行？），跳过 push" | tee -a "$LOG" >&2
+  echo "✗ 源文件不存在：${SRC}（gen_schedule_stats.py 未运行？），跳过 push" | tee -a "$LOG" >&2
   exit 1
 fi
 echo "源文件：$SRC ($(stat -f '%z' "$SRC") bytes, mtime $(stat -f '%Sm' "$SRC"))" | tee -a "$LOG"
