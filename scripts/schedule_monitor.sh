@@ -285,6 +285,12 @@ except Exception as e:
 
 STALE_EXIT_THRESHOLD = timedelta(hours=24)
 
+# 2026-08-24 瞬时超时降噪: 这些任务的 Timeout 类 log 异常按"连续>=3轮未自愈才 SEVERE"
+# 处理(单次/两次视为瞬时抖动,只记 dashboard 不通知)。教训=intraday_snapshot R2 PUT
+# 超时连续 11 次全部自愈,每轮都发 SEVERE 邮件=假警报轰炸。
+TRANSIENT_TIMEOUT_TASKS = {"intraday_snapshot"}
+TRANSIENT_TIMEOUT_THRESHOLD = 3
+
 # 执行耗时阈值(R2迁移72h监控 2026-08-08): 移到循环外避免每次迭代重建(L2)
 # 2026-08-14 修复(reviewer FAIL, A1 误报正常日): 依据 update_all_launchd.log 近9交易日实际耗时
 #   (38/38/49/53/54/59/21/53/60 min, max=3609s=8-14, P90=3556s)重标。阈值必须 > 实测 max,
@@ -386,25 +392,83 @@ if STATS_FILE.exists():
                 else:
                     existing = alert_state.get(dedup_key)
                     if existing is None or existing.get("status") != "active":
-                        # 首次发现 或 恢复后再次出现 = 发 SEVERE + 写 state
-                        alerts.append(
-                            f"SEVERE: {s['task']} log异常关键词<{keyword}> "
-                            f"exit={exit_code}(可能被try/except吞) "
-                            f"last_run={last_run_str_a} 行: {line}"
-                        )
-                        alert_state[dedup_key] = {
-                            "status": "active",
-                            "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
-                            "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
-                            "keyword": keyword,
-                            "line_sample": line_sample,
-                        }
+                        # 2026-08-24 瞬时超时降噪(教训: intraday_snapshot R2 PUT 超时
+                        # 连续 11 次全部自愈,每次都 SEVERE 邮件=假警报轰炸)。
+                        # 瞬时类任务(intraday_snapshot)的 Timeout 关键词先入稳定桶计数
+                        # (line md5 每次不同,不能按 dedup_key 计数),连续>=3 次跨轮仍异常
+                        # 才升级 SEVERE;未达阈值只记 dashboard 不通知(warning 语义)。
+                        if s.get("task") in TRANSIENT_TIMEOUT_TASKS and "Timeout" in keyword:
+                            _bk = f"{s.get('task')}|transient_timeout"
+                            _b = alert_state.get(_bk) or {}
+                            _bs = _b.get("status")
+                            if _bs == "pending":
+                                _c = (_b.get("consecutive_count") or 0) + 1
+                            elif _bs == "alerted":
+                                # 已就同类告警过但行内容变了=持续异常换脸,直接升级可见
+                                _c = TRANSIENT_TIMEOUT_THRESHOLD
+                            else:
+                                _c = 1
+                            alert_state[_bk] = {
+                                "status": "alerted" if _c >= TRANSIENT_TIMEOUT_THRESHOLD else "pending",
+                                "first_seen": _b.get("first_seen") or NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                                "consecutive_count": _c,
+                                "keyword": "transient_timeout",
+                                "line_sample": line_sample,
+                            }
+                            if _c < TRANSIENT_TIMEOUT_THRESHOLD:
+                                print(
+                                    f"[transient] {s.get('task')} {keyword} 连续{_c}/"
+                                    f"{TRANSIENT_TIMEOUT_THRESHOLD} 次未自愈,暂不通知"
+                                    f"(11次全自愈教训,连续>=3才SEVERE)"
+                                )
+                            else:
+                                alerts.append(
+                                    f"SEVERE: {s['task']} log异常关键词<{keyword}> "
+                                    f"exit={exit_code} 已连续{_c}轮未自愈(阈值"
+                                    f"{TRANSIENT_TIMEOUT_THRESHOLD}) "
+                                    f"last_run={last_run_str_a} 行: {line}"
+                                )
+                                alert_state[dedup_key] = {
+                                    "status": "active",
+                                    "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                                    "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                                    "keyword": keyword,
+                                    "line_sample": line_sample,
+                                }
+                        else:
+                            # 首次发现 或 恢复后再次出现 = 发 SEVERE + 写 state
+                            alerts.append(
+                                f"SEVERE: {s['task']} log异常关键词<{keyword}> "
+                                f"exit={exit_code}(可能被try/except吞) "
+                                f"last_run={last_run_str_a} 行: {line}"
+                            )
+                            alert_state[dedup_key] = {
+                                "status": "active",
+                                "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                                "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                                "keyword": keyword,
+                                "line_sample": line_sample,
+                            }
                     else:
                         # 已 active = 抑制不重发,只 log
                         print(
                             f"[suppress] {s['task']} {keyword} 异常持续中, "
                             f"last_alerted={existing.get('last_alerted')}, 不重发"
                         )
+            # 2026-08-24 瞬时超时桶自愈重置: 本轮该任务无 log 异常=抖动已过去,
+            # 桶翻 recovered 静默(不发恢复邮件); 若已达阈值发过 SEVERE, 原告警 key
+            # 的恢复通知仍由主恢复循环负责(桶只管计数,不管通知生命周期)。
+            if not s.get("log_anomaly") and s.get("task") in TRANSIENT_TIMEOUT_TASKS:
+                _bk_r = f"{s.get('task')}|transient_timeout"
+                _b_r = alert_state.get(_bk_r)
+                if _b_r and _b_r.get("status") in ("pending", "alerted"):
+                    alert_state[_bk_r] = {
+                        **_b_r,
+                        "status": "recovered",
+                        "recovered_at": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                        "recovery_reason": "transient_timeout_self_healed",
+                    }
+                    print(f"[transient] {s.get('task')} 超时抖动已自愈(连续计数重置)")
             # 维度③: 执行耗时阈值检查（R2迁移72h监控 2026-08-08）
             # schedule_stats.json 的 last_duration_sec 字段,超阈值告警(进程退化/卡死信号)。
             # intraday ~7min正常 >600s(10min)告警(重叠下一10min槽=下轮读旧数据);
@@ -675,6 +739,38 @@ for _key, _info in list(alert_state.items()):
         print(
             f"[recovery] {_task} 异常关键词 {_kw} 已消失 "
             f"(首次发现: {_info.get('first_seen')})"
+        )
+# 2026-08-24 孤儿告警回收(修 recovered 卡死根因): 72h 监控(monitor_72h.sh)的告警 key
+# 由其自身负责恢复检测, 但 72h 到期自停(bootout + rm START_FILE)后无人接管 -> 72h_
+# 前缀 active/pending key 永久卡死(生产实证: 72h_r2_prefix_industry_fail /
+# 72h_sw_version_mismatch 两条 08-12 起卡 active 至今, 主恢复循环 L628 起
+# 显式跳过 72h_ 前缀防振荡, 更不会回收它们)。
+# 判定=START_FILE 不存在(监控已停摆; 在跑时每次都会重建该文件) 且 告警最后动作
+# 距今>1h(宽限, 防与刚启动的 72h 会话竞态) -> 翻 recovered 静默(不发恢复邮件:
+# 监控停摆不是"异常消失", 发恢复邮件反而误导)。
+_72H_START_FILE = Path("/tmp/monitor_72h_start")
+if not _72H_START_FILE.exists():
+    for _ok, _oinfo in list(alert_state.items()):
+        if not isinstance(_oinfo, dict):
+            continue
+        if not _ok.startswith("72h_") or _oinfo.get("status") not in ("active", "pending"):
+            continue
+        _o_last = _oinfo.get("last_alerted") or _oinfo.get("first_seen") or ""
+        try:
+            _o_age_h = (
+                NOW - datetime.strptime(_o_last[:16], "%Y-%m-%d %H:%M")
+            ).total_seconds() / 3600
+        except ValueError:
+            _o_age_h = 999.0
+        if _o_age_h < 1:
+            print(f"[orphan] {_ok} 最后动作距今<1h, 暂不回收(宽限期)")
+            continue
+        _oinfo["status"] = "recovered"
+        _oinfo["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+        _oinfo["recovery_reason"] = "orphan_reaped"
+        print(
+            f"[orphan] {_ok} 72h监控已停摆(START_FILE 不存在), "
+            f"孤儿告警回收翻 recovered(静默)"
         )
 save_alert_state(alert_state)
 
@@ -1289,7 +1385,50 @@ try:
     if _ws_alert:
         seen_keys_this_run.add(_ws_key)
         _ex_ws = alert_state.get(_ws_key)
-        if _ex_ws is None or _ex_ws.get("status") != "active":
+        # 2026-08-24 人工确认抑制(acknowledged 字段): 用户已知悉并人工核实后
+        # (scripts/alert_ack.py feishu_ws_stale 写入时间戳), 24h 内不重复 SEVERE,
+        # 只记 dashboard + 每小时一条 info 级日志; 超 24h 未恢复则恢复提醒。
+        # 场景=周末/假期无群消息属正常, 人工核实连接健康后免 24h 阈值的持续轰炸。
+        _ack_ok = False
+        if isinstance(_ex_ws, dict) and _ex_ws.get("acknowledged"):
+            try:
+                _ack_dt = datetime.strptime(
+                    str(_ex_ws["acknowledged"])[:16], "%Y-%m-%d %H:%M"
+                )
+                _ack_ok = (NOW - _ack_dt) < timedelta(hours=24)
+            except ValueError:
+                _ack_ok = False
+        if _ack_ok:
+            print(
+                f"[ack] feishu_ws_stale 已于 {_ex_ws['acknowledged']} 人工确认, "
+                f"24h 内不重复告警(当前: {_ws_reason})"
+            )
+            _last_ack_log = _ex_ws.get("last_ack_log") or ""
+            try:
+                _need_info_log = (
+                    not _last_ack_log
+                    or (NOW - datetime.strptime(_last_ack_log[:16], "%Y-%m-%d %H:%M"))
+                    >= timedelta(hours=1)
+                )
+            except ValueError:
+                _need_info_log = True
+            if _need_info_log:
+                _ex_ws["last_ack_log"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                try:
+                    subprocess.run(
+                        [
+                            sys.executable, str(REPO / "scripts" / "notify.py"),
+                            "飞书ws心跳陈旧(已人工确认,静默中)",
+                            f"feishu_ws_stale 持续({_ws_reason}); "
+                            f"已于 {_ex_ws.get('acknowledged')} 人工确认, "
+                            f"确认后 24h 内静默",
+                            "--tier", "info",
+                        ],
+                        capture_output=True, text=True, timeout=30, check=False,
+                    )
+                except Exception:
+                    pass
+        elif _ex_ws is None or _ex_ws.get("status") != "active":
             alerts.append(
                 f"SEVERE: 飞书 ws listener 接收侧静默假死（{_ws_reason}，进程在跑但超24h "
                 f"未成功处理任何事件）。影响：用户群消息可能收不到——无回执无落盘且无告警。"
@@ -1443,6 +1582,20 @@ try:
     )
 except Exception as e:
     print(f"[warn] heartbeat 写入失败: {e}", file=sys.stderr)
+
+# 2026-08-24 三级分级接线: 冲出 warning 缓冲区里到期的条目(30min 聚合窗口),
+# 满窗聚合一封发出(不逐条轰炸); info 级在 notify.py 内只落盘不推送。
+# 放 heartbeat 后=每轮收尾兜底 flush, 与各检查点 defer_warning 配对。
+try:
+    subprocess.run(
+        [
+            sys.executable, str(REPO / "scripts" / "notify.py"),
+            "--flush-warnings",
+        ],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+except Exception as e:
+    print(f"[warn] warning 聚合 flush 失败: {e}", file=sys.stderr)
 PYEOF
 
 # 总是 exit 0：告警已发邮件，避免 launchd 因非0退出重试

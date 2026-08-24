@@ -883,6 +883,20 @@ try:
     )
 except Exception as e:
     print(f"[warn] heartbeat 写入失败: {e}", file=sys.stderr)
+
+# 2026-08-24 三级分级接线: 冲出 warning 缓冲区里到期的条目(30min 聚合窗口,
+# 满窗聚合一封发出); 本脚本自身告警全走 self_heal/severe 直发, 此处只兜底
+# flush 其他链路(schedule_monitor 等)攒下的到期 warning, 与主监控双保险。
+try:
+    subprocess.run(
+        [
+            sys.executable, str(REPO / "scripts" / "notify.py"),
+            "--flush-warnings",
+        ],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+except Exception as e:
+    print(f"[warn] warning 聚合 flush 失败: {e}", file=sys.stderr)
 PYEOF
 
 # 总是 exit 0：告警已发邮件，避免 launchd 因非0退出重试

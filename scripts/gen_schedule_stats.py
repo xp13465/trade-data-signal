@@ -170,7 +170,8 @@ def launchctl_last_exit(label: str | None) -> int | None:
         return None
 
 
-def scan_log_anomaly(log_path: Path, script: str, mode: str) -> dict | None:
+def scan_log_anomaly(log_path: Path, script: str, mode: str,
+                     last_exit: int | None = None) -> dict | None:
     """扫描 log 文件最近一次运行窗口内的异常关键词(第4盲区修复)。
 
     根因场景: intraday_snapshot.py 的 _export_affected_json 抛 AttributeError 被
@@ -186,6 +187,11 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str) -> dict | None:
         log_path: log 文件路径
         script: standard 模式的脚本名 regex(如 "intraday_snapshot.sh")
         mode: "standard" 或 "etf_nt"
+        last_exit: 本轮最终退出码(None=进行中/读不到)。2026-08-24 push 冲突降噪用:
+          push 失败类命中时仅 last_exit 非 0 才报——deploy.sh 内置 fetch+rebase+重试
+          自愈后 exit=0,但成功标记文案随脚本演化漂移(PUSH_SUCCESS_RE 四个串不含
+          backfill 实际输出「[backfill] ✓ 补采+重算+推送完成」,2026-08-05~08-10
+          16 条 self-healed 假警报实证),exit code 是权威判据。
 
     Returns:
         {"keyword": "AttributeError", "line": "AttributeError: '...' ..."} 或 None。
@@ -245,11 +251,18 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str) -> dict | None:
                 "keyword": m.group(0),
                 "line": lines[i].strip()[:200],
             }
-        # push 失败类:同窗口有成功标记=已恢复,跳过;无成功标记=真实失败,报
+        # push 失败类:同窗口有成功标记=已恢复,跳过;无成功标记但最终 exit==0/None 也跳过
+        # (2026-08-24 降噪:仅最终 exit!=0 才报。16 条 self-healed 假警报根因=成功标记文案
+        # 漂移,exit code 是权威——rebase 自愈成功 exit 必为 0;真失败 exit!=0 照报;
+        # None=进行中未定论,等下轮任务结束再判,不提前轰炸)
         mp = PUSH_FAIL_RE.search(lines[i])
         if mp:
             if has_push_success:
                 continue  # 已恢复,不报
+            if last_exit is None or last_exit == 0:
+                print(f"[push-noise] {log_path.name} push 失败关键词命中但最终 "
+                      f"last_exit={last_exit}(自愈成功/进行中), 不报")
+                continue
             return {
                 "keyword": mp.group(0),
                 "line": lines[i].strip()[:200],
@@ -443,7 +456,8 @@ def build():
                 last_dur = None
         # 第4盲区修复: 扫最近一次运行窗口的 log 找异常关键词,
         # 即使 exit=0(异常被 try/except 吞)也能抓到告警
-        anomaly = scan_log_anomaly(log_path, t["script"], t["mode"])
+        # (2026-08-24: 传 last_exit=code,push 失败类仅最终 exit!=0 才报)
+        anomaly = scan_log_anomaly(log_path, t["script"], t["mode"], last_exit=code)
         # P1 稳定性(2026-07-29): pending_start + last_exit!=0 = 上次crash现在重试中,
         # log_anomaly 标注 "pending但上次exit非0"(不覆盖 log 关键词扫描已发现的 anomaly)
         if not anomaly and pending_crash_retry:

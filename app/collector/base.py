@@ -18,6 +18,22 @@ os.environ.setdefault("no_proxy", "*")
 # 但公共 DNS（8.8.8.8）能解析。index_hist_sw / index_realtime_sw 走该域，
 # 这里 monkey-patch socket.getaddrinfo 把 swsresearch.com 解析到公共 DNS 返回的 IP。
 import socket as _socket
+
+# ── TCP 无超时阻塞根修（2026-08-24，update_all 卡死 4h 同款病根治）─────────────
+# 病根实证：2026-08-24 17:50 update_all core collect 冻结 4h，sample 堆栈=工作线程阻塞在
+#   sock_connect->internal_connect（无超时 connect），lsof 5 个 CLOSE_WAIT；主线程 join 等锁
+#   同卡。自有代码 requests 层 37 处全部已带 timeout（多行感知扫描核实零缺口），真缺口=
+#   akshare 库内部裸 urllib/socket 调用（第三方库无法逐处传 timeout 参数）。
+# 根修：socket.setdefaulttimeout(30) —— 所有未显式 settimeout 的新建 socket（connect/recv/
+#   SSL 握手）统一 30s 兜底超时；requests/urllib3 显式传了 timeout 的调用不受默认值影响
+#   （urllib3 自己管理），mootdx/baostock 若显式 settimeout 也同样不受影响。
+# 效果：库内部假死连接 30s 抛 socket.timeout -> 被 safe_call 既有 except 捕获走 fail/异源
+#   兜底（不新增重试、不动业务逻辑）；正常接口秒级返回行为完全不变。
+# 分层防御全景：① requests 显式 timeout（已有 37 处）② 本默认值兜底（库内部/未知代码）
+#   ③ fetchers._safe_call_guarded 线程级看门狗（主链路 akshare 调用终极兜底，防一切假死）。
+if _socket.getdefaulttimeout() is None:
+    _socket.setdefaulttimeout(30)
+
 _orig_getaddrinfo = _socket.getaddrinfo
 
 

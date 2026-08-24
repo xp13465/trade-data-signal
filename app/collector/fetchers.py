@@ -28,15 +28,21 @@ SOURCE_EM = "em"              # cn10y/a_turnover_rate/gold/美股全球指数: �
 SOURCE_SSE = "sse"            # qvix: 上交所官方 IV 方差互换自算(真异源,权威)
 SOURCE_RV_LOCAL = "rv_local"  # qvix 网底: 本地已实现波动率(口径差异,已公示)
 
-# ── 东财接口假死超时保护(2026-08-19 事故根因:akshare stock_hsgt_hist_em 内部 requests.get 无 timeout,
-# 东财连接挂起不返回时 safe_call 永久阻塞,backfill_evening 卡 4.7h + 21:00 漏跑;同类东财 _em 接口同隐患)。
-# daemon 线程 + join(timeout):东财挂起超时即放弃等待返回异常对象(fail → 异源兜底),不永久卡主流程。
-# 正常东财接口秒级返回,阈值足够宽裕,正常行为不变。
-_EM_SOCKET_TIMEOUT = 20.0
+# ── akshare 接口假死超时保护(2026-08-19 东财事故根修 → 2026-08-24 泛化为全源统一)──
+# 2026-08-19 根因:akshare stock_hsgt_hist_em 内部 requests.get 无 timeout,东财连接挂起
+#   不返回时 safe_call 永久阻塞,backfill_evening 卡 4.7h + 21:00 漏跑。当时只保护 _em 结尾。
+# 2026-08-24 同类排查升级(§23.2):update_all core collect 冻结 4h(sample 堆栈=sock_connect
+#   无超时阻塞,lsof CLOSE_WAIT),冻结点=新浪系接口——非 _em 调用点全部裸 safe_call 无保护。
+#   文案/函数名判定永远追不全(源会新增),改为**所有 akshare 库调用统一走线程级看门狗**,
+#   按源分档超时:_em 东财保持 20s 现状(§23.7 冻结契约,已上线口径不变),其余默认 60s
+#   (含 safe_call 内部 retries=2 + throttle 的总预算;正常接口秒级,阈值宽裕不误杀)。
+# 三层防御全景见 base.py socket.setdefaulttimeout 注释(本层=第③层终极兜底)。
+_EM_SOCKET_TIMEOUT = 20.0      # 东财系(_em)总预算,保持 2026-08-19 上线值不动
+_AK_GUARD_TIMEOUT = 60.0       # 非 _em 源(新浪/腾讯/同花顺/申万等)统一总预算
 
 
 def _is_eastmoney_func(func_name: str) -> bool:
-    """东财接口判定(内部 requests 无 timeout、源假死会永久挂起的集合)。"""
+    """东财接口判定(用于分档超时预算:东财 20s / 其他源 60s)。"""
     if not func_name:
         return False
     if func_name.endswith("_em"):
@@ -47,12 +53,21 @@ def _is_eastmoney_func(func_name: str) -> bool:
     return False
 
 
-def _safe_call_em(fn, **kwargs):
-    """东财接口 (akshare) 的超时 safe_call:daemon 线程执行 + join 超时,防东财假死永久卡死采集。
+def _safe_call_guarded(fn, timeout: float | None = None, **kwargs):
+    """akshare 库调用统一超时 safe_call:daemon 线程执行 + join 超时,防任意源假死永久卡死采集。
+
+    原名 _safe_call_em(只保护东财),2026-08-24 泛化为全源统一入口(同型病一次修完):
+    新浪系 futures_main_sina/currency_boc_sina、同花顺 ths 系列、申万 sw 系列等库内部
+    裸 socket 无超时的调用点全部接入(逐处枚举源名单追不全,统一入口根治)。
+
+    timeout 缺省按 fn 所属源自动分档(_is_eastmoney_func 判定函数名时由调用方传,
+    或直接用 _AK_GUARD_TIMEOUT 默认);显式传参优先。
 
     返回语义与 safe_call 一致(成功返回 df,失败返回异常对象;超时返回 TimeoutError 对象),
     由调用方沿用既有的 `isinstance(res, Exception)` 判断走 fail / 异源兜底,不改变正常采集行为。
     """
+    if timeout is None:
+        timeout = _AK_GUARD_TIMEOUT
     box = {}
 
     def _run():
@@ -60,12 +75,23 @@ def _safe_call_em(fn, **kwargs):
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
-    t.join(_EM_SOCKET_TIMEOUT)
+    t.join(timeout)
     if t.is_alive():
-        # 东财挂起:主流程放弃等待,返回超时异常走 fail/兜底;后台 daemon 线程在进程结束自动清理,
+        # 源挂起:主流程放弃等待,返回超时异常走 fail/兜底;后台 daemon 线程在进程结束自动清理,
         # 采集进程是定时任务,极端假死场景结束即回收,不阻塞本次其它指标采集。
-        return TimeoutError(f"东财接口 {getattr(fn, '__name__', fn)} 超过 {_EM_SOCKET_TIMEOUT}s 未返回(源假死),已放弃等待")
+        return TimeoutError(f"接口 {getattr(fn, '__name__', fn)} 超过 {timeout}s 未返回(源假死),已放弃等待")
     return box.get("res")
+
+
+def _safe_call_em(fn, **kwargs):
+    """东财接口超时 safe_call(向后兼容别名,2026-08-24 起为 _safe_call_guarded 的东财 20s 档)。"""
+    return _safe_call_guarded(fn, timeout=_EM_SOCKET_TIMEOUT, **kwargs)
+
+
+def _guarded_by_func(fn, func_name: str | None, **kwargs):
+    """按函数名自动分档的 guarded 调用(_em 东财 20s / 其他 60s),主链路统一入口。"""
+    timeout = _EM_SOCKET_TIMEOUT if _is_eastmoney_func(func_name) else _AK_GUARD_TIMEOUT
+    return _safe_call_guarded(fn, timeout=timeout, **kwargs)
 
 
 def load_config():
@@ -102,7 +128,8 @@ _spot_cache = [None]
 
 def _get_spot_df():
     if _spot_cache[0] is None:
-        df = safe_call(ak.stock_zh_a_spot)
+        # 全市场 spot 正常 30s+(2026-08-24 超时保护:120s 总预算防新浪假死卡死)
+        df = _safe_call_guarded(ak.stock_zh_a_spot, timeout=120.0)
         if not isinstance(df, Exception) and df is not None:
             _spot_cache[0] = df
     return _spot_cache[0]
@@ -201,7 +228,9 @@ def _fetch_bond_china_yield(fn, lookback_days=3650):
     cur = start
     while cur < end:
         nxt = min(cur + _dt.timedelta(days=350), end)
-        df = safe_call(fn, start_date=cur.strftime("%Y%m%d"), end_date=nxt.strftime("%Y%m%d"))
+        # 2026-08-24 超时保护:单块接口快,30s 总预算(防源假死永久卡分块循环)
+        df = _safe_call_guarded(fn, timeout=30.0,
+                                start_date=cur.strftime("%Y%m%d"), end_date=nxt.strftime("%Y%m%d"))
         if not isinstance(df, Exception) and df is not None and len(df):
             frames.append(df)
         cur = nxt + _dt.timedelta(days=1)
@@ -317,10 +346,8 @@ def collect_series(metric, _source="akshare"):
         if df is None or len(df) == 0:
             return [], f"{metric['func']} empty", _source
     else:
-        if _is_eastmoney_func(metric["func"]):
-            df = _safe_call_em(fn, **params)  # 东财接口超时保护(防假死永久卡)
-        else:
-            df = safe_call(fn, **params)
+        # 2026-08-24 全源统一超时保护(_em 东财 20s / 其他 60s,防任意源假死永久卡)
+        df = _guarded_by_func(fn, metric["func"], **params)
         if isinstance(df, Exception) or df is None or len(df) == 0:
             # QVIX daily k.csv 主源(optbbs)空/错误:真异源链 sse -> RV(网底)
             if metric["func"] in RV_ETFS:
@@ -441,10 +468,9 @@ def _series_from_main(metric, fn):
             params.setdefault("end_date", today.strftime("%Y%m%d"))
         if metric["func"] == "bond_china_yield":
             df = _fetch_bond_china_yield(fn, int(metric.get("lookback_days", 3650)))
-        elif _is_eastmoney_func(metric["func"]):
-            df = _safe_call_em(fn, **params)  # 东财接口超时保护(防假死永久卡,超时 fail → 兜底)
         else:
-            df = safe_call(fn, **params)
+            # 2026-08-24 全源统一超时保护(_em 东财 20s / 其他 60s,超时 fail → 兜底)
+            df = _guarded_by_func(fn, metric["func"], **params)
         if isinstance(df, Exception) or df is None or len(df) == 0:
             return [], "akshare"
         flt = metric.get("filter")
@@ -556,10 +582,8 @@ def collect_snapshot(metric, date):
             params["date"] = date
         if func_name in DATE_RANGE_FUNCS:
             params.update(start_date=date, end_date=date)
-        if _is_eastmoney_func(func_name):
-            df = _safe_call_em(fn, **params)  # 东财接口超时保护(防假死永久卡)
-        else:
-            df = safe_call(fn, **params)
+        # 2026-08-24 全源统一超时保护(_em 东财 20s / 其他 60s,防任意源假死永久卡)
+        df = _guarded_by_func(fn, func_name, **params)
         if isinstance(df, Exception):
             return None, f"{func_name} error: {df}"
         if df is None or len(df) == 0:
@@ -593,7 +617,8 @@ def collect_direct(metric):
     fn = getattr(direct, f"fetch_{name}", None)
     if fn is None:
         return [], f"no direct.fetch_{name}"
-    res = safe_call(fn)
+    # 2026-08-24 超时保护:direct 内部 requests 已带 timeout(15s×两源),90s 总预算兜底防解析/重试拖死
+    res = _safe_call_guarded(fn, timeout=90.0)
     if isinstance(res, Exception):
         return [], f"direct:{name} error: {res}"
     if not res:  # 空列表/None = 两源皆败无数据
@@ -612,7 +637,8 @@ def collect_tencent(metric, date):
     params = dict(metric.get("params") or {})
     fn = getattr(tencent, f"fetch_{name}", None)
     if fn is not None:
-        res = safe_call(fn, **params)
+        # 2026-08-24 超时保护:腾讯接口 requests 已带 timeout(10s),30s 总预算兜底
+        res = _safe_call_guarded(fn, timeout=30.0, **params)
         if not isinstance(res, Exception) and res is not None:
             return _scale(metric, float(res)), "ok", "akshare"
         main_err = f"tencent:{name} error: {res}" if isinstance(res, Exception) else f"tencent:{name} empty"
@@ -650,10 +676,8 @@ def _apply_transform(df, metric, date):
             zt = 0.0
             f2 = metric.get("func2")
             if f2:
-                if _is_eastmoney_func(f2):
-                    df2 = _safe_call_em(getattr(ak, f2), date=date)  # 东财接口超时保护
-                else:
-                    df2 = safe_call(getattr(ak, f2), date=date)
+                # 2026-08-24 全源统一超时保护(同主链路分档口径)
+                df2 = _guarded_by_func(getattr(ak, f2), f2, date=date)
                 if not isinstance(df2, Exception) and df2 is not None:
                     zt = float(len(df2))
             denom = zt + zhaban
@@ -678,7 +702,9 @@ def _apply_transform(df, metric, date):
 
 def _collect_ths_concept(idx, start_date, end_date):
     """Collect THS concept board index data."""
-    df = safe_call(ak.stock_board_concept_index_ths, symbol=idx["symbol"], start_date=start_date, end_date=end_date)
+    # 2026-08-24 超时保护(同花顺源,60s 总预算防假死永久卡)
+    df = _safe_call_guarded(ak.stock_board_concept_index_ths, timeout=60.0,
+                            symbol=idx["symbol"], start_date=start_date, end_date=end_date)
     if isinstance(df, Exception):
         return [], f"ths_concept error: {df}"
     if df is None or len(df) == 0:
@@ -732,7 +758,11 @@ def collect_index(idx, start_date, end_date):
         # 申万一级指数源（swsresearch.com，base.py 已 patch DNS）。
         # 无 start/end 参数，返全量历史（1999 起 ~6000 行）。period=day 日频。
         params.update(period="day")
-    df = safe_call(fn, **params)
+    # 2026-08-24 全源统一超时保护(申万全量历史 ~6000 行/新浪全球指数等,90s 总预算)
+    df = _safe_call_guarded(
+        fn,
+        timeout=(_EM_SOCKET_TIMEOUT if _is_eastmoney_func(idx["func"]) else 90.0),
+        **params)
     if isinstance(df, Exception) or (df is not None and len(df) == 0) or df is None:
         main_err = (f"{idx['func']} error: {df}" if isinstance(df, Exception)
                     else f"{idx['func']} empty")
@@ -786,10 +816,8 @@ def collect_board(board, date):
     fn = getattr(ak, board["func"], None)
     if fn is None:
         return [], f"no attr {board['func']}"
-    if _is_eastmoney_func(board["func"]):
-        df = _safe_call_em(fn)  # 东财接口超时保护(防假死永久卡)
-    else:
-        df = safe_call(fn)
+    # 2026-08-24 全源统一超时保护(_em 东财 20s / 其他 60s,防任意源假死永久卡)
+    df = _guarded_by_func(fn, board["func"])
     if isinstance(df, Exception) or df is None or len(df) == 0:
         return [], f"{board['func']} empty/err"
     name_col = "板块名称" if "板块名称" in df.columns else df.columns[1]
@@ -836,7 +864,9 @@ def fetch_futures_position(date: str) -> dict:
       short_open_interest（分别判断，不同 rank 都要累加），按品种汇总
     - 国泰君安: 同理，匹配"国泰君安"
     """
-    result = safe_call(ak.get_cffex_rank_table, date=date, vars_list=['IF', 'IC', 'IH', 'IM'])
+    # 2026-08-24 超时保护(中金所源,60s 总预算防假死永久卡)
+    result = _safe_call_guarded(ak.get_cffex_rank_table, timeout=60.0,
+                                date=date, vars_list=['IF', 'IC', 'IH', 'IM'])
     if isinstance(result, Exception):
         return {}
     if not isinstance(result, dict) or len(result) == 0:
