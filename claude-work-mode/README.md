@@ -212,6 +212,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-08-21 | 0.1473 | 47,686,787 | ? | 无 |
 | 2026-08-22 | 0.8589 | 12,999,772 | ? | 无 |
 | 2026-08-23 | 0.8412 | 14,254,981 | ? | 无 |
+| 2026-08-24 | 0.8757 | 16,791,771 | ? | 17e1aa2ea docs(governance): 主控过错七条缺口根治——L30/L31/L32/L33/L35/L36六条全文回填18.1+L29留指针(已全文化至根CLAUDE.md §0.1防双份分叉)+头部计数20→27(过错16+经验11自洽)+CLAUDE.md §18主控节索引行补L29例外括注; 7f05426da docs(skill+archive+governance): has_track口径P0教训全链路落档——L44入档(archive全文+锚点行+CLAUDE.md表)+四role skill各加教训条(reviewer第三方锚点/implementer开工三源对照/researcher核查分析对象/tester独立锚点机检)+零丢失等式修复(补录L43锚点行,42断链→44==44)+governance回填E25/E26/E27/E29/E30五条经验(15→20条)+reviewer双##7编号顺延修复; 278ba6c42 docs(skill): has_track口径P0教训同步执行层——reviewer新增档位语义强制第三方锚点检查+implementer新增开工三源逐字对照+CLAUDE.md §23.13反向标注(§23.8双向咬合); 677c51b89 docs(规范): §23.13 口径三源核对+不统一必上报拍板(has_track口径事故P0反思,2026-08-24用户定); f4b123a7d docs(规范): §5.4⑥发版联动清单补'全部键集登记点+机检PASS'+§22补'代码内常量登记点也是一致性对象'(v1.1.5漏邮件白名单根因堵口,2026-08-24用户定性=错误非保守); e1fa7f28f docs(落档): 本会话研究四件+全站排查两件+防前视铁律四处+README宗旨段+#94登记 |
 <!-- token-cache-trend-end -->
 
 **ASCII 迷你柱状图**（每格 = 0.01 命中率，刻度 0.70~1.00，一眼看升降；由脚本 `--append-daily` 随走势表同步更新，保证与实际命中率一致）：
@@ -232,6 +233,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 08-21  (0)  47,686,787    0.1473
 08-22  ████████████████(16)  12,999,772    0.8589
 08-23  ██████████████(14)  14,254,981    0.8412
+08-24  ██████████████████(18)  16,791,771    0.8757
 ```
 <!-- token-cache-ascii-end -->
 
@@ -251,4 +253,5 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-08-21 | ? | — |
 | 2026-08-22 | ? | — |
 | 2026-08-23 | ? | — |
+| 2026-08-24 | ? | 17e1aa2ea docs(governance): 主控过错七条缺口根治——L30/L31/L32/L33/L35/L36六条全文回填18.1+L29留指针(已全文化至根CLAUDE.md §0.1防双份分叉)+头部计数20→27(过错16+经验11自洽)+CLAUDE.md §18主控节索引行补L29例外括注; 7f05426da docs(skill+archive+governance): has_track口径P0教训全链路落档——L44入档(archive全文+锚点行+CLAUDE.md表)+四role skill各加教训条(reviewer第三方锚点/implementer开工三源对照/researcher核查分析对象/tester独立锚点机检)+零丢失等式修复(补录L43锚点行,42断链→44==44)+governance回填E25/E26/E27/E29/E30五条经验(15→20条)+reviewer双##7编号顺延修复; 278ba6c42 docs(skill): has_track口径P0教训同步执行层——reviewer新增档位语义强制第三方锚点检查+implementer新增开工三源逐字对照+CLAUDE.md §23.13反向标注(§23.8双向咬合); 677c51b89 docs(规范): §23.13 口径三源核对+不统一必上报拍板(has_track口径事故P0反思,2026-08-24用户定); f4b123a7d docs(规范): §5.4⑥发版联动清单补'全部键集登记点+机检PASS'+§22补'代码内常量登记点也是一致性对象'(v1.1.5漏邮件白名单根因堵口,2026-08-24用户定性=错误非保守); e1fa7f28f docs(落档): 本会话研究四件+全站排查两件+防前视铁律四处+README宗旨段+#94登记 |
 <!-- token-cache-changelog-end -->
