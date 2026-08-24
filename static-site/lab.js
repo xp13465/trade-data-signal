@@ -8778,6 +8778,20 @@ async function renderSigKellyLab() {
     _aiBindSwitch(_aiWrapPending);
   }
 
+  // #97 批次B: 跨断点(768px)变化时重绘卡片区(移动卡片化↔桌面宽表互切; 幂等只挂一次; 已开弹窗形态下次打开生效)
+  if (!state._sigKellyMqHooked && typeof window.matchMedia === "function") {
+    state._sigKellyMqHooked = true;
+    var _sigKellyMq = window.matchMedia("(max-width: 768px)");
+    var _onSigKellyMqChange = function () {
+      var hostEl = document.querySelector(".lab-sigkelly-host");
+      if (hostEl && hostEl.isConnected && state.labSigKellyData && state.labSigKellyPeriod) {
+        _renderSigKellyQuadrants(hostEl, state.labSigKellyData, state.labSigKellyPeriod);
+      }
+    };
+    if (_sigKellyMq.addEventListener) _sigKellyMq.addEventListener("change", _onSigKellyMqChange);
+    else if (_sigKellyMq.addListener) _sigKellyMq.addListener(_onSigKellyMqChange); // 老 iOS Safari 兼容
+  }
+
   content.querySelectorAll(".lab-sigkelly-wrap").forEach((el) => el.remove());
   content.appendChild(wrapper);
 
@@ -10728,8 +10742,8 @@ function _renderSigKellyQuadrants(host, data, period) {
 
 // 绑定卡内事件(行点击弹交易记录modal + 水印hoverpop + 卖出模式说明hoverpop); 整建/就地更新共用
 function _bindSigKellyCardEvents(host) {
-  // 交易记录行点击 -> 弹窗
-  host.querySelectorAll(".lab-sigkelly-trade-row").forEach((row) => {
+  // 交易记录行点击 -> 弹窗(#97 批次B: .lab-sigkelly-mopen=移动卡片「交易记录›」按钮, 同一弹窗同一入口语义)
+  host.querySelectorAll(".lab-sigkelly-trade-row, .lab-sigkelly-mopen").forEach((row) => {
     row.onclick = () => {
       _openSigKellyTradesModal(row.dataset.quad, row.dataset.mode, row.dataset.period);
     };
@@ -11161,9 +11175,70 @@ function _sigKellySetPinned(qk, on) {
 
 // 单象限卡片: 各卖出模式宽表(动态从 sell_modes 读取) + 跟单指引
 // 主表+进阶表合并为一张宽表(14列),details 折叠已移除常显;最大持仓显笔数+资金
+// #97 批次B: ≤768px 移动分支判定(与全站 h5 断点 app.js matchMedia 768 对齐); 仅影响新分支走向, 桌面 >768px 路径零变化
+function _sigKellyIsMobile() {
+  return typeof window.matchMedia === "function" && window.matchMedia("(max-width: 768px)").matches;
+}
+
+// #97 批次B: 行级数据+展示格式化单一来源(桌面宽表/移动卡片两个渲染器共用, 防双份维护漂移; 纯展示层, 不动任何统计口径/数值)
+function _sigKellyRowModel(pdata, m) {
+  const modeLabels = _sigKellyModeLabels();
+  // #49+#xx ai长线模式(G/H/I)仓位管理: 开时对 G/H/I 模式卡片行套各模式独立仓位策略后的数值(乐观 b1 口径, b0 区间见对比表; §22 双口径说明在对比表)
+  // #25 A包(2026-08-14): GIH off(G/H/I 未套各模式仓位法、原仓位>20倍)时, 该行标"淘汰·无操作性"(删除线+角标+hoverpop理由), 非从列表消失; GIH on(cap后可操作)不标
+  const _gihOnThis = !!state.labSigKellyGihOn;
+  const _gihRow = _gihOnThis && _kellyIsGih(m) ? (pdata[m + "__gihb1"] || null) : null;
+  const r = _gihRow || pdata[m];
+  const _gihBadge = _kellyIsGih(m) && _gihOnThis && _gihRow ? `<span class="lab-sigkelly-gih-badge" title="ai长线模式仓位管理已开: 本行套「${_kellyGihStratShort(m) || ""}」仓位法(${_kellyGihStratExplain(m)})后的乐观b1口径, 保守b0见对比表(真实值在区间)">AI长线·开 ${_kellyGihStratShort(m) || ""}</span>` : "";
+  // 可操作性淘汰判定(需求②GIH off 无操作性 + 需求D K-OFF 无仓位限制): 卡片行统一走 _kellyOpElimination, 与三玩法/全信号表/水印同判据(§23.3)
+  const _opPosCapOn = !!((state.labSigKellyFilters || {}).positionCap);
+  const _opFlag = _kellyOpElimination(pdata, m, _gihOnThis, _opPosCapOn);
+  const _opElim = _opFlag ? _opFlag.eliminated : false;
+  const _opTip = _opFlag ? _opFlag.tip : "";
+  const _opReason = _opFlag && _opFlag.eliminated ? _opFlag.reason : "";
+  const w = { r, modeLabels, _gihBadge, _opElim, _opTip, _opReason };
+  if (!r) return w;
+  w.hk = (r.half_kelly == null) ? 0 : r.half_kelly;
+  w.tier = r.kelly_tier || "保守";
+  w.tierCls = w.hk >= 60 ? "lab-kelly-aggressive" : w.hk >= 30 ? "lab-kelly-balanced" : "lab-kelly-conservative";
+  const n = r.n || 0;
+  w.nStr = n < 100 ? `<span class="lab-sigkelly-nwarn" title="样本量少,统计意义弱">⚠️${n}</span>` : `${n}`;
+  const pl = r.pl_ratio;
+  w.plStr = (pl == null || pl <= 0) ? "-" : pl.toFixed(2);
+  w.wr = (r.win_rate == null) ? "-" : (r.win_rate * 100).toFixed(1) + "%";
+  w.mr = (r.mean_return == null) ? "-" : r.mean_return.toFixed(2) + "%";
+  // 进阶指标(原 details 折叠表,现合并进主表)
+  w.tp = r.total_profit || 0;
+  w.tpStr = (w.tp >= 0 ? "+" : "") + w.tp.toFixed(0);
+  // 费率消耗(总): 该象限x周期x模式下所有笔费率消耗求和,随费率档切换实时更新
+  const fc = r.total_fee_cost;
+  w.fcStr = (fc != null) ? "-" + fc.toFixed(0) : "-";
+  // 峰值资金收益率 = 最终盈亏 / 峰值占用资金 (前移到最终盈亏后面, 突出展示)
+  w.rmhVal = r.return_pct_max_holding;
+  w.rmh = w.rmhVal != null ? w.rmhVal.toFixed(2) + "%" : "-";
+  // 最大持仓: 笔数(max_concurrent) + 资金(max_concurrent_capital),笔数加粗显眼
+  const mc = r.max_concurrent || 0;
+  const mcc = r.max_concurrent_capital || 0;
+  w.mcStr = mc ? `<b class="lab-sigkelly-mc-n">${mc}</b>笔 / ${(mcc >= 10000 ? (mcc / 10000).toFixed(1) + "万" : Math.round(mcc))}` : "-";
+  // 持仓中: 笔数(holding_count) + 占用资金(holding_capital),预估盈亏已计入统计
+  const hc = r.holding_count || 0;
+  const hcap = r.holding_capital || 0;
+  w.hcStr = hc ? `<b class="lab-sigkelly-hc-n">${hc}</b>笔 / ${(hcap >= 10000 ? (hcap / 10000).toFixed(1) + "万" : Math.round(hcap))}` : "-";
+  w.ann = r.annualized_return != null ? r.annualized_return.toFixed(2) + "%" : "-";
+  w.sh = r.sharpe != null ? r.sharpe.toFixed(2) : "-";
+  w.md = r.max_drawdown_pct != null ? r.max_drawdown_pct.toFixed(2) + "%" : "-";
+  w.cm = r.calmar != null ? r.calmar.toFixed(2) : "-";
+  // #25 A包(需求②+需求D): 不可操作(峰持仓>20倍)行加删除线灰化 + 淘汰角标 + hoverpop 淘汰理由(无操作性 / 无仓位限制·无法实操)
+  w._opRowCls = w._opElim ? " lab-sigkelly-eliminated-row lab-sigkelly-opelim-row" : "";
+  w._opRowTip = w._opElim ? `淘汰·${w._opReason}: ${w._opTip || ""}` : "点击查看交易记录";
+  w._opBadge = w._opElim ? `<span class="lab-sigkelly-exec-badge" title="${w._opTip || w._opReason}">淘汰·${w._opReason}</span>` : "";
+  return w;
+}
+
 function _renderSigKellyCard(qk, q, period, cardCmp) {
   // fix(#1回归): 置顶改动(27047ecf7)误删 periods 声明,补回避免 ReferenceError
   const periods = q.periods || {};
+  // #97 批次B: ≤768px 走移动卡片化分支(4关键列直读+其余收进details展开), >768px 桌面宽表路径原样零变化
+  if (_sigKellyIsMobile()) return _renderSigKellyCardMobile(qk, q, period, cardCmp);
   // 费率客调: 如果有重算stats,用重算值替换原始stats(结构一致)
   const feeStats = state.labSigKellyFeeStats;
   const pdata = (feeStats && feeStats[qk] && feeStats[qk][period]) ? feeStats[qk][period] : (periods[period] || {});
@@ -11173,66 +11248,21 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
   const hasGuide = modes.some((m) => guidance[m]);
   let rows = "";
   for (const m of modes) {
-    // #49+#xx ai长线模式(G/H/I)仓位管理: 开时对 G/H/I 模式卡片行套各模式独立仓位策略后的数值(乐观 b1 口径, b0 区间见对比表; §22 双口径说明在对比表)
-    // #25 A包(2026-08-14): GIH off(G/H/I 未套各模式仓位法、原仓位>20倍)时, 该行标"淘汰·无操作性"(删除线+角标+hoverpop理由), 非从列表消失; GIH on(cap后可操作)不标
-    const _gihOnThis = !!state.labSigKellyGihOn;
-    const _gihRow = _gihOnThis && _kellyIsGih(m) ? (pdata[m + "__gihb1"] || null) : null;
-    const r = _gihRow || pdata[m];
-    const _gihBadge = _kellyIsGih(m) && _gihOnThis && _gihRow ? `<span class="lab-sigkelly-gih-badge" title="ai长线模式仓位管理已开: 本行套「${_kellyGihStratShort(m) || ""}」仓位法(${_kellyGihStratExplain(m)})后的乐观b1口径, 保守b0见对比表(真实值在区间)">AI长线·开 ${_kellyGihStratShort(m) || ""}</span>` : "";
-    // 可操作性淘汰判定(需求②GIH off 无操作性 + 需求D K-OFF 无仓位限制): 卡片行统一走 _kellyOpElimination, 与三玩法/全信号表/水印同判据(§23.3)
-    const _opPosCapOn = !!((state.labSigKellyFilters || {}).positionCap);
-    const _opFlag = _kellyOpElimination(pdata, m, _gihOnThis, _opPosCapOn);
-    const _opElim = _opFlag ? _opFlag.eliminated : false;
-    const _opTip = _opFlag ? _opFlag.tip : "";
-    const _opReason = _opFlag && _opFlag.eliminated ? _opFlag.reason : "";
-    if (!r) {
-      rows += `<tr><td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span></td><td colspan="14" class="lab-sigkelly-empty">无数据</td></tr>`;
+    const w = _sigKellyRowModel(pdata, m);
+    if (!w.r) {
+      rows += `<tr><td><b>${m}</b><span class="lab-sigkelly-modelbl">${w.modeLabels[m] || ""}</span></td><td colspan="14" class="lab-sigkelly-empty">无数据</td></tr>`;
       continue;
     }
-    const hk = (r.half_kelly == null) ? 0 : r.half_kelly;
-    const tier = r.kelly_tier || "保守";
-    const tierCls = hk >= 60 ? "lab-kelly-aggressive" : hk >= 30 ? "lab-kelly-balanced" : "lab-kelly-conservative";
-    const n = r.n || 0;
-    const nStr = n < 100 ? `<span class="lab-sigkelly-nwarn" title="样本量少,统计意义弱">⚠️${n}</span>` : `${n}`;
-    const pl = r.pl_ratio;
-    const plStr = (pl == null || pl <= 0) ? "-" : pl.toFixed(2);
-    const wr = (r.win_rate == null) ? "-" : (r.win_rate * 100).toFixed(1) + "%";
-    const mr = (r.mean_return == null) ? "-" : r.mean_return.toFixed(2) + "%";
-    // 进阶指标(原 details 折叠表,现合并进主表)
-    const tp = r.total_profit || 0;
-    const tpStr = (tp >= 0 ? "+" : "") + tp.toFixed(0);
-    // 费率消耗(总): 该象限x周期x模式下所有笔费率消耗求和,随费率档切换实时更新
-    const fc = r.total_fee_cost;
-    const fcStr = (fc != null) ? "-" + fc.toFixed(0) : "-";
-    // 峰值资金收益率 = 最终盈亏 / 峰值占用资金 (前移到最终盈亏后面, 突出展示)
-    const rmhVal = r.return_pct_max_holding;
-    const rmh = rmhVal != null ? rmhVal.toFixed(2) + "%" : "-";
-    // 最大持仓: 笔数(max_concurrent) + 资金(max_concurrent_capital),笔数加粗显眼
-    const mc = r.max_concurrent || 0;
-    const mcc = r.max_concurrent_capital || 0;
-    const mcStr = mc ? `<b class="lab-sigkelly-mc-n">${mc}</b>笔 / ${(mcc >= 10000 ? (mcc / 10000).toFixed(1) + "万" : Math.round(mcc))}` : "-";
-    // 持仓中: 笔数(holding_count) + 占用资金(holding_capital),预估盈亏已计入统计
-    const hc = r.holding_count || 0;
-    const hcap = r.holding_capital || 0;
-    const hcStr = hc ? `<b class="lab-sigkelly-hc-n">${hc}</b>笔 / ${(hcap >= 10000 ? (hcap / 10000).toFixed(1) + "万" : Math.round(hcap))}` : "-";
-    const ann = r.annualized_return != null ? r.annualized_return.toFixed(2) + "%" : "-";
-    const sh = r.sharpe != null ? r.sharpe.toFixed(2) : "-";
-    const md = r.max_drawdown_pct != null ? r.max_drawdown_pct.toFixed(2) + "%" : "-";
-    const cm = r.calmar != null ? r.calmar.toFixed(2) : "-";
-    // #25 A包(需求②+需求D): 不可操作(峰持仓>20倍)行加删除线灰化 + 淘汰角标 + hoverpop 淘汰理由(无操作性 / 无仓位限制·无法实操)
-    const _opRowCls = _opElim ? " lab-sigkelly-eliminated-row lab-sigkelly-opelim-row" : "";
-    const _opRowTip = _opElim ? `淘汰·${_opReason}: ${_opTip || ""}` : "点击查看交易记录";
-    const _opBadge = _opElim ? `<span class="lab-sigkelly-exec-badge" title="${_opTip || _opReason}">淘汰·${_opReason}</span>` : "";
     rows +=
-      `<tr class="lab-sigkelly-trade-row${_opRowCls}" data-quad="${qk}" data-mode="${m}" data-period="${period}" data-opelim="${_opElim ? "1" : "0"}" title="${_opRowTip}">` +
-        `<td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span>${_gihBadge}${_opBadge}</td>` +
-        `<td class="lab-sigkelly-hk"><span class="lab-kelly-tier ${tierCls}">${hk.toFixed(1)}%</span><span class="lab-sigkelly-tier">${tier}</span></td>` +
-        `<td>${wr}</td><td>${plStr}</td><td>${mr}</td><td>${nStr}</td>` +
-        `<td class="lab-sigkelly-tp-hl ${tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${tpStr}元</td>` +
-        `<td class="lab-sigkelly-rmh ${rmhVal == null ? "" : (rmhVal >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg")}" title="=总盈亏/峰值同时持仓资金,随回测周期增长">${rmh}</td>` +
-        `<td class="lab-sigkelly-neg lab-sigkelly-fee">${fcStr}</td>` +
-        `<td class="lab-sigkelly-mc">${mcStr}</td><td class="lab-sigkelly-holding">${hcStr}</td><td>${ann}</td>` +
-        `<td>${sh}</td><td>${md}</td><td>${cm}</td>` +
+      `<tr class="lab-sigkelly-trade-row${w._opRowCls}" data-quad="${qk}" data-mode="${m}" data-period="${period}" data-opelim="${w._opElim ? "1" : "0"}" title="${w._opRowTip}">` +
+        `<td><b>${m}</b><span class="lab-sigkelly-modelbl">${w.modeLabels[m] || ""}</span>${w._gihBadge}${w._opBadge}</td>` +
+        `<td class="lab-sigkelly-hk"><span class="lab-kelly-tier ${w.tierCls}">${w.hk.toFixed(1)}%</span><span class="lab-sigkelly-tier">${w.tier}</span></td>` +
+        `<td>${w.wr}</td><td>${w.plStr}</td><td>${w.mr}</td><td>${w.nStr}</td>` +
+        `<td class="lab-sigkelly-tp-hl ${w.tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${w.tpStr}元</td>` +
+        `<td class="lab-sigkelly-rmh ${w.rmhVal == null ? "" : (w.rmhVal >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg")}" title="=总盈亏/峰值同时持仓资金,随回测周期增长">${w.rmh}</td>` +
+        `<td class="lab-sigkelly-neg lab-sigkelly-fee">${w.fcStr}</td>` +
+        `<td class="lab-sigkelly-mc">${w.mcStr}</td><td class="lab-sigkelly-holding">${w.hcStr}</td><td>${w.ann}</td>` +
+        `<td>${w.sh}</td><td>${w.md}</td><td>${w.cm}</td>` +
       `</tr>`;
   }
   const wm = _sigKellyWatermark(pdata);
@@ -11275,6 +11305,89 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
   );
 }
 
+// #97 批次B: ≤768px 移动卡片化渲染器(与桌面宽表共用 _sigKellyRowModel 单一数据源 §22):
+//   每模式一条目 = 头(模式+徽章) + 4 关键列直读(半凯利仓位/胜率/最终盈亏/峰值资金收益率) + details 收起其余 10 项指标 + 「交易记录›」按钮(同一明细弹窗)。
+//   桌面控件替代对照(一个不丢): 15列宽表→4KPI直读+details 全量可达 / 行点击开弹窗→mopen 按钮同一弹窗 / 水印·pin·卖出模式说明·淘汰删除线·GIH 徽章全保留。
+function _renderSigKellyCardMobile(qk, q, period, cardCmp) {
+  const periods = q.periods || {};
+  const feeStats = state.labSigKellyFeeStats;
+  const pdata = (feeStats && feeStats[qk] && feeStats[qk][period]) ? feeStats[qk][period] : (periods[period] || {});
+  const modes = _sigKellyModeKeys();
+  const modeLabels = _sigKellyModeLabels();
+  const guidance = q.guidance || {};
+  const hasGuide = modes.some((m) => guidance[m]);
+  let rows = "";
+  for (const m of modes) {
+    const w = _sigKellyRowModel(pdata, m);
+    if (!w.r) {
+      rows += `<div class="lab-sigkelly-mrow"><div class="lab-sigkelly-mrow-head"><b>${m}</b><span class="lab-sigkelly-modelbl">${w.modeLabels[m] || ""}</span></div><div class="lab-sigkelly-empty">无数据</div></div>`;
+      continue;
+    }
+    // 其余 10 项指标(details 展开区): 与桌面宽表第 4-6/9-15 列一一对应, 数值同源 _sigKellyRowModel
+    const kvItems =
+      `<div><i>盈亏比</i><em>${w.plStr}</em></div>` +
+      `<div><i>单笔均收益</i><em>${w.mr}</em></div>` +
+      `<div><i>样本</i><em>${w.nStr}</em></div>` +
+      `<div><i>费率消耗</i><em class="lab-sigkelly-neg">${w.fcStr}</em></div>` +
+      `<div><i>最大持仓</i><em>${w.mcStr}</em></div>` +
+      `<div><i>持仓中</i><em>${w.hcStr}</em></div>` +
+      `<div><i>年化</i><em>${w.ann}</em></div>` +
+      `<div><i>夏普</i><em>${w.sh}</em></div>` +
+      `<div><i>最大回撤</i><em>${w.md}</em></div>` +
+      `<div><i>卡尔玛</i><em>${w.cm}</em></div>`;
+    rows +=
+      `<div class="lab-sigkelly-mrow${w._opRowCls}" data-opelim="${w._opElim ? "1" : "0"}" title="${w._opRowTip}">` +
+        `<div class="lab-sigkelly-mrow-head">` +
+          `<b>${m}</b><span class="lab-sigkelly-modelbl">${w.modeLabels[m] || ""}</span>${w._gihBadge}${w._opBadge}` +
+          `<button type="button" class="lab-sigkelly-mopen" data-quad="${qk}" data-mode="${m}" data-period="${period}" data-opelim="${w._opElim ? "1" : "0"}" title="${w._opRowTip}">交易记录 ›</button>` +
+        `</div>` +
+        `<div class="lab-sigkelly-mrow-kpi">` +
+          `<div><i>半凯利仓位</i><em><span class="lab-kelly-tier ${w.tierCls}">${w.hk.toFixed(1)}%</span><span class="lab-sigkelly-tier">${w.tier}</span></em></div>` +
+          `<div><i>胜率</i><em>${w.wr}</em></div>` +
+          `<div><i>最终盈亏</i><em class="${w.tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${w.tpStr}元</em></div>` +
+          `<div><i>峰值资金<br>收益率</i><em class="${w.rmhVal == null ? "" : (w.rmhVal >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg")}" title="=总盈亏/峰值同时持仓资金,随回测周期增长">${w.rmh}</em></div>` +
+        `</div>` +
+        `<details class="lab-sigkelly-mrow-detail">` +
+          `<summary>其余指标(盈亏比/样本/回撤等)</summary>` +
+          `<div class="lab-sigkelly-kvgrid">${kvItems}</div>` +
+        `</details>` +
+      `</div>`;
+  }
+  const wm = _sigKellyWatermark(pdata);
+  // 卡间比较水印: 与桌面卡一致(蓝星综合最佳+紫菱最稳定)
+  let cwmHtml = "";
+  if (cardCmp && (cardCmp.isBest || cardCmp.isStable)) {
+    let badges = "";
+    if (cardCmp.isBest) badges += `<span class="lab-sigkelly-cwm-badge lab-sigkelly-cwm-best">★综合最佳</span>`;
+    if (cardCmp.isStable) badges += `<span class="lab-sigkelly-cwm-badge lab-sigkelly-cwm-stable">◆最稳定</span>`;
+    cwmHtml = `<div class="lab-sigkelly-cwm" data-cwm="1">${badges}<div class="lab-sigkelly-wm-pop-wrap lab-sigkelly-cwm-pop-wrap" style="display:none">${_sigKellyCwmPopupHtml(cardCmp)}</div></div>`;
+  }
+  const _pinned = _sigKellyIsPinned(qk);
+  return (
+    `<div class="lab-sigkelly-card${_pinned ? " lab-sigkelly-card-pinned" : ""}" data-quad="${qk}">` +
+      (wm ? `<div class="lab-sigkelly-wm lab-sigkelly-wm-${wm.kind}" data-wm="1"><span class="lab-sigkelly-wm-badge">${wm.text}</span><div class="lab-sigkelly-wm-pop-wrap" style="display:none">${_sigKellyWmPopupHtml(wm)}</div></div>` : ``) +
+      `<div class="lab-sigkelly-card-head">` +
+        `<div class="lab-sigkelly-card-name"><span>${q.label || qk}</span>` +
+          `<button type="button" class="lab-sigkelly-pin-btn${_pinned ? " active" : ""}" data-pin-quad="${qk}" title="${_pinned ? "点击取消置顶" : "点击置顶此卡片(放最前部盯住)"}" aria-label="置顶/取消置顶">📌</button>` +
+        `</div>` +
+        `<div class="lab-sigkelly-card-desc">${q.desc || ""}` +
+        (hasGuide
+          ? ` <span class="lab-sigkelly-guide-trigger" data-guide="1">卖出模式说明❓` +
+              `<div class="lab-sigkelly-guide-pop-wrap" style="display:none">` +
+                `<div class="lab-sigkelly-wm-pop"><div class="lab-sigkelly-wm-pop-title">卖出模式说明</div>` +
+                modes.filter((m) => guidance[m]).map((m) => `<div class="lab-sigkelly-guide-item"><b>${m}:</b> ${guidance[m]}</div>`).join("") +
+                `</div>` +
+              `</div>` +
+            `</span>`
+          : ``) +
+        `</div>` +
+      `</div>` +
+      (cwmHtml ? `<div class="lab-sigkelly-cwm-row">` + cwmHtml + `</div>` : ``) +
+      rows +
+    `</div>`
+  );
+}
+
 // 交易记录弹窗(懒加载 trades JSON, 按 quad x mode x period 过滤, 可排序/筛选)
 async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   const data = state.labSigKellyData;
@@ -11285,14 +11398,14 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   const quadLabel = (data.quadrants[quadKey] || {}).label || quadKey;
   const modeLabel = _sigKellyModeLabelWith(modeKey, (cfg.sell_modes || {})[modeKey]?.label || modeKey);
 
-  // 创建 overlay
+  // 创建 overlay(#97 批次B: ≤768px 加 sheet 类走 bottom-sheet 抽屉形态; 每次打开刷新, 桌面恒无此类)
   let overlay = document.getElementById("lab-sigkelly-trades-overlay");
   if (!overlay) {
     overlay = document.createElement("div");
     overlay.id = "lab-sigkelly-trades-overlay";
-    overlay.className = "lab-sigkelly-overlay";
     document.body.appendChild(overlay);
   }
+  overlay.className = "lab-sigkelly-overlay" + (_sigKellyIsMobile() ? " lab-sigkelly-sheet" : "");
   overlay.innerHTML = `<div class="lab-sigkelly-modal"><div class="lab-sigkelly-modal-loading">⏳ 加载交易记录…</div></div>`;
   overlay.style.display = "flex";
 
@@ -11446,6 +11559,18 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     { key: "sell_reason", label: "卖出原因", sortable: true },
   ];
 
+  // #97 批次B: 移动端列选择器(默认 8 关键列, 勾选显隐 localStorage 记忆; 桌面恒全 15 列零变化)。
+  //   纯展示层显隐, 不动任何统计口径(stats 条仍为全量口径); 至少保留 1 列防全关看不到表。
+  const _TRADE_DEF_COLS = ["index_id", "buy_date", "sell_date", "etf_name", "buy_price", "sell_price", "profit", "return_pct"];
+  function _sigKellyTradeVisCols() {
+    if (!_sigKellyIsMobile()) return colDefs.map((c) => c.key);
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem("lab_sigkelly_trade_cols") || "null"); } catch (e) {}
+    if (!Array.isArray(saved)) return _TRADE_DEF_COLS.slice();
+    const valid = saved.filter((k) => colDefs.some((c) => c.key === k));
+    return valid.length ? valid : _TRADE_DEF_COLS.slice();
+  }
+
   // 筛选+排序泛化版(2026-08-24 bug修复): 主表/被淘汰区共用同一套 filter.etf/filter.profit 与排序状态,
   // 此前淘汰区渲染完全不经过筛选(筛选时主表变而删除线表一动不动=用户视角"筛选失效"), 且排序也不一致。
   // 纯展示层过滤, 不动任何统计口径/回测数字(顶部 stats 条仍显示全量口径)。
@@ -11475,13 +11600,18 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
   function _applyFilter() { return _applyFilterTo(trades); }
 
   function _render() {
+    // #97 批次B: 可见列每次渲染时重读(列选择器勾选→localStorage→_render 即生效; 桌面恒全 15 列)
+    const visCols = _sigKellyTradeVisCols();
+    const visSet = {};
+    visCols.forEach((k) => { visSet[k] = true; });
+    const visDefList = colDefs.filter((c) => visSet[c.key]);
     const filtered = _applyFilter();
     const winCount = trades.filter((t) => t[fIdx.profit] > 0).length;
     const totalProfit = trades.reduce((s, t) => s + (t[fIdx.profit] || 0), 0);
     const totalFeeCost = trades.reduce((s, t) => s + (t[fIdx.fee_cost] || 0), 0);
     const holdingCount = trades.filter((t) => !t[fIdx.sell_date]).length;
 
-    let thHTML = colDefs.map((c) => {
+    let thHTML = visDefList.map((c) => {
       const isSorted = sort.key === c.key;
       const arrow = isSorted ? (sort.dir > 0 ? " ▲" : " ▼") : "";
       return `<th class="lab-sigkelly-trades-th" data-key="${c.key}">${c.label}${arrow}</th>`;
@@ -11534,20 +11664,30 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       const reasonCell = isHolding
         ? `<td>${t[fIdx.sell_reason] || "持有中"} ${t[fIdx.hold_days]}天</td>`
         : `<td>${t[fIdx.sell_reason]}</td>`;
-      return `<td class="lab-sigkelly-trades-sigcell">${sigCell}</td>` +
-        `<td>${t[fIdx.buy_date]}</td>${sellDateCell}` +
-        `<td class="lab-sigkelly-trades-etfrel">${etfRel}</td>` +
-        `<td>${t[fIdx.etf_code]}</td><td class="lab-sigkelly-trades-etfname">${t[fIdx.etf_name]}</td>` +
-        `<td>${(+t[fIdx.buy_price]).toFixed(4)}</td>${sellPriceCell}` +
-        `<td>${(+t[fIdx.shares]).toFixed(2)}</td>` +
-        `<td class="lab-sigkelly-amt">${(t[fIdx.amount] != null ? Math.round(+t[fIdx.amount]).toLocaleString() : "-")}</td>` +
-        profitCell + returnCell +
-        `<td class="lab-sigkelly-neg lab-sigkelly-fee">${(t[fIdx.fee_cost] != null ? "-" + (+t[fIdx.fee_cost]).toFixed(2) : "-")}</td>` +
-        `<td>${t[fIdx.hold_days]}</td>${reasonCell}`;
+      // #97 批次B: cell 改按列 key 收集后按可见列序输出(colDefs 顺序=原硬编码拼接顺序, 桌面全列时输出逐字节一致;
+      //   移动端列选择器勾选后只输出可见列, 顺序仍与桌面列定义一致防错位)
+      const cells = {
+        index_id: `<td class="lab-sigkelly-trades-sigcell">${sigCell}</td>`,
+        buy_date: `<td>${t[fIdx.buy_date]}</td>`,
+        sell_date: sellDateCell,
+        track_score: `<td class="lab-sigkelly-trades-etfrel">${etfRel}</td>`,
+        etf_code: `<td>${t[fIdx.etf_code]}</td>`,
+        etf_name: `<td class="lab-sigkelly-trades-etfname">${t[fIdx.etf_name]}</td>`,
+        buy_price: `<td>${(+t[fIdx.buy_price]).toFixed(4)}</td>`,
+        sell_price: sellPriceCell,
+        shares: `<td>${(+t[fIdx.shares]).toFixed(2)}</td>`,
+        amount: `<td class="lab-sigkelly-amt">${(t[fIdx.amount] != null ? Math.round(+t[fIdx.amount]).toLocaleString() : "-")}</td>`,
+        profit: profitCell,
+        return_pct: returnCell,
+        fee_cost: `<td class="lab-sigkelly-neg lab-sigkelly-fee">${(t[fIdx.fee_cost] != null ? "-" + (+t[fIdx.fee_cost]).toFixed(2) : "-")}</td>`,
+        hold_days: `<td>${t[fIdx.hold_days]}</td>`,
+        sell_reason: reasonCell,
+      };
+      return visCols.map((k) => cells[k] || "").join("");
     };
     let tbodyHTML = "";
     if (pageRows.length === 0) {
-      tbodyHTML = `<tr><td colspan="15" class="lab-sigkelly-trades-more">无符合条件的交易记录</td></tr>`;
+      tbodyHTML = `<tr><td colspan="${visCols.length}" class="lab-sigkelly-trades-more">无符合条件的交易记录</td></tr>`;
     } else {
       for (const t of pageRows) {
         const rowCls = (!t[fIdx.sell_date]) ? "lab-sigkelly-holding-row" : "";
@@ -11568,7 +11708,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       if (state._sigKellyElimPage < 1) state._sigKellyElimPage = 1;
       const elimPageRows = elimFiltered.slice((state._sigKellyElimPage - 1) * elimPerPage, state._sigKellyElimPage * elimPerPage);
       if (elimPageRows.length === 0) {
-        elimTbody = `<tr><td colspan="15" class="lab-sigkelly-trades-more">无符合条件的被淘汰交易</td></tr>`;
+        elimTbody = `<tr><td colspan="${visCols.length}" class="lab-sigkelly-trades-more">无符合条件的被淘汰交易</td></tr>`;
       } else {
         for (const t of elimPageRows) {
           const elimRowCls = ((!t[fIdx.sell_date]) ? "lab-sigkelly-holding-row" : "") + " lab-sigkelly-eliminated-row";
@@ -11581,6 +11721,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     overlay.innerHTML =
       `<div class="lab-sigkelly-modal">` +
         `<div class="lab-sigkelly-modal-head">` +
+          (_sigKellyIsMobile() ? `<div class="lab-sigkelly-sheet-grip" title="往下拉关闭"></div>` : "") +
           `<div class="lab-sigkelly-modal-title">📋 交易记录 · ${quadLabel} · ${modeLabel} · ${period}${feeLabel}</div>` +
           (state.labSigKellyGihOn && _kellyIsGih(modeKey) ? `<div class="lab-sigkelly-gih-modal-note" title="#49+#xx ai长线仓位管理口径说明">⚠️ 本弹窗为<u>未套 ai长线仓位管理</u>的原始交易；当前卡片 G/H/I 行已套各模式最优仓位法(G=P≤3d三档/H=满仓不买7万/I=满仓不买15万)后的口径(峰持仓≤20倍可操作)，此处净盈亏/峰值与卡片可能不一致。</div>`
            : _kellyOpModalNote(quadKey, modeKey, period)) +
@@ -11602,6 +11743,14 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
             `<option value="pos"${filter.profit === "pos" ? " selected" : ""}>仅盈利</option>` +
             `<option value="neg"${filter.profit === "neg" ? " selected" : ""}>仅亏损</option>` +
           `</select>` +
+          // #97 批次B: 移动端列选择器入口+面板(桌面不出现在 DOM, 零变化)
+          (_sigKellyIsMobile()
+            ? `<button type="button" class="lab-input lab-sigkelly-cols-btn">列 ${visCols.length}/${colDefs.length}</button>` +
+              `<div class="lab-sigkelly-cols-pop" style="display:none">` +
+                `<div class="lab-sigkelly-cols-pop-title">显示列(点勾选显隐,至少保留一列)</div>` +
+                colDefs.map((c) => `<label class="lab-sigkelly-cols-item"><input type="checkbox" data-col="${c.key}"${visSet[c.key] ? " checked" : ""}>${c.label}</label>`).join("") +
+              `</div>`
+            : "") +
         `</div>` +
         `<div class="lab-sigkelly-modal-tablewrap">` +
           `<table class="lab-sigkelly-trades-table">` +
@@ -11635,6 +11784,46 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     // 关闭
     overlay.querySelector(".lab-sigkelly-modal-close").onclick = () => { overlay.style.display = "none"; };
     overlay.onclick = (e) => { if (e.target === overlay) overlay.style.display = "none"; };
+    // #97 批次B: 移动端列选择器交互(勾选→localStorage 记忆→就地重渲; 至少保留一列; 桌面无此控件)
+    const colsBtn = overlay.querySelector(".lab-sigkelly-cols-btn");
+    if (colsBtn) {
+      const colsPop = overlay.querySelector(".lab-sigkelly-cols-pop");
+      colsBtn.onclick = () => { colsPop.style.display = colsPop.style.display === "none" ? "block" : "none"; };
+      colsPop.querySelectorAll("input[type=checkbox]").forEach((cb) => {
+        cb.onchange = () => {
+          const checkedEls = [...colsPop.querySelectorAll("input[type=checkbox]:checked")];
+          if (!checkedEls.length) { cb.checked = true; return; } // 至少保留一列, 全关时回弹
+          const checkedKeys = colDefs.filter((c) => checkedEls.some((el) => el.getAttribute("data-col") === c.key)).map((c) => c.key);
+          try { localStorage.setItem("lab_sigkelly_trade_cols", JSON.stringify(checkedKeys)); } catch (e) {}
+          state._sigKellyTradePage = 1;
+          state._sigKellyElimPage = 1;
+          _render();
+          // _render() 重建 DOM 会收起列选择器面板, 连续勾选需重新展开(保持勾选流不中断)
+          const newPop = overlay.querySelector(".lab-sigkelly-cols-pop");
+          if (newPop) newPop.style.display = "block";
+        };
+      });
+    }
+    // #97 批次B: bottom-sheet 下拉关闭手势(顶部把手区下滑>90px 关弹窗; 仅移动绑定, 桌面无此监听)
+    const headEl = overlay.querySelector(".lab-sigkelly-modal-head");
+    if (headEl && _sigKellyIsMobile()) {
+      const modalEl = overlay.querySelector(".lab-sigkelly-modal");
+      let sy = null, dy = 0;
+      const _sheetReset = () => { sy = null; dy = 0; if (modalEl) modalEl.style.transform = ""; };
+      headEl.addEventListener("touchstart", (ev) => { sy = ev.touches[0].clientY; dy = 0; }, { passive: true });
+      headEl.addEventListener("touchmove", (ev) => {
+        if (sy == null) return;
+        dy = ev.touches[0].clientY - sy;
+        if (dy > 0 && modalEl) {
+          modalEl.style.transform = "translateY(" + Math.round(dy) + "px)";
+          if (ev.cancelable) ev.preventDefault();
+        }
+      }, { passive: false });
+      headEl.addEventListener("touchend", () => {
+        if (dy > 90) { _sheetReset(); overlay.style.display = "none"; }
+        else _sheetReset();
+      });
+    }
     // 排序
     overlay.querySelectorAll(".lab-sigkelly-trades-th").forEach((th) => {
       th.onclick = () => {
