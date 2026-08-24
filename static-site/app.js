@@ -2795,9 +2795,16 @@ function _mountHomeDroughtChip() {
 // 数据源/口径与 _mountHomeDroughtChip 完全同源(overfit_monitor.json recent 块 + 同一 modeKeys §22);
 // slot 存在(空态已渲染)时: 有统计 → 填 _tdsDroughtChipHtml(info)(含「已连续 N 个交易日无放行+72%」,
 // 空态场景 n≥30 必过 chip 阈值20); 统计缺失(hasRecent:false/打点未生成)→ 优雅降级填不带 N 的简版说明。
-function _mountSigEmptyDrought() {
+function _mountSigEmptyDrought(_retry) {
   const slot = document.getElementById("home-sig-empty-drought-slot");
-  if (!slot || typeof window._tdsFetchRecentBlock !== "function") return;
+  if (!slot || typeof window._tdsFetchRecentBlock !== "function") {
+    // 渲染时序兜底: 首渲路径是 build-then-replace(innerHTML 注入发生在卡片根入文档之前),
+    // 此刻 getElementById 必为空 → 有限次延迟重试等其入文档(找到即停, 不重复发起 fetch);
+    // 重试耗尽仍无 slot = 本次渲染本就没有空态(非空列表场景), 静默放弃即 no-op。
+    const left = (typeof _retry === "number") ? _retry : 15;
+    if (left > 0) setTimeout(() => { try { _mountSigEmptyDrought(left - 1); } catch (e) {} }, 150);
+    return;
+  }
   const modeKeys = _homeDroughtModeKeys();
   window._tdsFetchRecentBlock(typeof fetchJSON === "function" ? fetchJSON : null).then((recent) => {
     // then 内重查 DOM(sigCard 可能已被重绘替换, 不用闭包旧引用防写入丢失)
