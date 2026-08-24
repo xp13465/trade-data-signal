@@ -375,6 +375,9 @@ run_r2_upload "upload-index" upload-index || { echo "⚠ upload-index 失败/超
 # 2026-08-23: 改增量上传(upload_r2.py 状态清单只传变化文件)+ 本通道超时放宽 900s(根治间歇超时告警);
 # 首跑/每周日强制全量一次防状态漂移, 增量正常秒级~分钟级完成。
 run_r2_upload "upload-etf-hist" 900 upload-etf-hist || { echo "⚠ upload-etf-hist 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-hist"; }
+# 基金全史净值 fund_nav/{code}.json -> R2 fund_nav/ 前缀(#11 基金弹窗净值走势, 2026-08-25;
+# 26118只~566MB, 增量指纹上传只传变化文件; 首跑/周日强制全量一次防状态漂移)
+run_r2_upload "upload-fund-nav" 1800 upload-fund-nav || { echo "⚠ upload-fund-nav 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-fund-nav"; }
 run_r2_upload "upload-industry" upload-industry || { echo "⚠ upload-industry 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-industry"; }
 run_r2_upload "upload-public-fund" upload-public-fund || { echo "⚠ upload-public-fund 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-public-fund"; }
 run_r2_upload "upload-etf-score" upload-etf-score || { echo "⚠ upload-etf-score 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-score"; }

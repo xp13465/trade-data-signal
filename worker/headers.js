@@ -118,14 +118,23 @@ async function r2ProxyHandler(request, env, ctx, url) {
   if (!key || key.endsWith('/')) {
     return new Response('Not Found', { status: 404 });
   }
-  // 1. 边缘缓存命中（key 用 pathname 剥离 query，?_=Date.now() 不影响命中）
+  // NO_CACHE 前缀(#11 fund_nav 2026-08-25)：点开才拉的基金全史净值文件走 no-store，
+  //   不查不写 edge cache（同 dataCacheTtl 的 ttl=0 先例，memory edge-cache-ttl-stretch-no-cache）。
+  //   动机：每日增量 ~2.4 万 keys、purge ~800 批估 27min 会让 deploy 链 1800s 超时被 kill；
+  //   no-store 后 upload-fund-nav 跳过 purge 环节整个省掉，且即使漏传/失败也无旧版残留窗口
+  //   （TTL=0 每次回源 R2 拿最新）。单文件 ~26KB 回源成本可接受；基金净值 T+1 晚间入图，
+  //   无盘中时效压力，用户点开弹窗才拉属低频访问。etf/ 等其余前缀行为不变。
+  const noEdgeCache = key.startsWith('fund_nav/');
+  // 1. 边缘缓存命中（key 用 pathname 剥离 query，?_=Date.now() 不影响命中；noEdgeCache 跳过）
   const cacheKey = new Request(url.origin + url.pathname);
-  const cached = await caches.default.match(cacheKey);
-  if (cached) {
-    // 2026-08-11 补: 旧缓存响应(ACAO 部署前写入)可能缺 ACAO 头, 返回前补上, 根治"部署改头后 1h 内旧缓存缺 ACAO 备站跨域挂"
-    const h = new Headers(cached.headers);
-    h.set('Access-Control-Allow-Origin', '*');
-    return new Response(cached.body, { status: cached.status, statusText: cached.statusText, headers: h });
+  if (!noEdgeCache) {
+    const cached = await caches.default.match(cacheKey);
+    if (cached) {
+      // 2026-08-11 补: 旧缓存响应(ACAO 部署前写入)可能缺 ACAO 头, 返回前补上, 根治"部署改头后 1h 内旧缓存缺 ACAO 备站跨域挂"
+      const h = new Headers(cached.headers);
+      h.set('Access-Control-Allow-Origin', '*');
+      return new Response(cached.body, { status: cached.status, statusText: cached.statusText, headers: h });
+    }
   }
   // 2. R2 读取
   let object;
@@ -140,12 +149,12 @@ async function r2ProxyHandler(request, env, ctx, url) {
   const headers = new Headers();
   object.writeHttpMetadata(headers);
   headers.set('etag', object.httpEtag);
-  headers.set('Cache-Control', 'public, max-age=3600');
+  headers.set('Cache-Control', noEdgeCache ? 'no-store, max-age=0' : 'public, max-age=3600');
   headers.set('Access-Control-Allow-Origin', '*');
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) headers.set(k, v);
   const response = new Response(object.body, { headers });
-  // 4. 写边缘缓存（后台，不阻塞响应）
-  ctx.waitUntil(caches.default.put(cacheKey, response.clone()));
+  // 4. 写边缘缓存（后台，不阻塞响应；noEdgeCache 跳过防旧版残留）
+  if (!noEdgeCache) ctx.waitUntil(caches.default.put(cacheKey, response.clone()));
   return response;
 }
 

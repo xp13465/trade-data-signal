@@ -608,15 +608,22 @@ def fetch_fund_name() -> int:
             today,
         ))
     conn = get_conn()
+    # UPSERT 而非 INSERT OR REPLACE: REPLACE=删整行重插, 会把 fetch_fund_overview
+    # 补的 15 扩展列(fund_company/fund_manager 等)清成 NULL(2026-08-25 bug 修复,
+    # 实测 27624 行中扩展列非空仅 18)。这里只更新基础 6 列, 扩展列保留由 Fetcher N 维护。
     conn.executemany(
-        "INSERT OR REPLACE INTO fund_basic"
+        "INSERT INTO fund_basic"
         "(fund_code, fund_name, fund_type, pinyin_abbr, pinyin_full, update_date) "
-        "VALUES (?,?,?,?,?,?)",
+        "VALUES (?,?,?,?,?,?) "
+        "ON CONFLICT(fund_code) DO UPDATE SET "
+        "fund_name=excluded.fund_name, fund_type=excluded.fund_type, "
+        "pinyin_abbr=excluded.pinyin_abbr, pinyin_full=excluded.pinyin_full, "
+        "update_date=excluded.update_date",
         rows,
     )
     conn.commit()
     conn.close()
-    print(f"[A] fund_basic 写入 {len(rows)} 行, {time.time()-t:.1f}s", flush=True)
+    print(f"[A] fund_basic 写入 {len(rows)} 行(UPSERT保扩展列), {time.time()-t:.1f}s", flush=True)
     return len(rows)
 
 
@@ -1542,14 +1549,53 @@ PF_STAGE0_THROTTLE = 0.4  # 逐只接口延时(秒), 反爬低加保险
 
 
 def _load_stage0_progress(fetcher_name: str) -> dict:
-    """读断点续采进度: {fetcher_name: {done:[], fail:[], total:N}}"""
+    """读断点续采进度: {fetcher_name: {done:[], fail:[], total:N}}(经 DB 一致性闸门裁剪)。"""
     if not PF_STAGE0_PROGRESS_PATH.exists():
         return {"done": [], "fail": [], "total": 0}
     try:
         data = json.loads(PF_STAGE0_PROGRESS_PATH.read_text(encoding="utf-8"))
-        return data.get(fetcher_name, {"done": [], "fail": [], "total": 0})
+        prog = data.get(fetcher_name, {"done": [], "fail": [], "total": 0})
     except Exception:  # noqa: BLE001
         return {"done": [], "fail": [], "total": 0}
+    return _prune_stage0_done_vs_db(fetcher_name, prog)
+
+
+# 防复发闸门(2026-08-25 bug②): 断点 done 必须与 DB 实际有值状态一致。
+# 病灶实证: fund_overview 断点 done=27600 全命中跳过(周日 57s"跑完"27600 只),
+# 但 fund_basic 扩展列非空仅 18 行——done 只记"曾尝试成功", 感知不到"数据后来
+# 被清"(bug① INSERT OR REPLACE 清列), 假断点导致永不补列。
+# 各 fetcher 的 DB 有效判据 = 一条返回"实际有数据 code 集"的 SQL, 加载时 done∩有效集。
+_STAGE0_DB_VALIDITY: dict[str, str] = {
+    "fund_overview":
+        "SELECT fund_code FROM fund_basic WHERE COALESCE(fund_company,'')!=''",
+    "fund_fee_detail": "SELECT DISTINCT fund_code FROM fund_fee_detail",
+    "fund_manager": "SELECT DISTINCT fund_code FROM fund_manager",
+    "fund_risk_indicator": "SELECT DISTINCT fund_code FROM fund_risk_indicator",
+}
+
+
+def _prune_stage0_done_vs_db(fetcher_name: str, prog: dict) -> dict:
+    """闸门: 断点 done 与 DB 实际有值 code 集取交集, 失效部分自动重采不报完成。"""
+    sql = _STAGE0_DB_VALIDITY.get(fetcher_name)
+    done = prog.get("done") or []
+    if not sql or not done:
+        return prog
+    try:
+        conn = get_conn()
+        try:
+            valid = {r[0] for r in conn.execute(sql).fetchall()}
+        finally:
+            conn.close()
+    except Exception as e:  # noqa: BLE001
+        print(f"  [progress] WARN 闸门查询失败(本次跳过校验): {e}", flush=True)
+        return prog
+    retained = [c for c in done if c in valid]
+    if len(retained) < len(done):
+        print(f"  [progress] 闸门: {fetcher_name} 断点done={len(done)} "
+              f"vs DB实际有值={len(valid)}, 裁剪至 {len(retained)}(失效部分将重采)",
+              flush=True)
+    prog["done"] = retained
+    return prog
 
 
 def _save_stage0_progress(fetcher_name: str, prog: dict) -> None:
@@ -2040,6 +2086,22 @@ def fetch_fund_overview(codes: list[str] | None = None) -> int:
                   f"elapsed={elapsed:.0f}s eta={eta:.0f}s", flush=True)
     print(f"[N] 完成: ok={ok} fail={fail} total={total} "
           f"耗时={time.time()-t0:.0f}s", flush=True)
+    # 防复发自检(bug② 闸门配套): 收尾核对「断点 done 数 vs DB 扩展列实际有值数」,
+    # 不一致打 WARN——防"假完成标记"再次静默产生, 下次加载侧闸门会自动裁剪重采。
+    try:
+        conn = get_conn()
+        try:
+            db_valid = conn.execute(
+                "SELECT COUNT(*) FROM fund_basic WHERE COALESCE(fund_company,'')!=''"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        done_n = len(prog.get("done", []))
+        if abs(done_n - db_valid) > max(50, int(total * 0.01)):
+            print(f"  [N] WARN 一致性: 断点done={done_n} vs DB扩展列有值={db_valid}, "
+                  f"疑似数据被清/断点失真(下次运行闸门自动重采)", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [N] WARN 一致性自检失败: {e}", flush=True)
     return ok
 
 

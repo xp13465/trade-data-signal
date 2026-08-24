@@ -22993,10 +22993,15 @@ function _etfTrendLiteHTML(ohlc) {
 // + 点高亮 + 浮层 tooltip(日期+收盘), mouseleave 隐藏。
 // 绑定时刻实测渲染宽 -> 以真实像素为 viewBox 宽重生成 SVG 几何(边距=真实像素, 对齐 echarts grid,
 // 解决 preserveAspectRatio=none 下 viewBox 单位随宽缩放致边距对不上的问题)。
-function _etfTrendLiteBind(svg, ohlc) {
+function _etfTrendLiteBind(svg, ohlc, opts) {
   if (!svg) return;
   const _wrap = svg.parentElement;
   if (!_wrap) return;
+  // opts.valueLabel/opts.valueDecimals: tooltip 数值文案与小数位(#11 基金净值走势复用
+  // 本 helper 传「单位净值」+4 位; 净值 4 位小数, 价格 3 位)。缺省「收盘」+3 位 =
+  // ETF 既有行为逐字不变(§23.7 向后兼容可选参数)
+  const _valueLabel = (opts && opts.valueLabel) || "收盘";
+  const _valueDecimals = (opts && opts.valueDecimals != null) ? opts.valueDecimals : 3;
   const _points = ohlc.filter((d) => d && d[4] != null);
   if (_points.length < 2) return;
   // 实测渲染宽 -> viewBox 宽 = 真实像素(1:1 无拉伸), 重生成几何
@@ -23029,7 +23034,7 @@ function _etfTrendLiteBind(svg, ohlc) {
       }
     }
     if (_tip) {
-      _tip.innerHTML = fmtDate(_dates[i]) + "<br/>收盘 " + (_v != null ? Number(_v).toFixed(3) : "-");
+      _tip.innerHTML = fmtDate(_dates[i]) + "<br/>" + _valueLabel + " " + (_v != null ? Number(_v).toFixed(_valueDecimals) : "-");
       _tip.style.display = "block";
       const svgRect = svg.getBoundingClientRect();
       const wrapRect = _wrap.getBoundingClientRect();
@@ -23243,6 +23248,10 @@ function _renderEtfPager(scope, page, pages, total) {
 // 不放入全局 charts 数组（弹窗 open/close 生命周期与 charts 的 tab 切换 dispose 不同步，避免数组堆积死实例），
 // window resize / H5 切换时单独 resize 它。
 let _etfTrendChart = null;
+// 走势区请求序号: 模块级全局单调递增(2026-08-25 F2 修跨弹窗竞态)。原存 modal._ctx 会随每次
+// open 重置、close 不失效——A 基金 fetch in-flight 中关开到 B, A 晚到仍通过校验把 A 的走势
+// 画进 B 弹窗。全局计数器不复位即天然失效旧请求, 同弹窗切 tab 防护语义不变。
+let _etfTrendReqSeq = 0;
 
 // ============ #10 ETF弹窗长历史(2026-08-22): period tab + 懒加载 R2 etf/{code}-all.json ============
 // 数据产物: scripts/export_etf_hist.py -> static-site/data/etf/{code}-all.json (全史前复权日K,
@@ -23270,8 +23279,8 @@ async function _renderEtfTrendSection(modal, code, period) {
   const e = (_etfScoreState.all || []).find((x) => x.etf_code === code);
   if (!e) return;
   const meta = _ETF_TREND_PERIODS.find((p) => p[0] === period) || _ETF_TREND_PERIODS[0];
-  // 竞态防护: 快速切 tab 时旧 fetch 回来不得覆盖新周期渲染(弹窗级序号, 渲染前校验)
-  const reqId = (modal._ctx.trendReqId = (modal._ctx.trendReqId || 0) + 1);
+  // 竞态防护: 快速切 tab / 关开弹窗时旧 fetch 回来不得覆盖新渲染(模块级全局序号, 渲染前校验)
+  const reqId = ++_etfTrendReqSeq;
 
   let ohlc = null;
   let histName = e.name || code;
@@ -23286,7 +23295,7 @@ async function _renderEtfTrendSection(modal, code, period) {
         hist = await fetchJSON(`https://ss.fx8.store/r2/etf/${code}-all.json`);
         _etfHistCache[code] = hist;
       } catch (_err) {
-        if (modal._ctx.trendReqId !== reqId) return; // 已有更新请求,丢弃过期失败
+        if (_etfTrendReqSeq !== reqId) return; // 已有更新请求/已换弹窗,丢弃过期失败
         sec.innerHTML = '<div class="etf-trend-hist-err" style="padding:14px;font-size:13px;color:var(--text-3);background:var(--bg-2,rgba(128,128,128,0.08));border-radius:8px">⚠ 长历史数据加载失败，请稍后重试（默认 30 日走势不受影响）</div>';
         return;
       }
@@ -23301,7 +23310,7 @@ async function _renderEtfTrendSection(modal, code, period) {
     }
   }
 
-  if (modal._ctx.trendReqId !== reqId) return; // 过期响应丢弃
+  if (_etfTrendReqSeq !== reqId) return; // 过期响应丢弃
 
   // 重渲染前 dispose 旧走势实例(切周期 innerHTML 重写防泄漏; 关闭弹窗由 closeEtfScoreDetailModal 兜底)
   _disposeContainerCharts(sec);
@@ -24472,6 +24481,116 @@ function _fundScoreRadarSVG(e) {
     + '</svg>';
 }
 
+// #11 基金弹窗净值走势(2026-08-25): 复刻 #10 _renderEtfTrendSection 整套交互(period tab/
+// 竞态防护/lite SVG+echarts 双版本/R2 懒加载 per-code 缓存), 数据源差异点:
+// - 数据源 R2 fund_nav/{code}.json(payload.nav=[[date,unit_nav,acc_nav],...], 点开才拉);
+//   基金评分列表 item 无内置近30日净值序列 -> 30d 默认周期同样走懒拉取(单文件 ~26KB)
+// - 单位净值映射为伪 OHLC [date,v,v,v,v] 复用 _etfTrendLiteHTML/_etfTrendLiteBind
+//   (valueLabel=单位净值/valueDecimals=4; 两 helper 缺省「收盘」+3 位, ETF 行为零变化 §23.7)
+// - 缓存: 模块级 per-code 全量 payload(~26KB/只), 弹窗关开/切周期不重复拉取
+const _fundNavCache = {};
+let _fundNavChart = null;
+// 净值请求序号: 模块级全局单调递增(F2, 同 _etfTrendReqSeq)——modal._ctx 随 open 重置、
+// close 不失效, A 基金 fetch in-flight 中关开到 B 会把 A 的走势画进 B 弹窗; 全局计数器不复位。
+let _fundNavReqSeq = 0;
+
+async function _renderFundNavSection(modal, code, period) {
+  const body = modal && modal.querySelector(".fund-detail-content");
+  const sec = body && body.querySelector("#fundNavTrendSection");
+  if (!sec || !code) return;
+  const meta = _ETF_TREND_PERIODS.find((p) => p[0] === period) || _ETF_TREND_PERIODS[0];
+  // 竞态防护: 快速切 tab / 关开弹窗时旧 fetch 回来不得覆盖新渲染(模块级全局序号, 渲染前校验,
+  // 同 _renderEtfTrendSection 模式)
+  const reqId = ++_fundNavReqSeq;
+
+  let hist = _fundNavCache[code];
+  if (!hist) {
+    sec.innerHTML = '<div class="lab-custom-loading">⏳ 净值走势加载中…</div>';
+    try {
+      // 硬编码 R2 直链(/r2/ 代理路由为通用 key 代理, fund_nav/ 新前缀零 worker 改动)
+      hist = await fetchJSON(`https://ss.fx8.store/r2/fund_nav/${code}.json`);
+      _fundNavCache[code] = hist;
+    } catch (_err) {
+      if (_fundNavReqSeq !== reqId) return; // 已有更新请求/已换弹窗,丢弃过期失败
+      sec.innerHTML = '<div style="padding:14px;font-size:13px;color:var(--text-3);background:var(--bg-2,rgba(128,128,128,0.08));border-radius:8px">⚠ 净值历史数据加载失败，请稍后重试（评分/凯利等其他区块不受影响）</div>';
+      return;
+    }
+  }
+  if (_fundNavReqSeq !== reqId) return; // 过期响应丢弃
+
+  let nav = (hist && hist.nav) || [];
+  // 客户端 period 过滤: 30d 取末 30 个净值点; 3m~5y 复用 _signalModalCutoff(基于数据末日
+  // 回推, 输入需 {date} 对象数组传末元素包装, 与 ETF/信号弹窗同口径); all 不过滤。
+  if (period === "30d") {
+    nav = nav.slice(-30);
+  } else if (nav.length >= 2) {
+    const filterDate = _signalModalCutoff([{ date: nav[nav.length - 1][0] }], period);
+    if (filterDate) nav = nav.filter((r) => r[0] >= filterDate);
+  }
+
+  // 重渲染前 dispose 旧走势实例(innerHTML 重写防泄漏; 关闭弹窗由 closeFundScoreDetailModal 兜底)
+  _disposeContainerCharts(sec);
+  _fundNavChart = null;
+
+  if (!nav || nav.length < 2) {
+    sec.innerHTML = '<div class="lab-custom-score-card lab-custom-block-gap"><div class="lab-custom-section-title">📈 ' + meta[2] + '</div><div style="padding:14px;font-size:13px;color:var(--text-3)">该周期暂无足够净值数据（成立时间可能不足或披露滞后）</div></div>';
+    return;
+  }
+
+  // 单位净值 -> 伪 OHLC(o=h=l=c=unit_nav): lite SVG helper 读 d[4] 收盘位, 映射后零改造复用
+  const ohlc = nav.map((r) => [r[0], r[1], r[1], r[1], r[1]]);
+  const fundName = (hist && hist.name) || code;
+
+  const _liteTrend = !!siteCfg("charts.lightweight", true);
+  sec.innerHTML = '<div class="lab-custom-score-card lab-custom-block-gap"><div class="lab-custom-section-title">📈 ' + meta[2]
+    + ' <span style="font-weight:400;font-size:11px;color:var(--text-3)" title="数据源: fund_daily_nav 表全史日净值(基金公司披露口径, T+1 入图)">' + _esc(fundName) + ' · ' + ohlc.length + ' 个净值日</span></div>'
+    + (_liteTrend
+        ? _etfTrendLiteHTML(ohlc)
+        : '<div id="fundNavChart" style="height:200px"></div>')
+    + '</div>';
+
+  // 轻量 SVG 版逐点 hover(同 ETF: 十字线+点高亮+浮层 tooltip; 文案=单位净值/4 位小数)
+  const _liteSvg = sec.querySelector(".etf-trend-lite");
+  if (_liteSvg) _etfTrendLiteBind(_liteSvg, ohlc, { valueLabel: "单位净值", valueDecimals: 4 });
+  // echarts 完整版(charts.lightweight=false 回退; 视觉对等 withTheme 随皮肤, 同 ETF 分支)
+  const _chartEl = sec.querySelector("#fundNavChart");
+  if (_chartEl && typeof echarts !== "undefined") {
+    const _dates = ohlc.map((d) => d[0]);
+    const _vals = ohlc.map((d) => d[1]);
+    // 末点可能为 null, 涨跌色基准=最后一个有效值(与轻量 SVG 版同口径)
+    let _lastV = null;
+    for (let i = _vals.length - 1; i >= 0; i--) { const v = _vals[i]; if (v != null && !isNaN(v)) { _lastV = v; break; } }
+    const _isUp = _lastV != null && _lastV >= _vals.find((v) => v != null);
+    const _trendColor = _isUp ? "#e6492e" : "#2e8b57";
+    try {
+      _fundNavChart = echarts.init(_chartEl);
+      if (charts.indexOf(_fundNavChart) < 0) charts.push(_fundNavChart);
+      _fundNavChart.setOption(withTheme({
+        tooltip: {
+          trigger: "axis",
+          formatter: (p) => {
+            const dt = p[0] && p[0].axisValue;
+            const v = p[0] && p[0].data;
+            return fmtDate(dt) + "<br/>单位净值 " + (v != null ? Number(v).toFixed(4) : "-");
+          },
+        },
+        grid: { left: 50, right: 15, top: 15, bottom: 25 },
+        axisPointer: { type: "line", lineStyle: { color: cssVar("--border-strong") } },
+        xAxis: { type: "category", data: _dates, axisLabel: { fontSize: 10, formatter: (v) => fmtDate(v) } },
+        yAxis: { type: "value", scale: true, axisLabel: { fontSize: 10 } },
+        series: [{
+          type: "line", smooth: true, symbol: "circle", symbolSize: 4,
+          data: _vals,
+          lineStyle: { color: _trendColor, width: 1.5 },
+          itemStyle: { color: _trendColor },
+          areaStyle: { color: _isUp ? "rgba(230,73,46,0.12)" : "rgba(46,139,87,0.12)" },
+        }],
+      }));
+      requestAnimationFrame(() => _fundNavChart && _fundNavChart.resize());
+    } catch (_e) { /* echarts init 失败不阻塞弹窗其余区块 */ }
+  }
+}
+
 function openFundScoreDetailModal(code) {
   // 从当前列表 state 查 item（api 模式 all=当前页; static 模式 all=Top100）
   const e = (_fundScoreState.all || []).find((x) => x.fund_code === code);
@@ -24485,10 +24604,21 @@ function openFundScoreDetailModal(code) {
       <div class="rule-modal-body signal-chart-modal-body">
         <div class="rule-modal-header">
           <h3 class="fund-detail-title">🧾 场外基金评分详情</h3>
+          <div class="signal-chart-periods"><button class="lab-signal-period-btn active" data-period="30d">30日</button><button class="lab-signal-period-btn" data-period="3m">3月</button><button class="lab-signal-period-btn" data-period="6m">6月</button><button class="lab-signal-period-btn" data-period="1y">1年</button><button class="lab-signal-period-btn" data-period="3y">3年</button><button class="lab-signal-period-btn" data-period="5y">5年</button><button class="lab-signal-period-btn" data-period="all">全部</button></div>
           <button class="rule-modal-close" aria-label="关闭">&times;</button>
         </div>
         <div class="rule-modal-content fund-detail-content"></div>
       </div>`;
+    // #11 净值走势(2026-08-25): period tab 切换(UI/交互 pattern 复刻 openEtfScoreDetailModal
+    // #10 模式: .signal-chart-periods + .lab-signal-period-btn + modal._ctx 重入)。
+    // 全部周期都从 R2 fund_nav/{code}.json 懒加载(per-code 缓存), 点开才拉。
+    modal.querySelectorAll(".lab-signal-period-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        modal.querySelectorAll(".lab-signal-period-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        _renderFundNavSection(modal, modal._ctx && modal._ctx.code, btn.dataset.period);
+      });
+    });
     document.body.appendChild(modal);
     modal.querySelector(".rule-modal-overlay").onclick = closeFundScoreDetailModal;
     modal.querySelector(".rule-modal-close").onclick = closeFundScoreDetailModal;
@@ -24497,7 +24627,14 @@ function openFundScoreDetailModal(code) {
     });
   }
   modal.querySelector(".fund-detail-title").textContent = "🧾 " + (e.fund_name || code) + " 评分详情";
+  // #11: period tab 上下文(切换事件读 code 重渲染净值走势区块); 每次打开重置 tab 到默认 30日
+  modal._ctx = { code };
+  modal.querySelectorAll(".lab-signal-period-btn").forEach((b) => b.classList.toggle("active", b.dataset.period === "30d"));
   const body = modal.querySelector(".fund-detail-content");
+  // 重开弹窗前 dispose 旧净值图实例(body 内旧 #fundNavChart DOM 还在, _disposeContainerCharts
+  // 捕获 [_echarts_instance_] 属性 dispose; 同 openEtfScoreDetailModal 模式)
+  _disposeContainerCharts(body);
+  _fundNavChart = null;
 
   // 数字格式 helper: null/NaN -> '-'
   const fnum = (v, d, suf) => ((v == null || isNaN(v)) ? "-" : (v.toFixed(d == null ? 2 : d) + (suf || "")));
@@ -24606,15 +24743,27 @@ function openFundScoreDetailModal(code) {
   const footerHTML = (typeof _labCustomFooterHTML === "function")
     ? _labCustomFooterHTML(null, null) : "";
 
-  body.innerHTML = headHTML + kellyHTML + radarHTML + riskHTML + infoHTML + footerHTML;
+  // #11 净值走势区块: 容器占位 + _renderFundNavSection 异步渲染(period tab 切换共用),
+  // 放风险指标后、基础信息前(先看评分/风险结论再看走势细节)
+  const trendHTML = '<div id="fundNavTrendSection"></div>';
+
+  body.innerHTML = headHTML + kellyHTML + radarHTML + riskHTML + trendHTML + infoHTML + footerHTML;
   modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
+
+  // #11: 净值走势区块异步渲染(默认 30日 / 其余周期 tab 懒加载, 点开弹窗才拉一次 R2)
+  _renderFundNavSection(modal, code, "30d");
 }
 
 function closeFundScoreDetailModal() {
   const modal = document.getElementById("fundScoreDetailModal");
   if (modal) modal.classList.add("hidden");
   document.body.style.overflow = "";
+  // #11: 关闭弹窗时 dispose 净值走势 echarts 实例(_disposeContainerCharts 兜底释放
+  // body 内 DOM 实例, 同 closeEtfScoreDetailModal 模式; _fundNavChart 置 null 释放 resize 引用)
+  const body = modal && modal.querySelector(".fund-detail-content");
+  if (body) _disposeContainerCharts(body);
+  _fundNavChart = null;
 }
 
 // 场外基金评分排行（Phase B/C 全量化 #79 方案C: D1 服务端分页 + Top100 fallback）
