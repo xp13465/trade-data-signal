@@ -9451,15 +9451,16 @@ function _kellyModeCompareHTML() {
 
 function _renderSigKellyBar(bar, data, period) {
   // B级UI(2026-08-15): 移动端吸顶条默认折叠成1行(周期+「参数」按钮), 全部控制台收进展开区, 点「参数」展开。用户方案A。
-  // 展开/收起态持久化 localStorage lab_sigkelly_params_open; 未设置过则按设备宽度默认(≤600px 收起 / >600px 展开=PC现状)。重渲染后保持, 不回落默认。
+  // 展开/收起态持久化 localStorage lab_sigkelly_params_open; 未设置过则按设备宽度默认(≤768px 收起 / >768px 展开=PC现状)。重渲染后保持, 不回落默认。
   // 说明: PC 端保持展开(现状)避免用户觉得功能"藏起来"; 仅移动端默认收起缓解吸顶高度(叠加3层导航后内容被压到屏下)。
+  // F3(review-kelly-mobile-20260825): 断点判定抽用 _sigKellyIsMobile()(768, 与批次A 吸顶条折叠 CSS/批次B 卡片化同源),
+  //   原 600 致 601~768 区间「CSS 已折叠+JS 默认展开」错位; >768px 桌面行为零变化(两断点均 false → 照旧展开)。
   const _sigParamsOpenState = _sigKellyParamsOpen();
   function _sigKellyParamsOpen() {
     let saved = null;
     try { saved = localStorage.getItem('lab_sigkelly_params_open'); } catch (e) { saved = null; }
     if (saved !== null) return saved === '1';
-    const isMobile = window.matchMedia && window.matchMedia("(max-width: 600px)").matches;
-    return !isMobile; // 移动端默认收起, PC 默认展开
+    return !_sigKellyIsMobile(); // ≤768px 默认收起, PC 默认展开
   }
   const cfg = data.config || {};
   const periods = cfg.periods || { y1: "近1年", y3: "近3年", all: "全部" };
@@ -11391,7 +11392,7 @@ function _renderSigKellyCardMobile(qk, q, period, cardCmp) {
 // #97 批次C: ≤768px 移动端弹窗「象限×模式切片」快路径 —— 全量 signal_kelly_trades.json ~62MB 移动端不可拉,
 // 改先并行拉该组小片(单片≤280KB, scripts/signal_kelly_backtest.py --export-lab-slices-only 生成)渲染明细预览,
 // 整包在后台懒加载就绪后由既有全口径渲染替换(fade/positionCap/费率重算依赖跨象限 dims, 预览态不含, 最终口径与桌面逐位一致 §22)。
-// 桌面 >768px 不走此路径零变化; 切片任一环失败静默降级等整包(与首页模拟回测弹窗同兜底策略)。
+// 桌面 >768px 不走此路径零变化; 切片任一环失败降级等整包, 但补可见提示条不静默(F2 review-kelly-mobile-20260825)。
 async function _sigKellyOpenTradesPreview(overlay, quadKey, modeKey, modeLabel, period) {
   try {
     const v = _labCustomCacheBust();
@@ -11436,7 +11437,23 @@ async function _sigKellyOpenTradesPreview(overlay, quadKey, modeKey, modeLabel, 
     _sigKellyRenderTradesPreview(overlay, quadLabel, modeLabel, meta, fields, fIdx, rows);
     return true;
   } catch (e) {
-    return false; // 切片任一环失败静默降级, 等整包老路径(移动端整包兜底仍在)
+    // F2(review-kelly-mobile-20260825): 失败不再零提示——loading 干等几十秒用户不可感知预览已死。
+    //   补一条可见提示条(复用整包失败红条样式), 不改降级逻辑本身; 整包已就绪/整包失败UI已在时不插(防覆盖正式表/误导)
+    try {
+      if (!state.labSigKellyTradesData && !overlay.querySelector(".lab-custom-error")) {
+        const _modal = overlay.querySelector(".lab-sigkelly-modal");
+        if (_modal) {
+          const _note = document.createElement("div");
+          _note.className = "lab-custom-note";
+          _note.style.cssText = "margin:8px 16px;padding:8px 10px;border-radius:8px;background:rgba(220,53,69,.12);font-size:12px";
+          _note.textContent = "⚠️ 快速预览不可用（切片加载失败），正在后台加载完整数据…";
+          const _loading = _modal.querySelector(".lab-sigkelly-modal-loading");
+          if (_loading) _modal.insertBefore(_note, _loading);
+          else if (!_modal.querySelector(".lab-sigkelly-trades-table")) _modal.insertBefore(_note, _modal.firstChild);
+        }
+      }
+    } catch (e2) { /* 提示条插入失败不影响降级主流程 */ }
+    return false; // 切片任一环失败降级等整包老路径(移动端整包兜底仍在)
   }
 }
 

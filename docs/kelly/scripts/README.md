@@ -81,3 +81,12 @@
 | extract_kelly_v2.py | 组合提取(映射 toggle 集 + v2 结果提取) | python3 extract_kelly_v2.py |
 | kelly-4combo-a45-backtest.js | 4组合+a45 回测复刻(pool vs fixed) | node kelly-4combo-a45-backtest.js |
 | kelly-final-check.js | 4组合最终核验(读 4combo 输出) | node kelly-final-check.js |
+
+## G 组(#97 移动端方案B 冒烟与修复自验,2026-08-25;报告 mobile-refactor-20260825-smoke.md)
+
+| 脚本 | 用途 | 复现 |
+|---|---|---|
+| kelly_mobile_smoke.js | 三批次冒烟(desktop 零变化 hash 对比 / mobile 断言清单) | node kelly_mobile_smoke.js desktop /tmp/out.json(需 8123 冒烟服务) |
+| kelly_mobile_preview_diag.js | 弱网预览链路诊断(route 拖慢整包抓预览态) | node kelly_mobile_preview_diag.js |
+| kelly_fix_f2f3_window.js | reviewer F2/F3 自验:失败窗口红条+loading 共存、移动收起态(serviceWorkers:"block" 必须,SW 会绕过 page.route) | node kelly_fix_f2f3_window.js |
+| kelly_fix_f2_replace.js | reviewer F2 自验:整包就绪后正式表替换红条零残留 | node kelly_fix_f2_replace.js |

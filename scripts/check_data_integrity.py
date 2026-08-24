@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 import sys
 from datetime import datetime, timedelta
@@ -603,6 +604,68 @@ def check_signal_kelly_backtest(data_dir: Path) -> CheckResult:
     if empty_quads:
         msg += f", 零样本象限: {empty_quads}"
     return _ok(name, msg)
+
+
+def check_kelly_lab_slices(data_dir: Path) -> CheckResult:
+    """校验凯利移动端切片(signal_kelly_trades_parts/)与整包同版（#97 批次C，F1 review-kelly-mobile-20260825）。
+
+    事故场景：回测重跑只更新整包、切片由旧版脚本跑的没跟着导出 -> 「新整包+旧切片」同时上线
+    -> 移动端弹窗快速预览数字 != 正式表数字（§22 数据一致性违反）。校验三件：
+      ① lab_meta.generated_at == signal_kelly_trades.json.generated_at（混版 FAIL 阻断）
+      ② meta.parts 记录的每片文件在位（防片丢失）
+      ③ 目录 lab_ 片集合 == meta 记录集合（防孤儿/残留片被前端拉到旧数据）
+    meta 不存在 = WARN 不阻断（切片未生成的老环境向后兼容；merge 后跑
+    `python scripts/signal_kelly_backtest.py --export-lab-slices-only` 补生成）。
+    整包 generated_at 用头 4KB 正则轻量提取（62MB 不全量加载；该键恒为首键，见产物头部）。
+    """
+    name = "kelly_lab_slices"
+    trades_path = data_dir / "signal_kelly_trades.json"
+    parts_dir = data_dir / "signal_kelly_trades_parts"
+    meta_path = parts_dir / "lab_meta.json"
+    if not trades_path.exists():
+        return _warn(name, f"整包不存在: {trades_path.name}")
+    if not meta_path.exists():
+        return _warn(name, "lab_meta.json 不存在（切片未生成; merge 后跑 scripts/signal_kelly_backtest.py --export-lab-slices-only 同步）")
+
+    # 整包 generated_at（首键，头 4KB 必含）
+    with open(trades_path, "rb") as f:
+        head = f.read(4096).decode("utf-8", errors="replace")
+    m = re.search(r'"generated_at"\s*:\s*"([^"]+)"', head)
+    if not m:
+        return _warn(name, "整包头 4KB 未找到 generated_at（结构变更? 需人工核对）")
+    full_ts = m.group(1)
+
+    meta, err = _load_json(meta_path)
+    if err:
+        return _fail(name, f"lab_meta.json 解析失败: {err}")
+    if not isinstance(meta, dict):
+        return _fail(name, f"lab_meta.json 不是 dict: {type(meta).__name__}")
+    meta_ts = meta.get("generated_at")
+    if meta_ts != full_ts:
+        return _fail(
+            name,
+            f"切片/整包混版: lab_meta.generated_at={meta_ts} != signal_kelly_trades.generated_at={full_ts}"
+            f"（先跑 python scripts/signal_kelly_backtest.py --export-lab-slices-only 同步再 deploy, §22）",
+        )
+
+    # 片在位 + 双向集合比对（missing=meta 记了文件没了; orphan=目录有 meta 没记=残留旧片）
+    expected = set()
+    for g in (meta.get("groups") or {}).values():
+        for p in ((g or {}).get("parts") or []):
+            if p.get("name"):
+                expected.add(p["name"])
+    actual = {
+        p.name for p in parts_dir.glob("lab_*.json")
+        if p.name != "lab_meta.json" and re.match(r"^lab_.+__.+_p\d+\.json$", p.name)
+    }
+    missing = sorted(expected - actual)
+    orphan = sorted(actual - expected)
+    if missing:
+        return _fail(name, f"meta 记录 {len(expected)} 片, 缺 {len(missing)} 片如 {missing[:3]}")
+    if orphan:
+        return _fail(name, f"目录存在 meta 未记录的残留片 {len(orphan)} 个如 {orphan[:3]}（重导后未清/混版）")
+    n_groups = len(meta.get("groups") or {})
+    return _ok(name, f"切片与整包同版({full_ts}), {n_groups}组/{len(expected)}片齐")
 
 
 def check_trade_sim_indices(data_dir: Path) -> CheckResult:
@@ -1310,6 +1373,8 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     # P1-D2 export 导出面全量断言（2026-08-23，单一事实源=export.py EXPORT_MANIFEST，
     # E16 防「生成了没上线」31 产物盲区，见 docs/bug-pattern-site-audit-20260823.md D 族）
     results.append(check_export_manifest(data_dir))
+    # #97 凯利移动端切片↔整包同版校验（F1 review-kelly-mobile-20260825，防「新整包+旧切片」混版上线 §22）
+    results.append(check_kelly_lab_slices(data_dir))
 
     # 关键文件存在性
     results.extend(check_key_files(data_dir, repo_data_dir))

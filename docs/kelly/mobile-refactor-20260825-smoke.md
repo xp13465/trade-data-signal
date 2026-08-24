@@ -34,6 +34,14 @@ mrowCards=153 / legacyWideTables=0 / kpiCellsFirstCard=4 / detailItems=10 / shee
 - 卡片区统计本身仍需整包(进 tab 即后台拉取),这是口径要求;批次C 加速的是「弹窗首开」这一最大用户痛点场景。
 - 桌面 >768px 行为冻结(§23.7):未改任何桌面控件/DOM/样式,列选择器等新控件仅移动 DOM 出现。
 
+## reviewer fixes 回归(review-kelly-mobile-20260825.md F1/F2/F3,2026-08-25)
+
+- **F3 断点统一**:`_renderSigKellyBar` 参数面板默认展开判定改抽 `_sigKellyIsMobile()`(768,与吸顶折叠 CSS/卡片化同源),原 600 致 601~768 区间「CSS 已折叠+JS 默认展开」错位。自验:390 宽清 localStorage → toggle=「⚙️ 参数 ▼」收起态+无 `lab-sigkelly-params-open` class;1280 宽 → 照旧展开(periodBtn display=block)。
+- **F2 预览失败可见化**:预览链路 catch 不再零提示——loading 态插红色提示条「⚠️ 快速预览不可用（切片加载失败），正在后台加载完整数据…」(复用整包失败红条样式 rgba(220,53,69,.12));降级逻辑未动。自验(Playwright route:meta abort+整包延迟):t1.5s 红条与 loading 共存 ✓ → 整包就绪 t10.5s 正式表渲染、红条零残留 ✓;整包先就绪/整包失败 UI 在场时不插条(竞态防护)。
+- **F1 机检**:check_data_integrity.py 新增 `check_kelly_lab_slices`——lab_meta.generated_at ⟂ 整包 generated_at 混版 FAIL、片缺失/残留孤儿片 FAIL、无切片 WARN 兼容老环境;三路径实测(生产树混版当场拦下 / tmp 同版 144组303片 OK / 无 meta WARN)。merge 后由主控跑 `--export-lab-slices-only` 同步切片(混版即解除)。
+- **桌面零变化复验(fix 后)**:同数据源下 fix 版 vs git HEAD 版 `.lab-sigkelly-host` outerHTML hash 一致(`5c194994`,双版本对照法排除数据版本因素)。
+- ⚠️ 测试坑注记:本站有 Service Worker(CacheFirst),Playwright `page.route` 拦不到 SW 发起的请求——做网络失败/弱网模拟必须 `newContext({ serviceWorkers: "block" })`,否则 meta"abort"实际被 SW 放行成功、断言全歪(本次 v1/v2 假阴性根因)。
+
 ## 复现
 
 ```bash
@@ -57,7 +65,12 @@ node docs/kelly/scripts/kelly_mobile_smoke.js mobile  /tmp/kelly-mobile.json
 
 # 预览弱网链路诊断:
 node docs/kelly/scripts/kelly_mobile_preview_diag.js
+
+# reviewer fixes 自验(2026-08-25; F2 失败窗口+F3 断点, 需先起上面冒烟服务):
+node docs/kelly/scripts/kelly_fix_f2f3_window.js   # F3 移动收起态 + F2 红条/loading 共存(serviceWorkers:"block" 必须)
+node docs/kelly/scripts/kelly_fix_f2_replace.js    # 整包就绪后正式表替换红条零残留
+python3 scripts/check_data_integrity.py --data-dir /Users/linhuichen/code/trade-data/static-site/data  # F1: 本地混版应 FAIL(exit 1), merge 后同步切片转 OK
 ```
 
-- 输入依赖:signal_kelly_trades.json(2026-08-25 生产树版本, generated_at=2026-08-23 05:09)、static-site/lab.js·lab.css(worktree feat 分支)。
+- 输入依赖:signal_kelly_trades.json(2026-08-25 冒烟时生产树版本 generated_at=2026-08-25 05:01, 与当时 R2 切片同版; 当日 06:41 盘前重跑后本地整包已更新而切片停在 05:01 = review-kelly-mobile-20260825.md F1 混版实证, merge 后跑 --export-lab-slices-only 同步)、static-site/lab.js·lab.css(worktree feat 分支)。
 - 关键口径:切片=象限×模式组内保持原序按「≤2000行 且 ≤280KB(UTF-8字节)」先到为准切 chunk,拼接==原数组;预览=cutoff 过滤后原始字段直读。
