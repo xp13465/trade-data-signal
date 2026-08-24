@@ -20,9 +20,11 @@
 # 日志: data/logs/overfit_monitor_launchd.log
 set -u
 
-PY=/Users/linhuichen/code/trade-data/.venv/bin/python
-REPO=/Users/linhuichen/code/trade-data
-TRADE_REPO=/Users/linhuichen/code/trade   # git 渠道树(mjs 校验的前端源码所在)
+# 树路径 env 化(P3-D 2026-08-25): 缺省回落现值行为不变; TRADE_REPO 更名 GIT_REPO
+# 与全站惯例一致(intraday_snapshot/self_heal/update_all/staticdata_sync/push_schedule_stats)。
+REPO="${REPO:-/Users/linhuichen/code/trade-data}"
+GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"   # git 渠道树(mjs 校验的前端源码所在)
+PY="${PY:-$REPO/.venv/bin/python}"
 LOGDIR=$REPO/data/logs
 mkdir -p "$LOGDIR"
 cd "$REPO"
@@ -73,7 +75,7 @@ fi
 if [ "$RC" -eq 0 ]; then
   if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ]; then
     RECENT_JSON="$REPO/static-site/data/overfit_monitor.json" \
-      "$NODE_BIN" "$TRADE_REPO/scripts/check_overfit_recent_parity.mjs" >> "$LOG" 2>&1
+      "$NODE_BIN" "$GIT_REPO/scripts/check_overfit_recent_parity.mjs" >> "$LOG" 2>&1
     RECENT_RC=$?
     if [ "$RECENT_RC" -ne 0 ]; then
       echo "==== overfit_monitor 组集一致性校验 FAIL rc=$RECENT_RC ====" >> "$LOG"
