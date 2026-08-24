@@ -591,6 +591,9 @@ AI_MACRO_KEYS = {
 AI_MACRO_BACKUP_KEY_CN = {
     "legacyMa60Special": "老MA60熊×追买",
     "declinePhaseSpecial": "下降期×追关注",
+    # X1(mine29c 2026-08-24 用户拍板) NEW14+1·15键可选档成员, 默认不在任何白名单(邮件判定零变化 §23.7);
+    #   中文名仅备映射完整(audit D2 三处对账口径), 与 app.js/_AI_MACRO_BACKUP_NAMES 同步登记。
+    "excludeTierNone": "整剔无跟踪档位象限(track_tier=none)",
 }
 # 键中文名映射(与 static-site/app.js _AI_MACRO_FILTER_NAMES 同源, §22 一致性; 邮件/飞书徽标缘由用)
 AI_MACRO_KEY_CN = {

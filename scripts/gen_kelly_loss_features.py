@@ -179,7 +179,7 @@ def main():
     for mining_key, spec in RULE_SPECS.items():
         r = {"key": MINING_TO_PROD_KEY[mining_key], "mining": mining_key, "group": spec.get("group"),
              "desc": spec.get("desc"), "vs9": spec.get("vs9")}
-        for fld in ("feature", "direction", "threshold", "sig", "tier", "mkt", "rating", "max_ts", "months", "date_field"):
+        for fld in ("feature", "direction", "threshold", "sig", "tier", "track_tier", "mkt", "rating", "max_ts", "months", "date_field"):
             if fld in spec:
                 r[fld] = spec[fld]
         rules_meta.append(r)

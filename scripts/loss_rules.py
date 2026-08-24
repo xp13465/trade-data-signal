@@ -119,6 +119,14 @@ RULE_SPECS = {
                desc="20日已实现波动<10分位(低波动)", vs9=-2470.24),
     "AD1": dict(group="market", feature="adline_gap", direction="high", threshold=QTH["adline_gap@0.70"],
                 desc="AD线距MA20缺口>70分位(广度过热)", vs9=-235.61),
+    # ---- X1(mine29c 2026-08-24 用户拍板, NEW14+1·15键可选档成员, 非挖掘产出故无 vs9)----
+    # 整剔 track_tier=none 象限(=回测 etf_has_track 卡「有跟踪ETF」: 匹配不到强关联/相关/近似 ETF,
+    # 只有弱跟踪兜底标的的信号)。⚠track_tier 是 best ETF 的跟踪档位静态属性(board_etf_map 信号日冻结,
+    # signal_kelly_backtest.py L189/L233-251), 非时变择时信号 → 无前视问题(§5.1⑥: 静态字段等值判定,
+    # 报告 mine29 §七已核)。可选档 new15 成员, 不进任何默认组合(§23.7)。
+    "X1": dict(group="market", track_tier="none",
+               desc="整剔无跟踪档位象限(track_tier=none)",
+               vs9=None),
 }
 
 # 键名规范(生产键 = 小写前缀风格, 与现有 k2c5HkChase/k3ConceptBuy 命名族一致):
@@ -144,11 +152,15 @@ MINING_TO_PROD_KEY = {
     "A1": "a1BullAllStop",
     "V3": "v3Vol20LowPct",
     "AD1": "ad1AdlineHot",
+    # X1(mine29c 2026-08-24, 非挖掘产出, 映射仍收本表保持键名单源; 前端三处字面量清单须同步
+    # common._KELLY_FADE_T1_KEYS / lab._KELLY_LOSS_NEW_KEYS / app._SIM_LOSS_NEW_KEYS+_AI_MACRO_BACKUP_NAMES,
+    # audit_bug_patterns.py D2 对账全等)
+    "X1": "excludeTierNone",
 }
 PROD_TO_MINING_KEY = {v: k for k, v in MINING_TO_PROD_KEY.items()}
 NEW_KEYS_PROD = [MINING_TO_PROD_KEY[m] for m in (
     "N1", "T1", "D1", "Q1", "H1", "M1", "D2", "P1", "V1", "S1", "R1",
-    "R2b", "R2g", "N2", "V2", "S2", "W1", "A1", "V3", "AD1")]
+    "R2b", "R2g", "N2", "V2", "S2", "W1", "A1", "V3", "AD1", "X1")]
 
 
 def spec_by_prod_key(prod_key):
@@ -168,6 +180,7 @@ def rule_hit(prod_key, ctx):
       sig     : str  信号类型(buy/buy_aux/buy_special/buy_backup...)
       mkt     : str|None  _mktD 域类短名(a/concept/industry/hk/global/hk_industry)
       tier    : str  A股类四档(hs300; 非A股为 "")
+      track_tier : str  best ETF 跟踪档位(strong/related/approx/none; 无ETF映射/ts缺失为 "" 不命中)
       date    : str  buy_date(YYYYMMDD, ≡signal_date) — 特征查询日
       smonth  : str  signal_date 月份两位("07") — R2g 用
       rating  : str  评级(high/mid/low)
@@ -194,6 +207,10 @@ def rule_hit(prod_key, ctx):
         cond = cond and (ctx.get("tier") or "") == spec["tier"]
     if spec.get("mkt") is not None:
         cond = cond and (ctx.get("mkt") or "") == spec["mkt"]
+    if spec.get("track_tier") is not None:
+        # X1: best ETF 跟踪档位等值判定(trades track_tier 列直读语义; ctx 缺失/"" → 不命中, 诚实降级
+        # 与 tier/mkt 同款守卫——信号级无 ETF 映射时不得误标)
+        cond = cond and (ctx.get("track_tier") or "") == spec["track_tier"]
     if spec.get("rating") is not None:
         cond = cond and (ctx.get("rating") or "") == spec["rating"]
         # R2g: ts 缺失视为 999 → <75 不成立(mine22: 空 ts 视为 999)
