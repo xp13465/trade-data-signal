@@ -106,7 +106,7 @@
 | L43 | 08-18 | 主控抢跑亲手验证+数据生成违反"只派发"(L29变种:没Edit代码,但亲手干跑export_summary验证/手动生成summary.json+上传R2/手动curl验收,用户质疑「怎么你亲自在干?符合工作模式么」) | 子agent卡住等时点+用户催=派tester/implementer接手当前验证/数据任务,主控只做派单锚点grep(§8.1)+§0验线上最终结果;数据操作(生成产物/上传R2/重跑)默认归agent,主控不抢跑亲手干(→memory main-controller-ran-verification-hands-on) | archive:锚点块本条(L43) |
 | L44 | 08-24 | has_track口径P0事故(需求记录错→挖掘继承bug→实施照单→reviewer闭环内失守,全链无人对照UI文案,机检全绿卡不归零) | 语义类改动全链路各角色必须有第三方锚点(UI文案/产品文档):主控派单附三源原文、researcher设计前核查分析对象、implementer开工逐字对照、reviewer查对照记录、tester机检备独立锚点(§23.13) | archive:锚点块本条(L44) |
 
-**② 主控专属(16 条):主控全栈需要,全文进 docs/main-governance.md「主控专属教训」段**
+**② 主控专属(16 条):主控全栈需要,全文进 docs/main-governance.md「主控专属教训」段(L29 例外:已全文化至本文件 §0.1 红线,governance 留指针行)**
 | 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
 |---|---|---|---|---|
 | L01 | 08-08 | 通知丢失不设cron傻等 | cron兜底必设 | archive:L13 |
