@@ -20,6 +20,8 @@ if missing:
     print(f'缺少必填字段: {missing}', file=sys.stderr)
     sys.exit(1)
 print('报告校验通过')
+if 'status' in d:
+    print(f'  status:  {d[\"status\"]}')
 print(f'  verdict: {d[\"verdict\"]}')
 print(f'  summary: {d[\"summary\"]}')
 print(f'  issues:  {len(d[\"issues\"])}')

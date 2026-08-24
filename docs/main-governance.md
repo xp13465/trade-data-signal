@@ -170,8 +170,8 @@
 
 ---
 
-## 18.1 主控专属教训(27 条,2026-08-12 用户定 §18 按归属拆分;2026-08-24 补回填 E25/E26/E27/E29/E30 + L29指针/L30/L31/L32/L33/L35/L36)
-> 根 CLAUDE.md §18 索引表中**归属主控**的条目在此:过错 16 条(L29 为指针,全文在根 CLAUDE.md §0.1)+ 经验 11 条。每条一行(锚点|一句话防重犯|归档行号),防重犯原文(含根因+场景+防重犯全文)在 `docs/archive/CLAUDE-errors-2026-08.md` 反追(grep 锚点id)。**命中场景读本清单 → grep 锚点 → 归档原文**。零丢失校验:主控归属 = L01/L15/L17/L20/L21/L23/L24/L26/L28/L29/L30/L31/L32/L33/L35/L36(16)+ E05/E07/E15/E18/E19/E22/E25/E26/E27/E29/E30(11)= 27 条。
+## 18.1 主控专属教训(28 条,2026-08-12 用户定 §18 按归属拆分;2026-08-24 补回填 E25/E26/E27/E29/E30 + L29指针/L30/L31/L32/L33/L35/L36 + E31)
+> 根 CLAUDE.md §18 索引表中**归属主控**的条目在此:过错 16 条(L29 为指针,全文在根 CLAUDE.md §0.1)+ 经验 11 条 + E31(codex 回馈新增,非 archive 归档条目)。每条一行(锚点|一句话防重犯|归档行号),防重犯原文(含根因+场景+防重犯全文)在 `docs/archive/CLAUDE-errors-2026-08.md` 反追(grep 锚点id)。**命中场景读本清单 → grep 锚点 → 归档原文**。零丢失校验:主控归属 = L01/L15/L17/L20/L21/L23/L24/L26/L28/L29/L30/L31/L32/L33/L35/L36(16)+ E05/E07/E15/E18/E19/E22/E25/E26/E27/E29/E30(11)+ E31(非归档)= 28 条。
 > 设计意图(用户原话):"不同角色的经验对其他角色不通用",主控全栈需要全部教训,故主控归属条目最多。实施/调研/测试专属教训不进本文件,见对应角色 skill。
 
 ### 主控专属过错(16 条,含 1 条指针)
@@ -192,7 +192,7 @@
 - **L35 Explore agent v4-pro 计费泄漏**:派只读/搜索/定位任务一律派 researcher,不用内置 Explore subagent(claude-opus-5 不在代理白名单按 v4-pro 计费,曾 12 次~45万 tokens 泄漏);白名单外 model 一律兜底改写 flash 绝不透传 | archive:L105
 - **L36 汇报并行在跑 agent 数错误**:汇报"在跑N个"前逐 agent 核对是否已收完成通知;收到通知=已完成立即移出在跑(用户:"顺带提醒 并行在跑的可没4个") | archive:L106
 
-### 主控专属经验(11 条)
+### 主控专属经验(12 条,含 E31)
 - **E05 GitHub Actions deploy 约90s**:curl 验线上先 sleep 90 等部署完成 | archive:L62
 - **E07 reviewer FAIL 后§0验2点合规**:§0 允许 FAIL 时亲自确认(§0 不违规) | archive:L62
 - **E15 开源化两仓库分工**:数据主体放 staticdata 仓,代码/数据分仓库 | archive:L74
@@ -204,6 +204,7 @@
 - **E27 v1.1.0 版本发布机制**:动 AI 推荐/降亏过滤核心功能必须发中间版本(1.0.0→v1.1.0 先例,7键→9键全站对齐审计:后端判定/前端默认/lab/公示四处置0过时);现行版本升级原则全文见根 CLAUDE.md §5.4⑥ | archive:L110
 - **E29 token优化6条0成本行为层**:输出简洁指令/命令静默化/派单只回结论/@文件直引/小任务不 spawn/失败方向用 rewind;六条全文见根 CLAUDE.md §5.5(与 §5.2 模型参数层互补) | archive:L112
 - **E30 优化/修复落地后定期巡检机制**:每天 18:05 cron 巡检 6 项指标+判定标准,严重止损回滚、小问题迭代;机制细节见 memory optimization-followup-inspection | archive:L113
+- **E31 codex 跨 agent 消息通道防误读**:git blob ref 作跨 agent 消息通道(refs/codex/req/*)天生无时间戳无状态标记,配套报告文件 `/tmp/codex-reports/<id>.json` 有两个误读源——半成品(report.sh json.load 天然防御)+**同 id 重跑时旧完整报告残留**(完整可解析,真缺口) | How to apply:①request 必带 status 字段(pending|processing|completed,Codex 开工自行推进 processing)②发起侧先清场——写 ref 前 `rm -f` 旧报告(codex-review-request.sh 已内置,保证 ref 出现时绝无旧报告)③报告原子写(先 `<id>.json.tmp` 再 rename)④同 id 重跑必须换新 id 或确认旧报告已清,禁止依赖残留报告 | 来源:外部 reviewer codex 回馈 2026-08-24(docs/codex-collab-protocol.md「写入与清理规范」)
 
 ---
 
