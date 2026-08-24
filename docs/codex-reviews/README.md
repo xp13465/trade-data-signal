@@ -12,6 +12,7 @@ git ref 通道回传,原文 JSON 落本目录归档(§23.5 塞入即归类)。�
 |---|---|---|---|---|---|
 | 2026-08-24 | rev-20260824-001 | v1.1.4→aabafdcc4 深度交叉验证(第二轮):has_track 四源统一/键集机检/bj50 兜底关停影响面/QTH 防前视/数据完整性 | PASS | 4(P2×3+P3×1) | ①QTH 全史快照=已知设计取舍 → 本批 scripts/loss_rules.py QTH 定义处注释落档;②integrity a_fund_north_quarterly FAIL 归因「列名不匹配」被实证纠伪(全历史无 metric_name,base 同版逐字相同,本地实跑 ok)→ 本批 scripts/check_data_integrity.py 诊断信息补强(db 路径入 msg+锁竞争专项提示);③bj50 残留 1476 笔(trades 含 has_track/G 卡 41 笔)→ 已知技术债,下次重跑回测自然清除,待 TASKS 登记;④X1 扩围数字口径差异(8099→9962 vs 实际 1982)→ fix-plan 文档标注口径;⑤lab.js new15「作废待重算」标注 → 穷举重算后 follow-up 移除 |
 | 2026-08-24 | rev-20260824-002 | 增量审(v1.1.6 前最后合入三批纯文档/脚本):check_universe_alignment trades 路径根修/codex 协作协议四项/has_track P0 教训全链落档 | PASS | 1(P3) | tester skill 缺 §23.13 三源引用挂接 → 本批 .claude/skills/role-tester/SKILL.md L47 行尾已补「+ CLAUDE.md §23.13」,与 implementer/reviewer/researcher 拉齐 |
+| 2026-08-24 | audit-perf-and-alerts-20260824 | 全项目代码级漏洞/内存泄漏/重复调用/异常引用 + 交互性能优化 + 告警噪音分析(59条告警54条自愈=91.5%噪音率) | 报告(无verdict,发现待处置) | 8(P0×1+P1×4+P2×3)+告警降噪5条建议 | 待主控派单处置:①P0 lab.js 62MB trades全量加载(切片/超时) ②P1 addEventListener泄漏237:3/innerHTML+=循环重建/queries.py连接未finally关/9处裸except无日志 ③P2 scroll未节流5处/CSS top/left动画5处/boot.json 2.4MB拆分 ④告警阈值建议(intraday连续3次/push最终失败才报/ws_stale加ack/update_all阈值100→120min评估) |
 
 ## 备注
 
