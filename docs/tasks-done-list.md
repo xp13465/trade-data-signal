@@ -166,3 +166,20 @@
 
 - [x] **#88 订阅推送(整条关闭销号)** — 调研定性=「已完成未销号」:原始设想(存储/订阅过滤推送/前端 UI/邮件通道)已于 2026-07-24 由 A12 全量实施上线(commit c703a584f 前端 + 3d29c05c4 后端,NOTES L2290 标✅),8-20 补登记时按旧快照误判"未实施"。现状:链路每天在跑(check_signals 日志「2 个有效订阅」),零发出=订阅标的(sh/sz 指数类)7-21 后无新信号属数据事实;TG 通道代码在但 bot_token 从未配置。零代码增量选项留用户拍板:①订阅加自选高活跃标的②填 token 启用 TG。报告 docs/subscribe-push-gap-research-20260822.md(含宽基零信号定性附录:行情原因+卖点双过滤设计行为,非 bug)
 - [x] **#10 ETF 评分弹窗 30 天外长历史** — fa1ca6e3b 经 bc187f5ce merge 上线(a387):数据层 scripts/export_etf_hist.py(etf_daily 表→1532 只 per-ETF 全史前复权日K,87MB 走 R2 etf/ 前缀,4.2s 全量生成)+upload_r2 upload-etf-hist 分批 purge+update_all/deploy 定时链软挂载+check_etf_hist 挂 integrity 校验(C30);前端 openEtfScoreDetailModal period tab(默认 30 日零变化,点 3m~all 懒加载 r2/etf/{code}-all.json,内存缓存+竞态序号+缺数容错),SVG/echarts 双渲染路径兼容;Playwright 24 断言全过,R2 线上抽验 510300=3461 行逐位对 DB;reviewer 上报项 D(smoke-checklist 滞后)本批补 C30
+
+## 2026-08-24 会话收尾移入(12 条,工具台账 completed 清出)
+
+> 来源:has_track 口径事故闭环 + 全站判定窗改造 + 警示模块迭代等批次,版本串链 a409→a414 全部 §0 线上验证。§23.12 四态流转:完成→本文件。
+
+- [x] **#30 首页信号区三件套** — 「仅显示可用信号」开关+近15→近30扩容+枯竭引导空态(893e57a9d)+首渲时序竞态修复(28a9c2eca),feat/home-available-only-toggle 合入上线
+- [x] **#31 盘中日图颜色同步** — 单源色判定+盘中重染+收盘恢复,与实时分时红绿一致(8b12588c9)
+- [x] **#32 P0:lab凯利区NEW14首载卡「计算中」死host闭包** — feat/fix-kelly-stale-host 合入(b27001e15 bump 链)
+- [x] **#33 sim弹窗恢复「AI降亏过滤」独立总开关(否决off档)** — 下拉旁「过滤」checkbox=fadeOn 快速切换层(f601ac73e)
+- [x] **#34 NEW14+1·15键可选档(X1 整剔none象限)** — feat/new15-tier-none 合入(a410 下拉批,184698b9e);后续 X1 扩围随 #44 has_track 批再演进
+- [x] **#36 AI监控卡走势图渲染慢** — 根因调研+提速方案落地,feat/aimon-chart-speedup 合入(e58e37e9a)
+- [x] **#37 全站缓存/体积/拆分类病灶清单扫描** — researcher 报告落档 c26b983c2(docs/kelly/analysis 同目录 perf 扫描报告,6新病灶+4批次修复划分);后续修复=#39/#40 排队
+- [x] **#38 v1.1.5 基座对齐残留修复批(R1-R7+机检)** — feat/fade-keys-align-new14 合入(1eb88b5ad+e9c3f1b0b docs);配套 §22 补"代码内常量登记点也是一致性对象"(f4b123a7d)
+- [x] **#41 全站「AI降亏模式」下拉统一固定宽200px×5处** — d64c67537,feat/fade-dropdown-width 合入
+- [x] **#42 信号类型统计补卖/止损信号的数量对错正确率** — feat/warning-signal-stats 合入(a411,9a1f10d4a)
+- [x] **#45 警示模块调整:撤波段持有行+三类chip悬浮说明** — feat/warn-chip-tweak 合入(a412,2fa7d795e)
+- [x] **#44 has_track 归类修复+X1 扩围批** — 「有跟踪ETF」卡补装 null 档(卡 1,604→1,982 待盘后回测重跑生效)+X1 扩围剔 none+null(3387cfaad,a413 上线已验);特征快照数组化+R2 同步完成(generated_at 08-24 17:07,md5 双树一致,X1 spec=["none","null"]);数字口径勘误落档(0a85c3963);剩余尾巴(has_track 卡数据扩容)归 #47 盘后闭环
