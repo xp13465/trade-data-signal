@@ -36,6 +36,7 @@ refs/codex/resp/<request_id>   # 可选：Codex 报告的 SHA 指针（由 Claud
 {
   "request_id": "rev-20260824-001",
   "timestamp": "2026-08-24T20:00:00+08:00",
+  "status": "pending",
   "repo": "/Users/linhuichen/code/trade",
   "base": "main",
   "head": "worktree-agent-xxx",
@@ -48,7 +49,9 @@ refs/codex/resp/<request_id>   # 可选：Codex 报告的 SHA 指针（由 Claud
 }
 ```
 
-必填字段：`request_id`, `repo`, `base`, `head`, `task_type`, `requirement`。
+必填字段：`request_id`, `repo`, `base`, `head`, `task_type`, `requirement`, `status`。
+
+`status` 取值：`pending`（待处理）/ `processing`（Codex 已开工，可自行推进）/ `completed`（已出报告）。git ref 本身无时间戳无状态标记，靠此字段表达请求生命周期。
 
 ## Report JSON Schema
 
@@ -68,9 +71,19 @@ refs/codex/resp/<request_id>   # 可选：Codex 报告的 SHA 指针（由 Claud
 
 `verdict` 取值：`PASS` / `FAIL` / `BLOCKED`。
 
+## 写入与清理规范（2026-08-24 补，来源：外部 reviewer codex 回馈）
+
+> 背景：报告文件 `/tmp/codex-reports/<id>.json` 有两个误读源——①半成品（Codex 还在写，读方拿到截断 JSON；report.sh 的 json.load 已天然防御）②**同 id 重跑时旧完整报告残留**（ref 已立但报告是上一轮的旧结果，完整可解析，最危险）。
+
+- **① Codex 报告必须原子写**：先写 `<id>.json.tmp`，写完再 `mv <id>.json.tmp <id>.json` rename 过去；杜绝读方读到半成品。
+- **② Claude 发 request 前脚本自动清场**：`codex-review-request.sh` 在写 ref 之前先 `rm -f /tmp/codex-reports/<id>.json`——保证「ref 出现」时绝无旧报告残留。
+- **③ 可选闭环标记 consumed**：Claude 读到报告并采纳后，`git update-ref refs/codex/resp/<id> $(git hash-object -w --stdin < 报告内容)` 标记已消费，防同一轮被重复读取/重复采纳。
+- **④ 过期清理**：ref 与报告文件建议保留 7 天，由 Claude 主控负责清理（`git update-ref -d` + 删文件）。
+
 ## 约束
 
 - Codex 不写 `.git/`，不 commit，不 push。
 - Codex 报告写到 `/tmp/codex-reports/<request_id>.json`。
 - Claude 主控负责清理过期 ref 和报告文件（建议保留 7 天）。
 - P0 smoke fail = BLOCKED；P1 = FAIL（主控判断是否阻断）；P2/P3 = 记录不阻断。
+- 同 id 重跑必须换新 id，或确认旧报告已清（脚本②已自动清场）；禁止依赖残留报告当本次结果。
