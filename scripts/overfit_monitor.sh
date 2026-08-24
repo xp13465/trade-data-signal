@@ -35,5 +35,21 @@ echo "==== overfit_monitor 打点开始 $(date '+%F %T') ====" > "$LOG"
 # 打点(不打 --dry-run: 正常发送时若触发预警会真发, 但有 dedup 防轰炸)
 "$PY" scripts/overfit_monitor.py >> "$LOG" 2>&1
 RC=$?
+# 打点产物即时 parity 自检(2026-08-24 用户拍板, 与 deploy.sh 1.2.2 同闸门):
+# B件套拆分(commit 70163b663)误删主文件 filtered 挂载当时无任何自动链可拦, 病灶次日才暴露。
+# 结构模式校验主/ext 键齐(主文件必含 filtered)+generated_at 对齐+compact, FAIL 则 rc 非0,
+# 让 monitor_72h/schedule_monitor 监控层当天可见打点产物异常, 不等前端展示错人口。
+if [ "$RC" -eq 0 ]; then
+  "$PY" scripts/check_overfit_split_parity.py \
+    --main "$REPO/static-site/data/overfit_monitor.json" \
+    --ext "$REPO/static-site/data/overfit_monitor_ext.json" >> "$LOG" 2>&1
+  PARITY_RC=$?
+  if [ "$PARITY_RC" -ne 0 ]; then
+    echo "==== overfit_monitor 打点产物 parity 结构校验 FAIL rc=$PARITY_RC ====" >> "$LOG"
+    RC="$PARITY_RC"
+  else
+    echo "==== overfit_monitor 打点产物 parity 结构校验 PASS ====" >> "$LOG"
+  fi
+fi
 echo "==== overfit_monitor 结束 rc=$RC $(date '+%F %T') ====" >> "$LOG"
 exit $RC

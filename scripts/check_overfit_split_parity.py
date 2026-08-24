@@ -9,14 +9,20 @@
         filtered/recent/alerts(默认首屏渲染所需——filtered 是降亏开+无K档默认路径 bank,
         recent 是 new14 默认模式组集必需); ext 文件 = by_k/filtered_by_k(K档交互专用, 占原量 77%)。
 【断言】①六个数据块(accuracy/overfit/filtered/recent/by_k/filtered_by_k)canonical JSON 序列化
-          逐位相等(recent 缺失=老数据, 跳过并标注)
+          逐位相等(recent 缺失=老数据, 跳过并标注; 仅 --src 提供时跑——src 是拆分前一次性对照物,
+          数值随每日打点变化后逐位一致必然 FAIL, 故自动链不传 src)
         ②结构合规: 主文件含 accuracy/overfit/filtered/generated_at; ext 含 by_k/filtered_by_k
+          (filtered 键=2026-08-24 病灶常驻拦截点: B拆分 commit 70163b663 曾误删主文件 filtered
+          挂载致「降亏开+无K档」默认路径读全信号人口, 当时本脚本未挂自动链故未拦)
         ③compact 序列化: 两文件原始字节无 indent(不含 '\\n  "' 缩进模式, A件套验收点)
-        ④体积对比输出: src vs main vs ext(indent/compact 双口径)
-【输入】--src 拆分前全量 JSON(如 data/overfit_monitor.json 2026-08-21 版, 27.8MB indent 格式)
+        ④体积对比输出: src vs main vs ext(indent/compact 双口径; 仅 --src 提供时含对照列)
+【输入】--src 可选, 拆分前全量 JSON(如 data/overfit_monitor.json 2026-08-21 版, 27.8MB indent 格式;
+        缺省=结构模式只验②③+generated_at 对齐, 供自动链持续跑)
         --main/--ext 拆分后两文件(生产=overfit_monitor.py 产出; 测试=--make-fixtures 派生)
 【输出】stdout 校验报告; 全部 PASS 退出码 0, 任一 FAIL 退出码 1(可挂 deploy/check 链)
-【用法】# 校验生产拆分产物(launchd 打点后):
+【用法】# 自动链结构校验(deploy.sh 1.2.2 / overfit_monitor.sh 打点链, 无 src 持续跑):
+          python3 scripts/check_overfit_split_parity.py --main static-site/data/overfit_monitor.json --ext static-site/data/overfit_monitor_ext.json
+        # 一次性迁移对照(拆分前后逐位一致, 需拆分前全量文件):
           python3 scripts/check_overfit_split_parity.py --src old_full.json --main data/overfit_monitor.json --ext data/overfit_monitor_ext.json
         # 派生测试夹具(不动生产 data/):
           python3 scripts/check_overfit_split_parity.py --make-fixtures --src data/overfit_monitor.json --out-dir /tmp/aimon-fixture
@@ -66,10 +72,16 @@ def make_fixtures(src_path: str, out_dir: str) -> int:
     return 0
 
 
-def check(src_path: str, main_path: str, ext_path: str) -> int:
+def check(src_path: str | None, main_path: str, ext_path: str) -> int:
     fails = []
-    with open(src_path, encoding="utf-8") as f:
-        src = json.load(f)
+    # 结构模式(2026-08-24): --src 缺省时跳过①④的拆分前对照(--src 是拆分前一次性对照物,
+    # 数值随每日打点变化后逐位一致必然 FAIL, 不能进自动链), 只跑②③+generated_at 对齐
+    # (含 L101「主文件含 filtered」断言——filtered 缺失病灶的常驻拦截点)。挂 deploy.sh 1.2.2
+    # 与 overfit_monitor.sh 打点链均用此模式。
+    src = None
+    if src_path:
+        with open(src_path, encoding="utf-8") as f:
+            src = json.load(f)
     with open(main_path, encoding="utf-8") as f:
         raw_main = f.read()
     with open(ext_path, encoding="utf-8") as f:
@@ -79,7 +91,9 @@ def check(src_path: str, main_path: str, ext_path: str) -> int:
 
     # ① 六数据块逐位一致(canonical)
     print("== ① 数据块逐位一致性(canonical JSON) ==")
-    for key in DATA_KEYS:
+    if src is None:
+        print("  SKIP 全部: 无 --src 对照物(结构模式, 只验②③)")
+    for key in ([] if src is None else DATA_KEYS):
         if key not in src:
             print(f"  SKIP {key}: 拆分前源无此键(老数据)")
             continue
@@ -114,7 +128,7 @@ def check(src_path: str, main_path: str, ext_path: str) -> int:
         if not ok:
             fails.append("generated_at 不对齐")
     # 键集合守恒: src 数据键不得丢失(元数据 desc 类新增键允许)
-    for k in src:
+    for k in (src or {}):
         if k in DATA_KEYS or k in ("generated_at", "version", "config", "alerts"):
             if k == "alerts":
                 continue  # alerts 仅打点告警时有, fixture 按原样随 main; 生产回写段单独落
@@ -138,28 +152,37 @@ def check(src_path: str, main_path: str, ext_path: str) -> int:
     print("== ④ 体积对比(MB) ==")
     sz = lambda p: os.path.getsize(p) / 1048576
     total_after = sz(main_path) + sz(ext_path)
-    print(f"  拆分前全量: {sz(src_path):.2f}MB")
-    print(f"  拆分后合计: {total_after:.2f}MB (main {sz(main_path):.2f} + ext {sz(ext_path):.2f})")
-    print(f"  首屏只需主文件: {sz(src_path):.2f} -> {sz(main_path):.2f}MB "
-          f"(-{(1 - sz(main_path) / sz(src_path)) * 100:.0f}%)")
+    if src is not None:
+        print(f"  拆分前全量: {sz(src_path):.2f}MB")
+        print(f"  拆分后合计: {total_after:.2f}MB (main {sz(main_path):.2f} + ext {sz(ext_path):.2f})")
+        print(f"  首屏只需主文件: {sz(src_path):.2f} -> {sz(main_path):.2f}MB "
+              f"(-{(1 - sz(main_path) / sz(src_path)) * 100:.0f}%)")
+    else:
+        print(f"  (结构模式无对照物) main {sz(main_path):.2f}MB + ext {sz(ext_path):.2f}MB")
 
     print("== 结论 ==")
     if fails:
         print(f"❌ FAIL({len(fails)} 项): " + "; ".join(fails))
         return 1
-    print("✅ PASS: 拆分前后数值逐位一致, 结构合规, compact 生效")
+    if src is None:
+        print("✅ PASS(结构模式): 主/ext 结构合规(filtered/by_k 键齐), generated_at 对齐, compact 生效")
+    else:
+        print("✅ PASS: 拆分前后数值逐位一致, 结构合规, compact 生效")
     return 0
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="overfit_monitor 拆分 parity 校验/夹具派生")
-    ap.add_argument("--src", required=True, help="拆分前全量 JSON 路径")
+    ap.add_argument("--src", help="拆分前全量 JSON 路径(缺省=结构模式, 自动链用; 提供则加验①④逐位一致)")
     ap.add_argument("--main", help="拆分后主文件路径(校验模式)")
     ap.add_argument("--ext", help="拆分后 ext 文件路径(校验模式)")
     ap.add_argument("--make-fixtures", action="store_true", help="夹具派生模式")
     ap.add_argument("--out-dir", default="/tmp/aimon-fixture", help="夹具输出目录")
     a = ap.parse_args()
     if a.make_fixtures:
+        if not a.src:
+            print("--make-fixtures 需要 --src(夹具从拆分前全量派生)", file=sys.stderr)
+            return 2
         return make_fixtures(a.src, a.out_dir)
     if not (a.main and a.ext):
         print("校验模式需 --main 与 --ext(或用 --make-fixtures)", file=sys.stderr)

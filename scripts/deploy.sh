@@ -181,6 +181,23 @@ if [ "$FADE_RC" -ne 0 ]; then
 fi
 echo "✓ AI降亏默认档键集一致性机检通过" | tee -a "$LOG"
 
+# 1.2.2 AI监控卡拆分产物结构校验(scripts/check_overfit_split_parity.py 结构模式, 2026-08-24 用户拍板)
+# B件套拆分(commit 70163b663)曾误删主文件 filtered 挂载, 致「降亏开+无K档」默认路径(app.js _ovFade)
+# 读到全信号人口而非过滤人口; 当时 parity 脚本未挂任何自动链故未拦(病灶 2026-08-24 tester 批定位)。
+# 本步常驻拦截: 主文件必须含 accuracy/overfit/filtered/generated_at(filtered 键即本病灶断言),
+# ext 含 by_k/filtered_by_k, 两文件 generated_at 对齐且 compact 序列化。
+# 注意: 本地 static-site/data 两文件由 overfit_monitor.sh 打点产出(gitignore 不进 git),
+# 若打点侧还是老版本产物(主文件无 filtered)本步会拦下——merge 后先跑一次 bash scripts/overfit_monitor.sh force 再 deploy。
+# 任一 FAIL → 非0退出阻断上线。
+echo "-> 运行 check_overfit_split_parity.py AI监控卡拆分产物结构校验 ..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/check_overfit_split_parity.py" --main "$REPO/static-site/data/overfit_monitor.json" --ext "$REPO/static-site/data/overfit_monitor_ext.json" 2>&1 | tee -a "$LOG"
+OVP_RC=${PIPESTATUS[0]}
+if [ "$OVP_RC" -ne 0 ]; then
+  echo "✗ AI监控卡拆分产物结构校验失败(退出码 $OVP_RC)，终止部署(filtered/ext 键缺失或 compact 违规)" | tee -a "$LOG"
+  exit "$OVP_RC"
+fi
+echo "✓ AI监控卡拆分产物结构校验通过" | tee -a "$LOG"
+
 # 1.3 版本一致性校验(CLAUDE.md §24⑤, 2026-08-15 补; #48)
 # 适配 #46 日期+批次版本串机制: index引用版本串格式/与sw批次一致/资源存在/min比源新,
 # 任一 FAIL → 非0退出阻断上线(防孤儿快照再产生, 2026-08-14 全站白屏事故根因⑤)。

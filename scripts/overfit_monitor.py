@@ -1719,6 +1719,12 @@ def build_output(rebuild=False, dry_run=False):
     }
     out["accuracy"] = bank_raw["accuracy"]
     out["overfit"] = bank_raw["overfit"]
+    # 修复(2026-08-24, 用户拍板): B拆分 commit 70163b663 误删主文件 filtered 挂载——拆分前
+    # L1643 本为 out["filtered"] = bank_filt, 注释声明「filtered 留主文件」却无赋值, 致
+    # 「降亏开+无K档」默认路径(app.js _ovFade)读到全信号人口而非过滤人口(check_overfit_split_parity
+    # L101 断言 main 含 filtered 当时未挂自动链故未拦)。现恢复同构挂载(bank_filt 整体, 与拆分前一致),
+    # parity 校验同批挂 deploy.sh 1.2.2 + overfit_monitor.sh 打点链防再犯。
+    out["filtered"] = bank_filt
     # B拆分(2026-08-24): by_k/filtered_by_k 不再挂主文件, 单独落 OUT_EXT_JSON(K档交互专用,
     # 默认首屏零消费); filtered 留主文件——它是「降亏开+无K档」默认路径 bank(app.js _ovBank
     # L2204, 调研报告 §2.4 实测), 拆走会致老数据过渡期/组集回退场景首屏多一次拉取。
