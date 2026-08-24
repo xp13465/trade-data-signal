@@ -170,8 +170,8 @@
 
 ---
 
-## 18.1 主控专属教训(15 条,2026-08-12 用户定 §18 按归属拆分)
-> 根 CLAUDE.md §18 索引表中**归属主控**的条目(9 过错 + 6 经验)全文在此。每条一行(锚点|一句话防重犯|归档行号),防重犯原文(含根因+场景+防重犯全文)在 `docs/archive/CLAUDE-errors-2026-08.md` 反追(grep 锚点id)。**命中场景读本清单 → grep 锚点 → 归档原文**。零丢失校验:主控归属 = L01/L15/L17/L20/L21/L23/L24/L26/L28(9)+ E05/E07/E15/E18/E19/E22(6)= 15 条。
+## 18.1 主控专属教训(16 条,2026-08-12 用户定 §18 按归属拆分;E31 为 2026-08-24 新增)
+> 根 CLAUDE.md §18 索引表中**归属主控**的条目(9 过错 + 6 经验)全文在此。每条一行(锚点|一句话防重犯|归档行号),防重犯原文(含根因+场景+防重犯全文)在 `docs/archive/CLAUDE-errors-2026-08.md` 反追(grep 锚点id)。**命中场景读本清单 → grep 锚点 → 归档原文**。零丢失校验:主控归属 = L01/L15/L17/L20/L21/L23/L24/L26/L28(9)+ E05/E07/E15/E18/E19/E22(6)= 15 条;另 E31(2026-08-24 外部 reviewer codex 回馈新增,非 archive 归档条目)= 共 16 条。
 > 设计意图(用户原话):"不同角色的经验对其他角色不通用",主控全栈需要全部教训,故主控归属条目最多。实施/调研/测试专属教训不进本文件,见对应角色 skill。
 
 ### 主控专属过错(9 条)
@@ -185,13 +185,14 @@
 - **L26 hooks误报"还没生效"**:判断生效先查运行证据 | archive:L83
 - **L28 主控§0抢跑在reviewer前重复验代码**:派 reviewer 的改动 merge 前不 grep 代码(只验 hash),§0 只验上线点,下结论先查规范原文 | archive:L94
 
-### 主控专属经验(6 条)
+### 主控专属经验(7 条)
 - **E05 GitHub Actions deploy 约90s**:curl 验线上先 sleep 90 等部署完成 | archive:L62
 - **E07 reviewer FAIL 后§0验2点合规**:§0 允许 FAIL 时亲自确认(§0 不违规) | archive:L62
 - **E15 开源化两仓库分工**:数据主体放 staticdata 仓,代码/数据分仓库 | archive:L74
 - **E18 TaskCompleted hook 发现(2.1.224)**:通知架构演进方向(待验证) | archive:L88
 - **E19 通知架构方案A子agent中间层不可行**:子 agent 做中间层先算模型回合数 | archive:L89
 - **E22 并发实验结论已落 §16④;TASKS 归档校验已落 §7(bdef31aeb)**:仅记引用 | archive:L92
+- **E31 codex 跨 agent 消息通道防误读**:git blob ref 作跨 agent 消息通道(refs/codex/req/*)天生无时间戳无状态标记,配套报告文件 `/tmp/codex-reports/<id>.json` 有两个误读源——半成品(report.sh json.load 天然防御)+**同 id 重跑时旧完整报告残留**(完整可解析,真缺口) | How to apply:①request 必带 status 字段(pending|processing|completed,Codex 开工自行推进 processing)②发起侧先清场——写 ref 前 `rm -f` 旧报告(codex-review-request.sh 已内置,保证 ref 出现时绝无旧报告)③报告原子写(先 `<id>.json.tmp` 再 rename)④同 id 重跑必须换新 id 或确认旧报告已清,禁止依赖残留报告 | 来源:外部 reviewer codex 回馈 2026-08-24(docs/codex-collab-protocol.md「写入与清理规范」)
 
 ---
 
