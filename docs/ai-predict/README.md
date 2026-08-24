@@ -12,6 +12,7 @@
 | [ai-predict-offline-ab-frontvalidate-20260820.md](ai-predict-offline-ab-frontvalidate-20260820.md) | 「方向锚改造」离线回放 A/B 可行性调研(零侵入前验证) | 2026-08-20 |
 | [ai-predict-offtrack-rootcause-20260820.md](ai-predict-offtrack-rootcause-20260820.md) | 「越错越离谱」根因调研(AI 预测体系转折点证据) | 2026-08-20 |
 | [ai-predict-shadow-validate-20260820.md](ai-predict-shadow-validate-20260820.md) | 影子模式验证契约:方向锚/反思归因 7 天 A/B(用户拍板数据决定开/不开/改) | 2026-08-20 |
+| [ai-predict-shadow-vs-default-hitrate-audit-20260824.md](ai-predict-shadow-vs-default-hitrate-audit-20260824.md) | 影子 vs 默认命中率审计(影子0/3结构只出up/flat、默认方向40%严格三层0%、对账断档发现) | 2026-08-24 |
 | [ai-predict-reflection-factor-attribution-20260820.md](ai-predict-reflection-factor-attribution-20260820.md) | 「反思=因子归因回灌」实现说明(TA Reflector 内核) | 2026-08-20 |
 | [ai-predict-inject-research.md](ai-predict-inject-research.md) | 注入面调研:已有数据逐项实测 + 注入设计 | 2026-08-16 |
 | [ai-predict-news-macro-research-methodology.md](ai-predict-news-macro-research-methodology.md) | 新闻面/宏观事件日历/其他变量面全景调研方法论 | 2026-08 |
