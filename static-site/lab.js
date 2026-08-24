@@ -8074,6 +8074,14 @@ async function _kellyRunRecompute(host, loadingHtml, onResult, onDone) {
     onResult(stats);
   } while (_kellyRecomputePending);
   _kellyRecomputeBusy = false;
+  // 【P0 防御兜底 2026-08-24】await 让步期间(trades.json 慢载/桶间 setTimeout 让步)host 可能被其他路径
+  //   整区重建替换——闭包捕获的 host 脱离 DOM 成死节点, onResult/onDone 写死节点 = 页面在册新 host
+  //   永远停留「⏳ 计算中…」。收尾前检测 isConnected, 失联则重取当前在册 host 再收尾(onDone(h) 以实参
+  //   传入新 host, 各调用方 onDone 以参数优先/闭包值兜底), 救所有「onDone 时 host 已被换」场景。
+  if (!host.isConnected) {
+    var liveHost = document.querySelector(".lab-sigkelly-host");
+    if (liveHost) host = liveHost;
+  }
   host.classList.remove("lab-custom-host--loading");
   onDone(host);
 }
@@ -8431,9 +8439,12 @@ async function _kellyOnFeeChange(presetKey) {
         state.labSigKellyFeeStats = null;
       }
     },
-    function () {
-      _renderSigKellyBar(bar, state.labSigKellyData, state.labSigKellyPeriod);
-      _updateSigKellyQuadrantsInPlace(host, state.labSigKellyData, state.labSigKellyPeriod);
+    function (h) {
+      // 【P0 防御兜底】h=_kellyRunRecompute 收尾重取的在册 host(失联换新时非闭包值); bar 实时重查防写死节点
+      var hb = h || host;
+      var bb = document.querySelector(".lab-sigkelly-bar") || bar;
+      _renderSigKellyBar(bb, state.labSigKellyData, state.labSigKellyPeriod);
+      _updateSigKellyQuadrantsInPlace(hb, state.labSigKellyData, state.labSigKellyPeriod);
     }
   );
 }
@@ -8459,7 +8470,7 @@ async function _kellyOnFormChange() {
         state.labSigKellyFeeStats = null;
       }
     },
-    function () { _updateSigKellyQuadrantsInPlace(host, state.labSigKellyData, state.labSigKellyPeriod); }
+    function (h) { _updateSigKellyQuadrantsInPlace(h || host, state.labSigKellyData, state.labSigKellyPeriod); } // h=收尾兜底重取的在册host
   );
 }
 
@@ -8496,10 +8507,13 @@ async function _kellyOnFilterChange() {
         state.labSigKellyFeeStats = null;
       }
     },
-    function () {
+    function (h) {
       // #54 2026-08-13: toggle 变更后重渲染 bar → K 档评级 hoverpop/positionCap label 读共享动态源刷新(与费率切换路径一致; _kellyRunRecompute 内已重算写 _AI_POSCAP_RATING_DYNAMIC)
-      if (bar) _renderSigKellyBar(bar, state.labSigKellyData, state.labSigKellyPeriod);
-      _updateSigKellyQuadrantsInPlace(host, state.labSigKellyData, state.labSigKellyPeriod);
+      // 【P0 防御兜底】h=_kellyRunRecompute 收尾重取的在册 host(优先), 闭包 host 兜底; bar 实时重查防写死节点
+      var hb = h || host;
+      var bb = document.querySelector(".lab-sigkelly-bar") || bar;
+      if (bb) _renderSigKellyBar(bb, state.labSigKellyData, state.labSigKellyPeriod);
+      _updateSigKellyQuadrantsInPlace(hb, state.labSigKellyData, state.labSigKellyPeriod);
     }
   );
   // 2026-08-13 降亏状态持久化: 所有 filter toggle 改动都经此函数, 统一写 tds_kelly_filters(AI宏 7成员+组合, 供首页 AI 开关联动; 幂等小JSON)
@@ -8681,12 +8695,20 @@ async function renderSigKellyLab() {
   //   (就绪后调用零挂载, 环消失) ②就绪跃迁补渲至多一次(state.kellyLossFeatReadyApplied 单向阀)双保险。
   if (state.kellyLossFeatData === undefined) {
     // undefined=尚未完成(进行中/未开始); null=已失败(容忍不补, 降级语义不变); 对象=已就绪
+    // 【P0 卡死根修 2026-08-24】补渲动作改调 _kellyOnFilterChange(), 禁止 renderSigKellyLab() 整区重建。
+    //   根因链: 首渲(host_A)挂本 then → L8770 _kellyOnFeeChange 启动初始重算(busy=true, await trades.json 慢)
+    //   → 特征 JSON 先到触发本回调 → 若整区重建会新建 host_B 替换 host_A; 而 busy/pending 合批只认首次绑定
+    //   的 host/onDone(_kellyRunRecompute busy 中再进只置 pending), 初始重算收尾把结果写回闭包捕获的 host_A
+    //   (已被替换出 DOM 的死节点) → 页面在册的 host_B 永远停留「⏳ 计算中…」(v1.1.5 NEW14 默认必现)。
+    //   _kellyOnFilterChange() 入口实时查当前在册 host + busy 中自动 pending 合批 + 不重建 DOM,
+    //   特征就绪后经 _kellyApplyFeeRecompute 最新 filters 快照重算(新键谓词即时生效)→ onDone 就地刷新表格,
+    //   与整区重建最终渲染一致但无死节点/无重建开销(features 极快时旧实现阀白烧+补渲丢失问题一并消除)。
     _kellyEnsureLossFeatData().then((d) => {
       if (!d) return;
       if (state.kellyLossFeatReadyApplied) return; // 单向阀: 就绪跃迁补渲至多一次
       state.kellyLossFeatReadyApplied = true;
       if (state.labSigKellyFilters && _KELLY_LOSS_NEW_KEYS.some((p) => state.labSigKellyFilters[p[0]])) {
-        renderSigKellyLab();
+        _kellyOnFilterChange();
       }
     });
   }
@@ -9987,8 +10009,11 @@ function _renderSigKellyBar(bar, data, period) {
         function (stats) {
           if (stats) {
             state.labSigKellyFeeStats = stats;
-            _renderSigKellyBar(bar, state.labSigKellyData, state.labSigKellyPeriod);
-            _updateSigKellyQuadrantsInPlace(hostEl, state.labSigKellyData, state.labSigKellyPeriod);
+            // 【P0 防御兜底】bar/host 实时重查在册节点, 防 await 让步期间整区重建后写死节点
+            var bb2 = document.querySelector(".lab-sigkelly-bar") || bar;
+            var hb2 = document.querySelector(".lab-sigkelly-host") || hostEl;
+            _renderSigKellyBar(bb2, state.labSigKellyData, state.labSigKellyPeriod);
+            _updateSigKellyQuadrantsInPlace(hb2, state.labSigKellyData, state.labSigKellyPeriod);
           }
         },
         function () {}
@@ -10008,8 +10033,11 @@ function _renderSigKellyBar(bar, data, period) {
           function (stats) {
             if (stats) {
               state.labSigKellyFeeStats = stats;
-              _renderSigKellyBar(bar, state.labSigKellyData, state.labSigKellyPeriod);
-              _updateSigKellyQuadrantsInPlace(hostEl, state.labSigKellyData, state.labSigKellyPeriod);
+              // 【P0 防御兜底】bar/host 实时重查在册节点, 防 await 让步期间整区重建后写死节点
+              var bb3 = document.querySelector(".lab-sigkelly-bar") || bar;
+              var hb3 = document.querySelector(".lab-sigkelly-host") || hostEl;
+              _renderSigKellyBar(bb3, state.labSigKellyData, state.labSigKellyPeriod);
+              _updateSigKellyQuadrantsInPlace(hb3, state.labSigKellyData, state.labSigKellyPeriod);
             }
           },
           function () {}
@@ -10074,9 +10102,12 @@ function _renderSigKellyBar(bar, data, period) {
       _kellyRunRecompute(host,
         '<div class="lab-custom-loading">⏳ 重置为AI默认推荐,重算统计…</div>',
         function (stats) { if (stats) state.labSigKellyFeeStats = stats; else state.labSigKellyFeeStats = null; },
-        function () {
-          _renderSigKellyBar(bar, state.labSigKellyData, state.labSigKellyPeriod);
-          _updateSigKellyQuadrantsInPlace(host, state.labSigKellyData, state.labSigKellyPeriod);
+        function (h) {
+          // 【P0 防御兜底】h=收尾重取的在册 host(优先), 闭包 host 兜底; bar 实时重查防写死节点
+          var hb4 = h || host;
+          var bb4 = document.querySelector(".lab-sigkelly-bar") || bar;
+          _renderSigKellyBar(bb4, state.labSigKellyData, state.labSigKellyPeriod);
+          _updateSigKellyQuadrantsInPlace(hb4, state.labSigKellyData, state.labSigKellyPeriod);
         }
       );
       _kellyToast("已重置为AI默认推荐(v1.1.5: NEW14 十四键 + 1类回测剔除 + AI仓位建议 K=1主推)");
