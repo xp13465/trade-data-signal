@@ -965,10 +965,32 @@ def check_track_score_overview_vs_map(data_dir: Path, repo_data_dir: Path) -> Ch
 
 
 # T1 AI降亏特征通道（2026-08-23）：kelly_loss_features.json 存在且规格完整（E16 防静默缺失）。
-# 该文件是前端 21 条 AI 降亏新键 spec-driven 谓词的唯一规格源（meta.rules），
+# 该文件是前端 AI 降亏新键 spec-driven 谓词的唯一规格源（meta.rules，键集=loss_rules.NEW_KEYS_PROD），
 # 缺失/空 rules 时前端整体不拦（诚实降级）= 过滤静默失效，故 FAIL 阻断上线。
+def _load_loss_rules():
+    """从 scripts/loss_rules.py 动态加载规则单一事实源（断言动态化，#43）。
+
+    键数断言不再写死数字（d0bd31856 曾因 X1/excludeTierNone 入规格手改 20→21 即病灶：
+    每次动规则要人肉改断言），改从 loss_rules.NEW_KEYS_PROD 动态推导。Path.resolve()
+    解析 symlink：本脚本从 trade 直跑或经 trade-data/scripts symlink 跑都落到同一真实
+    scripts/ 目录，两树同源可跑。返回 (new_keys_prod, err)；加载失败返回 err，由上层
+    FAIL 显性暴露（校验器自身不可用时绝不静默跳过，§23.11 精神）。
+    """
+    import importlib.util
+    rules_py = Path(__file__).resolve().parent / "loss_rules.py"
+    if not rules_py.exists():
+        return None, f"未找到 loss_rules.py(单一事实源不可用): {rules_py}"
+    try:
+        spec = importlib.util.spec_from_file_location("_trade_loss_rules", rules_py)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception as e:  # noqa: BLE001
+        return None, f"加载 loss_rules.py 失败: {type(e).__name__}: {e}"
+    return list(mod.NEW_KEYS_PROD), None
+
+
 def check_kelly_loss_features(data_dir: Path) -> CheckResult:
-    """校验 kelly_loss_features.json：存在 + meta.rules 含 21 键 + meta.thresholds 有值。"""
+    """校验 kelly_loss_features.json：存在 + meta.rules 键集 ≡ loss_rules.NEW_KEYS_PROD + meta.thresholds 有值。"""
     name = "kelly_loss_features"
     path = data_dir / "kelly_loss_features.json"
     data, err = _load_json(path)
@@ -981,11 +1003,22 @@ def check_kelly_loss_features(data_dir: Path) -> CheckResult:
     if not isinstance(meta, dict):
         return _fail(name, "meta 缺失或非 dict")
 
-    # 键数 21 = T1 全量新键单源数（scripts/loss_rules.py RULE_SPECS，含 X1；lab.js _KELLY_LOSS_NEW_KEYS 同源）
+    # 键集动态推导自 scripts/loss_rules.py NEW_KEYS_PROD（=RULE_SPECS 经 MINING_TO_PROD_KEY
+    # 映射的全量生产键，含 excludeTierNone/X1；gen_kelly_loss_features.py 同源写出、lab.js
+    # _KELLY_LOSS_NEW_KEYS 同源）。键集全等比只比长度更强：换键不改数也能抓；增删规则只改
+    # loss_rules.py 一处，此处自动跟随，根治「动规则必人肉改断言」（d0bd31856 病灶）
+    new_keys, err = _load_loss_rules()
+    if err:
+        return _fail(name, err)
     rules = meta.get("rules")
     keys = {r.get("key") for r in rules} if isinstance(rules, list) else set()
-    if len(keys) != 21:
-        return _fail(name, f"meta.rules 含 {len(keys)} 键 != 21（T1 全量新键，前端过滤将静默失效）")
+    missing = sorted(set(new_keys) - keys)
+    extra = sorted(keys - set(new_keys))
+    if missing or extra:
+        _m = f"{missing[:4]}{'...' if len(missing) > 4 else ''}" if missing else "无"
+        _x = f"{extra[:4]}{'...' if len(extra) > 4 else ''}" if extra else "无"
+        return _fail(name, f"meta.rules 键集与 loss_rules.NEW_KEYS_PROD({len(new_keys)}键)不一致"
+                     f"(缺{len(missing)}: {_m}; 多{len(extra)}: {_x}；前端过滤将静默失效)")
 
     thresholds = meta.get("thresholds")
     if not isinstance(thresholds, dict) or not thresholds:
