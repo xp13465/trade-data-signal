@@ -7002,6 +7002,10 @@ main { padding: 16px 24px; }
 .sim-ctrl-row .sim-mode-sel { max-width: 170px; }
 .sim-ctrl-block { display: flex; flex-direction: column; gap: 4px; }
 .sim-ctrl-block > label { font-size: 11px; color: var(--text-dim, #9aa); }
+/* AI降亏过滤总开关(2026-08-24 恢复): 开关+模式下拉横排一行(.sim-fade-ctl 只在本弹窗, 不波及其他消费点);
+   label 范式对齐首页 sig-switch-lab(checkbox+短文字), 高度与下拉一致不撑行 */
+.sim-fade-ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sim-fade-on-lab { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; font-size: 12px; color: var(--text-1); user-select: none; }
 .sim-ctrl-block input[type="date"], .sim-ctrl-block input[type="number"], .sim-mode-sel,
 .ov-mode-sel, .home-mode-sel { padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-card); color: var(--text-1); font-size: 12px; }
 /* (2026-08-23 UI批) .sim-fade-mode-sel 移出上组: 模式下拉样式统一走 .tds-fade-mode-sel 公共段(文件尾), 不再双份 */

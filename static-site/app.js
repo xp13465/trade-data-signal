@@ -3300,14 +3300,20 @@ function _openSimBacktestModal() {
         '<div class="sim-ctrl-block"><label>时间范围(起)</label><input type="date" class="sim-date-start" value="' + _defStart + '"></div>' +
         '<div class="sim-ctrl-block"><label>时间范围(止)· 最长500天</label><input type="date" class="sim-date-end" value="' + _defEnd + '"></div>' +
         '<div class="sim-ctrl-block"><label>交易模式</label><select class="sim-mode-sel">' + (_modeOpts || '<option value="A">A · 固定10天</option>') + '</select></div>' +
-        // (2026-08-23 用户拍板) 旧「开启(当时默认8键)」+「牛市×辅备买全停」两 checkbox 删除, 模式下拉=本弹窗降亏唯一入口:
-        // v1.1.5: 默认=new14·NEW14 十四键; p8=8键旧默认对照档; 要候选1(bullAuxBackupStop)选 p9——语义映射无损(§23.7 已确认记录)。
-        // sim-fade-cb/sim-bullstop-cb 无持久化字段(仅费率落盘), 无迁移残留。
+        // (2026-08-23 用户拍板) 旧「开启(当时默认8键)」+「牛市×辅备买全停」两 checkbox 删除, 模式下拉=键组合唯一入口;
+        // (2026-08-24 用户拍板) 总开关恢复(仅恢复 fadeOn 快速切换这一层, 牛市全停不回来): 下拉旁独立 checkbox,
+        // 开=按当前所选模式过滤 / 关=不过滤走 raw bank(全信号人口); 切开关绝不写 tds_sim_fade_mode(用户核心诉求=
+        // 「开关是为了不改变下拉结果快速操作」); 持久化=裸键 tds_sim_fade("0"=关/其余=开, 默认开, 对齐首页
+        // tds_home_fade 与监控卡 tds_overfit_fade 裸键范式); 视觉对齐首页 sig-switch 范式(label 包 checkbox+短文字)。
+        // 旧 sim-fade-cb 无持久化字段的欠账此次一并补齐; 「牛市×辅备买全停」仍无恢复计划。
         '<div class="sim-ctrl-block"><label>AI降亏过滤</label>' +
-          // 下拉由 _bindSimBacktestControls 里 _tdsFadeModeSelectMount 挂载(四消费点统一组件挂载层);
-          // onchange 走既有 .sim-fade-mode-sel 选择器循环绑定, mount 不再绑避免双触发
-          '<div class="tds-fade-mode-wrap sim-fade-mode-wrap">' +
-          '<span class="sim-feat-note" style="display:none">⏳ 新键特征加载中, 就绪前新键暂不拦截…</span>' +
+          '<div class="sim-fade-ctl">' +
+            '<label class="sim-fade-on-lab" title="AI降亏过滤总开关: 开=按旁侧当前所选模式过滤(与凯利页同源口径); 关=不过滤, 看全部信号(raw 口径, 汇总区显示「降亏关」)。只切这层过滤, 绝不改动模式下拉的选中值与其记忆(tds_sim_fade_mode)。开关状态独立记忆于 tds_sim_fade, 默认开"> <input type="checkbox" class="sim-fade-on-cb"> 过滤</label>' +
+            // 下拉由 _bindSimBacktestControls 里 _tdsFadeModeSelectMount 挂载(四消费点统一组件挂载层);
+            // onchange 走既有 .sim-fade-mode-sel 选择器循环绑定, mount 不再绑避免双触发
+            '<div class="tds-fade-mode-wrap sim-fade-mode-wrap">' +
+            '<span class="sim-feat-note" style="display:none">⏳ 新键特征加载中, 就绪前新键暂不拦截…</span>' +
+            '</div>' +
           '</div>' +
         '</div>' +
         '<div class="sim-ctrl-block"><label>AI仓位建议 K</label><div class="sim-kbtns">' +
@@ -3355,7 +3361,18 @@ function _bindSimBacktestControls(modal, _close) {
       value: _savedMid,      // 上次所选(TTL 内); 无记忆=v1.1.5 默认 new14
       withCustom: false,     // 弹窗无标签区, 无自定义态
       cls: "sim-fade-mode-sel",
-      title: "AI降亏过滤模式: 一键套用整套键组合(与凯利页/「AI 降亏组成对比」卡同源口径; v1.1.5 起默认=new14·NEW 14键防守王, p8=旧 8键对照档)。记住上次选择 18 小时(独立于凯利页记忆, 超时自动回默认 new14)。四消费点统一下拉组件(lab 凯利区/本弹窗/首页/监控卡)",
+      title: "AI降亏过滤模式: 一键套用整套键组合(与凯利页/「AI 降亏组成对比」卡同源口径; v1.1.5 起默认=new14·NEW 14键防守王, p8=旧 8键对照档)。记住上次选择 18 小时(独立于凯利页记忆, 超时自动回默认 new14)。四消费点统一下拉组件(lab 凯利区/本弹窗/首页/监控卡); 旁侧「过滤」checkbox=总开关快速切换层, 切它不动这里的选中值",
+    });
+  }
+  // 总开关恢复(2026-08-24 用户拍板): fadeOn 快速切换层, 与模式下拉正交——
+  // 只写 tds_sim_fade 裸键("0"=关/"1"=开, 默认开), 绝不碰 tds_sim_fade_mode(下拉记忆)。
+  // 持久化范式对齐监控卡([data-overfit-fade] change→重绘)/首页(_readHomeFadeFlag 读 tds_home_fade)。
+  const _simFadeCb = modal.querySelector(".sim-fade-on-cb");
+  if (_simFadeCb) {
+    try { _simFadeCb.checked = localStorage.getItem("tds_sim_fade") !== "0"; } catch (e) {}
+    _simFadeCb.addEventListener("change", () => {
+      try { localStorage.setItem("tds_sim_fade", _simFadeCb.checked ? "1" : "0"); } catch (e) {}
+      _simRender(modal); // 仅重渲染过滤层; 模式记忆/下拉选中值全程不变
     });
   }
   const kbtns = modal.querySelectorAll(".sim-kbtn");
@@ -3481,9 +3498,13 @@ async function _simRenderOnce(modal) {
   // date input 值为 YYYY-MM-DD, signal_date 为 YYYYMMDD: 归一化去掉连字符再比(P0-2 修复)
   const startD = (modal.querySelector(".sim-date-start").value || "").replaceAll("-", "");
   const endD = (modal.querySelector(".sim-date-end").value || "").replaceAll("-", "");
-  // 旧「开启(当时默认8键)」总开关删除(2026-08-23 用户拍板, §23.7 记录在案): 模式下拉=本弹窗降亏唯一入口,
-  // 过滤恒生效; v1.1.5 起默认=new14·NEW14 十四键(p8=旧八键对照档可手选)。
-  const fadeOn = true;
+  // 总开关(2026-08-24 用户拍板恢复): 「过滤」checkbox=fadeOn 快速切换层——
+  // 开=按当前所选模式过滤; 关=不过滤=全信号人口(raw bank, 引擎既有语义, summary 显示「降亏关」)。
+  // 缺省(元素缺失/读存储失败)=开, 与 a402 现版行为逐位一致(§23.7); 模式下拉仍=键组合唯一入口,
+  // v1.1.5 起默认=new14·NEW14 十四键(p8=旧八键对照档可手选)。开关持久化=tds_sim_fade 裸键(bind 层读写),
+  // 与 tds_sim_fade_mode(模式记忆)完全正交。
+  const _simFadeCb0 = modal.querySelector(".sim-fade-on-cb");
+  const fadeOn = !(_simFadeCb0 && !_simFadeCb0.checked);
   const kRaw = (modal.querySelector(".sim-kbtn.active") || {}).dataset ? (modal.querySelector(".sim-kbtn.active")).dataset.k : "1";
   const K = parseInt(kRaw, 10) || 0;  // 0 = 关(不过滤)
   const mode = modal.querySelector(".sim-mode-sel").value || "A";
@@ -3530,10 +3551,12 @@ async function _simRenderOnce(modal) {
 
   // ② 降亏过滤
   const filters = _simDefaultFadeFilters();
-  // T3-1(2026-08-23): 模式下拉(7预设一键套用) —— fadeOn=true 时套用所选模式的完整键组合覆盖默认基座(v1.1.5 起=new14);
-  // 默认值 p8=8键 与原默认逐位一致(不开总开关/不切模式=一切如旧 §23.7); 弹窗无标签区无自定义态(withCustom=false);
-  // (2026-08-23 用户拍板二次变更) 弹窗态记忆=tds_sim_fade_mode 独立键(TTL 1h 滑动过期, mount 时读),
-  // 过期/无值回 p8; 与 lab/首页/监控卡记忆互不读写(4 区域=4 记忆体)
+  // T3-1(2026-08-23): 模式下拉(7预设一键套用) —— fadeOn=true 时套用所选模式的完整键组合覆盖默认基座
+  // (v1.1.5 起=new14); fadeOn=false(总开关关, 2026-08-24 恢复)时不过滤, 此处照常套键但引擎不消费
+  // (键集保持与下拉选中一致 → 重开开关即恢复当前模式口径, 无需回读记忆);
+  // 弹窗无标签区无自定义态(withCustom=false);
+  // (2026-08-23 用户拍板二次变更) 弹窗态记忆=tds_sim_fade_mode 独立键(TTL 滑动过期, mount 时读),
+  // 过期/无值回 new14; 与 lab/首页/监控卡记忆互不读写(4 区域=4 记忆体)
   const _fmSelEl = modal.querySelector(".sim-fade-mode-sel");
   if (_fmSelEl && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(_fmSelEl.value)) {
     _tdsFadeModeApply(_fmSelEl.value, filters);
