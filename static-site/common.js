@@ -755,9 +755,11 @@ var _KELLY_FADE_MODE_PRESETS = [
     keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "declinePhaseSpecial", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] },
   { id: "new18", name: "NEW2 18键", tagline: "NEW 影子·入选差31笔次优对照", caliber: "⚠ 重构换基座(NEW 族次优解)", calWarn: true,
     keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "excludeSpecialBear", "n2NovSpecialIndustry", "greedy7", "v4f", "n2NorthOutConcept", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] },
-  { id: "new15", name: "NEW14+1 · 15键", tagline: "NEW14+整剔无跟踪ETF象限·回撤再浅一截(mdd -4,178→-3,550)", caliber: "⚠ 重构换基座(NEW 族扩展·可选档非默认)", calWarn: true,
-    // X1=整剔 track_tier=none 象限(mine29c 2026-08-24 用户拍板): 全史仅剔 17 笔毛 +584.62(费 359.07 净 +225.56),
-    // 近 5 年 12 笔净 -1,450.66 但补位回收 +1,253.96(页面口径) → 主收益是回撤改善非增益。默认仍=new14(§23.7)。
+  { id: "new15", name: "NEW14+1 · 15键", tagline: "NEW14+整剔有跟踪ETF象限(none/null)·回撤改善档", caliber: "⚠ 重构换基座(NEW 族扩展·可选档非默认)", calWarn: true,
+    // X1=整剔 track_tier=none/null 象限(mine29c 2026-08-24 用户拍板保留为可选档; 同日用户拍板 X1 扩围
+    // 「一起扩」剔 null, 与回测 etf_has_track 卡/首页筛选档4口径完全统一)。⚠诚实标注: 下述数字均为扩围前
+    // 仅剔 none 口径(mine29c), 扩围后作废待正式穷举回测重算: 全史仅剔 17 笔毛 +584.62(费 359.07 净 +225.56),
+    // 近 5 年 12 笔净 -1,450.66 但补位回收 +1,253.96(页面口径); mdd -4,178→-3,550。默认仍=new14(§23.7)。
     keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "declinePhaseSpecial", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal", "excludeTierNone"] }
 ];
 var _KELLY_FADE_DEFAULT_MODE = "new14"; // v1.1.5 起默认=NEW 14键(v1.1.2 及以前=p8/8键; 单源, 各消费点回退统一引用本常量)

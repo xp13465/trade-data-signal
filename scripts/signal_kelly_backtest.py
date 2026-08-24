@@ -14,8 +14,10 @@ G/H/I 为信号驱动卖出(移植 simulate_trade.py sell_types 机制到每笔�
 16 并列象限(非交叉,同一信号可同时归多组):
   - 评级 3 象限: rating_high/mid/low (按 signal_stats 10d score ≥0.75/≥0.55/<0.55)
   - ETF 归类 4 象限: etf_strong/related/approx/has_track (按第一名 ETF track_tier;
-    track_tier=none 即 track_score<50 但有跟踪 ETF 的信号归 etf_has_track)
-  - track_score=None(数据不足 n<30)的信号不纳入 ETF 归类,但纳入评级(若有 score)
+    has_track=none/null 两档: none 即 track_score 30-49 弱跟踪、null 即 track_score<30 或
+    数据不足(N<30 无分), 与首页筛选档4口径「track_tier=none/null(跟踪分<50或数据不足)」统一,
+    2026-08-24 用户拍板修复——初版实现只装 none 漏装 null 属实现 bug, 见
+    docs/kelly/analysis/has-track-caliber-fix-plan-20260824.md)
   - 信号类型 4 象限: sig_main/buy, sig_aux/buy_aux, sig_special/buy_special, sig_backup/buy_backup
   - 指数大类 5 象限: mkt_a(A股宽基) / mkt_hk(港股) / mkt_global(全球) / mkt_industry(申万行业) / mkt_concept(概念)
 
@@ -120,11 +122,11 @@ QUADRANT_META = {
     "rating_high":   {"label": "高评级信号", "desc": "技术参考点综合把握度 score≥0.75"},
     "rating_mid":    {"label": "中评级信号", "desc": "0.55≤score<0.75"},
     "rating_low":    {"label": "低评级信号", "desc": "score<0.55"},
-    # ETF 归类 4 象限(评级的子集, track_score=None 不入)
+    # ETF 归类 4 象限(评级的子集; 2026-08-24 起 none+null 同归 has_track, 与首页筛选档4口径统一)
     "etf_strong":    {"label": "强关联ETF",  "desc": "track_tier=strong (track_score≥75)"},
     "etf_related":   {"label": "相关ETF",    "desc": "track_tier=related (60-74)"},
     "etf_approx":    {"label": "近似ETF",    "desc": "track_tier=approx (50-59)"},
-    "etf_has_track": {"label": "有跟踪ETF",  "desc": "track_tier=none (track_score<50,有ETF但跟踪较弱)"},
+    "etf_has_track": {"label": "有跟踪ETF",  "desc": "track_tier=none/null (track_score<50 或数据不足: none=30-49弱跟踪, null=<30极弱或N<30无分)"},
     # 信号类型 4 象限(按 signal 字段, 互斥覆盖全体买信号)
     "sig_main":      {"label": "主关注",     "desc": "buy 主关注核心买入信号"},
     "sig_aux":       {"label": "辅关注",     "desc": "buy_aux 辅助买入信号"},
@@ -1075,8 +1077,10 @@ def compute():
     classified = 0
     frozen_used = 0  # 使用已固化 ETF 的信号事件数(历史成交固化, 不随当前 best 变更)
 
-    # ETF track_tier -> 象限后缀映射(none -> has_track, 有ETF但跟踪较弱也纳入)
-    etf_quad_map = {"strong": "strong", "related": "related", "approx": "approx", "none": "has_track"}
+    # ETF track_tier -> 象限后缀映射(none+null -> has_track, 2026-08-24 与首页筛选档4口径统一;
+    # tier 仅五态(strong/related/approx/none/None)无脏值, None 键=track_score<30 或 N<30 无分)
+    etf_quad_map = {"strong": "strong", "related": "related", "approx": "approx", "none": "has_track",
+                    None: "has_track"}
 
     for date, iid, sig in buy_rows:
         if KELLY_ASOF and date > KELLY_ASOF:
@@ -1105,7 +1109,7 @@ def compute():
         else:
             rating = "low"
 
-        # ETF 归类(strong/related/approx/has_track; track_score=None 的 tier 不映射)
+        # ETF 归类(strong/related/approx/has_track; none+null 同归 has_track, 2026-08-24 口径统一)
         etf_quad = etf_quad_map.get(tier)
 
         # 大盘择时 market_state: A股类(a/concept/industry)按hs300 MA60实际状态, 非A股类标True不过滤

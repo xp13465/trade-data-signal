@@ -3128,7 +3128,7 @@ const _SIM_LOSS_NEW_KEYS = [
   ["n2NorthOutConcept", "n2nout"], ["v2Vol20Gt25", "v2vol25"], ["s2SentHs300Low", "s2sent300"],
   ["w1BackupDecline", "w1backup"], ["a1BullAllStop", "a1bull"], ["v3Vol20LowPct", "v3vollow"],
   ["ad1AdlineHot", "ad1hot"],
-  // X1(2026-08-24 mine29c, NEW14+1·15键可选档): 整剔 track_tier=none 象限
+  // X1(2026-08-24 mine29c, NEW14+1·15键可选档; 同日扩围剔 none+null): 整剔有跟踪ETF象限
   ["excludeTierNone", "xtnone"]
 ];
 let _simLossFeatData = null;
@@ -3159,7 +3159,10 @@ function _simLossRuleHit(key, ctx) {
   if (spec.sig != null && String(ctx.sig || "") !== spec.sig) return false;
   if (spec.tier != null && String(ctx.tier || "") !== spec.tier) return false;
   if (spec.mkt != null && String(ctx.mkt || "") !== spec.mkt) return false;
-  if (spec.track_tier != null && String(ctx.track_tier || "") !== spec.track_tier) return false;  // X1: 缺失/"" → 不命中
+  if (spec.track_tier != null) {  // X1(2026-08-24 扩围): spec 支持 str 或 Array 多值(none/null); ctx ""=无映射不命中, "null"=极弱/无分档命中
+    var _ctxTt = String(ctx.track_tier || "");
+    if (Array.isArray(spec.track_tier) ? spec.track_tier.indexOf(_ctxTt) < 0 : _ctxTt !== spec.track_tier) return false;
+  }
   if (spec.rating != null) {
     if (String(ctx.rating || "") !== spec.rating) return false;
     const tv = (ctx.ts == null || ctx.ts === "") ? 999 : Number(ctx.ts);
@@ -3259,7 +3262,11 @@ function _simPassesFade(t, fIdx, filters, monthMask) {
       sig: t[fIdx.signal] || "",
       mkt: t._mktD || "",
       tier: fIdx.market_tier != null ? (t[fIdx.market_tier] || "") : "",
-      track_tier: fIdx.track_tier != null ? String(t[fIdx.track_tier] || "") : "",  // X1 判定(trades 列直读, 缺失 "" 不命中)
+      track_tier: (function () {  // X1 判定(trades 列直读三态: 显式 null→"null" 命中扩围后 X1; 缺列/越界 undefined→"" 诚实不命中; §23.13 口径统一)
+        if (fIdx.track_tier == null) return "";
+        var _v = t[fIdx.track_tier];
+        return _v === undefined ? "" : (_v === null ? "null" : String(_v));
+      })(),
       date: t[fIdx.buy_date] || "",
       smonth: String(t[fIdx.signal_date] || "").substring(4, 6),
       rating: t[fIdx.rating] || "",

@@ -268,11 +268,13 @@ def load_board_etf_track_score():
 
 
 def load_board_etf_track_tier():
-    """board_etf_map.json -> {index_id: top1 track_tier|None}(X1 键 recent 打标用, 2026-08-24)。
+    """board_etf_map.json -> {index_id: top1 track_tier}(X1 键 recent 打标用, 2026-08-24)。
 
     与 load_board_etf_track_score 同款遍历(同一 max-ts 条目), 读其 track_tier 属性——
     保证 ts 与 tier 同源同条目(与 queries._ai_macro_track_tier_of / 回测 _build_best_etf 同口径)。
-    tier=None(灰灭灯 composite<30)保留 None → recent_hit_keys 转 "" 不命中, 与 trades 列语义一致。"""
+    三态归一(2026-08-24 has-track 口径统一): top1 tier=None(score<30 或 N<30 无分) → "null"
+    (与回测 trades 列/首页筛选档4 一致, X1 spec 含 "null" 命中); 无带 track_score 条目 → ""
+    (诚实降级不命中, 且与「概念无ETF」同串——X1 spec 只含 none/null 不含 "", 概念无ETF不被误伤)。"""
     for p in (os.path.join(REPO, "static-site", "data", "board_etf_map.json"),
               os.path.join(REPO, "data", "board_etf_map.json")):
         if os.path.exists(p):
@@ -290,7 +292,10 @@ def load_board_etf_track_tier():
                         ts = it.get("track_score")
                         if ts is not None and (best is None or ts > best[0]):
                             best = (ts, it.get("track_tier"))
-                    out[iid] = best[1] if best else None
+                    if best is None:
+                        out[iid] = ""
+                    else:
+                        out[iid] = "null" if best[1] is None else str(best[1])
                 return out
             except (json.JSONDecodeError, OSError):
                 return {}
@@ -433,9 +438,9 @@ class FilterCtx(object):
         return self.ts_map.get(iid)
 
     def tt_of(self, iid):
-        """top1 ETF 跟踪档位(strong/related/approx/none); 无映射/None(灰灭灯) → "" 不命中(X1 判定用)。"""
-        t = self.tier_map.get(iid)
-        return "" if t is None else str(t)
+        """top1 ETF 跟踪档位(strong/related/approx/none/null, loader 已三态归一);
+        无映射/"" → "" 不命中(X1 判定用; "null"=极弱/无分档, 2026-08-24 起命中 X1 与回测同口径)。"""
+        return self.tier_map.get(iid) or ""
 
     def bull_of(self, date_str):
         # 取 <= 信号日最近的 MA60 状态; 无给定日则向前找
@@ -489,8 +494,9 @@ RECENT_KEYS = [
     #   recent_hit_keys 双重门控(_pk in RECENT_KEYS)致 NEW18 组集该键恒 false, 人口偏松。
     #   补列后走 lr.rule_hit T1 分支自动判定(特征=north_d20, loss_rules.py N2 规格单源)。
     "r10May6NonMay", "declinePhaseSpecial", "greedy7", "v4f", "n2NorthOutConcept",
-    # new15 增量(mine29c 2026-08-24 用户拍板): X1 整剔 track_tier=none 象限(loss_rules.py 规格单源,
-    #   tier_map=board_etf_map top1 跟踪档位), 供监控卡 new15 模式组集; 不加则组集缺键人口偏松(同 n2 教训)。
+    # new15 增量(mine29c 2026-08-24 用户拍板): X1 整剔 track_tier=none/null 象限(loss_rules.py 规格单源,
+    #   tier_map=board_etf_map top1 跟踪档位, 2026-08-24 起三态归一含 "null"), 供监控卡 new15 模式组集;
+    #   不加则组集缺键人口偏松(同 n2 教训)。
     "excludeTierNone",
 ]
 # 明细覆盖交易日数(≥ SURFACE_DAYS=200 + 最大统计窗口 100 + 余量; 前端滚动窗口最长 100 日)
