@@ -53,6 +53,7 @@ cd /Users/linhuichen/code/trade-data
 数据截止: signal_daily MAX(date)=20260814; trades 2011-01-19 -> 2026-08-13
 """
 import argparse
+import bisect
 import json
 import math
 import os
@@ -317,13 +318,15 @@ def build_market_state_hs300(close_map):
 
 
 def load_signal_daily(conn):
-    """读 signal_daily 全表 -> [{'date','index_id','signal'}], 按日聚合。"""
+    """读 signal_daily 全表 -> [{'date','index_id','signal','reason'}], 按日聚合。
+    2026-08-24 对错判定改「N交易日到期冻结窗」后 reason 必带: 波段减仓(sell+reason 含「波段减仓」)
+    用固定 5 日窗, 其余买/卖类用默认 10 日窗(与 app/queries.py _WIN_* 参数表同语义, §22 防分叉)。"""
     rows = conn.execute(
-        "SELECT date, index_id, signal FROM signal_daily ORDER BY date"
+        "SELECT date, index_id, signal, reason FROM signal_daily ORDER BY date"
     ).fetchall()
     by_date = defaultdict(list)
     for r in rows:
-        by_date[r[0]].append({"index_id": r[1], "signal": r[2]})
+        by_date[r[0]].append({"index_id": r[1], "signal": r[2], "reason": r[3]})
     return by_date
 
 
@@ -978,8 +981,16 @@ def load_signal_grade_map():
     return grade_map
 
 
+# 对错判定「N交易日到期冻结窗」窗长表(2026-08-24 用户拍板, 与 app/queries.py _WIN_* 同语义单点对齐,
+# §22 防分叉; 监控卡固定跟默认档 10 日不做切换, 前端首页才有 10/15 对照切换):
+_WIN_DEFAULT_N = 10   # 买入四类+sell/sell_stop_loss 默认档(A 方法 10 日固定卖出周期)
+_WIN_BAND_SELL_N = 5  # 波段减仓(sell + reason 含「波段减仓」)固定档
+
+
 def bucket_actual(by_date, close_map, latest_date, grade_map=None, universe=None):
-    """实盘口径按日打点: 信号日收盘 -> 最新收盘方向。与首页 since_correct 同口径。
+    """实盘口径按日打点: N 交易日到期冻结窗方向(2026-08-24 起, 替代原"至今"口径)。与首页 since_correct 同语义。
+    到期冻结机制: 满窗(N 个后继交易日存在)=第 N 日收盘 vs 信号日收盘 定案; 未满窗=最新收盘暂计至今;
+    今日信号(d>=latest_date)仍不计。波段减仓(reason 含「波段减仓」)固定 5 日窗, 其余计分信号默认 10 日窗。
     2026-08-17 方案A「实盘限定回测宇宙」: 买类只统计回测宇宙内信号, 使实盘线与回测线比同一批买入信号。
     universe = {index_id: track_score|None}(来自 board_etf_map, 同 §23.6 _bt_in_universe 判定):
       - 买信号类型必须 ∈ BUY_SIGNALS(buy/buy_aux/buy_special/buy_backup) —— 回测只测买入白名单信号(§23.6 buy_whitelist);
@@ -992,11 +1003,13 @@ def bucket_actual(by_date, close_map, latest_date, grade_map=None, universe=None
     """
     out = []
     all_dates = sorted(by_date.keys())
-    # 最新可用收盘日(末日兜底)
+    # 最新可用收盘(未满窗暂计端兜底) + 每标的排序日期序列缓存(bisect 定位第 N 后继交易日, O(logK)/条)
     latest_close = {}
+    seq_cache = {}
     for iid, m in close_map.items():
         if m:
             latest_close[iid] = m[max(m.keys())]
+            seq_cache[iid] = sorted(m.keys())
     grade_map = grade_map or {}
     universe = universe or {}
     for d in all_dates:
@@ -1011,6 +1024,8 @@ def bucket_actual(by_date, close_map, latest_date, grade_map=None, universe=None
                 continue  # 中性不计
             # 2026-08-17 方案B: 卖类(sell/sell_stop_loss)不过滤宇宙, 统计全部卖信号实盘实际命中率(无回测对照);
             # 买类仍限定回测宇宙(方案A): 只统计回测会测的买入白名单信号 + 已入样(_bt_in_universe)。
+            is_band_sell = (sig == "sell") and ("波段减仓" in (s.get("reason") or ""))
+            n_win = _WIN_BAND_SELL_N if is_band_sell else _WIN_DEFAULT_N
             is_sell = sig in SELL_SIGNALS
             if not is_sell:
                 if sig not in BUY_SIGNALS:
@@ -1027,9 +1042,16 @@ def bucket_actual(by_date, close_map, latest_date, grade_map=None, universe=None
             if today_close is None:
                 continue
             if d >= latest_date:
-                continue  # 今日信号无"至今"语义(与 queries.py L914-916 一致)
-            since_ret = (today_close - sig_close) / sig_close
-            # 方向判定: 买类恒看多(涨=对); 卖类(sell/sell_stop_loss)看空(卖后跌=对, 2026-08-17 方案B)
+                continue  # 今日信号无"至今"语义(与 queries.py 今日信号短路一致)
+            # N 交易日到期冻结窗: 满窗=第 N 后继交易日收盘定案; 未满窗=最新收盘暂计至今
+            ds = seq_cache.get(iid) or []
+            i0 = bisect.bisect_right(ds, d)
+            if i0 + n_win <= len(ds):
+                ref_close = cm[ds[i0 + n_win - 1]]
+            else:
+                ref_close = today_close
+            since_ret = (ref_close - sig_close) / sig_close
+            # 方向判定: 买类恒看多(涨=对); 卖类(sell/sell_stop_loss 含波段减仓变体)看空(卖后跌=对, 2026-08-17 方案B)
             is_win = (since_ret < 0) if is_sell else (since_ret > 0)
             if not is_sell:
                 # total 只含买类(方案A 实盘总样本=回测宇宙内买入信号); 卖类仅入 by_signal, 不混入总样本
