@@ -965,10 +965,10 @@ def check_track_score_overview_vs_map(data_dir: Path, repo_data_dir: Path) -> Ch
 
 
 # T1 AI降亏特征通道（2026-08-23）：kelly_loss_features.json 存在且规格完整（E16 防静默缺失）。
-# 该文件是前端 20 条 AI 降亏新键 spec-driven 谓词的唯一规格源（meta.rules），
+# 该文件是前端 21 条 AI 降亏新键 spec-driven 谓词的唯一规格源（meta.rules），
 # 缺失/空 rules 时前端整体不拦（诚实降级）= 过滤静默失效，故 FAIL 阻断上线。
 def check_kelly_loss_features(data_dir: Path) -> CheckResult:
-    """校验 kelly_loss_features.json：存在 + meta.rules 含 20 键 + meta.thresholds 有值。"""
+    """校验 kelly_loss_features.json：存在 + meta.rules 含 21 键 + meta.thresholds 有值。"""
     name = "kelly_loss_features"
     path = data_dir / "kelly_loss_features.json"
     data, err = _load_json(path)
@@ -981,11 +981,11 @@ def check_kelly_loss_features(data_dir: Path) -> CheckResult:
     if not isinstance(meta, dict):
         return _fail(name, "meta 缺失或非 dict")
 
-    # 键数 20 = T1 全量新键单源数（scripts/loss_rules.py RULE_SPECS，lab.js _KELLY_LOSS_NEW_KEYS 同源）
+    # 键数 21 = T1 全量新键单源数（scripts/loss_rules.py RULE_SPECS，含 X1；lab.js _KELLY_LOSS_NEW_KEYS 同源）
     rules = meta.get("rules")
     keys = {r.get("key") for r in rules} if isinstance(rules, list) else set()
-    if len(keys) != 20:
-        return _fail(name, f"meta.rules 含 {len(keys)} 键 != 20（T1 全量新键，前端过滤将静默失效）")
+    if len(keys) != 21:
+        return _fail(name, f"meta.rules 含 {len(keys)} 键 != 21（T1 全量新键，前端过滤将静默失效）")
 
     thresholds = meta.get("thresholds")
     if not isinstance(thresholds, dict) or not thresholds:

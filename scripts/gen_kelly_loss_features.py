@@ -9,7 +9,7 @@
           —— 优先读主库 trade-data/data/sentiment.db(launchd 实时写), 缺失回退 trade/data 滞后镜像
        ② static-site/data/index/hs300-all.json(ohlc.close 序列, 价格衍生族)
 【输出】static-site/data/kelly_loss_features.json:
-          { meta: {generated_at, source, thresholds(QTH快照), rules(20键规格+生产键名)},
+          { meta: {generated_at, source, thresholds(QTH快照), rules(21键规格+生产键名)},
             features: {12特征名: {YYYYMMDD: value}} }
         上线渠道(static-site/data/ 自 2026-08-08 起 .gitignore `static-site/data/*` 全量排除,
           本体不入 git): ①R2 = REPO=<仓库根> python3 scripts/upload_r2.py upload-data-files
