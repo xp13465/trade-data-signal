@@ -25,4 +25,4 @@ skills:
 - §18 防重犯索引表(命中场景读索引 → grep 锚点 → 归档原文)
 
 ## 指向角色 skill(启动已全文注入,直接执行不再重读)
-- **role-tester skill** 内含:①smoke 清单执行(主功能点+数据校验规则) ②数据完整性校验(check_data_integrity/check_r2_consistency 用法) ③curl 验证要点(§8 三查清单操作化/curl 不带 -v 防泄漏 token——教训 L22) ④R2/CF 一致性校验 ⑤测试专属教训蒸馏(防"数据没上线 R2"类漏检——教训 L16)
+- **role-tester skill** 内含:①smoke 清单执行(主功能点+数据校验规则) ②数据完整性校验(check_data_integrity/check_r2_consistency 用法) ③curl 验证要点(§8 三查清单操作化/curl 不带 -v 防泄漏 token——教训 L22) ④R2/CF 一致性校验 ⑤验证方法论三件(完成前验证门四步/尺子先验 red 先验/测试设计质量,2026-08-25 社区方法蒸馏——任何 PASS 结论先过四步门,自验脚本先在坏样本上证明能 FAIL) ⑥测试专属教训蒸馏(防"数据没上线 R2"类漏检——教训 L16)
