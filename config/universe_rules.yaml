@@ -52,11 +52,58 @@ excluded_categories:
     note: >
       港股行业板块指数(market=hk_industry), 无映射; 注意与 market=hk 的宽基(hsi/hscei/hstech)区分,
       后者在 universe 内。
-  # 空数组: 无跨境 ETF 的指数(ftse100 富时100 / kospi 韩国), map 里有 key 但为空数组(empty_array)。
+  # 空数组: 无场内专属 ETF 的指数, map 里有 key 但为空数组(empty_array)。
+  # 2026-08-25 方案A(用户拍板「尊重显式收录/关兜底」): 收录与否的单一事实源=board_etf_map,
+  # 空数组=显式不入样, 不允许冻结表兜底穿透(queries.py _align_home_top1_to_backtest 已同步收窄:
+  # etfs 为空数组时不 prepend 冻结条目)。调研依据: docs/kelly/analysis/universe-fallback-value-audit-20260825.md
+  # (兜底唯一实例 bj50→159543 为全站最弱关联 3.9 分/近一年反向 49pp, 交易 738 笔净亏 1 万)。
+  # 注1: bj50 北证50 暂未列入 match —— signal_kelly_trades.json 尚有历史兜底残留 738 笔/freeze 表 72 键
+  #      (20260813 中间版 map 回测所留), 列入即触发 assertion3 FAIL; 待按新 map 重跑回测自然重建后补登闭环。
+  # 注2: 无场内专属ETF属现状声明; 专属ETF配置规划见 docs/pending-features-index.md
+  #      (12 个板块有场内候选可配, 跟踪度硬门槛验证后再进 map, 见调研报告§六)。
   - name: 空数组
-    match: ["ftse100", "kospi"]
+    match:
+      # 跨境(ftse100 富时100 / kospi 韩国)既定留空规则
+      - ftse100
+      - kospi
+      # 中证系列(csi_*, 名称以 indicators.yaml 为准)
+      - csi_000680   # 科创综合
+      - csi_000698   # 科创100
+      - csi_000699   # 科创200
+      - csi_000805   # A股资源(价格历史停更)
+      - csi_000961   # 中证上游资源(价格历史停更)
+      - csi_000998   # 中证TMT(价格历史停更)
+      - csi_399707   # 中证申万证券行业
+      - csi_399803   # 中证工业4.0
+      - csi_399806   # 中证环境治理
+      - csi_399807   # 中证高铁产业
+      - csi_399811   # 中证申万电子行业
+      - csi_399970   # 中证移动互联网
+      - csi_399996   # 中证智能家居
+      - csi_930820   # 中证高端制造
+      - csi_931892   # 中证有色矿业
+      - csi_932365   # 中证自由现金流
+      - csi_932456   # 中证科创创业AI
+      # 国证概念(gz_*)
+      - gz_399368    # 国证军工
+      - gz_399417    # 国证新能源汽车
+      - gz_399431    # 国证银行
+      - gz_399439    # 国证油气
+      - gz_399440    # 国证钢铁
+      # 申万行业(sw_*)
+      - sw_801030    # 基础化工
+      - sw_801130    # 纺织服饰
+      - sw_801200    # 商贸零售
+      - sw_801230    # 综合
+      - sw_801730    # 电力设备
+      - sw_801950    # 煤炭
+      - sw_801970    # 环保
+      - sw_801980    # 美容护理
+      # 同花顺概念(thsc_*)
+      - thsc_306380  # 储能
     mode: empty_array
-    note: 大概率无跨境 ETF, board_etf_map 保留 key 但为空数组, 前端显示"无ETF"。
+    note: >
+      无场内专属 ETF, board_etf_map 显式保留 key 但为空数组, 前端显示"无ETF", 不入凯利回测宇宙。
 
 # ④ 自我ETF唯一例外: func=fund_etf_hist_sina 的指数(index 本身就是 ETF, 如 cgb_10y_etf sh511260)
 #    由 queries.py _self_etf_for 用 symbol 剥前缀作 ETF 代码注入(match_method="self"), board_etf_map

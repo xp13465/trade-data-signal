@@ -287,6 +287,14 @@ def _align_home_top1_to_backtest(_s: dict, freeze: dict) -> None:
     if idx >= 0:
         etfs[idx] = dict(etfs[idx])
         etfs[idx]["_bk_top"] = True
+    elif not etfs:
+        # board_etf_map 该指数 etfs 为空数组 = 显式"无场内专属ETF"(收录与否的单一事实源=map, §23.6①),
+        # 不从冻结表 prepend 兜底标的 —— 否则 map 换代前(20260813 中间版含持仓重叠兜底层)的残留冻结键
+        # 会穿透空数组, 把全站最弱关联(如 bj50→159543 track_score=3.9)塞回首页并误判
+        # _bt_in_universe=True, 与 check_universe_alignment.py 按 map 重算(False)打架拦 deploy。
+        # 用户拍板依据: 2026-08-25 方案A「尊重显式收录/关兜底」;
+        # 调研 docs/kelly/analysis/universe-fallback-value-audit-20260825.md(兜底交易 738 笔净亏 1 万, AI 建议 K≤4 永不选中)。
+        return
     else:
         # 冻结 ETF 已被 board_etf_map 换代移除 → prepend 冻结条目, 保证首页仍显回测标的
         entry = {k: v for k, v in frozen.items() if k != "frozen_at"}
@@ -1112,10 +1120,13 @@ def overview(conn, cfg):
         else:
             _s["etfs"] = [dict(_e) for _e in (etf_for(_s["index_id"]).get("etfs") or [])]
         # 首页1:1对齐回测(#60 方案A): 命中冻结表 → 该信号 top1 = 回测标的(标 _bk_top)。
+        # 2026-08-25 收窄(方案A 用户拍板): 仅 map 正式收录(etfs 非空)的指数做冻结对齐;
+        # 空数组指数(bj50 等 34 个)不从冻结表 prepend, 判定见 _align_home_top1_to_backtest 内注释。
         _align_home_top1_to_backtest(_s, _home_freeze)
         # AI建议入样宇宙1:1对齐回测(#25): 信号是否在凯利回测入样宇宙内
-        # (有跟踪 ETF 且带 track_score)。放 freeze 对齐后,冻结条目(回测只在宇宙内冻结)
-        # 也带 track_score,不会误判。前端 AI 建议只在此宇宙内选。
+        # (有跟踪 ETF 且带 track_score)。放 freeze 对齐后,正式收录指数的冻结条目仍带
+        # track_score 不误判; 空数组指数不再被冻结穿透, 此处=False 与按 map 重算一致
+        # (check_universe_alignment.py assertion1, §23.6④)。前端 AI 建议只在此宇宙内选。
         _s["_bt_in_universe"] = any(_e.get("track_score") is not None for _e in (_s.get("etfs") or []))
         # 2026-08-14 P0-2 盘后补齐角标: 迟到信号=true(数据源晚到 21:00 补采才进)。
         # 判定见上方注释: 非全球/港股市场 && 当日无 intraday_log 记录 && 当日盘中轮覆盖完整。
