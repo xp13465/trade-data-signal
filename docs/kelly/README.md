@@ -28,6 +28,10 @@
 
 ---
 
+## 本轮落档(2026-08-25)
+
+- #97 移动端方案B实施与冒烟记录: `mobile-refactor-20260825-smoke.md`(三批次 commit/iOS 四件前后对比/桌面零变化证明 he5bffb1e/切片 144组303片 max280.5KB+全量机检 PASS/弱网预览链路诊断)+ 脚本 `scripts/kelly_mobile_smoke.js`(Playwright 冒烟 desktop/mobile 双模式)、`scripts/kelly_mobile_preview_diag.js`(切片预览→整包替换链路诊断); 配套生成端 `scripts/signal_kelly_backtest.py --export-lab-slices-only`
+
 ## 本轮落档(2026-08-15)
 
 - 明日(2026-08-15 #83/#84)报告弹窗完整正文生成脚本:脚本 `scripts/kelly_reports_html.py`(前端展示用, 将 10 份 docs/kelly/**/*.md 经 GFM markdown 转 HTML 输出 `static-site/kelly-reports-content.js`, 供 lab.js 报告弹窗显示完整正文, 与 `md_to_html.py`/kelly-review-notes.js 同模式) + 生成数据 `static-site/kelly-reports-content.js/.min.js`

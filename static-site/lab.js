@@ -11388,6 +11388,123 @@ function _renderSigKellyCardMobile(qk, q, period, cardCmp) {
   );
 }
 
+// #97 批次C: ≤768px 移动端弹窗「象限×模式切片」快路径 —— 全量 signal_kelly_trades.json ~62MB 移动端不可拉,
+// 改先并行拉该组小片(单片≤280KB, scripts/signal_kelly_backtest.py --export-lab-slices-only 生成)渲染明细预览,
+// 整包在后台懒加载就绪后由既有全口径渲染替换(fade/positionCap/费率重算依赖跨象限 dims, 预览态不含, 最终口径与桌面逐位一致 §22)。
+// 桌面 >768px 不走此路径零变化; 切片任一环失败静默降级等整包(与首页模拟回测弹窗同兜底策略)。
+async function _sigKellyOpenTradesPreview(overlay, quadKey, modeKey, modeLabel, period) {
+  try {
+    const v = _labCustomCacheBust();
+    const r2Base = "https://ss.fx8.store/data/signal_kelly_trades_parts/";
+    const cfBase = "./data/signal_kelly_trades_parts/";
+    const _fetchJson = async (url) => {
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`R2 ${resp.status}`);
+        return await resp.json();
+      } catch (e) {
+        const resp = await fetch(url.replace(r2Base, cfBase));
+        if (!resp.ok) throw new Error(`CF ${resp.status}`);
+        return await resp.json();
+      }
+    };
+    const meta = await _fetchJson(r2Base + "lab_meta.json?v=" + v);
+    if (state.labSigKellyTradesData) return false; // 整包已先就绪, 让正式表接管(防预览覆盖正式表竞态)
+    // 组清单: all=rating 三分区并集(与卡片统计同构 §22); 其余=单组
+    const gkeys = quadKey === "all" ? ["rating_high", "rating_mid", "rating_low"] : [quadKey];
+    const partsList = [];
+    gkeys.forEach((qk) => {
+      const g = (meta.groups || {})[qk + "|" + modeKey];
+      if (g && g.parts) g.parts.forEach((p) => partsList.push({ qk, p }));
+    });
+    if (!partsList.length) return false;
+    const shards = await Promise.all(partsList.map(({ qk, p }) =>
+      _fetchJson(r2Base + p.name + "?v=" + v).then((shard) => ({ qk, rows: ((shard.quadrants || {})[qk] || {})[modeKey] || [] }))
+    ));
+    const fields = meta.fields || [];
+    const fIdx = {};
+    fields.forEach((f, i) => { fIdx[f] = i; });
+    let rows = [];
+    shards.forEach((s) => { rows = rows.concat(s.rows); });
+    if (state.labSigKellyTradesData) return false; // 同上竞态防护(片拉取期间整包就绪则弃用预览)
+    // 周期 cutoff 与桌面 rawTrades 第一层过滤一致(buy_date>=cutoff); fade/positionCap 预览态不含(见函数头注)
+    const cutoff = (meta.period_cutoffs || {})[period] || "0";
+    if (cutoff && cutoff !== "0") rows = rows.filter((t) => (t[fIdx.buy_date] || "") >= cutoff);
+
+    const data = state.labSigKellyData || {};
+    const quadLabel = ((data.quadrants || {})[quadKey] || {}).label || quadKey;
+    _sigKellyRenderTradesPreview(overlay, quadLabel, modeLabel, meta, fields, fIdx, rows);
+    return true;
+  } catch (e) {
+    return false; // 切片任一环失败静默降级, 等整包老路径(移动端整包兜底仍在)
+  }
+}
+
+// 预览表渲染(#97 批次C 精简版): 字段全列直读原始值 + 排序 + 分页(50/页) + 快速预览提示条。
+// 不含: 列选择器/ETF·利润筛选/费率重算/降亏过滤(均为整包正式表功能); 整包就绪后本表被整体替换。
+function _sigKellyRenderTradesPreview(overlay, quadLabel, modeLabel, meta, fields, fIdx, rows) {
+  let sortKey = null, sortDir = -1, page = 1;
+  const perPage = 50;
+
+  function _cell(t, key) {
+    const i = fIdx[key];
+    const pfCls = (t[fIdx.profit] || 0) >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
+    switch (key) {
+      case "index_id": return `<td class="lab-sigkelly-trades-sigcell">${indexIdToName(t[i])}<br><span class="lab-sigkelly-siglabel">${signalLabel({ signal: t[fIdx.signal] })}</span></td>`;
+      case "buy_date": return `<td>${t[i]}</td>`;
+      case "sell_date": return (!t[i]) ? `<td><span class="lab-sigkelly-holding-tag">持仓中</span></td>` : `<td>${t[i]}</td>`;
+      case "buy_price": return `<td>${(+t[i]).toFixed(4)}</td>`;
+      case "sell_price": return `<td>${(+t[i]).toFixed(4)}</td>`;
+      case "profit": return `<td class="${pfCls}">${((t[i] || 0) >= 0 ? "+" : "") + (+t[i] || 0).toFixed(2)}</td>`;
+      case "return_pct": return `<td class="${pfCls}">${((t[i] || 0) >= 0 ? "+" : "") + (+t[i] || 0).toFixed(2)}%</td>`;
+      default: return `<td>${t[i] != null ? t[i] : ""}</td>`;
+    }
+  }
+
+  function _render() {
+    let list = rows;
+    if (sortKey != null) {
+      const sk = fIdx[sortKey];
+      list = list.slice().sort((a, b) => {
+        const va = a[sk], vb = b[sk];
+        if (typeof va === "string") return sortDir * va.localeCompare(vb);
+        return sortDir * ((va || 0) - (vb || 0));
+      });
+    }
+    const totalPages = Math.max(1, Math.ceil(list.length / perPage));
+    if (page > totalPages) page = totalPages;
+    const pageRows = list.slice((page - 1) * perPage, page * perPage);
+    const ths = fields.map((f) => `<th class="lab-sigkelly-trades-th" data-key="${f}">${f}${sortKey === f ? (sortDir > 0 ? " ▲" : " ▼") : ""}</th>`).join("");
+    overlay.innerHTML =
+      `<div class="lab-sigkelly-modal">` +
+      `<div class="lab-sigkelly-modal-head"><b>${quadLabel} · ${modeLabel || ""} 交易记录</b>` +
+      `<button type="button" class="lab-sigkelly-modal-close">✕</button></div>` +
+      `<div class="lab-custom-note" style="margin:0 16px 8px;padding:8px 10px;border-radius:8px;background:var(--bg-warn,#fff7e6);font-size:12px">⚡ 快速预览（已按周期过滤；<b>未应用</b>降亏过滤/仓位控制/费率重算，数字为回测原始口径）。完整口径数据后台加载中，就绪后自动替换本表。</div>` +
+      `<div class="lab-sigkelly-table-scroll"><table class="lab-sigkelly-trades-table"><thead><tr>${ths}</tr></thead><tbody>` +
+      pageRows.map((t) => `<tr class="${!t[fIdx.sell_date] ? "lab-sigkelly-holding-row" : ""}">${fields.map((f) => _cell(t, f)).join("")}</tr>`).join("") +
+      `</tbody></table></div>` +
+      `<div class="lab-sigkelly-modal-pagination"><button type="button" class="lab-input lab-sigkelly-page-prev" ${page <= 1 ? "disabled" : ""}>上一页</button>` +
+      `<span>第 ${page}/${totalPages} 页 · 共 ${list.length} 笔（快速预览）</span>` +
+      `<button type="button" class="lab-input lab-sigkelly-page-next" ${page >= totalPages ? "disabled" : ""}>下一页</button></div>` +
+      `</div>`;
+    overlay.querySelector(".lab-sigkelly-modal-close").onclick = () => { overlay.style.display = "none"; };
+    overlay.querySelectorAll(".lab-sigkelly-trades-th").forEach((th) => {
+      th.onclick = () => {
+        const k = th.dataset.key;
+        if (sortKey === k) sortDir = -sortDir;
+        else { sortKey = k; sortDir = -1; }
+        page = 1;
+        _render();
+      };
+    });
+    const prev = overlay.querySelector(".lab-sigkelly-page-prev");
+    if (prev) prev.onclick = () => { if (page > 1) { page--; _render(); } };
+    const next = overlay.querySelector(".lab-sigkelly-page-next");
+    if (next) next.onclick = () => { page++; _render(); };
+  }
+  _render();
+}
+
 // 交易记录弹窗(懒加载 trades JSON, 按 quad x mode x period 过滤, 可排序/筛选)
 async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   const data = state.labSigKellyData;
@@ -11411,6 +11528,13 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
 
   // 懒加载 trades JSON(>1MB 走 R2, CF 兜底)
   if (!state.labSigKellyTradesData) {
+    // #97 批次C: ≤768px 先拉「象限×模式切片」渲染明细预览(秒级首屏), 整包在下方继续后台懒加载,
+    //   就绪后走既有全口径渲染整体替换(最终数字与桌面逐位一致 §22); 预览失败静默; 桌面不启动预览零变化
+    let _previewOk = null;
+    if (_sigKellyIsMobile()) {
+      const _modeLabel0 = _sigKellyModeLabelWith(modeKey, (cfg.sell_modes || {})[modeKey]?.label || modeKey);
+      _previewOk = _sigKellyOpenTradesPreview(overlay, quadKey, modeKey, _modeLabel0, period).catch(() => false);
+    }
     const v = _labCustomCacheBust();
     const r2Url = `https://ss.fx8.store/data/signal_kelly_trades.json?v=${v}`;
     const cfUrl = `./data/signal_kelly_trades.json?v=${v}`;
@@ -11425,6 +11549,17 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
         state.labSigKellyTradesData = await resp.json();
       }
     } catch (e) {
+      // #97 批次C: 移动端预览已在显示时不清掉它(62MB 整包移动端失败率高, 保底可看), 只插错误提示条
+      const _pvShown = _previewOk ? await _previewOk : false;
+      if (_pvShown && overlay.querySelector(".lab-sigkelly-trades-table")) {
+        const _errBar = document.createElement("div");
+        _errBar.className = "lab-custom-note";
+        _errBar.style.cssText = "margin:8px 16px;padding:8px 10px;border-radius:8px;background:rgba(220,53,69,.12);font-size:12px";
+        _errBar.textContent = "⚠️ 完整数据加载失败，当前仅快速预览（未含降亏过滤/仓位控制/费率重算）。可点重试后重新打开。";
+        const _headEl = overlay.querySelector(".lab-sigkelly-modal");
+        if (_headEl) _headEl.insertBefore(_errBar, _headEl.querySelector(".lab-sigkelly-table-scroll"));
+        return;
+      }
       overlay.innerHTML = `<div class="lab-sigkelly-modal"><div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 交易记录加载失败</div><div class="lab-custom-error-detail">${e.message || e}</div><button type="button" class="lab-custom-retry">重试</button></div></div>`;
       overlay.querySelector(".lab-custom-retry").onclick = () => { state.labSigKellyTradesData = null; state.labSigKellyTradeDims = null; _openSigKellyTradesModal(quadKey, modeKey, period); };
       return;
