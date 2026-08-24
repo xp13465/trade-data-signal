@@ -15308,6 +15308,10 @@ function _ntSparkBind(svg, closes, dates, color, w, h) {
       if (_left + _tipW > _svgRect.width) _left = _svgRect.width - _tipW;
       let _top = _cssY - _tipH - 12;
       if (_top < 0) _top = _cssY + 14;
+      // P2-3(fix) 同款: 底部 clamp — 矮卡(h72)大tooltip 翻到下方后超 wrap 底沿时上移,
+      // 防卡内 overflow:hidden 截断(与 _lwBind._show 同数学, rect 统一用 _wrapRect)
+      const _wrapH = _wrapRect.height || 0;
+      if (_wrapH > 0 && _top + _tipH > _wrapH) _top = Math.max(0, _wrapH - _tipH - 2);
       _tip.style.left = _left.toFixed(1) + "px";
       _tip.style.top = _top.toFixed(1) + "px";
     }
