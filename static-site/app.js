@@ -1552,7 +1552,7 @@ function _calcSignalAccuracy(items) {
 function _sigWindowSuffix() {
   const wf = state.sigWindowFilter;
   if (!wf || wf === "0_15") return "";
-  const map = { "10_15": "显示10~15日", "7_15": "显示7~15日", "3_15": "显示3~15日", "y_15": "昨日~15日" };
+  const map = { "10_15": "显示10~30日", "7_15": "显示7~30日", "3_15": "显示3~30日", "y_15": "昨日~30日" };
   return " · " + (map[wf] || "");
 }
 function _sigTodayHint() {
@@ -2575,6 +2575,22 @@ function _readHomeFadeFlag() {
   } catch (e) {}
   return true;
 }
+// v1.1.5(2026-08-24) 「仅显示可用信号」开关: 裸键 tds_home_show_available_only, 默认关(§23.7 默认行为不变)。
+// 开启=在现有渲染结果上隐藏灰显/删除线行(AI降亏命中 sig-ai-hit + 未入样本 sig-poscap-notuni),
+// 只留干净可用的放行信号列表; 纯展示层视图控制, 不改任何判定链(与 AI降亏/AI仓位 两开关正交叠加)。
+function _readHomeAvailOnlyFlag() {
+  try { return localStorage.getItem("tds_home_show_available_only") === "1"; } catch (e) {}
+  return false;
+}
+// 首页枯竭类提示共用的当前模式键集(单一事实源): 与首页判定链同一 preset(_readHomeFadeMode→_tdsFadeModeById)。
+// 消费点=AI建议区常驻 chip(_mountHomeDroughtChip)+「仅显示可用信号」空态枯竭统计(_mountSigEmptyDrought), §22 同源同数字。
+function _homeDroughtModeKeys() {
+  try {
+    const mp = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(_readHomeFadeMode()) : null;
+    if (mp && Array.isArray(mp.keys)) return mp.keys;
+  } catch (e) {}
+  return [];
+}
 // T3-2(2026-08-23) 首页 AI降亏·模式下拉: 独立 localStorage 键 tds_home_fade_mode(v1.1.5 起默认=new14·NEW14 十四键,
 // 与原固定8键白名单逐位一致=默认行为零变化 §23.7; 键集合从 common.js _KELLY_FADE_MODE_PRESETS 单源拉取,
 // 任务④迁移: _AI_MACRO_FILTER_NAMES 保留中文名映射仅供标注展示, 不再作键集合事实源)。
@@ -2683,6 +2699,9 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
       `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 删除线过滤层, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 结构=v1.1.5(2026-08-24 用户拍板)起默认基座 NEW14 十四键(重构换基座; §21 公示 purpose-notes lab.sigkelly): hist6=r10 5月+6非5月 / Greedy-15 / J2 1月中旬+追关注 / K2C5 港股追涨剔除 / K3 主关注×概念 / 下降期×追关注(全市场) + 规则8=N1北向20日净流出 / T1换手冰点×追关注 / D1股息率低位 / Q1 QVIX低分位 / H1升波×A股 / M1牛主升×两融降温 / P1备买×股息率分位低 / R2b追关注×全球类, 全部是「保留入样、可被AI建议推荐」的降亏开关; 旧八键(基础5+核心3, v1.1.4 及以前默认)保留为「AI降亏·模式」下拉可切的对照档; +1=回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(后端已剔除出回测宇宙 / 波动相关剔除), 故 AI建议 一律不推荐, 本开关开启时以「未入样本」+灰显+删除线标注表达"被过滤掉"。 开启=①首页按降亏策略判定, v1.1.5 起默认 NEW14 十四键+1类 成员级(2026-08-23 T3-2 起可经旁侧「AI降亏·模式」下拉切换 7 预设, 独立键 tds_home_fade_mode, 默认=new14; 该记忆仅保留 18 小时滑动过期, 超时自动回 new14)(十四键构成见上; 切换依据=mine28 AUTO 轮动样本外全 FAIL 维持单模式 + mine30 记分板 NEW14 全史第一 +122,648/mdd -4,178 vs 八键 +66,530/-18,190; NEW14 下年均约 2.4 次 ≥20 交易日无放行枯竭期为常态运作方式, 本区有实时枯竭提示 chip); +1=回测剔除的波动相关/未入样本信号整类)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。命中降亏条件(8键中任一键)的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); ②未入样宇宙信号(债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 后端已剔除出回测宇宙)=删除线+灰显+「未入样本」标注(AI过滤视图, 表达"被过滤掉"); 关闭=首页完全不判降亏、不画删除线、未入样本不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。⚠两开关正交: AI降亏层只产删除线/未入样本, 不产 AI建议N/当日已满/AI警示(那些归「AI仓位建议」开关控制)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号">ⓘ</span>` +
     `</label>` +
     `${_homeModeSel}` +
+    `<label class="sig-switch-lab sig-switch-avail" data-no-pop="" title="仅显示可用信号(视图控制开关, 默认关, 记忆键 tds_home_show_available_only): 开启=把信号列表里所有「灰显/删除线」的行整体隐藏——即 AI降亏过滤命中类(AI降亏 sig-ai-hit 删除线+置灰 / 未入样本 sig-poscap-notuni 删除线+置灰), 只留干净可用的放行信号; 关闭=恢复完整列表。纯展示层视图控制: 不改变任何判定链/统计口径/AI建议编号, 与「AI降亏过滤」「AI仓位建议 K」两开关正交叠加——本开关只藏 AI降亏层已画删除线的行, 「当日已满」(仓位层)与卖出/持有类风险提示正常亮显不受影响; 汇总条准确率仍按全量人口统计便于对比。开启后若近30个交易日无任何可用信号, 列表区显示枯竭引导空态(连续无放行天数与历史统计, 数据源与常驻枯竭 chip 同源 §22)">` +
+      `<input type="checkbox" class="sig-switch-avail-cb"${_readHomeAvailOnlyFlag() ? " checked" : ""}> 仅显示可用信号` +
+    `</label>` +
     // v1.1.5 枯竭提示 chip 占位(纯展示层): 异步填充, N≥20 才显示; 与凯利区 chip 同源同数字(§22)
     `<span class="sig-drought-slot" id="home-sig-drought-slot"></span>` +
     `${_aShareFinalizedTag}` +
@@ -2760,11 +2779,7 @@ function _bindPoscapTitleSuppress(container) {
 // 当前首页模式键集(与首页判定链同一 preset.keys §22); N≥20 才显示(common.js 单源阈值); 失败/缺失=静默隐藏。
 function _mountHomeDroughtChip() {
   if (typeof window._tdsComputeDrought !== "function") return;
-  let modeKeys = [];
-  try {
-    const mp = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(_readHomeFadeMode()) : null;
-    if (mp && Array.isArray(mp.keys)) modeKeys = mp.keys;
-  } catch (e) {}
+  const modeKeys = _homeDroughtModeKeys();
   _fetchOverfitMonitor().then((data) => {
     // then 内重查 DOM(sig-switch-row 可能已被重绘替换, 不用闭包旧引用防写入丢失)
     const slot = document.getElementById("home-sig-drought-slot");
@@ -2774,6 +2789,30 @@ function _mountHomeDroughtChip() {
     const html = window._tdsDroughtChipHtml ? window._tdsDroughtChipHtml(info) : "";
     slot.innerHTML = html;
     slot.style.display = html ? "" : "none";
+  });
+}
+// v1.1.5(2026-08-24) 「仅显示可用信号」空态枯竭统计异步填充(纯展示层, 复用 common.js 单源不写第二份):
+// 数据源/口径与 _mountHomeDroughtChip 完全同源(overfit_monitor.json recent 块 + 同一 modeKeys §22);
+// slot 存在(空态已渲染)时: 有统计 → 填 _tdsDroughtChipHtml(info)(含「已连续 N 个交易日无放行+72%」,
+// 空态场景 n≥30 必过 chip 阈值20); 统计缺失(hasRecent:false/打点未生成)→ 优雅降级填不带 N 的简版说明。
+function _mountSigEmptyDrought() {
+  const slot = document.getElementById("home-sig-empty-drought-slot");
+  if (!slot || typeof window._tdsFetchRecentBlock !== "function") return;
+  const modeKeys = _homeDroughtModeKeys();
+  window._tdsFetchRecentBlock(typeof fetchJSON === "function" ? fetchJSON : null).then((recent) => {
+    // then 内重查 DOM(sigCard 可能已被重绘替换, 不用闭包旧引用防写入丢失)
+    const el = document.getElementById("home-sig-empty-drought-slot");
+    if (!el) return;
+    const info = (typeof window._tdsComputeDrought === "function") ? window._tdsComputeDrought(recent, modeKeys) : null;
+    const html = (window._tdsDroughtChipHtml && info) ? window._tdsDroughtChipHtml(info) : "";
+    if (html) {
+      el.innerHTML = " —— " + html;
+    } else if (info && info.n >= 1) {
+      // 有 recent 块但未达 chip 阈值(recent 窗口不足 30 交易日的新数据场景): 仍如实给 N, 不给 72% 历史句
+      el.innerHTML = ' —— 已连续 <b>' + info.n + '</b> 个交易日无放行<span style="opacity:.75;font-size:.92em">(连续天数实时统计)</span>';
+    } else {
+      el.innerHTML = '<span style="opacity:.75;font-size:.92em">(连续无放行统计打点尚未生成, 每晚 21:40 随 AI 监控卡更新后此处显示连续天数)</span>';
+    }
   });
 }
 function _bindSigSwitchRow(sigCard) {
@@ -2826,6 +2865,16 @@ function _bindSigSwitchRow(sigCard) {
       const nKeys = (mp && Array.isArray(mp.keys)) ? mp.keys.length : 0;
       const hasBull = !!(mp && mp.keys && mp.keys.indexOf("bullAuxBackupStop") >= 0);
       _showSigToast("AI降亏·模式已切换: " + ((mp && mp.name) || mv) + "(" + nKeys + "键" + (hasBull ? ", 含牛市×辅备买全停" : "") + "); 切回「NEW 14键」即恢复默认视图");
+      return;
+    }
+    // v1.1.5(2026-08-24) 「仅显示可用信号」开关: 写裸键 tds_home_show_available_only 后重绘生效;
+    // 纯展示层视图控制(隐藏灰显/删除线行), 不改判定链; 默认关, 开关状态记忆下次进来保持
+    const availCb = e.target.closest(".sig-switch-avail-cb");
+    if (availCb) {
+      e.preventDefault();
+      e.stopPropagation();
+      try { localStorage.setItem("tds_home_show_available_only", availCb.checked ? "1" : "0"); } catch (err) {}
+      _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
       return;
     }
     const aiCb = e.target.closest(".sig-switch-ai-cb");
@@ -4110,8 +4159,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // 列表渲染用 filtered(只显示符合筛选的参考点)。null=不筛; "high"/"mid"/"low"=评级;
   // "true"/"false"/"null"=对/错/未结算。点击汇总条 button toggle 筛选, 再点同档恢复。
   // E 方案(2026-07-31): 时间窗口筛选 - 按日期窗口切片 items, 影响汇总条+列表+总数
-  // sigWindowFilter: "0_15"=全部(默认), "10_15"=第10-15日, "7_15"=第7-15日,
-  // "3_15"=第3-15日, "y_15"=排除今日(昨日~15日)
+  // sigWindowFilter: "0_15"=全部(默认), "10_15"=第10日起~窗口末, "7_15"=第7日起~窗口末,
+  // "3_15"=第3日起~窗口末, "y_15"=排除今日(昨日~窗口末)。键名为历史枚举不改(v1.1.5 窗口 15→30 扩容后
+  // 语义=起点~第30日, 用户可见文案已全部跟随改 30, 内部枚举保持稳定减少 diff 面)
   // 窗口筛选特殊: 影响汇总条(基于窗口内 items 算准确率); grade/correct/type 筛选不影响汇总条
   let windowedItems = items;
   if (kind === "signal" && state.sigWindowFilter && state.sigWindowFilter !== "0_15") {
@@ -4125,9 +4175,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     }
     let _lo = 0;
     const wf = state.sigWindowFilter;
-    if (wf === "10_15") _lo = 9;       // 第10-15日 = index 9..end
-    else if (wf === "7_15") _lo = 6;   // 第7-15日 = index 6..end
-    else if (wf === "3_15") _lo = 2;   // 第3-15日 = index 2..end
+    if (wf === "10_15") _lo = 9;       // 第10日起 = index 9..end(窗口30日后=第10~30日)
+    else if (wf === "7_15") _lo = 6;   // 第7日起 = index 6..end(窗口30日后=第7~30日)
+    else if (wf === "3_15") _lo = 2;   // 第3日起 = index 2..end(窗口30日后=第3~30日)
     else if (wf === "y_15") _lo = 1;   // 排除今日 = index 1..end
     const _windowDates = new Set(_sortedDates.slice(_lo));
     windowedItems = items.filter((it) => _windowDates.has(it.date));
@@ -4215,7 +4265,18 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   //   _statItems = 统计人口(排除降亏命中, 使准确率+分栏计数随过滤联动)
   let _statItems = _fadeOn ? popItems.filter((it) => !_isAiFadeHit(it)) : popItems;
   // 列表 = 人口 ∩ 列表子筛选(grade/correct/type)；5 个筛选正交组合(AND)
+  // v1.1.5(2026-08-24) 第6个正交开关「仅显示可用信号」(_availOnlyOn, 裸键 tds_home_show_available_only, 默认关 §23.7):
+  // 在现有渲染结果上隐藏灰显/删除线行——隐藏判定与 cellHtml 画线条件逐字同源, 不改变任何判定链:
+  //   ① AI降亏命中(_isAiFadeHit → sig-ai-hit 删除线+置灰; 含牛市×辅备买全停 bullAuxBackupStop 分支)
+  //   ② 未入样本(it._bt_in_universe===false 且非 band_hold → sig-poscap-notuni 删除线+置灰)
+  // 纯展示层视图控制: 汇总条统计人口(_statItems)/AI建议编号(kept 本就先滤降亏, 被藏行不占位)/ETF档计数基线均不变。
+  // 「当日已满」(sig-poscap-excluded, AI仓位层)与卖出/持有类风险提示正常亮显, 不在本开关隐藏范围(任务口径=只藏AI降亏层)。
+  const _availOnlyOn = (kind === "signal") && _readHomeAvailOnlyFlag();
   let filtered = (kind === "signal") ? popItems.filter(_listFilter) : windowedItems;
+  if (_availOnlyOn) {
+    filtered = filtered.filter((it) => !_isAiFadeHit(it)
+      && (it.signal === "band_hold" || it._bt_in_universe !== false));
+  }
   // 按 date 分组（降序），今日组单独提到最前
   const groups = {};
   for (const it of filtered) {
@@ -4233,9 +4294,15 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // 子筛选影响, 防"用户筛走买入信号却误报无买入信号")。空态横条判定用此表, 与 §23.6 入样宇宙/首页 AI建议口径一致。
   const _BUY_UNI_SIGS = { buy: 1, buy_aux: 1, buy_special: 1, buy_backup: 1 };
   const _dateHasInUniverseBuy = {};
+  // v1.1.5: 全窗口(全量 items, 不受用户子筛选影响)内是否存在「放行买入」=入样×未命中降亏,
+  // 口径与 common.js _tdsComputeDrought 放行定义一致(§22), 供「仅显示可用信号」枯竭空态判定。
+  let _homeHasPassBuy = false;
   if (kind === "signal") {
     for (const it of items) {
-      if (it && it.date && it._bt_in_universe !== false && _BUY_UNI_SIGS[it.signal]) _dateHasInUniverseBuy[it.date] = true;
+      if (it && it.date && it._bt_in_universe !== false && _BUY_UNI_SIGS[it.signal]) {
+        _dateHasInUniverseBuy[it.date] = true;
+        if (!_isAiFadeHit(it)) _homeHasPassBuy = true;
+      }
     }
   }
   // 2026-08-13 融合口径: 判断信号是否「命中降亏」(固定 8 键成员级, 与凯利回测 passesFade 同语义 v1.1.0)。
@@ -4252,7 +4319,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     return _bullStopActive && _isBullStopHit(it);
   }
   // positionCap 仓位控制过滤(2026-08-12): 凯利回测页 toggle 共享设置(localStorage "tds_poscap", 双页联动)
-  // #4 范围扩展(2026-08-12): 从凯利区扩展到整个信号列表——近15交易日每个日期各自按同一排序算 top-K, 所有日期都展示 AI建议(AI建议买入/当日已满), 不只今日
+  // #4 范围扩展(2026-08-12): 从凯利区扩展到整个信号列表——近30交易日每个日期各自按同一排序算 top-K, 所有日期都展示 AI建议(AI建议买入/当日已满), 不只今日
   // 排序口径与凯利回测 §6.1 一致: track_score DESC → 评级(high>mid>low) → 信号类型(buy_backup>buy>buy_aux>buy_special) → buy_date ASC
   let _posCapKeptMap = null;
   let _posCapK = 1;  // 2026-08-14 #BC 默认 K=1(主推档, 与 lab.js _kellyDefaultFilters/_kellySharedPosCap on:true/k:1 语义对齐)
@@ -4388,7 +4455,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           ? '<sup class="sig-late-badge" data-tip="盘后补齐: 该信号因数据源晚到(如港股/欧股/国债/晚发指标, 21:00 backfill-evening 指数补采)才在收盘后稍晚进入定版, 属正常补齐">盘后补齐</sup>'
           : '';
         const cls = showIntradayWarn ? "sig-item sig-clickable sig-intraday" : "sig-item sig-clickable";
-        // AI仓位建议(#4 2026-08-12 rename+范围扩展): 近15交易日每个日期各自 top-K AI建议买入高亮, 其余"当日已满"灰显
+        // AI仓位建议(#4 2026-08-12 rename+范围扩展): 近30交易日每个日期各自 top-K AI建议买入高亮, 其余"当日已满"灰显
         // (与凯利回测页 toggle 共享 tds_poscap 联动; 历史日期为复盘视角, 排序/口径与回测一致)
         let posCapCls = "";
         let posCapBadge = "";
@@ -4415,10 +4482,10 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           const _capRank = _posCapRank.get(it) || 0;
           if (_capRank) {
             posCapCls = " sig-poscap-kept";
-            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(仓位控制过滤)已开启(K=${_posCapK}): 口径与凯利回测一致「先滤AI降亏、再选top-K」——命中降亏的信号不占AI建议位、顺延补位; 只在回测入样宇宙内挑选(按官方入样规则, 只收买入类信号: ${_t("type_buy")}/${_t("buy_aux")}/${_t("buy_special")}/${_t("buy_backup")}; 需标的有ETF跟踪且有跟踪分; 排除类别=债类/情绪类/全球商品利率/港股行业/无ETF的空类别; 例外=10年国债ETF走自我兜底), 未入样标的与卖类信号(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不进入AI建议买入; 在当前档位筛出的存活信号内, 按跟踪分→评级→信号类型→买入日排序, 取前${_posCapK}名进入AI建议买入(与列表同人口, 编号不跳号); 序号=当日跟踪分降序第${_capRank}名(与回测K档口径一致, 不随K档跳变; 列表位置可能与编号不同序, 以编号为准); 存活者若命中AI降亏仍显示删除线建议回避（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议${_capRank}</sup>`;
+            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(仓位控制过滤)已开启(K=${_posCapK}): 口径与凯利回测一致「先滤AI降亏、再选top-K」——命中降亏的信号不占AI建议位、顺延补位; 只在回测入样宇宙内挑选(按官方入样规则, 只收买入类信号: ${_t("type_buy")}/${_t("buy_aux")}/${_t("buy_special")}/${_t("buy_backup")}; 需标的有ETF跟踪且有跟踪分; 排除类别=债类/情绪类/全球商品利率/港股行业/无ETF的空类别; 例外=10年国债ETF走自我兜底), 未入样标的与卖类信号(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不进入AI建议买入; 在当前档位筛出的存活信号内, 按跟踪分→评级→信号类型→买入日排序, 取前${_posCapK}名进入AI建议买入(与列表同人口, 编号不跳号); 序号=当日跟踪分降序第${_capRank}名(与回测K档口径一致, 不随K档跳变; 列表位置可能与编号不同序, 以编号为准); 存活者若命中AI降亏仍显示删除线建议回避（按指数级 top-K 展示，与回测每ETF粒度有差异；近30交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议${_capRank}</sup>`;
           } else {
             posCapCls = " sig-poscap-excluded";
-            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="AI仓位建议(仓位控制过滤)已开启(K=${_posCapK}): 当日从当前档位筛出的存活买入类信号, 只建议最优${_posCapK}个, 本信号未进前${_posCapK}, 当日已满; 命中AI降亏的信号已被过滤不占位; 卖类/持有中性信号(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不涉及当日已满语义, 不显示本badge（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">当日已满</sup>`;
+            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="AI仓位建议(仓位控制过滤)已开启(K=${_posCapK}): 当日从当前档位筛出的存活买入类信号, 只建议最优${_posCapK}个, 本信号未进前${_posCapK}, 当日已满; 命中AI降亏的信号已被过滤不占位; 卖类/持有中性信号(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不涉及当日已满语义, 不显示本badge（按指数级 top-K 展示，与回测每ETF粒度有差异；近30交易日每个日期都按同一口径展示，历史日期为复盘视角）">当日已满</sup>`;
           }
         }
         // 2026-08-14 AI过滤视图两态(用户澄清口径, 两个开关正交不绑定, §23.3 举一反三: 全站 poscap/「当日已满」渲染点只有本 cellHtml 一处):
@@ -4582,8 +4649,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       `<button class="sig-acc-seg sig-acc-filter${_gActive(grade)}" data-grade-filter="${grade}" data-tip="${_escAttr("点击只看评级" + label + "的参考点")}"><span class="sig-acc-dot ${dotCls}">●</span>${label} ${_fmt(bin.pct)} (${bin.t}/${bin.f})</button>`;
     const _unsettledTip = _t.tsText('未结算=信号已发出但尚未验证对错。含：①今日新信号(无至今走势数据);②等待收盘价回填。收盘后update_all重算since_correct后转为"对"或"错"。点击只看未结算项(波段持有非操作项,不计入未结算)');
     // "总准确率 X%" hover pop:标注完整统计口径(2026-07-20 补)
-    // 口径:近15交易日 signals_today 的 since_correct 至今盈亏方向命中率
-    const _wfLabel = { "0_15": "近15交易日全部(默认)", "10_15": "第10-15交易日", "7_15": "第7-15交易日", "3_15": "第3-15交易日", "y_15": "排除今日(昨日~15日)" }[state.sigWindowFilter] || "近15交易日";
+    // 口径:近30交易日 signals_today 的 since_correct 至今盈亏方向命中率(v1.1.5 2026-08-24 窗口由15扩30)
+    const _wfLabel = { "0_15": "近30交易日全部(默认)", "10_15": "第10-30交易日", "7_15": "第7-30交易日", "3_15": "第3-30交易日", "y_15": "排除今日(昨日~30日)" }[state.sigWindowFilter] || "近30交易日";
     // 2026-08-07 归一档适配：sigEtfFilterSet 空显""(全部)，非空显选中档名（如"（强关联ETF+相关ETF）"）
     const _etfTierName = { "1": "强关联ETF", "2": "相关ETF", "3": "有近似ETF", "4": "有跟踪ETF", "5": "概念无ETF" };
     const _etfScopeLabel = (state.sigEtfFilterSet && state.sigEtfFilterSet.length)
@@ -4598,7 +4665,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       `基准：信号日收盘价 -> 今日收盘价 涨跌方向\n` +
       `当前：${_acc.total.t}对 / ${_acc.total.f}错 / ${_acc.total.n}未结算，命中率 ${_fmt(_acc.total.pct)}\n` +
       `数据基准日：${_todayFmt}\n` +
-      `🎯 1:1 直白举例（拿当前默认人口真实数，核实源=overview.json signals_today+本函数 _calcSignalAccuracy）：近15交易日+ETF档1-4共 119 个参考点，排除波段持有后 108 个计入：已定对错的 103 个里 50 个至今方向对、53 个错，命中率 50/103≈48.5%；另有 5 个未结算（都是 8/14 数据最末交易日那批新信号，尚无至今走势）。若把「未结算」误当对错算进分母，命中率会被拉低（48.5% vs 错误算法 50/108≈46.3%）——这就是为什么未结算不计入分母。切到「10日~15日」只看第10-15天那几档，分子分母都变，命中率跟着变。\n` +
+      `🎯 1:1 直白举例（核实源=overview.json signals_today+本函数 _calcSignalAccuracy；下列数字为窗口扩容前(近15交易日、数据最末交易日 8/14)的核实快照——2026-08-24 窗口已扩至近30交易日，人口随之扩大且逐日变动，实际数值以本汇总条实时统计为准，下例用于理解公式逻辑）：该快照 ETF档1-4共 119 个参考点，排除波段持有后 108 个计入：已定对错的 103 个里 50 个至今方向对、53 个错，命中率 50/103≈48.5%；另有 5 个未结算（都是当时数据最末交易日那批新信号，尚无至今走势）。若把「未结算」误当对错算进分母，命中率会被拉低（48.5% vs 错误算法 50/108≈46.3%）——这就是为什么未结算不计入分母。切到「10日~30日」只看第10天起的那几档，分子分母都变，命中率跟着变。\n` +
       `分评级：高 ${_fmt(_acc.grade.high.pct)}(${_acc.grade.high.t}/${_acc.grade.high.f}) · 中 ${_fmt(_acc.grade.mid.pct)}(${_acc.grade.mid.t}/${_acc.grade.mid.f}) · 低 ${_fmt(_acc.grade.low.pct)}(${_acc.grade.low.t}/${_acc.grade.low.f})\n` +
       `注：未结算=今日新信号+待收盘回填，收盘后 update_all 重算 since_correct 转为对/错；评级 score=历史10d窗口胜率/盈亏比/样本加权（非本汇总条口径）`
     );
@@ -4643,7 +4710,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _wfReset = (state.sigWindowFilter && state.sigWindowFilter !== "0_15")
       ? ` <button class="sig-acc-reset" data-window-filter-reset="1">恢复全部</button>`
       : "";
-    _windowBtnsHtml = `<span class="sig-acc-window sig-title-window">切换: ${_wfBtn("10日~15日", "10_15", "只看第10-15交易日(排除近9日)")} · ${_wfBtn("7日~15日", "7_15", "只看第7-15交易日(排除近6日)")} · ${_wfBtn("3日~15日", "3_15", "只看第3-15交易日(排除近2日)")} · ${_wfBtn("昨日~15日", "y_15", "排除今日,只看昨日及更早14日")}${_wfReset}</span>`;
+    _windowBtnsHtml = `<span class="sig-acc-window sig-title-window">切换: ${_wfBtn("10日~30日", "10_15", "只看第10-30交易日(排除近9日)")} · ${_wfBtn("7日~30日", "7_15", "只看第7-30交易日(排除近6日)")} · ${_wfBtn("3日~30日", "3_15", "只看第3-30交易日(排除近2日)")} · ${_wfBtn("昨日~30日", "y_15", "排除今日,只看昨日及更早29日")}${_wfReset}</span>`;
     // 2026-08-07 归一档：每标的归一个最佳档，各档计数独立不重叠
     // 档位：1强关联(self/strong) 2相关(related) 3近似(approx) 4有跟踪(none/null弱/极弱) 5概念(无ETF)
     // 选中态：档1-3 复用 etf-pop-grade-excellent/good/warn CSS class 着色 + sig-acc-filter-active 描边；
@@ -4667,7 +4734,16 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     _accHtml = `<div class="sig-acc-wrap">${_etfFilterRow}<div class="signal-accuracy-summary"><span class="sig-acc-total-label" data-tip="${_escAttr(_totalTip)}">总准确率 ${_fmt(_acc.total.pct)}</span> (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}</div>`;
   }
   // 筛选后无匹配: 汇总条仍显示(窗口内统计), 列表区给提示
-  if (kind === "signal" && !rows) {
+  // v1.1.5(2026-08-24) 枯竭引导空态: 开了「仅显示可用信号」且近30交易日全窗口无任何放行买入信号时,
+  // 显示引导性空态替代干巴巴的"暂无"。N/72% 文案复用 common.js 单源 _tdsDroughtChipHtml(不写第二份,
+  // 空态场景 n≥30 必过其阈值20), 由 _mountSigEmptyDrought 异步填充; 统计打点缺失时降级为不带 N 的简版。
+  // 客观口径判定(_homeHasPassBuy 基于全量 items): 用户 grade/correct/ETF 子筛选筛光不误报枯竭, 走下方原空态。
+  if (kind === "signal" && !rows && _availOnlyOn && windowedItems.length && !_homeHasPassBuy) {
+    rows = '<div class="sig-drought-empty" data-no-pop="">'
+      + '<div class="sig-drought-empty-title">⏳ 近30个交易日无可用信号<span id="home-sig-empty-drought-slot"></span></div>'
+      + '<div class="sig-drought-empty-sub">默认 NEW14 过滤下连续无放行是防守反击刀的常态运作方式而非异常; 可切上方「AI降亏·模式」对照档查看更多信号, 或关闭「仅显示可用信号」恢复完整列表</div>'
+      + '</div>';
+  } else if (kind === "signal" && !rows) {
     if (!windowedItems.length) {
       rows = `<div class="empty-note" style="margin:8px 0">当前时间窗口内无参考点，点击上方窗口按钮切换查看</div>`;
     } else if (state.sigGradeFilter || state.sigCorrectFilter || state.sigTypeFilter || (state.sigEtfFilterSet && state.sigEtfFilterSet.length)) {
@@ -4762,7 +4838,7 @@ function _rerenderSigCardContent(r, snap) {
   const sigCard = document.querySelector(".sig-card");
   if (!sigCard) return;
   const isClosed = snap ? snap.is_closed : true;
-  const title = "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看8类信号与ETF跟踪指标详细解释）");
+  const title = "近期技术分析参考点（近 30 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看8类信号与ETF跟踪指标详细解释）");
   const newHtml = _renderSignalGrid(r.signals_today || [], r.date, title, "signal", "近期无技术分析参考点", isClosed, r.signals_meta);
   const tmp = document.createElement("div");
   tmp.innerHTML = newHtml;
@@ -4803,6 +4879,8 @@ function _rerenderSigCardContent(r, snap) {
   _bindPoscapTitleSuppress(sigCard);
   // 2026-08-14 参考说明按钮独立 hoverpop 重绑(与 K 评级 pop 同模式, 旧 wrap 已销毁需重新 bind)
   _bindSigHelpPop(sigCard);
+  // v1.1.5(2026-08-24): 「仅显示可用信号」空态枯竭统计异步重挂(grid 重绘后旧 slot 已销毁; 无空态时 slot 不存在=no-op)
+  try { _mountSigEmptyDrought(); } catch (e) {}
 }
 
 // ts:overview-refreshed hook: collected_at 变化时增量重绘 sigCard(非概览 tab / 无数据 / 同 collected_at 跳过)
@@ -13878,14 +13956,15 @@ async function renderOverview() {
   });
   colA2.appendChild(freezeCard);
 
-  // 右列：近期买卖点（近15交易日，今日高亮排首）
+  // 右列：近期买卖点（近30交易日，今日高亮排首；v1.1.5 2026-08-24 由15扩30）
   const sigCard = document.createElement("div");
   sigCard.className = "chart-card sig-card";
-  sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看8类信号与ETF跟踪指标详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true, r.signals_meta);
+  sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 30 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看8类信号与ETF跟踪指标详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true, r.signals_meta);
   addCardTimeBadge(sigCard, r.date, snap, "t0", "", false, true);  // 任务1: useOverviewDate=true, 轮询后用最新 overview.date 刷新
   _sigCardRenderedAt = r.collected_at;  // D: 记录渲染时 collected_at, 供 _maybeRerenderSigCard 判断是否需重绘
   _bindSigSwitchRow(sigCard);  // 2026-08-13 首页 AI 开关行事件绑定(一次性委托, 重绘后仍生效)
   try { _mountHomeDroughtChip(); } catch (e) {} // v1.1.5: AI建议区枯竭提示 chip 异步填充(重绘后重挂, N≥20 才显示)
+  try { _mountSigEmptyDrought(); } catch (e) {} // v1.1.5: 「仅显示可用信号」空态枯竭统计异步填充(slot 不存在=no-op)
   // B1 方案B(2026-07-27): 盘中提示 - sw_/thsc_/cgb_ 等行业概念指数不在 intraday 反哺列表
   // (_SNAPSHOT_TO_INDEX_ID 只12个),盘中它们的 -all.json 不更新,首页看到的当日 buy/sell pin
   // 点弹窗看不到 T 日 pin(K线末日还是 T-1)。加提示让用户知道收盘后 17:50 全对齐,非 bug。
@@ -20407,7 +20486,8 @@ function renderSentimentSignalList(host, r, snap) {
     for (const s of arr) all.push(s);
   }
   if (!all.length) return;
-  // 近 15 个日期（对齐首页 signals_today 窗口口径），新日期在前
+  // 近 15 个日期（历史上对齐首页 signals_today 的15日窗口；2026-08-24 首页窗口扩至30交易日本模块保持15日独立窗口不动——
+  // 数据源=期货净加仓明细 queries.py compute_role_ih_detail n_days=15, 业务语义与信号列表窗口无关, 不跟扩 §23.3 清单), 新日期在前
   const dates = [...new Set(all.map((s) => s.date))].sort((a, b) => (a < b ? 1 : -1));
   const recentDates = dates.slice(0, 15);
   const recentSet = new Set(recentDates);
