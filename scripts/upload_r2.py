@@ -685,9 +685,13 @@ def cmd_upload_fund_nav():
       - 每周日强制全量一次(防「R2 侧对象丢失而本地状态无感知」漂移, 同 etf-hist);
       - 状态只在全部上传成功后 tmp+os.replace 原子更新;部分失败保持旧状态下次重传
         —— 失败方向宁多传不漏传;
-      - 体量提示: 全量 ~700MB(26118 只 x ~26KB), 日增量=当日有新净值的活跃基金
-        (~1-2 万只 x 单文件整传); 上游超时由调用方 run_r2_upload 1800s 承接,
-        失败不阻塞 deploy 主流程(与 upload-etf-hist 同策略)。
+      - 体量提示: 全量 ~514MB(26118 只 x ~26KB), 日增量=当日有新净值的活跃基金
+        (实测 ~23,897 只/91.5%, 2026-08-25 reviewer F3 实证——「清盘冻结跳过」只省 8.5%);
+        上游超时由调用方 run_r2_upload 1800s 承接, 失败不阻塞 deploy 主流程(同 upload-etf-hist)。
+      - **跳过 purge(F3 主控拍板 NO_CACHE 方案, 2026-08-25)**: worker headers.js r2ProxyHandler
+        对 fund_nav/ 前缀 no-store 不查不写 edge cache(先例 dataCacheTtl ttl=0,
+        memory edge-cache-ttl-stretch-no-cache), 前端每次回源 R2 拿最新 -> purge 无意义且
+        日增 2.4 万 keys ≈ 800 批估 27min 会把 deploy 链 1800s 超时 kill, 整个环节省掉。
     """
     nav_dir = STATIC_DIR / "data/fund_nav"
     all_json = sorted(p for p in nav_dir.glob("*.json") if p.is_file())
@@ -759,7 +763,9 @@ def cmd_upload_fund_nav():
         sys.exit(1)
 
     _save_state(state_path, sigs, mode)
-    purge_cache(uploaded_keys, cache_prefix="/r2/")
+    # 不调 purge_cache(F3): worker 对 fund_nav/ 前缀 no-store(不查不写 edge cache),
+    # 无 edge 缓存可清; 日增量 ~2.4 万 keys 的 purge(~800 批/估 27min)会拖垮 deploy 链 1800s。
+    # 若未来 worker 恢复该前缀缓存, 必须同步恢复本处 purge(两登记点联动)。
 
 
 def cmd_upload_industry():

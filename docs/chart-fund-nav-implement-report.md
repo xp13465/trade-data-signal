@@ -75,7 +75,27 @@
 ### 批次3(renderOffshoreFund 列表 sparkline)= 未做,原因与建议
 列表行 sparkline 需要每 item 内置近 30 日净值序列;API 模式列表来自 CF Worker+D1(`/api/fund_score`),注入序列须改 D1 表结构或 worker 聚合逻辑——触及已上线 #79 接口(版本功能冻结契约 §23.7),不是前端顺手小改。Top100 fallback JSON 可由 export_fund_score.py 注入但会造成 API/静态两模式行为分叉。建议:确需列表 sparkline 时独立派单设计(D1 加聚合列或独立批量 spark 接口),不在本任务夹带。
 
-## 三、遗留与提示
+## 三、review PASS-with-fixes 三件修复(2026-08-25,review 报告 docs/review-fund-nav-20260825.md)
+
+### F1 check_fund_nav 空数据基金误判 FAIL(review 必修项)
+- 根因:产物含 136 只 count=0 空 JSON(全 NULL 净值 code,export 正常行为),check 结构抽验见 date/count/nav 有空值即 _fail,--deploy-mode 下随机阻断部署(单次抽中概率 ≈2.6%)。
+- 修法:`scripts/check_data_integrity.py` check_fund_nav 结构抽验加 `d.get("count") == 0 → 放行`(合法空数据基金),ok 文案附「含合法空数据基金 N 只」。**仅 count 显式为 0 放行,count 字段缺失的损坏文件仍 FAIL**(防把结构损坏误当空数据)。
+- 自验:①主控点名复验 027559.json 强制进抽样 → ok「含合法空数据基金 1 只」;②5 只全空数据强制抽样 → ok「含合法空数据基金 5 只」;③沙箱 count 缺失损坏文件 → FAIL「date/count/nav 有空值」;④空数据文件 DB↔产物逐位层两侧均空序列天然一致(代码路径核过)。
+
+### F2 跨弹窗竞态 reqId 随 open 重置 + close 不失效(review 强烈建议,含 ETF 同病灶)
+- 根因:fund 版 navReqId / ETF 版 trendReqId(#10 pre-existing)存 `modal._ctx`,每次 open 重置、close 不失效——A fetch in-flight 中关开到 B,A 晚到仍通过校验把 A 的走势画进 B 弹窗。
+- 修法:两处 reqId 均改**模块级全局单调计数器不复位**(app.js 新增 `_etfTrendReqSeq`/`_fundNavReqSeq`,自增与两处校验共 4 处/版);同弹窗切 tab 防护语义不变。旧键 grep 全仓零残留,node --check PASS。
+- §23.7 说明:ETF 版属已上线 #10 行为,纯 bug 修复例外(§23.7④)+ 主控拍板点名一起修。
+
+### F3 fund_nav NO_CACHE 方案(主控拍板)
+- 背景:日增量实测 ~23,897 只(91.5%),purge ~800 批估 27min 会把 deploy 链 1800s 超时 kill。
+- 改动两处:
+  1. `worker/headers.js` r2ProxyHandler:`fund_nav/` 前缀 no-store——不查不写 edge cache、响应头 `Cache-Control: no-store, max-age=0`(先例 dataCacheTtl ttl=0,memory edge-cache-ttl-stretch-no-cache);etf/ 等其余前缀行为不变。
+  2. `scripts/upload_r2.py` cmd_upload_fund_nav:**不调 purge_cache**(无 edge 缓存可清;注释标明「若未来 worker 恢复该前缀缓存必须同步恢复本处 purge」两登记点联动)。docstring 体量数字同步修正(~514MB/日增 91.5%)。
+- **worker 部署方式与命令**:worker 走 git 发布——push main 后 Cloudflare Builds 自动跑 `wrangler deploy`(headers.js 头注 L3;esbuild bundle,无需本地手动执行)。即本分支 merge 进 main 的那一刻 worker 新头自动上线,**部署时机=主控 merge 时点**,agent 不单独操作。
+- 自验:node --check headers.js PASS;curl no-store 实测需 worker 上线后做——命令:`curl -sI -A "Mozilla/5.0" "https://ss.fx8.store/r2/fund_nav/000001.json" | grep -i "cache-control\|cf-cache-status"`,期望 `cache-control: no-store, max-age=0` 且不再出现 edge HIT。
+
+## 四、遗留与提示
 1. **fund_basic 扩展列恢复**:等周日 stage0-overview 自动真采(或主控拍板手动提前跑);bug① 修好后每日日更不再清列,N 的成果可持续。
 2. **首次线上触发**:merge 后首个交易日 17:50 update_all 会跑 export(41s)+rsync(首启 26118 文件较慢,~分钟级)+upload-fund-nav(状态清单空=全量 ~514MB,1800s 超时应能承接;若间歇超时,告警不阻塞,次日增量自然收敛)。R2 上传成功前,前端走势区显示「加载失败,请稍后重试」优雅降级,不影响弹窗其余区块。
 3. 本地验证期间在 trade-data/static-site/data/fund_nav/ 已生成全量产物(566MB,untracked),merge 后首次 update_all 即增量模式,无需再等首跑全量。
