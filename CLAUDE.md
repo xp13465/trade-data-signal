@@ -362,6 +362,15 @@
 - 关联:docs/main-governance §18.2 索引维护、memory tasks-md-only-active、pending-features-index 每日 23:47 cron 自动重建。
 - **验收口径**:涉及 task/todolist/归档任务,agent 自验含「4 态流转对照(活跃留 task/远期移 todolist/完成进完成文件/归档可反查)+ 活待办数前后不变 + 会话收尾已落档」,漏=验收不过。
 
+### 23.14 v1.1.6 后开发内容必过 codex 外部 review(2026-08-25 用户定)
+**触发词**:任何 feat 实施完成/merge 前后;v1.1.6(tag 91303132b)之后的所有开发内容验收。
+**核心一句话:v1.1.6 之后的一切开发内容,除内部 reviewer 外必须额外让 codex 做一道外部 review,双保险防同源盲区。**
+- **① 发起**:主控走 `echo '<json>' | bash scripts/codex-review-request.sh <request_id>`(内置清旧报告+JSON 校验,E31 三件=status 字段/清场/原子写;协议全文 docs/codex-collab-protocol.md);request 必带 status/base..head diff 范围/review 重点清单/报告回传路径
+- **② 时点**:优先 merge 前发(feat 分支 push 远端后 codex 即可拉);已 merge 存量发现漏发 → merge 后补发,发现问题照常修不豁免
+- **③ 豁免**:A 级纯文档/文案类可豁免但必须在汇报中显式声明;B 级+功能/数据/算法/前端改动一律必发
+- **④ 闭环**:codex 报告原子写 `/tmp/codex-reports/<id>.json`,主控读后逐条处置(必修/建议/运营拍板),处置结果回写任务清单;codex 自发任务(如 S06)以其验收口径+读回传报告为天然复核,不重复发起
+- 对应 skill:`.agents/codex-reviewer/SKILL.md`(2ba9b1e28);通道防误读见 governance E31
+
 ### 23.13 口径三源核对+不统一必上报拍板(2026-08-24 用户定,P0 级,has_track 口径事故)
 **触发词**:任何涉及"分类/档位/象限/阈值/区间"语义的需求理解、方案设计、派单、实施、review;挖掘/回测报告结论落地;发现两处描述同一概念但说法不同。
 **背景(2026-08-24 has_track 事故)**:「有跟踪ETF」产品文档(信号❓公式)定义=跟踪分<50 或数据不足(none 30-49 + null <30 同归筛选档4),首页 hover 与凯利区标注均写 <50;但后端归类实现只装 none、null 掉卡外;挖掘报告基于该带 bug 现状设计 X1("整剔 none 象限"),实施批照单落地,全链校验都在"报告↔代码"闭环内,**没有任何环节对照过 UI 文案**——直至用户发现卡不归零+口径出现三个版本(<50/<50或数据不足/30-49),引发多轮校对修复辩论,大量 token 与时间浪费。用户定性:**"这种行为属于p0级问题 不能再犯 如果需求理解不足 可以问我拍板。或者发现不统一也可以找我拍板"**。
