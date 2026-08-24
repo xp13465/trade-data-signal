@@ -1405,7 +1405,7 @@
 .lab-sigkelly-posrate-hl { background: rgba(250,173,20,0.10); }
 [data-theme="dark"] .lab-sigkelly-posrate-hl, [data-theme="redgold"] .lab-sigkelly-posrate-hl { background: rgba(240,185,11,0.14); }
 .lab-sigkelly-posrate-pop-note { color: var(--text-4); font-size: 10px; line-height: 1.45; border-top: 1px dashed var(--border); padding-top: 5px; }
-@media (max-width: 760px) { .lab-sigkelly-posrate-pop { width: min(480px, calc(100vw - 16px)); font-size: 10.5px; padding: 7px 9px; } }
+@media (max-width: 768px) { .lab-sigkelly-posrate-pop { width: min(480px, calc(100vw - 16px)); font-size: 10.5px; padding: 7px 9px; } }
 .lab-sigkelly-toggle-group-poscap { border: 1px dashed var(--primary); }
 .lab-sigkelly-toggle-group-rec { border: 1px dashed rgba(250,173,20,0.6); background: rgba(250,173,20,0.06); }
 /* ===== 2026-08-14 降亏过滤建议重写: 顶部「怎么用」三行 ===== */
@@ -1552,7 +1552,7 @@
 .lab-sigkelly-wm-aux-good { color: #389e0d; background: rgba(56,158,13,0.12); }
 [data-theme="dark"] .lab-sigkelly-wm-aux-risk, [data-theme="redgold"] .lab-sigkelly-wm-aux-risk { color: #ffb070; }
 [data-theme="dark"] .lab-sigkelly-wm-aux-good, [data-theme="redgold"] .lab-sigkelly-wm-aux-good { color: #95de64; }
-@media (max-width: 760px) { .lab-sigkelly-wm { font-size: 10px; padding: 1px 6px; top: 4px; right: 6px; } }
+@media (max-width: 768px) { .lab-sigkelly-wm { font-size: 10px; padding: 1px 6px; top: 4px; right: 6px; } }
 
 /* 卡间比较水印(标题下方独立行, 蓝/紫色系, 不撞右上角金/橙/灰三态) */
 .lab-sigkelly-cwm-row { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
@@ -1562,7 +1562,7 @@
 .lab-sigkelly-cwm-stable { background: rgba(124,58,237,0.14); color: #7c3aed; border: 1px solid rgba(124,58,237,0.4); }
 [data-theme="dark"] .lab-sigkelly-cwm-best, [data-theme="redgold"] .lab-sigkelly-cwm-best { color: #7da8ff; background: rgba(59,130,246,0.18); border-color: rgba(59,130,246,0.45); }
 [data-theme="dark"] .lab-sigkelly-cwm-stable, [data-theme="redgold"] .lab-sigkelly-cwm-stable { color: #b899ff; background: rgba(139,92,246,0.18); border-color: rgba(139,92,246,0.45); }
-@media (max-width: 760px) { .lab-sigkelly-cwm-badge { font-size: 10px; padding: 1px 6px; } .lab-sigkelly-card-name { padding-right: 32px; } }
+@media (max-width: 768px) { .lab-sigkelly-cwm-badge { font-size: 10px; padding: 1px 6px; } .lab-sigkelly-card-name { padding-right: 32px; } }
 
 /* 组比较水印 hoverpop */
 .lab-sigkelly-wm-pop-wrap { position: absolute; z-index: 50; left: 0; top: 100%; margin-top: 4px; display: none; }
@@ -1592,7 +1592,7 @@
 .lab-sigkelly-wm-cmp-noop .lab-sigkelly-wm-cmp-m, .lab-sigkelly-wm-cmp-noop .lab-sigkelly-wm-cmp-lbl, .lab-sigkelly-wm-cmp-noop .lab-sigkelly-wm-cmp-tp { color: var(--text-3); text-decoration: line-through; }
 .lab-sigkelly-wm-cmp-noop-badge { display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 10px; line-height: 1.5; color: #fff; background: #c62828; box-shadow: 0 0 0 1px rgba(255,255,255,0.35) inset; white-space: nowrap; margin-left: auto; font-weight: 600 !important; }
 .lab-sigkelly-wm-li-noop { color: #fa541c; font-weight: 600; }
-@media (max-width: 760px) { .lab-sigkelly-wm-pop { width: min(248px, calc(100vw - 16px)); font-size: 10.5px; padding: 7px 9px; } }
+@media (max-width: 768px) { .lab-sigkelly-wm-pop { width: min(248px, calc(100vw - 16px)); font-size: 10.5px; padding: 7px 9px; } }
 .lab-sigkelly-card-head { margin-bottom: 8px; }
 .lab-sigkelly-card-name { font-size: 14px; font-weight: 700; color: var(--text-1); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 48px; }
 .lab-sigkelly-card-desc { font-size: 11px; color: var(--text-3); margin-top: 2px; }
@@ -1699,7 +1699,7 @@
 #lab-kelly-gih-compare-body .lab-sigkelly-gih-table td:nth-child(1),
 #lab-kelly-gih-compare-body .lab-sigkelly-gih-table td:nth-child(2) { white-space: normal; }
 /* 移动端: 横向表较宽, 在窄屏下保证不挤乱——表格获得合理 min-width 走 .lab-sigkelly-table-scroll 横向滚动, 表头/场景组不收缩; 模式列从等宽27% 改为按内容 nowrap 不被压缩 */
-@media (max-width: 760px) {
+@media (max-width: 768px) {
   #lab-kelly-gih-compare-body .lab-sigkelly-table { table-layout: fixed; width: 620px; min-width: 100%; }
   #lab-kelly-gih-compare-body .lab-sigkelly-gihc-row { width: 120px; }
   #lab-kelly-gih-compare-body .lab-sigkelly-gihc-mode { width: auto; min-width: 110px; }
@@ -1768,7 +1768,7 @@
 .lab-sigkelly-guide-pop-wrap::before { content: ""; position: absolute; top: -4px; left: 0; right: 0; height: 4px; }
 .lab-sigkelly-guide-item { padding: 1px 0; }
 .lab-sigkelly-guide-item b { color: var(--text-2); }
-@media (max-width: 760px) { .lab-sigkelly-guide-trigger { font-size: 10.5px; } }
+@media (max-width: 768px) { .lab-sigkelly-guide-trigger { font-size: 10.5px; } }
 
 /* 可点击交易行 */
 .lab-sigkelly-trade-row { cursor: pointer; transition: background 0.15s; }
@@ -1833,7 +1833,7 @@
 .lab-sigkelly-modal-elimwrap { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; max-height: 40vh; display: flex; flex-direction: column; min-height: 0; }
 .lab-sigkelly-modal-elimtablewrap { overflow: auto; flex: 1; min-height: 0; }
 .lab-sigkelly-modal-elimtitle { font-size: 11px; font-weight: 700; color: #868e96; margin-bottom: 6px; }
-@media (max-width: 760px) {
+@media (max-width: 768px) {
   .lab-sigkelly-modal { max-width: 100%; max-height: 95vh; }
   .lab-sigkelly-trades-table { font-size: 11px; }
   .lab-sigkelly-trades-table th, .lab-sigkelly-trades-table td { padding: 3px 4px; }
@@ -1907,7 +1907,7 @@
 
 /* ===== 信号凯利回测页 移动端整体布局/样式优化(2026-08-15, B级, 配合吸顶条折叠方案A) =====
    核心: ①吸顶条折叠态压最小高度(周期+参数按钮只占1行, 展开控制台不去遮内容) ②卡片单列撑满+内边距收紧 ③toggle 展开态用2列紧凑网格不溢出 ④表格窄屏压缩cell padding且保横向滚动顺滑 — 全部只动样式, 不动渲染结构; 桌面(>600px)维持现状 */
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   /* --- 吸顶条折叠态: 1行压到最小高度, 展开控制台紧凑不挤爆 --- */
   .lab-sigkelly-bar { gap: 6px 8px; padding-bottom: 4px; padding-top: 2px; }
   .lab-sigkelly-bar-head { gap: 4px 6px; width: 100%; }
@@ -2056,11 +2056,47 @@
 .lab-kelly-repo-body th { background: var(--bg-hover); font-weight: 700; }
 .lab-kelly-repo-body hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 /* 移动端: 窄屏近全屏(宽94vw, 高90vh), 正文/目录限高按视口收窄避免撑出 */
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .lab-kelly-repo-modal { width: 96vw; max-width: 96vw; height: 92vh; }
   .lab-kelly-repo-body { padding: 8px 10px; font-size: 12.5px; }
   .lab-kelly-repo-body table { font-size: 11px; }
   .lab-kelly-repo-body th, .lab-kelly-repo-body td { padding: 3px 5px; font-size: 11px; }
   .lab-kelly-repo-toc { max-height: 26vh; }
   .lab-kelly-repo-path { font-size: 10.5px; }
+}
+
+/* ===== #97 批次A iOS 兼容专项(2026-08-25, 纯新增断点分支, 桌面>768px 零变化) =====
+   ①input/select ≥16px: iOS Safari 对 font-size<16px 的输入框聚焦时自动放大整页(布局错乱)
+   ②vh→dvh 级联: vh 不随 iOS 地址栏伸缩, 弹窗底部按钮被工具栏遮住; dvh 老浏览器不认自动回落上一条 vh
+   ③触控目标≥44×44pt(Apple HIG): period/fee/toggle/关闭/分页按钮移动端难点准
+   ④横滚 overscroll-behavior-x: contain: 横滚区滑到头不再带动整页竖滚
+   ⑤弹窗底部 safe-area: 全面屏 home indicator 不压分页按钮 */
+@media (max-width: 768px) {
+  /* ① 防聚焦自动缩放(费率输入/按年模式下拉/明细筛选框) */
+  .lab-sigkelly-fee-custom .lab-input,
+  .lab-sigkelly-yearly-mode-select,
+  .lab-sigkelly-filter-etf,
+  .lab-sigkelly-filter-profit { font-size: 16px; }
+  /* 16px 字号下 40px 宽装不下 0.0003 类数值, 同步放宽(仅断点内) */
+  .lab-sigkelly-fee-custom .lab-input { width: 64px !important; height: 30px; }
+  /* ② dvh 级联兜底(fallback=各基础规则/上方768段的 vh 值) */
+  .lab-sigkelly-modal { max-height: calc(100dvh - 40px); }
+  .lab-kelly-repo-modal { height: 92dvh; }
+  .lab-sigkelly-review-body { max-height: 70dvh; }
+  /* ③ 触控目标 ≥44px */
+  .lab-sigkelly-periods .lab-sigkelly-period-btn,
+  .lab-sigkelly-fee-btn,
+  .lab-sigkelly-toggle,
+  .lab-sigkelly-params-toggle,
+  .lab-sigkelly-modal-close,
+  .lab-sigkelly-page-prev,
+  .lab-sigkelly-page-next { min-height: 44px; }
+  .lab-sigkelly-modal-close { min-width: 44px; }
+  .lab-sigkelly-period-btn { padding: 6px 14px; }
+  .lab-sigkelly-fee-btn { padding: 8px 12px; }
+  .lab-sigkelly-toggle { padding: 6px 8px; }
+  /* ④ 横滚手势隔离 */
+  .lab-sigkelly-table-scroll { overscroll-behavior-x: contain; }
+  /* ⑤ 安全区: 分页/关闭钮避开 home indicator */
+  .lab-sigkelly-modal-pagination { padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
 }
