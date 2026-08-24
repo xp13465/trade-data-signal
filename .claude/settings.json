@@ -19,6 +19,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/linhuichen/code/trade/scripts/agent_dispatch_cron_reminder.py"
+          }
+        ]
+      }
     ]
   }
 }

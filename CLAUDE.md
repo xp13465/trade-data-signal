@@ -20,6 +20,12 @@
 - 主控=调度中枢+时点管理+§0 验收(只验上线点,不重复 agent 自验的代码点,全文见 governance §2/§0)。
 - **触发场景**:接 bug/功能需求时想"直接 Edit 快一点"→ 停,先想"该派谁"。紧急小改也走 agent(§23.2 修bug三铁律要求 agent 修+自测)。
 - **唯一例外:仅紧急 A 级小改可主控直接改(2026-08-12 用户定)**——A 级=纯文案/格式/单行常数/无逻辑变更/无跨文件影响/一眼可见正确性,且**必须紧急**(线上错字/马上要上线等)。常规 A 级仍派 agent,拿不准就派;**B 级+(逻辑/口径/算法/跨文件/需 review)主控永不碰**。改完必须自验(语法/一致性)。
+
+## 0.2 派 background agent 三件套(2026-08-25 用户定,L01 二次复发根治;全文见 docs/main-governance.md §11)
+> 为什么放共享核心:与 L29 同病——"派完必设 cron 兜底"原本只在 governance §11(按需读,compact 后不注入),compact 后裸派 3 agent 零兜底,#11 死亡半天无人知。提升为共享核心=每会话必注入,不依赖想得起来读。
+- **每次 Agent 工具派出子 agent,同一轮必齐三件**:①`run_in_background`(同步阻塞=违规)②prompt 写明进度文件 `/tmp/agent-progress-<名>.md` 且要求每步 echo ③**巡检兜底 cron 在位**(CronList 查已有 durable 巡检 job 且覆盖本 agent→复用;无→CronCreate 15min 档 `3,18,33,48`+durable+门控零输出;全部 agent 完成验收后 CronDelete)
+- **通知送达不可靠是架构事实**(task-notification/SendMessage 均会丢),cron 兜底是唯一可靠残余;裸派=L01 违规
+- **机械强制**:`.claude/settings.json` PostToolUse(Agent) hook 每次派单自动弹三件套自查(hook 脚本 scripts/agent_dispatch_cron_reminder.py),收到提醒必须当场补齐缺项再继续
 - **为什么放共享核心**:2026-08-12 角色拆分后此条仅在 governance(按需读),compact 后上下文不注入,主控忙碌时忘了读→亲自 Edit app.js 犯错(教训 L29)。提升为共享核心=每会话必注入,不依赖"想得起来读"。
 
 ## 1. 开工先读
