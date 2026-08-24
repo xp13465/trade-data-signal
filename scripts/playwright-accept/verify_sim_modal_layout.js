@@ -1,21 +1,24 @@
 #!/usr/bin/env node
 /**
- * verify_sim_modal_two_rows.js — 「模拟回测」弹窗顶部筛选条两行紧凑排布自验(2026-08-24)
+ * verify_sim_modal_layout.js — 「模拟回测」弹窗顶部筛选条排布自验(2026-08-24)
  *
- * 任务: feat/sim-modal-filter-compact(app.js _openSimBacktestModal L3287 区 + style.css .sim-ctrl-line)
- * 验收口径(主控任务书 5 条):
- *   ① 筛选控件按新两行排布: 第一行=时间范围(起/止)+交易模式, 第二行=AI降亏过滤+AI仓位建议K
- *      (断言相邻 DOM 归属 .sim-ctrl-line + 几何 offsetTop 同行)
+ * 演进: 两行版(1aa2bf8cd)→ 用户二次反馈仍太高 → 单行版(本版): 四控件组(时间范围起/止+交易模式+
+ * AI降亏过滤+AI仓位建议K=5 DOM 块)合 1 行横排, 费率块独占一行; 间距/padding 同步收紧。
+ *
+ * 任务: feat/sim-modal-filter-compact(app.js _openSimBacktestModal 区 + style.css .sim-ctrl-row 段)
+ * 验收口径(主控任务书+追加单行几何条目):
+ *   ① 单行排布: 5 筛选块同视觉一行(top 差≤8px), 费率块在其下独占一行(断言 DOM 顺序+几何)
  *   ② 交易模式下拉宽度收敛(max-width:170px)且选项文字完整可读(canvas measureText 最长选项 ≤ 宽度)
  *   ③ 切换各筛选值功能正常(日期/降亏模式/K档/交易模式), 表格重渲染, 事件绑定未被布局改动破坏
- *   ④ 窄屏 390px 不横向溢出、不重叠, pageerror=0
+ *   ④ 窄屏 390px 自然折行不横向溢出、不重叠, pageerror=0
  *   ⑤ 默认打开状态与现版一致(§23.7 只动布局): 起=今-30/止=今/降亏=new14/K=K1/模式=A/费率默认档
+ *      (+ sim_modal_baseline_probe.js 对现版构建 A/B diff)
  *
  * 用法:
  *   ln -sfn /Users/linhuichen/code/trade/static-site/data static-site/data   # worktree 只读数据软链
  *   python3 -m http.server 8137 -d static-site &
  *   NODE_PATH=/Users/linhuichen/code/trade/scripts/playwright-accept/node_modules \
- *     node scripts/playwright-accept/verify_sim_modal_two_rows.js http://localhost:8137
+ *     node scripts/playwright-accept/verify_sim_modal_layout.js http://localhost:8137
  */
 'use strict';
 const { chromium } = require('playwright');
@@ -27,28 +30,22 @@ function check(tag, cond, detail) {
   console.log(`${cond ? 'PASS' : 'FAIL'}  ${tag}${detail ? '  (' + detail + ')' : ''}`);
 }
 
-// 断言辅助: 组内块几何(同行判定=top 差<8px; 不重叠判定=右缘不越过下一块左缘或已换行)
+// 断言辅助: 单行版几何(2026-08-24 二次反馈: 四控件合 1 行)——
+// .sim-ctrl-row 直接子块=4 筛选块+1 费率块; 同行判定=top 差≤8px(flex-end 底对齐下控件高度差容忍)
 async function auditLines(page) {
   return page.evaluate(() => {
     const modal = document.getElementById('simBacktestModal');
-    const lines = [...modal.querySelectorAll('.sim-ctrl-row > .sim-ctrl-line')];
-    const blockOf = (line) => [...line.querySelectorAll(':scope > .sim-ctrl-block')];
+    const row = modal.querySelector('.sim-ctrl-row');
+    const kids = [...row.querySelectorAll(':scope > .sim-ctrl-block')];
     const labelOf = (b) => (b.querySelector(':scope > label') || {}).textContent || '';
-    const info = lines.map((ln) => {
-      const blocks = blockOf(ln).map((b) => {
-        const r = b.getBoundingClientRect();
-        return { label: labelOf(b), top: r.top, left: r.left, right: r.right, w: r.width };
-      });
-      return {
-        labels: blocks.map((b) => b.label),
-        tops: blocks.map((b) => Math.round(b.top)),
-        spread: 0,
-        blocks,
-      };
+    const blocks = kids.map((b) => {
+      const r = b.getBoundingClientRect();
+      return { label: labelOf(b), isFee: b.classList.contains('simbt-fee-block'), top: r.top, bottom: r.bottom, left: r.left, right: r.right, w: r.width };
     });
-    // 重算 spread(simple)
-    info.forEach((i) => { i.spread = i.tops.length ? Math.max(...i.tops) - Math.min(...i.tops) : 0; });
-    const fee = modal.querySelector('.simbt-fee-block');
+    const filters = blocks.filter((b) => !b.isFee);
+    const filterTops = filters.map((b) => Math.round(b.top));
+    const filterSpread = filterTops.length ? Math.max(...filterTops) - Math.min(...filterTops) : 0;
+    const fee = blocks.find((b) => b.isFee);
     const selMode = modal.querySelector('.sim-mode-sel');
     const selRect = selMode.getBoundingClientRect();
     // 最长选项文字实测宽度(canvas, 取 select 计算字体)
@@ -61,9 +58,14 @@ async function auditLines(page) {
       if (w > maxOptW) { maxOptW = w; maxOptTxt = o.textContent; }
     });
     return {
-      lineCount: lines.length,
-      lines: info,
-      feeTop: Math.round(fee.getBoundingClientRect().top),
+      blockN: blocks.length,
+      filterLabels: filters.map((b) => b.label),
+      filterTops, filterSpread,
+      filterBottomSpread: filters.length ? Math.max(...filters.map((b) => Math.round(b.bottom))) - Math.min(...filters.map((b) => Math.round(b.bottom))) : 0,
+      feeTop: fee ? Math.round(fee.top) : null,
+      filterTop: filterTops[0] || null,
+      rowRight: Math.round(row.getBoundingClientRect().right),
+      lastFilterRight: filters.length ? Math.round(filters[filters.length - 1].right) : null,
       modeSelWidth: Math.round(selRect.width),
       maxOptTxt, maxOptW: Math.round(maxOptW),
       modeSelScrollW: selMode.scrollWidth, modeSelClientW: selMode.clientWidth,
@@ -111,21 +113,24 @@ async function auditLines(page) {
   check('①1b 弹窗数据加载完成(loading隐藏+summary有值)', !!loaded);
 
   const audit = await auditLines(page);
-  check('①2 行分组=2(.sim-ctrl-line)', audit.lineCount === 2,
-    `实际 ${audit.lineCount} 行`);
-  if (audit.lines.length === 2) {
-    const [l1, l2] = audit.lines;
-    check('①3 第一行=时间范围起+时间范围止+交易模式',
-      l1.labels.length === 3 && /时间范围\(起\)/.test(l1.labels[0]) && /时间范围\(止\)/.test(l1.labels[1]) && /交易模式/.test(l1.labels[2]),
-      l1.labels.join(' | '));
-    check('①4 第一行三块同行(top差≤8px)', l1.spread <= 8, `top=${l1.tops.join(',')} spread=${l1.spread}`);
-    check('①5 第二行=AI降亏过滤+AI仓位建议K',
-      l2.labels.length === 2 && /AI降亏过滤/.test(l2.labels[0]) && /AI仓位建议 K/.test(l1.labels[0]) === false && /AI仓位建议 K/.test(l2.labels[1]),
-      l2.labels.join(' | '));
-    check('①6 第二行两块同行(top差≤8px)', l2.spread <= 8, `top=${l2.tops.join(',')} spread=${l2.spread}`);
-    check('①7 两行上下分离(l2.top > l1.top+10)', l2.blocks[0].top > l1.blocks[0].top + 10,
-      `l1.top=${Math.round(l1.blocks[0].top)} l2.top=${Math.round(l2.blocks[0].top)}`);
-    check('①8 费率块独占第三行(fee.top > l2.top)', audit.feeTop > l2.blocks[0].top, `feeTop=${audit.feeTop}`);
+  // 注: 「四控件」中时间范围=起/止两输入框, 故 DOM 为 5 非费率块 + 1 费率块 = 6 直接子块
+  check('①2 单行容器(5筛选块+1费率块=6直接子块, 无行分组)', audit.blockN === 6,
+    `实际 ${audit.blockN} 块`);
+  check('①3 顺序=起/止/交易模式/AI降亏过滤/AI仓位建议K',
+    audit.filterLabels.length === 5 &&
+    /时间范围\(起\)/.test(audit.filterLabels[0]) && /时间范围\(止\)/.test(audit.filterLabels[1]) &&
+    /交易模式/.test(audit.filterLabels[2]) && /AI降亏过滤/.test(audit.filterLabels[3]) &&
+    /AI仓位建议 K/.test(audit.filterLabels[4]),
+    audit.filterLabels.join(' | '));
+  // 主控追加口径: 单行几何断言——五块 top 差=0(flex-end 底对齐, 控件高度差给 ≤8px 视觉同行容差)
+  check('①4 五筛选块同视觉一行(top差≤8px)', audit.filterSpread <= 8,
+    `top=[${audit.filterTops.join(',')}] spread=${audit.filterSpread} bottom差=${audit.filterBottomSpread}`);
+  check('①5 费率块在四块下方独占一行', audit.feeTop !== null && audit.feeTop > audit.filterTop + 10,
+    `filterTop=${audit.filterTop} feeTop=${audit.feeTop}`);
+  if (audit.lastFilterRight != null) {
+    check('①6 桌面单行未折行(K档右缘 ≤ ctrl-row 右缘-10 即同排有富余)',
+      audit.lastFilterRight <= audit.rowRight - 10,
+      `lastFilterRight=${audit.lastFilterRight} rowRight=${audit.rowRight}`);
   }
 
   // ② 交易模式下拉宽度收敛 + 文字完整可读
@@ -259,10 +264,10 @@ async function auditLines(page) {
       return { label: (b.querySelector(':scope > label') || {}).textContent || '', right: r.right, left: r.left, w: r.width };
     });
     const overBody = blocks.filter((b) => b.right > bodyRect.right + 2);
-    // 重叠检测: 同一 .sim-ctrl-line 内相邻块水平区间不得相交(除非换行 top 不同)
+    // 重叠检测: ctrl-row 相邻子块水平区间不得相交(除非已折行 top 不同); 费率块独占行天然不触发
     const overlaps = [];
-    modal.querySelectorAll('.sim-ctrl-line').forEach((ln) => {
-      const bs = [...ln.querySelectorAll(':scope > .sim-ctrl-block')].map((b) => {
+    (() => {
+      const bs = [...modal.querySelectorAll('.sim-ctrl-row > .sim-ctrl-block')].map((b) => {
         const r = b.getBoundingClientRect();
         return { top: r.top, left: r.left, right: r.right };
       });
@@ -270,7 +275,7 @@ async function auditLines(page) {
         const a = bs[i], c = bs[i + 1];
         if (Math.abs(a.top - c.top) < 8 && a.right > c.left + 1) overlaps.push(`${i}->${i + 1}`);
       }
-    });
+    })();
     return { vw, docOverflowX, bodyW: Math.round(bodyRect.width), overBody, overlaps, blockN: blocks.length };
   });
   check('④n1 弹窗体不超视口(body宽 ≤390)', narrow.bodyW <= narrow.vw, `body=${narrow.bodyW}px vw=${narrow.vw}`);

@@ -6990,14 +6990,13 @@ main { padding: 16px 24px; }
 /* 仅「模拟回测」弹窗使用(app.js _openSimBacktestModal): 13列表格需更宽容器让信息长列展开,
    max-width 1180→1560(2026-08-22 列宽控制配套; 其余弹窗 .rule-modal-body 820px 不动 §23.7) */
 .rule-modal-body-wide { max-width: 1560px; width: 96vw; }
-.sim-ctrl-row { display: flex; flex-wrap: wrap; gap: 14px 22px; padding: 10px 4px 14px; border-bottom: 1px solid var(--border); align-items: flex-end; }
-/* 两行紧凑排布(2026-08-24 用户需求, 仅本弹窗): .sim-ctrl-line=行分组(flex:1 1 100% 各占一行),
-   第一行=时间范围+交易模式 / 第二行=AI降亏过滤+AI仓位建议, 费率块仍独占一行;
-   窄屏组内 flex-wrap 自然换行不破版(§23.7 纯布局, 不动逻辑/事件) */
-.sim-ctrl-line { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: flex-end; flex: 1 1 100%; }
+/* 单行排布(2026-08-24 用户二次反馈: 两行仍太高 → 四控件合 1 行): gap/padding 同步收紧
+   (22→14 列距 / 10·14→8·10 行距), 四筛选块横排 + 费率块独占一行(flex:1 1 100% 兜底);
+   窄屏 flex-wrap 自然折行不破版。§23.7 纯布局, 不动逻辑/事件 */
+.sim-ctrl-row { display: flex; flex-wrap: wrap; gap: 8px 14px; padding: 8px 4px 10px; border-bottom: 1px solid var(--border); align-items: flex-end; }
 /* 交易模式下拉限宽仅作用于本弹窗容器内(.sim-mode-sel 基础类被首页/监控卡降亏下拉复用,
-   全局限宽会波及已发布消费点 §23.7; 170px 与首页 .ov-mode-sel 同值视觉协调,
-   覆盖最长选项「I · 追关注加追止损」完整显示不截断) */
+   全局限宽会波及已发布消费点 §23.7; 与首页 .ov-mode-sel 视觉协调;
+   覆盖最长选项「I · 追关注加追止损」文本 98px+边距 完整显示不截断) */
 .sim-ctrl-row .sim-mode-sel { max-width: 170px; }
 .sim-ctrl-block { display: flex; flex-direction: column; gap: 4px; }
 .sim-ctrl-block > label { font-size: 11px; color: var(--text-dim, #9aa); }
