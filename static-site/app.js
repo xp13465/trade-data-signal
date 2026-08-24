@@ -10182,6 +10182,13 @@ function _snapPreClose(snap, code) {
   return idx ? idx.pre_close : null;
 }
 
+// spark-grid 涨跌方向统一色源（红涨绿跌 A股配色，与分时图 _renderIntradayChart/_applyDynamicToBadges 同值）。
+// 2026-08-24 日图颜色不同步 bug 根治点：此前日图色在 renderOverview 局部三元写死、badge/foot 各写一份，
+// 盘中 pct 翻转时日图不跟随与分时红绿打架；统一从本函数取色防再分叉。
+function _sparkDirColor(pct) {
+  return (Number(pct) || 0) >= 0 ? "#e6492e" : "#2e8b57";
+}
+
 // 取某指数的腾讯动态pct（无则null），供 badge/chips 复用
 function _dynPct(id) {
   const d = _intradayDynamicPct[id];
@@ -10362,7 +10369,7 @@ function _applyDynamicToBadges(results) {
       el.setAttribute("data-snap-color", el.style.color || "");
     }
     const pct = r.pct;
-    const color = pct >= 0 ? "#e6492e" : "#2e8b57";
+    const color = _sparkDirColor(pct);
     const sign = pct >= 0 ? "+" : "";
     el.style.color = color;
     el.textContent = `${sign}${pct.toFixed(2)}%`;
@@ -10383,9 +10390,81 @@ function _applyDynamicToSparkFoot(results) {
     if (!foot) return;
     const chg = r.price - r.preClose;
     const chgUp = chg >= 0;
-    const chgColor = chgUp ? "#e6492e" : "#2e8b57";
+    const chgColor = _sparkDirColor(chg);
     const chgText = (chgUp ? "+" : "") + chg.toFixed(2);
     foot.innerHTML = `${r.price.toFixed(2)} <span style="color:${chgColor}">${chgText}</span>`;
+  });
+}
+
+// 读 nt-spark 容器（lite=.nt-spark-lite / echarts=.nt-spark-ech，均带 data-sid）当前日图色。
+// 权威读 _ntSparkMeta.color（ntIndexSparkline 初渲时写入）；meta miss 时回退读 lite svg 线 path stroke。
+function _getNtSparkColor(el) {
+  const sid = el.getAttribute("data-sid");
+  const m = sid && _ntSparkMeta.get(sid);
+  if (m && m.color) return m.color;
+  const pth = el.querySelector("svg.nt-spark-svg path[stroke]");
+  return pth ? (pth.getAttribute("stroke") || "") : "";
+}
+
+// 对单个 nt-spark 容器换日图颜色（数据不动只换色，2026-08-24 盘中日图重染/收盘恢复共用）：
+// lite 模式=替换 svg 内两处色值（面积 path fill opacity0.12 保留 + 线 path stroke；十字线是 line 元素不受影响）；
+// echarts 模式=setOption merge 只改 series lineStyle/areaStyle 色；
+// 同时同步 _ntSparkMeta.color（防 charts.lightweight 切换走 _reRenderHomeSpark 重生成时回退旧色）。
+function _setNtSparkColor(el, color) {
+  if (!el || !color) return false;
+  const sid = el.getAttribute("data-sid");
+  const m = sid && _ntSparkMeta.get(sid);
+  if (m) m.color = color;
+  const liteSvg = el.querySelector("svg.nt-spark-svg");
+  if (liteSvg) {
+    liteSvg.querySelectorAll("path").forEach((pth) => {
+      if ((pth.getAttribute("fill") || "none") !== "none") pth.setAttribute("fill", color);
+      if (pth.getAttribute("stroke")) pth.setAttribute("stroke", color);
+    });
+    return true;
+  }
+  if (typeof echarts !== "undefined") {
+    const inst = echarts.getInstanceByDom(el);
+    if (inst) {
+      inst.setOption({ series: [{ lineStyle: { color: color }, areaStyle: { color: color } }] });
+      return true;
+    }
+  }
+  return false;
+}
+
+// 盘中重染 spark-grid 日图颜色（2026-08-24 bug 修复）：日图色在 renderOverview 初渲取 idx.pct_change 写死，
+// 盘中动态 pct 由正翻负（或反向）后日图不跟随、与实时分时红绿打架。本函数与右上角 badge 同源取动态值
+// （results[id] || _intradayDynamicPct[id].pct，腾讯实时 vs 昨收；无动态值静默保持与 _applyDynamicToBadges 同口径），
+// 符号与当前色一致则不动 DOM；首次重染把初渲色存 data-snap-color 供收盘恢复（与 badge data-snap-txt 机制同构）。
+// 行业 spark-cell 无 pct-badge[data-spark-id] 天然跳过，不误伤。
+function _applyDirColorToSparks(results) {
+  document.querySelectorAll(".spark-cell").forEach((cell) => {
+    const badge = cell.querySelector(".pct-badge[data-spark-id]");
+    if (!badge) return;
+    const id = badge.getAttribute("data-spark-id");
+    const r = (results && results[id]) || _intradayDynamicPct[id];
+    if (!r || r.pct == null) return; // 静默回退：保持原色
+    const sparkEl = cell.querySelector(".nt-spark-lite[data-sid], .nt-spark-ech[data-sid]");
+    if (!sparkEl) return;
+    const wantColor = _sparkDirColor(r.pct);
+    const curColor = _getNtSparkColor(sparkEl);
+    if (!curColor || curColor === wantColor) return; // 方向未变不动 DOM
+    if (!sparkEl.hasAttribute("data-snap-color")) {
+      sparkEl.setAttribute("data-snap-color", curColor); // 存 overview 收盘口径色
+      sparkEl.classList.add("dyn-recolor");
+    }
+    _setNtSparkColor(sparkEl, wantColor);
+  });
+}
+
+// 收盘恢复 spark-grid 日图为 overview 收盘口径色（与 _applyDirColorToSparks 的 data-snap-color 存档配对，
+// 与 _onMarketClosed 的 badge data-snap-txt 恢复机制对齐）
+function _restoreDirColorSparks() {
+  document.querySelectorAll(".spark-cell .dyn-recolor[data-snap-color]").forEach((el) => {
+    _setNtSparkColor(el, el.getAttribute("data-snap-color"));
+    el.removeAttribute("data-snap-color");
+    el.classList.remove("dyn-recolor");
   });
 }
 
@@ -10445,6 +10524,7 @@ function _onMarketClosed() {
     if (col != null) el.style.color = col;
     el.classList.remove("dyn-updated");
   });
+  _restoreDirColorSparks(); // 日图色恢复 overview 收盘口径(2026-08-24 bug: 与 badge data-snap-txt 恢复机制对齐)
   const snap = state.intradaySnapshot;
   if (_bannerRenderCtx && _bannerRenderCtx.el && _bannerRenderCtx.el.isConnected) { // 2026-08-20 #12 同类: 防操作已脱离 DOM 的横幅
     _applyDynamicToChips(snap);
@@ -10917,6 +10997,7 @@ async function _doIntradayRefresh() {
   });
   const results = await Promise.all(promises);
   _applyDynamicToSparkFoot(dynResult && dynResult.results); // 补更新底部 spark-foot(用腾讯实时价+昨收，与右上角pct同维度，不再卡 renderOverview 旧值)
+  _applyDirColorToSparks(dynResult && dynResult.results); // 日图重染(2026-08-24 bug: 盘中 pct 翻转时日图色与 badge/分时同源跟随, 数据不动只换色)
   if (curSnap) refreshCardTimeBadges(curSnap); // 补更新角标(1min刷新也带动角标，不再卡 snap.datetime 10min粒度)
   if (curSnap) refreshGlobalRealtimeBadges(curSnap); // AZ89 全球指数实时报价角标随 snap 更新
   // 判断成功：有分时图渲染成功 OR 动态值拉取成功（分时图全收起时靠动态值判断）
@@ -13705,7 +13786,7 @@ async function renderOverview() {
     if (!idx.closes || !idx.closes.length) continue;
     if (_INDEX_TO_TENCENT_MINUTE[sparkId]) _sparkDynIds.push(sparkId);
     const up = (idx.pct_change || 0) >= 0;
-    const color = up ? "#e6492e" : "#2e8b57";
+    const color = _sparkDirColor(idx.pct_change); // 单一色源(2026-08-24: 与盘中重染/分时图同源, 防初渲色写死与实时打架)
     const cell = document.createElement("div");
     cell.className = "spark-cell";
     const sign = up ? "+" : "";
