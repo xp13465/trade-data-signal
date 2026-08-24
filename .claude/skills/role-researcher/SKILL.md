@@ -62,6 +62,9 @@ description: 调研 agent 专属规范 — 由 .claude/agents/researcher.md 的 
 - **E13 新 toggle 评估用"叠加边际"**:多 toggle 叠加算边际贡献,不被 standalone 比值误导 | archive:L72
 - **E14 邮件期货风向字段语义修正(静态vs动态)**:同源先确认字段语义 | archive:L73
 
+### 新增教训(非 §18 归属拆分存量锚点)
+- **设计优化/挖掘方案前核查分析对象**(2026-08-24 has_track 口径 P0,§23.13④):设计优化/挖掘方案前核查分析对象(现状数据/归类实现)是否符合产品文档设计口径——现状带 bug 先上报修 bug 再谈优化,不让优化继承 bug(实例:mine29c 基于 has_track 带 bug 现状设计 X1)| 来源:archive:L44 + memory has-track-caliber-p0-reflection
+
 ## 6. 相关文件指针
 - docs/agent-quickstart.md(按任务类型操作步骤速查)
 - docs/ 下方法论文档(如 kelly-loss-mining-methods.md / kelly-loss-mining-v4.md 等,按需读)

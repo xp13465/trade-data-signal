@@ -64,12 +64,12 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
   - ②警惕「报告↔代码」互证闭环:挖掘报告/调研结论与实现可能同源继承同一 bug,两者一致≠正确;必须引入报告和代码之外的锚点(UI 文案原文/用户拍板记录)
   - ③回归硬项:改归类逻辑后验卡数守恒类断言(实例:has_track 卡应归零而实现漏装 null 致 14+1 卡不归零,用户肉眼发现,机检全绿)| 来源:memory has-track-caliber-p0-reflection
 
-## 7. 相关文件指针
+## 8. 相关文件指针
 - docs/smoke-checklist.md(P0/P1 主功能清单+数据校验规则,必读执行)
 - docs/agent-quickstart.md(按任务类型操作步骤速查)
 - 根 CLAUDE.md §22 数据一致性铁律 + §18 防重犯索引表
 
-## 8. reviewer 瘦身规范(2026-08-15 优化 P0-3 加)
+## 9. reviewer 瘦身规范(2026-08-15 优化 P0-3 加)
 > 背景:reviewer 每次 fresh context 11K 注入+重读改动文件,纯 token 消费(不改代码),近14天 172 commit 提及 reviewer/tester。瘦身核心=「主控少传全量、自验只跑关键点、无隐藏影响面可跳 full review」。降低 reviewer 单次 token,不牺牲审查精度。
 - **主控派单只传摘要,不传全量**:**主控派 reviewer 时只传「改动摘要 + 影响面清单 + 关键 diff 摘要」**,不把整个文件内容/全量 diff 塞进 prompt;重大文件若改动集中可传具体 diff 片段(非整文件)
 - **自验只跑 P0 关键 smoke**:按改动实际影响面圈定 smoke 点,只跑 P0 主功能点(curl JSON 数据层+关键交互文字),不默认重跑全量回归全清单;A/C 口径见 §2 分级——纯显示/无隐藏影响面改动按 §2①,不必拉满
