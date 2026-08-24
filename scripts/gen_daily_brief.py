@@ -1498,16 +1498,44 @@ def generate_minimal_brief(date: str, data: dict) -> dict:
 
 # ── 反转风险提示 + 方向强制二选一 prompt 段(2026-08-24 四项改进R3)─────────────
 # build_prompt(单prompt路)与 build_editor_messages(多角色主编路)共用同一文本常量,
-# 防双路文案分叉(§22 同一事实多处副本必须同源)。案例数字为已回填历史事实(审计报告 §三),
-# 属预测时点之前的历史数据,防前视合规。
-REVERSAL_HINT_TEXT = (
+# 防双路文案分叉(§22 同一事实多处副本必须同源)。
+# 案例数字为已回填历史事实(审计报告 §三)。防前视(§5.1⑥):案例带日期戳,运行时只注入
+# 严格早于预测日的案例(--date 重放历史日时未来案例不得进入该时点 prompt,时点穿越口子已封);
+# 无可用案例时退化为通用提示(不含任何具体未来案例)。
+REVERSAL_CASES: list[tuple[str, str]] = [
+    # (预测日YYYYMMDD, 该日预测外推型反向错误的描述;实际值=T+1 已回填事实)
+    ("20260814", "20260814 大跌后预测续跌(-0.8~-0.3)实际次日+1.41%"),
+    ("20260819", "20260819 暴跌-2.40%后预测续跌(-1.5~-1.0)实际次日+0.24%(超跌反弹)"),
+    ("20260821", "20260821 预测续涨(+0.2~+0.6)实际次日-0.59%"),
+]
+_REVERSAL_HINT_HEAD = (
     "【反转风险提示·勿单边外推】把当日趋势直接外推成次日方向是历史上最大的错误源,"
-    "三次已回填反向样本全是外推型错误:20260814 大跌后预测续跌(-0.8~-0.3)实际次日+1.41%;"
-    "20260819 暴跌-2.40%后预测续跌(-1.5~-1.0)实际次日+0.24%(超跌反弹);"
-    "20260821 预测续涨(+0.2~+0.6)实际次日-0.59%。A股大跌/大涨次日均值回归概率显著上升"
+)
+_REVERSAL_HINT_TAIL = (
+    "A股大跌/大涨次日均值回归概率显著上升"
     "(超跌反弹/冲高回落是常见剧本),给出方向前先自问:「这是独立判断,还是只在重复今天?」"
     "若核心依据只有「今天涨/跌了」而无增量论据,必须收窄把握度并重估反向可能。"
 )
+
+
+def reversal_hint_text(pred_date: str | None) -> str:
+    """按预测日过滤反转案例后拼装提示文本。
+
+    防前视(§5.1⑥):只注入日期严格早于 pred_date 的案例;pred_date 缺失/无法解析时
+    退化为通用版(不含任何具体案例)——宁可少提示,不可把未来案例注入该时点 prompt。
+    """
+    head = _REVERSAL_HINT_HEAD
+    cases: list[str] = []
+    if pred_date:
+        # 归一为 YYYYMMDD(容忍 '2026-08-21' 类输入),非8位日期一律按不可判定→通用版
+        pd = "".join(ch for ch in str(pred_date) if ch.isdigit())[:8]
+        if len(pd) == 8:
+            cases = [desc for cdate, desc in REVERSAL_CASES if cdate < pd]
+    n = len(cases)
+    if n:
+        head += f"{n}次已回填反向样本全是外推型错误:"
+    body = ";".join(cases) + "。" if cases else ""
+    return head + body + _REVERSAL_HINT_TAIL
 DIRECTION_CALL_TEXT = (
     "【direction_call·必填方向强制二选一】除 direction 外必须额外输出 direction_call 字段,"
     '只能填 "up" 或 "down",禁止 flat、禁止省略——它是「假设明天必须押一边」的纯方向判断,'
@@ -1559,7 +1587,7 @@ def build_prompt(date: str, data: dict, cfg: dict, known_bias: str = "") -> list
         "1a.【板块区间·必填】sector_ranges 给 1-3 个领涨/领跌板块的次日涨跌幅区间,每个板块名 name "
         "必须 ∈ 注入数据 industry_heatmap_top 里真实存在的板块名(只能选自它),lo/hi 约束同上(宽度≤0.5、|·|≤5)。\n"
         "1b." + DIRECTION_CALL_TEXT + "\n"
-        "1b'" + REVERSAL_HINT_TEXT + "\n"
+        "1b'" + reversal_hint_text(date) + "\n"
         "1c. confidence 给本次预测的整体把握度(0-100整数),基于论据充分性/分歧度/数据支持度:"
         "论据充分且信号一致=高把握 70-100;论据较足但有分歧=中等 55-70;论据不足或数据支持弱=低把握 30-55;"
         "论据不足就老实给低 confidence,但绝不能因此省略区间或改称 flat——区间必须给。"
@@ -2089,7 +2117,7 @@ def build_editor_messages(role_results: dict, researcher: dict | None, date: str
         "1a.【板块区间·必填】sector_ranges 给 1-3 个领涨/领跌板块的次日涨跌幅区间,每个板块名 name "
         "必须 ∈ 注入数据 industry_heatmap_top 里真实存在的板块名(只能选自它),lo/hi 约束同上(宽度≤0.5、|·|≤5)。\n"
         "1b." + DIRECTION_CALL_TEXT + "\n"
-        "1b'" + REVERSAL_HINT_TEXT + "\n"
+        "1b'" + reversal_hint_text(date) + "\n"
         "1c. confidence 给本次预测的整体把握度(0-100整数),基于多空辩论收敛结果——多空论据充分性/分歧度/数据支持度:"
         "论据充分且多空分歧小=高把握 70-100;论据较足但存在分歧=中等 55-70;论据不足或数据支持弱=低把握 30-55;"
         "论据不足就老实给低 confidence,但绝不能因此省略区间或改称 flat——区间必须给。"
