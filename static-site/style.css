@@ -7017,9 +7017,13 @@ main { padding: 16px 24px; }
 /* (2026-08-23 UI批) .sim-fade-mode-sel 移出上组: 模式下拉样式统一走 .tds-fade-mode-sel 公共段(文件尾), 不再双份 */
 /* T3-2(2026-08-23 rebase 合并): 首页/监控卡模式下拉与「AI降亏过滤」同一行(UI 落点铁律),
    复用 sim-mode-sel 基础样式; 监控卡行内下拉限宽防挤爆(flex-wrap 兜底软换行);
-   (2026-08-24 用户拍板)旧独立+1开关 .overfit-bullstop-lab 已随控件删除 */
-.ov-mode-sel { max-width: 170px; }
-.home-mode-sel { max-width: 46vw; }
+   (2026-08-24 用户拍板)旧独立+1开关 .overfit-bullstop-lab 已随控件删除;
+   (2026-08-24 用户定)全站「AI降亏模式」下拉统一固定宽 200px: 原 max-width 软限宽
+   (.ov-mode-sel 170 / .home-mode-sel 46vw)改固定宽, 与 lab 凯利区/sim 弹窗的
+   select.tds-fade-mode-sel 公共段同宽(§22 四消费点视觉一致); 容器均 flex-wrap 软换行,
+   200px 小于最小移动视口可用宽不溢出 */
+.ov-mode-sel { width: 200px; }
+.home-mode-sel { width: 200px; }
 .sim-cb-wrap { flex-direction: row; align-items: center; gap: 6px; font-size: 12px; color: var(--text-1); }
 /* (2026-08-24 清理) sim 弹窗旧降亏键开关行 .sim-bullstop-wrap/.sim-bullstop-note/.sim-bullstop-tip 删除:
    控件已于 2026-08-23 随 sim 弹窗重构移除(死代码), 本次顺带清(§23.3) */
@@ -7087,11 +7091,13 @@ main { padding: 16px 24px; }
    四消费点: lab 凯利区 / 模拟回测弹窗 / T3-2 首页 AI 建议卡与 AI 监控卡(待接)。
    渲染函数=common.js _tdsFadeModeSelectHTML / _tdsFadeModeSelectMount(单一事实源);
    本段=唯一样式定义, 各页不留私有副本(改这里=全站生效)。视觉对齐相邻控件:
-   字号 11px≈lab-sigkelly-fee-btn, 圆角 4px, 配色走主题变量; max-width 压住长 option 防铺满。 */
+   字号 11px≈lab-sigkelly-fee-btn, 圆角 4px, 配色走主题变量;
+   (2026-08-24 用户定)固定宽 200px(原 width:auto+max-width:232 改定宽, 与首页
+   .home-mode-sel/监控卡 .ov-mode-sel 四消费点统一 §22)。 */
 .tds-fade-mode-wrap { display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; white-space: nowrap; }
 .tds-fade-mode-wrap .tds-fade-mode-label { font-weight: 600; }
 select.tds-fade-mode-sel {
-  width: auto; max-width: 232px;
+  width: 200px;
   padding: 2px 6px; font-size: 11px; line-height: 1.6;
   border: 1px solid var(--border); border-radius: 4px;
   background: var(--bg-card); color: var(--text-1);
