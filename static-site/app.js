@@ -3284,25 +3284,33 @@ function _openSimBacktestModal() {
   modal.innerHTML = '<div class="rule-modal-overlay"></div>' +
     '<div class="rule-modal-body rule-modal-body-wide"><div class="rule-modal-header"><h3>📊 模拟回测 · 全历史真实过滤</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
     '<div class="rule-modal-content">' +
+      // 筛选条两行紧凑排布(2026-08-24 用户需求, 纯布局不动逻辑/事件): 第一行=时间范围+交易模式,
+      // 第二行=AI降亏过滤+AI仓位建议; 费率块仍独占一行(.simbt-fee-block flex:1 1 100% 兜底)。
+      // 行分组用 .sim-ctrl-line(flex:1 1 100%), 窄屏组内 flex-wrap 自然换行不破版。
       '<div class="sim-ctrl-row">' +
-        '<div class="sim-ctrl-block"><label>时间范围(起)</label><input type="date" class="sim-date-start" value="' + _defStart + '"></div>' +
-        '<div class="sim-ctrl-block"><label>时间范围(止)· 最长500天</label><input type="date" class="sim-date-end" value="' + _defEnd + '"></div>' +
-        // (2026-08-23 用户拍板) 旧「开启(当时默认8键)」+「牛市×辅备买全停」两 checkbox 删除, 模式下拉=本弹窗降亏唯一入口:
-        // v1.1.5: 默认=new14·NEW14 十四键; p8=8键旧默认对照档; 要候选1(bullAuxBackupStop)选 p9——语义映射无损(§23.7 已确认记录)。
-        // sim-fade-cb/sim-bullstop-cb 无持久化字段(仅费率落盘), 无迁移残留。
-        '<div class="sim-ctrl-block"><label>AI降亏过滤</label>' +
-          // 下拉由 _bindSimBacktestControls 里 _tdsFadeModeSelectMount 挂载(四消费点统一组件挂载层);
-          // onchange 走既有 .sim-fade-mode-sel 选择器循环绑定, mount 不再绑避免双触发
-          '<div class="tds-fade-mode-wrap sim-fade-mode-wrap">' +
-          '<span class="sim-feat-note" style="display:none">⏳ 新键特征加载中, 就绪前新键暂不拦截…</span>' +
+        '<div class="sim-ctrl-line">' +
+          '<div class="sim-ctrl-block"><label>时间范围(起)</label><input type="date" class="sim-date-start" value="' + _defStart + '"></div>' +
+          '<div class="sim-ctrl-block"><label>时间范围(止)· 最长500天</label><input type="date" class="sim-date-end" value="' + _defEnd + '"></div>' +
+          '<div class="sim-ctrl-block"><label>交易模式</label><select class="sim-mode-sel">' + (_modeOpts || '<option value="A">A · 固定10天</option>') + '</select></div>' +
+        '</div>' +
+        '<div class="sim-ctrl-line">' +
+          // (2026-08-23 用户拍板) 旧「开启(当时默认8键)」+「牛市×辅备买全停」两 checkbox 删除, 模式下拉=本弹窗降亏唯一入口:
+          // v1.1.5: 默认=new14·NEW14 十四键; p8=8键旧默认对照档; 要候选1(bullAuxBackupStop)选 p9——语义映射无损(§23.7 已确认记录)。
+          // sim-fade-cb/sim-bullstop-cb 无持久化字段(仅费率落盘), 无迁移残留。
+          '<div class="sim-ctrl-block"><label>AI降亏过滤</label>' +
+            // 下拉由 _bindSimBacktestControls 里 _tdsFadeModeSelectMount 挂载(四消费点统一组件挂载层);
+            // onchange 走既有 .sim-fade-mode-sel 选择器循环绑定, mount 不再绑避免双触发
+            '<div class="tds-fade-mode-wrap sim-fade-mode-wrap">' +
+            '<span class="sim-feat-note" style="display:none">⏳ 新键特征加载中, 就绪前新键暂不拦截…</span>' +
+            '</div>' +
           '</div>' +
-        '<div class="sim-ctrl-block"><label>AI仓位建议 K</label><div class="sim-kbtns">' +
-          '<button type="button" class="sim-kbtn" data-k="0">关</button>' +
-          '<button type="button" class="sim-kbtn active" data-k="1">K1★主推</button>' +
-          '<button type="button" class="sim-kbtn" data-k="2">K2</button>' +
-          '<button type="button" class="sim-kbtn" data-k="3">K3</button>' +
-          '<button type="button" class="sim-kbtn" data-k="4">K4</button></div></div>' +
-        '<div class="sim-ctrl-block"><label>交易模式</label><select class="sim-mode-sel">' + (_modeOpts || '<option value="A">A · 固定10天</option>') + '</select></div>' +
+          '<div class="sim-ctrl-block"><label>AI仓位建议 K</label><div class="sim-kbtns">' +
+            '<button type="button" class="sim-kbtn" data-k="0">关</button>' +
+            '<button type="button" class="sim-kbtn active" data-k="1">K1★主推</button>' +
+            '<button type="button" class="sim-kbtn" data-k="2">K2</button>' +
+            '<button type="button" class="sim-kbtn" data-k="3">K3</button>' +
+            '<button type="button" class="sim-kbtn" data-k="4">K4</button></div></div>' +
+        '</div>' +
         '<div class="sim-ctrl-block simbt-fee-block"><label>费率档(同「交易模拟」区 6 档 + 5 参数自定义)</label>' + _simBtFeeBarHTML(_simBtInitFee()) + '</div>' +
       '</div>' +
       '<div class="sim-summary"></div>' +
