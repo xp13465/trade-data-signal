@@ -8750,7 +8750,7 @@ async function renderSigKellyLab() {
       if (!Object.prototype.hasOwnProperty.call(state.labSigKellyFilters, _kf)) state.labSigKellyFilters[_kf] = _kellyDft[_kf];
     }
   }
-  // 2026-08-13 降亏状态持久化(新key tds_kelly_filters): 读取覆盖 AI宏 8成员(基础5+核心3, v1.1.0 加 K2C5), 其余细标志仍按默认重建
+  // 2026-08-13 降亏状态持久化(新key tds_kelly_filters): 读取覆盖 AI宏默认档成员键(v1.1.4 及以前=8成员基础5+核心3含K2C5; v1.1.5 起=NEW14 十四键), 其余细标志仍按默认重建
   // 首页 AI 开关与凯利区共享此状态(§22 一致性); 首次访问无该 key → 走默认(AI宏全开)不写
   try {
     var _savedKF = JSON.parse(localStorage.getItem("tds_kelly_filters") || "null");
@@ -8764,7 +8764,7 @@ async function renderSigKellyLab() {
 
   // T3-1(2026-08-23): AI降亏模式持久化(lab 独立 key tds_kelly_fade_mode, TTL 18 小时滑动过期,
   // 常量单源 common.js _TDS_FADE_TTL_MS): 在 tds_kelly_filters
-  // 8成员覆盖之后应用, 完整模式组合覆盖成员级状态(模式=57键全集, 成员键只是子集); 无 key/超时/旧格式
+  // 默认档成员键覆盖之后应用(v1.1.5 起=NEW14 十四键), 完整模式组合覆盖成员级状态(模式=57键全集, 成员键只是子集); 无 key/超时/旧格式
   // (用户从未选过或距上次切换>18h)=跳过=回默认模式(v1.1.5 起默认=new14)(2026-08-23 用户拍板: 不做永久记忆, 阉割版只留
   // 18 小时防刷新闪回且覆盖隔夜; 工具函数 _tdsLoadWithTTL 单源在 common.js, T3-2 同款记忆直接复用)
   // (v1.1.5 起默认基座=NEW14 十四键; v1.1.4 及以前=8键 p8 现对照档)。sim 弹窗记忆已独立(tds_sim_fade_mode, 2026-08-23 hotfix,
@@ -8926,7 +8926,7 @@ var _kellyAiMacroMemberCls = {
 // AI宏降亏过滤「总开关」三态(#39 三级级联UI; #54 2026-08-13 bug1修复: 联动集合扩到 _kellyAiMacroMembers; v1.1.0(2026-08-15) 扩到 8成员含K2C5; v1.1.5(2026-08-24 用户拍板) 默认基座切 NEW14 → 联动集合=NEW14 十四键(hist6+规则8))
 // 全成员勾选=checked, 部分=indeterminate半选, 无=空; 语义=「AI降亏过滤默认推荐(NEW14 十四键)」当前开合
 var _kellyAiMacroMembers = _kellyPersistMemberKeys.map(function (k) { return { k: k, cls: _kellyAiMacroMemberCls[k] }; });
-// 写降亏状态到 localStorage tds_kelly_filters: { aiMacro(8键全开=勾选态), members(8成员), combos(当前全开组合keys, 派生辅助) }
+// 写降亏状态到 localStorage tds_kelly_filters: { aiMacro(NEW14 十四键全开=勾选态; v1.1.4 及以前为 8键), members(当前默认档成员键), combos(当前全开组合keys, 派生辅助) }
 // 只在用户改动 toggle 时经 _kellyOnFilterChange 调用; 读取在 renderSigKellyLab 合并默认后覆盖
 function _kellyPersistFilters() {
   try {
@@ -9172,7 +9172,7 @@ var _KELLY_MODE_COMPARE_CARDS = [
       ["bullAuxBackupStop", "牛市×辅备买全停(候选1)", "add"]
     ],
     perf: { net: "+73,103", y1: "+17,213", mdd: "-17,650", rec: "349天", n: "1032笔/胜率53.1%" },
-    tip: "【9键 · 现状版】✓ 叠 8 键再开候选1(bullAuxBackupStop 牛市·主升×辅买∪备买全停)。【白话】比 8键全面小胜 +6,572 元, 但也只是「8键 plus」无质变。【场景】A/B/C 三张卡的叠放基座就是它; 单独用它=比默认稍好一步的稳妥现状。【1:1】全史净利 +73,103 元, 最大回撤 -17,650 元(恢复 349 天); 近1年 +17,213 / 2026YTD +7,490; 1032 笔胜率 53.1%。" },
+    tip: "【9键 · 叠8键+候选1】✓ 叠 8 键再开候选1(bullAuxBackupStop 牛市·主升×辅买∪备买全停)。【白话】比 8键全面小胜 +6,572 元, 但也只是「8键 plus」无质变。【场景】A/B/C 三张卡的叠放基座就是它; v1.1.4 及以前默认口径(v1.1.5 起为对照档, 现役默认=NEW14 十四键)。【1:1】全史净利 +73,103 元, 最大回撤 -17,650 元(恢复 349 天); 近1年 +17,213 / 2026YTD +7,490; 1032 笔胜率 53.1%。" },
   { id: "a9", name: "A on9", tagline: "进攻王·近端牛市吃满", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true, best: true,
     keys: [
       ["excludeSpecialBear", "追关注×熊市交叉(四档)", "base"],
@@ -9471,7 +9471,7 @@ function _renderSigKellyBar(bar, data, period) {
   const _pcRatingPop = (window._aiPoscapRatingPopHtml ? window._aiPoscapRatingPopHtml() : "");
   // 2026-08-13 合并行: AI宏 总开关(原第二行)合并进 AI仓位建议 行, 跟在「关OFF」按钮后(用户需求: 两行合并一行, 去除重复纯文字标题)
   // 本 label+详情按钮 在 positionCapHTML 内复用, 原 .lab-sigkelly-toggle-group-ai 独立行已移除(仅 CSS 残留无引用)
-  // #54 2026-08-13 bug1修复: 总开关联动扩到 _kellyAiMacroMembers; v1.1.0(2026-08-15) 扩到 8成员含K2C5(基础5+核心3), 三态/badge 由8键派生
+  // #54 2026-08-13 bug1修复: 总开关联动扩到 _kellyAiMacroMembers; v1.1.0(2026-08-15) 扩到 8成员含K2C5(基础5+核心3), v1.1.5 起联动集合=NEW14 十四键, 三态/badge 由当前默认档键集派生
   const _aiMacroAll = (function () {
     var f = state.labSigKellyFilters || _kellyDefaultFilters();
     var allOn = true, anyOn = false;
@@ -9484,7 +9484,7 @@ function _renderSigKellyBar(bar, data, period) {
   const _aiDetailText = state.labSigKellyAiDetailOpen ? "AI降亏过滤详情收起 ▲" : "AI降亏过滤详情展开 ▼";
   const aiMacroDetailBtnHTML =
     `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-btn" style="margin-left:10px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="收起/展开下方 组合降亏快捷按钮 + 58个单标志(4大分类组), 默认收起">${_aiDetailText}</button>`;
-  // #54 2026-08-13 (用户20:27 必做): 「重置为AI默认推荐」按钮——尝试各种组合后一键恢复 AI默认勾选(_kellyDefaultFilters 8键全开含K2C5+AI仓位建议K=1), 重写 tds_kelly_filters 持久化, 刷新三态/hoverpop动态值
+  // #54 2026-08-13 (用户20:27 必做): 「重置为AI默认推荐」按钮——尝试各种组合后一键恢复 AI默认勾选(_kellyDefaultFilters 默认档全开, v1.1.5 起=NEW14 十四键+AI仓位建议K=1), 重写 tds_kelly_filters 持久化, 刷新三态/hoverpop动态值
   const aiMacroResetBtnHTML =
     `<button type="button" class="lab-sigkelly-toggle-detail-btn" id="lab-kelly-ai-macro-reset" style="margin-left:8px;padding:2px 10px;border:1px solid #888;border-radius:4px;background:transparent;cursor:pointer;color:inherit" title="一键恢复 AI 默认推荐勾选(v1.1.5 起=NEW14 十四键 + 1类回测剔除, 其中+1类只读不可勾选; + AI仓位建议 K=1), 重写本地记忆并刷新统计">重置为AI默认推荐</button>`;
   // T3-1(2026-08-23): AI降亏模式下拉(7预设一键套用) —— 总开关保留, 原「多选标签直选」升级为「模式预设+细粒度自定义」双层;
@@ -10101,7 +10101,7 @@ function _renderSigKellyBar(bar, data, period) {
       _aiBtn.textContent = open ? "AI降亏过滤详情展开 ▼" : "AI降亏过滤详情收起 ▲";
     });
   }
-  // #54 2026-08-13 (用户20:27 必做): 「重置为AI默认推荐」——恢复 AI默认勾选(_kellyDefaultFilters 8键全开含K2C5+AI仓位建议K=1), 重写 tds_kelly_filters 持久化, 重算统计+刷新 hoverpop 动态值
+  // #54 2026-08-13 (用户20:27 必做): 「重置为AI默认推荐」——恢复 AI默认勾选(_kellyDefaultFilters 默认档全开, v1.1.5 起=NEW14 十四键+AI仓位建议K=1), 重写 tds_kelly_filters 持久化, 重算统计+刷新 hoverpop 动态值
   // 2026-08-14 #BC: 默认 K 3→1 主推
 
   // T3-1(2026-08-23): AI降亏模式下拉 onchange —— apply 预设到 filters 后只调 _kellyOnFilterChange():
@@ -10130,7 +10130,7 @@ function _renderSigKellyBar(bar, data, period) {
       if (typeof _tdsStoreWithTTL === "function") _tdsStoreWithTTL("tds_kelly_fade_mode", { mode: _dftModeId2 });
       else try { localStorage.setItem("tds_kelly_fade_mode", JSON.stringify({ mode: _dftModeId2 })); } catch (e) {}
       _kellySetSharedPosCap(true, 1);
-      _kellyPersistFilters(); // 重写 tds_kelly_filters(8键全开含K2C5 + aiMacro:true), 持久化恢复默认
+      _kellyPersistFilters(); // 重写 tds_kelly_filters(NEW14 十四键全开 + aiMacro:true), 持久化恢复默认
       _kellyRunRecompute(host,
         '<div class="lab-custom-loading">⏳ 重置为AI默认推荐,重算统计…</div>',
         function (stats) { if (stats) state.labSigKellyFeeStats = stats; else state.labSigKellyFeeStats = null; },

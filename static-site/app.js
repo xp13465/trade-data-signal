@@ -2120,7 +2120,7 @@ async function _appendOverfitCard(colA2, r, snap) {
       //   card.querySelector, 与嵌套层级无关); 原 .overfit-fade-sep 竖线为行内组分隔, 拆行后随之删除。
     '<div class="overfit-ctrl-stack">' +
     '<div class="overfit-fade-row">' +
-      '<span class="overfit-fade-label" data-tip="AI降亏过滤开关(默认开, 独立记忆): 开启=监控只统计「未被AI宏删线过滤」的信号(未命中8键降亏且已入样); 关闭=统计全信号。仅买信号判降亏(${_t("sell_short")}/${_t("type_sell_stop_loss")}不判)。本开关只切 bank 读取, 不前端重算(§23.6)。">AI降亏过滤</span>' +
+      '<span class="overfit-fade-label" data-tip="AI降亏过滤开关(默认开, 独立记忆): 开启=监控只统计「未被AI降亏删线过滤」的信号(未命中所选模式键集且已入样; v1.1.5 起默认=new14·NEW 14键, 经旁侧模式下拉可切对照档); 关闭=统计全信号。仅买信号判降亏(${_t("sell_short")}/${_t("type_sell_stop_loss")}不判)。口径来源随模式: p8=8键旧默认对照走老 filtered bank 直读; 非 p8=recent 明细逐信号键命中标注→前端组集重算(§23.6 后端打标+parity 校验), 数据缺 recent(老 json)时优雅回退老 bank 不裸崩。">AI降亏过滤</span>' +
       '<label class="overfit-fade-switch"><input type="checkbox" data-overfit-fade="1"> <span class="ov-sw"></span></label>' +
       // T3-2(2026-08-23): 模式下拉紧跟「AI降亏过滤」同一行(UI 落点铁律)。
       // v1.1.5: 默认=new14(组集路径生效, 与全站口径一致); p8=对照档恒走老 bank; 非 p8 时走 recent 明细前端组集(§23.6 键命中=后端打标, parity 校验);
@@ -2371,7 +2371,9 @@ async function _appendOverfitCard(colA2, r, snap) {
   let _extLoadState = "idle";
   // AI降亏过滤开关(默认开, 独立 localStorage 键 tds_overfit_fade; 与首页 tds_home_fade/凯利区 tds_kelly_filters 解耦)。
   // 2026-08-16 三合一改造②: 首次无 localStorage 时默认开(true), 用户手动切换后写 localStorage 记住(手动关=记"0")。
-  // 数据是后端聚合好的 rolling 窗口, 前端只切 bank 读取、不重算(§23.6 读标记不自算)。
+  // 数据口径随模式: p8=8键对照走后端聚合好的老 filtered bank 直读; 非 p8(v1.1.5 起默认=new14)=
+  // overfit_monitor.json recent 明细逐信号键命中标注→前端组集重算(T3-2, §23.6 后端打标+parity 校验);
+  // 数据缺 recent 时回退老 bank。
   // P1(2026-08-16 reviewer返修): localStorage 读取包 try/catch, 异常/禁用时默认开(true)不崩。
   let _ovFade = true;
   try {
