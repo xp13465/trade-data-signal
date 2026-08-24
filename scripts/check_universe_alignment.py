@@ -226,7 +226,7 @@ def main() -> int:
     ap.add_argument("--indicators", default=None, help="indicators.yaml 路径(默认 {repo}/config/indicators.yaml)")
     ap.add_argument("--overview", default=None, help="overview.json 路径(默认 {repo}/static-site/data/overview.json)")
     ap.add_argument("--board-map", default=None, help="board_etf_map.json 路径(默认 {repo}/data/board_etf_map.json)")
-    ap.add_argument("--trades", default=None, help="signal_kelly_trades.json 路径(默认 {repo}/data/signal_kelly_trades.json)")
+    ap.add_argument("--trades", default=None, help="signal_kelly_trades.json 路径(默认 {repo}/static-site/data/, 回退 {repo}/data/)")
     ap.add_argument("--deploy-mode", action="store_true", help="deploy 接入模式(任一 FAIL 以非0退出阻断上线)")
     args = ap.parse_args()
 
@@ -235,7 +235,14 @@ def main() -> int:
     ind_path = Path(args.indicators) if args.indicators else repo / "config" / "indicators.yaml"
     ov_path = Path(args.overview) if args.overview else repo / "static-site" / "data" / "overview.json"
     map_path = Path(args.board_map) if args.board_map else repo / "data" / "board_etf_map.json"
-    tr_path = Path(args.trades) if args.trades else repo / "data" / "signal_kelly_trades.json"
+    # trades 默认路径(2026-08-24 根修): 回测 signal_kelly_backtest.py 实际写 static-site/data/,
+    # 原默认 {repo}/data/ 是 8-09 后不再更新的陈旧副本, 断言3 曾长期校验旧文件(177k 行 vs 活产物 274k 行)
+    # = 机检盲区(§23.2③ 同类排查)。改为 static-site/data/ 优先 + data/ 回退, 与 overfit_monitor.py 同模式。
+    if args.trades:
+        tr_path = Path(args.trades)
+    else:
+        tr_live = repo / "static-site" / "data" / "signal_kelly_trades.json"
+        tr_path = tr_live if tr_live.exists() else repo / "data" / "signal_kelly_trades.json"
 
     for p, label in [(cfg_path, "universe_rules.yaml"), (ind_path, "indicators.yaml"),
                      (ov_path, "overview.json"), (map_path, "board_etf_map.json"), (tr_path, "signal_kelly_trades.json")]:
