@@ -89,6 +89,12 @@ SURFACE_DAYS = 200        # 曲线序列裁剪窗口(2026-08-16: 前端显示范
 W_D1, W_D2, W_D3, W_D4 = 0.40, 0.25, 0.20, 0.15
 
 OUT_JSON = os.path.join(REPO, "static-site", "data", "overfit_monitor.json")
+# B拆分(2026-08-24 提速组合A+B+C+D): K档扩展 bank(by_k/filtered_by_k)单独落 ext 文件。
+# 主文件只留默认首屏渲染所需(accuracy/overfit 核心曲线 + filtered 默认bank + recent 组集明细),
+# by_k/filtered_by_k 占原文件 77% 体积(compact 口径 2.5MB/9.7MB)且仅「K档×{p8对照/组集失败/降亏关}」
+# 组合消费(app.js _ovBank), 前端按需拉取(_fetchOverfitExt 单例 promise)。拆分前后数值逐位一致由
+# scripts/check_overfit_split_parity.py 断言(§23.5 报告可复现)。
+OUT_EXT_JSON = os.path.join(REPO, "static-site", "data", "overfit_monitor_ext.json")
 
 # market -> 大类象限(与 signal_kelly_backtest.py 同源)
 MARKET_QUAD_MAP = {
@@ -1684,9 +1690,18 @@ def build_output(rebuild=False, dry_run=False):
     }
     out["accuracy"] = bank_raw["accuracy"]
     out["overfit"] = bank_raw["overfit"]
-    out["filtered"] = bank_filt
-    out["by_k"] = by_k
-    out["filtered_by_k"] = filtered_by_k
+    # B拆分(2026-08-24): by_k/filtered_by_k 不再挂主文件, 单独落 OUT_EXT_JSON(K档交互专用,
+    # 默认首屏零消费); filtered 留主文件——它是「降亏开+无K档」默认路径 bank(app.js _ovBank
+    # L2204, 调研报告 §2.4 实测), 拆走会致老数据过渡期/组集回退场景首屏多一次拉取。
+    ext_out = {
+        "generated_at": out["generated_at"],
+        "version": out["version"],
+        "desc": "K档扩展bank(by_k=全信号人口top-K / filtered_by_k=降亏过滤人口top-K), 与主文件 "
+                "overfit_monitor.json 同一次打点产出(generated_at 对齐); 仅前端 K档×{p8对照/组集失败/降亏关} "
+                "组合按需拉取。拆分前数值逐位一致校验: scripts/check_overfit_split_parity.py",
+        "by_k": by_k,
+        "filtered_by_k": filtered_by_k,
+    }
 
     # T3-2(2026-08-23) recent 明细块: 近 RECENT_DAYS 日逐信号打点(每键命中+回测/实盘胜负),
     # 供前端监控卡 7 模式下拉组集(键命中是后端打的标记; 前端只组集所选模式的键集合,
@@ -1706,13 +1721,20 @@ def build_output(rebuild=False, dry_run=False):
     print(f"   accuracy.rolling.by_signal {[s for s in out['accuracy']['rolling']['by_signal']]}")
     print(f"   accuracy.rolling.by_grade {[g for g in out['accuracy']['rolling']['by_grade']]} (维度裁剪 {SURFACE_DAYS} 天)")
 
-    # 写文件
+    # 写文件(A瘦身 2026-08-24): indent=2 → compact separators。indent 纯缩进空格占 64% 体积
+    # (线上实测 26.6MB→9.7MB compact), br 压缩后传输同步下降; 字段/数值零变化(json.load 无感)。
     os.makedirs(os.path.dirname(OUT_JSON), exist_ok=True)
     tmp = OUT_JSON + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(out, f, ensure_ascii=False, indent=2)
+        json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
     os.replace(tmp, OUT_JSON)
-    print(f"✅ overfit_monitor.json 已写: {OUT_JSON}")
+    # B拆分(2026-08-24): ext 文件同 compact 口径落盘(by_k/filtered_by_k), 与主文件同一次打点。
+    tmp2 = OUT_EXT_JSON + ".tmp"
+    with open(tmp2, "w", encoding="utf-8") as f:
+        json.dump(ext_out, f, ensure_ascii=False, separators=(",", ":"))
+    os.replace(tmp2, OUT_EXT_JSON)
+    print(f"✅ overfit_monitor.json 已写: {OUT_JSON} (compact)")
+    print(f"✅ overfit_monitor_ext.json 已写: {OUT_EXT_JSON} (by_k/filtered_by_k 拆分)")
 
     # 视图摘要
     bt60 = out["accuracy"]["rolling"]["backtest"].get("60", [])
@@ -1742,15 +1764,18 @@ def build_output(rebuild=False, dry_run=False):
     else:
         print("   无触发预警")
 
-    # 回写包含 sent 状态
+    # 回写包含 sent 状态(A瘦身: 同 compact 口径; ext 文件不含 alerts 无需回写)
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(out, f, ensure_ascii=False, indent=2)
+        json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
     os.replace(tmp, OUT_JSON)
     if alerts:
         print(f"   (预警记录已回写 {len(alerts)} 条)")
 
-    # R2 上传(§22 三步同步: overfit_monitor 走 R2 data/ 前缀, static-site/data 已 gitignore)
-    # deploy 链 upload-data-large 含 overfit_monitor 强制例外; 独立打点时也自传, 保证线上立即可见。
+    # R2 上传(§22 三步同步: overfit_monitor 主+ext 两文件走 R2 data/ 前缀, static-site/data 已 gitignore)
+    # deploy 链 upload-data-large 含 overfit_monitor* 强制例外(startswith 前缀, B拆分后含 _ext);
+    # 独立打点时也自传, 保证线上立即可见。upload-data-large 上传后对 overfit_monitor*.json 以
+    # cache_prefix="/" purge /data/ rewrite 路由 edge 缓存(C 件套补偿: 该两文件已挪 MED 600s,
+    # 「重跑立即看」靠 purge 保证, 见 headers.js dataCacheTtl 沿革注释)。
     # deploy.sh 已 RUN_R2 时经 ENV OVERFIT_SKIP_R2=1 跳过, 防重复(repo=deploy 语义同 EXPORT_SKIP_R2)。
     if not dry_run and os.environ.get("OVERFIT_SKIP_R2") != "1":
         try:
