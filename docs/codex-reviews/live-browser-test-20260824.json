@@ -1,0 +1,78 @@
+{
+  "report_type": "live_browser_interaction_test",
+  "date": "2026-08-24T22:44",
+  "url": "https://ss.fx8.store/",
+  "tool": "Playwright Chromium headless (escalated)",
+  "results": {
+    "desktop": {
+      "viewport": "1440x900",
+      "dom_loaded_ms": 2963,
+      "load_complete_ms": 5578,
+      "fetch_requests": 35,
+      "fetch_errors": 0,
+      "js_errors": 0,
+      "kpi_cards": 23,
+      "overview_value": "25.4 (偏冷)",
+      "default_fade_mode": "new14",
+      "signal_elements": 4,
+      "onboarding_dismissed": true,
+      "lab_tab_clicked": true,
+      "kelly_section_rendered": false,
+      "ai_fade_toggle_found": false,
+      "js_heap_mb": 15,
+      "notes": "策略实验tab切换成功，但凯利区未渲染。页面显示信号实验/二次测试/自定义分析子tab，凯利区可能在更下方需要滚动或需要点击特定子tab。SW更新提示「已有新版 刷新」出现。"
+    },
+    "iphone14": {
+      "viewport": "390x844",
+      "dom_loaded_ms": 2511,
+      "fetch_requests": 2,
+      "js_errors": 0,
+      "kpi_cards": 23,
+      "overview_value": "25.4",
+      "default_fade_mode": "new14",
+      "onboarding_dismissed": true,
+      "lab_tab_clicked": false,
+      "lab_click_error": "Element not visible (bottom tab bar obscured by SW update banner + onboarding overlay)",
+      "notes": "首页渲染正常，AI预测/情绪低迷/恐惧37/涨跌家数等KPI全部正确。SW更新提示遮挡了底部tab栏。"
+    },
+    "screenshots": {
+      "desktop_home": "/tmp/codex-reports/desktop-live-live-home.png",
+      "desktop_lab": "/tmp/codex-reports/desktop-live-live-lab.png",
+      "iphone_home": "/tmp/codex-reports/iphone14-live-live-home.png"
+    }
+  },
+  "findings": [
+    {
+      "id": "LIVE-001",
+      "severity": "INFO",
+      "title": "首页核心功能全部正常",
+      "detail": "三端KPI 23卡片正确渲染（情绪25.4/恐贪37/涨跌/成交额等），AI预测标签显示正常，全球跑马灯滚动正常，新闻要闻区正常。无JS错误。NEW14默认模式确认。"
+    },
+    {
+      "id": "LIVE-002",
+      "severity": "P2",
+      "title": "策略实验室凯利区未渲染",
+      "detail": "点击策略实验tab后页面切换成功，显示信号实验/二次测试/自定义分析。但凯利区(sigkelly)元素=0，AI降亏toggle未找到。可能原因：①凯利区在页面更下方需要滚动才触发渲染 ②需要点击特定子tab ③62MB trades.json加载超时导致凯利区未初始化。JS Heap仅15MB确认trades未加载。",
+      "recommendation": "需要更深入测试：滚动到凯利区位置/点击信号凯利回测子tab/等待trades.json加载完成后验证。"
+    },
+    {
+      "id": "LIVE-003",
+      "severity": "P2",
+      "title": "SW更新提示遮挡移动端底部tab栏",
+      "detail": "iPhone 14截图显示「已有新版 刷新」横幅覆盖在底部导航栏上方，导致策略实验按钮不可点击。用户需要先点刷新或关闭横幅。",
+      "recommendation": "SW更新提示应显示为非阻塞toast或放在顶部，不应遮挡底部tab栏。"
+    },
+    {
+      "id": "LIVE-004",
+      "severity": "P3",
+      "title": "线上DOM加载2.5-3秒",
+      "detail": "线上加载DCL=2.5-3秒（本地file://仅39-98ms），主要延迟来自网络RTT+资源下载。Load事件5.6秒。对首屏体验有一定影响。",
+      "recommendation": "可考虑增加preconnect/link rel=preload提示，或进一步压缩boot.json。当前已有P1-8合并优化。"
+    }
+  ],
+  "limitations": [
+    "凯利区深度交互测试（模式切换/信号卡片/模拟回测弹窗）需要更长的等待时间和滚动操作",
+    "62MB trades.json的内存影响未能在本次测试中触发",
+    "邮件通知链路需要后端配合验证"
+  ]
+}

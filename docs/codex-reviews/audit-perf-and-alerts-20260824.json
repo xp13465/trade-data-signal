@@ -1,0 +1,128 @@
+{
+  "report_type": "deep_audit",
+  "date": "2026-08-24",
+  "scope": "全项目代码级漏洞/内存泄漏/重复调用/异常引用 + 交互性能优化 + 告警噪音分析",
+  "sections": {
+    "P0_performance": [
+      {
+        "id": "PERF-001",
+        "severity": "P0",
+        "title": "signal_kelly_trades.json 62.4MB 全量加载到浏览器内存",
+        "location": "static-site/lab.js L8145/L11204",
+        "detail": "用户打开策略实验室凯利区时 fetch 整个62MB JSON并JSON.parse，浏览器内存膨胀至约249MB。无缓存淘汰机制（仅retry时置null）。移动端Safari高概率OOM崩溃。fetch无AbortController超时，网络差时用户卡死。",
+        "fix": "按象限×模式切片为独立小文件(trades/etf_has_track/G.json约2-3MB)按需加载；或至少加AbortController+timeout和LRU上限",
+        "impact": "移动端可用性、首屏交互延迟"
+      }
+    ],
+    "P1_bugs": [
+      {
+        "id": "BUG-001",
+        "severity": "P1",
+        "title": "addEventListener泄漏：237个注册仅3个清理",
+        "location": "static-site/app.js 全局",
+        "detail": "app.js有237处addEventListener但仅3处removeEventListener。特别是L13356的visibilitychange在闭包内注册且无清理引用。lab.js 39:1比例类似。长时间使用后事件处理器持续堆积，导致内存增长+回调重复执行。",
+        "fix": "对动态注册的listener改用{ once: true }或在组件销毁时统一removeEventListener；全局一次性注册的不需要改",
+        "impact": "长时间运行内存缓慢增长"
+      },
+      {
+        "id": "BUG-002",
+        "severity": "P1",
+        "title": "innerHTML += 循环重建DOM",
+        "location": "static-site/app.js L13958",
+        "detail": "KPI卡片渲染使用cards.innerHTML +=逐条追加HTML字符串，每次+=都触发浏览器解析已有时HTML+重建DOM树+强制同步layout。卡片数量越多性能越差。",
+        "fix": "先在循环中拼接完整HTML字符串到临时变量，最后一次innerHTML =赋值；或用DocumentFragment",
+        "impact": "首页首屏渲染速度"
+      },
+      {
+        "id": "BUG-003",
+        "severity": "P1",
+        "title": "Python DB连接不在finally中关闭(etf_get_conn)",
+        "location": "app/queries.py L355/L1293/L1644",
+        "detail": "_etf_get_conn()返回的连接_ec.close()不在finally块中。如果execute抛异常，连接不会被关闭。虽然SQLite连接会被GC回收，但在高频调用下可能短暂累积打开的文件描述符。",
+        "fix": "改为try/finally或with语句确保close()始终执行",
+        "impact": "后端稳定性"
+      },
+      {
+        "id": "BUG-004",
+        "severity": "P1",
+        "title": "except Exception裸捕获无日志",
+        "location": "app/queries.py 共9处",
+        "detail": "多处except Exception没有logger输出，异常被静默吞掉。排查问题时无法从日志定位根因。",
+        "fix": "至少加console.error或logging.exception(e)",
+        "impact": "可维护性"
+      }
+    ],
+    "P2_performance_optimizations": [
+      {
+        "id": "OPT-001",
+        "severity": "P2",
+        "title": "scroll handler未节流(5处)",
+        "location": "app.js L8299/L14005/L21731/L21965/L24935",
+        "detail": "5处window scroll listener无throttle/debounce，滚动时每帧触发回调。",
+        "fix": "加requestAnimationFrame节流或lodash throttle",
+        "impact": "滚动流畅度"
+      },
+      {
+        "id": "OPT-002",
+        "severity": "P2",
+        "title": "CSS动画top/left改为transform",
+        "location": "style.css",
+        "detail": "5处transition使用top/left属性(触发reflow)，14处已用transform(仅composite)。将剩余5处改为transform可减少layout计算。",
+        "fix": "top/left动画改为transform: translateY/X",
+        "impact": "动画帧率"
+      },
+      {
+        "id": "OPT-003",
+        "severity": "P2",
+        "title": "boot.json 2.4MB首屏加载",
+        "location": "app.js L7407",
+        "detail": "页面初始化即fetch boot.json合并11个子JSON。其中overview/signal_stats是核心首屏需要的，但trade_sim_indices等可以延迟。",
+        "fix": "拆分boot-core.json(核心字段)+boot-deferred.json(延迟字段)，或用IntersectionObserver懒加载非首屏数据",
+        "impact": "首屏FCP/LCP"
+      }
+    ],
+    "alert_noise_analysis": {
+      "summary": "59条告警记录中54条recovered/4条active/1条pending。主要噪音源:",
+      "noise_sources": [
+        {
+          "pattern": "intraday_snapshot TimeoutError",
+          "count": 11,
+          "description": "R2 PUT上传偶发超时，已有重试机制但每次超时都产生一条告警记录。这些全部自愈恢复，属于正常网络抖动不应告警。",
+          "recommendation": "连续3次失败才告警(当前=首次即告警)；或加告警冷却窗口15min"
+        },
+        {
+          "pattern": "update_all / backfill_evening / futures_backfill / lab_auto error: failed to push",
+          "count": "6+4+4+2=16",
+          "description": "git push non-fast-forward冲突，已有自动rebase机制但push失败时仍发告警。这些全部自愈恢复。",
+          "recommendation": "如果脚本内部已处理non-ff(rebase+retry)，则最终成功时不发告警；只有最终失败才告警"
+        },
+        {
+          "pattern": "72h_r2_prefix_*_fail (5种不同前缀)",
+          "count": "各1条",
+          "description": "72h监控的curl rc=28(rc=6等)网络超时，自愈恢复。",
+          "recommendation": "区分'网络不可达'vs'数据异常'：前者降低严重度为info"
+        },
+        {
+          "pattern": "feishu_ws_stale",
+          "status": "active(当前)",
+          "description": "飞书WebSocket心跳陈旧。如果这是已知问题(feishu_ws_listener.py可能需要重启)，应标记为acknowledged而非反复告警。",
+          "recommendation": "加acknowledge机制让用户确认后不再重复"
+        },
+        {
+          "pattern": "update_all|in_progress_timeout",
+          "status": "active(当前,100min)",
+          "description": "update_all运行超过阈值。如果是盘后大批量采集的正常耗时，应调整阈值而非告警。",
+          "recommendation": "检查当前阈值是否合理(100min是否正常？)；考虑按交易日/周末差异化阈值"
+        }
+      ],
+      "threshold_recommendations": {
+        "intraday_snapshot_timeout": "连续≥3次失败且间隔<30min才发severe",
+        "r2_push_conflict": "仅在最终失败(非中间重试)时告警",
+        "72h_smoke_curl_fail": "连续≥2次且跨15min窗口才告警",
+        "feishu_ws_stale": "加acknowledge字段，用户确认后24h内不重复",
+        "update_all_timeout": "阈值从100min调整为120min(盘后大批量正常耗时范围)"
+      },
+      "noise_ratio": "54/59=91.5%的自愈率说明大部分告警是瞬时网络波动而非真实故障。建议引入'告警等级': critical(立即通知)/warning(聚合后每30min一批)/info(只记入dashboard不推送)"
+    }
+  }
+}

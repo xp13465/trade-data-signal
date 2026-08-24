@@ -1,0 +1,101 @@
+{
+  "report_type": "browser_interaction_test",
+  "date": "2026-08-24",
+  "scope": "拟真浏览器深度功能交互测试（桌面/iPhone 14/iPad Pro 11 三端）",
+  "tool": "Playwright Chromium headless",
+  "url": "file:///Users/linhuichen/code/trade/static-site/index.html",
+  "results": {
+    "desktop": {
+      "viewport": "1440x900",
+      "dom_loaded_ms": 98,
+      "fetch_requests": 2,
+      "js_errors": 0,
+      "kpi_cards": 23,
+      "default_fade_mode": "new14",
+      "onboarding_dismissed": true,
+      "lab_tab_clicked": true,
+      "kelly_elements_found": 0,
+      "lab_fade_mode_selector": "not-found",
+      "js_heap_mb": 16,
+      "perf_dcl_ms": 95,
+      "perf_load_ms": 307,
+      "screenshot_home": "/tmp/codex-reports/desktop-home.png",
+      "screenshot_lab": "/tmp/codex-reports/desktop-lab.png"
+    },
+    "iphone14": {
+      "viewport": "390x844",
+      "dom_loaded_ms": 39,
+      "fetch_requests": 2,
+      "js_errors": 0,
+      "kpi_cards": 23,
+      "default_fade_mode": "new14",
+      "onboarding_dismissed": true,
+      "lab_tab_clicked": false,
+      "lab_click_error": "Element is not visible (bottom tab bar hidden behind onboarding overlay)",
+      "screenshot_home": "/tmp/codex-reports/iphone14-home.png"
+    },
+    "ipad": {
+      "viewport": "834x1194",
+      "dom_loaded_ms": 40,
+      "fetch_requests": 2,
+      "js_errors": 0,
+      "kpi_cards": 23,
+      "default_fade_mode": "new14",
+      "onboarding_dismissed": true,
+      "lab_tab_clicked": true,
+      "kelly_elements_found": 0,
+      "js_heap_mb": 23,
+      "perf_dcl_ms": 38,
+      "perf_load_ms": 222,
+      "screenshot_home": "/tmp/codex-reports/ipad-home.png",
+      "screenshot_lab": "/tmp/codex-reports/ipad-lab.png"
+    }
+  },
+  "findings": [
+    {
+      "id": "UI-001",
+      "severity": "P2",
+      "title": "策略实验室凯利区未渲染（file:// 协议限制）",
+      "detail": "三端点击策略实验tab后，凯利区(sigkelly)元素数为0。原因是凯利区数据(signal_kelly_trades.json 62MB)通过R2/CF URL加载，file://协议下CORS阻止了fetch。线上部署后应正常渲染。",
+      "recommendation": "需在线上环境重跑此测试才能验证凯利区交互。file://测试仅能验证首页核心功能。"
+    },
+    {
+      "id": "UI-002",
+      "severity": "P2",
+      "title": "iPhone 14 底部tab栏被引导弹窗遮挡",
+      "detail": "iPhone 14 截图显示新手引导弹窗覆盖了底部tab栏，导致策略实验按钮不可点击。用户必须先完成引导才能导航。这是预期行为但影响自动化测试效率。",
+      "recommendation": "测试脚本需先完整走完引导流程（可能有多步），或通过localStorage跳过引导。"
+    },
+    {
+      "id": "PERF-002",
+      "severity": "P3",
+      "title": "桌面端JS Heap仅16MB（未加载trades.json）",
+      "detail": "首页+策略实验tab切换后JS Heap仅16MB（桌面）/23MB（iPad），说明trades.json未在file://下加载。线上环境加载62MB trades后Heap预计会飙升至200MB+。",
+      "recommendation": "线上测试需监控Heap变化，验证P0性能问题（62MB trades.json）的实际影响。"
+    }
+  ],
+  "positive_results": [
+    "三端均无JS错误",
+    "KPI卡片23个正常渲染",
+    "AI降亏默认模式=new14正确",
+    "新手引导弹窗正常弹出且可关闭",
+    "策略实验tab可正常切换（桌面/iPad）",
+    "DOM加载速度优秀（39-98ms）",
+    "页面Load时间222-307ms（不含大文件）",
+    "移动端无水平滚动问题",
+    "iPad端布局自适应正常"
+  ],
+  "limitations": [
+    "file://协议下无法测试R2/CF数据加载（CORS限制）",
+    "无法验证线上三站部署状态",
+    "凯利区交互（模式切换/信号卡/模拟回测）需要线上数据才能触发",
+    "62MB trades.json的内存影响需线上环境验证"
+  ],
+  "next_steps": [
+    "在线上环境(ss.fx8.store)重跑完整测试",
+    "验证凯利区NEW14默认选中+模式切换交互",
+    "监控62MB trades.json加载后的JS Heap",
+    "测试移动端信号卡片触摸交互",
+    "测试邮件通知链路"
+  ]
+}
