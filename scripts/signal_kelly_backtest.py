@@ -249,20 +249,25 @@ _EXCLUDED_MATCHERS_CACHE = None
 
 
 def _excluded_matchers():
-    """读 config/universe_rules.yaml excluded_categories, 返回 ((name, mode, patterns), ...) 缓存版。"""
+    """读 config/universe_rules.yaml excluded_categories, 返回 ((name, mode, patterns), ...) 缓存版。
+
+    fail-closed(§23.11 绝不静默): 配置文件缺失/不可达时直接 raise, 拒绝在未知宇宙下回测——
+    若静默跳过剪枝(fail-open), 排除类别冻结值将无声穿透入样, 产物带脏样本且无人察觉。
+    """
     global _EXCLUDED_MATCHERS_CACHE
     if _EXCLUDED_MATCHERS_CACHE is None:
         cfg_path = os.path.join(ROOT, "config", "universe_rules.yaml")
+        if not os.path.exists(cfg_path):
+            raise FileNotFoundError(
+                f"排除规则缺失: {cfg_path} 未找到 —— universe_rules.yaml 是入样宇宙单一事实源(§23.6), "
+                "拒绝在未知宇宙下回测(signal_kelly_backtest.py); 请先恢复该文件再重跑")
         matchers = []
-        if os.path.exists(cfg_path):
-            with open(cfg_path, encoding="utf-8") as f:
-                rules = yaml.safe_load(f) or {}
-            for cat in rules.get("excluded_categories") or []:
-                m = cat.get("match")
-                pats = (m,) if isinstance(m, str) else tuple(m or ())
-                matchers.append((cat.get("name", "?"), cat.get("mode", "?"), pats))
-        else:
-            print(f"  ⚠ universe_rules.yaml 未找到({cfg_path}), 宇宙感知剪枝不生效", file=sys.stderr)
+        with open(cfg_path, encoding="utf-8") as f:
+            rules = yaml.safe_load(f) or {}
+        for cat in rules.get("excluded_categories") or []:
+            m = cat.get("match")
+            pats = (m,) if isinstance(m, str) else tuple(m or ())
+            matchers.append((cat.get("name", "?"), cat.get("mode", "?"), pats))
         _EXCLUDED_MATCHERS_CACHE = tuple(matchers)
     return _EXCLUDED_MATCHERS_CACHE
 
