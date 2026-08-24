@@ -667,6 +667,101 @@ def cmd_upload_etf_hist():
     purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
+def cmd_upload_fund_nav():
+    """上传 static-site/data/fund_nav/*.json 到 R2 fund_nav/ 前缀(#11 基金弹窗净值走势, 2026-08-25)。
+
+    R2 key = fund_nav/{code}.json(26118 只全史净值, scripts/export_fund_nav.py 生成)。
+    前端基金评分弹窗「净值走势」period tab 懒加载 fetchJSON ->
+    https://ss.fx8.store/r2/fund_nav/{code}.json(复刻 etf/{code}-all.json 模式:
+    worker /r2/ 为通用 key 代理无前缀白名单, 新前缀零 worker 改动)。
+    §8.1 按前缀建独立命令; fund_nav/ 子目录不被 upload-data-large/upload-all-data 的
+    非递归 *.json glob 覆盖, 无双副本风险(已核 glob 实现 L809)。已接入 update_all.sh / deploy.sh。
+
+    增量指纹上传(复刻 cmd_upload_etf_hist 机制, 简化点):
+      - 指纹 = 整文件字节 md5。export_fund_nav.py **不放 exported_at 字段**(与 etf-hist
+        的差异), 文件内容只在净值序列真变化时变化 -> 无需 json 解析剔除逻辑;
+        清盘老基金序列冻结 -> 内容不变 -> 指纹不变 -> 自然跳过, 每日真重传仅活跃基金。
+      - 首跑/状态缺失或损坏 → 自动退化为全量;
+      - 每周日强制全量一次(防「R2 侧对象丢失而本地状态无感知」漂移, 同 etf-hist);
+      - 状态只在全部上传成功后 tmp+os.replace 原子更新;部分失败保持旧状态下次重传
+        —— 失败方向宁多传不漏传;
+      - 体量提示: 全量 ~700MB(26118 只 x ~26KB), 日增量=当日有新净值的活跃基金
+        (~1-2 万只 x 单文件整传); 上游超时由调用方 run_r2_upload 1800s 承接,
+        失败不阻塞 deploy 主流程(与 upload-etf-hist 同策略)。
+    """
+    nav_dir = STATIC_DIR / "data/fund_nav"
+    all_json = sorted(p for p in nav_dir.glob("*.json") if p.is_file())
+    if not all_json:
+        sys.exit(f"无 fund_nav json: {nav_dir} (先跑 scripts/export_fund_nav.py 生成)")
+
+    # 状态清单与数据同仓: X/static-site/data/fund_nav -> X/data/.r2_fund_nav_state.json
+    state_path = nav_dir.parents[2] / "data" / ".r2_fund_nav_state.json"
+    old_files = {}
+    if state_path.exists():
+        try:
+            with open(state_path, "r", encoding="utf-8") as f:
+                st = json.load(f)
+            if isinstance(st.get("files"), dict):
+                old_files = st["files"]
+        except (OSError, ValueError):
+            print(f"[fund-nav] ⚠ 状态清单损坏/不可读({state_path}),退化为全量")
+            old_files = {}
+
+    def _fingerprint(path):
+        """数据本体指纹: 整文件字节 md5(payload 无 exported_at, 内容只在数据变时变)。"""
+        return hashlib.md5(path.read_bytes()).hexdigest()
+
+    t0 = time.time()
+    sigs = {p.name: _fingerprint(p) for p in all_json}
+    today_weekday = datetime.date.today().weekday()   # Monday=0 ... Sunday=6
+    force_full = (not old_files) or today_weekday == 6
+    if force_full:
+        mode = "周日强制全量" if today_weekday == 6 and old_files else "首次/无状态全量"
+        changed = list(all_json)
+    else:
+        mode = "增量"
+        changed = [p for p in all_json if old_files.get(p.name) != sigs[p.name]]
+    print(f"[fund-nav] 模式={mode} 本次待传 {len(changed)}/{len(all_json)}"
+          f"(其余 {len(all_json) - len(changed)} 个内容未变化跳过)")
+
+    def _save_state(path, sig_map, run_mode):
+        """原子写状态清单(tmp + os.replace); 仅在上传全部成功后调用。
+        状态重建为本次扫描全集, 本地已删除条目自然剔除(R2 残留旧 key 无害)。"""
+        new_state = {
+            "version": 1,
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "mode": run_mode,
+            "count": len(sig_map),
+            "files": sig_map,
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_name(path.name + ".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(new_state, f, ensure_ascii=False, sort_keys=True)
+        os.replace(tmp_path, path)
+
+    if not changed:
+        elapsed = time.time() - t0
+        print(f"[fund-nav] ✓ 全部 {len(all_json)} 个内容未变化, 无需上传, 耗时 {elapsed:.1f}s")
+        _save_state(state_path, sigs, mode)
+        return
+
+    ok, total, failed_rels, uploaded_keys = _upload_glob(
+        nav_dir, ["*.json"], "fund_nav", only_files=changed)
+    elapsed = time.time() - t0
+    if total == 0:
+        sys.exit(f"无 fund_nav json 可传: {nav_dir}")
+    print(f"[fund-nav] ✓ 上传完成 {ok}/{total},耗时 {elapsed:.1f}s "
+          f"(较全量少传 {len(all_json) - total} 个)")
+
+    if ok != total:
+        print(f"FAILED_FILES: {', '.join(failed_rels)}")
+        sys.exit(1)
+
+    _save_state(state_path, sigs, mode)
+    purge_cache(uploaded_keys, cache_prefix="/r2/")
+
+
 def cmd_upload_industry():
     """上传 static-site/data/industry-* 到 R2 industry/ 前缀（保留原相对路径）。
 
@@ -1428,6 +1523,9 @@ if __name__ == "__main__":
     elif cmd == "upload-etf-hist":
         # upload-etf-hist  ETF 全史日K etf/{code}-all.json -> R2 etf/ 前缀(#10, 2026-08-22)
         cmd_upload_etf_hist()
+    elif cmd == "upload-fund-nav":
+        # upload-fund-nav  基金全史净值 fund_nav/{code}.json -> R2 fund_nav/ 前缀(#11, 2026-08-25)
+        cmd_upload_fund_nav()
     elif cmd == "upload-industry":
         cmd_upload_industry()
     elif cmd == "upload-public-fund":
@@ -1480,7 +1578,8 @@ if __name__ == "__main__":
         sys.exit(
             "用法: upload_r2.py [list [prefix]|upload-lab|upload-trade-sim|"
             "upload-trade-sim-json|upload-index|upload-industry|upload-public-fund|"
-            "upload-offshore-fund|upload-fund-score|upload-etf-score|upload-data-large|upload-kelly-parts|upload-db|"
+            "upload-offshore-fund|upload-fund-score|upload-etf-score|upload-etf-hist|"
+            "upload-fund-nav|upload-data-large|upload-kelly-parts|upload-db|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup|"
             "upload-claude-backup [path]|upload-all-data|upload-intraday|purge-low-freq]"
         )

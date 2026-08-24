@@ -768,6 +768,115 @@ def check_etf_hist(data_dir: Path) -> CheckResult:
     return _ok(name, f"{len(files)} 只 ETF 全史日K，抽样 {len(sample)} 只结构正常")
 
 
+def _find_public_fund_db() -> Path | None:
+    """定位公募基金库 public_fund.db（fund_daily_nav 写入端同库）。
+
+    优先 trade-data/data/public_fund.db（launchd 写端 cwd=REPO=trade-data，最新主库），
+    回退 trade/data/public_fund.db（镜像）。找不到返回 None。
+    """
+    for p in (
+        Path("/Users/linhuichen/code/trade-data/data/public_fund.db"),
+        Path("/Users/linhuichen/code/trade/data/public_fund.db"),
+    ):
+        if p.exists():
+            return p
+    return None
+
+
+def check_fund_nav(data_dir: Path) -> CheckResult:
+    """校验 fund_nav/ 全史净值产物目录（#11，export_fund_nav.py 生成）。
+
+    事故场景：fund_nav/ 目录丢失或文件为空 -> 前端基金评分弹窗「净值走势」
+    fetchJSON 404 -> 走势区空白。校验三层：
+      1) 目录存在 + 文件数>0 + 抽样 date/count/nav 结构非空;
+      2) 覆盖率: 文件数 vs DB distinct fund_code（<90% FAIL / <95% WARN, 防导出半途静默缺失）;
+      3) 抽样最多 5 只 DB<->产物逐位一致（最新 3 个有效净值点 date/unit_nav/acc_nav 全等）。
+    """
+    import random
+
+    name = "fund_nav"
+    nav_dir = data_dir / "fund_nav"
+    if not nav_dir.is_dir():
+        return _warn(name, f"fund_nav/ 目录不存在: {nav_dir}（基金弹窗「净值走势」将空白，"
+                     f"跑 export_fund_nav.py 生成；评分/凯利区块不受影响）")
+
+    files = sorted(nav_dir.glob("*.json"))
+    if not files:
+        return _warn(name, f"fund_nav/ 目录无 JSON 文件: {nav_dir}")
+
+    # 结构抽验(最多5只): date/count/nav 非空且 count==len(nav)
+    sample = random.sample(files, min(5, len(files)))
+    bad = []
+    for f in sample:
+        d, err = _load_json(f)
+        if err:
+            bad.append(f"{f.name}: {err}")
+            continue
+        if not d.get("date") or not d.get("count") or not d.get("nav"):
+            bad.append(f"{f.name}: date/count/nav 有空值")
+        elif len(d["nav"]) != d["count"]:
+            bad.append(f"{f.name}: count={d['count']} != len(nav)={len(d['nav'])}")
+    if bad:
+        return _fail(name, "; ".join(bad[:4]))
+
+    # 覆盖率: 产物文件数 vs DB distinct fund_code
+    db = _find_public_fund_db()
+    db_codes = None
+    conn = None
+    if db:
+        try:
+            conn = sqlite3.connect(str(db), timeout=5.0)
+            db_codes = {r[0] for r in conn.execute(
+                "SELECT DISTINCT fund_code FROM fund_daily_nav "
+                "WHERE fund_code IS NOT NULL AND fund_code != ''")}
+        except sqlite3.Error as e:
+            return _fail(name, f"读 public_fund.db 失败(db={db}): {e}")
+        finally:
+            if conn is not None:
+                conn.close()
+    if db_codes:
+        local_names = {f.stem for f in files}
+        covered = len(local_names & db_codes)
+        ratio = covered / len(db_codes)
+        if ratio < 0.90:
+            return _fail(name, f"覆盖率 {ratio:.1%} ({covered}/{len(db_codes)}) < 90%，"
+                         f"疑似导出半途/数据源变更")
+        warn_line = (f"；覆盖率 {ratio:.1%}" if ratio < 0.95 else "")
+        if ratio < 0.95:
+            bad = [f"覆盖率 {ratio:.1%} ({covered}/{len(db_codes)}) < 95%"]
+            return _warn(name, bad[0])
+
+        # DB<->产物逐位一致抽验: 每只取 DB 最新 3 个有效净值点与产物尾部全等比对
+        conn = sqlite3.connect(str(db), timeout=5.0)
+        try:
+            mismatch = []
+            for f in sample:
+                d, err = _load_json(f)
+                if err:
+                    continue
+                code = d.get("code", f.stem)
+                rows = conn.execute(
+                    "SELECT date, unit_nav, acc_nav FROM fund_daily_nav "
+                    "WHERE fund_code=? AND unit_nav IS NOT NULL ORDER BY date DESC LIMIT 3",
+                    (code,),
+                ).fetchall()
+                got = [(r[0], r[1], r[2]) for r in rows]
+                exp = [(r[0], r[1], r[2]) for r in list(reversed(d.get("nav", [])))[:3]]
+                if got != exp:
+                    mismatch.append(
+                        f"{code}: DB尾3={got[-1] if got else '[]'} vs "
+                        f"产物尾3={exp[-1] if exp else '[]'}")
+            if mismatch:
+                return _fail(name, "DB↔产物不一致: " + "; ".join(mismatch[:3]))
+        finally:
+            conn.close()
+
+    msg = f"{len(files)} 只基金全史净值，抽样 {len(sample)} 只结构+DB逐位一致"
+    if db_codes and len({f.stem for f in files} & db_codes) / len(db_codes) >= 0.95:
+        msg += "，覆盖率 ≥95%"
+    return _ok(name, msg)
+
+
 def check_a_fund_north_quarterly() -> CheckResult:
     """校验主库 daily_metric 的 a_fund_north_quarterly 最新季度行存在。
 
@@ -1181,6 +1290,8 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     results.append(check_etf_since_return(data_dir))
     # #10 ETF 全史日K产物目录（export_etf_hist.py -> R2 etf/ 前缀）
     results.append(check_etf_hist(data_dir))
+    # #11 基金全史净值产物目录（export_fund_nav.py -> R2 fund_nav/ 前缀, 2026-08-25）
+    results.append(check_fund_nav(data_dir))
     # #29 track_score 跨产物一致性（2026-08-22 起两路全量对比，替代旧 5 样本三版本抽样）
     results.append(check_track_score_map_vs_index(data_dir, repo_data_dir))
     results.append(check_track_score_overview_vs_map(data_dir, repo_data_dir))
