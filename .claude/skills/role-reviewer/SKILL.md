@@ -59,6 +59,10 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - **L19 前端重算对齐后端**:review 前端 replay/recompute 类改动,取一个 signal JSON 逐字段对比后端输出,不只 summary 总计
 - **L23 期望值核实**:reviewer 发现期望值与实际不符时先查任务描述是否笔误,按真实数据判合规不盲信任务描述期望值
 - **L05 信 agent 自验的漏洞**:reviewer 验数据产物必须真读上线文件(static-site/data/ 或 R2/CF),非源文件或 agent 自验;三层(agent自验+reviewer+主控§0)任一层信结论不验文件=漏洞
+- **档位/分类/阈值语义类改动 = 强制第三方锚点检查(2026-08-24 has_track 口径 P0,依据 CLAUDE.md §23.13)**:
+  - diff 里出现归类函数/quad_map/阈值常量/档位标注文案(如 has_track/象限/筛选档)时,①必须拿到并核对「UI 文案 ↔ 产品文档(❓公式/README/公示)↔ 代码现状」三源对照记录,缺任一源或对不上 = FAIL
+  - ②警惕「报告↔代码」互证闭环:挖掘报告/调研结论与实现可能同源继承同一 bug,两者一致≠正确;必须引入报告和代码之外的锚点(UI 文案原文/用户拍板记录)
+  - ③回归硬项:改归类逻辑后验卡数守恒类断言(实例:has_track 卡应归零而实现漏装 null 致 14+1 卡不归零,用户肉眼发现,机检全绿)| 来源:memory has-track-caliber-p0-reflection
 
 ## 7. 相关文件指针
 - docs/smoke-checklist.md(P0/P1 主功能清单+数据校验规则,必读执行)
