@@ -725,8 +725,8 @@ function _tdsFadeSpecHit(key, c) {
   return false;
 }
 
-// ---- AI降亏 7 模式预设(权威=T2 卡 _KELLY_MODE_COMPARE_CARDS+mine24_compare.json; 文案从卡转录) ----
-// keys 全部 ⊆ 57 键(FRONT 10 + GATE 27 + T1 20); caliber 口径标注随选项展示(A/B/C=叠9键 / NEW 族=换基座)。
+// ---- AI降亏 8 模式预设(权威=T2 卡 _KELLY_MODE_COMPARE_CARDS+mine24_compare.json; 文案从卡转录) ----
+// keys 全部 ⊆ 58 键(FRONT 10 + GATE 27 + T1 20 + X1); caliber 口径标注随选项展示(A/B/C=叠9键 / NEW 族=换基座)。
 // ⚠ v1.1.5(2026-08-24 用户拍板): 默认基座从 p8(8键, v1.1.2) 切换为 new14(NEW 14键)——依据 mine28(AUTO 轮动
 //   样本外全 FAIL+天花板作弊仍输单持)+mine30 记分板(NEW14 全史第一 +122,648/mdd -4,178 vs 八键 +66,530/-18,190,
 //   费后 K1 V2 回补 cap13 口径)。p8 保留为可手动选的对照档位不删(§23.7 只增不改精神: 老口径可回选)。
@@ -735,7 +735,9 @@ var _KELLY_FADE_T1_KEYS = [
   "r2gLowRatingQ3", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct",
   "h1VolChgHighA", "m1MarginDownBull", "d2LowDivBull", "p1LowDivBackup", "v1HighVol20",
   "s1SentALow", "r1VolRatioLow", "r2bSpecialGlobal", "n2NorthOutConcept", "v2Vol20Gt25",
-  "s2SentHs300Low", "w1BackupDecline", "a1BullAllStop", "v3Vol20LowPct", "ad1AdlineHot"
+  "s2SentHs300Low", "w1BackupDecline", "a1BullAllStop", "v3Vol20LowPct", "ad1AdlineHot",
+  // X1(mine29c 2026-08-24, NEW14+1·15键可选档成员; 非挖掘产出故排末位; 与 loss_rules.NEW_KEYS_PROD 同步)
+  "excludeTierNone"
 ];
 var _KELLY_FADE_ALL_KEYS = _KELLY_FADE_FRONT_KEY_ORDER.concat(_KELLY_FADE_GATE_KEY_ORDER, _KELLY_FADE_T1_KEYS);
 var _KELLY_FADE_MODE_PRESETS = [
@@ -752,7 +754,11 @@ var _KELLY_FADE_MODE_PRESETS = [
   { id: "new14", name: "NEW 14键(默认)", tagline: "新防守王·全史第一+回撤最浅", caliber: "✓ 现役默认(v1.1.5 起·重构换基座)", calWarn: false,
     keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "declinePhaseSpecial", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] },
   { id: "new18", name: "NEW2 18键", tagline: "NEW 影子·入选差31笔次优对照", caliber: "⚠ 重构换基座(NEW 族次优解)", calWarn: true,
-    keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "excludeSpecialBear", "n2NovSpecialIndustry", "greedy7", "v4f", "n2NorthOutConcept", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] }
+    keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "excludeSpecialBear", "n2NovSpecialIndustry", "greedy7", "v4f", "n2NorthOutConcept", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] },
+  { id: "new15", name: "NEW14+1 · 15键", tagline: "NEW14+整剔无跟踪ETF象限·回撤再浅一截(mdd -4,178→-3,550)", caliber: "⚠ 重构换基座(NEW 族扩展·可选档非默认)", calWarn: true,
+    // X1=整剔 track_tier=none 象限(mine29c 2026-08-24 用户拍板): 全史仅剔 17 笔毛 +584.62(费 359.07 净 +225.56),
+    // 近 5 年 12 笔净 -1,450.66 但补位回收 +1,253.96(页面口径) → 主收益是回撤改善非增益。默认仍=new14(§23.7)。
+    keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "declinePhaseSpecial", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal", "excludeTierNone"] }
 ];
 var _KELLY_FADE_DEFAULT_MODE = "new14"; // v1.1.5 起默认=NEW 14键(v1.1.2 及以前=p8/8键; 单源, 各消费点回退统一引用本常量)
 function _tdsFadeModeById(id) {
@@ -761,7 +767,7 @@ function _tdsFadeModeById(id) {
   }
   return null;
 }
-// 把模式键组合写进 filters 对象: 57 个 fade 键先全部置 false 再按预设点亮(non-fade 键如 positionCap/K 不动)
+// 把模式键组合写进 filters 对象: 58 个 fade 键先全部置 false 再按预设点亮(non-fade 键如 positionCap/K 不动)
 function _tdsFadeModeApply(modeId, filters) {
   var p = _tdsFadeModeById(modeId);
   if (!p || !filters) return false;

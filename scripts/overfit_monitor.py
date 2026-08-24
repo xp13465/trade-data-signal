@@ -261,6 +261,36 @@ def load_board_etf_track_score():
     return {}
 
 
+def load_board_etf_track_tier():
+    """board_etf_map.json -> {index_id: top1 track_tier|None}(X1 键 recent 打标用, 2026-08-24)。
+
+    与 load_board_etf_track_score 同款遍历(同一 max-ts 条目), 读其 track_tier 属性——
+    保证 ts 与 tier 同源同条目(与 queries._ai_macro_track_tier_of / 回测 _build_best_etf 同口径)。
+    tier=None(灰灭灯 composite<30)保留 None → recent_hit_keys 转 "" 不命中, 与 trades 列语义一致。"""
+    for p in (os.path.join(REPO, "static-site", "data", "board_etf_map.json"),
+              os.path.join(REPO, "data", "board_etf_map.json")):
+        if os.path.exists(p):
+            try:
+                with open(p, encoding="utf-8") as f:
+                    m = json.load(f)
+                out = {}
+                for iid, arr in m.items():
+                    if iid in ("_meta", "_hysteresis") or not isinstance(arr, list):
+                        continue
+                    best = None      # (ts, tier)
+                    for it in arr:
+                        if not isinstance(it, dict):
+                            continue
+                        ts = it.get("track_score")
+                        if ts is not None and (best is None or ts > best[0]):
+                            best = (ts, it.get("track_tier"))
+                    out[iid] = best[1] if best else None
+                return out
+            except (json.JSONDecodeError, OSError):
+                return {}
+    return {}
+
+
 def build_market_state_hs300(close_map):
     """沪深300 close 相对 MA60 状态 -> {date: bool}。无数据返 {} (保守不过滤)。"""
     hs = close_map.get("hs300")
@@ -369,13 +399,15 @@ class FilterCtx(object):
     """过滤判定依赖的上下文(Single source):
       - market_map: {index_id: raw_market} (来自 config/indicators.yaml, 含 "a"/"hk"/"concept"...)
       - ts_map: {index_id: top1 track_score|None} (来自 board_etf_map)
+      - tier_map: {index_id: top1 track_tier|None} (来自 board_etf_map; X1 键 recent 打标用, 2026-08-24)
       - bull_state: {date: bool} (hs300 MA60 多头态; 缺省空=保守不过滤)
-      - mkt_of(iid) / bull_of(date) / ts_of(iid) 提供索引级映射。
+      - mkt_of(iid) / bull_of(date) / ts_of(iid) / tt_of(iid) 提供索引级映射。
     """
 
-    def __init__(self, market_map, ts_map=None, bull_state=None):
+    def __init__(self, market_map, ts_map=None, bull_state=None, tier_map=None):
         self.market_map = market_map or {}
         self.ts_map = ts_map or {}
+        self.tier_map = tier_map or {}
         self.bull_state = bull_state or {}
 
     def mkt_of(self, iid):
@@ -393,6 +425,11 @@ class FilterCtx(object):
 
     def ts_of(self, iid):
         return self.ts_map.get(iid)
+
+    def tt_of(self, iid):
+        """top1 ETF 跟踪档位(strong/related/approx/none); 无映射/None(灰灭灯) → "" 不命中(X1 判定用)。"""
+        t = self.tier_map.get(iid)
+        return "" if t is None else str(t)
 
     def bull_of(self, date_str):
         # 取 <= 信号日最近的 MA60 状态; 无给定日则向前找
@@ -445,6 +482,9 @@ RECENT_KEYS = [
     #   recent_hit_keys 双重门控(_pk in RECENT_KEYS)致 NEW18 组集该键恒 false, 人口偏松。
     #   补列后走 lr.rule_hit T1 分支自动判定(特征=north_d20, loss_rules.py N2 规格单源)。
     "r10May6NonMay", "declinePhaseSpecial", "greedy7", "v4f", "n2NorthOutConcept",
+    # new15 增量(mine29c 2026-08-24 用户拍板): X1 整剔 track_tier=none 象限(loss_rules.py 规格单源,
+    #   tier_map=board_etf_map top1 跟踪档位), 供监控卡 new15 模式组集; 不加则组集缺键人口偏松(同 n2 教训)。
+    "excludeTierNone",
 ]
 # 明细覆盖交易日数(≥ SURFACE_DAYS=200 + 最大统计窗口 100 + 余量; 前端滚动窗口最长 100 日)
 RECENT_DAYS = 340
@@ -515,10 +555,11 @@ def load_loss_rules_recent():
         return None, (lambda name, date: None)
 
 
-def recent_hit_keys(date_str, signal, mkt, rating, ts, tier, ma60_bull, lr, feat_at):
+def recent_hit_keys(date_str, signal, mkt, rating, ts, tier, ma60_bull, lr, feat_at, track_tier=""):
     """recent 明细行命中键判定(v1.1.2 四档口径, 逐字对齐 queries._ai_macro_hit_filters 信号级子集):
     8键(excludeSpecialBear=四档) + bullAuxBackupStop + 备选键(legacyMa60/declinePhase;
-    excludeSpecialBearCyb 无 cyb tier 数据源不打标, 诚实降级) + T1 新键(loss_rules.rule_hit 单源)。
+    excludeSpecialBearCyb 无 cyb tier 数据源不打标, 诚实降级) + T1 新键(loss_rules.rule_hit 单源,
+    track_tier=X1 键 recent 打标用, 2026-08-24)。
     仅买信号守卫(MED3); tier 仅 A股类注入(对齐 queries L812); bpb/etf 组件降级跳过。返回键名列表。"""
     _sig = signal or ""
     if _sig not in _AI_MACRO_BUY_SIGNALS:
@@ -607,6 +648,7 @@ def recent_hit_keys(date_str, signal, mkt, rating, ts, tier, ma60_bull, lr, feat
     # T1 20 新键(loss_rules 单源; rating/ts 语义对齐 queries._ai_macro_hit_new_keys)
     if lr is not None:
         _c = {"sig": _sig, "mkt": lr.MKT_LONG2SHORT.get(mkt, ""), "tier": _tier,
+              "track_tier": track_tier or "",
               "date": date_str, "smonth": _mm, "rating": rating or "", "ts": ts, "feat_at": feat_at}
         _have = set(_f)
         for _pk in lr.NEW_KEYS_PROD:
@@ -704,7 +746,8 @@ def build_recent_block(by_date_raw, close_map, trades_by_date_raw, grade_map, la
                                    grade_map.get((iid, "buy_special" if sig == "buy_special_filtered" else sig), ""))
             tier = _recent_map_lookup(tier_map, d, "")
             ma60 = _recent_map_lookup(ma60_map, d, True)
-            keys = recent_hit_keys(d, sig, mkt, rating, ctx.ts_of(iid), tier, ma60, lr, feat_at)
+            keys = recent_hit_keys(d, sig, mkt, rating, ctx.ts_of(iid), tier, ma60, lr, feat_at,
+                                   track_tier=ctx.tt_of(iid))
             bt = bt_map.get((d, iid, sig))
             rows.append({
                 "d": d, "i": iid, "s": sig,
@@ -1564,7 +1607,8 @@ def build_output(rebuild=False, dry_run=False):
     # AI 宏过滤上下文(board_etf_map track_score + hs300 MA60 bull + market_map)
     ctx = FilterCtx(market_map,
                     ts_map=load_board_etf_track_score(),
-                    bull_state=build_market_state_hs300(close_map))
+                    bull_state=build_market_state_hs300(close_map),
+                    tier_map=load_board_etf_track_tier())
 
     # 两棵 bank: 未过滤(现状) + 过滤(AI宏删线层) —— 前端「AI降亏过滤」开关切换读取
     bank_raw = _compute_bank(by_date_raw, close_map, trades_by_date_raw, grade_map, latest_signal,

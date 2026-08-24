@@ -2573,7 +2573,9 @@ const _AI_MACRO_BACKUP_NAMES = {
   s1SentALow: "A股情绪冰点", r1VolRatioLow: "量能萎缩<10分位", r2bSpecialGlobal: "追关注×全球类",
   r2gLowRatingQ3: "7-9月+低评+低分", n2NorthOutConcept: "北向流出×概念类", v2Vol20Gt25: "波动≥25%(固定线)",
   s2SentHs300Low: "HS300情绪冰点", w1BackupDecline: "备买×下降期", a1BullAllStop: "牛主升全停(超集)",
-  v3Vol20LowPct: "低波动<10分位", ad1AdlineHot: "AD线广度过热"
+  v3Vol20LowPct: "低波动<10分位", ad1AdlineHot: "AD线广度过热",
+  // X1(mine29c 2026-08-24, NEW14+1·15键可选档成员): 与 common.js _KELLY_FADE_T1_KEYS/lab.js 映射段同步(audit D2 三处对账)
+  excludeTierNone: "整剔无跟踪ETF象限"
 };
 // 读首页独立 AI降亏过滤开关(localStorage tds_home_fade, 布尔, 默认开启=按降亏策略判定+灰显删除线+标注)。
 // 与凯利区 tds_kelly_filters 完全解耦互不影响; 旧键 tds_poscap_aiDisplay(纯显示开关)已随合并废弃不再读取。
@@ -2979,7 +2981,9 @@ function _simDefaultFadeFilters() {
     h1VolChgHighA: true, m1MarginDownBull: true, d2LowDivBull: false, p1LowDivBackup: true,
     v1HighVol20: false, s1SentALow: false, r1VolRatioLow: false, r2bSpecialGlobal: true,
     r2gLowRatingQ3: false, n2NorthOutConcept: false, v2Vol20Gt25: false, s2SentHs300Low: false,
-    w1BackupDecline: false, a1BullAllStop: false, v3Vol20LowPct: false, ad1AdlineHot: false
+    w1BackupDecline: false, a1BullAllStop: false, v3Vol20LowPct: false, ad1AdlineHot: false,
+    // X1(2026-08-24 mine29c 用户拍板·纯新增 §23.7 默认关): NEW14+1·15键可选档(new15)成员
+    excludeTierNone: false
   };
 }
 
@@ -3039,7 +3043,9 @@ const _SIM_LOSS_NEW_KEYS = [
   ["s1SentALow", "s1senta"], ["r1VolRatioLow", "r1volratio"], ["r2bSpecialGlobal", "r2bglobal"],
   ["n2NorthOutConcept", "n2nout"], ["v2Vol20Gt25", "v2vol25"], ["s2SentHs300Low", "s2sent300"],
   ["w1BackupDecline", "w1backup"], ["a1BullAllStop", "a1bull"], ["v3Vol20LowPct", "v3vollow"],
-  ["ad1AdlineHot", "ad1hot"]
+  ["ad1AdlineHot", "ad1hot"],
+  // X1(2026-08-24 mine29c, NEW14+1·15键可选档): 整剔 track_tier=none 象限
+  ["excludeTierNone", "xtnone"]
 ];
 let _simLossFeatData = null;
 let _simLossFeatLoading = null;
@@ -3069,6 +3075,7 @@ function _simLossRuleHit(key, ctx) {
   if (spec.sig != null && String(ctx.sig || "") !== spec.sig) return false;
   if (spec.tier != null && String(ctx.tier || "") !== spec.tier) return false;
   if (spec.mkt != null && String(ctx.mkt || "") !== spec.mkt) return false;
+  if (spec.track_tier != null && String(ctx.track_tier || "") !== spec.track_tier) return false;  // X1: 缺失/"" → 不命中
   if (spec.rating != null) {
     if (String(ctx.rating || "") !== spec.rating) return false;
     const tv = (ctx.ts == null || ctx.ts === "") ? 999 : Number(ctx.ts);
@@ -3161,12 +3168,14 @@ function _simPassesFade(t, fIdx, filters, monthMask) {
     filters.h1VolChgHighA || filters.m1MarginDownBull || filters.d2LowDivBull || filters.p1LowDivBackup ||
     filters.v1HighVol20 || filters.s1SentALow || filters.r1VolRatioLow || filters.r2bSpecialGlobal ||
     filters.r2gLowRatingQ3 || filters.n2NorthOutConcept || filters.v2Vol20Gt25 || filters.s2SentHs300Low ||
-    filters.w1BackupDecline || filters.a1BullAllStop || filters.v3Vol20LowPct || filters.ad1AdlineHot;
+    filters.w1BackupDecline || filters.a1BullAllStop || filters.v3Vol20LowPct || filters.ad1AdlineHot ||
+    filters.excludeTierNone;
   if (_m20On && _simLossFeatData) {
     var _ctx20 = {
       sig: t[fIdx.signal] || "",
       mkt: t._mktD || "",
       tier: fIdx.market_tier != null ? (t[fIdx.market_tier] || "") : "",
+      track_tier: fIdx.track_tier != null ? String(t[fIdx.track_tier] || "") : "",  // X1 判定(trades 列直读, 缺失 "" 不命中)
       date: t[fIdx.buy_date] || "",
       smonth: String(t[fIdx.signal_date] || "").substring(4, 6),
       rating: t[fIdx.rating] || "",
@@ -3607,7 +3616,7 @@ async function _simRenderOnce(modal) {
 
   // ② 降亏过滤
   const filters = _simDefaultFadeFilters();
-  // T3-1(2026-08-23): 模式下拉(7预设一键套用) —— fadeOn=true 时套用所选模式的完整键组合覆盖默认基座
+  // T3-1(2026-08-23): 模式下拉(8预设一键套用, new15 可选档 2026-08-24 加入) —— fadeOn=true 时套用所选模式的完整键组合覆盖默认基座
   // (v1.1.5 起=new14); fadeOn=false(总开关关, 2026-08-24 恢复)时不过滤, 此处照常套键但引擎不消费
   // (键集保持与下拉选中一致 → 重开开关即恢复当前模式口径, 无需回读记忆);
   // 弹窗无标签区无自定义态(withCustom=false);

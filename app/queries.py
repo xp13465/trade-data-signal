@@ -753,6 +753,25 @@ def _ai_macro_track_score_of(sig: dict):
     return best
 
 
+def _ai_macro_track_tier_of(sig: dict) -> str:
+    """top1 ETF 的跟踪档位 track_tier(strong/related/approx/none; X1 键判定用, 2026-08-24)。
+
+    与 _ai_macro_track_score_of 同款遍历(取 track_score 最高的条目), 读其 track_tier 属性
+    (etf_for 已透传该字段); 无 etfs/ts 全缺失 → ""(X1 等值判定天然不命中, 诚实降级)。
+    注意: board_etf_map 中 tier=None(灰灭灯, composite<30)的条目返 None → 转 "" 不命中,
+    与回测 trades track_tier 列语义一致(none 仅指弱跟踪兜底档, 非灰灭灯)。"""
+    best = None      # (ts, tier)
+    for _e in (sig.get("etfs") or []):
+        if not isinstance(_e, dict):
+            continue
+        ts = _e.get("track_score")
+        if ts is not None and (best is None or ts > best[0]):
+            best = (ts, _e.get("track_tier"))
+    if best is None or best[1] is None:
+        return ""
+    return str(best[1])
+
+
 # 仅 A股类才按 hs300 MA60 大盘择时判断熊市(与凯利脚本 A_STOCK_MARKETS={"a","concept","industry"} 同源);
 # 非 A 类(hk/global/hk_industry)凯利区 market_state 恒 True 不过滤, 此处须同守卫防误标(review FAIL1)。
 _AI_MACRO_A_STOCK_MARKETS = {"mkt_a", "mkt_concept", "mkt_industry"}
@@ -801,6 +820,7 @@ def _ai_macro_hit_new_keys(sig: dict, ctx: dict, feat_at) -> list:
     ctx 对齐 trades 字段语义(signal_kelly_backtest.py):
     - tier: market_tier 字段=hs300四档×仅A股类注入(非A股 "") → 加 A股类守卫后传值;
     - mkt: _mktD 象限维度短名(mkt_a→a 等, loss_rules.MKT_LONG2SHORT 同源映射);
+    - track_tier: top1 ETF 跟踪档位(_ai_macro_track_tier_of, X1 键判定用; 无映射 "");
     - date: buy_date ≡ signal_date(backtest L559 直接赋信号日), 特征查询日无漂移;
     - smonth/rating/ts: R2g 用(rating=该信号 best ETF 评级, ts 缺失视为 999)。"""
     _lr = _ai_macro_loss_rules()
@@ -810,6 +830,7 @@ def _ai_macro_hit_new_keys(sig: dict, ctx: dict, feat_at) -> list:
         "sig": sig.get("signal") or "",
         "mkt": _lr.MKT_LONG2SHORT.get(_mkt_long, ""),
         "tier": (ctx["tier_of"](_d) or "") if _mkt_long in _AI_MACRO_A_STOCK_MARKETS else "",
+        "track_tier": _ai_macro_track_tier_of(sig),
         "date": _d,
         "smonth": _d[4:6] if len(_d) >= 6 else "",
         "rating": ctx["rating_of"](sig) or "",
