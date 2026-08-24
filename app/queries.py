@@ -1015,12 +1015,12 @@ def overview(conn, cfg):
                 entry["amount"] = amt_row["value"] if amt_row else None
             today_metrics.append(entry)
 
-    # 近期买卖点（近15交易日，含今日）+ 近期冰点日（近30交易日）
-    # 用日历日范围覆盖足够交易日：15交易日≈35天（含周末+节假日冗余），30交易日≈45天
-    # 前端按日分组（一天一行），故取"最近15个日期"的全部记录而非 LIMIT 15 条记录
-    sig_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=35)).strftime("%Y%m%d")
+    # 近期买卖点（近30交易日，含今日，2026-08-24 用户确认由15扩容30）+ 近期冰点日（近30交易日）
+    # 用日历日范围覆盖足够交易日：买卖点窗口30交易日≈75天（含周末+春节/国庆长假日冗余）；下方冰点日30交易日≈45天
+    # 前端按日分组（一天一行），故取"最近30个日期"的全部记录而非 LIMIT 30 条记录
+    sig_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=75)).strftime("%Y%m%d")
     sig_dates = [r[0] for r in conn.execute(
-        "SELECT DISTINCT date FROM signal_daily WHERE date >= ? ORDER BY date DESC LIMIT 15",
+        "SELECT DISTINCT date FROM signal_daily WHERE date >= ? ORDER BY date DESC LIMIT 30",
         (sig_start,)
     ).fetchall()]
     sigs = []

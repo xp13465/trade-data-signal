@@ -934,6 +934,12 @@ main { padding: 16px 24px; }
 /* 2026-08-14 P1-1: 当日无入样宇宙买入信号空态横条(灰色, 日期组标题下方) */
 .sig-empty-universe { margin: 0 0 6px 70px; padding: 5px 8px; font-size: 11px; color: var(--text-3, #999); background: var(--bg-hover, rgba(0,0,0,0.04)); border-left: 3px solid var(--text-3, #999); border-radius: 3px; cursor: help; }
 .today-row .sig-empty-universe { margin-left: 70px; }
+/* v1.1.5(2026-08-24) 「仅显示可用信号」枯竭引导空态: 近30个交易日无放行买入信号时的引导文案容器
+   (内嵌 chip 复用 common.js _tdsDroughtChipHtml 单源输出, 含「已连续 N 个交易日无放行+72%」) */
+.sig-drought-empty { margin: 8px 0; padding: 10px 12px; border-left: 3px solid #e6a23c; background: rgba(230,162,60,0.07); border-radius: 4px; font-size: 13px; line-height: 1.8; }
+.sig-drought-empty-title { font-weight: 600; }
+.sig-drought-empty-title .tds-drought-chip, .sig-drought-empty-title .sig-drought-chip { margin-left: 2px; font-weight: 400; }
+.sig-drought-empty-sub { margin-top: 6px; font-size: 11px; color: var(--text-3, #999); }
 /* 2026-08-14 P0-2: 「盘后补齐」迟到信号角标(橙系, 与 ⚠ 盘中预估区分) */
 .sig-late-badge { color: #b45309; background: #b453091f; font-size: 10px; font-weight: 600; vertical-align: super; line-height: 0; margin-left: 2px; padding: 0 3px; border-radius: 3px; cursor: help; }
 /* 两段式信号固化三态提示条(2026-08-14): 由 signals_meta 驱动, 首页信号区标题下方。
