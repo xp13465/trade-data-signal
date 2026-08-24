@@ -76,3 +76,14 @@
 - **重跑命令**:`python3 docs/ai-predict/shadow-hitrate-audit-scripts/audit_shadow_vs_default.py`
 - **数据截止**:2026-08-24(0824 收盘已入 DB;0824 当日预测 20:40 尚在生成,不在样本内)
 - **关键口径一句话**:命中 = 预测 T 日方向/区间 vs T+1 收盘上证涨跌幅按 ±0.5% 阈值(HIT_THRESHOLD,与 `_actual_direction`/`aggregate_shadow` 同口径)判定的方向相等;默认模式另有前端严格三层口径(stats.hit_rate=0.0 即用户看到的"很差"数字来源)。
+
+## 七、四项改进已实施(2026-08-24 追加,用户拍板全做)
+
+本报告 §四建议四条已全部落地,实施详情/参数校准/自测五项见 **[ai-predict-four-improvements-20260824.md](ai-predict-four-improvements-20260824.md)**(实施说明+复现段),要点:
+
+| 审计发现 | 落地改法 | 状态 |
+|---|---|---|
+| 对账断档(§二,0819 起 actual 全 null) | R1:aggregate_shadow 挂入 run_daily_brief.sh 尾部每日滚动清账 + _reconcile pct=None 不写死 bug 修复 | ✅ 已实施 |
+| 板块层严格三层 0%(§三,±0.25pp vs ±2~4% 数学趋零) | R2:波动率自适应判定带 max(median(|pct|,5日)×2, 0.3pp),覆盖率 59.9% 校准定稿;存量 12 项已按新口径迁移重刷(仍 0 中=方向病非带宽病,诚实保留 raw_hit 对照) | ✅ 已实施 |
+| 默认方向口径含"震荡安全分"(§三) | R3:prompt 反转提示 + direction_call 强制 up/down 二选一单独统计(stats.direction 子键+前端方向押注行),样本自 2026-08-25 起积累 | ✅ 已实施 |
+| 影子只出 up/flat 是"看多探测器"(§一) | R4:_shadow_lean 补对称 down 分支,新记录起生效 | ✅ 已实施 |

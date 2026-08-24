@@ -124,6 +124,11 @@ def _reconcile(rows: list[dict], db_path: Path, only_date: str | None) -> tuple[
         if nxt is None:
             continue
         pct = sh_map.get(nxt)
+        if pct is None:
+            # 下一交易日在 index_daily 有行但 pct 未入库(采集晚到/缺失)→ 不写 actual 留待下次补。
+            # (2026-08-24 R1 配套修复:原实现此时也写 actual(值全 None),会被上方"已回填幂等跳过"
+            #  拦住永不重试 → 该记录断档永远 null,违背"滚动清账不留断档"挂载目标)
+            continue
         rec["actual"] = {
             "next_date": nxt,
             "actual_sh_pct": round(pct, 2) if pct is not None else None,

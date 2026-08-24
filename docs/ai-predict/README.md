@@ -13,6 +13,7 @@
 | [ai-predict-offtrack-rootcause-20260820.md](ai-predict-offtrack-rootcause-20260820.md) | 「越错越离谱」根因调研(AI 预测体系转折点证据) | 2026-08-20 |
 | [ai-predict-shadow-validate-20260820.md](ai-predict-shadow-validate-20260820.md) | 影子模式验证契约:方向锚/反思归因 7 天 A/B(用户拍板数据决定开/不开/改) | 2026-08-20 |
 | [ai-predict-shadow-vs-default-hitrate-audit-20260824.md](ai-predict-shadow-vs-default-hitrate-audit-20260824.md) | 影子 vs 默认命中率审计(影子0/3结构只出up/flat、默认方向40%严格三层0%、对账断档发现) | 2026-08-24 |
+| [ai-predict-four-improvements-20260824.md](ai-predict-four-improvements-20260824.md) | 四项改进实施说明(R1对账挂定时/R2板块自适应带N5k2/R3方向押注direction_call/R4影子down分支)+校准与迁移复现段 | 2026-08-24 |
 | [ai-predict-reflection-factor-attribution-20260820.md](ai-predict-reflection-factor-attribution-20260820.md) | 「反思=因子归因回灌」实现说明(TA Reflector 内核) | 2026-08-20 |
 | [ai-predict-inject-research.md](ai-predict-inject-research.md) | 注入面调研:已有数据逐项实测 + 注入设计 | 2026-08-16 |
 | [ai-predict-news-macro-research-methodology.md](ai-predict-news-macro-research-methodology.md) | 新闻面/宏观事件日历/其他变量面全景调研方法论 | 2026-08 |
@@ -26,6 +27,8 @@
 ## 配套脚本
 
 - [direction-market-winning-scripts/](direction-market-winning-scripts/) — 方向胜率信号挖掘全套脚本(11 个:`mine_direction_signals.py`/`mine_turnpoint_combo.py`/`mine_combo_matrix.py`/`mine_final_rules.py`/`mine_final_combo.py` 等 + `out/` 挖掘产物 json),复现入口见同目录各脚本头部 docstring。
+- [scripts/calibrate_sector_band.py](scripts/calibrate_sector_band.py) — 板块层自适应判定带参数校准(N/k/min_w 全组合自然覆盖率法+历史反事实法,2026-08-24 R2 依据,N=5/k=2.0/min_w=0.3 定稿),复现命令见脚本头。
+- [scripts/migrate_sector_band_reclass.py](scripts/migrate_sector_band_reclass.py) — R2 存量迁移:按新口径重刷 history 历史条目 sector_hits(--tree git/data 两树,备份后写回)。
 
 ## 活文档例外(留 docs/ 根,勿搬)
 

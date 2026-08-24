@@ -25336,6 +25336,16 @@ function _dbBriefDetailHtml(it) {
     const fmt = (v) => (Number(v) > 0 ? `+${Number(v).toFixed(2)}` : Number(v).toFixed(2));
     rangeBlock = `<p class="db-line"><span class="db-k">大盘区间</span>上证次日 ${fmt(rng.lo)}~${fmt(rng.hi)}%${hitTxt}</p>`;
   }
+  // 2026-08-24 R3 方向强制二选一展示(meta.direction_call 纯新增键,up/down 二选一):
+  // 旧条目/兜底版无此键或为 null → 整行不渲染(容错降级,不伪造)。
+  let dcLine = "";
+  const dc = meta.direction_call;
+  if (dc === "up" || dc === "down") {
+    const dch = (meta.hit || {}).direction_call_hit;
+    const dcMark = dch === true ? " ✅命中" : dch === false ? " ❌未中" : "";
+    const dcLabel = dc === "up" ? "📈 押涨" : "📉 押跌";
+    dcLine = `<p class="db-line"><span class="db-k">方向押注</span>强制二选一 ${dcLabel}${dcMark}<span style="opacity:.65">（与区间独立的纯方向题：实际涨跌幅≤±0.5%视为震荡，押方向判未中）</span></p>`;
+  }
   // 2026-08-15 三层命中: 中间层 7 个全押区间区块(type=index 涨跌幅%,type=yield 收益率变化基点)。
   // 插在大盘区间与板块区间之间。老条目无 index_ranges → 中间层区块留空(不伪造,不报错)。
   let indexBlock = "";
@@ -25369,8 +25379,14 @@ function _dbBriefDetailHtml(it) {
       const nm = s && (s.name || "");
       const sh = map[nm];
       const hitTxt = sh && sh.hit === true ? " ✅命中" : sh && sh.hit === false ? " ❌未中" : (sh && sh.actual_pct != null ? " N/A" : "");
+      // 2026-08-24 R2 板块层波动率自适应带宽: 已回填项追加展示有效判定带(eff_lo~eff_hi,
+      // =AI预测中点 ± max(median(|pct|,近5日)×2, 0.3pp)/2);旧条目无 eff 键 → 不追加(容错降级)
+      let bandTxt = "";
+      if (sh && sh.eff_lo != null && sh.eff_hi != null) {
+        bandTxt = `（判定带 ${fmt(sh.eff_lo)}~${fmt(sh.eff_hi)}%）`;
+      }
       // sector_ranges 元素本身不带 actual_pct(实际在 hit.sector_hits 里), 区间本体展示用 lo/hi
-      return `<span class="db-sector">${_esc(nm || "？")} ${fmt(s.lo)}~${fmt(s.hi)}%${hitTxt}</span>`;
+      return `<span class="db-sector">${_esc(nm || "？")} ${fmt(s.lo)}~${fmt(s.hi)}%${hitTxt}${bandTxt}</span>`;
     }).join("");
     sectorBlock = `<p class="db-line"><span class="db-k">板块区间</span>${pcs || "（无）"}</p>`;
   }
@@ -25399,7 +25415,7 @@ function _dbBriefDetailHtml(it) {
     const tag = (roleN ? ` · ${roleN}角色` : "") + (bullN || bearN ? ` · 辩论 ${bullN}对${bearN}` : "");
     debateBlock = `<details class="db-debate-wrap"><summary class="db-debate-toggle">🧠 多角色讨论详情${tag}<span class="db-debate-arrow">▾</span></summary><div class="db-debate-body">${rolesHtml}${debateHtml}</div></details>`;
   }
-  return `${rangeBlock}${indexBlock}${sectorBlock}${highlightsHtml}${conclusionHtml}${conf ? `<p class="db-line"><span class="db-k">把握度</span>${_dbConfidenceBadge(meta)}<span class="db-conf-reason">${_esc(conf.reason)}</span></p>` : ""}
+  return `${rangeBlock}${dcLine}${indexBlock}${sectorBlock}${highlightsHtml}${conclusionHtml}${conf ? `<p class="db-line"><span class="db-k">把握度</span>${_dbConfidenceBadge(meta)}<span class="db-conf-reason">${_esc(conf.reason)}</span></p>` : ""}
       ${reflectionHtml}
       <p class="db-line"><span class="db-k">复盘</span>${_esc(t.review || "")}</p>
       <p class="db-line"><span class="db-k">趋势</span>${_esc(t.trend || "")}</p>
@@ -25480,6 +25496,8 @@ function _renderDailyBriefStats(brief) {
   const stats = (brief && brief.stats) || {};
   const s30 = stats["30d"] || {};
   const s90 = stats["90d"] || {};
+  const d30 = (s30 && s30.direction) || {};
+  const d90 = (s90 && s90.direction) || {};
   const rate = (x) => (x && x.hit_rate != null) ? `${(x.hit_rate * 100).toFixed(0)}%` : "--";
   // 公示行: 每日 20:40 更新(后端 20:40 定时生成) + 数据生成时间 + 今日把握度(读 daily_brief.json meta, §22 同字段)
   const tb = _dailyBriefState.todayBrief;
@@ -25487,11 +25505,11 @@ function _renderDailyBriefStats(brief) {
   const todayConf = (tb && tb.meta) ? _dbConfidenceBadge(tb.meta) : "";
   el.innerHTML =
     '<div class="db-stats-box">' +
-      '<span class="db-stats-title">📊 AI预测命中率（三层全命中：大盘+中间层7押+板块，meta机检次日回填）</span>' +
+      '<span class="db-stats-title">📊 AI预测命中率（三层全命中：大盘+中间层7押+板块自适应带；方向押注单独统计，meta机检次日回填）</span>' +
       `<span class="db-stats-item db-stats-sched">🕗 每日 20:40 更新${genAt}${todayConf ? ` · 今日${todayConf}` : ""}</span>` +
-      `<span class="db-stats-item">近30日：<b>${s30 && s30.n ? `${s30.hit}/${s30.n}（${rate(s30)}）` : "暂无样本"}</b></span>` +
-      `<span class="db-stats-item">近90日：<b>${s90 && s90.n ? `${s90.hit}/${s90.n}（${rate(s90)}）` : "暂无样本"}</b></span>` +
-      '<details class="db-stats-how-fold"><summary>📊 命中率统计与算法说明 ▸</summary><div class="db-stats-how">AI每日盘后基于当日收盘数据，默认由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测 + 🎯今日要点 + 多角色讨论（展开可看四角色结论与多空辩论）；任一环节失败自动降级单模型生成兜底。meta结构化断言：预测给出<b>明确方向 + 具体涨跌幅区间</b>（大盘上证 + <b>中间层7个全押</b>（深证成指/创业板指/科创50/北证50/恒生指数/恒生科技涨跌幅% + 10年国债收益率变化基点）+ 1-3个领涨/领跌板块次日涨跌幅区间，区间宽度≤0.5%，越窄越准；方向由区间体现：全正=涨/全负=跌/含0=平震荡）。<b>10年国债</b>预测口径为<b>次日收益率变化基点</b>（1基点=0.01%，区间如 +1~-1 即预期次日收益率在 当日−1bp~+1bp，用整数基点、宽度≤3bp），命中=次日实际收益率减当日收益率（×100）落在预期基点区间。命中判定=<b>三层全命中</b>：大盘实际涨跌幅 ∈ 大盘预测区间，且<b>中间层7个全部命中</b>（前6涨跌幅%落各自区间 + 10年国债基点落区间），且所有预测板块实际涨跌幅 ∈ 各自区间（大盘+中间层7押+板块=✅三层命中；任一层数据缺失 N/A 则整体不硬判，标"层级N/A"）。<b>历史老条目</b>（改造前无区间/无中间层的预测）不伪造区间，只保留旧"方向相等"判定（✅仅方向命中），区间命中标"层级N/A"（不算中不算不中），故命中率为新老口径混合统计。<b>命中率</b>仅对改造后含区间的条目计，老条目 N/A 不计入。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。<b>版本徽标</b>：🤖多角色=6角色完整版（默认）／旧版单模型=多角色版上线前旧版（已被取代）／⚠️降级版=AI生成失败规则兜底（无多角色辩论）／⚠️精简版=最小兜底；降级/精简版仅供参考。每条预测含<b>🧭结论</b>行（融合结论=研究员多空辩论收敛结果，不展开即可见），<b>辩论详情</b>折叠面板可展开看四角色结论与多空论据（含论据数）。<b>增量参考面</b>：预测已综合当天新闻快讯/宏观事件（今日要闻/明日关键事件）/8宽基估值位置（1y/3y历史百分位）等增量参考——AI 在这些面之上判断方向，但这些面本身不参与区间命中判定。<b>历史反思校准（自成长）</b>：每次预测生成前，系统会读历史失败预测样本（方向/区间误判+归因）做反思注入，让模型参考既往失误谨慎校准本次判断（严格时间隔离，只用本预测日之前已回填的失败样本，防未来函数）；有样本时预测详情块显示「🔍 含历史反思校准」及参考的具体失败样本（日期+类型+归因），样本积累中则暂不显示。命中率仅为历史统计，不构成投资建议。</div></details>' +
+      `<span class="db-stats-item">三层命中 近30日：<b>${s30 && s30.n ? `${s30.hit}/${s30.n}（${rate(s30)}）` : "暂无样本"}</b> · 近90日：<b>${s90 && s90.n ? `${s90.hit}/${s90.n}（${rate(s90)}）` : "暂无样本"}</b></span>` +
+      `<span class="db-stats-item">方向押注 近30日：<b>${d30 && d30.n ? `${d30.hit}/${d30.n}（${rate(d30)}）` : "样本积累中"}</b> · 近90日：<b>${d90 && d90.n ? `${d90.hit}/${d90.n}（${rate(d90)}）` : "样本积累中"}</b></span>` +
+      '<details class="db-stats-how-fold"><summary>📊 命中率统计与算法说明 ▸</summary><div class="db-stats-how">AI每日盘后基于当日收盘数据，默认由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测 + 🎯今日要点 + 多角色讨论（展开可看四角色结论与多空辩论）；任一环节失败自动降级单模型生成兜底。meta结构化断言：预测给出<b>明确方向 + 具体涨跌幅区间</b>（大盘上证 + <b>中间层7个全押</b>（深证成指/创业板指/科创50/北证50/恒生指数/恒生科技涨跌幅% + 10年国债收益率变化基点）+ 1-3个领涨/领跌板块次日涨跌幅区间，区间宽度≤0.5%，越窄越准；方向由区间体现：全正=涨/全负=跌/含0=平震荡）。<b>10年国债</b>预测口径为<b>次日收益率变化基点</b>（1基点=0.01%，区间如 +1~-1 即预期次日收益率在 当日−1bp~+1bp，用整数基点、宽度≤3bp），命中=次日实际收益率减当日收益率（×100）落在预期基点区间。命中判定=<b>三层全命中</b>：大盘实际涨跌幅 ∈ 大盘预测区间，且<b>中间层7个全部命中</b>（前6涨跌幅%落各自区间 + 10年国债基点落区间），且所有预测板块实际涨跌幅 ∈ 各自的<b>波动率自适应判定带</b>。<b>板块层口径升级（2026-08-24）</b>：AI 预测的原始窄区间照旧展示不改，但命中判定带=以 AI 预测区间中点为中心、宽 max(该板块近5个交易日日涨跌幅绝对值的中位数×2, 0.3pp)——比 std 抗毛刺、随板块自身波动自适应放大收窄。校准依据（docs/ai-predict/scripts/calibrate_sector_band.py 自然覆盖率法）：近500个交易日×全部申万行业覆盖率 59.9%，落在 40-65% 目标域（既有区分度又不恒错）；此口径前的固定 ±0.25pp 窄带 vs 板块日常 ±2~4% 波动，板块曾 10 天 0/10 全脱靶属数学必然而非模型判断力问题；每条 sector_hits 同时保留 raw_hit（原窄口径对照）可追溯。极端行情（单日|涨跌|≥3%）任何合理带宽都难兜住，此时脱靶=真难非口径病。（大盘+中间层7押+板块=✅三层命中；任一层数据缺失 N/A 则整体不硬判，标"层级N/A"）。<b>历史老条目</b>（改造前无区间/无中间层的预测）不伪造区间，只保留旧"方向相等"判定（✅仅方向命中），区间命中标"层级N/A"（不算中不算不中），故命中率为新老口径混合统计。<b>命中率</b>仅对改造后含区间的条目计，老条目 N/A 不计入。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。<b>版本徽标</b>：🤖多角色=6角色完整版（默认）／旧版单模型=多角色版上线前旧版（已被取代）／⚠️降级版=AI生成失败规则兜底（无多角色辩论）／⚠️精简版=最小兜底；降级/精简版仅供参考。每条预测含<b>🧭结论</b>行（融合结论=研究员多空辩论收敛结果，不展开即可见），<b>辩论详情</b>折叠面板可展开看四角色结论与多空论据（含论据数）。<b>增量参考面</b>：预测已综合当天新闻快讯/宏观事件（今日要闻/明日关键事件）/8宽基估值位置（1y/3y历史百分位）等增量参考——AI 在这些面之上判断方向，但这些面本身不参与区间命中判定。<b>历史反思校准（自成长）</b>：每次预测生成前，系统会读历史失败预测样本（方向/区间误判+归因）做反思注入，让模型参考既往失误谨慎校准本次判断（严格时间隔离，只用本预测日之前已回填的失败样本，防未来函数）；有样本时预测详情块显示「🔍 含历史反思校准」及参考的具体失败样本（日期+类型+归因），样本积累中则暂不显示。<b>🧭 方向押注（direction_call，2026-08-24 新增）</b>：AI 每日除区间外必须额外给出强制二选一的纯方向判断（up/down，禁止 flat 和稀泥、禁止省略），与 range 区间相互独立、单独统计命中率（详情块「方向押注」行）。<b>白话</b>：假设明天必须押涨或跌一边，AI 押对的比例——衡量真方向能力，不含"说震荡蒙对"的安全分。<b>什么时候看它</b>：想验证 AI 是不是只会和稀泥、或大跌/大涨次日它敢不敢坚持反向判断时看这行；三层命中是含幅度的联合事件天然难，方向押注是单维度纯方向题，两者对照看。<b>1:1 直白举例</b>：某日 AI direction_call=down，次日上证收盘 -2.40%（超 ±0.5% 阈值=实际跌）→ ✅中；若次日 +0.24%（±0.5% 内=实际震荡）→ ❌未中（押方向本就该难，震荡日算方向题的一部分）。<b>板块判定带 1:1 直白举例</b>（真实数据）：20260821 AI 预测电子 +0.5~+1.0%（宽仅 0.5pp），按截至当日电子近5日 |涨跌幅|=[0.73, 0.13, 7.77, 0.31, 4.61]% 取中位数 0.73 → 判定带宽 = max(0.73×2, 0.3)=1.46pp → 有效带 +0.02~+1.48%；次日 0824 电子实际 -2.35%，自适应带下仍脱靶——因为方向本身错了，自适应只治"幅度带过窄"不治"方向错"，如实标注。方向押注样本自 2026-08-25 起积累，n 小仅供参考。命中率仅为历史统计，不构成投资建议。</div></details>' +
     '</div>';
 }
 
