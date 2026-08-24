@@ -814,9 +814,10 @@ def cmd_upload_data_large():
         except OSError:
             continue
         # 大 range 文件(前端强制走 R2)或 >=1MB 的大文件才上传 R2
-        # overfit_monitor.json 例外: 首页走势图盘后核心产物(<1MB 但需走 R2),
+        # overfit_monitor* 例外: 首页走势图盘后核心产物(需走 R2),
         # static-site/data/ 已整体 gitignore 移出 git, 不传 R2 则备站/主站 /data/ rewrite 拿不到。
-        _OVERFIT_FORCE = f.name == "overfit_monitor.json"
+        # 2026-08-24 B拆分: 前缀匹配覆盖主文件+ext(by_k/filtered_by_k 拆 overfit_monitor_ext.json)。
+        _OVERFIT_FORCE = f.name.startswith("overfit_monitor")
         if sz >= LARGE_THRESHOLD or _LARGE_RANGE_RE.search(f.name) or _OVERFIT_FORCE:
             files.append(f)
     if not files:
@@ -843,7 +844,16 @@ def cmd_upload_data_large():
     # 清 CF 边缘缓存(同 cmd_upload_industry 模式):uploaded_keys 含 "data/" 前缀,
     # cache_prefix="/r2/" -> "/r2/data/{name}" 匹配 r2ProxyHandler cacheKey。
     # 不用 "/r2/data/" 否则双 data 致 purge 无效。
-    purge_cache(uploaded_keys, cache_prefix="/r2/")
+    # C补偿(2026-08-24 提速A+B+C+D): overfit_monitor*.json(主+ext)前端走 /data/ rewrite 原生 URL
+    # 且已挪 MED 600s 缓存层(worker/headers.js dataCacheTtl), dataRewriteHandler 会写 edge cache,
+    # cacheKey pathname = "/data/{name}" —— 必须用 cache_prefix="/" 清该路由, 原 "/r2/" 清不到
+    # (不清则重演 2026-08-09 edge 4h 残留事故; 「重跑立即看」由本 purge 补偿保证)。
+    _overfit_keys = [k for k in uploaded_keys if k.startswith("data/overfit_monitor")]
+    _other_keys = [k for k in uploaded_keys if not k.startswith("data/overfit_monitor")]
+    if _other_keys:
+        purge_cache(_other_keys, cache_prefix="/r2/")
+    if _overfit_keys:
+        purge_cache(_overfit_keys, cache_prefix="/")
 
 
 def purge_cache(r2_keys, cache_prefix="/"):

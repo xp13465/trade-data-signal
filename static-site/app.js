@@ -2080,8 +2080,20 @@ function _ovAggregateRecent(recent, modeId, bullStopOn, fadeOn, k) {
 let _overfitMonitorPromise = null;
 function _fetchOverfitMonitor() {
   if (_overfitMonitorPromise) return _overfitMonitorPromise;
-  _overfitMonitorPromise = fetchJSON(dataUrl("overfit_monitor.json")).catch(() => null);
+  // D防超时(2026-08-24 提速A+B+C+D): timeoutMs=60000 对齐模拟回测弹窗大文件先例,
+  // 防弱网/无 br 压缩环境撞默认 15s abort 报「监控数据加载失败」。
+  _overfitMonitorPromise = fetchJSON(dataUrl("overfit_monitor.json"), 60000).catch(() => null);
   return _overfitMonitorPromise;
+}
+// B拆分(2026-08-24): K档扩展 bank 单独文件 overfit_monitor_ext.json(by_k/filtered_by_k,
+// 占原全量文件 77% 体积)。默认首屏(new14 组集/raw/filtered bank)只读主文件零 ext 请求;
+// 仅「K档×{p8对照/组集失败/降亏关}」组合按需拉取——单例 promise 内存缓存, 同页二次交互零请求。
+// 老格式全量单文件(2026-08-24 前打点)自带 by_k 等键, 永不触发本拉取(过渡期兼容)。
+let _overfitExtPromise = null;
+function _fetchOverfitExt() {
+  if (_overfitExtPromise) return _overfitExtPromise;
+  _overfitExtPromise = fetchJSON(dataUrl("overfit_monitor_ext.json"), 60000).catch(() => null);
+  return _overfitExtPromise;
 }
 function _readOverfitFadeMode() {
   try {
@@ -2174,6 +2186,8 @@ async function _appendOverfitCard(colA2, r, snap) {
     '<div id="overfit-acc-chart" style="height:180px;width:100%"></div>' +
     '<div class="overfit-risk-title">综合过拟合风险分 <span class="ov-sub ov-sub-risk">绿黄红分段</span></div>' +
     '<div id="overfit-risk-chart" style="height:160px;width:100%"></div>' +
+    // B拆分(2026-08-24): K档扩展明细按需拉取时的 loading/失败提示行(默认隐藏, 纯展示层)
+    '<div class="overfit-ext-loading" style="display:none;color:var(--text-3);font-size:11px;padding:6px 2px">K档明细加载中…</div>' +
     '<div class="overfit-empty" style="display:none;color:var(--text-3);font-size:11px;padding:6px 2px">暂无监控数据(盘后21:40打点生成)</div>';
   // 三组维度按钮(窗口/评级/类型)共享联动: 一次点击任一按钮 -> 更新 _overfitState -> 同时重绘准确率 + 风险分两图
   // 2026-08-15 AI降亏过滤开关: _ovFade 开启时切换到后端生成的过滤 bank(data.filtered, {accuracy,overfit} 同构)。
@@ -2203,8 +2217,54 @@ async function _appendOverfitCard(colA2, r, snap) {
     // 无K档(降回现有语义): 降亏开关控制 filtered/raw 两bank
     return _ovFade ? (_overfitData.filtered || _overfitData) : _overfitData;
   }
+  // B拆分(2026-08-24): 本次渲染是否需要 K档扩展 bank(by_k/filtered_by_k, ext 文件)。
+  // 判定口径与 _ovBank 回退链逐支对齐:
+  //   ①老格式全量单文件(主文件自带 by_k/filtered_by_k)或 ext 已合并 → 不需要(过渡期零 ext 请求)
+  //   ②无K档(k=null)→ raw/filtered 两 bank 均在主文件 → 不需要
+  //   ③K档×new14 组集可用且聚合成功 → 组集路径不读 by_k(_ovBank 第一分支) → 不需要
+  //   ④其余(K档×p8对照 / K档×降亏关 / K档×组集失败回退)→ 需要, 触发按需拉取
+  function _ovNeedsExtBank() {
+    if (!_overfitData || _extLoadState === "done") return false;
+    if (_overfitData.by_k && _overfitData.filtered_by_k) return false;
+    const k = _overfitState.k;
+    if (!(k != null && k >= 1 && k <= 4)) return false;
+    const hasRecent = !!(_overfitData.recent && Array.isArray(_overfitData.recent.rows) && _overfitData.recent.rows.length);
+    if (_ovFade && _ovModeId !== "p8" && hasRecent) {
+      try {
+        if (_ovAggregateRecent(_overfitData.recent, _ovModeId, false, true, k)) return false;
+      } catch (e) { /* 组集异常将走 by_k 回退 → 需要拉取 */ }
+    }
+    return true;
+  }
   function syncOverfitCharts() {
     if (!_overfitData) return;
+    // B拆分(2026-08-24): K档需要扩展 bank 而主文件未含(新格式拆分后)→ 按需拉 overfit_monitor_ext.json。
+    // loading 态等待不画图(防闪退化为 raw 错图); 到达后把 by_k/filtered_by_k merge 进 _overfitData
+    // (键名与老格式一致, _ovBank 读法零改动)再重绘; 单例 promise 同页只拉一次; 失败给提示不裸崩,
+    // 点「关」可恢复默认曲线。任务书「点 K 档按钮才按需拉 ext」即本机制(p8 对照/降亏关属同数据源
+    // 消费点, §23.3 举一反三同覆盖)。
+    if (_ovNeedsExtBank()) {
+      if (_extLoadState === "idle") {
+        _extLoadState = "loading";
+        const extLoadingEl0 = card.querySelector(".overfit-ext-loading");
+        if (extLoadingEl0) { extLoadingEl0.style.display = ""; extLoadingEl0.textContent = "K档明细加载中…"; }
+        _fetchOverfitExt().then((ext) => {
+          const extLoadingEl = card.querySelector(".overfit-ext-loading");
+          const ok = !!(ext && (ext.by_k || ext.filtered_by_k));
+          _extLoadState = ok ? "done" : "failed";
+          if (ok) {
+            if (ext.by_k) _overfitData.by_k = ext.by_k;
+            if (ext.filtered_by_k) _overfitData.filtered_by_k = ext.filtered_by_k;
+          } else if (extLoadingEl) {
+            extLoadingEl.textContent = "K档明细加载失败,K档暂不可用(点「关」回默认);刷新页面重试";
+            return; // 失败提示保持可见, 不自动消失
+          }
+          if (extLoadingEl) extLoadingEl.style.display = "none";
+          syncOverfitCharts();
+        });
+      }
+      return; // ext 未就绪本次不画(等到达后回调重绘)
+    }
     const bank = _ovBank();
     if (!bank) return;
     _renderOverfitAcc(bank);
@@ -2304,9 +2364,11 @@ async function _appendOverfitCard(colA2, r, snap) {
   });
   colA2.appendChild(card);
 
-  // 空数据/加载失败守卫: 不裸崩(fetchJSON 自带 .gz fallback + 15s 超时)
+  // 空数据/加载失败守卫: 不裸崩(fetchJSON 自带 .gz fallback + 15s 超时; 本卡 fetch 已传 60000, D件套)
   const emptyEl = card.querySelector(".overfit-empty");
   let _overfitData = null;
+  // B拆分(2026-08-24): K档扩展文件拉取状态(idle→loading→done/failed), 卡内闭包态
+  let _extLoadState = "idle";
   // AI降亏过滤开关(默认开, 独立 localStorage 键 tds_overfit_fade; 与首页 tds_home_fade/凯利区 tds_kelly_filters 解耦)。
   // 2026-08-16 三合一改造②: 首次无 localStorage 时默认开(true), 用户手动切换后写 localStorage 记住(手动关=记"0")。
   // 数据是后端聚合好的 rolling 窗口, 前端只切 bank 读取、不重算(§23.6 读标记不自算)。

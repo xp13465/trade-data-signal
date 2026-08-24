@@ -165,7 +165,18 @@ function dataCacheTtl(pathname) {
   //   2026-08-16 再补 signal_kelly_* / overfit_monitor / news_digest / signal_stats：均属「重跑后立即看」的
   //   回测/监控/速递类文件，CF 会把 MED 600s 实际拉长成 4h(max-age=14400)edge 残留，用户重跑后仍见旧版。
   //   stale 不可接受，与 overview 同属数据一致性核心(memory 同源事故)。
-  if (/^\/data\/(?:overview|intraday_snapshot|board_etf_map|daily_brief|daily_brief_history|signal_kelly_backtest|signal_kelly_trades|overfit_monitor|news_digest|signal_stats)\.json$/.test(pathname)) return 0;
+  if (/^\/data\/(?:overview|intraday_snapshot|board_etf_map|daily_brief|daily_brief_history|signal_kelly_backtest|signal_kelly_trades|news_digest|signal_stats)\.json$/.test(pathname)) return 0;
+  // MED_FREQ 600s：AI 监控卡走势图数据(overfit_monitor 主文件 + _ext K档扩展, B拆分 2026-08-24)。
+  //   【沿革/前提修正, 防后人困惑】2026-08-16 曾把 overfit_monitor 归入上面 NO_CACHE(ttl=0)：当时该文件
+  //   <1MB 且 purge 链路缺失，「重跑立即看」只能靠 no-store 保证(memory edge-cache-ttl-stretch-no-cache)。
+  //   2026-08-23 T3-2 加 by_k×4+filtered_by_k×4 八 bank 后膨胀到 27.8MB，no-store 代价=用户每次刷新
+  //   全量下载 3~11s(调研 docs/perf/ai-monitor-chart-slow-research.md §2.2 实测)。2026-08-24 提速组合：
+  //   A 去 indent(26.6→9.7MB)+B 主/ext 拆分(主文件只留默认首屏渲染所需)+C 本条挪 MED 600s。
+  //   「重跑立即看」改由 purge 补偿保证：upload_r2.py upload-data-large 上传后对 overfit_monitor*.json
+  //   调 /api/purge-cache(cache_prefix="/", 清本路由 edge cache)，边缘立即失效无旧版窗口——
+  //   当年 4h 残留事故的真正根因是 purge 缺失而非缓存层本身。该文件盘后 21:40 每日打点一次，
+  //   非盘中高频，与 overview 性质不同；600s 内浏览器 HTTP 缓存直接命中零下载。
+  if (/^\/data\/overfit_monitor(?:_ext)?\.json$/.test(pathname)) return 600;
   //   2026-08-22 补 signal_kelly_trades_parts/ 分片(recent+tYYYY, 首页模拟回测弹窗): 每日随全量重跑,
   //   同属「重跑后立即看」的回测类文件, stale 不可接受(同 signal_kelly_trades.json 口径)。
   if (pathname.startsWith('/data/signal_kelly_trades_parts/')) return 0;
