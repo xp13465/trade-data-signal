@@ -7320,8 +7320,9 @@ function _kellyDefaultFilters() {
     v1HighVol20: false, s1SentALow: false, r1VolRatioLow: false, r2bSpecialGlobal: true, r2gLowRatingQ3: false,
     n2NorthOutConcept: false, v2Vol20Gt25: false, s2SentHs300Low: false, w1BackupDecline: false,
     a1BullAllStop: false, v3Vol20LowPct: false, ad1AdlineHot: false,
-    // X1(2026-08-24 mine29c 用户拍板·纯新增 §23.7 默认关): 整剔 track_tier=none 象限(best ETF 无
-    //   强关联/相关/近似档跟踪标的的信号)——NEW14+1·15键可选档(new15)成员, 判定走 trades track_tier 列直读。
+    // X1(2026-08-24 mine29c 用户拍板·纯新增 §23.7 默认关; 同日用户拍板扩围剔 none+null): 整剔
+    //   track_tier=none/null 象限(best ETF 无强关联/相关/近似档跟踪标的的信号=「有跟踪ETF」全卡,
+    //   与首页筛选档4口径统一)——NEW14+1·15键可选档(new15)成员, 判定走 trades track_tier 列直读。
     //   数据支撑: 全史仅剔 17 笔毛 +584.62(净 +225.56), 主收益=回撤改善 mdd -4,178→-3,550(mine29c)。
     excludeTierNone: false
   };
@@ -7409,7 +7410,7 @@ async function _kellyEnsureLossFeatData() {
   return state.kellyLossFeatData;
 }
 // spec-driven 谓词: 与 Python loss_rules.rule_hit 逐分支同构(缺失值→不拦; low=v<th high=v>th;
-// R2g ts 缺失视为 999; X1 track_tier 缺失/"" → 不命中)。ctx={sig,mkt,tier,track_tier,date,smonth,rating,ts}。
+// R2g ts 缺失视为 999; X1 track_tier spec 支持 str/Array 多值, ctx ""(无映射)→不命中、"null"(极弱/无分)→命中)。ctx={sig,mkt,tier,track_tier,date,smonth,rating,ts}。
 // T1+X1 新键清单单源(JS 侧): [filterKey, toggleCls后缀]; _kellyDefaultFilters 内 21 个 false 显式条目
 //   与此一一对应, 新增键须同步两处 + scripts/loss_rules.py RULE_SPECS(§22 单源咬合)。
 const _KELLY_LOSS_NEW_KEYS = [
@@ -7437,7 +7438,10 @@ function _kellyLossRuleHit(key, ctx) {
   if (spec.sig != null && String(ctx.sig || "") !== spec.sig) return false;
   if (spec.tier != null && String(ctx.tier || "") !== spec.tier) return false;
   if (spec.mkt != null && String(ctx.mkt || "") !== spec.mkt) return false;
-  if (spec.track_tier != null && String(ctx.track_tier || "") !== spec.track_tier) return false;  // X1: 缺失/"" → 不命中
+  if (spec.track_tier != null) {  // X1(2026-08-24 扩围): spec 支持 str 或 Array 多值(none/null); ctx ""=无映射不命中, "null"=极弱/无分档命中
+    var _ctxTt = String(ctx.track_tier || "");
+    if (Array.isArray(spec.track_tier) ? spec.track_tier.indexOf(_ctxTt) < 0 : _ctxTt !== spec.track_tier) return false;
+  }
   if (spec.rating != null) {
     if (String(ctx.rating || "") !== spec.rating) return false;
     const tv = (ctx.ts == null || ctx.ts === "") ? 999 : Number(ctx.ts);
@@ -7562,7 +7566,11 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
       sig: _sig20,
       mkt: _mkt20,
       tier: fIdx.market_tier != null ? String(t[fIdx.market_tier] || "") : "",
-      track_tier: fIdx.track_tier != null ? String(t[fIdx.track_tier] || "") : "",  // X1 判定(trades 列直读, 缺失 "" 不命中)
+      track_tier: (function () {  // X1 判定(trades 列直读三态: 显式 null→"null" 命中扩围后 X1; 缺列/越界 undefined→"" 诚实不命中; §23.13 口径统一)
+        if (fIdx.track_tier == null) return "";
+        var _v = t[fIdx.track_tier];
+        return _v === undefined ? "" : (_v === null ? "null" : String(_v));
+      })(),
       date: _bd20,
       smonth: _sd20.substring(4, 6),
       rating: fIdx.rating != null ? String(t[fIdx.rating] || "") : "",
@@ -9135,7 +9143,7 @@ var _kellyFadeFlagGroups = [
     { k: "ad1AdlineHot", cls: "lab-sigkelly-toggle-ad1hot", name: "AD线广度过热", ratio: null, warn: "🆕NEW默认关",
       advice: "🆕普涨过热期停手 · vs9键-236", tip: "🆕NEW(T1 2026-08-23, 默认关): 排除 adline_gap((a_ad_line-a_ad_line_ma20)/|ma20|)>全史70分位(0.060) 的全部买入。【白话】腾落线(AD)远高于其20日线=个股普涨过热, 追买容易买在短期顶部。【场景】普涨大阳线频出时实验开启。【1:1】vs9键边际 -235.61 / 命中845笔(mine20_pool.json)。⚠诚实标注: 单开微负(接近零效应); 每日池比值待补测。" },
     { k: "excludeTierNone", cls: "lab-sigkelly-toggle-xtnone", name: "整剔无跟踪ETF象限", ratio: null, warn: "🆕NEW默认关·NEW14+1成员",
-      advice: "🆕回撤再浅15% · 净利噪声级(+57)", tip: "🆕NEW(X1, mine29c 2026-08-24 用户拍板, 默认关): 排除 best ETF 无跟踪档位(track_tier=none, 即匹配不到强关联/相关/近似 ETF、只有弱跟踪兜底标的)的全部买入信号——NEW14+1·15键可选档(new15)唯一新增键。【白话】连一只像样跟踪标的都配不上的信号=指数代表性最差的一档, 整组不碰。【场景】想要比 NEW14 更浅的回撤时, 切模式下拉「NEW14+1 · 15键」一键带上本键(单独手开亦可)。【1:1】NEW14 全史 +122,648/mdd -4,178 → 加本键 +122,705(+56.61, +0.05%)/mdd -3,550(-628, -15%)(etf_def 口径); 页面口径被剔17笔毛+584.62/费359.07/净+225.56, 替补3笔-196.70, Δ=-422。近5年12笔账面 -1,450.66 但补位回收 +1,253.96(mine29c §10.1)。⚠诚实标注: mine29 判决=「噪声级无效改善」, bootstrap 全窗含0 不显著, 回撤改善是唯一真实正效用; 远古5笔(2020-07~2021-08)+1,676.22 掩盖了近端亏损——用户知情后拍板保留为可选档供实测。" }
+      advice: "🆕回撤改善档 · 数字扩围后待重算", tip: "🆕NEW(X1, mine29c 2026-08-24 用户拍板, 默认关): 排除「有跟踪ETF」整卡信号(track_tier=none/null——匹配不到强关联/相关/近似 ETF: none=30-49 弱跟踪兜底、null=<30 极弱或 N<30 无分; 2026-08-24 用户拍板由仅剔 none 扩为剔 none+null, 与回测卡/首页筛选档4口径完全统一)——NEW14+1·15键可选档(new15)唯一新增键。【白话】连一只像样跟踪标的都配不上的信号=指数代表性最差的一档, 整组不碰。【场景】想要比 NEW14 更浅的回撤时, 切模式下拉「NEW14+1 · 15键」一键带上本键(单独手开亦可)。【1:1·⚠扩围前仅剔none历史口径, 扩围后作废待正式穷举回测重算】NEW14 全史 +122,648/mdd -4,178 → 加本键 +122,705(+56.61, +0.05%)/mdd -3,550(-628, -15%)(etf_def 口径); 页面口径被剔17笔毛+584.62/费359.07/净+225.56, 替补3笔-196.70, Δ=-422。近5年12笔账面 -1,450.66 但补位回收 +1,253.96(mine29c §10.1)。⚠诚实标注: mine29 判决=「噪声级无效改善」, bootstrap 全窗含0 不显著, 回撤改善是唯一真实正效用; 远古5笔(2020-07~2021-08)+1,676.22 掩盖了近端亏损——用户知情后拍板保留为可选档供实测。" }
   ]}
 ];
 
@@ -9297,7 +9305,7 @@ var _KELLY_MODE_COMPARE_CARDS = [
       ["excludeTierNone", "整剔无跟踪ETF象限(X1)", "reb"]
     ],
     perf: { net: "+122,705", y1: "+18,804", mdd: "-3,550", rec: "26天", n: "415笔/胜率67.7%" },
-    tip: "【NEW14+1 · 15键 · 可选档非默认(§23.7 纯新增)】⚠ 重构换基座口径: NEW14 十四键原样保留 + 整剔 track_tier=none 象限(best ETF 连弱跟踪兜底标的都没有的信号)。【白话】连一只像样跟踪标的都配不上的信号=指数代表性最差一档, 整组不碰; 主收益是回撤变浅不是多赚。【场景】想要比 NEW14 更浅回撤时切模式下拉「NEW14+1 · 15键」一键带上(单独手开整剔无跟踪ETF象限 toggle 亦可)。【1:1】全史净利 +122,705 元(vs NEW14 +122,648, 仅 +56.61/+0.05%); 回撤 -3,550 元(vs NEW14 -4,178, 浅 628/-15%), 谷日 20240913/恢复 20241009 不变; 近1年 +18,804(vs NEW14 +18,189); 415 笔胜率 67.7%(被剔 17 笔占入选 3.96%)。页面费率口径复核(mine29c §10.4): 被剔17笔毛+584.62/费359.07/净+225.56, 替补3笔-196.70, Δ=-422。⚠诚实标注: mine29 判决=「噪声级无效改善」, bootstrap 全窗含0 不显著, 回撤改善是唯一真实正效用; 用户知情后拍板保留为可选档供实测。" }
+    tip: "【NEW14+1 · 15键 · 可选档非默认(§23.7 纯新增)】⚠ 重构换基座口径: NEW14 十四键原样保留 + 整剔有跟踪ETF象限(best ETF 无强关联/相关/近似档跟踪标的的信号=track_tier=none/null 整卡, 2026-08-24 扩围含 <30 极弱/无分 null 档)。【白话】连一只像样跟踪标的都配不上的信号=指数代表性最差一档, 整组不碰; 主收益是回撤变浅不是多赚。【场景】想要比 NEW14 更浅回撤时切模式下拉「NEW14+1 · 15键」一键带上(单独手开整剔无跟踪ETF象限 toggle 亦可)。【1:1·⚠扩围前仅剔none历史口径(下述数字扩围后作废待重算)】全史净利 +122,705 元(vs NEW14 +122,648, 仅 +56.61/+0.05%); 回撤 -3,550 元(vs NEW14 -4,178, 浅 628/-15%), 谷日 20240913/恢复 20241009 不变; 近1年 +18,804(vs NEW14 +18,189); 415 笔胜率 67.7%(被剔 17 笔占入选 3.96%)。页面费率口径复核(mine29c §10.4): 被剔17笔毛+584.62/费359.07/净+225.56, 替补3笔-196.70, Δ=-422。⚠诚实标注: mine29 判决=「噪声级无效改善」, bootstrap 全窗含0 不显著, 回撤改善是唯一真实正效用; 用户知情后拍板保留为可选档供实测。" }
 ];
 
 // T2(2026-08-23): 组成对比折叠区 HTML(纯展示, <details> 默认收起; 展开态持久化 state.labSigKellyModeCompareOpen)
@@ -9479,7 +9487,7 @@ function _renderSigKellyBar(bar, data, period) {
     return { allOn: allOn, anyOn: anyOn };
   })();
   const aiMacroLabelHTML =
-    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ AI降亏过滤(总开关, 默认开启): v1.1.5(2026-08-24 用户拍板)起默认基座=NEW14(NEW 14键)——构成=hist 键 6(5月+6非5月 r10 / Greedy-15 / 1月中旬+追关注 / K2C5 港股追涨 / 主关注×概念 k3 / 下降期×追关注)+规则键 8(N1 北向20日净流出 / T1 换手冰点×追关注 / D1 股息率低位 / Q1 QVIX低分位 / H1 升波×A股 / M1 牛主升×两融降温 / P1 备买×股息率分位低 / R2b 追关注×全球类), 共 14 键; +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 已剔除出回测宇宙)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除, 故 AI建议 一律不推荐, 以「未入样本」+灰显+删除线标注。【切换依据】mine28(AUTO 状态轮动样本外全 FAIL, 维持单模式)+mine30 记分板(NEW14 全史第一 +122,648/mdd -4,178 vs 八键 +66,530/-18,190, 费后 K1 V2 回补 cap13 口径); 权威数字见下方「🧩 AI 降亏组成对比」卡。仅买信号判降亏(§23.6 MED3): 删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。= AI仓位建议(K=1 默认=主推) + 默认组合(高亮14键=NEW14 + 1类回测剔除)。勾选=联动下方 NEW14 高亮14键子复选框 + 1类只读, 取消=关14键; 旧八键(v1.1.2 基座, 含 n2/janMidRating/r7/exclAuxCross/exclSpecialBear 五个已移出默认的键)经旁侧「模式」下拉选「8键」一键回选, 未删档可随时切回对照。「模式」下拉(T3-1 2026-08-23)=8 种预设一键套用(NEW 14键(默认)/NEW14+1·15键/9键/A进攻王/B均衡卡/C防守/NEW2 18键/8键旧默认·对照; 其中 NEW14+1·15键=可选档非默认, mine29c 2026-08-24 用户拍板: NEW14 十四键全保留+整剔 track_tier=none 无跟踪ETF象限(X1), 全史净利 +122,705 vs NEW14 +122,648(+57 噪声级), mdd -4,178→-3,550 浅 15%——回撤改善是唯一真实正效用, bootstrap 全窗含0 不显著), 选中即整套键组合写入下方标签勾选态并重算; 手动勾/取消任一小标签→进入「⚙️自定义组合」态; 再选任意模式回到预设; 模式记忆存 tds_kelly_fade_mode(lab 独立键, 仅保留 18 小时滑动过期——每次切换刷新计时, 超时自动回默认 NEW14; 与模拟回测弹窗/首页/监控卡的记忆互不干预)。「重置为AI默认推荐」按钮=一键恢复本默认(NEW14 十四键 + 1类回测剔除) + AI仓位建议K=1 并重写本地记忆。枯竭提示(v1.1.5 新增): NEW14 年均约 2.4 次 ≥20 交易日无放行(信号枯竭=其常态运作方式), 凯利区信号区顶部有实时枯竭提示 chip, 历史上类似枯竭结束后 3 个月约 72% 为正(mine30 §五)。"><input type="checkbox" class="lab-sigkelly-toggle-aimacro"${_aiMacroAll.allOn ? " checked" : ""}>${_kellyRecBadgeState(_aiMacroAll.allOn, _aiMacroAll.anyOn)} AI降亏过滤(总开关,默认开启) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>`;
+    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ AI降亏过滤(总开关, 默认开启): v1.1.5(2026-08-24 用户拍板)起默认基座=NEW14(NEW 14键)——构成=hist 键 6(5月+6非5月 r10 / Greedy-15 / 1月中旬+追关注 / K2C5 港股追涨 / 主关注×概念 k3 / 下降期×追关注)+规则键 8(N1 北向20日净流出 / T1 换手冰点×追关注 / D1 股息率低位 / Q1 QVIX低分位 / H1 升波×A股 / M1 牛主升×两融降温 / P1 备买×股息率分位低 / R2b 追关注×全球类), 共 14 键; +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 已剔除出回测宇宙)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除, 故 AI建议 一律不推荐, 以「未入样本」+灰显+删除线标注。【切换依据】mine28(AUTO 状态轮动样本外全 FAIL, 维持单模式)+mine30 记分板(NEW14 全史第一 +122,648/mdd -4,178 vs 八键 +66,530/-18,190, 费后 K1 V2 回补 cap13 口径); 权威数字见下方「🧩 AI 降亏组成对比」卡。仅买信号判降亏(§23.6 MED3): 删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。= AI仓位建议(K=1 默认=主推) + 默认组合(高亮14键=NEW14 + 1类回测剔除)。勾选=联动下方 NEW14 高亮14键子复选框 + 1类只读, 取消=关14键; 旧八键(v1.1.2 基座, 含 n2/janMidRating/r7/exclAuxCross/exclSpecialBear 五个已移出默认的键)经旁侧「模式」下拉选「8键」一键回选, 未删档可随时切回对照。「模式」下拉(T3-1 2026-08-23)=8 种预设一键套用(NEW 14键(默认)/NEW14+1·15键/9键/A进攻王/B均衡卡/C防守/NEW2 18键/8键旧默认·对照; 其中 NEW14+1·15键=可选档非默认, mine29c 2026-08-24 用户拍板: NEW14 十四键全保留+整剔有跟踪ETF象限(none/null, X1 同日扩围与首页口径统一), 全史净利 +122,705 vs NEW14 +122,648(+57 噪声级·扩围前历史数字待重算), mdd -4,178→-3,550 浅 15%(同扩围前)——回撤改善是唯一真实正效用, bootstrap 全窗含0 不显著), 选中即整套键组合写入下方标签勾选态并重算; 手动勾/取消任一小标签→进入「⚙️自定义组合」态; 再选任意模式回到预设; 模式记忆存 tds_kelly_fade_mode(lab 独立键, 仅保留 18 小时滑动过期——每次切换刷新计时, 超时自动回默认 NEW14; 与模拟回测弹窗/首页/监控卡的记忆互不干预)。「重置为AI默认推荐」按钮=一键恢复本默认(NEW14 十四键 + 1类回测剔除) + AI仓位建议K=1 并重写本地记忆。枯竭提示(v1.1.5 新增): NEW14 年均约 2.4 次 ≥20 交易日无放行(信号枯竭=其常态运作方式), 凯利区信号区顶部有实时枯竭提示 chip, 历史上类似枯竭结束后 3 个月约 72% 为正(mine30 §五)。"><input type="checkbox" class="lab-sigkelly-toggle-aimacro"${_aiMacroAll.allOn ? " checked" : ""}>${_kellyRecBadgeState(_aiMacroAll.allOn, _aiMacroAll.anyOn)} AI降亏过滤(总开关,默认开启) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>`;
   // 问题1修复(2026-08-15): AI降亏过滤详情 展开/收起 初始态持久化到 state.labSigKellyAiDetailOpen(参照 labSigKellyMoreOpen 模式), 重渲染后保持展开态
   const _aiDetailText = state.labSigKellyAiDetailOpen ? "AI降亏过滤详情收起 ▲" : "AI降亏过滤详情展开 ▼";
   const aiMacroDetailBtnHTML =

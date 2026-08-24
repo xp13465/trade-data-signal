@@ -120,12 +120,14 @@ RULE_SPECS = {
     "AD1": dict(group="market", feature="adline_gap", direction="high", threshold=QTH["adline_gap@0.70"],
                 desc="AD线距MA20缺口>70分位(广度过热)", vs9=-235.61),
     # ---- X1(mine29c 2026-08-24 用户拍板, NEW14+1·15键可选档成员, 非挖掘产出故无 vs9)----
-    # 整剔 track_tier=none 象限(=回测 etf_has_track 卡「有跟踪ETF」: 匹配不到强关联/相关/近似 ETF,
-    # 只有弱跟踪兜底标的的信号)。⚠track_tier 是 best ETF 的跟踪档位静态属性(board_etf_map 信号日冻结,
-    # signal_kelly_backtest.py L189/L233-251), 非时变择时信号 → 无前视问题(§5.1⑥: 静态字段等值判定,
-    # 报告 mine29 §七已核)。可选档 new15 成员, 不进任何默认组合(§23.7)。
-    "X1": dict(group="market", track_tier="none",
-               desc="整剔无跟踪档位象限(track_tier=none)",
+    # 整剔 track_tier=none/null 象限(=回测 etf_has_track 卡「有跟踪ETF」全卡: 匹配不到强关联/相关/
+    # 近似 ETF 的信号——none=30-49 弱跟踪兜底、null=<30 极弱或 N<30 无分; 2026-08-24 用户拍板
+    # 「一起扩」, 与回测卡/首页筛选档4口径完全统一)。⚠track_tier 是 best ETF 的跟踪档位静态属性
+    # (board_etf_map 信号日冻结, signal_kelly_backtest.py L189/L233-251), 非时变择时信号 → 无前视问题
+    # (§5.1⑥: 静态字段多值 in 判定, 报告 mine29 §七已核)。spec 值支持 str 或 list/tuple 多值。
+    # 可选档 new15 成员, 不进任何默认组合(§23.7)。
+    "X1": dict(group="market", track_tier=["none", "null"],
+               desc="整剔有跟踪ETF象限(track_tier=none/null, 即匹配不到强关联/相关/近似 ETF)",
                vs9=None),
 }
 
@@ -180,7 +182,8 @@ def rule_hit(prod_key, ctx):
       sig     : str  信号类型(buy/buy_aux/buy_special/buy_backup...)
       mkt     : str|None  _mktD 域类短名(a/concept/industry/hk/global/hk_industry)
       tier    : str  A股类四档(hs300; 非A股为 "")
-      track_tier : str  best ETF 跟踪档位(strong/related/approx/none; 无ETF映射/ts缺失为 "" 不命中)
+      track_tier : str  best ETF 跟踪档位(strong/related/approx/none/null; 无ETF映射/ts缺失为 "" 不命中;
+                        "null"=trades 列显式 null 归一串, 与 "" 严格区分)
       date    : str  buy_date(YYYYMMDD, ≡signal_date) — 特征查询日
       smonth  : str  signal_date 月份两位("07") — R2g 用
       rating  : str  评级(high/mid/low)
@@ -208,9 +211,15 @@ def rule_hit(prod_key, ctx):
     if spec.get("mkt") is not None:
         cond = cond and (ctx.get("mkt") or "") == spec["mkt"]
     if spec.get("track_tier") is not None:
-        # X1: best ETF 跟踪档位等值判定(trades track_tier 列直读语义; ctx 缺失/"" → 不命中, 诚实降级
-        # 与 tier/mkt 同款守卫——信号级无 ETF 映射时不得误标)
-        cond = cond and (ctx.get("track_tier") or "") == spec["track_tier"]
+        # X1: best ETF 跟踪档位判定(spec 值支持 str 或 list/tuple 多值 in 匹配; trades track_tier 列
+        # 直读语义, ctx 缺失/"" → 不命中, 诚实降级与 tier/mkt 同款守卫——信号级无 ETF 映射时不得误标;
+        # "null"=回测 trades 列显式 null 归一串, 与 ""(无映射)严格区分防误伤档5)
+        _spec_tt = spec["track_tier"]
+        _ctx_tt = ctx.get("track_tier") or ""
+        if isinstance(_spec_tt, (list, tuple)):
+            cond = cond and _ctx_tt in _spec_tt
+        else:
+            cond = cond and _ctx_tt == _spec_tt
     if spec.get("rating") is not None:
         cond = cond and (ctx.get("rating") or "") == spec["rating"]
         # R2g: ts 缺失视为 999 → <75 不成立(mine22: 空 ts 视为 999)

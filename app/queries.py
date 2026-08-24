@@ -752,12 +752,16 @@ def _ai_macro_track_score_of(sig: dict):
 
 
 def _ai_macro_track_tier_of(sig: dict) -> str:
-    """top1 ETF 的跟踪档位 track_tier(strong/related/approx/none; X1 键判定用, 2026-08-24)。
+    """top1 ETF 的跟踪档位 track_tier(strong/related/approx/none/null; X1 键判定用, 2026-08-24)。
 
     与 _ai_macro_track_score_of 同款遍历(取 track_score 最高的条目), 读其 track_tier 属性
-    (etf_for 已透传该字段); 无 etfs/ts 全缺失 → ""(X1 等值判定天然不命中, 诚实降级)。
-    注意: board_etf_map 中 tier=None(灰灭灯, composite<30)的条目返 None → 转 "" 不命中,
-    与回测 trades track_tier 列语义一致(none 仅指弱跟踪兜底档, 非灰灭灯)。"""
+    (etf_for 已透传该字段)。三态区分(2026-08-24 口径统一修复, 与首页 _etfTier 档4/回测
+    etf_has_track 卡 none+null 同口径):
+    - top1 条目 tier=None(score<30 极弱或 N<30 无分) → 返 "null"(X1 多值 spec 含 "null" 命中,
+      与首页 null→灰灭灯同归筛选档4 一致);
+    - 无 etfs / top1 无 track_score(ts 缺失) → 返 ""(X1 天然不命中, 诚实降级, 且与「概念无ETF」
+      档5 同串——概念无 ETF 的信号本就不该被 X1 误伤, X1 spec 只含 none/null 不含 "")。
+    与回测 trades track_tier 列语义一致(null 归一为 "null" 串, 非灰灭灯误判)。"""
     best = None      # (ts, tier)
     for _e in (sig.get("etfs") or []):
         if not isinstance(_e, dict):
@@ -765,9 +769,9 @@ def _ai_macro_track_tier_of(sig: dict) -> str:
         ts = _e.get("track_score")
         if ts is not None and (best is None or ts > best[0]):
             best = (ts, _e.get("track_tier"))
-    if best is None or best[1] is None:
+    if best is None:
         return ""
-    return str(best[1])
+    return "null" if best[1] is None else str(best[1])
 
 
 # 仅 A股类才按 hs300 MA60 大盘择时判断熊市(与凯利脚本 A_STOCK_MARKETS={"a","concept","industry"} 同源);

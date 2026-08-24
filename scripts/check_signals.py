@@ -599,7 +599,7 @@ AI_MACRO_BACKUP_KEY_CN = {
     "legacyMa60Special": "老MA60熊×追买",
     # X1(mine29c 2026-08-24 用户拍板) NEW14+1·15键可选档成员, 默认不在任何白名单(邮件判定零变化 §23.7);
     #   中文名仅备映射完整(audit D2 三处对账口径), 与 app.js/_AI_MACRO_BACKUP_NAMES 同步登记。
-    "excludeTierNone": "整剔无跟踪档位象限(track_tier=none)",
+    "excludeTierNone": "整剔有跟踪ETF象限(track_tier=none/null)",
 }
 # 键中文名映射(v1.1.5 起覆盖 NEW14 全部十四键; 与 app.js _AI_MACRO_BACKUP_NAMES/lab.js toggle 展示名
 # 同源 §22 一致性; 邮件/飞书徽标缘由 _ai_fade_label 用, 缺失即英文裸键名直出)。旧八键专属条目保留:
