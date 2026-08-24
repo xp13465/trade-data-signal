@@ -2104,7 +2104,6 @@ async function _appendOverfitCard(colA2, r, snap) {
     '<div class="overfit-fade-row">' +
       '<span class="overfit-fade-label" data-tip="AI降亏过滤开关(默认开, 独立记忆): 开启=监控只统计「未被AI宏删线过滤」的信号(未命中8键降亏且已入样); 关闭=统计全信号。仅买信号判降亏(${_t("sell_short")}/${_t("type_sell_stop_loss")}不判)。本开关只切 bank 读取, 不前端重算(§23.6)。">AI降亏过滤</span>' +
       '<label class="overfit-fade-switch"><input type="checkbox" data-overfit-fade="1"> <span class="ov-sw"></span></label>' +
-      '<span class="overfit-fade-state" style="color:var(--text-3);font-size:11px;margin-left:6px"></span>' +
       // T3-2(2026-08-23): 模式下拉紧跟「AI降亏过滤」同一行(UI 落点铁律)。
       // v1.1.5: 默认=new14(组集路径生效, 与全站口径一致); p8=对照档恒走老 bank; 非 p8 时走 recent 明细前端组集(§23.6 键命中=后端打标, parity 校验);
       // 数据未含 recent(老 json)时优雅回退现有 bank(下拉不生效, 不裸崩)。
@@ -2126,7 +2125,8 @@ async function _appendOverfitCard(colA2, r, snap) {
       })(_overfitState)) +
       // v1.1.5 badge归位(2026-08-24 主控点名): 「K=N · 已过滤top-K」读数从 .overfit-fade-state 移到本独立 span
       //   (原 T3-2 前被 07a72931f 塞进降亏开关旁 state 位, 模式下拉插入后语义错位——K读数属 AI仓位语义,
-      //    跟 K按钮组走; .overfit-fade-state 回归纯「AI降亏过滤」开关语义)
+      //    跟 K按钮组走; .overfit-fade-state 已于 2026-08-24 用户拍板整个删除——「已过滤(仅未命中删线信号)」直展太占位,
+      //    fade 区只留降亏模式下拉文案; 回退说明改动态附加 tooltip)
       '<span class="overfit-k-state" style="color:var(--text-3);font-size:11px;margin-left:6px"></span>' +
       '</div>' +
     '<div class="overfit-tip" data-tip="双曲线监控 · 综合过拟合风险分(0-100)。显示范围(30/60/90/180日)=横轴截取最近 N 个交易日展示, 只影响显示不重算；统计口径(10/15/30/60/100日, 默认15)=两图(准确率+风险分)按选中口径滚动重算；评级/类型=看子集；K档(关/K1主推★)=每日最优先选K个买入信号(top-K), 与首页AI仓位建议同口径, 与AI降亏两开关独立(降亏开=过滤后选, 关=全信号选)；AI降亏=只统计未被AI宏删线过滤的信号；实盘线限定回测宇宙(与回测同批买入信号, 卖/情绪类不计入)；不设样本数下限, 样本少照常画线(看n判断可信度)。绿&lt;30正常 黄30-60关注 红&gt;60高风险。完整说明见标题❓">' +
@@ -2200,19 +2200,15 @@ async function _appendOverfitCard(colA2, r, snap) {
     if (!bank) return;
     _renderOverfitAcc(bank);
     _renderOverfitRisk(bank);
-    // v1.1.5 badge归位重构(2026-08-24): 三状态各随其控件, 不再混塞一处——
-    //   .overfit-fade-state(AI降亏过滤开关旁)=纯降亏语义「已过滤/全信号」
+    // v1.1.5 badge归位重构(2026-08-24): 状态各随其控件——
     //   .overfit-k-state(K按钮组旁)=AI仓位语义「K=N · 已过滤top-K/全信号top-K」
-    //   .overfit-fade-state2(模式下拉旁)=当前模式 tag(·NEW 14键 等)+老数据回退提示
+    //   .overfit-fade-state2(模式下拉旁)=当前模式 tag(·NEW 14键 等)
+    //   (2026-08-24 用户拍板追加: 原「已过滤(仅未命中删线信号)」直展文案整个删除太占位; 回退提示改走 tooltip)
     const inK = _overfitState.k != null && _overfitState.k >= 1 && _overfitState.k <= 4;
     const hasRecent = !!(_overfitData && _overfitData.recent && Array.isArray(_overfitData.recent.rows) && _overfitData.recent.rows.length);
-    // T3-2: 组集生效(非p8或+1开且明细可用)时标注当前模式名, 让用户明确两图口径来源
+    // T3-2: 组集生效(非p8且明细可用)时标注当前模式名, 让用户明确两图口径来源
     const _presetNow = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(_ovModeId) : null;
     const _aggOn = _ovFade && _ovModeId !== "p8" && hasRecent;
-    const fadeStateEl = card.querySelector(".overfit-fade-state");
-    if (fadeStateEl) {
-      fadeStateEl.textContent = _ovFade ? "已过滤(仅未命中删线信号)" : "全信号";
-    }
     const kStateEl = card.querySelector(".overfit-k-state");
     if (kStateEl) {
       // K档模式: 降亏开=filtered_by_k(过滤后top-K), 关=by_k(全信号top-K); 无K档=不显示读数
@@ -2221,9 +2217,22 @@ async function _appendOverfitCard(colA2, r, snap) {
     }
     const modeStateEl = card.querySelector(".overfit-fade-state2");
     if (modeStateEl) {
-      if (!_ovFade) modeStateEl.textContent = "";
-      else if (!hasRecent && _ovModeId !== "p8") modeStateEl.textContent = "(明细缺失, 已回退p8对照bank)";
-      else modeStateEl.textContent = (_aggOn && _presetNow) ? ("· " + _presetNow.name.replace(/\(默认\)$/, "")) : "";
+      // (2026-08-24 用户拍板) 回退提示「(明细缺失, 已回退p8对照bank)」不再直展(太占位), 改为动态附加到两处 tooltip;
+      // 本 span 只留当前模式 tag。
+      if (!_ovFade || !(_aggOn && _presetNow)) modeStateEl.textContent = "";
+      else modeStateEl.textContent = "· " + _presetNow.name.replace(/\(默认\)$/, "");
+    }
+    // 明细缺失回退说明: 有回退时才附加到 ①AI降亏过滤标签 data-tip ②降亏模式下拉原生 title, 正常态不出现
+    const fallbackTip = (_ovFade && _ovModeId !== "p8" && !hasRecent) ? "(明细缺失, 已回退p8对照bank)" : "";
+    const fadeLabEl = card.querySelector(".overfit-fade-label");
+    if (fadeLabEl) {
+      if (!fadeLabEl.dataset.tipBase) fadeLabEl.dataset.tipBase = fadeLabEl.getAttribute("data-tip") || "";
+      fadeLabEl.setAttribute("data-tip", fadeLabEl.dataset.tipBase + (fallbackTip ? " " + fallbackTip : ""));
+    }
+    const ovSelForTip = card.querySelector("#overfit-fade-mode-sel");
+    if (ovSelForTip) {
+      if (!ovSelForTip.dataset.titleBase) ovSelForTip.dataset.titleBase = ovSelForTip.getAttribute("title") || "";
+      ovSelForTip.setAttribute("title", ovSelForTip.dataset.titleBase + (fallbackTip ? " " + fallbackTip : ""));
     }
     // 更新准确率/风险分标题副标(反映当前维度; 卖类无回测对照 -> 注"仅实盘实际、无回测对照/风险分不适用")
     const accSub = card.querySelector(".ov-sub-dim");
