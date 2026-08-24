@@ -788,9 +788,12 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
 
     事故场景：fund_nav/ 目录丢失或文件为空 -> 前端基金评分弹窗「净值走势」
     fetchJSON 404 -> 走势区空白。校验三层：
-      1) 目录存在 + 文件数>0 + 抽样 date/count/nav 结构非空;
+      1) 目录存在 + 文件数>0 + 抽样 date/count/nav 结构非空
+         （count==0 视为合法空数据基金放行：全 NULL 净值 code export 正常产出空 JSON，
+          实测 136/26118 只；仅 count 显式为 0 放行，count 字段缺失仍判结构坏）;
       2) 覆盖率: 文件数 vs DB distinct fund_code（<90% FAIL / <95% WARN, 防导出半途静默缺失）;
-      3) 抽样最多 5 只 DB<->产物逐位一致（最新 3 个有效净值点 date/unit_nav/acc_nav 全等）。
+      3) 抽样最多 5 只 DB<->产物逐位一致（最新 3 个有效净值点 date/unit_nav/acc_nav 全等；
+         空数据文件两侧均为空序列, 天然一致）。
     """
     import random
 
@@ -804,13 +807,17 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
     if not files:
         return _warn(name, f"fund_nav/ 目录无 JSON 文件: {nav_dir}")
 
-    # 结构抽验(最多5只): date/count/nav 非空且 count==len(nav)
+    # 结构抽验(最多5只): date/count/nav 非空且 count==len(nav); count==0 合法空数据放行
     sample = random.sample(files, min(5, len(files)))
     bad = []
+    empty_cnt = 0
     for f in sample:
         d, err = _load_json(f)
         if err:
             bad.append(f"{f.name}: {err}")
+            continue
+        if d.get("count") == 0:
+            empty_cnt += 1
             continue
         if not d.get("date") or not d.get("count") or not d.get("nav"):
             bad.append(f"{f.name}: date/count/nav 有空值")
@@ -872,6 +879,8 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
             conn.close()
 
     msg = f"{len(files)} 只基金全史净值，抽样 {len(sample)} 只结构+DB逐位一致"
+    if empty_cnt:
+        msg += f"（含合法空数据基金 {empty_cnt} 只）"
     if db_codes and len({f.stem for f in files} & db_codes) / len(db_codes) >= 0.95:
         msg += "，覆盖率 ≥95%"
     return _ok(name, msg)
