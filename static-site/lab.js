@@ -11411,17 +11411,29 @@ async function _sigKellyOpenTradesPreview(overlay, quadKey, modeKey, modeLabel, 
     };
     const meta = await _fetchJson(r2Base + "lab_meta.json?v=" + v);
     if (state.labSigKellyTradesData) return false; // 整包已先就绪, 让正式表接管(防预览覆盖正式表竞态)
+    // codex-002 medium: meta 结构强校验——无效清单不再静默 return false(用户停在 loading 无感知),
+    //   throw 落 catch 走 F2 红条提示(降级等整包逻辑不变); 整包就绪后正式表照常接管
+    if (!meta || !Array.isArray(meta.fields) || !meta.fields.length
+      || typeof meta.generated_at !== "string" || !meta.generated_at
+      || !meta.groups || typeof meta.groups !== "object") {
+      throw new Error("切片清单(lab_meta.json)结构无效或缺关键字段");
+    }
     // 组清单: all=rating 三分区并集(与卡片统计同构 §22); 其余=单组
     const gkeys = quadKey === "all" ? ["rating_high", "rating_mid", "rating_low"] : [quadKey];
     const partsList = [];
     gkeys.forEach((qk) => {
       const g = (meta.groups || {})[qk + "|" + modeKey];
-      if (g && g.parts) g.parts.forEach((p) => partsList.push({ qk, p }));
+      if (g && Array.isArray(g.parts)) {
+        if (!g.parts.length) throw new Error(`切片组 ${qk}|${modeKey} 的 parts 清单为空（数据导出异常）`);
+        g.parts.forEach((p) => { if (!p || !p.name) throw new Error(`切片组 ${qk}|${modeKey} 存在无文件名的分片记录`); partsList.push({ qk, p }); });
+      }
     });
-    if (!partsList.length) return false;
+    if (!partsList.length) throw new Error(`无可用切片组: ${gkeys.join("/")}×${modeKey}（该组合未生成切片, 数据可能混版）`);
     const shards = await Promise.all(partsList.map(({ qk, p }) =>
       _fetchJson(r2Base + p.name + "?v=" + v).then((shard) => ({ qk, rows: ((shard.quadrants || {})[qk] || {})[modeKey] || [] }))
     ));
+    // codex-002 medium 同族: 拉到的片全部空行(如片内容结构变/键名不符)也视为无效预览 → 红条提示
+    if (!shards.some((s) => s.rows && s.rows.length)) throw new Error("切片分片拉取成功但无有效数据行");
     const fields = meta.fields || [];
     const fIdx = {};
     fields.forEach((f, i) => { fIdx[f] = i; });

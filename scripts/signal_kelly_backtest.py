@@ -1247,6 +1247,44 @@ def compute():
     return output, trades_output
 
 
+def _atomic_write(path, payload):
+    """分片原子写(codex-002 high, 2026-08-25): 同目录唯一 .tmp(pid+随机) + flush + fsync + os.replace。
+
+    为什么: 分片直接 write_text 最终文件, 进程被 kill/磁盘满/并发跑两个导出时会留半截 JSON 在
+    最终路径——前端 fetch 到解析炸或旧数据混版(§22); os.replace 同分区原子替换, 读侧要么旧完整
+    要么新完整。fsync 落盘防断电后 replace 指到空/截断 inode。
+    """
+    import random as _random
+    tmp = f"{path}.{os.getpid()}.{_random.randint(100000, 999999)}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+
+def _cleanup_stale_tmp(parts_dir, keep_names):
+    """导出完成后清理目录里非本批产物的 .tmp 残留(codex-002 high): 历史中断遗留的
+    半截 tmp 不再被误当分片; 本批 tmp 已由 _atomic_write 的 finally 自清, 此处兜底历史残留。"""
+    n = 0
+    for fn in os.listdir(parts_dir):
+        if fn.endswith(".tmp") and fn not in keep_names and not fn.startswith("lab_meta.json"):
+            try:
+                os.remove(os.path.join(parts_dir, fn))
+                n += 1
+            except OSError:
+                pass
+    if n:
+        print(f"✓ 清理历史 .tmp 残留 {n} 个")
+
+
 def _export_trades_parts(trades_data, trades_path):
     """追加分片导出(2026-08-22 首页模拟回测弹窗提速): 同目录 signal_kelly_trades_parts/ 下
     - recent.json: signal_date 最近 N 天热区片(N 自适应从 [120,90,60] 选第一个序列化 <=3MB 的窗口;
@@ -1283,8 +1321,9 @@ def _export_trades_parts(trades_data, trades_path):
                     shard["quadrants"][qk][mk] = rows
                     n += len(rows)
         payload = json.dumps(shard, ensure_ascii=False, separators=(",", ":"))
-        with open(os.path.join(parts_dir, name), "w", encoding="utf-8") as f:
-            f.write(payload)
+        # codex-002 high: 分片原子写——同目录唯一 .tmp + flush + fsync + os.replace,
+        # 防进程中断/并发写把半截 JSON 留在最终文件被前端 fetch 到(解析炸/旧数据混版)
+        _atomic_write(os.path.join(parts_dir, name), payload)
         return len(payload), n
 
     # 全量行按 (qk, mk) 分组引用(不拷贝行内容, 切片只筛引用)
@@ -1352,6 +1391,7 @@ def _export_trades_parts(trades_data, trades_path):
         total_size += size
         print(f"✓ 分片 t{y}.json ({cnt} 行, {size / 1024:.1f} KB)")
     print(f"✓ 分片导出完成: {parts_dir} ({len(by_year)} 个年片 + recent)")
+    _cleanup_stale_tmp(parts_dir, keep_names=set())
 
 
 def _export_lab_slices(trades_data, trades_path):
@@ -1420,8 +1460,8 @@ def _export_lab_slices(trades_data, trades_path):
                     "quadrants": {qk: {mk: rows}},
                 }
                 payload = json.dumps(shard, ensure_ascii=False, separators=(",", ":"))
-                with open(os.path.join(parts_dir, name), "w", encoding="utf-8") as f:
-                    f.write(payload)
+                # codex-002 high: 原子写(同 _export_trades_parts._dump), 防半截片被前端拉到
+                _atomic_write(os.path.join(parts_dir, name), payload)
                 b = len(payload.encode("utf-8"))
                 if b > 300 * 1024:
                     print(f"⚠ lab切片超300KB: {name} ({b / 1024:.1f} KB)", file=sys.stderr)
@@ -1429,8 +1469,9 @@ def _export_lab_slices(trades_data, trades_path):
                 total_parts += 1
             meta["groups"][f"{qk}|{mk}"] = {"total": len(arr), "parts": parts}
     meta_path = os.path.join(parts_dir, "lab_meta.json")
-    with open(meta_path, "w", encoding="utf-8") as f:
-        json.dump(meta, f, ensure_ascii=False, separators=(",", ":"))
+    # codex-002 high: meta 最后原子写(meta 是前端预览入口, 半截=整链失败)
+    _atomic_write(meta_path, json.dumps(meta, ensure_ascii=False, separators=(",", ":")))
+    _cleanup_stale_tmp(parts_dir, keep_names=set())
     n_groups = len(meta["groups"])
     print(f"✓ lab弹窗切片导出完成: {n_groups} 组 / {total_parts} 片 + lab_meta.json "
           f"({os.path.getsize(meta_path) / 1024:.1f} KB)")

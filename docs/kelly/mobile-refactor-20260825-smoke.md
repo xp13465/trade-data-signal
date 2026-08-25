@@ -42,6 +42,14 @@ mrowCards=153 / legacyWideTables=0 / kpiCellsFirstCard=4 / detailItems=10 / shee
 - **桌面零变化复验(fix 后)**:同数据源下 fix 版 vs git HEAD 版 `.lab-sigkelly-host` outerHTML hash 一致(`5c194994`,双版本对照法排除数据版本因素)。
 - ⚠️ 测试坑注记:本站有 Service Worker(CacheFirst),Playwright `page.route` 拦不到 SW 发起的请求——做网络失败/弱网模拟必须 `newContext({ serviceWorkers: "block" })`,否则 meta"abort"实际被 SW 放行成功、断言全歪(本次 v1/v2 假阴性根因)。
 
+## codex 外部 review(-002)代码层修复回归(2026-08-25;混版数据同步由主控 merge 后重跑切片根治)
+
+- **high 原子写**:signal_kelly_backtest.py 新增 `_atomic_write`(同目录唯一 .tmp(pid+随机)+flush+fsync+os.replace)+`_cleanup_stale_tmp`(导出后清历史残留);`_export_trades_parts`(recent/t{YYYY} 片)与 `_export_lab_slices`(lab 片+lab_meta)全部改原子写,防半截片被前端拉到。自验:kelly_atomic_export_test.py(小产物跑通/内容逐位一致/无 tmp 残留/人为放的历史 tmp 被清)。
+- **high 机检深度化**:check_kelly_lab_slices 第④件逐片校验——JSON 可解析+片 generated_at/fields 与整包一致+size==meta.bytes+行数==meta.rows+组内和==meta.total。四场景实测:同版 PASS / 篡改单片 generated_at FAIL / 半截 JSON FAIL / rows 篡改 FAIL(均带明细定位)。
+- **medium meta 强校验**:预览 meta 解析后强校验(generated_at 字符串/fields 数组/groups 对象/目标组 parts 非空且有名),无效 throw 落 F2 catch 红条;片全空行同样视为无效。自验:route 返回 `{groups:{}}` → 红条「快速预览不可用」与 loading 共存 ✓。
+- **low 触控 44px**:mrow-detail summary 32→44(flex 居中补偿 margin)/cols-item 32→44(padding 加高)/fee input 30→44/弹窗筛选框与 cols-btn 同族补齐 44(批次A 只盖吸顶条区,举一反三)。自验 Playwright 实测全部 44.0px;桌面 fee input 保持 22px 基础值(断点外零变化)。
+- 桌面零变化复验:fix 版 vs HEAD 版 hostHash 同数据源一致(`5c9f15d6`)。
+
 ## 复现
 
 ```bash

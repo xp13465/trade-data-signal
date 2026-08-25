@@ -610,10 +610,12 @@ def check_kelly_lab_slices(data_dir: Path) -> CheckResult:
     """校验凯利移动端切片(signal_kelly_trades_parts/)与整包同版（#97 批次C，F1 review-kelly-mobile-20260825）。
 
     事故场景：回测重跑只更新整包、切片由旧版脚本跑的没跟着导出 -> 「新整包+旧切片」同时上线
-    -> 移动端弹窗快速预览数字 != 正式表数字（§22 数据一致性违反）。校验三件：
+    -> 移动端弹窗快速预览数字 != 正式表数字（§22 数据一致性违反）。校验四件：
       ① lab_meta.generated_at == signal_kelly_trades.json.generated_at（混版 FAIL 阻断）
       ② meta.parts 记录的每片文件在位（防片丢失）
       ③ 目录 lab_ 片集合 == meta 记录集合（防孤儿/残留片被前端拉到旧数据）
+      ④ codex-002 增强: 逐片深度校验——JSON 可解析+片 generated_at/fields 与整包一致
+        + size==meta.bytes + 行数==meta.rows + 组内行数和==meta.total（防半截写入/单片混版）
     meta 不存在 = WARN 不阻断（切片未生成的老环境向后兼容；merge 后跑
     `python scripts/signal_kelly_backtest.py --export-lab-slices-only` 补生成）。
     整包 generated_at 用头 4KB 正则轻量提取（62MB 不全量加载；该键恒为首键，见产物头部）。
@@ -664,8 +666,46 @@ def check_kelly_lab_slices(data_dir: Path) -> CheckResult:
         return _fail(name, f"meta 记录 {len(expected)} 片, 缺 {len(missing)} 片如 {missing[:3]}")
     if orphan:
         return _fail(name, f"目录存在 meta 未记录的残留片 {len(orphan)} 个如 {orphan[:3]}（重导后未清/混版）")
+
+    # codex-002 high 增强: 逐片深度校验（防「文件在位但内容坏/旧」——半截写入/重导中断/混版单片的
+    # 情况集合比对拦不住）。每片解析 JSON + 头部 generated_at/fields 与整包一致 + size==meta.bytes
+    # + 数组行数==meta.rows。303 片全量 json.load 实测秒级, 可接受(仅 deploy 链跑)。
+    bad = []
+    checked_rows = 0
+    for gkey, g in (meta.get("groups") or {}).items():
+        declared_total = 0
+        for p in ((g or {}).get("parts") or []):
+            pn = p.get("name") or ""
+            pp = parts_dir / pn
+            try:
+                if pp.stat().st_size != p.get("bytes"):
+                    bad.append(f"{pn}:size({pp.stat().st_size}!={p.get('bytes')})")
+                    continue
+                shard = json.loads(pp.read_text(encoding="utf-8"))
+                if shard.get("generated_at") != full_ts:
+                    bad.append(f"{pn}:generated_at({shard.get('generated_at')}!={full_ts})")
+                    continue
+                if list(shard.get("fields") or []) != list(meta.get("fields") or []):
+                    bad.append(f"{pn}:fields不一致")
+                    continue
+                qkv = (shard.get("quadrants") or {})
+                n_rows = sum(len(v) for mk_map in qkv.values() for v in (mk_map.values() if isinstance(mk_map, dict) else []))
+                if n_rows != p.get("rows"):
+                    bad.append(f"{pn}:rows({n_rows}!={p.get('rows')})")
+                    continue
+                declared_total += n_rows
+                checked_rows += n_rows
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                bad.append(f"{pn}:JSON解析失败({type(e).__name__})")
+            except OSError as e:
+                bad.append(f"{pn}:读取失败({type(e).__name__})")
+        if isinstance(g, dict) and g.get("total") is not None and declared_total != g["total"]:
+            bad.append(f"{gkey}:组总行数({declared_total}!=meta.total {g['total']})")
+    if bad:
+        return _fail(name, f"逐片深度校验 FAIL {len(bad)} 片如: {'; '.join(bad[:4])}（重导切片再 deploy）")
+
     n_groups = len(meta.get("groups") or {})
-    return _ok(name, f"切片与整包同版({full_ts}), {n_groups}组/{len(expected)}片齐")
+    return _ok(name, f"切片与整包同版({full_ts}), {n_groups}组/{len(expected)}片深度校验齐({checked_rows}行)")
 
 
 def check_trade_sim_indices(data_dir: Path) -> CheckResult:
