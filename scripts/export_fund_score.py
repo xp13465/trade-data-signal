@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import sqlite3
 import sys
 import time
@@ -86,7 +87,12 @@ def _query_top_funds(conn: sqlite3.Connection, top_n: int) -> list[dict]:
 
 
 def _write_json(fname: str, data: list[dict], date_str: str, label: str) -> int:
-    """写 JSON 到 STATIC_DATA_DIR, 返回字节数。"""
+    """写 JSON 到 STATIC_DATA_DIR, 返回字节数。
+
+    原子写(2026-08-25 同款修复, 与 export_fund_nav.py 一致): 先写唯一 .tmp
+    (pid 防并发)+ flush + os.fsync, 再 os.replace 为最终文件——进程 kill/磁盘满
+    只留 .tmp 残留不污染最终路径; 异常清理 .tmp 再上抛。
+    """
     STATIC_DATA_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
         "date": date_str,
@@ -95,9 +101,20 @@ def _write_json(fname: str, data: list[dict], date_str: str, label: str) -> int:
         "data": data,
     }
     path = STATIC_DATA_DIR / fname
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-        encoding="utf-8")
+    tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+        raise
     size = path.stat().st_size
     print(f"  [export] {fname} ({label} {len(data)} rows, {size} bytes)", flush=True)
     return size

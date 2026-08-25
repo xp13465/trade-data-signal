@@ -1,4 +1,4 @@
-# #11 场外基金净值全链 codex 外部 review 三件必修修复报告(+第四件恶性循环根治)
+# #11 场外基金净值全链 codex 外部 review 三件必修修复报告(+第四件恶性循环根治+第五批同款根治 etf_hist/fund_score/etf_score_list)
 
 > 来源:codex 外部 review `/tmp/codex-reports/claude2codex-20260825-001.json`(verdict=FAIL)
 > 范围:三件必修(critical ×1 + high ×2)+ 主控补充第四件(upload-fund-nav 恶性循环,今日生产告警实证);medium/low 各项未动,见文末「上报待拍板」
@@ -22,6 +22,9 @@ bash /tmp/t_gate.sh                         # 失败→跳过rsync+upload+CRITIC
 
 # 第四件断点续传四场景自验(mock s3_request):
 .venv/bin/python /tmp/t_ckpt.py             # T1中断checkpoint落盘 T2续传剔除已传 T3增量 T4指纹漂移重传
+
+# 第五批(用户拍板根治)三段自验: 三链闸门桩测+两脚本原子写中断:
+.venv/bin/python /tmp/t_batch3.py           # BATCH3_ALL_PASS
 ```
 
 输入依赖:`data/public_fund.db fund_daily_nav` 表;数据截止 2026-08-25;关键口径:fund_nav/{code}.json = 每基金全史日净值(nav 升序,count==0 合法空数据放行)。
@@ -94,16 +97,42 @@ bash /tmp/t_gate.sh                         # 失败→跳过rsync+upload+CRITIC
 
 **实测四场景全 PASS**(mock s3_request 不真传):T1 中途失败→exit1+checkpoint 落盘已成功部分;T2 重跑→checkpoint 命中 5 个跳过只实传剩余 7 个;T3 增量→只传变化 1 个;T4 checkpoint 指纹与文件当前 md5 不符→重传不跳过。
 
-## §23.2③ 排查同类·错误面清单(上报待拍板,均不擅动)
+## 五、第五批(用户拍板「要根治」):etf_hist/fund_score/etf_score_list 三链同款修复
 
-| 位置 | 问题 | 状态 |
+用户对第四批上报的同类清单拍板:export_etf_hist/export_fund_score 两条链同款问题「要根治」(§23.7 已确认可动)。实施+举一反三多修一条:
+
+1. **update_all.sh 三链硬闸门**(同款结构:捕获退出码→非零打【CRITICAL】入日志+跳过 rsync/upload,零→照常;rsync stderr 全部改进日志不再吞 /dev/null):
+   - export_etf_hist 链(L154-167):失败跳过 etf rsync + upload-etf-hist;
+   - export_fund_score 链(L188-200):失败跳过 fund_score rsync + upload-fund-score;
+   - **export_etf_score_list 链(L143-158,举一反三新增)**:grep 发现与点名两链完全同模式——导出失败被 `|| echo` 吞掉后 rsync + upload-etf-score 照跑,一并加闸门。
+2. **export_etf_hist.py**:新增 `_atomic_write_json`(与 export_fund_nav.py 同款),写盘点位替换;
+3. **export_fund_score.py**:`_write_json` 内部改原子写(.tmp.{pid}+fsync+os.replace+异常清理),函数签名与调用方零变化。
+
+**自验**(全部实测):
+- 桩测三链闸门结构:exit≠0 → skip,exit=0 → pass;
+- 两脚本原子写单测:正常写内容完整;os.replace 注入异常后最终文件不被污染+.tmp 已清理;
+- 真实小跑冒烟:`--limit 3` etf_hist 产物 JSON 完整可解析(count==len(ohlc))+无 tmp 残留;`--top-n 5` fund_score 正常导出。正常路径零行为变化。
+- 冒烟副作用处置(诚实标注):从 trade 树跑脚本 STATIC_DATA_DIR 解析到 trade 侧(cwd 决定,机制同 §9 export 路径陷阱),`--top-n 5` 曾把 trade 侧 fund_score.json/fund_score_top.json 覆盖成 5 行版——已立即从 trade-data 生产源恢复并 md5 终验两侧逐对一致(7775de90…/c4219084…);etf 三文件与生产源逐字节一致无需处理;R2 未受影响(冒烟未跑 upload)。此副作用同时实证了「trade 树手动跑 export 必须显式 REPO」条款的必要性(implementer skill §3.1)。
+
+## §23.3 举一反三·update_all.sh 全量同模式排查清单
+
+全文件 grep「导出/采集 || echo 吞错 + 后续 rsync/upload 照跑」,逐链判定:
+
+| 链路 | 同模式? | 处置 |
 |---|---|---|
-| scripts/update_all.sh:155-159 export_etf_hist 链 | 同模式「导出失败被吞+rsync/upload 照跑」(etf/{code}-all.json 直写 R2) | 已上线冻结功能(§23.7),上报问是否同样加硬闸门 |
-| scripts/update_all.sh:181-185 export_fund_score 链 | 同模式(fund_score*.json) | 同上 |
-| scripts/export_etf_hist.py:120 / export_fund_score.py:98 | write_text 直写最终路径(截断可被消费) | 同上 |
-| scripts/gen_etf_index_map.py / gen_data_pack.py / gen_daily_brief.py / gen_schedule_stats.py | write_text 直写最终路径 | 同上 |
-| upload_r2.py cmd_upload_fund_nav | glob("*.json") 不匹配 .json.tmp.* | 核查通过,残留不会被误传 |
-| check_data_integrity.py 其他 check_* | 是否存在同款「顶层数组穿透」 | 本次只核 fund_nav 相关两点,其余 check_* 未逐一排查,建议后续 reviewer 巡检 |
+| export_etf_score_list(L143)+rsync+upload-etf-score | 完全同模式 | ✅ 本批加闸门 |
+| export_etf_hist(L154)+rsync+upload-etf-hist | 完全同模式 | ✅ 本批加闸门(用户拍板) |
+| export_fund_score(L188)+rsync+upload-fund-score | 完全同模式 | ✅ 本批加闸门(用户拍板) |
+| export_fund_nav(L204)+rsync+upload-fund-nav | 同模式 | ✅ 第一批已修 |
+| export_alert(L130) / export_alert_analyze(L136) / export_notifications(L172) | **不同**:只写本地 static-site/data/,无紧随的 rsync+upload(靠下次 pipeline deploy 统一推),失败告警已有 | 不加闸门;但 write 直写截断风险仍在,列下方待办 |
+| stage0-daily(L179)/compute_all_scores(L186) | 采集/计算类非直接发布,compute 失败后 export_fund_score 会因表无新数据导出旧分(闸门已兜住发布侧) | compute 本身不加闸门(失败有告警+评分闸门兜底) |
+| pipeline.sh 四线(core/width/futures/turnover) | 退出码已汇总打印(L97),非吞错模式 | 不动 |
+| stock_daily 后台死端 | 设计上不 export 不 push | 不动 |
+
+**遗留上报项**(不在本批范围):
+- export_alert/export_alert_analyze/export_notifications/gen_*(gen_etf_index_map/gen_data_pack/gen_daily_brief/gen_schedule_stats)仍是 write_text 直写最终路径——截断风险与本次修复的同根因,但消费路径不同(本地 deploy 推 git vs R2 直传),是否统一改原子写请主控/用户拍板;
+- check_data_integrity.py 其余 check_* 函数是否存在同款「顶层数组穿透」,建议 reviewer 巡检。
+
 
 ## medium/low(codex 提出但不在本次必修范围,留档)
 
