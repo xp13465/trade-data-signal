@@ -10,6 +10,19 @@ set -euo pipefail
 
 REQUEST_ID="${1:?用法: codex-review-request.sh <request_id>}"
 
+case "$REQUEST_ID" in
+    [A-Za-z0-9]*)
+        if ! printf '%s' "$REQUEST_ID" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$'; then
+            echo "错误：request_id 只允许字母/数字/._-,长度 1-128" >&2
+            exit 1
+        fi
+        ;;
+    *)
+        echo "错误：request_id 只允许字母/数字/._-,长度 1-128" >&2
+        exit 1
+        ;;
+esac
+
 if [ -t 0 ]; then
     echo "错误：请通过 stdin 提供 JSON 内容" >&2
     exit 1
@@ -51,13 +64,32 @@ PYEOF
 
 BLOB_SHA=$(git hash-object -w "$TMP_JSON")
 REF="refs/codex/req/${REQUEST_ID}"
+SIGNAL_DIR="/tmp/codex-reports/signals/codex-inbox"
+
+# JSON blob 已入库,释放第一段临时文件并让信号临时文件接管 EXIT trap
+rm -f "$TMP_JSON"
+trap - EXIT
 
 # 先清场再立 ref:ref 一旦出现,本 id 必无旧报告可误读
 rm -f "/tmp/codex-reports/${REQUEST_ID}.json"
+# 同 id 重跑也清掉旧唤醒信号与失败残留,防止 watcher 消费上一轮状态
+rm -f "${SIGNAL_DIR}/${REQUEST_ID}.ready" \
+      "${SIGNAL_DIR}/${REQUEST_ID}.done" \
+      "${SIGNAL_DIR}/${REQUEST_ID}.failed"
 
 git update-ref "$REF" "$BLOB_SHA"
+
+mkdir -p "$SIGNAL_DIR"
+TMP_SIGNAL=$(mktemp "${SIGNAL_DIR}/.${REQUEST_ID}.XXXXXX")
+trap 'rm -f "$TMP_SIGNAL"' EXIT
+cat > "$TMP_SIGNAL" <<EOF
+{"request_id":"${REQUEST_ID}"}
+EOF
+mv "$TMP_SIGNAL" "${SIGNAL_DIR}/${REQUEST_ID}.ready"
+trap - EXIT
 
 echo "✅ request 已写入"
 echo "  ref: $REF"
 echo "  sha: $BLOB_SHA"
 echo "  id:  $REQUEST_ID"
+echo "  signal: ${SIGNAL_DIR}/${REQUEST_ID}.ready"

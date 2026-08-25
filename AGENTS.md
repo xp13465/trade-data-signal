@@ -15,6 +15,9 @@ git for-each-ref refs/codex/req --format='%(refname:short)'
   处理中可把 status 自行推进为 processing 并更新 ref)→ 按 request 里 `base..head` 范围 +
   `focus_areas` 执行只读 review → 报告**原子写** `/tmp/codex-reports/<id>.json`
   (先写 `<id>.json.tmp` 再 mv rename,schema 见协议文档)。
+- **每份报告完成后必须回传信号**:先校验 JSON 可解析且 `request_id` 一致,再执行
+  `python3 scripts/codex_review_complete.py <id> --verdict <PASS|FAIL|BLOCKED>`;
+  该脚本会原子写 `/tmp/codex-reports/signals/claude-inbox/<id>.ready`,让主控 watcher 自动接手。
 
 ## 收工即走,不等确认
 

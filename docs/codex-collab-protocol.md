@@ -13,10 +13,12 @@
 
 ```
 Claude implementer 完成 → 内部 reviewer PASS
-→ Claude 主控调 scripts/codex-review-request.sh 生成 request ref
-→ 通知 Codex（用户转达 / cron 轮询）
-→ Codex 读 refs/codex/req/<id> → 执行 review → 写 /tmp/codex-reports/<id>.json
-→ Claude 主控调 scripts/codex-review-report.sh 校验并读结果
+→ Claude 主控调 scripts/codex-review-request.sh 生成 request ref + codex-inbox signal
+→ agent_inbox_watcher 唤醒 Codex（无信号时零 token 空闲）
+→ Codex 读 refs/codex/req/<id> → 执行 review → 原子写 /tmp/codex-reports/<id>.json
+→ Codex 调 scripts/codex_review_complete.py 写 claude-inbox signal
+→ watcher 只做报告 schema 机检 + 飞书提醒（不后台调用 Claude）
+→ Claude 下次开工消费 validated signal → 处置 findings
 → 双方都 PASS → 主控走 scripts/main-merge.sh 合并
 ```
 
@@ -25,6 +27,8 @@ Claude implementer 完成 → 内部 reviewer PASS
 ```text
 refs/codex/req/<request_id>    # Claude → Codex 请求
 refs/codex/resp/<request_id>   # 可选：Codex 报告的 SHA 指针（由 Claude 代写）
+/tmp/codex-reports/signals/codex-inbox/<request_id>.ready   # Claude → Codex 唤醒信号
+/tmp/codex-reports/signals/claude-inbox/<request_id>.ready  # Codex → Claude 回传信号
 ```
 
 - `<request_id>` 格式：`rev-YYYYMMDD-NNN` 或 `test-NNN`。
@@ -79,6 +83,14 @@ refs/codex/resp/<request_id>   # 可选：Codex 报告的 SHA 指针（由 Claud
 - **② Claude 发 request 前脚本自动清场**：`codex-review-request.sh` 在写 ref 之前先 `rm -f /tmp/codex-reports/<id>.json`——保证「ref 出现」时绝无旧报告残留。
 - **③ 可选闭环标记 consumed**：Claude 读到报告并采纳后，`git update-ref refs/codex/resp/<id> $(git hash-object -w --stdin < 报告内容)` 标记已消费，防同一轮被重复读取/重复采纳。
 - **④ 过期清理**：ref 与报告文件建议保留 7 天，由 Claude 主控负责清理（`git update-ref -d` + 删文件）。
+- **⑤ 信号生命周期**：`.ready` 只表示待消费；watcher 先 rename 成 `.processing`，成功转
+  `.done`，失败转 `.failed`。信号名必须是 `[A-Za-z0-9][A-Za-z0-9_.-]{0,127}`，内容只是元数据，
+  不承载可执行 prompt。watcher 用固定指令调用 CLI，禁止把信号内容拼进模型指令。
+- **⑥ 安全自动桥**：`scripts/agent_inbox_watcher.py` 只在需要协作时由用户手动启动；
+  2 秒本地 stat 轮询，空闲不调用 LLM。Codex 侧用 workspace-write + 可写
+  `/tmp/codex-reports`，不用免审批模式。Claude 回传侧只做 schema 机检与飞书提醒，
+  不允许后台 watcher 直接以高权限唤醒 Claude 处置代码。`com.trade.agent-inbox.plist`
+  仅是可选本机模板，默认不入 LaunchAgents。
 
 ## 约束
 
