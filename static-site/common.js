@@ -760,7 +760,14 @@ var _KELLY_FADE_MODE_PRESETS = [
     // 「一起扩」剔 null, 与回测 etf_has_track 卡/首页筛选档4口径完全统一)。⚠诚实标注: 下述数字均为扩围前
     // 仅剔 none 口径(mine29c), 扩围后作废待正式穷举回测重算: 全史仅剔 17 笔毛 +584.62(费 359.07 净 +225.56),
     // 近 5 年 12 笔净 -1,450.66 但补位回收 +1,253.96(页面口径); mdd -4,178→-3,550。默认仍=new14(§23.7)。
-    keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "declinePhaseSpecial", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal", "excludeTierNone"] }
+    keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "declinePhaseSpecial", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal", "excludeTierNone"] },
+  // S06(codex-task-20260825-001, B级用户拍板): 大盘领先动态切换·实验可选档(非默认 §23.7 纯新增)。
+  // ⚠dynamic:true = 非静态键组合, 本条目禁止携带 keys; 四消费点遇 s06 必须按「信号日期」读快照
+  //   effective_mode(a9/new15)再套对应基座键集, 禁止展开成静态 keys(handoff §四)。
+  // 阈值/状态机唯一事实源 = scripts/gen_kelly_mode_s06_state.py → static-site/data/kelly_mode_s06_state.json,
+  //   本文件零硬编码阈值(§22 登记点纪律); 下方 tooltip 文案数值仅为 §21 公示, 与生成器逐位一致由
+  //   scripts/check_s06_state.py 机检把关。回测对照锚点 S06_A_vs_14plus1 验段净利 +93,813.21 / mdd -3,811.27。
+  { id: "s06", name: "S06 · 大盘领先切换", tagline: "小盘弱→A进攻王·否则NEW14+1(动态)", caliber: "🧪 实验可选档·动态切换(非默认)", calWarn: true, dynamic: true }
 ];
 var _KELLY_FADE_DEFAULT_MODE = "new14"; // v1.1.5 起默认=NEW 14键(v1.1.2 及以前=p8/8键; 单源, 各消费点回退统一引用本常量)
 function _tdsFadeModeById(id) {
@@ -770,18 +777,22 @@ function _tdsFadeModeById(id) {
   return null;
 }
 // 把模式键组合写进 filters 对象: 58 个 fade 键先全部置 false 再按预设点亮(non-fade 键如 positionCap/K 不动)
+// s06(dynamic)无静态 keys → 返回 false(调用方须改走 _tdsS06FiltersForDate 按日期取基座 filters)
 function _tdsFadeModeApply(modeId, filters) {
   var p = _tdsFadeModeById(modeId);
   if (!p || !filters) return false;
+  if (p.dynamic || !Array.isArray(p.keys)) return false;
   for (var i = 0; i < _KELLY_FADE_ALL_KEYS.length; i++) filters[_KELLY_FADE_ALL_KEYS[i]] = false;
   for (var j = 0; j < p.keys.length; j++) filters[p.keys[j]] = true;
   return true;
 }
-// 由 filters 反查当前匹配的模式 id(全等匹配; 不匹配任何预设=null=自定义态)
+// 由 filters 反查当前匹配的模式 id(全等匹配; 不匹配任何预设=null=自定义态; dynamic 预设无静态形态必跳过)
 function _tdsFadeModeMatch(filters) {
   if (!filters) return null;
   for (var i = 0; i < _KELLY_FADE_MODE_PRESETS.length; i++) {
-    var p = _KELLY_FADE_MODE_PRESETS[i], ok = true;
+    var p = _KELLY_FADE_MODE_PRESETS[i];
+    if (p.dynamic || !Array.isArray(p.keys)) continue;
+    var ok = true;
     for (var j = 0; j < _KELLY_FADE_ALL_KEYS.length; j++) {
       var k = _KELLY_FADE_ALL_KEYS[j];
       if (!!filters[k] !== (p.keys.indexOf(k) >= 0)) { ok = false; break; }
@@ -862,6 +873,121 @@ window._tdsStoreWithTTL = _tdsStoreWithTTL;
 window._tdsLoadWithTTL = _tdsLoadWithTTL;
 window._TDS_FADE_TTL_MS = _TDS_FADE_TTL_MS;
 
+// ===== S06 · 大盘领先切换: 快照加载/按日期解析/降级状态(codex-task-20260825-001, B级用户拍板) =====
+// 【单源】阈值/confirm/minhold/逐日 effective_mode 全部来自 static-site/data/kelly_mode_s06_state.json
+//   (生成器 scripts/gen_kelly_mode_s06_state.py); 本文件零硬编码阈值——前端只做「日期→基座(a9/new15)→键集」,
+//   禁止自算因子/阈值(§23.6 同精神: 前端不自算宇宙; §22: 多展示位共用本单源)。
+// 【降级契约(可见不静默)】快照缺失/字段缺失/日期超出覆盖期 → _tdsS06BaseForDate 返回 ok:false + reason,
+//   各消费点必须 fail-open(该笔不拦)+ 在界面给出可见警示(计数说明原因), 绝不静默退回其他模式(handoff §五.功能5)。
+// 【事件】加载完成 dispatch "tds-s06-state-ready"(消费点可监听重渲染); 失败 dispatch "tds-s06-state-error"。
+var _TDS_S06_MODE_ID = "s06";
+var _TDS_S06_STATE_URL = "./data/kelly_mode_s06_state.json";
+var _tdsS06State = null;         // 快照本体(null=尚未成功加载)
+var _tdsS06LoadErr = null;       // 最近一次加载失败原因(可见降级提示用)
+var _tdsS06Promise = null;       // 单例加载 promise(防四消费点并发重复拉)
+var _tdsS06ByDate = null;        // date(YYYYMMDD)->daily 行 映射(加载后建)
+var _tdsS06FiltersCache = null;  // baseId -> 58 键布尔 filters(惰性构建共享, 只读勿改)
+function _tdsS06NormalizeDate(d) {
+  if (d === null || d === undefined) return "";
+  return String(d).replace(/[^0-9]/g, "");   // 兼容 YYYYMMDD 与 YYYY-MM-DD 两种来源格式
+}
+function _tdsS06StateEnsure() {
+  if (_tdsS06Promise) return _tdsS06Promise;
+  var fetchFn = typeof fetchJSON === "function" ? fetchJSON : null;   // fetchJSON 自带备站 fallback(app.js)
+  _tdsS06Promise = (fetchFn ? fetchFn(_TDS_S06_STATE_URL) : fetch(_TDS_S06_STATE_URL).then(function (r) {
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  })).then(function (d) {
+      if (!d || !Array.isArray(d.daily) || !d.daily.length || typeof d.threshold !== "number"
+          || !d.on_base || !d.off_base) {
+        _tdsS06LoadErr = "快照字段缺失/为空";
+        try { window.dispatchEvent(new CustomEvent("tds-s06-state-error", { detail: _tdsS06LoadErr })); } catch (e) {}
+        return null;
+      }
+      _tdsS06State = d;
+      _tdsS06ByDate = {};
+      for (var i = 0; i < d.daily.length; i++) _tdsS06ByDate[_tdsS06NormalizeDate(d.daily[i].date)] = d.daily[i];
+      try { window.dispatchEvent(new CustomEvent("tds-s06-state-ready")); } catch (e) {}
+      return d;
+    })
+    .catch(function (err) {
+      _tdsS06LoadErr = (err && err.message) ? ("快照加载失败: " + err.message) : "快照加载失败";
+      try { window.dispatchEvent(new CustomEvent("tds-s06-state-error", { detail: _tdsS06LoadErr })); } catch (e) {}
+      return null;
+    });
+  return _tdsS06Promise;
+}
+// 健康度速查(消费点渲染警示条用): loaded/err/覆盖期/current{date,mode,since}/threshold 等元信息
+function _tdsS06Status() {
+  return {
+    modeId: _TDS_S06_MODE_ID,
+    loading: !!_tdsS06Promise && !_tdsS06State && !_tdsS06LoadErr,
+    loaded: !!_tdsS06State,
+    err: _tdsS06LoadErr,
+    coverageStart: _tdsS06State ? _tdsS06State.coverage_start : null,
+    coverageEnd: _tdsS06State ? _tdsS06State.coverage_end : null,
+    current: _tdsS06State ? _tdsS06State.current : null,
+    onBaseName: (_tdsFadeModeById("a9") || {}).name || "a9",
+    offBaseName: (_tdsFadeModeById("new15") || {}).name || "new15"
+  };
+}
+// 核心: 日期 → 生效基座。ok:false 时 reason ∈ not_loaded/load_err/no_row/out_of_range(消费点 fail-open + 可见提示)
+function _tdsS06BaseForDate(dateStr) {
+  var nd = _tdsS06NormalizeDate(dateStr);
+  if (!_tdsS06State) return { ok: false, reason: _tdsS06LoadErr ? "load_err" : "not_loaded" };
+  var row = _tdsS06ByDate ? _tdsS06ByDate[nd] : null;
+  if (!row) {
+    var cs = _tdsS06NormalizeDate(_tdsS06State.coverage_start), ce = _tdsS06NormalizeDate(_tdsS06State.coverage_end);
+    return { ok: false, reason: (!cs || nd < cs || nd > ce) ? "out_of_range" : "no_row" };
+  }
+  var base = row.effective_mode;
+  if (base !== "a9" && base !== "new15") return { ok: false, reason: "bad_mode" };
+  return { ok: true, base: base, decisionDate: row.decision_date, sizeSpread: row.size_spread };
+}
+// 日期 → 该日生效基座的 58 键布尔 filters(共享只读对象; 不可用返回 null=调用方 fail-open)
+function _tdsS06FiltersForDate(dateStr) {
+  var r = _tdsS06BaseForDate(dateStr);
+  if (!r.ok) return null;
+  if (!_tdsS06FiltersCache) _tdsS06FiltersCache = {};
+  var f = _tdsS06FiltersCache[r.base];
+  if (!f) {
+    f = {};
+    for (var i = 0; i < _KELLY_FADE_ALL_KEYS.length; i++) f[_KELLY_FADE_ALL_KEYS[i]] = false;
+    var p = _tdsFadeModeById(r.base);
+    if (p && Array.isArray(p.keys)) for (var j = 0; j < p.keys.length; j++) f[p.keys[j]] = true;
+    _tdsS06FiltersCache[r.base] = f;
+  }
+  return f;
+}
+// 日期 → 该日生效基座的 keys 数组(memberSet 型消费点用; 不可用返回 null)
+function _tdsS06KeysForDate(dateStr) {
+  var r = _tdsS06BaseForDate(dateStr);
+  if (!r.ok) return null;
+  var p = _tdsFadeModeById(r.base);
+  return (p && Array.isArray(p.keys)) ? p.keys : null;
+}
+// §21/§23.9 三档互证公示文案(下拉 title 等; 数值须与 gen_kelly_mode_s06_state.py 逐位一致, 机检把关)
+function _tdsS06Tooltip() {
+  return [
+    "【是什么】S06 不是固定勾键组合, 是按大盘风格自动换基座: 每天收盘算「中证100020日涨幅 − 沪深300 20日涨幅」,",
+    "小于 -3.524%(2016-2020 选段 q30 冻结阈值)说明小盘显著跑输 → 次日切 A 进攻王(进攻基座); 否则次日回到 NEW14+1·15键(防守兜底)。",
+    "T 日收盘判定 T+1 生效; 从 A 退出需连续 15 个交易日破坏确认, 且 A 至少持有 10 个交易日(防来回打脸)。",
+    "【什么时候用】想检验「大小盘风格切换能否自动选对基座」时选它; 默认档仍是 NEW 14键不受影响。",
+    "【举例】2026-06-08 收盘差值 -4.049% < -3.524% → 6-09 起生效 A 进攻王(延续至今); 2026-04-27 差值 +1.687% 未破阈值(A 此前已被连续破坏确认退出)→ 4-28 生效 NEW14+1。",
+    "【对照数据(同引擎验证段 2021 起)】S06 净利 +93,813 高于静态 NEW14+1 的 +83,718; 但最大回撤 -3,811 略深于其 -3,550,",
+    "强平口径 +81,435 亦略逊 — 未过完整风格周期检验, 实验可选档非实盘结论。"
+  ].join("\n");
+}
+window._TDS_S06_MODE_ID = _TDS_S06_MODE_ID;
+window._TDS_S06_STATE_URL = _TDS_S06_STATE_URL;
+window._tdsS06StateEnsure = _tdsS06StateEnsure;
+window._tdsS06Status = _tdsS06Status;
+window._tdsS06BaseForDate = _tdsS06BaseForDate;
+window._tdsS06FiltersForDate = _tdsS06FiltersForDate;
+window._tdsS06KeysForDate = _tdsS06KeysForDate;
+window._tdsS06Tooltip = _tdsS06Tooltip;
+window._tdsS06NormalizeDate = _tdsS06NormalizeDate;
+
 // ===== v1.1.5(2026-08-24) 「连续 N 日无放行」枯竭提示(纯展示层, 单源在此; 消费点=首页 AI 建议区 + lab 凯利区信号区) =====
 // 【数据源】overfit_monitor.json 的 recent 块(T3-2 已建产物字段, 后端 overfit_monitor.py build_recent_block,
 //   近 RECENT_DAYS=340 个交易日逐信号明细: d=signal_date / s=signal / t=track_score(null=未入样) /
@@ -886,18 +1012,25 @@ function _tdsFetchRecentBlock(fetchFn) {
   return _tdsRecentBlockPromise;
 }
 // 计算: 截至 latest 的连续无放行买入信号交易日数 N。
-// recent={rows:[{d,s,t,k,...}], latest} / modeKeys=当前默认模式键数组(默认取 new14 预设 keys)。
+// recent={rows:[{d,s,t,k,...}], latest} / modeKeys=当前模式键数组(默认取 new14 预设 keys);
+//   S06(2026-08-25 codex-task-001): 也接受「日期→键集」函数(per-date 动态基座口径, 与首页判定链同源 §22),
+//   函数对某日期返回 []/null = 该日视为无键不拦(fail-open 同语义)。
 // 返回 {n, latest, window} 或 null(rows 缺失/空)。n 封顶=窗口内交易日数(全窗口无放行时)。
 function _tdsComputeDrought(recent, modeKeys) {
   try {
     if (!recent || !Array.isArray(recent.rows) || !recent.rows.length) return null;
-    var keys = Array.isArray(modeKeys) ? modeKeys : [];
+    var staticKeys = Array.isArray(modeKeys) ? modeKeys : null;
     // 按日期聚合「该日是否有放行买入信号」+ 收集交易日序列
     var dayHasPass = {};
     for (var i = 0; i < recent.rows.length; i++) {
       var r = recent.rows[i];
       if (!r || !r.d || !_TDS_BUY_SIGNAL_SET[r.s]) continue;      // 仅买类参与放行判定
       if (r.t == null) continue;                                   // 未入样(无跟踪分)不算放行
+      var keys = staticKeys;
+      if (!staticKeys && typeof modeKeys === "function") {         // s06 per-date 键集
+        var kd = modeKeys(r.d);
+        keys = Array.isArray(kd) ? kd : [];
+      }
       var hit = (typeof r.k === "string" && r.k) ? r.k.split("|") : [];
       var blocked = false;
       for (var j = 0; j < hit.length; j++) { if (keys.indexOf(hit[j]) >= 0) { blocked = true; break; } }
@@ -923,10 +1056,11 @@ function _tdsComputeDrought(recent, modeKeys) {
   } catch (e) { return null; }
 }
 // 文案生成(N≥阈值才返回 HTML; 数字全部来自 mine30(docs/kelly/analysis/new14-default-challenge-mine30-20260824.md §五), 零编造)
-function _tdsDroughtChipHtml(info) {
+// caliberNote(可选, 2026-08-25): 口径尾注覆盖(如 s06 动态基座时由调用方传入动态口径说明, 防文案与实际判定口径不符 §21)
+function _tdsDroughtChipHtml(info, caliberNote) {
   if (!info || !(info.n >= _TDS_DROUGHT_THRESHOLD)) return "";
   var base = "已连续 <b>" + info.n + "</b> 个交易日无放行信号 · 历史上类似枯竭结束后 3 个月约 <b>72%</b> 为正, 常由下跌触发放行";
-  var src = "(口径: NEW14 默认过滤下实时统计; 72%=mine30 全史 37 次≥20 交易日枯竭恢复后 26/36 为正)";
+  var src = caliberNote || "(口径: NEW14 默认过滤下实时统计; 72%=mine30 全史 37 次≥20 交易日枯竭恢复后 26/36 为正)";
   var longNote = info.n >= _TDS_DROUGHT_LONG
     ? " · 本轮已超历史上多数枯竭长度(≥40 交易日共 13 次、≥60 日 10 次、最长 484 日)"
     : "";

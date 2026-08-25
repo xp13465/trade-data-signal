@@ -8138,6 +8138,11 @@ async function _kellyRunRecompute(host, loadingHtml, onResult, onDone) {
 async function _kellyApplyFeeRecompute(feeParams) {
   var data = state.labSigKellyData;
   if (!data || !data.quadrants) return null;
+  // S06(codex-task-20260825-001): 动态基座态先确保快照就绪再进计算(单例 promise, 已就绪时立即 resolve;
+  // 失败返回 null → 谓词层 fail-open 放行 + result._s6warn 可见警示, 绝不静默退回其他模式)。
+  if (state.labSigKellyFadeModeBase === "s06" && typeof window._tdsS06StateEnsure === "function") {
+    await window._tdsS06StateEnsure();
+  }
   // 加载 trades.json(如果未加载, 复用 modal 的 R2+CF 兜底逻辑)
   if (!state.labSigKellyTradesData) {
     var v = _labCustomCacheBust();
@@ -8196,23 +8201,64 @@ async function _kellyApplyFeeRecompute(feeParams) {
   // 金额口径(2026-08-13 用户纠正恢复): 每日资金池等分+top-K(每笔=10000/当日保留基笔数, 每日总投入恒1万 → K档最大持仓恒定; 撤销2026-08-12"每笔固定1万"fixed口径)
   // #49 fix(issue49): ai长线(G/H/I)仓位管理 开关态并入顶层缓存签名——否则 7827 短路命中旧缓存(result 无 __gihb1)致开关无效(卡片G/H/I恒显原始值), 须切换强制重算
   // #xx: G 档位也并入签名(档位切换同开关态一样强制重算, 否则短路命中旧档 __gihb1)
-  var cacheKey = feeSig + "|pool|" + JSON.stringify(filters) + "|gih" + (state.labSigKellyGihOn ? ("1|" + _kellyGihGTier()) : "0");
+  // S06(2026-08-25): 动态基座态并入缓存签名(+快照覆盖期末日), 否则 s06↔静态档切换会命中脏缓存
+  // (filters 静态快照相同但判定层 per-date 结果不同); 快照更新(coverage_end 前移)也强制重算。
+  var _labS06 = (state.labSigKellyFadeModeBase === "s06");
+  var cacheKey = feeSig + "|pool|" + JSON.stringify(filters) + "|gih" + (state.labSigKellyGihOn ? ("1|" + _kellyGihGTier()) : "0")
+    + (_labS06 ? ("|s06|" + (((typeof window._tdsS06Status === "function") && window._tdsS06Status().coverageEnd) || "")) : "");
   if (_kellyStatsCacheKey === cacheKey && _kellyStatsCacheVal) {
     return _kellyStatsCacheVal;
   }
   var result = {};
   // 降亏toggle过滤谓词(只算一次, positionCap/仓位控制共用)
   var monthMask = _kellyActiveMonthMask(filters);
-  var passesFade = function (t) {
-    return _kellyPassesFadeFilters(t, fIdx, filters, _kellyTradeFeatureCache, _tradeDims, monthMask);
+  // S06(codex-task-20260825-001): 动态基座态 → passesFade 改 per-date: 按每笔 signal_date 取当日生效基座
+  // (a9/new15)的完整键集过滤; 快照不可用/日期超覆盖期 = 该笔 fail-open 放行 + _s6OpenCnt 计数
+  // (result._s6warn 可见警示, 绝不静默退回其他模式); 非 s06 态路径逐位不变(§23.7 纯新增)。
+  var _s6OpenCnt = 0;
+  var _s6F6 = function (t) {
+    return (typeof window._tdsS06FiltersForDate === "function") ? window._tdsS06FiltersForDate(String(t[fIdx.signal_date] || "")) : null;
   };
+  var passesFade;
+  if (_labS06) {
+    passesFade = function (t) {
+      var f6 = _s6F6(t);
+      if (!f6) { _s6OpenCnt++; return true; }   // fail-open + 可见计数
+      return _kellyPassesFadeFilters(t, fIdx, f6, _kellyTradeFeatureCache, _tradeDims, _kellyActiveMonthMask(f6));
+    };
+  } else {
+    passesFade = function (t) {
+      return _kellyPassesFadeFilters(t, fIdx, filters, _kellyTradeFeatureCache, _tradeDims, monthMask);
+    };
+  }
   // #xx(2026-08-22) bullAuxBackupStop(牛市·主升×辅备买全停) G/H/I 长线豁免: 该键仅适用 mode A-F 短线,
   //   G/H/I 长线不适配不套用(挖掘报告 §6.4)。实现=构造 filtersNoBull 变体(仅 bullAuxBackupStop=false, 其余同),
   //   G/H/I 桶的 fade 谓词与 positionCap 基笔池/每日池计数都用 NoBull 版 → 开关键后 G/H/I 统计与关时逐位一致(§22)。
   //   默认关(_bullOn=false)时 NoBull 变体恒 null, 全部回落原路径, 零行为差异(§23.7 纯新增)。
-  var _bullOn = !!filters.bullAuxBackupStop;
+  // S06 态: a9 基座含 bullAuxBackupStop、new15 不含 → A-F 桶 per-date 天然按日生效; G/H/I 长线恒豁免,
+  //   故强制 _bullOn=true 走 per-date NoBull 版(当日基座键集 − bullAuxBackupStop, 共享缓存变体)。
+  var _bullOn = _labS06 ? true : !!filters.bullAuxBackupStop;
   var passesFadeNoBull = null;
-  if (_bullOn) {
+  if (_labS06) {
+    var _s6NoBullCache = {};   // baseId -> 键集−牛停 共享只读变体(a9/new15 至多两份)
+    var _s6BuildNB = function (baseId) {
+      var f = {};
+      var allK = window._KELLY_FADE_ALL_KEYS || [];
+      for (var i = 0; i < allK.length; i++) f[allK[i]] = false;
+      var p = (typeof window._tdsFadeModeById === "function") ? window._tdsFadeModeById(baseId) : null;
+      if (p && Array.isArray(p.keys)) for (var j = 0; j < p.keys.length; j++) f[p.keys[j]] = true;
+      f.bullAuxBackupStop = false;
+      return f;
+    };
+    passesFadeNoBull = function (t) {
+      var dStr = String(t[fIdx.signal_date] || "");
+      var b = (typeof window._tdsS06BaseForDate === "function") ? window._tdsS06BaseForDate(dStr) : null;
+      if (!b || !b.ok) { _s6OpenCnt++; return true; }   // fail-open 与主谓词同口径
+      if (!_s6NoBullCache[b.base]) _s6NoBullCache[b.base] = _s6BuildNB(b.base);
+      var nb = _s6NoBullCache[b.base];
+      return _kellyPassesFadeFilters(t, fIdx, nb, _kellyTradeFeatureCache, _tradeDims, _kellyActiveMonthMask(nb));
+    };
+  } else if (_bullOn) {
     var filtersNoBull = {};
     for (var _fbk in filters) filtersNoBull[_fbk] = filters[_fbk];
     filtersNoBull.bullAuxBackupStop = false;
@@ -8445,6 +8491,17 @@ async function _kellyApplyFeeRecompute(feeParams) {
     console.error("[sigkelly] posRating dynamic compute failed:", e);
     window._AI_POSCAP_RATING_DYNAMIC = { computed: false, values: null, date: null, fee: null, cfg: null };
   }
+  // S06 降级警示(codex-task-20260825-001, 可见不静默): 快照失败/覆盖期外笔数 → result._s6warn,
+  // 由凯利区模式下拉旁状态 span 展示; 正常态无该字段(span 隐藏)。缓存命中路径随旧 result 一致复用。
+  if (_labS06) {
+    var _s6WarnParts = [];
+    if (typeof window._tdsS06Status === "function") {
+      var _st6 = window._tdsS06Status();
+      if (!_st6.loaded && _st6.err) _s6WarnParts.push("⚠ S06 快照不可用(" + _st6.err + ") — 动态判定未生效, 本批统计按无过滤人口展示(未回退其他模式)");
+    }
+    if (_s6OpenCnt > 0) _s6WarnParts.push("⚠ " + _s6OpenCnt + " 笔超出 S06 快照覆盖期或缺行, 未按当日基座过滤(fail-open)");
+    if (_s6WarnParts.length) result._s6warn = _s6WarnParts.join(" ");
+  }
   _kellyStatsCacheKey = cacheKey;
   _kellyStatsCacheVal = result;
   return result;
@@ -8541,10 +8598,13 @@ function _kellyReadCustomParams() {
 
 // 降亏过滤toggle切换处理(仿_kellyOnFeeChange, 但不改费率只过滤交易集)
 // toggle改交易集合(filter) vs 费率改profit(recompute), 正交叠加不互斥
-async function _kellyOnFilterChange() {
+// S06(codex-task-20260825-001): 手动勾/取消任一标签 = 退出动态模式进「⚙️自定义组合」(handoff §五.功能3)——
+// 默认(无参)清除 s06 态; keepS06=true 仅限「非成员改动」路径(模式下拉选 s06/新键特征就绪补渲)保持动态态。
+async function _kellyOnFilterChange(_opts) {
   var host = document.querySelector(".lab-sigkelly-host");
   var bar = document.querySelector(".lab-sigkelly-bar");
   if (!host || !state.labSigKellyData) return;
+  if (!(_opts && _opts.keepS06) && state.labSigKellyFadeModeBase === "s06") state.labSigKellyFadeModeBase = null;
   // loading先paint再算(方案B⑤), 防重入(方案B⑥)
   await _kellyRunRecompute(host,
     '<div class="lab-custom-loading">⏳ 过滤交易数据重算…</div>',
@@ -8756,7 +8816,7 @@ async function renderSigKellyLab() {
       if (state.kellyLossFeatReadyApplied) return; // 单向阀: 就绪跃迁补渲至多一次
       state.kellyLossFeatReadyApplied = true;
       if (state.labSigKellyFilters && _KELLY_LOSS_NEW_KEYS.some((p) => state.labSigKellyFilters[p[0]])) {
-        _kellyOnFilterChange();
+        _kellyOnFilterChange({ keepS06: true }); // 特征就绪非成员改动: 保持 s06 动态态(codex-task-20260825-001)
       }
     });
   }
@@ -8817,7 +8877,11 @@ async function renderSigKellyLab() {
     var _dftModeId = (typeof window._KELLY_FADE_DEFAULT_MODE === "string") ? window._KELLY_FADE_DEFAULT_MODE : "new14";
     var _applyMid = (_savedFM && _savedFM.mode && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(_savedFM.mode)) ? _savedFM.mode : _dftModeId;
     if (typeof _tdsFadeModeById === "function" && _tdsFadeModeById(_applyMid)) {
-      _tdsFadeModeApply(_applyMid, state.labSigKellyFilters);
+      // S06(codex-task-20260825-001): dynamic 预设无静态 keys, Apply 返回 false 不改标签区 → 显式恢复
+      // 默认档作静态参考底座(判定层 per-date 接管), 与下拉选中 s06 路径同一处理(§22 冷启动/热切换一致)
+      if (!_tdsFadeModeApply(_applyMid, state.labSigKellyFilters) && _applyMid !== _dftModeId) {
+        _tdsFadeModeApply(_dftModeId, state.labSigKellyFilters);
+      }
       state.labSigKellyFadeModeBase = _applyMid;
     }
   } catch (e) {}
@@ -9529,13 +9593,22 @@ function _renderSigKellyBar(bar, data, period) {
   // 选下拉=一键套用该模式完整键组合(标签勾选态由 _kellyOnFilterChange 完成回调重渲染 bar 自动点亮);
   // 手动勾/取消任一标签 -> _tdsFadeModeMatch 反查不匹配任何预设 -> 下拉显示「自定义」占位态(option disabled hidden 仅展示);
   // 再点任意模式 -> 回到预设。持久化=lab 独立 key tds_kelly_fade_mode(a389 三处独立化纪律), 默认模式=v1.1.5 起 new14(旧默认 p8 八键保留为对照档可手选)。
-  const _fadeMatchedId = (window._tdsFadeModeMatch ? window._tdsFadeModeMatch(_filters) : null);
+  var _fadeMatchedId = (window._tdsFadeModeMatch ? window._tdsFadeModeMatch(_filters) : null);
+  // S06(codex-task-20260825-001, handoff §五.功能3): 动态键集不参与反查(Match 跳过 dynamic 预设)——
+  // s06 态且标签区仍停在参考底座(反查=当前默认档, 即未被手动动过)时显示 S06; 手动勾/取消任一标签后
+  // 反查≠默认档 → 自然落「⚙️自定义组合」态(判定层同步退出 s06, 见 _kellyOnFilterChange 入口清除)
+  if (_fadeMatchedId === (typeof window._KELLY_FADE_DEFAULT_MODE === "string" ? window._KELLY_FADE_DEFAULT_MODE : "new14")
+    && state.labSigKellyFadeModeBase === "s06") _fadeMatchedId = "s06";
   const _fadeBaseId = state.labSigKellyFadeModeBase || (typeof window._KELLY_FADE_DEFAULT_MODE === "string" ? window._KELLY_FADE_DEFAULT_MODE : "new14");
   const _fadeDisp = (window._tdsFadeModeById ? window._tdsFadeModeById(_fadeMatchedId || _fadeBaseId) : null) || { name: "NEW 14键(默认)", caliber: "", calWarn: false };
   const _fadeCaliberHTML = _fadeMatchedId
     ? _fadeDisp.caliber
     : ("⚙️ 自定义组合(基于「" + _fadeDisp.name.replace(/\(默认\)$/, "") + "」手动调整, 口径见各标签 tip)");
-  const fadeModeTitle = "AI降亏过滤模式: 一键套用整套键组合(与「AI 降亏组成对比」卡同源口径); 手动勾/取消下方任一小标签即进入自定义态, 再选任意模式回到预设";
+  const fadeModeTitle = "AI降亏过滤模式: 一键套用整套键组合(与「AI 降亏组成对比」卡同源口径); 手动勾/取消下方任一小标签即进入自定义态, 再选任意模式回到预设。选 S06=按大盘风格按日动态切 A进攻王/NEW14+1 两基座(实验可选档非默认, 判定层接管、标签区退为参考底座), 快照不可用时该笔不拦并红字提示, 绝不静默回退"
+    + (typeof window._tdsS06Tooltip === "function" ? ("\n———\n" + window._tdsS06Tooltip()) : "");
+  // S06 快照降级警示 span(可见不静默): 文本来自最近一次计算 result._s6warn(_kellyApplyFeeRecompute 写),
+  // 无警示恒隐藏; 缓存命中路径随旧 stats 一致复用同文案(§22)
+  const _s6StateWarn = (state.labSigKellyFeeStats && state.labSigKellyFeeStats._s6warn) || "";
   // T3-1修复批④(2026-08-23): 类名换公共组件段 .tds-fade-mode-wrap/.tds-fade-mode-sel(style.css 公共段单份,
   // 各页不留私有样式副本); 渲染函数=common.js _tdsFadeModeSelectHTML/_tdsFadeModeSelectMount 四消费点统一组件。
   // T3-1修复批③(2026-08-23): 本下拉落点移至「AI降亏过滤」总开关文字同一行紧跟其后(用户铁律: 一个功能的交互不拆两处),
@@ -9545,6 +9618,7 @@ function _renderSigKellyBar(bar, data, period) {
       `<span class="lab-sigkelly-fee-label" style="font-weight:600">模式:</span>` +
       (window._tdsFadeModeSelectHTML ? window._tdsFadeModeSelectHTML("lab-kelly-fade-mode-sel", _fadeMatchedId || "custom", true, "tds-fade-mode-sel", fadeModeTitle) : "") +
       `<span id="lab-kelly-fade-mode-caliber" class="lab-sigkelly-fee-label" title="${fadeModeTitle}"${_fadeDisp.calWarn ? ' style="color:#b45309;font-weight:600"' : ""}>${_fadeCaliberHTML}</span>` +
+      `<span id="lab-kelly-s06-state" class="lab-sigkelly-fee-label" style="color:#c0392b;font-weight:600;${_s6StateWarn ? "" : "display:none"}">${_s6StateWarn}</span>` +
     `</span>`;
   const positionCapHTML =
     `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap">` +
@@ -10149,6 +10223,21 @@ function _renderSigKellyBar(bar, data, period) {
     var mid = _fadeModeSelEl.value;
     if (!mid || mid === "custom") return; // custom 为 disabled 占位项, 正常不可触发(兜底还原)
     if (!state.labSigKellyFilters) state.labSigKellyFilters = _kellyDefaultFilters();
+    // S06(codex-task-20260825-001): dynamic 预设不走 Apply(返回 false)——判定层 per-date 接管,
+    // 标签区恢复默认档作静态参考底座 + 重写 tds_kelly_filters(防旧自定义 members 冷启动复活造成
+    // 「记忆 s06 却显示自定义」不一致, §22); 手动勾任一标签经 _kellyOnFilterChange 入口退出动态态
+    var _pSel = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(mid) : null;
+    if (_pSel && _pSel.dynamic) {
+      var _dftIdS6 = (typeof window._KELLY_FADE_DEFAULT_MODE === "string") ? window._KELLY_FADE_DEFAULT_MODE : "new14";
+      _tdsFadeModeApply(_dftIdS6, state.labSigKellyFilters);
+      state.labSigKellyFadeModeBase = mid;
+      if (typeof _tdsStoreWithTTL === "function") _tdsStoreWithTTL("tds_kelly_fade_mode", { mode: mid });
+      else try { localStorage.setItem("tds_kelly_fade_mode", JSON.stringify({ mode: mid })); } catch (e) {}
+      _kellyPersistFilters();
+      _kellyOnFilterChange({ keepS06: true });
+      _kellyToast("已切到 S06 · 大盘领先切换(实验可选档): 按日动态切 A进攻王/NEW14+1 基座, 标签区为参考底座");
+      return;
+    }
     if (!_tdsFadeModeApply(mid, state.labSigKellyFilters)) return;
     state.labSigKellyFadeModeBase = mid;
     // TTL 记忆(2026-08-23 用户拍板): {mode, ts} 滑动过期——每次切换重写 ts=最后切换时间, 过期回默认模式(v1.1.5 起=new14)
