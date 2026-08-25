@@ -1922,10 +1922,20 @@
   .lab-sigkelly-fee-hint { display: none; }          /* 窄屏隐藏快捷键提示, 省空间 */
   .lab-sigkelly-fee-custom label { font-size: 10px; }
   .lab-sigkelly-fee-custom .lab-input { width: 40px !important; }
-  /* --- 折叠区: AI开关/更多开关 用2列紧凑网格, 不溢出撑爆(31个toggle窄屏换行不乱) --- */
+  /* --- 折叠区: AI开关/更多开关 用2列紧凑网格, 不溢出撑爆(31个toggle窄屏换行不乱) ---
+     2026-08-26 根修(方案 docs/review/kelly-mobile-param-bar-css-plan-20260826.md):
+     rec 组改 minmax(0,1fr) 防 nowrap 组标题把轨道挤成 547px+14px 窄条; poscap 是复合
+     控制流(label+K按钮+总开关+模式下拉+按钮)非同质 toggle 列表, 改纵向 flex 不拆列 */
   .lab-sigkelly-toggle-row { gap: 4px; }
-  .lab-sigkelly-toggle-group-rec, .lab-sigkelly-toggle-group-poscap { grid-template-columns: repeat(2, 1fr); display: grid; gap: 4px; }
-  .lab-sigkelly-toggle { padding: 3px 5px; font-size: 11px; min-width: 0; text-align: left; }
+  .lab-sigkelly-toggle-group-rec { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+  .lab-sigkelly-toggle-group-rec > .lab-sigkelly-toggle-tier { grid-column: 1 / -1; }
+  .lab-sigkelly-toggle-group-poscap { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
+  .lab-sigkelly-toggle-group-rec > *, .lab-sigkelly-toggle-group-poscap > * { min-width: 0; max-width: 100%; }
+  .lab-sigkelly-toggle { padding: 3px 5px; font-size: 11px; min-width: 0; text-align: left; white-space: normal; }
+  .lab-sigkelly-toggle-tier { white-space: normal; }
+  .lab-sigkelly-fee-label { white-space: normal; }
+  .lab-sigkelly-kbtns { flex-wrap: wrap; max-width: 100%; }
+  .lab-sigkelly-toggle-detail-btn { max-width: 100%; white-space: normal; text-align: left; }
   .lab-sigkelly-toggle-tier-cat { font-size: 11px; }
   .lab-sigkelly-toggle-more-body { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; }
   .lab-sigkelly-toggle-more-body .lab-sigkelly-toggle-group-cat { grid-column: 1 / -1; }
