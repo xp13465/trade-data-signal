@@ -1,0 +1,44 @@
+{
+  "request_id": "rev-20260826-001",
+  "status": "completed",
+  "verdict": "PASS",
+  "summary": "移动端凯利参数栏修复通过独立复核。320/390/430px 下 rec 两列等宽、poscap 纵向排列，文档与 body 均无横向溢出；769/1280px 保持桌面 flex row。修复前基线在同样三个移动宽度复现 547.7px/14px 碎列和 poscap 溢出，证明改动命中根因。",
+  "issues": [
+    {
+      "severity": "low",
+      "file": "static-site/lab.css",
+      "line": 1836,
+      "origin": "pre-existing",
+      "scope": "out-of-scope",
+      "description": "参数栏移动专用布局仍在既有 @media(max-width:600px) 内生效；601-768px 继续使用桌面式横向控制流。本次 768px 测试无文档溢出。",
+      "suggestion": "如需覆盖 iPad 竖屏或手机横屏，另开独立的 601-768px 平板适配任务，不在本纯样式修复中扩大断点影响面。"
+    }
+  ],
+  "impact_surface": [
+    "static-site/lab.css 移动端凯利参数栏",
+    "static-site/lab.min.css",
+    "static-site/index.html 资源版本",
+    "static-site/about.html / guide.html / privacy.html 资源版本",
+    "static-site/sw.js CACHE_VERSION"
+  ],
+  "smoke_results": {
+    "request_diff_scope": "OK：diff 仅 CSS/min、资源版本串与 SW cache version，无 JS/DOM 改动",
+    "mobile_320": "OK：无横向溢出，rec=grid 两列等宽，poscap=column",
+    "mobile_390": "OK：无横向溢出，rec=grid 两列等宽，poscap=column",
+    "mobile_430": "OK：无横向溢出，rec=grid 两列等宽，poscap=column",
+    "desktop_boundary_769": "OK：rec/poscap 保持 flex row，无溢出",
+    "desktop_1280": "OK：桌面布局保持 flex row，无溢出",
+    "baseline_comparison": "OK：修复前基线在 320/390/430 复现 unequal columns、poscap overflow 和子元素越界",
+    "minified_css_sync": "OK：head 快照 lab.css 与 lab.min.css SHA-256 与 git b1bc23811 内容一致",
+    "cache_version": "OK：b1bc 快照 HTML 引用 20260826-a424，sw.js CACHE_VERSION=v6-20260826-a424",
+    "service_worker_bypass": "OK：Playwright context serviceWorkers='block'",
+    "local_requests": "OK：本地资源零失败；外网请求被测试主动 abort，产生预期 ERR_FAILED"
+  },
+  "evidence": {
+    "base": "705304269fff59220e1d020bedd57c95e43f210c",
+    "head": "b1bc238119e4e193160d932293747da365da89c9",
+    "browser_report_head_tmp": "/tmp/codex-reports/rev-20260826-001-browser.json",
+    "browser_report_baseline_tmp": "/tmp/codex-reports/rev-20260826-001-baseline-browser.json"
+  },
+  "recommendation": "可合入/已可保留在 main；low 观察项不阻断。"
+}
