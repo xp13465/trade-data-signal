@@ -377,7 +377,13 @@ run_r2_upload "upload-index" upload-index || { echo "⚠ upload-index 失败/超
 run_r2_upload "upload-etf-hist" 900 upload-etf-hist || { echo "⚠ upload-etf-hist 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-hist"; }
 # 基金全史净值 fund_nav/{code}.json -> R2 fund_nav/ 前缀(#11 基金弹窗净值走势, 2026-08-25;
 # 26118只~566MB, 增量指纹上传只传变化文件; 首跑/周日强制全量一次防状态漂移)
-run_r2_upload "upload-fund-nav" 1800 upload-fund-nav || { echo "⚠ upload-fund-nav 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-fund-nav"; }
+# 基金全史净值 fund_nav/{code}.json -> R2 fund_nav/ 前缀(#11 基金弹窗净值走势, 2026-08-25;
+# 26118 只~514MB)。2026-08-25 恶性循环根治: 全量实测 5398s≈90min 曾超 1800s 被 kill ->
+# 状态文件没写成 -> 下次退化为更慢全量 -> 再被 kill。两件修:
+#   ① 本通道超时 1800s -> 7200s(全量 90min 留 2 倍余量);
+#   ② upload_r2.py upload-fund-nav 加分片 checkpoint 断点续传(kill 后最多重传最近 500 只,
+#      非从头全量), 双保险后即使极端情况被 kill 也不再引发恶性循环。
+run_r2_upload "upload-fund-nav" 7200 upload-fund-nav || { echo "⚠ upload-fund-nav 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-fund-nav"; }
 run_r2_upload "upload-industry" upload-industry || { echo "⚠ upload-industry 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-industry"; }
 run_r2_upload "upload-public-fund" upload-public-fund || { echo "⚠ upload-public-fund 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-public-fund"; }
 run_r2_upload "upload-etf-score" upload-etf-score || { echo "⚠ upload-etf-score 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-score"; }

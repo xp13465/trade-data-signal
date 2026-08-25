@@ -1,7 +1,7 @@
-# #11 场外基金净值全链 codex 外部 review 三件必修修复报告
+# #11 场外基金净值全链 codex 外部 review 三件必修修复报告(+第四件恶性循环根治)
 
 > 来源:codex 外部 review `/tmp/codex-reports/claude2codex-20260825-001.json`(verdict=FAIL)
-> 范围:仅三件必修(critical ×1 + high ×2);medium/low 各项未动,见文末「上报待拍板」
+> 范围:三件必修(critical ×1 + high ×2)+ 主控补充第四件(upload-fund-nav 恶性循环,今日生产告警实证);medium/low 各项未动,见文末「上报待拍板」
 > 实施日期:2026-08-25
 
 ## 复现
@@ -19,6 +19,9 @@ cd /Users/linhuichen/code/trade
 
 # 硬闸门两分支自验(桩命令模拟导出失败/成功):
 bash /tmp/t_gate.sh                         # 失败→跳过rsync+upload+CRITICAL告警;成功→正常放行
+
+# 第四件断点续传四场景自验(mock s3_request):
+.venv/bin/python /tmp/t_ckpt.py             # T1中断checkpoint落盘 T2续传剔除已传 T3增量 T4指纹漂移重传
 ```
 
 输入依赖:`data/public_fund.db fund_daily_nav` 表;数据截止 2026-08-25;关键口径:fund_nav/{code}.json = 每基金全史日净值(nav 升序,count==0 合法空数据放行)。
@@ -67,6 +70,29 @@ bash /tmp/t_gate.sh                         # 失败→跳过rsync+upload+CRITIC
 | nav_nonnum | unit_nav 是字符串 "1.0" | FAIL ✓ |
 | valid_empty | 合法空数据(code/name/source/date 齐) | OK ✓ |
 | valid_nonempty | 合法非空数据 | OK ✓ |
+
+## 四、第四件(主控补充):upload-fund-nav 恶性循环根治
+
+**今日实证链**(日志核对,非推断):
+- 06:39 deploy:`upload-fund-nav 超 1800s 未退出，kill pid=90675`(deploy_20260825_0639.log L680)→ state 没写成;
+- 17:50 update_all:state 缺失 → 退化「首次/无状态全量 本次待传 26120/26120」,耗时 **5398.9s≈90min**(update_all_20260825_1750.log L1440/L27566;update_all 直跑无超时包装侥幸撑过);
+- 18:30 lhb 轮 deploy 并发撞上:`kill pid=97348`(deploy_20260825_1830.log L684)→ 第二封告警。
+
+恶性循环 = **每次被 kill → state 只在全部成功后写 → state 缺失 → 下次全量更慢 → 再被 kill**。
+
+**修法双保险**(选型理由:主控给 b 两选项,不选「放后台续跑」——deploy 未传完就报成功=引入新静默不一致,L44 教训;选拉大超时+checkpoint 续传,失败方向宁多传不漏传语义不变):
+
+1. **checkpoint 分片断点续传**(scripts/upload_r2.py cmd_upload_fund_nav):
+   - `_upload_glob` 加零侵入 `on_success(f, rel)` 回调(主线程 as_completed 循环内同步调,其他命令不受影响);
+   - 每 PUT 成功记入 done_map,**每 500 只原子落盘一次 checkpoint**(tmp+pid 唯一名+fsync+rename;每只都落盘太贵——26118 次 rename);
+   - 重跑时读 checkpoint:**指纹与当前 md5 仍一致的文件视为已传成功剔除**,指纹漂移(导出已重跑内容变了)必重传——正确性语义与原「state 只在全部成功后写」完全等价,checkpoint 只是加速;
+   - 失败分支也把已成功部分刷进 checkpoint(state 保持旧值不写);全部成功后写 state + 清理 checkpoint;
+   - kill 后最多重传最近 500 只(~10s),不再从头全量 90min。
+2. **deploy.sh 超时匹配实际耗时**:upload-fund-nav 通道 1800s → **7200s**(全量实测 5398s 留 ~1.3 倍余量;配合 checkpoint,即使极端再被 kill 也只重传 500 只)。
+
+**实况核对**(主控 c 项):`/Users/linhuichen/code/trade-data/data/.r2_fund_nav_state.json` 存在(1.3MB,count=26120,mode=首次/无状态全量,updated_at=19:47:20)——17:50 全量最终写成,state 当前完整非半截;trade 侧无此文件(正常,状态清单与数据同仓在 trade-data)。`.gitignore` 已补登记 state/tmp/checkpoint 五个路径。
+
+**实测四场景全 PASS**(mock s3_request 不真传):T1 中途失败→exit1+checkpoint 落盘已成功部分;T2 重跑→checkpoint 命中 5 个跳过只实传剩余 7 个;T3 增量→只传变化 1 个;T4 checkpoint 指纹与文件当前 md5 不符→重传不跳过。
 
 ## §23.2③ 排查同类·错误面清单(上报待拍板,均不擅动)
 
