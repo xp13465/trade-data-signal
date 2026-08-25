@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -67,6 +68,30 @@ _SAFE_RE = re.compile(r"[^A-Za-z0-9_]")
 
 def _safe_code(code: str) -> str:
     return _SAFE_RE.sub("_", str(code or "").strip())
+
+
+def _atomic_write_json(out: Path, payload: dict) -> None:
+    """原子写 JSON（2026-08-25 codex review high 修复）。
+
+    先写同目录唯一 .tmp（带 pid 防并发），flush + os.fsync 落盘后，
+    再 os.replace 为最终文件。进程被 kill / 磁盘满 / 异常时只留 .tmp 残留，
+    不会污染最终路径被部署链消费；异常时清理 .tmp 再向上抛，由调用方 gate。
+    """
+    tmp = out.with_name(f"{out.name}.tmp.{os.getpid()}")
+    text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, out)  # 原子替换，POSIX 保证不会读到半截文件
+    except BaseException:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def main() -> None:
@@ -121,8 +146,7 @@ def main() -> None:
             if not nav:
                 empty_count += 1
             out = OUT_DIR / f"{_safe_code(code)}.json"
-            out.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-                           encoding="utf-8")
+            _atomic_write_json(out, payload)
             total_bytes += out.stat().st_size
             done += 1
             if done % 500 == 0:

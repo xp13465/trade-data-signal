@@ -224,3 +224,10 @@ data/brief_push_state.json
 
 # Wrangler 本地 dev secrets（.dev.vars 含真实 key，禁进 git）
 .dev.vars
+
+# fund_nav R2 上传状态/断点续传 checkpoint(2026-08-25): 运行时产物, 本地各树独立
+data/.r2_fund_nav_state.json
+data/.r2_fund_nav_state.json.tmp
+data/.r2_fund_nav_state.json.tmp.*
+data/.r2_fund_nav_ckpt.json
+data/.r2_fund_nav_ckpt.json.tmp.*

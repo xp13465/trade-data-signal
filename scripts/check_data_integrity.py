@@ -915,17 +915,56 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
     bad = []
     empty_cnt = 0
     for f in sample:
-        d, err = _load_json(f)
-        if err:
-            bad.append(f"{f.name}: {err}")
-            continue
-        if d.get("count") == 0:
-            empty_cnt += 1
-            continue
-        if not d.get("date") or not d.get("count") or not d.get("nav"):
-            bad.append(f"{f.name}: date/count/nav 有空值")
-        elif len(d["nav"]) != d["count"]:
-            bad.append(f"{f.name}: count={d['count']} != len(nav)={len(d['nav'])}")
+        try:
+            d, err = _load_json(f)
+            if err:
+                bad.append(f"{f.name}: {err}")
+                continue
+            # 顶层必须是 dict（codex review high: 顶层数组/null 会让 d.get 抛 AttributeError 穿透）
+            if not isinstance(d, dict):
+                bad.append(f"{f.name}: 顶层非对象({type(d).__name__})")
+                continue
+            count = d.get("count")
+            # 空数据契约: count 必须严格 int==0 且非 bool; nav 空数组; 含 code/name/source + date 字段
+            # （保留内部 reviewer 已加的「count 缺失仍 FAIL」语义: count 缺失→非空分支→bad）
+            if count == 0:
+                if not isinstance(count, int) or isinstance(count, bool):
+                    bad.append(f"{f.name}: count==0 但类型非 int({type(count).__name__})")
+                elif not isinstance(d.get("nav"), list) or len(d["nav"]) != 0:
+                    bad.append(f"{f.name}: 空数据但 nav 非空/非数组")
+                else:
+                    missing = [k for k in ("code", "name", "source")
+                               if k not in d or d.get(k) in (None, "")]
+                    if missing:
+                        bad.append(f"{f.name}: 空数据缺关键字段 {missing}")
+                    elif "date" not in d:
+                        bad.append(f"{f.name}: 空数据缺 date 字段")
+                    else:
+                        empty_cnt += 1
+                continue
+            # 非空数据: 关键字段存在 + count 为 int + count==len(nav) + 逐项校验 nav 形状
+            if count is None or not d.get("date") or not d.get("nav"):
+                bad.append(f"{f.name}: date/count/nav 有空值")
+                continue
+            if not isinstance(count, int) or isinstance(count, bool):
+                bad.append(f"{f.name}: count 类型非 int({type(count).__name__})")
+                continue
+            if len(d["nav"]) != count:
+                bad.append(f"{f.name}: count={count} != len(nav)={len(d['nav'])}")
+                continue
+            for row in d["nav"]:
+                if not isinstance(row, (list, tuple)) or len(row) != 3:
+                    bad.append(f"{f.name}: nav 元素非 [date,unit_nav,acc_nav] 三元组")
+                    break
+                rdate, unit, acc = row
+                if not isinstance(rdate, str) or not rdate:
+                    bad.append(f"{f.name}: nav 元素 date 非法")
+                    break
+                if not isinstance(unit, (int, float)) or (acc is not None and not isinstance(acc, (int, float))):
+                    bad.append(f"{f.name}: nav 元素 unit_nav/acc_nav 非数值")
+                    break
+        except Exception as e:
+            bad.append(f"{f.name}: 抽样校验异常 {type(e).__name__}: {e}")
     if bad:
         return _fail(name, "; ".join(bad[:4]))
 
@@ -962,7 +1001,7 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
             mismatch = []
             for f in sample:
                 d, err = _load_json(f)
-                if err:
+                if err or not isinstance(d, dict):
                     continue
                 code = d.get("code", f.stem)
                 rows = conn.execute(

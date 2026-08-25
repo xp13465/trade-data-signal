@@ -141,22 +141,36 @@ echo "-> 预警分析快照（alert_analyze 40 宽基+行业）..." | tee -a "$L
 # 跟随 alert 每日重算（买卖清单应每日最新），失败不阻塞；口径同 export_alert
 # P0-2 (2026-08-05): 拆 3 JSON (buy/sell/hold) + 懒加载, 原 18MB 单文件 -> buy+sell ~2.6MB + hold 13MB(懒加载)
 echo "-> ETF评分清单（etf_score_list --full-market 全市场, 拆 3 JSON）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/export_etf_score_list.py" --full-market >> "$LOG" 2>&1 || \
-  echo "⚠ export_etf_score_list 失败（不阻塞主流程）" | tee -a "$LOG"
+"$PY" "$REPO/scripts/export_etf_score_list.py" --full-market >> "$LOG" 2>&1
+SCORE_LIST_RC=$?
+if [ "$SCORE_LIST_RC" -ne 0 ]; then
+  # 硬闸门(2026-08-25 同款, 用户已确认根治): 导出失败绝不继续 rsync+upload,
+  # 防把截断/过期买卖清单发布到 R2。显式告警入日志不静默(L44)。
+  echo "【CRITICAL】export_etf_score_list 失败(退出码 $SCORE_LIST_RC), 硬闸门跳过 etf_score_list rsync+upload-etf-score, 防发布截断/过期清单(§22 一致性)" | tee -a "$LOG"
+else
 # export 写 JSON 到 $REPO/static-site/data/(trade-data), 同步到 trade/static-site/data/ 供 upload_r2 + deploy
 # (deploy.sh rsync 在 pipeline 内跑, export 在 pipeline 后跑, 需单独同步; trade 跑时 no-op)
-rsync -a --checksum "$REPO/static-site/data/etf_score_list_"* "/Users/linhuichen/code/trade/static-site/data/" 2>/dev/null || true
+rsync -a --checksum "$REPO/static-site/data/etf_score_list_"* "/Users/linhuichen/code/trade/static-site/data/" 2>>"$LOG" || \
+  echo "⚠ etf_score_list rsync 同步失败, 可能发布不全" | tee -a "$LOG"
 "$PY" "$REPO/scripts/upload_r2.py" upload-etf-score >> "$LOG" 2>&1 || \
   echo "⚠ upload-etf-score R2上传失败（不阻塞主流程）" | tee -a "$LOG"
+fi
 
 # #10 ETF弹窗长历史(2026-08-22): ETF 全史日K etf/{code}-all.json (1532只~87MB, ~5s)
-# 前端 period tab 懒加载 R2 etf/ 前缀; 跟随 etf_score_list 每日重算后同步导出, 失败不阻塞
+# 前端 period tab 懒加载 R2 etf/ 前缀; 跟随 etf_score_list 每日重算后同步导出
 echo "-> ETF全史日K（export_etf_hist, 弹窗长历史数据源）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/export_etf_hist.py" >> "$LOG" 2>&1 || \
-  echo "⚠ export_etf_hist 失败（不阻塞主流程）" | tee -a "$LOG"
-rsync -a --delete --checksum "$REPO/static-site/data/etf/" "/Users/linhuichen/code/trade/static-site/data/etf/" 2>/dev/null || true
-"$PY" "$REPO/scripts/upload_r2.py" upload-etf-hist >> "$LOG" 2>&1 || \
-  echo "⚠ upload-etf-hist R2上传失败（不阻塞主流程）" | tee -a "$LOG"
+"$PY" "$REPO/scripts/export_etf_hist.py" >> "$LOG" 2>&1
+ETF_HIST_RC=$?
+if [ "$ETF_HIST_RC" -ne 0 ]; then
+  # 硬闸门(2026-08-25 同款, 用户已确认根治): 导出失败绝不继续 rsync+upload,
+  # 防把截断/过期全史日K发布到 R2。显式告警入日志不静默(L44)。
+  echo "【CRITICAL】export_etf_hist 失败(退出码 $ETF_HIST_RC), 硬闸门跳过 etf rsync+upload-etf-hist, 防发布截断/过期日K(§22 一致性)" | tee -a "$LOG"
+else
+  rsync -a --delete --checksum "$REPO/static-site/data/etf/" "/Users/linhuichen/code/trade/static-site/data/etf/" 2>>"$LOG" || \
+    echo "⚠ etf rsync 同步失败, 可能发布不全" | tee -a "$LOG"
+  "$PY" "$REPO/scripts/upload_r2.py" upload-etf-hist >> "$LOG" 2>&1 || \
+    echo "⚠ upload-etf-hist R2上传失败（不阻塞主流程）" | tee -a "$LOG"
+fi
 
 # P2-新-W 浏览器通知源 JSON（根因①修复：收盘全量后导出 notifications.json，覆盖 post_close 场景）
 # 读 DB 当日信号/预警/恐贪/异动 + post_close=True 标志（18:00 后），前端弹"收盘速递"通知。
@@ -178,21 +192,36 @@ echo "-> 公募基金筛选器日更（stage0-daily 4汇总接口~22s）..." | t
 echo "-> 公募基金评分引擎（compute_all_scores top_n=2000 + export）..." | tee -a "$LOG"
 "$PY" -c "from app.collector.public_fund import compute_all_scores; compute_all_scores(top_n=2000, resume=True)" >> "$LOG" 2>&1 || \
   echo "⚠ compute_all_scores 失败（不阻塞主流程）" | tee -a "$LOG"
-"$PY" "$REPO/scripts/export_fund_score.py" --top-n 2000 >> "$LOG" 2>&1 || \
-  echo "⚠ export_fund_score 失败（不阻塞主流程）" | tee -a "$LOG"
-rsync -a --checksum "$REPO/static-site/data/fund_score"* "/Users/linhuichen/code/trade/static-site/data/" 2>/dev/null || true
-"$PY" "$REPO/scripts/upload_r2.py" upload-fund-score >> "$LOG" 2>&1 || \
-  echo "⚠ upload-fund-score R2上传失败（不阻塞主流程）" | tee -a "$LOG"
+"$PY" "$REPO/scripts/export_fund_score.py" --top-n 2000 >> "$LOG" 2>&1
+FUND_SCORE_RC=$?
+if [ "$FUND_SCORE_RC" -ne 0 ]; then
+  # 硬闸门(2026-08-25 同款, 用户已确认根治): 导出失败绝不继续 rsync+upload,
+  # 防把截断/过期评分发布到 R2。显式告警入日志不静默(L44)。
+  echo "【CRITICAL】export_fund_score 失败(退出码 $FUND_SCORE_RC), 硬闸门跳过 fund_score rsync+upload-fund-score, 防发布截断/过期评分(§22 一致性)" | tee -a "$LOG"
+else
+  rsync -a --checksum "$REPO/static-site/data/fund_score"* "/Users/linhuichen/code/trade/static-site/data/" 2>>"$LOG" || \
+    echo "⚠ fund_score rsync 同步失败, 可能发布不全" | tee -a "$LOG"
+  "$PY" "$REPO/scripts/upload_r2.py" upload-fund-score >> "$LOG" 2>&1 || \
+    echo "⚠ upload-fund-score R2上传失败（不阻塞主流程）" | tee -a "$LOG"
+fi
 
 # #11 基金弹窗净值走势(2026-08-25): 基金全史净值 fund_nav/{code}.json (26118只~566MB, 全量~41s)
 # 前端「净值走势」period tab 懒加载 R2 fund_nav/ 前缀; 复刻 #10 etf-hist 链路(增量指纹上传,
 # 清盘基金序列冻结自然跳过); 当日净值多晚间公布, 入图最新通常为 T-1(走势历史场景无感)
 echo "-> 基金全史净值（export_fund_nav, 弹窗净值走势数据源）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/export_fund_nav.py" >> "$LOG" 2>&1 || \
-  echo "⚠ export_fund_nav 失败（不阻塞主流程）" | tee -a "$LOG"
-rsync -a --delete --checksum "$REPO/static-site/data/fund_nav/" "/Users/linhuichen/code/trade/static-site/data/fund_nav/" 2>/dev/null || true
-"$PY" "$REPO/scripts/upload_r2.py" upload-fund-nav >> "$LOG" 2>&1 || \
-  echo "⚠ upload-fund-nav R2上传失败（不阻塞主流程）" | tee -a "$LOG"
+"$PY" "$REPO/scripts/export_fund_nav.py" >> "$LOG" 2>&1
+FUND_NAV_RC=$?
+if [ "$FUND_NAV_RC" -ne 0 ]; then
+  # 硬闸门(codex review critical, 2026-08-25):导出失败(截断/DB锁/异常)绝不继续
+  # rsync+upload, 否则会把半途/过期净值发布到 R2 被前端消费。显式告警写入日志,
+  # 失败可见, 不静默吞掉(L44 教训: 不引入新静默失败)。
+  echo "【CRITICAL】export_fund_nav 失败(退出码 $FUND_NAV_RC), 硬闸门跳过 fund_nav rsync+upload-fund-nav, 防发布截断/过期净值(§22 一致性)" | tee -a "$LOG"
+else
+  rsync -a --delete --checksum "$REPO/static-site/data/fund_nav/" "/Users/linhuichen/code/trade/static-site/data/fund_nav/" 2>>"$LOG" || \
+    echo "⚠ fund_nav rsync 同步失败, 可能发布不全" | tee -a "$LOG"
+  "$PY" "$REPO/scripts/upload_r2.py" upload-fund-nav >> "$LOG" 2>&1 || \
+    echo "⚠ upload-fund-nav R2上传失败（不阻塞主流程）" | tee -a "$LOG"
+fi
 
 echo "=== update_all.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
 echo "core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER check_signals=$SIGNAL_RC" | tee -a "$LOG"

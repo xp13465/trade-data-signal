@@ -380,13 +380,17 @@ def cmd_upload_lab():
 
 
 def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_fn=None,
-                 only_files=None):
+                 only_files=None, on_success=None):
     """通用 glob 上传：local_dir 下按 patterns 匹配文件，上传到 R2 r2_prefix/。
 
     R2 key = r2_prefix/{相对 local_dir 的路径}。返回 (ok, total, failed_rels, uploaded_keys)。
     only_files(可选, 2026-08-23): 显式文件列表(Path 列表, 须位于 local_dir 下), 非 None 时
     跳过 glob 直接上传该列表 —— cmd_upload_etf_hist 增量上传用(调用方先按状态清单筛出
     有变化的文件)。glob_patterns 此时仅占位不参与匹配; exclude_fn 同样不生效(调用方已筛)。
+    on_success(可选, 2026-08-25): 回调 (Path f, str rel) -> None, 每个文件 PUT 成功后
+    在主线程 as_completed 循环内同步调用(非 worker 线程)—— cmd_upload_fund_nav 用它做
+    分片 checkpoint 断点续传(kill 后从断点续传而非全量重跑, 治「超时 kill→状态缺失→
+    下次更慢全量→再被 kill」恶性循环)。回调抛异常会中断整批(调用方自行保证幂等)。
     failed_rels = 失败文件的 rel 列表(相对 local_dir 的路径,如 sw_801030-all.json),
     供调用方(cmd_upload_index)打印 FAILED_FILES 行供 intraday_snapshot.sh 抓取引用到告警 body。
     uploaded_keys = 成功上传的 R2 key 列表(如 ["industry/industry-all.json"]),
@@ -466,6 +470,8 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
             if success:
                 ok += 1
                 uploaded_keys.append(key)
+                if on_success is not None:
+                    on_success(local_dir / str(rel), str(rel))
                 print(f"[{done}/{total}] ✓ {rel} ({size}B)")
             else:
                 print(f"[{done}/{total}] ✗ {rel} {err}")
@@ -700,6 +706,9 @@ def cmd_upload_fund_nav():
 
     # 状态清单与数据同仓: X/static-site/data/fund_nav -> X/data/.r2_fund_nav_state.json
     state_path = nav_dir.parents[2] / "data" / ".r2_fund_nav_state.json"
+    # 断点续传 checkpoint(2026-08-25, 治「超时 kill→状态缺失→下次全量 90min→再被 kill」恶性循环):
+    # 每 PUT 成功分片落盘(每 500 只 tmp+fsync+rename), kill 后重跑从断点续传而非从头全量。
+    ckpt_path = nav_dir.parents[2] / "data" / ".r2_fund_nav_ckpt.json"
     old_files = {}
     if state_path.exists():
         try:
@@ -710,6 +719,35 @@ def cmd_upload_fund_nav():
         except (OSError, ValueError):
             print(f"[fund-nav] ⚠ 状态清单损坏/不可读({state_path}),退化为全量")
             old_files = {}
+
+    def _load_ckpt() -> dict:
+        """读上次中断留下的 checkpoint {文件名: 指纹}; 损坏/缺失返回 {}。"""
+        try:
+            with open(ckpt_path, "r", encoding="utf-8") as f:
+                st = json.load(f)
+            return st.get("files") if isinstance(st, dict) and isinstance(st.get("files"), dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _save_ckpt(done_map: dict) -> None:
+        """checkpoint 原子写(tmp + fsync + rename), 崩溃不留半截。"""
+        ckpt_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = ckpt_path.with_name(ckpt_path.name + f".tmp.{os.getpid()}")
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"version": 1,
+                           "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                           "count": len(done_map),
+                           "files": done_map}, f, ensure_ascii=False, sort_keys=True)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, ckpt_path)
+        except OSError:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
     def _fingerprint(path):
         """数据本体指纹: 整文件字节 md5(payload 无 exported_at, 内容只在数据变时变)。"""
@@ -725,6 +763,20 @@ def cmd_upload_fund_nav():
     else:
         mode = "增量"
         changed = [p for p in all_json if old_files.get(p.name) != sigs[p.name]]
+
+    # 断点续传: 上次中断的 checkpoint 里, 指纹与当前仍一致的文件视为已传成功, 从待传清单剔除
+    # (指纹不一致=导出已重跑内容变了, 必须重传; 一致=R2 侧已是最新内容)。
+    ckpt_files = _load_ckpt()
+    if ckpt_files:
+        resumed_names = {p.name for p in changed if ckpt_files.get(p.name) == sigs[p.name]}
+        n_resumed = len(resumed_names)
+        changed = [p for p in changed if p.name not in resumed_names]
+    else:
+        n_resumed = 0
+    if n_resumed:
+        print(f"[fund-nav] ↩ 断点续传: checkpoint 命中 {n_resumed} 个已上传(跳过), "
+              f"本次实传 {len(changed)} 个")
+
     print(f"[fund-nav] 模式={mode} 本次待传 {len(changed)}/{len(all_json)}"
           f"(其余 {len(all_json) - len(changed)} 个内容未变化跳过)")
 
@@ -746,12 +798,31 @@ def cmd_upload_fund_nav():
 
     if not changed:
         elapsed = time.time() - t0
-        print(f"[fund-nav] ✓ 全部 {len(all_json)} 个内容未变化, 无需上传, 耗时 {elapsed:.1f}s")
+        print(f"[fund-nav] ✓ 全部 {len(all_json)} 个内容未变化(或已被 checkpoint 覆盖), "
+              f"无需上传, 耗时 {elapsed:.1f}s")
         _save_state(state_path, sigs, mode)
+        try:
+            ckpt_path.unlink(missing_ok=True)  # 全部完成, checkpoint 清理
+        except OSError:
+            pass
         return
 
+    # 分片 checkpoint: 每 PUT 成功记入 done_map, 每 CKPT_EVERY 只原子落盘一次
+    # (每只都落盘太贵——26118 次 rename; kill 后最多重传最近 500 只, 非从头全量)。
+    CKPT_EVERY = 500
+    done_map = dict(ckpt_files)   # 继承旧 checkpoint, 累积本次新成功
+    since_ckpt = 0
+
+    def _on_success(f, rel):
+        nonlocal since_ckpt
+        done_map[str(rel)] = sigs[f.name]
+        since_ckpt += 1
+        if since_ckpt >= CKPT_EVERY:
+            _save_ckpt(done_map)
+            since_ckpt = 0
+
     ok, total, failed_rels, uploaded_keys = _upload_glob(
-        nav_dir, ["*.json"], "fund_nav", only_files=changed)
+        nav_dir, ["*.json"], "fund_nav", only_files=changed, on_success=_on_success)
     elapsed = time.time() - t0
     if total == 0:
         sys.exit(f"无 fund_nav json 可传: {nav_dir}")
@@ -759,10 +830,20 @@ def cmd_upload_fund_nav():
           f"(较全量少传 {len(all_json) - total} 个)")
 
     if ok != total:
+        # 失败也把已成功的部分刷进 checkpoint(下轮续传), 但 state 保持旧值不写
+        # ——失败方向宁多传不漏传, checkpoint 只是加速续传不改正确性语义。
+        try:
+            _save_ckpt(done_map)
+        except OSError as e:
+            print(f"[fund-nav] ⚠ checkpoint 落盘失败({e}), 下轮将从断点前续传")
         print(f"FAILED_FILES: {', '.join(failed_rels)}")
         sys.exit(1)
 
     _save_state(state_path, sigs, mode)
+    try:
+        ckpt_path.unlink(missing_ok=True)  # 全量完成, checkpoint 使命结束清理
+    except OSError:
+        pass
     # 不调 purge_cache(F3): worker 对 fund_nav/ 前缀 no-store(不查不写 edge cache),
     # 无 edge 缓存可清; 日增量 ~2.4 万 keys 的 purge(~800 批/估 27min)会拖垮 deploy 链 1800s。
     # 若未来 worker 恢复该前缀缓存, 必须同步恢复本处 purge(两登记点联动)。

@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -69,6 +70,30 @@ _SAFE_RE = re.compile(r"[^A-Za-z0-9_]")
 
 def _safe_code(code: str) -> str:
     return _SAFE_RE.sub("_", str(code or "").strip())
+
+
+def _atomic_write_json(out: Path, payload: dict) -> None:
+    """原子写 JSON(2026-08-25 同款修复, 与 export_fund_nav.py 一致)。
+
+    先写同目录唯一 .tmp(pid 防并发), flush + os.fsync 落盘后 os.replace 为最终
+    文件。进程 kill/磁盘满只留 .tmp 残留, 不会污染最终路径被部署链消费;
+    异常清理 .tmp 再上抛。
+    """
+    tmp = out.with_name(f"{out.name}.tmp.{os.getpid()}")
+    text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, out)
+    except BaseException:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def main() -> None:
@@ -117,8 +142,7 @@ def main() -> None:
                 empty_count += 1
             fname = f"{_safe_code(code)}-all.json"
             out = OUT_DIR / fname
-            out.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-                           encoding="utf-8")
+            _atomic_write_json(out, payload)
             total_bytes += out.stat().st_size
             done += 1
             if done % 200 == 0:
