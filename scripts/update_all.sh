@@ -188,11 +188,19 @@ rsync -a --checksum "$REPO/static-site/data/fund_score"* "/Users/linhuichen/code
 # 前端「净值走势」period tab 懒加载 R2 fund_nav/ 前缀; 复刻 #10 etf-hist 链路(增量指纹上传,
 # 清盘基金序列冻结自然跳过); 当日净值多晚间公布, 入图最新通常为 T-1(走势历史场景无感)
 echo "-> 基金全史净值（export_fund_nav, 弹窗净值走势数据源）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/export_fund_nav.py" >> "$LOG" 2>&1 || \
-  echo "⚠ export_fund_nav 失败（不阻塞主流程）" | tee -a "$LOG"
-rsync -a --delete --checksum "$REPO/static-site/data/fund_nav/" "/Users/linhuichen/code/trade/static-site/data/fund_nav/" 2>/dev/null || true
-"$PY" "$REPO/scripts/upload_r2.py" upload-fund-nav >> "$LOG" 2>&1 || \
-  echo "⚠ upload-fund-nav R2上传失败（不阻塞主流程）" | tee -a "$LOG"
+"$PY" "$REPO/scripts/export_fund_nav.py" >> "$LOG" 2>&1
+FUND_NAV_RC=$?
+if [ "$FUND_NAV_RC" -ne 0 ]; then
+  # 硬闸门(codex review critical, 2026-08-25):导出失败(截断/DB锁/异常)绝不继续
+  # rsync+upload, 否则会把半途/过期净值发布到 R2 被前端消费。显式告警写入日志,
+  # 失败可见, 不静默吞掉(L44 教训: 不引入新静默失败)。
+  echo "【CRITICAL】export_fund_nav 失败(退出码 $FUND_NAV_RC), 硬闸门跳过 fund_nav rsync+upload-fund-nav, 防发布截断/过期净值(§22 一致性)" | tee -a "$LOG"
+else
+  rsync -a --delete --checksum "$REPO/static-site/data/fund_nav/" "/Users/linhuichen/code/trade/static-site/data/fund_nav/" 2>>"$LOG" || \
+    echo "⚠ fund_nav rsync 同步失败, 可能发布不全" | tee -a "$LOG"
+  "$PY" "$REPO/scripts/upload_r2.py" upload-fund-nav >> "$LOG" 2>&1 || \
+    echo "⚠ upload-fund-nav R2上传失败（不阻塞主流程）" | tee -a "$LOG"
+fi
 
 echo "=== update_all.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
 echo "core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER check_signals=$SIGNAL_RC" | tee -a "$LOG"
