@@ -9081,13 +9081,22 @@ function _kellyMountDroughtChip(bar) {
   if (!bar || typeof window._tdsComputeDrought !== "function") return;
   // modeKeys=当前实际生效的全部过滤键(用户手动改开关后 chip 实时跟随, 与凯利区「最后结果」一致 §22)
   var filters = state.labSigKellyFilters || {};
-  var modeKeys = Object.keys(filters).filter(function (k) { return filters[k] && k !== "positionCap"; });
+  // S06(reviewer P2 F1, codex-task-20260825-001): dynamic 预设无静态 keys → 标签区参考底座键集≠实际生效键集,
+  // 改 per-date 当日基座键集(与凯利区判定链同源 §22); 快照不可用的日期返回 [](该日视为无键=不拦, fail-open 同语义)。
+  // 非 S06 态维持原标签键集派生(默认档行为零变化)。
+  var _mp = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(state.labSigKellyFadeModeBase) : null;
+  var _isS06 = !!(_mp && _mp.dynamic);
+  var modeKeys = _isS06
+    ? function (d) { if (typeof window._tdsS06KeysForDate !== "function") return []; var ks = window._tdsS06KeysForDate(d); return Array.isArray(ks) ? ks : []; }
+    : Object.keys(filters).filter(function (k) { return filters[k] && k !== "positionCap"; });
   window._tdsFetchRecentBlock(typeof fetchJSON === "function" ? fetchJSON : null).then(function (recent) {
     // then 内重查 DOM(bar 可能已被重渲染替换, 不用闭包旧引用防写入丢失)
     var slot = bar.querySelector("#lab-kelly-sig-drought-slot");
     if (!slot) return;
     var info = window._tdsComputeDrought(recent, modeKeys);
-    var html = window._tdsDroughtChipHtml ? window._tdsDroughtChipHtml(info) : "";
+    // S06 口径尾注(§21 诚实公示): 默认档不传第二参=用 common.js 内置 NEW14 默认口径(与改前逐字一致);
+    // s06 态传动态口径说明(文案单源 common.js _tdsS06CaliberNote, 与首页 chip 同一句 §22)
+    var html = window._tdsDroughtChipHtml ? window._tdsDroughtChipHtml(info, (_isS06 && typeof window._tdsS06CaliberNote === "function") ? window._tdsS06CaliberNote() : undefined) : "";
     slot.innerHTML = html;
     slot.style.display = html ? "" : "none";
   });

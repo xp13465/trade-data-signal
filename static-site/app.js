@@ -2782,7 +2782,11 @@ function _homeDroughtCaliberNote() {
   try {
     const mp = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(_readHomeFadeMode()) : null;
     if (mp && mp.dynamic) {
-      return "(口径: S06 动态基座·按日切 A进攻王/NEW14+1 过滤下实时统计; 72% 为 NEW14 全史统计仅作参考)";
+      // §22 文案单源(reviewer P2 F1 下沉): 收口 common.js _tdsS06CaliberNote, 防 app/lab 两份副本漂移;
+      // 字符串兜底仅防 common 未更新(实际 common 先于 app 载入不走), s06 态输出逐字不变
+      return (typeof window._tdsS06CaliberNote === "function")
+        ? window._tdsS06CaliberNote()
+        : "(口径: S06 动态基座·按日切 A进攻王/NEW14+1 过滤下实时统计; 72% 为 NEW14 全史统计仅作参考)";
     }
   } catch (e) {}
   return null;

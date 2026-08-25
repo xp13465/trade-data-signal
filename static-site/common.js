@@ -987,6 +987,13 @@ window._tdsS06FiltersForDate = _tdsS06FiltersForDate;
 window._tdsS06KeysForDate = _tdsS06KeysForDate;
 window._tdsS06Tooltip = _tdsS06Tooltip;
 window._tdsS06NormalizeDate = _tdsS06NormalizeDate;
+// 枯竭 chip S06 口径尾注(§22 文案单源, reviewer P2 F1 举一反三下沉): 选 S06(dynamic)时判定按日期在
+// A进攻王/NEW14+1 两基座间切换, 与 chip 内置「NEW14 默认过滤」静态口径文案不符 → 消费点(app.js 首页两处 +
+// lab 凯利区)统一取本函数覆盖; 非 S06 态消费点不调用, 内置默认口径渲染零变化。
+function _tdsS06CaliberNote() {
+  return "(口径: S06 动态基座·按日切 A进攻王/NEW14+1 过滤下实时统计; 72% 为 NEW14 全史统计仅作参考)";
+}
+window._tdsS06CaliberNote = _tdsS06CaliberNote;
 
 // ===== v1.1.5(2026-08-24) 「连续 N 日无放行」枯竭提示(纯展示层, 单源在此; 消费点=首页 AI 建议区 + lab 凯利区信号区) =====
 // 【数据源】overfit_monitor.json 的 recent 块(T3-2 已建产物字段, 后端 overfit_monitor.py build_recent_block,
