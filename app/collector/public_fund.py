@@ -1563,7 +1563,7 @@ def _load_stage0_progress(fetcher_name: str) -> dict:
 # 防复发闸门(2026-08-25 bug②): 断点 done 必须与 DB 实际有值状态一致。
 # 病灶实证: fund_overview 断点 done=27600 全命中跳过(周日 57s"跑完"27600 只),
 # 但 fund_basic 扩展列非空仅 18 行——done 只记"曾尝试成功", 感知不到"数据后来
-# 被清"(bug① INSERT OR REPLACE 清列), 假断点导致永不补列。
+# 被清"(bug① UPSERT 前身 REPLACE 清列), 假断点导致永不补列。
 # 各 fetcher 的 DB 有效判据 = 一条返回"实际有数据 code 集"的 SQL, 加载时 done∩有效集。
 _STAGE0_DB_VALIDITY: dict[str, str] = {
     "fund_overview":
@@ -1573,12 +1573,33 @@ _STAGE0_DB_VALIDITY: dict[str, str] = {
     "fund_risk_indicator": "SELECT DISTINCT fund_code FROM fund_risk_indicator",
 }
 
+# codex-001 medium 修复(2026-08-26): 「合法空结果反复重采」根治——attempt 成功标记。
+# 病灶: 上面业务列判据把「上游确实返回空字段/空关系」当无效(fund_company 非空是唯一判据),
+# 这类 code 永远进不了 valid 集 → 断点 done 被闸门裁剪 → 反复重采浪费窗口(fund_manager
+# scrape=False 路径每次还重建 base 行放大成本)。
+# 修法: attempt 成功(fetch 成功且解析成功)时把 {code: 摘要} 存入 progress["attempt"],
+# 闸门优先认 attempt 摘要(成功过=有效, 不再以业务列非空判定), 业务列 SQL 仅作无摘要时
+# 的回退判据(兼容历史断点/数据被清场景仍能自动重采)。
+_STAGE0_ATTEMPT_KEYS = {"fund_overview", "fund_fee_detail", "fund_manager",
+                        "fund_risk_indicator"}
+
 
 def _prune_stage0_done_vs_db(fetcher_name: str, prog: dict) -> dict:
-    """闸门: 断点 done 与 DB 实际有值 code 集取交集, 失效部分自动重采不报完成。"""
+    """闸门: 断点 done 与 DB 实际有值 code 集取交集, 失效部分自动重采不报完成。
+
+    codex-001 medium 后语义: progress["attempt"] 里记了成功摘要的 code 视为永久有效
+    (fetch 成功≠业务列非空, 合法空结果不再反复重采); 无摘要的历史断点回退业务列 SQL 判定。
+    """
     sql = _STAGE0_DB_VALIDITY.get(fetcher_name)
     done = prog.get("done") or []
     if not sql or not done:
+        return prog
+    attempts = prog.get("attempt") or {}
+    # 有 attempt 成功摘要的 code 直接放行(不再受业务列非空约束)
+    attempted = [c for c in done if c in attempts]
+    rest = [c for c in done if c not in attempts]
+    if not rest:
+        prog["done"] = done
         return prog
     try:
         conn = get_conn()
@@ -1589,12 +1610,12 @@ def _prune_stage0_done_vs_db(fetcher_name: str, prog: dict) -> dict:
     except Exception as e:  # noqa: BLE001
         print(f"  [progress] WARN 闸门查询失败(本次跳过校验): {e}", flush=True)
         return prog
-    retained = [c for c in done if c in valid]
-    if len(retained) < len(done):
-        print(f"  [progress] 闸门: {fetcher_name} 断点done={len(done)} "
-              f"vs DB实际有值={len(valid)}, 裁剪至 {len(retained)}(失效部分将重采)",
+    retained_rest = [c for c in rest if c in valid]
+    if len(retained_rest) < len(rest):
+        print(f"  [progress] 闸门: {fetcher_name} 无摘要done={len(rest)} "
+              f"vs DB实际有值={len(valid)}, 裁剪至 {len(retained_rest)}(失效部分将重采)",
               flush=True)
-    prog["done"] = retained
+    prog["done"] = attempted + retained_rest
     return prog
 
 
@@ -1609,6 +1630,22 @@ def _save_stage0_progress(fetcher_name: str, prog: dict) -> None:
             json.dumps(data, ensure_ascii=False), encoding="utf-8")
     except Exception as e:  # noqa: BLE001
         print(f"  [progress] WARN 写入失败: {e}", flush=True)
+
+
+def _stage0_reset_prog(old_prog: dict, codes: list[str], total: int) -> dict:
+    """重建 progress 结构(宇宙变化时): done/attempt 都按新宇宙裁剪保留(codex-001 medium)。
+
+    attempt 摘要随 done 同口径裁剪——code 还在宇宙里且成功过就保留, 不因 total 变化丢摘要。
+    """
+    old_done = set(old_prog.get("done", []))
+    old_att = old_prog.get("attempt") or {}
+    retained = old_done & set(codes)
+    return {
+        "done": sorted(retained),
+        "fail": [],
+        "total": total,
+        "attempt": {c: s for c, s in old_att.items() if c in set(codes)},
+    }
 
 
 def _parse_overview_date(s: str) -> str:
@@ -1914,16 +1951,26 @@ def fetch_fund_manager(scrape: bool = True, codes: list[str] | None = None) -> i
     base_rows = [(r[0], r[1], mgr_count[r[1]], r[3], r[4], r[5], r[6], r[7], r[8])
                  for r in base_rows]
     conn = get_conn()
+    # UPSERT 而非 INSERT OR REPLACE(codex-001 medium 同根根治, 2026-08-26): REPLACE=
+    # 删整行重插, 会把 M2 自爬补的 appoint_date/managed_history/tenure_days 清成 NULL
+    # (与 fund_basic bug① REPLACE 清扩展列同病)——M1 重跑(如 scrape=False 路径/重试)
+    # 即毁掉已爬历史, 且 attempt 断点认为 done 不会补爬 = 数据永久丢失面。只更新 M1
+    # 拥有的 5 列, 自爬列保留由 M2 维护。
     conn.executemany(
-        "INSERT OR REPLACE INTO fund_manager"
+        "INSERT INTO fund_manager"
         "(fund_code, manager_name, managed_count, managed_scale, best_return, "
         "managed_history, tenure_days, work_days, update_date) "
-        "VALUES (?,?,?,?,?,?,?,?,?)",
+        "VALUES (?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(fund_code, manager_name) DO UPDATE SET "
+        "managed_count=excluded.managed_count, managed_scale=excluded.managed_scale, "
+        "best_return=excluded.best_return, work_days=excluded.work_days, "
+        "update_date=excluded.update_date",
         base_rows,
     )
     conn.commit()
     conn.close()
-    print(f"[M1] fund_manager_em 写入 {len(base_rows)} 行, {time.time()-t0:.1f}s", flush=True)
+    print(f"[M1] fund_manager_em 写入 {len(base_rows)} 行(UPSERT保自爬列), "
+          f"{time.time()-t0:.1f}s", flush=True)
 
     if not scrape:
         return len(base_rows)
@@ -1935,10 +1982,9 @@ def fetch_fund_manager(scrape: bool = True, codes: list[str] | None = None) -> i
     print(f"[M2] 自爬 fundf10 {total} 只补任职历史 ...", flush=True)
     prog = _load_stage0_progress("fund_manager")
     if prog.get("total") != total:
-        old_done = set(prog.get("done", []))
-        retained = old_done & set(codes)
-        prog = {"done": sorted(retained), "fail": [], "total": total}
+        prog = _stage0_reset_prog(prog, codes, total)
     done_set = set(prog.get("done", []))
+    attempts = prog.setdefault("attempt", {})
     ok = fail = 0
     BATCH = 20
     pending: list[tuple] = []
@@ -1948,6 +1994,9 @@ def fetch_fund_manager(scrape: bool = True, codes: list[str] | None = None) -> i
         else:
             try:
                 result = _scrape_fundf10_manager(code)
+                # codex-001 medium: 页面成功但「无任职历史+无管过基金」是合法空结果
+                # (_scrape 返回 None 与 HTTP 失败不可区分是旧病灶), 现由摘要显式标记
+                attempts[code] = "empty" if not result else f"ok{len(result.get('managed_history') or '')}"
                 if result:
                     appoint = result["appoint_date"]
                     history = result["managed_history"]
@@ -2016,10 +2065,9 @@ def fetch_fund_overview(codes: list[str] | None = None) -> int:
 
     prog = _load_stage0_progress("fund_overview")
     if prog.get("total") != total:
-        old_done = set(prog.get("done", []))
-        retained = old_done & set(codes)
-        prog = {"done": sorted(retained), "fail": [], "total": total}
+        prog = _stage0_reset_prog(prog, codes, total)
     done_set = set(prog.get("done", []))
+    attempts = prog.setdefault("attempt", {})
     ok = fail = 0
     BATCH = 20
     pending: list[tuple] = []
@@ -2036,6 +2084,15 @@ def fetch_fund_overview(codes: list[str] | None = None) -> int:
                 else:
                     r = df.iloc[0]
                     setup, share = _parse_setup_date_scale(r.get("成立日期/规模", ""))
+                    # codex-001 medium: attempt 成功摘要(空值字段计数)——fetch 成功即记,
+                    # 合法空结果(全字段空)不再被业务列判据反复重采
+                    _vals = [
+                        str(r.get("基金管理人", "")).strip(),
+                        str(r.get("基金经理人", "")).strip(),
+                        setup, share,
+                        str(r.get("业绩比较基准", "")).strip(),
+                    ]
+                    attempts[code] = f"empty{sum(1 for v in _vals if not v)}/{len(_vals)}"
                     pending.append((
                         str(r.get("基金管理人", "")).strip(),     # fund_company
                         str(r.get("基金经理人", "")).strip(),      # fund_manager
@@ -2088,6 +2145,8 @@ def fetch_fund_overview(codes: list[str] | None = None) -> int:
           f"耗时={time.time()-t0:.0f}s", flush=True)
     # 防复发自检(bug② 闸门配套): 收尾核对「断点 done 数 vs DB 扩展列实际有值数」,
     # 不一致打 WARN——防"假完成标记"再次静默产生, 下次加载侧闸门会自动裁剪重采。
+    # codex-001 medium 后口径: done 含「合法空结果」(attempt 有摘要但 fund_company 空),
+    # 比对基准改为 DB有值数 + attempt 空结果数, 纯业务列比对会对合法空结果误报 WARN。
     try:
         conn = get_conn()
         try:
@@ -2096,10 +2155,15 @@ def fetch_fund_overview(codes: list[str] | None = None) -> int:
             ).fetchone()[0]
         finally:
             conn.close()
+        attempts = prog.get("attempt") or {}
+        empty_n = sum(1 for c in prog.get("done", [])
+                      if (attempts.get(c) or "").startswith("empty")
+                      and not (attempts.get(c) or "").startswith("empty0"))
         done_n = len(prog.get("done", []))
-        if abs(done_n - db_valid) > max(50, int(total * 0.01)):
-            print(f"  [N] WARN 一致性: 断点done={done_n} vs DB扩展列有值={db_valid}, "
-                  f"疑似数据被清/断点失真(下次运行闸门自动重采)", flush=True)
+        if abs(done_n - db_valid - empty_n) > max(50, int(total * 0.01)):
+            print(f"  [N] WARN 一致性: 断点done={done_n}(含合法空{empty_n}) vs "
+                  f"DB扩展列有值={db_valid}, 疑似数据被清/断点失真(下次运行闸门自动重采)",
+                  flush=True)
     except Exception as e:  # noqa: BLE001
         print(f"  [N] WARN 一致性自检失败: {e}", flush=True)
     return ok
@@ -2130,10 +2194,9 @@ def fetch_fund_fee_detail(codes: list[str] | None = None) -> int:
 
     prog = _load_stage0_progress("fund_fee_detail")
     if prog.get("total") != total:
-        old_done = set(prog.get("done", []))
-        retained = old_done & set(codes)
-        prog = {"done": sorted(retained), "fail": [], "total": total}
+        prog = _stage0_reset_prog(prog, codes, total)
     done_set = set(prog.get("done", []))
+    attempts = prog.setdefault("attempt", {})
     ok = fail = 0
     total_rows = 0
     BATCH = 50
@@ -2161,9 +2224,13 @@ def fetch_fund_fee_detail(codes: list[str] | None = None) -> int:
                     if rows_written:
                         ok += 1
                         total_rows += rows_written
+                        attempts[code] = f"ok{rows_written}"
                         done_set.add(code)
                     else:
-                        fail += 1
+                        # codex-001 medium: 上游返回空行集=合法空结果, 记摘要不重采
+                        attempts[code] = "empty0"
+                        ok += 1
+                        done_set.add(code)
             except Exception as e:  # noqa: BLE001
                 fail += 1
                 if fail <= 3:
@@ -2346,10 +2413,9 @@ def fetch_fund_risk_indicator(codes: list[str] | None = None) -> int:
 
     prog = _load_stage0_progress("fund_risk_indicator")
     if prog.get("total") != total:
-        old_done = set(prog.get("done", []))
-        retained = old_done & set(codes)
-        prog = {"done": sorted(retained), "fail": [], "total": total}
+        prog = _stage0_reset_prog(prog, codes, total)
     done_set = set(prog.get("done", []))
+    attempts = prog.setdefault("attempt", {})
     ok = fail = xq_ok = self_calc_ok = 0
     total_rows = 0
     BATCH = 20
@@ -2414,6 +2480,9 @@ def fetch_fund_risk_indicator(codes: list[str] | None = None) -> int:
                 if rows_this:
                     ok += 1
                     total_rows += rows_this
+                    # codex-001 medium: attempt 成功摘要(自算降级也算成功——数据源
+                    # 确实无该基金风险数据时, 自算路径已尽力, 不再反复重采)
+                    attempts[code] = "ok" if xq_ok else "empty0"
                     done_set.add(code)
                 else:
                     fail += 1

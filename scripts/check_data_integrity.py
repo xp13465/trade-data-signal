@@ -39,6 +39,9 @@ from pathlib import Path
 
 # ── 阈值常量 ──────────────────────────────────────────────────────────────────
 BOARD_ETF_EMPTY_FAIL_RATIO = 0.80   # 空数组占比 >=80% = FAIL（近全空，事故级）
+# codex-001 medium: deploy 模式标志(模块级, main() 按 --deploy-mode 赋值),
+# 供个别校验项在 deploy 链收紧阈值(fund_nav 覆盖率 <98% FAIL)
+_deploy_mode = False
 BOARD_ETF_EMPTY_WARN_RATIO = 0.30   # >=30% = WARN（broad 指数全空，etf_index_map 缺失级）
 AMOUNT_FORECAST_FAIL = 50000        # amount_forecast > 50000 亿 = FAIL（9.52 万亿/15 万亿事故）
 STALE_DAYS_WARN = 3                 # date 滞后 >3 天 = WARN（日频数据可能停更）
@@ -890,12 +893,16 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
     """校验 fund_nav/ 全史净值产物目录（#11，export_fund_nav.py 生成）。
 
     事故场景：fund_nav/ 目录丢失或文件为空 -> 前端基金评分弹窗「净值走势」
-    fetchJSON 404 -> 走势区空白。校验三层：
+    fetchJSON 404 -> 走势区空白。校验四层（codex-001 medium 加深, 2026-08-26）：
       1) 目录存在 + 文件数>0 + 抽样 date/count/nav 结构非空
          （count==0 视为合法空数据基金放行：全 NULL 净值 code export 正常产出空 JSON，
           实测 136/26118 只；仅 count 显式为 0 放行，count 字段缺失仍判结构坏）;
-      2) 覆盖率: 文件数 vs DB distinct fund_code（<90% FAIL / <95% WARN, 防导出半途静默缺失）;
-      3) 抽样最多 5 只 DB<->产物逐位一致（最新 3 个有效净值点 date/unit_nav/acc_nav 全等；
+      2) **全量轻量结构校验**: 逐文件 json.load + 顶层 dict + code/date 字段存在性
+         （不读全量内容, 26120 文件实测 ~7s; 防随机抽样漏掉大面积定向损坏穿透）,
+         抽样数可用 env FUND_NAV_SAMPLE_N 调节(默认 30);
+      3) 覆盖率: 文件数 vs DB distinct fund_code
+         （常规 <90% FAIL / <95% WARN; deploy 模式收紧到 <98% FAIL——deploy 是最后闸门）;
+      4) 抽样最多 N 只 DB<->产物逐位一致（最新 3 个有效净值点 date/unit_nav/acc_nav 全等；
          空数据文件两侧均为空序列, 天然一致）。
     """
     import random
@@ -910,8 +917,41 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
     if not files:
         return _warn(name, f"fund_nav/ 目录无 JSON 文件: {nav_dir}")
 
-    # 结构抽验(最多5只): date/count/nav 非空且 count==len(nav); count==0 合法空数据放行
-    sample = random.sample(files, min(5, len(files)))
+    # codex-001 medium: 抽样数可配置(env FUND_NAV_SAMPLE_N, 默认 5->30), deploy 模式下
+    # 大面积损坏靠全量轻量层兜住, 抽样只负责深度形状/DB 逐位比对
+    try:
+        sample_n = max(5, int(os.environ.get("FUND_NAV_SAMPLE_N", "30")))
+    except ValueError:
+        sample_n = 30
+
+    # ── 第2层: 全量轻量结构校验(逐文件 json.load 头部, 不读全量 nav 内容)──
+    light_bad = []
+    for f in files:
+        try:
+            with open(f, "r", encoding="utf-8") as fh:
+                d = json.load(fh)
+            if not isinstance(d, dict):
+                light_bad.append(f"{f.name}: 顶层非对象({type(d).__name__})")
+            elif not d.get("code"):
+                light_bad.append(f"{f.name}: 缺 code")
+            # date 口径对齐抽样层空数据契约: 键必须存在, 值允许空串
+            # （count==0 合法空数据基金 exporter 写 date="", 实测 136/26118 只）
+            elif "date" not in d:
+                light_bad.append(f"{f.name}: 缺 date")
+            elif not isinstance(d.get("nav"), list):
+                light_bad.append(f"{f.name}: nav 非数组")
+        except json.JSONDecodeError as e:
+            light_bad.append(f"{f.name}: JSON 解析失败 {e}")
+        except OSError as e:
+            light_bad.append(f"{f.name}: 读取失败 {e}")
+        if len(light_bad) >= 8:
+            break
+    if light_bad:
+        return _fail(name, f"全量轻量结构校验 {len(light_bad)}+ 个坏文件如: "
+                     + "; ".join(light_bad[:4]))
+
+    # 结构抽验(最多 N 只): date/count/nav 非空且 count==len(nav); count==0 合法空数据放行
+    sample = random.sample(files, min(sample_n, len(files)))
     bad = []
     empty_cnt = 0
     for f in sample:
@@ -984,10 +1024,30 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
             if conn is not None:
                 conn.close()
     if db_codes:
+        # codex-001 low: exporter 会把非法字符替换成 _（_safe_code, 同 export_fund_nav.py）,
+        # DB 脏 code 场景下 f.stem 与 DB code 直接交集口径错位 -> 建 filename->code 映射再算
+        safe_re = re.compile(r"[^A-Za-z0-9_]")
+
+        def _safe_code(code: str) -> str:
+            return safe_re.sub("_", str(code or "").strip())
+
+        fname_to_codes: dict[str, list[str]] = {}
+        for c in db_codes:
+            fname_to_codes.setdefault(_safe_code(c), []).append(c)
+        collisions = [k for k, v in fname_to_codes.items() if len(v) > 1]
         local_names = {f.stem for f in files}
-        covered = len(local_names & db_codes)
+        covered = len(local_names & set(fname_to_codes))
         ratio = covered / len(db_codes)
-        if ratio < 0.90:
+        if collisions:
+            print(f"  ⚠ {name}: safe_code 映射碰撞 {len(collisions)} 个"
+                  f"如: {collisions[:3]}（DB 脏 code, 覆盖率口径含近似误差）")
+        # codex-001 medium: deploy 模式收紧到 <98% FAIL（deploy 是上线最后闸门,
+        # 大面积导出半途/定向删除在常规阈值下只 WARN 不阻断, deploy 链应更严）
+        if _deploy_mode:
+            if ratio < 0.98:
+                return _fail(name, f"覆盖率 {ratio:.1%} ({covered}/{len(db_codes)}) < 98%"
+                             f"（deploy 闸门收紧档），疑似导出半途/数据源变更")
+        elif ratio < 0.90:
             return _fail(name, f"覆盖率 {ratio:.1%} ({covered}/{len(db_codes)}) < 90%，"
                          f"疑似导出半途/数据源变更")
         warn_line = (f"；覆盖率 {ratio:.1%}" if ratio < 0.95 else "")
@@ -1023,7 +1083,7 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
     msg = f"{len(files)} 只基金全史净值，抽样 {len(sample)} 只结构+DB逐位一致"
     if empty_cnt:
         msg += f"（含合法空数据基金 {empty_cnt} 只）"
-    if db_codes and len({f.stem for f in files} & db_codes) / len(db_codes) >= 0.95:
+    if db_codes and len({f.stem for f in files} & set(fname_to_codes)) / len(db_codes) >= 0.95:
         msg += "，覆盖率 ≥95%"
     return _ok(name, msg)
 
@@ -1542,6 +1602,9 @@ def main():
     # --strict: warn 当 fail (exit 2) 手动排查用
     # --deploy-mode: 只 fail 阻断 (exit 1), warn 不阻断 (exit 0) -- 避免预存在 warn 阻塞所有 deploy
     strict = args.strict
+    if args.deploy_mode:
+        global _deploy_mode
+        _deploy_mode = True
 
     # 单文件模式
     if args.file:
