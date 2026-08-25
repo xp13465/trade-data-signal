@@ -7385,6 +7385,10 @@ const _resultCache = new Map(); // url -> { data, ts }
 // 让走势图与 overview 同级实时（跳过 5min 缓存），避免"卡片有信号但走势图无 pin"的窗口期不一致。
 // 只排除 *-all.json（走势图源），不排除 industry-*-indices/* 等静态少变文件（保留缓存）。
 const _NO_CACHE_URLS = /(?:^|\/)(?:boot|overview|intraday_snapshot|metrics|notifications|daily_brief(?:_history)?|public_fund_\w+|summary(?:_history|\/history)?|index\/[^/]+-all)(?:\.json)?(?:$|[?])/;
+// codex-001 medium: R2 直链数据文件(/r2/{prefix}/)跳过通用 _resultCache——这些 URL
+// 的 payload 由调用方先验后存自己的 per-code/per-item 缓存(如 _fundNavCache),
+// 通用层不缓存=坏 payload 不被 5 分钟复用, 且 R2 数据文件本就低频变化无需 5min 层
+const _NO_R2_CACHE_URLS = /\/r2\/[a-z_]+\//;
 const _CACHE_TTL = 5 * 60 * 1000; // 历史类数据缓存 5 分钟
 // R2 大range 路由（2026-07-24）：all/5y/3y 从 R2 读（减 git 仓库 ~60M），小 range（3m/6m/1y）留本地减延迟。
 // fetchJSON 统一走 .json + CF br 压缩（2026-08-01 全部跳 .gz，根治 CF .gz 4h edge 缓存滞后）。
@@ -7412,8 +7416,9 @@ async function fetchJSON(url, timeoutMs) {
   if (_isBackupSite && _isDataReq) {
     url = _R2_FALLBACK_BASE + url.slice("./data/".length);
   }
-  // 1. 结果缓存命中（时效敏感 URL 跳过，确保盘中快照实时性）
-  if (!_NO_CACHE_URLS.test(url)) {
+  // 1. 结果缓存命中（时效敏感 URL / R2 直链数据文件跳过，确保盘中快照实时性;
+  //    R2 直链由调用方先验后存自己的缓存, codex-001 medium）
+  if (!_NO_CACHE_URLS.test(url) && !_NO_R2_CACHE_URLS.test(url)) {
     const rc = _resultCache.get(url);
     if (rc && (Date.now() - rc.ts) < _CACHE_TTL) return rc.data;
   }
@@ -7540,8 +7545,8 @@ async function fetchJSON(url, timeoutMs) {
     }
   })()
     .then((data) => {
-      // 成功才缓存（时效敏感 URL 跳过）；失败不缓存，下次重试
-      if (!_NO_CACHE_URLS.test(url)) _resultCache.set(url, { data, ts: Date.now() });
+      // 成功才缓存（时效敏感 URL / R2 直链数据文件跳过）；失败不缓存，下次重试
+      if (!_NO_CACHE_URLS.test(url) && !_NO_R2_CACHE_URLS.test(url)) _resultCache.set(url, { data, ts: Date.now() });
       return data;
     })
     .catch((e) => {
@@ -24712,6 +24717,22 @@ let _fundNavChart = null;
 // 净值请求序号: 模块级全局单调递增(F2, 同 _etfTrendReqSeq)——modal._ctx 随 open 重置、
 // close 不失效, A 基金 fetch in-flight 中关开到 B 会把 A 的走势画进 B 弹窗; 全局计数器不复位。
 let _fundNavReqSeq = 0;
+// codex-001 medium: 净值 payload 结构验证——坏数据(截断/错码/顶层数组)不进 per-code
+// 缓存也不进通用 _resultCache, 防污染内存缓存后"切周期/重开弹窗仍复用坏数据"。
+function _validFundNavPayload(code, d) {
+  if (!d || typeof d !== "object" || Array.isArray(d)) return false;
+  if (d.code !== String(code)) return false; // 错码 payload(如 R2 混版/代理错位)拒收
+  if (typeof d.date !== "string") return false;
+  if (!Array.isArray(d.nav)) return false;
+  for (let i = 0; i < d.nav.length; i++) {
+    const row = d.nav[i];
+    if (!Array.isArray(row) || row.length !== 3) return false;
+    if (typeof row[0] !== "string" || !row[0]) return false;
+    if (typeof row[1] !== "number") return false; // unit_nav 必须数值(acc 可 null)
+    if (row[2] !== null && typeof row[2] !== "number") return false;
+  }
+  return true;
+}
 
 async function _renderFundNavSection(modal, code, period) {
   const body = modal && modal.querySelector(".fund-detail-content");
@@ -24728,6 +24749,11 @@ async function _renderFundNavSection(modal, code, period) {
     try {
       // 硬编码 R2 直链(/r2/ 代理路由为通用 key 代理, fund_nav/ 新前缀零 worker 改动)
       hist = await fetchJSON(`https://ss.fx8.store/r2/fund_nav/${code}.json`);
+      // codex-001 medium: 先验后存——结构验证不通过不写 per-code 缓存, 走失败分支
+      // 可重试(通用 _resultCache 已对该 URL 前缀跳过写入, 见 fetchJSON _NO_R2_CACHE_URLS)
+      if (!_validFundNavPayload(code, hist)) {
+        throw new Error("净值 payload 结构校验失败(code/date/nav 形状不符)");
+      }
       _fundNavCache[code] = hist;
     } catch (_err) {
       if (_fundNavReqSeq !== reqId) return; // 已有更新请求/已换弹窗,丢弃过期失败
