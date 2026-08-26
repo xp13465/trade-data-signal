@@ -1272,10 +1272,26 @@ def _atomic_write(path, payload):
 
 def _cleanup_stale_tmp(parts_dir, keep_names):
     """导出完成后清理目录里非本批产物的 .tmp 残留(codex-002 high): 历史中断遗留的
-    半截 tmp 不再被误当分片; 本批 tmp 已由 _atomic_write 的 finally 自清, 此处兜底历史残留。"""
+    半截 tmp 不再被误当分片; 本批 tmp 已由 _atomic_write 的 finally 自清, 此处兜底历史残留。
+
+    codex004 P3: 并发误删防护——_atomic_write 的 tmp 名含写入进程 pid
+    ({path}.{pid}.{rand}.tmp), 解析出 pid 仍存活 = 另一导出进程正在写该 tmp,
+    跳过不删(pid 复用导致误判存活只是残留多留一轮, 无害; zombie 同理延迟清理)。
+    """
     n = 0
     for fn in os.listdir(parts_dir):
         if fn.endswith(".tmp") and fn not in keep_names and not fn.startswith("lab_meta.json"):
+            stem = fn[:-4].rsplit(".", 2)  # [path..., pid, rand]
+            if len(stem) == 3 and stem[1].isdigit():
+                try:
+                    os.kill(int(stem[1]), 0)  # 信号 0 只探测存在性
+                    continue  # 存活(含 EPERM 场景单独捕), 正在被写, 跳过
+                except ProcessLookupError:
+                    pass  # 写入进程已死, 属可清历史残留
+                except PermissionError:
+                    continue  # 存活但属其他用户, 保守跳过
+                except OSError:
+                    pass
             try:
                 os.remove(os.path.join(parts_dir, fn))
                 n += 1
