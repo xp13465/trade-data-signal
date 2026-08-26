@@ -8,8 +8,12 @@
   A3 键集对齐: 快照 on_base/off_base 指向的 common.js 预设(a9/new15)keys 与预设表逐位相等,
      且 s06 预设本身 dynamic=true 无静态 keys(防前端第二份键集/静态展开)。
   A4 阈值/参数单源: json.threshold==生成器常量(ast 抽取, 非手抄)==confirm/min_hold/lookback;
-     公示文案(common.js _tdsS06Tooltip + purpose-notes.js)含同值截断串(-3.524/+93,813/+83,718 等),
+     公示文案(common.js _tdsS06Tooltip + purpose-notes.js)含同值截断串(-3.524/+100,572/+83,718 等),
      公示数字与快照 provenance 对照锚一致。
+  A5 锁死不变式(codex008 F2): 全史任一 a9 生效日不得同时满足 held>=min_hold 且 broken>=confirm_days
+     (旧语义 held 只在命中日递增 → 持续非命中场景 a9 锁死 P0); 另以合成长序列 fixture 断言
+     「进入后持续非命中必于 confirm_days 个非命中日切出」「命中打断 broken 后 held 仍按时间走」
+     (T 日收盘出信号 T+1 生效对齐)。held 新语义=a9 生效交易日数(2026-08-26 用户拍板)。
 
 【输入依赖】--repo(git 仓, 默认脚本上级): static-site/data/kelly_mode_s06_state.json /
   static-site/common.js / static-site/purpose-notes.js / scripts/gen_kelly_mode_s06_state.py;
@@ -49,10 +53,15 @@ def load_closes(data_repo: Path, name: str) -> dict[str, float]:
 
 
 def independent_state_machine(dates: list[str], spread: dict[str, float], th: float,
-                              confirm_days: int, min_hold: int, on_base: str, off_base: str) -> list[str]:
-    """A1 第二实现(非生成器 import): 按 handoff §四口径重写——T 日收盘判定 T+1 生效;
-    进入 on 次日即生效; 处于 on 时 premise 连续破坏 confirm 天或持有未满 minhold 则留守。"""
+                              confirm_days: int, min_hold: int, on_base: str, off_base: str
+                              ) -> tuple[list[str], list[tuple[int, int]]]:
+    """A1 第二实现(非生成器 import): codex008 F2 新语义(2026-08-26 用户拍板)——T 日收盘判定
+    T+1 生效; held=a9 生效交易日数(进入当日计 1, 其后每交易日递增无论当日是否命中);
+    处于 on 时 premise 连续破坏 confirm 天且 held 满 minhold 才切出。
+    ⚠旧语义(held 只在命中日 +1)在持续非命中场景 held 永久<minhold → a9 锁死(P0, 已修)。
+    返回 (逐日 effective_mode, 逐日处理后 (held, broken) 计数迹 —— 供 A5 锁死不变式断言)。"""
     out: list[str] = []
+    trace: list[tuple[int, int]] = []
     cur = off_base
     broken = 0
     held = 0
@@ -66,9 +75,9 @@ def independent_state_machine(dates: list[str], spread: dict[str, float], th: fl
             if cur == on_base:
                 if hit:
                     broken = 0
-                    held += 1
                 else:
                     broken += 1
+                held += 1                      # 新语义: d 日仍处 on 生效日则计数+1(无论命中)
                 stay = (broken < confirm_days) or (held < min_hold)
                 ex = on_base if stay else off_base
                 if not stay:
@@ -76,11 +85,55 @@ def independent_state_machine(dates: list[str], spread: dict[str, float], th: fl
             else:
                 ex = on_base if hit else off_base
                 if ex == on_base:
-                    held, broken = 0, 0
+                    held, broken = 1, 0        # 新语义: 进入当日计 1
         out.append(ex)
+        trace.append((held, broken))
         cur = ex
         prev_spread = sv       # 注意: d 日收盘信号供 T+1 用 → 下一轮用本日 spread 作决策值
-    return out
+    return out, trace
+
+
+def lockfree_invariant_ok(modes: list[str], trace: list[tuple[int, int]],
+                          on_base: str, min_hold: int, confirm_days: int) -> list[int]:
+    """A5 锁死不变式(codex008 F2): 任一 on 生效日不得同时满足 held>=min_hold 且
+    broken>=confirm_days(=退出条件已满足却未切出=锁死)。返回违例日下标列表。"""
+    return [i for i, (ex, (h, b)) in enumerate(zip(modes, trace))
+            if ex == on_base and h >= min_hold and b >= confirm_days]
+
+
+def synthetic_lockfree_fixture(confirm_days: int = 15, min_hold: int = 10,
+                               th: float = -3.524224785046781) -> tuple[bool, str]:
+    """A5 合成长序列 fixture(T 日收盘出信号 T+1 生效对齐; codex008 F2 审计教训: 断言禁止
+    把决策信号错位到当日):
+      场景一(纯持续非命中): 首日命中进入 → 之后 40 个交易日全非命中, 必于第 confirm_days 个
+        非命中日的次日切出且不再回 on(a9 生效应恰为 confirm_days 天);
+      场景二(中途命中打断 broken 但 held 走时间): 进入后 4 个非命中日 → 1 个命中日(broken
+        清零)→ 再 20 个非命中日, 必在累计第 confirm_days 个非命中日切出(检验 held 是时间
+        语义而非 broken 联动; 旧语义在本场景 held 恒 <minhold 永锁)。
+    两种场景任一切出失败/提前切出/回 on 均判 FAIL。"""
+    th_seq1 = [th - 6.0] + [5.0] * 40                      # d0 命中, d1..d40 全非命中
+    dates1 = [f"202601{i + 1:02d}" for i in range(len(th_seq1))]  # 有序伪日期(独立实现不查日历)
+    sp1 = {d: v for d, v in zip(dates1, th_seq1)}
+    modes1, _ = independent_state_machine(dates1, sp1, th, confirm_days, min_hold, "a9", "new15")
+    exp1 = ["new15"] + ["a9"] * confirm_days + ["new15"] * (len(th_seq1) - 1 - confirm_days)
+    if modes1 != exp1:
+        bad = next(i for i, (a, b) in enumerate(zip(modes1, exp1)) if a != b)
+        return False, f"场景一(持续非命中)第 {bad} 日 modes={modes1[bad]} 期望={exp1[bad]}"
+    seq2 = [th - 6.0] + [5.0] * 4 + [th - 6.0] + [5.0] * 20   # 进入后4非命中→1命中→再20非命中
+    dates2 = [f"202602{i + 1:02d}" for i in range(len(seq2))]
+    sp2 = {d: v for d, v in zip(dates2, seq2)}
+    modes2, _ = independent_state_machine(dates2, sp2, th, confirm_days, min_hold, "a9", "new15")
+    # 时序推导(T 收盘信号 T+1 生效): idx0 收盘命中 → idx1 进入(held=1); idx2..5 非命中生效日
+    # (broken=1..4); idx5 收盘命中 → idx6 为命中生效日(broken 清零, held=6 时间继续);
+    # 其后第 confirm_days 个非命中生效日(idx7 起 broken=1..)在 idx6+confirm_days 日 broken 满 → 切出
+    hit_eff_idx = 6                                            # 命中生效日下标
+    exit_day = hit_eff_idx + confirm_days                      # = 21, 该日 ex 必为 new15
+    exp2 = ["new15"] + ["a9"] * (exit_day - 1) + ["new15"] * (len(seq2) - exit_day)
+    if modes2 != exp2:
+        bad = next((i for i, (a, b) in enumerate(zip(modes2, exp2)) if a != b), -1)
+        return False, f"场景二(命中打断)第 {bad} 日 modes={modes2[bad]} 期望={exp2[bad]}(exit_day={exit_day})"
+    return True, (f"场景一: 进入后恰 {confirm_days} 天切出且不回; "
+                  f"场景二: 命中打断 broken 后 held 仍按时间在第 {confirm_days} 个非命中日切出")
 
 
 def extract_gen_constants(gen_path: Path) -> dict[str, object]:
@@ -147,8 +200,8 @@ def main() -> int:
     r_csi, r_hs = roll(csi, snap["lookback_days"]), roll(hs, snap["lookback_days"])
     spread = {d: r_csi[d] - r_hs[d] for d in common_dates if d in r_csi and d in r_hs}
     covered = [d for d in common_dates if d in spread]
-    indep = independent_state_machine(covered, spread, snap["threshold"], snap["confirm_days"],
-                                      snap["min_hold_days"], snap["on_base"], snap["off_base"])
+    indep, trace = independent_state_machine(covered, spread, snap["threshold"], snap["confirm_days"],
+                                             snap["min_hold_days"], snap["on_base"], snap["off_base"])
     snap_modes = [r["effective_mode"] for r in daily]
     # ── deploy 时序容差(codex008 F1, P0①)──
     # update_all 17:50 链内 deploy 时因子(index-all.json)已更新到 T, 而 S06 快照仍是前晚
@@ -219,9 +272,13 @@ def main() -> int:
     bad_const = [f"json={a} vs 生成器={b}" for nm, a, b in checks if a != b]
     pn_txt = (repo / "static-site" / "purpose-notes.js").read_text(encoding="utf-8")
     # 公示数值(§21/§23.9: 展示为千分位/三位小数截断, 机检查截断串在位)
+    # 锚点来源(codex008 F2 修复重跑 2026-08-26, s06_newsem_vs_14plus1.py 同引擎): 新语义验段
+    # 净利 +100,572.43; ⚠S06 动态回测数字随输入指数序列更新漂移(08-25 首跑 94,150.61→08-26
+    # 旧语义复跑 94,436.30), 本锚点作用=「公示↔快照 provenance 一致」, 回测重跑后须同步此处
+    # 与 common.js/purpose-notes.js/README 三处公示及 gen 注释(锚点时点=注释日期)。
     th_str = f"{snap['threshold']:.3f}"          # -3.524
-    val_str = f"{93813.21:,.0f}"                 # 93,813
-    cmp_str = f"{83718.16:,.0f}"                 # 83,718
+    val_str = f"{100572.43:,.0f}"                # 100,572(held 新语义验段净利, 2026-08-26 重跑)
+    cmp_str = f"{83718.16:,.0f}"                 # 83,718(静态 NEW14+1 对照, 与 held 语义无关稳定)
     pub_hits = {
         "common.js tooltip 阈值": th_str in common_txt,
         "purpose-notes 阈值": th_str in pn_txt,
@@ -236,6 +293,18 @@ def main() -> int:
             if (not bad_const and not missing_pub) else
             f"常量不一致={bad_const}; 公示缺失={missing_pub}"))
 
+    # ── A5 锁死不变式(codex008 F2, P0②修复防回归)──
+    # ① 全史: 任一 a9 生效日不得同时满足 held>=min_hold 且 broken>=confirm_days
+    #   (=退出条件已满足却未切出=锁死; 旧语义全史 457 天违例, 新语义必须 0 违例)
+    viol_days = lockfree_invariant_ok(indep, trace, snap["on_base"], snap["min_hold_days"], snap["confirm_days"])
+    # ② 合成长序列 fixture: 持续非命中必于 confirm_days 个非命中日切出 + 命中打断 broken 后
+    #   held 仍按时间走(T 收盘信号 T+1 生效对齐)
+    fix_ok, fix_msg = synthetic_lockfree_fixture(snap["confirm_days"], snap["min_hold_days"], snap["threshold"])
+    record("A5 锁死不变式+长序列断言", (not viol_days) and fix_ok,
+           (f"全史 {len(daily)} 个 a9 生效日 0 锁死违例; fixture: {fix_msg}"
+            if (not viol_days and fix_ok) else
+            f"锁死违例 {len(viol_days)} 日, 首3={[covered[i] for i in viol_days[:3]]}; fixture={'PASS' if fix_ok else 'FAIL: ' + fix_msg}"))
+
     ok_all = True
     for name, ok, detail in RESULTS:
         ok_all = ok_all and ok
@@ -243,7 +312,7 @@ def main() -> int:
     if not ok_all:
         print("✗ S06 快照机检 FAIL(阻断上线)")
         return 1
-    print("✓ S06 快照机检全 PASS(独立复算/时序/键集/阈值单源四项)")
+    print("✓ S06 快照机检全 PASS(独立复算/时序/键集/阈值单源/锁死不变式五项)")
     return 0
 
 
