@@ -729,8 +729,8 @@ function _tdsFadeSpecHit(key, c) {
 // keys 全部 ⊆ 58 键(FRONT 10 + GATE 27 + T1 20 + X1); caliber 口径标注随选项展示(A/B/C=叠9键 / NEW 族=换基座)。
 // ⭐ v20260826(用户拍板, §23.7 已确认可改历史功能): ①预设新增 stars 字段(纯展示层=S06 3星/a9·new14·new15 2星/
 //   p9·b9 1星/p8·c9 无星), 仅用于下拉「星多靠前、无星殿后(保持原相对序)」排序与前缀展示, 键集/判定/默认值零变化;
-//   ②NEW2 18键(new18) 对照档从下拉移除(用户:"不用对照啦 14+1 对照够啦")——仅删本表条目, 「🧩 AI 降亏组成对比」区
-//   的 18键方案卡保留(lab.js _KELLY_MODE_COMPARE_CARDS 不动), 后端 RECENT_KEYS 打标集也不动(自定义手勾键仍需打标);
+//   ②NEW2 18键(new18) 对照档从下拉移除(用户:"不用对照啦 14+1 对照够啦"): 仅删本表条目, 后端 RECENT_KEYS 打标集不动(自定义手勾键仍需打标);
+//   【更新 2026-08-26】「🧩 AI 降亏组成对比」区 18键方案卡亦已移除(用户:"18和14键差异太小了...18不要了"), lab.js _KELLY_MODE_COMPARE_CARDS 同步删条目;
 //   已存 new18 模式记忆的浏览器在四个消费点读取处经 _tdsFadeModeById 校验失败自动回默认(_KELLY_FADE_DEFAULT_MODE),
 //   不空白不报错。下拉渲染顺序由 _tdsFadeModeDisplayList 统一给出(stars 稳定降序+原相对序兜底), 其余按 id 消费方不受影响。
 // ⚠ v1.1.5(2026-08-24 用户拍板): 默认基座从 p8(8键, v1.1.2) 切换为 new14(NEW 14键)——依据 mine28(AUTO 轮动
@@ -760,7 +760,8 @@ var _KELLY_FADE_MODE_PRESETS = [
   { id: "new14", name: "⭐⭐ NEW 14键(默认)", tagline: "新防守王·全史第一+回撤最浅", caliber: "✓ 现役默认(v1.1.5 起·重构换基座)", calWarn: false, stars: 2,
     keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "declinePhaseSpecial", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] },
   // new18(NEW2 18键) 已从下拉移除(v20260826 用户拍板"不用对照啦 14+1 对照够啦"): 条目删除,
-  // 组成对比区方案卡(lab.js)与后端 RECENT_KEYS 打标集保留; 老记忆经消费点校验自动回默认。
+  // 后端 RECENT_KEYS 打标集保留; 老记忆经消费点校验自动回默认。
+  // 【更新 2026-08-26】组成对比区方案卡(lab.js _KELLY_MODE_COMPARE_CARDS)亦已移除(同日用户拍板"18和14键差异太小了")。
   { id: "new15", name: "⭐⭐ NEW14+1 · 15键", tagline: "NEW14+整剔有跟踪ETF象限(none/null)·回撤改善档", caliber: "⚠ 重构换基座(NEW 族扩展·可选档非默认)", calWarn: true, stars: 2,
     // X1=整剔 track_tier=none/null 象限(mine29c 2026-08-24 用户拍板保留为可选档; 同日用户拍板 X1 扩围
     // 「一起扩」剔 null, 与回测 etf_has_track 卡/首页筛选档4口径完全统一)。⚠诚实标注: 下述数字均为扩围前
