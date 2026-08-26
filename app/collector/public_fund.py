@@ -2442,6 +2442,10 @@ def fetch_fund_risk_indicator(codes: list[str] | None = None) -> int:
             ok += 1
         else:
             rows_this = 0
+            # codex004 P3: 本轮实际数据源分支(xq_ok 是跨 code 累计值, 不能用来判定
+            # 当前 code 走的哪条路径)——self_calc=净值自算降级 / xq=纯雪球 /
+            # xq_mixed=雪球+自算补指标混合
+            branch = "self_calc"
             try:
                 df = safe_call(ak.fund_individual_analysis_xq, retries=1, symbol=code)
                 if isinstance(df, Exception) or df is None or len(df) == 0:
@@ -2461,6 +2465,7 @@ def fetch_fund_risk_indicator(codes: list[str] | None = None) -> int:
                     if rows_this:
                         self_calc_ok += 1
                 else:
+                    srcs: set[str] = set()
                     for _, r in df.iterrows():
                         period_cn = str(r.get("周期", "")).strip()
                         period = XQ_PERIOD_MAP.get(period_cn, "")
@@ -2475,6 +2480,7 @@ def fetch_fund_risk_indicator(codes: list[str] | None = None) -> int:
                         ir_v = calc["information_ratio"] if calc else None
                         alpha_v = calc["alpha"] if calc else None
                         src = "mixed" if calc else "xq"
+                        srcs.add(src)
                         pending.append((
                             code, period,
                             _safe_float(r.get("年化夏普比率")),
@@ -2492,12 +2498,18 @@ def fetch_fund_risk_indicator(codes: list[str] | None = None) -> int:
                         rows_this += 1
                     if rows_this:
                         xq_ok += 1
+                        # codex004 P3: 按本 code 实际数据源标记(含自算补指标=xq_mixed)
+                        branch = "xq_mixed" if "mixed" in srcs else "xq"
                 if rows_this:
                     ok += 1
                     total_rows += rows_this
                     # codex-001 medium: attempt 成功摘要(自算降级也算成功——数据源
-                    # 确实无该基金风险数据时, 自算路径已尽力, 不再反复重采)
-                    attempts[code] = "ok" if xq_ok else "empty0"
+                    # 确实无该基金风险数据时, 自算路径已尽力, 不再反复重采)。
+                    # codex004 P3: 摘要按本轮实际数据源分支(self_calc/xq/xq_mixed),
+                    # 不再用跨 code 累计的 xq_ok 判定(首个 xq 成功后纯自算 code 被
+                    # 误标 ok 的摘要失真已根除); 闸门只认 attempt key 存在性不受影响
+                    attempts[code] = {"self_calc": "self_calc", "xq": "ok",
+                                      "xq_mixed": "xq_mixed"}[branch]
                     done_set.add(code)
                 else:
                     fail += 1
