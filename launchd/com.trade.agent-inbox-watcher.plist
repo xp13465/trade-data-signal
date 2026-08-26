@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <!-- launchd 环境 PATH 不含 nvm,watcher 的 os.environ.get("CODEX_BIN", "codex") 必须给绝对路径 -->
+        <key>CODEX_BIN</key>
+        <string>/Users/linhuichen/.nvm/versions/node/v25.8.0/bin/codex</string>
+    </dict>
+    <key>Label</key>
+    <string>com.trade.agent-inbox-watcher</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/linhuichen/code/trade/scripts/agent_inbox_watcher.py</string>
+    </array>
+    <key>KeepAlive</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/linhuichen/code/trade-data/data/logs/agent_inbox_watcher_launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/linhuichen/code/trade-data/data/logs/agent_inbox_watcher_launchd.err</string>
+</dict>
+</plist>

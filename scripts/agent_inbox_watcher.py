@@ -4,6 +4,20 @@
 The watcher performs no model work while idle. A small JSON metadata signal
 causes one fixed CLI invocation or deterministic schema check; signal names are
 strictly validated so a file name cannot become shell input.
+
+信号状态机(2026-08-26 加自动重试):
+    .ready --取货--> .processing --成功--> .done
+                        |
+                        +--失败--> retry_count<3: 原子写回 .ready
+                        |          (retry_count+1 + last_failed_at +
+                        |           next_retry_after = now+RETRY_DELAY_SECONDS,
+                        |           到期前主循环跳过不消费)
+                        |
+                        +--失败--> retry_count>=3: .failed 终态 + 飞书放弃告警
+    .ready/.processing --信号名或 id 不合法--> .invalid(终态,不重试)
+崩溃恢复: 启动时 recover_processing 把遗留 .processing 还原成 .ready 重跑。
+心跳: main 循环每轮 touch HEARTBEAT_PATH(mtime 超 10 分钟 ≈ 僵死,供人工排查;
+schedule_monitor 接入待办)。
 """
 
 import json
@@ -19,8 +33,16 @@ LOG_PATH = Path("/tmp/codex-reports/agent-inbox.log")
 CODEX_INBOX = Path("/tmp/codex-reports/signals/codex-inbox")
 CLAUDE_INBOX = Path("/tmp/codex-reports/signals/claude-inbox")
 LOCK_PATH = Path("/tmp/codex-reports/agent-inbox.lock")
+HEARTBEAT_PATH = Path(
+    "/Users/linhuichen/code/trade-data/data/logs/agent_inbox_watcher.heartbeat"
+)
 ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 POLL_SECONDS = 2
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 300
+RETRY_KEY = "retry_count"
+NEXT_RETRY_KEY = "next_retry_after"
+LAST_FAIL_KEY = "last_failed_at"
 
 
 def notify_claude(request_id: str) -> None:
@@ -94,6 +116,14 @@ def transition(path: Path, state: str) -> Path:
     return target
 
 
+def atomic_write_signal(path: Path, payload: dict) -> None:
+    """原子写回信号文件(tmp -> rename),供失败重试场景重建 .ready。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(path)
+
+
 def run_cli(command: list[str], cwd: Path) -> bool:
     log(f"exec {' '.join(command)}")
     try:
@@ -138,12 +168,39 @@ def validate_claude_report(request_id: str) -> bool:
     )
 
 
+def notify_gave_up(kind: str, request_id: str, retries: int) -> None:
+    """重试耗尽放弃告警:飞书 agent_done 群(失败绝不反噬主循环)。"""
+    try:
+        import sys
+
+        sys.path.insert(0, str(REPO / "scripts"))
+        from notify import send_feishu
+
+        timestamp = time.strftime("%H:%M")
+        send_feishu(
+            "[codex] 信号处理放弃",
+            f"{timestamp} request={request_id} {kind} 通道连续失败 "
+            f"{retries} 次,已落 .failed 终态不再自动重试。\n"
+            f"排查: /tmp/codex-reports/agent-inbox.log;人工处理后换新 id 重发。",
+            chat_key="agent_done",
+        )
+    except Exception as error:  # noqa: BLE001 - notification must not break state
+        log(f"notify_error={error}")
+
+
 def process_queue(inbox: Path, kind: str) -> None:
+    now = time.time()
     for ready in sorted(inbox.glob("*.ready")):
         stem = ready.stem
         if not ID_PATTERN.fullmatch(stem):
             transition(ready, "invalid")
             log(f"invalid_signal={ready.name}")
+            continue
+
+        payload = read_signal(ready)
+        # 失败重试间隔:未到期(.ready 带 next_retry_after)本次跳过,防疯转
+        next_retry = payload.get(NEXT_RETRY_KEY)
+        if isinstance(next_retry, (int, float)) and now < next_retry:
             continue
 
         processing = transition(ready, "processing")
@@ -164,9 +221,29 @@ def process_queue(inbox: Path, kind: str) -> None:
             log(f"{kind}_completed request_id={request_id}")
             if kind == "claude":
                 notify_claude(request_id)
+            continue
+
+        retries = int(payload.get(RETRY_KEY) or 0) + 1
+        log(f"{kind}_failed request_id={request_id} retry_count={retries}")
+        if retries < MAX_RETRIES:
+            # 原子写回 .ready 带重试元数据(retry_count+1/last_failed_at/next_retry_after)
+            payload[RETRY_KEY] = retries
+            payload[LAST_FAIL_KEY] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+            payload[NEXT_RETRY_KEY] = now + RETRY_DELAY_SECONDS
+            atomic_write_signal(processing.with_suffix(".ready"), payload)
+            processing.unlink(missing_ok=True)
         else:
             transition(processing, "failed")
-            log(f"{kind}_failed request_id={request_id}")
+            log(f"{kind}_gave_up request_id={request_id} after {retries} attempts")
+            notify_gave_up(kind, request_id, retries)
+
+
+def touch_heartbeat() -> None:
+    try:
+        HEARTBEAT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        HEARTBEAT_PATH.touch()
+    except OSError as error:
+        log(f"heartbeat_error={error}")
 
 
 def main() -> int:
@@ -180,6 +257,7 @@ def main() -> int:
         recover_processing(CLAUDE_INBOX)
         log("watcher started")
         while True:
+            touch_heartbeat()
             process_queue(CODEX_INBOX, "codex")
             process_queue(CLAUDE_INBOX, "claude")
             time.sleep(POLL_SECONDS)

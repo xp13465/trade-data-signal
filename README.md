@@ -252,7 +252,7 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 
 ### 🤖 外部交叉验证 reviewer（codex CLI）
 
-**用途**：版本发布前的**外部独立盲审**——经 [OpenAI codex CLI](https://github.com/openai/codex) 以只读沙箱身份做交叉验证，防「内部实施↔内部 review 同源盲区」。协作机制：Claude 主控调 `scripts/codex-review-request.sh` 把审计范围打包成 git ref（`refs/codex/req/<id>`）→ codex 在独立环境读仓库执行影响面 grep / smoke 验证 / 口径交叉核对 → 报告 JSON 回传 `/tmp/codex-reports/` → 主控校验归档至 [`docs/codex-reviews/`](docs/codex-reviews/)。codex 不 commit、不 push、不改源码；2026-08-24 首轮 v1.1.4→v1.1.6 前置两轮审计均 PASS，揪出 QTH 全史快照前视取舍、tester skill 缺规范挂接等内部 review 未覆盖项。协议全文见 [`docs/codex-collab-protocol.md`](docs/codex-collab-protocol.md)。
+**用途**：版本发布前的**外部独立盲审**——经 [OpenAI codex CLI](https://github.com/openai/codex) 以只读沙箱身份做交叉验证，防「内部实施↔内部 review 同源盲区」。协作机制：Claude 主控调 `scripts/codex-review-request.sh` 把审计范围打包成 git ref（`refs/codex/req/<id>`）→ codex 在独立环境读仓库执行影响面 grep / smoke 验证 / 口径交叉核对 → 报告 JSON 回传 `/tmp/codex-reports/` → 主控校验归档至 [`docs/codex-reviews/`](docs/codex-reviews/)。codex 不 commit、不 push、不改源码；2026-08-24 首轮 v1.1.4→v1.1.6 前置两轮审计均 PASS，揪出 QTH 全史快照前视取舍、tester skill 缺规范挂接等内部 review 未覆盖项。协议全文见 [`docs/codex-collab-protocol.md`](docs/codex-collab-protocol.md)。协作通讯走**信号桥**（2026-08-26）：`scripts/agent_inbox_watcher.py` 常驻监听 `/tmp/codex-reports/signals/` 双收件箱（2 秒文件轮询，待机零模型调用），发单秒级拉起 codex exec、报告回传自动 schema 机检 + 推飞书，替代 cron 盲轮询的 7-8 分钟延迟——链路全图、launchd 部署模板与利弊分析见 [`docs/codex-signal-bridge.md`](docs/codex-signal-bridge.md)。
 
 ### 🧠 AI 预测与解读（DeepSeek）
 
@@ -424,6 +424,8 @@ docs/kelly/             # 凯利回测专题文档子目录（2026-08-14 按主�
 - [docs/data-dictionary.md](docs/data-dictionary.md) - 数据字典（`static-site/data/` JSON 字段说明）
 - [docs/data-sources.md](docs/data-sources.md) - 数据源说明 + 采集时点
 - [docs/kelly/mining/kelly-loss-mining-methods.md](docs/kelly/mining/kelly-loss-mining-methods.md) - 数据挖掘方法论 + 文献（降亏过滤）
+- [docs/codex-collab-protocol.md](docs/codex-collab-protocol.md) - Codex 外部 review 协作协议（ref 通道 + Request/Report JSON schema + 清理规范）
+- [docs/codex-signal-bridge.md](docs/codex-signal-bridge.md) - Claude↔Codex 信号驱动协作桥（watcher 架构 / 0 token 分析 / launchd 模板 / 生命周期时序）
 - [docs/LICENSE-data.md](docs/LICENSE-data.md) - 数据集 CC BY 4.0 授权声明
 
 ---
