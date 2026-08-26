@@ -929,6 +929,23 @@ def _ai_macro_hit_filters(sig: dict, ctx: dict) -> list:
             or (_mkt == "mkt_global" and _q == 1 and _sig == "buy_aux" and _rating == "low")
             or (_sig == "buy_special" and _mm == "09" and _wd == 2)):
         _f.append("greedy15")
+    # 8 r10May6NonMay(v1.1.5 NEW14/new15 基座成员; 2026-08-26 缺口补判, 用户拍板——v1.1.5 切基座
+    #   审计只对了键集中文名登记点, 漏查「后端谓词实现完整性」致本键与 k3ConceptBuy 从未参与
+    #   信号级命中标注, 首页删除线/邮件/AI认可度对 new14 视角实际只覆盖 12/14 键)。
+    #   判定=common.js _KELLY_FADE_LEGACY_SPECS.r10May6NonMay 七子条件(any OR)的信号级可判定
+    #   子集(组件 1/3/4/6/7), 与 overfit_monitor.recent_hit_keys 同构逐字一致(§22);
+    #   组件 2{mm:03,wd:2,bpb:high}/组件 5{sig:buy_special,mm:11,bpb:low} 依赖 price_bin 五分位,
+    #   信号级无价格字段不可判定不参与(r7/greedy15 同款诚实降级, 见模块级注释 ⚠粒度降级段)。
+    if ((_mm == "05")
+            or (_sig == "buy_special" and _mm == "11" and _mkt == "mkt_industry")
+            or (_sig == "buy_special" and _mm == "11" and _wd == 0)
+            or (_sig == "buy_special" and _mm == "03" and _mkt == "mkt_industry")
+            or (_sig == "buy_aux" and _mm == "03" and _wd == 2)):
+        _f.append("r10May6NonMay")
+    # 9 k3ConceptBuy(a9/new14/new15 基座成员; 同上缺口补判): buy × 概念类(spec {sig:"buy",mkt:"concept"},
+    #   全信号级可判一行; 与 lab.js 谓词/overfit 口径同源 §22)。
+    if _sig == "buy" and _mkt == "mkt_concept":
+        _f.append("k3ConceptBuy")
 
     # T1(2026-08-23) 20 条新键命中标注(规格单源=scripts/loss_rules.py; 全部默认关, 首页白名单
     # _AI_MACRO_FILTER_NAMES 不含 → 默认行为零变化 §23.7)。特征类键依赖 data/kelly_loss_features.json
