@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.trade.s06-snapshot</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/linhuichen/code/trade-data/scripts/s06_snapshot.sh</string>
+    </array>
+    <!-- 交易日 20:35 跑: S06 降亏动态模式快照每日盘后重生(gen→check→R2 三段, 2026-08-26)。
+         时点选择依据(§14): 输入 csi1000/hs300-all.json 由 update_all.sh(17:50 启动)统一 deploy
+         的 static-site/export.py 第8步生成, 实测 export 完成 ≈18:11、全链最晚结束 19:48
+         (近5日观测 17:56~19:48), 20:35 留 ≥47min 缓冲; 与 20:05 futures / 20:07 etf 错峰半小时,
+         早于 20:40 daily-brief 且秒级完成不抢资源。不推 main 不写 DB。
+         pmset 无需新增唤醒: 既有 wakepoweron 工作日 17:48, 机器持续活跃至 21:40 overfit-monitor。
+         非交易日脚本内闸门跳过(传 force 可补跑)。 -->
+    <key>StartCalendarInterval</key>
+    <array>
+      <dict>
+        <key>Weekday</key>
+        <integer>1</integer>
+        <key>Hour</key>
+        <integer>20</integer>
+        <key>Minute</key>
+        <integer>35</integer>
+      </dict>
+      <dict>
+        <key>Weekday</key>
+        <integer>2</integer>
+        <key>Hour</key>
+        <integer>20</integer>
+        <key>Minute</key>
+        <integer>35</integer>
+      </dict>
+      <dict>
+        <key>Weekday</key>
+        <integer>3</integer>
+        <key>Hour</key>
+        <integer>20</integer>
+        <key>Minute</key>
+        <integer>35</integer>
+      </dict>
+      <dict>
+        <key>Weekday</key>
+        <integer>4</integer>
+        <key>Hour</key>
+        <integer>20</integer>
+        <key>Minute</key>
+        <integer>35</integer>
+      </dict>
+      <dict>
+        <key>Weekday</key>
+        <integer>5</integer>
+        <key>Hour</key>
+        <integer>20</integer>
+        <key>Minute</key>
+        <integer>35</integer>
+      </dict>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>REPO</key>
+        <string>/Users/linhuichen/code/trade-data</string>
+        <key>GIT_REPO</key>
+        <string>/Users/linhuichen/code/trade</string>
+    </dict>
+    <key>WorkingDirectory</key>
+    <string>/Users/linhuichen/code/trade-data</string>
+    <key>StandardOutPath</key>
+    <string>/Users/linhuichen/code/trade-data/data/logs/s06_snapshot_launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/linhuichen/code/trade-data/data/logs/s06_snapshot_launchd.err</string>
+    <key>RunAtLoad</key>
+    <false/>
+    <!-- 秒级任务(读两 json+算状态机+写两 json+机检+R2 上传), 600s 给足余量防僵死占槽 -->
+    <key>ExitTimeOut</key>
+    <integer>600</integer>
+</dict>
+</plist>

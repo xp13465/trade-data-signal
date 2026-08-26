@@ -33,6 +33,7 @@ import json
 import os
 import re
 import sqlite3
+import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -1515,10 +1516,47 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     # #97 凯利移动端切片↔整包同版校验（F1 review-kelly-mobile-20260825，防「新整包+旧切片」混版上线 §22）
     results.append(check_kelly_lab_slices(data_dir))
 
+    # S06 动态模式快照机检（2026-08-26 接入 deploy 同链，S06 切全站默认前置条件）：
+    # 委托 scripts/check_s06_state.py 四断言（A1 独立复算/A2 decision_date 防前视/
+    # A3 键集对齐/A4 阈值公示单源），任一 FAIL 阻断上线（§22 同链精神）
+    results.append(check_s06_state_snapshot(data_dir))
+
     # 关键文件存在性
     results.extend(check_key_files(data_dir, repo_data_dir))
 
     return results
+
+
+def check_s06_state_snapshot(data_dir: Path, timeout: int = 300) -> CheckResult:
+    """S06 快照(kelly_mode_s06_state.json)四断言机检（2026-08-26 接入 deploy 校验链）。
+
+    委托 scripts/check_s06_state.py 子进程执行（不 import，保持独立实现互证语义）：
+      A1 第二实现复算逐位相等 / A2 decision_date==上一交易日(防前视) /
+      A3 两基座+s06 dynamic 预设键集 / A4 阈值参数与生成器常量+公示文案单源。
+    exit!=0 → fail（--deploy-mode 下阻断部署）；快照缺失 → fail（S06 切默认前置，
+    缺失=前端 S06 档整体 fail-open 退化，属事故级不许静默上线）。
+    """
+    name = "s06_state"
+    snap = data_dir / "kelly_mode_s06_state.json"
+    if not snap.exists():
+        return _fail(name, f"S06 快照不存在: {snap} (gen_kelly_mode_s06_state.py 未跑? 见 s06_snapshot.sh)")
+    script = Path(__file__).resolve().parent / "check_s06_state.py"
+    if not script.exists():
+        return _fail(name, f"机检脚本缺失: {script}")
+    repo_root = data_dir.parent.parent   # static-site/data -> 仓根(--repo/--data-repo 同根: trade-data 内 common.js/gen 脚本/index 输入齐备)
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(script), "--repo", str(repo_root), "--data-repo", str(repo_root)],
+            capture_output=True, text=True, timeout=timeout, check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return _fail(name, f"check_s06_state.py 超时(>{timeout}s)，疑似 index-all 异常巨大")
+    tail = ((proc.stdout or "") + (proc.stderr or "")).strip().splitlines()
+    summary = " | ".join(l.strip() for l in tail if "[FAIL]" in l or l.strip().startswith("✗"))[:400]
+    if proc.returncode != 0:
+        return _fail(name, f"check_s06_state.py rc={proc.returncode}: {summary or '详见该脚本输出'}")
+    ok_line = next((l.strip() for l in tail if l.strip().startswith("✓")), "")
+    return _ok(name, ok_line or "四断言 PASS")
 
 
 def run_single_file_check(path: Path) -> CheckResult:
