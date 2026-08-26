@@ -45,6 +45,7 @@ except ImportError:  # launchd/裸系统 python 无 certifi: _ssl_cafile() 回�
     certifi = None  # (rebase 冲突解决: main 侧 certifi 回退 + 本分支 hashlib 指纹, 两边全保留)
 import hashlib
 import json
+import os
 import re
 import smtplib
 import ssl
@@ -155,6 +156,11 @@ WARNING_DEDUP_STATE_FILE = ALERTS_DIR / "warning_dedup_state.json"
 WARNING_DEDUP_WINDOW = 4 * 3600  # 同源指纹静默窗口（秒），固定窗=从首次入队起算，
 # 过期后状态清除重新计——持续中的同源告警最多每 4h 可见一封增量批次，永不永久静默
 WARNING_DEDUP_BURST_MIN = 2  # 翻倍穿透的最低新增量（上次通知后再积累 ≥max(2,2×通知量) 即穿透）
+# 指纹状态专用短锁（codex007 F2）：串行化 defer/恢复清零/flush 快照三类读-改-写周期，
+# 防 os.replace 原子写挡不住的丢更新（并发 defer 丢 repeat_count/stale 覆写 notified_repeat）。
+# 毫秒级持有、独立于 flush 长锁（flush 锁内含网络发送秒级，不能让生产方跟着等）；
+# 锁序恒为 flushlock → deduplock 单向嵌套，无死锁面。
+WARNING_DEDUP_LOCK_FILE = ALERTS_DIR / "warning_dedup.lock"
 
 
 def _feishu_backoff(attempt: int) -> float:
@@ -910,9 +916,11 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     # warning 同源指纹的去重状态，下次同源告警从第 1 次重新计（防「已恢复→复发却被旧
     # 窗口压制」。best-effort：清零失败不影响本次发送；非恢复前缀的消息零开销直接跳过）。
     # 挂在 send() 入口=CLI 直调/send_tiered/notify_agent_done 全路径统一生效。
-    if _RECOVERY_PREFIX_RE.match(str(subject)):
+    # P2④（codex007）：dry_run 冒烟/测试全路径只读——不触碰真实 dedup state 文件；
+    # 同时把 body 传下去，聚合恢复消息靠正文明细行逐源清零（泛化 subject 匹配不全）。
+    if not dry_run and _RECOVERY_PREFIX_RE.match(str(subject)):
         try:
-            clear_warning_dedup_for_recovery(subject)
+            clear_warning_dedup_for_recovery(subject, body)
         except Exception as e:  # noqa: BLE001
             print(f"[notify][dedup] 恢复清零异常（不影响发送）：{e}", file=sys.stderr)
     if severe:
@@ -1107,18 +1115,24 @@ Agent：{agent_name}
     return results
 
 
-def _append_jsonl(path: Path, rec: dict) -> None:
+def _append_jsonl(path: Path, rec: dict) -> bool:
     """jsonl 追加（flock 防并发交错；schedule_monitor 15min / monitor_72h 30min 错峰，
-    同刻概率低但 flock 保险）。失败只 print 不抛（分级降噪绝不反噬主告警链路）。"""
+    同刻概率低但 flock 保险）。返回是否成功——defer_warning 靠它做「先 buffer 后状态」
+    的事务序（codex007 F1：buffer 写失败绝不登记指纹状态，防后续同源被压制到窗过期）；
+    失败只 print 不抛（分级降噪绝不反噬主告警链路）。"""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         import fcntl
         with open(path, "a", encoding="utf-8") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
             fcntl.flock(f, fcntl.LOCK_UN)
+        return True
     except Exception as e:  # noqa: BLE001
         print(f"[notify] jsonl 写入失败 {path.name}：{e}", file=sys.stderr)
+        return False
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -1162,14 +1176,28 @@ def log_info(subject: str, detail: str = "") -> bool:
     return True
 
 
-def _norm_fp_text(s: str) -> str:
-    """指纹归一化：数字序列→#（时间戳/pid/计数值/耗时全抹平）+ 空白压缩。
+# 标识/计量数字分离（codex007 F6 平衡实现）：连续词字符段（字母数字及 _ . - / + 连接符）
+# 按段处理——字母开头的混合 token（sh510300/sz159915/host12/v2.3.1/worker-7）视为
+# 「身份标识」整体保留，防不同标的/实例的告警互相吞；其余段的数字（纯数字时间戳/
+# pid/计数/百分比/错误码、117min 这类「数字+单位」）视为「计量值」归一为 #。
+_FP_TOKEN_RE = re.compile(r"[A-Za-z0-9_./+\-]+")
 
-    口径取舍（docs/feishu-aggregate-spam-rootcause-20260826.md §5-B1）：仅差数字的
-    subject 视为同源（如「耗时 117min」vs「耗时 200min」、「A-due-69475-0」的 pid 序号）。
-    代价=不同标的同类告警会合并显示 [第N次]；兜底=穿透硬门槛（翻倍/critical 直发）
-    保证真恶化不被吞，且 repeat 计数保留频次信息。"""
-    s = re.sub(r"\d+", "#", str(s))
+
+def _norm_fp_text(s: str) -> str:
+    """指纹归一化：标识 token 保留 + 计量数字→# + 空白压缩。
+
+    口径取舍（docs/feishu-aggregate-spam-rootcause-20260826.md §5-B1 + codex007 F6）：
+    仅差计量数字（耗时 117min vs 200min、错误码 10001011 vs 10001012、pid 序号）视为
+    同源——这类重复是降噪主目标；仅差身份标识（ETF 代码 sh510300 vs sz159915、
+    worker-3 vs worker-7）判异源不吞——代价是此类重复不去重（可见 [本批N条合并] 与
+    翻倍/critical 穿透兜底真恶化）。body 不参与指纹（U1 教训：同源 body 微调常见）。"""
+    def _norm_seg(m):
+        seg = m.group(0)
+        if seg[0].isalpha() and any(c.isdigit() for c in seg):
+            return seg  # 字母开头的混合 token = 身份标识，保留原样
+        return re.sub(r"\d+", "#", seg)  # 其余段数字 = 计量值，归一
+
+    s = _FP_TOKEN_RE.sub(_norm_seg, str(s))
     return re.sub(r"\s+", " ", s).strip()
 
 
@@ -1199,9 +1227,10 @@ def _load_warning_dedup_state() -> dict:
         return {}
 
 
-def _save_warning_dedup_state(state: dict) -> None:
-    """原子写指纹状态文件（tmp+os.replace 防读到半 JSON）。失败只 print 不抛
-    （降噪辅助层绝不反噬主告警链路）。"""
+def _save_warning_dedup_state(state: dict) -> bool:
+    """原子写指纹状态文件（tmp+os.replace 防读到半 JSON）。返回是否成功——调用方按
+    场景决定失败策略：defer 计数丢失=下次多发一封（fail-open 可接受）；flush 快照
+    失败必须显式处理（codex007 F3：基线未落盘则保留 due 条目重发，不当作已对齐）。"""
     import os as _os
     import tempfile as _tf
     try:
@@ -1215,8 +1244,45 @@ def _save_warning_dedup_state(state: dict) -> None:
         finally:
             if _os.path.exists(tmp_path):
                 _os.unlink(tmp_path)
+        return True
     except Exception as e:  # noqa: BLE001
-        print(f"[notify][dedup] 状态文件写入失败（不影响主流程）：{e}", file=sys.stderr)
+        print(f"[notify][dedup] 状态文件写入失败：{e}", file=sys.stderr)
+        return False
+
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def _dedup_state_lock():
+    """指纹状态专用短锁（codex007 F2）：包住所有 load-modify-save 周期串行化生产方
+    （defer/恢复清零）与 flush 快照，防丢更新。锁获取失败 fail-open 无锁继续
+    （退化为旧并发行为=可能少计一次，方向宁多发不吞；绝不因锁问题阻塞告警链路）。"""
+    import fcntl
+    f = None
+    try:
+        WARNING_DEDUP_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        f = open(WARNING_DEDUP_LOCK_FILE, "a+")
+        fcntl.flock(f, fcntl.LOCK_EX)
+    except OSError as e:
+        print(f"[notify][dedup] 状态锁获取失败（无锁继续，fail-open）：{e}",
+              file=sys.stderr)
+        if f is not None:
+            try:
+                f.close()
+            except OSError:
+                pass
+        f = None
+    try:
+        yield
+    finally:
+        if f is not None:
+            try:
+                import fcntl as _fcntl
+                _fcntl.flock(f, fcntl.LOCK_UN)
+                f.close()
+            except OSError:
+                pass
 
 
 def _gc_warning_dedup_state(state: dict, now: datetime) -> bool:
@@ -1255,19 +1321,62 @@ def _dedup_window_active(rec: dict, now: datetime) -> bool:
 # 恢复类消息前缀（B3）：兼容 schedule_monitor 的 [恢复] 与 monitor_72h 的 [72h恢复]
 # （举一反三：两处恢复邮件模板前缀不同，只匹配字面 [恢复] 会漏掉 72h 链路的清零）
 _RECOVERY_PREFIX_RE = re.compile(r"^\[\s*(?:\d+h)?\s*恢复\s*\]")
+# 恢复 subject 尾部时间戳（两个监控模板均为「{task} {keyword} {MM-DD HH:MM}」形态），
+# 归一化前剥掉：日期「08-26」+可选时间「 15:00(:30)」。防「恢复核心词尾部残留计量段
+# （#-# #:）」导致与告警侧 norm_subject 的包含关系错位（codex007 F5）。
+# 只在恢复清零路径使用（非指纹主路径），误剥最坏=核心词变短→由 ≥6 字符门槛兜底。
+_TRAILING_TS_RE = re.compile(
+    r"\s+\d{1,2}[-/.]\d{1,2}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?\s*$"
+)
 
 
-def clear_warning_dedup_for_recovery(subject: str) -> list[str]:
-    """B3 恢复即静默清零：恢复类消息（[恢复]/[N h恢复] 前缀）到达时，按归一化公共前缀
-    匹配清除对应指纹状态，下次同源再触发从第 1 次重新计（与既有 [恢复] 语义闭环，
-    防「恢复→复发却被旧窗口压制」）。
+def _recovery_core_texts(subject: str, body: str = "") -> list[str]:
+    """从恢复消息提取待清零的同源核心词列表（归一化后）。
 
-    匹配规则：恢复 subject 去 [恢复] 前缀归一化后，与各指纹 norm_subject 求公共前缀，
-    ≥12 字符或覆盖较短一方全长（≥6 字符）即视为同源。误匹配最坏后果=提前清窗多发一封
-    （fail-open 方向安全）；漏匹配同样只影响计数起点不影响送达。
+    来源两路：①subject 去 [恢复]/[72h恢复] 前缀+剥尾部时间戳；②body 逐条明细
+    （聚合恢复场景：schedule_monitor/monitor_72h 的多恢复模板 subject 是泛化的
+    「N项异常恢复」，单条明细在各 body 行 `[恢复] {task} ... 已消失`——逐行枚举
+    才能精确清掉每个源的指纹，堵 codex007 F5 的 aggregate gap）。"""
+    cores: list[str] = []
+
+    def _push(txt: str) -> None:
+        t = _RECOVERY_PREFIX_RE.sub("", txt.strip(), count=1)
+        t = _TRAILING_TS_RE.sub("", t).strip()
+        if t:
+            cores.append(_norm_fp_text(t))
+
+    subj_txt = _RECOVERY_PREFIX_RE.sub("", str(subject), count=1)
+    subj_txt = _TRAILING_TS_RE.sub("", subj_txt).strip()
+    if subj_txt:
+        cores.append(_norm_fp_text(subj_txt))
+    # 聚合恢复的 body 是 <br> 分隔 HTML，剥标签后逐行找恢复明细
+    for part in re.split(r"<br\s*/?>", str(body or ""), flags=re.IGNORECASE):
+        plain = re.sub(r"<[^>]+>", "", part)
+        if "已消失" in plain or _RECOVERY_PREFIX_RE.match(plain.strip()):
+            _push(plain.replace("已消失", "", 1))
+    return cores
+
+
+def _fp_matches(core: str, ns: str) -> bool:
+    """收严后的同源判定（codex007 F5）：去掉旧的「公共前缀 ≥12 字符」宽松规则
+    （会误清仅共享长前缀的不同告警），只认全串包含关系 + 最短长度门槛。"""
+    if not core or not ns or min(len(core), len(ns)) < 6:
+        return False
+    return ns == core or ns.startswith(core) or core.startswith(ns)
+
+
+def clear_warning_dedup_for_recovery(subject: str, body: str = "") -> list[str]:
+    """B3 恢复即静默清零：恢复类消息到达时清除对应指纹状态，下次同源再触发从第 1 次
+    重新计（与既有 [恢复] 语义闭环，防「恢复→复发却被旧窗口压制」）。
+
+    匹配规则（codex007 F5 收严）：候选核心词来自 subject（去恢复前缀+剥尾部时间戳）
+    与 body 明细行（聚合恢复逐条枚举）；对状态中各 norm_subject 只认**全串包含关系**
+    （相等/一方以另一方开头），最短 ≥6 归一化字符——不再用宽松公共前缀，误清面收敛到
+    「语义确为同一告警源」的包含关系。漏匹配最坏=该源旧窗走完自然过期（多发一封，
+    fail-open 方向安全）。dry_run 下调用方不进入本函数（F4）。
     返回被清除的指纹列表（供测试与日志）。"""
-    core = _norm_fp_text(_RECOVERY_PREFIX_RE.sub("", str(subject), count=1))
-    if not core:
+    cores = _recovery_core_texts(subject, body)
+    if not cores:
         return []
     state = _load_warning_dedup_state()
     hit: list[str] = []
@@ -1275,15 +1384,7 @@ def clear_warning_dedup_for_recovery(subject: str) -> list[str]:
         if not isinstance(rec, dict):
             continue
         ns = str(rec.get("norm_subject", ""))
-        if not ns:
-            continue
-        cpl = 0
-        for a, b in zip(ns, core):
-            if a != b:
-                break
-            cpl += 1
-        min_len = min(len(ns), len(core))
-        if cpl >= 12 or (min_len >= 6 and cpl >= min_len):
+        if any(_fp_matches(c, ns) for c in cores):
             del state[fp]
             hit.append(fp)
     if hit:
@@ -1304,6 +1405,14 @@ def defer_warning(subject: str, body: str, from_prefix: str | None = None) -> bo
     时合并显示「[第N次]」，频次信息不丢）。穿透硬门槛（降噪绝不吞真告警）：
       ①翻倍穿透：上次随聚合通知后新增 repeat 达 max(2, 2×通知量) → 本条照常入队；
       ②critical 升级走 send_tiered critical 分支直发，不经本函数，天然绕过去重。
+
+    可靠性序（codex007 F1/F2 修复，2026-08-26）：
+      · 事务序=先 buffer 后状态——只有 buffer 追加成功才登记/推进指纹计数；追加失败
+        绝不动状态（否则一次瞬时写失败会制造「无代表条目的 4h 静默窗」，当前+后续同源
+        全被压制到窗过期）。方向=宁可重复尝试入队，绝不静默压制。
+      · 所有状态读-改-写周期持 WARNING_DEDUP_LOCK_FILE 专用短锁串行化（codex007 F2；
+        os.replace 只防半 JSON 不防丢更新）；锁获取失败 fail-open 无锁继续（退化为可能
+        少计一次，方向多发，绝不因锁问题阻塞告警链路）。
     指纹/状态异常一律 fail-open 直接入队（宁可多发不吞告警）。返回 True=已处理
     （入队或计数合并），调用方无需区分（既有调用方均不消费返回值）。
     """
@@ -1313,50 +1422,43 @@ def defer_warning(subject: str, body: str, from_prefix: str | None = None) -> bo
         fp = warning_fingerprint(subject, body)
     except Exception as e:  # noqa: BLE001
         print(f"[notify][dedup] 指纹计算失败（跳过去重直接入队）：{e}", file=sys.stderr)
+    enqueue_pending = False  # 已决定入队；buffer 写成功后再推进指纹计数（F1 事务序）
     if fp:
         try:
-            state = _load_warning_dedup_state()
-            _gc_warning_dedup_state(state, now)
-            now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-            rec = state.get(fp)
-            if isinstance(rec, dict) and _dedup_window_active(rec, now):
-                total = int(rec.get("repeat_count", 0)) + 1
-                notified = int(rec.get("notified_repeat", 0))
-                burst = total - notified
-                rec.update({
-                    "last_seen": now_str,
-                    "repeat_count": total,
-                    "last_subject": str(subject)[:200],
-                })
-                if notified > 0 and burst >= max(WARNING_DEDUP_BURST_MIN, notified * 2):
-                    # 穿透①翻倍：真恶化信号，照常入队让 flush 尽快带出增量批次
-                    state[fp] = rec
-                    _save_warning_dedup_state(state)
-                    print(f"[notify][dedup] 穿透(窗口内新增 {burst}≥2×已通知 {notified})，"
-                          f"照常入队：{subject}", file=sys.stderr)
+            with _dedup_state_lock():
+                state = _load_warning_dedup_state()
+                _gc_warning_dedup_state(state, now)
+                rec = state.get(fp)
+                if isinstance(rec, dict) and _dedup_window_active(rec, now):
+                    total = int(rec.get("repeat_count", 0)) + 1
+                    notified = int(rec.get("notified_repeat", 0))
+                    burst = total - notified
+                    if notified > 0 and burst >= max(WARNING_DEDUP_BURST_MIN, notified * 2):
+                        # 穿透①翻倍：真恶化信号，照常入队让 flush 尽快带出增量批次；
+                        # 计数推进延后到 buffer 追加成功之后（enqueue_pending 路径）
+                        enqueue_pending = True
+                        print(f"[notify][dedup] 穿透(窗口内新增 {burst}≥2×已通知 "
+                              f"{notified})，照常入队：{subject}", file=sys.stderr)
+                    else:
+                        # 抑制：不入 buffer，只累计次数（flush 发送时显示「[第N次]」保留频次信息）
+                        rec.update({
+                            "last_seen": now.strftime("%Y-%m-%d %H:%M:%S"),
+                            "repeat_count": total,
+                            "last_subject": str(subject)[:200],
+                        })
+                        state[fp] = rec
+                        _save_warning_dedup_state(state)
+                        print(f"[notify][dedup] 同源抑制(窗口内第 {total} 次，已通知 "
+                              f"{notified} 次，4h 窗)：{subject}", file=sys.stderr)
+                        return True
                 else:
-                    # 抑制：不入 buffer，只累计次数（flush 发送时显示「[第N次]」保留频次信息）
-                    state[fp] = rec
-                    _save_warning_dedup_state(state)
-                    print(f"[notify][dedup] 同源抑制(窗口内第 {total} 次，已通知 "
-                          f"{notified} 次，4h 窗)：{subject}", file=sys.stderr)
-                    return True
-            else:
-                # 首次入队（或旧窗口已过期被 GC 清掉后复发）：登记指纹状态，
-                # 后续同源告警据此判「已在 buffer」并抑制计数
-                state[fp] = {
-                    "norm_subject": _norm_fp_text(subject)[:200],
-                    "first_seen": now_str,
-                    "window_start": now_str,
-                    "last_seen": now_str,
-                    "repeat_count": 1,
-                    "notified_repeat": 0,
-                    "last_subject": str(subject)[:200],
-                }
-                _save_warning_dedup_state(state)
+                    # 首次入队 / 旧窗口已过期被 GC 清掉后复发：先 buffer 后登记（F1 事务序）
+                    enqueue_pending = True
         except Exception as e:  # noqa: BLE001
-            print(f"[notify][dedup] 去重判定异常（fail-open 直接入队）：{e}", file=sys.stderr)
-    _append_jsonl(WARNING_BUFFER_FILE, {
+            print(f"[notify][dedup] 去重判定异常（fail-open 直接入队，不推计数）：{e}",
+                  file=sys.stderr)
+            enqueue_pending = False
+    append_ok = _append_jsonl(WARNING_BUFFER_FILE, {
         "ts": now.strftime("%Y-%m-%d %H:%M:%S"),
         "rid": f"{time.time_ns()}-{id(body):x}-{abs(hash((subject, body))) % 10**10}",
         "fp": fp,
@@ -1364,6 +1466,43 @@ def defer_warning(subject: str, body: str, from_prefix: str | None = None) -> bo
         "body": str(body)[:3000],
         "from_prefix": from_prefix or "[告警·聚合]",
     })
+    if not append_ok:
+        # codex007 F1：buffer 追加失败 → 绝不登记/推进指纹状态。本条未入队，后续同源
+        # 告警仍会逐次尝试入队（不会出现「状态说已代表、buffer 里却没人」的静默窗）。
+        print(f"[notify][warning] buffer 追加失败（不入队、不登记指纹状态，"
+              f"后续同源将继续尝试）：{subject}", file=sys.stderr)
+        return True
+    if fp and enqueue_pending:
+        try:
+            with _dedup_state_lock():
+                state = _load_warning_dedup_state()
+                now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+                rec = state.get(fp)
+                if isinstance(rec, dict) and _dedup_window_active(rec, now):
+                    # 活跃窗内增量推进（非快照覆盖）：并发窗口内他人的改动不丢失（F2 配套）
+                    rec.update({
+                        "last_seen": now_str,
+                        "last_subject": str(subject)[:200],
+                    })
+                    rec["repeat_count"] = int(rec.get("repeat_count", 0)) + 1
+                else:
+                    # 无记录 / 旧窗已过期（U2 回归修复，2026-08-26）：重建全新窗口从第 1 次
+                    # 重新计。注意不能沿用旧 rec 增量——否则过期复发会继承陈年计数且
+                    # window_start 不刷新（窗停在过期态，后续轮次反复「过期重建」）。
+                    rec = {
+                        "norm_subject": _norm_fp_text(subject)[:200],
+                        "first_seen": now_str,
+                        "window_start": now_str,
+                        "last_seen": now_str,
+                        "repeat_count": 1,
+                        "notified_repeat": 0,
+                        "last_subject": str(subject)[:200],
+                    }
+                state[fp] = rec
+                _save_warning_dedup_state(state)
+        except Exception as e:  # noqa: BLE001
+            print(f"[notify][dedup] 入队后状态登记失败（下次同源可能多发一封，fail-open）：{e}",
+                  file=sys.stderr)
     print(f"[notify][warning] 入聚合 buffer（30min 批发）：{subject}", file=sys.stderr)
     return True
 
@@ -1512,8 +1651,43 @@ def _flush_warning_batch_locked(dry_run: bool = False) -> dict:
     results = send(subject, body, severe=False, dry_run=dry_run,
                    from_prefix=prefix, feishu_group="alert")
     sent = any(results.values())
+    snapshot_ok = False
     if sent and not dry_run:
-        # 发送成功才清已发条目：仍在 buffer 文件 flock 内原地重写同一 inode（不用 tmp+rename，
+        # P1③（codex007）：先更新 state 快照、再清 buffer，两步包进同一把 dedup 短锁域。
+        # 旧序（先清 buffer 后写快照）在两步间崩溃 / _save 失败时 notified_repeat 停在
+        # 旧值而 buffer 行已删，后续同源告警以旧基准判翻倍穿透，极端情况整窗被压制。
+        # 新序：快照持久化成功才允许清理 due 行；失败则跳过 cleanup，due 行留在 buffer
+        # 下轮重发（宁重发不吞，与 buffer 清理失败的取舍一致）。
+        try:
+            with _dedup_state_lock():
+                now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+                st = _load_warning_dedup_state()
+                for fp in group_order:
+                    grp = groups[fp]
+                    latest = grp[-1]
+                    old = st.get(fp)
+                    old = old if isinstance(old, dict) else {}
+                    rc = max(int(old.get("repeat_count", 0)), len(grp))
+                    st[fp] = {
+                        "norm_subject": _norm_fp_text(str(latest.get("subject", "")))[:200],
+                        "first_seen": str(old.get("first_seen") or now_str),
+                        "window_start": str(old.get("window_start") or now_str),
+                        "last_seen": now_str,
+                        "repeat_count": rc,
+                        "notified_repeat": rc,
+                        "last_subject": str(latest.get("subject", ""))[:200],
+                    }
+                _gc_warning_dedup_state(st, now)
+                snapshot_ok = _save_warning_dedup_state(st)
+        except Exception as e:  # noqa: BLE001
+            print(f"[notify][dedup] 发送后快照更新失败：{e}", file=sys.stderr)
+            snapshot_ok = False
+        if not snapshot_ok:
+            print("[notify][dedup] 快照未落盘：保留本批 due 条目待下轮重发（宁重发不吞）",
+                  file=sys.stderr)
+    did_clean = bool(sent and not dry_run and snapshot_ok)
+    if did_clean:
+        # 发送且快照落盘后才清已发条目：仍在 buffer 文件 flock 内原地重写同一 inode（不用 tmp+rename，
         # 防 append 方阻塞在旧 inode 孤儿 fd 上写入丢失），但**不再按字节偏移切尾**——重新
         # 解析全文件逐行 json.loads，按稳定 ID 移除本批已发 rid，其余（未满窗口 + 发送期间
         # 其他进程新追加的全部条目）原样保留。偏移错位截尾病灶从根上消灭。
@@ -1550,41 +1724,16 @@ def _flush_warning_batch_locked(dry_run: bool = False) -> dict:
                 fcntl.flock(f, fcntl.LOCK_UN)
         except Exception as e:  # noqa: BLE001
             print(f"[notify] warning buffer 清理失败（下轮可能重发）：{e}", file=sys.stderr)
-    if sent and not dry_run:
-        # B2 配套：本批发出的各指纹把 repeat_count 快照进 notified_repeat（已通知基准），
-        # 后续 defer 以「新增量 vs 已通知量」判翻倍穿透。state 缺失的指纹（存量旧条目现算/
-        # 状态文件曾损坏重建）补建记录，窗口从发出时刻起算——保证持续告警最多每 4h 一封。
-        try:
-            now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-            st = _load_warning_dedup_state()
-            for fp in group_order:
-                grp = groups[fp]
-                latest = grp[-1]
-                old = st.get(fp)
-                old = old if isinstance(old, dict) else {}
-                rc = max(int(old.get("repeat_count", 0)), len(grp))
-                st[fp] = {
-                    "norm_subject": _norm_fp_text(str(latest.get("subject", "")))[:200],
-                    "first_seen": str(old.get("first_seen") or now_str),
-                    "window_start": str(old.get("window_start") or now_str),
-                    "last_seen": now_str,
-                    "repeat_count": rc,
-                    "notified_repeat": rc,
-                    "last_subject": str(latest.get("subject", ""))[:200],
-                }
-            _gc_warning_dedup_state(st, now)
-            _save_warning_dedup_state(st)
-        except Exception as e:  # noqa: BLE001
-            print(f"[notify][dedup] 发送后快照更新失败（不影响主流程）：{e}", file=sys.stderr)
-    remaining = max(0, len(entries) - n) if not (sent and not dry_run) else None
-    if sent and not dry_run:
+    remaining = max(0, len(entries) - n) if not did_clean else None
+    if did_clean:
         try:
             with open(WARNING_BUFFER_FILE, "rb") as f:
                 n_remaining = len(_parse_buffer_lines(f.read())[0])
         except OSError:
             n_remaining = remaining or 0
     else:
-        n_remaining = remaining or 0
+        # 未清理路径（发送失败 / dry_run / 快照失败）：buffer 内容未被删改，按全量计
+        n_remaining = max(len(entries), remaining or 0)
     print(f"[notify][warning] 批发 {n} 条（剩余 {n_remaining} 条）："
           f"{'已发' if sent else '发送失败留待下轮'}", file=sys.stderr)
     return {"sent_batch": sent, "n_due": n, "n_remaining": n_remaining}

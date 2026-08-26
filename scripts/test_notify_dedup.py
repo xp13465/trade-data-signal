@@ -19,6 +19,14 @@ U7 向后兼容：旧格式 buffer 条目（无 fp 字段）flush 正常分组�
 U8 B2 显示与 dry_run 安全：[第N次] 标签出现；dry_run 不清 buffer 不写状态
 U9 flush 成功后 notified_repeat 快照对齐 repeat_count
 
+codex007 补丁用例（2026-08-26，P1×3 + P2×3 各至少一测）：
+U10  P1① buffer 追加失败 → 绝不登记指纹状态（无幽灵静默窗）
+U11  P1② 多进程并发 defer 同指纹 → repeat_count 精确不丢（dedup 短锁）
+U12  P1③ 快照保存失败 → due 条目保留 buffer 重发（宁重发不吞）
+U13  P2④ dry_run 恢复消息全路径只读，不触碰 state
+U14  P2⑤ 收严匹配：共享长前缀不误清 + 聚合恢复 body 明细行逐源清零
+U15  P2⑥ 身份标识 token（sh510300/sz159915）异源不互吞；计量数字差仍同源
+
 跑法：python3 scripts/test_notify_dedup.py   （可重复跑；全部 tmp 目录隔离）
 """
 import json
@@ -46,10 +54,12 @@ class DedupTests(unittest.TestCase):
         self.buf = Path(self.tmp) / "warning_buffer.jsonl"
         self.state = Path(self.tmp) / "warning_dedup_state.json"
         self.lock = Path(self.tmp) / "warning_buffer.flushlock"
+        self.dedup_lock = Path(self.tmp) / "warning_dedup.lock"
         # 关键：读写目标全部指到临时目录，绝不碰生产 data/alerts/
         for attr, val in (("WARNING_BUFFER_FILE", self.buf),
                           ("WARNING_FLUSH_LOCK_FILE", self.lock),
-                          ("WARNING_DEDUP_STATE_FILE", self.state)):
+                          ("WARNING_DEDUP_STATE_FILE", self.state),
+                          ("WARNING_DEDUP_LOCK_FILE", self.dedup_lock)):
             setattr(self, f"_orig_{attr}", getattr(notify, attr))
             setattr(notify, attr, val)
             self.addCleanup(lambda a=attr, o=getattr(self, f"_orig_{attr}"):
@@ -286,6 +296,147 @@ class DedupTests(unittest.TestCase):
         # 后续抑制判定以新基准起算：再来 1 次不穿透（burst=1 < max(2,14)）
         notify.defer_warning(s, "低于阈值")
         self.assertEqual(len(self._read_buf()), 0, "新基准下单次重复应被抑制")
+
+
+    # ── U10 P1① buffer 追加失败 → 绝不登记指纹状态 ─────────────────
+    def test_u10_buffer_append_failure_leaves_state_untouched(self):
+        s = "baostock 限流封禁"
+        orig_append = notify._append_jsonl
+        with unittest.mock.patch.object(notify, "_append_jsonl", return_value=False):
+            r = notify.defer_warning(s, "err")
+        self.assertTrue(r, "返回值语义=True=已处理（本次尝试失败但已如实上报日志）")
+        self.assertEqual(self._read_buf(), [], "追加失败时 buffer 必须无条目")
+        self.assertEqual(self._read_state(), {},
+                         "P1①：buffer 失败绝不能登记指纹状态（否则同源被压到窗过期）")
+        # 恢复后同源告警正常入队并登记（无「幽灵静默窗」残留）
+        notify._append_jsonl = orig_append
+        notify.defer_warning(s, "err")
+        self.assertEqual(len(self._read_buf()), 1)
+        rec = next(iter(self._read_state().values()))
+        self.assertEqual(rec["repeat_count"], 1)
+
+    # ── U11 P1② 多进程并发 defer 同指纹 → 计数精确不丢 ─────────────
+    def test_u11_concurrent_defer_no_lost_repeat_count(self):
+        import multiprocessing as mp
+        n_proc, subject = 12, "并发计数探针告警源"
+        buf_p, lock_p = str(self.buf), str(self.lock)
+        state_p, dlock_p = str(self.state), str(self.dedup_lock)
+        ctx = mp.get_context("spawn")
+        procs = [ctx.Process(target=_dedup_worker_proc,
+                             args=(buf_p, lock_p, state_p, dlock_p, subject))
+                 for _ in range(n_proc)]
+        for p in procs:
+            p.start()
+        for p in procs:
+            p.join(timeout=30)
+            self.assertEqual(p.exitcode, 0, f"子进程异常退出 exitcode={p.exitcode}")
+        entries = self._read_buf()
+        self.assertEqual(len(entries), 1, "同指纹并发只应首条入队")
+        st = self._read_state()
+        self.assertEqual(len(st), 1)
+        rc = next(iter(st.values()))["repeat_count"]
+        self.assertEqual(rc, n_proc,
+                         f"P1②：{n_proc} 次并发 defer 计数必须精确（锁内增量推进），实际 {rc}")
+
+    # ── U12 P1③ 快照保存失败 → due 条目保留重发（宁重发不吞）────────
+    def test_u12_snapshot_save_failure_keeps_due_entries(self):
+        s = "快照失败保留验证源"
+        fp = notify.warning_fingerprint(s)
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.state.write_text(json.dumps({
+            fp: {"norm_subject": notify._norm_fp_text(s), "first_seen": now_str,
+                 "window_start": now_str, "last_seen": now_str,
+                 "repeat_count": 3, "notified_repeat": 1, "last_subject": s},
+        }, ensure_ascii=False), encoding="utf-8")
+        self._write_buf([{"ts": _old_ts(), "subject": s, "body": "x",
+                          "from_prefix": "[告警·聚合]", "rid": "r-u12", "fp": fp}])
+        with unittest.mock.patch.object(notify, "_save_warning_dedup_state",
+                                        return_value=False):
+            r = notify.flush_warning_batch()
+        self.assertTrue(r["sent_batch"], "发送本身仍成功（渠道 mock 成功）")
+        kept = self._read_buf()
+        self.assertEqual([e["rid"] for e in kept], ["r-u12"],
+                         "P1③：快照未落盘必须跳过清理，due 行留在 buffer 下轮重发")
+        st = self._read_state()
+        self.assertEqual(st[fp]["notified_repeat"], 1, "快照失败不得推进已通知基准")
+
+    # ── U13 P2④ dry_run 恢复消息不触碰真实 state ───────────────────
+    def test_u13_dry_run_recovery_never_touches_state(self):
+        s = "dryrun 保护验证源"
+        notify.defer_warning(s, "x")
+        notify.defer_warning(s, "x")
+        before = self.state.read_text(encoding="utf-8")
+        before_buf = self.buf.read_bytes() if self.buf.exists() else b""
+        notify.send(f"[恢复] {s} 08-26 15:00", "已恢复", dry_run=True)
+        self.assertEqual(self.state.read_text(encoding="utf-8"), before,
+                         "P2④：dry_run 全路径只读，恢复清零不得删状态")
+        self.assertEqual(self.buf.read_bytes(), before_buf)
+
+    # ── U14 P2⑤ 收严匹配：共享长前缀不误清 + 聚合 body 明细逐源清 ───
+    def test_u14_strict_matching_and_body_detail_clearing(self):
+        # 场景A：共享长前缀的两个不同源，恢复只清对应那一个
+        a, b = "alpha-service 数据库连接失败", "alpha-service 数据库连接池耗尽"
+        notify.defer_warning(a, "x")
+        notify.defer_warning(b, "x")
+        fpa, fpb = notify.warning_fingerprint(a), notify.warning_fingerprint(b)
+        self.assertNotEqual(fpa, fpb, "身份标识/尾段不同的两源必须异指纹")
+        notify.send("[恢复] alpha-service 数据库连接失败 08-26 15:00", "")
+        st = self._read_state()
+        self.assertNotIn(fpa, st, "恢复核心词应精确清掉同源指纹")
+        self.assertIn(fpb, st, "仅共享长前缀的另一源不得被误清（收严为全串包含关系）")
+        # 场景B：聚合恢复（真实模板 monitor_72h.sh L857/L859）subject=[72h恢复] N项异常恢复
+        # MM-DD HH:MM（核心词 "#项异常恢复" 匹配不到任何单源）→ 靠 body 明细行逐源清零。
+        c, d = "beta 任务超时监控", "gamma 磁盘水位"
+        notify.defer_warning(c, "x")
+        notify.defer_warning(d, "x")
+        fpc, fpd = notify.warning_fingerprint(c), notify.warning_fingerprint(d)
+        body = ("[恢复] beta 任务超时监控 异常关键词&lt;超时&gt; 已消失 "
+                "(首次发现: 2026-08-26 10:00:00, 恢复时间: 2026-08-26 15:00:00)<br>"
+                "[恢复] gamma 磁盘水位 异常关键词&lt;水位&gt; 已消失 "
+                "(首次发现: 2026-08-26 11:00:00, 恢复时间: 2026-08-26 15:00:00)")
+        notify.send("[72h恢复] 3项异常恢复 08-26 15:00", body)
+        st2 = self._read_state()
+        self.assertNotIn(fpc, st2, "body 明细行第 1 条应被枚举清零")
+        self.assertNotIn(fpd, st2, "body 明细行第 2 条应被枚举清零")
+
+    # ── U15 P2⑥ 身份标识 token 异源不互吞 + 计量数字差仍同源 ────────
+    def test_u15_identity_tokens_are_distinct_sources(self):
+        x, y = "ETF 净值偏离 sh510300", "ETF 净值偏离 sz159915"
+        notify.defer_warning(x, "偏离 0.51%")
+        notify.defer_warning(y, "偏离 0.88%")
+        entries = self._read_buf()
+        subjects = {e["subject"] for e in entries}
+        self.assertEqual(len(entries), 2, "不同标的（sh510300 vs sz159915）异源各自入队")
+        self.assertEqual(subjects, {x, y})
+        self.assertEqual(len(self._read_state()), 2, "两源各持独立指纹窗口")
+        # 对照平衡面：同标的仅计量数字差 → 仍判同源抑制（F6 取舍的双向验证）
+        z = "ETF 净值偏离 sh510300"
+        notify.defer_warning(z, "偏离 0.99%")
+        self.assertEqual(len(self._read_buf()), 2, "同标的数字差应抑制不入队")
+        st = self._read_state()
+        self.assertEqual(st[notify.warning_fingerprint(x)]["repeat_count"], 2)
+
+
+# ── 并发 worker（U11 用；模块顶层定义，spawn 子进程可 pickle）────────
+def _dedup_worker_proc(buf_path, lock_path, state_path, dedup_lock_path, subject):
+    """spawn 不继承主进程的模块 patch 与 mock：子进程内重新指路径 + mock 渠道，
+    然后对同一 subject 各 defer 一次。"""
+    sys.path.insert(0, str(Path(__file__).absolute().parent))
+    import notify
+    notify.WARNING_BUFFER_FILE = Path(buf_path)
+    notify.WARNING_FLUSH_LOCK_FILE = Path(lock_path)
+    notify.WARNING_DEDUP_STATE_FILE = Path(state_path)
+    notify.WARNING_DEDUP_LOCK_FILE = Path(dedup_lock_path)
+    try:
+        notify.send_telegram = lambda *a, **k: True
+        notify.send_feishu = lambda *a, **k: True
+        notify._send_email = lambda *a, **k: True
+        notify.defer_warning(subject, "并发计数")
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+    sys.exit(0)
 
 
 if __name__ == "__main__":
