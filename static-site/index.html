@@ -163,10 +163,18 @@
     <button data-tab="lab"><span class="bn-icon">🧪</span><span class="bn-label">策略实验</span></button>
   </nav>
 
-  <!-- 全球市场热力（TradingView 免费小部件嵌入区）：跑马灯独占一行 + 股票/加密热力图 PC 双列、移动端(<768px)堆叠 -->
+  <!-- 全球市场行情（TradingView 免费小部件，2026-08-26）：<details> 原生折叠对齐站内先例(lab indicator-explain 等)。
+       默认收起；收起态本区不含任何 TV script/DOM(零外部请求=首页速度+加密等内容风控隔离)；
+       点展开才懒注入脚本；再次收起仅隐藏不销毁已载内容；不做 localStorage 记忆，每次进页默认收起(风控隔离语义优先)。 -->
   <style>
     .tv-embed-section{margin:32px auto 0;padding:0 16px;max-width:1200px}
-    .tv-embed-title{font-size:15px;font-weight:600;color:var(--text-1);margin:0 0 12px}
+    .tv-embed-section > summary{cursor:pointer;user-select:none;list-style:none;font-size:15px;font-weight:600;color:var(--text-1);display:flex;align-items:center;justify-content:space-between;gap:8px}
+    .tv-embed-section > summary::-webkit-details-marker{display:none}
+    .tv-embed-section > summary:hover{color:var(--primary)}
+    .tv-embed-summary-tip{font-weight:400;font-size:12px;color:var(--text-3);flex-shrink:0}
+    .tv-embed-section:not([open]) .tv-embed-summary-tip::after{content:"展开 ▾"}
+    .tv-embed-section[open] .tv-embed-summary-tip::after{content:"收起 ▴"}
+    .tv-embed-body{margin-top:12px}
     .tv-embed-ticker{margin-bottom:14px;border-radius:8px;overflow:hidden}
     .tv-embed-grid{display:flex;gap:14px}
     .tv-embed-cell{flex:1 1 0;min-width:0;height:420px;border-radius:8px;overflow:hidden}
@@ -177,65 +185,79 @@
       .tv-embed-cell{flex:0 0 auto;height:360px}
     }
   </style>
-  <section class="tv-embed-section" aria-label="全球市场热力">
-    <h2 class="tv-embed-title">🌍 全球市场热力</h2>
-    <!-- TradingView Widget BEGIN : ticker tape (跑马灯, 独占一行) -->
-    <div class="tv-embed-ticker">
-      <script type="module" src="https://widgets.tradingview-widget.com/w/zh_CN/tv-ticker-tape.js"></script>
-      <tv-ticker-tape symbols="CMCMARKETS:GOLD,BINANCE:BTCUSDT,BINANCE:ETHUSDT,BINANCE:SOLUSDT,BINANCE:PAXGUSDT,TVC:US10Y,SPCFD:SPX,OANDA:NAS100USD,MCX:CRUDEOIL1!" item-size="compact" show-hover theme="dark"></tv-ticker-tape>
-    </div>
-    <!-- TradingView Widget END -->
-    <div class="tv-embed-grid">
-      <!-- TradingView Widget BEGIN : Stock Heatmap (美股热力图) -->
-      <div class="tv-embed-cell">
-        <div class="tradingview-widget-container">
-          <div class="tradingview-widget-container__widget"></div>
-          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-stock-heatmap.js" async>
-          {
-            "dataSource": "SPX500",
-            "blockSize": "market_cap_basic",
-            "blockColor": "change",
-            "grouping": "sector",
-            "locale": "zh_CN",
-            "symbolUrl": "",
-            "colorTheme": "light",
-            "hasTopBar": false,
-            "isDataSetEnabled": false,
-            "isZoomEnabled": true,
-            "hasSymbolTooltip": true,
-            "isMonoChart": false,
-            "width": "100%",
-            "height": "100%"
-          }
-          </script>
-        </div>
-      </div>
+  <details class="tv-embed-section" id="tvEmbedSection">
+    <summary>🌍 全球市场行情 · TradingView<span class="tv-embed-summary-tip"></span></summary>
+    <div class="tv-embed-body">
+      <!-- TradingView Widget BEGIN : ticker tape (跑马灯, 独占一行; 展开时由下方脚本注入) -->
+      <div class="tv-embed-ticker" id="tvEmbedTicker"></div>
       <!-- TradingView Widget END -->
-      <!-- TradingView Widget BEGIN : Crypto Coins Heatmap (加密货币热力图) -->
-      <div class="tv-embed-cell">
-        <div class="tradingview-widget-container">
-          <div class="tradingview-widget-container__widget"></div>
-          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-crypto-coins-heatmap.js" async>
-          {
-            "dataSource": "Crypto",
-            "blockSize": "market_cap_calc",
-            "blockColor": "24h_close_change|5",
-            "locale": "zh_CN",
-            "symbolUrl": "",
-            "colorTheme": "light",
-            "hasTopBar": false,
-            "isDataSetEnabled": false,
-            "isZoomEnabled": true,
-            "hasSymbolTooltip": true,
-            "width": "100%",
-            "height": "100%"
-          }
-          </script>
-        </div>
+      <div class="tv-embed-grid">
+        <!-- TradingView Widget BEGIN : Stock Heatmap (美股热力图; 展开时注入) -->
+        <div class="tv-embed-cell" id="tvEmbedStockHeatmap"></div>
+        <!-- TradingView Widget END -->
+        <!-- TradingView Widget BEGIN : Crypto Coins Heatmap (加密货币热力图; 展开时注入) -->
+        <div class="tv-embed-cell" id="tvEmbedCryptoHeatmap"></div>
+        <!-- TradingView Widget END -->
       </div>
-      <!-- TradingView Widget END -->
     </div>
-  </section>
+  </details>
+  <script>
+  /* TradingView 小部件懒加载注入(2026-08-26):
+     - 收起态零外部请求:HTML 内不含任何 TV script/元素,首次 toggle→open 才注入
+     - innerHTML 插入的 <script> 不执行(HTML5 规范),必须 createElement('script')+textContent/src
+     - 小部件参数与用户提供的 embed 代码逐字段等价(JSON.stringify 表达)
+     - 再次收起仅 details 隐藏,已载 DOM/iframe 不销毁;不做 localStorage 记忆 */
+  (function () {
+    var box = document.getElementById('tvEmbedSection');
+    if (!box || box.dataset.tvBound) return;
+    box.dataset.tvBound = '1';
+    var injected = false;
+    function injectTicker() {
+      var m = document.getElementById('tvEmbedTicker');
+      if (!m || m.dataset.tvInit) return;
+      m.dataset.tvInit = '1';
+      var s = document.createElement('script');
+      s.type = 'module';
+      s.src = 'https://widgets.tradingview-widget.com/w/zh_CN/tv-ticker-tape.js';
+      var el = document.createElement('tv-ticker-tape');
+      el.setAttribute('symbols', 'CMCMARKETS:GOLD,BINANCE:BTCUSDT,BINANCE:ETHUSDT,BINANCE:SOLUSDT,BINANCE:PAXGUSDT,TVC:US10Y,SPCFD:SPX,OANDA:NAS100USD,MCX:CRUDEOIL1!');
+      el.setAttribute('item-size', 'compact');
+      el.setAttribute('show-hover', '');
+      el.setAttribute('theme', 'dark');
+      m.appendChild(s);
+      m.appendChild(el);
+    }
+    function injectHeatmap(mountId, jsSrc, cfgObj) {
+      var m = document.getElementById(mountId);
+      if (!m || m.dataset.tvInit) return;
+      m.dataset.tvInit = '1';
+      var wrap = document.createElement('div');
+      wrap.className = 'tradingview-widget-container';
+      var w = document.createElement('div');
+      w.className = 'tradingview-widget-container__widget';
+      var s = document.createElement('script');
+      s.type = 'text/javascript';
+      s.src = jsSrc;
+      s.async = true;
+      s.textContent = JSON.stringify(cfgObj, null, 2);
+      wrap.appendChild(w);
+      wrap.appendChild(s);
+      m.appendChild(wrap);
+    }
+    function injectAll() {
+      if (injected) return;
+      injected = true;
+      injectTicker();
+      injectHeatmap('tvEmbedStockHeatmap',
+        'https://s3.tradingview.com/external-embedding/embed-widget-stock-heatmap.js',
+        { dataSource: 'SPX500', blockSize: 'market_cap_basic', blockColor: 'change', grouping: 'sector', locale: 'zh_CN', symbolUrl: '', colorTheme: 'light', hasTopBar: false, isDataSetEnabled: false, isZoomEnabled: true, hasSymbolTooltip: true, isMonoChart: false, width: '100%', height: '100%' });
+      injectHeatmap('tvEmbedCryptoHeatmap',
+        'https://s3.tradingview.com/external-embedding/embed-widget-crypto-coins-heatmap.js',
+        { dataSource: 'Crypto', blockSize: 'market_cap_calc', blockColor: '24h_close_change|5', locale: 'zh_CN', symbolUrl: '', colorTheme: 'light', hasTopBar: false, isDataSetEnabled: false, isZoomEnabled: true, hasSymbolTooltip: true, width: '100%', height: '100%' });
+    }
+    box.addEventListener('toggle', function () { if (box.open) injectAll(); });
+  })();
+  </script>
 
   <footer class="site-disclaimer">
     <p>本站数据仅供学习参考,不构成任何投资建议;投资有风险,决策需谨慎。</p>
