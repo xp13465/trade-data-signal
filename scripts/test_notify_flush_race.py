@@ -18,6 +18,7 @@ T6 发送前二次确认：条目已被他方清走 → 放弃本批防重复。
 import json
 import multiprocessing
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -41,12 +42,15 @@ def _make_old_ts():
     return (datetime.datetime.now() - datetime.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _writer_proc(buf_path, lock_path, n_due, barrier_path, state_path=None):
+def _writer_proc(buf_path, lock_path, n_due, barrier_path, state_path=None,
+                 dlock_path=None):
     """子进程 A：预写满窗条目（带显式 rid）→ 等栅栏 → 调真实 flush_warning_batch。"""
     notify.WARNING_BUFFER_FILE = Path(buf_path)
     notify.WARNING_FLUSH_LOCK_FILE = Path(lock_path)
     if state_path:
         notify.WARNING_DEDUP_STATE_FILE = Path(state_path)
+    if dlock_path:  # codex009 P2：dedup 锁同样隔离到 tmp（codex007 F2 起 flush 收尾会取它）
+        notify.WARNING_DEDUP_LOCK_FILE = Path(dlock_path)
     _patch_channels(barrier_path)  # spawn 不继承主进程 mock，子进程内重新 mock 防真发
     with open(buf_path, "a", encoding="utf-8") as f:
         for i in range(n_due):
@@ -72,10 +76,13 @@ def _writer_proc(buf_path, lock_path, n_due, barrier_path, state_path=None):
     sys.exit(0)
 
 
-def _appender_proc(buf_path, lock_path, n_append, barrier_path, state_path=None):
+def _appender_proc(buf_path, lock_path, n_append, barrier_path, state_path=None,
+                   dlock_path=None):
     """子进程 B：等同一栅栏后持续追加未满窗口新条目（与 A 的 flush 并发交错）。"""
     notify.WARNING_BUFFER_FILE = Path(buf_path)
     notify.WARNING_FLUSH_LOCK_FILE = Path(lock_path)
+    if dlock_path:
+        notify.WARNING_DEDUP_LOCK_FILE = Path(dlock_path)
     if state_path:
         # 关键隔离：B1 起 defer_warning 读写指纹状态文件，不指到 tmp 会污染/读到
         # 生产 data/alerts/warning_dedup_state.json（跨轮同指纹被 4h 窗误抑制）
@@ -96,12 +103,15 @@ def _appender_proc(buf_path, lock_path, n_append, barrier_path, state_path=None)
     sys.exit(0)
 
 
-def _flusher2_proc(buf_path, lock_path, barrier_path, state_path=None):
+def _flusher2_proc(buf_path, lock_path, barrier_path, state_path=None,
+                   dlock_path=None):
     """子进程 C：第二个并发 flusher（模拟 schedule_monitor 与 monitor_72h 撞车）。"""
     notify.WARNING_BUFFER_FILE = Path(buf_path)
     notify.WARNING_FLUSH_LOCK_FILE = Path(lock_path)
     if state_path:
         notify.WARNING_DEDUP_STATE_FILE = Path(state_path)
+    if dlock_path:
+        notify.WARNING_DEDUP_LOCK_FILE = Path(dlock_path)
     _patch_channels(barrier_path)  # spawn 不继承 mock，防真发
     deadline = time.time() + 10
     while not (Path(barrier_path).exists() and Path(str(barrier_path) + ".go").exists()):
@@ -149,16 +159,21 @@ def _patch_channels(tag=""):
 class FlushRaceTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="notify_flush_race_")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.buf = str(Path(self.tmp) / "warning_buffer.jsonl")
         self.lock = str(Path(self.tmp) / "warning_buffer.flushlock")
         # 关键：flush 读写目标指到临时目录，绝不碰生产 data/alerts/warning_buffer.jsonl
-        # （B1 后含指纹状态文件 warning_dedup_state.json，同样必须隔离）
+        # （B1 后含指纹状态文件 warning_dedup_state.json 与去重锁 warning_dedup.lock，
+        # 同样必须隔离——codex009 P2：测试持生产锁文件可能与真实监控互相等待）
+        self.dlock = str(Path(self.tmp) / "warning_dedup.lock")
         self._orig_buf = notify.WARNING_BUFFER_FILE
         self._orig_lock = notify.WARNING_FLUSH_LOCK_FILE
         self._orig_state = notify.WARNING_DEDUP_STATE_FILE
+        self._orig_dlock = getattr(notify, "WARNING_DEDUP_LOCK_FILE", None)
         notify.WARNING_BUFFER_FILE = Path(self.buf)
         notify.WARNING_FLUSH_LOCK_FILE = Path(self.lock)
         notify.WARNING_DEDUP_STATE_FILE = Path(self.tmp) / "warning_dedup_state.json"
+        notify.WARNING_DEDUP_LOCK_FILE = Path(self.dlock)
         self.addCleanup(self._restore_paths)
         _patch_channels()
 
@@ -166,6 +181,8 @@ class FlushRaceTests(unittest.TestCase):
         notify.WARNING_BUFFER_FILE = self._orig_buf
         notify.WARNING_FLUSH_LOCK_FILE = self._orig_lock
         notify.WARNING_DEDUP_STATE_FILE = self._orig_state
+        if self._orig_dlock is not None:
+            notify.WARNING_DEDUP_LOCK_FILE = self._orig_dlock
 
     def _read_entries(self, path=None, allow_bad=False):
         """解析 JSONL 文件；allow_bad=False 时任何非 JSON 行直接抛（=合法 JSONL 断言）。"""
@@ -271,14 +288,19 @@ class FlushRaceTests(unittest.TestCase):
         sent_log = str(Path(tmp) / f"sent-r{round_no}.log")
         # 每轮独立指纹状态文件（B1 隔离：跨轮共享会因 4h 窗把同字母 subject 误抑制）
         statep = str(Path(tmp) / f"dedup-state-r{round_no}.json")
+        # 每轮独立去重锁（codex009 P2：不与生产 data/alerts/warning_dedup.lock 共享）
+        dlockp = str(Path(tmp) / f"dedup-lock-r{round_no}.lock")
         # 共享发送记录路径经环境变量传给 spawn 子进程（P2：真实发送流水共享）
         os.environ["NOTIFY_TEST_SENT_LOG"] = sent_log
         self.addCleanup(os.environ.pop, "NOTIFY_TEST_SENT_LOG", None)
         ctx = multiprocessing.get_context("spawn")
         procs = [
-            ctx.Process(target=_writer_proc, args=(buf, lockp, N_DUE, barrier, statep)),
-            ctx.Process(target=_flusher2_proc, args=(buf, lockp, barrier, statep)),
-            ctx.Process(target=_appender_proc, args=(buf, lockp, N_APPEND, barrier, statep)),
+            ctx.Process(target=_writer_proc,
+                        args=(buf, lockp, N_DUE, barrier, statep, dlockp)),
+            ctx.Process(target=_flusher2_proc,
+                        args=(buf, lockp, barrier, statep, dlockp)),
+            ctx.Process(target=_appender_proc,
+                        args=(buf, lockp, N_APPEND, barrier, statep, dlockp)),
         ]
         for p in procs:
             p.start()

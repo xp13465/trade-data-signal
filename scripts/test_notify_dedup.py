@@ -30,6 +30,7 @@ U15  P2⑥ 身份标识 token（sh510300/sz159915）异源不互吞；计量数�
 跑法：python3 scripts/test_notify_dedup.py   （可重复跑；全部 tmp 目录隔离）
 """
 import json
+import shutil
 import sys
 import tempfile
 import unittest
@@ -51,6 +52,7 @@ def _old_ts(hours=1.0):
 class DedupTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="notify_dedup_")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.buf = Path(self.tmp) / "warning_buffer.jsonl"
         self.state = Path(self.tmp) / "warning_dedup_state.json"
         self.lock = Path(self.tmp) / "warning_buffer.flushlock"
@@ -318,7 +320,7 @@ class DedupTests(unittest.TestCase):
     # ── U11 P1② 多进程并发 defer 同指纹 → 计数精确不丢 ─────────────
     def test_u11_concurrent_defer_no_lost_repeat_count(self):
         import multiprocessing as mp
-        n_proc, subject = 12, "并发计数探针告警源"
+        n_proc, subject = 16, "并发计数探针告警源"
         buf_p, lock_p = str(self.buf), str(self.lock)
         state_p, dlock_p = str(self.state), str(self.dedup_lock)
         ctx = mp.get_context("spawn")
