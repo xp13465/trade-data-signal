@@ -77,6 +77,13 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - **复用近时段结论**:同一改动链(同 commit/同功能)已 review 过的关键点不重复全文重读,聚焦新增/变化部分(§22 一致性复用 prior 校验结果时标注来源)
 - **model/thinking**:reviewer 属复杂判断/口径/公示把关类,**保留 thinking/保留较高 model 档**,不降级(§5.2 ③ 判断类保留)
 
+## 9.5 大功能验收·数据供给闭环必查(2026-08-26 S06 快照教训,L45)
+> 关联规范源:CLAUDE.md §18 锚点 L45/memory s06-static-snapshot-missing-daily-regen。改源头时反向同步本节。
+- **触发**:验收任何动态切换/状态机/择时信号/定时数据产物类大功能
+- **必查四件**:生成脚本在位→**定时挂载真实存在**(launchctl list/grep plist/update_all,不轻信汇报)→机检校验挂链→过期告警路径;缺一=FAIL(功能本体再漂亮也不放行)
+- **必问一句**:「这个功能的数据谁每天更新?」答不上=未完成
+- 静态快照/手动生成等降级形态:查实施是否已作为方向分叉上报用户拍板记录,无记录=上报主控补拍板
+
 ## 10. 审查方法论增强(2026-08-25 吸收官方 code review 方法论,四件套)
 > 来源:Anthropic 官方插件 `~/.claude/plugins/marketplaces/claude-plugins-official/plugins/code-review/commands/code-review.md` + `plugins/pr-review-toolkit/`(review-pr.md + agents/code-reviewer·silent-failure-hunter 等)+ superpowers `requesting-code-review`。只吸收方法论进本 skill,**不装插件本体**(GitHub PR 工作流与本仓本地 git 流不匹配;插件指定 haiku/sonnet 固定模型绕过代理白名单有 v4-pro 计费泄漏风险,L35 教训)。**关联规范源**:根 CLAUDE.md §15(review 分级)/§23.7(冻结契约:误报清单第⑤条)/§23.11(绝不静默:专查④对齐)/§23.13(档位语义第三方锚点=视角①的锚点来源);governance §15 派单段有一行指针。改这些条款时反向同步本节。
 
