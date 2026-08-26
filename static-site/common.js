@@ -777,7 +777,7 @@ var _KELLY_FADE_MODE_PRESETS = [
   //   验段净利 +100,572.43 / mdd -3,811.27 / 强平 +82,761.50 vs 静态 NEW14+1 +83,718.16。
   { id: "s06", name: "⭐️⭐️⭐️ S06 · 大盘领先切换", tagline: "小盘弱→A进攻王·否则NEW14+1(动态)", caliber: "🧪 实验可选档·动态切换(非默认)", calWarn: true, dynamic: true, stars: 3 }
 ];
-var _KELLY_FADE_DEFAULT_MODE = "new14"; // v1.1.5 起默认=NEW 14键(v1.1.2 及以前=p8/8键; 单源, 各消费点回退统一引用本常量)
+var _KELLY_FADE_DEFAULT_MODE = "s06"; // v1.1.7(2026-08-26) 默认切 S06·大盘领先动态切换(综合auto王者, 用户拍板观察期); v1.1.5~v1.1.6=new14
 // 下拉展示顺序(v20260826 用户拍板): 有星在前星多靠前, 无星跟在 1 星组后沿用原相对序——稳定排序(同星数不改变
 // 原相对顺序), 默认选中值(p8/new14)与键集判定不受影响; 仅 _tdsFadeModeSelectHTML 渲染消费。
 function _tdsFadeModeDisplayList() {
