@@ -51,7 +51,10 @@ SMTP 密码仅用于 smtplib 连接,绝不 print / log / 写入邮件正文 / �
 from __future__ import annotations
 
 import argparse
-import certifi
+try:
+    import certifi
+except ImportError:  # launchd/裸系统 python 无 certifi: _ssl_cafile() 回退系统 CA 路径
+    certifi = None
 import json
 import logging
 import smtplib
@@ -62,6 +65,24 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate
 from pathlib import Path
+
+
+def _ssl_cafile() -> str | None:
+    """SMTP_SSL 的 CA 证书路径: 优先 certifi; launchd/裸系统 python 无 certifi 时
+    回退系统 CA 路径(openssl 默认 cafile → macOS /etc/ssl/cert.pem → Linux 常规路径),
+    全缺则 None(交回 openssl 默认行为)。与 notify.py 同款兜底(codex004 刺)。"""
+    if certifi is not None:
+        return certifi.where()
+    try:
+        default_cafile = ssl.get_default_verify_paths().cafile
+    except Exception:  # noqa: BLE001 - 探测失败不致命, 继续走候选路径
+        default_cafile = None
+    candidates = [default_cafile, "/etc/ssl/cert.pem",
+                  "/etc/ssl/certs/ca-certificates.crt"]
+    for cand in candidates:
+        if cand and Path(cand).exists():
+            return cand
+    return None
 
 REPO = Path(__file__).absolute().parent.parent
 SUMMARY_SRC = REPO / "static-site" / "data" / "summary_history.json"
@@ -1549,7 +1570,8 @@ def send_email(cfg: dict, subject: str, text_body: str, html_body: str, from_tag
 
     try:
         # 本地 python 默认 SSL 证书链缺失会 CERTIFICATE_VERIFY_FAILED，用 certifi 证书
-        ctx = ssl.create_default_context(cafile=certifi.where())
+        # (launchd 裸环境无 certifi 时 _ssl_cafile 回退系统 CA 路径, 不再 ImportError)
+        ctx = ssl.create_default_context(cafile=_ssl_cafile())
         with smtplib.SMTP_SSL(smtp, port, timeout=30, context=ctx) as srv:
             srv.login(user, password)
             srv.sendmail(from_addr, to_list, msg.as_string())
