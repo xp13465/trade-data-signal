@@ -3396,18 +3396,57 @@ main { padding: 16px 24px; }
 .db-highlights ul { margin: 0; padding-left: 18px; }
 .db-highlights li { font-size: 13px; color: var(--text-1); line-height: 1.7; }
 /* AI 预测自成长 Step 1 透明展示:「含历史反思校准」区块(meta.reflection) */
+/* 2026-08-26 布局改造:默认折叠(details)+标题栏次数徽标+明细分批「加载更多」,防样本积累撑爆布局 */
 .db-reflection {
   margin: 2px 0 4px;
-  padding: 8px 12px;
+  padding: 7px 12px;
   background: linear-gradient(90deg, rgba(100, 160, 255, 0.14), rgba(100, 160, 255, 0.04));
   border-left: 3px solid #5a9bf0;
   border-radius: 6px;
 }
-.db-reflection-title { font-weight: 700; color: #3a7bd5; font-size: 13px; margin-bottom: 3px; }
+.db-reflection-title {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 700;
+  color: #3a7bd5;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.db-reflection-title::-webkit-details-marker { display: none; }
+.db-reflection-head { flex-shrink: 0; }
+.db-reflection-badge {
+  font-weight: 600;
+  font-size: 11px;
+  color: #4a86d8;
+  background: rgba(90, 155, 240, 0.16);
+  border-radius: 10px;
+  padding: 1px 8px;
+}
+.db-reflection .db-debate-arrow { margin-left: auto; font-size: 11px; color: var(--text-3); transition: transform 0.15s; }
+.db-reflection[open] .db-debate-arrow { transform: rotate(180deg); }
+.db-reflection-body { padding-top: 2px; }
 .db-reflection-brief { margin: 0 0 4px; font-size: 12.5px; color: var(--text-1); line-height: 1.6; }
 .db-reflection-samples { margin: 0; padding-left: 18px; }
 .db-reflection-samples li { font-size: 12.5px; color: var(--text-2); line-height: 1.6; }
 .db-reflection-samples b { color: #3a7bd5; }
+.db-reflection-samples li.db-refl-hidden { display: none; }
+.db-refl-more {
+  margin-top: 5px;
+  display: inline-block;
+  border: 1px solid rgba(90, 155, 240, 0.45);
+  background: rgba(90, 155, 240, 0.08);
+  color: #3a7bd5;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  padding: 3px 12px;
+  cursor: pointer;
+}
+.db-refl-more:hover { background: rgba(90, 155, 240, 0.18); }
 .db-debate-wrap {
   margin-top: 6px;
   border: 1px solid var(--border);
