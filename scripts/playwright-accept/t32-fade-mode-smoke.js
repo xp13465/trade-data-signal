@@ -4,7 +4,8 @@
  *
  * 目的(主控硬要求④): node --check 之外的真实浏览器实操验证——
  *   ① 首页模式下拉存在, 且与「AI降亏过滤」文字同一行(offsetTop 差 < 阈值, UI 落点铁律)
- *   ② AI 监控卡模式下拉+「牛市×辅备买全停」+1开关与「AI降亏过滤」同一行
+ *   ② AI 监控卡模式下拉与「AI降亏过滤」同一行
+ *      (v20260826 终审P1: 监控卡独立+1开关已于 4fa57af24 移除, bullstop 死断言清理)
  *   ③ 快速连切 7 模式(p8→p9→a9→b9→c9→new14→s06)无卡死: 无 pageerror/console error,
  *      localStorage 写入正确(tds_home_fade_mode / tds_overfit_fade_mode), 切完页面仍响应
  *      (2026-08-23 二轮适配起三键为 TTL JSON 格式 {v, ts}, common.js _tdsStoreWithTTL 单源——断言按 .v 取值+验 ts 在)
@@ -66,11 +67,10 @@ function check(tag, cond, detail) {
       !!rowInfo && rowInfo.dy < ROW_TOL, rowInfo ? `dy=${rowInfo.dy.toFixed(1)}px 左侧序=${rowInfo.orderOk}` : 'DOM结构缺失');
   }
 
-  // ---- ② 监控卡: 下拉 + bullstop 存在 + 同行 ----
+  // ---- ② 监控卡: 下拉存在 + 同行 ----
   await page.waitForSelector('.overfit-card', { timeout: 20000 }).catch(() => {});
   const ovSel = await page.$('#overfit-fade-mode-sel');
   check('监控卡模式下拉存在', !!ovSel);
-  check('监控卡+1开关(牛市×辅备买全停)存在', !!(await page.$('[data-overfit-bullstop]')));
   if (ovSel) {
     const ovInfo = await page.evaluate(() => {
       const sel = document.querySelector('#overfit-fade-mode-sel');
@@ -132,19 +132,7 @@ function check(tag, cond, detail) {
     check('监控卡连切后仍响应(切回 p8 成功)', ovResp);
   }
 
-  // ---- ④ bullstop 开关交互(监控卡): 点一下写入 tds_overfit_bull_stop ----
-  const bsCb = await page.$('[data-overfit-bullstop]');
-  if (bsCb) {
-    await bsCb.click();
-    await page.waitForTimeout(400);
-    const bsOn = await page.evaluate(() => { const o = JSON.parse(localStorage.getItem('tds_overfit_bull_stop') || 'null'); return o ? o.v : null; });
-    await bsCb.click();               // 还原关闭
-    await page.waitForTimeout(400);
-    check('监控卡+1开关注入/还原正常(TTL格式)', bsOn === '1' && (await page.evaluate(() => { const o = JSON.parse(localStorage.getItem('tds_overfit_bull_stop') || 'null'); return o ? o.v : null; })) !== '1',
-      `点击后=${bsOn}`);
-  }
-
-  // ---- ⑤ 全程无 JS 错误 ----
+  // ---- ④ 全程无 JS 错误 ----
   check('全程无 pageerror/console.error', errors.length === 0,
     errors.length ? errors.slice(0, 5).join(' | ').slice(0, 500) : 'clean');
 
