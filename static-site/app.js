@@ -4823,16 +4823,30 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       _consMembers[_cpid] = _cm;
     }
   }
+  const _CONSENSUS_PIDS = ["p8", "p9", "a9", "b9", "c9", "new14", "new15"];
   function _consensusVotesOf(it2) {
+    // 优先读后端预计算 mode_votes(单源, 含 bullAuxBackupStop 特判)
+    const mv = it2.ai_macro && it2.ai_macro.mode_votes;
+    if (mv) {
+      let y2 = 0;
+      for (const pid of _CONSENSUS_PIDS) {
+        if (mv[pid]) y2++;
+      }
+      // S06 动态票(同现有逻辑)
+      const r6 = (typeof _tdsS06BaseForDate === "function") ? _tdsS06BaseForDate(it2.date) : null;
+      if (r6 && r6.ok && mv[r6.base]) y2++;
+      else if (!r6 || !r6.ok) y2++;
+      return y2;
+    }
+    // fallback: 旧逻辑(mode_votes 缺失时, 如存量旧数据)
     const f2 = (it2.ai_macro && Array.isArray(it2.ai_macro.filters)) ? it2.ai_macro.filters : [];
     let y2 = 0;
-    for (const pid of ["p8", "p9", "a9", "b9", "c9", "new14", "new15"]) {
+    for (const pid of _CONSENSUS_PIDS) {
       const m2 = _consMembers[pid] || {};
       if (f2.some((fk) => m2[fk])) continue;
       if (m2.bullAuxBackupStop && _isBullStopHit(it2)) continue;
       y2++;
     }
-    // S06 动态票: 当日生效基座(a9/new15)键集同式判; 快照不可用 fail-open 计 1 票(保留)
     const r6 = (typeof _tdsS06BaseForDate === "function") ? _tdsS06BaseForDate(it2.date) : null;
     if (r6 && r6.ok) {
       const bm = _consMembers[r6.base] || {};
@@ -4842,7 +4856,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     }
     return y2;
   }
-  // X 固化表: K1 标准视角 top-K kept(item 引用 Set)
+  // X 固化表: per-mode per-date top-1 kept sets
   const _rcX = { high: 0, mid: 1, low: 2, "": 3 };
   const _scX = { buy_backup: 0, buy: 1, buy_aux: 2, buy_special: 3, "": 9 };
   const _ratingXOf = (x) => {
@@ -4864,29 +4878,55 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     if (sa2 !== sb2) return sa2 - sb2;
     return 0;
   };
-  const _fixedKeptSet = new Set();
+  const _fixedKeptMapByMode = {};
+  for (const pid of _CONSENSUS_PIDS) _fixedKeptMapByMode[pid] = {};
   {
-    const _byDateX = {};
-    const _n14 = _consMembers["new14"] || {};
     for (const x of items) {
       if (!x || !_CONS_BUY[x.signal] || x._bt_in_universe === false) continue;
       const fx = (x.ai_macro && Array.isArray(x.ai_macro.filters)) ? x.ai_macro.filters : [];
-      if (fx.some((fk) => _n14[fk])) continue;
-      (_byDateX[x.date] = _byDateX[x.date] || []).push(x);
+      const mv = x.ai_macro && x.ai_macro.mode_votes;
+      for (const pid of _CONSENSUS_PIDS) {
+        if (mv && !mv[pid]) continue;  // 该模式拦了, 跳过
+        if (!mv && fx.some((fk) => (_consMembers[pid] || {})[fk])) continue;  // fallback
+        (_fixedKeptMapByMode[pid][x.date] = _fixedKeptMapByMode[pid][x.date] || []).push(x);
+      }
     }
-    for (const dx in _byDateX) {
-      const arr = _byDateX[dx].slice().sort(_consSortedFn);
-      if (arr.length) _fixedKeptSet.add(arr[0]);
+    // S06 mode
+    _fixedKeptMapByMode["s06"] = {};
+    for (const x of items) {
+      if (!x || !_CONS_BUY[x.signal] || x._bt_in_universe === false) continue;
+      const fx = (x.ai_macro && Array.isArray(x.ai_macro.filters)) ? x.ai_macro.filters : [];
+      const r6 = (typeof _tdsS06BaseForDate === "function") ? _tdsS06BaseForDate(x.date) : null;
+      const base = r6 && r6.ok ? r6.base : "new15";  // fail-open = new15
+      const mv = x.ai_macro && x.ai_macro.mode_votes;
+      if (mv && !mv[base]) continue;
+      if (!mv && fx.some((fk) => (_consMembers[base] || {})[fk])) continue;
+      (_fixedKeptMapByMode["s06"][x.date] = _fixedKeptMapByMode["s06"][x.date] || []).push(x);
+    }
+    // Sort each mode×date and take top-1
+    for (const pid of Object.keys(_fixedKeptMapByMode)) {
+      for (const dx in _fixedKeptMapByMode[pid]) {
+        const arr = _fixedKeptMapByMode[pid][dx];
+        arr.sort(_consSortedFn);
+        _fixedKeptMapByMode[pid][dx] = new Set(arr.length ? [arr[0]] : []);
+      }
     }
   }
-  // item 引用 → {y:int, x:1|0|"na"}(x="na"=未入样本不在 K1 人口); cellHtml 只查表写属性零重算
+  // item 引用 → {y:int, x:0~8|"na"}; cellHtml 只查表写属性零重算
   const _consensusMap = new Map();
   for (const it of items) {
     if (!it || !_CONS_BUY[it.signal]) continue;
     const inUni = it._bt_in_universe !== false;
-    const f3 = (it.ai_macro && Array.isArray(it.ai_macro.filters)) ? it.ai_macro.filters : [];
-    const blockedN14 = f3.some((fk) => (_consMembers["new14"] || {})[fk]);
-    _consensusMap.set(it, { y: _consensusVotesOf(it), x: (!inUni) ? "na" : ((!blockedN14 && _fixedKeptSet.has(it)) ? 1 : 0) });
+    let x = 0;
+    if (inUni) {
+      for (const pid of _CONSENSUS_PIDS) {
+        const kept = _fixedKeptMapByMode[pid]?.[it.date];
+        if (kept && kept.has(it)) x++;
+      }
+      const s06kept = _fixedKeptMapByMode["s06"]?.[it.date];
+      if (s06kept && s06kept.has(it)) x++;
+    }
+    _consensusMap.set(it, { y: _consensusVotesOf(it), x: inUni ? x : "na" });
   }
   // 异步依赖就绪后重绘一次(Y 的 bull/S06 票从 fail-open 修正为实判); 单例 promise 已加载直接复用零重复请求
   if (!_sigTierByDate && typeof _ensureSigTierMap === "function") {

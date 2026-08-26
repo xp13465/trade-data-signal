@@ -782,6 +782,44 @@ _AI_MACRO_A_STOCK_MARKETS = {"mkt_a", "mkt_concept", "mkt_industry"}
 # 非买信号(band_hold/sell/sell_stop_loss)凯利区不存在(只采买信号), 一律不判降亏(review MED3)。
 _AI_MACRO_BUY_SIGNALS = {"buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup"}
 
+# ============ AI 信号认可度 Y 票 per-mode 预设(2026-08-26) ============
+# 与 common.js _KELLY_FADE_MODE_PRESETS 7 个静态预设键集逐位一致(§22 登记点)。
+# 用途: _ai_macro_mode_votes 逐模式判定 filters 是否与 preset keys 有交集。
+_AI_CONSENSUS_PRESETS = {
+    "p8": {"keys": ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15"]},
+    "p9": {"keys": ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop"]},
+    "a9": {"keys": ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "t1LowTurnSpecial", "q1QvixLowPct", "m1MarginDownBull", "v1HighVol20", "r1VolRatioLow", "k3ConceptBuy", "r2bSpecialGlobal", "r2gLowRatingQ3"]},
+    "b9": {"keys": ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "t1LowTurnSpecial", "q1QvixLowPct", "m1MarginDownBull", "r1VolRatioLow", "r2bSpecialGlobal", "r2gLowRatingQ3"]},
+    "c9": {"keys": ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"]},
+    "new14": {"keys": ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "declinePhaseSpecial", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"]},
+    "new15": {"keys": ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "declinePhaseSpecial", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal", "excludeTierNone"]},
+}
+
+_CONSENSUS_MODE_IDS = ["p8", "p9", "a9", "b9", "c9", "new14", "new15"]
+
+
+def _ai_macro_mode_votes(filters: list, sig: dict, ctx: dict) -> dict:
+    """per-mode 投票: mode_votes[pid] = True 表示该模式不拦此信号。
+    含 bullAuxBackupStop 特判(buy_aux/buy_backup + 牛市·主升 → 该模式拦)。"""
+    _sig = str(sig.get("signal") or "")
+    _d = str(sig.get("date") or "")
+    _tier = ctx["tier_of"](_d) if ctx else ""
+    _filter_set = set(filters)
+    votes = {}
+    for pid in _CONSENSUS_MODE_IDS:
+        preset_keys = set(_AI_CONSENSUS_PRESETS[pid]["keys"])
+        # 静态键集判定: filters 与 preset keys 有交集 → 该模式拦
+        if _filter_set & preset_keys:
+            votes[pid] = False
+            continue
+        # bullAuxBackupStop 特判: preset 携带该键时, 需要前端 tier 数据
+        if "bullAuxBackupStop" in preset_keys:
+            if _sig in ("buy_aux", "buy_backup") and _tier == "牛市·主升":
+                votes[pid] = False
+                continue
+        votes[pid] = True
+    return votes
+
 
 # ============ AI降亏 20 条新键(T1 2026-08-23, 规格单源=scripts/loss_rules.py) ============
 # 二轮挖掘成员规则(A/B/C/NEW14/NEW18 五套模式的成员键)生产化: 此前只活在挖掘脚本内存里(T0 调研定案)。
@@ -1401,6 +1439,7 @@ def overview(conn, cfg):
             _s["ai_macro"] = {
                 "hit": bool(_f),
                 "filters": _f,
+                "mode_votes": _ai_macro_mode_votes(_f, _s, _ctx),
                 # #69: 注入 cyb 四档供未来前端用(新键 excludeSpecialBearCyb 展示可读, 不参与默认判定)
                 "cyb_tier": _ai_macro_tier_at(str(_s.get("date") or ""), _cyb_state, _cyb_dates),
             }
