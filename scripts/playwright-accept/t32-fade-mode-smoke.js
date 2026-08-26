@@ -5,7 +5,7 @@
  * 目的(主控硬要求④): node --check 之外的真实浏览器实操验证——
  *   ① 首页模式下拉存在, 且与「AI降亏过滤」文字同一行(offsetTop 差 < 阈值, UI 落点铁律)
  *   ② AI 监控卡模式下拉+「牛市×辅备买全停」+1开关与「AI降亏过滤」同一行
- *   ③ 快速连切 7 模式(p8→p9→a9→b9→c9→new14→new18)无卡死: 无 pageerror/console error,
+ *   ③ 快速连切 7 模式(p8→p9→a9→b9→c9→new14→s06)无卡死: 无 pageerror/console error,
  *      localStorage 写入正确(tds_home_fade_mode / tds_overfit_fade_mode), 切完页面仍响应
  *      (2026-08-23 二轮适配起三键为 TTL JSON 格式 {v, ts}, common.js _tdsStoreWithTTL 单源——断言按 .v 取值+验 ts 在)
  *
@@ -22,7 +22,8 @@
 const { chromium } = require('playwright');
 
 const URL = process.argv[2] || 'http://localhost:8000';
-const MODES = ['p8', 'p9', 'a9', 'b9', 'c9', 'new14', 'new18'];
+// v20260826(用户拍板): new18 从下拉移除 → 清单同步去 new18 加 s06 动态档
+const MODES = ['p8', 'p9', 'a9', 'b9', 'c9', 'new14', 's06'];
 const ROW_TOL = (() => { const m = process.argv.includes('--mobile'); return m ? 40 : 8; })();
 
 const results = [];
@@ -96,7 +97,7 @@ function check(tag, cond, detail) {
     await page.waitForTimeout(1500);
     const homeStored = await page.evaluate(() => { const o = JSON.parse(localStorage.getItem('tds_home_fade_mode') || 'null'); return o ? o.v : null; });
     const homeTsOk = await page.evaluate(() => { const o = JSON.parse(localStorage.getItem('tds_home_fade_mode') || 'null'); return !!(o && typeof o.ts === 'number'); });
-    check('首页快速连切7模式: localStorage=最后选择(new18)+TTL格式', homeStored === 'new18' && homeTsOk, `got=${homeStored}`);
+    check('首页快速连切7模式: localStorage=最后选择(s06)+TTL格式', homeStored === 's06' && homeTsOk, `got=${homeStored}`);
     const respOK = await page.evaluate(() => {
       const s = document.querySelector('#sig-home-fade-mode-sel');
       s.value = 'p8'; s.dispatchEvent(new Event('change', { bubbles: true }));
@@ -120,7 +121,7 @@ function check(tag, cond, detail) {
     }
     await page.waitForTimeout(2500);   // 组集重绘两图留渲染时间
     const ovStored = await page.evaluate(() => { const o = JSON.parse(localStorage.getItem('tds_overfit_fade_mode') || 'null'); return o ? o.v : null; });
-    check('监控卡快速连切7模式: localStorage=最后选择(new18)+TTL格式', ovStored === 'new18', `got=${ovStored}`);
+    check('监控卡快速连切7模式: localStorage=最后选择(s06)+TTL格式', ovStored === 's06', `got=${ovStored}`);
     const ovResp = await page.evaluate(() => {
       const s = document.querySelector('#overfit-fade-mode-sel');
       s.value = 'p8'; s.dispatchEvent(new Event('change', { bubbles: true }));

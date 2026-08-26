@@ -13,7 +13,8 @@ const oi = process.argv.indexOf("--out");
 const OUT = oi > 0 ? process.argv[oi + 1] : "/tmp/mem-probe.json";
 const LAB_URL = BASE + "/index.html#lab?sub=sigkelly";
 const HOME_URL = BASE + "/index.html";
-const MODES7 = ["p9", "a9", "b9", "c9", "new14", "new18", "p8"];
+// v20260826(用户拍板): new18 从下拉移除 → 连切清单换 s06 动态档, 保持 7 档
+const MODES7 = ["p9", "a9", "b9", "c9", "new14", "s06", "p8"];
 const out = { base: BASE, scenes: {} };
 
 const browser = await chromium.launch();

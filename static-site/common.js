@@ -727,6 +727,12 @@ function _tdsFadeSpecHit(key, c) {
 
 // ---- AI降亏 8 模式预设(权威=T2 卡 _KELLY_MODE_COMPARE_CARDS+mine24_compare.json; 文案从卡转录) ----
 // keys 全部 ⊆ 58 键(FRONT 10 + GATE 27 + T1 20 + X1); caliber 口径标注随选项展示(A/B/C=叠9键 / NEW 族=换基座)。
+// ⭐ v20260826(用户拍板, §23.7 已确认可改历史功能): ①预设新增 stars 字段(纯展示层=S06 3星/a9·new14·new15 2星/
+//   p9·b9 1星/p8·c9 无星), 仅用于下拉「星多靠前、无星殿后(保持原相对序)」排序与前缀展示, 键集/判定/默认值零变化;
+//   ②NEW2 18键(new18) 对照档从下拉移除(用户:"不用对照啦 14+1 对照够啦")——仅删本表条目, 「🧩 AI 降亏组成对比」区
+//   的 18键方案卡保留(lab.js _KELLY_MODE_COMPARE_CARDS 不动), 后端 RECENT_KEYS 打标集也不动(自定义手勾键仍需打标);
+//   已存 new18 模式记忆的浏览器在四个消费点读取处经 _tdsFadeModeById 校验失败自动回默认(_KELLY_FADE_DEFAULT_MODE),
+//   不空白不报错。下拉渲染顺序由 _tdsFadeModeDisplayList 统一给出(stars 稳定降序+原相对序兜底), 其余按 id 消费方不受影响。
 // ⚠ v1.1.5(2026-08-24 用户拍板): 默认基座从 p8(8键, v1.1.2) 切换为 new14(NEW 14键)——依据 mine28(AUTO 轮动
 //   样本外全 FAIL+天花板作弊仍输单持)+mine30 记分板(NEW14 全史第一 +122,648/mdd -4,178 vs 八键 +66,530/-18,190,
 //   费后 K1 V2 回补 cap13 口径)。p8 保留为可手动选的对照档位不删(§23.7 只增不改精神: 老口径可回选)。
@@ -743,19 +749,19 @@ var _KELLY_FADE_ALL_KEYS = _KELLY_FADE_FRONT_KEY_ORDER.concat(_KELLY_FADE_GATE_K
 var _KELLY_FADE_MODE_PRESETS = [
   { id: "p8", name: "8键(旧默认·对照)", tagline: "v1.1.2 基座·稳定参照", caliber: "✓ v1.1.4 及以前默认(现对照档)", calWarn: false,
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15"] },
-  { id: "p9", name: "9键", tagline: "8键+候选1·牛市辅备买拦截", caliber: "✓ 叠 8 键(+候选1)", calWarn: false,
+  { id: "p9", name: "⭐ 9键", tagline: "8键+候选1·牛市辅备买拦截", caliber: "✓ 叠 8 键(+候选1)", calWarn: false, stars: 1,
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop"] },
-  { id: "a9", name: "A 进攻王", tagline: "近端牛市吃满·回撤恢复99天", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true,
+  { id: "a9", name: "⭐⭐ A 进攻王", tagline: "近端牛市吃满·回撤恢复99天", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true, stars: 2,
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "t1LowTurnSpecial", "q1QvixLowPct", "m1MarginDownBull", "v1HighVol20", "r1VolRatioLow", "k3ConceptBuy", "r2bSpecialGlobal", "r2gLowRatingQ3"] },
-  { id: "b9", name: "B 均衡卡", tagline: "每项不差无短板·K档最钝感", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true,
+  { id: "b9", name: "⭐ B 均衡卡", tagline: "每项不差无短板·K档最钝感", caliber: "⚠ 叠 9 键口径(叠加规则非独立组合)", calWarn: true, stars: 1,
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "t1LowTurnSpecial", "q1QvixLowPct", "m1MarginDownBull", "r1VolRatioLow", "r2bSpecialGlobal", "r2gLowRatingQ3"] },
   { id: "c9", name: "C 防守", tagline: "笔数最少·熊市少亏", caliber: "⚠ 叠 9 键口径(速查卡注: 真选 C 应叠 8 键下线候选1)", calWarn: true,
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] },
-  { id: "new14", name: "NEW 14键(默认)", tagline: "新防守王·全史第一+回撤最浅", caliber: "✓ 现役默认(v1.1.5 起·重构换基座)", calWarn: false,
+  { id: "new14", name: "⭐⭐ NEW 14键(默认)", tagline: "新防守王·全史第一+回撤最浅", caliber: "✓ 现役默认(v1.1.5 起·重构换基座)", calWarn: false, stars: 2,
     keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "declinePhaseSpecial", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] },
-  { id: "new18", name: "NEW2 18键", tagline: "NEW 影子·入选差31笔次优对照", caliber: "⚠ 重构换基座(NEW 族次优解)", calWarn: true,
-    keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "excludeSpecialBear", "n2NovSpecialIndustry", "greedy7", "v4f", "n2NorthOutConcept", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] },
-  { id: "new15", name: "NEW14+1 · 15键", tagline: "NEW14+整剔有跟踪ETF象限(none/null)·回撤改善档", caliber: "⚠ 重构换基座(NEW 族扩展·可选档非默认)", calWarn: true,
+  // new18(NEW2 18键) 已从下拉移除(v20260826 用户拍板"不用对照啦 14+1 对照够啦"): 条目删除,
+  // 组成对比区方案卡(lab.js)与后端 RECENT_KEYS 打标集保留; 老记忆经消费点校验自动回默认。
+  { id: "new15", name: "⭐⭐ NEW14+1 · 15键", tagline: "NEW14+整剔有跟踪ETF象限(none/null)·回撤改善档", caliber: "⚠ 重构换基座(NEW 族扩展·可选档非默认)", calWarn: true, stars: 2,
     // X1=整剔 track_tier=none/null 象限(mine29c 2026-08-24 用户拍板保留为可选档; 同日用户拍板 X1 扩围
     // 「一起扩」剔 null, 与回测 etf_has_track 卡/首页筛选档4口径完全统一)。⚠诚实标注: 下述数字均为扩围前
     // 仅剔 none 口径(mine29c), 扩围后作废待正式穷举回测重算: 全史仅剔 17 笔毛 +584.62(费 359.07 净 +225.56),
@@ -767,9 +773,21 @@ var _KELLY_FADE_MODE_PRESETS = [
   // 阈值/状态机唯一事实源 = scripts/gen_kelly_mode_s06_state.py → static-site/data/kelly_mode_s06_state.json,
   //   本文件零硬编码阈值(§22 登记点纪律); 下方 tooltip 文案数值仅为 §21 公示, 与生成器逐位一致由
   //   scripts/check_s06_state.py 机检把关。回测对照锚点 S06_A_vs_14plus1 验段净利 +93,813.21 / mdd -3,811.27。
-  { id: "s06", name: "S06 · 大盘领先切换", tagline: "小盘弱→A进攻王·否则NEW14+1(动态)", caliber: "🧪 实验可选档·动态切换(非默认)", calWarn: true, dynamic: true }
+  { id: "s06", name: "⭐️⭐️⭐️ S06 · 大盘领先切换", tagline: "小盘弱→A进攻王·否则NEW14+1(动态)", caliber: "🧪 实验可选档·动态切换(非默认)", calWarn: true, dynamic: true, stars: 3 }
 ];
 var _KELLY_FADE_DEFAULT_MODE = "new14"; // v1.1.5 起默认=NEW 14键(v1.1.2 及以前=p8/8键; 单源, 各消费点回退统一引用本常量)
+// 下拉展示顺序(v20260826 用户拍板): 有星在前星多靠前, 无星跟在 1 星组后沿用原相对序——稳定排序(同星数不改变
+// 原相对顺序), 默认选中值(p8/new14)与键集判定不受影响; 仅 _tdsFadeModeSelectHTML 渲染消费。
+function _tdsFadeModeDisplayList() {
+  return _KELLY_FADE_MODE_PRESETS
+    .map(function (p, i) { return { p: p, i: i }; })
+    .sort(function (a, b) {
+      var sa = a.p.stars || 0, sb = b.p.stars || 0;
+      if (sa !== sb) return sb - sa;   // 星多靠前(降序); 无星=0 殿后
+      return a.i - b.i;                // 同星级沿用原相对序(Array.prototype.sort 现代引擎为稳定排序, 双保险仍显式比原索引)
+    })
+    .map(function (x) { return x.p; });
+}
 function _tdsFadeModeById(id) {
   for (var i = 0; i < _KELLY_FADE_MODE_PRESETS.length; i++) {
     if (_KELLY_FADE_MODE_PRESETS[i].id === id) return _KELLY_FADE_MODE_PRESETS[i];
@@ -810,8 +828,10 @@ function _tdsFadeModeMatch(filters) {
 //   待接(T3-2): 首页 AI 建议卡、AI 监控卡——直接复用本组件, 不再各写一份 select。
 function _tdsFadeModeSelectHTML(id, selectedId, withCustom, cls, title) {
   var h = '<select id="' + id + '" class="' + (cls || "tds-fade-mode-sel") + '"' + (title ? ' title="' + title + '"' : "") + '>';
-  for (var i = 0; i < _KELLY_FADE_MODE_PRESETS.length; i++) {
-    var p = _KELLY_FADE_MODE_PRESETS[i];
+  // v20260826: 渲染顺序走 _tdsFadeModeDisplayList(星多靠前/无星殿后沿用原相对序), name 已含星前缀
+  var _list = (typeof _tdsFadeModeDisplayList === "function") ? _tdsFadeModeDisplayList() : _KELLY_FADE_MODE_PRESETS;
+  for (var i = 0; i < _list.length; i++) {
+    var p = _list[i];
     h += '<option value="' + p.id + '"' + (p.id === selectedId ? " selected" : "") + ">" + p.name + " · " + p.tagline + (p.calWarn ? " ⚠" : "") + "</option>";
   }
   if (withCustom) {
@@ -865,6 +885,7 @@ window._KELLY_FADE_MODE_PRESETS = _KELLY_FADE_MODE_PRESETS;
 window._KELLY_FADE_ALL_KEYS = _KELLY_FADE_ALL_KEYS;
 window._KELLY_FADE_DEFAULT_MODE = _KELLY_FADE_DEFAULT_MODE;
 window._tdsFadeModeById = _tdsFadeModeById;
+window._tdsFadeModeDisplayList = _tdsFadeModeDisplayList;
 window._tdsFadeModeApply = _tdsFadeModeApply;
 window._tdsFadeModeMatch = _tdsFadeModeMatch;
 window._tdsFadeModeSelectHTML = _tdsFadeModeSelectHTML;

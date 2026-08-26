@@ -5,7 +5,7 @@
  * 【目的】真实浏览器(chromium)实操冒烟, 验四件修复+性能硬指标:
  *   A(lab 页)
  *     A1 「AI降亏过滤」总开关文字与「模式」下拉同一可视行(同一 flex 容器/y 中点差<40px)
- *     A2 连续快切 7 个模式(间隔≤300ms): 不假死(最后切换后 500ms 内 DOM 可响应)+标签点亮态正确
+ *     A2 连续快切 7 个代表模式(间隔≤300ms): 不假死(最后切换后 500ms 内 DOM 可响应)+标签点亮态正确
  *        (p9 → .lab-sigkelly-toggle-bullstop 勾亮; p8 → 不亮; 每步校验)
  *     A3 toggle 勾选冷重算分片实测: 勾选→取消小标签强制全量重算(缓存签名变化), 采 longtask
  *        验证分片让步后 >200ms 长任务=0 且不假死(硬指标「任意操作 >200ms=0」的冷路径直接证据)
@@ -33,7 +33,9 @@ function optOf(name, def) { const i = args.indexOf(name); return i > 0 ? args[i 
 const SHOT_PREFIX = optOf('--shot-prefix', path.join(path.dirname(new URL(import.meta.url).pathname), 'fade-mode-ui'));
 const PERF_OUT = optOf('--perf-out', null);
 
-const MODES = ['p8', 'p9', 'a9', 'b9', 'c9', 'new14', 'new18'];
+// v20260826(用户拍板): new18 从下拉移除 → 快切清单同步去掉; 现预设 8 个(s06/p9/a9/b9/c9/new14/new15/p8),
+// 冒烟取 7 代表档(含 s06 动态档)覆盖三档星标与两基座口径。
+const MODES = ['p8', 'p9', 'a9', 'b9', 'c9', 'new14', 's06'];
 const SWITCH_GAP_MS = 250;           // ≤300ms 快切要求
 const PROBE_TIMEOUT_MS = 5000;       // 冻结探针上限(>500ms 即判不达标, >5s 视为彻底饿死)
 const PROBE_PASS_MS = 500;           // 硬指标: 探针响应 <500ms

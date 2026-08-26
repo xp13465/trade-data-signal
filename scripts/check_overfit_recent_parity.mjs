@@ -331,8 +331,10 @@ check("G daily_by_win 15 序列 ≤200 点", (a9.overfit.daily_by_win["15"] || [
     for (const k of (m.keys || [])) if (!rk.has(k)) miss.push(`${m.id || "?"}:${k}`);
   }
   if (!rk.has("bullAuxBackupStop")) miss.push("+1开关:bullAuxBackupStop");
-  check("H 7模式 keys ∪ bullstop 全部 ⊆ recent.keys(缺键即组集恒 false)", miss.length === 0,
-    miss.length ? "缺=" + miss.join(", ") : `全齐(recent.keys=${rk.size}键, 含 NEW18 n2NorthOutConcept)`);
+  // v20260826: new18 已从 common.js 预设表移除 → 本断言自动只校验现存预设(遍历式, 无需改逻辑);
+  // 后端 RECENT_KEYS 打标集保留 new18 键(组成对比区卡仍引用+自定义手勾键仍需打标), 不动。
+  check("H 全部下拉预设 keys ∪ bullstop 全部 ⊆ recent.keys(缺键即组集恒 false)", miss.length === 0,
+    miss.length ? "缺=" + miss.join(", ") : `全齐(recent.keys=${rk.size}键, 遍历现存预设=${(Array.isArray(modes) ? modes.length : Object.keys(modes).length)}个)`);
 }
 
 // ---- I FIELD 修复验证(2026-08-23 用户确认修): by_grade 回测桶出数 + gr 值域合法 ----
