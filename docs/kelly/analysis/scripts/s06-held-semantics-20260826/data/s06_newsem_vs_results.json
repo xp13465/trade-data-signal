@@ -1,0 +1,67 @@
+{
+  "method": {
+    "engine": "mine28.simulate same engine as s06_vs_14plus1_same_engine.py",
+    "sem_change": "codex-claude2codex-20260826-008 F2: held=a9生效交易日数(进入当日计1)",
+    "rerun_date": "2026-08-26"
+  },
+  "results": {
+    "OLD_sem_held_hitonly": {
+      "label": "OLD_sem_held_hitonly",
+      "validation": {
+        "total": 94436.3,
+        "n": 367,
+        "win_rate": 64.6,
+        "mdd": -3811.27,
+        "trough": "20221103",
+        "years_pos": 6,
+        "pos_month_share": 0.574,
+        "worst_month": -2014.92,
+        "peak_pos": 10,
+        "switches_per_yr": 4.0
+      },
+      "yearly": {
+        "2021": 10570.58,
+        "2022": 10993.29,
+        "2023": 6239.2,
+        "2024": 20981.27,
+        "2025": 29072.39,
+        "2026": 16579.57
+      },
+      "forced": {
+        "total": 82057.81,
+        "mdd": -3018.4,
+        "win_rate": 64.3,
+        "switches_per_yr": 4.0
+      }
+    },
+    "NEW_sem_held_effective_days": {
+      "label": "NEW_sem_held_effective_days",
+      "validation": {
+        "total": 100572.43,
+        "n": 362,
+        "win_rate": 66.0,
+        "mdd": -3811.27,
+        "trough": "20221103",
+        "years_pos": 6,
+        "pos_month_share": 0.603,
+        "worst_month": -2014.92,
+        "peak_pos": 10,
+        "switches_per_yr": 6.33
+      },
+      "yearly": {
+        "2021": 10570.58,
+        "2022": 12007.28,
+        "2023": 8258.55,
+        "2024": 25277.61,
+        "2025": 25534.54,
+        "2026": 18923.86
+      },
+      "forced": {
+        "total": 82761.5,
+        "mdd": -2840.82,
+        "win_rate": 64.6,
+        "switches_per_yr": 6.33
+      }
+    }
+  }
+}
