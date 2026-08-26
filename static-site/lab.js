@@ -8213,9 +8213,11 @@ async function _kellyApplyFeeRecompute(feeParams) {
   // 降亏toggle过滤谓词(只算一次, positionCap/仓位控制共用)
   var monthMask = _kellyActiveMonthMask(filters);
   // S06(codex-task-20260825-001): 动态基座态 → passesFade 改 per-date: 按每笔 signal_date 取当日生效基座
-  // (a9/new15)的完整键集过滤; 快照不可用/日期超覆盖期 = 该笔 fail-open 放行 + _s6OpenCnt 计数
+  // (a9/new15)的完整键集过滤; 快照不可用/日期超覆盖期 = 该笔 fail-open 放行 + _s6OpenSet 收集唯一笔
   // (result._s6warn 可见警示, 绝不静默退回其他模式); 非 s06 态路径逐位不变(§23.7 纯新增)。
-  var _s6OpenCnt = 0;
+  // 计数去重(2026-08-26): 同一笔在统计链被多 passFn 多遍扫描(主池/NB池/阶段1 toggledByMode/posCap K1-4),
+  // 原计数器每调用 ++ 致警示 N 虚高(7370 vs 真实~2640); 改 Set 按 _kellyBaseKey 唯一化, 警示取 .size。
+  var _s6OpenSet = new Set();
   var _s6F6 = function (t) {
     return (typeof window._tdsS06FiltersForDate === "function") ? window._tdsS06FiltersForDate(String(t[fIdx.signal_date] || "")) : null;
   };
@@ -8223,7 +8225,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
   if (_labS06) {
     passesFade = function (t) {
       var f6 = _s6F6(t);
-      if (!f6) { _s6OpenCnt++; return true; }   // fail-open + 可见计数
+      if (!f6) { _s6OpenSet.add(_kellyBaseKey(t, fIdx)); return true; }   // fail-open + 可见计数(按唯一笔去重)
       return _kellyPassesFadeFilters(t, fIdx, f6, _kellyTradeFeatureCache, _tradeDims, _kellyActiveMonthMask(f6));
     };
   } else {
@@ -8253,7 +8255,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
     passesFadeNoBull = function (t) {
       var dStr = String(t[fIdx.signal_date] || "");
       var b = (typeof window._tdsS06BaseForDate === "function") ? window._tdsS06BaseForDate(dStr) : null;
-      if (!b || !b.ok) { _s6OpenCnt++; return true; }   // fail-open 与主谓词同口径
+      if (!b || !b.ok) { _s6OpenSet.add(_kellyBaseKey(t, fIdx)); return true; }   // fail-open 与主谓词同口径(共享同一 Set)
       if (!_s6NoBullCache[b.base]) _s6NoBullCache[b.base] = _s6BuildNB(b.base);
       var nb = _s6NoBullCache[b.base];
       return _kellyPassesFadeFilters(t, fIdx, nb, _kellyTradeFeatureCache, _tradeDims, _kellyActiveMonthMask(nb));
@@ -8499,7 +8501,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
       var _st6 = window._tdsS06Status();
       if (!_st6.loaded && _st6.err) _s6WarnParts.push("⚠ S06 快照不可用(" + _st6.err + ") — 动态判定未生效, 本批统计按无过滤人口展示(未回退其他模式)");
     }
-    if (_s6OpenCnt > 0) _s6WarnParts.push("⚠ " + _s6OpenCnt + " 笔超出 S06 快照覆盖期或缺行, 未按当日基座过滤(fail-open)");
+    if (_s6OpenSet.size > 0) _s6WarnParts.push("⚠ " + _s6OpenSet.size + " 笔(快照覆盖期前早期段)超出 S06 快照覆盖期, 未按当日基座过滤(fail-open)");
     if (_s6WarnParts.length) result._s6warn = _s6WarnParts.join(" ");
   }
   _kellyStatsCacheKey = cacheKey;
@@ -9366,29 +9368,8 @@ var _KELLY_MODE_COMPARE_CARDS = [
     ],
     perf: { net: "+122,648", y1: "+18,189", mdd: "-4,178", rec: "26天", n: "429笔/胜率66.9%" },
     tip: "【NEW 14键 · 新防守王·现役默认(v1.1.5 起)】✓ 重构换基座口径: 从全池出发仅这 14 键即完整黑名单(hist 键 6: r10/greedy15/janMidSpecial/k2c5/k3/下降期×追关注 + 规则键 8: N1/T1/D1/Q1/H1/M1/P1/R2b; 不预设 8 默认键在场、弃候选1), 与 A/B/C 的「叠加」完全不同结构, 不能混为一谈。【白话】全史利润第一 + 回撤最浅恢复最快的双冠王, v1.1.5 起为全站默认基座(切换依据=mine28 AUTO 轮动样本外不成立+mine30 记分板 NEW14 第一)。【场景】要「睡得着觉」——回撤最浅恢复最快且全史还最高; 接受近端弹性让位 A、以及年均约 2.4 次 ≥20 交易日的信号枯竭期(枯竭提示 chip 已上线, 历史上类似枯竭结束后 3 个月约 72% 为正)。【1:1】全史净利 +122,648 元(全场第一) vs 8键 +66,530; 回撤 -4,178 元恢复 26 天 vs 8键 -18,190 恢复 350 天(浅约 77%、恢复快约 13 倍); 近1年 +18,189(少赚 A 约 8,441)/ 2026YTD +10,016; 429 笔胜率 66.9% 全场最高; 四熊合计第一(2018 唯一转正)、十大亏月减亏第一。诚实标注: 同效果支配解族还有 15/16/17/19/21/24 键共 7 种表达逐笔等价, 落地取最简 14 键即可; 优势集中在 K1(K4 被 A 反超)。" },
-  { id: "new18", name: "NEW2 18键", tagline: "NEW 影子·入选差31笔次优对照", caliber: "⚠ 重构换基座(NEW 族次优解)", calWarn: true, best: false,
-    keys: [
-      ["r10May6NonMay", "5月+6非5月组合(r10)", "reb"],
-      ["greedy15", "Greedy-15广谱组合(greedy15)", "reb"],
-      ["janMidSpecial", "1月中旬+追关注(janMidSpecial)", "reb"],
-      ["k2c5HkChase", "港股追涨(K2C5)", "reb"],
-      ["k3ConceptBuy", "主关注×概念(k3ConceptBuy)", "reb"],
-      ["excludeSpecialBear", "追关注×熊市交叉(四档)(excludeSpecialBear)", "reb"],
-      ["n2NovSpecialIndustry", "11月+追关注+行业(n2NovSpecialIndustry)", "reb"],
-      ["greedy7", "Greedy-7广谱组合(greedy7)", "reb"],
-      ["v4f", "6月+周三+主关注+关联(v4f)", "reb"],
-      ["n2NorthOutConcept", "北向流出×概念类(N2)", "reb"],
-      ["n1NorthOutflow", "北向20日净流出(N1)", "reb"],
-      ["t1LowTurnSpecial", "换手冰点×追关注(T1)", "reb"],
-      ["d1LowDivYield", "股息率低位(D1)", "reb"],
-      ["q1QvixLowPct", "QVIX低分位(Q1)", "reb"],
-      ["h1VolChgHighA", "升波×A股(H1)", "reb"],
-      ["m1MarginDownBull", "牛主升×两融降温(M1)", "reb"],
-      ["p1LowDivBackup", "备买×股息率分位低(P1)", "reb"],
-      ["r2bSpecialGlobal", "追关注×全球类(R2b)", "reb"]
-    ],
-    perf: { net: "+120,565", y1: "+18,189", mdd: "-4,084", rec: "26天", n: "410笔/胜率67.1%" },
-    tip: "【NEW2 18键 · NEW 影子】⚠ 重构换基座口径: NEW 族内唯一真不同的次优解(与 NEW 入选集合差 31 笔)。【白话】NEW 的影子对照: 净利略少、回撤略浅, 无独立价值。【场景】仅作对照研究参考; 实际落地取 NEW 14键即可(支配解族最简形态)。【1:1】全史净利 +120,565 元(比 NEW 少 2,084); 回撤 -4,084 元恢复 26 天(比 NEW 浅 94); 近1年 +18,189 与 NEW 相同 / 2026YTD +10,016; 410 笔胜率 67.1%。键构成=NEW14 去「下降期×追关注」再加 追关注×熊市交叉(四档)/11月+追关注+行业/Greedy-7/6月+周三+主关注+关联(v4f)/北向流出×概念类(N2) 共 18 键。" },
+  // new18(NEW2·18键)卡已于 2026-08-26 应用户确认移除(原话「18和14键差异太小了 而且有了14+1的这个正向差异化就够了 18不要了」):
+  //   NEW 族次优影子对照无独立价值, 模式下拉同项上一批(a428)已删; 原始数字仍存 docs/kelly/analysis mine24_compare.json 可查。
   { id: "new15", name: "NEW14+1 · 15键", tagline: "NEW14+整剔有跟踪ETF象限(none/null)·回撤改善档", caliber: "⚠ 重构换基座(NEW 族扩展·可选档非默认)", calWarn: true, best: false,
     keys: [
       ["r10May6NonMay", "5月+6非5月组合(r10)", "reb"],
@@ -9426,9 +9407,9 @@ function _kellyModeCompareHTML() {
       `</div>`;
   }).join("");
   return `<details class="lab-sigkelly-mode-compare"${state.labSigKellyModeCompareOpen ? " open" : ""}>` +
-      `<summary class="lab-sigkelly-mode-compare-summary">🧩 AI 降亏组成对比(8 方案各由哪些规则叠加而成 · 点开看构成) <span class="lab-sigkelly-toggle-cat-caret">▼</span></summary>` +
+      `<summary class="lab-sigkelly-mode-compare-summary">🧩 AI 降亏组成对比(${_KELLY_MODE_COMPARE_CARDS.length} 方案各由哪些规则叠加而成 · 点开看构成) <span class="lab-sigkelly-toggle-cat-caret">▼</span></summary>` +
       `<div class="lab-sigkelly-mode-compare-body">` +
-        `<div class="lab-sigkelly-mode-compare-note">⚠ 先看清口径: <b>A/B/C</b> 是在 9 键基座上加规则(叠加口径, 金色=基座键/绿色=本方案叠加键); <b>NEW 14键/NEW14+1·15键/NEW2 18键</b> 是完全不同的组合结构(重构换基座, 蓝色=成员键, 不预设 8 默认在场、弃候选1; NEW14+1 为可选档非默认), 两者不能混为一谈。</div>` +
+        `<div class="lab-sigkelly-mode-compare-note">⚠ 先看清口径: <b>A/B/C</b> 是在 9 键基座上加规则(叠加口径, 金色=基座键/绿色=本方案叠加键); <b>NEW 14键/NEW14+1·15键</b> 是完全不同的组合结构(重构换基座, 蓝色=成员键, 不预设 8 默认在场、弃候选1; NEW14+1 为可选档非默认), 两者不能混为一谈。(NEW2·18键对照卡已于 2026-08-26 移除: 与14键差异太小, 原始数字存 mine24_compare.json)</div>` +
         `<div class="lab-sigkelly-mode-cards">${cardsHTML}</div>` +
         `<div class="lab-sigkelly-mode-compare-foot">📐 数字口径: mode A + K1 + etf_def 费后补位口径(signal_date 切片); 数据版本 signal_kelly_trades generated_at=2026-08-23 05:09, 权威值=mine24_compare.json(经独立审查二次验证, docs/kelly/analysis/sim-combo-cheatsheet-20260823.md)。★=该维度冠军(A=近端收益冠军 / NEW=全史净利+回撤双冠)。本区为纯展示快照, 不随页面开关重算(交互切换归后续版本)。</div>` +
       `</div>` +
@@ -9590,7 +9571,7 @@ function _renderSigKellyBar(bar, data, period) {
     return { allOn: allOn, anyOn: anyOn };
   })();
   const aiMacroLabelHTML =
-    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ AI降亏过滤(总开关, 默认开启): v1.1.5(2026-08-24 用户拍板)起默认基座=NEW14(NEW 14键)——构成=hist 键 6(5月+6非5月 r10 / Greedy-15 / 1月中旬+追关注 / K2C5 港股追涨 / 主关注×概念 k3 / 下降期×追关注)+规则键 8(N1 北向20日净流出 / T1 换手冰点×追关注 / D1 股息率低位 / Q1 QVIX低分位 / H1 升波×A股 / M1 牛主升×两融降温 / P1 备买×股息率分位低 / R2b 追关注×全球类), 共 14 键; +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 已剔除出回测宇宙)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除, 故 AI建议 一律不推荐, 以「未入样本」+灰显+删除线标注。【切换依据】mine28(AUTO 状态轮动样本外全 FAIL, 维持单模式)+mine30 记分板(NEW14 全史第一 +122,648/mdd -4,178 vs 八键 +66,530/-18,190, 费后 K1 V2 回补 cap13 口径); 权威数字见下方「🧩 AI 降亏组成对比」卡。仅买信号判降亏(§23.6 MED3): 删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。= AI仓位建议(K=1 默认=主推) + 默认组合(高亮14键=NEW14 + 1类回测剔除)。勾选=联动下方 NEW14 高亮14键子复选框 + 1类只读, 取消=关14键; 旧八键(v1.1.2 基座, 含 n2/janMidRating/r7/exclAuxCross/exclSpecialBear 五个已移出默认的键)经旁侧「模式」下拉选「8键」一键回选, 未删档可随时切回对照。「模式」下拉(T3-1 2026-08-23; v20260826 用户拍板加⭐推荐星标+按星排序: S06 3星/A进攻王·NEW 14键·NEW14+1·15键 2星/9键·B均衡卡 1星, 星多靠前、无星殿后沿用原相对序)=8 种预设一键套用(⭐️⭐️⭐️S06 · 大盘领先切换(动态)/⭐⭐A进攻王/⭐⭐NEW 14键(默认)/⭐⭐NEW14+1·15键/⭐9键/⭐B均衡卡/C防守/8键旧默认·对照; NEW2 18键对照档已从下拉移除——用户拍板"不用对照啦 14+1 对照够啦", 组成对比区方案卡仍可查; 其中 NEW14+1·15键=可选档非默认, mine29c 2026-08-24 用户拍板: NEW14 十四键全保留+整剔有跟踪ETF象限(none/null, X1 同日扩围与首页口径统一), 全史净利 +122,705 vs NEW14 +122,648(+57 噪声级·扩围前历史数字待重算), mdd -4,178→-3,550 浅 15%(同扩围前)——回撤改善是唯一真实正效用, bootstrap 全窗含0 不显著), 选中即整套键组合写入下方标签勾选态并重算; 手动勾/取消任一小标签→进入「⚙️自定义组合」态; 再选任意模式回到预设; 模式记忆存 tds_kelly_fade_mode(lab 独立键, 仅保留 18 小时滑动过期——每次切换刷新计时, 超时自动回默认 NEW14; 与模拟回测弹窗/首页/监控卡的记忆互不干预)。「重置为AI默认推荐」按钮=一键恢复本默认(NEW14 十四键 + 1类回测剔除) + AI仓位建议K=1 并重写本地记忆。枯竭提示(v1.1.5 新增): NEW14 年均约 2.4 次 ≥20 交易日无放行(信号枯竭=其常态运作方式), 凯利区信号区顶部有实时枯竭提示 chip, 历史上类似枯竭结束后 3 个月约 72% 为正(mine30 §五)。"><input type="checkbox" class="lab-sigkelly-toggle-aimacro"${_aiMacroAll.allOn ? " checked" : ""}>${_kellyRecBadgeState(_aiMacroAll.allOn, _aiMacroAll.anyOn)} AI降亏过滤(总开关,默认开启) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>`;
+    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ AI降亏过滤(总开关, 默认开启): v1.1.5(2026-08-24 用户拍板)起默认基座=NEW14(NEW 14键)——构成=hist 键 6(5月+6非5月 r10 / Greedy-15 / 1月中旬+追关注 / K2C5 港股追涨 / 主关注×概念 k3 / 下降期×追关注)+规则键 8(N1 北向20日净流出 / T1 换手冰点×追关注 / D1 股息率低位 / Q1 QVIX低分位 / H1 升波×A股 / M1 牛主升×两融降温 / P1 备买×股息率分位低 / R2b 追关注×全球类), 共 14 键; +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 已剔除出回测宇宙)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除, 故 AI建议 一律不推荐, 以「未入样本」+灰显+删除线标注。【切换依据】mine28(AUTO 状态轮动样本外全 FAIL, 维持单模式)+mine30 记分板(NEW14 全史第一 +122,648/mdd -4,178 vs 八键 +66,530/-18,190, 费后 K1 V2 回补 cap13 口径); 权威数字见下方「🧩 AI 降亏组成对比」卡。仅买信号判降亏(§23.6 MED3): 删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。= AI仓位建议(K=1 默认=主推) + 默认组合(高亮14键=NEW14 + 1类回测剔除)。勾选=联动下方 NEW14 高亮14键子复选框 + 1类只读, 取消=关14键; 旧八键(v1.1.2 基座, 含 n2/janMidRating/r7/exclAuxCross/exclSpecialBear 五个已移出默认的键)经旁侧「模式」下拉选「8键」一键回选, 未删档可随时切回对照。「模式」下拉(T3-1 2026-08-23; v20260826 用户拍板加⭐推荐星标+按星排序: S06 3星/A进攻王·NEW 14键·NEW14+1·15键 2星/9键·B均衡卡 1星, 星多靠前、无星殿后沿用原相对序)=8 种预设一键套用(⭐️⭐️⭐️S06 · 大盘领先切换(动态)/⭐⭐A进攻王/⭐⭐NEW 14键(默认)/⭐⭐NEW14+1·15键/⭐9键/⭐B均衡卡/C防守/8键旧默认·对照; NEW2 18键对照档已从下拉与「🧩 AI 降亏组成对比」区移除——用户拍板"不用对照啦 14+1 对照够啦"(2026-08-26 对比区卡亦删, 原始数字存 mine24_compare.json); 其中 NEW14+1·15键=可选档非默认, mine29c 2026-08-24 用户拍板: NEW14 十四键全保留+整剔有跟踪ETF象限(none/null, X1 同日扩围与首页口径统一), 全史净利 +122,705 vs NEW14 +122,648(+57 噪声级·扩围前历史数字待重算), mdd -4,178→-3,550 浅 15%(同扩围前)——回撤改善是唯一真实正效用, bootstrap 全窗含0 不显著), 选中即整套键组合写入下方标签勾选态并重算; 手动勾/取消任一小标签→进入「⚙️自定义组合」态; 再选任意模式回到预设; 模式记忆存 tds_kelly_fade_mode(lab 独立键, 仅保留 18 小时滑动过期——每次切换刷新计时, 超时自动回默认 NEW14; 与模拟回测弹窗/首页/监控卡的记忆互不干预)。「重置为AI默认推荐」按钮=一键恢复本默认(NEW14 十四键 + 1类回测剔除) + AI仓位建议K=1 并重写本地记忆。枯竭提示(v1.1.5 新增): NEW14 年均约 2.4 次 ≥20 交易日无放行(信号枯竭=其常态运作方式), 凯利区信号区顶部有实时枯竭提示 chip, 历史上类似枯竭结束后 3 个月约 72% 为正(mine30 §五)。"><input type="checkbox" class="lab-sigkelly-toggle-aimacro"${_aiMacroAll.allOn ? " checked" : ""}>${_kellyRecBadgeState(_aiMacroAll.allOn, _aiMacroAll.anyOn)} AI降亏过滤(总开关,默认开启) <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>`;
   // 问题1修复(2026-08-15): AI降亏过滤详情 展开/收起 初始态持久化到 state.labSigKellyAiDetailOpen(参照 labSigKellyMoreOpen 模式), 重渲染后保持展开态
   const _aiDetailText = state.labSigKellyAiDetailOpen ? "AI降亏过滤详情收起 ▲" : "AI降亏过滤详情展开 ▼";
   const aiMacroDetailBtnHTML =
@@ -9613,7 +9594,7 @@ function _renderSigKellyBar(bar, data, period) {
   const _fadeCaliberHTML = _fadeMatchedId
     ? _fadeDisp.caliber
     : ("⚙️ 自定义组合(基于「" + _fadeDisp.name.replace(/\(默认\)$/, "") + "」手动调整, 口径见各标签 tip)");
-  const fadeModeTitle = "AI降亏过滤模式: 一键套用整套键组合(与「AI 降亏组成对比」卡同源口径); ⭐=推荐星标(S06 3星 / A进攻王·NEW14·NEW14+1 2星 / 9键·B均衡卡 1星), 下拉星多靠前、无星殿后沿用原相对序(v20260826 用户拍板); NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 组成对比区方案卡仍可查)。手动勾/取消下方任一小标签即进入自定义态, 再选任意模式回到预设。选 S06=按大盘风格按日动态切 A进攻王/NEW14+1 两基座(实验可选档非默认, 判定层接管、标签区退为参考底座), 快照不可用时该笔不拦并红字提示, 绝不静默回退"
+  const fadeModeTitle = "AI降亏过滤模式: 一键套用整套键组合(与「AI 降亏组成对比」卡同源口径); ⭐=推荐星标(S06 3星 / A进攻王·NEW14·NEW14+1 2星 / 9键·B均衡卡 1星), 下拉星多靠前、无星殿后沿用原相对序(v20260826 用户拍板); NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。手动勾/取消下方任一小标签即进入自定义态, 再选任意模式回到预设。选 S06=按大盘风格按日动态切 A进攻王/NEW14+1 两基座(实验可选档非默认, 判定层接管、标签区退为参考底座), 快照不可用时该笔不拦并红字提示, 绝不静默回退"
     + (typeof window._tdsS06Tooltip === "function" ? ("\n———\n" + window._tdsS06Tooltip()) : "");
   // S06 快照降级警示 span(可见不静默): 文本来自最近一次计算 result._s6warn(_kellyApplyFeeRecompute 写),
   // 无警示恒隐藏; 缓存命中路径随旧 stats 一致复用同文案(§22)
