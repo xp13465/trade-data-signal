@@ -1,0 +1,402 @@
+{
+  "viewports": [
+    {
+      "viewport": 375,
+      "docScrollWidth": 375,
+      "docClientWidth": 375,
+      "overflowX": 0,
+      "tables": [
+        {
+          "i": 0,
+          "cw": 295,
+          "sw": 691,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 1,
+          "cw": 295,
+          "sw": 1175,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 2,
+          "cw": 295,
+          "sw": 691,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 3,
+          "cw": 295,
+          "sw": 805,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 4,
+          "cw": 295,
+          "sw": 961,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 5,
+          "cw": 295,
+          "sw": 1616,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 6,
+          "cw": 295,
+          "sw": 1082,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 7,
+          "cw": 295,
+          "sw": 552,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 8,
+          "cw": 295,
+          "sw": 448,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 9,
+          "cw": 295,
+          "sw": 623,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 10,
+          "cw": 295,
+          "sw": 580,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 11,
+          "cw": 295,
+          "sw": 508,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 12,
+          "cw": 295,
+          "sw": 496,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 13,
+          "cw": 295,
+          "sw": 509,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 14,
+          "cw": 295,
+          "sw": 581,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 15,
+          "cw": 295,
+          "sw": 672,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 16,
+          "cw": 295,
+          "sw": 552,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 17,
+          "cw": 295,
+          "sw": 530,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 18,
+          "cw": 295,
+          "sw": 513,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 19,
+          "cw": 295,
+          "sw": 691,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 20,
+          "cw": 295,
+          "sw": 681,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 21,
+          "cw": 295,
+          "sw": 688,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 22,
+          "cw": 295,
+          "sw": 686,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 23,
+          "cw": 295,
+          "sw": 380,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 24,
+          "cw": 295,
+          "sw": 462,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 25,
+          "cw": 295,
+          "sw": 887,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 26,
+          "cw": 295,
+          "sw": 513,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 27,
+          "cw": 295,
+          "sw": 489,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 28,
+          "cw": 295,
+          "sw": 1185,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 29,
+          "cw": 295,
+          "sw": 435,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 30,
+          "cw": 295,
+          "sw": 657,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 31,
+          "cw": 295,
+          "sw": 356,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 32,
+          "cw": 295,
+          "sw": 464,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 33,
+          "cw": 295,
+          "sw": 334,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 34,
+          "cw": 295,
+          "sw": 405,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 35,
+          "cw": 295,
+          "sw": 355,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 36,
+          "cw": 295,
+          "sw": 687,
+          "slid": true,
+          "reached": true
+        }
+      ],
+      "detailsToggleOk": true,
+      "tipDefaultDisplay": "none",
+      "passOverflow": true,
+      "passSlide": true,
+      "passToggle": true,
+      "tipDefaultHidden": true,
+      "pass": true
+    },
+    {
+      "viewport": 768,
+      "docScrollWidth": 768,
+      "docClientWidth": 768,
+      "overflowX": 0,
+      "tables": [
+        {
+          "i": 0,
+          "cw": 688,
+          "sw": 691,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 1,
+          "cw": 688,
+          "sw": 1175,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 2,
+          "cw": 688,
+          "sw": 691,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 3,
+          "cw": 688,
+          "sw": 805,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 4,
+          "cw": 688,
+          "sw": 961,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 5,
+          "cw": 688,
+          "sw": 1616,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 6,
+          "cw": 688,
+          "sw": 1082,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 19,
+          "cw": 688,
+          "sw": 691,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 25,
+          "cw": 688,
+          "sw": 887,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 28,
+          "cw": 688,
+          "sw": 1185,
+          "slid": true,
+          "reached": true
+        }
+      ],
+      "detailsToggleOk": true,
+      "tipDefaultDisplay": "none",
+      "passOverflow": true,
+      "passSlide": true,
+      "passToggle": true,
+      "tipDefaultHidden": true,
+      "pass": true
+    },
+    {
+      "viewport": 1280,
+      "docScrollWidth": 1280,
+      "docClientWidth": 1280,
+      "overflowX": 0,
+      "tables": [
+        {
+          "i": 5,
+          "cw": 1176,
+          "sw": 1616,
+          "slid": true,
+          "reached": true
+        },
+        {
+          "i": 28,
+          "cw": 1176,
+          "sw": 1185,
+          "slid": true,
+          "reached": true
+        }
+      ],
+      "detailsToggleOk": true,
+      "tipDefaultDisplay": "none",
+      "passOverflow": true,
+      "passSlide": true,
+      "passToggle": true,
+      "tipDefaultHidden": true,
+      "pass": true
+    }
+  ],
+  "hoverCheck": {
+    "hoverShow": {
+      "display": "block",
+      "opacity": "1",
+      "visibility": "visible"
+    },
+    "mouseAwayDisplay": "none",
+    "hoverStateDocScrollWidth": 1280,
+    "hoverStateInnerWidth": 1280
+  }
+}

@@ -1538,8 +1538,11 @@
 /* 降亏过滤 toggle hover 说明 tooltip (CSS 纯实现, hover/focus-within 触发, 复用 wm-pop 视觉变量) */
 .lab-sigkelly-toggle[data-tip] { position: relative; }
 .lab-sigkelly-toggle[data-tip]::before { content: ""; position: absolute; top: 100%; left: 0; right: 0; height: 6px; }
-.lab-sigkelly-toggle[data-tip]::after { content: attr(data-tip); position: absolute; top: 100%; left: 0; margin-top: 6px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; box-shadow: 0 4px 16px var(--shadow-strong); font-size: 11px; line-height: 1.55; color: var(--text-2); width: 270px; max-width: calc(100vw - 16px); white-space: normal; text-align: left; z-index: 60; opacity: 0; visibility: hidden; transition: opacity 0.15s; }
-.lab-sigkelly-toggle[data-tip]:hover::after, .lab-sigkelly-toggle[data-tip]:focus-within::after { opacity: 1; visibility: visible; }
+/* 2026-08-26 手机横滚修复(feat/lab-review-table-scroll): 默认态 display:none 替代 opacity+visibility——
+   visibility:hidden 的 absolute 气泡仍参与 scroll overflow 计算(width:270px), 手机 375 视口撑出整页横向滚动(docSW=765);
+   display:none 完全脱离布局根治之; hover/focus-within 态改 display:block 弹出(transition 因 display 离散切换失效, 移除)。 */
+.lab-sigkelly-toggle[data-tip]::after { content: attr(data-tip); position: absolute; top: 100%; left: 0; margin-top: 6px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; box-shadow: 0 4px 16px var(--shadow-strong); font-size: 11px; line-height: 1.55; color: var(--text-2); width: 270px; max-width: calc(100vw - 16px); white-space: normal; text-align: left; z-index: 60; display: none; }
+.lab-sigkelly-toggle[data-tip]:hover::after, .lab-sigkelly-toggle[data-tip]:focus-within::after { display: block; }
 .lab-sigkelly-group { margin-bottom: 14px; }
 .lab-sigkelly-group-title { font-size: 14px; font-weight: 700; color: var(--text-1); margin: 6px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
 .lab-sigkelly-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 700px), 1fr)); gap: 12px; }
@@ -1897,7 +1900,7 @@
 .lab-sigkelly-review-body pre { margin: 8px 0; overflow-x: auto; }
 .lab-sigkelly-review-body pre code { background: var(--bg-hover); padding: 8px 12px; display: block; border-radius: 4px; }
 .lab-sigkelly-review-body table {
-  width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0; display: block; overflow-x: auto;
+  width: 100%; max-width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0; display: block; overflow-x: auto;
 }
 .lab-sigkelly-review-body th {
   background: var(--bg-hover); padding: 5px 8px; text-align: left; font-weight: 600;
