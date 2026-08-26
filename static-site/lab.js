@@ -9723,8 +9723,7 @@ function _renderSigKellyBar(bar, data, period) {
       // 2026-08-13 合并行: AI仓位建议(K档按钮+OFF) 与 AI宏总开关 合并为一行(用户需求: 去重纯文字标题 + 第二行并入第一行「关OFF」按钮后)。
       // 原第二行 .lab-sigkelly-toggle-group-ai 独立行已移除, AI宏 toggle+详情按钮 并入 positionCapHTML 内(见 aiMacroLabelHTML/aiMacroDetailBtnHTML)
       positionCapHTML +
-      // #49 ai长线模式(G/H/I)仓位管理: 独立一行(长线族群总入口, 与 AI仓位建议(短线/全模式)平级; 默认关, 只影响 G/H/I)
-      `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-gih">` + aihlineLabelHTML + `</div>` +
+      // #49 ai长线模式(G/H/I)仓位管理行已移出本过滤区 → 2026-08-26 用户拍板移到费率模块后(见下方 bar.innerHTML 的 lab-sigkelly-topgrid/gihcol), 控件与逻辑零变化
       // #39 三级级联UI 第1级: AI宏 详情折叠 body(默认收起, 收起/展开由 #lab-kelly-ai-macro-btn 控制; 展开/收起态持久化到 state.labSigKellyAiDetailOpen, 重渲染后保持; 勾选联动全部8键子级见 _kellyAiMacroMembers, v1.1.0 含K2C5)
       `<div id="lab-kelly-ai-macro-body" class="lab-sigkelly-ai-macro-body" style="${state.labSigKellyAiDetailOpen ? "" : "display:none"}">` +
       // E需求(2026-08-15): 组合降亏行已从顶部移除, 收纳进 moreZoneHTML 更多开关折叠区 body 顶部(见 comboFoldHTML), 不再重复
@@ -9761,15 +9760,27 @@ function _renderSigKellyBar(bar, data, period) {
     `</div>` +
     `<div class="lab-sigkelly-params-body${_paramsBodyOpen}">` +
       `<div class="lab-sigkelly-params">` +
-      `<div class="lab-sigkelly-fee-row">` +
-        `<span class="lab-sigkelly-fee-label">费率:</span>` +
-        feeBtnsHTML +
-        `<span class="lab-sigkelly-fee-hint">快捷键 0-4+C</span>` +
-        amountHTML +
+      // 2026-08-26 排版调整(用户拍板): topgrid 两列 = 左「费率模块(fee-row+自定义输入)」右「ai长线模式(G/H/I)仓位管理块」——
+      //   PC 宽屏两列同行, 窄屏 flex-wrap 自然换行=费率一行/长线模式一行(样式见 lab.css .lab-sigkelly-topgrid);
+      //   只动 DOM 顺序与排版, 控件功能/事件绑定/记忆 key 零变化(绑定全在本函数尾部按 class/id 重查, 不依赖兄弟顺序)
+      `<div class="lab-sigkelly-topgrid">` +
+        `<div class="lab-sigkelly-feecol">` +
+          `<div class="lab-sigkelly-fee-row">` +
+            `<span class="lab-sigkelly-fee-label">费率:</span>` +
+            feeBtnsHTML +
+            `<span class="lab-sigkelly-fee-hint">快捷键 0-4+C</span>` +
+            amountHTML +
+          `</div>` +
+          customHTML +
+        `</div>` +
+        `<div class="lab-sigkelly-gihcol">` +
+          // #49 ai长线模式(G/H/I)仓位管理: 从降亏过滤区(toggleHTML)后移到费率模块后(2026-08-26 用户拍板 §23.7 已确认)
+          `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-gih">` + aihlineLabelHTML + `</div>` +
+        `</div>` +
       `</div>` +
-      customHTML +
-      toggleHTML +
+      // G/H/I 对比表 body 紧随长线模式块之后(展开时全宽铺开, 保持 #88 横向满宽设计; 默认 display:none 不占位)
       aihlineCompareHTML +
+      toggleHTML +
     `</div>`;
   // B级UI(2026-08-15): 「参数」展开/收起 —— 仅切 class + 按钮文案 + 写 localStorage, 不重渲染 bar(避免折叠↔展开返回到复时态丢失/输入焦点丢失)
   var _paramsToggle = bar.querySelector("#lab-kelly-params-toggle");

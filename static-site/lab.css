@@ -1374,6 +1374,13 @@
 .lab-sigkelly-params-body.lab-sigkelly-params-open { display: block; width: 100%; margin-top: 4px; }
 .lab-sigkelly-periods { display: flex; gap: 4px; flex-wrap: wrap; }
 .lab-sigkelly-params { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--text-3); align-items: center; }
+/* 2026-08-26 排版调整(用户拍板): 「ai长线模式(G/H/I)仓位管理」块从降亏过滤区后移到费率模块后——
+   PC 宽屏=费率模块与长线模式左右同行(topgrid 两列), 降亏过滤区(.lab-sigkelly-toggle-row)独占下一整行;
+   窄屏 flex-wrap 自动换行(两列 flex-basis 合计≈894px 放不下即各占一行)=费率一行/长线模式一行。
+   只动布局顺序与排版, 不动控件功能/事件绑定/记忆 key; ≤600px 既有移动端规则零改动(#97 最小化教训) */
+.lab-sigkelly-topgrid { display: flex; flex-wrap: wrap; gap: 6px 14px; width: 100%; align-items: flex-start; }
+.lab-sigkelly-feecol { flex: 3 1 480px; min-width: 0; }
+.lab-sigkelly-gihcol { flex: 2 1 400px; min-width: 0; }
 .lab-sigkelly-gen { color: var(--text-4); font-size: 11px; }
 .lab-sigkelly-fee-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 6px; width: 100%; }
 .lab-sigkelly-fee-label { font-size: 12px; font-weight: 700; color: var(--text-2); white-space: nowrap; }
