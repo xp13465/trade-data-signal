@@ -445,6 +445,7 @@ docs/kelly/             # 凯利回测专题文档子目录（2026-08-14 按主�
 ## 📡 监控与告警
 
 - **schedule_monitor**：launchd 定时任务状态监控，异常自动发邮件（告警去重，15min 周期不轰炸）
+- **告警三级分级 + 同源降噪**：critical 立即推送 / warning 30min 聚合批发 / info 只记 dashboard（`scripts/notify.py` send_tiered）；warning 聚合链路带同源指纹降噪——归一化指纹 4h 固定窗内同源告警不再逐条入队，合并为「[第N次]」频次标注一封发出，恢复类消息（[恢复]/[72h恢复]）自动清零重新计，窗口内恶化翻倍或升级 critical 自动穿透绝不吞真告警（2026-08-26）
 - **check_data_integrity**：数据产物完整性校验（deploy 前置，关键 JSON 空值率超标即阻断上线）
 - **check_r2_consistency**：本地 vs R2 一致性审计（数据一致性铁律）
 - **check_universe_alignment**：凯利回测/首页AI建议「入样宇宙规则」对称校验（deploy 前置，CLAUDE.md §23.6 治理）——自动比对 overview 每信号 `_bt_in_universe` ⟺ board_etf_map 重算入样判定、候选信号类型 ⊆ 白名单（config/universe_rules.yaml buy_whitelist）、回测交易无排除类别（债类 cgb_*/情绪 s.*/商品 g.*/港股行业 hk_*/空数组 ftse100·kospi）记录、yaml 排除类别 ⟺ map 实际缺失 key，任一 FAIL 阻断上线（同 §22 数据一致性校验逻辑）
