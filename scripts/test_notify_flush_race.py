@@ -9,7 +9,7 @@ flush 全生命周期持 WARNING_FLUSH_LOCK_FILE 专用锁 + 按稳定 ID 精确
 T1 双进程并发 flush + 持续 append：零丢失、零重复、文件始终合法 JSONL。
 T2 单进程正常流：满窗条目发出并清掉，未满窗口保留。
 T3 空 buffer / 不存在文件：安全返回不抛。
-T4 存量无 rid 旧条目（内容哈希兜底）：能正常发出且被清理。
+T4 存量无 rid 旧条目（ts+subject 兜底稳定 ID）：能正常发出且被清理。
 T5 损坏行容错：坏行跳过且打印明确告警（带片段），合法条目不受影响；清理时坏行原样回写。
 T6 发送前二次确认：条目已被他方清走 → 放弃本批防重复。
 
@@ -136,7 +136,7 @@ class FlushRaceTests(unittest.TestCase):
         return out
 
     def test_t4_legacy_no_rid_entries(self):
-        """T4 存量无 rid 旧条目：内容哈希兜底稳定 ID，正常发出+清理，零丢失。"""
+        """T4 存量无 rid 旧条目：ts+subject 兜底稳定 ID，正常发出+清理，零丢失。"""
         old_ts = _make_old_ts()
         legacy = [
             {"ts": old_ts, "subject": "legacy-1", "body": "旧条目无rid",

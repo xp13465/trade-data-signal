@@ -1131,16 +1131,15 @@ def defer_warning(subject: str, body: str, from_prefix: str | None = None) -> bo
     return True
 
 
-def _stable_rid(e: dict, raw_line: str = "") -> str:
+def _stable_rid(e: dict) -> str:
     """取条目稳定 ID：优先显式 rid（新条目 defer_warning 生成）；存量无 rid 的旧条目
-    用整行内容哈希兜底（同一内容视为同一条——重复推送去重语义与旧 offset 口径一致），
-    再兜底 ts+subject 组合。任何情况下返回非空串。"""
+    以 ts+subject 组合兜底。已知边界（reviewer 备注 2026-08-26）：极端下「同 ts+subject
+    不同 body」的存量条目共享同一 ID，清理每轮每 ID 只删一条 → 同批多条时下一轮会多推
+    剩余条目一次——方向=宁重发不丢告警，可接受；存量条目滚动消费快、新条目全有纳秒级
+    rid，实际暴露窗口极短。任何情况下返回非空串。"""
     rid = str(e.get("rid") or "").strip()
     if rid:
         return rid
-    if raw_line.strip():
-        import hashlib
-        return "h" + hashlib.sha256(raw_line.strip().encode("utf-8", errors="replace")).hexdigest()[:24]
     return "f" + str(e.get("ts", "")) + "|" + str(e.get("subject", ""))
 
 
@@ -1172,10 +1171,10 @@ def flush_warning_batch(dry_run: bool = False) -> dict:
       cleanup）持 WARNING_FLUSH_LOCK_FILE 专用锁串行化多个 flusher。旧实现只在读/清两段
       各自 flock，发送阶段裸奔——两个 flusher 撞车时基于同一 pre_offset 快照重复推送，
       且后完成者按自己的旧字节偏移切尾会把对方写入的内容截成非法 JSON 致条目永久丢失。
-      新实现清理改为按稳定 ID（rid / 整行内容哈希兜底）精确移除已发条目，不再依赖任何
-      字节偏移；发送前锁内二次确认这批条目仍在文件中（不在=已被别的 flusher 发走，放弃
-      本批防重复）。append 方（_append_jsonl）继续用 buffer 文件自身 flock，与 flush 锁
-      互不干扰：flusher 重写文件也在 buffer 文件 flock 内做，append 不会被截在半行。
+      新实现清理改为按稳定 ID（rid / 存量无 rid 条目 ts+subject 兜底）精确移除已发条目，
+      不再依赖任何字节偏移；发送前锁内二次确认这批条目仍在文件中（不在=已被别的 flusher
+      发走，放弃本批防重复）。append 方（_append_jsonl）继续用 buffer 文件自身 flock，
+      与 flush 锁互不干扰：flusher 重写文件也在 buffer 文件 flock 内做，append 不会被截在半行。
     """
     import fcntl
     try:
