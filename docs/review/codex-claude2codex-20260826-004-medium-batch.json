@@ -1,0 +1,68 @@
+{
+  "request_id": "claude2codex-20260826-004",
+  "verdict": "PASS",
+  "summary": "eb7a89f5d..9a3d95beb 独立复核完成。stage0 attempt 摘要兼容历史无摘要断点，fund_manager UPSERT 保留自爬列；26120 个本地 fund_nav 文件全量结构校验零坏文件；抽样 env、deploy 覆盖率闸门、safe_code 映射、前端 payload validator 与 R2 缓存跳过行为均独立验证通过。无 P0/P1；记录两个 P2（manager 合法空结果仍重采、R2 缓存跳过范围过宽）和两个 P3。浏览器实测因沙箱限制未执行。",
+  "issues": [
+    {
+      "severity": "P2",
+      "title": "R2 通用缓存跳过范围大于本次修复面",
+      "path": "static-site/app.js",
+      "line": 7391,
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "_NO_R2_CACHE_URLS 命中所有 /r2/{prefix}/ 数据直链，不只 fund_nav。ETF score 的 buy/sell 大 JSON、public_fund 聚合数据、index 全史等都会失去 fetchJSON 5 分钟结果缓存；切 tab 或重开弹窗可能触发重复网络请求和大 payload 解析。",
+      "fix": "将正则收窄到 /r2/fund_nav/，或维护明确的已验证前缀白名单；对其他 R2 URL 继续使用通用缓存或补齐调用方局部缓存。"
+    },
+    {
+      "severity": "P2",
+      "title": "fund_manager 合法空结果仍会跨轮重采",
+      "path": "app/collector/public_fund.py",
+      "line": 2010,
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "_scrape_fundf10_manager 返回 None 时写入 attempt=empty，但只有 result 非空才加入 done_set；这些 code 不满足闸门的 done+attempt 组合，下次运行会重复抓取，削弱本次防重采目标。",
+      "fix": "页面成功解析后的合法 None 结果也加入 done_set；将 HTTP 失败与已确认空结果拆成不同状态或在 scraper 返回值中显式区分。"
+    },
+    {
+      "severity": "P3",
+      "title": "risk indicator attempt 摘要使用累计 xq_ok 判定",
+      "path": "app/collector/public_fund.py",
+      "line": 2485,
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "xq_ok 是跨 code 累计值。首个 xq 成功后，后续仅 self-calc 成功的 code 也可能被标成 ok 而不是 empty0；闸门放行语义不受影响，但摘要口径失真影响排障。",
+      "fix": "按当前分支记录本轮实际数据源标记，例如 xq 分支写 ok/xq_mixed，self-calc 分支写 empty0/self_calc。"
+    },
+    {
+      "severity": "P3",
+      "title": "stale tmp 清理存在并发误删边界",
+      "path": "scripts/signal_kelly_backtest.py",
+      "line": 1278,
+      "origin": "pre-existing",
+      "scope": "in-scope",
+      "impact": "_cleanup_stale_tmp 会删除目录内所有非本批 keep_names 且不以 lab_meta.json 开头的 .tmp。两个导出进程并发时，后完成方可能删除仍在写入的对方 tmp；最终文件的原子替换本身不受影响。",
+      "fix": "后续可按 pid 前缀和进程存活状态过滤，或引入目录锁后再清理历史残留。"
+    }
+  ],
+  "impact_surface": [
+    "app/collector/public_fund.py stage0 progress gate 和历史断点裁剪",
+    "app/collector/public_fund.py fund_manager UPSERT/M2 scrape resume",
+    "scripts/check_data_integrity.py fund_nav full structural check/env/deploy threshold/safe_code mapping",
+    "static-site/app.js _resultCache/_NO_R2_CACHE_URLS/_validFundNavPayload/fund nav modal",
+    "static-site/app.js 其他 R2 直链消费点的通用缓存影响面",
+    "scripts/signal_kelly_backtest.py pre-existing atomic slice writes and stale tmp cleanup"
+  ],
+  "smoke_results": {
+    "fund_nav_full_structure": "OK：26120 files, 0 bad, ~17.7s independent strict scan",
+    "FUND_NAV_SAMPLE_N": "OK：5 生效，invalid fallback 30",
+    "deploy_coverage_gate": "OK：synthetic 39/40 normal OK, deploy FAIL <98%",
+    "safe_code_mapping": "OK：A?B/C?D map to A_B.json/C_D.json",
+    "frontend_payload_validator": "OK：valid nonempty/legal-empty accepted; top-level array/wrong code/date/malformed rows rejected",
+    "r2_cache_regex": "OK：matches R2 prefixes, skips ./data; broad blast radius recorded as P2",
+    "syntax_and_min_artifact": "OK：node --check passed; min contains validator",
+    "schedule_22_public_fund_full": "OK：live plist Hour=22 Minute=0 unchanged",
+    "full_check_data_integrity": "ENV BLOCKED：sandbox run 32 ok/3 fail; failures were unavailable trade-data DBs and missing akshare, not classified as diff regressions",
+    "browser_smoke": "NOT EXECUTED：sandbox blocked local HTTP bind and available browser launches; production network unreachable"
+  },
+  "recommendation": "可合入 main；建议主控随后收窄 R2 缓存跳过范围，并处置 fund_manager 合法空结果断点语义。"
+}
