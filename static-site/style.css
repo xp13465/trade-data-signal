@@ -1584,7 +1584,9 @@ main { padding: 16px 24px; }
    用于首页4卡（市场宽度/跨市场/腾落线/新高新低）图表缩30%后容器配套缩小（ui119） */
 .ov-2col .chart-card.chart-card--no-stretch { flex: 0 0 auto; }
 @media (max-width: 768px) {
-  .ov-2col { grid-template-columns: 1fr; }
+  /* M1 移动端P0修复(2026-08-26 codex全站审计): contain:paint 把内部内容绘制/溢出裁剪在本容器内,
+     防止 ov-2col 内卡片 min-content 撑破视口(320px 实测撑到352px 致底部导航全部不可点) */
+  .ov-2col { grid-template-columns: 1fr; contain: paint; }
 }
 
 /* 恐贪分项条卡片：8 项情绪分等权=恐贪指数（首页左列+盘面温测 tab 恐贪卡片各一份），flex 撑满 + 横条均匀分布 */
@@ -3868,7 +3870,15 @@ main { padding: 16px 24px; }
   .market-status-banner .msb-pulse { width: 7px; height: 7px; flex-basis: 7px; }
   .chart-card { padding: 10px 12px; margin-bottom: 12px; }
   .chart-card h3 { font-size: 13px; }
-  .chart-latest { padding: 1px 4px; }
+  /* M2 移动端修复(2026-08-26 codex审计): 放开 nowrap 换行,防期货最新值长标签把文档撑到488px; PC 保持单行 */
+  .chart-latest { padding: 1px 4px; white-space: normal; display: inline-block; max-width: 100%; vertical-align: top; }
+  /* M3 移动端修复(2026-08-26 codex审计): 静态页(about/guide/privacy)长路径/URL/链接允许任意断行,
+     防非断行 code/a/li 整页撑宽(guide 实测撑到470px); 三页均引本样式表,一处覆盖;
+     各页宽表格 display:block+overflow-x:auto 的横滚设计不受影响 */
+  .about-wrap a, .about-wrap code, .about-wrap li,
+  .privacy-wrap a, .privacy-wrap code, .privacy-wrap li {
+    min-width: 0; overflow-wrap: anywhere;
+  }
   .card { padding: 12px 14px; }
 
   /* 概览 sparkline 默认 2 列（移动端信息密度合适）；行业卡片内容多，强制 1 列 */
@@ -4620,7 +4630,9 @@ main { padding: 16px 24px; }
 /* 第3层：卡片墙 */
 .nt-wall-card { margin-bottom: 14px; }
 .nt-card-wall {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px;
+  /* M4 移动端修复(2026-08-26 codex审计): min(240px,100%) 处理容器<240px 场景,
+     防 320px 窄屏卡片墙最小 240px 把页面撑到354px; 容器≥240px 时与原 minmax(240px,1fr) 渲染逐像素一致 */
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: 10px;
 }
 .nt-mini-card {
   background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
@@ -4769,7 +4781,9 @@ main { padding: 16px 24px; }
 
 @media (max-width: 768px) {
   .nt-kpi { grid-template-columns: repeat(2, 1fr); }
-  .nt-card-wall { grid-template-columns: repeat(2, 1fr); }
+  /* M4 配套(2026-08-26 codex审计复测): 两列断点也须 minmax(0,1fr) 解除自动最小尺寸,
+     否则卡片 min-content(代码+名称行)在320px把整墙撑到354px(实测根因即此处,非基础规则240px下限) */
+  .nt-card-wall { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .nt-heatmap { font-size: 11px; }
   .nt-heatmap th, .nt-heatmap td { padding: 6px 8px; }
   .nt-sum-item { min-width: 70px; padding: 0 6px; }
@@ -5506,19 +5520,24 @@ main { padding: 16px 24px; }
   display: flex; flex-direction: column; gap: 14px;
 }
 .lab-aiscore-section {
+  /* M5 移动端修复(2026-08-26 codex审计): min-width:0 解除 grid item 自动最小尺寸,
+     防 nowrap 表格经 min-content 把 section/文档撑宽(320px 实测撑到362px) */
+  min-width: 0;
   background: var(--bg-card); border: 1px solid var(--border-strong);
   border-radius: 10px; padding: 14px 16px;
 }
 /* 买清单+持有建议+卖清单 三列并排(持仓自查单独1列在上方) */
 .lab-aiscore-grid {
-  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; align-items: start;
+  /* M5: 三档断点统一 minmax(0,1fr) 替代裸 1fr(等价 minmax(auto,1fr)),内容不超宽时渲染与原一致;
+     超宽时表格在 table-wrap 内横滚(符合现有设计),全档位含平板区间(901-1280 两列)同根因一并防护 */
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: start;
 }
 /* 竖屏/中宽屏(≤1280): 降2列,避免3列每列过窄致理由列挤压换行超高(2026-07-20 修复1080竖屏3列bug) */
 @media (max-width: 1280px) {
-  .lab-aiscore-grid { grid-template-columns: 1fr 1fr; }
+  .lab-aiscore-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 900px) {
-  .lab-aiscore-grid { grid-template-columns: 1fr; }
+  .lab-aiscore-grid { grid-template-columns: minmax(0, 1fr); }
 }
 .lab-aiscore-section-head {
   display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px;
@@ -5534,7 +5553,7 @@ main { padding: 16px 24px; }
   font-size: 12.5px; color: var(--text-3);
 }
 /* 买清单表格 */
-.lab-aiscore-table-wrap { overflow-x: auto; }
+.lab-aiscore-table-wrap { overflow-x: auto; min-width: 0; } /* M5: min-width:0 配合父级约束,超宽表格在本层横滚而非撑破布局 */
 .lab-aiscore-table {
   width: 100%; border-collapse: collapse; font-size: 13px;
 }
