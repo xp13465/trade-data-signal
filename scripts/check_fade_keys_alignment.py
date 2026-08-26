@@ -7,10 +7,10 @@
 
 【目的】AI降亏过滤的「当前默认档键集」在多端各有一份常量副本(前端 common.js 预设表 / 后端邮件链路
 check_signals.py 白名单+中文名两张表 / 后端 overfit_monitor 打标集合 / app.js 兜底键集), 切基座时
-任何一份漏同步都会造成跨端不一致(邮件不标「AI降亏·建议回避」而首页灰显删除线)。本脚本把六项比对
+任何一份漏同步都会造成跨端不一致(邮件不标「AI降亏·建议回避」而首页灰显删除线)。本脚本把七项比对
 固化成一条命令, 任一 FAIL 阻断上线。
 
-六项断言(审计报告 §五):
+七项断言(审计报告 §五 + 2026-08-26 补方向断言):
   ① 权威比对: mine24_compare.json new_keys × loss_rules.MINING_TO_PROD_KEY 映射 == common.js
      _KELLY_FADE_MODE_PRESETS 中 id==_KELLY_FADE_DEFAULT_MODE 所指预设的 keys, 逐位相等(含顺序)。
   ② 邮件白名单: check_signals.py AI_MACRO_KEYS(set 字面量, ast 抽取) ⊇ 默认档生产键集;
@@ -22,6 +22,12 @@ check_signals.py 白名单+中文名两张表 / 后端 overfit_monitor 打标集
      已剔除后再扫)。
   ⑤ 打标集合: overfit_monitor.py RECENT_KEYS ⊇ 默认档键集(新模式组集缺键=组集恒 false 人口偏松)。
   ⑥ app.js 兜底键集: _AI_MACRO_FALLBACK_KEYS == 默认档生产键集(逐位; 兜底语义=按当前默认基座判定)。
+  ⑦ 全部预设键 ⊆ 后端可判键集(2026-08-26 补; v1.1.5 两键缺口 r10May6NonMay/k3ConceptBuy 病灶方向——
+     ①-⑥全查「键名登记点」一致性, 没人查「后端谓词是否真的实现」): 静态预设(p8/p9/a9/b9/c9/new14/new15;
+     s06 动态基座=a9/new15 已含于并集)keys 并集每个键必须被 overview ai_macro.filters 注入链覆盖
+     (queries._ai_macro_hit_filters 内联分支字面量 ∪ loss_rules.NEW_KEYS_PROD), 否则该键在首页删除线/
+     邮件/AI认可度全链恒不生效(偏松静默)。豁免=BACKEND_EXEMPT_KEYS(bullAuxBackupStop 前端 tier map
+     补判, 设计如此非缺口); 豁免表外出现未判键=FAIL。
 
 【输入依赖】仓库内源码+产物, 不读 DB/网络:
   docs/kelly/analysis/scripts/sim_window_loss_mining_20260822/data/mine24_compare.json (权威键集)
@@ -219,6 +225,63 @@ def assertion6(app_txt: str, default_list: list[str]) -> None:
     record("A6 app.js 兜底键集", ok, detail)
 
 
+# 断言⑦豁免表: 设计上前端补判、overview ai_macro.filters 注入链永不出现的键。
+#   bullAuxBackupStop(候选1=牛市·主升×辅备买全停): 后端不判(grep queries.py 零命中), 前端
+#   app.js _isBullStopHit 按 market_tier_history.json join 补判(2026-08-22 用户拍板设计如此);
+#   新增豁免必须附设计依据注释, 擅自扩表=绕过本断言。
+BACKEND_EXEMPT_KEYS = {"bullAuxBackupStop"}
+
+
+def extract_preset_key_union(common_txt: str) -> tuple[set[str], int]:
+    """静态预设 keys 并集(p8/p9/a9/b9/c9/new14/new15); s06(dynamic:true 无静态 keys)自然不入并集。"""
+    presets = re.findall(r"\{ id:\s*\"([A-Za-z0-9]+)\".*?keys:\s*\[(.*?)\]\s*\}", common_txt, re.S)
+    union: set[str] = set()
+    n_with_keys = 0
+    for _pid, body in presets:
+        keys = re.findall(r"\"([A-Za-z0-9]+)\"", body)
+        if not keys and "dynamic:" in body:
+            continue
+        n_with_keys += 1
+        union |= set(keys)
+    return union, n_with_keys
+
+
+def backend_judgeable_keys(repo: Path) -> tuple[set[str], list[str]]:
+    """overview 注入链可判键集 = queries._ai_macro_hit_filters 函数体内 _f.append(\"...\") 字面量
+    ∪ loss_rules.NEW_KEYS_PROD(T1 循环经 _ai_macro_hit_new_keys 判定)。"""
+    queries_txt = rd(repo, "app/queries.py")
+    m = re.search(r"def _ai_macro_hit_filters\(.*?(?=\ndef |\Z)", queries_txt, re.S)
+    inline = sorted(set(re.findall(r"_f\.append\(\"([A-Za-z0-9]+)\"\)", m.group(0)))) if m else []
+    spec = importlib.util.spec_from_file_location(
+        "loss_rules_check_a7", repo / "scripts" / "loss_rules.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return set(inline) | set(mod.NEW_KEYS_PROD), inline
+
+
+def assertion7(repo: Path, common_txt: str) -> None:
+    """⑦ 全部预设键 ⊆ 后端可判键集(方向断言; 本次 r10/k3 两键缺口即因机检没查这个方向)。"""
+    preset_union, n_presets = extract_preset_key_union(common_txt)
+    try:
+        judgeable, inline_names = backend_judgeable_keys(repo)
+    except Exception as e:  # noqa: BLE001
+        record("A7 全部预设键 ⊆ 后端可判键集", False, f"后端可判键集加载失败: {e}")
+        return
+    if not preset_union:
+        record("A7 全部预设键 ⊆ 后端可判键集", False, "common.js 静态预设 keys 并集为空(preset 单源被破坏)")
+        return
+    missing = sorted(preset_union - judgeable - BACKEND_EXEMPT_KEYS)
+    if missing:
+        detail = (f"预设键未被 overview 注入链判定 {missing}(首页删除线/邮件/AI认可度对该键恒不生效=偏松静默); "
+                  f"queries 内联={inline_names} + NEW_KEYS_PROD={len(judgeable) - len(inline_names)} 键; "
+                  f"前端补判豁免={sorted(BACKEND_EXEMPT_KEYS)}(扩表须附设计依据)")
+    else:
+        detail = (f"静态预设({n_presets} 个含 keys 条目)键并集 {len(preset_union)} 键全部被注入链判定"
+                  f"(queries 内联 {len(inline_names)} ∪ T1 {len(judgeable) - len(inline_names)}); "
+                  f"前端补判豁免={sorted(BACKEND_EXEMPT_KEYS)}")
+    record("A7 全部预设键 ⊆ 后端可判键集", not missing, detail)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="AI降亏默认档键集跨端一致性机检(§22 登记点)")
     ap.add_argument("--repo", default=str(DEFAULT_REPO), help="仓库根(相对解析所有输入)")
@@ -263,6 +326,7 @@ def main() -> int:
     assertion4(app_txt, lab_txt, common_txt)
     assertion5(prod_keys)
     assertion6(app_txt, prod_keys)
+    assertion7(repo, common_txt)
 
     ok_all = True
     for name, ok, detail in RESULTS:

@@ -606,6 +606,17 @@ main { padding: 16px 24px; }
   border-top: 1px dashed var(--border-strong, rgba(0,0,0,0.15));
   color: #b42318; font-size: 12px; line-height: 1.55;
 }
+/* AI 信号认可度行(hoverpop 末行, 2026-08-26): Y=8 降亏模式共识计票 + X=K1 终审位。
+   色阶: 默认主题主色高亮分数 / 高共识(Y≥6)绿=普遍认可 / 0 分与"—"灰显弱化 */
+.term-pop-consensus {
+  margin-top: 6px; padding-top: 6px;
+  border-top: 1px dashed var(--border-strong, rgba(0,0,0,0.15));
+  font-size: 12px; line-height: 1.55;
+}
+.term-pop-consensus b { color: var(--primary, #b42318); }
+.term-pop-consensus-hi b { color: #1a7f37; }
+.term-pop-consensus-dim { color: var(--text-3, #999); }
+.term-pop-consensus-dim b { color: inherit; }
 /* 指数名段 chip 强化：所有指数名做成小标签 chip(加粗+主题主色+bg-hover 底+border-strong 边框+padding+圆角),
    一眼从描述文字中跳出来; 纳斯达克100(us_ndx)额外强化蓝(深蓝文字+淡蓝底+蓝边框, 覆盖普通 chip) */
 .term-pop--sig .term-pop-idx {

@@ -2808,6 +2808,7 @@ function _readHomeFadeMode() {
 }
 let _sigTierByDate = null;
 let _sigTierMapLoading = null;
+let _consensusS06Hooked = false;  // AI认可度 S06 快照重绘挂钩(单次 armed; 防 resolve 后每次渲染重复触发重绘死循环)
 function _ensureSigTierMap() {
   if (_sigTierByDate) return Promise.resolve(_sigTierByDate);
   if (!_sigTierMapLoading) {
@@ -4775,6 +4776,108 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   const _tierCountItems = _pcOn && _posCapKeptMap
     ? windowedItems.filter((it) => !_isAiFadeHit(it) && (() => { const k = _posCapKeptMap.get(it.date); return k && k.has(it); })())
     : (_fadeOn ? windowedItems.filter((it) => !_isAiFadeHit(it)) : windowedItems);
+  // ===== AI 信号认可度(X/Y 双段, 2026-08-26, 调研报告 docs/kelly/toggle/ai-consensus-score-research-20260826.md 方案甲=前端实时固化统计) =====
+  // Y=8 降亏模式预设计票(0~8): 对 common.js _KELLY_FADE_MODE_PRESETS 静态预设(p8/p9/a9/b9/c9/new14/new15)
+  //   各与 ai_macro.filters(后端无条件全量注入)求交一次, 交集空=该模式愿意留下=1 票; bullAuxBackupStop
+  //   后端不判 → 前端 tier map 补判(_isBullStopHit, 与首页判定链同源同降级); S06 第 8 票按 it.date 读快照
+  //   基座(a9/new15)同式判, 快照不可用 fail-open 计 1 票(保留, 与首页 S06 降级契约同语义)。固化统计,
+  //   与界面开关(K 档/模式选择/过滤开关)全部无关。
+  // X=AI 仓位终审位(0/1): 恒按标准视角(positionCap 开启+K=1★主推档)预算固化表——per-date 人口=
+  //   全量 items 中 买入类 ∧ _bt_in_universe!==false ∧ 未命中 new14 键集(new14 不含 bull 键不需要 tier),
+  //   组内排序复刻 _posCapSortedFn 口径(track_score DESC→rating→信号类型; 注释所述 buy_date ASC 实际以
+  //   稳定序兜底, 与首页 AI建议编号现状逐字一致), top1=X=1。独立定义排序函数不复用 _posCapSortedFn
+  //   (其在 tds_poscap.on&&k 合法条件内才赋值, 固化视角不能依赖用户状态); 人口用全量 items 不受
+  //   windowedItems/档位筛选影响(先例 _dateHasInUniverseBuy L4654)。
+  // 展示: cellHtml 写 data-consensus 属性 → hoverpop show() 拼末行; 非买入类(band_hold/sell/sell_stop_loss)
+  //   显"—"(仅买信号判降亏 §23.6 MED3)。一张表喂 N 展示位(§22), 未来列表级 badge 直接读同一张表。
+  const _CONS_BUY = { buy: 1, buy_aux: 1, buy_special: 1, buy_backup: 1 };
+  const _consMembers = {};
+  if (typeof _tdsFadeModeById === "function") {
+    for (const _cpid of ["p8", "p9", "a9", "b9", "c9", "new14", "new15"]) {
+      const _cp = _tdsFadeModeById(_cpid);
+      const _cm = {};
+      if (_cp && Array.isArray(_cp.keys)) for (const _ck of _cp.keys) _cm[_ck] = true;
+      _consMembers[_cpid] = _cm;
+    }
+  }
+  function _consensusVotesOf(it2) {
+    const f2 = (it2.ai_macro && Array.isArray(it2.ai_macro.filters)) ? it2.ai_macro.filters : [];
+    let y2 = 0;
+    for (const pid of ["p8", "p9", "a9", "b9", "c9", "new14", "new15"]) {
+      const m2 = _consMembers[pid] || {};
+      if (f2.some((fk) => m2[fk])) continue;
+      if (m2.bullAuxBackupStop && _isBullStopHit(it2)) continue;
+      y2++;
+    }
+    // S06 动态票: 当日生效基座(a9/new15)键集同式判; 快照不可用 fail-open 计 1 票(保留)
+    const r6 = (typeof _tdsS06BaseForDate === "function") ? _tdsS06BaseForDate(it2.date) : null;
+    if (r6 && r6.ok) {
+      const bm = _consMembers[r6.base] || {};
+      if (!(f2.some((fk) => bm[fk]) || (bm.bullAuxBackupStop && _isBullStopHit(it2)))) y2++;
+    } else {
+      y2++;
+    }
+    return y2;
+  }
+  // X 固化表: K1 标准视角 top-K kept(item 引用 Set)
+  const _rcX = { high: 0, mid: 1, low: 2, "": 3 };
+  const _scX = { buy_backup: 0, buy: 1, buy_aux: 2, buy_special: 3, "": 9 };
+  const _ratingXOf = (x) => {
+    const s = _getSignalScore(x)?.score;
+    if (s == null) return "";
+    return s >= 0.75 ? "high" : (s >= 0.55 ? "mid" : "low");
+  };
+  const _consSortedFn = (a, b) => {
+    const ta = _topEtfByScore(a.etfs)?.track_score ?? -1;
+    const tb = _topEtfByScore(b.etfs)?.track_score ?? -1;
+    if (tb !== ta) return tb - ta;
+    const rak = _ratingXOf(a), rbk = _ratingXOf(b);
+    const ra = Object.prototype.hasOwnProperty.call(_rcX, rak) ? _rcX[rak] : 3;
+    const rb = Object.prototype.hasOwnProperty.call(_rcX, rbk) ? _rcX[rbk] : 3;
+    if (ra !== rb) return ra - rb;
+    const sak = a.signal || "", sbk = b.signal || "";
+    const sa2 = Object.prototype.hasOwnProperty.call(_scX, sak) ? _scX[sak] : 9;
+    const sb2 = Object.prototype.hasOwnProperty.call(_scX, sbk) ? _scX[sbk] : 9;
+    if (sa2 !== sb2) return sa2 - sb2;
+    return 0;
+  };
+  const _fixedKeptSet = new Set();
+  {
+    const _byDateX = {};
+    const _n14 = _consMembers["new14"] || {};
+    for (const x of items) {
+      if (!x || !_CONS_BUY[x.signal] || x._bt_in_universe === false) continue;
+      const fx = (x.ai_macro && Array.isArray(x.ai_macro.filters)) ? x.ai_macro.filters : [];
+      if (fx.some((fk) => _n14[fk])) continue;
+      (_byDateX[x.date] = _byDateX[x.date] || []).push(x);
+    }
+    for (const dx in _byDateX) {
+      const arr = _byDateX[dx].slice().sort(_consSortedFn);
+      if (arr.length) _fixedKeptSet.add(arr[0]);
+    }
+  }
+  // item 引用 → {y:int, x:1|0|"na"}(x="na"=未入样本不在 K1 人口); cellHtml 只查表写属性零重算
+  const _consensusMap = new Map();
+  for (const it of items) {
+    if (!it || !_CONS_BUY[it.signal]) continue;
+    const inUni = it._bt_in_universe !== false;
+    const f3 = (it.ai_macro && Array.isArray(it.ai_macro.filters)) ? it.ai_macro.filters : [];
+    const blockedN14 = f3.some((fk) => (_consMembers["new14"] || {})[fk]);
+    _consensusMap.set(it, { y: _consensusVotesOf(it), x: (!inUni) ? "na" : ((!blockedN14 && _fixedKeptSet.has(it)) ? 1 : 0) });
+  }
+  // 异步依赖就绪后重绘一次(Y 的 bull/S06 票从 fail-open 修正为实判); 单例 promise 已加载直接复用零重复请求
+  if (!_sigTierByDate && typeof _ensureSigTierMap === "function") {
+    _ensureSigTierMap().then((m4) => {
+      if (m4 && typeof _rerenderSigCardContent === "function") { try { _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot); } catch (e4) {} }
+    }).catch(() => {});
+  }
+  if (!_consensusS06Hooked && typeof _tdsS06StateEnsure === "function"
+    && typeof _tdsS06Status === "function" && !_tdsS06Status().loaded) {
+    _consensusS06Hooked = true;
+    _tdsS06StateEnsure().then((d4) => {
+      if (d4 && typeof _rerenderSigCardContent === "function") { try { _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot); } catch (e5) {} }
+    }).catch(() => {});
+  }
   // 2026-08-13 重构: 显示随过滤开关走(合并后单开关, 无独立显示层); 开关行 HTML 用 _fadeOn 渲染「AI降亏过滤」勾选态
   const _sigSwitchHtmlStr = (kind === "signal") ? _sigSwitchHtml(_fadeOn, _posCapK || 1, _pcOn, signalsMeta) : "";
   // 2026-08-14 AI过滤视图(用户澄清口径, 两开关正交不绑定):
@@ -4985,7 +5088,17 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           _cellName = _idxName;
           _cellCode = _sigIdxCode;
         }
-        return `<span class="${cls}${scoreCls}${posCapCls}${aiHitCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxWinNAttr}${_idxSettledAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr}${aiHitAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${_cellLight}${posCapBadge}${aiHitBadge}${warnBadge}${lateBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_cellName}${_cellCode ? ` <span class="idx-code-tag">${_cellCode}</span>` : ""}</span></span>`;
+        // AI 信号认可度(X/Y 双段, 2026-08-26): 只查预计算 _consensusMap 写属性零重算; 非买入类=na。
+        // 编码 "y|x"(x∈1/0/"na") / "na"; hoverpop show() 据此拼末行(消费场景=首页信号卡+技术参考点, 同链自动获得 §22)。
+        var _consItem = _consensusMap.get(it);
+        var _consAttr = "";
+        if (_consItem) {
+          _consAttr = ` data-consensus="${_consItem.y}|${_consItem.x}"`;
+          if (_consItem.y === 0) _consAttr += ` data-consensus-dim="1"`;
+        } else {
+          _consAttr = ` data-consensus="na"`;
+        }
+        return `<span class="${cls}${scoreCls}${posCapCls}${aiHitCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxWinNAttr}${_idxSettledAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr}${aiHitAttr}${_consAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${_cellLight}${posCapBadge}${aiHitBadge}${warnBadge}${lateBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_cellName}${_cellCode ? ` <span class="idx-code-tag">${_cellCode}</span>` : ""}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
@@ -5706,6 +5819,19 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
   var popByClick = false;  // pop 由 click 触发(移动端)，此时 mouseout 不立即关
   var popEl = null;        // 当前触发元素，用于同元素再点 toggle 关
   var isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
+  // AI 信号认可度 tooltip 三档互证文案(§23.9 白话+场景+1:1 举例, 2026-08-26; 举例数字核验自
+  // static-site/data/overview.json 30 日窗口真实数据, 见 docs/kelly/toggle/ai-consensus-score-research-20260826.md)
+  var CONS_TIP = "【是什么】认可度=两段固化统计: Y=8 个 AI 降亏模式里有几个愿意留下这笔信号(0~8 分); "
+    + "X=按标准视角(AI仓位开启+K1★主推档)当天 AI 会不会真买它(1=当日主推/0=轮不到)。"
+    + "8 票之间有家族重叠(p8⊂p9⊂a9 等), 非独立评审。\n"
+    + "【什么时候看】想判断一笔信号是「真金还是纸面繁荣」时看它——Y 高只说明过滤层普遍认可; "
+    + "X=0 提醒就算全部留下, K1 主推档当天也带不动它。与左侧「AI建议N/当日已满」标注可能不同: "
+    + "那边跟随你当前的开关和 K 档, 这里恒为标准视角、不受任何开关影响。\n"
+    + "【举个例子】2026-07-23 恒指·追关注 命中 k2c5HkChase(港股追涨)+n1NorthOutflow(北向流出)+r1VolRatioLow(量能萎缩)等 "
+    + "→ 8 个模式全拦, Y=0 灰显; 2026-08-24 当日 NEW14 未拦的入样买入只有 2 笔: 当天评分最高的证券公司(全指) X=1 当日主推, "
+    + "次之的电力公用事业 X=0 轮不到(例中具体分数随数据滚动会变, 以当天实际排序为准)——Y 再高也只当参考。\n"
+    + "【口径】今日信号以 21:00 定稿为准(此前当日组可能变); 判定基于后端信号级可判定子集"
+    + "(price_bin 五分位依赖子条件降级不参与, 宁漏勿误); S06 快照不可用时该票按保留计(fail-open)。";
   // 查找触发 pop 的元素：优先 [data-tip]，回退 [title]（排除 iframe a11y title + [data-no-pop]）。
   // [title] 首次命中时一次性迁移到 data-tip 并移除原生 title，防浏览器原生 tooltip 闪现。
   // forClick=true（click 路径）：只认已迁移的 [data-tip]，不 fallback [title]，
@@ -5848,6 +5974,20 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
       if (_aiHitRaw === "1") {
         var _aiHitNames = el.getAttribute("data-ai-hit-names") || "降亏条件";
         html += '<div class="term-pop-aihit">⚠️ 删除线原因: 本信号命中 AI降亏过滤条件【' + _esc(_aiHitNames) + '】, 被标记为建议回避, 所以加了删除线, 且不占AI建议位(顺延补位给未命中信号)(由首页「AI降亏过滤」开关判定, 独立作用域与凯利区互不影响)。如不需要该过滤, 关闭首页「AI降亏过滤」开关即可恢复正常样式。</div>';
+      }
+      // AI 信号认可度末行(2026-08-26): 读 cellHtml 预写 data-consensus 属性拼行; 0 分灰显(-dim)/
+      // 高共识亮色阶(-hi); na=非买入类显"—"(仅买信号判降亏 §23.6 MED3)。title 原生提示承载
+      // §23.9 三档互证全文(data-no-pop 防 term-pop 套娃, 先例 .etf-light title)。
+      var _consRaw = el.getAttribute("data-consensus");
+      if (_consRaw === "na") {
+        html += '<div class="term-pop-consensus term-pop-consensus-dim" data-no-pop="" title="' + _esc("非买入类信号(band_hold/卖类)不参与 AI 降亏过滤判定(仅买信号判降亏), 故无认可度统计。") + '">🤝 AI 信号认可度 —</div>';
+      } else if (_consRaw) {
+        var _consParts = _consRaw.split("|");
+        var _cy = parseInt(_consParts[0], 10);
+        var _cx = _consParts[1];
+        var _cxTxt = _cx === "na" ? "—" : (_cx === "1" ? "1·当日主推" : "0·非主推");
+        var _dimCls = _cy === 0 ? " term-pop-consensus-dim" : ((_cy >= 6) ? " term-pop-consensus-hi" : "");
+        html += '<div class="term-pop-consensus' + _dimCls + '" data-no-pop="" title="' + _esc(CONS_TIP) + '">🤝 AI 信号认可度 <b>' + (isFinite(_cy) ? _cy : "—") + '/8 分</b> · K1 终审 <b>' + _cxTxt + '</b></div>';
       }
       if (locateHtml || idxLineHtml || etfMetaHtml || etfHtml) html += locateHtml + idxLineHtml + etfMetaHtml + etfHtml;
       pop.innerHTML = html;

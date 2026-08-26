@@ -648,6 +648,10 @@ def recent_hit_keys(date_str, signal, mkt, rating, ts, tier, ma60_bull, lr, feat
         _f.append("r10May6NonMay")   # r10 组件6
     if _mm == "03" and _wd == 2 and _sig_n == "buy_aux":
         _f.append("r10May6NonMay")   # r10 组件7
+    # k3ConceptBuy(NEW14 成员; RECENT_KEYS 已登记但此前漏判定谓词=恒 false, 2026-08-26 补:
+    # 与 queries._ai_macro_hit_filters 同病灶第三处登记点闭环 §23.2③, 口径逐字同款 buy×mkt_concept)
+    if _sig_n == "buy" and mkt == "mkt_concept":
+        _f.append("k3ConceptBuy")
     if _sig_n == "buy_special" and _mm == "05":
         _f.append("greedy7")   # greedy7 组件1
     if _sig_n == "buy_special" and _mm == "11" and mkt == "mkt_concept":
