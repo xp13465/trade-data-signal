@@ -41,18 +41,23 @@ def _make_old_ts():
     return (datetime.datetime.now() - datetime.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _writer_proc(buf_path, lock_path, n_due, barrier_path):
+def _writer_proc(buf_path, lock_path, n_due, barrier_path, state_path=None):
     """子进程 A：预写满窗条目（带显式 rid）→ 等栅栏 → 调真实 flush_warning_batch。"""
     notify.WARNING_BUFFER_FILE = Path(buf_path)
     notify.WARNING_FLUSH_LOCK_FILE = Path(lock_path)
+    if state_path:
+        notify.WARNING_DEDUP_STATE_FILE = Path(state_path)
     _patch_channels(barrier_path)  # spawn 不继承主进程 mock，子进程内重新 mock 防真发
     with open(buf_path, "a", encoding="utf-8") as f:
         for i in range(n_due):
+            # subject/body 用字母后缀（B2 指纹分组会把仅差数字的条目合并为一行，
+            # 本测试断言「每个条目逐条推送零重复」，须构造互不同源的条目绕开合并）
+            ch = chr(ord('a') + i)
             f.write(json.dumps({
                 "ts": _make_old_ts(),
                 "rid": f"rid-A-{i}",  # 显式 rid：父进程可断言「每个条目至多被推送一次」
-                "subject": f"A-due-{i}",
-                "body": f"body-A-{i}",
+                "subject": f"A-due-{ch}",
+                "body": f"body-A-{ch}",
                 "from_prefix": "[告警·聚合]",
             }, ensure_ascii=False) + "\n")
     # 栅栏：两进程都写完才放行（用文件存在性模拟，避免跨平台 Barrier 兼容坑）
@@ -67,26 +72,36 @@ def _writer_proc(buf_path, lock_path, n_due, barrier_path):
     sys.exit(0)
 
 
-def _appender_proc(buf_path, lock_path, n_append, barrier_path):
+def _appender_proc(buf_path, lock_path, n_append, barrier_path, state_path=None):
     """子进程 B：等同一栅栏后持续追加未满窗口新条目（与 A 的 flush 并发交错）。"""
     notify.WARNING_BUFFER_FILE = Path(buf_path)
     notify.WARNING_FLUSH_LOCK_FILE = Path(lock_path)
+    if state_path:
+        # 关键隔离：B1 起 defer_warning 读写指纹状态文件，不指到 tmp 会污染/读到
+        # 生产 data/alerts/warning_dedup_state.json（跨轮同指纹被 4h 窗误抑制）
+        notify.WARNING_DEDUP_STATE_FILE = Path(state_path)
     _patch_channels(barrier_path)  # defer_warning 本身不发送，保险起见统一 mock
     deadline = time.time() + 10
     while not (Path(barrier_path).exists() and Path(str(barrier_path) + ".go").exists()):
         if time.time() > deadline:
             sys.exit(3)
         time.sleep(0.01)
+    # 注意：subject 用字母后缀（B-new-a/b/...）而非数字——B1 同源指纹降噪上线后，
+    # defer_warning 会把仅差数字的条目归一化为同指纹抑制入队（只留第 1 条），
+    # 本进程测的是「并发 append 不丢」语义，须构造互不同源的告警绕开去重。
     for i in range(n_append):
-        notify.defer_warning(f"B-new-{i}", f"body-B-new-{i}")
+        notify.defer_warning(f"B-new-{chr(ord('a') + i)}",
+                             f"body-B-new-{chr(ord('a') + i)}")
     Path(str(barrier_path) + f".doneB-{os.getpid()}").write_text("ok", encoding="utf-8")
     sys.exit(0)
 
 
-def _flusher2_proc(buf_path, lock_path, barrier_path):
+def _flusher2_proc(buf_path, lock_path, barrier_path, state_path=None):
     """子进程 C：第二个并发 flusher（模拟 schedule_monitor 与 monitor_72h 撞车）。"""
     notify.WARNING_BUFFER_FILE = Path(buf_path)
     notify.WARNING_FLUSH_LOCK_FILE = Path(lock_path)
+    if state_path:
+        notify.WARNING_DEDUP_STATE_FILE = Path(state_path)
     _patch_channels(barrier_path)  # spawn 不继承 mock，防真发
     deadline = time.time() + 10
     while not (Path(barrier_path).exists() and Path(str(barrier_path) + ".go").exists()):
@@ -137,16 +152,20 @@ class FlushRaceTests(unittest.TestCase):
         self.buf = str(Path(self.tmp) / "warning_buffer.jsonl")
         self.lock = str(Path(self.tmp) / "warning_buffer.flushlock")
         # 关键：flush 读写目标指到临时目录，绝不碰生产 data/alerts/warning_buffer.jsonl
+        # （B1 后含指纹状态文件 warning_dedup_state.json，同样必须隔离）
         self._orig_buf = notify.WARNING_BUFFER_FILE
         self._orig_lock = notify.WARNING_FLUSH_LOCK_FILE
+        self._orig_state = notify.WARNING_DEDUP_STATE_FILE
         notify.WARNING_BUFFER_FILE = Path(self.buf)
         notify.WARNING_FLUSH_LOCK_FILE = Path(self.lock)
+        notify.WARNING_DEDUP_STATE_FILE = Path(self.tmp) / "warning_dedup_state.json"
         self.addCleanup(self._restore_paths)
         _patch_channels()
 
     def _restore_paths(self):
         notify.WARNING_BUFFER_FILE = self._orig_buf
         notify.WARNING_FLUSH_LOCK_FILE = self._orig_lock
+        notify.WARNING_DEDUP_STATE_FILE = self._orig_state
 
     def _read_entries(self, path=None, allow_bad=False):
         """解析 JSONL 文件；allow_bad=False 时任何非 JSON 行直接抛（=合法 JSONL 断言）。"""
@@ -250,14 +269,16 @@ class FlushRaceTests(unittest.TestCase):
         lockp = str(Path(tmp) / f"lock-r{round_no}.flushlock")
         barrier = str(Path(tmp) / f"barrier-r{round_no}")
         sent_log = str(Path(tmp) / f"sent-r{round_no}.log")
+        # 每轮独立指纹状态文件（B1 隔离：跨轮共享会因 4h 窗把同字母 subject 误抑制）
+        statep = str(Path(tmp) / f"dedup-state-r{round_no}.json")
         # 共享发送记录路径经环境变量传给 spawn 子进程（P2：真实发送流水共享）
         os.environ["NOTIFY_TEST_SENT_LOG"] = sent_log
         self.addCleanup(os.environ.pop, "NOTIFY_TEST_SENT_LOG", None)
         ctx = multiprocessing.get_context("spawn")
         procs = [
-            ctx.Process(target=_writer_proc, args=(buf, lockp, N_DUE, barrier)),
-            ctx.Process(target=_flusher2_proc, args=(buf, lockp, barrier)),
-            ctx.Process(target=_appender_proc, args=(buf, lockp, N_APPEND, barrier)),
+            ctx.Process(target=_writer_proc, args=(buf, lockp, N_DUE, barrier, statep)),
+            ctx.Process(target=_flusher2_proc, args=(buf, lockp, barrier, statep)),
+            ctx.Process(target=_appender_proc, args=(buf, lockp, N_APPEND, barrier, statep)),
         ]
         for p in procs:
             p.start()
@@ -277,7 +298,7 @@ class FlushRaceTests(unittest.TestCase):
         # 零丢失：append 的每条新条目必须都在（flush 清理不许误删新增）
         self.assertEqual(len(new_subjects), N_APPEND, f"append 新条目有丢失：{new_subjects}")
         for i in range(N_APPEND):
-            self.assertIn(f"B-new-{i}", new_subjects)
+            self.assertIn(f"B-new-{chr(ord('a') + i)}", new_subjects)
         # 至多 N_DUE 条 due 残留（0 或 N：若两 flusher 都因竞态放弃则整批留下轮，
         # 但绝不超 N 且无重复；正常恰有一方发走 → 残留 0）
         self.assertLessEqual(len(due_subjects), N_DUE)
@@ -293,7 +314,7 @@ class FlushRaceTests(unittest.TestCase):
                 if ln.strip():
                     sent_msgs.append(json.loads(ln))  # 非法行=记录写坏，直接失败暴露
             for i in range(N_DUE):
-                subj = f"A-due-{i}"
+                subj = f"A-due-{chr(ord('a') + i)}"
                 # 单条条目在推送正文中的出现次数 = 该条目被推送给用户的次数
                 n_sent = sum(1 for m in sent_msgs if subj in m["body"])
                 if subj not in due_subjects:  # 已被发走并清掉的那批必须恰好推 1 次
