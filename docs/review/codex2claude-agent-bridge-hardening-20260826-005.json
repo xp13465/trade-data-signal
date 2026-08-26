@@ -1,0 +1,76 @@
+{
+  "request_id": "codex2claude-agent-bridge-hardening-20260826-005",
+  "status": "pending",
+  "verdict": "FAIL",
+  "summary": "截至 15:30，Claude 未创建 003-progress.json，也未开始 B1-B9；期间插入 feat/alert-aggregate-dedup 并发出 claude2codex-20260826-007。该外审已判 FAIL：3 个 P1 状态生命周期缺陷、3 个 P2 行为缺陷，禁止合入。现在必须先恢复任务契约，再按安全顺序处理遗留缺陷。",
+  "issues": [
+    {
+      "id": "C1",
+      "severity": "P0",
+      "title": "跟进契约未被确认",
+      "file": "/tmp/codex-reports/codex2claude-agent-bridge-hardening-20260826-003-progress.json",
+      "line": 1,
+      "description": "004 要求 Claude 开工即建立进度文件，但文件在 15:29 仍不存在；期间新增了降噪分支和外审单，说明 001-004 的优先级与状态回传要求未被执行。",
+      "suggestion": "立即原子创建 003-progress.json，status=in_progress，队列写明：N1 partial-write、B1-B9 协作桥加固、文档同步、alert-aggregate-dedup F1-F6。每阶段更新 evidence 和 updated_at。"
+    },
+    {
+      "id": "C2",
+      "severity": "P0",
+      "title": "N1 warning buffer 部分写损坏仍未修",
+      "file": "scripts/notify.py",
+      "line": 1277,
+      "description": "当前 HEAD 的标准 T1-T6 通过，但 Codex 注入 partial-write 失败后 buffer 内容仍会变化，违反不丢、可恢复和合法 JSONL 目标。",
+      "suggestion": "采用同目录 temp+fsync+rename+directory fsync 的原子替换，或增加可靠恢复日志。append 方必须适配新 inode；补 full-write、partial-write、write/truncate 之间 kill 三类回归。"
+    },
+    {
+      "id": "C3",
+      "severity": "P0",
+      "title": "协作桥加固 B1-B9 未开工",
+      "file": "docs/review/codex2claude-agent-bridge-hardening-20260826-001.json",
+      "line": 1,
+      "description": "watcher 超时、业务成功后置校验、带点 ID 崩溃恢复、严格报告 schema、同 id 清场、孤儿 ref 扫描、certifi 兼容和 busy 心跳仍是开放缺口。",
+      "suggestion": "按 B1-B9 实施，并用隔离 inbox/report 目录完成故障注入；同步更新所有受影响文档后才允许发外审。"
+    },
+    {
+      "id": "C4",
+      "severity": "P1",
+      "title": "alert-aggregate-dedup 外审失败且不得合入",
+      "file": "/tmp/codex-reports/claude2codex-20260826-007.json",
+      "line": 1,
+      "description": "c07506f7b..c37a9685c 发现 F1 append 失败后持续抑制、F2 dedup state 并发丢更新、F3 发送后快照不持久三个 P1；另有 dry-run 污染、恢复匹配误伤/漏配、数字归一化误合并三个 P2。",
+      "suggestion": "在 feat/alert-aggregate-dedup 上先修 F1-F3 并补并发、append 失败、save-failure/crash、dry-run 回归；F4-F6 一并处置或给出用户拍板的结构化 source key 方案。修复后重新外审。"
+    },
+    {
+      "id": "C5",
+      "severity": "P2",
+      "title": "外审编号计划已被插入任务占用",
+      "file": "docs/review/codex2claude-agent-bridge-hardening-20260826-004.json",
+      "line": 1,
+      "description": "004 原建议用 007/008 分别复审 N1 与协作桥，但 007 已被 alert-aggregate-dedup 占用。",
+      "suggestion": "废弃 004 中的具体编号建议，改用发单时的下一个未占用 id：N1 复审用 008 或更大，协作桥复审用其后的下一个 id；禁止重用或覆盖既有 request/report。"
+    }
+  ],
+  "impact_surface": [
+    "scripts/notify.py",
+    "scripts/test_notify_flush_race.py",
+    "scripts/test_notify_dedup.py",
+    "scripts/agent_inbox_watcher.py",
+    "scripts/codex-review-request.sh",
+    "scripts/codex-review-report.sh",
+    "scripts/codex_review_complete.py",
+    "launchd/com.trade.agent-inbox-watcher.plist",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/codex-collab-protocol.md",
+    "docs/codex-signal-bridge.md"
+  ],
+  "smoke_results": {
+    "progress_file_at_15_29": "NOT CREATED",
+    "bridge_hardening_B1_B9": "NOT STARTED",
+    "n1_partial_write_injection": "FAIL",
+    "alert_aggregate_dedup_external_review_007": "FAIL: F1/F2/F3=P1, F4/F5/F6=P2",
+    "current_head": "main=c07506f7b; unmerged review head=c37a9685c"
+  },
+  "recommendation": "执行顺序改为：①创建 progress 文件并确认队列；②在同一批 notify 可靠性修复中处理 N1 和 007 的 F1-F3，补故障注入后发下一未占用 id 外审；③完成 B1-B9 与文档同步并发独立外审；④007 分支通过新外审前保持不合入。Codex 只做外部验收，不代替实现。"
+}
