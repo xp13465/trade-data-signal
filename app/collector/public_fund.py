@@ -1833,7 +1833,12 @@ PF_MANAGER_UA = (
 PF_MANAGER_URL_TMPL = "https://fundf10.eastmoney.com/jjjl_{code}.html"
 
 
-def _scrape_fundf10_manager(code: str, retries: int = 2) -> dict | None:
+# codex004 P2: 合法空结果哨兵——页面 200 且解析成功但「无任职历史+无管过基金」。
+# 与 None(网络/HTTP 失败, 应重试)显式区分, 主循环据此把合法空 code 加入 done_set 不再重采。
+_PF_MGR_LEGAL_EMPTY = "LEGAL_EMPTY"
+
+
+def _scrape_fundf10_manager(code: str, retries: int = 2) -> dict | str | None:
     """自爬 fundf10 manager 页, 返回 {appoint_date, managed_history}。
 
     解析:
@@ -1841,7 +1846,9 @@ def _scrape_fundf10_manager(code: str, retries: int = 2) -> dict | None:
       table[2](经理管过的基金): 构建 managed_history JSON [{code,name,type,start,end,return}]
 
     Args: code 基金代码
-    Returns: {appoint_date: str, managed_history: str(JSON)} 或 None(失败)
+    Returns: {appoint_date: str, managed_history: str(JSON)};
+             _PF_MGR_LEGAL_EMPTY(页面解析成功的合法空结果);
+             None(失败, 网络异常/HTTP 非 200 重试耗尽)
     """
     import re
     from io import StringIO
@@ -1898,7 +1905,9 @@ def _scrape_fundf10_manager(code: str, retries: int = 2) -> dict | None:
                             })
                     break
             if not appoint_date and not managed_history:
-                return None
+                # codex004 P2: 页面成功解析的合法空(该基金确无任职历史/管过基金),
+                # 用哨兵与网络失败的 None 区分
+                return _PF_MGR_LEGAL_EMPTY
             return {
                 "appoint_date": appoint_date,
                 "managed_history": json.dumps(managed_history, ensure_ascii=False),
@@ -1994,10 +2003,15 @@ def fetch_fund_manager(scrape: bool = True, codes: list[str] | None = None) -> i
         else:
             try:
                 result = _scrape_fundf10_manager(code)
-                # codex-001 medium: 页面成功但「无任职历史+无管过基金」是合法空结果
-                # (_scrape 返回 None 与 HTTP 失败不可区分是旧病灶), 现由摘要显式标记
-                attempts[code] = "empty" if not result else f"ok{len(result.get('managed_history') or '')}"
-                if result:
+                # codex004 P2: 三态——dict=有数据 / _PF_MGR_LEGAL_EMPTY=页面解析成功
+                # 的合法空(该基金确无任职历史, 进 done_set 不再跨轮重采, 摘要沿用
+                # 全项目 empty0=确认空口径) / None=网络或 HTTP 失败(标 empty 留重试面)
+                if result == _PF_MGR_LEGAL_EMPTY:
+                    attempts[code] = "empty0"
+                    done_set.add(code)
+                    ok += 1
+                elif result:
+                    attempts[code] = f"ok{len(result.get('managed_history') or '')}"
                     appoint = result["appoint_date"]
                     history = result["managed_history"]
                     tenure = None
@@ -2008,6 +2022,7 @@ def fetch_fund_manager(scrape: bool = True, codes: list[str] | None = None) -> i
                     ok += 1
                     done_set.add(code)
                 else:
+                    attempts[code] = "empty"
                     fail += 1
             except Exception as e:  # noqa: BLE001
                 fail += 1
@@ -2427,6 +2442,10 @@ def fetch_fund_risk_indicator(codes: list[str] | None = None) -> int:
             ok += 1
         else:
             rows_this = 0
+            # codex004 P3: 本轮实际数据源分支(xq_ok 是跨 code 累计值, 不能用来判定
+            # 当前 code 走的哪条路径)——self_calc=净值自算降级 / xq=纯雪球 /
+            # xq_mixed=雪球+自算补指标混合
+            branch = "self_calc"
             try:
                 df = safe_call(ak.fund_individual_analysis_xq, retries=1, symbol=code)
                 if isinstance(df, Exception) or df is None or len(df) == 0:
@@ -2446,6 +2465,7 @@ def fetch_fund_risk_indicator(codes: list[str] | None = None) -> int:
                     if rows_this:
                         self_calc_ok += 1
                 else:
+                    srcs: set[str] = set()
                     for _, r in df.iterrows():
                         period_cn = str(r.get("周期", "")).strip()
                         period = XQ_PERIOD_MAP.get(period_cn, "")
@@ -2460,6 +2480,7 @@ def fetch_fund_risk_indicator(codes: list[str] | None = None) -> int:
                         ir_v = calc["information_ratio"] if calc else None
                         alpha_v = calc["alpha"] if calc else None
                         src = "mixed" if calc else "xq"
+                        srcs.add(src)
                         pending.append((
                             code, period,
                             _safe_float(r.get("年化夏普比率")),
@@ -2477,12 +2498,18 @@ def fetch_fund_risk_indicator(codes: list[str] | None = None) -> int:
                         rows_this += 1
                     if rows_this:
                         xq_ok += 1
+                        # codex004 P3: 按本 code 实际数据源标记(含自算补指标=xq_mixed)
+                        branch = "xq_mixed" if "mixed" in srcs else "xq"
                 if rows_this:
                     ok += 1
                     total_rows += rows_this
                     # codex-001 medium: attempt 成功摘要(自算降级也算成功——数据源
-                    # 确实无该基金风险数据时, 自算路径已尽力, 不再反复重采)
-                    attempts[code] = "ok" if xq_ok else "empty0"
+                    # 确实无该基金风险数据时, 自算路径已尽力, 不再反复重采)。
+                    # codex004 P3: 摘要按本轮实际数据源分支(self_calc/xq/xq_mixed),
+                    # 不再用跨 code 累计的 xq_ok 判定(首个 xq 成功后纯自算 code 被
+                    # 误标 ok 的摘要失真已根除); 闸门只认 attempt key 存在性不受影响
+                    attempts[code] = {"self_calc": "self_calc", "xq": "ok",
+                                      "xq_mixed": "xq_mixed"}[branch]
                     done_set.add(code)
                 else:
                     fail += 1
