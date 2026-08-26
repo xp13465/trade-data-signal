@@ -42,16 +42,16 @@ def _make_old_ts():
 
 
 def _writer_proc(buf_path, lock_path, n_due, barrier_path):
-    """子进程 A：预写满窗条目 → 等栅栏 → 调真实 flush_warning_batch（真锁真文件）。"""
-    import datetime
+    """子进程 A：预写满窗条目（带显式 rid）→ 等栅栏 → 调真实 flush_warning_batch。"""
     notify.WARNING_BUFFER_FILE = Path(buf_path)
     notify.WARNING_FLUSH_LOCK_FILE = Path(lock_path)
-    _patch_channels()  # spawn 不继承主进程 mock，子进程内重新 mock 防真发
+    _patch_channels(barrier_path)  # spawn 不继承主进程 mock，子进程内重新 mock 防真发
     with open(buf_path, "a", encoding="utf-8") as f:
         for i in range(n_due):
             f.write(json.dumps({
                 "ts": _make_old_ts(),
-                "subject": f"A-due-{os.getpid()}-{i}",
+                "rid": f"rid-A-{i}",  # 显式 rid：父进程可断言「每个条目至多被推送一次」
+                "subject": f"A-due-{i}",
                 "body": f"body-A-{i}",
                 "from_prefix": "[告警·聚合]",
             }, ensure_ascii=False) + "\n")
@@ -71,7 +71,7 @@ def _appender_proc(buf_path, lock_path, n_append, barrier_path):
     """子进程 B：等同一栅栏后持续追加未满窗口新条目（与 A 的 flush 并发交错）。"""
     notify.WARNING_BUFFER_FILE = Path(buf_path)
     notify.WARNING_FLUSH_LOCK_FILE = Path(lock_path)
-    _patch_channels()  # defer_warning 本身不发送，保险起见统一 mock
+    _patch_channels(barrier_path)  # defer_warning 本身不发送，保险起见统一 mock
     deadline = time.time() + 10
     while not (Path(barrier_path).exists() and Path(str(barrier_path) + ".go").exists()):
         if time.time() > deadline:
@@ -87,7 +87,7 @@ def _flusher2_proc(buf_path, lock_path, barrier_path):
     """子进程 C：第二个并发 flusher（模拟 schedule_monitor 与 monitor_72h 撞车）。"""
     notify.WARNING_BUFFER_FILE = Path(buf_path)
     notify.WARNING_FLUSH_LOCK_FILE = Path(lock_path)
-    _patch_channels()  # spawn 不继承 mock，防真发
+    _patch_channels(barrier_path)  # spawn 不继承 mock，防真发
     deadline = time.time() + 10
     while not (Path(barrier_path).exists() and Path(str(barrier_path) + ".go").exists()):
         if time.time() > deadline:
@@ -98,11 +98,37 @@ def _flusher2_proc(buf_path, lock_path, barrier_path):
     sys.exit(0)
 
 
-def _patch_channels():
-    """mock 掉三个发送渠道全部成功（确定性断言 sent_batch=True + 绝不真发）。
-    主进程与 spawn 子进程都要各自调用（spawn 不继承 mock）。"""
-    for name in ("_send_email", "send_telegram", "send_feishu"):
-        unittest.mock.patch.object(notify, name, return_value=True).start()
+def _record_send(sent_log_path, subject, body):
+    """把「实际成功发送」的聚合消息(subject+body)以 JSON 行追加进共享记录(flock 防交错)。
+    codex006 P2：三进程各自 mock 无共享记录时，「都发送但只一个清理成功」会假绿；
+    记录真实发送流水（含 body，单条目 subject 在 body 内），父进程才能断言零重复推送。"""
+    import fcntl
+    with open(sent_log_path, "a", encoding="utf-8") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        f.write(json.dumps({"subject": subject, "body": body}, ensure_ascii=False) + "\n")
+        fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def _patch_channels(tag=""):
+    """mock 掉三个发送渠道：全部返回成功（确定性 sent_batch=True），并把每次成功发送的
+    聚合消息(subject+body)落入 <tmp>/sent-rN.log 共享记录（主进程与 spawn 子进程各自调用）。
+    tag 仅用于日志定位，不影响行为。"""
+    sent_log = os.environ.get("NOTIFY_TEST_SENT_LOG", "")
+
+    def fake_email(subject, body, **k):
+        if sent_log:
+            _record_send(sent_log, subject, str(body))
+        return True
+
+    def fake_tg(subject, body, **k):
+        return True
+
+    def fake_fs(subject, body, **k):
+        return True
+
+    unittest.mock.patch.object(notify, "_send_email", side_effect=fake_email).start()
+    unittest.mock.patch.object(notify, "send_telegram", side_effect=fake_tg).start()
+    unittest.mock.patch.object(notify, "send_feishu", side_effect=fake_fs).start()
 
 
 class FlushRaceTests(unittest.TestCase):
@@ -223,6 +249,10 @@ class FlushRaceTests(unittest.TestCase):
         buf = str(Path(tmp) / f"buf-r{round_no}.jsonl")
         lockp = str(Path(tmp) / f"lock-r{round_no}.flushlock")
         barrier = str(Path(tmp) / f"barrier-r{round_no}")
+        sent_log = str(Path(tmp) / f"sent-r{round_no}.log")
+        # 共享发送记录路径经环境变量传给 spawn 子进程（P2：真实发送流水共享）
+        os.environ["NOTIFY_TEST_SENT_LOG"] = sent_log
+        self.addCleanup(os.environ.pop, "NOTIFY_TEST_SENT_LOG", None)
         ctx = multiprocessing.get_context("spawn")
         procs = [
             ctx.Process(target=_writer_proc, args=(buf, lockp, N_DUE, barrier)),
@@ -237,9 +267,10 @@ class FlushRaceTests(unittest.TestCase):
             p.join(timeout=60)
             self.assertEqual(p.exitcode, 0, f"子进程异常退出 exit={p.exitcode}")
         entries = self._read_entries(buf)  # 解析失败会直接抛 → 文件始终合法 JSONL 断言
-        due_subjects = [e["subject"] for e in entries if e["subject"].startswith(("A-due-",))]
+        due_entries = [e for e in entries if e["subject"].startswith("A-due-")]
+        due_subjects = [e["subject"] for e in due_entries]
         new_subjects = [e["subject"] for e in entries if e["subject"].startswith("B-new-")]
-        # 零重复：due 条目每个只出现一次（两 flusher 只有一方能发走并清掉；
+        # 零重复（文件层）：due 条目每个只出现一次（两 flusher 只有一方能发走并清掉；
         # 另一方二次确认查不到即放弃；即使都尝试也绝不在文件里留两份）
         for s in set(due_subjects):
             self.assertEqual(due_subjects.count(s), 1, f"due 条目重复：{s}")
@@ -252,6 +283,31 @@ class FlushRaceTests(unittest.TestCase):
         self.assertLessEqual(len(due_subjects), N_DUE)
         # flush 锁文件存在（机制在位证据）
         self.assertTrue(Path(lockp).exists())
+        # ── P2 加固：真实发送流水断言 ──────────────────────────────
+        # 合并三进程写入的共享 sent.log（JSONL：{subject, body}）：每个显式 rid 条目的
+        # subject 至多出现在一次推送的 body 中。旧断言只数最终文件，若两 flusher 都发送
+        # 但只有一个清理成功 → 文件无重复但用户收两封 → 假绿；这里直接验「推送次数」本身。
+        if Path(sent_log).exists():
+            sent_msgs = []
+            for ln in Path(sent_log).read_text(encoding="utf-8").splitlines():
+                if ln.strip():
+                    sent_msgs.append(json.loads(ln))  # 非法行=记录写坏，直接失败暴露
+            for i in range(N_DUE):
+                subj = f"A-due-{i}"
+                # 单条条目在推送正文中的出现次数 = 该条目被推送给用户的次数
+                n_sent = sum(1 for m in sent_msgs if subj in m["body"])
+                if subj not in due_subjects:  # 已被发走并清掉的那批必须恰好推 1 次
+                    self.assertEqual(n_sent, 1, f"{subj} 推送 {n_sent} 次(应=1)")
+                else:
+                    # 留在文件的批次：至多被推 1 次（且留下轮），绝不重复推送
+                    self.assertLessEqual(n_sent, 1, f"{subj} 推送 {n_sent} 次(>1=重复推送)")
+            # 聚合邮件格式校验：每条推送 subject 必含「N条 warning 汇总」
+            for m in sent_msgs:
+                self.assertIn("条 warning 汇总", m["subject"],
+                              f"聚合邮件 subject 格式异常：{m['subject']}")
+        else:
+            # 整轮无人成功发送（两 flusher 都因竞态放弃）也合法，但此时文件里必有全部 due
+            self.assertEqual(len(due_subjects), N_DUE, "无发送记录时 due 应整批留在文件")
 
     def test_t2_single_process_normal_flow(self):
         """T2 单进程正常流：满窗发出清掉、未满窗口保留、计数正确。"""

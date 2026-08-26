@@ -1250,6 +1250,11 @@ def _flush_warning_batch_locked(dry_run: bool = False) -> dict:
         # 防 append 方阻塞在旧 inode 孤儿 fd 上写入丢失），但**不再按字节偏移切尾**——重新
         # 解析全文件逐行 json.loads，按稳定 ID 移除本批已发 rid，其余（未满窗口 + 发送期间
         # 其他进程新追加的全部条目）原样保留。偏移错位截尾病灶从根上消灭。
+        # 写序=先写后缩（2026-08-26 codex006 P1）：旧实现 f.truncate() 后才 f.write(out)，
+        # 两步间进程被杀 / write 撞 ENOSPC·EIO → buffer 成空文件或半行，keep+新增 warning
+        # 全丢。改为 ①seek(0)+write(out)（新内容比旧短时尾部留旧字节残影=下轮解析出多余
+        # 条目，宁重发不丢）→ ②flush+os.fsync 落盘 → ③truncate(len(out)) 只在 write 成功后
+        # 收缩。write 失败时原内容完好无损。
         try:
             with open(WARNING_BUFFER_FILE, "rb+") as f:
                 fcntl.flock(f, fcntl.LOCK_EX)
@@ -1269,10 +1274,12 @@ def _flush_warning_batch_locked(dry_run: bool = False) -> dict:
                     for e in out_entries
                 )
                 out += b"".join(ln.encode("utf-8", errors="replace") + b"\n" for ln in cur_bad)
+                import os as _os
                 f.seek(0)
-                f.truncate()
-                f.write(out)
+                f.write(out)          # 先写：失败则原文件完好（except 兜住只告警）
                 f.flush()
+                _os.fsync(f.fileno())  # 落盘后再缩，缩完即使断电也是完整合法 JSONL
+                f.truncate(len(out))   # 后缩：只收缩 write 已成功覆盖的长度，消灭残影
                 fcntl.flock(f, fcntl.LOCK_UN)
         except Exception as e:  # noqa: BLE001
             print(f"[notify] warning buffer 清理失败（下轮可能重发）：{e}", file=sys.stderr)
