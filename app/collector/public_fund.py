@@ -1833,7 +1833,12 @@ PF_MANAGER_UA = (
 PF_MANAGER_URL_TMPL = "https://fundf10.eastmoney.com/jjjl_{code}.html"
 
 
-def _scrape_fundf10_manager(code: str, retries: int = 2) -> dict | None:
+# codex004 P2: 合法空结果哨兵——页面 200 且解析成功但「无任职历史+无管过基金」。
+# 与 None(网络/HTTP 失败, 应重试)显式区分, 主循环据此把合法空 code 加入 done_set 不再重采。
+_PF_MGR_LEGAL_EMPTY = "LEGAL_EMPTY"
+
+
+def _scrape_fundf10_manager(code: str, retries: int = 2) -> dict | str | None:
     """自爬 fundf10 manager 页, 返回 {appoint_date, managed_history}。
 
     解析:
@@ -1841,7 +1846,9 @@ def _scrape_fundf10_manager(code: str, retries: int = 2) -> dict | None:
       table[2](经理管过的基金): 构建 managed_history JSON [{code,name,type,start,end,return}]
 
     Args: code 基金代码
-    Returns: {appoint_date: str, managed_history: str(JSON)} 或 None(失败)
+    Returns: {appoint_date: str, managed_history: str(JSON)};
+             _PF_MGR_LEGAL_EMPTY(页面解析成功的合法空结果);
+             None(失败, 网络异常/HTTP 非 200 重试耗尽)
     """
     import re
     from io import StringIO
@@ -1898,7 +1905,9 @@ def _scrape_fundf10_manager(code: str, retries: int = 2) -> dict | None:
                             })
                     break
             if not appoint_date and not managed_history:
-                return None
+                # codex004 P2: 页面成功解析的合法空(该基金确无任职历史/管过基金),
+                # 用哨兵与网络失败的 None 区分
+                return _PF_MGR_LEGAL_EMPTY
             return {
                 "appoint_date": appoint_date,
                 "managed_history": json.dumps(managed_history, ensure_ascii=False),
@@ -1994,10 +2003,15 @@ def fetch_fund_manager(scrape: bool = True, codes: list[str] | None = None) -> i
         else:
             try:
                 result = _scrape_fundf10_manager(code)
-                # codex-001 medium: 页面成功但「无任职历史+无管过基金」是合法空结果
-                # (_scrape 返回 None 与 HTTP 失败不可区分是旧病灶), 现由摘要显式标记
-                attempts[code] = "empty" if not result else f"ok{len(result.get('managed_history') or '')}"
-                if result:
+                # codex004 P2: 三态——dict=有数据 / _PF_MGR_LEGAL_EMPTY=页面解析成功
+                # 的合法空(该基金确无任职历史, 进 done_set 不再跨轮重采, 摘要沿用
+                # 全项目 empty0=确认空口径) / None=网络或 HTTP 失败(标 empty 留重试面)
+                if result == _PF_MGR_LEGAL_EMPTY:
+                    attempts[code] = "empty0"
+                    done_set.add(code)
+                    ok += 1
+                elif result:
+                    attempts[code] = f"ok{len(result.get('managed_history') or '')}"
                     appoint = result["appoint_date"]
                     history = result["managed_history"]
                     tenure = None
@@ -2008,6 +2022,7 @@ def fetch_fund_manager(scrape: bool = True, codes: list[str] | None = None) -> i
                     ok += 1
                     done_set.add(code)
                 else:
+                    attempts[code] = "empty"
                     fail += 1
             except Exception as e:  # noqa: BLE001
                 fail += 1
