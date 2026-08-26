@@ -167,7 +167,10 @@
        默认收起；收起态本区不含任何 TV script/DOM(零外部请求=首页速度+加密等内容风控隔离)；
        点展开才懒注入脚本；再次收起仅隐藏不销毁已载内容；不做 localStorage 记忆，每次进页默认收起(风控隔离语义优先)。 -->
   <style>
-    .tv-embed-section{margin:32px auto 0;padding:0 16px;max-width:1200px}
+    /* 宽度挂进首页主体同一体系:主体=全宽无 max-width(main padding 16px 24px / .risk-banner margin 0 24px),
+       本区与 .risk-banner 同款左右 margin,不自定 px 宽(修复用户反馈的定宽不对齐);
+       断点统一全站 768(768 视口主体已走移动端 12px 边距+h5 底导航,本区同步移动形态) */
+    .tv-embed-section{margin:32px 24px 0}
     .tv-embed-section > summary{cursor:pointer;user-select:none;list-style:none;font-size:15px;font-weight:600;color:var(--text-1);display:flex;align-items:center;justify-content:space-between;gap:8px}
     .tv-embed-section > summary::-webkit-details-marker{display:none}
     .tv-embed-section > summary:hover{color:var(--primary)}
@@ -179,7 +182,8 @@
     .tv-embed-grid{display:flex;gap:14px}
     .tv-embed-cell{flex:1 1 0;min-width:0;height:420px;border-radius:8px;overflow:hidden}
     .tv-embed-cell .tradingview-widget-container,.tv-embed-cell .tradingview-widget-container__widget{height:100%;width:100%}
-    @media (max-width:767px){
+    @media (max-width:768px){
+      .tv-embed-section{margin:24px 12px 0}
       .tv-embed-grid{flex-direction:column;gap:12px}
       /* flex:0 0 auto 防 flex-basis:0 在 column 主轴把 height:360px 打掉致 iframe 塌陷 */
       .tv-embed-cell{flex:0 0 auto;height:360px}
