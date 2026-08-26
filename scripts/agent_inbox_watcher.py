@@ -18,6 +18,12 @@ strictly validated so a file name cannot become shell input.
 崩溃恢复: 启动时 recover_processing 把遗留 .processing 还原成 .ready 重跑。
 心跳: main 循环每轮 touch HEARTBEAT_PATH(mtime 超 10 分钟 ≈ 僵死,供人工排查;
 schedule_monitor 接入待办)。
+
+异步化(2026-08-26, codex 审计刺): 子命令改 subprocess.Popen 后台执行——codex exec
+可能跑几十分钟, 原同步 subprocess.run 期间心跳停跳 + claude-inbox 积压(实测误报
+僵死一次)。现每 inbox 一个作业槽(codex/claude 各同时最多一个子进程), 主循环每轮
+poll 已结束子进程按退出码走 done/failed(重试语义不变), 心跳与另一 inbox 消费不
+再被阻塞。
 """
 
 import json
@@ -124,48 +130,86 @@ def atomic_write_signal(path: Path, payload: dict) -> None:
     tmp.replace(path)
 
 
-def run_cli(command: list[str], cwd: Path) -> bool:
+def build_command(kind: str, request_id: str) -> list[str]:
+    """按通道构造子命令(纯构造不执行; codex exec 可能跑几十分钟)。"""
+    if kind == "codex":
+        prompt = (
+            "你是 trade 仓库的 Codex 外部 reviewer。先读 AGENTS.md 和 "
+            "docs/codex-collab-protocol.md，再检查 refs/codex/req 下所有 pending "
+            "request。只按 request JSON 的 base..head 与 focus_areas 执行独立复核；"
+            "报告必须先写 .tmp 再 rename 到 /tmp/codex-reports/<request_id>.json；"
+            "每个完成项调用 python3 scripts/codex_review_complete.py <request_id> "
+            "--verdict <PASS|FAIL|BLOCKED> 建立 Claude 回传信号。不要 commit/push。"
+        )
+        return [
+            os.environ.get("CODEX_BIN", "codex"),
+            "exec",
+            "--cd",
+            str(REPO),
+            "--add-dir",
+            "/tmp/codex-reports",
+            "--ephemeral",
+            "--sandbox",
+            "workspace-write",
+            "--color",
+            "never",
+            prompt,
+        ]
+    return ["bash", str(REPO / "scripts" / "codex-review-report.sh"), request_id]
+
+
+def spawn_job(kind: str, request_id: str, processing: Path, payload: dict,
+              command: list[str], running: dict) -> None:
+    """Popen 后台起子进程占本通道槽位; spawn 失败(OSError)立即按失败处置。"""
     log(f"exec {' '.join(command)}")
+    job = {"kind": kind, "request_id": request_id, "processing": processing,
+           "payload": payload, "proc": None}
     try:
-        result = subprocess.run(command, cwd=cwd, check=False)
-        ok = result.returncode == 0
-        log(f"exit={result.returncode}")
-        return ok
+        job["proc"] = subprocess.Popen(command, cwd=REPO)
     except OSError as error:
         log(f"spawn_error={error}")
-        return False
+        running[kind] = job
+        finish_job(running, kind, -1)
+        return
+    running[kind] = job
 
 
-def dispatch_codex(request_id: str) -> bool:
-    prompt = (
-        "你是 trade 仓库的 Codex 外部 reviewer。先读 AGENTS.md 和 "
-        "docs/codex-collab-protocol.md，再检查 refs/codex/req 下所有 pending "
-        "request。只按 request JSON 的 base..head 与 focus_areas 执行独立复核；"
-        "报告必须先写 .tmp 再 rename 到 /tmp/codex-reports/<request_id>.json；"
-        "每个完成项调用 python3 scripts/codex_review_complete.py <request_id> "
-        "--verdict <PASS|FAIL|BLOCKED> 建立 Claude 回传信号。不要 commit/push。"
-    )
-    command = [
-        os.environ.get("CODEX_BIN", "codex"),
-        "exec",
-        "--cd",
-        str(REPO),
-        "--add-dir",
-        "/tmp/codex-reports",
-        "--ephemeral",
-        "--sandbox",
-        "workspace-write",
-        "--color",
-        "never",
-        prompt,
-    ]
-    return run_cli(command, REPO)
+def finish_job(running: dict, kind: str, exit_code: int) -> None:
+    """子进程结束后按退出码处置(与原同步版语义一致): 0=.done(claude 附飞书通知);
+    非 0 且未耗尽重试=原子写回 .ready 带退避元数据; 重试耗尽=.failed 终态+放弃告警。"""
+    job = running.pop(kind)
+    log(f"exit={exit_code}")
+    processing = job["processing"]
+    payload = job["payload"]
+    request_id = job["request_id"]
+    if exit_code == 0:
+        transition(processing, "done")
+        log(f"{kind}_completed request_id={request_id}")
+        if kind == "claude":
+            notify_claude(request_id)
+        return
+
+    retries = int(payload.get(RETRY_KEY) or 0) + 1
+    log(f"{kind}_failed request_id={request_id} retry_count={retries}")
+    if retries < MAX_RETRIES:
+        # 原子写回 .ready 带重试元数据(retry_count+1/last_failed_at/next_retry_after)
+        payload[RETRY_KEY] = retries
+        payload[LAST_FAIL_KEY] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        payload[NEXT_RETRY_KEY] = time.time() + RETRY_DELAY_SECONDS
+        atomic_write_signal(processing.with_suffix(".ready"), payload)
+        processing.unlink(missing_ok=True)
+    else:
+        transition(processing, "failed")
+        log(f"{kind}_gave_up request_id={request_id} after {retries} attempts")
+        notify_gave_up(kind, request_id, retries)
 
 
-def validate_claude_report(request_id: str) -> bool:
-    return run_cli(
-        ["bash", str(REPO / "scripts" / "codex-review-report.sh"), request_id], REPO
-    )
+def poll_running(running: dict) -> None:
+    """非阻塞回收已结束子进程(poll() 立即返回), 按退出码处置; 未结束的跳过。"""
+    for kind in list(running):
+        exit_code = running[kind]["proc"].poll()
+        if exit_code is not None:
+            finish_job(running, kind, exit_code)
 
 
 def notify_gave_up(kind: str, request_id: str, retries: int) -> None:
@@ -188,7 +232,11 @@ def notify_gave_up(kind: str, request_id: str, retries: int) -> None:
         log(f"notify_error={error}")
 
 
-def process_queue(inbox: Path, kind: str) -> None:
+def pump_queue(inbox: Path, kind: str, running: dict) -> None:
+    """扫描 inbox 取第一个可消费信号后台起子进程(每通道单槽: 本通道已有作业在跑
+    则整轮跳过, 防并发多 codex exec; invalid 立即转态、重试未到期跳过)。"""
+    if kind in running:
+        return
     now = time.time()
     for ready in sorted(inbox.glob("*.ready")):
         stem = ready.stem
@@ -211,31 +259,9 @@ def process_queue(inbox: Path, kind: str) -> None:
             log(f"invalid_request_id={request_id}")
             continue
 
-        if kind == "codex":
-            ok = dispatch_codex(request_id)
-        else:
-            ok = validate_claude_report(request_id)
-
-        if ok:
-            transition(processing, "done")
-            log(f"{kind}_completed request_id={request_id}")
-            if kind == "claude":
-                notify_claude(request_id)
-            continue
-
-        retries = int(payload.get(RETRY_KEY) or 0) + 1
-        log(f"{kind}_failed request_id={request_id} retry_count={retries}")
-        if retries < MAX_RETRIES:
-            # 原子写回 .ready 带重试元数据(retry_count+1/last_failed_at/next_retry_after)
-            payload[RETRY_KEY] = retries
-            payload[LAST_FAIL_KEY] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
-            payload[NEXT_RETRY_KEY] = now + RETRY_DELAY_SECONDS
-            atomic_write_signal(processing.with_suffix(".ready"), payload)
-            processing.unlink(missing_ok=True)
-        else:
-            transition(processing, "failed")
-            log(f"{kind}_gave_up request_id={request_id} after {retries} attempts")
-            notify_gave_up(kind, request_id, retries)
+        spawn_job(kind, request_id, processing, payload,
+                  build_command(kind, request_id), running)
+        return  # 本轮至多占一个槽, 其余信号下轮槽空再取
 
 
 def touch_heartbeat() -> None:
@@ -255,11 +281,13 @@ def main() -> int:
         CLAUDE_INBOX.mkdir(parents=True, exist_ok=True)
         recover_processing(CODEX_INBOX)
         recover_processing(CLAUDE_INBOX)
-        log("watcher started")
+        log("watcher started (async)")
+        running: dict[str, dict] = {}  # kind -> 作业槽(codex/claude 各最多一个子进程)
         while True:
             touch_heartbeat()
-            process_queue(CODEX_INBOX, "codex")
-            process_queue(CLAUDE_INBOX, "claude")
+            poll_running(running)
+            pump_queue(CODEX_INBOX, "codex", running)
+            pump_queue(CLAUDE_INBOX, "claude", running)
             time.sleep(POLL_SECONDS)
     except KeyboardInterrupt:
         log("watcher stopped")
