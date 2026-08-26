@@ -954,7 +954,10 @@ def _ai_macro_hit_filters(sig: dict, ctx: dict) -> list:
     # _AI_MACRO_FILTER_NAMES 不含 → 默认行为零变化 §23.7)。特征类键依赖 data/kelly_loss_features.json
     # (gen_kelly_loss_features.py 产出), 文件缺失时特征类键不判(降级不误标), 纯字段键照判。
     try:
-        _f.extend(_ai_macro_hit_new_keys(sig, ctx, _ai_macro_feat_at()))
+        # P1(codex013): 归一化信号穿透 _ai_macro_hit_new_keys → loss_rules rule_hit,
+        # 防 buy_special_filtered 在 loss_rules spec sig="buy_special" 谓词上 miss
+        _sig_norm = dict(sig, signal=_sig) if _sig != (sig.get("signal") or "") else sig
+        _f.extend(_ai_macro_hit_new_keys(_sig_norm, ctx, _ai_macro_feat_at()))
     except Exception:
         pass  # 新键标注失败不阻断 overview 主链路(诚实降级: 少标注优于导出失败)
     return _f

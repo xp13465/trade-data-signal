@@ -23,9 +23,17 @@
 """
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(ROOT))
+
+# P2-2(codex013): 显式声明 feature-file 依赖——mock _ai_macro_feat_at 为恒 None 闭包,
+# 测试不依赖外部 kelly_loss_features.json, 仅验证纯字段谓词。
+_NIL_FEAT_AT = lambda name, date: None
+
+# Patch queries 模块级 _ai_macro_feat_at, 使 _ai_macro_hit_filters 内部调用走 mock
+import app.queries as _queries_mod
 
 from app.queries import _ai_macro_hit_filters
 
@@ -48,7 +56,9 @@ def run(sig, ctx, mkt=None, tier=None):
         ctx["market_of"] = lambda iid: mkt
     if tier is not None:
         ctx["tier_of"] = lambda d: tier
-    return sorted(_ai_macro_hit_filters(sig, ctx))
+    # P2-2: patch _ai_macro_feat_at 隔离外部文件依赖
+    with patch.object(_queries_mod, "_ai_macro_feat_at", return_value=_NIL_FEAT_AT):
+        return sorted(_ai_macro_hit_filters(sig, ctx))
 
 
 def main():
@@ -98,23 +108,47 @@ def main():
     else:
         failures.append(f"2b 宽基误标 k3ConceptBuy: {ks_no3}")
 
-    # ---- 3. r10May6NonMay 其余组件 ----
-    # 3a 5月任意买信号
+    # ---- 3. r10May6NonMay 五组件逐一验证(P2-1 codex013: 精确键集断言) ----
+    # 组件 1: 5月任意买信号 → r10May6NonMay
     ks_may = run({"date": "20250512", "signal": "buy", "index_id": "sh000001"},
                  make_ctx(), mkt="mkt_broad")
     if "r10May6NonMay" in ks_may:
         ok += 1
-        print(f"PASS 3a 5月组件={ks_may}")
+        print(f"PASS 3a 组件1(5月)={ks_may}")
     else:
         failures.append(f"3a 5月应含 r10May6NonMay, 实得 {ks_may}")
-    # 3b buy_aux + 3月 + wd==2(周三, 20250305 实测 wd=2)
+    # 组件 5: buy_aux × 3月 × wd==2(周三, 20250305 实测 wd=2)
     ks_aux = run({"date": "20250305", "signal": "buy_aux", "index_id": "csi_931057"},
                  make_ctx(), mkt="mkt_industry")
     if "r10May6NonMay" in ks_aux:
         ok += 1
-        print(f"PASS 3b aux×3月×wd2 组件={ks_aux}")
+        print(f"PASS 3b 组件5(buy_aux×03×wd2)={ks_aux}")
     else:
         failures.append(f"3b buy_aux+03+wd2 应含 r10May6NonMay, 实得 {ks_aux}")
+    # 组件 2: buy_special × 11月 × mkt_industry → r10May6NonMay
+    ks_ind = run({"date": "20251112", "signal": "buy_special", "index_id": "csi_931057"},
+                 make_ctx(), mkt="mkt_industry")
+    if "r10May6NonMay" in ks_ind:
+        ok += 1
+        print(f"PASS 3c 组件2(buy_special×11×industry)={ks_ind}")
+    else:
+        failures.append(f"3c buy_special+11+industry 应含 r10May6NonMay, 实得 {ks_ind}")
+    # 组件 3: buy_special × 11月 × wd==0(周一, 20251110 实测 wd=0)
+    ks_wd0 = run({"date": "20251110", "signal": "buy_special", "index_id": "csi_931057"},
+                 make_ctx(), mkt="mkt_industry")
+    if "r10May6NonMay" in ks_wd0:
+        ok += 1
+        print(f"PASS 3d 组件3(buy_special×11×wd0)={ks_wd0}")
+    else:
+        failures.append(f"3d buy_special+11+wd0 应含 r10May6NonMay, 实得 {ks_wd0}")
+    # 组件 4: buy_special × 3月 × mkt_industry → r10May6NonMay
+    ks_mar_ind = run({"date": "20250312", "signal": "buy_special", "index_id": "csi_931057"},
+                     make_ctx(), mkt="mkt_industry")
+    if "r10May6NonMay" in ks_mar_ind:
+        ok += 1
+        print(f"PASS 3e 组件4(buy_special×03×industry)={ks_mar_ind}")
+    else:
+        failures.append(f"3e buy_special+03+industry 应含 r10May6NonMay, 实得 {ks_mar_ind}")
 
     # ---- 4. 仅买信号守卫 ----
     for bad in ("sell", "sell_stop_loss", "band_hold"):
@@ -126,7 +160,7 @@ def main():
         else:
             failures.append(f"4 {bad} 应返空, 实得 {ks_bad}")
 
-    total = 10
+    total = 13
     print(f"\n== {ok}/{total} PASS ==")
     if failures:
         for f in failures:
