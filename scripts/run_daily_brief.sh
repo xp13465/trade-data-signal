@@ -56,4 +56,17 @@ if REPO="$REPO" "$PY" "$REPO/scripts/aggregate_shadow.py" >> "$LOG" 2>&1; then
 else
   echo "[run_daily_brief] ✗ 影子对账失败(不阻塞主流程)" | tee -a "$LOG"
 fi
+
+# ── 融合底座 ledger 对账回填(2026-08-26 反思重构 Phase1 挂载)────────────────────
+# 方案 docs/ai-predict/ai-predict-reflection-quality-rebuild-20260826.md §四:每日底稿
+# data/brief_ledger.json 的 actual_side/hit 由本时点回填(T 日行需 T+1 收盘才可判;20:40 时
+# T-1 及更早的收盘数据已由 17:50 update_all 采入 sentiment.db,输入就绪)。口径:
+# history.meta.hit 三层搬运优先(与前端展示位同源 §22)+ sh_map 方向兜底;幂等可重复跑,
+# 滚动清账不留断档。失败不阻塞主流程(与影子对账同模式)。Phase1 双写过渡:shadow 对账保留。
+echo "[run_daily_brief] 开始 ledger 对账 brief_ledger $(date '+%Y-%m-%d %H:%M:%S')" | tee -a "$LOG"
+if REPO="$REPO" "$PY" "$REPO/scripts/brief_ledger.py" --reconcile >> "$LOG" 2>&1; then
+  echo "[run_daily_brief] ✓ ledger 对账完成" | tee -a "$LOG"
+else
+  echo "[run_daily_brief] ✗ ledger 对账失败(不阻塞主流程)" | tee -a "$LOG"
+fi
 exit 0

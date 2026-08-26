@@ -235,7 +235,45 @@ def fetch_market_fund_flow():
     return []  # 五源皆败，返回空（collect_direct 转 fail 记 error）
 
 
-def fetch_north_fund_hkex(days=90):
+# ── a_fund_north 预算治理常量(2026-08-26 根治「90天循环 vs 90s守护预算」矛盾) ──
+# 根因:days=90 固定窗口逐日串行(~2s/请求 ≈ 164s+)必超 collect_direct 90s 守护
+# (fetchers._safe_call_guarded timeout=90),每次被当假死砍掉,三级 fallback 从未轮到。
+HKEX_SOFT_DEADLINE_S = 60.0   # 主源循环软deadline(秒):到点break拿到多少交多少;
+                              # 必须 < 90s 外层守护(最坏在途单请求15s → 75s,留15s余量)
+HKEX_DAYS_MIN = 3             # 增量缺口下限(天):库已最新也回看3天,防个别日缺行漏补
+HKEX_DAYS_MAX = 10            # 增量缺口上限(天):10工作日 × ~2s ≈ <20s,稳在90s预算内
+HKEX_DAYS_FULL = 90           # 首次全量窗口(仅库空场景);配合软deadline保证不超预算
+
+
+def _north_fund_gap_days():
+    """查主库 daily_metric 里 a_fund_north 最新日期,算增量缺口自然日数。
+
+    返回 (gap_days, known):
+    - (int, True)   库有数据,gap = today - MAX(date) 自然日差(≥0)
+    - (None, True)  库空 → 首次全量场景,调用方用 HKEX_DAYS_FULL
+    - (None, False) 查库异常 → 调用方保守按 HKEX_DAYS_MAX 增量,不冒险走全量慢爬
+    读库用 runner 同款 get_conn()(同 hkex_ccass_quarterly._latest_quarter_value 先例),
+    只读 SELECT MAX(date),不写库。
+    """
+    try:
+        from ..db import get_conn
+        conn = get_conn()
+        try:
+            row = conn.execute(
+                "SELECT MAX(date) FROM daily_metric WHERE metric_id='a_fund_north'"
+            ).fetchone()
+        finally:
+            conn.close()
+        latest = row[0] if row else None
+        if not latest:
+            return None, True
+        latest_d = _dt.datetime.strptime(str(latest)[:8], "%Y%m%d").date()
+        return max(0, (_dt.date.today() - latest_d).days), True
+    except Exception:
+        return None, False
+
+
+def fetch_north_fund_hkex(days=None, soft_deadline_s=None):
     """HKEX 官方每日统计 JS：北向成交总额（沪股通+深股通 Total Turnover 合计），
     返回 [(date_YYYYMMDD, value_亿元), ...]。
 
@@ -246,14 +284,42 @@ def fetch_north_fund_hkex(days=90):
       与东财 kamt/get buySellAmt 一致（hk2sh+hk2sz=28383728.86 万=2838.37 亿）
 
     保留窗口约 7 个月（实测 2025-12-29 起，更早 404）。周末/假日 404 跳过。
-    days=90 默认覆盖最近 ~3 个月交易日（约 60 天），足够增量更新。
+
+    2026-08-26 预算治理(根治 90 天固定窗口 vs 90s 守护预算矛盾):
+    - days 缺口自适应:缺省查库内该指标最新日期,只拉缺口天数(HKEX_DAYS_MIN~MAX 夹紧,
+      平时 3-10 天 ≈ <20s 完成);仅首次全量(库空)才用 HKEX_DAYS_FULL 大窗口
+    - 软 deadline(HKEX_SOFT_DEADLINE_S):循环到点 break「部分采集 N/M 天」,
+      部分成功好过被外层 90s 守护整体砍掉(fallback 也因此可达);余量下次采集槽补
+    - 跳过周六日:HKEX 周末必 404 但仍花 ~2s/请求,过滤省 ~30% 无效请求
 
     C3 升级：从东财 kamt/get 切到 HKEX 官方权威源，减少东财依赖，反爬风险更低。
     """
+    if days is None:
+        gap, known = _north_fund_gap_days()
+        if not known:
+            days = HKEX_DAYS_MAX       # 查库异常:保守上限增量,绝不冒险全量慢爬
+        elif gap is None:
+            days = HKEX_DAYS_FULL      # 库空:首次全量场景
+        else:
+            days = min(HKEX_DAYS_MAX, max(HKEX_DAYS_MIN, gap + 1))  # +1 含今日
+    if soft_deadline_s is None:
+        soft_deadline_s = HKEX_SOFT_DEADLINE_S
+
     rows = []
     today = _dt.date.today()
+    t0 = _dt.datetime.now()
+    attempted = 0  # 已发起请求的工作日数(deadline break 日志「部分采集 N/M 天」的 M)
     for i in range(days):
         d = today - _dt.timedelta(days=i)
+        if d.weekday() >= 5:  # 5=周六,6=周日:HKEX 无数据必 404,不浪费 ~2s/请求
+            continue
+        elapsed = (_dt.datetime.now() - t0).total_seconds()
+        if elapsed > soft_deadline_s:
+            print(f"[a_fund_north][hkex] 软deadline {soft_deadline_s}s 到点break: "
+                  f"部分采集 {len(rows)}行成功/{attempted}工作日已尝试 "
+                  f"(窗口{days}天未跑完,余量下次槽补采)")
+            break
+        attempted += 1
         date_str = d.strftime("%Y%m%d")
         url = HKEX_DAILY_STAT_URL.format(date=date_str)
         try:
@@ -315,21 +381,37 @@ def fetch_north_fund_total():
     只能拿季度末快照，反算出来是季度净买额非日频。改用 C2 季度反算单独指标。
 
     主源（C3 升级）：HKEX 官方每日统计 JS（权威源，数据与东财一致，反爬风险低）
+      2026-08-26 起 days 缺口自适应（fetch_north_fund_hkex 内查库），不再固定 90 天
     fallback 1：东财 datacenter RPT_MUTUAL_DEAL_HISTORY（全量历史 ~2716 日，HKEX 失败兜底）
     fallback 2：东财 push2 kamt/get（当日，datacenter 也失败时最后兜底）
+
+    2026-08-26 预算治理:主源循环带软 deadline(60s < collect_direct 90s 守护),
+    主源空/异常时 fallback 真正可达(此前 90 天慢爬必被外层守护整体砍掉,fallback 从未轮到);
+    fallback 页循环同样带剩余预算检查,保证整个函数在守护预算内可返回。
     """
-    # 主源：HKEX 官方 JS（最近 90 天增量）
+    _t0 = _dt.datetime.now()
+
+    def _elapsed():
+        return (_dt.datetime.now() - _t0).total_seconds()
+
+    # 主源：HKEX 官方 JS（缺口自适应增量；软 deadline 到点部分返回）
     try:
-        rows = fetch_north_fund_hkex(days=90)
+        rows = fetch_north_fund_hkex()
         if rows:
             return rows
     except Exception:
         pass  # HKEX 封禁/网络异常 -> 走东财 fallback
 
     # fallback 1：datacenter-web RPT_MUTUAL_DEAL_HISTORY（历史日K，全量 ~3 页）
+    # 剩余预算检查:主源已耗 ~60s 时只再给 ~20s(留 ~10s 给 fallback 2 与收尾),
+    # 防「主源慢爬 + fallback 全量页」叠加超 90s 守护预算。
     rows = []
     try:
         for page in range(1, 6):  # 最多 5 页兜底（实测 3 页）
+            if _elapsed() > 80.0:
+                print(f"[a_fund_north] fallback1 剩余预算耗尽({_elapsed():.0f}s), "
+                      f"停止翻页,已拿 {len(rows)} 行")
+                break
             r = em_get(
                 "https://datacenter-web.eastmoney.com/api/data/v1/get",
                 params={
