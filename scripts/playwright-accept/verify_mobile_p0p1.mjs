@@ -7,7 +7,13 @@
 // 复现: cd /Users/linhuichen/code/trade-data && uvicorn app.main:app --port 8125
 //       node scripts/playwright-accept/verify_mobile_p0p1.mjs <css文件> /tmp/p0p1-result.json
 // 数据版本: 2026-08-26; 关键口径: document.scrollWidth<=clientWidth 即无横向溢出
+// 注意(F1 教训): HTML 与 CSS 均从本仓库 static-site/ 注入(route.fulfill),只借服务端的 /api 真数据——
+// 防止服务端挂载树缺文件(如 trade-data/static-site 曾缺 guide.html 致 404 JSON 页被误测成 981px 溢出)
 import { chromium } from 'playwright';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const SITE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'static-site');
 
 // 移动端 P0+P1 五件修复验证脚本(mobile-p0p1)
 // 断言来源: /tmp/codex-reports/codex2claude-mobile-layout-20260826-001.json M1-M5
@@ -42,6 +48,11 @@ async function setupRoutes(context) {
   await context.route(/^https?:\/\/(?!127\.0\.0\.1)/, (route) => route.abort());
   await context.route(/\/style(\.min)?\.css(\?.*)?$/, (route) =>
     route.fulfill({ path: CSS_FILE, contentType: 'text/css' }));
+  // HTML 从本仓库 static-site/ 注入(自包含,见头部 F1 教训注释)
+  await context.route(/\/[A-Za-z0-9_.-]+\.html(\?.*)?$/, (route) => {
+    const url = new URL(route.request().url());
+    return route.fulfill({ path: path.join(SITE_ROOT, url.pathname.split('/').pop()), contentType: 'text/html' });
+  });
   await context.route('**/api/auth/me', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -101,14 +112,27 @@ try {
     await page.screenshot({ path: `${shots}-${width}-overview.png`, fullPage: false }).catch(() => {});
 
     if (!isDesktop) {
-      // M1 硬断言: 底部导航可点区(scrollWidth 不超视口即导航不被推出可点区)
-      const navClickable = await page.evaluate(() => {
-        const nav = document.querySelector('.bottom-nav, #bottomNav, nav.bottom-nav');
-        if (!nav) return 'no-nav';
-        const rect = nav.getBoundingClientRect();
-        return rect.left >= 0 && rect.right <= window.innerWidth ? 'in-viewport' : 'pushed-out';
-      });
-      results.push({ viewId: `overview-bottomnav@${width}`, navClickable });
+      // M1 硬断言(F1 修正): 底部导航真实类名 .h5-bottomnav(index.html L158),
+      // 五键逐个 Playwright normal click(含 actionability 检查,非 evaluate JS 点击),
+      // 报告验收口径=5/5 通过;点击会切 tab,故放在本视口 overview 断言之后、下一 tab 切换之前
+      const navBtns = page.locator('.h5-bottomnav button');
+      const navCount = await navBtns.count();
+      let navClickPass = 0;
+      const navFailKeys = [];
+      for (let i = 0; i < navCount; i++) {
+        // 本脚本 auth 仅 mock /api/auth/me 未伪造本地 token, 点「基金评分」会触发
+        // openLoginPromptForFeature 弹 .auth-login-modal 盖住底导航——属 mock 局限非布局缺陷,
+        // 逐键前清理业务弹窗, 保证本断言只验「布局是否把导航推出可点区」
+        await page.evaluate(() => document.querySelectorAll('.auth-login-modal').forEach((m) => m.remove()));
+        try {
+          await navBtns.nth(i).click({ timeout: 4000 });
+          navClickPass++;
+        } catch (e) {
+          navFailKeys.push({ index: i, label: (await navBtns.nth(i).textContent().catch(() => '') || '').trim(), err: e.message.split('\n')[0] });
+        }
+      }
+      await page.evaluate(() => document.querySelectorAll('.auth-login-modal').forEach((m) => m.remove()));
+      results.push({ viewId: `overview-bottomnav@${width}`, navButtons: navCount, navClickPass, navFailKeys });
 
       // M2 futures
       await page.evaluate(() => {
@@ -171,6 +195,10 @@ for (const r of results) {
   const m = r.viewId.match(/@(\d+)$/);
   const w = m ? Number(m[1]) : 0;
   if (w && w <= 768 && r.noHorizOverflow === false) summary.push(`FAIL ${r.viewId} scrollWidth=${r.scrollWidth}>${r.clientWidth}`);
+  // F1: 底部导航五键 normal click 不全过=FAIL(navButtons 缺失同样 FAIL,防选择器空转)
+  if (w && w <= 768 && typeof r.navClickPass === 'number' && (r.navButtons < 1 || r.navClickPass < r.navButtons)) {
+    summary.push(`FAIL ${r.viewId} bottomnav ${r.navClickPass}/${r.navButtons}`);
+  }
 }
 const fails = summary.length;
 console.log(JSON.stringify({ cssFile: CSS_FILE, totalProbes: results.length, failCount: fails, fails: summary, results }, null, 1));
