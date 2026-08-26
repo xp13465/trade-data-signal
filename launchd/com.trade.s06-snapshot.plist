@@ -76,7 +76,9 @@
     <string>/Users/linhuichen/code/trade-data/data/logs/s06_snapshot_launchd.err</string>
     <key>RunAtLoad</key>
     <false/>
-    <!-- 秒级任务(读两 json+算状态机+写两 json+机检+R2 上传), 600s 给足余量防僵死占槽 -->
+    <!-- codex008 F5 更正: ExitTimeOut 不是运行时长超时, 只是任务被停止(SIGTERM)后等待
+         优雅退出再 SIGKILL 的宽限窗口。防挂死由 s06_snapshot.sh 内 run_to 超时包装承担
+         (gen/check 300s + r2 600s); 此处 600s 仅保证超时被杀时日志 flush 留全 -->
     <key>ExitTimeOut</key>
     <integer>600</integer>
 </dict>

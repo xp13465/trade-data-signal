@@ -316,6 +316,7 @@ DUR_THRESHOLDS = {
     "backfill_evening": 4500,   # 75min(实测 max ~3707s 21:00槽 08-10)
     "us_stock_morning": 1800,   # 30min(任务本身秒级,慢在全量 deploy 17-26min 恒超 900s;2026-08-18 900->1800)
     "overfit_monitor": 900,     # 15min(实测打点+双 parity 自检 76s, 2026-08-25; 大裕量防 trades 重算抖动)
+    "s06_snapshot": 900,        # 15min(三段 run_to 超时上限 300+300+600s, 全超时也 <900s; codex008 F5)
 }
 # stats 初始化(2026-08-14 A1 补): A1 进行中检测块引用 stats, 须保证 STATS_FILE 不存在/
 #   解析失败时 stats 仍为 [] 而非 NameError(否则进行中检测整块崩溃)。

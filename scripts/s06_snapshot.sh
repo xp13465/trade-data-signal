@@ -26,6 +26,22 @@
 #   gen_schedule_stats standard 模式与 schedule_monitor 漏跑检查直读, 同 overfit_monitor 先例)
 set -u
 
+# codex008 F5(P3②): 三段命令统一超时包装防挂死(输入文件异常巨大/网络卡住时占住
+# launchd 槽位拖垮后续任务)。macOS 无 coreutils timeout, fallback 链:
+# timeout → gtimeout(brew coreutils)→ perl alarm-exec(alarm 计时器跨 exec 保留, 等效
+# timeout 语义); 超时按非零处理走既有 FAIL 告警链。
+run_to() {
+  local t="$1"
+  shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$t" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$t" "$@"
+  else
+    perl -e 'alarm shift; exec @ARGV or exit 127' "$t" "$@"
+  fi
+}
+
 REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
 PY="${PY:-$REPO/.venv/bin/python}"
@@ -47,20 +63,23 @@ echo "=== s06_snapshot.sh 开始 $(date '+%F %T') ===" >> "$LOG"
 
 RC_GEN=0; RC_CHK=0; RC_R2=0
 
-# ① 重生快照(两树原子写)
-"$PY" scripts/gen_kelly_mode_s06_state.py --repo "$REPO" --git-repo "$GIT_REPO" >> "$LOG" 2>&1
+# ① 重生快照(两树原子写; 超时 300s 防挂死)
+run_to 300 "$PY" scripts/gen_kelly_mode_s06_state.py --repo "$REPO" --git-repo "$GIT_REPO" >> "$LOG" 2>&1
 RC_GEN=$?
 if [ "$RC_GEN" -ne 0 ]; then
   echo "✗ S06 快照生成失败 rc=${RC_GEN}" >> "$LOG"
 else
-  # ② 四断言机检(FAIL 即阻断语义: 本链不上线数据, 但必须当场暴露不许静默带病产物留两树)
-  "$PY" scripts/check_s06_state.py --repo "$REPO" --data-repo "$REPO" >> "$LOG" 2>&1
+  # ② 四断言机检(FAIL 即阻断语义: 本链不上线数据, 但必须当场暴露不许静默带病产物留两树;
+  #    超时 300s 与 check_data_integrity.check_s06_state_snapshot 同口径。
+  #    此处保持严格模式不带 --allow-lag-days: 刚生成完快照 lag=0, 若 lag>0 说明输入
+  #    因子与快照错位属真异常, 必须当场暴露; deploy 时序窗口容差只在 integrity 链启用)
+  run_to 300 "$PY" scripts/check_s06_state.py --repo "$REPO" --data-repo "$REPO" >> "$LOG" 2>&1
   RC_CHK=$?
   if [ "$RC_CHK" -ne 0 ]; then
     echo "✗ S06 快照机检 FAIL rc=${RC_CHK}(产物可能带病, 告警人工核查)" >> "$LOG"
   else
-    # ③ R2 兜底副本即时同步(上传+purge 一条龙; 失败不阻断——git 渠道随次日 deploy 追上)
-    "$PY" scripts/upload_r2.py upload-data-files kelly_mode_s06_state.json >> "$LOG" 2>&1
+    # ③ R2 兜底副本即时同步(上传+purge 一条龙; 含网络往返给 600s; 失败不阻断——git 渠道随次日 deploy 追上)
+    run_to 600 "$PY" scripts/upload_r2.py upload-data-files kelly_mode_s06_state.json >> "$LOG" 2>&1
     RC_R2=$?
     [ "$RC_R2" -ne 0 ] && echo "⚠ S06 快照 R2 同步失败 rc=${RC_R2}(git 渠道随次日 deploy 追上)" >> "$LOG"
   fi

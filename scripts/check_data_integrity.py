@@ -1544,9 +1544,17 @@ def check_s06_state_snapshot(data_dir: Path, timeout: int = 300) -> CheckResult:
     if not script.exists():
         return _fail(name, f"机检脚本缺失: {script}")
     repo_root = data_dir.parent.parent   # static-site/data -> 仓根(--repo/--data-repo 同根: trade-data 内 common.js/gen 脚本/index 输入齐备)
+    cmd = [sys.executable, str(script), "--repo", str(repo_root), "--data-repo", str(repo_root)]
+    if _deploy_mode:
+        # codex008 F1(P0①): deploy 与 20:35 快照重生的每日固定时序窗口——17:50 链内
+        # deploy 时因子(index-all.json)已更新到 T 而快照仍为昨晚生成(coverage_end=T-1,
+        # 落后 1 个已入库交易日)。deploy 模式给显式容差 --allow-lag-days 1; 缺失/解析
+        # 失败/超容差/结构不一致仍硬阻断。日常新鲜度由 schedule_monitor→check_s06_freshness
+        # 兜底; 非 deploy 手动跑保持严格(default 0)。
+        cmd += ["--allow-lag-days", "1"]
     try:
         proc = subprocess.run(
-            [sys.executable, str(script), "--repo", str(repo_root), "--data-repo", str(repo_root)],
+            cmd,
             capture_output=True, text=True, timeout=timeout, check=False,
         )
     except subprocess.TimeoutExpired:
