@@ -22,7 +22,9 @@ const SECURITY_HEADERS = {
   'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), accelerometer=(), gyroscope=()',
-  "Content-Security-Policy-Report-Only": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://hm.baidu.com https://zz.bdstatic.com https://push.zhanzhang.baidu.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://web.ifzq.gtimg.cn https://hm.baidu.com; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'",
+  // 2026-08-26 补 TradingView 小部件域(首页底部「全球市场热力」): widgets.tradingview-widget.com/s3.tradingview.com(script)
+  //   + *.tradingview.com(wss 行情流 connect-src) + www/s.tradingview.com(iframe frame-src)。Report-Only 仅上报不拦截。
+  "Content-Security-Policy-Report-Only": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://hm.baidu.com https://zz.bdstatic.com https://push.zhanzhang.baidu.com https://static.cloudflareinsights.com https://widgets.tradingview-widget.com https://s3.tradingview.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://web.ifzq.gtimg.cn https://hm.baidu.com https://*.tradingview.com wss://*.tradingview.com; frame-src 'self' https://www.tradingview.com https://s.tradingview.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'",
 };
 
 // 有序规则：第一条匹配的生效（first-match-wins = 精确/具体优先，兜底放最后）。

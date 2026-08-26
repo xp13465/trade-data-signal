@@ -322,6 +322,18 @@ snapshot.js / ticker-check.js），纯验收不碰业务代码，供 reviewer/te
 
 > 数据源细节、采集时点与合规说明见 [`docs/data-sources.md`](docs/data-sources.md)。
 
+### 🌍 TradingView 免费行情小部件
+
+**用途**：`首页底部「🌍 全球市场热力」区块`（2026-08-26 新增）——嵌入 TradingView 官方免费小部件三件：**全球品种跑马灯**（黄金 / BTC / ETH / SOL / PAXG / 美债10Y / 标普500 / 纳指100 / 原油）+ **美股热力图**（SPX500 成分股按市值成块、涨跌着色、行业分组）+ **加密货币热力图**（按市值成块、24h 涨跌着色）。纯前端 embed script 直连 TradingView CDN 渲染，不经过本站后端。
+
+| 小部件 | 致敬来源 | 本项目用在哪 |
+|---|---|---|
+| **Ticker Tape 跑马灯** | [TradingView Widgets](https://www.tradingview.com)（web component `tv-ticker-tape`） | 首页底部全宽横幅：全球宏观品种行情滚动 |
+| **Stock Heatmap** | 同上（`embed-widget-stock-heatmap.js`） | 首页底部左列：S&P500 市值 × 涨跌 × 行业热力图 |
+| **Crypto Coins Heatmap** | 同上（`embed-widget-crypto-coins-heatmap.js`） | 首页底部右列：加密币种市值 × 24h 涨跌热力图 |
+
+> 致敬 [TradingView](https://www.tradingview.com) 免费提供高质量行情可视化小部件。
+
 ### 🤖 飞书开放平台（lark-oapi）
 
 **用途**：`notify.py` 飞书发送渠道 + `feishu_ws_listener.py` 长连接接收进程（企业自建应用收发一体）。

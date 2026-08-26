@@ -163,6 +163,80 @@
     <button data-tab="lab"><span class="bn-icon">🧪</span><span class="bn-label">策略实验</span></button>
   </nav>
 
+  <!-- 全球市场热力（TradingView 免费小部件嵌入区）：跑马灯独占一行 + 股票/加密热力图 PC 双列、移动端(<768px)堆叠 -->
+  <style>
+    .tv-embed-section{margin:32px auto 0;padding:0 16px;max-width:1200px}
+    .tv-embed-title{font-size:15px;font-weight:600;color:var(--text-1);margin:0 0 12px}
+    .tv-embed-ticker{margin-bottom:14px;border-radius:8px;overflow:hidden}
+    .tv-embed-grid{display:flex;gap:14px}
+    .tv-embed-cell{flex:1 1 0;min-width:0;height:420px;border-radius:8px;overflow:hidden}
+    .tv-embed-cell .tradingview-widget-container,.tv-embed-cell .tradingview-widget-container__widget{height:100%;width:100%}
+    @media (max-width:767px){
+      .tv-embed-grid{flex-direction:column;gap:12px}
+      /* flex:0 0 auto 防 flex-basis:0 在 column 主轴把 height:360px 打掉致 iframe 塌陷 */
+      .tv-embed-cell{flex:0 0 auto;height:360px}
+    }
+  </style>
+  <section class="tv-embed-section" aria-label="全球市场热力">
+    <h2 class="tv-embed-title">🌍 全球市场热力</h2>
+    <!-- TradingView Widget BEGIN : ticker tape (跑马灯, 独占一行) -->
+    <div class="tv-embed-ticker">
+      <script type="module" src="https://widgets.tradingview-widget.com/w/zh_CN/tv-ticker-tape.js"></script>
+      <tv-ticker-tape symbols="CMCMARKETS:GOLD,BINANCE:BTCUSDT,BINANCE:ETHUSDT,BINANCE:SOLUSDT,BINANCE:PAXGUSDT,TVC:US10Y,SPCFD:SPX,OANDA:NAS100USD,MCX:CRUDEOIL1!" item-size="compact" show-hover theme="dark"></tv-ticker-tape>
+    </div>
+    <!-- TradingView Widget END -->
+    <div class="tv-embed-grid">
+      <!-- TradingView Widget BEGIN : Stock Heatmap (美股热力图) -->
+      <div class="tv-embed-cell">
+        <div class="tradingview-widget-container">
+          <div class="tradingview-widget-container__widget"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-stock-heatmap.js" async>
+          {
+            "dataSource": "SPX500",
+            "blockSize": "market_cap_basic",
+            "blockColor": "change",
+            "grouping": "sector",
+            "locale": "zh_CN",
+            "symbolUrl": "",
+            "colorTheme": "light",
+            "hasTopBar": false,
+            "isDataSetEnabled": false,
+            "isZoomEnabled": true,
+            "hasSymbolTooltip": true,
+            "isMonoChart": false,
+            "width": "100%",
+            "height": "100%"
+          }
+          </script>
+        </div>
+      </div>
+      <!-- TradingView Widget END -->
+      <!-- TradingView Widget BEGIN : Crypto Coins Heatmap (加密货币热力图) -->
+      <div class="tv-embed-cell">
+        <div class="tradingview-widget-container">
+          <div class="tradingview-widget-container__widget"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-crypto-coins-heatmap.js" async>
+          {
+            "dataSource": "Crypto",
+            "blockSize": "market_cap_calc",
+            "blockColor": "24h_close_change|5",
+            "locale": "zh_CN",
+            "symbolUrl": "",
+            "colorTheme": "light",
+            "hasTopBar": false,
+            "isDataSetEnabled": false,
+            "isZoomEnabled": true,
+            "hasSymbolTooltip": true,
+            "width": "100%",
+            "height": "100%"
+          }
+          </script>
+        </div>
+      </div>
+      <!-- TradingView Widget END -->
+    </div>
+  </section>
+
   <footer class="site-disclaimer">
     <p>本站数据仅供学习参考,不构成任何投资建议;投资有风险,决策需谨慎。</p>
     <p>本站非持牌证券投资咨询机构,不荐股,内容仅供研究学习。</p>
