@@ -852,7 +852,10 @@ def _ai_macro_hit_filters(sig: dict, ctx: dict) -> list:
     _d = str(sig.get("date") or "")
     _mm = _d[4:6] if len(_d) >= 8 else ""
     _dd = int(_d[6:8]) if len(_d) >= 8 else 0
-    _sig = sig.get("signal") or ""
+    # 入口统一归一化: buy_special_filtered(邮件链路变体名, overfit_monitor.py recent 链同款)
+    # -> buy_special, 保证两判定源对同一信号的键集一致(codex012 P2②, 与 scripts/overfit_monitor.py L574 同口径)
+    _sig_raw = str(sig.get("signal") or "")
+    _sig = "buy_special" if _sig_raw == "buy_special_filtered" else _sig_raw
     _wd = _ai_macro_weekday(_d)
     _rating = ctx["rating_of"](sig)
     _mkt = ctx["market_of"](sig.get("index_id") or "")
