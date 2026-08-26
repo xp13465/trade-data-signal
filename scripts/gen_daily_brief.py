@@ -195,6 +195,11 @@ def load_config() -> dict:
     #   只控制「旁路落盘 data/brief_shadow.json + 影子 lean」，不注入线上——即使 true,
     #   线上 prompt 仍逐字不变(direction_anchor_enabled/reflection 才是注入闸)。验证期默认开。
     cfg.setdefault("shadow_mode_enabled", True)
+    # ── 融合底座 brief_ledger 开关(2026-08-26 反思重构 Phase1,默认 true=双写过渡)：──
+    #   控制主流程尾部「每日对账底稿 data/brief_ledger.json」写入(预测侧+因子侧+引用审计
+    #   +未注入面快照)。Phase1 与 shadow_mode_enabled 双写并存(shadow 不停用),Phase2 并档
+    #   时 shadow 停写、本开关接管(方案 docs/ai-predict/ai-predict-reflection-quality-rebuild-20260826.md §6.2)。
+    cfg.setdefault("brief_ledger_enabled", True)
     return cfg
 
 
@@ -4238,6 +4243,27 @@ def main() -> int:
     stats = write_outputs(static_dir, brief, cfg, history)
     timings["write"] = round(time.time() - tw, 2)
     log(f"写 {static_dir / BRIEF_FILE} + history({len(history)}条) hit_stats={stats}")
+
+    # ── 融合底座 brief_ledger 双写(2026-08-26 反思重构 Phase1,纯数据层新增)─────────
+    # 方案 docs/ai-predict/ai-predict-reflection-quality-rebuild-20260826.md §四:影子骨架升格为
+    # 每日一行完整对账底稿(pred_side/factor_states 含未注入面快照/cite_audit/missed_faces;
+    # actual/hit 次日由 scripts/brief_ledger.py reconcile 回填,run_daily_brief.sh 尾部已挂)。
+    # 挂在 write_outputs 之后:meta/text 此时已定(AI/rule/minimal 都有),AI 降级也照记因子状态
+    # (不断档);anchor 复用上方 _shadow_rec 同源缓存,零额外 DB 读。失败不阻塞主链(同 shadow 模式)。
+    if cfg.get("brief_ledger_enabled", True):
+        try:
+            from brief_ledger import record_ledger as _rec_ledger
+            _lg_rec = _rec_ledger(date, cfg, db_path, repo,
+                                  brief=brief, data=data, shadow_rec=_shadow_rec)
+            if _lg_rec:
+                log(f"ledger 记录 date={date} "
+                    f"referenced={len((_lg_rec.get('cite_audit') or {}).get('referenced_faces') or [])} "
+                    f"missed={len(_lg_rec.get('missed_faces') or [])} "
+                    f"extra_faces_keys={sorted((_lg_rec.get('factor_states', {}).get('extra_faces') or {}).keys())}")
+            else:
+                log("⚠ ledger 记录返回 None(写入失败,详见 brief_ledger 内部;不阻塞主链)")
+        except Exception as _e:
+            log(f"⚠ ledger 记录异常(不阻塞主链): {type(_e).__name__}: {_e}")
 
     # 生成成功通知(2026-08-11 追加需求):邮件+飞书报告群,同日去重,失败不阻塞
     # --mock/--rule-only 是开发/自验 flag:跳过通知,防发"MOCK 测试数据"给真实用户
