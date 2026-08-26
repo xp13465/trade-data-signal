@@ -69,6 +69,12 @@ TASKS = [
     # standard 模式零特殊逻辑直读; schedule_monitor.sh TASKS 同步加漏跑检查条目。
     {"task": "overfit_monitor", "name": "过拟合监控", "script": "overfit_monitor.sh",
      "schedule": "21:40", "log": "overfit_monitor_launchd.log", "mode": "standard"},
+    # s06-snapshot: 2026-08-26 补入(S06 快照每日盘后重生链路, 切全站默认前置)。
+    # launchd com.trade.s06-snapshot 交易日 20:35 跑 s06_snapshot.sh(gen→check→R2 三段)。
+    # 日志固定 append + 标准开始/结束行, standard 模式零特殊逻辑直读;
+    # schedule_monitor.sh TASKS 同步加漏跑检查条目(同 overfit_monitor 先例)。
+    {"task": "s06_snapshot", "name": "S06快照重生", "script": "s06_snapshot.sh",
+     "schedule": "20:35", "log": "s06_snapshot_launchd.log", "mode": "standard"},
 ]
 
 _TS = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})'
@@ -97,6 +103,7 @@ LABEL_MAP = {
     "etf_national_team": "com.trade.etf-national-team",
     "lab_auto": "com.trade.lab-auto",
     "overfit_monitor": "com.trade.overfit-monitor",
+    "s06_snapshot": "com.trade.s06-snapshot",
 }
 
 # launchctl print "last exit code = N" 行（N 可为 143/0/1/None，None 显 "last exit code = (none)"）

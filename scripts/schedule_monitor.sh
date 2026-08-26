@@ -119,6 +119,12 @@ TASKS = [
     {"task": "overfit_monitor",     "log": "overfit_monitor_launchd.log",
      "trading_day_only": True,  # 非交易日脚本闸门跳过不写开始行, 必需跳过漏跑检查避免周末误报
      "schedules": ["21:40"]},
+    # s06_snapshot: 2026-08-26 补入(S06 快照每日盘后重生链路, 切全站默认前置)。
+    # 同 overfit_monitor 模式: 固定 append + 标准开始/结束行(START_RE 可解析), 此处管漏跑;
+    # 「跑了但产物仍过期」的语义盲区由下方 check_s06_freshness.py 检查点兜底。
+    {"task": "s06_snapshot",        "log": "s06_snapshot_launchd.log",
+     "trading_day_only": True,  # 非交易日脚本闸门跳过不写开始行, 必需跳过漏跑检查避免周末误报
+     "schedules": ["20:35"]},
 ]
 
 # 标准任务开始行：=== xxx.sh 开始 YYYY-MM-DD HH:MM:SS ===
@@ -310,6 +316,7 @@ DUR_THRESHOLDS = {
     "backfill_evening": 4500,   # 75min(实测 max ~3707s 21:00槽 08-10)
     "us_stock_morning": 1800,   # 30min(任务本身秒级,慢在全量 deploy 17-26min 恒超 900s;2026-08-18 900->1800)
     "overfit_monitor": 900,     # 15min(实测打点+双 parity 自检 76s, 2026-08-25; 大裕量防 trades 重算抖动)
+    "s06_snapshot": 900,        # 15min(三段 run_to 超时上限 300+300+600s, 全超时也 <900s; codex008 F5)
 }
 # stats 初始化(2026-08-14 A1 补): A1 进行中检测块引用 stats, 须保证 STATS_FILE 不存在/
 #   解析失败时 stats 仍为 [] 而非 NameError(否则进行中检测整块崩溃)。
@@ -1581,6 +1588,28 @@ if recoveries:
         ],
         check=False,
     )
+
+# S06 快照新鲜度兜底检查（2026-08-26，S06 每日重生链路第三件）：
+# kelly_mode_s06_state.json 的 coverage_end 落后最近已入库交易日 >1 个交易日 →
+# check_s06_freshness.py --notify 内部 defer_warning 入聚合队列（自带同状态去重防
+# 15min 周期轰炸），由本脚本尾部既有 --flush-warnings 统一批发。放独立脚本+子进程调用：
+# 判定逻辑可 dry 单测（--snap/--index 传构造样本），监控层只看退出码。
+# 注: s06_snapshot_launchd.log 的漏跑/exit失败已被上方维度1/2 覆盖(标准开始/结束行),
+# 本检查补「任务跑了但产物仍过期」的语义盲区(如 gen 成功但 index 输入断更)。
+try:
+    _r_s06 = subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "check_s06_freshness.py"), "--notify"],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    if _r_s06.returncode == 0:
+        print(f"[s06] {_r_s06.stdout.strip().splitlines()[0] if _r_s06.stdout.strip() else '新鲜度 OK'}")
+    elif _r_s06.returncode == 1:
+        print(f"[s06] 快照过期(已 defer_warning 入聚合队列): {_r_s06.stdout.strip()[:200]}")
+    else:
+        print(f"[warn] s06 freshness 无法判定 rc={_r_s06.returncode}: "
+              f"{(_r_s06.stdout + _r_s06.stderr).strip()[:200]}", file=sys.stderr)
+except Exception as e:
+    print(f"[warn] s06 freshness 检查失败(不阻塞主流程): {e}", file=sys.stderr)
 
 # Heartbeat：每次完整跑完都更新时间戳（主控 Claude Code cron 读此文件，
 # 超过 30 分钟未更新 = launchd 层可能挂了，立即提示用户）。

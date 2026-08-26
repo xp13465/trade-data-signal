@@ -109,6 +109,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="S06 快照机检(独立复算+时序+键集+阈值单源)")
     ap.add_argument("--repo", default=str(DEFAULT_REPO))
     ap.add_argument("--data-repo", default=str(DEFAULT_DATA_REPO))
+    ap.add_argument("--allow-lag-days", type=int, default=0,
+                    help="deploy 时序容差(codex008 F1): 允许快照落后因子数据 ≤N 个已入库交易日"
+                         "(仅限快照 dates 是复算 covered 序列的前缀=无中间缺日; 缺失/结构不一致/"
+                         "超容差仍 FAIL)。默认 0=严格(deploy 链外手动跑保持严格口径)")
     args = ap.parse_args()
     repo = Path(args.repo).resolve()
     data_repo = Path(args.data_repo).resolve()
@@ -146,11 +150,30 @@ def main() -> int:
     indep = independent_state_machine(covered, spread, snap["threshold"], snap["confirm_days"],
                                       snap["min_hold_days"], snap["on_base"], snap["off_base"])
     snap_modes = [r["effective_mode"] for r in daily]
-    mismatch = [(d, a, b) for d, a, b in zip(covered, indep, snap_modes) if a != b]
-    same_universe = covered == dates
+    # ── deploy 时序容差(codex008 F1, P0①)──
+    # update_all 17:50 链内 deploy 时因子(index-all.json)已更新到 T, 而 S06 快照仍是前晚
+    # 20:35 生成(coverage_end=T-1)——这是每日固定时序窗口, 不是数据错误。deploy 模式传
+    # --allow-lag-days 1 容忍「快照落后 ≤N 个已入库交易日」, 但仅限:
+    #   ① lag = len(covered)-len(dates) ∈ [0, N](落后方向正确且不超容差; 快照比复算长=异常)
+    #   ② dates 是 covered 的严格前缀(无中间缺日/错位, 结构不一致仍 FAIL)
+    # 截尾后逐位比对(covered[:len(dates)] vs indep[:len(dates)] vs snap_modes),
+    # 缺失/解析失败/超容差/结构不一致仍硬阻断; 日常新鲜度由 check_s06_freshness 监控兜底。
+    lag = len(covered) - len(dates)
+    allow_lag = max(0, args.allow_lag_days)
+    prefix_ok = lag >= 0 and dates == covered[: len(dates)]
+    within_tol = 0 <= lag <= allow_lag
+    same_universe = prefix_ok and within_tol
+    if same_universe and lag > 0:
+        cmp_covered, cmp_indep = covered[: len(dates)], indep[: len(dates)]
+    else:
+        cmp_covered, cmp_indep = covered, indep
+    mismatch = [(d, a, b) for d, a, b in zip(cmp_covered, cmp_indep, snap_modes) if a != b]
     record("A1 独立第二实现复算", (not mismatch) and same_universe,
-           (f"覆盖期/日历一致({len(covered)} 日), {len(snap_modes)} 行逐位相等" if (not mismatch and same_universe)
-            else f"universe一致={same_universe}; 不一致 {len(mismatch)} 行, 首3={mismatch[:3]}"))
+           (f"覆盖期/日历一致({len(cmp_covered)} 日), {len(snap_modes)} 行逐位相等"
+            + (f"(快照落后 {lag} 个交易日≤容差{allow_lag}, deploy 时序窗口内截尾比对)" if lag > 0 else "")
+            if (not mismatch and same_universe)
+            else (f"universe一致={same_universe}(lag={lag}{'>' + str(allow_lag) + ' 超容差' if not within_tol and prefix_ok else ''}); "
+                  f"不一致 {len(mismatch)} 行, 首3={mismatch[:3]}")))
 
     # ── A2 decision_date 时序 ──
     bad_dd = [r["date"] for i, r in enumerate(daily)
