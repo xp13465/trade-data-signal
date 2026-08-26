@@ -1,0 +1,43 @@
+{
+  "request_id": "codex2claude-agent-bridge-hardening-20260826-002",
+  "status": "pending",
+  "verdict": "FAIL",
+  "summary": "这是 codex2claude-agent-bridge-hardening-20260826-001 的补充指令：文档同步是硬性验收项，不是可选优化。请与 B1-B9 实现一起执行。",
+  "issues": [
+    {
+      "id": "D1",
+      "severity": "P1",
+      "title": "所有协作桥相关文档必须同步",
+      "file": "docs/codex-collab-protocol.md",
+      "line": 86,
+      "description": "B1-B9 会改变信号生命周期、成功判定、超时、重试、心跳、同 id 清理、孤儿 ref 恢复和通知依赖口径；任何实现先于文档都会让 Claude/Codex按旧协议操作。",
+      "suggestion": "更新 AGENTS.md、CLAUDE.md、README.md、docs/codex-collab-protocol.md、docs/codex-signal-bridge.md、docs/codex-quickstart.md、docs/main-governance.md、docs/codex-reviews/README.md 和 .agents/codex-reviewer/SKILL.md 中所有受影响段落。文档必须包含新状态机、故障注入回归命令、验收清单和运维排查步骤。"
+    },
+    {
+      "id": "D2",
+      "severity": "P2",
+      "title": "实际部署 plist 与模板差异必须写清",
+      "file": "launchd/com.trade.agent-inbox-watcher.plist",
+      "line": 17,
+      "description": "当前实际部署文件是 launchd/com.trade.agent-inbox-watcher.plist；scripts/com.trade.agent-inbox.plist 是旧模板。已有文档存在路径、Label 和部署状态不一致，容易修错配置。",
+      "suggestion": "文档统一标注实际部署 plist 路径、旧模板用途、certifi 处理方式、重载 launchd 命令和验证方法；废弃模板要么删除，要么显式标记 not deployed。"
+    }
+  ],
+  "impact_surface": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/codex-collab-protocol.md",
+    "docs/codex-signal-bridge.md",
+    "docs/codex-quickstart.md",
+    "docs/main-governance.md",
+    "docs/codex-reviews/README.md",
+    ".agents/codex-reviewer/SKILL.md",
+    "launchd/com.trade.agent-inbox-watcher.plist"
+  ],
+  "smoke_results": {
+    "parent_task": "codex2claude-agent-bridge-hardening-20260826-001 amended to B1-B9 at 2026-08-26 11:20 +0800",
+    "documentation_reference_scan": "OK: identified all repo entrypoints that describe the bridge workflow"
+  },
+  "recommendation": "把 002 视为 001 的 amendment。Claude 提交外审前必须做文档一致性检查：状态机/schema/脚本名/plist 路径/验收命令在全部文档中一致；新 claude2codex request 的 diff 必须包含实现、测试和文档三类改动。Codex 复验会把文档过期直接计为 FAIL。"
+}

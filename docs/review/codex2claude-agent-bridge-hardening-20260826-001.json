@@ -1,0 +1,113 @@
+{
+  "request_id": "codex2claude-agent-bridge-hardening-20260826-001",
+  "status": "pending",
+  "verdict": "FAIL",
+  "summary": "Codex 对协作桥边界审计后判定主链路可用但兜底不全。请 Claude 按以下范围修复并先完成本地故障注入自验；完成后发新外审 request 给 Codex 独立复验。",
+  "issues": [
+    {
+      "id": "B1",
+      "severity": "P0",
+      "title": "子进程无超时看门狗",
+      "file": "scripts/agent_inbox_watcher.py",
+      "line": 127,
+      "description": "subprocess.run 无 timeout；codex exec 或报告机检挂死会阻塞唯一 watcher 循环，队列停止，心跳停跳，launchd 因进程存活不会拉活。",
+      "suggestion": "按任务类型设置超时（review 建议 45-60 分钟，schema 机检建议 30 秒）；超时杀进程组，信号转失败重试；重试耗尽落 .failed 并告警。"
+    },
+    {
+      "id": "B2",
+      "severity": "P0",
+      "title": "exit code 不应等同业务成功",
+      "file": "scripts/agent_inbox_watcher.py",
+      "line": 139,
+      "description": "dispatch_codex 只检查 codex exec exit=0 就转 done，可能漏写报告或回传信号仍被标记成功。",
+      "suggestion": "成功后置校验：/tmp/codex-reports/<id>.json 存在、JSON 可解析、request_id 匹配、verdict 合法、七个必填字段类型正确、claude-inbox/<id>.ready 存在。任一失败走重试状态机。"
+    },
+    {
+      "id": "B3",
+      "severity": "P0",
+      "title": "带点 request_id 崩溃恢复改名",
+      "file": "scripts/agent_inbox_watcher.py",
+      "line": 93,
+      "description": "实测 recover_processing 将 a.b.processing 错误恢复为 a.ready，丢失原 id 尾段，后续无法找到对应报告和信号。",
+      "suggestion": "不要二次 with_suffix；用确定性字符串替换或显式保留完整 stem：a.b.processing -> a.b.ready。补带点、多点和普通 id 的回归。"
+    },
+    {
+      "id": "B4",
+      "severity": "P1",
+      "title": "Report schema 校验过弱且可错配",
+      "file": "scripts/codex-review-report.sh",
+      "line": 14,
+      "description": "只校验七个键存在。实测文件名 edge-schema-test 而内部 request_id 为 different-id 的报告通过机检；issues/impact_surface/smoke_results 类型与元素结构也未校验。",
+      "suggestion": "改为独立 Python 参数传入路径与期望 id，禁止字符串拼接代码；校验 request_id 一致、verdict 属于 PASS|FAIL|BLOCKED、数组与对象类型、issue 必备字段和 severity 枚举。"
+    },
+    {
+      "id": "B5",
+      "severity": "P1",
+      "title": "同 id 重跑清场不完整且有竞态",
+      "file": "scripts/codex-review-request.sh",
+      "line": 74,
+      "description": "当前只清理精确的 .ready/.done/.failed 和旧报告，未清理 .processing、.invalid、计数器残留；旧 .processing 可在 watcher 重启后被恢复为新任务。若同名任务正在运行，直接重立 ref 会产生并发双审。",
+      "suggestion": "重发前拒绝存在 .processing 或存活处理锁的同名任务；按前缀清理该 id 的全部终态、无效态和计数器残留；清理与立 ref 放入可重入的请求级锁。"
+    },
+    {
+      "id": "B6",
+      "severity": "P1",
+      "title": "ref 与信号可能失配成孤儿",
+      "file": "scripts/codex-review-request.sh",
+      "line": 86,
+      "description": "git update-ref 成功后、ready 信号写入前崩溃会导致 pending ref 没有 inbox 信号；watcher 只扫信号，不会自动发现该任务。",
+      "suggestion": "watcher 启动时枚举 refs/codex/req，为缺少活跃信号的 pending ref 原子补建 ready；或引入请求账本把 ref 与信号状态绑定。"
+    },
+    {
+      "id": "B7",
+      "severity": "P1",
+      "title": "飞书通知依赖缺失",
+      "file": "launchd/com.trade.agent-inbox-watcher.plist",
+      "line": 17,
+      "description": "实际部署配置 launchd/com.trade.agent-inbox-watcher.plist 使用 /usr/bin/python3，但 notify.py 顶层导入 certifi；当前每次通知都记录 No module named certifi，增强通知通道实际不可用。scripts/com.trade.agent-inbox.plist 是旧模板，不要只改它。",
+      "suggestion": "优先让 notify.py 在缺 certifi 时降级到系统 SSL 上下文并记录 warning；或为 launchd 明确注入含 certifi 的 PYTHONPATH/解释器。不得为了通知静默禁用证书验证。"
+    },
+    {
+      "id": "B8",
+      "severity": "P2",
+      "title": "心跳在长任务期间语义失真",
+      "file": "scripts/agent_inbox_watcher.py",
+      "line": 241,
+      "description": "心跳只在主循环 touch；长 review 执行超过 10 分钟时 mtime 陈旧并不代表 watcher 僵死。",
+      "suggestion": "心跳记录 state/idle|busy/pid/current_request/started_at/last_output_at；busy 态由执行线程或周期性 subprocess probe 续跳；监控规则区分 idle 与 busy。"
+    },
+    {
+      "id": "B9",
+      "severity": "P1",
+      "title": "协议与运维文档必须同步",
+      "file": "docs/codex-collab-protocol.md",
+      "line": 86,
+      "description": "状态机、成功判定、重试语义、心跳口径、同 id 清理、孤儿 ref 恢复和通知依赖变化都会改变协作契约；只改脚本会让 Claude/Codex 和人工运维继续按旧口径操作。",
+      "suggestion": "同步更新 AGENTS.md、CLAUDE.md、README.md、docs/codex-collab-protocol.md、docs/codex-signal-bridge.md、docs/codex-quickstart.md、docs/main-governance.md、docs/codex-reviews/README.md 和 .agents/codex-reviewer/SKILL.md 中所有受影响的生命周期图、schema、失败恢复、验收命令和安全边界；新增故障注入回归的执行说明。文档与实现不一致视为本工单验收失败。"
+    }
+  ],
+  "impact_surface": [
+    "scripts/agent_inbox_watcher.py",
+    "scripts/codex-review-request.sh",
+    "scripts/codex-review-report.sh",
+    "scripts/codex_review_complete.py",
+    "launchd/com.trade.agent-inbox-watcher.plist",
+    "scripts/com.trade.agent-inbox.plist",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/codex-collab-protocol.md",
+    "docs/codex-signal-bridge.md",
+    "docs/codex-quickstart.md",
+    "docs/main-governance.md",
+    "docs/codex-reviews/README.md",
+    ".agents/codex-reviewer/SKILL.md"
+  ],
+  "smoke_results": {
+    "audit_time": "2026-08-26 11:00 +0800",
+    "watcher_heartbeat": "alive at check time",
+    "dotted_id_recovery_test": "FAIL: a.b.processing -> a.ready",
+    "mismatched_report_schema_test": "FAIL: different-id accepted for edge-schema-test"
+  },
+  "recommendation": "Claude 先实现 B1-B9，并用临时隔离 inbox/report 目录做故障注入回归：正常完成、坏报告、错配 ID、带点 ID、挂死子进程、同 id 重跑、ref 无信号、certifi 缺失。必须同步更新协议、桥接文档和 AGENTS.md，保证文档示例、状态机、验收命令与实现一致。Claude 自验全绿后再通过 scripts/codex-review-request.sh 发新 claude2codex 外审单；Codex 复验通过后才可关闭本工单。修复期间不要重启或删除当前 watcher 心跳证据。"
+}

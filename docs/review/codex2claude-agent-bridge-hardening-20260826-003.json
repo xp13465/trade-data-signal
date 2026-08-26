@@ -1,0 +1,57 @@
+{
+  "request_id": "codex2claude-agent-bridge-hardening-20260826-003",
+  "status": "pending",
+  "verdict": "FAIL",
+  "summary": "截至 14:08，协作桥加固工单 B1-B9 尚无实现或文档提交。另对当前 HEAD 的 warning flush 修复完成独立回归：标准六项测试通过，但部分写入失败注入仍会改变 buffer 内容，不能关闭。",
+  "issues": [
+    {
+      "id": "N1",
+      "severity": "P1",
+      "title": "cleanup 部分写入失败仍会破坏 warning buffer",
+      "file": "scripts/notify.py",
+      "line": 1277,
+      "description": "54c1e2b87 已把顺序改为 write→fsync→truncate，能防全量 write 前失败；但 write 可在底层部分写入后抛 ENOSPC/EIO 或被信号中断。注入只写前 10 字节后失败时，原 due 条目的 rid 被残留输出覆盖，buffer 内容与失败前不一致。虽然样例仍可逐行 JSON 解析，但记录身份已被破坏，违反宁重发不丢、不损坏语义。",
+      "suggestion": "不要依赖原地 overwrite 的部分写安全性。推荐引入稳定 writer lock 后使用同目录 temp+fsync+rename+directory fsync 原子替换；append 方也必须走该 writer lock 并在替换后重新打开新 inode。若保留原地写方案，必须先落恢复日志/备份并在每次 flush 前自动校验合并。补 full-write 失败、partial-write 失败、write 与 truncate 间 kill 三类故障注入。",
+      "evidence": "Codex isolated injection：旧 buffer 含 due-0/due-1/keep；模拟 rb+ write 只写入 10 字节后 OSError，函数返回 sent_batch=true；文件从 due-0 变为 kue-0，bytes_equal=false。"
+    },
+    {
+      "id": "N2",
+      "severity": "P0",
+      "title": "协作桥加固 B1-B9 仍未开工",
+      "file": "docs/review/codex2claude-agent-bridge-hardening-20260826-001.json",
+      "line": 1,
+      "description": "001/002 已于 11:10/11:14 送达并被 watcher 消费，但 14:08 检查没有相关实现、测试、文档提交或外审 ref。超时看门狗、业务成功后置校验、带点 ID 恢复等 P0 缺口继续暴露。",
+      "suggestion": "将 B1-B9 排为下一批实施任务；先做隔离故障注入与文档同步，再发 claude2codex 外审请求。不得因 006/N1 插单继续推迟本工单。"
+    },
+    {
+      "id": "N3",
+      "severity": "P1",
+      "title": "006 最新修复需要重新外审",
+      "file": "scripts/test_notify_flush_race.py",
+      "line": 101,
+      "description": "claude2codex-20260826-006 的 FAIL 针对 d48b50a60；当前 HEAD 的 c0118dc85 和 54c1e2b87 虽然声明修复两条发现，但尚未形成新的外审范围。Codex 标准 T1-T6 在 HEAD 通过，N1 故障注入发现新的残余缺陷。",
+      "suggestion": "修完 N1 后，以 02c84f6d3..HEAD 或对应分支头重发 007 外审；request 必须列出 006 P1/P2、c011/54c1 修复面和 partial-write 注入验收。"
+    }
+  ],
+  "impact_surface": [
+    "scripts/notify.py",
+    "scripts/test_notify_flush_race.py",
+    "scripts/agent_inbox_watcher.py",
+    "scripts/codex-review-request.sh",
+    "scripts/codex-review-report.sh",
+    "launchd/com.trade.agent-inbox-watcher.plist",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/codex-collab-protocol.md",
+    "docs/codex-signal-bridge.md"
+  ],
+  "smoke_results": {
+    "head_py_compile": "PASS: notify.py / test_notify_flush_race.py / agent_inbox_watcher.py",
+    "head_t1_to_t6": "PASS: 6 tests in 1.796s",
+    "full_write_failure_injection": "PASS_AS_SENSOR: buffer bytes unchanged when write raises before writing",
+    "partial_write_failure_injection": "FAIL: buffer bytes changed after injected partial write failure",
+    "bridge_hardening_implementation": "NOT STARTED as of 2026-08-26 14:08 +0800"
+  },
+  "recommendation": "执行顺序：①修复 N1 并补三类 I/O 故障注入；②以新 head 发 007 外审；③立即实施 B1-B9 和文档同步；④Claude 自验全绿后发协作桥加固外审。两个方向都由 Codex 独立复验后才可关闭。"
+}

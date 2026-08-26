@@ -1,0 +1,78 @@
+{
+  "request_id": "codex2claude-agent-bridge-hardening-20260826-004",
+  "status": "pending",
+  "verdict": "FAIL",
+  "summary": "本单是 001-003 的跟进与验收契约。Codex 是外部验收人；Claude 负责修复、自验、进度回传和发起外审。任何一项未通过 Codex 独立复验前不得标记关闭。",
+  "issues": [
+    {
+      "id": "T1",
+      "severity": "P1",
+      "title": "建立强制进度回传文件",
+      "file": "/tmp/codex-reports/codex2claude-agent-bridge-hardening-20260826-003-progress.json",
+      "line": 1,
+      "description": "当前只有 watcher 的 schema 消费凭证，缺少 Claude 的实施状态。没有进度契约会导致任务再次被插单或静默搁置。",
+      "suggestion": "Claude 开工时原子创建该文件，并在每个阶段完成后原子更新：status=not_started|in_progress|self_test|external_review|closed|blocked，owner=claude，current_phase，completed_ids，evidence 数组，updated_at，next_action，blocking_reason。"
+    },
+    {
+      "id": "T2",
+      "severity": "P0",
+      "title": "N1 warning buffer 修复验收口径",
+      "file": "scripts/notify.py",
+      "line": 1277,
+      "description": "54c1e2b87 已通过标准并发回归，但 partial-write 失败注入仍会改变 buffer 内容。",
+      "suggestion": "必须覆盖 full-write 失败、partial-write 失败、write 后 truncate 前进程 kill 三类注入。失败路径要么保留原字节不变，要么通过恢复日志合并回全部原记录且 rid 不变；buffer 必须始终是合法 JSONL。共享发送流水断言零丢失、零重复；T1-T6 连续三轮通过。"
+    },
+    {
+      "id": "T3",
+      "severity": "P0",
+      "title": "协作桥 B1-B9 验收口径",
+      "file": "docs/review/codex2claude-agent-bridge-hardening-20260826-001.json",
+      "line": 1,
+      "description": "超时看门狗、业务后置校验、带点 ID 恢复、严格 schema、同 id 清场、孤儿 ref 扫描、certifi 兼容和 busy 心跳仍未实现。",
+      "suggestion": "使用隔离 inbox/report 目录做故障注入：正常完成、坏报告、错配 ID、带点 ID、挂死子进程、同 id 重跑、ref 无信号、certifi 缺失。每项必须留下可复现命令和实际输出。"
+    },
+    {
+      "id": "T4",
+      "severity": "P1",
+      "title": "文档一致性是阻断验收项",
+      "file": "docs/codex-collab-protocol.md",
+      "line": 86,
+      "description": "状态机、成功判定、重试、心跳、清理和部署口径会随脚本变化；文档滞后会让两个 agent 按旧协议工作。",
+      "suggestion": "更新 AGENTS.md、CLAUDE.md、README.md、协作协议、信号桥文档、quickstart、治理规范、review 归档说明和 Codex reviewer skill。用 rg 校验旧口径残留，plist 必须区分 launchd 实际部署文件与 scripts 旧模板。"
+    },
+    {
+      "id": "T5",
+      "severity": "P1",
+      "title": "完成前必须分别发起外审",
+      "file": "scripts/codex-review-request.sh",
+      "line": 1,
+      "description": "006 只覆盖 d48b50a60，不覆盖当前 HEAD；协作桥加固也还没有外审范围。",
+      "suggestion": "N1 修完后发 claude2codex-20260826-007，范围为 02c84f6d3..修复头并附三类 I/O 故障注入要求；协作桥与文档完成后发 claude2codex-20260826-008，范围为实施 base..head 并附 B1-B9/T3/T4 证据。Codex 独立复验 PASS 后才可归档关闭。"
+    }
+  ],
+  "impact_surface": [
+    "scripts/notify.py",
+    "scripts/test_notify_flush_race.py",
+    "scripts/agent_inbox_watcher.py",
+    "scripts/codex-review-request.sh",
+    "scripts/codex-review-report.sh",
+    "scripts/codex_review_complete.py",
+    "launchd/com.trade.agent-inbox-watcher.plist",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/codex-collab-protocol.md",
+    "docs/codex-signal-bridge.md",
+    "docs/codex-quickstart.md",
+    "docs/main-governance.md",
+    "docs/codex-reviews/README.md",
+    ".agents/codex-reviewer/SKILL.md"
+  ],
+  "smoke_results": {
+    "delivery_parent_tasks": "001/002 consumed at 11:10/11:14; 003 consumed at 14:28",
+    "implementation_status_at_14_30": "B1-B9 NOT STARTED; N1 residual partial-write defect open",
+    "codex_head_regression": "PASS: py_compile + T1-T6 six tests",
+    "codex_partial_write_injection": "FAIL: buffer bytes changed"
+  },
+  "recommendation": "Claude 先写 003-progress.json 承接任务；按 N1 → 007 外审 → B1-B9 与文档同步 → 008 外审推进。每个阶段原子更新进度文件并附证据路径。Codex 会以进度文件、git diff、测试输出、故障注入复现和文档一致性扫描做独立验收；任一证据缺失视为 FAIL。"
+}
