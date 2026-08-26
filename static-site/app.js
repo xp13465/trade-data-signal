@@ -7385,10 +7385,14 @@ const _resultCache = new Map(); // url -> { data, ts }
 // 让走势图与 overview 同级实时（跳过 5min 缓存），避免"卡片有信号但走势图无 pin"的窗口期不一致。
 // 只排除 *-all.json（走势图源），不排除 industry-*-indices/* 等静态少变文件（保留缓存）。
 const _NO_CACHE_URLS = /(?:^|\/)(?:boot|overview|intraday_snapshot|metrics|notifications|daily_brief(?:_history)?|public_fund_\w+|summary(?:_history|\/history)?|index\/[^/]+-all)(?:\.json)?(?:$|[?])/;
-// codex-001 medium: R2 直链数据文件(/r2/{prefix}/)跳过通用 _resultCache——这些 URL
-// 的 payload 由调用方先验后存自己的 per-code/per-item 缓存(如 _fundNavCache),
-// 通用层不缓存=坏 payload 不被 5 分钟复用, 且 R2 数据文件本就低频变化无需 5min 层
-const _NO_R2_CACHE_URLS = /\/r2\/[a-z_]+\//;
+// codex-001 medium: R2 直链数据文件跳过通用 _resultCache——payload 由调用方先验后存
+// 自己的 per-code/per-item 缓存(如 _fundNavCache), 通用层不缓存=坏 payload 不被 5 分钟复用。
+// codex-004 P2 收窄: 只保留两类真实需要的前缀——①fund_nav(_validFundNavPayload 先验+
+// per-code 缓存, 坏 payload 不得进通用层)②etf/{code}-all(弹窗长历史走势源, 与 index-all
+// 同性质需与首页信号 pin 实时对齐)。其余 R2 前缀(public_fund/industry/lab/index-all 等)
+// 为盘后聚合产物且无坏 payload 风险, 恢复通用 5min 结果缓存(切 tab/重开不再重复拉大 JSON)。
+// 注: /r2/index/{id}-all 另被 _NO_CACHE_URLS 的 index\/[^/]+-all 分支排除, 不受本正则影响。
+const _NO_R2_CACHE_URLS = /\/r2\/(?:fund_nav|etf)\//;
 const _CACHE_TTL = 5 * 60 * 1000; // 历史类数据缓存 5 分钟
 // R2 大range 路由（2026-07-24）：all/5y/3y 从 R2 读（减 git 仓库 ~60M），小 range（3m/6m/1y）留本地减延迟。
 // fetchJSON 统一走 .json + CF br 压缩（2026-08-01 全部跳 .gz，根治 CF .gz 4h edge 缓存滞后）。
