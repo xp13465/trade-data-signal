@@ -4707,15 +4707,6 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     return it.signal === "sell" || it.signal === "sell_stop_loss"
       || (it.reason || "").includes("波段减仓") || (it.reason || "").includes("波段止损");
   }
-  // 2026-08-26 Fix(bug2): _isDayFull — 判断信号是否「当日已满」(被AI仓位 top-K 排除)
-  // 用于「仅显示可用信号」过滤: 当日已满=不可用, 应隐藏(与设计初衷一致:隐藏所有灰显/不可用信号)
-  // 口径与 cellHtml posCapCls L4962-4970 同源: 入宇宙+非卖出+非降亏命中 但 rank=0 → 当日已满
-  function _isDayFull(it) {
-    if (!_pcOn || !_posCapKeptMap || _isAiFadeHit(it) || _isSellRow(it) || it._bt_in_universe === false) return false;
-    const kept = _posCapKeptMap.get(it.date);
-    if (!kept) return false;
-    return !kept.has(it);  // 在宇宙内但不在 kept 集 → 当日已满
-  }
   // s06 fail-open 计数暴露给渲染层(AI 建议区警示条读取); 非 s06 恒 0
   function _homeS06WarnCount() { return _homeIsS06 ? _homeS06FailOpen : 0; }
   function _homeS06Active() { return _homeIsS06; }
@@ -4726,6 +4717,16 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   let _posCapK = 1;  // 2026-08-14 #BC 默认 K=1(主推档, 与 lab.js _kellyDefaultFilters/_kellySharedPosCap on:true/k:1 语义对齐)
   let _posCapSortedFn = null;  // 2026-08-13 rank fix: 质量序排序函数提升到 for 循环可访问作用域(编号复用同一排序, 单源零漂移)
   let _pcOn = true;  // AI仓位建议 当前是否开启(开关行 off 按钮状态; 首页无 tds_poscap key 时保持现状 K=1 主推高亮, 与 lab.js 默认 on:true/k:1 语义对齐)
+  // 2026-08-26 Fix(bug2): _isDayFull — 判断信号是否「当日已满」(被AI仓位 top-K 排除)
+  // 用于「仅显示可用信号」过滤: 当日已满=不可用, 应隐藏(与设计初衷一致:隐藏所有灰显/不可用信号)
+  // 口径与 cellHtml posCapCls L4962-4970 同源: 入宇宙+非卖出+非降亏命中 但不在 kept 集 → 当日已满
+  // ⚠ 必须在 let _pcOn/_posCapKeptMap 之后声明(函数体访问这两个 let 变量, TDZ 防护)
+  function _isDayFull(it) {
+    if (!_pcOn || !_posCapKeptMap || _isAiFadeHit(it) || _isSellRow(it) || it._bt_in_universe === false) return false;
+    const kept = _posCapKeptMap.get(it.date);
+    if (!kept) return false;
+    return !kept.has(it);  // 在宇宙内但不在 kept 集 → 当日已满
+  }
   if (kind === "signal") {
     try {
       const _raw = localStorage.getItem("tds_poscap");
