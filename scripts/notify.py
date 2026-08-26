@@ -110,6 +110,12 @@ TIER_INFO = "info"
 WARNING_BUFFER_FILE = ALERTS_DIR / "warning_buffer.jsonl"
 INFO_LOG_FILE = ALERTS_DIR / "info_log.jsonl"
 WARNING_BATCH_WINDOW = 1800  # 30min 聚合窗口（秒）
+# flush 全生命周期互斥锁（2026-08-26 B1，codex 外审 P1）：snapshot→send→cleanup 整个
+# 周期持锁串行化多个 flusher（schedule_monitor 15min 与 monitor_72h 30min 撞车、人工触发
+# 与定时重叠）。独立于 buffer 文件本身的 flock——append 方（_append_jsonl）只抢文件锁
+# 毫秒级写一行，flusher 抢 flushlock 秒级全程持有，两级锁不冲突。持锁含发送是有意的：
+# flush 本就该串行，防两进程基于同一快照重复推送/错位截尾。
+WARNING_FLUSH_LOCK_FILE = ALERTS_DIR / "warning_buffer.flushlock"
 
 
 def _feishu_backoff(attempt: int) -> float:
@@ -1112,16 +1118,45 @@ def defer_warning(subject: str, body: str, from_prefix: str | None = None) -> bo
 
     不直接推送——由 schedule_monitor/monitor_72h 每轮尾部调 flush_warning_batch()，
     满 WARNING_BATCH_WINDOW(30min) 的条目聚合成一封发出（高概率自愈类延迟可达用户可接受，
-    换取瞬时抖动不轰炸）。
+    换取瞬时抖动不轰炸）。每条记录带唯一 rid（flush 清理按 ID 精确移除，2026-08-26 B1）。
     """
     _append_jsonl(WARNING_BUFFER_FILE, {
         "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "rid": f"{time.time_ns()}-{id(body):x}-{abs(hash((subject, body))) % 10**10}",
         "subject": subject,
         "body": str(body)[:3000],
         "from_prefix": from_prefix or "[告警·聚合]",
     })
     print(f"[notify][warning] 入聚合 buffer（30min 批发）：{subject}", file=sys.stderr)
     return True
+
+
+def _stable_rid(e: dict, raw_line: str = "") -> str:
+    """取条目稳定 ID：优先显式 rid（新条目 defer_warning 生成）；存量无 rid 的旧条目
+    用整行内容哈希兜底（同一内容视为同一条——重复推送去重语义与旧 offset 口径一致），
+    再兜底 ts+subject 组合。任何情况下返回非空串。"""
+    rid = str(e.get("rid") or "").strip()
+    if rid:
+        return rid
+    if raw_line.strip():
+        import hashlib
+        return "h" + hashlib.sha256(raw_line.strip().encode("utf-8", errors="replace")).hexdigest()[:24]
+    return "f" + str(e.get("ts", "")) + "|" + str(e.get("subject", ""))
+
+
+def _parse_buffer_lines(raw: bytes) -> tuple[list[dict], list[str]]:
+    """解析 buffer 原始字节 → (合法条目列表, 坏行原文列表)。坏行不静默：由调用方
+    打印带序号的告警日志（fail-open 跳过但不无声吞掉，2026-08-26 B1 要求）。"""
+    entries, bad_lines = [], []
+    for line in raw.decode("utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            bad_lines.append(line)
+    return entries, bad_lines
 
 
 def flush_warning_batch(dry_run: bool = False) -> dict:
@@ -1133,11 +1168,29 @@ def flush_warning_batch(dry_run: bool = False) -> dict:
       from_prefix 默认 [告警·聚合]。
     - 发送成功才清掉已发条目（失败留下轮重试，宁可重发不丢告警）。
     - dry_run=True 只打印不发不清（自验用）。
-    - 竞态安全（2026-08-24 reviewer P2）：读取阶段在 flock 内做快照并记下文件字节数
-      pre_offset；发送期间（邮件+飞书重试可达秒级）其他进程 defer_warning 追加的条目
-      全部落在 pre_offset 之后，重写阶段只回写 keep + pre_offset 之后的新增行，
-      不再整文件覆盖——旧实现 open("w") 先 truncate 后才 flock，窗口内新追加条目被静默清掉。
+    - 竞态安全（2026-08-26 B1 根治，codex 外审 P1）：flush 全生命周期（snapshot→send→
+      cleanup）持 WARNING_FLUSH_LOCK_FILE 专用锁串行化多个 flusher。旧实现只在读/清两段
+      各自 flock，发送阶段裸奔——两个 flusher 撞车时基于同一 pre_offset 快照重复推送，
+      且后完成者按自己的旧字节偏移切尾会把对方写入的内容截成非法 JSON 致条目永久丢失。
+      新实现清理改为按稳定 ID（rid / 整行内容哈希兜底）精确移除已发条目，不再依赖任何
+      字节偏移；发送前锁内二次确认这批条目仍在文件中（不在=已被别的 flusher 发走，放弃
+      本批防重复）。append 方（_append_jsonl）继续用 buffer 文件自身 flock，与 flush 锁
+      互不干扰：flusher 重写文件也在 buffer 文件 flock 内做，append 不会被截在半行。
     """
+    import fcntl
+    try:
+        WARNING_FLUSH_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        lock_f = open(WARNING_FLUSH_LOCK_FILE, "a+")
+    except OSError as e:
+        print(f"[notify] warning flush lock 打开失败（放弃本轮 flush）：{e}", file=sys.stderr)
+        return {"sent_batch": False, "n_due": 0, "n_remaining": 0}
+    with lock_f:
+        fcntl.flock(lock_f, fcntl.LOCK_EX)  # 全生命周期互斥（含发送秒级，有意串行）
+        return _flush_warning_batch_locked(dry_run=dry_run)
+
+
+def _flush_warning_batch_locked(dry_run: bool = False) -> dict:
+    """flush_warning_batch 的持锁主体（调用方必须已持有 WARNING_FLUSH_LOCK_FILE 锁）。"""
     import fcntl
     try:
         with open(WARNING_BUFFER_FILE, "rb") as f:
@@ -1149,16 +1202,10 @@ def flush_warning_batch(dry_run: bool = False) -> dict:
     except OSError as e:
         print(f"[notify] warning buffer 读取失败：{e}", file=sys.stderr)
         return {"sent_batch": False, "n_due": 0, "n_remaining": 0}
-    pre_offset = len(raw)  # 锁内快照字节数（行边界；append 单行持锁写入）
-    entries = []
-    for line in raw.decode("utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            entries.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue  # 坏行跳过（fail-open 不丢推送，同 _read_jsonl 口径）
+    entries, bad_lines = _parse_buffer_lines(raw)
+    for i, bl in enumerate(bad_lines, 1):
+        print(f"[notify][warning] buffer 坏行跳过（第{i}条，前80字符）：{bl[:80]!r}",
+              file=sys.stderr)
     if not entries:
         return {"sent_batch": False, "n_due": 0, "n_remaining": 0}
     now = datetime.now()
@@ -1171,6 +1218,23 @@ def flush_warning_batch(dry_run: bool = False) -> dict:
             due.append(e)  # 时间戳坏行按到期处理（不静默积压）
     if not due:
         return {"sent_batch": False, "n_due": 0, "n_remaining": len(keep)}
+    # 防重复发送兜底：发送前按稳定 ID 二次确认这批条目仍在文件中。极端下（如未来某路径
+    # 绕过 flush 锁）别的进程已把这批发走并清掉时，这里查不到 → 放弃本批不重发。
+    due_rids = {_stable_rid(e) for e in due}
+    try:
+        with open(WARNING_BUFFER_FILE, "rb") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            cur_raw = f.read()
+            fcntl.flock(f, fcntl.LOCK_UN)
+        cur_entries, _ = _parse_buffer_lines(cur_raw)
+        present = {_stable_rid(e) for e in cur_entries}
+        gone = due_rids - present
+        if gone and not dry_run:
+            print(f"[notify][warning] {len(gone)} 条已不在 buffer（疑被他方发走），"
+                  f"放弃本批防重复发送", file=sys.stderr)
+            return {"sent_batch": False, "n_due": len(gone), "n_remaining": len(present)}
+    except OSError:
+        pass  # 二次确认读失败不阻断主流程（主流程刚读过，此处 best-effort）
     n = len(due)
     subject = f"[告警·聚合] {n}条 warning 汇总 {now.strftime('%m-%d %H:%M')}"
     esc = lambda s: str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")  # noqa: E731
@@ -1183,22 +1247,29 @@ def flush_warning_batch(dry_run: bool = False) -> dict:
                    from_prefix=prefix, feishu_group="alert")
     sent = any(results.values())
     if sent and not dry_run:
-        # 发送成功才清已发条目。不整文件覆盖：flock 内重读当前内容，pre_offset 之后的
-        # 字节 = 发送期间其他进程 defer_warning 追加的新条目，原样保留（下轮照发）；
-        # truncate 在锁内做，杜绝旧实现「先 truncate 后 flock」窗口丢条目。
-        # 不用 tmp+rename：rename 换 inode 后，阻塞在本文件 flock 上的 append 方
-        # 醒来会写到旧 inode（孤儿 fd），条目静默丢失——原地重写保住同一 inode，
-        # 与 _append_jsonl 的 flock-append 互斥语义一致，且持锁仅毫秒级。
+        # 发送成功才清已发条目：仍在 buffer 文件 flock 内原地重写同一 inode（不用 tmp+rename，
+        # 防 append 方阻塞在旧 inode 孤儿 fd 上写入丢失），但**不再按字节偏移切尾**——重新
+        # 解析全文件逐行 json.loads，按稳定 ID 移除本批已发 rid，其余（未满窗口 + 发送期间
+        # 其他进程新追加的全部条目）原样保留。偏移错位截尾病灶从根上消灭。
         try:
             with open(WARNING_BUFFER_FILE, "rb+") as f:
                 fcntl.flock(f, fcntl.LOCK_EX)
-                cur = f.read()
-                tail = [ln for ln in cur[pre_offset:].splitlines() if ln.strip()]
+                cur_raw = f.read()
+                cur_entries, cur_bad = _parse_buffer_lines(cur_raw)
+                out_entries = []
+                seen_drop = set()
+                for ce in cur_entries:
+                    rid = _stable_rid(ce)
+                    if rid in due_rids and rid not in seen_drop:
+                        seen_drop.add(rid)  # 同内容重复行只删一条（宁留勿多删）
+                        continue
+                    out_entries.append(ce)
+                # 坏行原样回写（可能是并发 append 半行，下轮可解析；不静默吞）
                 out = b"".join(
                     json.dumps(e, ensure_ascii=False).encode("utf-8") + b"\n"
-                    for e in keep
+                    for e in out_entries
                 )
-                out += b"".join(ln.rstrip(b"\r") + b"\n" for ln in tail)
+                out += b"".join(ln.encode("utf-8", errors="replace") + b"\n" for ln in cur_bad)
                 f.seek(0)
                 f.truncate()
                 f.write(out)
@@ -1206,9 +1277,18 @@ def flush_warning_batch(dry_run: bool = False) -> dict:
                 fcntl.flock(f, fcntl.LOCK_UN)
         except Exception as e:  # noqa: BLE001
             print(f"[notify] warning buffer 清理失败（下轮可能重发）：{e}", file=sys.stderr)
-    print(f"[notify][warning] 批发 {n} 条（剩余 {len(keep)} 条未满窗口）："
+    remaining = max(0, len(entries) - n) if not (sent and not dry_run) else None
+    if sent and not dry_run:
+        try:
+            with open(WARNING_BUFFER_FILE, "rb") as f:
+                n_remaining = len(_parse_buffer_lines(f.read())[0])
+        except OSError:
+            n_remaining = remaining or 0
+    else:
+        n_remaining = remaining or 0
+    print(f"[notify][warning] 批发 {n} 条（剩余 {n_remaining} 条）："
           f"{'已发' if sent else '发送失败留待下轮'}", file=sys.stderr)
-    return {"sent_batch": sent, "n_due": n, "n_remaining": len(keep)}
+    return {"sent_batch": sent, "n_due": n, "n_remaining": n_remaining}
 
 
 def send_tiered(subject: str, body: str, tier: str = TIER_CRITICAL,
