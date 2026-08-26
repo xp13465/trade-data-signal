@@ -29,6 +29,8 @@ tester 可直接读。
 | `verify_fade_mode_ui.mjs` | 模式下拉 UI 交互+性能专项验收(T3-1 修复批四件修复+硬指标) |
 | `verify_sim_modal_fade_cb.js` | sim 弹窗「AI降亏过滤」总开关行为自验:feat vs main 默认态逐位一致+开关联动(2026-08-24 第4轮) |
 | `verify_sim_modal_layout.js` | sim 弹窗顶部筛选条单行排布自验(四控件组合 1 行横排) |
+| `kelly-layout-check.js` | 凯利参数区排版验收(2026-08-26 feat/kelly-longmode-layout):PC1280/平板768/手机375 三视口布局断言 + G档/开关/对比表/费率交互回归 |
+| `kelly-overflow-probe.js` | 辅助:375px 全页横向溢出元素定位探针(基线对照用,定位超宽元素路径) |
 
 > 新增脚本在此索引追加一行。(2026-08-26 补登历史 16 个一次性/专项探针;small-items-batch 六件验收为内联临时断言未落脚本文件,无新增行)
 
@@ -95,6 +97,28 @@ node ticker-check.js http://localhost:8000 --block push2delay.eastmoney.com
 > .gt-name 品种(无缝滚动复制2份 → 16 节点,唯一品种 8)/ 主源 push2delay.eastmoney.com。
 > 降级模式当前预期 FAIL = 跑马灯备源兜底尚未就位(block 东财后 8 品种无备源请求 + 页面
 > error),为真实验收发现,待跑马灯实施 agent 回填备源子串后转 PASS。
+
+### kelly-layout-check.js(凯利参数区排版验收,2026-08-26)
+
+```bash
+# 先起本地静态站(worktree 或主树, 需 data/ 数据软链在位)
+python3 -m http.server 8803 -d /Users/linhuichen/code/trade/static-site
+# 三视口(PC1280/平板768/手机375)布局断言 + 交互回归(G档持久化/gih开关/对比表开合/费率预设/AI降亏总开关)
+node kelly-layout-check.js http://localhost:8803
+```
+
+> 断言口径:DOM 顺序 fee→gih→过滤区 / topgrid 两列结构 / PC 同行+过滤区独占行 / 窄屏堆叠 /
+> 参数区无横向溢出(全页 scrollWidth 溢出=AI 报告折叠区表格存量问题, 基线探针对照见下)。
+> 截图存同目录 `kelly-layout-*.png`。退出码非 0 = 有 FAIL。
+
+### kelly-overflow-probe.js(横向溢出元素定位探针)
+
+```bash
+node kelly-overflow-probe.js http://localhost:8803   # 可换任意端口/基线 URL 对照
+# 输出: innerWidth/docScrollWidth + 前 14 个超宽元素(path/width/right/text)
+```
+
+> 用途:验证「溢出是否本次引入」——新分支与 main 基线各跑一遍比对 offender 清单是否一致。
 
 ## 派单模板句(给 reviewer/tester 派单 prompt 复制)
 
