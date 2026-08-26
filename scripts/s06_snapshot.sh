@@ -22,6 +22,8 @@
 # 非交易日: 跳过(index 收盘序列不更新, 快照无新日期可追加); 传 force 绕过闸门补跑。
 #
 # 用法: bash scripts/s06_snapshot.sh [force]
+#   手动裸跑也安全(2026-08-26 补): REPO/GIT_REPO 缺省兜底且 export 成环境变量,
+#   不带前缀直接跑不会让子进程(upload_r2 等)拿错仓根。
 # 日志: data/logs/s06_snapshot_launchd.log(固定名 append, 全站标准开始/结束行供
 #   gen_schedule_stats standard 模式与 schedule_monitor 漏跑检查直读, 同 overfit_monitor 先例)
 set -u
@@ -42,8 +44,12 @@ run_to() {
   fi
 }
 
-REPO="${REPO:-/Users/linhuichen/code/trade-data}"
-GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
+# ⚠️ 必须 export(2026-08-26 主控报 19:20 手动裸跑事故根因): upload_r2.py 从
+# os.environ 读 REPO 派生 STATIC_DIR, 只设 shell 变量不 export 时子进程读不到 →
+# 回退 ROOT=trade 触发盘中守卫 abort exit=3(过程脏)。export+缺省兜底双保险;
+# plist 已显式设置 EnvironmentVariables, 定时链路不受影响。
+export REPO="${REPO:-/Users/linhuichen/code/trade-data}"
+export GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
 PY="${PY:-$REPO/.venv/bin/python}"
 LOGDIR=$REPO/data/logs
 mkdir -p "$LOGDIR"
