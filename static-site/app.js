@@ -4786,11 +4786,13 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     : (_fadeOn ? windowedItems.filter((it) => !_isAiFadeHit(it)) : windowedItems);
   // ② posCap后: 藏当日已满(降亏命中/未入已在第一步藏了, 这里只补当日已满)
   if (_availOnlyOn && _posCapKeptMap) {
+    const _s2Before = filtered.length;
     filtered = filtered.filter((it) => {
       if (!_BUY_UNI_SIGS[it.signal]) return true;  // 非买入类(AI警示等)→显示
       const k = _posCapKeptMap.get(it.date);
       return !k || k.has(it);  // 在 kept 集=显示(AI建议), 不在=隐藏(当日已满)
     });
+    console.log(`[Step2] before=${_s2Before} after=${filtered.length} keptMapSize=${_posCapKeptMap.size} fadeOn=${_fadeOn}`);
   }
   // ===== AI 信号认可度(X/Y 双段, 2026-08-26, 调研报告 docs/kelly/toggle/ai-consensus-score-research-20260826.md 方案甲=前端实时固化统计) =====
   // Y=8 降亏模式预设计票(0~8): 对 common.js _KELLY_FADE_MODE_PRESETS 静态预设(p8/p9/a9/b9/c9/new14/new15)
@@ -5039,6 +5041,15 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         let aiHitCls = "";
         let aiHitBadge = "";
         let aiHitAttr = "";
+        // DEBUG: log when cellHtml renders a buy signal to check posCapRank
+        if (_BUY_UNI_SIGS[it.signal] && _posCapRank) {
+          const _dbgRank = _posCapRank.get(it);
+          const _dbgInMap = _posCapKeptMap ? _posCapKeptMap.has(it) : false;
+          const _dbgInMapDate = _posCapKeptMap ? !!_posCapKeptMap.get(it.date) : false;
+          if (_dbgRank === undefined || _dbgRank === 0) {
+            console.log(`[CellDbg] ${it.date} ${it.index_id} signal=${it.signal} posCapRank=${_dbgRank} inKeptMap=${_dbgInMap} dateInMap=${_dbgInMapDate} availOn=${_availOnlyOn}`);
+          }
+        }
         // 2026-08-13 重构: 首页 AI降亏过滤开关(独立键 tds_home_fade)开启时, 命中降亏(所选模式键集成员级, v1.1.5 起=NEW14 十四键) → 灰显+删除线+标注(hover 显命中条件)。
         // 开关关闭时 _isAiFadeHit 恒 false, 整块自然跳过(不灰显不删除线不标注, hoverpop 原因行也不渲染);
         // 命中判定用共享谓词 _isAiFadeHit 与 top-K 补位同源
