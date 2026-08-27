@@ -121,22 +121,24 @@ def panel_thermo(draw, x, y, w, h, value):
 
 
 def panel_adv_dec(draw, x, y, w, h, up, down):
-    """涨跌家数：红涨 / 绿跌 横向条形。"""
+    """涨跌家数：左标签 / 中间条形 / 右侧数值，避免行间互相遮挡。"""
     x0 = x + 22
-    bw = w - 44
-    bar_h, gap = 16, 12
+    value_w = 56
+    bar_x0 = x0 + 26
+    bar_x1 = x + w - 22 - value_w
+    bar_h, gap = 16, 16
     scale = max(up, down, 5000)
-    y0 = y + 48
+    y0 = y + 46
     for i, (lab, val, col) in enumerate((("涨", up, RED), ("跌", down, GREEN))):
         by = y0 + i * (bar_h + gap)
         lf = font(15, bold=True)
         draw.text((x0, by), lab, font=lf, fill=col)
-        vw = text_w(draw, lab, lf)
-        bx0 = x0 + vw + 12
-        bx1 = bx0 + int((bw - vw - 12) * (val / scale))
-        draw.rounded_rectangle([bx0, by, bx1, by + bar_h], radius=4, fill=col)
+        bar_w = max(4, int((bar_x1 - bar_x0) * (val / scale)))
+        draw.rounded_rectangle([bar_x0, by, bar_x0 + bar_w, by + bar_h], radius=4, fill=col)
         vf = font(15, bold=True)
-        draw.text((x0, by + bar_h + 6), f"{val:,}", font=vf, fill=LIGHT)
+        val_s = f"{val:,}"
+        vw = text_w(draw, val_s, vf)
+        draw.text((x + w - 22 - vw, by + 1), val_s, font=vf, fill=LIGHT)
     bf = font(12)
     draw.text((x0, y + 110), "红涨 · 绿跌（A股口径）", font=bf, fill=GRAY)
 

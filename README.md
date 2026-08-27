@@ -1,35 +1,6 @@
 <!-- SVG-BANNER-START -->
 <p align="center">
-  <svg xmlns="http://www.w3.org/2000/svg" width="780" height="180" viewBox="0 0 780 180">
-    <defs>
-      <linearGradient id="tdg" x1="0%" y1="0%" x2="100%" y2="0%">
-        <stop offset="0%" stop-color="#00D4FF" />
-        <stop offset="48%" stop-color="#7B2FFC" />
-        <stop offset="100%" stop-color="#00FF88" />
-      </linearGradient>
-      <linearGradient id="line" x1="0%" y1="0%" x2="100%" y2="0%">
-        <stop offset="0%" stop-color="#00D4FF" stop-opacity="0" />
-        <stop offset="50%" stop-color="#00D4FF" stop-opacity="0.4" />
-        <stop offset="100%" stop-color="#00D4FF" stop-opacity="0" />
-      </linearGradient>
-      <filter id="glow">
-        <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
-        <feMerge>
-          <feMergeNode in="coloredBlur"/>
-          <feMergeNode in="SourceGraphic"/>
-        </feMerge>
-      </filter>
-    </defs>
-    <rect width="780" height="180" rx="18" fill="#0D1117" />
-    <rect x="30" y="30" width="720" height="120" rx="10" fill="none" stroke="url(#line)" stroke-width="1.5" />
-    <text x="390" y="105" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif" font-size="76" font-weight="900" fill="url(#tdg)" text-anchor="middle" letter-spacing="12" filter="url(#glow)">TDSIGNAL</text>
-    <circle cx="170" cy="138" r="4.5" fill="#00FF88" />
-    <circle cx="170" cy="138" r="8" fill="#00FF88" opacity="0.3" />
-    <text x="192" y="143" font-family="'Courier New', Courier, monospace" font-size="14" fill="#00D4FF" font-weight="bold" opacity="0.9">A股 · 港股 · 全球</text>
-    <text x="560" y="143" font-family="'Courier New', Courier, monospace" font-size="14" fill="#7B2FFC" font-weight="bold" opacity="0.9">◆  ONLINE  ◆</text>
-    <path d="M 80 158 Q 160 140 240 158 T 400 158 T 560 158 T 700 158" stroke="#00D4FF" stroke-width="1.2" fill="none" opacity="0.25" />
-    <path d="M 120 165 Q 200 152 280 165 T 440 165 T 600 165" stroke="#7B2FFC" stroke-width="0.8" fill="none" opacity="0.15" />
-  </svg>
+  <img src="docs/assets/tdsignal-banner.svg" alt="TDSIGNAL — A股 · 港股 · 全球 · Online" width="780">
 </p>
 <!-- SVG-BANNER-END -->
 
@@ -62,7 +33,7 @@
 - <https://s.sugas.site/>（MaoziYun，300MB 总大小限制）
 - <https://ssd.fx8.store/>（R2 CDN，大 JSON 产物）
 
-![信号实验室 · tdsignal](docs/assets/tdsignal-banner.svg)
+![信号实验室 · tdsignal](static-site/og.png)
 
 `trade-data-signal` / `tdsignal`
 
