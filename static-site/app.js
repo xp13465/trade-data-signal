@@ -4636,7 +4636,19 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // 卖出/持有类风险提示正常亮显, 不在本开关隐藏范围(卖出=离场保护, 非不可用)。
   const _availOnlyOn = (kind === "signal") && _readHomeAvailOnlyFlag();
   let filtered = (kind === "signal") ? popItems.filter(_listFilter) : windowedItems;
-  // _availOnlyOn「当日已满」过滤延后到 posCap 初始化之后(_pcOn/_posCapKeptMap 就绪后再判, 防 TDZ)
+  // ===== 仅显示可用信号 过滤(藏降亏命中+未入样本,不依赖posCap,安全无TDZ) =====
+  if (_availOnlyOn) {
+    filtered = filtered.filter((it) => !_isAiFadeHit(it) && it._bt_in_universe !== false);
+  }
+  // 按 date 分组（降序），今日组单独提到最前(必须在 posCap 之前,posCap 的 for-of dates 依赖此)
+  const groups = {};
+  for (const it of filtered) {
+    (groups[it.date] = groups[it.date] || []).push(it);
+  }
+  let dates = Object.keys(groups).sort((a, b) => (a < b ? 1 : -1));
+  if (todayDate && groups[todayDate] && dates[0] <= todayDate) {
+    dates = [todayDate, ...dates.filter((d) => d !== todayDate)];
+  }
   // 2026-08-14 P1-1: 预计算「各日期是否有入样宇宙买入信号」(基于全量 signals_today=items, 不受用户 grade/correct/type/ETF
   // 子筛选影响, 防"用户筛走买入信号却误报无买入信号")。空态横条判定用此表, 与 §23.6 入样宇宙/首页 AI建议口径一致。
   const _BUY_UNI_SIGS = { buy: 1, buy_aux: 1, buy_special: 1, buy_backup: 1 };
@@ -4772,37 +4784,6 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   const _tierCountItems = _pcOn && _posCapKeptMap
     ? windowedItems.filter((it) => !_isAiFadeHit(it) && (() => { const k = _posCapKeptMap.get(it.date); return k && k.has(it); })())
     : (_fadeOn ? windowedItems.filter((it) => !_isAiFadeHit(it)) : windowedItems);
-  // ===== 延后的 _availOnlyOn 过滤(posCap 就绪后安全执行,防 TDZ) =====
-  // 最简逻辑: 只藏会被置灰的信号(降亏命中 + 未入样本 + 当日已满), 其他全显示
-  if (_availOnlyOn) {
-    // 预计算当日已满 key 集(_posCapKeptMap 中不在 kept 的买入信号)
-    const _dayFullKeys = new Set();
-    if (_posCapKeptMap) {
-      for (const it of popItems) {
-        if (!it || !_BUY_UNI_SIGS[it.signal] || it._bt_in_universe === false) continue;
-        if (_isAiFadeHit(it)) continue;
-        const k = _posCapKeptMap.get(it.date);
-        if (k && !k.has(it)) {
-          _dayFullKeys.add(it.date + "|" + (it.name || it.index_id || ""));
-        }
-      }
-    }
-    filtered = filtered.filter((it) => {
-      if (_isAiFadeHit(it)) return false;                    // 降亏命中 → 藏
-      if (it._bt_in_universe === false) return false;         // 未入样本 → 藏
-      if (_dayFullKeys.has(it.date + "|" + (it.name || it.index_id || ""))) return false; // 当日已满 → 藏
-      return true;                                            // 其余全显示
-    });
-  }
-  // 按 date 分组（降序），今日组单独提到最前
-  const groups = {};
-  for (const it of filtered) {
-    (groups[it.date] = groups[it.date] || []).push(it);
-  }
-  let dates = Object.keys(groups).sort((a, b) => (a < b ? 1 : -1));
-  if (todayDate && groups[todayDate] && dates[0] <= todayDate) {
-    dates = [todayDate, ...dates.filter((d) => d !== todayDate)];
-  }
   // ===== AI 信号认可度(X/Y 双段, 2026-08-26, 调研报告 docs/kelly/toggle/ai-consensus-score-research-20260826.md 方案甲=前端实时固化统计) =====
   // Y=8 降亏模式预设计票(0~8): 对 common.js _KELLY_FADE_MODE_PRESETS 静态预设(p8/p9/a9/b9/c9/new14/new15)
   //   各与 ai_macro.filters(后端无条件全量注入)求交一次, 交集空=该模式愿意留下=1 票; bullAuxBackupStop
