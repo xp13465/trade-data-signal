@@ -6094,7 +6094,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         //   不静默; 仅 err 显示, 加载中/日期超覆盖期(数据常态)不打扰
         var _s06Err = (typeof window._tdsS06Status === "function") ? window._tdsS06Status().err : null;
         var _consDeg = _s06Err ? ' <span style="opacity:.65">· S06快照不可用(' + _esc(String(_s06Err)) + '),该票按保留计</span>' : "";
-        html += '<div class="term-pop-consensus' + _dimCls + '" data-no-pop="" title="' + _esc(CONS_TIP) + '">🤝 AI 信号认可度 <b>' + (isFinite(_cy) ? _cy : "—") + '/8 分</b> · K1 终审 <b>' + _cxTxt + '</b>' + _consDeg + '</div>';
+        html += '<div class="term-pop-consensus' + _dimCls + '" data-no-pop="" title="' + _esc(CONS_TIP) + '">🤝 AI 信号认可度 <b>' + (isFinite(_cy) ? _cy : "—") + '/8 分</b> · 当日认可 <b>' + _cxTxt + '</b>' + _consDeg + '</div>';
       }
       if (locateHtml || idxLineHtml || etfMetaHtml || etfHtml) html += locateHtml + idxLineHtml + etfMetaHtml + etfHtml;
       pop.innerHTML = html;
