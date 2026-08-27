@@ -28,6 +28,7 @@ poll 已结束子进程按退出码走 done/failed(重试语义不变), 心跳�
 
 import json
 import os
+import tomllib
 import re
 import subprocess
 import time
@@ -42,6 +43,8 @@ LOCK_PATH = Path("/tmp/codex-reports/agent-inbox.lock")
 HEARTBEAT_PATH = Path(
     "/Users/linhuichen/code/trade-data/data/logs/agent_inbox_watcher.heartbeat"
 )
+SESSIONS_DIR = Path.home() / ".codex" / "sessions"
+MAIN_SESSION_LOOKBACK_DAYS = 7
 ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 POLL_SECONDS = 2
 MAX_RETRIES = 3
@@ -130,6 +133,85 @@ def atomic_write_signal(path: Path, payload: dict) -> None:
     tmp.replace(path)
 
 
+def parse_config_model(config_path: Path | None = None) -> str | None:
+    try:
+        path = config_path or Path.home() / ".codex" / "config.toml"
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    model = data.get("model")
+    return model if isinstance(model, str) else None
+
+
+def _recent_session_files() -> list[Path]:
+    if not SESSIONS_DIR.exists():
+        return []
+
+    year_dirs = sorted(
+        (path for path in SESSIONS_DIR.iterdir() if path.is_dir()),
+        key=lambda path: path.name,
+        reverse=True,
+    )
+    files: list[Path] = []
+    for year_dir in reversed(year_dirs[:2]):
+        try:
+            int(year_dir.name)
+        except ValueError:
+            continue
+        month_dirs = sorted(
+            (path for path in year_dir.iterdir() if path.is_dir()),
+            key=lambda path: path.name,
+            reverse=True,
+        )
+        for month_dir in reversed(month_dirs[:2]):
+            day_dirs = sorted(
+                (path for path in month_dir.iterdir() if path.is_dir()),
+                key=lambda path: path.name,
+                reverse=True,
+            )
+            for day_dir in reversed(day_dirs[:MAIN_SESSION_LOOKBACK_DAYS]):
+                files.extend(day_dir.glob("*.jsonl"))
+
+    return sorted(files, key=lambda path: path.stat().st_mtime, reverse=True)
+
+
+def _session_model(session_file: Path) -> tuple[str, float] | None:
+    try:
+        with session_file.open(encoding="utf-8") as stream:
+            meta_line = next(
+                line for line in stream
+                if '"type":"session_meta"' in line
+            )
+        event = json.loads(meta_line)
+    except (OSError, StopIteration, json.JSONDecodeError):
+        return None
+
+    payload = event.get("payload")
+    if not isinstance(payload, dict) or payload.get("cwd") != str(REPO):
+        return None
+    if payload.get("thread_source") != "user":
+        return None
+
+    model = payload.get("provenance", {}).get("model")
+    if not isinstance(model, str) or not model:
+        model = None
+
+    return (model, session_file.stat().st_mtime) if model else None
+
+
+def current_main_session_model() -> str:
+    override = os.environ.get("CODEX_REVIEWER_MODEL")
+    if override:
+        return override
+
+    for session_file in _recent_session_files()[:64]:
+        result = _session_model(session_file)
+        if result:
+            return result[0]
+
+    return parse_config_model() or "z-ai/glm-5.3-flash"
+
+
 def build_command(kind: str, request_id: str) -> list[str]:
     """按通道构造子命令(纯构造不执行; codex exec 可能跑几十分钟)。"""
     if kind == "codex":
@@ -146,6 +228,8 @@ def build_command(kind: str, request_id: str) -> list[str]:
             "exec",
             "--cd",
             str(REPO),
+            "-m",
+            current_main_session_model(),
             "--add-dir",
             "/tmp/codex-reports",
             "--ephemeral",
