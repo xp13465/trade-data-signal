@@ -75,6 +75,13 @@ TASKS = [
     # schedule_monitor.sh TASKS 同步加漏跑检查条目(同 overfit_monitor 先例)。
     {"task": "s06_snapshot", "name": "S06快照重生", "script": "s06_snapshot.sh",
      "schedule": "20:35", "log": "s06_snapshot_launchd.log", "mode": "standard"},
+    # check-data-gap: 2026-08-27 补入(采集数据缺口/停更告警检测器, 告警兜底批 #103 方案A+S2)。
+    # launchd com.trade.check-data-gap 交易日 22:35 跑 check_data_gap_alerts.sh
+    # (四检查器: 北向深缺口/北向停更/accum_nav 窗外缺口/宽度族保鲜; 数据级告警由
+    # 检测器自身走 notify.py 出口)。日志固定 append + 标准开始/结束行, standard 直读;
+    # schedule_monitor.sh TASKS 同步加漏跑检查条目。
+    {"task": "check_data_gap", "name": "数据缺口检测", "script": "check_data_gap_alerts.sh",
+     "schedule": "22:35", "log": "check_data_gap_launchd.log", "mode": "standard"},
 ]
 
 _TS = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})'
@@ -104,6 +111,7 @@ LABEL_MAP = {
     "lab_auto": "com.trade.lab-auto",
     "overfit_monitor": "com.trade.overfit-monitor",
     "s06_snapshot": "com.trade.s06-snapshot",
+    "check_data_gap": "com.trade.check-data-gap",
 }
 
 # launchctl print "last exit code = N" 行（N 可为 143/0/1/None，None 显 "last exit code = (none)"）
