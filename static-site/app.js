@@ -5043,8 +5043,12 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // 开关关闭时 _isAiFadeHit 恒 false, 整块自然跳过(不灰显不删除线不标注, hoverpop 原因行也不渲染);
         // 命中判定用共享谓词 _isAiFadeHit 与 top-K 补位同源
         if (_isAiFadeHit(it)) {
-          // (2026-08-22) 原因名来源两路: 后端 ai_macro.filters(经所选模式键集 _aiOnMembers 过滤, v1.1.5 起=new14 十四键) + 新降亏键前端判定(bullAuxBackupStop); 防旧数据无 filters 数组报错加守卫
-          const _hitOn = (it.ai_macro && Array.isArray(it.ai_macro.filters)) ? it.ai_macro.filters.filter((fk) => _aiOnMembers[fk]) : [];
+          // (2026-08-22) 原因名来源两路: 后端 ai_macro.filters(经所选模式键集过滤, v1.1.5 起=new14 十四键) + 新降亏键前端判定(bullAuxBackupStop); 防旧数据无 filters 数组报错加守卫
+          // S06 修复(2026-08-27): S06 模式下 _aiOnMembers 为空(仅非S06分支填充), 必须用 _tdsS06FiltersForDate(it.date) 按日期取基座键集过滤, 否则 _hitOn 永远为空→灰标不生效
+          const _hitOn = (it.ai_macro && Array.isArray(it.ai_macro.filters)) ? it.ai_macro.filters.filter((fk) => {
+            if (_homeIsS06) { const f = typeof window._tdsS06FiltersForDate === "function" ? window._tdsS06FiltersForDate(it.date) : null; return f ? !!f[fk] : false; }
+            return !!_aiOnMembers[fk];
+          }) : [];
           const _bullHit = _bullStopActive && _isBullStopHit(it);
           if (_hitOn.length || _bullHit) {
             aiHitCls = " sig-ai-hit";
