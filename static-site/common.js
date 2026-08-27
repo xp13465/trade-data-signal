@@ -757,7 +757,7 @@ var _KELLY_FADE_MODE_PRESETS = [
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "t1LowTurnSpecial", "q1QvixLowPct", "m1MarginDownBull", "r1VolRatioLow", "r2bSpecialGlobal", "r2gLowRatingQ3"] },
   { id: "c9", name: "C 防守", tagline: "笔数最少·熊市少亏", caliber: "⚠ 叠 9 键口径(速查卡注: 真选 C 应叠 8 键下线候选1)", calWarn: true,
     keys: ["excludeSpecialBear", "n2NovSpecialIndustry", "janMidRating", "janMidSpecial", "k2c5HkChase", "r7MayReinforced", "excludeAuxCross", "greedy15", "bullAuxBackupStop", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] },
-  { id: "new14", name: "⭐⭐ NEW 14键(默认)", tagline: "新防守王·全史第一+回撤最浅", caliber: "✓ 现役默认(v1.1.5 起·重构换基座)", calWarn: false, stars: 2,
+  { id: "new14", name: "⭐⭐ NEW 14键", tagline: "新防守王·全史第一+回撤最浅", caliber: "✓ v1.1.5~v1.1.6 默认·现对照档", calWarn: false, stars: 2,
     keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "declinePhaseSpecial", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"] },
   // new18(NEW2 18键) 已从下拉移除(v20260826 用户拍板"不用对照啦 14+1 对照够啦"): 条目删除,
   // 后端 RECENT_KEYS 打标集保留; 老记忆经消费点校验自动回默认。
@@ -768,14 +768,14 @@ var _KELLY_FADE_MODE_PRESETS = [
     // 仅剔 none 口径(mine29c), 扩围后作废待正式穷举回测重算: 全史仅剔 17 笔毛 +584.62(费 359.07 净 +225.56),
     // 近 5 年 12 笔净 -1,450.66 但补位回收 +1,253.96(页面口径); mdd -4,178→-3,550。默认仍=new14(§23.7)。
     keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "declinePhaseSpecial", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal", "excludeTierNone"] },
-  // S06(codex-task-20260825-001, B级用户拍板): 大盘领先动态切换·实验可选档(非默认 §23.7 纯新增)。
+  // S06(codex-task-20260825-001, B级用户拍板): 大盘领先动态切换·v1.1.7 起为默认档(综合auto王者, 用户拍板观察期)。
   // ⚠dynamic:true = 非静态键组合, 本条目禁止携带 keys; 四消费点遇 s06 必须按「信号日期」读快照
   //   effective_mode(a9/new15)再套对应基座键集, 禁止展开成静态 keys(handoff §四)。
   // 阈值/状态机唯一事实源 = scripts/gen_kelly_mode_s06_state.py → static-site/data/kelly_mode_s06_state.json,
   //   本文件零硬编码阈值(§22 登记点纪律); 下方 tooltip 文案数值仅为 §21 公示, 与生成器逐位一致由
   //   scripts/check_s06_state.py 机检把关。回测对照锚点(codex008 F2 held 新语义引擎重跑 2026-08-26):
   //   验段净利 +100,572.43 / mdd -3,811.27 / 强平 +82,761.50 vs 静态 NEW14+1 +83,718.16。
-  { id: "s06", name: "⭐️⭐️⭐️ S06 · 大盘领先切换", tagline: "小盘弱→A进攻王·否则NEW14+1(动态)", caliber: "🧪 实验可选档·动态切换(非默认)", calWarn: true, dynamic: true, stars: 3 }
+  { id: "s06", name: "⭐️⭐️⭐️ S06 · 大盘领先切换(默认)", tagline: "小盘弱→A进攻王·否则NEW14+1(动态)", caliber: "✓ v1.1.7 起默认·动态切换", calWarn: false, dynamic: true, stars: 3 }
 ];
 var _KELLY_FADE_DEFAULT_MODE = "s06"; // v1.1.7(2026-08-26) 默认切 S06·大盘领先动态切换(综合auto王者, 用户拍板观察期); v1.1.5~v1.1.6=new14
 // 下拉展示顺序(v20260826 用户拍板): 有星在前星多靠前, 无星跟在 1 星组后沿用原相对序——稳定排序(同星数不改变
@@ -1026,7 +1026,7 @@ window._tdsS06CaliberNote = _tdsS06CaliberNote;
 //   k=命中键"|"join(v1.1.2 四档口径) / tier)。零新增后端任务, 纯复用现有产物(每晚 21:40 随监控卡打点更新)。
 //   老版 json 无 recent 块 → 静默不显示(优雅降级), 不报错不占位。
 // 【放行定义】与首页 AI 建议/凯利回测同链口径(§22): 买入类信号(buy/buy_aux/buy_special(+filtered)/buy_backup)
-//   × 已入样(t≠null, 等价 _bt_in_universe 回测入样判定, 前端不自算宇宙 §23.6) × 当前默认模式(new14)键集
+//   × 已入样(t≠null, 等价 _bt_in_universe 回测入样判定, 前端不自算宇宙 §23.6) × 当前默认模式(s06 动态组合/new14 静态键集)键集
 //   与该信号命中键集(k)无交集=未被任何降亏键拦下。
 // 【防前视声明】本提示为「截至最新交易日的累计状态 + mine30 静态历史统计」纯展示, 零时变判定/零切换规则,
 //   不含任何未来信息(§5.1⑥ 自查通过)。
@@ -1044,7 +1044,7 @@ function _tdsFetchRecentBlock(fetchFn) {
   return _tdsRecentBlockPromise;
 }
 // 计算: 截至 latest 的连续无放行买入信号交易日数 N。
-// recent={rows:[{d,s,t,k,...}], latest} / modeKeys=当前模式键数组(默认取 new14 预设 keys);
+// recent={rows:[{d,s,t,k,...}], latest} / modeKeys=当前模式键数组(默认取 s06 动态/new14 预设 keys);
 //   S06(2026-08-25 codex-task-001): 也接受「日期→键集」函数(per-date 动态基座口径, 与首页判定链同源 §22),
 //   函数对某日期返回 []/null = 该日视为无键不拦(fail-open 同语义)。
 // 返回 {n, latest, window} 或 null(rows 缺失/空)。n 封顶=窗口内交易日数(全窗口无放行时)。
@@ -1092,7 +1092,7 @@ function _tdsComputeDrought(recent, modeKeys) {
 function _tdsDroughtChipHtml(info, caliberNote) {
   if (!info || !(info.n >= _TDS_DROUGHT_THRESHOLD)) return "";
   var base = "已连续 <b>" + info.n + "</b> 个交易日无放行信号 · 历史上类似枯竭结束后 3 个月约 <b>72%</b> 为正, 常由下跌触发放行";
-  var src = caliberNote || "(口径: NEW14 默认过滤下实时统计; 72%=mine30 全史 37 次≥20 交易日枯竭恢复后 26/36 为正)";
+  var src = caliberNote || "(口径: 默认过滤(s06/v1.1.7 起)下实时统计; 72%=mine30 全史 37 次≥20 交易日枯竭恢复后 26/36 为正)";
   var longNote = info.n >= _TDS_DROUGHT_LONG
     ? " · 本轮已超历史上多数枯竭长度(≥40 交易日共 13 次、≥60 日 10 次、最长 484 日)"
     : "";
