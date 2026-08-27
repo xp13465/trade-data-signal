@@ -93,3 +93,4 @@
 | kelly_atomic_export_test.py | codex-002 high 自验:切片原子写导出(内容一致/无tmp残留/历史tmp被清) | python3 kelly_atomic_export_test.py |
 | kelly_codex002_verify.js | codex-002 自验:空groups红条+触控44px+桌面hash对照(serviceWorkers:"block") | node kelly_codex002_verify.js |
 | kelly_codex002_touch_verify.js | codex-002 low 补验:弹窗内 cols-btn/筛选框/cols-item 实测高度 | node kelly_codex002_touch_verify.js |
+| sig-visible-step2-repro-20260827.js | 「仅显示可用信号」Step2 死码 bug 离线复现(csi_399976@20260817「当日已满」置灰未隐藏; 四口径 before/after 对比+边界断言) | node sig-visible-step2-repro-20260827.js [overview.json路径] |
