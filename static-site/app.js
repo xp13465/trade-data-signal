@@ -2756,7 +2756,8 @@ function _readHomeFadeFlag() {
   return true;
 }
 // v1.1.5(2026-08-24) 「仅显示可用信号」开关: 裸键 tds_home_show_available_only, 默认关(§23.7 默认行为不变)。
-// 开启=在现有渲染结果上隐藏灰显/删除线行(AI降亏命中 sig-ai-hit + 未入样本 sig-poscap-notuni),
+// 开启=在现有渲染结果上隐藏灰显/删除线行(AI降亏命中 sig-ai-hit + 未入样本 sig-poscap-notuni
+//   + 当日已满 sig-poscap-excluded 入宇宙买类超K, 2026-08-26 fix 扩展),
 // 只留干净可用的放行信号列表; 纯展示层视图控制, 不改任何判定链(与 AI降亏/AI仓位 两开关正交叠加)。
 function _readHomeAvailOnlyFlag() {
   try { return localStorage.getItem("tds_home_show_available_only") === "1"; } catch (e) {}
@@ -2903,7 +2904,7 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
     // S06 状态/降级提示槽(codex-task-20260825-001): 仅 s06 选中时由 _mountHomeS06State 异步填充;
     // 快照不可用=持续可见警示(过滤暂不生效), 正常=显示当前生效基座与覆盖期(§23.2 可见降级不静默)
     `<span class="sig-s06-state" id="home-sig-s06-state-slot" style="font-size:11px;color:var(--text-3)"></span>` +
-    `<label class="sig-switch-lab sig-switch-avail" data-no-pop="" title="仅显示可用信号(视图控制开关, 默认关, 记忆键 tds_home_show_available_only): 开启=把信号列表里所有「灰显/删除线」的行整体隐藏——即 AI降亏过滤命中类(AI降亏 sig-ai-hit 删除线+置灰 / 未入样本 sig-poscap-notuni 删除线+置灰), 只留干净可用的放行信号; 关闭=恢复完整列表。纯展示层视图控制: 不改变任何判定链/统计口径/AI建议编号, 与「AI降亏过滤」「AI仓位建议 K」两开关正交叠加——本开关只藏 AI降亏层已画删除线的行, 「当日已满」(仓位层)与卖出/持有类风险提示正常亮显不受影响; 汇总条准确率仍按全量人口统计便于对比。开启后若近30个交易日无任何可用信号, 列表区显示枯竭引导空态(连续无放行天数与历史统计, 数据源与常驻枯竭 chip 同源 §22)">` +
+    `<label class="sig-switch-lab sig-switch-avail" data-no-pop="" title="仅显示可用信号(视图控制开关, 默认关, 记忆键 tds_home_show_available_only): 开启=把信号列表里所有「灰显/删除线」的行整体隐藏——即 AI降亏过滤命中类(AI降亏 sig-ai-hit 删除线+置灰 / 未入样本 sig-poscap-notuni 删除线+置灰), 只留干净可用的放行信号; 关闭=恢复完整列表。纯展示层视图控制: 不改变任何判定链/统计口径/AI建议编号, 与「AI降亏过滤」「AI仓位建议 K」两开关正交叠加——本开关隐藏 AI降亏层已画删除线的行(AI降亏命中 / 未入样本)+「当日已满」行(入宇宙买类超出K名=当日不可买), 卖出/持有类风险提示正常亮显不受影响; 汇总条准确率仍按全量人口统计便于对比。开启后若近30个交易日无任何可用信号, 列表区显示枯竭引导空态(连续无放行天数与历史统计, 数据源与常驻枯竭 chip 同源 §22)">` +
       `<input type="checkbox" class="sig-switch-avail-cb"${_readHomeAvailOnlyFlag() ? " checked" : ""}> 仅显示可用信号` +
     `</label>` +
     // v1.1.5 枯竭提示 chip 占位(纯展示层): 异步填充, N≥20 才显示; 与凯利区 chip 同源同数字(§22)
@@ -4785,12 +4786,22 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     ? windowedItems.filter((it) => !_isAiFadeHit(it) && (() => { const k = _posCapKeptMap.get(it.date); return k && k.has(it.index_id + '|' + it.date + '|' + it.signal); })())
     : (_fadeOn ? windowedItems.filter((it) => !_isAiFadeHit(it)) : windowedItems);
   // ② posCap后: 藏当日已满(降亏命中/未入已在第一步藏了, 这里只补当日已满)
+  // 2026-08-27 fix(用户实测 bug: csi_399976@20260817 buy_special 置灰却未被隐藏): 原实现 reassign 局部变量
+  //   filtered 是死赋值——groups/dates 已在 Step1 之后构建完成(L4644+), 渲染 rows 循环遍历 groups[dt],
+  //   本 filter 的结果被整体丢弃 → Step2「当日已满」隐藏自上线起从未生效(.sig-poscap-excluded 行一直
+  //   opacity .5 置灰可见)。改为就地过滤 groups[dt] 并剔除空组+同步重算 dates(今日置顶相对序不变——
+  //   过滤只减不增; keptMap 构建已在此前 for(dt of dates) 完成, 不受 groups 后续变动影响;
+  //   rank 构建 _keptObjMap 用过滤后 dayItems, kept 成员不会被本步删掉(k.has=true 恒保留), 编号不受影响)。
   if (_availOnlyOn && _posCapKeptMap) {
-    filtered = filtered.filter((it) => {
-      if (!_BUY_UNI_SIGS[it.signal]) return true;  // 非买入类(AI警示等)→显示
-      const k = _posCapKeptMap.get(it.date);
-      return !k || k.has(it.index_id + '|' + it.date + '|' + it.signal);  // 在 kept 集=显示(AI建议), 不在=隐藏(当日已满)
-    });
+    for (const dt of dates) {
+      groups[dt] = (groups[dt] || []).filter((it) => {
+        if (!_BUY_UNI_SIGS[it.signal]) return true;  // 非买入类(AI警示等)→显示
+        const k = _posCapKeptMap.get(dt);
+        return !k || k.has(it.index_id + '|' + it.date + '|' + it.signal);  // 在 kept 集=显示(AI建议), 不在=隐藏(当日已满)
+      });
+      if (!groups[dt].length) delete groups[dt];
+    }
+    dates = dates.filter((d) => !!groups[d]);
   }
   // ===== AI 信号认可度(X/Y 双段, 2026-08-26, 调研报告 docs/kelly/toggle/ai-consensus-score-research-20260826.md 方案甲=前端实时固化统计) =====
   // Y=8 降亏模式预设计票(0~8): 对 common.js _KELLY_FADE_MODE_PRESETS 静态预设(p8/p9/a9/b9/c9/new14/new15)
@@ -5517,7 +5528,15 @@ function _rerenderSigCardContent(r, snap) {
     else if (oldFinalizeBar) oldFinalizeBar.remove();
     oldH3.replaceWith(newH3);
     oldAccWrap.replaceWith(newAccWrap);
+    // 2026-08-27 fix(bug: 切「仅显示可用信号」等开关列表滚动位置丢失跳回最新数据位): .signal-grid 是
+    //   内部滚动容器(style.css max-height300 overflow-y:auto), oldGrid.replaceWith(newGrid) 整树替换后
+    //   新节点 scrollTop 归零 → 视口跳回列表顶部(日期降序=今日组最前)。重绘前保存旧 scrollTop 重绘后恢复;
+    //   新内容更矮时浏览器自动 clamp 到 scrollHeight-clientHeight(贴底/归零, 不产生负值无死循环),
+    //   视口优先于"回到最新数据位置"。放本函数内一处修全家(K档/AI降亏开关/模式切换/窗口与ETF筛选等
+    //   所有经 _rerenderSigCardContent 的重绘入口一并保留滚动, §23.2③ 排查同类)。
+    const _savedGridScroll = oldGrid ? oldGrid.scrollTop : 0;
     oldGrid.replaceWith(newGrid);
+    if (_savedGridScroll > 0 && newGrid.scrollTop === 0) newGrid.scrollTop = _savedGridScroll;
   } else {
     // 兜底: 数据从有变空/空变有 - 保留 badge + hint, 替换其余
     const badge = sigCard.querySelector(".card-time-badge");
