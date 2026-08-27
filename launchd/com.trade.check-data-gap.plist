@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.trade.check-data-gap</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/linhuichen/code/trade-data/scripts/check_data_gap_alerts.sh</string>
+    </array>
+    <!-- 工作日 22:35 跑: 采集数据缺口/停更告警检测(#103 方案A 停机>30天缺口不自愈 +
+         S2 北向 capped_giveup 日志零捕获; 告警兜底批 2026-08-27)。
+         时点选择依据(§14): 当日晚链全部完成后检测(backfill_evening 21:00 /
+         etf_national_team 21:30 / overfit 21:40 / 信号邮件 22:00), 与相邻槽位错峰 ≥35min,
+         位于 23:00 安全窗前且秒级完成不抢资源; 不推 main 不写业务 DB。
+         pmset 无需新增唤醒: 既有 wakepoweron=工作日 17:48, 机器持续活跃至 21:40 之后
+         (overfit-monitor 同款依赖), 22:35 落在活跃区间内。
+         非交易日脚本内闸门跳过(传 force 可补跑)。
+         ⚠ 上线前置: merge 后执行
+           launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.trade.check-data-gap.plist
+         (覆盖安装先 bootout)。未加载前告警器不上线(S06 教训 L45: 定时挂载缺一不算 done)。 -->
+    <key>StartCalendarInterval</key>
+    <array>
+      <dict>
+        <key>Weekday</key>
+        <integer>1</integer>
+        <key>Hour</key>
+        <integer>22</integer>
+        <key>Minute</key>
+        <integer>35</integer>
+      </dict>
+      <dict>
+        <key>Weekday</key>
+        <integer>2</integer>
+        <key>Hour</key>
+        <integer>22</integer>
+        <key>Minute</key>
+        <integer>35</integer>
+      </dict>
+      <dict>
+        <key>Weekday</key>
+        <integer>3</integer>
+        <key>Hour</key>
+        <integer>22</integer>
+        <key>Minute</key>
+        <integer>35</integer>
+      </dict>
+      <dict>
+        <key>Weekday</key>
+        <integer>4</integer>
+        <key>Hour</key>
+        <integer>22</integer>
+        <key>Minute</key>
+        <integer>35</integer>
+      </dict>
+      <dict>
+        <key>Weekday</key>
+        <integer>5</integer>
+        <key>Hour</key>
+        <integer>22</integer>
+        <key>Minute</key>
+        <integer>35</integer>
+      </dict>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>REPO</key>
+        <string>/Users/linhuichen/code/trade-data</string>
+    </dict>
+    <key>WorkingDirectory</key>
+    <string>/Users/linhuichen/code/trade-data</string>
+    <key>StandardOutPath</key>
+    <string>/Users/linhuichen/code/trade-data/data/logs/check_data_gap_launchd.out</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/linhuichen/code/trade-data/data/logs/check_data_gap_launchd.err</string>
+    <key>RunAtLoad</key>
+    <false/>
+    <!-- ExitTimeOut 非运行时长超时, 只是 SIGTERM 后优雅退出宽限窗口; 检测器自身由
+         sh 内 run_to 300s 包装防挂死, 600s 保证被杀时日志 flush 留全 -->
+    <key>ExitTimeOut</key>
+    <integer>600</integer>
+</dict>
+</plist>

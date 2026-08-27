@@ -125,6 +125,14 @@ TASKS = [
     {"task": "s06_snapshot",        "log": "s06_snapshot_launchd.log",
      "trading_day_only": True,  # 非交易日脚本闸门跳过不写开始行, 必需跳过漏跑检查避免周末误报
      "schedules": ["20:35"]},
+    # check_data_gap: 2026-08-27 补入(采集数据缺口/停更告警检测器, 告警兜底批 #103 方案A+S2)。
+    # launchd com.trade.check-data-gap 交易日 22:35 跑 check_data_gap_alerts.sh
+    # (北向深缺口不自愈/停更 + accum_nav 窗外缺口 + 宽度族保鲜, 告警走 notify.py)。
+    # 固定 append + 标准开始/结束行, standard 模式可解析; 此处只管漏跑+进行中超时,
+    # 数据级告警由检测器自身出口承担(gen_schedule_stats TASKS 已同步注册)。
+    {"task": "check_data_gap",      "log": "check_data_gap_launchd.log",
+     "trading_day_only": True,  # 非交易日脚本闸门跳过不写开始行, 必需跳过漏跑检查避免周末误报
+     "schedules": ["22:35"]},
 ]
 
 # 标准任务开始行：=== xxx.sh 开始 YYYY-MM-DD HH:MM:SS ===
