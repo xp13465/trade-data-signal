@@ -66,6 +66,7 @@ class FakeWorld:
         self.state_earliest = None              # 分轮前沿(date or None)
         self.events = []                        # state 变更轨迹 [("save","YYYYMMDD")/"clear"]
         self.existed_hit = False                # 本轮闭合探测是否命中既有行
+        self.fail_once = None                   # 瞬态故障注入:此日期首次请求抛异常(reviewer F1 证伪用)
         self.hkex_calls = 0
 
     def gap(self):                               # mock _north_fund_gap_days(按模拟库 MAX 重算)
@@ -79,9 +80,13 @@ class FakeWorld:
         return hit
 
     def hkex_get(self, url, **kw):               # mock HKEX 请求
-        self.hkex_calls += 1
         ds = url.split("data_tab_daily_")[1][:8]
         d = dt.datetime.strptime(ds, "%Y%m%d").date()
+        if d.strftime("%Y%m%d") == str(self.fail_once):
+            # 瞬态故障注入:只抛一次,之后同日正常(模拟网络抖动/超时)
+            self.fail_once = None
+            raise RuntimeError("mock transient network timeout")
+        self.hkex_calls += 1
 
         class R:
             status_code = 200 if (SRC_FLOOR <= d <= TODAY and d.weekday() < 5) else 404
@@ -218,8 +223,13 @@ ws, we, m = direct.plan_north_gap_window(TODAY, gap=None, known=False)
 check("D1 no_db 保守上限窗", m == "no_db" and we == TODAY
       and ws == TODAY - ONE_DAY * (direct.HKEX_DAYS_MAX - 1))
 ws, we, m = direct.plan_north_gap_window(TODAY, gap=None, known=True)
-check("D2 full 库空全量窗", m == "full"
-      and ws == TODAY - ONE_DAY * (direct.HKEX_BACKFILL_CAP_DAYS - 1))
+# S1(2026-08-27 用户拍板): full 库空场景恢复 HKEX_DAYS_FULL=90 既定口径——
+# 210 是深缺口 backfill 硬顶(cap 场景),不混用于 full 初始化;此断言防再静默漂移
+check("D2 full 库空全量窗=HKEX_DAYS_FULL(90)既定口径", m == "full"
+      and ws == TODAY - ONE_DAY * (direct.HKEX_DAYS_FULL - 1),
+      f"plan=({ws},{we},{m}) days_full={direct.HKEX_DAYS_FULL}")
+check("D2b HKEX_DAYS_FULL 数值锁 90(S1)", direct.HKEX_DAYS_FULL == 90,
+      f"got={direct.HKEX_DAYS_FULL}")
 ws, we, m = direct.plan_north_gap_window(TODAY, gap=20, known=True)
 check("D3 deep_start 首轮", m == "deep_start" and we == TODAY
       and ws == TODAY - ONE_DAY * (direct.HKEX_DAYS_MAX - 1))
@@ -336,6 +346,45 @@ with tempfile.TemporaryDirectory() as td:
         check("G3 损坏 state 容错为 None(不影响主流程)",
               direct._north_backfill_load_earliest() is None)
         direct._north_backfill_clear()   # 清理残片
+
+# ═══ 场景H(reviewer F1 证伪式): 窗口中段单日瞬态失败 → 多轮最终闭合且无洞 ═══
+# bug 假设: 现实现 oldest_done=d 在发请求前记录、except-continue 不回滚 → 该日被标
+# "已覆盖"却从未入库,后续轮 resume 只向更早推进不再回头 → 该日永久有洞。
+# 预期: 修复前 H2 FAIL(missing 含故障日);修复后(处方a: 瞬态失败立即停轮不推进)
+# 下轮整窗重试,H 全 PASS。
+w6 = FakeWorld()
+w6.fail_once = "20260819"                       # 深缺口首轮窗口(0818~0827)中段的工作日
+h_rounds = []
+for i in range(8):
+    _, info = run_round(w6)
+    h_rounds.append(info)
+    if info["cleared"]:
+        break
+check("H1 瞬态失败场景多轮内收敛闭合", w6.state_earliest is None and len(h_rounds) <= 5,
+      f"轮数={len(h_rounds)} 序列={[(r['kind'][:24], r['nrows']) for r in h_rounds]}")
+missing_h = expect - w6.db_rows
+check("H2 无永久洞(含曾瞬态失败的 0819 必须最终入库)", not missing_h,
+      f"missing={sorted(missing_h)[:8]}" if missing_h else "缺口区间全覆盖")
+check("H3 曾失败日 20260819 有数据行", "20260819" in w6.db_rows)
+
+# ═══ 场景I(codex P2): _north_fund_date_exists 校验 value——NULL/0 占位不当闭合 ═══
+import sqlite3 as _sq3  # noqa: E402
+with tempfile.TemporaryDirectory() as td_i:
+    fake_db_i = Path(td_i) / "sentiment.db"
+    conn = _sq3.connect(fake_db_i)
+    conn.execute("CREATE TABLE daily_metric (date TEXT, metric_id TEXT, value REAL)")
+    conn.executemany(
+        "INSERT INTO daily_metric VALUES (?, 'a_fund_north', ?)",
+        [("20260812", None),      # NULL 占位行
+         ("20260811", 0.0),       # 0 异常占位
+         ("20260810", 2838.37)])  # 正常有效值
+    conn.commit()
+    conn.close()
+    with mock.patch("app.db.DB_PATH", fake_db_i):
+        check("I1 NULL 行不算已存在(不得据此闭合)", not direct._north_fund_date_exists("20260812"))
+        check("I2 0 值行不算已存在", not direct._north_fund_date_exists("20260811"))
+        check("I3 有效值行算已存在", direct._north_fund_date_exists("20260810"))
+        check("I4 无行日 False", not direct._north_fund_date_exists("20260805"))
 
 # ── 汇总 ──
 fails = [r for r in RESULTS if not r[1]]
