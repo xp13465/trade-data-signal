@@ -5035,7 +5035,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // 买入类信号若仍无任何样式, 默认置灰(与「当日已满」同视觉 posCapCls, 不加 badge 文案, 只灰显弱化)。
         // 触发场景: _pcOn=false 或 _posCapKeptMap 为空(仓位建议关) 时, 买入信号无 badge 也无灰显,
         // 用户反馈"非AI警示和AI建议之外的没有置灰的信号"。
-        if (!posCapCls && !_isSellRow(it) && _BUY_UNI_SIGS[it.signal] && it._bt_in_universe !== false) {
+        // 仅显示可用信号开启时跳过兜底灰显(该模式下信号要么有badge要么被filter隐藏, 不需要兜底灰)
+        if (!posCapCls && !_isSellRow(it) && _BUY_UNI_SIGS[it.signal] && it._bt_in_universe !== false && !_availOnlyOn) {
           posCapCls = " sig-poscap-excluded";
         }
         // 2026-08-13 C1 fix(reviewer): 恢复每 cell 渲染前的三变量初始化声明(重构时误删 → 隐式全局污染, 命中 cell 赋值后污染后方未命中 cell)。
