@@ -4636,7 +4636,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // 卖出/持有类风险提示正常亮显, 不在本开关隐藏范围(卖出=离场保护, 非不可用)。
   const _availOnlyOn = (kind === "signal") && _readHomeAvailOnlyFlag();
   let filtered = (kind === "signal") ? popItems.filter(_listFilter) : windowedItems;
-  // ===== 仅显示可用信号 过滤(藏降亏命中+未入样本,不依赖posCap,安全无TDZ) =====
+  // ===== 仅显示可用信号 过滤(两步: ①posCap前藏降亏+未入 ②posCap后藏当日已满) =====
   if (_availOnlyOn) {
     filtered = filtered.filter((it) => !_isAiFadeHit(it) && it._bt_in_universe !== false);
   }
@@ -4784,6 +4784,14 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   const _tierCountItems = _pcOn && _posCapKeptMap
     ? windowedItems.filter((it) => !_isAiFadeHit(it) && (() => { const k = _posCapKeptMap.get(it.date); return k && k.has(it); })())
     : (_fadeOn ? windowedItems.filter((it) => !_isAiFadeHit(it)) : windowedItems);
+  // ② posCap后: 藏当日已满(降亏命中/未入已在第一步藏了, 这里只补当日已满)
+  if (_availOnlyOn && _posCapKeptMap) {
+    filtered = filtered.filter((it) => {
+      if (!_BUY_UNI_SIGS[it.signal]) return true;  // 非买入类(AI警示等)→显示
+      const k = _posCapKeptMap.get(it.date);
+      return !k || k.has(it);  // 在 kept 集=显示(AI建议), 不在=隐藏(当日已满)
+    });
+  }
   // ===== AI 信号认可度(X/Y 双段, 2026-08-26, 调研报告 docs/kelly/toggle/ai-consensus-score-research-20260826.md 方案甲=前端实时固化统计) =====
   // Y=8 降亏模式预设计票(0~8): 对 common.js _KELLY_FADE_MODE_PRESETS 静态预设(p8/p9/a9/b9/c9/new14/new15)
   //   各与 ai_macro.filters(后端无条件全量注入)求交一次, 交集空=该模式愿意留下=1 票; bullAuxBackupStop
