@@ -320,3 +320,11 @@ collect + deploy + check_signals 都幂等 → update_all 重跑安全。中断�
 ```bash
 python3 /Users/linhuichen/code/trade/scripts/bug-pattern-audit-20260823/audit_bug_patterns.py   # 有 DIFF 时退出码 1
 ```
+
+### `check_north_gap_backfill.py` — 北向深缺口分轮回补逻辑机检（2026-08-27）
+
+v1.1.7 审计 P1 #97（北向增量截断→递增丢日）修复及其返修（reviewer F1/F2 + codex P2 + S1 用户拍板，2026-08-27）的配套验证。纯逻辑级 mock（不触网、不读写真实 sentiment.db 与 state 文件，盘中/任意时段可安全运行），38 断言覆盖：①15 自然日缺口 ≤3 轮分轮闭合且区间全覆盖 ②plain 窗口与旧公式逐位一致+边界 gap=10 进深缺口但窗口同宽 ③days 显式传参 manual 行为兼容 ④plan 纯函数各模式边界（no_db/full/deep_start/deep_resume 无缝衔接/deep_cap 硬顶+倒挂死锁防线 D5b；full 库空窗锁定 HKEX_DAYS_FULL=90 既定口径 D2/D2b——210 仅 backfill 硬顶不混用 full，S1）⑤超长停机（240 天缺口）推到硬顶收敛放弃、无前沿停滞空转 ⑥软 deadline 半途中断后前沿记实际覆盖日、下轮接力仍闭合 ⑦state 三件套真实文件 IO 往返+损坏容错 ⑧H 场景=窗口中段单日瞬态异常证伪（修复前 H2/H3 FAIL 复现「前沿越过未入库日→永久洞」，修复后多轮整窗重试闭合无洞）⑨I 场景=codex P2 闭合探测 value 校验（NULL/0 占位行不得当作已存在）。
+
+```bash
+python3 scripts/check_north_gap_backfill.py   # 全 PASS 输出 38/38、退出码 0；有 FAIL 退出码 1
+```

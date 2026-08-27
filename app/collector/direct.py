@@ -2,6 +2,7 @@
 import datetime as _dt
 import json
 import re as _re
+import sqlite3
 
 import requests
 
@@ -243,6 +244,9 @@ HKEX_SOFT_DEADLINE_S = 60.0   # 主源循环软deadline(秒):到点break拿到�
 HKEX_DAYS_MIN = 3             # 增量缺口下限(天):库已最新也回看3天,防个别日缺行漏补
 HKEX_DAYS_MAX = 10            # 增量缺口上限(天):10工作日 × ~2s ≈ <20s,稳在90s预算内
 HKEX_DAYS_FULL = 90           # 首次全量窗口(仅库空场景);配合软deadline保证不超预算
+# 深缺口分轮累积硬顶(自然日,2026-08-27 P1 修复):略大于 HKEX 源保留窗(~7个月≈213天),
+# 分轮回补推到此处仍未闭合即放弃并告警(防源窗外无限空转;回退常规增量)
+HKEX_BACKFILL_CAP_DAYS = 210
 
 
 def _north_fund_gap_days():
@@ -273,6 +277,125 @@ def _north_fund_gap_days():
         return None, False
 
 
+# ── 深缺口分轮累积回补状态(v1.1.7 P1 修复:「北向增量截断→递增丢日」根治) ──
+# bug 根因: 缺口上限夹到 ≤10 自然日且每轮都从"今天"往回看 → 长假/长停机后 gap>10 时,
+# 窗口只盖住最近 10 天,"更早段"不在任何一轮窗口内;MAX(date) 随新数据前进后
+# gap 重算变小,更早缺口永远补不上(递增丢日)。
+# 修法: 轻量 state 文件记「本轮已覆盖到的最早日期」(前沿),下轮从前沿-1天无缝向前
+# 推进一轮 span_max,直到查库撞见既有完好数据行即判闭合清态。行级 upsert 幂等,
+# 并发双槽下前沿可能倒退但收敛(state 只许"读到的人"写/清,防误清)。
+_NORTH_BACKFILL_STATE = "north_fund_backfill_state.json"
+
+
+def _north_backfill_state_path():
+    from ..db import DB_PATH
+    return DB_PATH.parent / _NORTH_BACKFILL_STATE
+
+
+def _north_backfill_load_earliest():
+    """读分轮回补前沿(最早覆盖日 date);无文件/损坏返回 None(失败不影响主流程)。"""
+    try:
+        with open(_north_backfill_state_path(), encoding="utf-8") as f:
+            st = json.loads(f.read())
+        s = str(st.get("earliest_covered", ""))[:8]
+        return _dt.datetime.strptime(s, "%Y%m%d").date() if len(s) == 8 else None
+    except Exception:
+        return None
+
+
+def _north_backfill_save_earliest(d):
+    """原子写前沿(tmp+os.replace);失败仅打日志不抛(state 属辅助机制,采集优先)。"""
+    import os
+    p = _north_backfill_state_path()
+    try:
+        tmp = str(p) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "metric_id": "a_fund_north",
+                "earliest_covered": d.strftime("%Y%m%d"),
+                "updated_at": _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }))
+        os.replace(tmp, p)
+    except Exception as e:
+        print(f"[a_fund_north][hkex] backfill 前沿写入失败(不影响本次采集): {e}")
+
+
+def _north_backfill_clear():
+    try:
+        _north_backfill_state_path().unlink()
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"[a_fund_north][hkex] backfill 前沿清理失败: {e}")
+
+
+def _north_fund_date_exists(date_str):
+    """查库该指标当日是否已有**有效数据行**(闭合探测;轻量只读连接)。
+
+    codex P2(2026-08-27): 校验 value 非空且非 0——NULL/0 是上游占位空行,
+    据此判"已存在"会误闭合清前沿留洞。北向成交总额业务上恒 >0,0/null 均视为无效。
+    失败按不存在处理 → 照常发请求(宁可重复请求不漏数据,重复入库有 upsert 幂等兜底)。
+    """
+    try:
+        from ..db import DB_PATH
+        conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM daily_metric "
+                "WHERE metric_id='a_fund_north' AND date=? "
+                "AND value IS NOT NULL AND value != 0 LIMIT 1",
+                (date_str,),
+            ).fetchone()
+        finally:
+            conn.close()
+        return bool(row)
+    except Exception:
+        return False
+
+
+def plan_north_gap_window(today, *, gap=None, known=True, resume_from=None,
+                          span_max=None, cap_days=None):
+    """规划本轮北向采集自然日窗口 [win_start, win_end](闭区间,纯函数可单测)。
+
+    分轮累积(v1.1.7 P1):gap 超 span_max 或已有 resume 前沿时进入深缺口模式——
+    - 'deep_start'  深缺口首轮:今日向回 span_max 天;
+    - 'deep_resume' 分轮续采:从上次前沿的前一天再向回 span_max 天(无缝衔接,
+                    前沿由 fetch 收尾按本轮实际覆盖写入);
+    - 'deep_cap'    前沿已越过硬顶(HKEX 源保留窗≈7个月),放弃分轮回归常规增量;
+    - 'plain'       常规增量:min(span_max, max(HKEX_DAYS_MIN, gap+1)) 天,与旧版一致;
+    - 'no_db'       查库异常:保守 span_max 增量(绝不冒险全量);
+    - 'full'        库空首次全量:HKEX_DAYS_FULL(90 既定口径,S1 用户拍板 2026-08-27
+                    保持不变;HKEX_BACKFILL_CAP_DAYS=210 仅用于深缺口 backfill 硬顶,
+                    不混用于 full 初始化——静默改大属行为漂移 §23.7)。
+    返回 (win_start, win_end, mode);深缺口模式下 win 内逐日先查库探测闭合。
+    """
+    if span_max is None:
+        span_max = HKEX_DAYS_MAX
+    if cap_days is None:
+        cap_days = HKEX_BACKFILL_CAP_DAYS
+    one_day = _dt.timedelta(days=1)
+    if not known:
+        return today - one_day * (span_max - 1), today, "no_db"
+    if gap is None:
+        # S1(2026-08-27): full 走 HKEX_DAYS_FULL=90,不用 cap_days=210(仅 backfill 硬顶)
+        return today - one_day * (HKEX_DAYS_FULL - 1), today, "full"
+    # 有 resume 前沿 或 缺口超上限 = 深缺口模式(前沿存在期间即使 gap 变小也续采)
+    deep = (gap + 1) > span_max or resume_from is not None
+    if not deep:
+        n = min(span_max, max(HKEX_DAYS_MIN, gap + 1))
+        return today - one_day * (n - 1), today, "plain"
+    if resume_from is not None:
+        lower_bound = today - one_day * (cap_days - 1)
+        # 前沿已抵/越硬顶(源保留窗):无法再无缝前进一步(再压窗会致 win 倒挂死锁),
+        # 放弃分轮回归常规增量
+        if resume_from <= lower_bound:
+            return today - one_day * (span_max - 1), today, "deep_cap"
+        win_end = resume_from - one_day    # 无缝衔接:从上轮覆盖边界前一天继续
+        win_start = max(win_end - one_day * (span_max - 1), lower_bound)
+        return win_start, win_end, "deep_resume"
+    return today - one_day * (span_max - 1), today, "deep_start"
+
+
 def fetch_north_fund_hkex(days=None, soft_deadline_s=None):
     """HKEX 官方每日统计 JS：北向成交总额（沪股通+深股通 Total Turnover 合计），
     返回 [(date_YYYYMMDD, value_亿元), ...]。
@@ -292,35 +415,83 @@ def fetch_north_fund_hkex(days=None, soft_deadline_s=None):
       部分成功好过被外层 90s 守护整体砍掉(fallback 也因此可达);余量下次采集槽补
     - 跳过周六日:HKEX 周末必 404 但仍花 ~2s/请求,过滤省 ~30% 无效请求
 
+    2026-08-27 深缺口分轮累积(v1.1.7 P1 修复:「增量截断→递增丢日」):
+    - 缺口超单轮上限(HKEX_DAYS_MAX)时不再放弃更早段——首轮采最近 span_max 天并把
+      「已覆盖最早日期」写 state 前沿(app/data/north_fund_backfill_state.json),
+      后续轮从前沿前一天无缝向更早推进一轮 span_max,直到查库撞见既有完好数据行
+      (闭合探测)即清前沿回归常规增量;软 deadline 中断同理按实际覆盖记前沿
+    - 行级 upsert 幂等,重复请求无害;并发双槽下前沿可能倒退但收敛
+    - 硬顶 HKEX_BACKFILL_CAP_DAYS(≈源保留窗):推到顶仍未闭合则清前沿告警,
+      回归常规增量(更早历史需人工/fallback 全量兜底)
+    - 窗口规划提炼为纯函数 plan_north_gap_window(可单测),复现脚本见
+      scripts/check_north_gap_backfill.py
+
+    2026-08-27 返修(reviewer FAIL 闭环):
+    - F1/P1 前沿推进改「确定语义才记」(处方 a):单日请求异常/5xx/页面结构异常视为
+      不确定结果立即止步本轮,前沿不越过未入库日子;404 假日照常推进防纯假日空窗
+      死锁(弃处方 b 理由见循环内注释);证伪断言=机检场景 H(修复前 FAIL→修复后 PASS)
+    - F2 attempted 计数移到真实发请求前(原恒 0 误导日志)
+    - codex P2:闭合探测 _north_fund_date_exists 加 value 非空非 0 校验(NULL/0 占位
+      行不得当作闭合依据)
+    - S1(用户拍板):full 库空窗固定 HKEX_DAYS_FULL=90,210 仅深缺口 backfill 硬顶
+
     C3 升级：从东财 kamt/get 切到 HKEX 官方权威源，减少东财依赖，反爬风险更低。
     """
-    if days is None:
-        gap, known = _north_fund_gap_days()
-        if not known:
-            days = HKEX_DAYS_MAX       # 查库异常:保守上限增量,绝不冒险全量慢爬
-        elif gap is None:
-            days = HKEX_DAYS_FULL      # 库空:首次全量场景
-        else:
-            days = min(HKEX_DAYS_MAX, max(HKEX_DAYS_MIN, gap + 1))  # +1 含今日
     if soft_deadline_s is None:
         soft_deadline_s = HKEX_SOFT_DEADLINE_S
 
     rows = []
     today = _dt.date.today()
     t0 = _dt.datetime.now()
+    one_day = _dt.timedelta(days=1)
     attempted = 0  # 已发起请求的工作日数(deadline break 日志「部分采集 N/M 天」的 M)
-    for i in range(days):
-        d = today - _dt.timedelta(days=i)
-        if d.weekday() >= 5:  # 5=周六,6=周日:HKEX 无数据必 404,不浪费 ~2s/请求
-            continue
-        elapsed = (_dt.datetime.now() - t0).total_seconds()
-        if elapsed > soft_deadline_s:
-            print(f"[a_fund_north][hkex] 软deadline {soft_deadline_s}s 到点break: "
-                  f"部分采集 {len(rows)}行成功/{attempted}工作日已尝试 "
-                  f"(窗口{days}天未跑完,余量下次槽补采)")
-            break
-        attempted += 1
-        date_str = d.strftime("%Y%m%d")
+    oldest_done = None   # 本轮实际覆盖到的最早日期(深缺口模式收尾写回前沿)
+    closed_date = None   # 闭合探测撞见的既有完好数据日(非 None 即闭合)
+
+    if days is not None:
+        # 显式传参(测试/手动):行为与旧版完全一致,不触碰分轮 state
+        win_start, win_end, mode = today - one_day * (days - 1), today, "manual"
+    else:
+        state_e = _north_backfill_load_earliest()
+        gap, known = _north_fund_gap_days()
+        win_start, win_end, mode = plan_north_gap_window(
+            today, gap=gap, known=known, resume_from=state_e)
+        if mode == "deep_cap":
+            print(f"[a_fund_north][hkex] 分轮回补前沿 {state_e} 已越过硬顶 "
+                  f"{HKEX_BACKFILL_CAP_DAYS}天(≈源保留窗),放弃分轮回归常规增量; "
+                  f"如需更早历史请人工处理(东财 fallback1 全量或手动补)")
+            _north_backfill_clear()   # 放弃分轮:清前沿防无限重试
+        elif mode == "plain" and state_e:
+            # 常规增量但前沿残留(gap 已收窄至常规可覆盖):视为闭合清态。
+            # 注意"只清本轮读到的",并发窗口内他槽新写的前沿不受本路径影响
+            _north_backfill_clear()
+
+    probe_deep = mode in ("deep_start", "deep_resume")
+    if probe_deep and mode == "deep_resume":
+        print(f"[a_fund_north][hkex] 深缺口分轮续采: 本轮窗口 "
+              f"{win_start:%Y%m%d}~{win_end:%Y%m%d}(上轮前沿 {win_end + one_day:%Y%m%d} 之前段)")
+    elif probe_deep:
+        print(f"[a_fund_north][hkex] 深缺口首轮回补: 窗口 {win_start:%Y%m%d}~"
+              f"{win_end:%Y%m%d}(缺口超单轮上限,分轮累积逐轮向更早推进)")
+
+    # 倒序产出窗口内非周末日(周末 HKEX 必 404 不浪费 ~2s/请求);
+    # 生成器承担推进职责,循环体 continue/break 都不会死循环/漏步进
+    def _iter_days():
+        dd = win_end
+        while dd >= win_start:
+            if dd.weekday() < 5:
+                yield dd
+            dd -= one_day
+
+    def _fetch_hkex_day(date_str):
+        """拉取并解析单个 HKEX 日统计页,按「确定 / 不确定」语义归类返回。
+
+        返回 (outcome, value):
+        - ("ok", float_亿元)   确定拿到有效数据(沪深合计)
+        - ("no_data", None)    确定当日无数据:HKEX 缺日必 404(周末/假日/早于源保留窗)
+        - ("retry", reason)    不确定语义:网络异常/非200非404/页面结构异常——该日是否
+                               有数据无法判定,前沿不得越过它(F1 处方 a 核心约束)
+        """
         url = HKEX_DAILY_STAT_URL.format(date=date_str)
         try:
             r = requests.get(
@@ -328,44 +499,100 @@ def fetch_north_fund_hkex(days=None, soft_deadline_s=None):
                 headers={"User-Agent": UA, "Referer": HKEX_DAILY_STAT_REFERER},
                 timeout=15,
             )
-            if r.status_code != 200:
-                continue  # 周末/假日/早期 404 跳过
-            m = _re.search(r"tabData\s*=\s*(\[.*\])\s*;?\s*$", r.text, _re.DOTALL)
-            if not m:
+        except Exception as e:   # requests 超时/连接错等网络层瞬态
+            return "retry", f"{type(e).__name__}: {e}"
+        if r.status_code == 404:
+            return "no_data", None
+        if r.status_code != 200:
+            return "retry", f"HTTP {r.status_code}"
+        m = _re.search(r"tabData\s*=\s*(\[.*\])\s*;?\s*$", r.text, _re.DOTALL)
+        if not m:
+            return "retry", "tabData 缺失(页面结构异常)"
+        try:
+            arr = json.loads(m.group(1))
+        except json.JSONDecodeError as e:
+            return "retry", f"tabData JSON 解析失败({e})"
+        # SSE Northbound + SZSE Northbound 合计
+        total = 0.0
+        found = 0
+        for rec in arr:
+            market = rec.get("market", "")
+            if "Northbound" not in market:
                 continue
+            content = rec.get("content") or []
+            if not content:
+                continue
+            table = content[0].get("table") or {}
+            trs = table.get("tr") or []
+            if not trs:
+                continue
+            td = trs[0].get("td") or []
+            if not td or not td[0]:
+                continue
+            # td[0] 是 ["136,054.83"] 列表（schema 第一列 Total Turnover）
+            val = td[0][0] if isinstance(td[0], list) else td[0]
+            val_str = str(val).replace(",", "").strip()
             try:
-                arr = json.loads(m.group(1))
-            except json.JSONDecodeError:
+                total += float(val_str)
+                found += 1
+            except ValueError:
                 continue
-            # SSE Northbound + SZSE Northbound 合计
-            total = 0.0
-            found = 0
-            for rec in arr:
-                market = rec.get("market", "")
-                if "Northbound" not in market:
-                    continue
-                content = rec.get("content") or []
-                if not content:
-                    continue
-                table = content[0].get("table") or {}
-                trs = table.get("tr") or []
-                if not trs:
-                    continue
-                td = trs[0].get("td") or []
-                if not td or not td[0]:
-                    continue
-                # td[0] 是 ["136,054.83"] 列表（schema 第一列 Total Turnover）
-                val = td[0][0] if isinstance(td[0], list) else td[0]
-                val_str = str(val).replace(",", "").strip()
-                try:
-                    total += float(val_str)
-                    found += 1
-                except ValueError:
-                    continue
-            if found == 2:  # 沪+深都找到
-                rows.append((date_str, total / 100.0))  # 百万 -> 亿元
-        except Exception:
-            continue  # 单日失败不跳出，继续下一日
+        if found == 2:  # 沪+深都找到
+            return "ok", total / 100.0  # 百万 -> 亿元
+        return "retry", f"北向记录 found={found}(期望2)"
+
+    for d in _iter_days():
+        elapsed = (_dt.datetime.now() - t0).total_seconds()
+        if elapsed > soft_deadline_s:
+            frontier_s = f"{oldest_done:%Y%m%d}" if oldest_done else "无(本轮尚未覆盖任何日)"
+            print(f"[a_fund_north][hkex] 软deadline {soft_deadline_s}s 到点break: "
+                  f"部分采集 {len(rows)}行成功/{attempted}工作日已尝试 "
+                  f"(本轮窗口{win_start:%Y%m%d}~{win_end:%Y%m%d}未跑完,"
+                  f"前沿已记到 {frontier_s},余量下轮续采)")
+            break
+        # F2(v1.1.7 返修): 通过 deadline 检查后即将对该日真实发起请求才计数,
+        # 修正「恒为0」的日志误导(deadline 日志的 M 靠它)
+        attempted += 1
+        date_str = d.strftime("%Y%m%d")
+        if probe_deep and _north_fund_date_exists(date_str):
+            # 闭合探测:此日库中已有行(既有完好连续段的边界)→ 更早已连续,
+            # 整个缺口已补完,清前沿回归常规增量(更深日子无需再扫)
+            closed_date = d
+            break
+        outcome, got = _fetch_hkex_day(date_str)
+        if outcome in ("ok", "no_data"):
+            if outcome == "ok":
+                rows.append((date_str, got))
+            # 仅「确定语义」推进前沿:ok=有效数据已入 rows / no_data=404 确无此日。
+            # 前沿一旦越过未入库的日子就永不回头(replay 只向更早推进)
+            oldest_done = d
+        else:
+            # ── reviewer F1 修复(v1.1.7 P1 返修): 选处方 a ──
+            # 病灶:旧版 `oldest_done = d` 在发请求之前就记上 + except-continue 不回滚
+            # → 单日瞬态失败(网络超时等)的日期被标「已覆盖」却从未入库,分轮 replay
+            # 只向更早推进不再回头 → 该日永久有洞(与本次根治的递增丢日同源)。
+            # 处方 a:不确定结果立即 break,该日与更深日子本轮一律不算覆盖,前沿停在
+            # 此前最后一个确定日,下轮整窗重试。
+            # 弃处方 b(仅确认拿到数据后才更新 oldest_done)的原因:纯 b 在「整窗皆假
+            # 日的纯空窗」场景永远拿不到任何确认 → oldest_done 恒 None → 前沿既不
+            # save 也不 clear,深缺口分轮空转死锁;a 让 404(no_data)照常推进、瞬态
+            # 保守停轮,两头都不卡。
+            stop_at = f"{oldest_done:%Y%m%d}" if oldest_done else "本轮尚无确定覆盖日"
+            print(f"[a_fund_north][hkex] {date_str} 不确定结果({got}),"
+                  f"按处方a本轮止步于此(前沿停在 {stop_at}),下轮整窗重试")
+            break
+
+    # ── 分轮 state 收尾(仅 auto 模式):闭合清态 / 深缺口写前沿 ──
+    if days is None and probe_deep:
+        if closed_date is not None:
+            print(f"[a_fund_north][hkex] 缺口已闭合于既有数据日 "
+                  f"{closed_date:%Y%m%d}(本轮取数 {len(rows)}行),"
+                  f"清除回补前沿,回归常规增量")
+            _north_backfill_clear()
+        elif oldest_done is not None:
+            _north_backfill_save_earliest(oldest_done)
+            print(f"[a_fund_north][hkex] 本轮覆盖至 {oldest_done:%Y%m%d}"
+                  f"(取数 {len(rows)}行),前沿已写入;下轮从更早段继续分轮回补")
     return rows
 
 
@@ -388,6 +615,9 @@ def fetch_north_fund_total():
     2026-08-26 预算治理:主源循环带软 deadline(60s < collect_direct 90s 守护),
     主源空/异常时 fallback 真正可达(此前 90 天慢爬必被外层守护整体砍掉,fallback 从未轮到);
     fallback 页循环同样带剩余预算检查,保证整个函数在守护预算内可返回。
+
+    2026-08-27 主源升级深缺口分轮累积(v1.1.7 P1):长假/长停机后缺口 >10 自然日
+    不再单轮截断丢更早段,而是逐轮向更早推进直至闭合(详见 fetch_north_fund_hkex docstring)。
     """
     _t0 = _dt.datetime.now()
 
