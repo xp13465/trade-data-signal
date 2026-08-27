@@ -32,6 +32,7 @@ tester 可直接读。
 | `kelly-layout-check.js` | 凯利参数区排版验收(2026-08-26 feat/kelly-longmode-layout):PC1280/平板768/手机375 三视口布局断言 + G档/开关/对比表/费率交互回归 |
 | `kelly-overflow-probe.js` | 辅助:375px 全页横向溢出元素定位探针(基线对照用,定位超宽元素路径) |
 | `lab_review_table_scroll_check.js` | lab 手机横溢出修复验收(feat/lab-review-table-scroll):三视口+参数区展开 docScrollWidth 断言 + AI 表格横滑/折叠交互/PC hover 气泡弹收;⚠️ kelly-overflow-probe 的 offender 榜会把关闭 details 子树 stale rect(如 table w=1616)排前、挤掉真凶(真凶=参数栏 [data-tip]::after visibility:hidden absolute 气泡),页面级溢出以 docScrollWidth 为准、元凶用二分隐藏法定位 |
+| `xcount-consensus-smoke.js` | AI信号认可度计数口径(X/Y/W)渲染层冒烟(2026-08-27 feat/x-count-full-alignment):线上页 route 注入本地新 min,验 data-consensus 三段式格式/winner hover 显「{x}票·当日主推」/0 票显「0·非主推」/CONS_TIP 新文案;⚠️ 信号 cell 子元素带 data-no-pop,须对 cell 本身 dispatchEvent mouseover(onboarding 弹窗需先点 .onboarding-skip) |
 
 > 新增脚本在此索引追加一行。(2026-08-26 补登历史 16 个一次性/专项探针;small-items-batch 六件验收为内联临时断言未落脚本文件,无新增行)
 
