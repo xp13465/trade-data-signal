@@ -394,7 +394,13 @@ def run(date=None, verbose=True, steps=None):
                 todo = [c for c, v in prog.items() if v.get("r")]  # 已 backfill recent 段的 code
                 if todo:
                     res = baostock_parallel.run_update_parallel(
-                        todo, n_workers=int(os.environ.get("BAOSTOCK_WORKERS", "3")),
+                        # T1(2026-08-27 数据源韧性批):默认 workers 3->1。baostock 官方
+                        # 为单连接串行模型,同 IP 多并发连接本身即风控诱因——8-14 与 8-25 起
+                        # 两轮 10001011 黑名单封禁均发生在 3 并发时期;降为单 worker + 请求间
+                        # 限速(BAOSTOCK_QUERY_INTERVAL/BAOSTOCK_FAIL_BACKOFF,
+                        # 见 baostock_worker.py)防封禁面扩大。需提速时显式设
+                        # env BAOSTOCK_WORKERS=N 自担风险。
+                        todo, n_workers=int(os.environ.get("BAOSTOCK_WORKERS", "1")),
                         verbose=verbose)
                     ok += res["ok"]
                     fail += res["fail"]
@@ -441,7 +447,11 @@ def run(date=None, verbose=True, steps=None):
         try:
             try:
                 from . import mootdx_daily
-                prog = mootdx_daily.load_progress()
+                # T2(2026-08-27 数据源韧性批):裸 load 换 reconciled(load ∪ DB 对账,
+                # 库为事实源)。7/21 SIGTERM 事故把 progress 宇宙抹成 85 只后,这里的
+                # todo=list(prog.keys()) 就是缩水执行面——每日只采 84 只致宽度链断供
+                # 37 天。reconcile 后宇宙恢复全量,停服日由 baostock fallback 断点续传。
+                prog, _fixed = mootdx_daily.load_progress_reconciled()
                 if prog:
                     todo = list(prog.keys())  # 已 backfill 的 code 子集
                     # update_all 自动路径用更激进的熔断阈值(15 < 默认 50)：部分故障
@@ -568,7 +578,13 @@ def run(date=None, verbose=True, steps=None):
                 todo = [c for c, v in prog.items() if v.get("r")]
                 if todo:
                     res = baostock_parallel.run_update_parallel(
-                        todo, n_workers=int(os.environ.get("BAOSTOCK_WORKERS", "3")),
+                        # T1(2026-08-27 数据源韧性批):默认 workers 3->1。baostock 官方
+                        # 为单连接串行模型,同 IP 多并发连接本身即风控诱因——8-14 与 8-25 起
+                        # 两轮 10001011 黑名单封禁均发生在 3 并发时期;降为单 worker + 请求间
+                        # 限速(BAOSTOCK_QUERY_INTERVAL/BAOSTOCK_FAIL_BACKOFF,
+                        # 见 baostock_worker.py)防封禁面扩大。需提速时显式设
+                        # env BAOSTOCK_WORKERS=N 自担风险。
+                        todo, n_workers=int(os.environ.get("BAOSTOCK_WORKERS", "1")),
                         verbose=verbose)
                     ok += res["ok"]
                     fail += res["fail"]

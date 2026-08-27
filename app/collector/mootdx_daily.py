@@ -24,6 +24,13 @@ schema/PK 不同避免冲突）。
 - **进度持久化**：`data/mootdx_progress.json` = {code: last_date_yyyymmdd}。
   断点续传：跑前读它，跳过已采 code；增量：每 code 只拉 progress[code]
   之后到今天。
+  **T2(2026-08-27 数据源韧性批)定位降级**:progress 只是加速缓存,库
+  (`mootdx_daily_raw`)是事实源。7/21 fallback 轮被 SIGTERM 杀于 50/5527 后,
+  覆盖性写入把宇宙抹成 85 只 -> 每日仅采 ~84 行致宽度链断供 37 天。根治双层:
+  ①读取侧 `load_progress_reconciled()`(full/update CLI、run_batch、runner 全部
+  入口):progress ∪ DB 对账只增不减;②写入侧 `save_progress()` 缩水护栏:
+  待写宇宙数 < 库中 DISTINCT code 数即拒绝落盘+告警。人工通道:
+  `python -m app.collector.mootdx_daily reconcile`。
 - **不复权**：mootdx 默认（与 D1 akshare `adjust=""` 一致）。
 - **baostock fallback**：mootdx 通达信行情接口全 empty 停服时（2026-07-17+
   回归，80 节点 0 可用），run_batch 连续 `consecutive_fail_limit`（默认 50）
@@ -168,8 +175,22 @@ def init_db() -> None:
 
 
 # ── 进度持久化 ────────────────────────────────────────────────────────────────
+# T2(2026-08-27 数据源韧性批):进度文件定位降级为「加速缓存」,库(mootdx_daily_raw)
+# 是事实源。2026-07-21 fallback 轮被 SIGTERM 杀于 50/5527 后,覆盖性写入把 5527 只
+# 宇宙抹成 85 只 -> 7/22 起每日仅采 ~84 行 < width_history MIN_CODES_PER_DAY=1000 ->
+# width_history/industry_width 近 30 天写入窗口全跳过(慢性断供 37 天,见
+# docs/ops/data-source-outage-diagnosis-20260827.md §②§③)。根治两层:
+# ①读取侧 reconcile(load_progress_reconciled):progress ∪ DB 对账,只增不减;
+# ②写入侧护栏(save_progress):待写宇宙数 < 库中事实 code 数 -> 拒绝落盘 + 告警。
+_DB_COUNT_CACHE: dict[str, tuple[float, int]] = {}  # {db_path: (monotonic_ts, count)}
+_DB_COUNT_TTL = 600.0  # 秒。COUNT(DISTINCT code) 大表非廉价,save 高频(save_every=5),
+                       # 用 TTL 缓存兜住:全量轮数小时内只实查数次;缓存偏旧只会让护栏
+                       # 略宽松(count 低估),不影响安全方向(拒绝阈值以库事实为准)。
+                       # 按 DB 路径作 key:同进程内 DB 路径切换(测试/双库工具)不会串值。
+
+
 def load_progress() -> dict[str, str]:
-    """{code: last_date_yyyymmdd}。"""
+    """{code: last_date_yyyymmdd}。仅作缓存读取,切任务清单请用 load_progress_reconciled。"""
     if PROGRESS_PATH.exists():
         try:
             return json.loads(PROGRESS_PATH.read_text(encoding="utf-8"))
@@ -178,13 +199,100 @@ def load_progress() -> dict[str, str]:
     return {}
 
 
-def save_progress(progress: dict[str, str]) -> None:
-    """原子写：先写临时文件再 rename。"""
+def db_progress_snapshot() -> dict[str, str]:
+    """从 mootdx_daily_raw 提取事实进度 {code: MAX(date)}(库为事实源)。"""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT code, MAX(date) FROM mootdx_daily_raw GROUP BY code").fetchall()
+    conn.close()
+    return {r[0]: r[1] for r in rows}
+
+
+def reconcile_progress(progress: dict[str, str]) -> tuple[dict[str, str], int]:
+    """progress ∪ DB 对账合并:**只增不减**,DB 为事实源。
+
+    - DB 有而 progress 缺 -> 按 DB MAX(date) 补回(根治宇宙缩水);
+    - DB MAX(date) > progress -> 用 DB 值拉高(progress 落后于库事实);
+    - progress > DB MAX(date) -> 保留 progress(progress 表示"采到过该日",即便对应行
+      暂缺也不倒退——倒退会产生永久漏采窗口,多 upsert 幂等无害)。
+    返回 (merged, n_fixed)。
+    """
+    snap = db_progress_snapshot()
+    merged = dict(progress)
+    n_fixed = 0
+    for code, d in snap.items():
+        if d > merged.get(code, ""):
+            merged[code] = d
+            n_fixed += 1
+    return merged, n_fixed
+
+
+def load_progress_reconciled() -> tuple[dict[str, str], int]:
+    """load_progress() + reconcile_progress(),并将合并结果尝试固化回盘。
+
+    固化经 save_progress(带缩水护栏),被拒不影响返回值。
+    所有「以 progress 切任务清单/todo」的入口(full/update CLI、run_batch、runner)
+    都必须用本函数,不得裸 load——否则残缺文件直接决定宇宙,缩水面放大。
+    """
+    prog = load_progress()
+    merged, n_fixed = reconcile_progress(prog)
+    if n_fixed:
+        print(f"[mootdx-progress] reconcile: 依库对账修正 {n_fixed} 条,"
+              f"宇宙 {len(prog)} -> {len(merged)}(库为事实源)", flush=True)
+        try:
+            save_progress(merged)
+        except Exception as e:  # noqa: BLE001  固化失败不阻塞采集
+            print(f"[mootdx-progress] reconcile 固化写盘失败(不影响本次运行): {e}",
+                  flush=True)
+    return merged, n_fixed
+
+
+def _db_code_count() -> int:
+    """库中事实 code 数(mootdx_daily_raw DISTINCT code;表不存在/DB 异常 -> 0,
+    护栏退化放行,不因校验故障阻塞采集)。带 TTL 缓存。"""
+    global _DB_COUNT_CACHE
+    now = time.monotonic()
+    cached = _DB_COUNT_CACHE.get(str(STOCK_DB_PATH))
+    if cached is not None and now - cached[0] < _DB_COUNT_TTL:
+        return cached[1]
+    n = 0
+    try:
+        conn = get_conn()
+        has_tbl = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' "
+            "AND name='mootdx_daily_raw'").fetchone()[0]
+        if has_tbl:
+            n = conn.execute(
+                "SELECT COUNT(DISTINCT code) FROM mootdx_daily_raw").fetchone()[0]
+        conn.close()
+    except Exception:  # noqa: BLE001
+        n = 0
+    _DB_COUNT_CACHE[str(STOCK_DB_PATH)] = (now, n)
+    return n
+
+
+def save_progress(progress: dict[str, str]) -> bool:
+    """原子写：先写临时文件再 rename。
+
+    T2 缩水护栏（2026-08-27）：待写宇宙数 < 库中事实 code 数 -> 拒绝覆盖 + stderr/stdout
+    双路告警，杜绝「残缺 dict 覆盖性写入抹掉大宇宙」（7/21 SIGTERM 同型事故复发面）。
+    返回 True=已写盘；False=被护栏拒绝未写（原返回 None，改 bool 向后兼容）。
+    """
+    db_n = _db_code_count()
+    if len(progress) < db_n:
+        import sys as _sys
+        msg = (f"[progress-guard][mootdx] REFUSED: 待写 progress 宇宙 {len(progress)} 只"
+               f" < 库中事实 {db_n} 只(库为事实源),拒绝覆盖性写入以防宇宙缩水"
+               f"(同型事故 2026-07-21: 5527->85 致宽度链断供 37 天);如确需缩容请先核查库状态")
+        print(msg, file=_sys.stderr, flush=True)
+        print(msg, flush=True)  # stdout 镜像供 update_all 日志扫描层捕获
+        return False
     PROGRESS_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = PROGRESS_PATH.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(progress, ensure_ascii=False, indent=None, sort_keys=True),
                    encoding="utf-8")
     tmp.replace(PROGRESS_PATH)
+    return True
 
 
 # ── code 列表 ─────────────────────────────────────────────────────────────────
@@ -451,7 +559,8 @@ def run_batch(codes: list[str], *, incremental: bool = False,
         正常时偶发 empty 不会连续达阈值；50 只连续失败 ≈ 数据源已坏。
     """
     init_db()
-    progress = load_progress()
+    # T2:裸 load 换 reconciled(load ∪ DB 对账),残缺文件不再决定宇宙
+    progress, _fixed = load_progress_reconciled()
     today = dt.date.today().strftime("%Y%m%d")
     ok = fail = total_rows = 0
     consecutive_fails = 0
@@ -585,6 +694,7 @@ def run_batch(codes: list[str], *, incremental: bool = False,
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
+# 命令: full / update / one CODE / upone CODE / stats / reconcile(从库重建进度)
 def _cli(argv: list[str]) -> int:
     if len(argv) < 2:
         print(__doc__)
@@ -603,6 +713,12 @@ def _cli(argv: list[str]) -> int:
         print(f"mootdx_daily_raw: {n_codes} codes, {n_rows} rows, "
               f"date range {dmin}..{dmax}")
         print(f"mootdx_progress.json: {len(prog)} codes tracked")
+        return 0
+
+    if cmd == "reconcile":
+        # T2 人工通道(与 baostock_daily reconcile 子命令对等):从库重建 progress 文件
+        prog, n_fixed = load_progress_reconciled()
+        print(f"reconcile done: {n_fixed} entries fixed, {len(prog)} codes total")
         return 0
 
     if cmd == "one":
@@ -642,7 +758,7 @@ def _cli(argv: list[str]) -> int:
             elif a.startswith("--fail-limit="):
                 fail_limit = int(a.split("=", 1)[1])
         codes = load_codes()
-        prog = load_progress()
+        prog, _fixed = load_progress_reconciled()  # T2:reconciled,库为事实源
         today = dt.date.today().strftime("%Y%m%d")
         todo = [c for c in codes if prog.get(c, "") < today]
         if limit:
@@ -668,6 +784,8 @@ def _cli(argv: list[str]) -> int:
         codes = load_codes()
         if limit:
             codes = codes[:limit]
+        load_progress_reconciled()  # T2:update 前对账固化(run_batch 内还会再取一次,
+                                    # 此处提前把磁盘文件修复,供 stats/人工核查所见即所得)
         print(f"update: {len(codes)} codes incremental "
               f"(fail_limit={fail_limit})", flush=True)
         res = run_batch(codes, incremental=True, verbose=True,

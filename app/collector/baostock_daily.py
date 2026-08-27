@@ -197,18 +197,64 @@ def load_progress() -> dict:
     return {}
 
 
-def save_progress(progress: dict) -> None:
+# T2 同病灶同修(2026-08-27 数据源韧性批):baostock progress 与 mootdx 同为
+# 「库是事实源、progress 是缓存」结构(baostock_daily_raw),runner 侧已有 reconcile
+# 兜底(<4000 阈值触发,2026-07-23),但写入侧此前无缩水护栏——若某轮拿到残缺 dict
+# (中间态宇宙 >=4000 不触发 reconcile)仍可覆盖性写盘。加同款护栏双层防护。
+_BAOS_COUNT_CACHE: tuple[float, int] | None = None
+_BAOS_COUNT_TTL = 600.0
+
+
+def _raw_code_count() -> int:
+    """baostock_daily_raw 库中事实 code 数(TTL 缓存;表不存在/DB 异常 -> 0 放行)。"""
+    global _BAOS_COUNT_CACHE
+    now = time.monotonic()
+    if _BAOS_COUNT_CACHE is not None and now - _BAOS_COUNT_CACHE[0] < _BAOS_COUNT_TTL:
+        return _BAOS_COUNT_CACHE[1]
+    n = 0
+    try:
+        conn = get_conn()
+        has_tbl = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' "
+            "AND name='baostock_daily_raw'").fetchone()[0]
+        if has_tbl:
+            n = conn.execute(
+                "SELECT COUNT(DISTINCT code) FROM baostock_daily_raw").fetchone()[0]
+        conn.close()
+    except Exception:  # noqa: BLE001  校验故障不阻塞采集
+        n = 0
+    _BAOS_COUNT_CACHE = (now, n)
+    return n
+
+
+def save_progress(progress: dict) -> bool:
     """原子写：先写临时文件再 rename。多 worker 并发时用 fcntl.flock 串行化，
-    避免 tmp 文件竞争（worker A rename 走 tmp 后 worker B replace 时 FileNotFoundError）。"""
+    避免 tmp 文件竞争（worker A rename 走 tmp 后 worker B replace 时 FileNotFoundError）。
+
+    T2 缩水护栏（2026-08-27 同病灶同修）：待写宇宙数 < baostock_daily_raw 库中事实
+    code 数 -> 拒绝覆盖 + 告警（防残缺 dict 抹掉大宇宙，mootdx 7/21 同型事故面）。
+    返回 True=已写盘；False=被护栏拒绝未写（原返回 None，改 bool 向后兼容）。
+    """
     PROGRESS_PATH.parent.mkdir(parents=True, exist_ok=True)
     import fcntl
+    wrote = False
     lock_path = PROGRESS_PATH.with_suffix(".json.lock")
     with open(lock_path, "w") as lockf:
         fcntl.flock(lockf, fcntl.LOCK_EX)
-        tmp = PROGRESS_PATH.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(progress, ensure_ascii=False, indent=None, sort_keys=True),
-                       encoding="utf-8")
-        tmp.replace(PROGRESS_PATH)
+        db_n = _raw_code_count()
+        if len(progress) < db_n:
+            msg = (f"[progress-guard][baostock] REFUSED: 待写 progress 宇宙 "
+                   f"{len(progress)} 只 < 库中事实 {db_n} 只(库为事实源),"
+                   f"拒绝覆盖性写入以防宇宙缩水;如确需缩容请先核查库状态")
+            print(msg, file=sys.stderr, flush=True)
+            print(msg, flush=True)
+        else:
+            tmp = PROGRESS_PATH.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(progress, ensure_ascii=False, indent=None, sort_keys=True),
+                           encoding="utf-8")
+            tmp.replace(PROGRESS_PATH)
+            wrote = True
+    return wrote
 
 
 def update_progress_entry(code: str, key: str, value: str) -> None:

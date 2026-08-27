@@ -30,6 +30,28 @@ import baostock as bs
 # 连接同效,不各自盲试)。run_update_parallel 启动/结束时清理。
 _BLACKLIST_FLAG = Path(__file__).absolute().parent.parent.parent / "data" / "baostock_blacklist.flag"
 
+# T1(2026-08-27 数据源韧性批):请求间限速 + 失败指数退避(参数化,默认开启)。
+# 背景:baostock 官方为单连接串行模型,同 IP 高频/高并发请求是 10001011 黑名单封禁的
+# 风控诱因(8-14 与 8-25 起两轮封禁均发生于 3 并发+高频时期,连续 3 天未自解)。
+# - BAOSTOCK_QUERY_INTERVAL 默认 0.5s:每个 code 请求之间的强制间隔,削平请求节奏。
+#   单 worker 下 825 只增量约多花 ~7min,换风控安全;0 = 禁用(不建议)。
+# - BAOSTOCK_FAIL_BACKOFF 默认 30(cap 120s):**非熔断**的连续普通失败(如 10002007
+#   网络接收错误/服务端异常)按 30->60->120s 指数退避,防服务端故障期连环打点加重
+#   风控画像;base 设 0 可禁用。10001011 封禁熔断路径**不走此逻辑**——账号/IP 级封禁
+#   重试无意义,保持 ab-#37 现状(短路止损,每轮启动清 flag 盲试一轮,不加假冷却)。
+_QUERY_INTERVAL = float(os.environ.get("BAOSTOCK_QUERY_INTERVAL", "0.5"))
+_FAIL_BACKOFF_BASE = float(os.environ.get("BAOSTOCK_FAIL_BACKOFF", "30"))
+
+
+def _fail_backoff_seconds(consecutive_fails: int) -> float:
+    """连续普通失败的指数退避秒数:n=1 -> 0(首个失败不等,可能单点抖动);
+    n=2 -> 30s;n=3 -> 60s;n>=4 -> 120s cap。base<=0 禁用。
+    仅用于非熔断的 ordinary fail;熔断(circuit_open/共享 flag)由上层短路,不经此路。
+    """
+    if _FAIL_BACKOFF_BASE <= 0 or consecutive_fails < 2:
+        return 0.0
+    return min(_FAIL_BACKOFF_BASE * (2 ** (consecutive_fails - 2)), 120.0)
+
 
 def _set_blacklist_flag():
     """写共享熔断 flag(写失败不阻塞采集,熔断仍以本地 circuit_open 为准)。"""
@@ -115,6 +137,7 @@ def main():
 
     ok = fail = total_rows = 0
     circuit_open = False  # 10001011 黑名单熔断:账号/IP 级封禁,短路后续所有 code
+    consecutive_fail_cnt = 0  # T1:非熔断连续普通失败计数(驱动指数退避)
     for i, (code, start, end) in enumerate(items):
         if circuit_open:
             # 熔断:后续 code 对同一账号/IP 必然同样失败,直接 fail 不盲试(提速核心)
@@ -130,6 +153,10 @@ def main():
                   flush=True)
             fail += 1
             continue
+        # T1 请求间限速:置于熔断检查之后,熔断短路路径不做无谓等待
+        if _QUERY_INTERVAL > 0:
+            time.sleep(_QUERY_INTERVAL)
+        ok_before, fail_before = ok, fail
         end_yyyymmdd = end.replace("-", "")
         retries = 0
         success = False
@@ -213,6 +240,19 @@ def main():
                 print(f"  [{os.getpid()}] {i+1}/{len(items)} {code}: ERR "
                       f"{type(e).__name__}: {emsg[:100]}", flush=True)
                 success = True  # give up, move on
+
+        # T1 失败指数退避:本轮只 fail 无 ok(且未熔断)-> 连续失败计数,>=2 次按
+        # 30/60/120s 退避;任一成功即归零。熔断类分支在循环头 continue 不会到这里。
+        if fail > fail_before and ok == ok_before and not circuit_open:
+            consecutive_fail_cnt += 1
+            bo = _fail_backoff_seconds(consecutive_fail_cnt)
+            if bo > 0:
+                print(f"  [{os.getpid()}] {i+1}/{len(items)} {code}: 连续 "
+                      f"{consecutive_fail_cnt} 次失败(非熔断),指数退避 {bo:.0f}s",
+                      flush=True)
+                time.sleep(bo)
+        elif ok > ok_before:
+            consecutive_fail_cnt = 0
 
         if (i + 1) % 20 == 0:
             print(f"  [{os.getpid()}] progress: {i+1}/{len(items)}, ok={ok} "
