@@ -4773,34 +4773,28 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     ? windowedItems.filter((it) => !_isAiFadeHit(it) && (() => { const k = _posCapKeptMap.get(it.date); return k && k.has(it); })())
     : (_fadeOn ? windowedItems.filter((it) => !_isAiFadeHit(it)) : windowedItems);
   // ===== 延后的 _availOnlyOn「仅显示可用」过滤(posCap 就绪后安全执行,防 TDZ) =====
-  // 核心思想: 只显示有 badge 的信号(AI建议/AI警示), 其余全隐去(兜底灰/当日已满/降亏/未入样)
-  // 预计算 _hasBadge: 所有会获得 badge(AI建议/AI警示)的信号集合
-  let _hasBadge = null;
+  // 核心思想: 只显示有 badge 的信号(AI建议/AI警示), 其余全隐去
   if (_availOnlyOn) {
-    _hasBadge = new Set();
-    // AI建议(在 kept 集中 = posCapRank > 0) 和 当日已满(posCapRank = 0) 都来自 _posCapKeptMap
-    // 但只有 AI建议 才有 badge, 当日已满 = 灰色
-    // 简化: 有 badge 的买入信号 = 在 _posCapKeptMap 中且非 fade-hit(即被 posCap 选中的)
-    // 当 _pcOn=true 且 _posCapKeptMap 存在时: kept 集 = AI建议(badge), 非 kept = 当日已满(灰)
-    // 当 _pcOn=false: 所有买入信号 = 兜底灰, 无 badge → 全部隐藏
-    // AI警示(卖出类) 始终有 badge → 始终显示
-    if (_pcOn && _posCapKeptMap) {
+    // 预计算有 badge 的信号 key 集合(AI建议 + AI警示)
+    const _badgeKeys = new Set();
+    // AI建议 = _posCapKeptMap 中的 top-1 kept 信号
+    if (_posCapKeptMap) {
       for (const [_dt, _keptSet] of _posCapKeptMap) {
-        for (const _kept of _keptSet) { _hasBadge.add(_kept); }
+        for (const _k of _keptSet) {
+          _badgeKeys.add(_k.date + "|" + (_k.name || _k.index_id || ""));
+        }
       }
     }
-  }
-  if (_availOnlyOn) {
     filtered = filtered.filter((it) => {
-      // 卖出类(AI警示) = 有 badge, 始终显示
+      const _key = it.date + "|" + (it.name || it.index_id || "");
+      // AI警示(卖出类入宇宙) = 有 badge, 显示
       if (_isSellSig(it) && it._bt_in_universe !== false) return true;
-      // 降亏命中/未入样本 = 无 badge, 隐藏
+      // 降亏命中 / 未入样本 / band_hold = 无 badge, 隐藏
       if (_isAiFadeHit(it)) return false;
       if (it._bt_in_universe === false) return false;
-      // band_hold(持有中性) = 无 badge, 隐藏
       if (it.signal === "band_hold") return false;
-      // 有 badge(AI建议) = 显示; 无 badge(当日已满/兜底灰) = 隐藏
-      return _hasBadge && _hasBadge.has(it);
+      // 有 badge(AI建议) = 显示; 其余(当日已满/兜底灰) = 隐藏
+      return _badgeKeys.has(_key);
     });
   }
   // 按 date 分组（降序），今日组单独提到最前
