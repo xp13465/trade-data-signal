@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import socket
 import sqlite3
 import sys
@@ -422,7 +423,98 @@ def upsert_rows(rows: list[tuple]) -> int:
     return len(rows)
 
 
-# ── baostock fallback（mootdx 全停服兜底） ─────────────────────────────────────
+# ── akshare 第三级兜底（mootdx 停服 + baostock 封禁双亡时,T3 2026-08-27） ─────
+# 背景:mootdx 7/12 起停服、baostock 8/25 起 10001011 账号/IP 黑名单连续多日未自解,
+# 个股日线链双亡(E28 韧性盘点判定不合格:第三源空置伪兜底)。东财 push2his 日线自带
+# 「换手率/涨跌幅」服务端字段,本 fallback 将其写进 mootdx_daily_raw 同一张表
+# (baostock fallback 同模式,下游 width_history/industry_width/cleanup_d3d2 无感),
+# width 链恢复供给的同时顺势补上 a_turnover_* 分布的非 NULL turnover 取数段(T4)。
+_AKSHARE_FALLBACK_BUDGET = float(
+    os.environ.get("AKSHARE_FALLBACK_BUDGET", "1500"))  # 秒,默认 25min
+
+
+def _run_akshare_fallback(codes: list[str], *, progress: dict[str, str],
+                          incremental: bool, today: str,
+                          verbose: bool = True) -> tuple[int, int, int]:
+    """akshare(东财 push2his)三级兜底采剩余 codes,写 mootdx_daily_raw 同表。
+
+    - 覆盖口径仅 SH/SZ(与 mootdx 主链一致),北交所/老三板前缀 code 跳过;
+    - progress[code]>=today 的跳过 -> baostock fallback 刚成功的 code 自动去重,
+      故可在 baostock fallback 之后**无条件**调用(只补漏,不重复请求);
+    - 时间预算自限(_AKSHARE_FALLBACK_BUDGET 秒,默认 25min < runner mootdx step
+      SIGALRM 30min):到点保存进度退出,断点续传次日接力,防被 alarm 杀到半截;
+    - CooldownError(东财封 IP 信号)捕获后停止本轮不硬刷(进度已留存);
+    - 节流:每只 1s+jitter(复用 stock_daily._throttle 档位);
+    - 字段映射:stock_daily.fetch_one 12 列 -> mootdx_daily_raw 10 列
+      (amplitude/pct_amt 丢弃;turnover 用东财服务端值填 NULL 位;pct_change
+      服务端算不跨除权失真,与 baostock fallback 同口径优势)。
+
+    返回 (total_rows, ok_codes, skip_bj_codes)。
+    """
+    from . import stock_daily as _sd  # 延迟 import(akshare 重;无循环依赖)
+    if not codes:
+        return 0, 0, 0
+    recent_start = "20160101"
+    total_rows = 0
+    ok = 0
+    skip_bj = 0
+    save_every = 5
+    budget_end = time.monotonic() + _AKSHARE_FALLBACK_BUDGET if _AKSHARE_FALLBACK_BUDGET > 0 else None
+
+    for j, code in enumerate(codes):
+        last = progress.get(code)
+        if last and last >= today:
+            continue
+        if code.startswith(("8", "4", "92")):  # 北交所/新三板:主链口径外
+            skip_bj += 1
+            continue
+        if budget_end is not None and time.monotonic() >= budget_end:
+            if verbose:
+                print(f"    [akshare-fallback] 时间预算 "
+                      f"{_AKSHARE_FALLBACK_BUDGET:.0f}s 用尽于 {j+1}/{len(codes)},"
+                      f"保存进度留续传(下轮接力)", flush=True)
+            break
+        # 起始日期(增量从 progress+1;full 或无 progress 从 2016 起)
+        if incremental and last:
+            d = dt.datetime.strptime(last, "%Y%m%d").date() + dt.timedelta(days=1)
+            start = d.strftime("%Y%m%d")
+        else:
+            start = recent_start
+        if start > today:
+            continue
+        try:
+            sd_rows, msg = _sd.fetch_one(code, start, today)
+        except _sd.CooldownError as ce:
+            if verbose:
+                print(f"    [akshare-fallback] {code}: 东财封 IP 信号({ce}),"
+                      f"停止本轮(进度已存)", flush=True)
+            break
+        except Exception as e:  # noqa: BLE001  单只失败记日志继续
+            if verbose and (j + 1) % 100 == 0:
+                print(f"    [akshare-fallback {j+1}/{len(codes)}] {code}: ERR "
+                      f"{type(e).__name__}: {str(e)[:100]}", flush=True)
+            continue
+        if not sd_rows:
+            if verbose and (j + 1) % 100 == 0:
+                print(f"    [akshare-fallback {j+1}/{len(codes)}] {code}: {msg}",
+                      flush=True)
+            continue
+        # 12 列 -> mootdx_daily_raw 10 列:(0,1,2,3,4,5,6,7,9,11)
+        mrows = [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[9], r[11])
+                 for r in sd_rows]
+        n = upsert_rows(mrows)
+        total_rows += n
+        ok += 1
+        progress[code] = max(r[1] for r in mrows)
+        if verbose and (j + 1) % 50 == 0:
+            print(f"    [akshare-fallback {j+1}/{len(codes)}] {code}: +{n} rows "
+                  f"(akshare 东财)", flush=True)
+        if (j + 1) % save_every == 0:
+            save_progress(progress)
+
+    if (j + 1) % save_every != 0:  # 收尾落盘(循环未中断于 save 点时)
+        save_progress(progress)
+    return total_rows, ok, skip_bj
 # 字段映射 baostock row -> mootdx_daily_raw row:
 #   baostock = (code, date, open, high, low, close, volume, amount,
 #               turnover, pct_change, preclose)
@@ -594,6 +686,20 @@ def run_batch(codes: list[str], *, incremental: bool = False,
                       f"{type(fe).__name__}: {str(fe)[:120]}", flush=True)
             fb_rows, fb_ok = 0, 0
             fb_err = f"mootdx不可达+baostock fallback失败: {type(fe).__name__}: {str(fe)[:80]}"
+        # T3 三级兜底(2026-08-27):baostock 封禁期由 akshare 东财补漏。progress
+        # 过滤天然去重 baostock 已成功 code,只补失败段;预算自限防 SIGALRM 杀半截。
+        try:
+            ak_rows, ak_ok, _ak_skip = _run_akshare_fallback(
+                codes, progress=progress, incremental=incremental,
+                today=today, verbose=verbose)
+            if verbose and ak_ok:
+                print(f"  [akshare-fallback] 三级兜底 +{ak_rows}rows/{ak_ok}codes",
+                      flush=True)
+            fb_rows += ak_rows
+            fb_ok += ak_ok
+        except Exception as ae:  # noqa: BLE001  三级也挂:并入错误信息不阻塞返回
+            fb_err = ((fb_err + ";") if fb_err else "") + \
+                f"akshare fallback 失败: {type(ae).__name__}: {str(ae)[:80]}"
         save_progress(progress)
         elapsed = time.time() - t_start
         if verbose:
@@ -670,6 +776,20 @@ def run_batch(codes: list[str], *, incremental: bool = False,
                 fb_rows, fb_ok, _fb_skip = _run_baostock_fallback(
                     remaining_codes, progress=progress, incremental=incremental,
                     today=today, verbose=verbose)
+                # T3 三级兜底:baostock 失败段由 akshare 东财补(progress 去重+
+                # 时间预算自限),统计并入 fallback_* 口径供日志统一展示
+                try:
+                    ak_rows, ak_ok, _ak_skip = _run_akshare_fallback(
+                        remaining_codes, progress=progress, incremental=incremental,
+                        today=today, verbose=verbose)
+                    if verbose and ak_ok:
+                        print(f"  [akshare-fallback] 三级兜底 "
+                              f"+{ak_rows}rows/{ak_ok}codes", flush=True)
+                    fb_rows += ak_rows
+                    fb_ok += ak_ok
+                except Exception as ae:  # noqa: BLE001
+                    print(f"  ⚠ akshare fallback 失败: {type(ae).__name__}: "
+                          f"{str(ae)[:100]}", flush=True)
                 fallback_rows = fb_rows
                 fallback_ok = fb_ok
                 total_rows += fb_rows

@@ -356,7 +356,9 @@ def run(date=None, verbose=True, steps=None):
     if _want(steps, "stock_daily"):
         try:
             from . import stock_daily
-            prog = stock_daily.load_progress()
+            # T2 同款防护(2026-08-27):库为事实源,progress 只作加速缓存;
+            # reconciled load 防残缺/空 progress(伪兜底,见 E28)放大成 todo 缩水
+            prog, _fixed = stock_daily.load_progress_reconciled()
             todo = [c for c in prog.keys()]  # 已 backfill 的 code 子集
             if todo:
                 res = stock_daily.run_batch(todo, incremental=True, verbose=verbose)
