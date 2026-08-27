@@ -8,12 +8,13 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-22 深夜(降亏挖掘三轮+组合竞赛批次).本轮:
-- **✅ 候选1「牛市·主升×辅备买全停」上线 a388**(第9键,默认关+NEW红标,sim弹窗/技术参考点同链开关);**开关三处独立化 a389**(e471f7fc8):lab=state-only刷新回默认/sim弹窗=UI态每次打开默认关/首页=独立键 `tds_home_bull_aux_backup_stop`,旧共享键全站零残留,diff 零谓词行(过滤行为未动)。
-- **✅ 二轮+三轮挖掘全量落档 main(76a7b2b20)**:round2=22方法调研档案+25特征~4700规则全补位口径+扩容盘点18候选(11入池/7落池定性)+2047穷举+帕累托40非劣(mine10-21);round3=替补盲区地图+R2三键(buy×concept/special×global/low×Q3×ts<75)四重检验全过组合vs9键+28,515+2026年2-3月画像(与替补同源,R2后3月转正/2月改善27%)+主亏月Top20聚类(Q3×concept=-17,061恰为R2g射程)(mine12-17)。
-- **✅ mine22 联合穷举+mine23 五项目对比+mine24 全员竞赛全部落档上 main(a7208e526,2026-08-23 凌晨按用户「push出去我看」提前 merge)**:mine22 新王 T1+Q1+M1+V1+R1+R2a+R2b+R2g=+46,007(vs9键);mine23 §15.11 五项目全维大表(基座对照:A叠9好/C叠8好应下线候选1/B不敏感);mine24 §15.12 57条全员竞赛搜出**14键新王牌 net+122,648/mdd-4,178 双指标支配 A**(弃候选1/excludeSpecialBear/r7/V1/R1/R2g 等,新增 r10May6NonMay/declinePhaseSpecial+N1/D1/H1/P1)。A/B/C 与新王牌均为回测理论值,**待用户按 §15.11 表逐格校验后拍板是否做成开关实测**。
-- **✅ openrouter 三件处置完成(2026-08-23 凌晨,用户拍板后落地;报告 docs/openrouter-cost-opt-research-20260823.md 已纠偏 05f574c91)**:①**WebSearch 全局 deny**(根因纠偏=走 OpenRouter 时 WebSearch 是 server tool 按次计费,实际账单证伪"客户端独立"旧结论;调研改 WebFetch+curl 免费通路)②**安全项**:AUTH_TOKEN 存 macOS keychain(service=claude-code-openrouter,zshrc 取值),settings.json 明文已删+补 `ANTHROPIC_API_KEY:""` 占位;key 轮换待用户在 OR 页面操作(只更新 keychain 一处)③**CLAUDE_EFFORT high→max**(用户计次制下升智力,代价=变慢;implementer/tester frontmatter 钉 effort:medium 防拖慢执行类)。**重启会话生效;401 回滚=token 加回 settings.json;太慢降回 high**。后续观察:Activity 页 cached_tokens 基线/effort max 速度感受。
-- **📌 本轮关键教训已固化 memory**:补位口径铁律(filter-backtest-position-fill-caliber);证伪存档=激进版牛主升全停-11,884/波动≥25%-8,636 均删笔口径幻觉,候选C下降期×备买补位反转-2,485 降级不支持,N1系被R2系全面取代(近端互斥)。
+**最后更新**:2026-08-27(v1.1.7 前端三bug修复+审计).本轮:
+- **✅ S06 AI降亏灰标不生效修复(a274d3ffb)**:app.js:5047 降亏 badge 判定用 `_aiOnMembers[fk]`（S06 下永远空）→ 改用 `_tdsS06FiltersForDate(it.date)` 按日期取基座键集。重渲染机制(tds-s06-state-ready)确保首次加载后灰标生效。
+- **✅ TDZ "Cannot access before initialization" 根治(三连修)**:`_isDayFull` 函数在 let 变量声明前被调用→删除独立函数 inline 到 filter；groups/dates 移到 posCap 前。
+- **✅ 「仅显示可用信号」Step2 当日已满过滤失效(e54eeb565)**:根因=`_posCapKeptMap` 存对象引用，多次 re-render 创建新对象→`.has()` 引用比较永远 false。修复=全部 key 化（`index_id|date|signal`），6 处消费点统一改 key 比较。
+- **✅ S06 默认切站(fb13dbde8)**:`_KELLY_FADE_DEFAULT_MODE` 改 s06，new14 去(默认)标注。
+- **✅ v1.1.7 审计追踪表已产出**(用户整理，含 3 个 P1/4 个 P2/1 个 P3 待排期)。
+- **⏳ 待排期**:P1-1 X/Y 共识 fail-open 契约不一致；P1-2 X 共识快照未就绪 fail-closed；P1-3 北向增量截断丢日；P2 公募 UPSERT 竞态×3+checkpoint。
 
 **前次更新**:2026-08-22(周末清账批次收官).本轮:
 - **✅ 首页「模拟回测」弹窗上线+三轮迭代(a377→a385)**:全历史真实过滤+费后盈亏累积 13 列表;迭代=13列定宽+hover持仓格→ETF联动高亮+四列红正绿负(a383)→累积盈亏口径修正=÷(峰值持仓笔数×¥10000)+tooltip三档1:1公式(a385)→费率6档快捷+持仓中预估浮盈(b13d93592);§0 三站验证过。
