@@ -24,6 +24,13 @@ schema/PK 不同避免冲突）。
 - **进度持久化**：`data/mootdx_progress.json` = {code: last_date_yyyymmdd}。
   断点续传：跑前读它，跳过已采 code；增量：每 code 只拉 progress[code]
   之后到今天。
+  **T2(2026-08-27 数据源韧性批)定位降级**:progress 只是加速缓存,库
+  (`mootdx_daily_raw`)是事实源。7/21 fallback 轮被 SIGTERM 杀于 50/5527 后,
+  覆盖性写入把宇宙抹成 85 只 -> 每日仅采 ~84 行致宽度链断供 37 天。根治双层:
+  ①读取侧 `load_progress_reconciled()`(full/update CLI、run_batch、runner 全部
+  入口):progress ∪ DB 对账只增不减;②写入侧 `save_progress()` 缩水护栏:
+  待写宇宙数 < 库中 DISTINCT code 数即拒绝落盘+告警。人工通道:
+  `python -m app.collector.mootdx_daily reconcile`。
 - **不复权**：mootdx 默认（与 D1 akshare `adjust=""` 一致）。
 - **baostock fallback**：mootdx 通达信行情接口全 empty 停服时（2026-07-17+
   回归，80 节点 0 可用），run_batch 连续 `consecutive_fail_limit`（默认 50）
@@ -44,6 +51,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import socket
 import sqlite3
 import sys
@@ -168,8 +176,22 @@ def init_db() -> None:
 
 
 # ── 进度持久化 ────────────────────────────────────────────────────────────────
+# T2(2026-08-27 数据源韧性批):进度文件定位降级为「加速缓存」,库(mootdx_daily_raw)
+# 是事实源。2026-07-21 fallback 轮被 SIGTERM 杀于 50/5527 后,覆盖性写入把 5527 只
+# 宇宙抹成 85 只 -> 7/22 起每日仅采 ~84 行 < width_history MIN_CODES_PER_DAY=1000 ->
+# width_history/industry_width 近 30 天写入窗口全跳过(慢性断供 37 天,见
+# docs/ops/data-source-outage-diagnosis-20260827.md §②§③)。根治两层:
+# ①读取侧 reconcile(load_progress_reconciled):progress ∪ DB 对账,只增不减;
+# ②写入侧护栏(save_progress):待写宇宙数 < 库中事实 code 数 -> 拒绝落盘 + 告警。
+_DB_COUNT_CACHE: dict[str, tuple[float, int]] = {}  # {db_path: (monotonic_ts, count)}
+_DB_COUNT_TTL = 600.0  # 秒。COUNT(DISTINCT code) 大表非廉价,save 高频(save_every=5),
+                       # 用 TTL 缓存兜住:全量轮数小时内只实查数次;缓存偏旧只会让护栏
+                       # 略宽松(count 低估),不影响安全方向(拒绝阈值以库事实为准)。
+                       # 按 DB 路径作 key:同进程内 DB 路径切换(测试/双库工具)不会串值。
+
+
 def load_progress() -> dict[str, str]:
-    """{code: last_date_yyyymmdd}。"""
+    """{code: last_date_yyyymmdd}。仅作缓存读取,切任务清单请用 load_progress_reconciled。"""
     if PROGRESS_PATH.exists():
         try:
             return json.loads(PROGRESS_PATH.read_text(encoding="utf-8"))
@@ -178,13 +200,110 @@ def load_progress() -> dict[str, str]:
     return {}
 
 
-def save_progress(progress: dict[str, str]) -> None:
-    """原子写：先写临时文件再 rename。"""
+def db_progress_snapshot() -> dict[str, str]:
+    """从 mootdx_daily_raw 提取事实进度 {code: MAX(date)}(库为事实源)。
+
+    P2-2 容错(2026-08-27 内审):表不存在(init_db 前的新环境/空库)时返空 dict
+    而非抛 OperationalError——reconcile 在无表环境语义=「无事实可对账,原样返回」,
+    与 _db_code_count 护栏退化放行同哲学。"""
+    conn = get_conn()
+    try:
+        if conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+            " AND name='mootdx_daily_raw'").fetchone() is None:
+            return {}
+        rows = conn.execute(
+            "SELECT code, MAX(date) FROM mootdx_daily_raw GROUP BY code").fetchall()
+    finally:
+        conn.close()
+    return {r[0]: r[1] for r in rows}
+
+
+def reconcile_progress(progress: dict[str, str]) -> tuple[dict[str, str], int]:
+    """progress ∪ DB 对账合并:**只增不减**,DB 为事实源。
+
+    - DB 有而 progress 缺 -> 按 DB MAX(date) 补回(根治宇宙缩水);
+    - DB MAX(date) > progress -> 用 DB 值拉高(progress 落后于库事实);
+    - progress > DB MAX(date) -> 保留 progress(progress 表示"采到过该日",即便对应行
+      暂缺也不倒退——倒退会产生永久漏采窗口,多 upsert 幂等无害)。
+    返回 (merged, n_fixed)。
+    """
+    snap = db_progress_snapshot()
+    merged = dict(progress)
+    n_fixed = 0
+    for code, d in snap.items():
+        if d > merged.get(code, ""):
+            merged[code] = d
+            n_fixed += 1
+    return merged, n_fixed
+
+
+def load_progress_reconciled() -> tuple[dict[str, str], int]:
+    """load_progress() + reconcile_progress(),并将合并结果尝试固化回盘。
+
+    固化经 save_progress(带缩水护栏),被拒不影响返回值。
+    所有「以 progress 切任务清单/todo」的入口(full/update CLI、run_batch、runner)
+    都必须用本函数,不得裸 load——否则残缺文件直接决定宇宙,缩水面放大。
+    """
+    prog = load_progress()
+    merged, n_fixed = reconcile_progress(prog)
+    if n_fixed:
+        print(f"[mootdx-progress] reconcile: 依库对账修正 {n_fixed} 条,"
+              f"宇宙 {len(prog)} -> {len(merged)}(库为事实源)", flush=True)
+        try:
+            save_progress(merged)
+        except Exception as e:  # noqa: BLE001  固化失败不阻塞采集
+            print(f"[mootdx-progress] reconcile 固化写盘失败(不影响本次运行): {e}",
+                  flush=True)
+    return merged, n_fixed
+
+
+def _db_code_count() -> int:
+    """库中事实 code 数(mootdx_daily_raw DISTINCT code;表不存在/DB 异常 -> 0,
+    护栏退化放行,不因校验故障阻塞采集)。带 TTL 缓存。"""
+    global _DB_COUNT_CACHE
+    now = time.monotonic()
+    cached = _DB_COUNT_CACHE.get(str(STOCK_DB_PATH))
+    if cached is not None and now - cached[0] < _DB_COUNT_TTL:
+        return cached[1]
+    n = 0
+    try:
+        conn = get_conn()
+        has_tbl = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' "
+            "AND name='mootdx_daily_raw'").fetchone()[0]
+        if has_tbl:
+            n = conn.execute(
+                "SELECT COUNT(DISTINCT code) FROM mootdx_daily_raw").fetchone()[0]
+        conn.close()
+    except Exception:  # noqa: BLE001
+        n = 0
+    _DB_COUNT_CACHE[str(STOCK_DB_PATH)] = (now, n)
+    return n
+
+
+def save_progress(progress: dict[str, str]) -> bool:
+    """原子写：先写临时文件再 rename。
+
+    T2 缩水护栏（2026-08-27）：待写宇宙数 < 库中事实 code 数 -> 拒绝覆盖 + stderr/stdout
+    双路告警，杜绝「残缺 dict 覆盖性写入抹掉大宇宙」（7/21 SIGTERM 同型事故复发面）。
+    返回 True=已写盘；False=被护栏拒绝未写（原返回 None，改 bool 向后兼容）。
+    """
+    db_n = _db_code_count()
+    if len(progress) < db_n:
+        import sys as _sys
+        msg = (f"[progress-guard][mootdx] REFUSED: 待写 progress 宇宙 {len(progress)} 只"
+               f" < 库中事实 {db_n} 只(库为事实源),拒绝覆盖性写入以防宇宙缩水"
+               f"(同型事故 2026-07-21: 5527->85 致宽度链断供 37 天);如确需缩容请先核查库状态")
+        print(msg, file=_sys.stderr, flush=True)
+        print(msg, flush=True)  # stdout 镜像供 update_all 日志扫描层捕获
+        return False
     PROGRESS_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = PROGRESS_PATH.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(progress, ensure_ascii=False, indent=None, sort_keys=True),
                    encoding="utf-8")
     tmp.replace(PROGRESS_PATH)
+    return True
 
 
 # ── code 列表 ─────────────────────────────────────────────────────────────────
@@ -314,7 +433,98 @@ def upsert_rows(rows: list[tuple]) -> int:
     return len(rows)
 
 
-# ── baostock fallback（mootdx 全停服兜底） ─────────────────────────────────────
+# ── akshare 第三级兜底（mootdx 停服 + baostock 封禁双亡时,T3 2026-08-27） ─────
+# 背景:mootdx 7/12 起停服、baostock 8/25 起 10001011 账号/IP 黑名单连续多日未自解,
+# 个股日线链双亡(E28 韧性盘点判定不合格:第三源空置伪兜底)。东财 push2his 日线自带
+# 「换手率/涨跌幅」服务端字段,本 fallback 将其写进 mootdx_daily_raw 同一张表
+# (baostock fallback 同模式,下游 width_history/industry_width/cleanup_d3d2 无感),
+# width 链恢复供给的同时顺势补上 a_turnover_* 分布的非 NULL turnover 取数段(T4)。
+_AKSHARE_FALLBACK_BUDGET = float(
+    os.environ.get("AKSHARE_FALLBACK_BUDGET", "1500"))  # 秒,默认 25min
+
+
+def _run_akshare_fallback(codes: list[str], *, progress: dict[str, str],
+                          incremental: bool, today: str,
+                          verbose: bool = True) -> tuple[int, int, int]:
+    """akshare(东财 push2his)三级兜底采剩余 codes,写 mootdx_daily_raw 同表。
+
+    - 覆盖口径仅 SH/SZ(与 mootdx 主链一致),北交所/老三板前缀 code 跳过;
+    - progress[code]>=today 的跳过 -> baostock fallback 刚成功的 code 自动去重,
+      故可在 baostock fallback 之后**无条件**调用(只补漏,不重复请求);
+    - 时间预算自限(_AKSHARE_FALLBACK_BUDGET 秒,默认 25min < runner mootdx step
+      SIGALRM 30min):到点保存进度退出,断点续传次日接力,防被 alarm 杀到半截;
+    - CooldownError(东财封 IP 信号)捕获后停止本轮不硬刷(进度已留存);
+    - 节流:每只 1s+jitter(复用 stock_daily._throttle 档位);
+    - 字段映射:stock_daily.fetch_one 12 列 -> mootdx_daily_raw 10 列
+      (amplitude/pct_amt 丢弃;turnover 用东财服务端值填 NULL 位;pct_change
+      服务端算不跨除权失真,与 baostock fallback 同口径优势)。
+
+    返回 (total_rows, ok_codes, skip_bj_codes)。
+    """
+    from . import stock_daily as _sd  # 延迟 import(akshare 重;无循环依赖)
+    if not codes:
+        return 0, 0, 0
+    recent_start = "20160101"
+    total_rows = 0
+    ok = 0
+    skip_bj = 0
+    save_every = 5
+    budget_end = time.monotonic() + _AKSHARE_FALLBACK_BUDGET if _AKSHARE_FALLBACK_BUDGET > 0 else None
+
+    for j, code in enumerate(codes):
+        last = progress.get(code)
+        if last and last >= today:
+            continue
+        if code.startswith(("8", "4", "92")):  # 北交所/新三板:主链口径外
+            skip_bj += 1
+            continue
+        if budget_end is not None and time.monotonic() >= budget_end:
+            if verbose:
+                print(f"    [akshare-fallback] 时间预算 "
+                      f"{_AKSHARE_FALLBACK_BUDGET:.0f}s 用尽于 {j+1}/{len(codes)},"
+                      f"保存进度留续传(下轮接力)", flush=True)
+            break
+        # 起始日期(增量从 progress+1;full 或无 progress 从 2016 起)
+        if incremental and last:
+            d = dt.datetime.strptime(last, "%Y%m%d").date() + dt.timedelta(days=1)
+            start = d.strftime("%Y%m%d")
+        else:
+            start = recent_start
+        if start > today:
+            continue
+        try:
+            sd_rows, msg = _sd.fetch_one(code, start, today)
+        except _sd.CooldownError as ce:
+            if verbose:
+                print(f"    [akshare-fallback] {code}: 东财封 IP 信号({ce}),"
+                      f"停止本轮(进度已存)", flush=True)
+            break
+        except Exception as e:  # noqa: BLE001  单只失败记日志继续
+            if verbose and (j + 1) % 100 == 0:
+                print(f"    [akshare-fallback {j+1}/{len(codes)}] {code}: ERR "
+                      f"{type(e).__name__}: {str(e)[:100]}", flush=True)
+            continue
+        if not sd_rows:
+            if verbose and (j + 1) % 100 == 0:
+                print(f"    [akshare-fallback {j+1}/{len(codes)}] {code}: {msg}",
+                      flush=True)
+            continue
+        # 12 列 -> mootdx_daily_raw 10 列:(0,1,2,3,4,5,6,7,9,11)
+        mrows = [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[9], r[11])
+                 for r in sd_rows]
+        n = upsert_rows(mrows)
+        total_rows += n
+        ok += 1
+        progress[code] = max(r[1] for r in mrows)
+        if verbose and (j + 1) % 50 == 0:
+            print(f"    [akshare-fallback {j+1}/{len(codes)}] {code}: +{n} rows "
+                  f"(akshare 东财)", flush=True)
+        if (j + 1) % save_every == 0:
+            save_progress(progress)
+
+    if (j + 1) % save_every != 0:  # 收尾落盘(循环未中断于 save 点时)
+        save_progress(progress)
+    return total_rows, ok, skip_bj
 # 字段映射 baostock row -> mootdx_daily_raw row:
 #   baostock = (code, date, open, high, low, close, volume, amount,
 #               turnover, pct_change, preclose)
@@ -413,7 +623,8 @@ def update_one(code: str, progress: dict[str, str] | None = None,
     返回 (新增/更新行数, msg, client)。
     """
     if progress is None:
-        progress = load_progress()
+        # P2-3: 单只兜底入口也走 reconciled(缩水态下 last 缺失会误回退全量重采)
+        progress, _fx = load_progress_reconciled()
     if today is None:
         today = dt.date.today().strftime("%Y%m%d")
     last = progress.get(code)
@@ -451,7 +662,8 @@ def run_batch(codes: list[str], *, incremental: bool = False,
         正常时偶发 empty 不会连续达阈值；50 只连续失败 ≈ 数据源已坏。
     """
     init_db()
-    progress = load_progress()
+    # T2:裸 load 换 reconciled(load ∪ DB 对账),残缺文件不再决定宇宙
+    progress, _fixed = load_progress_reconciled()
     today = dt.date.today().strftime("%Y%m%d")
     ok = fail = total_rows = 0
     consecutive_fails = 0
@@ -485,6 +697,20 @@ def run_batch(codes: list[str], *, incremental: bool = False,
                       f"{type(fe).__name__}: {str(fe)[:120]}", flush=True)
             fb_rows, fb_ok = 0, 0
             fb_err = f"mootdx不可达+baostock fallback失败: {type(fe).__name__}: {str(fe)[:80]}"
+        # T3 三级兜底(2026-08-27):baostock 封禁期由 akshare 东财补漏。progress
+        # 过滤天然去重 baostock 已成功 code,只补失败段;预算自限防 SIGALRM 杀半截。
+        try:
+            ak_rows, ak_ok, _ak_skip = _run_akshare_fallback(
+                codes, progress=progress, incremental=incremental,
+                today=today, verbose=verbose)
+            if verbose and ak_ok:
+                print(f"  [akshare-fallback] 三级兜底 +{ak_rows}rows/{ak_ok}codes",
+                      flush=True)
+            fb_rows += ak_rows
+            fb_ok += ak_ok
+        except Exception as ae:  # noqa: BLE001  三级也挂:并入错误信息不阻塞返回
+            fb_err = ((fb_err + ";") if fb_err else "") + \
+                f"akshare fallback 失败: {type(ae).__name__}: {str(ae)[:80]}"
         save_progress(progress)
         elapsed = time.time() - t_start
         if verbose:
@@ -561,6 +787,20 @@ def run_batch(codes: list[str], *, incremental: bool = False,
                 fb_rows, fb_ok, _fb_skip = _run_baostock_fallback(
                     remaining_codes, progress=progress, incremental=incremental,
                     today=today, verbose=verbose)
+                # T3 三级兜底:baostock 失败段由 akshare 东财补(progress 去重+
+                # 时间预算自限),统计并入 fallback_* 口径供日志统一展示
+                try:
+                    ak_rows, ak_ok, _ak_skip = _run_akshare_fallback(
+                        remaining_codes, progress=progress, incremental=incremental,
+                        today=today, verbose=verbose)
+                    if verbose and ak_ok:
+                        print(f"  [akshare-fallback] 三级兜底 "
+                              f"+{ak_rows}rows/{ak_ok}codes", flush=True)
+                    fb_rows += ak_rows
+                    fb_ok += ak_ok
+                except Exception as ae:  # noqa: BLE001
+                    print(f"  ⚠ akshare fallback 失败: {type(ae).__name__}: "
+                          f"{str(ae)[:100]}", flush=True)
                 fallback_rows = fb_rows
                 fallback_ok = fb_ok
                 total_rows += fb_rows
@@ -585,6 +825,7 @@ def run_batch(codes: list[str], *, incremental: bool = False,
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
+# 命令: full / update / one CODE / upone CODE / stats / reconcile(从库重建进度)
 def _cli(argv: list[str]) -> int:
     if len(argv) < 2:
         print(__doc__)
@@ -599,10 +840,16 @@ def _cli(argv: list[str]) -> int:
         dmin = conn.execute("SELECT MIN(date) FROM mootdx_daily_raw").fetchone()[0]
         dmax = conn.execute("SELECT MAX(date) FROM mootdx_daily_raw").fetchone()[0]
         conn.close()
-        prog = load_progress()
+        prog, _fx = load_progress_reconciled()  # P2-3: stats 展示对齐库事实
         print(f"mootdx_daily_raw: {n_codes} codes, {n_rows} rows, "
               f"date range {dmin}..{dmax}")
         print(f"mootdx_progress.json: {len(prog)} codes tracked")
+        return 0
+
+    if cmd == "reconcile":
+        # T2 人工通道(与 baostock_daily reconcile 子命令对等):从库重建 progress 文件
+        prog, n_fixed = load_progress_reconciled()
+        print(f"reconcile done: {n_fixed} entries fixed, {len(prog)} codes total")
         return 0
 
     if cmd == "one":
@@ -614,7 +861,8 @@ def _cli(argv: list[str]) -> int:
         print(f"{code}: {msg}")
         if rows:
             n = upsert_rows(rows)
-            prog = load_progress()
+            # P2-3: 缩水态下单笔合法更新经 reconciled 读侧+护栏 save 才不被误拒
+            prog, _fx = load_progress_reconciled()
             prog[code] = max(r[1] for r in rows)
             save_progress(prog)
             print(f"  upserted {n} rows, last={prog[code]}")
@@ -628,7 +876,8 @@ def _cli(argv: list[str]) -> int:
         code = argv[2]
         client = tdx_client()
         n, msg, client = update_one(code, client=client)
-        prog = load_progress()
+        # P2-3: 同 one 命令,读侧 reconciled 保住单笔更新落盘
+        prog, _fx = load_progress_reconciled()
         save_progress(prog)
         print(f"{code}: {msg}")
         return 0
@@ -642,7 +891,7 @@ def _cli(argv: list[str]) -> int:
             elif a.startswith("--fail-limit="):
                 fail_limit = int(a.split("=", 1)[1])
         codes = load_codes()
-        prog = load_progress()
+        prog, _fixed = load_progress_reconciled()  # T2:reconciled,库为事实源
         today = dt.date.today().strftime("%Y%m%d")
         todo = [c for c in codes if prog.get(c, "") < today]
         if limit:
@@ -668,6 +917,8 @@ def _cli(argv: list[str]) -> int:
         codes = load_codes()
         if limit:
             codes = codes[:limit]
+        load_progress_reconciled()  # T2:update 前对账固化(run_batch 内还会再取一次,
+                                    # 此处提前把磁盘文件修复,供 stats/人工核查所见即所得)
         print(f"update: {len(codes)} codes incremental "
               f"(fail_limit={fail_limit})", flush=True)
         res = run_batch(codes, incremental=True, verbose=True,

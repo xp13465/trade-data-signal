@@ -197,18 +197,64 @@ def load_progress() -> dict:
     return {}
 
 
-def save_progress(progress: dict) -> None:
+# T2 同病灶同修(2026-08-27 数据源韧性批):baostock progress 与 mootdx 同为
+# 「库是事实源、progress 是缓存」结构(baostock_daily_raw),runner 侧已有 reconcile
+# 兜底(<4000 阈值触发,2026-07-23),但写入侧此前无缩水护栏——若某轮拿到残缺 dict
+# (中间态宇宙 >=4000 不触发 reconcile)仍可覆盖性写盘。加同款护栏双层防护。
+_BAOS_COUNT_CACHE: tuple[float, int] | None = None
+_BAOS_COUNT_TTL = 600.0
+
+
+def _raw_code_count() -> int:
+    """baostock_daily_raw 库中事实 code 数(TTL 缓存;表不存在/DB 异常 -> 0 放行)。"""
+    global _BAOS_COUNT_CACHE
+    now = time.monotonic()
+    if _BAOS_COUNT_CACHE is not None and now - _BAOS_COUNT_CACHE[0] < _BAOS_COUNT_TTL:
+        return _BAOS_COUNT_CACHE[1]
+    n = 0
+    try:
+        conn = get_conn()
+        has_tbl = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' "
+            "AND name='baostock_daily_raw'").fetchone()[0]
+        if has_tbl:
+            n = conn.execute(
+                "SELECT COUNT(DISTINCT code) FROM baostock_daily_raw").fetchone()[0]
+        conn.close()
+    except Exception:  # noqa: BLE001  校验故障不阻塞采集
+        n = 0
+    _BAOS_COUNT_CACHE = (now, n)
+    return n
+
+
+def save_progress(progress: dict) -> bool:
     """原子写：先写临时文件再 rename。多 worker 并发时用 fcntl.flock 串行化，
-    避免 tmp 文件竞争（worker A rename 走 tmp 后 worker B replace 时 FileNotFoundError）。"""
+    避免 tmp 文件竞争（worker A rename 走 tmp 后 worker B replace 时 FileNotFoundError）。
+
+    T2 缩水护栏（2026-08-27 同病灶同修）：待写宇宙数 < baostock_daily_raw 库中事实
+    code 数 -> 拒绝覆盖 + 告警（防残缺 dict 抹掉大宇宙，mootdx 7/21 同型事故面）。
+    返回 True=已写盘；False=被护栏拒绝未写（原返回 None，改 bool 向后兼容）。
+    """
     PROGRESS_PATH.parent.mkdir(parents=True, exist_ok=True)
     import fcntl
+    wrote = False
     lock_path = PROGRESS_PATH.with_suffix(".json.lock")
     with open(lock_path, "w") as lockf:
         fcntl.flock(lockf, fcntl.LOCK_EX)
-        tmp = PROGRESS_PATH.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(progress, ensure_ascii=False, indent=None, sort_keys=True),
-                       encoding="utf-8")
-        tmp.replace(PROGRESS_PATH)
+        db_n = _raw_code_count()
+        if len(progress) < db_n:
+            msg = (f"[progress-guard][baostock] REFUSED: 待写 progress 宇宙 "
+                   f"{len(progress)} 只 < 库中事实 {db_n} 只(库为事实源),"
+                   f"拒绝覆盖性写入以防宇宙缩水;如确需缩容请先核查库状态")
+            print(msg, file=sys.stderr, flush=True)
+            print(msg, flush=True)
+        else:
+            tmp = PROGRESS_PATH.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(progress, ensure_ascii=False, indent=None, sort_keys=True),
+                           encoding="utf-8")
+            tmp.replace(PROGRESS_PATH)
+            wrote = True
+    return wrote
 
 
 def update_progress_entry(code: str, key: str, value: str) -> None:
@@ -450,7 +496,8 @@ def run_segment(codes: list[str], seg: str, *, save_every: int = 10,
     每 save_every 只落盘一次进度。
     """
     init_db()
-    progress = load_progress()
+    # P2-3: 执行面切 todo 用 reconciled(库为事实源),不裸读缓存
+    progress, _fx = load_progress_reconciled()
     today_ymd = TODAY()
     ok = fail = skip_bj = skip_done = total_rows = 0
     details: list[tuple] = []
@@ -522,7 +569,8 @@ def run_segment(codes: list[str], seg: str, *, save_every: int = 10,
 def run_update(codes: list[str], *, save_every: int = 10, verbose: bool = True) -> dict:
     """增量更新所有 code（recent 段增量）。"""
     init_db()
-    progress = load_progress()
+    # P2-3: 执行面切 todo 用 reconciled(库为事实源),不裸读缓存
+    progress, _fx = load_progress_reconciled()
     today_ymd = TODAY()
     ok = fail = skip_bj = skip_done = total_rows = 0
     details: list[tuple] = []
@@ -581,7 +629,8 @@ def rebackfill_date(target_ymd: str, *, verbose: bool = True) -> dict:
     若 baostock 仍返 10001011,该 code 记 fail,可重跑;恢复后重跑自动补全。
     """
     init_db()
-    progress = load_progress()
+    # P2-3: 宇宙切分读侧 reconciled;下方 `not universe -> reconcile()` 分支保留为兜底
+    progress, _fx = load_progress_reconciled()
     # 目标日两种归一化:DB 存 8 位无连字符("20260814"),BaoStock API 要带连字符("2026-08-14")。
     # 2026-08-14 reviewer FAIL P3-①:原 have_rows 用原始 target_ymd 查表,若传入带连字符
     # ("2026-08-14")则匹配不到 DB 已采行 -> 已采 code 也被当 missing 重采(幂等破坏);
@@ -593,7 +642,7 @@ def rebackfill_date(target_ymd: str, *, verbose: bool = True) -> dict:
     if not universe:
         print("[rebackfill] progress 无 recent 段 code,先 reconcile 从 DB 重建", flush=True)
         reconcile()
-        progress = load_progress()
+        progress, _fx = load_progress_reconciled()  # P2-3: 同步闭合裸读
         universe = [c for c, v in progress.items() if v.get("r")]
     # 目标日已有行的 code(用 DB 存储格式 target_db 匹配)
     conn = get_conn()
@@ -636,6 +685,61 @@ def rebackfill_date(target_ymd: str, *, verbose: bool = True) -> dict:
           f"({len(missing)} missing)", flush=True)
     return {"target": target_ymd, "missing": len(missing), "ok": ok, "fail": fail,
             "rows": total_rows}
+
+
+def db_progress_snapshot() -> dict[str, dict]:
+    """{code: {"r": MAX(date)>=20160101, "o": MAX(date)<20160101}}(库为事实源)。
+
+    P2-2 容错(mootdx 同款):表不存在(init_db 前的新环境/空库)返空 dict 而非抛
+    OperationalError,与 _raw_code_count 护栏退化放行同哲学;
+    某段无数据则该 key 缺省(与 progress entry 结构一致)。"""
+    conn = get_conn()
+    try:
+        if conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+            " AND name='baostock_daily_raw'").fetchone() is None:
+            return {}
+        snap: dict[str, dict] = {}
+        for code, d in conn.execute(
+                "SELECT code, MAX(date) FROM baostock_daily_raw "
+                "WHERE date >= '20160101' GROUP BY code"):
+            snap[code] = {"r": d}
+        for code, d in conn.execute(
+                "SELECT code, MAX(date) FROM baostock_daily_raw "
+                "WHERE date < '20160101' GROUP BY code"):
+            snap.setdefault(code, {})["o"] = d
+        return snap
+    finally:
+        conn.close()
+
+
+def load_progress_reconciled() -> tuple[dict, int]:
+    """load_progress() ∪ DB 快照(r/o 段各自只增不减,DB 为事实源),尝试固化回盘。
+
+    P2-3 读取侧闭合(2026-08-27 内审):所有切 todo/读改写进度的入口用本函数,
+    不裸 load_progress——缩水态下单笔合法更新(one/upone)经护栏 save 会被拒,
+    读侧必须 reconciled 才能让「残缺宇宙整体覆盖」被拒、合法更新放行。
+    返回 (merged, n_fixed);n_fixed 按「段」计(r/o 各算一条),固化失败不阻塞采集。"""
+    prog = load_progress()
+    merged = {c: dict(v) if isinstance(v, dict) else {}
+              for c, v in prog.items()}
+    n_fixed = 0
+    for code, sn in db_progress_snapshot().items():
+        entry = merged.setdefault(code, {})
+        for seg in ("r", "o"):
+            db_d = sn.get(seg)
+            if db_d and db_d > (entry.get(seg) or ""):
+                entry[seg] = db_d
+                n_fixed += 1
+    if n_fixed:
+        print(f"[baostock-progress] reconcile: 依库对账修正 {n_fixed} 段,"
+              f"宇宙 {len(prog)} -> {len(merged)} codes(库为事实源)", flush=True)
+        try:
+            save_progress(merged)
+        except Exception as e:  # noqa: BLE001  固化失败不阻塞采集
+            print(f"[baostock-progress] reconcile 固化写盘失败(不影响本次运行): {e}",
+                  flush=True)
+    return merged, n_fixed
 
 
 def reconcile() -> int:
@@ -708,7 +812,7 @@ def _cli(argv: list[str]) -> int:
         n_old = conn.execute(
             "SELECT COUNT(*) FROM baostock_daily_raw WHERE date < '20160101'").fetchone()[0]
         conn.close()
-        prog = load_progress()
+        prog, _fx = load_progress_reconciled()  # P2-3: stats 展示对齐库事实
         n_r_done = sum(1 for v in prog.values() if v.get("r"))
         n_o_done = sum(1 for v in prog.values() if v.get("o"))
         print(f"baostock_daily_raw: {n_codes} codes, {n_rows} rows, "
@@ -736,7 +840,8 @@ def _cli(argv: list[str]) -> int:
         print(f"{code}: {msg}")
         if rows:
             n = upsert_rows(rows)
-            prog = load_progress()
+            # P2-3: 缩水态下单笔合法更新经 reconciled 读侧+护栏 save 才不被误拒
+            prog, _fx = load_progress_reconciled()
             entry = prog.get(code, {})
             new_last = max(r[1] for r in rows)
             if new_last >= "20160101":
@@ -754,7 +859,8 @@ def _cli(argv: list[str]) -> int:
         if len(argv) < 3:
             print("usage: upone CODE"); return 1
         code = argv[2]
-        prog = load_progress()
+        # P2-3: 同 one 命令,读侧 reconciled 保住单笔更新落盘
+        prog, _fx = load_progress_reconciled()
         n, msg = update_recent(code, prog, TODAY())
         save_progress(prog)
         print(f"{code}: {msg}")

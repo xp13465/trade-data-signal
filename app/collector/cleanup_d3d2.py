@@ -346,15 +346,27 @@ def _last_turnover_date() -> str | None:
 
 
 def compute_turnover_dist(*, start_date: str | None = None,
-                          end_date: str | None = None) -> pd.DataFrame:
-    """从 baostock_daily_raw 算每日换手率分布。
+                          end_date: str | None = None,
+                          source: str = "baostock") -> pd.DataFrame:
+    """从 raw 日线表算每日换手率分布。
 
     返回 DataFrame: date/mean/median/p90/p10/gt5_pct。
     每日所有股票 turnover 的分布统计（剔除 NULL/NaN）。
 
+    source 参数化（2026-08-27 T4 备源，Task#10）：
+    - "baostock"（默认）：从 baostock_daily_raw 取数，行为与历史完全一致；
+    - "mootdx"：从 mootdx_daily_raw 取数——mootdx 主链 2026-08-27 起新增 akshare
+      (东财) 三级 fallback，东财日 K 自带换手率字段回填 mootdx_daily_raw.turnover，
+      baostock 封禁期可由此源供数。两表列结构一致（turnover 均为 % 数值）。
+      注意 mootdx_daily_raw.turnover 大量为 NULL（mootdx 本体不产换手率），
+      本函数 WHERE turnover IS NOT NULL 已天然只取 akshare 回填段。
+
     增量模式（默认）：start_date 不传时取 daily_metric 中 a_turnover_mean 的最大日期 +1 天，
     只算新增交易日（快，避免每次重算 2016 至今 1500 万行）。end_date 默认今天。
     """
+    table = {"baostock": "baostock_daily_raw", "mootdx": "mootdx_daily_raw"}.get(source)
+    if table is None:
+        raise ValueError(f"[turnover] 不支持的 source={source!r}（可选: baostock/mootdx）")
     if end_date is None:
         end_date = END_DATE
     if start_date is None:
@@ -366,12 +378,12 @@ def compute_turnover_dist(*, start_date: str | None = None,
         else:
             start_date = START_DATE
             print(f"[turnover] 无历史数据，全量模式：{start_date}..{end_date}", flush=True)
-    print(f"[turnover] loading baostock turnover {start_date}..{end_date} ...", flush=True)
+    print(f"[turnover][{source}] loading {table} turnover {start_date}..{end_date} ...", flush=True)
     t0 = time.time()
     conn = sqlite3.connect(f"file:{STOCK_DB_PATH}?mode=ro", uri=True, timeout=60.0)
     try:
         df = pd.read_sql_query(
-            f"SELECT date, turnover FROM baostock_daily_raw "
+            f"SELECT date, turnover FROM {table} "
             f"WHERE date >= '{start_date}' AND date <= '{end_date}' "
             f"  AND turnover IS NOT NULL AND turnover != ''",
             conn,
@@ -402,9 +414,11 @@ def compute_turnover_dist(*, start_date: str | None = None,
     return g
 
 
-def upsert_turnover(g: pd.DataFrame) -> dict:
-    """回填 daily_metric 5 个换手率分布指标（source='baostock'）。
+def upsert_turnover(g: pd.DataFrame, source: str = "baostock") -> dict:
+    """回填 daily_metric 5 个换手率分布指标。
 
+    source 标记数据来源（2026-08-27 T4 参数化）：默认 'baostock' 行为不变；
+    mootdx 备源传 'mootdx'，写入 daily_metric.source 便于区分与排查。
     upsert ON CONFLICT DO UPDATE ... WHERE source != 'manual'（防覆盖手动补录）。
     NaN 过滤：if v != v: continue。
     """
@@ -427,7 +441,7 @@ def upsert_turnover(g: pd.DataFrame) -> dict:
         for d, v in zip(g["date"].tolist(), series.tolist()):
             if v != v:  # NaN 跳过
                 continue
-            rows.append((d, mid, float(v), "baostock", now))
+            rows.append((d, mid, float(v), source, now))
         if not rows:
             continue
         cur = conn.executemany(
@@ -478,10 +492,14 @@ def _turnover_universe() -> list:
         return []
 
 
-def run_turnover(*, full: bool = False, min_coverage: float = 0.95) -> dict:
+def run_turnover(*, full: bool = False, min_coverage: float = 0.95,
+                 source: str = "baostock") -> dict:
     """算换手率分布并回填 daily_metric。
 
     full=True 强制全量重算（2016 至今，慢）；默认增量（只算 daily_metric 末尾之后的新交易日）。
+    source 透传 compute_turnover_dist/upsert_turnover（'baostock'=历史默认；
+    'mootdx'=akshare 回填段备源，2026-08-27 T4）。runner 自动切源策略未拍板，
+    当前仅手动 CLI `--source mootdx` 可用，runner 仍走默认 baostock。
 
     覆盖率拦截（2026-08-14 reviewer FAIL P2-2 下沉）：对每个待写日，
     count < max(MIN_STOCKS_PER_DAY, min_coverage×universe) 视为部分采集偏样本，
@@ -492,9 +510,9 @@ def run_turnover(*, full: bool = False, min_coverage: float = 0.95) -> dict:
     cleanup 只看 count>=4000 会照写偏样本"的时序依赖缺口。
     """
     if full:
-        g = compute_turnover_dist(start_date=START_DATE)
+        g = compute_turnover_dist(start_date=START_DATE, source=source)
     else:
-        g = compute_turnover_dist()
+        g = compute_turnover_dist(source=source)
     if len(g) == 0:
         print("[turnover] no data, abort", flush=True)
         return {"error": "no turnover data"}
@@ -517,7 +535,7 @@ def run_turnover(*, full: bool = False, min_coverage: float = 0.95) -> dict:
     if len(g) == 0:
         print("[turnover] 全部为部分采集日，无新数据可回填", flush=True)
         return {"written": 0, "skipped_partial": int(before), "days": 0}
-    res = upsert_turnover(g)
+    res = upsert_turnover(g, source=source)
     res["skipped_partial"] = int(before - len(g))
     print(f"\n=== turnover done: {res} ===", flush=True)
     return res
@@ -554,7 +572,15 @@ def _cli(argv: list[str]) -> int:
     if cmd == "validate":
         run_validate()
     elif cmd == "turnover":
-        run_turnover(full=full)
+        src = "baostock"
+        if "--source" in argv:
+            i = argv.index("--source")
+            if i + 1 < len(argv):
+                src = argv[i + 1]
+            if src not in ("baostock", "mootdx"):
+                print(f"[turnover] 不支持的 --source {src!r}（可选 baostock/mootdx）")
+                return 2
+        run_turnover(full=full, source=src)
     elif cmd == "purge-turnover-date":
         # 2026-08-14 P2-1 清理：删某日 a_turnover_* 偏样本行（配合 rebackfill + 重跑）
         if len(argv) < 3:

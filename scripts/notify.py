@@ -899,7 +899,8 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
          from_prefix: str | None = None, feishu_group: str | None = None,
          feishu_only: bool = False,
          reply_to_message_id: str | None = None,
-         feishu_post: dict | None = None) -> dict:
+         feishu_post: dict | None = None,
+         source: str | None = None) -> dict:
     """多渠道分发通知（邮件 + Telegram + 飞书）。各渠道独立失败不互相阻塞。
 
     先邮件后 Telegram 再飞书，任一渠道失败不影响其他。返回聚合结果：
@@ -909,6 +910,10 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     severe=True 时写 data/alerts/latest.md（--alert-issue 配合）。
       2026-07-20 改造：subject 前缀由调用方控制（统一 [告警]/[完成]/[恢复] 模板），
       SEVERE_PREFIX 已置空串，--severe 不再修改 subject。
+      L46④(2026-08-27 数据源韧性批)：severe 发送完成后统一镜像登记到 latest.md
+      尾部流水区（_mirror_severe，追加式防旁路出口——17:56 baostock 封禁熔断这类
+      管道内直发的 severe 此前在 latest.md 完全沉默）；dry_run 冒烟不落盘（P2④ 同口径）。
+    source：镜像登记的来源通道标注（None=NOTIFY_SOURCE env > 调用脚本名 > unknown）。
     dry_run=True 所有渠道都只 print 不真发。
     from_prefix：邮件发件人名前缀（None=默认 "信号实验室监控"，非空如 "[告警]" -> "[告警] 信号实验室"）。
     feishu_group：飞书群 key 显式覆盖自动路由（alert/agent_done/report）；None=按
@@ -939,6 +944,12 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
                         severe=severe, from_prefix=from_prefix,
                         reply_to_message_id=reply_to_message_id,
                         feishu_post=feishu_post)
+    # L46④:severe 统一镜像 latest.md 追加流水(所有出口留痕防旁路沉默);
+    # dry_run 冒烟只读不落盘;镜像失败 best-effort 不影响发送结果。
+    if severe and not dry_run:
+        _mirror_severe(subject, body,
+                       results={"email": email_ok, "telegram": tg_ok, "feishu": fs_ok},
+                       source=source)
     return {"email": email_ok, "telegram": tg_ok, "feishu": fs_ok}
 
 
@@ -969,9 +980,12 @@ def send_to(subject: str, body: str, email: str | None = None,
 
 
 def write_alert(issue: str, detail: str, log_path: str | None = None) -> None:
-    """覆盖式写 data/alerts/latest.md（最新一次严重告警）。
+    """覆盖式写 data/alerts/latest.md 头部「最新详单区」(CLI --alert-issue 场景)。
 
     内容含时间、问题、详情、日志路径、提示 Claude 开工排查。
+    L46④(2026-08-27):重写详情区时保留尾部 severe 发送流水条目(_parse_latest/
+    _compose_latest),不再整文件抹掉——流水是管道内 severe 的唯一留痕(防旁路出口),
+    被 --alert-issue 覆盖冲掉 = 同型旁路盲区复发。写入走 _update_latest(锁内读改写+原子)。
     """
     try:
         ALERTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -983,8 +997,9 @@ def write_alert(issue: str, detail: str, log_path: str | None = None) -> None:
     log_line = f"- **日志路径**：`{log_path}`\n" if log_path else ""
     content = f"""# 严重告警（最新一次）
 
-> ⚠ 本文件覆盖式记录最新一次严重告警，Claude 开工时优先排查。
-> 处理完后可删除本文件或清空（无新告警则保持旧内容）。
+> ⚠ 本区域由 --alert-issue 覆盖式记录最新一次严重告警，Claude 开工时优先排查；
+> 下方 `## [severe]` 流水为 send(severe=True) 的追加式登记（防旁路出口，最多 {_LATEST_MAX_ENTRIES} 条）。
+> 处理完后可删除/清空详情区（流水会随容量上限滚动）。
 
 - **告警时间**：{now}
 - **问题**：{issue}
@@ -999,10 +1014,133 @@ def write_alert(issue: str, detail: str, log_path: str | None = None) -> None:
 Claude 开工时排查此告警：对照日志路径定位根因，修复后删除本文件。
 """
     try:
-        ALERTS_FILE.write_text(content, encoding="utf-8")
-        print(f"[notify] 告警已写入 {ALERTS_FILE}", file=sys.stderr)
+        kept_count = [0]
+
+        def _rewrite(head: str, entries: list[str]) -> tuple[str, list[str]]:
+            # 覆盖头部详单区为新 content,severe 流水条目原样保留(锁内读改写,P2-1)
+            kept_count[0] = len([e for e in entries if e.strip()])
+            return content, entries
+
+        _update_latest(_rewrite)
+        print(f"[notify] 告警已写入 {ALERTS_FILE}（保留流水 "
+              f"{kept_count[0]} 条）", file=sys.stderr)
     except Exception as e:  # noqa: BLE001
         print(f"[notify] 告警写入失败：{e}", file=sys.stderr)
+
+
+# ── L46④ severe 统一镜像注册表(2026-08-27 数据源韧性批)────────────────────────
+# 为什么存在:17:56 baostock 封禁熔断严重邮件走 notify 管道内直发,而 latest.md 此前
+# 只由 CLI --alert-issue(write_alert,覆盖式)写入 -> 管道内直发的 severe 在 latest.md
+# 完全沉默,L46 排查时被误读为「全局无告警」(教训:任何单一登记点沉默≠全局无告警)。
+# 本组函数让 send(severe=True) 的**所有出口**统一追加留痕到 latest.md 尾部流水区
+# (防旁路出口),同时 write_alert 的覆盖式「最新详单区」保留原语义、不再抹掉流水。
+_LATEST_MAX_ENTRIES = 50  # 流水容量上限(最新在文件尾部,超出丢最旧)
+
+
+def _parse_latest(content: str) -> tuple[str, list[str]]:
+    """拆 latest.md 为(头部区文本, severe 流水条目列表[不含 --- 分隔线])。
+
+    条目识别 = 「--- 行后紧跟 '## [severe]'」。兼容旧纯 write_alert 文件(无条目,
+    整体当头部)。"""
+    parts = re.split(r"\n-{3,}\n(?=## \[severe\])", content)
+    return parts[0], parts[1:]
+
+
+def _compose_latest(head: str, entries: list[str]) -> str:
+    """头部区 + 条目列表(cap 最近 N 条)拼回完整 latest.md 文本。"""
+    h = head.rstrip("\n")
+    if not h.strip():
+        h = ("# 严重告警(severe 发送流水)\n\n"
+             f"> 下部为 severe 发送的追加式流水(最新在下,最多 {_LATEST_MAX_ENTRIES} 条);\n"
+             "> `--alert-issue` 显式详情会写在本注释上方区域。")
+    kept = [e for e in entries if e.strip()][-_LATEST_MAX_ENTRIES:]
+    chunks = [h] + ["---\n" + e.rstrip("\n") for e in kept]
+    return "\n\n".join(chunks) + "\n"
+
+
+def _read_parse_latest() -> tuple[str, list[str]]:
+    """读 latest.md 拆 (头部区文本, severe 流水条目列表);文件不存在/读坏当空。
+
+    ⚠ 必须在 _update_latest 的锁段内调用——锁外 read 再锁内 write 会丢并发条目
+    (P2-1 内审修复 2026-08-27)。"""
+    try:
+        if ALERTS_FILE.exists():
+            return _parse_latest(ALERTS_FILE.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001  读坏当作空重建(流水以本次写入方为准)
+        pass
+    return "", []
+
+
+def _replace_latest(text: str) -> None:
+    """latest.md 原子替换(latest.md.tmp + os.replace);须持 .latest.lock 调用。"""
+    tmp = ALERTS_DIR / "latest.md.tmp"
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(ALERTS_FILE)
+
+
+def _update_latest(mutate) -> None:
+    """latest.md 读-改-写单一入口:fcntl 排他锁临界区覆盖 read+parse+compose+替换。
+
+    P2-1 内审修复(2026-08-27):旧版 _mirror_severe/_atomic_write_latest 把
+    read-parse 放锁外、只有 write 进锁,两条 severe 并发时后写者基于旧快照整体
+    覆盖 -> 先写者条目丢失(lost update)。现 parse/compose 全在同一锁段,
+    多进程/多线程串行化,追加流水不再互抹。fcntl 缺失环境退化为无锁序
+    (单进程仍正确,best-effort 与旧行为一致)。
+    mutate(head, entries) -> (head, entries);失败由调用方兜(best-effort)。
+    """
+    ALERTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _rmw() -> None:
+        head, entries = _read_parse_latest()
+        head2, entries2 = mutate(head, entries)
+        _replace_latest(_compose_latest(head2, entries2))
+
+    try:
+        import fcntl
+        with open(ALERTS_DIR / ".latest.lock", "w") as lockf:
+            fcntl.flock(lockf, fcntl.LOCK_EX)
+            _rmw()
+    except ImportError:  # 极端环境无 fcntl:退化为无锁原子替换(仍一气呵成)
+        _rmw()
+
+
+def _mirror_severe(subject: str, body: str, results: dict | None = None,
+                   source: str | None = None) -> None:
+    """send() severe 级统一镜像登记(latest.md 尾部流水,追加式,cap 50 条)。
+
+    条目含 时间戳/[severe] 级别标记/来源通道/送达结果/摘要(body 去 HTML 标签压缩
+    空白取前 500 字符)。来源优先级:显式 source 参数 > NOTIFY_SOURCE env >
+    调用脚本名(sys.argv[0]) > unknown。任何失败 best-effort 不阻塞通知主链路。
+    写入经 _update_latest(锁内 read-modify-write,P2-1)。
+    """
+    try:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        src = source or os.environ.get("NOTIFY_SOURCE") or (
+            Path(sys.argv[0]).name if sys.argv and sys.argv[0] else "unknown")
+        summary = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", str(body))).strip()
+        if len(summary) > 500:
+            summary = summary[:497] + "...(截断)"
+        subj_line = re.sub(r"\s+", " ", str(subject)).strip()
+        ch_line = ""
+        if isinstance(results, dict):
+            def _ok(k: str) -> str:
+                return "OK" if results.get(k) else "FAIL"
+            ch_line = (f"- **通道**: email={_ok('email')} "
+                       f"telegram={_ok('telegram')} feishu={_ok('feishu')}\n")
+        entry = (f"## [severe] {now} · {subj_line}\n"
+                 f"- **级别**: severe\n"
+                 f"- **来源**: {src}\n"
+                 f"{ch_line}"
+                 f"- **摘要**: {summary}")
+
+        def _append(_head: str, entries: list[str]) -> tuple[str, list[str]]:
+            entries.append(entry)
+            return _head, entries
+
+        _update_latest(_append)
+        print(f"[notify][severe-mirror] 已镜像登记 {ALERTS_FILE}", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001  镜像失败绝不阻塞通知主链路
+        print(f"[notify][severe-mirror] 镜像登记失败(不影响发送): {e}", file=sys.stderr)
 
 
 def check_dedup(key: str, window: int) -> bool:

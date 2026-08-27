@@ -47,9 +47,14 @@ def chunk_list(lst, n):
     return [lst[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n)]
 
 
-def run_parallel(seg="r", n_workers=3, limit=None):
+def run_parallel(seg="r", n_workers=1, limit=None):
     """Run N parallel subprocesses, each fetching a chunk of codes for given segment.
     seg='r' (recent 2016-2026) or 'o' (old 1990-2015).
+
+    T1(2026-08-27 数据源韧性批):默认 n_workers 3->1。baostock 官方单连接串行模型,
+    同 IP 多并发连接是 10001011 黑名单封禁的风控诱因(8-14/8-25 两轮封禁均发生于
+    3 并发时期);并发 worker 共享短路 flag 在,但"少触发封禁"优于"触发后熔断止损",
+    故默认降为 1。手动并行:--workers=N。
     """
     from app.collector.baostock_daily import fetch_stock_codes, to_baostock_code, init_db
     init_db()
@@ -121,7 +126,7 @@ def run_parallel(seg="r", n_workers=3, limit=None):
     _clean_blacklist_flag()  # 结束清残留，避免影响下一轮启动判断
 
 
-def run_update_parallel(codes, n_workers=3, verbose=True):
+def run_update_parallel(codes, n_workers=1, verbose=True):
     """并行增量更新（recent 段增量）。codes 是已筛选的 todo（有 progress['r'] 的）。
 
     对每个 code 算 start=progress['r']+1 天, end=today，跳过 up-to-date。
@@ -243,7 +248,7 @@ def run_update_parallel(codes, n_workers=3, verbose=True):
 
 if __name__ == "__main__":
     seg = "r"
-    n_workers = 3
+    n_workers = 1
     limit = None
     for a in sys.argv[1:]:
         if a.startswith("--seg="):

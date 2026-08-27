@@ -114,6 +114,14 @@ def init_db() -> None:
 
 
 # ── 进度持久化 ────────────────────────────────────────────────────────────────
+# T2 同款防护(2026-08-27 数据源韧性批):库(stock_daily_raw)是事实源,progress 只是
+# 加速缓存。本链曾因 progress 空置从未初始化沦为「伪兜底」(E28:代码在位无数据),
+# 转正后若被残缺覆盖性写入抹宇宙将重演 mootdx 7/21 缩水事故(5527->85 断供 37 天)。
+# 双层根治与 mootdx_daily/baostock_daily 完全同口径,详见 mootdx docstring。
+_SD_COUNT_CACHE: dict[str, tuple[float, int]] = {}  # {db_path: (monotonic_ts, count)}
+_SD_COUNT_TTL = 600.0
+
+
 def load_progress() -> dict[str, str]:
     if PROGRESS_PATH.exists():
         try:
@@ -123,13 +131,95 @@ def load_progress() -> dict[str, str]:
     return {}
 
 
-def save_progress(progress: dict[str, str]) -> None:
-    """原子写：先写临时文件再 rename。"""
+def db_progress_snapshot() -> dict[str, str]:
+    """从 stock_daily_raw 提取事实进度 {code: MAX(date)}(库为事实源)。
+
+    P2-2 容错(mootdx 同款):表不存在(init_db 前的新环境/空库)返空 dict
+    而非抛 OperationalError,与 _db_code_count 护栏退化放行同哲学。"""
+    conn = get_conn()
+    try:
+        if conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+            " AND name='stock_daily_raw'").fetchone() is None:
+            return {}
+        rows = conn.execute(
+            "SELECT code, MAX(date) FROM stock_daily_raw GROUP BY code").fetchall()
+    finally:
+        conn.close()
+    return {r[0]: r[1] for r in rows}
+
+
+def reconcile_progress(progress: dict[str, str]) -> tuple[dict[str, str], int]:
+    """progress ∪ DB 对账合并:只增不减,DB 为事实源(口径见 mootdx reconcile_progress)。"""
+    snap = db_progress_snapshot()
+    merged = dict(progress)
+    n_fixed = 0
+    for code, d in snap.items():
+        if d > merged.get(code, ""):
+            merged[code] = d
+            n_fixed += 1
+    return merged, n_fixed
+
+
+def load_progress_reconciled() -> tuple[dict[str, str], int]:
+    """load_progress() + reconcile_progress(),并尝试固化回盘(save_progress 带护栏)。
+    所有切 todo 的入口用本函数,不裸 load。"""
+    prog = load_progress()
+    merged, n_fixed = reconcile_progress(prog)
+    if n_fixed:
+        print(f"[stock-progress] reconcile: 依库对账修正 {n_fixed} 条,"
+              f"宇宙 {len(prog)} -> {len(merged)}(库为事实源)", flush=True)
+        try:
+            save_progress(merged)
+        except Exception as e:  # noqa: BLE001  固化失败不阻塞采集
+            print(f"[stock-progress] reconcile 固化写盘失败(不影响本次运行): {e}",
+                  flush=True)
+    return merged, n_fixed
+
+
+def _db_code_count() -> int:
+    """库中事实 code 数(stock_daily_raw DISTINCT code;表不存在/DB 异常 -> 0 放行,
+    校验故障不阻塞采集)。带 TTL 缓存(按 DB 路径作 key)。"""
+    now = time.monotonic()
+    cached = _SD_COUNT_CACHE.get(str(STOCK_DB_PATH))
+    if cached is not None and now - cached[0] < _SD_COUNT_TTL:
+        return cached[1]
+    n = 0
+    try:
+        conn = get_conn()
+        has_tbl = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' "
+            "AND name='stock_daily_raw'").fetchone()[0]
+        if has_tbl:
+            n = conn.execute(
+                "SELECT COUNT(DISTINCT code) FROM stock_daily_raw").fetchone()[0]
+        conn.close()
+    except Exception:  # noqa: BLE001
+        n = 0
+    _SD_COUNT_CACHE[str(STOCK_DB_PATH)] = (now, n)
+    return n
+
+
+def save_progress(progress: dict[str, str]) -> bool:
+    """原子写：先写临时文件再 rename。
+
+    T2 同款缩水护栏(2026-08-27):待写宇宙数 < 库中事实 code 数 -> 拒绝落盘+双路告警。
+    返回 True=已写盘;False=被护栏拒绝未写。
+    """
+    db_n = _db_code_count()
+    if len(progress) < db_n:
+        msg = (f"[progress-guard][stock_daily] REFUSED: 待写 progress 宇宙 "
+               f"{len(progress)} 只 < 库中事实 {db_n} 只(库为事实源),"
+               f"拒绝覆盖性写入以防宇宙缩水;如确需缩容请先核查库状态")
+        print(msg, file=sys.stderr, flush=True)
+        print(msg, flush=True)
+        return False
     PROGRESS_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = PROGRESS_PATH.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(progress, ensure_ascii=False, indent=None, sort_keys=True),
                    encoding="utf-8")
     tmp.replace(PROGRESS_PATH)
+    return True
 
 
 # ── code 列表 ─────────────────────────────────────────────────────────────────
@@ -252,7 +342,8 @@ def update_one(code: str, progress: dict[str, str] | None = None,
     返回 (新增行数, msg)。
     """
     if progress is None:
-        progress = load_progress()
+        # P2-3: 单只兜底入口也走 reconciled(缩水态下 last 缺失会误回退全量重采)
+        progress, _fx = load_progress_reconciled()
     if today is None:
         today = dt.date.today().strftime("%Y%m%d")
     last = progress.get(code)
@@ -284,7 +375,8 @@ def run_batch(codes: list[str], *, incremental: bool = False,
     进度每 save_every 只落盘一次（断电安全）。
     """
     init_db()
-    progress = load_progress()
+    # P2-3: 执行面切 todo 用 reconciled(库为事实源),不裸读缓存
+    progress, _fx = load_progress_reconciled()
     today = dt.date.today().strftime("%Y%m%d")
     ok = fail = total_rows = empty_count = 0
     details: list[tuple] = []
@@ -391,7 +483,7 @@ def _cli(argv: list[str]) -> int:
         dmin = conn.execute("SELECT MIN(date) FROM stock_daily_raw").fetchone()[0]
         dmax = conn.execute("SELECT MAX(date) FROM stock_daily_raw").fetchone()[0]
         conn.close()
-        prog = load_progress()
+        prog, _fx = load_progress_reconciled()  # P2-3: stats 展示对齐库事实
         print(f"stock_daily_raw: {n_codes} codes, {n_rows} rows, "
               f"date range {dmin}..{dmax}")
         print(f"progress.json: {len(prog)} codes tracked")
@@ -411,7 +503,8 @@ def _cli(argv: list[str]) -> int:
         print(f"{code}: {msg}")
         if rows:
             n = upsert_rows(rows)
-            prog = load_progress()
+            # P2-3: 缩水态下单笔合法更新经 reconciled 读侧+护栏 save 才不被误拒
+            prog, _fx = load_progress_reconciled()
             prog[code] = max(r[1] for r in rows)
             save_progress(prog)
             print(f"  upserted {n} rows, last={prog[code]}")
@@ -428,7 +521,8 @@ def _cli(argv: list[str]) -> int:
         except CooldownError as e:
             print(f"!! COOLDOWN: {e} (last_code={e.last_code}). 停 30min 再重跑。")
             return 2
-        prog = load_progress()
+        # P2-3: 同 one 命令,读侧 reconciled 保住单笔更新落盘
+        prog, _fx = load_progress_reconciled()
         save_progress(prog)
         print(f"{code}: {msg}")
         return 0
@@ -442,7 +536,7 @@ def _cli(argv: list[str]) -> int:
             elif a.startswith("--limit="):
                 limit = int(a.split("=", 1)[1])
         codes = fetch_stock_codes()
-        prog = load_progress()
+        prog, _fx = load_progress_reconciled()  # P2-3: full 执行面同款闭合
         # 跳过已采到今天的（增量时仍跑 update_one 兜底）
         today = dt.date.today().strftime("%Y%m%d")
         todo = [c for c in codes if prog.get(c, "") < today]
