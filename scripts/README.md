@@ -323,8 +323,8 @@ python3 /Users/linhuichen/code/trade/scripts/bug-pattern-audit-20260823/audit_bu
 
 ### `check_north_gap_backfill.py` — 北向深缺口分轮回补逻辑机检（2026-08-27）
 
-v1.1.7 审计 P1 #97（北向增量截断→递增丢日）修复的配套验证。纯逻辑级 mock（不触网、不读写真实 sentiment.db 与 state 文件，盘中/任意时段可安全运行），24 断言覆盖：①15 自然日缺口 ≤3 轮分轮闭合且区间全覆盖 ②plain 窗口与旧公式逐位一致+边界 gap=10 进深缺口但窗口同宽 ③days 显式传参 manual 行为兼容 ④plan 纯函数各模式边界（no_db/full/deep_start/deep_resume 无缝衔接/deep_cap 硬顶+倒挂死锁防线 D5b）⑤超长停机（240 天缺口）推到硬顶收敛放弃、无前沿停滞空转 ⑥软 deadline 半途中断后前沿记实际覆盖日、下轮接力仍闭合 ⑦state 三件套真实文件 IO 往返+损坏容错。
+v1.1.7 审计 P1 #97（北向增量截断→递增丢日）修复的配套验证。纯逻辑级 mock（不触网、不读写真实 sentiment.db 与 state 文件，盘中/任意时段可安全运行），30 断言覆盖：①15 自然日缺口 ≤3 轮分轮闭合且区间全覆盖 ②plain 窗口与旧公式逐位一致+边界 gap=10 进深缺口但窗口同宽 ③days 显式传参 manual 行为兼容 ④plan 纯函数各模式边界（no_db/full/deep_start/deep_resume 无缝衔接/deep_cap 硬顶+倒挂死锁防线 D5b）⑤超长停机（240 天缺口）推到硬顶收敛放弃、无前沿停滞空转 ⑥软 deadline 半途中断后前沿记实际覆盖日、下轮接力仍闭合 ⑦state 三件套真实文件 IO 往返+损坏容错。
 
 ```bash
-python3 scripts/check_north_gap_backfill.py   # 全 PASS 输出 24/24、退出码 0；有 FAIL 退出码 1
+python3 scripts/check_north_gap_backfill.py   # 全 PASS 输出 30/30、退出码 0；有 FAIL 退出码 1
 ```
