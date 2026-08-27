@@ -4817,36 +4817,34 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     }
   }
   const _CONSENSUS_PIDS = ["p8", "p9", "a9", "b9", "c9", "new14", "new15"];
-  function _consensusVotesOf(it2) {
-    // 优先读后端预计算 mode_votes(单源, 含 bullAuxBackupStop 特判)
-    const mv = it2.ai_macro && it2.ai_macro.mode_votes;
-    if (mv) {
-      let y2 = 0;
-      for (const pid of _CONSENSUS_PIDS) {
-        if (mv[pid]) y2++;
-      }
-      // S06 动态票(同现有逻辑)
-      const r6 = (typeof _tdsS06BaseForDate === "function") ? _tdsS06BaseForDate(it2.date) : null;
-      if (r6 && r6.ok && mv[r6.base]) y2++;
-      else if (!r6 || !r6.ok) y2++;
-      return y2;
+  // 前端表决器(#95 根治, 2026-08-27): 与后端 app/queries.py _ai_macro_mode_votes 同构的唯一降亏表决实现
+  //   —— filters 与 preset 键集求交 + bullAuxBackupStop 特判(buy_aux/buy_backup × 牛市·主升, tier 由前端
+  //   _sigTierByDate 补判, 未就绪=保守放行)。此前 mode_votes 缺失时另一套手写求交散落 3 处(Y 票 fallback/
+  //   X 表静态行/X 表 s06 行), 双实现并存必漂移(X 两处还漏了 bull 特判); 统一进本函数后恒单源。
+  function _consensusFrontVotesOf(f3, it3) {
+    const farr = Array.isArray(f3) ? f3 : [];
+    const votes = {};
+    for (const pid of _CONSENSUS_PIDS) {
+      const m3 = _consMembers[pid] || {};
+      if (farr.some((fk) => m3[fk])) { votes[pid] = false; continue; }
+      if (m3.bullAuxBackupStop && _isBullStopHit(it3)) { votes[pid] = false; continue; }
+      votes[pid] = true;
     }
-    // fallback: 旧逻辑(mode_votes 缺失时, 如存量旧数据)
+    return votes;
+  }
+  function _consensusVotesOf(it2) {
+    // mode_votes 单源优先(后端预计算); 缺失(存量旧数据)走前端表决器复刻同端口径——两分支不再各写一套
     const f2 = (it2.ai_macro && Array.isArray(it2.ai_macro.filters)) ? it2.ai_macro.filters : [];
+    const mv = (it2.ai_macro && it2.ai_macro.mode_votes) || _consensusFrontVotesOf(f2, it2);
     let y2 = 0;
     for (const pid of _CONSENSUS_PIDS) {
-      const m2 = _consMembers[pid] || {};
-      if (f2.some((fk) => m2[fk])) continue;
-      if (m2.bullAuxBackupStop && _isBullStopHit(it2)) continue;
-      y2++;
+      if (mv[pid]) y2++;
     }
+    // S06 第 8 票(统一契约 #95): base 可知(r6.ok)按当日生效基座(a9/new15)的票判; base 未知
+    //   (快照未加载/加载失败/日期超覆盖期/解析层缺失)一律 fail-open 计 1 票=保守放行,
+    //   与首页判定链(_isAiFadeHit)/common.js 降级契约同语义, 也与 CONS_TIP 公示句逐字一致。
     const r6 = (typeof _tdsS06BaseForDate === "function") ? _tdsS06BaseForDate(it2.date) : null;
-    if (r6 && r6.ok) {
-      const bm = _consMembers[r6.base] || {};
-      if (!(f2.some((fk) => bm[fk]) || (bm.bullAuxBackupStop && _isBullStopHit(it2)))) y2++;
-    } else {
-      y2++;
-    }
+    if (!r6 || !r6.ok || mv[r6.base]) y2++;
     return y2;
   }
   // X 固化表: per-mode per-date top-1 kept sets
@@ -4874,26 +4872,27 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   const _fixedKeptMapByMode = {};
   for (const pid of _CONSENSUS_PIDS) _fixedKeptMapByMode[pid] = {};
   {
+    // 统一表决(#95 同款): mode_votes 单源优先, 缺失走前端表决器(顺带补齐旧 fallback 漏掉的 bull 特判)
     for (const x of items) {
       if (!x || !_CONS_BUY[x.signal] || x._bt_in_universe === false) continue;
       const fx = (x.ai_macro && Array.isArray(x.ai_macro.filters)) ? x.ai_macro.filters : [];
-      const mv = x.ai_macro && x.ai_macro.mode_votes;
+      const mv = (x.ai_macro && x.ai_macro.mode_votes) || _consensusFrontVotesOf(fx, x);
       for (const pid of _CONSENSUS_PIDS) {
-        if (mv && !mv[pid]) continue;  // 该模式拦了, 跳过
-        if (!mv && fx.some((fk) => (_consMembers[pid] || {})[fk])) continue;  // fallback
+        if (!mv[pid]) continue;  // 该模式没投保留票(falsy=拦)则跳过——与旧版逐位一致的 mv 分支语义
         (_fixedKeptMapByMode[pid][x.date] = _fixedKeptMapByMode[pid][x.date] || []).push(x);
       }
     }
     // S06 mode
+    // #96(2026-08-27): base 未知(快照未就绪/加载失败/日期超覆盖期)=该笔不拦(fail-open 进当日候选参与
+    //   排序取 top1), 与 common.js 降级契约及 CONS_TIP 公示句「S06 快照不可用时该票按保留计」一致。
+    //   旧实现硬编码 new15 键集兜底实为 fail-closed, 会把 filters∩new15 的信号错误拦掉且无提示=注释与行为不符, 已删。
     _fixedKeptMapByMode["s06"] = {};
     for (const x of items) {
       if (!x || !_CONS_BUY[x.signal] || x._bt_in_universe === false) continue;
       const fx = (x.ai_macro && Array.isArray(x.ai_macro.filters)) ? x.ai_macro.filters : [];
+      const mv = (x.ai_macro && x.ai_macro.mode_votes) || _consensusFrontVotesOf(fx, x);
       const r6 = (typeof _tdsS06BaseForDate === "function") ? _tdsS06BaseForDate(x.date) : null;
-      const base = r6 && r6.ok ? r6.base : "new15";  // fail-open = new15
-      const mv = x.ai_macro && x.ai_macro.mode_votes;
-      if (mv && !mv[base]) continue;
-      if (!mv && fx.some((fk) => (_consMembers[base] || {})[fk])) continue;
+      if (r6 && r6.ok && !mv[r6.base]) continue;  // 当日生效基座没投保留票(falsy=拦)才跳过; base 未知→不拦(fail-open, #96)
       (_fixedKeptMapByMode["s06"][x.date] = _fixedKeptMapByMode["s06"][x.date] || []).push(x);
     }
     // Sort each mode×date and take top-1
@@ -6043,7 +6042,11 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         var _cx = _consParts[1];
         var _cxTxt = _cx === "na" ? "—" : (_cx === "1" ? "1·当日主推" : "0·非主推");
         var _dimCls = _cy === 0 ? " term-pop-consensus-dim" : ((_cy >= 6) ? " term-pop-consensus-hi" : "");
-        html += '<div class="term-pop-consensus' + _dimCls + '" data-no-pop="" title="' + _esc(CONS_TIP) + '">🤝 AI 信号认可度 <b>' + (isFinite(_cy) ? _cy : "—") + '/8 分</b> · K1 终审 <b>' + _cxTxt + '</b></div>';
+        // #96 可见降级(2026-08-27): 快照真实加载失败(err)时在认可度行内挂降级小字——Y/X 的 S06 票按保留计,
+        //   不静默; 仅 err 显示, 加载中/日期超覆盖期(数据常态)不打扰
+        var _s06Err = (typeof window._tdsS06Status === "function") ? window._tdsS06Status().err : null;
+        var _consDeg = _s06Err ? ' <span style="opacity:.65">· S06快照不可用(' + _esc(String(_s06Err)) + '),该票按保留计</span>' : "";
+        html += '<div class="term-pop-consensus' + _dimCls + '" data-no-pop="" title="' + _esc(CONS_TIP) + '">🤝 AI 信号认可度 <b>' + (isFinite(_cy) ? _cy : "—") + '/8 分</b> · K1 终审 <b>' + _cxTxt + '</b>' + _consDeg + '</div>';
       }
       if (locateHtml || idxLineHtml || etfMetaHtml || etfHtml) html += locateHtml + idxLineHtml + etfMetaHtml + etfHtml;
       pop.innerHTML = html;
