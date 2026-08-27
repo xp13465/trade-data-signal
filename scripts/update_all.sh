@@ -96,6 +96,24 @@ wait "$PID_FUTURES";  RC_FUTURES=$?
 wait "$PID_TURNOVER"; RC_TURNOVER=$?
 echo "pipeline 退出码: core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER (stock_daily PID=$PID_STOCK 仍在后台)" | tee -a "$LOG"
 
+# #11 基金全史净值（export_fund_nav, 弹窗净值走势数据源）——先刷产物再过闸门(fund_nav 时序倒挂修复 2026-08-27)
+# 原排在 O1 统一 deploy 之后, 而 deploy 内 check_data_integrity 抽样拿当晚已进新净值的 DB
+# 对昨晚产物逐位比对 -> 时序倒挂误拦(17:02/17:58 两连拦实证)。这里整体前置: 先全量重出
+# fund_nav 产物, 再让 O1 deploy 过数据完整性闸门; upload-fund-nav 上传环节仍留脚本后段原位不动。
+echo "-> 基金全史净值（export_fund_nav, 弹窗净值走势数据源, 先刷产物再过闸门）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/export_fund_nav.py" >> "$LOG" 2>&1
+FUND_NAV_RC=$?
+if [ "$FUND_NAV_RC" -ne 0 ]; then
+  # 硬闸门(codex review critical, 2026-08-25): 导出失败=fund_nav 产物未刷新, 绝不继续
+  # rsync+upload, 防把截断/过期净值发布被前端消费。显式告警写入日志, 不静默吞掉(L44)。
+  echo "【CRITICAL】export_fund_nav 失败(退出码 $FUND_NAV_RC), fund_nav 产物未刷新, 硬闸门跳过后续 fund_nav rsync+upload-fund-nav(§22 一致性)" | tee -a "$LOG"
+else
+  # export 写 JSON 到 $REPO/static-site/data/(trade-data), 同步到 trade/static-site/data/ 供
+  # upload_r2 + deploy(trade 跑时 no-op); 随 export 前置, O1 闸门校验到的就是刚刷新的最新产物
+  rsync -a --delete --checksum "$REPO/static-site/data/fund_nav/" "/Users/linhuichen/code/trade/static-site/data/fund_nav/" 2>>"$LOG" || \
+    echo "⚠ fund_nav rsync 同步失败, 可能发布不全" | tee -a "$LOG"
+fi
+
 # O1 收敛（2026-08-17 批次A）：4 条 pipeline 已各自完成采集+计算写入 DB，
 # deploy 从「每条 pipeline 各跑一遍完整 deploy（4 遍=88min 主因）」收敛为「统一 1 次完整 deploy」。
 # 此时所有 pipeline 采集已完成，build_board_etf_map/export 读到的 DB 是全量最新，
@@ -205,20 +223,13 @@ else
     echo "⚠ upload-fund-score R2上传失败（不阻塞主流程）" | tee -a "$LOG"
 fi
 
-# #11 基金弹窗净值走势(2026-08-25): 基金全史净值 fund_nav/{code}.json (26118只~566MB, 全量~41s)
-# 前端「净值走势」period tab 懒加载 R2 fund_nav/ 前缀; 复刻 #10 etf-hist 链路(增量指纹上传,
+# #11 基金弹窗净值走势 R2 上传(2026-08-25): 基金全史净值 fund_nav/{code}.json -> R2 fund_nav/
+# 前缀; 前端「净值走势」period tab 懒加载 R2 fund_nav/; 复刻 #10 etf-hist 链路(增量指纹上传,
 # 清盘基金序列冻结自然跳过); 当日净值多晚间公布, 入图最新通常为 T-1(走势历史场景无感)
-echo "-> 基金全史净值（export_fund_nav, 弹窗净值走势数据源）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/export_fund_nav.py" >> "$LOG" 2>&1
-FUND_NAV_RC=$?
-if [ "$FUND_NAV_RC" -ne 0 ]; then
-  # 硬闸门(codex review critical, 2026-08-25):导出失败(截断/DB锁/异常)绝不继续
-  # rsync+upload, 否则会把半途/过期净值发布到 R2 被前端消费。显式告警写入日志,
-  # 失败可见, 不静默吞掉(L44 教训: 不引入新静默失败)。
-  echo "【CRITICAL】export_fund_nav 失败(退出码 $FUND_NAV_RC), 硬闸门跳过 fund_nav rsync+upload-fund-nav, 防发布截断/过期净值(§22 一致性)" | tee -a "$LOG"
-else
-  rsync -a --delete --checksum "$REPO/static-site/data/fund_nav/" "/Users/linhuichen/code/trade/static-site/data/fund_nav/" 2>>"$LOG" || \
-    echo "⚠ fund_nav rsync 同步失败, 可能发布不全" | tee -a "$LOG"
+# (2026-08-27 fund_nav 时序倒挂修复: export_fund_nav.py + rsync 已整体前置到 O1 统一 deploy
+# 之前「先刷产物再过闸门」; 本处仅保留 upload-fund-nav 上传环节原位不动, FUND_NAV_RC!=0 即
+# export 失败时跳过上传 = 硬闸门语义不变)
+if [ "$FUND_NAV_RC" -eq 0 ]; then
   "$PY" "$REPO/scripts/upload_r2.py" upload-fund-nav >> "$LOG" 2>&1 || \
     echo "⚠ upload-fund-nav R2上传失败（不阻塞主流程）" | tee -a "$LOG"
 fi
