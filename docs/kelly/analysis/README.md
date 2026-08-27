@@ -1,4 +1,35 @@
 # analysis/ 凯利分析类报告索引
+
+## 📚 2026-08 降亏挖掘战役总结(总入口)
+
+> **总标语:A 进 NEW 守,C 简 B 庸;8键地基 9键现状,新王落地要换基座。**(逐字取自速查卡 `sim-combo-cheatsheet-20260823.md`)
+> **权威数字源**:`scripts/sim_window_loss_mining_20260822/data/mine24_compare.json`(七方案全维度 stats/windows/maxdd/bears/bulls/months26/k_sensitivity,**NEW14 权威键集=`new_keys` 字段、NEW2 18键=`new2_keys` 字段**)+ `data/mine25_longline_operable.json`(可操作长线 cap10/20/50 口径,G/H/I 重排序)。数字经独立审查二次验证(`mine23-24-review-20260823.md` 数字层 PASS),统一口径=mode A + K1 + etf_def 费后补位,trades generated_at=2026-08-23 05:09。
+> **⚠️ g2 门失真修正(读历史 json 前必看)**:历史挖掘 json 的 g2 门/帕累托字段曾因 `r2_common.py` L113 `ma_impr = base − new` 反号而失真(实际语义变成「5-8月多亏≥2500 才过门」);已修正为 `new−base` 并全链重跑(mine11→mine24 锚点 PASS),受影响存档移入 `scripts/sim_window_loss_mining_20260822/data/deprecated_g2bug_20260823/`。影响面/翻转清单/逐报告改句清单见 `g2-gate-audit-20260823.md`,原文:「门②确实失真,根因只有一处:`r2_common.py` L113 把「5-8月改善」算成了 base−new(与字段名 improve 相反)」。
+> **⚠️ 叠加 vs 换基座口径差**:A/B/C = 叠在 9键 上(P1 过滤后再叠加各组合 OR);NEW14/NEW2 18键 = 打破 8+1 的重构换基座(mode A 全池出发,黑名单=仅 NEW 键自身命中)。下拉切换交互与四消费点接入方案见 toggle 目录调研报告 `../toggle/ai-mode-dropdown-research-20260823.md`(Q2 七套组合数据来源定案/Q4 方法池对账)。
+
+### 七方案一句话定位 + 索引链
+
+| 方案 | 定位短标语(TASKS.md 已核口径,逐字) | 全史净利/mdd(mine24_compare 权威值) | 索引链(速查卡→报告锚点→数据 json→复现脚本) |
+|---|---|---|---|
+| **8键(P0)** | 现役地基·稳定参照(「长线友好」已被 mine25 可操作口径证伪) | +66,530.38 / −18,190.34(350天恢复,全场最深) | [速查卡一张表看全](sim-combo-cheatsheet-20260823.md#一张表看全元) → [一轮主报告 §11 全窗口成绩对照](sim-window-loss-mining-20260822.md#11-全窗口成绩对照用户质疑补跑-2026-08-22) → `mine24_compare.json` projects.`P0_8键` → `mine24_compare.py` |
+| **9键(P1)** | 8+候选1·牛市辅备买拦截 | +73,102.53 / −17,650.43 | 同上速查卡 → [一轮主报告 §6 时段级空仓候选(K1 候选1 出处)](sim-window-loss-mining-20260822.md#6-时段级空仓候选挖掘第一优先方向) → `mine24_compare.json` projects.`P1_9键` → `mine24_compare.py` + 一轮引擎 `run_all.py` |
+| **A on9** | 进攻王·近端牛市吃满 | +119,109.53 / −6,784.32;近1年 +26,630 与 2026YTD +15,574 双第一(mine26) | 速查卡 → [二轮 §4 正式候选检验(T1/Q1/M1)](sim-loss-mining-round2-20260822.md#4-正式候选完整检验mine1617vs-9键基线--8键一轮候选1) + [三轮 §3 四重检验(R2a/R2b/R2g)](sim-loss-mining-round3-substitute-20260822.md#3-四重检验mine1414b3-条全过6-条-fail) → `mine24_compare.json` projects.`A_on9` + `mine26_near1y.json` → `mine24_compare.py` |
+| **B on9** | 均衡卡·K档最钝感(**双正王名头因 g2 bug 作废**,真实挂因=5-8月改善−97 微恶化) | +109,571.60 / −12,408.44 | 速查卡 → 二轮 §4 + 三轮 §3(键构成同 A 族减 V1/R2a)+ [g2 审计 §A/B/C 布尔不翻结论](g2-gate-audit-20260823.md) → `mine24_compare.json` projects.`B_on9` → `mine24_compare.py` |
+| **C on9** | 保守防守·熊市少亏 | +107,113.48 / −4,331.51(19天恢复最快);胜率 64.4% | 速查卡 → 二轮 §4(N1/T1/D1/H1/P1 键族)+ [长线报告 §十一 九模式总对比](sim-longline-operable-20260823.md#十一九模式总对比a-i-全模式统一排序2026-08-23-主控令扩展) → `mine24_compare.json` projects.`C_on9` → `mine24_compare.py` |
+| **NEW 14键** | 新防守王·全史第一+回撤最浅 | **+122,648.33 第一 / −4,178.01 最浅**(胜率 66.9% 最高);键集=`new_keys` 14 条 | 速查卡(含支配解族 7 种等价表达) → [mine23/24 审查报告](mine23-24-review-20260823.md)(数字层 PASS)+ [可操作长线 §四 主表(G cap20 +190,829/I +195,051 双超 8键)](sim-longline-operable-20260823.md#四主表cap20默认推荐档20-万占用三模式6方案) + [mine30 设默认质疑核实](new14-default-challenge-mine30-20260824.md) → `mine24_compare.json` projects.`NEW_mine24_14键`+`new_keys` + `mine25_longline_operable.json` runs.G/I.·.20 → `mine24_compare.py` + `mine25_longline_operable.py` |
+| **NEW2 18键** | NEW 影子·入选差31笔(族内唯一真不同次优解) | +120,564.54 / −4,083.63(回撤比 NEW14 浅 94 元但净利少 2,084);键集=`new2_keys` 18 条 | 速查卡(支配解族第 8 条) → mine23/24 审查报告 → `mine24_compare.json` projects.`NEW2_18键变体`+`new2_keys` → `mine24_compare.py` |
+
+### 配套专区索引
+
+- **帕累托前沿风险滑条**(净利换回撤 5 档:+122,648/−4,178 起步至极守档 +84,908/−1,691):速查卡[「帕累托前沿风险滑条」节](sim-combo-cheatsheet-20260823.md#帕累托前沿风险滑条frontier-32-条聚成-5-档收益换回撤)
+- **近1年窗口双榜**(收益王=A on9:主口径最近12自然月 +25,641 / 滚动365口径 +26,630(=mine24 windows.近1年);平稳榜=C on9 有水分注):`near-1y-stability-rank-20260823.md` + `scripts/sim_window_loss_mining_20260822/data/mine26_near1y.json` → 脚本 `mine26_near1y.py`
+- **G 模式全穷举+躺平手法**(强平型大池占优 vs 躺平型 NEW14 三资金档全第一):`g-mode-exhaustive-simplified-20260823.md` + `scripts/sim_window_loss_mining_20260822/data/mine27_g_exhaustive_simplified.json` → 脚本 `scripts/sim_window_loss_mining_20260822/mine27_g_exhaustive_simplified.py`
+- **AUTO 状态轮动存在性验证**(样本外不成立,38,220 组合穷举):`regime-mode-rotation-research-20260823.md` + `scripts/sim_window_loss_mining_20260822/data/mine28_regime_rotation.json` → 脚本 `scripts/sim_window_loss_mining_20260822/mine28_regime_rotation.py`
+- **NEW14+剔象限(14+1)证伪**:quadrant-drop-14plus1-mine29-20260823.md(含 08-24 勘误)+ `scripts/sim_window_loss_mining_20260822/data/mine29_quadrant_drop_14plus1.json` → 脚本 `scripts/sim_window_loss_mining_20260822/mine29_quadrant_drop_14plus1.py`
+- **方法论文调研档案**(9 大方向 22 方法,后续挖掘先查它防重跑):method-survey-loss-filter-20260822.md
+- **toggle 交互落地目录**:`../toggle/README.md`(总览)/ ai-mode-dropdown-research-20260823.md(下拉 7 方案调研)/ kelly-loss-reduction-toggle-plan.md・kelly-loss-reduction-toggle-v2-plan.md(历版 toggle 方案)
+- 以上脚本均位于 `scripts/sim_window_loss_mining_20260822/`,数据位于其 `data/` 子目录;§23.5 复现命令见各报告末尾「## 复现」节。
+
 | kelly-quadrant-loss-elimination.md | **亏损象限识别与剔除验证:用户假设 y1 成立/全周期不成立,细粒度子群降亏键是正解,候选 K2C5港股追涨/K3主关注×概念**(2026-08-15;数据 `data/kelly-quadrant-mining-data.json`+脚本 `scripts/quadrant_mining/`10个)。**§7 口径补测(2026-08-15)**:初版用裸 G(不可操作)测,用户质疑后按 v1.0.0 基准重测(G 用 13万 P≤3d 可操作口径 + F 等 9 模式全测),结论:降亏键对 A/F 短持正贡献、对可操作 G 转负(路径噪声),依玩法模式分裂,结论以 §7 为准。补测数据 `data/kelly-quadrant-opg-data.json`+脚本 `kelly_opg_engine.py`/`kelly_opg_yearly.py` |
 
 > 认知差/费率/收益线性/时机/卡间水印等分析类报告。**如何新增**:报告放本目录(`kelly-<主题>.md`),脚本放 `scripts/`,并同步更新本索引。
