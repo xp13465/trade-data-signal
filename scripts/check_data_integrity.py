@@ -1060,6 +1060,27 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
         conn = sqlite3.connect(str(db), timeout=5.0)
         try:
             mismatch = []
+
+            def _dir_note(g0, e0) -> str:
+                """方向注记(2026-08-27 文案修): got/exp 均按日期降序, [0]=最新一条。
+
+                旧文案打 got[-1]/exp[-1](尾3 中最旧一条), 观感像"DB 缺一天", 而真实多数
+                场景是"DB 多了新净值、产物待重出"(fund_nav 时序倒挂; 根治见 update_all.sh
+                先 export 再过闸)。此处取两侧最新一条 + 按最新日期差自动标注方向与天数,
+                并打印完整尾3 序列便于逐位核对。日期格式=DB/产物一致的 YYYYMMDD text。
+                """
+                try:
+                    g = datetime.strptime(str(g0), "%Y%m%d").date()
+                    e = datetime.strptime(str(e0), "%Y%m%d").date()
+                except (ValueError, TypeError):
+                    return "方向未知: 最新日期无法解析(人工核对)"
+                gap = (g - e).days
+                if gap > 0:
+                    return f"DB 领先产物 {gap} 天(新净值已入库, 产物待重出)"
+                if gap < 0:
+                    return f"DB 落后产物 {abs(gap)} 天(数据缺失)"
+                return "最新日期相同但数值不一致(疑似净值修正)"
+
             for f in sample:
                 d, err = _load_json(f)
                 if err or not isinstance(d, dict):
@@ -1073,9 +1094,11 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
                 got = [(r[0], r[1], r[2]) for r in rows]
                 exp = [(r[0], r[1], r[2]) for r in list(reversed(d.get("nav", [])))[:3]]
                 if got != exp:
+                    note = _dir_note(got[0][0] if got else None, exp[0][0] if exp else None)
                     mismatch.append(
-                        f"{code}: DB尾3={got[-1] if got else '[]'} vs "
-                        f"产物尾3={exp[-1] if exp else '[]'}")
+                        f"{code}: [{note}] "
+                        f"DB最新={got[0] if got else '[]'} vs 产物最新={exp[0] if exp else '[]'}; "
+                        f"DB尾3={got} vs 产物尾3={exp}")
             if mismatch:
                 return _fail(name, "DB↔产物不一致: " + "; ".join(mismatch[:3]))
         finally:
