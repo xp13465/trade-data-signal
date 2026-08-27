@@ -8,7 +8,16 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-27(v1.1.7 前端三bug修复+审计).本轮:
+**最后更新**:2026-08-27 23:45(v1.1.7 收官:全批次上线+a466+双闸自愈闭环).本轮:
+- **✅ 全部批次上线**:七支(见下块)→ 韧性批+fundnav 止血 ea670309e → severe 扩面 012ee47f21 → xcount 五处对齐 703076de3(**a466**,sw v6 统一 bump,A/B 双检 PASS)。23:38 public_fund_full deploy rc=0 = §24⑤+§23.6 双闸自愈闭环(sw_801030 修复 49a644d21 生效)。
+- **✅ X计数五处对齐上线**:内审 PASS 零必修+F1/F2 追加批 81d99fcef(前缀「K1终审」→「当日认可」+冒烟 S6 逐条比对);主推=当日票数最多唯一支(平票取跟踪分高)。**待办:明天 tester 跑 xcount-consensus-smoke.js 上线冒烟**(需 HEAD 新源 build_min)。
+- **✅ H档卖法拍板维持现状**(用户两轮拍板;首报误标"现役默认NEW14+1"已纠正,实际默认=S06);PK 产物 cc/+h-ext/+codex 壳(445B 无数字待其补卷)落档;价源残差 ~+9.7元/笔(raw 高估 8%~40%,adjusted 权威)入 memory。
+- **✅ codex 三报告消化(§23.14 参考性质)**:001 共识票/008 fundnav 止血=PASS 追认;002 FAIL 4问题(假经理名 P1/重采风暴 P1/2×P2)→ **#14 明天 researcher 核实后修**。
+- **✅ fundfull 虚惊结案**(22:00 链零故障,exit1=防白屏闸正确拦)+ **#6 场外走势图实证已完成销账**(8-25 落地,线上实证)+ **#10 韧性批标完成**(T4 东财拍板落地)。
+- **📋 新观察项待拍板**:①update_all 吞 deploy 退出码(launchctl 永远全绿)②pipeline 直传 R2 绕 deploy 闸(§22 一致性窗口)③汪汪队 schedule_stats exit=2 与实链 rc=0 错位 ④FRESH_MSG 秒级时间戳致 SEVERE dedup key 漂移(多发不漏发)⑤deploy_1120.log 214B 待查。另:公募 4 问题见 #14;#103-105 已登记 pending-index 等用户启动。
+- **⏳ 明天**:#14 公募核实修 + stock_daily 补采(~1.5h 盘前)+ xcount 上线冒烟 + 验 GH Actions 发 a466 + codex PK 补卷合表。
+
+**前次更新**:2026-08-27 午前(v1.1.7 前端三bug修复+审计).本轮:
 - **✅ S06 AI降亏灰标不生效修复(a274d3ffb)**:app.js:5047 降亏 badge 判定用 `_aiOnMembers[fk]`（S06 下永远空）→ 改用 `_tdsS06FiltersForDate(it.date)` 按日期取基座键集。重渲染机制(tds-s06-state-ready)确保首次加载后灰标生效。
 - **✅ TDZ "Cannot access before initialization" 根治(三连修)**:`_isDayFull` 函数在 let 变量声明前被调用→删除独立函数 inline 到 filter；groups/dates 移到 posCap 前。
 - **✅ 「仅显示可用信号」Step2 当日已满过滤失效(e54eeb565)**:根因=`_posCapKeptMap` 存对象引用，多次 re-render 创建新对象→`.has()` 引用比较永远 false。修复=全部 key 化（`index_id|date|signal`），6 处消费点统一改 key 比较。

@@ -183,3 +183,18 @@
 - [x] **#42 信号类型统计补卖/止损信号的数量对错正确率** — feat/warning-signal-stats 合入(a411,9a1f10d4a)
 - [x] **#45 警示模块调整:撤波段持有行+三类chip悬浮说明** — feat/warn-chip-tweak 合入(a412,2fa7d795e)
 - [x] **#44 has_track 归类修复+X1 扩围批** — 「有跟踪ETF」卡补装 null 档(卡 1,604→1,982 待盘后回测重跑生效)+X1 扩围剔 none+null(3387cfaad,a413 上线已验);特征快照数组化+R2 同步完成(generated_at 08-24 17:07,md5 双树一致,X1 spec=["none","null"]);数字口径勘误落档(0a85c3963);剩余尾巴(has_track 卡数据扩容)归 #47 盘后闭环
+
+## 2026-08-27 晚批收官移入(8 条)
+
+> v1.1.7 收官批次:午前七支 + 韧性/fundnav/severe/xcount 晚间链,版本串 a463→a466。§23.12 四态流转:完成→本文件。
+
+- [x] **数据源韧性批(feat/datasource-resilience)** — baostock 封禁熔断根治+多源 fallback 链(fc7f8b8fe);T4 用户拍板批准东财替腾讯 turnover 备份(同源 grep 验证=链路多样性 mootdx→baostock→东财);codex rev-007 PASS(4×P3 归档)
+- [x] **fund_nav 时序止血+gate order(feat/fundnav-gate-order)** — export 前置过闸消 DB/产物时序倒挂(8b671f549)+导出失败 SEVERE 升级(e9be32a4d);codex rev-008 PASS 追认
+- [x] **sw_801030 universe 断闸修复** — 化工ETF易方达(158017)上市致 yaml 排除清单过时,assertion4 FAIL 堵全天 deploy;删 yaml 行+双场景验证(49a644d21)+调研落档 docs/ops/sw801030-universe-conflict-20260827.md(724712984)
+- [x] **导出失败 SEVERE 扩面(feat/severe-export-expand)** — etf_hist/fund_score/etf_score_list 三处对齐 fund_nav 样板升 SEVERE+dedup 防噪(ab5976532→merge 012ee47f21);内审 PASS 零必修
+- [x] **首页AI信号认可度X位五处对齐(feat/x-count-full-alignment)** — 修 412653ffd 无拍板口径漂移致 x≥2 错显「0·非主推」(23/196 笔);主推=当日票数最多唯一支(平票取跟踪分),渲染/tooltip/注释/公示/机检五处对齐+F1 前缀「K1终审」→「当日认可」+F2 冒烟逐条比对口(66f581af4+132dd191a+81d99fcef→merge 703076de3 bump a466);内审 PASS 零必修;拍板追认记录 docs/ops/homepage-ai-endorsement-semantic-audit-20260827.md
+- [x] **H档卖法全维度补测+拍板维持现状** — hold-ext-pk-20260827/ 双跑落档(cc+h-ext),最优 HT20:cap13 下 S06 +13,263/A on9 +15,202/NEW14+1 +3,221,占用峰值 14 万不破 20 倍线,K≤10 按年/分半/熊市窗全正;用户两轮拍板维持现役 10 日卖不切;价源残差 ~+9.7元/笔(raw 高估 8%~40%,adjusted 权威)入 memory
+- [x] **public_fund_full「静默未跑」排查(虚惊结案)** — 昨晚 exit=1=§24⑤ 防白屏闸正确拦截(今日自愈),采集/导出链零故障零改动;诊断证据 /tmp/agent-progress-fundfull-diag.md
+- [x] **#6 场外基金弹窗净值走势(补销账)** — 2026-08-25 已落地(app.js #11 基金弹窗净值走势整套:复刻 ETF 走势交互+R2 fund_nav/{code}.json 懒加载+payload 校验+竞态防护);线上 app.min.js 含功能串+R2 数据在位双实证,用户质疑后核实补登记
+
+**遗留待拍板(→TASKS 观察项)**:update_all 吞 deploy rc / pipeline 直传绕 deploy 闸 / 汪汪队 stats 错位 / FRESH_MSG dedup 漂移 / codex-002 公募 4 问题(任务 #14 明天核实修)。

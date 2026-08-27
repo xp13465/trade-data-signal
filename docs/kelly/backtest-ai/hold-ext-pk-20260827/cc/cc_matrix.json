@@ -1,0 +1,3283 @@
+{
+ "meta": {
+  "executor": "Claude Code(cc侧)",
+  "generated_at": "2026-08-27 05:01",
+  "today_str": "20260826",
+  "span_years": 15.6,
+  "near1y_cutoff": "20250826",
+  "cap_main": 13,
+  "fee": "FP_DEF etf_def 佣万3/min5+滑千1+沪过户万0.1+卖印花万5, PRIN=10000(K1账本)",
+  "replay_method": "mine27.replay3 'v2回补极简' cap13",
+  "variants_note": "BASE=10td固定卖; V1=亏单等净回本收盘卖; V2=亏单等sell+sell_stop_loss信号日收盘卖; V2G=sell-only; V2T1=V2次日开盘成交(敏感性)",
+  "v2_types_main": [
+   "sell",
+   "sell_stop_loss"
+  ],
+  "d_tier_pending": "用户\"D档\"未检索到定义, 待拍板"
+ },
+ "ledger": {
+  "s06": {
+   "BASE": {
+    "n": 523,
+    "total": 140583.07,
+    "total_realized": 141292.23,
+    "total_censored_open": -709.16,
+    "n_realized": 518,
+    "n_censored": 5,
+    "win_rate_realized_pct": 68.1,
+    "win_rate_incl_cens_pct": 67.7,
+    "mdd_realized": -4415.5,
+    "mdd_trough": "20190107"
+   },
+   "V1": {
+    "n": 523,
+    "total": 201781.37,
+    "total_realized": 215013.79,
+    "total_censored_open": -13232.42,
+    "n_realized": 510,
+    "n_censored": 13,
+    "win_rate_realized_pct": 100.0,
+    "win_rate_incl_cens_pct": 97.7,
+    "mdd_realized": 0.0,
+    "mdd_trough": null
+   },
+   "V2": {
+    "n": 523,
+    "total": 159971.99,
+    "total_realized": 160990.52,
+    "total_censored_open": -1018.53,
+    "n_realized": 513,
+    "n_censored": 10,
+    "win_rate_realized_pct": 75.6,
+    "win_rate_incl_cens_pct": 74.8,
+    "mdd_realized": -6353.54,
+    "mdd_trough": "20240130"
+   },
+   "V2G": {
+    "n": 523,
+    "total": 229303.59,
+    "total_realized": 224813.79,
+    "total_censored_open": 4489.8,
+    "n_realized": 499,
+    "n_censored": 24,
+    "win_rate_realized_pct": 85.6,
+    "win_rate_incl_cens_pct": 83.6,
+    "mdd_realized": -9743.37,
+    "mdd_trough": "20240408"
+   },
+   "V2T1": {
+    "n": 523,
+    "total": 157982.42,
+    "total_realized": 159000.95,
+    "total_censored_open": -1018.53,
+    "n_realized": 513,
+    "n_censored": 10,
+    "win_rate_realized_pct": 76.2,
+    "win_rate_incl_cens_pct": 75.3,
+    "mdd_realized": -6661.84,
+    "mdd_trough": "20240131"
+   }
+  },
+  "a9": {
+   "BASE": {
+    "n": 575,
+    "total": 118940.21,
+    "total_realized": 119649.37,
+    "total_censored_open": -709.16,
+    "n_realized": 570,
+    "n_censored": 5,
+    "win_rate_realized_pct": 63.2,
+    "win_rate_incl_cens_pct": 62.8,
+    "mdd_realized": -6784.32,
+    "mdd_trough": "20220510"
+   },
+   "V1": {
+    "n": 575,
+    "total": 202122.09,
+    "total_realized": 214127.71,
+    "total_censored_open": -12005.62,
+    "n_realized": 561,
+    "n_censored": 14,
+    "win_rate_realized_pct": 100.0,
+    "win_rate_incl_cens_pct": 97.7,
+    "mdd_realized": 0.0,
+    "mdd_trough": null
+   },
+   "V2": {
+    "n": 575,
+    "total": 129546.35,
+    "total_realized": 130690.81,
+    "total_censored_open": -1144.46,
+    "n_realized": 564,
+    "n_censored": 11,
+    "win_rate_realized_pct": 70.2,
+    "win_rate_incl_cens_pct": 69.4,
+    "mdd_realized": -15412.47,
+    "mdd_trough": "20220425"
+   },
+   "V2G": {
+    "n": 575,
+    "total": 209536.43,
+    "total_realized": 201707.99,
+    "total_censored_open": 7828.44,
+    "n_realized": 548,
+    "n_censored": 27,
+    "win_rate_realized_pct": 81.9,
+    "win_rate_incl_cens_pct": 80.3,
+    "mdd_realized": -27478.69,
+    "mdd_trough": "20220715"
+   },
+   "V2T1": {
+    "n": 575,
+    "total": 128319.3,
+    "total_realized": 129463.76,
+    "total_censored_open": -1144.46,
+    "n_realized": 564,
+    "n_censored": 11,
+    "win_rate_realized_pct": 70.7,
+    "win_rate_incl_cens_pct": 69.9,
+    "mdd_realized": -15602.03,
+    "mdd_trough": "20220426"
+   }
+  },
+  "new15": {
+   "BASE": {
+    "n": 410,
+    "total": 118818.33,
+    "total_realized": 118614.06,
+    "total_censored_open": 204.28,
+    "n_realized": 408,
+    "n_censored": 2,
+    "win_rate_realized_pct": 67.9,
+    "win_rate_incl_cens_pct": 67.8,
+    "mdd_realized": -3410.44,
+    "mdd_trough": "20220325"
+   },
+   "V1": {
+    "n": 410,
+    "total": 155144.54,
+    "total_realized": 177964.93,
+    "total_censored_open": -22820.39,
+    "n_realized": 401,
+    "n_censored": 9,
+    "win_rate_realized_pct": 100.0,
+    "win_rate_incl_cens_pct": 98.0,
+    "mdd_realized": 0.0,
+    "mdd_trough": null
+   },
+   "V2": {
+    "n": 410,
+    "total": 134232.13,
+    "total_realized": 135362.89,
+    "total_censored_open": -1130.76,
+    "n_realized": 406,
+    "n_censored": 4,
+    "win_rate_realized_pct": 75.6,
+    "win_rate_incl_cens_pct": 75.1,
+    "mdd_realized": -6353.54,
+    "mdd_trough": "20240130"
+   },
+   "V2G": {
+    "n": 410,
+    "total": 191061.28,
+    "total_realized": 189236.96,
+    "total_censored_open": 1824.32,
+    "n_realized": 397,
+    "n_censored": 13,
+    "win_rate_realized_pct": 85.1,
+    "win_rate_incl_cens_pct": 83.9,
+    "mdd_realized": -8199.26,
+    "mdd_trough": "20240408"
+   },
+   "V2T1": {
+    "n": 410,
+    "total": 131836.5,
+    "total_realized": 132967.27,
+    "total_censored_open": -1130.76,
+    "n_realized": 406,
+    "n_censored": 4,
+    "win_rate_realized_pct": 75.9,
+    "win_rate_incl_cens_pct": 75.4,
+    "mdd_realized": -6661.84,
+    "mdd_trough": "20240131"
+   }
+  },
+  "new14": {
+   "BASE": {
+    "n": 431,
+    "total": 122852.61,
+    "total_realized": 122648.33,
+    "total_censored_open": 204.28,
+    "n_realized": 429,
+    "n_censored": 2,
+    "win_rate_realized_pct": 66.9,
+    "win_rate_incl_cens_pct": 66.8,
+    "mdd_realized": -4178.01,
+    "mdd_trough": "20240913"
+   },
+   "V1": {
+    "n": 431,
+    "total": 166444.9,
+    "total_realized": 189265.29,
+    "total_censored_open": -22820.39,
+    "n_realized": 422,
+    "n_censored": 9,
+    "win_rate_realized_pct": 100.0,
+    "win_rate_incl_cens_pct": 98.1,
+    "mdd_realized": 0.0,
+    "mdd_trough": null
+   },
+   "V2": {
+    "n": 431,
+    "total": 137652.67,
+    "total_realized": 138783.43,
+    "total_censored_open": -1130.76,
+    "n_realized": 427,
+    "n_censored": 4,
+    "win_rate_realized_pct": 74.9,
+    "win_rate_incl_cens_pct": 74.5,
+    "mdd_realized": -8539.67,
+    "mdd_trough": "20240130"
+   },
+   "V2G": {
+    "n": 431,
+    "total": 199589.88,
+    "total_realized": 197664.56,
+    "total_censored_open": 1925.32,
+    "n_realized": 417,
+    "n_censored": 14,
+    "win_rate_realized_pct": 84.7,
+    "win_rate_incl_cens_pct": 83.5,
+    "mdd_realized": -10680.36,
+    "mdd_trough": "20240408"
+   },
+   "V2T1": {
+    "n": 431,
+    "total": 135011.42,
+    "total_realized": 136142.19,
+    "total_censored_open": -1130.76,
+    "n_realized": 427,
+    "n_censored": 4,
+    "win_rate_realized_pct": 75.2,
+    "win_rate_incl_cens_pct": 74.7,
+    "mdd_realized": -9771.1,
+    "mdd_trough": "20240131"
+   }
+  },
+  "p0": {
+   "BASE": {
+    "n": 1129,
+    "total": 66692.97,
+    "total_realized": 67648.37,
+    "total_censored_open": -955.4,
+    "n_realized": 1122,
+    "n_censored": 7,
+    "win_rate_realized_pct": 52.7,
+    "win_rate_incl_cens_pct": 52.4,
+    "mdd_realized": -18190.34,
+    "mdd_trough": "20231031"
+   },
+   "V1": {
+    "n": 1129,
+    "total": 269374.41,
+    "total_realized": 315854.18,
+    "total_censored_open": -46479.78,
+    "n_realized": 1092,
+    "n_censored": 37,
+    "win_rate_realized_pct": 100.0,
+    "win_rate_incl_cens_pct": 96.8,
+    "mdd_realized": 0.0,
+    "mdd_trough": null
+   },
+   "V2": {
+    "n": 1129,
+    "total": 103286.24,
+    "total_realized": 109223.84,
+    "total_censored_open": -5937.6,
+    "n_realized": 1103,
+    "n_censored": 26,
+    "win_rate_realized_pct": 62.6,
+    "win_rate_incl_cens_pct": 61.8,
+    "mdd_realized": -30109.23,
+    "mdd_trough": "20240130"
+   },
+   "V2G": {
+    "n": 1129,
+    "total": 390517.2,
+    "total_realized": 351822.12,
+    "total_censored_open": 38695.08,
+    "n_realized": 1048,
+    "n_censored": 81,
+    "win_rate_realized_pct": 78.5,
+    "win_rate_incl_cens_pct": 76.2,
+    "mdd_realized": -37755.82,
+    "mdd_trough": "20240408"
+   },
+   "V2T1": {
+    "n": 1129,
+    "total": 96868.54,
+    "total_realized": 102806.14,
+    "total_censored_open": -5937.6,
+    "n_realized": 1103,
+    "n_censored": 26,
+    "win_rate_realized_pct": 62.6,
+    "win_rate_incl_cens_pct": 61.8,
+    "mdd_realized": -32955.31,
+    "mdd_trough": "20240131"
+   }
+  },
+  "p1": {
+   "BASE": {
+    "n": 1035,
+    "total": 73265.12,
+    "total_realized": 74220.52,
+    "total_censored_open": -955.4,
+    "n_realized": 1028,
+    "n_censored": 7,
+    "win_rate_realized_pct": 53.2,
+    "win_rate_incl_cens_pct": 52.9,
+    "mdd_realized": -17650.43,
+    "mdd_trough": "20231031"
+   },
+   "V1": {
+    "n": 1035,
+    "total": 259384.74,
+    "total_realized": 295122.49,
+    "total_censored_open": -35737.75,
+    "n_realized": 1005,
+    "n_censored": 30,
+    "win_rate_realized_pct": 100.0,
+    "win_rate_incl_cens_pct": 97.2,
+    "mdd_realized": 0.0,
+    "mdd_trough": null
+   },
+   "V2": {
+    "n": 1035,
+    "total": 112694.58,
+    "total_realized": 115579.13,
+    "total_censored_open": -2884.55,
+    "n_realized": 1010,
+    "n_censored": 25,
+    "win_rate_realized_pct": 63.4,
+    "win_rate_incl_cens_pct": 62.6,
+    "mdd_realized": -26549.47,
+    "mdd_trough": "20240130"
+   },
+   "V2G": {
+    "n": 1035,
+    "total": 393454.16,
+    "total_realized": 334890.54,
+    "total_censored_open": 58563.61,
+    "n_realized": 964,
+    "n_censored": 71,
+    "win_rate_realized_pct": 78.8,
+    "win_rate_incl_cens_pct": 77.1,
+    "mdd_realized": -35851.3,
+    "mdd_trough": "20240408"
+   },
+   "V2T1": {
+    "n": 1035,
+    "total": 106349.24,
+    "total_realized": 109233.79,
+    "total_censored_open": -2884.55,
+    "n_realized": 1010,
+    "n_censored": 25,
+    "win_rate_realized_pct": 63.5,
+    "win_rate_incl_cens_pct": 62.7,
+    "mdd_realized": -29421.6,
+    "mdd_trough": "20240131"
+   }
+  }
+ },
+ "replay_cap13": {
+  "s06": {
+   "BASE": {
+    "n_bought": 523,
+    "n_forced_liq": 0,
+    "n_skipped": 0,
+    "n_natural_sell": 518,
+    "n_holding_end": 5,
+    "realized_pnl": 141292.23,
+    "unrealized_pnl": -709.16,
+    "total_merged": 140583.07,
+    "realized_winrate": 68.1,
+    "peak_pos_n": 10,
+    "peak_occupancy_yuan": 100000,
+    "ops_per_year": 66.73,
+    "skipped_mtm_if_bought": 0,
+    "mdd_merged": -4415.5
+   },
+   "V1": {
+    "n_bought": 478,
+    "n_forced_liq": 0,
+    "n_skipped": 45,
+    "n_natural_sell": 466,
+    "n_holding_end": 12,
+    "realized_pnl": 183643.69,
+    "unrealized_pnl": -10066.69,
+    "total_merged": 173577.0,
+    "realized_winrate": 100.0,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 60.51,
+    "skipped_mtm_if_bought": 28204.37,
+    "mdd_merged": -10066.69
+   },
+   "V2": {
+    "n_bought": 523,
+    "n_forced_liq": 0,
+    "n_skipped": 0,
+    "n_natural_sell": 513,
+    "n_holding_end": 10,
+    "realized_pnl": 160990.52,
+    "unrealized_pnl": -1018.53,
+    "total_merged": 159971.99,
+    "realized_winrate": 75.6,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 66.41,
+    "skipped_mtm_if_bought": 0,
+    "mdd_merged": -6353.54
+   },
+   "V2G": {
+    "n_bought": 386,
+    "n_forced_liq": 0,
+    "n_skipped": 137,
+    "n_natural_sell": 373,
+    "n_holding_end": 13,
+    "realized_pnl": 140188.17,
+    "unrealized_pnl": 5537.58,
+    "total_merged": 145725.76,
+    "realized_winrate": 85.0,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 48.65,
+    "skipped_mtm_if_bought": 83577.83,
+    "mdd_merged": -7903.62
+   },
+   "V2T1": {
+    "n_bought": 523,
+    "n_forced_liq": 0,
+    "n_skipped": 0,
+    "n_natural_sell": 513,
+    "n_holding_end": 10,
+    "realized_pnl": 159000.95,
+    "unrealized_pnl": -1018.53,
+    "total_merged": 157982.42,
+    "realized_winrate": 76.2,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 66.41,
+    "skipped_mtm_if_bought": 0,
+    "mdd_merged": -6661.84
+   }
+  },
+  "a9": {
+   "BASE": {
+    "n_bought": 575,
+    "n_forced_liq": 0,
+    "n_skipped": 0,
+    "n_natural_sell": 570,
+    "n_holding_end": 5,
+    "realized_pnl": 119649.37,
+    "unrealized_pnl": -709.16,
+    "total_merged": 118940.21,
+    "realized_winrate": 63.2,
+    "peak_pos_n": 10,
+    "peak_occupancy_yuan": 100000,
+    "ops_per_year": 73.4,
+    "skipped_mtm_if_bought": 0,
+    "mdd_merged": -6784.32
+   },
+   "V1": {
+    "n_bought": 442,
+    "n_forced_liq": 0,
+    "n_skipped": 133,
+    "n_natural_sell": 429,
+    "n_holding_end": 13,
+    "realized_pnl": 143633.09,
+    "unrealized_pnl": -11975.34,
+    "total_merged": 131657.76,
+    "realized_winrate": 100.0,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 55.83,
+    "skipped_mtm_if_bought": 70464.33,
+    "mdd_merged": -11975.34
+   },
+   "V2": {
+    "n_bought": 570,
+    "n_forced_liq": 0,
+    "n_skipped": 5,
+    "n_natural_sell": 559,
+    "n_holding_end": 11,
+    "realized_pnl": 130344.31,
+    "unrealized_pnl": -1144.46,
+    "total_merged": 129199.85,
+    "realized_winrate": 70.3,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 72.37,
+    "skipped_mtm_if_bought": 346.5,
+    "mdd_merged": -15320.85
+   },
+   "V2G": {
+    "n_bought": 369,
+    "n_forced_liq": 0,
+    "n_skipped": 206,
+    "n_natural_sell": 356,
+    "n_holding_end": 13,
+    "realized_pnl": 106100.65,
+    "unrealized_pnl": 6998.86,
+    "total_merged": 113099.51,
+    "realized_winrate": 80.9,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 46.47,
+    "skipped_mtm_if_bought": 96436.91,
+    "mdd_merged": -14465.05
+   },
+   "V2T1": {
+    "n_bought": 568,
+    "n_forced_liq": 0,
+    "n_skipped": 7,
+    "n_natural_sell": 557,
+    "n_holding_end": 11,
+    "realized_pnl": 129409.97,
+    "unrealized_pnl": -1144.46,
+    "total_merged": 128265.51,
+    "realized_winrate": 70.9,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 72.12,
+    "skipped_mtm_if_bought": 53.79,
+    "mdd_merged": -15485.03
+   }
+  },
+  "new15": {
+   "BASE": {
+    "n_bought": 410,
+    "n_forced_liq": 0,
+    "n_skipped": 0,
+    "n_natural_sell": 408,
+    "n_holding_end": 2,
+    "realized_pnl": 118614.06,
+    "unrealized_pnl": 204.28,
+    "total_merged": 118818.33,
+    "realized_winrate": 67.9,
+    "peak_pos_n": 10,
+    "peak_occupancy_yuan": 100000,
+    "ops_per_year": 52.44,
+    "skipped_mtm_if_bought": 0,
+    "mdd_merged": -3410.44
+   },
+   "V1": {
+    "n_bought": 341,
+    "n_forced_liq": 0,
+    "n_skipped": 69,
+    "n_natural_sell": 333,
+    "n_holding_end": 8,
+    "realized_pnl": 136204.87,
+    "unrealized_pnl": -19654.66,
+    "total_merged": 116550.21,
+    "realized_winrate": 100.0,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 43.21,
+    "skipped_mtm_if_bought": 38594.33,
+    "mdd_merged": -19654.66
+   },
+   "V2": {
+    "n_bought": 410,
+    "n_forced_liq": 0,
+    "n_skipped": 0,
+    "n_natural_sell": 406,
+    "n_holding_end": 4,
+    "realized_pnl": 135362.89,
+    "unrealized_pnl": -1130.76,
+    "total_merged": 134232.13,
+    "realized_winrate": 75.6,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 52.31,
+    "skipped_mtm_if_bought": 0,
+    "mdd_merged": -6353.54
+   },
+   "V2G": {
+    "n_bought": 340,
+    "n_forced_liq": 0,
+    "n_skipped": 70,
+    "n_natural_sell": 328,
+    "n_holding_end": 12,
+    "realized_pnl": 138903.13,
+    "unrealized_pnl": 1853.57,
+    "total_merged": 140756.7,
+    "realized_winrate": 84.8,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 42.82,
+    "skipped_mtm_if_bought": 50304.58,
+    "mdd_merged": -4582.25
+   },
+   "V2T1": {
+    "n_bought": 410,
+    "n_forced_liq": 0,
+    "n_skipped": 0,
+    "n_natural_sell": 406,
+    "n_holding_end": 4,
+    "realized_pnl": 132967.27,
+    "unrealized_pnl": -1130.76,
+    "total_merged": 131836.5,
+    "realized_winrate": 75.9,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 52.31,
+    "skipped_mtm_if_bought": 0,
+    "mdd_merged": -6661.84
+   }
+  },
+  "new14": {
+   "BASE": {
+    "n_bought": 431,
+    "n_forced_liq": 0,
+    "n_skipped": 0,
+    "n_natural_sell": 429,
+    "n_holding_end": 2,
+    "realized_pnl": 122648.33,
+    "unrealized_pnl": 204.28,
+    "total_merged": 122852.61,
+    "realized_winrate": 66.9,
+    "peak_pos_n": 10,
+    "peak_occupancy_yuan": 100000,
+    "ops_per_year": 55.13,
+    "skipped_mtm_if_bought": 0,
+    "mdd_merged": -4178.01
+   },
+   "V1": {
+    "n_bought": 345,
+    "n_forced_liq": 0,
+    "n_skipped": 86,
+    "n_natural_sell": 337,
+    "n_holding_end": 8,
+    "realized_pnl": 137116.64,
+    "unrealized_pnl": -19654.66,
+    "total_merged": 117461.99,
+    "realized_winrate": 100.0,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 43.72,
+    "skipped_mtm_if_bought": 48982.91,
+    "mdd_merged": -19654.66
+   },
+   "V2": {
+    "n_bought": 431,
+    "n_forced_liq": 0,
+    "n_skipped": 0,
+    "n_natural_sell": 427,
+    "n_holding_end": 4,
+    "realized_pnl": 138783.43,
+    "unrealized_pnl": -1130.76,
+    "total_merged": 137652.67,
+    "realized_winrate": 74.9,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 55.0,
+    "skipped_mtm_if_bought": 0,
+    "mdd_merged": -8539.67
+   },
+   "V2G": {
+    "n_bought": 350,
+    "n_forced_liq": 0,
+    "n_skipped": 81,
+    "n_natural_sell": 337,
+    "n_holding_end": 13,
+    "realized_pnl": 139600.27,
+    "unrealized_pnl": 1954.57,
+    "total_merged": 141554.85,
+    "realized_winrate": 84.6,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 44.04,
+    "skipped_mtm_if_bought": 58035.03,
+    "mdd_merged": -5319.11
+   },
+   "V2T1": {
+    "n_bought": 431,
+    "n_forced_liq": 0,
+    "n_skipped": 0,
+    "n_natural_sell": 427,
+    "n_holding_end": 4,
+    "realized_pnl": 136142.19,
+    "unrealized_pnl": -1130.76,
+    "total_merged": 135011.42,
+    "realized_winrate": 75.2,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 55.0,
+    "skipped_mtm_if_bought": 0,
+    "mdd_merged": -9771.1
+   }
+  },
+  "p0": {
+   "BASE": {
+    "n_bought": 1129,
+    "n_forced_liq": 0,
+    "n_skipped": 0,
+    "n_natural_sell": 1122,
+    "n_holding_end": 7,
+    "realized_pnl": 67648.37,
+    "unrealized_pnl": -955.4,
+    "total_merged": 66692.97,
+    "realized_winrate": 52.7,
+    "peak_pos_n": 10,
+    "peak_occupancy_yuan": 100000,
+    "ops_per_year": 144.29,
+    "skipped_mtm_if_bought": 0,
+    "mdd_merged": -18190.34
+   },
+   "V1": {
+    "n_bought": 493,
+    "n_forced_liq": 0,
+    "n_skipped": 636,
+    "n_natural_sell": 480,
+    "n_holding_end": 13,
+    "realized_pnl": 106003.87,
+    "unrealized_pnl": -19334.55,
+    "total_merged": 86669.32,
+    "realized_winrate": 100.0,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 62.37,
+    "skipped_mtm_if_bought": 182705.09,
+    "mdd_merged": -19334.55
+   },
+   "V2": {
+    "n_bought": 994,
+    "n_forced_liq": 0,
+    "n_skipped": 135,
+    "n_natural_sell": 982,
+    "n_holding_end": 12,
+    "realized_pnl": 81839.12,
+    "unrealized_pnl": -62.45,
+    "total_merged": 81776.67,
+    "realized_winrate": 61.5,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 126.67,
+    "skipped_mtm_if_bought": 21509.57,
+    "mdd_merged": -28014.6
+   },
+   "V2G": {
+    "n_bought": 432,
+    "n_forced_liq": 0,
+    "n_skipped": 697,
+    "n_natural_sell": 419,
+    "n_holding_end": 13,
+    "realized_pnl": 113950.1,
+    "unrealized_pnl": 13392.14,
+    "total_merged": 127342.24,
+    "realized_winrate": 77.3,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 54.55,
+    "skipped_mtm_if_bought": 263174.96,
+    "mdd_merged": -20548.48
+   },
+   "V2T1": {
+    "n_bought": 983,
+    "n_forced_liq": 0,
+    "n_skipped": 146,
+    "n_natural_sell": 972,
+    "n_holding_end": 11,
+    "realized_pnl": 73698.3,
+    "unrealized_pnl": -1087.96,
+    "total_merged": 72610.34,
+    "realized_winrate": 61.2,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 125.32,
+    "skipped_mtm_if_bought": 24258.2,
+    "mdd_merged": -32026.41
+   }
+  },
+  "p1": {
+   "BASE": {
+    "n_bought": 1035,
+    "n_forced_liq": 0,
+    "n_skipped": 0,
+    "n_natural_sell": 1028,
+    "n_holding_end": 7,
+    "realized_pnl": 74220.52,
+    "unrealized_pnl": -955.4,
+    "total_merged": 73265.12,
+    "realized_winrate": 53.2,
+    "peak_pos_n": 10,
+    "peak_occupancy_yuan": 100000,
+    "ops_per_year": 132.24,
+    "skipped_mtm_if_bought": 0,
+    "mdd_merged": -17650.43
+   },
+   "V1": {
+    "n_bought": 460,
+    "n_forced_liq": 0,
+    "n_skipped": 575,
+    "n_natural_sell": 447,
+    "n_holding_end": 13,
+    "realized_pnl": 101820.12,
+    "unrealized_pnl": -13842.74,
+    "total_merged": 87977.38,
+    "realized_winrate": 100.0,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 58.14,
+    "skipped_mtm_if_bought": 171407.36,
+    "mdd_merged": -13842.74
+   },
+   "V2": {
+    "n_bought": 932,
+    "n_forced_liq": 0,
+    "n_skipped": 103,
+    "n_natural_sell": 919,
+    "n_holding_end": 13,
+    "realized_pnl": 91063.29,
+    "unrealized_pnl": -1252.04,
+    "total_merged": 89811.25,
+    "realized_winrate": 62.9,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 118.65,
+    "skipped_mtm_if_bought": 22883.33,
+    "mdd_merged": -27156.85
+   },
+   "V2G": {
+    "n_bought": 433,
+    "n_forced_liq": 0,
+    "n_skipped": 602,
+    "n_natural_sell": 420,
+    "n_holding_end": 13,
+    "realized_pnl": 126930.83,
+    "unrealized_pnl": 12116.56,
+    "total_merged": 139047.4,
+    "realized_winrate": 76.7,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 54.68,
+    "skipped_mtm_if_bought": 254406.76,
+    "mdd_merged": -21180.61
+   },
+   "V2T1": {
+    "n_bought": 926,
+    "n_forced_liq": 0,
+    "n_skipped": 109,
+    "n_natural_sell": 914,
+    "n_holding_end": 12,
+    "realized_pnl": 84078.58,
+    "unrealized_pnl": -1121.56,
+    "total_merged": 82957.02,
+    "realized_winrate": 62.6,
+    "peak_pos_n": 13,
+    "peak_occupancy_yuan": 130000,
+    "ops_per_year": 117.95,
+    "skipped_mtm_if_bought": 23392.22,
+    "mdd_merged": -30858.71
+   }
+  }
+ },
+ "cap_sens": {
+  "s06": {
+   "BASE": {
+    "cap13": 140583.07,
+    "cap20": 140583.07,
+    "nocap": 140583.07
+   },
+   "V1": {
+    "cap13": 173577.0,
+    "cap20": 196962.73,
+    "nocap": 201781.37
+   },
+   "V2": {
+    "cap13": 159971.99,
+    "cap20": 159971.99,
+    "nocap": 159971.99
+   },
+   "V2G": {
+    "cap13": 145725.76,
+    "cap20": 202405.65,
+    "nocap": 229303.59
+   },
+   "V2T1": {
+    "cap13": 157982.42,
+    "cap20": 157982.42,
+    "nocap": 157982.42
+   }
+  },
+  "a9": {
+   "BASE": {
+    "cap13": 118940.21,
+    "cap20": 118940.21,
+    "nocap": 118940.21
+   },
+   "V1": {
+    "cap13": 131657.76,
+    "cap20": 171446.17,
+    "nocap": 202122.09
+   },
+   "V2": {
+    "cap13": 129199.85,
+    "cap20": 129546.35,
+    "nocap": 129546.35
+   },
+   "V2G": {
+    "cap13": 113099.51,
+    "cap20": 164392.13,
+    "nocap": 209536.43
+   },
+   "V2T1": {
+    "cap13": 128265.51,
+    "cap20": 128319.3,
+    "nocap": 128319.3
+   }
+  },
+  "new15": {
+   "BASE": {
+    "cap13": 118818.33,
+    "cap20": 118818.33,
+    "nocap": 118818.33
+   },
+   "V1": {
+    "cap13": 116550.21,
+    "cap20": 136927.95,
+    "nocap": 155144.54
+   },
+   "V2": {
+    "cap13": 134232.13,
+    "cap20": 134232.13,
+    "nocap": 134232.13
+   },
+   "V2G": {
+    "cap13": 140756.7,
+    "cap20": 169114.22,
+    "nocap": 191061.28
+   },
+   "V2T1": {
+    "cap13": 131836.5,
+    "cap20": 131836.5,
+    "nocap": 131836.5
+   }
+  },
+  "new14": {
+   "BASE": {
+    "cap13": 122852.61,
+    "cap20": 122852.61,
+    "nocap": 122852.61
+   },
+   "V1": {
+    "cap13": 117461.99,
+    "cap20": 144401.56,
+    "nocap": 166444.9
+   },
+   "V2": {
+    "cap13": 137652.67,
+    "cap20": 137652.67,
+    "nocap": 137652.67
+   },
+   "V2G": {
+    "cap13": 141554.85,
+    "cap20": 173284.59,
+    "nocap": 199589.88
+   },
+   "V2T1": {
+    "cap13": 135011.42,
+    "cap20": 135011.42,
+    "nocap": 135011.42
+   }
+  },
+  "p0": {
+   "BASE": {
+    "cap13": 66692.97,
+    "cap20": 66692.97,
+    "nocap": 66692.97
+   },
+   "V1": {
+    "cap13": 86669.32,
+    "cap20": 152537.83,
+    "nocap": 269374.41
+   },
+   "V2": {
+    "cap13": 81776.67,
+    "cap20": 97934.97,
+    "nocap": 103286.24
+   },
+   "V2G": {
+    "cap13": 127342.24,
+    "cap20": 182050.89,
+    "nocap": 390517.2
+   },
+   "V2T1": {
+    "cap13": 72610.34,
+    "cap20": 90667.92,
+    "nocap": 96868.54
+   }
+  },
+  "p1": {
+   "BASE": {
+    "cap13": 73265.12,
+    "cap20": 73265.12,
+    "nocap": 73265.12
+   },
+   "V1": {
+    "cap13": 87977.38,
+    "cap20": 149417.89,
+    "nocap": 259384.74
+   },
+   "V2": {
+    "cap13": 89811.25,
+    "cap20": 107343.31,
+    "nocap": 112694.58
+   },
+   "V2G": {
+    "cap13": 139047.4,
+    "cap20": 187666.74,
+    "nocap": 393454.16
+   },
+   "V2T1": {
+    "cap13": 82957.02,
+    "cap20": 100148.63,
+    "nocap": 106349.24
+   }
+  }
+ },
+ "occupancy": {
+  "s06": {
+   "BASE": {
+    "peak_open_n": 10,
+    "peak_open_yuan": 100000,
+    "peak_extra_n": 0,
+    "peak_extra_yuan": 0,
+    "extra_area_wan_yuan_days": 0.0
+   },
+   "V1": {
+    "peak_open_n": 22,
+    "peak_open_yuan": 220000,
+    "peak_extra_n": 17,
+    "peak_extra_yuan": 170000,
+    "extra_area_wan_yuan_days": 15920.0
+   },
+   "V2": {
+    "peak_open_n": 13,
+    "peak_open_yuan": 130000,
+    "peak_extra_n": 6,
+    "peak_extra_yuan": 60000,
+    "extra_area_wan_yuan_days": 5881.0
+   },
+   "V2G": {
+    "peak_open_n": 30,
+    "peak_open_yuan": 300000,
+    "peak_extra_n": 25,
+    "peak_extra_yuan": 250000,
+    "extra_area_wan_yuan_days": 25709.0
+   },
+   "V2T1": {
+    "peak_open_n": 13,
+    "peak_open_yuan": 130000,
+    "peak_extra_n": 6,
+    "peak_extra_yuan": 60000,
+    "extra_area_wan_yuan_days": 6143.0
+   }
+  },
+  "a9": {
+   "BASE": {
+    "peak_open_n": 10,
+    "peak_open_yuan": 100000,
+    "peak_extra_n": 0,
+    "peak_extra_yuan": 0,
+    "extra_area_wan_yuan_days": 0.0
+   },
+   "V1": {
+    "peak_open_n": 36,
+    "peak_open_yuan": 360000,
+    "peak_extra_n": 32,
+    "peak_extra_yuan": 320000,
+    "extra_area_wan_yuan_days": 27144.0
+   },
+   "V2": {
+    "peak_open_n": 15,
+    "peak_open_yuan": 150000,
+    "peak_extra_n": 12,
+    "peak_extra_yuan": 120000,
+    "extra_area_wan_yuan_days": 8001.0
+   },
+   "V2G": {
+    "peak_open_n": 40,
+    "peak_open_yuan": 400000,
+    "peak_extra_n": 35,
+    "peak_extra_yuan": 350000,
+    "extra_area_wan_yuan_days": 39183.0
+   },
+   "V2T1": {
+    "peak_open_n": 15,
+    "peak_open_yuan": 150000,
+    "peak_extra_n": 12,
+    "peak_extra_yuan": 120000,
+    "extra_area_wan_yuan_days": 8317.0
+   }
+  },
+  "new15": {
+   "BASE": {
+    "peak_open_n": 10,
+    "peak_open_yuan": 100000,
+    "peak_extra_n": 0,
+    "peak_extra_yuan": 0,
+    "extra_area_wan_yuan_days": 0.0
+   },
+   "V1": {
+    "peak_open_n": 31,
+    "peak_open_yuan": 310000,
+    "peak_extra_n": 24,
+    "peak_extra_yuan": 240000,
+    "extra_area_wan_yuan_days": 20431.0
+   },
+   "V2": {
+    "peak_open_n": 13,
+    "peak_open_yuan": 130000,
+    "peak_extra_n": 7,
+    "peak_extra_yuan": 70000,
+    "extra_area_wan_yuan_days": 5277.0
+   },
+   "V2G": {
+    "peak_open_n": 29,
+    "peak_open_yuan": 290000,
+    "peak_extra_n": 22,
+    "peak_extra_yuan": 220000,
+    "extra_area_wan_yuan_days": 21337.0
+   },
+   "V2T1": {
+    "peak_open_n": 13,
+    "peak_open_yuan": 130000,
+    "peak_extra_n": 7,
+    "peak_extra_yuan": 70000,
+    "extra_area_wan_yuan_days": 5464.0
+   }
+  },
+  "new14": {
+   "BASE": {
+    "peak_open_n": 10,
+    "peak_open_yuan": 100000,
+    "peak_extra_n": 0,
+    "peak_extra_yuan": 0,
+    "extra_area_wan_yuan_days": 0.0
+   },
+   "V1": {
+    "peak_open_n": 34,
+    "peak_open_yuan": 340000,
+    "peak_extra_n": 27,
+    "peak_extra_yuan": 270000,
+    "extra_area_wan_yuan_days": 21487.0
+   },
+   "V2": {
+    "peak_open_n": 13,
+    "peak_open_yuan": 130000,
+    "peak_extra_n": 7,
+    "peak_extra_yuan": 70000,
+    "extra_area_wan_yuan_days": 5653.0
+   },
+   "V2G": {
+    "peak_open_n": 33,
+    "peak_open_yuan": 330000,
+    "peak_extra_n": 26,
+    "peak_extra_yuan": 260000,
+    "extra_area_wan_yuan_days": 22893.0
+   },
+   "V2T1": {
+    "peak_open_n": 13,
+    "peak_open_yuan": 130000,
+    "peak_extra_n": 7,
+    "peak_extra_yuan": 70000,
+    "extra_area_wan_yuan_days": 5862.0
+   }
+  },
+  "p0": {
+   "BASE": {
+    "peak_open_n": 10,
+    "peak_open_yuan": 100000,
+    "peak_extra_n": 0,
+    "peak_extra_yuan": 0,
+    "extra_area_wan_yuan_days": 0.0
+   },
+   "V1": {
+    "peak_open_n": 80,
+    "peak_open_yuan": 800000,
+    "peak_extra_n": 73,
+    "peak_extra_yuan": 730000,
+    "extra_area_wan_yuan_days": 81220.0
+   },
+   "V2": {
+    "peak_open_n": 27,
+    "peak_open_yuan": 270000,
+    "peak_extra_n": 19,
+    "peak_extra_yuan": 190000,
+    "extra_area_wan_yuan_days": 19881.0
+   },
+   "V2G": {
+    "peak_open_n": 85,
+    "peak_open_yuan": 850000,
+    "peak_extra_n": 78,
+    "peak_extra_yuan": 780000,
+    "extra_area_wan_yuan_days": 114919.0
+   },
+   "V2T1": {
+    "peak_open_n": 28,
+    "peak_open_yuan": 280000,
+    "peak_extra_n": 20,
+    "peak_extra_yuan": 200000,
+    "extra_area_wan_yuan_days": 20671.0
+   }
+  },
+  "p1": {
+   "BASE": {
+    "peak_open_n": 10,
+    "peak_open_yuan": 100000,
+    "peak_extra_n": 0,
+    "peak_extra_yuan": 0,
+    "extra_area_wan_yuan_days": 0.0
+   },
+   "V1": {
+    "peak_open_n": 78,
+    "peak_open_yuan": 780000,
+    "peak_extra_n": 71,
+    "peak_extra_yuan": 710000,
+    "extra_area_wan_yuan_days": 76168.0
+   },
+   "V2": {
+    "peak_open_n": 27,
+    "peak_open_yuan": 270000,
+    "peak_extra_n": 19,
+    "peak_extra_yuan": 190000,
+    "extra_area_wan_yuan_days": 18427.0
+   },
+   "V2G": {
+    "peak_open_n": 82,
+    "peak_open_yuan": 820000,
+    "peak_extra_n": 74,
+    "peak_extra_yuan": 740000,
+    "extra_area_wan_yuan_days": 104914.0
+   },
+   "V2T1": {
+    "peak_open_n": 28,
+    "peak_open_yuan": 280000,
+    "peak_extra_n": 20,
+    "peak_extra_yuan": 200000,
+    "extra_area_wan_yuan_days": 19161.0
+   }
+  }
+ },
+ "yearly": {
+  "s06": {
+   "BASE": {
+    "2011": 468.41,
+    "2012": 941.92,
+    "2013": 1383.24,
+    "2014": 7134.72,
+    "2015": -646.04,
+    "2016": 429.14,
+    "2017": 3853.08,
+    "2018": -2968.41,
+    "2019": 12900.11,
+    "2020": 20466.36,
+    "2021": 8772.42,
+    "2022": 12007.28,
+    "2023": 8258.55,
+    "2024": 22581.0,
+    "2025": 25534.54,
+    "2026": 19466.73
+   },
+   "V1": {
+    "2011": 468.41,
+    "2012": 941.92,
+    "2013": 1969.02,
+    "2014": 7134.72,
+    "2015": 344.5,
+    "2016": 839.48,
+    "2017": 4655.62,
+    "2018": 3873.2,
+    "2019": 16229.86,
+    "2020": 29463.52,
+    "2021": 12913.8,
+    "2022": 27686.39,
+    "2023": 15817.19,
+    "2024": 29578.42,
+    "2025": 29895.29,
+    "2026": 19970.04
+   },
+   "V2": {
+    "2011": 468.41,
+    "2012": 941.92,
+    "2013": 1344.81,
+    "2014": 7134.72,
+    "2015": 1807.14,
+    "2016": 968.78,
+    "2017": 5061.15,
+    "2018": -1719.85,
+    "2019": 11308.86,
+    "2020": 30416.61,
+    "2021": 5671.47,
+    "2022": 12842.31,
+    "2023": 1847.26,
+    "2024": 34390.12,
+    "2025": 23719.66,
+    "2026": 23768.62
+   },
+   "V2G": {
+    "2011": 468.41,
+    "2012": 941.92,
+    "2013": 1329.51,
+    "2014": 7134.72,
+    "2015": 1807.14,
+    "2016": 1993.08,
+    "2017": 6065.87,
+    "2018": 7111.3,
+    "2019": 15929.07,
+    "2020": 36850.26,
+    "2021": 4460.07,
+    "2022": 29683.12,
+    "2023": 4632.98,
+    "2024": 53159.04,
+    "2025": 37092.68,
+    "2026": 20644.41
+   },
+   "V2T1": {
+    "2011": 468.41,
+    "2012": 941.92,
+    "2013": 1283.65,
+    "2014": 7134.72,
+    "2015": 2103.27,
+    "2016": 951.32,
+    "2017": 5009.21,
+    "2018": -1230.66,
+    "2019": 10272.71,
+    "2020": 30580.32,
+    "2021": 5604.46,
+    "2022": 12758.0,
+    "2023": 1188.05,
+    "2024": 33791.57,
+    "2025": 23353.15,
+    "2026": 23772.32
+   }
+  },
+  "a9": {
+   "BASE": {
+    "2011": -504.21,
+    "2013": 2599.92,
+    "2014": 6471.2,
+    "2015": -135.16,
+    "2016": 433.62,
+    "2017": 3527.22,
+    "2018": -2815.02,
+    "2019": 11425.57,
+    "2020": 15542.77,
+    "2021": 7760.25,
+    "2022": 7746.15,
+    "2023": 3460.2,
+    "2024": 20317.61,
+    "2025": 27114.3,
+    "2026": 15995.78
+   },
+   "V1": {
+    "2011": 1351.83,
+    "2013": 3426.42,
+    "2014": 6616.48,
+    "2015": 1248.29,
+    "2016": 1327.37,
+    "2017": 5278.77,
+    "2018": 4749.79,
+    "2019": 14548.52,
+    "2020": 22911.3,
+    "2021": 15218.82,
+    "2022": 23534.63,
+    "2023": 20967.28,
+    "2024": 26720.6,
+    "2025": 33330.87,
+    "2026": 20891.13
+   },
+   "V2": {
+    "2011": 377.58,
+    "2013": 2322.57,
+    "2014": 6614.88,
+    "2015": 602.21,
+    "2016": 809.47,
+    "2017": 4828.95,
+    "2018": -3457.52,
+    "2019": 8430.73,
+    "2020": 18616.69,
+    "2021": 4608.93,
+    "2022": 9380.73,
+    "2023": -3679.04,
+    "2024": 28480.89,
+    "2025": 29380.64,
+    "2026": 22228.63
+   },
+   "V2G": {
+    "2011": 69.14,
+    "2013": 7432.4,
+    "2014": 12439.47,
+    "2015": -1242.34,
+    "2016": 3809.29,
+    "2017": -1303.58,
+    "2018": 6136.34,
+    "2019": 12522.37,
+    "2020": 29726.96,
+    "2021": -7157.79,
+    "2022": 22627.58,
+    "2023": 12037.19,
+    "2024": 53365.53,
+    "2025": 36611.47,
+    "2026": 22462.39
+   },
+   "V2T1": {
+    "2011": 477.59,
+    "2013": 2250.05,
+    "2014": 6630.73,
+    "2015": 548.65,
+    "2016": 769.66,
+    "2017": 4809.61,
+    "2018": -2982.12,
+    "2019": 7339.01,
+    "2020": 19085.85,
+    "2021": 5653.73,
+    "2022": 9452.3,
+    "2023": -4208.92,
+    "2024": 27589.34,
+    "2025": 29084.04,
+    "2026": 21819.78
+   }
+  },
+  "new15": {
+   "BASE": {
+    "2011": 468.41,
+    "2012": 941.92,
+    "2013": 1383.24,
+    "2014": 4071.33,
+    "2015": -158.53,
+    "2016": -218.62,
+    "2018": 602.16,
+    "2019": 12532.36,
+    "2020": 19666.36,
+    "2021": 4846.65,
+    "2022": 8525.58,
+    "2023": 5622.85,
+    "2024": 23811.35,
+    "2025": 25569.14,
+    "2026": 11154.13
+   },
+   "V1": {
+    "2011": 468.41,
+    "2012": 941.92,
+    "2013": 1969.02,
+    "2014": 4071.33,
+    "2015": 297.32,
+    "2016": 164.19,
+    "2018": 4139.21,
+    "2019": 16808.25,
+    "2020": 13593.75,
+    "2021": 7004.49,
+    "2022": 22612.8,
+    "2023": 12081.87,
+    "2024": 30363.24,
+    "2025": 29780.1,
+    "2026": 10848.64
+   },
+   "V2": {
+    "2011": 468.41,
+    "2012": 941.92,
+    "2013": 1344.81,
+    "2014": 4071.33,
+    "2015": 1683.15,
+    "2016": 27.07,
+    "2018": 1595.51,
+    "2019": 10498.45,
+    "2020": 25486.58,
+    "2021": 4179.32,
+    "2022": 10223.24,
+    "2023": -259.19,
+    "2024": 34639.59,
+    "2025": 25846.52,
+    "2026": 13485.43
+   },
+   "V2G": {
+    "2011": 468.41,
+    "2012": 941.92,
+    "2013": 1329.51,
+    "2014": 4071.33,
+    "2015": 1683.15,
+    "2016": 871.42,
+    "2018": 7334.25,
+    "2019": 19583.14,
+    "2020": 24710.25,
+    "2021": 6320.11,
+    "2022": 22241.11,
+    "2023": 2270.41,
+    "2024": 52160.47,
+    "2025": 36118.2,
+    "2026": 10957.6
+   },
+   "V2T1": {
+    "2011": 468.41,
+    "2012": 941.92,
+    "2013": 1283.65,
+    "2014": 4071.33,
+    "2015": 1974.2,
+    "2016": 244.02,
+    "2018": 1947.94,
+    "2019": 9471.65,
+    "2020": 25324.26,
+    "2021": 4060.42,
+    "2022": 9660.55,
+    "2023": -1020.64,
+    "2024": 34559.42,
+    "2025": 25401.7,
+    "2026": 13447.68
+   }
+  },
+  "new14": {
+   "BASE": {
+    "2011": 468.41,
+    "2012": 941.92,
+    "2013": 1383.24,
+    "2014": 4071.33,
+    "2015": -158.53,
+    "2016": -218.62,
+    "2018": 602.16,
+    "2019": 12532.36,
+    "2020": 20763.03,
+    "2021": 7262.43,
+    "2022": 8525.58,
+    "2023": 5445.47,
+    "2024": 25104.87,
+    "2025": 25908.25,
+    "2026": 10220.69
+   },
+   "V1": {
+    "2011": 468.41,
+    "2012": 941.92,
+    "2013": 1969.02,
+    "2014": 4071.33,
+    "2015": 297.32,
+    "2016": 164.19,
+    "2018": 4139.21,
+    "2019": 16808.25,
+    "2020": 14690.42,
+    "2021": 9882.02,
+    "2022": 22612.8,
+    "2023": 14910.56,
+    "2024": 34267.31,
+    "2025": 30119.21,
+    "2026": 11102.93
+   },
+   "V2": {
+    "2011": 468.41,
+    "2012": 941.92,
+    "2013": 1344.81,
+    "2014": 4071.33,
+    "2015": 1683.15,
+    "2016": 27.07,
+    "2018": 1595.51,
+    "2019": 10498.45,
+    "2020": 26583.26,
+    "2021": 7155.51,
+    "2022": 10223.24,
+    "2023": -3741.05,
+    "2024": 37196.48,
+    "2025": 26185.63,
+    "2026": 13418.96
+   },
+   "V2G": {
+    "2011": 468.41,
+    "2012": 941.92,
+    "2013": 1329.51,
+    "2014": 4071.33,
+    "2015": 1683.15,
+    "2016": 871.42,
+    "2018": 7334.25,
+    "2019": 19583.14,
+    "2020": 25806.93,
+    "2021": 9296.3,
+    "2022": 22241.11,
+    "2023": 965.2,
+    "2024": 57926.07,
+    "2025": 36457.31,
+    "2026": 10613.83
+   },
+   "V2T1": {
+    "2011": 468.41,
+    "2012": 941.92,
+    "2013": 1283.65,
+    "2014": 4071.33,
+    "2015": 1974.2,
+    "2016": 244.02,
+    "2018": 1947.94,
+    "2019": 9471.65,
+    "2020": 26420.93,
+    "2021": 7177.35,
+    "2022": 9660.55,
+    "2023": -4870.48,
+    "2024": 37237.47,
+    "2025": 25740.81,
+    "2026": 13241.68
+   }
+  },
+  "p0": {
+   "BASE": {
+    "2011": -2180.76,
+    "2012": -1388.95,
+    "2013": 1748.3,
+    "2014": 6935.91,
+    "2015": -3504.35,
+    "2016": -2619.25,
+    "2017": -174.64,
+    "2018": -1043.18,
+    "2019": 11744.59,
+    "2020": 21557.65,
+    "2021": 5291.21,
+    "2022": -7629.47,
+    "2023": -6074.54,
+    "2024": 9813.02,
+    "2025": 28366.42,
+    "2026": 5851.0
+   },
+   "V1": {
+    "2011": 3829.99,
+    "2012": 1053.66,
+    "2013": 3935.01,
+    "2014": 7926.79,
+    "2015": 2263.8,
+    "2016": 3525.12,
+    "2017": 14327.57,
+    "2018": 13163.57,
+    "2019": 20115.21,
+    "2020": 34084.67,
+    "2021": 17151.28,
+    "2022": 27427.93,
+    "2023": 25128.49,
+    "2024": 46484.7,
+    "2025": 42801.54,
+    "2026": 6155.08
+   },
+   "V2": {
+    "2011": -2334.22,
+    "2012": -452.71,
+    "2013": 1257.8,
+    "2014": 5115.38,
+    "2015": -3960.42,
+    "2016": -3235.89,
+    "2017": 1946.27,
+    "2018": -6883.31,
+    "2019": 9049.44,
+    "2020": 32395.46,
+    "2021": 5261.68,
+    "2022": 4912.09,
+    "2023": -22730.74,
+    "2024": 32979.95,
+    "2025": 40067.3,
+    "2026": 9898.14
+   },
+   "V2G": {
+    "2011": -10060.35,
+    "2012": 4658.19,
+    "2013": 5864.18,
+    "2014": 42098.03,
+    "2015": -8987.52,
+    "2016": 17514.55,
+    "2017": 999.8,
+    "2018": 9784.83,
+    "2019": 22700.25,
+    "2020": 43017.14,
+    "2021": -3374.88,
+    "2022": 24742.1,
+    "2023": 31793.89,
+    "2024": 141744.97,
+    "2025": 64455.24,
+    "2026": 3566.75
+   },
+   "V2T1": {
+    "2011": -2100.91,
+    "2012": -366.77,
+    "2013": 1125.8,
+    "2014": 5675.87,
+    "2015": -3440.84,
+    "2016": -2870.86,
+    "2017": 2180.64,
+    "2018": -6145.86,
+    "2019": 7751.42,
+    "2020": 32463.38,
+    "2021": 6047.57,
+    "2022": 4769.15,
+    "2023": -25458.79,
+    "2024": 30230.05,
+    "2025": 38052.53,
+    "2026": 8956.16
+   }
+  },
+  "p1": {
+   "BASE": {
+    "2011": -2180.76,
+    "2012": -1388.95,
+    "2013": 2238.51,
+    "2014": 5997.95,
+    "2015": -1517.8,
+    "2016": -1350.58,
+    "2017": 586.1,
+    "2018": -3200.83,
+    "2019": 12316.76,
+    "2020": 19670.63,
+    "2021": 6911.74,
+    "2022": -7629.47,
+    "2023": -5534.63,
+    "2024": 12679.28,
+    "2025": 27952.72,
+    "2026": 7714.46
+   },
+   "V1": {
+    "2011": 3829.99,
+    "2012": 1053.66,
+    "2013": 3892.62,
+    "2014": 6988.83,
+    "2015": 1924.8,
+    "2016": 3385.78,
+    "2017": 11755.11,
+    "2018": 10699.27,
+    "2019": 18645.57,
+    "2020": 30465.14,
+    "2021": 16831.95,
+    "2022": 27427.93,
+    "2023": 24330.03,
+    "2024": 44643.35,
+    "2025": 39657.68,
+    "2026": 13853.01
+   },
+   "V2": {
+    "2011": -2334.22,
+    "2012": -452.71,
+    "2013": 1808.85,
+    "2014": 4177.42,
+    "2015": -3881.98,
+    "2016": -1068.08,
+    "2017": 5021.06,
+    "2018": -8598.82,
+    "2019": 10309.34,
+    "2020": 25144.66,
+    "2021": 6792.74,
+    "2022": 4912.09,
+    "2023": -19170.97,
+    "2024": 35205.04,
+    "2025": 38593.58,
+    "2026": 16236.58
+   },
+   "V2G": {
+    "2011": -10060.35,
+    "2012": 4658.19,
+    "2013": 6903.8,
+    "2014": 41160.07,
+    "2015": -5383.18,
+    "2016": 19962.7,
+    "2017": 7119.43,
+    "2018": 10381.28,
+    "2019": 18616.49,
+    "2020": 35751.58,
+    "2021": -4224.49,
+    "2022": 24742.1,
+    "2023": 31512.44,
+    "2024": 133316.37,
+    "2025": 64720.5,
+    "2026": 14277.22
+   },
+   "V2T1": {
+    "2011": -2100.91,
+    "2012": -366.77,
+    "2013": 1676.86,
+    "2014": 4737.91,
+    "2015": -3698.69,
+    "2016": -477.77,
+    "2017": 5235.37,
+    "2018": -7968.0,
+    "2019": 8910.37,
+    "2020": 25404.22,
+    "2021": 7630.41,
+    "2022": 4769.15,
+    "2023": -21925.08,
+    "2024": 32281.31,
+    "2025": 36791.74,
+    "2026": 15449.12
+   }
+  }
+ },
+ "bears": {
+  "s06": {
+   "BASE": {
+    "2015股灾~熔断": {
+     "n": 2,
+     "total": -646.04
+    },
+    "2018贸易战熊市": {
+     "n": 19,
+     "total": -2968.41
+    },
+    "2022单边熊": {
+     "n": 64,
+     "total": 12007.28
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 13,
+     "total": 7442.26
+    },
+    "2026年2-3月压力窗": {
+     "n": 7,
+     "total": 1184.2
+    }
+   },
+   "V1": {
+    "2015股灾~熔断": {
+     "n": 2,
+     "total": 344.5
+    },
+    "2018贸易战熊市": {
+     "n": 19,
+     "total": 3873.2
+    },
+    "2022单边熊": {
+     "n": 64,
+     "total": 27686.39
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 13,
+     "total": 8348.64
+    },
+    "2026年2-3月压力窗": {
+     "n": 7,
+     "total": 2273.73
+    }
+   },
+   "V2": {
+    "2015股灾~熔断": {
+     "n": 2,
+     "total": 1807.14
+    },
+    "2018贸易战熊市": {
+     "n": 19,
+     "total": -1719.85
+    },
+    "2022单边熊": {
+     "n": 64,
+     "total": 12842.31
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 13,
+     "total": 7712.13
+    },
+    "2026年2-3月压力窗": {
+     "n": 7,
+     "total": 4024.55
+    }
+   },
+   "V2G": {
+    "2015股灾~熔断": {
+     "n": 2,
+     "total": 1807.14
+    },
+    "2018贸易战熊市": {
+     "n": 19,
+     "total": 7111.3
+    },
+    "2022单边熊": {
+     "n": 64,
+     "total": 29683.12
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 13,
+     "total": 9159.83
+    },
+    "2026年2-3月压力窗": {
+     "n": 7,
+     "total": 4425.72
+    }
+   },
+   "V2T1": {
+    "2015股灾~熔断": {
+     "n": 2,
+     "total": 2103.27
+    },
+    "2018贸易战熊市": {
+     "n": 19,
+     "total": -1230.66
+    },
+    "2022单边熊": {
+     "n": 64,
+     "total": 12758.0
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 13,
+     "total": 7488.41
+    },
+    "2026年2-3月压力窗": {
+     "n": 7,
+     "total": 3752.69
+    }
+   }
+  },
+  "a9": {
+   "BASE": {
+    "2015股灾~熔断": {
+     "n": 5,
+     "total": -333.12
+    },
+    "2018贸易战熊市": {
+     "n": 25,
+     "total": -2815.02
+    },
+    "2022单边熊": {
+     "n": 60,
+     "total": 7746.15
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 14,
+     "total": 6868.39
+    },
+    "2026年2-3月压力窗": {
+     "n": 8,
+     "total": -743.3
+    }
+   },
+   "V1": {
+    "2015股灾~熔断": {
+     "n": 5,
+     "total": 1050.33
+    },
+    "2018贸易战熊市": {
+     "n": 25,
+     "total": 4749.79
+    },
+    "2022单边熊": {
+     "n": 60,
+     "total": 23534.63
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 14,
+     "total": 8374.45
+    },
+    "2026年2-3月压力窗": {
+     "n": 8,
+     "total": 82.52
+    }
+   },
+   "V2": {
+    "2015股灾~熔断": {
+     "n": 5,
+     "total": 404.26
+    },
+    "2018贸易战熊市": {
+     "n": 25,
+     "total": -3457.52
+    },
+    "2022单边熊": {
+     "n": 60,
+     "total": 9380.73
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 14,
+     "total": 6691.81
+    },
+    "2026年2-3月压力窗": {
+     "n": 8,
+     "total": 3057.12
+    }
+   },
+   "V2G": {
+    "2015股灾~熔断": {
+     "n": 5,
+     "total": -1440.3
+    },
+    "2018贸易战熊市": {
+     "n": 25,
+     "total": 6136.34
+    },
+    "2022单边熊": {
+     "n": 60,
+     "total": 22627.58
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 14,
+     "total": 9669.04
+    },
+    "2026年2-3月压力窗": {
+     "n": 8,
+     "total": 2335.15
+    }
+   },
+   "V2T1": {
+    "2015股灾~熔断": {
+     "n": 5,
+     "total": 350.69
+    },
+    "2018贸易战熊市": {
+     "n": 25,
+     "total": -2982.12
+    },
+    "2022单边熊": {
+     "n": 60,
+     "total": 9452.3
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 14,
+     "total": 6383.53
+    },
+    "2026年2-3月压力窗": {
+     "n": 8,
+     "total": 2626.29
+    }
+   }
+  },
+  "new15": {
+   "BASE": {
+    "2015股灾~熔断": {
+     "n": 3,
+     "total": -158.53
+    },
+    "2018贸易战熊市": {
+     "n": 21,
+     "total": 602.16
+    },
+    "2022单边熊": {
+     "n": 50,
+     "total": 8525.58
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 13,
+     "total": 7859.17
+    },
+    "2026年2-3月压力窗": {
+     "n": 3,
+     "total": -11.04
+    }
+   },
+   "V1": {
+    "2015股灾~熔断": {
+     "n": 3,
+     "total": 297.32
+    },
+    "2018贸易战熊市": {
+     "n": 21,
+     "total": 4139.21
+    },
+    "2022单边熊": {
+     "n": 50,
+     "total": 22612.8
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 13,
+     "total": 7962.33
+    },
+    "2026年2-3月压力窗": {
+     "n": 3,
+     "total": 751.6
+    }
+   },
+   "V2": {
+    "2015股灾~熔断": {
+     "n": 3,
+     "total": 1683.15
+    },
+    "2018贸易战熊市": {
+     "n": 21,
+     "total": 1595.51
+    },
+    "2022单边熊": {
+     "n": 50,
+     "total": 10223.24
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 13,
+     "total": 7783.44
+    },
+    "2026年2-3月压力窗": {
+     "n": 3,
+     "total": 2558.39
+    }
+   },
+   "V2G": {
+    "2015股灾~熔断": {
+     "n": 3,
+     "total": 1683.15
+    },
+    "2018贸易战熊市": {
+     "n": 21,
+     "total": 7334.25
+    },
+    "2022单边熊": {
+     "n": 50,
+     "total": 22241.11
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 13,
+     "total": 8893.1
+    },
+    "2026年2-3月压力窗": {
+     "n": 3,
+     "total": 2923.48
+    }
+   },
+   "V2T1": {
+    "2015股灾~熔断": {
+     "n": 3,
+     "total": 1974.2
+    },
+    "2018贸易战熊市": {
+     "n": 21,
+     "total": 1947.94
+    },
+    "2022单边熊": {
+     "n": 50,
+     "total": 9660.55
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 13,
+     "total": 7690.96
+    },
+    "2026年2-3月压力窗": {
+     "n": 3,
+     "total": 2261.63
+    }
+   }
+  },
+  "new14": {
+   "BASE": {
+    "2015股灾~熔断": {
+     "n": 3,
+     "total": -158.53
+    },
+    "2018贸易战熊市": {
+     "n": 21,
+     "total": 602.16
+    },
+    "2022单边熊": {
+     "n": 50,
+     "total": 8525.58
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 14,
+     "total": 7756.05
+    },
+    "2026年2-3月压力窗": {
+     "n": 4,
+     "total": -329.87
+    }
+   },
+   "V1": {
+    "2015股灾~熔断": {
+     "n": 3,
+     "total": 297.32
+    },
+    "2018贸易战熊市": {
+     "n": 21,
+     "total": 4139.21
+    },
+    "2022单边熊": {
+     "n": 50,
+     "total": 22612.8
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 14,
+     "total": 8122.13
+    },
+    "2026年2-3月压力窗": {
+     "n": 4,
+     "total": 751.95
+    }
+   },
+   "V2": {
+    "2015股灾~熔断": {
+     "n": 3,
+     "total": 1683.15
+    },
+    "2018贸易战熊市": {
+     "n": 21,
+     "total": 1595.51
+    },
+    "2022单边熊": {
+     "n": 50,
+     "total": 10223.24
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 14,
+     "total": 7663.82
+    },
+    "2026年2-3月压力窗": {
+     "n": 4,
+     "total": 2936.69
+    }
+   },
+   "V2G": {
+    "2015股灾~熔断": {
+     "n": 3,
+     "total": 1683.15
+    },
+    "2018贸易战熊市": {
+     "n": 21,
+     "total": 7334.25
+    },
+    "2022单边熊": {
+     "n": 50,
+     "total": 22241.11
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 14,
+     "total": 8773.48
+    },
+    "2026年2-3月压力窗": {
+     "n": 4,
+     "total": 3024.48
+    }
+   },
+   "V2T1": {
+    "2015股灾~熔断": {
+     "n": 3,
+     "total": 1974.2
+    },
+    "2018贸易战熊市": {
+     "n": 21,
+     "total": 1947.94
+    },
+    "2022单边熊": {
+     "n": 50,
+     "total": 9660.55
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 14,
+     "total": 7529.68
+    },
+    "2026年2-3月压力窗": {
+     "n": 4,
+     "total": 2517.78
+    }
+   }
+  },
+  "p0": {
+   "BASE": {
+    "2015股灾~熔断": {
+     "n": 13,
+     "total": -3702.31
+    },
+    "2018贸易战熊市": {
+     "n": 57,
+     "total": -1043.18
+    },
+    "2022单边熊": {
+     "n": 99,
+     "total": -7629.47
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 24,
+     "total": 9874.62
+    },
+    "2026年2-3月压力窗": {
+     "n": 23,
+     "total": -4142.38
+    }
+   },
+   "V1": {
+    "2015股灾~熔断": {
+     "n": 13,
+     "total": 2065.84
+    },
+    "2018贸易战熊市": {
+     "n": 57,
+     "total": 13163.57
+    },
+    "2022单边熊": {
+     "n": 99,
+     "total": 27427.93
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 24,
+     "total": 12009.55
+    },
+    "2026年2-3月压力窗": {
+     "n": 23,
+     "total": -4585.08
+    }
+   },
+   "V2": {
+    "2015股灾~熔断": {
+     "n": 13,
+     "total": -4158.38
+    },
+    "2018贸易战熊市": {
+     "n": 57,
+     "total": -6883.31
+    },
+    "2022单边熊": {
+     "n": 99,
+     "total": 4912.09
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 24,
+     "total": 9123.97
+    },
+    "2026年2-3月压力窗": {
+     "n": 23,
+     "total": -2808.58
+    }
+   },
+   "V2G": {
+    "2015股灾~熔断": {
+     "n": 13,
+     "total": -9185.48
+    },
+    "2018贸易战熊市": {
+     "n": 57,
+     "total": 9784.83
+    },
+    "2022单边熊": {
+     "n": 99,
+     "total": 24742.1
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 24,
+     "total": 20367.82
+    },
+    "2026年2-3月压力窗": {
+     "n": 23,
+     "total": -3016.5
+    }
+   },
+   "V2T1": {
+    "2015股灾~熔断": {
+     "n": 13,
+     "total": -3638.79
+    },
+    "2018贸易战熊市": {
+     "n": 57,
+     "total": -6145.86
+    },
+    "2022单边熊": {
+     "n": 99,
+     "total": 4769.15
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 24,
+     "total": 8619.09
+    },
+    "2026年2-3月压力窗": {
+     "n": 23,
+     "total": -3111.17
+    }
+   }
+  },
+  "p1": {
+   "BASE": {
+    "2015股灾~熔断": {
+     "n": 11,
+     "total": -1715.76
+    },
+    "2018贸易战熊市": {
+     "n": 52,
+     "total": -3200.83
+    },
+    "2022单边熊": {
+     "n": 99,
+     "total": -7629.47
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 24,
+     "total": 9874.62
+    },
+    "2026年2-3月压力窗": {
+     "n": 19,
+     "total": -5107.55
+    }
+   },
+   "V1": {
+    "2015股灾~熔断": {
+     "n": 11,
+     "total": 1726.84
+    },
+    "2018贸易战熊市": {
+     "n": 52,
+     "total": 10699.27
+    },
+    "2022单边熊": {
+     "n": 99,
+     "total": 27427.93
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 24,
+     "total": 12009.55
+    },
+    "2026年2-3月压力窗": {
+     "n": 19,
+     "total": -6131.24
+    }
+   },
+   "V2": {
+    "2015股灾~熔断": {
+     "n": 11,
+     "total": -4079.94
+    },
+    "2018贸易战熊市": {
+     "n": 52,
+     "total": -8598.82
+    },
+    "2022单边熊": {
+     "n": 99,
+     "total": 4912.09
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 24,
+     "total": 9123.97
+    },
+    "2026年2-3月压力窗": {
+     "n": 19,
+     "total": -2003.17
+    }
+   },
+   "V2G": {
+    "2015股灾~熔断": {
+     "n": 11,
+     "total": -5581.14
+    },
+    "2018贸易战熊市": {
+     "n": 52,
+     "total": 10381.28
+    },
+    "2022单边熊": {
+     "n": 99,
+     "total": 24742.1
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 24,
+     "total": 20367.82
+    },
+    "2026年2-3月压力窗": {
+     "n": 19,
+     "total": -3410.05
+    }
+   },
+   "V2T1": {
+    "2015股灾~熔断": {
+     "n": 11,
+     "total": -3896.65
+    },
+    "2018贸易战熊市": {
+     "n": 52,
+     "total": -7968.0
+    },
+    "2022单边熊": {
+     "n": 99,
+     "total": 4769.15
+    },
+    "2024Q1小微盘流动性危机": {
+     "n": 24,
+     "total": 8619.09
+    },
+    "2026年2-3月压力窗": {
+     "n": 19,
+     "total": -2603.27
+    }
+   }
+  }
+ },
+ "extension_meta": {
+  "s06": {
+   "n_loser_plans": 165,
+   "n_tail_holding": 5,
+   "censor_counts": {
+    "V1": 8,
+    "V2": 5,
+    "V2G": 19,
+    "V2T1": 5
+   },
+   "ext_days": {
+    "V1": {
+     "n": 157,
+     "mean": 55.1,
+     "p50": 14,
+     "p90": 176,
+     "max": 761,
+     "buckets": {
+      "1-5": 52,
+      "6-10": 23,
+      "11-20": 13,
+      "21-40": 25,
+      "41-80": 14,
+      ">80": 30
+     }
+    },
+    "V2": {
+     "n": 160,
+     "mean": 23.4,
+     "p50": 17,
+     "p90": 52,
+     "max": 98,
+     "buckets": {
+      "1-5": 34,
+      "6-10": 25,
+      "11-20": 32,
+      "21-40": 36,
+      "41-80": 29,
+      ">80": 4
+     }
+    },
+    "V2G": {
+     "n": 146,
+     "mean": 93.7,
+     "p50": 72,
+     "p90": 201,
+     "max": 411,
+     "buckets": {
+      "1-5": 11,
+      "6-10": 6,
+      "11-20": 10,
+      "21-40": 13,
+      "41-80": 39,
+      ">80": 67
+     }
+    },
+    "V2T1": {
+     "n": 160,
+     "mean": 24.4,
+     "p50": 18,
+     "p90": 53,
+     "max": 99,
+     "buckets": {
+      "1-5": 32,
+      "6-10": 23,
+      "11-20": 34,
+      "21-40": 37,
+      "41-80": 30,
+      ">80": 4
+     }
+    }
+   },
+   "delta": {
+    "V1": {
+     "n": 165,
+     "improved_n": 159,
+     "worsened_n": 6,
+     "zero_n": 0,
+     "pos_part": 70919.26,
+     "neg_part": -9720.95,
+     "net_delta": 61198.31
+    },
+    "V2": {
+     "n": 165,
+     "improved_n": 72,
+     "worsened_n": 93,
+     "zero_n": 0,
+     "pos_part": 47238.58,
+     "neg_part": -27849.65,
+     "net_delta": 19388.92
+    },
+    "V2G": {
+     "n": 165,
+     "improved_n": 107,
+     "worsened_n": 58,
+     "zero_n": 0,
+     "pos_part": 124734.07,
+     "neg_part": -36013.54,
+     "net_delta": 88720.52
+    },
+    "V2T1": {
+     "n": 165,
+     "improved_n": 74,
+     "worsened_n": 91,
+     "zero_n": 0,
+     "pos_part": 46258.15,
+     "neg_part": -28858.8,
+     "net_delta": 17399.35
+    }
+   }
+  },
+  "a9": {
+   "n_loser_plans": 210,
+   "n_tail_holding": 5,
+   "censor_counts": {
+    "V1": 9,
+    "V2": 6,
+    "V2G": 22,
+    "V2T1": 6
+   },
+   "ext_days": {
+    "V1": {
+     "n": 201,
+     "mean": 72.1,
+     "p50": 14,
+     "p90": 208,
+     "max": 912,
+     "buckets": {
+      "1-5": 67,
+      "6-10": 25,
+      "11-20": 20,
+      "21-40": 30,
+      "41-80": 10,
+      ">80": 49
+     }
+    },
+    "V2": {
+     "n": 204,
+     "mean": 22.5,
+     "p50": 17,
+     "p90": 48,
+     "max": 98,
+     "buckets": {
+      "1-5": 45,
+      "6-10": 27,
+      "11-20": 45,
+      "21-40": 49,
+      "41-80": 32,
+      ">80": 6
+     }
+    },
+    "V2G": {
+     "n": 188,
+     "mean": 114.5,
+     "p50": 96,
+     "p90": 253,
+     "max": 456,
+     "buckets": {
+      "1-5": 13,
+      "6-10": 5,
+      "11-20": 15,
+      "21-40": 14,
+      "41-80": 35,
+      ">80": 106
+     }
+    },
+    "V2T1": {
+     "n": 204,
+     "mean": 23.5,
+     "p50": 18,
+     "p90": 49,
+     "max": 99,
+     "buckets": {
+      "1-5": 43,
+      "6-10": 22,
+      "11-20": 49,
+      "21-40": 51,
+      "41-80": 33,
+      ">80": 6
+     }
+    }
+   },
+   "delta": {
+    "V1": {
+     "n": 210,
+     "improved_n": 204,
+     "worsened_n": 6,
+     "zero_n": 0,
+     "pos_part": 91014.94,
+     "neg_part": -7833.06,
+     "net_delta": 83181.88
+    },
+    "V2": {
+     "n": 210,
+     "improved_n": 84,
+     "worsened_n": 126,
+     "zero_n": 0,
+     "pos_part": 50335.17,
+     "neg_part": -39729.03,
+     "net_delta": 10606.14
+    },
+    "V2G": {
+     "n": 210,
+     "improved_n": 132,
+     "worsened_n": 78,
+     "zero_n": 0,
+     "pos_part": 156405.22,
+     "neg_part": -65809.0,
+     "net_delta": 90596.21
+    },
+    "V2T1": {
+     "n": 210,
+     "improved_n": 86,
+     "worsened_n": 124,
+     "zero_n": 0,
+     "pos_part": 50005.54,
+     "neg_part": -40626.45,
+     "net_delta": 9379.09
+    }
+   }
+  },
+  "new15": {
+   "n_loser_plans": 131,
+   "n_tail_holding": 2,
+   "censor_counts": {
+    "V1": 7,
+    "V2": 2,
+    "V2G": 11,
+    "V2T1": 2
+   },
+   "ext_days": {
+    "V1": {
+     "n": 124,
+     "mean": 72.4,
+     "p50": 18,
+     "p90": 187,
+     "max": 853,
+     "buckets": {
+      "1-5": 41,
+      "6-10": 11,
+      "11-20": 11,
+      "21-40": 18,
+      "41-80": 16,
+      ">80": 27
+     }
+    },
+    "V2": {
+     "n": 129,
+     "mean": 24.0,
+     "p50": 17,
+     "p90": 52,
+     "max": 98,
+     "buckets": {
+      "1-5": 20,
+      "6-10": 19,
+      "11-20": 36,
+      "21-40": 30,
+      "41-80": 19,
+      ">80": 5
+     }
+    },
+    "V2G": {
+     "n": 120,
+     "mean": 98.2,
+     "p50": 66,
+     "p90": 220,
+     "max": 411,
+     "buckets": {
+      "1-5": 9,
+      "6-10": 5,
+      "11-20": 8,
+      "21-40": 10,
+      "41-80": 32,
+      ">80": 56
+     }
+    },
+    "V2T1": {
+     "n": 129,
+     "mean": 25.0,
+     "p50": 18,
+     "p90": 53,
+     "max": 99,
+     "buckets": {
+      "1-5": 18,
+      "6-10": 17,
+      "11-20": 38,
+      "21-40": 32,
+      "41-80": 19,
+      ">80": 5
+     }
+    }
+   },
+   "delta": {
+    "V1": {
+     "n": 131,
+     "improved_n": 125,
+     "worsened_n": 6,
+     "zero_n": 0,
+     "pos_part": 55828.75,
+     "neg_part": -19502.55,
+     "net_delta": 36326.21
+    },
+    "V2": {
+     "n": 131,
+     "improved_n": 53,
+     "worsened_n": 78,
+     "zero_n": 0,
+     "pos_part": 41026.53,
+     "neg_part": -25612.73,
+     "net_delta": 15413.8
+    },
+    "V2G": {
+     "n": 131,
+     "improved_n": 86,
+     "worsened_n": 45,
+     "zero_n": 0,
+     "pos_part": 99013.69,
+     "neg_part": -26770.74,
+     "net_delta": 72242.95
+    },
+    "V2T1": {
+     "n": 131,
+     "improved_n": 53,
+     "worsened_n": 78,
+     "zero_n": 0,
+     "pos_part": 40199.16,
+     "neg_part": -27180.99,
+     "net_delta": 13018.17
+    }
+   }
+  },
+  "new14": {
+   "n_loser_plans": 142,
+   "n_tail_holding": 2,
+   "censor_counts": {
+    "V1": 7,
+    "V2": 2,
+    "V2G": 12,
+    "V2T1": 2
+   },
+   "ext_days": {
+    "V1": {
+     "n": 135,
+     "mean": 71.5,
+     "p50": 19,
+     "p90": 192,
+     "max": 853,
+     "buckets": {
+      "1-5": 44,
+      "6-10": 13,
+      "11-20": 11,
+      "21-40": 21,
+      "41-80": 17,
+      ">80": 29
+     }
+    },
+    "V2": {
+     "n": 140,
+     "mean": 23.6,
+     "p50": 17,
+     "p90": 49,
+     "max": 98,
+     "buckets": {
+      "1-5": 22,
+      "6-10": 19,
+      "11-20": 40,
+      "21-40": 35,
+      "41-80": 19,
+      ">80": 5
+     }
+    },
+    "V2G": {
+     "n": 130,
+     "mean": 97.6,
+     "p50": 66,
+     "p90": 220,
+     "max": 411,
+     "buckets": {
+      "1-5": 9,
+      "6-10": 5,
+      "11-20": 10,
+      "21-40": 11,
+      "41-80": 35,
+      ">80": 60
+     }
+    },
+    "V2T1": {
+     "n": 140,
+     "mean": 24.6,
+     "p50": 18,
+     "p90": 50,
+     "max": 99,
+     "buckets": {
+      "1-5": 19,
+      "6-10": 18,
+      "11-20": 42,
+      "21-40": 37,
+      "41-80": 19,
+      ">80": 5
+     }
+    }
+   },
+   "delta": {
+    "V1": {
+     "n": 142,
+     "improved_n": 136,
+     "worsened_n": 6,
+     "zero_n": 0,
+     "pos_part": 63094.83,
+     "neg_part": -19502.55,
+     "net_delta": 43592.29
+    },
+    "V2": {
+     "n": 142,
+     "improved_n": 59,
+     "worsened_n": 83,
+     "zero_n": 0,
+     "pos_part": 44086.15,
+     "neg_part": -29286.08,
+     "net_delta": 14800.06
+    },
+    "V2G": {
+     "n": 142,
+     "improved_n": 93,
+     "worsened_n": 49,
+     "zero_n": 0,
+     "pos_part": 107381.17,
+     "neg_part": -30643.9,
+     "net_delta": 76737.27
+    },
+    "V2T1": {
+     "n": 142,
+     "improved_n": 59,
+     "worsened_n": 83,
+     "zero_n": 0,
+     "pos_part": 43390.52,
+     "neg_part": -31231.7,
+     "net_delta": 12158.81
+    }
+   }
+  },
+  "p0": {
+   "n_loser_plans": 531,
+   "n_tail_holding": 7,
+   "censor_counts": {
+    "V1": 30,
+    "V2": 19,
+    "V2G": 74,
+    "V2T1": 19
+   },
+   "ext_days": {
+    "V1": {
+     "n": 501,
+     "mean": 89.9,
+     "p50": 17,
+     "p90": 270,
+     "max": 912,
+     "buckets": {
+      "1-5": 160,
+      "6-10": 51,
+      "11-20": 56,
+      "21-40": 60,
+      "41-80": 59,
+      ">80": 115
+     }
+    },
+    "V2": {
+     "n": 512,
+     "mean": 24.8,
+     "p50": 18,
+     "p90": 53,
+     "max": 100,
+     "buckets": {
+      "1-5": 112,
+      "6-10": 54,
+      "11-20": 109,
+      "21-40": 121,
+      "41-80": 98,
+      ">80": 18
+     }
+    },
+    "V2G": {
+     "n": 457,
+     "mean": 127.4,
+     "p50": 98,
+     "p90": 286,
+     "max": 613,
+     "buckets": {
+      "1-5": 32,
+      "6-10": 10,
+      "11-20": 22,
+      "21-40": 29,
+      "41-80": 88,
+      ">80": 276
+     }
+    },
+    "V2T1": {
+     "n": 512,
+     "mean": 25.8,
+     "p50": 19,
+     "p90": 54,
+     "max": 101,
+     "buckets": {
+      "1-5": 102,
+      "6-10": 50,
+      "11-20": 117,
+      "21-40": 124,
+      "41-80": 101,
+      ">80": 18
+     }
+    }
+   },
+   "delta": {
+    "V1": {
+     "n": 531,
+     "improved_n": 510,
+     "worsened_n": 21,
+     "zero_n": 0,
+     "pos_part": 233743.72,
+     "neg_part": -31062.28,
+     "net_delta": 202681.44
+    },
+    "V2": {
+     "n": 531,
+     "improved_n": 217,
+     "worsened_n": 314,
+     "zero_n": 0,
+     "pos_part": 135672.27,
+     "neg_part": -99079.0,
+     "net_delta": 36593.27
+    },
+    "V2G": {
+     "n": 531,
+     "improved_n": 344,
+     "worsened_n": 187,
+     "zero_n": 0,
+     "pos_part": 492009.25,
+     "neg_part": -168185.01,
+     "net_delta": 323824.23
+    },
+    "V2T1": {
+     "n": 531,
+     "improved_n": 221,
+     "worsened_n": 310,
+     "zero_n": 0,
+     "pos_part": 134468.95,
+     "neg_part": -104293.38,
+     "net_delta": 30175.57
+    }
+   }
+  },
+  "p1": {
+   "n_loser_plans": 481,
+   "n_tail_holding": 7,
+   "censor_counts": {
+    "V1": 23,
+    "V2": 18,
+    "V2G": 64,
+    "V2T1": 18
+   },
+   "ext_days": {
+    "V1": {
+     "n": 458,
+     "mean": 91.4,
+     "p50": 16,
+     "p90": 270,
+     "max": 912,
+     "buckets": {
+      "1-5": 145,
+      "6-10": 51,
+      "11-20": 49,
+      "21-40": 55,
+      "41-80": 49,
+      ">80": 109
+     }
+    },
+    "V2": {
+     "n": 463,
+     "mean": 25.0,
+     "p50": 18,
+     "p90": 55,
+     "max": 109,
+     "buckets": {
+      "1-5": 99,
+      "6-10": 51,
+      "11-20": 99,
+      "21-40": 109,
+      "41-80": 88,
+      ">80": 17
+     }
+    },
+    "V2G": {
+     "n": 417,
+     "mean": 124.9,
+     "p50": 98,
+     "p90": 277,
+     "max": 551,
+     "buckets": {
+      "1-5": 29,
+      "6-10": 10,
+      "11-20": 21,
+      "21-40": 29,
+      "41-80": 78,
+      ">80": 250
+     }
+    },
+    "V2T1": {
+     "n": 463,
+     "mean": 26.0,
+     "p50": 19,
+     "p90": 56,
+     "max": 110,
+     "buckets": {
+      "1-5": 91,
+      "6-10": 48,
+      "11-20": 104,
+      "21-40": 113,
+      "41-80": 90,
+      ">80": 17
+     }
+    }
+   },
+   "delta": {
+    "V1": {
+     "n": 481,
+     "improved_n": 464,
+     "worsened_n": 17,
+     "zero_n": 0,
+     "pos_part": 211156.24,
+     "neg_part": -25036.62,
+     "net_delta": 186119.62
+    },
+    "V2": {
+     "n": 481,
+     "improved_n": 204,
+     "worsened_n": 277,
+     "zero_n": 0,
+     "pos_part": 126459.13,
+     "neg_part": -87029.67,
+     "net_delta": 39429.46
+    },
+    "V2G": {
+     "n": 481,
+     "improved_n": 316,
+     "worsened_n": 165,
+     "zero_n": 0,
+     "pos_part": 462109.42,
+     "neg_part": -141920.38,
+     "net_delta": 320189.04
+    },
+    "V2T1": {
+     "n": 481,
+     "improved_n": 209,
+     "worsened_n": 272,
+     "zero_n": 0,
+     "pos_part": 125418.78,
+     "neg_part": -92334.66,
+     "net_delta": 33084.12
+    }
+   }
+  }
+ },
+ "near1y": {
+  "s06": {
+   "BASE": {
+    "n": 84,
+    "total": 27902.51
+   },
+   "V1": {
+    "n": 84,
+    "total": 29438.89
+   },
+   "V2": {
+    "n": 84,
+    "total": 31127.85
+   },
+   "V2G": {
+    "n": 84,
+    "total": 32997.5
+   },
+   "V2T1": {
+    "n": 84,
+    "total": 31218.66
+   }
+  },
+  "a9": {
+   "BASE": {
+    "n": 94,
+    "total": 26615.47
+   },
+   "V1": {
+    "n": 94,
+    "total": 33142.79
+   },
+   "V2": {
+    "n": 94,
+    "total": 32695.64
+   },
+   "V2G": {
+    "n": 94,
+    "total": 33450.1
+   },
+   "V2T1": {
+    "n": 94,
+    "total": 32462.71
+   }
+  },
+  "new15": {
+   "BASE": {
+    "n": 58,
+    "total": 19443.59
+   },
+   "V1": {
+    "n": 58,
+    "total": 20115.73
+   },
+   "V2": {
+    "n": 58,
+    "total": 22032.49
+   },
+   "V2G": {
+    "n": 58,
+    "total": 22978.56
+   },
+   "V2T1": {
+    "n": 58,
+    "total": 22013.28
+   }
+  },
+  "new14": {
+   "BASE": {
+    "n": 61,
+    "total": 18510.15
+   },
+   "V1": {
+    "n": 61,
+    "total": 20370.02
+   },
+   "V2": {
+    "n": 61,
+    "total": 21966.02
+   },
+   "V2G": {
+    "n": 61,
+    "total": 22634.8
+   },
+   "V2T1": {
+    "n": 61,
+    "total": 21807.28
+   }
+  },
+  "p0": {
+   "BASE": {
+    "n": 166,
+    "total": 15502.52
+   },
+   "V1": {
+    "n": 166,
+    "total": 21821.41
+   },
+   "V2": {
+    "n": 166,
+    "total": 20675.62
+   },
+   "V2G": {
+    "n": 166,
+    "total": 13177.69
+   },
+   "V2T1": {
+    "n": 166,
+    "total": 19083.64
+   }
+  },
+  "p1": {
+   "BASE": {
+    "n": 147,
+    "total": 17001.62
+   },
+   "V1": {
+    "n": 147,
+    "total": 26469.87
+   },
+   "V2": {
+    "n": 147,
+    "total": 24989.89
+   },
+   "V2G": {
+    "n": 147,
+    "total": 25319.69
+   },
+   "V2T1": {
+    "n": 147,
+    "total": 23823.25
+   }
+  }
+ }
+}

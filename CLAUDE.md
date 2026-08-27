@@ -95,10 +95,10 @@
 
 ## 18. 防重犯索引表(2026-08-08 起,每次犯错追加;原文全量已归档)
 用户定:慢慢积累经验迭代完美。每次犯错记录于此 + 防重犯条款,不重犯同类。**明细原文全量已归档 `docs/archive/CLAUDE-errors-2026-08.md`(42 过错+30 经验+5 token 段+每日归纳,可 git show 溯源),本节约索引+防重犯精华。**
-**⚠️ 索引表按归属 5 类分节(2026-08-12 用户定,用户原话"不同角色的经验对其他角色不通用""测试一般不需要调研的经验和错误")**:①通用共享(留根,所有角色都该知道)②主控专属(进 docs/main-governance.md)③实施专属(进 .claude/skills/role-implementer/SKILL.md)④调研专属(进 .claude/skills/role-researcher/SKILL.md)⑤测试专属(进 .claude/skills/role-tester/SKILL.md)。各文件已同步归属条目,零丢失(45 过错+30 经验=75 条一条不丢不重复),本表保留全量锚点便于全站反查。
+**⚠️ 索引表按归属 5 类分节(2026-08-12 用户定,用户原话"不同角色的经验对其他角色不通用""测试一般不需要调研的经验和错误")**:①通用共享(留根,所有角色都该知道)②主控专属(进 docs/main-governance.md)③实施专属(进 .claude/skills/role-implementer/SKILL.md)④调研专属(进 .claude/skills/role-researcher/SKILL.md)⑤测试专属(进 .claude/skills/role-tester/SKILL.md)。各文件已同步归属条目,零丢失(46 过错+30 经验=76 条一条不丢不重复),本表保留全量锚点便于全站反查。
 
-### 过错索引(45 条:锚点 id|日期|主题|一句话防重犯|归档原文位置,按归属 5 类分节:通用 8 / 主控 16 / 实施 13 / 调研 7 / 测试 1)
-> 锚点 id = `docs/archive/CLAUDE-errors-2026-08.md` 末尾「防重犯锚点索引」块,`grep 锚点id` 可反向追原文(含根因+场景+防重犯)。零丢失校验:`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-2026-08.md` == 本表行数(44)。
+### 过错索引(46 条:锚点 id|日期|主题|一句话防重犯|归档原文位置,按归属 5 类分节:通用 8 / 主控 17 / 实施 13 / 调研 7 / 测试 1)
+> 锚点 id = `docs/archive/CLAUDE-errors-2026-08.md` 末尾「防重犯锚点索引」块,`grep 锚点id` 可反向追原文(含根因+场景+防重犯)。零丢失校验:`grep -c '^L[0-9]' docs/archive/CLAUDE-errors-2026-08.md` == 本表行数(46,2026-08-27 L46 追加校准)。
 > **归属拆分(2026-08-12)**:锚点不删,只按归属分节标注;各归属全文条目已同步进对应文件(main-governance.md / 3 个 role skill / claude-work-mode/CLAUDE.md)。
 
 **① 通用共享(7 条):所有角色都该知道,留根共享核心**
@@ -113,7 +113,7 @@
 | L44 | 08-24 | has_track口径P0事故(需求记录错→挖掘继承bug→实施照单→reviewer闭环内失守,全链无人对照UI文案,机检全绿卡不归零) | 语义类改动全链路各角色必须有第三方锚点(UI文案/产品文档):主控派单附三源原文、researcher设计前核查分析对象、implementer开工逐字对照、reviewer查对照记录、tester机检备独立锚点(§23.13) | archive:锚点块本条(L44) |
 | L45 | 08-26 | S06快照无每日重生+未上报「快照vs动态」方向分叉(切整站默认才暴露,观察期差点基于死快照得假结论) | 动态/状态/择时类功能的数据供给链路四件(生成→定时挂载→机检→过期告警)是功能本体缺一不算done;静态/手动等降级形态必须作为方向分叉上报用户拍板;验收大功能必查「谁每天更新它」(§5/L16状态型扩展) | archive:锚点块本条(L45) |
 
-**② 主控专属(16 条):主控全栈需要,全文进 docs/main-governance.md「主控专属教训」段(L29 例外:已全文化至本文件 §0.1 红线,governance 留指针行)**
+**② 主控专属(17 条):主控全栈需要,全文进 docs/main-governance.md「主控专属教训」段(L29 例外:已全文化至本文件 §0.1 红线,governance 留指针行)**
 | 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
 |---|---|---|---|---|
 | L01 | 08-08 | 通知丢失不设cron傻等 | cron兜底必设 | archive:L13 |
@@ -132,6 +132,7 @@
 | L33 | 08-15 | 子agent设"16:10定时器自唤醒merge"不可靠:子agent会话一停(等通知)其REPL没了,自己设的CronCreate永不触发→implementer傻等死闹钟+主控等它通知=双等待死锁,用户两次"?"才发现 | 带时点动作(merge/上线避盘后时点)主控侧设一次性CronCreate兜底(到点主控主动查),或收到子agent"在等定时器"报告立即改为命令立即执行;主控兜底设在自己会话,不指望子agent自唤醒(→memory subagent-timer-not-reliable) | archive:L103 |
 | L35 | 08-15 | Explore agent v4-pro 计费泄漏:派只读/搜索任务误用 Claude Code 内置 Explore subagent(model=claude-opus-5 不在代理白名单,绕过白名单按 v4-pro 计费,12次~45万tokens泄漏) | 只读/搜索/定位任务一律派 researcher(内置 Explore 固定用 claude-opus-5 绕过代理白名单);白名单外 model 一律兜底改写 flash,绝不透传(→memory no-explore-agent-use-researcher) | archive:L105 |
 | L36 | 08-15 | 汇报并行在跑 agent 数错误(把已完成/已收到通知的还当在跑,用户:"顺带提醒 并行在跑的可没4个"+"这种错不要再犯了") | 汇报"在跑N个"前逐 agent 核对是否已收完成通知;收到通知=已完成立即移出在跑(→memory agent-status-verify-before-report) | archive:L106 |
+| L46 | 08-27 | 告警排查单通道盲区(latest.md 沉默≠无告警;漏 17:56 baostock 封禁熔断严重邮件,用户点破才找到,定性「很严重的漏洞」) | 排查告警必须事件驱动(find 日志目录 -mmin -N 新鲜文件逐个 tail 近段),关键词 grep 只是补充;任何单一登记点沉默≠全局无告警;severe 级 notify 必须统一镜像 latest.md 防旁路出口(→memory alert-triage-event-driven-scan) | archive:锚点块L46 |
 
 **③ 实施专属(11 条):全文进 .claude/skills/role-implementer/SKILL.md「实施专属教训蒸馏」段**
 | 锚点 | 日期 | 主题 | 一句话防重犯 | 归档 |
@@ -363,14 +364,14 @@
 - 关联:docs/main-governance §18.2 索引维护、memory tasks-md-only-active、pending-features-index 每日 23:47 cron 自动重建。
 - **验收口径**:涉及 task/todolist/归档任务,agent 自验含「4 态流转对照(活跃留 task/远期移 todolist/完成进完成文件/归档可反查)+ 活待办数前后不变 + 会话收尾已落档」,漏=验收不过。
 
-### 23.14 v1.1.6 后开发内容必过 codex 外部 review(2026-08-25 用户定)
-**触发词**:任何 feat 实施完成/merge 前后;v1.1.6(tag 91303132b)之后的所有开发内容验收。
-**核心一句话:v1.1.6 之后的一切开发内容,除内部 reviewer 外必须额外让 codex 做一道外部 review,双保险防同源盲区。**
-- **① 发起**:主控走 `echo '<json>' | bash scripts/codex-review-request.sh <request_id>`(内置清旧报告+JSON 校验,E31 三件=status 字段/清场/原子写;协议全文 docs/codex-collab-protocol.md);request 必带 status/base..head diff 范围/review 重点清单/报告回传路径
-- **② 时点**:优先 merge 前发(feat 分支 push 远端后 codex 即可拉);已 merge 存量发现漏发 → merge 后补发,发现问题照常修不豁免
-- **③ 豁免**:A 级纯文档/文案类可豁免但必须在汇报中显式声明;B 级+功能/数据/算法/前端改动一律必发
-- **④ 闭环**:codex 报告原子写 `/tmp/codex-reports/<id>.json`,主控读后逐条处置(必修/建议/运营拍板),处置结果回写任务清单;codex 自发任务(如 S06)以其验收口径+读回传报告为天然复核,不重复发起
-- 对应 skill:`.agents/codex-reviewer/SKILL.md`(2ba9b1e28);通道防误读见 governance E31
+### 23.14 外部 review 改用户点名制(2026-08-27 用户定,**取代**原"v1.1.6 后必过 codex"默认)
+**触发词**:想发起任何 codex 外审前;读到旧规范/任务描述里"必发外审"字样时。
+**核心一句话:codex 外审不再是默认流程——是否外审、何时外审(逐支或打包)一律由用户提出并确认后才发起;内部 reviewer 流程不变,仍是 merge 前硬门槛。**
+- **① 默认不发起**:主控/子 agent 不得以任何规范条目为由自动发 codex 外审;merge 资格=内审 PASS(+§0 上线验证),不再等外部报告
+- **② 点名即走通道**:用户点名单支或打包批量外审时,主控走 `echo '<json>' | bash scripts/codex-review-request.sh <request_id>`(内置清旧报告+JSON 校验,status 字段/清场/原子写;协议全文 docs/codex-collab-protocol.md)
+- **③ 在途存量处置**:规则生效前已发出的请求,报告回来只作参考信息消化(发现的真问题照常立项修复),不再作为合并/上线闸门
+- **④ 历史对照**:原规范(v1.1.6 tag 91303132b 起"一切开发内容必过 codex")已废止;`.agents/codex-reviewer/SKILL.md` 保留作点名时的执行手册
+- 对应 skill:`.agents/codex-reviewer/SKILL.md`;通道防误读见 governance E31
 
 ### 23.13 口径三源核对+不统一必上报拍板(2026-08-24 用户定,P0 级,has_track 口径事故)
 **触发词**:任何涉及"分类/档位/象限/阈值/区间"语义的需求理解、方案设计、派单、实施、review;挖掘/回测报告结论落地;发现两处描述同一概念但说法不同。

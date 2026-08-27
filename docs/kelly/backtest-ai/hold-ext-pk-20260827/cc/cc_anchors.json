@@ -1,0 +1,61 @@
+{
+ "generated_at": "2026-08-27 05:01",
+ "anchors_published": {
+  "P0": 66530.38,
+  "P1": 73102.53,
+  "NEW14": 122648.33,
+  "NEW14_MDD": -4178.01
+ },
+ "observed": {
+  "p0": {
+   "n": 1129,
+   "total": 66692.97,
+   "holding": 7
+  },
+  "p1": {
+   "n": 1035,
+   "total": 73265.12,
+   "holding": 7
+  },
+  "a9": {
+   "n": 575,
+   "total": 118940.21,
+   "holding": 5,
+   "margin_vs_p1": 45675.09,
+   "published_margin_drift_ref": 46007.0
+  },
+  "new14": {
+   "n": 431,
+   "total": 122852.61,
+   "holding": 2,
+   "mdd_realized": -4178.01,
+   "mdd_trough": "20240913"
+  },
+  "new15": {
+   "n": 410,
+   "total": 118818.33,
+   "holding": 2
+  },
+  "s06": {
+   "n": 523,
+   "total": 140583.07,
+   "holding": 5,
+   "days_on": "a9",
+   "n_a9_days": 717,
+   "n_new15_days": 849,
+   "pre_coverage_dates_filled_offbase": 104
+  }
+ },
+ "drift": {
+  "p0_total": 66692.97,
+  "anchor_p0": 66530.38,
+  "p1_total": 73265.12,
+  "anchor_p1": 73102.53,
+  "new14_total": 122852.61,
+  "anchor_new14": 122648.33,
+  "new14_mdd": -4178.01,
+  "anchor_mdd": -4178.01
+ },
+ "pool_track_tier_none": 1982,
+ "note": "发布锚点基于 2026-08-23~24 时点数据; 产物每日重生新增尾段交易日致小幅漂移属预期"
+}

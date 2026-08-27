@@ -1,0 +1,139 @@
+{
+ "generated_at": "2026-08-27 05:01",
+ "published_anchors": {
+  "P0": 66530.38,
+  "P1": 73102.53,
+  "NEW14": 122648.33,
+  "NEW14_MDD": -4178.01
+ },
+ "observed": {
+  "p0": {
+   "n": 1129,
+   "total": 66692.97,
+   "holding": 7
+  },
+  "p1": {
+   "n": 1035,
+   "total": 73265.12,
+   "holding": 7
+  },
+  "a9": {
+   "n": 575,
+   "total": 118940.21,
+   "holding": 5,
+   "margin_vs_p1": 45675.09
+  },
+  "new14": {
+   "n": 431,
+   "total": 122852.61,
+   "holding": 2,
+   "mdd_realized": -4178.01,
+   "mdd_trough": "20240913"
+  },
+  "new15": {
+   "n": 410,
+   "total": 118818.33,
+   "holding": 2
+  },
+  "s06": {
+   "n": 523,
+   "total": 140583.07,
+   "holding": 5,
+   "days_on": "a9",
+   "n_a9_days": 717,
+   "n_new15_days": 849,
+   "pre_coverage_dates_filled_offbase": 104
+  }
+ },
+ "drift_checks": {
+  "p0_total": {
+   "observed": 66692.97,
+   "published": 66530.38,
+   "drift_pct": 0.244,
+   "PASS": true
+  },
+  "p1_total": {
+   "observed": 73265.12,
+   "published": 73102.53,
+   "drift_pct": 0.222,
+   "PASS": true
+  },
+  "new14_total": {
+   "observed": 122852.61,
+   "published": 122648.33,
+   "drift_pct": 0.167,
+   "PASS": true
+  },
+  "new14_mdd": {
+   "observed": -4178.01,
+   "published": -4178.01,
+   "drift_pct": 0.0,
+   "PASS": true
+  },
+  "a9_margin": {
+   "observed": 45675.09,
+   "published": 46007.0,
+   "drift_pct": 0.721,
+   "PASS": true
+  },
+  "has_track_none_null_n": {
+   "observed": 1982,
+   "published": 1982,
+   "PASS": true
+  }
+ },
+ "anchors_all_pass": true,
+ "cc_cross_check": {
+  "p0.total": {
+   "h_ext": 66692.97,
+   "cc": 66692.97,
+   "match": true
+  },
+  "p1.total": {
+   "h_ext": 73265.12,
+   "cc": 73265.12,
+   "match": true
+  },
+  "new14.total": {
+   "h_ext": 122852.61,
+   "cc": 122852.61,
+   "match": true
+  },
+  "new14.mdd_realized": {
+   "h_ext": -4178.01,
+   "cc": -4178.01,
+   "match": true
+  },
+  "new14.mdd_trough": {
+   "h_ext": "20240913",
+   "cc": "20240913",
+   "match": true
+  },
+  "a9.total": {
+   "h_ext": 118940.21,
+   "cc": 118940.21,
+   "match": true
+  },
+  "a9.margin_vs_p1": {
+   "h_ext": 45675.09,
+   "cc": 45675.09,
+   "match": true
+  },
+  "new15.total": {
+   "h_ext": 118818.33,
+   "cc": 118818.33,
+   "match": true
+  },
+  "s06.total": {
+   "h_ext": 140583.07,
+   "cc": 140583.07,
+   "match": true
+  },
+  "pool_track_tier_none": {
+   "h_ext": 1982,
+   "cc": 1982,
+   "match": true
+  }
+ },
+ "note": "发布锚点=memory test-baseline-v112-anchor(v1.1.6, 2026-08-23/24时点); 产物每日重生致<0.25%漂移属预期"
+}

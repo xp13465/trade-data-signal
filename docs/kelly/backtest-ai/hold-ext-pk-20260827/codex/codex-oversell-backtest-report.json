@@ -1,0 +1,18 @@
+{
+  "tag": "v20260827-CODEX-001",
+  "agent": "codex",
+  "timestamp": "2026-08-27T11:50:41.439Z",
+  "elapsed_seconds": 0.6,
+  "data_source": {
+    "trades": "signal_kelly_trades.json",
+    "s06": "kelly_mode_s06_state.json",
+    "features": "kelly_loss_features.json"
+  },
+  "total_base_trades": 7622,
+  "modes": [
+    "s06",
+    "a9",
+    "new15"
+  ],
+  "note": "策略1=等回本 / 策略2=等卖出信号; 与基线 Mode A 固定10天对比"
+}
