@@ -62,7 +62,7 @@
 - <https://s.sugas.site/>（MaoziYun，300MB 总大小限制）
 - <https://ssd.fx8.store/>（R2 CDN，大 JSON 产物）
 
-![信号实验室 · tdsignal](static-site/og.png)
+![信号实验室 · tdsignal](docs/assets/tdsignal-banner.svg)
 
 `trade-data-signal` / `tdsignal`
 
