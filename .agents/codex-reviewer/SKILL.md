@@ -127,3 +127,9 @@ Codex 主会话：整合结果 → 交叉比对 → 输出最终报告
 - **日期**: 2026-08-24
 - **根因**: 把 request 的预期值当作权威，没有用实际数据交叉核实
 - **防重犯**: request 里的每个数字都要在数据产物中找到对应值
+
+### CX-005: 所有改动必须走独立分支→commit→push 工作准则
+- **日期**: 2026-08-27
+- **用户拍板**: 任何修改（包括 docs/assets、审查产出等非源码文件）必须先在自己的 codex 分支 commit+push，绝不留在工作区 untracked 状态
+- **流程**: `git checkout -b codex/<slug>` → add → commit → push -u origin → 由 Claude 用 main-merge.sh 合并入 main 或提 PR
+- **禁止**: 直接在 main 分支上编辑后不 commit；把待提交产物只留 `/tmp` 不入 git
