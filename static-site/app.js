@@ -4772,14 +4772,36 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   const _tierCountItems = _pcOn && _posCapKeptMap
     ? windowedItems.filter((it) => !_isAiFadeHit(it) && (() => { const k = _posCapKeptMap.get(it.date); return k && k.has(it); })())
     : (_fadeOn ? windowedItems.filter((it) => !_isAiFadeHit(it)) : windowedItems);
-  // ===== 延后的 _availOnlyOn「当日已满」过滤(posCap 就绪后安全执行,防 TDZ) =====
+  // ===== 延后的 _availOnlyOn「仅显示可用」过滤(posCap 就绪后安全执行,防 TDZ) =====
+  // 核心思想: 只显示有 badge 的信号(AI建议/AI警示), 其余全隐去(兜底灰/当日已满/降亏/未入样)
+  // 预计算 _hasBadge: 所有会获得 badge(AI建议/AI警示)的信号集合
+  let _hasBadge = null;
   if (_availOnlyOn) {
-    filtered = filtered.filter((it) => !_isAiFadeHit(it)
-      && !(it.signal !== "band_hold" && it._bt_in_universe !== false
-           && _pcOn && _posCapKeptMap
-           && !_isSellRow(it)
-           && (() => { const k = _posCapKeptMap.get(it.date); return k && !k.has(it); })())
-      && (it.signal === "band_hold" || it._bt_in_universe !== false));
+    _hasBadge = new Set();
+    // AI建议(在 kept 集中 = posCapRank > 0) 和 当日已满(posCapRank = 0) 都来自 _posCapKeptMap
+    // 但只有 AI建议 才有 badge, 当日已满 = 灰色
+    // 简化: 有 badge 的买入信号 = 在 _posCapKeptMap 中且非 fade-hit(即被 posCap 选中的)
+    // 当 _pcOn=true 且 _posCapKeptMap 存在时: kept 集 = AI建议(badge), 非 kept = 当日已满(灰)
+    // 当 _pcOn=false: 所有买入信号 = 兜底灰, 无 badge → 全部隐藏
+    // AI警示(卖出类) 始终有 badge → 始终显示
+    if (_pcOn && _posCapKeptMap) {
+      for (const [_dt, _keptSet] of _posCapKeptMap) {
+        for (const _kept of _keptSet) { _hasBadge.add(_kept); }
+      }
+    }
+  }
+  if (_availOnlyOn) {
+    filtered = filtered.filter((it) => {
+      // 卖出类(AI警示) = 有 badge, 始终显示
+      if (_isSellSig(it) && it._bt_in_universe !== false) return true;
+      // 降亏命中/未入样本 = 无 badge, 隐藏
+      if (_isAiFadeHit(it)) return false;
+      if (it._bt_in_universe === false) return false;
+      // band_hold(持有中性) = 无 badge, 隐藏
+      if (it.signal === "band_hold") return false;
+      // 有 badge(AI建议) = 显示; 无 badge(当日已满/兜底灰) = 隐藏
+      return _hasBadge && _hasBadge.has(it);
+    });
   }
   // 按 date 分组（降序），今日组单独提到最前
   const groups = {};
@@ -5035,8 +5057,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // 买入类信号若仍无任何样式, 默认置灰(与「当日已满」同视觉 posCapCls, 不加 badge 文案, 只灰显弱化)。
         // 触发场景: _pcOn=false 或 _posCapKeptMap 为空(仓位建议关) 时, 买入信号无 badge 也无灰显,
         // 用户反馈"非AI警示和AI建议之外的没有置灰的信号"。
-        // 仅显示可用信号开启时跳过兜底灰显(该模式下信号要么有badge要么被filter隐藏, 不需要兜底灰)
-        if (!posCapCls && !_isSellRow(it) && _BUY_UNI_SIGS[it.signal] && it._bt_in_universe !== false && !_availOnlyOn) {
+        if (!posCapCls && !_isSellRow(it) && _BUY_UNI_SIGS[it.signal] && it._bt_in_universe !== false) {
           posCapCls = " sig-poscap-excluded";
         }
         // 2026-08-13 C1 fix(reviewer): 恢复每 cell 渲染前的三变量初始化声明(重构时误删 → 隐式全局污染, 命中 cell 赋值后污染后方未命中 cell)。
