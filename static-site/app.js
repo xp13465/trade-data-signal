@@ -4973,10 +4973,11 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       _posCapRank = new Map();
       // _posCapKeptMap stores key strings (index_id|date|signal) in quality order (Set preserves insertion order);
       // Re-sort by quality via _posCapSortedFn for stable rank numbering (same as original).
-      const _keptObjMap = new Map(_dayItems.map(d => [d.index_id + '|' + d.date + '|' + d.signal, d]));
+      const _keyOf = (s) => s.index_id + '|' + s.date + '|' + s.signal;
+      const _keptObjMap = new Map(dayItems.map(d => [_keyOf(d), d]));
       const _keptObjs = [..._posCapKeptMap.get(dt)].map(k => _keptObjMap.get(k)).filter(Boolean);
       const _keptSorted = _posCapSortedFn(_keptObjs);
-      _keptSorted.forEach((_di, _idx) => _posCapRank.set(_di.index_id + '|' + _di.date + '|' + _di.signal, _idx + 1));
+      _keptSorted.forEach((_di, _idx) => _posCapRank.set(_keyOf(_di), _idx + 1));
     }
     const cellHtml = (it) => {
       if (kind === "signal") {
