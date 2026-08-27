@@ -25598,7 +25598,7 @@ function _summaryHistoryItemHtml(s, briefByDate, newsDigest) {
   const it = (briefByDate && s.date) ? briefByDate[s.date] : null;
   if (it) {
     const meta = it.meta || {};
-    aiBlock = `<div class="sh-ai-brief"><div class="sh-ai-brief-head"><span class="db-dir">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}<span class="sh-ai-brief-title">🤖 AI预测</span>${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}${_dbHitHtml(meta)}${_dbActualHtml(meta)}${_dbPlayBtn(meta, it.date || meta.date)}</div>${_dbBriefDetailHtml(it)}</div>`;
+    aiBlock = `<div class="sh-ai-brief"><div class="sh-ai-brief-head"><span class="db-dir ${_dbDirCls(meta.direction)}">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}<span class="sh-ai-brief-title">🤖 AI预测</span>${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}${_dbHitHtml(meta)}${_dbActualHtml(meta)}${_dbPlayBtn(meta, it.date || meta.date)}</div>${_dbBriefDetailHtml(it)}</div>`;
   }
   // 2026-08-16 历史「事件对照」:当日大事 1-3 条。日期==news_digest.date 用已加载缓存(同步);
   // 否则占位容器(data-arch-date), 渲染后由 _loadHistNewsAsync 异步读归档 news_digest/<date>.json 注入, 无归档显示空态。
@@ -25741,13 +25741,31 @@ function _dbDirLabel(d) {
   return "➖ 震荡";
 }
 
+// A股红涨绿跌方向配色(2026-08-27 用户反馈):凡是表达方向的数值/标识统一分色——
+//   涨=红系(db-up)、跌=绿系(db-down)、平/跨0/缺省=中性灰(db-flat),数字+箭头+标签同 span 联动继承同色。
+// 方向徽标按 direction 字段(up/down/flat);数值区间芯片按 lo>0→涨红 / hi<0→跌绿 / 其余(含0跨0)→震荡灰
+// (与公示口径"方向由区间体现:全正=涨/全负=跌/含0=平震荡"一致)。
+// 例外:.db-index-yield(10年国债收益率变化 bp 口径,收益率上行≠行情看涨,无 A股涨跌语义)不上色维持原样。
+function _dbDirCls(d) {
+  if (d === "up") return "db-up";
+  if (d === "down") return "db-down";
+  return "db-flat";
+}
+function _numDirCls(lo, hi) {
+  lo = Number(lo); hi = Number(hi);
+  if (!isFinite(lo) || !isFinite(hi)) return "db-flat";
+  if (lo > 0) return "db-up";
+  if (hi < 0) return "db-down";
+  return "db-flat";
+}
+
 // 2026-08-15 区间双命中: 方向徽标后追加预测区间(+0.5~1.5%)。
 // 区间从 meta.range 读; 老条目无 range → 不显示区间徽标(不伪造)。
 function _dbRangeLabel(meta) {
   const rng = (meta && meta.range) || null;
   if (!rng || rng.lo == null || rng.hi == null) return "";
   const fmt = (v) => (Number(v) > 0 ? `+${Number(v).toFixed(2)}` : Number(v).toFixed(2));
-  return `<span class="db-range">预计 ${fmt(rng.lo)}~${fmt(rng.hi)}%</span>`;
+  return `<span class="db-range ${_numDirCls(rng.lo, rng.hi)}">预计 ${fmt(rng.lo)}~${fmt(rng.hi)}%</span>`;
 }
 
 // 2026-08-15 区间命中判定 4 态: ✅方向+区间 / ✅仅方向(老条目无 range) / ❌未中 / 区间N/A。
@@ -25971,7 +25989,7 @@ function _dbDebateHtml(meta) {
   if (!d || (!d.bull && !d.bear && !d.summary)) return "";
   const bull = (d.bull || []).map((x) => `<li>${_esc(x)}</li>`).join("");
   const bear = (d.bear || []).map((x) => `<li>${_esc(x)}</li>`).join("");
-  const lean = d.lean ? _dbDirLabel(d.lean) : "";
+  const lean = d.lean ? `<span class="db-lean ${_dbDirCls(d.lean)}">${_dbDirLabel(d.lean)}</span>` : "";
   let conf = "";
   if (typeof d.confidence === "number") conf = `<span class="db-debate-conf">置信度 ${Math.round(d.confidence * 100)}%</span>`;
   return `<div class="db-debate-content">
@@ -26003,7 +26021,7 @@ function _dbBriefDetailHtml(it) {
   if (dc === "up" || dc === "down") {
     const dch = (meta.hit || {}).direction_call_hit;
     const dcMark = dch === true ? " ✅命中" : dch === false ? " ❌未中" : "";
-    const dcLabel = dc === "up" ? "📈 押涨" : "📉 押跌";
+    const dcLabel = dc === "up" ? '<span class="db-call-up">📈 押涨</span>' : '<span class="db-call-down">📉 押跌</span>';
     dcLine = `<p class="db-line"><span class="db-k">方向押注</span>强制二选一 ${dcLabel}${dcMark}<span style="opacity:.65">（与区间独立的纯方向题：实际涨跌幅≤±0.5%视为震荡，押方向判未中）</span></p>`;
   }
   // 2026-08-15 三层命中: 中间层 7 个全押区间区块(type=index 涨跌幅%,type=yield 收益率变化基点)。
@@ -26024,7 +26042,7 @@ function _dbBriefDetailHtml(it) {
       const iv = isYield
         ? `收益率变化 ${fmtBp(m.lo)}~${fmtBp(m.hi)}bp`
         : `${fmtPct(m.lo)}~${fmtPct(m.hi)}%`;
-      return `<span class="db-index ${isYield ? "db-index-yield" : ""}">${_esc(nm || "？")} ${iv}${hitTxt}</span>`;
+      return `<span class="db-index ${isYield ? "db-index-yield" : _numDirCls(m.lo, m.hi)}">${_esc(nm || "？")} ${iv}${hitTxt}</span>`;
     }).join("");
     indexBlock = `<p class="db-line"><span class="db-k">中间层7押</span>${items || "（无）"}</p>`;
   }
@@ -26046,7 +26064,7 @@ function _dbBriefDetailHtml(it) {
         bandTxt = `（判定带 ${fmt(sh.eff_lo)}~${fmt(sh.eff_hi)}%）`;
       }
       // sector_ranges 元素本身不带 actual_pct(实际在 hit.sector_hits 里), 区间本体展示用 lo/hi
-      return `<span class="db-sector">${_esc(nm || "？")} ${fmt(s.lo)}~${fmt(s.hi)}%${hitTxt}${bandTxt}</span>`;
+      return `<span class="db-sector ${_numDirCls(s.lo, s.hi)}">${_esc(nm || "？")} ${fmt(s.lo)}~${fmt(s.hi)}%${hitTxt}${bandTxt}</span>`;
     }).join("");
     sectorBlock = `<p class="db-line"><span class="db-k">板块区间</span>${pcs || "（无）"}</p>`;
   }
@@ -26092,7 +26110,7 @@ function _dailyBriefItemHtml(it) {
   const dateRaw = it.date || meta.date || "";
   const date = dateRaw.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
   return `<div class="summary-history-item db-item" data-date="${_escAttr(dateRaw)}">
-    <div class="sh-date"><span class="db-dir">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}<span class="sh-label">${_esc(date)}</span>${_dbHitHtml(meta)}${_dbActualHtml(meta)}${_dbPlayBtn(meta, dateRaw)}<span class="db-expand-hint">点击收起 ▲</span></div>
+    <div class="sh-date"><span class="db-dir ${_dbDirCls(meta.direction)}">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}<span class="sh-label">${_esc(date)}</span>${_dbHitHtml(meta)}${_dbActualHtml(meta)}${_dbPlayBtn(meta, dateRaw)}<span class="db-expand-hint">点击收起 ▲</span></div>
     <div class="db-detail">
       ${_dbBriefDetailHtml(it)}
     </div>
@@ -26133,12 +26151,17 @@ async function _loadDailyBriefPage() {
   list.innerHTML = items.map(_dailyBriefItemHtml).join("") || '<div class="summary-history-empty">暂无历史预测数据</div>';
   _dbTtsBind(list);  // edge-tts 语音播报按钮事件委托
   list.scrollTop = 0;
-  // 点开某日=展开预测内容+meta断言（事件委托，列表重渲染后仍可点）
+  // 点首行标题区(.sh-date)=切换收起/展开(2026-08-27 用户反馈收敛交互区域):
+  // 监听从 .db-item 整容器收敛到标题行后,正文内容区(.db-detail 内任意位置/子控件)点击
+  // 不再冒泡触发整体折叠;「历史反思校准」(details)/「多角色讨论」(details)等正文内折叠面板
+  // 点击只走自身 summary 原生开合,不再连坐把整块收起。
   list.querySelectorAll(".db-item").forEach((el) => {
-    el.addEventListener("click", (ev) => {
-      // 点击多角色讨论折叠面板(<details>/<summary>)不触发整条收起(2026-08-11 补齐辩论入口)
-      // 2026-08-17: 语音播报按钮 .db-play 也不触发收起(独立操作;_dbTtsBind 已 stopPropagation,此处同容器兜底排除,两处同容器监听均需处理)
-      if (ev.target && ev.target.closest && (ev.target.closest(".db-debate-wrap") || ev.target.closest(".db-play"))) return;
+    const head = el.querySelector(".sh-date");
+    if (!head) return;
+    head.addEventListener("click", (ev) => {
+      // 语音播报按钮 .db-play 是独立操作不触发展开收起(_dbTtsBind 在列表层 stopPropagation,
+      // 但 .sh-date 位于其冒泡上游更早收到事件,故此处必须兜底排除)
+      if (ev.target && ev.target.closest && ev.target.closest(".db-play")) return;
       const detail = el.querySelector(".db-detail");
       if (!detail) return;
       const isHidden = detail.classList.toggle("hidden");
