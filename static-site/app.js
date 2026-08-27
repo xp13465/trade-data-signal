@@ -5042,12 +5042,13 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         let aiHitBadge = "";
         let aiHitAttr = "";
         // DEBUG: log when cellHtml renders a buy signal to check posCapRank
-        if (_BUY_UNI_SIGS[it.signal] && _posCapRank) {
-          const _dbgRank = _posCapRank.get(it);
-          const _dbgInMap = _posCapKeptMap ? _posCapKeptMap.has(it) : false;
-          const _dbgInMapDate = _posCapKeptMap ? !!_posCapKeptMap.get(it.date) : false;
-          if (_dbgRank === undefined || _dbgRank === 0) {
-            console.log(`[CellDbg] ${it.date} ${it.index_id} signal=${it.signal} posCapRank=${_dbgRank} inKeptMap=${_dbgInMap} dateInMap=${_dbgInMapDate} availOn=${_availOnlyOn}`);
+        if (_BUY_UNI_SIGS[it.signal] && _posCapKeptMap) {
+          const _dbgDateSet = _posCapKeptMap.get(it.date);
+          const _dbgRank = _posCapRank ? _posCapRank.get(it) : null;
+          if (_dbgRank === undefined && _dbgDateSet && _dbgDateSet.size > 0) {
+            // First mismatch per date: dump kept set items vs this item
+            const _keptSample = [..._dbgDateSet].slice(0, 2).map(k => `${k.index_id}|${k.date}|${k.signal}|ref=${k === it}`);
+            console.log(`[CellDbg] MISS ${it.date} ${it.index_id} signal=${it.signal} keptSize=${_dbgDateSet.size} keptSample=${JSON.stringify(_keptSample)} thisRef=${it === [..._dbgDateSet][0]}`);
           }
         }
         // 2026-08-13 重构: 首页 AI降亏过滤开关(独立键 tds_home_fade)开启时, 命中降亏(所选模式键集成员级, v1.1.5 起=NEW14 十四键) → 灰显+删除线+标注(hover 显命中条件)。
