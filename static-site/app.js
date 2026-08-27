@@ -4809,10 +4809,14 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   //   后端不判 → 前端 tier map 补判(_isBullStopHit, 与首页判定链同源同降级); S06 第 8 票按 it.date 读快照
   //   基座(a9/new15)同式判, 快照不可用 fail-open 计 1 票(保留, 与首页 S06 降级契约同语义)。固化统计,
   //   与界面开关(K 档/模式选择/过滤开关)全部无关。
-  // X=AI 仓位终审位(0/1): 恒按标准视角(positionCap 开启+K=1★主推档)预算固化表——per-date 人口=
-  //   全量 items 中 买入类 ∧ _bt_in_universe!==false ∧ 未命中 new14 键集(new14 不含 bull 键不需要 tier),
-  //   组内排序复刻 _posCapSortedFn 口径(track_score DESC→rating→信号类型; 注释所述 buy_date ASC 实际以
-  //   稳定序兜底, 与首页 AI建议编号现状逐字一致), top1=X=1。独立定义排序函数不复用 _posCapSortedFn
+  // X=AI 模式认可计数(per-mode top-1 计数 0~8, 用户拍板 2026-08-27「保留 412653ffd 计数语义」):
+  //   对 8 个降亏模式各问一遍「当天这笔是不是它视角下的第一名」——per-mode per-date 人口=全量 items 中
+  //   买入类 ∧ _bt_in_universe!==false ∧ 该模式投保留票(mode_votes 单源优先, 缺失走 _consensusFrontVotesOf,
+  //   bull 键由前端 tier map 补判), 组内排序 _consSortedFn(track_score DESC→rating→信号类型)取 top1;
+  //   x=被几个模式选为当日 top1。「当日主推」=当日入样买入中**票数最多的唯一一支**(平票取跟踪分高者,
+  //   再按 index_id|signal 字典序兜底保唯一; 全零日无主推)。渲染映射(x 计数直接展示不丢票数):
+  //   winner →「{x}票·当日主推」/ 其余有票 →「{x}·非主推」/ 0 票 →「0·非主推」, 见 hoverpop show()。
+  //   独立定义排序函数不复用 _posCapSortedFn
   //   (其在 tds_poscap.on&&k 合法条件内才赋值, 固化视角不能依赖用户状态); 人口用全量 items 不受
   //   windowedItems/档位筛选影响(先例 _dateHasInUniverseBuy L4654)。
   // 展示: cellHtml 写 data-consensus 属性 → hoverpop show() 拼末行; 非买入类(band_hold/sell/sell_stop_loss)
@@ -4915,7 +4919,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       }
     }
   }
-  // item 引用 → {y:int, x:0~8|"na"}; cellHtml 只查表写属性零重算
+  // item 引用 → {y:int, x:0~8|"na", w:是否当日主推}; cellHtml 只查表写属性零重算
   const _consensusMap = new Map();
   for (const it of items) {
     if (!it || !_CONS_BUY[it.signal]) continue;
@@ -4929,7 +4933,24 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       const s06kept = _fixedKeptMapByMode["s06"]?.[it.date];
       if (s06kept && s06kept.has(it)) x++;
     }
-    _consensusMap.set(it, { y: _consensusVotesOf(it), x: inUni ? x : "na" });
+    _consensusMap.set(it, { y: _consensusVotesOf(it), x: inUni ? x : "na", w: false });
+  }
+  // 当日主推 winner 回填(用户拍板 2026-08-27): 当日入样买入中票数最多者; 平票取跟踪分高者;
+  //   再按 index_id|signal 字典序兜底保唯一(与机检 check_consensus_parity.mjs 同规则互证);
+  //   全零日无 winner, 该日全部显「0·非主推」。w 判定在构建期一次算好, 渲染层零重算。
+  {
+    const _consByPos = {};
+    for (const [_cit, _ccv] of _consensusMap.entries()) {
+      if (typeof _ccv.x !== "number" || _ccv.x < 1) continue;
+      (_consByPos[_cit.date] = _consByPos[_cit.date] || []).push({ k: _cit.index_id + "|" + _cit.signal, it: _cit, x: _ccv.x });
+    }
+    for (const _cdx of Object.keys(_consByPos)) {
+      const _arrW = _consByPos[_cdx].sort((_aw, _bw) =>
+        (_bw.x - _aw.x)
+        || ((_topEtfByScore(_bw.it.etfs)?.track_score ?? -1) - (_topEtfByScore(_aw.it.etfs)?.track_score ?? -1))
+        || _aw.k.localeCompare(_bw.k));
+      _consensusMap.get(_arrW[0].it).w = true;
+    }
   }
   // 异步依赖就绪后重绘一次(Y 的 bull/S06 票从 fail-open 修正为实判); 单例 promise 已加载直接复用零重复请求
   if (!_sigTierByDate && typeof _ensureSigTierMap === "function") {
@@ -5154,12 +5175,12 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           _cellName = _idxName;
           _cellCode = _sigIdxCode;
         }
-        // AI 信号认可度(X/Y 双段, 2026-08-26): 只查预计算 _consensusMap 写属性零重算; 非买入类=na。
-        // 编码 "y|x"(x∈1/0/"na") / "na"; hoverpop show() 据此拼末行(消费场景=首页信号卡+技术参考点, 同链自动获得 §22)。
+        // AI 信号认可度(X/Y 双段, 2026-08-26 计数口径 2026-08-27): 只查预计算 _consensusMap 写属性零重算; 非买入类=na。
+        // 编码 "y|x|w"(x∈0~8计数/"na", w="w"=当日主推/""=非主推)/ "na"; hoverpop show() 据此拼末行(消费场景=首页信号卡+技术参考点, 同链自动获得 §22)。
         var _consItem = _consensusMap.get(it);
         var _consAttr = "";
         if (_consItem) {
-          _consAttr = ` data-consensus="${_consItem.y}|${_consItem.x}"`;
+          _consAttr = ` data-consensus="${_consItem.y}|${_consItem.x}|${_consItem.w ? "w" : ""}"`;
           if (_consItem.y === 0) _consAttr += ` data-consensus-dim="1"`;
         } else {
           _consAttr = ` data-consensus="na"`;
@@ -5893,17 +5914,22 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
   var popByClick = false;  // pop 由 click 触发(移动端)，此时 mouseout 不立即关
   var popEl = null;        // 当前触发元素，用于同元素再点 toggle 关
   var isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
-  // AI 信号认可度 tooltip 三档互证文案(§23.9 白话+场景+1:1 举例, 2026-08-26; 举例数字核验自
-  // static-site/data/overview.json 30 日窗口真实数据, 见 docs/kelly/toggle/ai-consensus-score-research-20260826.md)
+  // AI 信号认可度 tooltip 三档互证文案(§23.9 白话+场景+1:1 举例; 计数口径用户拍板 2026-08-27「当日主推=
+  // 当日票数最多的唯一一支」; 举例数字核验自 static-site/data/overview.json 30 日窗口重放,
+  // 见 docs/ops/homepage-ai-endorsement-semantic-audit-20260827.md)
   var CONS_TIP = "【是什么】认可度=两段固化统计: Y=8 个 AI 降亏模式里有几个愿意留下这笔信号(0~8 分); "
-    + "X=按标准视角(AI仓位开启+K1★主推档)当天 AI 会不会真买它(1=当日主推/0=轮不到)。"
+    + "X=当天这 8 个降亏模式里有多少个把它排在各自视角的第一名(0~8 计数)。当日主推=当天入样买入中票数最多的唯一一支"
+    + "(平票取跟踪分高者), 显示「N票·当日主推」; 其余有票的显示「N·非主推」, 没人排它则「0·非主推」。"
+    + "注意: X 反映的是模式认可广度, AI 实际下单仍按 K1 每日买入计划(分数最高优先)执行, 主推与实际下单可能不是同一支。"
     + "8 票之间有家族重叠(p8⊂p9⊂a9 等), 非独立评审。\n"
-    + "【什么时候看】想判断一笔信号是「真金还是纸面繁荣」时看它——Y 高只说明过滤层普遍认可; "
-    + "X=0 提醒就算全部留下, K1 主推档当天也带不动它。与左侧「AI建议N/当日已满」标注可能不同: "
-    + "那边跟随你当前的开关和 K 档, 这里恒为标准视角、不受任何开关影响。\n"
-    + "【举个例子】2026-07-23 恒指·追关注 命中 k2c5HkChase(港股追涨)+n1NorthOutflow(北向流出)+r1VolRatioLow(量能萎缩)等 "
-    + "→ 8 个模式全拦, Y=0 灰显; 2026-08-24 当日 NEW14 未拦的入样买入只有 2 笔: 当天评分最高的证券公司(全指) X=1 当日主推, "
-    + "次之的电力公用事业 X=0 轮不到(例中具体分数随数据滚动会变, 以当天实际排序为准)——Y 再高也只当参考。\n"
+    + "【什么时候看】扫列表分辨今天 AI 真会买的标的时看它——Y 高只说明过滤层普遍认可; 带「票·当日主推」的是全场公认头牌; "
+    + "有票非主推=部分模式眼里它第一但综合投票没赢。与左侧「AI建议N/当日已满」标注可能不同: "
+    + "那边跟随你当前的开关和 K 档, 这里恒为固化统计、不受任何开关影响。\n"
+    + "【举个例子】①2026-08-26 当天唯一一笔入样买入恒生科技(跟踪分67.7): 8 个模式里 5 个把它排各自第一 → "
+    + "显示「5票·当日主推」(旧版曾把它错显成「0·非主推」, 是显示 bug 已修); "
+    + "②2026-08-24 当天入样买入 2 笔: 当天评分最高的证券公司(全指)(78.1)拿了全部 8 张第一名票 → 「8票·当日主推」, "
+    + "次之的电力公用事业(71.0)没人排它第一 → 「0·非主推」。即便多票, 每天真下单仍受当日买入计划约束——"
+    + "X 衡量的是认可广度而非下单笔数(例中分数随数据滚动会变, 以当天实际排序为准)——Y 再高也只当参考。\n"
     + "【口径】今日信号以 21:00 定稿为准(此前当日组可能变); 判定基于后端信号级可判定子集"
     + "(price_bin 五分位依赖子条件降级不参与, 宁漏勿误); S06 快照不可用时该票按保留计(fail-open)。";
   // 查找触发 pop 的元素：优先 [data-tip]，回退 [title]（排除 iframe a11y title + [data-no-pop]）。
@@ -6059,7 +6085,10 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         var _consParts = _consRaw.split("|");
         var _cy = parseInt(_consParts[0], 10);
         var _cx = _consParts[1];
-        var _cxTxt = _cx === "na" ? "—" : (_cx === "1" ? "1·当日主推" : "0·非主推");
+        // 计数口径(用户拍板 2026-08-27): x∈0~8 直接展示不丢票数; 当日主推=当日入样买入中票数最多
+        //   的唯一一支(w="w", 构建期判好)→「{x}票·当日主推」; 其余有票→「{x}·非主推」; 0 票→「0·非主推」。
+        var _cxn = parseInt(_cx, 10);
+        var _cxTxt = isFinite(_cxn) ? (_cxn >= 1 && _consParts[2] === "w" ? _cxn + "票·当日主推" : _cxn + "·非主推") : "—";
         var _dimCls = _cy === 0 ? " term-pop-consensus-dim" : ((_cy >= 6) ? " term-pop-consensus-hi" : "");
         // #96 可见降级(2026-08-27): 快照真实加载失败(err)时在认可度行内挂降级小字——Y/X 的 S06 票按保留计,
         //   不静默; 仅 err 显示, 加载中/日期超覆盖期(数据常态)不打扰
