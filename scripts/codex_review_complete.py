@@ -38,6 +38,12 @@ def main() -> int:
     if report.get("verdict") != args.verdict:
         raise SystemExit("verdict does not match report")
 
+    # Touch the report so its mtime is fresh for the watcher's stale-report
+    # check (report mtime must be >= job started_at). Without this, the
+    # signal is consumed before the next watcher loop starts, and the check
+    # fails because the report was written earlier.
+    report_path.touch()
+
     atomic_write_json(
         SIGNALS_DIR / f"{args.request_id}.ready",
         {
