@@ -4765,7 +4765,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
             // 顺延补位给后续未命中信号; 判定走共享谓词 _isAiFadeHit(受首页「AI降亏过滤」开关门控: 开关关→不滤, top-K 正常取)。
             _dayItems = _dayItems.filter((it) => !_isAiFadeHit(it));
             if (!_dayItems.length) continue;
-            _posCapKeptMap.set(dt, new Set(_posCapSortedFn(_dayItems).slice(0, _posCapK)));
+            _posCapKeptMap.set(dt, new Set(_posCapSortedFn(_dayItems).slice(0, _posCapK).map(s => s.index_id + '|' + s.date + '|' + s.signal)));
           }
         }
       }
@@ -4776,23 +4776,21 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   if (_pcOn && _posCapKeptMap) {
     _statItems = _statItems.filter((it) => {
       const kept = _posCapKeptMap.get(it.date);
-      return kept && kept.has(it);
+      return kept && kept.has(it.index_id + '|' + it.date + '|' + it.signal);
     });
   }
   // 2026-08-21: ETF 档位按钮计数——fade + kept 过滤后、ETF 档位筛选前的基线
   // 告诉用户"该档还有多少信号可看"，随 K 档/降亏联动，但不受 ETF 档位筛选影响（选了某档不影响其他档计数）
   const _tierCountItems = _pcOn && _posCapKeptMap
-    ? windowedItems.filter((it) => !_isAiFadeHit(it) && (() => { const k = _posCapKeptMap.get(it.date); return k && k.has(it); })())
+    ? windowedItems.filter((it) => !_isAiFadeHit(it) && (() => { const k = _posCapKeptMap.get(it.date); return k && k.has(it.index_id + '|' + it.date + '|' + it.signal); })())
     : (_fadeOn ? windowedItems.filter((it) => !_isAiFadeHit(it)) : windowedItems);
   // ② posCap后: 藏当日已满(降亏命中/未入已在第一步藏了, 这里只补当日已满)
   if (_availOnlyOn && _posCapKeptMap) {
-    const _s2Before = filtered.length;
     filtered = filtered.filter((it) => {
       if (!_BUY_UNI_SIGS[it.signal]) return true;  // 非买入类(AI警示等)→显示
       const k = _posCapKeptMap.get(it.date);
-      return !k || k.has(it);  // 在 kept 集=显示(AI建议), 不在=隐藏(当日已满)
+      return !k || k.has(it.index_id + '|' + it.date + '|' + it.signal);  // 在 kept 集=显示(AI建议), 不在=隐藏(当日已满)
     });
-    console.log(`[Step2] before=${_s2Before} after=${filtered.length} keptMapSize=${_posCapKeptMap.size} fadeOn=${_fadeOn}`);
   }
   // ===== AI 信号认可度(X/Y 双段, 2026-08-26, 调研报告 docs/kelly/toggle/ai-consensus-score-research-20260826.md 方案甲=前端实时固化统计) =====
   // Y=8 降亏模式预设计票(0~8): 对 common.js _KELLY_FADE_MODE_PRESETS 静态预设(p8/p9/a9/b9/c9/new14/new15)
@@ -4973,9 +4971,12 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     let _posCapRank = null;
     if (_posCapKeptMap && _posCapKeptMap.has(dt)) {
       _posCapRank = new Map();
-      // 对保留集(kept, Set)按质量序排序后编号 1/2/3...(复用 _posCapSortedFn 与选择集同排序函数, 单源零漂移)
-      const _keptSorted = _posCapSortedFn([..._posCapKeptMap.get(dt)]);
-      _keptSorted.forEach((_di, _idx) => _posCapRank.set(_di, _idx + 1));
+      // _posCapKeptMap stores key strings (index_id|date|signal) in quality order (Set preserves insertion order);
+      // Re-sort by quality via _posCapSortedFn for stable rank numbering (same as original).
+      const _keptObjMap = new Map(_dayItems.map(d => [d.index_id + '|' + d.date + '|' + d.signal, d]));
+      const _keptObjs = [..._posCapKeptMap.get(dt)].map(k => _keptObjMap.get(k)).filter(Boolean);
+      const _keptSorted = _posCapSortedFn(_keptObjs);
+      _keptSorted.forEach((_di, _idx) => _posCapRank.set(_di.index_id + '|' + _di.date + '|' + _di.signal, _idx + 1));
     }
     const cellHtml = (it) => {
       if (kind === "signal") {
@@ -5009,7 +5010,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // 未入样信号压根不参与AI建议top-K, 应保持零标注(与 kept 空/空态一致), 而非落 else 显示"当日已满"。
         // (§23.3 举一反三: 全站 poscap/「当日已满」渲染点只有本 cellHtml 一处, 同步修正口径)。
         if (_posCapRank && !_isAiFadeHit(it) && !_isSellRow(it) && it._bt_in_universe !== false) {
-          const _capRank = _posCapRank.get(it) || 0;
+          const _capRank = _posCapRank.get(it.index_id + '|' + it.date + '|' + it.signal) || 0;
           if (_capRank) {
             posCapCls = " sig-poscap-kept";
             posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(仓位控制过滤)已开启(K=${_posCapK}): 口径与凯利回测一致「先滤AI降亏、再选top-K」——命中降亏的信号不占AI建议位、顺延补位; 只在回测入样宇宙内挑选(按官方入样规则, 只收买入类信号: ${_t("type_buy")}/${_t("buy_aux")}/${_t("buy_special")}/${_t("buy_backup")}; 需标的有ETF跟踪且有跟踪分; 排除类别=债类/情绪类/全球商品利率/港股行业/无ETF的空类别; 例外=10年国债ETF走自我兜底), 未入样标的与卖类信号(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不进入AI建议买入; 在当前档位筛出的存活信号内, 按跟踪分→评级→信号类型→买入日排序, 取前${_posCapK}名进入AI建议买入(与列表同人口, 编号不跳号); 序号=当日跟踪分降序第${_capRank}名(与回测K档口径一致, 不随K档跳变; 列表位置可能与编号不同序, 以编号为准); 存活者若命中AI降亏仍显示删除线建议回避（按指数级 top-K 展示，与回测每ETF粒度有差异；近30交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议${_capRank}</sup>`;
@@ -5041,16 +5042,6 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         let aiHitCls = "";
         let aiHitBadge = "";
         let aiHitAttr = "";
-        // DEBUG: log when cellHtml renders a buy signal to check posCapRank
-        if (_BUY_UNI_SIGS[it.signal] && _posCapKeptMap) {
-          const _dbgDateSet = _posCapKeptMap.get(it.date);
-          const _dbgRank = _posCapRank ? _posCapRank.get(it) : null;
-          if (_dbgRank === undefined && _dbgDateSet && _dbgDateSet.size > 0) {
-            // First mismatch per date: dump kept set items vs this item
-            const _keptSample = [..._dbgDateSet].slice(0, 2).map(k => `${k.index_id}|${k.date}|${k.signal}|ref=${k === it}`);
-            console.log(`[CellDbg] MISS ${it.date} ${it.index_id} signal=${it.signal} keptSize=${_dbgDateSet.size} keptSample=${JSON.stringify(_keptSample)} thisRef=${it === [..._dbgDateSet][0]}`);
-          }
-        }
         // 2026-08-13 重构: 首页 AI降亏过滤开关(独立键 tds_home_fade)开启时, 命中降亏(所选模式键集成员级, v1.1.5 起=NEW14 十四键) → 灰显+删除线+标注(hover 显命中条件)。
         // 开关关闭时 _isAiFadeHit 恒 false, 整块自然跳过(不灰显不删除线不标注, hoverpop 原因行也不渲染);
         // 命中判定用共享谓词 _isAiFadeHit 与 top-K 补位同源
