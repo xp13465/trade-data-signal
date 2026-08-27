@@ -3254,8 +3254,11 @@ main { padding: 16px 24px; }
 .db-stats-how-fold > .db-stats-how {
   margin-top: 4px;
 }
-.db-item { cursor: pointer; transition: border-color 0.15s; }
+.db-item { transition: border-color 0.15s; }
+/* 手型指针只给标题行(.sh-date)——点击切换收起/展开的交互区域已收敛到标题行,
+   正文内容区不可点折叠(2026-08-27 用户反馈),指针语义与可点区域一致 */
 .db-item:hover { border-color: #7c4dff; }
+.db-item .sh-date { cursor: pointer; }
 .db-dir {
   font-size: 11px;
   font-weight: 600;
@@ -3313,6 +3316,30 @@ main { padding: 16px 24px; }
   background: #f3e5f5;
   color: #8e24aa;
 }
+/* ── 方向语义分色(A股红涨绿跌,2026-08-27 用户反馈)──
+   涨=红系 / 跌=绿系 / 平·跨0·缺省=中性灰;作用对象:
+   .db-dir 方向徽标 · .db-range 大盘区间徽标 · .db-sector 板块区间芯片 · .db-index 中间层押注芯片(type=index)
+   (10年国债 yield(bp) 无涨跌语义不上色维持原样式)。数值+箭头+标签同 span 内联继承同色。
+   色值循既有惯例:.db-risk 红(#fdecea/#c62828)、.db-watch 绿(#e8f5e9/#2e7d32)、.db-hit-pending 中性灰。
+   需写在原 .db-dir/.db-range/.db-sector/.db-index 定义之后,同特异性后写覆盖固定底色。 */
+.db-dir.db-up, .db-range.db-up, .db-sector.db-up, .db-index.db-up {
+  background: #fdecea;
+  color: #c62828;
+}
+.db-dir.db-down, .db-range.db-down, .db-sector.db-down, .db-index.db-down {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+.db-dir.db-flat, .db-range.db-flat, .db-sector.db-flat, .db-index.db-flat {
+  background: var(--bg-hover);
+  color: var(--text-2);
+}
+/* 研究员多空辩论 lean 行内方向词:纯文字着色不加 pill 底,防破坏行内文本流 */
+.db-lean.db-up { color: #c62828; font-weight: 600; }
+.db-lean.db-down { color: #2e7d32; font-weight: 600; }
+/* 方向押注(direction_call 押涨/押跌):行内文字着色 */
+.db-call-up { color: #c62828; font-weight: 600; }
+.db-call-down { color: #2e7d32; font-weight: 600; }
 .db-expand-hint { font-size: 11px; color: var(--text-3); margin-left: auto; }
 /* edge-tts AI预测语音播报按钮(2026-08-16,docs/ai-predict-tts-plan.md) */
 .db-play {

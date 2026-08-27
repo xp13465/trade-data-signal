@@ -29,6 +29,7 @@
 - [direction-market-winning-scripts/](direction-market-winning-scripts/) — 方向胜率信号挖掘全套脚本(11 个:`mine_direction_signals.py`/`mine_turnpoint_combo.py`/`mine_combo_matrix.py`/`mine_final_rules.py`/`mine_final_combo.py` 等 + `out/` 挖掘产物 json),复现入口见同目录各脚本头部 docstring。
 - [scripts/calibrate_sector_band.py](scripts/calibrate_sector_band.py) — 板块层自适应判定带参数校准(N/k/min_w 全组合自然覆盖率法+历史反事实法,2026-08-24 R2 依据,N=5/k=2.0/min_w=0.3 定稿),复现命令见脚本头。
 - [scripts/migrate_sector_band_reclass.py](scripts/migrate_sector_band_reclass.py) — R2 存量迁移:按新口径重刷 history 历史条目 sector_hits(--tree git/data 两树,备份后写回)。
+- [scripts/dbbrief_interaction_smoke.sh](scripts/dbbrief_interaction_smoke.sh) — AI 预测板块交互冒烟三件套(+同目录 `dbbrief_interaction_smoke.js` 断言脚本 / `dbbrief_smoke_harness.html` 离线 harness):方向红涨绿跌分色、点击区域收敛、反思校准连坐修复的 playwright chromium 20 断言自测(2026-08-27 fix(dbbrief) 配套),复现:`bash docs/ai-predict/scripts/dbbrief_interaction_smoke.sh <static-site目录> <主仓data目录>`。
 
 ## 活文档例外(留 docs/ 根,勿搬)
 

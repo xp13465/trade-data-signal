@@ -1,0 +1,42 @@
+<!doctype html>
+<!-- 冒烟 harness:AI 预测板块交互三连修复断言用(离线 http.server + 真实数据副本)。
+     app.js 以 defer 引入(与生产 index.html 同构;同步放 head 会因空 DOM 早期 throw,
+     其后顶层 let/const 全停 TDZ,符号不可见)。driver 等 load 后喂缓存走真实渲染链路。 -->
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>db-brief smoke</title>
+<link rel="stylesheet" href="./style.css">
+<script defer src="./i18n.js"></script>
+<script defer src="./app.js"></script>
+</head>
+<body>
+<div id="host"></div>
+<script>
+// 离线环境 stub:防 app.js 懒加载 echarts CDN 失败抛错(与被测板块无关的预期噪音)
+window.echarts = window.echarts || { init: () => ({ setOption() {}, resize() {}, dispose() {}, on() {}, clear() {} }) };
+window.__ready = false;
+window.__err = "";
+window.addEventListener("load", () => {
+  (async () => {
+    try {
+      const brief = await (await fetch("./data/daily_brief_history.json")).json();
+      _dailyBriefState.cache = brief.items || [];
+      _dailyBriefState.total = _dailyBriefState.cache.length;
+      _dailyBriefState.cacheBrief = { stats: {}, total: _dailyBriefState.cache.length };
+      _dailyBriefState.todayFetched = true; // 跳过今日 brief 公示 fetch(减少外链依赖)
+      await _loadDailyBriefPage();
+      const modal = _dailyBriefModalEl();
+      document.getElementById("host").appendChild(modal);
+      modal.classList.remove("hidden"); // 打开态与生产点击「🤖 AI预测」一致
+      window.__ready = true;
+    } catch (e) {
+      window.__err = String(e && e.stack || e);
+      document.title = "HARNESS-ERR";
+    }
+  })();
+});
+</script>
+</body>
+</html>
