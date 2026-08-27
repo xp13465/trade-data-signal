@@ -283,6 +283,7 @@ SEVERE=0
 [ "$RC_CORE" -ne 0 ] && SEVERE=1
 [ "${DEPLOY_ALL_RC:-0}" -ne 0 ] && SEVERE=1
 [ "$FRESH_OK" != "1" ] && SEVERE=1
+[ "${FUND_NAV_RC:-0}" -ne 0 ] && SEVERE=1  # P2返修 2026-08-27: 前置导出失败=fund_nav 数据断供(产物不刷新+跳过上传), 升级严重告警
 NOW_STR=$(date '+%Y-%m-%d %H:%M:%S')
 # 邮件 subject 统一模板 [类型]关键信息 MM-DD HH:MM（2026-07-20 改造）
 MM_DD_HM=$(date '+%m-%d %H:%M')
@@ -306,6 +307,7 @@ if [ "$SEVERE" -eq 1 ]; then
   [ "$RC_CORE" -ne 0 ] && ISSUE="${ISSUE}core退出码非0($RC_CORE) "
   [ "${DEPLOY_ALL_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}统一deploy失败(${DEPLOY_ALL_RC}) "
   [ "$FRESH_OK" != "1" ] && ISSUE="${ISSUE}数据时效异常($FRESH_MSG)"
+  [ "${FUND_NAV_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}fund_nav导出失败(rc=${FUND_NAV_RC:-0},产物未刷新) "
   "$PY" "$REPO/scripts/notify.py" "[告警] update_all ${ISSUE} ${MM_DD_HM}" "$NOTIFY_BODY" --severe --from-prefix "[告警]" --alert-issue "$ISSUE" --alert-log "$LOG" || true
 else
   "$PY" "$REPO/scripts/notify.py" "[完成] update_all ${ELAPSED_MIN}min ${MM_DD_HM}" "$NOTIFY_BODY" --from-prefix "[完成]" || true
