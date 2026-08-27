@@ -15,10 +15,12 @@
 | 4 | `data_gap:width_gap` | 宽度族单指标 MAX 落后组内参考 >5 天(warn,聚合一条)/≥30 天(severe);GROUP_FULL 内部断档 >15 天;mootdx 源 vs 宽度参考日滞后 | WARN/SEVERE | 同上 |
 
 配套机制:
-- **dedup**:同 key 每自然日只发一次(state=data/alerts/data_gap_alert_state.json);转好后发一封 [恢复] 并清 key。
+- **dedup**:同 key 每自然日只发一次(state=data/alerts/data_gap_alert_state.json,原子写 tmp+replace);本轮连 info 级同源条目都没有(问题真正消失)才发一封 [恢复] 并清 key——低增长落回 info 观察档不算恢复(内审 F1 返修)。
 - **人工确认复用**:读 data/alert_state.json 的 acknowledged 字段(alert_ack.py <key> 确认后 24h 免打扰),与 schedule_monitor 维度⑨ 契约一致。
 - **dry-run 零副作用**:--dry-run 不发邮件、不落盘 state。
 - **环境异常降级**:库缺失时输出 warn 并继续其余检查,不崩。
+
+> 内审返修记录(2026-08-27,F1/F2 双低危,根治不留尾巴):F1 恢复通知误导——warn 登记后次轮增长回落 +1~9 行(info 档)会误发「已恢复」,修法=恢复判定改按「本轮存在任意级别同源条目=活跃」而非「本轮是否发了邮件」,自测新增 case A5 三轮链路断言(warn 发信→info 低增不发恢复且 last_fired 保持→全空才发恢复);F2 state 直写非原子——改为 tmp+replace 原子写(对照 alert_ack.py _save_atomic 先例,_load_json 兜底保留),自测新增 case A6(dumps 中途抛错原文件原样保留+tmp 不残留+成功路径回读一致)。
 
 ## 二、阈值依据(全部实测/出处)
 

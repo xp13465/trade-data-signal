@@ -36,9 +36,12 @@
 告警出口(复用 scripts/notify.py 既有通道, 不另起炉灶):
 - SEVERE → notify.py --severe(邮件 + data/alerts/latest.md 覆盖式); WARN → notify.py
   普通 [告警] 邮件(对齐 detect_intraday_anomaly 提示性用法); info 只打日志。
-- dedup: data/alerts/data_gap_alert_state.json 同 key 每自然日只发一次; 转好(无finding)
-  后发一封 [恢复] 并清 key。人工确认: 复用 data/alert_state.json 的 acknowledged 字段
-  (alert_ack.py <key> 确认后 24h 免打扰, 与 schedule_monitor 维度⑨ 契约一致)。
+- dedup: data/alerts/data_gap_alert_state.json 同 key 每自然日只发一次; 本轮连 info 级
+  同源条目都没有(问题真正消失)才发一封 [恢复] 并清 key——低增长落回 info 观察档不算
+  恢复(内审 F1 返修: 防止「还在涨但低于阈值」被误报已恢复)。state 写盘原子化
+  (tmp+replace, 对照 alert_ack.py 先例; 内审 F2 返修)。人工确认: 复用
+  data/alert_state.json 的 acknowledged 字段(alert_ack.py <key> 确认后 24h 免打扰,
+  与 schedule_monitor 维度⑨ 契约一致)。
 
 调度: launchd com.trade.check-data-gap 工作日 22:35(21:40 overfit 后/22:00 信号邮件后
 35min 错峰, 23:00 安全窗前); bash 包装 scripts/check_data_gap_alerts.sh 出标准开始/结束
@@ -383,6 +386,27 @@ def _notify(repo: Path, subject: str, body: str, severe: bool, dry_run: bool) ->
         return False
 
 
+def _save_state_atomic(state_p: Path, state: dict) -> None:
+    """原子写(tmp + replace), 防半截文件被并发读者读走(对照 alert_ack.py _save_atomic 先例)。
+
+    失败只打日志不抛(不影响检测主流程); 原文件在 dumps/write 任一步失败时保持原样,
+    绝不截断(替代旧 write_text 直写——进程中途死会留半截 json, _load_json 兜底虽能容错
+    但 dedup/基线状态会静默归零)。"""
+    state_p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = state_p.with_suffix(".json.tmp")
+    try:
+        tmp.write_text(
+            json.dumps(state, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
+        )
+        tmp.replace(state_p)
+    except Exception as e:
+        print(f"[check_data_gap] state 原子写失败(保留旧文件): {e}", file=sys.stderr)
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 def _ack_suppressed(repo: Path, key: str, now: datetime) -> bool:
     """人工确认免打扰: data/alert_state.json 该 key acknowledged 24h 内(alert_ack.py 契约一致)。"""
     st = _load_json(repo / "data" / "alert_state.json", {})
@@ -416,6 +440,10 @@ def run_alerts(repo: Path, findings: list[Finding], dry_run: bool,
     today = now.strftime("%Y-%m-%d")
 
     fired_keys = {f.key for f in findings if SEV_ORDER.get(f.level, 0) >= 1}
+    # 活跃 key = 本轮 findings 里该 key 存在任意级别条目(warn/severe 告警或 info 观察),
+    # 用于恢复判定(F1 内审返修): 低增长(+1~9 行走 info 分支)仍是「问题活跃中」,
+    # 只是不达发送阈值——若按 fired_keys 判恢复, 会发出「已恢复」误导邮件而缺口实际还在涨。
+    active_keys = {f.key for f in findings}
     for f in findings:
         sev = SEV_ORDER.get(f.level, 0)
         print(f"[check_data_gap][{f.level}] {f.title}" + ("" if sev >= 1 else "  [info 只记日志]"))
@@ -432,13 +460,13 @@ def run_alerts(repo: Path, findings: list[Finding], dry_run: bool,
         if ok or dry_run:
             state[f.key] = {"last_fired": today, "level": f.level, "title": f.title}
 
-    # 恢复通知: state 有记录但本轮无对应 warn/severe finding → 发一封恢复并清 key
+    # 恢复通知: state 有记录但本轮连 info 级同源条目都没有 → 问题真正消失才发恢复并清 key
     for key in list(state.keys()):
-        if key.startswith("_") or key in fired_keys:
-            continue  # 下划线内部键(基线等)不是告警, 不参与恢复清理
+        if key.startswith("_") or key in active_keys:
+            continue  # 下划线内部键不参与; 同 key 本轮仍活跃(info 观察也算)不发恢复
         info = state.pop(key)
         subject = f"[恢复][数据缺口] {info.get('title', key)} 已恢复 {now.strftime('%m-%d %H:%M')}"
-        body = f"告警 key: {key}<br>本轮检测已无该告警(数据缺口闭合或指标恢复)。<br>无需操作, 已自动恢复。"
+        body = f"告警 key: {key}<br>本轮检测已无任何同源信号(缺口闭合且无新增增长)。<br>无需操作, 已自动恢复。"
         print(f"[check_data_gap][recovered] {key} 发恢复通知(dry_run={dry_run})")
         _notify(repo, subject, body, severe=False, dry_run=dry_run)
 
@@ -449,10 +477,7 @@ def run_alerts(repo: Path, findings: list[Finding], dry_run: bool,
     if dry_run:
         print("[check_data_gap][dry-run] state 不落盘(dry-run 零副作用)")
         return
-    try:
-        state_p.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
-    except Exception as e:
-        print(f"[check_data_gap] state 写入失败(不影响检测): {e}", file=sys.stderr)
+    _save_state_atomic(state_p, state)
 
 
 def run(repo: Path, dry_run: bool) -> int:
@@ -642,6 +667,71 @@ def self_test() -> int:
         if set(st2.keys()) != {"_accum_nav_baseline"}:
             fails.append(f"case A4 恢复后应只剩基线内部键, 实得 {list(st2)}")
 
+    # ── case A5(内审 F1 返修断言): warn 登记后次轮只出 info 同源条目 → 不发恢复邮件、key 保留 ──
+    notify_calls: list[str] = []
+    _orig_notify = _notify
+
+    def _spy_notify(repo, subject, body, severe=False, dry_run=False):
+        notify_calls.append(subject)
+        return True
+
+    globals()["_notify"] = _spy_notify
+    try:
+        with tempfile.TemporaryDirectory(prefix="gap_alert_f1_") as td:
+            b5 = Path(td)
+            sp5 = b5 / "data" / "alerts" / "data_gap_alert_state.json"
+            sp5.parent.mkdir(parents=True, exist_ok=True)
+            t0 = datetime(2026, 8, 26, 22, 35)
+            t1 = datetime(2026, 8, 27, 22, 35)
+            # 第 1 轮: warn 发送登记(+15 行增长达告警线)
+            run_alerts(b5, [Finding("data_gap:t1", "warn", "T1 增长告警", "+15 行")],
+                       dry_run=False, now=t0)
+            assert any("数据缺口] T1 增长告警" in s for s in notify_calls), "第 1 轮应发 warn 邮件"
+            # 第 2 轮(F1 场景): 增长回落到 +5 行 → info 同源条目; 断言不发恢复、state key 保留
+            run_alerts(b5, [Finding("data_gap:t1", "info", "T1 低增观察(+5)", "低于告警线")],
+                       dry_run=False, now=t1)
+            recovered = [s for s in notify_calls if "[恢复]" in s]
+            if recovered:
+                fails.append(f"F1 断言失败: 低增 info 轮不应发恢复邮件, 实发 {recovered}")
+            st5 = _load_json(sp5, {})
+            if "data_gap:t1" not in st5:
+                fails.append(f"F1 断言失败: info 活跃轮 state 主 key 应保留, 实得 {list(st5)}")
+            if st5.get("data_gap:t1", {}).get("last_fired") != "2026-08-26":
+                fails.append(f"F1 断言失败: last_fired 应保持首轮日期(不重发), 实得 {st5}")
+            # 第 3 轮: findings 全空 → 问题真正消失, 此时应发恢复并清 key(反向对照)
+            run_alerts(b5, [], dry_run=False, now=datetime(2026, 8, 28, 22, 35))
+            if not any("[恢复]" in s for s in notify_calls):
+                fails.append(f"F1 反向断言失败: 无任何同源信号后应发恢复邮件, calls={notify_calls}")
+            st6 = _load_json(sp5, {})
+            if "data_gap:t1" in st6:
+                fails.append(f"F1 反向断言失败: 恢复后 state 应清空 t1, 实得 {list(st6)}")
+    finally:
+        globals()["_notify"] = _orig_notify
+
+    # ── case A6(内审 F2 返修断言): 原子写——中途失败不留截断 json、tmp 不残留 ──
+    with tempfile.TemporaryDirectory(prefix="gap_alert_f2_") as td:
+        b6 = Path(td)
+        sp6 = b6 / "data" / "alerts" / "data_gap_alert_state.json"
+        good = {"k": {"last_fired": "2026-08-26"}}
+        sp6.parent.mkdir(parents=True, exist_ok=True)
+        sp6.write_text(json.dumps(good), encoding="utf-8")
+        # 注入不可 JSON 序列化对象模拟「dumps 中途抛错/进程被杀在写 tmp 阶段」
+        _save_state_atomic(sp6, {"bad": object()})
+        try:
+            after = json.loads(sp6.read_text(encoding="utf-8"))
+            if after != good:
+                fails.append(f"F2 断言失败: 写失败后原文件应原样保留, 实得 {after}")
+        except Exception as e:
+            fails.append(f"F2 断言失败: 写失败后原文件不可解析({e})")
+        tmp_left = sp6.with_suffix(".json.tmp")
+        if tmp_left.exists():
+            fails.append("F2 断言失败: 失败后 .json.tmp 应清理不残留")
+        # 成功路径: replace 后新内容可读 + 截断字符验证(文件末尾是完整 json 而非半行)
+        ok_state = {"done": {"level": "warn"}}
+        _save_state_atomic(sp6, ok_state)
+        if _load_json(sp6, {}) != ok_state or tmp_left.exists():
+            fails.append(f"F2 断言失败: 成功路径写入回读不一致(tmp残留={tmp_left.exists()})")
+
     if fails:
         for x in fails:
             print(f"[self-test] FAIL: {x}")
@@ -649,7 +739,7 @@ def self_test() -> int:
         return 1
     print("[self-test] PASS: two-way 全过(case B 正常态零命中 / case A 必命中+级别正确"
           "+日志实锤入 detail / A2 有state降级warn / A3 accum 基线建档+低增静默+高增severe"
-          " / A4 出口 dedup+恢复链路)")
+          " / A4 出口 dedup+恢复链路 / A5-F1 低增info不发恢复+真消失才恢复 / A6-F2 原子写失败保留旧文件)")
     return 0
 
 
