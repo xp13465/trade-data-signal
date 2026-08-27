@@ -48,7 +48,7 @@ S06 已是 v1.1.7 整站默认模式,本修会改变「快照加载失败/日期
 - §23.11:全程无 merge/冲突事件,基于 worktree 基线 cecf8e6b7(base-fresh 已验)。
 
 ## 复现
-- 脚本:/tmp/test_p1s06_final.js(依赖 node ≥18;含旧/新双实现复刻与场景矩阵;旧实现来源=git show cecf8e6b7:static-site/app.js 对应段)
-- 重跑命令:`node /tmp/test_p1s06_final.js`
+- 脚本:docs/kelly/toggle/scripts/test_p1s06_final.js(repo 内相对路径,git 仓库根起跑;依赖 node ≥18;含旧/新双实现复刻与场景矩阵;旧实现来源=git show cecf8e6b7:static-site/app.js 对应段)
+- 重跑命令:`node docs/kelly/toggle/scripts/test_p1s06_final.js`(git 仓库根执行)
 - 输入依赖:无外部数据(preset 键集拷贝自 common.js `_KELLY_FADE_MODE_PRESETS` 对应 7 预设/app queries.py `_AI_CONSENSUS_PRESETS`,二者同源)
 - 关键口径一句话:S06 第 8 票/X-s06 行 base 未知(未加载/加载失败/超覆盖期)=fail-open 保留;base 可知=当日生效基座(a9/new15)票判定;正常快照路径行为与修复前逐位一致。
