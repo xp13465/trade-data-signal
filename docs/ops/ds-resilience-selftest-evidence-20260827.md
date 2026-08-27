@@ -100,3 +100,43 @@ PASS  D7c upsert_turnover source=mootdx 标记入 daily_metric  | sources={'moot
 - 命令:`/Users/linhuichen/code/trade/.venv/bin/python scripts/check_ds_resilience.py`
 - 输入依赖:仅仓内源码+tempfile 临时目录;生产 DB/三渠道均不触碰(stub)
 - 口径一句话:A=T1 并发限速,B=T2 库为事实源双层根治,C=L46④ severe 统一镜像,D=T3/T4 备源转正与配套护栏
+
+## P2 内审修复批(2026-08-27 第三次 commit):32/32 → 38/38 PASS
+
+> 内部 reviewer PASS 无 P0/P1,三个 P2(均为新增防御代码自身边界):
+> - P2-1 notify `_mirror_severe`:read-parse 在 fcntl 锁外→两条 severe 并发 lost update。
+>   修法=新增 `_update_latest` 单一入口(flock 临界区覆盖 read+parse+compose+原子替换),
+>   `_mirror_severe`/`write_alert` 均改走它,锁外零直读。
+> - P2-2 mootox `db_progress_snapshot` 空库/表不存在抛 OperationalError(init_db 前)。
+>   修法=sqlite_master 表存在性检查返空 dict(_db_code_count 容错同哲学);
+>   同构 stock_daily 一并修;baostock 新增版原生带容错。
+> - P2-3 读取侧覆盖不全:裸 load_progress 还在执行面(one/upone 单笔读改写在护栏
+>   场景会被误拒、full/run_batch todo 切面缩水放大)。mootdx CLI 4 处+update_one 兜底、
+>   stock_daily run_batch+CLI5+update_one 兜底、baostock 三件套新增(r/o 复合段
+>   只增不减)+run_update/run_batch_segment/rebackfill/stats/one/upone 全换 reconciled。
+
+```
+PASS  E1a P2-1 统一入口 _update_latest(flock+read+compose 同锁段)
+PASS  E1b _mirror_severe 锁外零直读(read_text/parse 已下沉锁内)
+PASS  E1c 8线程并发 severe 镜像零丢失  | entries=8 errs=[]
+PASS  E2 空 DB(无表)snapshot 三模块容错返空不抛  | sizes=[0, 0, 0]
+PASS  E3 读取侧闭合(裸load仅剩三件套内部,reconciled接线>=5)
+PASS  E4 baostock reconciled 恢复 r/o 复合宇宙+固化  | universe=3 fixed=4 disk_match=True
+
+=== 38/38 PASS ===
+```
+
+### 尺子自纠两处(§23.9⑤ 1:1 自查手段印证)
+- E4 首跑 FAIL:测试数据种子写 "20250601" 当 old 段——字符串序 '20250601'>'20160101'
+  根本不在 old 段(<2016),应写 "20150601";实现无问题,尺子修正后 fixed=3→4 段全部拉高。
+- E3 首跑 FAIL 发现 rebackfill 兜底分支还有一个裸 reload 漏换(reconcile() 后
+  `progress = load_progress()`),补齐后才真闭合——机检反向揪出实现遗漏,正是其价值。
+
+### baostock_daily.load_progress_reconciled 口径(新增,与前两模块差异点)
+progress 结构为 {code:{r,o}} 复合段:r/o 分别与 DB 两段 MAX(date) 只增不减;
+n_fixed 按「段」计;save_progress 固化失败不阻塞采集;旧 reconcile() 保留不删
+(runner L392/L576 仍调用,<4000 阈值触发路径不受影响)。
+
+## 复现(P2 批)
+
+命令不变:`/Users/linhuichen/code/trade/.venv/bin/python scripts/check_ds_resilience.py`

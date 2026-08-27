@@ -985,7 +985,7 @@ def write_alert(issue: str, detail: str, log_path: str | None = None) -> None:
     内容含时间、问题、详情、日志路径、提示 Claude 开工排查。
     L46④(2026-08-27):重写详情区时保留尾部 severe 发送流水条目(_parse_latest/
     _compose_latest),不再整文件抹掉——流水是管道内 severe 的唯一留痕(防旁路出口),
-    被 --alert-issue 覆盖冲掉 = 同型旁路盲区复发。写入走 _atomic_write_latest(锁+原子)。
+    被 --alert-issue 覆盖冲掉 = 同型旁路盲区复发。写入走 _update_latest(锁内读改写+原子)。
     """
     try:
         ALERTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -1014,16 +1014,16 @@ def write_alert(issue: str, detail: str, log_path: str | None = None) -> None:
 Claude 开工时排查此告警：对照日志路径定位根因，修复后删除本文件。
 """
     try:
-        old_entries: list[str] = []
-        try:
-            if ALERTS_FILE.exists():
-                _, old_entries = _parse_latest(
-                    ALERTS_FILE.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001  读不出旧流水就只写详情区
-            old_entries = []
-        _atomic_write_latest(_compose_latest(content, old_entries))
+        kept_count = [0]
+
+        def _rewrite(head: str, entries: list[str]) -> tuple[str, list[str]]:
+            # 覆盖头部详单区为新 content,severe 流水条目原样保留(锁内读改写,P2-1)
+            kept_count[0] = len([e for e in entries if e.strip()])
+            return content, entries
+
+        _update_latest(_rewrite)
         print(f"[notify] 告警已写入 {ALERTS_FILE}（保留流水 "
-              f"{len([e for e in old_entries if e.strip()])} 条）", file=sys.stderr)
+              f"{kept_count[0]} 条）", file=sys.stderr)
     except Exception as e:  # noqa: BLE001
         print(f"[notify] 告警写入失败：{e}", file=sys.stderr)
 
@@ -1058,20 +1058,50 @@ def _compose_latest(head: str, entries: list[str]) -> str:
     return "\n\n".join(chunks) + "\n"
 
 
-def _atomic_write_latest(text: str) -> None:
-    """latest.md 原子写(tmp + os.replace),fcntl 锁串行化多进程并发告警。"""
-    ALERTS_DIR.mkdir(parents=True, exist_ok=True)
-    lock_path = ALERTS_DIR / ".latest.lock"
+def _read_parse_latest() -> tuple[str, list[str]]:
+    """读 latest.md 拆 (头部区文本, severe 流水条目列表);文件不存在/读坏当空。
+
+    ⚠ 必须在 _update_latest 的锁段内调用——锁外 read 再锁内 write 会丢并发条目
+    (P2-1 内审修复 2026-08-27)。"""
+    try:
+        if ALERTS_FILE.exists():
+            return _parse_latest(ALERTS_FILE.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001  读坏当作空重建(流水以本次写入方为准)
+        pass
+    return "", []
+
+
+def _replace_latest(text: str) -> None:
+    """latest.md 原子替换(latest.md.tmp + os.replace);须持 .latest.lock 调用。"""
     tmp = ALERTS_DIR / "latest.md.tmp"
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(ALERTS_FILE)
+
+
+def _update_latest(mutate) -> None:
+    """latest.md 读-改-写单一入口:fcntl 排他锁临界区覆盖 read+parse+compose+替换。
+
+    P2-1 内审修复(2026-08-27):旧版 _mirror_severe/_atomic_write_latest 把
+    read-parse 放锁外、只有 write 进锁,两条 severe 并发时后写者基于旧快照整体
+    覆盖 -> 先写者条目丢失(lost update)。现 parse/compose 全在同一锁段,
+    多进程/多线程串行化,追加流水不再互抹。fcntl 缺失环境退化为无锁序
+    (单进程仍正确,best-effort 与旧行为一致)。
+    mutate(head, entries) -> (head, entries);失败由调用方兜(best-effort)。
+    """
+    ALERTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _rmw() -> None:
+        head, entries = _read_parse_latest()
+        head2, entries2 = mutate(head, entries)
+        _replace_latest(_compose_latest(head2, entries2))
+
     try:
         import fcntl
-        with open(lock_path, "w") as lockf:
+        with open(ALERTS_DIR / ".latest.lock", "w") as lockf:
             fcntl.flock(lockf, fcntl.LOCK_EX)
-            tmp.write_text(text, encoding="utf-8")
-            tmp.replace(ALERTS_FILE)
-    except ImportError:  # 极端环境无 fcntl:退化为无锁原子替换(best-effort)
-        tmp.write_text(text, encoding="utf-8")
-        tmp.replace(ALERTS_FILE)
+            _rmw()
+    except ImportError:  # 极端环境无 fcntl:退化为无锁原子替换(仍一气呵成)
+        _rmw()
 
 
 def _mirror_severe(subject: str, body: str, results: dict | None = None,
@@ -1081,6 +1111,7 @@ def _mirror_severe(subject: str, body: str, results: dict | None = None,
     条目含 时间戳/[severe] 级别标记/来源通道/送达结果/摘要(body 去 HTML 标签压缩
     空白取前 500 字符)。来源优先级:显式 source 参数 > NOTIFY_SOURCE env >
     调用脚本名(sys.argv[0]) > unknown。任何失败 best-effort 不阻塞通知主链路。
+    写入经 _update_latest(锁内 read-modify-write,P2-1)。
     """
     try:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1101,15 +1132,12 @@ def _mirror_severe(subject: str, body: str, results: dict | None = None,
                  f"- **来源**: {src}\n"
                  f"{ch_line}"
                  f"- **摘要**: {summary}")
-        head, entries = "", []
-        try:
-            if ALERTS_FILE.exists():
-                head, entries = _parse_latest(
-                    ALERTS_FILE.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001  读坏当作空重建(流水仍以本次为准)
-            head, entries = "", []
-        entries.append(entry)
-        _atomic_write_latest(_compose_latest(head, entries))
+
+        def _append(_head: str, entries: list[str]) -> tuple[str, list[str]]:
+            entries.append(entry)
+            return _head, entries
+
+        _update_latest(_append)
         print(f"[notify][severe-mirror] 已镜像登记 {ALERTS_FILE}", file=sys.stderr)
     except Exception as e:  # noqa: BLE001  镜像失败绝不阻塞通知主链路
         print(f"[notify][severe-mirror] 镜像登记失败(不影响发送): {e}", file=sys.stderr)

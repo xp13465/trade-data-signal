@@ -26,6 +26,18 @@
        条目含 时间戳/[severe] 标记/来源/摘要(body 片段);dry_run=True 不落盘
     C2 追加式:两次 severe 两条都在(cap 内),旧 write_alert 详情区不被追加动作抹掉
     C3 write_alert 覆盖式重写后,已有 severe 流水仍保留(write_alert 不再抹流水)
+  D组(Phase2:T3 akshare 东财三级兜底转正+stock_daily T2 配套+T4 换手率备源参数化):
+    D1-D4 静态(fallback 契约/12->10列映射/run_batch 接线/T2 三件套/source 参数化);
+    D5 行为(覆盖口径+去重+progress 固化+列映射精确值);D6 stock_daily 护栏;
+    D7 cleanup source=mootdx 聚合五指标+非法 source raise+daily_metric source 标记
+  E组(P2 内审修复批 2026-08-27):
+    E1 P2-1 并发锁内读改写:_update_latest 单一入口(flock+read+compose 同锁段),
+       _mirror_severe 锁外零直读;8 线程并发 severe 镜像零丢失(旧行为 lost update)
+    E2 P2-2 空 DB(无表)db_progress_snapshot 三模块(mootdx/stock/baostock)
+       容错返空 dict 不抛 OperationalError
+    E3 P2-3 读取侧闭合:三文件裸 `= load_progress()` 仅剩三件套/旧 reconcile 内部
+       合法引用(mootdx=1/stock=1/baostock=2),reconciled 接线 >=5
+    E4 baostock reconciled 行为:r/o 复合段只增不减恢复宇宙(A.o/B.r/C.r+C.o)+固化
 
 输入依赖:仅本仓源码(app/collector/*.py scripts/notify.py)+ tempfile 临时目录;
          不读写生产 DB(data/stock_daily.db / sentiment.db 均不触碰);
@@ -397,6 +409,118 @@ def behavior_checks() -> None:
                 cmod.get_conn = orig_conn
         except Exception as e:  # noqa: BLE001
             check("D组 Phase2 行为断言", False, f"{type(e).__name__}: {e}")
+
+    # ── E 组(P2 内审修复批,P2-1 锁内读改写 / P2-2 空表容错 / P2-3 读取侧闭合)──
+    import re as _re
+    ns = read(NOTIFY)
+    check("E1a P2-1 统一入口 _update_latest(flock+read+compose 同锁段)",
+          "def _update_latest" in ns and "_read_parse_latest" in ns.split(
+              "def _update_latest", 1)[1].split("\ndef ", 1)[0]
+          and "LOCK_EX" in ns.split("def _update_latest", 1)[1].split("\ndef ", 1)[0])
+    ms_body = ns.split("def _mirror_severe", 1)[1].split("\ndef ", 1)[0]
+    check("E1b _mirror_severe 锁外零直读(read_text/parse 已下沉锁内)",
+          "read_text" not in ms_body and "_parse_latest" not in ms_body)
+
+    # E1c 行为级:8 线程并发 send(severe) 全部条目留存(旧锁外实现会 lost update)
+    import threading as _th
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            nmod = load_module("ds_notify_concurrent_test", NOTIFY)
+            tmp_dir = Path(td) / "alerts"
+            nmod.ALERTS_DIR = tmp_dir
+            nmod.ALERTS_FILE = tmp_dir / "latest.md"
+            nmod._send_email = lambda *a, **k: True   # stub 全渠道
+            nmod.send_telegram = lambda *a, **k: True
+            nmod.send_feishu = lambda *a, **k: True
+            errs: list[str] = []
+
+            def _worker(i: int) -> None:
+                try:
+                    nmod.send(f"[告警] 并发压测条目 {i}", f"body-{i}",
+                              severe=True, source=f"conc{i}")
+                except Exception as e2:  # noqa: BLE001
+                    errs.append(f"{i}:{type(e2).__name__}:{e2}")
+
+            ts = [_th.Thread(target=_worker, args=(i,)) for i in range(8)]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join()
+            txt = nmod.ALERTS_FILE.read_text(encoding="utf-8")
+            n_entries = len(_re.findall(r"^## \[severe\] ", txt, flags=_re.M))
+            check("E1c 8线程并发 severe 镜像零丢失", n_entries == 8 and not errs,
+                  f"entries={n_entries} errs={errs[:2]}")
+        except Exception as e:  # noqa: BLE001
+            check("E1c 并发镜像行为", False, f"{type(e).__name__}: {e}")
+
+    # E2(P2-2): fresh 空 DB 文件(无任何表)-> 三模块 snapshot 返空 dict 不崩
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            sys.path.insert(0, str(REPO))
+            import importlib
+            amod = importlib.import_module("app.collector.mootdx_daily")
+            sdmod = importlib.import_module("app.collector.stock_daily")
+            bmod = importlib.import_module("app.collector.baostock_daily")
+            fresh = Path(td) / "empty.db"
+            fresh.write_bytes(b"")  # 空文件(sqlite 打开即合法空库,无表)
+            amod.STOCK_DB_PATH = fresh
+            sdmod.STOCK_DB_PATH = fresh
+            bmod.STOCK_DB_PATH = fresh
+            r_snap = (amod.db_progress_snapshot(), sdmod.db_progress_snapshot(),
+                      bmod.db_progress_snapshot())
+            check("E2 空 DB(无表)snapshot 三模块容错返空不抛",
+                  all(isinstance(x, dict) and not x for x in r_snap),
+                  f"sizes={[len(x) for x in r_snap]}")
+
+            # E3(P2-3): 执行面读取侧闭合——裸 `= load_progress()` 仅剩三件套/
+            # 旧 reconcile 内部合法引用(mootdx=1, stock=1, baostock=2)
+            expect_residual = {
+                MOOTDX: 1, REPO / "app" / "collector" / "stock_daily.py": 1,
+                BAOS_DAILY: 2}  # baostock: reconciled 内部1 + 旧 reconcile() 内部1
+            details_e3 = []
+            ok_e3 = True
+            for pth, allow in expect_residual.items():
+                srcf = read(pth)
+                n_res = (srcf.count("prog = load_progress()")
+                         + srcf.count("progress = load_progress()"))
+                n_rec = srcf.count("load_progress_reconciled()")
+                if n_res > allow or n_rec < 5:
+                    ok_e3 = False
+                details_e3.append(f"{pth.name}: 裸={n_res}/{allow} 接线={n_rec}")
+            check("E3 读取侧闭合(裸load仅剩三件套内部,reconciled接线>=5)", ok_e3,
+                  " ".join(details_e3))
+
+            # E4(P2-3 行为): baostock 残缺 progress -> reconciled 依 DB 快照恢复
+            # r/o 复合段;护栏在场时读侧必须 reconciled 否则单笔更新被误拒
+            bmod.STOCK_DB_PATH = Path(td) / "bdb.db"
+            bmod.PROGRESS_PATH = Path(td) / "bp.json"
+            bmod._BAOS_COUNT_CACHE = None
+            conn = sqlite3.connect(bmod.STOCK_DB_PATH)
+            conn.execute("CREATE TABLE baostock_daily_raw (code TEXT, date TEXT)")
+            conn.executemany(
+                "INSERT INTO baostock_daily_raw VALUES (?,?)",
+                [("A", "20150601"),                    # 只有 old 段(<2016;注意须真<2016)
+                 ("B", "20260822"),                    # 只有 recent 段
+                 ("C", "20260822"), ("C", "20150707")])  # 两段都有
+            conn.commit()
+            conn.close()
+            # 磁盘残缺现状:仅 A 一只且 o 段缺失(模拟缩水 progress.json)
+            bmod.PROGRESS_PATH.write_text(
+                json.dumps({"A": {"r": "20260801"}}), encoding="utf-8")
+            merged, fixed = bmod.load_progress_reconciled()
+            e4_ok = (
+                len(merged) == 3
+                and merged.get("A", {}).get("o") == "20150601"
+                and merged.get("B", {}).get("r") == "20260822"
+                and merged.get("C", {}) == {"r": "20260822", "o": "20150707"}
+                and merged.get("A", {}).get("r") == "20260801"  # progress>DB 不倒退
+                and fixed >= 3)
+            on_disk = json.loads(bmod.PROGRESS_PATH.read_text(encoding="utf-8"))
+            check("E4 baostock reconciled 恢复 r/o 复合宇宙+固化",
+                  e4_ok and on_disk == merged,
+                  f"universe={len(merged)} fixed={fixed} disk_match={on_disk == merged}")
+        except Exception as e:  # noqa: BLE001
+            check("E组 P2 修复批行为断言", False, f"{type(e).__name__}: {e}")
 
 
 def main() -> int:

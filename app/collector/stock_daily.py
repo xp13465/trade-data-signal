@@ -132,11 +132,20 @@ def load_progress() -> dict[str, str]:
 
 
 def db_progress_snapshot() -> dict[str, str]:
-    """从 stock_daily_raw 提取事实进度 {code: MAX(date)}(库为事实源)。"""
+    """从 stock_daily_raw 提取事实进度 {code: MAX(date)}(库为事实源)。
+
+    P2-2 容错(mootdx 同款):表不存在(init_db 前的新环境/空库)返空 dict
+    而非抛 OperationalError,与 _db_code_count 护栏退化放行同哲学。"""
     conn = get_conn()
-    rows = conn.execute(
-        "SELECT code, MAX(date) FROM stock_daily_raw GROUP BY code").fetchall()
-    conn.close()
+    try:
+        if conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+            " AND name='stock_daily_raw'").fetchone() is None:
+            return {}
+        rows = conn.execute(
+            "SELECT code, MAX(date) FROM stock_daily_raw GROUP BY code").fetchall()
+    finally:
+        conn.close()
     return {r[0]: r[1] for r in rows}
 
 
@@ -333,7 +342,8 @@ def update_one(code: str, progress: dict[str, str] | None = None,
     返回 (新增行数, msg)。
     """
     if progress is None:
-        progress = load_progress()
+        # P2-3: 单只兜底入口也走 reconciled(缩水态下 last 缺失会误回退全量重采)
+        progress, _fx = load_progress_reconciled()
     if today is None:
         today = dt.date.today().strftime("%Y%m%d")
     last = progress.get(code)
@@ -365,7 +375,8 @@ def run_batch(codes: list[str], *, incremental: bool = False,
     进度每 save_every 只落盘一次（断电安全）。
     """
     init_db()
-    progress = load_progress()
+    # P2-3: 执行面切 todo 用 reconciled(库为事实源),不裸读缓存
+    progress, _fx = load_progress_reconciled()
     today = dt.date.today().strftime("%Y%m%d")
     ok = fail = total_rows = empty_count = 0
     details: list[tuple] = []
@@ -472,7 +483,7 @@ def _cli(argv: list[str]) -> int:
         dmin = conn.execute("SELECT MIN(date) FROM stock_daily_raw").fetchone()[0]
         dmax = conn.execute("SELECT MAX(date) FROM stock_daily_raw").fetchone()[0]
         conn.close()
-        prog = load_progress()
+        prog, _fx = load_progress_reconciled()  # P2-3: stats 展示对齐库事实
         print(f"stock_daily_raw: {n_codes} codes, {n_rows} rows, "
               f"date range {dmin}..{dmax}")
         print(f"progress.json: {len(prog)} codes tracked")
@@ -492,7 +503,8 @@ def _cli(argv: list[str]) -> int:
         print(f"{code}: {msg}")
         if rows:
             n = upsert_rows(rows)
-            prog = load_progress()
+            # P2-3: 缩水态下单笔合法更新经 reconciled 读侧+护栏 save 才不被误拒
+            prog, _fx = load_progress_reconciled()
             prog[code] = max(r[1] for r in rows)
             save_progress(prog)
             print(f"  upserted {n} rows, last={prog[code]}")
@@ -509,7 +521,8 @@ def _cli(argv: list[str]) -> int:
         except CooldownError as e:
             print(f"!! COOLDOWN: {e} (last_code={e.last_code}). 停 30min 再重跑。")
             return 2
-        prog = load_progress()
+        # P2-3: 同 one 命令,读侧 reconciled 保住单笔更新落盘
+        prog, _fx = load_progress_reconciled()
         save_progress(prog)
         print(f"{code}: {msg}")
         return 0
@@ -523,7 +536,7 @@ def _cli(argv: list[str]) -> int:
             elif a.startswith("--limit="):
                 limit = int(a.split("=", 1)[1])
         codes = fetch_stock_codes()
-        prog = load_progress()
+        prog, _fx = load_progress_reconciled()  # P2-3: full 执行面同款闭合
         # 跳过已采到今天的（增量时仍跑 update_one 兜底）
         today = dt.date.today().strftime("%Y%m%d")
         todo = [c for c in codes if prog.get(c, "") < today]
