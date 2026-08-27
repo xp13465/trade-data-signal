@@ -284,6 +284,9 @@ SEVERE=0
 [ "${DEPLOY_ALL_RC:-0}" -ne 0 ] && SEVERE=1
 [ "$FRESH_OK" != "1" ] && SEVERE=1
 [ "${FUND_NAV_RC:-0}" -ne 0 ] && SEVERE=1  # P2返修 2026-08-27: 前置导出失败=fund_nav 数据断供(产物不刷新+跳过上传), 升级严重告警
+[ "${SCORE_LIST_RC:-0}" -ne 0 ] && SEVERE=1  # 样板抄齐 2026-08-27: 导出失败=买卖清单数据断供(R2 停旧版+跳过上传), 升级严重告警
+[ "${ETF_HIST_RC:-0}" -ne 0 ] && SEVERE=1    # 样板抄齐 2026-08-27: 导出失败=ETF全史日K数据断供, 升级严重告警
+[ "${FUND_SCORE_RC:-0}" -ne 0 ] && SEVERE=1  # 样板抄齐 2026-08-27: 导出失败=基金评分数据断供, 升级严重告警
 NOW_STR=$(date '+%Y-%m-%d %H:%M:%S')
 # 邮件 subject 统一模板 [类型]关键信息 MM-DD HH:MM（2026-07-20 改造）
 MM_DD_HM=$(date '+%m-%d %H:%M')
@@ -308,7 +311,14 @@ if [ "$SEVERE" -eq 1 ]; then
   [ "${DEPLOY_ALL_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}统一deploy失败(${DEPLOY_ALL_RC}) "
   [ "$FRESH_OK" != "1" ] && ISSUE="${ISSUE}数据时效异常($FRESH_MSG)"
   [ "${FUND_NAV_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}fund_nav导出失败(rc=${FUND_NAV_RC:-0},产物未刷新) "
-  "$PY" "$REPO/scripts/notify.py" "[告警] update_all ${ISSUE} ${MM_DD_HM}" "$NOTIFY_BODY" --severe --from-prefix "[告警]" --alert-issue "$ISSUE" --alert-log "$LOG" || true
+  [ "${SCORE_LIST_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}etf_score_list导出失败(rc=${SCORE_LIST_RC:-0},产物未刷新) "
+  [ "${ETF_HIST_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}etf_hist导出失败(rc=${ETF_HIST_RC:-0},产物未刷新) "
+  [ "${FUND_SCORE_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}fund_score导出失败(rc=${FUND_SCORE_RC:-0},产物未刷新) "
+  # 防噪 2026-08-27: 复用 notify.py 现成 --dedup-key/--dedup-window(状态文件 data/notify_dedup.json,
+  # 发送成功才登记/suppress 静默退0/fail-open; 先例=intraday upload-index R2 失败去重)。
+  # key=完整 ISSUE 问题串: 同一问题组合 30min 内只发一次(手动补跑/force 连跑窗口防轰炸),
+  # 问题组合变化(rc 或触发项不同)=新 key 正常发送, 不漏报。
+  "$PY" "$REPO/scripts/notify.py" "[告警] update_all ${ISSUE} ${MM_DD_HM}" "$NOTIFY_BODY" --severe --from-prefix "[告警]" --alert-issue "$ISSUE" --alert-log "$LOG" --dedup-key "update_all_severe:${ISSUE}" --dedup-window 1800 || true
 else
   "$PY" "$REPO/scripts/notify.py" "[完成] update_all ${ELAPSED_MIN}min ${MM_DD_HM}" "$NOTIFY_BODY" --from-prefix "[完成]" || true
 fi
