@@ -1569,8 +1569,15 @@ _STAGE0_DB_VALIDITY: dict[str, str] = {
     "fund_overview":
         "SELECT fund_code FROM fund_basic WHERE COALESCE(fund_company,'')!=''",
     "fund_fee_detail": "SELECT DISTINCT fund_code FROM fund_fee_detail",
-    "fund_manager": "SELECT DISTINCT fund_code FROM fund_manager",
+    # #98/#99 配套收紧(2026-08-27): fund_manager 表里 M1 base 行几乎恒存在,
+    # 旧判据"表里有行"恒真 = 自爬列被清也视为有效(done=27116 而 history 非空仅 9 实证)。
+    # 改为自爬产物列非空才算有效; 页面合法空的 code 由 attempt 强摘要(empty0)豁免。
+    "fund_manager":
+        "SELECT DISTINCT fund_code FROM fund_manager "
+        "WHERE COALESCE(managed_history,'')!='' OR COALESCE(appoint_date,'')!=''",
     "fund_risk_indicator": "SELECT DISTINCT fund_code FROM fund_risk_indicator",
+    # stage0-nav 同纳入闸门(#5 举一反三, 2026-08-27): 补过历史净值的 code 才算 done
+    "nav": "SELECT DISTINCT fund_code FROM fund_daily_nav",
 }
 
 # codex-001 medium 修复(2026-08-26): 「合法空结果反复重采」根治——attempt 成功标记。
@@ -1584,20 +1591,55 @@ _STAGE0_ATTEMPT_KEYS = {"fund_overview", "fund_fee_detail", "fund_manager",
                         "fund_risk_indicator"}
 
 
+def _stage0_attempt_strong(s) -> bool:
+    """attempt 摘要分级(#99, 2026-08-27): 仅「强证据」摘要豁免业务列校验。
+
+    强证据=该 code 已确认拿全数据或确认合法空:
+      - "ok{n}"           fee/manager 有实写内容 / overview 采样字段全齐
+      - "empty0"          页面级确认空(manager LEGAL_EMPTY 哨兵 / fee 空行集)
+      - "empty{m}/{m}"    overview n==m 全字段空 = 确认空(源侧无此基金数据)
+      - "xq"/"self_calc"/"xq_mixed"   risk_indicator 数据源分支(codex004 P3,
+        自算降级也算确认拿到数据, 与 P3「自算降级也算成功不反复重采」原意对齐)
+    弱证据(不豁免, 回退业务列 SQL 自动校验):
+      - "" / None         无摘要历史断点
+      - "empty"(网络失败标记)
+      - "empty{n}/{m}" 且 0<n<m —— 部分字段未齐(partial): 上游后续补字段后
+        业务列判据失效 → 自动重采, 不再永久免采。
+    """
+    if not s:
+        return False
+    s = str(s)
+    if s.startswith("ok"):
+        return True
+    if s == "empty0":
+        return True
+    if s in ("xq", "self_calc", "xq_mixed"):
+        return True
+    import re
+    m = re.fullmatch(r"empty(\d+)/(\d+)", s)
+    if m:
+        n, total = m.group(1), m.group(2)
+        return n == "0" or n == total
+    return False
+
+
 def _prune_stage0_done_vs_db(fetcher_name: str, prog: dict) -> dict:
     """闸门: 断点 done 与 DB 实际有值 code 集取交集, 失效部分自动重采不报完成。
 
     codex-001 medium 后语义: progress["attempt"] 里记了成功摘要的 code 视为永久有效
     (fetch 成功≠业务列非空, 合法空结果不再反复重采); 无摘要的历史断点回退业务列 SQL 判定。
+    #99 分级修正(2026-08-27): 只有强证据摘要(ok/确认空)直接放行; partial 摘要
+    (部分字段未齐)与无摘要同等对待, 回退业务列 SQL——防"上游后来补了字段但断点
+    已标完成永不补采"。兼容历史格式("empty"/无斜杠弱标记一律走 SQL)。
     """
     sql = _STAGE0_DB_VALIDITY.get(fetcher_name)
     done = prog.get("done") or []
     if not sql or not done:
         return prog
     attempts = prog.get("attempt") or {}
-    # 有 attempt 成功摘要的 code 直接放行(不再受业务列非空约束)
-    attempted = [c for c in done if c in attempts]
-    rest = [c for c in done if c not in attempts]
+    # 仅强证据摘要放行(#99); partial/无摘要回退业务列判据
+    attempted = [c for c in done if _stage0_attempt_strong(attempts.get(c))]
+    rest = [c for c in done if not _stage0_attempt_strong(attempts.get(c))]
     if not rest:
         prog["done"] = done
         return prog
@@ -1839,16 +1881,19 @@ _PF_MGR_LEGAL_EMPTY = "LEGAL_EMPTY"
 
 
 def _scrape_fundf10_manager(code: str, retries: int = 2) -> dict | str | None:
-    """自爬 fundf10 manager 页, 返回 {appoint_date, managed_history}。
+    """自爬 fundf10 manager 页, 返回经理归属信息(#98, 2026-08-27)。
 
     解析:
-      table[1](任职历史): 取"截止期"=="至今"行的"起始期"作为 appoint_date
-      table[2](经理管过的基金): 构建 managed_history JSON [{code,name,type,start,end,return}]
-
-    Args: code 基金代码
-    Returns: {appoint_date: str, managed_history: str(JSON)};
-             _PF_MGR_LEGAL_EMPTY(页面解析成功的合法空结果);
-             None(失败, 网络异常/HTTP 非 200 重试耗尽)
+      任职变动表(表头含 起始期/截止期/基金经理): 每行=一段任期组合,
+        经理列是空格分隔的姓名列表——
+        - appoint_map: 每位经理首次出现行的起始期 = 其对本基金的任命日
+        - current_managers: 截止期=="至今" 行的经理名单(在任组合)
+        - appoint_date: 兼容保留 = 至今行的起始期(原口径)
+      管过基金表(表头含 基金代码+任职天数): 首张表构建 managed_history JSON
+        [{code,name,type,start,end,return}] —— 注意页面无法确证该表归属哪位
+        经理, 写库时只落到首位在任者行, 不再刷全部经理行(#98 根治)。
+    Returns: {appoint_date, managed_history(JSON str), current_managers,
+              appoint_map}; _PF_MGR_LEGAL_EMPTY(解析成功的合法空); None(网络失败)
     """
     import re
     from io import StringIO
@@ -1869,7 +1914,9 @@ def _scrape_fundf10_manager(code: str, retries: int = 2) -> dict | str | None:
             soup = BeautifulSoup(r.text, features="lxml")
             tables = soup.find_all("table")
             appoint_date = ""
-            # table[1]: 任职历史, 找"至今"行的起始期
+            current_managers: list[str] = []
+            appoint_map: dict[str, str] = {}
+            # 任职变动表: 扫全行, per-经理任命日 + 在任名单(#98 经理归属依据)
             for tbl in tables:
                 rows_html = tbl.find_all("tr")
                 if not rows_html:
@@ -1878,10 +1925,20 @@ def _scrape_fundf10_manager(code: str, retries: int = 2) -> dict | str | None:
                 if "起始期" in header and "截止期" in header:
                     for tr in rows_html[1:]:
                         cells = [td.get_text(strip=True) for td in tr.find_all(["th", "td"])]
-                        if len(cells) >= 4 and cells[1] == "至今":
-                            appoint_date = _to_yyyymmdd(cells[0])
-                            break
-                    if appoint_date:
+                        start = _to_yyyymmdd(cells[0]) if cells else ""
+                        if len(cells) >= 4 and start:
+                            names = [nm for nm in (cells[2] or "").split() if nm]
+                            # 每位经理首次出现的任期起始 = 任命日(按行序首个命中)
+                            for nm in names:
+                                if nm not in appoint_map:
+                                    appoint_map[nm] = start
+                            if cells[1] == "至今":
+                                if not appoint_date:
+                                    appoint_date = start
+                                for nm in names:
+                                    if nm not in current_managers:
+                                        current_managers.append(nm)
+                    if appoint_date or appoint_map or current_managers:
                         break
             # table[2]: 经理管过的基金 -> managed_history JSON
             managed_history: list[dict] = []
@@ -1904,13 +1961,15 @@ def _scrape_fundf10_manager(code: str, retries: int = 2) -> dict | str | None:
                                 "return": _safe_float(cells[6].replace("%", "")),
                             })
                     break
-            if not appoint_date and not managed_history:
+            if not appoint_date and not appoint_map and not managed_history:
                 # codex004 P2: 页面成功解析的合法空(该基金确无任职历史/管过基金),
                 # 用哨兵与网络失败的 None 区分
                 return _PF_MGR_LEGAL_EMPTY
             return {
                 "appoint_date": appoint_date,
                 "managed_history": json.dumps(managed_history, ensure_ascii=False),
+                "current_managers": current_managers,
+                "appoint_map": appoint_map,
             }
         except Exception as e:  # noqa: BLE001
             last_err = f"{type(e).__name__}: {e}"
@@ -1994,7 +2053,7 @@ def fetch_fund_manager(scrape: bool = True, codes: list[str] | None = None) -> i
         prog = _stage0_reset_prog(prog, codes, total)
     done_set = set(prog.get("done", []))
     attempts = prog.setdefault("attempt", {})
-    ok = fail = 0
+    ok = fail = nomatch = 0
     BATCH = 20
     pending: list[tuple] = []
     for i, code in enumerate(codes, 1):
@@ -2003,24 +2062,47 @@ def fetch_fund_manager(scrape: bool = True, codes: list[str] | None = None) -> i
         else:
             try:
                 result = _scrape_fundf10_manager(code)
-                # codex004 P2: 三态——dict=有数据 / _PF_MGR_LEGAL_EMPTY=页面解析成功
-                # 的合法空(该基金确无任职历史, 进 done_set 不再跨轮重采, 摘要沿用
-                # 全项目 empty0=确认空口径) / None=网络或 HTTP 失败(标 empty 留重试面)
+                # codex004 P2 三态 + #98 经理归属(2026-08-27):
+                #   dict=有数据 / _PF_MGR_LEGAL_EMPTY=页面解析成功的合法空(empty0 确认空,
+                #   跨轮不重采) / None=网络或 HTTP 失败(标 empty 留重试面)
                 if result == _PF_MGR_LEGAL_EMPTY:
                     attempts[code] = "empty0"
                     done_set.add(code)
                     ok += 1
                 elif result:
-                    attempts[code] = f"ok{len(result.get('managed_history') or '')}"
-                    appoint = result["appoint_date"]
-                    history = result["managed_history"]
-                    tenure = None
-                    if appoint:
-                        ad = dt.datetime.strptime(appoint, "%Y%m%d").date()
-                        tenure = (dt.date.today() - ad).days
-                    pending.append((appoint, history, tenure, code))
+                    cur = result.get("current_managers") or []
+                    amap = result.get("appoint_map") or {}
+                    history = result.get("managed_history") or ""
+                    # 归属规则(#98 根治): 只对「页面在任 ∩ 库中该基金经理行」写;
+                    # appoint_date 用 T1 经理列交叉出的 appoint_map(每人自己的任命日);
+                    # managed_history 页面无法确证归属哪位经理 → 只落首位在任者一行,
+                    # 其余行 None=COALESCE 保旧; 绝不再按 fund_code 无键刷全部经理行
+                    # (旧病灶: 后写者清掉先写者的 managed_history)。
+                    _mc = get_conn()
+                    try:
+                        db_mgrs = {r[0] for r in _mc.execute(
+                            "SELECT manager_name FROM fund_manager WHERE fund_code=?",
+                            (code,)).fetchall()}
+                    finally:
+                        _mc.close()
+                    targets = [nm for nm in cur if nm in db_mgrs]
+                    for nm in targets:
+                        appoint = amap.get(nm, "")
+                        hist_one = history if (nm == cur[0] and history) else None
+                        tenure = None
+                        if appoint:
+                            ad = dt.datetime.strptime(appoint, "%Y%m%d").date()
+                            tenure = (dt.date.today() - ad).days
+                        pending.append((appoint, appoint, hist_one, tenure, code, nm))
                     ok += 1
                     done_set.add(code)
+                    if targets:
+                        attempts[code] = f"ok{len(history)}"
+                    else:
+                        # 页面与库现任名单脱节(数据拿到无处写): 也标完成防反复空烧,
+                        # 摘要保持 ok 前缀走强证据豁免; nm 后缀供日志辨识
+                        attempts[code] = f"ok{len(history)}nm"
+                        nomatch += 1
                 else:
                     attempts[code] = "empty"
                     fail += 1
@@ -2032,9 +2114,14 @@ def fetch_fund_manager(scrape: bool = True, codes: list[str] | None = None) -> i
         if (len(pending) >= BATCH) or i == total:
             if pending:
                 conn = get_conn()
+                # #98(2026-08-27): WHERE 带 manager_name 键 + COALESCE/CASE 保旧——
+                # 文本空串与 None 都不覆写已有值, 多经理行互不清除
                 conn.executemany(
-                    "UPDATE fund_manager SET appoint_date=?, managed_history=?, "
-                    "tenure_days=? WHERE fund_code=?",
+                    "UPDATE fund_manager SET "
+                    "appoint_date=CASE WHEN ?!='' THEN ? ELSE appoint_date END, "
+                    "managed_history=COALESCE(?, managed_history), "
+                    "tenure_days=COALESCE(?, tenure_days) "
+                    "WHERE fund_code=? AND manager_name=?",
                     pending,
                 )
                 conn.commit()
@@ -2047,8 +2134,8 @@ def fetch_fund_manager(scrape: bool = True, codes: list[str] | None = None) -> i
             elapsed = time.time() - t0
             eta = (elapsed / i) * (total - i) if i > 0 else 0
             print(f"  [M2] {i}/{total} ({i*100/total:.1f}%) ok={ok} fail={fail} "
-                  f"elapsed={elapsed:.0f}s eta={eta:.0f}s", flush=True)
-    print(f"[M2] 自爬完成: ok={ok} fail={fail} total={total} "
+                  f"nomatch={nomatch} elapsed={elapsed:.0f}s eta={eta:.0f}s", flush=True)
+    print(f"[M2] 自爬完成: ok={ok} fail={fail} nomatch={nomatch} total={total} "
           f"耗时={time.time()-t0:.0f}s", flush=True)
     return len(base_rows)
 
@@ -2138,11 +2225,27 @@ def fetch_fund_overview(codes: list[str] | None = None) -> int:
         if (len(pending) >= BATCH) or i == total:
             if pending:
                 conn = get_conn()
+                # #100 UPSERT 保护语义(2026-08-27): 文本列 COALESCE(NULLIF(新,''),旧)、
+                # 数值列 COALESCE(新,旧)——本轮接口返回空字段时保留 DB 已有值, 只有
+                # 非空新值才覆写; 防"二次补跑返回部分空"静默清掉先前采集成果。
                 conn.executemany(
-                    "UPDATE fund_basic SET fund_company=?, fund_manager=?, setup_date=?, "
-                    "scale=?, management_fee=?, custody_fee=?, purchase_fee=?, custodian=?, "
-                    "strategy=?, benchmark=?, tracking_target=?, issue_date=?, share_scale=?, "
-                    "service_fee=?, dividend_total=?, update_date=? WHERE fund_code=?",
+                    "UPDATE fund_basic SET "
+                    "fund_company=COALESCE(NULLIF(?,''),fund_company), "
+                    "fund_manager=COALESCE(NULLIF(?,''),fund_manager), "
+                    "setup_date=COALESCE(NULLIF(?,''),setup_date), "
+                    "scale=COALESCE(?,scale), "
+                    "management_fee=COALESCE(?,management_fee), "
+                    "custody_fee=COALESCE(?,custody_fee), "
+                    "purchase_fee=COALESCE(?,purchase_fee), "
+                    "custodian=COALESCE(NULLIF(?,''),custodian), "
+                    "strategy=COALESCE(NULLIF(?,''),strategy), "
+                    "benchmark=COALESCE(NULLIF(?,''),benchmark), "
+                    "tracking_target=COALESCE(NULLIF(?,''),tracking_target), "
+                    "issue_date=COALESCE(NULLIF(?,''),issue_date), "
+                    "share_scale=COALESCE(?,share_scale), "
+                    "service_fee=COALESCE(?,service_fee), "
+                    "dividend_total=COALESCE(NULLIF(?,''),dividend_total), "
+                    "update_date=? WHERE fund_code=?",
                     pending,
                 )
                 conn.commit()
@@ -2160,8 +2263,10 @@ def fetch_fund_overview(codes: list[str] | None = None) -> int:
           f"耗时={time.time()-t0:.0f}s", flush=True)
     # 防复发自检(bug② 闸门配套): 收尾核对「断点 done 数 vs DB 扩展列实际有值数」,
     # 不一致打 WARN——防"假完成标记"再次静默产生, 下次加载侧闸门会自动裁剪重采。
-    # codex-001 medium 后口径: done 含「合法空结果」(attempt 有摘要但 fund_company 空),
-    # 比对基准改为 DB有值数 + attempt 空结果数, 纯业务列比对会对合法空结果误报 WARN。
+    # codex-001 medium 后口径: done 含「确认空结果」(attempt 强摘要 empty0 / 全字段空),
+    # 比对基准改为 DB有值数 + 确认空数, 纯业务列比对会对合法空结果误报 WARN。
+    # #99 分级后(2026-08-27)partial(部分字段未齐)不计入空确认——它本就该被闸门
+    # 回退业务列校验、在关键字段补齐前保持可重采。
     try:
         conn = get_conn()
         try:
@@ -2172,8 +2277,8 @@ def fetch_fund_overview(codes: list[str] | None = None) -> int:
             conn.close()
         attempts = prog.get("attempt") or {}
         empty_n = sum(1 for c in prog.get("done", [])
-                      if (attempts.get(c) or "").startswith("empty")
-                      and not (attempts.get(c) or "").startswith("empty0"))
+                      if _stage0_attempt_strong(attempts.get(c))
+                      and str(attempts.get(c)).startswith("empty"))
         done_n = len(prog.get("done", []))
         if abs(done_n - db_valid - empty_n) > max(50, int(total * 0.01)):
             print(f"  [N] WARN 一致性: 断点done={done_n}(含合法空{empty_n}) vs "
