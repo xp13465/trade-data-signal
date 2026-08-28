@@ -91,6 +91,13 @@ refs/codex/resp/<request_id>   # 可选：Codex 报告的 SHA 指针（由 Claud
   `/tmp/codex-reports`，不用免审批模式。Claude 回传侧只做 schema 机检与飞书提醒，
   不允许后台 watcher 直接以高权限唤醒 Claude 处置代码。`com.trade.agent-inbox.plist`
   仅是可选本机模板，默认不入 LaunchAgents。
+- **⑦ Reviewer 模型继承（2026-08-27 补）**：watcher 派发 `codex exec` 时必须显式传
+  `-m <model>`，避免子进程因运行环境或 CLI 默认值漂移到另一个模型。模型解析顺序：
+  ① `CODEX_REVIEWER_MODEL` 显式覆盖；② 近 7 天内当前仓库最新 `thread_source=user`
+  的 Codex Desktop session 元数据中 `provenance.model`；③ `~/.codex/config.toml`
+  的顶层 `model`；④ 最终硬编码兜底。这套规则让外部 reviewer 跟随“当前主会话”
+  模型，而不是每次改脚本固定值。测试入口：
+  `python3 -m unittest discover -s scripts -p 'test_model_inherit_dispatch.py'`。
 
 ## 约束
 
