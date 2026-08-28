@@ -8501,7 +8501,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
       var _st6 = window._tdsS06Status();
       if (!_st6.loaded && _st6.err) _s6WarnParts.push("⚠ S06 快照不可用(" + _st6.err + ") — 动态判定未生效, 本批统计按无过滤人口展示(未回退其他模式)");
     }
-    if (_s6OpenSet.size > 0) _s6WarnParts.push("⚠ " + _s6OpenSet.size + " 笔(快照覆盖期前早期段)超出 S06 快照覆盖期, 未按当日基座过滤(fail-open)");
+    if (_s6OpenSet.size > 0) _s6WarnParts.push("⚠ " + _s6OpenSet.size + " 笔来自历史早期段（如2014-2015年），日期超出 S06 快照覆盖范围（系统无法确定当天该用哪个基座：a9 进攻王 还是 new14+1 防守兜底），为避免用错基座算历史，已放行展示并提示（fail-open）");
     if (_s6WarnParts.length) result._s6warn = _s6WarnParts.join(" ");
   }
   _kellyStatsCacheKey = cacheKey;
