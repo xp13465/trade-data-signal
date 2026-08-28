@@ -5075,6 +5075,53 @@ main { padding: 16px 24px; }
 [data-theme="dark"] .lab-custom-retry:hover,
 [data-theme="redgold"] .lab-custom-retry:hover { background: rgba(255,120,117,0.12); }
 
+/* === sigkelly 分片加载骨架屏(2026-08-28) === */
+@keyframes lab-kelly-skeleton-wave {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+.lab-kelly-skeleton { padding: 16px; }
+.lab-kelly-skeleton-row {
+  display: flex; gap: 12px; align-items: center;
+  margin-bottom: 14px;
+}
+.lab-kelly-skeleton-line {
+  background: var(--bg-hover, #e8eaed);
+  border-radius: 4px;
+  animation: lab-kelly-skeleton-wave 1.4s ease-in-out infinite;
+}
+[data-theme="dark"] .lab-kelly-skeleton-line,
+[data-theme="redgold"] .lab-kelly-skeleton-line {
+  background: var(--bg-hover, #2d333b);
+}
+.lab-kelly-skeleton-circle {
+  width: 36px; height: 36px;
+  background: var(--bg-hover, #e8eaed);
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: lab-kelly-skeleton-wave 1.4s ease-in-out infinite;
+}
+.lab-kelly-skeleton-text {
+  height: 14px; width: 120px;
+  animation: lab-kelly-skeleton-wave 1.4s ease-in-out infinite;
+}
+.lab-kelly-skeleton-text.wide { width: 200px; }
+.lab-kelly-skeleton-text.narrow { width: 60px; }
+.lab-kelly-skeleton-table-row {
+  display: flex; gap: 8px; padding: 8px 0;
+  border-bottom: 1px solid var(--border-light, #f0f0f0);
+}
+[data-theme="dark"] .lab-kelly-skeleton-table-row,
+[data-theme="redgold"] .lab-kelly-skeleton-table-row {
+  border-bottom-color: rgba(255,255,255,0.06);
+}
+.lab-kelly-skeleton-cell {
+  height: 12px;
+  background: var(--bg-hover, #e8eaed);
+  border-radius: 3px;
+  animation: lab-kelly-skeleton-wave 1.4s ease-in-out infinite;
+}
+
 /* F3: 分数卡 */
 .lab-custom-score-card {
   background: var(--bg-card); border: 1px solid var(--border-strong);

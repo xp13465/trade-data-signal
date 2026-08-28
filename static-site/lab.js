@@ -8134,6 +8134,117 @@ async function _kellyRunRecompute(host, loadingHtml, onResult, onDone) {
   onDone(host);
 }
 
+// sigkelly 分片加载模块(2026-08-28): recent.json(2.99MB)首屏优先 + localStorage 缓存 + 年片按需加载 + 全量兜底
+var _labKellyPartsCache = new Map();   // "recent" | "tYYYY" -> parsed {fields,fIdx,quadrants}
+var _labKellyFullFallback = false;     // 分片链路失败已回退全量(true 后跳过分片逻辑)
+var _labKellyLoadErr = null;           // 加载错误信息
+
+// URL helpers
+function _labKellyTradesUrl(name) { var v = _labCustomCacheBust(); return "https://ss.fx8.store/data/" + name + (v ? "?v=" + v : ""); }
+function _labKellyTradesUrlCf(name) { var v = _labCustomCacheBust(); return "./data/" + name + (v ? "?v=" + v : ""); }
+function _labKellyFetchTrades(name) {
+  var r2 = _labKellyTradesUrl(name);
+  var cf = _labKellyTradesUrlCf(name);
+  var controller = new AbortController();
+  var to = setTimeout(function() { controller.abort(); }, 60000);
+  return fetch(r2, { signal: controller.signal })
+    .then(function(r) { clearTimeout(to); if (!r.ok) throw new Error("R2 " + r.status); return r.json(); })
+    .catch(function() {
+      clearTimeout(to);
+      var c2 = new AbortController();
+      var t2 = setTimeout(function() { c2.abort(); }, 60000);
+      return fetch(cf, { signal: c2.signal })
+        .then(function(r) { clearTimeout(t2); if (!r.ok) throw new Error("CF " + r.status); return r.json(); })
+        .catch(function(e2) { clearTimeout(t2); throw e2; });
+    });
+}
+function _labKellyParseTrades(tr) {
+  var fields = tr.fields;
+  var fIdx = {};
+  for (var i = 0; i < fields.length; i++) fIdx[fields[i]] = i;
+  return { fields: fields, fIdx: fIdx, quadrants: tr.quadrants || {} };
+}
+// 分片合并(quadrants 同 key 拼接)
+function _labKellyMergeShards(shards) {
+  var first = shards[0];
+  var quadrants = {};
+  for (var s = 0; s < shards.length; s++) {
+    var qs = shards[s].quadrants;
+    for (var qk in qs) {
+      if (!quadrants[qk]) quadrants[qk] = {};
+      var mk = qs[qk];
+      for (var k in mk) {
+        if (!quadrants[qk][k]) quadrants[qk][k] = [];
+        quadrants[qk][k] = quadrants[qk][k].concat(mk[k]);
+      }
+    }
+  }
+  return { fields: first.fields, fIdx: first.fIdx, quadrants: quadrants };
+}
+// 全量兜底
+async function _labKellyLoadFull() {
+  try {
+    console.warn("[sigkelly] 分片加载失败, 回退全量 signal_kelly_trades.json(约69MB)");
+    var tr = await _labKellyFetchTrades("signal_kelly_trades.json");
+    state.labSigKellyTradesData = _labKellyParseTrades(tr);
+    _labKellyFullFallback = true;
+    return true;
+  } catch (e) {
+    _labKellyLoadErr = e && e.message ? e.message : String(e);
+    state.labSigKellyTradesData = null;
+    return false;
+  }
+}
+// localStorage 缓存(版本号 = trades.json._meta.generated_at, 变了失效; recent.json 缓存 key=tdp_kelly_recent_v1)
+function _labKellyGetCache(name) {
+  try {
+    var raw = localStorage.getItem("tdp_kelly_" + name + "_v1");
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) { return null; }
+}
+function _labKellySetCache(name, data, meta) {
+  try {
+    var obj = { data: data, genAt: meta };
+    var s = JSON.stringify(obj);
+    if (s.length > 5 * 1024 * 1024) return false; // 超5MB不用缓存
+    localStorage.setItem("tdp_kelly_" + name + "_v1", s);
+    return true;
+  } catch (e) { return false; }
+}
+// 主入口: localStorage 缓存优先(无网即出) + 网络拉取版本对比 + 全量兜底
+// 返回 Promise<true>就绪 / <false>失败(错误已记录在 _labKellyLoadErr)
+// 缓存在首次渲染后静默后台刷新, 已有数据的情况下 UI 不阻塞
+async function _labKellyTradesEnsure(opt) {
+  if (state.labSigKellyTradesData && !_labKellyFullFallback) return true; // 已就绪
+  if (_labKellyFullFallback) return !!state.labSigKellyTradesData;
+  // ① localStorage 缓存命中 → 立即就绪, 后续网络对比是后台刷新
+  var cached = _labKellyGetCache("recent");
+  if (cached && cached.data && !(opt && opt.skipCache)) {
+    state.labSigKellyTradesData = _labKellyParseTrades(cached.data);
+    _labKellyPartsCache.set("recent", _labKellyParseTrades(cached.data));
+  }
+  // ② 拉 recent.json 校验版本号(2.99MB vs 全量 69MB, 仍划算)
+  var recent;
+  try {
+    recent = await _labKellyFetchTrades("signal_kelly_trades_parts/recent.json");
+  } catch (e) {
+    console.warn("[sigkelly] recent.json 加载失败:", e);
+    return state.labSigKellyTradesData ? true : await _labKellyLoadFull();
+  }
+  var curMeta = (recent && recent._meta && recent._meta.generated_at) ? recent._meta.generated_at : null;
+  // ③ 版本号匹配 → 缓存已最新
+  if (cached && cached.data && cached.genAt && curMeta && cached.genAt === curMeta) {
+    return true; // 缓存与网络同版本, 不重写 state(缓存已是最新数据)
+  }
+  // ④ 版本变了: 应用网络数据 + 写缓存
+  var parsed = _labKellyParseTrades(recent);
+  _labKellyPartsCache.set("recent", parsed);
+  state.labSigKellyTradesData = parsed;
+  if (curMeta) _labKellySetCache("recent", recent, curMeta);
+  return true;
+}
+
 // 加载 trades.json 并重算所有 quadrant x period x mode 统计(方案A)
 async function _kellyApplyFeeRecompute(feeParams) {
   var data = state.labSigKellyData;
@@ -8143,28 +8254,11 @@ async function _kellyApplyFeeRecompute(feeParams) {
   if (state.labSigKellyFadeModeBase === "s06" && typeof window._tdsS06StateEnsure === "function") {
     await window._tdsS06StateEnsure();
   }
-  // 加载 trades.json(如果未加载, 复用 modal 的 R2+CF 兜底逻辑)
+  // 加载 trades.json(分片加载+localStorage缓存, 2026-08-28)
   if (!state.labSigKellyTradesData) {
-    var v = _labCustomCacheBust();
-    // 2026-08-11 备站修复: ssd 公开桶直链无 ACAO 备站 CORS 挂, 改走主站 /data/ rewrite(ACAO:*, 与 fetchJSON 兜底 _R2_FALLBACK_BASE 一致)
-    var r2Url = "https://ss.fx8.store/data/signal_kelly_trades.json?v=" + v;
-    var cfUrl = "./data/signal_kelly_trades.json?v=" + v;
-    try {
-      try {
-        var resp = await fetch(r2Url);
-        if (!resp.ok) throw new Error("R2 " + resp.status);
-        state.labSigKellyTradesData = await resp.json();
-        _kellyClearComputeCaches();
-      } catch (e) {
-        var resp2 = await fetch(cfUrl);
-        if (!resp2.ok) throw new Error("CF " + resp2.status);
-        state.labSigKellyTradesData = await resp2.json();
-        _kellyClearComputeCaches();
-      }
-    } catch (e) {
-      console.error("[sigkelly] trades.json load failed:", e);
-      return null;
-    }
+    var ok = await _labKellyTradesEnsure();
+    if (!ok) { console.error("[sigkelly] trades.json load failed"); return null; }
+    _kellyClearComputeCaches();
   }
   var td = state.labSigKellyTradesData;
   var fields = td.fields || [];
@@ -8769,10 +8863,23 @@ async function renderSigKellyLab() {
     var _aiWrapPending = _aiWrap || null;
   }
 
-  // 内容 host
+  // 内容 host(2026-08-28 骨架屏: 3 行 + 3 表格行, 复用 .lab-kelly-skeleton CSS)
   const host = document.createElement("div");
   host.className = "lab-sigkelly-host";
-  host.innerHTML = '<div class="lab-custom-loading">⏳ 加载中…</div>';
+  host.innerHTML = '<div class="lab-kelly-skeleton">' +
+    '<div class="lab-kelly-skeleton-row"><div class="lab-kelly-skeleton-circle"></div><div class="lab-kelly-skeleton-line lab-kelly-skeleton-text wide"></div></div>' +
+    '<div class="lab-kelly-skeleton-row"><div class="lab-kelly-skeleton-circle"></div><div class="lab-kelly-skeleton-line lab-kelly-skeleton-text"></div><div class="lab-kelly-skeleton-line lab-kelly-skeleton-text narrow"></div></div>' +
+    '<div class="lab-kelly-skeleton-row"><div class="lab-kelly-skeleton-circle"></div><div class="lab-kelly-skeleton-line lab-kelly-skeleton-text"></div></div>' +
+    '<div style="margin-top:18px">' +
+      Array.from({length: 5}).map(() => '<div class="lab-kelly-skeleton-table-row">' +
+        '<div class="lab-kelly-skeleton-cell" style="width:60px"></div>' +
+        '<div class="lab-kelly-skeleton-cell" style="width:90px"></div>' +
+        '<div class="lab-kelly-skeleton-cell" style="width:80px"></div>' +
+        '<div class="lab-kelly-skeleton-cell" style="width:120px"></div>' +
+        '<div class="lab-kelly-skeleton-cell" style="width:70px"></div>' +
+        '</div>').join('') +
+    '</div>' +
+    '</div>';
   wrapper.appendChild(host);
   // 2026-08-14 用户定: AI报告区(历史留存)append 到页面尾部(host 即所有数据表格/图表之后, 页面最底)
   if (_aiWrapPending) {
@@ -11298,24 +11405,12 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   overlay.innerHTML = `<div class="lab-sigkelly-modal"><div class="lab-sigkelly-modal-loading">⏳ 加载交易记录…</div></div>`;
   overlay.style.display = "flex";
 
-  // 懒加载 trades JSON(>1MB 走 R2, CF 兜底)
+  // 懒加载 trades JSON(分片加载+localStorage缓存, 2026-08-28)
   if (!state.labSigKellyTradesData) {
-    const v = _labCustomCacheBust();
-    const r2Url = `https://ss.fx8.store/data/signal_kelly_trades.json?v=${v}`;
-    const cfUrl = `./data/signal_kelly_trades.json?v=${v}`;
-    try {
-      try {
-        const resp = await fetch(r2Url);
-        if (!resp.ok) throw new Error(`R2 ${resp.status}`);
-        state.labSigKellyTradesData = await resp.json();
-      } catch (e) {
-        const resp = await fetch(cfUrl);
-        if (!resp.ok) throw new Error(`CF ${resp.status}`);
-        state.labSigKellyTradesData = await resp.json();
-      }
-    } catch (e) {
-      overlay.innerHTML = `<div class="lab-sigkelly-modal"><div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 交易记录加载失败</div><div class="lab-custom-error-detail">${e.message || e}</div><button type="button" class="lab-custom-retry">重试</button></div></div>`;
-      overlay.querySelector(".lab-custom-retry").onclick = () => { state.labSigKellyTradesData = null; state.labSigKellyTradeDims = null; _openSigKellyTradesModal(quadKey, modeKey, period); };
+    const ok = await _labKellyTradesEnsure();
+    if (!ok) {
+      overlay.innerHTML = `<div class="lab-sigkelly-modal"><div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 交易记录加载失败</div><div class="lab-custom-error-detail">${_labKellyLoadErr || "unknown"}</div><button type="button" class="lab-custom-retry">重试</button></div></div>`;
+      overlay.querySelector(".lab-custom-retry").onclick = () => { state.labSigKellyTradesData = null; state.labSigKellyTradeDims = null; _labKellyFullFallback = false; _openSigKellyTradesModal(quadKey, modeKey, period); };
       return;
     }
   }
