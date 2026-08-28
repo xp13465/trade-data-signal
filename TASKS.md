@@ -8,10 +8,14 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-28 09:30(v1.1.8 描述面同步批已上线).本轮:
-- **✅ v1.1.8 已打 tag 上线**(8aa215728,版本链十连齐):盘点(researcher,aad?)+implementer 修 S1~S9+R1+同族 7 处(fabaa6235,feat/v118-desc-sync)+reviewer 四项硬门槛 PASS+main-merge 统一 bump **a467**(A/B PASS)+tag;线上验 a467 生效+lab.min 新文案「默认基座=S06·大盘领先切换」已上线。纯描述面同步=未动默认基座(单源仍 s06),**测试基准不变仍=v1.1.7**。
-- **✅ 收尾审计+锚点补录**(ebd597dcc):L31 变种(pending 漂移重犯)已锚定;测试基准 memory 升 v1.1.7(tag@384005e222 核)。
-- **⏳ 今日队列**:#14 公募核实修(codex rev-002 F-01~F-04,repro /tmp/codex-reports/rev-20260827-002-jjjl-161725.html)+ stock_daily 补采(~1.5h)+ xcount 上线冒烟 + 验 GH Actions a466/a467。
+**最后更新**:2026-08-28 13:05(告警扫描+本周累积).本轮:
+- **✅ rcssmin 缺失根治**:trade+trade-data build_min.py 完全一致(try/except 包裹);rcssmin 1.2.2 已装;本地 build_min 8/8 成功
+- **✅ reviewer PASS F-01/F-03/F-04**:仅 F-02 有 P1(但为设计意图),F-04 有 P2(已清理:pending_review 死代码+history_names 死变量+docstring)
+- **✅ F-02 P2 清理已 commit**:072ba10d4,删除 pending_review 死代码+history_names 死变量+更新 docstring
+- **✅ width_history 补算**:20260720~20260721 已补;zb/seal_rate 停更根因=源数据不足(mootdx 每天只采84个code);zt/dt 等指标正常
+- **✅ accum-nav 超时根因定位**:signal.alarm 在 macOS pthread_cond_wait 丢失,akshare C层阻塞无法中断;Worker进程隔离方案已出
+- **⏳ accumnav 超时修复**(implementer a3ed2a9c49ae038e4):部分完成,socket 超时+Worker隔离+失败跳过实施中
+- **⏳ S06 fail-open 调研**(researcher a1056584c413e12ea):11笔超S06覆盖期未拦根因调查中
 
 **历史交接(≥2 轮前,已折叠)**:08-28 08:59 / 08-27 23:45 / 08-27 午前 / 08-22(含 08-21/08-20 段)四坨历史交接已按 4 态折叠,细节见 [docs/tasks-done-list.md](docs/tasks-done-list.md) 与 [docs/archive/TASKS-done.md](docs/archive/TASKS-done.md) / [TASKS-history-archive-20260820.md](docs/archive/TASKS-history-archive-20260820.md)。已上 main 的完成陈述(v1.1.7 七支/首页模拟回测弹窗/P2-11 懒渲染/费率/回测结论等)不再在顶部重复陈列。
 > **历史未决项残留(从折叠轮次提炼,待用户拍板/待排期,日期为原定时间)**:①板块分化 subtab spark 格懒渲染(同 P2-11 根因,08-22 待拍板)②main-merge.sh 销账提醒软提示(08-22 待拍板)③#88 订阅推送启动时点评估(08-22 待拍板)④v1.1.7 审计追踪表 P1-1/P1-2/P1-3 + P2 公募 UPSERT 竞态×3+checkpoint(08-27 午前待排期)⑤新观察项:update_all 吞 deploy rc / pipeline 直传 R2 绕闸 / 汪汪队 stats 错位 / FRESH_MSG dedup 漂移 / deploy_1120.log 214B(08-27 23:45 待查,done-list 末尾已登记「遗留待拍板」)⑥首页 AI建议N 无 `tds_poscap` key 首次访问不显示(08-20 存量观察项,非回归)。以上均**非活跃 checkbox**,需用户/主控拍板时捞回 pending-index 或本区。

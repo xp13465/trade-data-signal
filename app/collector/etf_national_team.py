@@ -2024,68 +2024,42 @@ def fetch_accum_nav_series(code: str) -> dict[str, float]:
         return out
 
 
-def _fetch_accum_nav_worker_isolated(code: str, conn) -> dict[str, float]:
+def _fetch_accum_nav_worker_isolated(code: str) -> dict[str, float]:
     """子进程隔离运行 fetch_accum_nav_series。
     避免 akshare 内部 C 层阻塞拖死主进程,主进程可强杀子进程。
-    通过 conn(Pipe)将结果传回父进程,避免子进程结果丢失。
     """
     try:
-        result = fetch_accum_nav_series(code)
-        if not isinstance(result, dict):
-            result = {}
-        try:
-            conn.send(result)
-        except Exception:
-            pass
-        finally:
-            conn.close()
-        return result
+        return fetch_accum_nav_series(code)
     except Exception as e:
         print(f"  [accum_nav-worker] {code} 子进程异常: {type(e).__name__} {e}", flush=True)
-        try:
-            conn.send({})
-            conn.close()
-        except Exception:
-            pass
         return {}
 
 
 def _run_with_timeout(code: str, timeout_sec: int = 60) -> dict[str, float]:
-    """子进程隔离 + 超时控制:启动子进程跑 fetch_accum_nav_series,超时则 terminate。
-    防止 akshare 内部假死 socket 阻塞拖死主进程,主进程最多等 60s/只。
-    通过 Pipe 传回子进程结果,避免结果丢失。
+    """子进程隔离 + 超时控制:用 spawn 上下文 ProcessPoolExecutor,超时则 terminate。
+    fork 在 macOS 上撞 NSNumber initialize 多线程安全崩溃,
+    改用 spawn 上下文(子进程全新 Python 解释器,无父线程干扰)。
     """
-    ctx = multiprocessing.get_context("fork")
-    parent_conn, child_conn = ctx.Pipe(duplex=False)
-    p = ctx.Process(target=_fetch_accum_nav_worker_isolated, args=(code, child_conn))
-    p.start()
-    child_conn.close()  # 父进程只读,parent_conn
-    p.join(timeout_sec)
-    if p.is_alive():
-        print(f"  [accum_nav-worker] {code} 超时 {timeout_sec}s,强杀子进程 PID={p.pid}", flush=True)
-        p.terminate()
-        p.join(timeout=5)
-        if p.is_alive():
-            p.kill()
-            p.join(timeout=2)
-        try:
-            parent_conn.close()
-        except Exception:
-            pass
-        return {}
+    from concurrent.futures import ProcessPoolExecutor, TimeoutError as CFTimeoutError
+    ctx = multiprocessing.get_context("spawn")
     try:
-        if parent_conn.poll(2):
-            result = parent_conn.recv()
-            if isinstance(result, dict):
-                return result
-    except Exception:
-        pass
-    finally:
-        try:
-            parent_conn.close()
-        except Exception:
-            pass
-    return {}
+        with ProcessPoolExecutor(max_workers=1, mp_context=ctx) as executor:
+            future = executor.submit(_fetch_accum_nav_worker_isolated, code)
+            try:
+                result = future.result(timeout=timeout_sec)
+                if isinstance(result, dict):
+                    return result
+                return {}
+            except CFTimeoutError:
+                print(f"  [accum_nav-worker] {code} 超时 {timeout_sec}s,终止子进程", flush=True)
+                executor.shutdown(wait=False, cancel_futures=True)
+                return {}
+            except Exception as e:
+                print(f"  [accum_nav-worker] {code} 子进程异常: {type(e).__name__} {e}", flush=True)
+                return {}
+    except Exception as e:
+        print(f"  [accum_nav-worker] {code} ProcessPoolExecutor 创建失败: {type(e).__name__} {e}", flush=True)
+        return {}
 
 
 def update_accum_nav(conn, lookback_days: int = 30) -> dict:
