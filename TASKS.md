@@ -8,7 +8,12 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-28 08:59(会话收尾落档;v1.1.8 打版准备启动).本轮:
+**最后更新**:2026-08-28 09:30(v1.1.8 描述面同步批已上线).本轮:
+- **✅ v1.1.8 已打 tag 上线**(8aa215728,版本链十连齐):盘点(researcher,aad?)+implementer 修 S1~S9+R1+同族 7 处(fabaa6235,feat/v118-desc-sync)+reviewer 四项硬门槛 PASS+main-merge 统一 bump **a467**(A/B PASS)+tag;线上验 a467 生效+lab.min 新文案「默认基座=S06·大盘领先切换」已上线。纯描述面同步=未动默认基座(单源仍 s06),**测试基准不变仍=v1.1.7**。
+- **✅ 收尾审计+锚点补录**(ebd597dcc):L31 变种(pending 漂移重犯)已锚定;测试基准 memory 升 v1.1.7(tag@384005e222 核)。
+- **⏳ 今日队列**:#14 公募核实修(codex rev-002 F-01~F-04,repro /tmp/codex-reports/rev-20260827-002-jjjl-161725.html)+ stock_daily 补采(~1.5h)+ xcount 上线冒烟 + 验 GH Actions a466/a467。
+
+**前次更新**:2026-08-28 08:59(会话收尾落档;v1.1.8 打版准备启动).本轮:
 - **✅ 收尾审计+锚点补录**:会话/每日/每周总结机制核查全正常(040ca3724);昨晚两过错已锚定——L31 新变种(拍板材料把默认标"NEW14+1"实为S06,archive+CLAUDE.md §18+memory requirement-research-bias #11)+pending 漂移重犯(场外走势已完成未销账,memory 补"完成即当场销号"④)。
 - **✅ 测试基准 memory 升 v1.1.7**(tag@384005e222 已核,版本链九连齐):默认基座=S06 动态(a9/new15 按日切,快照单源禁自算);测静态 NEW14/15/8键须声明非基准;bj50 剪枝顺延。
 - **⏳ v1.1.8 打版准备(在跑)**:researcher 描述面盘点(进度 /tmp/agent-progress-v118-desc-audit.md,报告将落 docs/ops/v118-pretag-description-audit-20260828.md)。已验锚点:README:49「默认基座=NEW 14键」过时/README:72-73 S06 仍写"可选档不改默认"/版本记录停 v1.1.6 无 v1.1.7 段/lab.js 5 处 fallback "new14" 待判定。**兜底 cron 已设**(durable 一次性,到点查报告;通知丢了也不怕)。
