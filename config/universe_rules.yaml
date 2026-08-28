@@ -57,8 +57,10 @@ excluded_categories:
   # 空数组=显式不入样, 不允许冻结表兜底穿透(queries.py _align_home_top1_to_backtest 已同步收窄:
   # etfs 为空数组时不 prepend 冻结条目)。调研依据: docs/kelly/analysis/universe-fallback-value-audit-20260825.md
   # (兜底唯一实例 bj50→159543 为全站最弱关联 3.9 分/近一年反向 49pp, 交易 738 笔净亏 1 万)。
-  # 注1: bj50 北证50 暂未列入 match —— signal_kelly_trades.json 尚有历史兜底残留 738 笔/freeze 表 72 键
-  #      (20260813 中间版 map 回测所留), 列入即触发 assertion3 FAIL; 待按新 map 重跑回测自然重建后补登闭环。
+  # 注1: bj50 北证50 已于 2026-08-24(v1.1.7 实施批, 用户拍板) 正式列入 match —— 配套
+  #      signal_kelly_backtest.py _resolve_etf 宇宙感知剪枝(冻结值命中排除类别→读取侧剪除,
+  #      freeze 文件本体不动), 历史兜底残留(freeze 72 键 / 41 笔底层交易 / 1476 展示行)重放后清零;
+  #      影响面对比见 docs/kelly/analysis/bj50-residue-pruning-impact-20260824.md。
   # 注2: 无场内专属ETF属现状声明; 专属ETF配置规划见 docs/pending-features-index.md
   #      (12 个板块有场内候选可配, 跟踪度硬门槛验证后再进 map, 见调研报告§六)。
   - name: 空数组
@@ -66,6 +68,8 @@ excluded_categories:
       # 跨境(ftse100 富时100 / kospi 韩国)既定留空规则
       - ftse100
       - kospi
+      # 宽基(bj50 北证50, v1.1.7 补登: 曾由 holdings_overlap 兜底错配 159543 国证2000 穿透入样)
+      - bj50
       # 中证系列(csi_*, 名称以 indicators.yaml 为准)
       - csi_000680   # 科创综合
       - csi_000698   # 科创100

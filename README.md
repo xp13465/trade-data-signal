@@ -93,7 +93,7 @@
 - 🔹 **X1 键扩围 none+null 整卡** — NEW14+1·15键可选档的「整剔有跟踪ETF象限」从只剔 none 扩为 none+null 整卡，与凯利区 etf_has_track 卡 / 首页筛选档4口径完全统一；扩围前宣传数字已作废标注，正式穷举回测待重算
 - 🔹 **北证50 兜底入样关停** — board_etf_map 空数组指数不再从冻结表 prepend 兜底（[`config/universe_rules.yaml`](config/universe_rules.yaml) 显式登记），兜底唯一实例 bj50→159543 为全站最弱关联（3.9 分/近一年反向 49pp）；新信号不再兜底入样，738 笔历史残留交易待下次重跑回测自然清除
 - 🔹 **信号对错判定窗统一 N 日到期冻结窗（#46）** — 全站信号至今盈亏/对错统计统一「N 交易日到期冻结」口径（根治卖类近半错被 V 回冤枉/买类四成水分的双向失实），默认 10 日可切 15 日（前端 `_sigWinN` 一键切换，w15 字段全量产出）
-- 🔹 **大 JSON 瘦身** — etf_score_list hold/buy/sell 三分件去 indent 改 compact 序列化，hold 实测 15.6MB→7.89MB 省 49.5%（round-trip 解析结构零变化）；大文件 fetch 超时批量补齐至 60s
+- 🔹 **大 JSON 瘦身** — etf_score_list hold/buy/sell 三分件去 indent 改 compact 序列化，hold 实测 16,396,654→8,594,279 字节（约 15.6MiB→8.2MiB）省 47.6%（round-trip 解析结构零变化；初版按四舍五入值误标 49.5%，2026-08-24 按实测字节校正）；大文件 fetch 超时批量补齐至 60s
 - 🔹 **机检路径根修** — `check_universe_alignment.py` trades 校验改 static-site/data 活产物优先 + data/ 回退，根治「断言3 长期校验旧副本」的机检盲区
 - 🔹 **外部 reviewer（codex）协作机制上线** — git ref 通道发起独立交叉验证（外部沙箱只读盲审，防内部结论锚定），两轮审计 PASS 报告归档 [`docs/codex-reviews/`](docs/codex-reviews/)（协议见 [`docs/codex-collab-protocol.md`](docs/codex-collab-protocol.md)）
 
