@@ -2924,6 +2924,8 @@ function _sigHelpPopHtml() {
       '<span class="sig-kbtn-help-pop-body">A=买入后<b>固定持有10天</b>卖出；F=买入后<b>持有15天</b>卖出。快进快出，适合波段/资金周转快的玩法。</span></div>' +
     '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-long">🟢 中长线 G</span>' +
       '<span class="sig-kbtn-help-pop-body">买入后<b>一直持有</b>，仅当对应指数「卖出信号」触发才离场，无信号就拿着（总建议主选）。可选加 G 仓位管理：持仓超上限<b>先卖「未满3天」年轻仓</b>（保老仓、砍新仓）。</span></div>' +
+    '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-long">🛡️ 中长线 H（含止损，不想硬扛首选）</span>' +
+      '<span class="sig-kbtn-help-pop-body">买入后<b>一直持有</b>，直到触发「卖出信号」或「追止损」任一离场（取最早）。<b>适合不想硬扛亏损的玩家</b>：止损单会在亏损扩大时自动离场，避免深度套牢，且释放资金更快做新信号。<br>📊 1:1例：S06×H档(cap13现网) 净利+159,972/峰值并发≤15笔/不破20倍线；S06×G档(纯卖出) 净利+145,726/峰值29~40笔/大破20倍线——H档多赚14,246且更合规更快释放。</span></div>' +
     '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-time">⏰ 当日实操</span>' +
       '<span class="sig-kbtn-help-pop-body"><b>15:03 后 A 股信号已用收盘价定稿不再变</b>；15:05-15:30 盘后固定价格交易可按收盘价操作，当日可执行标的见 AI 建议 1/2/3（不怕信号消失）。港股/全球待 17:50 完整版。</span></div>' +
     '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-day">⏭️ 次日玩法</span>' +
