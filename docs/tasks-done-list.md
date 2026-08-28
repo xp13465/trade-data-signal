@@ -198,3 +198,12 @@
 - [x] **#6 场外基金弹窗净值走势(补销账)** — 2026-08-25 已落地(app.js #11 基金弹窗净值走势整套:复刻 ETF 走势交互+R2 fund_nav/{code}.json 懒加载+payload 校验+竞态防护);线上 app.min.js 含功能串+R2 数据在位双实证,用户质疑后核实补登记
 
 **遗留待拍板(→TASKS 观察项)**:update_all 吞 deploy rc / pipeline 直传绕 deploy 闸 / 汪汪队 stats 错位 / FRESH_MSG dedup 漂移 / codex-002 公募 4 问题(任务 #14 明天核实修)。
+
+## 2026-08-28 AI 降亏交互重构完成段(T0/T1/T2/T3-1 已上 main,待 7 天归档)
+
+> 治理:implementer 逐 commit 核实均在 origin/main(git merge-base --is-ancestor 全过),原条自 TASKS.md 移入本文件。完整原文保留。T3-2(完成待 merge)、UI 修复批、双 merge 收尾链、T4/T5 仍活跃留 TASKS.md。
+
+- [x] T0 调研完成(2026-08-23,报告 docs/kelly/toggle/ai-mode-dropdown-research-20260823.md):四消费点=①首页参考点③AI监控卡沿**后端预计算**延伸(queries.py `_ai_macro_hit_filters` L764/overfit bank),②sim弹窗④lab 沿**前端重放**延伸;三处独立化已就绪(a389)沿用。⚠️ **5 套模式(A/B/C/NEW14/NEW18)规则键在生产前后端零实现**:20 条新谓词需 Python+JS 双实现,15 条依赖特征数据通道(mine10_features 12 特征,gzip~300KB R2 懒加载)+分位阈值快照固化;9键零成本现成。
+- [x] T1 完成并上 main(2026-08-23,feat/ai-loss-keys-20 c54eb89a6→merge 5a299d243 + 收尾 feat/t1-followup→69b1a88c5):20 键规格单源 scripts/loss_rules.py RULE_SPECS+特征 JSON(kelly_loss_features.json 已上线 R2+主站 curl 200)+双端谓词(lab/app)+37 标签链扩展+§21 公示+check_data_integrity 兜底断言;reviewer PASS 零阻断;一致性抽查 89,100 判定 0 不一致、默认行为零漂移
+- [x] T2 完成并上 main(2026-08-23,c3f214a99→merge e1b4440c6):lab 凯利区新增「🧩 AI 降亏组成对比」折叠区(默认收起+展开态持久化),7 方案卡=短标语+口径红字标注+97 键构成 chip(金基座/绿叠加/蓝重构)+权威数字尾行+§23.9 三档 tooltip;顺手纠速查卡 B_on9 恢复天数笔误(约200→json 权威 267 天)
+- [x] T3-1 前端重放侧完成并上 main(2026-08-23,c7a9bdf82+B1修复 40ed3d5d9→merge 241a89d08):lab 页+sim 弹窗改「总开关+模式下拉 7 种」(默认 p8≡现网逐位一致),57 标签保留为自定义态(手动勾→⚙️自定义,点下拉→回预设);老 37 键迁 common.js `_KELLY_FADE_LEGACY_SPECS` 规格单源,parity 两步法 30098 行×115 集合 diff=0;reviewer PASS(B1 循环体错位已修)
