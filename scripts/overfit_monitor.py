@@ -26,7 +26,7 @@
 输入依赖
 --------
 - DB: ${REPO}/data/sentiment.db(signal_daily 信号权威历史 / index_daily 指数收盘价)
-- JSON: static-site/data/signal_kelly_trades.json(回测成交明细, 2011-2026, 16 象限 x 9 模式)
+- JSON: static-site/data/signal_kelly_trades.json(回测成交明细, 2011-2026, 16 象限 x 10 模式)
 - YAML: config/indicators.yaml(index_id -> market 大类映射, 与 signal_kelly_backtest.py 同源)
 - 运行时必须在 trade-data/ 下跑(REPO=trade-data 主库, cwd 语义同 signal_kelly_backtest.py)
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""信号凯利回测 - 16 象限 × 9 卖出模式 × 5 周期。
+"""信号凯利回测 - 16 象限 × 10 卖出模式 × 5 周期。
 
 对每条买信号(buy/buy_aux/buy_special/buy_backup),买入该信号对应指数的 track_score
-第一名 ETF(10000 元,含费率),按 9 种卖出模式(A=固定10天 / B=3% / C=5% / D=7% 止盈或满期;
-E=持有5天 / F=持有15天 不止盈 / G=卖出信号 / H=卖出+追止损 / I=追关注加追止损)各自卖出,
+第一名 ETF(10000 元,含费率),按 10 种卖出模式(A=固定10天 / B=3% / C=5% / D=7% 止盈或满期;
+E=持有5天 / F=持有15天 / J=固定20天 不止盈 / G=卖出信号 / H=卖出+追止损 / I=追关注加追止损)各自卖出,
 统计胜率/盈亏比/凯利 f*。
 
 G/H/I 为信号驱动卖出(移植 simulate_trade.py sell_types 机制到每笔交易独立):
@@ -88,6 +88,7 @@ SELL_MODES = {
     "D": {"label": "7%止盈",   "hold_days": 10, "stop_profit": 0.07},
     "E": {"label": "持有5天",  "hold_days": 5,  "stop_profit": None},
     "F": {"label": "持有15天", "hold_days": 15, "stop_profit": None},
+    "J": {"label": "固定20天", "hold_days": 20, "stop_profit": None},
     # G/H/I: 信号驱动卖出(每笔交易查对应指数后续 sell/sell_stop_loss 信号, 无则持有至回测结束)
     # desc=短说明(前端 modeDesc 用); guidance_desc=完整跟单文案(_guidance 用, 与 desc 同源一处维护)
     "G": {"label": "卖出信号",   "hold_days": None, "stop_profit": None, "signal": True,
@@ -531,7 +532,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
     today: 全局最新数据日(YYYYMMDD), 用于持仓中trade预估; None 时回退本ETF最后日期。
     hold_days: 最大持有交易日(per-mode, A/B/C/D=10, E=5, F=15; G/H/I=None 信号驱动不用)。
     market_state: 大盘择时状态(True=多头进场允许/False=空头跳过过滤; 非A股类标True)。
-    sell_mode: 卖出模式 key(A-I), G/H/I 走信号驱动卖出分支。
+    sell_mode: 卖出模式 key(A-J), G/H/I 走信号驱动卖出分支。
     sell_signals: 该指数 [(date, signal)] 按日期排序的卖出信号时间线(G/H/I 用, 可能为 [])。
     返回 dict {signal_date, index_id, signal, buy_date, sell_date, etf_code, etf_name,
               track_tier, track_score, match_method, track_low_confidence,
@@ -1186,7 +1187,7 @@ def compute():
         mt_cyb = _market_tier_at(date, cyb_tiers, market_dates)
         mt_cyb = mt_cyb if market in A_STOCK_MARKETS else ""
 
-        # 9 模式回测(A-F 固定规则 + G/H/I 信号驱动)
+        # 10 模式回测(A-F/J 固定规则 + G/H/I 信号驱动)
         prices = price_map.get(etf_code, {})
         sdates = sorted_dates_map.get(etf_code, [])
         sell_signals = sell_timeline.get(iid, [])  # 该指数卖出信号时间线(G/H/I 用)
@@ -1574,7 +1575,7 @@ def main():
         return
 
     print("=" * 60)
-    print("信号凯利回测: 16象限 × 9模式 × 5周期")
+    print("信号凯利回测: 16象限 × 10模式 × 5周期")
     print(f"ROOT = {ROOT}")
     print(f"输出 = {output_path}")
     print(f"交易记录 = {trades_path}")

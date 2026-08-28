@@ -7635,7 +7635,7 @@ function _kellyPassesFadeFilters(t, fIdx, filters, featCache, _tradeDims, monthM
 // ===== positionCap 仓位控制过滤 (2026-08-13; 金额口径=每日资金池等分+top-K, 2026-08-13用户纠正恢复原口径) =====
 // 需求: "一天100个信号不可能买100次, 同日只买最优K个" + "一天2个信号就各买5000, 每天交易额不变"
 // positionCap: 按 signal_date 分组当日全部基笔信号, 组内排序 track_score DESC→rating(high>mid>low)→signal类型(buy_backup>buy>buy_aux>buy_special)→buy_date ASC, 保留前K个
-// 过滤时机: 基笔信号级(9卖出模式A-I共享同一批基笔信号, 过滤在模式之前统一生效; 同一信号同一天只算一次, 跨模式不重复计)
+// 过滤时机: 基笔信号级(10卖出模式A-J共享同一批基笔信号, 过滤在模式之前统一生效; 同一信号同一天只算一次, 跨模式不重复计)
 // 金额口径(2026-08-13 用户纠正恢复): 每日资金池等分+top-K = 当日保留前K基笔(后续positionCap保留), 每笔=10000/当日保留数, 每日总投入恒1万 → K档最大持仓恒定(~11万)。
 //   当初(2026-08-12 5d047aef2)把"每日资金池整体删除""1w还分30个信号买30份没意义,仓位控制1/2/3/4已足以"是理解错误——用户反对的是"每日池+买全部"(每份太小), 而非每日池本身;"仓位控制K/4已足以"正是要每日池+top-K(每份=10000/当日保留个数, 有实操意义)
 // 基笔身份: signal_date|index_id|signal|buy_date|etf_code (买侧身份, 卖出模式不影响)
@@ -7681,7 +7681,7 @@ function _kellyPositionCapKeptKeys(pool, fIdx, K) {
   return kept;
 }
 // 收集 positionCap 基笔池: 跨全部卖出模式 × rating 三分区(互斥全量), 按 baseKey 去重, 只保留通过 passFn 的基笔
-// 基笔池构建改异步分片(2026-08-23 性能专项): 原 3象限×9模式 ≈90k 次谓词判定一个同步块(~200-400ms),
+// 基笔池构建改异步分片(2026-08-23 性能专项): 原 3象限×10模式 ≈100k 次谓词判定一个同步块(~200-400ms),
 // 改为每 (象限,模式) 桶后让步一帧; 唯一调用方 _kellyApplyFeeRecompute 本就是 async, 语义零变化。
 async function _kellyCollectBasePool(quads, sellModes, fIdx, passFn) {
   var pool = [], seen = {};
@@ -8272,7 +8272,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
   }
   // G/H/I 判定助手(与 _sigKellyModeSpanKey/_kellyIsGih 同口径: G/H/I=中长线)
   var _isLongMode = function (mk) { return mk === "G" || mk === "H" || mk === "I"; };
-  // positionCap 仓位控制过滤: 统一在模式之前生效(9模式共享同一批基笔, 同一信号同一天只算一次跨模式不重复计)
+  // positionCap 仓位控制过滤: 统一在模式之前生效(10模式共享同一批基笔, 同一信号同一天只算一次跨模式不重复计)
   // #xx: 新键开启时基笔池算两份(A-F 口径含新键 / G-H-I 豁免版不含), 两模式组各用各的 kept/dayCounts(§22)
   var posCapKept = null;
   var posDayCounts = null; // 每日资金池等分: 当日保留基笔数{signal_date:count}, 基于保留集合全集(跨mode)统计(2026-08-13恢复)
@@ -8304,7 +8304,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
         if (_pk && !_pk[_kellyBaseKey(t, fIdx)]) return false;
         return true;
       });
-      await _kellyYield(); // 桶间让步(2026-08-23 性能专项): 单模式过滤 ~10-30ms, 9 模式连排原为 ~100-300ms 同步块
+      await _kellyYield(); // 桶间让步(2026-08-23 性能专项): 单模式过滤 ~10-30ms, 10 模式连排原为 ~100-300ms 同步块
     }
     // 阶段2: 每个period从toggled结果按cutoff取子集(轻量字符串比较)
     // 逐桶缓存: toggle改动只影响匹配到删除trade的桶, 未被影响的桶(feeSig+toggled数组未变)直接复用上次stats(纯函数, 结果精确一致; fixed口径每笔金额恒定, 桶缓存安全)
@@ -8374,7 +8374,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
     }
     // 全信号伪象限: 按年聚合(「最后结果」表用, 全周期口径非当前period窗口, 与toggle/费率联动)
     // 2026-08-14 #BC 按年窗口口径归正(方案1): 仅累加 G 模式(当前推荐卖出法, 与「总建议=遵守G模式卖出」语义对齐);
-    //   原实现遍历全 sellModes(A-I 9模式)累加 → 同一基笔信号 9 模式各一条 × 全累加 → +1,049万 量级虚高(名实不符)
+    //   原实现遍历全 sellModes(A-J 10模式)累加 → 同一基笔信号 10 模式各一条 × 全累加 → +1,049万 量级虚高(名实不符)
     // 2026-08-14 扩展: 按年窗口增长表支持 A-G 各模式独立查看(下拉切换)。allYearlyByMode = {modeKey: yearlyMap},
     //   每个模式各自独立按年聚合(不做"全模式回退", 除非该模式无 signal); allYearly 仍取 G 模式(总建议语义, 兼容原展示)。
     //   每个模式用 toggledByMode[modeKey](已随降亏组合/费率/周期过滤) → 与 toggle/费率/周期联动(§22); 重算复用 _kellyRecomputeCache 不重复计算。
@@ -8916,7 +8916,7 @@ function _sigKellyModeLabels() {
 // 供 _sigKellyModeLabels / modeStr / 三玩法 modes 数组 / 交易弹窗 modeLabel 共用单一事实来源, 避免各点格式不一
 function _sigKellyModeSpanKey(modeKey) {
   if (modeKey === "G" || modeKey === "H" || modeKey === "I") return "中长线";
-  return "短线"; // A/B/C/D/E/F
+  return "短线"; // A/B/C/D/E/F/J
 }
 function _sigKellyModeLabelWith(modeKey, label) {
   const span = _sigKellyModeSpanKey(modeKey);
@@ -9540,7 +9540,7 @@ function _renderSigKellyBar(bar, data, period) {
         }).join("") +
       `</div>` +
     `</details>`;
-  // positionCap 仓位控制过滤(2026-08-12): 同日只买最优K个(基笔级,9模式共享统一生效), K档位1-4可配置(默认3, 2026-08-13定默认)
+  // positionCap 仓位控制过滤(2026-08-12): 同日只买最优K个(基笔级,10模式共享统一生效), K档位1-4可配置(默认3, 2026-08-13定默认)
   // 2026-08-12 #4 rename+范围扩展: 显示名改"AI仓位建议"(技术别名:仓位控制过滤), pop tooltip 完整展示; 历史回测数据固化展示(下方 poscapHistoryHTML)
   const _pcK = _filters.positionCapK || 1;
   // 2026-08-13: K档位评级标注 + hover 评级理由表格(展示层, 不改算法; 数据=共享单一数据源 common.js window._AI_POSCAP_RATING, §22 与首页 app.js 一致, 勿单改数值)
@@ -10344,7 +10344,7 @@ var _KELLY_REPORTS = {
   "kelly-position-cap-k-sensitivity": {
     name: "仓位控制K敏感性", path: "docs/kelly/position/kelly-position-cap-k-sensitivity.md",
     summary: "K 值敏感性全谱 + 每日资金池等分口径回测: 修正「多信号=过滤」为「每日资金池等分」, K=1 最优先 K=2 折中, 叠加组合矩阵与按年分解。",
-    toc: ["0 摘要(核心答案+前向测试警示)", "1 口径修正: 每日资金池等分", "2 K 值敏感性全谱(K=1-8)", "3 每笔1万口径 K 敏感性(对照)", "4 叠加组合矩阵(COMBO4/live4/27toGG)", "5 top-K + 质量约束", "6 按年分解(每日池 G)", "7 9模式(A-I)敏感性", "8 前向测试(选择器稳定性)"]
+    toc: ["0 摘要(核心答案+前向测试警示)", "1 口径修正: 每日资金池等分", "2 K 值敏感性全谱(K=1-8)", "3 每笔1万口径 K 敏感性(对照)", "4 叠加组合矩阵(COMBO4/live4/27toGG)", "5 top-K + 质量约束", "6 按年分解(每日池 G)", "7 10模式(A-J)敏感性", "8 前向测试(选择器稳定性)"]
   },
   "kelly-dailypool-exhaustive-rerun": {
     name: "每日池穷举重跑", path: "docs/kelly/position/kelly-dailypool-exhaustive-rerun.md",
@@ -10456,8 +10456,8 @@ function _kellyComboAdviceHtml() {
         `<summary><span class="lab-sigkelly-advice-summary-short">🎯 全信号操作建议指南（v1.1.7 起默认基座=S06 动态 · G玩法P≤3d可操作）</span><span class="lab-sigkelly-advice-summary-full">🎯 全信号操作建议指南（v1.1.7 起默认基座=S06 动态, 快照日切 A进攻王/NEW14+1 键集；NEW14 为 v1.1.5~v1.1.6 历史可回选档：hist6+规则8 降亏键保留入样 + 1回测剔除波动相关/未入样本信号；G玩法P≤3d「先卖年轻仓」三档可操作）</span></summary>` +
         `<div class="lab-sigkelly-advice-panel">` +
         `<div class="lab-sigkelly-advice-body">` +
-          `<div class="lab-sigkelly-advice-section-title">分投资习惯怎么用（A/F/G 三玩法实时并列）</div>` +
-          `<div class="lab-sigkelly-advice-li"><b>三玩法并列</b>（实时随上方降亏组合勾选 / 费率档联动，全周期 all 口径（与下方总建议一致）；下方「最后结果」卡随周期切换，切到「全部」时同值；金额口径=每日资金池等分+top-K）：A=固定10天短线（快进快出）；F=持有15天短线；G=卖出信号长线（指数卖出信号触发离场、无信号持有至回测结束，最贴近交易页信号驱动跟单，也是总建议主选；G 建议开上方「ai长线模式(G/H/I)仓位管理」套 P≤3d 可操作档）。</div>` +
+          `<div class="lab-sigkelly-advice-section-title">分投资习惯怎么用（A/F/J/G 四玩法实时并列）</div>` +
+          `<div class="lab-sigkelly-advice-li"><b>三玩法并列</b>（实时随上方降亏组合勾选 / 费率档联动，全周期 all 口径（与下方总建议一致）；下方「最后结果」卡随周期切换，切到「全部」时同值；金额口径=每日资金池等分+top-K）：A=固定10天短线（快进快出）；F=持有15天短线；J=固定20天短线；G=卖出信号长线（指数卖出信号触发离场、无信号持有至回测结束，最贴近交易页信号驱动跟单，也是总建议主选；G 建议开上方「ai长线模式(G/H/I)仓位管理」套 P≤3d 可操作档）。</div>` +
           _sigKellyAfgRealtimeHtml() +
           `<table class="lab-sigkelly-table lab-sigkelly-advice-table"><thead><tr><th>投资习惯</th><th>建议</th><th>真实回测数据</th></tr></thead><tbody>` +
             `<tr><td>追高/趋势型</td><td>追关注信号只做牛市（MA60 之上），熊市追涨坚决回避</td><td>牛市 n=19,323 净 <b>+490万</b> 胜率60.5% 盈亏比1.94；熊市 n=1,908 净 -16.3万 胜率41.7% 盈亏比0.97（亏损区）</td></tr>` +
@@ -10480,7 +10480,7 @@ function _kellyComboAdviceHtml() {
   );
 }
 
-// 推荐区 A/F/G 三玩法实时并列表(2026-08-12 #18): 全周期 all 口径, 与「最后结果」全信号表同源同口径(feeStats.all.all),
+// 推荐区 A/F/J/G 四玩法实时并列表(2026-08-12 #18): 全周期 all 口径, 与「最后结果」全信号表同源同口径(feeStats.all.all),
 // 实时随上方降亏组合勾选/费率档联动(经 _updateSigKellyQuadrantsInPlace 就地刷新 .lab-sigkelly-afg-realtime)
 function _sigKellyAfgRealtimeHtml() {
   const feeStats = state.labSigKellyFeeStats;
@@ -10490,6 +10490,7 @@ function _sigKellyAfgRealtimeHtml() {
   const modes = [
     { key: "A", name: "A · 固定10天短线", desc: "买入后固定持有 10 天卖出, 快进快出" },
     { key: "F", name: "F · 持有15天短线", desc: "买入后固定持有 15 天卖出" },
+    { key: "J", name: "J · 固定20天短线", desc: "买入后固定持有 20 天卖出" },
     { key: "G", name: "G · 卖出信号中长线", desc: "指数卖出信号触发离场, 无信号持有至回测结束; 最贴近交易页信号驱动跟单, 总建议主选" },
   ];
   let rows = "";
@@ -10577,7 +10578,7 @@ function _sigKellyAfgRealtimeHtml() {
         `<th title="最大持仓=峰值同时持仓笔数/资金(万), 反映资金占用峰值">最大持仓</th>` +
         `<th title="所需最小本金≈峰值同时持仓资金÷20(20倍资金约束折算)">所需最小本金</th>` +
       `</tr></thead><tbody>${rows}</tbody></table></div>` +
-      `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">本表实时随上方降亏组合勾选 / 费率档联动（全周期 all 口径，与下方总建议一致；下方「最后结果」卡随周期切换，切到「全部」时同值，金额口径=每日资金池等分+top-K（2026-08-13 恢复，2026-08-14 #48 口径对齐）。G 行为<u>可操作口径</u>（P≤3d「先卖年轻」当前档，峰持仓≤20倍本金，不再披露原始 329笔/146万 无操作性数字）；A/F 行勾选越激进（保留交易越多）净利越高但所需本金越大，按自身资金量选玩法；G 为总建议主选（卖出信号长线，与交易页信号驱动跟单一致）。</div>` +
+      `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">本表实时随上方降亏组合勾选 / 费率档联动（全周期 all 口径，与下方总建议一致；下方「最后结果」卡随周期切换，切到「全部」时同值，金额口径=每日资金池等分+top-K（2026-08-13 恢复，2026-08-14 #48 口径对齐）。G 行为<u>可操作口径</u>（P≤3d「先卖年轻」当前档，峰持仓≤20倍本金，不再披露原始 329笔/146万 无操作性数字）；A/F/J 行勾选越激进（保留交易越多）净利越高但所需本金越大，按自身资金量选玩法；G 为总建议主选（卖出信号长线，与交易页信号驱动跟单一致）。</div>` +
     `</div>`
   );
 }
@@ -10881,7 +10882,7 @@ function _sigKellyWatermark(pdata) {
   const _gihOn = !!state.labSigKellyGihOn;
   // #25 A包(需求D): K-OFF(positionCap关, 无仓位限制)时即使 A-F 也可能峰持仓>20倍不可操作, 与需求② GIH off 同用 _kellyOpElimination 统一判据(峰持仓≤20万)
   const _posCapOn = !!((state.labSigKellyFilters || {}).positionCap);
-  // 过滤 #49 GIH 伪模式键(mode+"__gihb0/b1/peak"), 只遍历真实模式(A-I), 防伪键污染水印top/均值(§21§22)
+  // 过滤 #49 GIH 伪模式键(mode+"__gihb0/b1/peak"), 只遍历真实模式(A-J), 防伪键污染水印top/均值(§21§22)
   const modes = Object.keys(pdata).filter(m => m.indexOf("__") < 0);
   const items = modes.map(m => {
     const x = _kellyOpElimination(pdata, m, _gihOn, _posCapOn); // GIH on 时 G/H/I 取 __gihb1; K-OFF/A-F 也判峰持仓
@@ -11002,7 +11003,7 @@ function _positionSigKellyWmPop(wmEl, pop) {
 // 用户选选项C(全局+比率折中): 仅用比率指标(胜率/年化/夏普,不受n影响)+排除n<30+全局min-max归一化
 // 综合分 = 胜率35% + 年化35% + 夏普30% (排除盈亏比,因受n累积影响)
 // 稳定分 = (1-最大回撤)40% + 胜率30% + 夏普30% (无std用sharpe替代)
-// 卡级指标 = N模式均值(动态读 config.sell_modes, A-I 9模式), 过滤n<30模式防小样本虚高
+// 卡级指标 = N模式均值(动态读 config.sell_modes, A-J 10模式), 过滤n<30模式防小样本虚高
 function _sigKellyCardComparison(quads, period, feeStats) {
   const allKeys = [
     "rating_high", "rating_mid", "rating_low",
@@ -11038,7 +11039,7 @@ function _sigKellyCardComparison(quads, period, feeStats) {
       winRate: avg("win_rate"), annRet: avg("annualized_return"),
       sharpe: avg("sharpe"), maxDD: avg("max_drawdown_pct"),
       modeCount: validModes.length,   // 有效模式数(过滤 n>=30)
-      totalModes: modes.length        // 总模式数(动态, A-I 9模式)
+      totalModes: modes.length        // 总模式数(动态, A-J 10模式)
     });
   }
   const validCards = cards.filter((c) => !c.skip);
@@ -11356,7 +11357,7 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
       return _kellyPassesFadeFilters(t, _fIdx, _filters, _kellyTradeFeatureCache, _tradeDims2, _pcMonthMask);
     };
   }
-  // positionCap: 跨全部卖出模式×rating三分区收集基笔池(去重, 9模式共享同一批基笔, 模式之前统一生效)
+  // positionCap: 跨全部卖出模式×rating三分区收集基笔池(去重, 10模式共享同一批基笔, 模式之前统一生效)
   var _posCapKept = null;
   var _posDayCounts = null; // 每日资金池等分(2026-08-13恢复): 当日保留基笔数, 与卡片/评级同口径(§22跨展示位一致)
   if (_filters.positionCap && _filters.positionCapK > 0) {
