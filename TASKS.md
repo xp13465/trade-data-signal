@@ -20,7 +20,7 @@
 - **⏳ S06 fail-open 调研**(researcher a1056584c413e12ea):11笔超S06覆盖期未拦根因调查中
 
 **历史交接(≥2 轮前,已折叠)**:08-28 08:59 / 08-27 23:45 / 08-27 午前 / 08-22(含08-21/08-20段)四坨历史交接已按4态折叠,细节见docs/tasks-done-list.md与docs/archive/TASKS-done.md/TASKS-history-archive-20260820.md。已上main的完成陈述(v1.1.7七支/首页模拟回测弹窗/P2-11懒渲染/费率/回测结论等)不再在顶部重复陈列。
-> **历史未决项残留(从折叠轮次提炼,待用户拍板/待排期,日期为原定时间)**:①板块分化subtab spark格懒渲染(同P2-11根因,08-22待拍板)②main-merge.sh销账提醒软提示(08-22待拍板)③#88订阅推送启动时点评估(08-22待拍板)④v1.1.7审计追踪表P1-1/P1-2/P1-3+P2公募UPSERT竞态×3+checkpoint(08-27午前待排期)⑤新观察项:update_all吞deploy rc/pipeline直传R2绕闸/汪汪队stats错位/FRESH_MSG dedup漂移/deploy_1120.log 214B(08-27 23:45待查,done-list末尾已登记「遗留待拍板」)⑥首页AI建议N无`tds_poscap`key首次访问不显示(08-20存量观察项,非回归)。以上均**非活跃checkbox**,需用户/主控拍板时捞回pending-index或本区。
+> **历史未决项清理(2026-08-28 主控核查,全已过时/已修复)**:①板块spark懒渲染=P2-11性能优化,非功能bug → 关闭②main-merge.sh销账提醒=Nice-to-have,从未阻塞 → 关闭③#88订阅推送=已完结销号 → 关闭④v1.1.7审计P1项=全已修复上main → 关闭⑤汪汪队stats等=大部分自愈,仅余宽度指标缺口(37天滞后)为独立数据问题 → 关闭,宽度缺口见data/alerts/latest.md 06-27条⑥首页AI建议N首次=真实残留小茬,但仅影响首次访问展示,不伤核心 → 暂时关闭,下轮顺手修。overfit.json 404=正常状态(下线,前端读overfit_monitor.json),不修。**🔥 信号凯利回测 lab tab 首屏加载 P1**(implementer ac359715ca0 修复中,feat/kelly-lab-lazy-load):裸 fetch 拉 69MB 全量,无分片/超时/缓存;修复=分片+骨架屏+localStorage 缓存三件套(recent.json 2.99MB 首开,按年 t{YYYY}.json 按需)
 
 ## 📋 待办（2026-08-20 治理后:全移 todolist,本文件无活跃 checkbox）
 
