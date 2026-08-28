@@ -1,0 +1,19 @@
+feat(agents): automate leased claude inbox consumption
+
+Close the Codex-to-Claude loop behind the filesystem signal bridge. The
+watcher now pins each job to one request id, owns a renewable lease, limits
+each channel to one active child, terminates timed-out workers, and accepts
+a Claude run only after an atomic receipt passes verdict, issue coverage,
+mtime, verification, and isolated-worktree checks.
+
+Claude consumers receive a fixed prompt, run in a dedicated worktree, use a
+restricted tool allowlist, and cannot commit, push, or fetch web content.
+The launchd template adds the absolute Claude binary path, a default USD
+budget cap, and a one-hour timeout. Request recreation now refuses an active
+lease and clears stale Claude signals or receipts.
+
+Content-source: Codex
+Handoff: docs/codex-handoffs/20260826-codex-handoff.md
+Tests: python3 scripts/test_agent_inbox_watcher.py
+Tests: bash -n scripts/claude-inbox-consumer.sh scripts/codex-review-request.sh
+Tests: plutil -lint launchd/com.trade.agent-inbox-watcher.plist

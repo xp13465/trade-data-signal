@@ -1,0 +1,12 @@
+chore(handoff): preserve codex delivery ledger
+
+Keep the batched Codex delivery auditable after the fact: the ledger records
+exact file whitelists, per-batch reasons, verification commands, branch policy,
+and explicit exclusions. Preserve the two substantive commit messages as
+version-controlled `-F` sources so future cleanup cannot flatten the original
+change rationale into one-line titles.
+
+Content-source: Codex
+Handoff-policy: whitelist-only; create a non-main branch; never push without
+explicit owner approval
+Depends-on: batch A and batch B commits

@@ -234,3 +234,20 @@ data/.r2_fund_nav_ckpt.json.tmp.*
 
 # AI 预测融合底座每日对账底稿(2026-08-26 反思重构 Phase1;数据产物留本地不进 git)
 data/brief_ledger.json
+
+# --- 2026-08-28 补充 ---
+# Playwright 测试截图/报告(本地验证用,不上线)
+scripts/playwright-accept/
+# plist 备份/临时
+scripts/com.trade.*.plist.bak*
+scripts/*.bak-*
+# 进度/临时文档
+docs/archive/*_progress.txt
+docs/archive/*_progress.md
+# codex / wrangler 本地配置
+.codex/config.toml
+.codex-tmp/
+.wrangler/
+# agent 进度文件
+claude2codex-*.md
+08-*.md

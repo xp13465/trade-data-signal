@@ -1,0 +1,72 @@
+{
+ "5": {
+  "n": 1416,
+  "total_profit": 10248.5618,
+  "win_rate": 0.5282,
+  "max_concurrent": 72,
+  "max_drawdown": 29413.1257,
+  "avg_hold_days": 5.0,
+  "total_invest": 14160000,
+  "return_pct": 1.4234
+ },
+ "10": {
+  "n": 1416,
+  "total_profit": 114227.4661,
+  "win_rate": 0.5537,
+  "max_concurrent": 78,
+  "max_drawdown": 35639.1985,
+  "avg_hold_days": 10.0,
+  "total_invest": 14160000,
+  "return_pct": 14.6445
+ },
+ "15": {
+  "n": 1416,
+  "total_profit": 192152.8915,
+  "win_rate": 0.5671,
+  "max_concurrent": 90,
+  "max_drawdown": 37239.088,
+  "avg_hold_days": 15.0,
+  "total_invest": 14160000,
+  "return_pct": 21.3503
+ },
+ "20": {
+  "n": 1416,
+  "total_profit": 287666.7124,
+  "win_rate": 0.601,
+  "max_concurrent": 110,
+  "max_drawdown": 57165.5776,
+  "avg_hold_days": 20.0,
+  "total_invest": 14160000,
+  "return_pct": 26.1515
+ },
+ "30": {
+  "n": 1416,
+  "total_profit": 303660.7499,
+  "win_rate": 0.5678,
+  "max_concurrent": 136,
+  "max_drawdown": 83078.0416,
+  "avg_hold_days": 29.76,
+  "total_invest": 14160000,
+  "return_pct": 22.328
+ },
+ "40": {
+  "n": 1416,
+  "total_profit": 369112.6828,
+  "win_rate": 0.5756,
+  "max_concurrent": 164,
+  "max_drawdown": 87738.0815,
+  "avg_hold_days": 39.16,
+  "total_invest": 14160000,
+  "return_pct": 22.5069
+ },
+ "50": {
+  "n": 1416,
+  "total_profit": 286683.1397,
+  "win_rate": 0.5692,
+  "max_concurrent": 176,
+  "max_drawdown": 103986.758,
+  "avg_hold_days": 48.35,
+  "total_invest": 14160000,
+  "return_pct": 16.2888
+ }
+}

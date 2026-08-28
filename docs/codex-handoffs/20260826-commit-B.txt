@@ -1,0 +1,16 @@
+docs(architecture): record tech stack and performance review
+
+Preserve the cross-reviewed architecture assessment and its measurable
+performance evidence. The report concludes that the Python, SQLite, R2,
+Cloudflare Workers, and native JS/ECharts foundations should be retained,
+while prioritizing data contracts, cache-policy consistency, release gates,
+large-payload sharding, and incremental TypeScript module boundaries.
+
+Include the live performance review, durable standards document, and
+Playwright probe so the desktop/mobile cold and hot baselines remain
+reproducible instead of depending on ephemeral /tmp artifacts.
+
+Content-source: Codex
+Handoff: docs/codex-handoffs/20260826-codex-handoff.md
+Evidence: docs/perf/perf-architecture-review-20260826.md
+Standards: docs/perf/performance-architecture-standards.md
