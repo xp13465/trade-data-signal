@@ -16,6 +16,7 @@
 import json
 import subprocess
 import sys
+import threading
 import time
 
 import pandas as pd
@@ -25,7 +26,7 @@ from pathlib import Path
 import requests
 
 from ..db import get_conn
-from .base import UA, throttle, log_collect
+from .base import UA, throttle, log_collect, safe_call
 from .industry_extras import THS_TO_SW
 
 # 9 核心 A 股指数 + 3 港股宽基 + 4 signals 触发指数（腾讯 qt 支持混合请求）
@@ -1428,6 +1429,32 @@ def _backfill_cn10y_etf_metric(indices: list[dict]) -> int:
     return 0
 
 
+_EM_SOCKET_TIMEOUT = 20.0  # 东财接口超时阈值(与 fetchers.py _safe_call_em 同口径,防假死永久卡锁)
+
+
+def _safe_call_em(fn, **kwargs):
+    """东财接口 (akshare) 超时保护:daemon 线程执行 + join 超时,防东财假死永久占 intraday 快照锁。
+
+    东财 akshare 接口内部 requests.get 无 timeout,socket.setdefaulttimeout 对 requests 无效
+    (urllib3 Timeout 对象),故用 daemon 线程 + join(_EM_SOCKET_TIMEOUT) 兜底,与 fetchers.py 同口径。
+    返回语义与 base.safe_call 一致(成功返回 df,失败返回异常对象;超时返回 TimeoutError),
+    由调用方沿用既有的 `isinstance(res, Exception)` 判断走失败/空窗/异源兜底分支,不改变正常采集行为。
+    """
+    box = {}
+
+    def _run():
+        box["res"] = safe_call(fn, **kwargs)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(_EM_SOCKET_TIMEOUT)
+    if t.is_alive():
+        # 东财挂起:主流程放弃等待,返回超时异常走既有失败分支;后台 daemon 线程在进程结束自动清理,
+        # intraday 快照是定时任务,极端假死场景结束即回收,不阻塞本次其它指标采集、不永久占锁。
+        return TimeoutError(f"东财接口 {getattr(fn, '__name__', fn)} 超过 {_EM_SOCKET_TIMEOUT}s 未返回(源假死),已放弃等待")
+    return box.get("res")
+
+
 def _collect_intraday_width_metrics() -> dict:
     """盘中采集宽度/成交额指标，写入 daily_metric（source='intraday'）。
 
@@ -1448,7 +1475,6 @@ def _collect_intraday_width_metrics() -> dict:
     """
     from ..calendar import is_trading_day
     import akshare as ak
-    from .base import safe_call
     from .runner import upsert_metric
     from ..compute import volume_ratio
     # 2026-08-18 容错: cross_check_zt_pool 定义若缺失(8/15 异源兜底重构误删曾致 ImportError),
@@ -1521,7 +1547,7 @@ def _collect_intraday_width_metrics() -> dict:
     # 2) stock_zt_pool_em -> zt_count + max_lianban（涨停池，盘中实时封板口径）
     t0 = time.time()
     try:
-        df = safe_call(ak.stock_zt_pool_em, date=today)
+        df = _safe_call_em(ak.stock_zt_pool_em, date=today)
         if isinstance(df, Exception) or df is None or len(df) == 0:
             print(f"  [intraday] stock_zt_pool_em 失败/空 ({time.time()-t0:.1f}s)", flush=True)
             # 交叉验证:涨停池也空=源失败(error);跌停池有数据=本池空=真0(ok写0)
@@ -1560,7 +1586,7 @@ def _collect_intraday_width_metrics() -> dict:
     # 3) stock_zt_pool_dtgc_em -> dt_count（跌停池）
     t0 = time.time()
     try:
-        df = safe_call(ak.stock_zt_pool_dtgc_em, date=today)
+        df = _safe_call_em(ak.stock_zt_pool_dtgc_em, date=today)
         if isinstance(df, Exception) or df is None or len(df) == 0:
             print(f"  [intraday] stock_zt_pool_dtgc_em 失败/空 ({time.time()-t0:.1f}s)", flush=True)
             # 交叉验证:跌停池也空=源失败(error);涨停池有数据=本池空=真0(ok写0)
@@ -1611,7 +1637,7 @@ def _collect_intraday_width_metrics() -> dict:
     # 4) stock_zt_pool_zbgc_em -> zhaban_rate = 炸板数/(涨停数+炸板数)（ratio 0-1，与收盘口径一致）
     t0 = time.time()
     try:
-        df = safe_call(ak.stock_zt_pool_zbgc_em, date=today)
+        df = _safe_call_em(ak.stock_zt_pool_zbgc_em, date=today)
         if isinstance(df, Exception) or df is None or len(df) == 0:
             # 炸板池（zbgc=炸板专用）空窗时点判断:
             #   - 竞价时段(9:25-9:30)/午休(11:30-13:00)/收盘后(15:00后): 连续竞价未运行或已停,
