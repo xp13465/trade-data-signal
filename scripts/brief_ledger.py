@@ -509,7 +509,15 @@ def reconcile_ledger(repo: Path, db_path: Path, only_date: str | None = None) ->
                 # pct 未入库(采集晚到)→ 不硬判留待下次滚动清账(R1 断档防护同款)
 
         # ② hit(三层搬运优先;history 断档时按 pred vs actual 判方向级)
-        if rec.get("hit") is None:
+        # 2026-08-28 修复:hit 已有但 source=ledger_fallback_direction_only 时,
+        # 若 history 有完整三层 hit,升级为 history_backfill(防 migrate_shadow
+        # 期间 history 未回填致 fallback 永久驻留,与 history 展示位不一致 §22)
+        existing_hit = rec.get("hit")
+        need_hit = existing_hit is None or (
+            isinstance(existing_hit, dict)
+            and existing_hit.get("source") == "ledger_fallback_direction_only"
+        )
+        if need_hit:
             h = hist_by_date.get(d)
             hhit = ((h or {}).get("meta") or {}).get("hit") or {}
             if h and hhit.get("direction") is not None:
@@ -522,7 +530,8 @@ def reconcile_ledger(repo: Path, db_path: Path, only_date: str | None = None) ->
                     "source": "history_backfill",
                 }
                 changed = True
-            else:
+            elif existing_hit is None:
+                # 仅当 hit 完全不存在时才创建 fallback(不覆盖已有 fallback)
                 adir = (rec.get("actual_side") or {}).get("actual_direction")
                 pd = ((rec.get("pred_side") or {}).get("direction_call"))
                 if adir is not None:
