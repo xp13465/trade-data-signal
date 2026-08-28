@@ -261,3 +261,7 @@ docs/uumit-knowledge/
 docs/kelly/analysis/data/
 docs/kelly/analysis/scripts/sim_window_loss_mining_20260822/data/
 docs/kelly/backtest-ai/etf-weight-leader/data/
+# UUMit 知识商品生成工具(外部平台工作流)
+scripts/uumit/
+# 备份文件
+docs/archive/*.bak*
