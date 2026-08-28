@@ -265,3 +265,4 @@ docs/kelly/backtest-ai/etf-weight-leader/data/
 scripts/uumit/
 # 备份文件
 docs/archive/*.bak*
+config/email.json.bak*
