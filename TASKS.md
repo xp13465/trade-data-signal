@@ -8,12 +8,13 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-28 18:40(S06切换bug调查中).本轮:
+**最后更新**:2026-08-28 18:45(固定20天卖档位实施中).本轮:
 - **✅ v1.1.8 功能体检**:app.js 30632行完整还原(H档卖法明示+H档1:1注解),4项未报告任务已梳理
 - **✅ H档卖法明示补全**:app.js L2927-2928 新增「🛡️中长线 H(含止损,不想硬扛首选)」+1:1注解(S06×H净利+159,972/峰值≤15/不破20倍线 vs S06×G净利+145,726/峰值29~40/大破20倍线)
 - **✅ Phase1 融合底稿完成**:brief_ledger.json统一三个数据源(7条,0819-0827),修复hit回填bug(6/6一致性),commit 956126ff9
 - **✅ direction_anchor_enabled 已开启**:config/daily_brief.yaml 改为true,7天后(09-04)验收效果
 - **✅ #3 固定持有天数调研完成**:researcher穷举5/10/15/20/30/40/50天×S06/A/NEW14三模式,结论=最优20天(+68,549/+47%),峰值18笔合规(压线),15天保守备选(+34,882/+24%);报告docs/kelly/backtest-ai/fixed-hold-sweep-20260828/report.md
+- **⏳ 固定20天卖档位实施**(implementer ab0f4ab04ef5f3ac9):在信号凯利回测里增加新档位,交互和A/F一模一样,拓宽卖出方式象限
 - **⏳ S06切换bug调查**(researcher a9c7cd31f4e9c4c14):用户报告信号凯利回测里切换S06报错,提示"错误已切到S06·大盘领先切换(v1.1.7起默认基座)",正在定位根因
 - **⏳ accumnav 超时修复**(implementer a3ed2a9c49ae038e4):socket超时+Worker隔离+失败跳过实施中
 - **⏳ S06 fail-open 调研**(researcher a1056584c413e12ea):11笔超S06覆盖期未拦根因调查中
