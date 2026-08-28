@@ -35,9 +35,18 @@ export LOG   # 2026-07-20: 让子 bash -c (upload_r2 告警段挪进 commit+push
 mkdir -p "$LOGDIR"
 cd "$REPO"
 
-# 自包装：首次调用经 with_lock.py --nb 持快照锁重跑自己，INTRADAY_LOCKED=1 防递归。
-# 锁被占（上一轮还在跑）= stderr 提示 + exit 0 跳过（秒级任务不该撞，撞了就跳过）。
+# 2026-08-28 P0 根治：持锁 watchdog 预检，避免僵死进程永久卡锁致后续 launchd 全部跳过。
+# 锁文件存在但持锁进程已死 -> 自动 unlink + 发 SEVERE notify（让用户知道发生过死锁）
+# 锁文件存在且持锁进程仍活 -> 保留 with_lock.py --nb 跳过语义（不抢锁）
+# 锁文件不存在 -> 透传。
+# watchdog 退出码 0=可继续(锁已清理/不存在) 1=锁被活进程持有(应跳过)
 if [ -z "${INTRADAY_LOCKED:-}" ]; then
+  LOCK_RC=0
+  "$PY" "$REPO/scripts/lock_watchdog.py" /tmp/trade_intraday_snapshot.lock || LOCK_RC=$?
+  if [ "$LOCK_RC" -ne 0 ]; then
+    echo "[lock_watchdog] 锁真实被活进程持有，本次跳过" | tee -a "$LOG" || true
+    exit 0
+  fi
   exec "$PY" "$REPO/scripts/with_lock.py" --nb /tmp/trade_intraday_snapshot.lock \
     env INTRADAY_LOCKED=1 bash "$0" "$@"
 fi
