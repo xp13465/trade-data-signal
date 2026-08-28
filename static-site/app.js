@@ -8,7 +8,38 @@
 // BUG-E：交互增强状态--industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 注：原 indexFilter（A 股/港股 指数筛选 select）已重构为目录锚点 chip(2026-07-20), 始终全部渲染, 点击 chip 跳转吸顶, 不再需要筛选状态
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "3m", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null, sigTypeFilter: null, sigWindowFilter: "0_15", sigEtfFilterSet: ["1","2","3","4"] };
+const state = { tab: "overview", range: "3m", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null, sigTypeFilter: null, sigWindowFilter: "0_15", sigEtfFilterSet: ["1","2","3","4"], sigJudgeWin: 10 };
+// 对错判定窗 N(2026-08-24 用户拍板「N交易日到期冻结窗」): 10=默认档(A方法10日固定卖出周期),
+// 15=F方法15日对照档(localStorage tds_sig_judge_win 记忆)。后端双档字段:
+// since_correct/since_settled/since_win_return(默认档, 买入四类+卖/止损卖=w10, 波段减仓=w5 固定)
+// 与 *_w15 对照档(波段减仓的 w15 字段由后端复制 w5 值)。窗长参数唯一权威定义在 app/queries.py _WIN_*。
+try { if (localStorage.getItem("tds_sig_judge_win") === "15") state.sigJudgeWin = 15; } catch (e) {}
+// 对错判定当前档读取 helpers(2026-08-24): total/byType/评级/警示块/对错筛选/hoverpop/成功失败前缀
+// 全部消费点统一走这三个, 禁直读 it.since_correct 造成切档不一致(§22)。老缓存 overview 无新字段时
+// undefined 回退 since_correct(旧口径数据), 平滑过渡不崩。
+function _sigWinN() { return state.sigJudgeWin === 15 ? 15 : 10; }
+function _scOf(it) {
+  if (_sigWinN() === 15 && it.since_correct_w15 !== undefined) return it.since_correct_w15;
+  return it.since_correct;
+}
+function _settledOf(it) {
+  if (_sigWinN() === 15 && it.since_settled_w15 !== undefined) return it.since_settled_w15;
+  return it.since_settled;
+}
+// 当前档窗口收益%(定案=第N日收盘收益; 未满窗=至今暂计; band_hold/今日信号=null)
+function _swrOf(it) {
+  if (_sigWinN() === 15 && it.since_win_return_w15 !== undefined) return it.since_win_return_w15;
+  return it.since_win_return;
+}
+// 该信号实际生效的判定窗长: 波段减仓固定 5 日(后端 queries.py _WIN_BAND_SELL_N=5 唯一权威,
+// 其默认档字段即 w5 结果、w15 复制 w5), 其余信号=当前判定窗档位(_sigWinN 10/15)。
+// data-idx-n 属性与走势弹窗「N日窗盈亏」标签统一走此函数取 n——
+// 2026-08-24 P3-2 修正: 原恒传 _sigWinN() 致波段减仓标签写「10日窗」但数值是 5 日窗结果的失实。
+function _effWinN(it) {
+  return (it && (it.reason || '').includes('波段减仓')) ? 5 : _sigWinN();
+}
+// 当日已满判定(用于「仅显示可用信号」当日已满行灰显): 信号日期 <= 今天 即视为该日已结算
+// 2026-08-14 TDZ 根治: 不再独立函数, 改在 _dayItems 过滤回调 inline 调用避免 TDZ。
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -22420,6 +22451,24 @@ function _dailyBriefModalEl() {
   return modal;
 }
 
+// 方向 direction 对应的 CSS 颜色 class(用于 range 区间的方向分色)。
+// 2026-08-24 R3: direction_call(方向押注 up/down)与 direction 一样用这套分色, 故从内部函数提出为独立函数。
+function _dbDirCls(d) {
+  if (d === "up") return "db-dir-up";
+  if (d === "down") return "db-dir-down";
+  return "db-dir-flat";
+}
+// A股红涨绿跌方向配色(2026-08-27 用户反馈):凡是表达方向的数值/标识统一分色——
+//   涨=红系(db-up)、跌=绿系(db-down)、平/跨0/缺省=中性灰(db-flat),数字+箭头+标签同 span 联动继承同色。
+// 方向徽标按 direction 字段(up/down/flat);数值区间芯片按 lo>0→涨红 / hi<0→跌绿 / 其余(含0跨0)→震荡灰
+// (与公示口径"方向由区间体现:全正=涨/全负=跌/含0=平震荡"一致)。
+// 例外:.db-index-yield(10年国债收益率变化 bp 口径,收益率上行≠行情看涨,无 A股涨跌语义)不上色维持原样。
+function _numDirCls(lo, hi) {
+  if (lo == null || hi == null) return "db-flat";
+  if (lo > 0) return "db-up";
+  if (hi < 0) return "db-down";
+  return "db-flat";
+}
 function _dbDirLabel(d) {
   if (d === "up") return "📈 偏强";
   if (d === "down") return "📉 偏弱";
@@ -22443,11 +22492,21 @@ function _dbHitHtml(meta) {
   const hit = (meta && meta.hit) || {};
   const rng = (meta && meta.range) || null;
   const hasMid = (meta && meta.index_ranges && meta.index_ranges.length);
+  // 2026-08-24 R3 方向押注命中(direction_call_hit): 单独的纯方向题命中标注, 不混入区间命中。
+  // 仅当 direction_call=up/down 存在时追加(老条目/兜底版无 → 不展示)。
+  const dc = (meta && meta.direction_call) || null;
+  const dch = hit.direction_call_hit;
+  let dcMark = "";
+  if (dc === "up" || dc === "down") {
+    dcMark = dch === true ? '<span class="db-hit db-hit-win">🎯 方向押注✅中</span>' : dch === false ? '<span class="db-hit db-hit-lose">🎯 方向押注❌未中</span>' : '<span class="db-hit db-hit-pending">🎯 方向押注⏳</span>';
+  }
   // 老条目无 range: 只判方向(不标区间)
   if (!rng || rng.lo == null || rng.hi == null) {
-    if (hit.direction === true) return '<span class="db-hit db-hit-win">✅ 仅方向命中</span>';
-    if (hit.direction === false) return '<span class="db-hit db-hit-lose">❌ 未中</span>';
-    return '<span class="db-hit db-hit-pending">⏳ 待回填</span>';
+    let s = "";
+    if (hit.direction === true) s = '<span class="db-hit db-hit-win">✅ 仅方向命中</span>';
+    else if (hit.direction === false) s = '<span class="db-hit db-hit-lose">❌ 未中</span>';
+    else s = '<span class="db-hit db-hit-pending">⏳ 待回填</span>';
+    return dcMark ? `${s} ${dcMark}` : s;
   }
   // 新区间条目: 三层命中为主(hit.direction=大盘 AND 中间层 AND 板块,2026-08-15)。
   // 已回填(有 actual_sh_pct)但无法整体判定(任一层 N/A) → 区间N/A(不硬判)
@@ -22455,14 +22514,15 @@ function _dbHitHtml(meta) {
     // 区分: 大盘落了但中间层/板块 N/A(无法验证) → 展示"层级N/A"
     const midNa = hasMid && !hit.middle_hits;
     const secNa = !(hit.sector_hits && hit.sector_hits.length);
-    if (midNa || secNa) return '<span class="db-hit db-hit-na">层级N/A</span>';
-    return '<span class="db-hit db-hit-na">区间N/A</span>';
+    if (midNa || secNa) return dcMark ? `<span class="db-hit db-hit-na">层级N/A</span> ${dcMark}` : '<span class="db-hit db-hit-na">层级N/A</span>';
+    return dcMark ? `<span class="db-hit db-hit-na">区间N/A</span> ${dcMark}` : '<span class="db-hit db-hit-na">区间N/A</span>';
   }
-  if (hit.direction === true) return hasMid ? '<span class="db-hit db-hit-win">✅ 三层命中（大盘+中间层7+板块）</span>' : '<span class="db-hit db-hit-win">✅ 方向+区间命中</span>';
-  if (hit.direction === false) return '<span class="db-hit db-hit-lose">❌ 未中</span>';
-  // 大盘区间都还没判(N/A/未判定)且实际也未回填 → 待回填
-  if (hit.range_hit == null && hit.actual_sh_pct == null) return '<span class="db-hit db-hit-pending">⏳ 待回填</span>';
-  return '<span class="db-hit db-hit-na">区间N/A</span>';
+  let s = "";
+  if (hit.direction === true) s = hasMid ? '<span class="db-hit db-hit-win">✅ 三层命中（大盘+中间层7+板块）</span>' : '<span class="db-hit db-hit-win">✅ 方向+区间命中</span>';
+  else if (hit.direction === false) s = '<span class="db-hit db-hit-lose">❌ 未中</span>';
+  else if (hit.range_hit == null && hit.actual_sh_pct == null) s = '<span class="db-hit db-hit-pending">⏳ 待回填</span>';
+  else s = '<span class="db-hit db-hit-na">区间N/A</span>';
+  return dcMark ? `${s} ${dcMark}` : s;
 }
 
 function _dbActualHtml(meta) {
@@ -22584,21 +22644,48 @@ function _dbConclusionHtml(meta) {
 // AI 预测自成长 Step 1 透明展示:本次预测实际注入的「历史反思校准」要点(meta.reflection)。
 // 后端 gen_daily_brief.py 与注入口径同源写进 meta;无 reflection(旧条目/兜底版/无注入样本)整块不渲染(优雅降级)。
 // §23.9 三档互证:标题白话一句 + 正文场景说明 + 下方 1:1 样本明细(日期+类型+简短归因)。
+// DB_REFLECT_PAGE: 反思样本分批大小(分批加载,避免一次渲染太多 DOM 拖慢页面)
+const DB_REFLECT_PAGE = 5;
 function _dbReflectionHtml(meta) {
   const rf = (meta && meta.reflection) || null;
   if (!rf || !rf.n) return "";
   const n = rf.n || 0;
   const injN = rf.injected_n || n;
   const dirFailN = rf.dir_fail || 0;
-  const samples = (rf.samples || []).map((s) => {
+  // 分批加载: 前 DB_REFLECT_PAGE 条直接显示, 其余加 db-refl-hidden(委托给 _initReflectionMoreDelegation 点击展开)
+  const rawSamples = (rf.samples || []).map((s) => {
     const d = String(s.date || "").replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
     const typeLabel = ({ direction_fail: "方向误判", range_imprecise: "区间不准", partial: "部分命中" })[s.type] || (s.type || "");
     return `<li><b>${_esc(d)}</b> ${_esc(typeLabel)}${s.summary ? `：${_esc(s.summary)}` : ""}</li>`;
-  }).join("");
+  });
+  const shown = rawSamples.slice(0, DB_REFLECT_PAGE).join("");
+  const hidden = rawSamples.slice(DB_REFLECT_PAGE).map((s) => s.replace("<li>", "<li class=\"db-refl-hidden\">")).join("");
+  const hasMore = hidden.length > 0;
   return `<div class="db-reflection"><div class="db-reflection-title">🔍 含历史反思校准</div>
     <p class="db-reflection-brief">本次预测生成前，先参考历史上 ${n} 次失败预测的反思${injN < n ? `（近 ${injN} 次）` : ""}做校准，不是凭空判断；其中方向误判 ${dirFailN} 次。失败教训只作谨慎权衡参考，结论仍以本次数据为准。</p>
-    ${samples ? `<ul class="db-reflection-samples">${samples}</ul>` : ""}</div>`;
+    <div class="db-reflection-body">
+    ${rawSamples.length ? `<ul class="db-reflection-samples">${shown}${hidden}</ul>` : ""}
+    ${hasMore ? `<button type="button" class="db-refl-more">加载更多（还有 ${rawSamples.length - DB_REFLECT_PAGE} 条）</button>` : ""}
+    </div></div>`;
 }
+
+// 「加载更多」click 委托(动态渲染内容,document 级一次注册;先例 _initOverfitHelpDelegation):
+// 每次点击在所属明细列表内放出一批(DB_REFLECT_PAGE 条),全部放完按钮移除。
+(function _initReflectionMoreDelegation() {
+  document.addEventListener("click", (e) => {
+    const btn = e.target && e.target.closest && e.target.closest(".db-refl-more");
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const body = btn && btn.closest && btn.closest(".db-reflection-body");
+    const ul = body && body.querySelector && body.querySelector(".db-reflection-samples");
+    if (!ul) { btn.remove(); return; }
+    ul.querySelectorAll("li.db-refl-hidden").forEach((li, i) => { if (i < DB_REFLECT_PAGE) li.classList.remove("db-refl-hidden"); });
+    const left = ul.querySelectorAll("li.db-refl-hidden").length;
+    if (left > 0) btn.textContent = `加载更多（还有 ${left} 条）`;
+    else btn.remove();
+  });
+})();
 
 // 复用:AI 预测内容块(复盘/趋势/关注/风险四段 + meta 断言 watch_list/risk_items + 免责)。
 // 供 AI 预测弹窗详情、历史收盘分析弹窗结合展示共用，保证两处渲染一致。
@@ -22649,6 +22736,16 @@ function _dbBriefDetailHtml(it) {
     const fmt = (v) => (Number(v) > 0 ? `+${Number(v).toFixed(2)}` : Number(v).toFixed(2));
     rangeBlock = `<p class="db-line"><span class="db-k">大盘区间</span>上证次日 ${fmt(rng.lo)}~${fmt(rng.hi)}%${hitTxt}</p>`;
   }
+  // 2026-08-24 R3 方向强制二选一展示(meta.direction_call 纯新增键,up/down 二选一):
+  // 旧条目/兜底版无此键或为 null → 整行不渲染(容错降级,不伪造)。
+  let dcLine = "";
+  const dc = meta.direction_call;
+  if (dc === "up" || dc === "down") {
+    const dch = (meta.hit || {}).direction_call_hit;
+    const dcMark = dch === true ? " ✅命中" : dch === false ? " ❌未中" : "";
+    const dcLabel = dc === "up" ? '<span class="db-call-up">📈 押涨</span>' : '<span class="db-call-down">📉 押跌</span>';
+    dcLine = `<p class="db-line"><span class="db-k">方向押注</span>强制二选一 ${dcLabel}${dcMark}<span style="opacity:.65">（与区间独立的纯方向题：实际涨跌幅≤±0.5%视为震荡，押方向判未中）</span></p>`;
+  }
   // 2026-08-15 三层命中: 中间层 7 个全押区间区块(type=index 涨跌幅%,type=yield 收益率变化基点)。
   // 插在大盘区间与板块区间之间。老条目无 index_ranges → 中间层区块留空(不伪造,不报错)。
   let indexBlock = "";
@@ -22682,8 +22779,14 @@ function _dbBriefDetailHtml(it) {
       const nm = s && (s.name || "");
       const sh = map[nm];
       const hitTxt = sh && sh.hit === true ? " ✅命中" : sh && sh.hit === false ? " ❌未中" : (sh && sh.actual_pct != null ? " N/A" : "");
+      // 2026-08-24 R2 板块层波动率自适应带宽: 已回填项追加展示有效判定带(eff_lo~eff_hi,
+      // =AI预测中点 ± max(median(|pct|,近5日)×2, 0.3pp)/2);旧条目无 eff 键 → 不追加(容错降级)
+      let bandTxt = "";
+      if (sh && sh.eff_lo != null && sh.eff_hi != null) {
+        bandTxt = `（判定带 ${fmt(sh.eff_lo)}~${fmt(sh.eff_hi)}%）`;
+      }
       // sector_ranges 元素本身不带 actual_pct(实际在 hit.sector_hits 里), 区间本体展示用 lo/hi
-      return `<span class="db-sector">${_esc(nm || "？")} ${fmt(s.lo)}~${fmt(s.hi)}%${hitTxt}</span>`;
+      return `<span class="db-sector ${_numDirCls(s.lo, s.hi)}">${_esc(nm || "？")} ${fmt(s.lo)}~${fmt(s.hi)}%${hitTxt}${bandTxt}</span>`;
     }).join("");
     sectorBlock = `<p class="db-line"><span class="db-k">板块区间</span>${pcs || "（无）"}</p>`;
   }
@@ -22712,7 +22815,7 @@ function _dbBriefDetailHtml(it) {
     const tag = (roleN ? ` · ${roleN}角色` : "") + (bullN || bearN ? ` · 辩论 ${bullN}对${bearN}` : "");
     debateBlock = `<details class="db-debate-wrap"><summary class="db-debate-toggle">🧠 多角色讨论详情${tag}<span class="db-debate-arrow">▾</span></summary><div class="db-debate-body">${rolesHtml}${debateHtml}</div></details>`;
   }
-  return `${rangeBlock}${indexBlock}${sectorBlock}${highlightsHtml}${conclusionHtml}${conf ? `<p class="db-line"><span class="db-k">把握度</span>${_dbConfidenceBadge(meta)}<span class="db-conf-reason">${_esc(conf.reason)}</span></p>` : ""}
+  return `${rangeBlock}${dcLine}${indexBlock}${sectorBlock}${highlightsHtml}${conclusionHtml}${conf ? `<p class="db-line"><span class="db-k">把握度</span>${_dbConfidenceBadge(meta)}<span class="db-conf-reason">${_esc(conf.reason)}</span></p>` : ""}
       ${reflectionHtml}
       <p class="db-line"><span class="db-k">复盘</span>${_esc(t.review || "")}</p>
       <p class="db-line"><span class="db-k">趋势</span>${_esc(t.trend || "")}</p>
