@@ -8877,7 +8877,9 @@ async function renderSigKellyLab() {
     //   这一步必须在 tds_kelly_filters 成员覆盖之后——老用户的 tds_kelly_filters.members 是八键(v1.1.4 前),
     //   若不在此处用默认模式覆盖, 老用户冷启动会滞留八键、默认切换不生效(§22 一致性)。
     var _dftModeId = (typeof window._KELLY_FADE_DEFAULT_MODE === "string") ? window._KELLY_FADE_DEFAULT_MODE : "new14";
-    var _applyMid = (_savedFM && _savedFM.mode && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(_savedFM.mode)) ? _savedFM.mode : _dftModeId;
+    // v1.1.8 fix(codex-s06-fademode-001): 老默认 new14 的 localStorage 记忆强制回新默认 S06，
+    // 防 v1.1.5~v1.1.6 用户浏览器残留 tds_kelly_fade_mode={mode:'new14'} 覆盖新默认。
+    var _applyMid = (_savedFM && _savedFM.mode && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(_savedFM.mode) && _savedFM.mode !== "new14") ? _savedFM.mode : _dftModeId;
     if (typeof _tdsFadeModeById === "function" && _tdsFadeModeById(_applyMid)) {
       // S06(codex-task-20260825-001): dynamic 预设无静态 keys, Apply 返回 false 不改标签区 → 显式恢复
       // 默认档作静态参考底座(判定层 per-date 接管), 与下拉选中 s06 路径同一处理(§22 冷启动/热切换一致)
