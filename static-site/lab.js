@@ -8499,9 +8499,9 @@ async function _kellyApplyFeeRecompute(feeParams) {
     var _s6WarnParts = [];
     if (typeof window._tdsS06Status === "function") {
       var _st6 = window._tdsS06Status();
-      if (!_st6.loaded && _st6.err) _s6WarnParts.push("⚠ S06 快照不可用(" + _st6.err + ") — 动态判定未生效, 本批统计按无过滤人口展示(未回退其他模式)");
+      if (!_st6.loaded && _st6.err) _s6WarnParts.push("⚠ S06 快照加载失败了(" + _st6.err + ")，系统还在努力读，你看到的数据暂时是不过滤的完整版本（不是偷偷切到其他模式，只是先把能展示的展示出来）");
     }
-    if (_s6OpenSet.size > 0) _s6WarnParts.push("⚠ " + _s6OpenSet.size + " 笔来自历史早期段（如2014-2015年），日期超出 S06 快照覆盖范围（系统无法确定当天该用哪个基座：a9 进攻王 还是 new14+1 防守兜底），为避免用错基座算历史，已放行展示并提示（fail-open）");
+    if (_s6OpenSet.size > 0) _s6WarnParts.push("⚠ 有 " + _s6OpenSet.size + " 笔是 2014-2015 年的老历史数据，S06 快照的日期覆盖不到那么早（那时候 A股风格和现在很不一样，系统没把握套用现在的判断规则），所以这 " + _s6OpenSet.size + " 笔就先照常展示了，没有硬套过滤规则——数据给你看，只是标注一下这批和近年的口径不太一样。举例说明：比如 2014 年那波大牛市，按 2026 年的标准会判「进攻王」，但 2014 年实际风格完全不同，用现在的规则去套就容易出错，所以这批老数据干脆不套规则，直接展示原始信号");
     if (_s6WarnParts.length) result._s6warn = _s6WarnParts.join(" ");
   }
   _kellyStatsCacheKey = cacheKey;
@@ -9594,7 +9594,7 @@ function _renderSigKellyBar(bar, data, period) {
   const _fadeCaliberHTML = _fadeMatchedId
     ? _fadeDisp.caliber
     : ("⚙️ 自定义组合(基于「" + _fadeDisp.name.replace(/\(默认\)$/, "") + "」手动调整, 口径见各标签 tip)");
-  const fadeModeTitle = "AI降亏过滤模式: 一键套用整套键组合(与「AI 降亏组成对比」卡同源口径); ⭐=推荐星标(S06 3星 / A进攻王·NEW14·NEW14+1 2星 / 9键·B均衡卡 1星), 下拉星多靠前、无星殿后沿用原相对序(v20260826 用户拍板); NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。手动勾/取消下方任一小标签即进入自定义态, 再选任意模式回到预设。选 S06=按大盘风格按日动态切 A进攻王/NEW14+1 两基座(v1.1.7 起已为当前默认基座, 判定层接管、标签区退为参考底座), 快照不可用时该笔不拦并红字提示, 绝不静默回退"
+  const fadeModeTitle = "AI降亏过滤模式: 一键套用整套键组合(与「AI 降亏组成对比」卡同源口径); ⭐=推荐星标(S06 3星 / A进攻王·NEW14·NEW14+1 2星 / 9键·B均衡卡 1星), 下拉星多靠前、无星殿后沿用原相对序(v20260826 用户拍板); NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。手动勾/取消下方任一小标签即进入自定义态, 再选任意模式回到预设。选 S06=按大盘风格按日动态切换 A进攻王/NEW14+1 两套判断规则(v1.1.7 起已为当前默认基座, 判定层自动接管、标签区退为参考底座); 如果 S06 快照读不出来, 这笔信号就照常展示并在旁边标红字提醒, 但不会悄悄换成其他模式——简单说就是\"能正常显示就显示, 读不出来就老实告诉你, 绝不替你做决定偷偷切走\""
     + (typeof window._tdsS06Tooltip === "function" ? ("\n———\n" + window._tdsS06Tooltip()) : "");
   // S06 快照降级警示 span(可见不静默): 文本来自最近一次计算 result._s6warn(_kellyApplyFeeRecompute 写),
   // 无警示恒隐藏; 缓存命中路径随旧 stats 一致复用同文案(§22)
