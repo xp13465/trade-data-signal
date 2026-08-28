@@ -8,17 +8,17 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-28 13:05(告警扫描+本周累积).本轮:
-- **✅ rcssmin 缺失根治**:trade+trade-data build_min.py 完全一致(try/except 包裹);rcssmin 1.2.2 已装;本地 build_min 8/8 成功
-- **✅ reviewer PASS F-01/F-03/F-04**:仅 F-02 有 P1(但为设计意图),F-04 有 P2(已清理:pending_review 死代码+history_names 死变量+docstring)
-- **✅ F-02 P2 清理已 commit**:072ba10d4,删除 pending_review 死代码+history_names 死变量+更新 docstring
-- **✅ width_history 补算**:20260720~20260721 已补;zb/seal_rate 停更根因=源数据不足(mootdx 每天只采84个code);zt/dt 等指标正常
-- **✅ accum-nav 超时根因定位**:signal.alarm 在 macOS pthread_cond_wait 丢失,akshare C层阻塞无法中断;Worker进程隔离方案已出
-- **⏳ accumnav 超时修复**(implementer a3ed2a9c49ae038e4):部分完成,socket 超时+Worker隔离+失败跳过实施中
+**最后更新**:2026-08-28 18:25(固定持有天数调研完成+方向锚已开启+AI预测Phase1完成).本轮:
+- **✅ v1.1.8 功能体检**:app.js 30632行完整还原(H档卖法明示+H档1:1注解),4项未报告任务已梳理
+- **✅ H档卖法明示补全**:app.js L2927-2928 新增「🛡️中长线 H(含止损,不想硬扛首选)」+1:1注解(S06×H净利+159,972/峰值≤15/不破20倍线 vs S06×G净利+145,726/峰值29~40/大破20倍线)
+- **✅ Phase1 融合底稿完成**:brief_ledger.json统一三个数据源(7条,0819-0827),修复hit回填bug(6/6一致性),commit 956126ff9
+- **✅ direction_anchor_enabled 已开启**:config/daily_brief.yaml 改为true,7天后(09-04)验收效果
+- **✅ #3 固定持有天数调研完成**:researcher穷举5/10/15/20/30/40/50天×S06/A/NEW14三模式,结论=最优20天(+68,549/+47%),峰值18笔合规(压线),15天保守备选(+34,882/+24%);报告docs/kelly/backtest-ai/fixed-hold-sweep-20260828/report.md
+- **⏳ accumnav 超时修复**(implementer a3ed2a9c49ae038e4):socket超时+Worker隔离+失败跳过实施中
 - **⏳ S06 fail-open 调研**(researcher a1056584c413e12ea):11笔超S06覆盖期未拦根因调查中
 
-**历史交接(≥2 轮前,已折叠)**:08-28 08:59 / 08-27 23:45 / 08-27 午前 / 08-22(含 08-21/08-20 段)四坨历史交接已按 4 态折叠,细节见 [docs/tasks-done-list.md](docs/tasks-done-list.md) 与 [docs/archive/TASKS-done.md](docs/archive/TASKS-done.md) / [TASKS-history-archive-20260820.md](docs/archive/TASKS-history-archive-20260820.md)。已上 main 的完成陈述(v1.1.7 七支/首页模拟回测弹窗/P2-11 懒渲染/费率/回测结论等)不再在顶部重复陈列。
-> **历史未决项残留(从折叠轮次提炼,待用户拍板/待排期,日期为原定时间)**:①板块分化 subtab spark 格懒渲染(同 P2-11 根因,08-22 待拍板)②main-merge.sh 销账提醒软提示(08-22 待拍板)③#88 订阅推送启动时点评估(08-22 待拍板)④v1.1.7 审计追踪表 P1-1/P1-2/P1-3 + P2 公募 UPSERT 竞态×3+checkpoint(08-27 午前待排期)⑤新观察项:update_all 吞 deploy rc / pipeline 直传 R2 绕闸 / 汪汪队 stats 错位 / FRESH_MSG dedup 漂移 / deploy_1120.log 214B(08-27 23:45 待查,done-list 末尾已登记「遗留待拍板」)⑥首页 AI建议N 无 `tds_poscap` key 首次访问不显示(08-20 存量观察项,非回归)。以上均**非活跃 checkbox**,需用户/主控拍板时捞回 pending-index 或本区。
+**历史交接(≥2 轮前,已折叠)**:08-28 08:59 / 08-27 23:45 / 08-27 午前 / 08-22(含08-21/08-20段)四坨历史交接已按4态折叠,细节见docs/tasks-done-list.md与docs/archive/TASKS-done.md/TASKS-history-archive-20260820.md。已上main的完成陈述(v1.1.7七支/首页模拟回测弹窗/P2-11懒渲染/费率/回测结论等)不再在顶部重复陈列。
+> **历史未决项残留(从折叠轮次提炼,待用户拍板/待排期,日期为原定时间)**:①板块分化subtab spark格懒渲染(同P2-11根因,08-22待拍板)②main-merge.sh销账提醒软提示(08-22待拍板)③#88订阅推送启动时点评估(08-22待拍板)④v1.1.7审计追踪表P1-1/P1-2/P1-3+P2公募UPSERT竞态×3+checkpoint(08-27午前待排期)⑤新观察项:update_all吞deploy rc/pipeline直传R2绕闸/汪汪队stats错位/FRESH_MSG dedup漂移/deploy_1120.log 214B(08-27 23:45待查,done-list末尾已登记「遗留待拍板」)⑥首页AI建议N无`tds_poscap`key首次访问不显示(08-20存量观察项,非回归)。以上均**非活跃checkbox**,需用户/主控拍板时捞回pending-index或本区。
 
 ## 📋 待办（2026-08-20 治理后:全移 todolist,本文件无活跃 checkbox）
 
