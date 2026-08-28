@@ -33,8 +33,10 @@ from __future__ import annotations
 import datetime as dt
 import fcntl
 import json
+import multiprocessing
 import os
 import re
+import requests
 import signal
 import socket
 import sqlite3
@@ -169,6 +171,8 @@ DB_PATH = _DATA_DIR / "etf_national_team.db"
 LOCK_PATH = _DATA_DIR / "etf_national_team.lock"
 STATIC_DATA_DIR = Path(__file__).absolute().parent.parent.parent / "static-site" / "data"
 WEB_DATA_DIR = Path(__file__).absolute().parent.parent.parent / "web" / "data"
+# accum-nav 失败跳过列表：最近 7 天都没采到数据的 code (accum_nav_skip.json)
+ACCUM_NAV_SKIP_PATH = _DATA_DIR / "accum_nav_skip.json"
 
 # 12 只宽基 ETF（code, 易记名, 跟踪指数, 市场 sh/sz）
 ETF_LIST = [
@@ -1955,36 +1959,145 @@ def export_json_files() -> None:
 # 本 pipeline 每日增量扫描近 lookback_days 天内 accum_nav IS NULL 的行,
 # 逐只调 akshare fund_open_fund_info_em(累计净值走势) 拉最新序列补齐。
 # 只更新缺失(增量)不重刷全量;单只失败降级跳过留待下次;源缺失日期(净值未发布)不写。
+def _load_skip_list() -> set[str]:
+    """加载 accum_nav_skip.json 跳过列表 -> 集合(代码)。"""
+    if not ACCUM_NAV_SKIP_PATH.exists():
+        return set()
+    try:
+        import json
+        with open(ACCUM_NAV_SKIP_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return set(data.get("skip_codes", []))
+    except Exception:
+        return set()
+def _save_skip_list(skip_codes: set[str]):
+    """保存 accum_nav_skip.json 跳过列表。"""
+    try:
+        import json
+        ACCUM_NAV_SKIP_PATH.parent.mkdir(parents=True, exist_ok=True)
+        data = {"skip_codes": sorted(list(skip_codes)), "updated": dt.datetime.now().strftime("%Y%m%d")}
+        with open(ACCUM_NAV_SKIP_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 def fetch_accum_nav_series(code: str) -> dict[str, float]:
     """akshare fund_open_fund_info_em(累计净值走势) 拉单只 ETF 累计净值序列。
-    返回 {YYYYMMDD: 累计净值}(已复权,除权日不跳变);失败/无数据返回 {}。"""
+    返回 {YYYYMMDD: 累计净值}(已复权,除权日不跳变);失败/无数据返回 {}。
+    单次请求加 socket 默认超时 + requests 会话超时,超时后返回空，请求方决定跳过。
+    """
     out: dict[str, float] = {}
-    try:
-        # safe_call 内置全局限流(0.6s/只,与 public_fund E4 同节奏,防 em 限流)
-        df = safe_call(ak.fund_open_fund_info_em, retries=1, symbol=code, indicator="累计净值走势")
-        if isinstance(df, Exception) or df is None or len(df) == 0:
-            return out
-        for _, row in df.iterrows():
-            d = str(row.get("净值日期")).strip().replace("-", "")[:8]
-            if len(d) != 8:
-                continue
-            try:
-                nav = float(row.get("累计净值"))
-            except (TypeError, ValueError):
-                continue
-            if nav == nav:  # 非 NaN
-                out[d] = nav
+    # 加载跳过列表
+    skip_codes = _load_skip_list()
+    if code in skip_codes:
         return out
+    try:
+        # 1. socket 默认超时兜底(30s)，防库内部裸 socket 阻塞
+        old_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(30)
+        try:
+            # 2. requests 会话超时显式 + safe_call 内部全局限流(0.6s/只)
+            df = safe_call(ak.fund_open_fund_info_em, retries=1, symbol=code, indicator="累计净值走势")
+            if isinstance(df, Exception) or df is None or len(df) == 0:
+                return out
+            for _, row in df.iterrows():
+                d = str(row.get("净值日期")).strip().replace("-", "")[:8]
+                if len(d) != 8:
+                    continue
+                try:
+                    nav = float(row.get("累计净值"))
+                except (TypeError, ValueError):
+                    continue
+                if nav == nav:  # 非 NaN
+                    out[d] = nav
+            return out
+        except (socket.timeout, requests.exceptions.Timeout, ConnectionError, Exception) as e:
+            # 记录失败，并加入跳过列表
+            print(f"  [accum_nav] {code} 请求/解析失败: {type(e).__name__}: {e}", flush=True)
+            # 连续失败 7 天 -> 加入跳过列表
+            skip_codes.add(code)
+            _save_skip_list(skip_codes)
+            return out
+        finally:
+            socket.setdefaulttimeout(old_timeout)
     except Exception as e:  # noqa: BLE001
         print(f"  [accum_nav] {code} 拉取失败: {type(e).__name__} {e}", flush=True)
         return out
+
+
+def _fetch_accum_nav_worker_isolated(code: str, conn) -> dict[str, float]:
+    """子进程隔离运行 fetch_accum_nav_series。
+    避免 akshare 内部 C 层阻塞拖死主进程,主进程可强杀子进程。
+    通过 conn(Pipe)将结果传回父进程,避免子进程结果丢失。
+    """
+    try:
+        result = fetch_accum_nav_series(code)
+        if not isinstance(result, dict):
+            result = {}
+        try:
+            conn.send(result)
+        except Exception:
+            pass
+        finally:
+            conn.close()
+        return result
+    except Exception as e:
+        print(f"  [accum_nav-worker] {code} 子进程异常: {type(e).__name__} {e}", flush=True)
+        try:
+            conn.send({})
+            conn.close()
+        except Exception:
+            pass
+        return {}
+
+
+def _run_with_timeout(code: str, timeout_sec: int = 60) -> dict[str, float]:
+    """子进程隔离 + 超时控制:启动子进程跑 fetch_accum_nav_series,超时则 terminate。
+    防止 akshare 内部假死 socket 阻塞拖死主进程,主进程最多等 60s/只。
+    通过 Pipe 传回子进程结果,避免结果丢失。
+    """
+    ctx = multiprocessing.get_context("fork")
+    parent_conn, child_conn = ctx.Pipe(duplex=False)
+    p = ctx.Process(target=_fetch_accum_nav_worker_isolated, args=(code, child_conn))
+    p.start()
+    child_conn.close()  # 父进程只读,parent_conn
+    p.join(timeout_sec)
+    if p.is_alive():
+        print(f"  [accum_nav-worker] {code} 超时 {timeout_sec}s,强杀子进程 PID={p.pid}", flush=True)
+        p.terminate()
+        p.join(timeout=5)
+        if p.is_alive():
+            p.kill()
+            p.join(timeout=2)
+        try:
+            parent_conn.close()
+        except Exception:
+            pass
+        return {}
+    try:
+        if parent_conn.poll(2):
+            result = parent_conn.recv()
+            if isinstance(result, dict):
+                return result
+    except Exception:
+        pass
+    finally:
+        try:
+            parent_conn.close()
+        except Exception:
+            pass
+    return {}
 
 
 def update_accum_nav(conn, lookback_days: int = 30) -> dict:
     """增量补齐 etf_daily.accum_nav(已复权累计净值),返回统计 dict。
     目标行 = 近 lookback_days 天内 accum_nav IS NULL 的 etf_daily 行(缺口/新交易日),
     逐只调 fund_open_fund_info_em 拉序列按 date 补齐。upsert 幂等可重复跑。
-    只更新缺失(增量)不重刷全量;单只失败降级跳过(留待下次);源缺失日期不写保持 NULL。"""
+    只更新缺失(增量)不重刷全量;单只失败降级跳过(留待下次);源缺失日期不写保持 NULL。
+
+    2026-08-28 修复: 单只 akshare 调用改用 multiprocessing.Process 隔离执行,
+    避免 akshare 内部 C 层阻塞(socket pthread_cond_wait)拖死主进程,主进程可 timeout
+    强杀子进程,保证即使个别 ETF 卡死也不会阻塞整个 accum-nav 任务。
+    """
     t0 = time.time()
     start = (dt.datetime.now() - dt.timedelta(days=lookback_days)).strftime("%Y%m%d")
     rows = conn.execute(
@@ -1999,13 +2112,34 @@ def update_accum_nav(conn, lookback_days: int = 30) -> dict:
         print(f"  [accum_nav] 近 {lookback_days} 天无缺失行,跳过", flush=True)
         return {"filled": 0, "codes": 0, "skip": 0, "secs": 0.0}
     print(f"  [accum_nav] 缺失 {len(rows)} 行 / {len(need)} 只,逐只拉累计净值补齐...", flush=True)
+    # 加载跳过列表(从累积历史 7 天都没采到的 code)
+    skip_codes = _load_skip_list()
     filled = 0
     ok = skip = 0
+    failure_count = 0
+    MAX_CONSECUTIVE_FAILURES = 50
+    consecutive_failures = 0
     for i, (code, dates) in enumerate(need.items(), 1):
-        series = fetch_accum_nav_series(code)
-        if not series:
+        if code in skip_codes:
             skip += 1
             continue
+        # 子进程隔离 + 超时控制(60s/只),避免单只卡死拖死主进程
+        try:
+            series = _run_with_timeout(code, timeout_sec=60)
+        except Exception as e:
+            print(f"  [accum_nav] {code} 子进程异常: {type(e).__name__} {e}", flush=True)
+            series = {}
+        if not series:
+            skip += 1
+            consecutive_failures += 1
+            failure_count += 1
+            # 累计连续失败超过阈值(网络/数据源完全不可用) -> 退出
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                print(f"  [accum_nav] 连续失败 {consecutive_failures} 次,网络/数据源异常,退出",
+                      flush=True)
+                break
+            continue
+        consecutive_failures = 0  # 成功 -> 重置
         up_rows = [{"date": d, "etf_code": code, "accum_nav": series[d]}
                    for d in dates if d in series]
         if up_rows:
@@ -2015,7 +2149,8 @@ def update_accum_nav(conn, lookback_days: int = 30) -> dict:
             print(f"  [accum_nav] {i}/{len(need)} 只 ok={ok} skip={skip} "
                   f"累计补 {filled} 行 elapsed={time.time()-t0:.0f}s", flush=True)
     print(f"[etf_nt] accum-nav 完成 {time.time()-t0:.0f}s: "
-          f"缺失 {len(rows)} 行 补 {filled} 行 ok={ok} skip={skip}", flush=True)
+          f"缺失 {len(rows)} 行 补 {filled} 行 ok={ok} skip={skip} 失败 {failure_count} 次",
+          flush=True)
     return {"filled": filled, "codes": ok, "skip": skip, "secs": time.time() - t0}
 
 
