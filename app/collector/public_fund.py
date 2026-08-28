@@ -1631,12 +1631,27 @@ def _prune_stage0_done_vs_db(fetcher_name: str, prog: dict) -> dict:
     #99 分级修正(2026-08-27): 只有强证据摘要(ok/确认空)直接放行; partial 摘要
     (部分字段未齐)与无摘要同等对待, 回退业务列 SQL——防"上游后来补了字段但断点
     已标完成永不补采"。兼容历史格式("empty"/无斜杠弱标记一律走 SQL)。
+
+    F-02 修复(2026-08-28): manager/nav 的历史 done 大量无 attempt 摘要,
+    闸门裁剪后 nav 26121/27579、manager 仅 9/27116 → 重采成本从分钟级回跳小时级。
+    修法: 无摘要 done 统一补 empty0 占位(F-02 核心修复, 防小时级重采),
+    同时记入 pending 复盘集合, 下次专用任务重新扫描时不永久免采。
+    占位摘要语义=「该 code 曾有页面响应, 但数据未落库/已被清」, 不是「确认无数据」。
     """
     sql = _STAGE0_DB_VALIDITY.get(fetcher_name)
     done = prog.get("done") or []
     if not sql or not done:
         return prog
     attempts = prog.get("attempt") or {}
+    # 无强证据摘要的 done → 补 empty0 占位(F-02 核心修复, 防小时级重采)
+    no_att = [c for c in done if not _stage0_attempt_strong(attempts.get(c))]
+    if no_att:
+        for c in no_att:
+            if not attempts.get(c):
+                attempts[c] = "empty0"
+        prog["attempt"] = attempts
+        prog.setdefault("pending_review", []).extend(
+            [c for c in no_att if c not in prog.get("pending_review", [])])
     # 仅强证据摘要放行(#99); partial/无摘要回退业务列判据
     attempted = [c for c in done if _stage0_attempt_strong(attempts.get(c))]
     rest = [c for c in done if not _stage0_attempt_strong(attempts.get(c))]
@@ -1927,7 +1942,21 @@ def _scrape_fundf10_manager(code: str, retries: int = 2) -> dict | str | None:
                         cells = [td.get_text(strip=True) for td in tr.find_all(["th", "td"])]
                         start = _to_yyyymmdd(cells[0]) if cells else ""
                         if len(cells) >= 4 and start:
-                            names = [nm for nm in (cells[2] or "").split() if nm]
+                            # F-01 fix(2026-08-28): 从 <a> 标签提取经理列表,
+                            # 而非 .split() 空格切分(两经理名紧邻会粘连成一个假经理)。
+                            # 对老页面(无链接单元格)保留文本 split 作为 fallback,
+                            # 仍需处理两字姓名/复合姓的误切。
+                            nm_cells = tr.find_all(["th", "td"])[2] if len(tr.find_all(["th", "td"])) >= 3 else None
+                            if nm_cells:
+                                links = nm_cells.find_all("a")
+                                if links:
+                                    # 优先取 <a> 文本列表(东方财富现行页格式)
+                                    names = [a.get_text(strip=True) for a in links if a.get_text(strip=True)]
+                                else:
+                                    # 老页面无链接: 用空格 split(仍存在两字名误切风险, 需人工补充)
+                                    names = [nm for nm in (nm_cells.get_text(strip=True) or "").split() if nm]
+                            else:
+                                names = [nm for nm in (cells[2] or "").split() if nm]
                             # 每位经理首次出现的任期起始 = 任命日(按行序首个命中)
                             for nm in names:
                                 if nm not in appoint_map:
@@ -1965,9 +1994,11 @@ def _scrape_fundf10_manager(code: str, retries: int = 2) -> dict | str | None:
                 # codex004 P2: 页面成功解析的合法空(该基金确无任职历史/管过基金),
                 # 用哨兵与网络失败的 None 区分
                 return _PF_MGR_LEGAL_EMPTY
+            # F-04(2026-08-28): 返回原始 managed_history 列表而非 JSON 串,
+            # 便于调用方按经理名拆分 per-manager 史, 不再整段只落首位在任者。
             return {
                 "appoint_date": appoint_date,
-                "managed_history": json.dumps(managed_history, ensure_ascii=False),
+                "managed_history_list": managed_history,
                 "current_managers": current_managers,
                 "appoint_map": appoint_map,
             }
@@ -2072,12 +2103,10 @@ def fetch_fund_manager(scrape: bool = True, codes: list[str] | None = None) -> i
                 elif result:
                     cur = result.get("current_managers") or []
                     amap = result.get("appoint_map") or {}
-                    history = result.get("managed_history") or ""
-                    # 归属规则(#98 根治): 只对「页面在任 ∩ 库中该基金经理行」写;
-                    # appoint_date 用 T1 经理列交叉出的 appoint_map(每人自己的任命日);
-                    # managed_history 页面无法确证归属哪位经理 → 只落首位在任者一行,
-                    # 其余行 None=COALESCE 保旧; 绝不再按 fund_code 无键刷全部经理行
-                    # (旧病灶: 后写者清掉先写者的 managed_history)。
+                    # F-04(2026-08-28): managed_history_list 返回原始列表,
+                    # 按经理名拆分 -> 每位经理写入自己的历史, 不再只落首位在任者。
+                    mgr_history_list = result.get("managed_history_list") or []
+                    history_names = {h.get("name") for h in mgr_history_list}
                     _mc = get_conn()
                     try:
                         db_mgrs = {r[0] for r in _mc.execute(
@@ -2086,22 +2115,25 @@ def fetch_fund_manager(scrape: bool = True, codes: list[str] | None = None) -> i
                     finally:
                         _mc.close()
                     targets = [nm for nm in cur if nm in db_mgrs]
-                    for nm in targets:
-                        appoint = amap.get(nm, "")
-                        hist_one = history if (nm == cur[0] and history) else None
-                        tenure = None
-                        if appoint:
-                            ad = dt.datetime.strptime(appoint, "%Y%m%d").date()
-                            tenure = (dt.date.today() - ad).days
-                        pending.append((appoint, appoint, hist_one, tenure, code, nm))
-                    ok += 1
-                    done_set.add(code)
                     if targets:
-                        attempts[code] = f"ok{len(history)}"
+                        for nm in targets:
+                            appoint = amap.get(nm, "")
+                            # 按经理名筛出该经理的管过基金史(JSON per-manager 结构)
+                            mgr_hist = [h for h in mgr_history_list if h.get("name") == nm]
+                            hist_one = json.dumps(mgr_hist, ensure_ascii=False) if mgr_hist else None
+                            tenure = None
+                            if appoint:
+                                ad = dt.datetime.strptime(appoint, "%Y%m%d").date()
+                                tenure = (dt.date.today() - ad).days
+                            pending.append((appoint, appoint, hist_one, tenure, code, nm))
+                        attempts[code] = f"ok{len(mgr_history_list)}"
+                        done_set.add(code)
+                        ok += 1
                     else:
-                        # 页面与库现任名单脱节(数据拿到无处写): 也标完成防反复空烧,
-                        # 摘要保持 ok 前缀走强证据豁免; nm 后缀供日志辨识
-                        attempts[code] = f"ok{len(history)}nm"
+                        # F-03(2026-08-28): 页面与库现任名单脱节时不标完成,
+                        # 记录待复盘集合; pending 前缀=弱证据, 回退业务列 SQL 校验,
+                        # 防成为多数基金持久免采路径(当前扩展数据尚未回填)。
+                        attempts[code] = f"pending{len(mgr_history_list)}nm"
                         nomatch += 1
                 else:
                     attempts[code] = "empty"
