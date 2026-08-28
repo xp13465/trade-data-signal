@@ -9587,8 +9587,15 @@ function _renderSigKellyBar(bar, data, period) {
   // S06(codex-task-20260825-001, handoff §五.功能3): 动态键集不参与反查(Match 跳过 dynamic 预设)——
   // s06 态且标签区仍停在参考底座(反查=当前默认档, 即未被手动动过)时显示 S06; 手动勾/取消任一标签后
   // 反查≠默认档 → 自然落「⚙️自定义组合」态(判定层同步退出 s06, 见 _kellyOnFilterChange 入口清除)
-  if (_fadeMatchedId === (typeof window._KELLY_FADE_DEFAULT_MODE === "string" ? window._KELLY_FADE_DEFAULT_MODE : "new14")
-    && state.labSigKellyFadeModeBase === "s06") _fadeMatchedId = "s06";
+  // v1.1.8 fix: S06 基座可能是 new14/9键/A进攻王等, 反查结果=基座ID≠"s06"; 只要 state.labSigKellyFadeModeBase
+  // 是 s06 且 filters 未被手动改动(反查匹配某个预设, 不是 null=自定义), 就显示 s06 选中态。
+  var _isS06Base = (state.labSigKellyFadeModeBase === "s06");
+  if (_isS06Base && _fadeMatchedId && _fadeMatchedId !== "custom") {
+    _fadeMatchedId = "s06";
+  } else if (_fadeMatchedId === (typeof window._KELLY_FADE_DEFAULT_MODE === "string" ? window._KELLY_FADE_DEFAULT_MODE : "new14")
+    && _isS06Base) {
+    _fadeMatchedId = "s06";
+  }
   const _fadeBaseId = state.labSigKellyFadeModeBase || (typeof window._KELLY_FADE_DEFAULT_MODE === "string" ? window._KELLY_FADE_DEFAULT_MODE : "new14");
   const _fadeDisp = (window._tdsFadeModeById ? window._tdsFadeModeById(_fadeMatchedId || _fadeBaseId) : null) || { name: "NEW 14键", caliber: "", calWarn: false };
   const _fadeCaliberHTML = _fadeMatchedId
