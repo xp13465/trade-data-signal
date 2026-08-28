@@ -84,7 +84,7 @@ review_enabled: true          # 生成时把 history 近30日方向偏差统计�
 #   false = 线上 prompt 与改造前逐字一致（生产默认，§23.7 零改动）。
 #   ⚠️ 只加 T 不加 L 会让 8/18 这类「全席位大幅转多却次日暴跌」样本改错
 #      (2026-08-18 nq_chg=-1.302 纳指大跌压制转多)，故 T/L 必须一起加。
-direction_anchor_enabled: false
+direction_anchor_enabled: true  # 2026-08-28 用户拍板开启:方向锚语义教学(离线A/B验证2/3有效,线上从未开)
 
 # ── 反思=因子归因回灌(TA Reflector 内核,AI预测自成长轮次3,2026-08-20,默认关=线上注入逐字不变)──
 #   true  = build_reflection_inject 追加「待规避因子」段:聚合历史失败样本的 factor_attribution
