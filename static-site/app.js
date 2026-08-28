@@ -8,36 +8,7 @@
 // BUG-E：交互增强状态--industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 注：原 indexFilter（A 股/港股 指数筛选 select）已重构为目录锚点 chip(2026-07-20), 始终全部渲染, 点击 chip 跳转吸顶, 不再需要筛选状态
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "3m", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null, sigTypeFilter: null, sigWindowFilter: "0_15", sigEtfFilterSet: ["1","2","3","4"], sigJudgeWin: 10 };
-// 对错判定窗 N(2026-08-24 用户拍板「N交易日到期冻结窗」): 10=默认档(A方法10日固定卖出周期),
-// 15=F方法15日对照档(localStorage tds_sig_judge_win 记忆)。后端双档字段:
-// since_correct/since_settled/since_win_return(默认档, 买入四类+卖/止损卖=w10, 波段减仓=w5 固定)
-// 与 *_w15 对照档(波段减仓的 w15 字段由后端复制 w5 值)。窗长参数唯一权威定义在 app/queries.py _WIN_*。
-try { if (localStorage.getItem("tds_sig_judge_win") === "15") state.sigJudgeWin = 15; } catch (e) {}
-// 对错判定当前档读取 helpers(2026-08-24): total/byType/评级/警示块/对错筛选/hoverpop/成功失败前缀
-// 全部消费点统一走这三个, 禁直读 it.since_correct 造成切档不一致(§22)。老缓存 overview 无新字段时
-// undefined 回退 since_correct(旧口径数据), 平滑过渡不崩。
-function _sigWinN() { return state.sigJudgeWin === 15 ? 15 : 10; }
-function _scOf(it) {
-  if (_sigWinN() === 15 && it.since_correct_w15 !== undefined) return it.since_correct_w15;
-  return it.since_correct;
-}
-function _settledOf(it) {
-  if (_sigWinN() === 15 && it.since_settled_w15 !== undefined) return it.since_settled_w15;
-  return it.since_settled;
-}
-// 当前档窗口收益%(定案=第N日收盘收益; 未满窗=至今暂计; band_hold/今日信号=null)
-function _swrOf(it) {
-  if (_sigWinN() === 15 && it.since_win_return_w15 !== undefined) return it.since_win_return_w15;
-  return it.since_win_return;
-}
-// 该信号实际生效的判定窗长: 波段减仓固定 5 日(后端 queries.py _WIN_BAND_SELL_N=5 唯一权威,
-// 其默认档字段即 w5 结果、w15 复制 w5), 其余信号=当前判定窗档位(_sigWinN 10/15)。
-// data-idx-n 属性与走势弹窗「N日窗盈亏」标签统一走此函数取 n——
-// 2026-08-24 P3-2 修正: 原恒传 _sigWinN() 致波段减仓标签写「10日窗」但数值是 5 日窗结果的失实。
-function _effWinN(it) {
-  return (it && (it.reason || '').includes('波段减仓')) ? 5 : _sigWinN();
-}
+const state = { tab: "overview", range: "3m", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null, sigTypeFilter: null, sigWindowFilter: "0_15", sigEtfFilterSet: ["1","2","3","4"] };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -345,10 +316,12 @@ function mkCard(title, height = 300, hint = null, container = content, chartArr 
 
 // 通用折线：series = [{name, data:[{date,value}]}] 或单条 [{date,value}]
 // height 可选（第6参数，默认 300），用于单独压缩某张卡片图表高度。
-// P2-11 纯搬运(2026-08-22): setOption 配置构造抽为 _lineChartBuildOption,大盘懒渲染卡(_marketLineCardLazy)
-// 与本函数共用同一份配置,防双份分叉(§22 同源精神)。
-function _lineChartBuildOption(title, arr, dates, opts) {
-  return withTheme({
+function lineChart(title, series, opts = {}, hint = null, container = content, height = 300) {
+  const multi = Array.isArray(series) && series.length && series[0] && series[0].data;
+  const arr = multi ? series : [{ name: stripHtml(title), data: series }];
+  const dates = [...new Set(arr.flatMap((s) => s.data.map((d) => d.date)))].sort();
+  const c = mkCard(title, height, hint, container);
+  c.setOption(withTheme({
     tooltip: { trigger: "axis" },
     legend: { top: 0, type: "scroll" },
     grid: { left: 55, right: 20, top: 35, bottom: 35 },
@@ -367,14 +340,7 @@ function _lineChartBuildOption(title, arr, dates, opts) {
       }),
     })),
     ...opts,
-  });
-}
-function lineChart(title, series, opts = {}, hint = null, container = content, height = 300) {
-  const multi = Array.isArray(series) && series.length && series[0] && series[0].data;
-  const arr = multi ? series : [{ name: stripHtml(title), data: series }];
-  const dates = [...new Set(arr.flatMap((s) => s.data.map((d) => d.date)))].sort();
-  const c = mkCard(title, height, hint, container);
-  c.setOption(_lineChartBuildOption(title, arr, dates, opts));
+  }));
   return c;
 }
 
@@ -1518,12 +1484,7 @@ const _SIG_TYPE_META = [
   { key: "sell", labelKey: "sell_short", color: "#2e8b57" },
   { key: "sell_stop_loss", labelKey: "type_sell_stop_loss", color: "#3498db" },
 ];
-// items: 统计人口; winN: 对错判定窗档位(10=默认/15=对照, 缺省读 state.sigJudgeWin)。
-// 2026-08-24 到期冻结窗: 后端双档字段 since_correct(w10/波段减仓w5) + since_correct_w15(F方法对照),
-// 切档时传不同 winN 读对应字段(波段减仓 w15=w5 复制值, 两档数字相同属预期)。
-function _calcSignalAccuracy(items, winN) {
-  const _w = winN === 15 ? 15 : (_sigWinN());
-  const _sc = (it) => (_w === 15 && it.since_correct_w15 !== undefined ? it.since_correct_w15 : it.since_correct);
+function _calcSignalAccuracy(items) {
   const _newBin = () => ({ t: 0, f: 0, n: 0, pct: null });
   const acc = {
     total: { t: 0, f: 0, n: 0, pct: null },
@@ -1536,9 +1497,8 @@ function _calcSignalAccuracy(items, winN) {
   };
   if (!items || !items.length) return acc;
   const _tally = (bin, it) => {
-    const v = _sc(it);
-    if (v === true) bin.t++;
-    else if (v === false) bin.f++;
+    if (it.since_correct === true) bin.t++;
+    else if (it.since_correct === false) bin.f++;
     else bin.n++;
   };
   for (const it of items) {
@@ -1587,7 +1547,7 @@ function _calcSignalAccuracy(items, winN) {
 function _sigWindowSuffix() {
   const wf = state.sigWindowFilter;
   if (!wf || wf === "0_15") return "";
-  const map = { "10_15": "显示10~30日", "7_15": "显示7~30日", "3_15": "显示3~30日", "y_15": "昨日~30日" };
+  const map = { "10_15": "显示10~15日", "7_15": "显示7~15日", "3_15": "显示3~15日", "y_15": "昨日~15日" };
   return " · " + (map[wf] || "");
 }
 function _sigTodayHint() {
@@ -1602,9 +1562,7 @@ function _sigTodayHint() {
 //   ③SVG 3色为基准(echarts fallback 去固定色让 visualMap 生效) ④reviewer 返修4项(P1 localStorage try/catch
 //   /P2-1 空态删 _lwRenderers /P2-2 dataZoom pb 44 /P2-3 y轴固定0-100) ⑤标题❓hover短+click详版弹窗(rule-modal)。
 // 口径公示(卡内 tooltip + help 弹窗 + purpose-notes §21): 准确率=信号后方向命中(回测=按卖出模式到期收益方向;
-//   实盘=2026-08-24 起改 N 交易日到期冻结窗: 满窗以第 N 个交易日收盘定案, 未满窗暂计至今;
-//   默认 10 日(与首页判定窗默认档一致), 波段减仓固定 5 日; 与首页「近期技术参考点」since_correct 同口径);
-//   band_hold/未结算不计。
+//   实盘=信号日收盘→最新收盘方向, 与首页「近期技术参考点」汇总条 since_correct 同口径); band_hold/未结算不计。
 //   过拟合风险分 = 0.40*D1(回测-实盘偏离) + 0.25*D2(滚动样本外) + 0.20*D3(参数稳定) + 0.15*D4(象限退化);
 //   绿<30(正常)/黄30-60(关注)/红>60(高风险)。曲线 daily 按选中统计口径滚动派生(无前视); 顶部综合分固定 60 窗口单一权威值。
 // 2026-08-16 三合一改造③: 两图从 echarts instance 改为 lite 容器引用(_lwSetup 在 _renderOverfitAcc/_renderOverfitRisk 内按 state 每次重建,
@@ -1633,7 +1591,7 @@ function _overfitHelpModalHTML() {
       '<div class="rule-card-head"><span class="rule-badge">📈 图怎么看</span></div>' +
       '<p><b>上=准确率曲线</b>：信号方向命中的比率(%)，<span style="color:#e6492e">实盘实际(红实线)</span> vs <span style="color:#409eff">回测预期(蓝虚线)</span>。准确率大于预期 → 策略在实战中未退化；低于预期 → 可能历史拟合过好、未来失灵。</p>' +
       '<p><b>下=综合过拟合风险分(0-100)</b>：绿(&lt;30 正常)、黄(30-60 关注)、红(&gt;60 高风险)，虚线参考线 30/60。分越高代表「回测好但实盘差」的偏离越严重，越需要留意参数是否过拟合。</p>' +
-      '<p><b>口径</b>：实盘=信号后 <b>N 交易日到期冻结窗</b>方向命中（满窗以信号日后第 N 个交易日收盘价定案，此后不再变；未满窗的按至今走势暂计并标「未定案」。默认 10 日，与首页「判定窗」默认档一致；波段减仓固定 5 日），回测=按卖出模式到期收益方向。<b>买类实盘线只统计回测宇宙内信号</b>（信号类型∈买入白名单 buy/buy_aux/buy_special/buy_backup + 该指数已入样 _bt_in_universe），情绪类/全球商品利率/港股行业等回测不测的信号剔除，确保买类实盘线与回测线比的是<b>同一批买入信号</b>。<b>卖类(sell/止损卖)特殊口径(2026-08-17 方案B)</b>：回测交易本体全为买信号、卖信号不独立成回测交易，故卖类<b>不过滤宇宙、统计全部卖信号的实盘实际命中率</b>（N 日窗内跌=对），只有实盘实际线、无回测对照、风险分不适用。样本去重：回测按(模式+信号日+标的+信号)去重，n 为真实唯一成交数。<b>不设样本数下限</b>：各统计口径有多少样本画多少；早期窗口不满或过滤后样本少的档位照常画线，n 越小曲线越仅供参考（tooltip 看 n 判断可信度），不再因样本不足而空态。</p>' +
+      '<p><b>口径</b>：实盘=信号日收盘→最新收盘方向，回测=按卖出模式到期收益方向。<b>买类实盘线只统计回测宇宙内信号</b>（信号类型∈买入白名单 buy/buy_aux/buy_special/buy_backup + 该指数已入样 _bt_in_universe），情绪类/全球商品利率/港股行业等回测不测的信号剔除，确保买类实盘线与回测线比的是<b>同一批买入信号</b>。<b>卖类(sell/止损卖)特殊口径(2026-08-17 方案B)</b>：回测交易本体全为买信号、卖信号不独立成回测交易，故卖类<b>不过滤宇宙、统计全部卖信号的实盘实际命中率</b>（卖后跌=对），只有实盘实际线、无回测对照、风险分不适用。样本去重：回测按(模式+信号日+标的+信号)去重，n 为真实唯一成交数。<b>不设样本数下限</b>：各统计口径有多少样本画多少；早期窗口不满或过滤后样本少的档位照常画线，n 越小曲线越仅供参考（tooltip 看 n 判断可信度），不再因样本不足而空态。</p>' +
     '</div>' +
     '<div class="rule-card">' +
       '<div class="rule-card-head"><span class="rule-badge">🔘 按钮怎么用</span></div>' +
@@ -1642,7 +1600,7 @@ function _overfitHelpModalHTML() {
       '<p><b>显示范围(30/60/90/180日)</b>：控制横轴展示最近 N 个交易日，<b>只影响显示截取、不改变统计</b>——即无论选 30 还是 180，都只是图上看多少范围，曲线按当前「统计口径」算。</p>' +
       '<p><b>统计口径(10/15/30/60/100日，默认15)</b>：准确率 + 过拟合风险分<u>两图都按选中的 N 日滚动重算</u>（即重算滚动窗口，而非只截取展示）。两图曲线随选中口径滚动展示。<b>左上大数字「综合风险分」与曲线不同</b>：它是固定 4 维加权合成（0.4×回测-实盘偏离 + 0.25×样本外衰减 + 0.2×参数稳定 + 0.15×象限退化）的独立指标，固定 60 窗口口径=后端单一权威值，<b>不随所选统计口径变</b>。</p>' +
       '<p><b>📖 白话版本(选哪档)</b>：<br>· <b>10日</b>≈最近2周，超短期快速体检。最灵敏但样本最少、曲线容易抖，适合"刚改完东西想立刻看反应"，参考价值有限。<br>· <b>15日(默认)</b>≈最近3周，日常短检，默认够看"最近信号准不准"；比如昨天新开了某个降亏过滤，想看它最近三周表现就选15日。<br>· <b>30日</b>≈最近1个多月，短中期平衡；想确认"最近一两个月策略有没有掉链子"看它。<br>· <b>60日</b>≈最近1个季度，中期稳定性；想判断"策略整体还行不行、有没有过拟合"看它。<br>· <b>100日</b>≈接近半年，长期视角；样本最足曲线最稳但反应最慢，适合看长期平均表现。<br><span style="color:#f0a020"><b>一句话总原则</b></span>：窗口越短→越灵敏但越抖(看短期准不准)；窗口越长→越稳但反应越慢(看长期稳不稳)。想抓短期异常选小的，想验整体稳定性选大的。</p>' +
-      '<p><b>🎯 1:1 直白举例(拿"实盘 vs 回测同批"说事)</b>：打开监控卡时，曲线最右端的点=数据最末交易日（下例为 2026-08-24 撰写时快照，实际以曲线 tooltip 为准）。<b>实盘线已限定回测宇宙</b>：系统拿数据末端往前 15 个有信号的交易日（2026-07-31 到 08-20，跳开周末/无信号日）内<b>回测宇宙内的买入信号</b>来比——实盘 n=75 个信号命中 16 次≈21.3%（每条按 10 交易日到期冻结窗定案），回测同窗 n=219 命中 52 次≈23.7%，两者接近（差 -2.4pp）→ 同批信号实盘未明显退化。对照：同批若按旧「至今」口径算只有 18.7%——A股长期向上时「至今口径」系统性压低买类、抬高卖类（选啥都对/错都失去区分度），这正是 2026-08-24 全站改 N 日到期冻结窗的原因。另：近期行情偏弱，两线都在 20% 上下远低于长期均值（全史买类≈55%），属行情阶段现象而非策略失灵，看「差值」比看「绝对值」更有意义。<br><b>别混两个数</b>：曲线点=单一窗口"实盘 vs 回测"胜率差映射的分数，随统计口径(10/15/30/60/100)变；左上大数字综合风险分=固定 4 维加权（0.4×回测-实盘偏离+0.25×样本外+0.2×参数稳定+0.15×象限退化）的独立指标，固定 60 窗口口径，不随所选统计口径变。<br><b>怎么读</b>：选 15 日=看某日期往前 15 个有信号的交易日（约 3 周）内同批买入信号的命中率；10/30/60/100 同理。注意统计口径（滚动取多少个交易日）与判定窗（每条信号等几个交易日定案，默认10日）是两个独立概念。n 越小（如过滤后只剩几条）曲线越仅供参考，tooltip 看 n 判断可信度。</p>' +
+      '<p><b>🎯 1:1 直白举例(拿"实盘 vs 回测同批"说事)</b>：打开监控卡时，曲线最右端的点=数据最末交易日。由于回测结算滞后一天，当前最新点=8/13。<b>实盘线已限定回测宇宙</b>：系统拿 8/13 往前 15 个有信号的交易日（约 2026-07-24 到 08-13，跳开周末/无信号日）内<b>回测宇宙内的买入信号</b>来比——实盘 n=105 个信号命中 60.0%，回测 n=315 命中 58.7%，两者几乎一致（差 +1.3pp，实盘略好）→ 同批信号实盘未退化。改口径前这里把卖/情绪类（命中率仅约 22%）也混进实盘样本，同窗口实盘被拉到 40.9%、对回测 58.7% 差 17.9pp，造成虚假的"过拟合"红警；对齐宇宙后该偏差消失。<br><b>别混两个数</b>：曲线点=单一窗口"实盘 vs 回测"胜率差映射的分数，随统计口径(10/15/30/60/100)变；左上大数字综合风险分=固定 4 维加权（0.4×回测-实盘偏离+0.25×样本外+0.2×参数稳定+0.15×象限退化）的独立指标，固定 60 窗口口径，不随所选统计口径变。<br><b>怎么读</b>：选 15 日=看某日期往前 15 个有信号的交易日（约 3 周）内同批买入信号的命中率；10/30/60/100 同理。n 越小（如过滤后只剩几条）曲线越仅供参考，tooltip 看 n 判断可信度。</p>' +
       '<p><b>评级/类型</b>：切换只看高/中/低评级 或 主买/辅买/追买/备买/卖/止损卖 子集。买类（主买/辅买/追买/备买）=限定回测宇宙，实盘线+回测线双线对照。<b>卖/止损卖（2026-08-17 方案B）</b>：卖信号是 G/H/I 信号驱动卖出模式的卖出触发器，其准确率（发出后方向对不对）直接影响收益，故单独监控——切卖/止损卖档位时显示<b>实盘实际命中率单线（不过滤宇宙，卖后跌=对）</b>，标注「仅实盘实际、无回测对照」；因回测不把卖信号独立成交易，<b>无回测对照线、综合风险分不适用</b>。</p>' +
     '</div>' +
     '<div class="rule-card">' +
@@ -1903,271 +1861,6 @@ function _renderOverfitRisk(data) {
 }
 
 // 建分析参考点AI监控卡 + 异步加载数据渲染(调用点 renderOverview sigCard 之后)
-// ===== T3-2(2026-08-23) 监控卡 7 模式·recent 明细组集聚合(数据层=overfit_monitor.json recent) =====
-// 【架构】后端不为 7 模式各预切一份 bank(体积灾难), 改为逐信号打点明细(每键命中标注+回测A/F/G胜负+
-// 实盘胜负); 前端按所选模式组集成员键后复刻聚合链(bucket去重语义→rolling_win_rates→_derive_daily_series),
-// 输出与 bank 同构对象喂给既有渲染层(_renderOverfitAcc/_renderOverfitRisk 零改动 §23.7)。
-// 一致性由 scripts/check_overfit_recent_parity.mjs 断言: 组集(raw人口,p8成员) vs bank_raw 曲线逐位一致。
-const _OV_WINDOWS = [10, 15, 30, 60, 100];
-const _OV_SURFACE_DAYS = 200;   // 与后端 SURFACE_DAYS 一致(裁剪口径)
-const _OV_BT_BUY4 = { buy: 1, buy_aux: 1, buy_special: 1, buy_backup: 1 };
-const _OV_SELL2 = { sell: 1, sell_stop_loss: 1 };
-function _ovRiskLevel(sc) {
-  if (sc == null) return "gray";
-  if (sc < 30) return "green";
-  if (sc <= 60) return "yellow";
-  return "red";
-}
-function _ovBucketNew() { return { n: 0, win: 0 }; }
-function _ovBucketAdd(b, hit) { b.n++; if (hit) b.win++; }
-// 行是否被 AI降亏过滤层拦截(signal_ai_filtered 同语义): 仅买信号判; t=null=未入样(+1类);
-// k(命中键"|"-join)与模式成员集交集非空=拦; 第三参 bullStopOn 为旧独立+1开关遗留(2026-08-24 已删控件),
-// 现恒传 false(签名不动最小改动; 模式 keys 含 bullAuxBackupStop 时经 memberSet 命中, tier短码1=牛市·主升不再独立叠加)。
-function _ovRecentRowFiltered(r, memberSet, bullStopOn) {
-  const sig = r.s || "";
-  if (!(sig === "buy" || sig === "buy_aux" || sig === "buy_special" || sig === "buy_special_filtered" || sig === "buy_backup")) return false;
-  if (r.t == null) return true;
-  if (r.k) {
-    const ks = r.k.split("|");
-    for (let i = 0; i < ks.length; i++) { if (memberSet[ks[i]]) return true; }
-  }
-  if (bullStopOn && (sig === "buy_aux" || sig === "buy_backup") && r.tier === 1) return true;
-  return false;
-}
-// rolling 复刻(scripts/overfit_monitor.py rolling_win_rates): points=[{date,buckets:{key:{n,win}}}],
-// 每 window 对每个有样本点做滑窗累计(样本数下限已去掉, 有多少画多少)。
-function _ovRolling(points, pathKey, windows) {
-  const out = {};
-  for (let wi = 0; wi < windows.length; wi++) {
-    const w = windows[wi];
-    const seq = [];
-    for (let i = 0; i < points.length; i++) {
-      const b = points[i].buckets[pathKey];
-      if (!b || !b.n) continue;
-      const start = Math.max(0, i - w + 1);
-      let n = 0, win = 0;
-      for (let j = start; j <= i; j++) {
-        const bb = points[j].buckets[pathKey];
-        if (bb) { n += bb.n; win += bb.win; }
-      }
-      seq.push({ date: points[i].date, n: n, win_rate: n ? (win / n * 100) : null });
-    }
-    out[String(w)] = seq;
-  }
-  return out;
-}
-// daily 风险分派生复刻(_derive_daily_series): dev=实盘-回测滚动胜率(pp)分段映射; current_risk 未参与(同后端)。
-// ⚠舍入对齐(memory frontend-replay-align-backend): Python round()=banker's rounding(22.5→22),
-// JS Math.round()=half-up(22.5→23) —— 组集曲线点须与后端同口径, 自实现 half-even。
-function _ovRoundHalfEven(x) {
-  const f = Math.floor(x), d = x - f;
-  if (d === 0.5) return (f % 2 === 0) ? f : f + 1;
-  if (d === -0.5) return (f % 2 === 0) ? f : f - 1;
-  return Math.round(x);
-}
-function _ovDeriveDaily(btSeq, actSeq) {
-  const actMap = {};
-  (actSeq || []).forEach((p) => { actMap[p.date] = p.win_rate; });
-  const seq = [];
-  const src = btSeq || [];
-  for (let i = 0; i < src.length; i++) {
-    const wr = src[i].win_rate;
-    if (wr == null) continue;
-    const a = actMap[src[i].date];
-    let sc;
-    if (a == null) { sc = 40.0; }
-    else {
-      const dev = a - wr;
-      if (dev > 10) sc = Math.max(10, 25 - (dev - 10) * 0.5);
-      else if (dev > 0) sc = 35 - dev * 1.0;
-      else if (dev > -10) sc = 55 - dev * 1.0;
-      else sc = Math.min(95, 70 - (dev + 10) * 1.5);
-    }
-    sc = Math.max(0, Math.min(100, sc));
-    seq.push({ date: src[i].date, risk_score: _ovRoundHalfEven(sc), level: _ovRiskLevel(sc), win_rate: _ovRoundHalfEven(wr * 10) / 10 });
-  }
-  return seq;
-}
-function _ovTrim(seq) { return (seq && seq.length > _OV_SURFACE_DAYS) ? seq.slice(-_OV_SURFACE_DAYS) : (seq || []); }
-function _ovTrimObj(o) { const x = {}; for (const w in o) x[w] = _ovTrim(o[w]); return x; }
-// 主聚合: recent 明细 × 模式成员集 → bank 同构子集(accuracy.rolling + overfit.daily_by_win/daily_by_dim,
-// 恰为渲染层消费的全部字段; current/d2-d4 不输出——它们不进前端曲线链且属预警主口径, 保持后端权威)。
-function _ovAggregateRecent(recent, modeId, bullStopOn, fadeOn, k) {
-  try {
-    if (!recent || !Array.isArray(recent.rows) || !recent.rows.length) return null;
-    const preset = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(modeId) : null;
-    if (!preset) return null;
-    // S06(codex-task-20260825-001): dynamic 预设无静态 keys —— 组集必须按行日期读快照生效基座(a9/new15)
-    // 取对应成员集(禁止展开成静态键组合 handoff §四); 行日期超快照覆盖期/快照未就绪 → fail-open 该行不拦,
-    // 计入 _s6.open 由调用方给「可见降级提示」, 绝不静默退回其他模式(handoff §五 功能5)。
-    const isS06 = !!preset.dynamic;
-    const memberSet = {};
-    const s6Sets = isS06 ? { a9: {}, new15: {} } : null;
-    if (isS06) {
-      if (typeof _tdsS06BaseForDate !== "function") return null;   // 单源解析层缺失(common.js 太旧)=不组集走回退链
-      for (const bid of ["a9", "new15"]) {
-        const bp = _tdsFadeModeById(bid);
-        if (bp && Array.isArray(bp.keys)) for (let i = 0; i < bp.keys.length; i++) s6Sets[bid][bp.keys[i]] = true;
-      }
-    } else {
-      for (let i = 0; i < preset.keys.length; i++) memberSet[preset.keys[i]] = true;
-    }
-    let s6Open = 0;   // s06 fail-open 行数(可见降级提示用)
-    // 行级成员集: 非 s06 恒同一 set(行为逐位不变); s06 按行日期解析, 不可用返回 null=该行不拦
-    const memberSetForRow = function (d) {
-      if (!isS06) return memberSet;
-      const r6 = _tdsS06BaseForDate(d);
-      if (!r6 || !r6.ok) { s6Open++; return null; }
-      return s6Sets[r6.base] && Object.keys(s6Sets[r6.base]).length ? s6Sets[r6.base] : null;
-    };
-    // ① 过滤层(fadeOn=false 时不过滤=全信号人口, 与 bank raw 语义一致)
-    let pop = recent.rows;
-    if (fadeOn) pop = pop.filter(function (r) {
-      const ms = memberSetForRow(r.d);
-      return ms ? !_ovRecentRowFiltered(r, ms, bullStopOn) : true;
-    });
-    // ② top-K(build_topk_kept_map 同口径: ts DESC→rating→signal; ts None 排除; 仅买类入位;
-    //    kept 过滤同时剔除非保留行含卖类——与 filter_by_date_by_kept 同语义, K档下卖类维度自然为空)
-    if (k != null && k >= 1 && k <= 4) {
-      const byDate = {};
-      for (let i = 0; i < pop.length; i++) {
-        const r = pop[i];
-        if (r.t == null) continue;
-        const sigN = r.s === "buy_special_filtered" ? "buy_special" : r.s;
-        if (!_OV_BT_BUY4[sigN]) continue;
-        (byDate[r.d] || (byDate[r.d] = [])).push(r);
-      }
-      const RC = { high: 0, mid: 1, low: 2, "": 3 };
-      const SC = { buy_backup: 0, buy: 1, buy_aux: 2, buy_special: 3 };
-      const kept = new Set();
-      for (const d in byDate) {
-        byDate[d].sort(function (a, b) {
-          const ta = (a.t == null ? -1 : Number(a.t)), tb = (b.t == null ? -1 : Number(b.t));
-          if (tb !== ta) return tb - ta;
-          const ra = RC[a.g == null ? "" : a.g] != null ? RC[a.g == null ? "" : a.g] : 3;
-          const rb = RC[b.g == null ? "" : b.g] != null ? RC[b.g == null ? "" : b.g] : 3;
-          if (ra !== rb) return ra - rb;
-          const saN = a.s === "buy_special_filtered" ? "buy_special" : a.s;
-          const sbN = b.s === "buy_special_filtered" ? "buy_special" : b.s;
-          const sa = SC[saN] != null ? SC[saN] : 9, sb = SC[sbN] != null ? SC[sbN] : 9;
-          return sa - sb;
-        });
-        for (let j = 0; j < Math.min(k, byDate[d].length); j++) {
-          const r = byDate[d][j];
-          kept.add(r.d + "|" + r.i + "|" + (r.s === "buy_special_filtered" ? "buy_special" : r.s));
-        }
-      }
-      pop = pop.filter(function (r) {
-        return kept.has(r.d + "|" + r.i + "|" + (r.s === "buy_special_filtered" ? "buy_special" : r.s));
-      });
-    }
-    // ③④ 打桶(回测=每行 per A/F/G 基笔; 实盘=v!=null 行; 维度键 t/s:xxx/g:xxx)
-    const btPts = {}, actPts = {};
-    for (let i = 0; i < pop.length; i++) {
-      const r = pop[i];
-      if (r.w) {
-        for (let mi = 0; mi < r.w.length; mi++) {
-          const wv = r.w[mi];
-          if (wv == null) continue;
-          let pt = btPts[r.d]; if (!pt) pt = btPts[r.d] = { date: r.d, buckets: {} };
-          _ovBucketAdd(pt.buckets.t || (pt.buckets.t = _ovBucketNew()), wv);
-          if (_OV_BT_BUY4[r.s]) _ovBucketAdd(pt.buckets["s:" + r.s] || (pt.buckets["s:" + r.s] = _ovBucketNew()), wv);
-          else if (_OV_SELL2[r.s]) _ovBucketAdd(pt.buckets["s:" + r.s] || (pt.buckets["s:" + r.s] = _ovBucketNew()), wv);
-          if (r.gr === "high" || r.gr === "mid" || r.gr === "low") _ovBucketAdd(pt.buckets["g:" + r.gr] || (pt.buckets["g:" + r.gr] = _ovBucketNew()), wv);
-        }
-      }
-      if (r.v != null) {
-        let pt = actPts[r.d]; if (!pt) pt = actPts[r.d] = { date: r.d, buckets: {} };
-        if (!_OV_SELL2[r.s]) _ovBucketAdd(pt.buckets.t || (pt.buckets.t = _ovBucketNew()), r.v);   // total 只含买类(方案A)
-        _ovBucketAdd(pt.buckets["s:" + r.s] || (pt.buckets["s:" + r.s] = _ovBucketNew()), r.v);
-        if (r.g === "high" || r.g === "mid" || r.g === "low") _ovBucketAdd(pt.buckets["g:" + r.g] || (pt.buckets["g:" + r.g] = _ovBucketNew()), r.v);
-      }
-    }
-    const btPoints = Object.keys(btPts).sort().map(function (d) { return btPts[d]; });
-    const actPoints = Object.keys(actPts).sort().map(function (d) { return actPts[d]; });
-    const bySignal = {}, byGrade = {};
-    const SIGS = ["buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss"];
-    const GRADES = ["high", "mid", "low"];
-    const btTotalRaw = _ovRolling(btPoints, "t", _OV_WINDOWS);
-    const actTotalRaw = _ovRolling(actPoints, "t", _OV_WINDOWS);
-    for (let si = 0; si < SIGS.length; si++) {
-      const sg = SIGS[si];
-      bySignal[sg] = {
-        backtest: _OV_BT_BUY4[sg] ? _ovTrimObj(_ovRolling(btPoints, "s:" + sg, _OV_WINDOWS)) : {},
-        actual: _ovTrimObj(_ovRolling(actPoints, "s:" + sg, _OV_WINDOWS)),
-      };
-    }
-    for (let gi = 0; gi < GRADES.length; gi++) {
-      const g = GRADES[gi];
-      byGrade[g] = {
-        backtest: _ovTrimObj(_ovRolling(btPoints, "g:" + g, _OV_WINDOWS)),
-        actual: _ovTrimObj(_ovRolling(actPoints, "g:" + g, _OV_WINDOWS)),
-      };
-    }
-    const dailyByWin = {};
-    for (let wi = 0; wi < _OV_WINDOWS.length; wi++) {
-      const w = String(_OV_WINDOWS[wi]);
-      dailyByWin[w] = _ovTrim(_ovDeriveDaily(btTotalRaw[w], actTotalRaw[w]));
-    }
-    const dailyByDim = { grade: {}, sig_type: {} };
-    for (let gi = 0; gi < GRADES.length; gi++) {
-      const g = GRADES[gi]; dailyByDim.grade[g] = {};
-      for (let wi = 0; wi < _OV_WINDOWS.length; wi++) {
-        const w = String(_OV_WINDOWS[wi]);
-        dailyByDim.grade[g][w] = _ovTrim(_ovDeriveDaily(byGrade[g].backtest[w], byGrade[g].actual[w]));
-      }
-    }
-    for (let si = 0; si < SIGS.length; si++) {
-      const sg = SIGS[si]; dailyByDim.sig_type[sg] = {};
-      for (let wi = 0; wi < _OV_WINDOWS.length; wi++) {
-        const w = String(_OV_WINDOWS[wi]);
-        dailyByDim.sig_type[sg][w] = _ovTrim(_ovDeriveDaily(bySignal[sg].backtest[w], bySignal[sg].actual[w]));
-      }
-    }
-    const _aggOut = {
-      accuracy: { rolling: { backtest: _ovTrimObj(btTotalRaw), actual: _ovTrimObj(actTotalRaw), by_signal: bySignal, by_grade: byGrade } },
-      overfit: { daily_by_win: dailyByWin, daily_by_dim: dailyByDim },
-    };
-    if (isS06) _aggOut._s6 = { open: s6Open };   // s06 降级计数(fail-open 行数, 渲染层可见提示用)
-    return _aggOut;
-  } catch (e) { return null; }   // 组集异常优雅回退现有 bank(老 json/结构变更不裸崩)
-}
-
-// 监控卡 模式 读取(独立 localStorage 键: tds_overfit_fade_mode, v1.1.5 起默认=new14·NEW14 十四键;
-// 与首页 tds_home_fade_mode/凯利区 tds_kelly_fade_mode 三处独立 §22; 2026-08-24 用户拍板删除旧独立+1开关)。
-// T3-2 二轮适配(2026-08-23 用户拍板): 模式记忆不做永久保留——两键读写全走 common.js 公共 TTL 工具
-// (_tdsLoadWithTTL/_tdsStoreWithTTL, 时长单源引用 _TDS_FADE_TTL_MS=18h 不各自写死); 滑动过期=每次切换
-// 重写 ts; 过期/无 ts(旧格式)/解析异常 → 回默认并清键(工具内置 removeItem)。
-// v1.1.5(2026-08-24) overfit_monitor.json 共享获取器(app.js 作用域内单份 promise):
-// 监控卡主图 + 首页 AI 建议区枯竭 chip 共用同一份 27MB 数据, 防同页双拉; 失败 resolve null(chip 静默隐藏)。
-let _overfitMonitorPromise = null;
-function _fetchOverfitMonitor() {
-  if (_overfitMonitorPromise) return _overfitMonitorPromise;
-  // D防超时(2026-08-24 提速A+B+C+D): timeoutMs=60000 对齐模拟回测弹窗大文件先例,
-  // 防弱网/无 br 压缩环境撞默认 15s abort 报「监控数据加载失败」。
-  _overfitMonitorPromise = fetchJSON(dataUrl("overfit_monitor.json"), 60000).catch(() => null);
-  return _overfitMonitorPromise;
-}
-// B拆分(2026-08-24): K档扩展 bank 单独文件 overfit_monitor_ext.json(by_k/filtered_by_k,
-// 占原全量文件 77% 体积)。默认首屏(new14 组集/raw/filtered bank)只读主文件零 ext 请求;
-// 仅「K档×{p8对照/组集失败/降亏关}」组合按需拉取——单例 promise 内存缓存, 同页二次交互零请求。
-// 老格式全量单文件(2026-08-24 前打点)自带 by_k 等键, 永不触发本拉取(过渡期兼容)。
-let _overfitExtPromise = null;
-function _fetchOverfitExt() {
-  if (_overfitExtPromise) return _overfitExtPromise;
-  _overfitExtPromise = fetchJSON(dataUrl("overfit_monitor_ext.json"), 60000).catch(() => null);
-  return _overfitExtPromise;
-}
-function _readOverfitFadeMode() {
-  try {
-    const v = (typeof _tdsLoadWithTTL === "function")
-      ? _tdsLoadWithTTL("tds_overfit_fade_mode", _TDS_FADE_TTL_MS) : null;
-    if (v && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(v)) return v;
-  } catch (e) {}
-  // v1.1.5(2026-08-24 用户拍板): 默认模式切 NEW14(单源=common.js _KELLY_FADE_DEFAULT_MODE, 禁硬编码 §21)
-  return (typeof window._KELLY_FADE_DEFAULT_MODE === "string" ? window._KELLY_FADE_DEFAULT_MODE : "new14");
-}
-
 async function _appendOverfitCard(colA2, r, snap) {
   const card = document.createElement("div");
   card.className = "chart-card overfit-card";
@@ -2176,29 +1869,11 @@ async function _appendOverfitCard(colA2, r, snap) {
     _overfitHoverTip("AI监控2.0: 上=准确率(实盘 vs 回测) 下=综合过拟合风险分(0-100)。点击❓看完整使用指南") +
       '</h3>' +
       // 2026-08-16 二次迭代: 降亏开关 + K档 同一行(K档 × 降亏两开关独立, 用户拍板)
-      // 2026-08-24 控件行重排(纯展示层, 主控派单): 单行两组控件超长自动换行混乱 → 外层纵向 stack 明确两行——
-      //   行1=AI降亏过滤组(总开关+降亏模式下拉+该组状态标签 .overfit-fade-state2)
-      //   行2=AI仓位建议组(K档按钮组+K读数徽章 .overfit-k-state);
-      //   只动 DOM 分组/CSS 布局, 控件事件绑定/读写逻辑/判定链零变化(本卡所有控件定位均按 class/attr
-      //   card.querySelector, 与嵌套层级无关); 原 .overfit-fade-sep 竖线为行内组分隔, 拆行后随之删除。
-    '<div class="overfit-ctrl-stack">' +
     '<div class="overfit-fade-row">' +
-      '<span class="overfit-fade-label" data-tip="AI降亏过滤开关(默认开, 独立记忆): 开启=监控只统计「未被AI降亏删线过滤」的信号(未命中所选模式键集且已入样; v1.1.7 起默认=s06·大盘领先切换, 经旁侧模式下拉可切对照档); 关闭=统计全信号。仅买信号判降亏(${_t("sell_short")}/${_t("type_sell_stop_loss")}不判)。口径来源随模式: p8=8键旧默认对照走老 filtered bank 直读; 非 p8=recent 明细逐信号键命中标注→前端组集重算(§23.6 后端打标+parity 校验), 数据缺 recent(老 json)时优雅回退老 bank 不裸崩。">AI降亏过滤</span>' +
+      '<span class="overfit-fade-label" data-tip="AI降亏过滤开关(默认开, 独立记忆): 开启=监控只统计「未被AI宏删线过滤」的信号(未命中8键降亏且已入样); 关闭=统计全信号。仅买信号判降亏(${_t("sell_short")}/${_t("type_sell_stop_loss")}不判)。本开关只切 bank 读取, 不前端重算(§23.6)。">AI降亏过滤</span>' +
       '<label class="overfit-fade-switch"><input type="checkbox" data-overfit-fade="1"> <span class="ov-sw"></span></label>' +
-      // T3-2(2026-08-23): 模式下拉紧跟「AI降亏过滤」同一行(UI 落点铁律)。
-      // v1.1.5: 默认=new14(组集路径生效, 与全站口径一致); p8=对照档恒走老 bank; 非 p8 时走 recent 明细前端组集(§23.6 键命中=后端打标, parity 校验);
-      // 数据未含 recent(老 json)时优雅回退现有 bank(下拉不生效, 不裸崩)。
-      // (2026-08-24 用户拍板) 旧「牛市×辅备买全停(+1)」独立 checkbox 已删: 该能力并入模式下拉
-      // (p9/a9/b9/c9 的 keys 含 bullAuxBackupStop, 组集时经 _ovRecentRowFiltered 第三参恒 false 关闭独立叠加, 仅模式键生效)。
-      '<span class="overfit-fade-label" data-tip="降亏模式(T3-2 2026-08-23, 与凯利区/模拟回测弹窗同款预设): v1.1.7 起默认=s06·大盘领先切换(动态) / v1.1.5~v1.1.6 默认=new14·NEW 14键 / p8=8键旧默认·对照(走老 filtered bank) / ⭐9键=8键+候选1 / ⭐⭐A进攻王 / ⭐B均衡卡 / C防守=叠9键口径 / ⭐⭐NEW14+1·15键。⭐=推荐星标(v20260826 用户拍板), 下拉星多靠前、无星殿后沿用原相对序; NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。切换后监控两图按所选模式的降亏成员键组集重算(recent明细逐信号键命中标注, 后端打标)。仅 AI降亏过滤开关开启时生效; 老数据无明细时自动回退p8对照bank。">降亏模式</span>' +
-      (typeof _tdsFadeModeSelectHTML === "function"
-        ? _tdsFadeModeSelectHTML("overfit-fade-mode-sel", _readOverfitFadeMode(), false, "sim-mode-sel ov-mode-sel",
-            "AI降亏模式(预设一键套用): 切换后准确率/风险分两图按所选模式重算。v1.1.7(2026-08-26)起默认=s06·大盘领先切换(与全站一致); v1.1.5~v1.1.6 默认=new14·NEW 14键; p8=8键旧默认·对照(走老filtered bank); ⭐9键/A进攻王⭐⭐/B均衡卡⭐/C防守=叠9键口径(含牛市×辅备买全停); ⭐⭐NEW14+1·15键。⭐=推荐星标(v20260826 用户拍板), 下拉星多靠前、无星殿后沿用原相对序; NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。⚠非p8口径为 v1.1.2 四档判定源(recent明细), 与老filtered bank的MA60口径存在 excludeSpecialBear 微差; price_bin/ETF相关性组件信号级不可判已降级跳过(v4f 恒不命中); 北向流出×概念类(n2NorthOutConcept)已接入打标(2026-08-23 修复后端漏列), 评级维度回测曲线同步恢复出数(FIELD 列修复)。⚠模式记忆仅保留 18 小时(TDS_FADE_TTL 单源, 滑动过期=每次切换刷新计时, 超时回默认 s06 并清记忆); 存了已下线 new18 的旧记忆会自动校验失败回默认不报错。旧独立+1开关已删(2026-08-24), 牛市×辅备买全停由 9键/A/B/C 模式一并启用。S06=大盘领先动态切换默认档⭐️⭐️⭐️(v1.1.7 起): 非固定键组合, 组集按每行信号日期读快照生效基座(a9/new15); 快照缺失/日期超覆盖期该行不拦并警示, 不静默回退。")
-        : "") +
-      '<span class="overfit-fade-state2" style="color:var(--text-3);font-size:11px;margin-left:6px"></span>' +
-      '</div>' +
-      // 行2=AI仓位建议组: K档按钮组 + K读数徽章(2026-08-24 控件行重排)
-      '<div class="overfit-fade-row">' +
+      '<span class="overfit-fade-state" style="color:var(--text-3);font-size:11px;margin-left:6px"></span>' +
+      '<span class="overfit-fade-sep"></span>' +
       '<span class="overfit-win-label" data-tip="K档(与首页AI仓位建议top-K同口径, 2026-08-16 启用): 每日只保留当日最优K个买入信号监控。两开关独立: 降亏开=过滤后人口选K(filtered_by_k), 降亏关=全信号人口选K(by_k)。排序=跟踪分↓→评级→信号类型。点「关」=无K档退化普通列表(降亏开关控制)。">K档</span>' +
       ((function(_s){ var _r = { 1: "最激进", 2: "次稳健", 3: "最稳健", 4: "最保守" };
         return '<button type="button" class="sig-kbtn sig-kbtn-off' + (_s.k == null ? ' active' : '') + '" data-overfit-k="off"><span class="sig-kbtn-k">关</span><span class="sig-kbtn-r">off</span></button>' +
@@ -2206,13 +1881,7 @@ async function _appendOverfitCard(colA2, r, snap) {
             return '<button type="button" class="sig-kbtn' + ((_s.k === kk) ? ' active' : '') + (kk === 1 ? ' sig-kbtn-main' : '') + '" data-overfit-k="' + kk + '"><span class="sig-kbtn-k">' + kk + '</span><span class="sig-kbtn-r">' + _r[kk] + (kk === 1 ? '★主推' : '') + '</span></button>';
           }).join("");
       })(_overfitState)) +
-      // v1.1.5 badge归位(2026-08-24 主控点名): 「K=N · 已过滤top-K」读数从 .overfit-fade-state 移到本独立 span
-      //   (原 T3-2 前被 07a72931f 塞进降亏开关旁 state 位, 模式下拉插入后语义错位——K读数属 AI仓位语义,
-      //    跟 K按钮组走; .overfit-fade-state 已于 2026-08-24 用户拍板整个删除——「已过滤(仅未命中删线信号)」直展太占位,
-      //    fade 区只留降亏模式下拉文案; 回退说明改动态附加 tooltip)
-      '<span class="overfit-k-state" style="color:var(--text-3);font-size:11px;margin-left:6px"></span>' +
       '</div>' +
-    '</div>' +
     '<div class="overfit-tip" data-tip="双曲线监控 · 综合过拟合风险分(0-100)。显示范围(30/60/90/180日)=横轴截取最近 N 个交易日展示, 只影响显示不重算；统计口径(10/15/30/60/100日, 默认15)=两图(准确率+风险分)按选中口径滚动重算；评级/类型=看子集；K档(关/K1主推★)=每日最优先选K个买入信号(top-K), 与首页AI仓位建议同口径, 与AI降亏两开关独立(降亏开=过滤后选, 关=全信号选)；AI降亏=只统计未被AI宏删线过滤的信号；实盘线限定回测宇宙(与回测同批买入信号, 卖/情绪类不计入)；不设样本数下限, 样本少照常画线(看n判断可信度)。绿&lt;30正常 黄30-60关注 红&gt;60高风险。完整说明见标题❓">' +
       '双曲线监控 · 综合过拟合风险分0-100 · <span class="overfit-legend">绿&lt;30正常 黄30-60关注 红&gt;60高风险</span>' +
       '<span class="overfit-tip-help" data-overfit-help="1" style="cursor:pointer;text-decoration:underline;margin-left:6px">❓完整指南</span></div>' +
@@ -2249,8 +1918,6 @@ async function _appendOverfitCard(colA2, r, snap) {
     '<div id="overfit-acc-chart" style="height:180px;width:100%"></div>' +
     '<div class="overfit-risk-title">综合过拟合风险分 <span class="ov-sub ov-sub-risk">绿黄红分段</span></div>' +
     '<div id="overfit-risk-chart" style="height:160px;width:100%"></div>' +
-    // B拆分(2026-08-24): K档扩展明细按需拉取时的 loading/失败提示行(默认隐藏, 纯展示层)
-    '<div class="overfit-ext-loading" style="display:none;color:var(--text-3);font-size:11px;padding:6px 2px">K档明细加载中…</div>' +
     '<div class="overfit-empty" style="display:none;color:var(--text-3);font-size:11px;padding:6px 2px">暂无监控数据(盘后21:40打点生成)</div>';
   // 三组维度按钮(窗口/评级/类型)共享联动: 一次点击任一按钮 -> 更新 _overfitState -> 同时重绘准确率 + 风险分两图
   // 2026-08-15 AI降亏过滤开关: _ovFade 开启时切换到后端生成的过滤 bank(data.filtered, {accuracy,overfit} 同构)。
@@ -2260,15 +1927,6 @@ async function _appendOverfitCard(colA2, r, snap) {
   function _ovBank() {
     if (!_overfitData) return null;
     const k = _overfitState.k;
-    // T3-2(2026-08-23): 模式≠p8(且降亏开关开)且 recent 明细可用 → 前端组集。
-    // p8(默认态)=不走组集 → 现有 bank 原样读取(数字逐位不变 §23.7 默认零变化);
-    // 组集失败(recent 缺失/结构异常/聚合异常)自动回退现有 bank 不裸崩。
-    // (2026-08-24 用户拍板) 旧独立+1开关删除: 第三参恒 false, bullAuxBackupStop 只经模式键生效(p9/a9/b9/c9)。
-    if (_ovFade && _ovModeId !== "p8") {
-      const agg = _ovAggregateRecent(_overfitData.recent, _ovModeId, false, true,
-        (k != null && k >= 1 && k <= 4) ? k : null);
-      if (agg) return agg;
-    }
     if (k != null && k >= 1 && k <= 4) {
       // K档: 降亏开=filtered_by_k[k](过滤人口top-K), 降亏关=by_k[k](全信号top-K), 两开关独立
       const kk = String(k);
@@ -2280,113 +1938,22 @@ async function _appendOverfitCard(colA2, r, snap) {
     // 无K档(降回现有语义): 降亏开关控制 filtered/raw 两bank
     return _ovFade ? (_overfitData.filtered || _overfitData) : _overfitData;
   }
-  // B拆分(2026-08-24): 本次渲染是否需要 K档扩展 bank(by_k/filtered_by_k, ext 文件)。
-  // 判定口径与 _ovBank 回退链逐支对齐:
-  //   ①老格式全量单文件(主文件自带 by_k/filtered_by_k)或 ext 已合并 → 不需要(过渡期零 ext 请求)
-  //   ②无K档(k=null)→ raw/filtered 两 bank 均在主文件 → 不需要
-  //   ③K档×new14 组集可用且聚合成功 → 组集路径不读 by_k(_ovBank 第一分支) → 不需要
-  //   ④其余(K档×p8对照 / K档×降亏关 / K档×组集失败回退)→ 需要, 触发按需拉取
-  function _ovNeedsExtBank() {
-    if (!_overfitData || _extLoadState === "done") return false;
-    if (_overfitData.by_k && _overfitData.filtered_by_k) return false;
-    const k = _overfitState.k;
-    if (!(k != null && k >= 1 && k <= 4)) return false;
-    const hasRecent = !!(_overfitData.recent && Array.isArray(_overfitData.recent.rows) && _overfitData.recent.rows.length);
-    if (_ovFade && _ovModeId !== "p8" && hasRecent) {
-      try {
-        if (_ovAggregateRecent(_overfitData.recent, _ovModeId, false, true, k)) return false;
-      } catch (e) { /* 组集异常将走 by_k 回退 → 需要拉取 */ }
-    }
-    return true;
-  }
   function syncOverfitCharts() {
     if (!_overfitData) return;
-    // S06 守卫(codex-task-20260825-001): 所选模式=s06 且降亏开 → 快照未就绪先等(就绪/失败后自动重绘一次),
-    // 不画 fail-open 错图; 加载失败不静默回退——按 fail-open 人口继续画 + 状态条持续可见警示(handoff §五 功能5)。
-    if (_ovFade && _ovModeId === "s06" && typeof _tdsS06StateEnsure === "function") {
-      const st6 = (typeof _tdsS06Status === "function") ? _tdsS06Status() : {};
-      if (!st6.loaded && !st6.err) {
-        const waitEl = card.querySelector(".overfit-fade-state2");
-        if (waitEl) waitEl.textContent = "· S06 快照加载中…";
-        _tdsS06StateEnsure().then(() => { try { syncOverfitCharts(); } catch (e) {} });
-        return;
-      }
-    }
-    // B拆分(2026-08-24): K档需要扩展 bank 而主文件未含(新格式拆分后)→ 按需拉 overfit_monitor_ext.json。
-    // loading 态等待不画图(防闪退化为 raw 错图); 到达后把 by_k/filtered_by_k merge 进 _overfitData
-    // (键名与老格式一致, _ovBank 读法零改动)再重绘; 单例 promise 同页只拉一次; 失败给提示不裸崩,
-    // 点「关」可恢复默认曲线。任务书「点 K 档按钮才按需拉 ext」即本机制(p8 对照/降亏关属同数据源
-    // 消费点, §23.3 举一反三同覆盖)。
-    if (_ovNeedsExtBank()) {
-      if (_extLoadState === "idle") {
-        _extLoadState = "loading";
-        const extLoadingEl0 = card.querySelector(".overfit-ext-loading");
-        if (extLoadingEl0) { extLoadingEl0.style.display = ""; extLoadingEl0.textContent = "K档明细加载中…"; }
-        _fetchOverfitExt().then((ext) => {
-          const extLoadingEl = card.querySelector(".overfit-ext-loading");
-          const ok = !!(ext && (ext.by_k || ext.filtered_by_k));
-          _extLoadState = ok ? "done" : "failed";
-          if (ok) {
-            if (ext.by_k) _overfitData.by_k = ext.by_k;
-            if (ext.filtered_by_k) _overfitData.filtered_by_k = ext.filtered_by_k;
-          } else if (extLoadingEl) {
-            extLoadingEl.textContent = "K档明细加载失败,K档暂不可用(点「关」回默认);刷新页面重试";
-            return; // 失败提示保持可见, 不自动消失
-          }
-          if (extLoadingEl) extLoadingEl.style.display = "none";
-          syncOverfitCharts();
-        });
-      }
-      return; // ext 未就绪本次不画(等到达后回调重绘)
-    }
     const bank = _ovBank();
     if (!bank) return;
     _renderOverfitAcc(bank);
     _renderOverfitRisk(bank);
-    // v1.1.5 badge归位重构(2026-08-24): 状态各随其控件——
-    //   .overfit-k-state(K按钮组旁)=AI仓位语义「K=N · 已过滤top-K/全信号top-K」
-    //   .overfit-fade-state2(模式下拉旁)=当前模式 tag(·NEW 14键 等)
-    //   (2026-08-24 用户拍板追加: 原「已过滤(仅未命中删线信号)」直展文案整个删除太占位; 回退提示改走 tooltip)
-    const inK = _overfitState.k != null && _overfitState.k >= 1 && _overfitState.k <= 4;
-    const hasRecent = !!(_overfitData && _overfitData.recent && Array.isArray(_overfitData.recent.rows) && _overfitData.recent.rows.length);
-    // T3-2: 组集生效(非p8且明细可用)时标注当前模式名, 让用户明确两图口径来源
-    const _presetNow = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(_ovModeId) : null;
-    const _aggOn = _ovFade && _ovModeId !== "p8" && hasRecent;
-    const kStateEl = card.querySelector(".overfit-k-state");
-    if (kStateEl) {
-      // K档模式: 降亏开=filtered_by_k(过滤后top-K), 关=by_k(全信号top-K); 无K档=不显示读数
-      kStateEl.textContent = (inK && _ovFade !== undefined)
-        ? "K=" + _overfitState.k + (_ovFade ? " · 已过滤top-K" : " · 全信号top-K") : "";
-    }
-    const modeStateEl = card.querySelector(".overfit-fade-state2");
-    if (modeStateEl) {
-      // (2026-08-24 用户拍板) 回退提示「(明细缺失, 已回退p8对照bank)」不再直展(太占位), 改为动态附加到两处 tooltip;
-      // 本 span 只留当前模式 tag。
-      // S06(codex-task-20260825-001): 动态档状态/降级提示必须可见——快照不可用=「过滤暂不生效」持续警示,
-      // 覆盖期外 fail-open 行数>0 时附笔数说明(§23.2 可见降级, 不静默)。
-      if (!_ovFade || !(_aggOn && _presetNow)) modeStateEl.textContent = "";
-      else {
-        let _mtxt = "· " + _presetNow.name.replace(/\(默认\)$/, "");
-        if (_ovModeId === "s06") {
-          const st6 = (typeof _tdsS06Status === "function") ? _tdsS06Status() : {};
-          if (st6.err) _mtxt = "· ⚠S06 快照不可用(" + st6.err + "), 过滤暂不生效";
-          else if (!st6.loaded) _mtxt = "· S06 快照加载中…";
-          else if (bank && bank._s6 && bank._s6.open > 0) _mtxt += " ⚠" + bank._s6.open + "行超快照覆盖期未拦";
-        }
-        modeStateEl.textContent = _mtxt;
+    // 反映「已过滤/全信号」状态 + K档(两开关独立)
+    const fadeStateEl = card.querySelector(".overfit-fade-state");
+    if (fadeStateEl) {
+      const inK = _overfitState.k != null && _overfitState.k >= 1 && _overfitState.k <= 4;
+      if (inK) {
+        // K档模式: 降亏开=filtered_by_k(过滤后top-K), 关=by_k(全信号top-K)
+        fadeStateEl.textContent = "K=" + _overfitState.k + (_ovFade ? " · 已过滤top-K" : " · 全信号top-K");
+      } else {
+        fadeStateEl.textContent = _ovFade ? "已过滤(仅未命中删线信号)" : "全信号";
       }
-    }
-    // 明细缺失回退说明: 有回退时才附加到 ①AI降亏过滤标签 data-tip ②降亏模式下拉原生 title, 正常态不出现
-    const fallbackTip = (_ovFade && _ovModeId !== "p8" && !hasRecent) ? "(明细缺失, 已回退p8对照bank)" : "";
-    const fadeLabEl = card.querySelector(".overfit-fade-label");
-    if (fadeLabEl) {
-      if (!fadeLabEl.dataset.tipBase) fadeLabEl.dataset.tipBase = fadeLabEl.getAttribute("data-tip") || "";
-      fadeLabEl.setAttribute("data-tip", fadeLabEl.dataset.tipBase + (fallbackTip ? " " + fallbackTip : ""));
-    }
-    const ovSelForTip = card.querySelector("#overfit-fade-mode-sel");
-    if (ovSelForTip) {
-      if (!ovSelForTip.dataset.titleBase) ovSelForTip.dataset.titleBase = ovSelForTip.getAttribute("title") || "";
-      ovSelForTip.setAttribute("title", ovSelForTip.dataset.titleBase + (fallbackTip ? " " + fallbackTip : ""));
     }
     // 更新准确率/风险分标题副标(反映当前维度; 卖类无回测对照 -> 注"仅实盘实际、无回测对照/风险分不适用")
     const accSub = card.querySelector(".ov-sub-dim");
@@ -2449,24 +2016,18 @@ async function _appendOverfitCard(colA2, r, snap) {
   });
   colA2.appendChild(card);
 
-  // 空数据/加载失败守卫: 不裸崩(fetchJSON 自带 .gz fallback + 15s 超时; 本卡 fetch 已传 60000, D件套)
+  // 空数据/加载失败守卫: 不裸崩(fetchJSON 自带 .gz fallback + 15s 超时)
   const emptyEl = card.querySelector(".overfit-empty");
   let _overfitData = null;
-  // B拆分(2026-08-24): K档扩展文件拉取状态(idle→loading→done/failed), 卡内闭包态
-  let _extLoadState = "idle";
   // AI降亏过滤开关(默认开, 独立 localStorage 键 tds_overfit_fade; 与首页 tds_home_fade/凯利区 tds_kelly_filters 解耦)。
   // 2026-08-16 三合一改造②: 首次无 localStorage 时默认开(true), 用户手动切换后写 localStorage 记住(手动关=记"0")。
-  // 数据口径随模式: p8=8键对照走后端聚合好的老 filtered bank 直读; 非 p8(v1.1.5 起默认=new14)=
-  // overfit_monitor.json recent 明细逐信号键命中标注→前端组集重算(T3-2, §23.6 后端打标+parity 校验);
-  // 数据缺 recent 时回退老 bank。
+  // 数据是后端聚合好的 rolling 窗口, 前端只切 bank 读取、不重算(§23.6 读标记不自算)。
   // P1(2026-08-16 reviewer返修): localStorage 读取包 try/catch, 异常/禁用时默认开(true)不崩。
   let _ovFade = true;
   try {
     const _fadeRaw = localStorage.getItem("tds_overfit_fade");
     _ovFade = _fadeRaw === null ? true : (_fadeRaw === "1");
   } catch (e) { _ovFade = true; }
-  // T3-2(2026-08-23): 模式记忆(v1.1.5 起默认=new14; 旧独立+1开关已删, 2026-08-24 用户拍板)
-  let _ovModeId = _readOverfitFadeMode();
   // 回填开关初值(默认开, 首次无记忆=checked) + change 监听(用户点 label/开关均触发, 手动切换后写 localStorage 记住)
   const fadeCb = card.querySelector("[data-overfit-fade]");
   if (fadeCb) {
@@ -2478,21 +2039,9 @@ async function _appendOverfitCard(colA2, r, snap) {
       syncOverfitCharts();
     });
   }
-  // T3-2(2026-08-23): 模式下拉绑定(change 即写模式键 + 两图重绘; 旧独立+1开关绑定已删, 2026-08-24 用户拍板)
-  const modeSelEl = card.querySelector("#overfit-fade-mode-sel");
-  if (modeSelEl) {
-    modeSelEl.addEventListener("change", () => {
-      if (!_overfitData) return;
-      // v1.1.5: 兜底引用单源默认常量(new14)
-      _ovModeId = modeSelEl.value || (typeof window._KELLY_FADE_DEFAULT_MODE === "string" ? window._KELLY_FADE_DEFAULT_MODE : "new14");
-      if (typeof _tdsStoreWithTTL === "function") _tdsStoreWithTTL("tds_overfit_fade_mode", _ovModeId); // TTL 18h 滑动过期
-      syncOverfitCharts();
-    });
-  }
   try {
     await loadEcharts();
-    // v1.1.5: 走共享 promise(_fetchOverfitMonitor, 与首页枯竭 chip 同一份数据防 27MB 双拉; 失败语义不变)
-    const data = await _fetchOverfitMonitor();
+    const data = await fetchJSON(dataUrl("overfit_monitor.json"));
     if (!data || !data.accuracy || !data.overfit) throw new Error("overfit 数据不完整");
     _overfitData = data;
     emptyEl.style.display = "none";
@@ -2692,16 +2241,10 @@ function _topEtfByScore(etfs) {
 // ===== 首页 AI 开关(2026-08-13): AI降亏过滤开关 + AI仓位建议 K 档 =====
 // 2026-08-13 重构(用户拍板): 「AI降亏过滤」+「AI降亏显示」合并为单个「AI降亏过滤」总开关, 首页独立作用域——
 //   独立 localStorage 键 tds_home_fade(布尔, 默认开启), 与凯利区 tds_kelly_filters 完全解耦(不再读/写凯利区, 互不影响);
-//   判定策略=所选模式键集成员级(v1.1.5 起=NEW14 十四键 hist6+规则8, 经 common.js preset 单源; 2026-08-23 前为固定八键):
-//   开启=命中即灰显删除线+标注, 关闭=首页完全不判降亏。
+//   判定策略=固定 8 键成员级(基础5+核心3键全生效, v1.1.0 与凯利区默认策略一致): 开启=命中即灰显删除线+标注, 关闭=首页完全不判降亏。
 // 旧键 tds_poscap_aiDisplay(显示开关)已随合并废弃, 首页不再使用(如用户浏览器残留不影响任何逻辑)。
-// 后端 overview.json 每条信号注入 ai_macro: {hit, filters:[命中的降亏条件key...]}(queries.py, 谓词规格单源
-// scripts/loss_rules.py RULE_SPECS 与凯利回测三端同构; 默认基座沿革 八键 v1.1.0 → NEW14 十四键 v1.1.5;
-// +1类回测剔除走 _bt_in_universe 字段)。
-// ⚠ 本表自 v1.1.5 起=纯中文名映射(badge 标注展示用, 兜底键集已拆到 _AI_MACRO_FALLBACK_KEYS(L2696)),
-//   不再作键集合事实源——键集合单源=common.js _KELLY_FADE_MODE_PRESETS(T3-2 任务④迁移)。
-//   旧八键条目保留: 对照档 p8 手选时 badge 缘由仍需其中文名(§23.7 老口径可回选不删档);
-//   NEW14 新增两键 r10May6NonMay/k3ConceptBuy 补入防裸奔(其余规则键经 _AI_MACRO_BACKUP_NAMES fallback)。
+// 后端 overview.json 每条信号注入 ai_macro: {hit, filters:[命中的降亏条件key...]}(queries.py, 8 谓词同源凯利回测 v1.1.0;
+// 基础5+核心3=8键, K2C5 港股追涨并入基础5, 见 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md; +1类回测剔除走 _bt_in_universe 字段)。
 const _AI_MACRO_FILTER_NAMES = {
   n2NovSpecialIndustry: "11月+追关注+行业",
   excludeSpecialBear: "追关注×熊市交叉(四档)",
@@ -2710,42 +2253,16 @@ const _AI_MACRO_FILTER_NAMES = {
   k2c5HkChase: "港股追涨剔除",
   r7MayReinforced: "5月强化+3稳定非5月",
   excludeAuxCross: "辅关注×3/5月交叉",
-  greedy15: "Greedy-15组合",
-  // NEW14 hist 键补名(其余 NEW14 规则键名在 _AI_MACRO_BACKUP_NAMES T1 段)
-  r10May6NonMay: "5月+6非5月组合",
-  k3ConceptBuy: "主关注×概念"
+  greedy15: "Greedy-15组合"
 };
 // v1.1.2 备选键(v1.1.2 凯利三键改造, 凯利区默认关可自开): 仅名称展示用, 不参与首页「AI降亏过滤」判定——
-//   备选键须用户凯利区手动开才命中(§22 首页/凯利口径一致); NEW14 规则键中文名亦登记此表(T1 2026-08-23 起)。
+//   首页固定 8 键白名单(基础5+核心3, 见 _AI_MACRO_FILTER_NAMES), 备选键须用户凯利区手动开才命中(§22 首页/凯利口径一致)。
 const _AI_MACRO_BACKUP_NAMES = {
   legacyMa60Special: "老MA60熊×追买",
   declinePhaseSpecial: "下降期×追关注",
   // #69(2026-08-19 用户拍板) cyb 四档版降亏新键: 默认关非默认推荐, 不进首页默认判定(凯利区可人工开)
-  excludeSpecialBearCyb: "追关注×熊市交叉(cyb四档)",
-  // T1(2026-08-23) AI降亏方法池57→全量·20 新键中文名映射(仅名称展示用; 首页判定 v1.1.5 起走
-  //   NEW14 preset 键集——本段含全部规则键名, NEW14 的 8 个规则键命中时 badge 缘由此处取中文名防裸奔。
-  //   规格单源=scripts/loss_rules.py)
-  n1NorthOutflow: "北向20日净流出", t1LowTurnSpecial: "换手冰点×追关注", d1LowDivYield: "股息率低位(估值贵)",
-  q1QvixLowPct: "QVIX低分位(自满)", h1VolChgHighA: "升波×A股", m1MarginDownBull: "牛主升×两融降温",
-  d2LowDivBull: "牛主升×股息率低位", p1LowDivBackup: "备买×股息率分位低", v1HighVol20: "高波动>90分位",
-  s1SentALow: "A股情绪冰点", r1VolRatioLow: "量能萎缩<10分位", r2bSpecialGlobal: "追关注×全球类",
-  r2gLowRatingQ3: "7-9月+低评+低分", n2NorthOutConcept: "北向流出×概念类", v2Vol20Gt25: "波动≥25%(固定线)",
-  s2SentHs300Low: "HS300情绪冰点", w1BackupDecline: "备买×下降期", a1BullAllStop: "牛主升全停(超集)",
-  v3Vol20LowPct: "低波动<10分位", ad1AdlineHot: "AD线广度过热",
-  // X1(mine29c 2026-08-24, NEW14+1·15键可选档成员): 与 common.js _KELLY_FADE_T1_KEYS/lab.js 映射段同步(audit D2 三处对账)
-  excludeTierNone: "整剔有跟踪ETF象限"
+  excludeSpecialBearCyb: "追关注×熊市交叉(cyb四档)"
 };
-// 首页判定兜底键集(v1.1.5 起=NEW14 十四键生产键): 仅当 preset 不可用(老缓存 common.js 无
-// _tdsFadeModeById/_KELLY_FADE_MODE_PRESETS 或 preset.keys 缺失)时作「按默认档 NEW14 判定」的兜底,
-// 语义=读不到单源时跟随当前默认基座, 不再回退旧八键口径(v1.1.5 基座对齐批 2026-08-24)。
-// 键集由 mine24 权威 new_keys × scripts/loss_rules.py MINING_TO_PROD_KEY 推导(与 common.js new14
-// preset keys/check_signals.py AI_MACRO_KEYS 同一事实源), 跨端一致性机检=scripts/check_fade_keys_alignment.py。
-// 正常路径(preset 可用)永远以 common.js preset keys 为准, 本表不参与; X1(excludeTierNone)属可选档不在此列。
-const _AI_MACRO_FALLBACK_KEYS = [
-  "r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "declinePhaseSpecial",
-  "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA",
-  "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal"
-];
 // 读首页独立 AI降亏过滤开关(localStorage tds_home_fade, 布尔, 默认开启=按降亏策略判定+灰显删除线+标注)。
 // 与凯利区 tds_kelly_filters 完全解耦互不影响; 旧键 tds_poscap_aiDisplay(纯显示开关)已随合并废弃不再读取。
 function _readHomeFadeFlag() {
@@ -2754,89 +2271,6 @@ function _readHomeFadeFlag() {
     if (v === "0" || v === "false") return false;
   } catch (e) {}
   return true;
-}
-// v1.1.5(2026-08-24) 「仅显示可用信号」开关: 裸键 tds_home_show_available_only, 默认关(§23.7 默认行为不变)。
-// 开启=在现有渲染结果上隐藏灰显/删除线行(AI降亏命中 sig-ai-hit + 未入样本 sig-poscap-notuni
-//   + 当日已满 sig-poscap-excluded 入宇宙买类超K, 2026-08-26 fix 扩展),
-// 只留干净可用的放行信号列表; 纯展示层视图控制, 不改任何判定链(与 AI降亏/AI仓位 两开关正交叠加)。
-function _readHomeAvailOnlyFlag() {
-  try { return localStorage.getItem("tds_home_show_available_only") === "1"; } catch (e) {}
-  return false;
-}
-// 首页枯竭类提示共用的当前模式键集(单一事实源): 与首页判定链同一 preset(_readHomeFadeMode→_tdsFadeModeById)。
-// 消费点=AI建议区常驻 chip(_mountHomeDroughtChip)+「仅显示可用信号」空态枯竭统计(_mountSigEmptyDrought), §22 同源同数字。
-function _homeDroughtModeKeys() {
-  try {
-    const mp = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(_readHomeFadeMode()) : null;
-    if (mp && Array.isArray(mp.keys)) return mp.keys;
-    // S06(codex-task-20260825-001): dynamic 预设无静态 keys → 返回「日期→键集」函数供 _tdsComputeDrought
-    // 逐行解析(与首页判定链同源 per-date 口径 §22); 快照不可用的日期返回 [](该日视为无键=不拦, fail-open 同语义)
-    if (mp && mp.dynamic && typeof _tdsS06KeysForDate === "function") {
-      return function (d) { const ks = _tdsS06KeysForDate(d); return Array.isArray(ks) ? ks : []; };
-    }
-  } catch (e) {}
-  return [];
-}
-// 枯竭 chip 口径尾注(§21 诚实公示): 默认 null=用 common.js 内置「NEW14 默认过滤」静态口径; 选 S06 时判定
-// 按日期在 A 进攻王/NEW14+1 两基座间切换, 与内置文案口径不符 → 返回覆盖文案(caliberNote, §22 同源不写第二份数字)。
-function _homeDroughtCaliberNote() {
-  try {
-    const mp = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(_readHomeFadeMode()) : null;
-    if (mp && mp.dynamic) {
-      // §22 文案单源(reviewer P2 F1 下沉): 收口 common.js _tdsS06CaliberNote, 防 app/lab 两份副本漂移;
-      // 字符串兜底仅防 common 未更新(实际 common 先于 app 载入不走), s06 态输出逐字不变
-      return (typeof window._tdsS06CaliberNote === "function")
-        ? window._tdsS06CaliberNote()
-        : "(口径: S06 动态基座·按日切 A进攻王/NEW14+1 过滤下实时统计; 72% 为 NEW14 全史统计仅作参考)";
-    }
-  } catch (e) {}
-  return null;
-}
-// T3-2(2026-08-23) 首页 AI降亏·模式下拉: 独立 localStorage 键 tds_home_fade_mode(v1.1.5 起默认=new14·NEW14 十四键,
-// 与原固定8键白名单逐位一致=默认行为零变化 §23.7; 键集合从 common.js _KELLY_FADE_MODE_PRESETS 单源拉取,
-// 任务④迁移: _AI_MACRO_FILTER_NAMES 保留中文名映射仅供标注展示, 不再作键集合事实源)。
-// 与凯利区 tds_kelly_fade_mode/监控卡 tds_overfit_fade_mode 三处独立作用域(§22 各自独立互不影响)。
-// T3-2 二轮适配(2026-08-23 用户拍板): 记忆仅保留 18 小时——读写全走 common.js 公共 TTL 工具
-// (_TDS_FADE_TTL_MS 单源), 滑动过期=每次切换重写 ts; 过期/无 ts/异常 → 回默认(new14) 并清键。
-function _readHomeFadeMode() {
-  try {
-    const v = (typeof _tdsLoadWithTTL === "function")
-      ? _tdsLoadWithTTL("tds_home_fade_mode", _TDS_FADE_TTL_MS) : null;
-    if (v && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(v)) return v;
-  } catch (e) {}
-  // v1.1.5(2026-08-24 用户拍板): 默认模式切 NEW14(单源=common.js _KELLY_FADE_DEFAULT_MODE, 禁硬编码 §21)
-  return (typeof window._KELLY_FADE_DEFAULT_MODE === "string" ? window._KELLY_FADE_DEFAULT_MODE : "new14");
-}
-let _sigTierByDate = null;
-let _sigTierMapLoading = null;
-let _consensusS06Hooked = false;  // AI认可度 S06 快照重绘挂钩(单次 armed; 防 resolve 后每次渲染重复触发重绘死循环)
-function _ensureSigTierMap() {
-  if (_sigTierByDate) return Promise.resolve(_sigTierByDate);
-  if (!_sigTierMapLoading) {
-    _sigTierMapLoading = fetchJSON(_R2_DATA_BASE + "market_tier_history.json").then((arr) => {
-      const m = new Map();
-      (Array.isArray(arr) ? arr : []).forEach((r) => { if (r && r.date != null) m.set(String(r.date), r.tier || ""); });
-      _sigTierByDate = m;
-      return m;
-    }).catch(() => { _sigTierMapLoading = null; return null; }); // 失败清 loading 态允许下次重试, 返回 null 不重绘
-  }
-  return _sigTierMapLoading;
-}
-// T3-2 任务④迁移(2026-08-23): bullAuxBackupStop 谓词迁 common.js 规格单源(_KELLY_FADE_LEGACY_SPECS),
-// 与 lab/sim/监控卡同源咬合 §22; 本地仅组装 ctx(sig/tier), 不再自持判定逻辑。
-// 硬编码谓词原文(迁移前, 逐位等价): sig∈{buy_aux,buy_backup} && tier==="牛市·主升"; tier map 未就绪=保守放行。
-// 双重降级: _tdsFadeSpecHit 不可用(老 common.js 缓存)或 tier map 未就绪 → 均按未就绪口径保守放行(false), 行为不变。
-function _isBullStopHit(it) {
-  if (!it) return false;
-  const sig = it.signal || "";
-  if (sig !== "buy_aux" && sig !== "buy_backup") return false;
-  if (!_sigTierByDate) return false; // tier map 未就绪 → 保守放行
-  const tier = _sigTierByDate.get(String(it.date || ""));
-  if (typeof _tdsFadeSpecHit === "function") {
-    try { return !!_tdsFadeSpecHit("bullAuxBackupStop", { sig: sig, tier: tier }); } catch (e) { /* fallthrough */ }
-  }
-  // 规格层不可用 → 老内联判定兜底(逐位=迁移前行为)
-  return tier === "牛市·主升";
 }
 // 2026-08-13 简单全局 toast(首页「AI降亏过滤(3元)」点击无可见变化时反馈用; 项目无全局 toast 机制, 自建 fixed 定位元素, 3.2s 自动消失)
 let _sigToastEl = null;
@@ -2857,7 +2291,7 @@ function _showSigToast(msg) {
 }
 // 首页 AI 降亏开关行 HTML(K 档 3124 + off 按钮 + AI降亏过滤总开关); 状态读自 localStorage, 事件绑在 _bindSigSwitchRow
 // 2026-08-13 重构(用户拍板): 「AI降亏过滤」+「AI降亏显示」合并为单个「AI降亏过滤」总开关(独立键 tds_home_fade, 与凯利区解耦):
-//   开启=首页按降亏策略判定(v1.1.5 起=NEW14 十四键, 模式可切)+灰显删除线+「AI降亏」标注+hoverpop 原因; 关闭=首页完全不判降亏、信号正常(不灰显不删除线不标注)。
+//   开启=首页按降亏策略判定(固定8键)+灰显删除线+「AI降亏」标注+hoverpop 原因; 关闭=首页完全不判降亏、信号正常(不灰显不删除线不标注)。
 // ②AI仓位建议 off 按钮——写 tds_poscap {on:false}(与凯利区 _kellySetSharedPosCap(false,k) 同键同语义, §22 联动), 该区域退化为普通信号列表
 function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
   // 两段式信号固化(2026-08-14): A股已固化(finalized && a-share-close)时, AI建议 1/2/3 顶部
@@ -2881,36 +2315,15 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
     `<button type="button" class="sig-kbtn sig-kbtn-help" data-k="help" data-no-pop="" title=""><span class="sig-kbtn-k">推荐方法</span><span class="sig-kbtn-r">参考说明</span></button>` +
     `<span class="sig-kbtn-help-pop-wrap">` + _sigHelpPopHtml() + `</span>` +
     `</span>`;
-  // 模拟回测按钮(2026-08-21 新增, 纯展示): 复用 .sig-kbtn 样式, data-k="sim" 由 _bindSigSwitchRow 委托弹「模拟回测」弹窗。
-  // 点击打开全历史真实过滤弹窗(读 signal_kelly_trades.json 实时过滤+费后盈亏累积), 与首页 AI降亏/AI仓位建议 两开关语义一致(§23.7 纯新增, 不改已发布功能)。
-  const _simBtn = `<button type="button" class="sig-kbtn sig-kbtn-sim" data-k="sim" data-no-pop="" title="打开「模拟回测」弹窗: 用全历史真实信号交易记录(2011-2026), 按当前 AI降亏过滤 / AI仓位建议K档 / 交易模式 / 费率, 实时过滤并算出费后逐笔盈亏与累积收益(纯展示, 不改任何已发布功能)"><span class="sig-kbtn-k">模拟回测</span><span class="sig-kbtn-r">全历史</span></button>`;
   // 2026-08-13 hoverpop 升级: K 按钮组复用凯利区评级表格 hoverpop(共享 common.js _aiPoscapRatingPopHtml/_bindAiPoscapRatePop, §22 两处数据一致)
   const _ratingPop = (window._aiPoscapRatingPopHtml ? window._aiPoscapRatingPopHtml() : "");
-  // T3-2 任务①(2026-08-23) 首页「AI降亏·模式」下拉: 与 lab 凯利区/模拟回测弹窗同款交互(common.js 单源 _tdsFadeModeSelectHTML),
-  // 独立 localStorage 键 tds_home_fade_mode(与 tds_kelly_fade_mode/tds_overfit_fade_mode 三处独立互不影响 §22);
-  // v1.1.5: 默认=new14(十四键); p8=8键旧默认保留为对照档可手选; 选含 bullAuxBackupStop 的模式(p9/a9/b9/c9)
-  // 选含 bullAuxBackupStop 的模式(p9/a9/b9/c9)等价点亮「牛市×辅备买全停」判定(见 _renderSignalGrid _bullStopActive 注释;
-  // 2026-08-24 用户拍板: 旧独立 checkbox 已删, 模式下拉为该能力唯一入口)。
-  const _homeModeSel = (typeof _tdsFadeModeSelectHTML === "function")
-    ? _tdsFadeModeSelectHTML("sig-home-fade-mode-sel", _readHomeFadeMode(), false, "sim-mode-sel home-mode-sel",
-      "AI降亏·模式(首页独立作用域, v1.1.7(2026-08-26)起默认=s06·大盘领先切换; 换模式只改本区块判定键集合, 不影响凯利区/模拟回测/AI监控卡各自的模式下拉)。⭐=推荐星标(v20260826 用户拍板): S06 3星 / A进攻王·NEW 14键·NEW14+1·15键 2星 / 9键·B均衡卡 1星, 下拉星多靠前、无星殿后沿用原相对序。静态预设: ⭐️⭐️⭐️S06 · 大盘领先切换(默认) / ⭐⭐A进攻王 / ⭐⭐NEW 14键 / ⭐⭐NEW14+1·15键 / ⭐9键 / ⭐B均衡卡 / C防守 / 8键旧默认·对照——键集合单源来自 common.js 预设表, 与 lab 页同款同源(§21 公示 purpose-notes lab.sigkelly); NEW2 18键对照档已从下拉移除(用户拍板\"不用对照啦 14+1 对照够啦\", 其组成对比区卡 2026-08-26 亦删)。所选模式记忆仅保留 18 小时(滑动过期, 超时回默认 s06; 若存了已下线的 new18 记忆会自动回默认不报错)。切换依据=mine28/mine30 记分板 NEW14 第一。" + ((typeof _tdsS06Tooltip === "function") ? ("\n———\n" + _tdsS06Tooltip()) : ""))
-    : "";
   return `<div class="sig-switch-row" data-no-pop="">` +
-    `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(总开关, 首页独立, 删除线过滤层): 开启=①命中降亏条件(v1.1.7 起默认 s06·大盘领先切换=动态组合, 可经「AI降亏·模式」下拉切回 8键对照等 7 预设 T3-2; +1类回测剔除=_bt_in_universe)的买入信号=灰显+删除线+标注AI降亏建议回避(现状) + ②未入样宇宙信号(债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, 含波动相关/未入样本信号)=删除线+灰显+标注未入样本; 关闭=不画任何删除线、未入样本不标注, 信号恢复正常样式。另有 cyb 四档版降亏新键 excludeSpecialBearCyb(默认关, 非默认推荐, 判定源 hs300 四档→创业板指 cyb 四档, #69 2026-08-19, 不进首页默认判定, 凯利区可人工开复测)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。独立 localStorage 键 tds_home_fade 与凯利区互不影响; 与「AI仓位建议」两个开关正交(各自管一层, 不互相触发)">` +
+    `<label class="sig-switch-lab sig-switch-ai" data-no-pop="" title="AI降亏过滤(总开关, 首页独立, 删除线过滤层): 开启=①命中降亏条件(固定 8键=基础5+核心3, +1类回测剔除=_bt_in_universe)的买入信号=灰显+删除线+标注AI降亏建议回避(现状) + ②未入样宇宙信号(债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组, 含波动相关/未入样本信号)=删除线+灰显+标注未入样本; 关闭=不画任何删除线、未入样本不标注, 信号恢复正常样式。结构=AI宏5+3+1(v1.1.0 定名「基础5」): 5+3=保留入样的8个降亏键(基础5=基础4+K2C5 港股追涨剔除), +1=回测剔除的波动相关/未入样本整类信号(AI建议不推荐)。另有 cyb 四档版降亏新键 excludeSpecialBearCyb(默认关, 非默认推荐, 判定源 hs300 四档→创业板指 cyb 四档, #69 2026-08-19, 不进首页默认判定, 凯利区可人工开复测)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。独立 localStorage 键 tds_home_fade 与凯利区互不影响; 与「AI仓位建议」两个开关正交(各自管一层, 不互相触发)">` +
       `<input type="checkbox" class="sig-switch-ai-cb"${_fadeOn ? " checked" : ""}> AI降亏过滤` +
-      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 删除线过滤层, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 结构=v1.1.7(2026-08-26)起默认 s06·大盘领先切换(动态组合); v1.1.5~v1.1.6 默认 NEW14 十四键(§21 公示 purpose-notes lab.sigkelly): hist6=r10 5月+6非5月 / Greedy-15 / J2 1月中旬+追关注 / K2C5 港股追涨剔除 / K3 主关注×概念 / 下降期×追关注(全市场) + 规则8=N1北向20日净流出 / T1换手冰点×追关注 / D1股息率低位 / Q1 QVIX低分位 / H1升波×A股 / M1牛主升×两融降温 / P1备买×股息率分位低 / R2b追关注×全球类, 全部是「保留入样、可被AI建议推荐」的降亏开关; 旧八键(基础5+核心3, v1.1.4 及以前默认)保留为「AI降亏·模式」下拉可切的对照档; +1=回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(后端已剔除出回测宇宙 / 波动相关剔除), 故 AI建议 一律不推荐, 本开关开启时以「未入样本」+灰显+删除线标注表达"被过滤掉"。 开启=①首页按降亏策略判定, v1.1.7 起默认 s06·大盘领先切换(v1.1.5~v1.1.6 默认 NEW14 十四键+1类 成员级, 2026-08-23 T3-2 起可经旁侧「AI降亏·模式」下拉切换 7 预设, 独立键 tds_home_fade_mode, 默认=s06; 该记忆仅保留 18 小时滑动过期, 超时自动回 s06)(十四键构成见上; 切换依据=mine28 AUTO 轮动样本外全 FAIL 维持单模式 + mine30 记分板 NEW14 全史第一 +122,648/mdd -4,178 vs 八键 +66,530/-18,190; NEW14 下年均约 2.4 次 ≥20 交易日无放行枯竭期为常态运作方式, 本区有实时枯竭提示 chip); +1=回测剔除的波动相关/未入样本信号整类)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。命中降亏条件(s06 动态组合/默认档键集中任一键)的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); ②未入样宇宙信号(债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 后端已剔除出回测宇宙)=删除线+灰显+「未入样本」标注(AI过滤视图, 表达"被过滤掉"); 关闭=首页完全不判降亏、不画删除线、未入样本不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。⚠两开关正交: AI降亏层只产删除线/未入样本, 不产 AI建议N/当日已满/AI警示(那些归「AI仓位建议」开关控制)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号">ⓘ</span>` +
+      `<span class="sig-switch-tip" data-no-pop="" data-tip="AI降亏过滤开关(总开关, 删除线过滤层, 2026-08-13 重构: 原「AI降亏过滤」+「AI降亏显示」合并为一个按钮, 首页独立作用域, 独立 localStorage 键 tds_home_fade 默认开启, 与凯利区 tds_kelly_filters 解耦互不影响): 结构=AI宏5+3+1(v1.1.0 定名「基础5」, 2026-08-15 补公示): 5=基础5键(基础4 + K2C5 港股追涨剔除), 3=核心3键, 两者 8 键都是「保留入样、可被AI建议推荐」的降亏开关; +1=回测/凯利模型层剔除的一整类信号(波动相关信号 + 未入样本信号)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(后端已剔除出回测宇宙 / 波动相关剔除), 故 AI建议 一律不推荐, 本开关开启时以「未入样本」+灰显+删除线标注表达"被过滤掉"。 开启=①首页按降亏策略判定, 固定 8键+1类 成员级(基础5= 追关注×熊市交叉四档(v1.1.2 2026-08-17 主键判定 MA60→四档{熊市·主跌,下降期}×A股类升级; 老MA60熊×追买 / 下降期×追关注 两备选键默认关🆕NEW) / 1月中旬+中评级 / 1月中旬+追关注 / n2 11月+追关注+行业 / K2C5 港股追涨剔除 + 核心3= 5月强化+3稳定非5月 / 辅关注×3/5月交叉 / Greedy-15组合, 与凯利区默认策略一致 v1.1.0/v1.1.2; +1=回测剔除的波动相关/未入样本信号整类)。仅买信号判降亏(§23.6 MED3): AI宏删线只针对买入信号, 非买(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("band_hold")}等)不判降亏, ${_t("buy_special")}(被过滤)归入 ${_t("buy_special")} 判。命中降亏条件(8键中任一键)的信号灰显+删除线+「AI降亏」标注+hoverpop 原因, 建议回避, 且不占AI仓位建议位(顺延补位); ②未入样宇宙信号(债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 后端已剔除出回测宇宙)=删除线+灰显+「未入样本」标注(AI过滤视图, 表达"被过滤掉"); 关闭=首页完全不判降亏、不画删除线、未入样本不标注, AI仓位建议 top-K 正常取(与凯利区各自独立互不影响)。⚠两开关正交: AI降亏层只产删除线/未入样本, 不产 AI建议N/当日已满/AI警示(那些归「AI仓位建议」开关控制)。若点击后列表无任何变化, 说明当前无命中降亏条件的信号">ⓘ</span>` +
     `</label>` +
-    `${_homeModeSel}` +
-    // S06 状态/降级提示槽(codex-task-20260825-001): 仅 s06 选中时由 _mountHomeS06State 异步填充;
-    // 快照不可用=持续可见警示(过滤暂不生效), 正常=显示当前生效基座与覆盖期(§23.2 可见降级不静默)
-    `<span class="sig-s06-state" id="home-sig-s06-state-slot" style="font-size:11px;color:var(--text-3)"></span>` +
-    `<label class="sig-switch-lab sig-switch-avail" data-no-pop="" title="仅显示可用信号(视图控制开关, 默认关, 记忆键 tds_home_show_available_only): 开启=把信号列表里所有「灰显/删除线」的行整体隐藏——即 AI降亏过滤命中类(AI降亏 sig-ai-hit 删除线+置灰 / 未入样本 sig-poscap-notuni 删除线+置灰), 只留干净可用的放行信号; 关闭=恢复完整列表。纯展示层视图控制: 不改变任何判定链/统计口径/AI建议编号, 与「AI降亏过滤」「AI仓位建议 K」两开关正交叠加——本开关隐藏 AI降亏层已画删除线的行(AI降亏命中 / 未入样本)+「当日已满」行(入宇宙买类超出K名=当日不可买), 卖出/持有类风险提示正常亮显不受影响; 汇总条准确率仍按全量人口统计便于对比。开启后若近30个交易日无任何可用信号, 列表区显示枯竭引导空态(连续无放行天数与历史统计, 数据源与常驻枯竭 chip 同源 §22)">` +
-      `<input type="checkbox" class="sig-switch-avail-cb"${_readHomeAvailOnlyFlag() ? " checked" : ""}> 仅显示可用信号` +
-    `</label>` +
-    // v1.1.5 枯竭提示 chip 占位(纯展示层): 异步填充, N≥20 才显示; 与凯利区 chip 同源同数字(§22)
-    `<span class="sig-drought-slot" id="home-sig-drought-slot"></span>` +
     `${_aShareFinalizedTag}` +
-    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap, badge标注层): 开启=同日只买最优K个买入类(进K=「AI建议N」亮绿 / 超K=「当日已满」灰显) + 入宇宙${_t("sell_short")}(sell/sell_stop_loss/${_t("type_band_sell")})=「AI警示」亮橙(${_t("sell_short")}无K约束不判K); 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表(无AI建议N/当日已满/AI警示), 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。⚠两开关正交: AI仓位层只产上面三类badge, 不产删除线过滤(删除线/未入样本归「AI降亏过滤」开关控制)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span>${_helpBtn}${_simBtn}</span>` +
+    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap, badge标注层): 开启=同日只买最优K个买入类(进K=「AI建议N」亮绿 / 超K=「当日已满」灰显) + 入宇宙${_t("sell_short")}(sell/sell_stop_loss/${_t("type_band_sell")})=「AI警示」亮橙(${_t("sell_short")}无K约束不判K); 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表(无AI建议N/当日已满/AI警示), 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。⚠两开关正交: AI仓位层只产上面三类badge, 不产删除线过滤(删除线/未入样本归「AI降亏过滤」开关控制)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span>${_helpBtn}</span>` +
     `</div>`;
 }
 // 参考说明按钮独立 hoverpop HTML(2026-08-14): 不复用 K 评级表 _aiPoscapRatingPopHtml(仓位评级表语义不符),
@@ -2979,97 +2392,6 @@ function _bindPoscapTitleSuppress(container) {
   });
 }
 // 绑定首页开关行事件(K 按钮 + AI降亏 checkbox), 改状态后重绘 sigCard; 每次渲染开关行后调用
-// v1.1.5(2026-08-24) 首页 AI 建议区「连续 N 日无放行」枯竭提示 chip 异步填充(纯展示层):
-// 数据源=overfit_monitor.json recent 块(走 app.js 共享 promise 防 27MB 双拉); 口径=买入类×已入样×未命中
-// 当前首页模式键集(与首页判定链同一 preset.keys §22); N≥20 才显示(common.js 单源阈值); 失败/缺失=静默隐藏。
-function _mountHomeDroughtChip() {
-  if (typeof window._tdsComputeDrought !== "function") return;
-  const modeKeys = _homeDroughtModeKeys();
-  _fetchOverfitMonitor().then((data) => {
-    // then 内重查 DOM(sig-switch-row 可能已被重绘替换, 不用闭包旧引用防写入丢失)
-    const slot = document.getElementById("home-sig-drought-slot");
-    if (!slot) return;
-    const recent = (data && data.recent && Array.isArray(data.recent.rows)) ? data.recent : null;
-    const info = window._tdsComputeDrought(recent, modeKeys);
-    const html = window._tdsDroughtChipHtml ? window._tdsDroughtChipHtml(info, _homeDroughtCaliberNote()) : "";
-    slot.innerHTML = html;
-    slot.style.display = html ? "" : "none";
-  });
-}
-// v1.1.5(2026-08-24) 「仅显示可用信号」空态枯竭统计异步填充(纯展示层, 复用 common.js 单源不写第二份):
-// 数据源/口径与 _mountHomeDroughtChip 完全同源(overfit_monitor.json recent 块 + 同一 modeKeys §22);
-// slot 存在(空态已渲染)时: 有统计 → 填 _tdsDroughtChipHtml(info)(含「已连续 N 个交易日无放行+72%」,
-// 空态场景 n≥30 必过 chip 阈值20); 统计缺失(hasRecent:false/打点未生成)→ 优雅降级填不带 N 的简版说明。
-function _mountSigEmptyDrought(_retry) {
-  const slot = document.getElementById("home-sig-empty-drought-slot");
-  if (!slot || typeof window._tdsFetchRecentBlock !== "function") {
-    // 渲染时序兜底: 首渲路径是 build-then-replace(innerHTML 注入发生在卡片根入文档之前),
-    // 此刻 getElementById 必为空 → 有限次延迟重试等其入文档(找到即停, 不重复发起 fetch);
-    // 重试耗尽仍无 slot = 本次渲染本就没有空态(非空列表场景), 静默放弃即 no-op。
-    const left = (typeof _retry === "number") ? _retry : 15;
-    if (left > 0) setTimeout(() => { try { _mountSigEmptyDrought(left - 1); } catch (e) {} }, 150);
-    return;
-  }
-  const modeKeys = _homeDroughtModeKeys();
-  window._tdsFetchRecentBlock(typeof fetchJSON === "function" ? fetchJSON : null).then((recent) => {
-    // then 内重查 DOM(sigCard 可能已被重绘替换, 不用闭包旧引用防写入丢失)
-    const el = document.getElementById("home-sig-empty-drought-slot");
-    if (!el) return;
-    const info = (typeof window._tdsComputeDrought === "function") ? window._tdsComputeDrought(recent, modeKeys) : null;
-    const html = (window._tdsDroughtChipHtml && info) ? window._tdsDroughtChipHtml(info, _homeDroughtCaliberNote()) : "";
-    if (html) {
-      el.innerHTML = " —— " + html;
-    } else if (info && info.n >= 1) {
-      // 有 recent 块但未达 chip 阈值(recent 窗口不足 30 交易日的新数据场景): 仍如实给 N, 不给 72% 历史句
-      el.innerHTML = ' —— 已连续 <b>' + info.n + '</b> 个交易日无放行<span style="opacity:.75;font-size:.92em">(连续天数实时统计)</span>';
-    } else {
-      el.innerHTML = '<span style="opacity:.75;font-size:.92em">(连续无放行统计打点尚未生成, 每晚 21:40 随 AI 监控卡更新后此处显示连续天数)</span>';
-    }
-  });
-}
-// S06(codex-task-20260825-001) 首页模式下拉旁状态 slot 挂载(可见降级契约 handoff §五.功能5):
-// 数据源=window._tdsHomeS06Warn(渲染尾部写入 {active, open}) + common.js _tdsS06Status()(快照健康度 §22 同源);
-// 非 s06 态恒空串不占位; 加载中/失败/覆盖期外笔数/正常生效 四态文案, 绝不静默退回。
-// 渲染时序同 _mountSigEmptyDrought(build-then-replace 元素未入文档 → 有限次延迟重试)。
-function _mountHomeS06State(_retry) {
-  const left = (typeof _retry === "number") ? _retry : 15;
-  const fill = () => {
-    const slot = document.getElementById("home-sig-s06-state-slot");
-    if (!slot) return false;
-    let txt = "";
-    try {
-      const w = window._tdsHomeS06Warn || {};
-      if (w.active) {
-        const st = (typeof window._tdsS06Status === "function") ? window._tdsS06Status() : null;
-        if (st && !st.loaded && st.err) txt = "⚠ S06 快照不可用(" + st.err + "), AI降亏过滤暂不拦(未回退其他模式)";
-        else if (st && st.loading) txt = "· S06 快照加载中…";
-        else if ((w.open || 0) > 0) txt = "⚠ " + w.open + " 笔超 S06 覆盖期未拦(fail-open)";
-        else if (st && st.loaded) txt = "· S06 动态基座过滤生效中(快照截至 " + (st.coverageEnd || "?") + ")";
-      }
-    } catch (e) {}
-    slot.textContent = txt;
-    return true;
-  };
-  if (fill()) return;
-  if (left > 0) setTimeout(() => { try { _mountHomeS06State(left - 1); } catch (e) {} }, 150);
-}
-// S06 快照就绪/失败事件(单例加载层 dispatch, common.js): 就绪→整卡重绘(fail-open 人口换真实过滤,
-// 与 tier map 迟到补绘同范式); 失败→只刷状态 slot 警示(人口已是 fail-open, 无需重绘)。
-// ⚠时序(smoke 2026-08-25 揪出): _rerenderSigCardContent 可能返回 promise(async 防抖合批),
-//   若同步紧跟 _mountHomeS06State() 会把文案填进「即将被替换的旧 slot」, 重绘落位后新 slot 反而恒空;
-//   改为重绘 promise settle 后(promise 化统一 sync/async)再 mount 新 slot, 双保险兜底。
-try {
-  window.addEventListener("tds-s06-state-ready", () => {
-    const _remount = () => { try { _mountHomeS06State(); } catch (e) {} };
-    try {
-      const _r = (typeof _rerenderSigCardContent === "function")
-        ? _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot) : null;
-      Promise.resolve(_r).catch(() => {}).then(_remount);
-      setTimeout(_remount, 1200);   // 兜底: 极端场景(重绘 promise 永不 settle/异常吞没)下仍补挂一次
-    } catch (e) { _remount(); }
-  });
-  window.addEventListener("tds-s06-state-error", () => { try { _mountHomeS06State(); } catch (e) {} });
-} catch (e) {}
 function _bindSigSwitchRow(sigCard) {
   if (!sigCard || sigCard._sigSwitchBound) return;
   sigCard._sigSwitchBound = true;
@@ -3081,11 +2403,6 @@ function _bindSigSwitchRow(sigCard) {
       if (kb.dataset.k === "help") {
         // 参考说明按钮(2026-08-14): 弹「推荐操作方法」说明弹窗(短线 A/F + 中长线 G + 引导信号凯利回测), 不改任何状态
         _openRefHelpModal();
-        return;
-      }
-      if (kb.dataset.k === "sim") {
-        // 模拟回测按钮(2026-08-21): 弹「模拟回测」全历史真实过滤弹窗, 纯展示不改任何状态
-        _openSimBacktestModal();
         return;
       }
       if (kb.dataset.k === "off") {
@@ -3106,37 +2423,6 @@ function _bindSigSwitchRow(sigCard) {
     }
   });
   sigCard.addEventListener("change", (e) => {
-    // T3-2 任务①(2026-08-23) 首页「AI降亏·模式」下拉: 写独立键 tds_home_fade_mode 后重绘生效;
-    // 与 lab(tds_kelly_fade_mode)/监控卡(tds_overfit_fade_mode) 三处独立互不影响(§22 各自作用域);
-    // toast 提示所选模式键数与是否含「+1」类判定, 与 sim 弹窗/监控卡同款交互。
-    const homeModeSel = e.target.closest("#sig-home-fade-mode-sel");
-    if (homeModeSel) {
-      e.preventDefault();
-      e.stopPropagation();
-      const mv = homeModeSel.value || (typeof window._KELLY_FADE_DEFAULT_MODE === "string" ? window._KELLY_FADE_DEFAULT_MODE : "new14"); // v1.1.5: 兜底引用单源默认常量(new14)
-      if (typeof _tdsStoreWithTTL === "function") _tdsStoreWithTTL("tds_home_fade_mode", mv); // TTL 18h 滑动过期
-      _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
-      const mp = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(mv) : null;
-      // S06(codex-task-20260825-001): dynamic 预设无 keys —— toast 走动态档专属文案, 不读 keys(防 TypeError)
-      if (mp && mp.dynamic) {
-        _showSigToast("AI降亏·模式已切换: " + mp.name + "(按信号日期动态切换 a9/new15 基座, T+1 生效; 实验可选档非默认); 切回「NEW 14键」即恢复默认视图");
-        return;
-      }
-      const nKeys = (mp && Array.isArray(mp.keys)) ? mp.keys.length : 0;
-      const hasBull = !!(mp && Array.isArray(mp.keys) && mp.keys.indexOf("bullAuxBackupStop") >= 0);
-      _showSigToast("AI降亏·模式已切换: " + ((mp && mp.name) || mv) + "(" + nKeys + "键" + (hasBull ? ", 含牛市×辅备买全停" : "") + "); 切回「NEW 14键」即恢复默认视图");
-      return;
-    }
-    // v1.1.5(2026-08-24) 「仅显示可用信号」开关: 写裸键 tds_home_show_available_only 后重绘生效;
-    // 纯展示层视图控制(隐藏灰显/删除线行), 不改判定链; 默认关, 开关状态记忆下次进来保持
-    const availCb = e.target.closest(".sig-switch-avail-cb");
-    if (availCb) {
-      e.preventDefault();
-      e.stopPropagation();
-      try { localStorage.setItem("tds_home_show_available_only", availCb.checked ? "1" : "0"); } catch (err) {}
-      _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
-      return;
-    }
     const aiCb = e.target.closest(".sig-switch-ai-cb");
     if (!aiCb) return;
     e.preventDefault();
@@ -3160,1252 +2446,6 @@ function _bindSigSwitchRow(sigCard) {
   _bindPoscapTitleSuppress(sigCard);
   // 2026-08-14 参考说明按钮独立 hoverpop 绑定(自包含, 与 K 评级 pop 互不干扰; 初次渲染绑一次, 重绘后由 _rerenderSigCardContent 末尾重绑)
   _bindSigHelpPop(sigCard);
-}
-
-// === 首页「模拟回测」弹窗(2026-08-21 新增, 纯展示; 2026-08-22 分片加载提速+信号列格式+ETF信号灯) ===
-// 用全历史真实信号交易记录(2011-2026 全历史 27万条), 按当前
-// AI降亏过滤 / AI仓位建议K档 / 交易模式(A-I) / 费率设置, 实时过滤并算出费后逐笔盈亏与累积收益。
-// 数据分片加载: 打开只拉 recent.json 热区片(最近约60天, ≤3MB 秒开); 提交范围超出热区时按年并行拉
-// signal_kelly_trades_parts/t{YYYY}.json(模块级缓存); 任一分片失败回退全量 signal_kelly_trades.json(老路径兜底)。
-// 纯新增展示, 不引用 lab.js 任何全局函数(首页不加载 lab.js, 引用会运行时报错), 自带轻量版过滤逻辑。
-// 降亏判定: 与首页降亏判定在 trades 侧等价(v1.1.7 起首页默认=s06 动态组合; v1.1.5~v1.1.6 默认=NEW14 十四键; _AI_MACRO_FILTER_NAMES 保留作老兜底映射)——
-//   本弹窗直接复用 lab.js _kellyDefaultFilters 默认勾选键集(v1.1.5 起=new14·NEW14 十四键, 见 lab.js 默认勾选迁移段),
-//   在其余键全关时, 与首页(默认 s06 模式)判定完全一致。
-//   trades 记录无 ai_macro 字段, 且维度(mkt/etf/rating)分散在16个子域qk副本中, 故先跨全 qk 去重聚合出带全部维度的基笔池,
-//   再对每笔独立判定(等价 lab.js _kellyPassesFadeFilters + _kellyCollectBasePool 去重)。
-var _simKellyData = null;     // signal_kelly_trades.json 解析后的 {fields, fIdx, quadrants}(quadrants=原始分域×分模式平行数组, 按选中 mode 在 _simBuildModePool 现筛)
-var _simKellyCfg = null;      // signal_kelly_backtest.json 解析后的 {sell_modes, ...}
-var _simKellyLoading = false;
-var _simKellyLoadErr = null;
-// 分片加载(2026-08-22): 打开弹窗只拉 recent.json 热区片秒开; 提交范围超出热区时按年并行拉 t{YYYY}.json。
-// 两策略互斥(热区内只用 recent / 超出只用年片覆盖), 合并不重复计数。任一分片失败回退拉全量(老路径兜底)。
-var _simPartsCache = new Map();  // "recent" | "t2011"... -> 已解析分片(切范围不重复拉)
-var _simHotMinDate = "";         // recent 片最小 signal_date(热区下界 YYYYMMDD, 空=未加载)
-var _simHotMaxDate = "";         // recent 片最大 signal_date(=数据最新日, 热区上界)
-var _simFullFallback = false;    // 分片链路失败已回退全量(true 后跳过分片逻辑)
-
-// 读取数据版本号(破缓存, 与 lab.js 同机制: <meta name="lab-asset-url"> 持有 ?v=)
-function _simCacheBust() {
-  try {
-    const meta = document.querySelector('meta[name="lab-asset-url"]');
-    if (meta && meta.content && meta.content.indexOf("?v=") >= 0) {
-      return meta.content.split("?v=")[1];
-    }
-  } catch (e) {}
-  return "";
-}
-
-// 凯利默认降亏 filters(v1.1.5 起与 common.js new14 预设/_kellyDefaultFilters 默认集 1:1; 单源核对 scripts/loss_rules.py MINING_TO_PROD_KEY)
-// NEW14 = hist 键 6 + 规则键 8(2026-08-24 用户拍板切默认, mine28/mine30 记分板依据):
-//   hist6: r10May6NonMay / greedy15(Greedy-15组合) / janMidSpecial(1月中旬+追关注) / k2c5HkChase(港股追涨剔除) /
-//          k3ConceptBuy(主关注×概念) / declinePhaseSpecial(下降期×追关注, 全市场)
-//   规则8: n1NorthOutflow(N1北向20日净流出) / t1LowTurnSpecial(T1换手冰点×追关注) / d1LowDivYield(D1股息率低位) /
-//          q1QvixLowPct(Q1 QVIX低分位) / h1VolChgHighA(H1升波×A股) / m1MarginDownBull(M1牛主升×两融降温) /
-//          p1LowDivBackup(P1备买×股息率分位低) / r2bSpecialGlobal(R2b追关注×全球类)
-//   旧八键成员(excludeSpecialBear/n2NovSpecialIndustry/janMidRating/r7MayReinforced/excludeAuxCross)v1.1.5 起移出默认(false, 可经模式下拉选 p8 对照)。
-// 注意: 规则8 依赖 kelly_loss_features.json 特征数据(_simLossFeatData), 未就绪时降级不拦(_simPassesFade 内置); 其余键依赖 trades 字段+聚合维度判定。
-function _simDefaultFadeFilters() {
-  return {
-    excludeAux: false, marketTiming: false, excludeMonth: false, excludeRatingLow: false,
-    excludeAuxCross: false, excludeSpecialBear: false, excludeMonthDummy: false,
-    n1MarTueHigh: false, n2NovSpecialIndustry: false, r8PureNonMay: false,
-    n3NovSpecialMon: false, n4AMay: false, r7MayReinforced: false,
-    n5MayVlow: false, n6MidMay: false, r10May6NonMay: true,
-    v4cSimple: false, v4b: false, greedy7: false, greedy10: false,
-    v4d: false, v4j: false, v4i: false, greedy15: true, v4f: false, v4g: false, v4m: false, v4k: false,
-    janMidRating: false, janMidSpecial: true,
-    k2c5HkChase: true, k3ConceptBuy: true,
-    legacyMa60Special: false, declinePhaseSpecial: true, excludeSpecialBearCyb: false,
-    a5NovMidSpecial: false, a45NovMidLateSpecial: false,
-    // T1(2026-08-23) 20 新键: v1.1.5 起 NEW14 的规则8 转 true(n1/t1/d1/q1/h1/m1/p1/r2b), 其余维持默认关 §23.7;
-    //   键清单单源=scripts/loss_rules.py NEW_KEYS_PROD
-    n1NorthOutflow: true, t1LowTurnSpecial: true, d1LowDivYield: true, q1QvixLowPct: true,
-    h1VolChgHighA: true, m1MarginDownBull: true, d2LowDivBull: false, p1LowDivBackup: true,
-    v1HighVol20: false, s1SentALow: false, r1VolRatioLow: false, r2bSpecialGlobal: true,
-    r2gLowRatingQ3: false, n2NorthOutConcept: false, v2Vol20Gt25: false, s2SentHs300Low: false,
-    w1BackupDecline: false, a1BullAllStop: false, v3Vol20LowPct: false, ad1AdlineHot: false,
-    // X1(2026-08-24 mine29c 用户拍板·纯新增 §23.7 默认关): NEW14+1·15键可选档(new15)成员
-    excludeTierNone: false
-  };
-}
-
-// 各降亏谓词所需维度标记: 从 qk 子域名前缀推断(mkt_/etf_/sig_/rating_)
-function _simQkDim(qk) {
-  if (qk.startsWith("mkt_")) return { type: "mkt", val: qk.slice(4) };
-  if (qk.startsWith("etf_")) return { type: "etf", val: qk.slice(4) };
-  if (qk.startsWith("sig_")) return { type: "sig", val: qk.slice(4) };
-  if (qk.startsWith("rating_")) return { type: "rating", val: qk.slice(7) };
-  return null;
-}
-
-// 月门控掩码(与 lab.js _kellyMonthMask 同值, 仅含本弹窗8键涉及的键)
-var _simMonthMask = {
-  a5NovMidSpecial: 1 << 10, a45NovMidLateSpecial: 1 << 10,
-  n1MarTueHigh: 1 << 2, n2NovSpecialIndustry: 1 << 10, r8PureNonMay: (1 << 2) | (1 << 10),
-  n3NovSpecialMon: 1 << 10, n4AMay: 1 << 4, r7MayReinforced: (1 << 4) | (1 << 2) | (1 << 10),
-  n5MayVlow: 1 << 4, n6MidMay: 1 << 4, r10May6NonMay: (1 << 4) | (1 << 2) | (1 << 10),
-  v4cSimple: 1 << 2, v4b: 1 << 4, greedy7: 0x1FFF, v4d: 1 << 11, v4j: 1 << 4, v4i: 1 << 4,
-  greedy10: 0x1FFF, v4f: 1 << 5, v4g: (1 << 0) | (1 << 1) | (1 << 2), v4m: 1 << 8, v4k: 1 << 0,
-  greedy15: 0x1FFF, janMidRating: 1 << 0, janMidSpecial: 1 << 0,
-  k2c5HkChase: 0x1FFF, k3ConceptBuy: 0x1FFF
-};
-function _simActiveMonthMask(filters) {
-  var mask = 0;
-  for (var k in _simMonthMask) { if (filters[k]) mask |= _simMonthMask[k]; }
-  return mask;
-}
-
-// 买入日星期(0=Mon..6=Sun, 与 lab.js _kellyBuyWeekday 同)
-function _simBuyWeekday(buyDateStr) {
-  if (!buyDateStr) return -1;
-  var s = String(buyDateStr);
-  if (s.length < 8) return -1;
-  var jsDay = new Date(parseInt(s.substring(0, 4), 10), parseInt(s.substring(4, 6), 10) - 1, parseInt(s.substring(6, 8), 10)).getDay();
-  return (jsDay + 6) % 7;
-}
-// 买入价分桶(与 lab.js _kellyBuypriceBin 同)
-function _simBuypriceBin(price) {
-  if (price == null) return "";
-  if (price <= 0.841441) return "vlow";
-  if (price <= 1.015314) return "low";
-  if (price <= 1.194593) return "mid";
-  if (price <= 1.446645) return "high";
-  return "vhigh";
-}
-
-// ===== T1(2026-08-23) AI降亏方法池57→全量·app.js 同步(§23.3 举一反三: 模拟回测弹窗与凯利区同链) =====
-// 规格单源=scripts/loss_rules.py RULE_SPECS(经 data/kelly_loss_features.json meta.rules 下发),
-// 谓词与 lab.js _kellyLossRuleHit / Python loss_rules.rule_hit 三端同构。
-// 数据通道=R2 直链→CF 相对路径兜底(_fetchSimTrades 同模式); 未就绪/失败=降级不拦(与后端同语义)。
-const _SIM_LOSS_NEW_KEYS = [
-  ["r2gLowRatingQ3", "r2gq3"],
-  ["n1NorthOutflow", "n1out"], ["t1LowTurnSpecial", "t1turn"], ["d1LowDivYield", "d1div"],
-  ["q1QvixLowPct", "q1qvix"], ["h1VolChgHighA", "h1volchg"], ["m1MarginDownBull", "m1margin"],
-  ["d2LowDivBull", "d2div"], ["p1LowDivBackup", "p1div"], ["v1HighVol20", "v1vol20"],
-  ["s1SentALow", "s1senta"], ["r1VolRatioLow", "r1volratio"], ["r2bSpecialGlobal", "r2bglobal"],
-  ["n2NorthOutConcept", "n2nout"], ["v2Vol20Gt25", "v2vol25"], ["s2SentHs300Low", "s2sent300"],
-  ["w1BackupDecline", "w1backup"], ["a1BullAllStop", "a1bull"], ["v3Vol20LowPct", "v3vollow"],
-  ["ad1AdlineHot", "ad1hot"],
-  // X1(2026-08-24 mine29c, NEW14+1·15键可选档; 同日扩围剔 none+null): 整剔有跟踪ETF象限
-  ["excludeTierNone", "xtnone"]
-];
-let _simLossFeatData = null;
-let _simLossFeatLoading = null;
-function _ensureSimLossFeat() {
-  if (_simLossFeatData) return Promise.resolve(_simLossFeatData);
-  if (!_simLossFeatLoading) {
-    _simLossFeatLoading = fetchJSON(_simTradesUrl("kelly_loss_features.json"), 60000)
-      .catch(() => fetchJSON(_simTradesUrlCf("kelly_loss_features.json"), 60000))
-      .then((d) => { _simLossFeatData = d || null; return _simLossFeatData; })
-      .catch(() => { _simLossFeatLoading = null; return null; }); // 失败清 loading 态允许重试, 返回 null=降级不拦
-  }
-  return _simLossFeatLoading;
-}
-// spec-driven 谓词(app.js 版): 与 lab.js _kellyLossRuleHit 逐分支同构
-function _simLossRuleHit(key, ctx) {
-  const doc = _simLossFeatData;
-  const spec = doc && doc.meta && doc.meta.rules ? doc.meta.rules.find((r) => r.key === key) : null;
-  if (!spec) return false;
-  const feats = doc.features || {};
-  if (spec.feature) {
-    const series = feats[spec.feature];
-    const v = series ? series[String(ctx.date || "")] : null;
-    if (v == null) return false;
-    if (spec.direction === "low") { if (!(v < spec.threshold)) return false; }
-    else { if (!(v > spec.threshold)) return false; }
-  }
-  if (spec.sig != null && String(ctx.sig || "") !== spec.sig) return false;
-  if (spec.tier != null && String(ctx.tier || "") !== spec.tier) return false;
-  if (spec.mkt != null && String(ctx.mkt || "") !== spec.mkt) return false;
-  if (spec.track_tier != null) {  // X1(2026-08-24 扩围): spec 支持 str 或 Array 多值(none/null); ctx ""=无映射不命中, "null"=极弱/无分档命中
-    var _ctxTt = String(ctx.track_tier || "");
-    if (Array.isArray(spec.track_tier) ? spec.track_tier.indexOf(_ctxTt) < 0 : _ctxTt !== spec.track_tier) return false;
-  }
-  if (spec.rating != null) {
-    if (String(ctx.rating || "") !== spec.rating) return false;
-    const tv = (ctx.ts == null || ctx.ts === "") ? 999 : Number(ctx.ts);
-    if (!(tv < spec.max_ts)) return false;
-    if ((spec.months || []).indexOf(String(ctx.smonth || "")) < 0) return false;
-  }
-  return true;
-}
-
-// 单笔降亏判定(等价 lab.js _kellyPassesFadeFilters, 但输入 t 为带 mktD/etfD/ratD 聚合维度的基笔记录)
-// 返回 true = 通过(不被降亏命中, 保留); false = 命中降亏(剔除)
-function _simPassesFade(t, fIdx, filters, monthMask) {
-  if (filters.excludeAux && (t[fIdx.signal] || "") === "buy_aux") return false;
-  if (filters.marketTiming && t[fIdx.market_state] !== true) return false;
-  if (filters.excludeMonth) { var _mm = (t[fIdx.buy_date] || "").substring(4, 6); if (_mm === "03" || _mm === "05") return false; }
-  if (filters.excludeRatingLow && t[fIdx.rating] === "low") return false;
-  if (filters.excludeAuxCross && (t[fIdx.signal] || "") === "buy_aux") { var _mmX = (t[fIdx.buy_date] || "").substring(4, 6); if (_mmX === "03" || _mmX === "05") return false; }
-  if (filters.excludeSpecialBear && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_tier != null) {
-    var _mt = t[fIdx.market_tier] || "";
-    if (_mt === "熊市·主跌" || _mt === "下降期") return false;
-  }
-  if (filters.legacyMa60Special && (t[fIdx.signal] || "") === "buy_special" && t[fIdx.market_state] === false) return false;
-  if (filters.declinePhaseSpecial && (t[fIdx.signal] || "") === "buy_special" && t[fIdx.market_tier_all] === "下降期") return false;
-  if (filters.excludeSpecialBearCyb && (t[fIdx.signal] || "") === "buy_special" && fIdx.market_tier_cyb != null) {
-    var _mtc = t[fIdx.market_tier_cyb] || ""; if (_mtc === "熊市·主跌" || _mtc === "下降期") return false;
-  }
-  var _v3On = filters.n1MarTueHigh || filters.n2NovSpecialIndustry || filters.r8PureNonMay || filters.n3NovSpecialMon || filters.n4AMay || filters.r7MayReinforced || filters.n5MayVlow || filters.n6MidMay || filters.r10May6NonMay;
-  var _v4On = filters.greedy7 || filters.greedy10 || filters.greedy15 || filters.v4cSimple || filters.v4b || filters.v4d || filters.v4j || filters.v4i || filters.v4f || filters.v4g || filters.v4m || filters.v4k;
-  var _r3On = filters.a5NovMidSpecial || filters.a45NovMidLateSpecial;
-  var _janOn = filters.janMidRating || filters.janMidSpecial;
-  var _k2On = filters.k2c5HkChase || filters.k3ConceptBuy;
-  if (_v3On || _v4On || _r3On || _janOn || _k2On) {
-    if (monthMask) {
-      var _mmG = (t[fIdx.buy_date] || "").substring(4, 6);
-      var _mmInt = _mmG ? parseInt(_mmG, 10) : 0;
-      if (_mmInt && !(monthMask & (1 << (_mmInt - 1)))) return true;
-    }
-    var _mm3 = (t[fIdx.buy_date] || "").substring(4, 6);
-    var _dd3 = parseInt((t[fIdx.buy_date] || "").substring(6, 8), 10) || 0;
-    var _sig3 = (t[fIdx.signal] || "");
-    var _wd3 = _simBuyWeekday(t[fIdx.buy_date]);
-    var _bpb3 = _simBuypriceBin(t[fIdx.buy_price]);
-    var _mktD3 = t._mktD || "";
-    var _etfD3 = t._etfD || "";
-    var _ratD3 = t._ratD || "";
-    var _ts3 = fIdx.track_score != null ? Number(t[fIdx.track_score]) : 999;
-    var _q3 = _mm3 ? Math.ceil(parseInt(_mm3, 10) / 3) : 0;
-    if (_v3On) {
-      if (filters.n1MarTueHigh && _mm3 === "03" && _wd3 === 2 && _bpb3 === "high") return false;
-      if (filters.n2NovSpecialIndustry && _sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") return false;
-      if (filters.r8PureNonMay && ((_mm3 === "03" && _wd3 === 2 && _bpb3 === "high") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0))) return false;
-      if (filters.n3NovSpecialMon && _sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0) return false;
-      if (filters.n4AMay && _mktD3 === "a" && _mm3 === "05") return false;
-      if (filters.r7MayReinforced && ((_mktD3 === "a" && _mm3 === "05") || (_ratD3 === "mid" && _mm3 === "05") || (_mm3 === "05" && _bpb3 === "vlow") || (_mm3 === "03" && _wd3 === 2 && _bpb3 === "high") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0))) return false;
-      if (filters.n5MayVlow && _mm3 === "05" && _bpb3 === "vlow") return false;
-      if (filters.n6MidMay && _ratD3 === "mid" && _mm3 === "05") return false;
-      if (filters.r10May6NonMay && (_mm3 === "05" || (_mm3 === "03" && _wd3 === 2 && _bpb3 === "high") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_sig3 === "buy_special" && _mm3 === "11" && _wd3 === 0) || (_sig3 === "buy_special" && _mm3 === "11" && _bpb3 === "low") || (_sig3 === "buy_special" && _mm3 === "03" && _mktD3 === "industry") || (_mm3 === "03" && _wd3 === 2 && _sig3 === "buy_aux"))) return false;
-    }
-    if (_v4On) {
-      if (filters.v4cSimple && _mm3 === "03" && _wd3 === 2 && _sig3 === "buy_aux") return false;
-      if (filters.v4b && _mktD3 === "a" && _mm3 === "05" && _sig3 === "buy_special" && _etfD3 === "related") return false;
-      if (filters.greedy7 && ((_sig3 === "buy_special" && _mm3 === "05") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "concept") || (_sig3 === "buy_special" && _mm3 === "03") || (_sig3 === "buy_aux" && _mm3 === "01") || (_q3 === 2 && _bpb3 === "vlow" && _sig3 === "buy_aux" && _mktD3 === "concept") || (_sig3 === "buy" && _mm3 === "01") || (_mm3 === "03" && _wd3 === 2 && _mktD3 === "concept" && _ratD3 === "low"))) return false;
-      if (filters.v4d && _mm3 === "12" && _wd3 === 1 && _sig3 === "buy_aux" && _ts3 < 50) return false;
-      if (filters.v4j && _mm3 === "05" && _bpb3 === "vlow" && _sig3 === "buy_special") return false;
-      if (filters.v4i && _sig3 === "buy_special" && _mm3 === "05" && _mktD3 === "concept" && _wd3 === 0) return false;
-      if (filters.greedy10 && ((_sig3 === "buy_special" && _mm3 === "05") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "concept") || (_sig3 === "buy_special" && _mm3 === "03") || (_sig3 === "buy_aux" && _mm3 === "01") || (_q3 === 2 && _bpb3 === "vlow" && _sig3 === "buy_aux" && _mktD3 === "concept") || (_sig3 === "buy" && _mm3 === "01") || (_mm3 === "03" && _wd3 === 2 && _mktD3 === "concept" && _ratD3 === "low") || (_sig3 === "buy_aux" && _mm3 === "12" && _ts3 < 50) || (_mm3 === "06" && _bpb3 === "vlow" && _ratD3 === "low") || (_sig3 === "buy_aux" && _mm3 === "05"))) return false;
-      if (filters.v4f && _sig3 === "buy" && _mm3 === "06" && _wd3 === 2 && _etfD3 === "related") return false;
-      if (filters.v4g && _mktD3 === "global" && _q3 === 1 && _sig3 === "buy_aux" && _ratD3 === "low") return false;
-      if (filters.v4m && _sig3 === "buy_special" && _mm3 === "09" && _wd3 === 2) return false;
-      if (filters.v4k && _sig3 === "buy" && _mm3 === "01" && _bpb3 === "high") return false;
-      if (filters.greedy15 && ((_sig3 === "buy_special" && _mm3 === "05") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "concept") || (_sig3 === "buy_special" && _mm3 === "03") || (_sig3 === "buy_aux" && _mm3 === "01") || (_q3 === 2 && _bpb3 === "vlow" && _sig3 === "buy_aux" && _mktD3 === "concept") || (_sig3 === "buy" && _mm3 === "01") || (_mm3 === "03" && _wd3 === 2 && _mktD3 === "concept" && _ratD3 === "low") || (_sig3 === "buy_aux" && _mm3 === "12" && _ts3 < 50) || (_mm3 === "06" && _bpb3 === "vlow" && _ratD3 === "low") || (_sig3 === "buy_aux" && _mm3 === "05") || (_sig3 === "buy_special" && _mm3 === "11" && _mktD3 === "industry") || (_mm3 === "04" && _wd3 === 1 && _mktD3 === "concept" && _ts3 < 50) || (_mktD3 === "global" && _q3 === 1 && _sig3 === "buy_aux" && _ratD3 === "low") || (_mm3 === "01" && _bpb3 === "low" && _sig3 === "buy_special" && _mktD3 === "concept") || (_sig3 === "buy_special" && _mm3 === "09" && _wd3 === 2))) return false;
-    }
-    if (_r3On) {
-      if (filters.a5NovMidSpecial && _sig3 === "buy_special" && _mm3 === "11" && _dd3 >= 11 && _dd3 <= 20) return false;
-      if (filters.a45NovMidLateSpecial && _sig3 === "buy_special" && _mm3 === "11" && _dd3 >= 11) return false;
-    }
-    if (_janOn) {
-      if (filters.janMidRating && _mm3 === "01" && _dd3 >= 11 && _dd3 <= 20 && _ratD3 === "mid") return false;
-      if (filters.janMidSpecial && _sig3 === "buy_special" && _mm3 === "01" && _dd3 >= 11 && _dd3 <= 20) return false;
-    }
-    if (_k2On) {
-      if (filters.k2c5HkChase && (_sig3 === "buy_special" || _sig3 === "buy_backup") && _mktD3 === "hk") return false;
-      if (filters.k3ConceptBuy && _sig3 === "buy" && _mktD3 === "concept") return false;
-    }
-  }
-  // T1(2026-08-23) 20 条新键(mine20/21/22 方法池全量): 独立于上面 v3/v4/r3/jan/k2 门控组之外——
-  //   挖掘语义即无月门, 放门控内会被 monthMask 短路漏拦(lab.js 同款位置与注释)。
-  //   全部默认 false(§23.7 默认行为零变化); 特征未就绪时降级不拦(与后端 load_features 缺失同语义)。
-  var _m20On = filters.n1NorthOutflow || filters.t1LowTurnSpecial || filters.d1LowDivYield || filters.q1QvixLowPct ||
-    filters.h1VolChgHighA || filters.m1MarginDownBull || filters.d2LowDivBull || filters.p1LowDivBackup ||
-    filters.v1HighVol20 || filters.s1SentALow || filters.r1VolRatioLow || filters.r2bSpecialGlobal ||
-    filters.r2gLowRatingQ3 || filters.n2NorthOutConcept || filters.v2Vol20Gt25 || filters.s2SentHs300Low ||
-    filters.w1BackupDecline || filters.a1BullAllStop || filters.v3Vol20LowPct || filters.ad1AdlineHot ||
-    filters.excludeTierNone;
-  if (_m20On && _simLossFeatData) {
-    var _ctx20 = {
-      sig: t[fIdx.signal] || "",
-      mkt: t._mktD || "",
-      tier: fIdx.market_tier != null ? (t[fIdx.market_tier] || "") : "",
-      track_tier: (function () {  // X1 判定(trades 列直读三态: 显式 null→"null" 命中扩围后 X1; 缺列/越界 undefined→"" 诚实不命中; §23.13 口径统一)
-        if (fIdx.track_tier == null) return "";
-        var _v = t[fIdx.track_tier];
-        return _v === undefined ? "" : (_v === null ? "null" : String(_v));
-      })(),
-      date: t[fIdx.buy_date] || "",
-      smonth: String(t[fIdx.signal_date] || "").substring(4, 6),
-      rating: t[fIdx.rating] || "",
-      ts: fIdx.track_score != null ? t[fIdx.track_score] : null
-    };
-    for (var _i20 = 0; _i20 < _SIM_LOSS_NEW_KEYS.length; _i20++) {
-      var _k20 = _SIM_LOSS_NEW_KEYS[_i20][0];
-      if (filters[_k20] && _simLossRuleHit(_k20, _ctx20)) return false;
-    }
-  }
-  return true;
-}
-
-// (2026-08-22 用户拍板) 新降亏键独立谓词: 牛市·主升(hs300四档) × 信号∈{buy_aux辅买, buy_backup备买} → 拦下
-// 与 lab.js _kellyPassesFadeFilters 的 bullAuxBackupStop 分支同源(§22 一致); market_tier 为空(hk/global 类)=天然不命中=A股限定。
-// sim 弹窗内为独立开关(不并入 filters 对象), 与当前模式键集(v1.1.5 起=NEW14)AND 叠加; 仅 A-F 短线模式生效(G/H/I 由调用方强制关闭)。
-function _simPassesBullStop(t, fIdx) {
-  if (fIdx.market_tier == null) return true;
-  // T3-1: 判定表达式换 spec(规格=common.js bullAuxBackupStop, 与 lab 谓词分支同源 §22); 开关语义不变
-  return !_tdsFadeSpecHit("bullAuxBackupStop", { sig: t[fIdx.signal] || "", tier: (t[fIdx.market_tier] || "") });
-}
-
-// 基笔 key(买侧身份, 与 lab.js _kellyBaseKey 同)
-function _simBaseKey(t, fIdx) {
-  return (t[fIdx.signal_date] || "") + "|" + (t[fIdx.index_id] || "") + "|" + (t[fIdx.signal] || "") + "|" + (t[fIdx.buy_date] || "") + "|" + (t[fIdx.etf_code] || "");
-}
-
-// 首次开弹窗加载数据(全历史 trades + backtest config), 解析平行数组→带聚合维度的基笔池, 缓存模块级
-// 分片/全量 URL 双通道(与 lab.js _kellyApplyFeeRecompute 同模式): R2 直链失败 → CF 相对路径兜底
-// (备站由 fetchJSON 主动域名重写接管); P1-2 口径保留: trades 类大 JSON 自带 60s 长超时(全局默认 15s 不变)
-function _simTradesUrl(name) {
-  const v = _simCacheBust();
-  return "https://ss.fx8.store/data/" + name + (v ? "?v=" + v : "");
-}
-function _simTradesUrlCf(name) {
-  const v = _simCacheBust();
-  return "./data/" + name + (v ? "?v=" + v : "");
-}
-function _fetchSimTrades(name) {
-  return fetchJSON(_simTradesUrl(name), 60000).catch(() => fetchJSON(_simTradesUrlCf(name), 60000));
-}
-// 分片/全量统一解析(fields 列式 → fIdx 下标表; 不预聚合全模式并集, 按 mode 在 _simBuildModePool 现筛)
-function _simParseTrades(tr) {
-  const fields = tr.fields;
-  const fIdx = {};
-  fields.forEach((f, i) => { fIdx[f] = i; });
-  return { fields, fIdx, quadrants: tr.quadrants || {} };
-}
-// 兜底全量加载(老路径 signal_kelly_trades.json 仍在, 分片任一步失败即走此路, 天然兜底)
-async function _simLoadFull() {
-  try {
-    console.warn("[simbt] 分片加载失败, 回退全量 signal_kelly_trades.json(约64MB, 首次数秒)");
-    const tr = await _fetchSimTrades("signal_kelly_trades.json");
-    _simKellyData = _simParseTrades(tr);
-    _simFullFallback = true;
-    return true;
-  } catch (e) {
-    _simKellyLoadErr = e && e.message ? e.message : String(e);
-    _simKellyData = null;
-    return false;
-  }
-}
-// 已缓存分片合并(quadrants 同 key 数组拼接; 调用方保证各分片行集互斥, 拼接不重复计数)
-function _simMergeShards(shards) {
-  const first = shards[0];
-  const quadrants = {};
-  for (const s of shards) {
-    for (const qk in s.quadrants) {
-      const dst = quadrants[qk] || (quadrants[qk] = {});
-      const srcq = s.quadrants[qk];
-      for (const mk in srcq) {
-        dst[mk] = dst[mk] ? dst[mk].concat(srcq[mk]) : srcq[mk];
-      }
-    }
-  }
-  return { fields: first.fields, fIdx: first.fIdx, quadrants };
-}
-// 一级加载(打开弹窗): 只拉 recent.json 热区片(≤3MB 秒开), 记录热区上下界; recent 失败回退全量
-async function _loadSimKellyData() {
-  if (_simKellyData || _simKellyLoading) return _simKellyData;
-  _simKellyLoading = true;
-  _simKellyLoadErr = null;
-  // cfg 独立并行拉(recent 失败走全量兜底时也要有 sell_modes)
-  const cfgUrl = "./data/signal_kelly_backtest.json" + (_simCacheBust() ? "?v=" + _simCacheBust() : "");
-  const cfgP = fetchJSON(cfgUrl).catch(() => null);
-  try {
-    const recent = await _fetchSimTrades("signal_kelly_trades_parts/recent.json");
-    const parsed = _simParseTrades(recent);
-    _simPartsCache.set("recent", parsed);
-    // 热区上下界 = recent 片内 signal_date 最小/最大(供提交时判断范围是否落在热区内)
-    let mn = "", mx = "";
-    const sdI = parsed.fIdx.signal_date;
-    for (const qk in parsed.quadrants) {
-      const mks = parsed.quadrants[qk];
-      for (const mk in mks) {
-        const arr = mks[mk];
-        for (let i = 0; i < arr.length; i++) {
-          const sd = String(arr[i][sdI] || "");
-          if (sd && (!mn || sd < mn)) mn = sd;
-          if (sd && sd > mx) mx = sd;
-        }
-      }
-    }
-    _simHotMinDate = mn;
-    _simHotMaxDate = mx;
-    _simKellyData = parsed;
-    const cfg = await cfgP;
-    _simKellyCfg = (cfg && cfg.config) ? cfg.config : { sell_modes: {} };
-  } catch (e) {
-    console.warn("[simbt] recent.json 加载失败, 回退全量:", e);
-    const okF = await _simLoadFull();
-    if (okF) {
-      const cfg = await cfgP;
-      _simKellyCfg = (cfg && cfg.config) ? cfg.config : { sell_modes: {} };
-    }
-  } finally {
-    _simKellyLoading = false;
-  }
-  return _simKellyData;
-}
-// 二级加载(提交时): 所选范围超出热区下界(或未设下界) → 并行拉缺失的 tYYYY.json 年片(模块级 Map 缓存,
-// 切范围不重复拉), 全部到位合并后渲染; 任一年片失败回退全量。返回 true=就绪 / false=失败(_simKellyLoadErr 已置)。
-// onStep(msg): 拉片期间更新 loading 文案(如「正在加载 2020 年数据…」)。
-async function _simEnsureRange(startD, endD, onStep) {
-  if (_simFullFallback) return !_simKellyLoadErr;
-  if (!_simKellyData || !_simHotMinDate) return !!_simKellyData;
-  // 热区判定: 仅当「设了下界且下界落在热区内」时 recent 已覆盖所选范围(startD 为空=不筛下界=要最老数据, 须拉年片)
-  if (startD && startD >= _simHotMinDate) return true;
-  const toY = parseInt((endD || _simHotMaxDate || "").slice(0, 4), 10);
-  // 数据最早 2011 年(signal_date 自 20110119 起), 早于 2011 无片可拉
-  const fromY = Math.max(2011, parseInt(String(startD || "2011").slice(0, 4), 10));
-  if (!toY || isNaN(toY)) return true;  // 无法定上界(异常数据), 交由现有过滤逻辑处理
-  const years = [];
-  for (let y = fromY; y <= toY; y++) years.push("t" + y);
-  const missing = years.filter((nm) => !_simPartsCache.has(nm));
-  if (missing.length) {
-    let doneN = 0;
-    const results = await Promise.all(missing.map((nm) =>
-      _fetchSimTrades("signal_kelly_trades_parts/" + nm + ".json")
-        .then((tr) => {
-          _simPartsCache.set(nm, _simParseTrades(tr));
-          doneN++;
-          if (onStep) onStep("正在加载 " + nm.slice(1) + " 年数据…" + (doneN < missing.length ? "(" + doneN + "/" + missing.length + ")" : ""));
-          return true;
-        })
-        .catch((e) => {
-          console.warn("[simbt] 分片 " + nm + ".json 加载失败, 回退全量:", e);
-          return false;
-        })
-    ));
-    if (results.some((r) => !r)) return _simLoadFull();
-  }
-  // 合并年片(互斥策略: 走年片就不用 recent —— 年片覆盖含热区内全部日期, 拼接无重复行)
-  const shards = years.map((nm) => _simPartsCache.get(nm)).filter(Boolean);
-  if (shards.length) _simKellyData = _simMergeShards(shards);
-  return true;
-}
-
-// 打开「模拟回测」弹窗(复用 .rule-modal 机制, 与 _openRefHelpModal 同款)
-function _openSimBacktestModal() {
-  let modal = document.getElementById("simBacktestModal");
-  const isFirst = !modal;
-  if (isFirst) {
-    modal = document.createElement("div");
-    modal.id = "simBacktestModal";
-    modal.className = "rule-modal hidden";
-    document.body.appendChild(modal);
-  }
-  const _close = () => { modal.classList.add("hidden"); document.body.style.overflow = ""; };
-  // 默认时间范围 = 最近30天(止=今天, 起=今天-30天)(2026-08-22 用户定)。innerHTML 每次打开全量重建,
-  // 天然"每次打开重置为最近30天"。用本地时区分量拼接格式化(不用 toISOString: 其按 UTC, 东八区 8 点前会偏到昨天)。
-  const _pad2 = (n) => (n < 10 ? "0" + n : "" + n);
-  const _fmtLocal = (d) => d.getFullYear() + "-" + _pad2(d.getMonth() + 1) + "-" + _pad2(d.getDate());
-  const _now = new Date();
-  const _defStart = _fmtLocal(new Date(_now.getFullYear(), _now.getMonth(), _now.getDate() - 30));
-  const _defEnd = _fmtLocal(_now);
-  // 交易模式下拉(默认 A, 来自 sell_modes)
-  const _sm = (_simKellyCfg && _simKellyCfg.sell_modes) || {};
-  const _modeOpts = Object.keys(_sm).map((mk) => `<option value="${mk}">${mk} · ${_sm[mk].label || ""}</option>`).join("");
-  modal.innerHTML = '<div class="rule-modal-overlay"></div>' +
-    '<div class="rule-modal-body rule-modal-body-wide"><div class="rule-modal-header"><h3>📊 模拟回测 · 全历史真实过滤</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
-    '<div class="rule-modal-content">' +
-      // 筛选条单行排布(2026-08-24 用户二次反馈: 两行仍太高 → 四控件合 1 行): 时间范围起/止+交易模式+
-      // AI降亏过滤+AI仓位建议 全部横排一行, 费率块仍独占一行(.simbt-fee-block flex:1 1 100% 兜底)。
-      // 纯布局不动逻辑/事件(§23.7); 窄屏 flex-wrap 自然折行不破版(间距/padding 已同步收紧)。
-      '<div class="sim-ctrl-row">' +
-        '<div class="sim-ctrl-block"><label>时间范围(起)</label><input type="date" class="sim-date-start" value="' + _defStart + '"></div>' +
-        '<div class="sim-ctrl-block"><label>时间范围(止)· 最长500天</label><input type="date" class="sim-date-end" value="' + _defEnd + '"></div>' +
-        '<div class="sim-ctrl-block"><label>交易模式</label><select class="sim-mode-sel">' + (_modeOpts || '<option value="A">A · 固定10天</option>') + '</select></div>' +
-        // (2026-08-23 用户拍板) 旧「开启(当时默认8键)」+「牛市×辅备买全停」两 checkbox 删除, 模式下拉=键组合唯一入口;
-        // (2026-08-24 用户拍板) 总开关恢复(仅恢复 fadeOn 快速切换这一层, 牛市全停不回来): 下拉旁独立 checkbox,
-        // 开=按当前所选模式过滤 / 关=不过滤走 raw bank(全信号人口); 切开关绝不写 tds_sim_fade_mode(用户核心诉求=
-        // 「开关是为了不改变下拉结果快速操作」); 持久化=裸键 tds_sim_fade("0"=关/其余=开, 默认开, 对齐首页
-        // tds_home_fade 与监控卡 tds_overfit_fade 裸键范式); 视觉对齐首页 sig-switch 范式(label 包 checkbox+短文字)。
-        // 旧 sim-fade-cb 无持久化字段的欠账此次一并补齐; 「牛市×辅备买全停」仍无恢复计划。
-        '<div class="sim-ctrl-block"><label>AI降亏过滤</label>' +
-          '<div class="sim-fade-ctl">' +
-            '<label class="sim-fade-on-lab" title="AI降亏过滤总开关: 开=按旁侧当前所选模式过滤(与凯利页同源口径); 关=不过滤, 看全部信号(raw 口径, 汇总区显示「降亏关」)。只切这层过滤, 绝不改动模式下拉的选中值与其记忆(tds_sim_fade_mode)。开关状态独立记忆于 tds_sim_fade, 默认开"> <input type="checkbox" class="sim-fade-on-cb"> 过滤</label>' +
-            // 下拉由 _bindSimBacktestControls 里 _tdsFadeModeSelectMount 挂载(四消费点统一组件挂载层);
-            // onchange 走既有 .sim-fade-mode-sel 选择器循环绑定, mount 不再绑避免双触发。
-            // ⚠️ 警示条必须放 wrap 外(smoke 2026-08-25 揪出): mount 实现是 innerHTML 覆写整个 wrap,
-            //   放 wrap 内的提示 span(含既有 sim-feat-note)会被挂载动作静默冲掉, 警示永不显示。
-            '<div class="tds-fade-mode-wrap sim-fade-mode-wrap">' +
-            '</div>' +
-            '<span class="sim-feat-note" style="display:none">⏳ 新键特征加载中, 就绪前新键暂不拦截…</span>' +
-            // S06(codex-task-20260825-001) 快照降级警示条(可见不静默, handoff §五.功能5): 快照不可用/
-            // 覆盖期外笔数 >0 时由 _simRenderOnce 填充红字说明; 正常态恒 display:none 不占位
-            '<span class="sim-s06-note" style="display:none;color:#c0392b;font-size:.85em"></span>' +
-          '</div>' +
-        '</div>' +
-        '<div class="sim-ctrl-block"><label>AI仓位建议 K</label><div class="sim-kbtns">' +
-          '<button type="button" class="sim-kbtn" data-k="0">关</button>' +
-          '<button type="button" class="sim-kbtn active" data-k="1">K1★主推</button>' +
-          '<button type="button" class="sim-kbtn" data-k="2">K2</button>' +
-          '<button type="button" class="sim-kbtn" data-k="3">K3</button>' +
-          '<button type="button" class="sim-kbtn" data-k="4">K4</button></div></div>' +
-        '<div class="sim-ctrl-block simbt-fee-block"><label>费率档(同「交易模拟」区 6 档 + 5 参数自定义)</label>' + _simBtFeeBarHTML(_simBtInitFee()) + '</div>' +
-      '</div>' +
-      '<div class="sim-summary"></div>' +
-      '<div class="sim-table-wrap"><div class="sim-table-loading" style="display:none">数据加载中…</div>' +
-        '<div class="sim-table-body"></div>' +
-        '<div class="sim-pager"></div>' +
-      '</div>' +
-      '<div class="rule-modal-footer">⚠ 纯展示: 用全历史真实信号交易记录(2011-2026), 按上述条件实时过滤并算费后盈亏; 费率为 5 参数模型(佣金万分之/最低佣金元/滑点千分之/过户费万分之沪深统一/印花税万分之卖出单边收, 与「交易模拟」区同模型); 持仓中未卖出笔按最新收盘价计当前盈亏(计入累积列与对错计数); 每笔本金固定 ¥10000, 不与任何实盘/下单关联。具体口径以「信号凯利回测」页为准。</div>' +
-    '</div></div>';
-  modal.querySelector(".rule-modal-overlay").addEventListener("click", _close);
-  modal.querySelector(".rule-modal-close").addEventListener("click", _close);
-  if (isFirst) {
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.classList.contains("hidden")) _close(); });
-  }
-  modal.classList.remove("hidden");
-  document.body.style.overflow = "hidden";
-  _bindSimBacktestControls(modal, _close);
-  _simRender(modal);
-}
-
-// 绑定弹窗控件事件 + K档按钮高亮
-function _bindSimBacktestControls(modal, _close) {
-  // T3-1修复批④(2026-08-23): 模式下拉改用四消费点统一组件挂载层(common.js _tdsFadeModeSelectMount);
-  // onchange 不经 mount(留空), 由下方 .sim-fade-mode-sel 选择器循环统一绑, 避免双触发
-  // (2026-08-23 用户拍板二次变更) sim 弹窗建独立记忆体 tds_sim_fade_mode(与 lab 的 tds_kelly_fade_mode
-  // 完全独立互不读写, 「4个区域=4个记忆体」); 同款 TTL 滑动过期 18 小时(常量单源 common.js _TDS_FADE_TTL_MS),
-  // 过期/无值/旧格式 → 回默认模式(v1.1.5 起=new14·NEW14 十四键)
-  const _fmWrapEl = modal.querySelector(".sim-fade-mode-wrap");
-  if (_fmWrapEl && window._tdsFadeModeSelectMount) {
-    let _savedSimFM = null;
-    try {
-      _savedSimFM = (typeof _tdsLoadWithTTL === "function") ? _tdsLoadWithTTL("tds_sim_fade_mode", (typeof _TDS_FADE_TTL_MS !== "undefined") ? _TDS_FADE_TTL_MS : 18 * 3600 * 1000) : null;
-    } catch (e) {}
-    const _savedMid = _savedSimFM && _savedSimFM.mode && typeof _tdsFadeModeById === "function" && _tdsFadeModeById(_savedSimFM.mode) ? _savedSimFM.mode : (typeof window._KELLY_FADE_DEFAULT_MODE === "string" ? window._KELLY_FADE_DEFAULT_MODE : "new14"); // v1.1.5: 兜底=NEW14
-    window._tdsFadeModeSelectMount(_fmWrapEl, {
-      id: "sim-fade-mode-sel",
-      value: _savedMid,      // 上次所选(TTL 内); 无记忆=v1.1.5 默认 new14
-      withCustom: false,     // 弹窗无标签区, 无自定义态
-      cls: "sim-fade-mode-sel",
-      title: "AI降亏过滤模式: 一键套用整套键组合(与凯利页/「AI 降亏组成对比」卡同源口径; v1.1.7 起默认=s06·大盘领先切换, v1.1.5~v1.1.6 默认=new14·NEW 14键防守王, p8=旧 8键对照档)。记住上次选择 18 小时(独立于凯利页记忆, 超时自动回默认 s06)。选 S06=按大盘风格按日动态切 A进攻王/NEW14+1 基座(默认档, 快照不可用时该笔不拦并红字提示, 绝不静默回退)。四消费点统一下拉组件(lab 凯利区/本弹窗/首页/监控卡); 旁侧「过滤」checkbox=总开关快速切换层, 切它不动这里的选中值" + (typeof window._tdsS06Tooltip === "function" ? ("\n———\n" + window._tdsS06Tooltip()) : ""),
-    });
-  }
-  // 总开关恢复(2026-08-24 用户拍板): fadeOn 快速切换层, 与模式下拉正交——
-  // 只写 tds_sim_fade 裸键("0"=关/"1"=开, 默认开), 绝不碰 tds_sim_fade_mode(下拉记忆)。
-  // 持久化范式对齐监控卡([data-overfit-fade] change→重绘)/首页(_readHomeFadeFlag 读 tds_home_fade)。
-  const _simFadeCb = modal.querySelector(".sim-fade-on-cb");
-  if (_simFadeCb) {
-    try { _simFadeCb.checked = localStorage.getItem("tds_sim_fade") !== "0"; } catch (e) {}
-    _simFadeCb.addEventListener("change", () => {
-      try { localStorage.setItem("tds_sim_fade", _simFadeCb.checked ? "1" : "0"); } catch (e) {}
-      _simRender(modal); // 仅重渲染过滤层; 模式记忆/下拉选中值全程不变
-    });
-  }
-  const kbtns = modal.querySelectorAll(".sim-kbtn");
-  kbtns.forEach((b) => {
-    b.addEventListener("click", () => {
-      kbtns.forEach((x) => x.classList.remove("active"));
-      b.classList.add("active");
-      _simRender(modal);
-    });
-  });
-  modal.querySelectorAll(".sim-date-start,.sim-date-end,.sim-fade-mode-sel,.sim-mode-sel").forEach((el) => {
-    el.addEventListener("change", () => {
-      // sim 独立记忆体(2026-08-23 用户拍板): 切模式写 tds_sim_fade_mode(TTL 工具, ts=本次切换时间滑动续期);
-      // 只写本键不碰 lab/首页/监控卡键(4 记忆体互不干预)
-      if (el.classList.contains("sim-fade-mode-sel") && typeof _tdsStoreWithTTL === "function" && el.value) {
-        _tdsStoreWithTTL("tds_sim_fade_mode", { mode: el.value });
-      }
-      _simRender(modal);
-    });
-  });
-  // (2026-08-23 用户拍板) sim-bullstop-cb/sim-fade-cb 两旧控件删除, 其绑定一并移除(防删定义留调用);
-  // 模式下拉的 change 由上面统一选择器接管(G/H/I 长线豁免语义保留在渲染端: p9 等含候选1的模式在
-  // G/H/I 下由 _simPassesBullStop 的 tier 判定天然只拦 A-F 适用笔——见该函数注释)。
-  // 费率档位按钮: 点档位=快捷填入表单+重跑(custom 档只切高亮不回填, 表单保持手输值)
-  modal.querySelectorAll(".simbt-fee-btn").forEach((b) => {
-    b.addEventListener("click", () => {
-      const key = b.dataset.fee;
-      const fee = _simBtInitFee();
-      if (key === "custom") {
-        fee.preset = "custom";
-        fee.fp = _simBtReadFp(modal);
-      } else {
-        const p = _SIM_FEE_PRESETS.find((x) => x.key === key);
-        if (!p) return;
-        fee.preset = key;
-        fee.fp = { commission_rate: p.commission_rate, min_commission: p.min_commission, slippage: p.slippage, transfer_fee_rate_sh: p.transfer_fee_rate_sh, stamp_duty_rate: p.stamp_duty_rate };
-        _simBtFillInputs(modal, fee.fp);
-      }
-      modal.querySelectorAll(".simbt-fee-btn").forEach((x) => x.classList.toggle("active", x.dataset.fee === fee.preset));
-      _simBtPersistFee();
-      _simRender(modal);
-    });
-  });
-  // 费率自定义输入: 手输→自动切 custom 档+重跑(change 触发, 与交易模拟区同款不逐键重算)
-  modal.querySelectorAll(".simbt-fee-custom input").forEach((inp) => {
-    inp.addEventListener("change", () => {
-      const fee = _simBtInitFee();
-      fee.preset = "custom";
-      fee.fp = _simBtReadFp(modal);
-      modal.querySelectorAll(".simbt-fee-btn").forEach((x) => x.classList.toggle("active", x.dataset.fee === "custom"));
-      _simBtPersistFee();
-      _simRender(modal);
-    });
-  });
-}
-
-// 主渲染入口(合批防抖, 2026-08-23 性能专项): 快速连切模式/连点控件时, 每次触发只置 pending 标记,
-// 由 do-while 循环用最新控件状态重跑一次(lab 页 _kellyRunRecompute 同款成熟模式)——
-// 连切 7 模式只产生「进行中这一次 + 收尾最新一次」两轮计算, UI 始终有喘息帧, 不假死。
-let _simRenderBusy = false, _simRenderPending = false;
-async function _simRender(modal) {
-  if (_simRenderBusy) { _simRenderPending = true; return; }
-  _simRenderBusy = true;
-  try {
-    do {
-      _simRenderPending = false;
-      await _simRenderOnce(modal);
-    } while (_simRenderPending);
-  } finally { _simRenderBusy = false; }
-}
-
-// 单轮渲染体: 加载数据 → 过滤 → 算费后 + 累积 → 渲染表格(分页)
-async function _simRenderOnce(modal) {
-  const loadingEl = modal.querySelector(".sim-table-loading");
-  const bodyEl = modal.querySelector(".sim-table-body");
-  const summaryEl = modal.querySelector(".sim-summary");
-  const pagerEl = modal.querySelector(".sim-pager");
-  // T1(2026-08-23) 预热降亏特征 JSON(20 新键谓词查值; 异步不阻塞, 未就绪时新键判定降级不拦)。
-  //   【P0 卡死根修 2026-08-23】旧实现把补渲挂在 .then 里且无「进入时是否已就绪」判断——特征 JSON
-  //   缓存后每次调用立即 resolve(d=真值), 只要当前模式含新键(p9/a9/b9/c9/new14/new18 全含)就再调
-  //   _simRender → 无限自递归(微任务链持续霸占主线程)=用户实测「切模式下拉后页面卡死」。改为只在
-  //   「未就绪→就绪」跃迁时经合批标记补渲一次(至多一次), 不再成环。
-  const _featReadyBefore = !!_simLossFeatData;
-  if (!_featReadyBefore) {
-    _ensureSimLossFeat().then((d) => {
-      if (!d || modal.classList.contains("hidden")) return;
-      const _s = modal.querySelector(".sim-fade-mode-sel");
-      const _p = (_s && window._KELLY_FADE_MODE_PRESETS) ? window._KELLY_FADE_MODE_PRESETS.find((x) => x.id === _s.value) : null;
-      // S06(2026-08-25): dynamic 预设无静态 keys → 视为含新键(a9/new15 两基座均含), 补渲照跑; Array.isArray 防 TypeError
-      const _hasNewKey = !!(_p && (Array.isArray(_p.keys) ? _p.keys.some((k) => _SIM_LOSS_NEW_KEYS.some((q) => q[0] === k)) : true));
-      const _cbAny = _SIM_LOSS_NEW_KEYS.some((q) => { const el = modal.querySelector(".sim-fade-cb-" + q[0]); return !!(el && el.checked); });
-      if (!_hasNewKey && !_cbAny) return;
-      _simRenderPending = true;              // 合批: 渲染中则由循环兜底; 空闲则立即补一次(仅此一次)
-      if (!_simRenderBusy) _simRender(modal);
-    }).catch(() => {});
-  }
-  if (!_simKellyData && !_simKellyLoading) {
-    // 首次加载
-    loadingEl.style.display = "block";
-    bodyEl.innerHTML = "";
-    await _loadSimKellyData();
-    loadingEl.style.display = "none";
-    if (_simKellyLoadErr) {
-      bodyEl.innerHTML = '<div class="sim-err">数据加载失败: ' + _simKellyLoadErr + '</div>';
-      return;
-    }
-    // 数据加载完(可能 sell_modes 才有), 无条件重建模式下拉 options(P1-1 修复: 首开 HTML 有 fallback A 项,
-    // 旧条件 !sel.options.length 永不成立致只有 A; 重建时保留当前已选值, 若仍有效)
-    const _sm = (_simKellyCfg && _simKellyCfg.sell_modes) || {};
-    const sel = modal.querySelector(".sim-mode-sel");
-    if (sel && Object.keys(_sm).length) {
-      const prev = sel.value;
-      sel.innerHTML = "";
-      Object.keys(_sm).forEach((mk) => { const o = document.createElement("option"); o.value = mk; o.textContent = mk + " · " + (_sm[mk].label || ""); sel.appendChild(o); });
-      if ([].some.call(sel.options, (o) => o.value === prev)) sel.value = prev;
-      else if (sel.querySelector('option[value="A"]')) sel.value = "A";
-    }
-  } else if (_simKellyLoading) {
-    loadingEl.style.display = "block";
-    return;
-  }
-  // 读取控件状态
-  const fIdx = _simKellyData.fIdx;
-  // date input 值为 YYYY-MM-DD, signal_date 为 YYYYMMDD: 归一化去掉连字符再比(P0-2 修复)
-  const startD = (modal.querySelector(".sim-date-start").value || "").replaceAll("-", "");
-  const endD = (modal.querySelector(".sim-date-end").value || "").replaceAll("-", "");
-  // 总开关(2026-08-24 用户拍板恢复): 「过滤」checkbox=fadeOn 快速切换层——
-  // 开=按当前所选模式过滤; 关=不过滤=全信号人口(raw bank, 引擎既有语义, summary 显示「降亏关」)。
-  // 缺省(元素缺失/读存储失败)=开, 与 a402 现版行为逐位一致(§23.7); 模式下拉仍=键组合唯一入口,
-  // v1.1.5 起默认=new14·NEW14 十四键(p8=旧八键对照档可手选)。开关持久化=tds_sim_fade 裸键(bind 层读写),
-  // 与 tds_sim_fade_mode(模式记忆)完全正交。
-  const _simFadeCb0 = modal.querySelector(".sim-fade-on-cb");
-  const fadeOn = !(_simFadeCb0 && !_simFadeCb0.checked);
-  const kRaw = (modal.querySelector(".sim-kbtn.active") || {}).dataset ? (modal.querySelector(".sim-kbtn.active")).dataset.k : "1";
-  const K = parseInt(kRaw, 10) || 0;  // 0 = 关(不过滤)
-  const mode = modal.querySelector(".sim-mode-sel").value || "A";
-  // 费率: 5 参数模型(表单输入为唯一事实源——点档位已回填表单), 复用交易模拟区 _simBuyWithFees/_simSellWithFees 计算
-  const fp = _simBtReadFp(modal);
-
-  // 时间跨度硬限制 ≤500 天(2026-08-22 用户定): 超限不执行查询(连基笔池构建都不跑), 红字提示后直接返回;
-  // 恰好 500 天放行(>500 才拦); 起>止时 spanDays 为负不在此拦, 保持既有空结果处理; 单边为空(空=不筛)不算跨度。
-  // 注: 本弹窗无独立「开始回测」按钮, 所有筛选入口(date/费率 change、K档按钮、首开渲染)均汇于本函数,
-  // 此闸即提交口拦截——任何触发路径超限都到不了查询。
-  if (startD && endD) {
-    const _dS = new Date(parseInt(startD.slice(0, 4), 10), parseInt(startD.slice(4, 6), 10) - 1, parseInt(startD.slice(6, 8), 10));
-    const _dE = new Date(parseInt(endD.slice(0, 4), 10), parseInt(endD.slice(4, 6), 10) - 1, parseInt(endD.slice(6, 8), 10));
-    const _spanDays = Math.round((_dE - _dS) / 86400000);
-    if (_spanDays > 500) {
-      summaryEl.innerHTML = "";
-      pagerEl.innerHTML = "";
-      bodyEl.innerHTML = '<div class="sim-err">时间范围最长 500 天, 当前 ' + _spanDays + ' 天, 请缩小范围</div>';
-      return;
-    }
-  }
-
-  // 分片二级加载(2026-08-22): 所选范围超出 recent 热区(或未设下界)时并行拉缺失年片, 全部到位再渲染;
-  // 热区内直接用已加载的 recent 渲染(不触发任何新请求)。年片走模块级 Map 缓存, 切范围不重复拉;
-  // 任一年片失败自动回退全量(老路径兜底)。500 天闸在前, 超限请求到不了这里不会触发拉片。
-  if (!_simFullFallback && !(startD && _simHotMinDate && startD >= _simHotMinDate)) {
-    loadingEl.style.display = "block";
-    loadingEl.textContent = "正在加载数据分片…";
-    bodyEl.innerHTML = "";
-    summaryEl.innerHTML = "";
-    pagerEl.innerHTML = "";
-    const okR = await _simEnsureRange(startD, endD, (m) => { loadingEl.textContent = m; });
-    loadingEl.style.display = "none";
-    if (!okR) {
-      bodyEl.innerHTML = '<div class="sim-err">数据加载失败: ' + (_simKellyLoadErr || "分片加载失败") + '</div>';
-      return;
-    }
-  }
-
-  // ① 模式: signal_kelly_trades.json 的 quadrants[qk][mode] 每模式是完整副本(同 base 在不同 mode 下
-  //    sell_date/sell_price 不同), 必须按所选 mode 从 quadrants[*][mode] 现筛构建基笔池(去重+聚合维度),
-  //    不能跨模式取并集(会丢失 mode 维度的卖出值)。
-  const recs = _simPoolCached(mode);
-
-  // ② 降亏过滤
-  const filters = _simDefaultFadeFilters();
-  // T3-1(2026-08-23): 模式下拉(8预设一键套用, new15 可选档 2026-08-24 加入) —— fadeOn=true 时套用所选模式的完整键组合覆盖默认基座
-  // (v1.1.5 起=new14); fadeOn=false(总开关关, 2026-08-24 恢复)时不过滤, 此处照常套键但引擎不消费
-  // (键集保持与下拉选中一致 → 重开开关即恢复当前模式口径, 无需回读记忆);
-  // 弹窗无标签区无自定义态(withCustom=false);
-  // (2026-08-23 用户拍板二次变更) 弹窗态记忆=tds_sim_fade_mode 独立键(TTL 滑动过期, mount 时读),
-  // 过期/无值回 new14; 与 lab/首页/监控卡记忆互不读写(4 区域=4 记忆体)
-  const _fmSelEl = modal.querySelector(".sim-fade-mode-sel");
-  // S06(codex-task-20260825-001): dynamic 预设(s06)不走 Apply(_tdsFadeModeApply 对 dynamic 返回 false,
-  // filters 保持默认基座不被消费), fadeOn 时改走 per-date 分支(_tdsS06FiltersForDate 按每笔 signal_date
-  // 取当日生效基座的完整键集); 静态预设路径行为逐位不变(§23.7)
-  const _fmPreset = (_fmSelEl && typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(_fmSelEl.value) : null;
-  const _isS06 = !!(_fmPreset && _fmPreset.dynamic);
-  if (_fmPreset && !_isS06) {
-    _tdsFadeModeApply(_fmSelEl.value, filters);
-  }
-  // 特征未就绪降级反馈(2026-08-23 性能专项): 当前模式含新键且特征 JSON 未就绪 → 下拉旁提示条展开
-  // (语义=新键暂不拦截, 与后端 load_features 缺失同语义); 就绪/无新键即收起。不冻结不静默。
-  {
-    const _noteEl = modal.querySelector(".sim-feat-note");
-    if (_noteEl) {
-      const _pCur = window._KELLY_FADE_MODE_PRESETS ? window._KELLY_FADE_MODE_PRESETS.find((x) => x.id === ((_fmSelEl || {}).value)) : null;
-      // S06(2026-08-25): dynamic 无静态 keys → 视为含新键(两基座均含); Array.isArray 防 TypeError
-      const _curHasNewKey = !!_pCur && (Array.isArray(_pCur.keys) ? _pCur.keys.some((k) => _SIM_LOSS_NEW_KEYS.some((q) => q[0] === k)) : true);
-      _noteEl.style.display = (!_simLossFeatData && _curHasNewKey) ? "" : "none";
-    }
-  }
-  const monthMask = _simActiveMonthMask(filters);
-  // (2026-08-23 控件删除后语义迁移) 候选1 bullAuxBackupStop 改由模式下拉携带: p9/a9/b9/c9 预设含此键,
-  // filters.bullAuxBackupStop=true 时走 _simPassesBullStop(与 lab 谓词同源 §22); G/H/I 长线强制不生效
-  // (仅 A-F 短线; 与旧置灰双保险同语义, §23.7 行为零变化: p8 不含此键=恒 false)。
-  const _isLongMode = mode === "G" || mode === "H" || mode === "I";
-  const bullStopOn = !!(filters.bullAuxBackupStop && !_isLongMode);
-  // S06 快照预取(codex-task-20260825-001): 选 s06 且开过滤时先确保快照就绪(单例 promise, 四消费点共享);
-  // 失败不静默——_s6Warn 写入 .sim-s06-note 红字可见警示, 人口 fail-open(该笔不拦), 绝不静默退回其他模式
-  // (handoff §五.功能5 降级契约)。
-  let _s6Warn = "";
-  if (_isS06 && fadeOn) {
-    if (typeof window._tdsS06StateEnsure !== "function") {
-      _s6Warn = "⚠ S06 快照层缺失(common.js 版本过旧), S06 过滤未生效, 已按无过滤人口展示";
-    } else {
-      const _st = await window._tdsS06StateEnsure();
-      if (!_st) {
-        const _stInfo = (typeof window._tdsS06Status === "function") ? window._tdsS06Status() : null;
-        _s6Warn = "⚠ S06 快照不可用(" + ((_stInfo && _stInfo.err) || "load_err") + "), 已按无过滤人口展示, 未回退其他模式";
-      }
-    }
-  }
-  let kept = recs;
-  if (fadeOn) {
-    if (_isS06) {
-      // per-date 过滤(s06 动态基座): 每笔按 signal_date 取当日生效基座(a9/new15)的完整键集过滤,
-      // monthMask/bullStop 均按该日基座口径同步计算(与静态路径同语义, §22 同源)
-      let _openCnt = 0;   // 覆盖期外/快照缺行笔数(fail-open 计数 → 可见警示)
-      kept = recs.filter((t) => {
-        const f6 = (typeof window._tdsS06FiltersForDate === "function") ? window._tdsS06FiltersForDate(String(t[fIdx.signal_date] || "")) : null;
-        if (!f6) { _openCnt++; return true; }   // 快照不可用/日期超出覆盖期 → 该笔不拦(fail-open)
-        if (!_simPassesFade(t, fIdx, f6, _simActiveMonthMask(f6))) return false;
-        if (f6.bullAuxBackupStop && !_isLongMode && !_simPassesBullStop(t, fIdx)) return false; // 键携带+非长线, 与静态路径同语义
-        return true;
-      });
-      if (_openCnt > 0) {
-        _s6Warn += (_s6Warn ? " " : "") + "⚠ " + _openCnt + " 笔在 S06 快照覆盖期外或缺行, 未按 S06 过滤(fail-open)";
-      }
-    } else {
-      kept = recs.filter((t) => _simPassesFade(t, fIdx, filters, monthMask));
-      if (bullStopOn) {
-        kept = kept.filter((t) => _simPassesBullStop(t, fIdx)); // 候选1(牛市×辅备买全停), 与所选模式键组合叠加
-      }
-    }
-  }
-  // S06 警示条渲染(可见降级契约): 无警示恒隐藏不占位
-  {
-    const _s6NoteEl = modal.querySelector(".sim-s06-note");
-    if (_s6NoteEl) {
-      if (_s6Warn) { _s6NoteEl.textContent = _s6Warn; _s6NoteEl.style.display = ""; }
-      else { _s6NoteEl.textContent = ""; _s6NoteEl.style.display = "none"; }
-    }
-  }
-  // ③ K档: 按 signal_date 分组取 top-K(排序口径 track_score DESC → rating → signal → buy_date ASC, 与首页/凯利一致)
-  if (K > 0) {
-    const byDate = {};
-    kept.forEach((t) => { const sd = String(t[fIdx.signal_date] || ""); (byDate[sd] || (byDate[sd] = [])).push(t); });
-    const RATING_RANK = { high: 0, mid: 1, low: 2, _d: 3 };
-    const SIG_RANK = { buy_backup: 0, buy: 1, buy_aux: 2, buy_special: 3, _d: 9 };
-    const _rk = (r) => (Object.prototype.hasOwnProperty.call(RATING_RANK, r) ? RATING_RANK[r] : 3);
-    const _sk = (s) => (Object.prototype.hasOwnProperty.call(SIG_RANK, s) ? SIG_RANK[s] : 9);
-    const out = [];
-    for (const sd in byDate) {
-      const rows = byDate[sd];
-      rows.sort((a, b) => {
-        const sa = Number(a[fIdx.track_score]); const sb = Number(b[fIdx.track_score]);
-        if (sb !== sa) return sb - sa;
-        const ra = _rk(String(a[fIdx.rating] || "")); const rb = _rk(String(b[fIdx.rating] || ""));
-        if (ra !== rb) return ra - rb;
-        const sga = _sk(String(a[fIdx.signal] || "")); const sgb = _sk(String(b[fIdx.signal] || ""));
-        if (sga !== sgb) return sga - sgb;
-        const da = String(a[fIdx.buy_date] || ""), db = String(b[fIdx.buy_date] || "");
-        return da < db ? -1 : (da > db ? 1 : 0);
-      });
-      for (let j = 0; j < Math.min(K, rows.length); j++) out.push(rows[j]);
-    }
-    kept = out;
-  }
-  // ④ 日期切片(按 signal_date 字符串比较, 空=不筛)
-  if (startD || endD) {
-    kept = kept.filter((t) => {
-      const sd = String(t[fIdx.signal_date] || "");
-      if (startD && sd < startD) return false;
-      if (endD && sd > endD) return false;
-      return true;
-    });
-  }
-  // 按 signal_date 倒序(最新在上)
-  kept.sort((a, b) => { const sa = String(a[fIdx.signal_date] || ""), sb = String(b[fIdx.signal_date] || ""); return sa < sb ? 1 : (sa > sb ? -1 : 0); });
-  _simRenderTable(modal, kept, fIdx, fp, startD, endD, fadeOn, K, mode);
-}
-
-// 基笔池按 mode 缓存(2026-08-23 性能专项): 池=纯函数(数据引用,mode), 与筛选/费率/K 无关;
-// 快切模式时命中缓存免掉全史 quadrants 重扫+去重(每轮省一次 O(全记录) 长任务)。
-// 数据引用变化(分片加载替换 _simKellyData)即整体失效重建, 不吃脏数据。
-// 【P0 内存防御 2026-08-23】改 Map+LRU: 每池=全史基笔指针数组常驻不小, 原实现 7 模式全存无上限;
-// 上限 3(最近使用的 3 个模式)+ 触碰刷新序, 长驻内存有界, 快切来回仍高命中。
-let _simPoolCacheRef = null;
-const _simPoolCache = new Map();
-const _SIM_POOL_CACHE_MAX = 3;
-function _simPoolCached(mode) {
-  if (_simPoolCacheRef !== _simKellyData) {
-    _simPoolCacheRef = _simKellyData;
-    _simPoolCache.clear();
-  }
-  let p = _simPoolCache.get(mode);
-  if (p) { // LRU 触碰: 移到最新端
-    _simPoolCache.delete(mode);
-    _simPoolCache.set(mode, p);
-  } else {
-    p = _simBuildModePool(_simKellyData, mode);
-    _simPoolCache.set(mode, p);
-    while (_simPoolCache.size > _SIM_POOL_CACHE_MAX) {
-      const oldest = _simPoolCache.keys().next().value; // Map 保插入序, 首个=最久未用
-      _simPoolCache.delete(oldest);
-    }
-  }
-  return p;
-}
-
-// 基于 quadrants[*][mode] 构建该模式基笔池(带聚合维度, 去重)
-function _simBuildModePool(data, mode) {
-  const { fIdx, quadrants } = data;
-  const seen = {};
-  const records = [];
-  for (const qk in quadrants) {
-    const dim = _simQkDim(qk);
-    const arr = (quadrants[qk] && quadrants[qk][mode]) || [];
-    for (let i = 0; i < arr.length; i++) {
-      const orig = arr[i];
-      const bk = _simBaseKey(orig, fIdx);
-      let rec = seen[bk];
-      if (!rec) {
-        rec = orig.slice();
-        rec._mktD = ""; rec._etfD = ""; rec._ratD = "";
-        seen[bk] = rec;
-        records.push(rec);
-      }
-      if (dim) {
-        if (dim.type === "mkt") { if (!rec._mktD) rec._mktD = dim.val; }
-        else if (dim.type === "etf") { if (!rec._etfD) rec._etfD = dim.val; }
-        else if (dim.type === "rating") { if (!rec._ratD) rec._ratD = dim.val; }
-      }
-    }
-  }
-  return records;
-}
-
-// ── 当日信号列中文标签(2026-08-22) ──
-// 复用首页信号列表同一映射与开关: _SIG_TYPE_META(labelKey) + _t()(i18n 合规模式切换, 精简=主关注/
-// 辅关注/追关注/备关注, 完整=主买/辅买/追买/备买), 与首页信号列表语义/视觉一致(§22 多展示位一致 +
-// §23.3 举一反三)。trades 实测只含4买类; band_hold/band_sell/sell/sell_stop_loss 也在 _SIG_TYPE_META
-// 内天然覆盖; 未知值兜底显示原始串——sim 本地适配, 不改首页映射本体(§23.7)。
-function _simSigTypeLabel(sig) {
-  const meta = _SIG_TYPE_META.find((m) => m.key === sig);
-  return meta ? _t(meta.labelKey) : (sig || "");
-}
-// ── 关联ETF列信号灯(2026-08-22) ──
-// 复用首页 _etfLightInfo 本体(只读调用不改动 §23.7): trades 行自带 track_tier(fields[7])/
-// track_score([8])/match_method([9])/track_low_confidence([10]), 值域实测(strong/related/approx/
-// none/null)与首页 etf 对象输入完全兼容。match_method 含首页没有的 kw_global/holdings_overlap,
-// 来源中文用 sim 本地适配表补齐(tooltip 格式对齐首页: 来源 · 跟踪分 · 档位)。
-function _simEtfSrcLabel(mm) {
-  return mm === "track_index" ? "跟踪指数"
-    : (mm === "overlap" || mm === "holdings_overlap") ? "成分重叠"
-    : mm === "kw" ? "关键词" : mm === "kw_global" ? "全球关键词" : mm === "self" ? "本体"
-    : mm === "name_match" ? "名称匹配" : mm === "manual_fallback" ? "手动兜底" : (mm || "未知");
-}
-function _simEtfLightHtml(t, fIdx) {
-  var _obj = {
-    match_method: t[fIdx.match_method],
-    track_tier: t[fIdx.track_tier],
-    track_low_confidence: t[fIdx.track_low_confidence] === true,
-  };
-  var _ts = t[fIdx.track_score];
-  if (_ts !== null && _ts !== undefined && _ts !== "") _obj.track_score = Number(_ts);
-  var _info = _etfLightInfo(_obj);
-  var _tp = ["来源: " + _simEtfSrcLabel(_obj.match_method)];
-  if (typeof _obj.track_score === "number") _tp.push("跟踪分: " + _obj.track_score.toFixed(1));
-  if (_obj.track_low_confidence) _tp.push("估算(共同交易日N=30-59,降权分)");
-  else if (_obj.track_score == null) _tp.push("无数据(共同交易日不足)");
-  if (_info.label) _tp.push("档位: " + _info.label);
-  return '<span class="etf-light ' + _info.cls + '" title="' + _tp.join(" · ").replace(/"/g, "&quot;") + '"></span> ';
-}
-// ── 观察期倒计时(需求③ 2026-08-22): 持仓中行提示「还剩几天观察期固化」──
-// 计划卖出时间 = 买入日后第 hold_days 个交易日(与回测 bisect_right 切片同口径, hold_days 取
-// signal_kelly_backtest.json config.sell_modes[mode].hold_days, A-D=10/E=5/F=15; G/H/I=null 信号驱动无固定观察期)。
-// 交易日历 = 已加载 trades 自身 signal/buy/sell 日期并集(真实交易日序列, 复用站内数据非新造);
-// 计划日在最后数据日之后的未来段无人能预知节假日 → 剔周末近似, tooltip 注明。
-function _simBuildTradeCal(data, fIdx) {
-  const set = {};
-  const qs = data.quadrants;
-  for (const qk in qs) {
-    const mks = qs[qk];
-    for (const mk in mks) {
-      const arr = mks[mk];
-      for (let i = 0; i < arr.length; i++) {
-        const r = arr[i];
-        if (r[fIdx.signal_date]) set[r[fIdx.signal_date]] = 1;
-        if (r[fIdx.buy_date]) set[r[fIdx.buy_date]] = 1;
-        if (r[fIdx.sell_date]) set[r[fIdx.sell_date]] = 1;
-      }
-    }
-  }
-  return Object.keys(set).sort();
-}
-// 单笔观察期信息: {expired, remain, estDate}; expired=true=已过计划卖出日仍未卖(待固化)
-function _simObsInfo(buyDate, hd, cal, lastDate) {
-  if (!hd || !buyDate || !cal || !cal.length || !lastDate) return null;
-  // 二分: cal 中 (buyDate, lastDate] 的真实交易日数 = 已持有交易日数
-  let lo = 0, hi = cal.length;
-  while (lo < hi) { const mid = (lo + hi) >> 1; if (cal[mid] <= buyDate) lo = mid + 1; else hi = mid; }
-  let lo2 = 0, hi2 = cal.length;
-  while (lo2 < hi2) { const mid = (lo2 + hi2) >> 1; if (cal[mid] <= lastDate) lo2 = mid + 1; else hi2 = mid; }
-  const remain = hd - (lo2 - lo);
-  if (remain <= 0) return { expired: true, remain: 0, estDate: "" };
-  // 未来段估计: 从最后数据日起向后数 remain 个非周末自然日 → 预计固化日 MM-DD(剔周末近似)
-  let y = parseInt(lastDate.slice(0, 4), 10), m = parseInt(lastDate.slice(4, 6), 10) - 1, dd = parseInt(lastDate.slice(6, 8), 10);
-  let left = remain;
-  while (left > 0) {
-    dd++;
-    const dim = new Date(y, m + 1, 0).getDate();
-    if (dd > dim) { dd = 1; m++; if (m > 11) { m = 0; y++; } }
-    const wd = new Date(y, m, dd).getDay();
-    if (wd !== 0 && wd !== 6) left--;
-  }
-  const pad = (n2) => (n2 < 10 ? "0" + n2 : "" + n2);
-  return { expired: false, remain, estDate: pad(m + 1) + "-" + pad(dd) };
-}
-
-// 渲染结果表(13列 + 分页, 每页500条) + 累积列(从最早日逐笔累加)
-// 费率: 5 参数模型 fp(复用交易模拟区 _simBuyWithFees/_simSellWithFees); 持仓中笔(sell_date 空)按
-// current_price 最新收盘计当前盈亏直接展示现状并入累积(需求③ 2026-08-22 去「预估」措辞, 加观察期倒计时)
-function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode) {
-  const bodyEl = modal.querySelector(".sim-table-body");
-  const summaryEl = modal.querySelector(".sim-summary");
-  const pagerEl = modal.querySelector(".sim-pager");
-  const n = rows.length;
-  // 累积 + 当前持仓: 按 signal_date 正序扫描
-  const asc = rows.slice().sort((a, b) => { const sa = String(a[fIdx.signal_date] || ""), sb = String(b[fIdx.signal_date] || ""); return sa < sb ? -1 : (sa > sb ? 1 : 0); });
-  let cumPct = 0, cumYuan = 0, rightN = 0, wrongN = 0, holdingN = 0;
-  const cumMap = {};  // basekey -> {cumPct, cumYuan, acc, rate}
-  let peakPosN = 0;   // 窗口内峰值同时持仓笔数(各日 openMap 快照最大值; 累积盈亏% 分母口径, 2026-08-22 用户定)
-  const posMap = {};  // basekey -> 截至本行 signal_date 的开放持仓手数(每笔=1手=¥10000)
-  const posSetMap = {}; // signal_date -> 当日仍持有笔的 basekey 集合(与 posMap 同点快照, |Set| 恒等于该日显示持仓数; 供 hover 高亮联动)
-  // 当日持仓: 按 signal_date 分组扫描(P2-1 修复: 先删已卖出笔再计新开笔, 同日各行为同一真实持仓数)
-  {
-    const openMap = {}; // 仍开放的笔 basekey -> 卖出日(YYYYMMDD, 空串=未卖出; 用于到期删除)
-    let gi = 0;
-    while (gi < asc.length) {
-      const sd = String(asc[gi][fIdx.signal_date] || "");
-      let gj = gi;
-      while (gj < asc.length && String(asc[gj][fIdx.signal_date] || "") === sd) gj++;
-      // 先删: 已开放笔中卖出日 ≤ 本信号日的移出(只进不出致当日持仓虚高的根因; 同日先卖后买=先删后加)
-      for (const ok in openMap) {
-        const osld = openMap[ok];
-        if (osld && osld <= sd) delete openMap[ok];
-      }
-      // 后加: 本信号日组内已买入且仍未卖出(或卖出日在未来)的笔
-      for (let i = gi; i < gj; i++) {
-        const bd = String(asc[i][fIdx.buy_date] || "");
-        const sld = String(asc[i][fIdx.sell_date] || "");
-        if (bd && bd <= sd && (sld === "" || sld > sd)) {
-          const bk2 = _simBaseKey(asc[i], fIdx);
-          if (!Object.prototype.hasOwnProperty.call(openMap, bk2)) openMap[bk2] = sld;
-        }
-      }
-      const posN = Object.keys(openMap).length; // 该信号日当天真实持有笔数
-      if (posN > peakPosN) peakPosN = posN;     // 窗口峰值同时持仓(=「当日持仓」列各日最大值, 累积盈亏%分母)
-      posSetMap[sd] = new Set(Object.keys(openMap)); // 同点快照: 集合大小 == 上行 posN(§23.9 一致性锚点)
-      for (let i = gi; i < gj; i++) posMap[_simBaseKey(asc[i], fIdx)] = posN;
-      gi = gj;
-    }
-  }
-  for (let i = 0; i < asc.length; i++) {
-    const t = asc[i];
-    const bk = _simBaseKey(t, fIdx);
-    const c = _simBtCalcRow(t, fIdx, fp);
-    if (c.isHolding) holdingN++;
-    cumYuan += c.pnlYuan;
-    // 累积盈亏%(2026-08-22 用户定口径修正): = 累计盈亏金额 ÷(窗口内峰值同时持仓笔数×¥10000),
-    // 真实资金占用收益率; 不再按每笔 ¥10000 收益率简单相加(多笔同持时为虚假杠杆口径, memory E23 同源)。
-    // 分母为窗口级常数, 每行随 cumYuan 更新; peakPosN=0(病态窗口无任何买入)兜底按 1 笔防除零。
-    cumPct = (cumYuan / (Math.max(peakPosN, 1) * 10000)) * 100;
-    if (c.pnlYuan > 0) rightN++; else wrongN++;
-    cumMap[bk] = { cumPct, cumYuan, acc: rightN + "/" + wrongN, rate: ((rightN / (rightN + wrongN)) * 100).toFixed(1) };
-  }
-  const PAGE = 500;
-  let page = 0;
-  const totalPages = Math.max(1, Math.ceil(n / PAGE));
-  const _escAttr = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-  // 符号着色(2026-08-22 用户追加「红正 绿负」, 本轮收窄): 仅累积盈亏/累积金额复用 _signCls,
-  // 与「本笔交易盈亏%」列同色变量; 按数据实际符号如实渲染, 0/空不着色。
-  // 手续费两列不再走 _signCls(用户定: 手续费恒为扣费语义恒绿负, 见 _feeCell)
-  const _signCls = (v) => (v > 0 ? " sim-up" : (v < 0 ? " sim-down" : ""));
-  // 手续费列(2026-08-22 用户定, 推翻上轮「按数据符号如实着色」): 手续费=支出扣费 → 恒负号+绿色(sim-down),
-  // 不随数据符号; 数据源 _simBtCalcRow 存正数, 渲染取负显示不改数据; 0 费显 0.00 不着色(无扣费, 防出现 -0.00)
-  const _feeCell = (fee) => {
-    const v = Number(fee) || 0;
-    return v > 0 ? '<td class="sim-down">-' + v.toFixed(2) + '</td>' : '<td>0.00</td>';
-  };
-  // 累积两列 hoverpop(§23.9 三档互证: 白话+场景+1:1 举例); 数字全部来自当前行真实 cum 值+本窗口真实
-  // 峰值持仓(动态生成, hover 哪行就对上哪行显示的数, 1:1 可对账无编造)
-  const _cumTip = (cum) =>
-    '【累积盈亏 · 真实资金口径】①白话: 累计盈亏金额 ÷(本窗口峰值同时持仓笔数×¥10000)=真实资金占用收益率; 不是每笔收益率简单相加(每笔按1万简单相加会虚假放大约等于峰值持仓倍数)。②场景: 衡量该策略窗口内真金白银占用了多少、赚了多少, 用于跨策略对比/对照实盘资金效率。③1:1举例: 本窗口峰值同时持仓 ' + Math.max(peakPosN, 1) + ' 笔(峰值占用 ¥' + (Math.max(peakPosN, 1) * 10000).toLocaleString() + '), 截至本行累计盈亏 ' + cum.cumYuan.toFixed(2) + ' 元 → 真实累积收益率 ' + cum.cumPct.toFixed(2) + '%。';
-  const _cumYuanTip = (cum) =>
-    '【累积金额】①白话: 截至本行所有笔的费后盈亏真实金额累加(Σ每笔盈亏元, 含持仓中笔按最新收盘计的当前盈亏), 是绝对赚赔金额, 未除以资金占用。②场景: 看「总共赚/赔了多少钱」用本列; 看「资金效率/收益率」看「累积盈亏」列。③1:1举例: 本行累计 ' + cum.cumYuan.toFixed(2) + ' 元 ÷(峰值持仓 ' + Math.max(peakPosN, 1) + ' 笔×¥10000)=「累积盈亏」' + cum.cumPct.toFixed(2) + '%。';
-  // 观察期倒计时用交易日历(懒构建: 首个持仓中行才建一次; 来自已加载 trades 自身日期并集)
-  const _sellModes = (_simKellyCfg && _simKellyCfg.sell_modes) || null;
-  let _obsCal = null, _obsLast = "";
-  const _getObsCal = () => {
-    if (!_obsCal) {
-      _obsCal = _simBuildTradeCal(_simKellyData, fIdx);
-      _obsLast = _obsCal.length ? _obsCal[_obsCal.length - 1] : "";
-    }
-    return _obsCal;
-  };
-  const _draw = () => {
-    const slice = rows.slice(page * PAGE, (page + 1) * PAGE);
-    let html = '<table class="sim-tbl"><thead><tr>' +
-      '<th>日期</th><th>当日持仓</th><th>当日信号</th><th>信号关联ETF</th><th>计划买入时间</th><th title="手续费恒为支出扣费语义: 显示负数(绿色), 详见各行悬停提示">买入手续费</th>' +
-      '<th>计划卖出时间</th><th title="手续费恒为支出扣费语义: 显示负数(绿色)">卖出手续费</th><th>本笔交易盈亏%</th><th>本笔盈亏金额</th>' +
-      '<th title="公式: 累计盈亏金额 ÷(窗口峰值同时持仓×¥10000)=真实资金占用收益率, 非每笔收益率简单相加; 详见各行悬停提示">累积盈亏</th><th title="Σ每笔费后盈亏真实金额累加, 绝对赚赔额(未除以资金占用)">累积金额</th><th>累积对错</th></tr></thead><tbody>';
-    for (const t of slice) {
-      const bk = _simBaseKey(t, fIdx);
-      const c = _simBtCalcRow(t, fIdx, fp);
-      const cum = cumMap[bk] || { cumPct: 0, cumYuan: 0, acc: "0/0", rate: "0.0" };
-      const pos = posMap[bk] || 0;
-      const cls = c.pnlYuan > 0 ? "sim-up" : "sim-down";
-      // 持仓中笔(lab.js 全信号记录同口径): 卖出时间列=「持仓中」标签, 盈亏=按最新收盘价的当前至今
-      // 盈亏直接展示现状(需求③ 2026-08-22 去「预估」措辞); 固定期模式(A-F)附观察期倒计时小字
-      let obsHtml = "";
-      if (c.isHolding && _sellModes && _sellModes[mode] && _sellModes[mode].hold_days) {
-        const oi = _simObsInfo(String(t[fIdx.buy_date] || ""), _sellModes[mode].hold_days, _getObsCal(), _obsLast);
-        if (oi && !oi.expired) {
-          obsHtml = '<div class="simbt-obs" title="观察期终点=按「' + mode + ' · ' + (_sellModes[mode].label || "") + '」计划的卖出日(买入后第' + _sellModes[mode].hold_days + '个交易日)。剩余交易日按已加载真实交易日序列计; 未来段为剔周末近似, 法定节假日可能有±1日偏差。">观察期剩' + oi.remain + '个交易日·预计' + oi.estDate + '固化</div>';
-        } else if (oi && oi.expired) {
-          obsHtml = '<div class="simbt-obs simbt-obs-expired" title="已过计划卖出日仍未卖出, 待下次回测重跑固化卖出结果。">已到期待固化</div>';
-        }
-      }
-      html += '<tr' + (c.isHolding ? ' class="simbt-holding-row"' : '') + ' data-sd="' + _escAttr(t[fIdx.signal_date]) + '" data-bk="' + _escAttr(bk) + '">' +
-        '<td>' + (t[fIdx.signal_date] || "") + '</td>' +
-        '<td class="sim-pos-cell" title="当日仍持有的笔数。悬停本格高亮对应笔的「信号关联ETF」; 持仓笔可能开于此前交易日(高亮跨日分布), 未渲染的分页行不点亮。">' + pos + '</td>' +
-        '<td>' + _simSigTypeLabel(t[fIdx.signal]) + '</td>' +
-        '<td>' + _simEtfLightHtml(t, fIdx) + (t[fIdx.etf_code] || "") + ' ' + (t[fIdx.etf_name] || "") + '</td>' +
-        '<td>' + (t[fIdx.buy_date] || "") + '</td>' +
-        _feeCell(c.buyFee) +
-        '<td>' + (c.isHolding ? '<span class="simbt-holding-tag">持仓中</span>' : (t[fIdx.sell_date] || "")) + '</td>' +
-        _feeCell(c.sellFee) +
-        '<td class="' + cls + '">' + c.pnlPct.toFixed(2) + '%' + obsHtml + '</td>' +
-        '<td class="' + cls + '">' + c.pnlYuan.toFixed(2) + '</td>' +
-        '<td class="' + _signCls(cum.cumPct) + '" title="' + _escAttr(_cumTip(cum)) + '">' + cum.cumPct.toFixed(2) + '%</td>' +
-        '<td class="' + _signCls(cum.cumYuan) + '" title="' + _escAttr(_cumYuanTip(cum)) + '">' + cum.cumYuan.toFixed(2) + '</td>' +
-        '<td>' + cum.acc + ' (' + cum.rate + '%)</td>' +
-        '</tr>';
-    }
-    html += '</tbody></table>';
-    bodyEl.innerHTML = html;
-    const _fee = _simBtInitFee();
-    const _presetObj = _SIM_FEE_PRESETS.find((p) => p.key === _fee.preset);
-    const feeDesc = _fee.preset === "custom"
-      ? "自定义(佣" + _simBtWan(fp.commission_rate) + "/最低" + fp.min_commission + "元/滑" + _simBtQian(fp.slippage) + "/过户" + _simBtWan(fp.transfer_fee_rate_sh) + "/印" + _simBtWan(fp.stamp_duty_rate) + ", 万分之·滑点千分之)"
-      : (_presetObj ? _presetObj.label + "(" + _presetObj.desc + ")" : "");
-    summaryEl.innerHTML = '筛选结果: <b>' + n + '</b> 笔(模式 ' + mode + ' · 降亏' + (fadeOn ? '开' : '关') + ' · K=' + (K || '关') +
-      ') · 本金每笔 ¥10000 · 累积收益率口径=累计金额÷(峰值同时持仓 <b>' + Math.max(peakPosN, 1) + '</b> 笔×¥10000) · 费率[' + feeDesc + ']' +
-      (holdingN > 0 ? ' · <span class="simbt-est">含 ' + holdingN + ' 笔持仓中</span>(按最新收盘价计当前盈亏, 已并入累积列与对错计数)' : '');
-    if (totalPages > 1) {
-      let pg = '';
-      if (page > 0) pg += '<button type="button" class="sim-pg sim-pg-prev">← 上一页</button>';
-      pg += '<span class="sim-pg-info">第 ' + (page + 1) + ' / ' + totalPages + ' 页(每页' + PAGE + '条)</span>';
-      if (page < totalPages - 1) pg += '<button type="button" class="sim-pg sim-pg-next">下一页 →</button>';
-      pagerEl.innerHTML = pg;
-      const prevB = pagerEl.querySelector(".sim-pg-prev");
-      const nextB = pagerEl.querySelector(".sim-pg-next");
-      if (prevB) prevB.addEventListener("click", () => { page--; _draw(); });
-      if (nextB) nextB.addEventListener("click", () => { page++; _draw(); });
-    } else {
-      pagerEl.innerHTML = '';
-    }
-  };
-  // 当日持仓 hover → 高亮当日仍持有笔的「信号关联ETF」格(2026-08-22 用户追加):
-  // 监听只绑一次(flag 防 _simRender 重渲染重复绑), 数据经 bodyEl._simPosSetMap 每次渲染刷新(防闭包持旧数据);
-  // 高亮数 == 该日格子显示的持仓数(posSetMap 同点快照, 结构性恒等); 持仓笔可能开于此前交易日 →
-  // 高亮跨日分布属预期语义, 未渲染的分页行不点亮(单元格 tooltip 已注明)
-  bodyEl._simPosSetMap = posSetMap;
-  if (!bodyEl._simPosHoverBound) {
-    bodyEl._simPosHoverBound = true;
-    let _hotCell = null, _hitCells = [];
-    const _clearHot = () => {
-      if (_hotCell) { _hotCell.classList.remove("sim-pos-hot"); _hotCell = null; }
-      for (const c4 of _hitCells) c4.classList.remove("sim-pos-hit");
-      _hitCells = [];
-    };
-    bodyEl.addEventListener("mouseover", (e) => {
-      const tgt = e.target;
-      const td = tgt && tgt.closest ? tgt.closest("td") : null;
-      if (td === _hotCell) return;
-      _clearHot();
-      if (!td || td.cellIndex !== 1) return;
-      const tr = td.parentElement;
-      const set = (bodyEl._simPosSetMap || {})[String(tr.dataset.sd || "")];
-      if (!set || !set.size) return;
-      _hotCell = td;
-      td.classList.add("sim-pos-hot");
-      const tbody = tr.parentElement;
-      for (const row of tbody.rows) {
-        if (set.has(row.dataset.bk)) {
-          const c4 = row.cells[3];
-          if (c4) { c4.classList.add("sim-pos-hit"); _hitCells.push(c4); }
-        }
-      }
-    });
-    bodyEl.addEventListener("mouseleave", _clearHot);
-  }
-  _draw();
-}
-
-// === 模拟回测弹窗费率: 快捷档位+自定义(2026-08-22) ===
-// 只读复用交易模拟区既有资产(_SIM_FEE_PRESETS/_simBuyWithFees/_simSellWithFees, 本体不动 §23.7);
-// 持久化 key 独立(tds_simbt_fee_config), 不与交易模拟区 tds_trade_sim_fee_config 共用防互相覆盖。
-var _SIMBT_FEE_PERSIST_KEY = "tds_simbt_fee_config";
-var _simBtFee = null; // { preset, fp:{commission_rate, min_commission, slippage, transfer_fee_rate_sh, stamp_duty_rate} }
-// 比例→展示值(万分之/千分之), toFixed 消浮点尾差(0.0003*10000=3.0000000000000004 → 3)
-function _simBtWan(v) { return parseFloat(((Number(v) || 0) * 10000).toFixed(4)); }
-function _simBtQian(v) { return parseFloat(((Number(v) || 0) * 1000).toFixed(4)); }
-function _simBtValidFp(fp) {
-  return !!fp && ["commission_rate", "min_commission", "slippage", "transfer_fee_rate_sh", "stamp_duty_rate"].every((k) => typeof fp[k] === "number" && isFinite(fp[k]));
-}
-// 初始化费率状态: localStorage 读回 → 无记忆/损坏回退默认档 etf_def(对齐交易模拟区默认)
-function _simBtInitFee() {
-  if (_simBtFee) return _simBtFee;
-  try {
-    const raw = localStorage.getItem(_SIMBT_FEE_PERSIST_KEY);
-    if (raw) {
-      const o = JSON.parse(raw);
-      if (o && typeof o === "object" && _SIM_FEE_PRESETS.some((p) => p.key === o.preset) && _simBtValidFp(o.fp)) {
-        _simBtFee = { preset: o.preset, fp: o.fp };
-        return _simBtFee;
-      }
-    }
-  } catch (e) {}
-  const p = _SIM_FEE_PRESETS.find((x) => x.key === "etf_def");
-  _simBtFee = { preset: "etf_def", fp: { commission_rate: p.commission_rate, min_commission: p.min_commission, slippage: p.slippage, transfer_fee_rate_sh: p.transfer_fee_rate_sh, stamp_duty_rate: p.stamp_duty_rate } };
-  return _simBtFee;
-}
-function _simBtPersistFee() {
-  try { localStorage.setItem(_SIMBT_FEE_PERSIST_KEY, JSON.stringify(_simBtFee)); } catch (e) {}
-}
-// 费率条 HTML(仿交易模拟区 _simFeeBarHTML 结构; 类名 simbt- 前缀自建——交易模拟区样式作用域在 .trade-sim-modal-body 内不通用, 且防事件串扰)
-function _simBtFeeBarHTML(fee) {
-  const btns = _SIM_FEE_PRESETS.map((p) =>
-    '<button type="button" class="simbt-fee-btn' + (p.key === fee.preset ? " active" : "") + '" data-fee="' + p.key + '" title="' + (p.desc || "") + '">' + p.label + '</button>'
-  ).join("");
-  const fp = fee.fp;
-  return '<div class="simbt-fee-bar">' +
-    '<div class="simbt-fee-row">' + btns + '</div>' +
-    '<div class="simbt-fee-custom">' +
-      '<label>佣金:万分之<input type="number" class="simbt-fee-input-comm" value="' + _simBtWan(fp.commission_rate) + '" step="0.01" min="0"></label>' +
-      '<label>最低:<input type="number" class="simbt-fee-input-min" value="' + fp.min_commission + '" step="0.1" min="0">元</label>' +
-      '<label>滑点:千分之<input type="number" class="simbt-fee-input-slip" value="' + _simBtQian(fp.slippage) + '" step="0.1" min="0"></label>' +
-      '<label>过户费:万分之<input type="number" class="simbt-fee-input-transfer" value="' + _simBtWan(fp.transfer_fee_rate_sh) + '" step="0.01" min="0">(沪深统一)</label>' +
-      '<label>印花税:万分之<input type="number" class="simbt-fee-input-stamp" value="' + _simBtWan(fp.stamp_duty_rate) + '" step="0.01" min="0">(卖)</label>' +
-    '</div></div>';
-}
-// 从弹窗表单读 5 参数(表单=唯一事实源: 点档位已回填表单, 手输即 custom)
-function _simBtReadFp(modal) {
-  const val = (cls) => { const el = modal.querySelector(cls); return el ? (parseFloat(el.value) || 0) : 0; };
-  return {
-    commission_rate: val(".simbt-fee-input-comm") / 10000,
-    min_commission: val(".simbt-fee-input-min"),
-    slippage: val(".simbt-fee-input-slip") / 1000,
-    transfer_fee_rate_sh: val(".simbt-fee-input-transfer") / 10000,
-    stamp_duty_rate: val(".simbt-fee-input-stamp") / 10000,
-  };
-}
-// 点档位快捷填入表单(程序赋值不触发 change, 由调用方手动重跑)
-function _simBtFillInputs(modal, fp) {
-  const set = (cls, v) => { const el = modal.querySelector(cls); if (el) el.value = v; };
-  set(".simbt-fee-input-comm", _simBtWan(fp.commission_rate));
-  set(".simbt-fee-input-min", fp.min_commission);
-  set(".simbt-fee-input-slip", _simBtQian(fp.slippage));
-  set(".simbt-fee-input-transfer", _simBtWan(fp.transfer_fee_rate_sh));
-  set(".simbt-fee-input-stamp", _simBtWan(fp.stamp_duty_rate));
-}
-// 单笔费用后盈亏(5 参数模型): 已卖出=按 sell_price; 持仓中(sell_date 空)=按 current_price 最新收盘计当前盈亏
-// (买侧费用照收, 卖侧费用按收盘价计, lab.js 全信号记录同口径); current_price 缺失/为0 的持仓笔兜底按 0 盈亏不炸。
-function _simBtCalcRow(t, fIdx, fp) {
-  const PRIN = 10000; // 每笔本金固定 ¥10000(基准)
-  const bp = Number(t[fIdx.buy_price]) || 0;
-  const isHolding = !String(t[fIdx.sell_date] || "");
-  let effSp;
-  if (isHolding) {
-    const cp = Number(t[fIdx.current_price]);
-    effSp = cp > 0 ? cp : 0;
-  } else {
-    effSp = Number(t[fIdx.sell_price]) || 0;
-  }
-  const etfCode = t[fIdx.etf_code] || "";
-  const br = _simBuyWithFees(PRIN, bp, etfCode, fp);
-  const buyFee = br.commission + br.transferFee;
-  let sellFee = 0, pnlYuan;
-  if (isHolding && !(effSp > 0)) {
-    pnlYuan = 0; // 兜底: 无现价按 0 浮盈
-  } else {
-    const sr = _simSellWithFees(br.shares, effSp, etfCode, fp);
-    sellFee = sr.commission + sr.transferFee + sr.stampDuty;
-    pnlYuan = sr.net - PRIN;
-  }
-  const pnlPct = PRIN > 0 ? (pnlYuan / PRIN) * 100 : 0;
-  return { isHolding, buyFee, sellFee, pnlYuan, pnlPct };
 }
 
 // === 推荐操作方法「参考说明」弹窗(2026-08-14) ===
@@ -4462,7 +2502,7 @@ function _openRefHelpModal() {
         '<p>进阶（可选）：G 玩法还可加一层仓位管理——持仓超过上限时，<b>先卖「刚买进、还没持有满 3 天」的年轻仓（保老仓、砍新仓）</b>，让老仓继续滚利润（详见凯利回测页「G 玩法完整交易方法」）。</p>' +
       '</div>' +
       '<div class="rule-card"><div class="rule-card-head">🆕 次日玩法：分批挂单（数据更稳，推荐）</div>' +
-        '<p><b>买入价口径（v1.1.4 起默认）</b>：凯利回测的买入价 = <b>信号次日开盘价</b>（信号收盘后固化、次日开盘才能真实成交），按 gap 比例换算到 accum_nav 口径（次日开盘 accum_nav 等价值 = 信号日 accum_nav × (次日原始 open / 信号日原始 close)，正确处理分红/份额折算）；旧基线「信号日收盘等价 accum_nav」因收盘价不可成交已于 v1.1.4 切换为次日开盘（量化见 kelly-nextday-open-backtest.md：净利仅微降 0.01%~0.57%、收益率基本不变、相对结论原样成立）。</p><p><b>次日开盘直接买</b>：比当日收盘买几乎不输（净利仅低 0.01%，胜率还反升），不想麻烦的话次日开盘<u>无脑买</u>就行。</p>' +
+        '<p><b>次日开盘直接买</b>：比当日收盘买几乎不输（净利仅低 0.01%，胜率还反升），不想麻烦的话次日开盘<u>无脑买</u>就行。</p>' +
         '<p><b>次日分批挂单（推荐）</b>：分 N 单挂「<b>次日开盘价 -1%</b>」的限价单，没触达的尾盘按现价补上，把当日 1 万预算买满。回测比次日开盘直接买<b>多赚约 6 万</b>，均价更稳（约 -0.37%），不用盯盘等最低点。</p>' +
         '<p><b>操作话术</b>：次日集合竞价后按开盘价挂 -1% 限价，没成交的尾盘按现价补满预算。</p>' +
         '<p style="font-size:.84em;color:var(--text-dim,#9aa)">数据支撑：2011-2026 回测显示 87.9% 交易日日内最低点低于开盘，挂 -1% 等于免费搭日内下探便车；K=1 每日池净利多赚 +6.1 万（详见凯利回测页 SOP 报告）。</p>' +
@@ -4504,9 +2544,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // 列表渲染用 filtered(只显示符合筛选的参考点)。null=不筛; "high"/"mid"/"low"=评级;
   // "true"/"false"/"null"=对/错/未结算。点击汇总条 button toggle 筛选, 再点同档恢复。
   // E 方案(2026-07-31): 时间窗口筛选 - 按日期窗口切片 items, 影响汇总条+列表+总数
-  // sigWindowFilter: "0_15"=全部(默认), "10_15"=第10日起~窗口末, "7_15"=第7日起~窗口末,
-  // "3_15"=第3日起~窗口末, "y_15"=排除今日(昨日~窗口末)。键名为历史枚举不改(v1.1.5 窗口 15→30 扩容后
-  // 语义=起点~第30日, 用户可见文案已全部跟随改 30, 内部枚举保持稳定减少 diff 面)
+  // sigWindowFilter: "0_15"=全部(默认), "10_15"=第10-15日, "7_15"=第7-15日,
+  // "3_15"=第3-15日, "y_15"=排除今日(昨日~15日)
   // 窗口筛选特殊: 影响汇总条(基于窗口内 items 算准确率); grade/correct/type 筛选不影响汇总条
   let windowedItems = items;
   if (kind === "signal" && state.sigWindowFilter && state.sigWindowFilter !== "0_15") {
@@ -4520,9 +2559,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     }
     let _lo = 0;
     const wf = state.sigWindowFilter;
-    if (wf === "10_15") _lo = 9;       // 第10日起 = index 9..end(窗口30日后=第10~30日)
-    else if (wf === "7_15") _lo = 6;   // 第7日起 = index 6..end(窗口30日后=第7~30日)
-    else if (wf === "3_15") _lo = 2;   // 第3日起 = index 2..end(窗口30日后=第3~30日)
+    if (wf === "10_15") _lo = 9;       // 第10-15日 = index 9..end
+    else if (wf === "7_15") _lo = 6;   // 第7-15日 = index 6..end
+    else if (wf === "3_15") _lo = 2;   // 第3-15日 = index 2..end
     else if (wf === "y_15") _lo = 1;   // 排除今日 = index 1..end
     const _windowDates = new Set(_sortedDates.slice(_lo));
     windowedItems = items.filter((it) => _windowDates.has(it.date));
@@ -4551,7 +2590,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       if (state.sigGradeFilter === "low" && !(s < 0.55)) return false;
     }
     if (state.sigCorrectFilter) {
-      const v = _scOf(it);  // 2026-08-24 到期冻结窗: 跟随判定窗档位(10/15)
+      const v = it.since_correct;
       const k = v === true ? "true" : v === false ? "false" : "null";
       if (k !== state.sigCorrectFilter) return false;
     }
@@ -4563,57 +2602,18 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     if (state.sigTypeFilter && _sigKey !== state.sigTypeFilter) return false;
     return true;
   };
-  // 2026-08-13 重构: 首页 AI降亏过滤开关(独立键 tds_home_fade, 默认开启) → 开启时按所选模式键集成员级判定(v1.1.5 起=NEW14 十四键);
+  // 2026-08-13 重构: 首页 AI降亏过滤开关(独立键 tds_home_fade, 默认开启) → 开启时按固定 8 键成员级判定(基础5+核心3键全生效, v1.1.0 与凯利区默认策略一致);
   // 关闭时首页完全不判降亏(_isAiFadeHit 恒 false → 不灰显不删除线不标注, top-K 不滤不补位正常取)。
   // 不再读凯利区 tds_kelly_filters(解耦, 互不影响)。
   // ⚠️ 2026-08-13 融合口径: 本判定必须前移到 top-K 选取之前(先滤降亏、再选 top-K, 与凯利回测 lab.js _kellyCollectBasePool 先过 passesFade 一致)
   // ⚠️ 2026-08-21 前移到 popItems 之前, 使分栏计数和准确率统计也能排除降亏命中信号
   let _fadeOn = true;
   const _aiOnMembers = {};
-  // T3-2(2026-08-23) 模式化: 键集合从 common.js _KELLY_FADE_MODE_PRESETS 单源拉取(任务①④)。
-  // 默认模式的 keys 由 common.js 预设表单源拉取(T3-2 时默认=p8≡原固定 8 键零变化; v1.1.5 起默认=new14·NEW14 十四键);
-  // _AI_MACRO_FILTER_NAMES 保留中文名映射仅供 badge 标注展示, 不再作键集合事实源。
-  // preset 不可用(老缓存 common.js)时回退遍历 _AI_MACRO_FALLBACK_KEYS(NEW14 十四键)=按当前默认基座兜底,
-  // 不再回退旧八键口径(v1.1.5 基座对齐批)。
-  // S06(codex-task-20260825-001): dynamic 预设无静态 keys —— 禁止走 FALLBACK 兜底(=静默变 new14 口径, 违规);
-  // 改为预建 a9/new15 双成员集, 判定时按 it.date 读快照选集(见 _isAiFadeHit), 快照不可用=fail-open 不拦+计数警示。
-  const _homeFadePreset = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(_readHomeFadeMode()) : null;
-  const _homeIsS06 = !!(_homeFadePreset && _homeFadePreset.dynamic);
-  // ⚠TDZ 铁律(2026-08-25 smoke 揪出): 本变量必须声明在一切 _isAiFadeHit() 调用点之前——
-  //   下方 popItems 统计循环(kind==="signal" 分支)在函数体前段就调 _isAiFadeHit, 若声明放在
-  //   function _isAiFadeHit 定义行旁(let 在 TDZ), s06 模式下首次调用即 "Cannot access before initialization"
-  //   崩掉整个信号区渲染(smoke 断供场景实测复现)。声明前置后由 function 声明提升保证可先定义后初始化。
-  let _homeS06FailOpen = 0;   // s06 快照不可用而 fail-open 的行数(可见降级提示用, 渲染层读取)
-  const _aiOnS06 = _homeIsS06 ? { a9: {}, new15: {} } : null;
-  if (_homeIsS06 && typeof _tdsFadeModeById === "function") {
-    for (const bid of ["a9", "new15"]) {
-      const bp = _tdsFadeModeById(bid);
-      if (bp && Array.isArray(bp.keys)) for (const bk of bp.keys) _aiOnS06[bid][bk] = true;
-    }
-  } else if (_homeFadePreset && Array.isArray(_homeFadePreset.keys)) {
-    for (const _amk of _homeFadePreset.keys) _aiOnMembers[_amk] = true;
-  } else if (!_homeIsS06) {
-    for (const _amk of _AI_MACRO_FALLBACK_KEYS) _aiOnMembers[_amk] = true;
-  }
+  // 固定 8 键白名单全开(基础5+核心3, _AI_MACRO_FILTER_NAMES 不含 v1.1.2 备选键 legacyMa60Special/declinePhaseSpecial——
+  // 备选键不进首页判定, 须凯利区手动开才命中, 与凯利区默认关口径一致 §22)。v1.1.0 与凯利区默认策略一致
+  for (const _amk in _AI_MACRO_FILTER_NAMES) _aiOnMembers[_amk] = true;
   if (kind === "signal") {
     _fadeOn = _readHomeFadeFlag();
-  }
-  // (2026-08-22 用户拍板) 新降亏键「牛市×辅备买全停」: 所选模式命中(tier=牛市·主升 × 辅买/备买)走 AI降亏视觉链
-  // (置灰+删除线+标注+top-K 补位, 与 8 键同链同源); tier map 未就绪先保守放行(宁漏勿误, 盘中新信号 date 不在文件内不误杀),
-  // 就绪后重绘一次补上视觉区分。tier 数据= R2 market_tier_history.json 模块级缓存(_ensureSigTierMap, 与 _renderTierTimelinePanel 同源同 URL)。
-  // 消费点: 首页 AI 建议 top-K/统计人口/行渲染 + 「近期技术分析参考点」区块(同一 _renderSignalGrid 渲染链, §22 一致)
-  // T3-2: 并入模式体系(任务③同精神)——所选模式 keys 含 bullAuxBackupStop(p9/a9/b9/c9)时自动激活;
-  // p8/new14 等不含该键的模式不激活。旧首页独立 checkbox 已删(2026-08-24 用户拍板), 本判定为唯一入口。
-  const _bullStopActive = (kind === "signal")
-    ? (_homeIsS06
-      // S06: a9 基座含 bullAuxBackupStop、new15 不含 → 该判定也随日期走(在 _isAiFadeHit 内 per-date 判)
-      ? true
-      : (!!(_homeFadePreset && Array.isArray(_homeFadePreset.keys) && _homeFadePreset.keys.indexOf("bullAuxBackupStop") >= 0)))
-    : false;
-  if (_bullStopActive && !_sigTierByDate && typeof _rerenderSigCardContent === "function") {
-    _ensureSigTierMap().then((m) => {
-      if (m) { try { _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot); } catch (e) {} }
-    }).catch(() => {});
   }
   // 人口筛选（window+ETF）：定义汇总条统计人口。ETF 视为人口筛选(同 window)，汇总条随 ETF 切换更新。
   // 2026-08-07 归一档：sigEtfFilterSet 是选中档位数组(如["1","2","3"])，
@@ -4626,27 +2626,19 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // 2026-08-21: 准确率/分栏计数排除降亏命中信号(当 AI降亏过滤开启时), 与列表展示解耦:
   //   popItems = 信号列表人口(含降亏命中, 保持列表完整展示);
   //   _statItems = 统计人口(排除降亏命中, 使准确率+分栏计数随过滤联动)
-  let _statItems = _fadeOn ? popItems.filter((it) => !_isAiFadeHit(it)) : popItems;
+  const _statItems = _fadeOn ? popItems.filter((it) => !_isAiFadeHit(it)) : popItems;
   // 列表 = 人口 ∩ 列表子筛选(grade/correct/type)；5 个筛选正交组合(AND)
-  // v1.1.5(2026-08-24) 第6个正交开关「仅显示可用信号」(_availOnlyOn, 裸键 tds_home_show_available_only, 默认关 §23.7):
-  // 在现有渲染结果上隐藏灰显/删除线行——隐藏判定与 cellHtml 画线条件逐字同源, 不改变任何判定链:
-  //   ① AI降亏命中(_isAiFadeHit → sig-ai-hit 删除线+置灰; 含牛市×辅备买全停 bullAuxBackupStop 分支)
-  //   ② 未入样本(it._bt_in_universe===false 且非 band_hold → sig-poscap-notuni 删除线+置灰)
-  //   ③ 当日已满(_isDayFull → sig-poscap-excluded, 入宇宙但不在 top-K; 2026-08-26 fix: 设计初衷=隐藏所有灰显/不可用信号)
-  // 纯展示层视图控制: 汇总条统计人口(_statItems)/AI建议编号(kept 本就先滤降亏, 被藏行不占位)/ETF档计数基线均不变。
-  // 卖出/持有类风险提示正常亮显, 不在本开关隐藏范围(卖出=离场保护, 非不可用)。
-  const _availOnlyOn = (kind === "signal") && _readHomeAvailOnlyFlag();
   let filtered = (kind === "signal") ? popItems.filter(_listFilter) : windowedItems;
-  // ===== 仅显示可用信号 过滤(两步: ①posCap前藏降亏+未入 ②posCap后藏当日已满) =====
-  if (_availOnlyOn) {
-    filtered = filtered.filter((it) => !_isAiFadeHit(it) && it._bt_in_universe !== false);
-  }
-  // 按 date 分组（降序），今日组单独提到最前(必须在 posCap 之前,posCap 的 for-of dates 依赖此)
+  // 按 date 分组（降序），今日组单独提到最前
   const groups = {};
   for (const it of filtered) {
     (groups[it.date] = groups[it.date] || []).push(it);
   }
   let dates = Object.keys(groups).sort((a, b) => (a < b ? 1 : -1));
+  // 今日组排首（2026-08-17 fix: 仅当今日为最新日期时才显式排首）。根因: overview.json date 字段盘中可能未随
+  // signals_today 一起更新(如 date=20260814 但 signals_today 已含盘中 20260817), 过时的 todayDate 若被强行排首
+  // 会把旧日期(8/14)提到最新日期(8/17)之前, 用户看到「第一行 8/14、第二行 8/17」顺序颠倒。
+  // 修法: 降序(最新在上)天然正确; 仅当 todayDate 已是最大(最新)时才无需变动即保持原意图, 否则不提前。
   if (todayDate && groups[todayDate] && dates[0] <= todayDate) {
     dates = [todayDate, ...dates.filter((d) => d !== todayDate)];
   }
@@ -4654,60 +2646,22 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // 子筛选影响, 防"用户筛走买入信号却误报无买入信号")。空态横条判定用此表, 与 §23.6 入样宇宙/首页 AI建议口径一致。
   const _BUY_UNI_SIGS = { buy: 1, buy_aux: 1, buy_special: 1, buy_backup: 1 };
   const _dateHasInUniverseBuy = {};
-  // v1.1.5: 全窗口(全量 items, 不受用户子筛选影响)内是否存在「放行买入」=入样×未命中降亏,
-  // 口径与 common.js _tdsComputeDrought 放行定义一致(§22), 供「仅显示可用信号」枯竭空态判定。
-  let _homeHasPassBuy = false;
   if (kind === "signal") {
     for (const it of items) {
-      if (it && it.date && it._bt_in_universe !== false && _BUY_UNI_SIGS[it.signal]) {
-        _dateHasInUniverseBuy[it.date] = true;
-        if (!_isAiFadeHit(it)) _homeHasPassBuy = true;
-      }
+      if (it && it.date && it._bt_in_universe !== false && _BUY_UNI_SIGS[it.signal]) _dateHasInUniverseBuy[it.date] = true;
     }
   }
-  // 2026-08-13 融合口径: 判断信号是否「命中降亏」(所选模式键集成员级, v1.1.5 起=NEW14 十四键; 与凯利回测 passesFade 同语义)。
+  // 2026-08-13 融合口径: 判断信号是否「命中降亏」(固定 8 键成员级, 与凯利回测 passesFade 同语义 v1.1.0)。
   // 受首页 AI降亏过滤开关(_fadeOn)门控: 开关关→恒 false 不判降亏; 开关开→ ai_macro.hit 且命中任一 8 键即为命中。
   // 2026-08-15 P0 mangle 根治: const-arrow 布尔助手被 terser mangle 改名单字符(如 _isSellSig→$→C),
   //   与大型压缩文件既有变量撞车致 "c is not a function"。改为 function 声明 + build_min keep_fnames:
   //   single-statement 会内联、multi-statement 保留原名, 二者都不会留下可撞车的单字符函数调用。
-  //   (_homeS06FailOpen 声明已前置到 _aiOnS06 处, 见该处 TDZ 注释)
   function _isAiFadeHit(it) {
-    if (!_fadeOn) return false;
-    // S06(codex-task-20260825-001): 按 it.date 读快照选 a9/new15 成员集(禁止展开静态键组合);
-    // 快照未就绪/日期超覆盖期 → fail-open 该行不拦+计数(handoff §五 功能5 可见降级, 不静默回退其他模式)
-    let _members = _aiOnMembers;
-    let _s6Base = null;
-    if (_homeIsS06) {
-      const r6 = (typeof _tdsS06BaseForDate === "function") ? _tdsS06BaseForDate(it && it.date) : null;
-      if (!r6 || !r6.ok) { _homeS06FailOpen++; return false; }
-      if (!Object.keys(_aiOnS06[r6.base] || {}).length) { _homeS06FailOpen++; return false; }
-      _members = _aiOnS06[r6.base];
-      _s6Base = r6.base;
-    }
-    if (it && it.ai_macro && it.ai_macro.hit && Array.isArray(it.ai_macro.filters)
-      && it.ai_macro.filters.some((fk) => _members[fk])) return true;
-    // (2026-08-22 用户拍板) 新降亏键分支: 牛市·主升 × 辅买/备买(tier 由前端 R2 map join;
-    // map 未就绪/日期缺失=不命中=保守放行; 开关关时 _bullStopActive=false 恒不命中, 关闭零变化)
-    // S06: 仅当日基座=a9(含 bullAuxBackupStop)才启用本分支(new15 基座不含该键)
-    const _bullOn = _homeIsS06 ? (_s6Base === "a9") : _bullStopActive;
-    return _bullOn && _isBullStopHit(it);
+    return _fadeOn && !!(it && it.ai_macro && it.ai_macro.hit && Array.isArray(it.ai_macro.filters)
+      && it.ai_macro.filters.some((fk) => _aiOnMembers[fk]));
   }
-  // 2026-08-26 Fix(bug1+bug2): _isSellRow/_isSellSig 提升到外层作用域(原在 cellHtml 内, cellHtml 外的 _isDayFull/_availOnlyOn 过滤无法访问)
-  // _isSellRow: 卖出类/持有中性(sell/sell_stop_loss/band_hold/波段减仓/波段止损)——跳过「当日已满」badge
-  function _isSellRow(it) {
-    return it.signal === "sell" || it.signal === "sell_stop_loss" || it.signal === "band_hold"
-      || (it.reason || "").includes("波段减仓") || (it.reason || "").includes("波段止损");
-  }
-  // _isSellSig: 纯卖出类(sell/sell_stop_loss/波段减仓/波段止损, 不含 band_hold)——AI警示标注
-  function _isSellSig(it) {
-    return it.signal === "sell" || it.signal === "sell_stop_loss"
-      || (it.reason || "").includes("波段减仓") || (it.reason || "").includes("波段止损");
-  }
-  // s06 fail-open 计数暴露给渲染层(AI 建议区警示条读取); 非 s06 恒 0
-  function _homeS06WarnCount() { return _homeIsS06 ? _homeS06FailOpen : 0; }
-  function _homeS06Active() { return _homeIsS06; }
   // positionCap 仓位控制过滤(2026-08-12): 凯利回测页 toggle 共享设置(localStorage "tds_poscap", 双页联动)
-  // #4 范围扩展(2026-08-12): 从凯利区扩展到整个信号列表——近30交易日每个日期各自按同一排序算 top-K, 所有日期都展示 AI建议(AI建议买入/当日已满), 不只今日
+  // #4 范围扩展(2026-08-12): 从凯利区扩展到整个信号列表——近15交易日每个日期各自按同一排序算 top-K, 所有日期都展示 AI建议(AI建议买入/当日已满), 不只今日
   // 排序口径与凯利回测 §6.1 一致: track_score DESC → 评级(high>mid>low) → 信号类型(buy_backup>buy>buy_aux>buy_special) → buy_date ASC
   let _posCapKeptMap = null;
   let _posCapK = 1;  // 2026-08-14 #BC 默认 K=1(主推档, 与 lab.js _kellyDefaultFilters/_kellySharedPosCap on:true/k:1 语义对齐)
@@ -4716,13 +2670,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   if (kind === "signal") {
     try {
       const _raw = localStorage.getItem("tds_poscap");
-      // 2026-08-21 #93 fix: 首次访问无 tds_poscap key 时, 默认 on:true/k:1 写入 localStorage,
-      // 使 AI建议 badge 与 lab.js 默认语义对齐(K=1 主推高亮), 与 L2669 _pcOn=true 注释一致
-      if (!_raw) {
-        localStorage.setItem("tds_poscap", JSON.stringify({ on: true, k: 1 }));
-      }
-      {
-        const _pc = JSON.parse(_raw || '{"on":true,"k":1}');
+      if (_raw) {
+        const _pc = JSON.parse(_raw);
         _pcOn = !!( _pc && _pc.on );  // off 状态(凯利区/首页 off 按钮写 {on:false})时显示「关」按钮高亮, K 档不高亮
         if (_pc && _pc.on && _pc.k >= 1 && _pc.k <= 4) {
           _posCapK = _pc.k;
@@ -4766,204 +2715,11 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
             // 顺延补位给后续未命中信号; 判定走共享谓词 _isAiFadeHit(受首页「AI降亏过滤」开关门控: 开关关→不滤, top-K 正常取)。
             _dayItems = _dayItems.filter((it) => !_isAiFadeHit(it));
             if (!_dayItems.length) continue;
-            _posCapKeptMap.set(dt, new Set(_posCapSortedFn(_dayItems).slice(0, _posCapK).map(s => s.index_id + '|' + s.date + '|' + s.signal)));
+            _posCapKeptMap.set(dt, new Set(_posCapSortedFn(_dayItems).slice(0, _posCapK)));
           }
         }
       }
     } catch (e) {}
-  }
-  // 2026-08-21: 仓位建议联动——_pcOn 且 _posCapKeptMap 存在时(仓位建议 ON 且 K>=1), 统计人口只保留被 kept 的信号(得「AI建议N」徽章), 使分栏计数和准确率随 K 档切换联动
-  // ⚠️ 必须同时检查 _pcOn：off 时 _posCapKeptMap 仍存在(旧 Map 未清空), 不加 _pcOn 则 off 状态仍被过滤导致统计不变
-  if (_pcOn && _posCapKeptMap) {
-    _statItems = _statItems.filter((it) => {
-      const kept = _posCapKeptMap.get(it.date);
-      return kept && kept.has(it.index_id + '|' + it.date + '|' + it.signal);
-    });
-  }
-  // 2026-08-21: ETF 档位按钮计数——fade + kept 过滤后、ETF 档位筛选前的基线
-  // 告诉用户"该档还有多少信号可看"，随 K 档/降亏联动，但不受 ETF 档位筛选影响（选了某档不影响其他档计数）
-  const _tierCountItems = _pcOn && _posCapKeptMap
-    ? windowedItems.filter((it) => !_isAiFadeHit(it) && (() => { const k = _posCapKeptMap.get(it.date); return k && k.has(it.index_id + '|' + it.date + '|' + it.signal); })())
-    : (_fadeOn ? windowedItems.filter((it) => !_isAiFadeHit(it)) : windowedItems);
-  // ② posCap后: 藏当日已满(降亏命中/未入已在第一步藏了, 这里只补当日已满)
-  // 2026-08-27 fix(用户实测 bug: csi_399976@20260817 buy_special 置灰却未被隐藏): 原实现 reassign 局部变量
-  //   filtered 是死赋值——groups/dates 已在 Step1 之后构建完成(L4644+), 渲染 rows 循环遍历 groups[dt],
-  //   本 filter 的结果被整体丢弃 → Step2「当日已满」隐藏自上线起从未生效(.sig-poscap-excluded 行一直
-  //   opacity .5 置灰可见)。改为就地过滤 groups[dt] 并剔除空组+同步重算 dates(今日置顶相对序不变——
-  //   过滤只减不增; keptMap 构建已在此前 for(dt of dates) 完成, 不受 groups 后续变动影响;
-  //   rank 构建 _keptObjMap 用过滤后 dayItems, kept 成员不会被本步删掉(k.has=true 恒保留), 编号不受影响)。
-  if (_availOnlyOn && _posCapKeptMap) {
-    for (const dt of dates) {
-      groups[dt] = (groups[dt] || []).filter((it) => {
-        if (!_BUY_UNI_SIGS[it.signal]) return true;  // 非买入类(AI警示等)→显示
-        const k = _posCapKeptMap.get(dt);
-        return !k || k.has(it.index_id + '|' + it.date + '|' + it.signal);  // 在 kept 集=显示(AI建议), 不在=隐藏(当日已满)
-      });
-      if (!groups[dt].length) delete groups[dt];
-    }
-    dates = dates.filter((d) => !!groups[d]);
-  }
-  // ===== AI 信号认可度(X/Y 双段, 2026-08-26, 调研报告 docs/kelly/toggle/ai-consensus-score-research-20260826.md 方案甲=前端实时固化统计) =====
-  // Y=8 降亏模式预设计票(0~8): 对 common.js _KELLY_FADE_MODE_PRESETS 静态预设(p8/p9/a9/b9/c9/new14/new15)
-  //   各与 ai_macro.filters(后端无条件全量注入)求交一次, 交集空=该模式愿意留下=1 票; bullAuxBackupStop
-  //   后端不判 → 前端 tier map 补判(_isBullStopHit, 与首页判定链同源同降级); S06 第 8 票按 it.date 读快照
-  //   基座(a9/new15)同式判, 快照不可用 fail-open 计 1 票(保留, 与首页 S06 降级契约同语义)。固化统计,
-  //   与界面开关(K 档/模式选择/过滤开关)全部无关。
-  // X=AI 模式认可计数(per-mode top-1 计数 0~8, 用户拍板 2026-08-27「保留 412653ffd 计数语义」):
-  //   对 8 个降亏模式各问一遍「当天这笔是不是它视角下的第一名」——per-mode per-date 人口=全量 items 中
-  //   买入类 ∧ _bt_in_universe!==false ∧ 该模式投保留票(mode_votes 单源优先, 缺失走 _consensusFrontVotesOf,
-  //   bull 键由前端 tier map 补判), 组内排序 _consSortedFn(track_score DESC→rating→信号类型)取 top1;
-  //   x=被几个模式选为当日 top1。「当日主推」=当日入样买入中**票数最多的唯一一支**(平票取跟踪分高者,
-  //   再按 index_id|signal 字典序兜底保唯一; 全零日无主推)。渲染映射(x 计数直接展示不丢票数):
-  //   winner →「{x}票·当日主推」/ 其余有票 →「{x}·非主推」/ 0 票 →「0·非主推」, 见 hoverpop show()。
-  //   独立定义排序函数不复用 _posCapSortedFn
-  //   (其在 tds_poscap.on&&k 合法条件内才赋值, 固化视角不能依赖用户状态); 人口用全量 items 不受
-  //   windowedItems/档位筛选影响(先例 _dateHasInUniverseBuy L4654)。
-  // 展示: cellHtml 写 data-consensus 属性 → hoverpop show() 拼末行; 非买入类(band_hold/sell/sell_stop_loss)
-  //   显"—"(仅买信号判降亏 §23.6 MED3)。一张表喂 N 展示位(§22), 未来列表级 badge 直接读同一张表。
-  const _CONS_BUY = { buy: 1, buy_aux: 1, buy_special: 1, buy_backup: 1 };
-  const _consMembers = {};
-  if (typeof _tdsFadeModeById === "function") {
-    for (const _cpid of ["p8", "p9", "a9", "b9", "c9", "new14", "new15"]) {
-      const _cp = _tdsFadeModeById(_cpid);
-      const _cm = {};
-      if (_cp && Array.isArray(_cp.keys)) for (const _ck of _cp.keys) _cm[_ck] = true;
-      _consMembers[_cpid] = _cm;
-    }
-  }
-  const _CONSENSUS_PIDS = ["p8", "p9", "a9", "b9", "c9", "new14", "new15"];
-  // 前端表决器(#95 根治, 2026-08-27): 与后端 app/queries.py _ai_macro_mode_votes 同构的唯一降亏表决实现
-  //   —— filters 与 preset 键集求交 + bullAuxBackupStop 特判(buy_aux/buy_backup × 牛市·主升, tier 由前端
-  //   _sigTierByDate 补判, 未就绪=保守放行)。此前 mode_votes 缺失时另一套手写求交散落 3 处(Y 票 fallback/
-  //   X 表静态行/X 表 s06 行), 双实现并存必漂移(X 两处还漏了 bull 特判); 统一进本函数后恒单源。
-  function _consensusFrontVotesOf(f3, it3) {
-    const farr = Array.isArray(f3) ? f3 : [];
-    const votes = {};
-    for (const pid of _CONSENSUS_PIDS) {
-      const m3 = _consMembers[pid] || {};
-      if (farr.some((fk) => m3[fk])) { votes[pid] = false; continue; }
-      if (m3.bullAuxBackupStop && _isBullStopHit(it3)) { votes[pid] = false; continue; }
-      votes[pid] = true;
-    }
-    return votes;
-  }
-  function _consensusVotesOf(it2) {
-    // mode_votes 单源优先(后端预计算); 缺失(存量旧数据)走前端表决器复刻同端口径——两分支不再各写一套
-    const f2 = (it2.ai_macro && Array.isArray(it2.ai_macro.filters)) ? it2.ai_macro.filters : [];
-    const mv = (it2.ai_macro && it2.ai_macro.mode_votes) || _consensusFrontVotesOf(f2, it2);
-    let y2 = 0;
-    for (const pid of _CONSENSUS_PIDS) {
-      if (mv[pid]) y2++;
-    }
-    // S06 第 8 票(统一契约 #95): base 可知(r6.ok)按当日生效基座(a9/new15)的票判; base 未知
-    //   (快照未加载/加载失败/日期超覆盖期/解析层缺失)一律 fail-open 计 1 票=保守放行,
-    //   与首页判定链(_isAiFadeHit)/common.js 降级契约同语义, 也与 CONS_TIP 公示句逐字一致。
-    const r6 = (typeof _tdsS06BaseForDate === "function") ? _tdsS06BaseForDate(it2.date) : null;
-    if (!r6 || !r6.ok || mv[r6.base]) y2++;
-    return y2;
-  }
-  // X 固化表: per-mode per-date top-1 kept sets
-  const _rcX = { high: 0, mid: 1, low: 2, "": 3 };
-  const _scX = { buy_backup: 0, buy: 1, buy_aux: 2, buy_special: 3, "": 9 };
-  const _ratingXOf = (x) => {
-    const s = _getSignalScore(x)?.score;
-    if (s == null) return "";
-    return s >= 0.75 ? "high" : (s >= 0.55 ? "mid" : "low");
-  };
-  const _consSortedFn = (a, b) => {
-    const ta = _topEtfByScore(a.etfs)?.track_score ?? -1;
-    const tb = _topEtfByScore(b.etfs)?.track_score ?? -1;
-    if (tb !== ta) return tb - ta;
-    const rak = _ratingXOf(a), rbk = _ratingXOf(b);
-    const ra = Object.prototype.hasOwnProperty.call(_rcX, rak) ? _rcX[rak] : 3;
-    const rb = Object.prototype.hasOwnProperty.call(_rcX, rbk) ? _rcX[rbk] : 3;
-    if (ra !== rb) return ra - rb;
-    const sak = a.signal || "", sbk = b.signal || "";
-    const sa2 = Object.prototype.hasOwnProperty.call(_scX, sak) ? _scX[sak] : 9;
-    const sb2 = Object.prototype.hasOwnProperty.call(_scX, sbk) ? _scX[sbk] : 9;
-    if (sa2 !== sb2) return sa2 - sb2;
-    return 0;
-  };
-  const _fixedKeptMapByMode = {};
-  for (const pid of _CONSENSUS_PIDS) _fixedKeptMapByMode[pid] = {};
-  {
-    // 统一表决(#95 同款): mode_votes 单源优先, 缺失走前端表决器(顺带补齐旧 fallback 漏掉的 bull 特判)
-    for (const x of items) {
-      if (!x || !_CONS_BUY[x.signal] || x._bt_in_universe === false) continue;
-      const fx = (x.ai_macro && Array.isArray(x.ai_macro.filters)) ? x.ai_macro.filters : [];
-      const mv = (x.ai_macro && x.ai_macro.mode_votes) || _consensusFrontVotesOf(fx, x);
-      for (const pid of _CONSENSUS_PIDS) {
-        if (!mv[pid]) continue;  // 该模式没投保留票(falsy=拦)则跳过——与旧版逐位一致的 mv 分支语义
-        (_fixedKeptMapByMode[pid][x.date] = _fixedKeptMapByMode[pid][x.date] || []).push(x);
-      }
-    }
-    // S06 mode
-    // #96(2026-08-27): base 未知(快照未就绪/加载失败/日期超覆盖期)=该笔不拦(fail-open 进当日候选参与
-    //   排序取 top1), 与 common.js 降级契约及 CONS_TIP 公示句「S06 快照不可用时该票按保留计」一致。
-    //   旧实现硬编码 new15 键集兜底实为 fail-closed, 会把 filters∩new15 的信号错误拦掉且无提示=注释与行为不符, 已删。
-    _fixedKeptMapByMode["s06"] = {};
-    for (const x of items) {
-      if (!x || !_CONS_BUY[x.signal] || x._bt_in_universe === false) continue;
-      const fx = (x.ai_macro && Array.isArray(x.ai_macro.filters)) ? x.ai_macro.filters : [];
-      const mv = (x.ai_macro && x.ai_macro.mode_votes) || _consensusFrontVotesOf(fx, x);
-      const r6 = (typeof _tdsS06BaseForDate === "function") ? _tdsS06BaseForDate(x.date) : null;
-      if (r6 && r6.ok && !mv[r6.base]) continue;  // 当日生效基座没投保留票(falsy=拦)才跳过; base 未知→不拦(fail-open, #96)
-      (_fixedKeptMapByMode["s06"][x.date] = _fixedKeptMapByMode["s06"][x.date] || []).push(x);
-    }
-    // Sort each mode×date and take top-1
-    for (const pid of Object.keys(_fixedKeptMapByMode)) {
-      for (const dx in _fixedKeptMapByMode[pid]) {
-        const arr = _fixedKeptMapByMode[pid][dx];
-        arr.sort(_consSortedFn);
-        _fixedKeptMapByMode[pid][dx] = new Set(arr.length ? [arr[0]] : []);
-      }
-    }
-  }
-  // item 引用 → {y:int, x:0~8|"na", w:是否当日主推}; cellHtml 只查表写属性零重算
-  const _consensusMap = new Map();
-  for (const it of items) {
-    if (!it || !_CONS_BUY[it.signal]) continue;
-    const inUni = it._bt_in_universe !== false;
-    let x = 0;
-    if (inUni) {
-      for (const pid of _CONSENSUS_PIDS) {
-        const kept = _fixedKeptMapByMode[pid]?.[it.date];
-        if (kept && kept.has(it)) x++;
-      }
-      const s06kept = _fixedKeptMapByMode["s06"]?.[it.date];
-      if (s06kept && s06kept.has(it)) x++;
-    }
-    _consensusMap.set(it, { y: _consensusVotesOf(it), x: inUni ? x : "na", w: false });
-  }
-  // 当日主推 winner 回填(用户拍板 2026-08-27): 当日入样买入中票数最多者; 平票取跟踪分高者;
-  //   再按 index_id|signal 字典序兜底保唯一(与机检 check_consensus_parity.mjs 同规则互证);
-  //   全零日无 winner, 该日全部显「0·非主推」。w 判定在构建期一次算好, 渲染层零重算。
-  {
-    const _consByPos = {};
-    for (const [_cit, _ccv] of _consensusMap.entries()) {
-      if (typeof _ccv.x !== "number" || _ccv.x < 1) continue;
-      (_consByPos[_cit.date] = _consByPos[_cit.date] || []).push({ k: _cit.index_id + "|" + _cit.signal, it: _cit, x: _ccv.x });
-    }
-    for (const _cdx of Object.keys(_consByPos)) {
-      const _arrW = _consByPos[_cdx].sort((_aw, _bw) =>
-        (_bw.x - _aw.x)
-        || ((_topEtfByScore(_bw.it.etfs)?.track_score ?? -1) - (_topEtfByScore(_aw.it.etfs)?.track_score ?? -1))
-        || _aw.k.localeCompare(_bw.k));
-      _consensusMap.get(_arrW[0].it).w = true;
-    }
-  }
-  // 异步依赖就绪后重绘一次(Y 的 bull/S06 票从 fail-open 修正为实判); 单例 promise 已加载直接复用零重复请求
-  if (!_sigTierByDate && typeof _ensureSigTierMap === "function") {
-    _ensureSigTierMap().then((m4) => {
-      if (m4 && typeof _rerenderSigCardContent === "function") { try { _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot); } catch (e4) {} }
-    }).catch(() => {});
-  }
-  if (!_consensusS06Hooked && typeof _tdsS06StateEnsure === "function"
-    && typeof _tdsS06Status === "function" && !_tdsS06Status().loaded) {
-    _consensusS06Hooked = true;
-    _tdsS06StateEnsure().then((d4) => {
-      if (d4 && typeof _rerenderSigCardContent === "function") { try { _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot); } catch (e5) {} }
-    }).catch(() => {});
   }
   // 2026-08-13 重构: 显示随过滤开关走(合并后单开关, 无独立显示层); 开关行 HTML 用 _fadeOn 渲染「AI降亏过滤」勾选态
   const _sigSwitchHtmlStr = (kind === "signal") ? _sigSwitchHtml(_fadeOn, _posCapK || 1, _pcOn, signalsMeta) : "";
@@ -5002,13 +2758,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     let _posCapRank = null;
     if (_posCapKeptMap && _posCapKeptMap.has(dt)) {
       _posCapRank = new Map();
-      // _posCapKeptMap stores key strings (index_id|date|signal) in quality order (Set preserves insertion order);
-      // Re-sort by quality via _posCapSortedFn for stable rank numbering (same as original).
-      const _keyOf = (s) => s.index_id + '|' + s.date + '|' + s.signal;
-      const _keptObjMap = new Map(dayItems.map(d => [_keyOf(d), d]));
-      const _keptObjs = [..._posCapKeptMap.get(dt)].map(k => _keptObjMap.get(k)).filter(Boolean);
-      const _keptSorted = _posCapSortedFn(_keptObjs);
-      _keptSorted.forEach((_di, _idx) => _posCapRank.set(_keyOf(_di), _idx + 1));
+      // 对保留集(kept, Set)按质量序排序后编号 1/2/3...(复用 _posCapSortedFn 与选择集同排序函数, 单源零漂移)
+      const _keptSorted = _posCapSortedFn([..._posCapKeptMap.get(dt)]);
+      _keptSorted.forEach((_di, _idx) => _posCapRank.set(_di, _idx + 1));
     }
     const cellHtml = (it) => {
       if (kind === "signal") {
@@ -5027,7 +2779,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           ? '<sup class="sig-late-badge" data-tip="盘后补齐: 该信号因数据源晚到(如港股/欧股/国债/晚发指标, 21:00 backfill-evening 指数补采)才在收盘后稍晚进入定版, 属正常补齐">盘后补齐</sup>'
           : '';
         const cls = showIntradayWarn ? "sig-item sig-clickable sig-intraday" : "sig-item sig-clickable";
-        // AI仓位建议(#4 2026-08-12 rename+范围扩展): 近30交易日每个日期各自 top-K AI建议买入高亮, 其余"当日已满"灰显
+        // AI仓位建议(#4 2026-08-12 rename+范围扩展): 近15交易日每个日期各自 top-K AI建议买入高亮, 其余"当日已满"灰显
         // (与凯利回测页 toggle 共享 tds_poscap 联动; 历史日期为复盘视角, 排序/口径与回测一致)
         let posCapCls = "";
         let posCapBadge = "";
@@ -5036,19 +2788,28 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // 2026-08-14 任务A fix(reviewer 建议 #30): 卖类/持有中性信号行跳过「当日已满」badge——卖类(sell/sell_stop_loss/
         //   波段减仓 band_sell/波段持有 band_hold)不涉及"当日已满不能买"语义, 且不入AI建议(不进 kept), 原渲染落 else
         //   分支误显示「当日已满」, 修复为整块跳过分支(§23.3 举一反三: 全站 poscap/「当日已满」渲染点只有本 cellHtml 一处)。
-        // _isSellRow/_isSellSig 已提升到外层作用域(2026-08-26, 供 _isDayFull/_availOnlyOn 过滤复用)
+        function _isSellRow(it) {  // 2026-08-15 P0 mangle 根治: const-arrow→function 声明(见 _isAiFadeHit 注释)
+          return it.signal === "sell" || it.signal === "sell_stop_loss" || it.signal === "band_hold"
+            || (it.reason || "").includes("波段减仓") || (it.reason || "").includes("波段止损");
+        }
+        // 2026-08-14 AI过滤视图: 卖出类专指(不含 band_hold 中性持有)——sell/sell_stop_loss/波段减仓 band_sell/波段止损。
+        // 与 _isSellRow(含 band_hold, 用于跳过「当日已满」)区分: band_hold=持有中性不标, 既不属「AI警示」卖出类也不置灰(现状保持)。
+        function _isSellSig(it) {  // 2026-08-15 P0 mangle 根治: const-arrow→function 声明(见 _isAiFadeHit 注释)
+          return it.signal === "sell" || it.signal === "sell_stop_loss"
+            || (it.reason || "").includes("波段减仓") || (it.reason || "").includes("波段止损");
+        }
         // 2026-08-14 P1-2 fix(首页8/14信号根因附带缺陷): 「当日已满」分支也须判 _bt_in_universe——
         // 未入样宇宙(uni=False)的买入类信号(如 8/10 csi_931892/gz_399440、8/12 thsc_306380)不该被误标"当日已满"。
         // 未入样信号压根不参与AI建议top-K, 应保持零标注(与 kept 空/空态一致), 而非落 else 显示"当日已满"。
         // (§23.3 举一反三: 全站 poscap/「当日已满」渲染点只有本 cellHtml 一处, 同步修正口径)。
         if (_posCapRank && !_isAiFadeHit(it) && !_isSellRow(it) && it._bt_in_universe !== false) {
-          const _capRank = _posCapRank.get(it.index_id + '|' + it.date + '|' + it.signal) || 0;
+          const _capRank = _posCapRank.get(it) || 0;
           if (_capRank) {
             posCapCls = " sig-poscap-kept";
-            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(仓位控制过滤)已开启(K=${_posCapK}): 口径与凯利回测一致「先滤AI降亏、再选top-K」——命中降亏的信号不占AI建议位、顺延补位; 只在回测入样宇宙内挑选(按官方入样规则, 只收买入类信号: ${_t("type_buy")}/${_t("buy_aux")}/${_t("buy_special")}/${_t("buy_backup")}; 需标的有ETF跟踪且有跟踪分; 排除类别=债类/情绪类/全球商品利率/港股行业/无ETF的空类别; 例外=10年国债ETF走自我兜底), 未入样标的与卖类信号(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不进入AI建议买入; 在当前档位筛出的存活信号内, 按跟踪分→评级→信号类型→买入日排序, 取前${_posCapK}名进入AI建议买入(与列表同人口, 编号不跳号); 序号=当日跟踪分降序第${_capRank}名(与回测K档口径一致, 不随K档跳变; 列表位置可能与编号不同序, 以编号为准); 存活者若命中AI降亏仍显示删除线建议回避（按指数级 top-K 展示，与回测每ETF粒度有差异；近30交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议${_capRank}</sup>`;
+            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(仓位控制过滤)已开启(K=${_posCapK}): 口径与凯利回测一致「先滤AI降亏、再选top-K」——命中降亏的信号不占AI建议位、顺延补位; 只在回测入样宇宙内挑选(按官方入样规则, 只收买入类信号: ${_t("type_buy")}/${_t("buy_aux")}/${_t("buy_special")}/${_t("buy_backup")}; 需标的有ETF跟踪且有跟踪分; 排除类别=债类/情绪类/全球商品利率/港股行业/无ETF的空类别; 例外=10年国债ETF走自我兜底), 未入样标的与卖类信号(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不进入AI建议买入; 在当前档位筛出的存活信号内, 按跟踪分→评级→信号类型→买入日排序, 取前${_posCapK}名进入AI建议买入(与列表同人口, 编号不跳号); 序号=当日跟踪分降序第${_capRank}名(与回测K档口径一致, 不随K档跳变; 列表位置可能与编号不同序, 以编号为准); 存活者若命中AI降亏仍显示删除线建议回避（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议${_capRank}</sup>`;
           } else {
             posCapCls = " sig-poscap-excluded";
-            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="AI仓位建议(仓位控制过滤)已开启(K=${_posCapK}): 当日从当前档位筛出的存活买入类信号, 只建议最优${_posCapK}个, 本信号未进前${_posCapK}, 当日已满; 命中AI降亏的信号已被过滤不占位; 卖类/持有中性信号(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不涉及当日已满语义, 不显示本badge（按指数级 top-K 展示，与回测每ETF粒度有差异；近30交易日每个日期都按同一口径展示，历史日期为复盘视角）">当日已满</sup>`;
+            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="AI仓位建议(仓位控制过滤)已开启(K=${_posCapK}): 当日从当前档位筛出的存活买入类信号, 只建议最优${_posCapK}个, 本信号未进前${_posCapK}, 当日已满; 命中AI降亏的信号已被过滤不占位; 卖类/持有中性信号(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不涉及当日已满语义, 不显示本badge（按指数级 top-K 展示，与回测每ETF粒度有差异；近15交易日每个日期都按同一口径展示，历史日期为复盘视角）">当日已满</sup>`;
           }
         }
         // 2026-08-14 AI过滤视图两态(用户澄清口径, 两个开关正交不绑定, §23.3 举一反三: 全站 poscap/「当日已满」渲染点只有本 cellHtml 一处):
@@ -5068,27 +2829,19 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           posCapCls = " sig-poscap-notuni";
           posCapBadge = `<sup class="sig-poscap-badge sig-poscap-notunibadge" data-tip="未入样本(由「AI降亏过滤」开关控制): 本信号不在凯利回测【入样宇宙】内(按官方入样规则, 只收买入类信号: ${_t("type_buy")}/${_t("buy_aux")}/${_t("buy_special")}/${_t("buy_backup")}; 排除类别=债类/情绪类/全球商品利率/港股行业/无ETF的空类别), 回测未纳入因此不参与 AI 建议买入选择, 在 AI 过滤视图下删除线+灰显弱化。仅展示参考, 若买入属自行决策(首页 1:1 遵从回测入样判定, 不自行重算)。">未入样本</sup>`;
         }
-        // (兜底灰显已移除: K关=无置灰=所有信号都可用,不需要兜底; 降亏关同理)
         // 2026-08-13 C1 fix(reviewer): 恢复每 cell 渲染前的三变量初始化声明(重构时误删 → 隐式全局污染, 命中 cell 赋值后污染后方未命中 cell)。
         // 基线 922578ff1 L2057-2059 同款; 每 cell 渲染前重置, 保证未命中 cell 拼空串而非继承上一命中值或字面 undefined
         let aiHitCls = "";
         let aiHitBadge = "";
         let aiHitAttr = "";
-        // 2026-08-13 重构: 首页 AI降亏过滤开关(独立键 tds_home_fade)开启时, 命中降亏(所选模式键集成员级, v1.1.5 起=NEW14 十四键) → 灰显+删除线+标注(hover 显命中条件)。
+        // 2026-08-13 重构: 首页 AI降亏过滤开关(独立键 tds_home_fade)开启时, 命中降亏(固定8键 v1.1.0) → 灰显+删除线+标注(hover 显命中条件)。
         // 开关关闭时 _isAiFadeHit 恒 false, 整块自然跳过(不灰显不删除线不标注, hoverpop 原因行也不渲染);
         // 命中判定用共享谓词 _isAiFadeHit 与 top-K 补位同源
         if (_isAiFadeHit(it)) {
-          // (2026-08-22) 原因名来源两路: 后端 ai_macro.filters(经所选模式键集过滤, v1.1.5 起=new14 十四键) + 新降亏键前端判定(bullAuxBackupStop); 防旧数据无 filters 数组报错加守卫
-          // S06 修复(2026-08-27): S06 模式下 _aiOnMembers 为空(仅非S06分支填充), 必须用 _tdsS06FiltersForDate(it.date) 按日期取基座键集过滤, 否则 _hitOn 永远为空→灰标不生效
-          const _hitOn = (it.ai_macro && Array.isArray(it.ai_macro.filters)) ? it.ai_macro.filters.filter((fk) => {
-            if (_homeIsS06) { const f = typeof window._tdsS06FiltersForDate === "function" ? window._tdsS06FiltersForDate(it.date) : null; return f ? !!f[fk] : false; }
-            return !!_aiOnMembers[fk];
-          }) : [];
-          const _bullHit = _bullStopActive && _isBullStopHit(it);
-          if (_hitOn.length || _bullHit) {
+          const _hitOn = it.ai_macro.filters.filter((fk) => _aiOnMembers[fk]);
+          if (_hitOn.length) {
             aiHitCls = " sig-ai-hit";
-            const _hitNames = _hitOn.map((fk) => _AI_MACRO_FILTER_NAMES[fk] || _AI_MACRO_BACKUP_NAMES[fk] || fk)
-              .concat(_bullHit ? ["牛市·主升×辅买/备买全停"] : []).join(" / ");
+            const _hitNames = _hitOn.map((fk) => _AI_MACRO_FILTER_NAMES[fk] || _AI_MACRO_BACKUP_NAMES[fk] || fk).join(" / ");
             aiHitBadge = `<sup class="sig-ai-hit-badge" data-tip="删除线原因: 本信号命中AI降亏过滤条件【${_hitNames}】→ 被过滤建议回避, 所以显示删除线, 且不占AI建议位(顺延补位给未命中信号)(由首页「AI降亏过滤」开关判定, 独立作用域与凯利区互不影响; 关闭首页「AI降亏过滤」开关即可恢复正常样式)">AI降亏</sup>`;
             aiHitAttr = ` data-ai-hit="1" data-ai-hit-names="${_escAttr(_hitNames)}"`;
           }
@@ -5111,9 +2864,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // 2026-08-06 ☑️/✖️ 的 data-tip 移除：指数至今收益统一到 cell hoverpop 两行对比块（指数行+ETF行），
         // hover badge 时冒泡到 cell data-tip 显完整 hoverpop，避免指数收益分散在 badge 单独 popup。
         let correctBadge = "";
-        const _scv = _scOf(it);  // 2026-08-24 到期冻结窗: 跟随判定窗档位(10/15)
-        if (_scv === true || _scv === false) {
-          const _mark = _scv ? "☑️" : "✖️";
+        if (it.since_correct === true || it.since_correct === false) {
+          const _mark = it.since_correct ? "☑️" : "✖️";
           correctBadge = `<sup class="sig-correct">${_mark}</sup>`;
         }
         // DOM 顺序(2026-07-28 调整): [信号标签b][⚠][评级高/中/低][☑️/✖️][指数名]
@@ -5135,19 +2887,10 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         _titleParts.push("点击查看走势图");
         const _hoverTitle = _titleParts.join(" · ");
         // 2026-08-06 至今收益（指数 since_return + ETF etf_since_return）从 title 文本流移到 hoverpop 专属两行对比块：
-        // cell 加 data-idx-ret/data-idx-correct 传指数收益/对错，hoverpop show() 渲染指数走势行，
+        // cell 加 data-idx-ret/data-idx-correct 传指数 since_return/since_correct，hoverpop show() 渲染"指数至今"行，
         // 紧接 etfHtml"ETF 至今"行，两行对比方便查看指数信号 vs 相关 ETF 至今走势（原 title 里 ETF-preferred return 与 etfHtml 重复）。
-        // 2026-08-24 到期冻结窗：ret/correct 改为跟随判定窗档位（_swrOf/_scOf），并带 data-idx-n
-        // (实际生效窗长 _effWinN: 波段减仓固定5/其余=判定窗10·15)+ data-idx-settled(是否满窗定案)，
-        // hoverpop 据此拼「指数N日窗」标签与「暂计·未定案」提示；
-        // band_hold 中性无窗口字段(since_win_return=null)回退 since_return 保持纯盈亏展示。
-        var _hasWinRet = _swrOf(it) != null;
-        var _idxRetVal = _hasWinRet ? _swrOf(it) : it.since_return;
-        var _idxRetAttr = (_idxRetVal != null && isFinite(_idxRetVal)) ? ` data-idx-ret="${_idxRetVal}"` : "";
-        var _scv2 = _scOf(it);
-        var _idxCorrectAttr = (_scv2 === true || _scv2 === false) ? ` data-idx-correct="${_scv2}"` : "";
-        var _idxWinNAttr = _hasWinRet ? ` data-idx-n="${_effWinN(it)}"` : "";
-        var _idxSettledAttr = _hasWinRet ? ` data-idx-settled="${_settledOf(it) === true ? "1" : "0"}"` : "";
+        var _idxRetAttr = (it.since_return != null && isFinite(it.since_return)) ? ` data-idx-ret="${it.since_return}"` : "";
+        var _idxCorrectAttr = (it.since_correct === true || it.since_correct === false) ? ` data-idx-correct="${it.since_correct}"` : "";
         // 2026-08-06 hoverpop 指数至今行加指数名+代码前缀（复用 L1603-1604 _idxName/_sigIdxCode）；
         // name 含中文/空格/括号（如"德国DAX"/"汽车芯片"）用 _escAttr 转义防属性截断，code 同理。
         var _idxNameAttr = _idxName ? ` data-idx-name="${_escAttr(_idxName)}"` : "";
@@ -5175,17 +2918,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           _cellName = _idxName;
           _cellCode = _sigIdxCode;
         }
-        // AI 信号认可度(X/Y 双段, 2026-08-26 计数口径 2026-08-27): 只查预计算 _consensusMap 写属性零重算; 非买入类=na。
-        // 编码 "y|x|w"(x∈0~8计数/"na", w="w"=当日主推/""=非主推)/ "na"; hoverpop show() 据此拼末行(消费场景=首页信号卡+技术参考点, 同链自动获得 §22)。
-        var _consItem = _consensusMap.get(it);
-        var _consAttr = "";
-        if (_consItem) {
-          _consAttr = ` data-consensus="${_consItem.y}|${_consItem.x}|${_consItem.w ? "w" : ""}"`;
-          if (_consItem.y === 0) _consAttr += ` data-consensus-dim="1"`;
-        } else {
-          _consAttr = ` data-consensus="na"`;
-        }
-        return `<span class="${cls}${scoreCls}${posCapCls}${aiHitCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxWinNAttr}${_idxSettledAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr}${aiHitAttr}${_consAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${_cellLight}${posCapBadge}${aiHitBadge}${warnBadge}${lateBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_cellName}${_cellCode ? ` <span class="idx-code-tag">${_cellCode}</span>` : ""}</span></span>`;
+        return `<span class="${cls}${scoreCls}${posCapCls}${aiHitCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr}${aiHitAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${_cellLight}${posCapBadge}${aiHitBadge}${warnBadge}${lateBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_cellName}${_cellCode ? ` <span class="idx-code-tag">${_cellCode}</span>` : ""}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
@@ -5228,18 +2961,17 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   let _windowBtnsHtml = "";  // E 方案 UI: 窗口按钮组(仅 signal), 移到标题行❓后, 不再独立成行
   if (kind === "signal") {
     // E 方案 + ETF 人口筛选: 汇总条基于统计人口(_statItems, 排除降亏命中)算准确率, 窗口/ETF 筛选影响总数+总准确率
-    // 第二参=对错判定窗档位(2026-08-24 到期冻结窗, 默认10可切15), 切档经 _rerenderSigCardContent 重绘自动跟随
-    const _acc = _calcSignalAccuracy(_statItems, _sigWinN());
+    const _acc = _calcSignalAccuracy(_statItems);
     const _fmt = (pct) => (pct == null ? "-" : pct.toFixed(0) + "%");
     const _gActive = (g) => (state.sigGradeFilter === g ? " sig-acc-filter-active" : "");
     const _cActive = (k) => (state.sigCorrectFilter === k ? " sig-acc-filter-active" : "");
     const _tActive = (t) => (state.sigTypeFilter === t ? " sig-acc-filter-active" : "");
     const _seg = (label, bin, dotCls, grade) =>
       `<button class="sig-acc-seg sig-acc-filter${_gActive(grade)}" data-grade-filter="${grade}" data-tip="${_escAttr("点击只看评级" + label + "的参考点")}"><span class="sig-acc-dot ${dotCls}">●</span>${label} ${_fmt(bin.pct)} (${bin.t}/${bin.f})</button>`;
-    const _unsettledTip = _t.tsText('未结算=信号已发出但尚未验证对错。含：①今日新信号(无至今走势数据);②等待收盘价回填。收盘后update_all重算后转为"对"或"错"。注意「未定案」≠未结算：未定案=已有暂计对错值但尚未满N交易日判定窗(满窗即以第N个交易日收盘定案,此后不变)。点击只看未结算项(波段持有非操作项,不计入未结算)');
-    // "总准确率 X%" hover pop:标注完整统计口径(2026-07-20 补; 2026-08-24 改 N 交易日到期冻结窗)
-    // 口径:近30交易日 signals_today 的到期冻结窗方向命中(v1.1.5 2026-08-24 窗口由15扩30+口径由至今改冻结窗)
-    const _wfLabel = { "0_15": "近30交易日全部(默认)", "10_15": "第10-30交易日", "7_15": "第7-30交易日", "3_15": "第3-30交易日", "y_15": "排除今日(昨日~30日)" }[state.sigWindowFilter] || "近30交易日";
+    const _unsettledTip = _t.tsText('未结算=信号已发出但尚未验证对错。含：①今日新信号(无至今走势数据);②等待收盘价回填。收盘后update_all重算since_correct后转为"对"或"错"。点击只看未结算项(波段持有非操作项,不计入未结算)');
+    // "总准确率 X%" hover pop:标注完整统计口径(2026-07-20 补)
+    // 口径:近15交易日 signals_today 的 since_correct 至今盈亏方向命中率
+    const _wfLabel = { "0_15": "近15交易日全部(默认)", "10_15": "第10-15交易日", "7_15": "第7-15交易日", "3_15": "第3-15交易日", "y_15": "排除今日(昨日~15日)" }[state.sigWindowFilter] || "近15交易日";
     // 2026-08-07 归一档适配：sigEtfFilterSet 空显""(全部)，非空显选中档名（如"（强关联ETF+相关ETF）"）
     const _etfTierName = { "1": "强关联ETF", "2": "相关ETF", "3": "有近似ETF", "4": "有跟踪ETF", "5": "概念无ETF" };
     const _etfScopeLabel = (state.sigEtfFilterSet && state.sigEtfFilterSet.length)
@@ -5250,21 +2982,14 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       `总准确率统计口径\n` +
       `范围：${_wfLabel}技术分析参考点${_etfScopeLabel}\n` +
       `公式：命中率 = 对数 / (对+错) × 100%（排除未结算+波段持有）\n` +
-      `对错判定=N交易日窗到期冻结：信号发出后满 N 个交易日，用第 N 个交易日收盘价定案（此后不再变）；未满窗的按至今走势暂计并标「未定案」。默认 10 日（与 A 方法 10 日固定卖出周期一致，可切 15 日对照 F 方法），波段减仓固定 5 日，波段持有=中性不计。为什么要有时间窗：A股长期向上，无窗口的「至今口径」把买类抬到 75~80%、卖类压到 25~30%（选啥都对=失去区分度），固定短期窗才反映信号真实的短期兑现质量。\n` +
-      `基准：已满窗=信号日收盘价 -> 第 N 个交易日收盘价；未满窗=信号日收盘价 -> 今日收盘价（暂计值，随走势变，满窗定案）\n` +
-      `当前：${_acc.total.t}对 / ${_acc.total.f}错 / ${_acc.total.n}未结算，命中率 ${_fmt(_acc.total.pct)}（当前判定窗=${_sigWinN()}日）\n` +
+      `对错判定：看多信号(主买/辅买/追买/备买)至今涨=对；看空信号(卖/止损)至今跌=对；波段持有=中性不计\n` +
+      `基准：信号日收盘价 -> 今日收盘价 涨跌方向\n` +
+      `当前：${_acc.total.t}对 / ${_acc.total.f}错 / ${_acc.total.n}未结算，命中率 ${_fmt(_acc.total.pct)}\n` +
       `数据基准日：${_todayFmt}\n` +
-      `🎯 1:1 直白举例（机制演示，核实源=docs/kelly/analysis/scripts/verify_window_freeze_impl_20260825.py 对线上 overview 快照实算）：①定案示例——2026-08-14 发出的波段减仓信号（10年国债ETF），其后第 5 个交易日=08-21 收盘 135.848 vs 信号日 135.752，涨 +0.01%，看空未跌→判「错」并永久定格（波段减仓固定 5 日窗）；②暂计示例——08-20 的新信号还不满 10 日窗，先按至今走势暂计并标「未定案」，之后每天可能变，满第 10 个交易日那天用当天收盘定案；③「未结算」仍不计入分母（今日新信号无任何走势），误算会拉低命中率——这就是为什么未结算单独列。\n` +
+      `🎯 1:1 直白举例（拿当前默认人口真实数，核实源=overview.json signals_today+本函数 _calcSignalAccuracy）：近15交易日+ETF档1-4共 119 个参考点，排除波段持有后 108 个计入：已定对错的 103 个里 50 个至今方向对、53 个错，命中率 50/103≈48.5%；另有 5 个未结算（都是 8/14 数据最末交易日那批新信号，尚无至今走势）。若把「未结算」误当对错算进分母，命中率会被拉低（48.5% vs 错误算法 50/108≈46.3%）——这就是为什么未结算不计入分母。切到「10日~15日」只看第10-15天那几档，分子分母都变，命中率跟着变。\n` +
       `分评级：高 ${_fmt(_acc.grade.high.pct)}(${_acc.grade.high.t}/${_acc.grade.high.f}) · 中 ${_fmt(_acc.grade.mid.pct)}(${_acc.grade.mid.t}/${_acc.grade.mid.f}) · 低 ${_fmt(_acc.grade.low.pct)}(${_acc.grade.low.t}/${_acc.grade.low.f})\n` +
-      `注：未结算=今日新信号+待收盘回填；未定案=已有暂计值但未满 N 日窗。评级 score=历史10d窗口胜率/盈亏比/样本加权（非本汇总条口径）`
+      `注：未结算=今日新信号+待收盘回填，收盘后 update_all 重算 since_correct 转为对/错；评级 score=历史10d窗口胜率/盈亏比/样本加权（非本汇总条口径）`
     );
-    // 对错判定窗切换(2026-08-24 用户拍板「N交易日到期冻结窗」): 默认10日(A方法10日固定卖出周期),
-    // 可切15日(F方法15日历史对照档); localStorage tds_sig_judge_win 记忆; total/byType/评级/警示块
-    // 全部跟随(_calcSignalAccuracy 第二参 + _scOf helpers), 切换后走 data-judge-win 委托重绘。
-    // 波段减仓固定5日不受切换影响; 波段持有中性不计。
-    const _judgeWinTip = "对错判定=N交易日窗到期冻结：信号发出后满 N 个交易日，用第 N 个交易日收盘价定案（此后不变）；未满窗的按至今走势暂计并标注「未定案」。\n默认 10 日=与 A 方法 10 日固定卖出周期一致；15 日=F 方法 15 日固定卖出的历史对照档；波段减仓固定 5 日（短期逃顶提示）不受切换影响；波段持有为中性不计对错。\n为什么要有时间窗：A股长期向上，不设窗口则「至今口径」把买入正确率抬到 75~80%、把卖出压到 25~30%（选啥都对=失去区分度）；固定短期窗后才反映信号真实的短期兑现质量。";
-    const _jwActive = (n) => (_sigWinN() === n ? " sig-acc-filter-active" : "");
-    const _judgeWinHtml = `<span class="sig-acc-window">判定窗: <button class="sig-acc-seg sig-acc-filter${_jwActive(10)}" data-judge-win="10" data-tip="${_escAttr(_judgeWinTip)}">10日</button>·<button class="sig-acc-seg sig-acc-filter${_jwActive(15)}" data-judge-win="15" data-tip="${_escAttr(_judgeWinTip)}">15日</button> | </span>`;
     const _reset = (state.sigGradeFilter || state.sigCorrectFilter || state.sigTypeFilter)
       ? ` <button class="sig-acc-reset" data-grade-filter-reset="1">恢复全部</button>`
       : "";
@@ -5296,81 +3021,6 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         return acc + sep + chip;
       }, "");
     const _byTypeRow = _typeChips ? `<div class="sig-acc-by-type">${_typeChips}</div>` : "";
-    // ── 警示信号正确率独立模块(2026-08-24 方案B, 用户拍板「现版本纯买入口径挺好, 警示类单独出」) ──
-    // 上方总准确率/byType 人口与代码保持不动(AI仓位建议开启时其人口=kept 裁剪后纯买入 top-K; 关闭时
-    //   kept 裁剪不执行、byType 行本就含卖类 chip——故本行卖点=开启时看空警示唯一入口+三类单独汇总);
-    //   本模块单独
-    //   统计三类警示信号: sell(纯卖)/sell_stop_loss(止损卖)/band_sell(波段减仓, reason 含'波段减仓'识别,
-    //   与 _calcSignalAccuracy 同源判定)。band_hold(波段持有)2026-08-24 用户定不再展示("没必要展示浪费展位",
-    //   中性 since_correct 恒 null 不计对错), 已从 _WARN_KEYS 移除——上方 byType 行的中性 chip 不受影响仍保留。
-    // 数据源=items(signals_today 全量近30交易日)的到期冻结窗对错(_scOf 跟随判定窗 10/15; 波段减仓固定5日):
-    //   满窗以第N个交易日收盘定案, 未满窗暂计至今(与监控卡 bucket_actual 2026-08-17 方案B 卖类人口同源)。
-    //   人口固定不随窗口/K档/AI仓位/降亏/ETF档筛选联动(tooltip 已公示), 恒显示与 AI 仓位开关无关。
-    //   样式全复用 .sig-acc-by-type/.sig-acc-seg/.sig-acc-dot, 零新 CSS。
-    let _warnAccRow = "";
-    {
-      // ⚠️ 只统计三类警示信号(_WARN_KEYS): 买类不进本模块(其正确率归上方总准确率 AI建议 top-K 口径,
-      //   两口径并存会让用户看到两个买类数字打架, 恰是用户否掉方案A的原因), filter 双保险防 META 全类放行;
-      //   band_hold 2026-08-24 用户定移出(中性不计对错, 展示浪费展位)——不在 keys 即不统计也不渲染。
-      const _warnKeys = ["band_sell", "sell", "sell_stop_loss"];
-      const _wbins = Object.fromEntries(_warnKeys.map((s) => [s, { t: 0, f: 0, n: 0 }]));
-      for (const it of items) {
-        const _wk = (it.reason || "").includes("波段减仓") ? "band_sell" : it.signal;
-        const _wb = _wbins[_wk];
-        if (!_wb) continue;
-        const _wv = _scOf(it);  // 2026-08-24 到期冻结窗: 跟随判定窗档位(10/15; 波段减仓两档同值)
-        if (_wv === true) _wb.t++;
-        else if (_wv === false) _wb.f++;
-        else _wb.n++;
-      }
-      const _wSettled = (_wb2) => _wb2.t + _wb2.f;
-      // §23.9 三档互证 tooltip: 白话(是什么)+场景(什么时候看)+1:1 真实数字举例。行级 label 一份总览 +
-      //   三 chip 各配独立 data-tip hoverpop(2026-08-24 用户定, 复用全局 [data-tip] 委托零新机制零新 CSS)。
-      // 1:1 数字核实源=docs/kelly/analysis/scripts/verify_window_freeze_impl_20260825.py 对线上 overview
-      //   快照(数据基准日 20260824)按新算法实算: 10日窗 止损卖33对32错≈51%/纯卖8对6错≈57%/
-      //   波段减仓1对18错≈5%; 切15日窗 止损卖29对36错≈45%(纯卖/波段减仓两档不变)。
-      //   数字为快照, 随每日收盘更新, 实时值以行内 chip 为准(tooltip 已标注快照性质)。
-      const _warnTip =
-        "警示信号正确率（独立统计，2026-08-24 新增；同日起对错判定改为 N 交易日到期冻结窗）\n" +
-        "白话：本行=三类警示信号（波段减仓/卖/止损卖）单独汇总的正确率，固定=近30交易日全量口径，不随窗口/K档/AI仓位开关联动。它们不是买入候选，是风险提示。对错判定统一为 N 交易日窗到期冻结：满窗以信号日后第 N 个交易日收盘价定案（此后不再变），未满窗按至今走势暂计并标「未定案」；跌了=对（看空方向命中），涨=错。窗长：止损卖/纯卖默认 10 日（可切 15 日对照），波段减仓固定 5 日；未结算（今日新信号等尚无走势的）不对错计数。为什么要有时间窗：A股长期向上，「至今口径」把卖类压到 25~30%（卖啥都判错=失去区分度），固定短期窗才反映看空提示真实的短期兑现质量。\n" +
-        "场景：开着 AI 仓位建议、想单独检查卖/止损/减仓提示到底准不准时看这行；评估风险提示可信度也在这里。\n" +
-        "口径：固定=近30交易日全部警示信号，不随上方窗口/K档/AI仓位/降亏/ETF档筛选联动；判定窗随上方「判定窗 10日/15日」切换（波段减仓除外）；数据随每日收盘更新。\n" +
-        "🎯 1:1 直白举例（20260824 数据快照·默认10日窗）：止损卖近30日共发出65次→33次判对、32次错≈51%；切到15日窗对照档变为29对36错≈45%（同一批信号，更长窗里近期反弹把更多止损「平反」成错——两档差异正是固定窗呈现的真实信息）；纯卖(不含波段减仓)14次→8对6错≈57%；波段减仓19次→仅1对18错≈5%（固定5日窗）。各类详细说明与举例见各 chip 自带的悬浮说明。实际数值以本行实时统计为准。";
-      // 三 chip 独立 hoverpop 文案(§23.9 三档互证: 白话+场景+1:1 举例; 2026-08-24 用户定)。
-      // 对错公式=N交易日到期冻结窗(止损卖/纯卖默认10可切15; 波段减仓固定5), 未满窗暂计, 未结算不对错计数,
-      // 1:1 举例数字各用本类真实数据(核实源=verify_window_freeze_impl_20260825.py, 20260824 快照)。
-      const _warnChipTips = {
-        band_sell: "波段减仓\n" +
-          "白话：波段管理中的「先卖一部分」提示——识别方式=调仓理由含「波段减仓」（信号类型本质=sell）。对错公式：固定 5 交易日到期冻结窗——满窗以信号日后第 5 个交易日收盘价定案（此后不再变），未满窗按至今走势暂计并标「未定案」；跌了=对（看空口径）；未结算（今日新信号）不对错计数。窗长取 5 是数据选型：逃顶提示的价值在头几天（近八年逐年对比 5 日档最优），且不随上方「判定窗 10/15 日」切换变化。\n" +
-          "场景：持仓中被提示「先减一点落袋」时，回看这类提示历史上有没有压对短期回撤，决定下次信多少——它更像锁盈提醒而非见顶判断。\n" +
-          "🎯 1:1 直白举例（20260824 数据快照·5日窗）：近30交易日共发出19次波段减仓→仅1次在第5个交易日前跌了(对)、18次涨(错)，正确率1/19≈5%。多数减仓提示后指数仍续涨，所以别把它当逃顶信号用。实际数值以本 chip 实时统计为准。",
-        sell: "卖\n" +
-          "白话：纯卖出提示（波段减仓已单独归类，不混入本类）。对错公式：默认 10 交易日到期冻结窗（可切 15 日对照）——满窗以信号日后第 N 个交易日收盘价定案，未满窗按至今走势暂计并标「未定案」；跌了=对（看空口径）；未结算（今日新信号）不对错计数。\n" +
-          "场景：收到清仓/离场提示时，先瞄一眼这类提示的历史看空命中率，再决定执行力度。\n" +
-          "🎯 1:1 直白举例（20260824 数据快照·默认10日窗）：近30交易日共发出14次纯卖→8次判对、6次错≈57%，三类警示里最高（15日窗同读数8对6错）。实际数值以本 chip 实时统计为准。",
-        sell_stop_loss: "止损卖\n" +
-          "白话：跌破止损位的强制离场提示（风控动作）。对错公式：默认 10 交易日到期冻结窗（可切 15 日对照）——满窗以信号日后第 N 个交易日收盘价定案，未满窗按至今走势暂计并标「未定案」；跌了=对（看空口径）；未结算（今日新信号）不对错计数。\n" +
-          "场景：止损被触发后想复盘「这次止损卖得值不值」时看它——正确率接近五成说明止损本质是截断大亏的风控动作，不是方向预测。\n" +
-          "🎯 1:1 直白举例（20260824 数据快照）：近30交易日共触发65次止损卖(三类中最多)：默认10日窗33对32错≈51%；切15日窗对照档29对36错≈45%——更长窗里近期反弹把更多止损「平反」，两档差异正是到期冻结窗呈现的真实波动。价值在控单笔最大亏损而非猜方向。实际数值以本 chip 实时统计为准。",
-      };
-      const _wChips = _SIG_TYPE_META
-        .filter((m) => {
-          if (!_warnKeys.includes(m.key)) return false;
-          const b = _wbins[m.key];
-          return b && (b.t + b.f + b.n) > 0;
-        })
-        .map((m) => {
-          const b = _wbins[m.key];
-          const dot = `<span class="sig-acc-dot" style="color:${m.color}">●</span>`;
-          const body = `${_t(m.labelKey)} ${_fmt(_wSettled(b) > 0 ? (b.t / _wSettled(b)) * 100 : null)} (${b.t}对/${b.f}错·${_wSettled(b)}条${b.n > 0 ? `+未结算${b.n}` : ""})`;
-          const _tip = _warnChipTips[m.key] || "";
-          return `<span class="sig-acc-seg"${_tip ? ` data-tip="${_escAttr(_tip)}"` : ""}>${dot}${body}</span>`;
-        })
-        .join(' · ');
-      if (_wChips) {
-        _warnAccRow = `<div class="sig-acc-by-type"><span class="sig-acc-total-label" data-tip="${_escAttr(_warnTip)}">⚠️ 警示信号正确率❓</span>${_wChips}</div>`;
-      }
-    }
     // E 方案(2026-07-31): 时间窗口筛选按钮组 - 4 窗口按钮 + 恢复全部(窗口激活时显示)
     // 再点同窗口按钮 = 恢复 "0_15"(toggle), 与 grade/correct/type 筛选互不影响(正交)
     // UI(2026-07-31): 按钮组改为 span(inline-flex), 移到标题行❓后(h3.sig-title-row flex 布局),
@@ -5381,7 +3031,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _wfReset = (state.sigWindowFilter && state.sigWindowFilter !== "0_15")
       ? ` <button class="sig-acc-reset" data-window-filter-reset="1">恢复全部</button>`
       : "";
-    _windowBtnsHtml = `<span class="sig-acc-window sig-title-window">切换: ${_wfBtn("10日~30日", "10_15", "只看第10-30交易日(排除近9日)")} · ${_wfBtn("7日~30日", "7_15", "只看第7-30交易日(排除近6日)")} · ${_wfBtn("3日~30日", "3_15", "只看第3-30交易日(排除近2日)")} · ${_wfBtn("昨日~30日", "y_15", "排除今日,只看昨日及更早29日")}${_wfReset}</span>`;
+    _windowBtnsHtml = `<span class="sig-acc-window sig-title-window">切换: ${_wfBtn("10日~15日", "10_15", "只看第10-15交易日(排除近9日)")} · ${_wfBtn("7日~15日", "7_15", "只看第7-15交易日(排除近6日)")} · ${_wfBtn("3日~15日", "3_15", "只看第3-15交易日(排除近2日)")} · ${_wfBtn("昨日~15日", "y_15", "排除今日,只看昨日及更早14日")}${_wfReset}</span>`;
     // 2026-08-07 归一档：每标的归一个最佳档，各档计数独立不重叠
     // 档位：1强关联(self/strong) 2相关(related) 3近似(approx) 4有跟踪(none/null弱/极弱) 5概念(无ETF)
     // 选中态：档1-3 复用 etf-pop-grade-excellent/good/warn CSS class 着色 + sig-acc-filter-active 描边；
@@ -5394,7 +3044,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _etfBtn = (label, f, tip, gradeCls) =>
       `<button class="sig-acc-seg sig-acc-filter${gradeCls ? " " + gradeCls : ""}${_eActive(f)}" data-etf-filter="${f}" data-tip="${_escAttr(tip)}">${label}</button>`;
     const _tierCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-    for (const it of _tierCountItems) {
+    for (const it of _statItems) {
       const _t = _signalTiers(it);
       _tierCounts[_t] = (_tierCounts[_t] || 0) + 1;
     }
@@ -5402,19 +3052,10 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _etfFilterRow = `<div class="sig-acc-by-type sig-acc-etf-filter">ETF: ${_etfBtn("全部", "all", "显示全部参考点（含强关联/相关/近似/有跟踪/概念全部5档）")} · ${_etfBtn("强关联ETF " + _tierCounts[1], "1", "档1强关联：ETF本体自跟踪(self)或 track_tier=strong（绿灯，跟踪分≥75），跟踪误差最小", "etf-pop-grade-excellent")} · ${_etfBtn("相关ETF " + _tierCounts[2], "2", "档2相关：track_tier=related（草绿灯，跟踪分60-74），跟踪误差较小", "etf-pop-grade-good")} · ${_etfBtn("有近似ETF " + _tierCounts[3], "3", "档3近似：track_tier=approx（橙灯，跟踪分50-59），有跟踪ETF但误差较大", "etf-pop-grade-warn")} · ${_etfBtn("有跟踪ETF " + _tierCounts[4], "4", "档4跟踪：track_tier=none/null（暗橙/灰灯，跟踪分<50或数据不足），误差较大/来源间接，信号偏弱", "etf-pop-grade-warn")} · ${_etfBtn("概念无ETF " + _tierCounts[5], "5", "档5概念：该概念无对应ETF（如部分综合指数），显灰色无ETF标", "etf-pop-grade-warn")}${_etfReset}</div>`;
     // 问题3 fix(2026-07-31): _accHtml 用 .sig-acc-wrap 包裹(summary+byType), _rerenderSigCardContent
     //   整体替换 .sig-acc-wrap, 否则切窗口时 byType 各类型数量/准确率不更新(只 summary 更新)
-    _accHtml = `<div class="sig-acc-wrap">${_etfFilterRow}<div class="signal-accuracy-summary">${_judgeWinHtml}<span class="sig-acc-total-label" data-tip="${_escAttr(_totalTip)}">总准确率 ${_fmt(_acc.total.pct)}</span> (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}${_warnAccRow}</div>`;
+    _accHtml = `<div class="sig-acc-wrap">${_etfFilterRow}<div class="signal-accuracy-summary"><span class="sig-acc-total-label" data-tip="${_escAttr(_totalTip)}">总准确率 ${_fmt(_acc.total.pct)}</span> (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}</div>`;
   }
   // 筛选后无匹配: 汇总条仍显示(窗口内统计), 列表区给提示
-  // v1.1.5(2026-08-24) 枯竭引导空态: 开了「仅显示可用信号」且近30交易日全窗口无任何放行买入信号时,
-  // 显示引导性空态替代干巴巴的"暂无"。N/72% 文案复用 common.js 单源 _tdsDroughtChipHtml(不写第二份,
-  // 空态场景 n≥30 必过其阈值20), 由 _mountSigEmptyDrought 异步填充; 统计打点缺失时降级为不带 N 的简版。
-  // 客观口径判定(_homeHasPassBuy 基于全量 items): 用户 grade/correct/ETF 子筛选筛光不误报枯竭, 走下方原空态。
-  if (kind === "signal" && !rows && _availOnlyOn && windowedItems.length && !_homeHasPassBuy) {
-    rows = '<div class="sig-drought-empty" data-no-pop="">'
-      + '<div class="sig-drought-empty-title">⏳ 近30个交易日无可用信号<span id="home-sig-empty-drought-slot"></span></div>'
-      + '<div class="sig-drought-empty-sub">默认过滤(s06/动态组合)下连续无放行是防守反击刀的常态运作方式而非异常; 可切上方「AI降亏·模式」对照档查看更多信号, 或关闭「仅显示可用信号」恢复完整列表</div>'
-      + '</div>';
-  } else if (kind === "signal" && !rows) {
+  if (kind === "signal" && !rows) {
     if (!windowedItems.length) {
       rows = `<div class="empty-note" style="margin:8px 0">当前时间窗口内无参考点，点击上方窗口按钮切换查看</div>`;
     } else if (state.sigGradeFilter || state.sigCorrectFilter || state.sigTypeFilter || (state.sigEtfFilterSet && state.sigEtfFilterSet.length)) {
@@ -5429,20 +3070,6 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // 两段式信号固化三态提示条(2026-08-14): 由后端 signals_meta 驱动(禁止前端硬编码时间)。
   // 仅 signal 类显示; freeze 类无固化语义。文案为非交易指令性说明, 与 _sigIntradayHint 同风格(直接常量)。
   const _finalizeBarHtml = (kind === "signal") ? _signalFinalizeBannerHtml(signalsMeta) : "";
-  // S06(codex-task-20260825-001): 本轮渲染的 fail-open 行数导出到模块级(_mountHomeS06State 异步警示条读取);
-  // 渲染过程中 _isAiFadeHit 已对全量人口判完, 此处计数即最终值。非 s06 恒 active:false/open:0。
-  if (kind === "signal") {
-    try { window._tdsHomeS06Warn = { active: !!_homeIsS06, open: _homeS06FailOpen || 0 }; } catch (e) {}
-    // S06 状态 slot 异步填充(非 s06 态填空串清残留; 延迟重试防元素未入文档)
-    try { _mountHomeS06State(); } catch (e) {}
-    // S06 快照加载发起(smoke 2026-08-25 揪出漏点): 首页判定链用同步 _tdsS06BaseForDate 不触发加载,
-    // 若无人发起 ensure 则快照永远 not_loaded → 全量人口 fail-open(open=N 笔警示)+slot 四态全不命中=静默。
-    // 此处幂等发起(单例 promise, lab/sim 已加载则直接复用); 完成后经 tds-s06-state-ready 整卡重绘
-    // (fail-open 人口换真实过滤), 失败经 tds-s06-state-error 刷 slot 红字, 均已挂监听(§23.2 可见降级不静默)。
-    if (_homeIsS06 && typeof window._tdsS06StateEnsure === "function") {
-      try { Promise.resolve(window._tdsS06StateEnsure()).catch(() => {}); } catch (e) {}
-    }
-  }
   return `${_h3Html}${_finalizeBarHtml}${_sigSwitchHtmlStr}${_accHtml}<div class="signal-grid">${rows}</div>`;
 }
 
@@ -5523,7 +3150,7 @@ function _rerenderSigCardContent(r, snap) {
   const sigCard = document.querySelector(".sig-card");
   if (!sigCard) return;
   const isClosed = snap ? snap.is_closed : true;
-  const title = "近期技术分析参考点（近 30 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看8类信号与ETF跟踪指标详细解释）");
+  const title = "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看8类信号与ETF跟踪指标详细解释）");
   const newHtml = _renderSignalGrid(r.signals_today || [], r.date, title, "signal", "近期无技术分析参考点", isClosed, r.signals_meta);
   const tmp = document.createElement("div");
   tmp.innerHTML = newHtml;
@@ -5549,15 +3176,7 @@ function _rerenderSigCardContent(r, snap) {
     else if (oldFinalizeBar) oldFinalizeBar.remove();
     oldH3.replaceWith(newH3);
     oldAccWrap.replaceWith(newAccWrap);
-    // 2026-08-27 fix(bug: 切「仅显示可用信号」等开关列表滚动位置丢失跳回最新数据位): .signal-grid 是
-    //   内部滚动容器(style.css max-height300 overflow-y:auto), oldGrid.replaceWith(newGrid) 整树替换后
-    //   新节点 scrollTop 归零 → 视口跳回列表顶部(日期降序=今日组最前)。重绘前保存旧 scrollTop 重绘后恢复;
-    //   新内容更矮时浏览器自动 clamp 到 scrollHeight-clientHeight(贴底/归零, 不产生负值无死循环),
-    //   视口优先于"回到最新数据位置"。放本函数内一处修全家(K档/AI降亏开关/模式切换/窗口与ETF筛选等
-    //   所有经 _rerenderSigCardContent 的重绘入口一并保留滚动, §23.2③ 排查同类)。
-    const _savedGridScroll = oldGrid ? oldGrid.scrollTop : 0;
     oldGrid.replaceWith(newGrid);
-    if (_savedGridScroll > 0 && newGrid.scrollTop === 0) newGrid.scrollTop = _savedGridScroll;
   } else {
     // 兜底: 数据从有变空/空变有 - 保留 badge + hint, 替换其余
     const badge = sigCard.querySelector(".card-time-badge");
@@ -5572,8 +3191,6 @@ function _rerenderSigCardContent(r, snap) {
   _bindPoscapTitleSuppress(sigCard);
   // 2026-08-14 参考说明按钮独立 hoverpop 重绑(与 K 评级 pop 同模式, 旧 wrap 已销毁需重新 bind)
   _bindSigHelpPop(sigCard);
-  // v1.1.5(2026-08-24): 「仅显示可用信号」空态枯竭统计异步重挂(grid 重绘后旧 slot 已销毁; 无空态时 slot 不存在=no-op)
-  try { _mountSigEmptyDrought(); } catch (e) {}
 }
 
 // ts:overview-refreshed hook: collected_at 变化时增量重绘 sigCard(非概览 tab / 无数据 / 同 collected_at 跳过)
@@ -5914,24 +3531,6 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
   var popByClick = false;  // pop 由 click 触发(移动端)，此时 mouseout 不立即关
   var popEl = null;        // 当前触发元素，用于同元素再点 toggle 关
   var isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
-  // AI 信号认可度 tooltip 三档互证文案(§23.9 白话+场景+1:1 举例; 计数口径用户拍板 2026-08-27「当日主推=
-  // 当日票数最多的唯一一支」; 举例数字核验自 static-site/data/overview.json 30 日窗口重放,
-  // 见 docs/ops/homepage-ai-endorsement-semantic-audit-20260827.md)
-  var CONS_TIP = "【是什么】认可度=两段固化统计: Y=8 个 AI 降亏模式里有几个愿意留下这笔信号(0~8 分); "
-    + "X=当天这 8 个降亏模式里有多少个把它排在各自视角的第一名(0~8 计数)。当日主推=当天入样买入中票数最多的唯一一支"
-    + "(平票取跟踪分高者), 显示「N票·当日主推」; 其余有票的显示「N·非主推」, 没人排它则「0·非主推」。"
-    + "注意: X 反映的是模式认可广度, AI 实际下单仍按 K1 每日买入计划(分数最高优先)执行, 主推与实际下单可能不是同一支。"
-    + "8 票之间有家族重叠(p8⊂p9⊂a9 等), 非独立评审。\n"
-    + "【什么时候看】扫列表分辨今天 AI 真会买的标的时看它——Y 高只说明过滤层普遍认可; 带「票·当日主推」的是全场公认头牌; "
-    + "有票非主推=部分模式眼里它第一但综合投票没赢。与左侧「AI建议N/当日已满」标注可能不同: "
-    + "那边跟随你当前的开关和 K 档, 这里恒为固化统计、不受任何开关影响。\n"
-    + "【举个例子】①2026-08-26 当天唯一一笔入样买入恒生科技(跟踪分67.7): 8 个模式里 5 个把它排各自第一 → "
-    + "显示「5票·当日主推」(旧版曾把它错显成「0·非主推」, 是显示 bug 已修); "
-    + "②2026-08-24 当天入样买入 2 笔: 当天评分最高的证券公司(全指)(78.1)拿了全部 8 张第一名票 → 「8票·当日主推」, "
-    + "次之的电力公用事业(71.0)没人排它第一 → 「0·非主推」。即便多票, 每天真下单仍受当日买入计划约束——"
-    + "X 衡量的是认可广度而非下单笔数(例中分数随数据滚动会变, 以当天实际排序为准)——Y 再高也只当参考。\n"
-    + "【口径】今日信号以 21:00 定稿为准(此前当日组可能变); 判定基于后端信号级可判定子集"
-    + "(price_bin 五分位依赖子条件降级不参与, 宁漏勿误); S06 快照不可用时该票按保留计(fail-open)。";
   // 查找触发 pop 的元素：优先 [data-tip]，回退 [title]（排除 iframe a11y title + [data-no-pop]）。
   // [title] 首次命中时一次性迁移到 data-tip 并移除原生 title，防浏览器原生 tooltip 闪现。
   // forClick=true（click 路径）：只认已迁移的 [data-tip]，不 fallback [title]，
@@ -5998,7 +3597,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
       var _idxRetPart = "";
       var _idxUnsettled = el.getAttribute("data-idx-unsettled");
       if (_idxUnsettled === "1") {
-        _idxRetPart = ' 指数走势: 今日信号未结算（收盘后更新）';
+        _idxRetPart = ' 指数至今: 今日信号未结算（收盘后更新）';
       } else {
         var _idxRetRaw = el.getAttribute("data-idx-ret");
         if (_idxRetRaw != null && _idxRetRaw !== "") {
@@ -6007,21 +3606,8 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
             var _idxRetStr = (_idxRet >= 0 ? "+" : "") + _idxRet.toFixed(2) + "%";
             var _idxCorrectRaw = el.getAttribute("data-idx-correct");
             var _idxDirS = _idxCorrectRaw === "true" ? " · 符合预测" : (_idxCorrectRaw === "false" ? " · 不符预测" : "");
-            // 2026-08-24 到期冻结窗：带 data-idx-n 的按「指数N日窗」标注；未满窗(settled=0)为暂计值并标"未定案"
-            // (n=该信号实际生效窗长 _effWinN: 波段减仓固定5日、其余=判定窗档位; 2026-08-24 P3-2 修正
-            // 原白名单只认10/15致波段减仓的5会误落「指数至今」)。
-            // 无 data-idx-n(band_hold 中性/旧缓存数据)=无窗口语义, 保持"指数至今"纯盈亏展示。
-            var _idxWinN = parseInt(el.getAttribute("data-idx-n"), 10);
-            var _winLabel;
-            if (_idxWinN > 0) {
-              var _wSettled = el.getAttribute("data-idx-settled") === "1";
-              _winLabel = '指数' + _idxWinN + '日窗' + (_wSettled ? '' : '·暂计至今');
-              if (!_wSettled) _idxDirS += '（未定案）';
-            } else {
-              _winLabel = '指数至今';
-            }
             var _idxColor = _idxRet >= 0 ? "#e6492e" : "#2e8b57";
-            _idxRetPart = ' <span style="color:' + _idxColor + '">' + _winLabel + ' ' + _idxRetStr + _idxDirS + '</span>';
+            _idxRetPart = ' <span style="color:' + _idxColor + '">指数至今 ' + _idxRetStr + _idxDirS + '</span>';
           }
         }
       }
@@ -6069,32 +3655,11 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
       // #38 fix(2026-08-13): 删除线 hoverpop 说明 - cell 带 data-ai-hit(=1, 命中AI降亏过滤被删线)时,
       //   hoverpop 追加一行讲人话说明删除线原因(用户反馈"810信号带删除线但不知道什么意思、hoverpop 也没提示")。
       //   删除线语义溯源: commit 1c5c6b77d「首页AI开关+后端ai_macro」引入, .sig-ai-hit{text-decoration:line-through}(style.css L949),
-      //   2026-08-13 重构后 = 首页「AI降亏过滤」开关开启 + 命中降亏条件(所选模式键集成员级, v1.1.5 起=NEW14 十四键) → 灰显+删除线+AI降亏标注, 建议回避(独立作用域, 与凯利区互不影响)。
+      //   2026-08-13 重构后 = 首页「AI降亏过滤」开关开启 + 命中降亏条件(固定8键 v1.1.0) → 灰显+删除线+AI降亏标注, 建议回避(独立作用域, 与凯利区互不影响)。
       var _aiHitRaw = el.getAttribute("data-ai-hit");
       if (_aiHitRaw === "1") {
         var _aiHitNames = el.getAttribute("data-ai-hit-names") || "降亏条件";
         html += '<div class="term-pop-aihit">⚠️ 删除线原因: 本信号命中 AI降亏过滤条件【' + _esc(_aiHitNames) + '】, 被标记为建议回避, 所以加了删除线, 且不占AI建议位(顺延补位给未命中信号)(由首页「AI降亏过滤」开关判定, 独立作用域与凯利区互不影响)。如不需要该过滤, 关闭首页「AI降亏过滤」开关即可恢复正常样式。</div>';
-      }
-      // AI 信号认可度末行(2026-08-26): 读 cellHtml 预写 data-consensus 属性拼行; 0 分灰显(-dim)/
-      // 高共识亮色阶(-hi); na=非买入类显"—"(仅买信号判降亏 §23.6 MED3)。title 原生提示承载
-      // §23.9 三档互证全文(data-no-pop 防 term-pop 套娃, 先例 .etf-light title)。
-      var _consRaw = el.getAttribute("data-consensus");
-      if (_consRaw === "na") {
-        html += '<div class="term-pop-consensus term-pop-consensus-dim" data-no-pop="" title="' + _esc("非买入类信号(band_hold/卖类)不参与 AI 降亏过滤判定(仅买信号判降亏), 故无认可度统计。") + '">🤝 AI 信号认可度 —</div>';
-      } else if (_consRaw) {
-        var _consParts = _consRaw.split("|");
-        var _cy = parseInt(_consParts[0], 10);
-        var _cx = _consParts[1];
-        // 计数口径(用户拍板 2026-08-27): x∈0~8 直接展示不丢票数; 当日主推=当日入样买入中票数最多
-        //   的唯一一支(w="w", 构建期判好)→「{x}票·当日主推」; 其余有票→「{x}·非主推」; 0 票→「0·非主推」。
-        var _cxn = parseInt(_cx, 10);
-        var _cxTxt = isFinite(_cxn) ? (_cxn >= 1 && _consParts[2] === "w" ? _cxn + "票·当日主推" : _cxn + "·非主推") : "—";
-        var _dimCls = _cy === 0 ? " term-pop-consensus-dim" : ((_cy >= 6) ? " term-pop-consensus-hi" : "");
-        // #96 可见降级(2026-08-27): 快照真实加载失败(err)时在认可度行内挂降级小字——Y/X 的 S06 票按保留计,
-        //   不静默; 仅 err 显示, 加载中/日期超覆盖期(数据常态)不打扰
-        var _s06Err = (typeof window._tdsS06Status === "function") ? window._tdsS06Status().err : null;
-        var _consDeg = _s06Err ? ' <span style="opacity:.65">· S06快照不可用(' + _esc(String(_s06Err)) + '),该票按保留计</span>' : "";
-        html += '<div class="term-pop-consensus' + _dimCls + '" data-no-pop="" title="' + _esc(CONS_TIP) + '">🤝 AI 信号认可度 <b>' + (isFinite(_cy) ? _cy : "—") + '/8 分</b> · 当日认可 <b>' + _cxTxt + '</b>' + _consDeg + '</div>';
       }
       if (locateHtml || idxLineHtml || etfMetaHtml || etfHtml) html += locateHtml + idxLineHtml + etfMetaHtml + etfHtml;
       pop.innerHTML = html;
@@ -7105,10 +4670,7 @@ const _TIER_COLORS = {
   "熊市·主跌": "#2e8b57",
 };
 
-// P2-11 拆分(2026-08-22): indexChart 数据准备段抽为 _indexChartPrepare、setOption 配置构造抽为
-// _indexChartBuildOption,indexChart 与大盘懒渲染卡(_marketIndexCardLazy)共用同一份实现,防双份分叉。
-// 纯搬运不改任何逻辑: 两函数体与原内联逐行一致(仅 _tierBand/_tierName 形参化)。
-function _indexChartPrepare(title, ohlc, signals, stats, strategy, indexId, tiers) {
+function indexChart(title, ohlc, signals, stats, strategy, container = content, chartArr = charts, indexId, tiers) {
   const hint = statsHint(stats, strategy, indexId);
   // 标题追加最新日期+收盘价（OHLC 图，取最后一条 close）
   const _last = ohlc && ohlc.length ? ohlc[ohlc.length - 1] : null;
@@ -7117,9 +4679,14 @@ function _indexChartPrepare(title, ohlc, signals, stats, strategy, indexId, tier
   const _closeSuffix = _last && _last.close != null ? `<span class="chart-latest"> · ${fmtDate(_last.date)} ${_last.close.toFixed(2)}<small style="color:var(--text-3)"> 收</small></span>` : "";
   const _pctSuffix = (_pct != null) ? ` <span class="pct-badge" style="color:${_up ? "#e6492e" : "#2e8b57"}">${_up ? "+" : ""}${_pct.toFixed(2)}%</span>` : "";
   const _suffix = _closeSuffix + _pctSuffix;
+  const c = mkCard(title + _suffix, 300, hint, container, chartArr);
   // 四档状态展示名(动态化, #73 8 宽基): 沪深300/上证指数/深证成指/中证500/创业板指/上证50/中证1000/科创50。
   // 查不到 indexId 时退回通用"行情"(旧行为对非 8 宽基不闪色带, 此处无语义影响)。
   const _tierName = (_INDEX_NAME_MAP[indexId] || "行情") + "四档";
+  // 模拟回测按钮：注入 h3 末尾排在❓后（标题行内排列，挪出策略区块）
+  _prependSimBtn(c.getDom().parentElement, indexId);
+  // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
+  _bindFreqPopupToHintRows(c.getDom().parentElement, stats);
   const close = ohlc.map((d) => [d.date, d.close]);
   // 4色买点拼色 pin（同日多买点合并1个拼色 pin，参照汪汪队），卖绿独立 pin
   const _ohlcMap = {}; for (const o of ohlc) _ohlcMap[o.date] = o;
@@ -7143,12 +4710,7 @@ function _indexChartPrepare(title, ohlc, signals, stats, strategy, indexId, tier
       _tierBand.push({ value: 0.5, itemStyle: { color: _TIER_COLORS[_lastTier] || "#9aa0a6", borderWidth: 0 }, date: _d, tier: _lastTier });
     }
   }
-  return { fullTitle: title + _suffix, hint, close, markData, tierBand: _tierBand, tierName: _tierName };
-}
-
-// P2-11 纯搬运: 原 indexChart 内联 setOption 配置对象原样抽出,逐字未改。
-function _indexChartBuildOption(title, ohlc, close, markData, tierBand, tierName) {
-  return withTheme({
+  c.setOption(withTheme({
     tooltip: {
       trigger: "axis",
       // P0-3: hover 信号日时追加完整 reason（主标签已在 pin 上，技术细节进 tooltip）
@@ -7160,9 +4722,9 @@ function _indexChartBuildOption(title, ohlc, close, markData, tierBand, tierName
           tip += "<br/>收盘 " + o.close.toFixed(2);
           if (o.pct_change != null) tip += ' <span style="color:' + (o.pct_change >= 0 ? "#e6492e" : "#2e8b57") + '">' + (o.pct_change >= 0 ? "+" : "") + o.pct_change.toFixed(2) + "%</span>";
         }
-        if (tierBand && tierBand.length) {
-          const _tb = tierBand.find((x) => x.date === dt);
-          if (_tb && _tb.tier) tip += '<br/>' + tierName + '：<b style="color:' + (_TIER_COLORS[_tb.tier] || "#9aa0a6") + '">● ' + _tb.tier + "</b>";
+        if (_tierBand && _tierBand.length) {
+          const _tb = _tierBand.find((x) => x.date === dt);
+          if (_tb && _tb.tier) tip += '<br/>' + _tierName + '：<b style="color:' + (_TIER_COLORS[_tb.tier] || "#9aa0a6") + '">● ' + _tb.tier + "</b>";
         }
         const marks = markData.filter((m) => m.coord[0] === dt && m.reason);
         for (const m of marks) {
@@ -7180,15 +4742,15 @@ function _indexChartBuildOption(title, ohlc, close, markData, tierBand, tierName
     },
     grid: { left: 55, right: 20, top: 30, bottom: 50 },
     xAxis: { type: "category", data: ohlc.map((d) => d.date) },
-    yAxis: tierBand.length ? [
+    yAxis: _tierBand.length ? [
       { type: "value", scale: true },
       // 隐藏色带轴 max:1→max:2(2026-08-18 收窄版, 色带高度 1/2→1/4): value 0.5 在 0-2 轴上占 1/4 高度
       { type: "value", show: false, min: 0, max: 2 },
     ] : { type: "value", scale: true },
     dataZoom: dzOpts(),
-    series: tierBand.length ? [
+    series: _tierBand.length ? [
       {
-        name: tierName + "状态",
+        name: _tierName + "状态",
         type: "bar",
         yAxisIndex: 1,
         stack: "tierband",
@@ -7199,7 +4761,7 @@ function _indexChartBuildOption(title, ohlc, close, markData, tierBand, tierName
         // 只取 params[0] 的 axisValue 拼 HTML, 不影响 line tooltip 展示。
         silent: false,
         z: 1,
-        data: tierBand,
+        data: _tierBand,
       },
       {
         name: stripHtml(title),
@@ -7231,17 +4793,7 @@ function _indexChartBuildOption(title, ohlc, close, markData, tierBand, tierName
         },
       },
     ],
-  });
-}
-
-function indexChart(title, ohlc, signals, stats, strategy, container = content, chartArr = charts, indexId, tiers) {
-  const p = _indexChartPrepare(title, ohlc, signals, stats, strategy, indexId, tiers);
-  const c = mkCard(p.fullTitle, 300, p.hint, container, chartArr);
-  // 模拟回测按钮：注入 h3 末尾排在❓后（标题行内排列，挪出策略区块）
-  _prependSimBtn(c.getDom().parentElement, indexId);
-  // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
-  _bindFreqPopupToHintRows(c.getDom().parentElement, stats);
-  c.setOption(_indexChartBuildOption(title, ohlc, p.close, p.markData, p.tierBand, p.tierName));
+  }));
   return c;
 }
 
@@ -7632,14 +5184,6 @@ const _resultCache = new Map(); // url -> { data, ts }
 // 让走势图与 overview 同级实时（跳过 5min 缓存），避免"卡片有信号但走势图无 pin"的窗口期不一致。
 // 只排除 *-all.json（走势图源），不排除 industry-*-indices/* 等静态少变文件（保留缓存）。
 const _NO_CACHE_URLS = /(?:^|\/)(?:boot|overview|intraday_snapshot|metrics|notifications|daily_brief(?:_history)?|public_fund_\w+|summary(?:_history|\/history)?|index\/[^/]+-all)(?:\.json)?(?:$|[?])/;
-// codex-001 medium: R2 直链数据文件跳过通用 _resultCache——payload 由调用方先验后存
-// 自己的 per-code/per-item 缓存(如 _fundNavCache), 通用层不缓存=坏 payload 不被 5 分钟复用。
-// codex-004 P2 收窄: 只保留两类真实需要的前缀——①fund_nav(_validFundNavPayload 先验+
-// per-code 缓存, 坏 payload 不得进通用层)②etf/{code}-all(弹窗长历史走势源, 与 index-all
-// 同性质需与首页信号 pin 实时对齐)。其余 R2 前缀(public_fund/industry/lab/index-all 等)
-// 为盘后聚合产物且无坏 payload 风险, 恢复通用 5min 结果缓存(切 tab/重开不再重复拉大 JSON)。
-// 注: /r2/index/{id}-all 另被 _NO_CACHE_URLS 的 index\/[^/]+-all 分支排除, 不受本正则影响。
-const _NO_R2_CACHE_URLS = /\/r2\/(?:fund_nav|etf)\//;
 const _CACHE_TTL = 5 * 60 * 1000; // 历史类数据缓存 5 分钟
 // R2 大range 路由（2026-07-24）：all/5y/3y 从 R2 读（减 git 仓库 ~60M），小 range（3m/6m/1y）留本地减延迟。
 // fetchJSON 统一走 .json + CF br 压缩（2026-08-01 全部跳 .gz，根治 CF .gz 4h edge 缓存滞后）。
@@ -7655,7 +5199,7 @@ const _R2_FALLBACK_BASE = "https://ss.fx8.store/data/";
 function dataUrl(filename) {
   return _R2_LARGE_RANGE_RE.test(filename) ? _R2_DATA_BASE + filename : "./data/" + filename;
 }
-async function fetchJSON(url, timeoutMs) {
+async function fetchJSON(url) {
   // 主动域名策略(2026-08-11 备站主动域名方案A): 备站(sss.sugas.site/s.sugas.site 等非主站非本地)首次加载
   // 即把 ./data/* 直接重写为主站 /data/ rewrite, 不等 404 探测再 fallback(现状每请求慢一拍)。
   // 主站/localhost 同源不变; 大 range(-all/-5y/-3y) 已在 dataUrl() L3658 直链 _R2_DATA_BASE(/r2/ 代理),
@@ -7667,9 +5211,8 @@ async function fetchJSON(url, timeoutMs) {
   if (_isBackupSite && _isDataReq) {
     url = _R2_FALLBACK_BASE + url.slice("./data/".length);
   }
-  // 1. 结果缓存命中（时效敏感 URL / R2 直链数据文件跳过，确保盘中快照实时性;
-  //    R2 直链由调用方先验后存自己的缓存, codex-001 medium）
-  if (!_NO_CACHE_URLS.test(url) && !_NO_R2_CACHE_URLS.test(url)) {
+  // 1. 结果缓存命中（时效敏感 URL 跳过，确保盘中快照实时性）
+  if (!_NO_CACHE_URLS.test(url)) {
     const rc = _resultCache.get(url);
     if (rc && (Date.now() - rc.ts) < _CACHE_TTL) return rc.data;
   }
@@ -7705,9 +5248,7 @@ async function fetchJSON(url, timeoutMs) {
   // 实际请求URL(带cache-busting): 时效敏感用_bustQuery, 其他用原query
   const _fetchUrl = _base + _bustQuery;
   const controller = new AbortController();
-  // 超时可参数化(2026-08-21 P1-2): 默认仍 15s 不影响既有调用; 大文件调用方(如 sim 弹窗 64MB trades)传 60000
-  const _timeoutMs = timeoutMs || 15000;
-  const slowTimer = setTimeout(() => controller.abort(), _timeoutMs);
+  const slowTimer = setTimeout(() => controller.abort(), 15000);
   // cache: 'no-cache' 走条件请求(带 If-None-Match/If-Modified-Since), 绕过 R2 .gz 的 cache-control: max-age=14400 强制缓存
   // 否则 stats 等数据更新后浏览器仍读 4h 旧缓存 (2026-07-22 csi_div tooltip 显示旧版 sell_stop_loss n 而非新版 86 的根因)
   // 时效敏感URL用no-store(浏览器完全不读HTTP缓存每次发GET, 避免CF HIT旧etag返回304浏览器读旧缓存)
@@ -7757,7 +5298,7 @@ async function fetchJSON(url, timeoutMs) {
         let finalErr = e;
         for (let i = 0; i < 2; i++) {
           const fc = new AbortController();
-          const ft = setTimeout(() => fc.abort(), _timeoutMs);
+          const ft = setTimeout(() => fc.abort(), 15000);
           try {
             resp = await fetch(_r2Url, { signal: fc.signal, cache: _cacheMode })
               .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status + " " + _r2Url); return r; });
@@ -7778,7 +5319,7 @@ async function fetchJSON(url, timeoutMs) {
             const _r2DUrl = _R2_DATA_BASE + _baseFile + _bustQuery;
             console.warn("[fetchJSON] 主站/data/重写失败, 二级兜底 R2 直链: " + url + " -> " + _r2DUrl, finalErr?.message || finalErr);
             const fc = new AbortController();
-            const ft = setTimeout(() => fc.abort(), _timeoutMs);
+            const ft = setTimeout(() => fc.abort(), 15000);
             try {
               resp = await fetch(_r2DUrl, { signal: fc.signal, cache: _cacheMode })
                 .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status + " " + _r2DUrl); return r; });
@@ -7796,14 +5337,14 @@ async function fetchJSON(url, timeoutMs) {
     }
   })()
     .then((data) => {
-      // 成功才缓存（时效敏感 URL / R2 直链数据文件跳过）；失败不缓存，下次重试
-      if (!_NO_CACHE_URLS.test(url) && !_NO_R2_CACHE_URLS.test(url)) _resultCache.set(url, { data, ts: Date.now() });
+      // 成功才缓存（时效敏感 URL 跳过）；失败不缓存，下次重试
+      if (!_NO_CACHE_URLS.test(url)) _resultCache.set(url, { data, ts: Date.now() });
       return data;
     })
     .catch((e) => {
       // 超时（abort）：renderFailCard 存在则向上抛由调用方兜底渲染，否则 console.error 并返回 null
       if (e && e.name === "AbortError") {
-        console.error("fetchJSON timeout (" + _timeoutMs + "ms): " + url);
+        console.error("fetchJSON timeout (15s): " + url);
         if (typeof renderFailCard !== "function") return null;
       } else {
         // 非 abort 错误(网络/CORS/解析/HTTP)也记 console, 便于排查"暂无数据"类故障
@@ -8176,140 +5717,6 @@ function closeIndexAnalyzeModal() {
   document.body.style.overflow = "";
 }
 
-// ============ P2-11 大盘 tab 懒渲染(2026-08-22) ============
-// 根因: 切大盘 tab/subtab 时 renderAStock/renderHK/renderGlobal 同帧同步 echarts.init+setOption 20-30+ 张图,
-// 单帧长任务数百 ms 明显卡顿。方案: 占位卡片即时建好(DOM 结构与 mkCard 完全一致,布局零变化),
-// 画布 init+setOption 交由 IntersectionObserver 单例在卡片临近可视(提前 250px)时触发,首帧只渲染首屏。
-// 外观零变化: 默认仍是完整 ECharts; charts.lightweight 开关对大盘 tab 行为不变(§23.7 冻结;
-// SVG 轻量接入为后续独立任务, 见 docs/p2-11-dapan-lazy-plan.md)。
-let _mktLazyIO = null;
-function _ensureMarketLazyIO() {
-  if (_mktLazyIO) return _mktLazyIO;
-  _mktLazyIO = new IntersectionObserver((entries) => {
-    for (const e of entries) {
-      if (!e.isIntersecting) continue;
-      _mktLazyIO.unobserve(e.target);
-      const fn = e.target._mktLazyFn;
-      if (!fn) continue;
-      e.target._mktLazyFn = null;
-      try { fn(); } catch (err) { console.error("[p2-11] lazy chart init failed:", err); }
-    }
-  }, { rootMargin: "250px 0px" }); // 提前 250px 预渲染,滚动临近即出图肉眼无感
-  return _mktLazyIO;
-}
-// renderMarket 重入统一复位: 每次 subtab 重渲染入口断开全部旧观察(旧卡片 DOM 已随 innerHTML 清空,
-// 挂在 detached 节点上的观察项一并释放,防 IO 强引用泄漏),新渲染重新注册 → 同卡片不存在重复绑/重复 init。
-function _marketLazyReset() {
-  if (_mktLazyIO) { _mktLazyIO.disconnect(); _mktLazyIO = null; }
-}
-// 注册懒初始化。IO 不支持环境(老 webview)直接同步兜底=行为退回改动前。
-function _marketLazyRegister(cardEl, initFn) {
-  if (typeof IntersectionObserver === "undefined") { initFn(); return; }
-  cardEl._mktLazyFn = initFn;
-  _ensureMarketLazyIO().observe(cardEl);
-}
-function _marketLazyUnobserve(cardEl) {
-  if (!_mktLazyIO || !cardEl._mktLazyFn) return;
-  _mktLazyIO.unobserve(cardEl);
-  cardEl._mktLazyFn = null;
-}
-// ⚠️ 约束(评审项B,2026-08-22 更新): _disposeContainerCharts 现已通过 chartEl.__mktLazyProxy 反查标记认得
-// 懒代理(含未 init 卡),含懒卡的容器可直接传入(proxy.dispose 会 unobserve+出 charts+清 pending)。
-// 板块分化网格(renderIndustryGrid)搜索重渲 _applyIndustryFilter 即依赖此能力;大盘调用点行为不变(无懒卡容器时反查不命中)。
-// 兼容代理: 未 init 前对外暴露与 echarts 实例一致的消费面。全局 charts 数组全消费面已核:
-// resize(window resize L50/setupOneRowToggle)/dispose(clearCharts/disposeSectionCharts)/
-// isDisposed+getOption+setOption(rethemeCharts 切皮肤重注入)。未 init 时 setOption 进队列,init 后按序回放;
-// getOption 回首帧配置缓存(firstOpt, 注册时即存非 init 时才存),retheme 才能读 dataZoom/series(markPoint
-// pin label 色)构造完整补丁入队 —— 回 {} 会丢这两类补丁,"不滚动→切皮肤→再滚动"的卡残留旧配色(评审项A)。
-function _mktLazyProxy(chartEl, cardEl, chartArr, firstOpt) {
-  let inst = null;
-  let disposed = false;
-  const pendingSet = [];
-  const api = {
-    __mktLazy: true,
-    getDom: () => chartEl,
-    isDisposed: () => disposed,
-    resize: () => { if (inst) inst.resize(); },
-    // firstOpt 为函数(板块分化延伸用法)= option 延迟构建: 未 init 时无可回放配置返回 {}(retheme 只会入队主题补丁,
-    // init 时 builder 读实时皮肤色构建完整首帧,再回放补丁幂等);大盘传对象用法行为不变
-    getOption: () => (inst ? inst.getOption() : ((typeof firstOpt === "function") ? {} : (firstOpt || {}))),
-    setOption: (o, notMerge) => { if (disposed) return; if (inst) inst.setOption(o, notMerge); else pendingSet.push([o, notMerge]); },
-    dispose: () => {
-      disposed = true;
-      _marketLazyUnobserve(cardEl);
-      pendingSet.length = 0;
-      firstOpt = null;
-      chartEl.__mktLazyProxy = null; // 反查标记清空(见下)
-      if (inst) { inst.dispose(); inst = null; }
-    },
-  };
-  // 由懒回调调用: 真正 echarts.init + 首帧 setOption(firstOpt 可为函数=延迟构建)+ 回放排队中的补丁
-  api._mktInit = () => {
-    if (disposed || inst) return;
-    inst = echarts.init(chartEl);
-    const fo = (typeof firstOpt === "function") ? firstOpt() : firstOpt;
-    if (fo) inst.setOption(fo);
-    for (const [o, nm] of pendingSet) inst.setOption(o, nm);
-    pendingSet.length = 0;
-  };
-  chartEl.__mktLazyProxy = api; // DOM→代理反查标记: 让 _disposeContainerCharts 认得懒卡(大盘路径无消费方,行为等价)
-  chartArr.push(api); // 与原 mkCard 同步入全局 charts(resize/retheme/clearCharts 消费)
-  return api;
-}
-// 大盘专用懒渲染折线卡: 与 lineChart 同签名同 DOM(mkCard 结构逐字一致),仅画布延迟。仅大盘 tab 调用点换用。
-function _marketLineCardLazy(title, series, opts = {}, hint = null, container = content, height = 300) {
-  const multi = Array.isArray(series) && series.length && series[0] && series[0].data;
-  const arr = multi ? series : [{ name: stripHtml(title), data: series }];
-  const dates = [...new Set(arr.flatMap((s) => s.data.map((d) => d.date)))].sort();
-  const cardEl = document.createElement("div");
-  cardEl.className = "chart-card";
-  cardEl.innerHTML = `<h3>${title}</h3>${hint ? `<div class="chart-hint">${hint}</div>` : ""}<div class="chart" style="height:${height}px"></div>`;
-  container.appendChild(cardEl);
-  const chartEl = cardEl.querySelector(".chart");
-  const opt = _lineChartBuildOption(title, arr, dates, opts);
-  const api = _mktLazyProxy(chartEl, cardEl, charts, opt); // 原 lineChart 经 mkCard 默认入全局 charts; opt 注册时即存(评审项A)
-  _marketLazyRegister(cardEl, () => api._mktInit());
-  return api;
-}
-// 大盘专用懒渲染指数卡: 与 indexChart 同签名同 DOM,数据准备/配置构造共用 _indexChartPrepare/_indexChartBuildOption。
-// 标题行 DOM 绑定(sim 按钮/频率 hover)即时做(卡片已在 DOM,仅画布延迟),与 indexChart 同序。
-function _marketIndexCardLazy(title, ohlc, signals, stats, strategy, container = content, chartArr = charts, indexId, tiers) {
-  const p = _indexChartPrepare(title, ohlc, signals, stats, strategy, indexId, tiers);
-  const cardEl = document.createElement("div");
-  cardEl.className = "chart-card";
-  cardEl.innerHTML = `<h3>${p.fullTitle}</h3>${p.hint ? `<div class="chart-hint">${p.hint}</div>` : ""}<div class="chart" style="height:300px"></div>`;
-  container.appendChild(cardEl);
-  const chartEl = cardEl.querySelector(".chart");
-  const opt = _indexChartBuildOption(title, ohlc, p.close, p.markData, p.tierBand, p.tierName);
-  const api = _mktLazyProxy(chartEl, cardEl, chartArr, opt);
-  _prependSimBtn(cardEl, indexId);
-  _bindFreqPopupToHintRows(cardEl, stats);
-  _marketLazyRegister(cardEl, () => api._mktInit());
-  return api;
-}
-
-// ---- 板块分化网格懒渲染·时间切片排水(P2-11 延伸,2026-08-22) ----
-// 大盘卡高(~300px)可视区内个位数张,IO 回调同步 init 无长任务;行业格小(~260px 高×4 列),可视区一次可达
-// 12-16 格 ×4-5 图 ≈ 60+ 图,IO 回调里同步 init 仍是数百 ms 长任务 → 改入队 + 每 tick 时间盒 12ms 分帧排空,
-// 单任务恒 <<50ms。已 dispose 的代理(切 subtab/搜索重渲后仍滞留队列)出队即弃,_mktInit 自身 disposed 幂等双保险。
-let _indLazyQueue = [];
-let _indLazyDraining = false;
-function _indLazyEnqueue(proxies) {
-  for (const p of proxies) { if (p && !p.isDisposed()) _indLazyQueue.push(p); }
-  if (!_indLazyDraining) _indLazyDrainStep();
-}
-function _indLazyDrainStep() {
-  _indLazyDraining = true;
-  const t0 = performance.now();
-  while (_indLazyQueue.length) {
-    if (performance.now() - t0 >= 12) { setTimeout(_indLazyDrainStep, 0); return; } // 预算用尽,下个宏任务续排(flag 保持 true 防并行排水)
-    const p = _indLazyQueue.shift();
-    if (p.isDisposed()) continue;
-    try { p._mktInit(); } catch (err) { console.error("[industry-grid] lazy chart init failed:", err); }
-  }
-  _indLazyDraining = false;
-}
-
 function renderIndicesSection(container, indices, fetcher, foldOneRow, extraGroups, anchorBarRef) {
   const entries = Object.entries(indices || {});
   if (!entries.length) return Promise.resolve();
@@ -8435,7 +5842,7 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow, extraGrou
         // 宽基/行业 index_id 本身是代码不重复显示（indexIdToCode 返回空串）。
         const _idxCodeForTitle = indexIdToCode(id, idx.symbol);
         const _idxCodeTag = _idxCodeForTitle ? ` <span class="idx-code-tag" title="${idxCodeTooltip(id, _idxCodeForTitle)}">${_idxCodeForTitle}</span>` : "";
-        const c = _marketIndexCardLazy((_INDEX_NAME_MAP[id] || idx.name) + _idxCodeTag + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id, sig.tiers); // P2-11 大盘懒渲染
+        const c = indexChart((_INDEX_NAME_MAP[id] || idx.name) + _idxCodeTag + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id, sig.tiers);
         sectionCharts.push(c);
         const cardEl = c.getDom().parentElement;
         // 目录锚点跳转目标 id + scroll spy observe(卡片渲染完后注册)
@@ -8997,17 +6404,13 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
         // 补的预估点用 "estimate" 信号 pin 标注，视觉区分（灰色虚线 pin）
       }
     }
-    // 信号对错盈亏行（方案B后端算）：文案=成功/失败·N日窗盈亏 ±X%（2026-08-24 到期冻结窗：N=实际生效窗长
-    // _effWinN(波段减仓固定5/其余=判定窗档位), 未满窗为至今暂计并标注; since_correct=null 今日/band_hold 仅显示盈亏不带成功失败）；
-    // 颜色=A股红涨绿跌按收益正负（>0红/<0绿/==0灰）
+    // 信号至今盈亏行（方案B后端算）：文案=成功/失败·至今盈亏 ±X%（since_correct=null 今日/band_hold 仅显示盈亏不带成功失败）；颜色=A股红涨绿跌按since_return正负（>0红/<0绿/==0灰）
     const _matchSR = _sigsSR.find((it) => it.index_id === indexId && it.signal === signal && it.date === date);
     if (_matchSR && _matchSR.since_return != null) {
       const _srLine = document.createElement("div");
       _srLine.setAttribute("style", "margin-bottom:8px;padding:6px 10px;font-size:12px;border-radius:4px;line-height:1.5;");
-      const _winRet = _swrOf(_matchSR);
-      const _hasWin = _winRet != null;
-      const _ret = _hasWin ? _winRet : _matchSR.since_return;
-      const _correct = _scOf(_matchSR);
+      const _ret = _matchSR.since_return;
+      const _correct = _matchSR.since_correct;
       const _retStr = (_ret > 0 ? "+" : "") + _ret.toFixed(2) + "%";
       let _color;
       // 颜色按 since_return 盈亏正负（A股红涨绿跌：>0红/<0绿/==0灰）
@@ -9024,17 +6427,11 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       const _subLabel = signalLabel(_matchSR);
       const _sigColor = _meta ? _meta.color : '#6b7280';
       const _descHtml = `<b style="color:${_sigColor};font-weight:700;">${fmtDate(_matchSR.date)}的${_typeLabel} · ${_subLabel}</b>`;
-      // 成功/失败 + 窗口盈亏 继承整行 _color(红涨绿跌); 描述段内联信号配色
-      // 有窗口字段=按实际生效窗长标注(_effWinN: 波段减仓固定5日, 其余=判定窗档位; P3-2 同款修正);
-      // 无(band_hold/旧数据)=保持"至今盈亏"
+      // 成功/失败 + 至今盈亏 继承整行 _color(红涨绿跌); 描述段内联信号配色
       const _prefix = _correct === true ? '成功' : (_correct === false ? '失败' : '');
-      const _effN = _hasWin ? _effWinN(_matchSR) : 0;
-      const _pnlLabel = _hasWin
-        ? (_settledOf(_matchSR) === true ? ` ${_effN}日窗盈亏 ` : ` 至今暂计(未满${_effN}日窗·未定案) `)
-        : '  至今盈亏 ';
       _srLine.innerHTML = _prefix
-        ? `${_prefix}  ·  ${_descHtml}${_pnlLabel}${_retStr}`
-        : `${_descHtml}${_pnlLabel}${_retStr}`;
+        ? `${_prefix}  ·  ${_descHtml}  至今盈亏 ${_retStr}`
+        : `${_descHtml}  至今盈亏 ${_retStr}`;
       body.appendChild(_srLine);
     }
     // 2026-08-06 走势图卡片标题加指数代码(need3-①)：复用 header _idxCodeTag（L4244 已定义 _sigIdxCode），
@@ -11019,13 +8416,6 @@ function _snapPreClose(snap, code) {
   return idx ? idx.pre_close : null;
 }
 
-// spark-grid 涨跌方向统一色源（红涨绿跌 A股配色，与分时图 _renderIntradayChart/_applyDynamicToBadges 同值）。
-// 2026-08-24 日图颜色不同步 bug 根治点：此前日图色在 renderOverview 局部三元写死、badge/foot 各写一份，
-// 盘中 pct 翻转时日图不跟随与分时红绿打架；统一从本函数取色防再分叉。
-function _sparkDirColor(pct) {
-  return (Number(pct) || 0) >= 0 ? "#e6492e" : "#2e8b57";
-}
-
 // 取某指数的腾讯动态pct（无则null），供 badge/chips 复用
 function _dynPct(id) {
   const d = _intradayDynamicPct[id];
@@ -11206,7 +8596,7 @@ function _applyDynamicToBadges(results) {
       el.setAttribute("data-snap-color", el.style.color || "");
     }
     const pct = r.pct;
-    const color = _sparkDirColor(pct);
+    const color = pct >= 0 ? "#e6492e" : "#2e8b57";
     const sign = pct >= 0 ? "+" : "";
     el.style.color = color;
     el.textContent = `${sign}${pct.toFixed(2)}%`;
@@ -11227,81 +8617,9 @@ function _applyDynamicToSparkFoot(results) {
     if (!foot) return;
     const chg = r.price - r.preClose;
     const chgUp = chg >= 0;
-    const chgColor = _sparkDirColor(chg);
+    const chgColor = chgUp ? "#e6492e" : "#2e8b57";
     const chgText = (chgUp ? "+" : "") + chg.toFixed(2);
     foot.innerHTML = `${r.price.toFixed(2)} <span style="color:${chgColor}">${chgText}</span>`;
-  });
-}
-
-// 读 nt-spark 容器（lite=.nt-spark-lite / echarts=.nt-spark-ech，均带 data-sid）当前日图色。
-// 权威读 _ntSparkMeta.color（ntIndexSparkline 初渲时写入）；meta miss 时回退读 lite svg 线 path stroke。
-function _getNtSparkColor(el) {
-  const sid = el.getAttribute("data-sid");
-  const m = sid && _ntSparkMeta.get(sid);
-  if (m && m.color) return m.color;
-  const pth = el.querySelector("svg.nt-spark-svg path[stroke]");
-  return pth ? (pth.getAttribute("stroke") || "") : "";
-}
-
-// 对单个 nt-spark 容器换日图颜色（数据不动只换色，2026-08-24 盘中日图重染/收盘恢复共用）：
-// lite 模式=替换 svg 内两处色值（面积 path fill opacity0.12 保留 + 线 path stroke；十字线是 line 元素不受影响）；
-// echarts 模式=setOption merge 只改 series lineStyle/areaStyle 色；
-// 同时同步 _ntSparkMeta.color（防 charts.lightweight 切换走 _reRenderHomeSpark 重生成时回退旧色）。
-function _setNtSparkColor(el, color) {
-  if (!el || !color) return false;
-  const sid = el.getAttribute("data-sid");
-  const m = sid && _ntSparkMeta.get(sid);
-  if (m) m.color = color;
-  const liteSvg = el.querySelector("svg.nt-spark-svg");
-  if (liteSvg) {
-    liteSvg.querySelectorAll("path").forEach((pth) => {
-      if ((pth.getAttribute("fill") || "none") !== "none") pth.setAttribute("fill", color);
-      if (pth.getAttribute("stroke")) pth.setAttribute("stroke", color);
-    });
-    return true;
-  }
-  if (typeof echarts !== "undefined") {
-    const inst = echarts.getInstanceByDom(el);
-    if (inst) {
-      inst.setOption({ series: [{ lineStyle: { color: color }, areaStyle: { color: color } }] });
-      return true;
-    }
-  }
-  return false;
-}
-
-// 盘中重染 spark-grid 日图颜色（2026-08-24 bug 修复）：日图色在 renderOverview 初渲取 idx.pct_change 写死，
-// 盘中动态 pct 由正翻负（或反向）后日图不跟随、与实时分时红绿打架。本函数与右上角 badge 同源取动态值
-// （results[id] || _intradayDynamicPct[id].pct，腾讯实时 vs 昨收；无动态值静默保持与 _applyDynamicToBadges 同口径），
-// 符号与当前色一致则不动 DOM；首次重染把初渲色存 data-snap-color 供收盘恢复（与 badge data-snap-txt 机制同构）。
-// 行业 spark-cell 无 pct-badge[data-spark-id] 天然跳过，不误伤。
-function _applyDirColorToSparks(results) {
-  document.querySelectorAll(".spark-cell").forEach((cell) => {
-    const badge = cell.querySelector(".pct-badge[data-spark-id]");
-    if (!badge) return;
-    const id = badge.getAttribute("data-spark-id");
-    const r = (results && results[id]) || _intradayDynamicPct[id];
-    if (!r || r.pct == null) return; // 静默回退：保持原色
-    const sparkEl = cell.querySelector(".nt-spark-lite[data-sid], .nt-spark-ech[data-sid]");
-    if (!sparkEl) return;
-    const wantColor = _sparkDirColor(r.pct);
-    const curColor = _getNtSparkColor(sparkEl);
-    if (!curColor || curColor === wantColor) return; // 方向未变不动 DOM
-    if (!sparkEl.hasAttribute("data-snap-color")) {
-      sparkEl.setAttribute("data-snap-color", curColor); // 存 overview 收盘口径色
-      sparkEl.classList.add("dyn-recolor");
-    }
-    _setNtSparkColor(sparkEl, wantColor);
-  });
-}
-
-// 收盘恢复 spark-grid 日图为 overview 收盘口径色（与 _applyDirColorToSparks 的 data-snap-color 存档配对，
-// 与 _onMarketClosed 的 badge data-snap-txt 恢复机制对齐）
-function _restoreDirColorSparks() {
-  document.querySelectorAll(".spark-cell .dyn-recolor[data-snap-color]").forEach((el) => {
-    _setNtSparkColor(el, el.getAttribute("data-snap-color"));
-    el.removeAttribute("data-snap-color");
-    el.classList.remove("dyn-recolor");
   });
 }
 
@@ -11361,7 +8679,6 @@ function _onMarketClosed() {
     if (col != null) el.style.color = col;
     el.classList.remove("dyn-updated");
   });
-  _restoreDirColorSparks(); // 日图色恢复 overview 收盘口径(2026-08-24 bug: 与 badge data-snap-txt 恢复机制对齐)
   const snap = state.intradaySnapshot;
   if (_bannerRenderCtx && _bannerRenderCtx.el && _bannerRenderCtx.el.isConnected) { // 2026-08-20 #12 同类: 防操作已脱离 DOM 的横幅
     _applyDynamicToChips(snap);
@@ -11834,7 +9151,6 @@ async function _doIntradayRefresh() {
   });
   const results = await Promise.all(promises);
   _applyDynamicToSparkFoot(dynResult && dynResult.results); // 补更新底部 spark-foot(用腾讯实时价+昨收，与右上角pct同维度，不再卡 renderOverview 旧值)
-  _applyDirColorToSparks(dynResult && dynResult.results); // 日图重染(2026-08-24 bug: 盘中 pct 翻转时日图色与 badge/分时同源跟随, 数据不动只换色)
   if (curSnap) refreshCardTimeBadges(curSnap); // 补更新角标(1min刷新也带动角标，不再卡 snap.datetime 10min粒度)
   if (curSnap) refreshGlobalRealtimeBadges(curSnap); // AZ89 全球指数实时报价角标随 snap 更新
   // 判断成功：有分时图渲染成功 OR 动态值拉取成功（分时图全收起时靠动态值判断）
@@ -14623,7 +11939,7 @@ async function renderOverview() {
     if (!idx.closes || !idx.closes.length) continue;
     if (_INDEX_TO_TENCENT_MINUTE[sparkId]) _sparkDynIds.push(sparkId);
     const up = (idx.pct_change || 0) >= 0;
-    const color = _sparkDirColor(idx.pct_change); // 单一色源(2026-08-24: 与盘中重染/分时图同源, 防初渲色写死与实时打架)
+    const color = up ? "#e6492e" : "#2e8b57";
     const cell = document.createElement("div");
     cell.className = "spark-cell";
     const sign = up ? "+" : "";
@@ -14801,15 +12117,13 @@ async function renderOverview() {
   });
   colA2.appendChild(freezeCard);
 
-  // 右列：近期买卖点（近30交易日，今日高亮排首；v1.1.5 2026-08-24 由15扩30）
+  // 右列：近期买卖点（近15交易日，今日高亮排首）
   const sigCard = document.createElement("div");
   sigCard.className = "chart-card sig-card";
-  sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 30 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看8类信号与ETF跟踪指标详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true, r.signals_meta);
+  sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看8类信号与ETF跟踪指标详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true, r.signals_meta);
   addCardTimeBadge(sigCard, r.date, snap, "t0", "", false, true);  // 任务1: useOverviewDate=true, 轮询后用最新 overview.date 刷新
   _sigCardRenderedAt = r.collected_at;  // D: 记录渲染时 collected_at, 供 _maybeRerenderSigCard 判断是否需重绘
   _bindSigSwitchRow(sigCard);  // 2026-08-13 首页 AI 开关行事件绑定(一次性委托, 重绘后仍生效)
-  try { _mountHomeDroughtChip(); } catch (e) {} // v1.1.5: AI建议区枯竭提示 chip 异步填充(重绘后重挂, N≥20 才显示)
-  try { _mountSigEmptyDrought(); } catch (e) {} // v1.1.5: 「仅显示可用信号」空态枯竭统计异步填充(slot 不存在=no-op)
   // B1 方案B(2026-07-27): 盘中提示 - sw_/thsc_/cgb_ 等行业概念指数不在 intraday 反哺列表
   // (_SNAPSHOT_TO_INDEX_ID 只12个),盘中它们的 -all.json 不更新,首页看到的当日 buy/sell pin
   // 点弹窗看不到 T 日 pin(K线末日还是 T-1)。加提示让用户知道收盘后 17:50 全对齐,非 bug。
@@ -14826,7 +12140,7 @@ async function renderOverview() {
   // A/B 方案(2026-07-29): 汇总条 button click 委托 toggle 评级/对错筛选, 优先于 .sig-clickable 弹窗。
   // E 方案(2026-07-31): 加时间窗口筛选 toggle, 与 grade/correct/type 正交(互不影响)。
   sigCard.addEventListener("click", (e) => {
-    const filterBtn = e.target.closest("[data-grade-filter], [data-correct-filter], [data-type-filter], [data-grade-filter-reset], [data-window-filter], [data-window-filter-reset], [data-etf-filter], [data-etf-filter-reset], [data-judge-win]");
+    const filterBtn = e.target.closest("[data-grade-filter], [data-correct-filter], [data-type-filter], [data-grade-filter-reset], [data-window-filter], [data-window-filter-reset], [data-etf-filter], [data-etf-filter-reset]");
     if (filterBtn) {
       e.preventDefault();
       e.stopPropagation();
@@ -14859,14 +12173,6 @@ async function renderOverview() {
           const fs = String(f);
           const arr = state.sigEtfFilterSet || [];
           state.sigEtfFilterSet = arr.includes(fs) ? arr.filter((x) => x !== fs) : [...arr, fs];
-        }
-      } else if (filterBtn.dataset.judgeWin != null) {
-        // 2026-08-24 对错判定窗切换(10=默认/15=对照): 写 state + localStorage 记忆, 尾部统一重绘后
-        // total/byType/评级/警示块/对错筛选/角标/hoverpop 全部跟随新档字段。
-        const nw = filterBtn.dataset.judgeWin === "15" ? 15 : 10;
-        if (state.sigJudgeWin !== nw) {
-          state.sigJudgeWin = nw;
-          try { localStorage.setItem("tds_sig_judge_win", String(nw)); } catch (e2) {}
         }
       }
       // 用最新 overview + snap 重绘(不依赖闭包 r/snap, 盘中自动更新后筛选也生效)
@@ -15422,7 +12728,6 @@ async function renderOverview() {
 // 大盘Tab：二级Tab切换（A股/港股/全球），渲染 subtab 栏 + 对应子内容
 async function renderMarket() {
   content.innerHTML = "";
-  _marketLazyReset(); // P2-11: subtab 重渲染入口统一断开旧懒观察(防 detached 节点泄漏/重复绑)
   renderPurposeNote(content, PURPOSE_NOTES["market"]);
   content.insertAdjacentHTML("beforeend", '<div class="tab-crosslink-note">ℹ️ 本页看指数<b>价格走势</b>+' + _t("crosslink_signal") + ';想看市场<b>盘面温测</b>(恐贪指数/冰点过热热力图)-> 去<a data-goto="sentiment" role="button" tabindex="0">【盘面温测】</a></div>');
   _bindTabCrosslink(content, "sentiment");
@@ -15783,10 +13088,6 @@ function _ntSparkBind(svg, closes, dates, color, w, h) {
       if (_left + _tipW > _svgRect.width) _left = _svgRect.width - _tipW;
       let _top = _cssY - _tipH - 12;
       if (_top < 0) _top = _cssY + 14;
-      // P2-3(fix) 同款: 底部 clamp — 矮卡(h72)大tooltip 翻到下方后超 wrap 底沿时上移,
-      // 防卡内 overflow:hidden 截断(与 _lwBind._show 同数学, rect 统一用 _wrapRect)
-      const _wrapH = _wrapRect.height || 0;
-      if (_wrapH > 0 && _top + _tipH > _wrapH) _top = Math.max(0, _wrapH - _tipH - 2);
       _tip.style.left = _left.toFixed(1) + "px";
       _tip.style.top = _top.toFixed(1) + "px";
     }
@@ -16168,16 +13469,6 @@ function _lwSVG(cfg) {
     const x = _px(i);
     s += '<text x="' + x.toFixed(1) + '" y="' + _xLabelY.toFixed(1) + '" font-size="' + _axFont + '" text-anchor="middle" style="fill:var(--text-1)">' + _xFmt(cfg.xLabels[i]) + '</text>';
   }
-  // markPoint hideOverlap(fix5, 复刻 echarts markPoint label.hideOverlap): 包围盒相交检测+贪心隐藏,
-  // 后画者与先画者相交则整牌跳过(先画者优先保留)。仅 pin 形参与(小圆点 r3 重叠是 band_hold 设计语义,
-  // 同原版不藏); 与 echarts label-only 隐藏的差异=整牌跳过 — 相邻信号 pin 叠成色块时 label 也无处安放,
-  // 整牌避让视觉更干净且 tooltip 数据仍全量可 hover。bbox: 横向 ±1.2r(覆盖 label 文字微超圆), 纵向 y-3r..y(圆+三角)。
-  const _mpBoxes = [];
-  const _mpHit = (x, y, r) => {
-    const bx0 = x - r * 1.2, bx1 = x + r * 1.2, by0 = y - 3 * r, by1 = y;
-    for (const b of _mpBoxes) { if (bx0 < b.x1 && bx1 > b.x0 && by0 < b.y1 && by1 > b.y0) return true; }
-    return false;
-  };
   // series(顺序: stack area 先底后顶, bar, line)
   for (const ser of cfg.series || []) {
     const ai = ser.yIndex || 0;
@@ -16373,9 +13664,6 @@ function _lwSVG(cfg) {
         const _stroke = mp.borderColor ? ' stroke="' + mp.borderColor + '" stroke-width="' + (mp.borderWidth || 3) + '"' : "";
         const _fo = mp.opacity != null ? ' fill-opacity="' + mp.opacity + '"' : "";
         if (mp.pin) {
-          // hideOverlap(fix5): 与先画 pin 包围盒相交则整牌跳过(贪心, 先画者优先), 复刻 echarts label.hideOverlap
-          if (_mpHit(x, y, r)) continue;
-          _mpBoxes.push({ x0: x - r * 1.2, x1: x + r * 1.2, y0: y - 3 * r, y1: y });
           // echarts 'pin' 形(圆顶+下三角指向数据点): label 居中在圆内; 三角尖对准数据点 (x,y)
           const cy = y - 2 * r;
           if (mp.glow) s += '<circle cx="' + x.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' + (r * 1.45).toFixed(1) + '" fill="' + mp.glow + '" opacity="0.35"/>';   // 金描边光晕(shadowBlur8 rgba(255,215,0,.6) 近似)
@@ -16565,9 +13853,6 @@ function _lwHeatmapBind(wrap, cfg) {
     if (left + tipW > svgRect.width) left = svgRect.width - tipW;
     let top = cssY - tipH - 10;
     if (top < 0) top = cssY + 12;
-    // P2-3(fix) 同款: 底部 clamp — heatmap tooltip 超出 wrap 底沿时上移(与 _lwBind._show 同模式)
-    const _wrapH = wrapRect.height || 0;
-    if (_wrapH > 0 && top + tipH > _wrapH) top = Math.max(0, _wrapH - tipH - 2);
     tip.style.left = left.toFixed(1) + "px";
     tip.style.top = top.toFixed(1) + "px";
   };
@@ -16733,9 +14018,6 @@ function _lwBind(wrap, cfg) {
       if (left + tipW > svgRect.width) left = svgRect.width - tipW;
       let top = cssY - tipH - 12;
       if (top < 0) top = cssY + 14;
-      // P2-3(fix): 底部 clamp — tooltip 超出 wrap 底沿时上移, 防图卡在页面底部时浮层被截断
-      const _wrapH = wrapRect.height || 0;
-      if (_wrapH > 0 && top + tipH > _wrapH) top = Math.max(0, _wrapH - tipH - 2);
       tip.style.left = left.toFixed(1) + "px";
       tip.style.top = top.toFixed(1) + "px";
     }
@@ -16774,11 +14056,6 @@ function _lwBind(wrap, cfg) {
       if (s < 0) s = 0;
       if (e > 1) e = 1;
       cfg.zoomStart = s; cfg.zoomEnd = e;
-      // P2-2b(fix): 缩放状态同步存 _lwZoomMap(key=container), 重渲染时由 _lwSetup 回填 —
-      // 否则浅拷贝 cfg 上的缩放在皮肤切换/⚡/setOption 重渲染后丢失重置回 [0,1]
-      try { _lwZoomMap.set(wrap, { start: s, end: e }); } catch (_e) {}
-      // P2-2a(fix): 缩放后隐藏旧 tooltip/十字线 — 窗口几何已变, 残留在旧位置误导(下次 mousemove 再现)
-      _hide();
       _recalc();
       _render();
     };
@@ -16905,9 +14182,6 @@ function _lwBind(wrap, cfg) {
 // 注册进 _lwRenderers 供 ⚡ 开关 _reRenderHomeCharts() 即时重渲染(双向 dispose 旧实例)。
 const _lwRenderers = new Map();
 const _lwCfgMap = new WeakMap(); // container -> cfg(供外部改尺寸后重渲染)
-// P2-2b(fix): container -> {start,end} 用户缩放状态。_lwBind 写在浅拷贝 liteCfg 上, 重渲染即丢;
-// 存此处由 _lwSetup.render() 每次回填进 liteCfg, 皮肤切换/⚡/setOption 重渲染均保留用户缩放。
-const _lwZoomMap = new WeakMap();
 function _lwSetup(container, cfg, echartsFn) {
   if (!container) return container;
   _lwCfgMap.set(container, cfg);
@@ -16927,9 +14201,6 @@ function _lwSetup(container, cfg, echartsFn) {
       // 高度取实测(响应式容器, 如分时图 desktop 100px / mobile 80px), 兜底 cfg.h
       const _hMeas = (container.offsetHeight || cfg.h || 300);
       const liteCfg = Object.assign({}, cfg, { h: _hMeas });
-      // P2-2b(fix): 回填用户缩放状态(若有) — 重渲染不再把缩放重置回 [0,1]
-      const _zSaved = _lwZoomMap.get(container);
-      if (_zSaved) { liteCfg.zoomStart = _zSaved.start; liteCfg.zoomEnd = _zSaved.end; }
       container.innerHTML = _lwHTML(liteCfg);
       _lwBind(container, liteCfg);
     } else if (typeof echarts !== "undefined" && echartsFn) {
@@ -18169,7 +15440,7 @@ async function renderAStock(container = content) {
   for (const [g, ids] of entries) {
     const series = buildSeries(g, ids);
     if (series.length && series.some((s) => s.data.length)) {
-      const chart = _marketLineCardLazy(g + (groupTermTips[g] ? termTip(groupTermTips[g]) : "") + latestSuffixMulti(series), series, {}, groupHints[g] || null, grid2col); // P2-11 大盘懒渲染
+      const chart = lineChart(g + (groupTermTips[g] ? termTip(groupTermTips[g]) : "") + latestSuffixMulti(series), series, {}, groupHints[g] || null, grid2col);
       if (chart) {
         let lastDate = "";
         for (const s of series) { if (s && s.data && s.data.length) { const d = s.data[s.data.length - 1]; if (d && d.date && d.date > lastDate) lastDate = d.date; } }
@@ -18254,7 +15525,7 @@ async function renderHK(container = content) {
   renderPurposeNote(container, PURPOSE_NOTES["market.hk"]);
   if (r.hk_south && r.hk_south.length) {
     const hks = r.hk_south.map((d) => ({ date: d.date, value: d.value }));
-    const chart = _marketLineCardLazy("港股通净买入（亿元）" + termTip("港股通南向资金净买入。内地投资者借港股通通道买港股,净流入为正=内地资金净买入港股(看好)。T+1数据。") + latestSuffixPct(hks), hks, {}, null, container); // P2-11 大盘懒渲染
+    const chart = lineChart("港股通净买入（亿元）" + termTip("港股通南向资金净买入。内地投资者借港股通通道买港股,净流入为正=内地资金净买入港股(看好)。T+1数据。") + latestSuffixPct(hks), hks, {}, null, container);
     if (chart) addCardTimeBadge(chart.getDom().parentElement, hks.length ? hks[hks.length - 1].date : "", snap, "t1", "hk_south");
   }
   const indices = _injectHkSnapshot(r.indices, snap);
@@ -18431,7 +15702,7 @@ async function renderGlobal(container = content) {
         // 2026-08-07 走势图卡片标题加指数代码（对齐 A 股做法 b7e0b96c1）
         const _idxCodeForTitle = indexIdToCode(id, idx.symbol);
         const _idxCodeTag = _idxCodeForTitle ? ` <span class="idx-code-tag" title="${idxCodeTooltip(id, _idxCodeForTitle)}">${_idxCodeForTitle}</span>` : "";
-        const chart = _marketIndexCardLazy(idxName + _idxCodeTag, idx.data, sigs, sig.stats, idx.strategy, cardGrid, charts, id, sig.tiers); // P2-11 大盘懒渲染
+        const chart = indexChart(idxName + _idxCodeTag, idx.data, sigs, sig.stats, idx.strategy, cardGrid, charts, id, sig.tiers);
         if (chart) {
           const cardEl = chart.getDom().parentElement;
           // 目录锚点跳转目标 id + scroll spy observe(卡片渲染完后注册)
@@ -18683,8 +15954,7 @@ let _industryFundMapLoading = null;  // Promise 防并发重复 fetch
 async function _loadIndustryFundMap() {
   if (_industryFundMapCache) return _industryFundMapCache;
   if (_industryFundMapLoading) return _industryFundMapLoading;
-  // perf批一 P9-D(2026-08-24): 补 timeoutMs=60000, 6.5MB 行业基金映射弱网防默认 15s 误炸。
-  _industryFundMapLoading = fetchJSON("https://ss.fx8.store/r2/public_fund/public_fund_industry_fund_map.json", 60000)
+  _industryFundMapLoading = fetchJSON("https://ss.fx8.store/r2/public_fund/public_fund_industry_fund_map.json")
     .catch((e) => { console.warn("[pf-fund-map] fetch failed", e?.message || e); return null; })
     .finally(() => { _industryFundMapLoading = null; });
   _industryFundMapCache = await _industryFundMapLoading;
@@ -21374,8 +18644,7 @@ function renderSentimentSignalList(host, r, snap) {
     for (const s of arr) all.push(s);
   }
   if (!all.length) return;
-  // 近 15 个日期（历史上对齐首页 signals_today 的15日窗口；2026-08-24 首页窗口扩至30交易日本模块保持15日独立窗口不动——
-  // 数据源=期货净加仓明细 queries.py compute_role_ih_detail n_days=15, 业务语义与信号列表窗口无关, 不跟扩 §23.3 清单), 新日期在前
+  // 近 15 个日期（对齐首页 signals_today 窗口口径），新日期在前
   const dates = [...new Set(all.map((s) => s.date))].sort((a, b) => (a < b ? 1 : -1));
   const recentDates = dates.slice(0, 15);
   const recentSet = new Set(recentDates);
@@ -22604,53 +19873,44 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     // 行业绿色(最新)档专属 tip（补充申万/baostock 源说明）；滞后/异常档保留通用 tip
     const _indBdg = cell.querySelector(".card-time-badge.intraday");
     if (_indBdg) _indBdg.setAttribute("data-tip", "行业指数T+1(申万/baostock收盘后次日补全,逢周末顺延到下一交易日),已更新到最新交易日");
-    // ---- P2-11 延伸(板块分化懒渲染,2026-08-22): 本格全部 echarts 图(主 spark+F2 迷你×3+F3 宽度)延迟到进视口 ----
-    // 根因: 切板块分化一次性 echarts.init 30+ 格×4-5 图≈150 实例,单帧长任务 753ms(P2-11 大盘同根因延伸)。
-    // 方式: DOM 骨架同步建(上方 innerHTML,CSS min-height 保布局零变化);图表经 _mktLazyProxy 入全局 charts
-    //      (resize/retheme/dispose 消费面同真实实例),option 以闭包函数传入(init 时才构建,读实时皮肤色),
-    //      进视口后经 _indLazyEnqueue 时间切片分帧 init;滚动到可见后渲染结果与一次性渲染逐像素一致。
-    const _cellProxies = [];
-    const _lazyCellChart = (el, buildOpt) => {
-      const p = _mktLazyProxy(el, cell, charts, buildOpt);
-      _cellProxies.push(p);
-      return p;
-    };
     const chartDom = cell.querySelector(".spark-chart");
-    _lazyCellChart(chartDom, () => {
-      const markData = signals.map((s) => {
-        const o = ohlc.find((x) => x.date === s.date);
-        return {
-          coord: [s.date, o ? o.close : null],
-          value: signalLabel(s),
-          reason: s.reason || "",  // P0-3: 完整 reason 收进 hover tooltip
-          itemStyle: { color: signalColor(s) },
-          label: { color: _autoLabelColor(signalColor(s)) },
-        };
-      });
-      return withTheme({
-        grid: { left: 2, right: 2, top: 6, bottom: 18 },
-        xAxis: { type: "category", show: true, data: ohlc.map((d) => d.date), axisLabel: { fontSize: 8, color: cssVar("--text-1"), interval: Math.max(1, Math.floor(ohlc.length / 5)), formatter: (v) => v.slice(0, 4) + "-" + v.slice(4, 6) }, axisTick: { show: false }, axisLine: { show: false }, splitLine: { show: false } },
-        yAxis: { type: "value", show: false, scale: true },
-        tooltip: { trigger: "axis", formatter: (p) => {
-          const d = ohlc[p[0].dataIndex];
-          if (!d || d.close == null) return `${p[0].axisValue}<br/>-`;
-          const lines = [p[0].axisValue, `收盘 ${d.close.toFixed(2)}`];
-          if (d.pct_change != null) lines.push(`涨跌 ${d.pct_change >= 0 ? "+" : ""}${d.pct_change.toFixed(2)}%`);
-          const od = _indOHL(id, idx, p[0].dataIndex);
-          if (od.open != null && od.high != null && od.low != null) lines.push(`开 ${od.open.toFixed(2)} 高 ${od.high.toFixed(2)} 低 ${od.low.toFixed(2)}`);
-          // P0-3: 信号日追加完整 reason
-          const marks = markData.filter((m) => m.coord[0] === p[0].axisValue && m.reason);
-          for (const m of marks) lines.push(`<b style="color:${m.itemStyle.color}">● ${m.value}</b> ${_fmtReasonWithBand(m.reason)}`);
-          return lines.join("<br/>");
-        } },
-        series: [{
-          type: "line", smooth: true, symbol: "none",
-          data: ohlc.map((d) => [d.date, d.close]),
-          lineStyle: { color, width: 1.5 }, areaStyle: { color, opacity: 0.12 },
-          markPoint: { symbol: "pin", symbolSize: 26, label: { fontSize: 9, color: cssVar("--text-1") }, data: markData },
-        }],
-      });
+    const exist = echarts.getInstanceByDom(chartDom);
+    if (exist) exist.dispose();
+    const sc = echarts.init(chartDom);
+    const markData = signals.map((s) => {
+      const o = ohlc.find((x) => x.date === s.date);
+      return {
+        coord: [s.date, o ? o.close : null],
+        value: signalLabel(s),
+        reason: s.reason || "",  // P0-3: 完整 reason 收进 hover tooltip
+        itemStyle: { color: signalColor(s) },
+        label: { color: _autoLabelColor(signalColor(s)) },
+      };
     });
+    sc.setOption(withTheme({
+      grid: { left: 2, right: 2, top: 6, bottom: 18 },
+      xAxis: { type: "category", show: true, data: ohlc.map((d) => d.date), axisLabel: { fontSize: 8, color: cssVar("--text-1"), interval: Math.max(1, Math.floor(ohlc.length / 5)), formatter: (v) => v.slice(0, 4) + "-" + v.slice(4, 6) }, axisTick: { show: false }, axisLine: { show: false }, splitLine: { show: false } },
+      yAxis: { type: "value", show: false, scale: true },
+      tooltip: { trigger: "axis", formatter: (p) => {
+        const d = ohlc[p[0].dataIndex];
+        if (!d || d.close == null) return `${p[0].axisValue}<br/>-`;
+        const lines = [p[0].axisValue, `收盘 ${d.close.toFixed(2)}`];
+        if (d.pct_change != null) lines.push(`涨跌 ${d.pct_change >= 0 ? "+" : ""}${d.pct_change.toFixed(2)}%`);
+        const od = _indOHL(id, idx, p[0].dataIndex);
+        if (od.open != null && od.high != null && od.low != null) lines.push(`开 ${od.open.toFixed(2)} 高 ${od.high.toFixed(2)} 低 ${od.low.toFixed(2)}`);
+        // P0-3: 信号日追加完整 reason
+        const marks = markData.filter((m) => m.coord[0] === p[0].axisValue && m.reason);
+        for (const m of marks) lines.push(`<b style="color:${m.itemStyle.color}">● ${m.value}</b> ${_fmtReasonWithBand(m.reason)}`);
+        return lines.join("<br/>");
+      } },
+      series: [{
+        type: "line", smooth: true, symbol: "none",
+        data: ohlc.map((d) => [d.date, d.close]),
+        lineStyle: { color, width: 1.5 }, areaStyle: { color, opacity: 0.12 },
+        markPoint: { symbol: "pin", symbolSize: 26, label: { fontSize: 9, color: cssVar("--text-1") }, data: markData },
+      }],
+    }));
+    charts.push(sc);
 
     // F2：行业资金流 / 成交额 / 换手率 mini sparklines
     const metricsBox = cell.querySelector(".ind-metrics");
@@ -22677,7 +19937,8 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
         <div class="ind-metric-chart"></div>
         <span class="ind-metric-val">${lastVal == null ? "-" : spec.fmt(lastVal)}</span>`;
       metricsBox.appendChild(row);
-      _lazyCellChart(row.querySelector(".ind-metric-chart"), () => withTheme({
+      const mc = echarts.init(row.querySelector(".ind-metric-chart"));
+      mc.setOption(withTheme({
         grid: { left: 1, right: 1, top: 1, bottom: 1 },
         xAxis: { type: "category", show: false, data: spec.data.map((d) => d.date) },
         yAxis: { type: "value", show: false, scale: true },
@@ -22693,6 +19954,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
           areaStyle: { color: spec.color, opacity: 0.1 },
         }],
       }));
+      charts.push(mc);
     }
     if (!hasAnyMetric) {
       const emptyNote = document.createElement("div");
@@ -22712,7 +19974,8 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
         <div class="ind-metric-chart"></div>
         <span class="ind-metric-val" title="行业内成分股涨跌家数">涨${lastW.up_count == null ? "-" : lastW.up_count} 跌${lastW.down_count == null ? "-" : lastW.down_count}</span>`;
       metricsBox.appendChild(row);
-      _lazyCellChart(row.querySelector(".ind-metric-chart"), () => withTheme({
+      const wc = echarts.init(row.querySelector(".ind-metric-chart"));
+      wc.setOption(withTheme({
         grid: { left: 1, right: 1, top: 1, bottom: 1 },
         legend: { show: false },
         xAxis: { type: "category", show: false, data: widthData.map((d) => d.date) },
@@ -22732,11 +19995,8 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
             lineStyle: { color: "#2e8b57", width: 0.8 }, areaStyle: { color: "#2e8b57", opacity: 0.35 } },
         ],
       }));
+      charts.push(wc);
     }
-    // 进视口注册(一格一注册): IO 回调只把本格代理入队,由 _indLazyDrainStep 时间切片分帧 init
-    // (可视区一次可达 60+ 图,同步 init 仍会长任务;时间盒 12ms/tick 单任务恒 <<50ms)
-    // IO 不支持环境由 _marketLazyRegister 同步兜底调 initFn → 入队后照样分帧排空,行为退化为渐进渲染不白屏。
-    _marketLazyRegister(cell, () => _indLazyEnqueue(_cellProxies));
   }
 }
 
@@ -22980,19 +20240,7 @@ function disconnectAllIndexNavSpies() {
 // 释放指定容器内 ECharts 实例并从全局 charts 移除（搜索重渲染前清理）
 function _disposeContainerCharts(container) {
   if (!container) return;
-  // .ind-metric-chart 为行业格迷你图容器(仅 renderIndustryGrid 使用,他处无此类);未 init 的懒卡无 [_echarts_instance_] 属性
-  container.querySelectorAll(".spark-chart, .ind-metric-chart, [_echarts_instance_]").forEach((dom) => {
-    // 懒代理卡先走 proxy.dispose(unobserve+出 charts+清 pending),防「实例 dispose 了但代理悬空」
-    // (评审项B闭环: 2026-08-22 起 _disposeContainerCharts 认懒卡,__mktLazyProxy 反查;无懒卡容器反查不命中行为不变)
-    const lazy = dom.__mktLazyProxy;
-    if (lazy) {
-      if (!lazy.isDisposed()) {
-        const li = charts.indexOf(lazy);
-        if (li >= 0) charts.splice(li, 1);
-        lazy.dispose();
-      }
-      return;
-    }
+  container.querySelectorAll(".spark-chart, [_echarts_instance_]").forEach((dom) => {
     const inst = echarts.getInstanceByDom(dom);
     if (inst) {
       inst.dispose();
@@ -23432,14 +20680,9 @@ function _etfTrendSVG(ohlc, w) {
     s += '<path d="' + _d + '" fill="none" stroke="' + _stroke + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>';
   }
   // 每点 r2 小圆(echarts symbolSize 4 = 半径 2; null 点不画) + hover 十字线/高亮点
-  // #10 ETF弹窗长历史(2026-08-22): 点数>300 时省略逐点圆(全史 21 年 ~5200 点 SVG DOM 数千
-  // circle 卡顿; 折线/面积/十字线/hover 高亮全保留, 视觉密度由折线本身承担, 同 echarts 大数据量
-  // 自动隐藏 symbol 的行为)。30日默认(30点)<=300 不受影响, §23.7 默认行为零变化。
-  if (_n <= 300) {
-    for (let i = 0; i < _n; i++) {
-      if (_vals[i] == null || isNaN(_vals[i])) continue;
-      s += '<circle cx="' + _px(i).toFixed(1) + '" cy="' + _py(_vals[i]).toFixed(1) + '" r="2" fill="' + _stroke + '"/>';
-    }
+  for (let i = 0; i < _n; i++) {
+    if (_vals[i] == null || isNaN(_vals[i])) continue;
+    s += '<circle cx="' + _px(i).toFixed(1) + '" cy="' + _py(_vals[i]).toFixed(1) + '" r="2" fill="' + _stroke + '"/>';
   }
   s += '<line class="etf-trend-cursor" x1="0" y1="' + PT + '" x2="0" y2="' + _baseY + '" stroke="var(--border-strong)" stroke-width="1" opacity="0"/>';
   s += '<circle class="etf-trend-hover-pt" r="4" fill="' + _stroke + '" opacity="0"/>';
@@ -23468,15 +20711,10 @@ function _etfTrendLiteHTML(ohlc) {
 // + 点高亮 + 浮层 tooltip(日期+收盘), mouseleave 隐藏。
 // 绑定时刻实测渲染宽 -> 以真实像素为 viewBox 宽重生成 SVG 几何(边距=真实像素, 对齐 echarts grid,
 // 解决 preserveAspectRatio=none 下 viewBox 单位随宽缩放致边距对不上的问题)。
-function _etfTrendLiteBind(svg, ohlc, opts) {
+function _etfTrendLiteBind(svg, ohlc) {
   if (!svg) return;
   const _wrap = svg.parentElement;
   if (!_wrap) return;
-  // opts.valueLabel/opts.valueDecimals: tooltip 数值文案与小数位(#11 基金净值走势复用
-  // 本 helper 传「单位净值」+4 位; 净值 4 位小数, 价格 3 位)。缺省「收盘」+3 位 =
-  // ETF 既有行为逐字不变(§23.7 向后兼容可选参数)
-  const _valueLabel = (opts && opts.valueLabel) || "收盘";
-  const _valueDecimals = (opts && opts.valueDecimals != null) ? opts.valueDecimals : 3;
   const _points = ohlc.filter((d) => d && d[4] != null);
   if (_points.length < 2) return;
   // 实测渲染宽 -> viewBox 宽 = 真实像素(1:1 无拉伸), 重生成几何
@@ -23509,7 +20747,7 @@ function _etfTrendLiteBind(svg, ohlc, opts) {
       }
     }
     if (_tip) {
-      _tip.innerHTML = fmtDate(_dates[i]) + "<br/>" + _valueLabel + " " + (_v != null ? Number(_v).toFixed(_valueDecimals) : "-");
+      _tip.innerHTML = fmtDate(_dates[i]) + "<br/>收盘 " + (_v != null ? Number(_v).toFixed(3) : "-");
       _tip.style.display = "block";
       const svgRect = svg.getBoundingClientRect();
       const wrapRect = _wrap.getBoundingClientRect();
@@ -23644,8 +20882,7 @@ async function _ensureHoldLoaded() {
   if (_etfScoreState.holdLoading) return _etfScoreState.holdLoading;
   _etfScoreState.holdLoading = (async () => {
     try {
-      // perf批一 P3-D(2026-08-24): hold 分件大(~16MB,去indent后~8MB), 补 timeoutMs=60000 防弱网撞默认 15s。
-      const r = await fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_hold.json", 60000);
+      const r = await fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_hold.json");
       // hold_list item -> 统一格式(同 renderEtfScore 合并逻辑, side="hold")
       const holdItems = (r.hold_list || []).map((e) => ({
         etf_code: e.etf_code, name: e.name, score: e.score, side: "hold",
@@ -23723,136 +20960,6 @@ function _renderEtfPager(scope, page, pages, total) {
 // 不放入全局 charts 数组（弹窗 open/close 生命周期与 charts 的 tab 切换 dispose 不同步，避免数组堆积死实例），
 // window resize / H5 切换时单独 resize 它。
 let _etfTrendChart = null;
-// 走势区请求序号: 模块级全局单调递增(2026-08-25 F2 修跨弹窗竞态)。原存 modal._ctx 会随每次
-// open 重置、close 不失效——A 基金 fetch in-flight 中关开到 B, A 晚到仍通过校验把 A 的走势
-// 画进 B 弹窗。全局计数器不复位即天然失效旧请求, 同弹窗切 tab 防护语义不变。
-let _etfTrendReqSeq = 0;
-
-// ============ #10 ETF弹窗长历史(2026-08-22): period tab + 懒加载 R2 etf/{code}-all.json ============
-// 数据产物: scripts/export_etf_hist.py -> static-site/data/etf/{code}-all.json (全史前复权日K,
-//   R2 etf/ 前缀, 同 index/{iid}-all.json 模式)。结构 {date, code, name, count, adj, ohlc}。
-// UI/交互 pattern 复用 openSignalChartModal(_signalChartModalEl): .signal-chart-periods +
-//   .lab-signal-period-btn + modal._ctx 重入。默认 "30d"=e.ohlc 内置近30日零 fetch(默认行为零变化,
-//   §23.7); 其余周期客户端按 _signalModalCutoff 过滤(基于数据末日回推, 与信号弹窗同口径)。
-// 缓存: 模块级 per-code 全量 payload(均 ~58KB), 弹窗关开/切周期不重复拉取。
-const _etfHistCache = {};
-// [period, tab 文案, 区块标题] — 顺序即 tab 排列(30d 在前为默认, 其余对齐信号弹窗 6 键)
-const _ETF_TREND_PERIODS = [
-  ["30d", "30日", "近30日走势"],
-  ["3m", "3月", "近3月走势"],
-  ["6m", "6月", "近6月走势"],
-  ["1y", "1年", "近1年走势"],
-  ["3y", "3年", "近3年走势"],
-  ["5y", "5年", "近5年走势"],
-  ["all", "全部", "全部历史走势"],
-];
-
-async function _renderEtfTrendSection(modal, code, period) {
-  const body = modal && modal.querySelector(".etf-detail-content");
-  const sec = body && body.querySelector("#etfTrendSection");
-  if (!sec || !code) return;
-  const e = (_etfScoreState.all || []).find((x) => x.etf_code === code);
-  if (!e) return;
-  const meta = _ETF_TREND_PERIODS.find((p) => p[0] === period) || _ETF_TREND_PERIODS[0];
-  // 竞态防护: 快速切 tab / 关开弹窗时旧 fetch 回来不得覆盖新渲染(模块级全局序号, 渲染前校验)
-  const reqId = ++_etfTrendReqSeq;
-
-  let ohlc = null;
-  let histName = e.name || code;
-  if (period === "30d") {
-    ohlc = e.ohlc || [];
-  } else {
-    let hist = _etfHistCache[code];
-    if (!hist) {
-      sec.innerHTML = '<div class="lab-custom-loading">⏳ 长历史加载中…</div>';
-      try {
-        // 硬编码 R2 直链(同 openSignalChartModal 常规指数分支 L7434 模式; /r2/ 代理路由)
-        hist = await fetchJSON(`https://ss.fx8.store/r2/etf/${code}-all.json`);
-        _etfHistCache[code] = hist;
-      } catch (_err) {
-        if (_etfTrendReqSeq !== reqId) return; // 已有更新请求/已换弹窗,丢弃过期失败
-        sec.innerHTML = '<div class="etf-trend-hist-err" style="padding:14px;font-size:13px;color:var(--text-3);background:var(--bg-2,rgba(128,128,128,0.08));border-radius:8px">⚠ 长历史数据加载失败，请稍后重试（默认 30 日走势不受影响）</div>';
-        return;
-      }
-    }
-    if (hist && hist.name) histName = hist.name;
-    ohlc = (hist && hist.ohlc) || [];
-    // 客户端 period 过滤(复用 _signalModalCutoff: 输入需 {date} 对象数组, 传末元素包装;
-    // all 返回 null 不过滤)。date 为 YYYYMMDD 字符串直接字典序比较。
-    if (ohlc.length >= 2) {
-      const filterDate = _signalModalCutoff([{ date: ohlc[ohlc.length - 1][0] }], period);
-      if (filterDate) ohlc = ohlc.filter((r) => r[0] >= filterDate);
-    }
-  }
-
-  if (_etfTrendReqSeq !== reqId) return; // 过期响应丢弃
-
-  // 重渲染前 dispose 旧走势实例(切周期 innerHTML 重写防泄漏; 关闭弹窗由 closeEtfScoreDetailModal 兜底)
-  _disposeContainerCharts(sec);
-  _etfTrendChart = null;
-
-  if (!ohlc || ohlc.length < 2) {
-    sec.innerHTML = '<div class="lab-custom-score-card lab-custom-block-gap"><div class="lab-custom-section-title">📈 ' + meta[2] + '</div><div style="padding:14px;font-size:13px;color:var(--text-3)">该周期暂无足够数据（上市时间可能不足）</div></div>';
-    return;
-  }
-
-  const _liteTrend = !!siteCfg("charts.lightweight", true);
-  sec.innerHTML = '<div class="lab-custom-score-card lab-custom-block-gap"><div class="lab-custom-section-title">📈 ' + meta[2]
-    + (period !== "30d" ? ' <span style="font-weight:400;font-size:11px;color:var(--text-3)" title="数据源: etf_daily 表全史前复权日K(accum_nav 因子)">' + _esc(histName) + ' · ' + ohlc.length + ' 个交易日</span>' : '')
-    + '</div>'
-    + (_liteTrend
-        ? _etfTrendLiteHTML(ohlc)
-        : '<div id="etfTrendChart" style="height:200px"></div>')
-    + '</div>';
-
-  // 轻量 SVG 版补逐点 hover(2026-08-11, 零 echarts 依赖): 十字线 + 点高亮 + 浮层 tooltip
-  const _liteSvg = sec.querySelector(".etf-trend-lite");
-  if (_liteSvg) _etfTrendLiteBind(_liteSvg, ohlc);
-  // echarts 完整版(body.innerHTML 设置后容器存在才 init；轻量 SVG 版无 #etfTrendChart 容器自然跳过)
-  const _trendEl = sec.querySelector("#etfTrendChart");
-  if (_trendEl && typeof echarts !== "undefined") {
-    const _dates = ohlc.map((d) => d[0]);
-    const _closes = ohlc.map((d) => d[4]);
-    // 末点可能为 null, 涨跌色基准=最后一个有效值(与轻量 SVG 版 _lastV 同口径, P2-3)
-    let _lastC = null;
-    for (let i = _closes.length - 1; i >= 0; i--) { const v = _closes[i]; if (v != null && !isNaN(v)) { _lastC = v; break; } }
-    const _isUp = _lastC != null && _lastC >= _closes[0];
-    const _trendColor = _isUp ? "#e6492e" : "#2e8b57";
-    try {
-      _etfTrendChart = echarts.init(_trendEl);
-      // 视觉对等(方案B, 2026-08-11): setOption 包 withTheme() 让 echarts 版随皮肤——轴线/网格/坐标字
-      // /tooltip 读 --text-1/--border-strong/--border/--bg-card(chartThemeOpts), 与轻量 SVG 版引用
-      // 同一批 CSS 变量同源配色, 任何皮肤下两版逐项一致。入全局 charts 注册表 -> 切皮肤 rethemeCharts
-      // 也覆盖(与 SVG 的 var() 自动跟随一致); 弹窗关闭/切周期 _disposeContainerCharts 自动 dispose+splice 无泄漏。
-      if (charts.indexOf(_etfTrendChart) < 0) charts.push(_etfTrendChart);
-      _etfTrendChart.setOption(withTheme({
-        tooltip: {
-          trigger: "axis",
-          formatter: (p) => {
-            const dt = p[0] && p[0].axisValue;
-            const v = p[0] && p[0].data;
-            return fmtDate(dt) + "<br/>收盘 " + (v != null ? v.toFixed(3) : "-");
-          },
-        },
-        grid: { left: 50, right: 15, top: 15, bottom: 25 },
-        // 十字线实线随皮肤轴线色(与 SVG hover 十字线 var(--border-strong) 同源)
-        axisPointer: { type: "line", lineStyle: { color: cssVar("--border-strong") } },
-        xAxis: { type: "category", data: _dates, axisLabel: { fontSize: 10, formatter: (v) => fmtDate(v) } },
-        yAxis: { type: "value", scale: true, axisLabel: { fontSize: 10 } },
-        series: [{
-          type: "line", smooth: true, symbol: "circle", symbolSize: 4,
-          data: _closes,
-          lineStyle: { color: _trendColor, width: 1.5 },
-          itemStyle: { color: _trendColor },
-          areaStyle: { color: _isUp ? "rgba(230,73,46,0.12)" : "rgba(46,139,87,0.12)" },
-        }],
-      }));
-      // 弹窗 resize 时同步（modal 已 display，requestAnimationFrame 确保 DOM 布局完成）
-      requestAnimationFrame(() => _etfTrendChart && _etfTrendChart.resize());
-    } catch (_e) { /* echarts init 失败不阻塞弹窗其余区块 */ }
-  }
-}
-
 function openEtfScoreDetailModal(code) {
   // 从 _etfScoreState.all 查 item(已合并 buy/sell/hold, 含新字段)
   const e = (_etfScoreState.all || []).find((x) => x.etf_code === code);
@@ -23866,21 +20973,10 @@ function openEtfScoreDetailModal(code) {
       <div class="rule-modal-body signal-chart-modal-body">
         <div class="rule-modal-header">
           <h3 class="etf-detail-title">🔬 ETF 决策依据</h3>
-          <div class="signal-chart-periods"><button class="lab-signal-period-btn active" data-period="30d">30日</button><button class="lab-signal-period-btn" data-period="3m">3月</button><button class="lab-signal-period-btn" data-period="6m">6月</button><button class="lab-signal-period-btn" data-period="1y">1年</button><button class="lab-signal-period-btn" data-period="3y">3年</button><button class="lab-signal-period-btn" data-period="5y">5年</button><button class="lab-signal-period-btn" data-period="all">全部</button></div>
           <button class="rule-modal-close" aria-label="关闭">&times;</button>
         </div>
         <div class="rule-modal-content etf-detail-content"></div>
       </div>`;
-    // #10 ETF弹窗长历史(2026-08-22): period tab 切换(UI/交互 pattern 复用 openSignalChartModal
-    // _signalChartModalEl L7310: .signal-chart-periods + .lab-signal-period-btn + modal._ctx 重入)。
-    // 30d=默认(e.ohlc 内置近30日, 零 fetch 默认行为零变化); 其余周期懒加载 R2 etf/{code}-all.json。
-    modal.querySelectorAll(".lab-signal-period-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        modal.querySelectorAll(".lab-signal-period-btn").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-        _renderEtfTrendSection(modal, modal._ctx && modal._ctx.code, btn.dataset.period);
-      });
-    });
     document.body.appendChild(modal);
     modal.querySelector(".rule-modal-overlay").onclick = closeEtfScoreDetailModal;
     modal.querySelector(".rule-modal-close").onclick = closeEtfScoreDetailModal;
@@ -23889,9 +20985,6 @@ function openEtfScoreDetailModal(code) {
     });
   }
   modal.querySelector(".etf-detail-title").textContent = "🔬 " + (e.name || code) + " 决策依据";
-  // #10: period tab 上下文(切换事件读 code 重渲染走势区块); 每次打开重置 tab 到默认 30日
-  modal._ctx = { code };
-  modal.querySelectorAll(".lab-signal-period-btn").forEach((b) => b.classList.toggle("active", b.dataset.period === "30d"));
   const body = modal.querySelector(".etf-detail-content");
   // 重开弹窗前 dispose 旧走势图实例：body 内旧 #etfTrendChart DOM 还在，_disposeContainerCharts 通过
   // [_echarts_instance_] 属性捕获并 dispose（代码库既定模式，同 openIndexAnalyzeModal/_disposeContainerCharts）。
@@ -24026,14 +21119,63 @@ function openEtfScoreDetailModal(code) {
   // 放 headHTML 后（决策头后先看走势再看手数/卖出/置信度），echarts line+areaStyle，涨红跌绿跟主题。
   // 站点统一配置框架(P0, 2026-08-11): charts.lightweight=true(默认) 走轻量 SVG 渲染(_etfTrendLiteHTML),
   //   false 回 echarts 完整版(带 hover tooltip)。用户可在皮肤弹窗 ⚡ 走势图渲染 切换/localStorage 覆盖。
-  // #10 长历史(2026-08-22): 区块改为容器占位 + _renderEtfTrendSection 异步渲染(period tab 切换共用),
-  //   默认 period="30d" 仍用 e.ohlc 内置数据零 fetch, 默认行为零变化(§23.7)。
-  const trendHTML = '<div id="etfTrendSection"></div>';
+  const _liteTrend = !!siteCfg("charts.lightweight", true);
+  const trendHTML = (e.ohlc && e.ohlc.length >= 2)
+    ? (_liteTrend
+        ? `<div class="lab-custom-score-card lab-custom-block-gap"><div class="lab-custom-section-title">📈 近30日走势</div>${_etfTrendLiteHTML(e.ohlc)}</div>`
+        : `<div class="lab-custom-score-card lab-custom-block-gap"><div class="lab-custom-section-title">📈 近30日走势</div><div id="etfTrendChart" style="height:200px"></div></div>`)
+    : "";
 
   body.innerHTML = headHTML + trendHTML + actionHTML + confHTML + dimsHTML + histHTML + threshHTML + footerHTML;
 
-  // 需求1 + #10: 走势区块异步渲染(30d 默认 / 长周期懒加载 R2 etf/{code}-all.json)
-  _renderEtfTrendSection(modal, code, "30d");
+  // 需求1：echarts init 近30日走势（body.innerHTML 设置后容器存在才 init；轻量 SVG 版无 #etfTrendChart 容器自然跳过）
+  if (trendHTML) {
+    // 轻量 SVG 版补逐点 hover(2026-08-11, 零 echarts 依赖): 十字线 + 点高亮 + 浮层 tooltip
+    const _liteSvg = body.querySelector(".etf-trend-lite");
+    if (_liteSvg && e.ohlc) _etfTrendLiteBind(_liteSvg, e.ohlc);
+    const _trendEl = body.querySelector("#etfTrendChart");
+    if (_trendEl && typeof echarts !== "undefined") {
+      const _dates = e.ohlc.map((d) => d[0]);
+      const _closes = e.ohlc.map((d) => d[4]);
+      // 末点可能为 null, 涨跌色基准=最后一个有效值(与轻量 SVG 版 _lastV 同口径, P2-3)
+      let _lastC = null;
+      for (let i = _closes.length - 1; i >= 0; i--) { const v = _closes[i]; if (v != null && !isNaN(v)) { _lastC = v; break; } }
+      const _isUp = _lastC != null && _lastC >= _closes[0];
+      const _trendColor = _isUp ? "#e6492e" : "#2e8b57";
+      try {
+        _etfTrendChart = echarts.init(_trendEl);
+        // 视觉对等(方案B, 2026-08-11): setOption 包 withTheme() 让 echarts 版随皮肤——轴线/网格/坐标字
+        // /tooltip 读 --text-1/--border-strong/--border/--bg-card(chartThemeOpts), 与轻量 SVG 版引用
+        // 同一批 CSS 变量同源配色, 任何皮肤下两版逐项一致。入全局 charts 注册表 -> 切皮肤 rethemeCharts
+        // 也覆盖(与 SVG 的 var() 自动跟随一致); 弹窗关闭 _disposeContainerCharts 自动 dispose+splice 无泄漏。
+        if (charts.indexOf(_etfTrendChart) < 0) charts.push(_etfTrendChart);
+        _etfTrendChart.setOption(withTheme({
+          tooltip: {
+            trigger: "axis",
+            formatter: (p) => {
+              const dt = p[0] && p[0].axisValue;
+              const v = p[0] && p[0].data;
+              return fmtDate(dt) + "<br/>收盘 " + (v != null ? v.toFixed(3) : "-");
+            },
+          },
+          grid: { left: 50, right: 15, top: 15, bottom: 25 },
+          // 十字线实线随皮肤轴线色(与 SVG hover 十字线 var(--border-strong) 同源)
+          axisPointer: { type: "line", lineStyle: { color: cssVar("--border-strong") } },
+          xAxis: { type: "category", data: _dates, axisLabel: { fontSize: 10, formatter: (v) => fmtDate(v) } },
+          yAxis: { type: "value", scale: true, axisLabel: { fontSize: 10 } },
+          series: [{
+            type: "line", smooth: true, symbol: "circle", symbolSize: 4,
+            data: _closes,
+            lineStyle: { color: _trendColor, width: 1.5 },
+            itemStyle: { color: _trendColor },
+            areaStyle: { color: _isUp ? "rgba(230,73,46,0.12)" : "rgba(46,139,87,0.12)" },
+          }],
+        }));
+        // 弹窗 resize 时同步（modal 已 display，requestAnimationFrame 确保 DOM 布局完成）
+        requestAnimationFrame(() => _etfTrendChart && _etfTrendChart.resize());
+      } catch (_e) { /* echarts init 失败不阻塞弹窗其余区块 */ }
+    }
+  }
 
   // 折叠阈值表交互(同 openIndexAnalyzeModal)
   const toggle = body.querySelector(".lab-custom-thresh-toggle");
@@ -24344,9 +21486,8 @@ async function renderEtfScore(container) {
   // R2 代理(ss.fx8.store/r2/data/ + Worker Cache API 边缘缓存1h), 原 18MB 单文件 -> buy 1.4MB + sell 1.2MB + hold 13MB(懒加载)
   // buy/sell JSON 各含完整 meta + 三分类计数(buy_count/sell_count/hold_count), 从 buy 取 meta 即可
   const [rBuy, rSell] = await Promise.all([
-    // perf批一 P3-D(2026-08-24): buy/sell 分件与 hold 同源同参统一 timeoutMs=60000。
-    fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_buy.json", 60000),
-    fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_sell.json", 60000),
+    fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_buy.json"),
+    fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_sell.json"),
   ]);
   const r = rBuy; // meta 从 buy JSON 取(buy/sell 同源同 meta)
   _etfScoreState.meta = {
@@ -24588,21 +21729,15 @@ async function renderFund() {
   else await renderEtfScore(subContent); // 默认 场内ETF
 }
 
-// ============ 场外基金评分排行（Phase B/C 全量化 #79 方案C, 2026-08-22） ============
-// 主数据源: /api/fund_score（CF Worker + D1 trade-fund-score, 全市场 ≈27600 只分页,
-//   服务端分页/筛选/排序/搜索; scripts/sync_fund_score_to_d1.sh 每日同步）
-// fallback 数据源（API 失败/未就绪时保底不白屏, 既有链路不动摇）:
-//   R2 直链 https://ss.fx8.store/r2/fund_score/fund_score_top.json（Top100）
-//   CF fallback: ./data/fund_score_top.json
-// 43 字段: fund_code/name/type/composite_score/star_rating + 6维度 + 5风险 + 经理6维
-//   + 凯利 + 市场乘数 + final_suggestion + #79 step1 扩展(fund_company/fund_manager/
-//   setup_date/scale/management_fee/custody_fee/purchase_fee/strategy/benchmark_text)
+// ============ 场外基金评分排行（Phase A：Top100 列表 + 排序/搜索/筛选） ============
+// 数据源: R2 直链 https://ss.fx8.store/r2/fund_score/fund_score_top.json（83KB, Top100）
+// CF fallback: ./data/fund_score_top.json（按 §8.1 优先 R2，CF 也 200 作兜底）
+// 34 字段: fund_code/name/type/composite_score/star_rating + 6维度 + 5风险 + 经理6维 + 凯利 + 市场乘数 + final_suggestion
 // 复用 ETF 评分成熟模式: _etfScoreState / _renderEtfScoreBody / _etfScoreTier / _etfScoreColor
+// Phase A: 列表 + 排序/搜索/筛选; Phase B: 详情弹窗 5 区块; Phase C: 雷达图 + 实战筛选器
 const FUND_SCORE_TOP_URL_R2 = "https://ss.fx8.store/r2/fund_score/fund_score_top.json";
 const FUND_SCORE_TOP_URL_CF = "./data/fund_score_top.json";
-const FUND_SCORE_PAGE_SIZE = 50;  // API 模式服务端分页 50/页（27600只≈553页）; fallback Top100 同尺寸
-// API 排序键白名单（须与 worker/fund_score.js SORTABLE 一致）
-const FUND_SCORE_API_SORT_KEYS = ["composite_score", "half_kelly_position", "final_suggestion", "sharpe", "manager_score", "star_rating", "score_drawdown", "score_stability"];
+const FUND_SCORE_PAGE_SIZE = 50;  // Top100 分 2 页（移动端单列浏览友好）
 
 // tier: 基于 composite_score 分 5 档（参考 ETF 5 档但阈值不同; 基金评分分布偏中高, 阈值更严）
 //   >=85 strong-buy(重点留意) / 75-85 buy(关注机会) / 65-75 hold(持有观察) / 50-65 sell(风险提示) / <50 strong-sell(重点规避)
@@ -24612,14 +21747,10 @@ const FUND_SCORE_TIER_LABEL = {
 };
 // fundTypeFilter: "all" 或具体 fund_type 字符串（如下拉选择 "债券型-混合二级"）
 // sortKey/sortDir: 排序键与方向，默认 composite_score 降序
-// source: "api"=D1 服务端分页模式 / "static"=fund_score_top.json 本地分页模式（fallback）
-//   api 模式: all=当前页行, total/pages 由服务端返回, 筛选/排序/搜索/翻页走服务端
-//   static 模式: all=全量 Top100, 前端本地过滤排序分页（原 Phase A 行为不变）
 const _fundScoreState = {
   all: [], filtered: [], page: 1, search: "",
   meta: null, fundTypeFilter: "all",
   sortKey: "composite_score", sortDir: "desc",
-  total: 0, pages: 1, typeCounts: [], source: "static",
   loaded: false, loading: false, error: null
 };
 
@@ -24643,61 +21774,7 @@ function _fundScoreColor(score) {
 }
 
 function _fundScorePages() {
-  // api 模式: 服务端返回的 pages（按 total/size 算）; static 模式: 本地 filtered 算
-  if (_fundScoreState.source === "api") {
-    return Math.max(1, _fundScoreState.pages || 1);
-  }
   return Math.max(1, Math.ceil(_fundScoreState.filtered.length / FUND_SCORE_PAGE_SIZE));
-}
-
-// API 请求 helper(#79 step5): 复用 auth 的基地址/token 双模式
-//   主站: 同源相对路径 + credentials:include(session cookie)
-//   备站: https://ss.fx8.store 绝对路径 + Authorization Bearer(localStorage auth_token)
-function _fundScoreApiFetch(params) {
-  const base = _authApiBase();
-  const token = _getAuthToken();
-  const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
-  const credentials = _isMainSite() ? 'include' : 'omit';
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
-  return fetch(base + "/api/fund_score?" + params, {
-    headers, credentials, signal: controller.signal, cache: "no-cache",
-  }).then((r) => {
-    clearTimeout(timer);
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    return r.json();
-  }).catch((e) => {
-    clearTimeout(timer);
-    throw e;
-  });
-}
-
-// API 模式拉取当前页（筛选/排序/搜索/翻页统一入口），成功更新 state 重渲列表区,
-// 失败抛错由调用方决定 fallback（首次加载 fallback 到 Top100 JSON; 翻页失败保留旧页+提示）
-async function _loadFundScorePage() {
-  const st = _fundScoreState;
-  const p = new URLSearchParams({
-    page: String(st.page || 1),
-    size: String(FUND_SCORE_PAGE_SIZE),
-    sort: FUND_SCORE_API_SORT_KEYS.indexOf(st.sortKey) >= 0 ? st.sortKey : "composite_score",
-    dir: st.sortDir === "asc" ? "asc" : "desc",
-  });
-  if (st.search && st.search.trim()) p.set("search", st.search.trim());
-  if (st.fundTypeFilter && st.fundTypeFilter !== "all") p.set("type", st.fundTypeFilter);
-  const isFirstPage = (st.page || 1) <= 1;
-  if (isFirstPage) p.set("types", "1");  // 首页附带类型分布（工具栏下拉）
-  const r = await _fundScoreApiFetch(p.toString());
-  if (!r || !Array.isArray(r.data)) throw new Error("API 返回结构异常");
-  st.source = "api";
-  st.all = r.data;
-  st.total = r.total || 0;
-  st.pages = r.pages || 1;
-  if (r.type_counts) st.typeCounts = r.type_counts;
-  if (r.date || r.method) {
-    st.meta = Object.assign({}, st.meta || {}, { date: r.date || (st.meta && st.meta.date), method: r.method || (st.meta && st.meta.method) });
-  }
-  st.page = Math.min(Math.max(r.page || 1, 1), st.pages);
-  _renderFundScoreBody();
 }
 
 // 排序标签（中文，用于统计条副标题）
@@ -24729,19 +21806,6 @@ function _sortFundScoreList(arr) {
 }
 
 function _applyFundScoreFilter() {
-  // api 模式(#79): 筛选/排序/搜索全部走服务端, 回第 1 页拉取; 失败保留旧页并提示
-  if (_fundScoreState.source === "api") {
-    _fundScoreState.page = 1;
-    const body = document.getElementById("fund-score-body");
-    if (body) body.innerHTML = '<div class="fund-score-loading">加载中…</div>';
-    _loadFundScorePage().catch((err) => {
-      console.warn("[fund_score] API 翻页/筛选失败, 保留旧数据:", err);
-      const b = document.getElementById("fund-score-body");
-      if (b) b.insertAdjacentHTML("afterbegin",
-        '<div class="fund-score-empty">' + _t("fund_score_load_failed") + '：' + (err && err.message ? err.message : "") + '（展示上一次结果）</div>');
-    });
-    return;
-  }
   const s = _fundScoreState.search.trim().toLowerCase();
   let filtered = _fundScoreState.all.slice();
   if (s) {
@@ -24779,7 +21843,7 @@ function _renderFundScoreRow(e, rank) {
     ? '<span class="fund-sharpe" title="' + _t("fund_score_sharpe") + '">' + _t("fund_score_sharpe") + ' ' + e.sharpe.toFixed(2) + '</span>' : '';
   const mgrTag = e.manager_score != null
     ? '<span class="fund-mgr" title="' + _t("fund_score_manager_score") + '">' + _t("fund_score_manager_score") + ' ' + e.manager_score.toFixed(0) + '</span>' : '';
-  return '<div class="fund-score-row fund-tier-' + tier + '" data-fund-code="' + _esc(e.fund_code) + '" title="点击查看评分详情">'
+  return '<div class="fund-score-row fund-tier-' + tier + '">'
     + '<div class="fund-row-main">'
     + '<span class="fund-rank">#' + rank + '</span>'
     + '<span class="fund-code">' + _esc(e.fund_code) + '</span>'
@@ -24825,448 +21889,49 @@ function _renderFundScoreBody() {
   const body = document.getElementById("fund-score-body");
   if (!body) return;
   const st = _fundScoreState;
-  const isApi = st.source === "api";
   const filtered = st.filtered;
 
-  // 统计条（api 模式: 全量 total + 页码; static 模式: Top100 口径保持原文案）
-  let html;
-  if (isApi) {
-    html = '<div class="fund-score-stat">共 ' + st.total + ' ' + _t("fund_score_count_unit")
-      + ' · 第 ' + st.page + '/' + _fundScorePages() + ' 页'
-      + (st.search || st.fundTypeFilter !== "all" ? ' · 本页 ' + st.all.length + ' 只' : '')
-      + ' · 按' + _fundScoreSortLabel() + _t("fund_score_sort_dir_suffix")
-      + (st.meta && st.meta.date ? ' · ' + _t("fund_score_data_label") + ' ' + _esc(st.meta.date) : '')
-      + '</div>';
-  } else {
-    html = '<div class="fund-score-stat">共 ' + st.all.length + ' ' + _t("fund_score_count_unit")
-      + (st.meta && st.meta.count ? '（Top ' + st.meta.count + '）' : '')
-      + (st.search || st.fundTypeFilter !== "all" ? ' · 筛选命中 ' + filtered.length : '')
-      + ' · 按' + _fundScoreSortLabel() + _t("fund_score_sort_dir_suffix")
-      + (st.meta && st.meta.date ? ' · ' + _t("fund_score_data_label") + ' ' + _esc(st.meta.date) : '')
-      + '</div>';
-  }
+  // 统计条
+  let html = '<div class="fund-score-stat">共 ' + st.all.length + ' ' + _t("fund_score_count_unit")
+    + (st.meta && st.meta.count ? '（Top ' + st.meta.count + '）' : '')
+    + (st.search || st.fundTypeFilter !== "all" ? ' · 筛选命中 ' + filtered.length : '')
+    + ' · 按' + _fundScoreSortLabel() + _t("fund_score_sort_dir_suffix")
+    + (st.meta && st.meta.date ? ' · ' + _t("fund_score_data_label") + ' ' + _esc(st.meta.date) : '')
+    + '</div>';
 
-  const rows = isApi ? st.all : filtered;
-  if (!rows || rows.length === 0) {
+  if (filtered.length === 0) {
     html += '<div class="fund-score-empty">' + _t("fund_score_empty") + '</div>';
     body.innerHTML = html;
     return;
   }
 
-  // 列表（api 模式 all 即当前页; static 模式本地切片）
+  // 单区列表（Top100, 50/页分页）
   const pages = _fundScorePages();
-  if (!isApi) {
-    if (st.page > pages) st.page = pages;
-    if (st.page < 1) st.page = 1;
-  }
-  const start = isApi ? 0 : (st.page - 1) * FUND_SCORE_PAGE_SIZE;
-  const slice = isApi ? rows : rows.slice(start, start + FUND_SCORE_PAGE_SIZE);
+  if (st.page > pages) st.page = pages;
+  const start = (st.page - 1) * FUND_SCORE_PAGE_SIZE;
+  const slice = filtered.slice(start, start + FUND_SCORE_PAGE_SIZE);
   html += '<div class="fund-score-list">';
   slice.forEach((e, i) => { html += _renderFundScoreRow(e, start + i + 1); });
   html += '</div>';
-  if (pages > 1) html += _renderFundScorePager(st.page, pages, isApi ? st.total : filtered.length);
+  if (pages > 1) html += _renderFundScorePager(st.page, pages, filtered.length);
   body.innerHTML = html;
-
-  // 绑定行点击 -> 详情弹窗(#79 step6)
-  body.querySelectorAll(".fund-score-row[data-fund-code]").forEach((rowEl) => {
-    rowEl.onclick = () => openFundScoreDetailModal(rowEl.dataset.fundCode);
-  });
 
   // 绑定分页按钮
   body.querySelectorAll(".fund-page-btn[data-page]").forEach((b) => {
     b.onclick = () => {
       if (b.disabled) return;
       _fundScoreState.page = parseInt(b.dataset.page, 10) || 1;
-      if (_fundScoreState.source === "api") {
-        // api 模式: 服务端翻页（保留旧页内容 + loading 覆盖层防闪白）
-        body.insertAdjacentHTML("afterbegin", '<div class="fund-score-loading">加载中…</div>');
-        _loadFundScorePage().catch((err) => {
-          console.warn("[fund_score] API 翻页失败:", err);
-          const lb = document.querySelector("#fund-score-body .fund-score-loading");
-          if (lb) lb.remove();
-          const bb = document.getElementById("fund-score-body");
-          if (bb) bb.insertAdjacentHTML("afterbegin",
-            '<div class="fund-score-empty">' + _t("fund_score_load_failed") + '：' + (err && err.message ? err.message : "") + '</div>');
-        });
-      } else {
-        _renderFundScoreBody();
-      }
+      _renderFundScoreBody();
       const top = body.getBoundingClientRect().top + window.scrollY - 80;
       window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
     };
   });
 }
 
-// ===== 基金评分详情弹窗（#79 方案C step6）=====
-// 复用 ETF 弹窗成熟模式（rule-modal + signal-chart-modal-body + lab-custom-score-card 区块）。
-// 5 区块: ①决策头(名称/代码/类型/星级/tier chip/综合分/数据日期) ②凯利仓位
-//         ③6维雷达SVG(D1业绩/D2风险调整/D3回撤控制/D4稳定性/D5规模流动性/D6费率友好,
-//           标签对齐 purpose-notes "offshore" 公示口径) ④5风险指标(夏普/索提诺/卡玛/
-//           信息比率/Alpha)+经理6维(任职/规模/稳定度/回撤/一致性/专注度)
-//         ⑤基础信息(#79 step1 扩展字段; 部分基金 fund_basic 缺失显 '-' 注明逐步补全)
-function _fundScoreRadarSVG(e) {
-  const dims = [
-    { key: "score_return", zh: "业绩" },
-    { key: "score_risk_adjusted", zh: "风险调整" },
-    { key: "score_drawdown", zh: "回撤控制" },
-    { key: "score_stability", zh: "稳定性" },
-    { key: "score_scale", zh: "规模流动性" },
-    { key: "score_fee", zh: "费率友好" }
-  ];
-  const cx = 140, cy = 104, R = 72;
-  const pt = (i, r) => {
-    const ang = (-90 + i * 60) * Math.PI / 180;
-    return [cx + r * Math.cos(ang), cy + r * Math.sin(ang)];
-  };
-  const ringPts = [];
-  for (let i = 0; i < 6; i++) { const p = pt(i, R); ringPts.push(p[0].toFixed(1) + "," + p[1].toFixed(1)); }
-  const color = _fundScoreColor(e.composite_score);
-  // 数据多边形（null 按 0 画, 分值标签如实显示 '-'）
-  const dpts = [];
-  for (let i = 0; i < 6; i++) {
-    const v = e[dims[i].key];
-    const val = (v == null || isNaN(v)) ? 0 : Math.max(0, Math.min(100, v));
-    const p = pt(i, R * val / 100);
-    dpts.push(p[0].toFixed(1) + "," + p[1].toFixed(1));
-  }
-  // 网格（25/50/75/100 四环同心六边形）+ 轴线（内联 SVG + CSS 变量, 随皮肤自动跟随）
-  let svg = "";
-  [25, 50, 75, 100].forEach((lv) => {
-    const ps = [];
-    for (let i = 0; i < 6; i++) { const p = pt(i, R * lv / 100); ps.push(p[0].toFixed(1) + "," + p[1].toFixed(1)); }
-    svg += '<polygon points="' + ps.join(" ") + '" fill="none" stroke="var(--border,#d0d7de)" stroke-width="0.6" opacity="0.55"/>';
-  });
-  for (let i = 0; i < 6; i++) {
-    const p = pt(i, R);
-    svg += '<line x1="' + cx + '" y1="' + cy + '" x2="' + p[0].toFixed(1) + '" y2="' + p[1].toFixed(1) + '" stroke="var(--border,#d0d7de)" stroke-width="0.6" opacity="0.55"/>';
-  }
-  // 外侧标签 + 分值小字（按角度定 text-anchor: 顶部/底部 middle, 右半 start, 左半 end）
-  for (let i = 0; i < 6; i++) {
-    const p = pt(i, R + 15);
-    const anchor = (i === 0 || i === 3) ? "middle" : (i < 3 ? "start" : "end");
-    const dy = i === 0 ? -4 : (i === 3 ? 10 : 4);
-    const v = e[dims[i].key];
-    svg += '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] + dy).toFixed(1) + '" text-anchor="' + anchor + '" font-size="11" fill="var(--text-2,#4a5568)">' + dims[i].zh + '</text>'
-      + '<text x="' + p[0].toFixed(1) + '" y="' + (p[1] + dy + 13).toFixed(1) + '" text-anchor="' + anchor + '" font-size="10" font-weight="600" fill="' + color + '">' + ((v != null && !isNaN(v)) ? v.toFixed(1) : "-") + '</text>';
-  }
-  return '<svg class="fund-radar-svg" viewBox="0 0 280 228" width="100%" role="img" aria-label="六维评分雷达图">'
-    + svg
-    + '<polygon points="' + dpts.join(" ") + '" fill="' + color + '" fill-opacity="0.18" stroke="' + color + '" stroke-width="1.6"/>'
-    + dpts.map((s) => { const xy = s.split(","); return '<circle cx="' + xy[0] + '" cy="' + xy[1] + '" r="2.4" fill="' + color + '"/>'; }).join("")
-    + '</svg>';
-}
-
-// #11 基金弹窗净值走势(2026-08-25): 复刻 #10 _renderEtfTrendSection 整套交互(period tab/
-// 竞态防护/lite SVG+echarts 双版本/R2 懒加载 per-code 缓存), 数据源差异点:
-// - 数据源 R2 fund_nav/{code}.json(payload.nav=[[date,unit_nav,acc_nav],...], 点开才拉);
-//   基金评分列表 item 无内置近30日净值序列 -> 30d 默认周期同样走懒拉取(单文件 ~26KB)
-// - 单位净值映射为伪 OHLC [date,v,v,v,v] 复用 _etfTrendLiteHTML/_etfTrendLiteBind
-//   (valueLabel=单位净值/valueDecimals=4; 两 helper 缺省「收盘」+3 位, ETF 行为零变化 §23.7)
-// - 缓存: 模块级 per-code 全量 payload(~26KB/只), 弹窗关开/切周期不重复拉取
-const _fundNavCache = {};
-let _fundNavChart = null;
-// 净值请求序号: 模块级全局单调递增(F2, 同 _etfTrendReqSeq)——modal._ctx 随 open 重置、
-// close 不失效, A 基金 fetch in-flight 中关开到 B 会把 A 的走势画进 B 弹窗; 全局计数器不复位。
-let _fundNavReqSeq = 0;
-// codex-001 medium: 净值 payload 结构验证——坏数据(截断/错码/顶层数组)不进 per-code
-// 缓存也不进通用 _resultCache, 防污染内存缓存后"切周期/重开弹窗仍复用坏数据"。
-function _validFundNavPayload(code, d) {
-  if (!d || typeof d !== "object" || Array.isArray(d)) return false;
-  if (d.code !== String(code)) return false; // 错码 payload(如 R2 混版/代理错位)拒收
-  if (typeof d.date !== "string") return false;
-  if (!Array.isArray(d.nav)) return false;
-  for (let i = 0; i < d.nav.length; i++) {
-    const row = d.nav[i];
-    if (!Array.isArray(row) || row.length !== 3) return false;
-    if (typeof row[0] !== "string" || !row[0]) return false;
-    if (typeof row[1] !== "number") return false; // unit_nav 必须数值(acc 可 null)
-    if (row[2] !== null && typeof row[2] !== "number") return false;
-  }
-  return true;
-}
-
-async function _renderFundNavSection(modal, code, period) {
-  const body = modal && modal.querySelector(".fund-detail-content");
-  const sec = body && body.querySelector("#fundNavTrendSection");
-  if (!sec || !code) return;
-  const meta = _ETF_TREND_PERIODS.find((p) => p[0] === period) || _ETF_TREND_PERIODS[0];
-  // 竞态防护: 快速切 tab / 关开弹窗时旧 fetch 回来不得覆盖新渲染(模块级全局序号, 渲染前校验,
-  // 同 _renderEtfTrendSection 模式)
-  const reqId = ++_fundNavReqSeq;
-
-  let hist = _fundNavCache[code];
-  if (!hist) {
-    sec.innerHTML = '<div class="lab-custom-loading">⏳ 净值走势加载中…</div>';
-    try {
-      // 硬编码 R2 直链(/r2/ 代理路由为通用 key 代理, fund_nav/ 新前缀零 worker 改动)
-      hist = await fetchJSON(`https://ss.fx8.store/r2/fund_nav/${code}.json`);
-      // codex-001 medium: 先验后存——结构验证不通过不写 per-code 缓存, 走失败分支
-      // 可重试(通用 _resultCache 已对该 URL 前缀跳过写入, 见 fetchJSON _NO_R2_CACHE_URLS)
-      if (!_validFundNavPayload(code, hist)) {
-        throw new Error("净值 payload 结构校验失败(code/date/nav 形状不符)");
-      }
-      _fundNavCache[code] = hist;
-    } catch (_err) {
-      if (_fundNavReqSeq !== reqId) return; // 已有更新请求/已换弹窗,丢弃过期失败
-      sec.innerHTML = '<div style="padding:14px;font-size:13px;color:var(--text-3);background:var(--bg-2,rgba(128,128,128,0.08));border-radius:8px">⚠ 净值历史数据加载失败，请稍后重试（评分/凯利等其他区块不受影响）</div>';
-      return;
-    }
-  }
-  if (_fundNavReqSeq !== reqId) return; // 过期响应丢弃
-
-  let nav = (hist && hist.nav) || [];
-  // 客户端 period 过滤: 30d 取末 30 个净值点; 3m~5y 复用 _signalModalCutoff(基于数据末日
-  // 回推, 输入需 {date} 对象数组传末元素包装, 与 ETF/信号弹窗同口径); all 不过滤。
-  if (period === "30d") {
-    nav = nav.slice(-30);
-  } else if (nav.length >= 2) {
-    const filterDate = _signalModalCutoff([{ date: nav[nav.length - 1][0] }], period);
-    if (filterDate) nav = nav.filter((r) => r[0] >= filterDate);
-  }
-
-  // 重渲染前 dispose 旧走势实例(innerHTML 重写防泄漏; 关闭弹窗由 closeFundScoreDetailModal 兜底)
-  _disposeContainerCharts(sec);
-  _fundNavChart = null;
-
-  if (!nav || nav.length < 2) {
-    sec.innerHTML = '<div class="lab-custom-score-card lab-custom-block-gap"><div class="lab-custom-section-title">📈 ' + meta[2] + '</div><div style="padding:14px;font-size:13px;color:var(--text-3)">该周期暂无足够净值数据（成立时间可能不足或披露滞后）</div></div>';
-    return;
-  }
-
-  // 单位净值 -> 伪 OHLC(o=h=l=c=unit_nav): lite SVG helper 读 d[4] 收盘位, 映射后零改造复用
-  const ohlc = nav.map((r) => [r[0], r[1], r[1], r[1], r[1]]);
-  const fundName = (hist && hist.name) || code;
-
-  const _liteTrend = !!siteCfg("charts.lightweight", true);
-  sec.innerHTML = '<div class="lab-custom-score-card lab-custom-block-gap"><div class="lab-custom-section-title">📈 ' + meta[2]
-    + ' <span style="font-weight:400;font-size:11px;color:var(--text-3)" title="数据源: fund_daily_nav 表全史日净值(基金公司披露口径, T+1 入图)">' + _esc(fundName) + ' · ' + ohlc.length + ' 个净值日</span></div>'
-    + (_liteTrend
-        ? _etfTrendLiteHTML(ohlc)
-        : '<div id="fundNavChart" style="height:200px"></div>')
-    + '</div>';
-
-  // 轻量 SVG 版逐点 hover(同 ETF: 十字线+点高亮+浮层 tooltip; 文案=单位净值/4 位小数)
-  const _liteSvg = sec.querySelector(".etf-trend-lite");
-  if (_liteSvg) _etfTrendLiteBind(_liteSvg, ohlc, { valueLabel: "单位净值", valueDecimals: 4 });
-  // echarts 完整版(charts.lightweight=false 回退; 视觉对等 withTheme 随皮肤, 同 ETF 分支)
-  const _chartEl = sec.querySelector("#fundNavChart");
-  if (_chartEl && typeof echarts !== "undefined") {
-    const _dates = ohlc.map((d) => d[0]);
-    const _vals = ohlc.map((d) => d[1]);
-    // 末点可能为 null, 涨跌色基准=最后一个有效值(与轻量 SVG 版同口径)
-    let _lastV = null;
-    for (let i = _vals.length - 1; i >= 0; i--) { const v = _vals[i]; if (v != null && !isNaN(v)) { _lastV = v; break; } }
-    const _isUp = _lastV != null && _lastV >= _vals.find((v) => v != null);
-    const _trendColor = _isUp ? "#e6492e" : "#2e8b57";
-    try {
-      _fundNavChart = echarts.init(_chartEl);
-      if (charts.indexOf(_fundNavChart) < 0) charts.push(_fundNavChart);
-      _fundNavChart.setOption(withTheme({
-        tooltip: {
-          trigger: "axis",
-          formatter: (p) => {
-            const dt = p[0] && p[0].axisValue;
-            const v = p[0] && p[0].data;
-            return fmtDate(dt) + "<br/>单位净值 " + (v != null ? Number(v).toFixed(4) : "-");
-          },
-        },
-        grid: { left: 50, right: 15, top: 15, bottom: 25 },
-        axisPointer: { type: "line", lineStyle: { color: cssVar("--border-strong") } },
-        xAxis: { type: "category", data: _dates, axisLabel: { fontSize: 10, formatter: (v) => fmtDate(v) } },
-        yAxis: { type: "value", scale: true, axisLabel: { fontSize: 10 } },
-        series: [{
-          type: "line", smooth: true, symbol: "circle", symbolSize: 4,
-          data: _vals,
-          lineStyle: { color: _trendColor, width: 1.5 },
-          itemStyle: { color: _trendColor },
-          areaStyle: { color: _isUp ? "rgba(230,73,46,0.12)" : "rgba(46,139,87,0.12)" },
-        }],
-      }));
-      requestAnimationFrame(() => _fundNavChart && _fundNavChart.resize());
-    } catch (_e) { /* echarts init 失败不阻塞弹窗其余区块 */ }
-  }
-}
-
-function openFundScoreDetailModal(code) {
-  // 从当前列表 state 查 item（api 模式 all=当前页; static 模式 all=Top100）
-  const e = (_fundScoreState.all || []).find((x) => x.fund_code === code);
-  if (!e) return;
-  let modal = document.getElementById("fundScoreDetailModal");
-  if (!modal) {
-    modal = document.createElement("div");
-    modal.id = "fundScoreDetailModal";
-    modal.className = "rule-modal hidden";
-    modal.innerHTML = `<div class="rule-modal-overlay"></div>
-      <div class="rule-modal-body signal-chart-modal-body">
-        <div class="rule-modal-header">
-          <h3 class="fund-detail-title">🧾 场外基金评分详情</h3>
-          <div class="signal-chart-periods"><button class="lab-signal-period-btn active" data-period="30d">30日</button><button class="lab-signal-period-btn" data-period="3m">3月</button><button class="lab-signal-period-btn" data-period="6m">6月</button><button class="lab-signal-period-btn" data-period="1y">1年</button><button class="lab-signal-period-btn" data-period="3y">3年</button><button class="lab-signal-period-btn" data-period="5y">5年</button><button class="lab-signal-period-btn" data-period="all">全部</button></div>
-          <button class="rule-modal-close" aria-label="关闭">&times;</button>
-        </div>
-        <div class="rule-modal-content fund-detail-content"></div>
-      </div>`;
-    // #11 净值走势(2026-08-25): period tab 切换(UI/交互 pattern 复刻 openEtfScoreDetailModal
-    // #10 模式: .signal-chart-periods + .lab-signal-period-btn + modal._ctx 重入)。
-    // 全部周期都从 R2 fund_nav/{code}.json 懒加载(per-code 缓存), 点开才拉。
-    modal.querySelectorAll(".lab-signal-period-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        modal.querySelectorAll(".lab-signal-period-btn").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-        _renderFundNavSection(modal, modal._ctx && modal._ctx.code, btn.dataset.period);
-      });
-    });
-    document.body.appendChild(modal);
-    modal.querySelector(".rule-modal-overlay").onclick = closeFundScoreDetailModal;
-    modal.querySelector(".rule-modal-close").onclick = closeFundScoreDetailModal;
-    document.addEventListener("keydown", (ev) => {
-      if (ev.key === "Escape" && !modal.classList.contains("hidden")) closeFundScoreDetailModal();
-    });
-  }
-  modal.querySelector(".fund-detail-title").textContent = "🧾 " + (e.fund_name || code) + " 评分详情";
-  // #11: period tab 上下文(切换事件读 code 重渲染净值走势区块); 每次打开重置 tab 到默认 30日
-  modal._ctx = { code };
-  modal.querySelectorAll(".lab-signal-period-btn").forEach((b) => b.classList.toggle("active", b.dataset.period === "30d"));
-  const body = modal.querySelector(".fund-detail-content");
-  // 重开弹窗前 dispose 旧净值图实例(body 内旧 #fundNavChart DOM 还在, _disposeContainerCharts
-  // 捕获 [_echarts_instance_] 属性 dispose; 同 openEtfScoreDetailModal 模式)
-  _disposeContainerCharts(body);
-  _fundNavChart = null;
-
-  // 数字格式 helper: null/NaN -> '-'
-  const fnum = (v, d, suf) => ((v == null || isNaN(v)) ? "-" : (v.toFixed(d == null ? 2 : d) + (suf || "")));
-  const tier = _fundScoreTier(e);
-  const tierLabel = ({ "strong-buy": "强力", "buy": "优秀", "hold": "均衡", "sell": "偏弱", "strong-sell": "较差" })[tier] || "";
-  const col = _fundScoreColor(e.composite_score);
-  const starN = Math.max(0, Math.min(5, parseInt(e.star_rating, 10) || 0));
-  const starTxt = "★".repeat(starN) + '<span style="opacity:.3">' + "★".repeat(5 - starN) + "</span>";
-  const srcTxt = _fundScoreState.source === "api"
-    ? (_t("fund_score_data_label") + " " + _esc((_fundScoreState.meta && _fundScoreState.meta.date) || "-") + " · 全市场")
-    : (_t("fund_score_data_label") + " " + _esc((_fundScoreState.meta && _fundScoreState.meta.date) || "-") + " · Top100 兜底");
-
-  // 区块1: 决策头（名称/代码/类型 + tier chip + 星级 + 综合分大字 + 数据时点）
-  const headHTML = `<div class="lab-custom-score-card lab-custom-block-gap">
-    <div class="lab-custom-score-head">
-      <div class="lab-custom-score-title">${_esc(e.fund_name || "")} <span class="lab-custom-score-date">📅 ${_esc(e.fund_code || "")}</span></div>
-      <div class="lab-custom-adapt">
-        <span class="fund-type-chip">${_esc(e.fund_type || "-")}</span>
-        <span class="etf-tier-chip etf-tier-chip-${tier}">${tierLabel}</span>
-        <span style="margin-left:6px;color:#e6a23c;letter-spacing:1px">${starTxt}</span>
-      </div>
-    </div>
-    <div class="lab-custom-score-grid">
-      <div class="lab-custom-score-cell">
-        <div class="lab-custom-cell-label">综合评分<span class="lab-custom-cell-sublabel">6维加权</span></div>
-        <div class="lab-custom-cell-score" style="color:${col}">${fnum(e.composite_score)}</div>
-      </div>
-      <div class="lab-custom-score-cell">
-        <div class="lab-custom-cell-label">建议仓位<span class="lab-custom-cell-sublabel">含市场乘数</span></div>
-        <div class="lab-custom-cell-score" style="color:${col}">${fnum(e.final_suggestion, 1, "%")}</div>
-      </div>
-      <div class="lab-custom-score-cell">
-        <div class="lab-custom-cell-label">经理综合分<span class="lab-custom-cell-sublabel">经理6维加权</span></div>
-        <div class="lab-custom-cell-score">${fnum(e.manager_score, 1)}</div>
-      </div>
-    </div>
-    <div style="font-size:11px;color:var(--text-3);margin-top:6px">${srcTxt}${e.data_completeness != null ? " · 数据完整度 " + (e.data_completeness * 100).toFixed(0) + "%" : ""}</div>
-  </div>`;
-
-  // 区块2: 凯利仓位（档位/半凯利/建议仓位/凯利分数/胜率/盈亏比/市场乘数）
-  // 口径对齐公示: 建议仓位=半凯利×市场乘数; 凯利参数=该基金历史净值回测
-  const kellyHTML = `<div class="lab-custom-score-card lab-custom-block-gap">
-    <div class="lab-custom-section-title">🎲 凯利仓位</div>
-    <div class="lab-custom-score-grid">
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">凯利档位</div><div class="lab-custom-cell-score">${_esc(e.kelly_tier || "-")}</div></div>
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">半凯利仓位</div><div class="lab-custom-cell-score">${fnum(e.half_kelly_position, 1, "%")}</div></div>
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">市场乘数</div><div class="lab-custom-cell-score">${fnum(e.market_adjustment)}</div></div>
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">凯利分数</div><div class="lab-custom-cell-score">${fnum(e.kelly_fraction, 1, "%")}</div></div>
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">回测胜率</div><div class="lab-custom-cell-score">${fnum(e.kelly_win_rate != null ? e.kelly_win_rate * 100 : null, 1, "%")}</div></div>
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">盈亏比</div><div class="lab-custom-cell-score">${fnum(e.kelly_win_loss_ratio)}</div></div>
-    </div>
-    <div style="font-size:11px;color:var(--text-3);margin-top:6px">建议仓位 = 半凯利 × 市场乘数；凯利参数来自该基金历史净值回测，历史统计参考，非投资建议。</div>
-  </div>`;
-
-  // 区块3: 6维雷达 SVG
-  const radarHTML = `<div class="lab-custom-score-card lab-custom-block-gap">
-    <div class="lab-custom-section-title">📡 六维评分雷达</div>
-    ${_fundScoreRadarSVG(e)}
-  </div>`;
-
-  // 区块4: 5风险指标 + 经理6维
-  const riskHTML = `<div class="lab-custom-score-card lab-custom-block-gap">
-    <div class="lab-custom-section-title">⚠️ 风险指标（近3年年化口径）</div>
-    <div class="lab-custom-score-grid">
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">夏普比率</div><div class="lab-custom-cell-score">${fnum(e.sharpe)}</div></div>
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">索提诺比率</div><div class="lab-custom-cell-score">${fnum(e.sortino)}</div></div>
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">卡玛比率</div><div class="lab-custom-cell-score">${fnum(e.calmar)}</div></div>
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">信息比率</div><div class="lab-custom-cell-score">${fnum(e.information_ratio)}</div></div>
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">Alpha</div><div class="lab-custom-cell-score">${fnum(e.alpha)}</div></div>
-    </div>
-  </div>
-  <div class="lab-custom-score-card lab-custom-block-gap">
-    <div class="lab-custom-section-title">👨‍💼 基金经理六维</div>
-    <div class="lab-custom-score-grid">
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">经理综合分</div><div class="lab-custom-cell-score">${fnum(e.manager_score, 1)}</div></div>
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">任职年限</div><div class="lab-custom-cell-score">${fnum(e.m1_tenure, 1)}</div></div>
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">管理规模</div><div class="lab-custom-cell-score">${fnum(e.m2_scale, 1)}</div></div>
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">业绩稳定度</div><div class="lab-custom-cell-score">${fnum(e.m3_perf_stability, 1)}</div></div>
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">回撤控制</div><div class="lab-custom-cell-score">${fnum(e.m4_drawdown, 1)}</div></div>
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">风格一致性</div><div class="lab-custom-cell-score">${fnum(e.m5_coherence, 1)}</div></div>
-      <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">行业专注度</div><div class="lab-custom-cell-score">${fnum(e.m6_focus, 1)}</div></div>
-    </div>
-  </div>`;
-
-  // 区块5: 基础信息（#79 step1 扩展字段; fund_basic 未覆盖的基金显 '-'，随 akshare 覆盖度逐步补全）
-  const infoRows = [
-    ["基金公司", e.fund_company],
-    ["基金经理", e.fund_manager],
-    ["成立日期", e.setup_date],
-    ["最新规模（亿元）", e.scale != null ? Number(e.scale).toFixed(2) : null],
-    ["管理费（年）", e.management_fee != null ? (e.management_fee * 100).toFixed(2) + "%" : null],
-    ["托管费（年）", e.custody_fee != null ? (e.custody_fee * 100).toFixed(2) + "%" : null],
-    ["申购费", e.purchase_fee != null ? (e.purchase_fee * 100).toFixed(2) + "%" : null],
-    ["投资策略", e.strategy],
-    ["业绩基准", e.benchmark_text]
-  ];
-  const infoHTML = `<div class="lab-custom-score-card lab-custom-block-gap">
-    <div class="lab-custom-section-title">📋 基础信息</div>
-    <table class="fund-info-table"><tbody>
-      ${infoRows.map(([k, v]) => `<tr><td class="fund-info-k">${k}</td><td class="fund-info-v">${_esc(v == null || v === "" ? "-" : v)}</td></tr>`).join("")}
-    </tbody></table>
-    <div style="font-size:11px;color:var(--text-3);margin-top:6px">'-' 表示该字段暂缺（akshare 基础信息覆盖度逐步补全）。</div>
-  </div>`;
-
-  // 合规底栏（复用站内既有 helper）
-  const footerHTML = (typeof _labCustomFooterHTML === "function")
-    ? _labCustomFooterHTML(null, null) : "";
-
-  // #11 净值走势区块: 容器占位 + _renderFundNavSection 异步渲染(period tab 切换共用),
-  // 放风险指标后、基础信息前(先看评分/风险结论再看走势细节)
-  const trendHTML = '<div id="fundNavTrendSection"></div>';
-
-  body.innerHTML = headHTML + kellyHTML + radarHTML + riskHTML + trendHTML + infoHTML + footerHTML;
-  modal.classList.remove("hidden");
-  document.body.style.overflow = "hidden";
-
-  // #11: 净值走势区块异步渲染(默认 30日 / 其余周期 tab 懒加载, 点开弹窗才拉一次 R2)
-  _renderFundNavSection(modal, code, "30d");
-}
-
-function closeFundScoreDetailModal() {
-  const modal = document.getElementById("fundScoreDetailModal");
-  if (modal) modal.classList.add("hidden");
-  document.body.style.overflow = "";
-  // #11: 关闭弹窗时 dispose 净值走势 echarts 实例(_disposeContainerCharts 兜底释放
-  // body 内 DOM 实例, 同 closeEtfScoreDetailModal 模式; _fundNavChart 置 null 释放 resize 引用)
-  const body = modal && modal.querySelector(".fund-detail-content");
-  if (body) _disposeContainerCharts(body);
-  _fundNavChart = null;
-}
-
-// 场外基金评分排行（Phase B/C 全量化 #79 方案C: D1 服务端分页 + Top100 fallback）
-// 主数据源: /api/fund_score（worker/fund_score.js, 全市场 ≈27600 只分页/筛选/排序/搜索）
-// fallback（API 失败/未就绪/未登录 401 保底, 不白屏）:
-//   R2 直链 https://ss.fx8.store/r2/fund_score/fund_score_top.json (Top100, 83KB)
-//   失败再 fallback: ./data/fund_score_top.json (CF Static Assets)
+// 场外基金评分排行（Phase A：Top100 列表 + 排序/搜索/筛选）
+// 数据源: R2 直链 https://ss.fx8.store/r2/fund_score/fund_score_top.json (Top100, 83KB)
+// 失败 fallback: ./data/fund_score_top.json (CF Static Assets)
+// 复用 ETF 评分成熟模式（_etfScoreState / _renderEtfScoreBody），平行实现 _fundScoreState
 async function renderOffshoreFund(container) {
   const _c = container || content;
   _c.innerHTML = "";
@@ -25278,16 +21943,43 @@ async function renderOffshoreFund(container) {
   loadingEl.innerHTML = '<span class="loading__spinner"></span><span class="loading__text">' + _t("fund_score_loading") + '</span>';
   _c.appendChild(loadingEl);
 
-  // state 重置（排序偏好下方从 localStorage 恢复）
+  // fetchJSON R2 直链，失败 fallback CF（§8.1 优先 R2；CF 实测 200 作兜底）
+  let r = null;
+  let err = null;
+  try {
+    r = await fetchJSON(FUND_SCORE_TOP_URL_R2);
+  } catch (e1) {
+    try {
+      r = await fetchJSON(FUND_SCORE_TOP_URL_CF);
+    } catch (e2) {
+      err = (e2 && e2.message) ? e2.message : String(e2);
+    }
+  }
+  if (loadingEl.parentNode) loadingEl.parentNode.removeChild(loadingEl);
+
+  if (!r || !r.data) {
+    const fail = document.createElement("div");
+    fail.className = "fund-score-empty";
+    fail.textContent = _t("fund_score_load_failed") + (err ? '：' + err : '');
+    _c.appendChild(fail);
+    return;
+  }
+
+  // 数据填充到 state
+  const all = (r.data || []).slice();
+  _fundScoreState.all = all;
+  _fundScoreState.filtered = all.slice();
+  _fundScoreState.meta = {
+    date: r.date,
+    count: r.count,
+    method: r.method,
+    update_date: all[0] && all[0].update_date
+  };
   _fundScoreState.page = 1;
   _fundScoreState.search = "";
   _fundScoreState.fundTypeFilter = "all";
   _fundScoreState.sortKey = "composite_score";
   _fundScoreState.sortDir = "desc";
-  _fundScoreState.total = 0;
-  _fundScoreState.pages = 1;
-  _fundScoreState.typeCounts = [];
-  _fundScoreState.source = "static";
   _fundScoreState.loaded = true;
   _fundScoreState.loading = false;
   _fundScoreState.error = null;
@@ -25305,81 +21997,23 @@ async function renderOffshoreFund(container) {
     }
   } catch (e) {}
 
-  // 1) 主链: /api/fund_score（D1 服务端分页; 此刻列表容器未建, _renderFundScoreBody
-  //    内部 getElementById 找不到容器安全 no-op, state 填充后下方统一渲染）
-  let apiOk = false;
-  let apiErr = null;
-  try {
-    await _loadFundScorePage();
-    apiOk = true;
-  } catch (e) {
-    apiErr = e;
-  }
-
-  // 2) fallback: R2 Top100 -> CF Top100（API 失败/未就绪/未登录 401 保底, 既有链路不动摇）
-  let r = null;
-  let err = apiErr ? ((apiErr && apiErr.message) ? apiErr.message : String(apiErr)) : null;
-  if (!apiOk) {
-    console.warn("[fund_score] API 不可用, fallback fund_score_top.json:", err);
-    try {
-      r = await fetchJSON(FUND_SCORE_TOP_URL_R2);
-    } catch (e1) {
-      try {
-        r = await fetchJSON(FUND_SCORE_TOP_URL_CF);
-      } catch (e2) {
-        err = (e2 && e2.message) ? e2.message : String(e2);
-      }
-    }
-  }
-  if (loadingEl.parentNode) loadingEl.parentNode.removeChild(loadingEl);
-
-  if (apiOk) {
-    // api 模式: state 已由 _loadFundScorePage 填充（all=当前页, total/pages 服务端）
-  } else if (r && r.data) {
-    // static 模式: Top100 全量进 state, 前端本地过滤排序分页（原 Phase A 行为）
-    const all = (r.data || []).slice();
-    _fundScoreState.all = all;
-    _fundScoreState.filtered = all.slice();
-    _fundScoreState.meta = {
-      date: r.date,
-      count: r.count,
-      method: r.method,
-      update_date: all[0] && all[0].update_date
-    };
-    _fundScoreState.source = "static";
-  } else {
-    const fail = document.createElement("div");
-    fail.className = "fund-score-empty";
-    fail.textContent = _t("fund_score_load_failed") + (err ? '：' + err : '');
-    _c.appendChild(fail);
-    return;
-  }
-
   // 工具栏：搜索 + 类型筛选 + 排序
   const bar = document.createElement("div");
   bar.className = "fund-score-bar";
-  // 类型下拉数据源: api 模式用服务端 type_counts（首页附带）; static 模式本地统计（原逻辑）
-  let typePairs;
-  let allCount;
-  if (_fundScoreState.source === "api") {
-    typePairs = (_fundScoreState.typeCounts || []).map((x) => [x.type, x.n]);
-    allCount = _fundScoreState.total;
-  } else {
-    const typeCounts = Object.create(null);
-    _fundScoreState.all.forEach((e) => {
-      const t = e.fund_type || "";
-      if (!t) return;
-      typeCounts[t] = (typeCounts[t] || 0) + 1;
-    });
-    typePairs = Object.keys(typeCounts).sort((a, b) => typeCounts[b] - typeCounts[a]).map((t) => [t, typeCounts[t]]);
-    allCount = _fundScoreState.all.length;
-  }
+  // 构造 fund_type 下拉选项（按出现次数降序，动态生成以兼容新类型）
+  const typeCounts = Object.create(null);
+  all.forEach((e) => {
+    const t = e.fund_type || "";
+    if (!t) return;
+    typeCounts[t] = (typeCounts[t] || 0) + 1;
+  });
+  const types = Object.keys(typeCounts).sort((a, b) => typeCounts[b] - typeCounts[a]);
   const sortVal = _fundScoreState.sortKey + "-" + _fundScoreState.sortDir;
   bar.innerHTML =
     '<input id="fund-score-search" type="search" placeholder="' + _esc(_t("fund_score_search_placeholder")) + '" autocomplete="off" value="' + _esc(_fundScoreState.search) + '">'
     + '<select id="fund-score-type" class="fund-score-select" title="' + _esc(_t("fund_score_fund_type")) + '" aria-label="' + _esc(_t("fund_score_fund_type")) + '">'
-    + '<option value="all">' + _t("fund_score_all_types") + ' ' + allCount + '</option>'
-    + typePairs.map(([t, n]) => '<option value="' + _esc(t) + '"' + (_fundScoreState.fundTypeFilter === t ? " selected" : "") + '>' + _esc(t) + ' (' + n + ')</option>').join("")
+    + '<option value="all">' + _t("fund_score_all_types") + ' ' + all.length + '</option>'
+    + types.map((t) => '<option value="' + _esc(t) + '"' + (_fundScoreState.fundTypeFilter === t ? " selected" : "") + '>' + _esc(t) + ' (' + typeCounts[t] + ')</option>').join("")
     + '</select>'
     + '<select id="fund-score-sort" class="fund-score-select" title="' + _esc(_t("fund_score_sort_label_title")) + '" aria-label="' + _esc(_t("fund_score_sort_label_title")) + '">'
     + '<option value="composite_score-desc"' + (sortVal === "composite_score-desc" ? " selected" : "") + '>' + _t("fund_score_sort_composite") + '</option>'
@@ -25392,7 +22026,7 @@ async function renderOffshoreFund(container) {
     + '<option value="score_drawdown-desc"' + (sortVal === "score_drawdown-desc" ? " selected" : "") + '>' + _t("fund_score_sort_drawdown") + '</option>'
     + '<option value="score_stability-desc"' + (sortVal === "score_stability-desc" ? " selected" : "") + '>' + _t("fund_score_sort_stability") + '</option>'
     + '</select>'
-    + '<span class="fund-score-updated">' + _t("fund_score_data_label") + ' ' + _esc((_fundScoreState.meta && _fundScoreState.meta.date) || '-') + (_fundScoreState.meta && _fundScoreState.meta.method ? ' · ' + _esc(_fundScoreState.meta.method) : '') + '</span>';
+    + '<span class="fund-score-updated">' + _t("fund_score_data_label") + ' ' + _esc(r.date || '-') + (r.method ? ' · ' + _esc(r.method) : '') + '</span>';
   _c.appendChild(bar);
 
   // 搜索（防抖）
@@ -25429,7 +22063,7 @@ async function renderOffshoreFund(container) {
   const body = document.createElement("div");
   body.id = "fund-score-body";
   _c.appendChild(body);
-  _renderFundScoreBody();
+  _applyFundScoreFilter();
 }
 
 // ============ B4 持仓面板: 输入/保存/清空 + chips 显示评分排名 ============
@@ -25649,7 +22283,7 @@ function _summaryHistoryItemHtml(s, briefByDate, newsDigest) {
   const it = (briefByDate && s.date) ? briefByDate[s.date] : null;
   if (it) {
     const meta = it.meta || {};
-    aiBlock = `<div class="sh-ai-brief"><div class="sh-ai-brief-head"><span class="db-dir ${_dbDirCls(meta.direction)}">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}<span class="sh-ai-brief-title">🤖 AI预测</span>${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}${_dbHitHtml(meta)}${_dbActualHtml(meta)}${_dbPlayBtn(meta, it.date || meta.date)}</div>${_dbBriefDetailHtml(it)}</div>`;
+    aiBlock = `<div class="sh-ai-brief"><div class="sh-ai-brief-head"><span class="db-dir">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}<span class="sh-ai-brief-title">🤖 AI预测</span>${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}${_dbHitHtml(meta)}${_dbActualHtml(meta)}${_dbPlayBtn(meta, it.date || meta.date)}</div>${_dbBriefDetailHtml(it)}</div>`;
   }
   // 2026-08-16 历史「事件对照」:当日大事 1-3 条。日期==news_digest.date 用已加载缓存(同步);
   // 否则占位容器(data-arch-date), 渲染后由 _loadHistNewsAsync 异步读归档 news_digest/<date>.json 注入, 无归档显示空态。
@@ -25792,31 +22426,13 @@ function _dbDirLabel(d) {
   return "➖ 震荡";
 }
 
-// A股红涨绿跌方向配色(2026-08-27 用户反馈):凡是表达方向的数值/标识统一分色——
-//   涨=红系(db-up)、跌=绿系(db-down)、平/跨0/缺省=中性灰(db-flat),数字+箭头+标签同 span 联动继承同色。
-// 方向徽标按 direction 字段(up/down/flat);数值区间芯片按 lo>0→涨红 / hi<0→跌绿 / 其余(含0跨0)→震荡灰
-// (与公示口径"方向由区间体现:全正=涨/全负=跌/含0=平震荡"一致)。
-// 例外:.db-index-yield(10年国债收益率变化 bp 口径,收益率上行≠行情看涨,无 A股涨跌语义)不上色维持原样。
-function _dbDirCls(d) {
-  if (d === "up") return "db-up";
-  if (d === "down") return "db-down";
-  return "db-flat";
-}
-function _numDirCls(lo, hi) {
-  lo = Number(lo); hi = Number(hi);
-  if (!isFinite(lo) || !isFinite(hi)) return "db-flat";
-  if (lo > 0) return "db-up";
-  if (hi < 0) return "db-down";
-  return "db-flat";
-}
-
 // 2026-08-15 区间双命中: 方向徽标后追加预测区间(+0.5~1.5%)。
 // 区间从 meta.range 读; 老条目无 range → 不显示区间徽标(不伪造)。
 function _dbRangeLabel(meta) {
   const rng = (meta && meta.range) || null;
   if (!rng || rng.lo == null || rng.hi == null) return "";
   const fmt = (v) => (Number(v) > 0 ? `+${Number(v).toFixed(2)}` : Number(v).toFixed(2));
-  return `<span class="db-range ${_numDirCls(rng.lo, rng.hi)}">预计 ${fmt(rng.lo)}~${fmt(rng.hi)}%</span>`;
+  return `<span class="db-range">预计 ${fmt(rng.lo)}~${fmt(rng.hi)}%</span>`;
 }
 
 // 2026-08-15 区间命中判定 4 态: ✅方向+区间 / ✅仅方向(老条目无 range) / ❌未中 / 区间N/A。
@@ -25968,53 +22584,21 @@ function _dbConclusionHtml(meta) {
 // AI 预测自成长 Step 1 透明展示:本次预测实际注入的「历史反思校准」要点(meta.reflection)。
 // 后端 gen_daily_brief.py 与注入口径同源写进 meta;无 reflection(旧条目/兜底版/无注入样本)整块不渲染(优雅降级)。
 // §23.9 三档互证:标题白话一句 + 正文场景说明 + 下方 1:1 样本明细(日期+类型+简短归因)。
-// 2026-08-26 布局改造(用户定):默认折叠(details,标题栏带次数徽标)+明细分批「加载更多」,
-//   防反思样本随积累越来越大撑爆布局;纯展示层不动数据生成,后端返回多少渲染多少。
-//   分批逻辑:前 DB_REFLECT_PAGE 条直接可见,其余藏 .db-refl-hidden,点按钮逐批放出
-//   (委托点击见 _initReflectionMoreDelegation)。共用渲染器 _dbBriefDetailHtml 的两个消费位
-//   (首页 AI 预测卡 + 历史收盘分析弹窗)自动全覆盖。
-const DB_REFLECT_PAGE = 5; // 明细分批大小
 function _dbReflectionHtml(meta) {
   const rf = (meta && meta.reflection) || null;
   if (!rf || !rf.n) return "";
   const n = rf.n || 0;
   const injN = rf.injected_n || n;
   const dirFailN = rf.dir_fail || 0;
-  const sampleList = rf.samples || [];
-  const items = sampleList.map((s, i) => {
+  const samples = (rf.samples || []).map((s) => {
     const d = String(s.date || "").replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
     const typeLabel = ({ direction_fail: "方向误判", range_imprecise: "区间不准", partial: "部分命中" })[s.type] || (s.type || "");
-    return `<li${i >= DB_REFLECT_PAGE ? ` class="db-refl-hidden"` : ""}><b>${_esc(d)}</b> ${_esc(typeLabel)}${s.summary ? `：${_esc(s.summary)}` : ""}</li>`;
+    return `<li><b>${_esc(d)}</b> ${_esc(typeLabel)}${s.summary ? `：${_esc(s.summary)}` : ""}</li>`;
   }).join("");
-  const hiddenN = Math.max(0, sampleList.length - DB_REFLECT_PAGE);
-  const moreBtn = hiddenN > 0 ? `<button type="button" class="db-refl-more">加载更多（还有 ${hiddenN} 条）</button>` : "";
-  const badge = `<span class="db-reflection-badge">${n} 次${injN < n ? ` · 注入 ${injN}` : ""} · 方向误判 ${dirFailN}</span>`;
-  return `<details class="db-reflection">
-    <summary class="db-reflection-title"><span class="db-reflection-head">🔍 含历史反思校准</span>${badge}<span class="db-debate-arrow">▾</span></summary>
-    <div class="db-reflection-body">
-      <p class="db-reflection-brief">本次预测生成前，先参考历史上 ${n} 次失败预测的反思${injN < n ? `（近 ${injN} 次）` : ""}做校准，不是凭空判断；其中方向误判 ${dirFailN} 次。失败教训只作谨慎权衡参考，结论仍以本次数据为准。</p>
-      ${sampleList.length ? `<ul class="db-reflection-samples">${items}</ul>` : ""}
-      ${moreBtn}
-    </div>
-  </details>`;
+  return `<div class="db-reflection"><div class="db-reflection-title">🔍 含历史反思校准</div>
+    <p class="db-reflection-brief">本次预测生成前，先参考历史上 ${n} 次失败预测的反思${injN < n ? `（近 ${injN} 次）` : ""}做校准，不是凭空判断；其中方向误判 ${dirFailN} 次。失败教训只作谨慎权衡参考，结论仍以本次数据为准。</p>
+    ${samples ? `<ul class="db-reflection-samples">${samples}</ul>` : ""}</div>`;
 }
-// 「加载更多」click 委托(动态渲染内容,document 级一次注册;先例 _initOverfitHelpDelegation):
-// 每次点击在所属明细列表内放出一批(DB_REFLECT_PAGE 条),全部放完按钮移除。
-(function _initReflectionMoreDelegation() {
-  document.addEventListener("click", (e) => {
-    const btn = e.target.closest(".db-refl-more");
-    if (!btn) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const body = btn.closest(".db-reflection-body");
-    const ul = body && body.querySelector(".db-reflection-samples");
-    if (!ul) { btn.remove(); return; }
-    ul.querySelectorAll("li.db-refl-hidden").forEach((li, i) => { if (i < DB_REFLECT_PAGE) li.classList.remove("db-refl-hidden"); });
-    const left = ul.querySelectorAll("li.db-refl-hidden").length;
-    if (left > 0) btn.textContent = `加载更多（还有 ${left} 条）`;
-    else btn.remove();
-  });
-})();
 
 // 复用:AI 预测内容块(复盘/趋势/关注/风险四段 + meta 断言 watch_list/risk_items + 免责)。
 // 供 AI 预测弹窗详情、历史收盘分析弹窗结合展示共用，保证两处渲染一致。
@@ -26040,7 +22624,7 @@ function _dbDebateHtml(meta) {
   if (!d || (!d.bull && !d.bear && !d.summary)) return "";
   const bull = (d.bull || []).map((x) => `<li>${_esc(x)}</li>`).join("");
   const bear = (d.bear || []).map((x) => `<li>${_esc(x)}</li>`).join("");
-  const lean = d.lean ? `<span class="db-lean ${_dbDirCls(d.lean)}">${_dbDirLabel(d.lean)}</span>` : "";
+  const lean = d.lean ? _dbDirLabel(d.lean) : "";
   let conf = "";
   if (typeof d.confidence === "number") conf = `<span class="db-debate-conf">置信度 ${Math.round(d.confidence * 100)}%</span>`;
   return `<div class="db-debate-content">
@@ -26065,16 +22649,6 @@ function _dbBriefDetailHtml(it) {
     const fmt = (v) => (Number(v) > 0 ? `+${Number(v).toFixed(2)}` : Number(v).toFixed(2));
     rangeBlock = `<p class="db-line"><span class="db-k">大盘区间</span>上证次日 ${fmt(rng.lo)}~${fmt(rng.hi)}%${hitTxt}</p>`;
   }
-  // 2026-08-24 R3 方向强制二选一展示(meta.direction_call 纯新增键,up/down 二选一):
-  // 旧条目/兜底版无此键或为 null → 整行不渲染(容错降级,不伪造)。
-  let dcLine = "";
-  const dc = meta.direction_call;
-  if (dc === "up" || dc === "down") {
-    const dch = (meta.hit || {}).direction_call_hit;
-    const dcMark = dch === true ? " ✅命中" : dch === false ? " ❌未中" : "";
-    const dcLabel = dc === "up" ? '<span class="db-call-up">📈 押涨</span>' : '<span class="db-call-down">📉 押跌</span>';
-    dcLine = `<p class="db-line"><span class="db-k">方向押注</span>强制二选一 ${dcLabel}${dcMark}<span style="opacity:.65">（与区间独立的纯方向题：实际涨跌幅≤±0.5%视为震荡，押方向判未中）</span></p>`;
-  }
   // 2026-08-15 三层命中: 中间层 7 个全押区间区块(type=index 涨跌幅%,type=yield 收益率变化基点)。
   // 插在大盘区间与板块区间之间。老条目无 index_ranges → 中间层区块留空(不伪造,不报错)。
   let indexBlock = "";
@@ -26093,7 +22667,7 @@ function _dbBriefDetailHtml(it) {
       const iv = isYield
         ? `收益率变化 ${fmtBp(m.lo)}~${fmtBp(m.hi)}bp`
         : `${fmtPct(m.lo)}~${fmtPct(m.hi)}%`;
-      return `<span class="db-index ${isYield ? "db-index-yield" : _numDirCls(m.lo, m.hi)}">${_esc(nm || "？")} ${iv}${hitTxt}</span>`;
+      return `<span class="db-index ${isYield ? "db-index-yield" : ""}">${_esc(nm || "？")} ${iv}${hitTxt}</span>`;
     }).join("");
     indexBlock = `<p class="db-line"><span class="db-k">中间层7押</span>${items || "（无）"}</p>`;
   }
@@ -26108,14 +22682,8 @@ function _dbBriefDetailHtml(it) {
       const nm = s && (s.name || "");
       const sh = map[nm];
       const hitTxt = sh && sh.hit === true ? " ✅命中" : sh && sh.hit === false ? " ❌未中" : (sh && sh.actual_pct != null ? " N/A" : "");
-      // 2026-08-24 R2 板块层波动率自适应带宽: 已回填项追加展示有效判定带(eff_lo~eff_hi,
-      // =AI预测中点 ± max(median(|pct|,近5日)×2, 0.3pp)/2);旧条目无 eff 键 → 不追加(容错降级)
-      let bandTxt = "";
-      if (sh && sh.eff_lo != null && sh.eff_hi != null) {
-        bandTxt = `（判定带 ${fmt(sh.eff_lo)}~${fmt(sh.eff_hi)}%）`;
-      }
       // sector_ranges 元素本身不带 actual_pct(实际在 hit.sector_hits 里), 区间本体展示用 lo/hi
-      return `<span class="db-sector ${_numDirCls(s.lo, s.hi)}">${_esc(nm || "？")} ${fmt(s.lo)}~${fmt(s.hi)}%${hitTxt}${bandTxt}</span>`;
+      return `<span class="db-sector">${_esc(nm || "？")} ${fmt(s.lo)}~${fmt(s.hi)}%${hitTxt}</span>`;
     }).join("");
     sectorBlock = `<p class="db-line"><span class="db-k">板块区间</span>${pcs || "（无）"}</p>`;
   }
@@ -26144,7 +22712,7 @@ function _dbBriefDetailHtml(it) {
     const tag = (roleN ? ` · ${roleN}角色` : "") + (bullN || bearN ? ` · 辩论 ${bullN}对${bearN}` : "");
     debateBlock = `<details class="db-debate-wrap"><summary class="db-debate-toggle">🧠 多角色讨论详情${tag}<span class="db-debate-arrow">▾</span></summary><div class="db-debate-body">${rolesHtml}${debateHtml}</div></details>`;
   }
-  return `${rangeBlock}${dcLine}${indexBlock}${sectorBlock}${highlightsHtml}${conclusionHtml}${conf ? `<p class="db-line"><span class="db-k">把握度</span>${_dbConfidenceBadge(meta)}<span class="db-conf-reason">${_esc(conf.reason)}</span></p>` : ""}
+  return `${rangeBlock}${indexBlock}${sectorBlock}${highlightsHtml}${conclusionHtml}${conf ? `<p class="db-line"><span class="db-k">把握度</span>${_dbConfidenceBadge(meta)}<span class="db-conf-reason">${_esc(conf.reason)}</span></p>` : ""}
       ${reflectionHtml}
       <p class="db-line"><span class="db-k">复盘</span>${_esc(t.review || "")}</p>
       <p class="db-line"><span class="db-k">趋势</span>${_esc(t.trend || "")}</p>
@@ -26161,7 +22729,7 @@ function _dailyBriefItemHtml(it) {
   const dateRaw = it.date || meta.date || "";
   const date = dateRaw.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
   return `<div class="summary-history-item db-item" data-date="${_escAttr(dateRaw)}">
-    <div class="sh-date"><span class="db-dir ${_dbDirCls(meta.direction)}">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}<span class="sh-label">${_esc(date)}</span>${_dbHitHtml(meta)}${_dbActualHtml(meta)}${_dbPlayBtn(meta, dateRaw)}<span class="db-expand-hint">点击收起 ▲</span></div>
+    <div class="sh-date"><span class="db-dir">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}<span class="sh-label">${_esc(date)}</span>${_dbHitHtml(meta)}${_dbActualHtml(meta)}${_dbPlayBtn(meta, dateRaw)}<span class="db-expand-hint">点击收起 ▲</span></div>
     <div class="db-detail">
       ${_dbBriefDetailHtml(it)}
     </div>
@@ -26202,17 +22770,12 @@ async function _loadDailyBriefPage() {
   list.innerHTML = items.map(_dailyBriefItemHtml).join("") || '<div class="summary-history-empty">暂无历史预测数据</div>';
   _dbTtsBind(list);  // edge-tts 语音播报按钮事件委托
   list.scrollTop = 0;
-  // 点首行标题区(.sh-date)=切换收起/展开(2026-08-27 用户反馈收敛交互区域):
-  // 监听从 .db-item 整容器收敛到标题行后,正文内容区(.db-detail 内任意位置/子控件)点击
-  // 不再冒泡触发整体折叠;「历史反思校准」(details)/「多角色讨论」(details)等正文内折叠面板
-  // 点击只走自身 summary 原生开合,不再连坐把整块收起。
+  // 点开某日=展开预测内容+meta断言（事件委托，列表重渲染后仍可点）
   list.querySelectorAll(".db-item").forEach((el) => {
-    const head = el.querySelector(".sh-date");
-    if (!head) return;
-    head.addEventListener("click", (ev) => {
-      // 语音播报按钮 .db-play 是独立操作不触发展开收起(_dbTtsBind 在列表层 stopPropagation,
-      // 但 .sh-date 位于其冒泡上游更早收到事件,故此处必须兜底排除)
-      if (ev.target && ev.target.closest && ev.target.closest(".db-play")) return;
+    el.addEventListener("click", (ev) => {
+      // 点击多角色讨论折叠面板(<details>/<summary>)不触发整条收起(2026-08-11 补齐辩论入口)
+      // 2026-08-17: 语音播报按钮 .db-play 也不触发收起(独立操作;_dbTtsBind 已 stopPropagation,此处同容器兜底排除,两处同容器监听均需处理)
+      if (ev.target && ev.target.closest && (ev.target.closest(".db-debate-wrap") || ev.target.closest(".db-play"))) return;
       const detail = el.querySelector(".db-detail");
       if (!detail) return;
       const isHidden = detail.classList.toggle("hidden");
@@ -26230,8 +22793,6 @@ function _renderDailyBriefStats(brief) {
   const stats = (brief && brief.stats) || {};
   const s30 = stats["30d"] || {};
   const s90 = stats["90d"] || {};
-  const d30 = (s30 && s30.direction) || {};
-  const d90 = (s90 && s90.direction) || {};
   const rate = (x) => (x && x.hit_rate != null) ? `${(x.hit_rate * 100).toFixed(0)}%` : "--";
   // 公示行: 每日 20:40 更新(后端 20:40 定时生成) + 数据生成时间 + 今日把握度(读 daily_brief.json meta, §22 同字段)
   const tb = _dailyBriefState.todayBrief;
@@ -26239,11 +22800,11 @@ function _renderDailyBriefStats(brief) {
   const todayConf = (tb && tb.meta) ? _dbConfidenceBadge(tb.meta) : "";
   el.innerHTML =
     '<div class="db-stats-box">' +
-      '<span class="db-stats-title">📊 AI预测命中率（三层全命中：大盘+中间层7押+板块自适应带；方向押注单独统计，meta机检次日回填）</span>' +
+      '<span class="db-stats-title">📊 AI预测命中率（三层全命中：大盘+中间层7押+板块，meta机检次日回填）</span>' +
       `<span class="db-stats-item db-stats-sched">🕗 每日 20:40 更新${genAt}${todayConf ? ` · 今日${todayConf}` : ""}</span>` +
-      `<span class="db-stats-item">三层命中 近30日：<b>${s30 && s30.n ? `${s30.hit}/${s30.n}（${rate(s30)}）` : "暂无样本"}</b> · 近90日：<b>${s90 && s90.n ? `${s90.hit}/${s90.n}（${rate(s90)}）` : "暂无样本"}</b></span>` +
-      `<span class="db-stats-item">方向押注 近30日：<b>${d30 && d30.n ? `${d30.hit}/${d30.n}（${rate(d30)}）` : "样本积累中"}</b> · 近90日：<b>${d90 && d90.n ? `${d90.hit}/${d90.n}（${rate(d90)}）` : "样本积累中"}</b></span>` +
-      '<details class="db-stats-how-fold"><summary>📊 命中率统计与算法说明 ▸</summary><div class="db-stats-how">AI每日盘后基于当日收盘数据，默认由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测 + 🎯今日要点 + 多角色讨论（展开可看四角色结论与多空辩论）；任一环节失败自动降级单模型生成兜底。meta结构化断言：预测给出<b>明确方向 + 具体涨跌幅区间</b>（大盘上证 + <b>中间层7个全押</b>（深证成指/创业板指/科创50/北证50/恒生指数/恒生科技涨跌幅% + 10年国债收益率变化基点）+ 1-3个领涨/领跌板块次日涨跌幅区间，区间宽度≤0.5%，越窄越准；方向由区间体现：全正=涨/全负=跌/含0=平震荡）。<b>10年国债</b>预测口径为<b>次日收益率变化基点</b>（1基点=0.01%，区间如 +1~-1 即预期次日收益率在 当日−1bp~+1bp，用整数基点、宽度≤3bp），命中=次日实际收益率减当日收益率（×100）落在预期基点区间。命中判定=<b>三层全命中</b>：大盘实际涨跌幅 ∈ 大盘预测区间，且<b>中间层7个全部命中</b>（前6涨跌幅%落各自区间 + 10年国债基点落区间），且所有预测板块实际涨跌幅 ∈ 各自的<b>波动率自适应判定带</b>。<b>板块层口径升级（2026-08-24）</b>：AI 预测的原始窄区间照旧展示不改，但命中判定带=以 AI 预测区间中点为中心、宽 max(该板块近5个交易日日涨跌幅绝对值的中位数×2, 0.3pp)——比 std 抗毛刺、随板块自身波动自适应放大收窄。校准依据（docs/ai-predict/scripts/calibrate_sector_band.py 自然覆盖率法）：近500个交易日×全部申万行业覆盖率 59.9%，落在 40-65% 目标域（既有区分度又不恒错）；此口径前的固定 ±0.25pp 窄带 vs 板块日常 ±2~4% 波动，板块曾 10 天 0/10 全脱靶属数学必然而非模型判断力问题；每条 sector_hits 同时保留 raw_hit（原窄口径对照）可追溯。极端行情（单日|涨跌|≥3%）任何合理带宽都难兜住，此时脱靶=真难非口径病。（大盘+中间层7押+板块=✅三层命中；任一层数据缺失 N/A 则整体不硬判，标"层级N/A"）。<b>历史老条目</b>（改造前无区间/无中间层的预测）不伪造区间，只保留旧"方向相等"判定（✅仅方向命中），区间命中标"层级N/A"（不算中不算不中），故命中率为新老口径混合统计。<b>命中率</b>仅对改造后含区间的条目计，老条目 N/A 不计入。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。<b>版本徽标</b>：🤖多角色=6角色完整版（默认）／旧版单模型=多角色版上线前旧版（已被取代）／⚠️降级版=AI生成失败规则兜底（无多角色辩论）／⚠️精简版=最小兜底；降级/精简版仅供参考。每条预测含<b>🧭结论</b>行（融合结论=研究员多空辩论收敛结果，不展开即可见），<b>辩论详情</b>折叠面板可展开看四角色结论与多空论据（含论据数）。<b>增量参考面</b>：预测已综合当天新闻快讯/宏观事件（今日要闻/明日关键事件）/8宽基估值位置（1y/3y历史百分位）等增量参考——AI 在这些面之上判断方向，但这些面本身不参与区间命中判定。<b>历史反思校准（自成长）</b>：每次预测生成前，系统会读历史失败预测样本（方向/区间误判+归因）做反思注入，让模型参考既往失误谨慎校准本次判断（严格时间隔离，只用本预测日之前已回填的失败样本，防未来函数）；有样本时预测详情块显示「🔍 含历史反思校准」折叠面板（默认收起只占标题栏一行，标题含参考次数/注入次数/方向误判徽标；点开看说明与参考的具体失败样本：日期+类型+归因，样本多时分批「加载更多」逐批查看），样本积累中则暂不显示。<b>🧭 方向押注（direction_call，2026-08-24 新增）</b>：AI 每日除区间外必须额外给出强制二选一的纯方向判断（up/down，禁止 flat 和稀泥、禁止省略），与 range 区间相互独立、单独统计命中率（详情块「方向押注」行）。<b>白话</b>：假设明天必须押涨或跌一边，AI 押对的比例——衡量真方向能力，不含"说震荡蒙对"的安全分。<b>什么时候看它</b>：想验证 AI 是不是只会和稀泥、或大跌/大涨次日它敢不敢坚持反向判断时看这行；三层命中是含幅度的联合事件天然难，方向押注是单维度纯方向题，两者对照看。<b>1:1 直白举例</b>：某日 AI direction_call=down，次日上证收盘 -2.40%（超 ±0.5% 阈值=实际跌）→ ✅中；若次日 +0.24%（±0.5% 内=实际震荡）→ ❌未中（押方向本就该难，震荡日算方向题的一部分）。<b>板块判定带 1:1 直白举例</b>（真实数据）：20260821 AI 预测电子 +0.5~+1.0%（宽仅 0.5pp），按截至当日电子近5日 |涨跌幅|=[0.73, 0.13, 7.77, 0.31, 4.61]% 取中位数 0.73 → 判定带宽 = max(0.73×2, 0.3)=1.46pp → 有效带 +0.02~+1.48%；次日 0824 电子实际 -2.35%，自适应带下仍脱靶——因为方向本身错了，自适应只治"幅度带过窄"不治"方向错"，如实标注。方向押注样本自 2026-08-25 起积累，n 小仅供参考。命中率仅为历史统计，不构成投资建议。</div></details>' +
+      `<span class="db-stats-item">近30日：<b>${s30 && s30.n ? `${s30.hit}/${s30.n}（${rate(s30)}）` : "暂无样本"}</b></span>` +
+      `<span class="db-stats-item">近90日：<b>${s90 && s90.n ? `${s90.hit}/${s90.n}（${rate(s90)}）` : "暂无样本"}</b></span>` +
+      '<details class="db-stats-how-fold"><summary>📊 命中率统计与算法说明 ▸</summary><div class="db-stats-how">AI每日盘后基于当日收盘数据，默认由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测 + 🎯今日要点 + 多角色讨论（展开可看四角色结论与多空辩论）；任一环节失败自动降级单模型生成兜底。meta结构化断言：预测给出<b>明确方向 + 具体涨跌幅区间</b>（大盘上证 + <b>中间层7个全押</b>（深证成指/创业板指/科创50/北证50/恒生指数/恒生科技涨跌幅% + 10年国债收益率变化基点）+ 1-3个领涨/领跌板块次日涨跌幅区间，区间宽度≤0.5%，越窄越准；方向由区间体现：全正=涨/全负=跌/含0=平震荡）。<b>10年国债</b>预测口径为<b>次日收益率变化基点</b>（1基点=0.01%，区间如 +1~-1 即预期次日收益率在 当日−1bp~+1bp，用整数基点、宽度≤3bp），命中=次日实际收益率减当日收益率（×100）落在预期基点区间。命中判定=<b>三层全命中</b>：大盘实际涨跌幅 ∈ 大盘预测区间，且<b>中间层7个全部命中</b>（前6涨跌幅%落各自区间 + 10年国债基点落区间），且所有预测板块实际涨跌幅 ∈ 各自区间（大盘+中间层7押+板块=✅三层命中；任一层数据缺失 N/A 则整体不硬判，标"层级N/A"）。<b>历史老条目</b>（改造前无区间/无中间层的预测）不伪造区间，只保留旧"方向相等"判定（✅仅方向命中），区间命中标"层级N/A"（不算中不算不中），故命中率为新老口径混合统计。<b>命中率</b>仅对改造后含区间的条目计，老条目 N/A 不计入。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。<b>版本徽标</b>：🤖多角色=6角色完整版（默认）／旧版单模型=多角色版上线前旧版（已被取代）／⚠️降级版=AI生成失败规则兜底（无多角色辩论）／⚠️精简版=最小兜底；降级/精简版仅供参考。每条预测含<b>🧭结论</b>行（融合结论=研究员多空辩论收敛结果，不展开即可见），<b>辩论详情</b>折叠面板可展开看四角色结论与多空论据（含论据数）。<b>增量参考面</b>：预测已综合当天新闻快讯/宏观事件（今日要闻/明日关键事件）/8宽基估值位置（1y/3y历史百分位）等增量参考——AI 在这些面之上判断方向，但这些面本身不参与区间命中判定。<b>历史反思校准（自成长）</b>：每次预测生成前，系统会读历史失败预测样本（方向/区间误判+归因）做反思注入，让模型参考既往失误谨慎校准本次判断（严格时间隔离，只用本预测日之前已回填的失败样本，防未来函数）；有样本时预测详情块显示「🔍 含历史反思校准」及参考的具体失败样本（日期+类型+归因），样本积累中则暂不显示。命中率仅为历史统计，不构成投资建议。</div></details>' +
     '</div>';
 }
 
@@ -27070,9 +23631,7 @@ async function _tradeSimFetchStats(indexId) {
 }
 
 async function _tradeSimFetchFull(indexId) {
-  // perf批一 P4-D(2026-08-24): 补 timeoutMs=60000(对齐 overfit 大文件先例), 防弱网/无br环境
-  // 撞默认 15s abort(cgb_idx full 实测 7.4s, 20.2MB); 超时由调用方 catch 兜底。
-  return await fetchJSON('https://ss.fx8.store/r2/trade_sim_data/trade_sim_' + encodeURIComponent(indexId) + '_full.json', 60000);
+  return await fetchJSON('https://ss.fx8.store/r2/trade_sim_data/trade_sim_' + encodeURIComponent(indexId) + '_full.json');
 }
 
 // === A10 历史相似形态匹配（皮尔逊相关 + 滑窗，O(n) 前端实时算）===

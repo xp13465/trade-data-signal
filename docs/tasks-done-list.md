@@ -128,82 +128,13 @@
 
 > 来源:方向锚/反思/影子/影子md/四档色带 5 项,main-merge 统一入口合并(main-merge.sh + worktree 复刻防线),全部 commit 已在 origin/main(git branch --contains 实测)。这批是「听你的」批准的多阶段 AI 预测升级落档闭环,§23.5 四件套(报告本体+脚本+复现段+commit)齐。
 
-- [x] **AI 预测根因调研 + TradingAgents-CN 底层深挖(用户质疑「只肤浅套用多agent辩论?」)** — commit(调研为文档非代码)。结论:TA 底层=langgraph 多智能体辩论编排(setup.py)+各 analyst prompt 内领域软因子+唯一硬权重=舆情三源加权(chinese_finance_utils.py 331行);我们诚实承认只复用了多agent辩论编排,但方向锚信号胜率(转空+均线多头84.2%)为自研8年数据挖掘,超越之;README 措辞已修正(致敬TA保留)。报告 docs/ai-predict/ai-predict-direction-market-winning-signals-20260820.md
+- [x] **AI 预测根因调研 + TradingAgents-CN 底层深挖(用户质疑「只肤浅套用多agent辩论?」)** — commit(调研为文档非代码)。结论:TA 底层=langgraph 多智能体辩论编排(setup.py)+各 analyst prompt 内领域软因子+唯一硬权重=舆情三源加权(chinese_finance_utils.py 331行);我们诚实承认只复用了多agent辩论编排,但方向锚信号胜率(转空+均线多头84.2%)为自研8年数据挖掘,超越之;README 措辞已修正(致敬TA保留)。报告 docs/ai-predict-direction-market-winning-signals-20260820.md
 - [x] **方向发展锚(第一步)+ 离线回放A/B** — commit 5bbc8fbe1(方向锚语义教学+config默认关+replay脚本)/30ed2c94c(merge main)。A/B结果:8/17修正(down→up)、8/18保持对+L3压制转多设计点通过、8/14未修正(80%+逆势锚被当参考,迭代点晋升"倾向性结论")。迭代跟踪总纲 docs/ai-predict-self-upgrade-roadmap.md
-- [x] **反思=因子归因回灌(TA Reflector 内核,提前落地后续轮次3)** — commit 9a47bae97。失败归因到具体误导因子(_attribut_factor,复用方向锚)+「待规避因子」约束段回灌(build_attribut_inject);cfg 默认关reflection_factor_attribution_enabled=false=线上逐字不变。报告 docs/ai-predict/ai-predict-reflection-factor-attribution-20260820.md
-- [x] **影子模式 7 真实交易日 A/B 验证(用户拍板数据决定开/不开/改)** — commit 52813c924。方向锚/归因全默认关但旁路算+落盘(brief_shadow.json)+聚算(aggregate_shadow.py);shadow_mode_enabled=true只控旁路不注入线上。契约 docs/ai-predict/ai-predict-shadow-validate-20260820.md + roadmap 第四步实施记录
+- [x] **反思=因子归因回灌(TA Reflector 内核,提前落地后续轮次3)** — commit 9a47bae97。失败归因到具体误导因子(_attribut_factor,复用方向锚)+「待规避因子」约束段回灌(build_attribut_inject);cfg 默认关reflection_factor_attribution_enabled=false=线上逐字不变。报告 docs/ai-predict-reflection-factor-attribution-20260820.md
+- [x] **影子模式 7 真实交易日 A/B 验证(用户拍板数据决定开/不开/改)** — commit 52813c924。方向锚/归因全默认关但旁路算+落盘(brief_shadow.json)+聚算(aggregate_shadow.py);shadow_mode_enabled=true只控旁路不注入线上。契约 docs/ai-predict-shadow-validate-20260820.md + roadmap 第四步实施记录
 - [x] **影子模式项目下 md 追踪总表(用户要求项目下 md 文件记录可实时看,非黑盒)** — commit a63a13e87 + 77ffd7041(渲染 try 防阻断)。md=data/brief_shadow.json 唯一事实源全量渲染,幂等双向维护,进 main 可从 commit 检索。追踪表 docs/ai-predict-shadow-track.md(自动生成勿手改)
 - [x] **四档色带单色+无hover bug 修复(中证1000/创业板指/科创50)** — commit bb20755be + 836c1f95c(merge main)。根治:per-date匹配tier+silent:false+弹窗补tiers;本地与线上 app.min.js md5 均=d3e0a537
 
 ## 2026-08-21 回测结论落档(95)
 
 - [x] **#95 ETF→权重龙头个股回测结论** — 无实际价值,不推荐,维持 v1.1.3。结论:同 ¥10,000/信号基准,A(ETF)全面优于 B1/B2(TOP1个股),B3(TOP1-3并集)与A持平但3倍操作量且半凯利低4pp;ETF免印花税+单标的决策+无停牌退市风险。详见 docs/kelly/backtest-ai/etf-weight-leader/etf-weight-leader-conclusion.md
-
-## 2026-08-22 todolist 治理移入(8 条关闭 + #82 整条关闭,researcher 盘查+用户拍板)
-
-> 来源:docs/todolist-cleanup-20260822.md 全量盘查报告(researcher 三重交叉核实:文档自述+commit 在 main+产物/前端/线上 API 实测),用户 2026-08-22 逐条拍板。§23.12 4 态流转:完成→完成文件;从 pending-features-index.md 移除,每条带 commit 实锤可反查。
-
-- [x] **#15+#91 凯利回测「次日开盘」口径(切默认闭环)** — 371434fdc「回测默认买入口径切次日开盘(v1.1.4)」在 main,git tag v1.1.4 已打;lab.js L9846 前端已公示「v1.1.4 起默认=信号次日开盘」;907b76777 README 已补;「次日分批挂单SOP」按钮②早已上线(lab.js L9736)
-- [x] **#29 R2 审计 P1:track_score 跨文件不一致** — 6e0f70eb6「增量门控纳入 board_etf_map + 全量一致性校验(#29)」在 main,check_data_integrity.py L44 全量两两对比挂 deploy 链常态化;基线漂移子问题已随 #26 废弃时定性「漂移极小」
-- [x] **#42 上下文优化 3 项(OPT-1/2/3)** — OPT-3 Compact Instructions 已进 CLAUDE.md(grep 命中);OPT-2 MEMORY 瘦身 2026-08-12 已做一轮(§5.3 记录 20.6KB→9.6KB,若要重做另开新项);OPT-1 被 E17 hooks 0 token 抄送(2d1b9206e)+token-cache-stats 每日收尾(92c303963)+§5.5 行为层吸收
-- [x] **#75 upload_r2.py REPO 读路径强校验(方案1)** — a956cbe5a「REPO 缺省分级闸 #75,防手动裸跑旧库盖线上」在 main:upload_r2.py L36-54 显式态放行/缺省拦截,reviewer 当年「方案1 无兜底须再上」诉求已实现
-- [x] **#79 场外基金方案C 全量化(step1-8)** — 28314d030「feat(#79 方案C) D1 服务端分页+详情弹窗 5 区块」在 main;step1 export_fund_score.py 九字段/step2 weekly top_n=None/step3 wrangler.jsonc FUND_SCORE_DB binding+sync 脚本/step4 worker/fund_score.js/step5 app.js /api/fund_score 分页 fetch/step6 openFundScoreDetailModal/step7 统一 bump(1985b733f)/step8 weekly 挂 sync 全落地;线上 curl /api/fund_score 返回 401 登录特权鉴权正常(生产实证)
-- [x] **#80-P2-15 offshore_fund dead weight 停链** — 4289d50a7「chore(P2-15): 停用 offshore_fund JSON 定时生成链(用户已确认)」在 main;P2-10 长期 code-splitting 与 P2-11 保留 pending #80(P2-11 feat/p2-11-dapan-lazy 分支预开,实施中)
-- [x] **#82 留言箱完整方案剩余(整条关闭)** — 邮件通知已上线(main 436f6d6bf merge 链,生产端到端验证通过:KV nickname 实锤+站主 QQ 实收);管理端审核页 admin/feedback.html + 防滥用四层(worker/auth.js L731-796 频控/honeypot/内容约束/审核闸门)均在 main(4b384b473/f3f4cd838);留言墙经用户拍板砍除(定位私密信箱不上墙);原行内悬空 hash b53a312e7 随行移除清除(实际承载 eb288f443/4b384b473/f3f4cd838)
-- [x] **#83 公募基金筛选器实战版(被 #79 覆盖)** — 前置阻塞解除实锤:export_fund_score.py L8-10 注释「#83 公募筛选器字段前置」,fund_company/manager/scale 等 9 字段已补;指标体系(sharpe/drawdown/stability/manager_score/star_rating)+筛选(type)/排序/搜索+详情弹窗均被 #79 实现;若未来要做「多条件区间组合筛选」增强,重新登记新项
-- [x] **#22 凯利过滤层 walk-forward(方法论沉淀)** — #16(commit 299db6167)已建完整 walk-forward 方法论+kelly_walkforward.py(docs/kelly/analysis/kelly-walkforward-validate/),结论「推荐组合样本外有效,选段最优才过拟合」;本条诉求=未来调参用 walk-forward 防过拟合,方法论+脚本沉淀后独立挂待办无增量
-
-## 2026-08-22 会话收尾移入(首页模拟回测弹窗全链 + P2-11 大盘懒渲染)
-
-> 来源:周末清账批次,main-merge 统一入口合并,版本串链 a377→a385 全部 §0 线上验证(curl 主站+备站)。
-
-- [x] **首页「模拟回测」弹窗上线+三轮迭代** — a377 上线(main 2dd0feaa1):5 操作块+13 列费后盈亏累积表,R2 signal_kelly_trades.json 全历史 27 万笔,过滤口径与首页 AI 建议 1:1;迭代①13 列定宽+hover 当日持仓格→信号关联 ETF 对应高亮(高亮数==持仓数)+四列红正绿负(a383,4602b3232);迭代②累积盈亏口径修正=累计盈亏÷(窗口峰值同时持仓笔数×¥10000),不再按每笔 1 万简单相加(E23 虚假杠杆口径根治),tooltip 三档互证含动态 1:1 公式(a385,0c876ebe5 merge 链);迭代③费率块 6 档快捷+5 参数计费+持仓中笔按最新价预估浮盈(b13d93592)
-- [x] **P2-11 大盘 tab 懒渲染(#80/#92 同项)** — e01de0423(+评审加固)经 af0fc35d6 merge 上线,a384:IntersectionObserver 单例+_marketLazyProxy 懒代理(setOption 入队 init 后回放/getOption 回退/dispose 完整),首帧 canvas 23→5、init 长任务 59ms→0、像素 diff≈0 外观零变化(reviewer 8 项 PASS);加固项=getOption 未 init 返回缓存首帧配置(修切皮肤×懒加载交叉丢主题色时序 bug)+_disposeContainerCharts 错位约束注释;遗留:板块分化 subtab renderIndustryGrid spark 格同根因待拍板
-
-## 2026-08-22 晚间收尾移入(#88 销号 + #10 ETF 长历史上线)
-
-> 来源:#88 订阅推送差距调研(researcher,docs/subscribe-push-gap-research-20260822.md)+ #10 实施(reviewer 10 项 PASS)。
-
-- [x] **#88 订阅推送(整条关闭销号)** — 调研定性=「已完成未销号」:原始设想(存储/订阅过滤推送/前端 UI/邮件通道)已于 2026-07-24 由 A12 全量实施上线(commit c703a584f 前端 + 3d29c05c4 后端,NOTES L2290 标✅),8-20 补登记时按旧快照误判"未实施"。现状:链路每天在跑(check_signals 日志「2 个有效订阅」),零发出=订阅标的(sh/sz 指数类)7-21 后无新信号属数据事实;TG 通道代码在但 bot_token 从未配置。零代码增量选项留用户拍板:①订阅加自选高活跃标的②填 token 启用 TG。报告 docs/subscribe-push-gap-research-20260822.md(含宽基零信号定性附录:行情原因+卖点双过滤设计行为,非 bug)
-- [x] **#10 ETF 评分弹窗 30 天外长历史** — fa1ca6e3b 经 bc187f5ce merge 上线(a387):数据层 scripts/export_etf_hist.py(etf_daily 表→1532 只 per-ETF 全史前复权日K,87MB 走 R2 etf/ 前缀,4.2s 全量生成)+upload_r2 upload-etf-hist 分批 purge+update_all/deploy 定时链软挂载+check_etf_hist 挂 integrity 校验(C30);前端 openEtfScoreDetailModal period tab(默认 30 日零变化,点 3m~all 懒加载 r2/etf/{code}-all.json,内存缓存+竞态序号+缺数容错),SVG/echarts 双渲染路径兼容;Playwright 24 断言全过,R2 线上抽验 510300=3461 行逐位对 DB;reviewer 上报项 D(smoke-checklist 滞后)本批补 C30
-
-## 2026-08-24 会话收尾移入(12 条,工具台账 completed 清出)
-
-> 来源:has_track 口径事故闭环 + 全站判定窗改造 + 警示模块迭代等批次,版本串链 a409→a414 全部 §0 线上验证。§23.12 四态流转:完成→本文件。
-
-- [x] **#30 首页信号区三件套** — 「仅显示可用信号」开关+近15→近30扩容+枯竭引导空态(893e57a9d)+首渲时序竞态修复(28a9c2eca),feat/home-available-only-toggle 合入上线
-- [x] **#31 盘中日图颜色同步** — 单源色判定+盘中重染+收盘恢复,与实时分时红绿一致(8b12588c9)
-- [x] **#32 P0:lab凯利区NEW14首载卡「计算中」死host闭包** — feat/fix-kelly-stale-host 合入(b27001e15 bump 链)
-- [x] **#33 sim弹窗恢复「AI降亏过滤」独立总开关(否决off档)** — 下拉旁「过滤」checkbox=fadeOn 快速切换层(f601ac73e)
-- [x] **#34 NEW14+1·15键可选档(X1 整剔none象限)** — feat/new15-tier-none 合入(a410 下拉批,184698b9e);后续 X1 扩围随 #44 has_track 批再演进
-- [x] **#36 AI监控卡走势图渲染慢** — 根因调研+提速方案落地,feat/aimon-chart-speedup 合入(e58e37e9a)
-- [x] **#37 全站缓存/体积/拆分类病灶清单扫描** — researcher 报告落档 c26b983c2(docs/kelly/analysis 同目录 perf 扫描报告,6新病灶+4批次修复划分);后续修复=#39/#40 排队
-- [x] **#38 v1.1.5 基座对齐残留修复批(R1-R7+机检)** — feat/fade-keys-align-new14 合入(1eb88b5ad+e9c3f1b0b docs);配套 §22 补"代码内常量登记点也是一致性对象"(f4b123a7d)
-- [x] **#41 全站「AI降亏模式」下拉统一固定宽200px×5处** — d64c67537,feat/fade-dropdown-width 合入
-- [x] **#42 信号类型统计补卖/止损信号的数量对错正确率** — feat/warning-signal-stats 合入(a411,9a1f10d4a)
-- [x] **#45 警示模块调整:撤波段持有行+三类chip悬浮说明** — feat/warn-chip-tweak 合入(a412,2fa7d795e)
-- [x] **#44 has_track 归类修复+X1 扩围批** — 「有跟踪ETF」卡补装 null 档(卡 1,604→1,982 待盘后回测重跑生效)+X1 扩围剔 none+null(3387cfaad,a413 上线已验);特征快照数组化+R2 同步完成(generated_at 08-24 17:07,md5 双树一致,X1 spec=["none","null"]);数字口径勘误落档(0a85c3963);剩余尾巴(has_track 卡数据扩容)归 #47 盘后闭环
-
-## 2026-08-27 晚批收官移入(8 条)
-
-> v1.1.7 收官批次:午前七支 + 韧性/fundnav/severe/xcount 晚间链,版本串 a463→a466。§23.12 四态流转:完成→本文件。
-
-- [x] **数据源韧性批(feat/datasource-resilience)** — baostock 封禁熔断根治+多源 fallback 链(fc7f8b8fe);T4 用户拍板批准东财替腾讯 turnover 备份(同源 grep 验证=链路多样性 mootdx→baostock→东财);codex rev-007 PASS(4×P3 归档)
-- [x] **fund_nav 时序止血+gate order(feat/fundnav-gate-order)** — export 前置过闸消 DB/产物时序倒挂(8b671f549)+导出失败 SEVERE 升级(e9be32a4d);codex rev-008 PASS 追认
-- [x] **sw_801030 universe 断闸修复** — 化工ETF易方达(158017)上市致 yaml 排除清单过时,assertion4 FAIL 堵全天 deploy;删 yaml 行+双场景验证(49a644d21)+调研落档 docs/ops/sw801030-universe-conflict-20260827.md(724712984)
-- [x] **导出失败 SEVERE 扩面(feat/severe-export-expand)** — etf_hist/fund_score/etf_score_list 三处对齐 fund_nav 样板升 SEVERE+dedup 防噪(ab5976532→merge 012ee47f21);内审 PASS 零必修
-- [x] **首页AI信号认可度X位五处对齐(feat/x-count-full-alignment)** — 修 412653ffd 无拍板口径漂移致 x≥2 错显「0·非主推」(23/196 笔);主推=当日票数最多唯一支(平票取跟踪分),渲染/tooltip/注释/公示/机检五处对齐+F1 前缀「K1终审」→「当日认可」+F2 冒烟逐条比对口(66f581af4+132dd191a+81d99fcef→merge 703076de3 bump a466);内审 PASS 零必修;拍板追认记录 docs/ops/homepage-ai-endorsement-semantic-audit-20260827.md
-- [x] **H档卖法全维度补测+拍板维持现状** — hold-ext-pk-20260827/ 双跑落档(cc+h-ext),最优 HT20:cap13 下 S06 +13,263/A on9 +15,202/NEW14+1 +3,221,占用峰值 14 万不破 20 倍线,K≤10 按年/分半/熊市窗全正;用户两轮拍板维持现役 10 日卖不切;价源残差 ~+9.7元/笔(raw 高估 8%~40%,adjusted 权威)入 memory
-- [x] **public_fund_full「静默未跑」排查(虚惊结案)** — 昨晚 exit=1=§24⑤ 防白屏闸正确拦截(今日自愈),采集/导出链零故障零改动;诊断证据 /tmp/agent-progress-fundfull-diag.md
-- [x] **#6 场外基金弹窗净值走势(补销账)** — 2026-08-25 已落地(app.js #11 基金弹窗净值走势整套:复刻 ETF 走势交互+R2 fund_nav/{code}.json 懒加载+payload 校验+竞态防护);线上 app.min.js 含功能串+R2 数据在位双实证,用户质疑后核实补登记
-
-**遗留待拍板(→TASKS 观察项)**:update_all 吞 deploy rc / pipeline 直传绕 deploy 闸 / 汪汪队 stats 错位 / FRESH_MSG dedup 漂移 / codex-002 公募 4 问题(任务 #14 明天核实修)。
-
-## 2026-08-28 AI 降亏交互重构完成段(T0/T1/T2/T3-1 已上 main,待 7 天归档)
-
-> 治理:implementer 逐 commit 核实均在 origin/main(git merge-base --is-ancestor 全过),原条自 TASKS.md 移入本文件。完整原文保留。T3-2(完成待 merge)、UI 修复批、双 merge 收尾链、T4/T5 仍活跃留 TASKS.md。
-
-- [x] T0 调研完成(2026-08-23,报告 docs/kelly/toggle/ai-mode-dropdown-research-20260823.md):四消费点=①首页参考点③AI监控卡沿**后端预计算**延伸(queries.py `_ai_macro_hit_filters` L764/overfit bank),②sim弹窗④lab 沿**前端重放**延伸;三处独立化已就绪(a389)沿用。⚠️ **5 套模式(A/B/C/NEW14/NEW18)规则键在生产前后端零实现**:20 条新谓词需 Python+JS 双实现,15 条依赖特征数据通道(mine10_features 12 特征,gzip~300KB R2 懒加载)+分位阈值快照固化;9键零成本现成。
-- [x] T1 完成并上 main(2026-08-23,feat/ai-loss-keys-20 c54eb89a6→merge 5a299d243 + 收尾 feat/t1-followup→69b1a88c5):20 键规格单源 scripts/loss_rules.py RULE_SPECS+特征 JSON(kelly_loss_features.json 已上线 R2+主站 curl 200)+双端谓词(lab/app)+37 标签链扩展+§21 公示+check_data_integrity 兜底断言;reviewer PASS 零阻断;一致性抽查 89,100 判定 0 不一致、默认行为零漂移
-- [x] T2 完成并上 main(2026-08-23,c3f214a99→merge e1b4440c6):lab 凯利区新增「🧩 AI 降亏组成对比」折叠区(默认收起+展开态持久化),7 方案卡=短标语+口径红字标注+97 键构成 chip(金基座/绿叠加/蓝重构)+权威数字尾行+§23.9 三档 tooltip;顺手纠速查卡 B_on9 恢复天数笔误(约200→json 权威 267 天)
-- [x] T3-1 前端重放侧完成并上 main(2026-08-23,c7a9bdf82+B1修复 40ed3d5d9→merge 241a89d08):lab 页+sim 弹窗改「总开关+模式下拉 7 种」(默认 p8≡现网逐位一致),57 标签保留为自定义态(手动勾→⚙️自定义,点下拉→回预设);老 37 键迁 common.js `_KELLY_FADE_LEGACY_SPECS` 规格单源,parity 两步法 30098 行×115 集合 diff=0;reviewer PASS(B1 循环体错位已修)
