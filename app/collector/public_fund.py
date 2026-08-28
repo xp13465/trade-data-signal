@@ -1635,7 +1635,6 @@ def _prune_stage0_done_vs_db(fetcher_name: str, prog: dict) -> dict:
     F-02 修复(2026-08-28): manager/nav 的历史 done 大量无 attempt 摘要,
     闸门裁剪后 nav 26121/27579、manager 仅 9/27116 → 重采成本从分钟级回跳小时级。
     修法: 无摘要 done 统一补 empty0 占位(F-02 核心修复, 防小时级重采),
-    同时记入 pending 复盘集合, 下次专用任务重新扫描时不永久免采。
     占位摘要语义=「该 code 曾有页面响应, 但数据未落库/已被清」, 不是「确认无数据」。
     """
     sql = _STAGE0_DB_VALIDITY.get(fetcher_name)
@@ -1650,8 +1649,6 @@ def _prune_stage0_done_vs_db(fetcher_name: str, prog: dict) -> dict:
             if not attempts.get(c):
                 attempts[c] = "empty0"
         prog["attempt"] = attempts
-        prog.setdefault("pending_review", []).extend(
-            [c for c in no_att if c not in prog.get("pending_review", [])])
     # 仅强证据摘要放行(#99); partial/无摘要回退业务列判据
     attempted = [c for c in done if _stage0_attempt_strong(attempts.get(c))]
     rest = [c for c in done if not _stage0_attempt_strong(attempts.get(c))]
@@ -1907,7 +1904,7 @@ def _scrape_fundf10_manager(code: str, retries: int = 2) -> dict | str | None:
       管过基金表(表头含 基金代码+任职天数): 首张表构建 managed_history JSON
         [{code,name,type,start,end,return}] —— 注意页面无法确证该表归属哪位
         经理, 写库时只落到首位在任者行, 不再刷全部经理行(#98 根治)。
-    Returns: {appoint_date, managed_history(JSON str), current_managers,
+    Returns: {appoint_date, managed_history_list(list[dict]), current_managers,
               appoint_map}; _PF_MGR_LEGAL_EMPTY(解析成功的合法空); None(网络失败)
     """
     import re
@@ -2106,7 +2103,6 @@ def fetch_fund_manager(scrape: bool = True, codes: list[str] | None = None) -> i
                     # F-04(2026-08-28): managed_history_list 返回原始列表,
                     # 按经理名拆分 -> 每位经理写入自己的历史, 不再只落首位在任者。
                     mgr_history_list = result.get("managed_history_list") or []
-                    history_names = {h.get("name") for h in mgr_history_list}
                     _mc = get_conn()
                     try:
                         db_mgrs = {r[0] for r in _mc.execute(
