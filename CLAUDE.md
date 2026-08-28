@@ -127,7 +127,7 @@
 | L28 | 08-12 | 主控§0抢跑在reviewer前重复验代码 | 派reviewer的改动merge前不grep代码(只验hash),§0只验上线点,下结论先查规范原文 | archive:L94 |
 | L29 | 08-12 | 主控亲自Edit干活违反"只派发" | 主控永不亲自改代码/写代码/跑自测,实施一律派implementer(→根CLAUDE.md §0.1红线) | archive:L95 |
 | L30 | 08-14 | 需求叫停时过度删除同链路中间档(08-12 把"每日池+买全部"误删成整个每日池,误删"每日池+top-K"中间档,08-13 用户报 K=3 33万异常才暴露) | 用户叫停某功能/改口径时,先复述"要删到什么粒度/保留什么档"确认再实施,不把同链路可保留档一起删(→memory requirement-research-bias-verify-first #9) | archive:L96 |
-| L31 | 08-14 | 派单基准过时(派每日池穷举重跑沿用旧报告"4组合全开"基准,用户指出当前默认已是 AI宏7键 基础4+核心3) | 派数据重跑/回测任务前,先核对当前页面 `_kellyDefaultFilters()`/`_kellyComboPresets` 真值,不沿用旧报告基准(→memory requirement-research-bias-verify-first #10) | archive:L97 |
+| L31 | 08-14 | 派单基准过时(派每日池穷举重跑沿用旧报告"4组合全开"基准,用户指出当前默认已是 AI宏7键 基础4+核心3;08-27 变种:拍板材料把默认标"NEW14+1"实为S06) | 派数据重跑/回测任务前,先核对当前页面 `_kellyDefaultFilters()`/`_kellyComboPresets` 真值,不沿用旧报告基准;引用默认口径的拍板/汇报材料同此核(→memory requirement-research-bias-verify-first #10/#11) | archive:L97 |
 | L32 | 08-14 | "A/F收益率虚高"标注方向错误(把 A/F 86.6% 标为机制性虚高,用户纠正:A/F 持仓10-15万=可操作非虚高,G/H/I 持仓136万=136倍本金不可操作,无操作性的净盈亏才是更虚的) | 判断收益率/净盈亏是否有实操意义,先看峰值持仓/单次本金倍数,不从模式快慢预设"虚高"标签(→memory kelly-operability-20x-principal) | archive:L98 |
 | L33 | 08-15 | 子agent设"16:10定时器自唤醒merge"不可靠:子agent会话一停(等通知)其REPL没了,自己设的CronCreate永不触发→implementer傻等死闹钟+主控等它通知=双等待死锁,用户两次"?"才发现 | 带时点动作(merge/上线避盘后时点)主控侧设一次性CronCreate兜底(到点主控主动查),或收到子agent"在等定时器"报告立即改为命令立即执行;主控兜底设在自己会话,不指望子agent自唤醒(→memory subagent-timer-not-reliable) | archive:L103 |
 | L35 | 08-15 | Explore agent v4-pro 计费泄漏:派只读/搜索任务误用 Claude Code 内置 Explore subagent(model=claude-opus-5 不在代理白名单,绕过白名单按 v4-pro 计费,12次~45万tokens泄漏) | 只读/搜索/定位任务一律派 researcher(内置 Explore 固定用 claude-opus-5 绕过代理白名单);白名单外 model 一律兜底改写 flash,绝不透传(→memory no-explore-agent-use-researcher) | archive:L105 |

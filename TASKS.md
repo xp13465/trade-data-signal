@@ -8,7 +8,14 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-27 23:45(v1.1.7 收官:全批次上线+a466+双闸自愈闭环).本轮:
+**最后更新**:2026-08-28 08:59(会话收尾落档;v1.1.8 打版准备启动).本轮:
+- **✅ 收尾审计+锚点补录**:会话/每日/每周总结机制核查全正常(040ca3724);昨晚两过错已锚定——L31 新变种(拍板材料把默认标"NEW14+1"实为S06,archive+CLAUDE.md §18+memory requirement-research-bias #11)+pending 漂移重犯(场外走势已完成未销账,memory 补"完成即当场销号"④)。
+- **✅ 测试基准 memory 升 v1.1.7**(tag@384005e222 已核,版本链九连齐):默认基座=S06 动态(a9/new15 按日切,快照单源禁自算);测静态 NEW14/15/8键须声明非基准;bj50 剪枝顺延。
+- **⏳ v1.1.8 打版准备(在跑)**:researcher 描述面盘点(进度 /tmp/agent-progress-v118-desc-audit.md,报告将落 docs/ops/v118-pretag-description-audit-20260828.md)。已验锚点:README:49「默认基座=NEW 14键」过时/README:72-73 S06 仍写"可选档不改默认"/版本记录停 v1.1.6 无 v1.1.7 段/lab.js 5 处 fallback "new14" 待判定。**兜底 cron 已设**(durable 一次性,到点查报告;通知丢了也不怕)。
+- **📋 v1.1.8 流程(报告后)**:implementer 按 audit 修 README(补 v1.1.7 段+S06 默认口径全站对齐)→ 内审 → 打 tag v1.1.8(十连齐)。
+- **⏳ 今日队列**:#14 公募核实修(codex rev-002 F-01~F-04,repro /tmp/codex-reports/rev-20260827-002-jjjl-161725.html)+ stock_daily 补采(~1.5h)+ xcount 上线冒烟 + 验 GH Actions a466 + codex PK 补卷合表。
+
+**前次更新**:2026-08-27 23:45(v1.1.7 收官:全批次上线+a466+双闸自愈闭环).本轮:
 - **✅ 全部批次上线**:七支(见下块)→ 韧性批+fundnav 止血 ea670309e → severe 扩面 012ee47f21 → xcount 五处对齐 703076de3(**a466**,sw v6 统一 bump,A/B 双检 PASS)。23:38 public_fund_full deploy rc=0 = §24⑤+§23.6 双闸自愈闭环(sw_801030 修复 49a644d21 生效)。
 - **✅ X计数五处对齐上线**:内审 PASS 零必修+F1/F2 追加批 81d99fcef(前缀「K1终审」→「当日认可」+冒烟 S6 逐条比对);主推=当日票数最多唯一支(平票取跟踪分高)。**待办:明天 tester 跑 xcount-consensus-smoke.js 上线冒烟**(需 HEAD 新源 build_min)。
 - **✅ H档卖法拍板维持现状**(用户两轮拍板;首报误标"现役默认NEW14+1"已纠正,实际默认=S06);PK 产物 cc/+h-ext/+codex 壳(445B 无数字待其补卷)落档;价源残差 ~+9.7元/笔(raw 高估 8%~40%,adjusted 权威)入 memory。
