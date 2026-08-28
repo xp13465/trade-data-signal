@@ -3043,10 +3043,10 @@ function _mountHomeS06State(_retry) {
       const w = window._tdsHomeS06Warn || {};
       if (w.active) {
         const st = (typeof window._tdsS06Status === "function") ? window._tdsS06Status() : null;
-        if (st && !st.loaded && st.err) txt = "⚠ S06 快照加载失败了(" + st.err + ")，系统还在努力读，你看到的数据暂时是不过滤的完整版本（不是偷偷切到其他模式，只是先把能展示的展示出来）";
+        if (st && !st.loaded && st.err) txt = "⚠ S06 快照加载失败(" + st.err + ")，当前不过滤，数据仅供参考";
         else if (st && st.loading) txt = "· S06 快照加载中…";
-        else if ((w.open || 0) > 0) txt = "⚠ 有 " + w.open + " 笔是 2014-2015 年的老历史数据，S06 快照的日期覆盖不到那么早——数据给你看，只是标注一下这批和近年的口径不太一样";
-        else if (st && st.loaded) txt = "· S06 动态基座过滤生效中(快照截至 " + (st.coverageEnd || "?") + ")";
+        else if ((w.open || 0) > 0) txt = "⚠ " + w.open + " 笔在 S06 覆盖期外，未套过滤口径";
+        else if (st && st.loaded) txt = "· S06 过滤生效(快照截至 " + (st.coverageEnd || "?") + ")";
       }
     } catch (e) {}
     slot.textContent = txt;

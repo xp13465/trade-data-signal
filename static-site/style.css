@@ -7201,3 +7201,13 @@ select.tds-fade-mode-sel {
   transition: border-color 0.15s;
 }
 select.tds-fade-mode-sel:hover, select.tds-fade-mode-sel:focus { border-color: var(--primary); outline: none; }
+
+/* S06 状态/降级提示槽(2026-08-28 codex-s06copyfix-001): 防溢出换行 */
+.sig-s06-state {
+  display: inline-block;
+  max-width: 100%;
+  flex: 0 1 auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.45;
+}
