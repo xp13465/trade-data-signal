@@ -102,4 +102,4 @@ reflection_factor_attribution_enabled: false
 #   ⚠️ 影子是"旁路记录,零注入":即使 true，线上 prompt(direction_anchor_enabled/reflection
 #      _factor_attribution_enabled)仍全关时逐字不变——shadow 只写 data/，不发邮件/通知/不写主链。
 #   验证期默认开；正式决策后再决定保留/关闭(影子文件根 data/,本地不进 git)。
-shadow_mode_enabled: true
+shadow_mode_enabled: false  # 2026-08-28 用户拍板关闭:direction_anchor已开启,影子使命完成,不再旁路落盘

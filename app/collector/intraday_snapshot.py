@@ -14,6 +14,8 @@
   非交易日不反哺；快照 datetime 非当日不写（避免旧快照污染）。
 """
 import json
+import os
+import socket
 import subprocess
 import sys
 import threading
@@ -61,6 +63,20 @@ _A_STOCK_CODES = [c for c in INDEX_CODES if not c.startswith("r_hk")]
 _TENCENT_URL = "http://qt.gtimg.cn/q=" + ",".join(INDEX_CODES)
 _SINA_URL = "http://hq.sinajs.cn/list=" + ",".join(_A_STOCK_CODES)
 _SINA_HEADERS = {"User-Agent": UA, "Referer": "https://finance.sina.com.cn"}
+
+
+def _safe_get(url, headers=None, timeout=10):
+    """用 requests.Session 发起 GET,结束后显式 close,杜绝 TCP ESTABLISHED 滞留。
+
+    根因:裸 requests.get 在请求完成后 TCP 连接未被正确关闭,底层 socket 保持
+    ESTABLISHED,进程退出时被阻塞,导致 intraday 快照进程卡死不退(2026-08-28)。
+    """
+    s = requests.Session()
+    try:
+        r = s.get(url, headers=headers, timeout=timeout)
+        return r
+    finally:
+        s.close()
 
 # static-site 静态 JSON 输出路径（与 export.py 的 DATA_DIR 同源）
 STATIC_DATA_DIR = Path(__file__).absolute().parent.parent.parent / "static-site" / "data"
@@ -270,7 +286,7 @@ def _fetch_hk_cshkdiv_sina() -> dict | None:
     """
     try:
         throttle()
-        r = requests.get(
+        r = _safe_get(
             "http://hq.sinajs.cn/list=rt_hkCSHKDIV",
             headers=_SINA_HEADERS, timeout=10)
         body = r.content.decode("gbk")
@@ -363,7 +379,7 @@ def _fetch_global_realtime_sina() -> dict:
     try:
         codes = [c for c, _ in _GLOBAL_SPOT_CODES.values()]
         url = "https://hq.sinajs.cn/list=" + ",".join(codes)
-        r = requests.get(url, headers=_SINA_HEADERS, timeout=10)
+        r = _safe_get(url, headers=_SINA_HEADERS, timeout=10)
         body = r.content.decode("gbk", errors="replace")
     except Exception as e:  # noqa: BLE001
         print(f"[intraday] 全球指数实时采集失败（不阻断）: {type(e).__name__} {e}", flush=True)
@@ -576,7 +592,7 @@ def fetch_commodity_realtime() -> list[dict]:
     """
     try:
         throttle()
-        r = requests.get(
+        r = _safe_get(
             "http://hq.sinajs.cn/list=" + ",".join(COMMODITY_CODES),
             headers=_SINA_HEADERS, timeout=10)
         data = _parse_sina_commodity(r.content.decode("gbk"))
@@ -594,7 +610,7 @@ def fetch_fx_realtime() -> dict | None:
     """采集离岸人民币实时汇率（新浪 fx_susdcny）。失败返 None。"""
     try:
         throttle()
-        r = requests.get(
+        r = _safe_get(
             "http://hq.sinajs.cn/list=" + FX_CODE,
             headers=_SINA_HEADERS, timeout=10)
         fx = _parse_sina_fx(r.content.decode("gbk"))
@@ -618,7 +634,7 @@ def fetch_index_realtime() -> list[dict]:
     missing: list[str] = []
     try:
         throttle()
-        r = requests.get(_TENCENT_URL, headers={"User-Agent": UA}, timeout=10)
+        r = _safe_get(_TENCENT_URL, headers={"User-Agent": UA}, timeout=10)
         tdata = _parse_tencent(r.content.decode("gbk"))
         got = {d["code"] for d in tdata if d.get("price")}
         if len(got) >= len(INDEX_CODES) - 1:  # 容忍 1 个缺失
@@ -640,7 +656,7 @@ def fetch_index_realtime() -> list[dict]:
     if missing:
         try:
             throttle()
-            r = requests.get(
+            r = _safe_get(
                 "http://hq.sinajs.cn/list=" + ",".join(missing),
                 headers=_SINA_HEADERS, timeout=10)
             sdata = _parse_sina(r.content.decode("gbk"))
@@ -690,13 +706,19 @@ def fetch_industry_realtime() -> list[dict]:
     - lead_stock：取该申万行业下涨跌幅最高子行业的领涨股
     返回 31 条 {sw_code, sw_name, pct_change, net_inflow, amount, lead_stock}。
     """
-    import akshare as ak
-
+    # 对于 akshare 内部 requests.get 无 timeout 的 akshare 调用，设置 socket 超时防止 TCP 锁死
+    old_timeout = socket.getdefaulttimeout()
     try:
-        df = ak.stock_board_industry_summary_ths()
-    except Exception as e:  # noqa: BLE001
-        print(f"  [intraday] 同花顺行业 summary 失败: {type(e).__name__} {e}", flush=True)
-        return []
+        socket.setdefaulttimeout(15)
+        import akshare as ak
+
+        try:
+            df = ak.stock_board_industry_summary_ths()
+        except Exception as e:  # noqa: BLE001
+            print(f"  [intraday] 同花顺行业 summary 失败: {type(e).__name__} {e}", flush=True)
+            return []
+    finally:
+        socket.setdefaulttimeout(old_timeout)
 
     if df is None or len(df) == 0:
         print("  [intraday] 同花顺行业 summary 空", flush=True)
@@ -2149,7 +2171,7 @@ def _fetch_minute_series(code: str) -> list[dict] | None:
     for host in _EM_TREND_HOSTS:
         try:
             throttle()
-            r = requests.get(
+            r = _safe_get(
                 "https://" + host + path,
                 headers={"User-Agent": UA, "Referer": "https://quote.eastmoney.com/"},
                 timeout=15)
