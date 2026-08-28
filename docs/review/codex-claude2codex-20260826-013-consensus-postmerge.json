@@ -1,0 +1,53 @@
+{
+  "request_id": "claude2codex-20260826-013",
+  "verdict": "BLOCKED",
+  "summary": "Inline r10/k3 predicates and price-bin downgrading align, but buy_special_filtered normalization does not reach either loss-rules predicate path, leaving NEW14 special-buy keys variant-sensitive.",
+  "issues": [
+    {
+      "id": "F1",
+      "severity": "P1",
+      "title": "Filtered signal name misses loss-rule special-buy keys",
+      "path": "app/queries.py:957",
+      "origin": "pre-existing",
+      "scope": "in-scope",
+      "impact": "buy_special_filtered passes the buy guard and inline normalization, but _ai_macro_hit_new_keys sends raw signal into rule_hit; specs with sig=buy_special miss. scripts/overfit_monitor.py:670 has the same raw context. This can suppress r2bSpecialGlobal/t1LowTurnSpecial in overview filters, consensus votes, email markers, and recent monitoring.",
+      "evidence": "Synthetic R2b: normalized=['r2bSpecialGlobal','t1LowTurnSpecial'], filtered=[]; monitor normalized includes both relevant keys, filtered=[]. rule_hit compares ctx.sig exactly at scripts/loss_rules.py:211.",
+      "fix": "Normalize once at a shared boundary and pass the canonical signal into _ai_macro_hit_new_keys and overfit recent_hit_keys' T1 context."
+    },
+    {
+      "id": "F2",
+      "severity": "P2",
+      "title": "Test coverage is narrower than its five-component claim",
+      "path": "scripts/test_ai_macro_hit_filters.py:10",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "The test claims r10 five-component coverage but directly covers May, aux-Wednesday, and incidentally November-industry; it lacks isolated Monday and March-industry positives plus price-bin-only negatives. It also checks membership rather than exact expected sets despite describing exact-set assertions.",
+      "evidence": "Positive cases are at scripts/test_ai_macro_hit_filters.py:58-117; no bpb-only case exists.",
+      "fix": "Parameterize all implementable r10 components, assert exact sets with feature lookup stubbed, and add omitted-bpb negative samples."
+    },
+    {
+      "id": "F3",
+      "severity": "P2",
+      "title": "Unit test has an undeclared feature-file dependency",
+      "path": "scripts/test_ai_macro_hit_filters.py:18",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "The docstring says no external data, but app.queries lazily reads static-site/data/kelly_loss_features.json during _ai_macro_hit_filters. Output can vary by checkout/data state; observed extra T1 keys in the passing run. No DB write or network side effect was found on import.",
+      "evidence": "scripts/test_ai_macro_hit_filters.py:30 imports full app.queries; app/queries.py:811-816 loads features and app/queries.py:957 invokes it during each positive test.",
+      "fix": "Stub or disable the module feature cache deterministically, or update the contract and assertions to account for feature-driven keys."
+    }
+  ],
+  "impact_surface": [
+    "app/queries.py overview ai_macro.filters",
+    "scripts/check_signals.py AI suggestion/email filtering consumers",
+    "AI consensus X/Y voting consumers",
+    "scripts/overfit_monitor.py recent key annotations"
+  ],
+  "smoke_results": {
+    "python3 scripts/test_ai_macro_hit_filters.py": "PASS 10/10 (exit 0)",
+    "python3 scripts/check_fade_keys_alignment.py": "PASS A1-A7 (exit 0)",
+    "node scripts/check_overfit_recent_parity.mjs": "Initial FAIL H: stale /tmp/overfit_test3.json missing new15:excludeTierNone (26 keys). Regeneration failed: sqlite3.OperationalError unable to open database file. Fallback latest static-site/data/overfit_monitor.json copied to /tmp passed A-I2 (27 keys), but predates head commit.",
+    "synthetic predicate matrix": "Found filtered-variant divergence; verified filtered/norm inline equivalence, k3 concept hit, May catch-all, omitted bpb-only negatives, and non-buy guard."
+  },
+  "recommendation": "Blocked until filtered-signal normalization reaches both loss_rules call paths and focused regression coverage is added."
+}

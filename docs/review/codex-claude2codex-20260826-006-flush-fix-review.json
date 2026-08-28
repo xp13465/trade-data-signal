@@ -1,0 +1,47 @@
+{
+  "request_id": "claude2codex-20260826-006",
+  "verdict": "FAIL",
+  "summary": "全局 flush 锁与两级 flock 顺序未发现死锁；_stable_rid 的存量兜底和已知重发边界可接受。但 cleanup 在 truncate 后写入失败时会把 buffer 留成空文件或部分行，导致保留 warning 丢失且非法 JSONL，直接违反本次异常路径要求；T1 的零重复断言也未观测实际发送调用。",
+  "issues": [
+    {
+      "severity": "P1",
+      "origin": "pre-existing, retained by the in-diff cleanup rewrite",
+      "scope": "in-scope",
+      "category": "reliability/data-loss",
+      "title": "cleanup 写入失败后 buffer 可变成部分非法 JSONL 并丢失未发条目",
+      "path": "d48b50a60:scripts/notify.py:1272-1278",
+      "impact": "发送成功后的原地清理先 f.truncate() 再 f.write(out)。若 write 遇到 ENOSPC/EIO、进程在两步间被杀死，或 flush 未完成，已满窗口条目虽已发出，但 keep 与发送期间新增的 warning 会丢失；后续 flush 还会解析到半行。",
+      "why": "request 明确要求 cleanup 失败分支终态仍是合法 JSONL 且方向为宁重发不丢告警。当前 catch 只记录日志并返回 sent_batch=True，不能恢复被 truncate 破坏的原有内容。",
+      "fix": "不要把破坏性 truncate 暴露在没有恢复路径的窗口里。至少先持久化恢复数据并在下次 flush 前校验合并，或调整加锁设计使 append 方能安全跟随原子替换；成功完成新内容写入和落盘后才收缩旧 inode。",
+      "evidence": "独立故障注入：模拟 rb+ 文件写入前 10 字节后抛 ENOSPC，函数返回 sent_batch=true、n_remaining=0，实际文件仅剩 10 字节前缀，逐行 json.loads 报 Unterminated string。"
+    },
+    {
+      "severity": "P2",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "category": "test-gap",
+      "title": "T1 没有观测发送调用，零重复只检查残留 buffer",
+      "path": "d48b50a60:scripts/test_notify_flush_race.py:101-105",
+      "impact": "三个进程各自把渠道 mock 成 return_value=True，没有共享调用记录；测试随后只统计最终文件中 due subject 数量。若回归导致两个 flusher 基于同一快照都发送但只有一个清理成功，T1 仍可能通过。",
+      "why": "request 要求 T1 覆盖零丢失、零重复和合法 JSONL；当前零重复不是对实际推送去重的断言。base 灵敏度实验确实通过其他症状暴露旧竞态，但不能弥补该测试口径缺口。",
+      "fix": "让各子进程把成功的聚合 subject 或 rid 追加到独立结果文件，父进程合并后断言每个新式显式 rid 至多发送一次；同时校验发送正文包含到期条目。",
+      "evidence": "_patch_channels 仅返回 True；_run_one_race_round 的重复性断言读取最终 _read_entries(buf) 结果。"
+    }
+  ],
+  "impact_surface": [
+    "scripts/notify.py WARNING_FLUSH_LOCK_FILE 全生命周期互斥",
+    "scripts/notify.py defer_warning/_stable_rid RID 口径",
+    "scripts/notify.py warning_buffer 清理与坏行保留",
+    "scripts/test_notify_flush_race.py 并发回归覆盖"
+  ],
+  "smoke_results": {
+    "diff_scope_and_whitespace": "PASS: git diff --check 5aa908409..d48b50a60",
+    "python_compile_head": "PASS: notify.py 和 test_notify_flush_race.py 使用项目 .venv 编译",
+    "head_regression": "PASS: python scripts/test_notify_flush_race.py，6 tests OK，含三进程 spawn T1 x 5 轮",
+    "base_sensitivity": "PASS_AS_SENSOR: 同一 T1 跑旧实现时 5 轮中 2 轮报 Extra data 非法 JSONL，其余轮次暴露 flush 锁缺失；证明测试能触发旧竞态窗口",
+    "cleanup_failure_injection": "FAIL: truncate 后注入 ENOSPC 留下 10 字节不可解析 buffer",
+    "lock_order_review": "PASS: flusher 为 flushlock 到 buffer flock，append 方只取 buffer flock，未见反向嵌套或 send 内再入 flush 锁路径",
+    "legacy_rid_boundary": "ACCEPTED: 无 rid 条目按 ts+subject 兜底；同键多条保守留下一条并在下轮重发，与文档化宁重发语义一致"
+  },
+  "recommendation": "暂不合入 main：先消除 cleanup 的破坏性窗口并提供故障恢复，再增强 T1 对实际发送调用的跨进程断言。修完后需补 cleanup I/O 故障回归并复跑三进程竞态测试。"
+}

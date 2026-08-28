@@ -1,0 +1,417 @@
+{
+  "request_id": "codex2claude-perf-architecture-20260826-001",
+  "verdict": "PASS",
+  "summary": "线上与静态架构评审完成：首页冷加载解码 9.58MB，移动 CLS 超过 1；根因是 boot/detail 契约倒挂、大产物分片消费不一致、Worker/SW 缓存策略冲突、首屏动态渲染缺稳定高度和缺性能门禁。",
+  "issues": [
+    {
+      "id": "PERF-001",
+      "priority": "P0",
+      "title": "boot.json 把全量 ETF 候选塞进首屏聚合契约",
+      "evidence_files_lines": [
+        "static-site/export.py:995-1035",
+        "app/queries.py:1041-1134",
+        "static-site/app.js:7631-7660",
+        "static-site/app.js:13154-13163"
+      ],
+      "quantified_basis": [
+        "实测 static-site/data/boot.json raw=2,233,754 B；gzip -6=302,891 B，是首屏必拉文件。",
+        "overview.signals_today 有 463 条，其中嵌入 2,552 个 ETF 对象，序列化 1,075,406 B，约占 boot raw 48%。",
+        "本地重写实验：仅保留 etf_count 时 gzip=189,633 B（-37.4%）；保留 top1 + count 时 gzip=204,512 B（-32.5%）。",
+        "export_boot() 合并 overview/signal_stats/intraday_snapshot 等 11 个 JSON；queries 在近 30 交易日每条信号注入完整 etfs。"
+      ],
+      "root_cause_fix": "把 boot 定义为首屏摘要契约而不是明细传输契约。服务端只内联每个信号的权威 top1、数量与 universe 标记；完整 ETF 候选放入可缓存、按日期/index 寻址的明细接口或分片。前端信号卡先渲染 top1，展开/hover 时再取候选。",
+      "short_term_fix": "在 export_boot 后处理 signals_today：写入 etf_top 与 etf_count，删除其余 ETF 数组；新增候选明细 JSON 或 API，并让现有 hover/pop 逻辑懒加载。",
+      "expected_gain_range": "首屏数据 gzip 从约 303KB 降至 190-205KB（-32% 到 -37%）；弱网移动端 LCP/交互等待约减少 0.25-0.9s，JSON parse 内存同步下降。",
+      "risk": "完整候选列表消费点若未全部迁移会出现 hover 缺数据；需要保留旧字段开关和契约快照测试。",
+      "effort": "M：后端导出 + 明细接口 + 前端消费点迁移，约 1-3 天。",
+      "origin": "pre-existing"
+    },
+    {
+      "id": "PERF-002",
+      "priority": "P0",
+      "title": "lab.js 两处仍直拉 65MB 凯利交易全量包",
+      "evidence_files_lines": [
+        "static-site/lab.js:8137-8168",
+        "static-site/lab.js:11291-11311",
+        "scripts/signal_kelly_backtest.py:1304-1410",
+        "scripts/signal_kelly_backtest.py:1413-1493",
+        "worker/headers.js:179-193"
+      ],
+      "quantified_basis": [
+        "signal_kelly_trades.json raw=65,395,224 B；gzip -6=10,562,170 B。",
+        "文件包含 144 个 quadrant/mode 组、274,284 行交易，最大组 6,023 行。",
+        "recent/year parts 和 lab_{qk}__{mk}_pN 分片均已导出，但 lab.js 两处仍构造 signal_kelly_trades.json 全量 URL 并 await resp.json()。",
+        "Worker 将该全量文件设为 ttl=0/no-store，重复打开时无法利用边缘缓存。"
+      ],
+      "root_cause_fix": "统一凯利交易读取器：入口先读 lab_meta/recent manifest，按当前象限、模式与时间窗并行加载小片；跨片计算显式声明聚合边界。只有用户明确请求全史且无对应片时才允许全量兜底。",
+      "short_term_fix": "交易记录弹窗先切 lab slices；费率重算按所选年份或 recent 片读取。保留旧全量路径为显式 fallback，并在 UI 标注降级。",
+      "expected_gain_range": "典型首次弹窗传输从 10.6MB gzip 降到约 0.03-3MB（65%-97%+），避免数十 MB JSON.parse 长任务；移动端崩溃/超时概率显著下降。",
+      "risk": "分片版本不一致或缺失片会造成统计口径偏差；必须校验 generated_at、行数和清单完整性，失败回退并提示。",
+      "effort": "M-L：统一 loader 与聚合口径，约 2-4 天。",
+      "origin": "pre-existing"
+    },
+    {
+      "id": "PERF-003",
+      "priority": "P1",
+      "title": "industry-all-concepts 拆分不彻底，32MB 历史序列整包加载",
+      "evidence_files_lines": [
+        "static-site/app.js:22608-22621",
+        "docs/perf/site-wide-cache-size-audit.md:27-28"
+      ],
+      "quantified_basis": [
+        "industry-all-concepts.json raw=32,255,887 B；gzip -6=7,821,364 B。",
+        "包含 92 个 concepts；data 字段序列化 27,262,141 B，占 concept 值总量 84.5%，最大单个概念约 623-648KB raw。",
+        "_loadIndustryData() 已并发拆 31 个行业 index，但随后一次 fetch 整个 concepts 文件。"
+      ],
+      "root_cause_fix": "复用 indices 的拆分模式生成 concepts-meta 与 concepts/{id}/{range}.json；列表、搜索和热力图只消费 meta，选中概念后再拉历史 data。对可视图做窗口降采样。",
+      "short_term_fix": "先生成 per-id concept chunks 和 manifest，替换 all range 加载；保留整包 URL 作为旧版本兼容。",
+      "expected_gain_range": "all range 首次进入的 concepts 传输从约 7.8MB gzip 降至数十到数百 KB（90%+），并消除 27MB 级 JSON 解析；代价是按需请求增加。",
+      "risk": "92 个小文件可能造成请求风暴；需并发上限、manifest 版本和预取策略。",
+      "effort": "M：导出器 + manifest + 前端选择器，约 2-4 天。",
+      "origin": "pre-existing"
+    },
+    {
+      "id": "PERF-004",
+      "priority": "P1",
+      "title": "SW 将所有 JSON 一律 network-first，抵消 Worker TTL 分层",
+      "evidence_files_lines": [
+        "static-site/sw.js:195-201",
+        "static-site/sw.js:244-258",
+        "worker/headers.js:168-204",
+        "worker/headers.js:207-260"
+      ],
+      "quantified_basis": [
+        "SW 对 /data/ 与 .json 统一 networkFirstJson，且 fetch 使用 cache:'no-store'。",
+        "Worker 却定义了 0s、60s、600s、3600s 四类 TTL；低频历史数据也被 SW 强制每次网络验证/下载。",
+        "这使浏览器侧无法利用 HTTP/SW 缓存，只在网络失败时兜底。"
+      ],
+      "root_cause_fix": "建立单一 volatility/ttl 数据契约并生成 Worker 与 SW 配置：盘中关键数据 network-first；日更/历史大对象用 stale-while-revalidate 或带 max-age 的条件更新；不可变分片用 content hash + immutable。所有更新继续走 purge/hash URL。",
+      "short_term_fix": "维护低频 URL 清单，SW 命中新鲜缓存立即返回并后台 revalidate；intraday/critical 保持现状。",
+      "expected_gain_range": "重复访问的历史/日更大 JSON 传输预计减少 50%-95%；切 tab 和二次弹窗从网络往返变为毫秒级缓存命中。",
+      "risk": "最大风险是陈旧数据一致性。必须绑定 generated_at/version、purge 成功率监控和关键数据豁免名单。",
+      "effort": "M：策略矩阵 + SW 改造 + 一致性测试，约 2-4 天。",
+      "origin": "pre-existing"
+    },
+    {
+      "id": "PERF-005",
+      "priority": "P1",
+      "title": "首页信号网格一次性拼 463 个复杂 HTML 节点",
+      "evidence_files_lines": [
+        "static-site/app.js:4485-4528",
+        "static-site/app.js:4960-5020",
+        "static-site/app.js:14541-14561"
+      ],
+      "quantified_basis": [
+        "_renderSignalGrid() 对 items 做日期排序、窗口筛选、准确率统计、ETF/top1 判定后拼接大字符串。",
+        "每个 cell 含多个 data-* 属性、badge、tooltip 文案和条件 class；当前 signals_today 为 463 条。",
+        "结果通过 sigCard.innerHTML 一次性替换；筛选变化触发整块重建。"
+      ],
+      "root_cause_fix": "将汇总统计与可视行分离：汇总仍算全量，列表用固定高度虚拟滚动或日期分组增量渲染；筛选结果 memoize，DOM 更新改为 keyed reconcile/局部插入。",
+      "short_term_fix": "默认渲染最新 7-10 个交易日并加“加载更多”；保持汇总条覆盖近 30 日，滚动到底部再补齐。",
+      "expected_gain_range": "首屏信号区字符串构建/DOM 插入耗时预计降低 40%-75%；筛选重绘从整卡长任务降到局部更新，移动端输入延迟改善明显。",
+      "risk": "虚拟滚动可能影响 Ctrl+F、锚点和滚动位置；需保留键盘搜索与恢复滚动测试。",
+      "effort": "M：列表模型 + 渲染调度，约 1.5-3 天。",
+      "origin": "pre-existing"
+    },
+    {
+      "id": "PERF-006",
+      "priority": "P2",
+      "title": "app.min.js 是 974KB 单体，路由级功能无分割边界",
+      "evidence_files_lines": [
+        "static-site/index.html:280-291",
+        "scripts/build_min.py:40-51",
+        "scripts/build_min.py:213-239"
+      ],
+      "quantified_basis": [
+        "app.min.js raw=973,463 B；gzip -6=303,983 B，index 以 defer 首屏引用。",
+        "build_min.py 只做 terser minify，PAIRS 没有 app route chunk/bundle 图；echarts 与 lab 已动态注入，但主应用仍是单文件。",
+        "首页之外的市场/情绪/基金/行业等模块都随同一个文件下载和解析。"
+      ],
+      "root_cause_fix": "先划出 core shell、shared chart/data utils、route modules 和 modal modules；用原生 ESM 或打包器输出 hash chunk。renderTab 动态 import 当前 route，预取相邻高频 tab。",
+      "short_term_fix": "把低频大文本、说明内容和弹窗专用逻辑拆出；不改业务语义，先用动态脚本注入维持现有全局兼容层。",
+      "expected_gain_range": "首屏 JS gzip 可降约 20%-45%（60-137KB），parse/compile 时间同步下降；具体取决于模块耦合度。",
+      "risk": "全局函数/window 状态依赖较多，拆错初始化顺序会白屏；需要 smoke 每个 tab 和直链 hash。",
+      "effort": "L：模块边界 + 构建改造 + 回归，约 3-7 天。",
+      "origin": "pre-existing"
+    },
+    {
+      "id": "PERF-007",
+      "priority": "P2",
+      "title": "版本化静态资源的 immutable 规则覆盖不全",
+      "evidence_files_lines": [
+        "static-site/index.html:280-291",
+        "worker/headers.js:37-42",
+        "worker/headers.js:103-109",
+        "static-site/sw.js:23-49"
+      ],
+      "quantified_basis": [
+        "HTML 通过 ?v= 引用 common/purpose-notes/kelly-review-notes/kelly-reports-content/i18n/app/lab 等。",
+        "Worker immutable 正则只列 style.css/app.min.js/lab.min.js/lab.css/qr.js/vendor；common.min.js 与 notes/content/i18n 未命中该规则，可能落入兜底 private,no-cache。",
+        "kelly-reports-content.min.js gzip 约 71KB、purpose-notes 28KB、kelly-review-notes 44KB，重复回源成本可观。"
+      ],
+      "root_cause_fix": "以构建产物清单驱动 Cache-Control，而不是手写扩展名/文件名正则；所有 ?v= 资源输出 immutable，HTML 输出 no-store，并加 header 快照测试。",
+      "short_term_fix": "把 common.min.js、purpose-notes.min.js、kelly-review-notes.min.js、kelly-reports-content.min.js、i18n.js、inline-init.js 加入 immutable 规则。",
+      "expected_gain_range": "回访静态资源传输预计减少 70-160KB gzip 及相应边缘/源站请求；SW 未注册或首次安装场景收益最明显。",
+      "risk": "发布流程漏 bump ?v= 会延长旧资源生命周期；应在 CI 校验 HTML 版本与产物 hash。",
+      "effort": "S：规则 + CI 断言，约 0.5-1 天。",
+      "origin": "pre-existing"
+    },
+    {
+      "id": "PERF-008",
+      "priority": "P2",
+      "title": "图表生命周期全量销毁重建且换肤逐图多次 setOption",
+      "evidence_files_lines": [
+        "static-site/app.js:162-168",
+        "static-site/app.js:241-275",
+        "static-site/app.js:7932-8063"
+      ],
+      "quantified_basis": [
+        "clearCharts() 每次 dispose charts 全量数组并清空 content.innerHTML。",
+        "rethemeCharts() 对每张图 getOption 后至少一次 setOption；有 dataZoom/visualMap/markPoint 时追加 setOption。",
+        "大盘/行业已有 IntersectionObserver 懒渲染和时间片排水，但缺少跨 tab 图表生命周期复用。"
+      ],
+      "root_cause_fix": "引入 per-tab DOM/chart registry 与 LRU：隐藏 tab 先 detach，超预算才 dispose；主题色集中成一个 theme patch，对每图一次 merge setOption，并用 rAF/idle 批处理。",
+      "short_term_fix": "合并 rethemeCharts 中同一图表的 dataZoom、visualMap 和主题 patch；切回高频 tab 时优先复用未过期容器。",
+      "expected_gain_range": "多图 tab 切换和皮肤切换的长任务预计降低 30%-60%；内存占用取决于 LRU 上限，可控在当前水平附近。",
+      "risk": "图表实例与 observer 泄漏风险高；需要显式 release、visibility 失效和内存回归。",
+      "effort": "M-L：registry + 调度 + 泄漏测试，约 2-5 天。",
+      "origin": "pre-existing"
+    },
+    {
+      "id": "PERF-009",
+      "priority": "P2",
+      "title": "Kelly 报告正文 241KB 首页下载但只有 lab 弹窗消费",
+      "evidence_files_lines": [
+        "static-site/index.html:284-286",
+        "static-site/lab.js:10393-10414",
+        "scripts/build_min.py:42-50"
+      ],
+      "quantified_basis": [
+        "kelly-reports-content.min.js raw=241,022 B；gzip -6=71,476 B，当前 index 首屏 defer 引用。",
+        "唯一运行时消费链在 lab.js 的 _kellyReportModalHTML：仅当 window.KELLY_REPORTS_CONTENT 存在才读正文。",
+        "defer 不阻塞解析，但仍占用首屏带宽、编译缓存和启动竞争。"
+      ],
+      "root_cause_fix": "将报告正文作为 lab route/modal asset，进入 Kelly 报告弹窗时动态注入；正文可按报告 id 再拆或至少整体懒加载。",
+      "short_term_fix": "从 index 移除 script 标签，在 lab 打开报告前动态加载一次并缓存全局变量。",
+      "expected_gain_range": "普通首页首访减少约 71KB gzip JS 和一次请求；低端移动端启动竞争小幅改善（约 20-80ms 量级）。",
+      "risk": "直进 lab 深链时加载失败需空态/重试；注意版本号与报告内容同步。",
+      "effort": "S：加载器 + 失败态，约 0.5 天。",
+      "origin": "pre-existing"
+    },
+    {
+      "id": "PERF-010",
+      "priority": "P2",
+      "title": "18MB etf_score_list.json 死产物持续生成与存储",
+      "evidence_files_lines": [
+        "docs/perf/site-wide-cache-size-audit.md:8",
+        "docs/perf/site-wide-cache-size-audit.md:32",
+        "docs/perf/site-wide-cache-size-audit.md:59"
+      ],
+      "quantified_basis": [
+        "本地实测 etf_score_list.json raw=18,430,868 B；gzip -6=1,073,695 B。",
+        "前期全站审计标注其为前端零消费者死产物，建议确认引用后停写并清理 R2；buy/sell/hold 拆分件仍存在。",
+        "本地 buy/sell/hold 分别为 0.47MB/1.07MB/7.56MB raw。"
+      ],
+      "root_cause_fix": "在导出器中停用主文件，并把“产物必须有运行时消费者”纳入数据契约检查；清理前用全仓 grep、R2 访问日志和历史版本对照确认。",
+      "short_term_fix": "先停止上传/每日覆盖主文件，保留一个发布周期备份；再从 R2 删除旧 key。",
+      "expected_gain_range": "每日构建/上传/R2 存储减少约 18MB raw；不直接改善用户运行时，但缩短流水线并消除误用风险。",
+      "risk": "若有未被发现的外部脚本、历史链接或调试流程消费主文件，清理会造成 404；删除前需引用核查和保留期备份。",
+      "effort": "S-M：引用核查 + 导出切换 + 清理，约 0.5-1.5 天。",
+      "origin": "pre-existing"
+    },
+    {
+      "id": "PERF-011",
+      "priority": "P1",
+      "title": "缺少资源预算、payload 契约门禁和性能回归基线",
+      "evidence_files_lines": [
+        "docs/perf/site-wide-cache-size-audit.md:8-35",
+        "docs/perf/site-wide-cache-size-audit.md:55-60",
+        "scripts/build_min.py:213-239"
+      ],
+      "quantified_basis": [
+        "已有研究文档指出 64MB trades、32MB concepts、18MB score list 等系统性病灶，但没有发现强制资源预算或 CI 门禁。",
+        "build_min 只验证 minify 成功；不会阻止新导出物膨胀或首屏契约加入大数组。",
+        "本次实测显示同类问题跨越 boot、lab、industry 和 score list，说明需要机制而非逐点修。"
+      ],
+      "root_cause_fix": "建立三层门禁：①data contract lint 禁止首屏聚合包含未白名单的大数组/明细字段；②artifact budget 按 route/file 设 raw/gzip 上限，超阈值阻断或要求 owner 签核；③合成性能基线跑首页、lab、industry 关键路径，比较 LCP/INP/长任务/传输字节。",
+      "short_term_fix": "先在 deploy 前跑静态 manifest 检查：boot<=250KB gzip、单 JSON 默认<=1MB gzip、>5MB 必须登记分片策略；输出 diff，超 10% 失败。",
+      "expected_gain_range": "防止下一次 10-60MB 级回归；长期减少应急修复和重复审计成本。",
+      "risk": "阈值过紧会阻塞合法数据增长；需要 baseline 文件、例外清单和明确 owner。",
+      "effort": "M：manifest + budget + synthetic harness，约 2-4 天。",
+      "origin": "pre-existing"
+    },
+    {
+      "id": "PERF-012",
+      "priority": "P1",
+      "title": "页面模板缺少 payload 分类规范，导致大明细混入错误层级",
+      "evidence_files_lines": [
+        "static-site/export.py:995-1035",
+        "static-site/app.js:22608-22621",
+        "static-site/lab.js:8147-8151",
+        "static-site/lab.js:11292-11295",
+        "docs/perf/site-wide-cache-size-audit.md:24-35"
+      ],
+      "quantified_basis": [
+        "同一项目同时存在合格模式与违规模式：首页模拟回测使用 recent/year parts；lab 和 industry 仍有整包直拉；boot 又把明细并入首屏。",
+        "没有统一命名/manifest/error/fallback 契约，新增数据容易复制旧的整包模式。",
+        "大 JSON 的共同形态都是 meta/list 小而 history/detail 大。"
+      ],
+      "root_cause_fix": "制定页面数据模板：summary/meta 必须小于预算并可增量更新；list 支持分页/窗口；detail/history 必须 per-entity 分片；modal 首帧用 preview shard，完整口径异步升级。规定 manifest 字段含 version、generated_at、rows、bytes、parts、fallback。",
+      "short_term_fix": "先把上述模板写成 docs/perf/page-data-contract.md，并对新改动增加 reviewer checklist；存量按 PERF-001/002/003 迁移。",
+      "expected_gain_range": "结构性预防 80% 以上已知大 payload 复发；减少每个功能单独设计分片的成本。",
+      "risk": "文档若无机检和 review 门禁会漂移；应与 PERF-011 同批落地。",
+      "effort": "S-M：模板 + checklist + 示例，约 1-2 天。",
+      "origin": "pre-existing"
+    }
+  ],
+  "impact_surface": [
+    "首页首屏 boot.json/overview/signals_today 渲染",
+    "策略实验室 Kelly 卡片、费率重算和交易记录弹窗",
+    "行业 tab all/5y/3y 概念历史图与搜索列表",
+    "Service Worker 离线缓存与二次访问传输",
+    "Cloudflare Worker /data 与 /r2 边缘缓存、Cache-Control",
+    "静态构建产物版本化、压缩和代码分割",
+    "deploy 前数据导出体积与性能回归防护"
+  ],
+  "resource_inventory": [
+    {
+      "path": "static-site/style.min.css",
+      "raw_bytes": 240286,
+      "gzip6_bytes": 39089,
+      "load_stage": "first_screen",
+      "note": "index.html:37 preload 异步样式"
+    },
+    {
+      "path": "static-site/common.min.js",
+      "raw_bytes": 43250,
+      "gzip6_bytes": 14849,
+      "load_stage": "first_screen",
+      "note": "index.html:281 defer；immutable 规则未覆盖"
+    },
+    {
+      "path": "static-site/purpose-notes.min.js",
+      "raw_bytes": 61295,
+      "gzip6_bytes": 27883,
+      "load_stage": "first_screen_defer",
+      "note": "说明文本可评估懒加载"
+    },
+    {
+      "path": "static-site/kelly-review-notes.min.js",
+      "raw_bytes": 138293,
+      "gzip6_bytes": 44089,
+      "load_stage": "first_screen_defer",
+      "note": "lab 相关说明可评估懒加载"
+    },
+    {
+      "path": "static-site/kelly-reports-content.min.js",
+      "raw_bytes": 241022,
+      "gzip6_bytes": 71476,
+      "load_stage": "first_screen_defer_but_lab_only",
+      "note": "应移至报告弹窗动态加载"
+    },
+    {
+      "path": "static-site/i18n.js",
+      "raw_bytes": 16763,
+      "gzip6_bytes": 4823,
+      "load_stage": "first_screen_defer",
+      "note": "体积小，暂可接受"
+    },
+    {
+      "path": "static-site/app.min.js",
+      "raw_bytes": 973463,
+      "gzip6_bytes": 303983,
+      "load_stage": "first_screen",
+      "note": "单体主应用，route split 收益中等偏高"
+    },
+    {
+      "path": "static-site/vendor/echarts.min.js",
+      "raw_bytes": 1034102,
+      "gzip6_bytes": 335614,
+      "load_stage": "lazy",
+      "note": "renderTab 动态注入，已是正确方向"
+    },
+    {
+      "path": "static-site/lab.min.js",
+      "raw_bytes": 453538,
+      "gzip6_bytes": 137150,
+      "load_stage": "lazy",
+      "note": "lab tab/#lab 直链动态注入"
+    },
+    {
+      "path": "static-site/data/boot.json",
+      "raw_bytes": 2233754,
+      "gzip6_bytes": 302891,
+      "load_stage": "first_screen",
+      "note": "overview.signals_today.etfs 是主要瘦身点"
+    },
+    {
+      "path": "static-site/data/signal_kelly_trades.json",
+      "raw_bytes": 65395224,
+      "gzip6_bytes": 10562170,
+      "load_stage": "lazy_but_full",
+      "note": "lab.js 两处全量直拉；parts/slices 已存在"
+    },
+    {
+      "path": "static-site/data/industry-all-concepts.json",
+      "raw_bytes": 32255887,
+      "gzip6_bytes": 7821364,
+      "load_stage": "range_all_lazy",
+      "note": "84.5% 是 data 历史；应 per-id/range 分片"
+    },
+    {
+      "path": "static-site/data/etf_score_list.json",
+      "raw_bytes": 18430868,
+      "gzip6_bytes": 1073695,
+      "load_stage": "dead_artifact_candidate",
+      "note": "已有 buy/sell/hold 拆分；待核查后停写清理"
+    }
+  ],
+  "boot_contract_analysis": {
+    "producer": "export_boot() 合并 11 个 JSON + config，见 static-site/export.py:995-1035。",
+    "consumer": "fetchBoot() 单例请求 ./data/boot.json，renderOverview() await 其完成，见 static-site/app.js:7631-7660 与 13154-13163。",
+    "largest_fields_raw_bytes": {
+      "overview": 1542207,
+      "signal_stats": 431581,
+      "intraday_snapshot": 121466,
+      "volume_ratio": 46652,
+      "ad_line": 38461
+    },
+    "signals_today": {
+      "count": 463,
+      "etf_entries": 2552,
+      "etfs_serialized_bytes": 1075406
+    },
+    "recommended_split": "boot 保留 config/daily KPI/summary/top1；live intraday 单独短 TTL；ETF candidates、history series、trade rows 全部走 detail shards。"
+  },
+  "governance_plan": [
+    "规范源：以 docs/perf/performance-architecture-standards.md 为性能架构准则；新页面/tab/弹窗/图表/产物必须通过设计评审清单。",
+    "数据契约：区分 summary/list/detail/history/modal-preview 五层，禁止 summary 内嵌未登记明细数组。",
+    "资源预算：HTML<=30KB gzip，核心 CSS+JS 首屏<=420KB gzip，boot<=250KB gzip，普通 JSON<=1MB gzip，超过必须 manifest+shard 例外。",
+    "性能门禁：CI 输出 artifact size diff，>10% 或绝对上限失败；Playwright 采集首页/lab/industry 的 LCP、INP、CLS、长任务和字节数。",
+    "页面模板规范：每个 tab 只加载 route module + current view data；modal 先 preview shard；chart history 按需且降采样；低频数据走 SWR/hash immutable。",
+    "缓存契约：由单一 policy manifest 生成 Worker headers、SW strategy 和 HTTP cache；关键实时数据 network-first，日更历史 stale-while-revalidate，版本化资产 immutable。",
+    "防复发：新增 >1MB 产物必须在 PR 模板填写 consumer、TTL、purge、fallback、rows/bytes；无消费者产物禁止上传。"
+  ],
+  "standards_document": "docs/perf/performance-architecture-standards.md",
+  "smoke_results": {
+    "runtime_browser": "未执行",
+    "production_network_requests": "未执行",
+    "build_or_minify": "未执行",
+    "local_size_recalculation": "OK：使用 wc/gzip/python json 序列化复算关键文件。",
+    "static_trace": "OK：核对 export/query/app/lab/sw/worker/build 代码路径与既有 perf 审计。",
+    "external_review_request": "refs/codex/req/claude2codex-20260826-011 属 S06 held 语义复审，与本任务不同；按用户不扩大范围指令未处理。"
+  },
+  "open_questions_residual_risks": [
+    "Cloudflare 生产响应实际使用 brotli/gzip 等级和 CF edge TTL 需线上 header 实测；本报告 gzip -6 仅作同口径横向对比。",
+    "boot top1 化收益假设前端所有完整 ETF 列表交互都能接受懒加载；需产品确认 hover 展开体验。",
+    "lab 全量转分片后，跨年份/跨象限统计的精确聚合边界需要独立数值 parity 测试。",
+    "app.js route split 的实际收益取决于模块耦合和全局状态重构深度，20%-45% 是静态估算区间。"
+  ],
+  "follow_up": [
+    "线上实测 brotli/gzip、Cache-Control、CF edge TTL 和关键路由字节。",
+    "Playwright 实测首页、lab、industry 的 LCP/INP/长任务与交互路径。",
+    "为 boot top1、lab shards、industry per-id chunks 建立数据 parity 与失败回退测试。"
+  ],
+  "recommendation": "按 docs/perf/perf-architecture-review-20260826.md 执行三阶段改造：先做 boot top1、Kelly 报告懒加载、immutable headers、移动 skeleton 和信号网格窗口化；再做凯利/行业分片与 cache policy manifest；最后做 route split、chart registry、虚拟化和 RUM。每阶段必须输出同一探针 before/after 与数据 parity 证据，Claude 自验后发 claude2codex 外审。",
+  "status": "pending"
+}

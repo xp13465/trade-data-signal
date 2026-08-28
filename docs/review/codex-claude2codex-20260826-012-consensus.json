@@ -1,0 +1,56 @@
+{
+  "request_id": "claude2codex-20260826-012",
+  "verdict": "FAIL",
+  "summary": "分支自身 83dfc867b..8c9915807 的 r10/k3 谓词、A7 断言、overfit 登记点和共识 X/Y 实现方向正确；独立复算与键集机检通过。但 request 声明 base=64d505064，实际 merge-base 是更旧的 83dfc867b，指定 base..head 混入 main 后续变更的反向差异，存在集成回退和漏审风险。另有 tooltip 示例数字与当前数据不一致、buy_special_filtered 归一化缺口两项 P2。",
+  "issues": [
+    {
+      "id": "P1-stale-review-base",
+      "severity": "P1",
+      "title": "request 基线漂移，指定 diff 会反向删除 main 已有修复",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "evidence": "git merge-base 64d505064 8c9915807 = 83dfc867bd8ddf03c7a554316c1a89bcf9d32d1c，而 request 要求审查 64d505064..8c9915807。该 diff 将 static-site/index.html 与 sw.js 从 v20260826-a433 回退到 a432，并回滚 lab.css 的 2026-08-26 手机横滚修复及 playwright 验收产物。",
+      "impact": "若按请求 diff 打补丁或以错误基线解决冲突，会回退已上线资源版本与移动端修复；即使标准 git merge 有机会保留 main 变更并触发版本校验，当前 request 的审查范围仍不能代表待合成分支，且掩盖了与新 main 的冲突面。",
+      "fix": "将 feat/ai-consensus-score rebase 到 64d505064（或以后续最新 main 重建 request），冲突必须显式保留 a433 及横滚修复；随后重跑 build_min、bump、check_version_progress、A1-A7、consensus parity 和前端冒烟。"
+    },
+    {
+      "id": "P2-tooltip-track-score-mismatch",
+      "severity": "P2",
+      "title": "tooltip 硬编码示例跟踪分与真实 overview 不一致",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "evidence": "static-site/app.js:5830-5832 写 csi_H30199 为 71.0；docs/kelly/toggle/ai-consensus-score-research-20260826.md:197 同样写 71.0。当前 overview.json 中该信号 top ETF track_score=70.9。consensus parity 输出也显示 {id:\"csi_H30199\",ts:70.9,x:0}。",
+      "impact": "X 判定本身正确，但 §23.9 要求 tooltip 数字真实；用户悬停核对时会看到示例分数与 ETF 元数据不一致。",
+      "fix": "改为 70.9，或去掉具体分数/改为运行时从所选示例读取，避免数据滚动后再次失真；同步修正调研文档中的例证数字。"
+    },
+    {
+      "id": "P2-special-filtered-normalization",
+      "severity": "P2",
+      "title": "overview 命中链未归一化 buy_special_filtered",
+      "origin": "pre-existing",
+      "scope": "in-scope",
+      "evidence": "app/queries.py:783 将 buy_special_filtered 计入买信号，但 _ai_macro_hit_filters 在 app/queries.py:855 后继续使用原始 _sig 比较；新增 r10/k3 分支在 app/queries.py:939-948 也要求精确的 buy_special/buy。scripts/overfit_monitor.py:583 则先归一化为 buy_special。",
+      "impact": "buy_special_filtered 信号可能漏标既有 buy_special 键以及新增 r10/k3 相关键，进而影响首页删除线、邮件标注、Y 票和 NEW14 过滤口径。当前 30 日 overview 无该信号类型，因此未在 parity 样本暴露，但这是边界不一致。",
+      "fix": "在 _ai_macro_hit_filters 入口和传给 _ai_macro_hit_new_keys 的上下文中统一归一化 buy_special_filtered -> buy_special；补一条包含该 signal 的回归样例，并确认与 overfit_monitor、lab.js 的排序/过滤口径一致。"
+    }
+  ],
+  "impact_surface": [
+    "app/queries.py AI宏命中注入链（r10May6NonMay/k3ConceptBuy）",
+    "scripts/check_fade_keys_alignment.py A1-A7 全端键集断言",
+    "scripts/overfit_monitor.py recent_hit_keys 第三登记点",
+    "首页信号卡与近期技术参考点 hoverpop 的 X/Y 展示",
+    "app.min.js/style.min.css 压缩产物与资源版本链路",
+    "docs/kelly/toggle/ai-consensus-score-research-20260826.md 与 scripts/check_consensus_parity.mjs",
+    "main 合并基线、asset bump 和移动端横滚修复"
+  ],
+  "smoke_results": {
+    "py_compile": "OK：app/queries.py、scripts/check_fade_keys_alignment.py、scripts/overfit_monitor.py 在干净 head 归档编译通过。",
+    "fade_keys_alignment": "OK：--repo /tmp/codex-review-head.bbiCuo 时 A1-A7 全 PASS；A7 覆盖 24 个静态预设键。",
+    "a7_negative": "OK：隔离副本移除 k3ConceptBuy 后端 append 后，A7 如预期 FAIL 并返回非零。",
+    "consensus_parity": "OK：node scripts/check_consensus_parity.mjs PASS；全量买入 n=298，入样买入 n=196；入样 Y={8:6,5:33,4:1,3:20,2:112,1:2,0:22}。0723 HSI Y=0、0824 csi_399975 X=1、csi_H30199 X=0 复现。",
+    "tooltip_examples": "PARTIAL：X/Y 结论复现；但 csi_H30199 当前 track_score 是 70.9，硬编码 tooltip 为 71.0。",
+    "minified_assets": "OK：head 归档 app.min.js 含 consensus 文案，style.min.css 含 term-pop-consensus。",
+    "browser_smoke": "NOT_RUN：Playwright Chromium 启动即崩溃（SIGTRAP），未取得 UI hover/异步重绘实测证据；不得视为通过。"
+  },
+  "recommendation": "FAIL 后处理：先重建/rebase 到声明基线，保留 main a433 和 lab 移动端修复，再修 tooltip 数字；合并前决定是否同批修复 buy_special_filtered 归一化或登记为明确后续任务。重新跑版本净回退、A1-A7、parity、py_compile 和浏览器冒烟后再申请合并。"
+}

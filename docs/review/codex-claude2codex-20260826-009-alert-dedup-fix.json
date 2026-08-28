@@ -1,0 +1,90 @@
+{
+  "request_id": "claude2codex-20260826-009",
+  "verdict": "FAIL",
+  "summary": "六条修复的主体逻辑和 dry-run/恢复匹配/窗口重建可确认，但并发正确性未闭环：独立复现 U11 偶发失败；恢复清零没有进入专用锁域，可与 flush 快照交错并复活已恢复指纹。存在 P1，不建议合入。",
+  "issues": [
+    {
+      "id": "P1-01",
+      "severity": "P1",
+      "title": "同指纹首次并发 defer 存在跨锁 TOCTO，实施宣称的 U11 稳定覆盖不成立",
+      "path": "scripts/notify.py",
+      "line": 1425,
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "多个进程可在任何进程登记首条指纹前都判定为“需要入队”，随后各自写入 buffer。当前 flush 会把同指纹行合并显示，缓解了直接重复推送，但破坏了“首窗只留一条代表”的并发不变量，也使验收测试 U11 变成偶发失败。若后续消费逻辑依赖每指纹一个代表条目，或部分写入/清理失败，风险会放大。",
+      "why": "defer_warning 先在 _dedup_state_lock 内判断无记录后只设置 enqueue_pending 并释放锁（scripts/notify.py:1428-1456），然后释放锁执行 buffer append（scripts/notify.py:1461），最后才重新拿锁登记状态（scripts/notify.py:1475-1502）。“检查无记录”和“建立记录”不是同一个临界区，也没有 pending 预约标记。",
+      "evidence": "把 b0a0568ed 的 notify.py 和两份测试复制到 /tmp 独立目录执行：完整 test_notify_dedup.py 三轮中第 3 轮失败，输出为 'AssertionError: 2 != 1 : 同指纹并发只应首条入队'，当时 repeat_count 仍为 12。随后单独压测 U11 十轮，结果 9 pass / 1 fail，同样是 2 条 buffer 记录。",
+      "fix": "让“首条预约 + buffer append + 状态登记”对同指纹原子化，例如引入 per-fingerprint 初始化锁或持久化 pending 预约并在 append 失败时清理预约。若选择在初始化路径持 dedup 锁期间获取 buffer flock，必须同步修订全局锁序文档并确保 flush 不反向持有 buffer 锁等待 dedup 锁。U11 应改为高压力、多次重复的必过回归。"
+    },
+    {
+      "id": "P1-02",
+      "severity": "P1",
+      "title": "恢复清零绕过 WARNING_DEDUP_LOCK_FILE，可被 flush 快照复活或丢失并发更新",
+      "path": "scripts/notify.py",
+      "line": 1368,
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "恢复语义可能被并发 flush 覆盖：已清零的指纹再次出现在状态文件里，紧随其后的复发会先被旧窗口抑制，最坏延迟到翻倍穿透或 4h 过期。并发 defer/recovery 也可能互相覆盖 repeat_count，削弱计数与穿透基准。",
+      "why": "clear_warning_dedup_for_recovery 执行完整的 load-modify-save，但没有调用 _dedup_state_lock（scripts/notify.py:1378-1391）；而注释宣称该短锁串行化 defer/recovery/flush 三类周期（scripts/notify.py:1256-1260）。flush 快照则在锁内 reload/save（scripts/notify.py:1661-1681），无锁恢复写可以插到其 load 和 save 之间。",
+      "evidence": "在隔离副本构造 flush 快照慢写并与 [恢复] 清零交错：恢复线程已删除目标指纹后，flush 的旧快照保存使该指纹复活，探测输出 'recovery_cleared_before_flush_snapshot=True'、'stale_snapshot_resurrected=True'。另一个双源探针中，A 源恢复慢保存期间 B 源 defer 将 repeat_count 从 1 推到 2，恢复旧快照落盘后 B 回退为 1（lost_B_update=True）。",
+      "fix": "clear_warning_dedup_for_recovery 的整个读改写包进 _dedup_state_lock。仅加锁只能消除丢更新/旧快照覆盖；若要求“恢复完成后即使有已排队 warning 也不复活”，还需要版本号、tombstone 或发送后二次核对恢复时间，确保恢复事件不会被本批 flush 快照覆盖。补并发回归覆盖 recovery-defer 和 recovery-flush 两组交错。"
+    },
+    {
+      "id": "P2-01",
+      "severity": "P2",
+      "title": "flush race 测试没有隔离新增 dedup 锁文件",
+      "path": "scripts/test_notify_flush_race.py",
+      "line": 149,
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "测试虽然隔离了 buffer、flush lock 和 state 文件，但主进程与三个 spawn 子进程仍使用生产 data/alerts/warning_dedup.lock。会创建/触碰运行时锁文件，并可能与真实 schedule_monitor/monitor_72h 互相等待，造成测试波动或短暂影响告警方。",
+      "why": "setUp 只替换 WARNING_BUFFER_FILE、WARNING_FLUSH_LOCK_FILE、WARNING_DEDUP_STATE_FILE（scripts/test_notify_flush_race.py:150-162）；writer/appender/flusher 子进程同样只传 state_path，不设置 WARNING_DEDUP_LOCK_FILE（scripts/test_notify_flush_race.py:45-110）。",
+      "evidence": "rg 显示该测试只有 WARNING_DEDUP_STATE_FILE 的 7 处引用，没有 WARNING_DEDUP_LOCK_FILE 引用；对比 test_notify_dedup.py setUp 已隔离 dedup lock。",
+      "fix": "在 setUp 和所有子进程 helper 中传入并恢复独立 WARNING_DEDUP_LOCK_FILE，纳入现有临时目录清理。"
+    },
+    {
+      "id": "P3-01",
+      "severity": "P3",
+      "title": "快照持久化和注释承诺不一致",
+      "path": "scripts/notify.py",
+      "line": 1230,
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "_save_warning_dedup_state 在 json.dump 后直接 os.replace，未 fsync 临时文件，也未 fsync 目录；进程崩溃/断电时 snapshot_ok=True 不等价于 durable persistence。多数失败方向是少快照、多发告警，但仍削弱 P1③ 的崩溃一致性表述。",
+      "why": "buffer append 已显式 flush + os.fsync（scripts/notify.py:1126-1131），而状态快照只依赖 close 后 os.replace（scripts/notify.py:1240-1243）。",
+      "evidence": "静态代码核对；未做断电注入测试。",
+      "fix": "如需兑现 durable snapshot，在 replace 前 fsync 状态临时文件并在 replace 后按部署可靠性要求 fsync 目录；否则把注释降级为 atomic-replace 而非 durable。另外 scripts/notify.py:1656 注释称 snapshot 与 cleanup 两步在同一 dedup 锁域，实际 cleanup 在 dedup 锁释放后的 buffer flock 内执行，应修正表述。"
+    }
+  ],
+  "impact_surface": [
+    "warning 同源降噪首窗事务序",
+    "U10-U15 验收测试可信度",
+    "恢复清零与 flush 快照状态一致性",
+    "repeat_count/notified_repeat 穿透门槛基准",
+    "WARNING_DEDUP_LOCK_FILE 全局互斥语义",
+    "flush race 测试运行时隔离",
+    "dedup state 原子写/持久化口径"
+  ],
+  "smoke_results": {
+    "diff_scope": "OK: git diff --name-only 83dfc867b..b0a0568ed 只含 README.md、scripts/notify.py、scripts/test_notify_dedup.py、scripts/test_notify_flush_race.py；merge-base 为 base。",
+    "py_compile": "OK: head 版 notify.py、test_notify_dedup.py、test_notify_flush_race.py 编译通过。",
+    "test_notify_dedup_15x3": "FAIL: 第 1/2 轮 PASS，第 3 轮 U11 失败（buffer 2 != 1）。",
+    "u11_stress_10": "FAIL: 9 pass / 1 fail，失败仍为 buffer 2 != 1。",
+    "test_notify_flush_race_6x3": "OK: 三轮共 18 用例全部 PASS。",
+    "dry_run_recovery_readonly": "OK: 在 /tmp head 副本执行 --dry-run 恢复消息后 warning_dedup_state.json 不存在，未触碰 state。",
+    "recovery_defer_lock_probe": "FAIL: 无锁恢复清零与 defer 并发丢失 B 源 repeat_count 更新。",
+    "recovery_flush_snapshot_probe": "FAIL: 无锁恢复清零被 flush 旧快照复活。",
+    "normalization_spot_check": "OK_WITH_TRADEOFF: sh510300/sz159915 和 worker-3/worker-7 异源；HTTP 500/502、task 12345/67890 等纯数字身份按当前口径合并。当前已知 S06 warning 的数字是过期日数，适合作为计量值。"
+  },
+  "checks": {
+    "F1_buffer_then_state": "实现存在且 append 返回 bool/fsync；但首窗并发预约缺口见 P1-01。",
+    "F2_dedup_short_lock": "defer 与 flush snapshot 已持锁，但 recovery clear 未持锁，见 P1-02。",
+    "F3_snapshot_before_cleanup": "顺序上 snapshot_ok 成功后才 cleanup；cleanup 失败保留重发路径存在。durability 与注释口径见 P3-01。",
+    "F4_dry_run": "send 入口 not dry_run 短路恢复清零；独立 CLI smoke 未触碰 state。",
+    "F5_recovery_matching": "已删除公共前缀宽松规则；单源剥尾时间戳，聚合恢复逐 <br> 明细匹配。与 schedule_monitor.sh:1560-1590 和 monitor_72h.sh:848-876 真实模板核对成立。",
+    "F6_token_normalization": "字母开头混合 token 整体保留；计量数字归 #。误合并残余面见 normalization spot check。",
+    "window_expiry": "顺序路径下过期记录 GC 后重建 repeat_count=1 且刷新 window_start；U2 通过。",
+    "lock_deadlock": "静态看当前代码没有 flushlock 与 deduplock 反向嵌套；三次 flush race 全过。但 recovery 未进锁域使既有互斥假设失效，见 P1-02。"
+  },
+  "recommendation": "不合入。先修复两个 P1：消除同指纹首窗并发 TOCTO，并把恢复清零纳入 dedup 锁/版本化恢复语义；同时把 U11 改成稳定压力回归。P2 测试隔离应在合入前一并处理。"
+}

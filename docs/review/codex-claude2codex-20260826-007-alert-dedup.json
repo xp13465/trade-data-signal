@@ -1,0 +1,93 @@
+{
+  "request_id": "claude2codex-20260826-007",
+  "verdict": "FAIL",
+  "summary": "Focused review of c07506f7b..c37a9685c found three P1 reliability defects in the new dedup state lifecycle: buffer append failure can suppress later same-source warnings, concurrent state updates lose counts/baselines, and the post-flush snapshot is not durable before buffered entries are removed. Critical bypass and basic legacy compatibility work; existing tests pass but do not cover these failure states.",
+  "issues": [
+    {
+      "id": "F1",
+      "severity": "P1",
+      "title": "Buffer append failure creates a 4-hour suppression window with no queued representative",
+      "path": "scripts/notify.py:1324",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "A transient warning-buffer write failure can cause the current alert and all later same-fingerprint warnings to be suppressed until WARNING_DEDUP_WINDOW expires. This amplifies an existing single-append loss into a sustained notification gap.",
+      "evidence": "defer_warning saves fingerprint state first (lines 1293-1333), then calls _append_jsonl (lines 1336-1343). _append_jsonl catches and only prints write failures (lines 1061-1075), so defer cannot roll back or avoid marking the source as represented. Isolated repro mocked _append_jsonl as failing: no buffer file was created, while repeat_count advanced from 1 to 2.",
+      "suggested_fix": "Append to the buffer before saving initial dedup state, make _append_jsonl report success/failure, or hold a short-lived dedup lock and remove/roll back state when enqueue fails. Prefer duplicate risk over suppression risk."
+    },
+    {
+      "id": "F2",
+      "severity": "P1",
+      "title": "Dedup-state read-modify-write cycles are not serialized across defer/recovery/flush",
+      "path": "scripts/notify.py:1295",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "Concurrent producers lose repeat_count increments and stale writers can overwrite notified_repeat. Burst breakthrough can be delayed or mis-triggered, and [第N次] labels become inaccurate. Atomic os.replace prevents torn JSON but does not prevent lost updates.",
+      "evidence": "WARNING_FLUSH_LOCK_FILE serializes flushers only (lines 1375-1402); defer_warning and clear_warning_dedup_for_recovery take no shared state lock. A forked 6-process x 100-attempt isolation repro ended with repeat_count=118 and 4 queued entries: only 122 of 600 attempts remained accounted for.",
+      "suggested_fix": "Add a dedicated short-lived warning_dedup_state lock around every load/modify/save cycle in defer_warning, recovery clearing, and post-flush snapshot. Do not reuse the long-held flush network-send lock for producers."
+    },
+    {
+      "id": "F3",
+      "severity": "P1",
+      "title": "Post-send snapshot happens after irreversible buffer cleanup and can silently fail",
+      "path": "scripts/notify.py:1530",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "After a successful send, a crash or snapshot-save failure can leave notified_repeat at its pre-send value while the representative buffer rows are already removed. When the stale value is 0, the burst threshold is disabled entirely, so later warnings accumulate invisibly until fixed-window GC requeues them up to four hours later.",
+      "evidence": "Buffer cleanup occurs at lines 1502-1529; notified_repeat is saved afterward at lines 1530-1555. _save_warning_dedup_state catches all failures internally (lines 1179-1196), so flush proceeds even when the new baseline is not durable.",
+      "suggested_fix": "Persist notified_repeat immediately after send returns, before removing buffer rows, and make save status explicit. If snapshot persistence fails, retain due rows for retry rather than treating the baseline as aligned."
+    },
+    {
+      "id": "F4",
+      "severity": "P2",
+      "title": "dry_run recovery delivery mutates persistent dedup state",
+      "path": "scripts/notify.py:890",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "A dry-run smoke test using a recovery subject clears live-style fingerprint state before channel dispatch. This violates the dry-run safety expectation exercised elsewhere by U8 and can change subsequent production suppression behavior.",
+      "evidence": "send checks the recovery prefix and calls clear_warning_dedup_for_recovery before evaluating dry_run (lines 886-894). Reproduced with mocked channels: send('[恢复] ...', dry_run=True) changed the isolated state file from nonempty to empty.",
+      "suggested_fix": "Skip recovery clearing when dry_run=True, or perform it only after at least one real channel reports success."
+    },
+    {
+      "id": "F5",
+      "severity": "P2",
+      "title": "Recovery matching has both false-positive and aggregate-recovery gaps",
+      "path": "scripts/notify.py:1237",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "Prefix matching may clear unrelated fingerprints sharing at least 12 normalized leading characters or a >=6-character full shorter prefix. Conversely, monitor templates for multiple recoveries use generic subjects such as '[恢复] N项异常恢复', which do not prefix-match individual warning subjects and therefore leave their old suppression states active.",
+      "evidence": "Matching uses broad common-prefix rules at lines 1246-1264. schedule_monitor.sh builds a generic multi-recovery subject at lines 1557-1564; monitor_72h.sh has the analogous generic form at lines 852-859. Existing U5 covers only item-specific recovery subjects.",
+      "suggested_fix": "Carry the caller's structured source key through warning records and recovery messages, or enumerate recovered sources explicitly instead of inferring identity from normalized subject prefixes."
+    },
+    {
+      "id": "F6",
+      "severity": "P2",
+      "title": "Digit normalization can merge semantically distinct warning sources",
+      "path": "scripts/notify.py:1142",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "Warnings differing only by stock code, port, PID, worker ID, percentage, or other numeric identity share one fingerprint. The latest body replaces earlier details, and unless volume doubles or tier becomes critical, distinct warning incidents remain suppressed within the 4-hour window.",
+      "evidence": "_norm_fp_text replaces every digit run with '#' and warning_fingerprint uses only normalized subject (lines 1142-1162). The code documents this tradeoff, but it remains user-visible data loss within grouped output.",
+      "suggested_fix": "Use an explicit stable source key supplied by callers where available, or include semantic identity fields in fingerprints while retaining display-side grouping for known numeric-only repeats."
+    }
+  ],
+  "impact_surface": [
+    "warning fingerprint dedup and fixed-window reset path",
+    "warning buffer enqueue reliability",
+    "flush grouping, repeat labels, and notified_repeat baseline",
+    "recovery state clearing for direct and send_tiered paths",
+    "critical bypass path",
+    "legacy warning_buffer entries without fp",
+    "test coverage for state concurrency, append failure, and dry-run recovery"
+  ],
+  "smoke_results": {
+    "py_compile_head_export": "OK",
+    "test_notify_dedup_9_cases": "OK",
+    "test_notify_flush_race_6_cases": "OK",
+    "same_fp_concurrent_repro_6x100": "FAIL - repeat_count=118, queued=4 out of 600 attempts",
+    "buffer_append_failure_repro": "FAIL - no buffer entry but state advanced and later event suppressed",
+    "dry_run_recovery_state_mutation_repro": "FAIL - persistent state cleared under dry_run=True",
+    "browser_test": "Not executed; focused server-side notify change with no browser surface",
+    "production_alert_files": "Not executed; read-only review used isolated temporary files"
+  },
+  "recommendation": "Do not merge yet. Fix the three P1 state-lifecycle defects with explicit ordering plus a dedicated dedup-state lock, add regression tests for append failure, concurrent same-fingerprint producers, crash/save-failure after flush, and dry-run recovery behavior. Re-run both suites before internal re-review."
+}

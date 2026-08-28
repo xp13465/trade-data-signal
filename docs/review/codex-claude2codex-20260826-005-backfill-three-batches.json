@@ -1,0 +1,48 @@
+{
+  "request_id": "claude2codex-20260826-005",
+  "verdict": "FAIL",
+  "summary": "三批补审覆盖 request 指定范围。AI预测四项改进、批次C切片导出器、TCP超时根修、critical兼容性与公示一致性抽查未发现阻断问题；告警 warning 聚合的并发清理存在已复现的 P1 数据损坏/丢条目缺陷，因此 FAIL。",
+  "issues": [
+    {
+      "id": "F1",
+      "severity": "P1",
+      "title": "并发 flush_warning_batch 用固定字节偏移回写会截坏新增 warning 记录",
+      "path": "scripts/notify.py",
+      "line": 1196,
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "两个 flusher 可基于同一 pre_offset 快照各自发送同一批到期 warning；后完成者把另一进程重写后的文件再按旧偏移切尾，发送期间追加的新记录会被截成非法 JSON。下一轮解析静默跳过该片段，造成 warning 条目丢失；当前也可能产生重复推送。",
+      "why": "pre_offset 只相对本进程读取时的文件状态稳定，不相对其他 cleaner 重写后的文件状态稳定。cleanup 在 scripts/notify.py:1193-1204 锁内读取 cur 后仍用 cur[pre_offset:] 保留尾部，但另一个 cleaner 可能已经删除了 due 行并改变偏移语义。",
+      "evidence": "独立多进程复现：初始文件含 due+keep，两个子进程同时进入 flush，发送期间追加 {\"subject\":\"appended\",\"body\":\"must survive\"}。实际终态为 keep 原行加非法片段 \\\"must survive\\\"}，而非完整 appended JSONL 记录；notify.py:1154-1161 会跳过坏行。仓库当前未见生产 --tier warning 调用点（schedule_monitor.sh:1436 仅 info），所以风险暂为潜伏路径，但该函数和 schedule_monitor.sh:1604 / monitor_72h.sh:904 兜底链已在范围内。",
+      "fix": "为整个 flush 生命周期增加专用跨进程 flush mutex（snapshot→send→cleanup），使 cleaner 互相串行；保留现有 buffer append flock 保护追加方。更彻底的修复是 cleanup 时重新解析全文件并按稳定记录 ID 精确移除已发条目，而不是依赖字节偏移。修复时应补并发追加/双 flush 回归测试，并考虑对解析失败的 JSONL 行发出可观测错误而非静默跳过。",
+      "release_condition": "修复竞态并通过并发回归前不得将任何生产监控接到 --tier warning。"
+    }
+  ],
+  "impact_surface": [
+    "scripts/notify.py warning buffer / 三级路由 / flush CLI",
+    "scripts/schedule_monitor.sh warning flush 与 info 路由",
+    "scripts/monitor_72h.sh warning flush 兜底",
+    "scripts/run_daily_brief.sh 影子对账调度",
+    "scripts/gen_daily_brief.py 板块自适应带 / direction_call / stats",
+    "static-site/app.js AI预测展示",
+    "app/collector/base.py 与 app/collector/fetchers.py 超时防护",
+    "scripts/signal_kelly_backtest.py 与 static-site/data/signal_kelly_trades_parts 切片产物",
+    "static-site/lab.js 批次C前端消费状态"
+  ],
+  "smoke_results": {
+    "scope": "OK: base=16daa9674, head=9a3d95beb；只复核 request 指定三批，其他提交不重复审。",
+    "syntax_diff": "OK: git diff --check 和 py_compile 对核心 Python 文件通过。",
+    "shadow_schedule": "OK: run_daily_brief.sh:47-58 挂 aggregate_shadow；launchd com.trade.daily-brief 指向该脚本；生产日志见 2026-08-25 21:00:44 开始对账、5 条影子记录、本次回填 1 条且成功。",
+    "shadow_reconcile_guard": "OK: aggregate_shadow.py:126-131 在下一日 pct 缺失时继续留待回填，不再写死 null。",
+    "sector_band_lookahead": "OK: gen_daily_brief.py:2254-2256 定义 N=5/k=2/min_w=0.3；2543-2573 实际取次日值，历史窗口过滤 d <= bdate，无前视。",
+    "direction_call_consumers": "OK: gen_daily_brief.py:1825-1829 解析为新键；2660-2665 单独统计；app.js:25767-25775 对缺失/非法键守卫。既有邮件/飞书方向字段仍读 meta.direction/hit.direction，未发现被替换。",
+    "warning_window_persistence": "OK: notify.py:110-112 使用 warning_buffer.jsonl 和 1800s；1164-1171 边界为 >=30min，文件持久化可过进程重启；失败时不清理。",
+    "warning_concurrency": "FAIL: 见 F1，独立复现追加记录被截成非法 JSON。",
+    "critical_reachability": "OK: 默认 CLI 无 tier 保持原 send() 行为；既有 severe/critical 调用点未被批量改写；send_tiered 未知 tier fail-critical。",
+    "tcp_timeout_root_fix": "OK: base.py:34-35 全局默认 30s；fetchers.py:56-83 泛化为 daemon 线程看门狗并返回 TimeoutError 给既有兜底分支。静态调用链核对通过。",
+    "kelly_slices_conservation": "OK: 独立加载整包与 meta 内容级比对：144/144 组、303/303 片、274284/274284 行逐位一致；0 missing/orphan/mismatch；generated_at 同为 2026-08-26 07:08。",
+    "kelly_frontend_fast_path": "NOTE: revert 18cfa90e3 后 head lab.js 无 _sigKellyOpenTradesPreview/lab_meta/快速预览引用，切片导出器和机检仍在但没有活跃前端快路径消费点；移动 fallback 链问题在 head 不适用。本轮未执行浏览器实测。",
+    "consistency_public_spot_check": "OK: 板块带公式、direction_call 统计口径和 N/k/min_w 公示文案在后端注释、文档与前端 tooltip 抽查一致。"
+  },
+  "recommendation": "先修 F1 并补双 flusher 并发回归，再解除 warning 分级上线限制；其余区域可在该缺陷处置后合入。批次C前端快路径已被有意 revert 移除，建议主控确认这是预期状态即可，不需要导出器回滚。"
+}

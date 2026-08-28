@@ -1,0 +1,108 @@
+{
+  "request_id": "claude2codex-20260826-008",
+  "verdict": "BLOCKED",
+  "summary": "发现两个 P0：deploy 校验链与 20:35 快照重生时序互斥，会在每日盘后数据更新后阻断上线；S06 sticky 状态机在持续非命中场景可永久锁死 a9，违反公示的 15 日确认退出语义。另有新鲜度告警状态先于发送成功落盘的 P2 与两处低风险口径问题。",
+  "issues": [
+    {
+      "id": "F1",
+      "severity": "P0",
+      "title": "Deploy 校验与 S06 重生时序冲突，会日阻断盘后上线",
+      "path": "scripts/check_data_integrity.py:1522",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "交易日 update_all 导出 T 日指数后、20:35 前的所有 deploy（包括统一 deploy 和 20:05/20:07 任务触发的 deploy）会被 s06_state FAIL 阻断；公网无法及时更新，直到手工重生或 20:35 链完成。若 update_all 拖到 20:35 后，也可能形成竞态。",
+      "why": "新增 hook 调用 check_s06_state.py 并把 rc!=0 变成 deploy FAIL。该 checker 的 A1 要求快照 daily 覆盖期与当前 csi1000/hs300 输入完全相等；但正常时序下输入已到 T，快照仍由前一晚生成、coverage_end=T-1，必然 universe 不一致。",
+      "evidence": [
+        "scripts/deploy.sh:153 在 --deploy-mode 下运行 check_data_integrity.py；scripts/deploy.sh:155 对 rc!=0 exit。",
+        "scripts/update_all.sh:105 在 pipelines 完成后统一 deploy；request 记录 export 约 18:11 完成、全链最晚约 19:48。",
+        "launchd/com.trade.s06-snapshot.plist:19 把重生安排在 20:35。",
+        "scripts/check_s06_state.py:150 要求 covered == dates；独立 fixture 用 coverage T 的快照加截断到 T-1 的双指数输入复现 rc=1、`universe一致=False`。"
+      ],
+      "fix": "把 S06 生成放到 deploy 校验前并允许失败硬阻断，或在 deploy-mode 给 checker 增加“最多落后一个入库交易日”的显式容差；后者必须继续让缺失、解析失败、落后超过一天阻断，并由 freshness 监控兜底。不要通过关闭 deploy hook 解决。"
+    },
+    {
+      "id": "F2",
+      "severity": "P0",
+      "title": "A 进攻状态可在持续恶化行情中永久锁死",
+      "path": "scripts/gen_kelly_mode_s06_state.py:83",
+      "origin": "pre-existing",
+      "scope": "in-scope",
+      "impact": "S06 进入 a9 后，即使 size_spread 连续远超 15 个交易日未破阈值，也可能不切回 new15 防守基座。这会使动态降亏过滤方向错误，并使 README/common.js 公示的“连续破坏 15 日才切出”和回测锚点不可信。",
+      "why": "cur==ON_BASE 分支只在 hit 时 held += 1；非 hit 只增加 broken，held 不增长。当进入 a9 后没有足够额外 hit 日时，held 永远小于 MIN_HOLD_DAYS=10，因此 `(broken < CONFIRM_DAYS) or (held < MIN_HOLD_DAYS)` 中第二项永久为 true。",
+      "evidence": [
+        "构造序列首日 -10、之后 336 个交易日 +5：build_daily 只有 20260102 一次进入 a9，后续永不退出。",
+        "README.md:101 与 static-site/common.js:995-996 承诺连续破坏 15 个交易日后切出且 A 最短持有 10 个交易日。",
+        "scripts/check_s06_state.py:66-75 复刻了同一 held 语义，所以机检 A1 无法发现该缺陷。"
+      ],
+      "fix": "将 held 定义改为 a9 生效交易日数：进入当日建立持有计数，其后每个交易日递增（无论当日 premise 是否继续命中）；再评估 broken>=15 且 held>=10 时退出。同步修正独立机检实现，并用长序列断言“15 个连续非命中后必然离开 a9”。"
+    },
+    {
+      "id": "F3",
+      "severity": "P2",
+      "title": "新鲜度告警去重状态先写入，通知启动失败会同状态丢失",
+      "path": "scripts/check_s06_freshness.py:105",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "coverage_end/N 不变期间，如果 notify.py 子进程超时、异常或以非零退出，本地 dedup state 已标记为已告警；后续 15 分钟监控不会再入队。若次日恢复或 N 未加深，这次过期可能完全没有到达用户。",
+      "why": "_defer_once 先原子写 s06_fresh_alert_state.json 并返回 true，随后 subprocess.run 忽略 returncode；只有 Python 层抛异常打印日志，不会回滚或重试同状态。",
+      "evidence": [
+        "scripts/check_s06_freshness.py:105 先调用 _defer_once。",
+        "scripts/check_s06_freshness.py:112-119 调 notify.py 后不检查 returncode，except 分支只打印 `defer_warning 失败(不影响退出码)`。",
+        "scripts/check_s06_freshness.py:136 对相同 (coverage_end,N) 直接抑制重复。"
+      ],
+      "fix": "只有 notify.py 返回 0 且能确认 warning 已入队后才写/保留 dedup state；失败时删除本次 state 或直接不在成功前写 state。"
+    },
+    {
+      "id": "F4",
+      "severity": "P3",
+      "title": "新鲜度标尺文档与实现矛盾",
+      "path": "scripts/check_s06_freshness.py:12",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "维护者按头部注释可能误改判定；实际实现符合 request 要求，使用 index ohlc 序列而非快照 daily。",
+      "why": "文件头第 12-13 行说使用快照 daily 标尺，而 judge() 第 53-61 行明确使用 index ohlc 完整序列。",
+      "evidence": "头部注释与 judge() docstring/实现互相矛盾；dry 测试确认 N 以 index 序列计算。",
+      "fix": "删除或改正头部第 12-13 行的旧口径描述，统一说明 index ohlc 是交易日标尺。"
+    },
+    {
+      "id": "F5",
+      "severity": "P3",
+      "title": "plist 注释误解 ExitTimeOut，卡死检测也不完整",
+      "path": "launchd/com.trade.s06-snapshot.plist:79",
+      "origin": "in-diff",
+      "scope": "in-scope",
+      "impact": "600 秒并不是任务最大运行时长，只是 launchd 停止作业时 SIGTERM 到 SIGKILL 的等待窗口；gen 卡死仍可长期占用槽位。schedule_monitor 的 DUR_THRESHOLDS 也未登记 s06_snapshot，进行中超时检测缺省。",
+      "why": "launchd.plist 文档定义 ExitTimeOut 为 job 要停止时等待退出的时间，不是常规运行 timeout；DUR_THRESHOLDS 当前没有 s06_snapshot 条目。",
+      "evidence": [
+        "launchd/com.trade.s06-snapshot.plist:79-81 的注释称 600s 防僵死占槽。",
+        "scripts/schedule_monitor.sh:313-319 的 DUR_THRESHOLDS 缺少 s06_snapshot。"
+      ],
+      "fix": "在 shell 内对三段命令使用 timeout 包装，或登记 schedule_monitor 超时阈值；同时修正 plist 注释。"
+    }
+  ],
+  "impact_surface": [
+    "scripts/check_data_integrity.py",
+    "scripts/check_s06_state.py",
+    "scripts/gen_kelly_mode_s06_state.py",
+    "scripts/s06_snapshot.sh",
+    "scripts/check_s06_freshness.py",
+    "scripts/schedule_monitor.sh",
+    "scripts/gen_schedule_stats.py",
+    "launchd/com.trade.s06-snapshot.plist",
+    "static-site/data/kelly_mode_s06_state.json",
+    "README.md"
+  ],
+  "smoke_results": {
+    "diff_scope": "OK: c07506f7b..a2bc04c36, 7 files / +395 -1",
+    "syntax": "OK: bash -n x2, Python compile x4, plutil lint OK",
+    "freshness_dry_boundary": "OK: N=0/1 pass, N=2 fail, foreign coverage fail, malformed JSON rc=2",
+    "freshness_actual_local": "OK: coverage_end=20260826, index_end=20260826, lag=0",
+    "freshness_alert_state": "OK: same-state suppress, deeper-N re-alert, recovery clears state",
+    "timeline_deploy_fixture": "FAIL: checker rc=1, universe一致=False",
+    "state_machine_long_run": "FAIL: one entry to a9 followed by 336 non-hit days never exits",
+    "short_circuit_semantics": "OK by code read: gen failure skips check/R2; check failure skips R2; R2 failure still alerts",
+    "plist_deployment": "OK: installed ~/Library/LaunchAgents/com.trade.s06-snapshot.plist matches reviewed blob",
+    "power_claim": "OK: pmset shows weekday 17:48 wakepoweron"
+  },
+  "recommendation": "不要合入或启用全站默认。先修复 P0-1 的部署校验时序，再修正并重新验证 P0-2 状态机及其历史/回测产物；P2 告警可靠性应在启用默认前处理。修复后需要用 T/T-1 时间线 fixture、长连非命中状态机 fixture、真实盘后链 dry-run 和前端 S06 replay 复验。"
+}
