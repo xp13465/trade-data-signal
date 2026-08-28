@@ -251,3 +251,13 @@ docs/archive/*_progress.md
 # agent 进度文件
 claude2codex-*.md
 08-*.md
+# agent progress / 进度文件
+docs/archive/agent-progress-*.txt
+docs/archive/agent-progress-*.md
+# uumit 知识商品临时文件
+docs/uumit-24h-limit-research.md
+docs/uumit-knowledge/
+# kelly analysis large data files (不进 git,走 R2)
+docs/kelly/analysis/data/
+docs/kelly/analysis/scripts/sim_window_loss_mining_20260822/data/
+docs/kelly/backtest-ai/etf-weight-leader/data/
