@@ -8137,7 +8137,7 @@ async function _kellyRunRecompute(host, loadingHtml, onResult, onDone) {
 // sigkelly 分片加载模块(2026-08-28): recent.json 首屏快速预览 + 全量兜底 + 合并各年数据
 var _labKellyFullFallback = false;     // 分片链路失败已回退全量(true 后跳过分片逻辑)
 var _labKellyLoadErr = null;           // 加载错误信息
-var _labKellyQuickPreview = null;     // 快速 UI 预览用 recent.json 数据(供快速显示不等待加载)
+var _labKellyLoadProgress = { done: 0, total: 16, lastYear: "" }; // 分片加载进度(「计算中」占位显示用, 2026-08-29 小步2)
 // URL helpers
 function _labKellyTradesUrl(name) { var v = _labCustomCacheBust(); return "https://ss.fx8.store/data/" + name + (v ? "?v=" + v : ""); }
 function _labKellyTradesUrlCf(name) { var v = _labCustomCacheBust(); return "./data/" + name + (v ? "?v=" + v : ""); }
@@ -8239,19 +8239,32 @@ async function _labKellyLoadYearParts() {
     var yearParts = [];
 
     // 按年份加载并合并(t2026.json -> t2025.json -> t2024.json...)
+    // 2026-08-29 小步1: 串行 for await 改 Promise.all 并行16年(下载从 69MB 累加降到最大单年~16MB);
+    //   Promise.all 结果按输入序返回 → yearParts 保持按年有序(_labKellyMergeShards 顺序无关也安全)。
+    //   每片成功/失败都推进 _labKellyLoadProgress(失败只记进度不抛, 与旧实现 continue 语义一致)。
     var years = ["2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017", "2016", "2015", "2014", "2013", "2012", "2011"];
-    for (var y of years) {
-      try {
-        var yearFile = await _labKellyFetchTrades("signal_kelly_trades_parts/t" + y + ".json");
-        yearParts.push(_labKellyParseTrades(yearFile));
-        console.log("[sigkelly] 加载第" + y + "年数据");
-      } catch (e) {
-        console.warn("[sigkelly] t" + y + " 加载失败:", e);
-        // 继续加载其他年份
-      }
-    }
+    _labKellyLoadProgress = { done: 0, total: years.length, lastYear: "" };
+    var results = await Promise.all(years.map(function (y) {
+      return _labKellyFetchTrades("signal_kelly_trades_parts/t" + y + ".json")
+        .then(function (yearFile) {
+          var parsed = _labKellyParseTrades(yearFile);
+          _labKellyLoadProgress.done += 1;
+          _labKellyLoadProgress.lastYear = y;
+          _labKellyProgressTickUI();
+          console.log("[sigkelly] 已加载 t" + y);
+          return parsed;
+        })
+        .catch(function (e) {
+          console.warn("[sigkelly] t" + y + " 加载失败:", e);
+          _labKellyLoadProgress.done += 1;   // 失败也推进进度(16片尝试完毕)
+          _labKellyLoadProgress.lastYear = y;
+          _labKellyProgressTickUI();
+          return null;
+        });
+    }));
+    for (var pi = 0; pi < results.length; pi++) if (results[pi]) yearParts.push(results[pi]);
 
-    // 合并所有年份数据
+    // 合并所有年份数据(全失败时 yearParts 为空 → merge 抛错 → catch 回退全量)
     var merged = _labKellyMergeShards(yearParts);
     state.labSigKellyTradesData = merged;
 
@@ -8262,6 +8275,23 @@ async function _labKellyLoadYearParts() {
     return await _labKellyLoadFull();
   }
 }
+
+// 分片加载进度字符串(「⏳ 计算中…」占位/预览提示显示): 全量分片下载中返回 " · 已加载 t20xx(N/16)", 就绪后返回空串
+function _labKellyProgStr() {
+  var p = _labKellyLoadProgress;
+  if (!p || !p.total || p.done >= p.total) return "";
+  return " · 已加载 t" + (p.lastYear || "--") + "(" + p.done + "/" + p.total + ")";
+}
+
+// 分片加载进度实时刷新(2026-08-29 小步2): 每片完成把在册「⏳ 计算中…」占位文本就地换为最新进度,
+//   让用户看到 "已加载 t20xx(N/16)" 一直在走, 不等整次渲染; 就绪后占位会随 recompute 整建消失
+function _labKellyProgressTickUI() {
+  var els = document.querySelectorAll(".lab-sigkelly-all-loading");
+  if (!els.length) return;
+  var txt = "⏳ 计算中…" + _labKellyProgStr();
+  for (var i = 0; i < els.length; i++) els[i].textContent = txt;
+}
+
 // 主入口: 分片加载(t2011-t2026 合并)
 // 返回 Promise<true>就绪 / <false>失败(错误已记录在 _labKellyLoadErr)
 // 内存态(state.labSigKellyTradesData)已就绪时直接返回,不重复网络请求。
@@ -8269,18 +8299,7 @@ async function _labKellyTradesEnsure(opt) {
   if (state.labSigKellyTradesData && !_labKellyFullFallback) return true; // 已就绪
   if (_labKellyFullFallback) return !!state.labSigKellyTradesData;
 
-  // 快速 UI 预览: 优先使用 recent.json(2.99MB)快速显示，避免白屏
-  if (!_labKellyQuickPreview) {
-    try {
-      _labKellyQuickPreview = await _labKellyFetchTrades("signal_kelly_trades_parts/recent.json");
-      console.log("[sigkelly] 快速预览加载完成");
-    } catch (e) {
-      console.warn("[sigkelly] 快速预览加载失败:", e);
-      _labKellyQuickPreview = null;
-    }
-  }
-
-  // 加载完整分片数据(recent + t2011-t2025 合并, localStorage 不缓存合并后全量)
+  // 加载完整分片数据(recent + t2011-t2026 合并, localStorage 不缓存合并后全量)
   return await _labKellyLoadYearParts();
 }
 
@@ -10647,7 +10666,8 @@ function _kellyComboAdviceHtml() {
 function _sigKellyAfgRealtimeHtml() {
   const feeStats = state.labSigKellyFeeStats;
   if (!feeStats || !feeStats.all) {
-    return `<div class="lab-sigkelly-afg-realtime"><div class="lab-custom-loading lab-sigkelly-all-loading">⏳ 计算中…</div></div>`;
+    const _progS = _labKellyProgStr();
+    return `<div class="lab-sigkelly-afg-realtime"><div class="lab-custom-loading lab-sigkelly-all-loading">⏳ 计算中…${_progS}</div></div>`;
   }
   const modes = [
     { key: "A", name: "A · 固定10天短线", desc: "买入后固定持有 10 天卖出, 快进快出" },
@@ -10765,7 +10785,8 @@ function _kellyYearlySourceHint(modeKey) {
 function _sigKellyAllSignalGroupHtml(period) {
   const feeStats = state.labSigKellyFeeStats;
   if (!feeStats || !feeStats.all) {
-    return `<div class="lab-sigkelly-group lab-sigkelly-all-group"><div class="lab-sigkelly-group-title">📌 全信号表（最后结果 · 全量信号融合）<span class="lab-sigkelly-all-badge">最后结果</span></div><div class="lab-custom-loading lab-sigkelly-all-loading">⏳ 计算中…</div></div>`;
+    const _progS = _labKellyProgStr();
+    return `<div class="lab-sigkelly-group lab-sigkelly-all-group"><div class="lab-sigkelly-group-title">📌 全信号表（最后结果 · 全量信号融合）<span class="lab-sigkelly-all-badge">最后结果</span></div><div class="lab-custom-loading lab-sigkelly-all-loading">⏳ 计算中…${_progS}</div></div>`;
   }
   const allMeta = { label: "全信号", desc: "评级高低分区并集（互斥全量覆盖），全量信号不拆分，实时反映当前降亏组合勾选 / 费率 / 周期", periods: {} };
   const cardHtml = _renderSigKellyCard("all", allMeta, period, null);
