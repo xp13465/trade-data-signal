@@ -2925,7 +2925,7 @@ function _sigHelpPopHtml() {
     '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-long">🟢 中长线 G</span>' +
       '<span class="sig-kbtn-help-pop-body">买入后<b>一直持有</b>，仅当对应指数「卖出信号」触发才离场，无信号就拿着（总建议主选）。G 长线管位=满仓不卖·<b>P≤3d@13万</b>：持仓超上限<b>先卖「未满3天」年轻仓</b>（保老仓、砍新仓），峰值同时持仓≤' + _simGihPeakN("G") + '笔（20倍本金硬控内=可操作）。</span></div>' +
     '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-long">🛡️ 中长线 H（含止损，不想硬扛首选）</span>' +
-      '<span class="sig-kbtn-help-pop-body">买入后<b>一直持有</b>，直到触发「卖出信号」或「追止损」任一离场（取最早）。<b>适合不想硬扛亏损的玩家</b>：止损单会在亏损扩大时自动离场，避免深度套牢，且释放资金更快做新信号。<br>📊 1:1例：S06×H档(满仓不买@7万) 净利+7.5万(107.6%)/峰值并发≤' + _simGihPeakN("H") + '笔/不破20倍线；S06×G档(满仓不卖·P≤3d@13万) 净利+20.3万(155.8%)/峰值同时持仓≤' + _simGihPeakN("G") + '笔/不破20倍线——G/H/I 长线已套 20 倍硬控（G=' + _simGihPeakN("G") + '笔/H=' + _simGihPeakN("H") + '笔/I=' + _simGihPeakN("I") + '笔）。G 绝对收益更高、H 止损更快释放更稳，两者均 20 倍本金内可操作（与凯利区 G/H/I 对比表同值 §22）。</span></div>' +
+      '<span class="sig-kbtn-help-pop-body">买入后<b>一直持有</b>，直到触发「卖出信号」或「追止损」任一离场（取最早）。<b>适合不想硬扛亏损的玩家</b>：止损单会在亏损扩大时自动离场，避免深度套牢，且释放资金更快做新信号。<br>📊 1:1例：S06×H档(满仓不买@7万) 净利+144,731(206.76%)/峰值并发≤' + _simGihPeakN("H") + '笔/不破20倍线；S06×G档(满仓不卖·P≤3d@13万) 净利+245,538(188.88%)/峰值同时持仓≤' + _simGihPeakN("G") + '笔/不破20倍线；S06×I档(满仓不买@16万) 净利+204,221(127.64%)/峰值同时持仓≤' + _simGihPeakN("I") + '笔/不破20倍线——G/H/I 长线已套 20 倍硬控（G=' + _simGihPeakN("G") + '笔/H=' + _simGihPeakN("H") + '笔/I=' + _simGihPeakN("I") + '笔），均 20 倍本金内可操作（与凯利区 G/H/I 对比表同值 §22）。</span></div>' +
     '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-time">⏰ 当日实操</span>' +
       '<span class="sig-kbtn-help-pop-body"><b>15:03 后 A 股信号已用收盘价定稿不再变</b>；15:05-15:30 盘后固定价格交易可按收盘价操作，当日可执行标的见 AI 建议 1/2/3（不怕信号消失）。港股/全球待 17:50 完整版。</span></div>' +
     '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-day">⏭️ 次日玩法</span>' +
@@ -3587,18 +3587,18 @@ async function _simEnsureRange(startD, endD, onStep) {
 
 // 打开「模拟回测」弹窗(复用 .rule-modal 机制, 与 _openRefHelpModal 同款)
 // === G/H/I 长线管位管理(首页 sim 弹窗, 2026-08-29 codex#001 定稿档位) ===
-// 三档定稿数据(与 lab.js AIHLINE_STRATS 同值 §22): G=满仓不卖·P≤3d@13万 / H=满仓不买@7万 / I=满仓不买@15万。
+// 三档定稿数据(v1.1.7 基准 2026-08-29 codex#001 定稿, 与 lab.js AIHLINE_STRATS 同值 §22): G=满仓不卖·P≤3d@13万 / H=满仓不买@7万 / I=满仓不买@16万(用户拍板, 原15万上调)。
 // lab.min.js 懒加载不保证在弹窗打开时已注入, 故首页弹窗本地自持档位表 + 共享键 tds_gihpos 读写(lab 同键同步 §22)。
 const _SIM_GHI_TIERS = {
   G: { play: "满仓不卖·P≤3d", tier: "13万", cap: 130000 },
   H: { play: "满仓不买", tier: "7万", cap: 70000 },
-  I: { play: "满仓不买", tier: "15万", cap: 150000 }
+  I: { play: "满仓不买", tier: "16万", cap: 160000 }
 };
-function _simGihShort(modeKey) { // 简明玩法+档位(G=满仓不卖·P≤3d@13万 / H=满仓不买@7万 / I=满仓不买@15万)
+function _simGihShort(modeKey) { // 简明玩法+档位(G=满仓不卖·P≤3d@13万 / H=满仓不买@7万 / I=满仓不买@16万)
   const t = _SIM_GHI_TIERS[modeKey];
   return t ? (t.play + "@" + t.tier) : "";
 }
-function _simGihPeakN(modeKey) { // 目标峰值同时持仓笔数 = cap/10000(13/7/15)
+function _simGihPeakN(modeKey) { // 目标峰值同时持仓笔数 = cap/10000(13/7/16)
   const t = _SIM_GHI_TIERS[modeKey];
   return t ? Math.round(t.cap / 10000) : 0;
 }
@@ -3653,10 +3653,10 @@ function _openSimBacktestModal() {
         '<div class="sim-ctrl-block"><label>交易模式</label><select class="sim-mode-sel">' + (_modeOpts || '<option value="A">A · 固定10天</option>') + '</select></div>' +
         // 长线管位管理(G/H/I, 2026-08-29 codex#001 定稿档位): 三档写死展示在 .sim-mode-sel 旁;
         // 默认开, 开关态走共享键 tds_gihpos(lab.js _kellySharedGih 同键读, §22 双端一致);
-        // 档位=G 满仓不卖·P≤3d@13万 / H 满仓不买@7万 / I 满仓不买@15万(与 lab.js AIHLINE_STRATS 同值 §22)
+        // 档位=G 满仓不卖·P≤3d@13万 / H 满仓不买@7万 / I 满仓不买@16万(与 lab.js AIHLINE_STRATS 同值 §22)
         '<div class="sim-ctrl-block"><label>长线管位·G/H/I</label>' +
           '<div class="sim-gih-ctl">' +
-            '<label class="sim-gih-on-lab" title="长线管位管理(G/H/I)总开关: 开=G/H/I 三长线模式按各自定稿档位做仓位硬控(峰值同时持仓=档位金额÷¥10000: G=13笔/H=7笔/I=15笔, 20倍本金硬控内可操作); 关=不套仓位管位, 展示原始持仓峰值。共享键 tds_gihpos 与凯利页「ai长线模式(G/H/I)仓位管理」开关双向同步(默认开)。A-F 短线模式不适用管位, 档位标签仅提示所选长线模式的目标笔数。"> <input type="checkbox" class="sim-gih-on-cb"> 开</label>' +
+            '<label class="sim-gih-on-lab" title="长线管位管理(G/H/I)总开关: 开=G/H/I 三长线模式按各自定稿档位做仓位硬控(峰值同时持仓=档位金额÷¥10000: G=13笔/H=7笔/I=16笔, 20倍本金硬控内可操作); 关=不套仓位管位, 展示原始持仓峰值。共享键 tds_gihpos 与凯利页「ai长线模式(G/H/I)仓位管理」开关双向同步(默认开)。A-F 短线模式不适用管位, 档位标签仅提示所选长线模式的目标笔数。"> <input type="checkbox" class="sim-gih-on-cb"> 开</label>' +
             '<span class="sim-gih-tiers"></span>' +
           '</div>' +
         '</div>' +
@@ -4237,7 +4237,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
       gi = gj;
     }
   }
-  // 峰值同时持仓「展示口径」(2026-08-29 codex#001): G/H/I 长线管位开=档位硬控笔数 cap/10000(G=13/H=7/I=15,
+  // 峰值同时持仓「展示口径」(2026-08-29 codex#001): G/H/I 长线管位开=档位硬控笔数 cap/10000(G=13/H=7/I=16,
   // 20倍本金硬控内=可操作, 与 lab.js AIHLINE_STRATS/《gihGTierB 同值 §22); 其他模式或管位关=原始计算峰值。
   // 累积盈亏%分母同步用该展示值(G/H/I 管位开时口径与 lab __gihb1 cap后一致, A-F 行为逐位不变 §23.7)。
   const _ghIt = _SIM_GHI_TIERS[mode];
