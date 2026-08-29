@@ -7155,6 +7155,13 @@ main { padding: 16px 24px; }
    label 范式对齐首页 sig-switch-lab(checkbox+短文字), 高度与下拉一致不撑行 */
 .sim-fade-ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .sim-fade-on-lab { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; font-size: 12px; color: var(--text-1); user-select: none; }
+/* 长线管位管理·G/H/I(2026-08-29 codex#001): 开关+三档标签横排一行, 视觉对齐上部 .sim-fade-ctl 范式;
+   开关(lab 范式=checkbox+短字)与凯利页「ai长线模式(G/H/I)仓位管理」共享键 tds_gihpos(默认开 §22) */
+.sim-gih-ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sim-gih-on-lab { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; font-size: 12px; color: var(--text-1); user-select: none; }
+.sim-gih-tiers { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.sim-gih-tier-tag { font-size: 11px; line-height: 1; padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; color: var(--text-3); background: var(--bg-card); white-space: nowrap; }
+.sim-gih-tier-tag.sim-gih-tier-active { border-color: var(--primary); color: var(--primary); font-weight: 700; }
 .sim-ctrl-block input[type="date"], .sim-ctrl-block input[type="number"], .sim-mode-sel,
 .ov-mode-sel, .home-mode-sel { padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-card); color: var(--text-1); font-size: 12px; }
 /* (2026-08-23 UI批) .sim-fade-mode-sel 移出上组: 模式下拉样式统一走 .tds-fade-mode-sel 公共段(文件尾), 不再双份 */
@@ -7178,12 +7185,12 @@ main { padding: 16px 24px; }
 /* 列宽策略(2026-08-22 用户反馈「数值列宽度应固定, 正常百分比不会太长」): table-layout:fixed +
    逐列定宽 → 数值列宽不随数据长短跳动; 省出的空间由不定宽的「信号关联ETF」列吃掉(全表最长内容列);
    min-width 保证窄屏走 .sim-table-wrap 横向滚动不被挤坏; ellipsis 仅作极端值兜底(定宽已按内容上限预估) */
-.sim-tbl { width: 100%; min-width: 1330px; table-layout: fixed; border-collapse: collapse; font-size: 11px; }
+.sim-tbl { width: 100%; min-width: 1470px; table-layout: fixed; border-collapse: collapse; font-size: 11px; }
 .sim-tbl th, .sim-tbl td { padding: 4px 8px; border: 1px solid var(--border); white-space: nowrap; text-align: right; overflow: hidden; text-overflow: ellipsis; }
 .sim-tbl th { position: sticky; top: 0; background: var(--bg-card); z-index: 1; color: var(--text-1); font-weight: 700; }
 .sim-tbl td:nth-child(2), .sim-tbl td:nth-child(3), .sim-tbl td:nth-child(4), .sim-tbl td:nth-child(5) { text-align: left; }
-/* 13列逐列定宽: 内容上限=日期8位/金额9位(含负号)/对错计数~19字符/盈亏%含观察期倒计时小字一行;
-   定宽合计1128px, 配合弹窗加宽(1560)后 1440 屏 ETF 列仍可得 ~206px(最长ETF名~200px)不裁剪;
+/* 14列逐列定宽: 内容上限=日期8位/金额9位(含负号)/对错计数~19字符/盈亏%含观察期倒计时小字一行; 第14列峰值同时持仓笔数(2026-08-29 新增);
+   定宽合计1236px, 配合弹窗加宽(1560)后 1440 屏 ETF 列仍可得 ~200px(最长ETF名~200px)不裁剪;
    各列均留 ≥4px 余量防 bold 表头 CJK 渲染偏宽(教训: 当日持仓58px 曾卡住4字表头) */
 .sim-tbl th:nth-child(1) { width: 78px; }   /* 日期 */
 .sim-tbl th:nth-child(2) { width: 64px; }   /* 当日持仓(hover 热区) */
@@ -7198,6 +7205,7 @@ main { padding: 16px 24px; }
 .sim-tbl th:nth-child(11) { width: 84px; }  /* 累积盈亏 */
 .sim-tbl th:nth-child(12) { width: 90px; }  /* 累积金额 */
 .sim-tbl th:nth-child(13) { width: 124px; } /* 累积对错 */
+.sim-tbl th:nth-child(14) { width: 108px; } /* 峰值同时持仓笔数(2026-08-29 codex#001 新增; 定宽 108px 覆盖「峰值同时持仓笔数」8字表头+工具图标余量) */
 .sim-up { color: #cf1322; }
 .sim-down { color: #389e0d; }
 [data-theme="dark"] .sim-up, [data-theme="redgold"] .sim-up { color: #ff4d4f; }
