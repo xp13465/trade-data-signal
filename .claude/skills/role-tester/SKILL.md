@@ -10,7 +10,10 @@ description: 测试 agent 专属规范 — 由 .claude/agents/tester.md 的 skil
 ## 1. smoke 清单执行
 - 读 `docs/smoke-checklist.md`(P0/P1 主功能点清单+数据校验规则,进 git 维护),逐项执行
 - 主功能点示例:首页KPI角标/指数表现ETF/分时图hover/情绪分/信号/策略实验室入口等
-- 验证方式:curl 数据层(JSON 字段有值/结构正确)+ 关键交互文字描述验证(模型只文本不能看 UI,回归验证用 curl JSON 数据层 + 关键交互文字描述 + 让用户确认显示三层)
+- 验证方式:三层验证(按顺序走):
+  - **① curl 数据层**:JSON 字段有值/结构正确(主验证,纯代码不依赖 UI)
+  - **② Playwright 交互验证**:`scripts/playwright-accept/` 脚手架脚本,验关键交互行为(页面加载/元素存在/数据渲染)
+  - **③ 用户确认显示**:观感/视觉类展示交用户最终拍板
 - 失败项立即报,不掩藏
 
 ## 2. 数据完整性校验
@@ -18,6 +21,21 @@ description: 测试 agent 专属规范 — 由 .claude/agents/tester.md 的 skil
 - **check_r2_consistency.py**:本地 static-site vs R2 一致性审计(定期跑)
 - C 级(数据/后端)改动:本地 static-site + R2 + CF 三处同值校验(§22 一致性铁律)
 - 2026-08-06 教训:`board_etf_map.json` 因 `etf_index_map.json` 缺失常 27/72 空数组,致指数表现模块 ETF 全失效("全部无ETF")用户发现时已上线。根因=数据产物损坏无校验拦截
+
+## 2.1 Playwright 验证(2026-08-29 新增:纳入标准流程)
+> 背景:skill 原先只写 curl 数据层 + 文本描述,缺浏览器实操验证。用户要求测试流程包含 Playwright 提高验证全面性。
+> **脚手架**:`scripts/playwright-accept/`(已建,task #10)。已落档脚本含:
+>   - `verify_kelly_card.mjs`:凯利区卡片验证(截图+断言)
+>   - `verify_cac40.mjs`:中证1000 ETF 验证
+>   - `news-lifecycle-facts.mjs`:新闻生命周期事实验证
+>   - `ticker-rebuild-check.js`:ticker 重建验证
+>   - `check_consensus_parity.mjs`:数据共识对账(含 data-consensus 属性比对)
+> **触发条件**:任何涉及前端展示/交互/UI 元素的改动验收,必须跑 Playwright 验证。
+> **执行方式**:
+>   - `cd scripts/playwright-accept && node <脚本名>.mjs`
+>   - 验证结论写入 `scripts/playwright-accept/` 输出,不贴回对话(防上下文膨胀)
+>   - 只验**事实层**(结构/几何/元素存在/数据渲染/回归 diff),**观感仍用户拍板**(memory `playwright-verify-facts-not-aesthetics`)
+> **验收口径**:Playwright 脚本必须跑通+退出码 0,不许跳过或只跑一次就算过(§5.1 完成前验证门②真跑)
 
 ## 3. curl 验证要点(§8「功能 done」三查清单操作化)
 - 验收"已上线/done"必须三查齐:

@@ -8134,11 +8134,11 @@ async function _kellyRunRecompute(host, loadingHtml, onResult, onDone) {
   onDone(host);
 }
 
-// sigkelly 分片加载模块(2026-08-28): recent.json(2.99MB)首屏优先 + localStorage 缓存 + 年片按需加载 + 全量兜底
-var _labKellyPartsCache = new Map();   // "recent" | "tYYYY" -> parsed {fields,fIdx,quadrants}
+// sigkelly 分片加载模块(2026-08-28): recent.json 首屏快速预览 + 全量兜底 + 合并各年数据
+var _labKellyPartsCache = new Map();   // "tYYYY" -> parsed {fields,fIdx,quadrants}
 var _labKellyFullFallback = false;     // 分片链路失败已回退全量(true 后跳过分片逻辑)
 var _labKellyLoadErr = null;           // 加载错误信息
-
+var _labKellyQuickPreview = null;     // 快速 UI 预览用 recent.json 数据(供快速显示不等待加载)
 // URL helpers
 function _labKellyTradesUrl(name) { var v = _labCustomCacheBust(); return "https://ss.fx8.store/data/" + name + (v ? "?v=" + v : ""); }
 function _labKellyTradesUrlCf(name) { var v = _labCustomCacheBust(); return "./data/" + name + (v ? "?v=" + v : ""); }
@@ -8212,37 +8212,88 @@ function _labKellySetCache(name, data, meta) {
     return true;
   } catch (e) { return false; }
 }
-// 主入口: localStorage 缓存优先(无网即出) + 网络拉取版本对比 + 全量兜底
+// 加载各年数据(当年为 recent.json)并合并成完整数据
+async function _labKellyLoadYearParts() {
+  if (state.labSigKellyTradesData && !_labKellyFullFallback) return true; // 已就绪
+  if (_labKellyFullFallback) return !!state.labSigKellyTradesData;
+
+  try {
+    // 优先从 recent.json 建立基础快照(2.99MB)
+    var recent;
+    try {
+      recent = await _labKellyFetchTrades("signal_kelly_trades_parts/recent.json");
+    } catch (e) {
+      console.warn("[sigkelly] recent.json 加载失败:", e);
+      return await _labKellyLoadFull();
+    }
+    // 构建基本数据结构(快照)
+    var recentParsed = _labKellyParseTrades(recent);
+    var yearParts = [recentParsed];
+
+    // 按年份加载并合并(t2026.json -> t2025.json -> t2024.json...)
+    var curMeta = (recent && recent._meta && recent._meta.generated_at) ? recent._meta.generated_at : (recent && recent.generated_at ? recent.generated_at : null);
+    var years = ["2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017", "2016", "2015", "2014", "2013", "2012", "2011"];
+    for (var y of years) {
+      if (y === "2026") continue; // 2026 年已在 recent.json
+      try {
+        var yearFile = await _labKellyFetchTrades("signal_kelly_trades_parts/t" + y + ".json");
+        yearParts.push(_labKellyParseTrades(yearFile));
+        console.log("[sigkelly] 加载第" + y + "年数据");
+      } catch (e) {
+        console.warn("[sigkelly] t" + y + " 加载失败:", e);
+        // 继续加载其他年份
+      }
+    }
+
+    // 合并所有年份数据
+    var merged = _labKellyMergeShards(yearParts);
+    state.labSigKellyTradesData = merged;
+
+    // 缓存 recent.json 用于版本校验
+    if (curMeta) _labKellySetCache("recent", recent, curMeta);
+
+    return true;
+  } catch (e) {
+    _labKellyLoadErr = e && e.message ? e.message : String(e);
+    console.error("[sigkelly] 分片加载失败, 回退全量:", e);
+    return await _labKellyLoadFull();
+  }
+}
+// 主入口: localStorage 缓存优先 + 分片加载
 // 返回 Promise<true>就绪 / <false>失败(错误已记录在 _labKellyLoadErr)
 // 缓存在首次渲染后静默后台刷新, 已有数据的情况下 UI 不阻塞
 async function _labKellyTradesEnsure(opt) {
   if (state.labSigKellyTradesData && !_labKellyFullFallback) return true; // 已就绪
   if (_labKellyFullFallback) return !!state.labSigKellyTradesData;
-  // ① localStorage 缓存命中 → 立即就绪, 后续网络对比是后台刷新
+
+  // 快速 UI 预览: 优先使用 recent.json(2.99MB)快速显示，避免白屏
+  if (!_labKellyQuickPreview) {
+    try {
+      _labKellyQuickPreview = await _labKellyFetchTrades("signal_kelly_trades_parts/recent.json");
+      console.log("[sigkelly] 快速预览加载完成");
+    } catch (e) {
+      console.warn("[sigkelly] 快速预览加载失败:", e);
+      _labKellyQuickPreview = null;
+    }
+  }
+
+  // 优先从缓存加载完整数据
   var cached = _labKellyGetCache("recent");
-  if (cached && cached.data && !(opt && opt.skipCache)) {
-    state.labSigKellyTradesData = _labKellyParseTrades(cached.data);
-    _labKellyPartsCache.set("recent", _labKellyParseTrades(cached.data));
+  if (cached && cached.data && cached.data.quadrants) {
+    var curMeta = (cached.data && cached.data._meta && cached.data._meta.generated_at) ? cached.data._meta.generated_at : (cached.data && cached.data.generated_at ? cached.data.generated_at : null);
+    var recent = await _labKellyFetchTrades("signal_kelly_trades_parts/recent.json");
+    var netMeta = (recent && recent._meta && recent._meta.generated_at) ? recent._meta.generated_at : (recent && recent.generated_at ? recent.generated_at : null);
+
+    if (netMeta && curMeta === netMeta) {
+      // 缓存已是最新数据，直接使用
+      state.labSigKellyTradesData = _labKellyParseTrades(cached.data);
+      _labKellyPartsCache.set("recent", state.labSigKellyTradesData);
+      return true;
+    }
   }
-  // ② 拉 recent.json 校验版本号(2.99MB vs 全量 69MB, 仍划算)
-  var recent;
-  try {
-    recent = await _labKellyFetchTrades("signal_kelly_trades_parts/recent.json");
-  } catch (e) {
-    console.warn("[sigkelly] recent.json 加载失败:", e);
-    return state.labSigKellyTradesData ? true : await _labKellyLoadFull();
-  }
-  var curMeta = (recent && recent._meta && recent._meta.generated_at) ? recent._meta.generated_at : (recent && recent.generated_at ? recent.generated_at : null);
-  // ③ 版本号匹配 → 缓存已最新
-  if (cached && cached.data && cached.genAt && curMeta && cached.genAt === curMeta) {
-    return true; // 缓存与网络同版本, 不重写 state(缓存已是最新数据)
-  }
-  // ④ 版本变了: 应用网络数据 + 写缓存
-  var parsed = _labKellyParseTrades(recent);
-  _labKellyPartsCache.set("recent", parsed);
-  state.labSigKellyTradesData = parsed;
-  if (curMeta) _labKellySetCache("recent", recent, curMeta);
-  return true;
+
+  // 加载完整分片数据
+  return await _labKellyLoadYearParts();
 }
 
 // 加载 trades.json 并重算所有 quadrant x period x mode 统计(方案A)
