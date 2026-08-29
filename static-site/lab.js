@@ -8232,7 +8232,7 @@ async function _labKellyTradesEnsure(opt) {
     console.warn("[sigkelly] recent.json 加载失败:", e);
     return state.labSigKellyTradesData ? true : await _labKellyLoadFull();
   }
-  var curMeta = (recent && recent._meta && recent._meta.generated_at) ? recent._meta.generated_at : null;
+  var curMeta = (recent && recent._meta && recent._meta.generated_at) ? recent._meta.generated_at : (recent && recent.generated_at ? recent.generated_at : null);
   // ③ 版本号匹配 → 缓存已最新
   if (cached && cached.data && cached.genAt && curMeta && cached.genAt === curMeta) {
     return true; // 缓存与网络同版本, 不重写 state(缓存已是最新数据)
@@ -10220,6 +10220,10 @@ function _renderSigKellyBar(bar, data, period) {
     _kellyRefreshAiMacroState(bar);
     _kellyRefreshComboStates(bar);
     _kellyOnFilterChange();
+    // v1.1.9 fix: 开启AI降亏时恢复s06动态基座态(关AI时L8703已清null, 需在此恢复)
+    if (aiMacroCb.checked) {
+      state.labSigKellyFadeModeBase = "s06";
+    }
   };
   // positionCap 仓位控制过滤(2026-08-12): 开关 + K档位1-4(共享localStorage供交易页标灰联动)
   // 2026-08-13 调序+OFF: K按钮组加 OFF(写 tds_poscap {on:false} 退化普通列表, 再点某 K 档恢复), 与首页/交易页共享键联动(§22)
