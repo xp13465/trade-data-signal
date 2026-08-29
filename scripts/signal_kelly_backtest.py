@@ -77,11 +77,6 @@ KELLY_BUY_NEXTDAY = int(os.environ.get("KELLY_BUY_NEXTDAY", "1"))
 PSEUDO_GAP_EXCLUDE = 0.20
 # 数据截止日(仅用于自验复现报告 §2.1 数字, 默认不设=全量; 不进线上默认路径)
 KELLY_ASOF = os.environ.get("KELLY_ASOF", "")
-
-# G/H/I 长线仓位管理(2026-08-29 codex#001 定稿, 与 lab.js AIHLINE_STRATS/_SIM_GHI_TIERS 同值 §22)
-# 档位: G=P≤3d@13万 / H=满仓不买@7万 / I=满仓不买@16万
-GHI_CAP = {"G": 130000, "H": 70000, "I": 160000}
-GHI_METHOD = {"G": "P", "H": "A", "I": "A"}
 # 入样信号白名单(§23.6 单一事实源 = config/universe_rules.yaml buy_whitelist, 此处为对齐副本)。
 # 改动必须与 yaml 同步, 并跑 scripts/check_universe_alignment.py 对称校验(断言3 会拦截白名单漂移)。
 BUY_SIGNALS = ("buy", "buy_aux", "buy_special", "buy_backup")
@@ -524,125 +519,6 @@ def _calendar_days(d1, d2):
         return max((dd2 - dd1).days, 0)
     except (ValueError, TypeError):
         return 0
-
-
-# ── G/H/I 长线仓位管理管线(2026-08-29, 用户拍板「源头+前端都修」)─────────────
-# 背景: 首页 sim 弹窗 H×K1 峰值列 7 笔但持仓列表 14 笔 → 三层(回测生成器/前端 sim 引擎/数据产物)都无管位执行。
-# 修复: 源头对 G/H/I 三档做持仓状态机(手段A=满仓不买 适用H/I, 手段P=P≤3d 先卖年轻仓 适用G),
-#       产物即管位后数据 → 前端展示与 lab 页同口径(幂等, 二次管位不变)。lab.js 实现同语义(_kellyAihlineP3dCap/_kellyAihlineHoldCap)。
-# 每笔买入金额 = BUY_AMOUNT(10000), 持仓金额 = 持仓笔数 × 10000; cap 元 → 笔数上限 = cap/10000。
-P3_D_DAYS = 3  # P 手段: 持有≤3天 视为年轻仓(与 lab.js _KGIHP3_DAYS 同值)
-
-def _ghi_realize_early(rec, dt, price_map, sorted_dates_map):
-    """将 rec 在 dt 提前卖出(手段P 腾位卖出): 真实重算 profit/return_pct/hold_days/sell_price。
-
-    返回是否成功(该 ETF 在 dt 前有价才能重算; 无价则保留原值兜底)。
-    """
-    etf_code = rec["etf_code"]
-    prices = price_map.get(etf_code) or {}
-    dates = sorted_dates_map.get(etf_code) or []
-    nav = prices.get(dt)
-    nav_date = dt
-    if nav is None:
-        # 该 ETF 在 dt 无价格(trading_date 缺失), 找 dt 前最近有价日
-        idx = bisect.bisect_right(dates, dt) - 1
-        if idx < 0:
-            return False
-        nav_date = dates[idx]
-        nav = prices.get(nav_date)
-    if not nav or nav <= 0:
-        return False
-    shares = rec["shares"]
-    _sp, _sa, _comm, _tf, net, _st = _sell_with_fees(shares, nav, etf_code, _KELLY_FEE_CONFIG)
-    profit = net - BUY_AMOUNT
-    rec["sell_date"] = nav_date
-    rec["sell_price"] = round(nav, 6)
-    rec["current_price"] = 0
-    rec["profit"] = round(profit, 4)
-    rec["return_pct"] = round(profit / BUY_AMOUNT * 100, 4)
-    if nav_date in dates and rec["signal_date"] in dates:
-        hd = dates.index(nav_date) - dates.index(rec["signal_date"])
-        rec["hold_days"] = max(hd, 0)
-    rec["sell_reason"] = "管位腾位卖出"
-    return True
-
-
-def _apply_ghi_cap(records, mode_key, price_map=None, sorted_dates_map=None):
-    """对某模式 G/H/I 的记录列表做持仓管位(与 lab.js _kellyAihlineHoldCap(手段A)/_kellyAihlineP3dCap(手段P) 同语义)。
-
-    records: 该模式全部记录(list of dict, 每条含 buy_date/sell_date/信号等字段)。
-    返回保留的记录列表(原地修改被提前卖出的记录 sell_date/profit 等)。
-    - H/I(手段A 满仓不买): 持仓满 cap 笔时当日新买入整批跳过。
-    - G(手段P): 持仓满 cap 先卖年轻仓(持有≤3天)腾位, 腾够后当日买入全部加入; 卖光还不够则当日买入整批跳过。
-    输入为同一模式的记录集合(跨象限去重, 调用方保证)。
-    """
-    cap = GHI_CAP.get(mode_key)
-    if cap is None:
-        return records
-    cap_n = cap // BUY_AMOUNT  # 笔数上限 (G=13, H=7, I=16)
-    # 按 buy_date 分组 + 收集所有相关日期(买入日与卖出日)
-    by_buy = {}
-    all_dates = set()
-    for r in records:
-        bd = r["buy_date"]
-        by_buy.setdefault(bd, []).append(r)
-        all_dates.add(bd)
-        sd = r.get("sell_date")
-        if sd:
-            all_dates.add(sd)
-    sorted_dates = sorted(all_dates)
-    open_trs = []   # 持仓中的记录(引用)
-    cur = 0          # 当前持仓笔数
-    out = []         # 保留记录
-    is_p = GHI_METHOD.get(mode_key) == "P"  # 手段P(先卖年轻仓) vs 手段A(满仓不买)
-    for dt in sorted_dates:
-        # 1. 先处理自然卖出(sell_date == 当日, 持仓队列先删后加)
-        new_open = []
-        for t in open_trs:
-            sd = t.get("sell_date")
-            if sd and sd == dt:
-                out.append(t)
-                cur -= 1
-            else:
-                new_open.append(t)
-        open_trs = new_open
-        # 2. 处理当日买入
-        day_trs = by_buy.get(dt)
-        if not day_trs:
-            continue
-        day_total = len(day_trs)
-        needed = cur + day_total - cap_n
-        if needed > 0:
-            if is_p:
-                # 手段P: 先卖年轻仓(持有≤3天)腾位, 再买
-                while needed > 0 and open_trs:
-                    # 找年轻仓(持有≤3天)中「持有最久」(买日最早)的一笔; 无年轻仓退化为 FIFO(最老)
-                    sel = None
-                    for t in open_trs:
-                        if _calendar_days(t["buy_date"], dt) <= P3_D_DAYS:
-                            if sel is None or t["buy_date"] < sel["buy_date"]:
-                                sel = t
-                    if sel is None:
-                        sel = min(open_trs, key=lambda t: t["buy_date"])
-                    # 提前卖出 sel 腾位(真实重算; 无价兜底保留原样也腾位)
-                    _ghi_realize_early(sel, dt, price_map, sorted_dates_map)
-                    out.append(sel)
-                    cur -= 1
-                    # 用对象身份过滤删除(open_trs.remove 按 == 比较, 两笔内容相同可能误删)
-                    open_trs = [t for t in open_trs if t is not sel]
-                    needed = cur + day_total - cap_n
-                if needed > 0:
-                    continue  # 卖光还不够: 当日买入整批跳过
-            else:
-                # 手段A: 满仓不买——当日超容, 整批跳过
-                continue
-        # 买入当日全部
-        for t in day_trs:
-            open_trs.append(t)
-            cur += 1
-    # 3. 尾部: 仍未卖出的持仓记录保留
-    out.extend(open_trs)
-    return out
 
 
 def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, stop_profit,
@@ -1257,8 +1133,6 @@ def compute():
     # 4. 逐信号分类 + 6 模式回测
     # quadrants[quad_key][mode_key] = [trade, ...]
     quadrants = {qk: {mk: [] for mk in SELL_MODES} for qk in QUADRANT_META}
-    # G/H/I 全量记录收集池(跨象限共享同一 result 对象引用, 用于管位后处理 §22 一致性)
-    ghi_pool = {mk: [] for mk in GHI_CAP}
     skipped_no_etf = skipped_no_score = skipped_no_price = 0
     classified = 0
     frozen_used = 0  # 使用已固化 ETF 的信号事件数(历史成交固化, 不随当前 best 变更)
@@ -1328,9 +1202,6 @@ def compute():
             if result is None:
                 continue  # 数据不足(信号日无价格/未来不足 hold_days 天)
             any_valid = True
-            # G/H/I 全量收集(跨象限共享同一 result 对象, 后处理管位保证 §22 一致)
-            if mode_key in GHI_CAP:
-                ghi_pool[mode_key].append(result)
             # 归入评级象限
             quadrants[f"rating_{rating}"][mode_key].append(result)
             # 归入 ETF 归类象限(如有)
@@ -1362,21 +1233,6 @@ def compute():
         print(f"   ✓ 已固化 {len(etf_freeze)} 个信号事件 -> {_etf_freeze_path()}")
     except OSError as e:
         print(f"   ⚠ 冻结表写盘失败(不影响本次回测结果): {e}", file=sys.stderr)
-
-    # ── G/H/I 长线仓位管理后处理(2026-08-29): 对该模式全量记录跑一次持仓状态机, 象限共享同一保留集合 §22 ──
-    for mk, pool in ghi_pool.items():
-        if not pool:
-            continue
-        kept = _apply_ghi_cap(pool, mk, price_map, sorted_dates_map)
-        kept_ids = {id(r) for r in kept}
-        n_skip = len(pool) - len(kept)
-        if n_skip:
-            print(f"   ✓ GHI 管位({mk}): 全量 {len(pool)} -> 保留 {len(kept)} (跳过满仓买入/触发腾位 {n_skip})")
-        # 所有象限过滤到同一保留集合(同一 result 对象已原地更新提前卖出字段)
-        for qk in QUADRANT_META:
-            arr = quadrants[qk].get(mk)
-            if arr:
-                quadrants[qk][mk] = [r for r in arr if id(r) in kept_ids]
 
     # 5. 按周期聚合统计
     output = {

@@ -3619,10 +3619,11 @@ function _simGihOn() { // 共享键 tds_gihpos(与 lab.js _kellySharedGih 同键
 function _simSetGihOn(on) {
   try { localStorage.setItem("tds_gihpos", JSON.stringify({ on: !!on })); } catch (e) {}
 }
-// G/H/I 长线管位管线(首页 sim 弹窗本地实现, 2026-08-29): 与 lab.js _kellyAihlineP3dCap(手段P)/_kellyAihlineHoldCap(手段A)
-// 同语义 §22。rows=列式数组(_simRenderOnce K 过滤后传入), mode=G/H/I, fIdx=字段索引表。
-// 返回 {rows: 管位后行数组, peak: 峰值同时持仓笔数}。源头 signal_kelly_trades.json 已按同管线管位,
-// 此函数在现数据上幂等(保留集不变); 对旧缓存/未管位数据源则剔除超容买入(手段A 满仓不买 / 手段P P≤3d 先卖年轻仓腾位)。
+// G/H/I 长线管位管线(首页 sim 弹窗本地实现, 2026-08-29; 2026-08-30 纠正=管位仅在前端 K 选样后执行):
+// 与 lab.js _kellyAihlineP3dCap(手段P)/_kellyAihlineHoldCap(手段A) 同语义 §22。
+// rows=列式数组(_simRenderOnce K 过滤后传入), mode=G/H/I, fIdx=字段索引表。
+// 返回 {rows: 管位后行数组, peak: 峰值同时持仓笔数}。源头 signal_kelly_trades.json 保留全量 GHI 信号不源头管位,
+// 本函数即「S06→K 选样之后的真实管位」: 按当前档位剔除超容买入/腾位(手段A 满仓不买 / 手段P P≤3d 先卖年轻仓)。
 function _simGhiHoldCap(rows, mode, fIdx) {
   const t = _SIM_GHI_TIERS[mode];
   if (!t) return { rows: rows, peak: 0 };
@@ -4131,9 +4132,9 @@ async function _simRenderOnce(modal) {
     }
     kept = out;
   }
-  // ③.5 G/H/I 长线管位管线(2026-08-29 补): 源头 signal_kelly_trades.json 已按同管线管位(手段A 满仓不买 /
-  // 手段P P≤3d 先卖年轻仓), 此管线在现数据上幂等(保留集不变); 对旧缓存/未管位数据源则按当前档位
-  // 剔除超容买入, 与 lab.js _kellyAihlineApply 同语义 §22。作用于 K 过滤后、日期切片前。
+  // ③.5 G/H/I 长线管位管线(2026-08-29 补, 2026-08-30 纠正语义): 源头全量信号不源头管位, 管位只在此处——
+  // 作用于 K 选样之后、日期切片之前(即用户定义的「S06→K1→GHI管位」正确顺序); 按当前档位剔除
+  // 超容买入/腾位(手段A 满仓不买 / 手段P P≤3d 先卖年轻仓), 与 lab.js _kellyAihlineApply 同语义 §22。
   if (gihOn && _SIM_GHI_TIERS[mode]) {
     const _ghir = _simGhiHoldCap(kept, mode, fIdx);
     kept = _ghir.rows;
@@ -4334,9 +4335,9 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
       gi = gj;
     }
   }
-  // 峰值同时持仓「展示口径」(2026-08-29 change#2): G/H/I 管位开后峰值=真实计算峰值(源头产物已管位,
-  // 峰值自然≤档位硬控笔数 cap/10000=G=13/H=7/I=16, 20倍本金硬控内=可操作, 与 lab.js AIHLINE_STRATS
-  // 同值 §22); 不再用档位目标值覆盖, 各窗口展示真实持仓峰值(与管位后行数据/汇总同口径)。
+  // 峰值同时持仓「展示口径」(2026-08-29 change#2, 2026-08-30 纠正语义): G/H/I 管位开后峰值=真实计算峰值
+  // (管位在本函数(③.5)K 选样后执行, 峰值自然≤档位硬控笔数 cap/10000=G=13/H=7/I=16, 20倍本金硬控内=可操作,
+  // 与 lab.js AIHLINE_STRATS 同值 §22); 不再用档位目标值覆盖, 各窗口展示真实持仓峰值(与管位后行数据/汇总同口径)。
   // A-F 及管位关状态同前: 窗口内 raw 峰值(累积盈亏%分母口径)。
   const _ghIt = _SIM_GHI_TIERS[mode];
   const _gihActive = !!(gihOn && _ghIt && _ghIt.cap > 0);
