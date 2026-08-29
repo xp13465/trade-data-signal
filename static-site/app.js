@@ -2031,7 +2031,7 @@ function _ovAggregateRecent(recent, modeId, bullStopOn, fadeOn, k) {
     if (k != null && k >= 1 && k <= 4) {
       // s06p1(2026-08-29 观察档): 仅 K=1 时从候选池剔除高评级行(mid/low 递补),
       // 单一事实源=common.js _tdsS06P1StripHigh(modeId, k); K=2/3/4 不剔(Δ=0 铁律)。
-      const _ovP1Strip = (typeof window._tdsS06P1StripHigh === "function")
+      const _ovP1Strip = (typeof window !== "undefined" && typeof window._tdsS06P1StripHigh === "function")
         && window._tdsS06P1StripHigh(modeId, k);
       const byDate = {};
       for (let i = 0; i < pop.length; i++) {
@@ -3736,7 +3736,7 @@ function _bindSimBacktestControls(modal, _close) {
       value: _savedMid,      // 上次所选(TTL 内); 无记忆=v1.1.5 默认 new14
       withCustom: false,     // 弹窗无标签区, 无自定义态
       cls: "sim-fade-mode-sel",
-      title: "AI降亏过滤模式: 一键套用整套键组合(与凯利页/「AI 降亏组成对比」卡同源口径; v1.1.7 起默认=s06·大盘领先切换, v1.1.5~v1.1.6 默认=new14·NEW 14键防守王, p8=旧 8键对照档)。记住上次选择 18 小时(独立于凯利页记忆, 超时自动回默认 s06)。选 S06=按大盘风格按日动态切 A进攻王/NEW14+1 基座(默认档, 快照不可用时该笔不拦并红字提示, 绝不静默回退)。⭐S06+1·仅K1剔高评级(观察档, 2026-08-29): 在 S06 基座上仅当 K=1 时从候选池剔除高评级信号(mid/low 递补), K=2/3/4 与 S06 完全一致(Δ=0), 非默认档。四消费点统一下拉组件(lab 凯利区/本弹窗/首页/监控卡); 旁侧「过滤」checkbox=总开关快速切换层, 切它不动这里的选中值" + (typeof window._tdsS06Tooltip === "function" ? ("\n———\n" + window._tdsS06Tooltip()) : "") + (_savedMid === "s06p1" && typeof window._tdsS06P1Tooltip === "function" ? ("\n———\n" + window._tdsS06P1Tooltip()) : ""),
+      title: "AI降亏过滤模式: 一键套用整套键组合(与凯利页/「AI 降亏组成对比」卡同源口径; v1.1.7 起默认=s06·大盘领先切换, v1.1.5~v1.1.6 默认=new14·NEW 14键防守王, p8=旧 8键对照档)。记住上次选择 18 小时(独立于凯利页记忆, 超时自动回默认 s06)。选 S06=按大盘风格按日动态切 A进攻王/NEW14+1 基座(默认档, 快照不可用时该笔不拦并红字提示, 绝不静默回退)。⭐S06+1·仅K1剔高评级(观察档, 2026-08-29): 在 S06 基座上仅当 K=1 时从候选池剔除高评级信号(mid/low 递补), K=2/3/4 与 S06 完全一致(Δ=0), 非默认档。四消费点统一下拉组件(lab 凯利区/本弹窗/首页/监控卡); 旁侧「过滤」checkbox=总开关快速切换层, 切它不动这里的选中值" + (typeof window._tdsS06Tooltip === "function" ? ("\n———\n" + window._tdsS06Tooltip()) : "") + (_savedMid === "s06p1" && typeof window !== "undefined" && typeof window._tdsS06P1Tooltip === "function" ? ("\n———\n" + window._tdsS06P1Tooltip()) : ""),
     });
   }
   // 总开关恢复(2026-08-24 用户拍板): fadeOn 快速切换层, 与模式下拉正交——
@@ -4031,7 +4031,7 @@ async function _simRenderOnce(modal) {
     // s06p1(2026-08-29 观察档): 仅 K=1 时从候选池剔除高评级信号(mid/low 递补),
     // 单一事实源=common.js _tdsS06P1StripHigh(modeId, K); K=2/3/4 不剔(Δ=0 铁律)。弹窗无标签区
     // 无自定义态, mode 恒为下拉所选预设 id(_fmPreset.id = "s06p1" 时且 K===1 才剔)——与 lab/首页/监控卡同语义。
-    if (typeof window._tdsS06P1StripHigh === "function"
+    if (typeof window !== "undefined" && typeof window._tdsS06P1StripHigh === "function"
       && window._tdsS06P1StripHigh((_fmPreset && _fmPreset.id), K)) {
       kept = kept.filter((t) => String(t[fIdx.rating] || "") !== "high");
     }
@@ -4861,7 +4861,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
             if (!_dayItems.length) continue;
             // s06p1(2026-08-29 观察档): 仅 K=1 时从候选池中剔除高评级信号(mid/low 递补),
             // 单一事实源=common.js _tdsS06P1StripHigh(mode,K); K=2/3/4 不剔(Δ=0 铁律)。
-            if (typeof window._tdsS06P1StripHigh === "function"
+            if (typeof window !== "undefined" && typeof window._tdsS06P1StripHigh === "function"
               && window._tdsS06P1StripHigh(_homeFadePreset && _homeFadePreset.id, _posCapK)) {
               _dayItems = _dayItems.filter((it) => _ratingOf(it) !== "high");
               if (!_dayItems.length) continue;

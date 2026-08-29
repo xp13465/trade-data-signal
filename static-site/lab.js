@@ -8464,7 +8464,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
   // s06p1(2026-08-29 观察档): 仅 K=1 剔高评级, 单一事实源=common.js _tdsS06P1StripHigh(mode,K)。
   // _forkPool: K=1 → 候选池跳过高评级象限(mid/low 递补); K=2/3/4 → 不剔(逐位=S06 基线 Δ=0, 铁律)。
   var _labS06P1 = (_labModeBase === "s06p1");
-  var _stripHighNow = _labS06P1 && (typeof window._tdsS06P1StripHigh === "function")
+  var _stripHighNow = _labS06P1 && (typeof window !== "undefined" && typeof window._tdsS06P1StripHigh === "function")
     && window._tdsS06P1StripHigh(_labModeBase, filters.positionCapK);
   var _rp1Skip = _stripHighNow ? "rating_high" : null;
   if (filters.positionCap && filters.positionCapK > 0) {
@@ -9826,7 +9826,7 @@ function _renderSigKellyBar(bar, data, period) {
   const fadeModeTitle = "AI降亏过滤模式: 一键套用整套键组合(与「AI 降亏组成对比」卡同源口径); ⭐=推荐星标(S06 3星 / A进攻王·NEW14·NEW14+1 2星 / 9键·B均衡卡 1星), 下拉星多靠前、无星殿后沿用原相对序(v20260826 用户拍板); NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。手动勾/取消下方任一小标签即进入自定义态, 再选任意模式回到预设。选 S06=按大盘风格按日动态切换 A进攻王/NEW14+1 两套判断规则(v1.1.7 起已为当前默认基座, 判定层自动接管、标签区退为参考底座); 如果 S06 快照读不出来, 这笔信号就照常展示并在旁边标红字提醒, 但不会悄悄换成其他模式——简单说就是\"能正常显示就显示, 读不出来就老实告诉你, 绝不替你做决定偷偷切走\""
     + (typeof window._tdsS06Tooltip === "function" ? ("\n———\n" + window._tdsS06Tooltip()) : "")
     // s06p1(2026-08-29 观察档)公示(§21): 当前所选为 S06+1 观察档时追加附加规则说明
-    + ((_isS06P1Base && typeof window._tdsS06P1Tooltip === "function")
+    + ((_isS06P1Base && typeof window !== "undefined" && typeof window._tdsS06P1Tooltip === "function")
        ? ("\n———\n" + window._tdsS06P1Tooltip()) : "");
   // S06 快照降级警示 span(可见不静默): 文本来自最近一次计算 result._s6warn(_kellyApplyFeeRecompute 写),
   // 无警示恒隐藏; 缓存命中路径随旧 stats 一致复用同文案(§22)
@@ -11590,7 +11590,7 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
     // 2026-08-23 性能专项: _kellyCollectBasePool 改 async 分片, 本函数本就是 async, await 即可(语义零变化)
     // s06p1(2026-08-29 观察档): 弹窗与卡片同口口径(K=1 剔高评级) — 单一事实源 _tdsS06P1StripHigh(mode,K)
     var _fModeNow = state.labSigKellyFadeModeBase;
-    var _p1Skip = (typeof window._tdsS06P1StripHigh === "function")
+    var _p1Skip = (typeof window !== "undefined" && typeof window._tdsS06P1StripHigh === "function")
       && window._tdsS06P1StripHigh(_fModeNow, _filters.positionCapK) ? "rating_high" : null;
     var _basePool = await _kellyCollectBasePool(td.quadrants, cfg.sell_modes || {}, _fIdx, _pcFadeFn, _p1Skip);
     _posCapKept = _kellyPositionCapKeptKeys(_basePool, _fIdx, _filters.positionCapK);
