@@ -8210,23 +8210,12 @@ async function _labKellyLoadYearParts() {
   if (_labKellyFullFallback) return !!state.labSigKellyTradesData;
 
   try {
-    // 优先从 recent.json 建立基础快照(2.99MB)
-    var recent;
-    try {
-      recent = await _labKellyFetchTrades("signal_kelly_trades_parts/recent.json");
-    } catch (e) {
-      console.warn("[sigkelly] recent.json 加载失败:", e);
-      return await _labKellyLoadFull();
-    }
-    // 构建基本数据结构(快照)
-    var recentParsed = _labKellyParseTrades(recent);
-    var yearParts = [recentParsed];
+    // 各年份分片将直接加载
+    var yearParts = [];
 
     // 按年份加载并合并(t2026.json -> t2025.json -> t2024.json...)
-    var curMeta = (recent && recent._meta && recent._meta.generated_at) ? recent._meta.generated_at : (recent && recent.generated_at ? recent.generated_at : null);
     var years = ["2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017", "2016", "2015", "2014", "2013", "2012", "2011"];
     for (var y of years) {
-      if (y === "2026") continue; // 2026 年已在 recent.json
       try {
         var yearFile = await _labKellyFetchTrades("signal_kelly_trades_parts/t" + y + ".json");
         yearParts.push(_labKellyParseTrades(yearFile));
@@ -8241,9 +8230,6 @@ async function _labKellyLoadYearParts() {
     var merged = _labKellyMergeShards(yearParts);
     state.labSigKellyTradesData = merged;
 
-    // 缓存 recent.json 用于版本校验
-    if (curMeta) _labKellySetCache("recent", recent, curMeta);
-
     return true;
   } catch (e) {
     _labKellyLoadErr = e && e.message ? e.message : String(e);
@@ -8251,10 +8237,8 @@ async function _labKellyLoadYearParts() {
     return await _labKellyLoadFull();
   }
 }
-// 主入口: 分片加载(recent + t2011-t2025 合并)
+// 主入口: 分片加载(t2011-t2026 合并)
 // 返回 Promise<true>就绪 / <false>失败(错误已记录在 _labKellyLoadErr)
-// 2026-08-29 fix: 移除 localStorage 缓存短路——recent.json 仅 3 个月数据,
-// 缓存命中会跳过 _labKellyLoadYearParts() 导致 t2011-t2025 分片永远不加载。
 // 内存态(state.labSigKellyTradesData)已就绪时直接返回,不重复网络请求。
 async function _labKellyTradesEnsure(opt) {
   if (state.labSigKellyTradesData && !_labKellyFullFallback) return true; // 已就绪
