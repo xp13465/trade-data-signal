@@ -775,7 +775,15 @@ var _KELLY_FADE_MODE_PRESETS = [
   //   本文件零硬编码阈值(§22 登记点纪律); 下方 tooltip 文案数值仅为 §21 公示, 与生成器逐位一致由
   //   scripts/check_s06_state.py 机检把关。回测对照锚点(codex008 F2 held 新语义引擎重跑 2026-08-26):
   //   验段净利 +100,572.43 / mdd -3,811.27 / 强平 +82,761.50 vs 静态 NEW14+1 +83,718.16。
-  { id: "s06", name: "⭐️⭐️⭐️ S06 · 大盘领先切换(默认)", tagline: "小盘弱→A进攻王·否则NEW14+1(动态)", caliber: "✓ v1.1.7 起默认·动态切换", calWarn: false, dynamic: true, stars: 3 }
+  { id: "s06", name: "⭐️⭐️⭐️ S06 · 大盘领先切换(默认)", tagline: "小盘弱→A进攻王·否则NEW14+1(动态)", caliber: "✓ v1.1.7 起默认·动态切换", calWarn: false, dynamic: true, stars: 3 },
+  // S06+1(2026-08-29 用户拍板形态乙观察档): S06 动态基座 + 「仅 K=1 从候选池剔除 rating_high」附加规则,
+  //   K=2/3/4 完全保留(=S06 基线 Δ=0)。⚠dynamic:true=与 s06 同走 per-date 快照链(_tdsS06FiltersForDate),
+  //   禁止展开静态 keys; 附加规则=消费点在候选池收集/每日 top-K 前经 _tdsS06P1Active(modeId,K) 判定,
+  //   K===1 时跳过 rating_high 区(让 mid/low 递补), K!=1 不剔(与 S06 逐位一致)。纯新增档, 默认仍 s06 不受影响。
+  //   回测对照锚点(基准 v1.1.7 S06动态 a9/new15 按日切, 每日池等分, 费率 etf_main, /tmp/s06p1_report.txt 形态乙节):
+  //   K=1 全史 S06 +1,950,519 → S06+1 +1,958,983(剔20笔 Δ+8,464/+0.4pp); 近1年 +292,928 → +301,306(Δ+8,378/+0.8pp);
+  //   K=2/3/4 Δ=0(数字逐位等于 S06 基线); 回撤无变化。诚实标注: 样本量小(剔20笔)、让位依赖每日排序非独立同分布=观察档非结论。
+  { id: "s06p1", name: "⭐ S06+1 · 仅K1剔高评级(观察)", tagline: "S06基座·K=1剔高评级(观察)", caliber: "⚠ 仅K=1剔高评级·观察档非默认(K2/3/4=S06基线)", calWarn: true, dynamic: true, stars: 1 }
 ];
 var _KELLY_FADE_DEFAULT_MODE = "s06"; // v1.1.7(2026-08-26) 默认切 S06·大盘领先动态切换(综合auto王者, 用户拍板观察期); v1.1.5~v1.1.6=new14
 // 下拉展示顺序(v20260826 用户拍板): 有星在前星多靠前, 无星跟在 1 星组后沿用原相对序——稳定排序(同星数不改变
@@ -1012,6 +1020,26 @@ window._tdsS06FiltersForDate = _tdsS06FiltersForDate;
 window._tdsS06KeysForDate = _tdsS06KeysForDate;
 window._tdsS06Tooltip = _tdsS06Tooltip;
 window._tdsS06NormalizeDate = _tdsS06NormalizeDate;
+// ===== S06+1(2026-08-29 用户拍板形态乙观察档): 判定核心 = S06 基座 + 仅 K=1 剔 rating_high =====
+// 单一事实源: 四消费点(lab 信号凯利页/sim 弹窗/首页 AI建议/监控卡)在「候选池收集/每日 top-K 之前」统一调用
+// _tdsS06P1StripHigh(modeId, k) 判定是否要剔; 返回 true = 当前模式是 s06p1 且 K===1 → 把 rating_high 对应行
+// 从候选集剔除(让 mid/low 递补), K=2/3/4 返回 false(与 S06 基线 Δ=0 逐位一致)。禁止在各消费点写死逻辑副本
+// (§22 一致性), 改口径只改本函数。
+function _tdsS06P1StripHigh(modeId, k) {
+  return modeId === "s06p1" && k === 1;
+}
+// §21/§23.9 三档互证公示文案(s06p1 单源; 数字须与 /tmp/s06p1_report.txt 形态乙节逐位一致)
+function _tdsS06P1Tooltip() {
+  return [
+    "【是什么】S06+1 不是新基座, 是 S06 大盘领先动态切换的附加观察规则: 在 S06 基座上,「仅当仓位控制 K=1」时把候选池里的高评级(rating_high)信号剔除, 让中/低评级递补; K=2/3/4 时完全不动(数字与 S06 基线逐位一致)。",
+    "【为什么做】只在高评级历史走弱、而 K=2/3/4 高评级历史为正的档位试: K=1 时高评级全时间窗口/全模式历史走弱(近1年高评级负贡献), K=2 高评级 130笔 +28,944 / K=3 +20,005 均为正 —— 即「高评级信号整体不差, 但当只买当天最优 1 个时选到它反而走弱」, 故只在 K=1 这一档剔除观察。",
+    "【什么时侯用】K=1 档想做「S06 基座但 K1 不选高评级」观察试验时选它; 默认仍 S06 不受影响; K 切到 2/3/4 时本档规则自动失效(与 S06 完全一致)。",
+    "【对照数字(务虚观察档, /tmp/s06p1_report.txt 形态乙)】K=1 全史 S06 +1,950,519 → S06+1 +1,958,983(剔 20 笔, Δ+8,464 约 +0.4pp); 近1年 +292,928 → +301,306(Δ+8,378 约 +0.8pp); 全部窗口近3/5/10年 Δ 均 +8,464、近1年 +8,378; K=2/3/4 Δ=0 完全等于 S06 基线。",
+    "【诚实标注】样本量小(仅剔 20 笔)、让位依赖每日排序非独立同分布 → 观察档非实盘结论; 净赚来自「少亏」非「多赚」(剔 high 70笔 -9,488 → 递补 50笔 -1,024)。"
+  ].join("\n");
+}
+window._tdsS06P1StripHigh = _tdsS06P1StripHigh;
+window._tdsS06P1Tooltip = _tdsS06P1Tooltip;
 // 枯竭 chip S06 口径尾注(§22 文案单源, reviewer P2 F1 举一反三下沉): 选 S06(dynamic)时判定按日期在
 // A进攻王/NEW14+1 两基座间切换, 与 chip 内置「NEW14 默认过滤」静态口径文案不符 → 消费点(app.js 首页两处 +
 // lab 凯利区)统一取本函数覆盖; 非 S06 态消费点不调用, 内置默认口径渲染零变化。

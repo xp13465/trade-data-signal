@@ -7683,11 +7683,14 @@ function _kellyPositionCapKeptKeys(pool, fIdx, K) {
 // 收集 positionCap 基笔池: 跨全部卖出模式 × rating 三分区(互斥全量), 按 baseKey 去重, 只保留通过 passFn 的基笔
 // 基笔池构建改异步分片(2026-08-23 性能专项): 原 3象限×10模式 ≈100k 次谓词判定一个同步块(~200-400ms),
 // 改为每 (象限,模式) 桶后让步一帧; 唯一调用方 _kellyApplyFeeRecompute 本就是 async, 语义零变化。
-async function _kellyCollectBasePool(quads, sellModes, fIdx, passFn) {
+// s06p1(2026-08-29 观察档): 可选第5参 skipRatingKey="rating_high" → 收集时整区跳过该评级象限(让 mid/low 递补),
+//   四消费点统一由 common.js _tdsS06P1StripHigh(modeId,K) 判否要传; 不传=逐位与旧行为一致(§23.7 纯新增)。
+async function _kellyCollectBasePool(quads, sellModes, fIdx, passFn, skipRatingKey) {
   var pool = [], seen = {};
   var _rks = ["rating_high", "rating_mid", "rating_low"];
   for (var _ri = 0; _ri < _rks.length; _ri++) {
     var _rk = _rks[_ri];
+    if (skipRatingKey && _rk === skipRatingKey) continue;
     for (var _mk in sellModes) {
       var _arr = (quads[_rk] || {})[_mk] || [];
       for (var _i = 0; _i < _arr.length; _i++) {
@@ -8332,7 +8335,10 @@ async function _kellyApplyFeeRecompute(feeParams) {
   if (!data || !data.quadrants) return null;
   // S06(codex-task-20260825-001): 动态基座态先确保快照就绪再进计算(单例 promise, 已就绪时立即 resolve;
   // 失败返回 null → 谓词层 fail-open 放行 + result._s6warn 可见警示, 绝不静默退回其他模式)。
-  if (state.labSigKellyFadeModeBase === "s06" && typeof window._tdsS06StateEnsure === "function") {
+  // s06p1(2026-08-29 观察档): dynamic:true 复用同一条 S06 快照就绪链(判定层仅读动态基座键集)。
+  var _labModeBase = state.labSigKellyFadeModeBase;
+  var _labS06Family = (_labModeBase === "s06" || _labModeBase === "s06p1");
+  if (_labS06Family && typeof window._tdsS06StateEnsure === "function") {
     await window._tdsS06StateEnsure();
   }
   // 加载 trades.json(分片加载+localStorage缓存, 2026-08-28)
@@ -8378,9 +8384,11 @@ async function _kellyApplyFeeRecompute(feeParams) {
   // #xx: G 档位也并入签名(档位切换同开关态一样强制重算, 否则短路命中旧档 __gihb1)
   // S06(2026-08-25): 动态基座态并入缓存签名(+快照覆盖期末日), 否则 s06↔静态档切换会命中脏缓存
   // (filters 静态快照相同但判定层 per-date 结果不同); 快照更新(coverage_end 前移)也强制重算。
-  var _labS06 = (state.labSigKellyFadeModeBase === "s06");
+  // s06p1(2026-08-29 观察档): 与 s06 同走动态基座链, 但 K=1 剔 high → 缓存键必须带模式区分,
+  // 否则 s06↔s06p1 切换时 JSON.stringify(filters) 相同(均为 dynamic 无静态键)命中脏缓存。
+  var _labS06 = (_labModeBase === "s06" || _labModeBase === "s06p1");
   var cacheKey = feeSig + "|pool|" + JSON.stringify(filters) + "|gih" + (state.labSigKellyGihOn ? ("1|" + _kellyGihGTier()) : "0")
-    + (_labS06 ? ("|s06|" + (((typeof window._tdsS06Status === "function") && window._tdsS06Status().coverageEnd) || "")) : "");
+    + (_labS06 ? ("|" + _labModeBase + "|" + (((typeof window._tdsS06Status === "function") && window._tdsS06Status().coverageEnd) || "")) : "");
   if (_kellyStatsCacheKey === cacheKey && _kellyStatsCacheVal) {
     return _kellyStatsCacheVal;
   }
@@ -8453,12 +8461,18 @@ async function _kellyApplyFeeRecompute(feeParams) {
   var posDayCounts = null; // 每日资金池等分: 当日保留基笔数{signal_date:count}, 基于保留集合全集(跨mode)统计(2026-08-13恢复)
   var posCapKeptNB = null; // G/H/I 豁免版(仅 _bullOn 时计算)
   var posDayCountsNB = null;
+  // s06p1(2026-08-29 观察档): 仅 K=1 剔高评级, 单一事实源=common.js _tdsS06P1StripHigh(mode,K)。
+  // _forkPool: K=1 → 候选池跳过高评级象限(mid/low 递补); K=2/3/4 → 不剔(逐位=S06 基线 Δ=0, 铁律)。
+  var _labS06P1 = (_labModeBase === "s06p1");
+  var _stripHighNow = _labS06P1 && (typeof window._tdsS06P1StripHigh === "function")
+    && window._tdsS06P1StripHigh(_labModeBase, filters.positionCapK);
+  var _rp1Skip = _stripHighNow ? "rating_high" : null;
   if (filters.positionCap && filters.positionCapK > 0) {
-    var basePool = await _kellyCollectBasePool(quads, sellModes, fIdx, passesFade);
+    var basePool = await _kellyCollectBasePool(quads, sellModes, fIdx, passesFade, _rp1Skip);
     posCapKept = _kellyPositionCapKeptKeys(basePool, fIdx, filters.positionCapK);
     posDayCounts = _kellyKeptDayCounts(posCapKept);
     if (_bullOn) {
-      var basePoolNB = await _kellyCollectBasePool(quads, sellModes, fIdx, passesFadeNoBull);
+      var basePoolNB = await _kellyCollectBasePool(quads, sellModes, fIdx, passesFadeNoBull, _rp1Skip);
       posCapKeptNB = _kellyPositionCapKeptKeys(basePoolNB, fIdx, filters.positionCapK);
       posDayCountsNB = _kellyKeptDayCounts(posCapKeptNB);
     }
@@ -8619,11 +8633,24 @@ async function _kellyApplyFeeRecompute(feeParams) {
       }
       if (_posModeKey && quadsAll[_posModeKey]) {
         var _posBase = basePool || (await _kellyCollectBasePool(quads, sellModes, fIdx, passesFade));
+        // s06p1(2026-08-29 观察档): K档评级表须分别展示「K=1 剔 high / K=2/3/4 不剔(Δ=0)」,
+        //   故 need 两池: _posBaseP1(K=1 行用剔high池)、_posBaseK2(K=2/3/4 行用全池)。
+        //   非 s06p1 态两者同引用 basePool = 行为逐位不变(§23.7 纯新增)。
+        var _posBaseP1 = _posBase, _posBaseK2 = _posBase;
+        if (_labS06P1) {
+          if (basePool) {
+            // 当前 basePool 品种取决于用户当前 K 档: K=1 时已是剔池; K=2/3/4 时是全池。
+            _posBaseK2 = _stripHighNow ? (await _kellyCollectBasePool(quads, sellModes, fIdx, passesFade)) : basePool;
+            _posBaseP1 = _stripHighNow ? basePool : (await _kellyCollectBasePool(quads, sellModes, fIdx, passesFade, "rating_high"));
+          } else {
+            _posBaseP1 = await _kellyCollectBasePool(quads, sellModes, fIdx, passesFade, "rating_high");
+          }
+        }
         var _posRaw = quadsAll[_posModeKey];
         var _posVals = {};
         for (var _pk = 1; _pk <= 4; _pk++) {
           await _kellyYield(); // K档间让步(2026-08-23 性能专项): 每档全池 kept 重算 ~50-150ms
-          var _kept = _kellyPositionCapKeptKeys(_posBase, fIdx, _pk);
+          var _kept = _kellyPositionCapKeptKeys(_pk === 1 ? _posBaseP1 : _posBaseK2, fIdx, _pk);
           // 每日资金池等分(2026-08-13恢复): 该K档当月的当日保留基笔数, 与卡片/弹窗同口径(§22)
           var _posDayCounts = _kellyKeptDayCounts(_kept);
           var _keptArr = [];
@@ -8781,7 +8808,10 @@ async function _kellyOnFilterChange(_opts) {
   var host = document.querySelector(".lab-sigkelly-host");
   var bar = document.querySelector(".lab-sigkelly-bar");
   if (!host || !state.labSigKellyData) return;
-  if (!(_opts && _opts.keepS06) && state.labSigKellyFadeModeBase === "s06") state.labSigKellyFadeModeBase = null;
+  // s06p1(2026-08-29 观察档): 与 s06 同 family(dynamic 动态键集), 手动勾/取消任一标签同样退出动态模式;
+  // 判定层只读动态键集, filters 静态键集未被手动改动时 base 保持(s06/s06p1), 改动就退出(§23.12 语义对齐)。
+  if (!(_opts && _opts.keepS06) && (state.labSigKellyFadeModeBase === "s06" || state.labSigKellyFadeModeBase === "s06p1"))
+    state.labSigKellyFadeModeBase = null;
   // loading先paint再算(方案B⑤), 防重入(方案B⑥)
   await _kellyRunRecompute(host,
     '<div class="lab-custom-loading">⏳ 过滤交易数据重算…</div>',
@@ -9779,12 +9809,14 @@ function _renderSigKellyBar(bar, data, period) {
   // 反查≠默认档 → 自然落「⚙️自定义组合」态(判定层同步退出 s06, 见 _kellyOnFilterChange 入口清除)
   // v1.1.8 fix: S06 基座可能是 new14/9键/A进攻王等, 反查结果=基座ID≠"s06"; 只要 state.labSigKellyFadeModeBase
   // 是 s06 且 filters 未被手动改动(反查匹配某个预设, 不是 null=自定义), 就显示 s06 选中态。
-  var _isS06Base = (state.labSigKellyFadeModeBase === "s06");
+  // s06p1(2026-08-29 观察档): 同 family(dynamic 动态键集不参与反查), 显示 s06p1 选中态同款处理。
+  var _isS06Base = (state.labSigKellyFadeModeBase === "s06" || state.labSigKellyFadeModeBase === "s06p1");
+  var _isS06P1Base = (state.labSigKellyFadeModeBase === "s06p1");
   if (_isS06Base && _fadeMatchedId && _fadeMatchedId !== "custom") {
-    _fadeMatchedId = "s06";
+    _fadeMatchedId = state.labSigKellyFadeModeBase;   // s06 或 s06p1
   } else if (_fadeMatchedId === (typeof window._KELLY_FADE_DEFAULT_MODE === "string" ? window._KELLY_FADE_DEFAULT_MODE : "new14")
     && _isS06Base) {
-    _fadeMatchedId = "s06";
+    _fadeMatchedId = state.labSigKellyFadeModeBase;   // s06 或 s06p1
   }
   const _fadeBaseId = state.labSigKellyFadeModeBase || (typeof window._KELLY_FADE_DEFAULT_MODE === "string" ? window._KELLY_FADE_DEFAULT_MODE : "new14");
   const _fadeDisp = (window._tdsFadeModeById ? window._tdsFadeModeById(_fadeMatchedId || _fadeBaseId) : null) || { name: "NEW 14键", caliber: "", calWarn: false };
@@ -9792,7 +9824,10 @@ function _renderSigKellyBar(bar, data, period) {
     ? _fadeDisp.caliber
     : ("⚙️ 自定义组合(基于「" + _fadeDisp.name.replace(/\(默认\)$/, "") + "」手动调整, 口径见各标签 tip)");
   const fadeModeTitle = "AI降亏过滤模式: 一键套用整套键组合(与「AI 降亏组成对比」卡同源口径); ⭐=推荐星标(S06 3星 / A进攻王·NEW14·NEW14+1 2星 / 9键·B均衡卡 1星), 下拉星多靠前、无星殿后沿用原相对序(v20260826 用户拍板); NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。手动勾/取消下方任一小标签即进入自定义态, 再选任意模式回到预设。选 S06=按大盘风格按日动态切换 A进攻王/NEW14+1 两套判断规则(v1.1.7 起已为当前默认基座, 判定层自动接管、标签区退为参考底座); 如果 S06 快照读不出来, 这笔信号就照常展示并在旁边标红字提醒, 但不会悄悄换成其他模式——简单说就是\"能正常显示就显示, 读不出来就老实告诉你, 绝不替你做决定偷偷切走\""
-    + (typeof window._tdsS06Tooltip === "function" ? ("\n———\n" + window._tdsS06Tooltip()) : "");
+    + (typeof window._tdsS06Tooltip === "function" ? ("\n———\n" + window._tdsS06Tooltip()) : "")
+    // s06p1(2026-08-29 观察档)公示(§21): 当前所选为 S06+1 观察档时追加附加规则说明
+    + ((_isS06P1Base && typeof window._tdsS06P1Tooltip === "function")
+       ? ("\n———\n" + window._tdsS06P1Tooltip()) : "");
   // S06 快照降级警示 span(可见不静默): 文本来自最近一次计算 result._s6warn(_kellyApplyFeeRecompute 写),
   // 无警示恒隐藏; 缓存命中路径随旧 stats 一致复用同文案(§22)
   const _s6StateWarn = (state.labSigKellyFeeStats && state.labSigKellyFeeStats._s6warn) || "";
@@ -10432,7 +10467,10 @@ function _renderSigKellyBar(bar, data, period) {
       else try { localStorage.setItem("tds_kelly_fade_mode", JSON.stringify({ mode: mid })); } catch (e) {}
       _kellyPersistFilters();
       _kellyOnFilterChange({ keepS06: true });
-      _kellyToast("已切到 S06 · 大盘领先切换(v1.1.7 起默认基座): 按日动态切 A进攻王/NEW14+1 基座, 标签区为参考底座");
+      // s06p1(2026-08-29 观察档): 同 dynamic 分支, toast 区分提示(K=1 时比 S06 额外剔高评级)
+      _kellyToast(mid === "s06p1"
+        ? "已切到 S06+1 · 仅K1剔高评级(观察档): 基座=S06 按日动态, K=1 时剔除高评级候选(mid/low递补), K=2/3/4 与 S06 完全一致"
+        : "已切到 S06 · 大盘领先切换(v1.1.7 起默认基座): 按日动态切 A进攻王/NEW14+1 基座, 标签区为参考底座");
       return;
     }
     if (!_tdsFadeModeApply(mid, state.labSigKellyFilters)) return;
@@ -11550,7 +11588,11 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   var _posDayCounts = null; // 每日资金池等分(2026-08-13恢复): 当日保留基笔数, 与卡片/评级同口径(§22跨展示位一致)
   if (_filters.positionCap && _filters.positionCapK > 0) {
     // 2026-08-23 性能专项: _kellyCollectBasePool 改 async 分片, 本函数本就是 async, await 即可(语义零变化)
-    var _basePool = await _kellyCollectBasePool(td.quadrants, cfg.sell_modes || {}, _fIdx, _pcFadeFn);
+    // s06p1(2026-08-29 观察档): 弹窗与卡片同口口径(K=1 剔高评级) — 单一事实源 _tdsS06P1StripHigh(mode,K)
+    var _fModeNow = state.labSigKellyFadeModeBase;
+    var _p1Skip = (typeof window._tdsS06P1StripHigh === "function")
+      && window._tdsS06P1StripHigh(_fModeNow, _filters.positionCapK) ? "rating_high" : null;
+    var _basePool = await _kellyCollectBasePool(td.quadrants, cfg.sell_modes || {}, _fIdx, _pcFadeFn, _p1Skip);
     _posCapKept = _kellyPositionCapKeptKeys(_basePool, _fIdx, _filters.positionCapK);
     _posDayCounts = _kellyKeptDayCounts(_posCapKept);
   }
