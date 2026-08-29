@@ -10315,7 +10315,7 @@ function _renderSigKellyBar(bar, data, period) {
     state.labSigKellyFilters.positionCap = posCapCb.checked;
     _kellySetSharedPosCap(posCapCb.checked, state.labSigKellyFilters.positionCapK || 1);
     _syncPosCapActive(bar, posCapCb.checked, state.labSigKellyFilters.positionCapK || 1);
-    _kellyOnFilterChange();
+    _kellyOnFilterChange({ keepS06: true }); // posCap是持仓参数非过滤标签, 不改模式基座(S06 keepS06修复)
   };
   bar.querySelectorAll(".lab-sigkelly-kbtn").forEach(function (btn) {
     btn.onclick = function () {
@@ -10332,7 +10332,7 @@ function _renderSigKellyBar(bar, data, period) {
       var posCapCb2 = bar.querySelector(".lab-sigkelly-toggle-poscap");
       if (posCapCb2) posCapCb2.checked = !!state.labSigKellyFilters.positionCap;
       _syncPosCapActive(bar, state.labSigKellyFilters.positionCap, state.labSigKellyFilters.positionCapK || 1);
-      _kellyOnFilterChange();
+      _kellyOnFilterChange({ keepS06: true }); // K档是持仓参数非过滤标签, 不改模式基座(S06 keepS06修复)
     };
   });
   // #49+#xx ai长线模式(G/H/I)仓位管理: 开关(默认关, 只影响 G/H/I) → 写共享键 + 重算(套各模式独立仓位策略) + 刷新对比表; A-F 不受影响
