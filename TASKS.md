@@ -8,7 +8,13 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-28 19:58(S06切换bug已定位+固定20天卖已实施).本轮:
+**最后更新**:2026-08-29 12:55(凯利懒加载三层bug修复+overfit parity+P1-01懒加载).本轮:
+- **✅ 凯利trades懒加载缓存短路修复**:根因=localStorage缓存recent.json(2.9MB/3月)命中后直接返回state,跳过年份分片加载;修复=移除缓存短路路径,始终走_labKellyLoadYearParts()合并全量(303,280行)。commit ba6d6f7fe,v20260829-a485上线
+- **✅ t2026年份文件被跳过修复**:`if(y==="2026")continue`导致合并后少43,240行;yearParts改空数组起始+删除recent.json重复计算。commit 39571b3f7,v20260829-a486上线
+- **✅ overfit parity卖类信号过滤移除**:校验脚本check_overfit_recent_parity.mjs删isSell过滤,实盘统计含全部交易日。commit 0c4bf94ad
+- **✅ P1-01 kelly-reports/review懒加载**:379KB(241KB+138KB)首页defer同步加载改动态script标签注入,仅点击报告弹窗时加载。commit ec3e3d58f,v20260829-a487上线
+- **✅ Codex性能报告评审**:P1-01/P2-01值得做,P1-02/P1-03暂不动(P1-03引用不存在函数_simLoadTrades)
+- **⏳ 待安排**:P2-01 purpose-notes懒加载(60KB改动态加载,很低风险)
 - **✅ v1.1.8 功能体检**:app.js 30632行完整还原(H档卖法明示+H档1:1注解),4项未报告任务已梳理
 - **✅ H档卖法明示补全**:app.js L2927-2928 新增「🛡️中长线 H(含止损,不想硬扛首选)」+1:1注解(S06×H净利+159,972/峰值≤15/不破20倍线 vs S06×G净利+145,726/峰值29~40/大破20倍线)
 - **✅ Phase1 融合底稿完成**:brief_ledger.json统一三个数据源(7条,0819-0827),修复hit回填bug(6/6一致性),commit 956126ff9

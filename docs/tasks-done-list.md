@@ -138,3 +138,10 @@
 ## 2026-08-21 回测结论落档(95)
 
 - [x] **#95 ETF→权重龙头个股回测结论** — 无实际价值,不推荐,维持 v1.1.3。结论:同 ¥10,000/信号基准,A(ETF)全面优于 B1/B2(TOP1个股),B3(TOP1-3并集)与A持平但3倍操作量且半凯利低4pp;ETF免印花税+单标的决策+无停牌退市风险。详见 docs/kelly/backtest-ai/etf-weight-leader/etf-weight-leader-conclusion.md
+
+## 2026-08-29 凯利懒加载修复+性能优化(96-99)
+
+- [x] **#96 凯利trades懒加载缓存短路修复** — 根因:localStorage缓存recent.json(2.9MB/3月)命中后直接返回,跳过年份分片加载,下游5功能全坏;修复=移除缓存短路,始终走年份合并(303,280行)。commit ba6d6f7fe,v20260829-a485
+- [x] **#97 t2026年份文件被跳过修复** — `if(y==="2026")continue`致合并后少43,240行(12,880 vs 56,120);yearParts改空数组+删除recent重复计算。commit 39571b3f7,v20260829-a486
+- [x] **#98 overfit parity卖类信号过滤移除** — check_overfit_recent_parity.mjs删isSell过滤,实盘统计含全部交易日。commit 0c4bf94ad
+- [x] **#99 P1-01 kelly-reports/review 379KB懒加载** — index.html移除defer同步加载,lab.js改动态script标签注入,仅点击报告弹窗时加载(241KB+138KB)。commit ec3e3d58f,v20260829-a487
