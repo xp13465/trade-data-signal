@@ -158,14 +158,17 @@ check("A 结构: overfit.daily_by_win/daily_by_dim",
       if (!isSell) { b.n++; if (r.v) b.win++; }   // buckets.t 只含买类(方案A); 卖类日仍占位
     }
   }
-  // 同构滑窗: 点=全部建点日升序, 每 w 个点回退累计(空桶点贡献 0)
+  // 同构滑窗: 对齐 _ovRolling(app.js L1939-1957) 用数组索引;
+  // 空桶点(n==0)占位参与窗口跨度但不计入 sum, 与 production 行为逐位一致
   const rollLast = (map, w) => {
     const pts = Object.keys(map).sort();
     let lastN = null, lastWr = null;
     for (let i = 0; i < pts.length; i++) {
+      const b = map[pts[i]];
+      if (!b.n) continue;   // _ovRolling: `if (!b || !b.n) continue` — 不建序列元素
       const start = Math.max(0, i - w + 1);
       let n = 0, win = 0;
-      for (let j = start; j <= i; j++) { n += map[pts[j]].n; win += map[pts[j]].win; }
+      for (let j = start; j <= i; j++) { const v = map[pts[j]].n; if (v) { n += v; win += map[pts[j]].win; } }
       lastN = n; lastWr = n ? win / n * 100 : null;
     }
     return { n: lastN, wr: lastWr, nPoints: pts.length };
