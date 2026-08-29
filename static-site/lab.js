@@ -8141,6 +8141,31 @@ var _labKellyQuickPreview = null;     // 快速 UI 预览用 recent.json 数据(
 // URL helpers
 function _labKellyTradesUrl(name) { var v = _labCustomCacheBust(); return "https://ss.fx8.store/data/" + name + (v ? "?v=" + v : ""); }
 function _labKellyTradesUrlCf(name) { var v = _labCustomCacheBust(); return "./data/" + name + (v ? "?v=" + v : ""); }
+
+// P1-01(2026-08-29): kelly-reports-content / kelly-review-notes 懒加载
+// 原 index.html defer 同步加载 379KB,首页/信号卡/KPI 完全不需要,改为点击报告弹窗时动态加载
+var _kellyReportsLoaded = false;
+var _kellyReviewNotesLoaded = false;
+function _loadKellyReports() {
+  if (_kellyReportsLoaded) return Promise.resolve();
+  return new Promise(function(resolve, reject) {
+    var s = document.createElement('script');
+    s.src = './kelly-reports-content.min.js?v=' + _labCustomCacheBust();
+    s.onload = function() { _kellyReportsLoaded = true; resolve(); };
+    s.onerror = function() { reject(new Error('Failed to load kelly-reports-content.min.js')); };
+    document.head.appendChild(s);
+  });
+}
+function _loadKellyReviewNotes() {
+  if (_kellyReviewNotesLoaded) return Promise.resolve();
+  return new Promise(function(resolve, reject) {
+    var s = document.createElement('script');
+    s.src = './kelly-review-notes.min.js?v=' + _labCustomCacheBust();
+    s.onload = function() { _kellyReviewNotesLoaded = true; resolve(); };
+    s.onerror = function() { reject(new Error('Failed to load kelly-review-notes.min.js')); };
+    document.head.appendChild(s);
+  });
+}
 function _labKellyFetchTrades(name) {
   var r2 = _labKellyTradesUrl(name);
   var cf = _labKellyTradesUrlCf(name);
@@ -10548,7 +10573,7 @@ function _kellyReportModalHTML(id) {
         : `<div class="lab-kelly-repo-body lab-kelly-repo-body-empty">未找到正文（缺 kelly-reports-content 数据源，源见 ${r.path}）。</div>`) +
     `</div></div>`;
 }
-function _kellyReportOpenModal(id) {
+async function _kellyReportOpenModal(id) {
   let overlay = document.getElementById("labKellyRepoOverlay");
   if (!overlay) {
     overlay = document.createElement("div");
@@ -10556,6 +10581,9 @@ function _kellyReportOpenModal(id) {
     overlay.className = "lab-signal-overlay";
     document.body.appendChild(overlay);
   }
+  // P1-01: 点击报告时动态加载报告正文+审查备注(原 defer 同步加载 379KB)
+  await _loadKellyReports();
+  await _loadKellyReviewNotes();
   overlay.innerHTML = _kellyReportModalHTML(id);
   overlay.classList.add("show");
   document.body.style.overflow = "hidden";
