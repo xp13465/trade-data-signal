@@ -139,12 +139,12 @@ check("A 结构: overfit.daily_by_win/daily_by_dim",
 
 // ---- B total 桶独立复核(a9, fadeOn=false → 人口=全 rows) ----
 // 直数口径与后端 rolling_win_rates 逐位同构: ①滑窗按点索引回退(空桶点占位贡献0, 与
-// overfit_monitor.py L1025-1032 一致); ②实盘侧纯卖类日也建点(bucket_actual L979 方案B 注释);
+// overfit_monitor.py L1025-1032 一致); ②实盘侧含全部交易日(含卖类信号);
 // ③展示序列 trim 到 SURFACE_DAYS=200。
 {
   const raw = agg("a9", false, false, null);
   const dayMap = {};     // 回测: 有 w 非空元素的日
-  const actDayMap = {};  // 实盘: 有 v!=null 行的日都建点(total 只累计买类, 卖类日=空桶占位)
+  const actDayMap = {};  // 实盘: 有 v!=null 行的日都建点(含卖类)
   for (const r of recent.rows) {
     if (r.w) for (const wv of r.w) {
       if (wv == null) continue;
@@ -152,15 +152,14 @@ check("A 结构: overfit.daily_by_win/daily_by_dim",
       b.n++; if (wv) b.win++;
     }
     if (r.v != null) {
-      const sN = r.s === "buy_special_filtered" ? "buy_special" : r.s;
-      const isSell = sN === "sell" || sN === "sell_stop_loss";
       const b = actDayMap[r.d] || (actDayMap[r.d] = { n: 0, win: 0 });
-      if (!isSell) { b.n++; if (r.v) b.win++; }   // buckets.t 只含买类(方案A); 卖类日仍占位
+      b.n++; if (r.v) b.win++;
     }
   }
-  // 同构滑窗: 点=全部建点日升序, 每 w 个点回退累计(空桶点贡献 0)
+  // 同构滑窗: 对齐 _ovRolling(app.js L1944-1957) —— 空桶点(n==0)不建点不参与累计,
+  // 窗内回退只累加 n>0 的日; 点数只算 n>0 日(与展示序列 trim 后长度同口径)
   const rollLast = (map, w) => {
-    const pts = Object.keys(map).sort();
+    const pts = Object.keys(map).sort().filter((d) => map[d].n > 0);
     let lastN = null, lastWr = null;
     for (let i = 0; i < pts.length; i++) {
       const start = Math.max(0, i - w + 1);
@@ -179,7 +178,7 @@ check("A 结构: overfit.daily_by_win/daily_by_dim",
   check("B backtest 点数=min(样本日,200)", seq.length === Math.min(eBt.nPoints, 200), `points=${seq.length} expect=${Math.min(eBt.nPoints, 200)}`);
   const seqA = raw.accuracy.rolling.actual["100"] || [];
   const lastA = seqA[seqA.length - 1];
-  check("B actual total(含卖类日占位)滑窗直数一致", !!lastA && lastA.n === eAct.n && Math.abs(lastA.win_rate - eAct.wr) < 1e-9,
+  check("B actual total(含全部交易日)滑窗直数一致", !!lastA && lastA.n === eAct.n && Math.abs(lastA.win_rate - eAct.wr) < 1e-9,
     `agg=${lastA ? lastA.n + "/" + lastA.win_rate.toFixed(4) : "none"} vs direct=${eAct.n}/${eAct.wr.toFixed(4)}`);
 }
 
