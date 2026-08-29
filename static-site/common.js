@@ -474,8 +474,8 @@ function renderPurposeNote(container, text, {variant}={}) {
 
 // === AI仓位建议 K 档评级(2026-08-13 共享单一数据源, §22 一致性: app.js 首页 + lab.js 凯利区两处共用同一份数据/HTML/绑定) ===
 // 2026-08-14 #48+#BC: 静态快照由 fixed(每笔1万)/比例法 重算为每日池口径 + 费率重算口径(含最低佣金5元), 与动态重算 _kellyApplyFeeRecompute 数值一致(§22 消除 12.7pt 佣金低估差)
-// 口径=AI降亏过滤默认=AI宏5+3+1(5=基础5: n2NovSpecialIndustry/excludeSpecialBear四档/janMidRating/janMidSpecial + K2C5 港股追涨剔除(v1.1.2 2026-08-17 excludeSpecialBear MA60→四档升级, 老MA60熊/下降期两备选默认关带🆕NEW); 3=核心3保留入样: r7 5月强化+3稳定非5月 / exclAuxCross 辅关注×3/5月交叉 / greedy15 Greedy-15组合等; +1=回测剔除波动相关/未入样本信号)+A模式(固定10天)+每日资金池等分+top-K+费率etf_def(含min_commission=5元)+全周期+费率重算
-// 数值来源: Node 复算前端 _kellyApplyFeeRecompute 动态链路(lab.js 实际函数, 逐位一致), 数据 generated_at 2026-08-14 02:22; 主推 K1(收益率最高 86.60%)
+// ⚠ v1.1.4 八键基座历史描述(v1.1.7 起默认=S06 动态, 当前默认以页面实时为准; 此处为静态快照回退兜底): 口径=AI降亏过滤默认=AI宏5+3+1(5=基础5: n2NovSpecialIndustry/excludeSpecialBear四档/janMidRating/janMidSpecial + K2C5 港股追涨剔除; 3=核心3: r7 5月强化+3稳定非5月 / exclAuxCross 辅关注×3/5月交叉 / greedy15; +1=回测剔除波动相关/未入样本信号)+A模式(固定10天)+每日资金池等分+top-K+费率etf_def(含min_commission=5元)+全周期+费率重算
+// 数值来源: Node 复算前端 _kellyApplyFeeRecompute 动态链路(lab.js 实际函数, 逐位一致), 数据 generated_at 2026-08-14 02:22; 主推 K1(收益率最高 86.60% 等, 历史 v1.1.4 八键基座口径, 用作动态未就绪时兜底)
 var _AI_POSCAP_RATING = {
   1: { name: "最激进", ret: "86.60%", dd: "15.99%", ra: "5.42", n: "1,202", reason: "收益率最高+回撤最小+样本最少,主推★" },
   2: { name: "次稳健", ret: "67.61%", dd: "18.64%", ra: "3.63", n: "1,930", reason: "收益率最低+回撤最大" },
@@ -527,7 +527,7 @@ function _aiPoscapRatingSummary() {
   }).filter(Boolean);
   return parts.join('; ') + (s.dynamic
     ? ('（实时·当前配置/费率/数据' + (s.src.date ? ' ' + s.src.date : '') + '）')
-    : '（快照 08-14·每日池+费率重算口径(含最低佣金5元): AI降亏过滤默认 AI宏5+3+1(5基础+3核心保留入样 + 1回测剔除波动相关/未入样本信号)+每日资金池等分+top-K, 主推K1; 当前未开启AI仓位建议或未重算）');
+    : '（快照 08-14·v1.1.4 八键基座历史数字(每日池+费率重算口径, 含最低佣金5元), 当前默认=v1.1.7 S06动态, 以页面实时为准; 当前未开启AI仓位建议或未重算→回退静态历史快照）');
 }
 // K 档评级 hoverpop 表格 HTML(1 排首位, K=1 高亮主推; app.js/lab.js 两处共用同一份, 数据源=动态优先/静态快照回退, 勿单改数值)
 function _aiPoscapRatingPopHtml() {
@@ -541,13 +541,13 @@ function _aiPoscapRatingPopHtml() {
   }).join("");
   var srcLabel = s.dynamic
     ? '📌 实时·当前配置/费率/数据(' + (s.src.date || '-') + (s.src.fee ? ' · 费率' + s.src.fee : '') + ')：随上方降亏勾选 / 费率档 / 最新数据联动重算(展示层动态化, 未改算法)'
-    : '📌 快照 08-14：每日池+费率重算口径(2026-08-14 #48+#BC) = AI降亏过滤默认 AI宏5+3+1(基础5+核心3保留入样 + 1回测剔除波动相关/未入样本信号) + A模式(固定10天) + 每日资金池等分+top-K + 费率etf_def(含最低佣金5元) + 全周期。当前未开启 AI仓位建议 或尚未重算, 显示静态快照';
+    : '📌 快照 08-14：v1.1.4 八键基座历史数字(每日池+费率重算口径, 含最低佣金5元) = AI降亏过滤默认 AI宏5+3+1(基础5+核心3保留入样 + 1回测剔除波动相关/未入样本信号) + A模式(固定10天) + 每日资金池等分+top-K + 费率etf_def + 全周期。⚠当前默认=v1.1.7 S06 动态, 以上为动态未就绪时的历史兜底回退, 以页面实时为准。';
   return '<span class="lab-sigkelly-posrate-pop-wrap">' +
     '<div class="lab-sigkelly-posrate-pop">' +
       '<div class="lab-sigkelly-posrate-pop-title">AI仓位建议 · K 档位评级（评级依据=下方回撤矩阵）</div>' +
       '<table class="lab-sigkelly-posrate-table"><thead><tr><th>档位</th><th>收益率</th><th>峰值资金回撤</th><th>风险调整<br>(收益/回撤)</th><th>样本</th><th>评级理由</th></tr></thead><tbody>' + rows + '</tbody></table>' +
-      '<div class="lab-sigkelly-posrate-pop-note">⚠ 口径：动态=当前降亏勾选(AI降亏过滤 8 键或用户自定义) + A模式(固定10天) + 每日资金池等分+top-K + 当前费率档(默认etf_def含最低佣金5元) + 最新数据全周期；静态快照=同上默认配置+费率重算口径(2026-08-14 #48+#BC, 含最低佣金5元, 与动态一致§22)。与「历史回测数据」G模式口径不同，勿混用数值。峰值资金回撤=最大回撤金额÷本金(concCap, 峰值同时持仓资金；与回测报告 ddPct=最大回撤÷资金池 口径不同, 数值勿直接对照)</div>' +
-      '<div class="lab-sigkelly-posrate-pop-note"><b>K 档到底在选什么（举个 1:1 例子）</b>：每日资金池=每天总共投入 1 万，均分给当日保留的前 K 个信号。选 <b>K1</b>=当天只买最优的那 1 个信号，单笔就是 1 万（全押 1 个，持仓最集中）→ 收益率最高 <b>86.6%</b>；选 <b>K3</b>=当天买最优的 3 个信号，每个 10000÷3≈<b>3333 元</b>（鸡蛋分 3 篮子，持仓更分散）→ 收益率降到 <b>66.2%</b>。价格：K 越大越分散、单日冲高收益越低，但波动和风险也摊薄——想要集中吃大肉就 K1（主推★），想要分散稳健就调大 K。<i>核实源=common.js _AI_POSCAP_RATING 快照(K1 86.60% / K3 66.24%, 2026-08-14 每日池+费率重算口径)</i></div>' +
+      '<div class="lab-sigkelly-posrate-pop-note">⚠ 口径：动态=当前降亏勾选(当前默认=S06 动态, 以页面上方组合为准) + A模式(固定10天) + 每日资金池等分+top-K + 当前费率档(默认etf_def含最低佣金5元) + 最新数据全周期；静态快照=v1.1.4 八键基座历史数字(2026-08-14 #48+#BC, 含最低佣金5元), 仅作动态未就绪时的兜底回退, 当前默认=v1.1.7 S06 动态以页面实时为准。与「历史回测数据」G模式口径不同，勿混用数值。峰值资金回撤=最大回撤金额÷本金(concCap, 峰值同时持仓资金；与回测报告 ddPct=最大回撤÷资金池 口径不同, 数值勿直接对照)</div>' +
+      '<div class="lab-sigkelly-posrate-pop-note"><b>K 档到底在选什么（举个 1:1 例子）</b>：每日资金池=每天总共投入 1 万，均分给当日保留的前 K 个信号。选 <b>K1</b>=当天只买最优的那 1 个信号，单笔就是 1 万（全押 1 个，持仓最集中）→ 收益率最高 <b>86.6%</b>；选 <b>K3</b>=当天买最优的 3 个信号，每个 10000÷3≈<b>3333 元</b>（鸡蛋分 3 篮子，持仓更分散）→ 收益率降到 <b>66.2%</b>。价格：K 越大越分散、单日冲高收益越低，但波动和风险也摊薄——想要集中吃大肉就 K1（主推★），想要分散稳健就调大 K。<i>核实源=common.js _AI_POSCAP_RATING 快照(K1 86.60% / K3 66.24%, 2026-08-14 每日池+费率重算口径; ⚠以上为 v1.1.4 八键基座历史数字, 当前默认=v1.1.7 S06 动态, 以页面实时为准)</i></div>' +
       '<div class="lab-sigkelly-posrate-pop-note">' + srcLabel + '</div>' +
     '</div>' +
   '</span>';

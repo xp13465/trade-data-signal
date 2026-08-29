@@ -4,6 +4,7 @@
 
 | 文档 | 说明 |
 |---|---|
+| trade-methods-principle.md | **🌟交易方法原理拆解**(2026-08-30: 短线A-F满仓不买 / H止损滚A法全场最高 / G·I卖信号少→P<3d吃短线, 数据+口诀+一键复现) |
 | kelly-nextday-batch-limit-sop.md | **次日分批挂单买入 SOP 回测**(2026-08-15,兜底 N=K 每日池 G K1 净+861,375/53.17%,比次日开盘+6.1万) |
 | kelly-strategyAB-exhaustive.md | **策略A(固定拆K)vs 策略B(每日池等分)穷举对比**(2026-08-14,本轮新增) |
 | firstcol-badge-linebreak.md | 信号凯利回测首列 SPAN 独立换行(纯前端 CSS display:block,2026-08-14) |

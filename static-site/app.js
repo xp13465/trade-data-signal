@@ -1647,7 +1647,7 @@ function _overfitHelpModalHTML() {
     '</div>' +
     '<div class="rule-card">' +
       '<div class="rule-card-head"><span class="rule-badge">⚠ 注意</span></div>' +
-      '<p>回测 G 口径=信号驱动卖出全量(A/F/G 模式、信号方向命中率)，与资金仓位无关；不含 P≤3d 资本管理叠加（峰持仓 136万 为不可操作口径），勿当成交仓参考。<b>G 可操作口径见凯利区「ai长线模式(G/H/I)」：G=P≤3d@13万 定稿单档（峰持仓 13 万=13 倍本金可操作，2026-08-29 codex#001 定稿）</b>。</p>' +
+      '<p>回测 G 口径=信号驱动卖出全量(A/F/G 模式、信号方向命中率)，与资金仓位无关；不含 P≤3d 资本管理叠加（峰持仓 136万 为不可操作口径），勿当成交仓参考。<b>G 可操作口径见凯利区「ai长线模式(G/H/I)」：G=P≤3d@10万 定稿单档（峰持仓 10 万=10 倍本金可操作，2026-08-30 用户+数据定案）</b>。</p>' +
       '<p><b>卖/止损卖档(2026-08-17 方案B)</b>：卖信号是 G/H/I 信号驱动卖出模式的卖出触发器，其准确率直接影响 G 模式收益；但回测交易本体全为买信号、卖信号不独立成回测交易，故卖类只显示实盘实际命中率（不过滤宇宙、卖后跌=对）、<b>无回测对照、综合风险分不适用</b>。</p>' +
       '<p>实盘评级=「当前 10 日 score 快照」分档(signal_stats)；回测评级=「生成时 score」固化，两者时间轴不完全一致。</p>' +
     '</div>' +
@@ -2760,13 +2760,16 @@ function _readHomeFadeFlag() {
   } catch (e) {}
   return true;
 }
-// v1.1.5(2026-08-24) 「仅显示可用信号」开关: 裸键 tds_home_show_available_only, 默认关(§23.7 默认行为不变)。
+// v1.1.5(2026-08-24) 「仅显示可用信号」开关: 裸键 tds_home_show_available_only, 默认开(2026-08-30 用户拍板)。
 // 开启=在现有渲染结果上隐藏灰显/删除线行(AI降亏命中 sig-ai-hit + 未入样本 sig-poscap-notuni
 //   + 当日已满 sig-poscap-excluded 入宇宙买类超K, 2026-08-26 fix 扩展),
 // 只留干净可用的放行信号列表; 纯展示层视图控制, 不改任何判定链(与 AI降亏/AI仓位 两开关正交叠加)。
 function _readHomeAvailOnlyFlag() {
-  try { return localStorage.getItem("tds_home_show_available_only") === "1"; } catch (e) {}
-  return false;
+  try {
+    var v = localStorage.getItem("tds_home_show_available_only");
+    return v === null ? true : v === "1";
+  } catch (e) {}
+  return true; // 默认开(2026-08-30 用户拍板)
 }
 // 首页枯竭类提示共用的当前模式键集(单一事实源): 与首页判定链同一 preset(_readHomeFadeMode→_tdsFadeModeById)。
 // 消费点=AI建议区常驻 chip(_mountHomeDroughtChip)+「仅显示可用信号」空态枯竭统计(_mountSigEmptyDrought), §22 同源同数字。
@@ -2863,7 +2866,7 @@ function _showSigToast(msg) {
 // 首页 AI 降亏开关行 HTML(K 档 3124 + off 按钮 + AI降亏过滤总开关); 状态读自 localStorage, 事件绑在 _bindSigSwitchRow
 // 2026-08-13 重构(用户拍板): 「AI降亏过滤」+「AI降亏显示」合并为单个「AI降亏过滤」总开关(独立键 tds_home_fade, 与凯利区解耦):
 //   开启=首页按降亏策略判定(v1.1.5 起=NEW14 十四键, 模式可切)+灰显删除线+「AI降亏」标注+hoverpop 原因; 关闭=首页完全不判降亏、信号正常(不灰显不删除线不标注)。
-// ②AI仓位建议 off 按钮——写 tds_poscap {on:false}(与凯利区 _kellySetSharedPosCap(false,k) 同键同语义, §22 联动), 该区域退化为普通信号列表
+// ②AI仓位建议 off 按钮——写 tds_home_poscap {on:false}(独立键, 与凯利 lab 各自独立互不联动, 2026-08-30 用户拍板), 该区域退化为普通信号列表
 function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
   // 两段式信号固化(2026-08-14): A股已固化(finalized && a-share-close)时, AI建议 1/2/3 顶部
   // 显示「已固化·可操作(盘后窗口)」标签(盘后窗口可按收盘价下单, 不随盘中波动消失); 盘中/其他态不显示。
@@ -2875,7 +2878,7 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
   const _kbtns = [1, 3, 4, 2].map((kk) =>
     `<button type="button" class="sig-kbtn${(kk === _k && _pcOn) ? " active" : ""}${kk === 1 ? " sig-kbtn-main" : ""}" data-k="${kk}" data-no-pop=""><span class="sig-kbtn-k">${kk}</span><span class="sig-kbtn-r">${_kRating[kk]}${kk === 1 ? "★主推" : ""}</span></button>`
   ).join("");
-  // off 按钮(2026-08-13): 复用 .sig-kbtn 样式, data-k="off" 由 _bindSigSwitchRow 识别为关(写 tds_poscap {on:false})
+  // off 按钮(2026-08-13): 复用 .sig-kbtn 样式, data-k="off" 由 _bindSigSwitchRow 识别为关(写 tds_home_poscap {on:false})
   const _offBtn = `<button type="button" class="sig-kbtn sig-kbtn-off${_pcOn ? "" : " active"}" data-k="off" data-no-pop=""><span class="sig-kbtn-k">关</span><span class="sig-kbtn-r">off</span></button>`;
   // 参考说明按钮(2026-08-14 独立化): 移出 .lab-sigkelly-posrate 评级 trigger(不复用 K 评级表 _aiPoscapRatingPopHtml),
   // 独立样式 .sig-kbtn-help(与 off/K 区分, 主色系描边, 不复用 sig-kbtn-off 红), 独立 hoverpop(.sig-kbtn-help-pop, 自包含定位),
@@ -2914,13 +2917,13 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
     // S06 状态/降级提示槽(codex-task-20260825-001): 仅 s06 选中时由 _mountHomeS06State 异步填充;
     // 快照不可用=持续可见警示(过滤暂不生效), 正常=显示当前生效基座与覆盖期(§23.2 可见降级不静默)
     `<span class="sig-s06-state" id="home-sig-s06-state-slot" style="font-size:11px;color:var(--text-3)"></span>` +
-    `<label class="sig-switch-lab sig-switch-avail" data-no-pop="" title="仅显示可用信号(视图控制开关, 默认关, 记忆键 tds_home_show_available_only): 开启=把信号列表里所有「灰显/删除线」的行整体隐藏——即 AI降亏过滤命中类(AI降亏 sig-ai-hit 删除线+置灰 / 未入样本 sig-poscap-notuni 删除线+置灰), 只留干净可用的放行信号; 关闭=恢复完整列表。纯展示层视图控制: 不改变任何判定链/统计口径/AI建议编号, 与「AI降亏过滤」「AI仓位建议 K」两开关正交叠加——本开关隐藏 AI降亏层已画删除线的行(AI降亏命中 / 未入样本)+「当日已满」行(入宇宙买类超出K名=当日不可买), 卖出/持有类风险提示正常亮显不受影响; 汇总条准确率仍按全量人口统计便于对比。开启后若近30个交易日无任何可用信号, 列表区显示枯竭引导空态(连续无放行天数与历史统计, 数据源与常驻枯竭 chip 同源 §22)">` +
+    `<label class="sig-switch-lab sig-switch-avail" data-no-pop="" title="仅显示可用信号(视图控制开关, 默认开(2026-08-30 用户拍板), 记忆键 tds_home_show_available_only): 开启=把信号列表里所有「灰显/删除线」的行整体隐藏——即 AI降亏过滤命中类(AI降亏 sig-ai-hit 删除线+置灰 / 未入样本 sig-poscap-notuni 删除线+置灰), 只留干净可用的放行信号; 关闭=恢复完整列表。纯展示层视图控制: 不改变任何判定链/统计口径/AI建议编号, 与「AI降亏过滤」「AI仓位建议 K」两开关正交叠加——本开关隐藏 AI降亏层已画删除线的行(AI降亏命中 / 未入样本)+「当日已满」行(入宇宙买类超出K名=当日不可买), 卖出/持有类风险提示正常亮显不受影响; 汇总条准确率仍按全量人口统计便于对比。开启后若近30个交易日无任何可用信号, 列表区显示枯竭引导空态(连续无放行天数与历史统计, 数据源与常驻枯竭 chip 同源 §22)">` +
       `<input type="checkbox" class="sig-switch-avail-cb"${_readHomeAvailOnlyFlag() ? " checked" : ""}> 仅显示可用信号` +
     `</label>` +
     // v1.1.5 枯竭提示 chip 占位(纯展示层): 异步填充, N≥20 才显示; 与凯利区 chip 同源同数字(§22)
     `<span class="sig-drought-slot" id="home-sig-drought-slot"></span>` +
     `${_aShareFinalizedTag}` +
-    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(与凯利区共享, tds_poscap, badge标注层): 开启=同日只买最优K个买入类(进K=「AI建议N」亮绿 / 超K=「当日已满」灰显) + 入宇宙${_t("sell_short")}(sell/sell_stop_loss/${_t("type_band_sell")})=「AI警示」亮橙(${_t("sell_short")}无K约束不判K); 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表(无AI建议N/当日已满/AI警示), 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。⚠两开关正交: AI仓位层只产上面三类badge, 不产删除线过滤(删除线/未入样本归「AI降亏过滤」开关控制)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span>${_helpBtn}${_simBtn}</span>` +
+    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(独立键 tds_home_poscap, 与凯利 lab 各自独立互不联动, 2026-08-30 用户拍板, badge标注层): 开启=同日只买最优K个买入类(进K=「AI建议N」亮绿 / 超K=「当日已满」灰显) + 入宇宙${_t("sell_short")}(sell/sell_stop_loss/${_t("type_band_sell")})=「AI警示」亮橙(${_t("sell_short")}无K约束不判K); 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表(无AI建议N/当日已满/AI警示), 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。⚠两开关正交: AI仓位层只产上面三类badge, 不产删除线过滤(删除线/未入样本归「AI降亏过滤」开关控制)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span>${_helpBtn}${_simBtn}</span>` +
     `</div>`;
 }
 // 参考说明按钮独立 hoverpop HTML(2026-08-14): 不复用 K 评级表 _aiPoscapRatingPopHtml(仓位评级表语义不符),
@@ -2930,17 +2933,27 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
 function _sigHelpPopHtml() {
   return '<div class="sig-kbtn-help-pop">' +
     '<div class="sig-kbtn-help-pop-title">📖 推荐方法 · 参考说明</div>' +
+
     '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-short">🔵 短线 A/F</span>' +
-      '<span class="sig-kbtn-help-pop-body">A=买入后<b>固定持有10天</b>卖出；F=买入后<b>持有15天</b>卖出。快进快出，适合波段/资金周转快的玩法。</span></div>' +
-    '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-long">🟢 中长线 G</span>' +
-      '<span class="sig-kbtn-help-pop-body">买入后<b>一直持有</b>，仅当对应指数「卖出信号」触发才离场，无信号就拿着（总建议主选）。G 长线管位=满仓不卖·<b>P≤3d@13万</b>：持仓超上限<b>先卖「未满3天」年轻仓</b>（保老仓、砍新仓），峰值同时持仓≤' + _simGihPeakN("G") + '笔（20倍本金硬控内=可操作）。</span></div>' +
-    '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-long">🛡️ 中长线 H（含止损，不想硬扛首选）</span>' +
-      '<span class="sig-kbtn-help-pop-body">买入后<b>一直持有</b>，直到触发「卖出信号」或「追止损」任一离场（取最早）。<b>适合不想硬扛亏损的玩家</b>：止损单会在亏损扩大时自动离场，避免深度套牢，且释放资金更快做新信号。<br>📊 1:1例：S06×H档(满仓不买@7万) 净利+144,731(206.76%)/峰值并发≤' + _simGihPeakN("H") + '笔/不破20倍线；S06×G档(满仓不卖·P≤3d@13万) 净利+245,538(188.88%)/峰值同时持仓≤' + _simGihPeakN("G") + '笔/不破20倍线；S06×I档(满仓不买@16万) 净利+204,221(127.64%)/峰值同时持仓≤' + _simGihPeakN("I") + '笔/不破20倍线——G/H/I 长线已套 20 倍硬控（G=' + _simGihPeakN("G") + '笔/H=' + _simGihPeakN("H") + '笔/I=' + _simGihPeakN("I") + '笔），均 20 倍本金内可操作（与凯利区 G/H/I 对比表同值 §22）。</span></div>' +
+      '<span class="sig-kbtn-help-pop-body">A=买入后<b>固定持有10天</b>卖出；F=买入后<b>持有15天</b>卖出。快进快出，适合波段/资金周转快的玩法。<b>卖出条件由自身规则定(持有天数/止盈)，不依赖外部卖出信号</b>，无管位概念。</span></div>' +
+
+    '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-long">🟢 长线 G（卖信号少→P≤3d 先卖年轻）</span>' +
+      '<span class="sig-kbtn-help-pop-body">买入后<b>一直持有</b>，仅当对应指数「卖出信号」触发才离场。因为卖信号少、仓位满了容易卡住错过后面的机会，所以超上限时<b>先卖「未满3天」年轻仓腾位</b>(保老仓砍新仓)。<br>📊 G@10万 P≤3d法：收189%、净+189,290、峰10笔=10倍本金可操作。</span></div>' +
+
+    '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-long">🛡️ 长线 H（止损高频→满仓不买）</span>' +
+      '<span class="sig-kbtn-help-pop-body">买入后持有，直到触发「卖出信号」或「追止损」任一离场。<b>H 止损触发频繁(持仓33天即出)，恰好自动频繁腾位</b>，所以满仓跳过新信号反而避开劣质单，收益率全场最高。<br>📊 H@5万 满仓不买：收230%、净+115,157、峰5笔=5倍本金可操作。</span></div>' +
+
+    '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-long">🔎 长线 I（追关注+追止损→P≤3d 先卖年轻）</span>' +
+      '<span class="sig-kbtn-help-pop-body">I 有追关注+追止损双兜底，但卖出信号仍偏少，与 G 同理——超上限时<b>先卖年轻仓腾位</b>。I P 法是全长线池里<b>唯一16/16年全正</b>的候选。<br>📊 I@9万 P≤3d法：收193%、净+173,992~+204,373、峰9笔=9倍本金可操作。</span></div>' +
+
+    '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-sum">📌 一句话原理</span>' +
+      '<span class="sig-kbtn-help-pop-body"><b>短线(A-F)</b>=自身规则卖出，不依赖外部信号<br><b>H</b>=止损频繁→满仓不买自动避劣<br><b>G/I</b>=卖信号少→P≤3d先卖年轻吃短线</span></div>' +
+
     '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-time">⏰ 当日实操</span>' +
       '<span class="sig-kbtn-help-pop-body"><b>15:03 后 A 股信号已用收盘价定稿不再变</b>；15:05-15:30 盘后固定价格交易可按收盘价操作，当日可执行标的见 AI 建议 1/2/3（不怕信号消失）。港股/全球待 17:50 完整版。</span></div>' +
     '<div class="sig-kbtn-help-pop-sec"><span class="sig-kbtn-help-pop-tag sig-kbtn-help-pop-tag-day">⏭️ 次日玩法</span>' +
       '<span class="sig-kbtn-help-pop-body">次日分批挂单（开盘 -1% 限价 + 未触达尾盘按现价补满）比当日操作<b>更稳、多赚 ~6 万</b>，详见弹窗。</span></div>' +
-    '<div class="sig-kbtn-help-pop-foot">💡 点击按钮查看完整操作指南，并可跳转「信号凯利回测」校验 A/F/G/minus1 各玩法回测数据。</div>' +
+    '<div class="sig-kbtn-help-pop-foot">💡 点击按钮查看完整操作指南，并可跳转「信号凯利回测」校验各玩法回测数据。</div>' +
     '</div>';
 }
 // 绑定参考说明按钮独立 hoverpop(2026-08-14): 自包含定位(相对 .sig-kbtn-help-wrap, 右对齐, 右越界左移), 桌面 hover 显示;
@@ -3101,12 +3114,12 @@ function _bindSigSwitchRow(sigCard) {
         return;
       }
       if (kb.dataset.k === "off") {
-        // AI仓位建议 off 按钮(2026-08-13): 写 tds_poscap {on:false}, 与凯利区 _kellySetSharedPosCap(false,k) 同键同语义(§22 联动),
+        // AI仓位建议 off 按钮(2026-08-13): 写 tds_home_poscap {on:false}(独立键, 与凯利 lab 互不联动, 2026-08-30 用户拍板),
         // 关闭后该区域退化为普通信号列表(无「AI建议N」「当日已满」badge), 再点某 K 档恢复 {on:true,k}
-        try { localStorage.setItem("tds_poscap", JSON.stringify({ on: false, k: 1 })); } catch (err) {}
+        try { localStorage.setItem("tds_home_poscap", JSON.stringify({ on: false, k: 1 })); } catch (err) {}
       } else {
         const k = parseInt(kb.dataset.k, 10) || 1;
-        try { localStorage.setItem("tds_poscap", JSON.stringify({ on: true, k })); } catch (err) {}
+        try { localStorage.setItem("tds_home_poscap", JSON.stringify({ on: true, k })); } catch (err) {}
       }
       _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
       return;
@@ -3140,7 +3153,7 @@ function _bindSigSwitchRow(sigCard) {
       return;
     }
     // v1.1.5(2026-08-24) 「仅显示可用信号」开关: 写裸键 tds_home_show_available_only 后重绘生效;
-    // 纯展示层视图控制(隐藏灰显/删除线行), 不改判定链; 默认关, 开关状态记忆下次进来保持
+    // 纯展示层视图控制(隐藏灰显/删除线行), 不改判定链; 默认开(2026-08-30 用户拍板), 开关状态记忆下次进来保持
     const availCb = e.target.closest(".sig-switch-avail-cb");
     if (availCb) {
       e.preventDefault();
@@ -3596,28 +3609,30 @@ async function _simEnsureRange(startD, endD, onStep) {
 }
 
 // 打开「模拟回测」弹窗(复用 .rule-modal 机制, 与 _openRefHelpModal 同款)
-// === G/H/I 长线管位管理(首页 sim 弹窗, 2026-08-29 codex#001 定稿档位) ===
-// 三档定稿数据(v1.1.7 基准 2026-08-29 codex#001 定稿, 与 lab.js AIHLINE_STRATS 同值 §22): G=满仓不卖·P≤3d@13万 / H=满仓不买@7万 / I=满仓不买@16万(用户拍板, 原15万上调)。
-// lab.min.js 懒加载不保证在弹窗打开时已注入, 故首页弹窗本地自持档位表 + 共享键 tds_gihpos 读写(lab 同键同步 §22)。
+// === G/H/I 长线管位管理(首页 sim 弹窗, 2026-08-30 用户+数据定案档位) ===
+// 三档定案数据(v1.1.7 基准 S06, 2026-08-30 用户+数据定案, 与 lab.js AIHLINE_STRATS 同值 §22):
+//   G=P≤3d先卖年轻(P法)@10万 / H=满仓不买(A法)@5万 / I=P≤3d先卖年轻(P法)@9万(16/16年全正)。
+// 旧定案(G@13万188.88%、H@7万206.76%、I@16万满仓不买)已作废。
+// lab.min.js 懒加载不保证在弹窗打开时已注入, 故首页弹窗本地自持档位表; 开关=独立键 tds_gihpos_sim, 与凯利 lab 各自独立互不联动(2026-08-30 用户拍板)。
 const _SIM_GHI_TIERS = {
-  G: { play: "满仓不卖·P≤3d", tier: "13万", cap: 130000 },
-  H: { play: "满仓不买", tier: "7万", cap: 70000 },
-  I: { play: "满仓不买", tier: "16万", cap: 160000 }
+  G: { play: "满仓不卖·P≤3d", tier: "10万", cap: 100000 },
+  H: { play: "满仓不买", tier: "5万", cap: 50000 },
+  I: { play: "P≤3d", tier: "9万", cap: 90000 }
 };
-function _simGihShort(modeKey) { // 简明玩法+档位(G=满仓不卖·P≤3d@13万 / H=满仓不买@7万 / I=满仓不买@16万)
+function _simGihShort(modeKey) { // 简明玩法+档位(G=满仓不卖·P≤3d@10万 / H=满仓不买@5万 / I=P≤3d@9万)
   const t = _SIM_GHI_TIERS[modeKey];
   return t ? (t.play + "@" + t.tier) : "";
 }
-function _simGihPeakN(modeKey) { // 目标峰值同时持仓笔数 = cap/10000(13/7/16)
+function _simGihPeakN(modeKey) { // 目标峰值同时持仓笔数 = cap/10000(10/5/9)
   const t = _SIM_GHI_TIERS[modeKey];
   return t ? Math.round(t.cap / 10000) : 0;
 }
-function _simGihOn() { // 共享键 tds_gihpos(与 lab.js _kellySharedGih 同键同语义 §22), 默认开(2026-08-29 codex#001 定稿)
-  try { const raw = localStorage.getItem("tds_gihpos"); if (raw) { const p = JSON.parse(raw); return !!p.on; } } catch (e) {}
+function _simGihOn() { // 独立键 tds_gihpos_sim(与凯利 lab 开关互不联动, 各自管各自区域, 2026-08-30 用户拍板), 默认开(2026-08-30 定案)
+  try { const raw = localStorage.getItem("tds_gihpos_sim"); if (raw) { const p = JSON.parse(raw); return !!p.on; } } catch (e) {}
   return true; // 默认开
 }
 function _simSetGihOn(on) {
-  try { localStorage.setItem("tds_gihpos", JSON.stringify({ on: !!on })); } catch (e) {}
+  try { localStorage.setItem("tds_gihpos_sim", JSON.stringify({ on: !!on })); } catch (e) {}
 }
 // G/H/I 长线管位管线(首页 sim 弹窗本地实现, 2026-08-29; 2026-08-30 纠正=管位仅在前端 K 选样后执行):
 // 与 lab.js _kellyAihlineP3dCap(手段P)/_kellyAihlineHoldCap(手段A) 同语义 §22。
@@ -3627,9 +3642,9 @@ function _simSetGihOn(on) {
 function _simGhiHoldCap(rows, mode, fIdx) {
   const t = _SIM_GHI_TIERS[mode];
   if (!t) return { rows: rows, peak: 0 };
-  const capN = Math.round(t.cap / 10000); // 笔数上限 G=13/H=7/I=16
+  const capN = Math.round(t.cap / 10000); // 笔数上限 G=10/H=5/I=9
   if (capN <= 0) return { rows: rows, peak: 0 };
-  const isP = mode === "G"; // G=手段P(P≤3d 先卖年轻仓); H/I=手段A(满仓不买)
+  const isP = mode === "G" || mode === "I"; // G/I=手段P(P≤3d 先卖年轻仓); H=手段A(满仓不买)
   const P3 = 3;
   const _daySpan = (bd, sd) => {
     if (!bd || sd < bd) return 0;
@@ -3699,7 +3714,7 @@ function _simGihTiersHtml(curMode) {
   for (const m of ["G", "H", "I"]) {
     const t = _SIM_GHI_TIERS[m];
     const activeCls = (m === curMode) ? " sim-gih-tier-active" : "";
-    const short = (m === "G") ? ("满仓不卖·P≤3d@" + t.tier) : ("满仓不买@" + t.tier);
+    const short = (m === "G") ? ("满仓不卖·P≤3d@" + t.tier) : ((m === "I") ? ("P≤3d@" + t.tier) : ("满仓不买@" + t.tier));
     out += '<span class="sim-gih-tier-tag' + activeCls + '" title="' + m + '档 ' + short + ': 峰值同时持仓≤' + Math.round(t.cap / 10000) + '笔(20倍本金硬控内=可操作)">' + m + ' · ' + short + '</span>';
   }
   return out;
@@ -3735,12 +3750,12 @@ function _openSimBacktestModal() {
         '<div class="sim-ctrl-block"><label>时间范围(起)</label><input type="date" class="sim-date-start" value="' + _defStart + '"></div>' +
         '<div class="sim-ctrl-block"><label>时间范围(止)· 最长500天</label><input type="date" class="sim-date-end" value="' + _defEnd + '"></div>' +
         '<div class="sim-ctrl-block"><label>交易模式</label><select class="sim-mode-sel">' + (_modeOpts || '<option value="A">A · 固定10天</option>') + '</select></div>' +
-        // 长线管位管理(G/H/I, 2026-08-29 codex#001 定稿档位): 三档写死展示在 .sim-mode-sel 旁;
-        // 默认开, 开关态走共享键 tds_gihpos(lab.js _kellySharedGih 同键读, §22 双端一致);
-        // 档位=G 满仓不卖·P≤3d@13万 / H 满仓不买@7万 / I 满仓不买@16万(与 lab.js AIHLINE_STRATS 同值 §22)
+        // 长线管位管理(G/H/I, 2026-08-30 用户+数据定案档位): 三档写死展示在 .sim-mode-sel 旁;
+        // 默认开, 开关态走独立键 tds_gihpos_sim(与凯利 lab 互不联动, 2026-08-30 用户拍板);
+        // 档位=G 满仓不卖·P≤3d@10万 / H 满仓不买@5万 / I P≤3d@9万(与 lab.js AIHLINE_STRATS 同值 §22)
         '<div class="sim-ctrl-block"><label>长线管位·G/H/I</label>' +
           '<div class="sim-gih-ctl">' +
-            '<label class="sim-gih-on-lab" title="长线管位管理(G/H/I)总开关: 开=G/H/I 三长线模式按各自定稿档位做仓位硬控(峰值同时持仓=档位金额÷¥10000: G=13笔/H=7笔/I=16笔, 20倍本金硬控内可操作); 关=不套仓位管位, 展示原始持仓峰值。共享键 tds_gihpos 与凯利页「ai长线模式(G/H/I)仓位管理」开关双向同步(默认开)。A-F 短线模式不适用管位, 档位标签仅提示所选长线模式的目标笔数。"> <input type="checkbox" class="sim-gih-on-cb"> 开</label>' +
+            '<label class="sim-gih-on-lab" title="长线管位管理(G/H/I)总开关: 开=G/H/I 三长线模式按各自定稿档位做仓位硬控(峰值同时持仓=档位金额÷¥10000: G=10笔/H=5笔/I=9笔, 20倍本金硬控内可操作); 关=不套仓位管位, 展示原始持仓峰值。独立开关(默认开, 记忆键 tds_gihpos_sim), 与凯利页「ai长线模式(G/H/I)仓位管理」开关互不联动, 各自管各自区域。A-F 短线模式不适用管位, 档位标签仅提示所选长线模式的目标笔数。"> <input type="checkbox" class="sim-gih-on-cb"> 开</label>' +
             '<span class="sim-gih-tiers"></span>' +
           '</div>' +
         '</div>' +
@@ -3824,7 +3839,7 @@ function _bindSimBacktestControls(modal, _close) {
       _simRender(modal); // 仅重渲染过滤层; 模式记忆/下拉选中值全程不变
     });
   }
-  // 长线管位(G/H/I)总开关(2026-08-29 codex#001): 只读写共享键 tds_gihpos(lab.js _kellySharedGih 同键 §22, 双端同步),
+  // 长线管位(G/H/I)总开关(2026-08-29 codex#001): 读写独立键 tds_gihpos_sim(与凯利 lab 互不联动, 2026-08-30 用户拍板),
   // 默认开; 切开关=重渲染(峰值同时持仓展示口径: 开=档位硬控笔数 cap/10000 / 关=原始峰值), 不动模式下拉记忆
   const _simGihCb = modal.querySelector(".sim-gih-on-cb");
   if (_simGihCb) {
@@ -3974,7 +3989,7 @@ async function _simRenderOnce(modal) {
   const K = parseInt(kRaw, 10) || 0;  // 0 = 关(不过滤)
   const mode = modal.querySelector(".sim-mode-sel").value || "A";
   // 长线管位(G/H/I, 2026-08-29 codex#001): 切模式时重绘档位标签(当前所选长线模式高亮);
-  // GIH 开关状态=峰值同时持仓展示口径来源(开=档位硬控笔数 cap/10000 / 关=原始峰值), 读共享键 tds_gihpos 默认开
+  // GIH 开关状态=峰值同时持仓展示口径来源(开=档位硬控笔数 cap/10000 / 关=原始峰值), 读独立键 tds_gihpos_sim 默认开(与凯利 lab 互不联动)
   const _simGihTiersElNow = modal.querySelector(".sim-gih-tiers");
   if (_simGihTiersElNow) _simGihTiersElNow.innerHTML = _simGihTiersHtml(mode);
   const _simGihCbNow = modal.querySelector(".sim-gih-on-cb");
@@ -4625,6 +4640,7 @@ function _openRefHelpModal() {
         '<p><b>A（固定10天短线）</b>：看到买入信号后买进，<b>固定持有 10 天就卖出</b>，快进快出，吃一段短线波段就离场。</p>' +
         '<p><b>F（持有15天短线）</b>：看到买入信号后买进，<b>固定持有 15 天就卖出</b>，比 A 拿得稍久一点。</p>' +
         '<p>白话理解：<b>持有周期短、跟着短线信号进出</b>，不恋战。适合想快进快出、资金周转快的玩法。</p>' +
+        '<p><b>短线特质（与长线 G/H/I 的差异）</b>：A/F 的<b>卖出条件由自身规则定</b>（固定持满到天数就卖、不依赖外部卖出信号）→ <b>没有"管位"概念</b>；G/H/I 长线要等外部卖出信号、仓位满了会被卡住，才需要"长线管位"(G/I=P≤3d先卖年轻、H=满仓不买)腾位。</p>' +
       '</div>' +
       '<div class="rule-card"><div class="rule-card-head">⏰ 当日实操建议（两段式信号固化）</div>' +
         '<p>今日 A 股信号 15:03 已用收盘价定稿、<b>不会再消失</b>：盘后 15:02 快照已用 A 股收盘价重算完成；17:50 只是补港股/欧股/国债的完整版，A 股部分不会再变。</p>' +
@@ -4632,10 +4648,11 @@ function _openRefHelpModal() {
         '<p>当日可执行标的 = 顶部 AI 建议 1/2/3：仅从已入凯利回测宇宙（带跟踪分的可交易 ETF）中按收盘价版选入，不随盘中波动消失，可按对应 top ETF 在盘后窗口下单。</p>' +
         '<p>⚠ 初版仅覆盖 A 股；港股/欧股/国债相关信号待 17:50 完整版补齐。</p>' +
       '</div>' +
-      '<div class="rule-card"><div class="rule-card-head">🟢 中长线玩法：G（跟指数卖出信号离场）</div>' +
-        '<p><b>G（卖出信号中长线）</b>：看到买入信号后买进后<b>不急着卖</b>，一直持有；<b>只有当对应指数的「卖出信号」触发时才离场</b>；没触发卖出信号就继续持有到回测结束。</p>' +
-        '<p>白话理解：<b>跟随指数卖出信号触发离场、无信号就拿着</b>，是最贴近交易页面信号驱动跟单的方法，也是总建议的主选。</p>' +
-        '<p>进阶（可选）：G 玩法还可加一层仓位管理——持仓超过上限时，<b>先卖「刚买进、还没持有满 3 天」的年轻仓（保老仓、砍新仓）</b>，让老仓继续滚利润（详见凯利回测页「G 玩法完整交易方法」）。</p>' +
+      '<div class="rule-card"><div class="rule-card-head">🟢🛡️🔎 长线三玩法：G（卖信号少→P≤3d先卖年轻）／H（止损高频→满仓不买）／I（双兜底→P≤3d先卖年轻）</div>' +
+        '<p><b>G（卖出信号中长线）</b>：买入后<b>一直持有</b>，仅当对应指数「卖出信号」触发才离场。因为卖信号少、仓位满了容易卡住→超上限时<b>先卖「未满3天」年轻仓腾位</b>(保老仓砍新仓)。<b>G 定案=P≤3d@10万</b>：收 189%、净+189,290、峰10笔=10倍本金可操作。</p>' +
+        '<p><b>H（追止损频繁→满仓不买）</b>：买入后持有到「卖出信号」或「追止损」任一离场。H 止损触发频繁(持仓平均33天即出)，恰好自动频繁腾位→<b>满仓跳过新信号反而避开劣质单</b>，收益率全场最高。<b>H 定案=满仓不买@5万</b>：收 230%、净+115,157、峰5笔=5倍本金可操作，年化7.96%。</p>' +
+        '<p><b>I（追关注+追止损→P≤3d先卖年轻）</b>：I 有追关注+追止损双兜底，但卖出信号仍偏少→与 G 同理超上限时先卖年轻仓。<b>I 定案=P≤3d@9万(手段P,2026-08-30 原A法改P法)</b>：收 193%(b0)/227%(b1)、净+173,992~+204,373、峰9笔=9倍本金，<b>唯一16/16年全正</b>。</p>' +
+        '<p style="font-size:.88em;color:var(--text-dim,#9aa)">简记：H=止损快→满仓不买自动避劣；G/I=卖信号少→P≤3d先卖年轻吃短线。长线管位(三档的仓位硬控)可在模拟回测弹窗「长线管位·G/H/I」开关处勾选测试(默认可开,独立键 tds_gihpos_sim,与凯利页互不联动)。</p>' +
       '</div>' +
       '<div class="rule-card"><div class="rule-card-head">🆕 次日玩法：分批挂单（数据更稳，推荐）</div>' +
         '<p><b>买入价口径（v1.1.4 起默认）</b>：凯利回测的买入价 = <b>信号次日开盘价</b>（信号收盘后固化、次日开盘才能真实成交），按 gap 比例换算到 accum_nav 口径（次日开盘 accum_nav 等价值 = 信号日 accum_nav × (次日原始 open / 信号日原始 close)，正确处理分红/份额折算）；旧基线「信号日收盘等价 accum_nav」因收盘价不可成交已于 v1.1.4 切换为次日开盘（量化见 kelly-nextday-open-backtest.md：净利仅微降 0.01%~0.57%、收益率基本不变、相对结论原样成立）。</p><p><b>次日开盘直接买</b>：比当日收盘买几乎不输（净利仅低 0.01%，胜率还反升），不想麻烦的话次日开盘<u>无脑买</u>就行。</p>' +
@@ -4804,7 +4821,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   //   _statItems = 统计人口(排除降亏命中, 使准确率+分栏计数随过滤联动)
   let _statItems = _fadeOn ? popItems.filter((it) => !_isAiFadeHit(it)) : popItems;
   // 列表 = 人口 ∩ 列表子筛选(grade/correct/type)；5 个筛选正交组合(AND)
-  // v1.1.5(2026-08-24) 第6个正交开关「仅显示可用信号」(_availOnlyOn, 裸键 tds_home_show_available_only, 默认关 §23.7):
+  // v1.1.5(2026-08-24) 第6个正交开关「仅显示可用信号」(_availOnlyOn, 裸键 tds_home_show_available_only, 默认开(2026-08-30 用户拍板)):
   // 在现有渲染结果上隐藏灰显/删除线行——隐藏判定与 cellHtml 画线条件逐字同源, 不改变任何判定链:
   //   ① AI降亏命中(_isAiFadeHit → sig-ai-hit 删除线+置灰; 含牛市×辅备买全停 bullAuxBackupStop 分支)
   //   ② 未入样本(it._bt_in_universe===false 且非 band_hold → sig-poscap-notuni 删除线+置灰)
@@ -4882,20 +4899,20 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // s06 fail-open 计数暴露给渲染层(AI 建议区警示条读取); 非 s06 恒 0
   function _homeS06WarnCount() { return _homeIsS06 ? _homeS06FailOpen : 0; }
   function _homeS06Active() { return _homeIsS06; }
-  // positionCap 仓位控制过滤(2026-08-12): 凯利回测页 toggle 共享设置(localStorage "tds_poscap", 双页联动)
+  // positionCap 仓位控制过滤(2026-08-12): 独立键 localStorage "tds_home_poscap"(与凯利 lab 各自独立互不联动, 2026-08-30 用户拍板)
   // #4 范围扩展(2026-08-12): 从凯利区扩展到整个信号列表——近30交易日每个日期各自按同一排序算 top-K, 所有日期都展示 AI建议(AI建议买入/当日已满), 不只今日
   // 排序口径与凯利回测 §6.1 一致: track_score DESC → 评级(high>mid>low) → 信号类型(buy_backup>buy>buy_aux>buy_special) → buy_date ASC
   let _posCapKeptMap = null;
   let _posCapK = 1;  // 2026-08-14 #BC 默认 K=1(主推档, 与 lab.js _kellyDefaultFilters/_kellySharedPosCap on:true/k:1 语义对齐)
   let _posCapSortedFn = null;  // 2026-08-13 rank fix: 质量序排序函数提升到 for 循环可访问作用域(编号复用同一排序, 单源零漂移)
-  let _pcOn = true;  // AI仓位建议 当前是否开启(开关行 off 按钮状态; 首页无 tds_poscap key 时保持现状 K=1 主推高亮, 与 lab.js 默认 on:true/k:1 语义对齐)
+  let _pcOn = true;  // AI仓位建议 当前是否开启(开关行 off 按钮状态; 首页无 tds_home_poscap key 时保持现状 K=1 主推高亮(独立键, 与 lab 互不联动))
   if (kind === "signal") {
     try {
-      const _raw = localStorage.getItem("tds_poscap");
-      // 2026-08-21 #93 fix: 首次访问无 tds_poscap key 时, 默认 on:true/k:1 写入 localStorage,
+      const _raw = localStorage.getItem("tds_home_poscap");
+      // 2026-08-21 #93 fix: 首次访问无 tds_home_poscap key 时, 默认 on:true/k:1 写入 localStorage,
       // 使 AI建议 badge 与 lab.js 默认语义对齐(K=1 主推高亮), 与 L2669 _pcOn=true 注释一致
       if (!_raw) {
-        localStorage.setItem("tds_poscap", JSON.stringify({ on: true, k: 1 }));
+        localStorage.setItem("tds_home_poscap", JSON.stringify({ on: true, k: 1 }));
       }
       {
         const _pc = JSON.parse(_raw || '{"on":true,"k":1}');
@@ -5000,7 +5017,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   //   再按 index_id|signal 字典序兜底保唯一; 全零日无主推)。渲染映射(x 计数直接展示不丢票数):
   //   winner →「{x}票·当日主推」/ 其余有票 →「{x}·非主推」/ 0 票 →「0·非主推」, 见 hoverpop show()。
   //   独立定义排序函数不复用 _posCapSortedFn
-  //   (其在 tds_poscap.on&&k 合法条件内才赋值, 固化视角不能依赖用户状态); 人口用全量 items 不受
+  //   (其在 tds_home_poscap.on&&k 合法条件内才赋值, 固化视角不能依赖用户状态); 人口用全量 items 不受
   //   windowedItems/档位筛选影响(先例 _dateHasInUniverseBuy L4654)。
   // 展示: cellHtml 写 data-consensus 属性 → hoverpop show() 拼末行; 非买入类(band_hold/sell/sell_stop_loss)
   //   显"—"(仅买信号判降亏 §23.6 MED3)。一张表喂 N 展示位(§22), 未来列表级 badge 直接读同一张表。
@@ -5152,7 +5169,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   const _sigSwitchHtmlStr = (kind === "signal") ? _sigSwitchHtml(_fadeOn, _posCapK || 1, _pcOn, signalsMeta) : "";
   // 2026-08-14 AI过滤视图(用户澄清口径, 两开关正交不绑定):
   //   开关1「AI降亏」(_fadeOn, tds_home_fade)= 删除线过滤层 → 命中降亏删线(现状) + 未入样本(_bt_in_universe===false)删线+置灰+「未入样本」标注;
-  //   开关2「AI仓位」(_pcOn, tds_poscap.on)= badge标注层 → AI建议N(进top-K)/当日已满(超出K)/AI警示(入宇宙卖出), 均由 _posCapRank 或 _pcOn 门控;
+  //   开关2「AI仓位」(_pcOn, tds_home_poscap.on)= badge标注层 → AI建议N(进top-K)/当日已满(超出K)/AI警示(入宇宙卖出), 均由 _posCapRank 或 _pcOn 门控;
   //   叠加=两层同时生效; 全关=全量视图所有信号正常亮显不标注。两层严格正交, 不互相触发对方层(badge层不产删除线、删除线层不产badge)。
   //   AI降亏开启时不产生 AI建议N/当日已满/AI警示(那些属 AI仓位层); AI仓位开启时不产生删除线过滤(那属 AI降亏层)。
   let rows = "";
@@ -5211,7 +5228,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           : '';
         const cls = showIntradayWarn ? "sig-item sig-clickable sig-intraday" : "sig-item sig-clickable";
         // AI仓位建议(#4 2026-08-12 rename+范围扩展): 近30交易日每个日期各自 top-K AI建议买入高亮, 其余"当日已满"灰显
-        // (与凯利回测页 toggle 共享 tds_poscap 联动; 历史日期为复盘视角, 排序/口径与回测一致)
+        // (独立键 tds_home_poscap, 与凯利 lab 各自独立互不联动, 2026-08-30 用户拍板; 历史日期为复盘视角, 排序/口径与回测一致)
         let posCapCls = "";
         let posCapBadge = "";
         // 2026-08-13 融合口径(与凯利回测一致): 被AI降亏划掉的信号不进 top-K(顺延补位)、也不显示「当日已满」
