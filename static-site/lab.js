@@ -8182,6 +8182,22 @@ function _labKellyFetchTrades(name) {
         .catch(function(e2) { clearTimeout(t2); throw e2; });
     });
 }
+// 分片带重试的 fetch(2026-08-29): 单片至多 attempts 次尝试(首次+重试), 每次失败按 delays 指数退避后重试, 全败才抛出
+//   - 重试仍用同一个 _labKellyFetchTrades(R2→CF 双源都有各自超时/回退), 只是失败后稍等再试, 兜底瞬时网络抖动
+function _labKellyFetchTradesRetry(name, attempts, delays) {
+  attempts = attempts || 3;                 // 首次 + 2 次重试 = 至多 3 次
+  delays = delays || [1000, 2000];          // 指数退避: 第1次重试等1s, 第2次重试等2s
+  function attempt(n) {
+    return _labKellyFetchTrades(name).catch(function (e) {
+      if (n < attempts - 1) {
+        var wait = delays[n] >= 0 ? delays[n] : delays[delays.length - 1];
+        return new Promise(function (res) { setTimeout(function () { res(attempt(n + 1)); }, wait); });
+      }
+      throw e; // 重试耗尽, 抛给上层 decide 回退
+    });
+  }
+  return attempt(0);
+}
 function _labKellyParseTrades(tr) {
   var fields = tr.fields;
   var fIdx = {};
@@ -8235,37 +8251,46 @@ async function _labKellyLoadYearParts() {
   if (_labKellyFullFallback) return !!state.labSigKellyTradesData;
 
   try {
-    // 各年份分片将直接加载
-    var yearParts = [];
-
     // 按年份加载并合并(t2026.json -> t2025.json -> t2024.json...)
     // 2026-08-29 小步1: 串行 for await 改 Promise.all 并行16年(下载从 69MB 累加降到最大单年~16MB);
-    //   Promise.all 结果按输入序返回 → yearParts 保持按年有序(_labKellyMergeShards 顺序无关也安全)。
-    //   每片成功/失败都推进 _labKellyLoadProgress(失败只记进度不抛, 与旧实现 continue 语义一致)。
+    //   Promise.all 结果按输入序返回 → results 保持按年有序(_labKellyMergeShards 顺序无关也安全)。
+    //   每片成功/失败都推进一次 _labKellyLoadProgress(进度按片计, 不计重试)。
     var years = ["2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017", "2016", "2015", "2014", "2013", "2012", "2011"];
     _labKellyLoadProgress = { done: 0, total: years.length, lastYear: "" };
+    // 2026-08-29 小步(重试+诚实回退): 每片带 _labKellyFetchTradesRetry(首次+2次重试+退避),
+    //   结果用 {year, ok, data} 收敛(不静默丢弃失败年); 全 settle 后若有任一年重试仍失败 → 不渲染缺年数据, 回退全量。
+    // 进度语义: 每片最终 done+=1 一次(不计重试, 16片维度不变)。
     var results = await Promise.all(years.map(function (y) {
-      return _labKellyFetchTrades("signal_kelly_trades_parts/t" + y + ".json")
+      return _labKellyFetchTradesRetry("signal_kelly_trades_parts/t" + y + ".json")
         .then(function (yearFile) {
           var parsed = _labKellyParseTrades(yearFile);
           _labKellyLoadProgress.done += 1;
           _labKellyLoadProgress.lastYear = y;
           _labKellyProgressTickUI();
           console.log("[sigkelly] 已加载 t" + y);
-          return parsed;
+          return { year: y, ok: true, data: parsed };
         })
         .catch(function (e) {
-          console.warn("[sigkelly] t" + y + " 加载失败:", e);
-          _labKellyLoadProgress.done += 1;   // 失败也推进进度(16片尝试完毕)
+          console.warn("[sigkelly] t" + y + " 重试后仍失败(将回退全量):", e);
+          _labKellyLoadProgress.done += 1;   // 每片最终仍推进一次进度(16片尝试完毕)
           _labKellyLoadProgress.lastYear = y;
           _labKellyProgressTickUI();
-          return null;
+          return { year: y, ok: false, data: null };
         });
     }));
-    for (var pi = 0; pi < results.length; pi++) if (results[pi]) yearParts.push(results[pi]);
 
-    // 合并所有年份数据(全失败时 yearParts 为空 → merge 抛错 → catch 回退全量)
-    var merged = _labKellyMergeShards(yearParts);
+    // 收集重试后仍失败的年份; 有任何一片失败 → 不再用不完整数据渲染, 回退全量(比静默丢年+假全信号更诚实, §22)
+    var failYears = [];
+    for (var ri = 0; ri < results.length; ri++) {
+      if (!results[ri].ok) failYears.push(results[ri].year);
+    }
+    if (failYears.length > 0) {
+      console.warn("[sigkelly] 分片 t" + failYears.join(",") + " 重试后仍失败, 回退全量 signal_kelly_trades.json(约69MB)");
+      return await _labKellyLoadFull();
+    }
+
+    // 全部年份都成功(不含 null)才合并渲染
+    var merged = _labKellyMergeShards(results.map(function (r) { return r.data; }));
     state.labSigKellyTradesData = merged;
 
     return true;
