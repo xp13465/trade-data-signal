@@ -1550,6 +1550,20 @@ def _export_lab_slices(trades_data, trades_path):
     # codex-002 high: meta 最后原子写(meta 是前端预览入口, 半截=整链失败)
     _atomic_write(meta_path, json.dumps(meta, ensure_ascii=False, separators=(",", ":")))
     _cleanup_stale_tmp(parts_dir, keep_names=set())
+    # 清理不在本批 meta 中的旧 lab_* 残留片(历史数据量大时会多切 p2/p3, 重跑后
+    # 数据量缩小片数减少, 旧片不再被 meta 记录但文件仍留 → check_data_integrity FAIL)
+    expected_names = set()
+    for g in meta["groups"].values():
+        for p in g.get("parts", []):
+            expected_names.add(p["name"])
+    stale_n = 0
+    for fn in os.listdir(parts_dir):
+        if (fn.startswith("lab_") and fn.endswith(".json") and fn != "lab_meta.json"
+                and "_p" in fn and fn not in expected_names):
+            os.remove(os.path.join(parts_dir, fn))
+            stale_n += 1
+    if stale_n:
+        print(f"  清理 {stale_n} 个旧 lab 残留片", file=sys.stderr)
     n_groups = len(meta["groups"])
     print(f"✓ lab弹窗切片导出完成: {n_groups} 组 / {total_parts} 片 + lab_meta.json "
           f"({os.path.getsize(meta_path) / 1024:.1f} KB)")
