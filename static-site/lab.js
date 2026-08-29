@@ -8135,7 +8135,6 @@ async function _kellyRunRecompute(host, loadingHtml, onResult, onDone) {
 }
 
 // sigkelly 分片加载模块(2026-08-28): recent.json 首屏快速预览 + 全量兜底 + 合并各年数据
-var _labKellyPartsCache = new Map();   // "tYYYY" -> parsed {fields,fIdx,quadrants}
 var _labKellyFullFallback = false;     // 分片链路失败已回退全量(true 后跳过分片逻辑)
 var _labKellyLoadErr = null;           // 加载错误信息
 var _labKellyQuickPreview = null;     // 快速 UI 预览用 recent.json 数据(供快速显示不等待加载)
@@ -8195,14 +8194,7 @@ async function _labKellyLoadFull() {
     return false;
   }
 }
-// localStorage 缓存(版本号 = trades.json._meta.generated_at, 变了失效; recent.json 缓存 key=tdp_kelly_recent_v1)
-function _labKellyGetCache(name) {
-  try {
-    var raw = localStorage.getItem("tdp_kelly_" + name + "_v1");
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch (e) { return null; }
-}
+// localStorage 缓存: _labKellySetCache 用于 recent.json 版本标记(不含合并后全量数据)
 function _labKellySetCache(name, data, meta) {
   try {
     var obj = { data: data, genAt: meta };
@@ -8259,9 +8251,11 @@ async function _labKellyLoadYearParts() {
     return await _labKellyLoadFull();
   }
 }
-// 主入口: localStorage 缓存优先 + 分片加载
+// 主入口: 分片加载(recent + t2011-t2025 合并)
 // 返回 Promise<true>就绪 / <false>失败(错误已记录在 _labKellyLoadErr)
-// 缓存在首次渲染后静默后台刷新, 已有数据的情况下 UI 不阻塞
+// 2026-08-29 fix: 移除 localStorage 缓存短路——recent.json 仅 3 个月数据,
+// 缓存命中会跳过 _labKellyLoadYearParts() 导致 t2011-t2025 分片永远不加载。
+// 内存态(state.labSigKellyTradesData)已就绪时直接返回,不重复网络请求。
 async function _labKellyTradesEnsure(opt) {
   if (state.labSigKellyTradesData && !_labKellyFullFallback) return true; // 已就绪
   if (_labKellyFullFallback) return !!state.labSigKellyTradesData;
@@ -8277,22 +8271,7 @@ async function _labKellyTradesEnsure(opt) {
     }
   }
 
-  // 优先从缓存加载完整数据
-  var cached = _labKellyGetCache("recent");
-  if (cached && cached.data && cached.data.quadrants) {
-    var curMeta = (cached.data && cached.data._meta && cached.data._meta.generated_at) ? cached.data._meta.generated_at : (cached.data && cached.data.generated_at ? cached.data.generated_at : null);
-    var recent = await _labKellyFetchTrades("signal_kelly_trades_parts/recent.json");
-    var netMeta = (recent && recent._meta && recent._meta.generated_at) ? recent._meta.generated_at : (recent && recent.generated_at ? recent.generated_at : null);
-
-    if (netMeta && curMeta === netMeta) {
-      // 缓存已是最新数据，直接使用
-      state.labSigKellyTradesData = _labKellyParseTrades(cached.data);
-      _labKellyPartsCache.set("recent", state.labSigKellyTradesData);
-      return true;
-    }
-  }
-
-  // 加载完整分片数据
+  // 加载完整分片数据(recent + t2011-t2025 合并, localStorage 不缓存合并后全量)
   return await _labKellyLoadYearParts();
 }
 
