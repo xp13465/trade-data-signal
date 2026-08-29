@@ -3619,6 +3619,79 @@ function _simGihOn() { // 共享键 tds_gihpos(与 lab.js _kellySharedGih 同键
 function _simSetGihOn(on) {
   try { localStorage.setItem("tds_gihpos", JSON.stringify({ on: !!on })); } catch (e) {}
 }
+// G/H/I 长线管位管线(首页 sim 弹窗本地实现, 2026-08-29): 与 lab.js _kellyAihlineP3dCap(手段P)/_kellyAihlineHoldCap(手段A)
+// 同语义 §22。rows=列式数组(_simRenderOnce K 过滤后传入), mode=G/H/I, fIdx=字段索引表。
+// 返回 {rows: 管位后行数组, peak: 峰值同时持仓笔数}。源头 signal_kelly_trades.json 已按同管线管位,
+// 此函数在现数据上幂等(保留集不变); 对旧缓存/未管位数据源则剔除超容买入(手段A 满仓不买 / 手段P P≤3d 先卖年轻仓腾位)。
+function _simGhiHoldCap(rows, mode, fIdx) {
+  const t = _SIM_GHI_TIERS[mode];
+  if (!t) return { rows: rows, peak: 0 };
+  const capN = Math.round(t.cap / 10000); // 笔数上限 G=13/H=7/I=16
+  if (capN <= 0) return { rows: rows, peak: 0 };
+  const isP = mode === "G"; // G=手段P(P≤3d 先卖年轻仓); H/I=手段A(满仓不买)
+  const P3 = 3;
+  const _daySpan = (bd, sd) => {
+    if (!bd || sd < bd) return 0;
+    const d1 = new Date(+bd.slice(0, 4), +bd.slice(4, 6) - 1, +bd.slice(6, 8));
+    const d2 = new Date(+sd.slice(0, 4), +sd.slice(4, 6) - 1, +sd.slice(6, 8));
+    return Math.max(Math.round((d2 - d1) / 86400000), 0);
+  };
+  const wrap = (r) => ({ row: r, buy_date: String(r[fIdx.buy_date] || ""), sell_date: String(r[fIdx.sell_date] || "") || null, signal_date: String(r[fIdx.signal_date] || ""), closed: null });
+  const trs = rows.map(wrap);
+  const buysByDate = {}, datesSet = {}, allDates = [];
+  for (const tr of trs) {
+    const bd = tr.buy_date;
+    (buysByDate[bd] || (buysByDate[bd] = [])).push(tr);
+    if (!datesSet[bd]) { datesSet[bd] = 1; allDates.push(bd); }
+    const sd2 = tr.sell_date;
+    if (sd2 && !datesSet[sd2]) { datesSet[sd2] = 1; allDates.push(sd2); }
+  }
+  allDates.sort();
+  const openTrs = [], kept = [];
+  let cur = 0, peak = 0;
+  const _idxPush = (arr, x) => { arr[arr.length] = x; };
+  for (let d = 0; d < allDates.length; d++) {
+    const dt = allDates[d];
+    const newOpen = [];
+    for (let o = 0; o < openTrs.length; o++) {
+      const x = openTrs[o];
+      if (x.sell_date === dt && x.closed === null) { x.closed = "natural"; cur -= 1; _idxPush(kept, x.row); }
+      else _idxPush(newOpen, x);
+    }
+    openTrs.length = 0;
+    for (let o = 0; o < newOpen.length; o++) _idxPush(openTrs, newOpen[o]);
+    const dayTrs = buysByDate[dt];
+    if (dayTrs) {
+      const dayTotal = dayTrs.length;
+      let needed = cur + dayTotal - capN;
+      if (needed > 0) {
+        if (isP) {
+          while (needed > 0 && openTrs.length) {
+            let sel = null, selBuy = null;
+            for (let p = 0; p < openTrs.length; p++) {
+              const ot = openTrs[p];
+              if (ot.closed !== null) continue;
+              if (_daySpan(ot.buy_date, dt) <= P3) { if (!sel || ot.buy_date < selBuy) { sel = ot; selBuy = ot.buy_date; } }
+            }
+            if (!sel) { for (let p2 = 0; p2 < openTrs.length; p2++) { const ot2 = openTrs[p2]; if (ot2.closed !== null) continue; if (!sel || ot2.buy_date < sel.buy_date) sel = ot2; } }
+            sel.closed = "p3d";
+            const selRow = sel.row.slice();
+            selRow[fIdx.sell_date] = dt;
+            selRow[fIdx.sell_reason] = "管位腾位卖出";
+            _idxPush(kept, selRow);
+            cur -= 1;
+            for (let rp = openTrs.length - 1; rp >= 0; rp--) { if (openTrs[rp] === sel) openTrs.splice(rp, 1); }
+            needed = cur + dayTotal - capN;
+          }
+          if (needed <= 0) { for (let q = 0; q < dayTrs.length; q++) { _idxPush(openTrs, dayTrs[q]); cur += 1; } }
+        }
+      } else { for (let q2 = 0; q2 < dayTrs.length; q2++) { _idxPush(openTrs, dayTrs[q2]); cur += 1; } }
+    }
+    if (cur > peak) peak = cur;
+  }
+  for (let z = 0; z < openTrs.length; z++) { const tz = openTrs[z]; if (tz.closed === null) _idxPush(kept, tz.row); }
+  return { rows: kept, peak: peak };
+}
 // 弹窗内三档标签(G/H/I 每档一个 tag, 当前所选模式高亮; 与任务5「简明玩法+档位」定稿展示口径一致)
 function _simGihTiersHtml(curMode) {
   let out = "";
@@ -4058,6 +4131,13 @@ async function _simRenderOnce(modal) {
     }
     kept = out;
   }
+  // ③.5 G/H/I 长线管位管线(2026-08-29 补): 源头 signal_kelly_trades.json 已按同管线管位(手段A 满仓不买 /
+  // 手段P P≤3d 先卖年轻仓), 此管线在现数据上幂等(保留集不变); 对旧缓存/未管位数据源则按当前档位
+  // 剔除超容买入, 与 lab.js _kellyAihlineApply 同语义 §22。作用于 K 过滤后、日期切片前。
+  if (gihOn && _SIM_GHI_TIERS[mode]) {
+    const _ghir = _simGhiHoldCap(kept, mode, fIdx);
+    kept = _ghir.rows;
+  }
   // ④ 日期切片(按 signal_date 字符串比较, 空=不筛)
   if (startD || endD) {
     kept = kept.filter((t) => {
@@ -4254,12 +4334,14 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
       gi = gj;
     }
   }
-  // 峰值同时持仓「展示口径」(2026-08-29 codex#001): G/H/I 长线管位开=档位硬控笔数 cap/10000(G=13/H=7/I=16,
-  // 20倍本金硬控内=可操作, 与 lab.js AIHLINE_STRATS/《gihGTierB 同值 §22); 其他模式或管位关=原始计算峰值。
-  // 累积盈亏%分母同步用该展示值(G/H/I 管位开时口径与 lab __gihb1 cap后一致, A-F 行为逐位不变 §23.7)。
+  // 峰值同时持仓「展示口径」(2026-08-29 change#2): G/H/I 管位开后峰值=真实计算峰值(源头产物已管位,
+  // 峰值自然≤档位硬控笔数 cap/10000=G=13/H=7/I=16, 20倍本金硬控内=可操作, 与 lab.js AIHLINE_STRATS
+  // 同值 §22); 不再用档位目标值覆盖, 各窗口展示真实持仓峰值(与管位后行数据/汇总同口径)。
+  // A-F 及管位关状态同前: 窗口内 raw 峰值(累积盈亏%分母口径)。
   const _ghIt = _SIM_GHI_TIERS[mode];
-  const _gihTargetN = (gihOn && _ghIt) ? Math.round(_ghIt.cap / 10000) : 0;
-  const peakDisp = _gihTargetN || Math.max(peakPosN, 1);
+  const _gihActive = !!(gihOn && _ghIt && _ghIt.cap > 0);
+  const _gihCapN = _gihActive ? Math.round(_ghIt.cap / 10000) : 0;
+  const peakDisp = Math.max(peakPosN, 1);
   for (let i = 0; i < asc.length; i++) {
     const t = asc[i];
     const bk = _simBaseKey(t, fIdx);
@@ -4308,7 +4390,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
     let html = '<table class="sim-tbl"><thead><tr>' +
       '<th>日期</th><th>当日持仓</th><th>当日信号</th><th>信号关联ETF</th><th>计划买入时间</th><th title="手续费恒为支出扣费语义: 显示负数(绿色), 详见各行悬停提示">买入手续费</th>' +
       '<th>计划卖出时间</th><th title="手续费恒为支出扣费语义: 显示负数(绿色)">卖出手续费</th><th>本笔交易盈亏%</th><th>本笔盈亏金额</th>' +
-      '<th title="公式: 累计盈亏金额 ÷(窗口峰值同时持仓×¥10000)=真实资金占用收益率, 非每笔收益率简单相加; 详见各行悬停提示">累积盈亏</th><th title="Σ每笔费后盈亏真实金额累加, 绝对赚赔额(未除以资金占用)">累积金额</th><th>累积对错</th><th title="' + (gihOn && _SIM_GHI_TIERS[mode] ? ('峰值同时持仓笔数(' + mode + '档长线管位开启): 档位硬控=' + _SIM_GHI_TIERS[mode].play + '@' + _SIM_GHI_TIERS[mode].tier + ' → 峰值同时持仓≤' + Math.round(_SIM_GHI_TIERS[mode].cap / 10000) + '笔(20倍本金硬控内=可操作; 与凯利页「ai长线模式(G/H/I)仓位管理」同口径§22); 关掉「长线管位」开关则显示原始计算峰值') : '本窗口内峰值同时持仓笔数(累积盈亏%分母口径)') + '">峰值同时持仓笔数</th></tr></thead><tbody>';
+      '<th title="公式: 累计盈亏金额 ÷(窗口峰值同时持仓×¥10000)=真实资金占用收益率, 非每笔收益率简单相加; 详见各行悬停提示">累积盈亏</th><th title="Σ每笔费后盈亏真实金额累加, 绝对赚赔额(未除以资金占用)">累积金额</th><th>累积对错</th><th title="' + (gihOn && _SIM_GHI_TIERS[mode] ? ('峰值同时持仓笔数(' + mode + '档长线管位开启): 玩法=' + _SIM_GHI_TIERS[mode].play + '@' + _SIM_GHI_TIERS[mode].tier + ', 真实计算峰值=' + peakDisp + '笔≤档位硬控' + _gihCapN + '笔(20倍本金硬控内=可操作; 与凯利页「ai长线模式(G/H/I)仓位管理」同口径§22); 关掉「长线管位」开关则显示未管位的原始计算峰值') : '本窗口内峰值同时持仓笔数(累积盈亏%分母口径)') + '">峰值同时持仓笔数</th></tr></thead><tbody>';
     for (const t of slice) {
       const bk = _simBaseKey(t, fIdx);
       const c = _simBtCalcRow(t, fIdx, fp);
@@ -4340,7 +4422,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
         '<td class="' + _signCls(cum.cumPct) + '" title="' + _escAttr(_cumTip(cum)) + '">' + cum.cumPct.toFixed(2) + '%</td>' +
         '<td class="' + _signCls(cum.cumYuan) + '" title="' + _escAttr(_cumYuanTip(cum)) + '">' + cum.cumYuan.toFixed(2) + '</td>' +
         '<td>' + cum.acc + ' (' + cum.rate + '%)</td>' +
-        '<td class="sim-peak-cell" title="' + (gihOn && _SIM_GHI_TIERS[mode] ? (mode + '档长线管位开启: 峰值同时持仓硬控≤' + peakDisp + '笔(档位 ' + _SIM_GHI_TIERS[mode].tier + ' ÷ ¥10000, 20倍本金硬控内可操作); 原始计算峰值为 ' + Math.max(peakPosN, 1) + ' 笔') : ('本窗口峰值同时持仓 ' + peakDisp + ' 笔(累积盈亏%分母口径)')) + '">' + peakDisp + '</td>' +
+        '<td class="sim-peak-cell" title="' + (gihOn && _SIM_GHI_TIERS[mode] ? (mode + '档长线管位开启: 真实计算峰值 ' + peakDisp + ' 笔(档位 ' + _SIM_GHI_TIERS[mode].tier + ' ÷ ¥10000 = 硬控上限 ' + _gihCapN + '笔, 20倍本金硬控内可操作); 管位关时的原始计算峰值为 ' + Math.max(peakPosN, 1) + ' 笔') : ('本窗口峰值同时持仓 ' + peakDisp + ' 笔(累积盈亏%分母口径)')) + '">' + peakDisp + '</td>' +
         '</tr>';
     }
     html += '</tbody></table>';
@@ -4352,7 +4434,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
       : (_presetObj ? _presetObj.label + "(" + _presetObj.desc + ")" : "");
     summaryEl.innerHTML = '筛选结果: <b>' + n + '</b> 笔(模式 ' + mode + ' · 降亏' + (fadeOn ? '开' : '关') + ' · K=' + (K || '关') +
       ') · 本金每笔 ¥10000 · 长线管位·G/H/I' + (gihOn ? '开' : '关') + ' · 累积收益率口径=累计金额÷(峰值同时持仓 <b>' + peakDisp + '</b> 笔×¥10000)' +
-      ((gihOn && _SIM_GHI_TIERS[mode]) ? ' · ' + mode + '档管位硬控' + peakDisp + '笔(' + _SIM_GHI_TIERS[mode].tier + ', 原始峰值 ' + Math.max(peakPosN, 1) + '笔)' : '') +
+      ((gihOn && _SIM_GHI_TIERS[mode]) ? ' · ' + mode + '档管位: 真实峰值 ' + peakDisp + '笔≤硬控' + _gihCapN + '笔(' + _SIM_GHI_TIERS[mode].tier + ')' : '') +
       ' · 费率[' + feeDesc + ']' +
       (holdingN > 0 ? ' · <span class="simbt-est">含 ' + holdingN + ' 笔持仓中</span>(按最新收盘价计当前盈亏, 已并入累积列与对错计数)' : '');
     if (totalPages > 1) {
