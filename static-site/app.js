@@ -2893,7 +2893,7 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
   // 点击打开全历史真实过滤弹窗(读 signal_kelly_trades.json 实时过滤+费后盈亏累积), 与首页 AI降亏/AI仓位建议 两开关语义一致(§23.7 纯新增, 不改已发布功能)。
   const _simBtn = `<button type="button" class="sig-kbtn sig-kbtn-sim" data-k="sim" data-no-pop="" title="打开「模拟回测」弹窗: 用全历史真实信号交易记录(2011-2026), 按当前 AI降亏过滤 / AI仓位建议K档 / 交易模式 / 费率, 实时过滤并算出费后逐笔盈亏与累积收益(纯展示, 不改任何已发布功能)"><span class="sig-kbtn-k">模拟回测</span><span class="sig-kbtn-r">全历史</span></button>`;
   // 2026-08-13 hoverpop 升级: K 按钮组复用凯利区评级表格 hoverpop(共享 common.js _aiPoscapRatingPopHtml/_bindAiPoscapRatePop, §22 两处数据一致)
-  const _ratingPop = (window._aiPoscapRatingPopHtml ? window._aiPoscapRatingPopHtml() : "");
+  const _ratingPop = (window._aiPoscapRatingPopHtml ? window._aiPoscapRatingPopHtml("tds_home_poscap") : ""); // 首页域独立键(2026-08-30 拆键)
   // T3-2 任务①(2026-08-23) 首页「AI降亏·模式」下拉: 与 lab 凯利区/模拟回测弹窗同款交互(common.js 单源 _tdsFadeModeSelectHTML),
   // 独立 localStorage 键 tds_home_fade_mode(与 tds_kelly_fade_mode/tds_overfit_fade_mode 三处独立互不影响 §22);
   // v1.1.5: 默认=new14(十四键); p8=8键旧默认保留为对照档可手选; 选含 bullAuxBackupStop 的模式(p9/a9/b9/c9)
@@ -3694,6 +3694,13 @@ function _simGhiHoldCap(rows, mode, fIdx) {
             const selRow = sel.row.slice();
             selRow[fIdx.sell_date] = dt;
             selRow[fIdx.sell_reason] = "管位腾位卖出";
+            // 2026-08-30 fix(reviewer P2): 强制卖出必须重算本笔盈亏——对齐 lab.js _kellyAihlineRealize b0 保守语义
+            // (提前卖出=持有≤3天年轻仓, 无中间价格路径→按 0 利计, 防原后期高价残留致累积金额虚高)。
+            // _simBtCalcRow 累积按 sell_price 重算(非 profit 字段), 故 sell_price=buy_price(0 利, 仅扣双边费用)。
+            if (fIdx.buy_price != null && fIdx.sell_price != null) selRow[fIdx.sell_price] = selRow[fIdx.buy_price];
+            if (fIdx.profit != null) selRow[fIdx.profit] = 0;
+            if (fIdx.return_pct != null) selRow[fIdx.return_pct] = 0;
+            if (fIdx.hold_days != null) selRow[fIdx.hold_days] = _daySpan(sel.buy_date, dt);
             _idxPush(kept, selRow);
             cur -= 1;
             for (let rp = openTrs.length - 1; rp >= 0; rp--) { if (openTrs[rp] === sel) openTrs.splice(rp, 1); }

@@ -489,11 +489,14 @@ var _AI_POSCAP_RATING_DYNAMIC = null;
 window._AI_POSCAP_RATING_DYNAMIC = _AI_POSCAP_RATING_DYNAMIC;
 
 // 取当前评级数据源: 动态优先(已计算且 positionCap 当前开启), 否则回退静态快照(标注"快照 08-13")
-function _aiPoscapRatingSrc() {
+// poscapKey: 调用方所在域的独立键(凯利区="tds_poscap_lab", 首页="tds_home_poscap"; 2026-08-30 拆键后孤儿键 tds_poscap 已无人写, 不再读)。
+// 两域键各自判定 pcOn——首页关 AI 仓位建议(home_poscap.on=false)后本函数正确回退静态快照(标注「快照」而非「实时」)。
+function _aiPoscapRatingSrc(poscapKey) {
   var d = window._AI_POSCAP_RATING_DYNAMIC;
   var pcOn = true;
   try {
-    var _raw = localStorage.getItem("tds_poscap");
+    var key = poscapKey || "tds_poscap_lab";
+    var _raw = localStorage.getItem(key);
     if (_raw) { var _p = JSON.parse(_raw); pcOn = !!_p.on; }
   } catch (e) {}
   if (d && d.computed && d.values && pcOn) return { dynamic: true, src: d };
@@ -517,8 +520,9 @@ function _aiPoscapRatingReasonFor(k, vals) {
   return parts.join("+");
 }
 // 生成 K 档评级一行摘要(凯利区 positionCap label data-tip 复用; 与 hoverpop 表同源 §22)
-function _aiPoscapRatingSummary() {
-  var s = _aiPoscapRatingSrc();
+// poscapKey 透传 _aiPoscapRatingSrc(凯利区="tds_poscap_lab" / 首页="tds_home_poscap", 2026-08-30 拆键)
+function _aiPoscapRatingSummary(poscapKey) {
+  var s = _aiPoscapRatingSrc(poscapKey);
   var vals = s.src.values || _AI_POSCAP_RATING;
   var parts = [1, 2, 3, 4].map(function (k) {
     var r = vals[k];
@@ -530,8 +534,8 @@ function _aiPoscapRatingSummary() {
     : '（快照 08-14·v1.1.4 八键基座历史数字(每日池+费率重算口径, 含最低佣金5元), 当前默认=v1.1.7 S06动态, 以页面实时为准; 当前未开启AI仓位建议或未重算→回退静态历史快照）');
 }
 // K 档评级 hoverpop 表格 HTML(1 排首位, K=1 高亮主推; app.js/lab.js 两处共用同一份, 数据源=动态优先/静态快照回退, 勿单改数值)
-function _aiPoscapRatingPopHtml() {
-  var s = _aiPoscapRatingSrc();
+function _aiPoscapRatingPopHtml(poscapKey) {
+  var s = _aiPoscapRatingSrc(poscapKey);
   var vals = s.src.values || _AI_POSCAP_RATING;
   var rows = [1, 3, 4, 2].map(function (k) {
     var r = vals[k];
