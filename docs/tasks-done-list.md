@@ -145,3 +145,15 @@
 - [x] **#97 t2026年份文件被跳过修复** — `if(y==="2026")continue`致合并后少43,240行(12,880 vs 56,120);yearParts改空数组+删除recent重复计算。commit 39571b3f7,v20260829-a486
 - [x] **#98 overfit parity卖类信号过滤移除** — check_overfit_recent_parity.mjs删isSell过滤,实盘统计含全部交易日。commit 0c4bf94ad
 - [x] **#99 P1-01 kelly-reports/review 379KB懒加载** — index.html移除defer同步加载,lab.js改动态script标签注入,仅点击报告弹窗时加载(241KB+138KB)。commit ec3e3d58f,v20260829-a487
+
+## 2026-08-30 会话收尾移入(feat/etf-pin-zoom:ETF弹窗缩放+交易记录5项改造)
+
+> 来源:用户连环需求(缩放缺失/预估措辞/pin成对/列合并/红badge移列)+内审2条P1修复,main-merge 204022edb 统一 build_min+bump(版本串 v20260830-a498)上线,全部 commit 在 origin/main。
+
+- [x] **#28-1 ETF走势弹窗缩放+拖拽+重置**(commit 3e160aeb7)— 交易记录点名ETF弹窗原无放大缩小,密集处看不清;新增滚轮/pinch缩放+平移+重置按钮。panZoom内核 `_etfTrendLiteBind` 缺省false=两个复用调用点(首页sparkline/基金净值)走老路径零回归,内部reviewer逐字段核对等价
+- [x] **#28-2 持仓「预估」→「至今」**(commit 586afe792)— 预核实为真实点位(accum_nav最新日)不宜展示预估,改「至今」三处(卖价标签/收益率前缀/统计口径),数字零改动
+- [x] **#28-3 G/I 红稳定性存疑badge移列**(commit a4c077e24)— 模式列→最终盈亏数字下,不影响行高,纯移列
+- [x] **#28-4 交易记录列合并**(commit 831827a69)— 代码+ETF名称/份额+每笔金额各合一列(上下结构),13列
+- [x] **#28-5 ETF弹窗买卖pin FIFO配对+连线+聚焦hover+popover**(commit 2255f71cb)— 配对显示+连线+FIFO,popover明细(买卖日期/价格/收益率/费率/持有天/净利)
+- [x] **#28-6 内审2条P1修复**(commit b938d21f5)— ①hotzone pointer-events继承吞掉hover(整块交互死码)→补auto;②FIFO下标配对交错交易错配(900组/5136笔张冠李戴)→改按原行引用buy.t===sell.t配对流。reviewer复检PASS
+- [x] **codex外审 rev-20260830-001**(参考消化)— BLOCKED但3条issues逐条核实全为误报(P0说复用点破坏零回归=实为刻意零回归;P1未读缩放几何=实现已读svg._etfTrendPan.get();P2列冗余=badge单处+colDefs13单th)。真问题=内审同批P1,已修。留档 /tmp/codex-review-batch-etf-pin-zoom.md

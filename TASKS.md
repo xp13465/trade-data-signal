@@ -8,24 +8,18 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-29 12:55(凯利懒加载三层bug修复+overfit parity+P1-01懒加载).本轮:
-- **✅ 凯利trades懒加载缓存短路修复**:根因=localStorage缓存recent.json(2.9MB/3月)命中后直接返回state,跳过年份分片加载;修复=移除缓存短路路径,始终走_labKellyLoadYearParts()合并全量(303,280行)。commit ba6d6f7fe,v20260829-a485上线
-- **✅ t2026年份文件被跳过修复**:`if(y==="2026")continue`导致合并后少43,240行;yearParts改空数组起始+删除recent.json重复计算。commit 39571b3f7,v20260829-a486上线
-- **✅ overfit parity卖类信号过滤移除**:校验脚本check_overfit_recent_parity.mjs删isSell过滤,实盘统计含全部交易日。commit 0c4bf94ad
-- **✅ P1-01 kelly-reports/review懒加载**:379KB(241KB+138KB)首页defer同步加载改动态script标签注入,仅点击报告弹窗时加载。commit ec3e3d58f,v20260829-a487上线
-- **✅ Codex性能报告评审**:P1-01/P2-01值得做,P1-02/P1-03暂不动(P1-03引用不存在函数_simLoadTrades)
-- **⏳ 待安排**:P2-01 purpose-notes懒加载(60KB改动态加载,很低风险)
-- **✅ v1.1.8 功能体检**:app.js 30632行完整还原(H档卖法明示+H档1:1注解),4项未报告任务已梳理
-- **✅ H档卖法明示补全**:app.js L2927-2928 新增「🛡️中长线 H(含止损,不想硬扛首选)」+1:1注解(S06×H净利+159,972/峰值≤15/不破20倍线 vs S06×G净利+145,726/峰值29~40/大破20倍线)
-- **✅ Phase1 融合底稿完成**:brief_ledger.json统一三个数据源(7条,0819-0827),修复hit回填bug(6/6一致性),commit 956126ff9
-- **✅ direction_anchor_enabled 已开启**:config/daily_brief.yaml 改为true,7天后(09-04)验收效果
-- **✅ #3 固定持有天数调研完成**:researcher穷举5/10/15/20/30/40/50天×S06/A/NEW14三模式,结论=最优20天(+68,549/+47%),峰值18笔合规(压线),15天保守备选(+34,882/+24%);报告docs/kelly/backtest-ai/fixed-hold-sweep-20260828/report.md
-- **✅ 固定20天卖(J)档位已实施**:implementer commit 95b936b3a on feat/kelly-fixed20mode,后端SELL_MODES加J+前端A/F/J/G四玩法+公示10种模式,lint通过已push;待reviewer→merge→上线
-- **✅ S06切换bug已定位**:根因=localStorage记忆覆盖默认值(非真正报错);Toast成功提示红粗体像错误;修复=点「重置为AI默认推荐」按钮清除旧记忆
-- **⏳ accumnav 超时修复**(implementer a3ed2a9c49ae038e4):socket超时+Worker隔离+失败跳过实施中
-- **⏳ S06 fail-open 调研**(researcher a1056584c413e12ea):11笔超S06覆盖期未拦根因调查中
+**最后更新**:2026-08-30 18:00(feat/etf-pin-zoom 5项改造+内审P1修复+codex外审消化,已上线).本轮:
+- **✅ ETF走势弹窗缩放+拖拽+重置**(commit 3e160aeb7)— pin弹窗新增panZoom(滚轮/pinch+平移+按钮);内核缺省false=首页sparkline/基金净值两个复用点走老路径零回归
+- **✅ 持仓「预估」→「至今」**(commit 586afe792)— 真实点位(accum_nav最新日)三处文案改至今,数字零改动
+- **✅ G/I 红稳定性存疑badge移列**(commit a4c077e24)— 模式列→最终盈亏数字下,不挤行高,纯移列
+- **✅ 交易记录列合并**(commit 831827a69)— 代码+ETF名称/份额+每笔金额各合一列,13列
+- **✅ ETF弹窗买卖pin FIFO配对+连线+聚焦hover+popover**(commit 2255f71cb)— 配对明细(买卖日期/价格/收益率/费率/持有天/净利)
+- **✅ 内审2条P1修复**(commit b938d21f5)— hotzone补pointer-events:auto + FIFO改按原行引用buy.t===sell.t配对,reviewer复检PASS
+- **✅ codex外审 rev-20260830-001 消化**:BLOCKED但3条issues逐条核实全误报(复用点零回归是刻意设计/pin坐标已读缩放几何/colDefs无冗余),真问题=内审同批P1已修;留档 /tmp/codex-review-batch-etf-pin-zoom.md
+- **✅ 上线**:main-merge 204022edb 统一build_min+bump,版本串 v20260830-a498,curl三查通过
+- 完成明细已入 [docs/tasks-done-list.md](docs/tasks-done-list.md) 2026-08-30 段
 
-**历史交接(≥2 轮前,已折叠)**:08-28 08:59 / 08-27 23:45 / 08-27 午前 / 08-22(含08-21/08-20段)四坨历史交接已按4态折叠,细节见docs/tasks-done-list.md与docs/archive/TASKS-done.md/TASKS-history-archive-20260820.md。已上main的完成陈述(v1.1.7七支/首页模拟回测弹窗/P2-11懒渲染/费率/回测结论等)不再在顶部重复陈列。
+**历史交接(≥2 轮前,已折叠)**:08-29 / 08-28 / 08-27 / 08-26 / 08-22 及更早八坨历史交接已按4态折叠,细节见 docs/tasks-done-list.md 与 docs/archive/TASKS-done.md / TASKS-history-archive-20260820.md。已上main的完成陈述(v1.1.7七支/首页模拟回测弹窗/P2-11懒渲染/费率/回测结论等)不再在顶部重复陈列。
 > **历史未决项清理(2026-08-28 主控核查,全已过时/已修复)**:①板块spark懒渲染=P2-11性能优化,非功能bug → 关闭②main-merge.sh销账提醒=Nice-to-have,从未阻塞 → 关闭③#88订阅推送=已完结销号 → 关闭④v1.1.7审计P1项=全已修复上main → 关闭⑤汪汪队stats等=大部分自愈,仅余宽度指标缺口(37天滞后)为独立数据问题 → 关闭,宽度缺口见data/alerts/latest.md 06-27条⑥首页AI建议N首次=真实残留小茬,但仅影响首次访问展示,不伤核心 → 暂时关闭,下轮顺手修。overfit.json 404=正常状态(下线,前端读overfit_monitor.json),不修。**🔥 信号凯利回测 lab tab 首屏加载 P1**(implementer ac359715ca0 修复中,feat/kelly-lab-lazy-load):裸 fetch 拉 69MB 全量,无分片/超时/缓存;修复=分片+骨架屏+localStorage 缓存三件套(recent.json 2.99MB 首开,按年 t{YYYY}.json 按需)
 
 ## 📋 待办（2026-08-20 治理后:全移 todolist,本文件无活跃 checkbox）
