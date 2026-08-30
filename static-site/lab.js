@@ -7890,6 +7890,10 @@ function _kellyAihlineCalSpan(bd, sd) {
 var _kellyRealNav = null;
 var _kellyRealNavPromise = null;
 function _kellyRealNavEnsure() {
+  // 2026-08-30 P1-① §22(shared core): 优先用 common.js 挂载的 window._kkellyRealNavEnsure(首页 sim 弹窗与 lab 弹窗共用同一懒加载实例, 防双份缓存漂移)
+  if (typeof window !== "undefined" && typeof window._kkellyRealNavEnsure === "function" && window._kkellyRealNavEnsure !== _kellyRealNavEnsure) {
+    return window._kkellyRealNavEnsure();
+  }
   if (_kellyRealNav) return Promise.resolve(true);
   if (_kellyRealNavPromise) return _kellyRealNavPromise;
   var urls = ["https://ss.fx8.store/r2/data/accum_nav_map.json", "./data/accum_nav_map.json"];
@@ -7906,6 +7910,10 @@ function _kellyRealNavEnsure() {
 // real 强平通路: 强平日 dt 按 accum_nav_map 真实净值重算(与阶段1 __realizeReal L296-320 逐字同口径, FEE_MAIN)
 // 买入=buy_price/(1+原滑点) 还原 close → 加回测费重算持仓; 卖出=当日真实 nav*(1-滑点)-费; profit=net-amt
 function _kellyAihlineRealizeReal(sel, dt) {
+  // 2026-08-30 P1-① §22(shared core): 优先用 common.js 挂载的 window._kkellyRealizeRealForce(与 shared core 同口径, 防双份实现漂移)
+  if (typeof window !== "undefined" && typeof window._kkellyRealizeRealForce === "function") {
+    return window._kkellyRealizeRealForce(sel, dt);
+  }
   var nav = null;
   if (_kellyRealNav && sel && sel.etf_code) {
     var m = _kellyRealNav[sel.etf_code];

@@ -3694,13 +3694,23 @@ function _simGhiHoldCap(rows, mode, fIdx) {
             const selRow = sel.row.slice();
             selRow[fIdx.sell_date] = dt;
             selRow[fIdx.sell_reason] = "管位腾位卖出";
-            // 2026-08-30 fix(reviewer P2): 强制卖出必须重算本笔盈亏——对齐 lab.js _kellyAihlineRealize b0 保守语义
-            // (提前卖出=持有≤3天年轻仓, 无中间价格路径→按 0 利计, 防原后期高价残留致累积金额虚高)。
-            // _simBtCalcRow 累积按 sell_price 重算(非 profit 字段), 故 sell_price=buy_price(0 利, 仅扣双边费用)。
-            if (fIdx.buy_price != null && fIdx.sell_price != null) selRow[fIdx.sell_price] = selRow[fIdx.buy_price];
-            if (fIdx.profit != null) selRow[fIdx.profit] = 0;
-            if (fIdx.return_pct != null) selRow[fIdx.return_pct] = 0;
-            if (fIdx.hold_days != null) selRow[fIdx.hold_days] = _daySpan(sel.buy_date, dt);
+            // 2026-08-30 P1-① §22(real 通路共享核): 强平日按 accum_nav_map 真实净值重算盈亏,
+            // 与 lab.js _kellyAihlineRealizeReal 逐位同口径(用户铁律 b0/b1 已废除, 不再 0 利估算)。
+            // 结果写回 sell_price/profit/return_pct/hold_days 四字段 → _simBtCalcRow 累积按 sell_price 真实重算;
+            // 缺价(真实净值缺失, 数据异常)=标 _gihNavMissing 不计入统计(禁 b1 兜底), 渲染层红字「— 缺价」。
+            const _grealSel = { etf_code: String(selRow[fIdx.etf_code] || ""), buy_date: String(selRow[fIdx.buy_date] || ""), buy_price: Number(selRow[fIdx.buy_price]) || 0, amount: 10000 };
+            const _grealR = (typeof window !== "undefined" && typeof window._kkellyRealizeRealForce === "function") && window._kkellyRealNav
+              ? window._kkellyRealizeRealForce(_grealSel, dt) : null;
+            if (_grealR && (_grealR.pr === null || _grealR.pr === undefined)) {
+              selRow._gihNavMissing = true; // 缺价: 不写 0、不写 b0, 渲染层标红字且不计入统计
+            } else if (_grealR) {
+              if (fIdx.sell_price != null) selRow[fIdx.sell_price] = _grealR.sell_price;
+              if (fIdx.profit != null) selRow[fIdx.profit] = _grealR.pr;
+              if (fIdx.return_pct != null) selRow[fIdx.return_pct] = _grealR.rp;
+              if (fIdx.hold_days != null) selRow[fIdx.hold_days] = _grealR.hd;
+            } else {
+              selRow._gihNavMissing = true; // 共享核不可用时兜底同样标缺价, 不静默写 0
+            }
             _idxPush(kept, selRow);
             cur -= 1;
             for (let rp = openTrs.length - 1; rp >= 0; rp--) { if (openTrs[rp] === sel) openTrs.splice(rp, 1); }
@@ -4158,6 +4168,11 @@ async function _simRenderOnce(modal) {
   // 作用于 K 选样之后、日期切片之前(即用户定义的「S06→K1→GHI管位」正确顺序); 按当前档位剔除
   // 超容买入/腾位(手段A 满仓不买 / 手段P P≤3d 先卖年轻仓), 与 lab.js _kellyAihlineApply 同语义 §22。
   if (gihOn && _SIM_GHI_TIERS[mode]) {
+    // 2026-08-30 P1-① §22(real 通路共享核): 强平重算前先确保 accum_nav_map 已加载
+    // (common.js window._kkellyRealNavEnsure, 与 lab.js _kellyRealNavEnsure 共用同一单例缓存, 防双份拉取漂移)
+    if (typeof window !== "undefined" && typeof window._kkellyRealNavEnsure === "function") {
+      try { await window._kkellyRealNavEnsure(); } catch (e) { /* nav 加载失败由 _kkellyRealizeRealForce 判缺价, 不静默 */ }
+    }
     const _ghir = _simGhiHoldCap(kept, mode, fIdx);
     kept = _ghir.rows;
   }
@@ -4365,9 +4380,16 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
   const _gihActive = !!(gihOn && _ghIt && _ghIt.cap > 0);
   const _gihCapN = _gihActive ? Math.round(_ghIt.cap / 10000) : 0;
   const peakDisp = Math.max(peakPosN, 1);
+  let _gihMissingN = 0; // 2026-08-30 P1-① §22: 强平日缺价笔数(不计入统计, 渲染层红字提示)
   for (let i = 0; i < asc.length; i++) {
     const t = asc[i];
     const bk = _simBaseKey(t, fIdx);
+    if (t._gihNavMissing) {
+      // 缺价行跳过: 不重算、不累计、不对错计数(禁 b1 兜底); 累积列延续截至上一笔的累计值(该行自身不计入)
+      _gihMissingN++;
+      cumMap[bk] = { cumPct, cumYuan, acc: rightN + "/" + wrongN, rate: (rightN + wrongN > 0 ? ((rightN / (rightN + wrongN)) * 100).toFixed(1) : "0.0") };
+      continue;
+    }
     const c = _simBtCalcRow(t, fIdx, fp);
     if (c.isHolding) holdingN++;
     cumYuan += c.pnlYuan;
@@ -4416,14 +4438,15 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
       '<th title="公式: 累计盈亏金额 ÷(窗口峰值同时持仓×¥10000)=真实资金占用收益率, 非每笔收益率简单相加; 详见各行悬停提示">累积盈亏</th><th title="Σ每笔费后盈亏真实金额累加, 绝对赚赔额(未除以资金占用)">累积金额</th><th>累积对错</th><th title="' + (gihOn && _SIM_GHI_TIERS[mode] ? ('峰值同时持仓笔数(' + mode + '档长线管位开启): 玩法=' + _SIM_GHI_TIERS[mode].play + '@' + _SIM_GHI_TIERS[mode].tier + ', 真实计算峰值=' + peakDisp + '笔≤档位硬控' + _gihCapN + '笔(20倍本金硬控内=可操作; 与凯利页「ai长线模式(G/H/I)仓位管理」同口径§22); 关掉「长线管位」开关则显示未管位的原始计算峰值') : '本窗口内峰值同时持仓笔数(累积盈亏%分母口径)') + '">峰值同时持仓笔数</th></tr></thead><tbody>';
     for (const t of slice) {
       const bk = _simBaseKey(t, fIdx);
-      const c = _simBtCalcRow(t, fIdx, fp);
+      const _gihMissing = !!t._gihNavMissing; // 2026-08-30 P1-① §22: 强平日缺价行(真实净值缺失)不重算、红字「— 缺价」
+      const c = _gihMissing ? null : _simBtCalcRow(t, fIdx, fp);
       const cum = cumMap[bk] || { cumPct: 0, cumYuan: 0, acc: "0/0", rate: "0.0" };
       const pos = posMap[bk] || 0;
-      const cls = c.pnlYuan > 0 ? "sim-up" : "sim-down";
+      const cls = c ? (c.pnlYuan > 0 ? "sim-up" : "sim-down") : "";
       // 持仓中笔(lab.js 全信号记录同口径): 卖出时间列=「持仓中」标签, 盈亏=按最新收盘价的当前至今
       // 盈亏直接展示现状(需求③ 2026-08-22 去「预估」措辞); 固定期模式(A-F)附观察期倒计时小字
       let obsHtml = "";
-      if (c.isHolding && _sellModes && _sellModes[mode] && _sellModes[mode].hold_days) {
+      if (c && c.isHolding && _sellModes && _sellModes[mode] && _sellModes[mode].hold_days) {
         const oi = _simObsInfo(String(t[fIdx.buy_date] || ""), _sellModes[mode].hold_days, _getObsCal(), _obsLast);
         if (oi && !oi.expired) {
           obsHtml = '<div class="simbt-obs" title="观察期终点=按「' + mode + ' · ' + (_sellModes[mode].label || "") + '」计划的卖出日(买入后第' + _sellModes[mode].hold_days + '个交易日)。剩余交易日按已加载真实交易日序列计; 未来段为剔周末近似, 法定节假日可能有±1日偏差。">观察期剩' + oi.remain + '个交易日·预计' + oi.estDate + '固化</div>';
@@ -4431,17 +4454,19 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
           obsHtml = '<div class="simbt-obs simbt-obs-expired" title="已过计划卖出日仍未卖出, 待下次回测重跑固化卖出结果。">已到期待固化</div>';
         }
       }
-      html += '<tr' + (c.isHolding ? ' class="simbt-holding-row"' : '') + ' data-sd="' + _escAttr(t[fIdx.signal_date]) + '" data-bk="' + _escAttr(bk) + '">' +
+      html += '<tr' + (c && c.isHolding ? ' class="simbt-holding-row"' : '') + (_gihMissing ? ' class="simbt-gih-missing-row"' : '') + ' data-sd="' + _escAttr(t[fIdx.signal_date]) + '" data-bk="' + _escAttr(bk) + '">' +
         '<td>' + (t[fIdx.signal_date] || "") + '</td>' +
         '<td class="sim-pos-cell" title="当日仍持有的笔数。悬停本格高亮对应笔的「信号关联ETF」; 持仓笔可能开于此前交易日(高亮跨日分布), 未渲染的分页行不点亮。">' + pos + '</td>' +
         '<td>' + _simSigTypeLabel(t[fIdx.signal]) + '</td>' +
         '<td>' + _simEtfLightHtml(t, fIdx) + (t[fIdx.etf_code] || "") + ' ' + (t[fIdx.etf_name] || "") + '</td>' +
         '<td>' + (t[fIdx.buy_date] || "") + '</td>' +
-        _feeCell(c.buyFee) +
-        '<td>' + (c.isHolding ? '<span class="simbt-holding-tag">持仓中</span>' : (t[fIdx.sell_date] || "")) + '</td>' +
-        _feeCell(c.sellFee) +
-        '<td class="' + cls + '">' + c.pnlPct.toFixed(2) + '%' + obsHtml + '</td>' +
-        '<td class="' + cls + '">' + c.pnlYuan.toFixed(2) + '</td>' +
+        _feeCell(c ? c.buyFee : null) +
+        '<td>' + (c && c.isHolding ? '<span class="simbt-holding-tag">持仓中</span>' : (t[fIdx.sell_date] || "")) + '</td>' +
+        _feeCell(c ? c.sellFee : null) +
+        (_gihMissing
+          ? '<td class="sim-gih-missing-px" style="color:#cf1322" title="2026-08-30 §22: 该笔强平日真实净值缺失(nav_missing, 数据异常), 本笔盈亏无法真实重算——不计入任何统计(累积盈亏/累积金额/对错), 与 lab 凯利弹窗「— 缺价」同口径。">— 缺价</td><td class="sim-gih-missing-px" style="color:#cf1322" title="同上: 缺价笔不计入统计">— 缺价</td>'
+          : '<td class="' + cls + '">' + c.pnlPct.toFixed(2) + '%' + obsHtml + '</td>' +
+            '<td class="' + cls + '">' + c.pnlYuan.toFixed(2) + '</td>') +
         '<td class="' + _signCls(cum.cumPct) + '" title="' + _escAttr(_cumTip(cum)) + '">' + cum.cumPct.toFixed(2) + '%</td>' +
         '<td class="' + _signCls(cum.cumYuan) + '" title="' + _escAttr(_cumYuanTip(cum)) + '">' + cum.cumYuan.toFixed(2) + '</td>' +
         '<td>' + cum.acc + ' (' + cum.rate + '%)</td>' +
@@ -4459,7 +4484,8 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
       ') · 本金每笔 ¥10000 · 长线管位·G/H/I' + (gihOn ? '开' : '关') + ' · 累积收益率口径=累计金额÷(峰值同时持仓 <b>' + peakDisp + '</b> 笔×¥10000)' +
       ((gihOn && _SIM_GHI_TIERS[mode]) ? ' · ' + mode + '档管位: 真实峰值 ' + peakDisp + '笔≤硬控' + _gihCapN + '笔(' + _SIM_GHI_TIERS[mode].tier + ')' : '') +
       ' · 费率[' + feeDesc + ']' +
-      (holdingN > 0 ? ' · <span class="simbt-est">含 ' + holdingN + ' 笔持仓中</span>(按最新收盘价计当前盈亏, 已并入累积列与对错计数)' : '');
+      (holdingN > 0 ? ' · <span class="simbt-est">含 ' + holdingN + ' 笔持仓中</span>(按最新收盘价计当前盈亏, 已并入累积列与对错计数)' : '') +
+      (_gihMissingN > 0 ? ' · <span style="color:#cf1322">' + _gihMissingN + ' 笔强平日缺价(nav 缺失, 不计入统计)</span>' : '');
     if (totalPages > 1) {
       let pg = '';
       if (page > 0) pg += '<button type="button" class="sim-pg sim-pg-prev">← 上一页</button>';

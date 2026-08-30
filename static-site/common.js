@@ -1142,3 +1142,91 @@ window._TDS_DROUGHT_THRESHOLD = _TDS_DROUGHT_THRESHOLD;
 window._tdsFetchRecentBlock = _tdsFetchRecentBlock;
 window._tdsComputeDrought = _tdsComputeDrought;
 window._tdsDroughtChipHtml = _tdsDroughtChipHtml;
+
+// ===== G/H/I 强平日 real 通路共享核(2026-08-30, §22 防 app.js/lab.js 双份实现漂移) =====
+// 用途: 首页模拟回测弹窗(_kkellyGhiHoldCap 强平日) 与 lab 凯利弹窗(_kkellyAihlineRealizeReal) 共用同一实现,
+// 保证 G/H/I 强平卖出按 accum_nav_map 真实净值重算盈亏, 两处数字逐位一致。
+// 口径 = lab.js _kkellyAihlineRealizeReal 同款(FEE_MAIN: 买 0.00005/卖 0.001/min0.1 + 印花税0 + 沪0.00001过户费
+// + ORIG_SLIPPAGE 0.001 还原 close 加回测费), nav 缺失=硬报错标缺价(禁 b1 兜底, 用户铁律)。
+// 自含依赖: 不引用 lab.js 内部函数(避免跨文件耦合), 全部重实现保持一致。
+// 缺价计数统一挂 window.__gih_missing_px_(与 lab.js _kellyAihlineRealizeReal 共用同一点, 便于监控/排查)
+function _gihIsShEtf(code) {
+  return code && (code.indexOf("51") === 0 || code.indexOf("58") === 0);
+}
+function _gihDaySpan(bd, sd) {
+  if (!bd || !sd || sd < bd) return 0;
+  var d1 = new Date(+bd.slice(0, 4), +bd.slice(4, 6) - 1, +bd.slice(6, 8));
+  var d2 = new Date(+sd.slice(0, 4), +sd.slice(4, 6) - 1, +sd.slice(6, 8));
+  return Math.max(Math.round((d2 - d1) / 86400000), 0);
+}
+
+function _gihRealNavEnsure() {
+  if (window._kkellyRealNav) return Promise.resolve(true);
+  if (window._kkellyRealNavPromise) return window._kkellyRealNavPromise;
+  var urls = ["https://ss.fx8.store/r2/data/accum_nav_map.json", "./data/accum_nav_map.json"];
+  var fetchFn = typeof fetchJSON === "function" ? fetchJSON : function (u, t) {
+    return fetch(u, { signal: AbortSignal.timeout(t || 120000) }).then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); });
+  };
+  window._kkellyRealNavPromise = fetchFn(urls[0], 120000)
+    .catch(function () { return fetchFn(urls[1], 120000); })
+    .then(function (d) {
+      window._kkellyRealNav = (d && typeof d === "object") ? d : null;
+      window._kkellyRealNavPromise = null;
+      return true;
+    })
+    .catch(function () { window._kkellyRealNavPromise = null; return false; });
+  return window._kkellyRealNavPromise;
+}
+
+// 与 lab.js _kkellyAihlineRealizeReal() 同款口径的 strong-day 重算; 返回 {pr, rp, hd, sell_price, flag}
+// flag: "nav_missing"=该强平日真实净值缺失(数据异常), "no_buy_price", "buy_zero" 等异常返回 pr=null 表示缺价不计入统计
+function _gihRealizeRealForce(sel, dt) {
+  var px = null;
+  if (window._kkellyRealNav && sel && sel.etf_code && window._kkellyRealNav[sel.etf_code]) {
+    px = window._kkellyRealNav[sel.etf_code][dt];
+  }
+  if (px == null || !isFinite(px) || px <= 0) {
+    // 2026-08-30 用户铁律(b0/b1 已废除): 真实价缺失=数据异常, 硬报错+当日监控——不许 b1 估算兜底, pr=null 标记 nav_missing
+    // 计数点与 lab.js _kellyAihlineRealizeReal 同挂 window.__gih_missing_px_, 单点监控两展示位共用
+    try {
+      window.__gih_missing_px_ = (typeof window.__gih_missing_px_ === "number" ? window.__gih_missing_px_ : 0) + 1;
+      if (typeof console !== "undefined" && console.error) {
+        console.error("[__gih_missing_px_] 强平日真实价缺失(数据异常): etf_code=" + (sel && sel.etf_code) + " buy_date=" + (sel && sel.buy_date) + " force_date=" + dt);
+      }
+    } catch (e) { /* 监控计量失败不影响业务 */ }
+    return { pr: null, rp: null, hd: _gihDaySpan(sel && sel.buy_date, dt), flag: "nav_missing", sell_price: 0 };
+  }
+  var bp = sel.buy_price || 0;
+  if (bp <= 0) return { pr: 0, rp: 0, hd: _gihDaySpan(sel && sel.buy_date, dt), flag: "no_buy_price", sell_price: 0 };
+
+  var KELLY_ORIG_SLIPPAGE = 0.001; // 还原 close 加回测费
+  var closeBuy = bp / (1 + KELLY_ORIG_SLIPPAGE);
+  var amt = sel.amount || 0;
+  var c = 0.00005, s = 0.001, minC = 0.1; // FEE_MAIN
+  var sh = _gihIsShEtf(sel.etf_code) ? 0.00001 : 0;
+  var stamp = 0;
+
+  var buyPriceNew = closeBuy * (1 + s);
+  if (buyPriceNew <= 0) return { pr: 0, rp: 0, hd: _gihDaySpan(sel && sel.buy_date, dt), flag: "buy_zero", sell_price: 0 };
+  var sharesNew = amt / (buyPriceNew * (1 + c + sh));
+  var grossNew = sharesNew * buyPriceNew;
+  var commBuy = grossNew * c;
+  if (commBuy < minC) {
+    sharesNew = (amt - minC) / (buyPriceNew * (1 + sh));
+    grossNew = sharesNew * buyPriceNew;
+    commBuy = minC;
+  }
+  var sellPriceNew = px * (1 - s);
+  var sellAmountNew = sharesNew * sellPriceNew;
+  var commSell = Math.max(sellAmountNew * c, minC);
+  var transferFeeSell = sellAmountNew * sh;
+  var stampDuty = sellAmountNew * stamp;
+  var netNew = sellAmountNew - commSell - transferFeeSell - stampDuty;
+  var profitNew = netNew - amt;
+  var returnPctNew = profitNew / amt * 100;
+  var hdReal = Math.round(_gihDaySpan(sel.buy_date, dt));
+  return { pr: Math.round(profitNew * 10000) / 10000, rp: Math.round(returnPctNew * 10000) / 10000, hd: hdReal, sell_price: sellPriceNew };
+}
+
+window._kkellyRealNavEnsure = _gihRealNavEnsure;
+window._kkellyRealizeRealForce = _gihRealizeRealForce;
