@@ -1,0 +1,2069 @@
+{
+ "generated_at": "2026-08-30T02:03:49.701Z",
+ "trades_generated_at": "2026-08-30 05:02",
+ "s06_snapshot_at": "2026-08-28T21:16:31",
+ "baseline": "v1.1.7 S06 NoBull + posCap K1 + 每日池 + fee etf_main(real=强平日主库真实accum_nav重算卖出), 同池=reconG(647 信号)",
+ "same_pool_n": 647,
+ "pool_check": {
+  "n_G": 647,
+  "n_H": 647,
+  "n_I": 647,
+  "same_signal_by_buydate": {
+   "G_vs_H": "SAME(buy_date 同批)",
+   "G_vs_I": "SAME(buy_date 同批)"
+  },
+  "sell_date_diff_keys_G_vs_H": 778,
+  "sell_date_diff_sample": "562810|20251105|"
+ },
+ "caps": [
+  30000,
+  50000,
+  70000,
+  90000,
+  100000
+ ],
+ "grid": {
+  "3w": {
+   "cap": 30000,
+   "capK": 3,
+   "A": {
+    "n_kept": 70,
+    "peak": 30000,
+    "operable": "OK",
+    "real": {
+     "total_profit": 35512.0188,
+     "return_pct_max_holding": 118.3734,
+     "total_return_pct": 5.0731,
+     "annualized_return": 5.2109,
+     "win_rate": 0.5857,
+     "n": 70,
+     "max_concurrent_capital": 30000
+    },
+    "forcedN": 0,
+    "forcedProfitSum": 0,
+    "by_year": {
+     "2011": {
+      "n": 3,
+      "total_profit": -6805.7295,
+      "return_pct_max_holding": -22.6858,
+      "win_rate": 0,
+      "max_concurrent_capital": 30000
+     },
+     "2012": {
+      "n": 3,
+      "total_profit": 563.7144,
+      "return_pct_max_holding": 1.879,
+      "win_rate": 0.6667,
+      "max_concurrent_capital": 30000
+     },
+     "2013": {
+      "n": 8,
+      "total_profit": 6760.3913,
+      "return_pct_max_holding": 22.5346,
+      "win_rate": 0.375,
+      "max_concurrent_capital": 30000
+     },
+     "2014": {
+      "n": 2,
+      "total_profit": 4276.7461,
+      "return_pct_max_holding": 42.7675,
+      "win_rate": 1,
+      "max_concurrent_capital": 10000
+     },
+     "2015": {
+      "n": 2,
+      "total_profit": 1859.0655,
+      "return_pct_max_holding": 9.2953,
+      "win_rate": 1,
+      "max_concurrent_capital": 20000
+     },
+     "2016": {
+      "n": 5,
+      "total_profit": -557.4524,
+      "return_pct_max_holding": -1.8582,
+      "win_rate": 0.6,
+      "max_concurrent_capital": 30000
+     },
+     "2017": {
+      "n": 1,
+      "total_profit": -1932.2528,
+      "return_pct_max_holding": -19.3225,
+      "win_rate": 0,
+      "max_concurrent_capital": 10000
+     },
+     "2018": {
+      "n": 2,
+      "total_profit": 1116.1551,
+      "return_pct_max_holding": 11.1616,
+      "win_rate": 0.5,
+      "max_concurrent_capital": 10000
+     },
+     "2019": {
+      "n": 5,
+      "total_profit": 6534.7537,
+      "return_pct_max_holding": 21.7825,
+      "win_rate": 1,
+      "max_concurrent_capital": 30000
+     },
+     "2020": {
+      "n": 9,
+      "total_profit": 2618.071,
+      "return_pct_max_holding": 8.7269,
+      "win_rate": 0.4444,
+      "max_concurrent_capital": 30000
+     },
+     "2021": {
+      "n": 6,
+      "total_profit": 1808.0854,
+      "return_pct_max_holding": 9.0404,
+      "win_rate": 0.5,
+      "max_concurrent_capital": 20000
+     },
+     "2022": {
+      "n": 7,
+      "total_profit": 4177.854,
+      "return_pct_max_holding": 13.9262,
+      "win_rate": 0.5714,
+      "max_concurrent_capital": 30000
+     },
+     "2023": {
+      "n": 5,
+      "total_profit": -1196.6961,
+      "return_pct_max_holding": -3.989,
+      "win_rate": 0.6,
+      "max_concurrent_capital": 30000
+     },
+     "2024": {
+      "n": 3,
+      "total_profit": 2655.5875,
+      "return_pct_max_holding": 13.2779,
+      "win_rate": 1,
+      "max_concurrent_capital": 20000
+     },
+     "2025": {
+      "n": 7,
+      "total_profit": 13560.8216,
+      "return_pct_max_holding": 67.8041,
+      "win_rate": 0.7143,
+      "max_concurrent_capital": 20000
+     },
+     "2026": {
+      "n": 2,
+      "total_profit": 72.904,
+      "return_pct_max_holding": 0.3645,
+      "win_rate": 0.5,
+      "max_concurrent_capital": 20000
+     }
+    }
+   },
+   "P": {
+    "n_kept": 647,
+    "peak": 30000,
+    "operable": "OK",
+    "real": {
+     "total_profit": 48482.9022,
+     "return_pct_max_holding": 161.6097,
+     "total_return_pct": 0.7493,
+     "annualized_return": 6.3597,
+     "win_rate": 0.5209,
+     "n": 647,
+     "max_concurrent_capital": 30000
+    },
+    "forcedN": 571,
+    "fallbackN": 0,
+    "forcedProfitSum": 20284.9369,
+    "forcedByYear": {
+     "2011": {
+      "n": 26,
+      "sum": -7121.3058
+     },
+     "2012": {
+      "n": 13,
+      "sum": -557.439
+     },
+     "2013": {
+      "n": 15,
+      "sum": -2490.0048
+     },
+     "2014": {
+      "n": 37,
+      "sum": 5969.4172
+     },
+     "2016": {
+      "n": 7,
+      "sum": -1872.6664
+     },
+     "2017": {
+      "n": 26,
+      "sum": 7664.5967
+     },
+     "2018": {
+      "n": 18,
+      "sum": -6179.9976
+     },
+     "2019": {
+      "n": 36,
+      "sum": 2984.0383
+     },
+     "2020": {
+      "n": 57,
+      "sum": 6344.3491
+     },
+     "2021": {
+      "n": 40,
+      "sum": -1823.2745
+     },
+     "2022": {
+      "n": 61,
+      "sum": 2768.5206
+     },
+     "2023": {
+      "n": 69,
+      "sum": -4427.1296
+     },
+     "2024": {
+      "n": 38,
+      "sum": 8995.8016
+     },
+     "2025": {
+      "n": 80,
+      "sum": 7292.7149
+     },
+     "2026": {
+      "n": 48,
+      "sum": 2737.3162
+     }
+    },
+    "forcedWL": {
+     "winN": 295,
+     "lossN": 276,
+     "winSum": 101603.9027,
+     "lossSum": -81318.9658
+    },
+    "xcheck": {
+     "b0": "EQ(逐位一致)",
+     "b1": "EQ(逐位一致)"
+    },
+    "by_year": {
+     "2011": {
+      "n": 26,
+      "total_profit": -7121.3058,
+      "return_pct_max_holding": -23.7377,
+      "win_rate": 0.3462,
+      "max_concurrent_capital": 30000
+     },
+     "2012": {
+      "n": 16,
+      "total_profit": -207.906,
+      "return_pct_max_holding": -0.693,
+      "win_rate": 0.375,
+      "max_concurrent_capital": 30000
+     },
+     "2013": {
+      "n": 23,
+      "total_profit": -1501.1728,
+      "return_pct_max_holding": -5.0039,
+      "win_rate": 0.4348,
+      "max_concurrent_capital": 30000
+     },
+     "2014": {
+      "n": 42,
+      "total_profit": 13437.0597,
+      "return_pct_max_holding": 44.7902,
+      "win_rate": 0.619,
+      "max_concurrent_capital": 30000
+     },
+     "2015": {
+      "n": 2,
+      "total_profit": 1859.0655,
+      "return_pct_max_holding": 9.2953,
+      "win_rate": 1,
+      "max_concurrent_capital": 20000
+     },
+     "2016": {
+      "n": 9,
+      "total_profit": -824.3404,
+      "return_pct_max_holding": -2.7478,
+      "win_rate": 0.4444,
+      "max_concurrent_capital": 30000
+     },
+     "2017": {
+      "n": 28,
+      "total_profit": 7463.0753,
+      "return_pct_max_holding": 24.8769,
+      "win_rate": 0.6786,
+      "max_concurrent_capital": 30000
+     },
+     "2018": {
+      "n": 23,
+      "total_profit": -4422.9156,
+      "return_pct_max_holding": -14.7431,
+      "win_rate": 0.3478,
+      "max_concurrent_capital": 30000
+     },
+     "2019": {
+      "n": 41,
+      "total_profit": 8046.8753,
+      "return_pct_max_holding": 26.8229,
+      "win_rate": 0.6098,
+      "max_concurrent_capital": 30000
+     },
+     "2020": {
+      "n": 68,
+      "total_profit": 5990.8112,
+      "return_pct_max_holding": 19.9694,
+      "win_rate": 0.5588,
+      "max_concurrent_capital": 30000
+     },
+     "2021": {
+      "n": 43,
+      "total_profit": -1233.8683,
+      "return_pct_max_holding": -4.1129,
+      "win_rate": 0.4419,
+      "max_concurrent_capital": 30000
+     },
+     "2022": {
+      "n": 64,
+      "total_profit": 3043.5296,
+      "return_pct_max_holding": 10.1451,
+      "win_rate": 0.5313,
+      "max_concurrent_capital": 30000
+     },
+     "2023": {
+      "n": 75,
+      "total_profit": -3772.7391,
+      "return_pct_max_holding": -12.5758,
+      "win_rate": 0.44,
+      "max_concurrent_capital": 30000
+     },
+     "2024": {
+      "n": 43,
+      "total_profit": 11318.8548,
+      "return_pct_max_holding": 37.7295,
+      "win_rate": 0.6512,
+      "max_concurrent_capital": 30000
+     },
+     "2025": {
+      "n": 89,
+      "total_profit": 10007.7547,
+      "return_pct_max_holding": 33.3592,
+      "win_rate": 0.5506,
+      "max_concurrent_capital": 30000
+     },
+     "2026": {
+      "n": 55,
+      "total_profit": 6400.1241,
+      "return_pct_max_holding": 21.3337,
+      "win_rate": 0.4909,
+      "max_concurrent_capital": 30000
+     }
+    },
+    "forced_sample": [
+     {
+      "buy": "20110119",
+      "sell": "20110429",
+      "etf": "159905",
+      "profit": 423.6699,
+      "rp": 4.2367
+     },
+     {
+      "buy": "20110121",
+      "sell": "20110524",
+      "etf": "159905",
+      "profit": -76.0261,
+      "rp": -0.7603
+     },
+     {
+      "buy": "20110221",
+      "sell": "20110530",
+      "etf": "159905",
+      "profit": -1296.0074,
+      "rp": -12.9601
+     },
+     {
+      "buy": "20110530",
+      "sell": "20110531",
+      "etf": "159905",
+      "profit": 131.8066,
+      "rp": 1.3181
+     },
+     {
+      "buy": "20110429",
+      "sell": "20110621",
+      "etf": "159905",
+      "profit": -794.7214,
+      "rp": -7.9472
+     }
+    ]
+   }
+  },
+  "5w": {
+   "cap": 50000,
+   "capK": 5,
+   "A": {
+    "n_kept": 110,
+    "peak": 50000,
+    "operable": "OK",
+    "real": {
+     "total_profit": 60178.6538,
+     "return_pct_max_holding": 120.3573,
+     "total_return_pct": 5.4708,
+     "annualized_return": 5.2728,
+     "win_rate": 0.6091,
+     "n": 110,
+     "max_concurrent_capital": 50000
+    },
+    "forcedN": 0,
+    "forcedProfitSum": 0,
+    "by_year": {
+     "2011": {
+      "n": 5,
+      "total_profit": -11174.8212,
+      "return_pct_max_holding": -22.3496,
+      "win_rate": 0,
+      "max_concurrent_capital": 50000
+     },
+     "2012": {
+      "n": 5,
+      "total_profit": 1860.9922,
+      "return_pct_max_holding": 3.722,
+      "win_rate": 0.8,
+      "max_concurrent_capital": 50000
+     },
+     "2013": {
+      "n": 13,
+      "total_profit": 10483.6543,
+      "return_pct_max_holding": 20.9673,
+      "win_rate": 0.3846,
+      "max_concurrent_capital": 50000
+     },
+     "2014": {
+      "n": 5,
+      "total_profit": 8393.7286,
+      "return_pct_max_holding": 41.9686,
+      "win_rate": 0.8,
+      "max_concurrent_capital": 20000
+     },
+     "2015": {
+      "n": 2,
+      "total_profit": 1859.0655,
+      "return_pct_max_holding": 9.2953,
+      "win_rate": 1,
+      "max_concurrent_capital": 20000
+     },
+     "2016": {
+      "n": 7,
+      "total_profit": 707.8258,
+      "return_pct_max_holding": 1.4157,
+      "win_rate": 0.5714,
+      "max_concurrent_capital": 50000
+     },
+     "2017": {
+      "n": 2,
+      "total_profit": -1283.4031,
+      "return_pct_max_holding": -6.417,
+      "win_rate": 0.5,
+      "max_concurrent_capital": 20000
+     },
+     "2018": {
+      "n": 3,
+      "total_profit": -207.6585,
+      "return_pct_max_holding": -1.0383,
+      "win_rate": 0.3333,
+      "max_concurrent_capital": 20000
+     },
+     "2019": {
+      "n": 8,
+      "total_profit": 8783.2415,
+      "return_pct_max_holding": 17.5665,
+      "win_rate": 1,
+      "max_concurrent_capital": 50000
+     },
+     "2020": {
+      "n": 14,
+      "total_profit": 7637.8103,
+      "return_pct_max_holding": 15.2756,
+      "win_rate": 0.6429,
+      "max_concurrent_capital": 50000
+     },
+     "2021": {
+      "n": 9,
+      "total_profit": 3157.5395,
+      "return_pct_max_holding": 7.8938,
+      "win_rate": 0.5556,
+      "max_concurrent_capital": 40000
+     },
+     "2022": {
+      "n": 13,
+      "total_profit": 4458.8799,
+      "return_pct_max_holding": 8.9178,
+      "win_rate": 0.6154,
+      "max_concurrent_capital": 50000
+     },
+     "2023": {
+      "n": 8,
+      "total_profit": -2669.1453,
+      "return_pct_max_holding": -5.3383,
+      "win_rate": 0.5,
+      "max_concurrent_capital": 50000
+     },
+     "2024": {
+      "n": 4,
+      "total_profit": 6159.9355,
+      "return_pct_max_holding": 20.5331,
+      "win_rate": 1,
+      "max_concurrent_capital": 30000
+     },
+     "2025": {
+      "n": 10,
+      "total_profit": 21938.1048,
+      "return_pct_max_holding": 73.127,
+      "win_rate": 0.7,
+      "max_concurrent_capital": 30000
+     },
+     "2026": {
+      "n": 2,
+      "total_profit": 72.904,
+      "return_pct_max_holding": 0.3645,
+      "win_rate": 0.5,
+      "max_concurrent_capital": 20000
+     }
+    }
+   },
+   "P": {
+    "n_kept": 647,
+    "peak": 50000,
+    "operable": "OK",
+    "real": {
+     "total_profit": 80137.9748,
+     "return_pct_max_holding": 160.2759,
+     "total_return_pct": 1.2386,
+     "annualized_return": 6.3248,
+     "win_rate": 0.5255,
+     "n": 647,
+     "max_concurrent_capital": 50000
+    },
+    "forcedN": 531,
+    "fallbackN": 0,
+    "forcedProfitSum": 8565.351,
+    "forcedByYear": {
+     "2011": {
+      "n": 24,
+      "sum": -13540.9027
+     },
+     "2012": {
+      "n": 11,
+      "sum": -1122.9822
+     },
+     "2013": {
+      "n": 12,
+      "sum": -4112.0714
+     },
+     "2014": {
+      "n": 34,
+      "sum": 6738.6521
+     },
+     "2016": {
+      "n": 7,
+      "sum": -508.1461
+     },
+     "2017": {
+      "n": 24,
+      "sum": 6617.0881
+     },
+     "2018": {
+      "n": 16,
+      "sum": -11272.4965
+     },
+     "2019": {
+      "n": 34,
+      "sum": 4799.2096
+     },
+     "2020": {
+      "n": 52,
+      "sum": 8493.5366
+     },
+     "2021": {
+      "n": 36,
+      "sum": -1241.1248
+     },
+     "2022": {
+      "n": 59,
+      "sum": 4321.3692
+     },
+     "2023": {
+      "n": 66,
+      "sum": -8110.0177
+     },
+     "2024": {
+      "n": 35,
+      "sum": 9707.0924
+     },
+     "2025": {
+      "n": 76,
+      "sum": 10804.8848
+     },
+     "2026": {
+      "n": 45,
+      "sum": -3008.7404
+     }
+    },
+    "forcedWL": {
+     "winN": 265,
+     "lossN": 266,
+     "winSum": 104296.933,
+     "lossSum": -95731.582
+    },
+    "xcheck": {
+     "b0": "EQ(逐位一致)",
+     "b1": "EQ(逐位一致)"
+    },
+    "by_year": {
+     "2011": {
+      "n": 26,
+      "total_profit": -11608.1148,
+      "return_pct_max_holding": -23.2162,
+      "win_rate": 0.2692,
+      "max_concurrent_capital": 50000
+     },
+     "2012": {
+      "n": 16,
+      "total_profit": 1243.6972,
+      "return_pct_max_holding": 2.4874,
+      "win_rate": 0.375,
+      "max_concurrent_capital": 50000
+     },
+     "2013": {
+      "n": 23,
+      "total_profit": -2592.0203,
+      "return_pct_max_holding": -5.184,
+      "win_rate": 0.4348,
+      "max_concurrent_capital": 50000
+     },
+     "2014": {
+      "n": 42,
+      "total_profit": 22243.4094,
+      "return_pct_max_holding": 44.4868,
+      "win_rate": 0.6667,
+      "max_concurrent_capital": 50000
+     },
+     "2015": {
+      "n": 2,
+      "total_profit": 1859.0655,
+      "return_pct_max_holding": 9.2953,
+      "win_rate": 1,
+      "max_concurrent_capital": 20000
+     },
+     "2016": {
+      "n": 9,
+      "total_profit": 540.1799,
+      "return_pct_max_holding": 1.0804,
+      "win_rate": 0.6667,
+      "max_concurrent_capital": 50000
+     },
+     "2017": {
+      "n": 28,
+      "total_profit": 8408.1843,
+      "return_pct_max_holding": 16.8164,
+      "win_rate": 0.6786,
+      "max_concurrent_capital": 50000
+     },
+     "2018": {
+      "n": 23,
+      "total_profit": -3363.3145,
+      "return_pct_max_holding": -6.7266,
+      "win_rate": 0.3043,
+      "max_concurrent_capital": 50000
+     },
+     "2019": {
+      "n": 41,
+      "total_profit": 11264.408,
+      "return_pct_max_holding": 22.5288,
+      "win_rate": 0.6341,
+      "max_concurrent_capital": 50000
+     },
+     "2020": {
+      "n": 68,
+      "total_profit": 10867.3432,
+      "return_pct_max_holding": 21.7347,
+      "win_rate": 0.5735,
+      "max_concurrent_capital": 50000
+     },
+     "2021": {
+      "n": 43,
+      "total_profit": -678.3952,
+      "return_pct_max_holding": -1.3568,
+      "win_rate": 0.4884,
+      "max_concurrent_capital": 50000
+     },
+     "2022": {
+      "n": 64,
+      "total_profit": 8865.3882,
+      "return_pct_max_holding": 17.7308,
+      "win_rate": 0.5313,
+      "max_concurrent_capital": 50000
+     },
+     "2023": {
+      "n": 75,
+      "total_profit": -5131.5626,
+      "return_pct_max_holding": -10.2631,
+      "win_rate": 0.4267,
+      "max_concurrent_capital": 50000
+     },
+     "2024": {
+      "n": 43,
+      "total_profit": 19128.5321,
+      "return_pct_max_holding": 38.2571,
+      "win_rate": 0.6512,
+      "max_concurrent_capital": 50000
+     },
+     "2025": {
+      "n": 89,
+      "total_profit": 16519.4009,
+      "return_pct_max_holding": 33.0388,
+      "win_rate": 0.5506,
+      "max_concurrent_capital": 50000
+     },
+     "2026": {
+      "n": 55,
+      "total_profit": 2571.7735,
+      "return_pct_max_holding": 5.1435,
+      "win_rate": 0.4727,
+      "max_concurrent_capital": 50000
+     }
+    },
+    "forced_sample": [
+     {
+      "buy": "20110119",
+      "sell": "20110530",
+      "etf": "159905",
+      "profit": -380.8239,
+      "rp": -3.8082
+     },
+     {
+      "buy": "20110530",
+      "sell": "20110531",
+      "etf": "159905",
+      "profit": 131.8066,
+      "rp": 1.3181
+     },
+     {
+      "buy": "20110121",
+      "sell": "20110621",
+      "etf": "159905",
+      "profit": -284.5619,
+      "rp": -2.8456
+     },
+     {
+      "buy": "20110221",
+      "sell": "20110701",
+      "etf": "159905",
+      "profit": -750.9955,
+      "rp": -7.51
+     },
+     {
+      "buy": "20110429",
+      "sell": "20110707",
+      "etf": "159905",
+      "profit": -130.7538,
+      "rp": -1.3075
+     }
+    ]
+   }
+  },
+  "7w": {
+   "cap": 70000,
+   "capK": 7,
+   "A": {
+    "n_kept": 157,
+    "peak": 70000,
+    "operable": "OK",
+    "real": {
+     "total_profit": 92978.5347,
+     "return_pct_max_holding": 132.8265,
+     "total_return_pct": 5.9222,
+     "annualized_return": 5.6503,
+     "win_rate": 0.6369,
+     "n": 157,
+     "max_concurrent_capital": 70000
+    },
+    "forcedN": 0,
+    "forcedProfitSum": 0,
+    "by_year": {
+     "2011": {
+      "n": 7,
+      "total_profit": -14754.3798,
+      "return_pct_max_holding": -21.0777,
+      "win_rate": 0,
+      "max_concurrent_capital": 70000
+     },
+     "2012": {
+      "n": 7,
+      "total_profit": 4310.3045,
+      "return_pct_max_holding": 6.1576,
+      "win_rate": 0.8571,
+      "max_concurrent_capital": 70000
+     },
+     "2013": {
+      "n": 15,
+      "total_profit": 11702.5224,
+      "return_pct_max_holding": 16.7179,
+      "win_rate": 0.4667,
+      "max_concurrent_capital": 70000
+     },
+     "2014": {
+      "n": 9,
+      "total_profit": 17369.5721,
+      "return_pct_max_holding": 43.4239,
+      "win_rate": 0.7778,
+      "max_concurrent_capital": 40000
+     },
+     "2015": {
+      "n": 2,
+      "total_profit": 1859.0655,
+      "return_pct_max_holding": 9.2953,
+      "win_rate": 1,
+      "max_concurrent_capital": 20000
+     },
+     "2016": {
+      "n": 9,
+      "total_profit": 3732.2873,
+      "return_pct_max_holding": 5.3318,
+      "win_rate": 0.6667,
+      "max_concurrent_capital": 70000
+     },
+     "2017": {
+      "n": 4,
+      "total_profit": -1834.5112,
+      "return_pct_max_holding": -4.5863,
+      "win_rate": 0.5,
+      "max_concurrent_capital": 40000
+     },
+     "2018": {
+      "n": 6,
+      "total_profit": 805.4128,
+      "return_pct_max_holding": 2.6847,
+      "win_rate": 0.5,
+      "max_concurrent_capital": 30000
+     },
+     "2019": {
+      "n": 11,
+      "total_profit": 11878.7356,
+      "return_pct_max_holding": 16.9696,
+      "win_rate": 1,
+      "max_concurrent_capital": 70000
+     },
+     "2020": {
+      "n": 21,
+      "total_profit": 13808.1505,
+      "return_pct_max_holding": 19.7259,
+      "win_rate": 0.6667,
+      "max_concurrent_capital": 70000
+     },
+     "2021": {
+      "n": 13,
+      "total_profit": 7141.1657,
+      "return_pct_max_holding": 14.2823,
+      "win_rate": 0.6923,
+      "max_concurrent_capital": 50000
+     },
+     "2022": {
+      "n": 18,
+      "total_profit": 2795.0259,
+      "return_pct_max_holding": 3.9929,
+      "win_rate": 0.5,
+      "max_concurrent_capital": 70000
+     },
+     "2023": {
+      "n": 12,
+      "total_profit": -6228.4002,
+      "return_pct_max_holding": -8.8977,
+      "win_rate": 0.5,
+      "max_concurrent_capital": 70000
+     },
+     "2024": {
+      "n": 6,
+      "total_profit": 10460.7795,
+      "return_pct_max_holding": 26.1519,
+      "win_rate": 1,
+      "max_concurrent_capital": 40000
+     },
+     "2025": {
+      "n": 15,
+      "total_profit": 29859.9001,
+      "return_pct_max_holding": 74.6498,
+      "win_rate": 0.7333,
+      "max_concurrent_capital": 40000
+     },
+     "2026": {
+      "n": 2,
+      "total_profit": 72.904,
+      "return_pct_max_holding": 0.3645,
+      "win_rate": 0.5,
+      "max_concurrent_capital": 20000
+     }
+    }
+   },
+   "P": {
+    "n_kept": 647,
+    "peak": 70000,
+    "operable": "OK",
+    "real": {
+     "total_profit": 117020.6029,
+     "return_pct_max_holding": 167.1723,
+     "total_return_pct": 1.8087,
+     "annualized_return": 6.5032,
+     "win_rate": 0.544,
+     "n": 647,
+     "max_concurrent_capital": 70000
+    },
+    "forcedN": 483,
+    "fallbackN": 0,
+    "forcedProfitSum": -4477.8646,
+    "forcedByYear": {
+     "2011": {
+      "n": 22,
+      "sum": -18021.495
+     },
+     "2012": {
+      "n": 9,
+      "sum": -1944.8401
+     },
+     "2013": {
+      "n": 9,
+      "sum": -2830.525
+     },
+     "2014": {
+      "n": 30,
+      "sum": 7974.4321
+     },
+     "2016": {
+      "n": 6,
+      "sum": 1176.0197
+     },
+     "2017": {
+      "n": 23,
+      "sum": 4319.1171
+     },
+     "2018": {
+      "n": 14,
+      "sum": -7928.5822
+     },
+     "2019": {
+      "n": 29,
+      "sum": 3938.2652
+     },
+     "2020": {
+      "n": 45,
+      "sum": 5253.9977
+     },
+     "2021": {
+      "n": 34,
+      "sum": -2828.0744
+     },
+     "2022": {
+      "n": 52,
+      "sum": -4240.661
+     },
+     "2023": {
+      "n": 65,
+      "sum": -9547.1026
+     },
+     "2024": {
+      "n": 32,
+      "sum": 8305.5966
+     },
+     "2025": {
+      "n": 71,
+      "sum": 16328.4073
+     },
+     "2026": {
+      "n": 42,
+      "sum": -4432.42
+     }
+    },
+    "forcedWL": {
+     "winN": 237,
+     "lossN": 246,
+     "winSum": 100851.6589,
+     "lossSum": -105329.5235
+    },
+    "xcheck": {
+     "b0": "EQ(逐位一致)",
+     "b1": "EQ(逐位一致)"
+    },
+    "by_year": {
+     "2011": {
+      "n": 26,
+      "total_profit": -15171.1689,
+      "return_pct_max_holding": -21.6731,
+      "win_rate": 0.2308,
+      "max_concurrent_capital": 70000
+     },
+     "2012": {
+      "n": 16,
+      "total_profit": 3543.2904,
+      "return_pct_max_holding": 5.0618,
+      "win_rate": 0.5,
+      "max_concurrent_capital": 70000
+     },
+     "2013": {
+      "n": 23,
+      "total_profit": -1836.426,
+      "return_pct_max_holding": -2.6235,
+      "win_rate": 0.4348,
+      "max_concurrent_capital": 70000
+     },
+     "2014": {
+      "n": 42,
+      "total_profit": 31620.4864,
+      "return_pct_max_holding": 45.1721,
+      "win_rate": 0.6905,
+      "max_concurrent_capital": 70000
+     },
+     "2015": {
+      "n": 2,
+      "total_profit": 1859.0655,
+      "return_pct_max_holding": 9.2953,
+      "win_rate": 1,
+      "max_concurrent_capital": 20000
+     },
+     "2016": {
+      "n": 9,
+      "total_profit": 3273.2562,
+      "return_pct_max_holding": 4.6761,
+      "win_rate": 0.7778,
+      "max_concurrent_capital": 70000
+     },
+     "2017": {
+      "n": 28,
+      "total_profit": 6759.063,
+      "return_pct_max_holding": 9.6558,
+      "win_rate": 0.6429,
+      "max_concurrent_capital": 70000
+     },
+     "2018": {
+      "n": 23,
+      "total_profit": 3058.2884,
+      "return_pct_max_holding": 4.369,
+      "win_rate": 0.5217,
+      "max_concurrent_capital": 70000
+     },
+     "2019": {
+      "n": 41,
+      "total_profit": 14249.8535,
+      "return_pct_max_holding": 20.3569,
+      "win_rate": 0.6585,
+      "max_concurrent_capital": 70000
+     },
+     "2020": {
+      "n": 68,
+      "total_profit": 16553.3349,
+      "return_pct_max_holding": 23.6476,
+      "win_rate": 0.5588,
+      "max_concurrent_capital": 70000
+     },
+     "2021": {
+      "n": 43,
+      "total_profit": -979.4307,
+      "return_pct_max_holding": -1.3992,
+      "win_rate": 0.4419,
+      "max_concurrent_capital": 70000
+     },
+     "2022": {
+      "n": 64,
+      "total_profit": 11566.4564,
+      "return_pct_max_holding": 16.5235,
+      "win_rate": 0.5469,
+      "max_concurrent_capital": 70000
+     },
+     "2023": {
+      "n": 75,
+      "total_profit": -6758.1341,
+      "return_pct_max_holding": -9.6545,
+      "win_rate": 0.4267,
+      "max_concurrent_capital": 70000
+     },
+     "2024": {
+      "n": 43,
+      "total_profit": 23656.0613,
+      "return_pct_max_holding": 33.7944,
+      "win_rate": 0.6977,
+      "max_concurrent_capital": 70000
+     },
+     "2025": {
+      "n": 89,
+      "total_profit": 22773.3307,
+      "return_pct_max_holding": 32.5333,
+      "win_rate": 0.573,
+      "max_concurrent_capital": 70000
+     },
+     "2026": {
+      "n": 55,
+      "total_profit": 2853.2759,
+      "return_pct_max_holding": 4.0761,
+      "win_rate": 0.5091,
+      "max_concurrent_capital": 70000
+     }
+    },
+    "forced_sample": [
+     {
+      "buy": "20110119",
+      "sell": "20110621",
+      "etf": "159905",
+      "profit": -335.5448,
+      "rp": -3.3554
+     },
+     {
+      "buy": "20110121",
+      "sell": "20110701",
+      "etf": "159905",
+      "profit": 275.4149,
+      "rp": 2.7541
+     },
+     {
+      "buy": "20110221",
+      "sell": "20110707",
+      "etf": "159905",
+      "profit": -624.2707,
+      "rp": -6.2427
+     },
+     {
+      "buy": "20110707",
+      "sell": "20110708",
+      "etf": "159905",
+      "profit": -8.8084,
+      "rp": -0.0881
+     },
+     {
+      "buy": "20110708",
+      "sell": "20110711",
+      "etf": "159905",
+      "profit": 47.2443,
+      "rp": 0.4724
+     }
+    ]
+   }
+  },
+  "9w": {
+   "cap": 90000,
+   "capK": 9,
+   "A": {
+    "n_kept": 202,
+    "peak": 90000,
+    "operable": "OK",
+    "real": {
+     "total_profit": 122590.8911,
+     "return_pct_max_holding": 136.2121,
+     "total_return_pct": 6.0689,
+     "annualized_return": 5.7026,
+     "win_rate": 0.6436,
+     "n": 202,
+     "max_concurrent_capital": 90000
+    },
+    "forcedN": 0,
+    "forcedProfitSum": 0,
+    "by_year": {
+     "2011": {
+      "n": 9,
+      "total_profit": -18716.6953,
+      "return_pct_max_holding": -20.7963,
+      "win_rate": 0,
+      "max_concurrent_capital": 90000
+     },
+     "2012": {
+      "n": 9,
+      "total_profit": 7906.6126,
+      "return_pct_max_holding": 8.7851,
+      "win_rate": 0.8889,
+      "max_concurrent_capital": 90000
+     },
+     "2013": {
+      "n": 16,
+      "total_profit": 12496.5649,
+      "return_pct_max_holding": 15.6207,
+      "win_rate": 0.5,
+      "max_concurrent_capital": 80000
+     },
+     "2014": {
+      "n": 13,
+      "total_profit": 26026.0389,
+      "return_pct_max_holding": 43.3767,
+      "win_rate": 0.7692,
+      "max_concurrent_capital": 60000
+     },
+     "2015": {
+      "n": 2,
+      "total_profit": 1859.0655,
+      "return_pct_max_holding": 9.2953,
+      "win_rate": 1,
+      "max_concurrent_capital": 20000
+     },
+     "2016": {
+      "n": 9,
+      "total_profit": 3732.2873,
+      "return_pct_max_holding": 5.3318,
+      "win_rate": 0.6667,
+      "max_concurrent_capital": 70000
+     },
+     "2017": {
+      "n": 8,
+      "total_profit": 5290.6724,
+      "return_pct_max_holding": 8.8178,
+      "win_rate": 0.75,
+      "max_concurrent_capital": 60000
+     },
+     "2018": {
+      "n": 8,
+      "total_profit": 2723.9693,
+      "return_pct_max_holding": 5.4479,
+      "win_rate": 0.625,
+      "max_concurrent_capital": 50000
+     },
+     "2019": {
+      "n": 14,
+      "total_profit": 13934.7606,
+      "return_pct_max_holding": 15.4831,
+      "win_rate": 1,
+      "max_concurrent_capital": 90000
+     },
+     "2020": {
+      "n": 26,
+      "total_profit": 15315.0958,
+      "return_pct_max_holding": 17.0168,
+      "win_rate": 0.6154,
+      "max_concurrent_capital": 90000
+     },
+     "2021": {
+      "n": 16,
+      "total_profit": 7456.6411,
+      "return_pct_max_holding": 10.6523,
+      "win_rate": 0.6875,
+      "max_concurrent_capital": 70000
+     },
+     "2022": {
+      "n": 20,
+      "total_profit": 1195.7371,
+      "return_pct_max_holding": 1.4947,
+      "win_rate": 0.45,
+      "max_concurrent_capital": 80000
+     },
+     "2023": {
+      "n": 17,
+      "total_profit": -10984.9658,
+      "return_pct_max_holding": -12.2055,
+      "win_rate": 0.4118,
+      "max_concurrent_capital": 90000
+     },
+     "2024": {
+      "n": 11,
+      "total_profit": 19533.1395,
+      "return_pct_max_holding": 32.5552,
+      "win_rate": 1,
+      "max_concurrent_capital": 60000
+     },
+     "2025": {
+      "n": 20,
+      "total_profit": 34812.7017,
+      "return_pct_max_holding": 58.0212,
+      "win_rate": 0.75,
+      "max_concurrent_capital": 60000
+     },
+     "2026": {
+      "n": 4,
+      "total_profit": 9.2655,
+      "return_pct_max_holding": 0.0232,
+      "win_rate": 0.5,
+      "max_concurrent_capital": 40000
+     }
+    }
+   },
+   "P": {
+    "n_kept": 647,
+    "peak": 90000,
+    "operable": "OK",
+    "real": {
+     "total_profit": 138494.6683,
+     "return_pct_max_holding": 153.883,
+     "total_return_pct": 2.1406,
+     "annualized_return": 6.1554,
+     "win_rate": 0.5533,
+     "n": 647,
+     "max_concurrent_capital": 90000
+    },
+    "forcedN": 439,
+    "fallbackN": 0,
+    "forcedProfitSum": -25966.0874,
+    "forcedByYear": {
+     "2011": {
+      "n": 20,
+      "sum": -20725.0233
+     },
+     "2012": {
+      "n": 7,
+      "sum": -1526.1072
+     },
+     "2013": {
+      "n": 8,
+      "sum": -1906.9856
+     },
+     "2014": {
+      "n": 24,
+      "sum": 6938.8656
+     },
+     "2016": {
+      "n": 6,
+      "sum": 2708.0033
+     },
+     "2017": {
+      "n": 21,
+      "sum": -492.3213
+     },
+     "2018": {
+      "n": 11,
+      "sum": -4253.1879
+     },
+     "2019": {
+      "n": 26,
+      "sum": 2037.9706
+     },
+     "2020": {
+      "n": 40,
+      "sum": 1879.9538
+     },
+     "2021": {
+      "n": 31,
+      "sum": -10948.8434
+     },
+     "2022": {
+      "n": 47,
+      "sum": -9615.123
+     },
+     "2023": {
+      "n": 60,
+      "sum": -12583.9983
+     },
+     "2024": {
+      "n": 30,
+      "sum": 4101.7224
+     },
+     "2025": {
+      "n": 68,
+      "sum": 21121.0234
+     },
+     "2026": {
+      "n": 40,
+      "sum": -2702.0365
+     }
+    },
+    "forcedWL": {
+     "winN": 209,
+     "lossN": 230,
+     "winSum": 87719.5787,
+     "lossSum": -113685.6661
+    },
+    "xcheck": {
+     "b0": "EQ(逐位一致)",
+     "b1": "EQ(逐位一致)"
+    },
+    "by_year": {
+     "2011": {
+      "n": 26,
+      "total_profit": -18890.8248,
+      "return_pct_max_holding": -20.9898,
+      "win_rate": 0.2692,
+      "max_concurrent_capital": 90000
+     },
+     "2012": {
+      "n": 16,
+      "total_profit": 6886.1926,
+      "return_pct_max_holding": 7.6513,
+      "win_rate": 0.5625,
+      "max_concurrent_capital": 90000
+     },
+     "2013": {
+      "n": 23,
+      "total_profit": -1856.478,
+      "return_pct_max_holding": -2.3206,
+      "win_rate": 0.4348,
+      "max_concurrent_capital": 80000
+     },
+     "2014": {
+      "n": 42,
+      "total_profit": 40431.8981,
+      "return_pct_max_holding": 44.9243,
+      "win_rate": 0.7381,
+      "max_concurrent_capital": 90000
+     },
+     "2015": {
+      "n": 2,
+      "total_profit": 1859.0655,
+      "return_pct_max_holding": 9.2953,
+      "win_rate": 1,
+      "max_concurrent_capital": 20000
+     },
+     "2016": {
+      "n": 9,
+      "total_profit": 4805.2398,
+      "return_pct_max_holding": 6.8646,
+      "win_rate": 0.7778,
+      "max_concurrent_capital": 70000
+     },
+     "2017": {
+      "n": 28,
+      "total_profit": 5709.0721,
+      "return_pct_max_holding": 6.3434,
+      "win_rate": 0.6071,
+      "max_concurrent_capital": 90000
+     },
+     "2018": {
+      "n": 23,
+      "total_profit": 8440.8667,
+      "return_pct_max_holding": 9.3787,
+      "win_rate": 0.5217,
+      "max_concurrent_capital": 90000
+     },
+     "2019": {
+      "n": 41,
+      "total_profit": 17223.6818,
+      "return_pct_max_holding": 19.1374,
+      "win_rate": 0.6829,
+      "max_concurrent_capital": 90000
+     },
+     "2020": {
+      "n": 68,
+      "total_profit": 17318.523,
+      "return_pct_max_holding": 19.2428,
+      "win_rate": 0.5441,
+      "max_concurrent_capital": 90000
+     },
+     "2021": {
+      "n": 43,
+      "total_profit": -4512.0498,
+      "return_pct_max_holding": -5.0134,
+      "win_rate": 0.4186,
+      "max_concurrent_capital": 90000
+     },
+     "2022": {
+      "n": 64,
+      "total_profit": 10005.6027,
+      "return_pct_max_holding": 11.1173,
+      "win_rate": 0.5469,
+      "max_concurrent_capital": 90000
+     },
+     "2023": {
+      "n": 75,
+      "total_profit": -6437.6853,
+      "return_pct_max_holding": -7.153,
+      "win_rate": 0.44,
+      "max_concurrent_capital": 90000
+     },
+     "2024": {
+      "n": 43,
+      "total_profit": 23203.0141,
+      "return_pct_max_holding": 25.7811,
+      "win_rate": 0.7442,
+      "max_concurrent_capital": 90000
+     },
+     "2025": {
+      "n": 89,
+      "total_profit": 30701.4584,
+      "return_pct_max_holding": 34.1127,
+      "win_rate": 0.5843,
+      "max_concurrent_capital": 90000
+     },
+     "2026": {
+      "n": 55,
+      "total_profit": 3607.0914,
+      "return_pct_max_holding": 4.0079,
+      "win_rate": 0.5091,
+      "max_concurrent_capital": 90000
+     }
+    },
+    "forced_sample": [
+     {
+      "buy": "20110119",
+      "sell": "20110707",
+      "etf": "159905",
+      "profit": 361.5427,
+      "rp": 3.6154
+     },
+     {
+      "buy": "20110707",
+      "sell": "20110708",
+      "etf": "159905",
+      "profit": -8.8084,
+      "rp": -0.0881
+     },
+     {
+      "buy": "20110708",
+      "sell": "20110711",
+      "etf": "159905",
+      "profit": 47.2443,
+      "rp": 0.4724
+     },
+     {
+      "buy": "20110121",
+      "sell": "20110727",
+      "etf": "159905",
+      "profit": 83.816,
+      "rp": 0.8382
+     },
+     {
+      "buy": "20110221",
+      "sell": "20110810",
+      "etf": "159905",
+      "profit": -1496.0992,
+      "rp": -14.961
+     }
+    ]
+   }
+  },
+  "10w": {
+   "cap": 100000,
+   "capK": 10,
+   "A": {
+    "n_kept": 221,
+    "peak": 100000,
+    "operable": "OK",
+    "real": {
+     "total_profit": 133495.5891,
+     "return_pct_max_holding": 133.4956,
+     "total_return_pct": 6.0405,
+     "annualized_return": 5.6237,
+     "win_rate": 0.6471,
+     "n": 221,
+     "max_concurrent_capital": 100000
+    },
+    "forcedN": 0,
+    "forcedProfitSum": 0,
+    "by_year": {
+     "2011": {
+      "n": 10,
+      "total_profit": -21040.7596,
+      "return_pct_max_holding": -21.0408,
+      "win_rate": 0,
+      "max_concurrent_capital": 100000
+     },
+     "2012": {
+      "n": 10,
+      "total_profit": 8866.4839,
+      "return_pct_max_holding": 8.8665,
+      "win_rate": 0.9,
+      "max_concurrent_capital": 100000
+     },
+     "2013": {
+      "n": 16,
+      "total_profit": 12496.5649,
+      "return_pct_max_holding": 15.6207,
+      "win_rate": 0.5,
+      "max_concurrent_capital": 80000
+     },
+     "2014": {
+      "n": 15,
+      "total_profit": 31808.4391,
+      "return_pct_max_holding": 45.4406,
+      "win_rate": 0.8,
+      "max_concurrent_capital": 70000
+     },
+     "2015": {
+      "n": 2,
+      "total_profit": 1859.0655,
+      "return_pct_max_holding": 9.2953,
+      "win_rate": 1,
+      "max_concurrent_capital": 20000
+     },
+     "2016": {
+      "n": 9,
+      "total_profit": 3732.2873,
+      "return_pct_max_holding": 5.3318,
+      "win_rate": 0.6667,
+      "max_concurrent_capital": 70000
+     },
+     "2017": {
+      "n": 9,
+      "total_profit": 4784.3057,
+      "return_pct_max_holding": 6.8347,
+      "win_rate": 0.6667,
+      "max_concurrent_capital": 70000
+     },
+     "2018": {
+      "n": 8,
+      "total_profit": 2723.9693,
+      "return_pct_max_holding": 5.4479,
+      "win_rate": 0.625,
+      "max_concurrent_capital": 50000
+     },
+     "2019": {
+      "n": 16,
+      "total_profit": 15431.4728,
+      "return_pct_max_holding": 15.4315,
+      "win_rate": 1,
+      "max_concurrent_capital": 100000
+     },
+     "2020": {
+      "n": 29,
+      "total_profit": 17416.4061,
+      "return_pct_max_holding": 17.4164,
+      "win_rate": 0.6207,
+      "max_concurrent_capital": 100000
+     },
+     "2021": {
+      "n": 18,
+      "total_profit": 9611.7386,
+      "return_pct_max_holding": 12.0147,
+      "win_rate": 0.7222,
+      "max_concurrent_capital": 80000
+     },
+     "2022": {
+      "n": 22,
+      "total_profit": 590.4509,
+      "return_pct_max_holding": 0.6561,
+      "win_rate": 0.4091,
+      "max_concurrent_capital": 90000
+     },
+     "2023": {
+      "n": 19,
+      "total_profit": -9854.9425,
+      "return_pct_max_holding": -9.8549,
+      "win_rate": 0.4737,
+      "max_concurrent_capital": 100000
+     },
+     "2024": {
+      "n": 11,
+      "total_profit": 19533.1395,
+      "return_pct_max_holding": 32.5552,
+      "win_rate": 1,
+      "max_concurrent_capital": 60000
+     },
+     "2025": {
+      "n": 23,
+      "total_profit": 35527.7021,
+      "return_pct_max_holding": 50.7539,
+      "win_rate": 0.7391,
+      "max_concurrent_capital": 70000
+     },
+     "2026": {
+      "n": 4,
+      "total_profit": 9.2655,
+      "return_pct_max_holding": 0.0232,
+      "win_rate": 0.5,
+      "max_concurrent_capital": 40000
+     }
+    }
+   },
+   "P": {
+    "n_kept": 647,
+    "peak": 100000,
+    "operable": "OK",
+    "real": {
+     "total_profit": 157742.6423,
+     "return_pct_max_holding": 157.7426,
+     "total_return_pct": 2.4381,
+     "annualized_return": 6.2582,
+     "win_rate": 0.5564,
+     "n": 647,
+     "max_concurrent_capital": 100000
+    },
+    "forcedN": 420,
+    "fallbackN": 0,
+    "forcedProfitSum": -31547.1079,
+    "forcedByYear": {
+     "2011": {
+      "n": 19,
+      "sum": -22801.8353
+     },
+     "2012": {
+      "n": 6,
+      "sum": -980.1318
+     },
+     "2013": {
+      "n": 8,
+      "sum": -1840.0222
+     },
+     "2014": {
+      "n": 22,
+      "sum": 7176.9639
+     },
+     "2016": {
+      "n": 6,
+      "sum": 4439.9989
+     },
+     "2017": {
+      "n": 20,
+      "sum": -7039.8964
+     },
+     "2018": {
+      "n": 9,
+      "sum": -2090.9524
+     },
+     "2019": {
+      "n": 25,
+      "sum": 2370.8372
+     },
+     "2020": {
+      "n": 37,
+      "sum": 1345.8216
+     },
+     "2021": {
+      "n": 28,
+      "sum": -11763.5921
+     },
+     "2022": {
+      "n": 45,
+      "sum": -9555.5319
+     },
+     "2023": {
+      "n": 60,
+      "sum": -14792.8698
+     },
+     "2024": {
+      "n": 30,
+      "sum": 7631.0103
+     },
+     "2025": {
+      "n": 66,
+      "sum": 17386.9007
+     },
+     "2026": {
+      "n": 39,
+      "sum": -1033.8086
+     }
+    },
+    "forcedWL": {
+     "winN": 196,
+     "lossN": 224,
+     "winSum": 84832.0512,
+     "lossSum": -116379.1591
+    },
+    "xcheck": {
+     "b0": "EQ(逐位一致)",
+     "b1": "EQ(逐位一致)"
+    },
+    "by_year": {
+     "2011": {
+      "n": 26,
+      "total_profit": -21183.8522,
+      "return_pct_max_holding": -21.1839,
+      "win_rate": 0.1923,
+      "max_concurrent_capital": 100000
+     },
+     "2012": {
+      "n": 16,
+      "total_profit": 8043.3848,
+      "return_pct_max_holding": 8.0434,
+      "win_rate": 0.5625,
+      "max_concurrent_capital": 100000
+     },
+     "2013": {
+      "n": 23,
+      "total_profit": -1789.5146,
+      "return_pct_max_holding": -2.2369,
+      "win_rate": 0.4348,
+      "max_concurrent_capital": 80000
+     },
+     "2014": {
+      "n": 42,
+      "total_profit": 44757.4523,
+      "return_pct_max_holding": 44.7575,
+      "win_rate": 0.7619,
+      "max_concurrent_capital": 100000
+     },
+     "2015": {
+      "n": 2,
+      "total_profit": 1859.0655,
+      "return_pct_max_holding": 9.2953,
+      "win_rate": 1,
+      "max_concurrent_capital": 20000
+     },
+     "2016": {
+      "n": 9,
+      "total_profit": 6537.2354,
+      "return_pct_max_holding": 9.3389,
+      "win_rate": 0.7778,
+      "max_concurrent_capital": 70000
+     },
+     "2017": {
+      "n": 28,
+      "total_profit": 2172.1053,
+      "return_pct_max_holding": 2.1721,
+      "win_rate": 0.5714,
+      "max_concurrent_capital": 100000
+     },
+     "2018": {
+      "n": 23,
+      "total_profit": 12041.6774,
+      "return_pct_max_holding": 12.0417,
+      "win_rate": 0.5652,
+      "max_concurrent_capital": 100000
+     },
+     "2019": {
+      "n": 41,
+      "total_profit": 17850.2011,
+      "return_pct_max_holding": 17.8502,
+      "win_rate": 0.7073,
+      "max_concurrent_capital": 100000
+     },
+     "2020": {
+      "n": 68,
+      "total_profit": 20504.1442,
+      "return_pct_max_holding": 20.5041,
+      "win_rate": 0.5588,
+      "max_concurrent_capital": 100000
+     },
+     "2021": {
+      "n": 43,
+      "total_profit": -1673.7173,
+      "return_pct_max_holding": -1.6737,
+      "win_rate": 0.4651,
+      "max_concurrent_capital": 100000
+     },
+     "2022": {
+      "n": 64,
+      "total_profit": 9951.0273,
+      "return_pct_max_holding": 9.951,
+      "win_rate": 0.5313,
+      "max_concurrent_capital": 100000
+     },
+     "2023": {
+      "n": 75,
+      "total_profit": -8646.5568,
+      "return_pct_max_holding": -8.6466,
+      "win_rate": 0.44,
+      "max_concurrent_capital": 100000
+     },
+     "2024": {
+      "n": 43,
+      "total_profit": 26732.302,
+      "return_pct_max_holding": 26.7323,
+      "win_rate": 0.7442,
+      "max_concurrent_capital": 100000
+     },
+     "2025": {
+      "n": 89,
+      "total_profit": 37435.6157,
+      "return_pct_max_holding": 37.4356,
+      "win_rate": 0.5843,
+      "max_concurrent_capital": 100000
+     },
+     "2026": {
+      "n": 55,
+      "total_profit": 3152.0722,
+      "return_pct_max_holding": 3.1521,
+      "win_rate": 0.5091,
+      "max_concurrent_capital": 100000
+     }
+    },
+    "forced_sample": [
+     {
+      "buy": "20110707",
+      "sell": "20110708",
+      "etf": "159905",
+      "profit": -8.8084,
+      "rp": -0.0881
+     },
+     {
+      "buy": "20110708",
+      "sell": "20110711",
+      "etf": "159905",
+      "profit": 47.2443,
+      "rp": 0.4724
+     },
+     {
+      "buy": "20110119",
+      "sell": "20110727",
+      "etf": "159905",
+      "profit": 30.9,
+      "rp": 0.309
+     },
+     {
+      "buy": "20110121",
+      "sell": "20110810",
+      "etf": "159905",
+      "profit": -552.3769,
+      "rp": -5.5238
+     },
+     {
+      "buy": "20110810",
+      "sell": "20110811",
+      "etf": "159905",
+      "profit": -186.2469,
+      "rp": -1.8625
+     }
+    ]
+   }
+  }
+ },
+ "anchors": {
+  "G10w_P_reconG": {
+   "got": 157742.6423,
+   "expect": 157742.6423,
+   "ok": true,
+   "forcedN": 420,
+   "expectForced": 420
+  },
+  "H5w_A_reconH": {
+   "got_total": 115157.2138,
+   "expect_total": 115157.2138,
+   "got_n": 373,
+   "expect_n": 373,
+   "ok": true,
+   "got_ret": 230.3144
+  },
+  "all": true
+ },
+ "summary": [
+  {
+   "cap": "3万",
+   "A_n": 70,
+   "P_n": 647,
+   "A_net": 35512.0188,
+   "P_net": 48482.9022,
+   "delta": 12970.8834,
+   "relayIncrement": -7314.0535,
+   "forcedN": 571,
+   "forcedProfitSum": 20284.9369,
+   "A_ret": 118.3734,
+   "P_ret": 161.6097,
+   "verdict": "P法净利>A法(+12,971), 强平合计反盈 20,285 → P3d 有价值"
+  },
+  {
+   "cap": "5万",
+   "A_n": 110,
+   "P_n": 647,
+   "A_net": 60178.6538,
+   "P_net": 80137.9748,
+   "delta": 19959.321,
+   "relayIncrement": 11393.97,
+   "forcedN": 531,
+   "forcedProfitSum": 8565.351,
+   "A_ret": 120.3573,
+   "P_ret": 160.2759,
+   "verdict": "P法净利>A法(+19,959), 强平合计反盈 8,565 → P3d 有价值"
+  },
+  {
+   "cap": "7万",
+   "A_n": 157,
+   "P_n": 647,
+   "A_net": 92978.5347,
+   "P_net": 117020.6029,
+   "delta": 24042.0682,
+   "relayIncrement": 28519.9328,
+   "forcedN": 483,
+   "forcedProfitSum": -4477.8646,
+   "A_ret": 132.8265,
+   "P_ret": 167.1723,
+   "verdict": "P法净利>A法(+24,042), 续买增量 +28,520 > 强平亏损 4,478 → P3d 价值确认(强平成本被增量覆盖)"
+  },
+  {
+   "cap": "9万",
+   "A_n": 202,
+   "P_n": 647,
+   "A_net": 122590.8911,
+   "P_net": 138494.6683,
+   "delta": 15903.7772,
+   "relayIncrement": 41869.8646,
+   "forcedN": 439,
+   "forcedProfitSum": -25966.0874,
+   "A_ret": 136.2121,
+   "P_ret": 153.883,
+   "verdict": "P法净利>A法(+15,904), 续买增量 +41,870 > 强平亏损 25,966 → P3d 价值确认(强平成本被增量覆盖)"
+  },
+  {
+   "cap": "10万",
+   "A_n": 221,
+   "P_n": 647,
+   "A_net": 133495.5891,
+   "P_net": 157742.6423,
+   "delta": 24247.0532,
+   "relayIncrement": 55794.1611,
+   "forcedN": 420,
+   "forcedProfitSum": -31547.1079,
+   "A_ret": 133.4956,
+   "P_ret": 157.7426,
+   "verdict": "P法净利>A法(+24,247), 续买增量 +55,794 > 强平亏损 31,547 → P3d 价值确认(强平成本被增量覆盖)"
+  }
+ ],
+ "year_delta_10w": {
+  "2011": {
+   "A": -21040.7596,
+   "P": -21183.8522,
+   "delta": -143.0926
+  },
+  "2012": {
+   "A": 8866.4839,
+   "P": 8043.3848,
+   "delta": -823.0991
+  },
+  "2013": {
+   "A": 12496.5649,
+   "P": -1789.5146,
+   "delta": -14286.0795
+  },
+  "2014": {
+   "A": 31808.4391,
+   "P": 44757.4523,
+   "delta": 12949.0132
+  },
+  "2015": {
+   "A": 1859.0655,
+   "P": 1859.0655,
+   "delta": 0
+  },
+  "2016": {
+   "A": 3732.2873,
+   "P": 6537.2354,
+   "delta": 2804.9481
+  },
+  "2017": {
+   "A": 4784.3057,
+   "P": 2172.1053,
+   "delta": -2612.2004
+  },
+  "2018": {
+   "A": 2723.9693,
+   "P": 12041.6774,
+   "delta": 9317.7081
+  },
+  "2019": {
+   "A": 15431.4728,
+   "P": 17850.2011,
+   "delta": 2418.7283
+  },
+  "2020": {
+   "A": 17416.4061,
+   "P": 20504.1442,
+   "delta": 3087.7381
+  },
+  "2021": {
+   "A": 9611.7386,
+   "P": -1673.7173,
+   "delta": -11285.4559
+  },
+  "2022": {
+   "A": 590.4509,
+   "P": 9951.0273,
+   "delta": 9360.5764
+  },
+  "2023": {
+   "A": -9854.9425,
+   "P": -8646.5568,
+   "delta": 1208.3857
+  },
+  "2024": {
+   "A": 19533.1395,
+   "P": 26732.302,
+   "delta": 7199.1625
+  },
+  "2025": {
+   "A": 35527.7021,
+   "P": 37435.6157,
+   "delta": 1907.9136
+  },
+  "2026": {
+   "A": 9.2655,
+   "P": 3152.0722,
+   "delta": 3142.8067
+  }
+ }
+}
