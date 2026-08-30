@@ -10836,7 +10836,7 @@ function _sigKellyAfgRealtimeHtml() {
           rmhCls: _gOp.return_pct_max_holding >= 0 ? "pos" : "neg",
           mc: _gOp.max_concurrent + "笔 / " + (_gOp.max_concurrent_capital / 10000).toFixed(0) + "万",
           minC: (_gOp.max_concurrent_capital / 20 / 10000).toFixed(1) + "万",
-          badge: `长线·开 ${_gTier}`,
+          badge: ` ${_gTier}`,
           tip: `G=P≤3d「先卖年轻仓」${_gTier}（真实权威数，峰持仓≤20倍本金=可操作；与卡片「最后结果」同值）`
         };
       } else {
