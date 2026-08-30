@@ -1740,9 +1740,9 @@
 .lab-sigkelly-all-note { font-size: 12px; color: var(--text-3); line-height: 1.7; margin-top: 6px; padding: 6px 10px; background: rgba(212,160,23,0.06); border-left: 3px solid rgba(212,160,23,0.5); border-radius: 4px; }
 .lab-sigkelly-all-loading { text-align: center; padding: 16px 0; color: var(--text-3); }
 /* 全信号表(最后结果)布局 2026-08-30 改版: flex→grid 自适应并排(参照象限 .lab-sigkelly-grid L1548 写法),
-   PC 宽屏(容器≥2×600+gap)两张卡 1 行 2 列并排; 窄屏(<600px) min(100%) 自动回退 1 列(与象限一致无显式断点)。
+   PC 宽屏(容器≥2×700+gap)两张卡 1 行 2 列并排; 窄屏(<700px) min(100%) 自动回退 1 列(与象限一致无显式断点)。
    根因:原 flex + 按年卡 flex-basis:auto 取表格 max-content 宽撑爆主轴触发 wrap 换行 + @media 1080 断点偏大致中宽屏也变 1 列 */
-.lab-sigkelly-all-main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 600px), 1fr)); gap: 12px; align-items: start; }
+.lab-sigkelly-all-main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 700px), 1fr)); gap: 12px; align-items: start; }
 .lab-sigkelly-all-card { min-width: 0; }
 .lab-sigkelly-all-yearly { min-width: 0; }
 .lab-sigkelly-all-yearly-block { margin-top: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
@@ -1759,7 +1759,7 @@
 /* 2026-08-14 问题1: 全信号表「按年窗口增长」表格限高——不超强关联ETF(etf_strong)卡片高度, 超出部分内部滚动。
    实际 max-height 由 JS(_applySigKellyYearlyMaxHeight)测量强关联卡片高度后设置, 此处为无卡片/未测量时的兜底上限, 防止表格撑爆页面。 */
 .lab-sigkelly-all-yearly .lab-sigkelly-table-scroll { max-height: 440px; overflow-y: auto; }
-/* 2026-08-30 改 grid 后窄屏靠 min(100%,600px) 自适应单列(同象限 .lab-sigkelly-grid 无显式断点), 原 @media 1080 flex-direction:column 废弃删除 */
+/* 2026-08-30 改 grid 后窄屏靠 min(100%,700px) 自适应单列(同象限 .lab-sigkelly-grid 无显式断点), 原 @media 1080 flex-direction:column 废弃删除 */
 
 /* 宽表横向滚动(主表+进阶表合并为一张14列宽表,details 折叠已移除) */
 .lab-sigkelly-table-scroll { overflow-x: auto; margin-top: 2px; -webkit-overflow-scrolling: touch; }
