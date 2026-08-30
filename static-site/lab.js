@@ -10836,7 +10836,7 @@ function _sigKellyAfgRealtimeHtml() {
           rmhCls: _gOp.return_pct_max_holding >= 0 ? "pos" : "neg",
           mc: _gOp.max_concurrent + "笔 / " + (_gOp.max_concurrent_capital / 10000).toFixed(0) + "万",
           minC: (_gOp.max_concurrent_capital / 20 / 10000).toFixed(1) + "万",
-          badge: `AI长线·开 ${_gTier}`,
+          badge: `长线·开 ${_gTier}`,
           tip: `G=P≤3d「先卖年轻仓」${_gTier}（真实权威数，峰持仓≤20倍本金=可操作；与卡片「最后结果」同值）`
         };
       } else {
@@ -11577,7 +11577,7 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
       (cwmHtml ? `<div class="lab-sigkelly-cwm-row">` + cwmHtml + `</div>` : ``) +
       `<div class="lab-sigkelly-table-scroll">` +
       `<table class="lab-sigkelly-table lab-sigkelly-wide-table">` +
-        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th><th>最终盈亏<br>(元)</th><th title="=总盈亏/峰值同时持仓资金,随回测周期增长">峰值资金<br>收益率</th><th>费率消耗</th><th>最大持仓</th><th>持仓中</th><th>年化</th><th>夏普<br>卡尔玛</th><th>最大回撤</th></tr></thead>` +
+        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔平均<br>收益率</th><th>样本</th><th>最终盈亏<br>(元)</th><th title="=总盈亏/峰值同时持仓资金,随回测周期增长">峰值资金<br>收益率</th><th>费率消耗</th><th>最大持仓</th><th>持仓中</th><th>年化</th><th>夏普<br>卡尔玛</th><th>最大回撤</th></tr></thead>` +
         `<tbody>${rows}</tbody>` +
       `</table>` +
       `</div>` +
