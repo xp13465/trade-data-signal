@@ -11542,7 +11542,7 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
         `<td class="lab-sigkelly-rmh ${rmhVal == null ? "" : (rmhVal >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg")}" title="=总盈亏/峰值同时持仓资金,随回测周期增长">${rmh}</td>` +
         `<td class="lab-sigkelly-neg lab-sigkelly-fee">${fcStr}</td>` +
         `<td class="lab-sigkelly-mc">${mcStr}</td><td class="lab-sigkelly-holding">${hcStr}</td><td>${ann}</td>` +
-        `<td class="lab-sigkelly-sharpe-calmar"><div>${sh}</div><div>${cm}</div></td><td>${md}</td>` +
+        `<td>${md}</td><td class="lab-sigkelly-sharpe-calmar"><div>${sh}</div><div>${cm}</div></td>` +
       `</tr>`;
   }
   const wm = _sigKellyWatermark(pdata);
