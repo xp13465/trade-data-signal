@@ -166,3 +166,12 @@
 - [x] **#A2 popover弃用改固定顶部info条** — _positionPop/popEl/_anchorIx 整段删除,详情经 _setInfoDetail(_popContent(p)) 注入 .lab-etf-pin-infobar 固定弹窗顶部,不再盖pin信号;弹窗 max-height 提至94vh(仅本弹窗,交易列表等其他sig-kelly弹窗仍90vh零波及)
 - [x] **#A3 触发行配对pin初始高亮** — 正式/淘汰两区 tr 均加 data-ib/data-bd,点击绑定读 srcKey 传第7参,渲染末尾匹配 index_id+buy_date → _focusPair 高亮(单买无sell走持有中分支),hover其他pin正常转移,匹配不到console.warn不抛错
 - [x] **reviewer内审**:三需求全PASS+回归零影响(panZoom/连线/hover/返回列表行高亮未动)+node --check过,注2处非阻断小瑕疵(hotzone传多余第3参/死CSS规则.lab-etf-pin-infobar .lab-etf-pin-pop)待后续顺手清
+
+## 2026-08-30 会话追加(feat/sigkelly-all-layout + feat/etf-pin-ui-fix + feat/sigkelly-all-width-unify)
+
+> 来源:用户连环需求(两卡并排 + pin 4项UI修复 + 卖点×N聚合标注 + 全信号卡宽度统一),三批 commit 均已在 origin/main,main-merge 分别统一 build_min+bump(版本串 a501→a502→a503),curl 三查通过。pin 卖口口径调研落档 docs/kelly/analysis/ghi-sell-caliber-2026-08-30.md,UI 根因落档 docs/kelly/analysis/chart-pin-ui-rootcause-2026-08-30.md。
+
+- [x] **#B1 全信号表+按年窗口增长两卡改 grid 并排 2 列**(commit c6a2370ce,版本 a501)— 原 flex+@media1080 断点偏大致中宽屏也变 1 列;改 grid `repeat(auto-fill,minmax(min(100%,600px),1fr))`,PC≥1212px 2 卡并排、窄屏 min(100%) 自动回 1 列;象限 3 列布局(:1548)未动零回归
+- [x] **#B2 ETF走势pin弹窗4项UI修复**(commit 687f46a70,版本 a502)— ①dot 居中锚点(dot+txt 整体 translate 致 dot 偏左约27px,改 dot absolute translate(-50%,-50%)、txt 挂旁)②同日多 pin 竖向叠加(dot 共锚点、txt 竖排错开,弃 ei*14 横向错开)③正式/淘汰区切区统一区间基准(并集事件日期,弃每区独立重算窗口)④infobar 详情态去 max-height:64 滚动 + 字体统一;reviewer 内审 PASS
+- [x] **#B3 卖点×N聚合标注+同卖日清仓明细**(commit b8b2e5f7a,版本 a502)— GHI 卖出=清仓全部仓位非卖1手(562870=8笔买同日全清 net -262.06,全库617组1卖日命中N买);pin 显示 `×N` + hover 列同卖日被清 buy 行 + 合计清仓本金;口径三源核对一致(仅展示层逐行有误导)
+- [x] **#B4 全信号卡默认宽度统一700px+撑不满动态撑满**(commit 358c3dd54,版本 a503)— 全信号卡基准 600px→700px 与象限卡(:1548)对齐;`1fr` 让一行2卡自动撑满;窄屏(<700) min(100%) 回 1 列;同步更新注释口径
