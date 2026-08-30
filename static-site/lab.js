@@ -12364,10 +12364,15 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
       // 卖点×N(2026-08-30 GHI 卖出口径展示增强): 自然卖点标签追加「×N」, N=同 sell 日被清仓 buy 笔数
       //   (562870 卖20260710=8笔买全清 → 所有当天卖点均显示「卖 ×8」)。N≤1 不标(单行原义无歧义);
       //   强平(force)是 cap 仓位管理分批非卖信号日语义, 不挂 ×N; 持有中无卖(null)自然无标签。
+      //   2026-08-30 需求: 多卖竖向堆叠时显示卖1~卖N 而非 全部 ×N
       let label = e.kind === "buy" ? "买" : (e.kind === "force" ? "强平" : "卖");
       if (e.kind === "sell") {
         const _soldN = (_soldBuyCountByDate.get(e.date) || 0);
-        if (_soldN > 1) label += " ×" + _soldN;
+        if (_soldN > 1) {
+          // 计算今日卖点序号: 卖1~卖N 替代 全部 ×N
+          const sellSeq = evs.filter((f, fi) => f.kind === "sell" && fi <= ei).length;
+          label += sellSeq;
+        }
       }
       const priceTxt = e.kind === "force" ? (e.navMissing ? "缺价" : (e.price != null ? e.price.toFixed(4) : "缺价")) : (e.price != null ? e.price.toFixed(4) : (e.kind === "sell" ? "缺价" : "-"));
       const pin = document.createElement("div");
@@ -12432,17 +12437,21 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
       if (_soldN > 1) {
         const _mates = pairs.filter((pp) => pp.sell && pp.sell.kind === "sell" && pp.sell.date === _sd)
           .sort((a, b) => (a.buy.date < b.buy.date ? -1 : a.buy.date > b.buy.date ? 1 : 0));
-        let _totAmt = 0;
+        let _totAmt = 0, _totProfit = 0, _retPctSum = 0;
         const _fmtAmt = (v) => { const _w = v / 10000; return (v >= 10000 && _w % 1 === 0) ? _w + "万" : Math.round(v).toLocaleString(); };
-        const _buyRows = _mates.map((pp) => {
-          const _bt = pp.buy.t, _bf = pp.buy.f;
-          const _amt = (_bt && _bf.amount != null && _bt[_bf.amount] != null) ? Number(_bt[_bf.amount]) : 10000;
+        const _fmtRet = (v) => { return (v != null) ? ((v >= 0 ? "+" : "") + v.toFixed(2) + "%") : "-"; };
+        _mates.forEach((pp) => {
+          const _amt = (pp.buy.t && pp.buy.f.amount != null && pp.buy.t[pp.buy.f.amount] != null) ? Number(pp.buy.t[pp.buy.f.amount]) : 10000;
           _totAmt += _amt;
-          const _sh = (_bt && _bf.shares != null) ? Number(_bt[_bf.shares]) : null;
-          const _pf = (_bt && _bf.profit != null) ? Number(_bt[_bf.profit]) : null;
-          return `<div class="lab-etf-pin-pop-row lab-etf-pin-pop-subbuy">买 ${pp.buy.date} · 本金 ${_fmtAmt(_amt)} 元 · 份额 ${(_sh != null ? _sh.toFixed(2) : "-")} · ${(_pf != null ? ((_pf >= 0 ? "+" : "") + _pf.toFixed(1) + " 元") : "-")}</div>`;
-        }).join("");
-        html += `<div class="lab-etf-pin-pop-group">📌 卖信号日 ${_sd} 同日被清 <b>${_soldN}</b> 笔买(整批清仓):${_buyRows}<div class="lab-etf-pin-pop-row lab-etf-pin-pop-total">合计清仓本金 <b>${_fmtAmt(_totAmt)} 元</b></div></div>`;
+          const _pf = (pp.buy.t && pp.buy.f.profit != null) ? Number(pp.buy.t[pp.buy.f.profit]) : null;
+          if (_pf != null) _totProfit += _pf;
+          const _rp = (pp.buy.t && pp.buy.f.return_pct != null) ? Number(pp.buy.t[pp.buy.f.return_pct]) : null;
+          if (_rp != null) _retPctSum += _rp;
+        });
+        const _avgRet = _mates.length > 0 ? _retPctSum / _mates.length : null;
+        html += `<div class="lab-etf-pin-pop-group">📌 卖信号日 ${_sd} 同日被清 <b>${_soldN}</b> 笔买(整批清仓):</div>`;
+        html += `<div class="lab-etf-pin-pop-row lab-etf-pin-pop-summary">总盈亏 <b>${_totProfit >= 0 ? "+" : ""}${_totProfit.toFixed(1)} 元</b> · 平均收益率 <b>${_fmtRet(_avgRet)}</b></div>`;
+        html += `<div class="lab-etf-pin-pop-row lab-etf-pin-pop-total">合计清仓本金 <b>${_fmtAmt(_totAmt)} 元</b></div>`;
       }
     } else {
       const cp = (bt && bf.current_price != null) ? Number(bt[bf.current_price]) : null;
