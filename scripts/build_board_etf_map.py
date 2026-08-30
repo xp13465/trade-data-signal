@@ -266,7 +266,8 @@ TRACK_INDEX_KW: dict[str, dict] = {
     "csi1000":  {"include": ["中证1000"], "exclude": []},
     "cyb":      {"include": ["创业板指"], "exclude": ["创业板50", "创业板综", "创精选"]},
     "kc50":     {"include": ["科创板50", "科创50"], "exclude": []},  # track_index_name="上证科创板50成份指数"含"科创板50"非"科创50"
-    "bj50":     {"include": ["北证50"], "exclude": []},
+    # bj50: 已在 universe_rules.yaml excluded_categories.空数组 mode: empty_array(2026-08-25 用户拍板)。
+    # 从 TRACK_INDEX_KW 移除，防止 KW 名称匹配层被误匹配；holdings/sum_pct 层也跳过(见 EXCLUDE_FROM_HOLDINGS)
     "csi_div":  {"include": ["中证红利"], "exclude": ["低波", "50", "100", "300", "800", "价值", "质量"]},
     "div_lowvol": {"include": ["红利低波"], "exclude": ["50", "100", "300", "800", "恒生", "港股"]},
     "sz_div":   {"include": ["深证红利"], "exclude": []},
@@ -1499,9 +1500,11 @@ def main():
     # d层: max_hold_pct×overlap_count 综合分排序 Top-12; e层: sum_hold_pct 概念暴露度排序 Top-12(>=15%)
     # 性能优化：已有足量ETF（>=6只）的指数跳过；宽基 sh(7)/hs300(40)/csi500(35)等跳过。
     # 首次跑宽基 sz(500股)~4min + csi_div(100股)~1min，7天缓存后~1-2min。
+    # 禁入: universe_rules.yaml excluded_categories.空数组(mode=empty_array) 的指数，防止 空数组被 holdings/sum_pct 填满导致 §23.6 对称校验 FAIL
+    _HOLDINGS_EXCLUDE = {"bj50", "bj_399", "csi_930820", "ftse100", "kospi"}
     holdings_candidates = [
         iid for iid in board_ids
-        if len(out.get(iid, [])) < 6
+        if iid not in _HOLDINGS_EXCLUDE and len(out.get(iid, [])) < 6
     ]
     if holdings_candidates:
         print(f"\n持仓重叠算法（第4层）：对 {len(holdings_candidates)} 个 1-3层<6只ETF 的指数叠加匹配（含宽基）")
