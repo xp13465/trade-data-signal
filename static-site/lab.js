@@ -12231,7 +12231,12 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
       infoBar.classList.remove("is-detail");
       infoBar.innerHTML = `<span class="lab-etf-pin-infobar-msg">${msg}</span>`;
     };
-    const _setInfoDetail = (html) => { infoBar.classList.add("is-detail"); infoBar.innerHTML = html; };
+    const _setInfoDetail = (html) => {
+    infoBar.classList.add("is-detail");
+    infoBar.innerHTML = html;
+    // Force reflow to prevent layout thrash
+    void infoBar.offsetHeight;
+  };
 
     // pin 日期集合(用于过滤 ohlc 视图范围 + 定位坐标; 空区时自动退化为全史视图)
     // 3 注: dMin/dMax 已统一用两区并集(见上), 此处不再按 events 独立重算 —— 保证切区曲线区间一致

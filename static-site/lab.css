@@ -2289,8 +2289,9 @@
 .lab-etf-pin-pop-row { white-space: nowrap; }
 .lab-etf-pin-pop-fee { color: var(--text-4); font-size: 12px; margin-left: 4px; font-weight: 400; }
 /* 卖点×N 聚合明细(2026-08-30 GHI 卖出口径展示增强): 同日被清买点列表用次级小字缩进, 与主明细区分 */
-.lab-etf-pin-pop-group { margin-top: 4px; padding: 4px 8px; border-left: 3px solid var(--text-3); background: rgba(128, 128, 128, 0.06); border-radius: 4px; }
-.lab-etf-pin-pop-subbuy { color: var(--text-2); font-size: 11px; line-height: 1.5; white-space: nowrap; }
+/* 卖点×N 聚合横向表格(2026-08-30 修复撑爆弹窗+改横向防行太长): group 用 flex 横排, 每笔明细用次级小字横排 */
+.lab-etf-pin-pop-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 0; padding: 2px 6px; border-left: 3px solid var(--text-3); background: rgba(128, 128, 128, 0.06); border-radius: 4px; font-size: 11px; line-height: 1.4; }
+.lab-etf-pin-pop-subbuy { display: inline-block; color: var(--text-2); font-size: 11px; white-space: nowrap; padding: 1px 0; }
 .lab-etf-pin-pop-total { color: var(--text-1); font-size: 12px; font-weight: 700; white-space: nowrap; }
 
 /* 2026-08-30 需求1: 正式区/淘汰区切换按钮(弹窗标题栏, 复用 zoom 按钮风格) */
@@ -2344,8 +2345,16 @@
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
   overflow: auto;
 }
-.lab-etf-pin-infobar.is-detail { flex-direction: column; align-items: stretch; justify-content: center; gap: 2px; max-height: none; min-height: auto; overflow: visible; font-size: 12px; line-height: 1.6; }
-.lab-etf-pin-infobar .lab-etf-pin-pop-head { margin-bottom: 2px; padding-bottom: 2px; border-bottom: none; }
+/* 2026-08-30 竖向→横向表格: 顶部info条宽高固定, hover不会撑开弹窗 */
+.lab-etf-pin-infobar.is-detail { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px 12px; max-height: 64px; min-height: 24px; overflow: hidden; font-size: 11px; line-height: 1.3; }
+.lab-etf-pin-infobar.is-detail .lab-etf-pin-pop-head {
+  display: inline-flex; align-items: center; gap: 4px; font-weight: 700; color: var(--text-1);
+  margin: 0; padding: 0; border: none; white-space: nowrap;
+}
+.lab-etf-pin-infobar.is-detail .lab-etf-pin-pop-row {
+  display: flex; align-items: center; gap: 4px; font-size: 11px; line-height: 1.3;
+  margin: 0; padding: 0; border: none; white-space: nowrap;
+}
 .lab-etf-pin-infobar .lab-etf-pin-pop { min-width: 0; max-width: none; }
 .lab-etf-pin-infobar-msg {
   font-size: 12px;
