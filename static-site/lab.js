@@ -11817,12 +11817,10 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     { key: "buy_date", label: "买入日", sortable: true },
     { key: "sell_date", label: "卖出日", sortable: true },
     { key: "track_score", label: "ETF关系", sortable: true },
-    { key: "etf_code", label: "代码", sortable: true },
-    { key: "etf_name", label: "ETF名称", sortable: true },
+    { key: "etf_code", label: "代码 / ETF名称", sortable: true },
     { key: "buy_price", label: "买价", sortable: true },
     { key: "sell_price", label: "卖价", sortable: true },
-    { key: "shares", label: "份额", sortable: true },
-    { key: "amount", label: "每笔金额", sortable: true },
+    { key: "shares", label: "份额 / 每笔金额", sortable: true },
     { key: "profit", label: "盈亏(元)", sortable: true },
     { key: "return_pct", label: "收益率", sortable: true },
     { key: "fee_cost", label: "费率消耗", sortable: true },
@@ -11935,17 +11933,16 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       return `<td class="lab-sigkelly-trades-sigcell">${sigCell}</td>` +
         `<td>${t[fIdx.buy_date]}</td>${sellDateCell}` +
         `<td class="lab-sigkelly-trades-etfrel">${etfRel}</td>` +
-        `<td class="lab-sigkelly-trades-etfcode" data-code="${_esc(t[fIdx.etf_code])}"><span class="lab-sigkelly-etf-code-link" title="点击查看 ${_esc(t[fIdx.etf_name])} 走势与买卖/强平点">${_esc(t[fIdx.etf_code])}</span></td><td class="lab-sigkelly-trades-etfname">${_esc(t[fIdx.etf_name])}</td>` +
+        `<td class="lab-sigkelly-trades-etfcode" data-code="${_esc(t[fIdx.etf_code])}"><span class="lab-sigkelly-etf-code-link" title="点击查看 ${_esc(t[fIdx.etf_name])} 走势与买卖/强平点">${_esc(t[fIdx.etf_code])}</span><div class="lab-sigkelly-trades-etfname-sub">${_esc(t[fIdx.etf_name])}</div></td>` +
         `<td>${(+t[fIdx.buy_price]).toFixed(4)}</td>${sellPriceCell}` +
-        `<td>${(+t[fIdx.shares]).toFixed(2)}</td>` +
-        `<td class="lab-sigkelly-amt">${(t[fIdx.amount] != null ? Math.round(+t[fIdx.amount]).toLocaleString() : "-")}</td>` +
+        `<td>${(+t[fIdx.shares]).toFixed(2)}<div class="lab-sigkelly-trades-amt-sub">${(t[fIdx.amount] != null ? Math.round(+t[fIdx.amount]).toLocaleString() : "-")}</div></td>` +
         profitCell + returnCell +
         `<td class="lab-sigkelly-neg lab-sigkelly-fee">${(t[fIdx.fee_cost] != null ? "-" + (+t[fIdx.fee_cost]).toFixed(2) : "-")}</td>` +
         `<td>${t[fIdx.hold_days]}</td>${reasonCell}`;
     };
     let tbodyHTML = "";
     if (pageRows.length === 0) {
-      tbodyHTML = `<tr><td colspan="15" class="lab-sigkelly-trades-more">无符合条件的交易记录</td></tr>`;
+      tbodyHTML = `<tr><td colspan="13" class="lab-sigkelly-trades-more">无符合条件的交易记录</td></tr>`;
     } else {
       for (const t of pageRows) {
         const rowCls = (!t[fIdx.sell_date]) ? "lab-sigkelly-holding-row" : "";
@@ -11966,7 +11963,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       if (state._sigKellyElimPage < 1) state._sigKellyElimPage = 1;
       const elimPageRows = elimFiltered.slice((state._sigKellyElimPage - 1) * elimPerPage, state._sigKellyElimPage * elimPerPage);
       if (elimPageRows.length === 0) {
-        elimTbody = `<tr><td colspan="15" class="lab-sigkelly-trades-more">无符合条件的被淘汰交易</td></tr>`;
+        elimTbody = `<tr><td colspan="13" class="lab-sigkelly-trades-more">无符合条件的被淘汰交易</td></tr>`;
       } else {
         for (const t of elimPageRows) {
           const elimRowCls = ((!t[fIdx.sell_date]) ? "lab-sigkelly-holding-row" : "") + " lab-sigkelly-eliminated-row";
@@ -12088,7 +12085,8 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     // ETF 代码点击 → 走势+买卖/强平 pin(需求B, 2026-08-30)
     overlay.querySelectorAll(".lab-sigkelly-trades-etfcode[data-code]").forEach((td) => {
       const _code = td.dataset.code;
-      const _nm = (td.nextElementSibling && td.nextElementSibling.textContent) || "";
+      const _nmEl = td.querySelector(".lab-sigkelly-trades-etfname-sub"); // 名称已内嵌同列(2026-08-30 列合并)
+      const _nm = (_nmEl && _nmEl.textContent) || "";
       td.onclick = (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
