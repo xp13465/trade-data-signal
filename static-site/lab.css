@@ -2112,7 +2112,7 @@
   border-radius: 3px;
 }
 /* 走势小窗 */
-.lab-etf-pin-modal { max-width: 760px; width: 92%; }
+.lab-etf-pin-modal { max-width: 1100px; width: 100%; }
 .lab-etf-pin-body {
   padding: 12px 16px;
   overflow: auto;
@@ -2125,8 +2125,7 @@
 }
 .lab-etf-pin-wrap .etf-trend-wrap {
   position: relative;
-  margin: 0 auto;
-  max-width: 720px;
+  width: 100%;
 }
 /* pin 点: 买=绿圆 / 卖=蓝圆 / 强平=红三角 */
 .lab-etf-pin {
@@ -2251,7 +2250,7 @@
   position: absolute;
   z-index: 60;
   min-width: 220px;
-  max-width: 340px;
+  max-width: min(340px, calc(100% - 16px));
   background: var(--bg-card);
   border: 1px solid var(--border-strong);
   border-radius: 8px;

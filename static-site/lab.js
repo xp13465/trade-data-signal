@@ -12359,8 +12359,20 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields) {
   const _positionPop = (ix) => {
     const pt = svgPointToWrap(ix);
     if (!pt) { popEl.style.display = "none"; return; }
-    popEl.style.left = Math.max(4, pt.x + 12).toFixed(1) + "px";
-    popEl.style.top = Math.max(4, pt.y - 96).toFixed(1) + "px";
+    // 2026-08-30 popover 越界翻转: 默认右下展开, 测量真实尺寸后若越过 wrap 右/下边界
+    // 则左/上翻转 + 兜底钳制, 保证 popover 永远不出 wrap, 不撑出弹窗底部横向滚动条/页面跳动。
+    popEl.style.display = "block";
+    const pw = popEl.offsetWidth, ph = popEl.offsetHeight;
+    const _wr = wrap.getBoundingClientRect();
+    const _ww = _wr.width, _wh = _wr.height;
+    const _M = 4;
+    let _lx = pt.x + 12, _ty = pt.y - 96;            // 默认: pin 右侧/上方
+    if (_lx + pw > _ww) _lx = pt.x - pw;             // 右越界 → 左翻转(pin 左侧对齐)
+    if (_ty + ph > _wh) _ty = pt.y - ph;             // 下越界 → 上翻转
+    _lx = Math.max(_M, Math.min(_lx, _ww - pw - _M)); // 左/右兜底钳制
+    _ty = Math.max(_M, Math.min(_ty, _wh - ph - _M)); // 上/下兜底钳制
+    popEl.style.left = _lx.toFixed(1) + "px";
+    popEl.style.top = _ty.toFixed(1) + "px";
   };
   // hover 聚焦: 高亮该配对整条连线+两端 pin, 其余淡化; 持仓中单 buy 只弹 popover 不连线
   const _focusPair = (p, pobj, ix) => {
