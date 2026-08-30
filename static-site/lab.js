@@ -7830,8 +7830,8 @@ function _kellyOpElimination(pdata, modeKey, gihOn, posCapOn) {
   }
   // 需求②: positionCap ON 但 GIH off(G/H/I 未套20万硬控)且原始峰持仓>20倍 → 无操作性; A-F 在 K ON 下有仓位控制自然≤20倍不进此分支
   return {
-    r: o.r, operable: false, eliminated: true, reason: "无操作性",
-    tip: `淘汰=无操作性: 本模式(${modeKey})原始仓位峰值同时持仓 ${(mult >= 1 ? mult.toFixed(0) : mult)} 万 = ${(mult >= 1 ? mult.toFixed(0) : mult)} 倍单次本金, 超出 20 倍可操作上限(${_KELLY_OPERABLE_CAP / 10000}万)。开上方「ai长线(G/H/I)仓位管理」套对应模式仓位法(G=P≤3d@10万/H=满仓不买@5万/I=P≤3d@9万)后可操作, 才参与 TOP1 推荐。`
+    r: o.r, operable: false, eliminated: true, reason: "无法实操",
+    tip: `淘汰=无法实操: 本模式(${modeKey})原始仓位峰值同时持仓 ${(mult >= 1 ? mult.toFixed(0) : mult)} 万 = ${(mult >= 1 ? mult.toFixed(0) : mult)} 倍单次本金, 超出 20 倍可操作上限(${_KELLY_OPERABLE_CAP / 10000}万)。开上方「ai长线(G/H/I)仓位管理」套对应模式仓位法(G=P≤3d@10万/H=满仓不买@5万/I=P≤3d@9万)后可操作, 才参与 TOP1 推荐。`
   };
 }
 // 弹窗交易记录态: 被不可操作淘汰的模式(GIH off 无操作性 / K-OFF 无仓位限制), 弹窗顶部给淘汰理由提示(§23.3 举一反三补齐该展示位), 与卡片行/水印同判据同文案
@@ -11246,14 +11246,14 @@ function _sigKellyWatermark(pdata) {
 // wm = _sigKellyWatermark 返回值(含 items/auxRisk/auxGood/top)
 function _sigKellyWmPopupHtml(wm) {
   const modeLabels = _sigKellyModeLabels();
-  // 本组各模式对比: 每个模式显示【收益率(推荐排序键)+净盈亏佐证】; 不可操作(GIH off 的 G/H/I 原仓位>20倍)标"无操作性"灰化不参与推荐, 正红负绿与表格一致
+  // 本组各模式对比: 每个模式显示【收益率(推荐排序键)+净盈亏佐证】; 不可操作(GIH off 的 G/H/I 原仓位>20倍)标"无法实操"灰化不参与推荐, 正红负绿与表格一致
   const cmpRows = wm.items.map((it) => {
     const tpStr = (it.tp >= 0 ? "+" : "") + it.tp.toFixed(0);
     const rmhStr = (it.rmh != null ? (it.rmh >= 0 ? "+" : "") + it.rmh.toFixed(2) + "%" : "-");
     const cls = it.tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
     const hi = (wm.top && it.m === wm.top.m) ? " lab-sigkelly-wm-cmp-hi" : "";
     const noOp = it.operable ? "" : " lab-sigkelly-wm-cmp-noop";
-    const noOpBadge = it.operable ? "" : ` <span class="lab-sigkelly-wm-cmp-noop-badge" title="峰值同时持仓超20倍单次本金, 不可操作(${it.reason || "无操作性"}), 不参与TOP1推荐; 需求②开ai长线硬控/需求D切K=1-4后可操作">${it.reason || "无操作性"}</span>`;
+    const noOpBadge = it.operable ? "" : ` <span class="lab-sigkelly-wm-cmp-noop-badge" title="峰值同时持仓超20倍单次本金, 不可操作(${it.reason || "无法实操"}), 不参与TOP1推荐; 需求②开ai长线硬控/需求D切K=1-4后可操作">${it.reason || "无法实操"}</span>`;
     return `<div class="lab-sigkelly-wm-cmp-row${hi}${noOp}"><span class="lab-sigkelly-wm-cmp-m">${it.m}</span><span class="lab-sigkelly-wm-cmp-lbl">${modeLabels[it.m] || ""}</span><span class="${cls}">${rmhStr}</span><span class="lab-sigkelly-wm-cmp-tp">盈亏${tpStr}</span>${noOpBadge}</div>`;
   }).join("");
   // 辅助标签说明(仅 top1/mix 显示当前命中标签 + 全量图例)
@@ -11289,7 +11289,7 @@ function _sigKellyWmPopupHtml(wm) {
         `<div class="lab-sigkelly-wm-li"><b>分化·X</b>: 可操作层有正有负,X 为推荐方案</div>` +
         `<div class="lab-sigkelly-wm-li"><b>淘汰</b>: 可操作层各方案最终盈亏全≤0</div>` +
         `<div class="lab-sigkelly-wm-li lab-sigkelly-wm-li-x">推荐规则: ①先看可操作性(峰值同时持仓≤20万=≤20倍单次本金, 不可操作模式不推荐) ②再看收益率(峰值资金收益率 return_pct_max_holding) ③净盈亏/最大持仓只是佐证, 不比排序。X = 可操作层中收益率最高的方案字母。例(G/H/I 模式开关对比, 决策链走①②③)：关(旧FIFO)峰值持仓 136 万=不可操作, 即便净利 +64.2万 全模式最高也先被①淘汰; 开(满仓不买@5万)峰值 5 万=可操作, 再按②收益率排, 230.31%(真实权威数) 胜出→推荐 H@5万(2026-08-30 用户三连拍板, 全场主推), 净利/持仓只当佐证不当排序【核实源:2026-08-30 GHI 三档真实权威数定案】</div>` +
-        `<div class="lab-sigkelly-wm-li lab-sigkelly-wm-li-noop">删除线/无操作性标灰=峰值同时持仓超20倍单次本金, 不可操作(不参与推荐)。两种触发: 需求②GIH未开(原始 G/H/I 136万/45万/111万)→开「ai长线(G/H/I)仓位管理」套对应模式仓位法(G=P≤3d@10万/H=满仓不买@5万/I=P≤3d@9万, 2026-08-30 定案, 峰持仓≤20倍可操作); 需求D K档关(无仓位限制每笔1万全买)→切K=1-4(每笔=10000/N有仓位控制)。本卡A-F在该口径下峰持仓≤20倍则可操作仍参与推荐</div>` +
+        `<div class="lab-sigkelly-wm-li lab-sigkelly-wm-li-noop">删除线/无法实操标灰=峰值同时持仓超20倍单次本金, 不可操作(不参与推荐)。两种触发: 需求②GIH未开(原始 G/H/I 136万/45万/111万)→开「ai长线(G/H/I)仓位管理」套对应模式仓位法(G=P≤3d@10万/H=满仓不买@5万/I=P≤3d@9万, 2026-08-30 定案, 峰持仓≤20倍可操作); 需求D K档关(无仓位限制每笔1万全买)→切K=1-4(每笔=10000/N有仓位控制)。本卡A-F在该口径下峰持仓≤20倍则可操作仍参与推荐</div>` +
       `</div>` +
       `<div class="lab-sigkelly-wm-sec">` +
         `<div class="lab-sigkelly-wm-sub">卖出模式含义</div>` +
@@ -11482,11 +11482,11 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
   let rows = "";
   for (const m of modes) {
     // #49+#xx ai长线模式(G/H/I)仓位管理: 开时对 G/H/I 模式卡片行套各模式独立仓位策略后的数值(2026-08-30 起=真实权威数口径, 废弃 b0/b1 估算; §22 三档对比表说明)
-    // #25 A包(2026-08-14): GIH off(G/H/I 未套各模式仓位法、原仓位>20倍)时, 该行标"淘汰·无操作性"(删除线+角标+hoverpop理由), 非从列表消失; GIH on(cap后可操作)不标
+    // #25 A包(2026-08-14): GIH off(G/H/I 未套各模式仓位法、原仓位>20倍)时, 该行标"淘汰·无法实操"(删除线+角标+hoverpop理由), 非从列表消失; GIH on(cap后可操作)不标
     const _gihOnThis = !!state.labSigKellyGihOn;
     const _gihRow = _gihOnThis && _kellyIsGih(m) ? (pdata[m + "__gihb1"] || null) : null;
     const r = _gihRow || pdata[m];
-    const _gihBadge = _kellyIsGih(m) && _gihOnThis && _gihRow ? `<span class="lab-sigkelly-gih-badge" title="ai长线模式仓位管理已开: 本行套「${_kellyGihStratShort(m) || ""}」仓位法(${_kellyGihStratExplain(m)})后的真实权威数口径(2026-08-30 拍板, 废弃 b0/b1 估算; H=全程主推 230.31% 无强平完全确定+操作最简单)">AI长线·开 ${_kellyGihStratShort(m) || ""}</span>` : "";
+    const _gihBadge = _kellyIsGih(m) && _gihOnThis && _gihRow ? `<span class="lab-sigkelly-gih-badge" title="ai长线模式仓位管理已开: 本行套「${_kellyGihStratShort(m) || ""}」仓位法(${_kellyGihStratExplain(m)})后的真实权威数口径(2026-08-30 拍板, 废弃 b0/b1 估算; H=全程主推 230.31% 无强平完全确定+操作最简单)">${_kellyGihStratShort(m) || ""}</span>` : "";
     // 2026-08-30 用户拍板: P3d 档(G/I 先卖≤3天年轻仓)红色高亮警示——结果稳定性存疑+实操性差, 主推 H 配套
     const _p3dWarnBadge = _gihOnThis && (m === "G" || m === "I") && _gihRow ? `<span class="lab-sigkelly-p3d-warn-badge" title="⚠P3d 方法稳定性存疑(2026-08-30 用户拍板): 强平盈亏随资金量剧烈波动(同池扫描 3万档强平+20,285 盈 → 10万档 -31,547 亏, 同方法不同资金量结果不一致)+需严格执行「先卖≤3天年轻仓」规则, 操作复杂易执行偏差致结果不稳定——方法价值保留为可选档, 明确不主推; ✿主推 H(满仓不买@5万, 无强平=完全确定, 操作最简单)">⚠稳定性存疑</span>` : "";
     // 可操作性淘汰判定(需求②GIH off 无操作性 + 需求D K-OFF 无仓位限制): 卡片行统一走 _kellyOpElimination, 与三玩法/全信号表/水印同判据(§23.3)
@@ -11577,7 +11577,7 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
       (cwmHtml ? `<div class="lab-sigkelly-cwm-row">` + cwmHtml + `</div>` : ``) +
       `<div class="lab-sigkelly-table-scroll">` +
       `<table class="lab-sigkelly-table lab-sigkelly-wide-table">` +
-        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔平均<br>收益率</th><th>样本</th><th>最终盈亏<br>(元)</th><th title="=总盈亏/峰值同时持仓资金,随回测周期增长">峰值资金<br>收益率</th><th>费率消耗</th><th>最大持仓</th><th>持仓中</th><th>年化</th><th>夏普<br>卡尔玛</th><th>最大回撤</th></tr></thead>` +
+        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔平均<br>收益率</th><th>样本</th><th>最终盈亏<br>(元)</th><th title="=总盈亏/峰值同时持仓资金,随回测周期增长">峰值资金<br>收益率</th><th>费率消耗</th><th>最大持仓</th><th>持仓中</th><th>年化</th><th>最大回撤</th><th>夏普<br>卡尔玛</th></tr></thead>` +
         `<tbody>${rows}</tbody>` +
       `</table>` +
       `</div>` +
