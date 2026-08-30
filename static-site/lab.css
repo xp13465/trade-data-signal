@@ -2235,6 +2235,9 @@
   padding: 4px 3px;
   margin: -4px -3px;
   cursor: pointer;
+  /* pointer-events 是继承属性: 外层 .lab-etf-pin 为 none(防大热区互相遮挡), 内层 hotzone 必须显式恢复 auto 才能进命中测试,
+     否则轻量化 mouseenter/mouseleave 永不触发(内审 P1-1) */
+  pointer-events: auto;
   border-radius: 4px;
 }
 .lab-etf-pin-dim { opacity: 0.22 !important; }

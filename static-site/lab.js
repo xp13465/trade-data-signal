@@ -12235,12 +12235,21 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields) {
     return { x: cssX, y: cssY };
   }
 
-  // ---- FIFO 配对(2026-08-30 用户拍板): 同 ETF buy 事件按日期先后 FIFO ↔ sell/force 事件 ----
-  //   第 N 个买 → 第 N 个卖/强平; 未配对 buy(持仓中)= 单 buy pin 不连线。
+  // ---- 真对配对(2026-08-30 内审 P1-2 修正): 不复用“日期 FIFO + 数组下标”配对(交易交错时第 N 个买 ≠ 第 N 个卖,
+  //   下标配对会张冠李戴——popover 里收益率/净利取买入行、卖价/持有天取另一行), 改用原交易行引用 t:
+  //   同 ETF 组内, buy.t === sell.t(同一行记录)才是确定的真对 —— 事件收集阶段已给每事件挂原行 t, 无需补挂。
+  //   只有 buy 未配到同 t sell(持仓中)= 单 buy pin 不连线。
   //   买卖事件均携带原交易行 t 与字段索引 f(popover 明细直接读行字段, 与交易记录列表同源)。
   const _buyEvs = events.filter((e) => e.kind === "buy").sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  const _sellEvs = events.filter((e) => e.kind === "sell" || e.kind === "force").sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  const pairs = _buyEvs.map((b, i) => ({ pid: "pair" + i, buy: b, sell: _sellEvs[i] || null, line: null, pinB: null, pinS: null }));
+  const _sellByRow = new Map(); // t → 该行的 sell/force 事件(每行至多一条; 异常重复时保留先到者, 防连线错配)
+  events.forEach((e) => {
+    if ((e.kind === "sell" || e.kind === "force") && e.t != null && !_sellByRow.has(e.t)) _sellByRow.set(e.t, e);
+  });
+  let _pidIx = 0;
+  const pairs = _buyEvs.map((b) => {
+    const sell = (b.t != null) ? (_sellByRow.get(b.t) || null) : null;
+    return { pid: "pair" + (_pidIx++), buy: b, sell: sell, line: null, pinB: null, pinS: null };
+  });
   const pairOf = new Map();   // 事件 → 所属配对
   pairs.forEach((p) => { pairOf.set(p.buy, p); if (p.sell) pairOf.set(p.sell, p); });
 
