@@ -1742,7 +1742,7 @@
 /* 全信号表(最后结果)布局 2026-08-30 改版: flex→grid 自适应并排(参照象限 .lab-sigkelly-grid L1548 写法),
    PC 宽屏(容器≥2×700+gap)两张卡 1 行 2 列并排; 窄屏(<700px) min(100%) 自动回退 1 列(与象限一致无显式断点)。
    根因:原 flex + 按年卡 flex-basis:auto 取表格 max-content 宽撑爆主轴触发 wrap 换行 + @media 1080 断点偏大致中宽屏也变 1 列 */
-.lab-sigkelly-all-main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 700px), 1fr)); gap: 12px; align-items: start; }
+.lab-sigkelly-all-main { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 700px), 1fr)); gap: 12px; align-items: start; }
 .lab-sigkelly-all-card { min-width: 0; }
 .lab-sigkelly-all-yearly { min-width: 0; }
 .lab-sigkelly-all-yearly-block { margin-top: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
