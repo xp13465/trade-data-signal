@@ -3763,9 +3763,10 @@ function _openSimBacktestModal() {
   const _modeOpts = Object.keys(_sm).map((mk) => `<option value="${mk}">${mk} · ${_sm[mk].label || ""}</option>`).join("");
   modal.innerHTML = '<div class="rule-modal-overlay"></div>' +
     '<div class="rule-modal-body rule-modal-body-wide"><div class="rule-modal-header"><h3>📊 模拟回测 · 全历史真实过滤</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
-    // 费率模拟提示(2026-08-30 用户拍板): 弹窗 G/H/I 三档保留费率模拟, 收益随费率档变化,
+    // 费率模拟提示(2026-08-30 用户拍板): 弹窗 G/H/I 三档保留费率模拟——「价格真实」与「费率可调」两件事不冲突,
+    // 成交执行价按真实净值×(1-用户滑点档)重建(默认档=记录 sell_price 逐位印证), 费用按用户费率档独立计算;
     // 与卡面 lab 权威数允许差异(G 157.74%/H 230.31%/I 156.21%); 「sim 弹窗数字≠卡面权威数」非 bug。
-    '<div class="sim-gih-note" style="display:none;color:var(--text-dim,#9aa);font-size:.85em;padding:6px 20px 0">ℹ 模拟值 · 收益随费率档变化, 精确回测以卡面为准</div>' +
+    '<div class="sim-gih-note" style="display:none;color:var(--text-dim,#9aa);font-size:.85em;padding:6px 20px 0">ℹ 成交价按真实净值与真实交易日期记录印证, 收益率随费率档可调</div>' +
     '<div class="rule-modal-content">' +
       // 筛选条单行排布(2026-08-24 用户二次反馈: 两行仍太高 → 四控件合 1 行): 时间范围起/止+交易模式+
       // AI降亏过滤+AI仓位建议 全部横排一行, 费率块仍独占一行(.simbt-fee-block flex:1 1 100% 兜底)。
@@ -4407,7 +4408,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
     // 不再 _simBtCalcRow 二次重算(二次会再乘滑点+套用户费率→双滑点+费率不一致);
     // 直接采用 selRow 上共享核写回的 profit/return_pct/sell_price/hold_days(FEE_MAIN 口径, 与 lab _gihKept 逐位一致)。
     // 自然卖出/非 GIH 走原 _simBtCalcRow 路径, 零回归。
-    const c = (t._gihForced && _gihActive) ? _simBtCalcRowRealForce(t, fIdx) : _simBtCalcRow(t, fIdx, fp);
+    const c = (t._gihForced && _gihActive) ? _simBtCalcRowRealForce(t, fIdx, fp) : _simBtCalcRow(t, fIdx, fp);
     if (c.isHolding) holdingN++;
     cumYuan += c.pnlYuan;
     // 累积盈亏%(2026-08-22 用户定口径修正): = 累计盈亏金额 ÷(窗口内峰值同时持仓笔数×¥10000),
@@ -4460,7 +4461,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
       const bk = _simBaseKey(t, fIdx);
       const _gihMissing = !!t._gihNavMissing; // 2026-08-30 P1-① §22: 强平日缺价行(真实净值缺失)不重算、红字「— 缺价」
       const _gihForcedFlag = !!(t._gihForced && _gihActive); // 2026-08-30 P1-FAIL1 §22: 强平行=共享核真实重算行(与 lab _gihForced 同字段), 渲染不再二算滑点+费率
-      const c = _gihMissing ? null : (_gihForcedFlag ? _simBtCalcRowRealForce(t, fIdx) : _simBtCalcRow(t, fIdx, fp));
+      const c = _gihMissing ? null : (_gihForcedFlag ? _simBtCalcRowRealForce(t, fIdx, fp) : _simBtCalcRow(t, fIdx, fp));
       const cum = cumMap[bk] || { cumPct: 0, cumYuan: 0, acc: "0/0", rate: "0.0" };
       const pos = posMap[bk] || 0;
       const cls = c ? (c.pnlYuan > 0 ? "sim-up" : "sim-down") : "";
@@ -4625,18 +4626,24 @@ function _simBtFillInputs(modal, fp) {
   set(".simbt-fee-input-transfer", _simBtWan(fp.transfer_fee_rate_sh));
   set(".simbt-fee-input-stamp", _simBtWan(fp.stamp_duty_rate));
 }
-// 单笔费用后盈亏(5 参数模型): 已卖出=按 sell_price; 持仓中(sell_date 空)=按 current_price 最新收盘计当前盈亏
+// 单笔费用后盈亏(5 参数模型): 已卖出=按真实净值重建执行价(非记录现价); 持仓中(sell_date 空)=按 current_price 最新收盘计当前盈亏
 // (买侧费用照收, 卖侧费用按收盘价计, lab.js 全信号记录同口径); current_price 缺失/为0 的持仓笔兜底按 0 盈亏不炸。
+// 2026-08-30 用户准则修复(双滑点): 记录 buy_price/sell_price 已含 FEE_MAIN 滑点(单次, 0.001),
+// 直接传给 _simBuyWithFees/_simSellWithFees 会再乘一次用户滑点档 → 价格被扣两次、且「成交价」依赖已扣过的记录现值。
+// 修法: 录入执行价先还原为真实净值(buy ÷(1+0.001) / sell ÷(1-0.001)), 再由费用函数按用户滑点档只扣一次:
+//   默认档(0.001)下买入执行价逐位==记录 buy_price、卖出执行价逐位==记录 sell_price(真实印证); 改档后价格按真实净值单调重算(费率可调)。
 function _simBtCalcRow(t, fIdx, fp) {
   const PRIN = 10000; // 每笔本金固定 ¥10000(基准)
-  const bp = Number(t[fIdx.buy_price]) || 0;
+  const bpRaw = Number(t[fIdx.buy_price]) || 0;
+  const bp = bpRaw > 0 ? bpRaw / (1 + 0.001) : 0; // 还原记录买入价含的 FEE_MAIN 滑点 → 真实净值(含次日跳空换算后的等价值, 与记录 buy_price 语义同源)
   const isHolding = !String(t[fIdx.sell_date] || "");
   let effSp;
   if (isHolding) {
     const cp = Number(t[fIdx.current_price]);
-    effSp = cp > 0 ? cp : 0;
+    effSp = cp > 0 ? cp : 0; // current_price 本身=真实净值(已实证逐位==accum_nav), 无滑点成分, 不再还原
   } else {
-    effSp = Number(t[fIdx.sell_price]) || 0;
+    const sp = Number(t[fIdx.sell_price]) || 0;
+    effSp = sp > 0 ? sp / (1 - 0.001) : 0; // 还原记录卖出价含的 FEE_MAIN 滑点 → 真实净值
   }
   const etfCode = t[fIdx.etf_code] || "";
   const br = _simBuyWithFees(PRIN, bp, etfCode, fp);
@@ -4653,14 +4660,34 @@ function _simBtCalcRow(t, fIdx, fp) {
   return { isHolding, buyFee, sellFee, pnlYuan, pnlPct };
 }
 
-function _simBtCalcRowRealForce(t, fIdx) {
-  // 2026-08-30 P1-① §22: GHI 强平行首页渲染走共享核(_grealR 写回)的 FEE_MAIN 真实重算值,
-  // 不再二次滑点+费率(etf_def 用户表单档)重算——与 lab 信号凯利弹窗 _gihKept 直接透传同模式,
-  // 保证统计环+渲染环与 lab 弹窗/权威 out.json 逐笔一致。
+function _simBtCalcRowRealForce(t, fIdx, fp) {
+  // 2026-08-30 P1-① §22 + 2026-08-30 用户准则(费率可调): GHI 强平行再按用户费率档 fp 重算一次,
+  // 价格基准=真实净值(共享核内部由记录 buy_price 还原 + 强平日 accum_nav 真实净值), 费用按 fp 重算,
+  // 与 lab 弹窗 _gihForced 共享核同实现(唯一差异: 费率档)——默认档 etf_main(万0.5/最低0.1/免印花)
+  // 与 FEE_MAIN 逐位一致; 记录写回的 profit/return_pct 按 FEE_MAIN, 不可直接透传(用户改档会失真)。
   // isHolding=false: 强平行 sell_date 已重写为强平日; buyFee/sellFee=null: 费用已含于净利,
   // 渲染环对 null 显示「—」(费用已含, 与缺价行「—」同风格, §23.9 不拆分误导)。
-  const pnl = Number(t[fIdx.profit]) || 0;
-  const pct = Number(t[fIdx.return_pct]) || 0;
+  const etfCode = String(t[fIdx.etf_code] || "");
+  const buyDate = String(t[fIdx.buy_date] || "");
+  const forceDate = String(t[fIdx.sell_date] || "");
+  const buyPrice = Number(t[fIdx.buy_price]) || 0;
+  let pnl = 0, pct = 0;
+  if (etfCode && buyDate && forceDate && buyPrice > 0 &&
+      typeof window !== "undefined" && typeof window._kkellyRealizeRealForce === "function") {
+    const r = window._kkellyRealizeRealForce({ etf_code: etfCode, buy_date: buyDate, buy_price: buyPrice, amount: 10000 }, forceDate, fp || null);
+    if (r && r.pr !== null && r.pr !== undefined) {
+      pnl = r.pr;
+      pct = r.rp;
+    } else {
+      // 共享核缺价/异常返 null: 回退记录写回值(FEE_MAIN 口径), 不静默显 0 误导
+      pnl = Number(t[fIdx.profit]) || 0;
+      pct = Number(t[fIdx.return_pct]) || 0;
+    }
+  } else {
+    // 共享核不可用(极端): 回退记录写回值
+    pnl = Number(t[fIdx.profit]) || 0;
+    pct = Number(t[fIdx.return_pct]) || 0;
+  }
   return { isHolding: false, buyFee: null, sellFee: null, pnlYuan: pnl, pnlPct: pct };
 }
 

@@ -1180,7 +1180,8 @@ function _gihRealNavEnsure() {
 
 // 与 lab.js _kkellyAihlineRealizeReal() 同款口径的 strong-day 重算; 返回 {pr, rp, hd, sell_price, flag}
 // flag: "nav_missing"=该强平日真实净值缺失(数据异常), "no_buy_price", "buy_zero" 等异常返回 pr=null 表示缺价不计入统计
-function _gihRealizeRealForce(sel, dt) {
+// feeCfg(可选, 2026-08-30): 传入=按自定义 5 参数费率档重算(首页 sim 弹窗用户费率); 不传=保持 FEE_MAIN 现状逐位不变(lab 卡面权威口径, 验收硬项)。
+function _gihRealizeRealForce(sel, dt, feeCfg) {
   var px = null;
   if (window._kkellyRealNav && sel && sel.etf_code && window._kkellyRealNav[sel.etf_code]) {
     px = window._kkellyRealNav[sel.etf_code][dt];
@@ -1199,12 +1200,16 @@ function _gihRealizeRealForce(sel, dt) {
   var bp = sel.buy_price || 0;
   if (bp <= 0) return { pr: 0, rp: 0, hd: _gihDaySpan(sel && sel.buy_date, dt), flag: "no_buy_price", sell_price: 0 };
 
-  var KELLY_ORIG_SLIPPAGE = 0.001; // 还原 close 加回测费
+  var KELLY_ORIG_SLIPPAGE = 0.001; // 还原 close 加回测费(记录 buy_price 含的 FEE_MAIN 滑点, 与费率档无关, 固定)
   var closeBuy = bp / (1 + KELLY_ORIG_SLIPPAGE);
   var amt = sel.amount || 0;
-  var c = 0.00005, s = 0.001, minC = 0.1; // FEE_MAIN
-  var sh = _gihIsShEtf(sel.etf_code) ? 0.00001 : 0;
-  var stamp = 0;
+  var fc = feeCfg || null;
+  var c = (fc && fc.commission_rate != null) ? fc.commission_rate : 0.00005;   // 佣金率: 默认 FEE_MAIN 万0.5
+  var s = (fc && fc.slippage != null) ? fc.slippage : 0.001;                    // 滑点: 默认 FEE_MAIN 千1
+  var minC = (fc && fc.min_commission != null) ? fc.min_commission : 0.1;      // 最低佣金: 默认 FEE_MAIN 0.1
+  var shRate = (fc && fc.transfer_fee_rate_sh != null) ? fc.transfer_fee_rate_sh : 0.00001; // 过户费: 默认 FEE_MAIN 万0.1
+  var sh = _gihIsShEtf(sel.etf_code) ? shRate : 0;
+  var stamp = (fc && fc.stamp_duty_rate != null) ? fc.stamp_duty_rate : 0;     // 印花税: 默认 FEE_MAIN 恒0
 
   var buyPriceNew = closeBuy * (1 + s);
   if (buyPriceNew <= 0) return { pr: 0, rp: 0, hd: _gihDaySpan(sel && sel.buy_date, dt), flag: "buy_zero", sell_price: 0 };
