@@ -2334,8 +2334,9 @@
 }
 .lab-etf-pin-infobar {
   flex: none;
+  height: 56px;
   min-height: 56px;
-  max-height: 64px;
+  max-height: 56px;
   padding: 8px 12px;
   display: flex;
   align-items: center;
@@ -2343,17 +2344,58 @@
   border-radius: 8px;
   background: var(--bg-card);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
-  overflow: auto;
+  overflow: hidden;
 }
 /* 2026-08-30 竖向→横向表格: 顶部info条宽高固定, hover不会撑开弹窗 */
-.lab-etf-pin-infobar.is-detail { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px 12px; max-height: 64px; min-height: 24px; overflow: hidden; font-size: 11px; line-height: 1.3; }
+.lab-etf-pin-infobar.is-detail {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  height: 56px;
+  max-height: 56px;
+  min-height: 56px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  /* 隐藏滚动条但保持功能 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.lab-etf-pin-infobar.is-detail::-webkit-scrollbar {
+  height: 4px;
+}
+.lab-etf-pin-infobar.is-detail::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
 .lab-etf-pin-infobar.is-detail .lab-etf-pin-pop-head {
-  display: inline-flex; align-items: center; gap: 4px; font-weight: 700; color: var(--text-1);
-  margin: 0; padding: 0; border: none; white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  color: var(--text-1);
+  font-size: 12px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .lab-etf-pin-infobar.is-detail .lab-etf-pin-pop-row {
-  display: flex; align-items: center; gap: 4px; font-size: 11px; line-height: 1.3;
-  margin: 0; padding: 0; border: none; white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 0;
+  padding: 0;
+  border: none;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .lab-etf-pin-infobar .lab-etf-pin-pop { min-width: 0; max-width: none; }
 .lab-etf-pin-infobar-msg {
