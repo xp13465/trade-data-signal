@@ -11935,7 +11935,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       return `<td class="lab-sigkelly-trades-sigcell">${sigCell}</td>` +
         `<td>${t[fIdx.buy_date]}</td>${sellDateCell}` +
         `<td class="lab-sigkelly-trades-etfrel">${etfRel}</td>` +
-        `<td>${t[fIdx.etf_code]}</td><td class="lab-sigkelly-trades-etfname">${t[fIdx.etf_name]}</td>` +
+        `<td class="lab-sigkelly-trades-etfcode" data-code="${_esc(t[fIdx.etf_code])}"><span class="lab-sigkelly-etf-code-link" title="点击查看 ${_esc(t[fIdx.etf_name])} 走势与买卖/强平点">${_esc(t[fIdx.etf_code])}</span></td><td class="lab-sigkelly-trades-etfname">${_esc(t[fIdx.etf_name])}</td>` +
         `<td>${(+t[fIdx.buy_price]).toFixed(4)}</td>${sellPriceCell}` +
         `<td>${(+t[fIdx.shares]).toFixed(2)}</td>` +
         `<td class="lab-sigkelly-amt">${(t[fIdx.amount] != null ? Math.round(+t[fIdx.amount]).toLocaleString() : "-")}</td>` +
@@ -12085,10 +12085,186 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     if (elimNextBtn) {
       elimNextBtn.onclick = () => { state._sigKellyElimPage++; _render(); };
     }
+    // ETF 代码点击 → 走势+买卖/强平 pin(需求B, 2026-08-30)
+    overlay.querySelectorAll(".lab-sigkelly-trades-etfcode[data-code]").forEach((td) => {
+      const _code = td.dataset.code;
+      const _nm = (td.nextElementSibling && td.nextElementSibling.textContent) || "";
+      td.onclick = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        _openEtfTrendPinModal(_code, _nm, trades, eliminated, fields);
+      };
+    });
   }
 
   _render();
 }
+
+// ============ 需求B: ETF 走势 + 买卖/强平 pin(2026-08-30) ============
+// 点 ETF 代码单元格 → 弹独立小窗: 复用 app.js 全局 _etfTrendLiteHTML/_etfTrendLiteBind/_etfTrendGeom
+// (app.js 同页加载, mangle keep_fnames 保留函数名; lab tab 下 app.min.js 已全局可用)。
+// 数据源: static-site/data/etf/{code}-all.json {date, code, name, ohlc:[[YYYYMMDD,o,h,l,c],...]}
+//   线上 R2 直链 https://ss.fx8.store/r2/etf/{code}-all.json; fallback ./data/etf/{code}-all.json。
+// pin 口径: ohlc 为前复权、交易价为不复权 → pin 的 y 锚用该日期在 ohlc 上的 close 坐标
+//   (落在曲线当日), 标签文本显示真实成交价(buy_price/sell_price/强平日实价), 不混用。
+// 视图范围: 主表 trades + 被淘汰区 eliminated 中该 ETF 的所有已展示交易事件。
+// 事件种类: buy(买点, buy_date) / sell(卖点, sell_date) / force(强平日, _gihForced 标记)。
+const _LAB_ETF_PIN_URL = (code) => `https://ss.fx8.store/r2/etf/${code}-all.json`;
+const _LAB_ETF_PIN_FALLBACK = (code) => `./data/etf/${code}-all.json`;
+
+// 收集指定 ETF 在视图内(trades+eliminated)的全部交易事件 → [{date, kind, price, navMissing?}]
+function _collectEtfPinEvents(code, fields, trades, eliminated) {
+  const evs = [];
+  const fIdx2 = {};
+  (fields || []).forEach((f, i) => { fIdx2[f] = i; });
+  const push = (t) => {
+    if (!t) return;
+    const c = t[fIdx2.etf_code] ?? t[fIdx2.code];
+    if (c === undefined || c === null || String(c) !== String(code)) return;
+    const bd = t[fIdx2.buy_date];
+    if (bd) evs.push({ date: String(bd), kind: "buy", price: t[fIdx2.buy_price] != null ? Number(t[fIdx2.buy_price]) : null });
+    const sd = t[fIdx2.sell_date];
+    if (sd) {
+      const isF = !!t._gihForced;
+      const navMissing = !!t._gihNavMissing;
+      let sp = t[fIdx2.sell_price];
+      if (sp === undefined || sp === null) sp = null;
+      else sp = Number(sp);
+      evs.push({ date: String(sd), kind: isF ? "force" : "sell", price: sp, navMissing });
+    }
+  };
+  (trades || []).forEach((t) => push(t));
+  (eliminated || []).forEach((t) => push(t));
+  return evs;
+}
+
+// 打开 ETF 走势+pin 小窗
+async function _openEtfTrendPinModal(code, name, trades, eliminated, fields) {
+  if (!code) return;
+  const reqSeq = ++_labEtfTrendPinReqSeq;
+  const events = _collectEtfPinEvents(code, fields, trades, eliminated);
+  if (!events.length) {
+    // 无该 ETF 交易事件(理论上不会发生: 点击来源即该 ETF 行) → 兜底不弹
+    return;
+  }
+
+  // 独立小弹窗
+  let overlay = document.getElementById("lab-etf-pin-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "lab-etf-pin-overlay";
+    overlay.className = "lab-sigkelly-overlay";
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML =
+    `<div class="lab-sigkelly-modal lab-etf-pin-modal">` +
+      `<div class="lab-sigkelly-modal-head">` +
+        `<div class="lab-sigkelly-modal-title">📈 ${code} ${_esc(name)} · ETF 走势与买卖/强平点</div>` +
+        `<button type="button" class="lab-sigkelly-modal-close" title="关闭">✕</button>` +
+      `</div>` +
+      `<div class="lab-etf-pin-body" id="lab-etf-pin-body-loading"><div class="lab-sigkelly-modal-loading">⏳ 加载走势…</div></div>` +
+    `</div>`;
+  overlay.style.display = "flex";
+  overlay.querySelector(".lab-sigkelly-modal-close").onclick = () => { overlay.style.display = "none"; };
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.style.display = "none"; };
+
+  const body = overlay.querySelector(".lab-etf-pin-body");
+  // 数据源: 线上 R2 直链, fallback 本地 static-site/data/etf/
+  let hist = null;
+  try { hist = await fetchJSON(_LAB_ETF_PIN_URL(code), 15000); } catch (e) { hist = null; }
+  if (!hist || !hist.ohlc || !hist.ohlc.length) {
+    try { hist = await fetchJSON(_LAB_ETF_PIN_FALLBACK(code), 15000); } catch (e2) { hist = null; }
+  }
+  if (reqSeq !== _labEtfTrendPinReqSeq) return; // 已关/已换弹窗, 丢弃过期响应
+  if (!hist || !hist.ohlc || !Array.isArray(hist.ohlc) || hist.ohlc.length < 2) {
+    body.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 走势数据加载失败</div><div class="lab-custom-error-detail">${_esc(code)}-all.json 不可用（R2 与本地均失败）</div></div>`;
+    return;
+  }
+  const ohlc = hist.ohlc; // [[YYYYMMDD, o, h, l, c], ...]
+
+  // pin 日期集合(用于过滤 ohlc 视图范围 + 定位坐标)
+  const evDates = events.map((e) => e.date).sort();
+  const dMin = evDates[0], dMax = evDates[evDates.length - 1];
+
+  // 聚焦视图: 只显示 [dMin 前 ~60 交易日, dMax 后 ~30 交易日] 窗口
+  // (全史几千点对 pin 定位无增益, 窗口化让买卖/强平点更可读)
+  let i0 = 0, i1 = ohlc.length - 1;
+  for (let i = 0; i < ohlc.length; i++) { if (String(ohlc[i][0]) >= dMin) { i0 = Math.max(0, i - 60); break; } }
+  for (let i = ohlc.length - 1; i >= 0; i--) { if (String(ohlc[i][0]) <= dMax) { i1 = Math.min(ohlc.length - 1, i + 30); break; } }
+  if (i1 - i0 < 30) { // 窗口过窄(短期上市)则扩到全史
+    i0 = 0; i1 = ohlc.length - 1;
+  }
+  const ohlcView = ohlc.slice(i0, i1 + 1);
+  // date → view index
+  const dateIdx = {};
+  ohlcView.forEach((r, i) => { dateIdx[String(r[0])] = i; });
+
+  // 渲染走势(复用 app.js 轻量组件) + hover 绑定
+  body.innerHTML = '<div class="lab-etf-pin-wrap">' + _etfTrendLiteHTML(ohlcView) + '</div>';
+  const svg = body.querySelector(".etf-trend-lite");
+  if (svg) _etfTrendLiteBind(svg, ohlcView);
+  const wrap = body.querySelector(".etf-trend-wrap");
+  if (!wrap || !svg) {
+    body.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 走势渲染失败</div></div>`;
+    return;
+  }
+
+  // 计算 pin 坐标: 复用 _etfTrendGeom(与渲染同一几何口径)
+  //   svg 已由 _etfTrendLiteBind 按实测宽重设 viewBox → 读实际宽 W
+  //   按 svg 实测 css 宽与 viewBox 宽的比例换算为 wrap 内 css 像素坐标
+  //   (svg width:100% 填满 wrap, viewBox 与 css 1:1 是常态; 比例换算兜底容器/缩放偏差)
+  const vb = svg.viewBox && svg.viewBox.baseVal;
+  const W = vb && vb.width > 0 ? vb.width : 640;
+  const geom = _etfTrendGeom(ohlcView, W);
+  const svgRect = svg.getBoundingClientRect();
+  const wrapRect = wrap.getBoundingClientRect();
+  const cssRatioX = (svgRect.width > 0) ? svgRect.width / W : 1;
+  const cssRatioY = (svgRect.height > 0) ? svgRect.height / 200 : 1;
+
+  function svgPointToWrap(ix) {
+    const r = ohlcView[ix];
+    const close = r && r[4];
+    if (close === null || close === undefined || isNaN(close)) return null;
+    // viewBox 坐标 → wrap 内 css 坐标(左上对齐, svgRect.left/top - wrapRect.left/top 为 0/接近 0)
+    const cssX = geom._px(ix) * cssRatioX + (svgRect.left - wrapRect.left);
+    const cssY = geom._py(close) * cssRatioY + (svgRect.top - wrapRect.top);
+    return { x: cssX, y: cssY };
+  }
+
+  // 分组: 同日多事件 → 标签行堆叠
+  const byDate = {};
+  events.forEach((e) => { (byDate[e.date] = byDate[e.date] || []).push(e); });
+  let omitted = 0;
+  Object.keys(byDate).sort().forEach((d) => {
+    const ix = dateIdx[d];
+    const evs = byDate[d];
+    const pt = (ix !== undefined) ? svgPointToWrap(ix) : null;
+    if (ix === undefined || !pt) { omitted += evs.length; return; } // 日期不在窗口内/停牌, 跳过
+    // pin 横排: 同日多事件水平微错
+    evs.forEach((e, ei) => {
+      const label = e.kind === "buy" ? "买" : (e.kind === "force" ? "强平" : "卖");
+      const priceTxt = e.kind === "force" ? (e.navMissing ? "缺价" : (e.price != null ? e.price.toFixed(4) : "缺价")) : (e.price != null ? e.price.toFixed(4) : (e.kind === "sell" ? "缺价" : "-"));
+      const pin = document.createElement("div");
+      pin.className = "lab-etf-pin lab-etf-pin-" + e.kind;
+      const x = pt.x + ei * 14;
+      pin.style.left = x.toFixed(1) + "px";
+      pin.style.top = (pt.y - 4).toFixed(1) + "px";
+      pin.innerHTML = `<span class="lab-etf-pin-dot"></span><span class="lab-etf-pin-txt">${label} ${_esc(priceTxt)}</span>`;
+      wrap.appendChild(pin);
+    });
+  });
+
+  // 附加说明(视图窗口 / 遗漏日期)
+  let note = `${events.length} 个交易事件 · 视图 ${String(ohlcView[0][0]).slice(0, 4)}-${String(ohlcView[ohlcView.length - 1][0]).slice(0, 4)} · ${ohlcView.length} 个交易日`;
+  if (omitted > 0) note += ` · ${omitted} 个事件日期不在走势视图内已跳过`;
+  const noteEl = document.createElement("div");
+  noteEl.className = "lab-etf-pin-note";
+  noteEl.textContent = note;
+  body.insertBefore(noteEl, body.firstChild);
+}
+
+// 竞态序号: 快速连点/关开防旧响应覆盖
+let _labEtfTrendPinReqSeq = 0;
 
 // 初始加载：读 hash 恢复 tab + 策略 + labSubMode（lab.js 在 app.js 之后加载，renderTab 已启动）
 // hash 格式：#lab?sub={labSubMode}（列表页保位）或 #lab/{strategyKey}（详情页）或 #lab（旧版默认 single）
