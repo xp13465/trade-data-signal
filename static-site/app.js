@@ -4019,8 +4019,8 @@ async function _simRenderOnce(modal) {
   if (_simGihTiersElNow) _simGihTiersElNow.innerHTML = _simGihTiersHtml(mode);
   const _simGihCbNow = modal.querySelector(".sim-gih-on-cb");
   const gihOn = !(_simGihCbNow && !_simGihCbNow.checked);
-  // 费率模拟提示显隐(2026-08-30 纯新增文案): 仅 G/H/I 长线模式选档时显示「模拟值·收益随费率档变化,
-  // 精确回测以卡面为准」; 其余模式恒隐藏。不动任何统计/重算逻辑(§23.7)。
+  // 费率模拟提示显隐(2026-08-30 纯新增文案): 仅 G/H/I 长线模式选档时显示「成交价按真实净值与真实交易日期
+  // 记录印证, 收益率随费率档可调」; 其余模式恒隐藏。不动任何统计/重算逻辑(§23.7)。
   const _simGihNoteElNow = modal.querySelector(".sim-gih-note");
   if (_simGihNoteElNow) {
     _simGihNoteElNow.style.display = (mode === "G" || mode === "H" || mode === "I") ? "" : "none";
