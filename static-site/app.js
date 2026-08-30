@@ -3708,6 +3708,10 @@ function _simGhiHoldCap(rows, mode, fIdx) {
               if (fIdx.profit != null) selRow[fIdx.profit] = _grealR.pr;
               if (fIdx.return_pct != null) selRow[fIdx.return_pct] = _grealR.rp;
               if (fIdx.hold_days != null) selRow[fIdx.hold_days] = _grealR.hd;
+              // 2026-08-30 P1-FAIL1 §22: 强平行标记(与 lab 弹窗 _gihForced 同字段名, 防双份漂移)。
+              // 渲染/统计环据此识别「已由共享核 FEE_MAIN 真实净值重算完成的行」→ 不再 _simBtCalcRow 二次重算
+              // (二次会再乘滑点+套用户费率, 双滑点+费率不一致, 见 review FAIL1 实证); 缺价行只有 _gihNavMissing 无此标记。
+              selRow._gihForced = true;
             } else {
               selRow._gihNavMissing = true; // 共享核不可用时兜底同样标缺价, 不静默写 0
             }
@@ -4390,7 +4394,11 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
       cumMap[bk] = { cumPct, cumYuan, acc: rightN + "/" + wrongN, rate: (rightN + wrongN > 0 ? ((rightN / (rightN + wrongN)) * 100).toFixed(1) : "0.0") };
       continue;
     }
-    const c = _simBtCalcRow(t, fIdx, fp);
+    // 2026-08-30 P1-FAIL1 §22: GIH 强平行(已由共享核 FEE_MAIN 真实净值重算完成, _gihForced 标记)
+    // 不再 _simBtCalcRow 二次重算(二次会再乘滑点+套用户费率→双滑点+费率不一致);
+    // 直接采用 selRow 上共享核写回的 profit/return_pct/sell_price/hold_days(FEE_MAIN 口径, 与 lab _gihKept 逐位一致)。
+    // 自然卖出/非 GIH 走原 _simBtCalcRow 路径, 零回归。
+    const c = (t._gihForced && _gihActive) ? _simBtCalcRowRealForce(t, fIdx) : _simBtCalcRow(t, fIdx, fp);
     if (c.isHolding) holdingN++;
     cumYuan += c.pnlYuan;
     // 累积盈亏%(2026-08-22 用户定口径修正): = 累计盈亏金额 ÷(窗口内峰值同时持仓笔数×¥10000),
@@ -4414,6 +4422,9 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
     const v = Number(fee) || 0;
     return v > 0 ? '<td class="sim-down">-' + v.toFixed(2) + '</td>' : '<td>0.00</td>';
   };
+  // 2026-08-30 P1-FAIL1 §22: 强平行行手续费「— 已含」(共享核 FEE_MAIN 真实净值重算已含费用, 不拆分展示,
+  // 与 lab 信号凯利弹窗 _gihForced 行同口径; 防 _feeCell 把 null 当 0.00 误导成「零费用」)
+  const _gihFeeInclCell = '<td class="sim-gih-fee-na" style="color:#999" title="强平日由共享核按真实净值+FEE_MAIN费率重算, 买家入卖全链费用已含于本笔盈亏内(与 lab _gihForced 弹窗同口径, §22 不拆分展示; 2026-08-30 修复双滑点/费率不一致)">— 已含</td>';
   // 累积两列 hoverpop(§23.9 三档互证: 白话+场景+1:1 举例); 数字全部来自当前行真实 cum 值+本窗口真实
   // 峰值持仓(动态生成, hover 哪行就对上哪行显示的数, 1:1 可对账无编造)
   const _cumTip = (cum) =>
@@ -4439,7 +4450,8 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
     for (const t of slice) {
       const bk = _simBaseKey(t, fIdx);
       const _gihMissing = !!t._gihNavMissing; // 2026-08-30 P1-① §22: 强平日缺价行(真实净值缺失)不重算、红字「— 缺价」
-      const c = _gihMissing ? null : _simBtCalcRow(t, fIdx, fp);
+      const _gihForcedFlag = !!(t._gihForced && _gihActive); // 2026-08-30 P1-FAIL1 §22: 强平行=共享核真实重算行(与 lab _gihForced 同字段), 渲染不再二算滑点+费率
+      const c = _gihMissing ? null : (_gihForcedFlag ? _simBtCalcRowRealForce(t, fIdx) : _simBtCalcRow(t, fIdx, fp));
       const cum = cumMap[bk] || { cumPct: 0, cumYuan: 0, acc: "0/0", rate: "0.0" };
       const pos = posMap[bk] || 0;
       const cls = c ? (c.pnlYuan > 0 ? "sim-up" : "sim-down") : "";
@@ -4460,9 +4472,9 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
         '<td>' + _simSigTypeLabel(t[fIdx.signal]) + '</td>' +
         '<td>' + _simEtfLightHtml(t, fIdx) + (t[fIdx.etf_code] || "") + ' ' + (t[fIdx.etf_name] || "") + '</td>' +
         '<td>' + (t[fIdx.buy_date] || "") + '</td>' +
-        _feeCell(c ? c.buyFee : null) +
+        (_gihForcedFlag ? _gihFeeInclCell : _feeCell(c ? c.buyFee : null)) +
         '<td>' + (c && c.isHolding ? '<span class="simbt-holding-tag">持仓中</span>' : (t[fIdx.sell_date] || "")) + '</td>' +
-        _feeCell(c ? c.sellFee : null) +
+        (_gihForcedFlag ? _gihFeeInclCell : _feeCell(c ? c.sellFee : null)) +
         (_gihMissing
           ? '<td class="sim-gih-missing-px" style="color:#cf1322" title="2026-08-30 §22: 该笔强平日真实净值缺失(nav_missing, 数据异常), 本笔盈亏无法真实重算——不计入任何统计(累积盈亏/累积金额/对错), 与 lab 凯利弹窗「— 缺价」同口径。">— 缺价</td><td class="sim-gih-missing-px" style="color:#cf1322" title="同上: 缺价笔不计入统计">— 缺价</td>'
           : '<td class="' + cls + '">' + c.pnlPct.toFixed(2) + '%' + obsHtml + '</td>' +
@@ -4630,6 +4642,17 @@ function _simBtCalcRow(t, fIdx, fp) {
   }
   const pnlPct = PRIN > 0 ? (pnlYuan / PRIN) * 100 : 0;
   return { isHolding, buyFee, sellFee, pnlYuan, pnlPct };
+}
+
+function _simBtCalcRowRealForce(t, fIdx) {
+  // 2026-08-30 P1-① §22: GHI 强平行首页渲染走共享核(_grealR 写回)的 FEE_MAIN 真实重算值,
+  // 不再二次滑点+费率(etf_def 用户表单档)重算——与 lab 信号凯利弹窗 _gihKept 直接透传同模式,
+  // 保证统计环+渲染环与 lab 弹窗/权威 out.json 逐笔一致。
+  // isHolding=false: 强平行 sell_date 已重写为强平日; buyFee/sellFee=null: 费用已含于净利,
+  // 渲染环对 null 显示「—」(费用已含, 与缺价行「—」同风格, §23.9 不拆分误导)。
+  const pnl = Number(t[fIdx.profit]) || 0;
+  const pct = Number(t[fIdx.return_pct]) || 0;
+  return { isHolding: false, buyFee: null, sellFee: null, pnlYuan: pnl, pnlPct: pct };
 }
 
 // === 推荐操作方法「参考说明」弹窗(2026-08-14) ===
