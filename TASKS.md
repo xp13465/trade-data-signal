@@ -8,15 +8,12 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-30 18:00(feat/etf-pin-zoom 5项改造+内审P1修复+codex外审消化,已上线).本轮:
-- **✅ ETF走势弹窗缩放+拖拽+重置**(commit 3e160aeb7)— pin弹窗新增panZoom(滚轮/pinch+平移+按钮);内核缺省false=首页sparkline/基金净值两个复用点走老路径零回归
-- **✅ 持仓「预估」→「至今」**(commit 586afe792)— 真实点位(accum_nav最新日)三处文案改至今,数字零改动
-- **✅ G/I 红稳定性存疑badge移列**(commit a4c077e24)— 模式列→最终盈亏数字下,不挤行高,纯移列
-- **✅ 交易记录列合并**(commit 831827a69)— 代码+ETF名称/份额+每笔金额各合一列,13列
-- **✅ ETF弹窗买卖pin FIFO配对+连线+聚焦hover+popover**(commit 2255f71cb)— 配对明细(买卖日期/价格/收益率/费率/持有天/净利)
-- **✅ 内审2条P1修复**(commit b938d21f5)— hotzone补pointer-events:auto + FIFO改按原行引用buy.t===sell.t配对,reviewer复检PASS
-- **✅ codex外审 rev-20260830-001 消化**:BLOCKED但3条issues逐条核实全误报(复用点零回归是刻意设计/pin坐标已读缩放几何/colDefs无冗余),真问题=内审同批P1已修;留档 /tmp/codex-review-batch-etf-pin-zoom.md
-- **✅ 上线**:main-merge 204022edb 统一build_min+bump,版本串 v20260830-a498,curl三查通过
+**最后更新**:2026-08-30 21:30(feat/etf-pin-zone-toggle 三需求上线 v20260830-a500).本轮(ETF弹窗系列,3批 merge 全上线):
+- **✅ ETF弹窗正式区/淘汰区切换**(commit 5a7641692)— 默认正式区(S06+K1过滤后),淘汰区独立视图,空态提示,切区整块重渲染无DOM残留
+- **✅ popover弃用改固定顶部info条**(同commit)— .lab-etf-pin-infobar 固定弹窗顶部不遮pin、不再横向滚动条,弹窗高度提94vh
+- **✅ 触发行配对pin初始高亮**(同commit)— tr带data-ib/data-bd→srcKey→_focusPair,进ETF走势初载即高亮该交易行配对买卖pin(单买高亮持有中)
+- **✅ 上线**:main-merge 9335d89db 统一build_min+bump,版本串 v20260830-a500,curl三查通过,reviewer内审PASS(2处非阻断小瑕疵待后续顺手清)
+- **✅ (前批汇总)** pin-zoom 5项改造+宽度/防横滚/返回高亮+内审P1+codex外审(版本链 a497→a498→a499,commit 3e160aeb7/586afe792/a4c077e24/831827a69/2255f71cb/b938d21f5/bccf41f32/81ae092ce/204022edb/cc775f4cb)
 - 完成明细已入 [docs/tasks-done-list.md](docs/tasks-done-list.md) 2026-08-30 段
 
 **历史交接(≥2 轮前,已折叠)**:08-29 / 08-28 / 08-27 / 08-26 / 08-22 及更早八坨历史交接已按4态折叠,细节见 docs/tasks-done-list.md 与 docs/archive/TASKS-done.md / TASKS-history-archive-20260820.md。已上main的完成陈述(v1.1.7七支/首页模拟回测弹窗/P2-11懒渲染/费率/回测结论等)不再在顶部重复陈列。

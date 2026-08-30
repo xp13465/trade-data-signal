@@ -157,3 +157,12 @@
 - [x] **#28-5 ETF弹窗买卖pin FIFO配对+连线+聚焦hover+popover**(commit 2255f71cb)— 配对显示+连线+FIFO,popover明细(买卖日期/价格/收益率/费率/持有天/净利)
 - [x] **#28-6 内审2条P1修复**(commit b938d21f5)— ①hotzone pointer-events继承吞掉hover(整块交互死码)→补auto;②FIFO下标配对交错交易错配(900组/5136笔张冠李戴)→改按原行引用buy.t===sell.t配对流。reviewer复检PASS
 - [x] **codex外审 rev-20260830-001**(参考消化)— BLOCKED但3条issues逐条核实全为误报(P0说复用点破坏零回归=实为刻意零回归;P1未读缩放几何=实现已读svg._etfTrendPan.get();P2列冗余=badge单处+colDefs13单th)。真问题=内审同批P1,已修。留档 /tmp/codex-review-batch-etf-pin-zoom.md
+
+## 2026-08-30 会话收尾追加(feat/etf-pin-zone-toggle:ETF弹窗三需求)
+
+> 来源:用户三需求(正式/淘汰区切换+popover固定顶部不遮pin+触发行配对pin高亮),commit 5a7641692 单 commit,reviewer内审PASS,main-merge 9335d89db(版本串 v20260830-a500)上线,curl三查通过。
+
+- [x] **#A1 ETF弹窗正式区/淘汰区切换按钮** — 默认正式区(已过S06+K1过滤),淘汰区独立整块重渲染(事件源按 src 过滤),空态「该区无此ETF交易」,切区后窗口/日期索引/pins/连线全重建无残留DOM
+- [x] **#A2 popover弃用改固定顶部info条** — _positionPop/popEl/_anchorIx 整段删除,详情经 _setInfoDetail(_popContent(p)) 注入 .lab-etf-pin-infobar 固定弹窗顶部,不再盖pin信号;弹窗 max-height 提至94vh(仅本弹窗,交易列表等其他sig-kelly弹窗仍90vh零波及)
+- [x] **#A3 触发行配对pin初始高亮** — 正式/淘汰两区 tr 均加 data-ib/data-bd,点击绑定读 srcKey 传第7参,渲染末尾匹配 index_id+buy_date → _focusPair 高亮(单买无sell走持有中分支),hover其他pin正常转移,匹配不到console.warn不抛错
+- [x] **reviewer内审**:三需求全PASS+回归零影响(panZoom/连线/hover/返回列表行高亮未动)+node --check过,注2处非阻断小瑕疵(hotzone传多余第3参/死CSS规则.lab-etf-pin-infobar .lab-etf-pin-pop)待后续顺手清
