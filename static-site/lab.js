@@ -11542,7 +11542,7 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
         `<td class="lab-sigkelly-rmh ${rmhVal == null ? "" : (rmhVal >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg")}" title="=总盈亏/峰值同时持仓资金,随回测周期增长">${rmh}</td>` +
         `<td class="lab-sigkelly-neg lab-sigkelly-fee">${fcStr}</td>` +
         `<td class="lab-sigkelly-mc">${mcStr}</td><td class="lab-sigkelly-holding">${hcStr}</td><td>${ann}</td>` +
-        `<td>${sh}</td><td>${md}</td><td>${cm}</td>` +
+        `<td class="lab-sigkelly-sharpe-calmar"><div>${sh}</div><div>${cm}</div></td><td>${md}</td>` +
       `</tr>`;
   }
   const wm = _sigKellyWatermark(pdata);
@@ -11577,7 +11577,7 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
       (cwmHtml ? `<div class="lab-sigkelly-cwm-row">` + cwmHtml + `</div>` : ``) +
       `<div class="lab-sigkelly-table-scroll">` +
       `<table class="lab-sigkelly-table lab-sigkelly-wide-table">` +
-        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th><th>最终盈亏<br>(元)</th><th title="=总盈亏/峰值同时持仓资金,随回测周期增长">峰值资金<br>收益率</th><th>费率消耗</th><th>最大持仓</th><th>持仓中</th><th>年化</th><th>夏普</th><th>最大回撤</th><th>卡尔玛</th></tr></thead>` +
+        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th><th>最终盈亏<br>(元)</th><th title="=总盈亏/峰值同时持仓资金,随回测周期增长">峰值资金<br>收益率</th><th>费率消耗</th><th>最大持仓</th><th>持仓中</th><th>年化</th><th>夏普<br>卡尔玛</th><th>最大回撤</th></tr></thead>` +
         `<tbody>${rows}</tbody>` +
       `</table>` +
       `</div>` +

@@ -1612,6 +1612,8 @@
 .lab-sigkelly-table td:first-child { text-align: left; }
 .lab-sigkelly-modelbl { display: inline; font-size: 10px; color: var(--text-4); margin-left: 4px; } /* 2026-08-14 首列合并: 模式字母(b)+模式描述(modelbl)同行, 淘汰/AI长线角标(block)仍独立行 */
 .lab-sigkelly-hk { white-space: nowrap; }
+.lab-sigkelly-sharpe-calmar { line-height: 1.45; }
+.lab-sigkelly-sharpe-calmar div { display: block; line-height: 1.3; }
 .lab-kelly-tier { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 12px; font-weight: 700; }
 .lab-kelly-aggressive { background: rgba(220, 38, 38, 0.15); color: #dc2626; }
 .lab-kelly-balanced { background: rgba(234, 88, 12, 0.15); color: #ea580c; }
