@@ -12087,10 +12087,11 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       const _code = td.dataset.code;
       const _nmEl = td.querySelector(".lab-sigkelly-trades-etfname-sub"); // 名称已内嵌同列(2026-08-30 列合并)
       const _nm = (_nmEl && _nmEl.textContent) || "";
+      const _srcRow = td.closest("tr"); // 触发行(需求3: 弹窗关闭返回后高亮定位该行)
       td.onclick = (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
-        _openEtfTrendPinModal(_code, _nm, trades, eliminated, fields);
+        _openEtfTrendPinModal(_code, _nm, trades, eliminated, fields, _srcRow);
       };
     });
   }
@@ -12136,8 +12137,8 @@ function _collectEtfPinEvents(code, fields, trades, eliminated) {
   return evs;
 }
 
-// 打开 ETF 走势+pin 小窗
-async function _openEtfTrendPinModal(code, name, trades, eliminated, fields) {
+// 打开 ETF 走势+pin 小窗(第6参 srcRow=触发点交易行, 需求3: 关闭返回后高亮定位该行)
+async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, srcRow) {
   if (!code) return;
   const reqSeq = ++_labEtfTrendPinReqSeq;
   const events = _collectEtfPinEvents(code, fields, trades, eliminated);
@@ -12163,8 +12164,21 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields) {
       `<div class="lab-etf-pin-body" id="lab-etf-pin-body-loading"><div class="lab-sigkelly-modal-loading">⏳ 加载走势…</div></div>` +
     `</div>`;
   overlay.style.display = "flex";
-  overlay.querySelector(".lab-sigkelly-modal-close").onclick = () => { overlay.style.display = "none"; };
-  overlay.onclick = (e) => { if (e.target === overlay) overlay.style.display = "none"; };
+  // 需求3(2026-08-30): 关闭弹窗返回列表后高亮+滚动定位触发点交易行(srcRow), 1.8s 后淡出
+  const _closePinModal = () => {
+    overlay.style.display = "none";
+    if (srcRow && srcRow.isConnected) {
+      srcRow.classList.remove("lab-sigkelly-trades-row-highlight"); // 防重复存档残留
+      // 强制 reflow: 先移除再添加, 让 transition 从无状态起效(高亮入场有过渡)
+      void srcRow.offsetWidth;
+      srcRow.classList.add("lab-sigkelly-trades-row-highlight");
+      try { srcRow.scrollIntoView({ block: "center", behavior: "smooth" }); }
+      catch (e) { srcRow.scrollIntoView(); }
+      setTimeout(() => { if (srcRow.isConnected) srcRow.classList.remove("lab-sigkelly-trades-row-highlight"); }, 1800);
+    }
+  };
+  overlay.querySelector(".lab-sigkelly-modal-close").onclick = _closePinModal;
+  overlay.onclick = (e) => { if (e.target === overlay) _closePinModal(); };
 
   const body = overlay.querySelector(".lab-etf-pin-body");
   // 数据源: 线上 R2 直链, fallback 本地 static-site/data/etf/
