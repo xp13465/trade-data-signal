@@ -11906,7 +11906,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
         const scoreStr = (typeof etf.track_score === "number") ? Math.round(etf.track_score) : "-";
         return '<span class="etf-light ' + light.cls + '"></span> ' + light.label + ' ' + scoreStr;
       })();
-      // 持仓中trade 特殊渲染: 卖出日=持仓中标签 / 卖价=当前价+预估 / 收益率=预估前缀+虚线斜体 / 原因=持有中X天
+      // 持仓中trade 特殊渲染: 卖出日=持仓中标签 / 卖价=当前价+至今 / 收益率=至今前缀+虚线斜体 / 原因=持有中X天
       // 强平单(2026-08-30 GIH sim): 卖出日=强平日+「强平」标签 / 卖价=sell_price(强平日真实实现价, sim 已写入)
       const sellDateCell = isHolding
         ? `<td><span class="lab-sigkelly-holding-tag">持仓中</span></td>`
@@ -11917,7 +11917,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       const sellPriceCell = isNavMissing
         ? `<td class="lab-sigkelly-missing-px">—</td>`   // 2026-08-30 硬报错: 缺真实价, 禁显示 0/估算
         : (isHolding
-            ? `<td class="lab-sigkelly-est">${(+(_cpIdx != null ? t[_cpIdx] : 0)).toFixed(4)}<span class="lab-sigkelly-est-tag">预估</span></td>`
+            ? `<td class="lab-sigkelly-est">${(+(_cpIdx != null ? t[_cpIdx] : 0)).toFixed(4)}<span class="lab-sigkelly-est-tag">至今</span></td>`
             : `<td>${(+t[fIdx.sell_price]).toFixed(4)}</td>`);
       const profitCell = isNavMissing
         ? `<td class="lab-sigkelly-missing-px">— 缺价</td>`
@@ -11927,7 +11927,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       const returnCell = isNavMissing
         ? `<td class="lab-sigkelly-missing-px">— 缺价</td>`
         : (isHolding
-            ? `<td class="${pfCls} lab-sigkelly-est">预估${(rp >= 0 ? "+" : "") + rp.toFixed(2)}%</td>`
+            ? `<td class="${pfCls} lab-sigkelly-est">至今${(rp >= 0 ? "+" : "") + rp.toFixed(2)}%</td>`
             : `<td class="${pfCls}">${(rp >= 0 ? "+" : "") + rp.toFixed(2)}%</td>`);
       const reasonCell = isHolding
         ? `<td>${t[fIdx.sell_reason] || "持有中"} ${t[fIdx.hold_days]}天</td>`
@@ -11990,7 +11990,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
           `<span>胜率 ${statTrades.length ? (winCount / statTrades.length * 100).toFixed(1) : 0}%</span>` +
           `<span>总盈亏 ${(totalProfit >= 0 ? "+" : "") + totalProfit.toFixed(0)} 元</span>` +
           `<span class="lab-sigkelly-neg">费率消耗 -${totalFeeCost.toFixed(0)} 元</span>` +
-          (holdingCount > 0 ? `<span class="lab-sigkelly-holding-stat">含 ${holdingCount} 笔预估</span>` : "") +
+          (holdingCount > 0 ? `<span class="lab-sigkelly-holding-stat">含 ${holdingCount} 笔至今</span>` : "") +
           (eliminated.length > 0 ? `<span class="lab-sigkelly-elim-stat">⚠ 被降亏/AI仓位建议淘汰 ${eliminated.length} 笔(删除线,不计入统计)</span>` : "") +
           (navMissingCount > 0 ? `<span class="lab-sigkelly-missing-px">⚠ ${navMissingCount} 笔缺强平日真实价(数据异常,不进统计)</span>` : "") +
         `</div>` +
