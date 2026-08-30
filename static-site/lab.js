@@ -11488,7 +11488,7 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
     const r = _gihRow || pdata[m];
     const _gihBadge = _kellyIsGih(m) && _gihOnThis && _gihRow ? `<span class="lab-sigkelly-gih-badge" title="ai长线模式仓位管理已开: 本行套「${_kellyGihStratShort(m) || ""}」仓位法(${_kellyGihStratExplain(m)})后的真实权威数口径(2026-08-30 拍板, 废弃 b0/b1 估算; H=全程主推 230.31% 无强平完全确定+操作最简单)">AI长线·开 ${_kellyGihStratShort(m) || ""}</span>` : "";
     // 2026-08-30 用户拍板: P3d 档(G/I 先卖≤3天年轻仓)红色高亮警示——结果稳定性存疑+实操性差, 主推 H 配套
-    const _p3dWarnBadge = _gihOnThis && (m === "G" || m === "I") && _gihRow ? `<span class="lab-sigkelly-p3d-warn-badge" title="⚠P3d 方法稳定性存疑+实操性差(2026-08-30 用户拍板): 强平盈亏随资金量剧烈波动(同池扫描 3万档强平+20,285 盈 → 10万档 -31,547 亏, 同方法不同资金量结果不一致)+需严格执行「先卖≤3天年轻仓」规则, 操作复杂易执行偏差致结果不稳定——方法价值保留为可选档, 明确不主推; ✿主推 H(满仓不买@5万, 无强平=完全确定, 操作最简单)">⚠稳定性存疑·实操性差</span>` : "";
+    const _p3dWarnBadge = _gihOnThis && (m === "G" || m === "I") && _gihRow ? `<span class="lab-sigkelly-p3d-warn-badge" title="⚠P3d 方法稳定性存疑(2026-08-30 用户拍板): 强平盈亏随资金量剧烈波动(同池扫描 3万档强平+20,285 盈 → 10万档 -31,547 亏, 同方法不同资金量结果不一致)+需严格执行「先卖≤3天年轻仓」规则, 操作复杂易执行偏差致结果不稳定——方法价值保留为可选档, 明确不主推; ✿主推 H(满仓不买@5万, 无强平=完全确定, 操作最简单)">⚠稳定性存疑</span>` : "";
     // 可操作性淘汰判定(需求②GIH off 无操作性 + 需求D K-OFF 无仓位限制): 卡片行统一走 _kellyOpElimination, 与三玩法/全信号表/水印同判据(§23.3)
     const _opPosCapOn = !!((state.labSigKellyFilters || {}).positionCap);
     const _opFlag = _kellyOpElimination(pdata, m, _gihOnThis, _opPosCapOn);
