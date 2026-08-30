@@ -11535,10 +11535,10 @@ function _renderSigKellyCard(qk, q, period, cardCmp) {
     const _opBadge = _opElim ? `<span class="lab-sigkelly-exec-badge" title="${_opTip || _opReason}">淘汰·${_opReason}</span>` : "";
     rows +=
       `<tr class="lab-sigkelly-trade-row${_opRowCls}" data-quad="${qk}" data-mode="${m}" data-period="${period}" data-opelim="${_opElim ? "1" : "0"}" title="${_opRowTip}">` +
-        `<td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span>${_gihBadge}${_p3dWarnBadge}${_opBadge}</td>` +
+        `<td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span>${_gihBadge}${_opBadge}</td>` +
         `<td class="lab-sigkelly-hk"><span class="lab-kelly-tier ${tierCls}">${hk.toFixed(1)}%</span><span class="lab-sigkelly-tier">${tier}</span></td>` +
         `<td>${wr}</td><td>${plStr}</td><td>${mr}</td><td>${nStr}</td>` +
-        `<td class="lab-sigkelly-tp-hl ${tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${tpStr}元</td>` +
+        `<td class="lab-sigkelly-tp-hl ${tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${tpStr}元${_p3dWarnBadge}</td>` +
         `<td class="lab-sigkelly-rmh ${rmhVal == null ? "" : (rmhVal >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg")}" title="=总盈亏/峰值同时持仓资金,随回测周期增长">${rmh}</td>` +
         `<td class="lab-sigkelly-neg lab-sigkelly-fee">${fcStr}</td>` +
         `<td class="lab-sigkelly-mc">${mcStr}</td><td class="lab-sigkelly-holding">${hcStr}</td><td>${ann}</td>` +
