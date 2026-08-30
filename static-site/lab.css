@@ -2171,3 +2171,35 @@
   border-color: #e6492e;
   background: rgba(230, 73, 46, 0.1);
 }
+/* 缩放/平移控制条(2026-08-30 全信号 pin 弹窗新增交互: 滚轮/触摸 pinch 缩放 + 拖拽平移) */
+.lab-etf-pin-zoom-ctl {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 40;
+  display: flex;
+  gap: 4px;
+  pointer-events: auto;
+}
+.lab-etf-pin-zoom-btn {
+  min-width: 27px;
+  height: 24px;
+  padding: 0 6px;
+  font-size: 14px;
+  line-height: 1;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg-card);
+  color: var(--text-1);
+  cursor: pointer;
+  opacity: 0.8;
+  pointer-events: auto;
+  transition: opacity 0.15s;
+}
+.lab-etf-pin-zoom-btn:hover {
+  opacity: 1;
+  background: var(--bg-hover, rgba(128, 128, 128, 0.12));
+}
+.lab-etf-pin-zoom-reset {
+  font-size: 12px;
+}

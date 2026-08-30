@@ -12200,40 +12200,47 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields) {
   ohlcView.forEach((r, i) => { dateIdx[String(r[0])] = i; });
 
   // 渲染走势(复用 app.js 轻量组件) + hover 绑定
+  let _etfPinZoomCtl = null; // 缩放控制接口(＋/－/重置按钮用)
   body.innerHTML = '<div class="lab-etf-pin-wrap">' + _etfTrendLiteHTML(ohlcView) + '</div>';
   const svg = body.querySelector(".etf-trend-lite");
-  if (svg) _etfTrendLiteBind(svg, ohlcView);
+  // 缩放/平移(2026-08-30 新增交互): app.js 共用内核 opts.panZoom —
+  // 滚轮/触控板 pinch/触摸 pinch 缩放 + scale>1 拖拽平移; 初始=全览=scale=1=旧行为逐位一致;
+  // 返回 ctl{zoomIn/zoomOut/reset} 供弹窗 ＋/－/重置按钮
+  if (svg) _etfPinZoomCtl = _etfTrendLiteBind(svg, ohlcView, { panZoom: true });
   const wrap = body.querySelector(".etf-trend-wrap");
   if (!wrap || !svg) {
     body.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 走势渲染失败</div></div>`;
     return;
   }
 
-  // 计算 pin 坐标: 复用 _etfTrendGeom(与渲染同一几何口径)
-  //   svg 已由 _etfTrendLiteBind 按实测宽重设 viewBox → 读实际宽 W
-  //   按 svg 实测 css 宽与 viewBox 宽的比例换算为 wrap 内 css 像素坐标
-  //   (svg width:100% 填满 wrap, viewBox 与 css 1:1 是常态; 比例换算兜底容器/缩放偏差)
-  const vb = svg.viewBox && svg.viewBox.baseVal;
-  const W = vb && vb.width > 0 ? vb.width : 640;
-  const geom = _etfTrendGeom(ohlcView, W);
-  const svgRect = svg.getBoundingClientRect();
-  const wrapRect = wrap.getBoundingClientRect();
-  const cssRatioX = (svgRect.width > 0) ? svgRect.width / W : 1;
-  const cssRatioY = (svgRect.height > 0) ? svgRect.height / 200 : 1;
-
+  // pin 坐标: 复用 _etfTrendGeom 且读"当前缩放视图几何"(缩放内核每次缩放后经
+  //   svg._etfTrendPan.get() 暴露最新窗口几何; scale=1 时 i0=0 + 全窗口几何 = 与旧行为逐位一致),
+  //   保证缩放/平移后 pin 始终与曲线同步不飘走。
+  const vb0 = svg.viewBox && svg.viewBox.baseVal;
+  const Wv = vb0 && vb0.width > 0 ? vb0.width : 640;
   function svgPointToWrap(ix) {
     const r = ohlcView[ix];
     const close = r && r[4];
     if (close === null || close === undefined || isNaN(close)) return null;
-    // viewBox 坐标 → wrap 内 css 坐标(左上对齐, svgRect.left/top - wrapRect.left/top 为 0/接近 0)
-    const cssX = geom._px(ix) * cssRatioX + (svgRect.left - wrapRect.left);
-    const cssY = geom._py(close) * cssRatioY + (svgRect.top - wrapRect.top);
+    const av = svg._etfTrendPan ? svg._etfTrendPan.get() : null;
+    const g = (av && av.geom) ? av.geom : _etfTrendGeom(ohlcView, Wv);
+    const i0 = (av && typeof av.i0 === "number") ? av.i0 : 0;
+    const sl = ix - i0;
+    if (sl < 0 || sl >= g._n) return null; // 缩放后不在可见窗口内 → pin 隐藏
+    const svgR = svg.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    const Wcur = (av && av.W) ? av.W : Wv;
+    const ratioX = (svgR.width > 0) ? svgR.width / Wcur : 1;
+    const ratioY = (svgR.height > 0) ? svgR.height / 200 : 1;
+    const cssX = g._px(sl) * ratioX + (svgR.left - wr.left);
+    const cssY = g._py(close) * ratioY + (svgR.top - wr.top);
     return { x: cssX, y: cssY };
   }
 
   // 分组: 同日多事件 → 标签行堆叠
   const byDate = {};
   events.forEach((e) => { (byDate[e.date] = byDate[e.date] || []).push(e); });
+  const pins = []; // {el, ix, ei} 记录 pin 与其全局索引, 缩放/平移后按 _placePins 重排
   let omitted = 0;
   Object.keys(byDate).sort().forEach((d) => {
     const ix = dateIdx[d];
@@ -12246,13 +12253,42 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields) {
       const priceTxt = e.kind === "force" ? (e.navMissing ? "缺价" : (e.price != null ? e.price.toFixed(4) : "缺价")) : (e.price != null ? e.price.toFixed(4) : (e.kind === "sell" ? "缺价" : "-"));
       const pin = document.createElement("div");
       pin.className = "lab-etf-pin lab-etf-pin-" + e.kind;
-      const x = pt.x + ei * 14;
-      pin.style.left = x.toFixed(1) + "px";
-      pin.style.top = (pt.y - 4).toFixed(1) + "px";
+      pins.push({ el: pin, ix: ix, ei: ei });
       pin.innerHTML = `<span class="lab-etf-pin-dot"></span><span class="lab-etf-pin-txt">${label} ${_esc(priceTxt)}</span>`;
       wrap.appendChild(pin);
     });
   });
+
+  // pin 重排(缩放/平移后由内核 etf-trend-panzoom 事件驱动; 初始也调一次铺位)
+  function _placePins() {
+    pins.forEach((p) => {
+      const pt = svgPointToWrap(p.ix);
+      if (!pt) { p.el.style.display = "none"; return; } // 缩放后不在可见窗口内 → 隐藏
+      p.el.style.display = "";
+      const x = pt.x + p.ei * 14;
+      p.el.style.left = x.toFixed(1) + "px";
+      p.el.style.top = (pt.y - 4).toFixed(1) + "px";
+    });
+  }
+  _placePins();
+  if (svg.addEventListener) svg.addEventListener("etf-trend-panzoom", _placePins);
+
+  // 缩放控制按钮(＋/－/重置): 挂 wrap 右上角, 纯新增不破坏默认全览行为
+  const ctlEl = document.createElement("div");
+  ctlEl.className = "lab-etf-pin-zoom-ctl";
+  ctlEl.innerHTML =
+    '<button type="button" class="lab-etf-pin-zoom-btn" data-z="in" title="放大">＋</button>' +
+    '<button type="button" class="lab-etf-pin-zoom-btn" data-z="out" title="缩小">－</button>' +
+    '<button type="button" class="lab-etf-pin-zoom-btn lab-etf-pin-zoom-reset" data-z="reset" title="重置回全览">重置</button>';
+  ctlEl.addEventListener("click", (e) => {
+    const b = e.target.closest(".lab-etf-pin-zoom-btn");
+    if (!b || !_etfPinZoomCtl) return;
+    const z = b.dataset.z;
+    if (z === "in") _etfPinZoomCtl.zoomIn();
+    else if (z === "out") _etfPinZoomCtl.zoomOut();
+    else _etfPinZoomCtl.reset();
+  });
+  wrap.appendChild(ctlEl);
 
   // 附加说明(视图窗口 / 遗漏日期)
   let note = `${events.length} 个交易事件 · 视图 ${String(ohlcView[0][0]).slice(0, 4)}-${String(ohlcView[ohlcView.length - 1][0]).slice(0, 4)} · ${ohlcView.length} 个交易日`;

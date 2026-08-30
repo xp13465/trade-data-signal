@@ -23767,6 +23767,9 @@ function _etfTrendLiteBind(svg, ohlc, opts) {
   // opts.valueLabel/opts.valueDecimals: tooltip 数值文案与小数位(#11 基金净值走势复用
   // 本 helper 传「单位净值」+4 位; 净值 4 位小数, 价格 3 位)。缺省「收盘」+3 位 =
   // ETF 既有行为逐字不变(§23.7 向后兼容可选参数)
+  // opts.panZoom(2026-08-30 全信号 pin 弹窗新增): 滚轮/触控板 pinch/触摸 pinch 缩放 + 拖拽平移,
+  //   缩放 = X 时间轴为主的可见交易日索引窗口, 平移 = 窗口滑动; 缺省 false =
+  //   本函数既有行为逐字不变(首页 sparkline / 基金净值走势等复用点零行为变化)。
   const _valueLabel = (opts && opts.valueLabel) || "收盘";
   const _valueDecimals = (opts && opts.valueDecimals != null) ? opts.valueDecimals : 3;
   const _points = ohlc.filter((d) => d && d[4] != null);
@@ -23774,41 +23777,111 @@ function _etfTrendLiteBind(svg, ohlc, opts) {
   // 实测渲染宽 -> viewBox 宽 = 真实像素(1:1 无拉伸), 重生成几何
   const _rect = svg.getBoundingClientRect();
   const _W = Math.round((_rect && _rect.width) || 640);
-  svg.setAttribute("viewBox", "0 0 " + _W + " 200");
-  svg.innerHTML = _etfTrendSVG(ohlc, _W);
-  const g = _etfTrendGeom(ohlc, _W);
-  const { PL, PT, _n, _vals, _dates, _px, _py } = g;
-  const _isUp = g._lastV != null && g._lastV >= _vals[0];
+  // ---- 缩放/平移内核(opts.panZoom 专用) ----
+  // 缩放 = 可见交易日索引窗口 [i0,i1]: 窗口变窄 -> 相邻交易日 x 间距拉开(密集处可看清细节)
+  // + Y 同步聚焦窗口价格范围; 平移 = 窗口整体滑动。几何(_vgeom)每帧按窗口切片重算,
+  // hover / pin 映射统一读最新 _vgeom, 保证缩放后坐标不飘走。初始 [0,n-1] = 全览 = scale=1
+  // = 既有行为逐位一致(回归锚)。
+  let _vgeom = null;       // 当前几何(每帧刷新, _show/hover/pin 映射统一读它)
+  let _cursor = null, _pt = null, _tip = null;
+  let _pan = null, _drag = null, _pinch = null, _ctl = null;
+  const _panEnabled = !!(opts && opts.panZoom);
+  // panZoom 内核用函数作用域 let 承载(ctl 与下方 wheel/pointer/touch 监听器必须共用同一闭包;
+  //   若声明为第一个 if(_panEnabled) 块内 const, 第二个 if(_panEnabled) 块内的监听器
+  //   引用 _zoomAt/_redraw 会 ReferenceError 被静默吞掉 -> 事件驱动交互全部失效。
+  //   2026-08-30 作用域 bug 修复: 全部提到块外, _n/_minWin 改名 _panN/_panMinWin)
+  let _panN = 0, _panMinWin = 10, _kernelRedraw = null, _kernelZoomAt = null,
+      _kernelReset = null, _kernelCenter = null;
+  if (_panEnabled) {
+    _panN = ohlc.length;
+    _panMinWin = Math.max(10, Math.ceil(_panN / 16)); // 最大约 16x, 仍能看清单日
+    _pan = { i0: 0, i1: _panN - 1 };
+    _kernelRedraw = () => {
+      if (!_pan) return false;
+      const slice = (_pan.i0 === 0 && _pan.i1 === _panN - 1) ? ohlc : ohlc.slice(_pan.i0, _pan.i1 + 1);
+      _vgeom = _etfTrendGeom(slice, _W);
+      svg.setAttribute("viewBox", "0 0 " + _W + " 200");
+      svg.innerHTML = _etfTrendSVG(slice, _W);
+      // 重绘替换了 DOM -> 刷新 hover 元素引用(tip 在 wrap 内不受影响)
+      _cursor = svg.querySelector(".etf-trend-cursor");
+      _pt = svg.querySelector(".etf-trend-hover-pt");
+      if (!_cursor || !_pt) return false;
+      // 通知宿主(弹窗 pin 重排)当前视图, 与曲线同步不飘走
+      if (svg.dispatchEvent && svg._etfTrendPan) {
+        try {
+          svg.dispatchEvent(new CustomEvent("etf-trend-panzoom", { detail: { view: svg._etfTrendPan.get() } }));
+        } catch (e) { /* 非 DOM 环境忽略 */ }
+      }
+      return true;
+    };
+    _kernelZoomAt = (anchorIdx, factor) => {
+      if (!_pan) return;
+      const w = _pan.i1 - _pan.i0 + 1;
+      if (w >= _panN && factor < 1) return; // 已在全览, zoom out 无操作
+      const newW = Math.max(_panMinWin, Math.min(_panN, Math.round(w / factor)));
+      if (newW === w) return;
+      // 以光标/锚点数据点为中心缩放(该点相对位置保持)
+      const anchorFrac = Math.min(1, Math.max(0, (anchorIdx - _pan.i0) / w));
+      let a0 = Math.round(anchorIdx - newW * anchorFrac);
+      if (a0 < 0) a0 = 0;
+      if (a0 > _panN - newW) a0 = _panN - newW;
+      _pan.i0 = a0; _pan.i1 = a0 + newW - 1;
+      _kernelRedraw();
+    };
+    _kernelReset = () => {
+      if (!_pan) return;
+      _pan.i0 = 0; _pan.i1 = _panN - 1;
+      _kernelRedraw();
+    };
+    _kernelCenter = () => (_pan ? Math.round((_pan.i0 + _pan.i1) / 2) : Math.round(_panN / 2));
+    _ctl = {
+      zoomIn: () => _kernelZoomAt(_kernelCenter(), 1.5),
+      zoomOut: () => _kernelZoomAt(_kernelCenter(), 1 / 1.5),
+      reset: _kernelReset
+    };
+    svg._etfTrendPan = {
+      get: () => (_vgeom && _pan ? { geom: _vgeom, W: _W, i0: _pan.i0, i1: _pan.i1, n: _panN } : null)
+    };
+    // 初始渲染 = 全窗口(= 既有 _etfTrendSVG(ohlc,_W) 逐位一致)
+    if (!_kernelRedraw()) return;
+  } else {
+    svg.setAttribute("viewBox", "0 0 " + _W + " 200");
+    svg.innerHTML = _etfTrendSVG(ohlc, _W);
+    _vgeom = _etfTrendGeom(ohlc, _W);
+    _cursor = svg.querySelector(".etf-trend-cursor");
+    _pt = svg.querySelector(".etf-trend-hover-pt");
+  }
+  const _isUp = _vgeom._lastV != null && _vgeom._lastV >= _vgeom._vals[0];
   const _stroke = _isUp ? "#e6492e" : "#2e8b57";
-  const _cursor = svg.querySelector(".etf-trend-cursor");
-  const _pt = svg.querySelector(".etf-trend-hover-pt");
-  const _tip = _wrap.querySelector(".etf-trend-tip");
+  _tip = _wrap.querySelector(".etf-trend-tip");
+  if (!_cursor || !_pt) return;
   const _show = (i) => {
+    if (_drag) return; // 拖拽平移中不派 hover
     if (_cursor) {
-      _cursor.setAttribute("x1", _px(i).toFixed(1));
-      _cursor.setAttribute("x2", _px(i).toFixed(1));
+      _cursor.setAttribute("x1", _vgeom._px(i).toFixed(1));
+      _cursor.setAttribute("x2", _vgeom._px(i).toFixed(1));
       _cursor.setAttribute("opacity", "0.9");
     }
-    const _v = _vals[i];
+    const _v = _vgeom._vals[i];
     if (_pt) {
       if (_v == null || isNaN(_v)) {
         // null 值点无 y(echarts 该点无 symbol), 只留十字线+浮层
         _pt.setAttribute("opacity", "0");
       } else {
-        _pt.setAttribute("cx", _px(i).toFixed(1));
-        _pt.setAttribute("cy", _py(_v).toFixed(1));
+        _pt.setAttribute("cx", _vgeom._px(i).toFixed(1));
+        _pt.setAttribute("cy", _vgeom._py(_v).toFixed(1));
         _pt.setAttribute("opacity", "0.9");
       }
     }
     if (_tip) {
-      _tip.innerHTML = fmtDate(_dates[i]) + "<br/>" + _valueLabel + " " + (_v != null ? Number(_v).toFixed(_valueDecimals) : "-");
+      _tip.innerHTML = fmtDate(_vgeom._dates[i]) + "<br/>" + _valueLabel + " " + (_v != null ? Number(_v).toFixed(_valueDecimals) : "-");
       _tip.style.display = "block";
       const svgRect = svg.getBoundingClientRect();
       const wrapRect = _wrap.getBoundingClientRect();
       const ratioW = _W / (svgRect.width || 1);
       const ratioH = 200 / (svgRect.height || 1);
-      const cssX = _px(i) / ratioW;
-      const _yy = (_v != null && !isNaN(_v)) ? _py(_v) : (PT + (g._ih || 100) / 2);
+      const cssX = _vgeom._px(i) / ratioW;
+      const _yy = (_v != null && !isNaN(_v)) ? _vgeom._py(_v) : (_vgeom.PT + (_vgeom._ih || 100) / 2);
       const cssY = _yy / ratioH + (svgRect.top - wrapRect.top);
       const tipW = _tip.offsetWidth || 80;
       const tipH = _tip.offsetHeight || 36;
@@ -23822,22 +23895,118 @@ function _etfTrendLiteBind(svg, ohlc, opts) {
     }
   };
   const _hide = () => {
+    if (_drag) return; // 拖拽中不隐, 避免平移时闪
     if (_cursor) _cursor.setAttribute("opacity", "0");
     if (_pt) _pt.setAttribute("opacity", "0");
     if (_tip) _tip.style.display = "none";
   };
+  // 滚轮 zoom(光标为中心; 触控板 pinch 由浏览器映射为 ctrlKey+wheel, 同路处理)
+  if (_panEnabled) {
+    svg.style.touchAction = "none"; // 隔离触摸手势, 防页面滚动夺走 pinch
+    svg.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      if (!_pan) return;
+      const rect = svg.getBoundingClientRect();
+      const ratioW = _W / (rect.width || 1);
+      const vx = (e.clientX - rect.left) * ratioW;
+      const ai = Math.round((vx - _vgeom.PL) / _vgeom._unitW - 0.5);
+      const anchor = Math.max(0, Math.min(_panN - 1, ai));
+      const factor = e.ctrlKey ? Math.pow(2, -e.deltaY * 0.01) : (e.deltaY < 0 ? 1.2 : 1 / 1.2);
+      _kernelZoomAt(anchor, factor);
+    }, { passive: false });
+    // 拖拽平移(scale>1): pointer events + setPointerCapture, 指针移出 svg 仍持续跟手
+    svg.addEventListener("pointerdown", (e) => {
+      if (!_pan) return;
+      if (e.pointerType === "touch" && _pinch) return; // 双指 pinch 中不启动拖拽
+      if ((_pan.i1 - _pan.i0 + 1) >= _panN) return;    // scale=1 全览不拖拽
+      e.preventDefault();
+      svg.setPointerCapture(e.pointerId);
+      _hide();
+      _drag = { sx: e.clientX, i0: _pan.i0, i1: _pan.i1, w: _pan.i1 - _pan.i0 + 1 };
+    });
+    svg.addEventListener("pointermove", (e) => {
+      if (!_drag) return;
+      const rect = svg.getBoundingClientRect();
+      const pixPerIdx = (rect.width || 1) / _drag.w;
+      const dIdx = Math.round((e.clientX - _drag.sx) / pixPerIdx);
+      let a0 = _drag.i0 - dIdx, a1 = _drag.i1 - dIdx;
+      if (a0 < 0) { a0 = 0; a1 = a0 + _drag.w - 1; }
+      if (a1 > _panN - 1) { a1 = _panN - 1; a0 = a1 - _drag.w + 1; }
+      if (a0 !== _pan.i0 || a1 !== _pan.i1) {
+        _pan.i0 = a0; _pan.i1 = a1;
+        _kernelRedraw();
+      }
+    });
+    const _endDrag = (e) => {
+      if (!_drag) return;
+      if (svg.hasPointerCapture && svg.hasPointerCapture(e.pointerId)) svg.releasePointerCapture(e.pointerId);
+      _drag = null;
+    };
+    svg.addEventListener("pointerup", _endDrag);
+    svg.addEventListener("pointercancel", _endDrag);
+    // 触摸 pinch(移动端): 双指捏合缩放(围绕捏合起点数据点), 单指(已放大时)平移
+    svg.addEventListener("touchstart", (e) => {
+      if (!_pan) return;
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        _drag = null; // 清 pointer 拖拽, 防双路打架
+        const t = e.touches;
+        const d0 = Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+        const rect = svg.getBoundingClientRect();
+        const ratioW = _W / (rect.width || 1);
+        const midX = (t[0].clientX + t[1].clientX) / 2 - rect.left;
+        const ai = Math.round((midX * ratioW - _vgeom.PL) / _vgeom._unitW - 0.5);
+        _pinch = { d0, prev: 1, ax: Math.max(0, Math.min(_panN - 1, ai)) };
+      } else if (e.touches.length === 1 && (_pan.i1 - _pan.i0 + 1) < _panN) {
+        _pinch = null;
+        const t = e.touches[0];
+        _drag = { sx: t.clientX, i0: _pan.i0, i1: _pan.i1, w: _pan.i1 - _pan.i0 + 1 };
+      }
+    }, { passive: false });
+    svg.addEventListener("touchmove", (e) => {
+      if (!_pan) return;
+      if (_pinch && e.touches.length === 2) {
+        e.preventDefault();
+        const t = e.touches;
+        const d = Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+        const factor = d / _pinch.d0;
+        const step = _pinch.prev ? factor / _pinch.prev : factor;
+        _pinch.prev = factor;
+        _kernelZoomAt(_pinch.ax, step);
+      } else if (_drag && e.touches.length === 1) {
+        e.preventDefault();
+        const rect = svg.getBoundingClientRect();
+        const pixPerIdx = (rect.width || 1) / _drag.w;
+        const dIdx = Math.round((e.touches[0].clientX - _drag.sx) / pixPerIdx);
+        let a0 = _drag.i0 - dIdx, a1 = _drag.i1 - dIdx;
+        if (a0 < 0) { a0 = 0; a1 = a0 + _drag.w - 1; }
+        if (a1 > _panN - 1) { a1 = _panN - 1; a0 = a1 - _drag.w + 1; }
+        if (a0 !== _pan.i0 || a1 !== _pan.i1) {
+          _pan.i0 = a0; _pan.i1 = a1;
+          _kernelRedraw();
+        }
+      }
+    }, { passive: false });
+    svg.addEventListener("touchend", (e) => {
+      if (e.touches.length === 0) { _pinch = null; _drag = null; }
+      else if (e.touches.length < 2) _pinch = null;
+    });
+    svg.addEventListener("touchcancel", () => { _pinch = null; _drag = null; });
+  }
   svg.addEventListener("mousemove", (e) => {
+    if (_drag) return;
     const rect = svg.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
     const ratioW = _W / rect.width;
     const vx = (e.clientX - rect.left) * ratioW;
-    // 对齐新几何(半格内缩): 带宽 g._unitW, 反解索引 i = (vx-PL)/unitW - 0.5
-    let i = Math.round((vx - PL) / g._unitW - 0.5);
+    // 对齐当前几何(半格内缩): 带宽 _vgeom._unitW, 反解索引 i = (vx-PL)/unitW - 0.5
+    let i = Math.round((vx - _vgeom.PL) / _vgeom._unitW - 0.5);
     if (i < 0) i = 0;
-    if (i > _n - 1) i = _n - 1;
+    if (i > _vgeom._n - 1) i = _vgeom._n - 1;
     _show(i);
   });
   svg.addEventListener("mouseleave", _hide);
+  return _ctl; // panZoom 时返回控制接口(弹窗 +/-, 重置按钮用); 其它调用点忽略返回值不受影响
 }
 
 // 5档分档(2026-07-25 C2三分类): 强卖出/卖出/持有观察/买入/强买入
