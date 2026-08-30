@@ -1,0 +1,942 @@
+{
+ "generated_at": "2026-08-30T01:19:28.103Z",
+ "trades_generated_at": "2026-08-30 05:02",
+ "s06_snapshot_at": "2026-08-28T21:16:31",
+ "baseline": "v1.1.7 S06 + passesFadeNoBull + posCap K1 + daily pool + fee etf_main(P法强平日用主库真实accum_nav重算)",
+ "basePoolNB": 1968,
+ "strats": {
+  "G": {
+   "nRecon": 647,
+   "peak": 100000,
+   "operable": "OK",
+   "b0": {
+    "total_profit": 189289.7502,
+    "return_pct_max_holding": 189.2898,
+    "total_return_pct": 2.9257,
+    "annualized_return": 7.0477,
+    "win_rate": 0.2535,
+    "n": 647
+   },
+   "b1": {
+    "total_profit": 230962.5467,
+    "return_pct_max_holding": 230.9625,
+    "total_return_pct": 3.5697,
+    "annualized_return": 7.9753,
+    "win_rate": 0.6368,
+    "n": 647
+   },
+   "real": {
+    "total_profit": 157742.6423,
+    "return_pct_max_holding": 157.7426,
+    "total_return_pct": 2.4381,
+    "annualized_return": 6.2582,
+    "win_rate": 0.5564,
+    "n": 647,
+    "max_concurrent_capital": 100000
+   },
+   "forcedN": 420,
+   "fallbackN": 0,
+   "xcheck": {
+    "b0": "EQ(逐位一致)",
+    "b1": "EQ(逐位一致)"
+   },
+   "forced": [
+    {
+     "profit": -8.8084,
+     "return_pct": -0.0881,
+     "buy_date": "20110707",
+     "sell_date": "20110708",
+     "hold_days": 1,
+     "amount": 10000,
+     "fee_cost": 16.1364,
+     "etf_code": "159905",
+     "buy_price": 0.984984,
+     "forced": true
+    },
+    {
+     "profit": 47.2443,
+     "return_pct": 0.4724,
+     "buy_date": "20110708",
+     "sell_date": "20110711",
+     "hold_days": 3,
+     "amount": 10000,
+     "fee_cost": 16.199,
+     "etf_code": "159905",
+     "buy_price": 0.981179,
+     "forced": true
+    },
+    {
+     "profit": 30.9,
+     "return_pct": 0.309,
+     "buy_date": "20110119",
+     "sell_date": "20110727",
+     "hold_days": 189,
+     "amount": 10000,
+     "fee_cost": 16.755,
+     "etf_code": "159905",
+     "buy_price": 0.948621,
+     "forced": true
+    },
+    {
+     "profit": -552.3769,
+     "return_pct": -5.5238,
+     "buy_date": "20110121",
+     "sell_date": "20110810",
+     "hold_days": 201,
+     "amount": 10000,
+     "fee_cost": 16.8433,
+     "etf_code": "159905",
+     "buy_price": 0.943643,
+     "forced": true
+    },
+    {
+     "profit": -186.2469,
+     "return_pct": -1.8625,
+     "buy_date": "20110810",
+     "sell_date": "20110811",
+     "hold_days": 1,
+     "amount": 10000,
+     "fee_cost": 17.3445,
+     "etf_code": "159905",
+     "buy_price": 0.916377,
+     "forced": true
+    },
+    {
+     "profit": -1624.7297,
+     "return_pct": -16.2473,
+     "buy_date": "20110221",
+     "sell_date": "20110823",
+     "hold_days": 183,
+     "amount": 10000,
+     "fee_cost": 15.1609,
+     "etf_code": "159905",
+     "buy_price": 1.048364,
+     "forced": true
+    },
+    {
+     "profit": -1445.6503,
+     "return_pct": -14.4565,
+     "buy_date": "20110429",
+     "sell_date": "20110907",
+     "hold_days": 131,
+     "amount": 10000,
+     "fee_cost": 15.9589,
+     "etf_code": "159905",
+     "buy_price": 0.99594,
+     "forced": true
+    },
+    {
+     "profit": -1193.7137,
+     "return_pct": -11.9371,
+     "buy_date": "20110524",
+     "sell_date": "20110920",
+     "hold_days": 119,
+     "amount": 10000,
+     "fee_cost": 16.9005,
+     "etf_code": "159905",
+     "buy_price": 0.940451,
+     "forced": true
+    },
+    {
+     "profit": -1155.8113,
+     "return_pct": -11.5581,
+     "buy_date": "20110530",
+     "sell_date": "20111012",
+     "hold_days": 135,
+     "amount": 10000,
+     "fee_cost": 17.3628,
+     "etf_code": "159905",
+     "buy_price": 0.915413,
+     "forced": true
+    },
+    {
+     "profit": -1686.8304,
+     "return_pct": -16.8683,
+     "buy_date": "20110531",
+     "sell_date": "20111024",
+     "hold_days": 146,
+     "amount": 10000,
+     "fee_cost": 17.1564,
+     "etf_code": "159905",
+     "buy_price": 0.926424,
+     "forced": true
+    },
+    {
+     "profit": -1105.2768,
+     "return_pct": -11.0528,
+     "buy_date": "20110621",
+     "sell_date": "20111110",
+     "hold_days": 142,
+     "amount": 10000,
+     "fee_cost": 17.357,
+     "etf_code": "159905",
+     "buy_price": 0.915715,
+     "forced": true
+    },
+    {
+     "profit": -2000.9533,
+     "return_pct": -20.0095,
+     "buy_date": "20110701",
+     "sell_date": "20111124",
+     "hold_days": 146,
+     "amount": 10000,
+     "fee_cost": 16.3575,
+     "etf_code": "159905",
+     "buy_price": 0.971671,
+     "forced": true
+    },
+    {
+     "profit": -2143.0451,
+     "return_pct": -21.4305,
+     "buy_date": "20110711",
+     "sell_date": "20111201",
+     "hold_days": 143,
+     "amount": 10000,
+     "fee_cost": 16.3378,
+     "etf_code": "159905",
+     "buy_price": 0.972843,
+     "forced": true
+    },
+    {
+     "profit": -2530.8582,
+     "return_pct": -25.3086,
+     "buy_date": "20110727",
+     "sell_date": "20111216",
+     "hold_days": 142,
+     "amount": 10000,
+     "fee_cost": 16.8815,
+     "etf_code": "159905",
+     "buy_price": 0.941508,
+     "forced": true
+    },
+    {
+     "profit": -2341.7374,
+     "return_pct": -23.4174,
+     "buy_date": "20110811",
+     "sell_date": "20111223",
+     "hold_days": 134,
+     "amount": 10000,
+     "fee_cost": 17.4428,
+     "etf_code": "159905",
+     "buy_price": 0.911214,
+     "forced": true
+    },
+    {
+     "profit": -2128.3929,
+     "return_pct": -21.2839,
+     "buy_date": "20110823",
+     "sell_date": "20111230",
+     "hold_days": 129,
+     "amount": 10000,
+     "fee_cost": 18.1259,
+     "etf_code": "159905",
+     "buy_price": 0.876873,
+     "forced": true
+    },
+    {
+     "profit": -1944.9062,
+     "return_pct": -19.4491,
+     "buy_date": "20110907",
+     "sell_date": "20120109",
+     "hold_days": 124,
+     "amount": 10000,
+     "fee_cost": 18.4656,
+     "etf_code": "159905",
+     "buy_price": 0.860743,
+     "forced": true
+    },
+    {
+     "profit": -676.6987,
+     "return_pct": -6.767,
+     "buy_date": "20110920",
+     "sell_date": "20120222",
+     "hold_days": 155,
+     "amount": 10000,
+     "fee_cost": 19.3616,
+     "etf_code": "159905",
+     "buy_price": 0.820908,
+     "forced": true
+    },
+    {
+     "profit": -153.9434,
+     "return_pct": -1.5394,
+     "buy_date": "20111012",
+     "sell_date": "20120302",
+     "hold_days": 142,
+     "amount": 10000,
+     "fee_cost": 19.5907,
+     "etf_code": "159905",
+     "buy_price": 0.81131,
+     "forced": true
+    },
+    {
+     "profit": -161.2642,
+     "return_pct": -1.6126,
+     "buy_date": "20120302",
+     "sell_date": "20120305",
+     "hold_days": 3,
+     "amount": 10000,
+     "fee_cost": 19.6819,
+     "etf_code": "159905",
+     "buy_price": 0.807548,
+     "forced": true
+    }
+   ],
+   "by_year": {
+    "2011": {
+     "n": 26,
+     "total_profit": -21183.8522,
+     "return_pct_max_holding": -21.1839,
+     "win_rate": 0.1923,
+     "max_concurrent_capital": 100000
+    },
+    "2012": {
+     "n": 16,
+     "total_profit": 8043.3848,
+     "return_pct_max_holding": 8.0434,
+     "win_rate": 0.5625,
+     "max_concurrent_capital": 100000
+    },
+    "2013": {
+     "n": 23,
+     "total_profit": -1789.5146,
+     "return_pct_max_holding": -2.2369,
+     "win_rate": 0.4348,
+     "max_concurrent_capital": 80000
+    },
+    "2014": {
+     "n": 42,
+     "total_profit": 44757.4523,
+     "return_pct_max_holding": 44.7575,
+     "win_rate": 0.7619,
+     "max_concurrent_capital": 100000
+    },
+    "2015": {
+     "n": 2,
+     "total_profit": 1859.0655,
+     "return_pct_max_holding": 9.2953,
+     "win_rate": 1,
+     "max_concurrent_capital": 20000
+    },
+    "2016": {
+     "n": 9,
+     "total_profit": 6537.2354,
+     "return_pct_max_holding": 9.3389,
+     "win_rate": 0.7778,
+     "max_concurrent_capital": 70000
+    },
+    "2017": {
+     "n": 28,
+     "total_profit": 2172.1053,
+     "return_pct_max_holding": 2.1721,
+     "win_rate": 0.5714,
+     "max_concurrent_capital": 100000
+    },
+    "2018": {
+     "n": 23,
+     "total_profit": 12041.6774,
+     "return_pct_max_holding": 12.0417,
+     "win_rate": 0.5652,
+     "max_concurrent_capital": 100000
+    },
+    "2019": {
+     "n": 41,
+     "total_profit": 17850.2011,
+     "return_pct_max_holding": 17.8502,
+     "win_rate": 0.7073,
+     "max_concurrent_capital": 100000
+    },
+    "2020": {
+     "n": 68,
+     "total_profit": 20504.1442,
+     "return_pct_max_holding": 20.5041,
+     "win_rate": 0.5588,
+     "max_concurrent_capital": 100000
+    },
+    "2021": {
+     "n": 43,
+     "total_profit": -1673.7173,
+     "return_pct_max_holding": -1.6737,
+     "win_rate": 0.4651,
+     "max_concurrent_capital": 100000
+    },
+    "2022": {
+     "n": 64,
+     "total_profit": 9951.0273,
+     "return_pct_max_holding": 9.951,
+     "win_rate": 0.5313,
+     "max_concurrent_capital": 100000
+    },
+    "2023": {
+     "n": 75,
+     "total_profit": -8646.5568,
+     "return_pct_max_holding": -8.6466,
+     "win_rate": 0.44,
+     "max_concurrent_capital": 100000
+    },
+    "2024": {
+     "n": 43,
+     "total_profit": 26732.302,
+     "return_pct_max_holding": 26.7323,
+     "win_rate": 0.7442,
+     "max_concurrent_capital": 100000
+    },
+    "2025": {
+     "n": 89,
+     "total_profit": 37435.6157,
+     "return_pct_max_holding": 37.4356,
+     "win_rate": 0.5843,
+     "max_concurrent_capital": 100000
+    },
+    "2026": {
+     "n": 55,
+     "total_profit": 3152.0722,
+     "return_pct_max_holding": 3.1521,
+     "win_rate": 0.5091,
+     "max_concurrent_capital": 100000
+    }
+   }
+  },
+  "I": {
+   "nRecon": 647,
+   "peak": 90000,
+   "operable": "OK",
+   "b0": {
+    "total_profit": 173991.6977,
+    "return_pct_max_holding": 193.3241,
+    "total_return_pct": 2.6892,
+    "annualized_return": 7.1428,
+    "win_rate": 0.2504,
+    "n": 647
+   },
+   "b1": {
+    "total_profit": 204372.5539,
+    "return_pct_max_holding": 227.0806,
+    "total_return_pct": 3.1588,
+    "annualized_return": 7.8937,
+    "win_rate": 0.6012,
+    "n": 647
+   },
+   "real": {
+    "total_profit": 140585.3328,
+    "return_pct_max_holding": 156.2059,
+    "total_return_pct": 2.1729,
+    "annualized_return": 6.2174,
+    "win_rate": 0.5255,
+    "n": 647,
+    "max_concurrent_capital": 90000
+   },
+   "forcedN": 392,
+   "fallbackN": 0,
+   "xcheck": {
+    "b0": "EQ(逐位一致)",
+    "b1": "EQ(逐位一致)"
+   },
+   "forced": [
+    {
+     "profit": -8.8084,
+     "return_pct": -0.0881,
+     "buy_date": "20110707",
+     "sell_date": "20110708",
+     "hold_days": 1,
+     "amount": 10000,
+     "fee_cost": 20.089,
+     "etf_code": "159905",
+     "buy_price": 0.984984,
+     "forced": true
+    },
+    {
+     "profit": 47.2443,
+     "return_pct": 0.4724,
+     "buy_date": "20110708",
+     "sell_date": "20110711",
+     "hold_days": 3,
+     "amount": 10000,
+     "fee_cost": 20.1669,
+     "etf_code": "159905",
+     "buy_price": 0.981179,
+     "forced": true
+    },
+    {
+     "profit": -186.2469,
+     "return_pct": -1.8625,
+     "buy_date": "20110810",
+     "sell_date": "20110811",
+     "hold_days": 1,
+     "amount": 10000,
+     "fee_cost": 17.3445,
+     "etf_code": "159905",
+     "buy_price": 0.916377,
+     "forced": true
+    },
+    {
+     "profit": -744.1097,
+     "return_pct": -7.4411,
+     "buy_date": "20110119",
+     "sell_date": "20110823",
+     "hold_days": 216,
+     "amount": 10000,
+     "fee_cost": 16.755,
+     "etf_code": "159905",
+     "buy_price": 0.948621,
+     "forced": true
+    },
+    {
+     "profit": -971.5655,
+     "return_pct": -9.7157,
+     "buy_date": "20110121",
+     "sell_date": "20110907",
+     "hold_days": 229,
+     "amount": 10000,
+     "fee_cost": 16.8433,
+     "etf_code": "159905",
+     "buy_price": 0.943643,
+     "forced": true
+    },
+    {
+     "profit": -1684.3577,
+     "return_pct": -16.8436,
+     "buy_date": "20110429",
+     "sell_date": "20110920",
+     "hold_days": 144,
+     "amount": 10000,
+     "fee_cost": 15.9589,
+     "etf_code": "159905",
+     "buy_price": 0.99594,
+     "forced": true
+    },
+    {
+     "profit": -1391.2736,
+     "return_pct": -13.9127,
+     "buy_date": "20110524",
+     "sell_date": "20111012",
+     "hold_days": 141,
+     "amount": 10000,
+     "fee_cost": 16.9005,
+     "etf_code": "159905",
+     "buy_price": 0.940451,
+     "forced": true
+    },
+    {
+     "profit": -1586.8359,
+     "return_pct": -15.8684,
+     "buy_date": "20110530",
+     "sell_date": "20111024",
+     "hold_days": 147,
+     "amount": 10000,
+     "fee_cost": 17.3628,
+     "etf_code": "159905",
+     "buy_price": 0.915413,
+     "forced": true
+    },
+    {
+     "profit": -1208.0954,
+     "return_pct": -12.081,
+     "buy_date": "20110531",
+     "sell_date": "20111110",
+     "hold_days": 163,
+     "amount": 10000,
+     "fee_cost": 17.1564,
+     "etf_code": "159905",
+     "buy_price": 0.926424,
+     "forced": true
+    },
+    {
+     "profit": -1652.8793,
+     "return_pct": -16.5288,
+     "buy_date": "20110621",
+     "sell_date": "20111201",
+     "hold_days": 163,
+     "amount": 10000,
+     "fee_cost": 17.357,
+     "etf_code": "159905",
+     "buy_price": 0.915715,
+     "forced": true
+    },
+    {
+     "profit": -2530.8582,
+     "return_pct": -25.3086,
+     "buy_date": "20110727",
+     "sell_date": "20111216",
+     "hold_days": 142,
+     "amount": 10000,
+     "fee_cost": 16.8815,
+     "etf_code": "159905",
+     "buy_price": 0.941508,
+     "forced": true
+    },
+    {
+     "profit": -2341.7374,
+     "return_pct": -23.4174,
+     "buy_date": "20110811",
+     "sell_date": "20111223",
+     "hold_days": 134,
+     "amount": 10000,
+     "fee_cost": 17.4428,
+     "etf_code": "159905",
+     "buy_price": 0.911214,
+     "forced": true
+    },
+    {
+     "profit": -2128.3929,
+     "return_pct": -21.2839,
+     "buy_date": "20110823",
+     "sell_date": "20111230",
+     "hold_days": 129,
+     "amount": 10000,
+     "fee_cost": 18.1259,
+     "etf_code": "159905",
+     "buy_price": 0.876873,
+     "forced": true
+    },
+    {
+     "profit": -1944.9062,
+     "return_pct": -19.4491,
+     "buy_date": "20110907",
+     "sell_date": "20120109",
+     "hold_days": 124,
+     "amount": 10000,
+     "fee_cost": 18.4656,
+     "etf_code": "159905",
+     "buy_price": 0.860743,
+     "forced": true
+    },
+    {
+     "profit": -676.6987,
+     "return_pct": -6.767,
+     "buy_date": "20110920",
+     "sell_date": "20120222",
+     "hold_days": 155,
+     "amount": 10000,
+     "fee_cost": 19.3616,
+     "etf_code": "159905",
+     "buy_price": 0.820908,
+     "forced": true
+    },
+    {
+     "profit": -153.9434,
+     "return_pct": -1.5394,
+     "buy_date": "20111012",
+     "sell_date": "20120302",
+     "hold_days": 142,
+     "amount": 10000,
+     "fee_cost": 19.5907,
+     "etf_code": "159905",
+     "buy_price": 0.81131,
+     "forced": true
+    },
+    {
+     "profit": -161.2642,
+     "return_pct": -1.6126,
+     "buy_date": "20120302",
+     "sell_date": "20120305",
+     "hold_days": 3,
+     "amount": 10000,
+     "fee_cost": 19.6819,
+     "etf_code": "159905",
+     "buy_price": 0.807548,
+     "forced": true
+    },
+    {
+     "profit": -249.228,
+     "return_pct": -2.4923,
+     "buy_date": "20120330",
+     "sell_date": "20121221",
+     "hold_days": 266,
+     "amount": 10000,
+     "fee_cost": 22.6152,
+     "etf_code": "159905",
+     "buy_price": 0.712185,
+     "forced": true
+    },
+    {
+     "profit": -6.7132,
+     "return_pct": -0.0671,
+     "buy_date": "20121221",
+     "sell_date": "20121224",
+     "hold_days": 3,
+     "amount": 10000,
+     "fee_cost": 23.1112,
+     "etf_code": "159905",
+     "buy_price": 0.696901,
+     "forced": true
+    },
+    {
+     "profit": -216.694,
+     "return_pct": -2.1669,
+     "buy_date": "20120626",
+     "sell_date": "20130104",
+     "hold_days": 192,
+     "amount": 10000,
+     "fee_cost": 21.764,
+     "etf_code": "159905",
+     "buy_price": 0.740039,
+     "forced": true
+    }
+   ],
+   "by_year": {
+    "2011": {
+     "n": 26,
+     "total_profit": -18296.5859,
+     "return_pct_max_holding": -20.3295,
+     "win_rate": 0.1538,
+     "max_concurrent_capital": 90000
+    },
+    "2012": {
+     "n": 16,
+     "total_profit": 7993.4734,
+     "return_pct_max_holding": 8.8816,
+     "win_rate": 0.5625,
+     "max_concurrent_capital": 90000
+    },
+    "2013": {
+     "n": 23,
+     "total_profit": -1831.7383,
+     "return_pct_max_holding": -2.2897,
+     "win_rate": 0.4348,
+     "max_concurrent_capital": 80000
+    },
+    "2014": {
+     "n": 42,
+     "total_profit": 29177.3696,
+     "return_pct_max_holding": 32.4193,
+     "win_rate": 0.619,
+     "max_concurrent_capital": 90000
+    },
+    "2015": {
+     "n": 2,
+     "total_profit": 1859.0655,
+     "return_pct_max_holding": 9.2953,
+     "win_rate": 1,
+     "max_concurrent_capital": 20000
+    },
+    "2016": {
+     "n": 9,
+     "total_profit": 6390.2344,
+     "return_pct_max_holding": 9.1289,
+     "win_rate": 0.7778,
+     "max_concurrent_capital": 70000
+    },
+    "2017": {
+     "n": 28,
+     "total_profit": 7718.4281,
+     "return_pct_max_holding": 9.648,
+     "win_rate": 0.5357,
+     "max_concurrent_capital": 80000
+    },
+    "2018": {
+     "n": 23,
+     "total_profit": 8440.8667,
+     "return_pct_max_holding": 9.3787,
+     "win_rate": 0.5217,
+     "max_concurrent_capital": 90000
+    },
+    "2019": {
+     "n": 41,
+     "total_profit": 15705.9312,
+     "return_pct_max_holding": 17.451,
+     "win_rate": 0.561,
+     "max_concurrent_capital": 90000
+    },
+    "2020": {
+     "n": 68,
+     "total_profit": 14801.4897,
+     "return_pct_max_holding": 16.4461,
+     "win_rate": 0.5147,
+     "max_concurrent_capital": 90000
+    },
+    "2021": {
+     "n": 43,
+     "total_profit": -2087.0347,
+     "return_pct_max_holding": -2.3189,
+     "win_rate": 0.4651,
+     "max_concurrent_capital": 90000
+    },
+    "2022": {
+     "n": 64,
+     "total_profit": 10005.6027,
+     "return_pct_max_holding": 11.1173,
+     "win_rate": 0.5469,
+     "max_concurrent_capital": 90000
+    },
+    "2023": {
+     "n": 75,
+     "total_profit": -7251.6021,
+     "return_pct_max_holding": -8.0573,
+     "win_rate": 0.4,
+     "max_concurrent_capital": 90000
+    },
+    "2024": {
+     "n": 43,
+     "total_profit": 21339.1554,
+     "return_pct_max_holding": 23.7102,
+     "win_rate": 0.7209,
+     "max_concurrent_capital": 90000
+    },
+    "2025": {
+     "n": 89,
+     "total_profit": 36820.4741,
+     "return_pct_max_holding": 40.9116,
+     "win_rate": 0.5506,
+     "max_concurrent_capital": 90000
+    },
+    "2026": {
+     "n": 55,
+     "total_profit": 9800.203,
+     "return_pct_max_holding": 10.8891,
+     "win_rate": 0.5818,
+     "max_concurrent_capital": 90000
+    }
+   }
+  },
+  "H": {
+   "nRecon": 647,
+   "peak": 50000,
+   "operable": "OK",
+   "b0": {
+    "total_profit": 115157.2138,
+    "return_pct_max_holding": 230.3144,
+    "total_return_pct": 3.0873,
+    "annualized_return": 7.9617,
+    "win_rate": 0.4933,
+    "n": 373
+   },
+   "b1": {
+    "total_profit": 115157.2138,
+    "return_pct_max_holding": 230.3144,
+    "total_return_pct": 3.0873,
+    "annualized_return": 7.9617,
+    "win_rate": 0.4933,
+    "n": 373
+   },
+   "real": {
+    "total_profit": 115157.2138,
+    "return_pct_max_holding": 230.3144,
+    "total_return_pct": 3.0873,
+    "annualized_return": 7.9617,
+    "win_rate": 0.4933,
+    "n": 373,
+    "max_concurrent_capital": 50000
+   },
+   "forcedN": 0,
+   "fallbackN": 0,
+   "xcheck": null,
+   "forced": [],
+   "by_year": {
+    "2011": {
+     "n": 26,
+     "total_profit": -1523.6009,
+     "return_pct_max_holding": -3.0472,
+     "win_rate": 0.3846,
+     "max_concurrent_capital": 50000
+    },
+    "2012": {
+     "n": 12,
+     "total_profit": -50.3944,
+     "return_pct_max_holding": -0.1008,
+     "win_rate": 0.3333,
+     "max_concurrent_capital": 50000
+    },
+    "2013": {
+     "n": 18,
+     "total_profit": -347.452,
+     "return_pct_max_holding": -0.6949,
+     "win_rate": 0.4444,
+     "max_concurrent_capital": 50000
+    },
+    "2014": {
+     "n": 25,
+     "total_profit": 18090.1106,
+     "return_pct_max_holding": 36.1802,
+     "win_rate": 0.64,
+     "max_concurrent_capital": 50000
+    },
+    "2015": {
+     "n": 2,
+     "total_profit": 1859.0655,
+     "return_pct_max_holding": 9.2953,
+     "win_rate": 1,
+     "max_concurrent_capital": 20000
+    },
+    "2016": {
+     "n": 9,
+     "total_profit": 969.0474,
+     "return_pct_max_holding": 1.9381,
+     "win_rate": 0.5556,
+     "max_concurrent_capital": 50000
+    },
+    "2017": {
+     "n": 20,
+     "total_profit": 3865.1411,
+     "return_pct_max_holding": 7.7303,
+     "win_rate": 0.55,
+     "max_concurrent_capital": 50000
+    },
+    "2018": {
+     "n": 19,
+     "total_profit": 1434.7556,
+     "return_pct_max_holding": 2.8695,
+     "win_rate": 0.4211,
+     "max_concurrent_capital": 50000
+    },
+    "2019": {
+     "n": 20,
+     "total_profit": 10264.8428,
+     "return_pct_max_holding": 20.5297,
+     "win_rate": 0.75,
+     "max_concurrent_capital": 50000
+    },
+    "2020": {
+     "n": 31,
+     "total_profit": 13757.4202,
+     "return_pct_max_holding": 27.5148,
+     "win_rate": 0.5806,
+     "max_concurrent_capital": 50000
+    },
+    "2021": {
+     "n": 27,
+     "total_profit": 9930.6081,
+     "return_pct_max_holding": 19.8612,
+     "win_rate": 0.5926,
+     "max_concurrent_capital": 50000
+    },
+    "2022": {
+     "n": 42,
+     "total_profit": 7879.6535,
+     "return_pct_max_holding": 15.7593,
+     "win_rate": 0.3571,
+     "max_concurrent_capital": 50000
+    },
+    "2023": {
+     "n": 41,
+     "total_profit": -1895.9335,
+     "return_pct_max_holding": -3.7919,
+     "win_rate": 0.3171,
+     "max_concurrent_capital": 50000
+    },
+    "2024": {
+     "n": 30,
+     "total_profit": 14425.9434,
+     "return_pct_max_holding": 28.8519,
+     "win_rate": 0.6333,
+     "max_concurrent_capital": 50000
+    },
+    "2025": {
+     "n": 31,
+     "total_profit": 27587.6006,
+     "return_pct_max_holding": 55.1752,
+     "win_rate": 0.4516,
+     "max_concurrent_capital": 50000
+    },
+    "2026": {
+     "n": 20,
+     "total_profit": 8910.4058,
+     "return_pct_max_holding": 17.8208,
+     "win_rate": 0.5,
+     "max_concurrent_capital": 50000
+    }
+   }
+  }
+ },
+ "_reportText": "\n======== G=P≤3d@10万 (方法P, cap=10万) ========\n  原始信号 n=647 峰持仓=100,000(10.0x OK)\n  | 口径 | 净利 | 收益率(对峰持仓) | 年化 | 胜率 | n |\n  |> b0(强平记0利) | 189,290 | 189.29% | 7.05% | 0.25% | 647 |\n  |> b1(按持有时间线性折) | 230,963 | 230.96% | 7.98% | 0.64% | 647 |\n  |> real(强平日真实净值) | 157,743 | 157.74% | 6.26% | 0.56% | 647 |\n  强平笔数=420(fallback=0) 交叉验证: b0=EQ(逐位一致) b1=EQ(逐位一致)\n\n======== I=P≤3d@9万 (方法P, cap=9万) ========\n  原始信号 n=647 峰持仓=90,000(9.0x OK)\n  | 口径 | 净利 | 收益率(对峰持仓) | 年化 | 胜率 | n |\n  |> b0(强平记0利) | 173,992 | 193.32% | 7.14% | 0.25% | 647 |\n  |> b1(按持有时间线性折) | 204,373 | 227.08% | 7.89% | 0.60% | 647 |\n  |> real(强平日真实净值) | 140,585 | 156.21% | 6.22% | 0.53% | 647 |\n  强平笔数=392(fallback=0) 交叉验证: b0=EQ(逐位一致) b1=EQ(逐位一致)\n\n======== H=满仓不买@5万(对照A法) (方法A, cap=5万) ========\n  原始信号 n=647 峰持仓=50,000(5.0x OK)\n  | 口径 | 净利 | 收益率(对峰持仓) | 年化 | 胜率 | n |\n  |> b0(强平记0利) | 115,157 | 230.31% | 7.96% | 0.49% | 373 |\n  |> b1(按持有时间线性折) | 115,157 | 230.31% | 7.96% | 0.49% | 373 |\n  |> real(强平日真实净值) | 115,157 | 230.31% | 7.96% | 0.49% | 373 |\n  强平笔数=0(fallback=0) 交叉验证: b0=- b1=-\n\n\n====== 按年分解(real 口径, 每档单独) =====\n\n--- G real 按年 ---\n  2011: n=26 净利=-21,184 收=-21.18% wr=0.19%\n  2012: n=16 净利=8,043 收=8.04% wr=0.56%\n  2013: n=23 净利=-1,790 收=-2.24% wr=0.43%\n  2014: n=42 净利=44,757 收=44.76% wr=0.76%\n  2015: n=2 净利=1,859 收=9.30% wr=1.00%\n  2016: n=9 净利=6,537 收=9.34% wr=0.78%\n  2017: n=28 净利=2,172 收=2.17% wr=0.57%\n  2018: n=23 净利=12,042 收=12.04% wr=0.57%\n  2019: n=41 净利=17,850 收=17.85% wr=0.71%\n  2020: n=68 净利=20,504 收=20.50% wr=0.56%\n  2021: n=43 净利=-1,674 收=-1.67% wr=0.47%\n  2022: n=64 净利=9,951 收=9.95% wr=0.53%\n  2023: n=75 净利=-8,647 收=-8.65% wr=0.44%\n  2024: n=43 净利=26,732 收=26.73% wr=0.74%\n  2025: n=89 净利=37,436 收=37.44% wr=0.58%\n  2026: n=55 净利=3,152 收=3.15% wr=0.51%\n\n--- I real 按年 ---\n  2011: n=26 净利=-18,297 收=-20.33% wr=0.15%\n  2012: n=16 净利=7,993 收=8.88% wr=0.56%\n  2013: n=23 净利=-1,832 收=-2.29% wr=0.43%\n  2014: n=42 净利=29,177 收=32.42% wr=0.62%\n  2015: n=2 净利=1,859 收=9.30% wr=1.00%\n  2016: n=9 净利=6,390 收=9.13% wr=0.78%\n  2017: n=28 净利=7,718 收=9.65% wr=0.54%\n  2018: n=23 净利=8,441 收=9.38% wr=0.52%\n  2019: n=41 净利=15,706 收=17.45% wr=0.56%\n  2020: n=68 净利=14,801 收=16.45% wr=0.51%\n  2021: n=43 净利=-2,087 收=-2.32% wr=0.47%\n  2022: n=64 净利=10,006 收=11.12% wr=0.55%\n  2023: n=75 净利=-7,252 收=-8.06% wr=0.40%\n  2024: n=43 净利=21,339 收=23.71% wr=0.72%\n  2025: n=89 净利=36,820 收=40.91% wr=0.55%\n  2026: n=55 净利=9,800 收=10.89% wr=0.58%\n\n--- H real 按年 ---\n  2011: n=26 净利=-1,524 收=-3.05% wr=0.38%\n  2012: n=12 净利=-50 收=-0.10% wr=0.33%\n  2013: n=18 净利=-347 收=-0.69% wr=0.44%\n  2014: n=25 净利=18,090 收=36.18% wr=0.64%\n  2015: n=2 净利=1,859 收=9.30% wr=1.00%\n  2016: n=9 净利=969 收=1.94% wr=0.56%\n  2017: n=20 净利=3,865 收=7.73% wr=0.55%\n  2018: n=19 净利=1,435 收=2.87% wr=0.42%\n  2019: n=20 净利=10,265 收=20.53% wr=0.75%\n  2020: n=31 净利=13,757 收=27.51% wr=0.58%\n  2021: n=27 净利=9,931 收=19.86% wr=0.59%\n  2022: n=42 净利=7,880 收=15.76% wr=0.36%\n  2023: n=41 净利=-1,896 收=-3.79% wr=0.32%\n  2024: n=30 净利=14,426 收=28.85% wr=0.63%\n  2025: n=31 净利=27,588 收=55.18% wr=0.45%\n  2026: n=20 净利=8,910 收=17.82% wr=0.50%\n\n--- G=P≤3d@10万 强平订单明细(共20笔, 前20笔) ---\n  buy=20110707 强平=20110708 etf=159905 真实卖价(nav)=0.985200 强平净利=-9 强平收益=-0.09%\n  buy=20110708 强平=20110711 etf=159905 真实卖价(nav)=0.986900 强平净利=47 强平收益=0.47%\n  buy=20110119 强平=20110727 etf=159905 真实卖价(nav)=0.952600 强平净利=31 强平收益=0.31%\n  buy=20110121 强平=20110810 etf=159905 真实卖价(nav)=0.892500 强平净利=-552 强平收益=-5.52%\n  buy=20110810 强平=20110811 etf=159905 真实卖价(nav)=0.900300 强平净利=-186 强平收益=-1.86%\n  buy=20110221 强平=20110823 etf=159905 真实卖价(nav)=0.879000 强平净利=-1,625 强平收益=-16.25%\n  buy=20110429 强平=20110907 etf=159905 真实卖价(nav)=0.852900 强平净利=-1,446 强平收益=-14.46%\n  buy=20110524 强平=20110920 etf=159905 真实卖价(nav)=0.829100 强平净利=-1,194 强平收益=-11.94%\n  buy=20110530 强平=20111012 etf=159905 真实卖价(nav)=0.810500 强平净利=-1,156 强平收益=-11.56%\n  buy=20110531 强平=20111024 etf=159905 真实卖价(nav)=0.771000 强平净利=-1,687 强平收益=-16.87%\n  buy=20110621 强平=20111110 etf=159905 真实卖价(nav)=0.815400 强平净利=-1,105 强平收益=-11.05%\n  buy=20110701 强平=20111124 etf=159905 真实卖价(nav)=0.778100 强平净利=-2,001 强平收益=-20.01%\n  buy=20110711 强平=20111201 etf=159905 真实卖价(nav)=0.765200 强平净利=-2,143 强平收益=-21.43%\n  buy=20110727 强平=20111216 etf=159905 真实卖价(nav)=0.704000 强平净利=-2,531 强平收益=-25.31%\n  buy=20110811 强平=20111223 etf=159905 真实卖价(nav)=0.698600 强平净利=-2,342 强平收益=-23.42%\n  buy=20110823 强平=20111230 etf=159905 真实卖价(nav)=0.691000 强平净利=-2,128 强平收益=-21.28%\n  buy=20110907 强平=20120109 etf=159905 真实卖价(nav)=0.694100 强平净利=-1,945 强平收益=-19.45%\n  buy=20110920 强平=20120222 etf=159905 真实卖价(nav)=0.766200 强平净利=-677 强平收益=-6.77%\n  buy=20111012 强平=20120302 etf=159905 真实卖价(nav)=0.799700 强平净利=-154 强平收益=-1.54%\n  buy=20120302 强平=20120305 etf=159905 真实卖价(nav)=0.795400 强平净利=-161 强平收益=-1.61%\n\n--- I=P≤3d@9万 强平订单明细(共20笔, 前20笔) ---\n  buy=20110707 强平=20110708 etf=159905 真实卖价(nav)=0.985200 强平净利=-9 强平收益=-0.09%\n  buy=20110708 强平=20110711 etf=159905 真实卖价(nav)=0.986900 强平净利=47 强平收益=0.47%\n  buy=20110810 强平=20110811 etf=159905 真实卖价(nav)=0.900300 强平净利=-186 强平收益=-1.86%\n  buy=20110119 强平=20110823 etf=159905 真实卖价(nav)=0.879000 强平净利=-744 强平收益=-7.44%\n  buy=20110121 强平=20110907 etf=159905 真实卖价(nav)=0.852900 强平净利=-972 强平收益=-9.72%\n  buy=20110429 强平=20110920 etf=159905 真实卖价(nav)=0.829100 强平净利=-1,684 强平收益=-16.84%\n  buy=20110524 强平=20111012 etf=159905 真实卖价(nav)=0.810500 强平净利=-1,391 强平收益=-13.91%\n  buy=20110530 强平=20111024 etf=159905 真实卖价(nav)=0.771000 强平净利=-1,587 强平收益=-15.87%\n  buy=20110531 强平=20111110 etf=159905 真实卖价(nav)=0.815400 强平净利=-1,208 强平收益=-12.08%\n  buy=20110621 强平=20111201 etf=159905 真实卖价(nav)=0.765200 强平净利=-1,653 强平收益=-16.53%\n  buy=20110727 强平=20111216 etf=159905 真实卖价(nav)=0.704000 强平净利=-2,531 强平收益=-25.31%\n  buy=20110811 强平=20111223 etf=159905 真实卖价(nav)=0.698600 强平净利=-2,342 强平收益=-23.42%\n  buy=20110823 强平=20111230 etf=159905 真实卖价(nav)=0.691000 强平净利=-2,128 强平收益=-21.28%\n  buy=20110907 强平=20120109 etf=159905 真实卖价(nav)=0.694100 强平净利=-1,945 强平收益=-19.45%\n  buy=20110920 强平=20120222 etf=159905 真实卖价(nav)=0.766200 强平净利=-677 强平收益=-6.77%\n  buy=20111012 强平=20120302 etf=159905 真实卖价(nav)=0.799700 强平净利=-154 强平收益=-1.54%\n  buy=20120302 强平=20120305 etf=159905 真实卖价(nav)=0.795400 强平净利=-161 强平收益=-1.61%\n  buy=20120330 强平=20121221 etf=159905 真实卖价(nav)=0.695200 强平净利=-249 强平收益=-2.49%\n  buy=20121221 强平=20121224 etf=159905 真实卖价(nav)=0.697200 强平净利=-7 强平收益=-0.07%\n  buy=20120626 强平=20130104 etf=159905 真实卖价(nav)=0.724800 强平净利=-217 强平收益=-2.17%\n"
+}
