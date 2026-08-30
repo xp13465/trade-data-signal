@@ -11946,7 +11946,9 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     } else {
       for (const t of pageRows) {
         const rowCls = (!t[fIdx.sell_date]) ? "lab-sigkelly-holding-row" : "";
-        tbodyHTML += `<tr class="${rowCls}">${_rowHtml(t)}</tr>`;
+        // 需求3(2026-08-30): tr 行标识 data-ib(index_id)+data-bd(buy_date) 唯一标识一笔交易,
+        //   点入 ETF 走势弹窗后用于高亮该行对应配对 pin
+        tbodyHTML += `<tr class="${rowCls}" data-ib="${_esc(t[fIdx.index_id] != null ? t[fIdx.index_id] : "")}" data-bd="${_esc(t[fIdx.buy_date] != null ? t[fIdx.buy_date] : "")}">${_rowHtml(t)}</tr>`;
       }
     }
     // 被淘汰交易区块(2026-08-12 需求B): 被降亏过滤/仓位控制淘汰的交易显示+删除线灰化, 独立分页(不计入统计口径)
@@ -11967,7 +11969,8 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       } else {
         for (const t of elimPageRows) {
           const elimRowCls = ((!t[fIdx.sell_date]) ? "lab-sigkelly-holding-row" : "") + " lab-sigkelly-eliminated-row";
-          elimTbody += `<tr class="${elimRowCls}">${_rowHtml(t)}</tr>`;
+          // 需求3: 与正式区同规矩 tr 行标识 data-ib/data-bd(淘汰区触发行点入弹窗同样高亮其配对 pin)
+          elimTbody += `<tr class="${elimRowCls}" data-ib="${_esc(t[fIdx.index_id] != null ? t[fIdx.index_id] : "")}" data-bd="${_esc(t[fIdx.buy_date] != null ? t[fIdx.buy_date] : "")}">${_rowHtml(t)}</tr>`;
         }
       }
     }
@@ -12088,10 +12091,12 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       const _nmEl = td.querySelector(".lab-sigkelly-trades-etfname-sub"); // 名称已内嵌同列(2026-08-30 列合并)
       const _nm = (_nmEl && _nmEl.textContent) || "";
       const _srcRow = td.closest("tr"); // 触发行(需求3: 弹窗关闭返回后高亮定位该行)
+      // 需求3(2026-08-30): 读取触发行行标识 data-ib/data-bd 组成 srcKey, 传入弹窗用于高亮对应配对 pin
+      const _srcKey = (_srcRow && _srcRow.dataset.ib != null) ? { ib: _srcRow.dataset.ib, bd: (_srcRow.dataset.bd != null ? _srcRow.dataset.bd : "") } : null;
       td.onclick = (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
-        _openEtfTrendPinModal(_code, _nm, trades, eliminated, fields, _srcRow);
+        _openEtfTrendPinModal(_code, _nm, trades, eliminated, fields, _srcRow, _srcKey);
       };
     });
   }
@@ -12116,12 +12121,12 @@ function _collectEtfPinEvents(code, fields, trades, eliminated) {
   const evs = [];
   const fIdx2 = {};
   (fields || []).forEach((f, i) => { fIdx2[f] = i; });
-  const push = (t) => {
+  const push = (t, src) => {
     if (!t) return;
     const c = t[fIdx2.etf_code] ?? t[fIdx2.code];
     if (c === undefined || c === null || String(c) !== String(code)) return;
     const bd = t[fIdx2.buy_date];
-    if (bd) evs.push({ date: String(bd), kind: "buy", price: t[fIdx2.buy_price] != null ? Number(t[fIdx2.buy_price]) : null, t: t, f: fIdx2 });
+    if (bd) evs.push({ date: String(bd), kind: "buy", price: t[fIdx2.buy_price] != null ? Number(t[fIdx2.buy_price]) : null, t: t, f: fIdx2, src: src });
     const sd = t[fIdx2.sell_date];
     if (sd) {
       const isF = !!t._gihForced;
@@ -12129,20 +12134,21 @@ function _collectEtfPinEvents(code, fields, trades, eliminated) {
       let sp = t[fIdx2.sell_price];
       if (sp === undefined || sp === null) sp = null;
       else sp = Number(sp);
-      evs.push({ date: String(sd), kind: isF ? "force" : "sell", price: sp, navMissing, t: t, f: fIdx2 });
+      evs.push({ date: String(sd), kind: isF ? "force" : "sell", price: sp, navMissing, t: t, f: fIdx2, src: src });
     }
   };
-  (trades || []).forEach((t) => push(t));
-  (eliminated || []).forEach((t) => push(t));
+  (trades || []).forEach((t) => push(t, "formal"));
+  (eliminated || []).forEach((t) => push(t, "elim"));
   return evs;
 }
 
-// 打开 ETF 走势+pin 小窗(第6参 srcRow=触发点交易行, 需求3: 关闭返回后高亮定位该行)
-async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, srcRow) {
+// 打开 ETF 走势+pin 小窗(第6参 srcRow=触发点交易行, 需求3: 关闭返回后高亮定位该行; 第7参 srcKey={ib,bd} 触发行行标识,
+//   进入后自动高亮该行对应配对 pin)
+async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, srcRow, srcKey) {
   if (!code) return;
   const reqSeq = ++_labEtfTrendPinReqSeq;
-  const events = _collectEtfPinEvents(code, fields, trades, eliminated);
-  if (!events.length) {
+  const allEvents = _collectEtfPinEvents(code, fields, trades, eliminated);
+  if (!allEvents.length) {
     // 无该 ETF 交易事件(理论上不会发生: 点击来源即该 ETF 行) → 兜底不弹
     return;
   }
@@ -12159,6 +12165,10 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
     `<div class="lab-sigkelly-modal lab-etf-pin-modal">` +
       `<div class="lab-sigkelly-modal-head">` +
         `<div class="lab-sigkelly-modal-title">📈 ${code} ${_esc(name)} · ETF 走势与买卖/强平点</div>` +
+        `<div class="lab-etf-pin-zone-ctl" title="正式区=未被淘汰的成交 · 淘汰区=被降亏过滤/仓位控制淘汰的成交">` +
+          `<button type="button" class="lab-etf-pin-zone-btn is-active" data-zone="formal">正式区</button>` +
+          `<button type="button" class="lab-etf-pin-zone-btn" data-zone="elim">淘汰区</button>` +
+        `</div>` +
         `<button type="button" class="lab-sigkelly-modal-close" title="关闭">✕</button>` +
       `</div>` +
       `<div class="lab-etf-pin-body" id="lab-etf-pin-body-loading"><div class="lab-sigkelly-modal-loading">⏳ 加载走势…</div></div>` +
@@ -12194,36 +12204,62 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
   }
   const ohlc = hist.ohlc; // [[YYYYMMDD, o, h, l, c], ...]
 
-  // pin 日期集合(用于过滤 ohlc 视图范围 + 定位坐标)
-  const evDates = events.map((e) => e.date).sort();
-  const dMin = evDates[0], dMax = evDates[evDates.length - 1];
+  // 需求2(2026-08-30): 弹窗顶部固定 info 条(不跟随鼠标、不遮挡走势/pin); 图表内容区每次切区整块重渲染
+  body.innerHTML = "";
+  const infoBar = document.createElement("div");
+  infoBar.className = "lab-etf-pin-infobar";
+  body.appendChild(infoBar);
+  const chartArea = document.createElement("div");
+  chartArea.className = "lab-etf-pin-chart";
+  body.appendChild(chartArea);
+  let _activeZone = "formal";
 
-  // 聚焦视图: 只显示 [dMin 前 ~60 交易日, dMax 后 ~30 交易日] 窗口
-  // (全史几千点对 pin 定位无增益, 窗口化让买卖/强平点更可读)
-  let i0 = 0, i1 = ohlc.length - 1;
-  for (let i = 0; i < ohlc.length; i++) { if (String(ohlc[i][0]) >= dMin) { i0 = Math.max(0, i - 60); break; } }
-  for (let i = ohlc.length - 1; i >= 0; i--) { if (String(ohlc[i][0]) <= dMax) { i1 = Math.min(ohlc.length - 1, i + 30); break; } }
-  if (i1 - i0 < 30) { // 窗口过窄(短期上市)则扩到全史
-    i0 = 0; i1 = ohlc.length - 1;
-  }
-  const ohlcView = ohlc.slice(i0, i1 + 1);
-  // date → view index
-  const dateIdx = {};
-  ohlcView.forEach((r, i) => { dateIdx[String(r[0])] = i; });
+  // 按活跃区整块重渲染(需求1 切换按钮: 事件源过滤→重算窗口→重画 pins/连线/顶部 info 条)
+  const renderZone = (zone) => {
+    const events = allEvents.filter((e) => e.src === zone);
+    const zoneLabel = zone === "formal" ? "正式区" : "淘汰区";
+    overlay.querySelectorAll(".lab-etf-pin-zone-btn").forEach((b) => b.classList.toggle("is-active", b.dataset.zone === zone));
+    // 顶部 info 条状态(需求2): 无 hover=默认提示(分区+配对计数); hover=配对详情(不遮挡 pin)
+    const _setInfoDefault = () => {
+      const pairN = pairs ? pairs.filter((p) => p.sell).length : 0;
+      const msg = events.length === 0
+        ? "该区无此 ETF 交易"
+        : `📌 ${zoneLabel} · ${events.length} 个交易事件 · ${pairN} 对配对 — 鼠标悬停买卖点查看配对详情`;
+      infoBar.classList.remove("is-detail");
+      infoBar.innerHTML = `<span class="lab-etf-pin-infobar-msg">${msg}</span>`;
+    };
+    const _setInfoDetail = (html) => { infoBar.classList.add("is-detail"); infoBar.innerHTML = html; };
 
-  // 渲染走势(复用 app.js 轻量组件) + hover 绑定
-  let _etfPinZoomCtl = null; // 缩放控制接口(＋/－/重置按钮用)
-  body.innerHTML = '<div class="lab-etf-pin-wrap">' + _etfTrendLiteHTML(ohlcView) + '</div>';
-  const svg = body.querySelector(".etf-trend-lite");
+    // pin 日期集合(用于过滤 ohlc 视图范围 + 定位坐标; 空区时自动退化为全史视图)
+    const evDates = events.map((e) => e.date).sort();
+    const dMin = evDates[0], dMax = evDates[evDates.length - 1];
+
+    // 聚焦视图: 只显示 [dMin 前 ~60 交易日, dMax 后 ~30 交易日] 窗口
+    // (全史几千点对 pin 定位无增益, 窗口化让买卖/强平点更可读)
+    let i0 = 0, i1 = ohlc.length - 1;
+    for (let i = 0; i < ohlc.length; i++) { if (String(ohlc[i][0]) >= dMin) { i0 = Math.max(0, i - 60); break; } }
+    for (let i = ohlc.length - 1; i >= 0; i--) { if (String(ohlc[i][0]) <= dMax) { i1 = Math.min(ohlc.length - 1, i + 30); break; } }
+    if (i1 - i0 < 30) { // 窗口过窄(短期上市)则扩到全史
+      i0 = 0; i1 = ohlc.length - 1;
+    }
+    const ohlcView = ohlc.slice(i0, i1 + 1);
+    // date → view index
+    const dateIdx = {};
+    ohlcView.forEach((r, i) => { dateIdx[String(r[0])] = i; });
+
+    // 渲染走势(复用 app.js 轻量组件) + hover 绑定
+    let _etfPinZoomCtl = null; // 缩放控制接口(＋/－/重置按钮用)
+    chartArea.innerHTML = '<div class="lab-etf-pin-wrap">' + _etfTrendLiteHTML(ohlcView) + '</div>';
+    const svg = chartArea.querySelector(".etf-trend-lite");
   // 缩放/平移(2026-08-30 新增交互): app.js 共用内核 opts.panZoom —
   // 滚轮/触控板 pinch/触摸 pinch 缩放 + scale>1 拖拽平移; 初始=全览=scale=1=旧行为逐位一致;
   // 返回 ctl{zoomIn/zoomOut/reset} 供弹窗 ＋/－/重置按钮
   if (svg) _etfPinZoomCtl = _etfTrendLiteBind(svg, ohlcView, { panZoom: true });
-  const wrap = body.querySelector(".etf-trend-wrap");
-  if (!wrap || !svg) {
-    body.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 走势渲染失败</div></div>`;
-    return;
-  }
+  const wrap = chartArea.querySelector(".etf-trend-wrap");
+    if (!wrap || !svg) {
+      chartArea.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 走势渲染失败</div></div>`;
+      return;
+    }
 
   // pin 坐标: 复用 _etfTrendGeom 且读"当前缩放视图几何"(缩放内核每次缩放后经
   //   svg._etfTrendPan.get() 暴露最新窗口几何; scale=1 时 i0=0 + 全窗口几何 = 与旧行为逐位一致),
@@ -12267,16 +12303,13 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
   const pairOf = new Map();   // 事件 → 所属配对
   pairs.forEach((p) => { pairOf.set(p.buy, p); if (p.sell) pairOf.set(p.sell, p); });
 
-  // 连线层 + popover: 挂 wrap 内绝对定位(与 pin 同一坐标空间, 缩放/重排时随 _placePins 同步)
+  // 连线层: 挂 wrap 内绝对定位(与 pin 同一坐标空间, 缩放/重排时随 _placePins 同步)。
+  // 需求2(2026-08-30): popover 不再挂 wrap 跟随锚点——配对详情固定显示在弹窗顶部 info 条
+  // (.lab-etf-pin-infobar), 不遮挡走势与 pin。
   const lineLayer = document.createElement("div");
   lineLayer.className = "lab-etf-pin-lines";
   wrap.appendChild(lineLayer);
-  const popEl = document.createElement("div");
-  popEl.className = "lab-etf-pin-pop";
-  popEl.style.display = "none";
-  wrap.appendChild(popEl);
-  let _activePair = null; // 当前聚焦配对(缩放后 popover 跟随重排)
-  let _anchorIx = null;   // popover 锚点 pin 的视图索引(缩放后按它重定位)
+  let _activePair = null; // 当前聚焦配对(仅用于 info 条内容/高亮态)
 
   // 连线颜色: 按该笔 return_pct 正红负绿(与表格同色语义; 缺 return_pct 按买入侧行判)
   const _lineColorClass = (p) => {
@@ -12370,28 +12403,10 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
     html += `<div class="lab-etf-pin-pop-row">费率消耗:${_feeTxt(bt, bf)}</div>`;
     return html;
   };
-  const _positionPop = (ix) => {
-    const pt = svgPointToWrap(ix);
-    if (!pt) { popEl.style.display = "none"; return; }
-    // 2026-08-30 popover 越界翻转: 默认右下展开, 测量真实尺寸后若越过 wrap 右/下边界
-    // 则左/上翻转 + 兜底钳制, 保证 popover 永远不出 wrap, 不撑出弹窗底部横向滚动条/页面跳动。
-    popEl.style.display = "block";
-    const pw = popEl.offsetWidth, ph = popEl.offsetHeight;
-    const _wr = wrap.getBoundingClientRect();
-    const _ww = _wr.width, _wh = _wr.height;
-    const _M = 4;
-    let _lx = pt.x + 12, _ty = pt.y - 96;            // 默认: pin 右侧/上方
-    if (_lx + pw > _ww) _lx = pt.x - pw;             // 右越界 → 左翻转(pin 左侧对齐)
-    if (_ty + ph > _wh) _ty = pt.y - ph;             // 下越界 → 上翻转
-    _lx = Math.max(_M, Math.min(_lx, _ww - pw - _M)); // 左/右兜底钳制
-    _ty = Math.max(_M, Math.min(_ty, _wh - ph - _M)); // 上/下兜底钳制
-    popEl.style.left = _lx.toFixed(1) + "px";
-    popEl.style.top = _ty.toFixed(1) + "px";
-  };
-  // hover 聚焦: 高亮该配对整条连线+两端 pin, 其余淡化; 持仓中单 buy 只弹 popover 不连线
-  const _focusPair = (p, pobj, ix) => {
+  // 需求2(2026-08-30): hover 聚焦详情固定显示在顶部 info 条(.lab-etf-pin-infobar),
+  // 不再跟随锚点定位、不遮挡走势/pin; 持仓中单 buy 只显示 info 条、不连线。
+  const _focusPair = (p, pobj) => {
     _activePair = p;
-    _anchorIx = ix;
     if (p) {
       pins.forEach((pp) => {
         const cur = pairOf.get(pp.e);
@@ -12403,7 +12418,7 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
         if (lp.pid === p.pid) { lp.line.classList.add("lab-etf-pin-line-active"); lp.line.classList.remove("lab-etf-pin-line-dim"); }
         else { lp.line.classList.add("lab-etf-pin-line-dim"); lp.line.classList.remove("lab-etf-pin-line-active"); }
       });
-      popEl.innerHTML = _popContent(p);
+      _setInfoDetail(_popContent(p));
     } else {
       // 持仓中: 只亮悬停 buy pin, 其余全淡化
       pins.forEach((pp) => {
@@ -12411,17 +12426,14 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
         else { pp.el.classList.add("lab-etf-pin-dim"); pp.el.classList.remove("lab-etf-pin-active"); }
       });
       pairs.forEach((lp) => { if (lp.line) lp.line.classList.add("lab-etf-pin-line-dim"); });
-      popEl.innerHTML = _popContent({ buy: pobj.e });
+      _setInfoDetail(_popContent({ buy: pobj.e }));
     }
-    popEl.style.display = "block";
-    _positionPop(ix);
   };
   const _focusOff = () => {
     _activePair = null;
-    _anchorIx = null;
     pins.forEach((pp) => { pp.el.classList.remove("lab-etf-pin-active", "lab-etf-pin-dim"); });
     pairs.forEach((lp) => { if (lp.line) lp.line.classList.remove("lab-etf-pin-line-active", "lab-etf-pin-line-dim"); });
-    popEl.style.display = "none";
+    _setInfoDefault();
   };
 
   // pin 重排(缩放/平移后由内核 etf-trend-panzoom 事件驱动; 初始也调一次铺位)
@@ -12435,7 +12447,7 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
       p.el.style.top = (pt.y - 4).toFixed(1) + "px";
     });
     pairs.forEach((p) => _arrangeLine(p));      // 连线随缩放重排
-    if (_activePair && _anchorIx != null) _positionPop(_anchorIx); // popover 随缩放重定位
+    // 需求2(2026-08-30): popover 已废弃跟随定位→固定顶部 info 条; 缩放/重排仅重排 pin+连线, 不重定位 popover
   }
   _placePins();
   if (svg.addEventListener) svg.addEventListener("etf-trend-panzoom", _placePins);
@@ -12458,12 +12470,63 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
   wrap.appendChild(ctlEl);
 
   // 附加说明(视图窗口 / 遗漏日期)
-  let note = `${events.length} 个交易事件 · 视图 ${String(ohlcView[0][0]).slice(0, 4)}-${String(ohlcView[ohlcView.length - 1][0]).slice(0, 4)} · ${ohlcView.length} 个交易日`;
-  if (omitted > 0) note += ` · ${omitted} 个事件日期不在走势视图内已跳过`;
-  const noteEl = document.createElement("div");
-  noteEl.className = "lab-etf-pin-note";
-  noteEl.textContent = note;
-  body.insertBefore(noteEl, body.firstChild);
+    let note = `${events.length} 个交易事件 · 视图 ${String(ohlcView[0][0]).slice(0, 4)}-${String(ohlcView[ohlcView.length - 1][0]).slice(0, 4)} · ${ohlcView.length} 个交易日`;
+    if (omitted > 0) note += ` · ${omitted} 个事件日期不在走势视图内已跳过`;
+    const noteEl = document.createElement("div");
+    noteEl.className = "lab-etf-pin-note";
+    noteEl.textContent = note;
+    chartArea.appendChild(noteEl);
+
+    // 顶部 info 条默认态(需求2): 空区=「该区无此 ETF 交易」, 否则=默认提示(分区+配对计数)
+    _setInfoDefault();
+
+    // 需求3(2026-08-30): 从某行交易点入弹窗 → 该行对应配对 pin 高亮展示(初始保持, 直至用户 hover 其他 pin 转移)。
+    //   srcKey={ib,bd} 触发行行标识(index_id+buy_date); 在 events 找 buy 且 t 行 index_id/buy_date 相等
+    //   → 其配对(pinB+pinS+连线)执行 _focusPair 高亮; 持仓中单 buy 也高亮该 pin。
+    //   若 srcKey 行的交易不在当前激活区(如切到淘汰区而它是正式区交易), 则匹配不到 → console 记一句, 不抛错。
+    if (srcKey) {
+      let tgtBuy = null;
+      for (const e of events) {
+        if (e.kind !== "buy" || e.t == null) continue;
+        const _ib = String(srcKey.ib || "");
+        const _bd = String(srcKey.bd || "");
+        const tIb = (e.f.index_id != null) ? String(e.t[e.f.index_id] ?? "") : "";
+        const tBd = (e.f.buy_date != null) ? String(e.t[e.f.buy_date] ?? "") : "";
+        if ((!srcKey.ib || tIb === _ib) && (!srcKey.bd || tBd === _bd)) { tgtBuy = e; break; }
+      }
+      if (tgtBuy) {
+        const _tp = pairOf.get(tgtBuy) || null;
+        const _tpobj = (_tp && _tp.pinB) ? _tp.pinB : (pins.find((pp) => pp.e === tgtBuy) || null);
+        _focusPair(_tp, _tpobj);
+        // 高亮保持: _focusPair 已给该配对 pin+连线加 active, 其余 dim; 用户 hover 其他 pin 时由
+        //   hotzone 的 _focusPair 切换、mouseleave 由 _focusOff 恢复默认(需求3 高亮自然转移)。
+      } else {
+        console.warn("[etf-pin] srcKey 行匹配不到当前区 buy 事件 srcKey=" + JSON.stringify(srcKey) + " zone=" + zone);
+      }
+    }
+  };
+
+  // 需求1(2026-08-30): 正式区/淘汰区切换按钮(标题栏), 默认正式区; 切区=整块重渲染
+  //   renderZone 末尾已在内部执行 srcKey 配对高亮(需求3) — 首次正式区高亮, 切区后新区内有该行则仍高亮。
+  const zoneBtns = overlay.querySelectorAll(".lab-etf-pin-zone-btn");
+  if (zoneBtns.length) {
+    const _btnSetActive = (bx) => {
+      zoneBtns.forEach((b) => { b.classList.toggle("is-active", b === bx); });
+    };
+    zoneBtns.forEach((b) => {
+      b.onclick = (ev) => {
+        ev.stopPropagation();
+        const z = b.getAttribute("data-zone");
+        if (z === _activeZone) return;
+        _activeZone = z;
+        _btnSetActive(b);
+        renderZone(z);
+      };
+    });
+  }
+
+  // ---- 首渲染: 默认正式区 ----
+  renderZone("formal");
 }
 
 // 竞态序号: 快速连点/关开防旧响应覆盖

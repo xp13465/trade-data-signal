@@ -2282,3 +2282,71 @@
 }
 .lab-etf-pin-pop-row { white-space: nowrap; }
 .lab-etf-pin-pop-fee { color: var(--text-4); font-size: 10px; margin-left: 4px; font-weight: 400; }
+
+/* 2026-08-30 需求1: 正式区/淘汰区切换按钮(弹窗标题栏, 复用 zoom 按钮风格) */
+.lab-etf-pin-zone-ctl {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto; /* 标题与关闭按钮之间右推 */
+  margin-right: 10px;
+  flex: none;
+}
+.lab-etf-pin-zone-btn {
+  min-width: 56px;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 1;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg-card);
+  color: var(--text-2);
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity 0.15s;
+}
+.lab-etf-pin-zone-btn:hover { opacity: 1; background: var(--bg-hover, rgba(128, 128, 128, 0.12)); }
+.lab-etf-pin-zone-btn.is-active {
+  opacity: 1;
+  border-color: var(--primary, #4da3ff);
+  color: var(--primary, #4da3ff);
+  background: rgba(77, 163, 255, 0.14);
+  box-shadow: 0 0 0 1px var(--primary, #4da3ff) inset;
+}
+
+/* 2026-08-30 需求2: popover 固定到走势图上方顶部 info 条, 不跟随鼠标、不遮挡 pin */
+.lab-etf-pin-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.lab-etf-pin-infobar {
+  flex: none;
+  min-height: 56px;
+  max-height: 64px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-card);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  overflow: auto;
+}
+.lab-etf-pin-infobar.is-detail { flex-direction: column; align-items: stretch; justify-content: center; gap: 2px; }
+.lab-etf-pin-infobar .lab-etf-pin-pop-head { margin-bottom: 2px; padding-bottom: 2px; border-bottom: none; }
+.lab-etf-pin-infobar .lab-etf-pin-pop { min-width: 0; max-width: none; }
+.lab-etf-pin-infobar-msg {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.lab-etf-pin-chart {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+/* 弹窗高度上调: 顶部 info 条 + 走势图 + pin 都要放下, 不压缩不遮盖 */
+.lab-etf-pin-modal {
+  max-height: 94vh;
+}
