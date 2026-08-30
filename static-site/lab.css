@@ -1835,6 +1835,11 @@
 .lab-sigkelly-opelim-row { opacity: 0.85; } /* 覆盖 .eliminated-row 的 0.55, 淘汰行内容(含角标)保持可读 */
 .lab-sigkelly-opelim-row td { text-decoration: line-through; color: var(--text-2); } /* text-2 中间灰: 仍表"旧数据"但文字可辨 */
 .lab-sigkelly-exec-badge { display: block; margin-top: 2px; margin-left: 0; padding: 0 5px; border-radius: 4px; font-size: 11px; line-height: 1.7; color: #fff; font-weight: 600; background: #c62828; box-shadow: 0 0 0 1px rgba(255,255,255,0.35) inset; white-space: nowrap; } /* 2026-08-14 #firstcol: display:block 使淘汰角标在首列独立一行 */
+/* 2026-08-30: P3d 档(先卖≤3天年轻仓 G/I)红色高亮警示角标——结果稳定性存疑+实操性差, 用户拍板 H 主推配套(自验项: 红字宽泛/深色主题仍红) */
+.lab-sigkelly-p3d-warn-badge { display: block; margin-top: 2px; margin-left: 0; padding: 0 5px; border-radius: 4px; font-size: 11px; line-height: 1.7; color: #fff; font-weight: 700; background: #b71c1c; box-shadow: 0 0 0 1px rgba(255,255,255,0.35) inset; white-space: nowrap; }
+[data-theme="dark"] .lab-sigkelly-p3d-warn-badge, [data-theme="redgold"] .lab-sigkelly-p3d-warn-badge { background: #ff7875; color: #1f1f1f; box-shadow: 0 0 0 1px rgba(0,0,0,0.3) inset; }
+.lab-sigkelly-advice-warn-red { color: #d4380d; font-weight: 700; }
+[data-theme="dark"] .lab-sigkelly-advice-warn-red, [data-theme="redgold"] .lab-sigkelly-advice-warn-red { color: #ff7875; }
 .lab-sigkelly-opelim-modal-note { color: #fa541c; font-weight: 600; }
 /* 2026-08-24 bug修复(全信号卡片交易弹窗主表被压没): elimwrap 原先无 max-height, 弹窗 flex column 下
    淘汰表按内容撑开(50行/页可达数千px), 把 flex:1+overflow:auto 的主表容器压成 0 高, 超出部分被
