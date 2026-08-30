@@ -7879,15 +7879,78 @@ function _kellyGihStratExplain(modeKey) {
 // ---- 下面为策略 fifo20w 的具体仿真内核(JS 端口 of /tmp/cap_sim.py simulate_capped method='B' + realize) ----
 // 已按报告 §7.2(K1 版)自验逐位对齐: G/H/I × b0/b1 六格 净利/收益率/峰值全对齐, 见 /tmp/gih49/fifo_test.js
 const AIHLINE_CAL_RATIO = 1.498; // 日历日/交易日中位比(与 python cap_sim 一致)
-// 真实强平盈亏不可知(b0 0利 保守 / b1 按持有时间线性 乐观), 真实值在区间, 不把 b1 当承诺
+// 2026-08-30 真实权威数(用户铁律 b0/b1 已废除): 强平日按 accum_nav_map 真实净值重算(real 通路), 不再依赖 b0/b1 区间估算; nav 缺失=硬报错标「缺价」, 无 b1 兜底
 function _kellyAihlineCalSpan(bd, sd) {
   if (!bd || !sd || sd < bd) return 0;
   var d1 = new Date(+bd.slice(0, 4), +bd.slice(4, 6) - 1, +bd.slice(6, 8));
   var d2 = new Date(+sd.slice(0, 4), +sd.slice(4, 6) - 1, +sd.slice(6, 8));
   return Math.max(Math.round((d2 - d1) / 86400000), 0);
 }
-// 强平笔利润实现(pr=profit, rp=return_pct, amt=amount, closeDate=强制平仓日)
-function _kellyAihlineRealize(pr, rp, bd, sd, hd, amt, closeDate, model) {
+// 真实净值映射 {etf_code:{YYYYMMDD:accum_nav}}, 懒加载单例(R2 data/ + ./data/ fallback, 与阶段1 kelly_ghi_real_price_rebase.mjs 同源)
+var _kellyRealNav = null;
+var _kellyRealNavPromise = null;
+function _kellyRealNavEnsure() {
+  if (_kellyRealNav) return Promise.resolve(true);
+  if (_kellyRealNavPromise) return _kellyRealNavPromise;
+  var urls = ["https://ss.fx8.store/r2/data/accum_nav_map.json", "./data/accum_nav_map.json"];
+  _kellyRealNavPromise = fetchJSON(urls[0], 120000)
+    .catch(function () { return fetchJSON(urls[1], 120000); })
+    .then(function (d) {
+      _kellyRealNav = (d && typeof d === "object") ? d : null;
+      _kellyRealNavPromise = null;
+      return true;
+    })
+    .catch(function () { _kellyRealNavPromise = null; return false; });
+  return _kellyRealNavPromise;
+}
+// real 强平通路: 强平日 dt 按 accum_nav_map 真实净值重算(与阶段1 __realizeReal L296-320 逐字同口径, FEE_MAIN)
+// 买入=buy_price/(1+原滑点) 还原 close → 加回测费重算持仓; 卖出=当日真实 nav*(1-滑点)-费; profit=net-amt
+function _kellyAihlineRealizeReal(sel, dt) {
+  var nav = null;
+  if (_kellyRealNav && sel && sel.etf_code) {
+    var m = _kellyRealNav[sel.etf_code];
+    if (m) nav = m[dt];
+  }
+  if (!nav || nav <= 0) {
+    // 2026-08-30 用户铁律(b0/b1 已废除): 真实价缺失=数据异常, 硬报错+当日监控——不许 b1 估算兜底, pr=null 标记 nav_missing
+    // 渲染层: 该行盈亏/收益率显示「— 缺价」红字, 不计入收益统计合计; 窗口顶部红字横幅报 X 笔
+    try {
+      window.__gih_missing_px_ = (typeof window.__gih_missing_px_ === "number" ? window.__gih_missing_px_ : 0) + 1;
+      console.error("[__gih_missing_px_] 强平日真实价缺失(数据异常): etf_code=" + (sel && sel.etf_code) + " buy_date=" + (sel && sel.buy_date) + " force_date=" + dt);
+    } catch (e) { /* 监控计量失败不影响业务 */ }
+    return { pr: null, rp: null, hd: Math.round(_kellyAihlineDaySpan(sel.buy_date, dt)), flag: "nav_missing", sell_price: 0, closed: null };
+  }
+  var bp = sel.buy_price || 0;
+  if (bp <= 0) return { pr: 0, rp: 0, hd: Math.round(_kellyAihlineDaySpan(sel.buy_date, dt)), flag: "no_buy_price", sell_price: 0 };
+  var closeBuy = bp / (1 + KELLY_ORIG_SLIPPAGE);
+  var amt = sel.amount || 0;
+  var c = 0.00005, s = 0.001, minC = 0.1;              // FEE_MAIN (阶段1/回测主口径)
+  var sh = _kellyIsShEtf(sel.etf_code) ? 0.00001 : 0;
+  var stamp = 0;
+  var buyPriceNew = closeBuy * (1 + s);
+  if (buyPriceNew <= 0) return { pr: 0, rp: 0, hd: Math.round(_kellyAihlineDaySpan(sel.buy_date, dt)), flag: "buy_zero", sell_price: 0 };
+  var sharesNew = amt / (buyPriceNew * (1 + c + sh));
+  var grossNew = sharesNew * buyPriceNew;
+  var commBuy = grossNew * c;
+  if (commBuy < minC) {
+    sharesNew = (amt - minC) / (buyPriceNew * (1 + sh));
+    grossNew = sharesNew * buyPriceNew;
+    commBuy = minC;
+  }
+  var sellPriceNew = nav * (1 - s);
+  var sellAmountNew = sharesNew * sellPriceNew;
+  var commSell = Math.max(sellAmountNew * c, minC);
+  var transferFeeSell = sellAmountNew * sh;
+  var stampDuty = sellAmountNew * stamp;
+  var netNew = sellAmountNew - commSell - transferFeeSell - stampDuty;
+  var profitNew = netNew - amt;
+  var returnPctNew = profitNew / amt * 100;
+  var hdReal = Math.round(_kellyAihlineDaySpan(sel.buy_date, dt));
+  return { pr: Math.round(profitNew * 10000) / 10000, rp: Math.round(returnPctNew * 10000) / 10000, hd: hdReal, sell_price: sellPriceNew };
+}
+// 强平笔利润实现(pr=profit, rp=return_pct, amt=amount, closeDate=强制平仓日, model=b0/b1/real, tr=需含 etf_code/buy_price/amount/buy_date/profit 供 real 通路)
+function _kellyAihlineRealize(pr, rp, bd, sd, hd, amt, closeDate, model, tr) {
+  if (model === "real") return _kellyAihlineRealizeReal(tr, closeDate);
   var ns = sd ? _kellyAihlineCalSpan(bd, sd) : (hd ? hd * AIHLINE_CAL_RATIO : 0);
   var cs = closeDate ? _kellyAihlineCalSpan(bd, closeDate) : ns;
   if (ns <= 0 || cs >= ns) return { pr: pr, rp: rp, hd: hd };
@@ -7898,9 +7961,10 @@ function _kellyAihlineRealize(pr, rp, bd, sd, hd, amt, closeDate, model) {
 }
 // 策略 fifo20w 仿真: 传入已 K 过滤/费率重算的 trade 数组 {profit,return_pct,buy_date,sell_date,hold_days,amount},
 // 返回 {kept(强平后成交数组), peak(仿真峰值持仓)}。model='b0'保守 / 'b1'乐观。
+// 2026-08-30 弹窗治本: _src 透传(纯增量, 弹窗传原始展示行供 kept 映射回; 卡面链不传则 zero 行为影响 §22)
 function _kellyAihlineFifoCap(trades, cap, model) {
   var trs = trades.map(function (t) {
-    return { profit: t.profit, return_pct: t.return_pct, buy_date: t.buy_date, sell_date: t.sell_date || null, hold_days: t.hold_days, amount: t.amount || 0, closed: null, fee_cost: t.fee_cost || 0 };
+    return { profit: t.profit, return_pct: t.return_pct, buy_date: t.buy_date, sell_date: t.sell_date || null, hold_days: t.hold_days, amount: t.amount || 0, closed: null, fee_cost: t.fee_cost || 0, etf_code: t.etf_code || "", buy_price: t.buy_price || 0, sell_price: t.sell_price || 0, _src: t._src };
   });
   var buysByDate = {}, datesSet = {}, allDates = [];
   for (var i = 0; i < trs.length; i++) {
@@ -7920,7 +7984,7 @@ function _kellyAihlineFifoCap(trades, cap, model) {
       if (t.sell_date === dt && t.closed === null) {
         t.closed = "natural";
         cur -= t.amount;
-        kept.push({ profit: t.profit, return_pct: t.return_pct, buy_date: t.buy_date, sell_date: t.sell_date, hold_days: t.hold_days, amount: t.amount, fee_cost: t.fee_cost });
+        kept.push({ profit: t.profit, return_pct: t.return_pct, buy_date: t.buy_date, sell_date: t.sell_date, hold_days: t.hold_days, amount: t.amount, fee_cost: t.fee_cost, etf_code: t.etf_code, buy_price: t.buy_price, sell_price: t.sell_price, _src: t._src, forced: false });
       } else newOpen.push(t);
     }
     openTrs = newOpen;
@@ -7933,8 +7997,8 @@ function _kellyAihlineFifoCap(trades, cap, model) {
         // 手段B: FIFO 强制平最久持仓, 回cap内再买入
         while (needed > 1e-6 && openTrs.length) {
           var tr = openTrs.shift();
-          var r = _kellyAihlineRealize(tr.profit, tr.return_pct, tr.buy_date, tr.sell_date, tr.hold_days, tr.amount, dt, model);
-          kept.push({ profit: r.pr, return_pct: r.rp, buy_date: tr.buy_date, sell_date: dt, hold_days: r.hd, amount: tr.amount, fee_cost: tr.fee_cost });
+          var r = _kellyAihlineRealize(tr.profit, tr.return_pct, tr.buy_date, tr.sell_date, tr.hold_days, tr.amount, dt, model, tr);
+          kept.push({ profit: r.pr, return_pct: r.rp, buy_date: tr.buy_date, sell_date: dt, hold_days: r.hd, amount: tr.amount, fee_cost: tr.fee_cost, etf_code: tr.etf_code, buy_price: tr.buy_price, sell_price: r.sell_price || tr.sell_price || 0, _src: tr._src, forced: true, flag: r.flag || "" });
           cur -= tr.amount;
           needed = cur + dayTotal - cap;
         }
@@ -7946,7 +8010,7 @@ function _kellyAihlineFifoCap(trades, cap, model) {
   }
   for (var z = 0; z < openTrs.length; z++) {
     var tz = openTrs[z];
-    if (tz.closed === null) kept.push({ profit: tz.profit, return_pct: tz.return_pct, buy_date: tz.buy_date, sell_date: tz.sell_date || "", hold_days: tz.hold_days, amount: tz.amount, fee_cost: tz.fee_cost });
+    if (tz.closed === null) kept.push({ profit: tz.profit, return_pct: tz.return_pct, buy_date: tz.buy_date, sell_date: tz.sell_date || "", hold_days: tz.hold_days, amount: tz.amount, fee_cost: tz.fee_cost, etf_code: tz.etf_code, buy_price: tz.buy_price, sell_price: tz.sell_price, _src: tz._src, forced: false });
   }
   return { kept: kept, peak: Math.round(peak * 10000) / 10000 };
 }
@@ -7962,7 +8026,7 @@ function _kellyAihlineDaySpan(bd, sd) {
 }
 function _kellyAihlineP3dCap(trades, cap, model) {
   var trs = trades.map(function (t) {
-    return { profit: t.profit, return_pct: t.return_pct, buy_date: t.buy_date, sell_date: t.sell_date || null, hold_days: t.hold_days, amount: t.amount || 0, closed: null, fee_cost: t.fee_cost || 0 };
+    return { profit: t.profit, return_pct: t.return_pct, buy_date: t.buy_date, sell_date: t.sell_date || null, hold_days: t.hold_days, amount: t.amount || 0, closed: null, fee_cost: t.fee_cost || 0, etf_code: t.etf_code || "", buy_price: t.buy_price || 0, sell_price: t.sell_price || 0, _src: t._src };
   });
   var buysByDate = {}, datesSet = {}, allDates = [];
   for (var i = 0; i < trs.length; i++) {
@@ -7982,7 +8046,7 @@ function _kellyAihlineP3dCap(trades, cap, model) {
       if (t.sell_date === dt && t.closed === null) {
         t.closed = "natural";
         cur -= t.amount;
-        kept.push({ profit: t.profit, return_pct: t.return_pct, buy_date: t.buy_date, sell_date: t.sell_date, hold_days: t.hold_days, amount: t.amount, fee_cost: t.fee_cost });
+        kept.push({ profit: t.profit, return_pct: t.return_pct, buy_date: t.buy_date, sell_date: t.sell_date, hold_days: t.hold_days, amount: t.amount, fee_cost: t.fee_cost, etf_code: t.etf_code, buy_price: t.buy_price, sell_price: t.sell_price, _src: t._src, forced: false });
       } else newOpen.push(t);
     }
     openTrs = newOpen;
@@ -8012,8 +8076,8 @@ function _kellyAihlineP3dCap(trades, cap, model) {
               if (!sel || ot2.buy_date < sel.buy_date) sel = ot2;
             }
           }
-          var r = _kellyAihlineRealize(sel.profit, sel.return_pct, sel.buy_date, sel.sell_date, sel.hold_days, sel.amount, dt, model);
-          kept.push({ profit: r.pr, return_pct: r.rp, buy_date: sel.buy_date, sell_date: dt, hold_days: r.hd, amount: sel.amount, fee_cost: sel.fee_cost });
+          var r = _kellyAihlineRealize(sel.profit, sel.return_pct, sel.buy_date, sel.sell_date, sel.hold_days, sel.amount, dt, model, sel);
+          kept.push({ profit: r.pr, return_pct: r.rp, buy_date: sel.buy_date, sell_date: dt, hold_days: r.hd, amount: sel.amount, fee_cost: sel.fee_cost, etf_code: sel.etf_code, buy_price: sel.buy_price, sell_price: r.sell_price || sel.sell_price || 0, _src: sel._src, forced: true, flag: r.flag || "" });
           cur -= sel.amount;
           sel.closed = "p3d";
           // 从 openTrs 移除该笔(按索引)
@@ -8027,7 +8091,7 @@ function _kellyAihlineP3dCap(trades, cap, model) {
   }
   for (var z = 0; z < openTrs.length; z++) {
     var tz = openTrs[z];
-    if (tz.closed === null) kept.push({ profit: tz.profit, return_pct: tz.return_pct, buy_date: tz.buy_date, sell_date: tz.sell_date || "", hold_days: tz.hold_days, amount: tz.amount, fee_cost: tz.fee_cost });
+    if (tz.closed === null) kept.push({ profit: tz.profit, return_pct: tz.return_pct, buy_date: tz.buy_date, sell_date: tz.sell_date || "", hold_days: tz.hold_days, amount: tz.amount, fee_cost: tz.fee_cost, etf_code: tz.etf_code, buy_price: tz.buy_price, sell_price: tz.sell_price, _src: tz._src, forced: false });
   }
   return { kept: kept, peak: Math.round(peak * 10000) / 10000 };
 }
@@ -8035,7 +8099,7 @@ function _kellyAihlineP3dCap(trades, cap, model) {
 // 自然卖出腾位再买。无强平 → 强平日盈亏不存在的场景, b0=b1 同值。数据定案 docs/kelly/position/trade-methods-principle.md(H@5万)。
 function _kellyAihlineHoldCap(trades, cap) {
   var trs = trades.map(function (t) {
-    return { profit: t.profit, return_pct: t.return_pct, buy_date: t.buy_date, sell_date: t.sell_date || null, hold_days: t.hold_days, amount: t.amount || 0, closed: null, fee_cost: t.fee_cost || 0 };
+    return { profit: t.profit, return_pct: t.return_pct, buy_date: t.buy_date, sell_date: t.sell_date || null, hold_days: t.hold_days, amount: t.amount || 0, closed: null, fee_cost: t.fee_cost || 0, etf_code: t.etf_code || "", buy_price: t.buy_price || 0, sell_price: t.sell_price || 0, _src: t._src };
   });
   var buysByDate = {}, datesSet = {}, allDates = [];
   for (var i = 0; i < trs.length; i++) {
@@ -8055,7 +8119,7 @@ function _kellyAihlineHoldCap(trades, cap) {
       if (t.sell_date === dt && t.closed === null) {
         t.closed = "natural";
         cur -= t.amount;
-        kept.push({ profit: t.profit, return_pct: t.return_pct, buy_date: t.buy_date, sell_date: t.sell_date, hold_days: t.hold_days, amount: t.amount, fee_cost: t.fee_cost });
+        kept.push({ profit: t.profit, return_pct: t.return_pct, buy_date: t.buy_date, sell_date: t.sell_date, hold_days: t.hold_days, amount: t.amount, fee_cost: t.fee_cost, etf_code: t.etf_code, buy_price: t.buy_price, sell_price: t.sell_price, _src: t._src, forced: false });
       } else newOpen.push(t);
     }
     openTrs = newOpen;
@@ -8072,7 +8136,7 @@ function _kellyAihlineHoldCap(trades, cap) {
   }
   for (var z = 0; z < openTrs.length; z++) {
     var tz = openTrs[z];
-    if (tz.closed === null) kept.push({ profit: tz.profit, return_pct: tz.return_pct, buy_date: tz.buy_date, sell_date: tz.sell_date || "", hold_days: tz.hold_days, amount: tz.amount, fee_cost: tz.fee_cost });
+    if (tz.closed === null) kept.push({ profit: tz.profit, return_pct: tz.return_pct, buy_date: tz.buy_date, sell_date: tz.sell_date || "", hold_days: tz.hold_days, amount: tz.amount, fee_cost: tz.fee_cost, etf_code: tz.etf_code, buy_price: tz.buy_price, sell_price: tz.sell_price, _src: tz._src, forced: false });
   }
   return { kept: kept, peak: Math.round(peak * 10000) / 10000 };
 }
@@ -8082,16 +8146,20 @@ function _kellyAihlineSim(method, trades, cap, model) {
   if (method === "A") return _kellyAihlineHoldCap(trades, cap);
   return _kellyAihlineFifoCap(trades, cap, model);
 }
-// 包装: 对单个 mode 的 K 过滤 trade 数组按当前策略仿真(返回 b0/b1 两套 kept 数组 + 峰值)
+// 包装: 对单个 mode 的 K 过滤 trade 数组按当前策略仿真(返回 b0/b1/real 三套 kept 数组 + 峰值)
+// real(2026-08-30 用户+协调者拍板, b0/b1仅历史对照不再作权威): 强平日按 accum_nav_map 真实净值重算(方法P/B),
+// 需 trades 每行带 etf_code/buy_price + 调用前 _kellyRealNavEnsure()。方法A(满仓不买)无强平 → real=b0。
 function _kellyAihlineApply(trades, strategy, periodKey) {
-  var out = { b0: null, b1: null, peak: 0, stratKey: null };
+  var out = { b0: null, b1: null, real: null, peak: 0, stratKey: null };
   if (!strategy) return out;
   out.stratKey = strategy;
   var method = strategy.method || "B";
   var b0 = _kellyAihlineSim(method, trades, strategy.cap, "b0");
   var b1 = (method === "A") ? b0 : _kellyAihlineSim(method, trades, strategy.cap, "b1");
+  var real = (method === "A") ? b0 : _kellyAihlineSim(method, trades, strategy.cap, "real");
   out.b0 = b0.kept;
   out.b1 = b1.kept;
+  out.real = real.kept;
   out.peak = b0.peak;
   return out;
 }
@@ -8348,6 +8416,8 @@ async function _kellyApplyFeeRecompute(feeParams) {
     if (!ok) { console.error("[sigkelly] trades.json load failed"); return null; }
     _kellyClearComputeCaches();
   }
+  // GIH real 强平日需 accum_nav_map 真实净值(2026-08-30): GIH 开则预加载(单例已载立即 resolve, nav 缺失=硬报错标「缺价」, 无 b1 兜底)
+  if (state.labSigKellyGihOn) await _kellyRealNavEnsure();
   var td = state.labSigKellyTradesData;
   var fields = td.fields || [];
   var fIdx = {};
@@ -8532,7 +8602,8 @@ async function _kellyApplyFeeRecompute(feeParams) {
             }
             return { profit: c.r.profit, return_pct: c.r.return_pct, fee_cost: c.r.fee_cost,
                      buy_date: t[fIdx.buy_date] || "", sell_date: t[fIdx.sell_date] || "",
-                     hold_days: t[fIdx.hold_days] || 0, amount: amt };
+                     hold_days: t[fIdx.hold_days] || 0, amount: amt,
+                     etf_code: t[fIdx.etf_code] || "", buy_price: t[fIdx.buy_price] || 0, sell_price: t[fIdx.sell_price] || 0 };
           });
           statsByPeriod[periodKey] = _kellyComputeStats(recomputed, periodKey, buyAmount);
           // #49+#xx ai长线模式(G/H/I)仓位管理: 开时对 G/H/I 模式额外套各模式独立仓位策略(G=P≤3d@10万/H=满仓不买@5万/I=P≤3d@9万, 2026-08-30 用户+数据定案),
@@ -8541,7 +8612,9 @@ async function _kellyApplyFeeRecompute(feeParams) {
           if (_kellyIsGih(modeKey) && state.labSigKellyGihOn && _kellyGihStrat(modeKey)) {
             var _gihSim = _kellyAihlineApply(recomputed, _kellyGihStrat(modeKey), periodKey);
             statsByPeriod[periodKey + "__gihb0"] = _kellyComputeStats(_gihSim.b0, periodKey, buyAmount);
-            statsByPeriod[periodKey + "__gihb1"] = _kellyComputeStats(_gihSim.b1, periodKey, buyAmount);
+            // 2026-08-30 硬报错(用户铁律 b0/b1 已废除): real 无 b1 兜底; nav_missing 行(缺真实价, profit=null)剔除后算统计, 缺价由 console.error+弹窗红字可见
+            statsByPeriod[periodKey + "__gihreal"] = _kellyComputeStats(_gihSim.real ? _gihSim.real.filter(function (k) { return k.profit !== null && k.profit !== undefined; }) : [], periodKey, buyAmount);
+            statsByPeriod[periodKey + "__gihb1"] = statsByPeriod[periodKey + "__gihreal"];   // __gihb1 向下兼容旧消费点(现等价 real, 无 b1 fallback)
             statsByPeriod[periodKey + "__gihpeak"] = _gihSim.peak;
           }
         }
@@ -8556,6 +8629,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
           if (statsByPeriod[periodKey + "__gihb0"] !== undefined) {
             result[qk][periodKey][modeKey + "__gihb0"] = statsByPeriod[periodKey + "__gihb0"];
             result[qk][periodKey][modeKey + "__gihb1"] = statsByPeriod[periodKey + "__gihb1"];
+            result[qk][periodKey][modeKey + "__gihreal"] = statsByPeriod[periodKey + "__gihreal"] || statsByPeriod[periodKey + "__gihb1"];
             result[qk][periodKey][modeKey + "__gihpeak"] = statsByPeriod[periodKey + "__gihpeak"];
           }
         }
@@ -9915,7 +9989,7 @@ function _renderSigKellyBar(bar, data, period) {
     "⭐ ai长线模式(G/H/I)仓位管理(默认开, 2026-08-30 用户三连拍板): 对 G/H/I 三长线模式各配独立仓位策略(不再统一FIFO)——最终落地为三模式各自最优：\n" +
     _gihTipG + "\n" +
     "【H·全场主推】满仓不买@5万(手段A): 到5万就停买、不强制平仓等自然卖出腾位再买——实际卖出=自然卖出(卖出信号/追止损触发), 无强平=完全确定, 收益率全场最高 230.31%/净+115,157, 峰5笔=5倍本金(超低本金充分可操作), 年化7.96%, 负年2011/2012/2013/2023。主推两条硬道理(2026-08-30 用户拍板): ①收益率最高 230.31% 且无强平=结果完全确定; ②操作最简单——满仓不买、无强平规则, 实盘执行不混乱。\n" +
-    "【I】P≤3d@9万(手段P, 2026-08-30 由A法改P法): 超9万先卖持有≤3天年轻仓, 无年轻仓才卖最老。真实权威数 156.21%/净+140,585, 峰9笔=9倍本金, 年化6.22%, 强平392笔, 负年2011/2013/2021/2023(原"唯一16/16年全正"2026-08-30 真实价重算后作废)。⚠非主推理由(2026-08-30 用户拍板): P≤3d 强平结果随资金量不稳定(3万档强平反盈+20,285 → 10万档巨额-31,547)、操作复杂需严格执行先卖年轻仓规则, 执行有偏差即结果不稳定——保留为可选档, 明确主推 H。\n" +
+    "【I】P≤3d@9万(手段P, 2026-08-30 由A法改P法): 超9万先卖持有≤3天年轻仓, 无年轻仓才卖最老。真实权威数 156.21%/净+140,585, 峰9笔=9倍本金, 年化6.22%, 强平392笔, 负年2011/2013/2021/2023(原「唯一16/16年全正」2026-08-30 真实价重算后作废)。⚠非主推理由(2026-08-30 用户拍板): P≤3d 强平结果随资金量不稳定(3万档强平反盈+20,285 → 10万档巨额-31,547)、操作复杂需严格执行先卖年轻仓规则, 执行有偏差即结果不稳定——保留为可选档, 明确主推 H。\n" +
     "真实权威数口径(2026-08-30 拍板, 废弃 b0/b1 估算): 仅 P 手段(G/I)有强平日——强平日真实卖出按当日日级真实净值价重算(G/I 各4负年, 强平卖持有≤3天年轻仓多为实亏, 故真实数低于原估算); H(手段A)无强平=完全确定, 全场主推。\n" +
     "【管位在前端执行(2026-08-30 纠正)】signal_kelly_trades.json 保留 S06 过滤后全量 G/H/I 信号(不预设 K1、不做源头管位)。本页与首页模拟弹窗均先 S06→K 选样、再按 G/H/I 各自仓位法前端管位(与 _kellyAihlineApply 同语义 §22): 展示即管位后真实口径, 峰值≤档位(10/5/9笔, 20倍本金内=可操作); 非 G/H/I 模式不受影响。\n" +
     "💡 当前页面默认 K=1 主推, 对比表亦为推荐 K=1 口径。";
@@ -10701,10 +10775,10 @@ function _kellyComboAdviceHtml() {
           `<div class="lab-sigkelly-advice-li">总建议配套（页面默认组合 AI降亏过滤，可复现）：仓位=每日资金池等分 + AI仓位建议 K=1（技术别名：仓位控制过滤，同日只买最优1个，主推档，2026-08-14 #BC 默认 K=1；每日总投入恒 1 万均分当日保留数，可切 K=2/3/4）；降亏过滤=追关注×熊市（excludeSpecialBear）+ n2NovSpecialIndustry（11月+追关注+行业）+ janMidRating（1月中旬+中评级）+ janMidSpecial（1月中旬+追关注）+ r7MayReinforced（5月强化+3稳定非5月）+ excludeAuxCross（辅关注×3/5月交叉）+ greedy15（Greedy-15组合），7个默认开启；⚠口径差异说明：本节「投资习惯」静态表格数字=每笔固定 1 万基线（「组合使用建议」 <button type="button" class="lab-kelly-repo-btn" data-repo-id="kelly-combo-usage-advice">🔍查看报告</button>），与下方「最后结果」表（实时=每日资金池等分+top-K）<b>不同口径，不可直接纵向对比</b>，仅供行为/年份参考，核心决策以每日池为准。G 模式（指数卖出信号触发离场）最贴近交易页面的信号驱动跟单，AI仓位建议 K=1 主推口径见上方「总建议」行。⚠J1/J2 带监控（maxSh 0.62/0.79，2026 单年主导），每年 1 月后检查1月中旬子集是否转盈。</div>` +
           `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-verdict lab-sigkelly-gmethod"><b>🎓 G 玩法完整交易方法（2026-08-14，与 A/F 并列，供 G 用户实盘落地）</b>：G=卖出信号长线，默认 AI宏5+3=基础5+核心3（保留入样的8键含K2C5，另 +1=回测剔除波动相关/未入样本信号）之外可再加一层仓位管理。研究找出 G 的最优仓位法＝<b>P≤3d「先卖年轻仓」</b>（数据支撑 「G模式复核」 <button type="button" class="lab-kelly-repo-btn" data-repo-id="kelly-g-mode-recheck">🔍查看报告</button> #49）：<b>持仓超过上限时，先卖掉「刚买进、还没持有满 3 天」的年轻仓（几笔年轻仓里先卖持有最久的那笔）；只有当手上一笔年轻仓都没有时，才轮到卖最老的持仓</b>。白话理解＝<u>保老仓、砍新仓</u>——因为回测里 G 的利润引擎集中在 21-100 天持仓段（净 +24.6万，长持全是盈利单, G模式复核 v1.1.4 八键基座口径），新仓才刚买、还没累积利润、砍掉损失最小。举例：你已有 9 万持仓，A 笔已持 10 天赚了 +8%（利润引擎要留），B 笔刚买 2 天刚回本（年轻仓），此时新信号买入会超 10 万上限 → 先卖 B 保 A，让 A 继续滚利润。</div>` +
           `<div class="lab-sigkelly-advice-li lab-sigkelly-gmethod"><b>定案档位（2026-08-30 用户三连拍板=只保留 10万单档；数字为真实权威数，废弃 b0/b1 估算）</b>：<b>G P≤3d@10万</b> = 157.74%（净 +157,743，峰10笔=10 倍本金=可操作，年化 6.26%，强平420笔，负年2011/2013/2021/2023）；旧 13万档 188.88%/+245,538（v1.1.4 八键基座历史口径）与旧 189.29% 估算已作废——「10万份本金内先卖年轻仓」既压住可操作性（10 倍）又吃满收益率，数据定案后 15/20 万选项早删（可配合本面板「ai长线模式(G/H/I)仓位管理」开关联动看效果）。</div>` +
-          `<div class="lab-sigkelly-advice-li lab-sigkelly-gmethod"><b>为什么可信（对比证明）</b>：P≤3d 在 若干档位收益率都高于旧 FIFO（卖最老＝卖掉了利润引擎本体）；15 个不同起始年 <b>全部</b>胜 FIFO（收益率均值 98.9% vs FIFO 62.0%）、随机 30 个起始点 <b>0/30 负</b>。且 P≤3d 强平的正好是 0-3 天新仓（还没累积利润）→ 强平日按真实净值价重算（2026-08-30 拍板真实权威数）＝<b>数字即真实、不再依赖估算模型</b>；反观旧 FIFO 强平的是最老仓（平均已持 73 天、自然利润合计 +45 万）→ 原估算区间宽 105pp 不可信。<b>结论：G 用户若上仓位管理，用 P≤3d「先卖年轻仓」代替旧 FIFO（真实权威数 157.74%）；三模式中最稳最优推 H（满仓不买无强平 230.31%）——主推两条硬道理（2026-08-30 用户拍板）：①收益率最高且无强平=完全确定；②操作最简单=满仓不买、无强平规则，实盘执行不混乱。</b></div>` +
-          `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note lab-sigkelly-gmethod">📌 G 方法三层流程（白话说一遍）：① 选组合=AI宏默认组合（S06 动态基座，以页面实时为准）；② G 玩法教学已定案（见上方「G 玩法完整交易方法」），2026-08-30 用户三连拍板 P≤3d@10万；③ 实盘仓位=每日池均分 + P≤3d「先卖年轻仓」@10万定案单档(2026-08-30 定案，15/20 档早删)。⚠主推建议=H（满仓不买@5万，无强平 230.31% 全场最高+操作最简单，2026-08-30 用户拍板）；G/I(P3d）非主推=强平结果随资金量不稳定（同池扫描 3万档 +20,285 → 10万档 -31,547）+操作复杂，且各 4 负年。本段为研究结论（详见上方「G模式复核」报告），实际交易以页面「ai长线模式(G/H/I)仓位管理」开关勾选联动为准，仍需你盯盘确认信号。</div>` +
+          `<div class="lab-sigkelly-advice-li lab-sigkelly-gmethod"><b>为什么可信（对比证明）</b>：P≤3d 在 若干档位收益率都高于旧 FIFO（卖最老＝卖掉了利润引擎本体）；15 个不同起始年 <b>全部</b>胜 FIFO（收益率均值 98.9% vs FIFO 62.0%）、随机 30 个起始点 <b>0/30 负</b>。且 P≤3d 强平的正好是 0-3 天新仓（还没累积利润）→ 强平日按真实净值价重算（2026-08-30 拍板真实权威数）＝<b>数字即真实、不再依赖估算模型</b>；反观旧 FIFO 强平的是最老仓（平均已持 73 天、自然利润合计 +45 万）→ 原估算区间宽 105pp 不可信。<span class="lab-sigkelly-advice-warn-red">⚠P3d 红色警示——结果稳定性存疑+实操性差（2026-08-30 用户拍板）：方法价值保留，但强平盈亏随资金量剧烈波动（同池扫描 3万档强平+20,285 → 10万档-31,547，同方法不同资金量结果不一致）+操作复杂需严格执行先卖年轻仓规则→明确不主推。</span><b>结论：G 用户若上仓位管理，用 P≤3d「先卖年轻仓」代替旧 FIFO（真实权威数 157.74%）；三模式中最稳最优推 H（满仓不买无强平 230.31%）——主推两条硬道理（2026-08-30 用户拍板）：①收益率最高且无强平=完全确定；②操作最简单=满仓不买、无强平规则，实盘执行不混乱。</b></div>` +
+          `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note lab-sigkelly-gmethod">📌 G 方法三层流程（白话说一遍）：① 选组合=AI宏默认组合（S06 动态基座，以页面实时为准）；② G 玩法教学已定案（见上方「G 玩法完整交易方法」），2026-08-30 用户三连拍板 P≤3d@10万；③ 实盘仓位=每日池均分 + P≤3d「先卖年轻仓」@10万定案单档(2026-08-30 定案，15/20 档早删)。<span class="lab-sigkelly-advice-warn-red">⚠G/I(P3d)红色警示——结果稳定性存疑+实操性差（2026-08-30 用户拍板）：同方法不同资金量结果不一致（3万档强平反盈+20,285 → 10万档巨额-31,547）+操作复杂需严格执行先卖年轻仓规则，方法价值保留为可选档、明确不主推</span>；✿主推建议=H（满仓不买@5万，无强平 230.31% 全场最高+操作最简单，2026-08-30 用户拍板）；G/I 各 4 负年。本段为研究结论（详见上方「G模式复核」报告），实际交易以页面「ai长线模式(G/H/I)仓位管理」开关勾选联动为准，仍需你盯盘确认信号。</div>` +
           `<div class="lab-sigkelly-advice-li lab-sigkelly-nextday"><b>🆕 回测买入价口径（v1.1.4 起默认=信号次日开盘）</b>：凯利回测买入价 = <b>信号次日开盘价</b>（信号收盘后固化、次日开盘才能真实成交），按 gap 比例换算到 accum_nav 口径（次日开盘 accum_nav 等价值 = 信号日 accum_nav × (次日原始 open / 信号日原始 close)，正确处理分红/份额折算）；旧基线「信号日收盘等价 accum_nav」因收盘价不可成交已于 v1.1.4 切换（量化见 kelly-nextday-open-backtest.md：净利仅微降 0.01%~0.57%、收益率基本不变）。</div><div class="lab-sigkelly-advice-li lab-sigkelly-nextday"><b>🆕 次日买入玩法（分批挂单，数据更稳，2026-08-15 SOP）</b>：买入执行尽量放<b>次日</b>而非当日收盘——次日开盘直接买比当日收盘买几乎不输（净利仅低 0.01%，胜率反升）；更稳的玩法是<b>分 N 单挂「次日开盘价 -1%」限价单，未触达尾盘按现价补满 1 万预算</b>，回测比次日开盘直接买多赚约 6 万（均价 -0.37%，87.9% 交易日日内最低点低于开盘=免费搭日内下探便车）。数据支撑 「次日分批挂单SOP」 <button type="button" class="lab-kelly-repo-btn" data-repo-id="kelly-nextday-batch-limit-sop">🔍查看报告</button> §3.4，与首页「推荐方法·参考说明」同口径（§22）。</div>` +
-          `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">⚠ 口径说明：本节「投资习惯」行为表格/总建议数字为<b>每日资金池等分+top-K（2026-08-13 恢复, 2026-08-14 #BC 对齐重算）口径</b>；页面实时 K 档评级/全信号表同为<b>每日资金池等分+top-K</b>，可对照。核心决策以每日池为准：A/F 短持→维持页面默认降亏组合；长线三模式 ai长线→主推 H（满仓不买@5万，无强平完全确定 230.31%+操作最简单，2026-08-30 用户拍板），G=P≤3d@10万 可操作档、I=P≤3d@9万 为备选（真实权威数；⚠P3d 强平随资金量不稳定+操作复杂，非主推）。上方 A/F/G 三玩法表为全周期 all 口径(每日池,实时联动)，下方「最后结果」全信号表随周期切换（切到「全部」时两表同值）。</div>` +
+          `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">⚠ 口径说明：本节「投资习惯」行为表格/总建议数字为<b>每日资金池等分+top-K（2026-08-13 恢复, 2026-08-14 #BC 对齐重算）口径</b>；页面实时 K 档评级/全信号表同为<b>每日资金池等分+top-K</b>，可对照。核心决策以每日池为准：A/F 短持→维持页面默认降亏组合；长线三模式 ai长线→主推 H（满仓不买@5万，无强平完全确定 230.31%+操作最简单，2026-08-30 用户拍板），G=P≤3d@10万 可操作档、I=P≤3d@9万 为备选（真实权威数；<span class="lab-sigkelly-advice-warn-red">⚠G/I(P3d)红色警示——结果稳定性存疑+实操性差：强平随资金量剧烈波动（3万档+20,285→10万档-31,547）+操作复杂，非主推</span>）。上方 A/F/G 三玩法表为全周期 all 口径(每日池,实时联动)，下方「最后结果」全信号表随周期切换（切到「全部」时两表同值）。</div>` +
         `</div>` +
       `</div>` +
     `</details>` +
@@ -10797,7 +10871,7 @@ function _sigKellyAfgRealtimeHtml() {
   return (
     `<div class="lab-sigkelly-afg-realtime">` +
       (state.labSigKellyGihOn
-        ? `<div class="lab-sigkelly-gih-modal-note" title="#49+#xx ai长线仓位管理口径说明">⚠️ “ai长线模式(G/H/I)仓位管理”已开：本「三玩法各自披露」表 G 行已显示<u>可操作口径</u>（P≤3d「先卖年轻」当前档 ${_kellyGihGTier()}，真实权威数，峰持仓≤20倍本金=可操作）；H/I 行仍为未套仓位法的原始口径（H 45万/34.3%／I 111万/39.5%，本金占用大），已套最优仓位法后的收益/净利见「最后结果」卡（✩全场主推 H=满仓不买@5万 230.31%/+115,157 无强平完全确定+操作最简单，G=P≤3d@10万、I=P≤3d@9万 真实权威数，2026-08-30 用户三连拍板，更优且≤20倍可操作；⚠G/I(P3d) 非主推=强平随资金量不稳定（3万档+20,285 → 10万档-31,547）+操作复杂）。两者口径不同，请以卡片/对比表为准。</div>`
+        ? `<div class="lab-sigkelly-gih-modal-note" title="#49+#xx ai长线仓位管理口径说明">⚠️ “ai长线模式(G/H/I)仓位管理”已开：本「三玩法各自披露」表 G 行已显示<u>可操作口径</u>（P≤3d「先卖年轻」当前档 ${_kellyGihGTier()}，真实权威数，峰持仓≤20倍本金=可操作）；H/I 行仍为未套仓位法的原始口径（H 45万/34.3%／I 111万/39.5%，本金占用大），已套最优仓位法后的收益/净利见「最后结果」卡（✩全场主推 H=满仓不买@5万 230.31%/+115,157 无强平完全确定+操作最简单，G=P≤3d@10万、I=P≤3d@9万 真实权威数，2026-08-30 用户三连拍板，更优且≤20倍可操作；<span class="lab-sigkelly-advice-warn-red">⚠G/I(P3d)红色警示——结果稳定性存疑+实操性差（2026-08-30 用户拍板）：强平盈亏随资金量剧烈波动（3万档+20,285 → 10万档-31,547）+操作复杂易执行偏差，方法价值保留为可选档、明确不主推</span>）。两者口径不同，请以卡片/对比表为准。</div>`
         : "") +
       `<div class="lab-sigkelly-advice-li"><b>三玩法各自披露</b>「峰值资金收益率＋最大持仓＋所需最小本金」：峰值资金收益率=总盈亏/峰值同时持仓资金×100（与卡面/最后结果表同口径）；最大持仓=峰值同时持仓笔数/资金；所需最小本金≈峰值同时持仓资金÷20（按 20 倍资金约束折算，实际按自身杠杆/资金安排）。<b>举个真实例子（G 模式·可操作口径 P≤3d）</b>：G 行历史峰值同时持仓约 <b>10 万</b>（已套仓位管理后，峰持仓≤20 倍本金=可操作；原始无操作性口径 146 万不披露），所需最小本金 ≈ 100000÷20 = <b>5000 元</b>——意思是「历史最多同时占用过 10 万，按最多动用 20 倍本金的约束，至少准备 5000 元本金就能跑得动这套玩法」；本金越大越稳、回撤越小，按自身资金量选玩法。<i>核实源=lab.js _KELLY_G_TIER_REF「10万」档（P≤3d 可操作口径，§5.4 基准 G=10万 P≤3d；10万÷20=5000 元，2026-08-30 定案）</i>。</div>` +
       `<div class="lab-sigkelly-table-scroll"><table class="lab-sigkelly-table lab-sigkelly-afg-table"><thead><tr>` +
@@ -11551,6 +11625,9 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   fields.forEach((f, i) => { _fIdx[f] = i; });
 
   // 按周期 + 降亏toggle过滤(与卡片统计一致, §22数据一致性)
+  // 2026-08-30 弹窗根治: 降亏谓词/基笔池/posCap 与卡面同源同口径(§22),
+  //   S06 态(s06/s06p1)改 per-date 按日动态键集(_tdsS06FiltersForDate), 不再回落静态 NEW14 ——
+  //   这是「卡面5/弹窗3」「G卡面10/弹窗29」差异根因(见 docs/kelly/analysis/kelly-card-vs-popup-consistency.md 方案B)
   var _filters = state.labSigKellyFilters || _kellyDefaultFilters();
   // v3标志需维度查找map
   var _tradeDims2 = state.labSigKellyTradeDims;
@@ -11560,13 +11637,46 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   }
   // positionCap 仓位控制过滤(2026-08-13): 与卡片统计口径一致(§22数据一致性); 金额口径=每日资金池等分+top-K(每笔=10000/当日保留数, 恢复2026-08-13)
   // 降亏过滤谓词抽成命名函数供基笔池复用(不含period cutoff: cutoff只用于弹窗当前周期显示, 池需全周期一致)
-  // 2026-08-12 P2-2修复: 直接调共享谓词 _kellyPassesFadeFilters(消除逐条复制漂移, 补齐 v4 12 toggle 生效, 弹窗与卡片统计一致 §22)
-  // #xx(2026-08-22) bullAuxBackupStop G/H/I 豁免: 本弹窗 modeKey∈{G,H,I} 且新键开 → 谓词/基笔池/每日池计数全用
+  // 2026-08-12 P2-2修复: 直接调共享谓词 _kellyPassesFadeFilters(消除逐条复制漂移, 补齐 v4 12 toggle 生效)
+  // #xx(2026-08-22) bullAuxBackupStop G/H/I 豁免: 本弹窗 modeKey∈{G,H,I} → 谓词/基笔池/每日池计数全用
   //   NoBull 变体(bullAuxBackupStop=false 其余同), 与卡片统计桶层豁免同口径(§22); A-F 短线模式不受影响。
+  // S06 态(2026-08-30): G/H/I 恒走 NoBull per-date; A-F/J 走普通 per-date(基座含 bullAuxBackupStop 时按日生效)——与卡面 _kellyStatsCache 完全同源。
+  var _labModeBase2 = state.labSigKellyFadeModeBase;
+  var _labS06Family2 = (_labModeBase2 === "s06" || _labModeBase2 === "s06p1");
+  var _isLongM2 = (modeKey === "G" || modeKey === "H" || modeKey === "I");
   var _pcMonthMask = _kellyActiveMonthMask(_filters);
-  var _bullOnM = !!_filters.bullAuxBackupStop && (modeKey === "G" || modeKey === "H" || modeKey === "I");
+  var _bullOnM = (_labS06Family2 ? true : !!_filters.bullAuxBackupStop) && _isLongM2;
   var _pcFadeFn;
-  if (_bullOnM) {
+  if (_labS06Family2) {
+    if (_bullOnM) {
+      // S06 NoBull per-date(G/H/I): 当日基座键集 − bullAuxBackupStop, 与卡面 passesFadeNoBull 同源
+      var _s6NBCache2 = {};
+      var _s6BuildNB2 = function (baseId) {
+        var f = {};
+        var allK2 = window._KELLY_FADE_ALL_KEYS || [];
+        for (var i2 = 0; i2 < allK2.length; i2++) f[allK2[i2]] = false;
+        var p2 = (typeof window._tdsFadeModeById === "function") ? window._tdsFadeModeById(baseId) : null;
+        if (p2 && Array.isArray(p2.keys)) for (var j2 = 0; j2 < p2.keys.length; j2++) f[p2.keys[j2]] = true;
+        f.bullAuxBackupStop = false;
+        return f;
+      };
+      _pcFadeFn = function (t) {
+        var dStr2 = String(t[_fIdx.signal_date] || "");
+        var b2 = (typeof window._tdsS06BaseForDate === "function") ? window._tdsS06BaseForDate(dStr2) : null;
+        if (!b2 || !b2.ok) return true;   // fail-open 与卡面同口径(不可用放行不误拦)
+        if (!_s6NBCache2[b2.base]) _s6NBCache2[b2.base] = _s6BuildNB2(b2.base);
+        var nb2 = _s6NBCache2[b2.base];
+        return _kellyPassesFadeFilters(t, _fIdx, nb2, _kellyTradeFeatureCache, _tradeDims2, _kellyActiveMonthMask(nb2));
+      };
+    } else {
+      // S06 普通 per-date(A-F/J 等)
+      _pcFadeFn = function (t) {
+        var f6 = (typeof window._tdsS06FiltersForDate === "function") ? window._tdsS06FiltersForDate(String(t[_fIdx.signal_date] || "")) : null;
+        if (!f6) return true;   // fail-open 与卡面同口径
+        return _kellyPassesFadeFilters(t, _fIdx, f6, _kellyTradeFeatureCache, _tradeDims2, _kellyActiveMonthMask(f6));
+      };
+    }
+  } else if (_bullOnM) {
     var _fNB2 = {};
     for (var _fk2 in _filters) _fNB2[_fk2] = _filters[_fk2];
     _fNB2.bullAuxBackupStop = false;
@@ -11628,15 +11738,58 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
     extFields = fields.concat(["fee_cost", "amount"]);
   }
 
+  // 2026-08-30 弹窗根治(§22 一致性): G/H/I 且 GIH 开 → 弹窗交易 = 卡面 GIH 行同源仿真 real
+  //   (P≤3d@10万 / 满仓不买@5万 / P≤3d@9万, _kellyAihlineApply), 持仓=实时仿真持仓(非原始未平仓列表),
+  //   强平单带 forced 标记 → 渲染「强平」, 与卡面 G/H/I 行 holding_count 逐位一致(见 kelly-card-vs-popup-consistency.md 方案B)
+  //   实价口径(2026-08-30 用户+协调者拍板 b0/b1 作废): sim 走 _kellyAihlineApply real 通路(强平日 accum_nav 真实净值重算),
+  //   输入=recompute 后数组行(带 _src 引用+etf_code/buy_price/sell_price), sim kept 映射回显示行(真实买卖价+利润)
+  var _gihKept = null;
+  if (state.labSigKellyGihOn && _kellyIsGih(modeKey)) {
+    await _kellyRealNavEnsure();
+    var _efIdx = {};
+    extFields.forEach(function (f2, i2) { _efIdx[f2] = i2; });
+    var _simIn = trades.map(function (t) {
+      return { profit: t[_efIdx.profit] || 0, return_pct: t[_efIdx.return_pct] || 0,
+               buy_date: t[_efIdx.buy_date] || "", sell_date: t[_efIdx.sell_date] || null,
+               hold_days: t[_efIdx.hold_days] || 0, amount: t[_efIdx.amount] || 0,
+               fee_cost: t[_efIdx.fee_cost] || 0, etf_code: t[_efIdx.etf_code] || "",
+               buy_price: t[_efIdx.buy_price] || 0, sell_price: t[_efIdx.sell_price] || 0,
+               _src: t };
+    });
+    var _simRes = _kellyAihlineApply(_simIn, _kellyGihStrat(modeKey), period);
+    // 2026-08-30 用户铁律(b0/b1 已废除·硬报错): 只用 real 强平通路, 绝不回退 b1; nav 缺失行(flag=nav_missing)渲染为「— 缺价」红字且不计入收益统计
+    _gihKept = (_simRes && _simRes.real) || null;
+    if (_gihKept) {
+      trades = _gihKept.map(function (k) {
+        var src = k._src;
+        var row = src.slice();
+        row[_efIdx.profit] = (k.profit !== undefined) ? k.profit : row[_efIdx.profit];   // nav_missing 时 k.profit=null 透传(显示「— 缺价」, 非原 row 估算值)
+        row[_efIdx.return_pct] = (k.return_pct !== undefined) ? k.return_pct : row[_efIdx.return_pct];
+        row[_efIdx.sell_date] = k.sell_date || "";
+        row[_efIdx.hold_days] = k.hold_days || 0;
+        row[_efIdx.fee_cost] = k.fee_cost || 0;
+        row[_efIdx.amount] = k.amount || row[_efIdx.amount];
+        if (k.etf_code) row[_efIdx.etf_code] = k.etf_code;
+        if (k.buy_price) row[_efIdx.buy_price] = k.buy_price;
+        if (k.sell_price) row[_efIdx.sell_price] = k.sell_price;   // 强平单=真实 nav 卖出价; 自然卖=记录自带
+        if (k.forced) row[_efIdx.sell_reason] = "强平";   // 强平单原因=强平(卡面 GIH 行同判据)
+        row._gihForced = !!k.forced;
+        row._gihNavMissing = (k.profit === null) || (k.flag === "nav_missing");   // 2026-08-30 缺真实价行标记: 渲染「— 缺价」红字+不计入收益统计
+        row._gihSim = true;
+        return row;
+      });
+    }
+  }
+
   // 渲染 modal(新开弹窗重置到第 1 页 + 重置筛选/排序状态, 防上个弹窗的 ETF 关键字/盈亏筛选残留到下一个弹窗)
   state._sigKellyTradePage = 1;
   state._sigKellyElimPage = 1;
   state._sigKellyTradeSort = { key: "buy_date", dir: -1 };
   state._sigKellyTradeFilter = { etf: "", profit: "all" };
-  _renderSigKellyTradesModal(overlay, trades, extFields, quadLabel, modeLabel, period, quadKey, modeKey, eliminated);
+  _renderSigKellyTradesModal(overlay, trades, extFields, quadLabel, modeLabel, period, quadKey, modeKey, eliminated, _gihKept);
 }
 
-function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabel, period, quadKey, modeKey, eliminated) {
+function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabel, period, quadKey, modeKey, eliminated, gihMeta) {
   const fIdx = {};
   fields.forEach((f, i) => { fIdx[f] = i; });
   // 排序/筛选状态
@@ -11647,6 +11800,9 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
   const sort = state._sigKellyTradeSort;
   const filter = state._sigKellyTradeFilter;
   eliminated = eliminated || [];
+  // 2026-08-30 弹窗根治(§22): GIH sim 元信息(强平行的原始卖出日+强平日+原因, 供渲染标「强平」)
+  //   gihMeta = { forcedBySrc: WeakMap<源数组行, {origSellDate, simSellDate}> } (弹窗链路用); 卡面无此字段(零行为影响)
+  gihMeta = gihMeta || null;
 
   const colDefs = [
     { key: "index_id", label: "触发信号", sortable: true },
@@ -11696,10 +11852,13 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
 
   function _render() {
     const filtered = _applyFilter();
-    const winCount = trades.filter((t) => t[fIdx.profit] > 0).length;
-    const totalProfit = trades.reduce((s, t) => s + (t[fIdx.profit] || 0), 0);
-    const totalFeeCost = trades.reduce((s, t) => s + (t[fIdx.fee_cost] || 0), 0);
-    const holdingCount = trades.filter((t) => !t[fIdx.sell_date]).length;
+    // 2026-08-30 硬报错(用户铁律 b0/b1 废除): nav_missing 行(缺强平日真实价)不计入收益统计合计, 顶部红字横幅报 X 笔
+    const statTrades = trades.filter((t) => !t._gihNavMissing);
+    const navMissingCount = trades.length - statTrades.length;
+    const winCount = statTrades.filter((t) => t[fIdx.profit] > 0).length;
+    const totalProfit = statTrades.reduce((s, t) => s + (t[fIdx.profit] || 0), 0);
+    const totalFeeCost = statTrades.reduce((s, t) => s + (t[fIdx.fee_cost] || 0), 0);
+    const holdingCount = statTrades.filter((t) => !t[fIdx.sell_date]).length;
 
     let thHTML = colDefs.map((c) => {
       const isSorted = sort.key === c.key;
@@ -11717,10 +11876,12 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
 
     // 行渲染(正常/被淘汰共用, 2026-08-12 需求B): 返回 td 拼接, 外层 tr class 由调用方决定
     const _rowHtml = (t) => {
-      const pf = t[fIdx.profit] || 0;
-      const rp = t[fIdx.return_pct] || 0;
+      const isNavMissing = !!t._gihNavMissing; // 2026-08-30 硬报错: 缺强平日真实价行(收益只能显示「— 缺价」, 不进统计合计)
+      const pf = isNavMissing ? 0 : (t[fIdx.profit] || 0);
+      const rp = isNavMissing ? 0 : (t[fIdx.return_pct] || 0);
       const pfCls = pf >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
       const isHolding = !t[fIdx.sell_date]; // 持仓中trade(sell_date 空, 预估盈亏)
+      const isForced = !!t._gihForced; // 2026-08-30 GIH sim 强平单(原长持仓被 cap 强平, 卖出日=强平日)
       // 触发信号列: 指数名 + 信号标签
       const iid = t[fIdx.index_id] || "";
       const sig = t[fIdx.signal] || "";
@@ -11738,22 +11899,31 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
         return '<span class="etf-light ' + light.cls + '"></span> ' + light.label + ' ' + scoreStr;
       })();
       // 持仓中trade 特殊渲染: 卖出日=持仓中标签 / 卖价=当前价+预估 / 收益率=预估前缀+虚线斜体 / 原因=持有中X天
+      // 强平单(2026-08-30 GIH sim): 卖出日=强平日+「强平」标签 / 卖价=sell_price(强平日真实实现价, sim 已写入)
       const sellDateCell = isHolding
         ? `<td><span class="lab-sigkelly-holding-tag">持仓中</span></td>`
-        : `<td>${t[fIdx.sell_date]}</td>`;
+        : (isForced
+            ? `<td>${t[fIdx.sell_date]}<span class="lab-sigkelly-forced-tag" title="ai长线仓位管理强制平仓">强平</span></td>`
+            : `<td>${t[fIdx.sell_date]}</td>`);
       const _cpIdx = fIdx.current_price;
-      const sellPriceCell = isHolding
-        ? `<td class="lab-sigkelly-est">${(+(_cpIdx != null ? t[_cpIdx] : 0)).toFixed(4)}<span class="lab-sigkelly-est-tag">预估</span></td>`
-        : `<td>${(+t[fIdx.sell_price]).toFixed(4)}</td>`;
-      const profitCell = isHolding
-        ? `<td class="${pfCls} lab-sigkelly-est">${(pf >= 0 ? "+" : "") + pf.toFixed(2)}</td>`
-        : `<td class="${pfCls}">${(pf >= 0 ? "+" : "") + pf.toFixed(2)}</td>`;
-      const returnCell = isHolding
-        ? `<td class="${pfCls} lab-sigkelly-est">预估${(rp >= 0 ? "+" : "") + rp.toFixed(2)}%</td>`
-        : `<td class="${pfCls}">${(rp >= 0 ? "+" : "") + rp.toFixed(2)}%</td>`;
+      const sellPriceCell = isNavMissing
+        ? `<td class="lab-sigkelly-missing-px">—</td>`   // 2026-08-30 硬报错: 缺真实价, 禁显示 0/估算
+        : (isHolding
+            ? `<td class="lab-sigkelly-est">${(+(_cpIdx != null ? t[_cpIdx] : 0)).toFixed(4)}<span class="lab-sigkelly-est-tag">预估</span></td>`
+            : `<td>${(+t[fIdx.sell_price]).toFixed(4)}</td>`);
+      const profitCell = isNavMissing
+        ? `<td class="lab-sigkelly-missing-px">— 缺价</td>`
+        : (isHolding
+            ? `<td class="${pfCls} lab-sigkelly-est">${(pf >= 0 ? "+" : "") + pf.toFixed(2)}</td>`
+            : `<td class="${pfCls}">${(pf >= 0 ? "+" : "") + pf.toFixed(2)}</td>`);
+      const returnCell = isNavMissing
+        ? `<td class="lab-sigkelly-missing-px">— 缺价</td>`
+        : (isHolding
+            ? `<td class="${pfCls} lab-sigkelly-est">预估${(rp >= 0 ? "+" : "") + rp.toFixed(2)}%</td>`
+            : `<td class="${pfCls}">${(rp >= 0 ? "+" : "") + rp.toFixed(2)}%</td>`);
       const reasonCell = isHolding
         ? `<td>${t[fIdx.sell_reason] || "持有中"} ${t[fIdx.hold_days]}天</td>`
-        : `<td>${t[fIdx.sell_reason]}</td>`;
+        : `<td>${isForced ? "ai长线强平" : (t[fIdx.sell_reason] || "")}</td>`;
       return `<td class="lab-sigkelly-trades-sigcell">${sigCell}</td>` +
         `<td>${t[fIdx.buy_date]}</td>${sellDateCell}` +
         `<td class="lab-sigkelly-trades-etfrel">${etfRel}</td>` +
@@ -11802,18 +11972,19 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       `<div class="lab-sigkelly-modal">` +
         `<div class="lab-sigkelly-modal-head">` +
           `<div class="lab-sigkelly-modal-title">📋 交易记录 · ${quadLabel} · ${modeLabel} · ${period}${feeLabel}</div>` +
-          (state.labSigKellyGihOn && _kellyIsGih(modeKey) ? `<div class="lab-sigkelly-gih-modal-note" title="#49+#xx ai长线仓位管理口径说明">⚠️ 本弹窗为<u>未套 ai长线仓位管理</u>的原始交易；当前卡片 G/H/I 行已套各模式最优仓位法(G=P≤3d@10万/H=满仓不买@5万/I=P≤3d@9万, 2026-08-30 定案)后的口径(峰持仓≤20倍可操作)，此处净盈亏/峰值与卡片可能不一致。</div>`
+          (state.labSigKellyGihOn && _kellyIsGih(modeKey) ? `<div class="lab-sigkelly-gih-modal-note" title="#49+#xx ai长线仓位管理口径说明">✅ ai长线仓位管理已套用：本弹窗交易已按 ${_kellyGihStratShort(modeKey)} 仿真(G=P≤3d@10万/H=满仓不买@5万/I=P≤3d@9万, 2026-08-30 定案)，持仓中=仿真实时持仓，与卡片 G/H/I 行逐笔一致；带「强平」标记=原长持仓被仓位上限强制平仓。</div>`
            : _kellyOpModalNote(quadKey, modeKey, period)) +
           `<button type="button" class="lab-sigkelly-modal-close" title="关闭">✕</button>` +
         `</div>` +
         `<div class="lab-sigkelly-modal-stats">` +
           `<span>共 ${trades.length} 笔</span>` +
-          `<span>盈利 ${winCount} / 亏损 ${trades.length - winCount}</span>` +
-          `<span>胜率 ${trades.length ? (winCount / trades.length * 100).toFixed(1) : 0}%</span>` +
+          `<span>盈利 ${winCount} / 亏损 ${statTrades.length - winCount}</span>` +
+          `<span>胜率 ${statTrades.length ? (winCount / statTrades.length * 100).toFixed(1) : 0}%</span>` +
           `<span>总盈亏 ${(totalProfit >= 0 ? "+" : "") + totalProfit.toFixed(0)} 元</span>` +
           `<span class="lab-sigkelly-neg">费率消耗 -${totalFeeCost.toFixed(0)} 元</span>` +
           (holdingCount > 0 ? `<span class="lab-sigkelly-holding-stat">含 ${holdingCount} 笔预估</span>` : "") +
           (eliminated.length > 0 ? `<span class="lab-sigkelly-elim-stat">⚠ 被降亏/AI仓位建议淘汰 ${eliminated.length} 笔(删除线,不计入统计)</span>` : "") +
+          (navMissingCount > 0 ? `<span class="lab-sigkelly-missing-px">⚠ ${navMissingCount} 笔缺强平日真实价(数据异常,不进统计)</span>` : "") +
         `</div>` +
         `<div class="lab-sigkelly-modal-filters">` +
           `<input type="text" class="lab-input lab-sigkelly-filter-etf" placeholder="筛选ETF名称/代码…" value="${filter.etf}">` +

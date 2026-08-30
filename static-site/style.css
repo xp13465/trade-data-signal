@@ -1029,6 +1029,9 @@ main { padding: 16px 24px; }
 [data-theme="dark"] .sig-kbtn-help-pop-tag-day, [data-theme="redgold"] .sig-kbtn-help-pop-tag-day { color: #c4b5fd; }
 .sig-kbtn-help-pop-body { color: var(--text-2); }
 .sig-kbtn-help-pop-foot { color: var(--text-4); font-size: 10px; line-height: 1.45; border-top: 1px dashed var(--border); padding-top: 5px; margin-top: 2px; }
+/* 2026-08-30: P3d 档(先卖≤3天年轻仓 G/I)红色高亮警示——结果稳定性存疑+实操性差, 用户拍板 H 主推配套(自验项: 红字宽泛/dark·redgold 主题仍红) */
+.sig-kbtn-help-pop-warn-red, .rule-card .rule-card-warn-red { color: #d4380d; font-weight: 700; }
+[data-theme="dark"] .sig-kbtn-help-pop-warn-red, [data-theme="dark"] .rule-card .rule-card-warn-red, [data-theme="redgold"] .sig-kbtn-help-pop-warn-red, [data-theme="redgold"] .rule-card .rule-card-warn-red { color: #ff7875; }
 @media (max-width: 760px) { .sig-kbtn-help-pop { width: min(330px, calc(100vw - 16px)); font-size: 10.5px; padding: 7px 9px; } }
 /* 2026-08-13 AI 降亏过滤命中灰显: 总开关开 + 命中降亏条件(凯利区实际开启) → 灰显+删除线(建议回避), 与 poscap 灰显视觉区分(更强调) */
 .sig-item.sig-ai-hit { opacity: 0.45; filter: grayscale(0.5); text-decoration: line-through; }
