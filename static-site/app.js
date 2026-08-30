@@ -3763,6 +3763,9 @@ function _openSimBacktestModal() {
   const _modeOpts = Object.keys(_sm).map((mk) => `<option value="${mk}">${mk} · ${_sm[mk].label || ""}</option>`).join("");
   modal.innerHTML = '<div class="rule-modal-overlay"></div>' +
     '<div class="rule-modal-body rule-modal-body-wide"><div class="rule-modal-header"><h3>📊 模拟回测 · 全历史真实过滤</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
+    // 费率模拟提示(2026-08-30 用户拍板): 弹窗 G/H/I 三档保留费率模拟, 收益随费率档变化,
+    // 与卡面 lab 权威数允许差异(G 157.74%/H 230.31%/I 156.21%); 「sim 弹窗数字≠卡面权威数」非 bug。
+    '<div class="sim-gih-note" style="display:none;color:var(--text-dim,#9aa);font-size:.85em;padding:6px 20px 0">ℹ 模拟值 · 收益随费率档变化, 精确回测以卡面为准</div>' +
     '<div class="rule-modal-content">' +
       // 筛选条单行排布(2026-08-24 用户二次反馈: 两行仍太高 → 四控件合 1 行): 时间范围起/止+交易模式+
       // AI降亏过滤+AI仓位建议 全部横排一行, 费率块仍独占一行(.simbt-fee-block flex:1 1 100% 兜底)。
@@ -4015,6 +4018,12 @@ async function _simRenderOnce(modal) {
   if (_simGihTiersElNow) _simGihTiersElNow.innerHTML = _simGihTiersHtml(mode);
   const _simGihCbNow = modal.querySelector(".sim-gih-on-cb");
   const gihOn = !(_simGihCbNow && !_simGihCbNow.checked);
+  // 费率模拟提示显隐(2026-08-30 纯新增文案): 仅 G/H/I 长线模式选档时显示「模拟值·收益随费率档变化,
+  // 精确回测以卡面为准」; 其余模式恒隐藏。不动任何统计/重算逻辑(§23.7)。
+  const _simGihNoteElNow = modal.querySelector(".sim-gih-note");
+  if (_simGihNoteElNow) {
+    _simGihNoteElNow.style.display = (mode === "G" || mode === "H" || mode === "I") ? "" : "none";
+  }
   // 费率: 5 参数模型(表单输入为唯一事实源——点档位已回填表单), 复用交易模拟区 _simBuyWithFees/_simSellWithFees 计算
   const fp = _simBtReadFp(modal);
 
