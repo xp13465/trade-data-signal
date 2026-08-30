@@ -12120,7 +12120,7 @@ function _collectEtfPinEvents(code, fields, trades, eliminated) {
     const c = t[fIdx2.etf_code] ?? t[fIdx2.code];
     if (c === undefined || c === null || String(c) !== String(code)) return;
     const bd = t[fIdx2.buy_date];
-    if (bd) evs.push({ date: String(bd), kind: "buy", price: t[fIdx2.buy_price] != null ? Number(t[fIdx2.buy_price]) : null });
+    if (bd) evs.push({ date: String(bd), kind: "buy", price: t[fIdx2.buy_price] != null ? Number(t[fIdx2.buy_price]) : null, t: t, f: fIdx2 });
     const sd = t[fIdx2.sell_date];
     if (sd) {
       const isF = !!t._gihForced;
@@ -12128,7 +12128,7 @@ function _collectEtfPinEvents(code, fields, trades, eliminated) {
       let sp = t[fIdx2.sell_price];
       if (sp === undefined || sp === null) sp = null;
       else sp = Number(sp);
-      evs.push({ date: String(sd), kind: isF ? "force" : "sell", price: sp, navMissing });
+      evs.push({ date: String(sd), kind: isF ? "force" : "sell", price: sp, navMissing, t: t, f: fIdx2 });
     }
   };
   (trades || []).forEach((t) => push(t));
@@ -12235,10 +12235,49 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields) {
     return { x: cssX, y: cssY };
   }
 
+  // ---- FIFO 配对(2026-08-30 用户拍板): 同 ETF buy 事件按日期先后 FIFO ↔ sell/force 事件 ----
+  //   第 N 个买 → 第 N 个卖/强平; 未配对 buy(持仓中)= 单 buy pin 不连线。
+  //   买卖事件均携带原交易行 t 与字段索引 f(popover 明细直接读行字段, 与交易记录列表同源)。
+  const _buyEvs = events.filter((e) => e.kind === "buy").sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const _sellEvs = events.filter((e) => e.kind === "sell" || e.kind === "force").sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const pairs = _buyEvs.map((b, i) => ({ pid: "pair" + i, buy: b, sell: _sellEvs[i] || null, line: null, pinB: null, pinS: null }));
+  const pairOf = new Map();   // 事件 → 所属配对
+  pairs.forEach((p) => { pairOf.set(p.buy, p); if (p.sell) pairOf.set(p.sell, p); });
+
+  // 连线层 + popover: 挂 wrap 内绝对定位(与 pin 同一坐标空间, 缩放/重排时随 _placePins 同步)
+  const lineLayer = document.createElement("div");
+  lineLayer.className = "lab-etf-pin-lines";
+  wrap.appendChild(lineLayer);
+  const popEl = document.createElement("div");
+  popEl.className = "lab-etf-pin-pop";
+  popEl.style.display = "none";
+  wrap.appendChild(popEl);
+  let _activePair = null; // 当前聚焦配对(缩放后 popover 跟随重排)
+  let _anchorIx = null;   // popover 锚点 pin 的视图索引(缩放后按它重定位)
+
+  // 连线颜色: 按该笔 return_pct 正红负绿(与表格同色语义; 缺 return_pct 按买入侧行判)
+  const _lineColorClass = (p) => {
+    const rp = (p.buy.t && p.buy.f.return_pct != null) ? Number(p.buy.t[p.buy.f.return_pct]) : null;
+    return (rp != null && rp >= 0) ? "lab-etf-pin-line-pos" : "lab-etf-pin-line-neg";
+  };
+  const _arrangeLine = (p) => {
+    if (!p.sell || !p.line) return;
+    const pb = svgPointToWrap(p.buy.ix);
+    const ps = svgPointToWrap(p.sell.ix);
+    if (!pb || !ps) { p.line.style.display = "none"; return; }
+    p.line.style.display = "";
+    const dx = ps.x - pb.x, dy = ps.y - pb.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    p.line.style.width = len.toFixed(1) + "px";
+    p.line.style.left = pb.x.toFixed(1) + "px";
+    p.line.style.top = pb.y.toFixed(1) + "px";
+    p.line.style.transform = "rotate(" + (Math.atan2(dy, dx) * 180 / Math.PI).toFixed(2) + "deg)";
+  };
+
   // 分组: 同日多事件 → 标签行堆叠
   const byDate = {};
   events.forEach((e) => { (byDate[e.date] = byDate[e.date] || []).push(e); });
-  const pins = []; // {el, ix, ei} 记录 pin 与其全局索引, 缩放/平移后按 _placePins 重排
+  const pins = []; // {el, ix, ei, e} 记录 pin 与其全局索引/事件, 缩放/平移后按 _placePins 重排
   let omitted = 0;
   Object.keys(byDate).sort().forEach((d) => {
     const ix = dateIdx[d];
@@ -12251,11 +12290,104 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields) {
       const priceTxt = e.kind === "force" ? (e.navMissing ? "缺价" : (e.price != null ? e.price.toFixed(4) : "缺价")) : (e.price != null ? e.price.toFixed(4) : (e.kind === "sell" ? "缺价" : "-"));
       const pin = document.createElement("div");
       pin.className = "lab-etf-pin lab-etf-pin-" + e.kind;
-      pins.push({ el: pin, ix: ix, ei: ei });
-      pin.innerHTML = `<span class="lab-etf-pin-dot"></span><span class="lab-etf-pin-txt">${label} ${_esc(priceTxt)}</span>`;
+      const pobj = { el: pin, ix: ix, ei: ei, e: e };
+      pins.push(pobj);
+      // 热区: pin 本体 pointer-events:none, 内层 hotzone 才响应 hover(避免大热区互相遮挡)
+      pin.innerHTML = `<span class="lab-etf-pin-hotzone"><span class="lab-etf-pin-dot"></span><span class="lab-etf-pin-txt">${label} ${_esc(priceTxt)}</span></span>`;
+      const hotzone = pin.querySelector(".lab-etf-pin-hotzone");
+      const pp = pairOf.get(e);
+      if (pp) {
+        if (e.kind === "buy") pp.pinB = pobj; else pp.pinS = pobj;
+      }
+      if (hotzone) {
+        hotzone.addEventListener("mouseenter", () => { _focusPair(pp, pobj, ix); });
+        hotzone.addEventListener("mouseleave", () => { _focusOff(); });
+      }
       wrap.appendChild(pin);
     });
   });
+
+  // 配对连线创建 + 图层放置
+  pairs.forEach((p) => {
+    if (!p.sell) return;
+    const line = document.createElement("div");
+    line.className = "lab-etf-pin-line " + _lineColorClass(p);
+    line.dataset.pid = p.pid;
+    lineLayer.appendChild(line);
+    p.line = line;
+  });
+
+  // ---- popover 明细(与交易记录列表同字段同数据源, return_pct 单一字段按持有态换 label) ----
+  const _feeTxt = (t, f) => (t && f.fee_cost != null && t[f.fee_cost] != null) ? "-" + (+t[f.fee_cost]).toFixed(2) + " 元" : "—";
+  const _popContent = (p) => {
+    const bt = p.buy.t, bf = p.buy.f;
+    const sig = (bt && bf.signal != null) ? signalLabel({ signal: bt[bf.signal] || "" }) : "-";
+    const code = (bt && bf.etf_code != null) ? bt[bf.etf_code] : "";
+    let html = `<div class="lab-etf-pin-pop-head">${_esc(code)} · ${_esc(sig)}</div>`;
+    html += `<div class="lab-etf-pin-pop-row">买入:${bt ? bt[bf.buy_date] : p.buy.date} @ ${(p.buy.price != null ? p.buy.price : 0).toFixed(4)}</div>`;
+    if (p.sell) {
+      const st = p.sell.t, sf = p.sell.f;
+      const sellTag = p.sell.kind === "force" ? " 强平" : "";
+      const sp = (p.sell.price != null ? p.sell.price : (st && sf.sell_price != null ? Number(st[sf.sell_price]) : null));
+      html += `<div class="lab-etf-pin-pop-row">卖出:${p.sell.date}${sellTag} @ ${(sp != null ? sp.toFixed(4) : "缺价")}</div>`;
+      const hd = (st && sf.hold_days != null) ? st[sf.hold_days] : "-";
+      html += `<div class="lab-etf-pin-pop-row">持有:${hd} 个交易日</div>`;
+      const rpv = (bt && bf.return_pct != null) ? (+bt[bf.return_pct]) : null;
+      html += `<div class="lab-etf-pin-pop-row">收益率:${(rpv != null ? ((rpv >= 0 ? "+" : "") + rpv.toFixed(2) + "%") : "-")}</div>`;
+    } else {
+      const cp = (bt && bf.current_price != null) ? Number(bt[bf.current_price]) : null;
+      html += `<div class="lab-etf-pin-pop-row">持有中 · 至今真实价:${(cp != null ? cp.toFixed(4) : "-")}</div>`;
+      const hd = (bt && bf.hold_days != null) ? (+bt[bf.hold_days] || 0) : 0;
+      html += `<div class="lab-etf-pin-pop-row">持有:${hd} 个交易日</div>`;
+      const rpv = (bt && bf.return_pct != null) ? (+bt[bf.return_pct]) : null;
+      html += `<div class="lab-etf-pin-pop-row">至今收益率:${(rpv != null ? ((rpv >= 0 ? "+" : "") + rpv.toFixed(2) + "%") : "-")}</div>`;
+    }
+    const pfv = (bt && bf.profit != null) ? (+bt[bf.profit]) : null;
+    html += `<div class="lab-etf-pin-pop-row">净利:${(pfv != null ? ((pfv >= 0 ? "+" : "") + pfv.toFixed(1) + " 元") : "-")}<span class="lab-etf-pin-pop-fee">(已含费率)</span></div>`;
+    html += `<div class="lab-etf-pin-pop-row">费率消耗:${_feeTxt(bt, bf)}</div>`;
+    return html;
+  };
+  const _positionPop = (ix) => {
+    const pt = svgPointToWrap(ix);
+    if (!pt) { popEl.style.display = "none"; return; }
+    popEl.style.left = Math.max(4, pt.x + 12).toFixed(1) + "px";
+    popEl.style.top = Math.max(4, pt.y - 96).toFixed(1) + "px";
+  };
+  // hover 聚焦: 高亮该配对整条连线+两端 pin, 其余淡化; 持仓中单 buy 只弹 popover 不连线
+  const _focusPair = (p, pobj, ix) => {
+    _activePair = p;
+    _anchorIx = ix;
+    if (p) {
+      pins.forEach((pp) => {
+        const cur = pairOf.get(pp.e);
+        if (cur && cur.pid === p.pid) { pp.el.classList.add("lab-etf-pin-active"); pp.el.classList.remove("lab-etf-pin-dim"); }
+        else { pp.el.classList.add("lab-etf-pin-dim"); pp.el.classList.remove("lab-etf-pin-active"); }
+      });
+      pairs.forEach((lp) => {
+        if (!lp.line) return;
+        if (lp.pid === p.pid) { lp.line.classList.add("lab-etf-pin-line-active"); lp.line.classList.remove("lab-etf-pin-line-dim"); }
+        else { lp.line.classList.add("lab-etf-pin-line-dim"); lp.line.classList.remove("lab-etf-pin-line-active"); }
+      });
+      popEl.innerHTML = _popContent(p);
+    } else {
+      // 持仓中: 只亮悬停 buy pin, 其余全淡化
+      pins.forEach((pp) => {
+        if (pp === pobj) { pp.el.classList.add("lab-etf-pin-active"); pp.el.classList.remove("lab-etf-pin-dim"); }
+        else { pp.el.classList.add("lab-etf-pin-dim"); pp.el.classList.remove("lab-etf-pin-active"); }
+      });
+      pairs.forEach((lp) => { if (lp.line) lp.line.classList.add("lab-etf-pin-line-dim"); });
+      popEl.innerHTML = _popContent({ buy: pobj.e });
+    }
+    popEl.style.display = "block";
+    _positionPop(ix);
+  };
+  const _focusOff = () => {
+    _activePair = null;
+    _anchorIx = null;
+    pins.forEach((pp) => { pp.el.classList.remove("lab-etf-pin-active", "lab-etf-pin-dim"); });
+    pairs.forEach((lp) => { if (lp.line) lp.line.classList.remove("lab-etf-pin-line-active", "lab-etf-pin-line-dim"); });
+    popEl.style.display = "none";
+  };
 
   // pin 重排(缩放/平移后由内核 etf-trend-panzoom 事件驱动; 初始也调一次铺位)
   function _placePins() {
@@ -12267,6 +12399,8 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields) {
       p.el.style.left = x.toFixed(1) + "px";
       p.el.style.top = (pt.y - 4).toFixed(1) + "px";
     });
+    pairs.forEach((p) => _arrangeLine(p));      // 连线随缩放重排
+    if (_activePair && _anchorIx != null) _positionPop(_anchorIx); // popover 随缩放重定位
   }
   _placePins();
   if (svg.addEventListener) svg.addEventListener("etf-trend-panzoom", _placePins);

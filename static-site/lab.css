@@ -2207,3 +2207,65 @@
 .lab-etf-pin-zoom-reset {
   font-size: 12px;
 }
+/* 2026-08-30 FIFO 配对连线: buy→sell/强平, 绝对定位 rotate div, pointer-events:none 不挡 pin hover */
+.lab-etf-pin-lines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 25;
+  overflow: visible;
+}
+.lab-etf-pin-line {
+  position: absolute;
+  height: 2px;
+  transform-origin: left center;
+  opacity: 0.5;
+  pointer-events: none;
+  border-radius: 1px;
+}
+.lab-etf-pin-line-pos { background: #e6492e; }  /* 红=盈(return_pct>=0), 与表格 pos 同色语义 */
+.lab-etf-pin-line-neg { background: #2e8b57; }  /* 绿=亏, 与表格 neg 同色语义 */
+.lab-etf-pin-line-active { opacity: 1; height: 3px; }
+.lab-etf-pin-line-dim { opacity: 0.12 !important; }
+/* 2026-08-30 pin 热区: pin 本体 pointer-events:none, 内层 hotzone 才响应 hover, 避免大热区互相遮挡 */
+.lab-etf-pin-hotzone {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 3px;
+  margin: -4px -3px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.lab-etf-pin-dim { opacity: 0.22 !important; }
+.lab-etf-pin-active { z-index: 40; }
+.lab-etf-pin-active .lab-etf-pin-dot {
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.45), 0 0 8px rgba(0, 0, 0, 0.55);
+  transform: scale(1.35);
+}
+/* 2026-08-30 配对/持仓 popover: wrap 内绝对定位, 不随缩放错位 */
+.lab-etf-pin-pop {
+  position: absolute;
+  z-index: 60;
+  min-width: 220px;
+  max-width: 340px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 6px 22px var(--shadow-strong, rgba(0, 0, 0, 0.35));
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-2);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.lab-etf-pin-pop-head {
+  font-weight: 700;
+  color: var(--text-1);
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.lab-etf-pin-pop-row { white-space: nowrap; }
+.lab-etf-pin-pop-fee { color: var(--text-4); font-size: 10px; margin-left: 4px; font-weight: 400; }
