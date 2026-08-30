@@ -2288,6 +2288,10 @@
 }
 .lab-etf-pin-pop-row { white-space: nowrap; }
 .lab-etf-pin-pop-fee { color: var(--text-4); font-size: 12px; margin-left: 4px; font-weight: 400; }
+/* 卖点×N 聚合明细(2026-08-30 GHI 卖出口径展示增强): 同日被清买点列表用次级小字缩进, 与主明细区分 */
+.lab-etf-pin-pop-group { margin-top: 4px; padding: 4px 8px; border-left: 3px solid var(--text-3); background: rgba(128, 128, 128, 0.06); border-radius: 4px; }
+.lab-etf-pin-pop-subbuy { color: var(--text-2); font-size: 11px; line-height: 1.5; white-space: nowrap; }
+.lab-etf-pin-pop-total { color: var(--text-1); font-size: 12px; font-weight: 700; white-space: nowrap; }
 
 /* 2026-08-30 需求1: 正式区/淘汰区切换按钮(弹窗标题栏, 复用 zoom 按钮风格) */
 .lab-etf-pin-zone-ctl {

@@ -12305,6 +12305,18 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
   const pairOf = new Map();   // 事件 → 所属配对
   pairs.forEach((p) => { pairOf.set(p.buy, p); if (p.sell) pairOf.set(p.sell, p); });
 
+  // 卖点×N 聚合标注(2026-08-30 GHI 卖出口径展示增强): 同一 sell 日期被清仓的 buy 笔数。
+  //   后端语义=卖信号日全部持仓一笔清仓(562870 卖20260710=8笔买全清), 前端按行 1pin 逐行画,
+  //   用户只看到自己那行的 1 卖点误以为只卖 1 手 → 用「×N」直接呈现聚合规模。
+  //   一行=1买1卖, 同卖日有 N 行 → N 笔买同日被清。N 仅标注自然卖(非强平), 强平日是 cap 管理不是卖信号日。
+  const _soldBuyCountByDate = new Map();
+  pairs.forEach((p) => {
+    if (p.sell && p.sell.kind === "sell") {
+      const _d = p.sell.date;
+      _soldBuyCountByDate.set(_d, (_soldBuyCountByDate.get(_d) || 0) + 1);
+    }
+  });
+
   // 连线层: 挂 wrap 内绝对定位(与 pin 同一坐标空间, 缩放/重排时随 _placePins 同步)。
   // 需求2(2026-08-30): popover 不再挂 wrap 跟随锚点——配对详情固定显示在弹窗顶部 info 条
   // (.lab-etf-pin-infobar), 不遮挡走势与 pin。
@@ -12344,7 +12356,14 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
     if (ix === undefined || !pt) { omitted += evs.length; return; } // 日期不在窗口内/停牌, 跳过
     // pin 竖向: 同日多事件 dot 共锚点(同 (x,y)), txt 标签竖向错开不重叠不压 dot
     evs.forEach((e, ei) => {
-      const label = e.kind === "buy" ? "买" : (e.kind === "force" ? "强平" : "卖");
+      // 卖点×N(2026-08-30 GHI 卖出口径展示增强): 自然卖点标签追加「×N」, N=同 sell 日被清仓 buy 笔数
+      //   (562870 卖20260710=8笔买全清 → 所有当天卖点均显示「卖 ×8」)。N≤1 不标(单行原义无歧义);
+      //   强平(force)是 cap 仓位管理分批非卖信号日语义, 不挂 ×N; 持有中无卖(null)自然无标签。
+      let label = e.kind === "buy" ? "买" : (e.kind === "force" ? "强平" : "卖");
+      if (e.kind === "sell") {
+        const _soldN = (_soldBuyCountByDate.get(e.date) || 0);
+        if (_soldN > 1) label += " ×" + _soldN;
+      }
       const priceTxt = e.kind === "force" ? (e.navMissing ? "缺价" : (e.price != null ? e.price.toFixed(4) : "缺价")) : (e.price != null ? e.price.toFixed(4) : (e.kind === "sell" ? "缺价" : "-"));
       const pin = document.createElement("div");
       pin.className = "lab-etf-pin lab-etf-pin-" + e.kind;
@@ -12399,6 +12418,27 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
       html += `<div class="lab-etf-pin-pop-row">持有:${hd} 个交易日</div>`;
       const rpv = (bt && bf.return_pct != null) ? (+bt[bf.return_pct]) : null;
       html += `<div class="lab-etf-pin-pop-row">收益率:${(rpv != null ? ((rpv >= 0 ? "+" : "") + rpv.toFixed(2) + "%") : "-")}</div>`;
+      // 卖点×N 聚合明细(2026-08-30 GHI 卖出口径展示增强): hover 自然卖点 detail 态列出同日被清全部买点,
+      //   每笔=买入日期+本金(amount 字段按实际档位, 缺省=10000 BUY_AMOUNT)+份额(shares)+单笔盈亏(profit),
+      //   末尾「合计清仓本金 M 元」= 各 buy 买入本金之和 —— 直接消除「×N 是金额」误读。
+      //   N>1 才列(与 pin 标签 ×N 同口径); 数据取当前 zone 配对, 与「该 ETF 走势图内」一致。
+      const _sd = p.sell.date;
+      const _soldN = (_soldBuyCountByDate.get(_sd) || 0);
+      if (_soldN > 1) {
+        const _mates = pairs.filter((pp) => pp.sell && pp.sell.kind === "sell" && pp.sell.date === _sd)
+          .sort((a, b) => (a.buy.date < b.buy.date ? -1 : a.buy.date > b.buy.date ? 1 : 0));
+        let _totAmt = 0;
+        const _fmtAmt = (v) => { const _w = v / 10000; return (v >= 10000 && _w % 1 === 0) ? _w + "万" : Math.round(v).toLocaleString(); };
+        const _buyRows = _mates.map((pp) => {
+          const _bt = pp.buy.t, _bf = pp.buy.f;
+          const _amt = (_bt && _bf.amount != null && _bt[_bf.amount] != null) ? Number(_bt[_bf.amount]) : 10000;
+          _totAmt += _amt;
+          const _sh = (_bt && _bf.shares != null) ? Number(_bt[_bf.shares]) : null;
+          const _pf = (_bt && _bf.profit != null) ? Number(_bt[_bf.profit]) : null;
+          return `<div class="lab-etf-pin-pop-row lab-etf-pin-pop-subbuy">买 ${pp.buy.date} · 本金 ${_fmtAmt(_amt)} 元 · 份额 ${(_sh != null ? _sh.toFixed(2) : "-")} · ${(_pf != null ? ((_pf >= 0 ? "+" : "") + _pf.toFixed(1) + " 元") : "-")}</div>`;
+        }).join("");
+        html += `<div class="lab-etf-pin-pop-group">📌 卖信号日 ${_sd} 同日被清 <b>${_soldN}</b> 笔买(整批清仓):${_buyRows}<div class="lab-etf-pin-pop-row lab-etf-pin-pop-total">合计清仓本金 <b>${_fmtAmt(_totAmt)} 元</b></div></div>`;
+      }
     } else {
       const cp = (bt && bf.current_price != null) ? Number(bt[bf.current_price]) : null;
       html += `<div class="lab-etf-pin-pop-row">持有中 · 至今真实价:${(cp != null ? cp.toFixed(4) : "-")}</div>`;
