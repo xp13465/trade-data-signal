@@ -12218,6 +12218,9 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
   const renderZone = (zone) => {
     const events = allEvents.filter((e) => e.src === zone);
     const zoneLabel = zone === "formal" ? "正式区" : "淘汰区";
+    // 3(2026-08-30): 统一区间基准 —— 用两区并集事件日期算聚焦窗口, 切区只过滤 pin 显隐, 曲线区间两区一致
+    const uniEvDates = allEvents.map((e) => e.date).sort();
+    const dMin = uniEvDates[0], dMax = uniEvDates[uniEvDates.length - 1];
     overlay.querySelectorAll(".lab-etf-pin-zone-btn").forEach((b) => b.classList.toggle("is-active", b.dataset.zone === zone));
     // 顶部 info 条状态(需求2): 无 hover=默认提示(分区+配对计数); hover=配对详情(不遮挡 pin)
     const _setInfoDefault = () => {
@@ -12231,8 +12234,7 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
     const _setInfoDetail = (html) => { infoBar.classList.add("is-detail"); infoBar.innerHTML = html; };
 
     // pin 日期集合(用于过滤 ohlc 视图范围 + 定位坐标; 空区时自动退化为全史视图)
-    const evDates = events.map((e) => e.date).sort();
-    const dMin = evDates[0], dMax = evDates[evDates.length - 1];
+    // 3 注: dMin/dMax 已统一用两区并集(见上), 此处不再按 events 独立重算 —— 保证切区曲线区间一致
 
     // 聚焦视图: 只显示 [dMin 前 ~60 交易日, dMax 后 ~30 交易日] 窗口
     // (全史几千点对 pin 定位无增益, 窗口化让买卖/强平点更可读)
@@ -12340,7 +12342,7 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
     const evs = byDate[d];
     const pt = (ix !== undefined) ? svgPointToWrap(ix) : null;
     if (ix === undefined || !pt) { omitted += evs.length; return; } // 日期不在窗口内/停牌, 跳过
-    // pin 横排: 同日多事件水平微错
+    // pin 竖向: 同日多事件 dot 共锚点(同 (x,y)), txt 标签竖向错开不重叠不压 dot
     evs.forEach((e, ei) => {
       const label = e.kind === "buy" ? "买" : (e.kind === "force" ? "强平" : "卖");
       const priceTxt = e.kind === "force" ? (e.navMissing ? "缺价" : (e.price != null ? e.price.toFixed(4) : "缺价")) : (e.price != null ? e.price.toFixed(4) : (e.kind === "sell" ? "缺价" : "-"));
@@ -12350,7 +12352,14 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
       pins.push(pobj);
       // 热区: pin 本体 pointer-events:none, 内层 hotzone 才响应 hover(避免大热区互相遮挡)
       pin.innerHTML = `<span class="lab-etf-pin-hotzone"><span class="lab-etf-pin-dot"></span><span class="lab-etf-pin-txt">${label} ${_esc(priceTxt)}</span></span>`;
-      const hotzone = pin.querySelector(".lab-etf-pin-hotzone");
+      // 2a(2026-08-30): 同日多 pin txt 竖向错开(ei 从 x 偏移挪到 txt 的 y),dot 共锚点
+      const txtEl = pin.querySelector(".lab-etf-pin-txt");
+      const hzEl = pin.querySelector(".lab-etf-pin-hotzone");
+      if (txtEl && ei > 0) {
+        txtEl.style.top = (-13 + ei * 19) + "px";
+        if (hzEl) hzEl.style.marginTop = (-14 + ei * 19) + "px"; // 热区跟随各自 txt 竖向错开, 同日多 pin 互不遮挡 hover
+      }
+      const hotzone = hzEl;
       const pp = pairOf.get(e);
       if (pp) {
         if (e.kind === "buy") pp.pinB = pobj; else pp.pinS = pobj;
@@ -12442,9 +12451,9 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
       const pt = svgPointToWrap(p.ix);
       if (!pt) { p.el.style.display = "none"; return; } // 缩放后不在可见窗口内 → 隐藏
       p.el.style.display = "";
-      const x = pt.x + p.ei * 14;
+      const x = pt.x; // 2a(2026-08-30): 同日多 pin dot 共锚点(ei*14 横排偏移已移除, 改 txt 竖向错开)
       p.el.style.left = x.toFixed(1) + "px";
-      p.el.style.top = (pt.y - 4).toFixed(1) + "px";
+      p.el.style.top = pt.y.toFixed(1) + "px";
     });
     pairs.forEach((p) => _arrangeLine(p));      // 连线随缩放重排
     // 需求2(2026-08-30): popover 已废弃跟随定位→固定顶部 info 条; 缩放/重排仅重排 pin+连线, 不重定位 popover

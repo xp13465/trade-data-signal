@@ -2143,22 +2143,23 @@
 /* pin 点: 买=绿圆 / 卖=蓝圆 / 强平=红三角 */
 .lab-etf-pin {
   position: absolute;
-  transform: translate(-50%, -50%);
-  display: flex;
-  align-items: center;
-  gap: 5px;
+  transform: none;
+  display: block;
   white-space: nowrap;
   pointer-events: none;
   z-index: 30;
 }
 .lab-etf-pin-dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
   width: 9px;
   height: 9px;
   border-radius: 50%;
   border: 2px solid #fff;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
   background: #4da3ff;
-  flex: none;
 }
 .lab-etf-pin-buy .lab-etf-pin-dot { background: #2e9e44; }
 .lab-etf-pin-sell .lab-etf-pin-dot { background: #4da3ff; }
@@ -2167,11 +2168,14 @@
   border-radius: 2px;
   width: 12px;
   height: 12px;
-  transform: rotate(0deg);
+  transform: translate(-50%, -50%) rotate(0deg);
   clip-path: polygon(50% 0%, 100% 100%, 0 100%);
   border: none;
 }
 .lab-etf-pin-txt {
+  position: absolute;
+  left: 8px;
+  top: -13px;
   font-size: 11px;
   line-height: 1;
   padding: 2px 5px;
@@ -2241,11 +2245,11 @@
 .lab-etf-pin-line-dim { opacity: 0.12 !important; }
 /* 2026-08-30 pin 热区: pin 本体 pointer-events:none, 内层 hotzone 才响应 hover, 避免大热区互相遮挡 */
 .lab-etf-pin-hotzone {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 3px;
-  margin: -4px -3px;
+  display: block;
+  width: 82px;
+  height: 20px;
+  margin: -14px 0 0 -6px; /* 热区左上拉到锚点左侧上方与 txt 同段: dot 的绝对定位祖先为 pin(锚点=0,0),txt 挂 (8,-13);
+                             同日多 pin 时 JS 按 ei 设置 marginTop 使热区跟随各 txt 竖向错开, 互不遮挡 hover */
   cursor: pointer;
   /* pointer-events 是继承属性: 外层 .lab-etf-pin 为 none(防大热区互相遮挡), 内层 hotzone 必须显式恢复 auto 才能进命中测试,
      否则轻量化 mouseenter/mouseleave 永不触发(内审 P1-1) */
@@ -2256,7 +2260,7 @@
 .lab-etf-pin-active { z-index: 40; }
 .lab-etf-pin-active .lab-etf-pin-dot {
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.45), 0 0 8px rgba(0, 0, 0, 0.55);
-  transform: scale(1.35);
+  transform: translate(-50%, -50%) scale(1.35);
 }
 /* 2026-08-30 配对/持仓 popover: wrap 内绝对定位, 不随缩放错位 */
 .lab-etf-pin-pop {
@@ -2283,7 +2287,7 @@
   border-bottom: 1px solid var(--border);
 }
 .lab-etf-pin-pop-row { white-space: nowrap; }
-.lab-etf-pin-pop-fee { color: var(--text-4); font-size: 10px; margin-left: 4px; font-weight: 400; }
+.lab-etf-pin-pop-fee { color: var(--text-4); font-size: 12px; margin-left: 4px; font-weight: 400; }
 
 /* 2026-08-30 需求1: 正式区/淘汰区切换按钮(弹窗标题栏, 复用 zoom 按钮风格) */
 .lab-etf-pin-zone-ctl {
@@ -2336,7 +2340,7 @@
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
   overflow: auto;
 }
-.lab-etf-pin-infobar.is-detail { flex-direction: column; align-items: stretch; justify-content: center; gap: 2px; }
+.lab-etf-pin-infobar.is-detail { flex-direction: column; align-items: stretch; justify-content: center; gap: 2px; max-height: none; min-height: auto; overflow: visible; font-size: 12px; line-height: 1.6; }
 .lab-etf-pin-infobar .lab-etf-pin-pop-head { margin-bottom: 2px; padding-bottom: 2px; border-bottom: none; }
 .lab-etf-pin-infobar .lab-etf-pin-pop { min-width: 0; max-width: none; }
 .lab-etf-pin-infobar-msg {
