@@ -4663,8 +4663,11 @@ function _simBtCalcRow(t, fIdx, fp) {
 function _simBtCalcRowRealForce(t, fIdx, fp) {
   // 2026-08-30 P1-① §22 + 2026-08-30 用户准则(费率可调): GHI 强平行再按用户费率档 fp 重算一次,
   // 价格基准=真实净值(共享核内部由记录 buy_price 还原 + 强平日 accum_nav 真实净值), 费用按 fp 重算,
-  // 与 lab 弹窗 _gihForced 共享核同实现(唯一差异: 费率档)——默认档 etf_main(万0.5/最低0.1/免印花)
-  // 与 FEE_MAIN 逐位一致; 记录写回的 profit/return_pct 按 FEE_MAIN, 不可直接透传(用户改档会失真)。
+  // 与 lab 弹窗 _gihForced 共享核同实现(唯一差异: 费率档)。
+  // 首页 sim 默认档=etf_def(万3/最低5/印花万5, 见 _simBtInitFee L4574 _SIM_FEE_PRESETS.find(key==="etf_def")),
+  //   与 lab 弹窗凯利 KELLY_FEE_PRESETS 默认档 etf_main(免印花)语义不同, 勿机械同步
+  //   (对齐口径: _SIM_FEE_PRESETS 注释「本份已对齐后端模拟回测新默认(印花万5+过户沪深统一);lab.js 凯利有意保持免印花档」);
+  // 记录写回的 profit/return_pct 按 FEE_MAIN, 不可直接透传(用户改档会失真)。
   // isHolding=false: 强平行 sell_date 已重写为强平日; buyFee/sellFee=null: 费用已含于净利,
   // 渲染环对 null 显示「—」(费用已含, 与缺价行「—」同风格, §23.9 不拆分误导)。
   const etfCode = String(t[fIdx.etf_code] || "");

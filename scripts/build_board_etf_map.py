@@ -1501,7 +1501,7 @@ def main():
     # 性能优化：已有足量ETF（>=6只）的指数跳过；宽基 sh(7)/hs300(40)/csi500(35)等跳过。
     # 首次跑宽基 sz(500股)~4min + csi_div(100股)~1min，7天缓存后~1-2min。
     # 禁入: universe_rules.yaml excluded_categories.空数组(mode=empty_array) 的指数，防止 空数组被 holdings/sum_pct 填满导致 §23.6 对称校验 FAIL
-    _HOLDINGS_EXCLUDE = {"bj50", "bj_399", "csi_930820", "ftse100", "kospi"}
+    _HOLDINGS_EXCLUDE = {"bj50", "csi_930820", "ftse100", "kospi"}
     holdings_candidates = [
         iid for iid in board_ids
         if iid not in _HOLDINGS_EXCLUDE and len(out.get(iid, [])) < 6
