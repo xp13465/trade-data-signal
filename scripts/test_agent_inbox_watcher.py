@@ -12,6 +12,8 @@ build_command 形状断言 + report_is_fresh 报告有效性机检逐分支
 (或 python3 scripts/test_agent_inbox_watcher.py, 需 scripts/ 在 sys.path)
 """
 
+from __future__ import annotations
+
 import json
 import os
 import sys

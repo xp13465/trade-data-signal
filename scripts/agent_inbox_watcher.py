@@ -34,9 +34,16 @@ mtime 是否 >= 信号创建时刻(signaled_at, 容差 60s)。8-26 演进版(仅
 正常回传由 codex_review_complete.py 在写完信号后 touch 报告保证时序成立。
 """
 
+from __future__ import annotations
+
 import json
 import os
-import tomllib
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # py<3.11: 生产 plist 用 /usr/bin/python3(3.9),
+    tomllib = None           # 无 config.toml 模型探测, current_main_session_model 走回退链
+
 import re
 import subprocess
 import time
@@ -146,6 +153,8 @@ def atomic_write_signal(path: Path, payload: dict) -> None:
 
 
 def parse_config_model(config_path: Path | None = None) -> str | None:
+    if tomllib is None:  # py<3.11 生产环境: 跳过 config.toml 探测, 走会话/默认模型
+        return None
     try:
         path = config_path or Path.home() / ".codex" / "config.toml"
         data = tomllib.loads(path.read_text(encoding="utf-8"))
