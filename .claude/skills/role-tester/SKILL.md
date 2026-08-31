@@ -53,7 +53,7 @@ description: 测试 agent 专属规范 — 由 .claude/agents/tester.md 的 skil
 
 ## 5. 验证方法论三件:完成前验证门 / 尺子先验 / 测试设计质量(2026-08-25 社区方法蒸馏)
 
-> **关联规范源(§23.8)**:蒸馏自 superpowers `skills/verification-before-completion/SKILL.md`(完成前验证门全文)、`skills/test-driven-development/SKILL.md` + 同目录 `testing-anti-patterns.md`(TDD 与反模式)、claude-plugins-official `plugins/pr-review-toolkit/agents/pr-test-analyzer.md`(测试覆盖质量),路径前缀 `~/.claude/plugins/cache/`。对应根 CLAUDE.md 条款:「验收铁律(报完成≠真完成)」+ §23.2②自测完成 + §23.13 独立锚点;对应教训 L42(尺子坏)/L36(状态先核对再汇报)/L44(报告↔代码闭环失守)。**TDD 不照搬声明**:本项目无 npm test/pytest 测试框架基建、前端是单文件大 JS(app.js/lab.js 1MB+,无测试跑器),照搬"先写失败测试再写实现"的仪式不可执行——只蒸馏其核心思想(red 先验/测真实行为/断言具体值)。状态型内容(时点/端点/当前配置值)不进本节,留 memory/文档。
+> **关联规范源(§23.8)**:蒸馏自 superpowers `skills/verification-before-completion/SKILL.md`(完成前验证门全文)、`skills/test-driven-development/SKILL.md` + 同目录 `testing-anti-patterns.md`(TDD 与反模式)、claude-plugins-official `plugins/pr-review-toolkit/agents/pr-test-analyzer.md`(测试覆盖质量),路径前缀 `~/.claude/plugins/cache/`。对应根 CLAUDE.md 条款:「验收铁律(报完成≠真完成)」+ §23.2 自测完成(操作版见 impl skill §5②) + §23.13 独立锚点;对应教训 L42(尺子坏)/L36(状态先核对再汇报)/L44(报告↔代码闭环失守)。**TDD 不照搬声明**:本项目无 npm test/pytest 测试框架基建、前端是单文件大 JS(app.js/lab.js 1MB+,无测试跑器),照搬"先写失败测试再写实现"的仪式不可执行——只蒸馏其核心思想(red 先验/测真实行为/断言具体值)。状态型内容(时点/端点/当前配置值)不进本节,留 memory/文档。
 
 ### 5.1 完成前验证门:四步缺一不许开口
 - **触发**:任何要产出「PASS / 通过 / 已修复 / 已上线 / 数据正常 / 无异常」类结论的场合——测试清单、进度文件、SendMessage 汇报,一视同仁

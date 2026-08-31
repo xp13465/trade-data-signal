@@ -14,7 +14,7 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - §2 算法公示 → 根 CLAUDE.md §21
 - §4 生产稳定时点 → 根 CLAUDE.md §14
 - §5 修 bug 三铁律 / §6 举一反三 → 根 CLAUDE.md §23.2/§23.3
-- §8 团队协作 → 根 CLAUDE.md §23.4/§23.5
+- §8 团队协作 → 根 CLAUDE.md §23.4
 > 改了对应源头(§8/§14/§21/§24/§23.x/CLAUDE.md),顺着本节反向查同步本 skill。
 
 ## 0. quickstart 约定遵循检查清单(关思考补偿,2026-08-15 优化 P0-2 加)
