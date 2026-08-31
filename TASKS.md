@@ -8,7 +8,7 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-31 15:5x(会话收尾落档,准备 compact;在跑 agent=**0**,巡检 cron 已全删,仅存 16:07 会话级一次性提醒 43221664).本轮终态:
+**最后更新**:2026-08-31 20:5x(收尾链全闭环:两连 merge+外审 PASS+tag v1.1.12 已打;在跑 agent=**0**,巡检 cron=0).本轮终态:
 - **✅ sim-etf-pin-align 全链闭环上线**(feat/sim-etf-pin-align→main **2e5e32746**,版本串 a520;§0 三域名过,验 min 用根路径 /app.min.js 非 /static/ 前缀;口径边界 B 落档 app.js:4501)
 - **✅ zcode 代班秘书角色建立**(charter 上 main **81d4ed411**;用户确认+派活后才开工,当前待用户派)
 - **✅ codex ref 链审计+四项拍板全执行完**(用户"听建议"全做):审计=11 ref 全处置(8 PASS+2 FAIL+1 BLOCKED 全闭环),根因=回传链机制断点非清理疏忽;**A codex-ref-cleanup 完成**(feat/codex-ref-cleanup→ca745c2ab,验收过:协议补句/done-list 8-27-002 条目/refs 终态 0 req+4 resp consumed/43 .failed 镜像落档后删/2.79GB 释放/8-30-002 复算报告 docs/kelly/analysis/kelly-card-vs-popup-p12-p13-recompute-2026-08-31.md P1-2 48/48 逐位一致);**B watcher-inbox-fix 完成**(feat/watcher-inbox-fix→05e1f6562 机检正确版+41e4a27eb py3.9 tomllib 兼容,reviewer **PASS**,watcher 已重启新 PID 38806 心跳正常)
