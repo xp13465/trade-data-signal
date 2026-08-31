@@ -93,7 +93,7 @@ const LAB_SYMBOLS = [
   "_kellyIsShEtf", "_kellyRecomputeTrade",
   "_kellyComputeStats", "_kellyMaxConcurrentCapital", "_kellyMaxDrawdown", "_kellyMaxConcurrent",
   "_kellyAnnualizedReturn", "_kellyYearsFromTrades", "_kellyDateDiffDays", "_kellyComputeKelly",
-  "_kellyAihlineCalSpan", "_kellyAihlineRealize", "_kellyAihlineDaySpan",
+  "_kellyAihlineCalSpan", "_kellyAihlineRealize", "_kellyAihlineRealizeReal", "_kellyAihlineDaySpan",
   "_kellyAihlineFifoCap", "_kellyAihlineP3dCap", "_kellyAihlineHoldCap",
   "_kellyAihlineSim", "_kellyAihlineApply",
 ];
@@ -121,6 +121,7 @@ vm.runInContext(`
   var AIHLINE_CAL_RATIO = 1.498;     // 日历日/交易日中位比
   var _KGIHP3_DAYS = 3;              // P 保护窗口: 持有≤3天 视为年轻仓
   var KELLY_FEE_PRESETS = [];        // 不消费(费率参数直接传), 占位防引用
+  var _kellyRealNav = null;          // real 链 nav 映射(harness: 由下方 __REALNAV__ 注入 accum_nav_map, 同源 lab.js 模块级变量)
 `, ctx);
 
 console.log("Extracting common.js symbols...");
@@ -147,11 +148,17 @@ vm.runInContext(`
   for (var i = 0; i < __S06__.daily.length; i++) _tdsS06ByDate[_tdsS06NormalizeDate(__S06__.daily[i].date)] = __S06__.daily[i];
 `, Object.assign(ctx, { __S06__: s06 }));
 
+// --- Inject real nav (harness fix 2026-08-31): lab.js real 链 _kellyAihlineRealizeReal 读模块级 _kellyRealNav,
+//     本脚本写于 real 切换(8-30)之前, 此处仅补符号提取与数据注入(accum_nav_map 同源 static-site/data), 对比逻辑零改动 ---
+const realNavDoc = JSON.parse(fs.readFileSync(path.join(ROOT, "static-site/data/accum_nav_map.json"), "utf8"));
+
 // --- Inject feature data ---
 vm.runInContext(`
   __stubState.kellyLossFeatData = __FEAT__;
   ((__FEAT__.meta && __FEAT__.meta.rules) || []).forEach(function (r) { __stubState.kellyLossSpecMap[r.key] = r; });
 `, Object.assign(ctx, { __FEAT__: featDoc }));
+vm.runInContext("_kellyRealNav = __REALNAV__;", Object.assign(ctx, { __REALNAV__: realNavDoc }));
+
 
 // --- Build trade dims ---
 const dims = vm.runInContext("_kellyBuildTradeDims(__TD__, __FIDX__)", Object.assign(ctx, { __TD__: td, __FIDX__: fIdx }));

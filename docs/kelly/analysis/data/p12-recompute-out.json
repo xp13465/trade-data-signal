@@ -1,0 +1,2867 @@
+{
+ "generated_at": "2026-08-31T07:28:55.417Z",
+ "trades_generated_at": "2026-08-31 07:17",
+ "p12": {
+  "cases": 99,
+  "same": 98,
+  "diff": 1,
+  "struct_extra": 50,
+  "rows": [
+   {
+    "kind": "real_nav_hit",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -5528.4023,
+     "rp": -55.284,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -5528.4023,
+     "rp": -55.284,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -5540.5861,
+     "rp": -55.4059,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -5540.5861,
+     "rp": -55.4059,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6118.2185,
+     "rp": -61.1822,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6118.2185,
+     "rp": -61.1822,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6247.1548,
+     "rp": -62.4715,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6247.1548,
+     "rp": -62.4715,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6152.1834,
+     "rp": -61.5218,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6152.1834,
+     "rp": -61.5218,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6124.7406,
+     "rp": -61.2474,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6124.7406,
+     "rp": -61.2474,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6142.7647,
+     "rp": -61.4276,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6142.7647,
+     "rp": -61.4276,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6273.4484,
+     "rp": -62.7345,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6273.4484,
+     "rp": -62.7345,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4236.9819,
+     "rp": -42.3698,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4236.9819,
+     "rp": -42.3698,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4405.2339,
+     "rp": -44.0523,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4405.2339,
+     "rp": -44.0523,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4382.3437,
+     "rp": -43.8234,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4382.3437,
+     "rp": -43.8234,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4357.2069,
+     "rp": -43.5721,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4357.2069,
+     "rp": -43.5721,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4237.6574,
+     "rp": -42.3766,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4237.6574,
+     "rp": -42.3766,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4489.4028,
+     "rp": -44.894,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4489.4028,
+     "rp": -44.894,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4192.6706,
+     "rp": -41.9267,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4192.6706,
+     "rp": -41.9267,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4312.184,
+     "rp": -43.1218,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4312.184,
+     "rp": -43.1218,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "G",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -5528.4023,
+     "rp": -55.284,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -5528.4023,
+     "rp": -55.284,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -5540.5861,
+     "rp": -55.4059,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -5540.5861,
+     "rp": -55.4059,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6118.2185,
+     "rp": -61.1822,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6118.2185,
+     "rp": -61.1822,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6247.1548,
+     "rp": -62.4715,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6247.1548,
+     "rp": -62.4715,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6152.1834,
+     "rp": -61.5218,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6152.1834,
+     "rp": -61.5218,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6124.7406,
+     "rp": -61.2474,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6124.7406,
+     "rp": -61.2474,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6142.7647,
+     "rp": -61.4276,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6142.7647,
+     "rp": -61.4276,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6273.4484,
+     "rp": -62.7345,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6273.4484,
+     "rp": -62.7345,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4236.9819,
+     "rp": -42.3698,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4236.9819,
+     "rp": -42.3698,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4405.2339,
+     "rp": -44.0523,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4405.2339,
+     "rp": -44.0523,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4382.3437,
+     "rp": -43.8234,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4382.3437,
+     "rp": -43.8234,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4357.2069,
+     "rp": -43.5721,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4357.2069,
+     "rp": -43.5721,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4237.6574,
+     "rp": -42.3766,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4237.6574,
+     "rp": -42.3766,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4489.4028,
+     "rp": -44.894,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4489.4028,
+     "rp": -44.894,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4192.6706,
+     "rp": -41.9267,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4192.6706,
+     "rp": -41.9267,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4312.184,
+     "rp": -43.1218,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4312.184,
+     "rp": -43.1218,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "H",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -5528.4023,
+     "rp": -55.284,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -5528.4023,
+     "rp": -55.284,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -5540.5861,
+     "rp": -55.4059,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -5540.5861,
+     "rp": -55.4059,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6118.2185,
+     "rp": -61.1822,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6118.2185,
+     "rp": -61.1822,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6247.1548,
+     "rp": -62.4715,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6247.1548,
+     "rp": -62.4715,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6152.1834,
+     "rp": -61.5218,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6152.1834,
+     "rp": -61.5218,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6124.7406,
+     "rp": -61.2474,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6124.7406,
+     "rp": -61.2474,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6142.7647,
+     "rp": -61.4276,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6142.7647,
+     "rp": -61.4276,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -6273.4484,
+     "rp": -62.7345,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -6273.4484,
+     "rp": -62.7345,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4236.9819,
+     "rp": -42.3698,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4236.9819,
+     "rp": -42.3698,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4405.2339,
+     "rp": -44.0523,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4405.2339,
+     "rp": -44.0523,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4382.3437,
+     "rp": -43.8234,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4382.3437,
+     "rp": -43.8234,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4357.2069,
+     "rp": -43.5721,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4357.2069,
+     "rp": -43.5721,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4237.6574,
+     "rp": -42.3766,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4237.6574,
+     "rp": -42.3766,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4489.4028,
+     "rp": -44.894,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4489.4028,
+     "rp": -44.894,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4192.6706,
+     "rp": -41.9267,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4192.6706,
+     "rp": -41.9267,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "real_nav_hit",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "20190612",
+    "common": {
+     "pr": -4312.184,
+     "rp": -43.1218,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "lab": {
+     "pr": -4312.184,
+     "rp": -43.1218,
+     "hd": 0,
+     "sell_price": 1.0128861
+    },
+    "field_diffs": [],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "real_nav_missing",
+    "mode": "I",
+    "etf": "512480",
+    "dt": "19990101",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "edge_null_sel",
+    "mode": "",
+    "etf": "",
+    "dt": "20260801",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "__threw__": "Cannot read properties of null (reading 'buy_date')"
+    },
+    "field_diffs": [
+     {
+      "field": "pr",
+      "common": null
+     },
+     {
+      "field": "rp",
+      "common": null
+     },
+     {
+      "field": "hd",
+      "common": 0
+     },
+     {
+      "field": "sell_price",
+      "common": 0
+     },
+     {
+      "field": "flag",
+      "common": "nav_missing"
+     }
+    ],
+    "struct_extra_keys": []
+   },
+   {
+    "kind": "edge_no_code",
+    "mode": "",
+    "etf": "",
+    "dt": "20260801",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   },
+   {
+    "kind": "edge_buy_price_0",
+    "mode": "",
+    "etf": "510300",
+    "dt": "20260801",
+    "common": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0
+    },
+    "lab": {
+     "pr": null,
+     "rp": null,
+     "hd": 0,
+     "flag": "nav_missing",
+     "sell_price": 0,
+     "closed": null
+    },
+    "field_diffs": [],
+    "struct_extra_keys": [
+     "closed"
+    ]
+   }
+  ]
+ },
+ "p13": {
+  "rows": [
+   {
+    "mode": "A",
+    "period": "all",
+    "popup_fixed_total": 611,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 611,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "A",
+    "period": "y1",
+    "popup_fixed_total": 80,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 80,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "A",
+    "period": "y3",
+    "popup_fixed_total": 209,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 209,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "A",
+    "period": "y5",
+    "popup_fixed_total": 336,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 336,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "A",
+    "period": "y10",
+    "popup_fixed_total": 500,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 500,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "A",
+    "period": "all",
+    "popup_fixed_total": 611,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 611,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "B",
+    "period": "all",
+    "popup_fixed_total": 611,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 611,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "B",
+    "period": "y1",
+    "popup_fixed_total": 80,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 80,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "B",
+    "period": "y3",
+    "popup_fixed_total": 209,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 209,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "B",
+    "period": "y5",
+    "popup_fixed_total": 336,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 336,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "B",
+    "period": "y10",
+    "popup_fixed_total": 500,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 500,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "B",
+    "period": "all",
+    "popup_fixed_total": 611,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 611,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "C",
+    "period": "all",
+    "popup_fixed_total": 611,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 611,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "C",
+    "period": "y1",
+    "popup_fixed_total": 80,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 80,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "C",
+    "period": "y3",
+    "popup_fixed_total": 209,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 209,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "C",
+    "period": "y5",
+    "popup_fixed_total": 336,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 336,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "C",
+    "period": "y10",
+    "popup_fixed_total": 500,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 500,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "C",
+    "period": "all",
+    "popup_fixed_total": 611,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 611,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "D",
+    "period": "all",
+    "popup_fixed_total": 611,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 611,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "D",
+    "period": "y1",
+    "popup_fixed_total": 80,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 80,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "D",
+    "period": "y3",
+    "popup_fixed_total": 209,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 209,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "D",
+    "period": "y5",
+    "popup_fixed_total": 336,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 336,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "D",
+    "period": "y10",
+    "popup_fixed_total": 500,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 500,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "D",
+    "period": "all",
+    "popup_fixed_total": 611,
+    "popup_fixed_holding_raw": 5,
+    "card_n": 611,
+    "card_holding": 5,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "E",
+    "period": "all",
+    "popup_fixed_total": 611,
+    "popup_fixed_holding_raw": 2,
+    "card_n": 611,
+    "card_holding": 2,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "E",
+    "period": "y1",
+    "popup_fixed_total": 80,
+    "popup_fixed_holding_raw": 2,
+    "card_n": 80,
+    "card_holding": 2,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "E",
+    "period": "y3",
+    "popup_fixed_total": 209,
+    "popup_fixed_holding_raw": 2,
+    "card_n": 209,
+    "card_holding": 2,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "E",
+    "period": "y5",
+    "popup_fixed_total": 336,
+    "popup_fixed_holding_raw": 2,
+    "card_n": 336,
+    "card_holding": 2,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "E",
+    "period": "y10",
+    "popup_fixed_total": 500,
+    "popup_fixed_holding_raw": 2,
+    "card_n": 500,
+    "card_holding": 2,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "E",
+    "period": "all",
+    "popup_fixed_total": 611,
+    "popup_fixed_holding_raw": 2,
+    "card_n": 611,
+    "card_holding": 2,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "F",
+    "period": "all",
+    "popup_fixed_total": 611,
+    "popup_fixed_holding_raw": 6,
+    "card_n": 611,
+    "card_holding": 6,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "F",
+    "period": "y1",
+    "popup_fixed_total": 80,
+    "popup_fixed_holding_raw": 6,
+    "card_n": 80,
+    "card_holding": 6,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "F",
+    "period": "y3",
+    "popup_fixed_total": 209,
+    "popup_fixed_holding_raw": 6,
+    "card_n": 209,
+    "card_holding": 6,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "F",
+    "period": "y5",
+    "popup_fixed_total": 336,
+    "popup_fixed_holding_raw": 6,
+    "card_n": 336,
+    "card_holding": 6,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "F",
+    "period": "y10",
+    "popup_fixed_total": 500,
+    "popup_fixed_holding_raw": 6,
+    "card_n": 500,
+    "card_holding": 6,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "F",
+    "period": "all",
+    "popup_fixed_total": 611,
+    "popup_fixed_holding_raw": 6,
+    "card_n": 611,
+    "card_holding": 6,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "G",
+    "period": "all",
+    "popup_fixed_total": 647,
+    "popup_fixed_holding_raw": 50,
+    "card_n": 647,
+    "card_holding": 10,
+    "total_eq": true,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "G",
+    "period": "y1",
+    "popup_fixed_total": 85,
+    "popup_fixed_holding_raw": 36,
+    "card_n": 85,
+    "card_holding": 10,
+    "total_eq": true,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "G",
+    "period": "y3",
+    "popup_fixed_total": 214,
+    "popup_fixed_holding_raw": 49,
+    "card_n": 214,
+    "card_holding": 10,
+    "total_eq": true,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "G",
+    "period": "y5",
+    "popup_fixed_total": 341,
+    "popup_fixed_holding_raw": 50,
+    "card_n": 341,
+    "card_holding": 10,
+    "total_eq": true,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "G",
+    "period": "y10",
+    "popup_fixed_total": 535,
+    "popup_fixed_holding_raw": 50,
+    "card_n": 535,
+    "card_holding": 10,
+    "total_eq": true,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "G",
+    "period": "all",
+    "popup_fixed_total": 647,
+    "popup_fixed_holding_raw": 50,
+    "card_n": 647,
+    "card_holding": 10,
+    "total_eq": true,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "H",
+    "period": "all",
+    "popup_fixed_total": 647,
+    "popup_fixed_holding_raw": 14,
+    "card_n": 373,
+    "card_holding": 5,
+    "total_eq": false,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "H",
+    "period": "y1",
+    "popup_fixed_total": 85,
+    "popup_fixed_holding_raw": 14,
+    "card_n": 38,
+    "card_holding": 5,
+    "total_eq": false,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "H",
+    "period": "y3",
+    "popup_fixed_total": 214,
+    "popup_fixed_holding_raw": 14,
+    "card_n": 96,
+    "card_holding": 5,
+    "total_eq": false,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "H",
+    "period": "y5",
+    "popup_fixed_total": 341,
+    "popup_fixed_holding_raw": 14,
+    "card_n": 173,
+    "card_holding": 5,
+    "total_eq": false,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "H",
+    "period": "y10",
+    "popup_fixed_total": 535,
+    "popup_fixed_holding_raw": 14,
+    "card_n": 287,
+    "card_holding": 5,
+    "total_eq": false,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "H",
+    "period": "all",
+    "popup_fixed_total": 647,
+    "popup_fixed_holding_raw": 14,
+    "card_n": 373,
+    "card_holding": 5,
+    "total_eq": false,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "I",
+    "period": "all",
+    "popup_fixed_total": 647,
+    "popup_fixed_holding_raw": 42,
+    "card_n": 647,
+    "card_holding": 9,
+    "total_eq": true,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "I",
+    "period": "y1",
+    "popup_fixed_total": 85,
+    "popup_fixed_holding_raw": 30,
+    "card_n": 85,
+    "card_holding": 9,
+    "total_eq": true,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "I",
+    "period": "y3",
+    "popup_fixed_total": 214,
+    "popup_fixed_holding_raw": 41,
+    "card_n": 214,
+    "card_holding": 9,
+    "total_eq": true,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "I",
+    "period": "y5",
+    "popup_fixed_total": 341,
+    "popup_fixed_holding_raw": 42,
+    "card_n": 341,
+    "card_holding": 9,
+    "total_eq": true,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "I",
+    "period": "y10",
+    "popup_fixed_total": 535,
+    "popup_fixed_holding_raw": 42,
+    "card_n": 535,
+    "card_holding": 9,
+    "total_eq": true,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "I",
+    "period": "all",
+    "popup_fixed_total": 647,
+    "popup_fixed_holding_raw": 42,
+    "card_n": 647,
+    "card_holding": 9,
+    "total_eq": true,
+    "holding_note": "GIH: 卡面=gihsim强平后持仓, 弹窗=原始未卖行(语义本不同, 弹窗不做sim)"
+   },
+   {
+    "mode": "J",
+    "period": "all",
+    "popup_fixed_total": 611,
+    "popup_fixed_holding_raw": 7,
+    "card_n": 611,
+    "card_holding": 7,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "J",
+    "period": "y1",
+    "popup_fixed_total": 80,
+    "popup_fixed_holding_raw": 7,
+    "card_n": 80,
+    "card_holding": 7,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "J",
+    "period": "y3",
+    "popup_fixed_total": 209,
+    "popup_fixed_holding_raw": 7,
+    "card_n": 209,
+    "card_holding": 7,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "J",
+    "period": "y5",
+    "popup_fixed_total": 336,
+    "popup_fixed_holding_raw": 7,
+    "card_n": 336,
+    "card_holding": 7,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "J",
+    "period": "y10",
+    "popup_fixed_total": 500,
+    "popup_fixed_holding_raw": 7,
+    "card_n": 500,
+    "card_holding": 7,
+    "total_eq": true,
+    "holding_note": "一致"
+   },
+   {
+    "mode": "J",
+    "period": "all",
+    "popup_fixed_total": 611,
+    "popup_fixed_holding_raw": 7,
+    "card_n": 611,
+    "card_holding": 7,
+    "total_eq": true,
+    "holding_note": "一致"
+   }
+  ],
+  "total_eq": 54,
+  "total_neq": 6
+ }
+}

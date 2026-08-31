@@ -1,0 +1,548 @@
+{
+ "generated_at": "2026-08-31T07:18:45.153Z",
+ "trades_generated_at": "2026-08-31 07:17",
+ "s06_snapshot_at": "2026-08-28T21:16:31",
+ "baseline": "卡面=S06动态+posCapK1+每日池+(G/H/I套GIH sim b1); 弹窗=静态NEW14+cutoff+posCapK1",
+ "rows": [
+  {
+   "mode": "A",
+   "period": "all",
+   "card_holding": 5,
+   "card_maxconc": 10,
+   "card_n": 611,
+   "pop_holding": 3,
+   "pop_total": 431
+  },
+  {
+   "mode": "A",
+   "period": "y1",
+   "card_holding": 5,
+   "card_maxconc": 10,
+   "card_n": 80,
+   "pop_holding": 3,
+   "pop_total": 57
+  },
+  {
+   "mode": "A",
+   "period": "y3",
+   "card_holding": 5,
+   "card_maxconc": 10,
+   "card_n": 209,
+   "pop_holding": 3,
+   "pop_total": 187
+  },
+  {
+   "mode": "A",
+   "period": "y5",
+   "card_holding": 5,
+   "card_maxconc": 10,
+   "card_n": 336,
+   "pop_holding": 3,
+   "pop_total": 279
+  },
+  {
+   "mode": "A",
+   "period": "y10",
+   "card_holding": 5,
+   "card_maxconc": 10,
+   "card_n": 500,
+   "pop_holding": 3,
+   "pop_total": 407
+  },
+  {
+   "mode": "A",
+   "period": "all",
+   "card_holding": 5,
+   "card_maxconc": 10,
+   "card_n": 611,
+   "pop_holding": 3,
+   "pop_total": 431
+  },
+  {
+   "mode": "B",
+   "period": "all",
+   "card_holding": 5,
+   "card_maxconc": 9,
+   "card_n": 611,
+   "pop_holding": 3,
+   "pop_total": 431
+  },
+  {
+   "mode": "B",
+   "period": "y1",
+   "card_holding": 5,
+   "card_maxconc": 9,
+   "card_n": 80,
+   "pop_holding": 3,
+   "pop_total": 57
+  },
+  {
+   "mode": "B",
+   "period": "y3",
+   "card_holding": 5,
+   "card_maxconc": 9,
+   "card_n": 209,
+   "pop_holding": 3,
+   "pop_total": 187
+  },
+  {
+   "mode": "B",
+   "period": "y5",
+   "card_holding": 5,
+   "card_maxconc": 9,
+   "card_n": 336,
+   "pop_holding": 3,
+   "pop_total": 279
+  },
+  {
+   "mode": "B",
+   "period": "y10",
+   "card_holding": 5,
+   "card_maxconc": 9,
+   "card_n": 500,
+   "pop_holding": 3,
+   "pop_total": 407
+  },
+  {
+   "mode": "B",
+   "period": "all",
+   "card_holding": 5,
+   "card_maxconc": 9,
+   "card_n": 611,
+   "pop_holding": 3,
+   "pop_total": 431
+  },
+  {
+   "mode": "C",
+   "period": "all",
+   "card_holding": 5,
+   "card_maxconc": 9,
+   "card_n": 611,
+   "pop_holding": 3,
+   "pop_total": 431
+  },
+  {
+   "mode": "C",
+   "period": "y1",
+   "card_holding": 5,
+   "card_maxconc": 9,
+   "card_n": 80,
+   "pop_holding": 3,
+   "pop_total": 57
+  },
+  {
+   "mode": "C",
+   "period": "y3",
+   "card_holding": 5,
+   "card_maxconc": 9,
+   "card_n": 209,
+   "pop_holding": 3,
+   "pop_total": 187
+  },
+  {
+   "mode": "C",
+   "period": "y5",
+   "card_holding": 5,
+   "card_maxconc": 9,
+   "card_n": 336,
+   "pop_holding": 3,
+   "pop_total": 279
+  },
+  {
+   "mode": "C",
+   "period": "y10",
+   "card_holding": 5,
+   "card_maxconc": 9,
+   "card_n": 500,
+   "pop_holding": 3,
+   "pop_total": 407
+  },
+  {
+   "mode": "C",
+   "period": "all",
+   "card_holding": 5,
+   "card_maxconc": 9,
+   "card_n": 611,
+   "pop_holding": 3,
+   "pop_total": 431
+  },
+  {
+   "mode": "D",
+   "period": "all",
+   "card_holding": 5,
+   "card_maxconc": 10,
+   "card_n": 611,
+   "pop_holding": 3,
+   "pop_total": 431
+  },
+  {
+   "mode": "D",
+   "period": "y1",
+   "card_holding": 5,
+   "card_maxconc": 9,
+   "card_n": 80,
+   "pop_holding": 3,
+   "pop_total": 57
+  },
+  {
+   "mode": "D",
+   "period": "y3",
+   "card_holding": 5,
+   "card_maxconc": 9,
+   "card_n": 209,
+   "pop_holding": 3,
+   "pop_total": 187
+  },
+  {
+   "mode": "D",
+   "period": "y5",
+   "card_holding": 5,
+   "card_maxconc": 9,
+   "card_n": 336,
+   "pop_holding": 3,
+   "pop_total": 279
+  },
+  {
+   "mode": "D",
+   "period": "y10",
+   "card_holding": 5,
+   "card_maxconc": 10,
+   "card_n": 500,
+   "pop_holding": 3,
+   "pop_total": 407
+  },
+  {
+   "mode": "D",
+   "period": "all",
+   "card_holding": 5,
+   "card_maxconc": 10,
+   "card_n": 611,
+   "pop_holding": 3,
+   "pop_total": 431
+  },
+  {
+   "mode": "E",
+   "period": "all",
+   "card_holding": 2,
+   "card_maxconc": 5,
+   "card_n": 611,
+   "pop_holding": 3,
+   "pop_total": 431
+  },
+  {
+   "mode": "E",
+   "period": "y1",
+   "card_holding": 2,
+   "card_maxconc": 5,
+   "card_n": 80,
+   "pop_holding": 3,
+   "pop_total": 57
+  },
+  {
+   "mode": "E",
+   "period": "y3",
+   "card_holding": 2,
+   "card_maxconc": 5,
+   "card_n": 209,
+   "pop_holding": 3,
+   "pop_total": 187
+  },
+  {
+   "mode": "E",
+   "period": "y5",
+   "card_holding": 2,
+   "card_maxconc": 5,
+   "card_n": 336,
+   "pop_holding": 3,
+   "pop_total": 279
+  },
+  {
+   "mode": "E",
+   "period": "y10",
+   "card_holding": 2,
+   "card_maxconc": 5,
+   "card_n": 500,
+   "pop_holding": 3,
+   "pop_total": 407
+  },
+  {
+   "mode": "E",
+   "period": "all",
+   "card_holding": 2,
+   "card_maxconc": 5,
+   "card_n": 611,
+   "pop_holding": 3,
+   "pop_total": 431
+  },
+  {
+   "mode": "F",
+   "period": "all",
+   "card_holding": 6,
+   "card_maxconc": 14,
+   "card_n": 611,
+   "pop_holding": 3,
+   "pop_total": 431
+  },
+  {
+   "mode": "F",
+   "period": "y1",
+   "card_holding": 6,
+   "card_maxconc": 13,
+   "card_n": 80,
+   "pop_holding": 3,
+   "pop_total": 57
+  },
+  {
+   "mode": "F",
+   "period": "y3",
+   "card_holding": 6,
+   "card_maxconc": 14,
+   "card_n": 209,
+   "pop_holding": 3,
+   "pop_total": 187
+  },
+  {
+   "mode": "F",
+   "period": "y5",
+   "card_holding": 6,
+   "card_maxconc": 14,
+   "card_n": 336,
+   "pop_holding": 3,
+   "pop_total": 279
+  },
+  {
+   "mode": "F",
+   "period": "y10",
+   "card_holding": 6,
+   "card_maxconc": 14,
+   "card_n": 500,
+   "pop_holding": 3,
+   "pop_total": 407
+  },
+  {
+   "mode": "F",
+   "period": "all",
+   "card_holding": 6,
+   "card_maxconc": 14,
+   "card_n": 611,
+   "pop_holding": 3,
+   "pop_total": 431
+  },
+  {
+   "mode": "J",
+   "period": "all",
+   "card_holding": 7,
+   "card_maxconc": 18,
+   "card_n": 611,
+   "pop_holding": 3,
+   "pop_total": 431
+  },
+  {
+   "mode": "J",
+   "period": "y1",
+   "card_holding": 7,
+   "card_maxconc": 16,
+   "card_n": 80,
+   "pop_holding": 3,
+   "pop_total": 57
+  },
+  {
+   "mode": "J",
+   "period": "y3",
+   "card_holding": 7,
+   "card_maxconc": 18,
+   "card_n": 209,
+   "pop_holding": 3,
+   "pop_total": 187
+  },
+  {
+   "mode": "J",
+   "period": "y5",
+   "card_holding": 7,
+   "card_maxconc": 18,
+   "card_n": 336,
+   "pop_holding": 3,
+   "pop_total": 279
+  },
+  {
+   "mode": "J",
+   "period": "y10",
+   "card_holding": 7,
+   "card_maxconc": 18,
+   "card_n": 500,
+   "pop_holding": 3,
+   "pop_total": 407
+  },
+  {
+   "mode": "J",
+   "period": "all",
+   "card_holding": 7,
+   "card_maxconc": 18,
+   "card_n": 611,
+   "pop_holding": 3,
+   "pop_total": 431
+  },
+  {
+   "mode": "G",
+   "period": "all",
+   "card_holding": 10,
+   "card_maxconc": 10,
+   "card_n": 647,
+   "pop_holding": 29,
+   "pop_total": 431
+  },
+  {
+   "mode": "G",
+   "period": "y1",
+   "card_holding": 10,
+   "card_maxconc": 10,
+   "card_n": 85,
+   "pop_holding": 19,
+   "pop_total": 57
+  },
+  {
+   "mode": "G",
+   "period": "y3",
+   "card_holding": 10,
+   "card_maxconc": 10,
+   "card_n": 214,
+   "pop_holding": 28,
+   "pop_total": 187
+  },
+  {
+   "mode": "G",
+   "period": "y5",
+   "card_holding": 10,
+   "card_maxconc": 10,
+   "card_n": 341,
+   "pop_holding": 29,
+   "pop_total": 279
+  },
+  {
+   "mode": "G",
+   "period": "y10",
+   "card_holding": 10,
+   "card_maxconc": 10,
+   "card_n": 535,
+   "pop_holding": 29,
+   "pop_total": 407
+  },
+  {
+   "mode": "G",
+   "period": "all",
+   "card_holding": 10,
+   "card_maxconc": 10,
+   "card_n": 647,
+   "pop_holding": 29,
+   "pop_total": 431
+  },
+  {
+   "mode": "H",
+   "period": "all",
+   "card_holding": 5,
+   "card_maxconc": 5,
+   "card_n": 373,
+   "pop_holding": 5,
+   "pop_total": 431
+  },
+  {
+   "mode": "H",
+   "period": "y1",
+   "card_holding": 5,
+   "card_maxconc": 5,
+   "card_n": 38,
+   "pop_holding": 5,
+   "pop_total": 57
+  },
+  {
+   "mode": "H",
+   "period": "y3",
+   "card_holding": 5,
+   "card_maxconc": 5,
+   "card_n": 96,
+   "pop_holding": 5,
+   "pop_total": 187
+  },
+  {
+   "mode": "H",
+   "period": "y5",
+   "card_holding": 5,
+   "card_maxconc": 5,
+   "card_n": 173,
+   "pop_holding": 5,
+   "pop_total": 279
+  },
+  {
+   "mode": "H",
+   "period": "y10",
+   "card_holding": 5,
+   "card_maxconc": 5,
+   "card_n": 287,
+   "pop_holding": 5,
+   "pop_total": 407
+  },
+  {
+   "mode": "H",
+   "period": "all",
+   "card_holding": 5,
+   "card_maxconc": 5,
+   "card_n": 373,
+   "pop_holding": 5,
+   "pop_total": 431
+  },
+  {
+   "mode": "I",
+   "period": "all",
+   "card_holding": 9,
+   "card_maxconc": 9,
+   "card_n": 647,
+   "pop_holding": 25,
+   "pop_total": 431
+  },
+  {
+   "mode": "I",
+   "period": "y1",
+   "card_holding": 9,
+   "card_maxconc": 9,
+   "card_n": 85,
+   "pop_holding": 17,
+   "pop_total": 57
+  },
+  {
+   "mode": "I",
+   "period": "y3",
+   "card_holding": 9,
+   "card_maxconc": 9,
+   "card_n": 214,
+   "pop_holding": 24,
+   "pop_total": 187
+  },
+  {
+   "mode": "I",
+   "period": "y5",
+   "card_holding": 9,
+   "card_maxconc": 9,
+   "card_n": 341,
+   "pop_holding": 25,
+   "pop_total": 279
+  },
+  {
+   "mode": "I",
+   "period": "y10",
+   "card_holding": 9,
+   "card_maxconc": 9,
+   "card_n": 535,
+   "pop_holding": 25,
+   "pop_total": 407
+  },
+  {
+   "mode": "I",
+   "period": "all",
+   "card_holding": 9,
+   "card_maxconc": 9,
+   "card_n": 647,
+   "pop_holding": 25,
+   "pop_total": 431
+  }
+ ]
+}
