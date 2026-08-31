@@ -25560,7 +25560,13 @@ async function renderFund() {
   // 根据 subtab 渲染对应内容
   await loadEcharts();   // P0-1: 子 render（renderEtfScore/renderOffshoreFund）用 mkCard+echarts，按需 await
   if (state.subtab === "offshore") await renderOffshoreFund(subContent);
-  else await renderEtfScore(subContent); // 默认 场内ETF
+  else {
+    // P0 perf(2026-08-31): tab 预取——进入 ETF 评分 tab 即后台预取 hold JSON(7MB, br后~713KB, 懒加载)。
+    // fire-and-forget 不 await、不阻塞渲染; _ensureHoldLoaded 有 promise 去重(holdLoading 防并发重复 fetch,
+    // holdLoaded 防重复), 重复调用零开销; 用户点"持有"chip 时数据已在后台拉好、R2/浏览器缓存热, 秒显。
+    _ensureHoldLoaded();
+    await renderEtfScore(subContent); // 默认 场内ETF
+  }
 }
 
 // ============ 场外基金评分排行（Phase B/C 全量化 #79 方案C, 2026-08-22） ============
