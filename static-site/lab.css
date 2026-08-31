@@ -1821,6 +1821,7 @@
 .lab-sigkelly-trades-etfname-sub { font-size: 10px; color: var(--text-3); font-weight: 400; line-height: 1.4; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 2026-08-30 列合并: 每笔金额内嵌份额列下方小字(原独立金额列删除) */
 .lab-sigkelly-trades-amt-sub { font-size: 10px; color: var(--text-3); font-weight: 400; line-height: 1.4; }
+.lab-sigkelly-trades-price-sub { font-size: 10px; color: var(--text-3); font-weight: 400; line-height: 1.4; }
 .lab-sigkelly-trades-more { text-align: center; color: var(--text-4); padding: 8px; font-size: 11px; }
 .lab-sigkelly-modal-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-3); }
 .lab-sigkelly-modal-pagination button { background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; padding: 4px 12px; font-size: 12px; color: var(--text-2); cursor: pointer; }
@@ -1833,11 +1834,11 @@
 /* 持仓中trade(预估盈亏)样式: 行浅色背景+虚线边框, 预估数值斜体, 橙色系标签 */
 .lab-sigkelly-holding { white-space: nowrap; }
 .lab-sigkelly-hc-n { color: #fa8c16; font-size: 12px; }
-.lab-sigkelly-holding-row { background: rgba(250,173,20,0.10); }
-.lab-sigkelly-holding-row:hover { background: rgba(250,173,20,0.16); }
+.lab-sigkelly-holding-row { background: rgba(250,173,20,0.05); }
+.lab-sigkelly-holding-row:hover { background: rgba(250,173,20,0.08); }
 .lab-sigkelly-holding-row td { border-bottom: 1px dashed rgba(250,140,22,0.35) !important; }
-[data-theme="dark"] .lab-sigkelly-holding-row, [data-theme="redgold"] .lab-sigkelly-holding-row { background: rgba(250,173,20,0.14); }
-[data-theme="dark"] .lab-sigkelly-holding-row:hover, [data-theme="redgold"] .lab-sigkelly-holding-row:hover { background: rgba(250,173,20,0.20); }
+[data-theme="dark"] .lab-sigkelly-holding-row, [data-theme="redgold"] .lab-sigkelly-holding-row { background: rgba(250,173,20,0.05); }
+[data-theme="dark"] .lab-sigkelly-holding-row:hover, [data-theme="redgold"] .lab-sigkelly-holding-row:hover { background: rgba(250,173,20,0.10); }
 .lab-sigkelly-holding-tag { display: inline-block; color: #fa8c16; background: rgba(250,140,22,0.12); border: 1px dashed rgba(250,140,22,0.45); border-radius: 3px; padding: 1px 5px; font-size: 11px; font-weight: 600; }
 .lab-sigkelly-forced-tag { display: inline-block; color: #f5222d; background: rgba(245,34,45,0.12); border: 1px solid rgba(245,34,45,0.5); border-radius: 3px; padding: 1px 5px; margin-left: 4px; font-size: 11px; font-weight: 600; }
 .lab-sigkelly-navgap-tag { display: inline-block; color: #868e96; background: rgba(134,142,150,0.15); border: 1px dashed rgba(134,142,150,0.6); border-radius: 3px; padding: 1px 5px; margin-left: 4px; font-size: 10px; font-weight: 500; }
@@ -1847,9 +1848,8 @@
 .lab-sigkelly-est-tag { font-size: 10px; color: var(--text-4); font-style: italic; margin-left: 3px; font-weight: 400; }
 .lab-sigkelly-holding-stat { color: #fa8c16; font-weight: 600; }
 /* 2026-08-12 需求B: 被降亏/仓位控制淘汰交易 删除线+灰化, 与正常行区分 */
-.lab-sigkelly-eliminated-row { opacity: 0.55; }
-.lab-sigkelly-eliminated-row td { text-decoration: line-through; color: var(--text-4); }
-.lab-sigkelly-eliminated-row:hover { opacity: 0.8; background: rgba(134,142,150,0.10); }
+.lab-sigkelly-eliminated-row td { text-decoration: line-through; color: var(--text-3); }
+.lab-sigkelly-eliminated-row:hover { background: rgba(134,142,150,0.10); }
 .lab-sigkelly-elim-stat { color: #868e96; font-weight: 600; }
 /* 2026-09-01 需求: 淘汰区「淘汰原因」列——原因单元格豁免删除行线(eliminated-row td 的 line-through 会让
    原因看不清, 同 2026-08-14 #25 "淘汰文字看不清"教训); td 前缀保证与 .eliminated-row td 同特异度靠后位胜出 */

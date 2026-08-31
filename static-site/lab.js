@@ -11838,8 +11838,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     { key: "sell_date", label: "卖出日", sortable: true },
     { key: "track_score", label: "ETF关系", sortable: true },
     { key: "etf_code", label: "代码 / ETF名称", sortable: true },
-    { key: "buy_price", label: "买价", sortable: true },
-    { key: "sell_price", label: "卖价", sortable: true },
+    { key: "buy_price", label: "买价 <br> 卖价", sortable: true },
     { key: "shares", label: "份额 / 每笔金额", sortable: true },
     { key: "profit", label: "盈亏(元)", sortable: true },
     { key: "return_pct", label: "收益率", sortable: true },
@@ -11891,7 +11890,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       const arrow = isSorted ? (sort.dir > 0 ? " ▲" : " ▼") : "";
       return `<th class="lab-sigkelly-trades-th" data-key="${c.key}">${c.label}${arrow}</th>`;
     }).join("");
-    // 淘汰区专用表头(2026-09-01 需求): 共用 13 列 + 尾部「淘汰原因」列; 不带 data-key(排序点击处理器有守卫跳过)
+    // 淘汰区专用表头(2026-09-01 需求): 共用 12 列 + 尾部「淘汰原因」列; 不带 data-key(排序点击处理器有守卫跳过)
     const thHTMLElim = thHTML + '<th class="lab-sigkelly-trades-th">淘汰原因</th>';
     // 淘汰原因在场清单(动态标签, 与既有公示文案一致): 统计行/淘汰区标题按实际在场原因列出, 不在场不提
     const _elimReasonLabel = (function () {
@@ -11950,11 +11949,13 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
             ? `<td>${t[fIdx.sell_date]}<span class="lab-sigkelly-forced-tag" title="ai长线仓位管理强制平仓">强平</span></td>`
             : `<td>${t[fIdx.sell_date]}</td>`);
       const _cpIdx = fIdx.current_price;
-      const sellPriceCell = isNavMissing
-        ? `<td class="lab-sigkelly-missing-px">—</td>`   // 2026-08-30 硬报错: 缺真实价, 禁显示 0/估算
+      // 2026-09-01 需求: 「买价」+「卖价」合并为上下布局一列(仿 shares 列「主值+sub副值」), 保留三态既有逻辑
+      //   上行买价 / 下行卖价; isNavMissing→「—」(缺真实价禁显示0/估算), isHolding→卖价显示当前价+「至今」标签
+      const priceCell = isNavMissing
+        ? `<td class="lab-sigkelly-missing-px">—<div class="lab-sigkelly-trades-price-sub">—</div></td>`
         : (isHolding
-            ? `<td class="lab-sigkelly-est">${(+(_cpIdx != null ? t[_cpIdx] : 0)).toFixed(4)}<span class="lab-sigkelly-est-tag">至今</span></td>`
-            : `<td>${(+t[fIdx.sell_price]).toFixed(4)}</td>`);
+            ? `<td>${(+t[fIdx.buy_price]).toFixed(4)}<div class="lab-sigkelly-trades-price-sub lab-sigkelly-est">${(+(_cpIdx != null ? t[_cpIdx] : 0)).toFixed(4)}<span class="lab-sigkelly-est-tag">至今</span></div></td>`
+            : `<td>${(+t[fIdx.buy_price]).toFixed(4)}<div class="lab-sigkelly-trades-price-sub">卖 ${(+t[fIdx.sell_price]).toFixed(4)}</div></td>`);
       const profitCell = isNavMissing
         ? `<td class="lab-sigkelly-missing-px">— 缺价</td>`
         : (isHolding
@@ -11972,7 +11973,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
         `<td>${t[fIdx.buy_date]}</td>${sellDateCell}` +
         `<td class="lab-sigkelly-trades-etfrel">${etfRel}</td>` +
         `<td class="lab-sigkelly-trades-etfcode" data-code="${_esc(t[fIdx.etf_code])}"><span class="lab-sigkelly-etf-code-link" title="点击查看 ${_esc(t[fIdx.etf_name])} 走势与买卖/强平点">${_esc(t[fIdx.etf_code])}</span><div class="lab-sigkelly-trades-etfname-sub">${_esc(t[fIdx.etf_name])}</div></td>` +
-        `<td>${(+t[fIdx.buy_price]).toFixed(4)}</td>${sellPriceCell}` +
+        priceCell +
         `<td>${(+t[fIdx.shares]).toFixed(2)}<div class="lab-sigkelly-trades-amt-sub">${(t[fIdx.amount] != null ? Math.round(+t[fIdx.amount]).toLocaleString() : "-")}</div></td>` +
         profitCell + returnCell +
         `<td class="lab-sigkelly-neg lab-sigkelly-fee">${(t[fIdx.fee_cost] != null ? "-" + (+t[fIdx.fee_cost]).toFixed(2) : "-")}</td>` +
@@ -11980,7 +11981,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     };
     let tbodyHTML = "";
     if (pageRows.length === 0) {
-      tbodyHTML = `<tr><td colspan="13" class="lab-sigkelly-trades-more">无符合条件的交易记录</td></tr>`;
+      tbodyHTML = `<tr><td colspan="12" class="lab-sigkelly-trades-more">无符合条件的交易记录</td></tr>`;
     } else {
       for (const t of pageRows) {
         const rowCls = (!t[fIdx.sell_date]) ? "lab-sigkelly-holding-row" : "";
@@ -12003,7 +12004,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       if (state._sigKellyElimPage < 1) state._sigKellyElimPage = 1;
       const elimPageRows = elimFiltered.slice((state._sigKellyElimPage - 1) * elimPerPage, state._sigKellyElimPage * elimPerPage);
       if (elimPageRows.length === 0) {
-        elimTbody = `<tr><td colspan="14" class="lab-sigkelly-trades-more">无符合条件的被淘汰交易</td></tr>`;
+        elimTbody = `<tr><td colspan="13" class="lab-sigkelly-trades-more">无符合条件的被淘汰交易</td></tr>`;
       } else {
         for (const t of elimPageRows) {
           const elimRowCls = ((!t[fIdx.sell_date]) ? "lab-sigkelly-holding-row" : "") + " lab-sigkelly-eliminated-row";
