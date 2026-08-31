@@ -208,6 +208,8 @@
 ## 2026-08-31 会话追加 3(sim pin 闭环 + zcode 角色 + codex ref 链审计根治)
 
 > 来源:用户三连拍板。①sim pin 对齐"这个做完吧";②建立 zcode 代班秘书角色;③codex ref 链查证("确认 ref 报告问题是否要修复+为什么我没清理")→ 根因=回传链机制断点非清理疏忽,四项拍板"听你的建议"全做。**A/B 两分支已过审并于 16:1x 先后 merge 上 main**(feat/watcher-inbox-fix→ab6b9ec2a;feat/codex-ref-cleanup→本次 merge,done-list 冲突按两边互补保留解决:全轮概览+A 单详细版并存)。
+>
+> **外审 rev 文档建议①(闭环对齐)核验(2026-08-31)**:外审报告称「TASKS.md 会话追加3 段落 7 条闭环声明、done-list 仅记 4 条缺配 3 条」系基于旧快照;当前 done-list 本块实含 9 条 `[x]`(L212 sim/L213 zcode/L214 ref审计/L215 A/L216 B/L220 rev-27/L221 rev-30/L222 rev-31/L223 v1.1.12 tag),已全覆盖 TASKS.md 顶部活跃状态段全部闭环声明,**无缺配**。唯一错位=TASKS.md 顶部状态段 L15 ⑤「打 tag 待做」为旧态,已同步为「v1.1.12 完成」(对齐 done-list L223)。纯文档登记对齐,未改任何 commit/功能事实。
 
 - [x] **sim-etf-pin-align 全链闭环上线**(feat/sim-etf-pin-align→main **2e5e32746**,统一 bump a519→a520)— STEP3 收尾 5c400e6d1(_fIdx 缺失崩 pop 修复+×N 聚合/持仓中分支/srcKey 返回高亮)→reviewer CONDITIONAL PASS 抓 P1(区切换 kind 级过滤割裂强平配对)+P2(缺价行 pop 假盈亏 -10000)→fixup 0e96c31b0(行级过滤对齐 lab.js:12219+缺价短路+×N 剔缺价行)→复核 PASS→merge;§0 三域名过(⚠️ 验 min 用根路径 /app.min.js);口径边界(缺价强平行 sim 留正式区 vs lab 进 eliminated)B 落档已知差异 app.js:4501,实测缺价率 0.00%
 - [x] **zcode 代班秘书角色建立**(feat/zcode-standin-charter→main **81d4ed411**)— 主控审核 4 缺口(在跑 agent 接管协议/CronDelete 边界/memory 写回收紧/验收入口)→zcode 全补齐+自加四层兜底/派单 checklist;复核通过;**开工门槛=用户确认+派活,当前待派**

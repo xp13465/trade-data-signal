@@ -55,7 +55,7 @@ refs/codex/resp/<request_id>   # 可选：Codex 报告的 SHA 指针（由 Claud
 
 必填字段：`request_id`, `repo`, `base`, `head`, `task_type`, `requirement`, `status`。
 
-`status` 取值：`pending`（待处理）/ `processing`（Codex 已开工，可自行推进）/ `completed`（已出报告）。git ref 本身无时间戳无状态标记，靠此字段表达请求生命周期。**req ref 的 status 字段只读不更新(ref 内容不可变),消费态一律以 resp ref(refs/codex/resp/<id>)为准。**
+`status` 取值：`pending`（待处理）/ `processing`（Codex 已开工，可自行推进）/ `completed`（已出报告）。**git 层机制**：git ref 本身无时间戳、无状态标记、内容不可变，请求生命周期只能靠 `status` 字段表达。**协议层约定**：req ref 的 `status` 字段只读不更新，消费态一律以 resp ref（refs/codex/resp/<id>）为准。
 
 ## Report JSON Schema
 
