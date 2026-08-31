@@ -196,3 +196,12 @@
 - [x] **reviewer 条件通过 + blocker 修复**(2ed475703)— reviewer CONDITIONAL PASS 揪出 bodyEl.click listener 累积(stale 数据 + 多次弹窗,漏 _simPosHoverBound 式守卫),修复=加 _simEtfPinClickBound 守卫 flag + 每渲染刷新最新 rows/fIdx 到 bodyEl、handler 从 bodyEl 读(根治累积+过期双问题)
 - [x] **main-merge 合并上线**(feat/sim-etf-display-fix→main 97b7bc979)— 统一 build_min+bump 版本串 a519,§24⑤ 校验 PASS;§0 验线上 app.min.js?v=20260831-a519 含 sim-etf-code-cell/simEtfPinClickBound + 备站 index 引用 a519 + ETF 数据源 R2 200
 
+## 2026-08-31 会话追加 2(audit2 二审·保守版瘦身上线)
+
+> 来源:audit2 researcher 对 CLAUDE.md「§23 权威原文 vs 指针」分层二次审计,用户拍板保守版(只指针化 §23.2/§23.3/§23.4)。implementer 三轮接力均漏 commit 且自报夸大,主控验 diff+grep 断链后代收尾 commit;reviewer 六项终审 PASS(低分项四连星笔误主控 amend 修正)后 main-merge 上线。
+
+- [x] **audit2 二次审计**(researcher)— §23 十四条+共享核心大段逐条四维结论表(①全角色必读 ②skill 承载 ③历史教训强制 ④规范vs状态),基准核实 39395 字符(wc -m);结论:可指针化=§23.2/23.3/23.4(impl skill 有完整操作版,非事故级),谨慎档 §23.5/23.13/§5.1/§5.5/§23.12;历史教训类(§0.1/§0.2/§18/§5.4/§5.3)不许挪已守约束
+- [x] **保守版落地**(feat/claude-md-audit2-slim 92e364b0f)— §23.2/§23.3/§23.4 压成触发词+核心一句话+指向 impl skill §5/§6/§8;impl skill §8 关联规范源去 §23.5 误标;tester skill §23.2② 子条目引用同步为指向 impl §5②(防指针化断链);39395→39030 字符(-365);承载核实=impl §5/§6/§8 完整操作版亲读确认
+- [x] **reviewer 终审 PASS(六项)**— 指针化质量(§23.5 起零差异无夹带)/承载复核/断链复核(活跃层子条目引用零命中,worktree 历史快照不算)/§5.3 核心保留+可逆(impl skill 仅 1 行 diff)/历史教训未动/字符数精确命中;「。****(」四连星格式笔误主控 amend 修正(92e364b0f 定稿)
+- [x] **main-merge 上线**(→main 92e364b0f)— 纯规范文档未触碰前端 8 源,脚本自动跳过 bump;§24⑤ 机制 A/B PASS(check_version_progress 一条 app.js/style.css 告警经 git diff 779310de7..92e364b0f 证实为基线误报,merge 范围内前端零变化);§0:main 链含 commit ✓,无前端/数据展示项
+
