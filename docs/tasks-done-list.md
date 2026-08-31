@@ -196,3 +196,10 @@
 - [x] **reviewer 条件通过 + blocker 修复**(2ed475703)— reviewer CONDITIONAL PASS 揪出 bodyEl.click listener 累积(stale 数据 + 多次弹窗,漏 _simPosHoverBound 式守卫),修复=加 _simEtfPinClickBound 守卫 flag + 每渲染刷新最新 rows/fIdx 到 bodyEl、handler 从 bodyEl 读(根治累积+过期双问题)
 - [x] **main-merge 合并上线**(feat/sim-etf-display-fix→main 97b7bc979)— 统一 build_min+bump 版本串 a519,§24⑤ 校验 PASS;§0 验线上 app.min.js?v=20260831-a519 含 sim-etf-code-cell/simEtfPinClickBound + 备站 index 引用 a519 + ETF 数据源 R2 200
 
+
+## 2026-08-31 会话追加 3(codex ref 链收尾:8-27-002 闭环落档缺口补)
+
+> 来源:codex ref 链审计(11 报告全核+ref 现状核实)后用户拍板收尾。rev-20260827-002 FAIL 的闭环事实此前未落档(claude-actions 回执以 .tmp 残留未转正、req ref 未标记消费),本条补齐定论。
+
+- [x] **codex外审 rev-20260827-002 FAIL 闭环确认** — 两条 P1(F-01 经理名单粘连/F-02 闸门收紧迁移重采)修复 commit 12364dcc2+072ba10d4 均已入 origin/main(git merge-base --is-ancestor 双验 YES);claude-actions 回执当时 blocked(消费 worktree=main 0fe169f5b 不含被审代码 head=87192decf,grep appoint_map 零命中,按协议不静默动手转交主控)后来主仓派 implementer 修复;F-01 经理名分词残差(老页面无链接单元格时仍空格 split,两字姓名误切风险)已在 app/collector/public_fund.py:1944-1953 代码注释标注(F-01 fix 2026-08-28 + fallback 风险说明)
+- [x] **codex外审 rev-20260830-002 P1-2/P1-3 数据复算收尾** — P1-3 跑通 verify_card_vs_popup.mjs(harness 补 real 链符号提取+accum_nav_map 注入,对比逻辑零改动)+ 修复后口径回算:非 GIH 42 行 total+holding 全一致、G/I total 647=647 一致,H 的 NEQ 与 G/I holding 差=卡面套 GIH sim 弹窗不套的设计语义(方案 B 已声明)非谓词 bug;P1-2 共享核双份实现(common _gihRealizeRealForce vs lab _kellyAihlineRealizeReal)99 用例逐字段对比,nav 命中主路径 48/48 逐位一致,唯一行为差异=null 防御(lab 抛错 vs common 防御,生产输入域不含 null);报告 docs/kelly/analysis/kelly-card-vs-popup-p12-p13-recompute-2026-08-31.md(含复现段)+README 索引已更新;P1-1 浏览器实测随 sim 分支收尾不在本单
