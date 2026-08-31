@@ -2265,6 +2265,15 @@
   transform: translate(-50%, -50%) scale(1.35);
 }
 /* 2026-08-30 配对/持仓 popover: wrap 内绝对定位, 不随缩放错位 */
+
+/* ETF pin layer for sim modal (2026-08-31) */
+.lab-etf-pin-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 30;
+  overflow: visible;
+}
 .lab-etf-pin-pop {
   position: absolute;
   z-index: 60;

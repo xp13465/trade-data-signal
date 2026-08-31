@@ -4345,6 +4345,167 @@ function _simObsInfo(buyDate, hd, cal, lastDate) {
 // 渲染结果表(13列 + 分页, 每页500条) + 累积列(从最早日逐笔累加)
 // 费率: 5 参数模型 fp(复用交易模拟区 _simBuyWithFees/_simSellWithFees); 持仓中笔(sell_date 空)按
 // current_price 最新收盘计当前盈亏直接展示现状并入累积(需求③ 2026-08-22 去「预估」措辞, 加观察期倒计时)
+// ====================================================================================
+// ETF 走势 pin 弹窗(2026-08-31 新增, 与凯利卡 _openEtfTrendPinModal 同交互,纯前端展示):
+// - 复用 app.js 全局 _etfTrendLiteHTML/_etfTrendLiteBind/_etfTrendGeom 轻量走势组件
+// - 数据源: R2 `https://ss.fx8.store/r2/etf/{code}-all.json` → fallback `./data/etf/{code}-all.json`
+// - 事件源: 当前弹窗的 rows 数组(全历史真实信号交易记录),只包含被筛选保留的笔
+// - pin: 该 ETF 在当前视图(rows)内的所有交易事件(买点/卖点/强平点),与凯利区 pin 视觉同款
+// ====================================================================================
+const _SIM_ETF_PIN_URL = (code) => `https://ss.fx8.store/r2/etf/${code}-all.json`;
+const _SIM_ETF_PIN_FALLBACK = (code) => `./data/etf/${code}-all.json`;
+let _simEtfTrendPinReqSeq = 0;
+
+// 收集指定 ETF 在当前视图内的所有交易事件 → [{date, kind, price, t, srcKey}]
+function _collectSimEtfPinEvents(code, fIdx, rows) {
+  const evs = [];
+  for (const t of (rows || [])) {
+    const c = t[fIdx.etf_code];
+    if (c === undefined || c === null || String(c) !== String(code)) continue;
+    const bd = t[fIdx.buy_date];
+    if (bd) evs.push({
+      date: String(bd),
+      kind: "buy",
+      price: t[fIdx.buy_price] != null ? Number(t[fIdx.buy_price]) : null,
+      t: t,
+      srcKey: { sd: String(t[fIdx.signal_date] || ""), bk: String(t[fIdx.buy_date] || "") + "|" + String(t[fIdx.etf_code] || "") }
+    });
+    const sd = t[fIdx.sell_date];
+    if (sd) {
+      const isF = !!t._gihForced;
+      let sp = t[fIdx.sell_price];
+      if (sp === undefined || sp === null) sp = null;
+      else sp = Number(sp);
+      evs.push({
+        date: String(sd),
+        kind: isF ? "force" : "sell",
+        price: sp,
+        t: t,
+        srcKey: { sd: String(t[fIdx.signal_date] || ""), bk: String(t[fIdx.buy_date] || "") + "|" + String(t[fIdx.etf_code] || "") }
+      });
+    }
+  }
+  evs.sort((a, b) => a.date < b.date ? -1 : (a.date > b.date ? 1 : 0));
+  return evs;
+}
+
+// 打开 ETF 走势+pin 弹窗(2026-08-31 新增)
+async function _openSimEtfTrendPinModal(code, name, events) {
+  if (!code) return;
+  const reqSeq = ++_simEtfTrendPinReqSeq;
+  if (!events.length) return;
+  // 独立小弹窗,层级:复用过 .lab-sigkelly-overlay z-index 9999 > sim 弹窗 110,安全不遮
+  let overlay = document.getElementById("sim-etf-pin-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "sim-etf-pin-overlay";
+    overlay.className = "lab-sigkelly-overlay";
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML =
+    `<div class="lab-sigkelly-modal lab-etf-pin-modal">` +
+      `<div class="lab-sigkelly-modal-head">` +
+        `<div class="lab-sigkelly-modal-title">📈 ${code} ${name ? "· " + name : ""} · ETF 走势与本弹窗内的交易点</div>` +
+        `<button type="button" class="lab-sigkelly-modal-close" title="关闭">✕</button>` +
+      `</div>` +
+      `<div class="lab-etf-pin-body" id="sim-etf-pin-body-loading"><div class="lab-sigkelly-modal-loading">⏳ 加载走势…</div></div>` +
+    `</div>`;
+  overlay.style.display = "flex";
+  const _closePinModal = () => { overlay.style.display = "none"; };
+  overlay.querySelector(".lab-sigkelly-modal-close").onclick = _closePinModal;
+  overlay.onclick = (e) => { if (e.target === overlay) _closePinModal(); };
+  const body = overlay.querySelector(".lab-etf-pin-body");
+  // 拉数据
+  let hist = null;
+  try { hist = await fetchJSON(_SIM_ETF_PIN_URL(code), 15000); } catch (e) { hist = null; }
+  if (!hist || !hist.ohlc) {
+    try { hist = await fetchJSON(_SIM_ETF_PIN_FALLBACK(code), 15000); } catch (e2) { hist = null; }
+  }
+  if (reqSeq !== _simEtfTrendPinReqSeq) return; // 已换/已关,丢弃过期响应
+  if (!hist || !hist.ohlc || !Array.isArray(hist.ohlc) || hist.ohlc.length < 2) {
+    body.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 走势数据加载失败</div><div class="lab-custom-error-detail">${code}-all.json 不可用(R2 与本地均失败)</div></div>`;
+    return;
+  }
+  const ohlc = hist.ohlc;
+  // 顶部信息条
+  body.innerHTML = "";
+  const infoBar = document.createElement("div");
+  infoBar.className = "lab-etf-pin-infobar";
+  body.appendChild(infoBar);
+  const chartArea = document.createElement("div");
+  chartArea.className = "lab-etf-pin-chart";
+  body.appendChild(chartArea);
+  // 聚焦视图(与凯利区同口径: dMin 前60日 / dMax 后30日 窗口,太窄扩全史)
+  const dates = events.map((e) => e.date).sort();
+  const dMin = dates[0], dMax = dates[dates.length - 1];
+  let i0 = 0, i1 = ohlc.length - 1;
+  for (let i = 0; i < ohlc.length; i++) { if (String(ohlc[i][0]) >= dMin) { i0 = Math.max(0, i - 60); break; } }
+  for (let i = ohlc.length - 1; i >= 0; i--) { if (String(ohlc[i][0]) <= dMax) { i1 = Math.min(ohlc.length - 1, i + 30); break; } }
+  if (i1 - i0 < 30) { i0 = 0; i1 = ohlc.length - 1; }
+  const ohlcView = ohlc.slice(i0, i1 + 1);
+  // 渲染走势(复用 app.js 轻量组件) + 缩放/平移
+  chartArea.innerHTML = '<div class="lab-etf-pin-wrap">' + _etfTrendLiteHTML(ohlcView) + '</div>';
+  const svg = chartArea.querySelector(".etf-trend-lite");
+  if (svg) _etfTrendLiteBind(svg, ohlcView, { panZoom: true });
+  const wrap = chartArea.querySelector(".etf-trend-wrap");
+  if (!wrap || !svg) {
+    chartArea.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 走势渲染失败</div></div>`;
+    return;
+  }
+  // pin 定位
+  const dateIdx = {};
+  ohlcView.forEach((r, i) => { dateIdx[String(r[0])] = i; });
+  const vb0 = svg.viewBox && svg.viewBox.baseVal;
+  const Wv = vb0 && vb0.width > 0 ? vb0.width : 640;
+  function svgPointToWrap(ix) {
+    const r = ohlcView[ix];
+    const close = r && r[4];
+    if (close === null || close === undefined || isNaN(close)) return null;
+    let geom = _etfTrendGeom(ohlcView, Wv);
+    const av = svg._etfTrendPan ? svg._etfTrendPan.get() : null;
+    if (av && av.geom) geom = av.geom;
+    const px = geom.x(ix);
+    const py = geom.y(close);
+    return { x: px, y: py };
+  }
+  // pin 层
+  const lineLayer = document.createElement("div");
+  lineLayer.className = "lab-etf-pin-lines";
+  wrap.appendChild(lineLayer);
+  const pinLayer = document.createElement("div");
+  pinLayer.className = "lab-etf-pin-layer";
+  wrap.appendChild(pinLayer);
+  // 渲染 pin
+  for (const ev of events) {
+    const ix = dateIdx[ev.date];
+    if (ix == null) continue;
+    const pt = svgPointToWrap(ix);
+    if (!pt) continue;
+    // 连线
+    const line = document.createElement("div");
+    line.className = "lab-etf-pin-line";
+    line.style.left = pt.x + "px";
+    line.style.top = "0";
+    lineLayer.appendChild(line);
+    // pin 点
+    const pin = document.createElement("div");
+    pin.className = "lab-etf-pin lab-etf-pin-" + ev.kind;
+    pin.style.left = pt.x + "px";
+    pin.style.top = pt.y + "px";
+    const labelTxt = (ev.kind === "buy" ? "买" : ev.kind === "force" ? "强平" : "卖") + (ev.price != null ? " " + ev.price.toFixed(4) : "");
+    const txt = document.createElement("span");
+    txt.className = "lab-etf-pin-txt";
+    txt.textContent = labelTxt;
+    pin.appendChild(txt);
+    pinLayer.appendChild(pin);
+  }
+  // 顶部信息条
+  const buyN = events.filter((e) => e.kind === "buy").length;
+  const sellN = events.filter((e) => e.kind === "sell").length;
+  const forceN = events.filter((e) => e.kind === "force").length;
+  infoBar.innerHTML = `<span class="lab-etf-pin-infobar-msg">📌 本弹窗视图内 · 共 ${events.length} 个事件: 买 ${buyN} / 卖 ${sellN} / 强平 ${forceN} — 鼠标悬停买卖点查看</span>`;
+}
+
 function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, gihOn) {
   const bodyEl = modal.querySelector(".sim-table-body");
   const summaryEl = modal.querySelector(".sim-summary");
@@ -4480,7 +4641,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
         '<td>' + (t[fIdx.signal_date] || "") + '</td>' +
         '<td class="sim-pos-cell" title="当日仍持有的笔数。悬停本格高亮对应笔的「信号关联ETF」; 持仓笔可能开于此前交易日(高亮跨日分布), 未渲染的分页行不点亮。">' + pos + '</td>' +
         '<td>' + _simSigTypeLabel(t[fIdx.signal]) + '</td>' +
-        '<td>' + _simEtfLightHtml(t, fIdx) + (t[fIdx.etf_code] || "") + ' ' + (t[fIdx.etf_name] || "") + '</td>' +
+        '<td class="sim-etf-code-cell" data-code="' + _escAttr(t[fIdx.etf_code] || "") + '" data-name="' + _escAttr(t[fIdx.etf_name] || "") + '" title="点击查看走势"><span class="sim-etf-code-link">' + _simEtfLightHtml(t, fIdx) + (t[fIdx.etf_code] || "") + '</span> <span class="sim-etf-name-sub">' + (t[fIdx.etf_name] || "") + '</span></td>' +
         '<td>' + (t[fIdx.buy_date] || "") + '</td>' +
         (_gihForcedFlag ? _gihFeeInclCell : _feeCell(c ? c.buyFee : null)) +
         '<td>' + (c && c.isHolding ? '<span class="simbt-holding-tag">持仓中</span>' : (t[fIdx.sell_date] || "")) + '</td>' +
@@ -4556,6 +4717,19 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
     });
     bodyEl.addEventListener("mouseleave", _clearHot);
   }
+  // ETF 代码点击 → 走势+买卖/强平 pin(2026-08-31 需求B: 复用 app.js 全局 _etfTrendLiteHTML/_etfTrendLiteBind/_etfTrendGeom, 与凯利卡同交互)
+  // 使用事件委托: bodyEl 始终存在, 即使 _draw 重渲染表格也能捕获点击
+  bodyEl.addEventListener("click", (e) => {
+    const td = e.target && e.target.closest ? e.target.closest("td.sim-etf-code-cell") : null;
+    if (!td) return;
+    const code = td.dataset.code;
+    const name = td.dataset.name || "";
+    if (!code) return;
+    // 构建该 ETF 在当前视图内的所有交易事件(买/卖/强平)供 pin 展示
+    const events = _collectSimEtfPinEvents(code, fIdx, rows);
+    if (!events.length) return;
+    _openSimEtfTrendPinModal(code, name, events);
+  });
   _draw();
 }
 

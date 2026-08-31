@@ -7188,27 +7188,27 @@ main { padding: 16px 24px; }
 /* 列宽策略(2026-08-22 用户反馈「数值列宽度应固定, 正常百分比不会太长」): table-layout:fixed +
    逐列定宽 → 数值列宽不随数据长短跳动; 省出的空间由不定宽的「信号关联ETF」列吃掉(全表最长内容列);
    min-width 保证窄屏走 .sim-table-wrap 横向滚动不被挤坏; ellipsis 仅作极端值兜底(定宽已按内容上限预估) */
-.sim-tbl { width: 100%; min-width: 1470px; table-layout: fixed; border-collapse: collapse; font-size: 11px; }
-.sim-tbl th, .sim-tbl td { padding: 4px 8px; border: 1px solid var(--border); white-space: nowrap; text-align: right; overflow: hidden; text-overflow: ellipsis; }
+.sim-tbl { width: 100%; min-width: 1270px; table-layout: fixed; border-collapse: collapse; font-size: 11px; }
+.sim-tbl th, .sim-tbl td { padding: 4px 6px; border: 1px solid var(--border); white-space: normal; text-align: right; overflow: hidden; text-overflow: ellipsis; }
 .sim-tbl th { position: sticky; top: 0; background: var(--bg-card); z-index: 1; color: var(--text-1); font-weight: 700; }
 .sim-tbl td:nth-child(2), .sim-tbl td:nth-child(3), .sim-tbl td:nth-child(4), .sim-tbl td:nth-child(5) { text-align: left; }
 /* 14列逐列定宽: 内容上限=日期8位/金额9位(含负号)/对错计数~19字符/盈亏%含观察期倒计时小字一行; 第14列峰值同时持仓笔数(2026-08-29 新增);
    定宽合计1236px, 配合弹窗加宽(1560)后 1440 屏 ETF 列仍可得 ~200px(最长ETF名~200px)不裁剪;
    各列均留 ≥4px 余量防 bold 表头 CJK 渲染偏宽(教训: 当日持仓58px 曾卡住4字表头) */
-.sim-tbl th:nth-child(1) { width: 78px; }   /* 日期 */
-.sim-tbl th:nth-child(2) { width: 64px; }   /* 当日持仓(hover 热区) */
-.sim-tbl th:nth-child(3) { width: 88px; }   /* 当日信号 */
+.sim-tbl th:nth-child(1) { width: 60px; }   /* 日期 */
+.sim-tbl th:nth-child(2) { width: 50px; }   /* 当日持仓(hover 热区) */
+.sim-tbl th:nth-child(3) { width: 70px; }   /* 当日信号 */
 /* 第4列信号关联ETF 不定宽 = 剩余全部空间 */
-.sim-tbl th:nth-child(5) { width: 88px; }   /* 计划买入时间 */
-.sim-tbl th:nth-child(6) { width: 76px; }   /* 买入手续费 */
-.sim-tbl th:nth-child(7) { width: 88px; }   /* 计划卖出时间 */
-.sim-tbl th:nth-child(8) { width: 76px; }   /* 卖出手续费 */
-.sim-tbl th:nth-child(9) { width: 178px; }  /* 本笔交易盈亏%(最长内容=观察期倒计时小字) */
-.sim-tbl th:nth-child(10) { width: 94px; }  /* 本笔盈亏金额 */
-.sim-tbl th:nth-child(11) { width: 84px; }  /* 累积盈亏 */
-.sim-tbl th:nth-child(12) { width: 90px; }  /* 累积金额 */
-.sim-tbl th:nth-child(13) { width: 124px; } /* 累积对错 */
-.sim-tbl th:nth-child(14) { width: 108px; } /* 峰值同时持仓笔数(2026-08-29 codex#001 新增; 定宽 108px 覆盖「峰值同时持仓笔数」8字表头+工具图标余量) */
+.sim-tbl th:nth-child(5) { width: 70px; }   /* 计划买入时间 */
+.sim-tbl th:nth-child(6) { width: 56px; }   /* 买入手续费 */
+.sim-tbl th:nth-child(7) { width: 70px; }   /* 计划卖出时间 */
+.sim-tbl th:nth-child(8) { width: 56px; }   /* 卖出手续费 */
+.sim-tbl th:nth-child(9) { width: 100px; }  /* 本笔交易盈亏%(现可换行) */
+.sim-tbl th:nth-child(10) { width: 70px; }  /* 本笔盈亏金额 */
+.sim-tbl th:nth-child(11) { width: 60px; }  /* 累积盈亏 */
+.sim-tbl th:nth-child(12) { width: 70px; }  /* 累积金额 */
+.sim-tbl th:nth-child(13) { width: 80px; }  /* 累积对错 */
+.sim-tbl th:nth-child(14) { width: 88px; } /* 峰值同时持仓笔数(2026-08-29 codex#001 新增; 定宽 88px 覆盖「峰值同时持仓笔数」8字表头+工具图标余量) */
 .sim-up { color: #cf1322; }
 .sim-down { color: #389e0d; }
 [data-theme="dark"] .sim-up, [data-theme="redgold"] .sim-up { color: #ff4d4f; }
@@ -7241,6 +7241,12 @@ main { padding: 16px 24px; }
 .sim-tbl td.sim-pos-hot { background: rgba(59,130,246,0.14); box-shadow: inset 0 0 0 1px rgba(59,130,246,0.8); }
 .sim-tbl td.sim-pos-hit { background: rgba(59,130,246,0.10); box-shadow: inset 0 0 0 1px rgba(59,130,246,0.45); }
 
+
+/* ETF 代码单元格: 可点击交互(2026-08-31 需求B) */
+.sim-etf-code-cell { white-space: nowrap; vertical-align: middle; }
+.sim-etf-code-link { display: inline-block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; max-width: 140px; color: var(--text-1); cursor: pointer; }
+.sim-etf-code-link:hover { color: var(--primary, #3b82f6); }
+.sim-etf-name-sub { display: block; font-size: 10px; color: var(--text-2); margin-top: 1px; white-space: nowrap; }
 /* ===== AI降亏模式·统一下拉组件公共段(T3-1修复批 2026-08-23, §23.3/§23.5)=====
    四消费点: lab 凯利区 / 模拟回测弹窗 / T3-2 首页 AI 建议卡与 AI 监控卡(待接)。
    渲染函数=common.js _tdsFadeModeSelectHTML / _tdsFadeModeSelectMount(单一事实源);
