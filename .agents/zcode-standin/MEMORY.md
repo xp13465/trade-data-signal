@@ -3,13 +3,14 @@
 > 本文件是临时工秘书角色的 MEMORY 索引(仿 Claude Code memory 格式:一行一条,触发词前缀)。
 > 每轮收尾同步写回 Claude Code 的 memory(`zcode-standin-handoff.md` + 索引行,见 SKILL.md §2 协议)。
 
-## 当前交接快照(2026-08-31,每轮收尾更新)
+## 当前交接快照(2026-09-01 00:20,每轮收尾更新)
 
-- **角色状态 v2.1(2026-08-31 Claude Code 审核有条件通过,4 缺口已全部补进 SKILL.md)**:①§4.1 在跑 agent 接管协议(Claude 离线+有在跑 agent→按进度文件+工作区 diff 接管验收不等通知;429 死上报不硬重试)②§3 CronDelete 边界(绝不删 Claude 既有 job)③§2 写回第 3 条收紧(既有条目只做状态性追加,拿不准只写 handoff)④§2 第 4 条 handoff 必带验收入口(commit hash/进度文件/线上验证命令)。Claude Code 实测确认:memory 写回 138 行=137 条没动+1 追加,零问询恢复已验证可行。
-- **sim implementer 确认在跑**(Claude Code 亲证 13:5x 派的 sim implementer 就是我在 jsonl 观察到的活动)——我继续不动 sim 相关任何文件,等其闭环或 Claude 交接清单
-- **待用户拍板**:
-  - [ ] 交接时序二选一(Claude Code 给的拍板项):①等 sim 闭环后干净交接 ②Claude 现在落在跑 agent 接管清单进 TASKS+handoff 再休息
-  - [ ] 角色文件 commit 方案:Claude 建议定稿后单独 commit 不混 sim 分支 → 我的建议=git worktree 从 main 建独立分支(如 feat/zcode-standin-charter)commit+push,不碰当前 sim 工作区;等用户点头执行
+- **✅ 首单实施完成待 review**:feat/kelly-elim-reason **8b741acb5** 已 push origin(仅 lab.js+lab.css,+47/-5)。用户 00:0x 分工拍板「Claude 做 review 不影响 ZCode 开发」→解冻亲做(降级模式)。改动:淘汰区第14列「淘汰原因」(AI降亏/AI仓位/AI长线·满仓不买,tooltip 对齐公示)+动态标签+GIH 满仓不买单补集入淘汰区(原先静默消失)+排序守卫+colspan+CSS 特异度豁免删除线。自验全绿(node --check/9处逻辑/场景走查)
+- **⛔ 卡在 review 门槛(子agent 池第 4 死)**:reviewer 派单又死于 concurrency limit——今晚 4 连死,不硬试。**巡检 cron automation-e8e17eda**(每15min :03/:18/:33/:48)自动补派;PASS→main-merge→§0 三查(线上 lab.min.js 含「淘汰原因」串)→落档→自删;FAIL→落档待处置不 merge
+- **并行协调现状**:Claude Code 在跑(00:00 仍活跃,做 review);同工作区共用,**我只动过 feat 分支与自己的文件**,工作区干净(仅本 MEMORY 未 commit,待里程碑随 docs 单独 commit)
+- **教训已入 SKILL §8**:ZC-001 子agent池死≠主会话死(降级亲做但 review 门槛不降,merge 前无独立 review=零例外)/ ZC-002 每轮动手前重验 Claude 活跃状态(用户明示分工时以分工为准)
+- **可选加速(待用户)**:让正在做 review 的 Claude 顺审 feat/kelly-elim-reason(它通道活着),审完结论回我或直接走 main-merge
+- **旧登记**:rev-20260831-002/codex refs/watcher 全被 Claude 闭环,清零(见前版快照)
 - **开工必读完成度**:根 CLAUDE.md ✅ / main-governance.md ✅ / MEMORY.md 索引(137条)✅ / TASKS.md ✅ / codex 两份 ✅ / claude-work-mode README ✅;role skill 四份未读(按设计派单时子 agent 自读)
 - **⚠️ 上轮 Claude Code 会话疑似仍在运行**:主会话 jsonl `1ddfbd20`(1ddfbd20-5b96-425c-85f8-07b8d8625b0f.jsonl)13:55:15 仍有写入,其子 agent a5cd04dc 13:56:46 仍在动——**代班开工前必须确认其收工,在跑=不动任何东西(SKILL.md §4)**
 - **项目实况(13:36 TASKS 终态核实)**:

@@ -103,4 +103,6 @@ Claude Code 回来后的恢复路径(三层,全部由我的收尾动作保证):
 
 ## 8. 我的教训积累(防重犯,格式同 §18:过错+根因+防重犯条款)
 
-(暂无,从首轮实际工作开始追加)
+- **ZC-001 子agent池死≠主会话死,降级亲做但 review 门槛不降**(2026-09-01 首单实战):ZCode 子agent 额度池与主会话独立,当晚 4 连死(2 调研+1 实施+1 review,全是 concurrency/quota);主会话全程活。处置=调研/实施降级主控亲做(用户连发「继续」=授权),但 §15 review 硬门槛绝不因通道死而豁免——分支 push 后停在 merge 前,挂 cron 每 15min 补派 reviewer,或转交 Claude Code 审(用户协调分工时)。防重犯:遇子agent 连死≥2 次,立即切降级并声明,不反复试;merge 前无独立 review=零例外。
+- **ZC-002 用户消息间隔数小时,「Claude 已休息」结论会过期**(2026-09-01):19:40 判定 Claude 休息,00:00 核实它 21:46 起复活连续干活 2 小时。防重犯:每轮动手前必须重新核验其 jsonl mtime(近 2 分钟无写入才算安静),不沿用早前结论;用户明示分工(如「Claude 做review 不影响你开发」)时以用户协调为准并记录在案。
+- **ZC-003 ZCode failed 子agent 可 SendMessage resume(带上下文)**(2026-09-01):reviewer 撞并发死(已跑至步骤3)后 SendMessage to agentId resume 成功,原上下文(SKILL/diff 分析)保留续跑至出 verdict——与 Claude 侧「429 死优先 resume 不重派」同构。防重犯:子 agent 非 0 秒速死(真干了活)的失败,先试 resume 再考虑重派;0 秒速死(没启动)直接重派。
