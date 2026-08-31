@@ -7,10 +7,13 @@
 #   bash scripts/thinking-proxy-rollback.sh official    # 还原到 官方直连(api.deepseek.com)
 #   bash scripts/thinking-proxy-rollback.sh ark         # 还原到 方舟 coding 直连
 #   bash scripts/thinking-proxy-rollback.sh arkplan     # 显式还原到 火山 agent plan 直连
+#   bash scripts/thinking-proxy-rollback.sh sento       # 还原到 商汤 Sensenova 单 token 直连(重跑改动前原状)
 #
 # 说明:
 #   - 只还原 ~/.claude/settings.json 的 ANTHROPIC_BASE_URL/MODEL 到对应 provider 直连备份,
 #     不写 token(备份天然含原 token,还原即保留)。
+#   - sento 模式还原的备份 = 本次改动前自动生成的 settings.json.bak-sensenova-rotate-<日期>,
+#     内含原 token + https://token.sensenova.cn,即改动前单 token 直连原状(2026-09-01)。
 #   - 停 launchd 代理 + pkill 兜底。
 #   - agents frontmatter 的 model(flash/think 别名)不还原(直连下别名会 404,需人工改 inherit,
 #     或直接走代理恢复)。回退到直连=放弃 per-role thinking 开关,thinking 默认 ON。
@@ -27,6 +30,8 @@ ARK_BAK="$HOME/.claude/settings.json.bak-ark-fallback-20260814-094337"
 OFFICIAL_BAK="$HOME/.claude/settings.json.bak-official-direct-20260814"
 # 火山 agent plan 直连原态备份(8/14 配过 agent plan 又切走,含同款 plan key + /api/plan + deepseek-v4-flash-ga 模型)
 ARKPLAN_BAK="$HOME/.claude/settings.json.bak-20260814-192000-ark-plan-direct"
+# 商汤单 token 直连原态备份(2026-09-01 轮换改造前自动备份,含 key1 + https://token.sensenova.cn)
+SENTO_BAK="$(ls -t "$HOME"/.claude/settings.json.bak-sensenova-rotate-* 2>/dev/null | head -1)"
 
 case "$PROVIDER" in
   ark)
@@ -38,8 +43,11 @@ case "$PROVIDER" in
   official)
     BAK="$OFFICIAL_BAK"; DESC="官方直连(api.deepseek.com/anthropic)"
     ;;
+  sento)
+    BAK="$SENTO_BAK"; DESC="商汤 Sensenova 单 token 直连(https://token.sensenova.cn,重跑改动前原状)"
+    ;;
   *)
-    echo "未知 provider: $PROVIDER (可用 arkplan|ark|official)"; exit 1
+    echo "未知 provider: $PROVIDER (可用 arkplan|ark|official|sento)"; exit 1
     ;;
 esac
 
@@ -60,15 +68,20 @@ else
   echo "  未 load 或已 unload(幂等跳过)"
 fi
 
-echo "[3/4] pkill thinking_proxy.py"
-if pgrep -f thinking_proxy.py >/dev/null 2>&1; then
-  pkill -f thinking_proxy.py && echo "  已停止代理进程"
-else
-  echo "  无代理进程(幂等跳过)"
-fi
+echo "[3/4] pkill 代理进程(thinking_proxy.py + sensenova-rotate-proxy.py)"
+KILLED=0
+for pat in "thinking_proxy.py" "sensenova-rotate-proxy.py"; do
+  if pgrep -f "$pat" >/dev/null 2>&1; then
+    pkill -f "$pat" && { echo "  已停止 $pat"; KILLED=1; }
+  fi
+done
+[ "$KILLED" = "0" ] && echo "  无代理进程(幂等跳过)"
 
 echo "[4/4] 说明"
 echo "  settings 已还原到 $DESC (token 未动,直连 = thinking 默认 ON)"
+if [ "$PROVIDER" = "sento" ] && [ -z "$BAK" ]; then
+  echo "  !! 未找到商汤直连备份(settings.json.bak-sensenova-rotate-*),请人工确认 settings 仍含 token + token.sensenova.cn"
+fi
 echo "  agents model 若保留 flash/think 别名,直连下会 404,需人工改为 inherit:"
 echo "    .claude/agents/implementer.md + tester.md     -> model: inherit"
 echo "    .claude/agents/reviewer.md + researcher.md    -> model: inherit"

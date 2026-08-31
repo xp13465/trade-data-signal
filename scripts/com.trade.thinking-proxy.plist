@@ -1,50 +1,37 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- thinking-proxy launchd 守护(2026-08-17 coding plan 版:TTP_PROVIDER 一键切官方/火山方舟 coding/火山方舟 agent plan)
-     用途:常驻 thinking_proxy.py,对 deepseek-v4-flash 注入 thinking:disabled 省 token(per-role 执行类);
-          deepseek-v4-think 别名改写回 flash(判断类保思考;agent plan/coding/官方直发别名都报错,须走代理改写)
-     切端:改 TTP_PROVIDER = official(现网 2026-08-19,官方 api.deepseek.com/anthropic) | ark(方舟 coding 端点) | ark-plan(火山 agent plan 端点),
-          然后 launchctl unload + load。settings.json 的 ANTHROPIC_AUTH_TOKEN 需对应 provider 的 key。
-     详见 docs/thinking-off-optimization.md §九(方舟版)/§八(官方版)
+<!-- thinking-proxy launchd 守护(2026-09-01 重构:独立 sensenova-rotate 纯 key 轮换代理)
+     用途:常驻 sensenova-rotate-proxy.sh -> sensenova-rotate-proxy.py,对商汤 token.sensenova.cn 做 3 把 key
+          纯 round-robin 轮换 + 429 换 key 重试,缓解商汤对 deepseek-v4-flash 按 RPM 限流(单 token 撞 429 死限流)。
+          本代理只做 key 轮换,不含任何 thinking 注入/别名改写逻辑(与 thinking_proxy.py 完全无关、独立)。
+     3 把 key:SENSENOVA_KEY1/2/3 存 ../trade-data/.env(仓外),由 wrapper 脚本注入,真实 key 禁进本 plist/git。
      激活:launchctl load scripts/com.trade.thinking-proxy.plist
      停用:launchctl unload scripts/com.trade.thinking-proxy.plist
-     一键回退:bash scripts/thinking-proxy-rollback.sh
-     风险(P0):代理挂=全站 claude 不可用;KeepAlive 守护秒级重启+claude 重试兜底 -->
+     一键回退(还原 settings 直连单 token 原状 + 停代理):bash scripts/thinking-proxy-rollback.sh sento
+     settings 切换:ANTHROPIC_BASE_URL 需指到本代理(http://127.0.0.1:8899)才能走轮换,但切换由用户拍板,
+          本次实现未动 settings(仍保持 token.sensenova.cn 直连原状)。
+     风险(P0):代理挂=商汤轮换不可用;KeepAlive 守护秒级重启+claude 重试兜底 -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
     <string>com.trade.thinking-proxy</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
-        <string>/Users/linhuichen/code/trade/scripts/thinking_proxy.py</string>
+        <string>/bin/bash</string>
+        <string>/Users/linhuichen/code/trade/scripts/sensenova-rotate-proxy.sh</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
-        <key>TTP_INJECT</key>
-        <string>1</string>
-        <key>TTP_INJECT_MODELS</key>
-        <string>deepseek-v4-flash</string>
-        <key>TTP_ALIAS_MODELS</key>
-        <string>deepseek-v4-think</string>
-        <key>TTP_ALIAS_TARGET</key>
-        <string>deepseek-v4-flash</string>
-        <key>TTP_PROVIDER</key>
-        <string>official</string>
-        <key>TTP_UPSTREAM_HOST</key>
-        <string>api.deepseek.com</string>
-        <key>TTP_UPSTREAM_PORT</key>
-        <string>443</string>
-        <key>TTP_UPSTREAM_BASE</key>
-        <string>/anthropic</string>
+        <key>SENSENOVA_ENV_FILE</key>
+        <string>/Users/linhuichen/code/trade-data/.env</string>
     </dict>
     <key>KeepAlive</key>
     <true/>
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/Users/linhuichen/code/trade-data/data/logs/thinking-proxy.log</string>
+    <string>/Users/linhuichen/code/trade-data/data/logs/sensenova-rotate.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/linhuichen/code/trade-data/data/logs/thinking-proxy.err</string>
+    <string>/Users/linhuichen/code/trade-data/data/logs/sensenova-rotate.err</string>
 </dict>
 </plist>
