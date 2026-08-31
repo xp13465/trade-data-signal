@@ -205,3 +205,13 @@
 - [x] **reviewer 终审 PASS(六项)**— 指针化质量(§23.5 起零差异无夹带)/承载复核/断链复核(活跃层子条目引用零命中,worktree 历史快照不算)/§5.3 核心保留+可逆(impl skill 仅 1 行 diff)/历史教训未动/字符数精确命中;「。****(」四连星格式笔误主控 amend 修正(92e364b0f 定稿)
 - [x] **main-merge 上线**(→main 92e364b0f)— 纯规范文档未触碰前端 8 源,脚本自动跳过 bump;§24⑤ 机制 A/B PASS(check_version_progress 一条 app.js/style.css 告警经 git diff 779310de7..92e364b0f 证实为基线误报,merge 范围内前端零变化);§0:main 链含 commit ✓,无前端/数据展示项
 
+## 2026-08-31 会话追加 3(sim pin 闭环 + zcode 角色 + codex ref 链审计根治)
+
+> 来源:用户三连拍板。①sim pin 对齐"这个做完吧";②建立 zcode 代班秘书角色;③codex ref 链查证("确认 ref 报告问题是否要修复+为什么我没清理")→ 根因=回传链机制断点非清理疏忽,四项拍板"听你的建议"全做。**A/B 两分支(feat/codex-ref-cleanup、feat/watcher-inbox-fix)已过审待 merge**,compact 后按 TASKS 状态段收尾链推进。
+
+- [x] **sim-etf-pin-align 全链闭环上线**(feat/sim-etf-pin-align→main **2e5e32746**,统一 bump a519→a520)— STEP3 收尾 5c400e6d1(_fIdx 缺失崩 pop 修复+×N 聚合/持仓中分支/srcKey 返回高亮)→reviewer CONDITIONAL PASS 抓 P1(区切换 kind 级过滤割裂强平配对)+P2(缺价行 pop 假盈亏 -10000)→fixup 0e96c31b0(行级过滤对齐 lab.js:12219+缺价短路+×N 剔缺价行)→复核 PASS→merge;§0 三域名过(⚠️ 验 min 用根路径 /app.min.js);口径边界(缺价强平行 sim 留正式区 vs lab 进 eliminated)B 落档已知差异 app.js:4501,实测缺价率 0.00%
+- [x] **zcode 代班秘书角色建立**(feat/zcode-standin-charter→main **81d4ed411**)— 主控审核 4 缺口(在跑 agent 接管协议/CronDelete 边界/memory 写回收紧/验收入口)→zcode 全补齐+自加四层兜底/派单 checklist;复核通过;**开工门槛=用户确认+派活,当前待派**
+- [x] **codex ref 链审计根治**(researcher 实锤+四项执行)— 11 ref 全处置(8 PASS+2 FAIL+1 BLOCKED 全闭环,修复均已在 main);根因=watcher stale 机检 mtime<job_started 时序恒假 100% 误拦+进程 5 天未重启跑 bug 版(8-28 磁盘重写机检丢失,考古 claude-actions 7 回执佐证);协议 :85 清理责任=Claude 主控(7 天保留),非 Claude 疏忽
+- [x] **A codex-ref-cleanup**(feat/codex-ref-cleanup→ca745c2ab,验收过,待 merge)— 协议 :58 补句(req ref status 只读/消费态以 resp ref 为准)+done-list 补 8-27-002 闭环条目+refs 终态 0 req+4 resp consumed+43 个 .failed 镜像落档(claude-actions/FAILED-SIGNALS-ARCHIVE-20260831.md)后删+2.79GB DB 副本释放+8-30-002 收尾(复算报告 docs/kelly/analysis/kelly-card-vs-popup-p12-p13-recompute-2026-08-31.md:P1-2 共享核 48/48 逐位一致;P1-3 剩余差异全为已声明语义差非 bug;P1-1 浏览器实测随 sim 收尾覆盖)
+- [x] **B watcher-inbox-fix**(feat/watcher-inbox-fix→05e1f6562+41e4a27eb,reviewer PASS,待 merge)— report_is_fresh 判定修复(mtime≥signaled_at−60s 容差放行)+touch 迁到写信号之后(不变量恒成立)+存量雷最小兼容(8-28 磁盘版硬依赖 tomllib,生产 py3.9.6,重启必崩→`from __future__`+tomllib 可选 import);watcher 重启新 PID 38806 心跳正常,回传闭环恢复;遗留 2 项(prompt 钉定/claude 消费语义)挂起待 rev-20260831-002 实跑表现拍板
+
