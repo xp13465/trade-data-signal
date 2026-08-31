@@ -185,3 +185,14 @@
 - [x] **P2-2 幽灵排除项清理**(build_board_etf_map.py L1504,同 commit)— `_HOLDINGS_EXCLUDE` 移除 `bj_399`(幽灵:indicators.yaml/universe_rules.yaml/数据均无),现 {bj50,csi_930820,ftse100,kospi};§23.6 check_universe_alignment.py 无影响
 - [x] **2 份调研文档归档(§23.5 四件套)**— docs/kelly/analysis/chart-pin-ui-rootcause-2026-08-30.md(pin UI 根因)+ ghi-sell-caliber-2026-08-30.md(GHI 卖光全仓口径),各含「## 复现」段;3 份 smoke 脚本(pin-zoom/pin-ui-fix-render/pin-xn-aggregate)入 docs/kelly/analysis/scripts/;README.md 索引补齐 2 报告。报告本体+脚本+复现段+commit 四件齐
 - [x] **main-merge 合并上线**(feat/p2-cleanup-20260830→main 2bf773a8f)— 统一 build_min+bump 版本串 a517→a518,index.html ?v=20260831-a518 = sw.js CACHE_VERSION v6-20260831-a518;§24 同 commit bump+重建 min+哈希校验;§0 验 main 链含 commit + 线上 ss.fx8.store 服务 app.min.js?v=20260831-a518 HTTP 200 非空
+
+## 2026-08-31 会话追加(CLAUDE.md 瘦身 + 首页 sim 弹窗两处改造)
+
+> 来源:用户两连需求。①CLAUDE.md 超 40k 限制(42.1k)→ 用户拍板「小瘦一轮保核心」;②首页模拟回测·全历史真实历史弹窗:表格列宽/总宽度压缩 + ETF 代码列做和信号凯利卡片一样的点击弹走势交互。两批均 main-merge.sh 统一 build_min+bump(版本串 a518→a519)上线,§0 三查通过。
+
+- [x] **CLAUDE.md 瘦身上线**(feat/claude-md-slim→main 57509a448)— 42,097→39,395 字符(-6.4%,达标 <39500),§5.3 核心保留(§23 十四条/§18 全锚点/§5 六条零丢失,只动行文冗余);纯文档改动跳过 bump,§24⑤ 校验 PASS
+- [x] **首页 sim 弹窗表格压缩**(feat/sim-etf-display-fix 216d413a1)— sim-tbl min-width 1470→1270px + nowrap→normal + 逐列收窄(定宽合计 1236→1078px),14 列全保留、数据/逻辑不变(§5.3)
+- [x] **sim 弹窗 ETF 代码点击走势交互**(同分支)— ETF 单元格复用凯利卡同款全局组件 _etfTrendLiteHTML/_etfTrendLiteBind/_etfTrendGeom(R2 etf/{code}-all.json→本地 fallback,§22 同源一致),bodyEl 事件委托跨分页生效,z-index 9999 不遮 sim 弹窗
+- [x] **reviewer 条件通过 + blocker 修复**(2ed475703)— reviewer CONDITIONAL PASS 揪出 bodyEl.click listener 累积(stale 数据 + 多次弹窗,漏 _simPosHoverBound 式守卫),修复=加 _simEtfPinClickBound 守卫 flag + 每渲染刷新最新 rows/fIdx 到 bodyEl、handler 从 bodyEl 读(根治累积+过期双问题)
+- [x] **main-merge 合并上线**(feat/sim-etf-display-fix→main 97b7bc979)— 统一 build_min+bump 版本串 a519,§24⑤ 校验 PASS;§0 验线上 app.min.js?v=20260831-a519 含 sim-etf-code-cell/simEtfPinClickBound + 备站 index 引用 a519 + ETF 数据源 R2 200
+

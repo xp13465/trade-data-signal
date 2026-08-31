@@ -8,13 +8,16 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-31 09:30(v1.1.11 tag + P2 清理合并上线,版本链 a516→a518).本轮(内审P2清理+发版):
+**最后更新**:2026-08-31 11:4x(v1.1.11 后追加两批:CLAUDE.md 瘦身 + sim 弹窗两处改造,版本链 a518→a519).本轮(CLAUDE.md 瘦身 + sim 弹窗改造):
 - **✅ 发版 v1.1.11 tag**(tag@80d1c81de,2026-08-30,内审2条P2非阻断+codex外审 rev-20260830-001 均PASS,用户「打吧」确认)— git tag v1.1.11 打在 main HEAD 80d1c81de
 - **✅ P2-1 注释口径修正**(app.js L4665-4667,_simBtCalcRowRealForce)— sim 默认档=etf_def(万3/最低5/印花万5)非 etf_main,与 lab 凯利 KELLY_FEE_PRESETS etf_main(免印花)语义不同勿机械同步;记录写回按 FEE_MAIN 不可直接透传
 - **✅ P2-2 幽灵排除项清理**(build_board_etf_map.py L1504)— `_HOLDINGS_EXCLUDE` 移除 `bj_399`(幽灵,indicators.yaml/universe_rules.yaml/数据均无),现 {bj50,csi_930820,ftse100,kospi}
 - **✅ 归档2份调研文档**(docs/kelly/analysis/chart-pin-ui-rootcause-2026-08-30.md + ghi-sell-caliber-2026-08-30.md,各含复现段)+ 3份 smoke 脚本入 docs/kelly/analysis/scripts/ + README 索引更新(§23.5四件套)
 - **✅ main-merge 合并上线**(feat/p2-cleanup-20260830→main 2bf773a8f,统一 build_min+bump 版本串 a517→a518,index ?v=20260831-a518=sw CACHE_VERSION,app.min.js 哈希一致);§0 验 main 链含 commit+线上 ss.fx8.store 服务 app.min.js?v=20260831-a518 200 非空
 - 完成明细已入 [docs/tasks-done-list.md](docs/tasks-done-list.md) 2026-08-31 段
+- **✅ CLAUDE.md 瘦身上线**(feat/claude-md-slim→main 57509a448):42,097→39,395 字符(-6.4%),§5.3 核心保留零丢失,40k 警告消除
+- **✅ 首页 sim 弹窗两处改造上线**(feat/sim-etf-display-fix→main 97b7bc979,版本串 a519):①表格压缩(min-width 1470→1270,定宽合计 1236→1078,14 列全保留)②ETF 代码列点击弹走势(复用凯利卡同款 _etfTrendLite 组件,R2 同源);reviewer CONDITIONAL PASS + blocker(listener 累积)修复 2ed475703;§0 验线上 a519 含新功能
+- **🔄 在跑**:CLAUDE.md §23 二次审计 researcher(audit2,巡检 891b3592)— 用户对结构优化方案要二次审计,专注 §23 十四条「权威原文 vs 指针」分层,出结论+推荐+优缺点
 **历史交接(≥2 轮前,已折叠)**:08-30 / 08-29 / 08-28 / 08-27 / 08-26 / 08-22 及更早八坨历史交接已按4态折叠,细节见 docs/tasks-done-list.md 与 docs/archive/TASKS-done.md / TASKS-history-archive-20260820.md。已上main的完成陈述(v1.1.7七支/首页模拟回测弹窗/P2-11懒渲染/费率/回测结论等)不再在顶部重复陈列。
 > **历史未决项清理(2026-08-28 主控核查,全已过时/已修复)**:①板块spark懒渲染=P2-11性能优化,非功能bug → 关闭②main-merge.sh销账提醒=Nice-to-have,从未阻塞 → 关闭③#88订阅推送=已完结销号 → 关闭④v1.1.7审计P1项=全已修复上main → 关闭⑤汪汪队stats等=大部分自愈,仅余宽度指标缺口(37天滞后)为独立数据问题 → 关闭,宽度缺口见data/alerts/latest.md 06-27条⑥首页AI建议N首次=真实残留小茬,但仅影响首次访问展示,不伤核心 → 暂时关闭,下轮顺手修。overfit.json 404=正常状态(下线,前端读overfit_monitor.json),不修。**🔥 信号凯利回测 lab tab 首屏加载 P1**(implementer ac359715ca0 修复中,feat/kelly-lab-lazy-load):裸 fetch 拉 69MB 全量,无分片/超时/缓存;修复=分片+骨架屏+localStorage 缓存三件套(recent.json 2.99MB 首开,按年 t{YYYY}.json 按需)
 
