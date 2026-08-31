@@ -4366,6 +4366,9 @@ function _collectSimEtfPinEvents(code, fIdx, rows, fp, gihActive) {
   const _calcRow = (t) => {
     try {
       if (!fp) return null;
+      // 缺价强平行(真实净值缺失)与表格行同口径短路(4937 _gihMissing ? null): 不重算错值,
+      // pop 收益率/净利按 _gihNavMissing 显「— 缺价」(此行 sell_price 为空, 直算会得深负假盈亏)
+      if (t._gihNavMissing) return null;
       const r = (t._gihForced && gihActive) ? _simBtCalcRowRealForce(t, fIdx, fp) : _simBtCalcRow(t, fIdx, fp);
       return (r && typeof r.pnlYuan === "number" && isFinite(r.pnlYuan))
         ? { pnlYuan: r.pnlYuan, pnlPct: r.pnlPct, feeTotal: (r.buyFee == null || r.sellFee == null) ? null : (r.buyFee + r.sellFee) }
@@ -4492,8 +4495,14 @@ async function _openSimEtfTrendPinModal(code, name, events, srcRow, srcKey) {
   const _setZoneActive = (b) => { _zoneBtns.forEach((bx) => { bx.classList.toggle("is-active", bx === b); }); };
 
   const renderZone = (zone) => {
-    // 区过滤: formal=除强平外 / elim=强平( _gihForced 行)
-    const eventsZ = (zone === "formal") ? events.filter((e) => e.kind !== "force") : events.filter((e) => e.kind === "force");
+    // 区过滤(行级, 对齐 lab _openEtfTrendPinModal e.src===zone 整行同区机制): 同一原始交易行 t 的买/卖事件
+    // 必须同区——kind 级过滤会把强平行买点留正式区(无配对卖→pop 误走「持仓中」)、强平卖单进淘汰区
+    // (无配对买→pop 把强平卖价当买入价), 配对语义全错。formal=非强平行整行 / elim=强平行整行(_gihForced 行)。
+    // 注: 缺价强平行仅标 _gihNavMissing 无 _gihForced(3713 注释), 其卖事件 kind 也非 "force", 整行本就同留
+    // 正式区(pin/pop 以「缺价」标注, 与表格红字「— 缺价」同口径), 不属本条割裂修复范围。
+    const eventsZ = (zone === "formal")
+      ? events.filter((e) => !(e.t && e.t._gihForced))
+      : events.filter((e) => !!(e.t && e.t._gihForced));
     // 连线层 + pin 层重建
     chartArea.innerHTML = '<div class="lab-etf-pin-wrap">' + _etfTrendLiteHTML(ohlcView) + '</div>';
     let _etfPinZoomCtl2 = null;
@@ -4537,10 +4546,12 @@ async function _openSimEtfTrendPinModal(code, name, events, srcRow, srcKey) {
     const pairOf = new Map();
     pairs.forEach((p) => { pairOf.set(p.buy, p); if (p.sell) pairOf.set(p.sell, p); });
 
-    // 卖信号日 ×N 聚合(同源 lab, 仅切区生效)
+    // 卖信号日 ×N 聚合(同源 lab, 仅切区生效); 缺价强平行(仅 _gihNavMissing, 卖事件 kind 也为 "sell")
+    // 与表格「不计入统计」同口径(4935/4937), 不计入 ×N 计数与明细(防稀释平均收益率/虚增本金)
+    const _navMiss = (ev) => !!(ev && ev.t && ev.t._gihNavMissing);
     const _soldBuyCountByDate = new Map();
     pairs.forEach((p) => {
-      if (p.sell && p.sell.kind === "sell") {
+      if (p.sell && p.sell.kind === "sell" && !_navMiss(p.sell)) {
         const _d = p.sell.date;
         _soldBuyCountByDate.set(_d, (_soldBuyCountByDate.get(_d) || 0) + 1);
       }
@@ -4661,13 +4672,13 @@ async function _openSimEtfTrendPinModal(code, name, events, srcRow, srcKey) {
         html += `<div class="lab-etf-pin-pop-row">卖出:${p.sell.date}${sellTag} @ ${(sp != null ? sp.toFixed(4) : "缺价")}</div>`;
         const hd = (st && bf.hold_days != null) ? st[bf.hold_days] : "-";
         html += `<div class="lab-etf-pin-pop-row">持有:${hd} 个交易日</div>`;
-        html += `<div class="lab-etf-pin-pop-row">收益率:${_fmtRet(_retOf(p.buy))}</div>`;
+        html += `<div class="lab-etf-pin-pop-row">收益率:${_navMiss(p.buy) ? "— 缺价" : _fmtRet(_retOf(p.buy))}</div>`;
         // 卖点×N 聚合明细(对齐 lab GHI 卖出口径展示增强): 同 sell 日被清 N 笔买时列全部买点+总盈亏/平均收益率/
         //   合计本金, 消除「×N 是金额」误读; amount 字段数据源无 → 每笔恒 1手¥10000(_simBtCalcRow PRIN 口径)。
         const _sd = p.sell.date;
         const _soldN = (_soldBuyCountByDate.get(_sd) || 0);
         if (_soldN > 1) {
-          const _mates = pairs.filter((pp) => pp.sell && pp.sell.kind === "sell" && pp.sell.date === _sd)
+          const _mates = pairs.filter((pp) => pp.sell && pp.sell.kind === "sell" && !_navMiss(pp.sell) && pp.sell.date === _sd)
             .sort((a, b) => (a.buy.date < b.buy.date ? -1 : a.buy.date > b.buy.date ? 1 : 0));
           let _totAmt = 0, _totProfit = 0, _retPctSum = 0;
           const _fmtAmt = (v) => { const _w = v / 10000; return (v >= 10000 && _w % 1 === 0) ? _w + "万" : Math.round(v).toLocaleString(); };
@@ -4691,8 +4702,8 @@ async function _openSimEtfTrendPinModal(code, name, events, srcRow, srcKey) {
         html += `<div class="lab-etf-pin-pop-row">持有:${hd} 个交易日</div>`;
         html += `<div class="lab-etf-pin-pop-row">至今收益率:${_fmtRet(_retOf(p.buy))}</div>`;
       }
-      const pfv = _pnlOf(p.buy);
-      html += `<div class="lab-etf-pin-pop-row">净利:${(pfv != null ? ((pfv >= 0 ? "+" : "") + pfv.toFixed(1) + " 元") : "-")}<span class="lab-etf-pin-pop-fee">(已含费率)</span></div>`;
+      const pfv = _navMiss(p.buy) ? null : _pnlOf(p.buy);
+      html += `<div class="lab-etf-pin-pop-row">净利:${(_navMiss(p.buy) ? "— 缺价" : (pfv != null ? ((pfv >= 0 ? "+" : "") + pfv.toFixed(1) + " 元") : "-"))}<span class="lab-etf-pin-pop-fee">(已含费率)</span></div>`;
       html += `<div class="lab-etf-pin-pop-row">费率消耗:${_feeTxt(p.buy)}</div>`;
       return html;
     };
