@@ -11813,7 +11813,7 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   state._sigKellyTradePage = 1;
   state._sigKellyElimPage = 1;
   state._sigKellyTradeSort = { key: "buy_date", dir: -1 };
-  state._sigKellyTradeFilter = { etf: "", profit: "all" };
+  state._sigKellyTradeFilter = { etf: "", profit: "all", elimReason: "all" };
   _renderSigKellyTradesModal(overlay, trades, extFields, quadLabel, modeLabel, period, quadKey, modeKey, eliminated, _gihKept);
 }
 
@@ -11822,7 +11822,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
   fields.forEach((f, i) => { fIdx[f] = i; });
   // 排序/筛选状态
   if (!state._sigKellyTradeSort) state._sigKellyTradeSort = { key: "buy_date", dir: -1 };
-  if (!state._sigKellyTradeFilter) state._sigKellyTradeFilter = { etf: "", profit: "all" };
+  if (!state._sigKellyTradeFilter) state._sigKellyTradeFilter = { etf: "", profit: "all", elimReason: "all" };
   if (!state._sigKellyTradePage) state._sigKellyTradePage = 1;
   if (!state._sigKellyElimPage) state._sigKellyElimPage = 1;
   const sort = state._sigKellyTradeSort;
@@ -11908,6 +11908,17 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       "AI仓位": "未被 AI仓位建议(K=当日资金池前K保留)选中",
       "AI长线·满仓不买": "ai长线模式(G/H/I)仓位管理仿真: 仓位上限已满当日跳过买入, 自然卖出腾位后再买",
     };
+    // 淘汰原因下拉选项(仅列实际在场原因, 与 _elimReasonLabel 动态清单一致; 缺省纯新增不占位)
+    const _elimReasonOptionsHtml = (function () {
+      const s = {};
+      eliminated.forEach(function (t) { if (t._elimReason) s[t._elimReason] = 1; });
+      const order = ["AI降亏", "AI仓位", "AI长线·满仓不买"];
+      let html = "";
+      order.forEach(function (r) {
+        if (s[r]) html += `<option value="${r}"${filter.elimReason === r ? " selected" : ""}>${r === "AI降亏" ? "仅降亏" : (r === "AI仓位" ? "仅AI仓位建议" : "仅AI长线·满仓不买")}</option>`;
+      });
+      return html;
+    })();
 
     // 分页: 每页 50 行
     const perPage = 50;
@@ -11996,8 +12007,22 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     let elimTotalPages = 1;
     let elimFilteredCount = 0;
     if (eliminated.length > 0) {
-      const elimFiltered = _applyFilterTo(eliminated);
+      // 2026-09-01 需求④: 在 ETF+盈亏筛选基础上叠加「淘汰原因」筛选(按 t._elimReason 匹配下拉选中类; all=不过滤)
+      let elimFiltered = _applyFilterTo(eliminated);
+      if (filter.elimReason && filter.elimReason !== "all") {
+        elimFiltered = elimFiltered.filter(function (t) { return t._elimReason === filter.elimReason; });
+      }
       elimFilteredCount = elimFiltered.length;
+      // 需求④盈亏统计(纯展示层, 只对筛选后淘汰集算一份, 不动主表/回测口径): 盈利笔/亏损笔/胜率/总盈亏
+      let elimWinCount = 0, elimLossCount = 0, elimTotalProfit = 0;
+      elimFiltered.forEach(function (t) {
+        // 盈亏字段=profit(与 _applyFilterTo 主表一致, 淘汰行经 _recompute 已重算 profit); pnl 非字段键
+        const p = +t[fIdx.profit] || 0;
+        if (p > 0) elimWinCount++;
+        else if (p < 0) elimLossCount++;
+        elimTotalProfit += p;
+      });
+      const elimWinRate = elimFiltered.length ? (elimWinCount / elimFiltered.length * 100).toFixed(1) : 0;
       const elimPerPage = 50;
       elimTotalPages = Math.max(1, Math.ceil(elimFilteredCount / elimPerPage));
       if (state._sigKellyElimPage > elimTotalPages) state._sigKellyElimPage = elimTotalPages;
@@ -12040,6 +12065,10 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
             `<option value="pos"${filter.profit === "pos" ? " selected" : ""}>仅盈利</option>` +
             `<option value="neg"${filter.profit === "neg" ? " selected" : ""}>仅亏损</option>` +
           `</select>` +
+          `<select class="lab-input lab-sigkelly-filter-elimreason">` +
+            `<option value="all"${filter.elimReason === "all" ? " selected" : ""}>全部原因</option>` +
+            (eliminated.length > 0 ? _elimReasonOptionsHtml : "") +
+          `</select>` +
         `</div>` +
         `<div class="lab-sigkelly-modal-tablewrap">` +
           `<table class="lab-sigkelly-trades-table">` +
@@ -12054,7 +12083,8 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
         `</div>` +
         (eliminated.length > 0 ? (
           `<div class="lab-sigkelly-modal-elimwrap">` +
-            `<div class="lab-sigkelly-modal-elimtitle">⚠ 被${_elimReasonLabel}淘汰的交易 ${eliminated.length} 笔（删除线=不参与统计,已从卡片/按年表剔除;仅在此展示对照哪些被淘汰、因何淘汰）· 已筛 ${elimFilteredCount}/${eliminated.length} 笔</div>` +
+            `<div class="lab-sigkelly-modal-elimtitle">⚠ 被${_elimReasonLabel}淘汰的交易 ${eliminated.length} 笔（删除线=不参与统计,已从卡片/按年表剔除;仅在此展示对照哪些被淘汰、因何淘汰）· 已筛 ${elimFilteredCount}/${eliminated.length} 笔` +
+              `${filter.elimReason !== "all" && elimFilteredCount > 0 ? ` · 该类信号盈亏:盈利 ${elimWinCount} / 亏损 ${elimLossCount} · 胜率 ${elimWinRate}% · 总盈亏 ${(elimTotalProfit >= 0 ? "+" : "") + elimTotalProfit.toFixed(0)} 元` : ""}</div>` +
             `<div class="lab-sigkelly-modal-elimtablewrap">` +
               `<table class="lab-sigkelly-trades-table">` +
                 `<thead><tr>${thHTMLElim}</tr></thead>` +
@@ -12106,6 +12136,11 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     const profitSel = overlay.querySelector(".lab-sigkelly-filter-profit");
     if (profitSel) {
       profitSel.onchange = () => { filter.profit = profitSel.value; state._sigKellyTradePage = 1; state._sigKellyElimPage = 1; _render(); };
+    }
+    // 需求④: 淘汰原因下拉(按原因过滤淘汰区+触发该类盈亏统计; 只重置淘汰区页码, 主表不受影响)
+    const elimSel = overlay.querySelector(".lab-sigkelly-filter-elimreason");
+    if (elimSel) {
+      elimSel.onchange = () => { filter.elimReason = elimSel.value; state._sigKellyElimPage = 1; _render(); };
     }
     // 分页
     const prevBtn = overlay.querySelector(".lab-sigkelly-page-prev");
