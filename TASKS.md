@@ -8,7 +8,7 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-31 12:0x(会话暂停交接,换新会话接力;版本链 a518→a519).本轮(CLAUDE.md 瘦身 + sim 弹窗改造 + 2 在跑 agent 交接):
+**最后更新**:2026-08-31 12:2x(新会话接力;audit2审完用户拍板保守版已派落地,sim因429额度耗尽暂停).本轮接管(CLAUDE.md §23保守版落地 + sim pin对齐暂停):
 - **✅ 发版 v1.1.11 tag**(tag@80d1c81de,2026-08-30,内审2条P2非阻断+codex外审 rev-20260830-001 均PASS,用户「打吧」确认)— git tag v1.1.11 打在 main HEAD 80d1c81de
 - **✅ P2-1 注释口径修正**(app.js L4665-4667,_simBtCalcRowRealForce)— sim 默认档=etf_def(万3/最低5/印花万5)非 etf_main,与 lab 凯利 KELLY_FEE_PRESETS etf_main(免印花)语义不同勿机械同步;记录写回按 FEE_MAIN 不可直接透传
 - **✅ P2-2 幽灵排除项清理**(build_board_etf_map.py L1504)— `_HOLDINGS_EXCLUDE` 移除 `bj_399`(幽灵,indicators.yaml/universe_rules.yaml/数据均无),现 {bj50,csi_930820,ftse100,kospi}
@@ -17,9 +17,10 @@
 - 完成明细已入 [docs/tasks-done-list.md](docs/tasks-done-list.md) 2026-08-31 段
 - **✅ CLAUDE.md 瘦身上线**(feat/claude-md-slim→main 57509a448):42,097→39,395 字符(-6.4%),§5.3 核心保留零丢失,40k 警告消除
 - **✅ 首页 sim 弹窗两处改造上线**(feat/sim-etf-display-fix→main 97b7bc979,版本串 a519):①表格压缩(min-width 1470→1270,定宽合计 1236→1078,14 列全保留)②ETF 代码列点击弹走势(复用凯利卡同款 _etfTrendLite 组件,R2 同源);reviewer CONDITIONAL PASS + blocker(listener 累积)修复 2ed475703;§0 验线上 a519 含新功能
-- **🔄 在跑(2 个,新会话接管监控,巡检 cron 均为 durable 已就位)**:
-  - **① claude-md-audit2 researcher**(agentId 见子会话,巡检 cron 891b3592 15min 档,进度文件 /tmp/agent-progress-claude-md-audit2.md,当前未建/分析阶段)— 用户对 CLAUDE.md 结构优化方案要二次审计,专注 §23 十四条「权威原文 vs 指针」分层(修正判据:基准=39.4k 非 61.5k;§0.1/§0.2/§18/§5.4 是历史教训故意留共享核心不许建议挪走;逐条四维判据:全角色必读?/skill 已承载?/历史教训强制?/规范型 vs 状态型)。完成→出结论+推荐+优缺点给用户拍板
-  - **② sim-etf-pin-align implementer**(agentId 见子会话,巡检 cron 39510b35 15min 档,进度文件 /tmp/agent-progress-sim-etf-pin-align.md,已规划方案:①app.js _openSimEtfTrendPinModal(L4393)对齐 lab.js L12108 凯利卡完整 pin 功能:正式/淘汰区切换/infoBar/走势缩放/pin 悬停提示 pop(买入卖出日期价格/持有天数/收益率)/买卖连线;事件数据源不变(_collectSimEtfPinEvents)②style.css 第4列「信号关联ETF」定宽 110px+ellipsis+窄屏不撑破弹窗)。分支=feat/sim-etf-pin-align,完成后主控 reviewer→main-merge
+- **🔄 在跑(1 个 fresh agent;批量巡检 cron e256016e durable 3,18,33,48;旧 cron 891b3592/39510b35/16d344a4 已停)**:
+  - **✅ ① claude-md-audit2 researcher 已完成**(进度 /tmp/agent-progress-claude-md-audit2.md DONE)— 审完 §23 十四条+共享核心大段四维表;用户拍板**保守版**(只指针化 §23.2/§23.3/§23.4,省~1340字符3.4%),历史教训类不挪
+  - **② audit2 保守版瘦身已 commit 待 merge**(feat/claude-md-audit2-slim 09dbb1cc5:CLAUDE.md §23.2/§23.3/§23.4 指针化+impl skill §8 关联源去 §23.5 误标+tester skill §23.2② 引用同步防断链;3 文件 6+/15-,sim 半成品未混入;主控代收尾 commit——implementer 三轮接力均漏 commit 故机械 git 收尾主控直做)。**reviewer 终审在跑**(进度 /tmp/agent-progress-audit2-slim-review.md,巡检 cron 2e751841),PASS→main-merge.sh feat/claude-md-audit2-slim→§0 验收→完成登记 done-list
+  - **⏸ ③ sim-etf-pin-align 暂停**(token plan 额度耗尽 429,半成品在 app.js/style.css 工作区 M 未 commit 未丢,方向确认对:区切换/infoBar/缩放/悬停提示/连线/配对高亮已实现,差 STEP 3 字段核对+1:1对齐+108/110统一)— 用户定暂停 sim 先做别的;额度恢复后重派 fresh implementer 接半成品完成
 **历史交接(≥2 轮前,已折叠)**:08-30 / 08-29 / 08-28 / 08-27 / 08-26 / 08-22 及更早八坨历史交接已按4态折叠,细节见 docs/tasks-done-list.md 与 docs/archive/TASKS-done.md / TASKS-history-archive-20260820.md。已上main的完成陈述(v1.1.7七支/首页模拟回测弹窗/P2-11懒渲染/费率/回测结论等)不再在顶部重复陈列。
 > **历史未决项清理(2026-08-28 主控核查,全已过时/已修复)**:①板块spark懒渲染=P2-11性能优化,非功能bug → 关闭②main-merge.sh销账提醒=Nice-to-have,从未阻塞 → 关闭③#88订阅推送=已完结销号 → 关闭④v1.1.7审计P1项=全已修复上main → 关闭⑤汪汪队stats等=大部分自愈,仅余宽度指标缺口(37天滞后)为独立数据问题 → 关闭,宽度缺口见data/alerts/latest.md 06-27条⑥首页AI建议N首次=真实残留小茬,但仅影响首次访问展示,不伤核心 → 暂时关闭,下轮顺手修。overfit.json 404=正常状态(下线,前端读overfit_monitor.json),不修。**🔥 信号凯利回测 lab tab 首屏加载 P1**(implementer ac359715ca0 修复中,feat/kelly-lab-lazy-load):裸 fetch 拉 69MB 全量,无分片/超时/缓存;修复=分片+骨架屏+localStorage 缓存三件套(recent.json 2.99MB 首开,按年 t{YYYY}.json 按需)
 
