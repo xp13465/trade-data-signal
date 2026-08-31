@@ -38,12 +38,6 @@ def main() -> int:
     if report.get("verdict") != args.verdict:
         raise SystemExit("verdict does not match report")
 
-    # Touch the report so its mtime is fresh for the watcher's stale-report
-    # check (report mtime must be >= job started_at). Without this, the
-    # signal is consumed before the next watcher loop starts, and the check
-    # fails because the report was written earlier.
-    report_path.touch()
-
     atomic_write_json(
         SIGNALS_DIR / f"{args.request_id}.ready",
         {
@@ -53,6 +47,11 @@ def main() -> int:
             "verdict": args.verdict,
         },
     )
+    # 信号落盘后再 touch 报告(2026-08-31): watcher 以 signaled_at 为基准校验
+    # report mtime, touch 使正常回传满足 report.mtime >= signaled_at(完成回执
+    # 语义)。旧位置(写信号前)的 touch 是为绕 8-26 演进版 job_started 机检的
+    # 补丁, 该机检比较恒假已废弃, 原补丁随之删除(1ab3d3e58)。
+    report_path.touch()
     print(f"claude signal ready: {SIGNALS_DIR / f'{args.request_id}.ready'}")
     return 0
 

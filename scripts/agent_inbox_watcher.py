@@ -24,6 +24,14 @@ schedule_monitor 接入待办)。
 僵死一次)。现每 inbox 一个作业槽(codex/claude 各同时最多一个子进程), 主循环每轮
 poll 已结束子进程按退出码走 done/failed(重试语义不变), 心跳与另一 inbox 消费不
 再被阻塞。
+
+报告有效性机检(2026-08-31, codex ref 断点修复): claude 回传信号消费前校验报告
+mtime 是否 >= 信号创建时刻(signaled_at, 容差 60s)。8-26 演进版(仅存于当日起跑
+进程内存, 从未提交)比较报告 mtime vs job_started(作业启动时刻), 但报告必然写于
+作业消费前 → 比较恒假 → 100% 误拦真实回传(agent-inbox.log :2155 实录 3 次重试
+全拦后 gave_up)。8-28 磁盘重写时机检与进程未重启并存, 线上持续误拦 5 天。现版
+语义: 报告明显早于信号创建 = 信号重发而报告未重写的旧残留, 该拦(.invalid 终态);
+正常回传由 codex_review_complete.py 在写完信号后 touch 报告保证时序成立。
 """
 
 import json
@@ -32,6 +40,7 @@ import tomllib
 import re
 import subprocess
 import time
+from datetime import datetime
 from pathlib import Path
 
 
@@ -52,6 +61,9 @@ RETRY_DELAY_SECONDS = 300
 RETRY_KEY = "retry_count"
 NEXT_RETRY_KEY = "next_retry_after"
 LAST_FAIL_KEY = "last_failed_at"
+# 报告 mtime vs signaled_at 的容差: 吸收文件系统 mtime 粒度与 touch/写信号的
+# 毫秒级竞态, 只拦"明显早于信号创建"(分钟级以上)的真旧残留
+FRESHNESS_TOLERANCE_SECONDS = 60
 
 
 def notify_claude(request_id: str) -> None:
@@ -316,6 +328,48 @@ def notify_gave_up(kind: str, request_id: str, retries: int) -> None:
         log(f"notify_error={error}")
 
 
+def parse_signaled_epoch(payload: dict, signal_path: Path) -> float:
+    """报告时序基准: 优先信号 payload 的 signaled_at(codex_review_complete.py
+    写入的 ISO8601 时刻); 缺失或不可解析时回退信号文件自身 mtime 作基准
+    (重试写回会刷新 mtime, 故 signaled_at 必在时仅作手造信号的兜底)。"""
+    raw = payload.get("signaled_at")
+    if isinstance(raw, str):
+        try:
+            return datetime.fromisoformat(raw).timestamp()
+        except ValueError:
+            pass
+    try:
+        return signal_path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def report_is_fresh(payload: dict, signal_path: Path) -> tuple[bool, str]:
+    """claude 回传报告有效性检查(2026-08-31 修复 codex ref 断点)。
+    8-26 演进版比较报告 mtime vs job_started(作业启动时刻), 但报告必然写于
+    作业消费前 → 比较恒假 → 100% 误拦真实回传。正确基准=信号创建时刻:
+    codex_review_complete.py 写完信号后 touch 报告, 正常回传满足
+    report.mtime >= signaled_at - 容差; 报告明显早于信号创建 = 信号重发而
+    报告未重写的旧残留, 该拦(文案区分 stale report 真实语义)。
+    无 report_path 的信号(codex 通道, 报告由作业期间自写)不适用, 直接放行。"""
+    report_path = payload.get("report_path")
+    if not isinstance(report_path, str) or not report_path:
+        return True, ""
+    report = Path(report_path)
+    try:
+        report_mtime = report.stat().st_mtime
+    except OSError:
+        return False, f"report missing: {report_path}"
+    baseline = parse_signaled_epoch(payload, signal_path)
+    if report_mtime < baseline - FRESHNESS_TOLERANCE_SECONDS:
+        return False, (
+            f"stale report: report mtime={report_mtime:.3f} 早于信号创建基准 "
+            f"{baseline:.3f}(超容差 {FRESHNESS_TOLERANCE_SECONDS}s)"
+            "= 疑似旧残留(信号重发但报告未重写), 该拦"
+        )
+    return True, ""
+
+
 def pump_queue(inbox: Path, kind: str, running: dict) -> None:
     """扫描 inbox 取第一个可消费信号后台起子进程(每通道单槽: 本通道已有作业在跑
     则整轮跳过, 防并发多 codex exec; invalid 立即转态、重试未到期跳过)。"""
@@ -341,6 +395,14 @@ def pump_queue(inbox: Path, kind: str, running: dict) -> None:
         if not ID_PATTERN.fullmatch(request_id):
             transition(processing, "invalid")
             log(f"invalid_request_id={request_id}")
+            continue
+
+        # 报告有效性机检: 不过 = 旧残留/缺失, .invalid 终态(重试无意义, 报告
+        # 不会自己变新), 人工排查后换新 id 重发(同 gave_up 排查指引)
+        valid, error = report_is_fresh(payload, processing)
+        if not valid:
+            transition(processing, "invalid")
+            log(f"{kind}_rejected request_id={request_id} reason=report_invalid: {error}")
             continue
 
         spawn_job(kind, request_id, processing, payload,
