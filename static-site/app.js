@@ -4688,6 +4688,10 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
   // 高亮数 == 该日格子显示的持仓数(posSetMap 同点快照, 结构性恒等); 持仓笔可能开于此前交易日 →
   // 高亮跨日分布属预期语义, 未渲染的分页行不点亮(单元格 tooltip 已注明)
   bodyEl._simPosSetMap = posSetMap;
+  // ETF 走势 pin 所需「最新 rows/fIdx」挂到 bodyEl 上: 监听只绑一次(flag 防重渲染重复绑), handler 读 bodyEl 上的最新值
+  // (避免闭包捕获首调时的旧 rows/fIdx → 切 K/切 fade 后点旧 ETF 仍展示旧数据, reviewer blocker 2026-08-31)。
+  bodyEl._simEtfPinRows = rows;
+  bodyEl._simEtfPinFIdx = fIdx;
   if (!bodyEl._simPosHoverBound) {
     bodyEl._simPosHoverBound = true;
     let _hotCell = null, _hitCells = [];
@@ -4718,18 +4722,22 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
     bodyEl.addEventListener("mouseleave", _clearHot);
   }
   // ETF 代码点击 → 走势+买卖/强平 pin(2026-08-31 需求B: 复用 app.js 全局 _etfTrendLiteHTML/_etfTrendLiteBind/_etfTrendGeom, 与凯利卡同交互)
-  // 使用事件委托: bodyEl 始终存在, 即使 _draw 重渲染表格也能捕获点击
-  bodyEl.addEventListener("click", (e) => {
-    const td = e.target && e.target.closest ? e.target.closest("td.sim-etf-code-cell") : null;
-    if (!td) return;
-    const code = td.dataset.code;
-    const name = td.dataset.name || "";
-    if (!code) return;
-    // 构建该 ETF 在当前视图内的所有交易事件(买/卖/强平)供 pin 展示
-    const events = _collectSimEtfPinEvents(code, fIdx, rows);
-    if (!events.length) return;
-    _openSimEtfTrendPinModal(code, name, events);
-  });
+  // 使用事件委托: bodyEl 始终存在, 即使 _draw 重渲染表格也能捕获点击;
+  // rows/fIdx 每次渲染时刷新到 bodyEl 上(见上), handler 读最新值, 杜绝闭包持旧数据。
+  if (!bodyEl._simEtfPinClickBound) {
+    bodyEl._simEtfPinClickBound = true;
+    bodyEl.addEventListener("click", (e) => {
+      const td = e.target && e.target.closest ? e.target.closest("td.sim-etf-code-cell") : null;
+      if (!td) return;
+      const code = td.dataset.code;
+      const name = td.dataset.name || "";
+      if (!code) return;
+      // 构建该 ETF 在当前视图内的所有交易事件(买/卖/强平)供 pin 展示
+      const events = _collectSimEtfPinEvents(code, bodyEl._simEtfPinFIdx || fIdx, bodyEl._simEtfPinRows || rows);
+      if (!events.length) return;
+      _openSimEtfTrendPinModal(code, name, events);
+    });
+  }
   _draw();
 }
 
