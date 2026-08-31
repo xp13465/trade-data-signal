@@ -1851,6 +1851,9 @@
 .lab-sigkelly-eliminated-row td { text-decoration: line-through; color: var(--text-4); }
 .lab-sigkelly-eliminated-row:hover { opacity: 0.8; background: rgba(134,142,150,0.10); }
 .lab-sigkelly-elim-stat { color: #868e96; font-weight: 600; }
+/* 2026-09-01 需求: 淘汰区「淘汰原因」列——原因单元格豁免删除行线(eliminated-row td 的 line-through 会让
+   原因看不清, 同 2026-08-14 #25 "淘汰文字看不清"教训); td 前缀保证与 .eliminated-row td 同特异度靠后位胜出 */
+td.lab-sigkelly-elim-reason { text-decoration: none; color: var(--text-2); font-weight: 600; font-size: 11px; white-space: nowrap; }
 /* 2026-08-14 #25 A包(需求②+需求D): 不可操作淘汰(GIH off 无操作性 / K-OFF 无仓位限制) 增强标注, 与降亏淘汰区分理由
    2026-08-14 样式修复(#25 bug): "淘汰文字看不清字"——删除线行文字由 var(--text-4) 最淡灰改为 var(--text-2) 深灰可读色,
    且取消被 .lab-sigkelly-eliminated-row opacity:0.55 整行过度压淡(opacity 提高保证含红角标在内的内容可读),

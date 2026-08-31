@@ -11724,6 +11724,11 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
     if (cutoff && cutoff !== "0" && (t[_fIdx.buy_date] || "") < cutoff) return false;
     return !_pcFadeFn(t) || (_posCapKept && !_posCapKept[_kellyBaseKey(t, _fIdx)]);
   });
+  // 淘汰原因逐行记录(2026-09-01 需求: 淘汰区加「淘汰原因」列, 用户需区分降亏/仓位/长线满仓不买便于判对错与溯源):
+  // 与判定顺序一致取第一个命中(降亏优先); AI长线·满仓不买单在下方 GIH 块追加。挂载必须在全部 transform 之后
+  const _elimReasons = eliminated.map(function (t) {
+    return !_pcFadeFn(t) ? "AI降亏" : "AI仓位";
+  });
 
   // 始终重算(含默认档)以获取费率消耗: 重算 profit/return_pct/fee_cost
   // 2026-08-12: 每笔金额=固定1万(与卡片统计口径一致 §22)
@@ -11788,6 +11793,21 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
       });
     }
   }
+
+  // GIH 满仓不买单补入淘汰区(2026-09-01 需求): 通过降亏+仓位过滤但未被 ai长线仿真保留(满仓不买当日跳过)的单,
+  // 原先静默消失(既不进主表也不进淘汰区); 现以「AI长线·满仓不买」进淘汰区对照展示。_simIn 每项 _src 指向
+  // recompute 后的行(fee/amount 口径与其他淘汰行一致), kept 项经 k._src 引用对回(与 L11771 同法)
+  if (_gihKept && _simIn) {
+    const _gihKeptSrc = new Set(_gihKept.map(function (k) { return k._src; }));
+    _simIn.forEach(function (x) {
+      if (!_gihKeptSrc.has(x._src)) {
+        eliminated.push(x._src);
+        _elimReasons.push("AI长线·满仓不买");
+      }
+    });
+  }
+  // 原因挂载在全部 transform 之后(_recompute 内 t.slice() 会丢数组自定义属性, 故不能在 filter 处直接挂)
+  eliminated.forEach(function (t, i) { t._elimReason = _elimReasons[i] || "AI仓位"; });
 
   // 渲染 modal(新开弹窗重置到第 1 页 + 重置筛选/排序状态, 防上个弹窗的 ETF 关键字/盈亏筛选残留到下一个弹窗)
   state._sigKellyTradePage = 1;
@@ -11871,6 +11891,24 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       const arrow = isSorted ? (sort.dir > 0 ? " ▲" : " ▼") : "";
       return `<th class="lab-sigkelly-trades-th" data-key="${c.key}">${c.label}${arrow}</th>`;
     }).join("");
+    // 淘汰区专用表头(2026-09-01 需求): 共用 13 列 + 尾部「淘汰原因」列; 不带 data-key(排序点击处理器有守卫跳过)
+    const thHTMLElim = thHTML + '<th class="lab-sigkelly-trades-th">淘汰原因</th>';
+    // 淘汰原因在场清单(动态标签, 与既有公示文案一致): 统计行/淘汰区标题按实际在场原因列出, 不在场不提
+    const _elimReasonLabel = (function () {
+      const s = {};
+      eliminated.forEach(function (t) { if (t._elimReason) s[t._elimReason] = 1; });
+      const parts = [];
+      if (s["AI降亏"]) parts.push("降亏");
+      if (s["AI仓位"]) parts.push("AI仓位建议");
+      if (s["AI长线·满仓不买"]) parts.push("AI长线·满仓不买");
+      return parts.join("/") || "降亏/AI仓位建议";
+    })();
+    // 原因 → tooltip 说明(文案对齐既有公示: 降亏=模式键集判定 / 仓位=K前K保留 / 长线=满仓不买仿真)
+    const _elimReasonTip = {
+      "AI降亏": "未通过 AI降亏过滤(当前模式键集判定剔除, 不参与统计)",
+      "AI仓位": "未被 AI仓位建议(K=当日资金池前K保留)选中",
+      "AI长线·满仓不买": "ai长线模式(G/H/I)仓位管理仿真: 仓位上限已满当日跳过买入, 自然卖出腾位后再买",
+    };
 
     // 分页: 每页 50 行
     const perPage = 50;
@@ -11965,12 +12003,12 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       if (state._sigKellyElimPage < 1) state._sigKellyElimPage = 1;
       const elimPageRows = elimFiltered.slice((state._sigKellyElimPage - 1) * elimPerPage, state._sigKellyElimPage * elimPerPage);
       if (elimPageRows.length === 0) {
-        elimTbody = `<tr><td colspan="13" class="lab-sigkelly-trades-more">无符合条件的被淘汰交易</td></tr>`;
+        elimTbody = `<tr><td colspan="14" class="lab-sigkelly-trades-more">无符合条件的被淘汰交易</td></tr>`;
       } else {
         for (const t of elimPageRows) {
           const elimRowCls = ((!t[fIdx.sell_date]) ? "lab-sigkelly-holding-row" : "") + " lab-sigkelly-eliminated-row";
           // 需求3: 与正式区同规矩 tr 行标识 data-ib/data-bd(淘汰区触发行点入弹窗同样高亮其配对 pin)
-          elimTbody += `<tr class="${elimRowCls}" data-ib="${_esc(t[fIdx.index_id] != null ? t[fIdx.index_id] : "")}" data-bd="${_esc(t[fIdx.buy_date] != null ? t[fIdx.buy_date] : "")}">${_rowHtml(t)}</tr>`;
+          elimTbody += `<tr class="${elimRowCls}" data-ib="${_esc(t[fIdx.index_id] != null ? t[fIdx.index_id] : "")}" data-bd="${_esc(t[fIdx.buy_date] != null ? t[fIdx.buy_date] : "")}">${_rowHtml(t)}<td class="lab-sigkelly-elim-reason" title="${_esc(_elimReasonTip[t._elimReason] || "")}">${_esc(t._elimReason || "")}</td></tr>`;
         }
       }
     }
@@ -11991,7 +12029,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
           `<span>总盈亏 ${(totalProfit >= 0 ? "+" : "") + totalProfit.toFixed(0)} 元</span>` +
           `<span class="lab-sigkelly-neg">费率消耗 -${totalFeeCost.toFixed(0)} 元</span>` +
           (holdingCount > 0 ? `<span class="lab-sigkelly-holding-stat">含 ${holdingCount} 笔至今</span>` : "") +
-          (eliminated.length > 0 ? `<span class="lab-sigkelly-elim-stat">⚠ 被降亏/AI仓位建议淘汰 ${eliminated.length} 笔(删除线,不计入统计)</span>` : "") +
+          (eliminated.length > 0 ? `<span class="lab-sigkelly-elim-stat">⚠ 被${_elimReasonLabel}淘汰 ${eliminated.length} 笔(删除线,不计入统计)</span>` : "") +
           (navMissingCount > 0 ? `<span class="lab-sigkelly-missing-px">⚠ ${navMissingCount} 笔缺强平日真实价(数据异常,不进统计)</span>` : "") +
         `</div>` +
         `<div class="lab-sigkelly-modal-filters">` +
@@ -12015,10 +12053,10 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
         `</div>` +
         (eliminated.length > 0 ? (
           `<div class="lab-sigkelly-modal-elimwrap">` +
-            `<div class="lab-sigkelly-modal-elimtitle">⚠ 被降亏/AI仓位建议淘汰的交易 ${eliminated.length} 笔（删除线=不参与统计,已从卡片/按年表剔除;仅在此展示对照哪些被淘汰）· 已筛 ${elimFilteredCount}/${eliminated.length} 笔</div>` +
+            `<div class="lab-sigkelly-modal-elimtitle">⚠ 被${_elimReasonLabel}淘汰的交易 ${eliminated.length} 笔（删除线=不参与统计,已从卡片/按年表剔除;仅在此展示对照哪些被淘汰、因何淘汰）· 已筛 ${elimFilteredCount}/${eliminated.length} 笔</div>` +
             `<div class="lab-sigkelly-modal-elimtablewrap">` +
               `<table class="lab-sigkelly-trades-table">` +
-                `<thead><tr>${thHTML}</tr></thead>` +
+                `<thead><tr>${thHTMLElim}</tr></thead>` +
                 `<tbody>${elimTbody}</tbody>` +
               `</table>` +
             `</div>` +
@@ -12038,6 +12076,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     overlay.querySelectorAll(".lab-sigkelly-trades-th").forEach((th) => {
       th.onclick = () => {
         const key = th.dataset.key;
+        if (!key) return; // 2026-09-01: 淘汰区「淘汰原因」列等无 data-key 的表头不参与排序(防 sort.key 被置 undefined)
         if (sort.key === key) sort.dir = -sort.dir;
         else { sort.key = key; sort.dir = -1; }
         state._sigKellyTradePage = 1;
