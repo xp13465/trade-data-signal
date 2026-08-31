@@ -175,3 +175,13 @@
 - [x] **#B2 ETF走势pin弹窗4项UI修复**(commit 687f46a70,版本 a502)— ①dot 居中锚点(dot+txt 整体 translate 致 dot 偏左约27px,改 dot absolute translate(-50%,-50%)、txt 挂旁)②同日多 pin 竖向叠加(dot 共锚点、txt 竖排错开,弃 ei*14 横向错开)③正式/淘汰区切区统一区间基准(并集事件日期,弃每区独立重算窗口)④infobar 详情态去 max-height:64 滚动 + 字体统一;reviewer 内审 PASS
 - [x] **#B3 卖点×N聚合标注+同卖日清仓明细**(commit b8b2e5f7a,版本 a502)— GHI 卖出=清仓全部仓位非卖1手(562870=8笔买同日全清 net -262.06,全库617组1卖日命中N买);pin 显示 `×N` + hover 列同卖日被清 buy 行 + 合计清仓本金;口径三源核对一致(仅展示层逐行有误导)
 - [x] **#B4 全信号卡默认宽度统一700px+撑不满动态撑满**(commit 358c3dd54,版本 a503)— 全信号卡基准 600px→700px 与象限卡(:1548)对齐;`1fr` 让一行2卡自动撑满;窄屏(<700) min(100%) 回 1 列;同步更新注释口径
+
+## 2026-08-31 会话收尾移入(v1.1.11 tag + P2 清理合并上线)
+
+> 来源:内审 2 条 P2 观察 + codex 外审 rev-20260830-001 双 PASS 后发版 v1.1.11,随后处理 P2 观察并清理归档未跟踪产物;main-merge.sh 统一 build_min+bump(版本串 a517→a518)上线,curl 三查通过。tag v1.1.11 打在 main HEAD 80d1c81de。
+
+- [x] **发版 v1.1.11 git tag**(tag@80d1c81de)— 内审 2 条 P2(非阻断)+ codex 外审 rev-20260830-001 均 PASS,用户「打吧」确认;git tag v1.1.11 打在 main HEAD 80d1c81de(区分 tag-object hash a4b980c4 与 commit hash)
+- [x] **P2-1 注释口径修正**(app.js L4665-4667,_simBtCalcRowRealForce,commit 于 feat/p2-cleanup-20260830)— sim 默认档=etf_def(万3/最低5/印花万5)非 etf_main;与 lab 凯利 KELLY_FEE_PRESETS etf_main(免印花)语义不同勿机械同步;记录写回按 FEE_MAIN 不可直接透传。纯注释,min 哈希一致
+- [x] **P2-2 幽灵排除项清理**(build_board_etf_map.py L1504,同 commit)— `_HOLDINGS_EXCLUDE` 移除 `bj_399`(幽灵:indicators.yaml/universe_rules.yaml/数据均无),现 {bj50,csi_930820,ftse100,kospi};§23.6 check_universe_alignment.py 无影响
+- [x] **2 份调研文档归档(§23.5 四件套)**— docs/kelly/analysis/chart-pin-ui-rootcause-2026-08-30.md(pin UI 根因)+ ghi-sell-caliber-2026-08-30.md(GHI 卖光全仓口径),各含「## 复现」段;3 份 smoke 脚本(pin-zoom/pin-ui-fix-render/pin-xn-aggregate)入 docs/kelly/analysis/scripts/;README.md 索引补齐 2 报告。报告本体+脚本+复现段+commit 四件齐
+- [x] **main-merge 合并上线**(feat/p2-cleanup-20260830→main 2bf773a8f)— 统一 build_min+bump 版本串 a517→a518,index.html ?v=20260831-a518 = sw.js CACHE_VERSION v6-20260831-a518;§24 同 commit bump+重建 min+哈希校验;§0 验 main 链含 commit + 线上 ss.fx8.store 服务 app.min.js?v=20260831-a518 HTTP 200 非空

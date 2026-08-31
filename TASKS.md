@@ -8,13 +8,14 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-08-30 23:20(feat/sigkelly-all-width-unify 上线 v20260830-a503).本轮(ETF弹窗系列+凯利区,6批 merge 全上线,版本链 a498→a503):
-- **✅ 全信号卡默认宽度统一700px+撑不满动态撑满**(commit 358c3dd54+e915a970f,a503)— 全信号卡基准600→700px与象限对齐;`1fr`让一行2卡自动撑满,窄屏回1列(纯CSS,implementer未建分支由主控补编排)
-- **✅ pin UI 4项修复+卖点×N聚合**(commit 687f46a70/b8b2e5f7a+b4bf22178,a502)— dot居中锚点/同日竖叠/切区统一区间/infobar去滚动;GHI卖出=清仓全部非卖1手,×N标注+同卖日清仓明细+合计本金;制定案+根因报告落档 docs/kelly/analysis/
-- **✅ 全信号表+按年窗口增长两卡并排2列**(commit c6a2370ce+6d7ec18d3,a501)— flex+@media1080→grid auto-fill,PC 2卡并排窄屏回1列
-- **✅ (前批汇总)** ETF弹窗正式/淘汰区切换+固定info条+触发行配对高亮(pin-zone-toggle,a500)+pin-zoom 5项改造+宽度/防横滚/返回高亮+内审P1+codex外审(a497→a499)
-- 完成明细已入 [docs/tasks-done-list.md](docs/tasks-done-list.md) 2026-08-30 段
-**历史交接(≥2 轮前,已折叠)**:08-29 / 08-28 / 08-27 / 08-26 / 08-22 及更早八坨历史交接已按4态折叠,细节见 docs/tasks-done-list.md 与 docs/archive/TASKS-done.md / TASKS-history-archive-20260820.md。已上main的完成陈述(v1.1.7七支/首页模拟回测弹窗/P2-11懒渲染/费率/回测结论等)不再在顶部重复陈列。
+**最后更新**:2026-08-31 09:30(v1.1.11 tag + P2 清理合并上线,版本链 a516→a518).本轮(内审P2清理+发版):
+- **✅ 发版 v1.1.11 tag**(tag@80d1c81de,2026-08-30,内审2条P2非阻断+codex外审 rev-20260830-001 均PASS,用户「打吧」确认)— git tag v1.1.11 打在 main HEAD 80d1c81de
+- **✅ P2-1 注释口径修正**(app.js L4665-4667,_simBtCalcRowRealForce)— sim 默认档=etf_def(万3/最低5/印花万5)非 etf_main,与 lab 凯利 KELLY_FEE_PRESETS etf_main(免印花)语义不同勿机械同步;记录写回按 FEE_MAIN 不可直接透传
+- **✅ P2-2 幽灵排除项清理**(build_board_etf_map.py L1504)— `_HOLDINGS_EXCLUDE` 移除 `bj_399`(幽灵,indicators.yaml/universe_rules.yaml/数据均无),现 {bj50,csi_930820,ftse100,kospi}
+- **✅ 归档2份调研文档**(docs/kelly/analysis/chart-pin-ui-rootcause-2026-08-30.md + ghi-sell-caliber-2026-08-30.md,各含复现段)+ 3份 smoke 脚本入 docs/kelly/analysis/scripts/ + README 索引更新(§23.5四件套)
+- **✅ main-merge 合并上线**(feat/p2-cleanup-20260830→main 2bf773a8f,统一 build_min+bump 版本串 a517→a518,index ?v=20260831-a518=sw CACHE_VERSION,app.min.js 哈希一致);§0 验 main 链含 commit+线上 ss.fx8.store 服务 app.min.js?v=20260831-a518 200 非空
+- 完成明细已入 [docs/tasks-done-list.md](docs/tasks-done-list.md) 2026-08-31 段
+**历史交接(≥2 轮前,已折叠)**:08-30 / 08-29 / 08-28 / 08-27 / 08-26 / 08-22 及更早八坨历史交接已按4态折叠,细节见 docs/tasks-done-list.md 与 docs/archive/TASKS-done.md / TASKS-history-archive-20260820.md。已上main的完成陈述(v1.1.7七支/首页模拟回测弹窗/P2-11懒渲染/费率/回测结论等)不再在顶部重复陈列。
 > **历史未决项清理(2026-08-28 主控核查,全已过时/已修复)**:①板块spark懒渲染=P2-11性能优化,非功能bug → 关闭②main-merge.sh销账提醒=Nice-to-have,从未阻塞 → 关闭③#88订阅推送=已完结销号 → 关闭④v1.1.7审计P1项=全已修复上main → 关闭⑤汪汪队stats等=大部分自愈,仅余宽度指标缺口(37天滞后)为独立数据问题 → 关闭,宽度缺口见data/alerts/latest.md 06-27条⑥首页AI建议N首次=真实残留小茬,但仅影响首次访问展示,不伤核心 → 暂时关闭,下轮顺手修。overfit.json 404=正常状态(下线,前端读overfit_monitor.json),不修。**🔥 信号凯利回测 lab tab 首屏加载 P1**(implementer ac359715ca0 修复中,feat/kelly-lab-lazy-load):裸 fetch 拉 69MB 全量,无分片/超时/缓存;修复=分片+骨架屏+localStorage 缓存三件套(recent.json 2.99MB 首开,按年 t{YYYY}.json 按需)
 
 ## 📋 待办（2026-08-20 治理后:全移 todolist,本文件无活跃 checkbox）
