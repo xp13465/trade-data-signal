@@ -12006,6 +12006,11 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     let elimTbody = "";
     let elimTotalPages = 1;
     let elimFilteredCount = 0;
+    // 需求④盈亏统计变量提升到外层作用域(2026-09-01 bug修复): elimWinCount/elimLossCount/elimTotalProfit/elimWinRate
+    //   原声明在 if 块内(let/const), 块外 elim 标题字符串(elimReason!==all 时 L12087 引用)触发 ReferenceError →
+    //   整次 overlay.innerHTML 赋值中断 → _render 不更新 DOM → 「选淘汰原因不筛选 + 之后盈亏切换失效」双 bug。
+    //   提升后块内赋值、块外读取均可用; 空淘汰(eliminated.length==0)时保持 0, 标题条件块不引用。
+    let elimWinCount = 0, elimLossCount = 0, elimTotalProfit = 0, elimWinRate = 0;
     if (eliminated.length > 0) {
       // 2026-09-01 需求④: 在 ETF+盈亏筛选基础上叠加「淘汰原因」筛选(按 t._elimReason 匹配下拉选中类; all=不过滤)
       let elimFiltered = _applyFilterTo(eliminated);
@@ -12014,7 +12019,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       }
       elimFilteredCount = elimFiltered.length;
       // 需求④盈亏统计(纯展示层, 只对筛选后淘汰集算一份, 不动主表/回测口径): 盈利笔/亏损笔/胜率/总盈亏
-      let elimWinCount = 0, elimLossCount = 0, elimTotalProfit = 0;
+      elimWinCount = 0; elimLossCount = 0; elimTotalProfit = 0;
       elimFiltered.forEach(function (t) {
         // 盈亏字段=profit(与 _applyFilterTo 主表一致, 淘汰行经 _recompute 已重算 profit); pnl 非字段键
         const p = +t[fIdx.profit] || 0;
@@ -12022,7 +12027,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
         else if (p < 0) elimLossCount++;
         elimTotalProfit += p;
       });
-      const elimWinRate = elimFiltered.length ? (elimWinCount / elimFiltered.length * 100).toFixed(1) : 0;
+      elimWinRate = elimFiltered.length ? (elimWinCount / elimFiltered.length * 100).toFixed(1) : 0;
       const elimPerPage = 50;
       elimTotalPages = Math.max(1, Math.ceil(elimFilteredCount / elimPerPage));
       if (state._sigKellyElimPage > elimTotalPages) state._sigKellyElimPage = elimTotalPages;
@@ -12065,10 +12070,6 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
             `<option value="pos"${filter.profit === "pos" ? " selected" : ""}>仅盈利</option>` +
             `<option value="neg"${filter.profit === "neg" ? " selected" : ""}>仅亏损</option>` +
           `</select>` +
-          `<select class="lab-input lab-sigkelly-filter-elimreason">` +
-            `<option value="all"${filter.elimReason === "all" ? " selected" : ""}>全部原因</option>` +
-            (eliminated.length > 0 ? _elimReasonOptionsHtml : "") +
-          `</select>` +
         `</div>` +
         `<div class="lab-sigkelly-modal-tablewrap">` +
           `<table class="lab-sigkelly-trades-table">` +
@@ -12085,6 +12086,14 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
           `<div class="lab-sigkelly-modal-elimwrap">` +
             `<div class="lab-sigkelly-modal-elimtitle">⚠ 被${_elimReasonLabel}淘汰的交易 ${eliminated.length} 笔（删除线=不参与统计,已从卡片/按年表剔除;仅在此展示对照哪些被淘汰、因何淘汰）· 已筛 ${elimFilteredCount}/${eliminated.length} 笔` +
               `${filter.elimReason !== "all" && elimFilteredCount > 0 ? ` · 该类信号盈亏:盈利 ${elimWinCount} / 亏损 ${elimLossCount} · 胜率 ${elimWinRate}% · 总盈亏 ${(elimTotalProfit >= 0 ? "+" : "") + elimTotalProfit.toFixed(0)} 元` : ""}</div>` +
+            `<div class="lab-sigkelly-modal-elimfilters">` +
+              `<label class="lab-sigkelly-elimfilter-label">淘汰原因:</label>` +
+              `<select class="lab-input lab-sigkelly-filter-elimreason">` +
+                `<option value="all"${filter.elimReason === "all" ? " selected" : ""}>全部原因</option>` +
+                _elimReasonOptionsHtml +
+              `</select>` +
+              `<span class="lab-sigkelly-elimfilter-note">仅过滤下方淘汰表, 不影响上方正式交易表</span>` +
+            `</div>` +
             `<div class="lab-sigkelly-modal-elimtablewrap">` +
               `<table class="lab-sigkelly-trades-table">` +
                 `<thead><tr>${thHTMLElim}</tr></thead>` +
