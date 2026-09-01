@@ -31,7 +31,7 @@ env:
   TTP_ROTATE_BACKOFF=0.3    # 429 换 key 重试的轻退避秒数(默认 0.3,避免把 3 池全打满)
   TTP_PORT=8899             # 监听端口(默认 8899,可改用于隔离测试实例)
 """
-import http.server, http.client, threading, time, sys, ssl, os
+import http.server, http.client, threading, time, sys, ssl, os, json
 
 UPSTREAM_HOST = "token.sensenova.cn"
 UPSTREAM_PORT = 443
@@ -109,11 +109,40 @@ def _do_upstream(command, upstream_path, body, headers, auth_key):
             pass
         return None, None, None, None, str(e)
 
+# ═══ thinking_budget 剥离(A 方案,2026-09-01)═══
+# 商汤 deepseek-v4-flash 端点不支持 thinking_budget 参数,Claude Code 对 deepseek
+# 模型自动注入该参数(新会话重做 model capability 判定识别为 reasoning 模型)致 400。
+# 纯转发代理在转发前剥掉该字段。glm 系列不发该参数,剥离无害。
+def _strip_thinking_budget(body, content_type, path):
+    """剥掉请求体里的 thinking_budget 字段。
+    返回 (new_body_bytes, stripped: bool)。仅当 content_type 含 json 且 body 非空
+    且解析为 dict 且含 thinking_budget 键时才剥;解析失败/非 dict/无该键原样返回不破坏。"""
+    if not body or "json" not in (content_type or "").lower():
+        return body, False
+    try:
+        data = json.loads(body)
+    except Exception:
+        return body, False  # 解析失败:原样返回,不破坏上游
+    if not isinstance(data, dict) or "thinking_budget" not in data:
+        return body, False
+    del data["thinking_budget"]
+    logmsg(f"STRIP thinking_budget {path}")
+    new_body = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return new_body, True
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def _forward(self):
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length) if length else b""
         upstream_path = UPSTREAM_BASE + self.path
+        # 可选 body dump(溯源用):TTP_DUMP_BODY=1 时落原始 body(剥离前),抓真实请求体看 thinking_budget 何时出现
+        if os.environ.get("TTP_DUMP_BODY") == "1" and body:
+            try:
+                logmsg(f"REQBODY {self.path} {body[:500]}")
+            except Exception:
+                pass
+        # 转发前剥掉 thinking_budget(商汤 deepseek-v4-flash 不支持该参数)
+        body, _stripped = _strip_thinking_budget(body, self.headers.get("Content-Type", ""), self.path)
         # 尝试序列:轮换开启且有 key -> 从 round-robin 游标起的多把 key;否则 -> [None](不覆写头)
         try_keys = [None]
         if KEYS:
