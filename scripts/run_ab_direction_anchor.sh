@@ -8,7 +8,7 @@
 set -uo pipefail
 
 TRADE_DIR="${TRADE_DIR:-/Users/linhuichen/code/trade}"
-PY="${PY:-/usr/bin/python3}"
+PY="${PY:-$TRADE_DIR/.venv/bin/python}"
 
 # 交易日判断(与 run_daily_brief.sh 同法):非交易日不触发不调 API
 TRADING="$($PY -c "
@@ -26,7 +26,7 @@ fi
 
 # 7 日上限:已满 7 日不新调 API(留痕提示跑 --reconcile --force)
 if [ -f "$TRADE_DIR/data/ab_direction_anchor.json" ]; then
-  N="$(python3 -c "
+  N="$("$PY" -c "
 import json
 try:
     d=json.load(open('$TRADE_DIR/data/ab_direction_anchor.json'))
