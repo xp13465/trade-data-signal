@@ -30,6 +30,10 @@ env:
   TTP_RETRY_ON_429=1        # 上游 429 时换下一把 key 重试(默认开)
   TTP_ROTATE_BACKOFF=0.3    # 429 换 key 重试的轻退避秒数(默认 0.3,避免把 3 池全打满)
   TTP_PORT=8899             # 监听端口(默认 8899,可改用于隔离测试实例)
+  TTP_REQDUMP=1             # 请求原文滚动 dump(默认开,TTP_REQDUMP=0 关);只落 body 不落 header
+  TTP_REQDUMP_DIR=.../sensenova-req-dump  # dump 目录(默认 trade-data/data/logs/sensenova-req-dump,仓外)
+  TTP_REQDUMP_KEEP=30       # 非 ERR 保留最近 N 个(默认 30)
+  TTP_REQDUMP_KEEP_ERR=30   # ERR(>=400)保留最近 N 个(默认 30,报错原文不滚删)
 """
 import http.server, http.client, threading, time, sys, ssl, os, json
 
@@ -82,19 +86,21 @@ _rotate_lock = threading.Lock()
 
 # ═══ 单 key 分层冷却(429 额度型限流,2026-09-01 用户定)═══
 # 商汤 429 分两类:短时限流(inference tpm / rpm exhausted)靠换 key 重试即解,不冷却;
-# 账户额度型(token plan entitlement / Allocated quota)5h 刷新,换 key 无用 → 单 key 进入较长冷却,
+# 账户额度型(token plan entitlement / Allocated quota)刷新,换 key 无用 → 单 key 冷却,
 # 轮换跳过它,其他 key 正常(4 把 key = 4 个独立账号额度,按 key 隔离不整池)。
-# 冷却序列(先探后拉长):level 0 → 30min;level>=1 → 1h;最多 5 次 1h 封顶(累计 5.5h>=5h 刷新周期)。
-# 冷却结束再触发 → 重置回 30min:key 在冷却后若成功过(非429响应)则清冷却,新触发即 fresh level=0。
-COOL_L0_SEC = 30 * 60        # level 0 冷却 30 分钟
-COOL_LN_SEC = 60 * 60        # level>=1 冷却 1 小时
-COOL_MAX_LEVEL = 5           # level 封顶(最多 5 次 1h)
-_cool = {}                   # key -> {"until": epoch, "level": int}(内存,不落盘)
+# 冷却序列(先探后拉长,2026-09-01 根治):level0=60s 起步,每级 ×2(60/120/240/480/960/1920s)封顶 32min。
+# 旧版 30min/1h 起步过长——直连实测 KEY3/4 冷却后几分钟就恢复(20:42 标冷却,20:49 直连 200),
+# 被锁到 21:12 白白浪费可用 key,只剩单 key 扛撞 tpm。缩短起步让"假恢复"key 1 分钟内复役;
+# 真死 key 靠递增退避自然隔离,不会狂试。
+# 冷却结束再触发 → 重置回 level0:key 在冷却后若成功过(非429响应)则清冷却,新触发即 fresh level=0。
+COOL_L0_SEC = 60           # level 0 冷却 60 秒起步
+COOL_MAX_LEVEL = 6         # level 封顶(60/120/240/480/960/1920s 六档,真死 key 递增隔离)
+_cool = {}                 # key -> {"until": epoch, "level": int}(内存,不落盘)
 _cool_lock = threading.Lock()
 
 def _cool_duration_sec(level):
-    """按退避档位返回冷却秒数:level 0=30min,level>=1=1h。"""
-    return COOL_L0_SEC if level <= 0 else COOL_LN_SEC
+    """递增退避:level0=60s,level1=120s,...,封顶 1920s(32min)。恢复快的 key 1 分钟内复役,真死 key 递增拉长。"""
+    return min(COOL_L0_SEC * (2 ** min(level, COOL_MAX_LEVEL - 1)), 32 * 60)
 
 def _parse_429_msg(resp_text):
     """从 429 响应 JSON 解析 error.message,区分短时限流 vs 账户额度型。
@@ -119,7 +125,7 @@ def _parse_429_msg(resp_text):
 
 def _mark_cool(key, key_num, msg):
     """额度型 429 → 标记单 key 冷却。entry 存在(上次冷却未成功即再触发)= escalation level+1;
-    无 entry(首次/冷却后成功过)= fresh level 0(重置回 30min)。封顶 COOL_MAX_LEVEL。"""
+    无 entry(首次/冷却后成功过)= fresh level 0(重置回 60s)。封顶 COOL_MAX_LEVEL。"""
     with _cool_lock:
         _entry = _cool.get(key)
         if _entry:
@@ -128,11 +134,11 @@ def _mark_cool(key, key_num, msg):
             _level = 0
         _until = time.time() + _cool_duration_sec(_level)
         _cool[key] = {"until": _until, "level": _level}
-    _dur = "30min" if _level == 0 else f"{_level}h"
+    _dur = f"{_cool_duration_sec(_level)//60}min"
     logmsg(f"COOL KEY{key_num} until {time.strftime('%H:%M', time.localtime(_until))} msg={msg} level={_level} ({_dur})")
 
 def _unmark_cool(key):
-    """成功响应(非429/400)后清除该 key 冷却,使下次额度型 429 重新从 30min 探(重置)。"""
+    """成功响应(非429/400)后清除该 key 冷却,使下次额度型 429 重新从 60s 探(重置)。"""
     with _cool_lock:
         _cool.pop(key, None)
 
@@ -229,20 +235,68 @@ def _detect_log(command, path, body, content_type):
     logmsg(f"DETECT {command} {path} model={model} has_tb={'T' if has_tb else 'F'} tb_val={tb_val} nmsg={nmsg} has_sys={has_sys} ntools={ntools}")
     _DETECT_COUNT += 1
 
-# ═══ thinking_budget 注入(绕过商汤推导超限,2026-09-01)═══
-# 商汤 deepseek-v4-flash 端点偶发对大上下文请求报
-# "thinking_budget parameter must be a positive integer and not greater than 393216"
-# 但 body 本无该参数(has_tb=F)= 商汤自己推导,推导偶发超上限报 400(概率性,同请求第一次200第二次400)。
-# 代理主动注入合法值 32768(远小于 393216 上限,32K token thinking 够用),
-# 让商汤拿到现成合法值跳过自己推导。从严条件避免误伤 glm/不带 thinking 的请求。
-INJECT_TB_VALUE = 32768
+# ═══ 请求原文滚动 dump(2026-09-01 用户定,纯诊断增强)═══
+# 目的:保留最近 N 次请求原文(转发后字节,逐字节原样),报错(>=400)的原文用 ERR 前缀单独保留、
+# 不参与滚动删除,方便复现商汤概率性 400 的根因。只落 body(Authorization 在 header,绝不落盘)。
+# 不碰注入/轮换/冷却/重试业务逻辑,纯旁路写盘。
+# env:
+#   TTP_REQDUMP=0          # 关闭(默认开)
+#   TTP_REQDUMP_DIR        # dump 目录(默认 trade-data/data/logs/sensenova-req-dump,仓外 gitignore)
+#   TTP_REQDUMP_KEEP       # 非 ERR 保留最近 N 个(默认 30)
+#   TTP_REQDUMP_KEEP_ERR   # ERR 保留最近 N 个(默认 30)
+REQDUMP_ON = os.environ.get("TTP_REQDUMP", "1") == "1"
+REQDUMP_DIR = os.environ.get("TTP_REQDUMP_DIR", "/Users/linhuichen/code/trade-data/data/logs/sensenova-req-dump")
+REQDUMP_KEEP = int(os.environ.get("TTP_REQDUMP_KEEP", "30"))
+REQDUMP_KEEP_ERR = int(os.environ.get("TTP_REQDUMP_KEEP_ERR", "30"))
 
-def _inject_thinking_budget(body, content_type, path, req_headers):
-    """注入合法 thinking_budget,绕过商汤自己推导超限的 bug。
-    返回 (new_body_bytes, injected: bool)。从严条件:
+def _reqdump_cleanup():
+    """滚动清理:非 ERR 文件按 mtime 保留最近 KEEP 个,ERR 保留最近 KEEP_ERR 个,超出删除。
+    ERR 文件(名含 ERR)不滚删 = 报错原文长期可查。文件名格式 req-<ts>-<hex>-<suffix>.json,
+    suffix 为 REQ(未拿到 status 的半成品)/纯数字 status/ERR<status>。"""
+    if not REQDUMP_ON:
+        return
+    try:
+        _entries = os.listdir(REQDUMP_DIR)
+    except FileNotFoundError:
+        return
+    _norm, _err = [], []
+    for _e in _entries:
+        if _e.startswith("req-") and _e.endswith(".json"):
+            (_err if "ERR" in _e else _norm).append(_e)
+    def _by_mtime_desc(names):
+        _rows = []
+        for _n in names:
+            try:
+                _rows.append((_n, os.path.getmtime(os.path.join(REQDUMP_DIR, _n))))
+            except OSError:
+                pass
+        _rows.sort(key=lambda r: r[1], reverse=True)
+        return [r[0] for r in _rows]
+    for _keep, _group in ((REQDUMP_KEEP, _norm), (REQDUMP_KEEP_ERR, _err)):
+        for _old in _by_mtime_desc(_group)[_keep:]:
+            try:
+                os.unlink(os.path.join(REQDUMP_DIR, _old))
+            except OSError:
+                pass
+
+# ═══ 删 thinking(adaptive)绕过商汤推导超限(2026-09-01 重放定根因)═══
+# 商汤 deepseek-v4-flash 端点对大上下文请求报
+# "thinking_budget parameter must be a positive integer and not greater than 393216"
+# 根因(重放铁证):thinking.type=adaptive 时商汤按上下文自推导 thinking_budget,大上下文下推导值
+# 超 393216 上限 -> 400。之前注入 thinking_budget=32768 压不住(adaptive 用自己的推导值,不看传入)。
+# 重放三组(ERR400 真原文,466KB/103msg 直连商汤):
+#   ①留 adaptive -> 400/429  ②删 tb 留 adaptive -> 400(adaptive 仍自推导超限)
+#   ③删 thinking 字段 -> 200 ✅(响应仍含 thinking content,思考能力不丢,只是不走 adaptive 自分配预算)
+# 治本:删请求里的 thinking 字段(type=adaptive),让商汤走默认思考模式,不触发 adaptive 推导。
+# 副效:adaptive 预留一大坨 thinking 预算是 tpm 大户,删了之后 tpm 消耗骤降,429 也跟着少。
+# 从严条件:①content_type 含 json ②body 解析为 dict ③model 含 deepseek ④thinking.type==adaptive
+# (非 adaptive 如 enabled 不动;glm/不带 thinking 的请求不动)。
+
+def _strip_thinking_adaptive(body, content_type, path, req_headers):
+    """删请求里的 thinking 字段(adaptive 模式),绕过商汤 adaptive 自推导 thinking_budget 超 393216 的 400。
+    返回 (new_body_bytes, stripped: bool)。从严条件:
     ① content_type 含 json ② body 解析为 dict ③ model 含 deepseek(只 deepseek)
-    ④ body 未显式带 thinking_budget(不覆盖客户端已有)
-    ⑤ 请求 anthropic-beta header 含 interleaved-thinking 或 thinking-token-count(带 thinking flags)
+    ④ thinking.type == adaptive(非 adaptive 不动,保留 enabled 等其他模式原样转发)
     json.loads 失败/非 dict -> 原样返回不破坏。"""
     if not body or "json" not in (content_type or "").lower():
         return body, False
@@ -255,23 +309,11 @@ def _inject_thinking_budget(body, content_type, path, req_headers):
     model = data.get("model", "") or ""
     if "deepseek" not in model.lower():
         return body, False
-    if "thinking_budget" in data:
-        return body, False  # 客户端已显式带,不覆盖
-    beta = req_headers.get("anthropic-beta", "") or ""
-    if "interleaved-thinking" not in beta and "thinking-token-count" not in beta:
-        return body, False  # 不带 thinking flags 不注入
-    data["thinking_budget"] = INJECT_TB_VALUE
-    logmsg(f"INJECT thinking_budget={INJECT_TB_VALUE} {path}")
-    # 归一化嵌套 thinking 字段:商汤 deepseek-v4-flash 要求 thinking.budget_tokens <= 1024。
-    # Claude Code 新版发 {thinking:{type:adaptive,budget_tokens:大值}} -> 商汤 400
-    # (BudgetTokens invalid / type adaptive invalid,同根因,校验路径不同)。压到 1024 绕过。
-    # (2026-09-01 实测:budget<=1024 时 adaptive/enabled 均 200;顶层 thinking_budget 已另注入处理预算)
     _tn = data.get("thinking")
-    if isinstance(_tn, dict):
-        _bt = _tn.get("budget_tokens")
-        if isinstance(_bt, (int, float)) and _bt > 1024:
-            _tn["budget_tokens"] = 1024
-            logmsg(f"CLAMP thinking.budget_tokens {_bt}->1024 {path}")
+    if not isinstance(_tn, dict) or _tn.get("type") != "adaptive":
+        return body, False  # 非 adaptive 不动(glm/不带 thinking/enabled 等原样转发)
+    data.pop("thinking", None)
+    logmsg(f"STRIP thinking(adaptive) {path}")
     new_body = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return new_body, True
 
@@ -288,8 +330,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 pass
         # 结构化检测日志(TTP_DETECT_LOG=1 开):记录请求元数据(原始 body),对比 thinking_budget 添加契机
         _detect_log(self.command, self.path, body, self.headers.get("Content-Type", ""))
-        # 转发前注入合法 thinking_budget(绕过商汤自己推导超限的 400 bug,只对带 thinking flags 的 deepseek 请求)
-        body, _injected = _inject_thinking_budget(body, self.headers.get("Content-Type", ""), self.path, self.headers)
+        # 转发前删 thinking(adaptive)(绕过商汤 adaptive 自推导 thinking_budget 超限的 400,只对 deepseek adaptive 请求)
+        body, _stripped = _strip_thinking_adaptive(body, self.headers.get("Content-Type", ""), self.path, self.headers)
+        # 请求原文 dump(2026-09-01 用户定):落转发后字节逐字节原样(注入后=上游实际见到的),报错时抓完整原文。
+        # 只落 body,不落 header(Authorization 在 header,key 严禁落盘);拿到 status 后再 rename 终态。
+        self._reqdump_path = None
+        if REQDUMP_ON and body:
+            try:
+                os.makedirs(REQDUMP_DIR, exist_ok=True)
+                _ts = int(time.time())
+                _hex = os.urandom(3).hex()
+                _tmp = os.path.join(REQDUMP_DIR, f"req-{_ts}-{_hex}-REQ.json.tmp")
+                with open(_tmp, "wb") as _f:
+                    _f.write(body)
+                _final = os.path.join(REQDUMP_DIR, f"req-{_ts}-{_hex}-REQ.json")
+                os.replace(_tmp, _final)  # 原子写,防半截文件
+                self._reqdump_path = _final
+            except Exception:
+                self._reqdump_path = None
         # 尝试序列:轮换开启且有 key -> 从 round-robin 游标起取所有「非冷却」key(跳过冷却中的 key);
         # 否则 -> [None](不覆写头)。try_keys 为 (key, key_num) 元组,key_num 用于冷却日志。
         try_keys = [(None, 0)]
@@ -328,7 +386,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 logmsg(f"UPSTREAM ERR {err}")
                 self.send_response(502); self.end_headers(); self.wfile.write(str(err).encode()); return
             last = (status, resp_body, resp_headers, resp_text)
-            # 成功/非限流响应 -> 清除该 key 冷却(额度恢复,下次额度型 429 重新从 30min 探)
+            # 成功/非限流响应 -> 清除该 key 冷却(额度恢复,下次额度型 429 重新从 60s 探)
             if key is not None and status not in (429, 400):
                 _unmark_cool(key)
             if k < len(try_keys) - 1 and RETRY_ON_429:
@@ -353,6 +411,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 logmsg(f"RESPERR {self.path} -> {status} reqheaders={ {k: (v[:120] if 'auth' not in k.lower() and 'token' not in k.lower() and 'key' not in k.lower() else '***') for k, v in self.headers.items()} }")
             except Exception:
                 pass
+        # 请求原文 dump 收尾:拿 status 后 rename 终态,>=400 用 ERR 前缀且不参与滚动删除
+        if REQDUMP_ON and getattr(self, "_reqdump_path", None):
+            try:
+                _sfx = os.path.basename(self._reqdump_path).replace("req-", "").replace("-REQ.json", "")
+                _final = os.path.join(REQDUMP_DIR,
+                                      f"req-{_sfx}-{status}.json" if status < 400 else f"req-{_sfx}-ERR{status}.json")
+                os.replace(self._reqdump_path, _final)
+                logmsg(f"REQDUMP {os.path.basename(_final)}")
+            except Exception:
+                pass
+            self._reqdump_path = None
+            _reqdump_cleanup()
         self.send_response(status)
         for kk, vv in resp_headers:
             if kk.lower() in ("transfer-encoding", "connection", "content-length"):
