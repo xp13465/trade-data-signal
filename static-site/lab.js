@@ -11906,7 +11906,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     const _elimReasonTip = {
       "AI降亏": "未通过 AI降亏过滤(当前模式键集判定剔除, 不参与统计)",
       "AI仓位": "未被 AI仓位建议(K=当日资金池前K保留)选中",
-      "AI长线·满仓不买": "ai长线模式(G/H/I)仓位管理仿真: 仓位上限已满当日跳过买入, 自然卖出腾位后再买",
+      "AI长线·满仓不买": "ai长线模式(G/H/I)仓位管理仿真: 当日买入被仓位判定跳过(仓位已满或强平腾位后仍超容)",
     };
     // 淘汰原因下拉选项(仅列实际在场原因, 与 _elimReasonLabel 动态清单一致; 缺省纯新增不占位)
     const _elimReasonOptionsHtml = (function () {
