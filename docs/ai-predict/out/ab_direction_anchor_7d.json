@@ -1,0 +1,35 @@
+{
+  "n_eval": 0,
+  "overall": {
+    "n": 0,
+    "production_hit": 0,
+    "production_hit_rate": null,
+    "ref_hit": 0,
+    "ref_hit_rate": null,
+    "delta_prod_minus_ref": null
+  },
+  "nonflat_production": {
+    "n": 0,
+    "production_hit": 0,
+    "production_hit_rate": null,
+    "ref_hit": 0,
+    "ref_hit_rate": null,
+    "delta_prod_minus_ref": null
+  },
+  "nonflat_ref": {
+    "n": 0,
+    "production_hit": 0,
+    "production_hit_rate": null,
+    "ref_hit": 0,
+    "ref_hit_rate": null,
+    "delta_prod_minus_ref": null
+  },
+  "same_direction": 0,
+  "diff_direction": 0,
+  "rows": [],
+  "note": "开锚=生产(方向锚注入);关锚=参考(不注入)。两通道唯一变量=方向锚注入文本。7日样本稀疏,命中率仅累积参考,不构成显著统计意义(§5.1 诚实标注)。",
+  "reached_7d": false,
+  "records_path": "/Users/linhuichen/code/trade-data/data/ab_direction_anchor.json",
+  "records_total": 0,
+  "reconciled_new": 0
+}
