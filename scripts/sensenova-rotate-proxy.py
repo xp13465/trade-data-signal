@@ -130,6 +130,44 @@ def _strip_thinking_budget(body, content_type, path):
     new_body = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return new_body, True
 
+# ═══ 结构化请求检测日志(确认 thinking_budget 添加契机根因,2026-09-01)═══
+# TTP_DETECT_LOG=1 才开(默认关,量控第一道)。记录每次请求元数据(带/不带
+# thinking_budget 都记,has_tb 字段区分),对比找出 thinking_budget 什么契机被注入。
+# 全局计数上限 50000 条(约 7.5MB),达到后停记并 logmsg 一次 "DETECT capped at 50000"。
+# 用 logmsg 写(复用 sensenova-rotate-req.log,不自建文件)。
+_DETECT_COUNT = 0
+
+def _detect_log(command, path, body, content_type):
+    """记录请求元数据一行,对比 thinking_budget 何时出现。
+    仅当 TTP_DETECT_LOG=1 且 body 非空且 content_type 含 json 才记;解析失败记 parse_fail;
+    非 dict / 非不记。不带 thinking_budget 的请求也记(has_tb=F),这是对比找契机的关键。"""
+    global _DETECT_COUNT
+    if os.environ.get("TTP_DETECT_LOG") != "1":
+        return
+    if _DETECT_COUNT >= 50000:
+        if _DETECT_COUNT == 50000:
+            logmsg("DETECT capped at 50000")
+            _DETECT_COUNT += 1  # 仅记一次封顶提示,后续静默 return
+        return
+    if not body or "json" not in (content_type or "").lower():
+        return
+    try:
+        data = json.loads(body)
+    except Exception:
+        logmsg(f"DETECT {command} {path} parse_fail")
+        _DETECT_COUNT += 1
+        return
+    if not isinstance(data, dict):
+        return
+    model = data.get("model", "-")
+    has_tb = "thinking_budget" in data
+    tb_val = data.get("thinking_budget", "-")
+    nmsg = len(data.get("messages", []))
+    has_sys = "T" if data.get("system") else "F"
+    ntools = len(data.get("tools", []))
+    logmsg(f"DETECT {command} {path} model={model} has_tb={'T' if has_tb else 'F'} tb_val={tb_val} nmsg={nmsg} has_sys={has_sys} ntools={ntools}")
+    _DETECT_COUNT += 1
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def _forward(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -141,6 +179,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 logmsg(f"REQBODY {self.path} {body[:500]}")
             except Exception:
                 pass
+        # 结构化检测日志(TTP_DETECT_LOG=1 开):记录请求元数据(剥离前原始 body),对比 thinking_budget 添加契机
+        _detect_log(self.command, self.path, body, self.headers.get("Content-Type", ""))
         # 转发前剥掉 thinking_budget(商汤 deepseek-v4-flash 不支持该参数)
         body, _stripped = _strip_thinking_budget(body, self.headers.get("Content-Type", ""), self.path)
         # 尝试序列:轮换开启且有 key -> 从 round-robin 游标起的多把 key;否则 -> [None](不覆写头)
