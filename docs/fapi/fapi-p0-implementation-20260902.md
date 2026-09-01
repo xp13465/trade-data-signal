@@ -53,7 +53,7 @@ DDL 见 `app/collector/fapi_daily.py` SCHEMA 常量。要点:
 - WorkingDirectory=trade-data,日志指 trade-data/data/logs(参照 com.trade.*.plist 惯例)
 - **只写模板,不 launchctl load、不挂生产**(观察期双写)
 
-## 2. 实测数据(2026-09-02 深夜,真实写库 trade/data/stock_daily.db)
+## 2. 实测数据(2026-09-02 深夜,真实写库 trade-data/data/stock_daily.db 生产侧)
 
 | 指标 | 实测值 |
 |---|---|
@@ -81,7 +81,30 @@ close=1299.56  open=1295.0  high=1307.99  low=1286.1  volume=3266402  amount=424
 
 **补漏演示**:000001(平安银行)mootdx 停在 20260824(断 6 交易日,方案 §1.3 痛点实例),fapi_daily_raw 有 20260901 close=11.92 —— 断片缺口由 FAPI 补上。
 
-## 3. 下一步(观察期计划)
+## 3. 采集落点修正(2026-09-02 生产覆盖事故根治)
+
+### 3.1 事故:表曾从镜像侧被 deploy 覆盖冲掉
+
+| 时间线 | 事件 |
+|---|---|
+| 01:35-02:04 | implementer 在 **trade(镜像侧)** 写库 55448 行,fapi_daily_raw 表落地、幂等验证通过 |
+| 02:07:28 | backfill-evening 内部 `index_backfill.main` 补到新数据 → 触发 `deploy.sh backfill`(证据 `data/logs/backfill_20260902_0200.log` L69) |
+| 02:07:28+ | deploy 1.7 rsync 阶段 `rsync -a --exclude=logs/ $REPO/data/ $GIT_REPO/data/`(deploy.sh L296-321)把 **trade-data(生产权威侧)的 stock_daily.db(无 fapi 表)反向覆盖回 trade(镜像侧)**,inode 被替换、mtime 退回 09-01 19:23 |
+| 02:20+ | 主控验收查询 → 表消失 |
+
+**根因**:implementer 落点错误 + deploy 的单向覆盖机制。数据权威在 **trade-data**(launchd WorkingDirectory=trade-data),trade/ 是 rsync 镜像。写入镜像侧的数据会被下一次生产侧 deploy 覆盖(它本来就是`trade-data→trade` 只同步生产侧已有的东西)。
+
+### 3.2 修正:生产侧落点 + 双副本一致
+
+- **生产侧 venv 补依赖**:`/Users/linhuichen/code/trade-data/.venv` 装 `pyarrow 25.0.1`(与 trade venv 同版本)
+- **从生产侧重跑采集**:`cd /Users/linhuichen/code/trade-data && ./.venv/bin/python -m app.collector.fapi_daily`(脚本 `__file__` 经 symlink 解析到 trade-data/data),落库 **55448 / 5553 / 主键零重复 / latest=20260901**,茅台 600519 close=1299.56 逐位正确
+- **幂等重跑**:保持一致 55448 行(2 次确认)
+- **镜像侧手动 rsync 追平**(与 deploy.sh 1.7 同机制):`rsync -a --exclude=logs/ trade-data/data/ trade/data/` → 双副本一致 55448/5553
+- **自动清理增强**:`run()` upsert 后 `dest.unlink(missing_ok=True)` 清掉下载的 dump parquet(防 accumulate;失败不阻断)
+
+**运维约束(未来必遵守)**:FAPI 采集必须**从 trade-data 跑**、落到 `trade-data/data/stock_daily.db`(生产权威侧)。launchd 模板 WorkingDirectory=trade-data 天然正确;禁止从 trade 侧直跑写镜像。
+
+## 4. 下一步(观察期计划)
 
 1. **双写互证 ≥1 周**(本次起每日 18:10 模板挂载后,fapi_daily_raw vs mootdx_daily_raw 每日对账,close 差异 >0.5% code 数告警)
 2. **确认互证逐位一致后 → 评估转主**(把 fapi_daily_raw 接入宽度/行业宽度下游,替代 mootdx 断片源)
@@ -89,7 +112,7 @@ close=1299.56  open=1295.0  high=1307.99  low=1286.1  volume=3266402  amount=424
 4. **互证校验脚本**(§22:挂 deploy 前 check,与 check_universe_alignment 同链)——列为观察期待补
 5. **全量 daily-k 路径**(10 年全量,~945 万行)仅兜底重建用,自动切换逻辑已实现,不每日拉
 
-## 4. 风险与边界(诚实标注)
+## 5. 风险与边界(诚实标注)
 
 | 风险 | 等级 | 缓解 |
 |---|---|---|
@@ -102,13 +125,15 @@ close=1299.56  open=1295.0  high=1307.99  low=1286.1  volume=3266402  amount=424
 ## 复现
 
 **脚本路径**:`app/collector/fapi_daily.py`
-**生成依赖**:`data/stock_daily.db`(建 fapi_daily_raw 表)、`.env`(`HITHINK_FINANCE_API_KEY`,trade 或 trade-data 侧均可)、`requests`+`pyarrow`(.venv 已装)
-**重跑命令**(输出打印到 stdout,Parquet 缓存于 `data/*.parquet`):
+**生成依赖**:`data/stock_daily.db`(建 fapi_daily_raw 表)、`.env`(`HITHINK_FINANCE_API_KEY`,trade 或 trade-data 侧均可)、`requests`+`pyarrow`(两侧 venv 均已装)
+**重跑命令**(⚠️ **必须从 trade-data 跑**落生产权威侧;倒灌 dump 后自动清理,不残留 parquet):
 ```bash
-cd /Users/linhuichen/code/trade
-.venv/bin/python -m app.collector.fapi_daily            # 常规增量 daily-k-10d(UPSERT 幂等)
-.venv/bin/python -m app.collector.fapi_daily --full     # 强制全量 daily-k 重建
-.venv/bin/python -m app.collector.fapi_daily --dry-run  # 只下载+映射验证,不写库
+cd /Users/linhuichen/code/trade-data
+./.venv/bin/python -m app.collector.fapi_daily            # 常规增量 daily-k-10d(UPSERT 幂等)
+./.venv/bin/python -m app.collector.fapi_daily --full     # 强制全量 daily-k 重建
+./.venv/bin/python -m app.collector.fapi_daily --dry-run  # 只下载+映射验证,不写库
+# 镜像侧手动追平(与 deploy.sh 1.7 同机制,平时 deploy 自动做):
+rsync -a --exclude=logs/ /Users/linhuichen/code/trade-data/data/ /Users/linhuichen/code/trade/data/
 ```
 **数据截止**:2026-09-02 深夜(dump 覆盖 20260819-20260901,20260901 为最新交易日)
 **关键口径一句话**:dump 主键 `(thscode,date_ms)` UPSERT;FAPI `turnover`=成交额(元)→ amount 命名交换,换手率列恒 NULL;pct_change 自算 close/prev_close-1(与 mootdx 同口径)。
