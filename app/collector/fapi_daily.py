@@ -291,6 +291,11 @@ def run(full: bool = False, dry_run: bool = False) -> dict:
     conn.close()
     print(f"[fapi_daily] upserted {n} rows; 库 {cnt} rows / {ncode} codes, "
           f"latest={mdate}", flush=True)
+    # 下载的临时 dump 已消费,清理防 accumulate(.part 由 tempfile 自动回收)
+    try:
+        dest.unlink(missing_ok=True)
+    except OSError:
+        pass  # 清理失败不阻断(残留 1MB 可接受)
     return {"dump": dump, "upserted": n, "db_rows": cnt, "db_codes": ncode,
             "db_latest": mdate}
 
