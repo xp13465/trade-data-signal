@@ -196,7 +196,7 @@ try {
 
 // C2: check_overfit_recent_parity.mjs
 try {
-  const parity = execSync('cd /Users/linhuichen/code/trade && node scripts/check_overfit_recent_parity.mjs 2>&1', {
+  const parity = execSync('cd /Users/linhuichen/code/trade && RECENT_JSON=/tmp/overfit_test_parity.json node scripts/check_overfit_recent_parity.mjs 2>&1', {
     encoding: 'utf8', timeout: 30000
   });
   const hasFail = parity.includes('FAIL');
@@ -242,7 +242,6 @@ try {
 }
 
 // ========== 生成报告 ==========
-await browser.close().catch(() => {});
 
 const totalTests = results.pass.length + results.fail.length + results.skip.length;
 const report = `# 平台全面体检报告 (2026-08-29)
