@@ -1,0 +1,429 @@
+{
+  "meta": {
+    "db": "data/sentiment.db",
+    "start": "20240102",
+    "end": "20260830",
+    "data_cutoff": "20260831",
+    "HIT_THRESHOLD": 0.5,
+    "NQ_START": "20260716",
+    "caliber": "方向锚重放现版对称规则(_shadow_lean 含8-24 R4 down分支),命中=lean==actual(纯方向相等口径),HIT_THRESHOLD=0.5;nq 因子仅 20260716 起,此前 L3 压制不生效",
+    "time_travel_check": "NOT_IMPLEMENTED(方向锚为纯确定性规则,因子只读 t 当日及之前数据,无全期统计量/未来数据,前视风险低;未补截断重算,诚实标注而非假 PASS)"
+  },
+  "total_sample": 642,
+  "by_T": {
+    "both": {
+      "n": 0,
+      "dir_win": null,
+      "z": null,
+      "binom_p": null
+    },
+    "none": {
+      "n": 16,
+      "dir_win": 0.625,
+      "z": 1.0,
+      "binom_p": 0.2272
+    },
+    "to_long": {
+      "n": 60,
+      "dir_win": 0.5667,
+      "z": 1.0328,
+      "binom_p": 0.1831
+    },
+    "to_short": {
+      "n": 69,
+      "dir_win": 0.4348,
+      "z": -1.0835,
+      "binom_p": 0.8858
+    }
+  },
+  "by_role": {
+    "中信期货": {
+      "n": 79,
+      "dir_win": 0.557,
+      "z": 1.0126,
+      "binom_p": 0.1841
+    },
+    "top20": {
+      "n": 74,
+      "dir_win": 0.4459,
+      "z": -0.93,
+      "binom_p": 0.8523
+    },
+    "国泰君安": {
+      "n": 68,
+      "dir_win": 0.4706,
+      "z": -0.4851,
+      "binom_p": 0.7277
+    },
+    "multi_2plus": {
+      "n": 76,
+      "dir_win": 0.5,
+      "z": 0.0,
+      "binom_p": 0.5456
+    }
+  },
+  "by_strength": {
+    "strong": {
+      "n": 129,
+      "dir_win": 0.4961,
+      "z": -0.088,
+      "binom_p": 0.5698
+    },
+    "weak": {
+      "n": 16,
+      "dir_win": 0.625,
+      "z": 1.0,
+      "binom_p": 0.2272
+    }
+  },
+  "cond_rate_down": {
+    "rate_down_true": {
+      "n": 57,
+      "dir_win": 0.5088,
+      "z": 0.1325,
+      "binom_p": 0.5
+    },
+    "rate_down_false": {
+      "n": 85,
+      "dir_win": 0.5176,
+      "z": 0.3254,
+      "binom_p": 0.4142
+    },
+    "rate_down_none": {
+      "n": 3,
+      "dir_win": 0.3333,
+      "z": -0.5774,
+      "binom_p": 0.875
+    }
+  },
+  "cond_gold_pos": {
+    "all_gold_pos_true": {
+      "n": 145,
+      "dir_win": 0.5103,
+      "z": 0.2491,
+      "binom_p": 0.4341
+    }
+  },
+  "cond_nq": {
+    "nq_low_true": {
+      "n": 0,
+      "dir_win": null,
+      "z": null,
+      "binom_p": null
+    },
+    "nq_low_false": {
+      "n": 145,
+      "dir_win": 0.5103,
+      "z": 0.2491,
+      "binom_p": 0.4341
+    },
+    "nq_present": {
+      "n": 6,
+      "dir_win": 0.6667,
+      "z": 0.8165,
+      "binom_p": 0.3438
+    },
+    "nq_absent": {
+      "n": 139,
+      "dir_win": 0.5036,
+      "z": 0.0848,
+      "binom_p": 0.5
+    }
+  },
+  "by_year": {
+    "2024": {
+      "n": 58,
+      "dir_win": 0.5172,
+      "z": 0.2626,
+      "binom_p": 0.4478
+    },
+    "2025": {
+      "n": 55,
+      "dir_win": 0.4545,
+      "z": -0.6742,
+      "binom_p": 0.7906
+    },
+    "2026": {
+      "n": 32,
+      "dir_win": 0.5938,
+      "z": 1.0607,
+      "binom_p": 0.1885
+    }
+  },
+  "by_half": {
+    "first_half": {
+      "n": 74,
+      "dir_win": 0.5405,
+      "z": 0.6975,
+      "binom_p": 0.2807
+    },
+    "second_half": {
+      "n": 71,
+      "dir_win": 0.4789,
+      "z": -0.356,
+      "binom_p": 0.6823
+    }
+  },
+  "forward_ood": {
+    "select_2024_2025": {
+      "n": 113,
+      "dir_win": 0.4867,
+      "z": -0.2822,
+      "binom_p": 0.6466
+    },
+    "validate_2026": {
+      "n": 32,
+      "dir_win": 0.5938,
+      "z": 1.0607,
+      "binom_p": 0.1885
+    }
+  },
+  "threshold_sensitivity": {
+    "0.3": {
+      "overall": {
+        "n": 642,
+        "hit_rate": 0.3287,
+        "dir_n": 188,
+        "dir_win_rate": 0.5053
+      },
+      "dir_win": {
+        "n": 188,
+        "dir_win": 0.5053,
+        "z": 0.1459,
+        "binom_p": 0.4709
+      },
+      "overall_dir_win_rate": 0.5053
+    },
+    "0.8": {
+      "overall": {
+        "n": 642,
+        "hit_rate": 0.4439,
+        "dir_n": 89,
+        "dir_win_rate": 0.5281
+      },
+      "dir_win": {
+        "n": 89,
+        "dir_win": 0.5281,
+        "z": 0.53,
+        "binom_p": 0.3359
+      },
+      "overall_dir_win_rate": 0.5281
+    },
+    "1.0": {
+      "overall": {
+        "n": 642,
+        "hit_rate": 0.4704,
+        "dir_n": 65,
+        "dir_win_rate": 0.4769
+      },
+      "dir_win": {
+        "n": 65,
+        "dir_win": 0.4769,
+        "z": -0.3721,
+        "binom_p": 0.6899
+      },
+      "overall_dir_win_rate": 0.4769
+    },
+    "0.5": {
+      "overall": {
+        "n": 642,
+        "hit_rate": 0.391,
+        "dir_n": 145,
+        "dir_win_rate": 0.5103
+      },
+      "dir_win": {
+        "n": 145,
+        "dir_win": 0.5103,
+        "z": 0.2491,
+        "binom_p": 0.4341
+      },
+      "overall_dir_win_rate": 0.5103
+    }
+  },
+  "online_triple_compare": {
+    "shadow": {
+      "n": 8,
+      "dir_n": 3,
+      "dir_win": 0.6667,
+      "dir_n_all_lean": 6,
+      "dir_win_all_lean": 0.3333,
+      "rows": [
+        {
+          "date": "20260819",
+          "shadow_lean": "up",
+          "ai_direction": "down",
+          "ai_call": null,
+          "actual_dir": "flat"
+        },
+        {
+          "date": "20260820",
+          "shadow_lean": "up",
+          "ai_direction": "up",
+          "ai_call": null,
+          "actual_dir": "flat"
+        },
+        {
+          "date": "20260821",
+          "shadow_lean": "up",
+          "ai_direction": "up",
+          "ai_call": null,
+          "actual_dir": "down"
+        },
+        {
+          "date": "20260824",
+          "shadow_lean": "up",
+          "ai_direction": "down",
+          "ai_call": null,
+          "actual_dir": "flat"
+        },
+        {
+          "date": "20260825",
+          "shadow_lean": "up",
+          "ai_direction": "flat",
+          "ai_call": "up",
+          "actual_dir": "up"
+        },
+        {
+          "date": "20260826",
+          "shadow_lean": "up",
+          "ai_direction": "up",
+          "ai_call": "up",
+          "actual_dir": "up"
+        },
+        {
+          "date": "20260827",
+          "shadow_lean": "flat",
+          "ai_direction": "up",
+          "ai_call": "up",
+          "actual_dir": "flat"
+        },
+        {
+          "date": "20260828",
+          "shadow_lean": "flat",
+          "ai_direction": "down",
+          "ai_call": "down",
+          "actual_dir": "up"
+        }
+      ]
+    },
+    "ai": {
+      "n": 15,
+      "dir_n": 5,
+      "dir_win": 0.4,
+      "rows": [
+        {
+          "date": "20260831",
+          "ai_direction": "up",
+          "ai_call": "up",
+          "actual_dir": null,
+          "hit": null
+        },
+        {
+          "date": "20260828",
+          "ai_direction": "down",
+          "ai_call": "down",
+          "actual_dir": "up",
+          "hit": false
+        },
+        {
+          "date": "20260827",
+          "ai_direction": "up",
+          "ai_call": "up",
+          "actual_dir": "flat",
+          "hit": false
+        },
+        {
+          "date": "20260826",
+          "ai_direction": "up",
+          "ai_call": "up",
+          "actual_dir": "up",
+          "hit": false
+        },
+        {
+          "date": "20260825",
+          "ai_direction": "flat",
+          "ai_call": "up",
+          "actual_dir": "up",
+          "hit": false
+        },
+        {
+          "date": "20260824",
+          "ai_direction": "down",
+          "ai_call": null,
+          "actual_dir": "flat",
+          "hit": false
+        },
+        {
+          "date": "20260821",
+          "ai_direction": "up",
+          "ai_call": null,
+          "actual_dir": "down",
+          "hit": false
+        },
+        {
+          "date": "20260820",
+          "ai_direction": "up",
+          "ai_call": null,
+          "actual_dir": "flat",
+          "hit": false
+        },
+        {
+          "date": "20260819",
+          "ai_direction": "down",
+          "ai_call": null,
+          "actual_dir": "flat",
+          "hit": false
+        },
+        {
+          "date": "20260818",
+          "ai_direction": "down",
+          "ai_call": null,
+          "actual_dir": "down",
+          "hit": false
+        },
+        {
+          "date": "20260817",
+          "ai_direction": "up",
+          "ai_call": null,
+          "actual_dir": "flat",
+          "hit": false
+        },
+        {
+          "date": "20260814",
+          "ai_direction": "down",
+          "ai_call": null,
+          "actual_dir": "up",
+          "hit": false
+        },
+        {
+          "date": "20260813",
+          "ai_direction": "flat",
+          "ai_call": null,
+          "actual_dir": "flat",
+          "hit": true
+        },
+        {
+          "date": "20260812",
+          "ai_direction": "flat",
+          "ai_call": null,
+          "actual_dir": "flat",
+          "hit": true
+        },
+        {
+          "date": "20260811",
+          "ai_direction": "flat",
+          "ai_call": null,
+          "actual_dir": "flat",
+          "hit": true
+        },
+        {
+          "date": "20260810",
+          "ai_direction": "flat",
+          "ai_call": null,
+          "actual_dir": "down",
+          "hit": false
+        }
+      ]
+    }
+  }
+}

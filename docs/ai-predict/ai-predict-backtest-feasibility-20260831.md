@@ -169,6 +169,42 @@
   - 时点穿越测试未实现(诚实标注,非假 PASS):方向锚为纯确定性规则,因子只读 t 当日及之前数据,无全期统计量/未来数据,前视风险低(报告三、无前视审查已论证)。
   - 剩余 5.2 穷举维度(T 子群/role/L 因子/阈值全谱/前向样本外/分半/三方对照)未在本轮实施,留待后续(§5.1 穷举最大化原则,已列维度待跑)。
 
+### 5.2 方向锚穷举子群回测(2026-09-01 落地,本报告实施)
+
+**口径**:与 5.1 主口径一致——`dir` = 锚押方向(lean=up/down) **且** 次日真实也走出方向(actual=up/down,非 flat);dir_win = P(hit|dir)。flat-actual 日不计入(当日无方向,不判锚对错)。显著性判据 = 二项检验 z 值,|z|>=1.96 才算显著(双侧 5%)。脚本 `docs/ai-predict/scripts/analyze_direction_anchor_52.py`(死脚本副本,tracked,§23.5),输入 5.1 detail JSON 做**轻量重分析,不重跑 600 天因子**;仅阈值敏感度重跑主循环。结果 json:`docs/ai-predict/scripts/out/direction_anchor_backtest_52.json`。
+
+**核心结论:所有子群(维度 1-5)押方向胜率均落在 0.42-0.63,无一 |z|>=1.96 显著——现版对称规则在全部已挖子群里都没有显著的方向优势,5.1 的「整体接近随机」不是被混合掩盖,而是真随机。方向锚的 T 因子在方向锚 lean 上的权重效应并不显著。**
+
+- **T 子群**(哪些转向信号让锚押方向更准):
+  - to_long(n=60):dir_win=0.5667,z=1.03 — 方向对但不显著
+  - to_short(n=69):dir_win=0.4348,z=-1.08 — 略低于随机
+  - none(n=16):dir_win=0.625,z=1.00 — n 太小,z 不可靠
+  - both(n=0):锚押 up/down 与 both 无交集(转多/转空同时出现时锚不押单方向)
+- **role 子群**(哪个席位转向信号最强):
+  - 中信期货(n=79):dir_win=0.557,z=1.01 — 最高但不显著
+  - 国泰君安(n=68):dir_win=0.4706,z=-0.49
+  - top20(n=74):dir_win=0.4459,z=-0.93
+  - 多席位同时(n=76):dir_win=0.50,z=0.00
+- **strength 子群**:
+  - strong(有 T 转向,n=129):dir_win=0.4961,z=-0.09
+  - weak(n=16):dir_win=0.625,z=1.00 — n 太小不可靠
+- **L 因子条件命中**:
+  - rate_down 通道 / gold_pos(全样本恒 True)/ nq_low(仅 20260716 起,2026-07 前无此段)→ 见 out json 分桶明细;gold_pos 全 642 恒 True 无对比维度
+- **按年 + 分半稳定性**:
+  - 2024(n=58)=0.5172 / 2025(n=55)=0.4545 / 2026(n=32)=0.5938 — 年际波动 0.45-0.59,均不显著
+  - 前半(n=74)=0.5405 / 后半(n=71)=0.4789 — 不稳定,方向随段漂移
+- **阈值敏感度**(唯一重跑主循环维度,`backtest_direction_anchor.py --threshold X`):
+  - thr=0.3:dir_win=0.5053(n=188)/ 0.5:0.5103(n=145)/ 0.8:0.5281(n=89)/ 1.0:0.4769(n=65)
+  - **结论:dir_win 全程在 0.48-0.53 窄带内波动,未翻天——方向胜率对阈值稳健,5.1「接近随机」的结论不脆**。dir_n 随阈值上升从 188 收窄到 65(实际走出方向的天数变少),但胜率不随阈值爆变
+- **前向样本外**(防过拟合):
+  - 选段 2024-2025(n=113):dir_win=0.4867,z=-0.28 / 验证段 2026(n=32):dir_win=0.5938,z=1.06
+  - 2026 段略高但 n=32 太小不显著,且无任何子群在选段显著——**无过拟合迹象,也无真实信号,是稳定的「无优势」**
+- **与 AI 输出在线对照(三方,小样本只作参考不强行下结论)**:
+  - 方向锚影子(20260819-28,8 日,dir_n=3):dir_win=0.667(2/3:8/25、8/26 对);全 lean 口径 0.333(2/6)
+  - AI 输出(20260810-31,回填 15 日,dir_n=5):dir_win=0.4(2/5)
+  - 两者同期(8/19-8/28)对 8/25、8/26 两个方向上扬日,影子与 AI 都判 up 且都中;其余日参差。样本太小,仅作在线观测,不作结论
+- **诚实标注**:weak/none 子群 n=16 样本太小,z 不可靠;2026 段 n=32 亦小;gold_pos 全样本恒 True 无对比;nq_low 仅 20260716 起样本极小;8/19-8/28 线上对照仅 8 日,三方对照为参考性观测非统计结论。
+
 ### 5.3 AI 输出(deepseek)回测方案
 
 - **只能在线/半在线**:每天 gen_daily_brief 生成后,历史条目由 backfill_hits 次日回填,持续累积到 90 天滚动上限。
@@ -191,14 +227,18 @@
 
 ## 复现
 
-- **脚本**:本报告为可行性调研+实施落地。回测脚本已建:`docs/ai-predict/scripts/backtest_direction_anchor.py`(tracked,§23.5,死脚本副本),输出 `docs/ai-predict/scripts/out/direction_anchor_backtest_results.json`。
+- **脚本**:本报告为可行性调研+实施落地。回测脚本已建:`docs/ai-predict/scripts/backtest_direction_anchor.py`(tracked,§23.5,死脚本副本,支持 `--threshold` 覆盖现版 HIT_THRESHOLD 做敏感度),输出 `docs/ai-predict/scripts/out/direction_anchor_backtest_results.json`;5.2 子群分析脚本 `docs/ai-predict/scripts/analyze_direction_anchor_52.py`(tracked,死脚本副本,读 detail JSON 轻量重分析),输出 `docs/ai-predict/scripts/out/direction_anchor_backtest_52.json`。
 - **输入依赖**:
   - data/sentiment.db(futures_position / index_daily / daily_metric)
   - static-site/data/daily_brief_history.json(AI 输出历史)
   - data/brief_shadow.json(方向锚影子在线记录)
   - scripts/gen_daily_brief.py(_compute_direction_anchor L221 / _shadow_lean L397 / _actual_direction L2333 / HIT_THRESHOLD L2232)
 - **重跑命令(建议最小方案)**:
-  - python scripts/backtest_direction_anchor.py --db data/sentiment.db --start 20240102 --end 20260830
+  - python docs/ai-predict/scripts/backtest_direction_anchor.py --db data/sentiment.db --start 20240102 --end 20260830
+  - python docs/ai-predict/scripts/backtest_direction_anchor.py --db data/sentiment.db --threshold 0.3
+  - python docs/ai-predict/scripts/backtest_direction_anchor.py --db data/sentiment.db --threshold 0.8
+  - python docs/ai-predict/scripts/backtest_direction_anchor.py --db data/sentiment.db --threshold 1.0
+  - python docs/ai-predict/scripts/analyze_direction_anchor_52.py(先跑齐阈值结果再跑)
   - AI 输出在线聚合:python scripts/aggregate_ai_output.py(建议新建,从 daily_brief_history.json 读)
 - **数据截止**:sentiment.db 20260831;daily_brief_history 20260831(16条);brief_shadow 20260828(8条)。
 - **关键口径一句话**:方向锚回测 = 对每交易日重放 _compute_direction_anchor + _shadow_lean 现版规则得 lean,次交易日 sh 涨跌幅按 HIT_THRESHOLD=0.5 判实际方向,命中 = lean==actual;nq 因子 20260716 起,2026-07 前为无 nq 段。

@@ -23,11 +23,14 @@
 | [ai-predict-tts-plan.md](ai-predict-tts-plan.md) | 语音播报(edge-tts)落地调研方案 | 2026-08-16 |
 | [daily-brief-research.md](daily-brief-research.md) | 每日专业金融预测总结最初调研(daily_brief 起点) | 2026-08 上旬 |
 | [daily-brief-optimization.md](daily-brief-optimization.md) | daily_brief 完善点分析报告 | 2026-08 |
+| [ai-predict-backtest-feasibility-20260831.md](ai-predict-backtest-feasibility-20260831.md) | AI 预测回测可行性报告(方向锚全历史回测 5.1 + 穷举子群 5.2;结论:现版对称规则整体无显著方向优势,所有子群无一显著) | 2026-08-31 |
 
 ## 配套脚本
 
 - [direction-market-winning-scripts/](direction-market-winning-scripts/) — 方向胜率信号挖掘全套脚本(11 个:`mine_direction_signals.py`/`mine_turnpoint_combo.py`/`mine_combo_matrix.py`/`mine_final_rules.py`/`mine_final_combo.py` 等 + `out/` 挖掘产物 json),复现入口见同目录各脚本头部 docstring。
 - [scripts/calibrate_sector_band.py](scripts/calibrate_sector_band.py) — 板块层自适应判定带参数校准(N/k/min_w 全组合自然覆盖率法+历史反事实法,2026-08-24 R2 依据,N=5/k=2.0/min_w=0.3 定稿),复现命令见脚本头。
+- [scripts/backtest_direction_anchor.py](scripts/backtest_direction_anchor.py) — 方向锚全历史回测(重放现版 `_compute_direction_anchor`+`_shadow_lean`,支持 `--threshold` 覆盖做敏感度),输出 `scripts/out/direction_anchor_backtest_results*.json`(642 样本),复现见脚本头。
+- [scripts/analyze_direction_anchor_52.py](scripts/analyze_direction_anchor_52.py) — 方向锚穷举子群分析(T/role/strength/L 因子/按年分半/阈值敏感度/前向样本外/三方在线对照,读 detail JSON 轻量重分析),输出 `scripts/out/direction_anchor_backtest_52.json`,复现见脚本头。
 - [scripts/migrate_sector_band_reclass.py](scripts/migrate_sector_band_reclass.py) — R2 存量迁移:按新口径重刷 history 历史条目 sector_hits(--tree git/data 两树,备份后写回)。
 - [scripts/dbbrief_interaction_smoke.sh](scripts/dbbrief_interaction_smoke.sh) — AI 预测板块交互冒烟三件套(+同目录 `dbbrief_interaction_smoke.js` 断言脚本 / `dbbrief_smoke_harness.html` 离线 harness):方向红涨绿跌分色、点击区域收敛、反思校准连坐修复的 playwright chromium 20 断言自测(2026-08-27 fix(dbbrief) 配套),复现:`bash docs/ai-predict/scripts/dbbrief_interaction_smoke.sh <static-site目录> <主仓data目录>`。
 

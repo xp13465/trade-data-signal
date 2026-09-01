@@ -201,7 +201,10 @@ def _time_travel_check(db_path, db, sh_dates, sh_pct, fut_dates, threshold, cuts
     return {"_not_implemented": True}
 
 
-def run(db_path, start, end):
+def run(db_path, start, end, threshold=None):
+    """全历史方向锚重放。threshold 可覆盖现版 HIT_THRESHOLD 做敏感度(默认现版 0.5)。"""
+    if threshold is None:
+        threshold = GEN_HIT_THRESHOLD
     db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=15)
     try:
         sh_dates, sh_pct = _load_sh(db, start, end)
@@ -209,8 +212,8 @@ def run(db_path, start, end):
     finally:
         db.close()
 
-    # 主口径(现版 HIT_THRESHOLD=0.5)
-    items = _build_items(db_path, None, sh_dates, sh_pct, fut_dates, GEN_HIT_THRESHOLD)
+    # 主口径(现版 HIT_THRESHOLD=0.5,可 --threshold 覆盖做敏感度)
+    items = _build_items(db_path, None, sh_dates, sh_pct, fut_dates, threshold)
 
     detail = []
     for lean, actual, meta in items:
@@ -226,10 +229,10 @@ def run(db_path, start, end):
         "meta": {
             "db": str(db_path), "start": start, "end": end,
             "data_cutoff": "20260831",
-            "HIT_THRESHOLD": GEN_HIT_THRESHOLD,
+            "HIT_THRESHOLD": threshold,
             "NQ_START": NQ_START,
             "caliber": "方向锚重放现版对称规则(_shadow_lean 含8-24 R4 down分支),命中=lean==actual"
-                       "(纯方向相等口径),HIT_THRESHOLD=0.5;nq 因子仅 20260716 起,此前 L3 压制不生效",
+                       f"(纯方向相等口径),HIT_THRESHOLD={threshold};nq 因子仅 20260716 起,此前 L3 压制不生效",
             "time_travel_check": "NOT_IMPLEMENTED(方向锚为纯确定性规则,因子只读 t 当日及之前数据,"
                                  "无全期统计量/未来数据,前视风险低;未补截断重算,诚实标注而非假 PASS)",
         },
@@ -246,12 +249,15 @@ def main():
     ap.add_argument("--db", default=str(DB_PATH))
     ap.add_argument("--start", default="20240102")
     ap.add_argument("--end", default="20260830")
+    ap.add_argument("--threshold", type=float, default=None,
+                    help="覆盖现版 HIT_THRESHOLD 做阈值敏感度(默认 None=用现版 0.5)")
     args = ap.parse_args()
 
-    results = run(args.db, args.start, args.end)
+    results = run(args.db, args.start, args.end, threshold=args.threshold)
     out_dir = Path(__file__).resolve().parent / "out"
     out_dir.mkdir(exist_ok=True)
-    json_path = out_dir / "direction_anchor_backtest_results.json"
+    suffix = f"_thr{args.threshold}" if args.threshold is not None else ""
+    json_path = out_dir / f"direction_anchor_backtest_results{suffix}.json"
     json_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"total_sample={results['total_sample']}")
     print(f"overall={results['overall']}")
