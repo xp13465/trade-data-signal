@@ -16,6 +16,7 @@
 - **✅ 落档外部系统先查社区教训 L47**(→main **e7f789c2a**)— 用户批评闭门造车,§5.1 强化触发词+§18①加行+archive+memory
 - **🔄 B方案 A/B 7日累积进行中**:每日 21:15 自动跑,满 7 真实交易日(约2周)出两通道命中率对比表,数据定方向锚去留
 - **🔄 Karpathy review 规则 2周试运行进行中**:至 9-15,用 4 指标(有效finding率/模糊finding数/误报率/被压没主动发现)评估是否正式固化
+- **✅ ZCode 代班第二单:淘汰原因 tooltip 中性化**(feat/kelly-elim-tooltip-fix→main **9923b1be9**,feat **412886afb**,统一 bump a523→a527)— 上一单 reviewer 低危观察项①修复:tooltip「自然卖出腾位后再买」仅准 H(手段A),现中性化「当日买入被仓位判定跳过(仓位已满或强平腾位后仍超容)」覆盖 H/G/I 两种丢弃路径;三分类标签(用户拍板)未动;纯 1 行文案;review 由 ZCode 自审 PASS(diff 仅1行+新文案与 7772/8106-8107/8140 两种路径锚点一致+§24 机制C 合规);§0 三查过(线上 lab.min.js?v=20260901-a527 含新文案)
 - **遗留(非本轮)**:旧 worktree 残留 11 个(agent-inbox-rev-*)下轮清理;UI 修复批 reviewer 终审+双 merge 链/kelly-lab P1 未动;zcode 等用户派活
 **历史交接(≥2 轮前,已折叠)**:09-01 00:4x ZCode 代班轮(淘汰原因列 a522/sim-pin/zcode 角色/codex ref 链审计/v1.1.12 tag) + 08-31 compact 收尾链 + 08-30/08-29/08-28/08-27/08-26/08-22 及更早全部折叠,细节见 docs/tasks-done-list.md「2026-09-01 会话追加 1/2/3」与 docs/archive/TASKS-done.md / TASKS-history-archive-20260820.md。已上main的完成陈述不再在顶部重复陈列。
 > **历史未决项清理(2026-08-28 主控核查,全已过时/已修复)**:①板块spark懒渲染=P2-11性能优化,非功能bug → 关闭②main-merge.sh销账提醒=Nice-to-have,从未阻塞 → 关闭③#88订阅推送=已完结销号 → 关闭④v1.1.7审计P1项=全已修复上main → 关闭⑤汪汪队stats等=大部分自愈,仅余宽度指标缺口(37天滞后)为独立数据问题 → 关闭,宽度缺口见data/alerts/latest.md 06-27条⑥首页AI建议N首次=真实残留小茬,但仅影响首次访问展示,不伤核心 → 暂时关闭,下轮顺手修。overfit.json 404=正常状态(下线,前端读overfit_monitor.json),不修。**🔥 信号凯利回测 lab tab 首屏加载 P1**(implementer ac359715ca0 修复中,feat/kelly-lab-lazy-load):裸 fetch 拉 69MB 全量,无分片/超时/缓存;修复=分片+骨架屏+localStorage 缓存三件套(recent.json 2.99MB 首开,按年 t{YYYY}.json 按需)

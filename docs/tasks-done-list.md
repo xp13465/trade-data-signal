@@ -254,3 +254,9 @@
 - [x] **B方案:方向锚「开锚vs关锚」7日线上A/B harness**(→main **fe9ae452f**,feat/ab-direction-anchor-7d-ab)— 因 5.1/5.2 证明锚自身无方向优势,但 8-28 开启注入依据=3样本离线前测(非严格A/B)。搭双通道:生产照旧(带锚20:40)+ 关锚参考通道(21:15 单prompt,同日期同数据唯一变量=注入),7个真实交易日对比方向命中率定去留。脚本 ab_direction_anchor.py(幂等/7日自动停/交易日判断/只读零侵入,不调 gen main)+ launchd com.trade.ab-direction-anchor 21:15。用户拍板:生产照旧+关锚参考通道(推荐)。报告 §23.5 四件套齐。
 - [x] **落档外部系统先查社区教训 L47**(→main **e7f789c2a**)— 用户批评闭门造车(商汤400 闭门11组实验,规范里就有"不要闭门造车"),§5.1 强化触发词+§18①通用共享表加行+archive原文+memory。触发=排查跨厂商/网关/API参数未知行为第一动作上网查社区。
 - [x] **Karpathy Skills review 规则(放宽版)采纳**(→main **33c9c90ee**,feat/karpathy-review-rules)— 用户让 codex 评估开源项目 andrej-karpathy-skills;codex 结论不直接用不蒸馏,提 2 条 per-finding 规则(trace/verifier)。主控校验 codex:①"无测试套件"过头(有针对性单测)②落地点偏窄应扩双 reviewer skill(§23.3)。用户拍板采纳**放宽版**(trace.user_request 可 N/A+reviewer_own 不压没主动发现;verifier 对回测/口径类可降级"口径依据")落 5 文件(protocol + .agents codex-reviewer + role-reviewer + 2个同内容副本)。评估落档 docs/codex-reviews/karpathy-skills-evaluation-20260901.md。2周试运行(9-01~9-15)+4指标验证再定正式版。
+
+## 2026-09-01 会话追加 2(ZCode 代班第二单:淘汰原因 tooltip 中性化)
+
+> 来源:ZCode 首单 reviewer 低危观察项①(G/I 丢弃路径与「满仓不买」tooltip 语义简化)+ 用户拍板做。
+
+- [x] **淘汰原因 tooltip 中性化**(feat/kelly-elim-tooltip-fix→main **9923b1be9**,feat **412886afb**,统一 bump a523→a527)— 「自然卖出腾位后再买」仅准确描述 H(手段A 满仓不买,当日超容整批跳过+自然腾位);G/I(P/FIFO)丢弃路径=强平腾位后仍超容整批跳过(lab.js 8006-8014),同标签 tooltip 语义简化。新文案「当日买入被仓位判定跳过(仓位已满或强平腾位后仍超容)」两路径均准;三分类标签(用户拍板)不动。ZCode 自审 PASS(1 行 diff+两种路径锚点一致+§24 机制C 合规);§0 三查过(线上 lab.min.js?v=20260901-a527 含新文案)。顺带:#25 销账核实=条目早已完成移入 done-list(2026-08-17),main-merge 软提醒为 commit 引用编号误报,无需动作
