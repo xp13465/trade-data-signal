@@ -173,3 +173,24 @@ opencode 性能 + 飞书/watcher 异步回传 + 多角色 skill),Karpathy 这套
 2. **模糊 finding 数**:无 command/observed、只说「逻辑有问题」的 finding 数(应趋近 0)。
 3. **误报率**:被实施方核为误报的 finding 占比(应下降)。
 4. **被压没主动发现**:`reviewer_own` 类主动挖出的深层问题数量(应**不降反升**,验证放宽点 A 未把好 finding 压没)。
+
+---
+
+## 复核补记(2026-09-01 二次评估:跨角色价值补全)
+
+> 触发:用户在评估 ponytail 时批评"评估不负责,甚至怀疑今天前面 Karpathy 那次二次评估也错了"。核实确认——**本次 Karpathy 评估犯了与 ponytail 相同的系统性错误:只看 review 角色,漏了 implementer/tester/researcher 的可蒸馏增量**(memory [[open-source-eval-cross-role-sweep]] 根治,CLAUDE.md §5.1 补强)。
+
+### 原评估的窄化点
+原评估「三、Claude 校验」与「四、最终答复」只落在 review 角色(trace/verifier 两条 review 报告字段),**没逐个角色问"Karpathy 4 条原则能给谁带来增量"**。实际上 Karpathy 4 条原则是通用编程哲学,与 ponytail 7 级阶梯同类,跨角色有价值:
+
+| Karpathy 原则 | 原评估(只给 review) | 补记:可蒸馏的跨角色增量 |
+|---|---|---|
+| **Think Before Coding**(别假设/暴露疑点/问清楚) | (未落) | → **implementer**:强化"开工前三源核对/复述确认"(§23.13/§23.3),已有但可作 implementer skill 首步强制自问 |
+| **Simplicity First**(能50行别写200行) | (未落) | → **implementer**:补强"不加需求外改动"(L11)+ 少写抽象;与 ponytail 7 级阶梯同一哲学 |
+| **Surgical Changes**(改什么动什么) | (落为 review finding diff 范围) | → **implementer**:强化"只改点名下单"(§23.3),已有 read-only 默认但可作 implementer 开工自查 |
+| **Goal-Driven Execution**(转成"写测试→跑过"循环) | (因项目无完整测试套件而否决) | → **tester**:即使无完整核心套件,`test_*.py` 针对性单测存在(原评估已核实),tester 可学"验证闭环"习惯——每个改动必有一可跑校验,不止口头 claim;→ **researcher**:可学"量化影响/可验证结论" |
+
+### 为何补记
+1. 原评估"不直接落地/不蒸馏整框架"的判断**仍成立**(分布式多 Agent 模型确实与单 LLM 心法错位),但**"只蒸馏 review 2 条"是窄化**——implementer 的 Simplicity First / Think Before Coding 有增量,只因原评估没逐个角色问而漏掉。
+2. 与 ponytail 评估同病:两项目都是"通用编程哲学",都只被从 review 视角评估。根治 = §5.1 跨角色穷举。
+3. **实际落地取舍**:Karpathy 的 Simplicity/Surgical 与 ponytail 7 级阶梯高度重叠,蒸馏时**可合并**——ponytail 蒸馏(implementer 7级阶梯+根因修复)已覆盖 Karpathy 的 Simplicity/Surgical,故 Karpathy 不必单独再蒸 implementer;Karpathy 独有的"Think Before Coding"已有 §23.13 三源对照覆盖。**结论:ponytail 蒸馏为主,Karpathy 原 2 条 review 规则(trace/verifier)维持,无需追加新落点**——但评估方法本身要补记,防同类窄化再犯。
