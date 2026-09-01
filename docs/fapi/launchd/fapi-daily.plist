@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<key>REPO</key>
+		<string>/Users/linhuichen/code/trade-data</string>
+	</dict>
+	<key>Label</key>
+	<string>com.trade.fapi-daily</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/linhuichen/code/trade/.venv/bin/python</string>
+		<string>-m</string>
+		<string>app.collector.fapi_daily</string>
+	</array>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardErrorPath</key>
+	<string>/Users/linhuichen/code/trade-data/data/logs/fapi_daily_launchd.err</string>
+	<key>StandardOutPath</key>
+	<string>/Users/linhuichen/code/trade-data/data/logs/fapi_daily_launchd.log</string>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>18</integer>
+		<key>Minute</key>
+		<integer>10</integer>
+	</dict>
+	<key>WorkingDirectory</key>
+	<string>/Users/linhuichen/code/trade-data</string>
+	<!-- 说明:
+	     1. 这是模板文件,不 launchctl load,不挂生产(观察期双写,§23.7 只增不改)。
+	     2. 时点 18:10:晚于 17:50 update_all,避免与盘后 15:35/16:00/17:50/20:35/22:00
+	        既有时点冲突(§14 生产稳定时点);启动后 5 分钟余量下载 1.1MB dump。
+	     3. .env 由 /Users/linhuichen/code/trade-data/.env 提供(key 不落代码/日志)。
+	-->
+	<key>ExitTimeOut</key>
+	<integer>600</integer>
+</dict>
+</plist>

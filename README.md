@@ -281,7 +281,7 @@ snapshot.js / ticker-check.js），纯验收不碰业务代码，供 reviewer/te
 
 ### 📚 公开数据源致谢
 
-本看板 100% 使用免费公开数据源，无 API key。没有这些开源项目与公开接口，就没有这个看板：
+本看板以免费公开数据源为主（无 API key），并于 2026-09 试点接入同花顺 FAPI 官方 API（带 key，仅供兜底互证，key 存 .env 不入库不入日志）。没有这些开源项目与公开接口，就没有这个看板：
 
 | 数据源 | 用途 | 类型 |
 |---|---|---|
@@ -295,6 +295,7 @@ snapshot.js / ticker-check.js），纯验收不碰业务代码，供 reviewer/te
 | HKEX / CCASS | 港股指数 + 北向持仓披露 | 公开数据 |
 | CFFEX | 期货机构持仓 | 公开数据 |
 | cninfo | 公募基金 / ETF 持有人结构 | 公开数据 |
+| 同花顺 FAPI（金融开放平台） | A 股全市场日线 T+0 dump 兜底（2026-09 P0：`app/collector/fapi_daily.py` 写入 `fapi_daily_raw`，与 mootdx 双源互证，观察期仅供兜底不替换主链；方案见 [`docs/fapi/fapi-integration-plan-20260901.md`](docs/fapi/fapi-integration-plan-20260901.md)） | 官方 API（带 key，key 仅存 .env 不入库不入日志） |
 | 美财政部 CSV | `us10y` 异源兜底（东财失联时，`data.treasury.gov`） | 官方公开数据 |
 | HKEX 官方 JS | `hk_south` 南向净买额异源反算（SSE+SZSE Buy-Sell，JS 从 `datacdn.rscd.org.hk` 拉当日指数净买额数据） | 官方公开接口 |
 | 东财数据中心 | `cn10y` 国债收益率异源兜底（`datacenter-web.eastmoney.com` RPTA_WEB_TREASURYYIELD） | 公开接口 |
