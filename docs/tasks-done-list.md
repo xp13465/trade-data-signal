@@ -260,3 +260,11 @@
 > 来源:ZCode 首单 reviewer 低危观察项①(G/I 丢弃路径与「满仓不买」tooltip 语义简化)+ 用户拍板做。
 
 - [x] **淘汰原因 tooltip 中性化**(feat/kelly-elim-tooltip-fix→main **9923b1be9**,feat **412886afb**,统一 bump a523→a527)— 「自然卖出腾位后再买」仅准确描述 H(手段A 满仓不买,当日超容整批跳过+自然腾位);G/I(P/FIFO)丢弃路径=强平腾位后仍超容整批跳过(lab.js 8006-8014),同标签 tooltip 语义简化。新文案「当日买入被仓位判定跳过(仓位已满或强平腾位后仍超容)」两路径均准;三分类标签(用户拍板)不动。ZCode 自审 PASS(1 行 diff+两种路径锚点一致+§24 机制C 合规);§0 三查过(线上 lab.min.js?v=20260901-a527 含新文案)。顺带:#25 销账核实=条目早已完成移入 done-list(2026-08-17),main-merge 软提醒为 commit 引用编号误报,无需动作
+
+## 2026-09-01 会话追加 4(两条遗留 TASKS 待办对账销账:UI修复批双merge链 + kelly-lab P1)
+
+> 来源:主控清理 worktree 时发现两条 TASKS 遗留项可能状态漂移(TASKS 挂着但实物可能已完成),用户拍板「先核对 overfit 再销账」。派 reviewer 用 git 实物证据对账(memory pending-index-drift-verify-before-recommend 教训),主控补核 overfit 数据/上线,确认后销账+清理残留。
+
+- [x] **UI 修复批(P0 卡死)reviewer 终审 + 双 merge 收尾链销账**— reviewer 实物核查结论:代码 100% 完成且双 merge 全落地。P0 卡死根修 `7ea4f8272`(跃迁守卫+单向阀)+批本体 merge `1cd137e70`/`839b5d283` 均在 main;双 merge 链②T3-2 rebase/适配完成(T3-2 merge `673ebe2ef`+适配 `44d383620`/`8811295d6` 在 main);common.js 组件 `_tdsFadeModeSelectHTML`+`_TDS_FADE_TTL_MS` 常量+window 导出全在 main,所谓"~L2111/L2672/style.css ~6993 冲突待处理"不存在,已由 T3-2 收尾覆盖;reviewer 终审已实质完成(44d383620 内附"终审两单点修复")。③overfit.json 正式重跑上线**主控补核 PASS**:`static-site/data/overfit_monitor.json` generated_at 2026-08-31 21:40(末交易日定时跑,晚于 8-23/24 merge),version v2,含 n2NorthOutConcept(708)/janMidRating(128) 新键=证明重跑用了当前 main 代码;线上 ss.fx8.store `/data/overfit_monitor.json` 已到同版数据(§0 任一域名到新版即上线 OK),deploy 链已挂 check_overfit_split_parity.py + check_overfit_recent_parity.mjs 校验。④T4 公示+README+版本号=常规发版收尾(README 侧无独立 T4 标记 commit,归常规发版)。⑤T5 用户手动校验=用户侧动作,非阻塞销账。→ TASKS.md L41/L42 销账
+- [x] **kelly-lab P1 首屏懒加载销账**— 分片+骨架屏+localStorage 缓存三件套已实现并合入 main(`543f43bf6`),后续迭代(6cb26ddc6 缓存短路/7d40055b3 2026数据补回/94984d39e 单片失败重试)全上线;TASKS 引用的 `ac359715ca0` 为无效 commit(git cat-file fatal,引用过期/笔误);`feat/lab-lazy-small-mid-step`(dc1168c37)也已并入 main 且无未合 commit。→ TASKS.md L22 该 P1 项销账
+- [x] **残留 worktree/分支清理**— 11 个 agent-inbox-rev-* worktree+分支全清(20260827-001~008/20260830-001/002/20260831-001,均干净无脏);`feat/kelly-lab-lazy-load` 分支删除(已并 main 无未合 commit);`lab-lazy-small-mid-step` worktree 待处理(见下)。TASKS.md L20 遗留清单已同步(仅剩 zcode 等用户派活)
