@@ -135,3 +135,21 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
   - **§23.11 冲突绝不静默**:git 层面发现版本倒退/文件被覆盖/diff 异常,绝不静默 resolve 继续审,停下上报
 - **四问法(每个捕获点过一遍)**:这个错误谁会看到?日志够不够半年后排障?fallback 行为用户是否可见/可知?该不该上抛给上层统一处理?
 - **反例**:review 数据导出脚本改动只验产物 JSON 对不对,没注意生成器把 KeyError 吞成 warning 继续 export——产物缺一列上线,check 校验又恰好不覆盖该列,用户两周后发现(静默失败+机检缺口双重漏网)
+
+### 10.5 逐条 finding 质量标准：trace + verifier（2026-09-01 采纳 Karpathy Skills 放宽版）
+> 采纳来源：`docs/codex-reviews/karpathy-skills-evaluation-20260901.md`（用户 2026-09-01 拍板采纳放宽版）。与 `docs/codex-collab-protocol.md` Report Schema 段、`.agents/codex-reviewer/SKILL.md` 同标准（§22 三处一致，§23.8 skill 活资产同步）。**关联规范源**：CLAUDE.md §23.8（skill 活资产同步）；改源头时反向同步本节。
+
+**你（Claude 内部 reviewer）与外部 codex 同一标准：每条进正式报告的 finding 必须可追溯 + 可验证，缺一不算合格 finding。**
+
+#### 规则1 `trace`：可追溯
+- `diff_range`（必填）：定位到哪个 commit/行/文件，让实施方能直接跳到。
+- `linkage`（必填）：与本次需求如何关联，取值 `满足` / `不满足` / `uncertain`。
+- `user_request`：引用 user 原话；允许 `N/A` + `"origin": "reviewer_own"`，用于「reviewer 独立主动挖出的项目深层问题」（本无对应 user 原话，如「queries.py 连接没 finally 关」）。
+- **放宽点**：只对「声称与本次需求相关」的 finding 强制追溯 `user_request`；`reviewer_own` 放行但**必须显式标注**，不许用 `in-diff|pre-existing` 把这类好 finding 压没。
+
+#### 规则2 `verifier`：可验证
+- `command`（必填）：可复现命令或可观察现象。
+- `expected`（必填）：通过时应该看到什么。
+- `observed`（必填）：实际看到什么。
+- **放宽点**：回测/口径判断类 finding，`command` 允许「重跑 XXX 回测脚本 + 预期口径」，不强制当场真跑几小时回测；或降级「口径依据:..."」。**禁止**只说「逻辑有问题」不带任何 command/现象。
+- 与 §10.2 置信度过滤联动：`observed` 缺证据/没跑验证的 finding 往往 `<80` 分，被滤掉（但报告末尾仍附「另 N 个低分项已滤」）；真正进报告的 must 带齐 trace/verifier。

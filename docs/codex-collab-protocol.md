@@ -64,7 +64,27 @@ refs/codex/resp/<request_id>   # 可选：Codex 报告的 SHA 指针（由 Claud
   "request_id": "rev-20260824-001",
   "verdict": "PASS",
   "summary": "改动影响面已覆盖",
-  "issues": [],
+  "issues": [
+    {
+      "severity": "P1",
+      "title": "标题",
+      "path": "path/to/file.py:123",
+      "impact": "影响",
+      "why": "根因",
+      "fix": "修复建议",
+      "trace": {
+        "diff_range": "哪个 commit/行/文件（必填）",
+        "linkage": "与本次需求如何关联：满足/不满足/uncertain（必填）",
+        "user_request": "user 原话引用，或 N/A + origin=reviewer_own（见下）",
+        "origin": "in-diff | pre-existing | uncertain | reviewer_own"
+      },
+      "verifier": {
+        "command": "可复现命令或可观察现象（必填）",
+        "expected": "通过时应该看到什么（必填）",
+        "observed": "实际看到什么（必填）"
+      }
+    }
+  ],
   "impact_surface": ["P0-01 KPI角标"],
   "smoke_results": {"P0-01": "OK"},
   "recommendation": "可合入 main"
@@ -74,6 +94,25 @@ refs/codex/resp/<request_id>   # 可选：Codex 报告的 SHA 指针（由 Claud
 必填字段：`request_id`, `verdict`, `summary`, `issues`, `impact_surface`, `smoke_results`, `recommendation`。
 
 `verdict` 取值：`PASS` / `FAIL` / `BLOCKED`。
+
+## 逐条 finding 质量标准：trace + verifier 字段（2026-09-01 采纳 Karpathy Skills 放宽版）
+
+> 采纳来源：`docs/codex-reviews/karpathy-skills-evaluation-20260901.md`（用户 2026-09-01 拍板采纳放宽版）。目的：把 review 报告水分砍掉一大截——从「标来源」升级为「可追溯 + 可验证复现」。**不动 ref/信号/生命周期/原子写通道机制，只加 per-finding 字段定义。**
+
+### 规则1 `trace` 字段：每条 finding 必须能追溯
+每条 issue 必须带 `trace`，三子字段：
+- `diff_range`（**必填**）：定位到哪个 commit / 行 / 文件，让实施方能直接跳到。
+- `linkage`（**必填**）：与本次需求如何关联，取值 `满足` / `不满足` / `uncertain`。
+- `user_request`：引用 user 原话；**允许填 `N/A` + `"origin": "reviewer_own"`**，用于「reviewer 独立主动挖出的项目深层问题」（这类本就无对应 user 原话，如「queries.py 连接没 finally 关」）。
+- **放宽点**：只对「声称与本次需求相关」的 finding 强制追溯 `user_request`；`reviewer_own` 类放行但**必须显式标注**，不许用 `in-diff|pre-existing` 把这类好 finding 压没。
+
+### 规则2 `verifier` 字段：每条 finding 必须可验证
+每条 issue 必须带 `verifier`，三子字段：
+- `command`（**必填**）：可复现命令或可观察现象。
+- `expected`（**必填**）：通过时应该看到什么。
+- `observed`（**必填**）：实际看到什么。
+- **放宽点**：对「回测/口径判断类」finding，`command` 允许填「重跑 XXX 回测脚本 + 预期口径」，不强制当场真跑几小时回测；或降级为「给口径依据」（`command: "口径依据:..."`）。
+- **禁止**：只说「逻辑有问题」不带任何 `command` / 现象——那不算 finding。
 
 ## 写入与清理规范（2026-08-24 补，来源：外部 reviewer codex 回馈）
 

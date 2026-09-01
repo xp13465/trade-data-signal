@@ -56,6 +56,23 @@ Codex 主会话：整合结果 → 交叉比对 → 输出最终报告
 - 输出顺序：Findings → Open Questions → Checks → Verdict → Summary。发现优先，不用总结掩盖问题。
 - 单条格式：`[P1] 标题 — path/to/file.py:123`，随后写 Impact、Why、Fix、Evidence/Suggested verification。
 
+### per-finding 强制字段：trace + verifier（2026-09-01 采纳 Karpathy Skills 放宽版）
+> 采纳来源：`docs/codex-reviews/karpathy-skills-evaluation-20260901.md`（用户 2026-09-01 拍板采纳放宽版）。与 `docs/codex-collab-protocol.md` Report Schema 段、`.claude/skills/role-reviewer/SKILL.md` 同标准（§22 多处一致）。本文件为 `.agents/codex-reviewer/SKILL.md` 的部署副本，改动需同步（§23.3/§23.2 排查同类）。
+
+**每条 finding 必须带以下两个对象字段，缺一个即不算合格 finding（退回补全）。**
+
+#### 规则1 `trace`：可追溯（谁能回答「这一行追溯到哪」）
+- `diff_range`（必填）：定位到哪个 commit/行/文件，让实施方能直接跳到。
+- `linkage`（必填）：与本次需求如何关联，取值 `满足` / `不满足` / `uncertain`。
+- `user_request`：引用 user 原话；允许 `N/A` + `"origin": "reviewer_own"`，用于「reviewer 独立主动挖出的项目深层问题」（本无对应 user 原话，如「queries.py 连接没 finally 关」）。
+- **放宽点**：只对「声称与本次需求相关」的 finding 强制追溯 `user_request`；`reviewer_own` 放行但**必须显式标注**，不许用 `in-diff|pre-existing` 把这类好 finding 压没（补充既有 L40 `origin=in-diff|pre-existing|uncertain` 为四值：`in-diff | pre-existing | uncertain | reviewer_own`）。
+
+#### 规则2 `verifier`：可验证（只说「逻辑有问题」不算 finding）
+- `command`（必填）：可复现命令或可观察现象。
+- `expected`（必填）：通过时应该看到什么。
+- `observed`（必填）：实际看到什么。
+- **放宽点**：回测/口径判断类 finding，`command` 允许「重跑 XXX 回测脚本 + 预期口径」，不强制当场真跑几小时回测；或降级「口径依据:..."」。**禁止**只说「逻辑有问题」不带任何 command/现象。
+
 ### 多轮对抗复核
 - 第一轮：从入口追到副作用，核对输入、校验、权限、状态读改、响应、异步收尾。
 - 第二轮：做假阳性过滤，确认是否既有约定、不可达代码、被上游类型/校验阻止，或修复成本高于收益。
