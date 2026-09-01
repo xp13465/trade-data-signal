@@ -73,6 +73,19 @@ Codex 主会话：整合结果 → 交叉比对 → 输出最终报告
 - `observed`（必填）：实际看到什么。
 - **放宽点**：回测/口径判断类 finding，`command` 允许「重跑 XXX 回测脚本 + 预期口径」，不强制当场真跑几小时回测；或降级「口径依据:..."」。**禁止**只说「逻辑有问题」不带任何 command/现象。
 
+### per-finding 附加维度：代码类 finding 的删除清单 + 量化（2026-09-01 蒸馏 ponytail /ponytail-review）
+> 蒸馏来源：开源项目 DietrichGebert/ponytail 的 /ponytail-review「删除清单」逻辑，用户拍板蒸馏。与 `.claude/skills/role-reviewer/SKILL.md §10.6`、`.claude/skills/role-implementer/SKILL.md §6.5` 同标准（§22 三处一致，§23.8 skill 活资产同步）。**关联规范源**：CLAUDE.md §23.2（根因修）+ L11（不加需求外改动）。改源头时反向同步三处。
+
+**核心一句话：对每个代码类 finding，第一问「这段代码能否更少/删除」——是否满足 implementer §6.5 的 7 级阶梯某一层；能给删除指令就给，量化省多少行/token。**
+
+- **代码类 finding 加 `over_engineering_findings` 维度（借鉴 ponytail）**，每条带：
+  - `action`：`delete`（删掉）或 `simplify`（简化）
+  - `saves_lines`：量化省多少行（估）
+  - `rationale`：为什么能更少——命中 7 级阶梯哪一层（YAGNI/已有复用/stdlib/原生/已装依赖/一行）
+- **只对代码类 finding 加此维度**：回测/数据口径类 finding 不强制（§23.13 口径类已有 verifier 降级通道）
+- **与 trace/verifier 共存**：over_engineering_findings 是每个 finding 的附加字段，不替代 trace/verifier；删除/简化建议同样要可追溯（diff_range）+ 可验证（command/expected 说清删后行为不变）
+- **先理解再判不硬删**：尊重历史防御代码（§10.1 视角③ 历史意图），拿不准"这段能否省"先查 git log/blame 是否修过某 bug 的防御代码，不凭"看着多余"硬删
+
 ### 多轮对抗复核
 - 第一轮：从入口追到副作用，核对输入、校验、权限、状态读改、响应、异步收尾。
 - 第二轮：做假阳性过滤，确认是否既有约定、不可达代码、被上游类型/校验阻止，或修复成本高于收益。
