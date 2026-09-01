@@ -144,9 +144,24 @@ def _cooled_out(key):
             return False
         return time.time() < _e["until"]
 
+# 日志大小上限:超过即裁剪只留尾部(保留最近日志,防无限膨胀;2026-09-01 用户定
+# "文件别太大,问题出现时最近的错误日志就够")。LOG_MAX_BYTES=20MB,裁剪留尾 10MB。
+LOG_MAX_BYTES = 20 * 1024 * 1024
+LOG_KEEP_TAIL_BYTES = 10 * 1024 * 1024
+
 def logmsg(s):
     try:
         os.makedirs(os.path.dirname(LOG), exist_ok=True)
+        # 大小守卫:超上限则留尾截断(只读尾段写回,保留最近错误日志)
+        try:
+            if os.path.exists(LOG) and os.path.getsize(LOG) > LOG_MAX_BYTES:
+                with open(LOG, "rb") as f:
+                    f.seek(-LOG_KEEP_TAIL_BYTES, os.SEEK_END)
+                    tail = f.read()
+                with open(LOG, "wb") as f:
+                    f.write(tail)
+        except Exception:
+            pass
         with open(LOG, "a") as f:
             f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {s}\n")
     except Exception:
