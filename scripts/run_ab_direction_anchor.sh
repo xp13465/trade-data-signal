@@ -3,12 +3,22 @@
 # 目的:盘后(21:15,低价期)为当日 date 生成「关锚」参考并落盘;非交易日不调 API。
 # 口径:与 gen_daily_brief 同 provider/model/config;只写 data/ab_direction_anchor.json。
 # 输入依赖:REPO(trade-data 部署源树)/ DEEPSEEK_API_KEY(.env)/ static-site data 快照
-# 输出:data/ab_direction_anchor.json(本地)+ docs/ai-predict/out/ab_direction_anchor_7d.json(--reconcile 产物)
+# 输出:data/ab_direction_anchor.json(本地,落部署源树)+ docs/ai-predict/out/ab_direction_anchor_7d.json(--reconcile 产物)
 # 复现:bash scripts/run_ab_direction_anchor.sh
 set -uo pipefail
 
 TRADE_DIR="${TRADE_DIR:-/Users/linhuichen/code/trade}"
 PY="${PY:-$TRADE_DIR/.venv/bin/python}"
+
+# 部署源树 repo 解析:与 ab_direction_anchor.py 内 pick_repo() 同源(同一 python 模块)。
+# 7 日上限检查/读写都必须落在实际落盘路径(trade-data/data/ab_direction_anchor.json),
+# 不能读 $TRADE_DIR(data=git 仓),否则永远查不到 launchd 落盘文件使上限永不触发(bug 根因)。
+REPO="$("$PY" -c "
+import sys
+sys.path.insert(0, '$TRADE_DIR/scripts')
+from pick_repo import pick_repo
+print(pick_repo())
+" 2>/dev/null || echo "$TRADE_DIR")"
 
 # 交易日判断(与 run_daily_brief.sh 同法):非交易日不触发不调 API
 TRADING="$($PY -c "
@@ -25,11 +35,11 @@ if [ "$TRADING" != "1" ]; then
 fi
 
 # 7 日上限:已满 7 日不新调 API(留痕提示跑 --reconcile --force)
-if [ -f "$TRADE_DIR/data/ab_direction_anchor.json" ]; then
+if [ -f "$REPO/data/ab_direction_anchor.json" ]; then
   N="$("$PY" -c "
 import json
 try:
-    d=json.load(open('$TRADE_DIR/data/ab_direction_anchor.json'))
+    d=json.load(open('$REPO/data/ab_direction_anchor.json'))
     print(len(d))
 except Exception:
     print(0)
