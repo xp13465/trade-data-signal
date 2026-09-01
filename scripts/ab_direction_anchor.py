@@ -26,11 +26,12 @@ ab_direction_anchor.py - 方向锚「开锚 vs 关锚」严格 7 日线上 A/B h
   下一真实交易日 sh 涨跌幅 >0.5%→up, < -0.5%→down, 否则 flat。
 - 严格对照:两通道均用「区间推导 direction」对次日判命中(pred == actual_direction)。
 
-只读零侵入
-----------
-本脚本只写 data/ab_direction_anchor.json(本地 A/B 记录)+ docs/ai-predict/out/
-ab_direction_anchor_7d.json(对账聚算报告产物,§23.5)。【严禁】触碰:
-生产 daily_brief.json/daily_brief_history.json/主链/通知/R2/static-site/data。
+只写本地·零触主链
+------------------
+本脚本每天 21:15 额外调 1 次关锚参考 API(有真实 API 调用成本,非零成本,
+约 $0.001-0.01/次低价期);只写 data/ab_direction_anchor.json(本地 A/B 记录)
++ docs/ai-predict/out/ab_direction_anchor_7d.json(对账聚算报告产物,§23.5)。
+【严禁】触碰:生产 daily_brief.json/daily_brief_history.json/主链/通知/R2/static-site/data。
 绝不调 gen_daily_brief.main(),只 import 复用 build_prompt/call_deepseek/parse_ai_output/
 HIT_THRESHOLD/_actual_direction。
 
@@ -242,7 +243,8 @@ def _eval_records(records: list[dict]) -> dict:
         "diff_direction": len(diff),
         "rows": rows,
         "note": "开锚=生产(方向锚注入);关锚=参考(不注入)。两通道唯一变量=方向锚注入文本。"
-                "7日样本稀疏,命中率仅累积参考,不构成显著统计意义(§5.1 诚实标注)。",
+                "7日样本仅累积参考(7 样本二项分布下 Δ≈±3.8pp≈1 sigmas 属正常噪声),"
+                "不构成严格统计显著性;|Δ|<10pp 不做去留决策,只 |Δ|≥10pp 才给倾向判断(§5.1 诚实标注)。",
         "reached_7d": len(evaled) >= AB_7D_LIMIT,
     }
 

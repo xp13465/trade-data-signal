@@ -25,9 +25,13 @@
 - **对账 actual_direction**:`_actual_direction`(与 `gen_daily_brief.HIT_THRESHOLD=0.5` 同口径):下一真实交易日 sh 涨跌幅 >0.5%→up, < -0.5%→down, 否则 flat。
 - **命中判定**:两通道均用「区间推导 direction」对次日判命中(`pred == actual_direction`),严格对照,不放松。
 
-### 只读零侵入红线
+### 只写本地·零触主链红线
 
-本 harness 只写 `data/ab_direction_anchor.json`(本地 A/B 记录)+ `docs/ai-predict/out/ab_direction_anchor_7d.json`(对账聚算报告产物)。**严禁触碰**:生产 `daily_brief.json` / `daily_brief_history.json` / 主链 / 通知 / R2 / static-site/data。绝不调 `gen_daily_brief.main()`,只 import 复用 `build_prompt`/`call_deepseek`/`parse_ai_output`/`HIT_THRESHOLD`/`_actual_direction`。
+本 harness 每天盘后 21:15 额外调 1 次关锚参考 API(**有真实 API 调用成本,非零成本**,约 $0.001-0.01/次低价期);只写 `data/ab_direction_anchor.json`(本地 A/B 记录)+ `docs/ai-predict/out/ab_direction_anchor_7d.json`(对账聚算报告产物)。**严禁触碰**:生产 `daily_brief.json` / `daily_brief_history.json` / 主链 / 通知 / R2 / static-site/data。绝不调 `gen_daily_brief.main()`,只 import 复用 `build_prompt`/`call_deepseek`/`parse_ai_output`/`HIT_THRESHOLD`/`_actual_direction`。
+
+### 统计免责声明(7 日样本的科学边界)
+
+本 harness 的 7 日样本**仅作累积参考**,不构成严格统计学显著性:7 个成功样本在二项分布下,即使真实命中率无差异,Δ(开锚-关锚)±3.8pp≈1 sigmas 内摆动都属正常噪声。**去留决策阈值**:只有 Δ 绝对值 ≥10pp(≈2.6 sigmas)才对其做去留倾向判断;|Δ|<10pp 一律"证据不足,继续累积/维持现状",不因小样本微差拍板改动生产配置。
 
 ## 三、7 日自动停机制
 
