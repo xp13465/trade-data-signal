@@ -10341,6 +10341,13 @@ async function openKpiDetailModal(kpiId, period = "3m") {
 
 
 async function renderTab() {
+  // tv-embed-section(TradingView 全球行情)仅市场全景(overview)tab 显示(2026-09-02, task#38):
+  // 该区为 index.html 静态 DOM(位于 main#content 之外,renderTab 清空 content 不销毁它,
+  // 收起态零外部请求/展开才注 TV script 的懒加载语义完整保留),此处按 state.tab 同步显隐——
+  // 统一覆盖 PC 顶部导航 + H5 底部导航 + #overview 直链 + lab 懒加载 全部切换路径;
+  // index.html 侧默认 display:none,防刷新 #market 等非 overview 直链时第一帧闪烁。
+  const _tvEmbedSection = document.getElementById("tvEmbedSection");
+  if (_tvEmbedSection) _tvEmbedSection.style.display = state.tab === "overview" ? "" : "none";
   loadEcharts();   // P0-1: 启动 echarts 加载（不 await 阻塞，子 render 按需 await loadEcharts；loadEcharts 内部缓存 Promise 不重复加载）
   // 确保 SIM_INDICES 动态清单已加载（initSimIndices 启动时发 fetch），避免首渲按钮全灰
   if (_simIndicesPromise) { try { await _simIndicesPromise; } catch (e) { /* catch 内已处理 */ } }

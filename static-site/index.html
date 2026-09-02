@@ -189,7 +189,10 @@
       .tv-embed-cell{flex:0 0 auto;height:360px}
     }
   </style>
-  <details class="tv-embed-section" id="tvEmbedSection">
+  <!-- 2026-09-02 task#38 修复:原写死在 main 外的全局幽灵区导致所有 tab 都显示。现仅市场全景(overview)tab 显示——
+       默认 display:none(防刷新 #market 等非 overview 直链时第一帧闪烁),首次进入 overview 由 app.js renderTab 按 state.tab 置回可见;
+       本区仍在 main#content 之外,renderTab 清空 content 不销毁其 DOM,懒加载(收起态零外部请求/展开才注 TV script)语义完整保留。 -->
+  <details class="tv-embed-section" id="tvEmbedSection" style="display:none">
     <summary>🌍 全球市场行情 · TradingView<span class="tv-embed-summary-tip"></span></summary>
     <div class="tv-embed-body">
       <!-- TradingView Widget BEGIN : ticker tape (跑马灯, 独占一行; 展开时由下方脚本注入) -->
