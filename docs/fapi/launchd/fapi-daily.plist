@@ -33,7 +33,9 @@
 	<key>WorkingDirectory</key>
 	<string>/Users/linhuichen/code/trade-data</string>
 	<!-- 说明:
-	     1. 这是模板文件,不 launchctl load,不挂生产(观察期双写,§23.7 只增不改)。
+	     1. 已挂载(2026-09-02,用户拍板启动观察期),18:10 每日采集。
+	        挂载点 ~/Library/LaunchAgents/com.trade.fapi-daily.plist;
+	        改本模板后需 launchctl bootout+bootstrap 生效(不靠 kickstart 重读)。
 	     2. 时点 18:10:晚于 17:50 update_all,避免与盘后 15:35/16:00/17:50/20:35/22:00
 	        既有时点冲突(§14 生产稳定时点);启动后 5 分钟余量下载 1.1MB dump。
 	     3. .env 由 /Users/linhuichen/code/trade-data/.env 提供(key 不落代码/日志)。
