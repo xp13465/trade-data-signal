@@ -8,17 +8,20 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-09-01 13:4x(今日三条开发线收口 + 会话落档整理,§23.12 4态流转).本轮:
-- **✅ 商汤代理 400/429 修复 + 日志裁剪**(→main **4e92cb3ef**/**3dd5b21c1**)— 修 thinking.type=adaptive+嵌套budget>1024 的 400(CLAMP 到 1024,probe 32768→400/1024→200);429 单key分层冷却(level0→30min/≥1→1h/上限5×1h,quota vs tpm/rpm 区分,4key 独立配额);日志超20MB 留尾截断10MB。代理重启加载新代码(PID 83100)。⚠️ 经验:该服务是 scripts/ plist + `launchctl load` 模式,非 bootstrap 到 ~/Library/LaunchAgents(bootout+bootstrap 会误停,bootout 后须用 load 恢复)
-- **✅ AI 方向锚回测 5.1+5.2**(→main **00fad6654**/**2b26ac690**)— 5.1 全历史 642 样本:押方向 dir_win=0.5103≈随机;5.2 穷举子群全无一 |z|>=1.96 显著,阈值不翻天,无过拟合 → **方向锚自身无显著方向优势**。落档 docs/ai-predict/ai-predict-backtest-feasibility-20260831.md
-- **✅ B方案:方向锚「开锚vs关锚」7日线上A/B**(→main **fe9ae452f**,feat/ab-direction-anchor-7d-ab)— 因 5.1/5.2 锚自身无优势但 8-28 开启注入依据=3样本前测,搭双通道严格验证注入帮不帮 AI:生产照旧(带锚20:40)+关锚参考(21:15 单prompt,唯一变量=注入),7真实交易日对比命中率定去留。脚本 ab_direction_anchor.py(幂等/7日停/交易日判断/只读零侵入)+launchd com.trade.ab-direction-anchor 21:15。⚠️ merge 赶在 21:15 前让 launchd 指向的脚本路径落 main
-- **✅ Karpathy review 规则(放宽版)采纳**(→main **33c9c90ee**,feat/karpathy-review-rules)— codex 评估 andrej-karpathy-skills:不直接用不蒸馏,提 2 条 per-finding 规则(trace/verifier);主控校验 codex("无测试套件"过头/落地点应扩双 reviewer skill §23.3),用户拍板采纳放宽版(user_request 可 N/A+reviewer_own 不压没主动发现;verifier 回测/口径类可降级"口径依据"),落 5 文件(protocol+.agents codex-reviewer+role-reviewer+2 同内容副本)。评估落档 docs/codex-reviews/karpathy-skills-evaluation-20260901.md。**2周试运行(9-01~9-15)+4指标验证再定正式版**
-- **✅ 落档外部系统先查社区教训 L47**(→main **e7f789c2a**)— 用户批评闭门造车,§5.1 强化触发词+§18①加行+archive+memory
-- **🔄 B方案 A/B 7日累积进行中**:每日 21:15 自动跑,满 7 真实交易日(约2周)出两通道命中率对比表,数据定方向锚去留
-- **🔄 Karpathy review 规则 2周试运行进行中**:至 9-15,用 4 指标(有效finding率/模糊finding数/误报率/被压没主动发现)评估是否正式固化
-- **✅ ZCode 代班第二单:淘汰原因 tooltip 中性化**(feat/kelly-elim-tooltip-fix→main **9923b1be9**,feat **412886afb**,统一 bump a523→a527)— 上一单 reviewer 低危观察项①修复:tooltip「自然卖出腾位后再买」仅准 H(手段A),现中性化「当日买入被仓位判定跳过(仓位已满或强平腾位后仍超容)」覆盖 H/G/I 两种丢弃路径;三分类标签(用户拍板)未动;纯 1 行文案;review 由 ZCode 自审 PASS(diff 仅1行+新文案与 7772/8106-8107/8140 两种路径锚点一致+§24 机制C 合规);§0 三查过(线上 lab.min.js?v=20260901-a527 含新文案)
+**最后更新**:2026-09-02 08:1x(夜间连轴转 FAPI 四条线收口待验收,§23.12 + COMPACT 规约).本轮:
+- ✅ **#16 FAPI P0 日线 T+1→T+0 试点**(research/fapi-h-k1)—— fapi_daily.py + fapi_daily_raw 表,55448行/5553只,与 mootdx 逐位一致,补漏377只;途中踩生产覆盖事故(DEPLOY 反向覆盖)已根治:采集必须从 trade-data 跑;launchd 模板只写不挂,观察期双写
+- ✅ **#17 FAPI P1 涨停池+龙虎榜兜底**(research/fapi-h-k1,commit d82b28cca)—— fapi_fallback.py 四端点(FAPI 异源兜底),东财主源优先+真0保护(cross_check 先行);口径差诚实标注(80vs83/68vs79/-1.96亿)。报告 docs/fapi/fapi-p1-zt-lhb-20260902.md
+- ✅ **#20 验证 H交易法(8-30 用户命题)**—— 你的数字(27.26/90.46…)来自旧快照+旧 H@7万,未复现;当前 s06 H@5万 y1=-5.17%,H 优势=长线累计 105%+操作最简。报告 trade-method-final-recommendation
+- ✅ **#21 k=1 取名次对比**—— 取第1名全场最优(+194.7万 vs 2/3/4名 168/150/156万),你的高评级 K=1 亏损观察=516390 名次落点巧合,维持现状。回测脚本 k1_rank_offset_backtest.py
+- 🔄 **#18 FAPI P1 THS概念换官方**—— 并行对照机制已建(ths_concept_parallel.py):27/27 名称精确匹配 FAPI 885xxx.TI,9个月184交易日 close 对齐率 100%。**1 周观察期起点已落**(9-02~9-08,每交易日盘后跑 `--end 当日` 增量对照),9-08 评估切换(§21 公示后切,需用户确认展示范围扩不扩 390)
+- 🔄 **#19 FAPI P2 盘中延迟实测**—— latency_probe.py 已完成+后台全天采样运行中(bh10e97io,09:30 自动开,午休等,15:00 退);09:37一次性 cron 兜底提醒(d47db8b8);收盘后 --stats → p50/p90/p99 + 落报告
+- 📋 **待用户拍板 3 件**(唤醒后):①北交所339是否纳入宽度宇宙 ②页面 H 交易法 tooltip 是否加(报告§5方案)③research/fapi-h-k1 分支验收 → 走 main-merge.sh 回 main(当前定时 deploy 因分支检查被拦)
+**历史交接**:09-01 13:4x(三条开发线收口)+ 09-01 00:4x ZCode 代班轮 + 更早(折叠,见 docs/tasks-done-list.md 与 docs/archive/)。上一轮本块内容(今日三条线/B方案/Karpathy/…所有已上main的线)见 docs/tasks-done-list.md「2026-09-01/09-02 会话追加」段。
+- **🔄(跨轮在跑) B方案:方向锚开锚vs关锚 7日线上A/B**:每日 21:15 自动跑(launchd com.trade.ab-direction-anchor),满 7 真实交易日出两通道命中率对比定去留
+- **🔄(跨轮在跑) Karpathy review 规则 2周试运行**:至 9-15,4 指标评估是否正式固化
 - **遗留(非本轮)**:zcode 等用户派活
-**历史交接(≥2 轮前,已折叠)**:09-01 00:4x ZCode 代班轮(淘汰原因列 a522/sim-pin/zcode 角色/codex ref 链审计/v1.1.12 tag) + 08-31 compact 收尾链 + 08-30/08-29/08-28/08-27/08-26/08-22 及更早全部折叠,细节见 docs/tasks-done-list.md「2026-09-01 会话追加 1/2/3」与 docs/archive/TASKS-done.md / TASKS-history-archive-20260820.md。已上main的完成陈述不再在顶部重复陈列。
+**历史交接(09-01 13:4x 轮,已折叠)**:商汤代理400/429修复+日志裁剪(4e92cb3ef/3dd5b21c1)、方向锚回测5.1+5.2(00fad6654/2b26ac690)、B方案7日AB立项(fe9ae452f)、Karpathy放宽版采纳(33c9c90ee)、L47落档(e7f789c2a)、ZCode淘汰tooltip中性化(9923b1be9/412886afb) 已全上 main,明细见 docs/tasks-done-list.md「2026-09-01 会话追加」段
+**历史交接(≥2 轮前,已折叠)**:09-01 00:4x ZCode 代班轮 + 08-31 compact 收尾链 + 08-30/08-29/08-28/08-27/08-26/08-22 及更早全部折叠,细节见 docs/tasks-done-list.md「2026-09-01 会话追加 1/2/3」与 docs/archive/TASKS-done.md / TASKS-history-archive-20260820.md。已上main的完成陈述不再在顶部重复陈列。
 > **历史未决项清理(2026-08-28 主控核查,全已过时/已修复)**:①板块spark懒渲染=P2-11性能优化,非功能bug → 关闭②main-merge.sh销账提醒=Nice-to-have,从未阻塞 → 关闭③#88订阅推送=已完结销号 → 关闭④v1.1.7审计P1项=全已修复上main → 关闭⑤汪汪队stats等=大部分自愈,仅余宽度指标缺口(37天滞后)为独立数据问题 → 关闭,宽度缺口见data/alerts/latest.md 06-27条⑥首页AI建议N首次=真实残留小茬,但仅影响首次访问展示,不伤核心 → 暂时关闭,下轮顺手修。overfit.json 404=正常状态(下线,前端读overfit_monitor.json),不修。~~🔥 信号凯利回测 lab tab 首屏加载 P1~~(2026-09-01 销账:分片+骨架屏+localStorage 缓存三件套已上线,`543f43bf6` 等已并 main,见 done-list「2026-09-01 遗留对账销账」段)
 
 ## 📋 待办（2026-08-20 治理后:全移 todolist,本文件无活跃 checkbox）

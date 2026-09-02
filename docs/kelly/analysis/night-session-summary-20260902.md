@@ -9,9 +9,9 @@
 | **#20 验证"H 交易法最优"结论** | ✅ 完成。**你的 H 数字(27.26/90.46/111.96/176.20)未复现** = 旧快照(9-1 21:57 数据重生成前)+ 旧 H@7万 档的混合;当前 v1.1.7 s06 H@5万 = y1 **-5.17%**(负!)/y3 55.59/y5 45.18/y10 104.75;短线上 A 最强(y1 30.32%),H 强在长线累计+满仓不买最简 | `docs/kelly/analysis/trade-method-final-recommendation-20260901.md` |
 | **#21 k=1 取名次对比(4种顺位模式)** | ✅ 完成。**取第1名全局最优**:M1 +194.7万 vs M2 +167.8万/ M3 +149.9万/ M4 +156.2万;信号数≥2 一律第1名胜;高评级 M2 的 +6.76万 = 516390 单 ETF 两周行情巧合,非规律 | `docs/kelly/analysis/k1-rank-offset-test-20260901.md` |
 | **FAPI P0 日线 T+0 试点** | ✅ 完成(含生产落点事故修复)。脚本+建表都 OK,55448行/5553只/主键零重复/最新20260901,与 mootdx 逐位一致,补漏 377 只(含北交所339)。**中途踩到生产覆盖事故**(表被 deploy rsync 冲掉),已根治 | `docs/fapi/fapi-p0-implementation-20260902.md` |
-| **FAPI P1 涨停池+龙虎榜兜底** | ⏳ 实施中(涨停池兜底+龙虎榜并行 diff) | `docs/fapi/fapi-integration-plan-20260901.md` §3 |
-| **FAPI P1 THS 行业/概念换官方** | 📋 方案已就绪,待实施(需先并行对照一周) | 同上 §4 |
-| **FAPI P2 盘中延迟实测** | ⏰ 已排 09-02 开盘(一次性 cron 09:37 提醒) | 同上 §6 |
+| **FAPI P1 涨停池+龙虎榜兜底** | ✅ **完成**。东财主源空/挂时 → FAPI 异源兜底(limit-up/down/break-pool + dragon-tiger-list),复用现有 transform 链,只增不改;自测 涨停80vs83/龙虎68vs79/机构净买-1.96亿,真0保护(cross_check 先行) | `docs/fapi/fapi-p1-zt-lhb-20260902.md` |
+| **FAPI P1 THS 行业/概念换官方** | 📋 方案就绪,今日**搭并行对照机制**(FAPI ths-index-list catalog vs 现有 27 概念历史数值逐位对齐,1 周观察后评估切源) | 同上 §4 |
+| **FAPI P2 盘中延迟实测** | ⏰ 已排 09-02 开盘(一次性 cron 09:37 提醒),结果落档 | 同上 §6 |
 | **TSP+同花顺 Financial-API 开源评估** | ✅ 完成(独立深挖+纠偏 codex) | `docs/codex-reviews/tsp-fapi-open-source-evaluation-20260901.md` |
 
 ---
