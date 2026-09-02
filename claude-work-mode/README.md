@@ -220,6 +220,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-08-29 | 0.7141 | 111,148,356 | ? | 无 |
 | 2026-08-30 | 0.6907 | 90,177,889 | ? | 无 |
 | 2026-08-31 | 0.7600 | 33,947,986 | ? | 92e364b0f docs(规范瘦身): CLAUDE.md §23.2/§23.3/§23.4 保守版指针化(audit2 二审用户拍板); 57509a448 docs: 精简根CLAUDE.md至39.4k字符(§5.3核心保障铁律) |
+| 2026-09-02 | 0.9100 | 9,651,794 | ? | 3eca07e8e fix(codex-ref): agent_inbox_watcher 断点修复重构 + codex-reviewer skill 资产(runbook/rubric/playbook)落档 + CLAUDE.md §5.4⑦/§23.15 + researcher §3.2 复现对账铁律 |
 <!-- token-cache-trend-end -->
 
 **ASCII 迷你柱状图**（每格 = 0.01 命中率，刻度 0.70~1.00，一眼看升降；由脚本 `--append-daily` 随走势表同步更新，保证与实际命中率一致）：
@@ -248,6 +249,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 08-29  █(1)  111,148,356   0.7141
 08-30  (0)  90,177,889    0.6907
 08-31  ██████(6)  33,947,986    0.7600
+09-02  █████████████████████(21)  9,651,794     0.9100
 ```
 <!-- token-cache-ascii-end -->
 
@@ -275,4 +277,5 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-08-29 | ? | — |
 | 2026-08-30 | ? | — |
 | 2026-08-31 | ? | 92e364b0f docs(规范瘦身): CLAUDE.md §23.2/§23.3/§23.4 保守版指针化(audit2 二审用户拍板); 57509a448 docs: 精简根CLAUDE.md至39.4k字符(§5.3核心保障铁律) |
+| 2026-09-02 | ? | 3eca07e8e fix(codex-ref): agent_inbox_watcher 断点修复重构 + codex-reviewer skill 资产(runbook/rubric/playbook)落档 + CLAUDE.md §5.4⑦/§23.15 + researcher §3.2 复现对账铁律 |
 <!-- token-cache-changelog-end -->
