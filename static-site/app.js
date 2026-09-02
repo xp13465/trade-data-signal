@@ -2945,7 +2945,7 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
 }
 // 参考说明按钮独立 hoverpop HTML(2026-08-14): 不复用 K 评级表 _aiPoscapRatingPopHtml(仓位评级表语义不符),
 // 自含一套「推荐方法&参考说明」要点(短线 A/F + 中长线 G + 当日实操 + 次日玩法 + 引导), 内容口径与 _openRefHelpModal 弹窗完全一致(§22),
-// 与凯利回测页 lab.js _sigKellyAfgRealtimeHtml / purpose-notes lab.sigkelly 同口径(§21): A=固定10天短线 / F=持有15天短线 / G=卖出信号中长线(指数卖出信号触发离场、无信号持有, 总建议主选)
+// 与凯利回测页 lab.js _sigKellyAfgRealtimeHtml / purpose-notes lab.sigkelly 同口径(§21): A=固定10天短线 / F=持有15天短线 / G=卖出信号中长线(指数卖出信号触发离场、无信号持有, 可选档); 长线主推 H(满仓不买@5万, 2026-09-02 总建议口径 G→H)
 // 次日玩法=分批挂单(2026-08-15 加, docs/kelly/position/kelly-nextday-batch-limit-sop.md §3.4): 次日开盘-1%限价分批挂单+未触达尾盘按现价补满(§22 与弹窗同口径)
 function _sigHelpPopHtml() {
   return '<div class="sig-kbtn-help-pop">' +
@@ -5240,7 +5240,7 @@ function _simBtCalcRowRealForce(t, fIdx, fp) {
 // + 引导跳转「信号凯利回测」(lab #lab?sub=sigkelly) 校验各模式回测数据。
 // 文案口径与凯利回测页 lab.js _sigKellyAfgRealtimeHtml / purpose-notes.js lab.sigkelly 一致(§21/§22):
 //   A=固定10天短线(买入后固定持有10天卖出, 快进快出) / F=持有15天短线(固定持有15天卖出)
-//   G=卖出信号中长线(指数卖出信号触发离场, 无信号持有至回测结束, 最贴近交易页信号驱动跟单, 总建议主选)
+//   G=卖出信号中长线(指数卖出信号触发离场, 无信号持有至回测结束, 可选档); 长线主推 H(满仓不买@5万, 2026-09-02 总建议口径 G→H)
 //   次日玩法=分批挂单(2026-08-15 加, 数据结论 docs/kelly/position/kelly-nextday-batch-limit-sop.md §3.4):
 //   次日开盘-1%限价分批挂单+未触达尾盘按现价补满, 比次日开盘直接买多赚 ~6 万, 均价-0.37%, 87.9%交易日日内最低点低于开盘(§22 与 hoverpop _sigHelpPopHtml 同口径)
 // 复用 .rule-modal 弹窗样式(与「📊 技术信号&ETF信号灯参考」modal 同款, 项目既有弹窗机制, 不新造)。

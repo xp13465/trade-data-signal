@@ -227,13 +227,7 @@ header h1 { font-size: 18px; margin: 0; }
    并给暗色/红金皮肤提亮紫, 保证与白字对比充足。 */
 .lab-sigkelly-gih-badge { display: block; margin-top: 2px; margin-left: 0; padding: 0 6px; border-radius: 3px; font-size: 11px; line-height: 1.7; color: #fff; font-weight: 600; background: #722ed1; box-shadow: 0 0 0 1px rgba(255,255,255,0.28) inset; white-space: nowrap; }
 [data-theme="dark"] .lab-sigkelly-gih-badge, [data-theme="redgold"] .lab-sigkelly-gih-badge { background: #8b3ff0; }
-/* #xx G 档位自选分段控件(13/15/20万): 开关行内嵌, 仅影响 G 模式; 切换实时重算联动对比表/卡片/水印/三玩法(§22) */
-.lab-sigkelly-gih-tier-wrap { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; vertical-align: middle; }
-.lab-sigkelly-gih-tier-lab { font-size: 11px; color: inherit; opacity: 0.75; margin-right: 2px; }
-.lab-sigkelly-gih-tier-btn { padding: 1px 7px; font-size: 11px; line-height: 1.6; border: 1px solid #888; border-radius: 3px; background: transparent; color: inherit; cursor: pointer; transition: background 0.15s, border-color 0.15s; white-space: nowrap; }
-.lab-sigkelly-gih-tier-btn:hover { border-color: #722ed1; color: #722ed1; }
-.lab-sigkelly-gih-tier-btn.lab-sigkelly-gih-tier-active { background: #722ed1; border-color: #722ed1; color: #fff; font-weight: 600; }
-[data-theme="dark"] .lab-sigkelly-gih-tier-btn.lab-sigkelly-gih-tier-active, [data-theme="redgold"] .lab-sigkelly-gih-tier-btn.lab-sigkelly-gih-tier-active { background: #8b3ff0; border-color: #8b3ff0; }
+/* #xx G 档位自选分段控件(13/15/20万): 2026-08-30 定案单档10万后切换按钮已删; 2026-09-02 G→H 主推整改: 档位展示框已删, 本段死 CSS 一并清理 */
 /* #49 ai长线仓位管理口径说明: 弹窗/三玩法表 未套硬控原始口径的诚实标注(紫底白字, 与badge同色系) */
 .lab-sigkelly-gih-modal-note { margin: 6px 0; padding: 6px 8px; border: 1px solid #722ed1; border-radius: 4px; background: #f9f0ff; color: #5b21b6; font-size: 11px; line-height: 1.6; }
 .tabs > button {   /* 仅直接子（tab 按钮），不影响 .periods 内的周期按钮 */
