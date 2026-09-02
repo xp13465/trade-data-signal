@@ -3,7 +3,7 @@
 
 【目的】为前端可选实验档 s06(大盘领先切换)生成唯一事实源快照 static-site/data/kelly_mode_s06_state.json。
 S06 不是固定键组合: 按「中证1000 20日涨幅 - 沪深300 20日涨幅」与冻结阈值比较, 在 a9(A进攻王) 与
-new15(NEW14+1·15键) 两个基座间动态切换。前端只读本快照按日期取 effective_mode, 禁止前端自算因子/阈值
+new14(NEW14·14键) 两个基座间动态切换。前端只读本快照按日期取 effective_mode, 禁止前端自算因子/阈值
 (§23.6 同精神: 前端不自算宇宙; 本文件=阈值与状态机唯一事实源, 前端文案出现数值仅为 §21 公示)。
 
 【方法口径】(与 codex 深度验证 /tmp/codex-auto/external_factor_v6.py sticky_array + external_factor_v6b.py
@@ -18,8 +18,9 @@ size_spread + s06_grid_selection_freeze.py 冻结值逐位对齐, 报告=docs/ke
     held 永久 < MIN_HOLD_DAYS → a9 锁死违反公示的 15 日确认退出语义, 已修复; 机检
     check_s06_state.py 独立第二实现同语义重写 + A5 锁死不变式断言防回归
   - 键集映射: effective_mode='a9' ↔ common.js _KELLY_FADE_MODE_PRESETS id=a9(A 进攻王);
-              effective_mode='new15' ↔ id=new15(NEW14+1·15键)。回测对照锚点(codex008 F2 新语义
-              引擎重跑 2026-08-26, 同引擎 s06_newsem_vs_14plus1.py): 验段净利 +100,572.43 /
+              effective_mode='new14' ↔ id=new14(NEW14·14键)。回测对照锚点(codex008 F2 新语义
+              引擎重跑 2026-08-26, 同引擎 s06_newsem_vs_14plus1.py; ⚠off_base=new15 时代历史值,
+              换 new14 后验证段数字漂移待回测更新): 验段净利 +100,572.43 /
               mdd -3,811.27 / 强平 +82,761.50 vs 静态 NEW14+1 +83,718.16。
               ⚠锚点漂移特性: S06 动态回测数字随输入指数序列每日更新而漂移(2026-08-25 首跑
               94,150.61 → 08-26 同引擎旧语义复跑 94,436.30), 公示取本注释同日重跑值;
@@ -58,7 +59,7 @@ THRESHOLD = -3.524224785046781   # 2016-2020 选段 q30 冻结值(codex s06_grid
 CONFIRM_DAYS = 15                # A 前提连续破坏确认期(交易日)
 MIN_HOLD_DAYS = 10               # A 最短持有交易日
 ON_BASE = "a9"                   # premise 成立期间基座 = A 进攻王
-OFF_BASE = "new15"               # 兜底基座 = NEW14+1·15键
+OFF_BASE = "new14"               # 兜底基座 = NEW14·14键(2026-09-01 用户拍板从 new15 换 new14, 08-29 验证 Δ+4,630)
 LOOKBACK = 20                    # ret20 回看窗口(交易日)
 
 MODE_ID = "s06"
@@ -115,7 +116,7 @@ def build_daily(dates: list[str], spread: dict[str, float]) -> list[dict]:
             "date": d,
             "size_spread": sv,                 # d 日收盘值(%); 回看窗内无值=null
             "premise": (None if sv is None else bool(p_today)),   # d 日收盘信号(供 T+1 用)
-            "effective_mode": ex,              # d 日实际生效基座("a9"/"new15")
+            "effective_mode": ex,              # d 日实际生效基座("a9"/"new14")
             "decision_date": dec_date,         # 产生该生效模式的决策日(=上一交易日)
         })
         cur = ex

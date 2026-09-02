@@ -1997,15 +1997,15 @@ function _ovAggregateRecent(recent, modeId, bullStopOn, fadeOn, k) {
     if (!recent || !Array.isArray(recent.rows) || !recent.rows.length) return null;
     const preset = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(modeId) : null;
     if (!preset) return null;
-    // S06(codex-task-20260825-001): dynamic 预设无静态 keys —— 组集必须按行日期读快照生效基座(a9/new15)
+    // S06(codex-task-20260825-001): dynamic 预设无静态 keys —— 组集必须按行日期读快照生效基座(a9/new14)
     // 取对应成员集(禁止展开成静态键组合 handoff §四); 行日期超快照覆盖期/快照未就绪 → fail-open 该行不拦,
     // 计入 _s6.open 由调用方给「可见降级提示」, 绝不静默退回其他模式(handoff §五 功能5)。
     const isS06 = !!preset.dynamic;
     const memberSet = {};
-    const s6Sets = isS06 ? { a9: {}, new15: {} } : null;
+    const s6Sets = isS06 ? { a9: {}, new14: {} } : null;
     if (isS06) {
       if (typeof _tdsS06BaseForDate !== "function") return null;   // 单源解析层缺失(common.js 太旧)=不组集走回退链
-      for (const bid of ["a9", "new15"]) {
+      for (const bid of ["a9", "new14"]) {
         const bp = _tdsFadeModeById(bid);
         if (bp && Array.isArray(bp.keys)) for (let i = 0; i < bp.keys.length; i++) s6Sets[bid][bp.keys[i]] = true;
       }
@@ -2198,7 +2198,7 @@ async function _appendOverfitCard(colA2, r, snap) {
       '<span class="overfit-fade-label" data-tip="降亏模式(T3-2 2026-08-23, 与凯利区/模拟回测弹窗同款预设): v1.1.7 起默认=s06·大盘领先切换(动态) / v1.1.5~v1.1.6 默认=new14·NEW 14键 / p8=8键旧默认·对照(走老 filtered bank) / ⭐9键=8键+候选1 / ⭐⭐A进攻王 / ⭐B均衡卡 / C防守=叠9键口径 / ⭐⭐NEW14+1·15键 / ⭐S06+1·仅K1剔高评级(观察, 2026-08-29)。⭐=推荐星标(v20260826 用户拍板), 下拉星多靠前、无星殿后沿用原相对序; NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。切换后监控两图按所选模式的降亏成员键组集重算(recent明细逐信号键命中标注, 后端打标)。仅 AI降亏过滤开关开启时生效; 老数据无明细时自动回退p8对照bank。">降亏模式</span>' +
       (typeof _tdsFadeModeSelectHTML === "function"
         ? _tdsFadeModeSelectHTML("overfit-fade-mode-sel", _readOverfitFadeMode(), false, "sim-mode-sel ov-mode-sel",
-            "AI降亏模式(预设一键套用): 切换后准确率/风险分两图按所选模式重算。v1.1.7(2026-08-26)起默认=s06·大盘领先切换(与全站一致); v1.1.5~v1.1.6 默认=new14·NEW 14键; p8=8键旧默认·对照(走老filtered bank); ⭐9键/A进攻王⭐⭐/B均衡卡⭐/C防守=叠9键口径(含牛市×辅备买全停); ⭐⭐NEW14+1·15键; ⭐S06+1·仅K1剔高评级(观察, 2026-08-29, 在 S06 基座上仅当 K=1 时从候选池剔除高评级信号, K=2/3/4 与 S06 完全一致Δ=0, 非默认)。⭐=推荐星标(v20260826 用户拍板), 下拉星多靠前、无星殿后沿用原相对序; NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。⚠非p8口径为 v1.1.2 四档判定源(recent明细), 与老filtered bank的MA60口径存在 excludeSpecialBear 微差; price_bin/ETF相关性组件信号级不可判已降级跳过(v4f 恒不命中); 北向流出×概念类(n2NorthOutConcept)已接入打标(2026-08-23 修复后端漏列), 评级维度回测曲线同步恢复出数(FIELD 列修复)。⚠模式记忆仅保留 18 小时(TDS_FADE_TTL 单源, 滑动过期=每次切换刷新计时, 超时回默认 s06 并清记忆); 存了已下线 new18 的旧记忆会自动校验失败回默认不报错。旧独立+1开关已删(2026-08-24), 牛市×辅备买全停由 9键/A/B/C 模式一并启用。S06=大盘领先动态切换默认档⭐️⭐️⭐️(v1.1.7 起): 非固定键组合, 组集按每行信号日期读快照生效基座(a9/new15); 快照缺失/日期超覆盖期该行不拦并警示, 不静默回退。")
+            "AI降亏模式(预设一键套用): 切换后准确率/风险分两图按所选模式重算。v1.1.7(2026-08-26)起默认=s06·大盘领先切换(与全站一致); v1.1.5~v1.1.6 默认=new14·NEW 14键; p8=8键旧默认·对照(走老filtered bank); ⭐9键/A进攻王⭐⭐/B均衡卡⭐/C防守=叠9键口径(含牛市×辅备买全停); ⭐⭐NEW14+1·15键; ⭐S06+1·仅K1剔高评级(观察, 2026-08-29, 在 S06 基座上仅当 K=1 时从候选池剔除高评级信号, K=2/3/4 与 S06 完全一致Δ=0, 非默认)。⭐=推荐星标(v20260826 用户拍板), 下拉星多靠前、无星殿后沿用原相对序; NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。⚠非p8口径为 v1.1.2 四档判定源(recent明细), 与老filtered bank的MA60口径存在 excludeSpecialBear 微差; price_bin/ETF相关性组件信号级不可判已降级跳过(v4f 恒不命中); 北向流出×概念类(n2NorthOutConcept)已接入打标(2026-08-23 修复后端漏列), 评级维度回测曲线同步恢复出数(FIELD 列修复)。⚠模式记忆仅保留 18 小时(TDS_FADE_TTL 单源, 滑动过期=每次切换刷新计时, 超时回默认 s06 并清记忆); 存了已下线 new18 的旧记忆会自动校验失败回默认不报错。旧独立+1开关已删(2026-08-24), 牛市×辅备买全停由 9键/A/B/C 模式一并启用。S06=大盘领先动态切换默认档⭐️⭐️⭐️(v1.1.7 起): 非固定键组合, 组集按每行信号日期读快照生效基座(a9/new14); 快照缺失/日期超覆盖期该行不拦并警示, 不静默回退。")
         : "") +
       '<span class="overfit-fade-state2" style="color:var(--text-3);font-size:11px;margin-left:6px"></span>' +
       '</div>' +
@@ -2786,7 +2786,7 @@ function _homeDroughtModeKeys() {
   return [];
 }
 // 枯竭 chip 口径尾注(§21 诚实公示): 默认 null=用 common.js 内置「NEW14 默认过滤」静态口径; 选 S06 时判定
-// 按日期在 A 进攻王/NEW14+1 两基座间切换, 与内置文案口径不符 → 返回覆盖文案(caliberNote, §22 同源不写第二份数字)。
+// 按日期在 A 进攻王/NEW14 两基座间切换, 与内置文案口径不符 → 返回覆盖文案(caliberNote, §22 同源不写第二份数字)。
 function _homeDroughtCaliberNote() {
   try {
     const mp = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(_readHomeFadeMode()) : null;
@@ -2795,7 +2795,7 @@ function _homeDroughtCaliberNote() {
       // 字符串兜底仅防 common 未更新(实际 common 先于 app 载入不走), s06 态输出逐字不变
       return (typeof window._tdsS06CaliberNote === "function")
         ? window._tdsS06CaliberNote()
-        : "(口径: S06 动态基座·按日切 A进攻王/NEW14+1 过滤下实时统计; 72% 为 NEW14 全史统计仅作参考)";
+        : "(口径: S06 动态基座·按日切 A进攻王/NEW14 过滤下实时统计; 72% 为 NEW14 全史统计仅作参考)";
     }
   } catch (e) {}
   return null;
@@ -3144,7 +3144,7 @@ function _bindSigSwitchRow(sigCard) {
       const mp = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(mv) : null;
       // S06(codex-task-20260825-001): dynamic 预设无 keys —— toast 走动态档专属文案, 不读 keys(防 TypeError)
       if (mp && mp.dynamic) {
-        _showSigToast("AI降亏·模式已切换: " + mp.name + "(按信号日期动态切换 a9/new15 基座, T+1 生效; 实验可选档非默认); 切回「NEW 14键」即恢复默认视图");
+        _showSigToast("AI降亏·模式已切换: " + mp.name + "(按信号日期动态切换 a9/new14 基座, T+1 生效; 实验可选档非默认); 切回「NEW 14键」即恢复默认视图");
         return;
       }
       const nKeys = (mp && Array.isArray(mp.keys)) ? mp.keys.length : 0;
@@ -3850,7 +3850,7 @@ function _bindSimBacktestControls(modal, _close) {
       value: _savedMid,      // 上次所选(TTL 内); 无记忆=v1.1.5 默认 new14
       withCustom: false,     // 弹窗无标签区, 无自定义态
       cls: "sim-fade-mode-sel",
-      title: "AI降亏过滤模式: 一键套用整套键组合(与凯利页/「AI 降亏组成对比」卡同源口径; v1.1.7 起默认=s06·大盘领先切换, v1.1.5~v1.1.6 默认=new14·NEW 14键防守王, p8=旧 8键对照档)。记住上次选择 18 小时(独立于凯利页记忆, 超时自动回默认 s06)。选 S06=按大盘风格按日动态切 A进攻王/NEW14+1 基座(默认档, 快照不可用时该笔不拦并红字提示, 绝不静默回退)。⭐S06+1·仅K1剔高评级(观察档, 2026-08-29): 在 S06 基座上仅当 K=1 时从候选池剔除高评级信号(mid/low 递补), K=2/3/4 与 S06 完全一致(Δ=0), 非默认档。四消费点统一下拉组件(lab 凯利区/本弹窗/首页/监控卡); 旁侧「过滤」checkbox=总开关快速切换层, 切它不动这里的选中值" + (typeof window._tdsS06Tooltip === "function" ? ("\n———\n" + window._tdsS06Tooltip()) : "") + (_savedMid === "s06p1" && typeof window !== "undefined" && typeof window._tdsS06P1Tooltip === "function" ? ("\n———\n" + window._tdsS06P1Tooltip()) : ""),
+      title: "AI降亏过滤模式: 一键套用整套键组合(与凯利页/「AI 降亏组成对比」卡同源口径; v1.1.7 起默认=s06·大盘领先切换, v1.1.5~v1.1.6 默认=new14·NEW 14键防守王, p8=旧 8键对照档)。记住上次选择 18 小时(独立于凯利页记忆, 超时自动回默认 s06)。选 S06=按大盘风格按日动态切 A进攻王/NEW14 基座(默认档, 快照不可用时该笔不拦并红字提示, 绝不静默回退)。⭐S06+1·仅K1剔高评级(观察档, 2026-08-29): 在 S06 基座上仅当 K=1 时从候选池剔除高评级信号(mid/low 递补), K=2/3/4 与 S06 完全一致(Δ=0), 非默认档。四消费点统一下拉组件(lab 凯利区/本弹窗/首页/监控卡); 旁侧「过滤」checkbox=总开关快速切换层, 切它不动这里的选中值" + (typeof window._tdsS06Tooltip === "function" ? ("\n———\n" + window._tdsS06Tooltip()) : "") + (_savedMid === "s06p1" && typeof window !== "undefined" && typeof window._tdsS06P1Tooltip === "function" ? ("\n———\n" + window._tdsS06P1Tooltip()) : ""),
     });
   }
   // 总开关恢复(2026-08-24 用户拍板): fadeOn 快速切换层, 与模式下拉正交——
@@ -3965,7 +3965,7 @@ async function _simRenderOnce(modal) {
       if (!d || modal.classList.contains("hidden")) return;
       const _s = modal.querySelector(".sim-fade-mode-sel");
       const _p = (_s && window._KELLY_FADE_MODE_PRESETS) ? window._KELLY_FADE_MODE_PRESETS.find((x) => x.id === _s.value) : null;
-      // S06(2026-08-25): dynamic 预设无静态 keys → 视为含新键(a9/new15 两基座均含), 补渲照跑; Array.isArray 防 TypeError
+      // S06(2026-08-25): dynamic 预设无静态 keys → 视为含新键(a9/new14 两基座均含), 补渲照跑; Array.isArray 防 TypeError
       const _hasNewKey = !!(_p && (Array.isArray(_p.keys) ? _p.keys.some((k) => _SIM_LOSS_NEW_KEYS.some((q) => q[0] === k)) : true));
       const _cbAny = _SIM_LOSS_NEW_KEYS.some((q) => { const el = modal.querySelector(".sim-fade-cb-" + q[0]); return !!(el && el.checked); });
       if (!_hasNewKey && !_cbAny) return;
@@ -4118,7 +4118,7 @@ async function _simRenderOnce(modal) {
   let kept = recs;
   if (fadeOn) {
     if (_isS06) {
-      // per-date 过滤(s06 动态基座): 每笔按 signal_date 取当日生效基座(a9/new15)的完整键集过滤,
+      // per-date 过滤(s06 动态基座): 每笔按 signal_date 取当日生效基座(a9/new14)的完整键集过滤,
       // monthMask/bullStop 均按该日基座口径同步计算(与静态路径同语义, §22 同源)
       let _openCnt = 0;   // 覆盖期外/快照缺行笔数(fail-open 计数 → 可见警示)
       kept = recs.filter((t) => {
@@ -5375,7 +5375,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // preset 不可用(老缓存 common.js)时回退遍历 _AI_MACRO_FALLBACK_KEYS(NEW14 十四键)=按当前默认基座兜底,
   // 不再回退旧八键口径(v1.1.5 基座对齐批)。
   // S06(codex-task-20260825-001): dynamic 预设无静态 keys —— 禁止走 FALLBACK 兜底(=静默变 new14 口径, 违规);
-  // 改为预建 a9/new15 双成员集, 判定时按 it.date 读快照选集(见 _isAiFadeHit), 快照不可用=fail-open 不拦+计数警示。
+  // 改为预建 a9/new14 双成员集, 判定时按 it.date 读快照选集(见 _isAiFadeHit), 快照不可用=fail-open 不拦+计数警示。
   const _homeFadePreset = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(_readHomeFadeMode()) : null;
   const _homeIsS06 = !!(_homeFadePreset && _homeFadePreset.dynamic);
   // ⚠TDZ 铁律(2026-08-25 smoke 揪出): 本变量必须声明在一切 _isAiFadeHit() 调用点之前——
@@ -5383,9 +5383,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   //   function _isAiFadeHit 定义行旁(let 在 TDZ), s06 模式下首次调用即 "Cannot access before initialization"
   //   崩掉整个信号区渲染(smoke 断供场景实测复现)。声明前置后由 function 声明提升保证可先定义后初始化。
   let _homeS06FailOpen = 0;   // s06 快照不可用而 fail-open 的行数(可见降级提示用, 渲染层读取)
-  const _aiOnS06 = _homeIsS06 ? { a9: {}, new15: {} } : null;
+  const _aiOnS06 = _homeIsS06 ? { a9: {}, new14: {} } : null;
   if (_homeIsS06 && typeof _tdsFadeModeById === "function") {
-    for (const bid of ["a9", "new15"]) {
+    for (const bid of ["a9", "new14"]) {
       const bp = _tdsFadeModeById(bid);
       if (bp && Array.isArray(bp.keys)) for (const bk of bp.keys) _aiOnS06[bid][bk] = true;
     }
@@ -5405,7 +5405,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // p8/new14 等不含该键的模式不激活。旧首页独立 checkbox 已删(2026-08-24 用户拍板), 本判定为唯一入口。
   const _bullStopActive = (kind === "signal")
     ? (_homeIsS06
-      // S06: a9 基座含 bullAuxBackupStop、new15 不含 → 该判定也随日期走(在 _isAiFadeHit 内 per-date 判)
+      // S06: a9 基座含 bullAuxBackupStop、new14 不含 → 该判定也随日期走(在 _isAiFadeHit 内 per-date 判)
       ? true
       : (!!(_homeFadePreset && Array.isArray(_homeFadePreset.keys) && _homeFadePreset.keys.indexOf("bullAuxBackupStop") >= 0)))
     : false;
@@ -5472,7 +5472,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   //   (_homeS06FailOpen 声明已前置到 _aiOnS06 处, 见该处 TDZ 注释)
   function _isAiFadeHit(it) {
     if (!_fadeOn) return false;
-    // S06(codex-task-20260825-001): 按 it.date 读快照选 a9/new15 成员集(禁止展开静态键组合);
+    // S06(codex-task-20260825-001): 按 it.date 读快照选 a9/new14 成员集(禁止展开静态键组合);
     // 快照未就绪/日期超覆盖期 → fail-open 该行不拦+计数(handoff §五 功能5 可见降级, 不静默回退其他模式)
     let _members = _aiOnMembers;
     let _s6Base = null;
@@ -5487,7 +5487,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       && it.ai_macro.filters.some((fk) => _members[fk])) return true;
     // (2026-08-22 用户拍板) 新降亏键分支: 牛市·主升 × 辅买/备买(tier 由前端 R2 map join;
     // map 未就绪/日期缺失=不命中=保守放行; 开关关时 _bullStopActive=false 恒不命中, 关闭零变化)
-    // S06: 仅当日基座=a9(含 bullAuxBackupStop)才启用本分支(new15 基座不含该键)
+    // S06: 仅当日基座=a9(含 bullAuxBackupStop)才启用本分支(new14 基座不含该键)
     const _bullOn = _homeIsS06 ? (_s6Base === "a9") : _bullStopActive;
     return _bullOn && _isBullStopHit(it);
   }
@@ -5613,7 +5613,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // Y=8 降亏模式预设计票(0~8): 对 common.js _KELLY_FADE_MODE_PRESETS 静态预设(p8/p9/a9/b9/c9/new14/new15)
   //   各与 ai_macro.filters(后端无条件全量注入)求交一次, 交集空=该模式愿意留下=1 票; bullAuxBackupStop
   //   后端不判 → 前端 tier map 补判(_isBullStopHit, 与首页判定链同源同降级); S06 第 8 票按 it.date 读快照
-  //   基座(a9/new15)同式判, 快照不可用 fail-open 计 1 票(保留, 与首页 S06 降级契约同语义)。固化统计,
+  //   基座(a9/new14)同式判, 快照不可用 fail-open 计 1 票(保留, 与首页 S06 降级契约同语义)。固化统计,
   //   与界面开关(K 档/模式选择/过滤开关)全部无关。
   // X=AI 模式认可计数(per-mode top-1 计数 0~8, 用户拍板 2026-08-27「保留 412653ffd 计数语义」):
   //   对 8 个降亏模式各问一遍「当天这笔是不是它视角下的第一名」——per-mode per-date 人口=全量 items 中
@@ -5661,7 +5661,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     for (const pid of _CONSENSUS_PIDS) {
       if (mv[pid]) y2++;
     }
-    // S06 第 8 票(统一契约 #95): base 可知(r6.ok)按当日生效基座(a9/new15)的票判; base 未知
+    // S06 第 8 票(统一契约 #95): base 可知(r6.ok)按当日生效基座(a9/new14)的票判; base 未知
     //   (快照未加载/加载失败/日期超覆盖期/解析层缺失)一律 fail-open 计 1 票=保守放行,
     //   与首页判定链(_isAiFadeHit)/common.js 降级契约同语义, 也与 CONS_TIP 公示句逐字一致。
     const r6 = (typeof _tdsS06BaseForDate === "function") ? _tdsS06BaseForDate(it2.date) : null;

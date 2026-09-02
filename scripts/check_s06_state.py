@@ -5,7 +5,7 @@
   A1 第二实现复算: 用「不 import 生成器」的独立状态机(按 handoff 口径重写 sticky 语义)对同因子序列
      复算 effective_mode, 与快照 daily 逐位相等(防生成器单实现自证)。
   A2 decision_date: 每行 decision_date == 上一交易日(daily[i-1].date; 首行为 null)(防前视 §5.1⑥)。
-  A3 键集对齐: 快照 on_base/off_base 指向的 common.js 预设(a9/new15)keys 与预设表逐位相等,
+  A3 键集对齐: 快照 on_base/off_base 指向的 common.js 预设(a9/new14)keys 与预设表逐位相等,
      且 s06 预设本身 dynamic=true 无静态 keys(防前端第二份键集/静态展开)。
   A4 阈值/参数单源: json.threshold==生成器常量(ast 抽取, 非手抄)==confirm/min_hold/lookback;
      公示文案(common.js _tdsS06Tooltip + purpose-notes.js)含同值截断串(-3.524/+100,572/+83,718 等),
@@ -114,21 +114,21 @@ def synthetic_lockfree_fixture(confirm_days: int = 15, min_hold: int = 10,
     th_seq1 = [th - 6.0] + [5.0] * 40                      # d0 命中, d1..d40 全非命中
     dates1 = [f"202601{i + 1:02d}" for i in range(len(th_seq1))]  # 有序伪日期(独立实现不查日历)
     sp1 = {d: v for d, v in zip(dates1, th_seq1)}
-    modes1, _ = independent_state_machine(dates1, sp1, th, confirm_days, min_hold, "a9", "new15")
-    exp1 = ["new15"] + ["a9"] * confirm_days + ["new15"] * (len(th_seq1) - 1 - confirm_days)
+    modes1, _ = independent_state_machine(dates1, sp1, th, confirm_days, min_hold, "a9", "new14")
+    exp1 = ["new14"] + ["a9"] * confirm_days + ["new14"] * (len(th_seq1) - 1 - confirm_days)
     if modes1 != exp1:
         bad = next(i for i, (a, b) in enumerate(zip(modes1, exp1)) if a != b)
         return False, f"场景一(持续非命中)第 {bad} 日 modes={modes1[bad]} 期望={exp1[bad]}"
     seq2 = [th - 6.0] + [5.0] * 4 + [th - 6.0] + [5.0] * 20   # 进入后4非命中→1命中→再20非命中
     dates2 = [f"202602{i + 1:02d}" for i in range(len(seq2))]
     sp2 = {d: v for d, v in zip(dates2, seq2)}
-    modes2, _ = independent_state_machine(dates2, sp2, th, confirm_days, min_hold, "a9", "new15")
+    modes2, _ = independent_state_machine(dates2, sp2, th, confirm_days, min_hold, "a9", "new14")
     # 时序推导(T 收盘信号 T+1 生效): idx0 收盘命中 → idx1 进入(held=1); idx2..5 非命中生效日
     # (broken=1..4); idx5 收盘命中 → idx6 为命中生效日(broken 清零, held=6 时间继续);
     # 其后第 confirm_days 个非命中生效日(idx7 起 broken=1..)在 idx6+confirm_days 日 broken 满 → 切出
     hit_eff_idx = 6                                            # 命中生效日下标
-    exit_day = hit_eff_idx + confirm_days                      # = 21, 该日 ex 必为 new15
-    exp2 = ["new15"] + ["a9"] * (exit_day - 1) + ["new15"] * (len(seq2) - exit_day)
+    exit_day = hit_eff_idx + confirm_days                      # = 21, 该日 ex 必为 new14
+    exp2 = ["new14"] + ["a9"] * (exit_day - 1) + ["new14"] * (len(seq2) - exit_day)
     if modes2 != exp2:
         bad = next((i for i, (a, b) in enumerate(zip(modes2, exp2)) if a != b), -1)
         return False, f"场景二(命中打断)第 {bad} 日 modes={modes2[bad]} 期望={exp2[bad]}(exit_day={exit_day})"
@@ -256,7 +256,7 @@ def main() -> int:
     m_all = re.search(r"_KELLY_FADE_ALL_KEYS\s*=\s*(.+?);", common_txt, re.S)
     all_keys_defined = bool(m_all)
     record("A3 两基座/s06 预设键集", not problems,
-           ("a9/new15 预设在表且 s06=dynamic 无静态 keys; ALL_KEYS 定义在位" if all_keys_defined and not problems
+           ("a9/new14 预设在表且 s06=dynamic 无静态 keys; ALL_KEYS 定义在位" if all_keys_defined and not problems
             else "; ".join(problems) or "ALL_KEYS 未定义"))
 
     # ── A4 阈值/参数/公示数字单源 ──

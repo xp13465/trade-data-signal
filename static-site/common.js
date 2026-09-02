@@ -774,17 +774,17 @@ var _KELLY_FADE_MODE_PRESETS = [
     keys: ["r10May6NonMay", "greedy15", "janMidSpecial", "k2c5HkChase", "k3ConceptBuy", "declinePhaseSpecial", "n1NorthOutflow", "t1LowTurnSpecial", "d1LowDivYield", "q1QvixLowPct", "h1VolChgHighA", "m1MarginDownBull", "p1LowDivBackup", "r2bSpecialGlobal", "excludeTierNone"] },
   // S06(codex-task-20260825-001, B级用户拍板): 大盘领先动态切换·v1.1.7 起为默认档(综合auto王者, 用户拍板观察期)。
   // ⚠dynamic:true = 非静态键组合, 本条目禁止携带 keys; 四消费点遇 s06 必须按「信号日期」读快照
-  //   effective_mode(a9/new15)再套对应基座键集, 禁止展开成静态 keys(handoff §四)。
+  //   effective_mode(a9/new14)再套对应基座键集, 禁止展开成静态 keys(handoff §四)。
   // 阈值/状态机唯一事实源 = scripts/gen_kelly_mode_s06_state.py → static-site/data/kelly_mode_s06_state.json,
   //   本文件零硬编码阈值(§22 登记点纪律); 下方 tooltip 文案数值仅为 §21 公示, 与生成器逐位一致由
   //   scripts/check_s06_state.py 机检把关。回测对照锚点(codex008 F2 held 新语义引擎重跑 2026-08-26):
   //   验段净利 +100,572.43 / mdd -3,811.27 / 强平 +82,761.50 vs 静态 NEW14+1 +83,718.16。
-  { id: "s06", name: "⭐️⭐️⭐️ S06 · 大盘领先切换(默认)", tagline: "小盘弱→A进攻王·否则NEW14+1(动态)", caliber: "✓ v1.1.7 起默认·动态切换", calWarn: false, dynamic: true, stars: 3 },
+  { id: "s06", name: "⭐️⭐️⭐️ S06 · 大盘领先切换(默认)", tagline: "小盘弱→A进攻王·否则NEW14(动态)", caliber: "✓ v1.1.7 起默认·动态切换", calWarn: false, dynamic: true, stars: 3 },
   // S06+1(2026-08-29 用户拍板形态乙观察档): S06 动态基座 + 「仅 K=1 从候选池剔除 rating_high」附加规则,
   //   K=2/3/4 完全保留(=S06 基线 Δ=0)。⚠dynamic:true=与 s06 同走 per-date 快照链(_tdsS06FiltersForDate),
   //   禁止展开静态 keys; 附加规则=消费点在候选池收集/每日 top-K 前经 _tdsS06P1Active(modeId,K) 判定,
   //   K===1 时跳过 rating_high 区(让 mid/low 递补), K!=1 不剔(与 S06 逐位一致)。纯新增档, 默认仍 s06 不受影响。
-  //   回测对照锚点(基准 v1.1.7 S06动态 a9/new15 按日切, 每日池等分, 费率 etf_main, /tmp/s06p1_report.txt 形态乙节):
+  //   回测对照锚点(基准 v1.1.8 S06动态 a9/new14 按日切, 每日池等分, 费率 etf_main, /tmp/s06p1_report.txt 形态乙节):
   //   K=1 全史 S06 +1,950,519 → S06+1 +1,958,983(剔20笔 Δ+8,464/+0.4pp); 近1年 +292,928 → +301,306(Δ+8,378/+0.8pp);
   //   K=2/3/4 Δ=0(数字逐位等于 S06 基线); 回撤无变化。诚实标注: 样本量小(剔20笔)、让位依赖每日排序非独立同分布=观察档非结论。
   { id: "s06p1", name: "⭐ S06+1 · 仅K1剔高评级(观察)", tagline: "S06基座·K=1剔高评级(观察)", caliber: "⚠ 仅K=1剔高评级·观察档非默认(K2/3/4=S06基线)", calWarn: true, dynamic: true, stars: 1 }
@@ -910,7 +910,7 @@ window._TDS_FADE_TTL_MS = _TDS_FADE_TTL_MS;
 
 // ===== S06 · 大盘领先切换: 快照加载/按日期解析/降级状态(codex-task-20260825-001, B级用户拍板) =====
 // 【单源】阈值/confirm/minhold/逐日 effective_mode 全部来自 static-site/data/kelly_mode_s06_state.json
-//   (生成器 scripts/gen_kelly_mode_s06_state.py); 本文件零硬编码阈值——前端只做「日期→基座(a9/new15)→键集」,
+//   (生成器 scripts/gen_kelly_mode_s06_state.py); 本文件零硬编码阈值——前端只做「日期→基座(a9/new14)→键集」,
 //   禁止自算因子/阈值(§23.6 同精神: 前端不自算宇宙; §22: 多展示位共用本单源)。
 // 【降级契约(可见不静默)】快照缺失/字段缺失/日期超出覆盖期 → _tdsS06BaseForDate 返回 ok:false + reason,
 //   各消费点必须 fail-open(该笔不拦)+ 在界面给出可见警示(计数说明原因), 绝不静默退回其他模式(handoff §五.功能5)。
@@ -963,7 +963,7 @@ function _tdsS06Status() {
     coverageEnd: _tdsS06State ? _tdsS06State.coverage_end : null,
     current: _tdsS06State ? _tdsS06State.current : null,
     onBaseName: (_tdsFadeModeById("a9") || {}).name || "a9",
-    offBaseName: (_tdsFadeModeById("new15") || {}).name || "new15"
+    offBaseName: (_tdsFadeModeById("new14") || {}).name || "new14"
   };
 }
 // 核心: 日期 → 生效基座。ok:false 时 reason ∈ not_loaded/load_err/no_row/out_of_range(消费点 fail-open + 可见提示)
@@ -976,7 +976,7 @@ function _tdsS06BaseForDate(dateStr) {
     return { ok: false, reason: (!cs || nd < cs || nd > ce) ? "out_of_range" : "no_row" };
   }
   var base = row.effective_mode;
-  if (base !== "a9" && base !== "new15") return { ok: false, reason: "bad_mode" };
+  if (base !== "a9" && base !== "new14") return { ok: false, reason: "bad_mode" };
   return { ok: true, base: base, decisionDate: row.decision_date, sizeSpread: row.size_spread };
 }
 // 日期 → 该日生效基座的 58 键布尔 filters(共享只读对象; 不可用返回 null=调用方 fail-open)
@@ -1005,12 +1005,12 @@ function _tdsS06KeysForDate(dateStr) {
 function _tdsS06Tooltip() {
   return [
     "【是什么】S06 不是固定勾键组合, 是按大盘风格自动换基座: 每天收盘算「中证100020日涨幅 − 沪深300 20日涨幅」,",
-    "小于 -3.524%(2016-2020 选段 q30 冻结阈值)说明小盘显著跑输 → 次日切 A 进攻王(进攻基座); 否则次日回到 NEW14+1·15键(防守兜底)。",
+    "小于 -3.524%(2016-2020 选段 q30 冻结阈值)说明小盘显著跑输 → 次日切 A 进攻王(进攻基座); 否则次日回到 NEW14·14键(防守兜底)。",
     "T 日收盘判定 T+1 生效; A 持有天数=生效交易日数(进入当日计 1, 其后每个交易日递增, 无论当日是否继续命中);",
     "从 A 退出需「连续 15 个交易日破坏」且「持满 10 个交易日」同时满足——持续非命中时最多 15 个交易日必切出, 不会锁死。",
     "【什么时候用】想检验「大小盘风格切换能否自动选对基座」时选它; 默认档仍是 NEW 14键不受影响。",
     "【举例】2026-06-08 收盘差值 -4.049% < -3.524% → 6-09 起生效 A 进攻王, 该段持续到 7-06、因 premise 连续 15 日未破于 7-07 切回防守;",
-    "2026-07-14 收盘差值 -5.049% 已破位但按 T+1 时序当日仍 NEW14+1, 7-15 起生效 A 进攻王至今; 2026-04-27 差值 +1.687% 未破阈值 → 4-28 生效 NEW14+1(3-24 进入的 A 段结束)。",
+    "2026-07-14 收盘差值 -5.049% 已破位但按 T+1 时序当日仍 NEW14, 7-15 起生效 A 进攻王至 8-28, 8-28 收盘未破 → 8-31 切回 NEW14 至今; 2026-04-27 差值 +1.687% 未破阈值 → 4-28 生效 NEW14(3-24 进入的 A 段结束)。",
     "【对照数据(同引擎验证段 2021 起, 2026-08-26 held 口径修复后重跑)】S06 净利 +100,572 高于静态 NEW14+1 的 +83,718; 但最大回撤 -3,811 略深于其 -3,550,",
     "强平口径 +82,762 亦略逊 — 未过完整风格周期检验, 实验可选档非实盘结论。"
   ].join("\n");
@@ -1045,10 +1045,10 @@ function _tdsS06P1Tooltip() {
 window._tdsS06P1StripHigh = _tdsS06P1StripHigh;
 window._tdsS06P1Tooltip = _tdsS06P1Tooltip;
 // 枯竭 chip S06 口径尾注(§22 文案单源, reviewer P2 F1 举一反三下沉): 选 S06(dynamic)时判定按日期在
-// A进攻王/NEW14+1 两基座间切换, 与 chip 内置「NEW14 默认过滤」静态口径文案不符 → 消费点(app.js 首页两处 +
+// A进攻王/NEW14 两基座间切换, 与 chip 内置「NEW14 默认过滤」静态口径文案不符 → 消费点(app.js 首页两处 +
 // lab 凯利区)统一取本函数覆盖; 非 S06 态消费点不调用, 内置默认口径渲染零变化。
 function _tdsS06CaliberNote() {
-  return "(口径: S06 动态基座·按日切 A进攻王/NEW14+1 过滤下实时统计; 72% 为 NEW14 全史统计仅作参考)";
+  return "(口径: S06 动态基座·按日切 A进攻王/NEW14 过滤下实时统计; 72% 为 NEW14 全史统计仅作参考)";
 }
 window._tdsS06CaliberNote = _tdsS06CaliberNote;
 
