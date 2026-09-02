@@ -276,4 +276,20 @@
 
 - [x] **步骤1 根治落档**(→main **37fe7855a**,feat/eval-cross-role-rootfix)— CLAUDE.md §5.1 补强「开源/方法论评估必须跨角色穷举」:评估任何项目必须对 implementer/reviewer/tester/researcher 逐个问可蒸馏增量,穷举完才许下结论,只覆盖一个角色=评估不完整=违规(对应§23.3)。配套 memory open-source-eval-cross-role-sweep(触发词=评估任何开源/方法论)。§24⑤ A/B PASS,纯规范文档零前端
 - [x] **步骤2 Karpathy 复核补记**(→main **2905951d2**,feat/karpathy-cross-role-recheck)— 原 Karpathy 评估只落 review 2条(trace/verifier),漏 implementer(Simplicity/Think Before Coding)/tester(Goal-Driven验证闭环)/researcher(量化)。补记澄清:Karpathy 的 Simplicity/Surgical 与 ponytail 7级阶梯重叠可合并,蒸馏以 ponytail 为主,Karpathy 维持原2条 review 规则,评估方法补记防同类窄化
-- [ ] **步骤3 ponytail 蒸馏落地(待派)**:按 4 角色落地(implementer 优先:7级阶梯+根因修复+少写抽象;reviewer:删除清单+量化;tester:懒但安全;researcher:量化+别过度建模),接现有 trace/verifier 框架,走 §23.8 双向标注+§23.5 落档
+- [x] **步骤3 ponytail 蒸馏落地**(2026-09-01 完成,见下方「会话追加 6」段 feat/ponytail-distill):按 4 角色落地(implementer 优先:7级阶梯+根因修复+少写抽象;reviewer:删除清单+量化;tester:懒但安全;researcher:量化+别过度建模),接现有 trace/verifier 框架,走 §23.8 双向标注+§23.5 落档
+
+## 2026-09-01 会话追加 6(ponytail 蒸馏落地完成)
+
+- [x] **步骤3 ponytail 蒸馏落地(2026-09-01 完成,feat/ponytail-distill)** — 用户拍板蒸馏 ponytail(~118k star)而非装 plugin,按 4 角色纯新增落地(§23.7 只增不改):
+  - ① **implementer** `.claude/skills/role-implementer/SKILL.md` 新增 §6.5「写码前 7 级阶梯+根因修复+少写抽象」(接 §6 后 §7 前):7 级阶梯(需要吗/已有复用/stdlib/原生/已装依赖/一行/才写最小)+根因修复(共享函数一个守卫<每个 caller 一个守卫,接 §23.2)+少写抽象(删除优先于添加,接 L11)
+  - ② **reviewer** `.claude/skills/role-reviewer/SKILL.md` 新增 §10.6「代码类 finding 附删除清单+量化」:每代码类 finding 加 over_engineering_findings(action=delete|simplify + saves_lines + rationale 指向阶梯层),只对代码类强制(口径类走 §23.13);`.agents/codex-reviewer/SKILL.md` 加同内容(§22 三处一致)
+  - ③ **tester** `.claude/skills/role-tester/SKILL.md` 新增 §5.4「懒但安全+最小充分测试边界」:安全底线(输入/安全/数据丢失兜底,接 E16+§22)不省,避免冗余/过度测试;最小充分测试=主路径+关键边界,不每行全覆盖
+  - ④ **researcher** `.claude/skills/role-researcher/SKILL.md` 新增 §3.2「量化影响+别过度建模」:与 §5.1 穷举互补(该穷举的穷举/无谓维度不堆),建模前四问+结论可量化验证
+  - **落档**:docs/codex-reviews/ponytail-distill-20260901.md + codex-reviews README 索引已更新;每个 skill 改动处标注 §23.8 关联规范源;不改 CLAUDE.md 正文
+
+### 2026-09-01 会话追加 6:分支处置 codex 外审结论(rev-20260901-001/002/003)
+- **请求状态**:3 个请求报告均已生成(/tmp/codex-reports/rev-20260901-001/002/003.json),verdict/recommendation/findings 齐全;inbox 标记为 .failed(retry_count=2,watcher 投递信号问题,报告本体完整可用)。
+- **001 feat/etf-weight-leader-b123-backtest**:verdict=MERGE_FIRST。4 独有 commit 中 3 个已被 main 吸收,仅 `ff06d1ef4`(首页 AI 降亏过滤 ON 分栏计数+准确率排除降亏命中信号,改 static-site/app.js +21/-18)未在 main。建议:先 cherry-pick ff06d1ef4 验证无冲突→再删分支。风险:与 main 后续降亏 commit 可能冲突。
+- **002 codex/ghi-sim-modal-handoff-20260829**:verdict=SAFE_TO_DELETE。交接包 1 commit/12 文件/1670 行已被 main 覆盖(I=15万→16万 定稿在 kelly-ghi-avsp-method-sweep.md),codex-handoff/ 目录无引用,删除无副作用。
+- **003 fix/platform-healthcheck-mjs**:verdict=MERGE_FIRST。修复 2 个真实 bug(顶层 await ReferenceError + parity 命令缺 RECENT_JSON 环境变量),main 上同类 bug 仍存在,3 行 diff 无副作用。建议合并进 main 收口。
+- **处置状态**:全部为「报告已出待用户拍板」,未自动执行 merge/删除(001 涉前端 app.js §24 需 bump,003 涉 merge main,均待用户确认)。
