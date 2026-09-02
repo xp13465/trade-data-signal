@@ -17,6 +17,7 @@ from ..db import get_conn
 
 # 异源兜底抓取器(见 multisource.py,集中管理所有 fallback)
 from . import multisource
+from . import fapi_fallback  # 涨停池/龙虎榜 FAPI 异源兜底(2026-09-02 P1)
 
 CONFIG_PATH = Path(__file__).absolute().parent.parent.parent / "config" / "indicators.yaml"
 
@@ -596,7 +597,23 @@ def collect_snapshot(metric, date):
             if (func_name in DATE_PARAM_FUNCS
                     and func_name.startswith("stock_zt_pool_")
                     and metric.get("transform") == "count_rows"):
-                return cross_check_zt_pool(func_name, date)
+                # 先同宿主交叉验证(揪"空=真0"的情况),真 0 直接返回不落兜底
+                _cc = cross_check_zt_pool(func_name, date)
+                if _cc[0] is not None:
+                    return _cc
+                # cross_check 也空(源确实故障)→ FAPI 异源兜底(同花顺官方,2026-09-02 P1)
+                # 仅对涨停/跌停/炸板数量类(count_rows)兜底;连板高度/炸板率等 max/mean 判断歧义
+                # 较多,保留 empty(与 fapi_fallback 设计一致,详见 fapi-fallback.py docstring)
+                _fb, _fb_msg = fapi_fallback.try_fallback(func_name, date)
+                if _fb is not None:
+                    if len(_fb) == 0:
+                        return 0.0, f"ok (fapi-fallback {_fb_msg})"
+                    return _apply_transform(_fb, metric, date), f"ok (fapi-fallback {_fb_msg})"
+            # 其余 func(连板高度/炸板率/打板溢价/龙虎榜等)空时也试 FAPI 兜底(§23.3 举一反三:
+            # 同链路同源故障场景统一兜底),成功走同一 transform 链;失败保留 empty
+            _fb, _fb_msg = fapi_fallback.try_fallback(func_name, date)
+            if _fb is not None and len(_fb):
+                return _apply_transform(_fb, metric, date), f"ok (fapi-fallback {_fb_msg})"
             return None, f"{func_name} empty"
     val = _apply_transform(df, metric, date)
     if val is None:
