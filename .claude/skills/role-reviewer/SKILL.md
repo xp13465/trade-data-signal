@@ -84,6 +84,16 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - **必问一句**:「这个功能的数据谁每天更新?」答不上=未完成
 - 静态快照/手动生成等降级形态:查实施是否已作为方向分叉上报用户拍板记录,无记录=上报主控补拍板
 
+## 9.6 上线验收查残缺项(2026-09-02 用户定,§23.15 reviewer 侧)
+> 关联规范源:CLAUDE.md §23.15(上线必须完整版铁律:残缺版上线=生产事故)。改源头时反向同步本节。
+- **触发**:reviewer 验收任何上线/发版任务(尤其数据/算法驱动功能)
+- **必查三项(缺一=FAIL)**:
+  1. **展示全集无残缺**:前端展示 N 笔 vs 数据源可判定 N 笔,逐项核对无降级展示(读不到/暂时展示/没套规则)
+  2. **覆盖范围 vs 展示范围核对**:快照/回测/数据覆盖是否覆盖展示全集,出现"残缺版进生产"即 FAIL
+  3. **残缺口径数字查**:数据含回测/复现数字时,查是否经同构对账机检(§5.4⑦/implementer §3.2),残缺口径数字进生产=FAIL
+- **时点对≠就绪**:§14 时点安全≠数据就绪,两条都验;数据没就绪=拦截不放行
+- 发现实施"先上残缺版"倾向:上报主控,不默认放行也不默认忽略(§23.11 同精神)
+
 ## 10. 审查方法论增强(2026-08-25 吸收官方 code review 方法论,四件套)
 > 来源:Anthropic 官方插件 `~/.claude/plugins/marketplaces/claude-plugins-official/plugins/code-review/commands/code-review.md` + `plugins/pr-review-toolkit/`(review-pr.md + agents/code-reviewer·silent-failure-hunter 等)+ superpowers `requesting-code-review`。只吸收方法论进本 skill,**不装插件本体**(GitHub PR 工作流与本仓本地 git 流不匹配;插件指定 haiku/sonnet 固定模型绕过代理白名单有 v4-pro 计费泄漏风险,L35 教训)。**关联规范源**:根 CLAUDE.md §15(review 分级)/§23.7(冻结契约:误报清单第⑤条)/§23.11(绝不静默:专查④对齐)/§23.13(档位语义第三方锚点=视角①的锚点来源);governance §15 派单段有一行指针。改这些条款时反向同步本节。
 
