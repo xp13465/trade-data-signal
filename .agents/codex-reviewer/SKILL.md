@@ -33,6 +33,11 @@ subagent 返回结论摘要（不是全量过程输出）
 Codex 主会话：整合结果 → 交叉比对 → 输出最终报告
 ```
 
+> **子规范文件（草案，待跑 2 周定稿后由 Claude Code 用 main-merge.sh 合并入）**
+> - runbook.md — 12 步外审 checklist
+> - review-rubric.md — 5 维评分表
+> - incident-playbook.md — 故障剧本
+
 ## 外部 Code Review Skill 蒸馏（2026-08-25）
 
 ### 审查范围判定
