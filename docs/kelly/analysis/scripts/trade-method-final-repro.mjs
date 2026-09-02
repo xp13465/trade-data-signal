@@ -153,9 +153,13 @@ function passesS06(t) {
 }
 const _s6NB = {};
 function s06NoBull(t) {
+  // [2026-09-02 修复] 原实现 `return _s6NB[b.base]` 返回过滤器对象(恒 truthy) → NoBull 过滤形同虚设,
+  //   与页面 lab.js L8517-8524 passesFadeNoBull(返回布尔) 不一致。修正为返回 `passesStaticFade(...)` 布尔。
+  //   fail-open 同步页面: lab.js L8520 对 _tdsS06BaseForDate ok:false(未加载/覆盖期外/无行)返回 true 放行,
+  //   与 passesS06(L149 `if (!f6) return true`) 同构; 原 `return null` 会拒绝覆盖期外(2011~2014.11)笔, 与页面不一致。
   const dStr = String(t[fIdx.signal_date] || "");
   const b = vm.runInContext("_tdsS06BaseForDate(__D6__)", Object.assign(ctx, { __D6__: dStr }));
-  if (!b || !b.ok) return null;
+  if (!b || !b.ok) return true;   // fail-open, 对齐页面 passesFadeNoBull L8520
   if (!_s6NB[b.base]) {
     const allK = vm.runInContext("_KELLY_FADE_ALL_KEYS", ctx);
     const f = {};
@@ -165,7 +169,7 @@ function s06NoBull(t) {
     f.bullAuxBackupStop = false;
     _s6NB[b.base] = f;
   }
-  return _s6NB[b.base];
+  return passesStaticFade(t, _s6NB[b.base]);   // 布尔(真过滤), 对齐页面 L8523
 }
 function buildPoolWith(passFn) {
   const pool = [], seen = new Set();
@@ -214,6 +218,10 @@ function modeAll(modeKey, passFn, kept, dayCounts, passFnNB, keptNB, dayCountsNB
     allTrades.push({ profit: r.profit, return_pct: r.return_pct, fee_cost: r.fee_cost,
       buy_date: String(t[fIdx.buy_date] || ""), sell_date: String(t[fIdx.sell_date] || ""),
       hold_days: t[fIdx.hold_days] || 0, amount: amt,
+      // [2026-09-02 修复] 补 buy_price/sell_price: P 法(G/I)强平 real 通路 _kellyAihlineRealizeReal 依赖
+      //   sel.buy_price 算真实盈亏, 缺了它会落 no_buy_price 分支按 pr=0(非 null)计入 → G/I 强平利润被压掉(页面不符)。
+      buy_price: t[fIdx.buy_price] != null ? Number(t[fIdx.buy_price]) : 0,
+      sell_price: t[fIdx.sell_price] != null ? Number(t[fIdx.sell_price]) : 0,
       etf_code: t[fIdx.etf_code] != null ? String(t[fIdx.etf_code]) : "",
       index_id: t[fIdx.index_id] != null ? String(t[fIdx.index_id]) : "",
       signal: t[fIdx.signal] != null ? String(t[fIdx.signal]) : "",
