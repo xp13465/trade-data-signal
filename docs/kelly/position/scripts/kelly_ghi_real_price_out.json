@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-09-02T19:26:41.989Z",
+ "generated_at": "2026-09-02T19:37:04.156Z",
  "trades_generated_at": "2026-09-03 02:18",
  "s06_snapshot_at": "2026-09-03T00:26:21",
  "baseline": "v1.1.7 S06 + passesFadeNoBull + posCap K1 + daily pool + fee etf_main(P法强平日用主库真实accum_nav重算)",
