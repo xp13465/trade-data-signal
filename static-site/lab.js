@@ -8475,11 +8475,14 @@ async function _kellyApplyFeeRecompute(feeParams) {
   // 降亏toggle过滤谓词(只算一次, positionCap/仓位控制共用)
   var monthMask = _kellyActiveMonthMask(filters);
   // S06(codex-task-20260825-001): 动态基座态 → passesFade 改 per-date: 按每笔 signal_date 取当日生效基座
-  // (a9/new14)的完整键集过滤; 快照不可用/日期超覆盖期 = 该笔 fail-open 放行 + _s6OpenSet 收集唯一笔
-  // (result._s6warn 可见警示, 绝不静默退回其他模式); 非 s06 态路径逐位不变(§23.7 纯新增)。
+  // (a9/new14)的完整键集过滤; 快照不可用(真降级: not_loaded/load_err/no_row) = 该笔 fail-open 放行 + _s6OpenSet 收集唯一笔
+  // (result._s6warn 重警示, 绝不静默退回其他模式); 日期超出覆盖期(out_of_range_fallback) = 按快照 off_base 兜底基座过滤,
+  //   不 fail-open, 只收 _s6FallbackSet 轻标注计数(动态算, 覆盖期前滚归零自动消失, 2026-09-02 用户拍板);
+  //   非 s06 态路径逐位不变(§23.7 纯新增)。
   // 计数去重(2026-08-26): 同一笔在统计链被多 passFn 多遍扫描(主池/NB池/阶段1 toggledByMode/posCap K1-4),
   // 原计数器每调用 ++ 致警示 N 虚高(7370 vs 真实~2640); 改 Set 按 _kellyBaseKey 唯一化, 警示取 .size。
-  var _s6OpenSet = new Set();
+  var _s6OpenSet = new Set();      // 真降级(fail-open)唯一笔: 快照缺行/未就绪/加载失败
+  var _s6FallbackSet = new Set();  // 覆盖期外(兜底过滤)唯一笔: 轻标注计数源, 动态算
   var _s6F6 = function (t) {
     return (typeof window._tdsS06FiltersForDate === "function") ? window._tdsS06FiltersForDate(String(t[fIdx.signal_date] || "")) : null;
   };
@@ -8488,6 +8491,9 @@ async function _kellyApplyFeeRecompute(feeParams) {
     passesFade = function (t) {
       var f6 = _s6F6(t);
       if (!f6) { _s6OpenSet.add(_kellyBaseKey(t, fIdx)); return true; }   // fail-open + 可见计数(按唯一笔去重)
+      var dc = String(t[fIdx.signal_date] || "");
+      var b0 = (typeof window._tdsS06BaseForDate === "function") ? window._tdsS06BaseForDate(dc) : null;
+      if (b0 && b0.ok && b0.reason === "out_of_range_fallback") _s6FallbackSet.add(_kellyBaseKey(t, fIdx));  // 兜底过滤轻标注计数
       return _kellyPassesFadeFilters(t, fIdx, f6, _kellyTradeFeatureCache, _tradeDims, _kellyActiveMonthMask(f6));
     };
   } else {
@@ -8518,6 +8524,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
       var dStr = String(t[fIdx.signal_date] || "");
       var b = (typeof window._tdsS06BaseForDate === "function") ? window._tdsS06BaseForDate(dStr) : null;
       if (!b || !b.ok) { _s6OpenSet.add(_kellyBaseKey(t, fIdx)); return true; }   // fail-open 与主谓词同口径(共享同一 Set)
+      if (b.reason === "out_of_range_fallback") _s6FallbackSet.add(_kellyBaseKey(t, fIdx));  // 兜底过滤轻标注计数(与主谓词同 Set)
       if (!_s6NoBullCache[b.base]) _s6NoBullCache[b.base] = _s6BuildNB(b.base);
       var nb = _s6NoBullCache[b.base];
       return _kellyPassesFadeFilters(t, fIdx, nb, _kellyTradeFeatureCache, _tradeDims, _kellyActiveMonthMask(nb));
@@ -8778,15 +8785,21 @@ async function _kellyApplyFeeRecompute(feeParams) {
     console.error("[sigkelly] posRating dynamic compute failed:", e);
     window._AI_POSCAP_RATING_DYNAMIC = { computed: false, values: null, date: null, fee: null, cfg: null };
   }
-  // S06 降级警示(codex-task-20260825-001, 可见不静默): 快照失败/覆盖期外笔数 → result._s6warn,
-  // 由凯利区模式下拉旁状态 span 展示; 正常态无该字段(span 隐藏)。缓存命中路径随旧 result 一致复用。
+  // S06 降级警示(codex-task-20260825-001, 可见不静默; 2026-09-02 覆盖期外=默认兜底态拆分, 用户拍板):
+  //  ①重警示=真降级(快照加载失败/缺行 fail-open 笔,_s6OpenSet) ②轻标注=覆盖期外(兜底过滤笔,_s6FallbackSet,
+  //  计数运行时动态算, 覆盖期前滚归零自动消失, 禁止写死日期)。→ result._s6warn, 由凯利区模式下拉旁状态 span 展示;
+  //  正常态无该字段(span 隐藏)。缓存命中路径随旧 result 一致复用。
   if (_labS06) {
     var _s6WarnParts = [];
     if (typeof window._tdsS06Status === "function") {
       var _st6 = window._tdsS06Status();
       if (!_st6.loaded && _st6.err) _s6WarnParts.push("⚠ S06 快照加载失败了(" + _st6.err + ")，系统还在努力读，你看到的数据暂时是不过滤的完整版本（不是偷偷切到其他模式，只是先把能展示的展示出来）");
     }
-    if (_s6OpenSet.size > 0) _s6WarnParts.push("⚠ 有 " + _s6OpenSet.size + " 笔是 2014-2015 年的老历史数据，S06 快照的日期覆盖不到那么早（那时候 A股风格和现在很不一样，系统没把握套用现在的判断规则），所以这 " + _s6OpenSet.size + " 笔就先照常展示了，没有硬套过滤规则——数据给你看，只是标注一下这批和近年的口径不太一样。举例说明：比如 2014 年那波大牛市，按 2026 年的标准会判「进攻王」，但 2014 年实际风格完全不同，用现在的规则去套就容易出错，所以这批老数据干脆不套规则，直接展示原始信号");
+    if (_s6OpenSet.size > 0) _s6WarnParts.push("⚠ 有 " + _s6OpenSet.size + " 笔的 S06 判定没能读到（快照缺行/未就绪），这 " + _s6OpenSet.size + " 笔暂时没套过滤规则，系统正在重读快照——不是偷偷换成别的模式，只是先把能展示的展示出来");
+    if (_s6FallbackSet.size > 0) {
+      var _fs6 = (typeof window._tdsS06Status === "function") ? window._tdsS06Status() : {};
+      _s6WarnParts.push("· " + _s6FallbackSet.size + " 笔超出 S06 快照覆盖期（快照自 " + (_fs6.coverageStart || "?") + " 起），已按 NEW14·14键 兜底规则过滤，非逐日动态切换；等快照覆盖期前滚补齐这段，这里会自动消失。举例：比快照最早覆盖日（" + (_fs6.coverageStart || "?") + "）更早的老行情，系统没把握逐日判风格，就统一按防守兜底 NEW14 的 14 个键判断");
+    }
     if (_s6WarnParts.length) result._s6warn = _s6WarnParts.join(" ");
   }
   _kellyStatsCacheKey = cacheKey;
@@ -9906,7 +9919,7 @@ function _renderSigKellyBar(bar, data, period) {
   const _fadeCaliberHTML = _fadeMatchedId
     ? _fadeDisp.caliber
     : ("⚙️ 自定义组合(基于「" + _fadeDisp.name.replace(/\(默认\)$/, "") + "」手动调整, 口径见各标签 tip)");
-  const fadeModeTitle = "AI降亏过滤模式: 一键套用整套键组合(与「AI 降亏组成对比」卡同源口径); ⭐=推荐星标(S06 3星 / A进攻王·NEW14·NEW14+1 2星 / 9键·B均衡卡 1星), 下拉星多靠前、无星殿后沿用原相对序(v20260826 用户拍板); NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。手动勾/取消下方任一小标签即进入自定义态, 再选任意模式回到预设。选 S06=按大盘风格按日动态切换 A进攻王/NEW14+1 两套判断规则(v1.1.7 起已为当前默认基座, 判定层自动接管、标签区退为参考底座); 如果 S06 快照读不出来, 这笔信号就照常展示并在旁边标红字提醒, 但不会悄悄换成其他模式——简单说就是\"能正常显示就显示, 读不出来就老实告诉你, 绝不替你做决定偷偷切走\""
+  const fadeModeTitle = "AI降亏过滤模式: 一键套用整套键组合(与「AI 降亏组成对比」卡同源口径); ⭐=推荐星标(S06 3星 / A进攻王·NEW14·NEW14+1 2星 / 9键·B均衡卡 1星), 下拉星多靠前、无星殿后沿用原相对序(v20260826 用户拍板); NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。手动勾/取消下方任一小标签即进入自定义态, 再选任意模式回到预设。选 S06=按大盘风格按日动态切换 A进攻王/NEW14·14键 两套判断规则(v1.1.7 起已为当前默认基座, 判定层自动接管、标签区退为参考底座); 快照内每天按当日风格自动换基座; 超出快照覆盖期的老信号统一按 NEW14·14键 兜底规则过滤(轻标注提示, 覆盖期前滚自动消失); 只有 S06 快照真读不出来时, 该笔才照常展示并在旁边标红字提醒——绝不悄悄换成其他模式, 简单说就是\"按快照规则过滤, 读不出来就老实告诉你, 绝不替你做决定偷偷切走\""
     + (typeof window._tdsS06Tooltip === "function" ? ("\n———\n" + window._tdsS06Tooltip()) : "")
     // s06p1(2026-08-29 观察档)公示(§21): 当前所选为 S06+1 观察档时追加附加规则说明
     + ((_isS06P1Base && typeof window !== "undefined" && typeof window._tdsS06P1Tooltip === "function")

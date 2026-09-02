@@ -912,8 +912,11 @@ window._TDS_FADE_TTL_MS = _TDS_FADE_TTL_MS;
 // 【单源】阈值/confirm/minhold/逐日 effective_mode 全部来自 static-site/data/kelly_mode_s06_state.json
 //   (生成器 scripts/gen_kelly_mode_s06_state.py); 本文件零硬编码阈值——前端只做「日期→基座(a9/new14)→键集」,
 //   禁止自算因子/阈值(§23.6 同精神: 前端不自算宇宙; §22: 多展示位共用本单源)。
-// 【降级契约(可见不静默)】快照缺失/字段缺失/日期超出覆盖期 → _tdsS06BaseForDate 返回 ok:false + reason,
+// 【降级契约(可见不静默)】快照缺失/字段缺失/快照内部缺行 → _tdsS06BaseForDate 返回 ok:false(真降级),
 //   各消费点必须 fail-open(该笔不拦)+ 在界面给出可见警示(计数说明原因), 绝不静默退回其他模式(handoff §五.功能5)。
+//   【覆盖期外=默认兜底态(2026-09-02 用户拍板)】日期明确超出快照覆盖期(coverage_start/coverage_end 之外)时
+//   _tdsS06BaseForDate 返回 ok:true + base=快照 off_base 字段 + reason=out_of_range_fallback —— 按兜底基座(new14)过滤,
+//   不 fail-open 裸放行; 消费点可见轻标注(计数>0 才显示, 覆盖期前滚归零自动消失), 不静默。
 // 【事件】加载完成 dispatch "tds-s06-state-ready"(消费点可监听重渲染); 失败 dispatch "tds-s06-state-error"。
 var _TDS_S06_MODE_ID = "s06";
 var _TDS_S06_STATE_URL = "./data/kelly_mode_s06_state.json";
@@ -966,14 +969,20 @@ function _tdsS06Status() {
     offBaseName: (_tdsFadeModeById("new14") || {}).name || "new14"
   };
 }
-// 核心: 日期 → 生效基座。ok:false 时 reason ∈ not_loaded/load_err/no_row/out_of_range(消费点 fail-open + 可见提示)
+// 核心: 日期 → 生效基座。ok:false 时 reason ∈ not_loaded/load_err/no_row/bad_mode(真降级, 消费点 fail-open + 可见提示)
+// ok:true 含 out_of_range_fallback: 日期明确超出快照覆盖期(coverage_start/coverage_end 之外)时,
+//   不再 fail-open 裸放行, 改按快照 off_base 字段(单源, 兜底基座 = off_base)过滤 —— 覆盖期外 = 默认兜底态(用户拍板)。
+//   no_row 与 out_of_range_fallback 区分: 覆盖期边界缺失(无法判定)或日期落在覆盖期内但缺行 = 快照内部异常 → no_row(fail-open);
+//   明确"日期 < coverage_start 或 > coverage_end" = out_of_range_fallback(兜底过滤, 不裸放行)。
 function _tdsS06BaseForDate(dateStr) {
   var nd = _tdsS06NormalizeDate(dateStr);
   if (!_tdsS06State) return { ok: false, reason: _tdsS06LoadErr ? "load_err" : "not_loaded" };
   var row = _tdsS06ByDate ? _tdsS06ByDate[nd] : null;
   if (!row) {
     var cs = _tdsS06NormalizeDate(_tdsS06State.coverage_start), ce = _tdsS06NormalizeDate(_tdsS06State.coverage_end);
-    return { ok: false, reason: (!cs || nd < cs || nd > ce) ? "out_of_range" : "no_row" };
+    var outOfRange = (cs && nd < cs) || (ce && nd > ce);
+    if (!outOfRange) return { ok: false, reason: "no_row" };
+    return { ok: true, base: _tdsS06State.off_base, reason: "out_of_range_fallback" };
   }
   var base = row.effective_mode;
   if (base !== "a9" && base !== "new14") return { ok: false, reason: "bad_mode" };

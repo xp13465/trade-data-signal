@@ -1998,7 +1998,7 @@ function _ovAggregateRecent(recent, modeId, bullStopOn, fadeOn, k) {
     const preset = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(modeId) : null;
     if (!preset) return null;
     // S06(codex-task-20260825-001): dynamic 预设无静态 keys —— 组集必须按行日期读快照生效基座(a9/new14)
-    // 取对应成员集(禁止展开成静态键组合 handoff §四); 行日期超快照覆盖期/快照未就绪 → fail-open 该行不拦,
+    // 取对应成员集(禁止展开成静态键组合 handoff §四); 行日期超快照覆盖期=按 off_base 兜底基座过滤, 快照未就绪/缺行 → fail-open 该行不拦,
     // 计入 _s6.open 由调用方给「可见降级提示」, 绝不静默退回其他模式(handoff §五 功能5)。
     const isS06 = !!preset.dynamic;
     const memberSet = {};
@@ -2012,12 +2012,15 @@ function _ovAggregateRecent(recent, modeId, bullStopOn, fadeOn, k) {
     } else {
       for (let i = 0; i < preset.keys.length; i++) memberSet[preset.keys[i]] = true;
     }
-    let s6Open = 0;   // s06 fail-open 行数(可见降级提示用)
-    // 行级成员集: 非 s06 恒同一 set(行为逐位不变); s06 按行日期解析, 不可用返回 null=该行不拦
+    let s6Open = 0;      // s06 真降级 fail-open 行数(快照缺行/未就绪, 可见重警示用)
+    let s6Fallback = 0;  // s06 覆盖期外兜底过滤行数(out_of_range_fallback 轻标注计数源, 2026-09-02 用户拍板)
+    // 行级成员集: 非 s06 恒同一 set(行为逐位不变); s06 按行日期解析, 真降级(ok:false)返回 null=该行不拦,
+    // 覆盖期外(out_of_range_fallback)=按快照 off_base 兜底基座(new14)正常过滤, 只计轻标注不 fail-open
     const memberSetForRow = function (d) {
       if (!isS06) return memberSet;
       const r6 = _tdsS06BaseForDate(d);
       if (!r6 || !r6.ok) { s6Open++; return null; }
+      if (r6.reason === "out_of_range_fallback") s6Fallback++;
       return s6Sets[r6.base] && Object.keys(s6Sets[r6.base]).length ? s6Sets[r6.base] : null;
     };
     // ① 过滤层(fadeOn=false 时不过滤=全信号人口, 与 bank raw 语义一致)
@@ -2133,7 +2136,7 @@ function _ovAggregateRecent(recent, modeId, bullStopOn, fadeOn, k) {
       accuracy: { rolling: { backtest: _ovTrimObj(btTotalRaw), actual: _ovTrimObj(actTotalRaw), by_signal: bySignal, by_grade: byGrade } },
       overfit: { daily_by_win: dailyByWin, daily_by_dim: dailyByDim },
     };
-    if (isS06) _aggOut._s6 = { open: s6Open };   // s06 降级计数(fail-open 行数, 渲染层可见提示用)
+    if (isS06) _aggOut._s6 = { open: s6Open, fallback: s6Fallback };   // s06 降级计数: open=真降级 fail-open 行数(重警示), fallback=覆盖期外兜底行数(轻标注, 2026-09-02)
     return _aggOut;
   } catch (e) { return null; }   // 组集异常优雅回退现有 bank(老 json/结构变更不裸崩)
 }
@@ -2198,7 +2201,7 @@ async function _appendOverfitCard(colA2, r, snap) {
       '<span class="overfit-fade-label" data-tip="降亏模式(T3-2 2026-08-23, 与凯利区/模拟回测弹窗同款预设): v1.1.7 起默认=s06·大盘领先切换(动态) / v1.1.5~v1.1.6 默认=new14·NEW 14键 / p8=8键旧默认·对照(走老 filtered bank) / ⭐9键=8键+候选1 / ⭐⭐A进攻王 / ⭐B均衡卡 / C防守=叠9键口径 / ⭐⭐NEW14+1·15键 / ⭐S06+1·仅K1剔高评级(观察, 2026-08-29)。⭐=推荐星标(v20260826 用户拍板), 下拉星多靠前、无星殿后沿用原相对序; NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。切换后监控两图按所选模式的降亏成员键组集重算(recent明细逐信号键命中标注, 后端打标)。仅 AI降亏过滤开关开启时生效; 老数据无明细时自动回退p8对照bank。">降亏模式</span>' +
       (typeof _tdsFadeModeSelectHTML === "function"
         ? _tdsFadeModeSelectHTML("overfit-fade-mode-sel", _readOverfitFadeMode(), false, "sim-mode-sel ov-mode-sel",
-            "AI降亏模式(预设一键套用): 切换后准确率/风险分两图按所选模式重算。v1.1.7(2026-08-26)起默认=s06·大盘领先切换(与全站一致); v1.1.5~v1.1.6 默认=new14·NEW 14键; p8=8键旧默认·对照(走老filtered bank); ⭐9键/A进攻王⭐⭐/B均衡卡⭐/C防守=叠9键口径(含牛市×辅备买全停); ⭐⭐NEW14+1·15键; ⭐S06+1·仅K1剔高评级(观察, 2026-08-29, 在 S06 基座上仅当 K=1 时从候选池剔除高评级信号, K=2/3/4 与 S06 完全一致Δ=0, 非默认)。⭐=推荐星标(v20260826 用户拍板), 下拉星多靠前、无星殿后沿用原相对序; NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。⚠非p8口径为 v1.1.2 四档判定源(recent明细), 与老filtered bank的MA60口径存在 excludeSpecialBear 微差; price_bin/ETF相关性组件信号级不可判已降级跳过(v4f 恒不命中); 北向流出×概念类(n2NorthOutConcept)已接入打标(2026-08-23 修复后端漏列), 评级维度回测曲线同步恢复出数(FIELD 列修复)。⚠模式记忆仅保留 18 小时(TDS_FADE_TTL 单源, 滑动过期=每次切换刷新计时, 超时回默认 s06 并清记忆); 存了已下线 new18 的旧记忆会自动校验失败回默认不报错。旧独立+1开关已删(2026-08-24), 牛市×辅备买全停由 9键/A/B/C 模式一并启用。S06=大盘领先动态切换默认档⭐️⭐️⭐️(v1.1.7 起): 非固定键组合, 组集按每行信号日期读快照生效基座(a9/new14); 快照缺失/日期超覆盖期该行不拦并警示, 不静默回退。")
+            "AI降亏模式(预设一键套用): 切换后准确率/风险分两图按所选模式重算。v1.1.7(2026-08-26)起默认=s06·大盘领先切换(与全站一致); v1.1.5~v1.1.6 默认=new14·NEW 14键; p8=8键旧默认·对照(走老filtered bank); ⭐9键/A进攻王⭐⭐/B均衡卡⭐/C防守=叠9键口径(含牛市×辅备买全停); ⭐⭐NEW14+1·15键; ⭐S06+1·仅K1剔高评级(观察, 2026-08-29, 在 S06 基座上仅当 K=1 时从候选池剔除高评级信号, K=2/3/4 与 S06 完全一致Δ=0, 非默认)。⭐=推荐星标(v20260826 用户拍板), 下拉星多靠前、无星殿后沿用原相对序; NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。⚠非p8口径为 v1.1.2 四档判定源(recent明细), 与老filtered bank的MA60口径存在 excludeSpecialBear 微差; price_bin/ETF相关性组件信号级不可判已降级跳过(v4f 恒不命中); 北向流出×概念类(n2NorthOutConcept)已接入打标(2026-08-23 修复后端漏列), 评级维度回测曲线同步恢复出数(FIELD 列修复)。⚠模式记忆仅保留 18 小时(TDS_FADE_TTL 单源, 滑动过期=每次切换刷新计时, 超时回默认 s06 并清记忆); 存了已下线 new18 的旧记忆会自动校验失败回默认不报错。旧独立+1开关已删(2026-08-24), 牛市×辅备买全停由 9键/A/B/C 模式一并启用。S06=大盘领先动态切换默认档⭐️⭐️⭐️(v1.1.7 起): 非固定键组合, 组集按每行信号日期读快照生效基座(a9/new14); 快照缺失=该行不拦并警示(真降级); 日期超覆盖期=按 NEW14·14键 兜底规则过滤+轻标注(2026-09-02 用户拍板), 不静默回退。")
         : "") +
       '<span class="overfit-fade-state2" style="color:var(--text-3);font-size:11px;margin-left:6px"></span>' +
       '</div>' +
@@ -2368,7 +2371,7 @@ async function _appendOverfitCard(colA2, r, snap) {
       // (2026-08-24 用户拍板) 回退提示「(明细缺失, 已回退p8对照bank)」不再直展(太占位), 改为动态附加到两处 tooltip;
       // 本 span 只留当前模式 tag。
       // S06(codex-task-20260825-001): 动态档状态/降级提示必须可见——快照不可用=「过滤暂不生效」持续警示,
-      // 覆盖期外 fail-open 行数>0 时附笔数说明(§23.2 可见降级, 不静默)。
+      // 真降级 fail-open 行数>0 时附笔数说明 + 覆盖期外兜底行数轻标注(§23.2 可见降级, 不静默; 2026-09-02 拆分)。
       if (!_ovFade || !(_aggOn && _presetNow)) modeStateEl.textContent = "";
       else {
         let _mtxt = "· " + _presetNow.name.replace(/\(默认\)$/, "");
@@ -2376,7 +2379,8 @@ async function _appendOverfitCard(colA2, r, snap) {
           const st6 = (typeof _tdsS06Status === "function") ? _tdsS06Status() : {};
           if (st6.err) _mtxt = "· ⚠S06 快照不可用(" + st6.err + "), 过滤暂不生效";
           else if (!st6.loaded) _mtxt = "· S06 快照加载中…";
-          else if (bank && bank._s6 && bank._s6.open > 0) _mtxt += " ⚠" + bank._s6.open + "行超快照覆盖期未拦";
+          else if (bank && bank._s6 && bank._s6.open > 0) _mtxt += " ⚠" + bank._s6.open + "行快照缺行未拦(真降级)";
+          if (bank && bank._s6 && bank._s6.fallback > 0) _mtxt += " ·" + bank._s6.fallback + "行超出覆盖期·按NEW14·14键兜底过滤";
         }
         modeStateEl.textContent = _mtxt;
       }
@@ -3054,7 +3058,7 @@ function _mountSigEmptyDrought(_retry) {
 }
 // S06(codex-task-20260825-001) 首页模式下拉旁状态 slot 挂载(可见降级契约 handoff §五.功能5):
 // 数据源=window._tdsHomeS06Warn(渲染尾部写入 {active, open}) + common.js _tdsS06Status()(快照健康度 §22 同源);
-// 非 s06 态恒空串不占位; 加载中/失败/覆盖期外笔数/正常生效 四态文案, 绝不静默退回。
+// 非 s06 态恒空串不占位; 加载中/失败/真降级笔数/覆盖期外兜底轻标注/正常生效 五态文案, 绝不静默退回。
 // 渲染时序同 _mountSigEmptyDrought(build-then-replace 元素未入文档 → 有限次延迟重试)。
 function _mountHomeS06State(_retry) {
   const left = (typeof _retry === "number") ? _retry : 15;
@@ -3068,8 +3072,13 @@ function _mountHomeS06State(_retry) {
         const st = (typeof window._tdsS06Status === "function") ? window._tdsS06Status() : null;
         if (st && !st.loaded && st.err) txt = "⚠ S06 快照加载失败(" + st.err + ")，当前不过滤，数据仅供参考";
         else if (st && st.loading) txt = "· S06 快照加载中…";
-        else if ((w.open || 0) > 0) txt = "⚠ " + w.open + " 笔在 S06 覆盖期外，未套过滤口径";
-        else if (st && st.loaded) txt = "· S06 过滤生效(快照截至 " + (st.coverageEnd || "?") + ")";
+        else {
+          let _s = "";
+          if ((w.open || 0) > 0) txt = "⚠ " + w.open + " 笔快照缺行未拦(真降级)";
+          if ((w.fallback || 0) > 0) _s = (w.fallback + " 笔超出覆盖期·按NEW14·14键兜底过滤");
+          if (_s) txt += (txt ? " · " : "") + _s;
+          if (!txt && st && st.loaded) txt = "· S06 过滤生效(快照自 " + (st.coverageStart || "?") + " 起)";
+        }
       }
     } catch (e) {}
     slot.textContent = txt;
@@ -3800,8 +3809,8 @@ function _openSimBacktestModal() {
             '<div class="tds-fade-mode-wrap sim-fade-mode-wrap">' +
             '</div>' +
             '<span class="sim-feat-note" style="display:none">⏳ 新键特征加载中, 就绪前新键暂不拦截…</span>' +
-            // S06(codex-task-20260825-001) 快照降级警示条(可见不静默, handoff §五.功能5): 快照不可用/
-            // 覆盖期外笔数 >0 时由 _simRenderOnce 填充红字说明; 正常态恒 display:none 不占位
+            // S06(codex-task-20260825-001) 快照降级警示条(可见不静默, handoff §五.功能5): 真降级(快照不可用/缺行)
+            // 与覆盖期外兜底笔数 >0 时由 _simRenderOnce 填充红字说明; 正常态恒 display:none 不占位(2026-09-02 拆分轻标注)
             '<span class="sim-s06-note" style="display:none;color:#c0392b;font-size:.85em"></span>' +
           '</div>' +
         '</div>' +
@@ -4120,16 +4129,23 @@ async function _simRenderOnce(modal) {
     if (_isS06) {
       // per-date 过滤(s06 动态基座): 每笔按 signal_date 取当日生效基座(a9/new14)的完整键集过滤,
       // monthMask/bullStop 均按该日基座口径同步计算(与静态路径同语义, §22 同源)
-      let _openCnt = 0;   // 覆盖期外/快照缺行笔数(fail-open 计数 → 可见警示)
+      let _openCnt = 0;   // 真降级(快照缺行/未就绪) fail-open 笔数(重警示)
+      let _fbCnt = 0;     // 覆盖期外兜底过滤笔数(轻标注计数源, 2026-09-02 用户拍板, 动态算)
       kept = recs.filter((t) => {
-        const f6 = (typeof window._tdsS06FiltersForDate === "function") ? window._tdsS06FiltersForDate(String(t[fIdx.signal_date] || "")) : null;
-        if (!f6) { _openCnt++; return true; }   // 快照不可用/日期超出覆盖期 → 该笔不拦(fail-open)
+        const dS = String(t[fIdx.signal_date] || "");
+        const f6 = (typeof window._tdsS06FiltersForDate === "function") ? window._tdsS06FiltersForDate(dS) : null;
+        if (!f6) { _openCnt++; return true; }   // 快照不可用/覆盖期内缺行 → 该笔不拦(fail-open)
+        const rb = (typeof window._tdsS06BaseForDate === "function") ? window._tdsS06BaseForDate(dS) : null;
+        if (rb && rb.ok && rb.reason === "out_of_range_fallback") _fbCnt++;   // 覆盖期外→兜底过滤(不 fail-open)
         if (!_simPassesFade(t, fIdx, f6, _simActiveMonthMask(f6))) return false;
         if (f6.bullAuxBackupStop && !_isLongMode && !_simPassesBullStop(t, fIdx)) return false; // 键携带+非长线, 与静态路径同语义
         return true;
       });
       if (_openCnt > 0) {
-        _s6Warn += (_s6Warn ? " " : "") + "⚠ " + _openCnt + " 笔在 S06 快照覆盖期外或缺行, 未按 S06 过滤(fail-open)";
+        _s6Warn += (_s6Warn ? " " : "") + "⚠ " + _openCnt + " 笔快照缺行/未就绪, 未按 S06 过滤(fail-open)";
+      }
+      if (_fbCnt > 0) {
+        _s6Warn += (_s6Warn ? " " : "") + "· " + _fbCnt + " 笔超出快照覆盖期, 按 NEW14·14键 兜底规则过滤(覆盖期前滚自动消失)";
       }
     } else {
       kept = recs.filter((t) => _simPassesFade(t, fIdx, filters, monthMask));
@@ -5382,7 +5398,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   //   下方 popItems 统计循环(kind==="signal" 分支)在函数体前段就调 _isAiFadeHit, 若声明放在
   //   function _isAiFadeHit 定义行旁(let 在 TDZ), s06 模式下首次调用即 "Cannot access before initialization"
   //   崩掉整个信号区渲染(smoke 断供场景实测复现)。声明前置后由 function 声明提升保证可先定义后初始化。
-  let _homeS06FailOpen = 0;   // s06 快照不可用而 fail-open 的行数(可见降级提示用, 渲染层读取)
+  let _homeS06FailOpen = 0;    // s06 真降级(快照缺行/未就绪) fail-open 的行数(可见重警示用, 渲染层读取)
+  let _homeS06Fallback = 0;    // s06 覆盖期外兜底过滤行数(out_of_range_fallback 轻标注计数源, 2026-09-02 用户拍板, 动态算)
   const _aiOnS06 = _homeIsS06 ? { a9: {}, new14: {} } : null;
   if (_homeIsS06 && typeof _tdsFadeModeById === "function") {
     for (const bid of ["a9", "new14"]) {
@@ -5473,12 +5490,14 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   function _isAiFadeHit(it) {
     if (!_fadeOn) return false;
     // S06(codex-task-20260825-001): 按 it.date 读快照选 a9/new14 成员集(禁止展开静态键组合);
-    // 快照未就绪/日期超覆盖期 → fail-open 该行不拦+计数(handoff §五 功能5 可见降级, 不静默回退其他模式)
+    // 真降级(快照缺行/未就绪) → fail-open 该行不拦+计数(重警示); 覆盖期外(out_of_range_fallback) →
+    // 按快照 off_base 兜底基座(new14)成员集正常过滤+轻标注计数, 不 fail-open(2026-09-02 用户拍板, 不静默回退其他模式)
     let _members = _aiOnMembers;
     let _s6Base = null;
     if (_homeIsS06) {
       const r6 = (typeof _tdsS06BaseForDate === "function") ? _tdsS06BaseForDate(it && it.date) : null;
       if (!r6 || !r6.ok) { _homeS06FailOpen++; return false; }
+      if (r6.reason === "out_of_range_fallback") _homeS06Fallback++;
       if (!Object.keys(_aiOnS06[r6.base] || {}).length) { _homeS06FailOpen++; return false; }
       _members = _aiOnS06[r6.base];
       _s6Base = r6.base;
@@ -5662,7 +5681,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       if (mv[pid]) y2++;
     }
     // S06 第 8 票(统一契约 #95): base 可知(r6.ok)按当日生效基座(a9/new14)的票判; base 未知
-    //   (快照未加载/加载失败/日期超覆盖期/解析层缺失)一律 fail-open 计 1 票=保守放行,
+    //   (快照未加载/加载失败/覆盖期内缺行/解析层缺失)一律 fail-open 计 1 票=保守放行;
+    //   日期超覆盖期(out_of_range_fallback)=r6.ok 且 base=off_base(new14), 按兜底基座正常表决(2026-09-02 用户拍板, 不再 fail-open),
     //   与首页判定链(_isAiFadeHit)/common.js 降级契约同语义, 也与 CONS_TIP 公示句逐字一致。
     const r6 = (typeof _tdsS06BaseForDate === "function") ? _tdsS06BaseForDate(it2.date) : null;
     if (!r6 || !r6.ok || mv[r6.base]) y2++;
@@ -5704,8 +5724,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       }
     }
     // S06 mode
-    // #96(2026-08-27): base 未知(快照未就绪/加载失败/日期超覆盖期)=该笔不拦(fail-open 进当日候选参与
+    // #96(2026-08-27): base 未知(快照未就绪/加载失败/覆盖期内缺行)=该笔不拦(fail-open 进当日候选参与
     //   排序取 top1), 与 common.js 降级契约及 CONS_TIP 公示句「S06 快照不可用时该票按保留计」一致。
+    //   (2026-09-02)覆盖期外(out_of_range_fallback): r6.ok 且 base=off_base → 按兜底基座(new14)正常表决, 不再 fail-open。
     //   旧实现硬编码 new15 键集兜底实为 fail-closed, 会把 filters∩new15 的信号错误拦掉且无提示=注释与行为不符, 已删。
     _fixedKeptMapByMode["s06"] = {};
     for (const x of items) {
@@ -6238,7 +6259,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // S06(codex-task-20260825-001): 本轮渲染的 fail-open 行数导出到模块级(_mountHomeS06State 异步警示条读取);
   // 渲染过程中 _isAiFadeHit 已对全量人口判完, 此处计数即最终值。非 s06 恒 active:false/open:0。
   if (kind === "signal") {
-    try { window._tdsHomeS06Warn = { active: !!_homeIsS06, open: _homeS06FailOpen || 0 }; } catch (e) {}
+    try { window._tdsHomeS06Warn = { active: !!_homeIsS06, open: _homeS06FailOpen || 0, fallback: _homeS06Fallback || 0 }; } catch (e) {}
     // S06 状态 slot 异步填充(非 s06 态填空串清残留; 延迟重试防元素未入文档)
     try { _mountHomeS06State(); } catch (e) {}
     // S06 快照加载发起(smoke 2026-08-25 揪出漏点): 首页判定链用同步 _tdsS06BaseForDate 不触发加载,
@@ -6737,7 +6758,8 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
     + "次之的电力公用事业(71.0)没人排它第一 → 「0·非主推」。即便多票, 每天真下单仍受当日买入计划约束——"
     + "X 衡量的是认可广度而非下单笔数(例中分数随数据滚动会变, 以当天实际排序为准)——Y 再高也只当参考。\n"
     + "【口径】今日信号以 21:00 定稿为准(此前当日组可能变); 判定基于后端信号级可判定子集"
-    + "(price_bin 五分位依赖子条件降级不参与, 宁漏勿误); S06 快照不可用时该票按保留计(fail-open)。";
+    + "(price_bin 五分位依赖子条件降级不参与, 宁漏勿误); S06 快照不可用时该票按保留计(fail-open); "
+    + "日期超出快照覆盖期按 NEW14·14键 兜底基座正常表决(2026-09-02 用户拍板, 不 fail-open)。";
   // 查找触发 pop 的元素：优先 [data-tip]，回退 [title]（排除 iframe a11y title + [data-no-pop]）。
   // [title] 首次命中时一次性迁移到 data-tip 并移除原生 title，防浏览器原生 tooltip 闪现。
   // forClick=true（click 路径）：只认已迁移的 [data-tip]，不 fallback [title]，
@@ -6897,7 +6919,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         var _cxTxt = isFinite(_cxn) ? (_cxn >= 1 && _consParts[2] === "w" ? _cxn + "票·当日主推" : _cxn + "·非主推") : "—";
         var _dimCls = _cy === 0 ? " term-pop-consensus-dim" : ((_cy >= 6) ? " term-pop-consensus-hi" : "");
         // #96 可见降级(2026-08-27): 快照真实加载失败(err)时在认可度行内挂降级小字——Y/X 的 S06 票按保留计,
-        //   不静默; 仅 err 显示, 加载中/日期超覆盖期(数据常态)不打扰
+        //   不静默; 仅 err 显示, 加载中不打扰; 覆盖期外走兜底过滤(模内轻标注已提示, 此处不重复打扰)
         var _s06Err = (typeof window._tdsS06Status === "function") ? window._tdsS06Status().err : null;
         var _consDeg = _s06Err ? ' <span style="opacity:.65">· S06快照不可用(' + _esc(String(_s06Err)) + '),该票按保留计</span>' : "";
         html += '<div class="term-pop-consensus' + _dimCls + '" data-no-pop="" title="' + _esc(CONS_TIP) + '">🤝 AI 信号认可度 <b>' + (isFinite(_cy) ? _cy : "—") + '/8 分</b> · 当日认可 <b>' + _cxTxt + '</b>' + _consDeg + '</div>';
