@@ -10,6 +10,11 @@ new14(NEW14·14键) 两个基座间动态切换。前端只读本快照按日期
 size_spread + s06_grid_selection_freeze.py 冻结值逐位对齐, 报告=docs/kelly/analysis/codex-auto-external-factor-final-20260825.md)
   - 因子: size_spread(t) = (csi1000_close[t]/csi1000_close[t-20] - 1)*100 - (hs300_close[t]/hs300_close[t-20] - 1)*100
     (纯 trailing 20 日收益, 不含未来 K 线; csi1000∩hs300 交集交易日序列, 前 20 日无值=null)
+  - ⚠方案2(2026-09-02 用户拍板, task #39): 2014 前段(20100201~20141113)csi1000 无数据(数据源 20141017 起),
+    用同构价差代理因子 csi500_ret20 - hs300_ret20(%)生成前段 daily 行并 prepend 进快照, 消灭 110 笔老信号
+    (20110119~20141113)的 out_of_range_fallback 永久兜底。前端判定逻辑零改动(数据命中断言)。
+    前段 sticky 状态机与生产同语义(T 日收盘判 T+1 生效/进入 a9 立即/退出需连续破坏 15 且持满 10),
+    种子 PRE_OFF=new14; 拼接缝 20141113→20141114 不跨缝传(现快照 20141114 首日独立 seed new14 逐位不变)。
   - 判定: T 日收盘 premise(T) = size_spread(T) < THRESHOLD → T+1 日生效(防前视 §5.1⑥)
   - 状态机(sticky_array): 进入 A 立即(premise 真次日生效); 处于 A 时 premise 连续破坏 CONFIRM_DAYS 个
     交易日后切回兜底, 且 A 最短持有 MIN_HOLD_DAYS 个交易日; 首个交易日恒为兜底(off_base)
@@ -28,19 +33,22 @@ size_spread + s06_grid_selection_freeze.py 冻结值逐位对齐, 报告=docs/ke
               2024 +4,296 / 2025 -3,538(唯一变差年, 诚实标注不隐瞒) / 2026 +2,344,
               合计 +6,136(=100,572-94,436)
 
-【输入依赖】$REPO/static-site/data/index/{csi1000,hs300}-all.json 的 ohlc.close 收盘序列(只读生产源,
-  不写 DB 不碰根目录 data/)
+【输入依赖】$REPO/static-site/data/index/{csi1000,csi500,hs300}-all.json 的 ohlc.close 收盘序列(只读生产源,
+  不写 DB 不碰根目录 data/; csi500 仅前段代理因子用)
 【输出】${REPO}/static-site/data/kelly_mode_s06_state.json(schema 见 handoff docs/codex-reviews/
-  s06-mode-implementation-handoff-20260825.md §四); 同步镜像一份到 ${GIT_REPO}/static-site/data/(rsync 渠道,
+  s06-mode-implementation-handoff-20260825.md §四 + 方案2 设计 docs/kelly/analysis/
+  s06-seg-style-eliminate-fallback-design.md §2.4); 同步镜像一份到 ${GIT_REPO}/static-site/data/(rsync 渠道,
   deploy.sh 会 rsync ${REPO} 到 ${GIT_REPO}, 此处直写消除时序窗口, 同 deploy.sh 项6 先例)
 【关键参数种子(⚠改任何一项必须同步: purpose-notes.js/app.js/lab.js 三处公示文案数值 + check_s06_state.py 机检)】
   THRESHOLD       = -3.524224785046781   # 2016-2020 选段 q30 冻结值(未用验段/全史分位调参, codex §三.5)
   CONFIRM_DAYS    = 15                   # A 前提连续破坏确认期(q20-q60×cd 敏感性全部胜静态 NEW14)
   MIN_HOLD_DAYS   = 10                   # A 最短持有交易日
+  PRE_OFF         = "new14"              # 方案2 前段种子(2026-09-02 用户拍板; 同 OFF_BASE)
 【复现命令】python3 scripts/gen_kelly_mode_s06_state.py            # 默认 REPO=/Users/linhuichen/code/trade-data
            python3 scripts/gen_kelly_mode_s06_state.py --repo /path/to/trade-data [--git-repo /path/to/trade]
 【确定性声明】状态机只依赖收盘历史序列, 同输入同输出; 新交易日只 append, 重跑不改变历史 daily 数组
-  (指数历史 K 线若被数据源复权修正则整段重算——诚实标注: 属数据源修正而非算法变化)。
+  (指数历史 K 线若被数据源复权修正则整段重算——诚实标注: 属数据源修正而非算法变化; 方案2 前段 prepend
+  一次成形, 重跑保持逐位稳定)。
 
 上线渠道(§22 三步, 由主控 merge 后执行或随盘后链): ①本脚本生成 $REPO+git 两处 static-site/data/
 ②R2 上传(upload_r2.py 对应命令) ③deploy.sh 随 export 链同步。前端 fetch=./data/kelly_mode_s06_state.json
@@ -60,7 +68,10 @@ CONFIRM_DAYS = 15                # A 前提连续破坏确认期(交易日)
 MIN_HOLD_DAYS = 10               # A 最短持有交易日
 ON_BASE = "a9"                   # premise 成立期间基座 = A 进攻王
 OFF_BASE = "new14"               # 兜底基座 = NEW14·14键(2026-09-01 用户拍板从 new15 换 new14, 08-29 验证 Δ+4,630)
+PRE_OFF = "new14"                # 方案2 前段种子(2026-09-02 用户拍板; 前段首日无决策日 → new14, 同生产首日语义)
 LOOKBACK = 20                    # ret20 回看窗口(交易日)
+PRE_FROM = "20100201"            # 方案2 前段覆盖起始日(交集序列去掉前 LOOKBACK 无值日后的首日)
+PRE_TO = "20141113"              # 方案2 前段覆盖末日(= 生产因子可判前一日; 现快照 daily[0]=20141114 保持不动)
 
 MODE_ID = "s06"
 SCHEMA_VERSION = 1
@@ -164,6 +175,29 @@ def main() -> int:
     covered = [d for d in common_dates if d in spread]
 
     daily = build_daily(covered, spread)
+
+    # ── 方案2: 2014 前段代理因子行(2026-09-02 用户拍板, task #39)──
+    # 前段 csi1000 无数据(数据源 20141017 起) → 用 csi500_ret20 - hs300_ret20 同构价差代理;
+    # sticky 状态机同生产 build_daily 语义(T 日收盘判 T+1 生效/进入 a9 立即/退出需连续破坏 15 且持满 10),
+    # 种子 PRE_OFF=new14(前段首日无决策日 → new14, 同生产首日语义)。参数全为固定常数, 无全期分位/滚动拟合(防前视 §5.1⑥)。
+    pre_daily: list[dict] = []
+    if PRE_FROM and PRE_TO:
+        c5 = load_closes(args.repo, "csi500")
+        pre_common = sorted(set(c5) & set(hs))
+        if pre_common:
+            r_c5 = roll_ret(c5, pre_common, LOOKBACK)
+            r_hs_pre = roll_ret(hs, pre_common, LOOKBACK)
+            pre_spread = {d: r_c5[d] - r_hs_pre[d] for d in pre_common if d in r_c5 and d in r_hs_pre}
+            pre_covered = [d for d in pre_common if PRE_FROM <= d <= PRE_TO and d in pre_spread]
+            if pre_covered:
+                pre_daily = build_daily(pre_covered, pre_spread)
+
+    # prepend: [前段行(20100201..20141113)] ++ [原生产 daily 行(20141114..)]
+    # 现快照 daily[0]=20141114 是独立 seed new14 行(decision_date=None), prepend 不改它;
+    # 拼接缝 20141113→20141114 不跨缝传(前段末日 sticky 状态不传给 20141114)→ 20141114 仍逐位不变(设计 §2.3)。
+    daily_full = pre_daily + daily
+    coverage_start = (pre_daily[0]["date"] if pre_daily else covered[0]) if covered or pre_daily else None
+
     snap = {
         "version": SCHEMA_VERSION,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -172,20 +206,28 @@ def main() -> int:
         "confirm_days": CONFIRM_DAYS,
         "min_hold_days": MIN_HOLD_DAYS,
         "lookback_days": LOOKBACK,
-        "factor": "csi1000_ret20 - hs300_ret20 (%)",
+        "factor": "csi1000_ret20 - hs300_ret20 (%) (2014-11-14 起) / csi500_ret20 - hs300_ret20 (%) (2014-11-13 前)",
         "on_base": ON_BASE,
         "off_base": OFF_BASE,
         "decision_timing": "T_close_signal_T_plus_1_execution",
-        "coverage_start": covered[0] if covered else None,
-        "coverage_end": covered[-1] if covered else None,
-        "daily": daily,
-        "current": current_block(daily),
+        "coverage_start": coverage_start,
+        "coverage_end": (covered[-1] if covered else (pre_daily[-1]["date"] if pre_daily else None)),
+        "pre_segment": {
+            "feature": "csi500_ret20 - hs300_ret20 (%)",
+            "date_from": (pre_daily[0]["date"] if pre_daily else PRE_FROM),
+            "date_to": (pre_daily[-1]["date"] if pre_daily else None),
+            "proxy_reason": "csi1000 数据源 20141017 起, 2014 前段无生产因子, 用户拍板 csi500 代理",
+        } if pre_daily else None,
+        "daily": daily_full,
+        "current": current_block(daily_full),
         "_provenance": {
             "generator": "scripts/gen_kelly_mode_s06_state.py",
-            "inputs": ["static-site/data/index/csi1000-all.json", "static-site/data/index/hs300-all.json"],
+            "inputs": ["static-site/data/index/csi1000-all.json", "static-site/data/index/hs300-all.json",
+                       "static-site/data/index/csi500-all.json(前段代理)"],
             "threshold_source": "2016-2020 选段 q30 冻结(codex s06_grid_selection_freeze.py, 未用验段/全史分位)",
             "backtest_anchor": "codex008-F2 新语义引擎重跑 2026-08-26(s06_newsem_vs_14plus1.py): val=+100572.43 mdd=-3811.27 forced=+82761.50 vs 静态NEW14+1 +83718.16; 分年差 vs 旧语义: 2022 +1014/2023 +2019/2024 +4296/2025 -3538(变差)/2026 +2344",
             "report": "docs/kelly/analysis/codex-auto-external-factor-final-20260825.md",
+            "pre_segment_design": "docs/kelly/analysis/s06-seg-style-eliminate-fallback-design.md §2(方案2, 2026-09-02 用户拍板)",
         },
     }
 
@@ -202,9 +244,10 @@ def main() -> int:
         os.replace(tmp, t)  # 原子写, 防半截文件被前端拉走
         print("✓ wrote", t, f"({len(body)} bytes)")
 
-    n_a9 = sum(1 for r in daily if r["effective_mode"] == "a9")
-    switches = sum(1 for i in range(1, len(daily)) if daily[i]["effective_mode"] != daily[i - 1]["effective_mode"])
-    print(f"  coverage {covered[0]}~{covered[-1]} days={len(daily)} a9_days={n_a9} switches={switches} "
+    n_a9 = sum(1 for r in daily_full if r["effective_mode"] == "a9")
+    switches = sum(1 for i in range(1, len(daily_full)) if daily_full[i]["effective_mode"] != daily_full[i - 1]["effective_mode"])
+    print(f"  coverage {coverage_start}~{snap['coverage_end']} days={len(daily_full)} "
+          f"(pre {len(pre_daily)} + prod {len(daily)}) a9_days={n_a9} switches={switches} "
           f"current={snap['current']}")
     return 0
 

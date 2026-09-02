@@ -4,7 +4,14 @@
 【目的】把 S06 快照(kelly_mode_s06_state.json)的四类一致性固化成一条命令, 任一 FAIL 阻断上线:
   A1 第二实现复算: 用「不 import 生成器」的独立状态机(按 handoff 口径重写 sticky 语义)对同因子序列
      复算 effective_mode, 与快照 daily 逐位相等(防生成器单实现自证)。
+     ⚠方案2(2026-09-02 用户拍板, task #39): 快照 prepend 2014 前段(20100201~20141113)行,
+       前段因子=csi500_ret20 - hs300_ret20(代理, csi1000 数据源 20141017 起无前段)。
+       A1 拆两段独立复算: 前段用 csi500-hs300 spread 对 20100201~20141113 序列跑 sticky,
+       后段(20141114 起)用 csi1000-hs300, 两段拼接后与快照全 daily 逐位相等。
   A2 decision_date: 每行 decision_date == 上一交易日(daily[i-1].date; 首行为 null)(防前视 §5.1⑥)。
+     ⚠拼接缝特例: 前段末行 20141113 的 sticky 状态不跨缝传 → 缝行(20141114)保持独立 seed
+       decision_date=None(与生成器 build_daily 同语义, 设计 §2.3)。A2 对「pre_segment 存在时的
+       缝行」特判免检, 其余行照旧ng。
   A3 键集对齐: 快照 on_base/off_base 指向的 common.js 预设(a9/new14)keys 与预设表逐位相等,
      且 s06 预设本身 dynamic=true 无静态 keys(防前端第二份键集/静态展开)。
   A4 阈值/参数单源: json.threshold==生成器常量(ast 抽取, 非手抄)==confirm/min_hold/lookback;
@@ -14,13 +21,18 @@
      (旧语义 held 只在命中日递增 → 持续非命中场景 a9 锁死 P0); 另以合成长序列 fixture 断言
      「进入后持续非命中必于 confirm_days 个非命中日切出」「命中打断 broken 后 held 仍按时间走」
      (T 日收盘出信号 T+1 生效对齐)。held 新语义=a9 生效交易日数(2026-08-26 用户拍板)。
+  A6 方案2 前段元数据(2026-09-02): pre_segment 字段存在且 feature/date_from/date_to 与生成器
+     PRE_FROM/PRE_TO 一致; 前段行全部落在 pre_segment 区间; 缝行(20141114)effective_mode 为
+     off_base(new14)且不跨缝(前段末行的 sticky 状态不得传给缝行)→ 110 笔老信号(20110119~20141113)
+     全部可被新快照 byDate 命中, 消灭 out_of_range_fallback 永久兜底。
 
 【输入依赖】--repo(git 仓, 默认脚本上级): static-site/data/kelly_mode_s06_state.json /
   static-site/common.js / static-site/purpose-notes.js / scripts/gen_kelly_mode_s06_state.py;
-  --data-repo(trade-data 仓): static-site/data/index/{csi1000,hs300}-all.json(A1 因子输入)。
+  --data-repo(trade-data 仓): static-site/data/index/{csi1000,csi500,hs300}-all.json(A1 因子输入;
+  csi500 仅方案2 前段代理因子用)。
 【输出】stdout 各断言 PASS/FAIL 明细; 全 PASS=0, 任一 FAIL=1(deploy 同链签名, FAIL 阻断)。
-【关键口径一句话】快照是唯一事实源: 独立复算逐位一致 + decision 时序无穿越 + 两基座键集与预设全等 +
-  阈值三处(json/生成器/公示)同源。
+【关键口径一句话】快照是唯一事实源: 独立复算(前段 csi500-hs300 + 后段 csi1000-hs300 拼接)逐位一致 +
+  decision 时序无穿越(缝行特判) + 两基座键集与预设全等 + 阈值三处(json/生成器/公示)同源 + 前段元数据在案。
 【复现命令】python3 scripts/check_s06_state.py [--repo /path/to/trade] [--data-repo /path/to/trade-data]
 """
 from __future__ import annotations
@@ -142,7 +154,8 @@ def extract_gen_constants(gen_path: Path) -> dict[str, object]:
     for node in tree.body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             nm = node.targets[0].id
-            if nm in ("THRESHOLD", "CONFIRM_DAYS", "MIN_HOLD_DAYS", "LOOKBACK", "ON_BASE", "OFF_BASE"):
+            if nm in ("THRESHOLD", "CONFIRM_DAYS", "MIN_HOLD_DAYS", "LOOKBACK", "ON_BASE", "OFF_BASE",
+                      "PRE_FROM", "PRE_TO", "PRE_OFF"):
                 try:
                     consts[nm] = ast.literal_eval(node.value)
                 except Exception:  # noqa: BLE001
@@ -162,6 +175,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="S06 快照机检(独立复算+时序+键集+阈值单源)")
     ap.add_argument("--repo", default=str(DEFAULT_REPO))
     ap.add_argument("--data-repo", default=str(DEFAULT_DATA_REPO))
+    ap.add_argument("--gen-path", default="",
+                    help="生成器脚本路径(默认 {repo}/scripts/gen_kelly_mode_s06_state.py)。"
+                         "worktree 开发验证期新生成器在 worktree、快照在主树时显式传 worktree 脚本;"
+                         "生产 deploy 链(merge 后同树)用默认即可")
     ap.add_argument("--allow-lag-days", type=int, default=0,
                     help="deploy 时序容差(codex008 F1): 允许快照落后因子数据 ≤N 个已入库交易日"
                          "(仅限快照 dates 是复算 covered 序列的前缀=无中间缺日; 缺失/结构不一致/"
@@ -171,9 +188,11 @@ def main() -> int:
     data_repo = Path(args.data_repo).resolve()
 
     snap_path = repo / "static-site" / "data" / "kelly_mode_s06_state.json"
+    gen_path = Path(args.gen_path).resolve() if args.gen_path else repo / "scripts" / "gen_kelly_mode_s06_state.py"
     need = [snap_path, repo / "static-site" / "common.js", repo / "static-site" / "purpose-notes.js",
-            repo / "scripts" / "gen_kelly_mode_s06_state.py",
+            gen_path,
             data_repo / "static-site" / "data" / "index" / "csi1000-all.json",
+            data_repo / "static-site" / "data" / "index" / "csi500-all.json",
             data_repo / "static-site" / "data" / "index" / "hs300-all.json"]
     for p in need:
         if not p.exists():
@@ -188,51 +207,82 @@ def main() -> int:
           f"current={json.dumps(snap.get('current'), ensure_ascii=False)}")
     print()
 
-    # ── A1 独立第二实现复算 ──
+    # ── A1 独立第二实现复算(方案2 拆两段: 前段 csi500-hs300 代理 + 后段 csi1000-hs300 生产)──
     csi = load_closes(data_repo, "csi1000")
+    csi5 = load_closes(data_repo, "csi500")
     hs = load_closes(data_repo, "hs300")
+
+    def roll(series: dict[str, float], common: list[str], n: int) -> dict[str, float]:
+        vals = [series[d] for d in common]
+        return {common[i]: (vals[i] / vals[i - n] - 1) * 100 for i in range(n, len(vals))}
+
+    # 后段(生产因子): csi1000-hs300, 覆盖 2014-11-14 起(与快照后段 daily 对齐)
     common_dates = sorted(set(csi) & set(hs))
-
-    def roll(series: dict[str, float], n: int) -> dict[str, float]:
-        vals = [series[d] for d in common_dates]
-        return {common_dates[i]: (vals[i] / vals[i - n] - 1) * 100 for i in range(n, len(vals))}
-
-    r_csi, r_hs = roll(csi, snap["lookback_days"]), roll(hs, snap["lookback_days"])
+    r_csi, r_hs = roll(csi, common_dates, snap["lookback_days"]), roll(hs, common_dates, snap["lookback_days"])
     spread = {d: r_csi[d] - r_hs[d] for d in common_dates if d in r_csi and d in r_hs}
     covered = [d for d in common_dates if d in spread]
     indep, trace = independent_state_machine(covered, spread, snap["threshold"], snap["confirm_days"],
                                              snap["min_hold_days"], snap["on_base"], snap["off_base"])
+    # 前段(方案2 代理因子): csi500-hs300, 覆盖 pre_segment 区间(20100201~20141113); 独立跑
+    # sticky(前段末行状态不跨缝传, 与生成器 build_daily 同语义)。参数全固定常数, 无全期分位(§5.1⑥)。
+    pre_seg = snap.get("pre_segment") or {}
+    pre_indep: list[str] = []
+    pre_trace: list[tuple[int, int]] = []
+    pre_covered: list[str] = []
+    if pre_seg.get("date_from") and pre_seg.get("date_to"):
+        pre_common = sorted(set(csi5) & set(hs))
+        r_c5, r_hs_pre = (roll(csi5, pre_common, snap["lookback_days"]),
+                          roll(hs, pre_common, snap["lookback_days"]))
+        pre_spread = {d: r_c5[d] - r_hs_pre[d] for d in pre_common if d in r_c5 and d in r_hs_pre}
+        pre_covered = [d for d in pre_common
+                       if pre_seg["date_from"] <= d <= pre_seg["date_to"] and d in pre_spread]
+        pre_indep, pre_trace = independent_state_machine(
+            pre_covered, pre_spread, snap["threshold"], snap["confirm_days"],
+            snap["min_hold_days"], snap["on_base"], snap["off_base"])
+    full_indep = pre_indep + indep
+    full_trace = pre_trace + trace
     snap_modes = [r["effective_mode"] for r in daily]
-    # ── deploy 时序容差(codex008 F1, P0①)──
+    # ── deploy 时序容差(codex008 F1, P0①; 方案2 仅后段谈容差, 前段为冻结历史)──
     # update_all 17:50 链内 deploy 时因子(index-all.json)已更新到 T, 而 S06 快照仍是前晚
     # 20:35 生成(coverage_end=T-1)——这是每日固定时序窗口, 不是数据错误。deploy 模式传
     # --allow-lag-days 1 容忍「快照落后 ≤N 个已入库交易日」, 但仅限:
-    #   ① lag = len(covered)-len(dates) ∈ [0, N](落后方向正确且不超容差; 快照比复算长=异常)
-    #   ② dates 是 covered 的严格前缀(无中间缺日/错位, 结构不一致仍 FAIL)
-    # 截尾后逐位比对(covered[:len(dates)] vs indep[:len(dates)] vs snap_modes),
+    #   ① lag = len(covered)-len(后段快照行) ∈ [0, N](落后方向正确且不超容差; 快照比复算长=异常)
+    #   ② 后段快照日期是 covered 的严格前缀(无中间缺日/错位, 结构不一致仍 FAIL)
+    # 截尾后逐位比对(前段全量 + 后段 covered[:len(后段快照行)] vs full_indep vs snap_modes),
     # 缺失/解析失败/超容差/结构不一致仍硬阻断; 日常新鲜度由 check_s06_freshness 监控兜底。
-    lag = len(covered) - len(dates)
+    pre_n = len(pre_indep)
+    dates_prod = dates[pre_n:]                       # 快照后段日期
+    lag = len(covered) - len(dates_prod)
     allow_lag = max(0, args.allow_lag_days)
-    prefix_ok = lag >= 0 and dates == covered[: len(dates)]
+    prefix_ok = lag >= 0 and dates_prod == covered[: len(dates_prod)]
     within_tol = 0 <= lag <= allow_lag
     same_universe = prefix_ok and within_tol
     if same_universe and lag > 0:
-        cmp_covered, cmp_indep = covered[: len(dates)], indep[: len(dates)]
+        cmp_covered, cmp_indep = pre_covered + covered[: len(dates_prod)], pre_indep + indep[: len(dates_prod)]
     else:
-        cmp_covered, cmp_indep = covered, indep
+        cmp_covered, cmp_indep = pre_covered + covered, full_indep
     mismatch = [(d, a, b) for d, a, b in zip(cmp_covered, cmp_indep, snap_modes) if a != b]
     record("A1 独立第二实现复算", (not mismatch) and same_universe,
-           (f"覆盖期/日历一致({len(cmp_covered)} 日), {len(snap_modes)} 行逐位相等"
-            + (f"(快照落后 {lag} 个交易日≤容差{allow_lag}, deploy 时序窗口内截尾比对)" if lag > 0 else "")
+           (f"前段(csi500-hs300) {len(pre_indep)} 日 + 后段(csi1000-hs300) {len(indep)} 日拼接, "
+            f"{len(snap_modes)} 行逐位相等"
+            + (f"(后段快照落后 {lag} 个交易日≤容差{allow_lag}, deploy 时序窗口内截尾比对)" if lag > 0 else "")
             if (not mismatch and same_universe)
             else (f"universe一致={same_universe}(lag={lag}{'>' + str(allow_lag) + ' 超容差' if not within_tol and prefix_ok else ''}); "
                   f"不一致 {len(mismatch)} 行, 首3={mismatch[:3]}")))
 
-    # ── A2 decision_date 时序 ──
-    bad_dd = [r["date"] for i, r in enumerate(daily)
-              if r.get("decision_date") != (dates[i - 1] if i > 0 else None)]
+    # ── A2 decision_date 时序(方案2 拼接缝特判: 缝行=生产首日 20141114 独立 seed, decision_date=None)──
+    prod_first = covered[0] if covered else None
+    bad_dd = []
+    for i, r in enumerate(daily):
+        if pre_seg and prod_first and r["date"] == prod_first:
+            # 拼接缝行: 前段末行 20141113 的 sticky 状态不跨缝传 → 缝行必须独立 seed(decision_date=None)
+            if r.get("decision_date") is not None:
+                bad_dd.append(r["date"])
+        elif r.get("decision_date") != (dates[i - 1] if i > 0 else None):
+            bad_dd.append(r["date"])
     record("A2 decision_date==上一交易日", not bad_dd,
-           f"{len(daily)} 行时序无穿越" if not bad_dd else f"违规 {len(bad_dd)} 行, 首3={bad_dd[:3]}")
+           f"{len(daily)} 行时序无穿越" + (f"(拼接缝行 {prod_first} 独立 seed 特判)" if pre_seg and prod_first else "")
+           if not bad_dd else f"违规 {len(bad_dd)} 行, 首3={bad_dd[:3]}")
 
     # ── A3 键集对齐 ──
     common_txt = (repo / "static-site" / "common.js").read_text(encoding="utf-8")
@@ -260,7 +310,7 @@ def main() -> int:
             else "; ".join(problems) or "ALL_KEYS 未定义"))
 
     # ── A4 阈值/参数/公示数字单源 ──
-    gen_consts = extract_gen_constants(repo / "scripts" / "gen_kelly_mode_s06_state.py")
+    gen_consts = extract_gen_constants(gen_path)
     checks = [
         ("threshold", snap["threshold"], gen_consts.get("THRESHOLD")),
         ("confirm_days", snap["confirm_days"], gen_consts.get("CONFIRM_DAYS")),
@@ -293,10 +343,11 @@ def main() -> int:
             if (not bad_const and not missing_pub) else
             f"常量不一致={bad_const}; 公示缺失={missing_pub}"))
 
-    # ── A5 锁死不变式(codex008 F2, P0②修复防回归)──
+    # ── A5 锁死不变式(codex008 F2, P0②修复防回归; 方案2 用前+后段拼接全史迹)──
     # ① 全史: 任一 a9 生效日不得同时满足 held>=min_hold 且 broken>=confirm_days
     #   (=退出条件已满足却未切出=锁死; 旧语义全史 457 天违例, 新语义必须 0 违例)
-    viol_days = lockfree_invariant_ok(indep, trace, snap["on_base"], snap["min_hold_days"], snap["confirm_days"])
+    viol_days = lockfree_invariant_ok(full_indep, full_trace, snap["on_base"],
+                                      snap["min_hold_days"], snap["confirm_days"])
     # ② 合成长序列 fixture: 持续非命中必于 confirm_days 个非命中日切出 + 命中打断 broken 后
     #   held 仍按时间走(T 收盘信号 T+1 生效对齐)
     fix_ok, fix_msg = synthetic_lockfree_fixture(snap["confirm_days"], snap["min_hold_days"], snap["threshold"])
@@ -305,6 +356,35 @@ def main() -> int:
             if (not viol_days and fix_ok) else
             f"锁死违例 {len(viol_days)} 日, 首3={[covered[i] for i in viol_days[:3]]}; fixture={'PASS' if fix_ok else 'FAIL: ' + fix_msg}"))
 
+    # ── A6 方案2 前段元数据(2026-09-02, task #39 消灭 110 笔永久兜底)──
+    pre_problems: list[str] = []
+    if not pre_seg:
+        pre_problems.append("快照缺 pre_segment 字段(方案2 未启用/被回退)")
+    else:
+        # ① pre_segment 与生成器 PRE_FROM/PRE_TO 一致(ast 抽取非手抄)
+        for jkey, gkey in (("date_from", "PRE_FROM"), ("date_to", "PRE_TO")):
+            if pre_seg.get(jkey) != gen_consts.get(gkey):
+                pre_problems.append(f"pre_segment.{jkey}={pre_seg.get(jkey)} vs 生成器 {gkey}={gen_consts.get(gkey)}")
+        # ② coverage_start 必须等于前段起始(PRE_FROM)
+        if snap.get("coverage_start") != gen_consts.get("PRE_FROM"):
+            pre_problems.append(f"coverage_start={snap.get('coverage_start')} vs PRE_FROM={gen_consts.get('PRE_FROM')}")
+        # ③ 前段行(区间内行数)与独立复算前段行数一致, 且全部落在 pre_segment 区间
+        seg_dates = [r["date"] for r in daily
+                     if pre_seg["date_from"] <= r["date"] <= pre_seg["date_to"]]
+        if len(seg_dates) != pre_n:
+            pre_problems.append(f"快照前段区间行数 {len(seg_dates)} != 独立复算前段行数 {pre_n}")
+        # ④ 前段因子 feature 说明标 csi500 代理(csi1000 数据源 20141017 才起, 前段必须代理)
+        if "csi500" not in pre_seg.get("feature", ""):
+            pre_problems.append(f"pre_segment.feature 未标 csi500 代理: {pre_seg.get('feature')}")
+        # ⑤ 缝行(生产首日)必须独立 seed: effective_mode==off_base 且 decision_date=None(A2 已查)
+        seam_row = next((r for r in daily if r["date"] == prod_first), None) if prod_first else None
+        if seam_row and seam_row["effective_mode"] != snap["off_base"]:
+            pre_problems.append(f"缝行 {prod_first} effective_mode={seam_row['effective_mode']} "
+                                f"!= off_base({snap['off_base']})(不得跨缝继承前段 sticky 状态)")
+    record("A6 方案2 前段元数据", not pre_problems,
+           ("pre_segment 在案(feature/date_from/date_to 与生成器一致); coverage_start=20100201; "
+            "缝行独立 seed 不跨缝" if not pre_problems else "; ".join(pre_problems)))
+
     ok_all = True
     for name, ok, detail in RESULTS:
         ok_all = ok_all and ok
@@ -312,7 +392,7 @@ def main() -> int:
     if not ok_all:
         print("✗ S06 快照机检 FAIL(阻断上线)")
         return 1
-    print("✓ S06 快照机检全 PASS(独立复算/时序/键集/阈值单源/锁死不变式五项)")
+    print("✓ S06 快照机检全 PASS(独立复算/时序/键集/阈值单源/锁死不变式/前段元数据六项)")
     return 0
 
 
