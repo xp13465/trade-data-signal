@@ -76,6 +76,7 @@
 |---|---|---|---|---|---|
 | 全球行情免费源穷举 | 数据源穷举 | 全球指数/期货免费数据源穷举实测(该功能唯一数据层文档,README L80 引用,留原处) | 2026-08 | [docs/global-ticker-free-source-research.md](global-ticker-free-source-research.md) | 报告内复现段 |
 | QVIX 免费异源穷举 | 数据源穷举 | optbbs→上交所 IV 自算→本地 RV 三重兜底实测(算法公示位 README L145 引用) | 2026-08-15 | [docs/qvix-rv/qvix-data-sources.md](qvix-rv/qvix-data-sources.md) | qvix-rv/scripts/calc_rv.py |
+| 北交所宽度宇宙纳入 | 影响面调研+拍板 | 宽度只算沪深 ~5185 只,北交所 339 不在统计;三方案推荐 C 单独出(不动冻结资产),选 A/C 须先挂 FAPI 定时+验 920 段历史覆盖 | 2026-09-02 | [docs/analysis/beijiao-exchange-width-universe-20260902.md](analysis/beijiao-exchange-width-universe-20260902.md) | 报告内复现段(只读 SQL);索引见 [analysis/README.md](analysis/README.md) |
 
 ## 7. 独立活文档(留 docs/ 根,勿搬)
 
