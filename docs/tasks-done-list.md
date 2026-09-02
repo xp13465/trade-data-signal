@@ -138,6 +138,7 @@
 ## 2026-08-21 回测结论落档(95)
 
 - [x] **#95 ETF→权重龙头个股回测结论** — 无实际价值,不推荐,维持 v1.1.3。结论:同 ¥10,000/信号基准,A(ETF)全面优于 B1/B2(TOP1个股),B3(TOP1-3并集)与A持平但3倍操作量且半凯利低4pp;ETF免印花税+单标的决策+无停牌退市风险。详见 docs/kelly/backtest-ai/etf-weight-leader/etf-weight-leader-conclusion.md
+- [x] **分支 feat/etf-weight-leader-b123-backtest 已废弃(2026-09-02)** — 研究已关闭,4 commit 内容均已吸收进 main(首页分栏计数 ff06d1ef4 已在 origin/main+线上 a529 验证,其余为回测实验脚本),分支本体陈旧(落后 main 700+)勿再合并。废弃标记:git tag `archive/etf-weight-leader-b123-backtest`(指向分支 tip ff06d1ef4,含废弃说明)。下次 `git branch -a` 见该分支先看此标记。
 
 ## 2026-08-29 凯利懒加载修复+性能优化(96-99)
 
