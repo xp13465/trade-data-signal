@@ -4,20 +4,20 @@ sensenova-rotate-proxy.py - 商汤 Sensenova 多 token 轮换本地代理(纯 ke
 
 用途:商汤 token.sensenova.cn 对 deepseek-v4-flash 按 RPM(每分钟请求数)限流,单 token 撞 429
       (inference tpm exhausted)会反复导致 implementer 死限流;客户端退避间隔写死 4 秒封顶调不了。
-      本代理在本地轮换 4 把 key,把 RPM 摊到 4 个池 = 变相 x4 吞吐。
+      本代理在本地轮换 5 把 key,把 RPM 摊到 5 个池 = 变相 x5 吞吐。
       只做纯 key 轮换:监听本地端口 -> round-robin 选 key -> 转发 token.sensenova.cn(base=/)
       -> 上游 429 时换下一把 key 重试(轻退避)。与 thinking_proxy.py(思考注入)完全无关、完全独立。
 
 用法(常驻,launchd 守护):
   bash scripts/sensenova-rotate-proxy.sh   # 包装脚本(负责从 .env 导出 key 再 exec 本代理)
   或直接(已注入 key 的 env):
-  SENSENOVA_KEY1=.. SENSENOVA_KEY2=.. SENSENOVA_KEY3=.. SENSENOVA_KEY4=.. \
+  SENSENOVA_KEY1=.. SENSENOVA_KEY2=.. SENSENOVA_KEY3=.. SENSENOVA_KEY4=.. SENSENOVA_KEY5=.. \
   python3 scripts/sensenova-rotate-proxy.py
   监听 127.0.0.1:8899(可 TTP_PORT 改),转发 https://token.sensenova.cn/
-  真实 key 禁进 git/日志;key 从 env 或 ../trade-data/.env(仓外)读 SENSENOVA_KEY1/2/3/4。
+  真实 key 禁进 git/日志;key 从 env 或 ../trade-data/.env(仓外)读 SENSENOVA_KEY1/2/3/4/5。
 
 激活步骤:
-  1. 确认 ../trade-data/.env 含 SENSENOVA_KEY1/2/3/4(本次已写入,仓外不提交)
+  1. 确认 ../trade-data/.env 含 SENSENOVA_KEY1/2/3/4/5(本次已写入,仓外不提交)
   2. launchctl load scripts/com.trade.thinking-proxy.plist(TTP_PROVIDER=sensenova-rotate 守护本脚本)
   3. settings.json env "ANTHROPIC_BASE_URL": "http://127.0.0.1:8899"(切换由用户拍板,本次未动 settings)
 
@@ -25,7 +25,7 @@ sensenova-rotate-proxy.py - 商汤 Sensenova 多 token 轮换本地代理(纯 ke
 回退:bash scripts/thinking-proxy-rollback.sh sento(还原 settings 直连单 token 原状 + 停代理)。
 
 env:
-  SENSENOVA_KEY1/2/3/4        # 4 把商汤 key;缺 1 把则仅用已有 key 轮换(round-robin 长度=已有 key 数)
+  SENSENOVA_KEY1/2/3/4/5      # 5 把商汤 key;缺 1 把则仅用已有 key 轮换(round-robin 长度=已有 key 数)
   SENSENOVA_ENV_FILE        # 回退读 .env 的路径,默认 /Users/linhuichen/code/trade-data/.env
   TTP_RETRY_ON_429=1        # 上游 429 时换下一把 key 重试(默认开)
   TTP_ROTATE_BACKOFF=0.3    # 429 换 key 重试的轻退避秒数(默认 0.3,避免把 3 池全打满)
@@ -44,13 +44,13 @@ SSL_CTX = ssl._create_unverified_context()  # 本地代理,跳过证书验证(�
 
 LOG = os.environ.get("TTP_LOG", "/Users/linhuichen/code/trade-data/data/logs/sensenova-rotate-req.log")
 
-# ═══ 4 把 key 加载(真实 key 禁进 git/日志)═══
-# 读取顺序:先看 env(SENSENOVA_KEY1/2/3/4),再回退读 ../trade-data/.env(仓外)。
+# ═══ 5 把 key 加载(真实 key 禁进 git/日志)═══
+# 读取顺序:先看 env(SENSENOVA_KEY1/2/3/4/5),再回退读 ../trade-data/.env(仓外)。
 # 缺 key 的:只加入有值 key 轮换;一把都没有 = 不启用轮换(回到单 key 直发,失败透明)。
-# 返回 (keys, key_nums):key_nums 与 keys 并行,记录每把 key 的序号(1/2/3/4),用于冷却日志标识。
+# 返回 (keys, key_nums):key_nums 与 keys 并行,记录每把 key 的序号(1/2/3/4/5),用于冷却日志标识。
 def _load_keys():
     keys, nums = [], []
-    for _i, _k in enumerate(("SENSENOVA_KEY1", "SENSENOVA_KEY2", "SENSENOVA_KEY3", "SENSENOVA_KEY4"), start=1):
+    for _i, _k in enumerate(("SENSENOVA_KEY1", "SENSENOVA_KEY2", "SENSENOVA_KEY3", "SENSENOVA_KEY4", "SENSENOVA_KEY5"), start=1):
         _v = os.environ.get(_k, "").strip()
         if _v:
             keys.append(_v)
@@ -67,7 +67,7 @@ def _load_keys():
                     continue
                 _kk, _vv = _line.split("=", 1)
                 _m[_kk.strip()] = _vv.strip().strip('"').strip("'")
-            for _i, _k in enumerate(("SENSENOVA_KEY1", "SENSENOVA_KEY2", "SENSENOVA_KEY3", "SENSENOVA_KEY4"), start=1):
+            for _i, _k in enumerate(("SENSENOVA_KEY1", "SENSENOVA_KEY2", "SENSENOVA_KEY3", "SENSENOVA_KEY4", "SENSENOVA_KEY5"), start=1):
                 _v = _m.get(_k, "").strip()
                 if _v:
                     keys.append(_v)
@@ -84,23 +84,50 @@ ROTATE_BACKOFF = float(os.environ.get("TTP_ROTATE_BACKOFF", "0.3"))
 _rotate_idx = 0
 _rotate_lock = threading.Lock()
 
+# ═══ 9-14 高峰主动限频(2026-09-01 用户拍板,B方案②)═══
+# 北京时间 9:00-14:00 为 quota 型 429 高峰(日志实测延伸至 16:00,诚实标注见
+# docs/sensenova/sensenova-cooling-recovery-distribution.md;默认窗口按用户拍板写死 9-14)。
+# 高峰行为:①该 key 冷却时长 ×PEAK_COOL_MULT(翻倍,高峰恢复更慢,减少空转)
+#          ②429 换 key 退避提升至 PEAK_ROTATE_BACKOFF(降低高峰换 key 重试请求率)
+# 非高峰行为完全不变。窗口可用 TTP_PEAK_HOURS 覆盖(默认 "9-14",如想扩至 9-16 改 env 即可)。
+# ⚠️ 高峰按北京时间,节假日可能误判是已知边界。
+PEAK_HOURS = os.environ.get("TTP_PEAK_HOURS", "9-14")
+PEAK_START_HOUR, PEAK_END_HOUR = (int(x) for x in PEAK_HOURS.split("-"))
+PEAK_COOL_MULT = 2.0        # 高峰 quota 冷却时长倍率
+PEAK_ROTATE_BACKOFF = 1.5   # 高峰 429 换 key 退避秒数(非高峰 0.3,见 ROTATE_BACKOFF)
+
+def _is_peak_hour():
+    """北京时间高峰窗口判定:[PEAK_START, PEAK_END) 含头不含尾(默认 9<=h<14 即 9/10/11/12/13 点)。"""
+    _h = time.localtime().tm_hour
+    return PEAK_START_HOUR <= _h < PEAK_END_HOUR
+
+def _rotate_backoff():
+    """429 换 key 重试退避秒数:高峰 1.5s(下限),非高峰 0.3s(env 可改更大)。"""
+    if _is_peak_hour():
+        return max(ROTATE_BACKOFF, PEAK_ROTATE_BACKOFF)
+    return ROTATE_BACKOFF
+
 # ═══ 单 key 分层冷却(429 额度型限流,2026-09-01 用户定)═══
 # 商汤 429 分两类:短时限流(inference tpm / rpm exhausted)靠换 key 重试即解,不冷却;
 # 账户额度型(token plan entitlement / Allocated quota)刷新,换 key 无用 → 单 key 冷却,
-# 轮换跳过它,其他 key 正常(4 把 key = 4 个独立账号额度,按 key 隔离不整池)。
-# 冷却序列(先探后拉长,2026-09-01 根治):level0=60s 起步,每级 ×2(60/120/240/480/960/1920s)封顶 32min。
-# 旧版 30min/1h 起步过长——直连实测 KEY3/4 冷却后几分钟就恢复(20:42 标冷却,20:49 直连 200),
-# 被锁到 21:12 白白浪费可用 key,只剩单 key 扛撞 tpm。缩短起步让"假恢复"key 1 分钟内复役;
-# 真死 key 靠递增退避自然隔离,不会狂试。
-# 冷却结束再触发 → 重置回 level0:key 在冷却后若成功过(非429响应)则清冷却,新触发即 fresh level=0。
-COOL_L0_SEC = 60           # level 0 冷却 60 秒起步
-COOL_MAX_LEVEL = 6         # level 封顶(60/120/240/480/960/1920s 六档,真死 key 递增隔离)
+# 轮换跳过它,其他 key 正常(5 把 key = 5 个独立账号额度,按 key 隔离不整池)。
+# 冷却序列(先探后拉长,2026-09-01 数据定档,依据 docs/sensenova/sensenova-cooling-recovery-distribution.md):
+#   level0=180s(3min)起步,每级 ×2(180/360/720/1440/2880s)封顶 48min。
+#   定档数据:60s 起步冷却下,解除后 p50 仅 48s 又撞 quota 429(36% 场景 <30s 又撞)= 空转实锤;
+#   3min 起步越过「假恢复快速又撞」区(p50=48s),解除时点配额恢复更充分,单次可用期拉长;
+#   封顶 48min 覆盖冷却占用 p99(39.9min)的极端恢复场景。真死 key 靠递增退避自然隔离,不会狂试。
+#   冷却结束再触发 → 重置回 level0:key 在冷却后若成功过(非429响应)则清冷却,新触发即 fresh level=0。
+COOL_L0_SEC = 180          # level 0 冷却 180 秒(3min)起步(数据定档,替代旧 60s)
+COOL_MAX_LEVEL = 5         # level 封顶(180/360/720/1440/2880s 五档,真死 key 递增隔离)
 _cool = {}                 # key -> {"until": epoch, "level": int}(内存,不落盘)
 _cool_lock = threading.Lock()
 
 def _cool_duration_sec(level):
-    """递增退避:level0=60s,level1=120s,...,封顶 1920s(32min)。恢复快的 key 1 分钟内复役,真死 key 递增拉长。"""
-    return min(COOL_L0_SEC * (2 ** min(level, COOL_MAX_LEVEL - 1)), 32 * 60)
+    """递增退避:level0=180s,level1=360s,...,封顶 2880s(48min)。
+    定档依据:日志 60s 冷却下解除后 p50 仅 48s 又撞 quota 429(36% <30s)= 空转;
+    3min 起步越过假恢复区,封顶 48min 覆盖冷却占用 p99(39.9min)。
+    恢复快的 key 3 分钟内复役,真死 key 递增拉长。"""
+    return min(COOL_L0_SEC * (2 ** min(level, COOL_MAX_LEVEL - 1)), 48 * 60)
 
 def _parse_429_msg(resp_text):
     """从 429 响应 JSON 解析 error.message,区分短时限流 vs 账户额度型。
@@ -125,20 +152,24 @@ def _parse_429_msg(resp_text):
 
 def _mark_cool(key, key_num, msg):
     """额度型 429 → 标记单 key 冷却。entry 存在(上次冷却未成功即再触发)= escalation level+1;
-    无 entry(首次/冷却后成功过)= fresh level 0(重置回 60s)。封顶 COOL_MAX_LEVEL。"""
+    无 entry(首次/冷却后成功过)= fresh level 0(重置回 180s)。封顶 COOL_MAX_LEVEL。
+    高峰窗口内冷却时长 ×PEAK_COOL_MULT(翻倍),减少高峰空转(9-14 高峰,见 _is_peak_hour)。"""
     with _cool_lock:
         _entry = _cool.get(key)
         if _entry:
             _level = min(_entry["level"] + 1, COOL_MAX_LEVEL)
         else:
             _level = 0
-        _until = time.time() + _cool_duration_sec(_level)
+        _dur = _cool_duration_sec(_level)
+        if _is_peak_hour():
+            _dur = int(_dur * PEAK_COOL_MULT)
+        _until = time.time() + _dur
         _cool[key] = {"until": _until, "level": _level}
-    _dur = f"{_cool_duration_sec(_level)//60}min"
-    logmsg(f"COOL KEY{key_num} until {time.strftime('%H:%M', time.localtime(_until))} msg={msg} level={_level} ({_dur})")
+    _dur_min = f"{_dur//60}min"
+    logmsg(f"COOL KEY{key_num} until {time.strftime('%H:%M', time.localtime(_until))} msg={msg} level={_level} ({_dur_min})")
 
 def _unmark_cool(key):
-    """成功响应(非429/400)后清除该 key 冷却,使下次额度型 429 重新从 60s 探(重置)。"""
+    """成功响应(非429/400)后清除该 key 冷却,使下次额度型 429 重新从 180s 探(重置)。"""
     with _cool_lock:
         _cool.pop(key, None)
 
@@ -149,6 +180,16 @@ def _cooled_out(key):
         if not _e:
             return False
         return time.time() < _e["until"]
+
+# ═══ 全 key 冷却时保守整体退避(2026-09-01 用户拍板,B方案③保守版)═══
+# 全部 key 冷却中 → 不直接返回 429,进入递增退避等待(30s 起步 ×2,单次封顶 8min),
+# 退避期间不发请求(不把 key 打进长冷却),到点重新探测是否有 key 恢复可复用;
+# 累计等待超 ALL_COOL_BACKOFF_CAP(8min)仍全冷却 → 如实返回 429。
+# ⚠️ 明确:这是保守等待重试版,不做「容量超载」判定——响应特征分不清容量 vs 配额,
+#     避免误判,只做等待重试(非容量判定逻辑)。
+ALL_COOL_BACKOFF_L0 = 30      # 全冷却整体退避 30s 起步
+ALL_COOL_BACKOFF_MAX = 480    # 单次退避封顶 480s(8min)
+ALL_COOL_BACKOFF_CAP = 480    # 累计等待上限 480s(8min),超限仍全冷却 → 返回 429
 
 # 日志大小上限:超过即裁剪只留尾部(保留最近日志,防无限膨胀;2026-09-01 用户定
 # "文件别太大,问题出现时最近的错误日志就够")。LOG_MAX_BYTES=20MB,裁剪留尾 10MB。
@@ -367,26 +408,47 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if _rot:
                 try_keys = _rot
             else:
-                # 全部 key 冷却中(极端):不静默,如实返回 429 给客户端
-                logmsg("ALL KEYS COOLED, return 429")
-                _b = b'{"type":"error","error":{"type":"rate_limit_error","message":"all keys cooling (quota exhausted)"}}'
-                self.send_response(429)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(_b)))
-                self.end_headers()
-                self.wfile.write(_b)
-                return
+                # 全部 key 冷却中(极端):保守整体退避(2026-09-01 用户拍板,B方案③保守版)。
+                # 30s 起步递增等待,退避期间不发请求(不把 key 打进长冷却),到点重新探测
+                # 是否有 key 恢复;累计超 8min 仍全冷却 → 如实返回 429。
+                # ⚠️ 保守版,非容量判定:响应特征分不清容量 vs 配额,只做等待重试,不做断言。
+                _wait = ALL_COOL_BACKOFF_L0
+                _waited = 0
+                while True:
+                    # 等待前 cap 掉剩余累计额度:累计等待严格 ≤ ALL_COOL_BACKOFF_CAP(480s),
+                    # 不会出现"单次 480s 把累计顶破到 900s"的情况(自测校正)。
+                    _wait = min(_wait, ALL_COOL_BACKOFF_CAP - _waited)
+                    time.sleep(_wait)
+                    _waited += _wait
+                    _recovered = []
+                    for _ki in range(len(KEYS)):
+                        if not _cooled_out(KEYS[_ki]):
+                            _recovered.append((KEYS[_ki], KEY_NUMS[_ki]))
+                    if _recovered:
+                        try_keys = _recovered
+                        logmsg(f"ALL COOL backoff recovered after {_waited:.0f}s, keys={len(_recovered)}")
+                        break
+                    if _waited >= ALL_COOL_BACKOFF_CAP:
+                        logmsg("ALL KEYS COOLED (waited), return 429")
+                        _b = b'{"type":"error","error":{"type":"rate_limit_error","message":"all keys cooling (quota exhausted)"}}'
+                        self.send_response(429)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(_b)))
+                        self.end_headers()
+                        self.wfile.write(_b)
+                        return
+                    _wait = min(_wait * 2, ALL_COOL_BACKOFF_MAX)
         last = None
         for k, (key, key_num) in enumerate(try_keys):
             if k > 0 and ROTATE_BACKOFF > 0:
-                time.sleep(ROTATE_BACKOFF)  # 换 key 重试前轻退避,避免把 3 池全打满
+                time.sleep(_rotate_backoff())  # 换 key 重试前轻退避(高峰 1.5s/非高峰 0.3s),避免把多池全打满
             status, resp_body, resp_headers, resp_text, err = _do_upstream(
                 self.command, upstream_path, body, self.headers, key)
             if err is not None:
                 logmsg(f"UPSTREAM ERR {err}")
                 self.send_response(502); self.end_headers(); self.wfile.write(str(err).encode()); return
             last = (status, resp_body, resp_headers, resp_text)
-            # 成功/非限流响应 -> 清除该 key 冷却(额度恢复,下次额度型 429 重新从 60s 探)
+            # 成功/非限流响应 -> 清除该 key 冷却(额度恢复,下次额度型 429 重新从 180s 探)
             if key is not None and status not in (429, 400):
                 _unmark_cool(key)
             if k < len(try_keys) - 1 and RETRY_ON_429:
