@@ -8493,7 +8493,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
       if (!f6) { _s6OpenSet.add(_kellyBaseKey(t, fIdx)); return true; }   // fail-open + 可见计数(按唯一笔去重)
       var dc = String(t[fIdx.signal_date] || "");
       var b0 = (typeof window._tdsS06BaseForDate === "function") ? window._tdsS06BaseForDate(dc) : null;
-      if (b0 && b0.ok && b0.reason === "out_of_range_fallback") _s6FallbackSet.add(_kellyBaseKey(t, fIdx));  // 兜底过滤轻标注计数
+      if (b0 && b0.ok && (b0.reason === "out_of_range_fallback" || b0.reason === "bad_mode_fallback")) _s6FallbackSet.add(_kellyBaseKey(t, fIdx));  // 兜底过滤轻标注计数(覆盖期外/基座未知)
       return _kellyPassesFadeFilters(t, fIdx, f6, _kellyTradeFeatureCache, _tradeDims, _kellyActiveMonthMask(f6));
     };
   } else {
@@ -8524,7 +8524,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
       var dStr = String(t[fIdx.signal_date] || "");
       var b = (typeof window._tdsS06BaseForDate === "function") ? window._tdsS06BaseForDate(dStr) : null;
       if (!b || !b.ok) { _s6OpenSet.add(_kellyBaseKey(t, fIdx)); return true; }   // fail-open 与主谓词同口径(共享同一 Set)
-      if (b.reason === "out_of_range_fallback") _s6FallbackSet.add(_kellyBaseKey(t, fIdx));  // 兜底过滤轻标注计数(与主谓词同 Set)
+      if (b.reason === "out_of_range_fallback" || b.reason === "bad_mode_fallback") _s6FallbackSet.add(_kellyBaseKey(t, fIdx));  // 兜底过滤轻标注计数(与主谓词同 Set, 覆盖期外/基座未知)
       if (!_s6NoBullCache[b.base]) _s6NoBullCache[b.base] = _s6BuildNB(b.base);
       var nb = _s6NoBullCache[b.base];
       return _kellyPassesFadeFilters(t, fIdx, nb, _kellyTradeFeatureCache, _tradeDims, _kellyActiveMonthMask(nb));
@@ -8798,7 +8798,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
     if (_s6OpenSet.size > 0) _s6WarnParts.push("⚠ 有 " + _s6OpenSet.size + " 笔的 S06 判定没能读到（快照缺行/未就绪），这 " + _s6OpenSet.size + " 笔暂时没套过滤规则，系统正在重读快照——不是偷偷换成别的模式，只是先把能展示的展示出来");
     if (_s6FallbackSet.size > 0) {
       var _fs6 = (typeof window._tdsS06Status === "function") ? window._tdsS06Status() : {};
-      _s6WarnParts.push("· " + _s6FallbackSet.size + " 笔超出 S06 快照覆盖期（快照自 " + (_fs6.coverageStart || "?") + " 起），已按 NEW14·14键 兜底规则过滤，非逐日动态切换；等快照覆盖期前滚补齐这段，这里会自动消失。举例：比快照最早覆盖日（" + (_fs6.coverageStart || "?") + "）更早的老行情，系统没把握逐日判风格，就统一按防守兜底 NEW14 的 14 个键判断");
+      _s6WarnParts.push("· " + _s6FallbackSet.size + " 笔超出 S06 快照覆盖期/基座未识别（快照自 " + (_fs6.coverageStart || "?") + " 起），已按快照记录基座的键集/防守兜底 NEW14·14键 规则过滤，非逐日动态切换；等快照覆盖期前滚补齐这段，这里会自动消失。举例：比快照最早覆盖日（" + (_fs6.coverageStart || "?") + "）更早的老行情、或快照某日生效基座读不出来（如换基座前旧快照）时，系统没把握逐日判风格，就按该基座键集（识别不了再按防守兜底 NEW14 的 14 个键）判断");
     }
     if (_s6WarnParts.length) result._s6warn = _s6WarnParts.join(" ");
   }
@@ -9919,7 +9919,7 @@ function _renderSigKellyBar(bar, data, period) {
   const _fadeCaliberHTML = _fadeMatchedId
     ? _fadeDisp.caliber
     : ("⚙️ 自定义组合(基于「" + _fadeDisp.name.replace(/\(默认\)$/, "") + "」手动调整, 口径见各标签 tip)");
-  const fadeModeTitle = "AI降亏过滤模式: 一键套用整套键组合(与「AI 降亏组成对比」卡同源口径); ⭐=推荐星标(S06 3星 / A进攻王·NEW14·NEW14+1 2星 / 9键·B均衡卡 1星), 下拉星多靠前、无星殿后沿用原相对序(v20260826 用户拍板); NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。手动勾/取消下方任一小标签即进入自定义态, 再选任意模式回到预设。选 S06=按大盘风格按日动态切换 A进攻王/NEW14·14键 两套判断规则(v1.1.7 起已为当前默认基座, 判定层自动接管、标签区退为参考底座); 快照内每天按当日风格自动换基座; 超出快照覆盖期的老信号统一按 NEW14·14键 兜底规则过滤(轻标注提示, 覆盖期前滚自动消失); 只有 S06 快照真读不出来时, 该笔才照常展示并在旁边标红字提醒——绝不悄悄换成其他模式, 简单说就是\"按快照规则过滤, 读不出来就老实告诉你, 绝不替你做决定偷偷切走\""
+  const fadeModeTitle = "AI降亏过滤模式: 一键套用整套键组合(与「AI 降亏组成对比」卡同源口径); ⭐=推荐星标(S06 3星 / A进攻王·NEW14·NEW14+1 2星 / 9键·B均衡卡 1星), 下拉星多靠前、无星殿后沿用原相对序(v20260826 用户拍板); NEW2 18键对照档已从下拉移除(同日拍板\"不用对照啦\", 其组成对比区卡 2026-08-26 亦删——\"18和14键差异太小了\")。手动勾/取消下方任一小标签即进入自定义态, 再选任意模式回到预设。选 S06=按大盘风格按日动态切换 A进攻王/NEW14·14键 两套判断规则(v1.1.7 起已为当前默认基座, 判定层自动接管、标签区退为参考底座); 快照内每天按当日风格自动换基座; 超出快照覆盖期的老信号、或某日快照基座未识别(如换基座前的旧快照)统一按快照记录基座键集(识别不了再按防守兜底 NEW14·14键)规则过滤(轻标注提示, 覆盖期前滚自动消失); 只有 S06 快照真读不出来(缺行/未就绪)时, 该笔才照常展示并在旁边标红字提醒——绝不悄悄换成其他模式, 简单说就是\"按快照规则过滤, 读不出来就老实告诉你, 绝不替你做决定偷偷切走\""
     + (typeof window._tdsS06Tooltip === "function" ? ("\n———\n" + window._tdsS06Tooltip()) : "")
     // s06p1(2026-08-29 观察档)公示(§21): 当前所选为 S06+1 观察档时追加附加规则说明
     + ((_isS06P1Base && typeof window !== "undefined" && typeof window._tdsS06P1Tooltip === "function")

@@ -957,6 +957,11 @@ function _tdsS06StateEnsure() {
 }
 // 健康度速查(消费点渲染警示条用): loaded/err/覆盖期/current{date,mode,since}/threshold 等元信息
 function _tdsS06Status() {
+  var _sn = _tdsS06State || {};
+  var _onId = _sn.on_base || "a9";      // 快照单源 on/off base(§22); 未加载时仅展示回退 a9/new14, 判定链不依赖
+  var _offId = _sn.off_base || "new14";
+  var _nOn = (_tdsFadeModeById(_onId) || {}).name;
+  var _nOff = (_tdsFadeModeById(_offId) || {}).name;
   return {
     modeId: _TDS_S06_MODE_ID,
     loading: !!_tdsS06Promise && !_tdsS06State && !_tdsS06LoadErr,
@@ -965,15 +970,18 @@ function _tdsS06Status() {
     coverageStart: _tdsS06State ? _tdsS06State.coverage_start : null,
     coverageEnd: _tdsS06State ? _tdsS06State.coverage_end : null,
     current: _tdsS06State ? _tdsS06State.current : null,
-    onBaseName: (_tdsFadeModeById("a9") || {}).name || "a9",
-    offBaseName: (_tdsFadeModeById("new14") || {}).name || "new14"
+    onBaseId: _onId,       // 快照 on_base 单源 id(历史基座/换基座后自动跟随, 消费点不再硬编码 a9/new14)
+    offBaseId: _offId,     // 快照 off_base 单源 id(兜底过滤建成员集用, §22)
+    onBaseName: _nOn || _onId,
+    offBaseName: _nOff || _offId
   };
 }
-// 核心: 日期 → 生效基座。ok:false 时 reason ∈ not_loaded/load_err/no_row/bad_mode(真降级, 消费点 fail-open + 可见提示)
-// ok:true 含 out_of_range_fallback: 日期明确超出快照覆盖期(coverage_start/coverage_end 之外)时,
-//   不再 fail-open 裸放行, 改按快照 off_base 字段(单源, 兜底基座 = off_base)过滤 —— 覆盖期外 = 默认兜底态(用户拍板)。
+// 核心: 日期 → 生效基座。ok:false 时 reason ∈ not_loaded/load_err/no_row(真降级, 消费点 fail-open + 可见提示)
+// ok:true 含 out_of_range_fallback / bad_mode_fallback(覆盖期外 或 快照基座未识别, 2026-09-02 §23.15):
+//   不再 fail-open 裸放行, 改按快照 off_base 字段(单源)兜底基座过滤 —— 覆盖期外/基座未知 = 默认兜底态(用户拍板)。
 //   no_row 与 out_of_range_fallback 区分: 覆盖期边界缺失(无法判定)或日期落在覆盖期内但缺行 = 快照内部异常 → no_row(fail-open);
-//   明确"日期 < coverage_start 或 > coverage_end" = out_of_range_fallback(兜底过滤, 不裸放行)。
+//   明确"日期 < coverage_start 或 > coverage_end" = out_of_range_fallback(兜底过滤, 不裸放行);
+//   快照某日 effective_mode 非当前主键集(a9/new14, 如历史基座 new15 或未知值) = bad_mode_fallback(兜底过滤, 不裸放行)。
 function _tdsS06BaseForDate(dateStr) {
   var nd = _tdsS06NormalizeDate(dateStr);
   if (!_tdsS06State) return { ok: false, reason: _tdsS06LoadErr ? "load_err" : "not_loaded" };
@@ -985,7 +993,19 @@ function _tdsS06BaseForDate(dateStr) {
     return { ok: true, base: _tdsS06State.off_base, reason: "out_of_range_fallback" };
   }
   var base = row.effective_mode;
-  if (base !== "a9" && base !== "new14") return { ok: false, reason: "bad_mode" };
+  if (base !== "a9" && base !== "new14") {
+    // §23.15 修复(2026-09-02, 生产事故根治): 快照基座非当前主键集(a9/new14)——如换基座前旧快照含 new15,
+    //   或快照版本错配出现未知基座——一律不再 fail-open 裸放行(裸放行=十几年信号不过滤=残缺过滤事故,
+    //   用户曾见「3972 笔没能读到」警示 + 收益率口径失真)。改为兜底过滤:
+    //   ①该基座在 _KELLY_FADE_MODE_PRESETS 有键集定义(历史合法基座, 如 new15) → 按原键集过滤, 还原当时设计;
+    //   ②完全未知 → 按快照 off_base 字段(单源)兜底过滤。
+    //   语义: 快照内含历史/未知基座 ≠ 判定读不出, 是设计兜底; 仅快照本体缺失/字段缺才 ok:false(真降级 fail-open)。
+    var pLegacy = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(base) : null;
+    if (pLegacy && Array.isArray(pLegacy.keys)) {
+      return { ok: true, base: base, decisionDate: row.decision_date, sizeSpread: row.size_spread, reason: "bad_mode_fallback" };
+    }
+    return { ok: true, base: _tdsS06State.off_base, reason: "bad_mode_fallback" };
+  }
   return { ok: true, base: base, decisionDate: row.decision_date, sizeSpread: row.size_spread };
 }
 // 日期 → 该日生效基座的 58 键布尔 filters(共享只读对象; 不可用返回 null=调用方 fail-open)

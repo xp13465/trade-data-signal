@@ -2000,6 +2000,9 @@ function _ovAggregateRecent(recent, modeId, bullStopOn, fadeOn, k) {
     // S06(codex-task-20260825-001): dynamic 预设无静态 keys —— 组集必须按行日期读快照生效基座(a9/new14)
     // 取对应成员集(禁止展开成静态键组合 handoff §四); 行日期超快照覆盖期=按 off_base 兜底基座过滤, 快照未就绪/缺行 → fail-open 该行不拦,
     // 计入 _s6.open 由调用方给「可见降级提示」, 绝不静默退回其他模式(handoff §五 功能5)。
+    // §23.15 修复(2026-09-02): bad_mode(快照基座不在 a9/new14, 如换基座前的旧快照含 new15)不再 fail-open 裸放行,
+    // 改按 bad_mode_fallback: 若该 legacy 基座在预设中有 keys → 用其 keys 正常过滤(只计 s6Fallback 轻标注);
+    // 未知基座 → 回退 off_base 兜底过滤, 同样只计轻标注不 fail-open(与 out_of_range_fallback 同待遇)。
     const isS06 = !!preset.dynamic;
     const memberSet = {};
     const s6Sets = isS06 ? { a9: {}, new14: {} } : null;
@@ -2015,13 +2018,23 @@ function _ovAggregateRecent(recent, modeId, bullStopOn, fadeOn, k) {
     let s6Open = 0;      // s06 真降级 fail-open 行数(快照缺行/未就绪, 可见重警示用)
     let s6Fallback = 0;  // s06 覆盖期外兜底过滤行数(out_of_range_fallback 轻标注计数源, 2026-09-02 用户拍板)
     // 行级成员集: 非 s06 恒同一 set(行为逐位不变); s06 按行日期解析, 真降级(ok:false)返回 null=该行不拦,
-    // 覆盖期外(out_of_range_fallback)=按快照 off_base 兜底基座(new14)正常过滤, 只计轻标注不 fail-open
+    // 覆盖期外/基座未识别(out_of_range_fallback / bad_mode_fallback)=按兜底基座正常过滤, 只计轻标注不 fail-open;
+    // bad_mode 时 r6.base 可能是 legacy 基座(如换基座前旧快照的 new15), s6Sets 只含 a9/new14 → 从预设直取 keys 组集
     const memberSetForRow = function (d) {
       if (!isS06) return memberSet;
       const r6 = _tdsS06BaseForDate(d);
       if (!r6 || !r6.ok) { s6Open++; return null; }
-      if (r6.reason === "out_of_range_fallback") s6Fallback++;
-      return s6Sets[r6.base] && Object.keys(s6Sets[r6.base]).length ? s6Sets[r6.base] : null;
+      if (r6.reason === "out_of_range_fallback" || r6.reason === "bad_mode_fallback") s6Fallback++;
+      if (s6Sets[r6.base] && Object.keys(s6Sets[r6.base]).length) return s6Sets[r6.base];
+      if (r6.reason === "bad_mode_fallback") {
+        const p6 = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(r6.base) : null;
+        if (p6 && Array.isArray(p6.keys) && p6.keys.length) {
+          const ms2 = {};
+          for (let i = 0; i < p6.keys.length; i++) ms2[p6.keys[i]] = true;
+          return ms2;
+        }
+      }
+      return null;
     };
     // ① 过滤层(fadeOn=false 时不过滤=全信号人口, 与 bank raw 语义一致)
     let pop = recent.rows;
@@ -3075,7 +3088,7 @@ function _mountHomeS06State(_retry) {
         else {
           let _s = "";
           if ((w.open || 0) > 0) txt = "⚠ " + w.open + " 笔快照缺行未拦(真降级)";
-          if ((w.fallback || 0) > 0) _s = (w.fallback + " 笔超出覆盖期·按NEW14·14键兜底过滤");
+          if ((w.fallback || 0) > 0) _s = (w.fallback + " 笔超出覆盖期/基座未知·按" + ((st && st.offBaseName) || "NEW14") + "兜底过滤");
           if (_s) txt += (txt ? " · " : "") + _s;
           if (!txt && st && st.loaded) txt = "· S06 过滤生效(快照自 " + (st.coverageStart || "?") + " 起)";
         }
@@ -3859,7 +3872,7 @@ function _bindSimBacktestControls(modal, _close) {
       value: _savedMid,      // 上次所选(TTL 内); 无记忆=v1.1.5 默认 new14
       withCustom: false,     // 弹窗无标签区, 无自定义态
       cls: "sim-fade-mode-sel",
-      title: "AI降亏过滤模式: 一键套用整套键组合(与凯利页/「AI 降亏组成对比」卡同源口径; v1.1.7 起默认=s06·大盘领先切换, v1.1.5~v1.1.6 默认=new14·NEW 14键防守王, p8=旧 8键对照档)。记住上次选择 18 小时(独立于凯利页记忆, 超时自动回默认 s06)。选 S06=按大盘风格按日动态切 A进攻王/NEW14 基座(默认档, 快照不可用时该笔不拦并红字提示, 绝不静默回退)。⭐S06+1·仅K1剔高评级(观察档, 2026-08-29): 在 S06 基座上仅当 K=1 时从候选池剔除高评级信号(mid/low 递补), K=2/3/4 与 S06 完全一致(Δ=0), 非默认档。四消费点统一下拉组件(lab 凯利区/本弹窗/首页/监控卡); 旁侧「过滤」checkbox=总开关快速切换层, 切它不动这里的选中值" + (typeof window._tdsS06Tooltip === "function" ? ("\n———\n" + window._tdsS06Tooltip()) : "") + (_savedMid === "s06p1" && typeof window !== "undefined" && typeof window._tdsS06P1Tooltip === "function" ? ("\n———\n" + window._tdsS06P1Tooltip()) : ""),
+      title: "AI降亏过滤模式: 一键套用整套键组合(与凯利页/「AI 降亏组成对比」卡同源口径; v1.1.7 起默认=s06·大盘领先切换, v1.1.5~v1.1.6 默认=new14·NEW 14键防守王, p8=旧 8键对照档)。记住上次选择 18 小时(独立于凯利页记忆, 超时自动回默认 s06)。选 S06=按大盘风格按日动态切 A进攻王/NEW14 基座(默认档; 快照缺行/未就绪=该笔不拦并红字提示; 超覆盖期/基座未识别=按快照记录基座键集或防守兜底 NEW14 真过滤, 绝不静默回退)。⭐S06+1·仅K1剔高评级(观察档, 2026-08-29): 在 S06 基座上仅当 K=1 时从候选池剔除高评级信号(mid/low 递补), K=2/3/4 与 S06 完全一致(Δ=0), 非默认档。四消费点统一下拉组件(lab 凯利区/本弹窗/首页/监控卡); 旁侧「过滤」checkbox=总开关快速切换层, 切它不动这里的选中值" + (typeof window._tdsS06Tooltip === "function" ? ("\n———\n" + window._tdsS06Tooltip()) : "") + (_savedMid === "s06p1" && typeof window !== "undefined" && typeof window._tdsS06P1Tooltip === "function" ? ("\n———\n" + window._tdsS06P1Tooltip()) : ""),
     });
   }
   // 总开关恢复(2026-08-24 用户拍板): fadeOn 快速切换层, 与模式下拉正交——
@@ -4130,13 +4143,14 @@ async function _simRenderOnce(modal) {
       // per-date 过滤(s06 动态基座): 每笔按 signal_date 取当日生效基座(a9/new14)的完整键集过滤,
       // monthMask/bullStop 均按该日基座口径同步计算(与静态路径同语义, §22 同源)
       let _openCnt = 0;   // 真降级(快照缺行/未就绪) fail-open 笔数(重警示)
-      let _fbCnt = 0;     // 覆盖期外兜底过滤笔数(轻标注计数源, 2026-09-02 用户拍板, 动态算)
+      let _fbCnt = 0;     // 覆盖期外/基座未识别 兜底过滤笔数(轻标注计数源, 2026-09-02 用户拍板, 动态算)
       kept = recs.filter((t) => {
         const dS = String(t[fIdx.signal_date] || "");
         const f6 = (typeof window._tdsS06FiltersForDate === "function") ? window._tdsS06FiltersForDate(dS) : null;
         if (!f6) { _openCnt++; return true; }   // 快照不可用/覆盖期内缺行 → 该笔不拦(fail-open)
         const rb = (typeof window._tdsS06BaseForDate === "function") ? window._tdsS06BaseForDate(dS) : null;
-        if (rb && rb.ok && rb.reason === "out_of_range_fallback") _fbCnt++;   // 覆盖期外→兜底过滤(不 fail-open)
+        // §23.15 修复(2026-09-02): 基座未识别(bad_mode_fallback)同覆盖期外=兜底过滤轻标注, 非 fail-open
+        if (rb && rb.ok && (rb.reason === "out_of_range_fallback" || rb.reason === "bad_mode_fallback")) _fbCnt++;
         if (!_simPassesFade(t, fIdx, f6, _simActiveMonthMask(f6))) return false;
         if (f6.bullAuxBackupStop && !_isLongMode && !_simPassesBullStop(t, fIdx)) return false; // 键携带+非长线, 与静态路径同语义
         return true;
@@ -4145,7 +4159,7 @@ async function _simRenderOnce(modal) {
         _s6Warn += (_s6Warn ? " " : "") + "⚠ " + _openCnt + " 笔快照缺行/未就绪, 未按 S06 过滤(fail-open)";
       }
       if (_fbCnt > 0) {
-        _s6Warn += (_s6Warn ? " " : "") + "· " + _fbCnt + " 笔超出快照覆盖期, 按 NEW14·14键 兜底规则过滤(覆盖期前滚自动消失)";
+        _s6Warn += (_s6Warn ? " " : "") + "· " + _fbCnt + " 笔超出快照覆盖期/基座未识别, 按 NEW14·14键 兜底规则过滤(覆盖期前滚自动消失)";
       }
     } else {
       kept = recs.filter((t) => _simPassesFade(t, fIdx, filters, monthMask));
@@ -5400,11 +5414,19 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   //   崩掉整个信号区渲染(smoke 断供场景实测复现)。声明前置后由 function 声明提升保证可先定义后初始化。
   let _homeS06FailOpen = 0;    // s06 真降级(快照缺行/未就绪) fail-open 的行数(可见重警示用, 渲染层读取)
   let _homeS06Fallback = 0;    // s06 覆盖期外兜底过滤行数(out_of_range_fallback 轻标注计数源, 2026-09-02 用户拍板, 动态算)
-  const _aiOnS06 = _homeIsS06 ? { a9: {}, new14: {} } : null;
+  const _aiOnS06 = _homeIsS06 ? {} : null;
   if (_homeIsS06 && typeof _tdsFadeModeById === "function") {
-    for (const bid of ["a9", "new14"]) {
+    // 成员集按快照 on/off base 单源构建(§22, 2026-09-02 §23.15 补): 不硬编码 a9/new14 ——
+    // 历史基座(如旧快照 new15)/换基座后 off_base 变化自愈, 兜底过滤/未知基座建集无需新增硬编码点。
+    const _st6 = (typeof window._tdsS06Status === "function") ? window._tdsS06Status() : null;
+    const _bidList = ["a9", "new14"];
+    if (_st6 && _st6.onBaseId && _bidList.indexOf(_st6.onBaseId) < 0) _bidList.push(_st6.onBaseId);
+    if (_st6 && _st6.offBaseId && _bidList.indexOf(_st6.offBaseId) < 0) _bidList.push(_st6.offBaseId);
+    for (const bid of _bidList) {
       const bp = _tdsFadeModeById(bid);
-      if (bp && Array.isArray(bp.keys)) for (const bk of bp.keys) _aiOnS06[bid][bk] = true;
+      if (!bp || !Array.isArray(bp.keys)) continue;
+      _aiOnS06[bid] = _aiOnS06[bid] || {};
+      for (const bk of bp.keys) _aiOnS06[bid][bk] = true;
     }
   } else if (_homeFadePreset && Array.isArray(_homeFadePreset.keys)) {
     for (const _amk of _homeFadePreset.keys) _aiOnMembers[_amk] = true;
@@ -5497,10 +5519,17 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     if (_homeIsS06) {
       const r6 = (typeof _tdsS06BaseForDate === "function") ? _tdsS06BaseForDate(it && it.date) : null;
       if (!r6 || !r6.ok) { _homeS06FailOpen++; return false; }
-      if (r6.reason === "out_of_range_fallback") _homeS06Fallback++;
-      if (!Object.keys(_aiOnS06[r6.base] || {}).length) { _homeS06FailOpen++; return false; }
-      _members = _aiOnS06[r6.base];
-      _s6Base = r6.base;
+      if (r6.reason === "out_of_range_fallback" || r6.reason === "bad_mode_fallback") _homeS06Fallback++;   // 2026-09-02 §23.15: 基座未知同覆盖期外=兜底过滤轻标注, 非 fail-open
+      let _s6BaseId = r6.base;
+      if (!Object.keys(_aiOnS06[_s6BaseId] || {}).length) {
+        // 快照基座非首页既有成员集(历史/未知基座) → 按快照 off_base 兜底过滤, 不 fail-open 裸放行(§23.15)
+        const _o6 = (typeof window._tdsS06Status === "function") ? window._tdsS06Status() : null;
+        const _obId = (_o6 && _o6.offBaseId) || "new14";
+        if (!Object.keys(_aiOnS06[_obId] || {}).length) { _homeS06FailOpen++; return false; }
+        _s6BaseId = _obId;
+      }
+      _members = _aiOnS06[_s6BaseId];
+      _s6Base = _s6BaseId;
     }
     if (it && it.ai_macro && it.ai_macro.hit && Array.isArray(it.ai_macro.filters)
       && it.ai_macro.filters.some((fk) => _members[fk])) return true;
