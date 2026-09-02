@@ -16,7 +16,7 @@
 | 实测数据 | 10 交易日窗口 20260819-20260901,**55448 行 / 5553 只 / 主键零重复**,最新交易日=20260901(T+0 成立) |
 | 与 mootdx 逐位一致 | 20260901 重叠 5169 只,close/amount 不一致均为 **0**;茅台 600519 close=1299.56 与 mootdx 逐位一致 |
 | 补漏价值 | fapi 有而 mootdx 无 377 只(20260901),含北交所 339 + 断片补漏 |
-| launchd 模板 | `docs/fapi/launchd/fapi-daily.plist`(18:10,只写模板不挂生产) |
+| launchd 模板 | `docs/fapi/launchd/fapi-daily.plist`(18:10,已挂载 2026-09-02) |
 | 上线状态 | 仅落 research/fapi-h-k1,未 bump/未 deploy/未 push main(§23.7 只增不改) |
 
 ## 1. 落地内容
@@ -51,7 +51,7 @@ DDL 见 `app/collector/fapi_daily.py` SCHEMA 常量。要点:
 
 - StartCalendarInterval=**18:10**(避开盘后 15:35/16:00/17:50/20:35/22:00 与 update_all 17:50,7 分钟余量,§14)
 - WorkingDirectory=trade-data,日志指 trade-data/data/logs(参照 com.trade.*.plist 惯例)
-- **只写模板,不 launchctl load、不挂生产**(观察期双写)
+- **已挂载**(2026-09-02 用户拍板启动观察期,挂载点 `~/Library/LaunchAgents/com.trade.fapi-daily.plist`;观察期双写,§23.7 只增不改)
 
 ## 2. 实测数据(2026-09-02 深夜,真实写库 trade-data/data/stock_daily.db 生产侧)
 
@@ -106,7 +106,7 @@ close=1299.56  open=1295.0  high=1307.99  low=1286.1  volume=3266402  amount=424
 
 ## 4. 下一步(观察期计划)
 
-1. **双写互证 ≥1 周**(本次起每日 18:10 模板挂载后,fapi_daily_raw vs mootdx_daily_raw 每日对账,close 差异 >0.5% code 数告警)
+1. ✅ **launchd 已挂载(2026-09-02**,挂载点 `~/Library/LaunchAgents/com.trade.fapi-daily.plist`);双写互证 ≥1 周(每日 18:10 自动采集,fapi_daily_raw vs mootdx_daily_raw 每日对账,close 差异 >0.5% code 数告警)
 2. **确认互证逐位一致后 → 评估转主**(把 fapi_daily_raw 接入宽度/行业宽度下游,替代 mootdx 断片源)
 3. **北交所宽度口径需用户拍板**(方案 §2.4:fapi 含北交所后 width 总家数会变,是否纳入宽度宇宙由用户定,再动 width 下游)
 4. **互证校验脚本**(§22:挂 deploy 前 check,与 check_universe_alignment 同链)——列为观察期待补
