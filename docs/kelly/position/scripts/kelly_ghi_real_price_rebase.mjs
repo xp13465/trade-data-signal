@@ -97,7 +97,7 @@ const LAB_SYMBOLS = [
   "_kellyIsShEtf", "_kellyRecomputeTrade",
   "_kellyComputeStats", "_kellyMaxConcurrentCapital", "_kellyMaxDrawdown", "_kellyMaxConcurrent",
   "_kellyAnnualizedReturn", "_kellyYearsFromTrades", "_kellyDateDiffDays", "_kellyComputeKelly",
-  "_kellyAihlineCalSpan", "_kellyAihlineRealize", "_kellyAihlineDaySpan",
+  "_kellyAihlineCalSpan", "_kellyAihlineRealize", "_kellyAihlineRealizeReal", "_kellyAihlineDaySpan",
   "_kellyAihlineFifoCap", "_kellyAihlineP3dCap", "_kellyAihlineHoldCap",
   "_kellyAihlineSim", "_kellyAihlineApply",
 ];
@@ -125,7 +125,7 @@ vm.runInContext(`
   var AIHLINE_CAL_RATIO = 1.498;     // 日历日/交易日中位比
   var _KGIHP3_DAYS = 3;              // P 保护窗口: 持有≤3天 视为年轻仓
   var KELLY_FEE_PRESETS = [];        // 不消费(费率参数直接传), 占位防引用
-  var __NAV__ = null;                // 真实净值映射 {etf_code:{YYYYMMDD:accum_nav}}, 由外部注入
+  var _kellyRealNav = null;          // 真实净值映射 {etf_code:{YYYYMMDD:accum_nav}}, 由外部注入(与前端同名同源)
 `, ctx);
 
 console.log("Extracting common.js symbols...");
@@ -143,8 +143,8 @@ const s06 = JSON.parse(fs.readFileSync(S06_JSON, "utf8"));
 const featDoc = JSON.parse(fs.readFileSync(FEAT_JSON, "utf8"));
 const navMap = JSON.parse(fs.readFileSync(NAV_JSON, "utf8"));
 
-// Inject NAV map (真实净值) into sandbox
-vm.runInContext("__NAV__ = __NAVMAP__;", Object.assign(ctx, { __NAVMAP__: navMap }));
+// Inject NAV map (真实净值) into sandbox — 与前端 _kellyRealNav 同名同源(lab.js _kellyAihlineRealizeReal 依赖)
+vm.runInContext("_kellyRealNav = __NAVMAP__;", Object.assign(ctx, { __NAVMAP__: navMap }));
 
 const fIdx = {};
 (td.fields || []).forEach((f, i) => { fIdx[f] = i; });
@@ -278,59 +278,14 @@ function buildRecomputed(modeKey) {
   return keptTrades;
 }
 
-// ===== Enhanced P3dCap: real 模式(强平日真实净值重算卖出) =====
-// __realizeReal: b0/b1 走原版 realize(使 b0/b1 验证与原版逐位一致), real 走真实净值
-const REALIZE_REAL_SRC = `
-function __realizeReal(sel, dt, model) {
-  if (model !== "real") {
-    return _kellyAihlineRealize(sel.profit, sel.return_pct, sel.buy_date, sel.sell_date, sel.hold_days, sel.amount, dt, model);
-  }
-  var nav = null;
-  if (sel.etf_code) { var m = __NAV__[sel.etf_code]; if (m) nav = m[dt]; }
-  if (!nav || nav <= 0) {
-    var fb = _kellyAihlineRealize(sel.profit, sel.return_pct, sel.buy_date, sel.sell_date, sel.hold_days, sel.amount, dt, "b1");
-    return { pr: fb.pr, rp: fb.rp, hd: fb.hd, flag: "b1_fallback" };
-  }
-  var bp = sel.buy_price || 0;
-  if (bp <= 0) return { pr: 0, rp: 0, hd: Math.round(_kellyAihlineDaySpan(sel.buy_date, dt)), flag: "no_buy_price" };
-  var closeBuy = bp / (1 + KELLY_ORIG_SLIPPAGE);
-  var amt = sel.amount || 0;
-  var c = 0.00005, s = 0.001, minC = 0.1;
-  var sh = _kellyIsShEtf(sel.etf_code) ? 0.00001 : 0;
-  var stamp = 0;
-  var buyPriceNew = closeBuy * (1 + s);
-  if (buyPriceNew <= 0) return { pr: 0, rp: 0, hd: Math.round(_kellyAihlineDaySpan(sel.buy_date, dt)), flag: "buy_zero" };
-  var sharesNew = amt / (buyPriceNew * (1 + c + sh));
-  var grossNew = sharesNew * buyPriceNew;
-  var commBuy = grossNew * c;
-  if (commBuy < minC) {
-    sharesNew = (amt - minC) / (buyPriceNew * (1 + sh));
-    grossNew = sharesNew * buyPriceNew;
-    commBuy = minC;
-  }
-  var sellPriceNew = nav * (1 - s);
-  var sellAmountNew = sharesNew * sellPriceNew;
-  var commSell = Math.max(sellAmountNew * c, minC);
-  var transferFeeSell = sellAmountNew * sh;
-  var stampDuty = sellAmountNew * stamp;
-  var netNew = sellAmountNew - commSell - transferFeeSell - stampDuty;
-  var profitNew = netNew - amt;
-  var returnPctNew = profitNew / amt * 100;
-  var hdReal = Math.round(_kellyAihlineDaySpan(sel.buy_date, dt));
-  return { pr: Math.round(profitNew * 10000)/10000, rp: Math.round(returnPctNew * 10000)/10000, hd: hdReal };
-}
-`;
+// ===== P3dCap: real 模式直接复用 lab.js 原生函数 =====
+// 2026-09-01 修复(v1.1.14 review FAIL): lab.js 的 _kellyAihlineP3dCap 已原生支持 model="real"
+// (_kellyAihlineRealize → _kellyAihlineRealizeReal 读 _kellyRealNav), kept.push 已带 etf_code/buy_price/sell_price/forced/flag。
+// 旧版字符串替换注入 __realizeReal 自复刻(锚点随 lab.js 变更失效, L332 realize replace failed)已废弃,
+// 直接别名原生函数 = 与前端渲染路径逐位一致(§5.4⑦ 同构对账), 消除第二份实现漂移。
 const P3D_FN_SRC = sliceDecl(labSrc, "_kellyAihlineP3dCap");
 if (!P3D_FN_SRC) throw new Error("P3dCap not found");
-let p3dReal = P3D_FN_SRC
-  .replace("function _kellyAihlineP3dCap", "function _kellyAihlineP3dCapReal")
-  .replace("amount: t.amount || 0, closed: null", "amount: t.amount || 0, closed: null, etf_code: t.etf_code || '', buy_price: t.buy_price || 0")
-  .replace("_kellyAihlineRealize(sel.profit, sel.return_pct, sel.buy_date, sel.sell_date, sel.hold_days, sel.amount, dt, model)", "__realizeReal(sel, dt, model)")
-  // 强平 push 加 forced 标记(区别于自然卖出); 该行含 sell_date: dt 且 amount: sel.amount, 唯一
-  .replace("kept.push({ profit: r.pr, return_pct: r.rp, buy_date: sel.buy_date, sell_date: dt, hold_days: r.hd, amount: sel.amount, fee_cost: sel.fee_cost });",
-           "kept.push({ profit: r.pr, return_pct: r.rp, buy_date: sel.buy_date, sell_date: dt, hold_days: r.hd, amount: sel.amount, fee_cost: sel.fee_cost, etf_code: sel.etf_code || '', buy_price: sel.buy_price || 0, forced: true });");
-if (!p3dReal.includes("__realizeReal(sel")) throw new Error("realize replace failed");
-vm.runInContext(REALIZE_REAL_SRC + "\n" + p3dReal, ctx, { filename: "_kellyAihlineP3dCapReal" });
+vm.runInContext("var _kellyAihlineP3dCapReal = _kellyAihlineP3dCap;", ctx, { filename: "_kellyAihlineP3dCapReal" });
 
 console.log("Building recomputed arrays...");
 const reconG = buildRecomputed("G");
