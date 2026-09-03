@@ -30,10 +30,18 @@ env:
   TTP_RETRY_ON_429=1        # 上游 429 时换下一把 key 重试(默认开)
   TTP_ROTATE_BACKOFF=0.3    # 429 换 key 重试的轻退避秒数(默认 0.3,避免把 3 池全打满)
   TTP_PORT=8899             # 监听端口(默认 8899,可改用于隔离测试实例)
-  TTP_REQDUMP=1             # 请求原文滚动 dump(默认开,TTP_REQDUMP=0 关);只落 body 不落 header
+  TTP_LOG_LEVEL=warn        # 日志级别(默认 warn):debug/info/warn/error/off
+                            #   debug=全量(含每请求 RESP/REQDUMP/SKIP COOLED,原 REQDUMP 行为)
+                            #   info =warn + STRIP/启动 等关键过程(无每请求行)
+                            #   warn =默认:仅错误/429/冷却/ALL-COOL/启动/.env警告
+                            #   error=仅 error(UPSTREAM ERR/ALL KEYS COOLED)
+                            #   off  =完全关(连 print 都不出,仅用于彻底静默)
+  TTP_REQDUMP=0             # 请求原文滚动 dump(默认关,=1 才开;2026-09-01 用户定日志关闭);
+                            #   只落 body 不落 header;该目录历史文件不自动清理,手动处置
   TTP_REQDUMP_DIR=.../sensenova-req-dump  # dump 目录(默认 trade-data/data/logs/sensenova-req-dump,仓外)
   TTP_REQDUMP_KEEP=30       # 非 ERR 保留最近 N 个(默认 30)
   TTP_REQDUMP_KEEP_ERR=30   # ERR(>=400)保留最近 N 个(默认 30,报错原文不滚删)
+  TTP_DETECT_LOG=0          # 结构化请求检测日志(默认关;=1 开,量控第一道,全局计数 50000 条封顶)
 """
 import http.server, http.client, threading, time, sys, ssl, os, json
 
@@ -43,6 +51,24 @@ UPSTREAM_BASE = "/"
 SSL_CTX = ssl._create_unverified_context()  # 本地代理,跳过证书验证(转发到已知 upstream)
 
 LOG = os.environ.get("TTP_LOG", "/Users/linhuichen/code/trade-data/data/logs/sensenova-rotate-req.log")
+
+# ═══ 日志级别控制(2026-09-01 用户定「日志可以关闭了」)═══
+# 背景:代理每请求写 RESP 行 + REQDUMP 全量落盘(req.log 13MB+、sensenova-req-dump 16MB),
+#      持续增长浪费磁盘。用户要求默认关闭全量请求日志/REQDUMP,但保留错误/429/冷却事件(排查仍要)。
+# 机制:logmsg(s, level=...) 带级别参数;LOG_LEVEL 阈值低于该级别则跳过写盘+print。
+#   TTP_LOG_LEVEL 取值 debug(全量)/info(warn+关键过程)/warn(默认,仅错误/429/冷却/启动/.env警告)/
+#                  error(仅 error)/off(彻底静默,连 print 都不出)。
+#   每请求 RESP/REQDUMP/SKIP COOLED/DETECT/REQBODY 归 debug 级 → 默认 warn 下不落盘(关日志核心)。
+#   REQDUMP 写盘另受 TTP_REQDUMP 开关(默认 0 关);关掉后历史 sensenova-req-dump 目录不再增长。
+_LOG_LEVEL_RANK = {"debug": 10, "info": 20, "warn": 30, "error": 40, "off": 100}
+_LOG_LEVEL = os.environ.get("TTP_LOG_LEVEL", "warn").strip().lower()
+if _LOG_LEVEL not in _LOG_LEVEL_RANK:
+    _LOG_LEVEL = "warn"
+_LOG_LEVEL_RANK_VAL = _LOG_LEVEL_RANK[_LOG_LEVEL]
+
+def _log_enabled(level):
+    """该级别是否应写日志(阈值 >= 该级 rank 才写;debug 级 rank 最小,error/off 最大)。"""
+    return _LOG_LEVEL_RANK_VAL <= _LOG_LEVEL_RANK.get(level, 30)
 
 # ═══ 5 把 key 加载(真实 key 禁进 git/日志)═══
 # 读取顺序:先看 env(SENSENOVA_KEY1/2/3/4/5),再回退读 ../trade-data/.env(仓外)。
@@ -75,7 +101,7 @@ def _load_keys():
     except FileNotFoundError:
         pass
     except Exception as e:
-        logmsg(f"WARN sensenova .env read failed: {e}")
+        logmsg(f"WARN sensenova .env read failed: {e}", level="warn")
     return keys, nums
 
 KEYS, KEY_NUMS = _load_keys()
@@ -166,7 +192,7 @@ def _mark_cool(key, key_num, msg):
         _until = time.time() + _dur
         _cool[key] = {"until": _until, "level": _level}
     _dur_min = f"{_dur//60}min"
-    logmsg(f"COOL KEY{key_num} until {time.strftime('%H:%M', time.localtime(_until))} msg={msg} level={_level} ({_dur_min})")
+    logmsg(f"COOL KEY{key_num} until {time.strftime('%H:%M', time.localtime(_until))} msg={msg} level={_level} ({_dur_min})", level="warn")
 
 def _unmark_cool(key):
     """成功响应(非429/400)后清除该 key 冷却,使下次额度型 429 重新从 180s 探(重置)。"""
@@ -196,7 +222,11 @@ ALL_COOL_BACKOFF_CAP = 480    # 累计等待上限 480s(8min),超限仍全冷却
 LOG_MAX_BYTES = 20 * 1024 * 1024
 LOG_KEEP_TAIL_BYTES = 10 * 1024 * 1024
 
-def logmsg(s):
+def logmsg(s, level="warn"):
+    """写日志(文件 + stdout)。level 低于阈值(默认 warn)则整条跳过——用于关闭每请求噪音行,
+    保留错误/429/冷却事件。off 级别时连 print 都不出(彻底静默)。"""
+    if not _log_enabled(level):
+        return
     try:
         os.makedirs(os.path.dirname(LOG), exist_ok=True)
         # 大小守卫:超上限则留尾截断(只读尾段写回,保留最近错误日志)
@@ -254,7 +284,7 @@ def _detect_log(command, path, body, content_type):
         return
     if _DETECT_COUNT >= 50000:
         if _DETECT_COUNT == 50000:
-            logmsg("DETECT capped at 50000")
+            logmsg("DETECT capped at 50000", level="debug")
             _DETECT_COUNT += 1  # 仅记一次封顶提示,后续静默 return
         return
     if not body or "json" not in (content_type or "").lower():
@@ -262,7 +292,7 @@ def _detect_log(command, path, body, content_type):
     try:
         data = json.loads(body)
     except Exception:
-        logmsg(f"DETECT {command} {path} parse_fail")
+        logmsg(f"DETECT {command} {path} parse_fail", level="debug")
         _DETECT_COUNT += 1
         return
     if not isinstance(data, dict):
@@ -273,7 +303,7 @@ def _detect_log(command, path, body, content_type):
     nmsg = len(data.get("messages", []))
     has_sys = "T" if data.get("system") else "F"
     ntools = len(data.get("tools", []))
-    logmsg(f"DETECT {command} {path} model={model} has_tb={'T' if has_tb else 'F'} tb_val={tb_val} nmsg={nmsg} has_sys={has_sys} ntools={ntools}")
+    logmsg(f"DETECT {command} {path} model={model} has_tb={'T' if has_tb else 'F'} tb_val={tb_val} nmsg={nmsg} has_sys={has_sys} ntools={ntools}", level="debug")
     _DETECT_COUNT += 1
 
 # ═══ 请求原文滚动 dump(2026-09-01 用户定,纯诊断增强)═══
@@ -285,7 +315,7 @@ def _detect_log(command, path, body, content_type):
 #   TTP_REQDUMP_DIR        # dump 目录(默认 trade-data/data/logs/sensenova-req-dump,仓外 gitignore)
 #   TTP_REQDUMP_KEEP       # 非 ERR 保留最近 N 个(默认 30)
 #   TTP_REQDUMP_KEEP_ERR   # ERR 保留最近 N 个(默认 30)
-REQDUMP_ON = os.environ.get("TTP_REQDUMP", "1") == "1"
+REQDUMP_ON = os.environ.get("TTP_REQDUMP", "0") == "1"  # 2026-09-01 用户定:默认关(原默认开)
 REQDUMP_DIR = os.environ.get("TTP_REQDUMP_DIR", "/Users/linhuichen/code/trade-data/data/logs/sensenova-req-dump")
 REQDUMP_KEEP = int(os.environ.get("TTP_REQDUMP_KEEP", "30"))
 REQDUMP_KEEP_ERR = int(os.environ.get("TTP_REQDUMP_KEEP_ERR", "30"))
@@ -354,7 +384,7 @@ def _strip_thinking_adaptive(body, content_type, path, req_headers):
     if not isinstance(_tn, dict) or _tn.get("type") != "adaptive":
         return body, False  # 非 adaptive 不动(glm/不带 thinking/enabled 等原样转发)
     data.pop("thinking", None)
-    logmsg(f"STRIP thinking(adaptive) {path}")
+    logmsg(f"STRIP thinking(adaptive) {path}", level="debug")
     new_body = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return new_body, True
 
@@ -366,7 +396,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # 可选 body dump(溯源用):TTP_DUMP_BODY=1 时落原始 body(剥离前),抓真实请求体看 thinking_budget 何时出现
         if os.environ.get("TTP_DUMP_BODY") == "1" and body:
             try:
-                logmsg(f"REQBODY {self.path} {body[:500]}")
+                logmsg(f"REQBODY {self.path} {body[:500]}", level="debug")
             except Exception:
                 pass
         # 结构化检测日志(TTP_DETECT_LOG=1 开):记录请求元数据(原始 body),对比 thinking_budget 添加契机
@@ -402,7 +432,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 _ki = (start + _i) % len(KEYS)
                 _key = KEYS[_ki]
                 if _cooled_out(_key):
-                    logmsg(f"SKIP COOLED KEY{KEY_NUMS[_ki]} (until {time.strftime('%H:%M', time.localtime(_cool.get(_key, {}).get('until', 0)))})")
+                    logmsg(f"SKIP COOLED KEY{KEY_NUMS[_ki]} (until {time.strftime('%H:%M', time.localtime(_cool.get(_key, {}).get('until', 0)))})", level="debug")
                     continue
                 _rot.append((_key, KEY_NUMS[_ki]))
             if _rot:
@@ -426,10 +456,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             _recovered.append((KEYS[_ki], KEY_NUMS[_ki]))
                     if _recovered:
                         try_keys = _recovered
-                        logmsg(f"ALL COOL backoff recovered after {_waited:.0f}s, keys={len(_recovered)}")
+                        logmsg(f"ALL COOL backoff recovered after {_waited:.0f}s, keys={len(_recovered)}", level="warn")
                         break
                     if _waited >= ALL_COOL_BACKOFF_CAP:
-                        logmsg("ALL KEYS COOLED (waited), return 429")
+                        logmsg("ALL KEYS COOLED (waited), return 429", level="warn")
                         _b = b'{"type":"error","error":{"type":"rate_limit_error","message":"all keys cooling (quota exhausted)"}}'
                         self.send_response(429)
                         self.send_header("Content-Type", "application/json")
@@ -445,7 +475,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             status, resp_body, resp_headers, resp_text, err = _do_upstream(
                 self.command, upstream_path, body, self.headers, key)
             if err is not None:
-                logmsg(f"UPSTREAM ERR {err}")
+                logmsg(f"UPSTREAM ERR {err}", level="error")
                 self.send_response(502); self.end_headers(); self.wfile.write(str(err).encode()); return
             last = (status, resp_body, resp_headers, resp_text)
             # 成功/非限流响应 -> 清除该 key 冷却(额度恢复,下次额度型 429 重新从 180s 探)
@@ -457,20 +487,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     _cat, _msg = _parse_429_msg(resp_text)
                     if _cat == "quota" and key is not None:
                         _mark_cool(key, key_num, _msg)
-                    logmsg(f"429 detected, rotate to next key (try {k+2}/{len(try_keys)})")
+                    logmsg(f"429 detected, rotate to next key (try {k+2}/{len(try_keys)})", level="warn")
                     continue
                 if status == 400 and "thinking_budget" in (resp_text or ""):
-                    logmsg(f"400 thinking_budget detected, rotate to next key (try {k+2}/{len(try_keys)})")
+                    logmsg(f"400 thinking_budget detected, rotate to next key (try {k+2}/{len(try_keys)})", level="warn")
                     continue
             break
         status, resp_body, resp_headers, resp_text = last
-        logmsg(f"RESP {self.command} {self.path} -> {status} bytes={len(resp_body)}")
+        logmsg(f"RESP {self.command} {self.path} -> {status} bytes={len(resp_body)}", level="debug")
         # 诊断:4xx 时落响应错误正文 + 请求 header(TTP_DUMP_BODY=1 且 status>=400),定位商汤拒绝的根因
         if status >= 400 and os.environ.get("TTP_DUMP_BODY") == "1" and resp_text:
-            logmsg(f"RESPERR {self.path} -> {status} body={resp_text[:800]}")
+            logmsg(f"RESPERR {self.path} -> {status} body={resp_text[:800]}", level="error")
             # 抓请求 header(怀疑 thinking_budget 走 header 传到商汤,不在 body)
             try:
-                logmsg(f"RESPERR {self.path} -> {status} reqheaders={ {k: (v[:120] if 'auth' not in k.lower() and 'token' not in k.lower() and 'key' not in k.lower() else '***') for k, v in self.headers.items()} }")
+                logmsg(f"RESPERR {self.path} -> {status} reqheaders={ {k: (v[:120] if 'auth' not in k.lower() and 'token' not in k.lower() and 'key' not in k.lower() else '***') for k, v in self.headers.items()} }", level="error")
             except Exception:
                 pass
         # 请求原文 dump 收尾:拿 status 后 rename 终态,>=400 用 ERR 前缀且不参与滚动删除
@@ -480,7 +510,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 _final = os.path.join(REQDUMP_DIR,
                                       f"req-{_sfx}-{status}.json" if status < 400 else f"req-{_sfx}-ERR{status}.json")
                 os.replace(self._reqdump_path, _final)
-                logmsg(f"REQDUMP {os.path.basename(_final)}")
+                logmsg(f"REQDUMP {os.path.basename(_final)}", level="debug")
             except Exception:
                 pass
             self._reqdump_path = None
