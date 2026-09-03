@@ -39,7 +39,7 @@ _RAW_REPO = os.environ.get("REPO")            # 原始 env,捕获时机早于 lo
 REPO_EXPLICIT = bool(_RAW_REPO)
 
 # A 类与 REPO 无关(读显式路径或私有桶固定 key)→ 放行
-_A_CLASS = {"list", "upload", "upload-claude-backup", "download-db", "delete", "clean-data-backup"}
+_A_CLASS = {"list", "upload", "upload-claude-backup", "upload-decommissioned", "download-db", "delete", "clean-data-backup"}
 # B 类 design 合法回退:生成器按 __file__ 写 trade 树,trade-data 侧天然缺/滞后(update_lab.sh rsync 补偿)→ 白名单放行
 _TRADE_FALLBACK_OK = {"upload-lab", "upload-trade-sim", "upload-trade-sim-json"}
 
@@ -1517,6 +1517,38 @@ def cmd_upload_db():
         sys.exit(1)
 
 
+def cmd_upload_decommissioned(local, key_name):
+    """退役归档上传到 R2 signal-backup 私有桶 decommissioned/ 前缀(独立前缀,不进 _prune)。
+
+    用于本地大件/历史 bak 清理时的异地归档:git 不进大文件,manifest+恢复脚本进 git,
+    数据本体进 R2 私有桶 decommissioned/(不受 backup//weekly//monthly/ 滚动清理影响,天然长期留存)。
+
+    两个子模式:
+      upload-decommissioned <local_path> <key_name>
+        gzip 压缩上传,key = decommissioned/<key_name>。
+        local 以 .gz/.tar.gz 结尾视为已压缩,直接读取原始字节上传(不二次 gzip)。
+      参考 cmd_upload_claude_backup 的 gzip+s3_request(PUT) 范式;key_name=上传后 R2 文件名,
+        自动加 decommissioned/ 前缀。R2 key 建议带日期(如 xxx-20260903.gz)便于反查上传时刻。
+    """
+    import gzip
+    src = Path(local)
+    if not src.exists():
+        sys.exit(f"文件不存在: {src}")
+    raw = src.read_bytes()
+    if src.name.endswith((".gz", ".tar.gz")):
+        payload = raw  # 已压缩，直接传
+        size_note = f"{len(raw) // 1024}KB(已压缩直传)"
+    else:
+        payload = gzip.compress(raw, compresslevel=6)
+        size_note = f"{len(raw) // 1024}KB -> {len(payload) // 1024}KB gzip"
+    key = f"decommissioned/{key_name}"
+    status, data = s3_request("PUT", key, payload, bucket=BACKUP_BUCKET)
+    if status == 200:
+        print(f"✓ {src.name} ({size_note}) -> {BACKUP_BUCKET}/{key} (私有桶,退役归档)")
+        return key
+    sys.exit(f"✗ 上传失败 {key} status={status} {data.decode('utf-8', errors='replace')[:300]}")
+
+
 def cmd_upload_claude_backup(local_path=None):
     """上传 Claude 自我备份 tar.gz 到 R2 signal-backup 私有桶 claude-backup/ 前缀。
 
@@ -1595,8 +1627,10 @@ if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     guard_repo_default(cmd)                     # #75 分级闸:REPO 缺省且非白名单命令 → exit 3
     if cmd == "list":
+        # list [prefix] [bucket]   bucket 默认 signal-data;查私有桶(如 signal-backup)时显式传
         prefix = sys.argv[2] if len(sys.argv) > 2 else ""
-        cmd_list(prefix)
+        bucket = sys.argv[3] if len(sys.argv) > 3 else None
+        cmd_list(prefix, bucket)
     elif cmd == "upload":
         cmd_upload(sys.argv[2], sys.argv[3])
     elif cmd == "upload-lab":
@@ -1648,6 +1682,11 @@ if __name__ == "__main__":
         # upload-claude-backup [local_path]  Claude 自我备份 tar.gz -> signal-backup/claude-backup/
         local_path = sys.argv[2] if len(sys.argv) > 2 else None
         cmd_upload_claude_backup(local_path)
+    elif cmd == "upload-decommissioned":
+        # upload-decommissioned <local_path> <key_name>  退役归档 -> signal-backup/decommissioned/
+        local = sys.argv[2]
+        key_name = sys.argv[3]
+        cmd_upload_decommissioned(local, key_name)
     elif cmd == "download-db":
         # download-db <name> [out_dir]  从 signal-backup 下载最新 backup/<name>_YYYYMMDD.db[.gz]
         # 返回解压后 .db 路径(stdout)。用于 verify_backup.sh 恢复演练。
@@ -1668,5 +1707,6 @@ if __name__ == "__main__":
             "upload-offshore-fund|upload-fund-score|upload-etf-score|upload-etf-hist|"
             "upload-fund-nav|upload-data-large|upload-kelly-parts|upload-db|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup|"
-            "upload-claude-backup [path]|upload-all-data|upload-intraday|purge-low-freq]"
+            "upload-claude-backup [path]|upload-decommissioned <local> <key_name>|"
+            "upload-all-data|upload-intraday|purge-low-freq]"
         )
