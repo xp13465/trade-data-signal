@@ -61,6 +61,7 @@
 - 🔹 **情绪温度计** — 一眼看清市场过热/冰点：A股综合 + 跨市场 + 恐贪 + 6 宽基独立情绪分（10 年回溯），附买卖点信号作情绪拐点参考（详见 [`docs/market-state/market-state-analysis.md`](docs/market-state/market-state-analysis.md)）
 - 🔹 **全球盘面跑马灯** — 9 大全球品种实时行情（黄金/原油/外汇/外围股指），纯客户端直连第三方、零服务器压力、多源自动兜底（详见 [`docs/global-ticker-free-source-research.md`](docs/global-ticker-free-source-research.md)）
 - 🔹 **市场宽度·行业轮动·期货持仓** — 涨跌家数/腾落线/新高新低、申万 31 行业热力图+资金流、期货主力净多空，看板块冷暖与机构动向（数据层详见 [`docs/data-dictionary.md`](docs/data-dictionary.md)）
+- 🔹 **北交所宽度卡（2026-09-02 独立新增，方案C）** — 首页「上涨/下跌家数」KPI 卡旁新增北交所独立宽度 5 卡（上涨/下跌/涨停/跌停/成交额，`a_bj_*` 指标组）：口径=北交所全部 920xxx（约 339 只，同花顺 FAPI 源，**30% 涨跌幅档**，涨停=收盘≥涨停价×0.999），与主宽度（沪深，10/20% 档）独立计算、互不影响；点卡看逐日双线走势，hover 标注口径与主宽度区分（§22 一致性）。数据自 2026-08-19（FAPI 采集起点）起画，不假装完整历史（诚实标注）。设计背景：北交所波动远大于沪深（30% 档），纳入主宽度会污染 AD 线/恐贪口径，故独立成组（详见 [`docs/analysis/beijiao-exchange-width-universe-20260902.md`](docs/analysis/beijiao-exchange-width-universe-20260902.md) 调研拍板 + [`docs/analysis/beijiao-width-implement-20260902.md`](docs/analysis/beijiao-width-implement-20260902.md) 实施说明）
 
 ### B. 智能交易决策
 > 从信号到仓位，AI 把「交易什么、何时交易、买多少」一次说清。
