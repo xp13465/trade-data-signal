@@ -3,12 +3,19 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.trade.agent-inbox</string>
+    <string>com.trade.codex-watcher</string>
     <key>ProgramArguments</key>
     <array>
         <string>/usr/bin/python3</string>
         <string>/Users/linhuichen/code/trade/scripts/agent_inbox_watcher.py</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+        <key>CODEX_BIN</key>
+        <string>/Users/linhuichen/.nvm/versions/node/v25.8.0/bin/codex</string>
+    </dict>
     <key>KeepAlive</key>
     <true/>
     <key>RunAtLoad</key>
@@ -17,5 +24,9 @@
     <string>/tmp/codex-reports/agent-inbox-launchd.log</string>
     <key>StandardErrorPath</key>
     <string>/tmp/codex-reports/agent-inbox-launchd.err</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
 </dict>
 </plist>
