@@ -482,6 +482,12 @@ def collect_industry_extras(verbose=True):
                                 f"连续{ABORT_THRESHOLD}换手率失败(东财封IP),跳过剩余{skip_n}"))
                 if verbose:
                     print(f"  ⚠ 连续{ABORT_THRESHOLD}个换手率失败(东财封IP),提前结束剩余{skip_n}个", flush=True)
+                # 2026-09-02 提速分析:连续失败提前结束=28 行业 ind_turn 静默缺口(数据
+                # 缺失,前端换手率展示无值)。此前只有 details skip + stdout,无告警上报,
+                # 运维不看 stdout 即无感知 → 补 log_collect warn(与上方同花顺失败同通道)。
+                log_collect(today, "industry_extras", "warn",
+                            f"东财换手率连续{ABORT_THRESHOLD}个失败(疑似封IP),提前结束,"
+                            f"跳过剩余{skip_n}个行业(ind_turn缺口),下轮采集前需核查")
                 break
         else:
             consec_fail = 0
