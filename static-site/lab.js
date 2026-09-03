@@ -8763,13 +8763,20 @@ async function _kellyApplyFeeRecompute(feeParams) {
           var _ret = _st.return_pct_max_holding;
           var _dd = _st.max_concurrent_capital > 0 ? Math.round(_st.max_drawdown / _st.max_concurrent_capital * 100 * 10000) / 10000 : 0;
           _posVals[_pk] = {
-            name: ({ 1: "最激进", 2: "次稳健", 3: "最稳健", 4: "最保守" })[_pk],
+            name: "",
             ret: _ret.toFixed(2) + "%",
             dd: _dd.toFixed(2) + "%",
             ra: _dd > 0 ? (_ret / _dd).toFixed(2) : "-",
             n: _st.n.toLocaleString("en-US"),
             retNum: _ret, ddNum: _dd, nNum: _st.n
           };
+        }
+        // 2026-09-04 用户拍板方案一(数据驱动): 档位名称按峰值资金回撤 ddNum 从大到小排序派生(dd最大→最激进/次大→次稳健/次小→最稳健/最小→最保守),
+        // 不再写死按 K 序号; 与 common.js 静态快照/首页 hoverpop 同走 _aiPoscapRatingNameByDd(§22 两处一致)
+        if (window._aiPoscapRatingNameByDd) {
+          for (var _nk = 1; _nk <= 4; _nk++) {
+            if (_posVals[_nk]) _posVals[_nk].name = window._aiPoscapRatingNameByDd(_posVals, _nk);
+          }
         }
         window._AI_POSCAP_RATING_DYNAMIC = { computed: true, date: (data.generated_at || ""), fee: _kellyFeeLabel(), cfg: null, values: _posVals };
       } else {
@@ -9859,17 +9866,19 @@ function _renderSigKellyBar(bar, data, period) {
   // 2026-08-30: 静态回退表保留+标注历史(v1.1.4 八键基座历史数字, 动态未就绪时兜底); 当前默认=v1.1.7 S06 动态, 以页面实时为准
   // 注: 该回退表仅当 window._AI_POSCAP_RATING 未定义/未动态化时才用到(common.js 共享源 §22); 若动态已就绪则走 _AI_POSCAP_RATING_DYNAMIC
   // 2026-08-13: K档位评级标注 + hover 评级理由表格(展示层, 不改算法; 数据=共享单一数据源 common.js window._AI_POSCAP_RATING, §22 与首页 app.js 一致, 勿单改数值)
+  // 2026-09-04 用户拍板方案一(数据驱动): 本地回退表 name 同步按 dd 排序派生(K1 dd最小→最保守/K2 dd最大→最激进/K3 次小→最稳健/K4 次大→次稳健, 与 common.js 静态快照一致 §22)
   const _pcRating = window._AI_POSCAP_RATING || {
-    1: { name: "最激进", ret: "86.60%", dd: "15.99%", ra: "5.42", n: "1,202", reason: "收益率最高+回撤最小+样本最少,主推★" },
-    2: { name: "次稳健", ret: "67.61%", dd: "18.64%", ra: "3.63", n: "1,930", reason: "收益率最低+回撤最大" },
+    1: { name: "最保守", ret: "86.60%", dd: "15.99%", ra: "5.42", n: "1,202", reason: "收益率最高+回撤最小+样本最少,主推★" },
+    2: { name: "最激进", ret: "67.61%", dd: "18.64%", ra: "3.63", n: "1,930", reason: "收益率最低+回撤最大" },
     3: { name: "最稳健", ret: "66.24%", dd: "16.19%", ra: "4.09", n: "2,461", reason: "回撤第二大+收益率第三(收益/回撤较优)" },
-    4: { name: "最保守", ret: "63.17%", dd: "17.84%", ra: "3.54", n: "2,870", reason: "收益率第二低+回撤第二大+样本最多" }
+    4: { name: "次稳健", ret: "63.17%", dd: "17.84%", ra: "3.54", n: "2,870", reason: "收益率第二低+回撤第二大+样本最多" }
   };
   // 2026-08-13 调序+OFF: 对齐首页「AI仓位建议 K:」布局 —— 精简标题(技术别名/口径全进 data-tip) + K 按钮组加 OFF(写 tds_poscap_lab {on:false} 退化普通列表, 再点某 K 档恢复, 独立键与首页/交易页各自独立互不联动, 2026-08-30 用户拍板)
-  // 2026-08-14 #BC C包: 主推 K1 → K 按钮 1 排首位+高亮
+  // 2026-09-04 用户拍板方案一: 主推★=收益率最高档(retMaxK, 不写死 K1), 与 hoverpop 评级表/首页 K 按钮同源(§22)
+  const _pcMainK = (window._aiPoscapRatingMainPick ? window._aiPoscapRatingMainPick(_pcRating) : 1);
   const _pcKbtns = [1, 3, 4, 2].map((k) => {
     const r = _pcRating[k];
-    return `<button type="button" class="lab-sigkelly-kbtn${(_filters.positionCap && k === _pcK) ? " active" : ""}${k === 1 ? " lab-sigkelly-kbtn-main" : ""}" data-k="${k}" data-no-pop=""><span class="lab-sigkelly-kbtn-k">${k}</span><span class="lab-sigkelly-kbtn-r">${r.name}${k === 1 ? "★主推" : ""}</span></button>`;
+    return `<button type="button" class="lab-sigkelly-kbtn${(_filters.positionCap && k === _pcK) ? " active" : ""}${k === _pcMainK ? " lab-sigkelly-kbtn-main" : ""}" data-k="${k}" data-no-pop=""><span class="lab-sigkelly-kbtn-k">${k}</span><span class="lab-sigkelly-kbtn-r">${window._aiPoscapRatingNameByDd ? window._aiPoscapRatingNameByDd(_pcRating, k) : r.name}${k === _pcMainK ? "★主推" : ""}</span></button>`;
   }).join("");
   // OFF 按钮(2026-08-13, 复用首页同款交互): data-k="off" 由下方 K 按钮绑定识别为关(写 tds_poscap_lab {on:false}), 关闭后该区退化普通列表, 再点某 K 档恢复
   const _pcOffBtn = `<button type="button" class="lab-sigkelly-kbtn lab-sigkelly-kbtn-off${_filters.positionCap ? "" : " active"}" data-k="off" data-no-pop=""><span class="lab-sigkelly-kbtn-k">关</span><span class="lab-sigkelly-kbtn-r">off</span></button>`;

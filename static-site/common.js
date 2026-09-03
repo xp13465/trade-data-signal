@@ -474,13 +474,14 @@ function renderPurposeNote(container, text, {variant}={}) {
 
 // === AI仓位建议 K 档评级(2026-08-13 共享单一数据源, §22 一致性: app.js 首页 + lab.js 凯利区两处共用同一份数据/HTML/绑定) ===
 // 2026-08-14 #48+#BC: 静态快照由 fixed(每笔1万)/比例法 重算为每日池口径 + 费率重算口径(含最低佣金5元), 与动态重算 _kellyApplyFeeRecompute 数值一致(§22 消除 12.7pt 佣金低估差)
+// 2026-09-04 用户拍板方案一(数据驱动): 档位名称不再按 K 序号写死, 改为按峰值资金回撤 dd 从大到小排序分配(dd最大→最激进/次大→次稳健/次小→最稳健/最小→最保守), ★主推=收益率最高档(不写死K1)。本静态快照 name 已按自身 dd 排序派生, 动态由 helper 同规派生(§22 两处一致)
 // ⚠ v1.1.4 八键基座历史描述(v1.1.7 起默认=S06 动态, 当前默认以页面实时为准; 此处为静态快照回退兜底): 口径=AI降亏过滤默认=AI宏5+3+1(5=基础5: n2NovSpecialIndustry/excludeSpecialBear四档/janMidRating/janMidSpecial + K2C5 港股追涨剔除; 3=核心3: r7 5月强化+3稳定非5月 / exclAuxCross 辅关注×3/5月交叉 / greedy15; +1=回测剔除波动相关/未入样本信号)+A模式(固定10天)+每日资金池等分+top-K+费率etf_def(含min_commission=5元)+全周期+费率重算
 // 数值来源: Node 复算前端 _kellyApplyFeeRecompute 动态链路(lab.js 实际函数, 逐位一致), 数据 generated_at 2026-08-14 02:22; 主推 K1(收益率最高 86.60% 等, 历史 v1.1.4 八键基座口径, 用作动态未就绪时兜底)
 var _AI_POSCAP_RATING = {
-  1: { name: "最激进", ret: "86.60%", dd: "15.99%", ra: "5.42", n: "1,202", reason: "收益率最高+回撤最小+样本最少,主推★" },
-  2: { name: "次稳健", ret: "67.61%", dd: "18.64%", ra: "3.63", n: "1,930", reason: "收益率最低+回撤最大" },
+  1: { name: "最保守", ret: "86.60%", dd: "15.99%", ra: "5.42", n: "1,202", reason: "收益率最高+回撤最小+样本最少,主推★" },
+  2: { name: "最激进", ret: "67.61%", dd: "18.64%", ra: "3.63", n: "1,930", reason: "收益率最低+回撤最大" },
   3: { name: "最稳健", ret: "66.24%", dd: "16.19%", ra: "4.09", n: "2,461", reason: "回撤第二大+收益率第三(收益/回撤较优)" },
-  4: { name: "最保守", ret: "63.17%", dd: "17.84%", ra: "3.54", n: "2,870", reason: "收益率第二低+回撤第二大+样本最多" }
+  4: { name: "次稳健", ret: "63.17%", dd: "17.84%", ra: "3.54", n: "2,870", reason: "收益率第二低+回撤第二大+样本最多" }
 };
 // #54 2026-08-13 动态化: 共享动态源(由 lab.js _kellyApplyFeeRecompute 在 AI仓位建议开启时用当前 filters+费率+最新数据重算写入)
 // 结构: { computed:bool, date:数据日期, fee:费率档标签, cfg:降亏勾选摘要, values:{1..4:{name,ret,dd,ra,n,reason?,retNum,ddNum,nNum}} }
@@ -502,20 +503,50 @@ function _aiPoscapRatingSrc(poscapKey) {
   if (d && d.computed && d.values && pcOn) return { dynamic: true, src: d };
   return { dynamic: false, src: _AI_POSCAP_RATING };
 }
-// 动态评级理由派生(收益率最高/回撤最小/样本最少/主推; 静态快照自带 reason 不走此函数); 主推 K1(收益率最高)
+// 2026-09-04 用户拍板方案一(数据驱动): 档位名称按峰值资金回撤 ddNum 从大到小排序分配(dd最大→最激进/次大→次稳健/次小→最稳健/最小→最保守),
+// ★主推=收益率 retNum 最高档(不写死 K1); 动态/静态快照同走一套派生(§22 两处一致), 数值兼容 retNum/ddNum(动态)与 ret/dd 字符串%(静态快照)
+function _aiPoscapRatingRetNumOf(r) {
+  if (r && r.retNum != null) return r.retNum;
+  if (r && r.ret) return parseFloat(String(r.ret).replace(/%/g, "")) || 0;
+  return 0;
+}
+function _aiPoscapRatingDdNumOf(r) {
+  if (r && r.ddNum != null) return r.ddNum;
+  if (r && r.dd) return parseFloat(String(r.dd).replace(/%/g, "")) || 0;
+  return 0;
+}
+function _aiPoscapRatingNameByDd(vals, k) {
+  var order = [1, 2, 3, 4].filter(function (i) { return vals && vals[i]; });
+  order.sort(function (a, b) { return _aiPoscapRatingDdNumOf(vals[b]) - _aiPoscapRatingDdNumOf(vals[a]); });
+  var names = ["最激进", "次稳健", "最稳健", "最保守"];
+  var idx = order.indexOf(k);
+  return idx >= 0 ? names[idx] : (vals && vals[k] ? vals[k].name : "");
+}
+function _aiPoscapRatingMainPick(vals) {
+  var bestK = 1, bestV = -Infinity, i;
+  for (i = 1; i <= 4; i++) {
+    if (!vals[i]) continue;
+    var v = _aiPoscapRatingRetNumOf(vals[i]);
+    if (v > bestV) { bestV = v; bestK = i; }
+  }
+  return bestK;
+}
+// 动态评级理由派生(收益率最高/回撤最小/样本最少/主推; 静态快照自带 reason 不走此函数); 主推=retMaxK(收益率最高档, 不写死 K1)
 function _aiPoscapRatingReasonFor(k, vals) {
   var retMaxK = 1, ddMinK = 1, nMinK = 1, i;
   for (i = 1; i <= 4; i++) {
     if (!vals[i]) continue;
-    if (vals[i].retNum > vals[retMaxK].retNum) retMaxK = i;
-    if (vals[i].ddNum < vals[ddMinK].ddNum) ddMinK = i;
-    if (vals[i].nNum < vals[nMinK].nNum) nMinK = i;
+    if (_aiPoscapRatingRetNumOf(vals[i]) > _aiPoscapRatingRetNumOf(vals[retMaxK])) retMaxK = i;
+    if (_aiPoscapRatingDdNumOf(vals[i]) < _aiPoscapRatingDdNumOf(vals[ddMinK])) ddMinK = i;
+    var nv = vals[i].nNum != null ? vals[i].nNum : 0;
+    var n0 = vals[nMinK].nNum != null ? vals[nMinK].nNum : 0;
+    if (nv < n0) nMinK = i;
   }
   var parts = [];
   if (k === retMaxK) parts.push("收益率最高");
   if (k === ddMinK) parts.push("回撤最小");
   if (k === nMinK) parts.push("样本最少");
-  if (k === 1) parts.push("主推★(收益率最高)");
+  if (k === retMaxK) parts.push("主推★(收益率最高)");
   if (!parts.length) parts.push("收益回撤居中");
   return parts.join("+");
 }
@@ -527,31 +558,32 @@ function _aiPoscapRatingSummary(poscapKey) {
   var parts = [1, 2, 3, 4].map(function (k) {
     var r = vals[k];
     if (!r) return "";
-    return 'K=' + k + ' ' + r.name + ' 收益率' + r.ret + '/峰值资金回撤' + r.dd + '/样本' + r.n;
+    return 'K=' + k + ' ' + _aiPoscapRatingNameByDd(vals, k) + ' 收益率' + r.ret + '/峰值资金回撤' + r.dd + '/样本' + r.n;
   }).filter(Boolean);
   return parts.join('; ') + (s.dynamic
     ? ('（实时·当前配置/费率/数据' + (s.src.date ? ' ' + s.src.date : '') + '）')
-    : '（快照 08-14·v1.1.4 八键基座历史数字(每日池+费率重算口径, 含最低佣金5元), 当前默认=v1.1.7 S06动态, 以页面实时为准; 当前未开启AI仓位建议或未重算→回退静态历史快照）');
+    : '（快照 08-14·v1.1.4 八键基座历史数字(每日池+费率重算口径, 按当时 etf_def 费率算出; 当前默认费率=etf_main 万0.5/最低0.1元), 当前默认=v1.1.7 S06动态, 以页面实时为准; 当前未开启AI仓位建议或未重算→回退静态历史快照）');
 }
-// K 档评级 hoverpop 表格 HTML(1 排首位, K=1 高亮主推; app.js/lab.js 两处共用同一份, 数据源=动态优先/静态快照回退, 勿单改数值)
+// K 档评级 hoverpop 表格 HTML(★主推=收益率最高档 retMaxK 高亮, 不再写死 K=1; app.js/lab.js 两处共用同一份, 数据源=动态优先/静态快照回退, 勿单改数值)
 function _aiPoscapRatingPopHtml(poscapKey) {
   var s = _aiPoscapRatingSrc(poscapKey);
   var vals = s.src.values || _AI_POSCAP_RATING;
+  var mainK = _aiPoscapRatingMainPick(vals);
   var rows = [1, 3, 4, 2].map(function (k) {
     var r = vals[k];
     if (!r) return "";
     var reason = r.reason || _aiPoscapRatingReasonFor(k, vals);
-    return '<tr' + (k === 1 ? ' class="lab-sigkelly-posrate-hl"' : '') + '><td><b>K=' + k + '</b> ' + r.name + (k === 1 ? ' ★主推' : '') + '</td><td>' + r.ret + '</td><td>' + r.dd + '</td><td>' + r.ra + '</td><td>' + r.n + '</td><td>' + reason + '</td></tr>';
+    return '<tr' + (k === mainK ? ' class="lab-sigkelly-posrate-hl"' : '') + '><td><b>K=' + k + '</b> ' + _aiPoscapRatingNameByDd(vals, k) + (k === mainK ? ' ★主推' : '') + '</td><td>' + r.ret + '</td><td>' + r.dd + '</td><td>' + r.ra + '</td><td>' + r.n + '</td><td>' + reason + '</td></tr>';
   }).join("");
   var srcLabel = s.dynamic
     ? '📌 实时·当前配置/费率/数据(' + (s.src.date || '-') + (s.src.fee ? ' · 费率' + s.src.fee : '') + ')：随上方降亏勾选 / 费率档 / 最新数据联动重算(展示层动态化, 未改算法)'
-    : '📌 快照 08-14：v1.1.4 八键基座历史数字(每日池+费率重算口径, 含最低佣金5元) = AI降亏过滤默认 AI宏5+3+1(基础5+核心3保留入样 + 1回测剔除波动相关/未入样本信号) + A模式(固定10天) + 每日资金池等分+top-K + 费率etf_def + 全周期。⚠当前默认=v1.1.7 S06 动态, 以上为动态未就绪时的历史兜底回退, 以页面实时为准。';
+    : '📌 快照 08-14：v1.1.4 八键基座历史数字(每日池+费率重算口径, 按当时 etf_def 费率算出) = AI降亏过滤默认 AI宏5+3+1(基础5+核心3保留入样 + 1回测剔除波动相关/未入样本信号) + A模式(固定10天) + 每日资金池等分+top-K + 费率etf_def(历史快照费率) + 全周期。⚠当前默认=v1.1.7 S06 动态 + 费率etf_main(万0.5,最低0.1元), 以上为动态未就绪时的历史兜底回退, 以页面实时为准。';
   return '<span class="lab-sigkelly-posrate-pop-wrap">' +
     '<div class="lab-sigkelly-posrate-pop">' +
       '<div class="lab-sigkelly-posrate-pop-title">AI仓位建议 · K 档位评级（评级依据=下方回撤矩阵）</div>' +
       '<table class="lab-sigkelly-posrate-table"><thead><tr><th>档位</th><th>收益率</th><th>峰值资金回撤</th><th>风险调整<br>(收益/回撤)</th><th>样本</th><th>评级理由</th></tr></thead><tbody>' + rows + '</tbody></table>' +
-      '<div class="lab-sigkelly-posrate-pop-note">⚠ 口径：动态=当前降亏勾选(当前默认=S06 动态, 以页面上方组合为准) + A模式(固定10天) + 每日资金池等分+top-K + 当前费率档(默认etf_def含最低佣金5元) + 最新数据全周期；静态快照=v1.1.4 八键基座历史数字(2026-08-14 #48+#BC, 含最低佣金5元), 仅作动态未就绪时的兜底回退, 当前默认=v1.1.7 S06 动态以页面实时为准。与「历史回测数据」G模式口径不同，勿混用数值。峰值资金回撤=最大回撤金额÷本金(concCap, 峰值同时持仓资金；与回测报告 ddPct=最大回撤÷资金池 口径不同, 数值勿直接对照)</div>' +
-      '<div class="lab-sigkelly-posrate-pop-note"><b>K 档到底在选什么（举个 1:1 例子）</b>：每日资金池=每天总共投入 1 万，均分给当日保留的前 K 个信号。选 <b>K1</b>=当天只买最优的那 1 个信号，单笔就是 1 万（全押 1 个，持仓最集中）→ 收益率最高 <b>86.6%</b>；选 <b>K3</b>=当天买最优的 3 个信号，每个 10000÷3≈<b>3333 元</b>（鸡蛋分 3 篮子，持仓更分散）→ 收益率降到 <b>66.2%</b>。价格：K 越大越分散、单日冲高收益越低，但波动和风险也摊薄——想要集中吃大肉就 K1（主推★），想要分散稳健就调大 K。<i>核实源=common.js _AI_POSCAP_RATING 快照(K1 86.60% / K3 66.24%, 2026-08-14 每日池+费率重算口径; ⚠以上为 v1.1.4 八键基座历史数字, 当前默认=v1.1.7 S06 动态, 以页面实时为准)</i></div>' +
+      '<div class="lab-sigkelly-posrate-pop-note">⚠ 口径：动态=当前降亏勾选(当前默认=S06 动态, 以页面上方组合为准) + A模式(固定10天) + 每日资金池等分+top-K + 当前费率档(默认etf_main 万0.5,最低0.1元) + 最新数据全周期；静态快照=v1.1.4 八键基座历史数字(2026-08-14 #48+#BC, 按当时 etf_def 费率算出), 仅作动态未就绪时的兜底回退, 当前默认=v1.1.7 S06 动态以页面实时为准。与「历史回测数据」G模式口径不同，勿混用数值。峰值资金回撤=最大回撤金额÷本金(concCap, 峰值同时持仓资金；与回测报告 ddPct=最大回撤÷资金池 口径不同, 数值勿直接对照)</div>' +
+      '<div class="lab-sigkelly-posrate-pop-note"><b>K 档到底在选什么（举个 1:1 例子）</b>：每日资金池=每天总共投入 1 万，均分给当日保留的前 K 个信号。选 <b>K1</b>=当天只买最优的那 1 个信号，单笔就是 1 万（全押 1 个，持仓最集中）→ 收益率最高（★主推档=收益率最高档, 实时数字见上方评级表）；选 <b>K3</b>=当天买最优的 3 个信号，每个 10000÷3≈<b>3333 元</b>（鸡蛋分 3 篮子，持仓更分散）→ 收益率更低（实时数字见上方评级表）。价格：K 越大越分散、单日冲高收益越低，但波动和风险也摊薄——想要集中吃大肉就看 ★主推 档（收益率最高, 不固定 K1, 随实时数据变化），想要分散稳健就调大 K。<i>核实源=动态 _AI_POSCAP_RATING_DYNAMIC(随当前配置/费率/数据实时重算, 以页面 hoverpop 评级表实时数字为准; 旧 1:1 数字 86.6%/66.2% 为 v1.1.4 八键基座历史快照, 2026-09-04 已清理不写死)</i></div>' +
       '<div class="lab-sigkelly-posrate-pop-note">' + srcLabel + '</div>' +
     '</div>' +
   '</span>';
@@ -610,6 +642,8 @@ function _bindAiPoscapRatePop(container) {
 // === 挂到 window,供 lab.js / app.js 跨文件引用 ===
 window._AI_POSCAP_RATING = _AI_POSCAP_RATING;
 window._AI_POSCAP_RATING_DYNAMIC = _AI_POSCAP_RATING_DYNAMIC;
+window._aiPoscapRatingNameByDd = _aiPoscapRatingNameByDd;
+window._aiPoscapRatingMainPick = _aiPoscapRatingMainPick;
 window._aiPoscapRatingPopHtml = _aiPoscapRatingPopHtml;
 window._aiPoscapRatingSummary = _aiPoscapRatingSummary;
 window._aiPoscapRatingSrc = _aiPoscapRatingSrc;
