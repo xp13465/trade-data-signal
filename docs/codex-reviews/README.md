@@ -15,6 +15,7 @@ git ref 通道回传,原文 JSON 落本目录归档(§23.5 塞入即归类)。�
 | 2026-08-24 | audit-perf-and-alerts-20260824 | 全项目代码级漏洞/内存泄漏/重复调用/异常引用 + 交互性能优化 + 告警噪音分析(59条告警54条自愈=91.5%噪音率) | 报告(无verdict,发现待处置) | 8(P0×1+P1×4+P2×3)+告警降噪5条建议 | 待主控派单处置:①P0 lab.js 62MB trades全量加载(切片/超时) ②P1 addEventListener泄漏237:3/innerHTML+=循环重建/queries.py连接未finally关/9处裸except无日志 ③P2 scroll未节流5处/CSS top/left动画5处/boot.json 2.4MB拆分 ④告警阈值建议(intraday连续3次/push最终失败才报/ws_stale加ack/update_all阈值100→120min评估) |
 | 2026-09-01 | (对话式评审,非ref通道) | Karpathy Skills 开源项目评估(用户直接问 codex):是否直接用/蒸馏;Claude 校验 codex 准确性+双方汇总 | N/A(评审评估) | codex 提 2 条 review schema 建议(trace/verifier) | ①结论:不直接用不蒸馏(codex+Claude 一致),但 2 条 per-finding 规则(trace/verifier)值得采纳 ②codex 2 处修正:无测试套件说过头(有针对性单测)/落地点应扩到双 reviewer skill(§23.3) ③**待用户拍板是否采纳改协议/skill**。落档 karpathy-skills-evaluation-20260901.md |
 | 2026-09-01 | (蒸馏落地,非ref通道) | ponytail 开源项目蒸馏落地(用户拍板蒸馏而非装 plugin):按 4 角色把 7级阶梯/删除清单/懒但安全/量化影响接进现有 skill | N/A(蒸馏落地) | 4 文件+codex-reviewer 共 5 处 | implementer §6.5 / reviewer §10.6 + codex-reviewer 同内容 / tester §5.4 / researcher §3.2,全「纯新增」+§23.8 关联规范源标注。落档 ponytail-distill-20260901.md |
+| 2026-09-01 | (对话式实测,非ref通道) | CodeGraph 开源项目实测评估(主控本地实测,非转述 codex):唯一命名 callers/impact 准,但 3 硬伤(2MB app.js 静默跳过/通用短名同名污染/函数内局部符号不可查)+ 对回测口径漂移无直接帮助(结构非语义) | N/A(实测评估) | 3 硬伤+1 无效痛点 | 结论:值得装但改装,只用于定位不当影响面依据,先 codex 外审用不装 MCP;遗留问题=1MB 上限配置项待查。落档 codegraph-eval-20260901.md |
 
 ## 备注
 

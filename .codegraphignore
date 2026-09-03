@@ -1,0 +1,9 @@
+node_modules/
+.git/
+__pycache__/
+*.pyc
+data/
+static-site/data/
+.tmp/
+logs/
+tmp/
