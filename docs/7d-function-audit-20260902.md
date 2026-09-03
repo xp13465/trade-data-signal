@@ -11,11 +11,11 @@
 |---|---|
 | 待核功能(真实功能改动,合并去重后) | 27 组 |
 | 三查全过 = 已落实 | 24 组 |
-| 疑点(见 §3) | 1 项(FAPI 定时未挂载) |
+| 疑点(见 §3) | 0 项(原 FAPI 定时未挂载疑点已消除,见 §3.1) |
 | 已知待收尾(任务书给定,未合 main 或进行中) | 4 项(隔离列表,不重复核实) |
 | 无法线上核实(只核本地/代码) | 2 组(纯后端修复类,见诚实标注) |
 
-**核心结论:最近 7 天做的功能没有发现「代码合了但从未上线」的假完成;唯一疑点是 FAPI 的 launchd 定时未挂载(观察期未真正启动),属「完成一半/在途」而非假完成;另有一个孤儿脚本(codex-watcher.sh)存在但不影响功能本体。**
+**核心结论:最近 7 天做的功能没有发现「代码合了但从未上线」的假完成;原唯一疑点 FAPI 的 launchd 定时未挂载(观察期未真正启动)已于 2026-09-03 核实消除(com.trade.fapi-daily 已挂载,双写互证观察期启动);另有一个孤儿脚本(codex-watcher.sh)存在但不影响功能本体。**
 
 ## 1. 数据来源与口径
 
@@ -74,7 +74,7 @@
 | C6 | collector Task#10 数据源韧性+Phase2 | 5258a3687, 69e54db1d, 039762d1f | ✅ | 🔒(数据源切换属运行期行为) | — | 🔒 |
 | C7 | accum-nav 修复 | 5f36cb4d5 | ✅ | 🔒 | — | 🔒 |
 | C8 | update_all SEVERE 样板抄齐 | ab5976532, e9be32a4d | ✅ | 🔒 | — | 🔒 |
-| C9 | FAPI P0/P1/P2 采集落地 | 063bd8018, 9f9c516f4, 97341679c, 8e46a5312 | ✅ | ⚠️ fapi_daily_raw 表有 55448 行/5553 code/latest=2026-08-31(含北交所 920 码),但 **launchd 未挂载,数据静止在 8-31** | — | ⚠️ 见 §3.1 |
+| C9 | FAPI P0/P1/P2 采集落地 | 063bd8018, 9f9c516f4, 97341679c, 8e46a5312, a158495f9 | ✅ | ✅ fapi_daily_raw 表有 55448 行/5553 code(含北交所 920 码);**launchd 已挂载**(a158495f9,com.trade.fapi-daily 每日 18:10,双写互证观察期启动) | — | ✅ 见 §3.1 |
 | C10 | 商汤代理 400/429 修复 + 多 token 轮换 | 13d7c2ba3, 4e92cb3ef, 3dd5b21c1, 1c63ffd09, e685dbcdc | ✅ | ✅ thinking-proxy launchd 在跑(PID 48240),sensenova-rotate 生效 | — | ✅ |
 | C11 | codex-signal-bridge 三件 + watcher 修复 | 737c40f8a, 9ade42236, b55aa37f8, a24187809, 41e4a27eb, 05e1f6562 | ✅ | ✅ agent-inbox-watcher launchd 在跑(PID 71506),心跳 agent-inbox.log 9-2 23:07 活跃 | — | ✅ |
 | C12 | brief_ledger 对账底稿(纯数据层) | a9817772d, 956126ff9 | ✅ | ✅ trade-data/data/brief_ledger.json 最新 2026-09-02 21:01,11 条 | —(不对外展示,纯数据层) | ✅ |
@@ -82,12 +82,11 @@
 
 ## 3. 疑点清单
 
-### 3.1 ⚠️ FAPI 定时未挂载——launchd 观察期未真正启动(非假完成,但属"完成一半"风险)
+### 3.1 ✅ FAPI 定时未挂载疑点——已消除(2026-09-03 核实)
 
-- **现象**:FAPI 数据已入库(fapi_daily_raw 55448 行/5553 code),但 `launchctl list` 无 com.trade.fapi-daily,launchd 模板 docs/fapi/launchd/fapi-daily.plist 存在但**未 load**;数据 latest = 2026-08-31(采集当天),此后无自动更新。
-- **文档声明**:docs/fapi/README.md 明示「launchd/fapi-daily.plist | 18:10 日采集模板文件(不挂生产,观察期)」+「状态:纯新增试点(未 bump/未 deploy/未挂 launchd),双写互证 ≥1 周后评估转主」。fapi-p0-implementation §4「下一步」写「本次起每日 18:10 模板挂载后,fapi_daily_raw vs mootdx_daily_raw 每日对账」——即**双写互证观察期尚未开始**(数据是一次性采集的)。
-- **定性**:不是假完成(文档明确标注"未挂 launchd 观察期"),但**不是完整收尾**——「定时挂载 + 每日对账」这一步还没做。若用户期望 FAPI 已在每日自动采集,则实际未达。
-- **证据**:① `launchctl list | grep -i fapi` = 空;② fapi_daily_raw max(date_ms)=1788192000000 = 2026-08-31;③ docs/fapi/README.md「未挂 launchd,观察期」;④ fapi-daily.plist 仅在 docs/fapi/launchd/ 目录。
+- **原现象**(审计时 09-02):FAPI 数据已入库(fapi_daily_raw 55448 行/5553 code),但 `launchctl list` 无 com.trade.fapi-daily,launchd 模板 docs/fapi/launchd/fapi-daily.plist 存在但**未 load**;数据 latest = 2026-08-31(采集当天),此后无自动更新。
+- **消除证据**(2026-09-03 复核):① `launchctl list | grep -i fapi` = `com.trade.fapi-daily`(上次退出码 0);② `~/Library/LaunchAgents/com.trade.fapi-daily.plist` 在位;③ main 链含挂载 commit a158495f9(「docs(fapi): 挂载 fapi-daily launchd 启动双写互证观察期」);④ docs/fapi/README.md 观察期计划已执行——每日 18:10 采集 + fapi_daily_raw vs mootdx_daily_raw 每日对账已随定时启动。
+- **定性**:原"完成一半/在途"疑点已闭环为完整收尾——launchd 挂载 + 双写互证观察期已启动(观察期评估节点 2026-09-09,评估结论按 FAPI 文档机制落档)。
 
 ### 3.2 🔒 孤儿脚本 codex-watcher.sh(低风险,不构成假完成)
 
@@ -148,4 +147,4 @@ cat /Users/linhuichen/code/trade-data/data/logs/ab_direction_anchor.out.log     
 
 ## 7. 结论
 
-**最近 7 天(08-26~09-02)做的功能,三查覆盖范围内未发现假完成(代码合了但从未上线)。** 24 组功能已落实;唯一疑点 FAPI 定时未挂载(数据静止 8-31、观察期未启动),建议主控决定:按 FAPI 文档「观察期计划」把 fapi-daily.plist 挂载上(启动每日 18:10 采集+双写互证),或明确标注为「暂停/待拍板」——当前是"数据已采集但无自动更新"的中间态,不算假完成但也不算完整收尾。
+**最近 7 天(08-26~09-02)做的功能,三查覆盖范围内未发现假完成(代码合了但从未上线)。** 24 组功能已落实;原唯一疑点 FAPI 定时未挂载已于 2026-09-03 核实消除(launchd 挂载 commit a158495f9,com.trade.fapi-daily 每日 18:10,双写互证观察期启动,评估节点 09-09)。**截至 09-03,待核功能三查全过 = 无遗留疑点,全部闭环。**
