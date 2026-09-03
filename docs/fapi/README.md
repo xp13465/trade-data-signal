@@ -11,7 +11,17 @@
 | [fapi-integration-plan-20260901.md](fapi-integration-plan-20260901.md) | 接入方案 + 试点验证(T+0 日线/涨停池/龙虎榜/THS 指数)+ P0-P2 优先级 | 已随上游 commit |
 | [fapi-p0-implementation-20260902.md](fapi-p0-implementation-20260902.md) | **P0 日线采集落地实现报告**(脚本/表/launchd 模板/实测对照/复现) | 本次 commit |
 | [scripts/probe_fapi.py](scripts/probe_fapi.py) | 一次性探针(dump/涨停/龙虎榜/指数/snapshot,只读) | 已随方案 commit |
+| [scripts/ths_concept_parallel.py](scripts/ths_concept_parallel.py) | THS 概念换官方并行对照(观察期每日 `--end <当日>` 增量对齐) | 随基线报告 commit |
+| [parallel_result_20260901.json](parallel_result_20260901.json) | 概念并行对照历史结果(day0 基线,end=20260901) | 随基线报告 commit |
 | [launchd/fapi-daily.plist](launchd/fapi-daily.plist) | 18:10 日采集模板(已挂载 2026-09-02,观察期双写) | 本次 commit |
+
+## 观察期进度(THS 概念并行对照 09-02~09-08)
+
+> 每天 20:40 后跑 `scripts/ths_concept_parallel.py --end <当日>`(⚠️ 脚本 `--end` 默认值是创建时硬编码,必须显式传当日),结果落 `parallel_result_{end}.json`,盯**当日新增行对齐率**。9-08 观察期结束评估切换(§21 公示)。
+
+| 日期 | end | 匹配 | overlap | close 对齐 | 当日覆盖 | 结论 |
+|---|---|---|---|---|---|---|
+| 09-03 | 20260903 | 27/27 | 45 交易日 | 100% | ✅ 09-03/09-02 在窗 | 通过 |
 
 ## 关键落地资产
 
