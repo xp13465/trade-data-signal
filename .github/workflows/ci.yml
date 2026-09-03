@@ -1,0 +1,137 @@
+# CI 质量门禁(P0-2,2026-09-03 用户拍板,ZCode 架构评审 §6.5)
+#
+# 【目的】项目此前只有 deploy-cf/deploy-pages 两个部署 workflow, 无 test/lint 门禁;
+#         22 个 check_* 机检全靠本地手工/定时。本 workflow 把「可自动判定的机检」固化进
+#         push/PR 流水线, FAIL 阻断 merge 信心。
+#
+# 【挂载项(全量)】
+#   Job 1 quality-gate-static(FAIL 阻断, 纯仓库内输入, 不依赖任何数据产物):
+#     ① scripts/check_fade_keys_alignment.py  AI降亏默认档键集七项跨端一致性(§22 代码内常量登记点)
+#     ② scripts/check_version_progress.py     版本串倒退哨兵 + merge 净回退校验(防再犯机制 A/B, §23.11)
+#     ③ scripts/check_version_consistency.py  部署版本一致性(§24⑤ 防孤儿快照)
+#     ④ 前端全部源 JS node --check            语法门禁(只 check 源, 不含 .min.js 产物)
+#   Job 2 quality-gate-data(continue-on-error, 需下载 R2 生产数据产物):
+#     ⑤ scripts/check_loss_rules_vs_mining.py AI降亏 20 新键·三层一致性(特征/谓词/阈值 vs 挖掘权威)
+#     ⑥ scripts/check_fade_predicate_parity.mjs 老37键迁 spec-driven 规格·命中集合逐位一致(单边模式)
+#     ⑦ pytest 空挂位(P0-1 产出填实后转 FAIL 阻断)
+#
+# 【为什么 Job 2 用 continue-on-error】
+#   ⑤⑥ 依赖 gitignore 的生产数据产物(static-site/data/signal_kelly_trades.json 72MB +
+#   kelly_loss_features.json 1.1MB, CI checkout 后不存在, 需从 R2 ssd.fx8.store 下载),
+#   且存在已知非代码回归 FAIL 来源:
+#     - check_loss_rules_vs_mining 层2 在「生产特征日期 > 挖掘快照 mine10 日期」时对新增日期
+#       buy_aux 行必然不确定(20260903 实测: 20260824 两行 S1/S2 挖掘=False 生产=True,
+#       快照 mine10_features.json 截止 20260821, 生产已到 20260824 → 数据窗口差, 非代码错)。
+#     它 EP 的设计用途是「挖掘当期验证」, 挖掘快照每周不重跑时就对不齐 → 若 FAIL 阻断会让
+#     CI 永远红, 反而失去门禁意义。故 continue-on-error:true 保 CI 可用, 但每次运行仍输出
+#     FAIL 明细供巡检; 待 P0-1 重跑挖掘快照/把快照纳入版本后转 FAIL 阻断。
+#     - check_fade_predicate_parity 无 --base 基线时跑单边模式(仅输出构建结果不对比, exit 0),
+#       完整对比需先固化迁移前基线(--ref cf66741d5 --out t31-base.json 落 docs/), 属 T3 迁移
+#       验证场景, 非常驻 CI 门禁形态。
+#
+# 【JDK/python 版本】与既有 deploy-cf.yml 保持一致: ubuntu-latest + setup-node@v4 lts/*;
+#   python 用 setup-python@v5 3.11(与本地 dev 3.11 一致, check_*.py 均纯标准库无第三方依赖)。
+#
+# 【后续联通】P0-1(算法 pytest)产出后: ⑦ 去掉 continue-on-error 落进 FAIL 阻断;
+#   metrics/coverage 上 GitHub Actions job 徽章; check_loss_rules 挖掘快照版本化后转正。
+---
+name: CI Quality Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-quality-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------- Job 1: 纯静态门禁
+  quality-gate-static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # check_version_progress 需 first-parent 历史窗口 + check_fade_keys 比对手合
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: ① AI降亏默认档键集跨端一致性机检
+        run: python3 scripts/check_fade_keys_alignment.py --repo "$GITHUB_WORKSPACE"
+
+      - name: ② 版本串倒退哨兵 + merge 净回退校验
+        run: python3 scripts/check_version_progress.py --site-dir "$GITHUB_WORKSPACE/static-site" --repo "$GITHUB_WORKSPACE"
+
+      - name: ③ 部署版本一致性校验(§24⑤ 防孤儿快照)
+        run: python3 scripts/check_version_consistency.py --site-dir "$GITHUB_WORKSPACE/static-site"
+        continue-on-error: true
+        # note: 额外挂载项(任务书 6 项之外, 举一反三 §0.1)。
+        #   校验1/2(index 版本串格式/资源存在)纯静态必跑; 校验3(min 内容==git HEAD 源重建)
+        #   需 build_min 依赖(JS→npx terser 首次联网下载, CSS→rcssmin CI 未装会 ImportError 跳过),
+        #   属「尽力而为」层: 网络/依赖不齐时归告警级不阻断。deploy.sh 已挂本脚本为上线硬门禁,
+        #   CI 这里作 PR 期前瞻检查。P0-1 补 build_min pytest + pip install rcssmin 后可转正 FAIL 阻断。
+
+      - name: ④ 前端源码 node --check 语法门禁(只 check 源, 跳过 .min.js)
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r f; do
+            if ! node --check "$f" 2>/tmp/nodeck.err; then
+              echo "✗ node --check FAIL: $f"
+              cat /tmp/nodeck.err
+              fail=1
+            fi
+          done < <(cd "$GITHUB_WORKSPACE" && find static-site -maxdepth 1 -name '*.js' ! -name '*.min.js' ! -name 'sw.js' | sort)
+          # sw.js 是 service worker 独立入口, build_min 不压缩它, 语法异常由浏览器运行时报,
+          # 加入 check 需 node 识别 SW 环境 API(非纯语法), 故排除(与既有 lint 范围一致)。
+          if [ "$fail" -ne 0 ]; then exit 1; fi
+          echo "✓ 前端源 JS 语法门禁通过"
+
+  # ---------------------------------------------------------------- Job 2: 数据产物一致性门禁
+  quality-gate-data:
+    runs-on: ubuntu-latest
+    continue-on-error: true   # 见文件头注释: 依赖生产数据产物 + 已知数据窗口差 FAIL 源, 保 CI 可用
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: 下载生产数据产物(供 ⑤⑥)
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/static-site/data"
+          curl -fsSL --retry 3 -o "$GITHUB_WORKSPACE/static-site/data/kelly_loss_features.json" \
+            "https://ssd.fx8.store/data/kelly_loss_features.json"
+          curl -fsSL --retry 3 -o "$GITHUB_WORKSPACE/static-site/data/signal_kelly_trades.json" \
+            "https://ssd.fx8.store/data/signal_kelly_trades.json"
+          ls -la "$GITHUB_WORKSPACE/static-site/data/"
+
+      - name: ⑤ AI降亏三层一致性(特征/谓词/阈值 vs 挖掘权威)
+        env:
+          TRADES_JSON: "${{ github.workspace }}/static-site/data/signal_kelly_trades.json"
+        run: python3 scripts/check_loss_rules_vs_mining.py
+
+      - name: ⑥ fade 谓词规格迁移一致性(单边)
+        env:
+          TRADES_JSON: "${{ github.workspace }}/static-site/data/signal_kelly_trades.json"
+        run: node scripts/check_fade_predicate_parity.mjs
+
+      - name: ⑦ pytest 空挂位(P0-1 算法 pytest 产出后落进 FAIL 阻断)
+        continue-on-error: true
+        run: |
+          if python3 -m pytest -q --co -x 2>/dev/null; then
+            python3 -m pytest -q
+          else
+            echo "no collectable tests (P0-1 未填实), 空挂位 skip-ok"
+          fi

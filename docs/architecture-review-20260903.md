@@ -134,3 +134,61 @@ find app scripts -name "*.py" | xargs wc -l | tail -1     # 175 文件 82,631 �
 ```
 
 确定性:**复核独立于报告结论,凡与报告冲突处以本节省 hard 数字(数据均本日 09-03 实跑)为准。**
+
+---
+
+## 七、P0-2 落地附录(2026-09-03 实施 agent)
+
+### 7.1 改动清单
+
+- **新增 `.github/workflows/ci.yml`**(本 commit):push(main)/pull_request 必跑,两个 job:
+  - **Job 1 `quality-gate-static`(FAIL 阻断,纯仓库内输入,零数据依赖)**:
+    ① `check_fade_keys_alignment.py --repo`(AI降亏默认档键集跨端一致性,§22 登记点)
+    ② `check_version_progress.py --site-dir --repo`(版本串倒退哨兵 + merge 净回退校验,防再犯机制 A/B)
+    ③ `check_version_consistency.py --site-dir`(**额外挂载项**,§24⑤ 防孤儿快照,`continue-on-error: true`——校验3 需 build_min 依赖 [terser/rcssmin],CI 网络/依赖不齐时告警级不阻断;deploy.sh 已挂硬门禁,CI 这里作 PR 期前瞻)
+    ④ 前端全部源 JS `node --check`(9 个:app/lab/common/i18n/inline-init/purpose-notes/kelly-review-notes/kelly-reports-content/qr,跳过 .min.js;sw.js 独立 SW 入口语法由浏览器运行时兜底,排除)
+  - **Job 2 `quality-gate-data`(`continue-on-error: true`,需下载 R2 生产数据产物)**:
+    ⑤ `check_loss_rules_vs_mining.py`(AI降亏 20 新键·三层一致性;`TRADES_JSON` env 指向下载的 signal_kelly_trades.json)
+    ⑥ `check_fade_predicate_parity.mjs`(老37键迁 spec-driven 规格·单边模式;`TRADES_JSON` env)
+    ⑦ pytest 空挂位(P0-1 产出后落进 FAIL 阻断)
+
+### 7.2 关键设计决策(自验口径)
+
+1. **fetch-depth: 0(全量历史)**:② `check_version_progress` 依赖 `git rev-list --first-parent` 取版本串历史链,默认 checkout(fetch-depth 1)会缺祖先导致无法比对。已在 Job 1 checkout 设 `fetch-depth: 0`。
+2. **PR 分支不误报**:PR 场景 checkout 是 PR head,first-parent 链不经过 main 新提交,天花板=PR 自身祖先,版本串前进即过,不误报 main 后续提交(20260903 已按此口径确认)。
+3. **pytest 空挂位选 `continue-on-error`**:现有 12 个 test_*.py 中,`test_queries_regression.py` import `app.queries` 链需 DB(`get_conn`)+ static-site/data JSON 产物(CI checkout 无),`test_ai_macro_hit_filters.py` import `app.queries` → `pyarrow`(CI 未装 requirements)。全量 pytest 在 CI 上必因缺环境 FAIL。故空挂位 `continue-on-error: true` 保 CI 可用+留运行痕迹;P0-1 产出无外部依赖的算法 pytest(fixed 输入→断言输出)后转 FAIL 阻断。
+4. **Job 2 数据门禁 `continue-on-error: true` 的理由**(已 commit 到 ci.yml 文件头注释):⑤⑥ 依赖 gitignore 生产数据产物(signal_kelly_trades.json 72MB / kelly_loss_features.json 1.1MB,CI checkout 后不存在),需从 `ssd.fx8.store/data/` 下载(已实测 HTTP 200)。且 ⑤ 存在**已知非代码回归 FAIL 源**:mine10_features.json 挖掘快照截止 20260821 vs 生产特征到 20260824,20260824 两行 S1/S2 buy_aux 挖掘侧无特征→False、生产侧有→True,数据窗口差必然 FAIL(EP 设计用途=挖掘当期验证,快照每周不重跑就对不齐)。若 FAIL 阻断会让 CI 永远红,失去门禁意义。`continue-on-error: true` 保 CI 可用,但每次运行仍输出 FAIL 明细供巡检;待 P0-1 重跑挖掘快照/把快照纳入版本后转 FAIL 阻断。
+5. **JDK/python 版本与既有 workflow 一致**:ubuntu-latest + setup-node@v4 `lts/*`(同 deploy-cf.yml)+ setup-python@v5 3.11(check_*.py 均纯标准库,3.11 与本地 dev 一致)。
+
+### 7.3 本地自测(如实,非"大概完成")
+
+| 挂载项 | 本地手跑结果 |
+|---|---|
+| ① check_fade_keys_alignment.py | **PASS** exit 0(A1-A7 全 PASS) |
+| ② check_version_progress.py | **PASS** exit 0(任务A 版本串哨兵 + 任务B 净回退均 PASS) |
+| ③ check_version_consistency.py | **PASS** exit 0(校验1/2 PASS;校验3 在 worktree 因 `.git` 为文件非目录致 `_resolve_git_repo` 返 None→全 skip,CI checkout 的 `.git` 是目录会真跑) |
+| ④ node --check 9 个前端源 JS | **全 PASS** exit 0(app/lab/common/i18n/inline-init/purpose-notes/kelly-review-notes/kelly-reports-content/qr) |
+| ⑤ check_loss_rules_vs_mining.py | **FAIL** exit 1(已知数据窗口差:层2 S1/S2 20260824 挖掘=False 生产=True,非代码回归,详见 7.2-4) |
+| ⑥ check_fade_predicate_parity.mjs | **PASS(单边)** exit 0(mode A 行数 30336,仅输出不对比) |
+| R2 数据产物 URL | HTTP 200(features 1.1MB / trades 72MB) |
+
+### 7.4 后续联通
+
+- P0-1 产出算法 pytest 后:⑦ 去掉 `continue-on-error` 落进 FAIL 阻断。
+- ⑤ 待挖掘快照版本化/重跑后转 FAIL 阻断(或改挂 deploy 链已有的 check_loss_rules_vs_mining 硬门禁位置)。
+- metrics/coverage 可上 GitHub Actions job 徽章。
+- ③ 如需 CI 全量校验3:Job 1 setup 加 `pip install rcssmin`(terser 走 npx 自动拉)。
+
+### 7.5 复现
+
+```bash
+# ci.yml 挂载项全部本地手跑复现(worktree 隔离用绝对路径)
+W=/Users/linhuichen/code/trade
+python3 scripts/check_fade_keys_alignment.py --repo "$W"; echo "EXIT=$?"                      # ① PASS
+python3 scripts/check_version_progress.py --site-dir "$W/static-site" --repo "$W"; echo "EXIT=$?"  # ② PASS
+python3 scripts/check_version_consistency.py --site-dir "$W/static-site"; echo "EXIT=$?"      # ③ PASS(worktree skip 校验3)
+node --check static-site/app.js && node --check static-site/lab.js && node --check static-site/common.js  # ④ 逐文件
+TRADES_JSON=$W/static-site/data/signal_kelly_trades.json python3 scripts/check_loss_rules_vs_mining.py; echo "EXIT=$?"  # ⑤ FAIL(数据窗口差)
+TRADES_JSON=$W/static-site/data/signal_kelly_trades.json node scripts/check_fade_predicate_parity.mjs  # ⑥ 单边 exit 0
+curl -fsSI https://ssd.fx8.store/data/signal_kelly_trades.json | head -5                     # 数据源可达
+```
