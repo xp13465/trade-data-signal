@@ -8,12 +8,16 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-09-03 21:4x(三 merge 落地 + ZCode 评审复核闭环拍板 P0-2/1/3 顺序).本轮:
+**最后更新**:2026-09-04 00:5x(v1.1.15 tag 已打+外审 3 P0/P1 全证伪;两新任务调研在跑).本轮:
+- **✅ v1.1.15 tag 已打并 push(18b57a476,2026-09-04)**:外审 rev-20260903-002 BLOCKED(3 P0/P1)→**主控逐点证伪全不成立**(P0 kimi SSE 伪造=全仓全史无 event_stream_payload 符号+代理纯透传无 SSE 逻辑;P1 R2 执行位=入库即 100755 从未丢;P1 watcher 鉴权=纯出站无入站 HTTP 服务),不阻塞 tag。证伪证据落档 docs/codex-reviews/rev-20260903-002-falsification.md + README 索引行。内审=reviewer 已 PASS(v1.1.14..main 24 commits,6 功能项+2 低危)
+- **✅ P0-2 CI 质量门禁(→main 18b57a476,2026-09-03 23:5x)**:reviewer 8 维验收 PASS(命令存在+参数对齐/退出码语义/fetch-depth:0 必要/Job2 R2 下载路径/node --check 覆盖/§15 回归面/改动落档/硬约束,仅 2 文件:ci.yml 137 行+architecture-review 58 行);main-merge.sh 统一入口合并,版本串倒退/净回退校验 PASS,未碰前端源码跳过 bump
+- **🔄 新任务 #50 K档位评级 hoverpop 调研(在跑,researcher)**:用户所见 K=1 162.91%/536 已实锤=09-03 05:10 旧数据版(当前 540 版 +4 笔,与报告 kept 536→540 逐位吻合),公式口径无漂移;找旧 trades 副本独立复算最后一环中。进度 /tmp/agent-progress-k-label-research.md
+- **🔄 新任务 #51 净资产走势图调研(在跑,researcher)**:首页「模拟回测」弹窗表格上方加逐日净资产走势图,初始资金=最大持仓预备资金(H 5W 起步),调研 5 维度(表格结构/交易字段/净资产公式/数据源/图表组件)+回归面。锚点 app.js L3633/L3767/L3787。进度 /tmp/agent-progress-netasset-chart.md
+- **⏱ 巡检 cron 68a4b82c(3,18,33,48*durable)** 覆盖 #50/#51 两 agent,全完成即删
 - **✅ 三分支合并落地(21:16-21:20,均已 push main)**:feat/opt-baostock(dc582874c→bf8dd6dd)、worktree-agent sensenova 日志分级(ce2538d50→98ad1db0)、feat/decommission-r2-20260903(8c3992117→35e5b06d,R2 备份+恢复脚本);合并 TASKS fcb884b4e。21:08 merge cron a1ef9d5a 手动完成后已删
-- **✅ FAPI 观察期 09-03 日报(→main 800180c84)**:THS 概念并行对照 27/27、45 交易日 100% 对齐、覆盖 09-03 当日;⚠️ 修正脚本 `--end` 硬编码 20260901 的坑(README 已标注须显式传当日);基线+今日产物落档 docs/fapi/
-- **✅ ZCode 架构评审复核闭环(docs/architecture-review-20260903.md §六 追加 Claude 复核意见)**:P0-3 归因多处与日志不符(代码版本/复现命令/归因机制全错,见 §6.2);**用户拍板按 P0-2→P0-1→P0-3 顺序做**(§6.5,工时 0.5/1.5-2/0.5-1 天)
-- **🔄 P0 架构优化三项(Tasks #46/47/48,pending)**:P0-2 CI 门禁(先做,0.5d)→ P0-1 算法 pytest(1.5-2d)→ P0-3 代理高可用(最后,须端口隔离测试,影响 Claude 自身代理路径)
+- **🔄 P0 架构优化三项(Tasks #46/47/48)**:#46 P0-2 CI 门禁已 merge 完成✅ → P0-1 算法 pytest(1.5-2d)→ P0-3 代理高可用(最后,须端口隔离测试,影响 Claude 自身代理路径)
 - **📋 本地审计待清理项**(docs/local-state-audit-20260903.md):.codegraph gitignore/删 data .bak 5+空库 3/stash 16 drop//tmp 136 残留——待用户确认派单
+- **⚠️ watcher 归 codex**(scripts/agent_inbox_watcher.py 有未提交修复:O_EXCL 锁/DEPRECATED fallback/_LAST_OPENROUTER_TEXT),用户定主控不介入,不提交不触碰
 **历史交接(≥2 轮前,已折叠)**:
 - **✅ 商汤代理 400/429 修复 + 日志裁剪**(→main **4e92cb3ef**/**3dd5b21c1**)— 修 thinking.type=adaptive+嵌套budget>1024 的 400(CLAMP 到 1024,probe 32768→400/1024→200);429 单key分层冷却(level0→30min/≥1→1h/上限5×1h,quota vs tpm/rpm 区分,4key 独立配额);日志超20MB 留尾截断10MB。代理重启加载新代码(PID 83100)。⚠️ 经验:该服务是 scripts/ plist + `launchctl load` 模式,非 bootstrap 到 ~/Library/LaunchAgents(bootout+bootstrap 会误停,bootout 后须用 load 恢复)
 - **✅ AI 方向锚回测 5.1+5.2**(→main **00fad6654**/**2b26ac690**)— 5.1 全历史 642 样本:押方向 dir_win=0.5103≈随机;5.2 穷举子群全无一 |z|>=1.96 显著,阈值不翻天,无过拟合 → **方向锚自身无显著方向优势**。落档 docs/ai-predict/ai-predict-backtest-feasibility-20260831.md

@@ -16,6 +16,7 @@ git ref 通道回传,原文 JSON 落本目录归档(§23.5 塞入即归类)。�
 | 2026-09-01 | (对话式评审,非ref通道) | Karpathy Skills 开源项目评估(用户直接问 codex):是否直接用/蒸馏;Claude 校验 codex 准确性+双方汇总 | N/A(评审评估) | codex 提 2 条 review schema 建议(trace/verifier) | ①结论:不直接用不蒸馏(codex+Claude 一致),但 2 条 per-finding 规则(trace/verifier)值得采纳 ②codex 2 处修正:无测试套件说过头(有针对性单测)/落地点应扩到双 reviewer skill(§23.3) ③**待用户拍板是否采纳改协议/skill**。落档 karpathy-skills-evaluation-20260901.md |
 | 2026-09-01 | (蒸馏落地,非ref通道) | ponytail 开源项目蒸馏落地(用户拍板蒸馏而非装 plugin):按 4 角色把 7级阶梯/删除清单/懒但安全/量化影响接进现有 skill | N/A(蒸馏落地) | 4 文件+codex-reviewer 共 5 处 | implementer §6.5 / reviewer §10.6 + codex-reviewer 同内容 / tester §5.4 / researcher §3.2,全「纯新增」+§23.8 关联规范源标注。落档 ponytail-distill-20260901.md |
 | 2026-09-01 | (对话式实测,非ref通道) | CodeGraph 开源项目实测评估(主控本地实测,非转述 codex):唯一命名 callers/impact 准,但 3 硬伤(2MB app.js 静默跳过/通用短名同名污染/函数内局部符号不可查)+ 对回测口径漂移无直接帮助(结构非语义) | N/A(实测评估) | 3 硬伤+1 无效痛点 | 结论:值得装但改装,只用于定位不当影响面依据,先 codex 外审用不装 MCP;遗留问题=1MB 上限配置项待查。落档 codegraph-eval-20260901.md |
+| 2026-09-03 | rev-20260903-002 | v1.1.14..main 24 commits 打 v1.1.15 tag 前全量外审(kimi-k3 代理/decommission R2/watcher HTTP/baostock/CI 门禁) | BLOCKED(3 P0/P1) | 3+2 | **主控逐点证伪,3 处 P0/P1 全不成立**(P0 kimi SSE 伪造=全仓全史无该符号;P1 R2 执行位=入库即 100755;P1 watcher 鉴权=纯出站无入站服务);P2 watch_filter 双 watcher 落空(文件不存在)。不阻塞 v1.1.15 tag。证伪证据落档 rev-20260903-002-falsification.md |
 
 ## 备注
 
