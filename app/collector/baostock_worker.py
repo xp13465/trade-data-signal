@@ -19,9 +19,9 @@ PROJECT_ROOT = Path(__file__).absolute().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.collector.baostock_daily import (
-    init_db, fetch_one, upsert_rows, load_progress, save_progress,
-    RECENT_START, OLD_START, OLD_END, to_baostock_code,
-    update_progress_entry,
+    init_db, fetch_one, upsert_rows,
+    RECENT_START, OLD_START, OLD_END,
+    update_progress_batch,
 )
 import baostock as bs
 
@@ -33,14 +33,21 @@ _BLACKLIST_FLAG = Path(__file__).absolute().parent.parent.parent / "data" / "bao
 # T1(2026-08-27 数据源韧性批):请求间限速 + 失败指数退避(参数化,默认开启)。
 # 背景:baostock 官方为单连接串行模型,同 IP 高频/高并发请求是 10001011 黑名单封禁的
 # 风控诱因(8-14 与 8-25 起两轮封禁均发生于 3 并发+高频时期,连续 3 天未自解)。
-# - BAOSTOCK_QUERY_INTERVAL 默认 0.5s:每个 code 请求之间的强制间隔,削平请求节奏。
-#   单 worker 下 825 只增量约多花 ~7min,换风控安全;0 = 禁用(不建议)。
+# - BAOSTOCK_QUERY_INTERVAL 默认 0.4s:每个 code 请求之间的强制间隔,削平请求节奏。
+#   2026-09-02 update_all 提速优化:0.5->0.4(仍单 worker ~2.5req/s,单连接串行模型
+#   下该节奏从未触发 10001011 封禁)。**⚠️ 已触过 10001011 黑名单封禁(8-14/8-25,
+#   均发生于 3 并发时期),禁止再加并发(BAOSTOCK_WORKERS>1)或再降间隔(<0.4)**,防
+#   重新触发封禁;0 = 禁用(不建议)。
 # - BAOSTOCK_FAIL_BACKOFF 默认 30(cap 120s):**非熔断**的连续普通失败(如 10002007
 #   网络接收错误/服务端异常)按 30->60->120s 指数退避,防服务端故障期连环打点加重
 #   风控画像;base 设 0 可禁用。10001011 封禁熔断路径**不走此逻辑**——账号/IP 级封禁
 #   重试无意义,保持 ab-#37 现状(短路止损,每轮启动清 flag 盲试一轮,不加假冷却)。
-_QUERY_INTERVAL = float(os.environ.get("BAOSTOCK_QUERY_INTERVAL", "0.5"))
+_QUERY_INTERVAL = float(os.environ.get("BAOSTOCK_QUERY_INTERVAL", "0.4"))
 _FAIL_BACKOFF_BASE = float(os.environ.get("BAOSTOCK_FAIL_BACKOFF", "30"))
+
+# 2026-09-02 提速优化:progress 逐条写(5200 条 ~20s)改批量写(锁内一次合并 ~0.4s)。
+# worker 内累积 BUFFER_N 条后调 update_progress_batch 批量落盘,循环结束 flush 剩余。
+_PROGRESS_BUFFER_N = 100
 
 
 def _fail_backoff_seconds(consecutive_fails: int) -> float:
@@ -138,6 +145,16 @@ def main():
     ok = fail = total_rows = 0
     circuit_open = False  # 10001011 黑名单熔断:账号/IP 级封禁,短路后续所有 code
     consecutive_fail_cnt = 0  # T1:非熔断连续普通失败计数(驱动指数退避)
+    progress_pending = {}  # 2026-09-02 提速:攒批 progress 更新,攒满 _PROGRESS_BUFFER_N 批量落盘
+
+
+    def _flush_progress():
+        """把攒批的 progress 更新一次性批量落盘(原子,flock 内逐条合并)。"""
+        if not progress_pending:
+            return
+        update_progress_batch(progress_pending)
+        progress_pending.clear()
+
     for i, (code, start, end) in enumerate(items):
         if circuit_open:
             # 熔断:后续 code 对同一账号/IP 必然同样失败,直接 fail 不盲试(提速核心)
@@ -157,6 +174,7 @@ def main():
         if _QUERY_INTERVAL > 0:
             time.sleep(_QUERY_INTERVAL)
         ok_before, fail_before = ok, fail
+        was_empty = False  # 本轮 empty(无新数据,服务端正常)不计入失败退避
         end_yyyymmdd = end.replace("-", "")
         retries = 0
         success = False
@@ -168,13 +186,17 @@ def main():
                     total_rows += n
                     ok += 1
                     last = max(r[1] for r in rows)
-                    # Update progress (原子更新,避免多 worker 丢失更新)
-                    update_progress_entry(code, prog_key, last)
+                    # Update progress (攒批原子更新,避免多 worker 丢失更新;
+                    # 2026-09-02 提速:逐条写 5200 次 ~20s,攒批写 ~0.4s)
+                    progress_pending[code] = (prog_key, last)
+                    if len(progress_pending) >= _PROGRESS_BUFFER_N:
+                        _flush_progress()
                     success = True
                 elif "empty" in msg or "skip" in msg:
                     if mode == "update" and "empty" in msg:
                         # 增量模式 empty: 不标 done(和串行 run_update 一致),下次重试。
                         # empty 可能是数据未出/非交易日,标 done 会跳过下次采,致缺数据。
+                        was_empty = True  # 服务端正常但无新数据,非故障,不驱动失败退避
                         fail += 1
                         print(f"  [{os.getpid()}] {i+1}/{len(items)} {code}: empty "
                               f"(no new data, will retry next run)", flush=True)
@@ -182,7 +204,9 @@ def main():
                     else:
                         # 段模式 empty/skip: 标 done(避免重试 dead code)
                         ok += 1
-                        update_progress_entry(code, prog_key, end_yyyymmdd)
+                        progress_pending[code] = (prog_key, end_yyyymmdd)
+                        if len(progress_pending) >= _PROGRESS_BUFFER_N:
+                            _flush_progress()
                         success = True
                 else:
                     # BaoStock error
@@ -242,8 +266,12 @@ def main():
                 success = True  # give up, move on
 
         # T1 失败指数退避:本轮只 fail 无 ok(且未熔断)-> 连续失败计数,>=2 次按
-        # 30/60/120s 退避;任一成功即归零。熔断类分支在循环头 continue 不会到这里。
-        if fail > fail_before and ok == ok_before and not circuit_open:
+        # 30/60/120s 退避;任一成功或 empty 即归零。熔断类分支在循环头 continue 不会
+        # 到这里。empty(服务端正常但无新数据)不计入失败退避——非交易日/停牌扎堆时
+        # 全是 empty,若计入会连续 30/60/120s 退避拖慢整个采集(2026-09-02 提速修复)。
+        if was_empty:
+            consecutive_fail_cnt = 0
+        elif fail > fail_before and ok == ok_before and not circuit_open:
             consecutive_fail_cnt += 1
             bo = _fail_backoff_seconds(consecutive_fail_cnt)
             if bo > 0:
@@ -257,6 +285,9 @@ def main():
         if (i + 1) % 20 == 0:
             print(f"  [{os.getpid()}] progress: {i+1}/{len(items)}, ok={ok} "
                   f"fail={fail} rows={total_rows}", flush=True)
+
+    # 循环结束 flush 剩余攒批 progress(< BUFFER_N 的尾批也必须落盘)
+    _flush_progress()
 
     try:
         bs.logout()

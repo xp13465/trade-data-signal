@@ -284,6 +284,37 @@ def update_progress_entry(code: str, key: str, value: str) -> None:
         tmp.replace(PROGRESS_PATH)
 
 
+def update_progress_batch(updates: dict[str, tuple[str, str]]) -> None:
+    """批量原子更新多个 code 的 progress entry（锁内一次 load-modify-save）。
+
+    updates = {code: (key, value)}，等价于对每个 code 调一次 update_progress_entry，
+    但 5200 条逐条写实测 ~20s，批量写一次锁内合并仅 ~0.4s（2026-09-02 提速优化）。
+    并发语义与单条版一致：fcntl.flock 内 load 最新 progress → 批量 modify → save，
+    多 worker 并发不丢失更新。
+    """
+    if not updates:
+        return
+    import fcntl
+    PROGRESS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = PROGRESS_PATH.with_suffix(".json.lock")
+    with open(lock_path, "w") as lockf:
+        fcntl.flock(lockf, fcntl.LOCK_EX)
+        prog = {}
+        if PROGRESS_PATH.exists():
+            try:
+                prog = json.loads(PROGRESS_PATH.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                prog = {}
+        for code, (key, value) in updates.items():
+            entry = dict(prog.get(code, {}))
+            entry[key] = value
+            prog[code] = entry
+        tmp = PROGRESS_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(prog, ensure_ascii=False, indent=None, sort_keys=True),
+                       encoding="utf-8")
+        tmp.replace(PROGRESS_PATH)
+
+
 # ── code 列表 + 转换 ──────────────────────────────────────────────────────────
 def fetch_stock_codes(force_refresh: bool = False) -> list[str]:
     """复用 D1 的 code 列表（5527 只 6 位代码）。D1 用 stock_info_a_code_name（东财
