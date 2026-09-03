@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<key>REPO</key>
+		<string>/Users/linhuichen/code/trade-data</string>
+	</dict>
+	<key>Label</key>
+	<string>com.trade.beijiao-width</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/linhuichen/code/trade/.venv/bin/python</string>
+		<string>-m</string>
+		<string>app.collector.beijiao_width</string>
+		<string>--recent</string>
+	</array>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardErrorPath</key>
+	<string>/Users/linhuichen/code/trade-data/data/logs/beijiao_width_launchd.err</string>
+	<key>StandardOutPath</key>
+	<string>/Users/linhuichen/code/trade-data/data/logs/beijiao_width_launchd.log</string>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>18</integer>
+		<key>Minute</key>
+		<integer>15</integer>
+	</dict>
+	<key>WorkingDirectory</key>
+	<string>/Users/linhuichen/code/trade-data</string>
+	<!-- 说明:
+	     1. 北交所宽度（方案C 2026-09-02）：FAPI 920 源独立宽度指标 a_bj_*，30% 档。
+	     2. 时点 18:15：FAPI(com.trade.fapi-daily) 18:10 采集当日北交所日线后 5 分钟算，
+	        避开盘后 15:35/16:00/17:50/20:35/22:00 禁区(§14)。不进 17:50 update_all
+	        (17:50 时 FAPI 当日数据尚未入库,跑了只重复算昨日)。
+	     3. 只写 daily_metric(sentiment.db)，export 随 update_all 统一 deploy 上线。
+	-->
+	<key>ExitTimeOut</key>
+	<integer>600</integer>
+</dict>
+</plist>

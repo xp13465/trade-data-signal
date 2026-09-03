@@ -31,6 +31,17 @@ from .compute.signals import strategy_desc
 RANGES = {"1m": 30, "3m": 90, "6m": 180, "1y": 365, "3y": 1095, "5y": 1825}
 VALID_RANGES = set(RANGES) | {"all"}
 
+# 北交所宽度指标（方案C 2026-09-02：独立指标组 a_bj_*，与 a_width_* 平行，零改动现有宽度）
+# 数据源 fapi_daily_raw（920xxx.BJ，FAPI 源），app/collector/beijiao_width.py 每日计算写 daily_metric。
+# 口径=北交所 339 只 / 30% 涨跌幅档 / 数据起点 20260819（FAPI 实测窗口，不假装完整历史）。
+BJ_WIDTH_METRICS = {
+    "a_bj_up_count":   {"id": "a_bj_up_count",   "name": "北交所上涨家数", "unit": "家"},
+    "a_bj_down_count": {"id": "a_bj_down_count", "name": "北交所下跌家数", "unit": "家"},
+    "a_bj_zt_count":   {"id": "a_bj_zt_count",   "name": "北交所涨停数",   "unit": "只"},
+    "a_bj_dt_count":   {"id": "a_bj_dt_count",   "name": "北交所跌停数",   "unit": "只"},
+    "a_bj_amount":     {"id": "a_bj_amount",     "name": "北交所成交额",   "unit": "亿元"},
+}
+
 # 概览 KPI 卡片所需指标（来自 daily_metric，按展示顺序）
 KPI_METRIC_IDS = [
     "a_width_zt_count",     # 涨停数
@@ -53,7 +64,7 @@ KPI_METRIC_IDS = [
     "a_turnover_p90",       # 换手率90分位
     "a_turnover_p10",       # 换手率10分位
     "a_turnover_gt5_pct",   # 换手率>5%占比
-]
+] + list(BJ_WIDTH_METRICS)  # 北交所宽度 5 项（方案C，独立 a_bj_*，与主宽度平行）
 # sparkline 网格所需指数（按展示顺序）
 SPARKLINE_INDEX_IDS = ["sh", "sz", "hs300", "sz50", "cyb", "kc50", "bj50", "csi500", "csi1000", "hsi", "hstech", "hscei"]
 
@@ -1065,6 +1076,8 @@ def overview(conn, cfg):
     metric_cfg = {m["id"]: m for m in cfg.get("metrics", []) if m.get("enabled")}
     # 量比指标不在 indicators.yaml 中，手动补充
     metric_cfg["a_volume_ratio"] = {"id": "a_volume_ratio", "name": "量比", "unit": ""}
+    # 北交所宽度指标不在 indicators.yaml（纯展示，不入采集宇宙），手动补充（方案C）
+    metric_cfg.update(BJ_WIDTH_METRICS)
     today_metrics = []
     for mid in KPI_METRIC_IDS:
         m = metric_cfg.get(mid)
@@ -1560,6 +1573,7 @@ def overview(conn, cfg):
         "a_amount", "a_volume_ratio",
         "a_width_zt_count", "a_width_dt_count", "a_width_up_count", "a_width_down_count",
         "a_width_zhaban_rate", "a_width_fengban_rate",
+        "a_bj_up_count", "a_bj_down_count", "a_bj_zt_count", "a_bj_dt_count", "a_bj_amount",  # 北交所宽度(方案C)
         "gold", "cn10y", "a_qvix_300",
         "a_fund_margin", "a_fund_main",
         "a_turnover_mean", "a_turnover_median", "a_turnover_p90", "a_turnover_p10", "a_turnover_gt5_pct",
@@ -1839,6 +1853,10 @@ def a_stock(conn, cfg, start, end, *, cache=None, include_etf=False):
     metrics = {}
     for m in metrics_for_groups(cfg, *groups):
         metrics[m["id"]] = {"name": m["name"], "unit": m.get("unit"), "data": metric_series(conn, m["id"], start, end, cache=cache)}
+    # 北交所宽度指标（方案C）：不在 indicators.yaml（纯展示不入采集宇宙），从 daily_metric 手动注入。
+    # 数据由 app/collector/beijiao_width.py 每日写（FAPI 源 920xxx.BJ，30% 档）。
+    for _mid, _m in BJ_WIDTH_METRICS.items():
+        metrics[_mid] = {"name": _m["name"], "unit": _m.get("unit"), "data": metric_series(conn, _mid, start, end, cache=cache)}
     # a_amount 补 source 字段：盘中 intraday 半日值(source='intraday')需前端视觉区分，
     # 避免半日值混入日频序列尾部下掉(2026-08-04 事故)。绕过 cache 直接查带 source。
     if "a_amount" in metrics:

@@ -4,6 +4,8 @@
 # 把原串行 collect 拆成并行流水线，各 pipeline 采集+计算写入 DB，慢任务不阻塞快核心。
 #   core        step metrics,indices,industry_extras  + compute
 #   width       step mootdx,industry_width,width_history + compute
+#   beijiao     step beijiao_width（北交所宽度,方案C：FAPI 920 源 30% 档，独立 a_bj_* 组，
+#               零改动 a_width_*；launchd com.trade.beijiao-width 18:15 每日调，手动重跑用本入口）
 #   futures     step futures
 #   stock_daily step stock_daily                       （死端，仅采集备用，不 export 不 push）
 #   turnover    step turnover (baostock增量 + cleanup_d3d2 算 a_turnover)（设 RUN_BAOSTOCK=1 启用 baostock 子步）
@@ -21,7 +23,7 @@ REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 PY="$REPO/.venv/bin/python"
 LOGDIR="$REPO/data/logs"
 STAMP=$(date +%Y%m%d_%H%M)
-NAME="${1:?usage: pipeline.sh <core|width|futures|stock_daily>}"
+NAME="${1:?usage: pipeline.sh <core|width|beijiao|futures|stock_daily|turnover>}"
 LOG="$LOGDIR/pipeline_${NAME}_${STAMP}.log"
 LOCK="/tmp/trade_deploy.lock"
 
@@ -31,10 +33,11 @@ cd "$REPO"
 case "$NAME" in
   core)        STEPS="metrics,indices,industry_extras";        DO_COMPUTE=1; DO_EXPORT=1; DO_PUSH=1 ;;
   width)       STEPS="mootdx,industry_width,width_history";    DO_COMPUTE=1; DO_EXPORT=1; DO_PUSH=1 ;;
+  beijiao)     STEPS="beijiao_width";                          DO_COMPUTE=0; DO_EXPORT=0; DO_PUSH=0 ;;
   futures)     STEPS="futures";                                DO_COMPUTE=0; DO_EXPORT=1; DO_PUSH=1 ;;
   stock_daily) STEPS="stock_daily";                            DO_COMPUTE=0; DO_EXPORT=0; DO_PUSH=0 ;;
   turnover)    STEPS="turnover";                               DO_COMPUTE=0; DO_EXPORT=1; DO_PUSH=1 ;;
-  *) echo "✗ 未知 pipeline: ${NAME}（可选: core|width|futures|stock_daily|turnover）" | tee -a "$LOG"; exit 2 ;;
+  *) echo "✗ 未知 pipeline: ${NAME}（可选: core|width|beijiao|futures|stock_daily|turnover）" | tee -a "$LOG"; exit 2 ;;
 esac
 
 # turnover pipeline 需跑 baostock（慢），设 RUN_BAOSTOCK=1 启用 runner turnover step 的 baostock 子步。

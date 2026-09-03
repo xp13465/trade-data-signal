@@ -3,8 +3,10 @@
 支持子集采集（pipeline 并行模式）：run(date, steps=[...]) 只跑指定 step，
 不传 steps 则全跑（向后兼容）。step 名：
   metrics / indices / boards / industry_extras / stock_daily / baostock /
-  mootdx / industry_width / width_history / futures / ad_line / turnover
+  mootdx / industry_width / width_history / beijiao_width / futures / ad_line / turnover
 依赖由调用方保证（如 width pipeline 传 ["mootdx","industry_width","width_history"]）。
+beijiao_width（北交所宽度,方案C）：依赖 fapi_daily_raw（FAPI 源 920xxx.BJ），
+由 com.trade.beijiao-width launchd 18:15 单独跑（FAPI 18:10 采集后），不进 update_all 17:50 链。
 """
 import os
 import signal
@@ -525,6 +527,24 @@ def run(date=None, verbose=True, steps=None):
         except Exception as e:  # noqa: BLE001
             fail += 1
             details.append(("width_history", "fail", str(e)[:150]))
+
+    # 9.5) 北交所宽度（方案C 2026-09-02）：独立 a_bj_* 组，30% 档，纯展示性宽度。
+    #    数据源 = fapi_daily_raw（920xxx.BJ，FAPI 源），由 com.trade.fapi-daily 18:10 每日采集，
+    #    本步 18:15 单独跑（launchd com.trade.beijiao-width），不进 17:50 update_all 链
+    #    （17:50 时 FAPI 当日数据尚未入库，跑了拿不到当日值，只会重复算昨日）。零改动现有
+    #    a_width_* 主宽度/恐贪/AD线。run_recent days=30 重算近月覆盖漏跑日。
+    if _want(steps, "beijiao_width"):
+        try:
+            from . import beijiao_width
+            res = beijiao_width.run_recent(days=30)
+            if "error" in res:
+                details.append(("beijiao_width", "ok", f"skip ({res['error']})"))
+            else:
+                details.append(("beijiao_width", "ok",
+                                f"+{res.get('computed_days',0)} days recent"))
+        except Exception as e:  # noqa: BLE001
+            fail += 1
+            details.append(("beijiao_width", "fail", str(e)[:150]))
 
     # 10) 期货机构净多空持仓采集 + 准确率计算
     if _want(steps, "futures"):
