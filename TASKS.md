@@ -8,7 +8,10 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-09-01 13:4x(今日三条开发线收口 + 会话落档整理,§23.12 4态流转).本轮:
+**最后更新**:2026-09-03 15:4x(外审 v1.1.14 批收尾闭环 + FAPI 观察期评估登记,§23.12 4态流转).本轮:
+- **✅ 外审 v1.1.14 收尾批处理闭环**(2026-09-03):rev-20260903-001 内容全 PASS 无 BLOCKER(补 `issues` 字段过机检),tag v1.1.14 已打已推(f0f2992bf);分支清理三连(001 删 feat/etf-weight-leader-b123-backtest、002 删 codex/ghi-sim-modal-handoff-20260829、003 fix/platform-healthcheck-mjs 已合 98814180f 后删);7d-function-audit FAPI 疑点更新「已消除」(文档改 **ec1a40d06** 已上 main,launchd com.trade.fapi-daily 已挂 a158495f9 核实)
+- **🔄 FAPI 观察期评估(外审条件①,死线 09-09)**:launchd com.trade.fapi-daily 每日 18:10 采集 + 双写互证观察期已启动(09-02~09-08),到 09-09 前需出评估结论(双写一致性/是否转主),数据或结论异常上报主控。观察期 cron `1e0ef6fb` 在盯(每日跑 docs/fapi/scripts/ths_concept_parallel.py 对账)。⚠️ 时间敏感,优先于日常小任务
+**历史交接(≥2 轮前,已折叠)**:
 - **✅ 商汤代理 400/429 修复 + 日志裁剪**(→main **4e92cb3ef**/**3dd5b21c1**)— 修 thinking.type=adaptive+嵌套budget>1024 的 400(CLAMP 到 1024,probe 32768→400/1024→200);429 单key分层冷却(level0→30min/≥1→1h/上限5×1h,quota vs tpm/rpm 区分,4key 独立配额);日志超20MB 留尾截断10MB。代理重启加载新代码(PID 83100)。⚠️ 经验:该服务是 scripts/ plist + `launchctl load` 模式,非 bootstrap 到 ~/Library/LaunchAgents(bootout+bootstrap 会误停,bootout 后须用 load 恢复)
 - **✅ AI 方向锚回测 5.1+5.2**(→main **00fad6654**/**2b26ac690**)— 5.1 全历史 642 样本:押方向 dir_win=0.5103≈随机;5.2 穷举子群全无一 |z|>=1.96 显著,阈值不翻天,无过拟合 → **方向锚自身无显著方向优势**。落档 docs/ai-predict/ai-predict-backtest-feasibility-20260831.md
 - **✅ B方案:方向锚「开锚vs关锚」7日线上A/B**(→main **fe9ae452f**,feat/ab-direction-anchor-7d-ab)— 因 5.1/5.2 锚自身无优势但 8-28 开启注入依据=3样本前测,搭双通道严格验证注入帮不帮 AI:生产照旧(带锚20:40)+关锚参考(21:15 单prompt,唯一变量=注入),7真实交易日对比命中率定去留。脚本 ab_direction_anchor.py(幂等/7日停/交易日判断/只读零侵入)+launchd com.trade.ab-direction-anchor 21:15。⚠️ merge 赶在 21:15 前让 launchd 指向的脚本路径落 main
