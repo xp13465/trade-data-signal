@@ -49,6 +49,7 @@
 - **只调度不实施**(§0.1):调研/定位/实施/分析全派子 agent;仅紧急 A 级小改例外
 - **派单三件套**(§0.2):run_in_background + 进度文件 `/tmp/agent-progress-<名>.md` 每步 echo + 巡检 cron 兜底(15min `3,18,33,48` durable,门控零输出,夜间降频);派单带 `@文件:行号` 锚点;prompt 要求只回结论+证据点;派单后验证 agent 真启动(memory `agent-dispatch-verify-started`)
 - **分支纪律**(§8):agent 只 commit+push feat 分支;merge main 一律主控走 `bash scripts/main-merge.sh <feat>`(盘后安全窗口/统一 build_min+bump 内置);绝不 `git add -A`
+- **⚠️ ZCode 专属分支纪律(2026-09-03 用户定,对 ZCode 优先于上条)**:ZCode 的**所有**产出(功能代码/docs 报告/脚本收编/**本章程与 MEMORY 更新**)一律提交到 `zcode/*` 命名空间分支并 push;**ZCode 禁止直接 commit/push main**(2026-09-01~03 期间 8 笔直落 main 为历史存量,已 push 不回改 §23.11,靠 Co-Authored-By 尾注追溯)。`zcode/*` 分支何时 merge 进 main=由用户或 Claude Code 确认后走 main-merge.sh(或 Claude 主动合入),**ZCode 不自行合并自己的分支**。注意:本章程在 main 亦有历史版本(Claude 会改),我的更新落 zcode/* 分支后可能与 main 分叉,merge 时按互补保留(§23.11 非静默)
 - **review 硬门槛**(§15):B/C 级改动 merge 前必须独立 reviewer;主控 merge 前不做代码级 grep(L28);§0 只验上线点(①main 含 commit ②curl 数据层 ③前端 min 含新功能串)
 - **验收铁律**:逐字验证关键结论,不信 agent 报告
 - **外审**(§23.14):codex 外审=用户点名制,默认不发起;外部报告(opencode 等)只作参考信息
