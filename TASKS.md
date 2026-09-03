@@ -8,9 +8,12 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-09-03 15:4x(外审 v1.1.14 批收尾闭环 + FAPI 观察期评估登记,§23.12 4态流转).本轮:
+**最后更新**:2026-09-03 18:2x(FAPI 分支处置拍板 + 两分支待合 + 本地审计待清理).本轮:
 - **✅ 外审 v1.1.14 收尾批处理闭环**(2026-09-03):rev-20260903-001 内容全 PASS 无 BLOCKER(补 `issues` 字段过机检),tag v1.1.14 已打已推(f0f2992bf);分支清理三连(001 删 feat/etf-weight-leader-b123-backtest、002 删 codex/ghi-sim-modal-handoff-20260829、003 fix/platform-healthcheck-mjs 已合 98814180f 后删);7d-function-audit FAPI 疑点更新「已消除」(文档改 **ec1a40d06** 已上 main,launchd com.trade.fapi-daily 已挂 a158495f9 核实)
 - **🔄 FAPI 观察期评估(外审条件①,死线 09-09)**:launchd com.trade.fapi-daily 每日 18:10 采集 + 双写互证观察期已启动(09-02~09-08),到 09-09 前需出评估结论(双写一致性/是否转主),数据或结论异常上报主控。观察期 cron `1e0ef6fb` 在盯(每日跑 docs/fapi/scripts/ths_concept_parallel.py 对账)。⚠️ 时间敏感,优先于日常小任务
+- **✅ 本地审计发现 research/fapi-h-k1 分支 12 commit 未合 main**(生产改动: P2 盘中延迟实测/P1 涨停池+龙虎榜兜底/THS 概念对照等;审计报告 docs/local-state-audit-20260903.md)——**用户拍板:观察期后合并**(评估结论出来再决定去留,不静默搁置;评估时核对是否已另路上线避免重复合)。分支已推 origin 保留
+- **🔄 待合并上线(update_all 跑完 19:42 后)**:baostock 提速 **feat/opt-baostock** dc582874c + sensenova 日志分级 **worktree-agent-a30946ddd9476ccb5** ce2538d50,两分支 reviewer 已 PASS,一次性 cron c6023458 触发
+- **📋 本地审计待清理项**(docs/local-state-audit-20260903.md):.codegraph gitignore/删 data .bak 5+空库 3/stash 16 drop//tmp 136 残留——待用户确认派单
 **历史交接(≥2 轮前,已折叠)**:
 - **✅ 商汤代理 400/429 修复 + 日志裁剪**(→main **4e92cb3ef**/**3dd5b21c1**)— 修 thinking.type=adaptive+嵌套budget>1024 的 400(CLAMP 到 1024,probe 32768→400/1024→200);429 单key分层冷却(level0→30min/≥1→1h/上限5×1h,quota vs tpm/rpm 区分,4key 独立配额);日志超20MB 留尾截断10MB。代理重启加载新代码(PID 83100)。⚠️ 经验:该服务是 scripts/ plist + `launchctl load` 模式,非 bootstrap 到 ~/Library/LaunchAgents(bootout+bootstrap 会误停,bootout 后须用 load 恢复)
 - **✅ AI 方向锚回测 5.1+5.2**(→main **00fad6654**/**2b26ac690**)— 5.1 全历史 642 样本:押方向 dir_win=0.5103≈随机;5.2 穷举子群全无一 |z|>=1.96 显著,阈值不翻天,无过拟合 → **方向锚自身无显著方向优势**。落档 docs/ai-predict/ai-predict-backtest-feasibility-20260831.md
