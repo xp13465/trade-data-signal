@@ -67,7 +67,7 @@ README L639 明文默认排除「Files larger than 1 MB — generated bundles, m
 ## 五、落地建议
 
 **结论：值得装，但要改装 + 只用于「定位」不当「影响面依据」，先给 codex 外审用，不装 MCP。**
-1. 查 1MB 上限是否有配置项可调（**遗留问题，待查**；未找到则坑1 无解，接受「app.js 定位不到」）
+1. ~~查 1MB 上限是否有配置项可调~~ **已查清（2026-09-03）：硬编码不可配置**，坑1 无解，接受「app.js 定位不到」。实证：`extraction/index.js:115 const MAX_FILE_SIZE = 1024*1024` 为模块级常量，批量索引（L1850）与单文件提取（L2160）两处都是无条件 `stats.size > MAX_FILE_SIZE` 跳过，无 env var / CLI flag / codegraph.json 字段可覆盖（v1.6.0 所有 `CODEGRAPH_*` env 变量与 config schema 均无 size 项）；`include` 字段只作用于文件枚举层，绕不过解析前的硬检查。社区侧 GitHub issue #369/#1016/#481/#1224 均请求将 MAX_FILE_SIZE 配置化，但**全部未合并**（#1030 同主题 PR 已 close 未 merge），npm latest 即 v1.6.0。
 2. `install` 先不碰（会改写 agent 配置），要用走 CLI 手动查询
 3. 三条使用红线：唯一命名符号可信 / 通用短名必须 grep 交叉验证 / 函数内局部符号查不到
 
