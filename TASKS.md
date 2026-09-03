@@ -8,11 +8,11 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-09-03 18:2x(FAPI 分支处置拍板 + 两分支待合 + 本地审计待清理).本轮:
-- **✅ 外审 v1.1.14 收尾批处理闭环**(2026-09-03):rev-20260903-001 内容全 PASS 无 BLOCKER(补 `issues` 字段过机检),tag v1.1.14 已打已推(f0f2992bf);分支清理三连(001 删 feat/etf-weight-leader-b123-backtest、002 删 codex/ghi-sim-modal-handoff-20260829、003 fix/platform-healthcheck-mjs 已合 98814180f 后删);7d-function-audit FAPI 疑点更新「已消除」(文档改 **ec1a40d06** 已上 main,launchd com.trade.fapi-daily 已挂 a158495f9 核实)
-- **🔄 FAPI 观察期评估(外审条件①,死线 09-09)**:launchd com.trade.fapi-daily 每日 18:10 采集 + 双写互证观察期已启动(09-02~09-08),到 09-09 前需出评估结论(双写一致性/是否转主),数据或结论异常上报主控。观察期 cron `1e0ef6fb` 在盯(每日跑 docs/fapi/scripts/ths_concept_parallel.py 对账)。⚠️ 时间敏感,优先于日常小任务
-- **✅ 本地审计发现 research/fapi-h-k1 分支 12 commit 未合 main**(生产改动: P2 盘中延迟实测/P1 涨停池+龙虎榜兜底/THS 概念对照等;审计报告 docs/local-state-audit-20260903.md)——**用户拍板:观察期后合并**(评估结论出来再决定去留,不静默搁置;评估时核对是否已另路上线避免重复合)。分支已推 origin 保留
-- **🔄 待合并上线(update_all 跑完 19:42 后)**:baostock 提速 **feat/opt-baostock** dc582874c + sensenova 日志分级 **worktree-agent-a30946ddd9476ccb5** ce2538d50,两分支 reviewer 已 PASS,一次性 cron c6023458 触发
+**最后更新**:2026-09-03 21:4x(三 merge 落地 + ZCode 评审复核闭环拍板 P0-2/1/3 顺序).本轮:
+- **✅ 三分支合并落地(21:16-21:20,均已 push main)**:feat/opt-baostock(dc582874c→bf8dd6dd)、worktree-agent sensenova 日志分级(ce2538d50→98ad1db0)、feat/decommission-r2-20260903(8c3992117→35e5b06d,R2 备份+恢复脚本);合并 TASKS fcb884b4e。21:08 merge cron a1ef9d5a 手动完成后已删
+- **✅ FAPI 观察期 09-03 日报(→main 800180c84)**:THS 概念并行对照 27/27、45 交易日 100% 对齐、覆盖 09-03 当日;⚠️ 修正脚本 `--end` 硬编码 20260901 的坑(README 已标注须显式传当日);基线+今日产物落档 docs/fapi/
+- **✅ ZCode 架构评审复核闭环(docs/architecture-review-20260903.md §六 追加 Claude 复核意见)**:P0-3 归因多处与日志不符(代码版本/复现命令/归因机制全错,见 §6.2);**用户拍板按 P0-2→P0-1→P0-3 顺序做**(§6.5,工时 0.5/1.5-2/0.5-1 天)
+- **🔄 P0 架构优化三项(Tasks #46/47/48,pending)**:P0-2 CI 门禁(先做,0.5d)→ P0-1 算法 pytest(1.5-2d)→ P0-3 代理高可用(最后,须端口隔离测试,影响 Claude 自身代理路径)
 - **📋 本地审计待清理项**(docs/local-state-audit-20260903.md):.codegraph gitignore/删 data .bak 5+空库 3/stash 16 drop//tmp 136 残留——待用户确认派单
 **历史交接(≥2 轮前,已折叠)**:
 - **✅ 商汤代理 400/429 修复 + 日志裁剪**(→main **4e92cb3ef**/**3dd5b21c1**)— 修 thinking.type=adaptive+嵌套budget>1024 的 400(CLAMP 到 1024,probe 32768→400/1024→200);429 单key分层冷却(level0→30min/≥1→1h/上限5×1h,quota vs tpm/rpm 区分,4key 独立配额);日志超20MB 留尾截断10MB。代理重启加载新代码(PID 83100)。⚠️ 经验:该服务是 scripts/ plist + `launchctl load` 模式,非 bootstrap 到 ~/Library/LaunchAgents(bootout+bootstrap 会误停,bootout 后须用 load 恢复)
@@ -94,3 +94,29 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - **远期/搁置(移 pending-index 模块十六)**：场外方案C 全量化（#79,step1-8 逐条）→ 性能 P2-10/11/15（#80）→ 管理端看板 kanban（#81）→ 场外阶段2/3（#90）。
 - **8 项被归档活跃需求(pending-index #82-89)**：留言箱完整方案 → ETF485 扩采+OHLC → 公募基金筛选器实战版 → 板块轮动 → 真pin 复盘 → PWA 体验增强 → 订阅推送 → overlap delta 可比口径。
 - **早期历史归档(留反查)**：[docs/archive/TASKS-history-archive-20260820.md](docs/archive/TASKS-history-archive-20260820.md)（07-21~08-16 旧交接/旧需求章节）+ [docs/archive/TASKS-done.md](docs/archive/TASKS-done.md)（07-06~07-20 交接 + 22 任务全 done + 综合AI风险预警）。
+
+---
+## 2026-09-03 Codex Watcher 修复（by Codex）
+
+**问题**：7x24 自动外审链路断，原因两层：
+1. `codex exec` 在 launchd 子进程中被 macOS 沙盒 App Sandbox 阻止（exit=127: `env: node: No such file or directory`）
+2. `report_is_fresh()` 用错误的 mtime 方向检查（报告 mtime 永远 ≤ signaled_at，正确性必然误判）
+3. claim 类型没有 review schema 的 `issues`/`impact_surface` 字段，但代码对所有类型强校验这两个字段
+
+**修复**（已部署生效）：
+- `call_openrouter_codex()` 直调 OpenRouter HTTP API，绕过 `codex exec`
+- `report_is_fresh()` 去掉 mtime 检查，改为 `request_id` + `verdict` schema 验证
+- `HEARTBEAT_PATH` → `/tmp/agent_inbox_watcher.heartbeat`
+- plist log 路径 → `/tmp/codex-reports/agent-inbox-launchd.log`
+- plist 重命名 `com.trade.codex-watcher`，替换旧的 `com.trade.agent-inbox-watcher`
+- launchd PID 31774 已在运行（21:20 重启）
+
+**git commit 准备**（沙盒写锁无法完成，待 Claude Code 用 merge 流程处理）：
+- `scripts/agent_inbox_watcher.py` (141+ 行修改)
+- `scripts/com.trade.codex-watcher.plist` (新 plist)
+- `scripts/install-codex-watcher-launchd.sh` (日志路径修正)
+- `scripts/com.trade.agent-inbox.plist` (删除)
+
+**pending 外审信号**（CLAUDE 回消费）:
+- `rev-20260903-001.done` → v1.1.14 review, PASS，schema 已补全 issues+impact_surface
+- `claim-20260903-001.done` → 孤儿文件认领 PASS，所有文件确认归属或不存在

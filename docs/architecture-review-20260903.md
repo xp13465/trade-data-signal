@@ -69,3 +69,68 @@
 - 代理 400 根因复现:`tail -40 /Users/linhuichen/code/trade-data/data/logs/sensenova-rotate-req.log`(看 14:00:24 REQBODY 带 `thinking.budget_tokens:1024` 且 path=/v1/messages 无 beta → RESP 400 OUT_OF_RANGE);注入逻辑读 `scripts/sensenova-rotate-proxy.py` `_inject_thinking_budget`(L240-284)。
 - 关键口径:本报告为静态评审+实战观察,未做大规模性能压测;P1-2/P2-3 的体积数据以当日 du 为准。
 - 本报告无独立生成脚本(取证命令均已内嵌上表);评审人 ZCode(stand-in),Claude Code 可逐条复核后接管。
+
+---
+
+## 六、Claude 复核意见(2026-09-03,受理接力)
+
+> role-researcher 独立复核(任务书=逐条验证据,不信报告),结论落档此处。复核方式:全部硬数重跑 + 直查 FAPI/DB/日志/进程,见各小节内嵌命令。
+
+### 6.1 取证快照核对(§二 8 项)
+
+| 维度 | 报告声称 | 实测 | 判定 |
+|---|---|---|---|
+| 前端巨石 | app.js 2.0MB/1120+ 函数 | app.js 2,014,447B≈2.0MB,`^function` 597/全量 1103;lab 847KB,`^function` 301/全量 472 | 量级对,函数数口径打勾需看"全量"而非制表符顶格,偏差不大 |
+| 数据产物 1.7GB | trades 72MB/industry 32MB | 1.7G 属实;trades 69M/industry-all 31M(du/ls 口径差 MB 级) | 准确 |
+| .git 1.6GB | — | 1.6G | 准确 |
+| 后端 57 文件/8.2 万行 | app+scripts 合计 | app=57 文件 32,696 行;scripts=118 文件 49,935 行;合计 **175 文件/82,631 行** | **偏差:57 只是 app,scripts 118 个全漏;影响 P0 工时估算基础** |
+| 测试 10 个全通知/桥接类 | 算法核心零 pytest | 主树 12 个;`test_ai_macro_hit_filters.py`=AI 宏键集**谓词级单测**、`test_queries_regression.py`=14 端点数据回归 | **偏差:"全通知/桥接"不成立;但 loss_rules 20 键/S06/凯利重算确零 pytest** |
+| 机检 22 个 | — | 22 个 | 准确 |
+| CI 仅 deploy,无 test/lint | — | .github/workflows/ 仅 deploy-cf/deploy-pages | 准确 |
+| DB 11 个 | `ls data/*.db` | trade/ data 下 9 个;并集 trade-data/data 11 个 | **偏差:按报告复现命令数出 9,11 需含 trade-data 侧** |
+
+### 6.2 P0-3 代理根因——**方向对,证据链多处对不上(需修正)**
+
+报告 §三 P0-3 与 §五 复现段的核心主张:「无 `?beta=true` → 嵌套 thinking.budget_tokens 原样透传 → 商汤 400」。独立复核反证:
+
+1. **代码版本错**:报告称 `_inject_thinking_budget` 在 L240-284、文件 376 行。实测当前 HEAD(508 行)**无此函数**,已重构为 `_strip_thinking_adaptive`(L336-359,只删 type==adaptive,无 beta 依赖);带 beta 依赖+clamp 的旧函数只在 4e92cb3ef(361 行,L225 起)。"376 行"与任何版本(361/446/508)都不符。
+2. **复现命令指向错日志**:报告 `tail -40 sensenova-rotate-req.log` 看 14:00:24 400。实测**该日志全时段 `OUT_OF_RANGE` 出现 0 次**;09-02 14:00 全 429(rpm/配额),09-03 14:00 全 200/429,无 400。
+3. **OUT_OF_RANGE(code=11) 真实存在但在主日志**:5 条(L2355/2587/2619/2792/10075)全在旧 INJECT 时代(INJECT 最后 L24677,STRIP 首次 L24685),非 req.log。
+4. **归因机制被日志反证**:ZCode 请求 REQBODY=`thinking:{type:enabled,budget_tokens:1024}`+`output_config:{effort:high}`+max_tokens=384000——**budget 1024 已是商汤合法上限**,重放证明 enabled+1024→200 OK,&gt;1024 报的是另一类错("field Thinking.BudgetTokens invalid")。真正 OUT_OF_RANGE 触发字段**未定位**,更可能 `output_config.effort=high`(与本项目 memory `claude-code-output-config-effort-400` 同构)或 enabled 组合,报告归因缺 REQBODY 实证。
+5. **双主干共用 8899 现状失效中**:当前进程(PID 35148,09-03 16:41 起)23,106 条日志全带 `?beta=true`(Claude),无 beta 0 次、ZCode UA 0 次——ZCode 侧已无流量(P0-2 双 token 分离部分已变相发生)。
+6. **launchd 挂载属实**(com.trade.thinking-proxy,RunAtLoad+KeepAlive)。
+
+### 6.3 P0-1 / P0-2 复核
+
+- **P0-1 大体成立,一处修正**:loss_rules.py 确为 20 键规格单源(头部注释明文,queries.py/lab.js/app.js+check_loss_rules_vs_mining.py 全等断言消费);`_kellyRecomputeTrade` 确在 lab.js L7039 零 python 测试;S06 只有机检无 pytest。**但"全部测试都通知/桥接类"是错的**(见 §6.1 表)。样本种子:`docs/kelly/analysis/scripts/` 现成脚本丰富(trade-method-final-repro.mjs/kelly_s06_offbase_verify.py/replay_candidate.py 等)可作测试种子。工时:报告 1 天略紧,**实测 1.5~2 天**。
+- **P0-2 准确**:两 workflow 纯部署无门禁确认;check_fade_keys_alignment.py(17,968B)/check_version_progress.py(16,939B)纯机检可挂,另有 check_loss_rules_vs_mining.py/check_fade_predicate_parity.mjs 适合。工时 0.5 天合理。
+
+### 6.4 报告漏掉的新缺口(比"证据错"更要紧)
+
+1. **新版 `_strip_thinking_adaptive` 只处理 type==adaptive,`type==enabled` 原样转发**(文件注释明文)——若 enabled 型请求回归仍无防护,这是 P0-3 修复的实际存量缺口。
+2. **OUT_OF_RANGE 真实触发字段未定位**(output_config.effort?enabled+max_tokens?),归因链缺实证。
+3. **req.log 有 20MB 留尾截断**(LOG_MAX_BYTES/LOG_KEEP_TAIL_BYTES),历史 400 只活在无时间戳主日志——**后续排查必须 req.log+主日志两文件同看,单看 req.log 会漏**(报告唯一复现命令恰好指向会漏的文件)。
+
+### 6.5 拍板结论(P0 优先级/顺序,已含工时)
+
+按「收益/成本/耦合」取序:**P0-2 → P0-1 → P0-3**。
+
+- **P0-2 CI 质量门禁(0.5 天,先做)**:CI 是全部机检的唯一盲区,上 ci.yml 挂现有 check_* 池(>5 个可挂,不新写),当天可 DONE,且 P0-1 产出 pytest 直接进同一 workflow,无返工。
+- **P0-1 算法 pytest(1.5~2 天)**:loss_rules 20 键(43 谓词,可套 check_loss_rules_vs_mining 数据作输入)+ S06 状态 + 凯利三件套;AI 宏键集已有单测省一部分。
+- **P0-3 代理高可用(0.5~1 天,最后)**:报告 ②"去 beta 依赖"已由新版代码完成大半,剩余=①定位 OUT_OF_RANGE 真因(output_config.effort/thinking.enabled 实测)②enabled 类型归一或剥离 ③/healthz+launchd 心跳(报告 ①)。②会影响**本会话(Claude 自己)当前正在走的代理路径**,必须先隔离测试(port)再改,故放最后且单独派单。
+- **待用户确认项**:P0-3 ③加了 healthz+心跳后,代理告警接入 notify 线(severe 镜像 latest.md 防旁路,memory `alert-triage-event-driven-scan`)。
+
+### 6.6 复现(复核方)
+
+```bash
+# 证据链复现(逐条对应 §6.2)
+git show --stat 4e92cb3ef | head -5                      # 旧版 _inject_thinking_budget(361行)
+grep -n "_strip_thinking_adaptive\|budget_tokens\|enabled" scripts/sensenova-rotate-proxy.py | head -20  # 新版 L336-359
+tail -40 ~/code/trade-data/data/logs/sensenova-rotate-req.log   # 全时段 429 无 400(复核点 2)
+grep -n "OUT_OF_RANGE\|L24677\|L24685" ~/code/trade-data/data/logs/sensenova-rotate.log | head   # 5条全在旧INJECT时代
+ps aux | grep sensenova-rotate | grep -v grep            # PID 35148 启动 16:41,RUNNING
+ls data/*.db | wc -l                                      # 9(报告复现命令同口径)
+find app scripts -name "*.py" | xargs wc -l | tail -1     # 175 文件 82,631 行
+```
+
+确定性:**复核独立于报告结论,凡与报告冲突处以本节省 hard 数字(数据均本日 09-03 实跑)为准。**
