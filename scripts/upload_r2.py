@@ -963,6 +963,28 @@ def cmd_upload_kelly_parts():
     purge_cache(uploaded_keys)
 
 
+def cmd_upload_kelly_snapshots():
+    """上传 static-site/data/signal_kelly_snapshots/*.json 到 R2 data/signal_kelly_snapshots/ 前缀。
+
+    2026-09-04 信号凯利回测断链根治配套(每日快照+演进 index, 见 scripts/signal_kelly_snapshot.py)。
+    §8.1 新类别按前缀建独立命令(子目录不被 upload-data-large/upload-all-data 的非递归
+    *.json glob 覆盖, 必须独立命令)。前端 lab 凯利区「演进」读 ./data/signal_kelly_snapshots/
+    index.json(dataRewriteHandler 原生 URL), R2 key = data/signal_kelly_snapshots/<name>,
+    purge 用默认 cache_prefix="/"(匹配 dataRewriteHandler)。
+    """
+    snap_dir = STATIC_DIR / "data" / "signal_kelly_snapshots"
+    if not snap_dir.exists():
+        print(f"ℹ 快照目录不存在(尚无快照): {snap_dir}")
+        return
+    ok, total, _, uploaded_keys = _upload_glob(snap_dir, ["*.json"], "data/signal_kelly_snapshots")
+    if total == 0:
+        print(f"⚠ 无快照文件: {snap_dir}/*.json (先跑 signal_kelly_snapshot.py 生成快照)")
+        return
+    if ok != total:
+        sys.exit(1)
+    purge_cache(uploaded_keys)
+
+
 def cmd_upload_data_large():
     """上传 static-site/data/ 顶层 >=1MB 或大 range(-all/-5y/-3y) 的 .json 到 R2 data/ 前缀。
 
@@ -1185,6 +1207,7 @@ def cmd_upload_all_data():
       - etf_score_list* (upload-etf-score -> data/ 前缀,独立命令已处理)
       - signal_kelly_trades* (5.84MB >=1MB,upload-data-large 已覆盖,防双副本)
       - signal_kelly_trades_parts/ 子目录(upload-kelly-parts 独立命令; *.json glob 不递归天然不匹配,此处记录防漏)
+      - signal_kelly_snapshots/ 子目录(upload-kelly-snapshots 独立命令; *.json glob 不递归天然不匹配,此处记录防漏)
       - 大 range 文件 *-{all,5y,3y}.json (upload-data-large -> data/ 前缀)
       - .gz 不再生成(CF 自动 br 压缩替代),只传 *.json pattern
       - feed.xml: 非 .json,*.json glob 天然不匹配
@@ -1662,6 +1685,9 @@ if __name__ == "__main__":
     elif cmd == "upload-kelly-parts":
         # signal_kelly_trades_parts/ 分片(recent+tYYYY, 首页模拟回测弹窗分片加载)
         cmd_upload_kelly_parts()
+    elif cmd == "upload-kelly-snapshots":
+        # signal_kelly_snapshots/ 每日快照+演进 index(lab 凯利区「演进」入口)
+        cmd_upload_kelly_snapshots()
     elif cmd == "upload-all-data":
         cmd_upload_all_data()
     elif cmd == "upload-intraday":
