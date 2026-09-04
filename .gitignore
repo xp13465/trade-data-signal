@@ -248,6 +248,8 @@ docs/archive/*_progress.md
 .codex/config.toml
 .codex-tmp/
 .wrangler/
+# codegraph 本地索引缓存（codex 评估结论"值得装但只定位不当影响面"；54MB db 不进 git，.codegraphignore 已在 git 不动）
+.codegraph/
 # agent 进度文件
 claude2codex-*.md
 08-*.md
