@@ -2221,10 +2221,13 @@ async function _appendOverfitCard(colA2, r, snap) {
       // 行2=AI仓位建议组: K档按钮组 + K读数徽章(2026-08-24 控件行重排)
       '<div class="overfit-fade-row">' +
       '<span class="overfit-win-label" data-tip="K档(与首页AI仓位建议top-K同口径, 2026-08-16 启用): 每日只保留当日最优K个买入信号监控。两开关独立: 降亏开=过滤后人口选K(filtered_by_k), 降亏关=全信号人口选K(by_k)。排序=跟踪分↓→评级→信号类型。点「关」=无K档退化普通列表(降亏开关控制)。">K档</span>' +
-      ((function(_s){ var _r = { 1: "最激进", 2: "次稳健", 3: "最稳健", 4: "最保守" };
+      ((function(_s){ var _rsrc = (window._aiPoscapRatingSrc ? window._aiPoscapRatingSrc("tds_home_poscap") : null);
+        var _rvals = (_rsrc && _rsrc.src) ? (_rsrc.src.values || window._AI_POSCAP_RATING) : window._AI_POSCAP_RATING;
+        var _rmain = (window._aiPoscapRatingMainPick ? window._aiPoscapRatingMainPick(_rvals) : 1);
+        var _rname = function (kk) { return window._aiPoscapRatingNameByDd ? window._aiPoscapRatingNameByDd(_rvals, kk) : ""; };
         return '<button type="button" class="sig-kbtn sig-kbtn-off' + (_s.k == null ? ' active' : '') + '" data-overfit-k="off"><span class="sig-kbtn-k">关</span><span class="sig-kbtn-r">off</span></button>' +
           [1, 3, 4, 2].map(function (kk) {
-            return '<button type="button" class="sig-kbtn' + ((_s.k === kk) ? ' active' : '') + (kk === 1 ? ' sig-kbtn-main' : '') + '" data-overfit-k="' + kk + '"><span class="sig-kbtn-k">' + kk + '</span><span class="sig-kbtn-r">' + _r[kk] + (kk === 1 ? '★主推' : '') + '</span></button>';
+            return '<button type="button" class="sig-kbtn' + ((_s.k === kk) ? ' active' : '') + (kk === _rmain ? ' sig-kbtn-main' : '') + '" data-overfit-k="' + kk + '"><span class="sig-kbtn-k">' + kk + '</span><span class="sig-kbtn-r">' + _rname(kk) + (kk === _rmain ? '★主推' : '') + '</span></button>';
           }).join("");
       })(_overfitState)) +
       // v1.1.5 badge归位(2026-08-24 主控点名): 「K=N · 已过滤top-K」读数从 .overfit-fade-state 移到本独立 span
@@ -2890,10 +2893,12 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
   const _aShareFinalizedTag = (signalsMeta && signalsMeta.finalized && signalsMeta.version === "a-share-close")
     ? `<span class="sig-finalize-ashare-tag" data-no-pop="" data-tip="当日 A 股信号已用收盘价定稿(15:03)、不会再消失; 15:05-15:30 盘后固定价格交易窗口可按收盘价操作, 顶部 AI 建议 1/2/3 为当日可执行标的(已在盘后窗口可下单)。港股/全球/国债待 17:50 完整版。">⏰ 已固化·可操作(盘后窗口)</span>`
     : "";
-  const _kRating = { 1: "最激进", 2: "次稳健", 3: "最稳健", 4: "最保守" };
-  // 2026-08-14 #BC C包: 主推 K1 → K 按钮 1 排首位+高亮★主推
+  // 2026-09-04 数据驱动(方案一): 档位名称按 dd 派生、主推=收益率最高档, 与评级表同源(common.js helper, §22)
+  const _kRateSrc = (window._aiPoscapRatingSrc ? window._aiPoscapRatingSrc("tds_home_poscap") : null);
+  const _kRateVals = (_kRateSrc && _kRateSrc.src) ? (_kRateSrc.src.values || window._AI_POSCAP_RATING) : window._AI_POSCAP_RATING;
+  const _kMainK = (window._aiPoscapRatingMainPick ? window._aiPoscapRatingMainPick(_kRateVals) : 1);
   const _kbtns = [1, 3, 4, 2].map((kk) =>
-    `<button type="button" class="sig-kbtn${(kk === _k && _pcOn) ? " active" : ""}${kk === 1 ? " sig-kbtn-main" : ""}" data-k="${kk}" data-no-pop=""><span class="sig-kbtn-k">${kk}</span><span class="sig-kbtn-r">${_kRating[kk]}${kk === 1 ? "★主推" : ""}</span></button>`
+    `<button type="button" class="sig-kbtn${(kk === _k && _pcOn) ? " active" : ""}${kk === _kMainK ? " sig-kbtn-main" : ""}" data-k="${kk}" data-no-pop=""><span class="sig-kbtn-k">${kk}</span><span class="sig-kbtn-r">${window._aiPoscapRatingNameByDd(_kRateVals, kk)}${kk === _kMainK ? "★主推" : ""}</span></button>`
   ).join("");
   // off 按钮(2026-08-13): 复用 .sig-kbtn 样式, data-k="off" 由 _bindSigSwitchRow 识别为关(写 tds_home_poscap {on:false})
   const _offBtn = `<button type="button" class="sig-kbtn sig-kbtn-off${_pcOn ? "" : " active"}" data-k="off" data-no-pop=""><span class="sig-kbtn-k">关</span><span class="sig-kbtn-r">off</span></button>`;
@@ -3783,6 +3788,13 @@ function _openSimBacktestModal() {
   // 交易模式下拉(默认 A, 来自 sell_modes)
   const _sm = (_simKellyCfg && _simKellyCfg.sell_modes) || {};
   const _modeOpts = Object.keys(_sm).map((mk) => `<option value="${mk}">${mk} · ${_sm[mk].label || ""}</option>`).join("");
+  // 2026-09-04 数据驱动(方案一): 档位名称按 dd 派生、主推=收益率最高档, 与评级表同源(common.js helper, §22)
+  const _kRateSrc = (window._aiPoscapRatingSrc ? window._aiPoscapRatingSrc("tds_home_poscap") : null);
+  const _kRateVals = (_kRateSrc && _kRateSrc.src) ? (_kRateSrc.src.values || window._AI_POSCAP_RATING) : window._AI_POSCAP_RATING;
+  const _kMainK = (window._aiPoscapRatingMainPick ? window._aiPoscapRatingMainPick(_kRateVals) : 1);
+  const _simKbtns = [1, 2, 3, 4].map((kk) =>
+    '<button type="button" class="sim-kbtn' + (kk === 1 ? " active" : "") + '" data-k="' + kk + '">K' + kk + (window._aiPoscapRatingNameByDd(_kRateVals, kk)) + (kk === _kMainK ? "★主推" : "") + '</button>'
+  ).join("");
   modal.innerHTML = '<div class="rule-modal-overlay"></div>' +
     '<div class="rule-modal-body rule-modal-body-wide"><div class="rule-modal-header"><h3>📊 模拟回测 · 全历史真实过滤</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
     // 费率模拟提示(2026-08-30 用户拍板): 弹窗 G/H/I 三档保留费率模拟——「价格真实」与「费率可调」两件事不冲突,
@@ -3829,10 +3841,7 @@ function _openSimBacktestModal() {
         '</div>' +
         '<div class="sim-ctrl-block"><label>AI仓位建议 K</label><div class="sim-kbtns">' +
           '<button type="button" class="sim-kbtn" data-k="0">关</button>' +
-          '<button type="button" class="sim-kbtn active" data-k="1">K1★主推</button>' +
-          '<button type="button" class="sim-kbtn" data-k="2">K2</button>' +
-          '<button type="button" class="sim-kbtn" data-k="3">K3</button>' +
-          '<button type="button" class="sim-kbtn" data-k="4">K4</button></div></div>' +
+          _simKbtns + '</div></div>' +
         '<div class="sim-ctrl-block simbt-fee-block"><label>费率档(同「交易模拟」区 6 档 + 5 参数自定义)</label>' + _simBtFeeBarHTML(_simBtInitFee()) + '</div>' +
       '</div>' +
       '<div class="sim-summary"></div>' +
