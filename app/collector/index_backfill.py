@@ -1067,6 +1067,22 @@ def main():
             print(f"[backfill] etf 补采到新数据: {_etf_stats}")
         else:
             print(f"[backfill] etf 无新数据: {_etf_stats}")
+        # 2026-09-04 P0 断链根治: 02:00 backfill 槽 pipeline_daily 补采写入的隔日行
+        # accum_nav 永远 NULL 直到下个 20:07 主槽才补 → 回测 _batch_load_etf_prices
+        # SQL 过滤 accum_nav IS NOT NULL 致 9/1-9/4 信号全跳(trades 停 8/31)。
+        # pipeline_accum_nav 幂等增量补齐(无缺口秒回), 与 pipeline_daily 同槽跑,
+        # 覆盖 02:00/16:35/21:00 全部 backfill 槽, 根治「补采行缺累计净值」。
+        try:
+            from .etf_national_team import pipeline_accum_nav as _etf_accum_nav
+            _accum_stats = _etf_accum_nav()
+            _filled = (_accum_stats or {}).get("filled", 0)
+            if _filled:
+                print(f"[backfill] etf accum-nav 补 {_filled} 行: {_accum_stats}")
+                _extra_new = True
+            else:
+                print(f"[backfill] etf accum-nav 无缺口")
+        except Exception as _ae:  # noqa: BLE001
+            print(f"[backfill] etf accum-nav 补采失败: {_ae}")
     except Exception as _e:  # noqa: BLE001
         print(f"[backfill] etf 补采失败: {_e}")
 

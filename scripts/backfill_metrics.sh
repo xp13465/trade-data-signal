@@ -65,6 +65,12 @@ for m in cfg.get('metrics', []):
 print(f'=== direct metrics 补采 ok={ok} fail={fail} ===', flush=True)
 " 2>&1 | tee -a "$LOG"
 
+# 3) 信号凯利回测快照告警(2026-09-04 断链根治配套): 读 static-site/data/signal_kelly_snapshots/
+#    index.json, 检测 max_signal_date 停滞(≥2 交易日) + total_return 突变(滚动窗 mean±3std /
+#    单日Δ>20pp 且 n≥20 且连 2 日同向), 走 notify.py 邮件+飞书同 body(dedup 24h)。
+#    数据目录用 trade 仓 static-site/data(symlink 同文件), 无历史 index 时跳过(不误报)。
+"$REPO/.venv/bin/python" "$REPO/scripts/signal_kelly_snapshot.py" --check 2>&1 | tee -a "$LOG" || echo "⚠ signal_kelly_snapshot --check 失败(退出码 $?)，不阻塞 backfill" | tee -a "$LOG"
+
 RC=${PIPESTATUS[0]}
 echo "=== backfill_metrics.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=$RC ===" | tee -a "$LOG"
 

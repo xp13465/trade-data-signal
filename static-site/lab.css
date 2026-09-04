@@ -1370,6 +1370,24 @@
 .lab-sigkelly-bar-summary { font-size: 11px; color: var(--text-3); white-space: nowrap; cursor: default; }
 .lab-sigkelly-params-toggle { font-size: 11px; padding: 2px 10px; border: 1px solid var(--primary); border-radius: 4px; background: transparent; color: var(--primary); cursor: pointer; white-space: nowrap; transition: all 0.15s; }
 .lab-sigkelly-params-toggle:hover { background: var(--primary); color: #fff; }
+/* 2026-09-04 断链根治配套: 信号凯利回测「演进」弹窗(读 signal_kelly_snapshots/index.json 迷你曲线) */
+.lab-kelly-evo-modal { max-width: 860px; }
+.lab-kelly-evo-body { font-size: 12px; color: var(--text-3); }
+.lab-kelly-evo-meta { margin-bottom: 8px; }
+.lab-kelly-evo-warn { padding: 6px 10px; margin: 6px 0; border: 1px solid var(--mx-bad-fg, #ef5350); background: rgba(239, 83, 80, 0.08); border-radius: 4px; color: var(--mx-bad-fg, #ef5350); font-weight: 600; }
+.lab-kelly-evo-modes { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 6px; }
+.lab-kelly-evo-mode { font-size: 11px; padding: 2px 10px; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: var(--text-2); cursor: pointer; }
+.lab-kelly-evo-mode.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.lab-kelly-evo-curve { width: 100%; margin: 4px 0; }
+.lab-kelly-evo-empty { padding: 24px 8px; text-align: center; color: var(--text-3); border: 1px dashed var(--border); border-radius: 4px; }
+.lab-kelly-evo-error { margin-top: 8px; color: var(--mx-bad-fg, #ef5350); }
+.lab-kelly-evo-foot { margin: 6px 0 10px; line-height: 1.6; }
+.lab-kelly-evo-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.lab-kelly-evo-table th, .lab-kelly-evo-table td { border: 1px solid var(--border); padding: 3px 5px; text-align: center; white-space: nowrap; }
+.lab-kelly-evo-table th { background: var(--bg-2, #f5f5f5); color: var(--text-2); position: sticky; top: 0; }
+.lab-kelly-evo-table td:first-child, .lab-kelly-evo-table td:nth-child(2) { text-align: left; }
+.lab-kelly-evo-n { display: block; font-size: 9px; color: var(--text-3); }
+.lab-kelly-evo-loading { padding: 24px 8px; text-align: center; color: var(--text-3); }
 .lab-sigkelly-params-body { display: none; }
 .lab-sigkelly-params-body.lab-sigkelly-params-open { display: block; width: 100%; margin-top: 4px; }
 .lab-sigkelly-periods { display: flex; gap: 4px; flex-wrap: wrap; }

@@ -811,6 +811,78 @@ def _find_sentiment_db() -> Path | None:
     return None
 
 
+def _find_etf_db() -> Path | None:
+    """定位主库 etf_national_team.db（accum_nav 写入端同库，回测 _get_etf_db_path 同优先）。
+
+    优先 trade-data/data/etf_national_team.db（launchd 写端主库），
+    回退 trade/data/etf_national_team.db（镜像，可能损坏/过期）。找不到返回 None。
+    """
+    for c in (
+        Path("/Users/linhuichen/code/trade-data/data/etf_national_team.db"),
+        Path("/Users/linhuichen/code/trade/data/etf_national_team.db"),
+    ):
+        if c.exists():
+            return c
+    return None
+
+
+def check_signal_accum_nav_lag() -> CheckResult:
+    """校验 signal_daily 最新 buy 信号日 vs etf_daily 最新 accum_nav 日滞后（>1 交易日 SEVERE）。
+
+    事故场景(2026-09-04 P0)：02:00 backfill 槽补采写入 9/3 的 OHLC 行但没跑 update_accum_nav，
+    accum_nav 全 NULL -> 回测 _batch_load_etf_prices SQL `AND accum_nav IS NOT NULL`(L475-477)
+    把 9/3 全部价格行滤掉 -> 9/1-9/4 信号全跳，trades 停 8/31，线上零告警。
+    本项 = 把「信号已产生但价格库 accum_nav 没跟上」的断链变成自动可见。
+    口径: 滞后 = 最新信号日相对最新 accum_nav 日领先的交易日数（trading_days_between 差值 -1），
+    滞后 > 1 交易日 = FAIL(SEVERE)；滞后 1 日(正常盘后时序: 当日信号 vs 昨日 nav) = OK。
+    """
+    name = "signal_accum_nav_lag"
+    sig_db = _find_sentiment_db()
+    etf_db = _find_etf_db()
+    if sig_db is None or etf_db is None:
+        return _warn(name, f"库未找到: signal_db={sig_db} etf_db={etf_db}（无法校验断链，"
+                     f"trade-data 主库与 trade 镜像均不存在）")
+    try:
+        conn = sqlite3.connect(str(sig_db), timeout=5.0)
+        row = conn.execute(
+            "SELECT MAX(date) FROM signal_daily "
+            "WHERE signal IN ('buy','buy_aux','buy_special','buy_backup')"
+        ).fetchone()
+        conn.close()
+        sig_date = row[0] if row else None
+        if not sig_date:
+            return _ok(name, f"signal_daily 无 buy 系信号，无法校验滞后 (db={sig_db})")
+    except Exception as e:
+        return _fail(name, f"读 signal_daily 失败: db={sig_db}: {e}")
+    try:
+        conn = sqlite3.connect(str(etf_db), timeout=5.0)
+        row = conn.execute(
+            "SELECT MAX(date) FROM etf_daily WHERE accum_nav IS NOT NULL"
+        ).fetchone()
+        conn.close()
+        etf_date = row[0] if row else None
+    except Exception as e:
+        return _fail(name, f"读 etf_daily 失败: db={etf_db}: {e}")
+    if not etf_date:
+        return _fail(name, f"etf_daily 无任何 accum_nav 非空行: db={etf_db}（信号断链级）")
+    # 滞后交易日数（交易历，防止周末/节假日误判）
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from app.calendar import trading_days_between
+        days = len(trading_days_between(etf_date, sig_date)) - 1
+        days = max(days, 0)
+    except Exception as e:
+        return _fail(name, f"交易日历计算失败: {e}")
+
+    if days > 1:
+        return _fail(
+            name, f"signal_daily 最新信号日 {sig_date} 领先 etf_daily 最新 accum_nav 日 "
+            f"{etf_date} {days} 交易日 > 1（回测会滤掉这些信号日，断链级）(sig_db={sig_db}, etf_db={etf_db})")
+    if days == 1:
+        return _ok(name, f"信号日 {sig_date} 领先 accum_nav 日 {etf_date} 1 交易日（正常盘后时序）")
+    return _ok(name, f"信号日 {sig_date} vs accum_nav 日 {etf_date} 滞后 0 交易日")
+
+
 def _latest_published_quarter_end(today: datetime) -> datetime | None:
     """返回最近已发布的季度末（季度末 + 20 天 <= 今天），与 hkex_ccass_quarterly._quarter_end_dates 同口径。
 
@@ -1521,6 +1593,8 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     results.append(check_a_stock(data_dir))
     results.append(check_etf_index_map(repo_data_dir))
     results.append(check_signal_kelly_backtest(data_dir))
+    # 信号 vs ETF accum_nav 滞后断链检查（2026-09-04 P0: 9/1-9/4 信号全跳 trades 停 8/31 事故补盲）
+    results.append(check_signal_accum_nav_lag())
     results.append(check_trade_sim_indices(data_dir))
     results.append(check_etf_since_return(data_dir))
     # #10 ETF 全史日K产物目录（export_etf_hist.py -> R2 etf/ 前缀）

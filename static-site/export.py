@@ -1215,6 +1215,25 @@ def main():
             if _sk_trades_path.exists():
                 counts["signal_kelly_trades.json"] = _sk_trades_path.stat().st_size
                 print(f"  signal_kelly_trades.json ({counts['signal_kelly_trades.json']} bytes, R2)")
+            # 7.9.3 signal_kelly_snapshot(每日快照 + 演进 index, 2026-09-04 断链根治配套)
+            # 回测成功才生成快照(失败让停滞告警暴露);失败不阻塞 export。--check 告警
+            # 由 backfill_metrics.sh 尾部挂载(02:00/16:35/21:00), 不在此重复发。
+            try:
+                _sk = subprocess.run(
+                    [sys.executable, str(ROOT / "scripts" / "signal_kelly_snapshot.py"),
+                     "--data-dir", str(DATA_DIR)],
+                    capture_output=True, text=True, timeout=180, cwd=str(ROOT))
+                if _sk.returncode == 0:
+                    _snp_dir = DATA_DIR / "signal_kelly_snapshots"
+                    if _snp_dir.exists():
+                        _snp_files = sorted(_snp_dir.glob("*.json"))
+                        counts["signal_kelly_snapshots/"] = sum(
+                            p.stat().st_size for p in _snp_files)
+                        print(f"  signal_kelly_snapshots/ ({counts['signal_kelly_snapshots/']} bytes, {len(_snp_files)} files)")
+                else:
+                    print(f"  signal_kelly_snapshot: 失败 rc={_sk.returncode} stderr={_sk.stderr[:200]}")
+            except Exception as _e:  # noqa: BLE001
+                print(f"  signal_kelly_snapshot: 异常 {_e}")
         else:
             print(f"  signal_kelly_backtest.json: 失败 rc={_sk.returncode} stderr={_sk.stderr[:200]}")
     except Exception as _e:  # noqa: BLE001

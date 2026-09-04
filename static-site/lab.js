@@ -9736,6 +9736,133 @@ function _kellyModeCompareHTML() {
     `</details>`;
 }
 
+// === 信号凯利回测演进弹窗(2026-09-04 断链根治配套) ===
+// 数据源=signal_kelly_snapshots/index.json(scripts/signal_kelly_snapshot.py 每日生成, 只读小 JSON)。
+// 展示: 每日 max_signal_date 演进(断链=max_signal_date 停滞不涨) + 各模式 all 周期 total_return 迷你曲线。
+// 弹窗复用 lab-signal-modal 容器, 迷你曲线纯 SVG(对齐 _labSimSVG 轻量惯例, 不依赖 ECharts)。
+function _labKellyEvoSVG(days, mode) {
+  const pts = [];
+  for (let i = 0; i < days.length; i++) {
+    const md = (days[i].modes && days[i].modes[mode]) || {};
+    if (typeof md.tr !== "number") continue;
+    pts.push({ d: days[i].d, v: md.tr });
+  }
+  if (pts.length < 2) {
+    return `<div class="lab-kelly-evo-empty">快照数据不足 2 个交易日(每日盘后 export 后生成), 明日起可见曲线。</div>`;
+  }
+  const vals = pts.map((p) => p.v);
+  let yMin = Math.min(...vals, 0) * 1.05;
+  let yMax = Math.max(...vals) * 1.05;
+  if (yMax <= yMin) yMax = yMin + 1;
+  const W = 780, H = 150, ml = 64, mr = 12, mt = 10, mb = 26;
+  const pw = W - ml - mr, ph = H - mt - mb;
+  const sy = (v) => mt + ph - ((v - yMin) / (yMax - yMin)) * ph;
+  const sx = (i) => ml + (i / (pts.length - 1)) * pw;
+  const linePts = pts.map((p, i) => `${sx(i).toFixed(1)},${sy(p.v).toFixed(1)}`).join(" ");
+  const areaPts = linePts + ` ${sx(pts.length - 1).toFixed(1)},${(mt + ph).toFixed(1)} ${sx(0).toFixed(1)},${(mt + ph).toFixed(1)}`;
+  const lastVal = vals[vals.length - 1];
+  const up = lastVal >= vals[0];
+  const lineColor = up ? "var(--mx-good-fg,#26a69a)" : "var(--mx-bad-fg,#ef5350)";
+  let yLabels = "";
+  for (let i = 0; i <= 4; i++) {
+    const v = yMin + ((yMax - yMin) * i) / 4;
+    const y = mt + ph - (ph * i) / 4;
+    yLabels += `<text x="${ml - 6}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--text-3,#999)">${v >= 1000 ? (v / 1000).toFixed(0) + "k" : v.toFixed(0)}</text>` +
+      `<line x1="${ml}" y1="${y}" x2="${W - mr}" y2="${y}" stroke="var(--border,#eee)" stroke-width="1"/>`;
+  }
+  let xLabels = "";
+  const xStep = Math.max(1, Math.floor(pts.length / 8));
+  for (let i = 0; i < pts.length; i += xStep) {
+    xLabels += `<text x="${sx(i).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="var(--text-3,#999)">${pts[i].d.slice(4)}</text>`;
+  }
+  const lastX = sx(pts.length - 1);
+  const lastY = sy(lastVal);
+  return `<div class="lab-kelly-evo-curve">` +
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="演进曲线">` +
+    `<defs><linearGradient id="labEvoGrad" x1="0" y1="0" x2="0" y2="1">` +
+    `<stop offset="0%" stop-color="${lineColor}" stop-opacity="0.25"/><stop offset="100%" stop-color="${lineColor}" stop-opacity="0.02"/>` +
+    `</linearGradient></defs>` +
+    yLabels + xLabels +
+    `<polygon points="${areaPts}" fill="url(#labEvoGrad)"/>` +
+    `<polyline points="${linePts}" fill="none" stroke="${lineColor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
+    `<circle cx="${lastX.toFixed(1)}" cy="${lastY.toFixed(1)}" r="3.5" fill="${lineColor}"/>` +
+    `<text x="${(lastX + 4).toFixed(1)}" y="${(lastY - 5).toFixed(1)}" font-size="11" fill="${lineColor}" font-weight="700">${lastVal >= 1000 ? (lastVal / 1000).toFixed(1) + "k" : lastVal.toFixed(0)}</text>` +
+    `</svg></div>`;
+}
+
+function _labKellyEvoModalHTML(idx) {
+  const days = (idx && idx.days) || [];
+  const latest = days.length ? days[days.length - 1] : null;
+  const lagWarn = latest && latest.m < latest.d ? `<div class="lab-kelly-evo-warn">⚠ max_signal_date=${latest.m} 落后快照日 ${latest.d}(交易记录可能停滞, 见 check_data_integrity 信号滞后告警)</div>` : "";
+  const modeKeys = ["A", "B", "C", "D", "E", "F", "J", "G", "H", "I"];
+  const modeBtns = modeKeys.map((m) =>
+    `<button type="button" class="lab-kelly-evo-mode${m === "G" ? " active" : ""}" data-evo-mode="${m}">${m}</button>`
+  ).join("");
+  let table = `<table class="lab-kelly-evo-table"><thead><tr><th>快照日</th><th>max_signal_date</th>` +
+    modeKeys.map((m) => `<th>${m}</th>`).join("") + `</tr></thead><tbody>`;
+  const showRows = days.slice(-8).reverse();
+  for (const d of showRows) {
+    table += `<tr><td>${d.d}</td><td>${d.m}</td>` + modeKeys.map((m) => {
+      const md = (d.modes && d.modes[m]) || {};
+      return `<td>${typeof md.tr === "number" ? (md.tr >= 1000 ? (md.tr / 1000).toFixed(1) + "k" : md.tr.toFixed(0)) : "-"}<span class="lab-kelly-evo-n">${md.n || ""}</span></td>`;
+    }).join("") + `</tr>`;
+  }
+  table += `</tbody></table>`;
+  return `<div class="lab-signal-modal lab-kelly-evo-modal">` +
+    `<div class="lab-signal-modal-head">` +
+    `<span class="lab-signal-modal-title">📈 信号凯利回测演进</span>` +
+    `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
+    `</div>` +
+    `<div class="lab-signal-modal-body lab-kelly-evo-body">` +
+    `<div class="lab-kelly-evo-meta">版本 v${(idx && idx.version) || "-"} · 更新 ${(idx && idx.updated_at) || "-"} · 共 ${days.length} 个快照日 · 模式=全部周期(all) total_return</div>` +
+    lagWarn +
+    `<div class="lab-kelly-evo-modes">${modeBtns}</div>` +
+    `<div id="lab-kelly-evo-curve-host">${_labKellyEvoSVG(days, "G")}</div>` +
+    `<div class="lab-kelly-evo-foot">💡 曲线=该模式全周期累计收益(total_return)随快照日演进; 停滞=max_signal_date 不涨(断链信号)。数据源=signal_kelly_snapshots/index.json, 每日盘后 export 生成。</div>` +
+    table +
+    `</div></div>`;
+}
+
+function _labKellyEvoOpen() {
+  let overlay = document.getElementById("labKellyEvoOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "labKellyEvoOverlay";
+    overlay.className = "lab-signal-overlay";
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `<div class="lab-signal-modal lab-kelly-evo-modal"><div class="lab-signal-modal-head"><span class="lab-signal-modal-title">📈 信号凯利回测演进</span><button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button></div><div class="lab-signal-modal-body"><div class="lab-kelly-evo-loading">加载 index.json …</div></div></div>`;
+  overlay.classList.add("show");
+  document.body.style.overflow = "hidden";
+  overlay.onclick = (e) => { if (e.target === overlay) _labKellyEvoClose(); };
+  overlay.querySelector(".lab-rank-modal-close").onclick = _labKellyEvoClose;
+  fetchJSON("./data/signal_kelly_snapshots/index.json").then((idx) => {
+    if (!overlay) return;
+    overlay.innerHTML = _labKellyEvoModalHTML(idx);
+    overlay.querySelector(".lab-rank-modal-close").onclick = _labKellyEvoClose;
+    overlay.querySelectorAll(".lab-kelly-evo-mode").forEach((btn) => {
+      btn.onclick = () => {
+        overlay.querySelectorAll(".lab-kelly-evo-mode").forEach((b) => b.classList.toggle("active", b === btn));
+        const host = overlay.querySelector("#lab-kelly-evo-curve-host");
+        if (host) host.innerHTML = _labKellyEvoSVG((idx && idx.days) || [], btn.dataset.evoMode);
+      };
+    });
+  }).catch((e) => {
+    if (!overlay) return;
+    overlay.innerHTML = _labKellyEvoModalHTML(null) + `<div class="lab-kelly-evo-error">加载失败: ${e && e.message ? e.message : e}</div>`;
+    overlay.querySelector(".lab-rank-modal-close").onclick = _labKellyEvoClose;
+  });
+}
+
+function _labKellyEvoClose() {
+  const overlay = document.getElementById("labKellyEvoOverlay");
+  if (overlay) {
+    overlay.classList.remove("show");
+    overlay.innerHTML = "";
+    document.body.style.overflow = "";
+  }
+}
+
 function _renderSigKellyBar(bar, data, period) {
   // B级UI(2026-08-15): 移动端吸顶条默认折叠成1行(周期+「参数」按钮), 全部控制台收进展开区, 点「参数」展开。用户方案A。
   // 展开/收起态持久化 localStorage lab_sigkelly_params_open; 未设置过则按设备宽度默认(≤600px 收起 / >600px 展开=PC现状)。重渲染后保持, 不回落默认。
@@ -10063,6 +10190,9 @@ function _renderSigKellyBar(bar, data, period) {
   const _sumPos = _filters.positionCap ? `仓位K${_pcK || 1}` : "仓位off";
   const _sumGih = (_gihOn ? " · GIH开" : "");
   const _paramBtn = `<button type="button" class="lab-sigkelly-params-toggle" id="lab-kelly-params-toggle" data-no-pop="" title="展开/收起 费率·降亏过滤·AI仓位·G/H/I 全部参数控制台">${_sigParamsOpenState ? "参数收起 ▲" : "⚙️ 参数 ▼"}</button>`;
+  // 2026-09-04 断链根治配套: 「演进」入口 = 每日回测快照迷你曲线(读 signal_kelly_snapshots/index.json,
+  // 只读小 JSON, 展示 max_signal_date 演进 + 各模式 total_return 迷你曲线, 断链/突变可视化)。
+  const _evoBtn = `<button type="button" class="lab-sigkelly-params-toggle" id="lab-kelly-evo-btn" data-no-pop="" title="信号凯利回测演进: 每日快照的 max_signal_date 与 total_return 迷你曲线(断链/突变可视化, 数据源=signal_kelly_snapshots/index.json)">📈 演进</button>`;
   const _paramsBodyOpen = _sigParamsOpenState ? " lab-sigkelly-params-open" : "";
   // #78(2026-08-15): 信息行 + AI仓位历史回测面板 从参数折叠区移出, 改挂到「全信号操作建议指南」卡片(折叠区外恒显)。
   //   存到全局 state 供 _kellyComboAdviceHtml() 读取渲染; 金额口径=每日资金池(与建议指南正文一致, 消除旧"每笔固定1万"双口径混乱 §22)。
@@ -10077,6 +10207,7 @@ function _renderSigKellyBar(bar, data, period) {
       `<span class="lab-sigkelly-periods">${tabsHTML}</span>` +
       `<span class="lab-sigkelly-bar-summary" title="费率: ${_sumFee} · ${_sumPos}${_sumGih} (点「参数」展开完整控制台)">费率:${_sumFee} · ${_sumPos}${_sumGih}</span>` +
       _paramBtn +
+      _evoBtn +
     `</div>` +
     `<div class="lab-sigkelly-params-body${_paramsBodyOpen}">` +
       `<div class="lab-sigkelly-params">` +
@@ -10114,6 +10245,11 @@ function _renderSigKellyBar(bar, data, period) {
       _paramsToggle.textContent = open ? "⚙️ 参数 ▼" : "参数收起 ▲";
       try { localStorage.setItem('lab_sigkelly_params_open', open ? '0' : '1'); } catch (e) {}
     };
+  }
+  // 演进弹窗: 读 signal_kelly_snapshots/index.json(每日快照迷你索引, 见 scripts/signal_kelly_snapshot.py)
+  var _evoToggle = bar.querySelector("#lab-kelly-evo-btn");
+  if (_evoToggle) {
+    _evoToggle.onclick = function () { _labKellyEvoOpen(); };
   }
   // 周期切换
   bar.querySelectorAll(".lab-sigkelly-period-btn").forEach((btn) => {
