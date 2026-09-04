@@ -68,10 +68,20 @@ print(f'=== direct metrics 补采 ok={ok} fail={fail} ===', flush=True)
 # 3) 信号凯利回测快照告警(2026-09-04 断链根治配套): 读 static-site/data/signal_kelly_snapshots/
 #    index.json, 检测 max_signal_date 停滞(≥2 交易日) + total_return 突变(滚动窗 mean±3std /
 #    单日Δ>20pp 且 n≥20 且连 2 日同向), 走 notify.py 邮件+飞书同 body(dedup 24h)。
-#    数据目录用 trade 仓 static-site/data(symlink 同文件), 无历史 index 时跳过(不误报)。
-"$REPO/.venv/bin/python" "$REPO/scripts/signal_kelly_snapshot.py" --check 2>&1 | tee -a "$LOG" || echo "⚠ signal_kelly_snapshot --check 失败(退出码 $?)，不阻塞 backfill" | tee -a "$LOG"
-
-RC=${PIPESTATUS[0]}
+#    数据目录必须显式 --data-dir "$REPO/static-site/data"(与 export.py 写侧一致; snapshot.py
+#    resolve 回 trade/scripts 时默认 data-dir 落 trade 侧旧目录, 与 export 写侧不一致, 故显式传参)。
+#    退出码语义(与 snapshot.py main() 注释同步): 0=无告警, 1=有告警(正常路径, 不标"失败"),
+#    2=脚本异常(非预期)。RC 始终取真实退出码, 不再被 `|| echo` 覆盖吞掉(P1-2 监控盲区修复)。
+"$REPO/.venv/bin/python" "$REPO/scripts/signal_kelly_snapshot.py" --check --data-dir "$REPO/static-site/data" 2>&1 | tee -a "$LOG"
+snap_rc=${PIPESTATUS[0]}
+if [ "$snap_rc" -eq 0 ]; then
+    echo "  signal_kelly_snapshot --check 通过(无告警)" | tee -a "$LOG"
+elif [ "$snap_rc" -eq 1 ]; then
+    echo "⚠ signal_kelly_snapshot --check 检测到告警(停滞/突变, 正常路径), 不阻塞 backfill" | tee -a "$LOG"
+else
+    echo "⚠ signal_kelly_snapshot --check 脚本异常(退出码 $snap_rc, 非预期), 不阻塞 backfill" | tee -a "$LOG"
+fi
+RC=$snap_rc
 echo "=== backfill_metrics.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=$RC ===" | tee -a "$LOG"
 
 # 刷新 schedule_stats.json：deploy.sh 在 backfill 内部(index_backfill.main L884)被触发时，

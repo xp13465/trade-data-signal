@@ -34,10 +34,15 @@
       MIN_SAMPLES=5(窗口样本下限), MIN_N=20(样本门), LAG_ALERT_TD=2(交易日),
       DEDUP_WINDOW=86400(24h 防抖)
 复现命令:
-    # 生成今日快照 + 更新 index
-    python scripts/signal_kelly_snapshot.py
-    # 只读模式告警检测(挂 backfill_metrics.sh 02:00/16:35/21:00 尾部)
-    python scripts/signal_kelly_snapshot.py --check
+    # 生成今日快照 + 更新 index(export.py L1223 内部以 --data-dir DATA_DIR 调用, 写 trade-data 侧)
+    python scripts/signal_kelly_snapshot.py --data-dir <DATA_DIR>
+    # 只读模式告警检测(挂 backfill_metrics.sh 02:00/16:35/21:00 尾部,
+    #   backfill 侧必须显式 --data-dir "$REPO/static-site/data" 与 export 写侧一致)
+    python scripts/signal_kelly_snapshot.py --check --data-dir <DATA_DIR>
+退出码语义(调用方依赖, 变更需同步 backfill_metrics.sh 快照段):
+    0 = 快照成功 / --check 无告警
+    1 = --check 检测到预期告警(停滞/突变; 正常路径, 非脚本错误, 不阻塞 backfill)
+    2 = 脚本异常(非预期崩溃, 如产物缺失/读取失败; 区别于"有告警")
 """
 import argparse
 import json
@@ -363,7 +368,7 @@ def run_check(data_dir: Path, dry_run: bool) -> int:
     return 1
 
 
-def main() -> int:
+def _main() -> int:
     ap = argparse.ArgumentParser(description="信号凯利回测快照/演进/告警")
     ap.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR),
                     help="回测产物所在 data 目录(默认 static-site/data)")
@@ -397,6 +402,19 @@ def main() -> int:
     log(f"快照已生成: {snap_dir(data_dir) / (snapshot['date'] + '.json')}")
     log(f"index 共 {len(index['days'])} 个快照日, max_signal_date={snapshot['max_signal_date']}")
     return 0
+
+
+def main() -> int:
+    """入口。退出码语义(供调用方/backfill_metrics.sh 区分):
+        0 = --check 无告警 / 快照生成成功
+        1 = --check 检测到预期告警(停滞/突变, 正常路径, 非脚本错误)
+        2 = 脚本异常(非预期崩溃, 如产物缺失/读取失败), 与"有告警"区分
+    """
+    try:
+        return _main()
+    except Exception as _e:  # noqa: BLE001
+        log(f"脚本异常(非预期, 退出码 2): {_e}")
+        return 2
 
 
 if __name__ == "__main__":
