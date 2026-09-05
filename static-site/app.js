@@ -5268,9 +5268,11 @@ function _simNetassetCurve(rows, fIdx, fp, initCapital, nav, winStart, winEnd) {
       if (p.buy === d && !(pi in openByIdx)) { openByIdx[pi] = p; cash -= PRIN; }
     }
     let mv = 0, holdN = 0;
-    // 8/21 假跌修复(方案A 2026-09-05): 每点附带 mvByCode=当日每笔市值明细{code: 完整精度市值},
+    // 8/21 假跌修复(方案A 2026-09-05): 每点附带 mvByCode=当日每笔市值明细{笔身份key: 完整精度市值},
     // 供 tooltip 计算「留存持仓 nav 加权涨跌」(昨日持仓∩今日持仓按昨日份额锁定)与份额变动标注(卖出离场/买入进场);
     // mv 绝对值(round 后)与修复前逐位一致(§22, 蓝线曲线点不变)。
+    // ⚠️ 笔身份 key=openByIdx 下标(=prep 笔下标), 不再按 code 聚合(9/05 reviewer 残留 bug 修复:
+    // 按 code 聚合丢「笔(份额)」粒度→同 code 多笔时新买全额计进留存(虚高)、卖出部分不进卖出离场(假跌))。
     const mvByCode = {};
     for (const i in openByIdx) {
       const p = openByIdx[i];
@@ -5278,7 +5280,7 @@ function _simNetassetCurve(rows, fIdx, fp, initCapital, nav, winStart, winEnd) {
       if (px == null || !(px > 0)) { px = p.bpReal; navFF++; }
       const cmv = p.shares * px;
       mv += cmv; holdN++;
-      mvByCode[p.code] = (mvByCode[p.code] || 0) + cmv;
+      mvByCode[i] = cmv;
     }
     curve.push({ date: d, value: Math.round((cash + mv) * 100) / 100, holdings: holdN, cash: Math.round(cash * 100) / 100, mv: Math.round(mv * 100) / 100, mvByCode: mvByCode });
   }
@@ -5385,18 +5387,21 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
         }
         if (p.mv > 0) {
           // 8/21 假跌修复(方案A): 蓝行「较前日%」=留存持仓 nav 加权涨跌(昨日持仓∩今日持仓, 昨日份额锁定);
+          // ⚠️ 9/05 残留 bug 修复: mvByCode key=笔身份(prep 下标)而非 code——留存=昨/今按笔交集, 新买笔/卖出笔逐笔可辨,
+          // 同 code 多笔不再整并。key 是笔则其市值=份额×nav(份额固定), 故 numSum=Σ(留存笔份额×今日nav)、
+          // denSum=Σ(留存笔份额×昨日nav), 即「昨日份额锁定」的 nav 加权涨跌。
           // mvByCode 由 _simNetassetCurve 每点输出(完整精度), mv 绝对值与曲线蓝点逐位一致(§22)。
           const _prevBc = _prev ? (_prev.mvByCode || null) : null;
           const _curBc = p.mvByCode || {};
           let _navChg = null, _navPct = null, _sellAway = 0, _buyIn = 0;
           if (_prevBc) {
             let numSum = 0, denSum = 0;
-            for (const c in _prevBc) {
-              if (Object.prototype.hasOwnProperty.call(_curBc, c)) { numSum += _curBc[c]; denSum += _prevBc[c]; }
+            for (const bid in _prevBc) {
+              if (Object.prototype.hasOwnProperty.call(_curBc, bid)) { numSum += _curBc[bid]; denSum += _prevBc[bid]; }
             }
             if (denSum > 0) { _navChg = numSum - denSum; _navPct = (numSum / denSum - 1) * 100; }
-            for (const c in _prevBc) { if (!Object.prototype.hasOwnProperty.call(_curBc, c)) _sellAway += _prevBc[c]; }
-            for (const c in _curBc) { if (!Object.prototype.hasOwnProperty.call(_prevBc, c)) _buyIn += _curBc[c]; }
+            for (const bid in _prevBc) { if (!Object.prototype.hasOwnProperty.call(_curBc, bid)) _sellAway += _prevBc[bid]; }
+            for (const bid in _curBc) { if (!Object.prototype.hasOwnProperty.call(_prevBc, bid)) _buyIn += _curBc[bid]; }
           }
           let _blueMain = _blue + '持仓市值 ' + _fmtY2(p.mv);
           if (!_prev) _blueMain += '(— 首点无前值)';
