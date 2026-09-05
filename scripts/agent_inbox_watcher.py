@@ -110,6 +110,8 @@ def transition(src, new_state):
         src.rename(dst)
     except FileNotFoundError:
         pass
+    except OSError:
+        pass
     return dst
 
 def is_already_processed(request_id):
@@ -177,7 +179,8 @@ def sync_git_refs():
         done = CODEX_INBOX / f"{rid}.done"
         failed = CODEX_INBOX / f"{rid}.failed"
         skipped = CODEX_INBOX / f"{rid}.skipped"
-        if ready.exists() or done.exists() or failed.exists() or skipped.exists():
+        processing = CODEX_INBOX / f"{rid}.processing"
+        if ready.exists() or done.exists() or failed.exists() or skipped.exists() or processing.exists():
             continue
         if is_already_processed(rid):
             # claude-inbox 已收到回传, 仅同步 ready 让 pump 跳过即可
