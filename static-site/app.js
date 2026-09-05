@@ -3845,10 +3845,10 @@ function _openSimBacktestModal() {
         '<div class="sim-ctrl-block simbt-fee-block"><label>费率档(同「交易模拟」区 6 档 + 5 参数自定义)</label>' + _simBtFeeBarHTML(_simBtInitFee()) + '</div>' +
       '</div>' +
       '<div class="sim-summary"></div>' +
-      // 逐日净资产走势图(2026-09-04 #51, 纯新增展示): 插在表格与汇总之间; 曲线从 kept rows 重算(与表格同源),
+      // 逐日总资产变化走势图(2026-09-04 #51, 纯新增展示): 插在表格与汇总之间; 曲线从 kept rows 重算(与表格同源),
       // nav 复用弹窗已加载的 accum_nav_map(_kkellyRealNavEnsure 单例), 不新增请求(报告 sim-netasset-equity-chart-20260901)
       '<div class="sim-netasset-chart">' +
-        '<div class="sim-netasset-head">📈 逐日净资产走势(自然日, 每天 1 点)</div>' +
+        '<div class="sim-netasset-head">📈 逐日总资产变化走势(自然日, 每天 1 点)</div>' +
         '<div class="sim-netasset-body"></div>' +
         '<div class="sim-netasset-note" style="display:none"></div>' +
       '</div>' +
@@ -5114,19 +5114,25 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
     });
   }
   _draw();
-  // 逐日净资产走势图(2026-09-04 #51, 纯新增展示): 与表格同源 kept rows/同一峰值扫描(peakDisp 传参与累积盈亏%分母
+  // 逐日总资产变化走势图(2026-09-04 #51, 纯新增展示): 与表格同源 kept rows/同一峰值扫描(peakDisp 传参与累积盈亏%分母
   // 逐位一致 §22), 管位开关/切 K/切范围/切费率后随 _simRenderTable 同步重算, 无旧曲线残留
   _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD);
 }
 
-// === 逐日净资产走势图(2026-09-04 #51 纯新增展示, #52b 自然日口径用户拍板; 报告 docs/kelly/analysis/sim-netasset-equity-chart-20260901) ===
-// 口径(报告一.3, 复刻脚本 netasset_daily_repro.py 同构): 净资产(日)=现金+持仓市值;
+// === 逐日总资产变化走势图(2026-09-04 #51 纯新增展示, #52b 自然日口径用户拍板; 报告 docs/kelly/analysis/sim-netasset-equity-chart-20260901) ===
+// 口径(报告一.3, 复刻脚本 netasset_daily_repro.py 同构): 总资产(日)=现金+持仓市值;
 // 现金=初始-Σ开仓本金+Σ卖出净额(PRIN+费后盈亏); 市值=Σ未平仓份额×当日 accum_nav(缺日向前取);
 // 初始=峰值同时持仓笔数×¥10000(与累积盈亏%分母逐位一致);
 // 自然日打点(#52b): 曲线=用户感知的收益率, 每天 1 点(含周末/节假日); 非交易日持仓市值走既有向前取(最近 nav),
 // 现金无交易不变, 曲线平线但连续; 兼容"未来周末也可交易"假设。窗口起止=弹窗日期范围(未指定则 rows 覆盖的
 // min(buy/sell)~max(buy/sell) 每天); 防前视: 末日取 min(数据末日=nav 全局最大日期, 今天之前最近自然日), 不引入未来日期。
 // 已知局限(报告三): nav 末日可能早于 trades 卖出日(sell_date>nav 末日的笔按最新 nav 计市值), UI 标注「曲线数据截至 X」。
+// #52c: tooltip 日期行「YYYY-MM-DD · 周X」, Date.UTC 解析防本地时区偏移(2026-08-28=周五 已验证)
+function _simNetassetWeekday(ymd) {
+  if (!ymd || ymd.length !== 8) return "";
+  const y = +ymd.slice(0, 4), m = +ymd.slice(4, 6), d = +ymd.slice(6, 8);
+  return "周" + "日一二三四五六"[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+}
 function _simNetassetCurve(rows, fIdx, fp, initCapital, nav, winStart, winEnd) {
   const PRIN = 10000, SLIP = 0.001;
   const prep = [];
@@ -5272,7 +5278,7 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
     }
     const dates = pts.map((p) => p.date);
     const values = pts.map((p) => p.value);
-    // 副线: 每日净资产涨跌%(用户要 b=每日涨跌幅波动; 由曲线自身派生, 首点无前值=null)
+    // 副线: 持仓日涨跌%(用户要 b=每日涨跌幅波动; 由曲线自身派生, 首点无前值=null)
     const pctChanges = pts.map((p, i) => (i === 0 || !(pts[i - 1].value > 0)) ? null : ((p.value - pts[i - 1].value) / pts[i - 1].value) * 100);
     let iMin = 0, iMax = 0;
     for (let i = 1; i < pts.length; i++) {
@@ -5291,7 +5297,7 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
         { i: pts.length - 1, y: lastP.value, color: "#409eff", r: 3, label: "末 " + _fmtY(lastP.value), labelColor: "#409eff", fontSize: 10 },
       ],
     }, {
-      // 副线: 每日净资产涨跌%(蓝虚线, 右轴), 与主净资产叠加; connectNulls=true 跨首点 null 相连
+      // 副线: 持仓日涨跌%(蓝虚线, 右轴), 与主总资产叠加; connectNulls=true 跨首点 null 相连
       type: "line", data: pctChanges, color: "#409eff", width: 1.5, smooth: true, connectNulls: true, dash: "4 4",
       yIndex: 1,
       markPoints: [
@@ -5306,20 +5312,25 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
       xFmt: (v) => String(v),
       ys: [
         { scale: true, splitNumber: 5, formatter: _fmtY },
-        { side: "right", scale: true, splitNumber: 5, formatter: (v) => v + "%", name: "日涨跌%" },
+        { side: "right", scale: true, splitNumber: 5, formatter: (v) => v + "%", name: "持仓日涨跌" },
       ],
-      legend: [{ name: "净资产", color: "#e6492e" }, { name: "日涨跌%", color: "#409eff" }],
+      legend: [{ name: "总资产变化", color: "#e6492e", textColor: "#e6492e" }, { name: "持仓日涨跌", color: "#409eff", textColor: "#409eff" }],
       series: series,
       tipFn: (i, xLabel) => {
         const p = pts[i];
         if (!p) return "";
         const pc = pctChanges[i];
-        return '<b>' + xLabel + '</b> 净资产 ' + _fmtY2(p.value) +
-          '<br/>持仓 ' + p.holdings + ' 笔(市值 ' + _fmtY2(p.mv) + ' + 现金 ' + _fmtY2(p.cash) + ')' +
-          (pc != null ? '<br/>日涨跌 ' + (pc >= 0 ? "+" : "") + pc.toFixed(2) + '%' : '');
+        const _d = String(p.date);
+        const _dStr = _d.slice(0, 4) + "-" + _d.slice(4, 6) + "-" + _d.slice(6, 8);
+        const _red = '<span style="display:inline-block;width:8px;height:8px;background:#e6492e;border-radius:1px;margin-right:4px;vertical-align:middle"></span>';
+        const _blue = '<span style="display:inline-block;width:8px;height:8px;background:#409eff;border-radius:1px;margin-right:4px;vertical-align:middle"></span>';
+        return '<b>' + _dStr + ' · ' + _simNetassetWeekday(_d) + '</b>' +
+          '<br/>持仓 ' + p.holdings + ' 笔 · 现金 ' + _fmtY2(p.cash) + ' · 市值 ' + _fmtY2(p.mv) +
+          '<br/>' + _red + '总资产 ' + _fmtY2(p.value) +
+          (pc != null ? '<br/>' + _blue + '持仓日涨跌 ' + (pc >= 0 ? "+" : "") + pc.toFixed(2) + '%' : '<br/>' + _blue + '持仓日涨跌 —(首点无前值)');
       },
     };
-    if (headEl) headEl.textContent = "📈 逐日净资产走势(自然日打点每天 1 点, 非交易日按最近收盘净值计、周末平线 · 虚线=初始本金 " + initCapital.toLocaleString("zh-CN") + " 元 · 副线=每日涨跌% · " + pts.length + " 点 · " + pts[0].date + "~" + lastP.date + ")";
+    if (headEl) headEl.textContent = "📈 逐日总资产变化走势(自然日打点每天 1 点, 非交易日按最近收盘净值计、周末平线 · 虚线=初始本金 " + initCapital.toLocaleString("zh-CN") + " 元 · 副线=持仓日涨跌 · " + pts.length + " 点 · " + pts[0].date + "~" + lastP.date + ")";
     if (bodyEl) _lwSetup(bodyEl, cfg);
   };
   if (typeof window !== "undefined" && window._kkellyRealNav) { _render(); return; }
@@ -17247,7 +17258,7 @@ function _lwSVG(cfg) {
       for (const _li of row.items) {
         const it = _li.it;
         s += '<line x1="' + lx + '" y1="' + ly + '" x2="' + (lx + 10) + '" y2="' + ly + '" stroke="' + it.color + '" stroke-width="2"/>';
-        s += '<text x="' + (lx + 14) + '" y="' + (ly + 4) + '" font-size="' + _axFont + '" style="fill:var(--text-1)">' + it.name + '</text>';
+        s += '<text x="' + (lx + 14) + '" y="' + (ly + 4) + '" font-size="' + _axFont + '" style="fill:' + (it.textColor || "var(--text-1)") + '">' + it.name + '</text>';
         lx += _li.w;
       }
       ly += 16;
