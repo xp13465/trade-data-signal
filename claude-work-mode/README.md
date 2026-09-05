@@ -223,6 +223,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-09-02 | 0.9100 | 9,651,794 | ? | 3eca07e8e fix(codex-ref): agent_inbox_watcher 断点修复重构 + codex-reviewer skill 资产(runbook/rubric/playbook)落档 + CLAUDE.md §5.4⑦/§23.15 + researcher §3.2 复现对账铁律 |
 | 2026-09-03 | 0.9381 | 3,480,249 | ? | 无 |
 | 2026-09-04 | 0.9415 | 3,297,985 | ? | 无 |
+| 2026-09-05 | 0.9444 | 3,075,232 | ? | 无 |
 <!-- token-cache-trend-end -->
 
 **ASCII 迷你柱状图**（每格 = 0.01 命中率，刻度 0.70~1.00，一眼看升降；由脚本 `--append-daily` 随走势表同步更新，保证与实际命中率一致）：
@@ -254,6 +255,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 09-02  █████████████████████(21)  9,651,794     0.9100
 09-03  ████████████████████████(24)  3,480,249     0.9381
 09-04  ████████████████████████(24)  3,297,985     0.9415
+09-05  ████████████████████████(24)  3,075,232     0.9444
 ```
 <!-- token-cache-ascii-end -->
 
@@ -284,4 +286,5 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-09-02 | ? | 3eca07e8e fix(codex-ref): agent_inbox_watcher 断点修复重构 + codex-reviewer skill 资产(runbook/rubric/playbook)落档 + CLAUDE.md §5.4⑦/§23.15 + researcher §3.2 复现对账铁律 |
 | 2026-09-03 | ? | — |
 | 2026-09-04 | ? | — |
+| 2026-09-05 | ? | — |
 <!-- token-cache-changelog-end -->
