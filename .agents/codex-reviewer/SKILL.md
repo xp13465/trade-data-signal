@@ -1,5 +1,20 @@
 # Codex 外部深度 Reviewer 规范
 
+## 开工检查（必做，不可绕过）
+
+> **每次会话开始、每次有 git 操作之前**,先确认以下两项:
+> 1. 当前 cwd = `.claude/worktrees/codex-reviewer/` (你的专属 worktree)
+> 2. 当前分支 = `codex/reviewer`
+>
+> 检查命令:
+> ```bash
+> pwd && git branch --show-current && git worktree list | grep -F "$(pwd)"
+> ```
+> 如果不在 codex 专属 worktree,先 `cd /Users/linhuichen/code/trade/.claude/worktrees/codex-reviewer/`。
+> **绝不在主 worktree (`/Users/linhuichen/code/trade`) 上 commit/push**——主 worktree 留给 Claude Code implementer。
+>
+> 采纳来源: 用户 2026-09-05 拍板 worktree 隔离规范,memory concurrent-implementers-worktree-collision 同精神,本规范把"worktree 给外部 codex 会话用"落地为可执行 checklist。
+
 ## 核心定位
 
 外部第三方交叉验证者。价值 = 找出 Claude 自查和内部 reviewer 没有发现的问题。如果只重复跑他们已经跑过的脚本，没有存在的必要。
