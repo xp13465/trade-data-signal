@@ -4959,10 +4959,9 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
   const _ghIt = _SIM_GHI_TIERS[mode];
   const _gihActive = !!(gihOn && _ghIt && _ghIt.cap > 0);
   const _gihCapN = _gihActive ? Math.round(_ghIt.cap / 10000) : 0;
-  const peakDisp = Math.max(peakPosN, 1);
   // #51 净资产曲线全史口径(2026-09-05): 累积盈亏%分母 / 峰值列展示 / 曲线初始资金 = 全史峰值同时持仓笔数
   // (filter→K→GIH 后的全史 kept 行扫描, _simRenderOnce 传入), 恒值不随窗口切换(30天/90天/全史三条相等);
-  // peakPosN 保留为窗口内 raw 峰值(仅 GIH 提示「管位关时」对照用)。
+  // peakPosN 保留为窗口内 raw 峰值(仅防 peakAllHist 未传入兜底; GIH 提示「管位关时」对照走 peakRawDenom=全史原始峰值)。
   const peakDenom = Math.max(peakAllHist || peakPosN, 1);
   const peakRawDenom = Math.max(peakAllHistRaw || peakPosN, 1);
   let _gihMissingN = 0; // 2026-08-30 P1-① §22: 强平日缺价笔数(不计入统计, 渲染层红字提示)
