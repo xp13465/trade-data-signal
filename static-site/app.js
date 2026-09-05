@@ -3778,12 +3778,12 @@ function _openSimBacktestModal() {
     document.body.appendChild(modal);
   }
   const _close = () => { modal.classList.add("hidden"); document.body.style.overflow = ""; };
-  // 默认时间范围 = 最近30天(止=今天, 起=今天-30天)(2026-08-22 用户定)。innerHTML 每次打开全量重建,
-  // 天然"每次打开重置为最近30天"。用本地时区分量拼接格式化(不用 toISOString: 其按 UTC, 东八区 8 点前会偏到昨天)。
+  // 默认时间范围 = 最近3个月(90天)(止=今天, 起=今天-90天)(2026-08-22 用户定30天, 2026-09-05 用户改定3个月)。innerHTML 每次打开全量重建,
+  // 天然"每次打开重置为最近3个月"。用本地时区分量拼接格式化(不用 toISOString: 其按 UTC, 东八区 8 点前会偏到昨天)。
   const _pad2 = (n) => (n < 10 ? "0" + n : "" + n);
   const _fmtLocal = (d) => d.getFullYear() + "-" + _pad2(d.getMonth() + 1) + "-" + _pad2(d.getDate());
   const _now = new Date();
-  const _defStart = _fmtLocal(new Date(_now.getFullYear(), _now.getMonth(), _now.getDate() - 30));
+  const _defStart = _fmtLocal(new Date(_now.getFullYear(), _now.getMonth(), _now.getDate() - 90));
   const _defEnd = _fmtLocal(_now);
   // 交易模式下拉(默认 A, 来自 sell_modes)
   const _sm = (_simKellyCfg && _simKellyCfg.sell_modes) || {};
@@ -5326,6 +5326,8 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
     }
     const dates = pts.map((p) => p.date);
     const values = pts.map((p) => p.value);
+    // 跨年窗口判定(纯字符串比较 YYYY 段, 不依赖 Date 解析): 供 xFmt 带年 + xStep 按带年刻度量宽
+    const _crossYear = String(dates[0]).slice(0, 4) !== String(dates[dates.length - 1]).slice(0, 4);
     // #51②(2026-09-05) 副线=持仓市值(mv)口径(方案A): 蓝线逐日值=当日持仓市值(与 tooltip「市值 ¥Y」同源逐位一致,
     // §22; 取代原「总资产日涨跌%」——那与总资产红线同源不构成独立维度)。mv 与总资产同量级 → 同走左轴 ¥, 右轴%移除。
     const mvSeries = pts.map((p) => p.mv);
@@ -5343,7 +5345,9 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
         { i: 0, y: pts[0].value, color: "#909399", r: 3, label: "起 " + _fmtY(pts[0].value), labelColor: "#909399", fontSize: 10 },
         { i: iMin, y: pts[iMin].value, color: "#2ea121", r: 3, label: "低 " + _fmtY(pts[iMin].value), labelColor: "#2ea121", fontSize: 10 },
         { i: iMax, y: pts[iMax].value, color: "#e6492e", r: 3, label: "峰 " + _fmtY(pts[iMax].value), labelColor: "#e6492e", fontSize: 10 },
-        { i: pts.length - 1, y: lastP.value, color: "#409eff", r: 3, label: "末 " + _fmtY(lastP.value), labelColor: "#409eff", fontSize: 10 },
+        // 「末」labelTop(2026-09-05 用户反馈: 末点贴右缘, 旧点右侧画法越界出弹窗被截断 → 移到走势图上方;
+        // 撞位避让由 _lwSVG labelTop 候选位+label 盒登记自动完成, 调用侧不猜像素)
+        { i: pts.length - 1, y: lastP.value, color: "#409eff", r: 3, label: "末 " + _fmtY(lastP.value), labelColor: "#409eff", fontSize: 10, labelTop: true },
       ],
     }, {
       // 副线: 持仓市值(蓝虚线, 左轴¥, 与总资产红线同轴同量级), 与 tooltip 蓝行「持仓市值 ¥Y」逐位一致 §22;
@@ -5358,7 +5362,28 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
       boundaryGap: true,
       dataZoom: true,
       xLabels: dates,
-      xFmt: (v) => String(v),
+      // x 轴日期短格式(2026-09-05 用户反馈: 8位原串"20260501"相邻刻度连粘看不清)。xLabels=YYYYMMDD 字符串,
+      // 纯字符串处理不依赖 Date 解析: 同年内窗口 → "MM-DD"(5字符); 跨年窗口 → "YYYY-MM-DD"(含年消歧, 避免
+      // "2025-12"/"2026-01" 月度级重复/歧义)。只影响本净资产图(其他图共用 _lwSVG 默认 fmtDate 不动)。
+      xFmt: (v) => {
+        const _s = String(v);
+        if (_s.length < 8) return _s;
+        if (_crossYear) return _s.slice(0, 4) + "-" + _s.slice(4, 6) + "-" + _s.slice(6, 8);
+        return _s.slice(4, 6) + "-" + _s.slice(6, 8);
+      },
+      // 刻度间隔显式算(2026-09-05): _etfXStep 按 "MM-DD" 量宽, 跨年带年刻度(10字符)宽一倍会连粘 →
+      // 按本图实际刻度串量宽重算 step(公式同 _etfXStep: floor(labelW*1.3/unitW)+1)。
+      // ⚠️ 实际渲染 viewBox 宽=容器实测宽(_lwBind 用 getBoundingClientRect 重渲染), 故 unitW 也用容器实测宽估算,
+      // 不能写死 640(桌面 modal 实测 ~1322, 移动 ~330; 写死会在移动端算出过小 step 致连粘)。
+      xStep: (() => {
+        let _lw2 = 33;
+        try {
+          const _cx = document.createElement("canvas").getContext("2d");
+          if (_cx) { _cx.font = "12px sans-serif"; _lw2 = _cx.measureText(_crossYear ? "2026-01-01" : "MM-DD").width || _lw2; }
+        } catch (_e) { /* 降级默认 33 */ }
+        const _iwEst = Math.max(120, ((bodyEl && bodyEl.offsetWidth) || 640) - 70 - 52);   // 640=w 缺省兜底; pl70·pr52
+        return Math.max(1, Math.floor(Math.max(_lw2 * 1.3, 7) / (_iwEst / Math.max(pts.length, 1))) + 1);
+      })(),
       ys: [
         { scale: true, splitNumber: 5, formatter: _fmtY },
       ],
@@ -17341,6 +17366,21 @@ function _lwSVG(cfg) {
       s += '<text x="' + (side === "left" ? (PL - 8) : (W - PR + 8)) + '" y="' + (gy + 3.5).toFixed(1) + '" font-size="' + _axFont + '" text-anchor="' + (side === "left" ? "end" : "start") + '" style="fill:var(--text-1)">' + lbl + '</text>';
     }
   }
+  // labelTop 撞位登记(2026-09-05): legend 行/markLine label/普通 markPoint label 的包围盒登记进 _lblBoxes,
+  // 供 labelTop 候选位 AABB 避让。纯登记不改既有绘制, 无 labelTop 的图表行为零变化。
+  // ⚠️ 必须在 legend 块之前声明(legend 块内即引用, const TDZ)。
+  const _lblBoxes = [];
+  const _lblHit = (bx0, by0, bx1, by1) => {
+    for (const b of _lblBoxes) { if (bx0 < b.x1 && bx1 > b.x0 && by0 < b.y1 && by1 > b.y0) return true; }
+    return false;
+  };
+  const _measureLbl = (txt, fs) => {
+    try {
+      const _c = _measureLbl._c || (_measureLbl._c = document.createElement("canvas").getContext("2d"));
+      if (_c) { _c.font = (fs || 10) + "px sans-serif"; const _w = _c.measureText(String(txt)).width; if (_w) return _w; }
+    } catch (_e) { /* 降级走估算 */ }
+    return String(txt).length * (fs || 10) * 0.7;
+  };
   // legend(对齐 echarts legend top:0, 画在 PT 留白区上沿)。
   // fix3(2026-08-12): 每行水平居中(按该行 item 总宽计算起点), 原左起 PL 压在 y 轴 name(x=PL+4)上。
   if (cfg.legend && cfg.legend.length) {
@@ -17359,12 +17399,14 @@ function _lwSVG(cfg) {
       // fix4(2026-08-12): 超宽单行钳制 — 行总宽 > 图表区时居中起点为负, legend 溢出左界压 y 轴;
       // 钳到 PL 左对齐(超宽单 item 无法换行, 至少不侵入左边距/轴标签; 正常可容纳行不受影响)。
       let lx = Math.max(PL, (PL + (_lwMax - PL) / 2) - row.w / 2);   // 该行水平居中(图表区中心), 超宽兜底左对齐
+      const _lx0 = lx;   // labelTop 撞位登记: 记 legend 行包围盒(供 labelTop 候选位避让, 只登记不改绘制)
       for (const _li of row.items) {
         const it = _li.it;
         s += '<line x1="' + lx + '" y1="' + ly + '" x2="' + (lx + 10) + '" y2="' + ly + '" stroke="' + it.color + '" stroke-width="2"/>';
         s += '<text x="' + (lx + 14) + '" y="' + (ly + 4) + '" font-size="' + _axFont + '" style="fill:' + (it.textColor || "var(--text-1)") + '">' + it.name + '</text>';
         lx += _li.w;
       }
+      _lblBoxes.push({ x0: _lx0 - 2, x1: lx + 2, y0: ly + 4 - _axFont, y1: ly + 7 });
       ly += 16;
     }
   }
@@ -17529,6 +17571,11 @@ function _lwSVG(cfg) {
           const lx = ml.pos === "end" ? (W - PR) : PL;
           const anch = ml.pos === "end" ? "end" : "start";
           s += '<text x="' + lx + '" y="' + (my - 3).toFixed(1) + '" font-size="' + (ml.fontSize || 10) + '" text-anchor="' + anch + '" style="fill:' + (ml.color || "var(--text-3)") + '">' + ml.label + '</text>';
+          // labelTop 撞位登记: markLine label 包围盒(只登记不改绘制)
+          const _mlw = _measureLbl(ml.label, ml.fontSize || 10);
+          _lblBoxes.push(anch === "end"
+            ? { x0: lx - _mlw - 1, x1: lx + 1, y0: my - 3 - (ml.fontSize || 10), y1: my }
+            : { x0: lx - 1, x1: lx + _mlw + 1, y0: my - 3 - (ml.fontSize || 10), y1: my });
         }
       }
       // markArea(区间色带, 如分时午休)
@@ -17615,8 +17662,30 @@ function _lwSVG(cfg) {
           if (mp.label) {
             if (mp.labelInside) {
               s += '<text x="' + x.toFixed(1) + '" y="' + (y + 3.5).toFixed(1) + '" font-size="' + (mp.fontSize || 10) + '" text-anchor="middle" style="fill:' + (mp.labelColor || "var(--text-1)") + '">' + mp.label + "</text>";
+            } else if (mp.labelTop) {
+              // labelTop(2026-09-05, 净资图「末」标注): label 画到走势图上方而非点右侧——末点 x 贴右缘,
+              // 旧画法(x+6,y-4)右缘越界出弹窗被截断。候选位自上而下逐个与已登记 label 盒(legend 行/markLine/
+              // 普通 markPoint label)做 AABB 避让, 取第一个不撞位: ①绘图区上方顶边带(PT 留白区, 「走势图上方」)
+              // ②③④⑤绘图区内自顶向下四行(PT+12/26/40/54; 窄屏顶带被 legend 占满、内顶行被「初始/峰」占时逐级下移兜底)。
+              // 右端对齐 point 且 clamp 进绘图区右缘内(text-anchor=end)。
+              // 可用 labelTopY 指定固定 baseline(跳过候选避让)、labelTopDy 微调。不设 labelTop 的图表零影响。
+              const _fs = mp.fontSize || 10;
+              const _lw2 = _measureLbl(mp.label, _fs);
+              const _x1 = Math.min(x + 6, W - PR - 2);
+              const _cands = (mp.labelTopY != null) ? [mp.labelTopY + (mp.labelTopDy || 0)]
+                : [PT - _fs - 6, PT + 12, PT + 26, PT + 40, PT + 54].map((yy) => yy + (mp.labelTopDy || 0));
+              let _ly = _cands[_cands.length - 1];
+              for (const _cy of _cands) {
+                if (_cy - _fs < 2) continue;                       // glyph 顶不出 viewBox
+                if (!_lblHit(_x1 - _lw2 - 2, _cy - _fs, _x1 + 1, _cy + 3)) { _ly = _cy; break; }
+              }
+              _lblBoxes.push({ x0: _x1 - _lw2 - 2, x1: _x1 + 1, y0: _ly - _fs, y1: _ly + 3 });
+              s += '<text x="' + _x1.toFixed(1) + '" y="' + _ly.toFixed(1) + '" font-size="' + _fs + '" text-anchor="end" style="fill:' + (mp.labelColor || "var(--text-1)") + '">' + mp.label + "</text>";
             } else {
               s += '<text x="' + (x + 6).toFixed(1) + '" y="' + (y - 4).toFixed(1) + '" font-size="' + (mp.fontSize || 10) + '" style="fill:' + (mp.labelColor || "var(--text-1)") + '">' + mp.label + "</text>";
+              // labelTop 撞位登记: 普通 markPoint label 包围盒(起/低/峰等, 只登记不改绘制)
+              const _mpw = _measureLbl(mp.label, mp.fontSize || 10);
+              _lblBoxes.push({ x0: x + 6, x1: x + 6 + _mpw + 1, y0: y - 4 - (mp.fontSize || 10), y1: y - 1 });
             }
           }
         }
