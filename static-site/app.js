@@ -5268,13 +5268,19 @@ function _simNetassetCurve(rows, fIdx, fp, initCapital, nav, winStart, winEnd) {
       if (p.buy === d && !(pi in openByIdx)) { openByIdx[pi] = p; cash -= PRIN; }
     }
     let mv = 0, holdN = 0;
+    // 8/21 假跌修复(方案A 2026-09-05): 每点附带 mvByCode=当日每笔市值明细{code: 完整精度市值},
+    // 供 tooltip 计算「留存持仓 nav 加权涨跌」(昨日持仓∩今日持仓按昨日份额锁定)与份额变动标注(卖出离场/买入进场);
+    // mv 绝对值(round 后)与修复前逐位一致(§22, 蓝线曲线点不变)。
+    const mvByCode = {};
     for (const i in openByIdx) {
       const p = openByIdx[i];
       let px = _pxAt(p.code, d);
       if (px == null || !(px > 0)) { px = p.bpReal; navFF++; }
-      mv += p.shares * px; holdN++;
+      const cmv = p.shares * px;
+      mv += cmv; holdN++;
+      mvByCode[p.code] = (mvByCode[p.code] || 0) + cmv;
     }
-    curve.push({ date: d, value: Math.round((cash + mv) * 100) / 100, holdings: holdN, cash: Math.round(cash * 100) / 100, mv: Math.round(mv * 100) / 100 });
+    curve.push({ date: d, value: Math.round((cash + mv) * 100) / 100, holdings: holdN, cash: Math.round(cash * 100) / 100, mv: Math.round(mv * 100) / 100, mvByCode: mvByCode });
   }
   return { curve: curve, navFF: navFF };
 }
@@ -5363,8 +5369,10 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
         const _dStr = _d.slice(0, 4) + "-" + _d.slice(4, 6) + "-" + _d.slice(6, 8);
         const _red = '<span style="display:inline-block;width:8px;height:8px;background:#e6492e;border-radius:1px;margin-right:4px;vertical-align:middle"></span>';
         const _blue = '<span style="display:inline-block;width:8px;height:8px;background:#409eff;border-radius:1px;margin-right:4px;vertical-align:middle"></span>';
-        // #52d/#51②: 红线=总资产(金额+较前日金额/%), 蓝线=持仓市值(金额+较前日金额/%, mv 自身口径 mv/prev.mv);
-        // 蓝线显示值=当日 mv 绝对额=曲线蓝点值(逐位一致 §22, 取代旧「持仓日涨跌%」右轴口径)。
+        // #52d/#51②/8-21 假跌修复(方案A 2026-09-05): 红线=总资产(金额+较前日金额/%, 口径不动);
+        // 蓝线=持仓市值(金额 + 「留存持仓 nav 加权涨跌」)——只对昨日持仓∩今日持仓按昨日份额锁定的部分
+        // 计算 nav 涨跌对组合的贡献(Σ昨日份额×今日nav / Σ昨日份额×昨日nav − 1), 买卖导致的份额变动不进入涨跌%;
+        // 份额变动(卖出离场/买入进场)单独标注(如「卖出离场 -¥9,438.90 · nav 涨跌 +¥467.85」)。
         const _fmtSigned = (v) => (v < 0 ? "-" : "+") + "¥" + Math.abs(v).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         const _fmtPct = (v) => (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
         const _prev = i > 0 ? pts[i - 1] : null;
@@ -5376,8 +5384,31 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
           _redLine = _red + '总资产 ' + _fmtY2(p.value) + '(— 首点无前值)';
         }
         if (p.mv > 0) {
-          const _dMv = _prev ? (p.mv - _prev.mv) : null;
-          _blueLine = _blue + '持仓市值 ' + _fmtY2(p.mv) + (_dMv != null && _prev && _prev.mv > 0 ? '(较前日 ' + _fmtSigned(_dMv) + ' / ' + _fmtPct((_dMv / _prev.mv) * 100) + ')' : '(— 首点或昨日无持仓)');
+          // 8/21 假跌修复(方案A): 蓝行「较前日%」=留存持仓 nav 加权涨跌(昨日持仓∩今日持仓, 昨日份额锁定);
+          // mvByCode 由 _simNetassetCurve 每点输出(完整精度), mv 绝对值与曲线蓝点逐位一致(§22)。
+          const _prevBc = _prev ? (_prev.mvByCode || null) : null;
+          const _curBc = p.mvByCode || {};
+          let _navChg = null, _navPct = null, _sellAway = 0, _buyIn = 0;
+          if (_prevBc) {
+            let numSum = 0, denSum = 0;
+            for (const c in _prevBc) {
+              if (Object.prototype.hasOwnProperty.call(_curBc, c)) { numSum += _curBc[c]; denSum += _prevBc[c]; }
+            }
+            if (denSum > 0) { _navChg = numSum - denSum; _navPct = (numSum / denSum - 1) * 100; }
+            for (const c in _prevBc) { if (!Object.prototype.hasOwnProperty.call(_curBc, c)) _sellAway += _prevBc[c]; }
+            for (const c in _curBc) { if (!Object.prototype.hasOwnProperty.call(_prevBc, c)) _buyIn += _curBc[c]; }
+          }
+          let _blueMain = _blue + '持仓市值 ' + _fmtY2(p.mv);
+          if (!_prev) _blueMain += '(— 首点无前值)';
+          else if (_navChg == null) _blueMain += '(— 昨日无留存持仓可比)';
+          else _blueMain += '(较前日 nav 加权 ' + _fmtSigned(_navChg) + ' / ' + _fmtPct(_navPct) + ')';
+          _blueLine = _blueMain;
+          const _chgParts = [];
+          if (_sellAway > 0) _chgParts.push('卖出离场 ' + _fmtSigned(-_sellAway));
+          if (_buyIn > 0) _chgParts.push('买入进场 ' + _fmtSigned(_buyIn));
+          if (_chgParts.length) {
+            _blueLine += '<br/>' + _blue + _chgParts.join(' · ') + (_navChg != null ? (' · nav 涨跌 ' + _fmtSigned(_navChg) + ' / ' + _fmtPct(_navPct)) : '');
+          }
         } else {
           _blueLine = _blue + '持仓市值 ¥0.00(— 当日无持仓)';
         }
