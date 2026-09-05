@@ -3845,6 +3845,13 @@ function _openSimBacktestModal() {
         '<div class="sim-ctrl-block simbt-fee-block"><label>费率档(同「交易模拟」区 6 档 + 5 参数自定义)</label>' + _simBtFeeBarHTML(_simBtInitFee()) + '</div>' +
       '</div>' +
       '<div class="sim-summary"></div>' +
+      // 逐日净资产走势图(2026-09-04 #51, 纯新增展示): 插在表格与汇总之间; 曲线从 kept rows 重算(与表格同源),
+      // nav 复用弹窗已加载的 accum_nav_map(_kkellyRealNavEnsure 单例), 不新增请求(报告 sim-netasset-equity-chart-20260901)
+      '<div class="sim-netasset-chart">' +
+        '<div class="sim-netasset-head">📈 逐日净资产走势</div>' +
+        '<div class="sim-netasset-body"></div>' +
+        '<div class="sim-netasset-note" style="display:none"></div>' +
+      '</div>' +
       '<div class="sim-table-wrap"><div class="sim-table-loading" style="display:none">数据加载中…</div>' +
         '<div class="sim-table-body"></div>' +
         '<div class="sim-pager"></div>' +
@@ -5107,6 +5114,180 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
     });
   }
   _draw();
+  // 逐日净资产走势图(2026-09-04 #51, 纯新增展示): 与表格同源 kept rows/同一峰值扫描(peakDisp 传参与累积盈亏%分母
+  // 逐位一致 §22), 管位开关/切 K/切范围/切费率后随 _simRenderTable 同步重算, 无旧曲线残留
+  _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD);
+}
+
+// === 逐日净资产走势图(2026-09-04 #51, 纯新增展示, 报告 docs/kelly/analysis/sim-netasset-equity-chart-20260901) ===
+// 口径(报告一.3, 复刻脚本 netasset_daily_repro.py 同构): 净资产(日)=现金+持仓市值;
+// 现金=初始-Σ开仓本金+Σ卖出净额(PRIN+费后盈亏); 市值=Σ未平仓份额×当日 accum_nav(缺日向前取);
+// 初始=峰值同时持仓笔数×¥10000(与累积盈亏%分母逐位一致); 逐交易日打点=持仓 ETF 的 nav 日期并集∩窗口;
+// 防前视: 只用 t 及 t 之前数据(买入价还原真实净值、卖出用当日 nav), 不引入未来收盘。
+// 已知局限(报告三): nav 末日可能早于 trades 卖出日(sell_date>nav 末日的笔按最新 nav 计市值), UI 标注「曲线数据截至 X」。
+function _simNetassetCurve(rows, fIdx, fp, initCapital, nav) {
+  const PRIN = 10000, SLIP = 0.001;
+  const prep = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const code = String(r[fIdx.etf_code] || "");
+    const bpRaw = Number(r[fIdx.buy_price]) || 0;
+    const bp = bpRaw > 0 ? bpRaw / (1 + SLIP) : 0; // 还原记录买入价含的 FEE_MAIN 滑点 → 真实净值(与 _simBtCalcRow 同源)
+    const br = _simBuyWithFees(PRIN, bp, code, fp);
+    const sellD = String(r[fIdx.sell_date] || "");
+    let realized = 0;
+    if (sellD) {
+      const sp = Number(r[fIdx.sell_price]) || 0;
+      const px = sp > 0 ? sp / (1 - SLIP) : 0; // 还原记录卖出价含的 FEE_MAIN 滑点 → 真实净值
+      if (px > 0) realized = _simSellWithFees(br.shares, px, code, fp).net - PRIN;
+    }
+    prep.push({ code: code, buy: String(r[fIdx.buy_date] || ""), sell: sellD, shares: br.shares, realized: realized, bpReal: bp });
+  }
+  // 交易日历 = 持仓 ETF 的 nav 日期并集(真实交易日序列, 每交易日打点)
+  const calSet = {};
+  for (let i = 0; i < prep.length; i++) {
+    const nd = nav[prep[i].code];
+    if (nd) { for (const k in nd) calSet[k] = 1; }
+  }
+  const cal = Object.keys(calSet).sort();
+  // 卖出日回笼净额(PRIN + 费后盈亏)
+  const proceedsByDay = {};
+  for (let i = 0; i < prep.length; i++) {
+    const p = prep[i];
+    if (p.sell) proceedsByDay[p.sell] = (proceedsByDay[p.sell] || 0) + PRIN + p.realized;
+  }
+  // 每 ETF 预排 nav 日期 + 二分向前取(缺日 forward-fill), 避免逐日全量扫描
+  const navKeys = {}, navVals = {};
+  for (let i = 0; i < prep.length; i++) {
+    const code = prep[i].code;
+    if (navKeys[code]) continue;
+    const nd = nav[code];
+    if (!nd) { navKeys[code] = null; continue; }
+    const ks = Object.keys(nd).sort();
+    navKeys[code] = ks; navVals[code] = ks.map((k) => nd[k]);
+  }
+  const _pxAt = (code, d) => {
+    const ks = navKeys[code];
+    if (!ks || !ks.length) return null;
+    let lo = 0, hi = ks.length - 1, best = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (ks[mid] <= d) { best = mid; lo = mid + 1; } else { hi = mid - 1; }
+    }
+    return best >= 0 ? navVals[code][best] : null;
+  };
+  const openByIdx = {};
+  let cash = initCapital;
+  const curve = [];
+  let navFF = 0;
+  for (let ci = 0; ci < cal.length; ci++) {
+    const d = cal[ci];
+    if (proceedsByDay[d]) cash += proceedsByDay[d];
+    for (const i in openByIdx) { if (openByIdx[i].sell === d) delete openByIdx[i]; }
+    for (let pi = 0; pi < prep.length; pi++) {
+      const p = prep[pi];
+      if (p.buy === d && !(pi in openByIdx)) { openByIdx[pi] = p; cash -= PRIN; }
+    }
+    let mv = 0, holdN = 0;
+    for (const i in openByIdx) {
+      const p = openByIdx[i];
+      let px = _pxAt(p.code, d);
+      if (px == null || !(px > 0)) { px = p.bpReal; navFF++; }
+      mv += p.shares * px; holdN++;
+    }
+    curve.push({ date: d, value: Math.round((cash + mv) * 100) / 100, holdings: holdN, cash: Math.round(cash * 100) / 100, mv: Math.round(mv * 100) / 100 });
+  }
+  return { curve: curve, navFF: navFF };
+}
+
+function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) {
+  const wrapEl = modal.querySelector(".sim-netasset-chart");
+  if (!wrapEl) return;
+  const headEl = wrapEl.querySelector(".sim-netasset-head");
+  const bodyEl = wrapEl.querySelector(".sim-netasset-body");
+  const noteEl = wrapEl.querySelector(".sim-netasset-note");
+  const _render = () => {
+    const nav = (typeof window !== "undefined") ? window._kkellyRealNav : null;
+    if (!nav) {
+      if (bodyEl) bodyEl.innerHTML = "";
+      if (noteEl) { noteEl.style.display = ""; noteEl.textContent = "净值数据未就绪(accum_nav_map 加载失败), 走势图暂不可用"; }
+      return;
+    }
+    const initCapital = Math.max(peakDisp || 0, 1) * 10000;
+    const rst = _simNetassetCurve(rows, fIdx, fp, initCapital, nav);
+    let pts = rst.curve;
+    if (startD || endD) {
+      pts = pts.filter((c) => (!startD || c.date >= startD) && (!endD || c.date <= endD));
+    }
+    if (!pts.length) {
+      if (bodyEl) bodyEl.innerHTML = "";
+      if (noteEl) { noteEl.style.display = ""; noteEl.textContent = "窗口内无净值数据点(无持仓笔的 nav 日期), 走势图暂不可用"; }
+      return;
+    }
+    const lastP = pts[pts.length - 1];
+    let navLast = "";
+    for (const k in nav) { for (const d in nav[k]) { if (d > navLast) navLast = d; } }
+    if (noteEl) {
+      const notes = [];
+      if (lastP.date < (endD || "99999999")) notes.push("曲线数据截至 " + lastP.date + "(净值数据末日, 晚于净值末日的卖出笔按最新净值计市值)");
+      let holdingN = 0;
+      for (let i = 0; i < rows.length; i++) { if (!String(rows[i][fIdx.sell_date] || "")) holdingN++; }
+      if (holdingN > 0) notes.push("含 " + holdingN + " 笔持仓中按最新收盘计");
+      noteEl.textContent = notes.join(" · ");
+      noteEl.style.display = notes.length ? "" : "none";
+    }
+    const dates = pts.map((p) => p.date);
+    const values = pts.map((p) => p.value);
+    let iMin = 0, iMax = 0;
+    for (let i = 1; i < pts.length; i++) {
+      if (pts[i].value < pts[iMin].value) iMin = i;
+      if (pts[i].value > pts[iMax].value) iMax = i;
+    }
+    const _fmtY = (v) => "¥" + Number(v).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+    const _fmtY2 = (v) => "¥" + Number(v).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const series = [{
+      type: "line", data: values, color: "#e6492e", width: 2, smooth: true, connectNulls: true, areaOpacity: 0.25,
+      markLine: [{ y: initCapital, color: "#8a94a6", label: "初始 ¥" + initCapital.toLocaleString("zh-CN"), pos: "end", fontSize: 10 }],
+      markPoints: [
+        { i: 0, y: pts[0].value, color: "#909399", r: 3, label: "起 " + _fmtY(pts[0].value), labelColor: "#909399", fontSize: 10 },
+        { i: iMin, y: pts[iMin].value, color: "#2ea121", r: 3, label: "低 " + _fmtY(pts[iMin].value), labelColor: "#2ea121", fontSize: 10 },
+        { i: iMax, y: pts[iMax].value, color: "#e6492e", r: 3, label: "峰 " + _fmtY(pts[iMax].value), labelColor: "#e6492e", fontSize: 10 },
+        { i: pts.length - 1, y: lastP.value, color: "#409eff", r: 3, label: "末 " + _fmtY(lastP.value), labelColor: "#409eff", fontSize: 10 },
+      ],
+    }];
+    const cfg = {
+      h: 260, pl: 70, pr: 20, pt: 30, pb: 42,
+      boundaryGap: true,
+      dataZoom: true,
+      xLabels: dates,
+      xFmt: (v) => String(v),
+      ys: [{ scale: true, splitNumber: 5, formatter: _fmtY }],
+      legend: [{ name: "净资产", color: "#e6492e" }],
+      series: series,
+      tipFn: (i, xLabel) => {
+        const p = pts[i];
+        if (!p) return "";
+        return '<b>' + xLabel + '</b> 净资产 ' + _fmtY2(p.value) +
+          '<br/>持仓 ' + p.holdings + ' 笔(市值 ' + _fmtY2(p.mv) + ' + 现金 ' + _fmtY2(p.cash) + ')';
+      },
+    };
+    if (headEl) headEl.textContent = "📈 逐日净资产走势(虚线=初始本金 " + initCapital.toLocaleString("zh-CN") + " 元 · " + pts.length + " 点 · " + pts[0].date + "~" + lastP.date + ")";
+    if (bodyEl) _lwSetup(bodyEl, cfg);
+  };
+  if (typeof window !== "undefined" && window._kkellyRealNav) { _render(); return; }
+  if (typeof window !== "undefined" && typeof window._kkellyRealNavEnsure === "function") {
+    if (bodyEl) bodyEl.innerHTML = '<div class="sim-netasset-note-inline">净值曲线加载中…</div>';
+    window._kkellyRealNavEnsure().then(() => { if (!modal.classList.contains("hidden")) _render(); })
+      .catch(() => {
+        if (!modal.classList.contains("hidden")) {
+          if (bodyEl) bodyEl.innerHTML = "";
+          if (noteEl) { noteEl.style.display = ""; noteEl.textContent = "净值数据加载失败, 走势图暂不可用"; }
+        }
+      });
+  } else if (noteEl) {
+    noteEl.style.display = "";
+    noteEl.textContent = "净值数据未就绪(common.js 版本过旧), 走势图暂不可用";
+  }
 }
 
 // === 模拟回测弹窗费率: 快捷档位+自定义(2026-08-22) ===
