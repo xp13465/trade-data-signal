@@ -28,6 +28,9 @@
 输出:
     - static-site/data/signal_kelly_snapshots/YYYYMMDD.json (全量快照)
     - static-site/data/signal_kelly_snapshots/index.json     (迷你演进序列)
+    - static-site/data/signal_kelly_snapshots/latest_posrating.json
+      (#54 方案B 首页 AI仓位建议 K 档评级全史动态源, 复刻 lab _kellyApplyFeeRecompute
+      K 档段, 供首页首屏注入; s06 状态缺失跳过=防残缺数据上线, 详见 write_posrating_file)
 关键参数(常量, 不可从外部配置):
     - SNAPSHOT_VERSION 常量: "1.0", bump 当日=发布日豁免突变告警
     - ROLLING_WINDOW=60(快照日), MUTATION_STD=3.0, MUTATION_PP=20,
@@ -151,11 +154,40 @@ def scan_trades(trades: dict) -> tuple[str, list]:
     return max_date, recent[:10]
 
 
+def write_posrating_file(data_dir: Path, bt: dict, trades: dict) -> None:
+    """#54 方案B: 生成首页 AI仓位建议 K 档评级全史动态源 latest_posrating.json。
+
+    复刻 lab _kellyApplyFeeRecompute K 档段(A 模式 all 伪象限 + S06 per-date passesFade
+    + 每日池等分 top-K + 峰值资金统计), 与 lab 同构对账过(§5.4⑦, scripts/check_posrating_parity.mjs)。
+    首页方案B = 后端注入首页槽, 解决「进/出 lab 首页 K 档值跳变」(静态快照 86.60% → lab 动态 163%)。
+    ⚠️ 完整版铁律(§23.15): s06 状态文件缺失 = 全放行残缺数据, 跳过不写,
+    首页回退静态兜底; loss 特征缺失与 lab 同降级(fail-open), 照常计算。任何异常不阻断主链。
+    """
+    s06_path = data_dir / "kelly_mode_s06_state.json"
+    if not s06_path.exists():
+        log("kelly_mode_s06_state.json 缺失: 跳过 latest_posrating.json"
+            "(首页回退静态兜底, 防全放行残缺数据上线)")
+        return
+    try:
+        from kelly_posrating import compute_posrating
+        s06_doc = json.loads(s06_path.read_text(encoding="utf-8"))
+        feats_path = data_dir / "kelly_loss_features.json"
+        loss_doc = json.loads(feats_path.read_text(encoding="utf-8")) if feats_path.exists() else None
+        result = compute_posrating(trades, bt, s06_doc, loss_doc)
+        p = snap_dir(data_dir) / "latest_posrating.json"
+        p.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        v = result["values"][1]  # compute_posrating 内 key 为 int, 序列化后转字符串
+        log(f"latest_posrating.json 已生成: K1 {v['ret']} dd={v['dd']} n={v['n']}")
+    except Exception as e:  # noqa: BLE001
+        log(f"latest_posrating.json 生成失败(跳过, 首页回退静态兜底): {e}")
+
+
 def build_snapshot(data_dir: Path) -> dict:
     bt = load_backtest(data_dir)
     trades = load_trades(data_dir)
     quadrants = bt.get("quadrants", {})
     max_signal_date, recent10 = scan_trades(trades)
+    write_posrating_file(data_dir, bt, trades)
     snapshot = {
         "date": datetime.now().strftime("%Y%m%d"),
         "generated_at": bt.get("generated_at"),

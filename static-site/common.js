@@ -483,20 +483,31 @@ var _AI_POSCAP_RATING = {
   3: { name: "最稳健", ret: "66.24%", dd: "16.19%", ra: "4.09", n: "2,461", reason: "回撤第二大+收益率第三(收益/回撤较优)" },
   4: { name: "次稳健", ret: "63.17%", dd: "17.84%", ra: "3.54", n: "2,870", reason: "收益率第二低+回撤第二大+样本最多" }
 };
-// #54 2026-08-13 动态化: 共享动态源(由 lab.js _kellyApplyFeeRecompute 在 AI仓位建议开启时用当前 filters+费率+最新数据重算写入)
+// #54 2026-08-13 动态化 → 2026-09-04 方案B 拆槽: 两域各自独立动态源(§22 两处一致)
+//   凯利区 lab 槽 _AI_POSCAP_RATING_DYNAMIC_LAB: 由 lab.js _kellyApplyFeeRecompute 实时重算写入;
+//   首页槽 _AI_POSCAP_RATING_DYNAMIC_HOME: 由 app.js renderOverview 首屏读后端产物 latest_posrating.json 注入
+//   (方案B 后端注入, 解决「进/出 lab 首页 K 档值从静态 86.60% 跳变到 lab 动态 163%」——lab 不再写全局槽, 两域源互不串台)。
+//   全局槽 _AI_POSCAP_RATING_DYNAMIC 已停用(2026-09-04 起 lab 不再写, 保留定义防旧引用报错)。
 // 结构: { computed:bool, date:数据日期, fee:费率档标签, cfg:降亏勾选摘要, values:{1..4:{name,ret,dd,ra,n,reason?,retNum,ddNum,nNum}} }
-// 首页 app.js 与凯利区 lab.js 均经 _aiPoscapRatingSrc() 取源(§22 两处一致); 无动态值(未开启 positionCap/未计算)→回退静态快照 _AI_POSCAP_RATING
+// 两槽均经 _aiPoscapRatingSrc() 取源(§22 两处一致); 无动态值(未开启 positionCap/未计算/未注入)→回退静态快照 _AI_POSCAP_RATING
 var _AI_POSCAP_RATING_DYNAMIC = null;
 window._AI_POSCAP_RATING_DYNAMIC = _AI_POSCAP_RATING_DYNAMIC;
+var _AI_POSCAP_RATING_DYNAMIC_LAB = null;
+window._AI_POSCAP_RATING_DYNAMIC_LAB = _AI_POSCAP_RATING_DYNAMIC_LAB;
+var _AI_POSCAP_RATING_DYNAMIC_HOME = null;
+window._AI_POSCAP_RATING_DYNAMIC_HOME = _AI_POSCAP_RATING_DYNAMIC_HOME;
 
 // 取当前评级数据源: 动态优先(已计算且 positionCap 当前开启), 否则回退静态快照(标注"快照 08-13")
 // poscapKey: 调用方所在域的独立键(凯利区="tds_poscap_lab", 首页="tds_home_poscap"; 2026-08-30 拆键后孤儿键 tds_poscap 已无人写, 不再读)。
+// 分流: 首页域读首页槽(后端注入), 凯利域读 lab 槽(lab 实时重算)——两域动态源独立, 互不串台。
 // 两域键各自判定 pcOn——首页关 AI 仓位建议(home_poscap.on=false)后本函数正确回退静态快照(标注「快照」而非「实时」)。
 function _aiPoscapRatingSrc(poscapKey) {
-  var d = window._AI_POSCAP_RATING_DYNAMIC;
+  var key = poscapKey || "tds_poscap_lab";
+  var d = (key === "tds_home_poscap")
+    ? window._AI_POSCAP_RATING_DYNAMIC_HOME
+    : window._AI_POSCAP_RATING_DYNAMIC_LAB;
   var pcOn = true;
   try {
-    var key = poscapKey || "tds_poscap_lab";
     var _raw = localStorage.getItem(key);
     if (_raw) { var _p = JSON.parse(_raw); pcOn = !!_p.on; }
   } catch (e) {}

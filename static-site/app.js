@@ -2945,7 +2945,7 @@ function _sigSwitchHtml(_fadeOn, _k, _pcOn, signalsMeta) {
     // v1.1.5 枯竭提示 chip 占位(纯展示层): 异步填充, N≥20 才显示; 与凯利区 chip 同源同数字(§22)
     `<span class="sig-drought-slot" id="home-sig-drought-slot"></span>` +
     `${_aShareFinalizedTag}` +
-    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(独立键 tds_home_poscap, 与凯利 lab 各自独立互不联动, 2026-08-30 用户拍板, badge标注层): 开启=同日只买最优K个买入类(进K=「AI建议N」亮绿 / 超K=「当日已满」灰显) + 入宇宙${_t("sell_short")}(sell/sell_stop_loss/${_t("type_band_sell")})=「AI警示」亮橙(${_t("sell_short")}无K约束不判K); 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表(无AI建议N/当日已满/AI警示), 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。⚠两开关正交: AI仓位层只产上面三类badge, 不产删除线过滤(删除线/未入样本归「AI降亏过滤」开关控制)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】主推 K=1(收益率最高, 样本最少/回撤最小); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span>${_helpBtn}${_simBtn}</span>` +
+    `<span class="sig-switch-lab sig-switch-poscap" title="AI仓位建议 K 档(独立键 tds_home_poscap, 与凯利 lab 各自独立互不联动, 2026-08-30 用户拍板, badge标注层): 开启=同日只买最优K个买入类(进K=「AI建议N」亮绿 / 超K=「当日已满」灰显) + 入宇宙${_t("sell_short")}(sell/sell_stop_loss/${_t("type_band_sell")})=「AI警示」亮橙(${_t("sell_short")}无K约束不判K); 「关」按钮=关闭AI仓位建议显示(写 on:false), 该区域退化为普通信号列表(无AI建议N/当日已满/AI警示), 再点某 K 档恢复; 悬停 K 按钮区查看 K 档评级表(与凯利区同款)。⚠两开关正交: AI仓位层只产上面三类badge, 不产删除线过滤(删除线/未入样本归「AI降亏过滤」开关控制)。【档位语义·与下方评级表一致·2026-08-14 每日池+费率重算口径】★主推=收益率最高档(数据驱动, 不写死 K1, 随实时数据变化, 以 K 按钮评级 hoverpop 表为准); 数值见 K 按钮评级榜hpop表(共享单一数据源 common.js, 动态=实时/静态快照回退, 勿依赖本 tooltip 硬编码)。">AI仓位建议 K: <span class="sig-kbtns lab-sigkelly-posrate" tabindex="0" data-no-pop="">${_kbtns}${_offBtn}${_ratingPop}</span>${_helpBtn}${_simBtn}</span>` +
     `</div>`;
 }
 // 参考说明按钮独立 hoverpop HTML(2026-08-14): 不复用 K 评级表 _aiPoscapRatingPopHtml(仓位评级表语义不符),
@@ -14549,7 +14549,18 @@ async function renderOverview() {
     fetchIntradaySnapshot(),
     new Promise((res) => setTimeout(res, 1500))
   ]).catch(() => {});
-  const [r] = await Promise.all([overviewPromise, signalStatsPromise, intradayPromise]);
+  // #54 方案B(2026-09-04): 首页首屏并行读后端产物 latest_posrating.json(全史 K 档评级动态源,
+  //  由 scripts/signal_kelly_snapshot.py 每日回测成功后生成)→ 注入首页槽 _AI_POSCAP_RATING_DYNAMIC_HOME。
+  //  sigCard/overfit 卡/模拟弹窗 K 按钮组经 common.js _aiPoscapRatingSrc("tds_home_poscap") 首屏即读首页槽
+  //  (替代旧首屏只读静态快照 86.60%, 解决「进/出 lab 首页 K 档跳变」)。失败静默(首页槽 null → 静态兜底),
+  //  1.2s 超时保护不阻塞 overview 渲染(与 signalStats 同模式)。
+  const posRatingPromise = Promise.race([
+    fetchJSON("./data/signal_kelly_snapshots/latest_posrating.json").then((pr) => {
+      if (pr && pr.computed && pr.values) window._AI_POSCAP_RATING_DYNAMIC_HOME = pr;
+    }),
+    new Promise((res) => setTimeout(res, 1200))
+  ]).catch(() => {});
+  const [r] = await Promise.all([overviewPromise, signalStatsPromise, intradayPromise, posRatingPromise]);
   // P0(2026-08-14) 根因守卫: overview 请求失败时 SW 曾返 HTTP200 的 {"error":"offline"} 占位对象
   // (fetchJSON 只查 r.ok 穿透当正常数据), 推进到下方 L9651 r.today.scores 时 r.today undefined ->
   // "Cannot read properties of undefined (reading 'scores')" 首页裸崩。现在:

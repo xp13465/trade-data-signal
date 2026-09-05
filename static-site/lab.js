@@ -8778,16 +8778,16 @@ async function _kellyApplyFeeRecompute(feeParams) {
             if (_posVals[_nk]) _posVals[_nk].name = window._aiPoscapRatingNameByDd(_posVals, _nk);
           }
         }
-        window._AI_POSCAP_RATING_DYNAMIC = { computed: true, date: (data.generated_at || ""), fee: _kellyFeeLabel(), cfg: null, values: _posVals };
+        window._AI_POSCAP_RATING_DYNAMIC_LAB = { computed: true, date: (data.generated_at || ""), fee: _kellyFeeLabel(), cfg: null, values: _posVals };
       } else {
-        window._AI_POSCAP_RATING_DYNAMIC = { computed: false, values: null, date: null, fee: null, cfg: null };
+        window._AI_POSCAP_RATING_DYNAMIC_LAB = { computed: false, values: null, date: null, fee: null, cfg: null };
       }
     } else {
-      window._AI_POSCAP_RATING_DYNAMIC = { computed: false, values: null, date: null, fee: null, cfg: null };
+      window._AI_POSCAP_RATING_DYNAMIC_LAB = { computed: false, values: null, date: null, fee: null, cfg: null };
     }
   } catch (e) {
     console.error("[sigkelly] posRating dynamic compute failed:", e);
-    window._AI_POSCAP_RATING_DYNAMIC = { computed: false, values: null, date: null, fee: null, cfg: null };
+    window._AI_POSCAP_RATING_DYNAMIC_LAB = { computed: false, values: null, date: null, fee: null, cfg: null };
   }
   // S06 降级警示(codex-task-20260825-001, 可见不静默; 2026-09-02 覆盖期外=默认兜底态拆分, 用户拍板):
   //  ①重警示=真降级(快照加载失败/缺行 fail-open 笔,_s6OpenSet) ②轻标注=覆盖期外(兜底过滤笔,_s6FallbackSet,
@@ -8923,7 +8923,7 @@ async function _kellyOnFilterChange(_opts) {
       }
     },
     function (h) {
-      // #54 2026-08-13: toggle 变更后重渲染 bar → K 档评级 hoverpop/positionCap label 读共享动态源刷新(与费率切换路径一致; _kellyRunRecompute 内已重算写 _AI_POSCAP_RATING_DYNAMIC)
+      // #54 2026-08-13: toggle 变更后重渲染 bar → K 档评级 hoverpop/positionCap label 读共享动态源刷新(与费率切换路径一致; _kellyRunRecompute 内已重算写 _AI_POSCAP_RATING_DYNAMIC_LAB, 2026-09-04 方案B 拆槽 lab 专用)
       // 【P0 防御兜底】h=_kellyRunRecompute 收尾重取的在册 host(优先), 闭包 host 兜底; bar 实时重查防写死节点
       var hb = h || host;
       var bb = document.querySelector(".lab-sigkelly-bar") || bar;
@@ -9991,7 +9991,8 @@ function _renderSigKellyBar(bar, data, period) {
   // 2026-08-12 #4 rename+范围扩展: 显示名改"AI仓位建议"(技术别名:仓位控制过滤), pop tooltip 完整展示; 历史回测数据固化展示(下方 poscapHistoryHTML)
   const _pcK = _filters.positionCapK || 1;
   // 2026-08-30: 静态回退表保留+标注历史(v1.1.4 八键基座历史数字, 动态未就绪时兜底); 当前默认=v1.1.7 S06 动态, 以页面实时为准
-  // 注: 取源经 common.js _aiPoscapRatingSrc("tds_poscap_lab") 动态优先(AI仓位建议开启且动态已计算→_AI_POSCAP_RATING_DYNAMIC.values), 否则回退静态快照 _AI_POSCAP_RATING; 本回退表仅为最后兜底(§22 与 pop/首页同源)
+  // 注: 取源经 common.js _aiPoscapRatingSrc("tds_poscap_lab") 动态优先(AI仓位建议开启且动态已计算→_AI_POSCAP_RATING_DYNAMIC_LAB.values), 否则回退静态快照 _AI_POSCAP_RATING; 本回退表仅为最后兜底(§22 与 pop/首页同源)
+  // 2026-09-04 方案B 拆槽: lab 动态源写 _AI_POSCAP_RATING_DYNAMIC_LAB(lab 专用), 首页读 _AI_POSCAP_RATING_DYNAMIC_HOME(后端注入), 全局槽 _AI_POSCAP_RATING_DYNAMIC 已停用——两域互不串台
   // 2026-08-13: K档位评级标注 + hover 评级理由表格(展示层, 不改算法; 数据=共享单一数据源 common.js _aiPoscapRatingSrc(动态优先/静态快照回退), §22 与首页 app.js 一致, 勿单改数值)
   // 2026-09-04 用户拍板方案一(数据驱动): 本地回退表 name 同步按 dd 排序派生(K1 dd最小→最保守/K2 dd最大→最激进/K3 次小→最稳健/K4 次大→次稳健, 与 common.js 静态快照一致 §22)
   // 2026-09-05 fix(数据源分叉, 用户报 K1/K2 互换): _pcRating 从"恒读静态快照"改为经 common.js _aiPoscapRatingSrc 取源(动态优先), 与下方 pop(_aiPoscapRatingPopHtml)同源 §22, 修复动态就绪时按钮 label 与 pop 互换
@@ -10004,6 +10005,7 @@ function _renderSigKellyBar(bar, data, period) {
   };
   // 2026-08-13 调序+OFF: 对齐首页「AI仓位建议 K:」布局 —— 精简标题(技术别名/口径全进 data-tip) + K 按钮组加 OFF(写 tds_poscap_lab {on:false} 退化普通列表, 再点某 K 档恢复, 独立键与首页/交易页各自独立互不联动, 2026-08-30 用户拍板)
   // 2026-09-04 用户拍板方案一: 主推★=收益率最高档(retMaxK, 不写死 K1), 与 hoverpop 评级表/首页 K 按钮同源(§22)
+  // 2026-09-04 方案B 拆槽: 本区(lab)取 lab 槽 _AI_POSCAP_RATING_DYNAMIC_LAB(实时重算); 首页取首页槽(后端注入)——两域源独立互不串台
   const _pcMainK = (window._aiPoscapRatingMainPick ? window._aiPoscapRatingMainPick(_pcRating) : 1);
   const _pcKbtns = [1, 3, 4, 2].map((k) => {
     const r = _pcRating[k];
@@ -10075,7 +10077,7 @@ function _renderSigKellyBar(bar, data, period) {
     `</span>`;
   const positionCapHTML =
     `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap">` +
-    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启): AI仓位建议(技术别名:仓位控制过滤)=仅在凯利回测入样宇宙内选择。★结构=v1.1.5 起默认基座 NEW14(十四键, 重构换基座): hist6(r10May6NonMay/greedy15/janMidSpecial/k2c5HkChase/k3ConceptBuy/declinePhaseSpecial)+规则8(N1北向20日净流出/T1换手冰点×追关注/D1股息率低位/Q1 QVIX低分位/H1升波×A股/M1牛主升×两融降温/P1备买×股息率分位低/R2b追关注×全球类)=保留入样、可被AI建议推荐的降亏键; 旧八键(基础5+核心3, v1.1.2~v1.1.4 默认)保留为手动可开对照档; +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 即下述排除类别)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(已剔除出回测宇宙), 故 AI建议 一律不推荐, 首页/本区以「未入样本」+灰显+删除线标注。§23.6 入样宇宙规则, 权威=官方入样规则: 入样白名单只收买入类信号: ${_t("type_buy")}/${_t("buy_aux")}/${_t("buy_special")}/${_t("buy_backup")}; 入样依赖=标的有ETF跟踪且有跟踪分(即回测入样判定); 排除类别=债类/情绪类/全球商品利率/港股行业/无ETF的空类别; 自我ETF唯一例外=10年国债ETF 由 self-ETF 兜底; 首页/本区 1:1 遵从回测入样判定不自行重算), 卖类(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不入位——同日只买最优K个买入类信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型${_t("buy_backup")}&gt;${_t("type_buy")}&gt;${_t("buy_aux")}&gt;${_t("buy_special")}→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。**K档评级(2026-08-13 #54 动态化: 随当前降亏勾选/费率档/最新数据实时重算, 与首页/凯利K按钮评级 hoverpop 同源 common.js, §22 一致)**: ${_aiPoscapRatingSummary("tds_poscap_lab")}。主推 K1(收益率最高, v1.1.4 八键基座历史数字 2026-08-30 已清理, 以实时计算为准); K越大收益率递减(含最低佣金5元费率重算口径)。每日池口径下 K 越大净利反升(每日资金池恒定, 砍量越少持仓越多)。G模式历史口径(关32.27%/K1 48.58%/K2 40.41%/K3 38.96%等, 每笔固定1万·positionCap单独回测未叠加AI降亏过滤)为已废弃的旧口径(2026-08-13 起默认=每日资金池等分), 以本 K 档评级 hoverpop(每日池+top-K, 实时随勾选动态)与下方「全信号表 · 按年窗口增长」表(每日池实时, 可切 G 并跟 K 档联动)为准, 旧口径数值不再单独公示。OFF按钮(关)=写 tds_poscap_lab {on:false} 关闭AI仓位建议、该区退化普通列表(不再显示「AI建议N」「当日已满」), 再点某 K 档恢复 {on:true,k}(独立键 tds_poscap_lab, 与首页/交易页各自独立互不联动, 2026-08-30 已拆)。与降亏同开仅推荐默认组合(v1.1.5 起 AI降亏过滤默认=NEW14 十四键: hist6=r10May6NonMay/greedy15/janMidSpecial/k2c5HkChase/k3ConceptBuy/declinePhaseSpecial + 规则8=n1NorthOutflow/t1LowTurnSpecial/d1LowDivYield/q1QvixLowPct/h1VolChgHighA/m1MarginDownBull/p1LowDivBackup/r2bSpecialGlobal, 每日池+K=1下边际≈0无害); ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开; 勿再叠加 greedy7/10 等其他广谱(greedy15 已在 NEW14 默认内); B模式(3%止盈)仓位控制下转负建议关。范围扩展: 交易页整个信号列表(近30交易日, 2026-08-24 由15扩30)按同一排序展示 AI建议(AI建议买入/当日已满)。⚠2026-08-14 首页「AI过滤视图」两开关正交不绑定(§21): 开关1「AI降亏」(tds_home_fade)=删除线过滤层——开启时未入样宇宙(债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 已剔除出回测宇宙)信号=删线+灰显+「未入样本」标注; 开关2「AI仓位」(tds_poscap_lab.on)=badge标注层——开启时入宇宙${_t("sell_short")}(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")})=亮色「AI警示」(${_t("sell_short")}无K约束不判K), 买入进K=「AI建议N」/超K=「当日已满」; 全关=全量视图全亮不标注, band_hold波段持有=中性不标; 迟到入宇宙${_t("sell_short")}(如8/14中证银行${_t("sell_short")})「AI警示」+「盘后补齐」角标共存不冲突。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}>${_kellyRecBadge(_filters.positionCap)} AI仓位建议 K: <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
+    `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启): AI仓位建议(技术别名:仓位控制过滤)=仅在凯利回测入样宇宙内选择。★结构=v1.1.5 起默认基座 NEW14(十四键, 重构换基座): hist6(r10May6NonMay/greedy15/janMidSpecial/k2c5HkChase/k3ConceptBuy/declinePhaseSpecial)+规则8(N1北向20日净流出/T1换手冰点×追关注/D1股息率低位/Q1 QVIX低分位/H1升波×A股/M1牛主升×两融降温/P1备买×股息率分位低/R2b追关注×全球类)=保留入样、可被AI建议推荐的降亏键; 旧八键(基础5+核心3, v1.1.2~v1.1.4 默认)保留为手动可开对照档; +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 即下述排除类别)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(已剔除出回测宇宙), 故 AI建议 一律不推荐, 首页/本区以「未入样本」+灰显+删除线标注。§23.6 入样宇宙规则, 权威=官方入样规则: 入样白名单只收买入类信号: ${_t("type_buy")}/${_t("buy_aux")}/${_t("buy_special")}/${_t("buy_backup")}; 入样依赖=标的有ETF跟踪且有跟踪分(即回测入样判定); 排除类别=债类/情绪类/全球商品利率/港股行业/无ETF的空类别; 自我ETF唯一例外=10年国债ETF 由 self-ETF 兜底; 首页/本区 1:1 遵从回测入样判定不自行重算), 卖类(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不入位——同日只买最优K个买入类信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型${_t("buy_backup")}&gt;${_t("type_buy")}&gt;${_t("buy_aux")}&gt;${_t("buy_special")}→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。**K档评级(2026-08-13 #54 动态化: 随当前降亏勾选/费率档/最新数据实时重算, 与首页/凯利K按钮评级 hoverpop 同源 common.js, §22 一致)**: ${_aiPoscapRatingSummary("tds_poscap_lab")}。★主推=收益率最高档(数据驱动, 不固定 K1, 以评级表实时数字为准); K越大收益率递减(含最低佣金5元费率重算口径)。每日池口径下 K 越大净利反升(每日资金池恒定, 砍量越少持仓越多)。G模式历史口径(关32.27%/K1 48.58%/K2 40.41%/K3 38.96%等, 每笔固定1万·positionCap单独回测未叠加AI降亏过滤)为已废弃的旧口径(2026-08-13 起默认=每日资金池等分), 以本 K 档评级 hoverpop(每日池+top-K, 实时随勾选动态)与下方「全信号表 · 按年窗口增长」表(每日池实时, 可切 G 并跟 K 档联动)为准, 旧口径数值不再单独公示。OFF按钮(关)=写 tds_poscap_lab {on:false} 关闭AI仓位建议、该区退化普通列表(不再显示「AI建议N」「当日已满」), 再点某 K 档恢复 {on:true,k}(独立键 tds_poscap_lab, 与首页/交易页各自独立互不联动, 2026-08-30 已拆)。与降亏同开仅推荐默认组合(v1.1.5 起 AI降亏过滤默认=NEW14 十四键: hist6=r10May6NonMay/greedy15/janMidSpecial/k2c5HkChase/k3ConceptBuy/declinePhaseSpecial + 规则8=n1NorthOutflow/t1LowTurnSpecial/d1LowDivYield/q1QvixLowPct/h1VolChgHighA/m1MarginDownBull/p1LowDivBackup/r2bSpecialGlobal, 每日池+K=1下边际≈0无害); ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开; 勿再叠加 greedy7/10 等其他广谱(greedy15 已在 NEW14 默认内); B模式(3%止盈)仓位控制下转负建议关。范围扩展: 交易页整个信号列表(近30交易日, 2026-08-24 由15扩30)按同一排序展示 AI建议(AI建议买入/当日已满)。⚠2026-08-14 首页「AI过滤视图」两开关正交不绑定(§21): 开关1「AI降亏」(tds_home_fade)=删除线过滤层——开启时未入样宇宙(债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 已剔除出回测宇宙)信号=删线+灰显+「未入样本」标注; 开关2「AI仓位」(tds_poscap_lab.on)=badge标注层——开启时入宇宙${_t("sell_short")}(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")})=亮色「AI警示」(${_t("sell_short")}无K约束不判K), 买入进K=「AI建议N」/超K=「当日已满」; 全关=全量视图全亮不标注, band_hold波段持有=中性不标; 迟到入宇宙${_t("sell_short")}(如8/14中证银行${_t("sell_short")})「AI警示」+「盘后补齐」角标共存不冲突。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}>${_kellyRecBadge(_filters.positionCap)} AI仓位建议 K: <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
     `<span class="lab-sigkelly-kbtns lab-sigkelly-posrate" tabindex="0">${_pcKbtns}${_pcOffBtn}${_pcRatingPop}</span>` +
     // 修复批③: 模式下拉紧跟「AI降亏过滤」总开关文字(同一 flex 行, 不再拆到组尾), 细节见上方 fadeModeHTML 注释
     aiMacroLabelHTML +
