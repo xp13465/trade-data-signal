@@ -364,7 +364,7 @@ run_r2_upload() {
   return "$rc"
 }
 
-echo "-> 上传 lab/trade_sim/index/industry/public_fund/etf_score/data-large/all-data 到 R2 ..." | tee -a "$LOG"
+echo "-> 上传 lab/trade_sim/index/industry/public_fund/etf_score/data-large/all-data/kelly-snapshots 到 R2 ..." | tee -a "$LOG"
 # 阶段3：数据唯一走 R2，上传失败需 notify 告警让 schedule_monitor 发现
 R2_FAIL=""
 run_r2_upload "upload-lab" upload-lab || { echo "⚠ upload-lab 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-lab"; }
@@ -390,6 +390,9 @@ run_r2_upload "upload-etf-score" upload-etf-score || { echo "⚠ upload-etf-scor
 run_r2_upload "upload-data-large" upload-data-large || { echo "⚠ upload-data-large 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-data-large"; }
 run_r2_upload "upload-kelly-parts" upload-kelly-parts || { echo "⚠ upload-kelly-parts 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-parts"; }
 run_r2_upload "upload-all-data" upload-all-data || { echo "⚠ upload-all-data 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-all-data"; }
+# signal_kelly_snapshots/ 每日快照+演进 index(lab 凯利区「演进」入口, 2026-09-04 断链根治配套;
+# 子目录走独立命令, upload-all-data/upload-data-large 的 *.json glob 不递归天然不匹配, 见 upload_r2.py)
+run_r2_upload "upload-kelly-snapshots" upload-kelly-snapshots || { echo "⚠ upload-kelly-snapshots 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-snapshots"; }
 # feed.xml 走 R2（2026-08-10）：gen_rss 生成的 RSS 上传到 R2 data/feed.xml，不再 git push
 run_r2_upload "upload-feed" upload-data-files feed.xml || { echo "⚠ upload feed.xml 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-feed"; }
 if [ -n "$R2_FAIL" ]; then
