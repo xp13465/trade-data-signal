@@ -9991,10 +9991,12 @@ function _renderSigKellyBar(bar, data, period) {
   // 2026-08-12 #4 rename+范围扩展: 显示名改"AI仓位建议"(技术别名:仓位控制过滤), pop tooltip 完整展示; 历史回测数据固化展示(下方 poscapHistoryHTML)
   const _pcK = _filters.positionCapK || 1;
   // 2026-08-30: 静态回退表保留+标注历史(v1.1.4 八键基座历史数字, 动态未就绪时兜底); 当前默认=v1.1.7 S06 动态, 以页面实时为准
-  // 注: 该回退表仅当 window._AI_POSCAP_RATING 未定义/未动态化时才用到(common.js 共享源 §22); 若动态已就绪则走 _AI_POSCAP_RATING_DYNAMIC
-  // 2026-08-13: K档位评级标注 + hover 评级理由表格(展示层, 不改算法; 数据=共享单一数据源 common.js window._AI_POSCAP_RATING, §22 与首页 app.js 一致, 勿单改数值)
+  // 注: 取源经 common.js _aiPoscapRatingSrc("tds_poscap_lab") 动态优先(AI仓位建议开启且动态已计算→_AI_POSCAP_RATING_DYNAMIC.values), 否则回退静态快照 _AI_POSCAP_RATING; 本回退表仅为最后兜底(§22 与 pop/首页同源)
+  // 2026-08-13: K档位评级标注 + hover 评级理由表格(展示层, 不改算法; 数据=共享单一数据源 common.js _aiPoscapRatingSrc(动态优先/静态快照回退), §22 与首页 app.js 一致, 勿单改数值)
   // 2026-09-04 用户拍板方案一(数据驱动): 本地回退表 name 同步按 dd 排序派生(K1 dd最小→最保守/K2 dd最大→最激进/K3 次小→最稳健/K4 次大→次稳健, 与 common.js 静态快照一致 §22)
-  const _pcRating = window._AI_POSCAP_RATING || {
+  // 2026-09-05 fix(数据源分叉, 用户报 K1/K2 互换): _pcRating 从"恒读静态快照"改为经 common.js _aiPoscapRatingSrc 取源(动态优先), 与下方 pop(_aiPoscapRatingPopHtml)同源 §22, 修复动态就绪时按钮 label 与 pop 互换
+  const _pcSrc = (window._aiPoscapRatingSrc ? window._aiPoscapRatingSrc("tds_poscap_lab") : null);
+  const _pcRating = (_pcSrc && _pcSrc.src && (_pcSrc.src.values || _pcSrc.src)) || window._AI_POSCAP_RATING || {
     1: { name: "最保守", ret: "86.60%", dd: "15.99%", ra: "5.42", n: "1,202", reason: "收益率最高+回撤最小+样本最少,主推★" },
     2: { name: "最激进", ret: "67.61%", dd: "18.64%", ra: "3.63", n: "1,930", reason: "收益率最低+回撤最大" },
     3: { name: "最稳健", ret: "66.24%", dd: "16.19%", ra: "4.09", n: "2,461", reason: "回撤第二大+收益率第三(收益/回撤较优)" },

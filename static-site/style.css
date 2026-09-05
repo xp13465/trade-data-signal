@@ -7179,6 +7179,11 @@ main { padding: 16px 24px; }
 .sim-kbtn.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700; }
 .sim-summary { padding: 8px 4px; font-size: 12px; color: var(--text-1); }
 .sim-table-wrap { max-height: 56vh; overflow: auto; overflow-x: auto; min-width: 0; }
+/* 逐日净资产走势图(2026-09-04 #51, 纯新增展示): 插在表格与汇总之间; lw 图由 _lwSetup 渲染在 .sim-netasset-body 内, 高度自稳 */
+.sim-netasset-chart { margin: 2px 0 10px; padding: 8px 10px 2px; background: var(--bg-card); border-radius: 8px; box-shadow: 0 1px 3px var(--shadow); }
+.sim-netasset-head { font-size: 12px; font-weight: 600; color: var(--text-1); padding: 2px 2px 6px; }
+.sim-netasset-note { font-size: 11px; color: #8a94a6; padding: 4px 2px 2px; }
+.sim-netasset-note-inline { font-size: 12px; color: var(--text-2); padding: 14px 2px; }
 /* 列宽策略(2026-08-22 用户反馈「数值列宽度应固定, 正常百分比不会太长」): table-layout:fixed +
    逐列定宽 → 数值列宽不随数据长短跳动; 不定宽列=剩余全部空间;
    min-width 保证窄屏走 .sim-table-wrap 横向滚动不被挤坏; ellipsis 仅作极端值兜底(定宽已按内容上限预估) */
