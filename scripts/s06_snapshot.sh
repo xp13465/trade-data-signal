@@ -8,6 +8,10 @@
 #   ③upload_r2.py upload-data-files 上传 R2 兜底副本 + purge CF edge(§22 N 缓存同步;
 #     git/CF Pages 主站渠道随次日 17:50 deploy 追上——快照按信号日期取 effective_mode,
 #     超覆盖期 fail-open 不拦截, 慢一天只影响新增日期行, 不影响既有判定)
+#   ④kelly_posrating.py 重算首页 K 档评级 latest_posrating.json(#54 方案B; 写两树;
+#     依赖 trades 17:50 + s06 本链① + loss 低频, 20:35 晚于全部源; 失败仅告警不阻断,
+#     --check 停滞告警兜底暴露)。export 链 17:50 build_snapshot 亦生成(用昨日 s06), 本链
+#     覆盖为今日 s06 权威版。
 # 任一段 FAIL → notify.py --severe 告警(--dedup-key 1h 内不重发防轰炸; 发送成功才记 dedup)。
 #
 # 时点选择依据(§14): 20:35 ——
@@ -91,14 +95,30 @@ else
   fi
 fi
 
+# ④ #54 方案B: 首页 AI仓位建议 K 档评级全史动态源 = latest_posrating.json
+#    s06 快照今日版就绪后(① 已重生)重算, 20:35 晚于全部三个数据源每日更新时点:
+#      signal_kelly_trades.json(17:50 export 链) / kelly_mode_s06_state.json(本链①, 两树)
+#      / kelly_loss_features.json(低频, per-date 特性不受影响)。写 REPO + GIT_REPO 两树(同①)。
+#    失败仅告警不阻断(git 渠道随次日 deploy 兜底; --check 停滞告警兜底暴露);
+#    export 链 17:50 build_snapshot 也生成(用昨日 s06), 本链覆盖为今日 s06 权威版。
+RC_PR=0
+for _D in "$REPO/static-site/data" "$GIT_REPO/static-site/data"; do
+  [ -d "$_D/signal_kelly_snapshots" ] || continue
+  run_to 300 "$PY" scripts/kelly_posrating.py --data-dir "$_D" --write >> "$LOG" 2>&1
+  _rc=$?
+  [ "$_rc" -ne 0 ] && echo "⚠ latest_posrating.json 生成失败 rc=${_rc} data-dir=$_D(首页回退静态兜底 86.60%)" >> "$LOG"
+  [ "$RC_PR" -eq 0 ] && RC_PR=$_rc
+done
+
 FINAL_RC=$RC_GEN
 [ "$FINAL_RC" -eq 0 ] && FINAL_RC=$RC_CHK
 [ "$FINAL_RC" -eq 0 ] && FINAL_RC=$RC_R2
+[ "$FINAL_RC" -eq 0 ] && FINAL_RC=$RC_PR
 
 if [ "$FINAL_RC" -ne 0 ]; then
   "$PY" scripts/notify.py \
-    "[S06] 快照重生链路异常 gen=$RC_GEN check=$RC_CHK r2=$RC_R2 $(date '+%m-%d %H:%M')" \
-    "S06 每日重生三段(gen 重生成 / check A1-A4 机检 / r2 R2同步)任一失败, 快照可能过期或带病。<br>日志: $LOG (尾部 50 行)<br>影响: 前端 S06 档超覆盖期 fail-open 不拦截, 静默退化。" \
+    "[S06] 快照重生链路异常 gen=$RC_GEN check=$RC_CHK r2=$RC_R2 pr=$RC_PR $(date '+%m-%d %H:%M')" \
+    "S06 每日重生四段(gen 重生成 / check A1-A4 机检 / r2 R2同步 / pr latest_posrating 首页K档评级)任一失败, 快照可能过期或带病。<br>日志: $LOG (尾部 50 行)<br>影响: 前端 S06 档超覆盖期 fail-open 不拦截, 静默退化; pr 失败首页 K 档评级回退静态兜底 86.60%。" \
     --severe --from-prefix "[告警]" \
     --alert-issue "S06 快照重生链路异常" --alert-log "$LOG" \
     --dedup-key s06_snapshot_fail --dedup-window 3600 >> "$LOG" 2>&1

@@ -565,6 +565,7 @@ function _aiPoscapRatingReasonFor(k, vals) {
 // poscapKey 透传 _aiPoscapRatingSrc(凯利区="tds_poscap_lab" / 首页="tds_home_poscap", 2026-08-30 拆键)
 function _aiPoscapRatingSummary(poscapKey) {
   var s = _aiPoscapRatingSrc(poscapKey);
+  var isHome = (poscapKey || "tds_poscap_lab") === "tds_home_poscap";
   var vals = s.src.values || _AI_POSCAP_RATING;
   var parts = [1, 2, 3, 4].map(function (k) {
     var r = vals[k];
@@ -572,12 +573,15 @@ function _aiPoscapRatingSummary(poscapKey) {
     return 'K=' + k + ' ' + _aiPoscapRatingNameByDd(vals, k) + ' 收益率' + r.ret + '/峰值资金回撤' + r.dd + '/样本' + r.n;
   }).filter(Boolean);
   return parts.join('; ') + (s.dynamic
-    ? ('（实时·当前配置/费率/数据' + (s.src.date ? ' ' + s.src.date : '') + '）')
+    ? (isHome
+      ? ('（每日快照·默认 S06 组合' + (s.src.date ? ' 数据日期 ' + s.src.date : '') + ', 盘后 20:35 自动更新, 不随上方降亏勾选联动）')
+      : ('（实时·当前配置/费率/数据' + (s.src.date ? ' ' + s.src.date : '') + '）'))
     : '（快照 08-14·v1.1.4 八键基座历史数字(每日池+费率重算口径, 按当时 etf_def 费率算出; 当前默认费率=etf_main 万0.5/最低0.1元), 当前默认=v1.1.7 S06动态, 以页面实时为准; 当前未开启AI仓位建议或未重算→回退静态历史快照）');
 }
 // K 档评级 hoverpop 表格 HTML(★主推=收益率最高档 retMaxK 高亮, 不再写死 K=1; app.js/lab.js 两处共用同一份, 数据源=动态优先/静态快照回退, 勿单改数值)
 function _aiPoscapRatingPopHtml(poscapKey) {
   var s = _aiPoscapRatingSrc(poscapKey);
+  var isHome = (poscapKey || "tds_poscap_lab") === "tds_home_poscap";
   var vals = s.src.values || _AI_POSCAP_RATING;
   var mainK = _aiPoscapRatingMainPick(vals);
   var rows = [1, 3, 4, 2].map(function (k) {
@@ -587,14 +591,18 @@ function _aiPoscapRatingPopHtml(poscapKey) {
     return '<tr' + (k === mainK ? ' class="lab-sigkelly-posrate-hl"' : '') + '><td><b>K=' + k + '</b> ' + _aiPoscapRatingNameByDd(vals, k) + (k === mainK ? ' ★主推' : '') + '</td><td>' + r.ret + '</td><td>' + r.dd + '</td><td>' + r.ra + '</td><td>' + r.n + '</td><td>' + reason + '</td></tr>';
   }).join("");
   var srcLabel = s.dynamic
-    ? '📌 实时·当前配置/费率/数据(' + (s.src.date || '-') + (s.src.fee ? ' · 费率' + s.src.fee : '') + ')：随上方降亏勾选 / 费率档 / 最新数据联动重算(展示层动态化, 未改算法)'
+    ? (isHome
+      ? '📌 每日快照·默认 S06 组合（' + (s.src.date || '-') + (s.src.fee ? ' · 费率' + s.src.fee : '') + '）：盘后自动生成（latest_posrating.json, 20:35 s06 链）代表默认 S06 全史评级, 不随上方降亏勾选联动重算'
+      : '📌 实时·当前配置/费率/数据(' + (s.src.date || '-') + (s.src.fee ? ' · 费率' + s.src.fee : '') + ')：随上方降亏勾选 / 费率档 / 最新数据联动重算(展示层动态化, 未改算法)')
     : '📌 快照 08-14：v1.1.4 八键基座历史数字(每日池+费率重算口径, 按当时 etf_def 费率算出) = AI降亏过滤默认 AI宏5+3+1(基础5+核心3保留入样 + 1回测剔除波动相关/未入样本信号) + A模式(固定10天) + 每日资金池等分+top-K + 费率etf_def(历史快照费率) + 全周期。⚠当前默认=v1.1.7 S06 动态 + 费率etf_main(万0.5,最低0.1元), 以上为动态未就绪时的历史兜底回退, 以页面实时为准。';
   return '<span class="lab-sigkelly-posrate-pop-wrap">' +
     '<div class="lab-sigkelly-posrate-pop">' +
       '<div class="lab-sigkelly-posrate-pop-title">AI仓位建议 · K 档位评级（评级依据=下方回撤矩阵）</div>' +
       '<table class="lab-sigkelly-posrate-table"><thead><tr><th>档位</th><th>收益率</th><th>峰值资金回撤</th><th>风险调整<br>(收益/回撤)</th><th>样本</th><th>评级理由</th></tr></thead><tbody>' + rows + '</tbody></table>' +
       '<div class="lab-sigkelly-posrate-pop-note">⚠ 口径：动态=当前降亏勾选(当前默认=S06 动态, 以页面上方组合为准) + A模式(固定10天) + 每日资金池等分+top-K + 当前费率档(默认etf_main 万0.5,最低0.1元) + 最新数据全周期；静态快照=v1.1.4 八键基座历史数字(2026-08-14 #48+#BC, 按当时 etf_def 费率算出), 仅作动态未就绪时的兜底回退, 当前默认=v1.1.7 S06 动态以页面实时为准。与「历史回测数据」G模式口径不同，勿混用数值。峰值资金回撤=最大回撤金额÷本金(concCap, 峰值同时持仓资金；与回测报告 ddPct=最大回撤÷资金池 口径不同, 数值勿直接对照)</div>' +
-      '<div class="lab-sigkelly-posrate-pop-note"><b>K 档到底在选什么（举个 1:1 例子）</b>：每日资金池=每天总共投入 1 万，均分给当日保留的前 K 个信号。选 <b>K1</b>=当天只买最优的那 1 个信号，单笔就是 1 万（全押 1 个，持仓最集中）→ 收益率最高（★主推档=收益率最高档, 实时数字见上方评级表）；选 <b>K3</b>=当天买最优的 3 个信号，每个 10000÷3≈<b>3333 元</b>（鸡蛋分 3 篮子，持仓更分散）→ 收益率更低（实时数字见上方评级表）。价格：K 越大越分散、单日冲高收益越低，但波动和风险也摊薄——想要集中吃大肉就看 ★主推 档（收益率最高, 不固定 K1, 随实时数据变化），想要分散稳健就调大 K。<i>核实源=动态 _AI_POSCAP_RATING_DYNAMIC(随当前配置/费率/数据实时重算, 以页面 hoverpop 评级表实时数字为准; 旧 1:1 数字 86.6%/66.2% 为 v1.1.4 八键基座历史快照, 2026-09-04 已清理不写死)</i></div>' +
+      '<div class="lab-sigkelly-posrate-pop-note"><b>K 档到底在选什么（举个 1:1 例子）</b>：每日资金池=每天总共投入 1 万，均分给当日保留的前 K 个信号。选 <b>K1</b>=当天只买最优的那 1 个信号，单笔就是 1 万（全押 1 个，持仓最集中）→ 收益率最高（★主推档=收益率最高档, 实时数字见上方评级表）；选 <b>K3</b>=当天买最优的 3 个信号，每个 10000÷3≈<b>3333 元</b>（鸡蛋分 3 篮子，持仓更分散）→ 收益率更低（实时数字见上方评级表）。价格：K 越大越分散、单日冲高收益越低，但波动和风险也摊薄——想要集中吃大肉就看 ★主推 档（收益率最高, 不固定 K1, 随实时数据变化），想要分散稳健就调大 K。<i>核实源=' + (isHome
+        ? '每日快照 latest_posrating.json(S06 默认组合盘后快照, 数据日期见上方标注, 不随勾选联动; 旧 1:1 数字 86.6%/66.2% 为 v1.1.4 八键基座历史快照, 2026-09-04 已清理不写死)'
+        : '动态实时重算(随当前配置/费率/数据变化, 以页面 hoverpop 评级表实时数字为准; 旧 1:1 数字 86.6%/66.2% 为 v1.1.4 八键基座历史快照, 2026-09-04 已清理不写死)') + '</i></div>' +
       '<div class="lab-sigkelly-posrate-pop-note">' + srcLabel + '</div>' +
     '</div>' +
   '</span>';

@@ -288,6 +288,39 @@ def _send_notify(subject: str, body: str, severe: bool, dry_run: bool,
             notify.update_dedup(dedup_key)
 
 
+def detect_posrating_stale(data_dir: Path, index: dict) -> list[dict]:
+    """latest_posrating.json 停更检测(#54 方案B: 首页 K 档评级动态源)。
+
+    生成日(latest_posrating.date)落后最新快照日(index.days[-1].d) ≥LAG_ALERT_TD 交易日 → 告警。
+    挂载链: s06_snapshot.sh 20:35 尾部 + export 链 build_snapshot 17:50 双点生成;
+    任一链停跑数日, date 即停留旧日, 用户侧静默回退静态兜底 86.60%, 必须当场暴露。
+    """
+    days = index.get("days", [])
+    if not days:
+        return []
+    newest_day = days[-1].get("d", "")
+    if not newest_day:
+        return []
+    p = snap_dir(data_dir) / "latest_posrating.json"
+    if not p.exists():
+        return [{"type": "posrating_stale",
+                 "detail": "latest_posrating.json 缺失(首页 K 档评级回退静态兜底 86.60%)"}]
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        return [{"type": "posrating_stale", "detail": f"latest_posrating.json 解析失败({exc})"}]
+    pr_date = str(doc.get("date") or "").strip()
+    if not pr_date:
+        return [{"type": "posrating_stale", "detail": "latest_posrating.json 无 date 字段(生成日)"}]
+    if pr_date < newest_day:
+        lag = trading_days_lag(newest_day, pr_date)
+        if lag >= LAG_ALERT_TD:
+            return [{"type": "posrating_stale",
+                     "detail": f"latest_posrating.json 停更: 生成日={pr_date} "
+                               f"落后最新快照日={newest_day} {lag} 个交易日(≥{LAG_ALERT_TD}告警)"}]
+    return []
+
+
 def detect_stagnation(index: dict, today_str: str) -> list[dict]:
     """停滞档: max_signal_date 落后最新交易日 ≥LAG_ALERT_TD 个交易日。"""
     days = index.get("days", [])
@@ -365,6 +398,7 @@ def run_check(data_dir: Path, dry_run: bool) -> int:
     today_str = datetime.now().strftime("%Y%m%d")
     alerts = []
     alerts += detect_stagnation(index, today_str)
+    alerts += detect_posrating_stale(data_dir, index)
     # 发布日豁免: 今日 version != 昨日 version
     prev_ver = index.get("days", [])[-2].get("v") if len(index.get("days", [])) >= 2 else ""
     latest_ver = index.get("days", [])[-1].get("v") if index.get("days", []) else ""
@@ -377,13 +411,18 @@ def run_check(data_dir: Path, dry_run: bool) -> int:
             f"max_signal_date={days[-1].get('m')}")
         return 0
     for a in alerts:
-        subject = "[告警] 信号凯利回测停滞" if a["type"] == "stagnation" else "[告警] 信号凯利回测指标突变"
+        subject = "[告警] 信号凯利回测停滞" if a["type"] in ("stagnation", "posrating_stale") else "[告警] 信号凯利回测指标突变"
         body_lines = [
             subject,
             f"判定档位: {a['type']}",
             a.get("detail", ""),
             f"数据截止日: {days[-1].get('d')} 快照 / max_signal_date={days[-1].get('m')}",
         ]
+        if a["type"] == "posrating_stale":
+            body_lines.append("影响面提示: latest_posrating.json 为首页 AI仓位建议 K 档评级动态源"
+                              "(s06_snapshot.sh 20:35 + export/build_snapshot 17:50 双点生成); "
+                              "停更时首页静默回退静态兜底 86.60% 历史数字, 用户无感知, 需及时补跑")
+            body_lines.append("补跑: bash scripts/kelly_posrating.py --data-dir <static-site/data> --write")
         if a["type"] == "mutation":
             body_lines.append(f"样本数 n={a.get('n')} (门 ≥{MIN_N})")
             body_lines.append("影响面提示: 回测 total_return 突变可能源于价格库数据缺口"
