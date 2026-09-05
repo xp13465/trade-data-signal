@@ -181,6 +181,27 @@ class SyncRefsTest(unittest.TestCase):
         self.assertTrue((self.inbox / f"{rid}.failed").exists())
 
 
+
+    def test_sync_skips_processing(self):
+        """Regression: sync_git_refs must skip .processing requests, not re-create .ready."""
+        rid = "rev-proc-test-001"
+        r_for, r_blob = self._make_blob_result(rid, self._payload(rid))
+        orig_run = w.subprocess.run
+        def fake_run(cmd, *a, **kw):
+            if "for-each-ref" in cmd:
+                return r_for
+            if "cat-file" in cmd:
+                return r_blob
+            return orig_run(cmd, *a, **kw)
+        # only .processing marker exists — .ready/.done/.failed absent
+        (self.inbox / f"{rid}.processing").write_text(json.dumps({"request_id": rid}), encoding="utf-8")
+        with unittest.mock.patch.object(w.subprocess, "run", fake_run):
+            w.sync_git_refs()
+        # sync_git_refs must NOT create .ready for a request that is already .processing
+        self.assertFalse((self.inbox / f"{rid}.ready").exists())
+        self.assertTrue((self.inbox / f"{rid}.processing").exists())
+
+
 class VerdictReadTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
