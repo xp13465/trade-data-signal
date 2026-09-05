@@ -4085,13 +4085,16 @@ async function _simRenderOnce(modal) {
   // 分片二级加载(2026-08-22): 所选范围超出 recent 热区(或未设下界)时并行拉缺失年片, 全部到位再渲染;
   // 热区内直接用已加载的 recent 渲染(不触发任何新请求)。年片走模块级 Map 缓存, 切范围不重复拉;
   // 任一年片失败自动回退全量(老路径兜底)。500 天闸在前, 超限请求到不了这里不会触发拉片。
-  if (!_simFullFallback && !(startD && _simHotMinDate && startD >= _simHotMinDate)) {
+  // #51 净资产曲线全史口径(2026-09-05): 曲线初始资金=全史峰值×¥10000 常量不随窗口切换 → 必须加载全史分片
+  // (recent 热区 + 缺失年片 t2011..t2026), 不能只按所选窗口范围加载(recent 热区仅 2026 年起, 不含
+  // 2018/2020 等历史峰值日)。_simPartsCache 模块级缓存: 同一会话后续渲染命中不重拉; 分片失败已回退全量则跳过。
+  if (!_simFullFallback && !_simKellyLoadErr) {
     loadingEl.style.display = "block";
     loadingEl.textContent = "正在加载数据分片…";
     bodyEl.innerHTML = "";
     summaryEl.innerHTML = "";
     pagerEl.innerHTML = "";
-    const okR = await _simEnsureRange(startD, endD, (m) => { loadingEl.textContent = m; });
+    const okR = await _simEnsureRange("20110101", _simHotMaxDate || (endD || ""), (m) => { loadingEl.textContent = m; });
     loadingEl.style.display = "none";
     if (!okR) {
       bodyEl.innerHTML = '<div class="sim-err">数据加载失败: ' + (_simKellyLoadErr || "分片加载失败") + '</div>';
@@ -4227,6 +4230,10 @@ async function _simRenderOnce(modal) {
   // ③.5 G/H/I 长线管位管线(2026-08-29 补, 2026-08-30 纠正语义): 源头全量信号不源头管位, 管位只在此处——
   // 作用于 K 选样之后、日期切片之前(即用户定义的「S06→K1→GHI管位」正确顺序); 按当前档位剔除
   // 超容买入/腾位(手段A 满仓不买 / 手段P P≤3d 先卖年轻仓), 与 lab.js _kellyAihlineApply 同语义 §22。
+  // #51(2026-09-05) 全史峰值扫描前提: 表格累积盈亏%分母/峰值列/曲线初始资金都用「全史峰值」恒值,
+  // 须在日期切片(④)之前对 filter→K→GIH 后的全史 kept 行扫描(全史数据已由上方分片加载保证);
+  // peakAllHistRaw=管位前全史原始峰值(仅供 GIH tooltip「管位关时」对照), peakAllHist=最终峰值(非 GIH 模式二者相等)。
+  const peakAllHistRaw = _simPeakPositions(kept, fIdx).peak;
   if (gihOn && _SIM_GHI_TIERS[mode]) {
     // 2026-08-30 P1-① §22(real 通路共享核): 强平重算前先确保 accum_nav_map 已加载
     // (common.js window._kkellyRealNavEnsure, 与 lab.js _kellyRealNavEnsure 共用同一单例缓存, 防双份拉取漂移)
@@ -4236,6 +4243,7 @@ async function _simRenderOnce(modal) {
     const _ghir = _simGhiHoldCap(kept, mode, fIdx);
     kept = _ghir.rows;
   }
+  const peakAllHist = _simPeakPositions(kept, fIdx).peak;
   // ④ 日期切片(按 signal_date 字符串比较, 空=不筛)
   if (startD || endD) {
     kept = kept.filter((t) => {
@@ -4247,7 +4255,7 @@ async function _simRenderOnce(modal) {
   }
   // 按 signal_date 倒序(最新在上)
   kept.sort((a, b) => { const sa = String(a[fIdx.signal_date] || ""), sb = String(b[fIdx.signal_date] || ""); return sa < sb ? 1 : (sa > sb ? -1 : 0); });
-  _simRenderTable(modal, kept, fIdx, fp, startD, endD, fadeOn, K, mode, gihOn);
+  _simRenderTable(modal, kept, fIdx, fp, startD, endD, fadeOn, K, mode, gihOn, peakAllHist, peakAllHistRaw);
 }
 
 // 基笔池按 mode 缓存(2026-08-23 性能专项): 池=纯函数(数据引用,mode), 与筛选/费率/K 无关;
@@ -4875,7 +4883,35 @@ async function _openSimEtfTrendPinModal(code, name, events, srcRow, srcKey) {
   renderZone("formal");
 }
 
-function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, gihOn) {
+// 峰值同时持仓笔数扫描(#51 净资产曲线全史口径, 2026-09-05): 按 signal_date 正序逐日维护 openMap(未平仓笔),
+// 返回 rows 覆盖范围内峰值同时持仓笔数与其首个到达日。与 _simRenderTable 内联扫描同算法(§22 同构)——
+// 供「净资产曲线初始资金=全史峰值×¥10000」与表格累积盈亏%分母同源, 不随窗口切换变化。
+function _simPeakPositions(rows, fIdx) {
+  const asc = rows.slice().sort((a, b) => { const sa = String(a[fIdx.signal_date] || ""), sb = String(b[fIdx.signal_date] || ""); return sa < sb ? -1 : (sa > sb ? 1 : 0); });
+  const openMap = {};
+  let peak = 0, peakFirstDate = "";
+  let gi = 0;
+  while (gi < asc.length) {
+    const sd = String(asc[gi][fIdx.signal_date] || "");
+    let gj = gi;
+    while (gj < asc.length && String(asc[gj][fIdx.signal_date] || "") === sd) gj++;
+    for (const ok in openMap) { const osld = openMap[ok]; if (osld && osld <= sd) delete openMap[ok]; }
+    for (let i = gi; i < gj; i++) {
+      const bd = String(asc[i][fIdx.buy_date] || "");
+      const sld = String(asc[i][fIdx.sell_date] || "");
+      if (bd && bd <= sd && (sld === "" || sld > sd)) {
+        const bk2 = _simBaseKey(asc[i], fIdx);
+        if (!Object.prototype.hasOwnProperty.call(openMap, bk2)) openMap[bk2] = sld;
+      }
+    }
+    const posN = Object.keys(openMap).length;
+    if (posN > peak) { peak = posN; peakFirstDate = sd; }
+    gi = gj;
+  }
+  return { peak, peakFirstDate };
+}
+
+function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, gihOn, peakAllHist, peakAllHistRaw) {
   const bodyEl = modal.querySelector(".sim-table-body");
   const summaryEl = modal.querySelector(".sim-summary");
   const pagerEl = modal.querySelector(".sim-pager");
@@ -4924,6 +4960,11 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
   const _gihActive = !!(gihOn && _ghIt && _ghIt.cap > 0);
   const _gihCapN = _gihActive ? Math.round(_ghIt.cap / 10000) : 0;
   const peakDisp = Math.max(peakPosN, 1);
+  // #51 净资产曲线全史口径(2026-09-05): 累积盈亏%分母 / 峰值列展示 / 曲线初始资金 = 全史峰值同时持仓笔数
+  // (filter→K→GIH 后的全史 kept 行扫描, _simRenderOnce 传入), 恒值不随窗口切换(30天/90天/全史三条相等);
+  // peakPosN 保留为窗口内 raw 峰值(仅 GIH 提示「管位关时」对照用)。
+  const peakDenom = Math.max(peakAllHist || peakPosN, 1);
+  const peakRawDenom = Math.max(peakAllHistRaw || peakPosN, 1);
   let _gihMissingN = 0; // 2026-08-30 P1-① §22: 强平日缺价笔数(不计入统计, 渲染层红字提示)
   for (let i = 0; i < asc.length; i++) {
     const t = asc[i];
@@ -4944,7 +4985,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
     // 累积盈亏%(2026-08-22 用户定口径修正): = 累计盈亏金额 ÷(窗口内峰值同时持仓笔数×¥10000),
     // 真实资金占用收益率; 不再按每笔 ¥10000 收益率简单相加(多笔同持时为虚假杠杆口径, memory E23 同源)。
     // 分母为窗口级常数, 每行随 cumYuan 更新; peakPosN=0(病态窗口无任何买入)兜底按 1 笔防除零。
-    cumPct = (cumYuan / (peakDisp * 10000)) * 100;
+    cumPct = (cumYuan / (peakDenom * 10000)) * 100;
     if (c.pnlYuan > 0) rightN++; else wrongN++;
     cumMap[bk] = { cumPct, cumYuan, acc: rightN + "/" + wrongN, rate: ((rightN / (rightN + wrongN)) * 100).toFixed(1) };
   }
@@ -4968,9 +5009,9 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
   // 累积两列 hoverpop(§23.9 三档互证: 白话+场景+1:1 举例); 数字全部来自当前行真实 cum 值+本窗口真实
   // 峰值持仓(动态生成, hover 哪行就对上哪行显示的数, 1:1 可对账无编造)
   const _cumTip = (cum) =>
-    '【累积盈亏 · 真实资金口径】①白话: 累计盈亏金额 ÷(本窗口峰值同时持仓笔数×¥10000)=真实资金占用收益率; 不是每笔收益率简单相加(每笔按1万简单相加会虚假放大约等于峰值持仓倍数)。②场景: 衡量该策略窗口内真金白银占用了多少、赚了多少, 用于跨策略对比/对照实盘资金效率。③1:1举例: 本窗口峰值同时持仓 ' + peakDisp + ' 笔(峰值占用 ¥' + (peakDisp * 10000).toLocaleString() + '), 截至本行累计盈亏 ' + cum.cumYuan.toFixed(2) + ' 元 → 真实累积收益率 ' + cum.cumPct.toFixed(2) + '%。';
+    '【累积盈亏 · 真实资金口径】①白话: 累计盈亏金额 ÷(全史峰值同时持仓笔数×¥10000)=真实资金占用收益率; 不是每笔收益率简单相加(每笔按1万简单相加会虚假放大约等于峰值持仓倍数)。②场景: 衡量该策略真金白银占用了多少、赚了多少, 用于跨策略对比/对照实盘资金效率; 分母=全史峰值=恒值, 不随窗口(30天/90天/全史)切换变化。③1:1举例: 全史峰值同时持仓 ' + peakDenom + ' 笔(峰值占用 ¥' + (peakDenom * 10000).toLocaleString() + '), 截至本行累计盈亏 ' + cum.cumYuan.toFixed(2) + ' 元 → 真实累积收益率 ' + cum.cumPct.toFixed(2) + '%。';
   const _cumYuanTip = (cum) =>
-    '【累积金额】①白话: 截至本行所有笔的费后盈亏真实金额累加(Σ每笔盈亏元, 含持仓中笔按最新收盘计的当前盈亏), 是绝对赚赔金额, 未除以资金占用。②场景: 看「总共赚/赔了多少钱」用本列; 看「资金效率/收益率」看「累积盈亏」列。③1:1举例: 本行累计 ' + cum.cumYuan.toFixed(2) + ' 元 ÷(峰值持仓 ' + peakDisp + ' 笔×¥10000)=「累积盈亏」' + cum.cumPct.toFixed(2) + '%。';
+    '【累积金额】①白话: 截至本行所有笔的费后盈亏真实金额累加(Σ每笔盈亏元, 含持仓中笔按最新收盘计的当前盈亏), 是绝对赚赔金额, 未除以资金占用。②场景: 看「总共赚/赔了多少钱」用本列; 看「资金效率/收益率」看「累积盈亏」列。③1:1举例: 本行累计 ' + cum.cumYuan.toFixed(2) + ' 元 ÷(全史峰值持仓 ' + peakDenom + ' 笔×¥10000)=「累积盈亏」' + cum.cumPct.toFixed(2) + '%。';
   // 观察期倒计时用交易日历(懒构建: 首个持仓中行才建一次; 来自已加载 trades 自身日期并集)
   const _sellModes = (_simKellyCfg && _simKellyCfg.sell_modes) || null;
   let _obsCal = null, _obsLast = "";
@@ -4986,7 +5027,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
     let html = '<table class="sim-tbl"><thead><tr>' +
       '<th>日期</th><th>当日持仓</th><th>当日信号</th><th>信号关联ETF</th><th>计划买入时间</th><th title="手续费恒为支出扣费语义: 显示负数(绿色), 详见各行悬停提示">买入手续费</th>' +
       '<th>计划卖出时间</th><th title="手续费恒为支出扣费语义: 显示负数(绿色)">卖出手续费</th><th>本笔交易盈亏%</th><th>本笔盈亏金额</th>' +
-      '<th title="公式: 累计盈亏金额 ÷(窗口峰值同时持仓×¥10000)=真实资金占用收益率, 非每笔收益率简单相加; 详见各行悬停提示">累积盈亏</th><th title="Σ每笔费后盈亏真实金额累加, 绝对赚赔额(未除以资金占用)">累积金额</th><th>累积对错</th><th title="' + (gihOn && _SIM_GHI_TIERS[mode] ? ('峰值同时持仓笔数(' + mode + '档长线管位开启): 玩法=' + _SIM_GHI_TIERS[mode].play + '@' + _SIM_GHI_TIERS[mode].tier + ', 真实计算峰值=' + peakDisp + '笔≤档位硬控' + _gihCapN + '笔(20倍本金硬控内=可操作; 与凯利页「ai长线模式(G/H/I)仓位管理」同口径§22); 关掉「长线管位」开关则显示未管位的原始计算峰值') : '本窗口内峰值同时持仓笔数(累积盈亏%分母口径)') + '">峰值同时持仓笔数</th></tr></thead><tbody>';
+      '<th title="公式: 累计盈亏金额 ÷(全史峰值同时持仓×¥10000)=真实资金占用收益率, 非每笔收益率简单相加, 恒值不随窗口切换; 详见各行悬停提示">累积盈亏</th><th title="Σ每笔费后盈亏真实金额累加, 绝对赚赔额(未除以资金占用)">累积金额</th><th>累积对错</th><th title="' + (gihOn && _SIM_GHI_TIERS[mode] ? ('峰值同时持仓笔数(' + mode + '档长线管位开启): 玩法=' + _SIM_GHI_TIERS[mode].play + '@' + _SIM_GHI_TIERS[mode].tier + ', 全史真实计算峰值=' + peakDenom + '笔≤档位硬控' + _gihCapN + '笔(20倍本金硬控内=可操作; 与凯利页「ai长线模式(G/H/I)仓位管理」同口径§22); 管位关时全史原始峰值=' + peakRawDenom + '笔') : '全史峰值同时持仓笔数(累积盈亏%分母口径, 恒值不随窗口切换)') + '">峰值同时持仓笔数</th></tr></thead><tbody>';
     for (const t of slice) {
       const bk = _simBaseKey(t, fIdx);
       const _gihMissing = !!t._gihNavMissing; // 2026-08-30 P1-① §22: 强平日缺价行(真实净值缺失)不重算、红字「— 缺价」
@@ -5022,7 +5063,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
         '<td class="' + _signCls(cum.cumPct) + '" title="' + _escAttr(_cumTip(cum)) + '">' + cum.cumPct.toFixed(2) + '%</td>' +
         '<td class="' + _signCls(cum.cumYuan) + '" title="' + _escAttr(_cumYuanTip(cum)) + '">' + cum.cumYuan.toFixed(2) + '</td>' +
         '<td>' + cum.acc + ' (' + cum.rate + '%)</td>' +
-        '<td class="sim-peak-cell" title="' + (gihOn && _SIM_GHI_TIERS[mode] ? (mode + '档长线管位开启: 真实计算峰值 ' + peakDisp + ' 笔(档位 ' + _SIM_GHI_TIERS[mode].tier + ' ÷ ¥10000 = 硬控上限 ' + _gihCapN + '笔, 20倍本金硬控内可操作); 管位关时的原始计算峰值为 ' + Math.max(peakPosN, 1) + ' 笔') : ('本窗口峰值同时持仓 ' + peakDisp + ' 笔(累积盈亏%分母口径)')) + '">' + peakDisp + '</td>' +
+        '<td class="sim-peak-cell" title="' + (gihOn && _SIM_GHI_TIERS[mode] ? (mode + '档长线管位开启: 全史真实计算峰值 ' + peakDenom + ' 笔(档位 ' + _SIM_GHI_TIERS[mode].tier + ' ÷ ¥10000 = 硬控上限 ' + _gihCapN + '笔, 20倍本金硬控内可操作); 管位关时全史原始峰值为 ' + peakRawDenom + ' 笔') : ('全史峰值同时持仓 ' + peakDenom + ' 笔(累积盈亏%分母口径, 恒值不随窗口切换)')) + '">' + peakDenom + '</td>' +
         '</tr>';
     }
     html += '</tbody></table>';
@@ -5033,8 +5074,8 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
       ? "自定义(佣" + _simBtWan(fp.commission_rate) + "/最低" + fp.min_commission + "元/滑" + _simBtQian(fp.slippage) + "/过户" + _simBtWan(fp.transfer_fee_rate_sh) + "/印" + _simBtWan(fp.stamp_duty_rate) + ", 万分之·滑点千分之)"
       : (_presetObj ? _presetObj.label + "(" + _presetObj.desc + ")" : "");
     summaryEl.innerHTML = '筛选结果: <b>' + n + '</b> 笔(模式 ' + mode + ' · 降亏' + (fadeOn ? '开' : '关') + ' · K=' + (K || '关') +
-      ') · 本金每笔 ¥10000 · 长线管位·G/H/I' + (gihOn ? '开' : '关') + ' · 累积收益率口径=累计金额÷(峰值同时持仓 <b>' + peakDisp + '</b> 笔×¥10000)' +
-      ((gihOn && _SIM_GHI_TIERS[mode]) ? ' · ' + mode + '档管位: 真实峰值 ' + peakDisp + '笔≤硬控' + _gihCapN + '笔(' + _SIM_GHI_TIERS[mode].tier + ')' : '') +
+      ') · 本金每笔 ¥10000 · 长线管位·G/H/I' + (gihOn ? '开' : '关') + ' · 累积收益率口径=累计金额÷(全史峰值同时持仓 <b>' + peakDenom + '</b> 笔×¥10000, 恒值不随窗口切换)' +
+      ((gihOn && _SIM_GHI_TIERS[mode]) ? ' · ' + mode + '档管位: 全史真实峰值 ' + peakDenom + '笔≤硬控' + _gihCapN + '笔(' + _SIM_GHI_TIERS[mode].tier + ')' : '') +
       ' · 费率[' + feeDesc + ']' +
       (holdingN > 0 ? ' · <span class="simbt-est">含 ' + holdingN + ' 笔持仓中</span>(按最新收盘价计当前盈亏, 已并入累积列与对错计数)' : '') +
       (_gihMissingN > 0 ? ' · <span style="color:#cf1322">' + _gihMissingN + ' 笔强平日缺价(nav 缺失, 不计入统计)</span>' : '');
@@ -5114,9 +5155,9 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
     });
   }
   _draw();
-  // 逐日总资产变化走势图(2026-09-04 #51, 纯新增展示): 与表格同源 kept rows/同一峰值扫描(peakDisp 传参与累积盈亏%分母
+  // 逐日总资产变化走势图(2026-09-04 #51, 纯新增展示): 与表格同源 kept rows/同一峰值扫描(peakDenom 传参与累积盈亏%分母
   // 逐位一致 §22), 管位开关/切 K/切范围/切费率后随 _simRenderTable 同步重算, 无旧曲线残留
-  _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD);
+  _simRenderNetassetChart(modal, rows, fIdx, fp, peakDenom, startD, endD);
 }
 
 // === 逐日总资产变化走势图(2026-09-04 #51 纯新增展示, #52b 自然日口径用户拍板; 报告 docs/kelly/analysis/sim-netasset-equity-chart-20260901) ===
@@ -5278,8 +5319,9 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
     }
     const dates = pts.map((p) => p.date);
     const values = pts.map((p) => p.value);
-    // 副线: 持仓日涨跌%(用户要 b=每日涨跌幅波动; 由曲线自身派生, 首点无前值=null)
-    const pctChanges = pts.map((p, i) => (i === 0 || !(pts[i - 1].value > 0)) ? null : ((p.value - pts[i - 1].value) / pts[i - 1].value) * 100);
+    // #51②(2026-09-05) 副线=持仓市值(mv)口径(方案A): 蓝线逐日值=当日持仓市值(与 tooltip「市值 ¥Y」同源逐位一致,
+    // §22; 取代原「总资产日涨跌%」——那与总资产红线同源不构成独立维度)。mv 与总资产同量级 → 同走左轴 ¥, 右轴%移除。
+    const mvSeries = pts.map((p) => p.mv);
     let iMin = 0, iMax = 0;
     for (let i = 1; i < pts.length; i++) {
       if (pts[i].value < pts[iMin].value) iMin = i;
@@ -5297,11 +5339,11 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
         { i: pts.length - 1, y: lastP.value, color: "#409eff", r: 3, label: "末 " + _fmtY(lastP.value), labelColor: "#409eff", fontSize: 10 },
       ],
     }, {
-      // 副线: 持仓日涨跌%(蓝虚线, 右轴), 与主总资产叠加; connectNulls=true 跨首点 null 相连
-      type: "line", data: pctChanges, color: "#409eff", width: 1.5, smooth: true, connectNulls: true, dash: "4 4",
-      yIndex: 1,
+      // 副线: 持仓市值(蓝虚线, 左轴¥, 与总资产红线同轴同量级), 与 tooltip 蓝行「持仓市值 ¥Y」逐位一致 §22;
+      // 0 持仓日 mv=0 → 蓝线 0(首日/空仓日为 0, 非 null, 曲线落轴底, tooltip 蓝行显示「— 无持仓」)
+      type: "line", data: mvSeries, color: "#409eff", width: 1.5, smooth: true, connectNulls: true, dash: "4 4",
       markPoints: [
-        { i: pts.length - 1, y: pctChanges[pts.length - 1], color: "#409eff", r: 2.5, labelInside: true, label: pctChanges[pts.length - 1] == null ? "" : ((pctChanges[pts.length - 1] >= 0 ? "+" : "") + pctChanges[pts.length - 1].toFixed(2) + "%"), labelColor: "#409eff", fontSize: 9 },
+        { i: pts.length - 1, y: mvSeries[pts.length - 1], color: "#409eff", r: 2.5, labelInside: true, label: _fmtY(mvSeries[pts.length - 1]), labelColor: "#409eff", fontSize: 9 },
       ],
     }];
     const cfg = {
@@ -5312,9 +5354,8 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
       xFmt: (v) => String(v),
       ys: [
         { scale: true, splitNumber: 5, formatter: _fmtY },
-        { side: "right", scale: true, splitNumber: 5, formatter: (v) => v + "%", name: "持仓日涨跌" },
       ],
-      legend: [{ name: "总资产变化", color: "#e6492e", textColor: "#e6492e" }, { name: "持仓日涨跌", color: "#409eff", textColor: "#409eff" }],
+      legend: [{ name: "总资产变化", color: "#e6492e", textColor: "#e6492e" }, { name: "持仓市值", color: "#409eff", textColor: "#409eff" }],
       series: series,
       tipFn: (i, xLabel) => {
         const p = pts[i];
@@ -5323,8 +5364,8 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
         const _dStr = _d.slice(0, 4) + "-" + _d.slice(4, 6) + "-" + _d.slice(6, 8);
         const _red = '<span style="display:inline-block;width:8px;height:8px;background:#e6492e;border-radius:1px;margin-right:4px;vertical-align:middle"></span>';
         const _blue = '<span style="display:inline-block;width:8px;height:8px;background:#409eff;border-radius:1px;margin-right:4px;vertical-align:middle"></span>';
-        // #52d: 红线=总资产维度涨跌(金额+百分比), 蓝线=持仓维度日涨跌(金额+百分比);
-        // 蓝线百分比用持仓市值 mv 自身口径(mv/prev.mv), 不复用 pctChanges(那是总资产 value 口径, 张冠李戴)。
+        // #52d/#51②: 红线=总资产(金额+较前日金额/%), 蓝线=持仓市值(金额+较前日金额/%, mv 自身口径 mv/prev.mv);
+        // 蓝线显示值=当日 mv 绝对额=曲线蓝点值(逐位一致 §22, 取代旧「持仓日涨跌%」右轴口径)。
         const _fmtSigned = (v) => (v < 0 ? "-" : "+") + "¥" + Math.abs(v).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         const _fmtPct = (v) => (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
         const _prev = i > 0 ? pts[i - 1] : null;
@@ -5335,19 +5376,19 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
         } else {
           _redLine = _red + '总资产 ' + _fmtY2(p.value) + '(— 首点无前值)';
         }
-        if (_prev && _prev.mv > 0) {
-          const _dMv = p.mv - _prev.mv;
-          _blueLine = _blue + '持仓日涨跌 ' + _fmtSigned(_dMv) + ' / ' + _fmtPct((_dMv / _prev.mv) * 100);
+        if (p.mv > 0) {
+          const _dMv = _prev ? (p.mv - _prev.mv) : null;
+          _blueLine = _blue + '持仓市值 ' + _fmtY2(p.mv) + (_dMv != null && _prev && _prev.mv > 0 ? '(较前日 ' + _fmtSigned(_dMv) + ' / ' + _fmtPct((_dMv / _prev.mv) * 100) + ')' : '(— 首点或昨日无持仓)');
         } else {
-          _blueLine = _blue + '持仓日涨跌 —(首点或昨日无持仓, 无涨跌可比)';
+          _blueLine = _blue + '持仓市值 ¥0.00(— 当日无持仓)';
         }
         return '<b>' + _dStr + ' · ' + _simNetassetWeekday(_d) + '</b>' +
           '<br/>' + _redLine +
-          '<br/>持仓 ' + p.holdings + ' 笔 · 现金 ' + _fmtY2(p.cash) + ' · 市值 ' + _fmtY2(p.mv) +
-          '<br/>' + _blueLine;
+          '<br/>' + _blueLine +
+          '<br/>持仓 ' + p.holdings + ' 笔 · 现金 ' + _fmtY2(p.cash);
       },
     };
-    if (headEl) headEl.textContent = "📈 逐日总资产变化走势(自然日打点每天 1 点, 非交易日按最近收盘净值计、周末平线 · 虚线=初始本金 " + initCapital.toLocaleString("zh-CN") + " 元 · 副线=持仓日涨跌 · " + pts.length + " 点 · " + pts[0].date + "~" + lastP.date + ")";
+    if (headEl) headEl.textContent = "📈 逐日总资产变化走势(自然日打点每天 1 点, 非交易日按最近收盘净值计、周末平线 · 虚线=初始本金 " + initCapital.toLocaleString("zh-CN") + " 元 · 副线=持仓市值 · " + pts.length + " 点 · " + pts[0].date + "~" + lastP.date + ")";
     if (bodyEl) _lwSetup(bodyEl, cfg);
   };
   if (typeof window !== "undefined" && window._kkellyRealNav) { _render(); return; }
