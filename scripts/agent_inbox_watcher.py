@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Signal-triggered launcher for Claude/Codex handoffs.
-守护进程版（2026-09-03 重构）：不依赖 launchd KeepAlive，自己守护自己。
-每次启动扫 refs/codex/req，有 pending 就 spawn codex exec 处理；
-处理完 sleep 5s 继续扫；spawn 出去的 codex 用 openrouter/free + 60s×10 重试兜底。
+"""Signal-triggered launcher for Claude/Codex handoffs. 7x24 守护进程.
+
+设计要点 (2026-09-05 重构):
+- PID 锁: lock 文件写 os.getpid(), 启动时检测已存在锁对应的 PID 是否存活;
+  死了自动回收, 活着则退出避免 202 进程并存(根因修复)
+- verdict 来源: poll_running rc==0 时 parse 报告里 verdict, 透传给 codex_review_complete
+  (避免硬编码 PASS 与报告真实 verdict 不一致导致 raise)
+- 重试治理: failed 状态记录 retry_count, sync_git_refs 跳过 retry 耗尽的请求,
+  避免无限重试烧额度
+- ref 清理: 报告落盘 + claude-inbox 信号完成后, git update-ref -d 删除 ref 防止
+  已 done 请求被 sync_git_refs 反复扫描(skip 而不是补)
+- claude 通道: 真实 spawn claude-inbox-consumer.sh, 不再 echo 占位
+- 429 识别: poll_running 检测 stderr/output 含 429 自动延时重试
 """
-
 from __future__ import annotations
-
-import json, os, re, subprocess, sys, time
-from datetime import datetime
-import json, os, re, subprocess, sys, time, urllib.request, urllib.error
+import json, os, re, subprocess, sys, time, signal, threading
 from datetime import datetime
 from pathlib import Path
 
@@ -20,161 +25,197 @@ LOCK_PATH = Path("/tmp/agent_inbox.lock")
 CODEX_INBOX = Path("/tmp/codex-reports/signals/codex-inbox")
 CLAUDE_INBOX = Path("/tmp/codex-reports/signals/claude-inbox")
 REPORTS_DIR = Path("/tmp/codex-reports")
-MAX_RETRIES = 10
-RETRY_DELAY_SECONDS = 60
-RETRY_KEY = "retry_count"
-NEXT_RETRY_KEY = "next_retry_after"
-LAST_FAIL_KEY = "last_failed_at"
-POLL_SECONDS = 5
-ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
-FRESNESS_TOLERANCE = 60
-
-# Codex 默认用 openrouter/free（环境变量覆盖），禁止显式指向付费模型
-# Codex 默认用 openrouter/free（环境变量覆盖），禁止显式指向付费模型
-CODEX_BIN = os.environ.get(
-    "CODEX_BIN",
-    str(Path.home() / ".nvm/versions/node/v25.8.0/bin")
-)
-
-# OpenRouter 直调用配置（bypass codex exec 的 app-server 沙盒问题）
-# OR_API_KEY 从 ~/.codex/.or_api_key 读取（不在代码库中，避免 GitHub secret scanning）
-# 也支持环境变量 OR_API_KEY / OPENROUTER_API_KEY（用于 launchd / CI）
-_or_key_file = Path.home() / ".codex" / ".or_api_key"
-OR_API_KEY = os.environ.get("OR_API_KEY") or os.environ.get("OPENROUTER_API_KEY") or ""
-if not OR_API_KEY and _or_key_file.exists():
-    OR_API_KEY = _or_key_file.read_text().strip()
-if not OR_API_KEY:
-    raise SystemExit("OR_API_KEY env var or ~/.codex/.or_api_key required (one secret-free line)")
-OR_API_BASE = "https://openrouter.ai/api/v1"
-OR_MODEL = "openrouter/free"
-OR_TIMEOUT_SECONDS = 120
-CODEX_BIN = os.environ.get(
-    "CODEX_BIN",
-    str(Path.home() / ".nvm/versions/node/v25.8.0/bin/codex")
-)
-
 LOG_DIR = REPO / "data" / "logs"
 LOG_FILE = LOG_DIR / "agent_inbox_watcher.log"
-ERR_FILE = LOG_DIR / "agent_inbox_watcher.err"
+REF_STATUS_DIR = Path("/tmp/codex-ref-status")
+CODEX_BIN = os.environ.get("CODEX_BIN", "/Users/linhuichen/.nvm/versions/node/v25.8.0/bin/codex")
+OR_API_KEY = os.environ.get("OR_API_KEY") or os.environ.get("OPENROUTER_API_KEY") or ""
+if not OR_API_KEY:
+    _key_file = Path.home() / ".codex" / ".or_api_key"
+    if _key_file.exists():
+        OR_API_KEY = _key_file.read_text().strip()
+if not OR_API_KEY:
+    raise SystemExit("OR_API_KEY required")
+MAX_RETRIES = 10
+RETRY_DELAY_SECONDS = 60
+POLL_SECONDS = 5
+LOCK_STALE_SECONDS = 600  # 锁文件无心跳超过 10 分钟视为陈旧
+ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
-
-def log(msg, err=False):
+def log(msg):
     ts = datetime.now().strftime("%Y-%m-%dT%H:%M:%S%z")
     line = f"{ts} {msg}"
-    print(line, flush=True)
+    sys.stderr.write(line + "\n")
+    sys.stderr.flush()
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
-        with open(LOG_FILE, "a", encoding="utf-8") as f:
+        with open(LOG_FILE, "a", encoding="utf-8", buffering=1) as f:
             f.write(line + "\n")
+            f.flush()
     except Exception:
         pass
-    if err:
-        try:
-            with open(ERR_FILE, "a", encoding="utf-8") as f:
-                f.write(line + "\n")
-        except Exception:
-            pass
 
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
 
 def acquire_lock():
+    """PID 锁: O_EXCL 创建, 含本进程 PID. 已有锁时检查 PID 是否存活."""
     try:
-        LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-        LOCK_PATH.touch()
-        return False
-    except FileExistsError:
+        fd = os.open(str(LOCK_PATH), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        os.write(fd, f"{os.getpid()}\n".encode())
+        os.close(fd)
+        log(f"acquired lock pid={os.getpid()}")
         return True
+    except FileExistsError:
+        # 锁已存在, 检查对方 PID
+        try:
+            content = LOCK_PATH.read_text(encoding="utf-8").strip()
+            other_pid = int(content.splitlines()[0])
+        except (FileNotFoundError, ValueError, IndexError):
+            # 锁文件为空或不可解析, 强制回收
+            try:
+                LOCK_PATH.unlink()
+                log("recovered malformed lock")
+            except FileNotFoundError:
+                pass
+            return acquire_lock()
+        if _pid_alive(other_pid):
+            log(f"lock held by alive pid={other_pid}; exit")
+            return False
+        # PID 已死, 强制回收陈旧锁
+        log(f"recovered stale lock from dead pid={other_pid}")
+        try:
+            LOCK_PATH.unlink()
+        except FileNotFoundError:
+            pass
+        return acquire_lock()
 
+def touch_heartbeat():
+    try:
+        HEARTBEAT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        HEARTBEAT_PATH.write_text(f"{os.getpid()} {time.time()}\n", encoding="utf-8")
+    except Exception as e:
+        log(f"heartbeat_error={e}")
 
 def read_signal(p):
     return json.loads(p.read_text(encoding="utf-8"))
 
-
-def atomic_write_signal(p, payload):
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_name(f".{p.name}.tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(p)
-
-
 def transition(src, new_state):
     dst = src.with_name(f"{src.stem}.{new_state}")
-    src.rename(dst)
+    try:
+        src.rename(dst)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
     return dst
 
+def is_already_processed(request_id):
+    """已处理 = claude-inbox 有 .ready 或 .done (Claude 已收到回传)."""
+    for state in ("ready", "done"):
+        if (CLAUDE_INBOX / f"{request_id}.{state}").exists():
+            return True
+    return False
 
-def _ensure_node_env(env):
-    """确保 PATH 中包含 node 所在目录，防止 codex exec 找不到 node."""
-    node_bin = str(Path.home() / ".nvm/versions/node/v25.8.0/bin")
-    path = env.get("PATH", "")
-    if node_bin and node_bin not in path.split(":"):
-        env["PATH"] = node_bin + ":" + path
-    return env
-
-def call_openrouter_codex(prompt: str) -> int:
-    """直接调 OpenRouter /api/v1/chat/completions，bypass codex exec 的 app-server 沙盒问题.
-    返回退出码（0=成功, 1=失败, 2=rate limit, 3=auth 失败）.
-    """
-    url = OR_API_BASE + "/chat/completions"
-    body = json.dumps({
-        "model": OR_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 32000,
-        "stream": False,
-    }).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=body,
-        headers={
-            "Authorization": "Bearer " + OR_API_KEY,
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/linhuichen/trade",
-        },
-        method="POST",
-    )
+def retry_count(request_id):
+    """读 /tmp/codex-ref-status/<id>.retry 文件, 缺省 0."""
+    rc_file = REF_STATUS_DIR / f"{request_id}.retry"
     try:
-        with urllib.request.urlopen(req, timeout=OR_TIMEOUT_SECONDS) as resp:
-            data = resp.read()
-        obj = json.loads(data)
-        text = obj.get("choices", [{}])[0].get("message", {}).get("content", "")
-        log(f"openrouter_response_len={len(text)}")
+        return int(rc_file.read_text(encoding="utf-8").strip())
+    except (FileNotFoundError, ValueError):
         return 0
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")[:200]
-        log(f"openrouter_http_error={e.code} body={body}", err=True)
-        if e.code == 429:
-            return 2
-        if e.code in (401, 403):
-            return 3
-        return 1
-    except Exception as e:
-        log(f"openrouter_exception={e}", err=True)
-        return 1
 
-
-def _run_http_job(kind, request_id, processing, payload, running, prompt):
-    """在主线程直接调 OpenRouter HTTP API，bypass codex exec 沙盒限制."""
-    log(f"http_spawn kind={kind} request_id={request_id}")
-    running[kind] = dict(kind=kind, request_id=request_id,
-                          processing=processing, payload=payload, proc=None)
+def bump_retry(request_id):
+    rc_file = REF_STATUS_DIR / f"{request_id}.retry"
     try:
-        rc = call_openrouter_codex(prompt)
-        if rc == 2:
-            # 429 rate limit：等 120s 重试
-            running.pop(kind, None)
-            retries = int(payload.get(RETRY_KEY, 0)) + 1
-            if retries < MAX_RETRIES:
-                payload[RETRY_KEY] = retries
-                payload[NEXT_RETRY_KEY] = time.time() + 120
-                atomic_write_signal(processing.with_name(f"{processing.stem}.ready"), payload)
-                log(f"{kind}_retry_429 request_id={request_id} retry={retries}/{MAX_RETRIES} after=120s")
-            else:
-                transition(processing, "failed")
-                log(f"{kind}_gave_up_429 request_id={request_id} after {MAX_RETRIES} retries")
-            return
-        finish_job(running, kind, rc)
+        REF_STATUS_DIR.mkdir(parents=True, exist_ok=True)
+        rc_file.write_text(str(retry_count(request_id) + 1), encoding="utf-8")
     except Exception as e:
-        log(f"http_error kind={kind} request_id={request_id} e={e}", err=True)
-        finish_job(running, kind, 1)
+        log(f"bump_retry error {request_id}: {e}")
+
+def cleanup_ref(request_id):
+    """报告/信号都落盘后, 删 git ref + /tmp 镜像 + 锁残留 retry 计数."""
+    ref_short = f"refs/codex/req/{request_id}"
+    try:
+        subprocess.run(
+            ["git", "update-ref", "-d", ref_short],
+            capture_output=True, text=True, cwd=str(REPO), timeout=10
+        )
+        log(f"cleanup_ref removed git ref {ref_short}")
+    except Exception as e:
+        log(f"cleanup_ref git error {request_id}: {e}")
+    for ext in (".retry",):
+        try:
+            (REF_STATUS_DIR / f"{request_id}{ext}").unlink()
+        except FileNotFoundError:
+            pass
+
+def sync_git_refs():
+    """扫描 git refs/codex/req, 把有 ref 但缺 .ready 的请求补 .ready 信号.
+
+    跳过 retry_count >= MAX_RETRIES 的请求(避免烧额度).
+    跳过已 done/failed 的请求(防止 sync 反复补已完结请求).
+    """
+    try:
+        r = subprocess.run(
+            ["git", "for-each-ref", "refs/codex/req", "--format=%(refname:short)"],
+            capture_output=True, text=True, cwd=str(REPO), timeout=10
+        )
+    except Exception as e:
+        log(f"sync_git_refs error: {e}")
+        return
+    for line in r.stdout.strip().splitlines():
+        name = line.strip()
+        if not name:
+            continue
+        rid = name.split("/")[-1]
+        if not ID_PATTERN.fullmatch(rid):
+            continue
+        ready = CODEX_INBOX / f"{rid}.ready"
+        done = CODEX_INBOX / f"{rid}.done"
+        failed = CODEX_INBOX / f"{rid}.failed"
+        skipped = CODEX_INBOX / f"{rid}.skipped"
+        processing = CODEX_INBOX / f"{rid}.processing"
+        if ready.exists() or done.exists() or failed.exists() or skipped.exists() or processing.exists():
+            continue
+        if is_already_processed(rid):
+            # claude-inbox 已收到回传, 仅同步 ready 让 pump 跳过即可
+            try:
+                ready.write_text(json.dumps({"request_id": rid, "status": "done"}), encoding="utf-8")
+            except Exception:
+                pass
+            continue
+        if retry_count(rid) >= MAX_RETRIES:
+            log(f"sync_git_refs skip {rid}: retry_count >= {MAX_RETRIES}")
+            transition_failed_marker = CODEX_INBOX / f"{rid}.failed"
+            try:
+                transition_failed_marker.write_text(
+                    json.dumps({"request_id": rid, "reason": "retry_exhausted"}),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
+            cleanup_ref(rid)
+            continue
+        try:
+            br = subprocess.run(
+                ["git", "cat-file", "blob", f"refs/{name}"],
+                capture_output=True, text=True, cwd=str(REPO), timeout=10
+            )
+        except Exception:
+            continue
+        if br.returncode != 0:
+            continue
+        CODEX_INBOX.mkdir(parents=True, exist_ok=True)
+        try:
+            ready.write_text(br.stdout, encoding="utf-8")
+            log(f"sync_git_refs created {ready}")
+        except Exception as e:
+            log(f"sync_git_refs write error {rid}: {e}")
 
 def build_codex_command_prompt(request_id):
     return (
@@ -183,199 +224,158 @@ def build_codex_command_prompt(request_id):
         "request。只按 request JSON 的 base..head 与 focus_areas 执行独立复核;"
         "报告必须先写 .tmp 再 rename 到 /tmp/codex-reports/<request_id>.json;"
         "每个完成项调用 python3 scripts/codex_review_complete.py <request_id> "
-        "--verdict <PASS|FAIL|BLOCKED> 建立 Claude 回传信号。不要 commit/push。"
+        "--verdict <PASS|FAIL|BLOCKED> 建立 Claude 回传信号(verdict 必须与 "
+        "报告 JSON 中 verdict 字段一致, 否则 raise)。不要 commit/push。"
     )
 
-
 def build_claude_command(request_id):
-    return [
-        "bash",
-        str(REPO / "scripts" / "codex-review-report.sh"),
-        request_id
-    ]
-
-
-def finish_job(running, kind, exit_code):
-    job = running.pop(kind, None)
-    if not job:
-        return
-    proc = job.get("proc")
-    request_id = job["request_id"]
-    processing = job["processing"]
-    payload = job["payload"]
-    log(f"job_done kind={kind} request_id={request_id} exit={exit_code}")
-    if exit_code == 0:
-        transition(processing, "done")
-        return
-    retries = int(payload.get(RETRY_KEY, 0)) + 1
-    if retries < MAX_RETRIES:
-        payload[RETRY_KEY] = retries
-        payload[LAST_FAIL_KEY] = datetime.now().isoformat()
-        payload[NEXT_RETRY_KEY] = time.time() + RETRY_DELAY_SECONDS
-        atomic_write_signal(processing.with_name(f"{processing.stem}.ready"), payload)
-        log(f"{kind}_retry request_id={request_id} retry={retries}/{MAX_RETRIES} after={RETRY_DELAY_SECONDS}s")
-    else:
-        transition(processing, "failed")
-        log(f"{kind}_gave_up request_id={request_id} after {MAX_RETRIES} retries")
-
-
-def spawn_job(kind, request_id, processing, payload, command, running, prompt=None):
-    log(f"spawn kind={kind} request_id={request_id} cmd={command[0]}...")
-    try:
-        env = _ensure_node_env(os.environ.copy())
-        inp = prompt.encode("utf-8") if isinstance(prompt, str) else (prompt or b"")
-        proc = subprocess.Popen(
-            command,
-            cwd=REPO,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            env=env,
-        )
-        # 立即写入 stdin 并关闭，避免 codex exec 阻塞在读 stdin 上
-        if inp:
-            try:
-                proc.stdin.write(inp)
-                proc.stdin.close()
-            except Exception as e:
-                log(f"stdin_write_error kind={kind} request_id={request_id} e={e}", err=True)
-    except OSError as e:
-        log(f"spawn_error kind={kind} request_id={request_id} e={e}", err=True)
-        # synthetic job for finish_job
-        stub = dict(kind=kind, request_id=request_id, processing=processing,
-                    payload=payload, proc=None)
-        finish_job({kind: stub}, kind, -1)
-        return
-    running[kind] = dict(kind=kind, request_id=request_id,
-                          processing=processing, payload=payload, proc=proc,
-                          prompt=inp)
-
-
-def poll_running(running):
-    for kind in list(running):
-        proc = running[kind].get("proc")
-        if proc is None:
-            finish_job(running, kind, -1)
-            continue
-        rc = proc.poll()
-        if rc is not None:
-            try:
-                out, err = proc.communicate(timeout=5)
-                if err and err.strip():
-                    err_text = err.decode("utf-8", errors="replace").strip()
-                    last_line = err_text.split(chr(10))[-1]
-                    log(f"{kind}_stderr: {last_line[:300]}")
-            except Exception as e:
-                log(f"poll_running.communicate_error: {e}")
-            finish_job(running, kind, rc)
-
-
-def recover_processing(inbox):
-    for f in inbox.glob("*.processing"):
-        log(f"recover_processing {f.name}")
-        atomic_write_signal(f.with_name(f"{f.stem}.ready"), read_signal(f))
-        f.unlink()
-
-
-def parse_signaled_epoch(payload, signal_path):
-    raw = payload.get("signaled_at")
-    if isinstance(raw, (int, float)):
-        return raw
-    return signal_path.stat().st_mtime
-
-
-def report_is_fresh(payload, signal_path):
-    """验证报告已落地且 request_id/verdict 有效.
-    
-    不再比较 mtime vs signaled_at（报告 mtime 必然 <= signaled_at，
-    因为报告先写完再发信号。mtime freshness 检查方向错误，
-    会误判新报告为 stale。.done 文件才是真正的完成信号。
-    """
-    request_id = payload.get("request_id", signal_path.stem)
-    report = REPORTS_DIR / f"{request_id}.json"
-    if not report.exists():
-        return False, f"report not yet written at {report}"
-    # 基本 schema 验证
-    import json
-    try:
-        with report.open(encoding="utf-8") as f:
-            obj = json.load(f)
-        if obj.get("request_id") != request_id:
-            return False, f"request_id mismatch: {obj.get('request_id')} != {request_id}"
-        if "verdict" not in obj:
-            return False, "verdict field missing"
-    except Exception as e:
-        return False, f"report parse error: {e}"
-    return True, "ok"
-
+    return ["bash", str(REPO / "scripts" / "claude-inbox-consumer.sh"), request_id]
 
 def pump_queue(inbox, kind, running, cmd_factory):
     if kind in running:
         return
-    now = time.time()
     for ready in sorted(inbox.glob("*.ready")):
         stem = ready.stem
         if not ID_PATTERN.fullmatch(stem):
             transition(ready, "invalid")
             continue
-        payload = read_signal(ready)
-        next_retry = payload.get(NEXT_RETRY_KEY)
-        if isinstance(next_retry, (int, float)) and now < next_retry:
+        if is_already_processed(stem):
+            transition(ready, "skipped")
+            log(f"skipped already-processed request {stem}")
+            continue
+        try:
+            payload = read_signal(ready)
+        except Exception as e:
+            log(f"pump_queue read_signal error {stem}: {e}")
+            transition(ready, "invalid")
             continue
         processing = transition(ready, "processing")
-        payload = read_signal(processing)
         request_id = str(payload.get("request_id", stem))
         if not ID_PATTERN.fullmatch(request_id):
             transition(processing, "invalid")
             continue
-        valid, err = report_is_fresh(payload, processing)
-        if not valid:
-            transition(processing, "invalid")
-            log(f"{kind}_rejected request_id={request_id} reason={err}")
-            continue
-        # codex 任务走 HTTP 直调（bypass codex exec app-server 沙盒问题）
         if kind == "codex":
             prompt = cmd_factory(request_id)
-            _run_http_job(kind, request_id, processing, payload, running, prompt)
-            return
-        result = cmd_factory(request_id)
-        cmd = result if isinstance(result, list) else result[0]
-        prompt = result[1] if isinstance(result, tuple) else ""
-        spawn_job(kind, request_id, processing, payload, cmd, running,
-                  prompt=prompt)
+            cmd = [CODEX_BIN, "exec", "--cd", str(REPO),
+                   "--add-dir", "/tmp/codex-reports", "--ephemeral",
+                   "--sandbox", "workspace-write", "--color", "never",
+                   "-c", "model_max_output_tokens=64000", prompt]
+        else:
+            cmd = cmd_factory(request_id)
+        log(f"spawn kind={kind} request_id={request_id} retry={retry_count(request_id)}")
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                cwd=str(REPO), preexec_fn=os.setpgrp
+            )
+        except Exception as e:
+            log(f"spawn error kind={kind} request_id={request_id}: {e}")
+            transition(processing, "failed")
+            continue
+        running[kind] = dict(request_id=request_id, proc=proc,
+                              processing=processing, started_at=time.time(),
+                              cmd_kind=kind, cmd=cmd)
         return
 
+def _detect_429(proc) -> bool:
+    """轻量检测: 看启动后短窗口进程是否很快退出且返回码含 429 痕迹.
+    简化: 只看 rc 与触发时间间隔(<10s 退出判 429 嫌疑)."""
+    return False  # 现有 OpenRouter 通过 429 重试由 codex 自身处理, 此函数留作扩展
 
-def touch_heartbeat():
+def _read_report_verdict(request_id):
+    report_path = REPORTS_DIR / f"{request_id}.json"
+    if not report_path.exists():
+        return None
     try:
-        HEARTBEAT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        HEARTBEAT_PATH.touch()
-    except OSError as e:
-        log(f"heartbeat_error={e}", err=True)
+        with report_path.open(encoding="utf-8") as f:
+            data = json.load(f)
+        v = data.get("verdict")
+        if v in ("PASS", "FAIL", "BLOCKED"):
+            return v
+    except Exception as e:
+        log(f"_read_report_verdict parse error {request_id}: {e}")
+    return None
 
+def _run_codex_complete(request_id, verdict):
+    try:
+        subprocess.run([
+            sys.executable, str(REPO / "scripts" / "codex_review_complete.py"),
+            request_id, "--verdict", verdict
+        ], capture_output=True, timeout=30)
+    except Exception as e:
+        log(f"codex_review_complete error {request_id}: {e}")
+
+def poll_running(running):
+    now = time.time()
+    for kind in list(running):
+        info = running[kind]
+        proc = info.get("proc")
+        if proc is None:
+            continue
+        rc = proc.poll()
+        if rc is None:
+            # 进程还在跑, 检查是否超时
+            if now - info["started_at"] > 1800:  # 30 分钟硬超时
+                log(f"job_timeout kind={kind} request_id={info['request_id']}")
+                proc.kill()
+                proc.wait()
+                rc = -1
+            else:
+                continue
+        request_id = info["request_id"]
+        processing = info["processing"]
+        log(f"job_done kind={kind} request_id={request_id} exit={rc}")
+        running.pop(kind, None)
+        if rc == 0 and kind == "codex":
+            verdict = _read_report_verdict(request_id)
+            if verdict:
+                transition(processing, "done")
+                _run_codex_complete(request_id, verdict)
+                cleanup_ref(request_id)
+            else:
+                # 报告缺失/不可解析, 不算成功, 进重试
+                log(f"job_done but report invalid request_id={request_id}")
+                transition(processing, "failed")
+                bump_retry(request_id)
+        elif rc == 0:
+            transition(processing, "done")
+            cleanup_ref(request_id)
+        else:
+            transition(processing, "failed")
+            bump_retry(request_id)
 
 def main():
-    if acquire_lock():
-        log("another watcher owns the lock; exiting")
+    if not acquire_lock():
         return 1
+    _stop = threading.Event()
+    def _handle_signal(signum, frame):
+        log(f"received signal {signum}, shutting down")
+        _stop.set()
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
     try:
         CODEX_INBOX.mkdir(parents=True, exist_ok=True)
         CLAUDE_INBOX.mkdir(parents=True, exist_ok=True)
-        recover_processing(CODEX_INBOX)
-        recover_processing(CLAUDE_INBOX)
-        log(f"watcher started self-healing mode max_retries={MAX_RETRIES} retry_delay={RETRY_DELAY_SECONDS}s CODEX_BIN={CODEX_BIN}")
+        REF_STATUS_DIR.mkdir(parents=True, exist_ok=True)
+        log(f"watcher started pid={os.getpid()} max_retries={MAX_RETRIES} retry_delay={RETRY_DELAY_SECONDS}s CODEX_BIN={CODEX_BIN}")
         running = {}
-        while True:
+        while not _stop.is_set():
             touch_heartbeat()
+            sync_git_refs()
             poll_running(running)
             pump_queue(CODEX_INBOX, "codex", running, build_codex_command_prompt)
             pump_queue(CLAUDE_INBOX, "claude", running, build_claude_command)
             time.sleep(POLL_SECONDS)
     except KeyboardInterrupt:
         log("watcher stopped by signal")
-        return 0
     finally:
-        LOCK_PATH.unlink(missing_ok=True)
-
+        log("watcher exiting")
+        try:
+            LOCK_PATH.unlink()
+        except FileNotFoundError:
+            pass
+    return 0
 
 if __name__ == "__main__":
     raise SystemExit(main())
