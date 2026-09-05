@@ -168,3 +168,53 @@ Codex 主会话：整合结果 → 交叉比对 → 输出最终报告
 - **用户拍板**: 任何修改（包括 docs/assets、审查产出等非源码文件）必须先在自己的 codex 分支 commit+push，绝不留在工作区 untracked 状态
 - **流程**: `git checkout -b codex/<slug>` → add → commit → push -u origin → 由 Claude 用 main-merge.sh 合并入 main 或提 PR
 - **禁止**: 直接在 main 分支上编辑后不 commit；把待提交产物只留 `/tmp` 不入 git
+
+### CX-006: 用固定行号跨分支 grep — 行号漂移导致漏看/误判
+- **日期**: 2026-09-05（rev-20260905-001 P1-2 误报）
+- **根因**: base 和 head 是不同 commit，base 的行号 L5265 在 head 里对应完全不同区域。用 base 行号去 head grep → 命中错误区域 → 漏看 series[1] → 误判"蓝虚线被移除"
+- **纠正**: **行号不是代码 identity**。跨 commit 定位必须用函数名/变量名/唯一字符串 key（如 `git grep -n "dash.*4 4"`），禁止用固定行号跨分支 grep
+- **防重犯**: 任何跨 base/head 对比的 grep，必须先确认搜索锚点是**唯一字符串**（函数名/变量名/key 字面量），不是行号
+
+### CX-007: verifier 输出与观察结论自相矛盾不自知
+- **日期**: 2026-09-05（rev-20260905-001 P1-1 误报）
+- **根因**: verifier 命令跑出 base=b9659707e, head=761b3d579（明显不同），但观察栏写"两 SHA 相同"。结论先于证据成型，预设"app.min.js 未 rebuild" → 把"不同"读成"相同"
+- **纠正**: **verifier 输出必须与结论自洽**。如果发现矛盾，结论必须重写，不允许"装进"先验结论
+- **防重犯**: 每条 P0/P1 断言的 verifier 命令，跑完必须回头对照 expected vs observed，不一致立即重写结论
+
+### CX-008: 用旧版本当正确答案对比 — 对比基准错位
+- **日期**: 2026-09-05（rev-20260903-002 和 rev-20260905-001 连续误报）
+- **根因**: 默认"base 是对的、head 是改坏了的"。但 base 不一定对，变更可能是用户拍板的新需求。拿旧版本当正确答案去否定变更 → 必然误报
+- **纠正**: review 入口**先读 commit msg + TASKS/需求记录**，确认"这次改了什么、谁在什么时间拍板的"。变更 = 需求 = 可能是对的；base = 旧需求，不等于正确答案
+- **防重犯**: 每条 review 结论在报 FAIL 之前，先问"这次变更的来源是什么，是谁在什么时候的需求"，没有这一步不能报 FAIL
+
+## Review 入口强制检查（每次 review 必做）
+
+> 采纳来源: rev-20260903-002(5/5 P1 幻觉) + rev-20260905-001(2/2 P1 幻觉) 根因反思，用户 2026-09-05 拍板"防复发规则落实到我自己的规范里"
+
+### 入口三问（在跑任何 grep/diff/verifier 之前）
+
+1. **这次改了什么，谁拍的？**
+   - 读 request 里的 `requirement` 字段
+   - 读 commit msg（`git log --oneline base..head`）
+   - 读 TASKS 记录（如果 request 引用了 TASKS）
+   - 确认:变更 = 用户拍板的新需求，不等于"坏了"
+
+2. **搜索锚点用什么？**
+   - 禁止:固定行号跨分支 grep
+   - 必须:函数名 / 变量名 / 唯一字符串 key / blob SHA
+
+3. **verifier 输出与结论自洽吗？**
+   - 每条 P0/P1 断言，verifier 跑完必须回头对照
+   - observed ≠ expected → 结论必须重写
+   - 不允许"装进"先验结论
+
+### 发现分级前置条件
+
+| 级别 | 必须满足 |
+|---|---|
+| P0/P1 FAIL | 入口三问全部确认 + verifier 输出自洽 |
+| P1 FAIL 证伪 | 任意一条入口检查未做，结论自动降级为 uncertain |
+| BLOCKED | 存在未解决的 P0/P1 |
+| PASS | 无 P0/P1 + 入口三问全部确认 |
+
+> **误报处置**:外审报告发出后，如果主控发现 P0/P1 为误报，报告 verdict 改为 FAIL→PASS，但 findings 保留（供 skill 复盘）。连续 2 轮以上误报触发 SKILL.md 强制更新。
