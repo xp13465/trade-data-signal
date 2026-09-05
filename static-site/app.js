@@ -3848,7 +3848,7 @@ function _openSimBacktestModal() {
       // 逐日净资产走势图(2026-09-04 #51, 纯新增展示): 插在表格与汇总之间; 曲线从 kept rows 重算(与表格同源),
       // nav 复用弹窗已加载的 accum_nav_map(_kkellyRealNavEnsure 单例), 不新增请求(报告 sim-netasset-equity-chart-20260901)
       '<div class="sim-netasset-chart">' +
-        '<div class="sim-netasset-head">📈 逐日净资产走势</div>' +
+        '<div class="sim-netasset-head">📈 逐日净资产走势(自然日, 每天 1 点)</div>' +
         '<div class="sim-netasset-body"></div>' +
         '<div class="sim-netasset-note" style="display:none"></div>' +
       '</div>' +
@@ -5119,13 +5119,15 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
   _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD);
 }
 
-// === 逐日净资产走势图(2026-09-04 #51, 纯新增展示, 报告 docs/kelly/analysis/sim-netasset-equity-chart-20260901) ===
+// === 逐日净资产走势图(2026-09-04 #51 纯新增展示, #52b 自然日口径用户拍板; 报告 docs/kelly/analysis/sim-netasset-equity-chart-20260901) ===
 // 口径(报告一.3, 复刻脚本 netasset_daily_repro.py 同构): 净资产(日)=现金+持仓市值;
 // 现金=初始-Σ开仓本金+Σ卖出净额(PRIN+费后盈亏); 市值=Σ未平仓份额×当日 accum_nav(缺日向前取);
-// 初始=峰值同时持仓笔数×¥10000(与累积盈亏%分母逐位一致); 逐交易日打点=持仓 ETF 的 nav 日期并集∩窗口;
-// 防前视: 只用 t 及 t 之前数据(买入价还原真实净值、卖出用当日 nav), 不引入未来收盘。
+// 初始=峰值同时持仓笔数×¥10000(与累积盈亏%分母逐位一致);
+// 自然日打点(#52b): 曲线=用户感知的收益率, 每天 1 点(含周末/节假日); 非交易日持仓市值走既有向前取(最近 nav),
+// 现金无交易不变, 曲线平线但连续; 兼容"未来周末也可交易"假设。窗口起止=弹窗日期范围(未指定则 rows 覆盖的
+// min(buy/sell)~max(buy/sell) 每天); 防前视: 末日取 min(数据末日=nav 全局最大日期, 今天之前最近自然日), 不引入未来日期。
 // 已知局限(报告三): nav 末日可能早于 trades 卖出日(sell_date>nav 末日的笔按最新 nav 计市值), UI 标注「曲线数据截至 X」。
-function _simNetassetCurve(rows, fIdx, fp, initCapital, nav) {
+function _simNetassetCurve(rows, fIdx, fp, initCapital, nav, winStart, winEnd) {
   const PRIN = 10000, SLIP = 0.001;
   const prep = [];
   for (let i = 0; i < rows.length; i++) {
@@ -5143,13 +5145,44 @@ function _simNetassetCurve(rows, fIdx, fp, initCapital, nav) {
     }
     prep.push({ code: code, buy: String(r[fIdx.buy_date] || ""), sell: sellD, shares: br.shares, realized: realized, bpReal: bp });
   }
-  // 交易日历 = 持仓 ETF 的 nav 日期并集(真实交易日序列, 每交易日打点)
-  const calSet = {};
+  // 自然日序列(#52b): 每天 1 点(含周末/节假日); 窗口起止=弹窗日期范围(winStart~winEnd),
+  // 未指定则 rows 覆盖的 min(buy/sell)~max(buy/sell); 防前视: 末日截到 min(数据末日=nav 全局最大日期, 今天之前最近自然日)。
+  let rMin = "", rMax = "";
   for (let i = 0; i < prep.length; i++) {
-    const nd = nav[prep[i].code];
-    if (nd) { for (const k in nd) calSet[k] = 1; }
+    const b = prep[i].buy, s = prep[i].sell;
+    if (b && (!rMin || b < rMin)) rMin = b;
+    if (s && (!rMin || s < rMin)) rMin = s;
+    if (b && b > rMax) rMax = b;
+    if (s && s > rMax) rMax = s;
   }
-  const cal = Object.keys(calSet).sort();
+  let navFirst = "", navLast = "";
+  for (const k in nav) {
+    for (const d in nav[k]) {
+      if (!navFirst || d < navFirst) navFirst = d;
+      if (d > navLast) navLast = d;
+    }
+  }
+  let sD = winStart || rMin || navFirst || "";
+  let eD = winEnd || rMax || navLast || "";
+  if (!sD || !eD || sD > eD) return { curve: [], navFF: 0 };
+  if (navLast && eD > navLast) eD = navLast; // 防前视: 不越过数据末日
+  const _y = new Date(); _y.setDate(_y.getDate() - 1); // 今天之前最近自然日(防前视, 不引入今天/未来)
+  const yD = _y.getFullYear() * 10000 + (_y.getMonth() + 1) * 100 + _y.getDate();
+  if (eD > String(yD)) eD = String(yD);
+  if (sD > eD) return { curve: [], navFF: 0 };
+  // 逐自然日序列(Date.UTC 进位安全; 2011-2026 全历史约 5,500 点, 与既有逐日架构同量级)
+  const cal = [];
+  {
+    let y = +sD.slice(0, 4), m = +sD.slice(4, 6), d = +sD.slice(6, 8);
+    const ey = +eD.slice(0, 4), em = +eD.slice(4, 6), ed = +eD.slice(6, 8);
+    let guard = 0;
+    while (guard++ < 12000) {
+      cal.push(String(y * 10000 + m * 100 + d));
+      if (y === ey && m === em && d === ed) break;
+      const dt = new Date(Date.UTC(y, m - 1, d + 1));
+      y = dt.getUTCFullYear(); m = dt.getUTCMonth() + 1; d = dt.getUTCDate();
+    }
+  }
   // 卖出日回笼净额(PRIN + 费后盈亏)
   const proceedsByDay = {};
   for (let i = 0; i < prep.length; i++) {
@@ -5214,7 +5247,8 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
       return;
     }
     const initCapital = Math.max(peakDisp || 0, 1) * 10000;
-    const rst = _simNetassetCurve(rows, fIdx, fp, initCapital, nav);
+    // #52b: 传弹窗日期范围(startD/endD)给曲线, 自然日序列=窗口内每天 1 点; 未指定则曲线内回退 rows 覆盖范围
+    const rst = _simNetassetCurve(rows, fIdx, fp, initCapital, nav, startD, endD);
     let pts = rst.curve;
     if (startD || endD) {
       pts = pts.filter((c) => (!startD || c.date >= startD) && (!endD || c.date <= endD));
@@ -5285,7 +5319,7 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
           (pc != null ? '<br/>日涨跌 ' + (pc >= 0 ? "+" : "") + pc.toFixed(2) + '%' : '');
       },
     };
-    if (headEl) headEl.textContent = "📈 逐日净资产走势(虚线=初始本金 " + initCapital.toLocaleString("zh-CN") + " 元 · 副线=每日净资产涨跌% · " + pts.length + " 点 · " + pts[0].date + "~" + lastP.date + ")";
+    if (headEl) headEl.textContent = "📈 逐日净资产走势(自然日打点每天 1 点, 非交易日按最近收盘净值计、周末平线 · 虚线=初始本金 " + initCapital.toLocaleString("zh-CN") + " 元 · 副线=每日涨跌% · " + pts.length + " 点 · " + pts[0].date + "~" + lastP.date + ")";
     if (bodyEl) _lwSetup(bodyEl, cfg);
   };
   if (typeof window !== "undefined" && window._kkellyRealNav) { _render(); return; }
