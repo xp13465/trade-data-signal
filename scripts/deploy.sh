@@ -145,6 +145,23 @@ if [ "$EXPORT_RC" -ne 0 ]; then
 fi
 echo "✓ export.py 完成" | tee -a "$LOG"
 
+# 1.0.2 accum_nav_map 每日刷新(#52, 2026-09-05): 数据源=etf_daily 主库(盘后采集已最新),
+# 前端 simnetasset 净资产曲线 + G/H/I 强平日真实价(_gihRealizeRealForce)共用同一文件。
+# 生成脚本输出 docs/kelly/position/scripts/accum_nav_map.json -> cp 到 $REPO static-site/data/
+# (R2 上传源)。§22 三步由本 deploy 链闭环: 后续 upload-data-large/upload-all-data 传 R2 data/ 前缀
+# + rsync 同步 trade git + git push。失败阻断(前端强平日真价/净资产曲线依赖, 防线上旧数据)。
+echo "-> 生成 accum_nav_map.json ..." | tee -a "$LOG"
+# 显式 REPO=trade-data 读主库(防 deploy 从 trade 手动跑时 REPO=trade 读到 rsync 镜像)
+REPO=/Users/linhuichen/code/trade-data "$PY" "$GIT_REPO/docs/kelly/position/scripts/export_accum_nav_map.py" --all 2>&1 | tee -a "$LOG"
+ACCUM_RC=${PIPESTATUS[0]}
+if [ "$ACCUM_RC" -ne 0 ]; then
+  echo "✗ export_accum_nav_map.py 失败(退出码 $ACCUM_RC)，终止部署(前端 simnetasset 净资产曲线/强平日真价依赖)" | tee -a "$LOG"
+  exit "$ACCUM_RC"
+fi
+cp "$GIT_REPO/docs/kelly/position/scripts/accum_nav_map.json" "$REPO/static-site/data/accum_nav_map.json" 2>>"$LOG" \
+  && echo "✓ accum_nav_map.json 已同步到 static-site/data/(R2 上传源, 新鲜度由 check_data_integrity accum_nav_map_fresh 机检)" | tee -a "$LOG" \
+  || { echo "✗ accum_nav_map.json 同步到 static-site/data/ 失败" | tee -a "$LOG"; exit 1; }
+
 # 1.1 数据产物校验（4 类事故拦截：board_etf_map 全空 / boot.date 不一致 /
 # amount_forecast 爆炸 / 关键文件丢失）。--deploy-mode 仅 fail 阻断（exit 1），
 # warn 不阻断（exit 0），避免预存在 warn（etf_index_map 缺失等）阻塞所有 deploy。

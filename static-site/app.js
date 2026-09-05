@@ -5238,6 +5238,8 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
     }
     const dates = pts.map((p) => p.date);
     const values = pts.map((p) => p.value);
+    // 副线: 每日净资产涨跌%(用户要 b=每日涨跌幅波动; 由曲线自身派生, 首点无前值=null)
+    const pctChanges = pts.map((p, i) => (i === 0 || !(pts[i - 1].value > 0)) ? null : ((p.value - pts[i - 1].value) / pts[i - 1].value) * 100);
     let iMin = 0, iMax = 0;
     for (let i = 1; i < pts.length; i++) {
       if (pts[i].value < pts[iMin].value) iMin = i;
@@ -5254,24 +5256,36 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
         { i: iMax, y: pts[iMax].value, color: "#e6492e", r: 3, label: "峰 " + _fmtY(pts[iMax].value), labelColor: "#e6492e", fontSize: 10 },
         { i: pts.length - 1, y: lastP.value, color: "#409eff", r: 3, label: "末 " + _fmtY(lastP.value), labelColor: "#409eff", fontSize: 10 },
       ],
+    }, {
+      // 副线: 每日净资产涨跌%(蓝虚线, 右轴), 与主净资产叠加; connectNulls=true 跨首点 null 相连
+      type: "line", data: pctChanges, color: "#409eff", width: 1.5, smooth: true, connectNulls: true, dash: "4 4",
+      yIndex: 1,
+      markPoints: [
+        { i: pts.length - 1, y: pctChanges[pts.length - 1], color: "#409eff", r: 2.5, labelInside: true, label: pctChanges[pts.length - 1] == null ? "" : ((pctChanges[pts.length - 1] >= 0 ? "+" : "") + pctChanges[pts.length - 1].toFixed(2) + "%"), labelColor: "#409eff", fontSize: 9 },
+      ],
     }];
     const cfg = {
-      h: 260, pl: 70, pr: 20, pt: 30, pb: 42,
+      h: 260, pl: 70, pr: 52, pt: 30, pb: 42,
       boundaryGap: true,
       dataZoom: true,
       xLabels: dates,
       xFmt: (v) => String(v),
-      ys: [{ scale: true, splitNumber: 5, formatter: _fmtY }],
-      legend: [{ name: "净资产", color: "#e6492e" }],
+      ys: [
+        { scale: true, splitNumber: 5, formatter: _fmtY },
+        { side: "right", scale: true, splitNumber: 5, formatter: (v) => v + "%", name: "日涨跌%" },
+      ],
+      legend: [{ name: "净资产", color: "#e6492e" }, { name: "日涨跌%", color: "#409eff" }],
       series: series,
       tipFn: (i, xLabel) => {
         const p = pts[i];
         if (!p) return "";
+        const pc = pctChanges[i];
         return '<b>' + xLabel + '</b> 净资产 ' + _fmtY2(p.value) +
-          '<br/>持仓 ' + p.holdings + ' 笔(市值 ' + _fmtY2(p.mv) + ' + 现金 ' + _fmtY2(p.cash) + ')';
+          '<br/>持仓 ' + p.holdings + ' 笔(市值 ' + _fmtY2(p.mv) + ' + 现金 ' + _fmtY2(p.cash) + ')' +
+          (pc != null ? '<br/>日涨跌 ' + (pc >= 0 ? "+" : "") + pc.toFixed(2) + '%' : '');
       },
     };
-    if (headEl) headEl.textContent = "📈 逐日净资产走势(虚线=初始本金 " + initCapital.toLocaleString("zh-CN") + " 元 · " + pts.length + " 点 · " + pts[0].date + "~" + lastP.date + ")";
+    if (headEl) headEl.textContent = "📈 逐日净资产走势(虚线=初始本金 " + initCapital.toLocaleString("zh-CN") + " 元 · 副线=每日净资产涨跌% · " + pts.length + " 点 · " + pts[0].date + "~" + lastP.date + ")";
     if (bodyEl) _lwSetup(bodyEl, cfg);
   };
   if (typeof window !== "undefined" && window._kkellyRealNav) { _render(); return; }

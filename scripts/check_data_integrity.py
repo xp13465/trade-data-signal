@@ -883,6 +883,33 @@ def check_signal_accum_nav_lag() -> CheckResult:
     return _ok(name, f"信号日 {sig_date} vs accum_nav 日 {etf_date} 滞后 0 交易日")
 
 
+def check_accum_nav_map_fresh(data_dir: Path) -> CheckResult:
+    """校验 accum_nav_map.json 最新 nav 日期不滞后（净资产曲线 + G/H/I 强平日真价共用数据源）。
+
+    #52 数据供给链机检(2026-09-05): 前端 simnetasset 净资产曲线 + _gihRealizeRealForce 强平日
+    真实价均读该文件; 手动一次性生成期曾停在 08-28, 致 9/1-9/4 波动不可见 + __gih_missing_px_
+    强平日缺价告警(513400/516390)。deploy.sh 每日重置生成后本项兜底——
+    最新 nav 日期滞后 > STALE_DAYS_WARN(3 自然日) = WARN, > STALE_DAYS_FAIL(7) = FAIL(阻断 deploy)。
+    口径与 check_overview 一致(自然日 + 周末/节假日自然滞后不误报)。
+    """
+    name = "accum_nav_map_fresh"
+    path = data_dir / "accum_nav_map.json"
+    data, err = _load_json(path)
+    if err:
+        return _fail(name, err)
+    if not isinstance(data, dict) or not data:
+        return _fail(name, f"accum_nav_map.json 空或非 dict: {path}")
+    last_dt = max(dt for m in data.values() if isinstance(m, dict) for dt in m)
+    days = _days_ago(last_dt)
+    if days is None:
+        return _fail(name, f"accum_nav_map.json 最新 nav 日期格式异常: {last_dt}")
+    if days > STALE_DAYS_FAIL:
+        return _fail(name, f"accum_nav_map.json 最新 nav 日期={last_dt} 滞后 {days} 天 > {STALE_DAYS_FAIL} 天(净资产曲线/强平日真价停更)")
+    if days > STALE_DAYS_WARN:
+        return _warn(name, f"accum_nav_map.json 最新 nav 日期={last_dt} 滞后 {days} 天 > {STALE_DAYS_WARN} 天")
+    return _ok(name, f"最新 nav 日期={last_dt} (滞后 {days} 天)")
+
+
 def _latest_published_quarter_end(today: datetime) -> datetime | None:
     """返回最近已发布的季度末（季度末 + 20 天 <= 今天），与 hkex_ccass_quarterly._quarter_end_dates 同口径。
 
@@ -1595,6 +1622,8 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     results.append(check_signal_kelly_backtest(data_dir))
     # 信号 vs ETF accum_nav 滞后断链检查（2026-09-04 P0: 9/1-9/4 信号全跳 trades 停 8/31 事故补盲）
     results.append(check_signal_accum_nav_lag())
+    # accum_nav_map.json 新鲜度(#52, 净资产曲线+强平日真价共用数据源; deploy.sh 每日生成兜底)
+    results.append(check_accum_nav_map_fresh(data_dir))
     results.append(check_trade_sim_indices(data_dir))
     results.append(check_etf_since_return(data_dir))
     # #10 ETF 全史日K产物目录（export_etf_hist.py -> R2 etf/ 前缀）
