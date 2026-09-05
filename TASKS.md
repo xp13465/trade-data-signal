@@ -8,7 +8,14 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-09-04 17:0x(codegraph ui 误判修正→pending #98 待观察;sigkelly 研究员查断链 STEP10).本轮:
+**最后更新**:2026-09-06 02:2x(会话接力轮——用户升级 claude 版本重开新会话,主控恢复状态继续).本轮:
+- **✅ v1.1.16 tag 已打并 push(75532cb32,2026-09-06)**:覆盖 v1.1.15..HEAD 全部 40+ commit(netasset 净资产曲线 #51/#52 全系列+K档评级动态化 #54+sigkelly 快照演进告警+codex-watcher 修复+k3bench 文档)。netasset §0 三查过:线上 v20260905-a541 含 labelTop+90天 特征
+- **✅ 挂起待办盘点结论(inv-todos-4 盘点 agent 撞 429 停,只到「定位完成」;主控核实 commit 实锤,4 项全有结论,均无需再派实施)**:#52 净资产波动曲线=已实施上线(c9a69190d 等系列,v1.1.16 内)/#54 K档评级动态化=已实施上线(0b81ec5e1 等系列)/#19 FAPI P2 盘中延迟实测=已完成(bd94b227f+97341679c,238轮,秒级实时档可兜底)/#36 北交所宽度宇宙=已有拍板材料(5e3122ace,三方案推荐C),**待用户拍板**
+- **netasset 弹窗三处调整(09-05 需求)已收尾**:默认90天+x轴短日期+「末」标注右上(labelTop)。feat/netasset-modal-ui(f3dfe818b) reviewer PASS→main-merge 统一 bump(ec8e2db8b)→deploy,§0 三查过,蓝虚线=持仓市值(rev-20260905-001 P1-2 证伪为设计)
+- **codex worktree 隔离落地(09-05)**:codex 专属 worktree=`.claude/worktrees/codex-reviewer`+分支 `codex/reviewer`,SKILL.md 顶部开工检查(e022287a3 已合 main),合 main 走 main-merge.sh。⚠️ 主工作区被外部切分支/多出未知 commit=先怀疑 codex 误操作(§23.11)
+- **k3bench 评测定论(继续用 v4-flash)**:稳定性三输(终429率43.4% vs v4flash 19.5%、空body 38.5% vs 28.8%、有效率26% vs 68%),唯一赢=生成吞吐。报告 docs/k3-vs-v4flash-eval-20260905.md,75532cb32 已在 origin/main。意外发现:空body 200=商汤上游老毛病,代理按429换key可抬高有效率(建议立项)
+- **待跟进指针**:#36 北交所宽度宇宙拍板材料等用户拍板;FAPI 概念观察期 cron(1e0ef6fb) 09-08 到期;每日命中率走势 20:40 cron;§5.4 测试基准仍 v1.1.7(v1.1.16 纯新增展示/数据源,未动默认组合,基准不升)
+**前轮(2026-09-04 17:0x)**:codegraph ui 误判修正→pending #98 待观察;sigkelly 研究员查断链 STEP10.
 - **✅ P0 信号凯利全信号卡收益骤变已定论(2026-09-04 15:0x)**:根因=Edge 正常浏览器 SW 缓存旧页面(lab.min.js CacheFirst 命中旧快照+强刷不清 SW),线上数据零故障无需回滚。研究员穷举全谱(当前 trades/旧 trades 4版/H策略cap/ext按年/git全史/线上DOM)0命中 182.25;用户无痕实测三证据链(Chrome/Edge无痕全部=A163/H224.92 逐位一致)。A163→142.68=DYNAMIC 评级表 K1 vs K3 同表并存非变化。报告落档 docs/kelly/ 待补(研究员产出)
 - **🆕 新发现:回测交易记录停在 8/31 断链(用户 09-04 报,待查根因)**:用户见首页模拟回测弹窗+信号凯利全信号 A 交易记录停在 8/25,未演进到 9/4。主控只读定位已锁:**signal_kelly_trades.json 虽 09-04 02:17 新生成,但全象限最大买入=20260831,9/1-9/4 零买入**(部分象限更早:rating_high 8/17/sig_main 7/31/mkt_concept 8/25);**信号源 overview signals_today 信号日期到 20260903 新鲜**;9/1-9/4 全交易日。=回测链路(scripts/signal_kelly_backtest.py 读 signal_stats.json)未消费 9/1-9/4 信号。已派 researcher 查根因+并行设计快照告警
 - **🆕 CodeGraph `codegraph ui` 误判修正(2026-09-04)**:用户指正官方 README 有 `codegraph ui`(浏览器可视化 http://127.0.0.1:4747,callers左/源码中/callees右,`codegraph web` 别名)。根因=本地 npm 1.6.0(08-26 发布)旧版,ui 是 08-26 后合入 GitHub main 未发包。**用户定:待观察(等官方npm发包+坑修复),已落 pending #98 + memory 修正**。3 坑仍在(app.js>1MB 静默跳过最重)。
