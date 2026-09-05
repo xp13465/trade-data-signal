@@ -5319,15 +5319,32 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
       tipFn: (i, xLabel) => {
         const p = pts[i];
         if (!p) return "";
-        const pc = pctChanges[i];
         const _d = String(p.date);
         const _dStr = _d.slice(0, 4) + "-" + _d.slice(4, 6) + "-" + _d.slice(6, 8);
         const _red = '<span style="display:inline-block;width:8px;height:8px;background:#e6492e;border-radius:1px;margin-right:4px;vertical-align:middle"></span>';
         const _blue = '<span style="display:inline-block;width:8px;height:8px;background:#409eff;border-radius:1px;margin-right:4px;vertical-align:middle"></span>';
+        // #52d: 红线=总资产维度涨跌(金额+百分比), 蓝线=持仓维度日涨跌(金额+百分比);
+        // 蓝线百分比用持仓市值 mv 自身口径(mv/prev.mv), 不复用 pctChanges(那是总资产 value 口径, 张冠李戴)。
+        const _fmtSigned = (v) => (v < 0 ? "-" : "+") + "¥" + Math.abs(v).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const _fmtPct = (v) => (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
+        const _prev = i > 0 ? pts[i - 1] : null;
+        let _redLine, _blueLine;
+        if (_prev && _prev.value > 0) {
+          const _dV = p.value - _prev.value;
+          _redLine = _red + '总资产 ' + _fmtY2(p.value) + '(较前日 ' + _fmtSigned(_dV) + ' / ' + _fmtPct((_dV / _prev.value) * 100) + ')';
+        } else {
+          _redLine = _red + '总资产 ' + _fmtY2(p.value) + '(— 首点无前值)';
+        }
+        if (_prev && _prev.mv > 0) {
+          const _dMv = p.mv - _prev.mv;
+          _blueLine = _blue + '持仓日涨跌 ' + _fmtSigned(_dMv) + ' / ' + _fmtPct((_dMv / _prev.mv) * 100);
+        } else {
+          _blueLine = _blue + '持仓日涨跌 —(首点或昨日无持仓, 无涨跌可比)';
+        }
         return '<b>' + _dStr + ' · ' + _simNetassetWeekday(_d) + '</b>' +
+          '<br/>' + _redLine +
           '<br/>持仓 ' + p.holdings + ' 笔 · 现金 ' + _fmtY2(p.cash) + ' · 市值 ' + _fmtY2(p.mv) +
-          '<br/>' + _red + '总资产 ' + _fmtY2(p.value) +
-          (pc != null ? '<br/>' + _blue + '持仓日涨跌 ' + (pc >= 0 ? "+" : "") + pc.toFixed(2) + '%' : '<br/>' + _blue + '持仓日涨跌 —(首点无前值)');
+          '<br/>' + _blueLine;
       },
     };
     if (headEl) headEl.textContent = "📈 逐日总资产变化走势(自然日打点每天 1 点, 非交易日按最近收盘净值计、周末平线 · 虚线=初始本金 " + initCapital.toLocaleString("zh-CN") + " 元 · 副线=持仓日涨跌 · " + pts.length + " 点 · " + pts[0].date + "~" + lastP.date + ")";
