@@ -28,6 +28,9 @@
 输出:
     - static-site/data/signal_kelly_snapshots/YYYYMMDD.json (全量快照)
     - static-site/data/signal_kelly_snapshots/index.json     (迷你演进序列)
+    - static-site/data/signal_kelly_snapshots/latest_posrating.json
+      (#54 方案B 首页 AI仓位建议 K 档评级全史动态源, 复刻 lab _kellyApplyFeeRecompute
+      K 档段, 供首页首屏注入; s06 状态缺失跳过=防残缺数据上线, 详见 write_posrating_file)
 关键参数(常量, 不可从外部配置):
     - SNAPSHOT_VERSION 常量: "1.0", bump 当日=发布日豁免突变告警
     - ROLLING_WINDOW=60(快照日), MUTATION_STD=3.0, MUTATION_PP=20,
@@ -151,11 +154,40 @@ def scan_trades(trades: dict) -> tuple[str, list]:
     return max_date, recent[:10]
 
 
+def write_posrating_file(data_dir: Path, bt: dict, trades: dict) -> None:
+    """#54 方案B: 生成首页 AI仓位建议 K 档评级全史动态源 latest_posrating.json。
+
+    复刻 lab _kellyApplyFeeRecompute K 档段(A 模式 all 伪象限 + S06 per-date passesFade
+    + 每日池等分 top-K + 峰值资金统计), 与 lab 同构对账过(§5.4⑦, scripts/check_posrating_parity.mjs)。
+    首页方案B = 后端注入首页槽, 解决「进/出 lab 首页 K 档值跳变」(静态快照 86.60% → lab 动态 163%)。
+    ⚠️ 完整版铁律(§23.15): s06 状态文件缺失 = 全放行残缺数据, 跳过不写,
+    首页回退静态兜底; loss 特征缺失与 lab 同降级(fail-open), 照常计算。任何异常不阻断主链。
+    """
+    s06_path = data_dir / "kelly_mode_s06_state.json"
+    if not s06_path.exists():
+        log("kelly_mode_s06_state.json 缺失: 跳过 latest_posrating.json"
+            "(首页回退静态兜底, 防全放行残缺数据上线)")
+        return
+    try:
+        from kelly_posrating import compute_posrating
+        s06_doc = json.loads(s06_path.read_text(encoding="utf-8"))
+        feats_path = data_dir / "kelly_loss_features.json"
+        loss_doc = json.loads(feats_path.read_text(encoding="utf-8")) if feats_path.exists() else None
+        result = compute_posrating(trades, bt, s06_doc, loss_doc)
+        p = snap_dir(data_dir) / "latest_posrating.json"
+        p.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        v = result["values"][1]  # compute_posrating 内 key 为 int, 序列化后转字符串
+        log(f"latest_posrating.json 已生成: K1 {v['ret']} dd={v['dd']} n={v['n']}")
+    except Exception as e:  # noqa: BLE001
+        log(f"latest_posrating.json 生成失败(跳过, 首页回退静态兜底): {e}")
+
+
 def build_snapshot(data_dir: Path) -> dict:
     bt = load_backtest(data_dir)
     trades = load_trades(data_dir)
     quadrants = bt.get("quadrants", {})
     max_signal_date, recent10 = scan_trades(trades)
+    write_posrating_file(data_dir, bt, trades)
     snapshot = {
         "date": datetime.now().strftime("%Y%m%d"),
         "generated_at": bt.get("generated_at"),
@@ -256,6 +288,39 @@ def _send_notify(subject: str, body: str, severe: bool, dry_run: bool,
             notify.update_dedup(dedup_key)
 
 
+def detect_posrating_stale(data_dir: Path, index: dict) -> list[dict]:
+    """latest_posrating.json 停更检测(#54 方案B: 首页 K 档评级动态源)。
+
+    生成日(latest_posrating.date)落后最新快照日(index.days[-1].d) ≥LAG_ALERT_TD 交易日 → 告警。
+    挂载链: s06_snapshot.sh 20:35 尾部 + export 链 build_snapshot 17:50 双点生成;
+    任一链停跑数日, date 即停留旧日, 用户侧静默回退静态兜底 86.60%, 必须当场暴露。
+    """
+    days = index.get("days", [])
+    if not days:
+        return []
+    newest_day = days[-1].get("d", "")
+    if not newest_day:
+        return []
+    p = snap_dir(data_dir) / "latest_posrating.json"
+    if not p.exists():
+        return [{"type": "posrating_stale",
+                 "detail": "latest_posrating.json 缺失(首页 K 档评级回退静态兜底 86.60%)"}]
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        return [{"type": "posrating_stale", "detail": f"latest_posrating.json 解析失败({exc})"}]
+    pr_date = str(doc.get("date") or "").strip()
+    if not pr_date:
+        return [{"type": "posrating_stale", "detail": "latest_posrating.json 无 date 字段(生成日)"}]
+    if pr_date < newest_day:
+        lag = trading_days_lag(newest_day, pr_date)
+        if lag >= LAG_ALERT_TD:
+            return [{"type": "posrating_stale",
+                     "detail": f"latest_posrating.json 停更: 生成日={pr_date} "
+                               f"落后最新快照日={newest_day} {lag} 个交易日(≥{LAG_ALERT_TD}告警)"}]
+    return []
+
+
 def detect_stagnation(index: dict, today_str: str) -> list[dict]:
     """停滞档: max_signal_date 落后最新交易日 ≥LAG_ALERT_TD 个交易日。"""
     days = index.get("days", [])
@@ -333,6 +398,7 @@ def run_check(data_dir: Path, dry_run: bool) -> int:
     today_str = datetime.now().strftime("%Y%m%d")
     alerts = []
     alerts += detect_stagnation(index, today_str)
+    alerts += detect_posrating_stale(data_dir, index)
     # 发布日豁免: 今日 version != 昨日 version
     prev_ver = index.get("days", [])[-2].get("v") if len(index.get("days", [])) >= 2 else ""
     latest_ver = index.get("days", [])[-1].get("v") if index.get("days", []) else ""
@@ -345,13 +411,18 @@ def run_check(data_dir: Path, dry_run: bool) -> int:
             f"max_signal_date={days[-1].get('m')}")
         return 0
     for a in alerts:
-        subject = "[告警] 信号凯利回测停滞" if a["type"] == "stagnation" else "[告警] 信号凯利回测指标突变"
+        subject = "[告警] 信号凯利回测停滞" if a["type"] in ("stagnation", "posrating_stale") else "[告警] 信号凯利回测指标突变"
         body_lines = [
             subject,
             f"判定档位: {a['type']}",
             a.get("detail", ""),
             f"数据截止日: {days[-1].get('d')} 快照 / max_signal_date={days[-1].get('m')}",
         ]
+        if a["type"] == "posrating_stale":
+            body_lines.append("影响面提示: latest_posrating.json 为首页 AI仓位建议 K 档评级动态源"
+                              "(s06_snapshot.sh 20:35 + export/build_snapshot 17:50 双点生成); "
+                              "停更时首页静默回退静态兜底 86.60% 历史数字, 用户无感知, 需及时补跑")
+            body_lines.append("补跑: bash scripts/kelly_posrating.py --data-dir <static-site/data> --write")
         if a["type"] == "mutation":
             body_lines.append(f"样本数 n={a.get('n')} (门 ≥{MIN_N})")
             body_lines.append("影响面提示: 回测 total_return 突变可能源于价格库数据缺口"
