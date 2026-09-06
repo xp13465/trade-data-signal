@@ -47,6 +47,13 @@ KPI_METRIC_IDS = [
     "lhb_count",            # 龙虎榜数量
     "a_width_zhaban_rate",   # 炸板率（新源 mootdx derived，7-20有数据；旧 a_width_zb_count 数/旧源东财 stock_zt_pool_em 停7-16 已弃）
     "a_width_fengban_rate", # 封板率（新源 derived=1-炸板率，旧 a_width_seal_rate func=TODO 停7-16）
+    # 北交所宽度独立指标组（#101 方案C，FAPI 日线 30% 档，与主宽度纯解耦，2026-09-06 上线）
+    "a_bj_width_zt_count",  # 北交所涨停数(30%档)
+    "a_bj_width_dt_count",  # 北交所跌停数(30%档)
+    "a_bj_width_up_count",  # 北交所上涨家数
+    "a_bj_width_down_count",# 北交所下跌家数
+    "a_bj_width_amount",    # 北交所成交额
+    "a_bj_width_ad_line",   # 北交所AD线
     "a_fund_main",          # 主力净流入
     "a_turnover_mean",      # 换手率均值
     "a_turnover_median",    # 换手率中位数

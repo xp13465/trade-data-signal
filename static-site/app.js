@@ -7119,8 +7119,8 @@ function signalHelpTip(tipText) {
   document.head.appendChild(style);
 })();
 
-// 涨跌家数数据口径（akshare 新浪(sina)源全市场快照，与东财等 APP 覆盖范围略有差异，非数据错误）
-const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市场快照，涨跌幅为负计为跌、平盘不计入。不同数据源覆盖范围略有差异（如东财多1只），非数据错误。";
+// 涨跌家数数据口径（mootdx 收盘全 A 快照口径，#101 修正过时公示，2026-09-06）
+const _WIDTH_CALIBER_TIP = "涨跌家数口径：mootdx（通达信协议）收盘全 A 快照（沪深主板/创业板/科创板，约 5200 只），涨跌幅为负计为跌、平盘不计入。不包含北交所（北交所宽度见独立 a_bj_* 指标）。不同数据源覆盖范围略有差异，非数据错误。";
 
 // ❓ 问号 hover pop 浮层（替代浏览器原生 title，pop 风格：圆角/阴影/主题色/小箭头）
 // 事件委托：document mouseover/mouseout 检查 target.closest('[data-tip]')，
@@ -10314,6 +10314,13 @@ const KPI_HISTORY_SOURCE = {
   a_turnover_p90:      { src: "astock" },
   a_turnover_p10:      { src: "astock" },
   a_turnover_gt5_pct:  { src: "astock" },
+  // 北交所宽度独立指标组（#101 方案C,FAPI 日线 30% 档,2026-09-06 上线）
+  a_bj_width_zt_count:  { src: "astock" },
+  a_bj_width_dt_count:  { src: "astock" },
+  a_bj_width_up_count:  { src: "astock" },
+  a_bj_width_down_count:{ src: "astock" },
+  a_bj_width_amount:    { src: "astock" },
+  a_bj_width_ad_line:   { src: "astock" },
   // 量比 -> volume_ratio.json（单一文件，客户端按 period 过滤）
   a_volume_ratio: { src: "volume_ratio" },
   // 全球指标 -> global-extras-all.json extras[kpiId]
@@ -10423,14 +10430,17 @@ async function _loadKpiHistory(kpiId, cfg, period) {
         hint: "上涨家数远多于下跌=普涨行情；两者接近=市场分化。",
       };
     }
-    // 涨停跌停：点涨停或跌停都显示双线
-    if (kpiId === "a_width_zt_count" || kpiId === "a_width_dt_count") {
+    // 涨停跌停：点涨停或跌停都显示双线（含北交所30%档, #101 方案C 2026-09-06）
+    if (kpiId === "a_width_zt_count" || kpiId === "a_width_dt_count" || kpiId === "a_bj_width_zt_count" || kpiId === "a_bj_width_dt_count") {
+      const _isBj = kpiId.startsWith("a_bj_");
+      const _ztId = _isBj ? "a_bj_width_zt_count" : "a_width_zt_count";
+      const _dtId = _isBj ? "a_bj_width_dt_count" : "a_width_dt_count";
       return {
         series: [
-          { name: "涨停数", data: _get("a_width_zt_count"), color: "#e6492e" },
-          { name: "跌停数", data: _get("a_width_dt_count"), color: "#2e8b57" },
+          { name: _isBj ? "北交所涨停数" : "涨停数", data: _get(_ztId), color: "#e6492e" },
+          { name: _isBj ? "北交所跌停数" : "跌停数", data: _get(_dtId), color: "#2e8b57" },
         ],
-        hint: "涨停数反映做多情绪，跌停数反映恐慌情绪。",
+        hint: _isBj ? "北交所涨停/跌停(30%档)。多=北交所做多/恐慌情绪。" : "涨停数反映做多情绪，跌停数反映恐慌情绪。",
       };
     }
     // 封板率（百分比，存 0-1 小数需 *100 显示；fengban_rate=1-炸板率 新源，seal_rate 旧源保留兼容）
@@ -11337,15 +11347,20 @@ function _fmtKpiValue(id, v) {
     case "a_width_fengban_rate": return (v * 100).toFixed(1) + "%"; // 存储为 0-1 小数
     case "a_width_zt_count":
     case "a_width_dt_count":
-    case "a_width_zb_count": return v.toFixed(0) + "只"; // 涨停/跌停/炸板数(只,overview unit=只)
+    case "a_width_zb_count":
+    case "a_bj_width_zt_count":  // 北交所涨停数(30%档,#101 方案C 2026-09-06)
+    case "a_bj_width_dt_count": return v.toFixed(0) + "只"; // 涨停/跌停/炸板数(只,overview unit=只)
     case "a_width_up_count":
-    case "a_width_down_count": return v.toFixed(0) + "家"; // 上涨/下跌家数(家,overview unit=家)
+    case "a_width_down_count":
+    case "a_bj_width_up_count":   // 北交所上涨家数
+    case "a_bj_width_down_count": return v.toFixed(0) + "家"; // 上涨/下跌家数(家,overview unit=家)
     case "a_width_max_lianban": return v.toFixed(0) + "板"; // 连板高度(板,防再犯 L10 同类)
     // 2026-08-13 修复(用户反馈): 首页成交额KPI主值缺单位,不hover只显纯数字14728,单位只出现在hover pop(1.47万亿).
     // 金额类(a_amount/a_fund_margin/a_fund_north/a_fund_main)单位均为"亿元"(overview today.metrics unit=亿元),
     // 主值常态显示单位,与hover pop万亿/亿口径一致(§22);a_fund_* 当前虽挪出首屏KPI小卡(_KPI_T1_MOVED),
     // 仍在"A股指标走势图"资金面分组可见/未来回KPI,统一加单位防再犯(L10 同类).
-    case "a_amount": return v.toFixed(0) + "亿";
+    case "a_amount":
+    case "a_bj_width_amount": return v.toFixed(0) + "亿"; // 北交所成交额(亿元,#101)
     case "a_fund_margin": return v.toFixed(0) + "亿"; // 两融余额(沪市融资,亿元)
     case "a_fund_north":
     case "a_fund_main": return (v >= 0 ? "+" : "") + v.toFixed(1) + "亿"; // 北向成交总额/主力净流入(亿元)
@@ -11359,6 +11374,7 @@ function _fmtKpiValue(id, v) {
     case "a_turnover_p90":
     case "a_turnover_p10": return v.toFixed(2) + "%";
     case "a_turnover_gt5_pct": return (v * 100).toFixed(1) + "%"; // 存储为 0-1 小数
+    case "a_bj_width_ad_line": return v.toFixed(0); // 北交所AD线(累加值,整数展示)
     default: return v.toFixed(2);
   }
 }
@@ -15208,6 +15224,9 @@ async function renderOverview() {
     a_amount: 6, a_volume_ratio: 7, a_sentiment: 8, cross_market: 9, fear_greed: 10, a_fund_margin: 11, a_fund_north: 12,
     a_width_zhaban_rate: 13, a_width_fengban_rate: 14, a_fund_main: 15, a_turnover_mean: 16, a_turnover_median: 17,
     a_turnover_p90: 18, a_turnover_p10: 19, a_turnover_gt5_pct: 20,
+    // 北交所宽度独立指标组（#101 方案C, 纯新增,排在主宽度卡之后）
+    a_bj_width_zt_count: 21, a_bj_width_dt_count: 22, a_bj_width_up_count: 23,
+    a_bj_width_down_count: 24, a_bj_width_amount: 25, a_bj_width_ad_line: 26,
   };
   const _kpiIsAbnormal = (k) => {
     if (k.tag === "冰点" || k.tag === "过热") return true;          // 情绪分极值
@@ -15252,6 +15271,7 @@ async function renderOverview() {
     "a_sentiment", "cross_market", "fear_greed",
     "sentiment_sz50", "sentiment_hs300", "sentiment_csi500", "sentiment_csi1000", "sentiment_cyb", "sentiment_kc50",
     "a_width_zt_count", "a_width_dt_count", "a_width_up_count", "a_width_down_count", "a_width_zhaban_rate", "a_width_fengban_rate",
+    "a_bj_width_zt_count", "a_bj_width_dt_count", "a_bj_width_up_count", "a_bj_width_down_count", "a_bj_width_amount", "a_bj_width_ad_line",
     "gold", "cn10y", "a_qvix_300", "a_volume_ratio",
     "lhb_count",  // 龙虎榜上榜家数（回填6m历史后，2026-08-05）
   ]);
@@ -15442,6 +15462,12 @@ async function renderOverview() {
       a_turnover_p90: "换手率90分位。最活跃的10%个股换手水平。",
       a_turnover_p10: "换手率10分位。最不活跃的10%个股换手水平。",
       a_turnover_gt5_pct: "换手率>5%家数占比。高=市场活跃面广。",
+      a_bj_width_zt_count: "北交所涨停数(30%档,收盘≥昨收×1.3容差)。北交所主板上市首日不设涨跌幅,常态30%档,禁套沪深10%档。多=北交所追涨情绪强。",
+      a_bj_width_dt_count: "北交所跌停数(30%档,收盘≤昨收×0.7容差)。多=北交所恐慌抛售强。",
+      a_bj_width_up_count: "北交所上涨家数(920xxx,共341只)。按涨跌幅>0计,与主宽度(mootdx全A)口径不同,独立看北交所。",
+      a_bj_width_down_count: "北交所下跌家数(920xxx)。按涨跌幅<0计,独立看北交所。",
+      a_bj_width_amount: "北交所成交额(sum(amount)/1e8,亿元)。FAPI(同花顺)日线源。量小=北交所交投清淡。",
+      a_bj_width_ad_line: "北交所AD线(上涨-下跌家数累加)。上升=涨家持续占优,下降=跌家占优。独立于主宽度AD线。",
       high_alert: "A股大盘高位预警(0-100,越高越危险)。8维加权:情绪过热(max恐贪/A股情绪/跨市场)26%+位置偏高(8宽基1年分位均值)20%+风险点密集13%+汪汪队离场(ETF份额缩减)10%+量价背离/动量衰退/均线转弱/全球走弱各7-8%。≥72触发高位红条预警(回测N10下跌占比56.4%),>75警示、>88高危。综合大盘非单一指数,历史统计参考非操作建议。",
       low_alert: "A股大盘低位机会(0-100,越高越接近底)。8维加权:情绪冰点(100-min三情绪)20%+关注点密集18%+位置偏低(100-8宽基分位)15%+汪汪队入场(ETF份额激增)15%+量能异动10%+新低极端/波指飙升/价值显现各7-8%。≥85触发低位蓝条预警(回测N10上涨占比65.7%),>75机会、>88机遇。综合大盘非单一指数,历史统计参考非操作建议。",
     };
@@ -15454,8 +15480,8 @@ async function renderOverview() {
     // P0-①② 状态着色+左侧3px色条：按 kpi 类型+value 算 data-state，CSS 按属性着色 border-left + .cv-val
     const _kpiState = (() => {
       if (k.disabled) return "disabled";
-      if (k.id === "a_width_zt_count" || k.id === "a_width_up_count") return "up";      // 涨停/上涨 红
-      if (k.id === "a_width_dt_count" || k.id === "a_width_down_count") return "down";  // 跌停/下跌 绿
+      if (k.id === "a_width_zt_count" || k.id === "a_width_up_count" || k.id === "a_bj_width_zt_count" || k.id === "a_bj_width_up_count") return "up";      // 涨停/上涨 红(含北交所30%档)
+      if (k.id === "a_width_dt_count" || k.id === "a_width_down_count" || k.id === "a_bj_width_dt_count" || k.id === "a_bj_width_down_count") return "down";  // 跌停/下跌 绿(含北交所)
       if (k.id === "a_width_zhaban_rate") return "warn";                                 // 炸板率高=警示
       if (k.id === "a_width_fengban_rate" || k.id === "a_width_seal_rate") return "strong"; // 封板率高=强 金
       if (k.id === "a_amount" || k.id === "a_volume_ratio") {
@@ -15537,8 +15563,8 @@ async function renderOverview() {
         const _fmt6mV = (v) => {
           if (v == null) return "-";
           if (k.id === "a_width_zhaban_rate" || k.id === "a_width_fengban_rate") return (v * 100).toFixed(0) + "%";
-          if (k.id === "a_width_zt_count" || k.id === "a_width_dt_count") return v.toFixed(0) + "只"; // 与主值口径一致(§22)
-          if (k.id === "a_width_up_count" || k.id === "a_width_down_count") return v.toFixed(0) + "家";
+          if (k.id === "a_width_zt_count" || k.id === "a_width_dt_count" || k.id === "a_bj_width_zt_count" || k.id === "a_bj_width_dt_count") return v.toFixed(0) + "只"; // 与主值口径一致(§22,含北交所)
+          if (k.id === "a_width_up_count" || k.id === "a_width_down_count" || k.id === "a_bj_width_up_count" || k.id === "a_bj_width_down_count") return v.toFixed(0) + "家";
           if (k.id === "a_volume_ratio") return v.toFixed(1) + "x";
           if (k.id === "gold") return v.toFixed(0) + "元/克";
           if (k.id === "cn10y") return v.toFixed(2) + "%";
@@ -30902,6 +30928,8 @@ async function _appendIntradayEstimate(chartData, sigs, indexId, todayDate, isVa
 const _KPI_COMPANION = {
   a_width_up_count: "a_width_down_count", a_width_down_count: "a_width_up_count",
   a_width_zt_count: "a_width_dt_count",   a_width_dt_count: "a_width_zt_count",
+  // 北交所宽度独立指标（#101 方案C）与主宽度同模式 companion
+  a_bj_width_zt_count: "a_bj_width_dt_count", a_bj_width_dt_count: "a_bj_width_zt_count",
 };
 const _KPI_RATE_X100 = { a_width_seal_rate: true, a_width_fengban_rate: true };
 async function _appendKpiEstimate(result, kpiId, todayDate) {
