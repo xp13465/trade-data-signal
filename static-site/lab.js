@@ -8195,6 +8195,20 @@ async function _kellyRunRecompute(host, loadingHtml, onResult, onDone) {
     await _kellyNextPaint();
     var stats = await _kellyApplyFeeRecompute(state.labSigKellyFeeParams);
     onResult(stats);
+    // #100 渐进加载(2026-09-06): 阶段1(y1 两片就绪)重算完成即就地渲染一版, 不等全量——
+    //   busy/pending 合批会把 recompute#1(y1 数据)的 onDone 推迟到全量 recompute#2 结束才执行,
+    //   用户全程只见静态 backtest + 「⏳ 计算中…」占位, y1 先渲染(代码注释宣称)从未发生(tester a55d3d1075e9a3499 实测)。
+    //   修=窗口期(y1 在册 && 全量未就绪)onResult 后立即调 onDone 就地刷新 bar+卡片+全信号表;
+    //   未就绪周期仍走 _labKellyPeriodIsReady gate 显示占位(§23.15 不显残缺数), 全量就绪后整轮重算覆盖(最终一致)。
+    //   非窗口期零行为变化(§23.7 纯新增)。
+    if (_labKellyY1Ready && !_labKellyAllReady && typeof onDone === "function") {
+      var _h0 = host;
+      if (!_h0.isConnected) {
+        var _liveH0 = document.querySelector(".lab-sigkelly-host");
+        if (_liveH0) _h0 = _liveH0;
+      }
+      onDone(_h0);
+    }
   } while (_kellyRecomputePending);
   _kellyRecomputeBusy = false;
   // 【P0 防御兜底 2026-08-24】await 让步期间(trades.json 慢载/桶间 setTimeout 让步)host 可能被其他路径
