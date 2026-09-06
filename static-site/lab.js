@@ -2442,25 +2442,176 @@ function _labTopDisclaimerHTML() {
 }
 
 // P2-3: 新手引导卡（置顶常驻，可折叠，<details> 原生折叠免 JS）
-// 三步导览：①推荐榜(综合评分)起点 ②点开看净值曲线 ③二次测试三切片验稳健
-function _labNewbieGuideHTML() {
-  return `<details class="lab-newbie-guide" open>` +
-    `<summary class="lab-newbie-guide-summary">🧭 新手引导 · 不熟悉回测？先看这三步 <span class="lab-newbie-toggle"></span></summary>` +
-    `<div class="lab-newbie-guide-body">` +
-    `<div class="lab-newbie-step">` +
-    `<span class="lab-newbie-step-no">1</span>` +
-    `<div><b>先看「推荐榜（综合评分）」</b>：综合评分 = 收益率(35%)+胜率(25%)+回撤倒数(15%)+风险调整(15%)+样本量(10%)，评分越高综合表现越好，从高到低看起。` +
-    `</div></div>` +
-    `<div class="lab-newbie-step">` +
-    `<span class="lab-newbie-step-no">2</span>` +
-    `<div><b>点开看回测净值曲线</b>：点击任意配对查看完整净值曲线与逐笔交易记录，确认收益曲线是否平滑向上、回撤是否可承受。` +
-    `</div></div>` +
-    `<div class="lab-newbie-step">` +
-    `<span class="lab-newbie-step-no">3</span>` +
-    `<div><b>看「二次测试」三切片是否稳健</b>：标⭐️的配对可进入二次测试，看①分年回测（防某年暴利拉高）②样本外（防过拟合）③极端行情（2015股灾/2018熊/2020疫情/2024反弹各场景回撤），三者都稳才是真稳健，非偶然。` +
-    `</div></div>` +
-    `<div class="lab-newbie-tip">💡 融合实验中 <b>n&lt;30</b> 的候选已标灰「样本不足，仅供参考」——样本量小统计意义弱，收益/胜率易被极端值拉偏，谨慎参考。</div>` +
-    `</div></details>`;
+// #55(2026-09-06) 动态化: 按 labSubMode 分模式配三步文案; single(默认)=现状原文逐字保留
+function _labNewbieGuideHTML(subMode) {
+  const mode = subMode || "single";
+  switch (mode) {
+    // fusion: 融合信号实验(阶段一仅元数据 + 配对榜 + 三切片; 融合 n<30 灰态专有)
+    case "fusion":
+      return `<details class="lab-newbie-guide" open>` +
+        `<summary class="lab-newbie-guide-summary">🧭 新手引导 · 融合信号实验三步 <span class="lab-newbie-toggle"></span></summary>` +
+        `<div class="lab-newbie-guide-body">` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">1</span>` +
+        `<div><b>看「融合配对榜」</b>：融合信号 = 多个单一信号同日同时满足才触发（多条件共振过滤假信号），看组合共振是否比单信号更准。当前为<b>阶段一，仅展示组成条件与说明</b>，阶段二将开放回测数据/图表/配对排行。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">2</span>` +
+        `<div><b>点开看回测净值曲线</b>：点击融合配对（买×卖配对或同向共振）查看完整净值曲线与逐笔交易记录，确认收益曲线是否平滑向上、回撤是否可承受。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">3</span>` +
+        `<div><b>看「二次测试」三切片是否稳健</b>：标⭐️的配对可进入二次测试，看①分年回测（防某年暴利拉高）②样本外（防过拟合）③极端行情（2015股灾/2018熊/2020疫情/2024反弹各场景回撤），三者都稳才是真稳健，非偶然。` +
+        `</div></div>` +
+        `<div class="lab-newbie-tip">💡 融合实验中 <b>n&lt;30</b> 的候选已标灰「样本不足，仅供参考」——样本量小统计意义弱，收益/胜率易被极端值拉偏，谨慎参考。</div>` +
+        `</div></details>`;
+    // retest: 二次测试实验(选⭐️配对 → 三切片 → 三稳才是真稳健)
+    case "retest":
+      return `<details class="lab-newbie-guide" open>` +
+        `<summary class="lab-newbie-guide-summary">🧭 新手引导 · 二次测试三步 <span class="lab-newbie-toggle"></span></summary>` +
+        `<div class="lab-newbie-guide-body">` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">1</span>` +
+        `<div><b>选标⭐️的配对</b>：只有标⭐️的配对可进入二次测试（此前配对排行中综合评分达门槛者），先选定要验证的配对。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">2</span>` +
+        `<div><b>看三切片</b>：①分年回测（防某年暴利拉高，看各年是否都盈利）②样本外（防过拟合，看未参与调参区间表现）③极端行情（2015股灾/2018熊/2020疫情/2024反弹各场景回撤，看暴跌暴涨时是否扛得住）。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">3</span>` +
+        `<div><b>三切片都稳才是真稳健</b>：三套检验都稳定 = 策略稳健；任一套崩 = 过拟合风险，某段行情碰巧赚钱的概率大，谨慎参考。` +
+        `</div></div>` +
+        `</div></details>`;
+    // ablation: 信号拆解(N-1 消融 → 看贡献正负 → 右栏柱状图定主次)
+    case "ablation":
+      return `<details class="lab-newbie-guide" open>` +
+        `<summary class="lab-newbie-guide-summary">🧭 新手引导 · 信号拆解三步 <span class="lab-newbie-toggle"></span></summary>` +
+        `<div class="lab-newbie-guide-body">` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">1</span>` +
+        `<div><b>选指数</b>：先选定一个基准指数，看该指数下 6 个融合策略的拆解结果。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">2</span>` +
+        `<div><b>看 6 策略 N-1 子集消融</b>：N-1 = 去掉某个组件看剩余子集的表现，判断每个子信号对收益的贡献——贡献率为正 = 该子信号提升收益（有用）；为负 = 去掉反而更好（拖累，可考虑剔除）。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">3</span>` +
+        `<div><b>右栏组件贡献柱状图定主次</b>：柱状图直观对比各组件贡献，识别哪个是真本领、哪个是蹭车的，防止被无用信号拖累。` +
+        `</div></div>` +
+        `</div></details>`;
+    // symmetry: 多空对称(选指数 → top8 做多/做空对照 → 右栏对称比柱状图)
+    case "symmetry":
+      return `<details class="lab-newbie-guide" open>` +
+        `<summary class="lab-newbie-guide-summary">🧭 新手引导 · 多空对称三步 <span class="lab-newbie-toggle"></span></summary>` +
+        `<div class="lab-newbie-guide-body">` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">1</span>` +
+        `<div><b>选指数</b>：先选定一个基准指数，看该指数下 top8 配对的多空对照。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">2</span>` +
+        `<div><b>top8 配对做多/做空对照</b>：测同一策略做多和做空是否对称——有的策略只适合做多、做空就亏，判断策略方向适用性。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">3</span>` +
+        `<div><b>右栏指数对比柱状图</b>：对称比越接近 0 越对称（可双向做）；越负越偏做多。A股长期向上，做多盈利、做空亏损属正常，不代表策略失效。` +
+        `</div></div>` +
+        `</div></details>`;
+    // paramscan: 参数扫描(选策略 → 选指数 → 热力图/柱状图看参数敏感性)
+    case "paramscan":
+      return `<details class="lab-newbie-guide" open>` +
+        `<summary class="lab-newbie-guide-summary">🧭 新手引导 · 参数扫描三步 <span class="lab-newbie-toggle"></span></summary>` +
+        `<div class="lab-newbie-guide-body">` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">1</span>` +
+        `<div><b>选策略</b>：从 7 策略概览表中先选定要扫描的策略。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">2</span>` +
+        `<div><b>选指数</b>：再选定基准指数，看该指数下的参数扫描结果。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">3</span>` +
+        `<div><b>参数网格热力图/柱状图看参数敏感性</b>：颜色深浅 = 指标好坏——稳健高原 = 默认参数附近都盈利（靠谱）；尖锐尖峰 = 仅个别参数盈利（过拟合，慎用）。` +
+        `</div></div>` +
+        `</div></details>`;
+    // aiwarn: AI预警(选标的 → 情绪告警 → 维度拆解+历史类比; AI 分析非回测语义)
+    case "aiwarn":
+      return `<details class="lab-newbie-guide" open>` +
+        `<summary class="lab-newbie-guide-summary">🧭 新手引导 · AI预警三步 <span class="lab-newbie-toggle"></span></summary>` +
+        `<div class="lab-newbie-guide-body">` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">1</span>` +
+        `<div><b>选标的</b>：选定单个指数/行业做情绪告警分析。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">2</span>` +
+        `<div><b>看情绪告警信号</b>：高位预警（过热警惕）与低位机会（冰点关注），并拆解 8+8 维度贡献看是哪类因素驱动。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">3</span>` +
+        `<div><b>维度拆解 + 历史类比</b>：高位分&gt;70 = 过热警惕，低位分&gt;70 = 偏冷关注企稳；历史类比仅作统计参考，不代表未来必然走势。此处为 AI 分析非回测，不构成投资建议。` +
+        `</div></div>` +
+        `</div></details>`;
+    // aiscore: AI评分(输入持仓自查 → 买清单/卖清单 → 持有建议; AI 分析非回测语义)
+    case "aiscore":
+      return `<details class="lab-newbie-guide" open>` +
+        `<summary class="lab-newbie-guide-summary">🧭 新手引导 · AI评分三步 <span class="lab-newbie-toggle"></span></summary>` +
+        `<div class="lab-newbie-guide-body">` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">1</span>` +
+        `<div><b>输入持仓 ETF 自查</b>：输入任意 ETF 代码查询其 8+8 维度 AI 评分（或直接看下方清单）。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">2</span>` +
+        `<div><b>看买清单/卖清单</b>：低位机会高的进关注清单（按手数 3/2/1 建议关注量），高位预警高的进风险清单（风险提示建议）。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">3</span>` +
+        `<div><b>持有建议</b>：点击行看完整 8+8 维度拆解弹窗 + 持有/调整建议。此处为 AI 评分非回测，不构成投资建议。` +
+        `</div></div>` +
+        `</div></details>`;
+    // sigkelly: 信号凯利回测(选周期/参数 → 6象限半凯利仓位回测 → AI 报告; Kelly 比例=仓位建议)
+    case "sigkelly":
+      return `<details class="lab-newbie-guide" open>` +
+        `<summary class="lab-newbie-guide-summary">🧭 新手引导 · 信号凯利回测三步 <span class="lab-newbie-toggle"></span></summary>` +
+        `<div class="lab-newbie-guide-body">` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">1</span>` +
+        `<div><b>选周期/参数</b>：先选回测周期与过滤参数，确定回测口径（回测买价两档可切：次日开盘 / 当日收盘）。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">2</span>` +
+        `<div><b>6 象限半凯利仓位回测</b>：信号按象限分组（评级×ETF 归类），回测每组胜率和盈亏比，代入半凯利公式（半凯利 = 凯利比例/2，更保守）得建议仓位。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">3</span>` +
+        `<div><b>AI 报告</b>：半凯利越高 = 该组信号越值得下注——≥60% 激进 / 30-60% 均衡 / &lt;30% 保守。凯利比例为<b>仓位建议</b>（非回测收益预测），不构成投资建议。` +
+        `</div></div>` +
+        `</div></details>`;
+    // single(默认): 现状原文逐字保留
+    case "single":
+    default:
+      return `<details class="lab-newbie-guide" open>` +
+        `<summary class="lab-newbie-guide-summary">🧭 新手引导 · 不熟悉回测？先看这三步 <span class="lab-newbie-toggle"></span></summary>` +
+        `<div class="lab-newbie-guide-body">` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">1</span>` +
+        `<div><b>先看「推荐榜（综合评分）」</b>：综合评分 = 收益率(35%)+胜率(25%)+回撤倒数(15%)+风险调整(15%)+样本量(10%)，评分越高综合表现越好，从高到低看起。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">2</span>` +
+        `<div><b>点开看回测净值曲线</b>：点击任意配对查看完整净值曲线与逐笔交易记录，确认收益曲线是否平滑向上、回撤是否可承受。` +
+        `</div></div>` +
+        `<div class="lab-newbie-step">` +
+        `<span class="lab-newbie-step-no">3</span>` +
+        `<div><b>看「二次测试」三切片是否稳健</b>：标⭐️的配对可进入二次测试，看①分年回测（防某年暴利拉高）②样本外（防过拟合）③极端行情（2015股灾/2018熊/2020疫情/2024反弹各场景回撤），三者都稳才是真稳健，非偶然。` +
+        `</div></div>` +
+        `<div class="lab-newbie-tip">💡 融合实验中 <b>n&lt;30</b> 的候选已标灰「样本不足，仅供参考」——样本量小统计意义弱，收益/胜率易被极端值拉偏，谨慎参考。</div>` +
+        `</div></details>`;
+  }
 }
 
 // 融合信号实验自白黄块
@@ -5842,8 +5993,8 @@ async function renderSignalLab() {
   // C: 顶部合规声明（置顶显著，全子模式可见，非折叠）
   content.insertAdjacentHTML("beforeend", _labTopDisclaimerHTML());
 
-  // P2-3: 新手引导卡（置顶常驻，可折叠，全子模式可见）
-  content.insertAdjacentHTML("beforeend", _labNewbieGuideHTML());
+  // P2-3: 新手引导卡（置顶常驻，可折叠，全子模式可见；#55 按子模式动态化文案）
+  content.insertAdjacentHTML("beforeend", _labNewbieGuideHTML(state.labSubMode));
 
   // === 二级导航（单一信号实验 / 融合信号实验）===
   _renderLabSubNav();
