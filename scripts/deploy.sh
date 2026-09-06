@@ -175,6 +175,21 @@ if [ "$CHECK_RC" -ne 0 ]; then
 fi
 echo "✓ 数据产物校验通过" | tee -a "$LOG"
 
+# 1.1.1 任务状态一致性机检(CLAUDE.md §23.12-1, 2026-09-06 用户拍板根治)
+# 对账 A pending-index 编号完整性 / B TASKS 幽灵编号+残留关闭指针 / C 僵尸巡检 cron,
+# 任一 FAIL → 非0退出阻断上线(任务状态唯一权威=pending-index, 各处置指针不写状态断言, 机检兜底)。
+# 用 $GIT_REPO(trade 仓库): TASKS.md/.claude 只在 trade 树(trade-data 仅 docs 是 symlink,
+# TASKS.md/.claude 非 symlink 不存在于 trade-data)。每日运行 = update_all 17:50 O1 统一 deploy 链,
+# 与 check_data_integrity 完全同待遇(每日 + deploy 前双覆盖)。
+echo "-> 运行 check_task_state.py 任务状态一致性机检 ..." | tee -a "$LOG"
+"$PY" "$GIT_REPO/scripts/check_task_state.py" --repo "$GIT_REPO" --deploy-mode 2>&1 | tee -a "$LOG"
+TASK_RC=${PIPESTATUS[0]}
+if [ "$TASK_RC" -ne 0 ]; then
+  echo "✗ 任务状态一致性机检失败(退出码 $TASK_RC)，终止部署(§23.12-1 FAIL 阻断上线)" | tee -a "$LOG"
+  exit "$TASK_RC"
+fi
+echo "✓ 任务状态一致性机检通过" | tee -a "$LOG"
+
 # 1.2 入样宇宙规则对称校验(CLAUDE.md §23.6, 2026-08-14 用户定)
 # 入样宇宙规则(哪些信号进凯利回测/首页AI建议)必须①显式声明(config/universe_rules.yaml)
 # ②强制公示 ③1:1遵从 ④对称校验 ⑤变更联动。本步做④对称校验: 自动比对 overview._bt_in_universe

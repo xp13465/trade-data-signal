@@ -37,6 +37,7 @@
   python scripts/check_task_state.py --strict        # warn 当 fail
   python scripts/check_task_state.py --deploy-mode   # deploy 接入(非0退出阻断)
   python scripts/check_task_state.py --repo DIR      # 指定仓库根(自测/沙箱用)
+  python scripts/check_task_state.py --skip-zombie-crons  # 跳过僵尸 cron 检测(CI 干净环境)
 
 日常挂载: 每日 cron + deploy 前 check(与 check_data_integrity 同链), FAIL 阻断上线。
 """
@@ -395,6 +396,8 @@ def main() -> int:
     parser.add_argument("--strict", action="store_true", help="warn 当 fail(exit 2)")
     parser.add_argument("--deploy-mode", action="store_true", help="deploy 接入(非0退出阻断, 与 check_data_integrity 同链)")
     parser.add_argument("--repo", metavar="DIR", default=None, help="指定仓库根目录(默认=脚本所在仓根)")
+    parser.add_argument("--skip-zombie-crons", action="store_true",
+                        help="跳过僵尸巡检 cron 检测(CI 等无本地 /tmp 进度文件的干净环境用; 本地 deploy 不传)")
     args = parser.parse_args()
 
     if args.repo:
@@ -406,7 +409,12 @@ def main() -> int:
     print(f"  repo:            {repo}")
     print()
 
-    results = run_all_checks(repo)
+    if args.skip_zombie_crons:
+        # CI runner 无本地 /tmp/agent-progress-*.md(zombie cron 维度依赖本机 agent 运行状态),
+        # 干净环境跳过 C 维度只对账 A/B(repo 内文件, CI 有效)。
+        results = [check_pending_index(repo), check_tasks_references(repo)]
+    else:
+        results = run_all_checks(repo)
     for r in results:
         print_result(r)
 

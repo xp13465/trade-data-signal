@@ -10,13 +10,15 @@
 #     ② scripts/check_version_progress.py     版本串倒退哨兵 + merge 净回退校验(防再犯机制 A/B, §23.11)
 #     ③ scripts/check_version_consistency.py  部署版本一致性(§24⑤ 防孤儿快照)
 #     ④ 前端全部源 JS node --check            语法门禁(只 check 源, 不含 .min.js 产物)
+#     ⑤ scripts/check_task_state.py           任务状态一致性对账(§23.12-1; CI 传 --skip-zombie-crons,
+#                                              因 runner 无本地 /tmp agent-progress 文件, C 维度降级跳过)
 #   Job 2 quality-gate-data(continue-on-error, 需下载 R2 生产数据产物):
-#     ⑤ scripts/check_loss_rules_vs_mining.py AI降亏 20 新键·三层一致性(特征/谓词/阈值 vs 挖掘权威)
-#     ⑥ scripts/check_fade_predicate_parity.mjs 老37键迁 spec-driven 规格·命中集合逐位一致(单边模式)
-#     ⑦ pytest 空挂位(P0-1 产出填实后转 FAIL 阻断)
+#     ⑥ scripts/check_loss_rules_vs_mining.py AI降亏 20 新键·三层一致性(特征/谓词/阈值 vs 挖掘权威)
+#     ⑦ scripts/check_fade_predicate_parity.mjs 老37键迁 spec-driven 规格·命中集合逐位一致(单边模式)
+#     ⑧ pytest 空挂位(P0-1 产出填实后转 FAIL 阻断)
 #
 # 【为什么 Job 2 用 continue-on-error】
-#   ⑤⑥ 依赖 gitignore 的生产数据产物(static-site/data/signal_kelly_trades.json 72MB +
+#   ⑥⑦ 依赖 gitignore 的生产数据产物(static-site/data/signal_kelly_trades.json 72MB +
 #   kelly_loss_features.json 1.1MB, CI checkout 后不存在, 需从 R2 ssd.fx8.store 下载),
 #   且存在已知非代码回归 FAIL 来源:
 #     - check_loss_rules_vs_mining 层2 在「生产特征日期 > 挖掘快照 mine10 日期」时对新增日期
@@ -32,7 +34,7 @@
 # 【JDK/python 版本】与既有 deploy-cf.yml 保持一致: ubuntu-latest + setup-node@v4 lts/*;
 #   python 用 setup-python@v5 3.11(与本地 dev 3.11 一致, check_*.py 均纯标准库无第三方依赖)。
 #
-# 【后续联通】P0-1(算法 pytest)产出后: ⑦ 去掉 continue-on-error 落进 FAIL 阻断;
+# 【后续联通】P0-1(算法 pytest)产出后: ⑧ 去掉 continue-on-error 落进 FAIL 阻断;
 #   metrics/coverage 上 GitHub Actions job 徽章; check_loss_rules 挖掘快照版本化后转正。
 ---
 name: CI Quality Gate
@@ -95,6 +97,9 @@ jobs:
           if [ "$fail" -ne 0 ]; then exit 1; fi
           echo "✓ 前端源 JS 语法门禁通过"
 
+      - name: ⑤ 任务状态一致性对账(§23.12-1, CI 跳过僵尸 cron 维度)
+        run: python3 scripts/check_task_state.py --repo "$GITHUB_WORKSPACE" --deploy-mode --skip-zombie-crons
+
   # ---------------------------------------------------------------- Job 2: 数据产物一致性门禁
   quality-gate-data:
     runs-on: ubuntu-latest
@@ -108,7 +113,7 @@ jobs:
         with:
           node-version: 'lts/*'
 
-      - name: 下载生产数据产物(供 ⑤⑥)
+      - name: 下载生产数据产物(供 ⑥⑦)
         run: |
           mkdir -p "$GITHUB_WORKSPACE/static-site/data"
           curl -fsSL --retry 3 -o "$GITHUB_WORKSPACE/static-site/data/kelly_loss_features.json" \
@@ -117,17 +122,17 @@ jobs:
             "https://ssd.fx8.store/data/signal_kelly_trades.json"
           ls -la "$GITHUB_WORKSPACE/static-site/data/"
 
-      - name: ⑤ AI降亏三层一致性(特征/谓词/阈值 vs 挖掘权威)
+      - name: ⑥ AI降亏三层一致性(特征/谓词/阈值 vs 挖掘权威)
         env:
           TRADES_JSON: "${{ github.workspace }}/static-site/data/signal_kelly_trades.json"
         run: python3 scripts/check_loss_rules_vs_mining.py
 
-      - name: ⑥ fade 谓词规格迁移一致性(单边)
+      - name: ⑦ fade 谓词规格迁移一致性(单边)
         env:
           TRADES_JSON: "${{ github.workspace }}/static-site/data/signal_kelly_trades.json"
         run: node scripts/check_fade_predicate_parity.mjs
 
-      - name: ⑦ pytest 空挂位(P0-1 算法 pytest 产出后落进 FAIL 阻断)
+      - name: ⑧ pytest 空挂位(P0-1 算法 pytest 产出后落进 FAIL 阻断)
         continue-on-error: true
         run: |
           if python3 -m pytest -q --co -x 2>/dev/null; then

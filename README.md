@@ -436,6 +436,7 @@ docs/kelly/             # 凯利回测专题文档子目录（2026-08-14 按主�
 - **check_data_integrity**：数据产物完整性校验（deploy 前置，关键 JSON 空值率超标即阻断上线）
 - **check_r2_consistency**：本地 vs R2 一致性审计（数据一致性铁律）
 - **check_universe_alignment**：凯利回测/首页AI建议「入样宇宙规则」对称校验（deploy 前置，CLAUDE.md §23.6 治理）——自动比对 overview 每信号 `_bt_in_universe` ⟺ board_etf_map 重算入样判定、候选信号类型 ⊆ 白名单（config/universe_rules.yaml buy_whitelist）、回测交易无排除类别（债类 cgb_*/情绪 s.*/商品 g.*/港股行业 hk_*/空数组 ftse100·kospi）记录、yaml 排除类别 ⟺ map 实际缺失 key，任一 FAIL 阻断上线（同 §22 数据一致性校验逻辑）
+- **check_task_state**：任务状态一致性对账（deploy 前置 + CI 静态门禁，每日经 update_all 17:50 O1 统一 deploy 链运行，CLAUDE.md §23.12-1 治理）——对账 A pending-index 编号完整性 / B TASKS 幽灵编号+残留关闭指针 / C 僵尸巡检 cron，任一 FAIL 阻断上线（任务状态唯一权威=pending-index，TASKS/cron/memory 只写指针）
 - **self_heal**：盘中保护 update_all，脚本吞异常（exit=0 假成功）自动识别
 - **分时自愈轮询**：前端 1min 轮询 5 阶段自愈（超时/去重/降频/心跳/切前台清 in-flight），7x24 不卡死
 - **mac 休眠根治**：pmset 工作日唤醒 + caffeinate 防跑期间休眠
