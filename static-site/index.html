@@ -299,15 +299,20 @@
      策略: App Shell CacheFirst + 数据 JSON SWR(3min) + intraday NetworkFirst + 第三方不缓存
      版本切换: skipWaiting+clients.claim 立即接管, postMessage 提示用户手动刷新(避免 mid-session 切版本) -->
 <style>
-#sw-update-toast{position:fixed;right:16px;bottom:84px;z-index:90;display:none;background:var(--bg-card);color:var(--text-1);border:1px solid var(--primary);border-radius:8px;box-shadow:0 4px 16px var(--shadow-strong);padding:10px 14px;font-size:13px;line-height:1.5;max-width:260px;gap:8px;align-items:center}
+#sw-update-toast{position:fixed;right:16px;bottom:84px;z-index:90;display:none;background:var(--bg-card);color:var(--text-1);border:1px solid var(--primary);border-radius:8px;box-shadow:0 4px 16px var(--shadow-strong);padding:10px 14px;font-size:13px;line-height:1.5;max-width:260px;gap:8px;align-items:center;flex-wrap:wrap}
 #sw-update-toast.show{display:flex}
 #sw-update-toast .sw-update-btn{margin-left:8px;background:var(--primary);color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;flex-shrink:0;white-space:nowrap}
 #sw-update-toast .sw-update-btn:hover{opacity:.88}
+#sw-update-toast .sw-update-changelog{flex-basis:100%;margin-top:6px;padding-top:6px;border-top:1px dashed var(--border);max-height:132px;overflow-y:auto}
+#sw-update-toast .sw-update-changelog .sw-update-cl-head{font-weight:600;font-size:12px;margin-bottom:4px}
+#sw-update-toast .sw-update-changelog ul{margin:0;padding-left:16px}
+#sw-update-toast .sw-update-changelog li{font-size:12px;line-height:1.55;margin-bottom:2px;color:var(--text-2)}
 @media (max-width:768px){#sw-update-toast{bottom:92px;right:8px;left:8px;max-width:none}}
 </style>
 <div id="sw-update-toast" role="alert" aria-live="polite">
   <span>🔄 已有新版</span>
   <button class="sw-update-btn" type="button">刷新</button>
+  <div class="sw-update-changelog" id="sw-update-changelog" style="display:none"></div>
 </div>
 <script>
 (function () {
@@ -315,13 +320,41 @@
   var toast = document.getElementById('sw-update-toast');
   var btn = toast && toast.querySelector('.sw-update-btn');
 
-  function showUpdateToast() {
+  function showUpdateToast(versionHint) {
     if (toast) toast.classList.add('show');
+    loadUpdateChangelog(versionHint);
+  }
+
+  // #99(2026-09-06): 「已有新版」toast 内预览本次更新内容清单(changelog.json 版本串→条目 map)
+  //   数据源: static-site/changelog.json(手动维护轻量;缺失版本/请求失败=优雅降级不弹,不影响刷新主流程)
+  //   版本串解析: 优先 SW_UPDATED postMessage 携带的新版 CACHE_VERSION(归一化 v6- 前缀),
+  //               回退页面 lab-asset-url meta ?v= 当前版本串;changelog 无该版本条目=不显示
+  function loadUpdateChangelog(versionHint) {
+    var wrap = document.getElementById('sw-update-changelog');
+    if (!toast || !wrap) return;
+    var ver = versionHint || '';
+    if (!ver) {
+      var meta = document.querySelector('meta[name="lab-asset-url"]');
+      var m = meta && meta.getAttribute('content').match(/[?&]v=([^&]+)/);
+      if (m) ver = m[1];
+    }
+    ver = String(ver || '').replace(/^v[^-]+-/, ''); // v6-20260906-a544 -> 20260906-a544
+    if (!ver) return;
+    fetch('./changelog.json', { cache: 'no-store' })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        var items = data && data[ver];
+        if (!items || !items.length) return;
+        wrap.innerHTML = '<div class="sw-update-cl-head">📦 本次更新</div><ul>' +
+          items.map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ul>';
+        wrap.style.display = 'block';
+      })
+      .catch(function () {});
   }
 
   // SW 更新到位时(SW_UPDATED postMessage)提示用户刷新
   navigator.serviceWorker.addEventListener('message', function (event) {
-    if (event.data && event.data.type === 'SW_UPDATED') showUpdateToast();
+    if (event.data && event.data.type === 'SW_UPDATED') showUpdateToast(event.data.version);
   });
 
   // controllerchange 也兜底提示(新 SW 接管)
