@@ -164,7 +164,10 @@ def load_daily_fapi_fallback(load_start: str, load_end: str) -> pd.DataFrame:
     # 校准字段类型（读库 Float 可能保 None，pct_change 保持原语义）
     print(f"[D2] FAPI 兜底补 {len(fapi_df):,} 行覆盖 {fapi_df['date'].nunique()} 个断片日期 "
           f"({fapi_df['date'].min()}~{fapi_df['date'].max()})", flush=True)
+    # FAPI 查询未排除 mootdx 当日已有 code，同 (date, code) 会出两行；
+    # 去重保留先出现的 mootdx 行（mootdx 为主源，FAPI 仅断片补缺，口径不变）。
     df = pd.concat([df, fapi_df], ignore_index=True)
+    df = df.drop_duplicates(subset=["date", "code"]).reset_index(drop=True)
     return df
 
 
