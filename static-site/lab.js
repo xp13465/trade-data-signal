@@ -8414,8 +8414,10 @@ function _labKellyLoadAllBackground() {
 // 自愈重触发(#100 同类边缘 2026-09-06): 阶段2 后台分片失败且全量兜底也失败时, _labKellyAllBackgroundRunning 已复位(false)但
 //   无任何入口再重触发阶段2 → 长周期永久占位「全量分片加载中」永不补齐, 只能刷新。本函数在「长周期(非 y1)被读取」的必经判定点
 //   _labKellyPeriodIsReady 里调用: 满足「y1 在册 + 全量未就绪 + 后台未在跑 + 冷却期已过」→ 重触发后台加载继续补齐。
-//   防无限重试风暴: 每次重触发即置 _labKellyRetryAt 冷却时间戳, 冷却期内(15s)不再重触发; 已成功分片在 _labKellyShardStore.
-//   /_labKellyLoadedYears 里, 重试只重拉失败片, 已成功片不重复网络请求。
+//   防无限重试风暴: 每次重触发即置 _labKellyRetryAt 冷却时间戳, 冷却期内(15s)不再重触发。
+//   重试网络开销: 阶段1 已加载的 2 片在 _labKellyLoadedYears 里, restYears 计算会排除不重拉;
+//   阶段2 部分成功片只进 _labKellyShardStore(loadedYears 仅在全量合并成功时置 allYears), 重试会重拉,
+//   但合并复用 store 已存数据, 正确性不受影响(弱网兜底场景可接受)。
 function _labKellyMaybeResumeAllBackground() {
   if (_labKellyAllReady || _labKellyFullFallback) return;
   if (_labKellyAllBackgroundRunning) return;
