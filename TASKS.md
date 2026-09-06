@@ -14,14 +14,14 @@
 - **netasset 弹窗三处调整(09-05 需求)已收尾**:默认90天+x轴短日期+「末」标注右上(labelTop)。feat/netasset-modal-ui(f3dfe818b) reviewer PASS→main-merge 统一 bump(ec8e2db8b)→deploy,§0 三查过,蓝虚线=持仓市值(rev-20260905-001 P1-2 证伪为设计)
 - **codex worktree 隔离落地(09-05)**:codex 专属 worktree=`.claude/worktrees/codex-reviewer`+分支 `codex/reviewer`,SKILL.md 顶部开工检查(e022287a3 已合 main),合 main 走 main-merge.sh。⚠️ 主工作区被外部切分支/多出未知 commit=先怀疑 codex 误操作(§23.11)
 - **k3bench 评测定论(继续用 v4-flash)**:稳定性三输(终429率43.4% vs v4flash 19.5%、空body 38.5% vs 28.8%、有效率26% vs 68%),唯一赢=生成吞吐。报告 docs/k3-vs-v4flash-eval-20260905.md,75532cb32 已在 origin/main。意外发现:空body 200=商汤上游老毛病,代理按429换key可抬高有效率(建议立项)
-- **待跟进指针**:#36 北交所宽度宇宙拍板材料等用户拍板;FAPI 概念观察期 cron(1e0ef6fb) 09-08 到期;每日命中率走势 20:40 cron;§5.4 测试基准仍 v1.1.7(v1.1.16 纯新增展示/数据源,未动默认组合,基准不升)
+- **待跟进指针**:#101 北交所宽度已拍板C(09-06 用户定,待 #102 打包实施,见 pending-index);#102 FAPI转正已拍板A(09-06 用户定,见 pending-index);FAPI 概念观察期 cron(1e0ef6fb) 09-08 到期;每日命中率走势 20:40 cron;§5.4 测试基准仍 v1.1.7(v1.1.16 纯新增展示/数据源,未动默认组合,基准不升)
 **前轮(2026-09-04 17:0x)**:codegraph ui 误判修正→pending #98 待观察;sigkelly 研究员查断链 STEP10.
 - **✅ P0 信号凯利全信号卡收益骤变已定论(2026-09-04 15:0x)**:根因=Edge 正常浏览器 SW 缓存旧页面(lab.min.js CacheFirst 命中旧快照+强刷不清 SW),线上数据零故障无需回滚。研究员穷举全谱(当前 trades/旧 trades 4版/H策略cap/ext按年/git全史/线上DOM)0命中 182.25;用户无痕实测三证据链(Chrome/Edge无痕全部=A163/H224.92 逐位一致)。A163→142.68=DYNAMIC 评级表 K1 vs K3 同表并存非变化。报告落档 docs/kelly/ 待补(研究员产出)
 - **🆕 新发现:回测交易记录停在 8/31 断链(用户 09-04 报,待查根因)**:用户见首页模拟回测弹窗+信号凯利全信号 A 交易记录停在 8/25,未演进到 9/4。主控只读定位已锁:**signal_kelly_trades.json 虽 09-04 02:17 新生成,但全象限最大买入=20260831,9/1-9/4 零买入**(部分象限更早:rating_high 8/17/sig_main 7/31/mkt_concept 8/25);**信号源 overview signals_today 信号日期到 20260903 新鲜**;9/1-9/4 全交易日。=回测链路(scripts/signal_kelly_backtest.py 读 signal_stats.json)未消费 9/1-9/4 信号。已派 researcher 查根因+并行设计快照告警
 - **🆕 CodeGraph `codegraph ui` 误判修正(2026-09-04)**:用户指正官方 README 有 `codegraph ui`(浏览器可视化 http://127.0.0.1:4747,callers左/源码中/callees右,`codegraph web` 别名)。根因=本地 npm 1.6.0(08-26 发布)旧版,ui 是 08-26 后合入 GitHub main 未发包。**用户定:待观察(等官方npm发包+坑修复),已落 pending #98 + memory 修正**。3 坑仍在(app.js>1MB 静默跳过最重)。
 - **✅ v1.1.15 tag 已打并 push(18b57a476,2026-09-04)**:外审 rev-20260903-002 BLOCKED(3 P0/P1)→**主控逐点证伪全不成立**(P0 kimi SSE 伪造=全仓全史无 event_stream_payload 符号+代理纯透传无 SSE 逻辑;P1 R2 执行位=入库即 100755 从未丢;P1 watcher 鉴权=纯出站无入站 HTTP 服务),不阻塞 tag。证伪证据落档 docs/codex-reviews/rev-20260903-002-falsification.md + README 索引行。内审=reviewer 已 PASS(v1.1.14..main 24 commits,6 功能项+2 低危)
 - **✅ P0-2 CI 质量门禁(→main 18b57a476,2026-09-03 23:5x)**:reviewer 8 维验收 PASS(命令存在+参数对齐/退出码语义/fetch-depth:0 必要/Job2 R2 下载路径/node --check 覆盖/§15 回归面/改动落档/硬约束,仅 2 文件:ci.yml 137 行+architecture-review 58 行);main-merge.sh 统一入口合并,版本串倒退/净回退校验 PASS,未碰前端源码跳过 bump
-- **🔄 新任务 #50 K档位评级 hoverpop 调研(在跑,researcher)**:用户所见 K=1 162.91%/536 已实锤=09-03 05:10 旧数据版(当前 540 版 +4 笔,与报告 kept 536→540 逐位吻合),公式口径无漂移;找旧 trades 副本独立复算最后一环中。进度 /tmp/agent-progress-k-label-research.md
+- ✅ 新旧任务编号对齐(#50→#54,09-06 任务状态机检修正):旧「#50 K档位评级 hoverpop 调研」实为 #54「K档评级动态化:命名综合收益+凯利区按窗口重算」,已实施上线(0b81ec5e1 系列,v1.1.16 内);#50 实为 done-list 内的「每日池口径默认 K 档决策」(见 pending-index #50)。两处编号已按 pending-index 唯一权威校正(§23.12-1)
 - **✅ 新任务 #51 净资产走势图调研(完成 2026-09-04 15:4x,researcher ad9fe83344f53469f)**:调研 5 维度全齐已落档 `docs/kelly/analysis/sim-netasset-equity-chart-20260901/`(REPORT.md 含复现段+脚本 netasset_daily_repro.py+样例数据,§23.5 四件套)。**核心结论**:净资产公式=现金+持仓市值(现金=初始-Σ开仓+Σ卖出净额;市值=Σ未平仓×当日 nav;初始=峰值同时持仓×¥10000,H 档 5 万);trades 无逐日快照须前端重建,数据从 kept rows 重算不新增请求;图表复用 _lwSetup(app.js L17784)或 _labSimSVG(lab.js L1879)。**⚠️ 诚实标注:对账差 -27770.11=3 笔 sell_date=20260902 晚于 accum_nav_map 末日 20260828(数据版本时间差,非公式错),实施时尾段须截断 nav 末日或按 current_price 处理+UI 标注。** 待实施 agent 按报告方案开发(纯新增展示,不改现有逻辑)。巡检 cron b419b094 已删
 - **⏱ 巡检 cron 68a4b82c(3,18,33,48*durable)** 覆盖 #50/#51 两 agent,全完成即删
 - **✅ 三分支合并落地(21:16-21:20,均已 push main)**:feat/opt-baostock(dc582874c→bf8dd6dd)、worktree-agent sensenova 日志分级(ce2538d50→98ad1db0)、feat/decommission-r2-20260903(8c3992117→35e5b06d,R2 备份+恢复脚本);合并 TASKS fcb884b4e。21:08 merge cron a1ef9d5a 手动完成后已删
@@ -46,7 +46,7 @@
 > **TASKS.md 已清空活跃待办**(2026-08-20 用户「task 只留交接/大纲/必要指针,无活跃 checkbox;待办全判远期移 todolist,等有真正在做再放」)。
 > - 真完成 53 条 → [docs/tasks-done-list.md](docs/tasks-done-list.md)(完成文件:43 TASKS治理 + 10 费率;待 7 天自动归档)
 > - 用户关闭 3 条 → [docs/archive/TASKS-done.md](docs/archive/TASKS-done.md) 关闭记录
-> - **待办/远期全在 [docs/pending-features-index.md](docs/pending-features-index.md) 模块十六**:#79 场外方案C(8步)/#80 性能P2/**#82-89 八项归档活跃需求**/#90 场外阶段/**#91 次日开盘口径**/**#92 SVG 大盘 tab P2-11**/**#101 北交所宽度已拍板C待实施**/**#102 FAPI转正已拍板A待实施**(#81 管理端看板已于 2026-08-20 用户拍板关闭,勿再列为远期;详情 TASKS-done.md 关闭记录)
+> - **待办/远期全在 [docs/pending-features-index.md](docs/pending-features-index.md) 模块十六**:#79 场外方案C(8步)/#80 性能P2(含 P2-11 大盘 tab SVG/**#82-89 八项归档活跃需求**/#90 场外阶段/**#91 次日开盘口径**/**#101 北交所宽度已拍板C待实施**/**#102 FAPI转正已拍板A待实施**(SVG 大盘 tab 与 P2-11 同项已并入 #80,不独立排期;#81 管理端看板已于 2026-08-20 用户拍板关闭,勿再列为远期;详情 TASKS-done.md 关闭记录)
 > - 待安排指针(近期):excludeSpecialBearCyb 实测 / 次日开盘口径(#91),见 pending-index 对应节。#73 8宽基四档 / #74 邮件广播hit白名单 已完成 done-list 登记(2026-08-21 同步)。
 > - 后续新增真实待办(有活在做)再写回本节。
 
@@ -76,7 +76,7 @@
 > ③ 公示三处+README:purpose-notes/lab tooltip/首页 badge 同步 §21/§23.6 + README 功能描述
 > ④ 谓词同源债清理:同一套过滤谓词现存三份拷贝(lab/_sim/sim_core)+后端两份硬编码(queries/overfit),收敛单一来源防口径漂移
 - [ ] T4 公示 §21 同步(purpose-notes/lab tooltip)+README §23.1+版本号 bump+reviewer 审查(依赖 T1-T3)
-- [ ] T5 主控验收 merge 上线 → 用户手动切换校验 → **用户验收数据通过且 NEW 14键确实如预期**才走 NEW 设默认任务:届时打 **v1.1.5 tag**(2026-08-23 用户定)+ 同步把测试基准锚点 memory(`test-baseline-v112-anchor`)升级为 v1.1.5(未来一切回测/挖掘以 v1.1.5 为前提)+ 前端默认值 + §21 公示 + README 四件套联动。**⚠️ 2026-08-23 用户新定调:AUTO 择时切换模式调研(regime-mode-rotation-research,pending #94)= v1.1.5 定稿「平台主推 AI 算法基座」的最后一次努力**——成立(样本外+平稳优先效用)则 v1.1.5 基座=AUTO 方向,不成立则 NEW14 设默认;调研结论出来前 NEW 设默认暂缓执行
+- [ ] T5 主控验收 merge 上线 → 用户手动切换校验 → **用户验收数据通过且 NEW 14键确实如预期**才走 NEW 设默认任务:届时打 **v1.1.5 tag**(2026-08-23 用户定)+ 同步把测试基准锚点 memory(`test-baseline-v112-anchor`)升级为 v1.1.5(未来一切回测/挖掘以 v1.1.5 为前提)+ 前端默认值 + §21 公示 + README 四件套联动。**⚠️ 2026-08-23 用户新定调:AUTO 择时切换模式调研(regime-mode-rotation-research,#94 已完成,见 pending-index ★)= v1.1.5 定稿「平台主推 AI 算法基座」的最后一次努力**——成立(样本外+平稳优先效用)则 v1.1.5 基座=AUTO 方向,不成立则 NEW14 设默认;调研结论出来前 NEW 设默认暂缓执行
 
 ### 📚 本轮降亏挖掘战役 README 总结导航(2026-08-23 用户点名,收尾必做)
 > 背景:mine22/23/24 全员竞赛+mine25 可操作长线+g2 门审计修正+速查卡等扩容产物多,`docs/kelly/analysis/README.md` 只有平铺逐行索引,缺总览入口。
