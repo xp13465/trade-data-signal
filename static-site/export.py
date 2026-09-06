@@ -724,6 +724,8 @@ TAB_EXPORTER_FUNCS = {
 EXPORT_MANIFEST_WARN = {
     "signal_kelly_backtest.json": "subprocess 失败不阻塞 export, 前端 fallback null(设计内可缺)",
     "signal_kelly_trades.json": "signal_kelly_backtest.py 附带产出(R2 类), 同上设计内可缺",
+    "signal_kelly_backtest_sdc.json": "#91 当日收盘对比档(7.9.2b), subprocess 失败不阻塞 export(设计内可缺)",
+    "signal_kelly_trades_sdc.json": "#91 当日收盘对比档附带产物(R2 类), 同上设计内可缺",
 }
 
 # 目录/动态名产物(glob 相对 static-site/data/): 文件名含运行期变量(cfg enabled
@@ -733,6 +735,7 @@ EXPORT_MANIFEST_DIR_GLOBS = (
     "industry-all-indices/*.json",   # 31 行业拆分(all range 另含 *-detail.json)
     "industry-5y-indices/*.json",
     "industry-3y-indices/*.json",
+    "signal_kelly_snapshots/*.json", # 每日快照(2026MMDD.json 动态名)+ index/latest_posrating(7.9.3)
 )
 
 

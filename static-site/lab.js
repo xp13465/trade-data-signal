@@ -2573,7 +2573,7 @@ function _labNewbieGuideHTML(subMode) {
         `<div><b>持有建议</b>：点击行看完整 8+8 维度拆解弹窗 + 持有/调整建议。此处为 AI 评分非回测，不构成投资建议。` +
         `</div></div>` +
         `</div></details>`;
-    // sigkelly: 信号凯利回测(选周期/参数 → 6象限半凯利仓位回测 → AI 报告; Kelly 比例=仓位建议)
+    // sigkelly: 信号凯利回测(选周期/参数 → 16卡半凯利仓位回测 → AI 报告; Kelly 比例=仓位建议)
     case "sigkelly":
       return `<details class="lab-newbie-guide" open>` +
         `<summary class="lab-newbie-guide-summary">🧭 新手引导 · 信号凯利回测三步 <span class="lab-newbie-toggle"></span></summary>` +
@@ -2584,7 +2584,7 @@ function _labNewbieGuideHTML(subMode) {
         `</div></div>` +
         `<div class="lab-newbie-step">` +
         `<span class="lab-newbie-step-no">2</span>` +
-        `<div><b>6 象限半凯利仓位回测</b>：信号按象限分组（评级×ETF 归类），回测每组胜率和盈亏比，代入半凯利公式（半凯利 = 凯利比例/2，更保守）得建议仓位。` +
+        `<div><b>16 卡半凯利仓位回测</b>：信号按 4 组 16 卡分组（评级3 + ETF归类4 + 信号类型4 + 指数大类5），回测每组胜率和盈亏比，代入半凯利公式（半凯利 = 凯利比例/2，更保守）得建议仓位。` +
         `</div></div>` +
         `<div class="lab-newbie-step">` +
         `<span class="lab-newbie-step-no">3</span>` +
@@ -6055,7 +6055,7 @@ async function renderSignalLab() {
     return;
   }
 
-  // 自定义分析 > 信号凯利回测子tab -> 渲染6象限(3评级+3 ETF归类)×4模式×3周期半凯利仓位回测
+  // 自定义分析 > 信号凯利回测子tab -> 渲染16卡(评级3+ETF归类4+信号类型4+指数大类5)×10模式×5周期半凯利仓位回测
   if (state.labSubMode === "sigkelly") {
     await renderSigKellyLab();
     _labSetHash("#lab?sub=sigkelly");
@@ -9337,7 +9337,7 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// === 信号凯利回测(sigkelly):6象限(3评级+3 ETF归类) x 4模式 x 3周期 半凯利仓位回测 ===
+// === 信号凯利回测(sigkelly):16卡(评级3+ETF归类4+信号类型4+指数大类5) x 10模式 x 5周期 半凯利仓位回测 ===
 // 数据: ./data/signal_kelly_backtest.json (后端 signal_kelly_backtest.py 生成, <100KB 走 CF Workers)
 // 布局: 顶部说明 + 周期切换tab(y1/y3/all) + 评级3卡 + ETF3卡(每卡4模式表格) + 底部色标
 async function renderSigKellyLab() {
