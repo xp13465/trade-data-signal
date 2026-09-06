@@ -4,20 +4,21 @@ sensenova-rotate-proxy.py - 商汤 Sensenova 多 token 轮换本地代理(纯 ke
 
 用途:商汤 token.sensenova.cn 对 deepseek-v4-flash 按 RPM(每分钟请求数)限流,单 token 撞 429
       (inference tpm exhausted)会反复导致 implementer 死限流;客户端退避间隔写死 4 秒封顶调不了。
-      本代理在本地轮换 5 把 key,把 RPM 摊到 5 个池 = 变相 x5 吞吐。
+      本代理在本地轮换多把 key(当前 7 把),把 RPM 摊到 N 个池 = 变相 xN 吞吐。
       只做纯 key 轮换:监听本地端口 -> round-robin 选 key -> 转发 token.sensenova.cn(base=/)
-      -> 上游 429 时换下一把 key 重试(轻退避)。与 thinking_proxy.py(思考注入)完全无关、完全独立。
+      -> 上游 429 时换下一把 key 重试(轻退避+抖动)。与 thinking_proxy.py(思考注入)完全无关、完全独立。
 
 用法(常驻,launchd 守护):
   bash scripts/sensenova-rotate-proxy.sh   # 包装脚本(负责从 .env 导出 key 再 exec 本代理)
   或直接(已注入 key 的 env):
-  SENSENOVA_KEY1=.. SENSENOVA_KEY2=.. SENSENOVA_KEY3=.. SENSENOVA_KEY4=.. SENSENOVA_KEY5=.. \
+  SENSENOVA_KEY1=.. SENSENOVA_KEY2=.. SENSENOVA_KEY3=.. SENSENOVA_KEY4=.. SENSENOVA_KEY5=..
+  SENSENOVA_KEY6=.. SENSENOVA_KEY7=.. \
   python3 scripts/sensenova-rotate-proxy.py
   监听 127.0.0.1:8899(可 TTP_PORT 改),转发 https://token.sensenova.cn/
-  真实 key 禁进 git/日志;key 从 env 或 ../trade-data/.env(仓外)读 SENSENOVA_KEY1/2/3/4/5。
+  真实 key 禁进 git/日志;key 从 env 或 ../trade-data/.env(仓外)读 SENSENOVA_KEY1/2/3/4/5/6/7。
 
 激活步骤:
-  1. 确认 ../trade-data/.env 含 SENSENOVA_KEY1/2/3/4/5(本次已写入,仓外不提交)
+  1. 确认 ../trade-data/.env 含 SENSENOVA_KEY1/2/3/4/5/6/7(本次已写入,仓外不提交)
   2. launchctl load scripts/com.trade.thinking-proxy.plist(TTP_PROVIDER=sensenova-rotate 守护本脚本)
   3. settings.json env "ANTHROPIC_BASE_URL": "http://127.0.0.1:8899"(切换由用户拍板,本次未动 settings)
 
@@ -25,7 +26,7 @@ sensenova-rotate-proxy.py - 商汤 Sensenova 多 token 轮换本地代理(纯 ke
 回退:bash scripts/thinking-proxy-rollback.sh sento(还原 settings 直连单 token 原状 + 停代理)。
 
 env:
-  SENSENOVA_KEY1/2/3/4/5      # 5 把商汤 key;缺 1 把则仅用已有 key 轮换(round-robin 长度=已有 key 数)
+  SENSENOVA_KEY1/2/3/4/5/6/7  # 7 把商汤 key;缺 N 把则仅用已有 key 轮换(round-robin 长度=已有 key 数)
   SENSENOVA_ENV_FILE        # 回退读 .env 的路径,默认 /Users/linhuichen/code/trade-data/.env
   TTP_RETRY_ON_429=1        # 上游 429 时换下一把 key 重试(默认开)
   TTP_ROTATE_BACKOFF=0.3    # 429 换 key 重试的轻退避秒数(默认 0.3,避免把 3 池全打满)
@@ -43,7 +44,7 @@ env:
   TTP_REQDUMP_KEEP_ERR=30   # ERR(>=400)保留最近 N 个(默认 30,报错原文不滚删)
   TTP_DETECT_LOG=0          # 结构化请求检测日志(默认关;=1 开,量控第一道,全局计数 50000 条封顶)
 """
-import http.server, http.client, threading, time, sys, ssl, os, json
+import http.server, http.client, threading, time, sys, ssl, os, json, random
 
 UPSTREAM_HOST = "token.sensenova.cn"
 UPSTREAM_PORT = 443
@@ -70,13 +71,16 @@ def _log_enabled(level):
     """该级别是否应写日志(阈值 >= 该级 rank 才写;debug 级 rank 最小,error/off 最大)。"""
     return _LOG_LEVEL_RANK_VAL <= _LOG_LEVEL_RANK.get(level, 30)
 
-# ═══ 5 把 key 加载(真实 key 禁进 git/日志)═══
-# 读取顺序:先看 env(SENSENOVA_KEY1/2/3/4/5),再回退读 ../trade-data/.env(仓外)。
+# ═══ 多把 key 加载(真实 key 禁进 git/日志)═══
+# 读取顺序:先看 env(SENSENOVA_KEY1..KEY7),再回退读 ../trade-data/.env(仓外)。
 # 缺 key 的:只加入有值 key 轮换;一把都没有 = 不启用轮换(回到单 key 直发,失败透明)。
-# 返回 (keys, key_nums):key_nums 与 keys 并行,记录每把 key 的序号(1/2/3/4/5),用于冷却日志标识。
+# 返回 (keys, key_nums):key_nums 与 keys 并行,记录每把 key 的序号(1/2/3/4/5/6/7),用于冷却日志标识。
+# 2026-09-06 扩展 KEY6/KEY7(用户新增 2 key):序列动态生成,没配 KEY6/7 时向后兼容(长度=已有 key 数)。
+_KEY_ENV_NAMES = tuple("SENSENOVA_KEY%d" % i for i in range(1, 8))
+
 def _load_keys():
     keys, nums = [], []
-    for _i, _k in enumerate(("SENSENOVA_KEY1", "SENSENOVA_KEY2", "SENSENOVA_KEY3", "SENSENOVA_KEY4", "SENSENOVA_KEY5"), start=1):
+    for _i, _k in enumerate(_KEY_ENV_NAMES, start=1):
         _v = os.environ.get(_k, "").strip()
         if _v:
             keys.append(_v)
@@ -93,7 +97,7 @@ def _load_keys():
                     continue
                 _kk, _vv = _line.split("=", 1)
                 _m[_kk.strip()] = _vv.strip().strip('"').strip("'")
-            for _i, _k in enumerate(("SENSENOVA_KEY1", "SENSENOVA_KEY2", "SENSENOVA_KEY3", "SENSENOVA_KEY4", "SENSENOVA_KEY5"), start=1):
+            for _i, _k in enumerate(_KEY_ENV_NAMES, start=1):
                 _v = _m.get(_k, "").strip()
                 if _v:
                     keys.append(_v)
@@ -128,10 +132,14 @@ def _is_peak_hour():
     return PEAK_START_HOUR <= _h < PEAK_END_HOUR
 
 def _rotate_backoff():
-    """429 换 key 重试退避秒数:高峰 1.5s(下限),非高峰 0.3s(env 可改更大)。"""
+    """429 换 key 重试退避秒数:高峰 1.5s(下限),非高峰 0.3s(env 可改更大)。
+    2026-09-06 P0-3 加全抖动(AWS exp backoff + jitter):返回 random(0, base),多请求同时恢复时
+    退避错开不共振,避免高峰并发请求把上游同时打满(AWS blog 名文,审计 P0-3)。"""
     if _is_peak_hour():
-        return max(ROTATE_BACKOFF, PEAK_ROTATE_BACKOFF)
-    return ROTATE_BACKOFF
+        _base = max(ROTATE_BACKOFF, PEAK_ROTATE_BACKOFF)
+    else:
+        _base = ROTATE_BACKOFF
+    return random.uniform(0, _base)
 
 # ═══ 单 key 分层冷却(429 额度型限流,2026-09-01 用户定)═══
 # 商汤 429 分两类:短时限流(inference tpm / rpm exhausted)靠换 key 重试即解,不冷却;
@@ -145,8 +153,13 @@ def _rotate_backoff():
 #   冷却结束再触发 → 重置回 level0:key 在冷却后若成功过(非429响应)则清冷却,新触发即 fresh level=0。
 COOL_L0_SEC = 180          # level 0 冷却 180 秒(3min)起步(数据定档,替代旧 60s)
 COOL_MAX_LEVEL = 5         # level 封顶(180/360/720/1440/2880s 五档,真死 key 递增隔离)
-_cool = {}                 # key -> {"until": epoch, "level": int}(内存,不落盘)
+_cool = {}                 # key -> {"until": epoch, "level": int}(内存 + 落盘,重启不丢)
 _cool_lock = threading.Lock()
+# 2026-09-06 P0-2 冷却持久化(litellm 同款设计):冷却状态落盘 /Users/linhuichen/code/trade-data/data/
+# (仓外,真实 key 绝不落盘,只存 keyN 序号)。KeepAlive 重启秒级拉起后病 key 不立即回池再撞 429。
+# 存储格式:{"keys": {"key1": {"cooled_until_ms": int, "level": int}, ...}, "updated_at": int(ms)}
+# 路径可用 TTP_COOLDOWN_FILE 覆盖(kimi 版用独立文件隔离,防两进程并发覆盖)。
+COOLDOWN_FILE = os.environ.get("TTP_COOLDOWN_FILE", "/Users/linhuichen/code/trade-data/data/sensenova-cooldown.json")
 
 def _cool_duration_sec(level):
     """递增退避:level0=180s,level1=360s,...,封顶 2880s(48min)。
@@ -191,6 +204,7 @@ def _mark_cool(key, key_num, msg):
             _dur = int(_dur * PEAK_COOL_MULT)
         _until = time.time() + _dur
         _cool[key] = {"until": _until, "level": _level}
+    _save_cooldown()  # P0-2 冷却状态落盘(重启不丢)
     _dur_min = f"{_dur//60}min"
     logmsg(f"COOL KEY{key_num} until {time.strftime('%H:%M', time.localtime(_until))} msg={msg} level={_level} ({_dur_min})", level="warn")
 
@@ -198,6 +212,79 @@ def _unmark_cool(key):
     """成功响应(非429/400)后清除该 key 冷却,使下次额度型 429 重新从 180s 探(重置)。"""
     with _cool_lock:
         _cool.pop(key, None)
+    _save_cooldown()  # P0-2 冷却状态落盘(重启不丢)
+
+# ═══ 冷却状态持久化(P0-2,2026-09-06)═══
+# 存储用 keyN 序号标识,真实 key 绝不落盘;临时文件 + os.replace 原子替换防并发读半截/写坏。
+# 单进程多线程(_cool_lock 保护)+ 单实例(launchd KeepAlive 保证),无需跨进程文件锁;
+# 写盘失败静默(冷却内存态仍生效,只是不持久化,不阻断主流程)。
+
+def _cooldown_snapshot():
+    """把当前内存冷却状态转成可序列化 dict(keyN 序号 -> {cooled_until_ms, level})。"""
+    with _cool_lock:
+        out = {}
+        for _key, _e in _cool.items():
+            try:
+                _ki = KEYS.index(_key)
+            except ValueError:
+                continue
+            out[f"key{KEY_NUMS[_ki]}"] = {"cooled_until_ms": int(_e["until"] * 1000), "level": _e["level"]}
+        return out
+
+def _save_cooldown():
+    """冷却状态原子写盘。临时文件 + os.replace(同目录 rename,同文件系统原子);写失败静默不阻断。"""
+    try:
+        _data = {"keys": _cooldown_snapshot(), "updated_at": int(time.time() * 1000)}
+        _dir = os.path.dirname(COOLDOWN_FILE)
+        os.makedirs(_dir, exist_ok=True)
+        _tmp = "%s.tmp.%d" % (COOLDOWN_FILE, os.getpid())
+        with open(_tmp, "w") as _f:
+            json.dump(_data, _f)
+        os.replace(_tmp, COOLDOWN_FILE)
+    except Exception:
+        pass
+
+def _load_cooldown():
+    """启动时读盘恢复冷却状态。文件按 keyN 序号存,映射回当前真实 key 池;
+    序号不在当前 key 集(如 key 数变化)或条目已过期的直接丢弃。只恢复仍在冷却期的条目。"""
+    try:
+        with open(COOLDOWN_FILE) as _f:
+            _data = json.load(_f)
+    except FileNotFoundError:
+        return
+    except Exception as e:
+        logmsg(f"WARN cooldown load failed: {e}", level="warn")
+        return
+    _keys_map = _data.get("keys") or {}
+    _restored = 0
+    with _cool_lock:
+        for _kname, _e in _keys_map.items():
+            if not isinstance(_e, dict):
+                continue
+            _num = None
+            if isinstance(_kname, str) and _kname.startswith("key"):
+                try:
+                    _num = int(_kname[3:])
+                except ValueError:
+                    continue
+            elif isinstance(_kname, (int, float)):
+                _num = int(_kname)
+            else:
+                continue
+            if _num not in KEY_NUMS:
+                continue  # 序号不在当前 key 池(如新增/减少 key),跳过
+            _key = KEYS[KEY_NUMS.index(_num)]
+            _ms = _e.get("cooled_until_ms")
+            if not isinstance(_ms, (int, float)):
+                continue
+            _until = _ms / 1000.0
+            if _until <= time.time():
+                continue  # 已过期,不恢复
+            _lvl = _e.get("level", 0)
+            _cool[_key] = {"until": _until, "level": int(_lvl) if isinstance(_lvl, (int, float)) else 0}
+            _restored += 1
+    if _restored:
+        logmsg(f"cooldown restored {_restored} key(s) from {os.path.basename(COOLDOWN_FILE)}", level="info")
 
 def _cooled_out(key):
     """该 key 是否处于冷却期(now < until)。"""
@@ -311,7 +398,7 @@ def _detect_log(command, path, body, content_type):
 # 不参与滚动删除,方便复现商汤概率性 400 的根因。只落 body(Authorization 在 header,绝不落盘)。
 # 不碰注入/轮换/冷却/重试业务逻辑,纯旁路写盘。
 # env:
-#   TTP_REQDUMP=0          # 关闭(默认开)
+#   TTP_REQDUMP=0          # 关闭(默认关;=1 才开,2026-09-01 用户定日志关闭)
 #   TTP_REQDUMP_DIR        # dump 目录(默认 trade-data/data/logs/sensenova-req-dump,仓外 gitignore)
 #   TTP_REQDUMP_KEEP       # 非 ERR 保留最近 N 个(默认 30)
 #   TTP_REQDUMP_KEEP_ERR   # ERR 保留最近 N 个(默认 30)
@@ -531,6 +618,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
 if __name__ == "__main__":
+    _load_cooldown()  # P0-2 启动恢复冷却状态(重启不丢病 key 标记)
     _port = int(os.environ.get("TTP_PORT", "8899"))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", _port), Handler)
     logmsg(f"sensenova-rotate-proxy listening on 127.0.0.1:{_port} -> https://{UPSTREAM_HOST}{UPSTREAM_BASE} "
