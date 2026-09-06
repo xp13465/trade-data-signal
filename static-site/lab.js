@@ -8385,9 +8385,11 @@ function _labKellyMergeShards(shards) {
 }
 // 全量兜底
 async function _labKellyLoadFull() {
+  var _ep = _labKellyEpoch;   // #91 口径代际: 捕获入参时代际, 写回前校验(切口径后旧口径全量兜底不覆盖新口径数据)
   try {
     console.warn("[sigkelly] 分片加载失败, 回退全量 " + _labKellyTradesFullName() + "(约69MB)");
     var tr = await _labKellyFetchTrades(_labKellyTradesFullName());
+    if (_ep !== _labKellyEpoch) return false; // 口径已切: 丢弃旧口径全量兜底结果
     state.labSigKellyTradesData = _labKellyParseTrades(tr);
     _labKellyFullFallback = true;
     // 全量兜底=覆盖全史, 两阶段就绪状态全置位(此后所有周期都走全量/就绪判定, 不再触发两片渐进)(#100 2026-09-06)
@@ -8419,6 +8421,7 @@ async function _labKellyLoadYearParts() {
   // 阶段1 已完成 → 近1年两片已合并在册, 直接返回(不重复网络请求)
   if (_labKellyY1Ready && state.labSigKellyTradesData) return true;
 
+  var _ep = _labKellyEpoch;   // #91 口径代际: 捕获入参时代际, 写回前校验(切口径后旧口径阶段1 不覆盖新口径数据/分片)
   try {
     // ===== 阶段1: 先拉近1年两片(2025+2026), y1 窗口基笔 100% 落这两片(评估实证 y1 基笔 1827=409+1418 合并闭合) =====
     //   目标: 首屏下载 ~30MB(t2025=16.4MB + t2026=13.5MB, 省 57% vs 全量 69MB), y1 先渲染。
@@ -8431,6 +8434,7 @@ async function _labKellyLoadYearParts() {
       console.warn("[sigkelly] 近1年分片 t" + y1Fail.join(",") + " 重试后仍失败, 回退全量 " + _labKellyTradesFullName() + "(约69MB)");
       return await _labKellyLoadFull();
     }
+    if (_ep !== _labKellyEpoch) return false; // 口径已切: 丢弃旧口径阶段1 结果(不写分片store/loadedYears/tradesData)
     // 两片都成功才合并近1年数据并缓存分片(阶段2 全量合并需所有分片原始数据)
     for (var yk = 0; yk < y1Res.length; yk++) _labKellyShardStore[y1Res[yk].year] = y1Res[yk].data;
     var y1Merged = _labKellyMergeShards(y1Res.map(function (r) { return r.data; }));
@@ -8501,6 +8505,7 @@ function _labKellyMaybeResumeAllBackground() {
 }
 async function _labKellyLoadAllBackgroundRun() {
   if (_labKellyFullFallback || _labKellyAllReady) return;
+  var _ep = _labKellyEpoch;   // #91 口径代际: 捕获入参时代际, 分片入store/最终写回前校验(切口径后旧口径阶段2 不污染新口径分片store/不覆盖新口径数据)
   // 剩余年份 = 全量清单 - 已加载(渐进两阶段共用同一 store, 任何已加载年份不再重复拉)
   var restYears = [];
   for (var i = 0; i < _labKellyAllYears.length; i++) {
@@ -8508,6 +8513,7 @@ async function _labKellyLoadAllBackgroundRun() {
   }
   if (restYears.length === 0) { _labKellyAllReady = true; _labKellyOnAllReady(); return; }
   var res = await _labKellyFetchYears(restYears);
+  if (_ep !== _labKellyEpoch) return; // 口径已切: 丢弃旧口径阶段2 结果(不写分片store, 不触发 _labKellyOnAllReady)
   var failNames = [];
   for (var fi = 0; fi < res.length; fi++) {
     if (!res[fi].ok) failNames.push(res[fi].year);
@@ -8517,6 +8523,7 @@ async function _labKellyLoadAllBackgroundRun() {
     // 阶段2 有片重试仍失败 → 不回退已渲染的 y1, 直接兜底全量(诚实回退, §22)
     console.warn("[sigkelly] 阶段2 分片 t" + failNames.join(",") + " 重试后仍失败, 回退全量 " + _labKellyTradesFullName() + "(约69MB)");
     await _labKellyLoadFull();
+    if (_ep !== _labKellyEpoch) return;
     _labKellyOnAllReady();
     return;
   }
@@ -8527,6 +8534,7 @@ async function _labKellyLoadAllBackgroundRun() {
     if (_labKellyShardStore[yy]) fullParts.push(_labKellyShardStore[yy]);
   }
   var fullMerged = _labKellyMergeShards(fullParts);
+  if (_ep !== _labKellyEpoch) return; // 口径已切: 不覆盖新口径数据
   _labKellyLoadedYears = _labKellyAllYears.slice();
   state.labSigKellyTradesData = fullMerged;
   _labKellyAllReady = true;
