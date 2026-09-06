@@ -1234,6 +1234,31 @@ def main():
                     print(f"  signal_kelly_snapshot: 失败 rc={_sk.returncode} stderr={_sk.stderr[:200]}")
             except Exception as _e:  # noqa: BLE001
                 print(f"  signal_kelly_snapshot: 异常 {_e}")
+            # 7.9.2b signal_kelly_backtest SDC(当日收盘对比档, #91 2026-09-06): 与上方 NDO(次日开盘, 默认)
+            # 背靠背同输入数据重跑 KELLY_BUY_NEXTDAY=0, 产出 signal_kelly_backtest_sdc.json +
+            # signal_kelly_trades_sdc.json + sdc 分片/lab切片 + .gz(脚本默认全量生成)。
+            # 两口径同数据快照保证可公平对比(§22 同数据切口径一致); 失败不阻塞 export(对比档可选展示,
+            # 前端回退默认口径, 与 7.9.2 同设计内可缺)。仅 NDO 成功才跑(数据问题时两者同败, 减噪)。
+            try:
+                _sdc_env = dict(os.environ)
+                _sdc_env["KELLY_BUY_NEXTDAY"] = "0"
+                _sk_sdc = subprocess.run(
+                    [sys.executable, str(ROOT / "scripts" / "signal_kelly_backtest.py"),
+                     "--output", str(DATA_DIR / "signal_kelly_backtest_sdc.json"),
+                     "--trades-output", str(DATA_DIR / "signal_kelly_trades_sdc.json")],
+                    capture_output=True, text=True, timeout=300, cwd=str(ROOT), env=_sdc_env)
+                _sdc_path = DATA_DIR / "signal_kelly_backtest_sdc.json"
+                _sdc_trades_path = DATA_DIR / "signal_kelly_trades_sdc.json"
+                if _sk_sdc.returncode == 0 and _sdc_path.exists():
+                    counts["signal_kelly_backtest_sdc.json"] = _sdc_path.stat().st_size
+                    print(f"  signal_kelly_backtest_sdc.json ({counts['signal_kelly_backtest_sdc.json']} bytes, #91 对比档)")
+                    if _sdc_trades_path.exists():
+                        counts["signal_kelly_trades_sdc.json"] = _sdc_trades_path.stat().st_size
+                        print(f"  signal_kelly_trades_sdc.json ({counts['signal_kelly_trades_sdc.json']} bytes, #91 R2)")
+                else:
+                    print(f"  signal_kelly_backtest_sdc.json: 失败 rc={_sk_sdc.returncode} stderr={_sk_sdc.stderr[:200]}(#91 对比档, 不阻塞 export)")
+            except Exception as _e:  # noqa: BLE001
+                print(f"  signal_kelly_backtest_sdc.json: 异常 {_e}(#91 对比档, 不阻塞 export)")
         else:
             print(f"  signal_kelly_backtest.json: 失败 rc={_sk.returncode} stderr={_sk.stderr[:200]}")
     except Exception as _e:  # noqa: BLE001
@@ -1389,7 +1414,7 @@ def main():
     # EXPORT_SKIP_R2=1 时跳过（deploy.sh/intraday_snapshot.sh 自己跑 R2，避免重复）
     if os.environ.get("EXPORT_SKIP_R2") != "1":
         print("\n-> 自动上传 R2 (EXPORT_SKIP_R2=1 可跳过)...", flush=True)
-        for _cmd in ["upload-lab", "upload-trade-sim-json", "upload-index", "upload-industry", "upload-public-fund", "upload-etf-score", "upload-data-large", "upload-kelly-parts", "upload-kelly-snapshots"]:
+        for _cmd in ["upload-lab", "upload-trade-sim-json", "upload-index", "upload-industry", "upload-public-fund", "upload-etf-score", "upload-data-large", "upload-kelly-parts", "upload-kelly-parts-sdc", "upload-kelly-snapshots"]:
             try:
                 _r = subprocess.run(
                     [sys.executable, str(ROOT / "scripts/upload_r2.py"), _cmd],

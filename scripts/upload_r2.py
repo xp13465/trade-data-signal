@@ -963,6 +963,24 @@ def cmd_upload_kelly_parts():
     purge_cache(uploaded_keys)
 
 
+def cmd_upload_kelly_parts_sdc():
+    """上传 static-site/data/signal_kelly_trades_sdc_parts/*.json 到 R2 data/signal_kelly_trades_sdc_parts/ 前缀。
+
+    #91(2026-09-06) 当日收盘对比档分片: 凯利回测页「买入口径」切到「当日收盘」时按年分片渐进加载,
+    产物与 NDO(次日开盘)完全独立(signal_kelly_trades_sdc_parts/), 由 signal_kelly_backtest.py
+    KELLY_BUY_NEXTDAY=0 生成。§8.1 同规矩独立命令(子目录 glob 不递归); 前端 /data/ rewrite
+    R2 key = data/signal_kelly_trades_sdc_parts/<name>, purge 默认 cache_prefix="/"。
+    """
+    parts_dir = STATIC_DIR / "data" / "signal_kelly_trades_sdc_parts"
+    ok, total, _, uploaded_keys = _upload_glob(parts_dir, ["*.json"], "data/signal_kelly_trades_sdc_parts")
+    if total == 0:
+        print(f"⚠ 无分片文件: {parts_dir}/*.json (先跑 signal_kelly_backtest.py KELLY_BUY_NEXTDAY=0 生成分片)")
+        return
+    if ok != total:
+        sys.exit(1)
+    purge_cache(uploaded_keys)
+
+
 def cmd_upload_kelly_snapshots():
     """上传 static-site/data/signal_kelly_snapshots/*.json 到 R2 data/signal_kelly_snapshots/ 前缀。
 
@@ -1685,6 +1703,9 @@ if __name__ == "__main__":
     elif cmd == "upload-kelly-parts":
         # signal_kelly_trades_parts/ 分片(recent+tYYYY, 首页模拟回测弹窗分片加载)
         cmd_upload_kelly_parts()
+    elif cmd == "upload-kelly-parts-sdc":
+        # #91(2026-09-06) 当日收盘对比档分片(signal_kelly_trades_sdc_parts/, 凯利页「买入口径」切换用)
+        cmd_upload_kelly_parts_sdc()
     elif cmd == "upload-kelly-snapshots":
         # signal_kelly_snapshots/ 每日快照+演进 index(lab 凯利区「演进」入口)
         cmd_upload_kelly_snapshots()
@@ -1731,7 +1752,7 @@ if __name__ == "__main__":
             "用法: upload_r2.py [list [prefix]|upload-lab|upload-trade-sim|"
             "upload-trade-sim-json|upload-index|upload-industry|upload-public-fund|"
             "upload-offshore-fund|upload-fund-score|upload-etf-score|upload-etf-hist|"
-            "upload-fund-nav|upload-data-large|upload-kelly-parts|upload-db|"
+            "upload-fund-nav|upload-data-large|upload-kelly-parts|upload-kelly-parts-sdc|upload-db|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup|"
             "upload-claude-backup [path]|upload-decommissioned <local> <key_name>|"
             "upload-all-data|upload-intraday|purge-low-freq]"

@@ -1363,8 +1363,18 @@ def _cleanup_stale_tmp(parts_dir, keep_names):
         print(f"✓ 清理历史 .tmp 残留 {n} 个")
 
 
+def _trades_parts_dir(trades_path):
+    """分片导出目录(#91 2026-09-06 双口径): 由 trades 文件名派生, 与口径一一对应。
+    - signal_kelly_trades.json        → signal_kelly_trades_parts/        (next_day_open 默认)
+    - signal_kelly_trades_sdc.json    → signal_kelly_trades_sdc_parts/    (signal_day_close 对比档)
+    原硬编码 signal_kelly_trades_parts 会让当日收盘口径重跑时覆盖次日开盘分片(§22 双产物混版事故)。
+    """
+    trades_base = os.path.splitext(os.path.basename(trades_path))[0]
+    return os.path.join(os.path.dirname(trades_path), trades_base + "_parts")
+
+
 def _export_trades_parts(trades_data, trades_path):
-    """追加分片导出(2026-08-22 首页模拟回测弹窗提速): 同目录 signal_kelly_trades_parts/ 下
+    """追加分片导出(2026-08-22 首页模拟回测弹窗提速): 同目录 <trades_base>_parts/ 下
     - recent.json: signal_date 最近 N 天热区片(N 自适应从 [120,90,60] 选第一个序列化 <=3MB 的窗口;
       首页弹窗打开只拉这一片秒开)
     - t{YYYY}.json: 按 signal_date 年份切片(空年份不出文件; 弹窗超出热区时按年并行拉)
@@ -1377,7 +1387,7 @@ def _export_trades_parts(trades_data, trades_path):
     """
     from datetime import datetime as _dt, timedelta as _td
 
-    parts_dir = os.path.join(os.path.dirname(trades_path), "signal_kelly_trades_parts")
+    parts_dir = _trades_parts_dir(trades_path)
     fields = trades_data["fields"]
     sig_i = fields.index("signal_date")
 
@@ -1493,7 +1503,7 @@ def _export_lab_slices(trades_data, trades_path):
     复现: python3 scripts/signal_kelly_backtest.py --export-lab-slices-only
       (读现有 static-site/data/signal_kelly_trades.json, 不重跑回测)
     """
-    parts_dir = os.path.join(os.path.dirname(trades_path), "signal_kelly_trades_parts")
+    parts_dir = _trades_parts_dir(trades_path)
     fields = trades_data["fields"]
     max_rows = 2000
     max_bytes = 280 * 1024

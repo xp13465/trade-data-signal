@@ -1368,6 +1368,12 @@
 /* B级UI(2026-08-15): 吸顶条默认1行折叠(周期+状态摘要+「参数」按钮), 完整控制台收进 .lab-sigkelly-params-body 展开区 */
 .lab-sigkelly-bar-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
 .lab-sigkelly-bar-summary { font-size: 11px; color: var(--text-3); white-space: nowrap; cursor: default; }
+/* #91(2026-09-06): 买入口径双档切换(默认次日开盘 / 可选当日收盘对比) —— 小号分段按钮组 */
+.lab-sigkelly-buybasis { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; color: var(--text-3); white-space: nowrap; cursor: default; }
+.lab-sigkelly-buybasis-btn { border: 1px solid var(--border); background: var(--bg-card); color: var(--text-3); font-size: 11px; padding: 2px 8px; cursor: pointer; border-radius: 4px; transition: all 0.15s; }
+.lab-sigkelly-buybasis-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+.lab-sigkelly-buybasis-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 600; }
+.lab-sigkelly-buybasis-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .lab-sigkelly-params-toggle { font-size: 11px; padding: 2px 10px; border: 1px solid var(--primary); border-radius: 4px; background: transparent; color: var(--primary); cursor: pointer; white-space: nowrap; transition: all 0.15s; }
 .lab-sigkelly-params-toggle:hover { background: var(--primary); color: #fff; }
 /* 2026-09-04 断链根治配套: 信号凯利回测「演进」弹窗(读 signal_kelly_snapshots/index.json 迷你曲线) */
@@ -1842,6 +1848,7 @@
 .lab-sigkelly-trades-amt-sub { font-size: 10px; color: var(--text-3); font-weight: 400; line-height: 1.4; }
 .lab-sigkelly-trades-price-sub { font-size: 10px; color: var(--text-3); font-weight: 400; line-height: 1.4; }
 .lab-sigkelly-trades-more { text-align: center; color: var(--text-4); padding: 8px; font-size: 11px; }
+.lab-sigkelly-trades-basis { color: var(--text-3); font-size: 11px; white-space: nowrap; }
 .lab-sigkelly-modal-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-3); }
 .lab-sigkelly-modal-pagination button { background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; padding: 4px 12px; font-size: 12px; color: var(--text-2); cursor: pointer; }
 .lab-sigkelly-modal-pagination button:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }

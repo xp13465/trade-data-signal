@@ -610,6 +610,54 @@ def check_signal_kelly_backtest(data_dir: Path) -> CheckResult:
     return _ok(name, msg)
 
 
+def check_signal_kelly_backtest_sdc(data_dir: Path) -> CheckResult:
+    """校验 signal_kelly_backtest_sdc.json（#91 当日收盘对比档, 2026-09-06）。
+
+    该产物为凯利页「买入口径→当日收盘」对比档, 独立于默认 NDO(次日开盘)回测。
+    设计内可缺(WARN): SDC 生成失败不阻塞 export(对比档可选展示), 老环境/首部署无此文件正常。
+    存在即校验: ①config.buy_price_basis==signal_day_close(防切错 env 或复制错产物)
+    ②quadrants 16 象限+5周期+模式集完整(与 NDO 校验同语义)。
+    """
+    name = "signal_kelly_backtest_sdc"
+    path = data_dir / "signal_kelly_backtest_sdc.json"
+    if not path.exists():
+        return _warn(name, "signal_kelly_backtest_sdc.json 不存在(#91 对比档设计内可缺, 前端回退默认口径)")
+    data, err = _load_json(path)
+    if err:
+        return _fail(name, err)
+    if not isinstance(data, dict) or not isinstance(data.get("quadrants"), dict):
+        return _fail(name, "quadrants 缺失或不是 dict")
+
+    basis = (data.get("config") or {}).get("buy_price_basis")
+    if basis != "signal_day_close":
+        return _fail(name, f"config.buy_price_basis={basis!r}, 期望 signal_day_close(疑似切错 env 或复制错产物)")
+
+    expected_quads = {
+        "rating_high", "rating_mid", "rating_low", "etf_strong", "etf_related",
+        "etf_approx", "etf_has_track", "sig_main", "sig_aux", "sig_special",
+        "sig_backup", "mkt_a", "mkt_hk", "mkt_global", "mkt_industry", "mkt_concept",
+    }
+    quads = data["quadrants"]
+    missing = expected_quads - set(quads.keys())
+    if missing:
+        return _fail(name, f"缺少象限: {missing}")
+    expected_modes = set((data.get("config") or {}).get("sell_modes", {}).keys()) or {"A", "B", "C", "D", "E", "F", "G", "H", "I"}
+    total_n = 0
+    for qk, qv in quads.items():
+        periods = qv.get("periods") if isinstance(qv, dict) else None
+        if not isinstance(periods, dict) or set(periods.keys()) != {"y1", "y3", "y5", "y10", "all"}:
+            return _fail(name, f"象限 {qk} 周期不完整")
+        for pk, pv in periods.items():
+            if not isinstance(pv, dict) or set(pv.keys()) != expected_modes:
+                return _fail(name, f"象限 {qk} 周期 {pk} 模式不完整")
+            for mk, mv in pv.items():
+                if isinstance(mv, dict) and "n" in mv:
+                    total_n += mv["n"]
+    if total_n == 0:
+        return _fail(name, "所有象限所有组合样本数=0(#91 对比档数据异常)")
+    return _ok(name, f"{len(quads)}象限×5周期×{len(expected_modes)}模式完整, buy_price_basis=signal_day_close, all/A 总样本={total_n}")
+
+
 def check_kelly_lab_slices(data_dir: Path) -> CheckResult:
     """校验凯利移动端切片(signal_kelly_trades_parts/)与整包同版（#97 批次C，F1 review-kelly-mobile-20260825）。
 
@@ -1697,6 +1745,8 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     results.append(check_a_stock(data_dir))
     results.append(check_etf_index_map(repo_data_dir))
     results.append(check_signal_kelly_backtest(data_dir))
+    # #91(2026-09-06) 当日收盘对比档产物校验(存在即须 buy_price_basis=signal_day_close + 象限完整)
+    results.append(check_signal_kelly_backtest_sdc(data_dir))
     # 信号 vs ETF accum_nav 滞后断链检查（2026-09-04 P0: 9/1-9/4 信号全跳 trades 停 8/31 事故补盲）
     results.append(check_signal_accum_nav_lag())
     # FAPI vs mootdx 双源互证（#102 转正条件②，2026-09-06；差异>0.5% FAIL 阻断上线）

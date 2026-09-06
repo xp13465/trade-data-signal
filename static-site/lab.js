@@ -7372,6 +7372,9 @@ var _kellyStatsCacheVal = null;
 var _kellyBucketStatsCache = new Map();    // (qk|mode) -> {feeSig, toggled, stats} 逐桶复用(仅被toggle改动影响的桶重算)
 var _kellyRecomputeBusy = false;           // 防重入: 重算进行中
 var _kellyRecomputePending = false;        // 重算中来新点击/改费率: 记待处理
+// #91(2026-09-06): 口径/数据代际计数——切口径(或任何整区数据源替换)时++, 在途 recompute 收尾按捕获 epoch 跳过,
+//   防「旧口径 stats 写入新口径 host」(§22 防切口径后显示旧数据)
+var _labKellyEpoch = 0;
 // #49 fix(issue49): G/H/I 对比表 展开/收起状态(独立于开关, 由 9124 按钮点击控制, 重渲染 bar 时保持) — 默认收起
 var _gihCompareOpen = false;
 
@@ -8188,12 +8191,15 @@ function _kellyYield() {
 async function _kellyRunRecompute(host, loadingHtml, onResult, onDone) {
   if (_kellyRecomputeBusy) { _kellyRecomputePending = true; return; }
   _kellyRecomputeBusy = true;
+  // #91 代际捕获: 口径切换(_labKellySetBuyBasis)会 ++_labKellyEpoch 并整区重建, 本代若已过期则收尾跳过不写新 host
+  var _epoch = _labKellyEpoch;
   do {
     _kellyRecomputePending = false;
     // 2026-08-11 交互优化: 不整卡清空(卡片保持挂载, 半透明+顶部细条 loading), 便于对照打勾前后数值
     host.classList.add("lab-custom-host--loading");
     await _kellyNextPaint();
     var stats = await _kellyApplyFeeRecompute(state.labSigKellyFeeParams);
+    if (_epoch !== _labKellyEpoch) break; // 代际已过期(口径已切), 丢弃本轮结果, 不写新 host
     onResult(stats);
     // #100 渐进加载(2026-09-06): 阶段1(y1 两片就绪)重算完成即就地渲染一版, 不等全量——
     //   busy/pending 合批会把 recompute#1(y1 数据)的 onDone 推迟到全量 recompute#2 结束才执行,
@@ -8201,6 +8207,7 @@ async function _kellyRunRecompute(host, loadingHtml, onResult, onDone) {
     //   修=窗口期(y1 在册 && 全量未就绪)onResult 后立即调 onDone 就地刷新 bar+卡片+全信号表;
     //   未就绪周期仍走 _labKellyPeriodIsReady gate 显示占位(§23.15 不显残缺数), 全量就绪后整轮重算覆盖(最终一致)。
     //   非窗口期零行为变化(§23.7 纯新增)。
+    if (_epoch !== _labKellyEpoch) break; // 代际过期: 不就地渲染旧口径 y1
     if (_labKellyY1Ready && !_labKellyAllReady && typeof onDone === "function") {
       var _h0 = host;
       if (!_h0.isConnected) {
@@ -8211,6 +8218,7 @@ async function _kellyRunRecompute(host, loadingHtml, onResult, onDone) {
     }
   } while (_kellyRecomputePending);
   _kellyRecomputeBusy = false;
+  if (_epoch !== _labKellyEpoch) return; // 代际过期: 收尾 onDone 跳过, 不写旧 stats 到新 host
   // 【P0 防御兜底 2026-08-24】await 让步期间(trades.json 慢载/桶间 setTimeout 让步)host 可能被其他路径
   //   整区重建替换——闭包捕获的 host 脱离 DOM 成死节点, onResult/onDone 写死节点 = 页面在册新 host
   //   永远停留「⏳ 计算中…」。收尾前检测 isConnected, 失联则重取当前在册 host 再收尾(onDone(h) 以实参
@@ -8244,6 +8252,57 @@ var _labKellyShardStore = {};              // year -> parsed shard data(渐进�
 // URL helpers
 function _labKellyTradesUrl(name) { var v = _labCustomCacheBust(); return "https://ss.fx8.store/data/" + name + (v ? "?v=" + v : ""); }
 function _labKellyTradesUrlCf(name) { var v = _labCustomCacheBust(); return "./data/" + name + (v ? "?v=" + v : ""); }
+
+// #91(2026-09-06): 买入口径双档切换(next_day_open 默认=真实跟单 / signal_day_close 可选对比=旧基线)
+//   口径 → 产物基础名: next_day_open=signal_kelly_trades* / signal_day_close=signal_kelly_trades_sdc*
+//   state.labSigKellyBuyBasis 由 _labKellyEnsureBuyBasis() 初始化(localStorage 记忆), 切换见 _labKellySetBuyBasis()
+var _labKellyBuyBasisLabel = { next_day_open: "次日开盘", signal_day_close: "当日收盘" };
+var _labKellyBuyBasisTip = {
+  next_day_open: "信号日收盘后固化、次日开盘成交(真实跟单, v1.1.4 起默认)",
+  signal_day_close: "信号日收盘价成交(旧基线, 对比用)"
+};
+function _labKellyBuyBasis() { return state.labSigKellyBuyBasis || "next_day_open"; }
+function _labKellyIsSdc() { return _labKellyBuyBasis() === "signal_day_close"; }
+function _labKellyTradesBaseName() { return _labKellyIsSdc() ? "signal_kelly_trades_sdc" : "signal_kelly_trades"; }
+function _labKellyTradesPartsName(year) { return _labKellyTradesBaseName() + "_parts/t" + year + ".json"; }
+function _labKellyTradesFullName() { return _labKellyTradesBaseName() + ".json"; }
+function _labKellySummaryName() { return _labKellyIsSdc() ? "signal_kelly_backtest_sdc" : "signal_kelly_backtest"; }
+function _labKellyEnsureBuyBasis() {
+  if (state.labSigKellyBuyBasis) return;
+  var saved = null;
+  try { saved = localStorage.getItem("lab_sigkelly_buy_basis"); } catch (e) { saved = null; }
+  state.labSigKellyBuyBasis = (saved === "signal_day_close" || saved === "next_day_open") ? saved : "next_day_open";
+}
+
+// #91 口径切换(默认 next_day_open / 可选 signal_day_close): 数据源整体替换 → 重置全部数据/加载/缓存状态 → 整区重建
+//   _labKellyEpoch+1 令在途 recompute 按捕获代际收尾跳过, 防旧口径 stats 写进新 host(§22 防切口径后显示旧数据)
+async function _labKellySetBuyBasis(basis) {
+  if (basis !== "next_day_open" && basis !== "signal_day_close") return;
+  if (basis === _labKellyBuyBasis()) return;
+  state.labSigKellyBuyBasis = basis;
+  try { localStorage.setItem("lab_sigkelly_buy_basis", basis); } catch (e) {}
+  // 数据源整体替换(口径不同=产物完全独立), 清全部数据/加载/计算缓存
+  state.labSigKellyData = null;
+  state.labSigKellyTradesData = null;
+  state.labSigKellyTradeDims = null;
+  state.labSigKellyFeeStats = null;
+  _labKellyFullFallback = false;
+  _labKellyY1Ready = false;
+  _labKellyAllReady = false;
+  _labKellyLoadedYears = [];
+  _labKellyShardStore = {};
+  _labKellyLoadProgress = { done: 0, total: _labKellyAllYears.length, lastYear: "" };
+  _labKellyLoadErr = null;
+  _labKellyAllBackgroundRunning = false;
+  _labKellyRetryAt = 0;
+  state.kellyLossFeatReadyApplied = false;  // 特征就绪补渲单向阀重置(新口径数据可再补渲)
+  // 重置 recompute 合批标志: 在途旧口径重算已无意义(epoch 会拦其收尾), 让新口径首算干净起步
+  _kellyRecomputeBusy = false;
+  _kellyRecomputePending = false;
+  if (typeof _kellyClearComputeCaches === "function") _kellyClearComputeCaches();
+  _labKellyEpoch++;   // 代际+1: 在途 recompute 收尾按捕获 epoch 跳过
+  await renderSigKellyLab();
+}
 
 // P1-01(2026-08-29): kelly-reports-content / kelly-review-notes 懒加载
 // 原 index.html defer 同步加载 379KB,首页/信号卡/KPI 完全不需要,改为点击报告弹窗时动态加载
@@ -8327,8 +8386,8 @@ function _labKellyMergeShards(shards) {
 // 全量兜底
 async function _labKellyLoadFull() {
   try {
-    console.warn("[sigkelly] 分片加载失败, 回退全量 signal_kelly_trades.json(约69MB)");
-    var tr = await _labKellyFetchTrades("signal_kelly_trades.json");
+    console.warn("[sigkelly] 分片加载失败, 回退全量 " + _labKellyTradesFullName() + "(约69MB)");
+    var tr = await _labKellyFetchTrades(_labKellyTradesFullName());
     state.labSigKellyTradesData = _labKellyParseTrades(tr);
     _labKellyFullFallback = true;
     // 全量兜底=覆盖全史, 两阶段就绪状态全置位(此后所有周期都走全量/就绪判定, 不再触发两片渐进)(#100 2026-09-06)
@@ -8369,7 +8428,7 @@ async function _labKellyLoadYearParts() {
     for (var yi = 0; yi < y1Res.length; yi++) if (!y1Res[yi].ok) y1Fail.push(y1Res[yi].year);
     if (y1Fail.length > 0) {
       // 近1年两片重试仍失败 → 不再用不完整数据渲染, 回退全量(比静默丢年+假全信号更诚实, §22)
-      console.warn("[sigkelly] 近1年分片 t" + y1Fail.join(",") + " 重试后仍失败, 回退全量 signal_kelly_trades.json(约69MB)");
+      console.warn("[sigkelly] 近1年分片 t" + y1Fail.join(",") + " 重试后仍失败, 回退全量 " + _labKellyTradesFullName() + "(约69MB)");
       return await _labKellyLoadFull();
     }
     // 两片都成功才合并近1年数据并缓存分片(阶段2 全量合并需所有分片原始数据)
@@ -8393,7 +8452,7 @@ async function _labKellyLoadYearParts() {
 // 返回按入参序的 {year, ok, data} 数组; 进度 total 恒为全量 16 片维度(阶段1/阶段2 共用同一进度条)
 function _labKellyFetchYears(years) {
   return Promise.all(years.map(function (y) {
-    return _labKellyFetchTradesRetry("signal_kelly_trades_parts/t" + y + ".json")
+    return _labKellyFetchTradesRetry(_labKellyTradesPartsName(y))
       .then(function (yearFile) {
         var parsed = _labKellyParseTrades(yearFile);
         _labKellyLoadProgress.done += 1;
@@ -8456,7 +8515,7 @@ async function _labKellyLoadAllBackgroundRun() {
   }
   if (failNames.length > 0) {
     // 阶段2 有片重试仍失败 → 不回退已渲染的 y1, 直接兜底全量(诚实回退, §22)
-    console.warn("[sigkelly] 阶段2 分片 t" + failNames.join(",") + " 重试后仍失败, 回退全量 signal_kelly_trades.json(约69MB)");
+    console.warn("[sigkelly] 阶段2 分片 t" + failNames.join(",") + " 重试后仍失败, 回退全量 " + _labKellyTradesFullName() + "(约69MB)");
     await _labKellyLoadFull();
     _labKellyOnAllReady();
     return;
@@ -9123,6 +9182,8 @@ document.addEventListener("keydown", (e) => {
 // 数据: ./data/signal_kelly_backtest.json (后端 signal_kelly_backtest.py 生成, <100KB 走 CF Workers)
 // 布局: 顶部说明 + 周期切换tab(y1/y3/all) + 评级3卡 + ETF3卡(每卡4模式表格) + 底部色标
 async function renderSigKellyLab() {
+  // #91(2026-09-06): 买入口径初始化(localStorage 记忆, 默认 next_day_open; 切口径见 _labKellySetBuyBasis)
+  _labKellyEnsureBuyBasis();
   const wrapper = document.createElement("div");
   wrapper.className = "lab-sigkelly-wrap";
 
@@ -9244,14 +9305,14 @@ async function renderSigKellyLab() {
   content.querySelectorAll(".lab-sigkelly-wrap").forEach((el) => el.remove());
   content.appendChild(wrapper);
 
-  // fetch 数据(缓存到 state, 周期切换不重新 fetch)
+  // fetch 数据(缓存到 state, 周期切换不重新 fetch; #91 口径切换时 state.labSigKellyData 已置 null, 走此重载)
   if (!state.labSigKellyData) {
     const v = _labCustomCacheBust();
-    const url = `./data/signal_kelly_backtest.json?v=${v}`;
+    const url = `./data/${_labKellySummaryName()}.json?v=${v}`;
     try {
       state.labSigKellyData = await fetchJSON(url);
     } catch (e) {
-      host.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 数据加载失败</div><div class="lab-custom-error-detail">${e.message || e}</div><div class="lab-custom-error-hint">signal_kelly_backtest.json 不存在或网络异常。后端生成后自动恢复(每日收盘后更新)。</div><button type="button" class="lab-custom-retry">重试</button></div>`;
+      host.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 数据加载失败</div><div class="lab-custom-error-detail">${e.message || e}</div><div class="lab-custom-error-hint">${_labKellySummaryName()}.json 不存在或网络异常。后端生成后自动恢复(每日收盘后更新)。</div><button type="button" class="lab-custom-retry">重试</button></div>`;
       host.querySelector(".lab-custom-retry").onclick = () => { state.labSigKellyData = null; renderSigKellyLab(); };
       return;
     }
@@ -10351,10 +10412,15 @@ function _renderSigKellyBar(bar, data, period) {
       `<span>📅 生成: ${data.generated_at || "-"}</span>` +
       `<span> · 金额: 每日资金池 ${cfg.buy_amount || 10000} 元</span>` +
       `<span> · 卖出模式: ${modeStr}</span>` +
+      `<span> · 买入口径: ${_labKellyBuyBasisLabel[_labKellyBuyBasis()]}</span>` +
     `</div>`;
   bar.innerHTML =
     `<div class="lab-sigkelly-bar-head">` +
       `<span class="lab-sigkelly-periods">${tabsHTML}</span>` +
+      `<span class="lab-sigkelly-buybasis" title="买入口径( #91, 2026-09-06): ${_labKellyBuyBasisTip[_labKellyBuyBasis()]}; 切换后整区按所选口径重载重算(数据源独立产物), 与默认次日开盘对比用">买入口径:` +
+        `<button type="button" class="lab-sigkelly-buybasis-btn${_labKellyIsSdc() ? "" : " active"}" data-basis="next_day_open" title="${_labKellyBuyBasisTip.next_day_open}">次日开盘</button>` +
+        `<button type="button" class="lab-sigkelly-buybasis-btn${_labKellyIsSdc() ? " active" : ""}" data-basis="signal_day_close" title="${_labKellyBuyBasisTip.signal_day_close}">当日收盘</button>` +
+      `</span>` +
       `<span class="lab-sigkelly-bar-summary" title="费率: ${_sumFee} · ${_sumPos}${_sumGih} (点「参数」展开完整控制台)">费率:${_sumFee} · ${_sumPos}${_sumGih}</span>` +
       _paramBtn +
       _evoBtn +
@@ -10410,6 +10476,16 @@ function _renderSigKellyBar(bar, data, period) {
       if (hostEl && state.labSigKellyData) {
         _renderSigKellyQuadrants(hostEl, state.labSigKellyData, btn.dataset.period);
       }
+    };
+  });
+  // #91 买入口径切换(默认次日开盘 / 可选当日收盘对比): 数据源整体替换 → 整区重建(_labKellySetBuyBasis)
+  bar.querySelectorAll(".lab-sigkelly-buybasis-btn").forEach((btn) => {
+    btn.onclick = () => {
+      const basis = btn.getAttribute("data-basis");
+      if (!basis || basis === _labKellyBuyBasis()) return;
+      // 切换中按钮置 loading(防连点), 重建后 _renderSigKellyBar 重绑 active
+      bar.querySelectorAll(".lab-sigkelly-buybasis-btn").forEach((b) => b.disabled = true);
+      _labKellySetBuyBasis(basis);
     };
   });
   // 费率预设按钮
@@ -11041,7 +11117,7 @@ document.addEventListener("click", function (e) {
 function _kellyComboAdviceHtml() {
   return (
     `<div class="lab-sigkelly-advice">` +
-      `<div class="lab-sigkelly-advice-title">🎯 全信号操作建议指南（真实回测 · 口径=每日资金池等分+top-K，2026-08-14 #48）</div>` +
+      `<div class="lab-sigkelly-advice-title">🎯 全信号操作建议指南（真实回测 · 口径=每日资金池等分+top-K，2026-08-14 #48；买入口径=顶部「买入口径」按钮：默认<b>次日开盘</b>，可切<b>当日收盘</b>对比 #91）</div>` +
       (state.labSigKellyMetaHTML || "") +
       `<div class="lab-sigkelly-advice-li lab-sigkelly-advice-note">默认最优组合∅S06 动态为当前默认基座(v1.1.7 起, 见上方 summary)；下方为 v1.1.4 八键历史组合说明(New14 曾为 v1.1.5~v1.1.6 默认, 现为可回选档, §23.7 不删档)：AI降亏过滤=NEW14 十四键=hist6+规则8+1类回测剔除；hist6 = r10 5月+6非5月组合 + Greedy-15组合 + J2 1月中旬+追关注 + K2C5 港股追荡剔除(穷举验证 docs/kelly/analysis/kelly-k2c5-exhaust-interaction.md) + K3 主关注×概念 + 下降期×追关注(全市场)；规则8 = N1北向20日净流出 + T1换手冰点×追关注 + D1股息率低位 + Q1 QVIX低分位 + H1升波×A股 + M1牛主升×两融降温 + P1备买×股息率分位低 + R2b追关注×全球类(T1 族规格单源=scripts/loss_rules.py)；+1=回测/凯利模型层剔除的波动相关/未入样本信号整类（债类cgb_*/情绪s.*/全球商品利率g.*/港股行业hk_*/空数组，_bt_in_universe=false）——虽同属全信号，但被回测剔除，故 AI建议 一律不推荐，以「未入样本」+灰显+删除线表达。信号枯竭提示：NEW14 下历史上年均约 2.4 次 ≥20 个交易日无放行信号的枯竭期，凯利区与首页会出提示 chip(历史上类似枯竭结束后 3 个月约 72% 为正)。另加 AI仓位建议（技术别名：仓位控制过滤，每日只买最优K个，K=1主推，2026-08-14 #BC 默认 K 3→1）。每日池+费率重算口径（2026-08-14 #BC，含最低佣金5元）各模式收益率旧值（A K1 86.60% 等）为 v1.1.4 八键基座历史数字已清理，S06 基座下以本页实时计算为准。旧 fixed 穷举v2（77.36/66.22/68.40，每笔1万）与 #48 每日池(比例法)均为历史决策基准已过时（#BC 改费率重算口径）。其余降亏 toggle 默认关（负边际/过拟合）。⚠J2 带监控（maxSh 0.79，2026 单年主导，每年 1 月后检查）。下方「最后结果」全信号表即按当前组合实时计算。</div>` +
       `<details class="lab-sigkelly-advice-details lab-sigkelly-advice-outer"${state.labSigKellyAdviceOpen ? " open" : ""}>` +
@@ -11202,7 +11278,7 @@ function _sigKellyAllSignalGroupHtml(period) {
     const _progS = _labKellyProgStr();
     return `<div class="lab-sigkelly-group lab-sigkelly-all-group"><div class="lab-sigkelly-group-title">📌 全信号表（最后结果 · 全量信号融合）<span class="lab-sigkelly-all-badge">最后结果</span></div><div class="lab-custom-loading lab-sigkelly-all-loading">⏳ 计算中…${_progS}</div></div>`;
   }
-  const allMeta = { label: "全信号", desc: "评级高低分区并集（互斥全量覆盖），全量信号不拆分，实时反映当前降亏组合勾选 / 费率 / 周期", periods: {} };
+  const allMeta = { label: "全信号", desc: "评级高低分区并集（互斥全量覆盖），全量信号不拆分，实时反映当前降亏组合勾选 / 费率 / 周期；买入口径=" + (_labKellyBuyBasisLabel[_labKellyBuyBasis()] || "次日开盘") + "(顶部「买入口径」可切, #91)", periods: {} };
   const cardHtml = _renderSigKellyCard("all", allMeta, period, null);
   // 2026-08-14 按年窗口增长 A-G 各模式下拉切换: 每个模式各自独立按年聚合(allYearlyByMode), 默认 H(2026-09-02 长线主推/总建议 G→H, H=满仓不买@5万)
   const _ymModes = (state.labSigKellyData && state.labSigKellyData.config && state.labSigKellyData.config.sell_modes) || {};
@@ -11245,7 +11321,7 @@ function _sigKellyAllSignalGroupHtml(period) {
   return (
     `<div class="lab-sigkelly-group lab-sigkelly-all-group">` +
       `<div class="lab-sigkelly-group-title">📌 全信号表（最后结果 · 全量信号融合）<span class="lab-sigkelly-all-badge">最后结果</span></div>` +
-      `<div class="lab-sigkelly-all-desc">总建议口径：全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 H 模式）。金额口径=每日资金池等分+top-K（2026-08-13 恢复：当日保留前K基笔，每笔=10000/当日保留数，每日总投入恒1万，K档最大持仓恒定）。下表实时随上方降亏组合勾选 / 费率档 / 周期切换联动。年份窗口表为全周期口径（非当前周期窗口），**各模式各自独立按年增长**（2026-08-14 扩展：下方下拉选择 A-G 任一模式查看其各自的按年窗口增长，非混算；H 模式=当前推荐卖出法（满仓不买@5万），与「总建议=遵守H模式卖出」语义对齐）。</div>` +
+      `<div class="lab-sigkelly-all-desc">总建议口径：全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 H 模式）。金额口径=每日资金池等分+top-K（2026-08-13 恢复：当日保留前K基笔，每笔=10000/当日保留数，每日总投入恒1万，K档最大持仓恒定）。买入口径=当前顶部「买入口径」按钮所选（默认<b>次日开盘</b>，可切<b>当日收盘</b>对比 #91）。下表实时随上方降亏组合勾选 / 费率档 / 周期切换联动。年份窗口表为全周期口径（非当前周期窗口），**各模式各自独立按年增长**（2026-08-14 扩展：下方下拉选择 A-G 任一模式查看其各自的按年窗口增长，非混算；H 模式=当前推荐卖出法（满仓不买@5万），与「总建议=遵守H模式卖出」语义对齐）。</div>` +
       `<div class="lab-sigkelly-all-main">` +
         `<div class="lab-sigkelly-all-card">${cardHtml}</div>` +
         `<div class="lab-sigkelly-all-yearly lab-sigkelly-all-yearly-block">` +
@@ -12133,6 +12209,8 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
   gihMeta = gihMeta || null;
 
   const colDefs = [
+    // #91 口径标注列(用户拍板 Q3): 标识当前行属于 next_day_open / signal_day_close; 整表同口径(随顶部「买入口径」切换), 不可排序
+    { key: "_buy_basis", label: "口径", sortable: false },
     { key: "index_id", label: "触发信号", sortable: true },
     { key: "buy_date", label: "买入日", sortable: true },
     { key: "sell_date", label: "卖出日", sortable: true },
@@ -12186,11 +12264,13 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     const holdingCount = statTrades.filter((t) => !t[fIdx.sell_date]).length;
 
     let thHTML = colDefs.map((c) => {
-      const isSorted = sort.key === c.key;
+      // #91 口径列等 sortable:false 不参与排序: 无 data-key(排序守卫跳过) + 无箭头
+      const isSorted = c.sortable !== false && sort.key === c.key;
       const arrow = isSorted ? (sort.dir > 0 ? " ▲" : " ▼") : "";
-      return `<th class="lab-sigkelly-trades-th" data-key="${c.key}">${c.label}${arrow}</th>`;
+      const dk = c.sortable === false ? "" : ` data-key="${c.key}"`;
+      return `<th class="lab-sigkelly-trades-th"${dk}>${c.label}${arrow}</th>`;
     }).join("");
-    // 淘汰区专用表头(2026-09-01 需求): 共用 12 列 + 尾部「淘汰原因」列; 不带 data-key(排序点击处理器有守卫跳过)
+    // 淘汰区专用表头(2026-09-01 需求): 共用 13 列 + 尾部「淘汰原因」列; 不带 data-key(排序点击处理器有守卫跳过)
     const thHTMLElim = thHTML + '<th class="lab-sigkelly-trades-th">淘汰原因</th>';
     // 淘汰原因在场清单(动态标签, 与既有公示文案一致): 统计行/淘汰区标题按实际在场原因列出, 不在场不提
     const _elimReasonLabel = (function () {
@@ -12227,6 +12307,9 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     if (state._sigKellyTradePage < 1) state._sigKellyTradePage = 1;
     const page = state._sigKellyTradePage;
     const pageRows = filtered.slice((page - 1) * perPage, page * perPage);
+
+    // #91 口径标注列: 整表同口径(随顶部「买入口径」切换), 每行标出所属口径名
+    const basisLabel = _labKellyBuyBasisLabel[_labKellyBuyBasis()] || "次日开盘";
 
     // 行渲染(正常/被淘汰共用, 2026-08-12 需求B): 返回 td 拼接, 外层 tr class 由调用方决定
     const _rowHtml = (t) => {
@@ -12280,7 +12363,8 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       const reasonCell = isHolding
         ? `<td>${t[fIdx.sell_reason] || "持有中"} ${t[fIdx.hold_days]}天</td>`
         : `<td>${isForced ? "ai长线强平" : (t[fIdx.sell_reason] || "")}</td>`;
-      return `<td class="lab-sigkelly-trades-sigcell">${sigCell}</td>` +
+      return `<td class="lab-sigkelly-trades-basis">${basisLabel}</td>` +
+        `<td class="lab-sigkelly-trades-sigcell">${sigCell}</td>` +
         `<td>${t[fIdx.buy_date]}</td>${sellDateCell}` +
         `<td class="lab-sigkelly-trades-etfrel">${etfRel}</td>` +
         `<td class="lab-sigkelly-trades-etfcode" data-code="${_esc(t[fIdx.etf_code])}"><span class="lab-sigkelly-etf-code-link" title="点击查看 ${_esc(t[fIdx.etf_name])} 走势与买卖/强平点">${_esc(t[fIdx.etf_code])}</span><div class="lab-sigkelly-trades-etfname-sub">${_esc(t[fIdx.etf_name])}</div></td>` +
@@ -12292,7 +12376,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     };
     let tbodyHTML = "";
     if (pageRows.length === 0) {
-      tbodyHTML = `<tr><td colspan="12" class="lab-sigkelly-trades-more">无符合条件的交易记录</td></tr>`;
+      tbodyHTML = `<tr><td colspan="13" class="lab-sigkelly-trades-more">无符合条件的交易记录</td></tr>`;
     } else {
       for (const t of pageRows) {
         const rowCls = (!t[fIdx.sell_date]) ? "lab-sigkelly-holding-row" : "";
@@ -12334,7 +12418,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       if (state._sigKellyElimPage < 1) state._sigKellyElimPage = 1;
       const elimPageRows = elimFiltered.slice((state._sigKellyElimPage - 1) * elimPerPage, state._sigKellyElimPage * elimPerPage);
       if (elimPageRows.length === 0) {
-        elimTbody = `<tr><td colspan="13" class="lab-sigkelly-trades-more">无符合条件的被淘汰交易</td></tr>`;
+        elimTbody = `<tr><td colspan="14" class="lab-sigkelly-trades-more">无符合条件的被淘汰交易</td></tr>`;
       } else {
         for (const t of elimPageRows) {
           const elimRowCls = ((!t[fIdx.sell_date]) ? "lab-sigkelly-holding-row" : "") + " lab-sigkelly-eliminated-row";
