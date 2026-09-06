@@ -280,7 +280,9 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 **用途**：把「看图验收」变成「程序化断言」的通用内部工具 —— 主控看不了图片，用
 [Playwright](https://playwright.dev)（MIT）headless Chromium 抓 console 报错、网络请求、
 DOM 断言、语义结构树，全是文本可直接读。工具在 `scripts/playwright-accept/`（accept.js /
-snapshot.js / ticker-check.js），纯验收不碰业务代码，供 reviewer/tester 派单复用。
+snapshot.js / ticker-check.js / verify_sigkelly_y1_render.mjs），纯验收不碰业务代码，供 reviewer/tester 派单复用。
+> `verify_sigkelly_y1_render.mjs` = sigkelly 渐进加载「y1 先渲染」验收（route 拦截分片制造可控时序：hold 阶段2 → 断言
+> y1 先渲染 + 阶段1 数字与全量后逐 cell 一致 + 全量后无占位残留，无痕 context 零 localStorage）。
 > 仅内部开发/测试工具，不进站点运行链路；致敬 Playwright 驱动浏览器的 console/网络/DOM 自动化能力。
 
 ### 📚 公开数据源致谢
