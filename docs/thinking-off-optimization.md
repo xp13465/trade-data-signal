@@ -173,6 +173,8 @@ Claude Code 的 thinking 参数构建器(disabled 分支)条件:`r.type==="disab
 
 ## 9. 现状已落地:flash 底别名 per-role(2026-08-13 用户裁决 #57 落地，替换上述 pro 评估方案)
 
+> ⚠️ **2026-09-06 更新:本节机制已随代理切换过时。** 现网 8899 已改为**商汤 sensenova-rotate 纯 key 轮换代理**(2026-09-01 落地,plist 见 scripts/com.trade.thinking-proxy.plist),**不含任何 thinking 注入/别名改写逻辑**;agent frontmatter 全部统一 `model: deepseek-v4-flash`(reviewer/researcher 原 think 别名已于 2026-09-06 改齐,别名直发商汤=404 model_not_found 根治)。下文本节为 thinking_proxy(官方直连)时代的机制记录,保留作历史对照,不再描述现网。
+>
 > ⚠️ **上方案(6.3/6.4)为历史评估，基于 deepseek-v4-pro + 火山方舟，未按此形态启用。** 实际现网(2026-08-13 起)为**官方直连 api.deepseek.com + flash 底 + 别名 per-role，且全程零 v4-pro 消耗**。理由:用户裁决拒绝任何 v4-pro。
 
 **落地机制**(`scripts/thinking_proxy.py` 常驻官方直连 8899):
