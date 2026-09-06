@@ -13,9 +13,8 @@
 	<string>com.trade.fapi-daily</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/Users/linhuichen/code/trade/.venv/bin/python</string>
-		<string>-m</string>
-		<string>app.collector.fapi_daily</string>
+		<string>/bin/bash</string>
+		<string>/Users/linhuichen/code/trade/scripts/fapi_daily_syn.sh</string>
 	</array>
 	<key>RunAtLoad</key>
 	<false/>
@@ -39,6 +38,8 @@
 	     2. 时点 18:10:晚于 17:50 update_all,避免与盘后 15:35/16:00/17:50/20:35/22:00
 	        既有时点冲突(§14 生产稳定时点);启动后 5 分钟余量下载 1.1MB dump。
 	     3. .env 由 /Users/linhuichen/code/trade-data/.env 提供(key 不落代码/日志)。
+	     4. 2026-09-06 #101: ProgramArguments 改调 scripts/fapi_daily_syn.sh 链式
+	        (fapi_daily 采集 → bj_width 北交所宽度重算, 单一时点 18:10 不加新定时)。
 	-->
 	<key>ExitTimeOut</key>
 	<integer>600</integer>

@@ -811,6 +811,21 @@ def _find_sentiment_db() -> Path | None:
     return None
 
 
+def _find_stock_db() -> Path | None:
+    """定位 stock_daily.db（mootdx_daily_raw + fapi_daily_raw 同库）。
+
+    优先 trade-data/data/stock_daily.db（FAPI 采集写端主库），回退 trade/data/stock_daily.db。
+    找不到返回 None。
+    """
+    for c in (
+        Path("/Users/linhuichen/code/trade-data/data/stock_daily.db"),
+        Path("/Users/linhuichen/code/trade/data/stock_daily.db"),
+    ):
+        if c.exists():
+            return c
+    return None
+
+
 def _find_etf_db() -> Path | None:
     """定位主库 etf_national_team.db（accum_nav 写入端同库，回测 _get_etf_db_path 同优先）。
 
@@ -881,6 +896,68 @@ def check_signal_accum_nav_lag() -> CheckResult:
     if days == 1:
         return _ok(name, f"信号日 {sig_date} 领先 accum_nav 日 {etf_date} 1 交易日（正常盘后时序）")
     return _ok(name, f"信号日 {sig_date} vs accum_nav 日 {etf_date} 滞后 0 交易日")
+
+
+def check_fapi_mutex() -> CheckResult:
+    """FAPI vs mootdx 双源互证校验（#102 转正条件②，2026-09-06）。
+
+    语义：FAPI（同花顺 T+0 dump）与 mootdx 双源对同一交易日的 close 应一致（异源互备，
+    监测数据漂移/源损坏）。口径：取两表最新共同交易日，对重叠 (code,date) 逐只比 close，
+    差异率 >0.5% 即 FAIL（数据漂移，阻断上线）。
+
+    分级：
+      - mootdx 整表空 / fapi 无数据 → WARN（不阻断：观察期源未就绪不算上线阻断）
+      - 无共同交易日 → WARN（fapi 缺失当日数据，提示源迟到）
+      - 重叠行 close 差异 >0.5% 占比 >0 → FAIL（异源不一致，可能源损坏/字段错位）
+      - 否则 OK
+    """
+    name = "fapi_mutex"
+    db = _find_stock_db()
+    if db is None:
+        return _warn(name, "stock_daily.db 未找到（trade-data 与 trade 均无）")
+    try:
+        conn = sqlite3.connect(str(db), timeout=10.0)
+        # 两表各自最新日期
+        m = conn.execute("SELECT MAX(date) FROM mootdx_daily_raw").fetchone()
+        f = conn.execute("SELECT MAX(date) FROM fapi_daily_raw").fetchone()
+        m_date = m[0] if m else None
+        f_date = f[0] if f else None
+        if not m_date:
+            conn.close()
+            return _warn(name, "mootdx_daily_raw 整表空（观察期源未就绪，不阻断）")
+        if not f_date:
+            conn.close()
+            return _warn(name, f"fapi_daily_raw 无数据（mootdx latest={m_date}；fapi 未采集，"
+                               f"不阻断——fapi 是新增兜底源）")
+        if m_date != f_date:
+            conn.close()
+            # 日期错位：fapi 落后(mootdx 主链在前)或超前, 提示不阻断(观察期源迟到)
+            return _warn(name, f"两源最新日不一致 mootdx={m_date} fapi={f_date}（FAPI 兜底仅对 "
+                               f"mootdx 断片日生效，日期错位属观察期正常时序）")
+        # 共同最新日逐只比 close：差异率 >0.5% 视为不一致
+        rows = conn.execute(
+            "SELECT m.code, m.close AS m_close, f.close AS f_close "
+            "FROM mootdx_daily_raw m "
+            "JOIN fapi_daily_raw f ON f.code = m.code AND f.date = m.date "
+            "WHERE m.date = ? AND f.code NOT LIKE '920%'",
+            (m_date,),
+        ).fetchall()
+        conn.close()
+    except Exception as e:
+        return _fail(name, f"查询 stock_daily.db 失败: {db}: {e}")
+
+    if not rows:
+        return _warn(name, f"共同日 {m_date} 无重叠 code（两源宇宙无交集？数据异常）")
+    n_overlap = len(rows)
+    # close 差异率 > 0.5%（允许 ±0.5% 浮点/舍入差）
+    bad = [(r[0], r[1], r[2]) for r in rows
+           if r[1] is not None and r[2] is not None and r[1] > 0
+           and abs(r[1] - r[2]) / r[1] > 0.005]
+    if bad:
+        samples = ", ".join(f"{c}:mootdx={mc}/fapi={fc}" for c, mc, fc in bad[:5])
+        return _fail(name, f"共同日 {m_date} 重叠 {n_overlap} 只中 {len(bad)} 只 close 差异>0.5%: "
+                           f"{samples}（双源数据漂移，阻断上线）")
+    return _ok(name, f"共同日 {m_date} 重叠 {n_overlap} 只 close 全部一致（≤0.5%容差）")
 
 
 def check_accum_nav_map_fresh(data_dir: Path) -> CheckResult:
@@ -1622,6 +1699,8 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     results.append(check_signal_kelly_backtest(data_dir))
     # 信号 vs ETF accum_nav 滞后断链检查（2026-09-04 P0: 9/1-9/4 信号全跳 trades 停 8/31 事故补盲）
     results.append(check_signal_accum_nav_lag())
+    # FAPI vs mootdx 双源互证（#102 转正条件②，2026-09-06；差异>0.5% FAIL 阻断上线）
+    results.append(check_fapi_mutex())
     # accum_nav_map.json 新鲜度(#52, 净资产曲线+强平日真价共用数据源; deploy.sh 每日生成兜底)
     results.append(check_accum_nav_map_fresh(data_dir))
     results.append(check_trade_sim_indices(data_dir))

@@ -30,7 +30,7 @@ cd "$REPO"
 
 case "$NAME" in
   core)        STEPS="metrics,indices,industry_extras";        DO_COMPUTE=1; DO_EXPORT=1; DO_PUSH=1 ;;
-  width)       STEPS="mootdx,industry_width,width_history";    DO_COMPUTE=1; DO_EXPORT=1; DO_PUSH=1 ;;
+  width)       STEPS="mootdx,industry_width,width_history,bj_width";    DO_COMPUTE=1; DO_EXPORT=1; DO_PUSH=1 ;;
   futures)     STEPS="futures";                                DO_COMPUTE=0; DO_EXPORT=1; DO_PUSH=1 ;;
   stock_daily) STEPS="stock_daily";                            DO_COMPUTE=0; DO_EXPORT=0; DO_PUSH=0 ;;
   turnover)    STEPS="turnover";                               DO_COMPUTE=0; DO_EXPORT=1; DO_PUSH=1 ;;
