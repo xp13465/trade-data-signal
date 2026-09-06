@@ -14,7 +14,7 @@
 #   3. git fetch origin + checkout main + 确认 main 已是最新
 #   4. 校验 feat 分支 base 新鲜: 最近一次 rebase 基点距 origin/main 无净回退(调 check_version_progress)
 #   5. merge feat(冲突即停报, 绝不静默 §23.11)
-#   6. 若 feat 改了前端源码(8 源: app/lab/common/style/lab.css/purpose-notes/kelly-review-notes/kelly-reports-content, 与 build_min.py 对齐): 统一跑 build_min + bump_asset_version(版本串唯一权威入口, 机制 C)
+#   6. 若 feat 改了前端源码(9 源: app/lab/common/style/lab.css/purpose-notes/kelly-review-notes/kelly-reports-content/index.html): 统一跑 build_min + bump_asset_version(版本串唯一权威入口, 机制 C; index.html 改动触发统一 bump, build_min 无源变更自然产出不变)
 #   7. §24⑤ 校验 index 引用 == 实际文件内容 md5(统一 bump 后内容哈希==引用)
 #   8. 调 check_version_progress.py(A/B: 版本串倒退哨兵 + merge 净回退校验) → FAIL 阻断
 #   8.5 pending-index 销账软提醒(只提醒不阻断不自动改, 2026-08-22 用户授权流程小机制)
@@ -172,8 +172,12 @@ fi
 #      common/purpose-notes/kelly-review-notes/kelly-reports-content/app/lab 的 .min.js
 #      + style.min.css + lab.min.css。
 #    缺失任何源(尤其 3 个 notes 公示文件, §21 典型场景只改 purpose-notes.js)= 检测不到→不 bump→公示不上线。
+# index.html 也在内(§24② 对齐, 2026-09-06): feat 只改 index.html(如 #99 toast changelog)
+#   = 前端源码改动, 必须统一 bump → SW 才提示更新。build_min 对纯 index.html 改动无源变更
+#   自然产出不变只跑 bump_asset_version.py(重写 index.html ?v= + sw.js CACHE_VERSION)。
 SRC_FILES=("app.js" "lab.js" "common.js" "style.css" "lab.css" \
-           "purpose-notes.js" "kelly-review-notes.js" "kelly-reports-content.js")
+           "purpose-notes.js" "kelly-review-notes.js" "kelly-reports-content.js" \
+           "index.html")
 CHANGED_SRC=""
 for src in "${SRC_FILES[@]}"; do
   if $GIT diff --quiet "origin/main...$FEAT" -- "static-site/$src" 2>/dev/null; then
@@ -194,7 +198,7 @@ if [[ -n "$CHANGED_SRC" ]]; then
     echo "  ✓ build_min + bump 完成, 待 commit"
   fi
 else
-  echo "  feat 未触碰前端源码(8 源: app/lab/common/style/lab.css/purpose-notes/kelly-review-notes/kelly-reports-content), 跳过统一 bump"
+  echo "  feat 未触碰前端源码(9 源: app/lab/common/style/lab.css/purpose-notes/kelly-review-notes/kelly-reports-content/index.html), 跳过统一 bump"
 fi
 
 # 7. §24⑤ 校验 index 引用版本串 == 实际文件内容 md5
