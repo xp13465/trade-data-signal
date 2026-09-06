@@ -13,7 +13,7 @@
   (锚点「已越过硬顶」)并清掉分轮 state——监控零捕获。本检测器以 DB 状态推导为主信号
   (内部断档洞 >15 天), 日志扫描为辅证实锤, 不依赖日志轮转不丢信号。
 
-四个检查器(均只读生产库, 不写任何业务数据):
+五个检查器(均只读生产库, 不写任何业务数据):
   north_hole          a_fund_north 内部断档洞>15天。洞+无分轮state=SEVERE(不自愈,
                       需人工 fallback1 全量); 洞+有state=WARN(分轮累积推进中, 观察)。
                       附带扫 backfill_evening 日志尾部「已越过硬顶」实锤行。
@@ -24,6 +24,11 @@
                       NULL>=20行=WARN; 最老NULL>90天升级 SEVERE 措辞(成片积累,
                       人工 accum-nav 大窗回填)。少量散点(停牌日无净值, 永补不上)
                       属数据特性不告警, 防噪音。
+  accum_nav_new_gap   accum_nav 当日新增缺价 diff(2026-09-06 方案 D, 拍板 B+D):
+                      本次全量缺价清单 − 上版快照 = 新增缺价; 分历史回归(date<=快照
+                      latest_date, 之前有价今天变缺)/ 当日新缺(该日该有价却缺)两类,
+                      WARN; QDII 跨境 T+1 时滞缺价(close 有值 nav 次日公布)只记 info
+                      不告警, 防每天收盘 38 条刷屏。存量 2081 条历史缺价不动不告警。
   width_freshness     宽度族(daily_metric, #103 二)单指标停更/断档:
                       GROUP_FULL(2016起全量8个id) 任一 MAX 落后组内参考>5自然日=WARN,
                       >=3个或落后>30天=SEVERE; 内部断档>15天=WARN(run_recent 窗外洞);
@@ -276,6 +281,125 @@ def check_etf_accum_nav(repo: Path, today: datetime,
         f"根治=#103 本尊修法(state 前沿推进, 等用户启动)。")], cur_base)
 
 
+# ── checker 5: accum_nav 当日新增缺价 diff(2026-09-06 方案 D, 拍板 B+D) ──
+# 与 checker 3(check_etf_accum_nav)互补: 3 看「在全史窗口外 NULL 存量 vs 基线」的累计增长,
+# 本 check 看「当日新增缺价」= 本次全量缺价清单 − 上版快照 的补集(历史存量 2081 条不动不告警)。
+# QDII 跨境 ETF(T+1 净值时滞, 当日 close 有值但 nav 未公布)属正常现象, 次日自然补齐,
+# 从告警剔除只记 info(2026-09-06 分析报告「20260904 的 38 条全部为跨境 QDII」证明)。
+QDII_NAME_HINTS = ("纳指", "标普", "纳斯达克", "中概", "德国", "法国", "道琼", "日经",
+                   "美国", "沙特", "巴西", "东南亚", "新经济", "教育", "油气", "亚太", "恒生",
+                   "东南亚科技", "跨境", "QDII")
+ACC_NAV_GAP_KEY = "data_gap:accum_nav_new_gap"
+
+
+def _is_qdii(name: str) -> bool:
+    """按 ETF 名称特征识别跨境 QDII(QDII 净值 T+1 时滞属正常, 缺价不告警)。"""
+    n = name or ""
+    return any(h in n for h in QDII_NAME_HINTS)
+
+
+def check_accum_nav_new_gap(repo: Path, today: datetime,
+                            prev_gap: dict | None = None) -> tuple[list[Finding], dict]:
+    """方案 D: 当日新增缺价 diff 告警(不补历史, 存量 2081 条不动)。
+
+    口径: 缺价 = etf_daily 该 (etf_code, date) 行 accum_nav IS NULL(直接读主库)。
+    本次清单 − 上版快照 = 当日新增缺价, 内容分两类:
+      ①历史回归(date <= 快照 latest_date): 之前该 ETF 该日有价, 现在变缺 → 数据异常(污染/回退);
+      ②当日新缺(date > 快照 latest_date): 该日新采集, 有交易记录但 nav 未出。
+    QDII 跨境缺价(T+1 时滞)降 info 观察不告警, 防每天收盘刷屏。
+    快照存 extra_state 下划线键 _accum_nav_gap_snapshot(恢复循环跳过, 不参与 dedup)。
+    返回 (findings, new_snapshot); 返回的快照每轮都应在 run 层 merge 进 extra_state。
+    """
+    db = repo / "data" / "etf_national_team.db"
+    if not db.exists():
+        return ([Finding(ACC_NAV_GAP_KEY, "warn", "ETF累计净值检测跳过(库缺失)",
+                        f"{db} 不存在, 未检测(环境异常)")], {})
+
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=30.0)
+    try:
+        rows = conn.execute(
+            "SELECT etf_code, etf_name, date FROM etf_daily WHERE accum_nav IS NULL").fetchall()
+        latest = conn.execute("SELECT MAX(date) FROM etf_daily").fetchone()[0] or ""
+    finally:
+        conn.close()
+
+    # 全量缺价清单 {etf_code: set(date)} + 最新日期(此快照时刻的库内容)
+    gap_map: dict[str, set[str]] = {}
+    qdii_codes: set[str] = set()
+    pair_name: dict[tuple[str, str], str] = {}
+    for code, name, d in rows:
+        gap_map.setdefault(code, set()).add(d)
+        pair_name[(code, d)] = name or code
+        if _is_qdii(name):
+            qdii_codes.add(code)
+    new_snapshot = {
+        "set_at": today.strftime("%Y-%m-%d"),
+        "latest_date": latest,
+        "gap": {k: sorted(v) for k, v in gap_map.items()},
+        "qdii_codes": sorted(qdii_codes),
+    }
+
+    # 首轮: 无快照 → 只建档 info, 不告警(同 checker 3 先例)
+    if not prev_gap or "gap" not in prev_gap:
+        n = len(rows)
+        return ([Finding(
+            ACC_NAV_GAP_KEY, "info",
+            f"ETF 累计净值缺价清单快照建档: {n} 条缺价(最新库日 {latest or '-'})",
+            f"首日锚定缺价快照(历史存量 2081 条缺价不动, 见 2026-09-06 分析和方案 B)。"
+            f"此后只对「当日新增缺价」告警(QDII 跨境 T+1 时滞正常缺价只记 info)。")], new_snapshot)
+
+    prev_latest = str(prev_gap.get("latest_date") or "")
+    prev_gap_map = prev_gap.get("gap") or {}
+    # 新增 diff = 本次清单 − 上版清单 的补集
+    new_items: list[tuple[str, str, str]] = []  # (etf_code, etf_name, date)
+    for code, dates in gap_map.items():
+        prev_dates = set(prev_gap_map.get(code, []))
+        for d in sorted(dates - prev_dates):
+            new_items.append((code, pair_name.get((code, d), code), d))
+
+    if not new_items:
+        return ([], new_snapshot)
+
+    # 分类: 历史回归 vs 当日新缺 + QDII 豁免
+    regress, fresh, qdii = [], [], []
+    for code, name, d in new_items:
+        if code in qdii_codes:
+            qdii.append((code, name, d))
+        elif prev_latest and _jd(d) <= _jd(prev_latest):
+            regress.append((code, name, d))
+        else:
+            fresh.append((code, name, d))
+
+    out: list[Finding] = []
+    if qdii:
+        out.append(Finding(
+            ACC_NAV_GAP_KEY, "info",
+            f"ETF 累计净值新增 {len(qdii)} 条 QDII 跨境时滞缺价(正常, 不告警)",
+            f"QDII T+1 净值时滞: 当日 close 有值但 nav 次日公布, 属正常现象, 不告警不处理。"
+            f"例: {'; '.join(f'{c} {n}@{d}' for c, n, d in qdii[:5])}。"))
+
+    bad = regress + fresh
+    if not bad:
+        return (out, new_snapshot)
+
+    regress_txt = ("; ".join(f"{c} {n}@{d}" for c, n, d in regress[:6])) if regress else "无"
+    fresh_txt = ("; ".join(f"{c} {n}@{d}" for c, n, d in fresh[:6])) if fresh else "无"
+    impact_note = ("影响=0 口径: 缺价日发生在已交易时段且无持仓依赖则不影响信号与回测"
+                   "(2026-09-06 分析三重交叉实证: 历史缺价日∩信号日∩强平日=0); "
+                   "若新增缺价日命中信号日/强平日, 属需要人工介入的真事故。")
+    detail = (f"对比 {prev_latest or '-'} 快照, 新增缺价 {len(bad)} 条:"
+              f"<br>① 历史回归(之前有价今天变缺): {len(regress)} 条 — {regress_txt}"
+              f"<br>② 当日新缺(该日该有价却缺): {len(fresh)} 条 — {fresh_txt}"
+              f"<br>另有 QDII 跨境时滞 {len(qdii)} 条(info)。<br>{impact_note}"
+              f"<br>建议: 回退/污染类先查 etf_national_team 采集是否覆盖该日该代码; "
+              f"持续出现走 accum-nav --lookback 补采。")
+    out.append(Finding(
+        ACC_NAV_GAP_KEY, "warn",
+        f"ETF 累计净值新增缺价 {len(bad)} 条(回归 {len(regress)} / 当日新缺 {len(fresh)})",
+        detail))
+    return (out, new_snapshot)
+
+
 # ── checker 4: 宽度族保鲜/断档(#103 二) ──
 
 def check_width(repo: Path, today: datetime) -> list[Finding]:
@@ -485,18 +609,24 @@ def run(repo: Path, dry_run: bool) -> int:
     state_p = repo / "data" / "alerts" / "data_gap_alert_state.json"
     prev_state: dict = _load_json(state_p, {})
     findings: list[Finding] = []
-    new_baseline = None
+    extra: dict = {}
     findings += check_north(repo, today)
     acc_f, new_baseline = check_etf_accum_nav(
         repo, today, baseline=prev_state.get("_accum_nav_baseline"))
     findings += acc_f
+    if new_baseline:
+        extra["_accum_nav_baseline"] = new_baseline
+    gap_f, new_gap = check_accum_nav_new_gap(
+        repo, today, prev_gap=prev_state.get("_accum_nav_gap_snapshot"))
+    findings += gap_f
+    if new_gap:
+        extra["_accum_nav_gap_snapshot"] = new_gap
     findings += check_width(repo, today)
     print(f"[check_data_gap] 检测完成: {len(findings)} 条发现 "
           f"(severe={sum(1 for f in findings if f.level == 'severe')}, "
           f"warn={sum(1 for f in findings if f.level == 'warn')}, "
           f"info={sum(1 for f in findings if f.level == 'info')})")
-    run_alerts(repo, findings, dry_run=dry_run, now=today,
-               extra_state={"_accum_nav_baseline": new_baseline} if new_baseline else None)
+    run_alerts(repo, findings, dry_run=dry_run, now=today, extra_state=extra or None)
     return 0
 
 
@@ -505,8 +635,8 @@ def run(repo: Path, dry_run: bool) -> int:
 _TABLE_COLUMNS = {
     "daily_metric": ("date TEXT NOT NULL, metric_id TEXT NOT NULL, value REAL, source TEXT, "
                      "updated_at TEXT, PRIMARY KEY (date, metric_id)", 5),
-    "etf_daily": ("date TEXT NOT NULL, etf_code TEXT NOT NULL, accum_nav REAL, "
-                  "PRIMARY KEY (date, etf_code)", 3),
+    "etf_daily": ("date TEXT NOT NULL, etf_code TEXT NOT NULL, etf_name TEXT, accum_nav REAL, "
+                  "PRIMARY KEY (date, etf_code)", 4),
     "mootdx_daily_raw": ("code TEXT NOT NULL, date TEXT NOT NULL, PRIMARY KEY (code, date)", 2),
 }
 
@@ -561,7 +691,7 @@ def self_test() -> int:
             "daily_metric": ([("".join(d), "a_fund_north", 1.0, "t", "t") for d in north_dates] +
                              [("".join(d), mid, 1.0, "t", "t")
                               for mid, ds in width_spec.items() for d in ds]),
-            "etf_daily": null_rows + [(("".join(d)), "600000", 1.0) for d in mootdx_dates],
+            "etf_daily": null_rows + [(("".join(d)), "600000", "沪深300ETF", 1.0) for d in mootdx_dates],
             "mootdx_daily_raw": [("510300", "".join(d)) for d in mootdx_dates],
         }
 
@@ -587,7 +717,7 @@ def self_test() -> int:
         width_a["a_width_zb_count"] = [d for d in normal if d <= "20260710"]    # 停更47天>30
         width_a["a_width_seal_rate"] = [d for d in normal if d <= "20260710"]
         width_a["a_width_daban_premium"] = [d for d in normal if d <= "20260815"]  # 落后12天(容忍5~30=mild)
-        nulls_a = [("20260301", f"51{i:04d}", None) for i in range(25)]  # 25行>=20 且最老179天>90
+        nulls_a = [("20260301", f"51{i:04d}", "沪深300ETF", None) for i in range(25)]  # 25行>=20 且最老179天>90
         _make_dbs(base, all_tables(north, width_a, nulls_a, normal),
                   north_state=None,
                   cap_giveup_line="2026-08-27 16:35:01 [INFO] [a_fund_north][hkex] 分轮回补前沿 "
@@ -623,7 +753,7 @@ def self_test() -> int:
             fails.append(f"case A2 有 state 应降为 warn, 实得 {fA2.get('data_gap:north_hole')}")
 
         # ── case A3: 首轮无基线 → accum NULL 存量只建档(info), 不告警; 次轮起按增量判定 ──
-        nulls_25 = [("20260301", f"51{i:04d}", None) for i in range(25)]
+        nulls_25 = [("20260301", f"51{i:04d}", "沪深300ETF", None) for i in range(25)]
         _make_dbs(base, all_tables(normal, {**width_full, **width_new}, nulls_25, normal),
                   north_state=None, cap_giveup_line=None)
         fa3, bl = check_etf_accum_nav(base, now)
@@ -632,19 +762,47 @@ def self_test() -> int:
             fails.append(f"case A3 首轮应只建档(info)+返回基线25, 实得 "
                          f"{[(f.key, f.level) for f in fa3]} / baseline={bl}")
         # +8 行(<10): 不告警; +60 行(>50): severe
-        nulls_33 = nulls_25 + [("20260401", f"71{i:02d}", None) for i in range(8)]
+        nulls_33 = nulls_25 + [("20260401", f"71{i:02d}", "沪深300ETF", None) for i in range(8)]
         _make_dbs(base, all_tables(normal, {**width_full, **width_new}, nulls_33, normal),
                   north_state=None, cap_giveup_line=None)
         fa3b, _ = check_etf_accum_nav(base, now, baseline=bl)
         if any(SEV_ORDER.get(f.level, 0) >= 1 for f in fa3b):
             fails.append(f"case A3b 增长+8(<告警线10)不应告警: {[(f.key, f.level) for f in fa3b]}")
-        nulls_85 = nulls_25 + [(("20260401"), f"81{i:03d}", None) for i in range(60)]
+        nulls_85 = nulls_25 + [(("20260401"), f"81{i:03d}", "沪深300ETF", None) for i in range(60)]
         _make_dbs(base, all_tables(normal, {**width_full, **width_new}, nulls_85, normal),
                   north_state=None, cap_giveup_line=None)
         fa3c, _ = check_etf_accum_nav(base, now, baseline=bl)
         lv3c = next((f.level for f in fa3c if f.key == "data_gap:etf_accum_nav_gap"), None)
         if lv3c != "severe":
             fails.append(f"case A3c 增长+60(>severe线50)应 severe, 实得 {lv3c}")
+
+        # ── case A7: 方案 D 新增缺价 diff 两向自测 ──
+        # A7a: 首轮建档中心化 —— 缺价清单非空 → info 建档 + 返回快照(清单含全部 null)
+        _make_dbs(base, all_tables(normal, {**width_full, **width_new},
+                                   [("20260904", "513050", "中概互联网ETF", None)], normal),
+                  north_state=None, cap_giveup_line=None)
+        fa7a, snap_a = check_accum_nav_new_gap(base, now)
+        bad_a7a = [f for f in fa7a if SEV_ORDER.get(f.level, 0) >= 1]
+        if bad_a7a:
+            fails.append(f"case A7a 首轮建档不应告警: {[(f.key, f.level) for f in bad_a7a]}")
+        if not snap_a or not snap_a.get("gap") or "513050" not in snap_a["gap"]:
+            fails.append(f"case A7a 快照应含 513050 缺价, 实得 gap={ (snap_a or {}).get('gap') }")
+        # A7b: 无新增 → 无任何告警
+        fa7b, snap_b = check_accum_nav_new_gap(base, now, prev_gap=snap_a)
+        if fa7b:
+            fails.append(f"case A7b 无新增缺价不应告警: {[(f.key, f.level) for f in fa7b]}")
+        # A7c: 新增非QDII缺价(600001 历史回归) → warn; QDII(513050 再来一天)只记 info
+        _make_dbs(base, all_tables(normal, {**width_full, **width_new},
+                                   [("20260904", "513050", "中概互联网ETF", None),
+                                    ("20260903", "600001", "上证50ETF华泰", None),
+                                    ("20260905", "513050", "中概互联网ETF", None)], normal),
+                  north_state=None, cap_giveup_line=None)
+        fa7c, snap_c = check_accum_nav_new_gap(base, now, prev_gap=snap_a)
+        if not any(f.key == ACC_NAV_GAP_KEY and f.level == "warn" for f in fa7c):
+            fails.append(f"case A7c 新增非QDII回归缺价应 warn, findings={[(f.key, f.level) for f in fa7c]}")
+        qdii_info = [f for f in fa7c if f.key == ACC_NAV_GAP_KEY and f.level == "info"]
+        if not qdii_info and not any("QDII" in f.title for f in fa7c):
+            fails.append("case A7c QDII 新增缺价应有 info 观察条目")
 
         # ── case A4: run_alerts 出口链路(stub notify 真发模式): state 登记+dedup+恢复通知
         # + extra_state 内部键保留(dry-run 不落盘由生产 --dry-run 行为保证) ──
@@ -739,7 +897,8 @@ def self_test() -> int:
         return 1
     print("[self-test] PASS: two-way 全过(case B 正常态零命中 / case A 必命中+级别正确"
           "+日志实锤入 detail / A2 有state降级warn / A3 accum 基线建档+低增静默+高增severe"
-          " / A4 出口 dedup+恢复链路 / A5-F1 低增info不发恢复+真消失才恢复 / A6-F2 原子写失败保留旧文件)")
+          " / A4 出口 dedup+恢复链路 / A5-F1 低增info不发恢复+真消失才恢复 / A6-F2 原子写失败保留旧文件"
+          " / A7 新增缺价 diff: 首轮建档+无新增静默+非QDII回归warn+QDII时滞info)")
     return 0
 
 

@@ -437,6 +437,7 @@ docs/kelly/             # 凯利回测专题文档子目录（2026-08-14 按主�
 - **check_r2_consistency**：本地 vs R2 一致性审计（数据一致性铁律）
 - **check_universe_alignment**：凯利回测/首页AI建议「入样宇宙规则」对称校验（deploy 前置，CLAUDE.md §23.6 治理）——自动比对 overview 每信号 `_bt_in_universe` ⟺ board_etf_map 重算入样判定、候选信号类型 ⊆ 白名单（config/universe_rules.yaml buy_whitelist）、回测交易无排除类别（债类 cgb_*/情绪 s.*/商品 g.*/港股行业 hk_*/空数组 ftse100·kospi）记录、yaml 排除类别 ⟺ map 实际缺失 key，任一 FAIL 阻断上线（同 §22 数据一致性校验逻辑）
 - **check_task_state**：任务状态一致性对账（deploy 前置 + CI 静态门禁，每日经 update_all 17:50 O1 统一 deploy 链运行，CLAUDE.md §23.12-1 治理）——对账 A pending-index 编号完整性 / B TASKS 幽灵编号+残留关闭指针 / C 僵尸巡检 cron，任一 FAIL 阻断上线（任务状态唯一权威=pending-index，TASKS/cron/memory 只写指针）
+- **数据缺口告警（check_data_gap_alerts）**：每日 22:35 数据缺口兜底检测（launchd `com.trade.check-data-gap`，调度脚本 `scripts/check_data_gap_alerts.sh`），五项检查器——北向资金断档洞/停更（a_fund_north 内部洞>15天 / 最新日期落后>14天）、ETF累计净值窗口外 NULL 存量基线增长（accum_nav：T+2 净值缓冲 6 天外 NULL 超存量基线 +10 行告警，最老 >90 天升级严重，散点停牌日特性不刷屏）、**ETF累计净值当日新增缺价 diff（2026-09-06 方案 D：本次全量缺价清单对比上版快照，历史回归（之前有价今天变缺）/ 当日新缺（该日该有价却缺）两类 WARN，QDII 跨境 T+1 净值时滞缺价只记 info 不告警，存量 2081 条历史缺价不动）**、宽度族指标停更/断档（大表全量 8 指标 / 新起点 3 指标按基线分类）、涨停源与宽度族对照（源有数宽度没算=计算问题）。SEVERE→邮件+latest.md，WARN→普通邮件，info 只记日志；同 key 每自然日去重、人工 acknowledge 24h 免打扰、问题真正消失发恢复通知；state 写盘原子化（tmp+replace），dry-run 零副作用不落盘
 - **self_heal**：盘中保护 update_all，脚本吞异常（exit=0 假成功）自动识别
 - **分时自愈轮询**：前端 1min 轮询 5 阶段自愈（超时/去重/降频/心跳/切前台清 in-flight），7x24 不卡死
 - **mac 休眠根治**：pmset 工作日唤醒 + caffeinate 防跑期间休眠
