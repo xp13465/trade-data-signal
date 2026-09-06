@@ -8,13 +8,14 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-09-06 02:2x(会话接力轮——用户升级 claude 版本重开新会话,主控恢复状态继续).本轮:
+**最后更新**:2026-09-06 17:0x(主控补齐 merge 事故后).本轮:**#101/#102 已完成上线**(bj-fapi 分支 4 commits 合入,注意首次 main-merge 只带入首 commit,主控 cherry-pick 补齐 3 后续 commit 1d85e0fae/ea2b27aca/f26777b59+版本串 a543,main=1e22b3652,已 push):①#101 北交所宽度方案C(30%档 a_bj_width_* 独立指标组)②#102 FAPI转正条件①+②(runner 兜底+check_fapi_mutex 互证挂 deploy)。**fapi-daily plist 已 bootout+bootstrap reload**(18:10 链式 fapi_daily→bj_width→fapi_bj_width_export 当天数据当天上线),17:50 update_all 自动部署 a543。pending-index #101/#102 状态列已改**已完成**。**待跟**:#100 sigkelly 渐进加载(origin/feat/sigkelly-progressive-y1 3 commits 待 main-merge,lab.js 176+/46-,需 reviewer §15 回归后 merge);FAPI 概念观察期 cron(1e0ef6fb) 09-08 到期(周一收尾一次);§5.4 基准仍 v1.1.7;今日休市 merge 无盘中窗口限制,避 17:50/18:10/20:35/22:00。
+**前轮(2026-09-04 17:0x)**:codegraph ui 误判修正→pending #98 待观察;sigkelly 研究员查断链 STEP10.
 - **✅ v1.1.16 tag 已打并 push(75532cb32,2026-09-06)**:覆盖 v1.1.15..HEAD 全部 40+ commit(netasset 净资产曲线 #51/#52 全系列+K档评级动态化 #54+sigkelly 快照演进告警+codex-watcher 修复+k3bench 文档)。netasset §0 三查过:线上 v20260905-a541 含 labelTop+90天 特征
 - **✅ 挂起待办盘点结论(inv-todos-4 盘点 agent 撞 429 停,只到「定位完成」;主控核实 commit 实锤,4 项全有结论,均无需再派实施)**:#52 净资产波动曲线=已实施上线(c9a69190d 等系列,v1.1.16 内)/#54 K档评级动态化=已实施上线(0b81ec5e1 等系列)/#19 FAPI P2 盘中延迟实测=已完成(bd94b227f+97341679c,238轮,秒级实时档可兜底)/#36 北交所宽度宇宙=已有拍板材料(5e3122ace,三方案推荐C),**待用户拍板**
 - **netasset 弹窗三处调整(09-05 需求)已收尾**:默认90天+x轴短日期+「末」标注右上(labelTop)。feat/netasset-modal-ui(f3dfe818b) reviewer PASS→main-merge 统一 bump(ec8e2db8b)→deploy,§0 三查过,蓝虚线=持仓市值(rev-20260905-001 P1-2 证伪为设计)
 - **codex worktree 隔离落地(09-05)**:codex 专属 worktree=`.claude/worktrees/codex-reviewer`+分支 `codex/reviewer`,SKILL.md 顶部开工检查(e022287a3 已合 main),合 main 走 main-merge.sh。⚠️ 主工作区被外部切分支/多出未知 commit=先怀疑 codex 误操作(§23.11)
 - **k3bench 评测定论(继续用 v4-flash)**:稳定性三输(终429率43.4% vs v4flash 19.5%、空body 38.5% vs 28.8%、有效率26% vs 68%),唯一赢=生成吞吐。报告 docs/k3-vs-v4flash-eval-20260905.md,75532cb32 已在 origin/main。意外发现:空body 200=商汤上游老毛病,代理按429换key可抬高有效率(建议立项)
-- **待跟进指针**:#101 北交所宽度已拍板C(09-06 用户定,待 #102 打包实施,见 pending-index);#102 FAPI转正已拍板A(09-06 用户定,见 pending-index);FAPI 概念观察期 cron(1e0ef6fb) 09-08 到期;每日命中率走势 20:40 cron;§5.4 测试基准仍 v1.1.7(v1.1.16 纯新增展示/数据源,未动默认组合,基准不升)
+- **待跟进指针**:#101 北交所宽度=**已完成上线**(2026-09-06,bj-fapi 分支,见 pending-index);#102 FAPI转正=**已完成上线**(2026-09-06,条件①+②,见 pending-index);#100 sigkelly 渐进加载=待 main-merge(3 commits 已 push origin/feat/sigkelly-progressive-y1,需 reviewer 回归);FAPI 概念观察期 cron(1e0ef6fb) 09-08 到期(周一收尾一次);每日命中率走势 20:40 cron;§5.4 测试基准仍 v1.1.7(v1.1.16 纯新增展示/数据源,未动默认组合,基准不升)
 **前轮(2026-09-04 17:0x)**:codegraph ui 误判修正→pending #98 待观察;sigkelly 研究员查断链 STEP10.
 - **✅ P0 信号凯利全信号卡收益骤变已定论(2026-09-04 15:0x)**:根因=Edge 正常浏览器 SW 缓存旧页面(lab.min.js CacheFirst 命中旧快照+强刷不清 SW),线上数据零故障无需回滚。研究员穷举全谱(当前 trades/旧 trades 4版/H策略cap/ext按年/git全史/线上DOM)0命中 182.25;用户无痕实测三证据链(Chrome/Edge无痕全部=A163/H224.92 逐位一致)。A163→142.68=DYNAMIC 评级表 K1 vs K3 同表并存非变化。报告落档 docs/kelly/ 待补(研究员产出)
 - **🆕 新发现:回测交易记录停在 8/31 断链(用户 09-04 报,待查根因)**:用户见首页模拟回测弹窗+信号凯利全信号 A 交易记录停在 8/25,未演进到 9/4。主控只读定位已锁:**signal_kelly_trades.json 虽 09-04 02:17 新生成,但全象限最大买入=20260831,9/1-9/4 零买入**(部分象限更早:rating_high 8/17/sig_main 7/31/mkt_concept 8/25);**信号源 overview signals_today 信号日期到 20260903 新鲜**;9/1-9/4 全交易日。=回测链路(scripts/signal_kelly_backtest.py 读 signal_stats.json)未消费 9/1-9/4 信号。已派 researcher 查根因+并行设计快照告警
@@ -46,7 +47,7 @@
 > **TASKS.md 已清空活跃待办**(2026-08-20 用户「task 只留交接/大纲/必要指针,无活跃 checkbox;待办全判远期移 todolist,等有真正在做再放」)。
 > - 真完成 53 条 → [docs/tasks-done-list.md](docs/tasks-done-list.md)(完成文件:43 TASKS治理 + 10 费率;待 7 天自动归档)
 > - 用户关闭 3 条 → [docs/archive/TASKS-done.md](docs/archive/TASKS-done.md) 关闭记录
-> - **待办/远期全在 [docs/pending-features-index.md](docs/pending-features-index.md) 模块十六**:#79 场外方案C(8步)/#80 性能P2(含 P2-11 大盘 tab SVG/**#82-89 八项归档活跃需求**/#90 场外阶段/**#91 次日开盘口径**/**#101 北交所宽度已拍板C待实施**/**#102 FAPI转正已拍板A待实施**(SVG 大盘 tab 与 P2-11 同项已并入 #80,不独立排期;#81 管理端看板已于 2026-08-20 用户拍板关闭,勿再列为远期;详情 TASKS-done.md 关闭记录)
+> - **待办/远期全在 [docs/pending-features-index.md](docs/pending-features-index.md) 模块十六**:#79 场外方案C(8步)/#80 性能P2(含 P2-11 大盘 tab SVG/**#82-89 八项归档活跃需求**/#90 场外阶段/**#91 次日开盘口径**(#101 北交所宽度/#102 FAPI转正 已 2026-09-06 完成上线,从远期移除;#81 管理端看板已于 2026-08-20 用户拍板关闭,勿再列为远期;详情 TASKS-done.md 关闭记录)
 > - 待安排指针(近期):excludeSpecialBearCyb 实测 / 次日开盘口径(#91),见 pending-index 对应节。#73 8宽基四档 / #74 邮件广播hit白名单 已完成 done-list 登记(2026-08-21 同步)。
 > - 后续新增真实待办(有活在做)再写回本节。
 
