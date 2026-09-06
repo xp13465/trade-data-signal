@@ -220,7 +220,9 @@ def store_bj_ad_line(*, dry_run: bool = False) -> int:
     conn.close()
     if not rows:
         return 0
-    df = pd.DataFrame(rows)
+    # pandas 3.0: sqlite3.Row 列表直接 pd.DataFrame(rows) 列名变整数索引(0/1/2), 必然 KeyError;
+    # dict(r) 显式转普通 dict 保留列名(上游 fapi_fallback 用 dict 列表不受影响, 此为唯一同类点)。
+    df = pd.DataFrame([dict(r) for r in rows])
     up = df[df["metric_id"] == "a_bj_width_up_count"].set_index("date")["value"].astype(float)
     down = df[df["metric_id"] == "a_bj_width_down_count"].set_index("date")["value"].astype(float)
     s = pd.concat([up, down], axis=1).dropna()
