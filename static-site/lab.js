@@ -8323,7 +8323,8 @@ async function _labKellyLoadFull() {
     return true;
   } catch (e) {
     _labKellyLoadErr = e && e.message ? e.message : String(e);
-    state.labSigKellyTradesData = null;
+    // 全量兜底失败不清已合并在册的分片数据(y1 或阶段2 已合并的): 保留让近1年/y1 周期仍可渲染,
+    //   且短路判定(下方/Ensure 的 `&& state.labSigKellyTradesData`)不会因 flag 已置位而误短路 → 重试能重新走加载链路(#100 F2-A 回归)
     return false;
   }
 }
@@ -8339,11 +8340,11 @@ function _labKellySetCache(name, data, meta) {
 }
 // 加载各年数据(当年为 recent.json)并合并成完整数据 —— 两阶段渐进加载(#100 2026-09-06, 评估 docs/kelly/analysis/sigkelly-progressive-y1-load-20260904.md §③ 最小方案)
 async function _labKellyLoadYearParts() {
-  if (_labKellyFullFallback) return !!state.labSigKellyTradesData;
+  if (_labKellyFullFallback && state.labSigKellyTradesData) return true;
   // 阶段2 已完成 → 全量数据在册, 直接返回(不重复网络请求)
-  if (_labKellyAllReady) return !!state.labSigKellyTradesData;
+  if (_labKellyAllReady && state.labSigKellyTradesData) return true;
   // 阶段1 已完成 → 近1年两片已合并在册, 直接返回(不重复网络请求)
-  if (_labKellyY1Ready) return !!state.labSigKellyTradesData;
+  if (_labKellyY1Ready && state.labSigKellyTradesData) return true;
 
   try {
     // ===== 阶段1: 先拉近1年两片(2025+2026), y1 窗口基笔 100% 落这两片(评估实证 y1 基笔 1827=409+1418 合并闭合) =====
@@ -11871,7 +11872,13 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
     const ok = await _labKellyTradesEnsure();
     if (!ok) {
       overlay.innerHTML = `<div class="lab-sigkelly-modal"><div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 交易记录加载失败</div><div class="lab-custom-error-detail">${_labKellyLoadErr || "unknown"}</div><button type="button" class="lab-custom-retry">重试</button></div></div>`;
-      overlay.querySelector(".lab-custom-retry").onclick = () => { state.labSigKellyTradesData = null; state.labSigKellyTradeDims = null; _labKellyFullFallback = false; _openSigKellyTradesModal(quadKey, modeKey, period); };
+      overlay.querySelector(".lab-custom-retry").onclick = () => {
+        // #100 F2-A: 重试必须重置整个两阶段状态机(不只 data/dims/FullFallback), 否则 _labKellyY1Ready 残留 true 会
+        //   让 _labKellyLoadYearParts 短路(return false)不再重新加载 → 卡死只能刷新; 重置后重试真正重新走加载链路
+        state.labSigKellyTradesData = null; state.labSigKellyTradeDims = null;
+        _labKellyFullFallback = false; _labKellyY1Ready = false; _labKellyAllReady = false;
+        _openSigKellyTradesModal(quadKey, modeKey, period);
+      };
       return;
     }
   }
