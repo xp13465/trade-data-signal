@@ -8400,6 +8400,7 @@ function _labKellyFetchYears(years) {
 
 // ===== 阶段2(后台): 拉其余年份, 全量合并覆盖 state.labSigKellyTradesData → _labKellyAllReady → 全量重算覆盖 =====
 var _labKellyAllBackgroundRunning = false; // 防重入(切周期时后台已在加载, 避免重复启动)
+var _labKellyRetryAt = 0;                  // 阶段2 失败自愈冷却时间戳(ms, #100 同类边缘 2026-09-06): 冷却期内不重触发, 防弱网高频重试风暴
 function _labKellyLoadAllBackground() {
   if (_labKellyAllBackgroundRunning) return;
   _labKellyAllBackgroundRunning = true;
@@ -8409,6 +8410,19 @@ function _labKellyLoadAllBackground() {
   }).then(function () {
     _labKellyAllBackgroundRunning = false;
   });
+}
+// 自愈重触发(#100 同类边缘 2026-09-06): 阶段2 后台分片失败且全量兜底也失败时, _labKellyAllBackgroundRunning 已复位(false)但
+//   无任何入口再重触发阶段2 → 长周期永久占位「全量分片加载中」永不补齐, 只能刷新。本函数在「长周期(非 y1)被读取」的必经判定点
+//   _labKellyPeriodIsReady 里调用: 满足「y1 在册 + 全量未就绪 + 后台未在跑 + 冷却期已过」→ 重触发后台加载继续补齐。
+//   防无限重试风暴: 每次重触发即置 _labKellyRetryAt 冷却时间戳, 冷却期内(15s)不再重触发; 已成功分片在 _labKellyShardStore.
+//   /_labKellyLoadedYears 里, 重试只重拉失败片, 已成功片不重复网络请求。
+function _labKellyMaybeResumeAllBackground() {
+  if (_labKellyAllReady || _labKellyFullFallback) return;
+  if (_labKellyAllBackgroundRunning) return;
+  if (!_labKellyY1Ready || !state.labSigKellyTradesData) return;
+  if (Date.now() < _labKellyRetryAt) return; // 冷却期内: 不频繁重试(弱网防风暴)
+  _labKellyRetryAt = Date.now() + 15000;
+  _labKellyLoadAllBackground();
 }
 async function _labKellyLoadAllBackgroundRun() {
   if (_labKellyFullFallback || _labKellyAllReady) return;
@@ -8461,6 +8475,9 @@ function _labKellyOnAllReady() {
 function _labKellyPeriodIsReady(periodKey) {
   if (_labKellyFullFallback || _labKellyAllReady) return true;
   if (!_labKellyY1Ready) return false;                        // 阶段1 未完成: 所有周期视为未就绪(保守, 走静态/cache 逻辑)
+  // #100 同类边缘自愈钩子(2026-09-06): 本判定是「长周期(非 y1)被读取」的必经点 → 让后台失败后能自动续跑补齐,
+  //   不再永久占位只能刷新(函数内部有 _labKellyAllBackgroundRunning 防重入 + 15s 冷却防风暴, 见定义)
+  _labKellyMaybeResumeAllBackground();
   if (!periodKey) return true;                                // 无周期键(如按年聚合)视为就绪(y1 两片已覆盖最近数据)
   var need = _labKellyPeriodShardNeed[periodKey] || 16;
   return _labKellyLoadedYears.length >= need;
