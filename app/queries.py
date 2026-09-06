@@ -1567,6 +1567,9 @@ def overview(conn, cfg):
         "a_amount", "a_volume_ratio",
         "a_width_zt_count", "a_width_dt_count", "a_width_up_count", "a_width_down_count",
         "a_width_zhaban_rate", "a_width_fengban_rate",
+        # 北交所宽度独立指标组（#101，与主宽度并存，30%档口径，2026-09-06）
+        "a_bj_width_zt_count", "a_bj_width_dt_count", "a_bj_width_up_count", "a_bj_width_down_count",
+        "a_bj_width_amount", "a_bj_width_ad_line",
         "gold", "cn10y", "a_qvix_300",
         "a_fund_margin", "a_fund_main",
         "a_turnover_mean", "a_turnover_median", "a_turnover_p90", "a_turnover_p10", "a_turnover_gt5_pct",
