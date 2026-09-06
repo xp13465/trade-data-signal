@@ -8213,6 +8213,20 @@ async function _kellyRunRecompute(host, loadingHtml, onResult, onDone) {
 var _labKellyFullFallback = false;     // 分片链路失败已回退全量(true 后跳过分片逻辑)
 var _labKellyLoadErr = null;           // 加载错误信息
 var _labKellyLoadProgress = { done: 0, total: 16, lastYear: "" }; // 分片加载进度(「计算中」占位显示用, 2026-08-29 小步2)
+// ===== 渐进两阶段加载状态机(2026-09-06 #100, 评估见 docs/kelly/analysis/sigkelly-progressive-y1-load-20260904.md §③ 最小方案) =====
+// 阶段1: 先拉近1年两片(2025+2026) → state.labSigKellyTradesData=两片合并(y1 窗口基笔 100% 落这两片, 已实证)
+//        → _labKellyY1Ready=true → 触发 y1 渲染(省 57% 首屏下载)
+// 阶段2: 后台再并行拉其余 14 片 → 全量合并覆盖 state.labSigKellyTradesData → _labKellyAllReady=true
+//        → 全量重算覆盖(非 y1 周期首次完整数字)
+// 就绪状态机: 周期→所需片数(数据实证各期基笔分片分布, 评估报告 §③): y1=2片(y2025+y2026), y3=4片(y2023~26),
+//   y5=6片(y2021~26), y10=11片(y2016~26), all=16片(y2011~26); 已加载片数不足=该周期未就绪 → 渲染层只显示占位, 不显残缺数(§23.15)
+var _labKellyY1Ready = false;          // 阶段1 完成(两片已合并, state.labSigKellyTradesData 覆盖近1年)
+var _labKellyAllReady = false;         // 阶段2 完成(16片已合并, state.labSigKellyTradesData=全量)
+var _labKellyLoadedYears = [];         // 已成功加载并合并的年份(顺序无关, _labKellyMergeShards 按输入序)
+var _labKellyPeriodShardNeed = { y1: 2, y3: 4, y5: 6, y10: 11, all: 16 }; // 周期→所需片数(就绪判定)
+var _labKellyY1Years = ["2026", "2025"];   // 阶段1 近1年两片(数据实证 y1 窗口基笔 100% 落这两片, 顺序与全量一致)
+var _labKellyAllYears = ["2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017", "2016", "2015", "2014", "2013", "2012", "2011"]; // 全量16片
+var _labKellyShardStore = {};              // year -> parsed shard data(渐进两阶段合并共用: 阶段2 全量合并需所有分片原始数据)
 // URL helpers
 function _labKellyTradesUrl(name) { var v = _labCustomCacheBust(); return "https://ss.fx8.store/data/" + name + (v ? "?v=" + v : ""); }
 function _labKellyTradesUrlCf(name) { var v = _labCustomCacheBust(); return "./data/" + name + (v ? "?v=" + v : ""); }
@@ -8303,6 +8317,9 @@ async function _labKellyLoadFull() {
     var tr = await _labKellyFetchTrades("signal_kelly_trades.json");
     state.labSigKellyTradesData = _labKellyParseTrades(tr);
     _labKellyFullFallback = true;
+    // 全量兜底=覆盖全史, 两阶段就绪状态全置位(此后所有周期都走全量/就绪判定, 不再触发两片渐进)(#100 2026-09-06)
+    _labKellyY1Ready = true;
+    _labKellyAllReady = true;
     return true;
   } catch (e) {
     _labKellyLoadErr = e && e.message ? e.message : String(e);
@@ -8320,60 +8337,132 @@ function _labKellySetCache(name, data, meta) {
     return true;
   } catch (e) { return false; }
 }
-// 加载各年数据(当年为 recent.json)并合并成完整数据
+// 加载各年数据(当年为 recent.json)并合并成完整数据 —— 两阶段渐进加载(#100 2026-09-06, 评估 docs/kelly/analysis/sigkelly-progressive-y1-load-20260904.md §③ 最小方案)
 async function _labKellyLoadYearParts() {
-  if (state.labSigKellyTradesData && !_labKellyFullFallback) return true; // 已就绪
   if (_labKellyFullFallback) return !!state.labSigKellyTradesData;
+  // 阶段2 已完成 → 全量数据在册, 直接返回(不重复网络请求)
+  if (_labKellyAllReady) return !!state.labSigKellyTradesData;
+  // 阶段1 已完成 → 近1年两片已合并在册, 直接返回(不重复网络请求)
+  if (_labKellyY1Ready) return !!state.labSigKellyTradesData;
 
   try {
-    // 按年份加载并合并(t2026.json -> t2025.json -> t2024.json...)
-    // 2026-08-29 小步1: 串行 for await 改 Promise.all 并行16年(下载从 69MB 累加降到最大单年~16MB);
-    //   Promise.all 结果按输入序返回 → results 保持按年有序(_labKellyMergeShards 顺序无关也安全)。
-    //   每片成功/失败都推进一次 _labKellyLoadProgress(进度按片计, 不计重试)。
-    var years = ["2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017", "2016", "2015", "2014", "2013", "2012", "2011"];
-    _labKellyLoadProgress = { done: 0, total: years.length, lastYear: "" };
-    // 2026-08-29 小步(重试+诚实回退): 每片带 _labKellyFetchTradesRetry(首次+2次重试+退避),
-    //   结果用 {year, ok, data} 收敛(不静默丢弃失败年); 全 settle 后若有任一年重试仍失败 → 不渲染缺年数据, 回退全量。
-    // 进度语义: 每片最终 done+=1 一次(不计重试, 16片维度不变)。
-    var results = await Promise.all(years.map(function (y) {
-      return _labKellyFetchTradesRetry("signal_kelly_trades_parts/t" + y + ".json")
-        .then(function (yearFile) {
-          var parsed = _labKellyParseTrades(yearFile);
-          _labKellyLoadProgress.done += 1;
-          _labKellyLoadProgress.lastYear = y;
-          _labKellyProgressTickUI();
-          console.log("[sigkelly] 已加载 t" + y);
-          return { year: y, ok: true, data: parsed };
-        })
-        .catch(function (e) {
-          console.warn("[sigkelly] t" + y + " 重试后仍失败(将回退全量):", e);
-          _labKellyLoadProgress.done += 1;   // 每片最终仍推进一次进度(16片尝试完毕)
-          _labKellyLoadProgress.lastYear = y;
-          _labKellyProgressTickUI();
-          return { year: y, ok: false, data: null };
-        });
-    }));
-
-    // 收集重试后仍失败的年份; 有任何一片失败 → 不再用不完整数据渲染, 回退全量(比静默丢年+假全信号更诚实, §22)
-    var failYears = [];
-    for (var ri = 0; ri < results.length; ri++) {
-      if (!results[ri].ok) failYears.push(results[ri].year);
-    }
-    if (failYears.length > 0) {
-      console.warn("[sigkelly] 分片 t" + failYears.join(",") + " 重试后仍失败, 回退全量 signal_kelly_trades.json(约69MB)");
+    // ===== 阶段1: 先拉近1年两片(2025+2026), y1 窗口基笔 100% 落这两片(评估实证 y1 基笔 1827=409+1418 合并闭合) =====
+    //   目标: 首屏下载 ~30MB(t2025=16.4MB + t2026=13.5MB, 省 57% vs 全量 69MB), y1 先渲染。
+    _labKellyLoadProgress = { done: 0, total: _labKellyAllYears.length, lastYear: "" };
+    var y1Res = await _labKellyFetchYears(_labKellyY1Years);
+    var y1Fail = [];
+    for (var yi = 0; yi < y1Res.length; yi++) if (!y1Res[yi].ok) y1Fail.push(y1Res[yi].year);
+    if (y1Fail.length > 0) {
+      // 近1年两片重试仍失败 → 不再用不完整数据渲染, 回退全量(比静默丢年+假全信号更诚实, §22)
+      console.warn("[sigkelly] 近1年分片 t" + y1Fail.join(",") + " 重试后仍失败, 回退全量 signal_kelly_trades.json(约69MB)");
       return await _labKellyLoadFull();
     }
-
-    // 全部年份都成功(不含 null)才合并渲染
-    var merged = _labKellyMergeShards(results.map(function (r) { return r.data; }));
-    state.labSigKellyTradesData = merged;
-
+    // 两片都成功才合并近1年数据并缓存分片(阶段2 全量合并需所有分片原始数据)
+    for (var yk = 0; yk < y1Res.length; yk++) _labKellyShardStore[y1Res[yk].year] = y1Res[yk].data;
+    var y1Merged = _labKellyMergeShards(y1Res.map(function (r) { return r.data; }));
+    _labKellyLoadedYears = _labKellyY1Years.slice();
+    state.labSigKellyTradesData = y1Merged;
+    _labKellyY1Ready = true;
+    _labKellyProgressTickUI(); // 让「已加载 t20xx(N/16)」进度立即反映阶段1 完成
+    // 后台阶段2(不阻塞返回): 拉其余 14 片 → 全量合并覆盖 → _labKellyAllReady → 全量重算覆盖
+    _labKellyLoadAllBackground();
     return true;
   } catch (e) {
     _labKellyLoadErr = e && e.message ? e.message : String(e);
     console.error("[sigkelly] 分片加载失败, 回退全量:", e);
     return await _labKellyLoadFull();
   }
+}
+
+// 加载一批年份分片(并行+每片重试, 语义同 2026-08-29 小步1: Promise.all + 每片 done+=1 推进进度),
+// 返回按入参序的 {year, ok, data} 数组; 进度 total 恒为全量 16 片维度(阶段1/阶段2 共用同一进度条)
+function _labKellyFetchYears(years) {
+  return Promise.all(years.map(function (y) {
+    return _labKellyFetchTradesRetry("signal_kelly_trades_parts/t" + y + ".json")
+      .then(function (yearFile) {
+        var parsed = _labKellyParseTrades(yearFile);
+        _labKellyLoadProgress.done += 1;
+        _labKellyLoadProgress.lastYear = y;
+        _labKellyProgressTickUI();
+        console.log("[sigkelly] 已加载 t" + y);
+        return { year: y, ok: true, data: parsed };
+      })
+      .catch(function (e) {
+        console.warn("[sigkelly] t" + y + " 重试后仍失败(将回退全量):", e);
+        _labKellyLoadProgress.done += 1;   // 每片最终仍推进一次进度(16片尝试完毕)
+        _labKellyLoadProgress.lastYear = y;
+        _labKellyProgressTickUI();
+        return { year: y, ok: false, data: null };
+      });
+  }));
+}
+
+// ===== 阶段2(后台): 拉其余年份, 全量合并覆盖 state.labSigKellyTradesData → _labKellyAllReady → 全量重算覆盖 =====
+var _labKellyAllBackgroundRunning = false; // 防重入(切周期时后台已在加载, 避免重复启动)
+function _labKellyLoadAllBackground() {
+  if (_labKellyAllBackgroundRunning) return;
+  _labKellyAllBackgroundRunning = true;
+  _labKellyLoadAllBackgroundRun().catch(function (e) {
+    _labKellyLoadErr = e && e.message ? e.message : String(e);
+    console.error("[sigkelly] 阶段2 后台全量加载失败:", e);
+  }).then(function () {
+    _labKellyAllBackgroundRunning = false;
+  });
+}
+async function _labKellyLoadAllBackgroundRun() {
+  if (_labKellyFullFallback || _labKellyAllReady) return;
+  // 剩余年份 = 全量清单 - 已加载(渐进两阶段共用同一 store, 任何已加载年份不再重复拉)
+  var restYears = [];
+  for (var i = 0; i < _labKellyAllYears.length; i++) {
+    if (_labKellyLoadedYears.indexOf(_labKellyAllYears[i]) < 0) restYears.push(_labKellyAllYears[i]);
+  }
+  if (restYears.length === 0) { _labKellyAllReady = true; _labKellyOnAllReady(); return; }
+  var res = await _labKellyFetchYears(restYears);
+  var failNames = [];
+  for (var fi = 0; fi < res.length; fi++) {
+    if (!res[fi].ok) failNames.push(res[fi].year);
+    else _labKellyShardStore[res[fi].year] = res[fi].data;
+  }
+  if (failNames.length > 0) {
+    // 阶段2 有片重试仍失败 → 不回退已渲染的 y1, 直接兜底全量(诚实回退, §22)
+    console.warn("[sigkelly] 阶段2 分片 t" + failNames.join(",") + " 重试后仍失败, 回退全量 signal_kelly_trades.json(约69MB)");
+    await _labKellyLoadFull();
+    _labKellyOnAllReady();
+    return;
+  }
+  // 全部 16 片都成功 → 按 _labKellyAllYears 顺序合并全量(_labKellyMergeShards 顺序无关也安全)
+  var fullParts = [];
+  for (var k = 0; k < _labKellyAllYears.length; k++) {
+    var yy = _labKellyAllYears[k];
+    if (_labKellyShardStore[yy]) fullParts.push(_labKellyShardStore[yy]);
+  }
+  var fullMerged = _labKellyMergeShards(fullParts);
+  _labKellyLoadedYears = _labKellyAllYears.slice();
+  state.labSigKellyTradesData = fullMerged;
+  _labKellyAllReady = true;
+  _labKellyOnAllReady();
+}
+
+// 阶段2 全量就绪收尾: 清两片期计算缓存(risk#2: _tradeDims/特征/桶/重算缓存基于两片构建必须重建) + 触发全量重算覆盖
+function _labKellyOnAllReady() {
+  if (typeof _kellyClearComputeCaches === "function") _kellyClearComputeCaches();
+  // risk#2 补: _kellyClearComputeCaches 只清宿主缓存不清 state.labSigKellyTradeDims(维度表基于片数构建,
+  //   两片期维度表只覆盖近1年, 全量后不清则全史老交易查维度 miss → 判定错误; 置 null 由 _kellyApplyFeeRecompute L8539 重建)
+  state.labSigKellyTradeDims = null;
+  if (!state.labSigKellyData) return;
+  var _hh = document.querySelector(".lab-sigkelly-host");
+  if (!_hh || !document.body.contains(_hh)) return;
+  if (typeof _kellyOnFilterChange === "function") _kellyOnFilterChange({ keepS06: true });
+}
+
+// 周期就绪判定(未就绪周期渲染层只显示占位, 不显示残缺数 §23.15):
+//   全量就绪/兜底=全周期就绪; 否则当前已加载分片数 ≥ 该周期所需片数才就绪(y1=2/y3=4/y5=6/y10=11/all=16, 评估实证)
+function _labKellyPeriodIsReady(periodKey) {
+  if (_labKellyFullFallback || _labKellyAllReady) return true;
+  if (!_labKellyY1Ready) return false;                        // 阶段1 未完成: 所有周期视为未就绪(保守, 走静态/cache 逻辑)
+  if (!periodKey) return true;                                // 无周期键(如按年聚合)视为就绪(y1 两片已覆盖最近数据)
+  var need = _labKellyPeriodShardNeed[periodKey] || 16;
+  return _labKellyLoadedYears.length >= need;
 }
 
 // 分片加载进度字符串(「⏳ 计算中…」占位/预览提示显示): 全量分片下载中返回 " · 已加载 t20xx(N/16)", 就绪后返回空串
@@ -8463,12 +8552,19 @@ async function _kellyApplyFeeRecompute(feeParams) {
   // s06p1(2026-08-29 观察档): 与 s06 同走动态基座链, 但 K=1 剔 high → 缓存键必须带模式区分,
   // 否则 s06↔s06p1 切换时 JSON.stringify(filters) 相同(均为 dynamic 无静态键)命中脏缓存。
   var _labS06 = (_labModeBase === "s06" || _labModeBase === "s06p1");
+  // #100 渐进加载缓存签名(risk#1 缓存污染·最高): 阶段1(y1 两片)与阶段2(全量)数据源不同,
+  //   同 filters/fee 下两阶段 result 若共享 cacheKey → 阶段1 两片 result 被阶段2 全量误命中(或反向)= 残缺/过期数上线。
+  //   必须加「分片完整度」标记进签名: P0=阶段1 未完成(理论上不进计算), Y1=阶段1 就绪(两片), A=全量就绪。
+  var _labPartsReady = _labKellyAllReady ? "A" : (_labKellyY1Ready ? "Y1" : "P0");
   var cacheKey = feeSig + "|pool|" + JSON.stringify(filters) + "|gih" + (state.labSigKellyGihOn ? ("1|" + _kellyGihGTier()) : "0")
-    + (_labS06 ? ("|" + _labModeBase + "|" + (((typeof window._tdsS06Status === "function") && window._tdsS06Status().coverageEnd) || "")) : "");
+    + (_labS06 ? ("|" + _labModeBase + "|" + (((typeof window._tdsS06Status === "function") && window._tdsS06Status().coverageEnd) || "")) : "")
+    + "|parts=" + _labPartsReady;
   if (_kellyStatsCacheKey === cacheKey && _kellyStatsCacheVal) {
     return _kellyStatsCacheVal;
   }
   var result = {};
+  result.__partsState = _labPartsReady;   // 数据源完整度(渲染层诊断/占位判断附加信息)
+  result.__periodsReady = {};             // 各周期就绪状态(数据实证所需片数见 _labKellyPeriodShardNeed)
   // 降亏toggle过滤谓词(只算一次, positionCap/仓位控制共用)
   var monthMask = _kellyActiveMonthMask(filters);
   // S06(codex-task-20260825-001): 动态基座态 → passesFade 改 per-date: 按每笔 signal_date 取当日生效基座
@@ -8593,6 +8689,15 @@ async function _kellyApplyFeeRecompute(feeParams) {
       } else {
         statsByPeriod = {};
         for (var periodKey in periods) {
+          if (!_labKellyPeriodIsReady(periodKey)) {
+            // #100 渐进加载(risk#4 就绪判定边界): 该周期所需分片未到齐(阶段1 仅 y1 两片) →
+            //   不计算不产残缺数(§23.15 未就绪只占位, 不显示残缺数/残缺统计), 渲染层 gate 显示「全量计算中」占位。
+            //   片到位(阶段2 全量)后 _labKellyOnAllReady 触发全量重算自动补齐, 无跳变。
+            result.__periodsReady[periodKey] = false;
+            statsByPeriod[periodKey] = null;   // 显式 null: 标记「本周期未计算」(渲染层 _labKellyPeriodIsReady gate 优先, null 防意外消费)
+            continue;
+          }
+          result.__periodsReady[periodKey] = true;
           var cutoff = cutoffs[periodKey] || "0";
           var trades;
           if (cutoff && cutoff !== "0") {
@@ -8711,8 +8816,12 @@ async function _kellyApplyFeeRecompute(feeParams) {
   }
   // #54 2026-08-13: AI仓位建议 K 档评级动态化——positionCap 开启时用当前 filters+费率+最新数据重算 K=1..4(A模式·all伪象限·全周期)写入共享动态源
   // 首页 app.js 与凯利区 lab.js 经 common.js _aiPoscapRatingPopHtml 同读(§22 两处一致); 峰值资金回撤=最大回撤金额÷本金(concCap=峰值同时持仓资金), 与静态快照同口径公式
+  // #100 渐进加载(risk#3 K档残缺发布·最高风险): K 档评级用 all 周期全史口径(_kellyComputeStats(_recomp,"all"...)).
+  //   阶段1(仅 y1 两片)算 all = 残缺伪全史 → 若发布动态源, 用户会看到 K 档数字跳变(阶段2 全量后覆盖).
+  //   铁律: 阶段1 不发布动态源(_labKellyAllReady=false → computed:false → common.js _aiPoscapRatingSrc 回退静态快照+「全量计算中」标注),
+  //   全量就绪后才首次写 _AI_POSCAP_RATING_DYNAMIC_LAB(切动态无跳变, 与 impl-54 方案B 首页 K 档联动的门控同源).
   try {
-    if (filters.positionCap && filters.positionCapK > 0 && quadsAll) {
+    if (filters.positionCap && filters.positionCapK > 0 && quadsAll && _labKellyAllReady) {
       var _posModeKey = null;
       for (var _pmk in sellModes) { if (_pmk === "A") { _posModeKey = _pmk; break; } }
       if (!_posModeKey) {
@@ -10013,6 +10122,9 @@ function _renderSigKellyBar(bar, data, period) {
   }).join("");
   // OFF 按钮(2026-08-13, 复用首页同款交互): data-k="off" 由下方 K 按钮绑定识别为关(写 tds_poscap_lab {on:false}), 关闭后该区退化普通列表, 再点某 K 档恢复
   const _pcOffBtn = `<button type="button" class="lab-sigkelly-kbtn lab-sigkelly-kbtn-off${_filters.positionCap ? "" : " active"}" data-k="off" data-no-pop=""><span class="lab-sigkelly-kbtn-k">关</span><span class="lab-sigkelly-kbtn-r">off</span></button>`;
+  // 渐进加载(#100 2026-09-06): 阶段1(近1年两片)完成但全量未就绪 → K档评级仍为静态快照(门控不发布动态源), 加可见标注提示(§23.15/§21)
+  const _pcProgNote = (_labKellyY1Ready && !_labKellyAllReady)
+    ? `<span class="lab-sigkelly-kbtn-prog" title="近1年分片已加载完成, 全量16年分片后台加载中; 此时 K 档评级为静态快照(回退档), 全量就绪后自动切换为实时动态评级并重算">⏳ 全量计算中</span>` : "";
   const _pcRatingPop = (window._aiPoscapRatingPopHtml ? window._aiPoscapRatingPopHtml("tds_poscap_lab") : ""); // 凯利区域独立键(2026-08-30 拆键)
   // 2026-08-13 合并行: AI宏 总开关(原第二行)合并进 AI仓位建议 行, 跟在「关OFF」按钮后(用户需求: 两行合并一行, 去除重复纯文字标题)
   // 本 label+详情按钮 在 positionCapHTML 内复用, 原 .lab-sigkelly-toggle-group-ai 独立行已移除(仅 CSS 残留无引用)
@@ -10078,7 +10190,7 @@ function _renderSigKellyBar(bar, data, period) {
   const positionCapHTML =
     `<div class="lab-sigkelly-toggle-group lab-sigkelly-toggle-group-poscap">` +
     `<label class="lab-sigkelly-toggle lab-sigkelly-rec" tabindex="0" data-no-pop="" data-tip="⭐ 默认推荐(默认开启): AI仓位建议(技术别名:仓位控制过滤)=仅在凯利回测入样宇宙内选择。★结构=v1.1.5 起默认基座 NEW14(十四键, 重构换基座): hist6(r10May6NonMay/greedy15/janMidSpecial/k2c5HkChase/k3ConceptBuy/declinePhaseSpecial)+规则8(N1北向20日净流出/T1换手冰点×追关注/D1股息率低位/Q1 QVIX低分位/H1升波×A股/M1牛主升×两融降温/P1备买×股息率分位低/R2b追关注×全球类)=保留入样、可被AI建议推荐的降亏键; 旧八键(基础5+核心3, v1.1.2~v1.1.4 默认)保留为手动可开对照档; +1=回测/凯利模型层剔除的一整类信号(波动相关信号+未入样本信号, 即下述排除类别)——这类信号虽同属全信号之一, 但按宇宙规则被回测剔除(已剔除出回测宇宙), 故 AI建议 一律不推荐, 首页/本区以「未入样本」+灰显+删除线标注。§23.6 入样宇宙规则, 权威=官方入样规则: 入样白名单只收买入类信号: ${_t("type_buy")}/${_t("buy_aux")}/${_t("buy_special")}/${_t("buy_backup")}; 入样依赖=标的有ETF跟踪且有跟踪分(即回测入样判定); 排除类别=债类/情绪类/全球商品利率/港股行业/无ETF的空类别; 自我ETF唯一例外=10年国债ETF 由 self-ETF 兜底; 首页/本区 1:1 遵从回测入样判定不自行重算), 卖类(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不入位——同日只买最优K个买入类信号(基笔级, 按 跟踪分↓→评级high&gt;mid&gt;low→信号类型${_t("buy_backup")}&gt;${_t("type_buy")}&gt;${_t("buy_aux")}&gt;${_t("buy_special")}→买入日↑ 排序保留前K, 9卖出模式共享同一批基笔统一生效)。目标=资金利用率最大化(降低最大持仓), 非质量过滤。**K档评级(2026-08-13 #54 动态化: 随当前降亏勾选/费率档/最新数据实时重算, 与首页/凯利K按钮评级 hoverpop 同源 common.js, §22 一致)**: ${_aiPoscapRatingSummary("tds_poscap_lab")}。★主推=收益率最高档(数据驱动, 不固定 K1, 以评级表实时数字为准); K越大收益率递减(含最低佣金5元费率重算口径)。每日池口径下 K 越大净利反升(每日资金池恒定, 砍量越少持仓越多)。G模式历史口径(关32.27%/K1 48.58%/K2 40.41%/K3 38.96%等, 每笔固定1万·positionCap单独回测未叠加AI降亏过滤)为已废弃的旧口径(2026-08-13 起默认=每日资金池等分), 以本 K 档评级 hoverpop(每日池+top-K, 实时随勾选动态)与下方「全信号表 · 按年窗口增长」表(每日池实时, 可切 G 并跟 K 档联动)为准, 旧口径数值不再单独公示。OFF按钮(关)=写 tds_poscap_lab {on:false} 关闭AI仓位建议、该区退化普通列表(不再显示「AI建议N」「当日已满」), 再点某 K 档恢复 {on:true,k}(独立键 tds_poscap_lab, 与首页/交易页各自独立互不联动, 2026-08-30 已拆)。与降亏同开仅推荐默认组合(v1.1.5 起 AI降亏过滤默认=NEW14 十四键: hist6=r10May6NonMay/greedy15/janMidSpecial/k2c5HkChase/k3ConceptBuy/declinePhaseSpecial + 规则8=n1NorthOutflow/t1LowTurnSpecial/d1LowDivYield/q1QvixLowPct/h1VolChgHighA/m1MarginDownBull/p1LowDivBackup/r2bSpecialGlobal, 每日池+K=1下边际≈0无害); ⚠绝不同开 live4(双重砍量收益率崩2-5%)/COMBO4全开; 勿再叠加 greedy7/10 等其他广谱(greedy15 已在 NEW14 默认内); B模式(3%止盈)仓位控制下转负建议关。范围扩展: 交易页整个信号列表(近30交易日, 2026-08-24 由15扩30)按同一排序展示 AI建议(AI建议买入/当日已满)。⚠2026-08-14 首页「AI过滤视图」两开关正交不绑定(§21): 开关1「AI降亏」(tds_home_fade)=删除线过滤层——开启时未入样宇宙(债类/情绪类/全球商品利率/港股行业/无ETF的空类别, 已剔除出回测宇宙)信号=删线+灰显+「未入样本」标注; 开关2「AI仓位」(tds_poscap_lab.on)=badge标注层——开启时入宇宙${_t("sell_short")}(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")})=亮色「AI警示」(${_t("sell_short")}无K约束不判K), 买入进K=「AI建议N」/超K=「当日已满」; 全关=全量视图全亮不标注, band_hold波段持有=中性不标; 迟到入宇宙${_t("sell_short")}(如8/14中证银行${_t("sell_short")})「AI警示」+「盘后补齐」角标共存不冲突。"><input type="checkbox" class="lab-sigkelly-toggle-poscap"${_filters.positionCap ? " checked" : ""}>${_kellyRecBadge(_filters.positionCap)} AI仓位建议 K: <span class="lab-sigkelly-toggle-tip">ⓘ</span></label>` +
-    `<span class="lab-sigkelly-kbtns lab-sigkelly-posrate" tabindex="0">${_pcKbtns}${_pcOffBtn}${_pcRatingPop}</span>` +
+    `<span class="lab-sigkelly-kbtns lab-sigkelly-posrate" tabindex="0">${_pcKbtns}${_pcOffBtn}${_pcRatingPop}</span>${_pcProgNote}` +
     // 修复批③: 模式下拉紧跟「AI降亏过滤」总开关文字(同一 flex 行, 不再拆到组尾), 细节见上方 fadeModeHTML 注释
     aiMacroLabelHTML +
     fadeModeHTML +
@@ -10929,6 +11041,11 @@ function _kellyComboAdviceHtml() {
 // 实时随上方降亏组合勾选/费率档联动(经 _updateSigKellyQuadrantsInPlace 就地刷新 .lab-sigkelly-afg-realtime)
 function _sigKellyAfgRealtimeHtml() {
   const feeStats = state.labSigKellyFeeStats;
+  // #100 渐进加载: 本区取 feeStats.all.all 全周期口径, 阶段1 时 all 周期未就绪 → 占位(不显示「暂无数据」误导, §23.15)
+  if ((_labKellyY1Ready && !_labKellyAllReady && !_labKellyPeriodIsReady("all"))) {
+    const _progS = _labKellyProgStr();
+    return `<div class="lab-sigkelly-afg-realtime"><div class="lab-custom-loading lab-sigkelly-all-loading">⏳ 全量分片加载中, 完成后自动补齐…${_progS}</div></div>`;
+  }
   if (!feeStats || !feeStats.all) {
     const _progS = _labKellyProgStr();
     return `<div class="lab-sigkelly-afg-realtime"><div class="lab-custom-loading lab-sigkelly-all-loading">⏳ 计算中…${_progS}</div></div>`;
@@ -11088,6 +11205,9 @@ function _sigKellyAllSignalGroupHtml(period) {
     yRows += `<tr><td>${y}</td><td>${v.n}</td><td class="${yCls}">${profStr}元</td><td class="${yCumCls}">${cumStr}元</td><td>${wr}</td><td class="${yPeakCls}" title="=该年累计净盈亏/该年峰值同时持仓资金">${yPeakStr}</td><td class="${yPeakDdCls}" title="=该年过程中最深一次从高点跌下来的幅度(最大回撤金额÷峰值同时持仓资金)">${yPeakDdStr}</td></tr>`;
   }
   const _ymEmptyRows = (!years.length) ? `<tr><td colspan="7" class="lab-sigkelly-all-empty">该模式暂无信号数据</td></tr>` : "";
+  // 渐进加载(#100 2026-09-06): 阶段1 完成但全量未就绪 → 按年表只有已加载年份行, 加「全量加载中」轻标注(§23.15 不显示残缺为全)
+  const _ymProgNote = (_labKellyY1Ready && !_labKellyAllReady)
+    ? `<tr><td colspan="7" class="lab-sigkelly-all-empty">⬇️ 全量分片加载中, 当前仅展示 2025/2026 近1年行, 其余年份完成后自动补齐…</td></tr>` : "";
   return (
     `<div class="lab-sigkelly-group lab-sigkelly-all-group">` +
       `<div class="lab-sigkelly-group-title">📌 全信号表（最后结果 · 全量信号融合）<span class="lab-sigkelly-all-badge">最后结果</span></div>` +
@@ -11103,7 +11223,7 @@ function _sigKellyAllSignalGroupHtml(period) {
           `</div>` +
           `<div class="lab-sigkelly-table-scroll"><table class="lab-sigkelly-table lab-sigkelly-yearly-table">` +
             `<thead><tr><th>年份</th><th>笔数</th><th>净盈亏(元)</th><th>累计净盈亏(元)</th><th>胜率</th><th title="=该年最终的赚钱结果 ÷ 该年手上同时拿着最多的钱 ×100;注意回撤≠收益率:回撤是过程中最深一次从高点跌下来的幅度,收益率是最终净结果,两者是不同尺子">峰值资金<br>收益率</th><th title="=该年过程中最深一次从高点跌下来的幅度(最大回撤金额÷峰值同时持仓资金);与收益率(最终净结果)不同,回撤通常≥亏损,因为过程可能先涨后跌">峰值资金<br>回撤</th></tr></thead>` +
-            `<tbody>${yRows}${_ymEmptyRows}</tbody>` +
+            `<tbody>${yRows}${_ymEmptyRows}${_ymProgNote}</tbody>` +
           `</table></div>` +
           `<div class="lab-sigkelly-all-note">💡 白话解释：收益率=这一年最终赚的钱 ÷ 这一年手里同时拿得最多的那笔钱；回撤=这一年过程中最深一次从高点跌下去的幅度。它俩是两把不同的尺子，回撤一般会比亏损大，因为过程可能先涨后跌——别拿这两列直接比大小。<b>举个真实例子（G 模式·K=1，S06 动态默认基座下实时重算）</b>：2021 年，过程最深回撤 <b>-8.7%</b>（这一年累计盈利先冲高到峰值、再往下最深跌了 8.7%），年末最终净结果却是 <b>-3.8%</b>——一个「先涨上去又跌下来」的年份，所以回撤这一列（8.7%）明显比收益率那列（-3.8%）大，因为回撤量的是「过程里从最高点往下最深的一刀」，收益率量的是「年末最后一笔总账」，是不同时点的两个数，不能直接比大小。<i>核实源=当前数据实时重算(signal_kelly_trades.json→前端按年聚合 peak_return_pct/peak_drawdown_pct)</i>。全周期回撤见「AI仓位建议」的 K 按钮评级。</div>` +
         `</div>` +
@@ -11601,6 +11721,15 @@ function _sigKellySetPinned(qk, on) {
 // 单象限卡片: 各卖出模式宽表(动态从 sell_modes 读取) + 跟单指引
 // 主表+进阶表合并为一张宽表(14列),details 折叠已移除常显;最大持仓显笔数+资金
 function _renderSigKellyCard(qk, q, period, cardCmp) {
+  // 渐进加载(#100 2026-09-06): 阶段1 已就绪但本周期片数未够 → 返回占位卡, 不消费残缺数据(§23.15)
+  // 窗口期 = y1Ready && !allReady && 周期未就绪; 阶段1 前走静态 backtest.json 原渲染, 阶段2 后全部就绪
+  if (_labKellyY1Ready && !_labKellyAllReady && !_labKellyPeriodIsReady(period)) {
+    const _need = _labKellyPeriodShardNeed[period] || 16;
+    return `<div class="lab-sigkelly-card" data-quad="${qk}">` +
+      `<div class="lab-sigkelly-card-head"><div class="lab-sigkelly-card-name"><span>${q.label || qk}</span></div></div>` +
+      `<div class="lab-custom-loading lab-sigkelly-all-loading">⏳ 本周期需 ${_need} 年分片, 已加载 ${_labKellyLoadedYears.length} 片, 全量分片加载中, 完成后自动补齐…</div>` +
+      `</div>`;
+  }
   // fix(#1回归): 置顶改动(27047ecf7)误删 periods 声明,补回避免 ReferenceError
   const periods = q.periods || {};
   // 费率客调: 如果有重算stats,用重算值替换原始stats(结构一致)

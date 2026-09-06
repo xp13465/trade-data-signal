@@ -1417,6 +1417,7 @@
 .lab-sigkelly-kbtn-main .lab-sigkelly-kbtn-r { color: #d48806; font-weight: 700; opacity: 1; }
 [data-theme="dark"] .lab-sigkelly-kbtn-main .lab-sigkelly-kbtn-r, [data-theme="redgold"] .lab-sigkelly-kbtn-main .lab-sigkelly-kbtn-r { color: #ffb300; }
 .lab-sigkelly-kbtn.active .lab-sigkelly-kbtn-r { color: inherit; opacity: 1; }
+.lab-sigkelly-kbtn-prog { display: inline-flex; align-items: center; margin: 0 2px 0 6px; padding: 1px 8px; border: 1px dashed var(--border); border-radius: 4px; background: var(--bg-card); color: #d48806; font-size: 11px; line-height: 1.6; white-space: nowrap; }
 /* 评级理由 hoverpop(2026-08-13, 仿 wm-pop 视觉: bg-card + border + shadow) */
 .lab-sigkelly-posrate-pop-wrap { position: absolute; z-index: 50; left: 0; top: 100%; margin-top: 4px; display: none; }
 .lab-sigkelly-posrate-pop-wrap::before { content: ""; position: absolute; top: -4px; left: 0; right: 0; height: 4px; }
