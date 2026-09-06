@@ -28,5 +28,16 @@ echo "=== [fapi-daily-syn] $(date '+%F %T') start ==="
   echo "[fapi-daily-syn] WARN: bj_width 计算失败(新增指标缺供, 不阻断, 次日 17:50 runner 会重试)"
 }
 
+# 3) 北交所宽度产物最小 export + R2 上传(#101 F4: 当天数据 18:10 当天上线, 不等次日 17:50)
+#    产物: overview.json(北交所宽度卡当前值 + a_bj_*_6m sparkline) +
+#          a-stock-{3m,6m,1y,3y,5y,all}.json(历史走势)。
+#    通道: 复用 export.py 导出 + upload_r2.py upload-data-files 精准传 7 文件到 R2 data/ 前缀
+#         (static-site/data 已 gitignore 移出 git, 线上 /data/ rewrite 与 R2 大range直链均读 R2,
+#          上传即上线; 18:10 时点内不做 git push, §14 该时点无 deploy 冲突)。
+#    失败: 告警不阻断(与 bj_width 同语义, 新增指标缺供不影响既有功能, 次日 17:50 runner 会重导)。
+"$PY" "$REPO/scripts/fapi_bj_width_export.py" || {
+  echo "[fapi-daily-syn] WARN: 北交所宽度 export/R2 失败(新增指标缺供, 不阻断, 次日 17:50 runner 会重试)"
+}
+
 echo "=== [fapi-daily-syn] $(date '+%F %T') done ==="
 exit 0
