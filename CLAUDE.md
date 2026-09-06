@@ -356,6 +356,16 @@
 - 关联:docs/main-governance §18.2 索引维护、memory tasks-md-only-active、pending-features-index 每日 23:47 cron 自动重建。
 - **验收口径**:涉及 task/todolist/归档任务,agent 自验含「4 态流转对照(活跃留 task/远期移 todolist/完成进完成文件/归档可反查)+ **状态日志只留最新一坨(老轮次已折叠/归档)**+ 活待办数前后不变 + 会话收尾已落档」,漏=验收不过。
 
+### 23.12-1 任务状态单一事实源 + 机检兜底(2026-09-06 用户拍板根治,任务状态一致性 P0)
+**触发词**:任何"登记任务状态/改 pending-index 状态列/写 TASKS 交接日志 #N 指针/设巡检 cron/记拍板结果/归档任务"动作;看到同一任务状态在多处各写各的;发现状态两处不一致。
+**背景(2026-09-06 三事故复盘)**:①#36 北交所宽度宇宙拍板结果没落档 + 僵尸巡检 cron(e5c24403)挂着,造成"待拍板"误判——拍板已定但没写回索引,巡检 cron 没随任务结束删掉;②#81 已关闭但 TASKS L49/L116 曾残留远期指针——关闭项还在 TASKS 待办/远期块被当可捞回项列着;③FAPI 评估 09-04 产出 09-06 才 commit——产出与落档脱节。根因=同一任务事实 6 处各写各的(TASKS 交接日志/pending-index/TaskList/cron/git commit/memory),靠主控人肉同步必漂移;数据一致性有 check_data_integrity 挂 deploy 机检,任务状态零机检。
+**核心一句话:任务状态唯一权威 = docs/pending-features-index.md(编号+状态列);其余各处置写指针不写状态断言;机检 check_task_state.py 兜底,FAIL 阻断上线;拍板必三连。**
+- **① 单一事实源**:任务状态(编号/待办/进行中/已拍板/已完成/已关闭)唯一权威 = `docs/pending-features-index.md` 表格行的编号+状态列。TASKS.md 交接日志 / cron prompt / memory **一律只写指针**(如「#102 已拍板A,见 pending-index」),**不写状态断言**(不写"#36 待拍板"这类会漂移的断言语);发现同一任务状态两处不一致 = §23.11 绝不静默同精神,上报主控/用户拍板,不自行选边。
+- **② 机检兜底**:`scripts/check_task_state.py`(只读,对账 A pending-index 编号完整性 / B TASKS 幽灵编号+残留关闭指针 / C 僵尸巡检 cron)挂 **每日 cron + deploy 前 check(与 check_data_integrity 同链)**,FAIL 阻断上线;漂移项自带定位行号/编号/建议动作。
+- **③ 拍板联动三连**:任何"用户拍板/任务关闭/任务完成"动作固定三连:①更新 pending-index 对应编号状态列(或移入 done-list/archive)②删/改对应 cron(巡检类任务完成即 CronDelete,防僵尸)③清 TASKS.md/memory 残留指针(已关闭项不得再作远期/待办指针列着)。
+- **关联规范源**:本条 = §23.12(4 态流转)的状态一致性补强 + §23.5(落档) + §22(一致性)在任务域落地;对应脚本 `scripts/check_task_state.py`;2026-09-06 用户拍板根治,三事故复盘见 docs/tasks-done-list.md 或本会话交接日志。
+- **验收口径**:涉及任务状态登记/拍板/关闭/归档任务,agent 自验含「pending-index 状态列为唯一权威 + TASKS/cron/memory 只写指针 + 拍板三连已走(①状态列②删改 cron③清残留)+ `python3 scripts/check_task_state.py` 实跑无新增 FAIL」,漏=验收不过;发现漂移(幽灵编号/残留关闭指针/僵尸 cron)上报主控,不自行选边修。
+
 ### 23.14 外部 review 改用户点名制(2026-08-27 用户定,**取代**原"v1.1.6 后必过 codex"默认)
 **触发词**:想发起任何 codex 外审前;读到旧规范/任务描述里"必发外审"字样时。
 **核心一句话:codex 外审不再是默认流程——是否外审、何时外审(逐支或打包)一律由用户提出并确认后才发起;内部 reviewer 流程不变,仍是 merge 前硬门槛。**
