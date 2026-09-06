@@ -109,6 +109,65 @@ def limit_rule(code: str) -> float:
 
 
 # ── 读数据 ────────────────────────────────────────────────────────────────────
+def load_daily_fapi_fallback(load_start: str, load_end: str) -> pd.DataFrame:
+    """读 mootdx 日线窗口；断片日期（某日 code 覆盖 < MIN_CODES_PER_DAY）用 FAPI 补缺。
+
+    #102 FAPI 转正（2026-09-06）：mootdx 断片/空值时读 fapi_daily_raw 同日数据补，
+    FAPI（同花顺）T+0 全市场 dump。兜底仅对「当日 mootdx 覆盖不足」的日期生效，
+    正常日期仍全量用 mootdx（口径不变，§23.7 主宽度冻结）。FAPI 宇宙排除 920 北交所
+    （主宽度不含北交所口径，补缺不改变宇宙定义）。
+
+    FAPI amount 已是成交额（元），pct_change 已自算（与 mootdx 同口径），
+    列结构一致（code/date/high/low/close/amount/pct_change），可直接并表。
+
+    返回 DataFrame: code/date/high/low/close/amount/pct_change（来自 mootdx + fapi 补段）。
+    """
+    conn = sqlite3.connect(f"file:{STOCK_DB_PATH}?mode=ro", uri=True, timeout=30.0)
+    try:
+        df = pd.read_sql_query(
+            "SELECT code, date, high, low, close, amount, pct_change "
+            "FROM mootdx_daily_raw "
+            "WHERE date >= ? AND date <= ? "
+            "ORDER BY code, date",
+            conn,
+            params=(load_start, load_end),
+        )
+    finally:
+        conn.close()
+    if len(df) == 0:
+        return df
+
+    # 每日 code 覆盖数，找断片日期
+    per_day = df.groupby("date")["code"].nunique()
+    broken_dates = per_day[per_day < MIN_CODES_PER_DAY].index.tolist()
+    if not broken_dates:
+        return df
+
+    print(f"[D2] WARN: mootdx 断片日期 {broken_dates} "
+          f"(code数<{MIN_CODES_PER_DAY})，尝试 FAPI 兜底补缺 (#102)", flush=True)
+    ph = ",".join("?" * len(broken_dates))
+    conn = sqlite3.connect(f"file:{STOCK_DB_PATH}?mode=ro", uri=True, timeout=30.0)
+    try:
+        fapi_df = pd.read_sql_query(
+            "SELECT code, date, high, low, close, amount, pct_change "
+            "FROM fapi_daily_raw "
+            f"WHERE date IN ({ph}) AND code NOT LIKE '920%' "
+            "ORDER BY code, date",
+            conn,
+            params=broken_dates,
+        )
+    finally:
+        conn.close()
+    if len(fapi_df) == 0:
+        print(f"[D2] WARN: FAPI 兜底也无可补数据（fapi_daily_raw 缺上述日期），按原样处理", flush=True)
+        return df
+    # 校准字段类型（读库 Float 可能保 None，pct_change 保持原语义）
+    print(f"[D2] FAPI 兜底补 {len(fapi_df):,} 行覆盖 {fapi_df['date'].nunique()} 个断片日期 "
+          f"({fapi_df['date'].min()}~{fapi_df['date'].max()})", flush=True)
+    df = pd.concat([df, fapi_df], ignore_index=True)
+    return df
+
+
 def load_daily(start: str = START_DATE, end: str = END_DATE) -> pd.DataFrame:
     """从 mootdx_daily_raw 读 2016+ 日线（含 2015-12 一个月用于 prev_close 校验）。
 
@@ -463,17 +522,7 @@ def run_recent(days: int = 30, *, dry_run: bool = False) -> dict:
     # 写入窗口起始（buffer 段仅辅助 prev_close，不写）
     write_start = (today - dt.timedelta(days=days)).strftime("%Y%m%d")
 
-    conn = sqlite3.connect(f"file:{STOCK_DB_PATH}?mode=ro", uri=True, timeout=30.0)
-    try:
-        df = pd.read_sql_query(
-            "SELECT code, date, high, low, close, amount, pct_change "
-            "FROM mootdx_daily_raw "
-            f"WHERE date >= '{load_start}' AND date <= '{end}' "
-            "ORDER BY code, date",
-            conn,
-        )
-    finally:
-        conn.close()
+    df = load_daily_fapi_fallback(load_start, end)  # #102 FAPI 兜底
     if len(df) == 0:
         return {"error": "no recent data"}
     df["rule"] = df["code"].map(limit_rule)

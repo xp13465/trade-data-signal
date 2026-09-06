@@ -31,6 +31,18 @@ metrics:
   - {id: a_width_zb_count,      name: 炸板数(收盘未封),     group: a_width, type: simple, func: TODO, unit: 只, direction: negative, enabled: true}
   - {id: a_width_seal_rate,     name: 封板率(zt/(zt+zb)),   group: a_width, type: simple, func: TODO, unit: "%", direction: positive, enabled: true}
 
+  # ============ A股 · 北交所宽度（独立指标组，#101 方案C 2026-09-06） ============
+  # 由 app/collector/bj_width.py 从 fapi_daily_raw(920 前缀,341只) 算 daily_metric
+  # （source='fapi'）。北交所 30% 涨跌停档独立判定，不套主板 limit_rule；
+  # 独立指标组 a_bj_*，不动现有主宽度（AD线/恐贪/涨停判定全冻结，§23.7）。
+  # FAPI dump 仅近 10 交易日，故无 2016 全量历史回填（func=TODO，仅查 daily_metric）。
+  - {id: a_bj_width_zt_count,    name: 北交所涨停数(30%档), group: a_width, type: simple, func: TODO, unit: 只, direction: positive, enabled: true}
+  - {id: a_bj_width_dt_count,    name: 北交所跌停数(30%档), group: a_width, type: simple, func: TODO, unit: 只, direction: negative, enabled: true}
+  - {id: a_bj_width_up_count,    name: 北交所上涨家数,     group: a_width, type: simple, func: TODO, unit: 家, direction: positive, enabled: true}
+  - {id: a_bj_width_down_count,  name: 北交所下跌家数,     group: a_width, type: simple, func: TODO, unit: 家, direction: negative, enabled: true}
+  - {id: a_bj_width_amount,      name: 北交所成交额,       group: a_width, type: simple, func: TODO, unit: 亿元, direction: positive, enabled: true}
+  - {id: a_bj_width_ad_line,     name: 北交所AD线,         group: a_width, type: simple, func: TODO, unit: "", direction: positive, enabled: true}
+
   # ============ A股 · 资金面 ============
   - {id: a_fund_north,   name: 北向资金成交总额(HKEX官方源), group: a_fund, type: simple, func: direct:north_fund_total, unit: 亿元, direction: positive, enabled: true}
   # 北向资金 2024-08 港交所新规取消盘中净买额披露，东财 NET_DEAL_AMT 全 null 停更。

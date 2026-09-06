@@ -61,6 +61,7 @@
 - 🔹 **情绪温度计** — 一眼看清市场过热/冰点：A股综合 + 跨市场 + 恐贪 + 6 宽基独立情绪分（10 年回溯），附买卖点信号作情绪拐点参考（详见 [`docs/market-state/market-state-analysis.md`](docs/market-state/market-state-analysis.md)）
 - 🔹 **全球盘面跑马灯** — 9 大全球品种实时行情（黄金/原油/外汇/外围股指），纯客户端直连第三方、零服务器压力、多源自动兜底（详见 [`docs/global-ticker-free-source-research.md`](docs/global-ticker-free-source-research.md)）
 - 🔹 **市场宽度·行业轮动·期货持仓** — 涨跌家数/腾落线/新高新低、申万 31 行业热力图+资金流、期货主力净多空，看板块冷暖与机构动向（数据层详见 [`docs/data-dictionary.md`](docs/data-dictionary.md)）
+- 🔹 **北交所宽度独立指标（#101 方案C，2026-09-06 上线）** — 北交所 341 只（920xxx 段）独立统计涨停/跌停（**30% 涨跌停档**，禁套沪深 10% 档）/上涨/下跌/成交额/AD 线，与沪深主板宽度（mootdx 全 A 快照）**纯解耦互不混入**（主宽度 AD 线/恐贪/涨停判定零改动，§23.7 只增不改）；数据源=同花顺 FAPI 官方 API 日线 dump（18:10 采集后 `fapi_daily_syn.sh` 链式触发 bj_width 重算）；前端以 KPI 卡「北交所*」系列展示（含 6m 分位/详情双线/AD 线 sparkline），主宽度口径角标已注明「不包含北交所（北交所宽度见独立 a_bj_* 指标）」
 
 ### B. 智能交易决策
 > 从信号到仓位，AI 把「交易什么、何时交易、买多少」一次说清。
@@ -297,7 +298,7 @@ snapshot.js / ticker-check.js），纯验收不碰业务代码，供 reviewer/te
 | HKEX / CCASS | 港股指数 + 北向持仓披露 | 公开数据 |
 | CFFEX | 期货机构持仓 | 公开数据 |
 | cninfo | 公募基金 / ETF 持有人结构 | 公开数据 |
-| 同花顺 FAPI（金融开放平台） | A 股全市场日线 T+0 dump 兜底（2026-09 P0：`app/collector/fapi_daily.py` 写入 `fapi_daily_raw`，与 mootdx 双源互证，观察期仅供兜底不替换主链；方案见 [`docs/fapi/fapi-integration-plan-20260901.md`](docs/fapi/fapi-integration-plan-20260901.md)） | 官方 API（带 key，key 仅存 .env 不入库不入日志） |
+| 同花顺 FAPI（金融开放平台） | A 股全市场日线 T+0 dump（2026-09 转正 `app/collector/fapi_daily.py` 写 `fapi_daily_raw`，兼任：①mootdx 空/断片自动兜底（挂 width 采集链，`width_history.py` 无 mootdx 序列日期自动补 FAPI）②北交所 920 段 341 只日线源（独立 30% 档宽度 a_bj_* 指标）③双源互证校验（`check_data_integrity.py` 挂 deploy 链，两源 close 差异率>0.5% 告警 FAIL）；方案见 [`docs/fapi/fapi-integration-plan-20260901.md`](docs/fapi/fapi-integration-plan-20260901.md)） | 官方 API（带 key，key 仅存 .env 不入库不入日志） |
 | 美财政部 CSV | `us10y` 异源兜底（东财失联时，`data.treasury.gov`） | 官方公开数据 |
 | HKEX 官方 JS | `hk_south` 南向净买额异源反算（SSE+SZSE Buy-Sell，JS 从 `datacdn.rscd.org.hk` 拉当日指数净买额数据） | 官方公开接口 |
 | 东财数据中心 | `cn10y` 国债收益率异源兜底（`datacenter-web.eastmoney.com` RPTA_WEB_TREASURYYIELD） | 公开接口 |

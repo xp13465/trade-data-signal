@@ -526,6 +526,23 @@ def run(date=None, verbose=True, steps=None):
             fail += 1
             details.append(("width_history", "fail", str(e)[:150]))
 
+    # 9b) 北交所宽度近期重算（#101 方案C，FAPI 采集后独立指标组 a_bj_*，不动主宽度）
+    #    FAPI daily-k-10d dump 含北交所 920 段（341 只），30% 涨跌停档独立判定；
+    #    与主宽度纯解耦（AD线/恐贪/涨停判定全冻结，§23.7）。数据断供则 skip 不 fail
+    #    （北交所宽度是新增指标，缺供不影响既有功能）。
+    if _want(steps, "bj_width"):
+        try:
+            from . import bj_width
+            res = bj_width.run_recent(days=35)
+            if "error" in res:
+                details.append(("bj_width", "ok", f"skip ({res['error']})"))
+            else:
+                details.append(("bj_width", "ok",
+                                f"+{res.get('computed_days',0)} days recent"))
+        except Exception as e:  # noqa: BLE001
+            fail += 1
+            details.append(("bj_width", "fail", str(e)[:150]))
+
     # 10) 期货机构净多空持仓采集 + 准确率计算
     if _want(steps, "futures"):
         try:
