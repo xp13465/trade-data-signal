@@ -2472,7 +2472,7 @@ function _labNewbieGuideHTML(subMode) {
         `<div class="lab-newbie-guide-body">` +
         `<div class="lab-newbie-step">` +
         `<span class="lab-newbie-step-no">1</span>` +
-        `<div><b>选标⭐️的配对</b>：只有标⭐️的配对可进入二次测试（此前配对排行中综合评分达门槛者），先选定要验证的配对。` +
+        `<div><b>选标⭐️的配对</b>：只有标⭐️的配对可进入二次测试（⭐️门槛 = 近5/3/1年三窗口回撤均≤10% 且 交易≥10 且 综合分≥0.6 且 胜率≥55% 且 风险调整≥1.5，五条件全部满足），先选定要验证的配对。` +
         `</div></div>` +
         `<div class="lab-newbie-step">` +
         `<span class="lab-newbie-step-no">2</span>` +
