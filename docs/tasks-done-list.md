@@ -293,3 +293,7 @@
 - **002 codex/ghi-sim-modal-handoff-20260829**:verdict=SAFE_TO_DELETE。交接包 1 commit/12 文件/1670 行已被 main 覆盖(I=15万→16万 定稿在 kelly-ghi-avsp-method-sweep.md),codex-handoff/ 目录无引用,删除无副作用。
 - **003 fix/platform-healthcheck-mjs**:verdict=MERGE_FIRST。修复 2 个真实 bug(顶层 await ReferenceError + parity 命令缺 RECENT_JSON 环境变量),main 上同类 bug 仍存在,3 行 diff 无副作用。建议合并进 main 收口。
 - **处置状态**:全部为「报告已出待用户拍板」,未自动执行 merge/删除(001 涉前端 app.js §24 需 bump,003 涉 merge main,均待用户确认)。
+
+## 2026-09-06 会话移入(#100 sigkelly 渐进加载 + #47 pytest 完成)
+- [x] **#100 信号凯利回测渐进加载(完成上线 2026-09-06)** — 可行性评估 docs/kelly/analysis/sigkelly-progressive-y1-load-20260904.md(1918bdb7c)→ F2-A 修复(5dbaa63a5:两阶段 guards+data 在册条件+catch 保留 y1+重试重置状态机)→ reviewer PASS 发现同类边缘(阶段2失败+全量兜底失败→长周期永久占位无重试)→ 边缘修复(ccafb9c8f:_labKellyMaybeResumeAllBackground 自愈重触发+15s 冷却防风暴+只重拉失败片)→ main-merge 统一 bump **a544**(47e371c95)→ §0 三查 PASS(线上 lab.min.js 含 _labKellyMaybeResumeAllBackground,index?v=20260906-a544)。巡检 cron 1241991c 已删。→ pending-index #100 销账
+- [x] **#47 P0-1 核心算法 pytest(完成 merge 2026-09-06)** — feat/p0-1-pytest(abf59f8f3)3 测试文件 77 passed:test_loss_rules_20keys.py(21-key parameterized)/test_s06_state_machine.py/test_kelly_stats.py;断言冻结到生产快照(不漂移);ci.yml Job1 mount(FAIL-blocks)。reviewer PASS→main-merge→main **30d2b94db**(纯测试文件,未碰前端跳过 bump)。⚠️ 独立发现:kelly_tier「激进」档当前口径不可达(f* clamp[0,1]→half max 50),测试锁定现状,待用户拍板是否立项。→ TASKS L29 P0 三项 #47 销账
