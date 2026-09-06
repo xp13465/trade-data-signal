@@ -224,6 +224,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-09-03 | 0.9381 | 3,480,249 | ? | 无 |
 | 2026-09-04 | 0.9415 | 3,297,985 | ? | 无 |
 | 2026-09-05 | 0.9444 | 3,075,232 | ? | 无 |
+| 2026-09-06 | 0.9538 | 5,607,644 | ? | 3b1b7f5a7 fix(agents): 删除全部 agent frontmatter model 行,继承 settings flash 默认(404 根治); 2e95d4fb7 feat(task-state-rootfix): 任务状态一致性机检 + §23.12 单一事实源条款 |
 <!-- token-cache-trend-end -->
 
 **ASCII 迷你柱状图**（每格 = 0.01 命中率，刻度 0.70~1.00，一眼看升降；由脚本 `--append-daily` 随走势表同步更新，保证与实际命中率一致）：
@@ -256,6 +257,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 09-03  ████████████████████████(24)  3,480,249     0.9381
 09-04  ████████████████████████(24)  3,297,985     0.9415
 09-05  ████████████████████████(24)  3,075,232     0.9444
+09-06  █████████████████████████(25)  5,607,644     0.9538
 ```
 <!-- token-cache-ascii-end -->
 
@@ -287,4 +289,5 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-09-03 | ? | — |
 | 2026-09-04 | ? | — |
 | 2026-09-05 | ? | — |
+| 2026-09-06 | ? | 3b1b7f5a7 fix(agents): 删除全部 agent frontmatter model 行,继承 settings flash 默认(404 根治); 2e95d4fb7 feat(task-state-rootfix): 任务状态一致性机检 + §23.12 单一事实源条款 |
 <!-- token-cache-changelog-end -->
