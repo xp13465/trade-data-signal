@@ -180,7 +180,20 @@ def sync_git_refs():
         failed = CODEX_INBOX / f"{rid}.failed"
         skipped = CODEX_INBOX / f"{rid}.skipped"
         processing = CODEX_INBOX / f"{rid}.processing"
-        if ready.exists() or done.exists() or failed.exists() or skipped.exists() or processing.exists():
+        if ready.exists() or done.exists() or skipped.exists() or processing.exists():
+            continue
+        # failed 但 retry 未耗尽 -> 重建 .ready 让 pump 重试
+        if failed.exists():
+            if retry_count(rid) >= MAX_RETRIES:
+                # 重试耗尽, 标记 blocked 终态(不再重试, 避免烧额度)
+                log(f"sync_git_refs blocked {rid}: retry exhausted")
+                _write_blocked(rid)
+                cleanup_ref(rid)
+                continue
+            # retry 未耗尽, fall through 补 ready
+        # blocked 终态, 不再处理
+        blocked = CODEX_INBOX / f"{rid}.blocked"
+        if blocked.exists():
             continue
         if is_already_processed(rid):
             # claude-inbox 已收到回传, 仅同步 ready 让 pump 跳过即可
@@ -216,6 +229,19 @@ def sync_git_refs():
             log(f"sync_git_refs created {ready}")
         except Exception as e:
             log(f"sync_git_refs write error {rid}: {e}")
+
+def _write_blocked(request_id):
+    """重试耗尽后标记 .blocked 终态(不再重试, 避免烧额度)."""
+    try:
+        (CODEX_INBOX / f"{request_id}.blocked").write_text(
+            json.dumps({"request_id": request_id, "reason": "retry_exhausted",
+                        "blocked_at": datetime.now().isoformat()}),
+            encoding="utf-8",
+        )
+        log(f"sync_git_refs wrote .blocked {request_id}")
+    except Exception as e:
+        log(f"sync_git_refs write blocked error {request_id}: {e}")
+
 
 def build_codex_command_prompt(request_id):
     return (
@@ -266,8 +292,9 @@ def pump_queue(inbox, kind, running, cmd_factory):
         try:
             proc = subprocess.Popen(
                 cmd,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                cwd=str(REPO), preexec_fn=os.setpgrp
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                cwd=str(REPO), preexec_fn=os.setpgrp,
+                text=True, encoding="utf-8", errors="replace"
             )
         except Exception as e:
             log(f"spawn error kind={kind} request_id={request_id}: {e}")
@@ -326,6 +353,15 @@ def poll_running(running):
         request_id = info["request_id"]
         processing = info["processing"]
         log(f"job_done kind={kind} request_id={request_id} exit={rc}")
+        # 捕获输出做诊断
+        try:
+            out, err = proc.communicate(timeout=5)
+            if err and ("429" in err or "Rate limit" in err or "quota" in err.lower()):
+                log(f"job_{request_id} 429 detected: {err[:200]}")
+            if out and len(out) > 0:
+                log(f"job_{request_id} stdout: {out[:300]}")
+        except Exception:
+            pass
         running.pop(kind, None)
         if rc == 0 and kind == "codex":
             verdict = _read_report_verdict(request_id)
@@ -334,10 +370,12 @@ def poll_running(running):
                 _run_codex_complete(request_id, verdict)
                 cleanup_ref(request_id)
             else:
-                # 报告缺失/不可解析, 不算成功, 进重试
-                log(f"job_done but report invalid request_id={request_id}")
-                transition(processing, "failed")
+                # 报告缺失/不可解析 -> BLOCKED 终态(不重试, 同 prompt 大概率同样失败)
+                log(f"job_done but report invalid request_id={request_id} -> blocked")
+                transition(processing, "blocked")
+                _write_blocked(request_id)
                 bump_retry(request_id)
+                cleanup_ref(request_id)
         elif rc == 0:
             transition(processing, "done")
             cleanup_ref(request_id)
