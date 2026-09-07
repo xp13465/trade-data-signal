@@ -7155,6 +7155,19 @@ main { padding: 16px 24px; }
 /* 长线管位管理·G/H/I(2026-08-29 codex#001): 开关+三档标签横排一行, 视觉对齐上部 .sim-fade-ctl 范式;
    开关(lab 范式=checkbox+短字)与凯利页「ai长线模式(G/H/I)仓位管理」共享键 tds_gihpos(默认开 §22) */
 .sim-gih-ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* 价格口径双档(#91, 2026-09-06 用户需求): 与 lab 凯利页「买入口径」同款按钮样式, 本弹窗独立作用域
+   (2边各自独立影响区域, 互不联动); 切档=数据源整体替换→整区重建 */
+.sim-buybasis-ctl { display: flex; align-items: center; }
+.sim-buybasis { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; color: var(--text-3); white-space: nowrap; cursor: default; }
+.sim-buybasis-btn { border: 1px solid var(--border); background: var(--bg-card); color: var(--text-3); font-size: 11px; padding: 2px 8px; cursor: pointer; border-radius: 4px; transition: all 0.15s; }
+.sim-buybasis-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+.sim-buybasis-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 600; }
+.sim-buybasis-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+/* 计划买入时间列上下换行(#91, 2026-09-06 用户需求): 上=信号日期 / 下=实际买入日期(按当前口径) */
+.sim-buytime-cell { display: flex; flex-direction: column; line-height: 1.5; gap: 1px; }
+.sim-buytime-sd { color: var(--text-1); }
+.sim-buytime-bd { color: var(--text-3); font-size: 10px; }
+.sim-buytime-na { color: #999; }
 .sim-gih-on-lab { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; font-size: 12px; color: var(--text-1); user-select: none; }
 .sim-gih-tiers { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .sim-gih-tier-tag { font-size: 11px; line-height: 1; padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; color: var(--text-3); background: var(--bg-card); white-space: nowrap; }
