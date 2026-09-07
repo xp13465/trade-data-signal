@@ -109,7 +109,7 @@ def _notify(repo: Path, subject: str, body: str, severe: bool,
     cmd = [sys.executable, str(SCRIPT_DIR / "notify.py"), subject, body]
     if severe:
         cmd.append("--severe")
-        if alert_issue:
+        if alert_issue and not dry_run:
             cmd += ["--alert-issue", alert_issue, "--alert-log", LOG_PATH]
     if dry_run:
         cmd.append("--dry-run")
