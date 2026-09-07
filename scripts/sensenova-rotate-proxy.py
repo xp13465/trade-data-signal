@@ -437,7 +437,7 @@ def _reqdump_cleanup():
             except OSError:
                 pass
 
-# ═══ 删 thinking(adaptive)绕过商汤推导超限(2026-09-01 重放定根因)═══
+# ═══ 归一 thinking(adaptive 剥离 / enabled clamp)绕过商汤推导超限 ═══
 # 商汤 deepseek-v4-flash 端点对大上下文请求报
 # "thinking_budget parameter must be a positive integer and not greater than 393216"
 # 根因(重放铁证):thinking.type=adaptive 时商汤按上下文自推导 thinking_budget,大上下文下推导值
@@ -447,15 +447,18 @@ def _reqdump_cleanup():
 #   ③删 thinking 字段 -> 200 ✅(响应仍含 thinking content,思考能力不丢,只是不走 adaptive 自分配预算)
 # 治本:删请求里的 thinking 字段(type=adaptive),让商汤走默认思考模式,不触发 adaptive 推导。
 # 副效:adaptive 预留一大坨 thinking 预算是 tpm 大户,删了之后 tpm 消耗骤降,429 也跟着少。
-# 从严条件:①content_type 含 json ②body 解析为 dict ③model 含 deepseek ④thinking.type==adaptive
-# (非 adaptive 如 enabled 不动;glm/不带 thinking 的请求不动)。
+# enabled clamp(2026-09-07 定位补齐,architecture-review §6.4 缺口):enabled 型(带 budget_tokens)
+# 原样转发=存量缺口,补 clamp budget_tokens>1024->1024(商汤 deepseek-v4-flash 合法上限;
+# >1024 报 "field Thinking.BudgetTokens invalid" 另一类 400,见 docs/sensenova/out-of-range-locate-20260907.md)。
+# 从严条件:①content_type 含 json ②body 解析为 dict ③model 含 deepseek
+# ④type==adaptive 剥离 | type==enabled 且 budget>1024 clamp(其余不动:glm/不带 thinking 等原样转发)。
 
 def _strip_thinking_adaptive(body, content_type, path, req_headers):
-    """删请求里的 thinking 字段(adaptive 模式),绕过商汤 adaptive 自推导 thinking_budget 超 393216 的 400。
-    返回 (new_body_bytes, stripped: bool)。从严条件:
+    """归一 thinking 字段:adaptive 模式剥离(绕商汤 adaptive 自推导 thinking_budget 超 393216 的 400);
+    enabled 模式 clamp budget_tokens>1024->1024(商汤合法上限)。返回 (new_body_bytes, changed: bool)。从严条件:
     ① content_type 含 json ② body 解析为 dict ③ model 含 deepseek(只 deepseek)
-    ④ thinking.type == adaptive(非 adaptive 不动,保留 enabled 等其他模式原样转发)
-    json.loads 失败/非 dict -> 原样返回不破坏。"""
+    ④ thinking.type == adaptive 剥离 | thinking.type == enabled 且 budget_tokens>1024 clamp
+    (非 deepseek/不带 thinking/其他 type 不动,原样转发)json.loads 失败/非 dict -> 原样返回不破坏。"""
     if not body or "json" not in (content_type or "").lower():
         return body, False
     try:
@@ -468,12 +471,23 @@ def _strip_thinking_adaptive(body, content_type, path, req_headers):
     if "deepseek" not in model.lower():
         return body, False
     _tn = data.get("thinking")
-    if not isinstance(_tn, dict) or _tn.get("type") != "adaptive":
-        return body, False  # 非 adaptive 不动(glm/不带 thinking/enabled 等原样转发)
-    data.pop("thinking", None)
-    logmsg(f"STRIP thinking(adaptive) {path}", level="debug")
-    new_body = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    return new_body, True
+    if not isinstance(_tn, dict):
+        return body, False
+    if _tn.get("type") == "adaptive":
+        # adaptive:剥离整个 thinking 字段,让商汤走默认思考模式,不触发 adaptive 自推导
+        data.pop("thinking", None)
+        logmsg(f"STRIP thinking(adaptive) {path}", level="debug")
+        new_body = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        return new_body, True
+    if _tn.get("type") == "enabled":
+        # enabled:clamp budget_tokens>1024->1024(存量缺口,2026-09-07 定位;<=1024 或缺失原样)
+        _bt = _tn.get("budget_tokens")
+        if isinstance(_bt, (int, float)) and _bt > 1024:
+            _tn["budget_tokens"] = 1024
+            logmsg(f"CLAMP thinking.enabled budget_tokens {_bt}->1024 {path}", level="debug")
+            new_body = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            return new_body, True
+    return body, False  # 非 adaptive/enabled 或无需 clamp(glm/不带 thinking 等原样转发)
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def _forward(self):
@@ -579,6 +593,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if status == 400 and "thinking_budget" in (resp_text or ""):
                     logmsg(f"400 thinking_budget detected, rotate to next key (try {k+2}/{len(try_keys)})", level="warn")
                     continue
+                if status == 400 and "OUT_OF_RANGE" in (resp_text or ""):
+                    # 商汤间歇性时段性网关状态(2026-09-07 定位,窗口内全池统一 400 code=11,
+                    # 非请求组合触发):不 break 甩 400 给客户端,换 key 重试。
+                    # 定位报告:docs/sensenova/out-of-range-locate-20260907.md
+                    logmsg(f"400 OUT_OF_RANGE detected, rotate to next key (try {k+2}/{len(try_keys)})", level="warn")
+                    continue
             break
         status, resp_body, resp_headers, resp_text = last
         logmsg(f"RESP {self.command} {self.path} -> {status} bytes={len(resp_body)}", level="debug")
@@ -610,12 +630,39 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(resp_body)))
         self.end_headers()
         self.wfile.write(resp_body)
+    def do_GET(self):
+        # /healthz 健康检查端点(2026-09-07 P0-3 ③):返回进程存活 + 基础状态。
+        # 心跳告警接入(notify 线,severe 镜像 latest.md)见 docs/sensenova/out-of-range-locate-20260907.md §四.4:
+        #   - launchd KeepAlive 已兜底进程级重启(com.trade.thinking-proxy);healthz 用于"进程在但卡死"级检测
+        #   - 建议:定时 curl http://127.0.0.1:8899/healthz,连续 N 次失败(或返回 status!=ok)即调 notify.py severe
+        #     告警(镜像 docs/data/latest.md),走既有告警通道防旁路
+        if self.path.rstrip("/") == "/healthz":
+            _now = time.time()
+            _up = _now - START_TS
+            _snap = _cooldown_snapshot()
+            _body = json.dumps({
+                "status": "ok",
+                "service": "sensenova-rotate-proxy",
+                "rotate_keys": len(KEYS),
+                "cooling_keys": list(_snap.keys()),
+                "uptime_sec": int(_up),
+                "started_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(START_TS)),
+                "port": int(os.environ.get("TTP_PORT", "8899")),
+            }, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(_body)))
+            self.end_headers()
+            self.wfile.write(_body)
+            return
+        self._forward()
     def do_POST(self): self._forward()
-    def do_GET(self): self._forward()
     def do_PUT(self): self._forward()
     def do_DELETE(self): self._forward()
     def do_OPTIONS(self): self._forward()
     def log_message(self, *a): pass
+
+START_TS = time.time()  # /healthz uptime 基准(进程启动时刻)
 
 if __name__ == "__main__":
     _load_cooldown()  # P0-2 启动恢复冷却状态(重启不丢病 key 标记)

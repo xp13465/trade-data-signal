@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
 """
+⚠️ 已停用(DEPRECATED,2026-09-06 起,任务 B⑤ P2-1 落地)⚠️
+====================================================================
+kimi-k3 代理已停用:settings.json ANTHROPIC_BASE_URL 已指向 8899(v4-flash 版
+sensenova-rotate-proxy.py,7key 轮换),8898 kimi 代理自 09-05 21:03 起无流量。
+launchd 卸载步骤(交给主控执行,本 agent 不碰 launchd):
+  launchctl unload ~/code/trade/scripts/com.trade.thinking-proxy-kimi.plist
+  # 或 launchctl bootout gui/$(id -u)/com.trade.thinking-proxy-kimi
+需要 k3 评测时再 load 回(参考 scripts/kimi-proxy-switch.sh 双向切换)。
+方案与依据见 docs/sensenova/sensenova-5key-rotation-audit-20260906.md §P2-1。
+本脚本保留(不删文件),运行逻辑未改;仅此横幅标记停用状态,防误启动占 8898。
+====================================================================
+
 sensenova-rotate-proxy-kimi.py - 商汤 Sensenova 多 token 轮换本地代理(kimi-k3 版,纯 key 轮换,不含任何 thinking 注入/参数剔除逻辑)
 
 用途:商汤 token.sensenova.cn 对 kimi-k3(商汤新支持模型,支持 thinking/non-thinking + 1M context,
