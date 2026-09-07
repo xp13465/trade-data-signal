@@ -10211,21 +10211,22 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
     const _lastDateB2 = chartData && chartData.length ? chartData[chartData.length - 1].date : "";
     // 今日该指数有信号才提示（.some 过滤 signals_today 中 index_id 匹配且 date===T日）
     const _hasTodaySigB2 = _sigsSR.some(it => it.index_id === indexId && it.date === _todayDateB2);
-    if (_todayDateB2 && _lastDateB2 && _lastDateB2 < _todayDateB2 && _hasTodaySigB2) {
+    // 方案A(2026-07-28): chartData 末日<T日时，从 intraday_snapshot.json 读实时价补 T 日预估点（兜底）。
+    // 覆盖 B 未覆盖的指数/未到 15min 增量窗口的时差：只要该指数在 intraday_snapshot.indices 有实时 close 即补。
+    // 2026-09-06 fix(滞后提示悖论): 补点提前到 _lagHint 判定之前——盘中 intraday_snapshot 已有当日实时价时
+    // 补点成功(chartData 末日变 T 日), 即"当日数据已在册", 不再提示"走势图数据截止 X/等17:50"。
+    // 原实现先渲染 _lagHint 再补点, 补点成功后提示仍残留, 造成"图表上已有今日数据却提示截止/依赖17:50"的悖论
+    // (17:50 只是复验定版, 不是唯一正常时点)。补点失败(该指数不在 17 基础指数/实时快照无当日价)才保留滞后提示。
+    let _estPtB2 = false;
+    if (_todayDateB2 && _lastDateB2 && _lastDateB2 < _todayDateB2) {
+      try { _estPtB2 = await _appendIntradayEstimate(chartData, sigs, indexId, _todayDateB2, isValue); } catch (e) { _estPtB2 = false; }
+    }
+    if (!_estPtB2 && _todayDateB2 && _lastDateB2 && _lastDateB2 < _todayDateB2 && _hasTodaySigB2) {
       const _lagHint = document.createElement("div");
       _lagHint.className = "sig-chart-lag-hint";
       _lagHint.setAttribute("style", "margin-bottom:8px;padding:6px 10px;font-size:12px;color:#e6a23c;background:rgba(230,162,60,0.1);border:1px solid rgba(230,162,60,0.3);border-radius:4px;line-height:1.5;");
       _lagHint.innerHTML = "⚠ 走势图数据截止 " + fmtDate(_lastDateB2) + "，T日(" + fmtDate(_todayDateB2) + ")有信号·盘中实时预估中，收盘后(17:50)同步最终pin";
       body.appendChild(_lagHint);
-    }
-    // 方案A(2026-07-28): chartData 末日<T日时，从 intraday_snapshot.json 读实时价补 T 日预估点（兜底）。
-    // 覆盖 B 未覆盖的指数/未到 15min 增量窗口的时差：只要该指数在 intraday_snapshot.indices 有实时 close 即补。
-    if (_todayDateB2 && _lastDateB2 && _lastDateB2 < _todayDateB2) {
-      const _estPt = await _appendIntradayEstimate(chartData, sigs, indexId, _todayDateB2, isValue);
-      if (_estPt) {
-        // 补点后 chartData 末日==T日，无需再显示 _lagHint 误报（但上方 _lagHint 已基于 _hasTodaySigB2 渲染，保留语义提示）
-        // 补的预估点用 "estimate" 信号 pin 标注，视觉区分（灰色虚线 pin）
-      }
     }
     // 信号对错盈亏行（方案B后端算）：文案=成功/失败·N日窗盈亏 ±X%（2026-08-24 到期冻结窗：N=实际生效窗长
     // _effWinN(波段减仓固定5/其余=判定窗档位), 未满窗为至今暂计并标注; since_correct=null 今日/band_hold 仅显示盈亏不带成功失败）；
@@ -10920,6 +10921,14 @@ function fetchIntradaySnapshot() {
         _saveSnapToStorage(snap); // 步骤7: 持久化供下次刷新恢复
         // AZ54 P1-6: snap 就绪即更新全局盘中状态横幅(显/隐/午休文案)
         updateMarketStatusBanner(snap);
+        // 2026-09-06 fix(线上角标不自动刷新): snap 就绪即统一重绘卡片角标(T+0/T+1 时效判定+全局实时报价)。
+        // 根因: _doOverviewRefresh 内 snap fetch 走 Promise.race 2s 超时, 网络慢时(单文件 123KB+ 弱网/首拉)
+        // 2s 内未返回则 state.intradaySnapshot 保持旧值, refreshCardTimeBadges 用旧 snap 重绘 = 角标永远不更新,
+        // 需手动刷新页面(boot 重拉无 2s 限制)才拉到新 snap -> "9:29 角标仍停留上周五, 手动刷新恢复今日"。
+        // fix: snap 无论经哪条路径(fetchIntradaySnapshot 单例/_doOverviewRefresh race/_startMarketOpenCheck tick)
+        // fetch 完成即在此统一重绘角标, 消除 2s 竞态窗口(补点后 chartData 已含 T 日数据, 角标不再卡旧日期)。
+        refreshCardTimeBadges(snap);
+        refreshGlobalRealtimeBadges(snap);
         // snap 就绪回调启动 overview 自适应轮询(根治 2s 超时竞态, 2026-07-27):
         // 旧版 _initAutoRefresh 用 Promise.race 2s 超时, 弱网/强刷首屏 snap 未就绪 -> 永不启动.
         // 现在 snap 何时就绪何时启动, 无超时卡死.
