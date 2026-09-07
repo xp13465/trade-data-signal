@@ -8339,7 +8339,7 @@ function _kellyYield() {
   return new Promise(function (r) { setTimeout(r, 0); });
 }
 
-async function _kellyRunRecompute(host, loadingHtml, onResult, onDone) {
+async function _kellyRunRecompute(host, loadingHtml, onResult, onDone, silent) {
   if (_kellyRecomputeBusy) { _kellyRecomputePending = true; return; }
   _kellyRecomputeBusy = true;
   // #91 代际捕获: 口径切换(_labKellySetBuyBasis)会 ++_labKellyEpoch 并整区重建, 本代若已过期则收尾跳过不写新 host
@@ -8347,7 +8347,10 @@ async function _kellyRunRecompute(host, loadingHtml, onResult, onDone) {
   do {
     _kellyRecomputePending = false;
     // 2026-08-11 交互优化: 不整卡清空(卡片保持挂载, 半透明+顶部细条 loading), 便于对照打勾前后数值
-    host.classList.add("lab-custom-host--loading");
+    // 2026-09-07 静默化(#sigkelly-silent-fill): silent=true(补齐路径全量重算)跳过遮罩——重算期间各区域显示已就绪
+    //   数据/占位无残缺(§23.15), 遮罩只带来「数据已出还锁着」误导; 收尾 remove 无害保留(防状态残留)。
+    //   用户主动交互(切周期/toggle/费率/K档)仍带遮罩(正常反馈), 仅阶段2 完成路径 silent。
+    if (!silent) host.classList.add("lab-custom-host--loading");
     await _kellyNextPaint();
     var stats = await _kellyApplyFeeRecompute(state.labSigKellyFeeParams);
     if (_epoch !== _labKellyEpoch) break; // 代际已过期(口径已切), 丢弃本轮结果, 不写新 host
@@ -8695,6 +8698,7 @@ async function _labKellyLoadAllBackgroundRun() {
 
 // 阶段2 全量就绪收尾: 清两片期计算缓存(risk#2: _tradeDims/特征/桶/重算缓存基于两片构建必须重建) + 触发全量重算覆盖
 function _labKellyOnAllReady() {
+  console.log("[sigkelly] 全量 " + _labKellyAllYears.length + " 片补齐完成, 触发全量重算(静默后台, 无遮罩)"); // 2026-09-07 轻提示配套(#sigkelly-silent-fill): 补齐完成进度进 console
   if (typeof _kellyClearComputeCaches === "function") _kellyClearComputeCaches();
   // risk#2 补: _kellyClearComputeCaches 只清宿主缓存不清 state.labSigKellyTradeDims(维度表基于片数构建,
   //   两片期维度表只覆盖近1年, 全量后不清则全史老交易查维度 miss → 判定错误; 置 null 由 _kellyApplyFeeRecompute L8539 重建)
@@ -8702,7 +8706,7 @@ function _labKellyOnAllReady() {
   if (!state.labSigKellyData) return;
   var _hh = document.querySelector(".lab-sigkelly-host");
   if (!_hh || !document.body.contains(_hh)) return;
-  if (typeof _kellyOnFilterChange === "function") _kellyOnFilterChange({ keepS06: true });
+  if (typeof _kellyOnFilterChange === "function") _kellyOnFilterChange({ keepS06: true, silent: true }); // 2026-09-07 静默化(#sigkelly-silent-fill): 补齐后全量重算后台静默, 不锁屏不遮罩(纯 bug 修复, 不改任何展示数字)
 }
 
 // 周期就绪判定(未就绪周期渲染层只显示占位, 不显示残缺数 §23.15):
@@ -8730,7 +8734,10 @@ function _labKellyProgStr() {
     return " · 近1年数据 " + p.done + "/2";
   }
   // 阶段2: 全量补全中(y1 已可看, 后台继续补齐其余周期)
-  return " · 全量补全 " + p.done + "/" + p.total + "(近1年已可看)";
+  // 2026-09-07 轻提示(#sigkelly-silent-fill 用户拍板): 去掉「全量补全 N/16」进度数字(数字进 console, 每片加载已
+  //   console.log「已加载 tYYYY」, 补齐完成另有 console.log)——占位文本只保留无数字轻提示, 防用户以为是卡死/进度异常;
+  //   三处占位元素(L11327/L11449/L12010)均拼 _labKellyProgStr() 自动跟随, 不需单改。
+  return " · 后台补齐其余周期, 完成后自动展示…";
 }
 
 // 分片加载进度实时刷新(2026-08-29 小步2, #fix555 2026-09-07 语义分流): 每片完成把在册「⏳ 计算中…」占位文本就地换为最新进度,
@@ -9283,6 +9290,7 @@ async function _kellyOnFilterChange(_opts) {
   if (!(_opts && _opts.keepS06) && (state.labSigKellyFadeModeBase === "s06" || state.labSigKellyFadeModeBase === "s06p1"))
     state.labSigKellyFadeModeBase = null;
   // loading先paint再算(方案B⑤), 防重入(方案B⑥)
+  // 2026-09-07 静默化(#sigkelly-silent-fill): _opts.silent 透传给 _kellyRunRecompute(补齐路径静默重算, 见 _labKellyOnAllReady)
   await _kellyRunRecompute(host,
     '<div class="lab-custom-loading">⏳ 过滤交易数据重算…</div>',
     function (stats) {
@@ -9299,7 +9307,8 @@ async function _kellyOnFilterChange(_opts) {
       var bb = document.querySelector(".lab-sigkelly-bar") || bar;
       if (bb) _renderSigKellyBar(bb, state.labSigKellyData, state.labSigKellyPeriod);
       _updateSigKellyQuadrantsInPlace(hb, state.labSigKellyData, state.labSigKellyPeriod);
-    }
+    },
+    !!( _opts && _opts.silent)  // 2026-09-07 静默化(#sigkelly-silent-fill): 补齐路径全量重算静默(无遮罩), 用户交互仍带遮罩
   );
   // 2026-08-13 降亏状态持久化: 所有 filter toggle 改动都经此函数, 统一写 tds_kelly_filters(AI宏 7成员+组合, 供首页 AI 开关联动; 幂等小JSON)
   _kellyPersistFilters();
@@ -10386,8 +10395,11 @@ function _renderSigKellyBar(bar, data, period) {
   // OFF 按钮(2026-08-13, 复用首页同款交互): data-k="off" 由下方 K 按钮绑定识别为关(写 tds_poscap_lab {on:false}), 关闭后该区退化普通列表, 再点某 K 档恢复
   const _pcOffBtn = `<button type="button" class="lab-sigkelly-kbtn lab-sigkelly-kbtn-off${_filters.positionCap ? "" : " active"}" data-k="off" data-no-pop=""><span class="lab-sigkelly-kbtn-k">关</span><span class="lab-sigkelly-kbtn-r">off</span></button>`;
   // 渐进加载(#100 2026-09-06): 阶段1(近1年两片)完成但全量未就绪 → K档评级仍为静态快照(门控不发布动态源), 加可见标注提示(§23.15/§21)
-  const _pcProgNote = (_labKellyY1Ready && !_labKellyAllReady)
-    ? `<span class="lab-sigkelly-kbtn-prog" title="近1年分片已加载完成, 全量16年分片后台加载中; 此时 K 档评级为静态快照(回退档), 全量就绪后自动切换为实时动态评级并重算">⏳ 全量计算中</span>` : "";
+  // 2026-09-07 静默化配套(#sigkelly-silent-fill): ALL_READY 后、全量重算完成前(~7s), _labKellyAllReady 已 true 但动态源
+  //   _AI_POSCAP_RATING_DYNAMIC_LAB.computed 仍 false(门控铁律 L9082: 阶段1 不发布动态源)→ 若按「!_labKellyAllReady」则标注提前消失,
+  //   用户看到无标注静态快照与全量后实时数字不同会短暂困惑。改判「动态源未就绪即标注」: 全量重算完成写 computed:true → 标注消失+数字原地刷新。
+  const _pcProgNote = (_labKellyY1Ready && !(window._AI_POSCAP_RATING_DYNAMIC_LAB && window._AI_POSCAP_RATING_DYNAMIC_LAB.computed))
+    ? `<span class="lab-sigkelly-kbtn-prog" title="近1年分片已加载完成, 全量16年分片后台加载/计算中; 此时 K 档评级为静态快照(回退档), 全量重算完成后自动切换为实时动态评级并重算">⏳ 全量计算中</span>` : "";
   const _pcRatingPop = (window._aiPoscapRatingPopHtml ? window._aiPoscapRatingPopHtml("tds_poscap_lab") : ""); // 凯利区域独立键(2026-08-30 拆键)
   // 2026-08-13 合并行: AI宏 总开关(原第二行)合并进 AI仓位建议 行, 跟在「关OFF」按钮后(用户需求: 两行合并一行, 去除重复纯文字标题)
   // 本 label+详情按钮 在 positionCapHTML 内复用, 原 .lab-sigkelly-toggle-group-ai 独立行已移除(仅 CSS 残留无引用)

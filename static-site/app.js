@@ -3238,6 +3238,8 @@ var _simPartsCache = new Map();  // "recent" | "t2011"... -> 已解析分片(切
 var _simHotMinDate = "";         // recent 片最小 signal_date(热区下界 YYYYMMDD, 空=未加载)
 var _simHotMaxDate = "";         // recent 片最大 signal_date(=数据最新日, 热区上界)
 var _simFullFallback = false;    // 分片链路失败已回退全量(true 后跳过分片逻辑)
+var _simAllHistReady = false;    // 全史分片(2011..最新)是否已全部就绪(决定 peakAllHist 口径可信)
+var _simAllHistLoading = false;  // 后台补齐进行中(防重入)
 
 // 读取数据版本号(破缓存, 与 lab.js 同机制: <meta name="lab-asset-url"> 持有 ?v=)
 function _simCacheBust() {
@@ -3679,6 +3681,37 @@ async function _simEnsureRange(startD, endD, onStep) {
   const shards = years.map((nm) => _simPartsCache.get(nm)).filter(Boolean);
   if (shards.length) _simKellyData = _simMergeShards(shards);
   return true;
+}
+
+// 全史分片(recent + t2011..t最新)是否已全部在缓存 —— 决定 peakAllHist 口径可信(_simAllHistReady)
+function _simAllHistCached() {
+  if (_simFullFallback) return true;  // 全量回退=天然全史就绪
+  if (!_simKellyData || !_simHotMaxDate) return false;
+  const toY = parseInt(String(_simHotMaxDate).slice(0, 4), 10);
+  for (let y = 2011; y <= toY; y++) {
+    if (!_simPartsCache.has("t" + y)) return false;
+  }
+  return true;
+}
+
+// 后台补齐全史(2026-09-07 渐进加载): 窗口先渲染可看, 全史年片后台拉齐后原地重渲染,
+// 把「累积盈亏%分母 / 净资产曲线初始资金」从窗口内峰值刷新成全史峰值口径。复用 _simEnsureRange, 不重复拉已缓存片。
+async function _simEnsureBackgroundAll(modal) {
+  if (_simFullFallback || _simKellyLoadErr) { _simAllHistReady = true; return; }
+  if (_simAllHistReady || _simAllHistLoading) return;
+  if (!_simKellyData || !_simHotMaxDate) return;
+  _simAllHistLoading = true;
+  try {
+    if (_simAllHistCached()) { _simAllHistReady = true; return; }
+    const ok = await _simEnsureRange("20110101", _simHotMaxDate, null);
+    _simAllHistReady = ok;
+    if (ok && modal && !modal.classList.contains("hidden")) {
+      // 全史就绪 → 原地重渲染(不关弹窗不重开, 峰值口径自动切全史)
+      _simRender(modal);
+    }
+  } finally {
+    _simAllHistLoading = false;
+  }
 }
 
 // 打开「模拟回测」弹窗(复用 .rule-modal 机制, 与 _openRefHelpModal 同款)
@@ -4150,22 +4183,25 @@ async function _simRenderOnce(modal) {
   // 分片二级加载(2026-08-22): 所选范围超出 recent 热区(或未设下界)时并行拉缺失年片, 全部到位再渲染;
   // 热区内直接用已加载的 recent 渲染(不触发任何新请求)。年片走模块级 Map 缓存, 切范围不重复拉;
   // 任一年片失败自动回退全量(老路径兜底)。500 天闸在前, 超限请求到不了这里不会触发拉片。
-  // #51 净资产曲线全史口径(2026-09-05): 曲线初始资金=全史峰值×¥10000 常量不随窗口切换 → 必须加载全史分片
-  // (recent 热区 + 缺失年片 t2011..t2026), 不能只按所选窗口范围加载(recent 热区仅 2026 年起, 不含
-  // 2018/2020 等历史峰值日)。_simPartsCache 模块级缓存: 同一会话后续渲染命中不重拉; 分片失败已回退全量则跳过。
+  // 渐进加载(2026-09-07): 先按所选窗口范围拉年片, 秒开可看; peakAllHist 若全史未就绪先取窗口内峰值并标
+  // 「全史校准中」(#51 全史口径在 _simEnsureBackgroundAll 补齐后原地刷成全史)。kept 渲染窗口筛选本来就把
+  // 窗口外信号滤掉, 窗口内展示数字与全史路径逐位一致(§23.15 不显残缺数)。窗口=全史(startD 空)时直接全量。
   if (!_simFullFallback && !_simKellyLoadErr) {
     loadingEl.style.display = "block";
     loadingEl.textContent = "正在加载数据分片…";
     bodyEl.innerHTML = "";
     summaryEl.innerHTML = "";
     pagerEl.innerHTML = "";
-    const okR = await _simEnsureRange("20110101", _simHotMaxDate || (endD || ""), (m) => { loadingEl.textContent = m; });
+    const okR = await _simEnsureRange(startD, endD, (m) => { loadingEl.textContent = m; });
     loadingEl.style.display = "none";
     if (!okR) {
       bodyEl.innerHTML = '<div class="sim-err">数据加载失败: ' + (_simKellyLoadErr || "分片加载失败") + '</div>';
       return;
     }
   }
+  // 渐进加载(2026-09-07): 分片就绪(或全量回退)后同步全史就绪标记 —— 窗口=全史(startD 空)或全量回退时此处即全史就绪;
+  // 窗口=部分时 false, peakAllHist 取窗口内峰值并标「全史校准中」, 由 _simEnsureBackgroundAll 补齐后置 true。
+  _simAllHistReady = _simAllHistCached();
 
   // ① 模式: signal_kelly_trades.json 的 quadrants[qk][mode] 每模式是完整副本(同 base 在不同 mode 下
   //    sell_date/sell_price 不同), 必须按所选 mode 从 quadrants[*][mode] 现筛构建基笔池(去重+聚合维度),
@@ -4320,7 +4356,13 @@ async function _simRenderOnce(modal) {
   }
   // 按 signal_date 倒序(最新在上)
   kept.sort((a, b) => { const sa = String(a[fIdx.signal_date] || ""), sb = String(b[fIdx.signal_date] || ""); return sa < sb ? 1 : (sa > sb ? -1 : 0); });
-  _simRenderTable(modal, kept, fIdx, fp, startD, endD, fadeOn, K, mode, gihOn, peakAllHist, peakAllHistRaw);
+  _simRenderTable(modal, kept, fIdx, fp, startD, endD, fadeOn, K, mode, gihOn, peakAllHist, peakAllHistRaw, _simAllHistReady);
+
+  // 渐进加载(2026-09-07): 首轮窗口渲染完成后, 后台补齐全史分片(不 await, 不阻塞当前渲染; 完成后原地重渲染
+  // 把峰值口径从窗口内刷成全史)。窗口=全史或全史已就绪时内部立即返回。
+  if (!_simAllHistReady) {
+    _simEnsureBackgroundAll(modal);
+  }
 }
 
 // 基笔池按 mode 缓存(2026-08-23 性能专项): 池=纯函数(数据引用,mode), 与筛选/费率/K 无关;
@@ -4976,7 +5018,7 @@ function _simPeakPositions(rows, fIdx) {
   return { peak, peakFirstDate };
 }
 
-function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, gihOn, peakAllHist, peakAllHistRaw) {
+function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, gihOn, peakAllHist, peakAllHistRaw, allHistReady) {
   const bodyEl = modal.querySelector(".sim-table-body");
   const summaryEl = modal.querySelector(".sim-summary");
   const pagerEl = modal.querySelector(".sim-pager");
@@ -5117,13 +5159,20 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
   // 2026-09-06 用户需求: 原「峰值同时持仓笔数」列(恒值, 非每行动态)从表格删除, 数值以说明文字形式放表格上方
   // (口径完整标注, 避免删列后用户不知该值): 恒值不随窗口切换, 为累积盈亏%分母/净资产曲线初始资金同源(§22)。
   // G/H/I 管位开=全史真实计算峰值(≤档位硬控笔数, 20倍本金硬控内可操作), 管位关/非GIH=全史原始峰值。
+  // 渐进加载(2026-09-07): 全史分片未就绪时峰值=窗口内峰值, 标注「全史校准中」; 后台补齐后 _simEnsureBackgroundAll
+  // 原地重渲染刷新 → 标注消失、数字变全史口径(§5.4⑦ 口径诚实标注, 不显残缺数)。
+  const _calibSuffix = allHistReady
+    ? ""
+    : ' · 全史分片后台补齐中, 当前为窗口内峰值(全史校准中), 补齐后自动刷新为全史口径';
   const _peakTip = (gihOn && _SIM_GHI_TIERS[mode])
-    ? (mode + '档长线管位开启: 全史真实计算峰值 ' + peakDenom + ' 笔(档位 ' + _SIM_GHI_TIERS[mode].tier + ' ÷ ¥10000 = 硬控上限 ' + _gihCapN + '笔, 20倍本金硬控内可操作; 与凯利页「ai长线模式(G/H/I)仓位管理」同口径§22); 管位关时全史原始峰值为 ' + peakRawDenom + ' 笔')
-    : ('全史峰值同时持仓 ' + peakDenom + ' 笔(累积盈亏%分母口径, 恒值不随窗口切换)');
+    ? (mode + '档长线管位开启: 全史真实计算峰值 ' + peakDenom + ' 笔(档位 ' + _SIM_GHI_TIERS[mode].tier + ' ÷ ¥10000 = 硬控上限 ' + _gihCapN + '笔, 20倍本金硬控内可操作; 与凯利页「ai长线模式(G/H/I)仓位管理」同口径§22); 管位关时全史原始峰值为 ' + peakRawDenom + ' 笔' + _calibSuffix)
+    : ('全史峰值同时持仓 ' + peakDenom + ' 笔(累积盈亏%分母口径, 恒值不随窗口切换)' + _calibSuffix);
   const _peakNoteHtml = '<div class="sim-peak-note" style="padding:5px 12px;margin:0 0 6px;font-size:11px;color:var(--text-3);background:var(--bg-hover);border-radius:6px;line-height:1.6" title="' + _escAttr(_peakTip) + '">' +
     '📌 全史峰值同时持仓 <b>' + peakDenom + '</b> 笔' +
     ((gihOn && _SIM_GHI_TIERS[mode]) ? ' · ' + mode + '档管位硬控≤' + _gihCapN + '笔(20倍本金硬控内可操作)' : '') +
-    ' — 累积盈亏%分母口径(恒值, 不随窗口切换; 非每笔收益率简单相加)</div>';
+    ' — 累积盈亏%分母口径(恒值, 不随窗口切换; 非每笔收益率简单相加)' +
+    (!allHistReady ? ' <b style="color:#b8860b">⏳ 全史校准中(后台补齐, 完成后自动刷新)</b>' : '') +
+    '</div>';
   // 观察期倒计时用交易日历(懒构建: 首个持仓中行才建一次; 来自已加载 trades 自身日期并集)
   const _sellModes = (_simKellyCfg && _simKellyCfg.sell_modes) || null;
   let _obsCal = null, _obsLast = "";
@@ -5188,6 +5237,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
       : (_presetObj ? _presetObj.label + "(" + _presetObj.desc + ")" : "");
     summaryEl.innerHTML = '筛选结果: <b>' + n + '</b> 笔(模式 ' + mode + ' · 降亏' + (fadeOn ? '开' : '关') + ' · K=' + (K || '关') +
       ') · 本金每笔 ¥10000 · 长线管位·G/H/I' + (gihOn ? '开' : '关') + ' · 累积收益率口径=累计金额÷(全史峰值同时持仓 <b>' + peakDenom + '</b> 笔×¥10000, 恒值不随窗口切换)' +
+      (!allHistReady ? ' · <span style="color:#b8860b">⏳ 全史校准中(后台补齐, 完成后自动刷新)</span>' : '') +
       ((gihOn && _SIM_GHI_TIERS[mode]) ? ' · ' + mode + '档管位: 全史真实峰值 ' + peakDenom + '笔≤硬控' + _gihCapN + '笔(' + _SIM_GHI_TIERS[mode].tier + ')' : '') +
       ' · 费率[' + feeDesc + ']' +
       (holdingN > 0 ? ' · <span class="simbt-est">含 ' + holdingN + ' 笔持仓中</span>(按最新收盘价计当前盈亏, 已并入累积列与对错计数)' : '') +
@@ -5270,7 +5320,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
   _draw();
   // 逐日总资产变化走势图(2026-09-04 #51, 纯新增展示): 与表格同源 kept rows/同一峰值扫描(peakDenom 传参与累积盈亏%分母
   // 逐位一致 §22), 管位开关/切 K/切范围/切费率后随 _simRenderTable 同步重算, 无旧曲线残留
-  _simRenderNetassetChart(modal, rows, fIdx, fp, peakDenom, startD, endD);
+  _simRenderNetassetChart(modal, rows, fIdx, fp, peakDenom, startD, endD, allHistReady);
 }
 
 // === 逐日总资产变化走势图(2026-09-04 #51 纯新增展示, #52b 自然日口径用户拍板; 报告 docs/kelly/analysis/sim-netasset-equity-chart-20260901) ===
@@ -5401,7 +5451,7 @@ function _simNetassetCurve(rows, fIdx, fp, initCapital, nav, winStart, winEnd) {
   return { curve: curve, navFF: navFF };
 }
 
-function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) {
+function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD, allHistReady) {
   const wrapEl = modal.querySelector(".sim-netasset-chart");
   if (!wrapEl) return;
   const headEl = wrapEl.querySelector(".sim-netasset-head");
@@ -5435,6 +5485,9 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD) 
       let holdingN = 0;
       for (let i = 0; i < rows.length; i++) { if (!String(rows[i][fIdx.sell_date] || "")) holdingN++; }
       if (holdingN > 0) notes.push("含 " + holdingN + " 笔持仓中按最新收盘计");
+      // 渐进加载(2026-09-07): 全史分片未就绪时曲线初始资金=窗口内峰值(全史校准中), 后台补齐后 _simEnsureBackgroundAll
+      // 原地重渲染刷新为全史口径 —— 补全前明示不静默(§23.15 口径诚实标注)。
+      if (!allHistReady) notes.push("⏳ 后台补全全史数据, 曲线稍后自动刷新…");
       noteEl.textContent = notes.join(" · ");
       noteEl.style.display = notes.length ? "" : "none";
     }
