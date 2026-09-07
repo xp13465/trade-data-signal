@@ -2037,15 +2037,28 @@ def _export_affected_json(is_closed: bool = False) -> None:
     try:
         today = datetime.now().strftime("%Y%m%d")
         cur = conn.cursor()
-        cur.execute("SELECT DISTINCT index_id FROM signal_daily WHERE date=?", (today,))
+        # 方案B扩展(2026-09-07): 合并来源从「今日有信号的指数」扩为「index_daily 当日有数据的指数 ∩ 历史信号宇宙」。
+        # 根因: 老信号关联的 sw_/thsc_ 等非基础指数今日无信号 → 原逻辑盘中不重导 all.json，
+        #   本地 static-site/data/index/ 和 R2 停在昨日 → 历史信号弹窗走势图盘中无当日数据。
+        #   盘中 _backfill_industry_daily/_backfill_concept_daily 已把 31 sw + 27 thsc + csi 等
+        #   当日计算法 close 写入 index_daily(open/high/low 为 NULL)，数据就绪只缺导出。
+        # 交集过滤: 信号弹窗走势图只读 {base}-all.json(base=信号 index_id)，未出过信号的指数导出是无用功。
+        #   实测 2026-09-07: index_daily 当日 112 ∩ 历史信号全量 178 = 112，排除 17 基础后需导出 95
+        #   (31 sw_ + 27 thsc_ + 37 csi/hk/cgb/kospi/nikkei/sse 等)。
+        # 非交易日 index_daily 无当日行 → 查询返回空 → extra 为空 → 保持 17 基础，天然安全。
+        cur.execute(
+            "SELECT DISTINCT index_id FROM index_daily "
+            "WHERE date=? AND index_id IN (SELECT DISTINCT index_id FROM signal_daily)",
+            (today,),
+        )
         base_set = set(affected)
-        extra = [row[0] for row in cur.fetchall() if row[0] not in base_set]
+        extra = sorted({row[0] for row in cur.fetchall()} - base_set)
         if extra:
             affected.extend(extra)
-            print(f"  [intraday] affected 动态合并: 17 基础 + {len(extra)} 今日有信号非基础指数 "
+            print(f"  [intraday] affected 动态合并: 17 基础 + {len(extra)} 当日有数据非基础指数 "
                   f"({', '.join(extra)})", flush=True)
         else:
-            print(f"  [intraday] affected 动态合并: 今日无非基础指数出信号，保持 17 基础", flush=True)
+            print(f"  [intraday] affected 动态合并: index_daily 当日无非基础指数数据，保持 17 基础", flush=True)
     except Exception as e:  # noqa: BLE001
         print(f"  [intraday] affected 动态合并查询失败（回退 17 基础）: {type(e).__name__} {e}", flush=True)
     for iid in affected:
