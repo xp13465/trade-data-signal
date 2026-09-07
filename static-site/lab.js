@@ -8592,7 +8592,7 @@ async function _labKellyLoadYearParts() {
     _labKellyLoadedYears = _labKellyY1Years.slice();
     state.labSigKellyTradesData = y1Merged;
     _labKellyY1Ready = true;
-    _labKellyProgressTickUI(); // 让「已加载 t20xx(N/16)」进度立即反映阶段1 完成
+    _labKellyProgressTickUI(); // 让「近1年数据 2/2」进度立即反映阶段1 完成(#fix555 语义分流)
     // 后台阶段2(不阻塞返回): 拉其余 14 片 → 全量合并覆盖 → _labKellyAllReady → 全量重算覆盖
     _labKellyLoadAllBackground();
     return true;
@@ -8604,7 +8604,8 @@ async function _labKellyLoadYearParts() {
 }
 
 // 加载一批年份分片(并行+每片重试, 语义同 2026-08-29 小步1: Promise.all + 每片 done+=1 推进进度),
-// 返回按入参序的 {year, ok, data} 数组; 进度 total 恒为全量 16 片维度(阶段1/阶段2 共用同一进度条)
+// 返回按入参序的 {year, ok, data} 数组; 内部 total 恒为全量 16 片维度, 展示经 _labKellyProgStr 按阶段
+// 分流(阶段1 显示「近1年 N/2」/阶段2 显示「全量 N/16」, #fix555 2026-09-07, 见 _labKellyProgStr 注释)
 function _labKellyFetchYears(years) {
   return Promise.all(years.map(function (y) {
     return _labKellyFetchTradesRetry(_labKellyTradesPartsName(y))
@@ -8717,15 +8718,23 @@ function _labKellyPeriodIsReady(periodKey) {
   return _labKellyLoadedYears.length >= need;
 }
 
-// 分片加载进度字符串(「⏳ 计算中…」占位/预览提示显示): 全量分片下载中返回 " · 已加载 t20xx(N/16)", 就绪后返回空串
+// 分片加载进度字符串(「⏳ 计算中…」占位/预览提示显示): 就绪后返回空串。
+// #fix555(2026-09-07): 进度语义按阶段分流——阶段1(y1 两片在途)显示「近1年 N/2」, 不再用全量 16 片总数
+//   表达(用户看到 (1/16)(2/16) 误以为 y1 也要等全部 16 片); 阶段2(y1 已就绪, 后台补全全量)才显示「全量 N/16」。
+//   默认周期=y1, 阶段1 两片就绪即渲染 y1(评估实证 y1 窗口基笔 100% 落 2025+2026 两片), 阶段2 是后台补全不阻塞。
 function _labKellyProgStr() {
   var p = _labKellyLoadProgress;
   if (!p || !p.total || p.done >= p.total) return "";
-  return " · 已加载 t" + (p.lastYear || "--") + "(" + p.done + "/" + p.total + ")";
+  if (!_labKellyY1Ready) {
+    // 阶段1: 近1年两片加载中(默认 y1 视图片到即可渲染)
+    return " · 近1年数据 " + p.done + "/2";
+  }
+  // 阶段2: 全量补全中(y1 已可看, 后台继续补齐其余周期)
+  return " · 全量补全 " + p.done + "/" + p.total + "(近1年已可看)";
 }
 
-// 分片加载进度实时刷新(2026-08-29 小步2): 每片完成把在册「⏳ 计算中…」占位文本就地换为最新进度,
-//   让用户看到 "已加载 t20xx(N/16)" 一直在走, 不等整次渲染; 就绪后占位会随 recompute 整建消失
+// 分片加载进度实时刷新(2026-08-29 小步2, #fix555 2026-09-07 语义分流): 每片完成把在册「⏳ 计算中…」占位文本就地换为最新进度,
+//   让用户看到进度一直在走, 不等整次渲染; 阶段1 显示「近1年 N/2」、阶段2 显示「全量 N/16」; 就绪后占位随 recompute 整建消失
 function _labKellyProgressTickUI() {
   var els = document.querySelectorAll(".lab-sigkelly-all-loading");
   if (!els.length) return;
