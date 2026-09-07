@@ -180,7 +180,17 @@ def sync_git_refs():
         failed = CODEX_INBOX / f"{rid}.failed"
         skipped = CODEX_INBOX / f"{rid}.skipped"
         processing = CODEX_INBOX / f"{rid}.processing"
-        if ready.exists() or done.exists() or failed.exists() or skipped.exists() or processing.exists():
+        # done/processing/skipped 是终态:不再补
+        if done.exists() or processing.exists() or skipped.exists():
+            continue
+        # failed 但 retry_count 未耗尽 → 重新补 ready 让 pump 重试
+        if failed.exists():
+            if retry_count(rid) >= MAX_RETRIES:
+                log(f"sync_git_refs skip {rid}: retry exhausted")
+                continue
+            log(f"sync_git_refs retry {rid}: failed but retry_count={retry_count(rid)} < {MAX_RETRIES}")
+            # fall through: 补 ready,让 pump 重新 spawn
+        elif ready.exists():
             continue
         if is_already_processed(rid):
             # claude-inbox 已收到回传, 仅同步 ready 让 pump 跳过即可
