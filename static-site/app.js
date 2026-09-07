@@ -3521,6 +3521,49 @@ function _simTradesUrlCf(name) {
 function _fetchSimTrades(name) {
   return fetchJSON(_simTradesUrl(name), 60000).catch(() => fetchJSON(_simTradesUrlCf(name), 60000));
 }
+// #91 同款(2026-09-06 用户需求): 买入口径双档切换(next_day_open 默认=真实跟单 / signal_day_close 可选对比=旧基线)
+//   口径 → 产物基础名: next_day_open=signal_kelly_trades* / signal_day_close=signal_kelly_trades_sdc*。
+//   本弹窗独立记忆键 tds_sim_buy_basis, 与 lab 凯利页 lab_sigkelly_buy_basis 完全独立互不联动
+//   (2026-09-06 用户拍板: 2边开关各自独立影响区域); 切换=数据源整体替换→整区重建(见 _simSetBuyBasis)。
+var _simBuyBasisLabel = { next_day_open: "次日开盘", signal_day_close: "当日收盘" };
+var _simBuyBasisTip = {
+  next_day_open: "信号日收盘后固化、次日开盘成交(真实跟单, 默认)",
+  signal_day_close: "信号日收盘价成交(旧基线, 对比用)"
+};
+function _simBuyBasis() {
+  try {
+    const s = localStorage.getItem("tds_sim_buy_basis");
+    if (s === "signal_day_close" || s === "next_day_open") return s;
+  } catch (e) {}
+  return "next_day_open";
+}
+function _simIsSdc() { return _simBuyBasis() === "signal_day_close"; }
+function _simTradesBaseName() { return _simIsSdc() ? "signal_kelly_trades_sdc" : "signal_kelly_trades"; }
+function _simTradesPartsName(name) { return _simTradesBaseName() + "_parts/" + name + ".json"; }
+function _simTradesFullName() { return _simTradesBaseName() + ".json"; }
+function _simSummaryName() { return _simIsSdc() ? "signal_kelly_backtest_sdc" : "signal_kelly_backtest"; }
+// #91 口径切换: 数据源整体替换 → 清全部数据/加载/缓存状态 → 整区重建(防切档后显示旧口径数据 §22)
+async function _simSetBuyBasis(basis) {
+  if (basis !== "next_day_open" && basis !== "signal_day_close") return;
+  if (basis === _simBuyBasis()) return;
+  try { localStorage.setItem("tds_sim_buy_basis", basis); } catch (e) {}
+  // 数据源整体替换(口径不同=产物完全独立), 清全部数据/加载/分片缓存(防跨口径串数据 §22)
+  _simKellyData = null;
+  _simKellyCfg = null;
+  _simHotMinDate = "";
+  _simHotMaxDate = "";
+  _simFullFallback = false;
+  _simKellyLoadErr = null;
+  _simPartsCache = new Map();
+  const modal = document.getElementById("simBacktestModal");
+  if (!modal) return;
+  // 按钮 active 随口径刷新 + 解除禁用(切档后 innerHTML 不重建, 手动同步 active)
+  modal.querySelectorAll(".sim-buybasis-btn").forEach((b) => {
+    b.classList.toggle("active", b.getAttribute("data-basis") === _simBuyBasis());
+    b.disabled = false;
+  });
+  await _simRender(modal);
+}
 // 分片/全量统一解析(fields 列式 → fIdx 下标表; 不预聚合全模式并集, 按 mode 在 _simBuildModePool 现筛)
 function _simParseTrades(tr) {
   const fields = tr.fields;
@@ -3531,8 +3574,8 @@ function _simParseTrades(tr) {
 // 兜底全量加载(老路径 signal_kelly_trades.json 仍在, 分片任一步失败即走此路, 天然兜底)
 async function _simLoadFull() {
   try {
-    console.warn("[simbt] 分片加载失败, 回退全量 signal_kelly_trades.json(约64MB, 首次数秒)");
-    const tr = await _fetchSimTrades("signal_kelly_trades.json");
+    console.warn("[simbt] 分片加载失败, 回退全量 " + _simTradesFullName() + "(约64MB, 首次数秒)");
+    const tr = await _fetchSimTrades(_simTradesFullName());
     _simKellyData = _simParseTrades(tr);
     _simFullFallback = true;
     return true;
@@ -3562,11 +3605,11 @@ async function _loadSimKellyData() {
   if (_simKellyData || _simKellyLoading) return _simKellyData;
   _simKellyLoading = true;
   _simKellyLoadErr = null;
-  // cfg 独立并行拉(recent 失败走全量兜底时也要有 sell_modes)
-  const cfgUrl = "./data/signal_kelly_backtest.json" + (_simCacheBust() ? "?v=" + _simCacheBust() : "");
+  // cfg 独立并行拉(recent 失败走全量兜底时也要有 sell_modes); cfg 按当前买入口径取对应产物(见 _simSummaryName)
+  const cfgUrl = "./data/" + _simSummaryName() + ".json" + (_simCacheBust() ? "?v=" + _simCacheBust() : "");
   const cfgP = fetchJSON(cfgUrl).catch(() => null);
   try {
-    const recent = await _fetchSimTrades("signal_kelly_trades_parts/recent.json");
+    const recent = await _fetchSimTrades(_simTradesPartsName("recent"));
     const parsed = _simParseTrades(recent);
     _simPartsCache.set("recent", parsed);
     // 热区上下界 = recent 片内 signal_date 最小/最大(供提交时判断范围是否落在热区内)
@@ -3618,7 +3661,7 @@ async function _simEnsureRange(startD, endD, onStep) {
   if (missing.length) {
     let doneN = 0;
     const results = await Promise.all(missing.map((nm) =>
-      _fetchSimTrades("signal_kelly_trades_parts/" + nm + ".json")
+      _fetchSimTrades(_simTradesPartsName(nm))
         .then((tr) => {
           _simPartsCache.set(nm, _simParseTrades(tr));
           doneN++;
@@ -3811,6 +3854,14 @@ function _openSimBacktestModal() {
       '<div class="sim-ctrl-row">' +
         '<div class="sim-ctrl-block"><label>时间范围(起)</label><input type="date" class="sim-date-start" value="' + _defStart + '"></div>' +
         '<div class="sim-ctrl-block"><label>时间范围(止)· 最长500天</label><input type="date" class="sim-date-end" value="' + _defEnd + '"></div>' +
+        // #91 同款(2026-09-06 用户需求): 买入口径双档(默认次日开盘 / 可选当日收盘对比), 独立键 tds_sim_buy_basis,
+        // 与 lab 凯利页「买入口径」各自独立影响区域互不联动(用户拍板); 切换=数据源整体替换→整区重建(_simSetBuyBasis)
+        '<div class="sim-ctrl-block"><label>价格口径</label><div class="sim-buybasis-ctl">' +
+          '<span class="sim-buybasis" title="买入口径(与 lab 凯利页 #91 同款, 本弹窗独立开关、2边各自独立影响区域): ' + _simBuyBasisTip[_simBuyBasis()] + '; 切换后整区按所选口径重载重算(数据源独立产物), 与默认次日开盘对比用">' +
+            '<button type="button" class="sim-buybasis-btn' + (_simIsSdc() ? "" : " active") + '" data-basis="next_day_open" title="' + _simBuyBasisTip.next_day_open + '">次日开盘</button>' +
+            '<button type="button" class="sim-buybasis-btn' + (_simIsSdc() ? " active" : "") + '" data-basis="signal_day_close" title="' + _simBuyBasisTip.signal_day_close + '">当日收盘</button>' +
+          '</span>' +
+        '</div></div>' +
         '<div class="sim-ctrl-block"><label>交易模式</label><select class="sim-mode-sel">' + (_modeOpts || '<option value="A">A · 固定10天</option>') + '</select></div>' +
         // 长线管位管理(G/H/I, 2026-08-30 用户+数据定案档位): 三档写死展示在 .sim-mode-sel 旁;
         // 默认开, 开关态走独立键 tds_gihpos_sim(与凯利 lab 互不联动, 2026-08-30 用户拍板);
@@ -3905,6 +3956,17 @@ function _bindSimBacktestControls(modal, _close) {
       _simRender(modal); // 仅重渲染过滤层; 模式记忆/下拉选中值全程不变
     });
   }
+  // #91 价格口径双档切换(默认次日开盘 / 可选当日收盘对比, 2026-09-06 用户需求): 数据源整体替换 →
+  // 清缓存 → 整区重建(_simSetBuyBasis)。独立键 tds_sim_buy_basis, 与 lab 凯利页 lab_sigkelly_buy_basis 互不联动
+  // (用户拍板: 2边开关各自独立影响区域)。切换中按钮置 loading(防连点), 重建后 _simSetBuyBasis 里解除 disabled+同步 active
+  modal.querySelectorAll(".sim-buybasis-btn").forEach((b) => {
+    b.addEventListener("click", () => {
+      const basis = b.getAttribute("data-basis");
+      if (!basis || basis === _simBuyBasis()) return;
+      modal.querySelectorAll(".sim-buybasis-btn").forEach((x) => (x.disabled = true));
+      _simSetBuyBasis(basis);
+    });
+  });
   // 长线管位(G/H/I)总开关(2026-08-29 codex#001): 读写独立键 tds_gihpos_sim(与凯利 lab 互不联动, 2026-08-30 用户拍板),
   // 默认开; 切开关=重渲染(峰值同时持仓展示口径: 开=档位硬控笔数 cap/10000 / 关=原始峰值), 不动模式下拉记忆
   const _simGihCb = modal.querySelector(".sim-gih-on-cb");
@@ -5016,6 +5078,36 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
     if (!isFinite(n) || n <= 0) return '<span style="color:var(--text-3)">-</span>';
     return n.toFixed(4);
   };
+  // 计划买入时间列(2026-09-06 用户需求 #91): 上下换行=上「信号日期」/ 下「实际买入日期」。
+  // 实际买入日期按当前价格口径: 次日开盘=信号日下一交易日(_simBuildTradeCal 算后继), 当日收盘=信号日当天;
+  // 最新信号(已加载交易日历末位, 无后继交易日)次日尚未到来 → 下行「—」+ tooltip。
+  // 切档后第5列下行随口径变(次日档=下一交易日 / 当日档=当天), 与数据源/汇总同口径 §22。
+  const _simBuyTimeCell = (t, fIdx, getCal) => {
+    const sd = String(t[fIdx.signal_date] || "");
+    let bd = null;
+    if (!_simIsSdc()) {
+      const cal = getCal ? getCal() : null;
+      if (cal && cal.length) {
+        const last = cal[cal.length - 1];
+        if (sd < last) {
+          let lo = 0, hi = cal.length;
+          while (lo < hi) { const mid = (lo + hi) >> 1; if (cal[mid] <= sd) lo = mid + 1; else hi = mid; }
+          bd = lo < cal.length ? cal[lo] : null;
+        }
+      }
+    } else {
+      bd = sd;
+    }
+    const _sub = bd
+      ? '<div class="sim-buytime-bd">' + bd + '</div>'
+      : '<div class="sim-buytime-bd sim-buytime-na" title="次日尚未到来: 该信号为当前已加载交易日历的最后一笔, 下一交易日还未出现, 无法按「次日开盘」成交">—</div>';
+    return '<div class="sim-buytime-cell" title="操作/买入维度(与「信号日期」不同): 上行=信号日期(信号什么时候出现), 下行=按当前价格口径的实际买入日期' +
+      (_simIsSdc() ? '(当日收盘=信号日当天)' : '(次日开盘=信号日下一交易日)') +
+      (bd ? ('。本行实际买入 ' + bd) : '。最新信号次日尚未到来') + '">' +
+      '<div class="sim-buytime-sd">' + sd + '</div>' +
+      _sub +
+    '</div>';
+  };
   // 累积两列 hoverpop(§23.9 三档互证: 白话+场景+1:1 举例); 数字全部来自当前行真实 cum 值+本窗口真实
   // 峰值持仓(动态生成, hover 哪行就对上哪行显示的数, 1:1 可对账无编造)
   const _cumTip = (cum) =>
@@ -5045,7 +5137,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
   const _draw = () => {
     const slice = rows.slice(page * PAGE, (page + 1) * PAGE);
     let html = '<table class="sim-tbl"><thead><tr>' +
-      '<th>日期</th><th>当日持仓</th><th>当日信号</th><th>信号关联ETF</th><th>计划买入时间</th><th title="记录自带买入成交价(无值显示 -; 与凯利弹窗同精度)">买入价</th><th title="手续费恒为支出扣费语义: 显示负数(绿色), 详见各行悬停提示">买入手续费</th>' +
+      '<th title="信号触发日(信号什么时候出现, 与「计划买入时间」维度不同: 后者=按所选价格口径实际买入的日期, 详见其列 tooltip)">信号日期</th><th>当日持仓</th><th>当日信号</th><th>信号关联ETF</th><th title="操作/买入维度(与「信号日期」不同): 上行=信号日期(信号什么时候出现), 下行=按当前价格口径的实际买入日期(' + _simBuyBasisLabel[_simBuyBasis()] + '口径: ' + (_simIsSdc() ? '当日收盘=信号日当天' : '次日开盘=信号日下一交易日') + '; 最新信号次日尚未到来则下行「—」)">计划买入时间</th><th title="记录自带买入成交价(无值显示 -; 与凯利弹窗同精度)">买入价</th><th title="手续费恒为支出扣费语义: 显示负数(绿色), 详见各行悬停提示">买入手续费</th>' +
       '<th>计划卖出时间</th><th title="记录自带卖出成交价(持仓中显示「持仓中」, 无值显示 -; 与凯利弹窗同精度)">卖出价</th><th title="手续费恒为支出扣费语义: 显示负数(绿色)">卖出手续费</th><th>本笔交易盈亏%</th><th>本笔盈亏金额</th>' +
       '<th title="公式: 累计盈亏金额 ÷(全史峰值同时持仓×¥10000)=真实资金占用收益率, 非每笔收益率简单相加, 恒值不随窗口切换; 详见各行悬停提示">累积盈亏</th><th title="Σ每笔费后盈亏真实金额累加, 绝对赚赔额(未除以资金占用)">累积金额</th><th>累积对错</th></tr></thead><tbody>';
     for (const t of slice) {
@@ -5072,7 +5164,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
         '<td class="sim-pos-cell" title="当日仍持有的笔数。悬停本格高亮对应笔的「信号关联ETF」; 持仓笔可能开于此前交易日(高亮跨日分布), 未渲染的分页行不点亮。">' + pos + '</td>' +
         '<td>' + _simSigTypeLabel(t[fIdx.signal]) + '</td>' +
         '<td class="sim-etf-code-cell" data-code="' + _escAttr(t[fIdx.etf_code] || "") + '" data-name="' + _escAttr(t[fIdx.etf_name] || "") + '" title="点击查看走势"><span class="sim-etf-code-link">' + _simEtfLightHtml(t, fIdx) + (t[fIdx.etf_code] || "") + '</span> <span class="sim-etf-name-sub">' + (t[fIdx.etf_name] || "") + '</span></td>' +
-        '<td>' + (t[fIdx.buy_date] || "") + '</td>' +
+        '<td>' + _simBuyTimeCell(t, fIdx, _getObsCal) + '</td>' +
         '<td>' + _simPriceCell(t[fIdx.buy_price]) + '</td>' +
         (_gihForcedFlag ? _gihFeeInclCell : _feeCell(c ? c.buyFee : null)) +
         '<td>' + (c && c.isHolding ? '<span class="simbt-holding-tag">持仓中</span>' : (t[fIdx.sell_date] || "")) + '</td>' +
