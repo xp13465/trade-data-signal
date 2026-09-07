@@ -7191,23 +7191,25 @@ main { padding: 16px 24px; }
 .sim-tbl th, .sim-tbl td { padding: 4px 6px; border: 1px solid var(--border); white-space: normal; text-align: right; overflow: hidden; text-overflow: ellipsis; }
 .sim-tbl th { position: sticky; top: 0; background: var(--bg-card); z-index: 1; color: var(--text-1); font-weight: 700; }
 .sim-tbl td:nth-child(2), .sim-tbl td:nth-child(3), .sim-tbl td:nth-child(4), .sim-tbl td:nth-child(5) { text-align: left; }
-/* 14列逐列定宽: 内容上限=日期8位/金额9位(含负号)/对错计数~19字符/盈亏%含观察期倒计时小字一行; 第14列峰值同时持仓笔数(2026-08-29 新增);
-   定宽合计1236px, 配合弹窗加宽(1560)后 1440 屏 ETF 列仍可得 ~200px(最长ETF名~200px)不裁剪;
+/* 15列逐列定宽: 内容上限=日期8位/金额9位(含负号)/对错计数~19字符/盈亏%含观察期倒计时小字一行;
+   买入价/卖出价列(2026-09-06 新增, 价格列定宽 70px 对称, 与凯利弹窗同格式 toFixed(4)); 峰值同时持仓笔数已从表格删除(2026-09-06,
+   数值移至表格上方说明 sim-peak-note); 定宽合计1062px, 配合弹窗加宽后窄屏走 .sim-table-wrap 横向滚动;
    各列均留 ≥4px 余量防 bold 表头 CJK 渲染偏宽(教训: 当日持仓58px 曾卡住4字表头) */
 .sim-tbl th:nth-child(1) { width: 60px; }   /* 日期 */
 .sim-tbl th:nth-child(2) { width: 50px; }   /* 当日持仓(hover 热区) */
 .sim-tbl th:nth-child(3) { width: 70px; }   /* 当日信号 */
 .sim-tbl th:nth-child(4) { width: 110px; }  /* 信号关联ETF(2026-08-31 用户反馈: 长代码+名称撑宽导致窄屏横滚, 定宽 110px 配 ellipsis 截断, hover title 看全; 108/110 口径统一为 110=前轮方案文案值, 全处一致) */
 .sim-tbl th:nth-child(5) { width: 70px; }   /* 计划买入时间 */
-.sim-tbl th:nth-child(6) { width: 56px; }   /* 买入手续费 */
-.sim-tbl th:nth-child(7) { width: 70px; }   /* 计划卖出时间 */
-.sim-tbl th:nth-child(8) { width: 56px; }   /* 卖出手续费 */
-.sim-tbl th:nth-child(9) { width: 100px; }  /* 本笔交易盈亏%(现可换行) */
-.sim-tbl th:nth-child(10) { width: 70px; }  /* 本笔盈亏金额 */
-.sim-tbl th:nth-child(11) { width: 60px; }  /* 累积盈亏 */
-.sim-tbl th:nth-child(12) { width: 70px; }  /* 累积金额 */
-.sim-tbl th:nth-child(13) { width: 80px; }  /* 累积对错 */
-.sim-tbl th:nth-child(14) { width: 88px; } /* 峰值同时持仓笔数(2026-08-29 codex#001 新增; 定宽 88px 覆盖「峰值同时持仓笔数」8字表头+工具图标余量) */
+.sim-tbl th:nth-child(6) { width: 70px; }   /* 买入价(2026-09-06 新增列) */
+.sim-tbl th:nth-child(7) { width: 56px; }   /* 买入手续费 */
+.sim-tbl th:nth-child(8) { width: 70px; }   /* 计划卖出时间 */
+.sim-tbl th:nth-child(9) { width: 70px; }   /* 卖出价(2026-09-06 新增列) */
+.sim-tbl th:nth-child(10) { width: 56px; }  /* 卖出手续费 */
+.sim-tbl th:nth-child(11) { width: 100px; } /* 本笔交易盈亏%(现可换行) */
+.sim-tbl th:nth-child(12) { width: 70px; }  /* 本笔盈亏金额 */
+.sim-tbl th:nth-child(13) { width: 60px; }  /* 累积盈亏 */
+.sim-tbl th:nth-child(14) { width: 70px; }  /* 累积金额 */
+.sim-tbl th:nth-child(15) { width: 80px; }  /* 累积对错 */
 .sim-up { color: #cf1322; }
 .sim-down { color: #389e0d; }
 [data-theme="dark"] .sim-up, [data-theme="redgold"] .sim-up { color: #ff4d4f; }
