@@ -10395,10 +10395,12 @@ function _renderSigKellyBar(bar, data, period) {
   // OFF 按钮(2026-08-13, 复用首页同款交互): data-k="off" 由下方 K 按钮绑定识别为关(写 tds_poscap_lab {on:false}), 关闭后该区退化普通列表, 再点某 K 档恢复
   const _pcOffBtn = `<button type="button" class="lab-sigkelly-kbtn lab-sigkelly-kbtn-off${_filters.positionCap ? "" : " active"}" data-k="off" data-no-pop=""><span class="lab-sigkelly-kbtn-k">关</span><span class="lab-sigkelly-kbtn-r">off</span></button>`;
   // 渐进加载(#100 2026-09-06): 阶段1(近1年两片)完成但全量未就绪 → K档评级仍为静态快照(门控不发布动态源), 加可见标注提示(§23.15/§21)
+  // 该标注仅 positionCap ON(有静态→动态切换语义)时显示; OFF 时门控不发布动态源(computed 恒 false), 退化普通列表不出标注
   // 2026-09-07 静默化配套(#sigkelly-silent-fill): ALL_READY 后、全量重算完成前(~7s), _labKellyAllReady 已 true 但动态源
   //   _AI_POSCAP_RATING_DYNAMIC_LAB.computed 仍 false(门控铁律 L9082: 阶段1 不发布动态源)→ 若按「!_labKellyAllReady」则标注提前消失,
   //   用户看到无标注静态快照与全量后实时数字不同会短暂困惑。改判「动态源未就绪即标注」: 全量重算完成写 computed:true → 标注消失+数字原地刷新。
-  const _pcProgNote = (_labKellyY1Ready && !(window._AI_POSCAP_RATING_DYNAMIC_LAB && window._AI_POSCAP_RATING_DYNAMIC_LAB.computed))
+  const _pcProgNote = (_labKellyY1Ready && _filters.positionCap
+    && !(window._AI_POSCAP_RATING_DYNAMIC_LAB && window._AI_POSCAP_RATING_DYNAMIC_LAB.computed))
     ? `<span class="lab-sigkelly-kbtn-prog" title="近1年分片已加载完成, 全量16年分片后台加载/计算中; 此时 K 档评级为静态快照(回退档), 全量重算完成后自动切换为实时动态评级并重算">⏳ 全量计算中</span>` : "";
   const _pcRatingPop = (window._aiPoscapRatingPopHtml ? window._aiPoscapRatingPopHtml("tds_poscap_lab") : ""); // 凯利区域独立键(2026-08-30 拆键)
   // 2026-08-13 合并行: AI宏 总开关(原第二行)合并进 AI仓位建议 行, 跟在「关OFF」按钮后(用户需求: 两行合并一行, 去除重复纯文字标题)
