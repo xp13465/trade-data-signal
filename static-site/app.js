@@ -5008,12 +5008,30 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
   // 2026-08-30 P1-FAIL1 §22: 强平行行手续费「— 已含」(共享核 FEE_MAIN 真实净值重算已含费用, 不拆分展示,
   // 与 lab 信号凯利弹窗 _gihForced 行同口径; 防 _feeCell 把 null 当 0.00 误导成「零费用」)
   const _gihFeeInclCell = '<td class="sim-gih-fee-na" style="color:#999" title="强平日由共享核按真实净值+FEE_MAIN费率重算, 买家入卖全链费用已含于本笔盈亏内(与 lab _gihForced 弹窗同口径, §22 不拆分展示; 2026-08-30 修复双滑点/费率不一致)">— 已含</td>';
+  // 买入/卖出价列(2026-09-06 用户需求, 照凯利弹窗格式渲染): 有值=toFixed(4)(与 lab.js 凯利弹窗同精度 §22);
+  // 无值/0=「-」; 持仓中卖出价列显示「持仓中」标签(与计划卖出时间列视觉一致)
+  const _simPriceCell = (v, isHolding) => {
+    if (isHolding) return '<span class="simbt-holding-tag">持仓中</span>';
+    const n = Number(v);
+    if (!isFinite(n) || n <= 0) return '<span style="color:var(--text-3)">-</span>';
+    return n.toFixed(4);
+  };
   // 累积两列 hoverpop(§23.9 三档互证: 白话+场景+1:1 举例); 数字全部来自当前行真实 cum 值+本窗口真实
   // 峰值持仓(动态生成, hover 哪行就对上哪行显示的数, 1:1 可对账无编造)
   const _cumTip = (cum) =>
     '【累积盈亏 · 真实资金口径】①白话: 累计盈亏金额 ÷(全史峰值同时持仓笔数×¥10000)=真实资金占用收益率; 不是每笔收益率简单相加(每笔按1万简单相加会虚假放大约等于峰值持仓倍数)。②场景: 衡量该策略真金白银占用了多少、赚了多少, 用于跨策略对比/对照实盘资金效率; 分母=全史峰值=恒值, 不随窗口(30天/90天/全史)切换变化。③1:1举例: 全史峰值同时持仓 ' + peakDenom + ' 笔(峰值占用 ¥' + (peakDenom * 10000).toLocaleString() + '), 截至本行累计盈亏 ' + cum.cumYuan.toFixed(2) + ' 元 → 真实累积收益率 ' + cum.cumPct.toFixed(2) + '%。';
   const _cumYuanTip = (cum) =>
     '【累积金额】①白话: 截至本行所有笔的费后盈亏真实金额累加(Σ每笔盈亏元, 含持仓中笔按最新收盘计的当前盈亏), 是绝对赚赔金额, 未除以资金占用。②场景: 看「总共赚/赔了多少钱」用本列; 看「资金效率/收益率」看「累积盈亏」列。③1:1举例: 本行累计 ' + cum.cumYuan.toFixed(2) + ' 元 ÷(全史峰值持仓 ' + peakDenom + ' 笔×¥10000)=「累积盈亏」' + cum.cumPct.toFixed(2) + '%。';
+  // 2026-09-06 用户需求: 原「峰值同时持仓笔数」列(恒值, 非每行动态)从表格删除, 数值以说明文字形式放表格上方
+  // (口径完整标注, 避免删列后用户不知该值): 恒值不随窗口切换, 为累积盈亏%分母/净资产曲线初始资金同源(§22)。
+  // G/H/I 管位开=全史真实计算峰值(≤档位硬控笔数, 20倍本金硬控内可操作), 管位关/非GIH=全史原始峰值。
+  const _peakTip = (gihOn && _SIM_GHI_TIERS[mode])
+    ? (mode + '档长线管位开启: 全史真实计算峰值 ' + peakDenom + ' 笔(档位 ' + _SIM_GHI_TIERS[mode].tier + ' ÷ ¥10000 = 硬控上限 ' + _gihCapN + '笔, 20倍本金硬控内可操作; 与凯利页「ai长线模式(G/H/I)仓位管理」同口径§22); 管位关时全史原始峰值为 ' + peakRawDenom + ' 笔')
+    : ('全史峰值同时持仓 ' + peakDenom + ' 笔(累积盈亏%分母口径, 恒值不随窗口切换)');
+  const _peakNoteHtml = '<div class="sim-peak-note" style="padding:5px 12px;margin:0 0 6px;font-size:11px;color:var(--text-3);background:var(--bg-hover);border-radius:6px;line-height:1.6" title="' + _escAttr(_peakTip) + '">' +
+    '📌 全史峰值同时持仓 <b>' + peakDenom + '</b> 笔' +
+    ((gihOn && _SIM_GHI_TIERS[mode]) ? ' · ' + mode + '档管位硬控≤' + _gihCapN + '笔(20倍本金硬控内可操作)' : '') +
+    ' — 累积盈亏%分母口径(恒值, 不随窗口切换; 非每笔收益率简单相加)</div>';
   // 观察期倒计时用交易日历(懒构建: 首个持仓中行才建一次; 来自已加载 trades 自身日期并集)
   const _sellModes = (_simKellyCfg && _simKellyCfg.sell_modes) || null;
   let _obsCal = null, _obsLast = "";
@@ -5027,9 +5045,9 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
   const _draw = () => {
     const slice = rows.slice(page * PAGE, (page + 1) * PAGE);
     let html = '<table class="sim-tbl"><thead><tr>' +
-      '<th>日期</th><th>当日持仓</th><th>当日信号</th><th>信号关联ETF</th><th>计划买入时间</th><th title="手续费恒为支出扣费语义: 显示负数(绿色), 详见各行悬停提示">买入手续费</th>' +
-      '<th>计划卖出时间</th><th title="手续费恒为支出扣费语义: 显示负数(绿色)">卖出手续费</th><th>本笔交易盈亏%</th><th>本笔盈亏金额</th>' +
-      '<th title="公式: 累计盈亏金额 ÷(全史峰值同时持仓×¥10000)=真实资金占用收益率, 非每笔收益率简单相加, 恒值不随窗口切换; 详见各行悬停提示">累积盈亏</th><th title="Σ每笔费后盈亏真实金额累加, 绝对赚赔额(未除以资金占用)">累积金额</th><th>累积对错</th><th title="' + (gihOn && _SIM_GHI_TIERS[mode] ? ('峰值同时持仓笔数(' + mode + '档长线管位开启): 玩法=' + _SIM_GHI_TIERS[mode].play + '@' + _SIM_GHI_TIERS[mode].tier + ', 全史真实计算峰值=' + peakDenom + '笔≤档位硬控' + _gihCapN + '笔(20倍本金硬控内=可操作; 与凯利页「ai长线模式(G/H/I)仓位管理」同口径§22); 管位关时全史原始峰值=' + peakRawDenom + '笔') : '全史峰值同时持仓笔数(累积盈亏%分母口径, 恒值不随窗口切换)') + '">峰值同时持仓笔数</th></tr></thead><tbody>';
+      '<th>日期</th><th>当日持仓</th><th>当日信号</th><th>信号关联ETF</th><th>计划买入时间</th><th title="记录自带买入成交价(无值显示 -; 与凯利弹窗同精度)">买入价</th><th title="手续费恒为支出扣费语义: 显示负数(绿色), 详见各行悬停提示">买入手续费</th>' +
+      '<th>计划卖出时间</th><th title="记录自带卖出成交价(持仓中显示「持仓中」, 无值显示 -; 与凯利弹窗同精度)">卖出价</th><th title="手续费恒为支出扣费语义: 显示负数(绿色)">卖出手续费</th><th>本笔交易盈亏%</th><th>本笔盈亏金额</th>' +
+      '<th title="公式: 累计盈亏金额 ÷(全史峰值同时持仓×¥10000)=真实资金占用收益率, 非每笔收益率简单相加, 恒值不随窗口切换; 详见各行悬停提示">累积盈亏</th><th title="Σ每笔费后盈亏真实金额累加, 绝对赚赔额(未除以资金占用)">累积金额</th><th>累积对错</th></tr></thead><tbody>';
     for (const t of slice) {
       const bk = _simBaseKey(t, fIdx);
       const _gihMissing = !!t._gihNavMissing; // 2026-08-30 P1-① §22: 强平日缺价行(真实净值缺失)不重算、红字「— 缺价」
@@ -5055,8 +5073,10 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
         '<td>' + _simSigTypeLabel(t[fIdx.signal]) + '</td>' +
         '<td class="sim-etf-code-cell" data-code="' + _escAttr(t[fIdx.etf_code] || "") + '" data-name="' + _escAttr(t[fIdx.etf_name] || "") + '" title="点击查看走势"><span class="sim-etf-code-link">' + _simEtfLightHtml(t, fIdx) + (t[fIdx.etf_code] || "") + '</span> <span class="sim-etf-name-sub">' + (t[fIdx.etf_name] || "") + '</span></td>' +
         '<td>' + (t[fIdx.buy_date] || "") + '</td>' +
+        '<td>' + _simPriceCell(t[fIdx.buy_price]) + '</td>' +
         (_gihForcedFlag ? _gihFeeInclCell : _feeCell(c ? c.buyFee : null)) +
         '<td>' + (c && c.isHolding ? '<span class="simbt-holding-tag">持仓中</span>' : (t[fIdx.sell_date] || "")) + '</td>' +
+        '<td>' + _simPriceCell(t[fIdx.sell_price], !!(c && c.isHolding)) + '</td>' +
         (_gihForcedFlag ? _gihFeeInclCell : _feeCell(c ? c.sellFee : null)) +
         (_gihMissing
           ? '<td class="sim-gih-missing-px" style="color:#cf1322" title="2026-08-30 §22: 该笔强平日真实净值缺失(nav_missing, 数据异常), 本笔盈亏无法真实重算——不计入任何统计(累积盈亏/累积金额/对错), 与 lab 凯利弹窗「— 缺价」同口径。">— 缺价</td><td class="sim-gih-missing-px" style="color:#cf1322" title="同上: 缺价笔不计入统计">— 缺价</td>'
@@ -5065,11 +5085,10 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
         '<td class="' + _signCls(cum.cumPct) + '" title="' + _escAttr(_cumTip(cum)) + '">' + cum.cumPct.toFixed(2) + '%</td>' +
         '<td class="' + _signCls(cum.cumYuan) + '" title="' + _escAttr(_cumYuanTip(cum)) + '">' + cum.cumYuan.toFixed(2) + '</td>' +
         '<td>' + cum.acc + ' (' + cum.rate + '%)</td>' +
-        '<td class="sim-peak-cell" title="' + (gihOn && _SIM_GHI_TIERS[mode] ? (mode + '档长线管位开启: 全史真实计算峰值 ' + peakDenom + ' 笔(档位 ' + _SIM_GHI_TIERS[mode].tier + ' ÷ ¥10000 = 硬控上限 ' + _gihCapN + '笔, 20倍本金硬控内可操作); 管位关时全史原始峰值为 ' + peakRawDenom + ' 笔') : ('全史峰值同时持仓 ' + peakDenom + ' 笔(累积盈亏%分母口径, 恒值不随窗口切换)')) + '">' + peakDenom + '</td>' +
         '</tr>';
     }
     html += '</tbody></table>';
-    bodyEl.innerHTML = html;
+    bodyEl.innerHTML = _peakNoteHtml + html;
     const _fee = _simBtInitFee();
     const _presetObj = _SIM_FEE_PRESETS.find((p) => p.key === _fee.preset);
     const feeDesc = _fee.preset === "custom"
