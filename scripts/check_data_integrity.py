@@ -1700,6 +1700,44 @@ def check_export_manifest(data_dir: Path) -> CheckResult:
     return _ok(name, msg)
 
 
+# ── changelog 与版本串一致性 ─────────────────────────────────────────────────
+
+def check_changelog_current_version(repo_root: Path) -> CheckResult:
+    """changelog.json 缺当前 index 版本串条目机检(#fix555, 2026-09-07)。
+
+    根因: bump 版本串(main-merge.sh 统一 bump)后 changelog.json 未同步 → 线上
+    「已有新版」toast 预览 loadUpdateChangelog 查 data[ver] 无条目 → 优雅降级不显示
+    (用户看不到本次更新, 且无任何报错=静默漏)。同一事实两处代码副本
+    (index.html lab-asset-url meta 版本串 ⟺ changelog.json 键), 靠人肉同步必漂移 → 机检兜底
+    (§22 一致性精神, 与 check_task_state/check_export_manifest 同模式, FAIL 阻断上线)。
+
+    读源: 与前端 loadUpdateChangelog/_labKellySummaryName 同一来源 = static-site/index.html
+    lab-asset-url meta 的 ?v= 版本串(形如 20260907-a550)。
+    FAIL 判定: 当前版本串在 changelog.json 无条目 → 阻断上线, 强制改码补条目后再发。
+    """
+    index = repo_root / "static-site" / "index.html"
+    changelog = repo_root / "static-site" / "changelog.json"
+    if not index.exists() or not changelog.exists():
+        return _warn("changelog_current_version",
+                     f"index.html({index.exists()}) 或 changelog.json({changelog.exists()}) 不存在, 跳过")
+    idx_text = index.read_text(encoding="utf-8", errors="replace")
+    m = re.search(r'meta name=["\']lab-asset-url["\'][^>]*content=["\'][^"\']*[?&]v=([^&"\']+)', idx_text)
+    if not m:
+        return _warn("changelog_current_version", "index.html 未找到 lab-asset-url 版本串, 跳过")
+    ver = m.group(1).strip()
+    try:
+        data = json.loads(changelog.read_text(encoding="utf-8", errors="replace"))
+    except Exception as e:
+        return _fail("changelog_current_version", f"changelog.json 解析失败: {e}")
+    items = data.get(ver)
+    if not isinstance(items, list) or not items:
+        have = sorted(k for k in data.keys() if k.startswith("20"))
+        return _fail("changelog_current_version",
+                     f"changelog.json 缺当前版本 {ver} 条目(现有登记: {have or '无'}) — "
+                     f"bump 版本串后必须同步补 changelog 条目, 否则线上更新 toast 预览不显示(§fix555, 同 §22)")
+    return _ok("changelog_current_version", f"changelog.json 已登记 {ver}")
+
+
 # ── 关键文件存在性校验 ────────────────────────────────────────────────────────
 
 def check_key_files(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
@@ -1775,6 +1813,11 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     # 委托 scripts/check_s06_state.py 四断言（A1 独立复算/A2 decision_date 防前视/
     # A3 键集对齐/A4 阈值公示单源），任一 FAIL 阻断上线（§22 同链精神）
     results.append(check_s06_state_snapshot(data_dir))
+
+    # #fix555 changelog 与版本串一致性（2026-09-07）：index.html lab-asset-url 版本串
+    # 必须在 changelog.json 有登记，否则更新 toast「本次更新」预览静默不显示。
+    # 读源与前端 loadUpdateChangelog 同一 meta；FAIL 阻断上线强制补条目(§22 一致性)。
+    results.append(check_changelog_current_version(Path(__file__).resolve().parent.parent))
 
     # 关键文件存在性
     results.extend(check_key_files(data_dir, repo_data_dir))
