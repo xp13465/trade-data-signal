@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- sensenova-proxy-healthcheck launchd 心跳监控(2026-09-07 接线 out-of-range-locate §四.4)
+     用途:每 5 分钟 GET http://127.0.0.1:8899/healthz, 连续 3 次失败走 notify.py --severe 告警
+          (邮件 + 飞书 alert 群 + latest.md 镜像), 恢复补 [恢复] 通知。见 docs/sensenova/sensenova-proxy-healthcheck.md
+     时点:心跳检查=监控非采盘后任务, 时点约束宽松, 与盘后定时任务不冲突。
+     激活:launchctl load scripts/com.trade.sensenova-healthcheck.plist
+     停用:launchctl unload scripts/com.trade.sensenova-healthcheck.plist
+     首部署冒烟:python3 scripts/sensenova-proxy-healthcheck.py --fail-fast(健康 exit 0 / 异常 exit 3) -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.trade.sensenova-healthcheck</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/linhuichen/code/trade/scripts/sensenova-proxy-healthcheck.py</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>300</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/linhuichen/code/trade-data/data/logs/sensenova-healthcheck.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/linhuichen/code/trade-data/data/logs/sensenova-healthcheck.err</string>
+</dict>
+</plist>
