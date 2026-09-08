@@ -3950,6 +3950,12 @@ function _openSimBacktestModal() {
   if (isFirst) {
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.classList.contains("hidden")) _close(); });
   }
+  // 盘中增量回测档·独立盘中视图(2026-09-08, intraday-backtest-rerun): 交易日 9:40 盘中补跑产物
+  // signal_kelly_trades_intraday.json 只含上一交易日信号用今日真实开盘价入账的交易, 标注盘中价;
+  // 17:50 后以全量版为准, 本视图降级历史临时视图。实现单源在 common.js _kellyIntradayRender(§22 与凯利区一致)。
+  if (typeof window._kellyIntradayRender === "function") {
+    window._kellyIntradayRender(modal.querySelector(".rule-modal-header"));
+  }
   modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
   _bindSimBacktestControls(modal, _close);

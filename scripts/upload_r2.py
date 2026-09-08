@@ -1345,7 +1345,8 @@ def _data_cache_ttl(pathname):
     import re as _re
     if _re.search(r'^/data/(?:overview|intraday_snapshot|board_etf_map|daily_brief|'
                   r'daily_brief_history|signal_kelly_backtest|signal_kelly_trades|'
-                  r'overfit_monitor|news_digest|signal_stats)\.json$', pathname):
+                  r'overfit_monitor|news_digest|signal_stats|'
+                  r'signal_kelly_trades_intraday|signal_kelly_backtest_intraday)\.json$', pathname):
         return 0
     if _re.search(r'^/data/(?:boot|notifications|summary|summary_history|schedule_stats|alert)\.json$',
                   pathname) or pathname == '/data/feed.xml':
