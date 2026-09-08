@@ -292,6 +292,7 @@ def pump_queue(inbox, kind, running, cmd_factory):
         try:
             proc = subprocess.Popen(
                 cmd,
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 cwd=str(REPO), preexec_fn=os.setpgrp,
                 text=True, encoding="utf-8", errors="replace"
