@@ -6006,15 +6006,18 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // v1.1.5(2026-08-24) 第6个正交开关「仅显示可用信号」(_availOnlyOn, 裸键 tds_home_show_available_only, 默认开(2026-08-30 用户拍板)):
   // 在现有渲染结果上隐藏灰显/删除线行——隐藏判定与 cellHtml 画线条件逐字同源, 不改变任何判定链:
   //   ① AI降亏命中(_isAiFadeHit → sig-ai-hit 删除线+置灰; 含牛市×辅备买全停 bullAuxBackupStop 分支)
-  //   ② 未入样本(it._bt_in_universe===false 且非 band_hold → sig-poscap-notuni 删除线+置灰)
+  //   ② 未入样本(it._bt_in_universe===false 且非 band_hold 且非卖类警示信号(sell/sell_stop_loss/波段减仓/波段止损, _isSellRow)
+  //      → sig-poscap-notuni 删除线+置灰; 卖类警示信号不隐藏, 常驻显示)
   //   ③ 当日已满(_isDayFull → sig-poscap-excluded, 入宇宙但不在 top-K; 2026-08-26 fix: 设计初衷=隐藏所有灰显/不可用信号)
   // 纯展示层视图控制: 汇总条统计人口(_statItems)/AI建议编号(kept 本就先滤降亏, 被藏行不占位)/ETF档计数基线均不变。
-  // 卖出/持有类风险提示正常亮显, 不在本开关隐藏范围(卖出=离场保护, 非不可用)。
+  // 卖出/持有类风险提示正常亮显, 不在本开关隐藏范围(卖出=离场保护, 非不可用; 2026-09-06 bandfix: 波段调整
+  //   signal="sell"+reason波段减仓/止损 属卖类警示信号, _bt_in_universe===false(债类)也须常驻可见, 用 _isSellRow 豁免)。
   const _availOnlyOn = (kind === "signal") && _readHomeAvailOnlyFlag();
   let filtered = (kind === "signal") ? popItems.filter(_listFilter) : windowedItems;
   // ===== 仅显示可用信号 过滤(两步: ①posCap前藏降亏+未入 ②posCap后藏当日已满) =====
   if (_availOnlyOn) {
-    filtered = filtered.filter((it) => !_isAiFadeHit(it) && it._bt_in_universe !== false);
+    // _isSellRow=卖出/持有类(sell/sell_stop_loss/band_hold/波段减仓/波段止损), 豁免不藏
+    filtered = filtered.filter((it) => !_isAiFadeHit(it) && (it._bt_in_universe !== false || _isSellRow(it)));
   }
   // 按 date 分组（降序），今日组单独提到最前(必须在 posCap 之前,posCap 的 for-of dates 依赖此)
   const groups = {};
@@ -6445,19 +6448,23 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           }
         }
         // 2026-08-14 AI过滤视图两态(用户澄清口径, 两个开关正交不绑定, §23.3 举一反三: 全站 poscap/「当日已满」渲染点只有本 cellHtml 一处):
-        // ⓐ AI警示(AI仓位层, 由开关2 _pcOn 控制, 与降亏层正交): 入宇宙卖出(sell/sell_stop_loss/波段减仓 band_sell/波段止损)
-        //    = 亮色 + AI警示(醒目警示橙, 与 AI建议 绿视觉区分; 卖出=离场保护非过滤, 不置灰不透明)。卖出无K档约束、不判K。
+        // ⓐ AI警示(AI仓位层, 由开关2 _pcOn 控制, 与降亏层正交): 卖出(sell/sell_stop_loss/波段减仓 band_sell/波段止损)
+        //    = 亮色 + AI警示(醒目警示橙, 与 AI建议 绿视觉区分; 卖出=离场保护非过滤, 不置灰不透明)。卖出无K档约束、不判K,
+        //    不设宇宙门槛——卖类不过滤宇宙(回测口径: 统计全部卖信号), 波段调整(债类不入买入宇宙)同属警示信号常驻亮显。
         // ⓑ 未入样本(AI降亏层, 由开关1 _fadeOn 控制, 与仓位层正交): 未入宇宙(债类 cgb_*/情绪 s.*/全球商品利率 g.*/港股行业 hk_*/空数组,
-        //    _bt_in_universe===false)= 删除线 sig-poscap-notuni-dash + 灰显 + 「未入样本」标注(表述其被过滤掉)。
+        //    _bt_in_universe===false, 且非卖类警示信号(卖类 sell/sell_stop_loss/波段减仓/止损/持有 band_hold 不标未入样本, _isSellRow))=
+        //    删除线 sig-poscap-notuni-dash + 灰显 + 「未入样本」标注(表述其被过滤掉)。
         // 两层正交: 开 AI仓位 不产删除线(ⓑ 不看 _pcOn, 删除线归 AI降亏); 开 AI降亏 不产 AI需求 badge(ⓐ 不看 _fadeOn, badge归 AI仓位)。
         // band_hold 持有中性不标不置灰(现状保持)。fade-hit 信号已有 AI降亏 删除线+标注, 不叠加 ⓐ/ⓑ 防双重矛盾。
-        // ⓐ AI警示(仓位层): AI仓位开关开启时, 入宇宙卖出给亮色警示框+「AI警示」标注。
-        if (_pcOn && !posCapCls && !_isAiFadeHit(it) && _isSellSig(it) && it._bt_in_universe !== false) {
+        // ⓐ AI警示(仓位层): AI仓位开关开启时, 卖出类信号给亮色警示框+「AI警示」标注(2026-09-06 bandfix: 去掉
+        //    _bt_in_universe 门槛, 波段调整=signal"sell"+reason波段词, 债类 _bt_in_universe===false 也亮警示)。
+        if (_pcOn && !posCapCls && !_isAiFadeHit(it) && _isSellSig(it)) {
           posCapCls = " sig-poscap-warn";
-          posCapBadge = `<sup class="sig-poscap-badge sig-poscap-warnbadge" data-tip="AI警示(由「AI仓位建议」开关控制): 本信号是【入样宇宙内】的${_t("sell_short")}/离场类(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("type_band_sell")}), 属风险警示——${_t("sell_short")}=保护已实现利润/离场, 与买入建议方向相反, 故不参与 AI 建议买入 top-K; ${_t("sell_short")}无K档约束、不判K, 只要入样即亮显警示(入样=标的有ETF跟踪且有跟踪分)。盘后补齐的迟到${_t("sell_short")}信号(如 8/14 中证银行${_t("sell_short")})会同时挂「AI警示」+「盘后补齐」角标, 两者独立不冲突。">AI警示</sup>`;
+          posCapBadge = `<sup class="sig-poscap-badge sig-poscap-warnbadge" data-tip="AI警示(由「AI仓位建议」开关控制): 本信号是卖/离场类(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}), 属风险警示——${_t("sell_short")}=保护已实现利润/离场, 与买入建议方向相反, 故不参与 AI 建议买入 top-K; 卖类无K档约束、不判K, 作为离场保护信号不设宇宙门槛(回测口径: 卖类不过滤宇宙、统计全部卖信号), 只要出现即亮显警示; 波段调整(国债波段减仓/止损, 债类不入买入回测宇宙)同为警示信号常驻亮显。盘后补齐的迟到${_t("sell_short")}信号(如 8/14 中证银行${_t("sell_short")})会同时挂「AI警示」+「盘后补齐」角标, 两者独立不冲突。">AI警示</sup>`;
         }
         // ⓑ 未入样本(降亏层): AI降亏开关开启时, 未入宇宙信号画删除线+灰显+「未入样本」标注(表述"被过滤掉")。
-        else if (_fadeOn && !posCapCls && !_isAiFadeHit(it) && it.signal !== "band_hold" && it._bt_in_universe === false) {
+        // 2026-09-06 bandfix: 卖类警示信号(_isSellRow, 含 band_hold 与波段减仓/止损)不走本分支——警示常驻不置灰不画删除线。
+        else if (_fadeOn && !posCapCls && !_isAiFadeHit(it) && !_isSellRow(it) && it._bt_in_universe === false) {
           posCapCls = " sig-poscap-notuni";
           posCapBadge = `<sup class="sig-poscap-badge sig-poscap-notunibadge" data-tip="未入样本(由「AI降亏过滤」开关控制): 本信号不在凯利回测【入样宇宙】内(按官方入样规则, 只收买入类信号: ${_t("type_buy")}/${_t("buy_aux")}/${_t("buy_special")}/${_t("buy_backup")}; 排除类别=债类/情绪类/全球商品利率/港股行业/无ETF的空类别), 回测未纳入因此不参与 AI 建议买入选择, 在 AI 过滤视图下删除线+灰显弱化。仅展示参考, 若买入属自行决策(首页 1:1 遵从回测入样判定, 不自行重算)。">未入样本</sup>`;
         }
