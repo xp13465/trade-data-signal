@@ -198,15 +198,24 @@ check("A 结构: overfit.daily_by_win/daily_by_dim",
   const memberSet = {};
   for (const k of vm.runInContext("_tdsFadeModeById('p9').keys", ctx)) memberSet[k] = true;
   const rawOff = agg("p9", false, false, null);
-  const rawOn = agg("p9", false, true, null);
-  const nOff = (() => { const s = rawOff.accuracy.rolling.backtest["15"]; return s.length ? s[s.length - 1].n : 0; })();
-  const nOn = (() => { const s = rawOn.accuracy.rolling.backtest["15"]; return s.length ? s[s.length - 1].n : 0; })();
   const seq = rawOff.accuracy.rolling.backtest["15"] || [];
   const dates = [...new Set(recent.rows.map((r) => r.d))].sort();
   const rightBound = (seq.length ? seq[seq.length - 1].date : dates[dates.length - 1]);
   const rightIdx = dates.indexOf(rightBound) < 0 ? dates.length - 1 : dates.indexOf(rightBound);
   const winSet = new Set(dates.slice(Math.max(0, rightIdx - 14), rightIdx + 1));
   const BT5 = { buy: 1, buy_aux: 1, buy_special: 1, buy_special_filtered: 1, buy_backup: 1 };
+  // 直数(2026-09-08 修复): 不再复用 rolling.backtest["15"] 末点 n。
+  // 末点窗口随空桶跳过而前移: on 被 fade 拦空桶更多 → 序列更短 → 右界提前, off/on 两态
+  // 窗口错位把更早高样本日拉进 on 窗 → 假性反超(9/7 信号产物+国家队数据被拦 deploy 门外)。
+  // 改在 winSet 同窗内独立直数: off=窗内全部 BT5 行(不过滤); on=窗内经 fade 过滤
+  // (t==null 拦 + 成员键命中拦, 与 D 块 directSeq/_ovRecentRowFiltered 同口径)后仍保留的行。
+  let nOff = 0, nOn = 0;
+  for (const r of recent.rows) {
+    const sig = r.s || "";
+    if (!BT5[sig] || !winSet.has(r.d)) continue;
+    nOff++;
+    if (r.t != null && !(r.k && r.k.split("|").some((x) => memberSet[x]))) nOn++;
+  }
   let blockable = 0, memberHit = 0, tNullNear = 0;
   for (const r of recent.rows) {
     const sig = r.s || "";
