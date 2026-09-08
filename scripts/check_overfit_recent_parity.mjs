@@ -187,6 +187,13 @@ check("A 结构: overfit.daily_by_win/daily_by_dim",
 }
 
 // ---- C p9 过滤生效 ----
+// 鲁棒性(2026-09-07): 近窗内 fade 层若完全无可拦行(tier===1 牛市辅备买 / 任一成员键命中 /
+// t==null 买类行 三者皆无), nOn==nOff 是预期正确, 不再断言 nOn<nOff 假 FAIL。
+// 主判定「blockable」= D 块同款 bullAuxBackupStop 语义(tier===1 × 辅买/备买); 分支是否走
+// 严格变小由 fade 层完整可拦性决定(任一来源可拦都预期人口变小, 防「仅剩其他 8 键命中行时
+// 误走相等分支」的回归)。窗口 = distinct 交易日列表以 rolling.backtest["15"] 末点日期为
+// 右界取近 15 个(与 _ovRolling 滑窗建点同构; 被拦行无样本仍占日期, 故用全量 distinct 日期
+// 而非仅有样本日, 保证可拦行所在日落在窗内时能被数到)。
 {
   const memberSet = {};
   for (const k of vm.runInContext("_tdsFadeModeById('p9').keys", ctx)) memberSet[k] = true;
@@ -194,7 +201,31 @@ check("A 结构: overfit.daily_by_win/daily_by_dim",
   const rawOn = agg("p9", false, true, null);
   const nOff = (() => { const s = rawOff.accuracy.rolling.backtest["15"]; return s.length ? s[s.length - 1].n : 0; })();
   const nOn = (() => { const s = rawOn.accuracy.rolling.backtest["15"]; return s.length ? s[s.length - 1].n : 0; })();
-  check("C p9 fade 开启人口变小", nOn < nOff, `off=${nOff} on=${nOn}`);
+  const seq = rawOff.accuracy.rolling.backtest["15"] || [];
+  const dates = [...new Set(recent.rows.map((r) => r.d))].sort();
+  const rightBound = (seq.length ? seq[seq.length - 1].date : dates[dates.length - 1]);
+  const rightIdx = dates.indexOf(rightBound) < 0 ? dates.length - 1 : dates.indexOf(rightBound);
+  const winSet = new Set(dates.slice(Math.max(0, rightIdx - 14), rightIdx + 1));
+  const BT5 = { buy: 1, buy_aux: 1, buy_special: 1, buy_special_filtered: 1, buy_backup: 1 };
+  let blockable = 0, memberHit = 0, tNullNear = 0;
+  for (const r of recent.rows) {
+    const sig = r.s || "";
+    if (!BT5[sig] || !winSet.has(r.d)) continue;
+    // 可拦行(D 块同款 bullAuxBackupStop 语义): 牛市·主升(tier===1) × 辅买/备买
+    if (r.tier === 1 && (sig === "buy_aux" || sig === "buy_backup")) blockable++;
+    // 佐证: fade 层任一成员键命中行(p9 其他 8 键也可能拦)
+    if (r.t != null && r.k) for (const kk of r.k.split("|")) if (memberSet[kk]) { memberHit++; break; }
+    // 佐证: fade 层 t==null 买类行一律拦(未入样, 与 _ovRecentRowFiltered 同口径)
+    if (r.t == null) tNullNear++;
+  }
+  const anyBlockable = blockable > 0 || memberHit > 0 || tNullNear > 0;
+  if (anyBlockable) {
+    check("C p9 fade 开启人口变小(近窗有 fade 层可拦行)", nOn < nOff,
+      `off=${nOff} on=${nOn} blockableRows=${blockable} memberHit=${memberHit} tNullRows=${tNullNear}`);
+  } else {
+    check("C p9 近窗无任何可拦行·人口应相等", nOn === nOff,
+      `off=${nOff} on=${nOn} blockableRows=0 memberHit=0 tNullRows=0`);
+  }
 }
 
 // ---- D bullstop AND 叠加(p8): 两态独立复刻整条序列逐点对比 ----
