@@ -344,7 +344,7 @@ def poll_running(running):
         rc = proc.poll()
         if rc is None:
             # 进程还在跑, 检查是否超时
-            if now - info["started_at"] > 1800:  # 30 分钟硬超时
+            if now - info["started_at"] > 3600:  # 60 分钟硬超时
                 log(f"job_timeout kind={kind} request_id={info['request_id']}")
                 proc.kill()
                 proc.wait()

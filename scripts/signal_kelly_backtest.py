@@ -454,6 +454,44 @@ def _get_etf_db_path():
     return os.path.join(ROOT, "data", "etf_national_team.db")
 
 
+def _etf_daily_today_ready(min_coverage=0.95):
+    """检查 etf_daily 全局最新数据日(MAX(date))是否真实就绪。
+
+    生产时序衔接缺陷(2026-09-08): 17:50 O1 export 主档回测早于 etf_daily 当日真实 close 落库,
+    吃到盘中占位假数据(accum_nav=1.5/open=1.49/close=NULL/etf_name=etf_code 全同值) →
+    伪跳空规则(|gap|>20%)整笔剔除当日信号。见 docs/kelly/analysis/main-backtest-etf-daily-ready-gate-20260908.md。
+
+    就绪标准: 当日真实 close(close IS NOT NULL 且 etf_name<>etf_code, 与 check_data_gap_alerts
+    NAV_REAL_WHERE 同标准)行数 / 当日总行数 >= min_coverage。盘中占位常态(etf_name=etf_code 哨兵行)
+    不计入, 避免认可假数据。
+
+    Args:
+        min_coverage: 最小覆盖率(默认 0.95)。
+    Returns:
+        (ready, max_date, coverage): ready=是否就绪, max_date=最新数据日(YYYYMMDD), coverage=真实 close 覆盖率。
+    """
+    db_path = _get_etf_db_path()
+    if not os.path.exists(db_path):
+        return False, "", 0.0
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    try:
+        row = conn.execute("SELECT MAX(date) FROM etf_daily").fetchone()
+        max_date = str(row[0] or "") if row else ""
+        if not max_date:
+            return False, "", 0.0
+        total = conn.execute("SELECT COUNT(*) FROM etf_daily WHERE date=?", (max_date,)).fetchone()[0]
+        if total == 0:
+            return False, max_date, 0.0
+        closed = conn.execute(
+            "SELECT COUNT(*) FROM etf_daily WHERE date=? AND close IS NOT NULL AND etf_name <> etf_code",
+            (max_date,),
+        ).fetchone()[0]
+        cov = closed / total
+        return (cov >= min_coverage), max_date, cov
+    finally:
+        conn.close()
+
+
 def _batch_load_etf_prices(etf_codes):
     """批量加载 ETF 价格(accum_nav + 原始 open/close), 供次日开盘买入口径(gap 换算)使用。
 
@@ -482,6 +520,7 @@ def _batch_load_etf_prices(etf_codes):
             rows = conn.execute(
                 f"SELECT etf_code, date, accum_nav, open, close FROM etf_daily "
                 f"WHERE etf_code IN ({placeholders}) AND accum_nav IS NOT NULL "
+                f"AND etf_name <> etf_code "  # 排除盘中占位假数据行(与 check_data_gap_alerts.NAV_REAL_WHERE 同标准)
                 f"ORDER BY etf_code, date",
                 batch,
             ).fetchall()
@@ -1922,6 +1961,19 @@ def main():
     print(f"输出 = {output_path}")
     print(f"交易记录 = {trades_path}")
     print("=" * 60)
+
+    # 生产时序衔接: 主档回测必须先消费真实 etf_daily 当日收盘价才生成。
+    # 未就绪(当日真实 close 覆盖率 < 95%, 含盘中占位假数据)时跳过本次生成, 保留现有产物,
+    # 等 etf backfill 兜底(21:30 deploy)自然重跑。禁止用占位假数据覆盖好产物。
+    ready, _md, _cov = _etf_daily_today_ready()
+    if not ready:
+        print(
+            f"⏸ etf_daily 最新数据日 {_md} 真实 close 覆盖率 {_cov:.1%} < 95%, "
+            "当日收盘价未就绪(含盘中占位假数据), 跳过本次主档回测生成(保留现有产物)。"
+            "将由 etf backfill 兜底 deploy 在收盘价落库后自然重跑正确生成。",
+            file=sys.stderr,
+        )
+        sys.exit(0)
 
     data, trades_data = compute()
 
