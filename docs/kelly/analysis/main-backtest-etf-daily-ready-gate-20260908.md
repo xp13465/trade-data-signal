@@ -80,12 +80,14 @@ DB 实况(date | 总行 | accum_nav=1.5 占位 | close IS NULL):
 2. `_batch_load_etf_prices` SQL 加 `AND etf_name <> etf_code`。
 3. `main()` 主档分支(非 intraday/lab-slices-only)在 `compute()` 前调就绪判定,未就绪则跳过生成返回 0。
 
-## 4 自测结果
+## 4 自测结果(实测 2026-09-08 21:0x-21:20)
 
-- 语法检查:`python3 -m py_compile scripts/signal_kelly_backtest.py` PASS。
-- 就绪判定单元实测(改动前 DB,9/8 占位):`max_date=20260908, 覆盖率=0.01 → ready=False`。
-- 补 9/8 真实 close 后重跑(模拟 21:30 兜底):覆盖率≈100% → 就绪 → 主档最新信号日推进到 20260908,9/7 信号 5 笔正常入主档(详见任务自测报告)。
-- 基线核对:除 9/7 补入导致的预期推进外,改动前已生成的全量各象限数字复现一致。
+- 语法检查:`python3 -m py_compile scripts/signal_kelly_backtest.py` PASS(pre-commit lint_scripts 全过)。
+- 就绪判定单元实测(改动前 DB,9/8 占位):`max_date=20260908, 覆盖率=0.0077(1540/1552 占位)→ ready=False`。
+- 跳过路径实测:未就绪时主档直接跳过,stderr 打印原因+覆盖率+预案,产物不生成,退出码 0(不阻塞 deploy)。验证:输出到 /tmp 路径未生成文件 + RC=0。
+- 9/8 真实 close 落库实测:21:07 etf 补采(指标 21:00 backfill 链)写入 9/8 真实 OHLC(ohlc=8932 vs 20:07 白采 7440),覆盖率达 1492/1552=96.1% → 就绪判定 ready=True。
+- 重跑主档(9/8 就绪后,临时输出路径,不与 deploy 双写冲突):304120 笔,最新信号日推进到 **20260907**;9/7 全部 5 笔目标(buy_aux×3: 516660/516390/159062 + buy_special×2: 512430/562510)全部入主档(各象限 A-J 各档位齐全),9/7 当日共 200 笔入档。
+- 基线核对(strongest):新旧 trades **非 9/7 历史已完成交易 295272 条逐条一致(零漂移)**;未平仓浮动交易各 8648 条数量一致(浮动盈亏数字随 9/8 真实价重估,属合理);各象限统计数字差异全部源自 9/7 信号补入(如 etf_has_track/all/A n 1943→1945)+ 未平仓重估,符合验收口径「除 9/7 补入导致的预期推进外基线一致」。
 
 ## 5 复现
 
