@@ -25,6 +25,7 @@
 | [daily-brief-optimization.md](daily-brief-optimization.md) | daily_brief 完善点分析报告 | 2026-08 |
 | [ai-predict-backtest-feasibility-20260831.md](ai-predict-backtest-feasibility-20260831.md) | AI 预测回测可行性报告(方向锚全历史回测 5.1 + 穷举子群 5.2;结论:现版对称规则整体无显著方向优势,所有子群无一显著) | 2026-08-31 |
 | [ab-direction-anchor-7d-ab-20260901.md](ab-direction-anchor-7d-ab-20260901.md) | 方向锚「开锚 vs 关锚」严格 7 日线上 A/B harness(B 方案核心,`scripts/ab_direction_anchor.py`+launchd 21:15;7 日命中率对比定方向锚去留,只读零侵入) | 2026-09-01 |
+| [ai-predict-value-eval-20260906.md](ai-predict-value-eval-20260906.md) | 每日速递 AI 预测价值评估(方向命中 23-33%=无信息基线、区间命中 0/16 系统性全败、flat 失明;结论:砍区间子功能、主推砍整链退化数据摘要、方向题可挂 30 条观察线;对账脚本逐位复核官方 stats) | 2026-09-06 |
 
 ## 配套脚本
 
@@ -35,6 +36,7 @@
 - [scripts/migrate_sector_band_reclass.py](scripts/migrate_sector_band_reclass.py) — R2 存量迁移:按新口径重刷 history 历史条目 sector_hits(--tree git/data 两树,备份后写回)。
 - [scripts/dbbrief_interaction_smoke.sh](scripts/dbbrief_interaction_smoke.sh) — AI 预测板块交互冒烟三件套(+同目录 `dbbrief_interaction_smoke.js` 断言脚本 / `dbbrief_smoke_harness.html` 离线 harness):方向红涨绿跌分色、点击区域收敛、反思校准连坐修复的 playwright chromium 20 断言自测(2026-08-27 fix(dbbrief) 配套),复现:`bash docs/ai-predict/scripts/dbbrief_interaction_smoke.sh <static-site目录> <主仓data目录>`。
 - [`scripts/ab_direction_anchor.py`](../../scripts/ab_direction_anchor.py) — 方向锚「开锚 vs 关锚」严格 7 日线上 A/B harness(每日 21:15 生成关锚参考,launchd `com.trade.ab-direction-anchor` 挂载;`--reconcile`/`--reconcile --force` 对账聚算;只写 `data/ab_direction_anchor.json`+`out/ab_direction_anchor_7d.json`,只读零侵入生产),报告见 [ab-direction-anchor-7d-ab-20260901.md](ab-direction-anchor-7d-ab-20260901.md)。
+- [ai-predict-value-eval-20260906/scripts/reconcile_ledger_hits.py](ai-predict-value-eval-20260906/scripts/reconcile_ledger_hits.py) — 每日速递 AI 预测历史命中率独立对账(brief_ledger 14 条 + brief_shadow 8 条 + daily_brief_history 全量 20 条,对 sentinel.db index_daily 逐条算次日涨跌;产出逐条表+三方基线对照;与官方 stats 3/9=33.3% 逐位一致),报告见 [ai-predict-value-eval-20260906.md](ai-predict-value-eval-20260906.md)。
 
 ## 活文档例外(留 docs/ 根,勿搬)
 

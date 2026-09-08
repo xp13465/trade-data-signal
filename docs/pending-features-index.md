@@ -11,6 +11,8 @@
 
 ## 一、AI 预测(daily_brief / edge-tts)
 
+> **🚨 2026-09-06 用户拍板:AI 预测整链砍掉,退规则版(version=rule)。** 评估报告 [docs/ai-predict/ai-predict-value-eval-20260906.md](docs/ai-predict/ai-predict-value-eval-20260906.md):区间命中 0/16=0%、方向命中 3/13=23.1%(=恒押up 无边际增量)、方向锚 642 样本全历史证伪、方向锚 A/B harness 自 09-01 建立从未跑起来。**本节 #3-#9 全部作废**(AI 预测已砍,这些 enhancement 依附的 AI 主链路不复存在),不再实施。实施任务见 TASKS 对应条目(gen_daily_brief.py 主链路默认走规则版)。
+
 | # | 功能 | 出处 | 方案摘要 | 依赖/前置 | 状态 |
 |---|---|---|---|---|---|
 | 3 | **daily_brief P1-1 周期定位/钟摆位置模板**(恐贪分位+极端提示) | docs/daily-brief-optimization.md §3 P1-1 | trend 段加周期定位模板:恐贪/情绪/新高新低在历史分位,极端值逆向提示 | 需 30 日内 summary_history 支持 | **未实施**(规则版有冰点反向雏形 L540) |
