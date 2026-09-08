@@ -157,7 +157,7 @@ def load_config() -> dict:
     cfg.setdefault("max_retries", 2)
     cfg.setdefault("temperature", 0.4)
     cfg.setdefault("max_watch_items", 5)
-    cfg.setdefault("disclaimer", "AI 生成,研究用途,不构成投资建议。基于 {date} 收盘数据,历史命中率不代表未来。")
+    cfg.setdefault("disclaimer", "每日速递,研究用途,不构成投资建议。基于 {date} 收盘数据,历史命中率不代表未来。")
     cfg.setdefault("cost_log", "data/daily_brief_cost.log")
     cfg.setdefault("input_price_per_million", 2.0)
     cfg.setdefault("output_price_per_million", 8.0)
@@ -3868,7 +3868,7 @@ def notify_daily_brief(brief: dict, cfg: dict, log, dry_run: bool = False) -> di
                 sector_s_plain = (sector_s_plain + "\n" if sector_s_plain else "") + f"{_se} {_stxt}"
             if _rows_html_s:
                 sector_s_html = "<b>板块区间:</b>" + "".join(_rows_html_s)
-        subject = f"📊 AI预测 {date}:{dir_label}（把握度 {conf_s}{('·区间' + range_s) if range_s else ''}{('·中间' + str(len(mids)) + '押') if mids else ''}）"
+        subject = f"📊 每日速递 {date}:{dir_label}（把握度 {conf_s}{('·区间' + range_s) if range_s else ''}{('·中间' + str(len(mids)) + '押') if mids else ''}）"
 
         # ═══ 总结段(开头): 方向/区间/信心/要点/多空结论 ═══
         sum_lines = [f"明日方向: <b>{_html_esc(dir_label)}</b> · 把握度: <b>{conf_s}</b>"]
@@ -3929,7 +3929,7 @@ def notify_daily_brief(brief: dict, cfg: dict, log, dry_run: bool = False) -> di
         body = (
             "<div style=\"font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;"
             "max-width:640px;margin:0 auto;color:#222;line-height:1.7;\">"
-            f"<h2 style=\"margin-bottom:4px;\">🤖 每日AI预测（{date} 收盘）</h2>"
+            f"<h2 style=\"margin-bottom:4px;\">📋 每日速递（{date} 收盘）</h2>"
             f"{sum_html}{detail_html}"
             f"<p style=\"font-size:12px;color:#999;margin-top:12px;\">{_html_esc(brief.get('disclaimer') or '')}</p>"
             "</div>"
@@ -3976,7 +3976,7 @@ def notify_daily_brief(brief: dict, cfg: dict, log, dry_run: bool = False) -> di
         # 超 80 行分段由 send_feishu 内部处理（2026-08-16 用户定：放开行数+超长分段连发）。
         # 此处不再截断省略；完整 lines（含细讲/风险项/辩论/四角色）交 build_feishu_post，
         # send_feishu 按 FEISHU_POST_MAX_ROWS 每段切分、多段连发（标题带 N/M 序号），与页面一致。
-        lines.append([notify.post_text("免责: AI 生成,研究用途,不构成投资建议")])
+        lines.append([notify.post_text("免责: 每日速递,研究用途,不构成投资建议")])
         feishu_post = notify.build_feishu_post(subject, lines)
 
         # 同日(date)只发一次(notify.py dedup,data/notify_dedup.json)
@@ -3984,14 +3984,14 @@ def notify_daily_brief(brief: dict, cfg: dict, log, dry_run: bool = False) -> di
         if not dry_run and notify.check_dedup(dedup_key, 86400):
             log(f"通知已发过(date={date}),同日去重跳过")
             return {"dedup": True}
-        results = notify.send(subject, body, from_prefix="[AI预测]", feishu_group="report",
+        results = notify.send(subject, body, from_prefix="[每日速递]", feishu_group="report",
                               feishu_post=feishu_post, dry_run=dry_run)
         if not dry_run:
             notify.update_dedup(dedup_key)
-        log(f"AI预测通知发送完成 version={version} 渠道={results}")
+        log(f"每日速递通知发送完成 version={version} 渠道={results}")
         return results
     except Exception as e:  # noqa: BLE001
-        log(f"⚠ AI预测通知失败(不阻塞): {e}")
+        log(f"⚠ 每日速递通知失败(不阻塞): {e}")
         return None
 
 
@@ -4079,7 +4079,12 @@ def main() -> int:
     version = "ai"
     brief = None
 
-    if not args.rule_only and not args.mock:
+    # AI 预测总开关(2026-09-06 用户拍板:砍整链退规则版)。false=默认走规则版(零 DeepSeek 成本);
+    # --mock/--rule-only 测试 flag 仍保留(--mock 模拟 AI 输出,--rule-only 强制规则版)。
+    ai_enabled = bool(cfg.get("ai_prediction_enabled", False))
+    if not ai_enabled and not args.rule_only and not args.mock:
+        log("AI 预测开关 ai_prediction_enabled=false,默认走规则版(零 DeepSeek 成本)")
+    if not args.rule_only and not args.mock and ai_enabled:
         # 主链路:AI 生成。多角色编排优先(--multi 或配置开关),失败降级单 prompt 主链路(保底不破)。
         if args.multi or cfg.get("multi_agent_enabled", False):
             log("走多角色协作式编排(6角色)")

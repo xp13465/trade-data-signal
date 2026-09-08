@@ -7,10 +7,10 @@
 # 📊 信号实验室 · tdsignal
 
 > **A股/港股/全球盘后复盘情绪数据看板** —— 把散落各处的情绪值、涨跌家数、连板高度、买卖点信号、ETF 评分、策略实验室汇总到一处，
-> 攒成历史序列，用**数据挖掘**从数千笔回测交易中反推出"降亏过滤标志"，每日用 **AI** 生成白话速递，
+> 攒成历史序列，用**数据挖掘**从数千笔回测交易中反推出"降亏过滤标志"，每日生成白话速递，
 > 辅助判断市场情绪拐点与买卖时机。
 
-**一句话**：免费数据源 + 情绪指数 + ETF 评分 + 凯利仓位回测 + 数据挖掘降亏过滤 + AI 每日速递，
+**一句话**：免费数据源 + 情绪指数 + ETF 评分 + 凯利仓位回测 + 数据挖掘降亏过滤 + 每日速递，
 一个把「数据采集 → 计算 → 可视化 → 交易信号 → 信号质量挖掘 → AI 解读 → 自动交易执行」全链路打通的开源情绪数据看板。
 
 ![market-status](https://img.shields.io/badge/语言-中文-brightgreen)
@@ -18,7 +18,7 @@
 ![fastapi](https://img.shields.io/badge/FastAPI-✓-009688)
 ![frontend](https://img.shields.io/badge/前端-原生JS%20%2B%20ECharts-FF6384)
 ![storage](https://img.shields.io/badge/存储-Cloudflare%20Workers%20%2B%20R2-F38020)
-![ai](https://img.shields.io/badge/AI-DeepSeek%20每日速递-4D6BFE)
+![ai](https://img.shields.io/badge/速递-规则版%E2%89%9F%E5%8F%AF%E5%9B%9EAIPred-4D6BFE)
 ![mining](https://img.shields.io/badge/挖掘-子群发现%20·%20决策树%20·%20对比集-8A2BE2)
 ![schedule](https://img.shields.io/badge/调度-macOS%20launchd-lightgrey)
 ![license-code](https://img.shields.io/badge/代码-MIT-green)
@@ -167,7 +167,7 @@
 | 采集 | mootdx（TCP 全 A 日线 16M 行）+ BaoStock（校验）+ 腾讯/东财/同花顺（互备）+ 申万/中证/HKEX/CCASS/CFFEX/cninfo |
 | 前端 | 原生 JS + ECharts（分时/恐贪/评分弹窗/信号卡/策略实验室）+ Service Worker + PWA，`build_min.py` 压缩 + 版本号破缓存 |
 | 存储 | Cloudflare Workers（主站）+ R2 对象存储（全量品种/大 range 历史序列）+ GitHub Pages / MaoziYun（备站） |
-| AI | DeepSeek（每日速递白话生成 + 邮件白话化 + 本地 thinking 代理：官方 DeepSeek 直连 /anthropic + thinking disabled 注入，per-role 省 token，scripts/thinking_proxy.py） |
+| AI | 每日速递（2026-09-06 起默认规则版，非AI、零 DeepSeek 成本，AI 预测代码保留可随时恢复）；DeepSeek 仅用于邮件白话化 + 本地 thinking 代理（官方 DeepSeek 直连 /anthropic + thinking disabled 注入，per-role 省 token，scripts/thinking_proxy.py） |
 | 交易执行 | easytrader 二次开发 → [thsautoorder](https://github.com/xp13465/thsautoorder)（独立仓库）：验证码识别 / API 接口队列监听 / 可用性提升 |
 | 调度 | macOS launchd：17:50 主采集并行流水线 / 盘中每 10min intraday 快照 / 盘后 export+deploy / futures/lhb/rzhb/etf-national-team/backfill/lab-auto/schedule-monitor |
 | 部署 | GH Actions deploy-cf.yml + wrangler deploy（加速 20min→1-2min），push main 自动上线 |
@@ -243,16 +243,17 @@ reviewer agent（独立批判性查影响面 + 回归 smoke）→ 测试 agent�
 
 **用途**：版本发布前的**外部独立盲审**——经 [OpenAI codex CLI](https://github.com/openai/codex) 以只读沙箱身份做交叉验证，防「内部实施↔内部 review 同源盲区」。协作机制：Claude 主控调 `scripts/codex-review-request.sh` 把审计范围打包成 git ref（`refs/codex/req/<id>`）→ codex 在独立环境读仓库执行影响面 grep / smoke 验证 / 口径交叉核对 → 报告 JSON 回传 `/tmp/codex-reports/` → 主控校验归档至 [`docs/codex-reviews/`](docs/codex-reviews/)。codex 不 commit、不 push、不改源码；2026-08-24 首轮 v1.1.4→v1.1.6 前置两轮审计均 PASS，揪出 QTH 全史快照前视取舍、tester skill 缺规范挂接等内部 review 未覆盖项。协议全文见 [`docs/codex-collab-protocol.md`](docs/codex-collab-protocol.md)。协作通讯走**信号桥**（2026-08-26）：`scripts/agent_inbox_watcher.py` 常驻监听 `/tmp/codex-reports/signals/` 双收件箱（2 秒文件轮询，待机零模型调用），发单秒级拉起 codex exec、报告回传自动 schema 机检 + 推飞书，替代 cron 盲轮询的 7-8 分钟延迟——链路全图、launchd 部署模板与利弊分析见 [`docs/codex-signal-bridge.md`](docs/codex-signal-bridge.md)。
 
-### 🧠 AI 预测与解读（DeepSeek）
+### 📋 每日速递（2026-09-06 起默认规则版，AI 预测已退役）
 
-**用途**：`每日速递` 邮件 —— 收盘后由 [DeepSeek](https://platform.deepseek.com/) 生成 **daily_brief 白话解读**（情绪拐点 + 信号汇总 + 合规 gating），
+**用途**：`每日速递` 邮件 —— 收盘后生成 **daily_brief 白话解读**（情绪拐点 + 信号汇总 + 合规 gating），
 邮件正文对 **期货风向 / 公募基金** 做白话化改写，让"机器算出来的数字"变成"人读得懂的话"。
+**生成方式（2026-09-06 用户拍板：砍整链退规则版）**：默认由 **规则版** 生成（`generate_rule_brief`，内置规则拼装 复盘·趋势·关注·风险 四段 + 方向/区间断言，零 DeepSeek API 成本，产出 `meta.version=rule`）；定时入口（`run_daily_brief.sh` 20:40）与手动 CLI 默认都走规则版。AI 预测代码（多角色 `run_multi_agent` / 单 prompt `build_prompt`+`call_deepseek` / `parse_ai_output`）**全部保留未删**，`config/daily_brief.yaml` 的 `ai_prediction_enabled` 改回 `true` 即可恢复 AI 主链路；`--mock`/`--rule-only` 测试 flag 仍保留。
 **订阅推送延伸（2026-08-17）**：速递内容经 [Cloudflare Workers KV](https://developers.cloudflare.com/kv/)（订阅者管理 + api_key 鉴权）与标准 SMTP（`config/email.json`，smtp.resend.com，2026-08-17 起）实现「生成即推送」订阅服务，`daily_brief.json` 生成后自动送达订阅者邮箱/Webhook/飞书，避免用户自行上站查看。
-**影子模式验证（2026-08-20，验证期）**：`AI 预测` 方向锚/归因升级处于**影子验证期**——线上输出零改动（`direction_anchor_enabled`/`reflection_factor_attribution_enabled` 默认关，prompt 逐字不变），后台按 date 把「方向锚会预测什么方向」旁路落盘 `data/brief_shadow.json`，次日盘后由 [`scripts/aggregate_shadow.py`](scripts/aggregate_shadow.py) 对账真实方向，聚算 7 个真实交易日影子命中率，用数据决定开/不开/改（契约全文见 [`docs/ai-predict/ai-predict-shadow-validate-20260820.md`](docs/ai-predict/ai-predict-shadow-validate-20260820.md)）。影子是旁路记录，不发邮件/通知、不写主链。
+**影子模式验证（2026-08-20，已于 2026-08-28 关闭，历史供参考）**：`AI 预测` 方向锚/归因升级曾处于**影子验证期**——线上输出零改动（`direction_anchor_enabled`/`reflection_factor_attribution_enabled` 默认关，prompt 逐字不变），后台按 date 把「方向锚会预测什么方向」旁路落盘 `data/brief_shadow.json`，次日盘后由 [`scripts/aggregate_shadow.py`](scripts/aggregate_shadow.py) 对账真实方向，聚算 7 个真实交易日影子命中率，用数据决定开/不开/改（契约全文见 [`docs/ai-predict/ai-predict-shadow-validate-20260820.md`](docs/ai-predict/ai-predict-shadow-validate-20260820.md)）。影子是旁路记录，不发邮件/通知、不写主链。
 
 ### 🔉 AI 预测语音播报（edge-tts）
 
-**用途**：首页 AI 预测 🔊 播放按钮朗读预测文本。基于开源库 [edge-tts](https://github.com/rany2/edge-tts)（MIT）—— 调用微软 Edge"大声朗读"的**免费在线 TTS**（非 Azure 商用，无 key/无计费），在服务端（`gen_daily_brief.py`）把 AI 预测合成 `daily_brief_tts_<date>.mp3`（音色 `zh-CN-XiaoxiaoNeural`）上传 R2，前端用 `<audio>` 播放；合成失败不阻塞主流程、前端隐藏按钮降级（备选浏览器 `speechSynthesis` 兜底）。依赖微软免费服务、无 SLA，微软调整协议时升级 edge-tts 包即可（见 [docs/ai-predict/ai-predict-tts-plan.md](docs/ai-predict/ai-predict-tts-plan.md)）。
+**用途**：首页每日速递 🔊 播放按钮朗读预测文本。基于开源库 [edge-tts](https://github.com/rany2/edge-tts)（MIT）—— 调用微软 Edge"大声朗读"的**免费在线 TTS**（非 Azure 商用，无 key/无计费），在服务端（`gen_daily_brief.py`）把预测合成 `daily_brief_tts_<date>.mp3`（音色 `zh-CN-XiaoxiaoNeural`）上传 R2，前端用 `<audio>` 播放；合成失败不阻塞主流程、前端隐藏按钮降级（备选浏览器 `speechSynthesis` 兜底）。⚠️ 2026-09-06 起默认规则版**不合成语音**（`gen_daily_brief.py` 仅对 `ai/ai-multi` 版本合成），该按钮仅历史 AI 条目可见。依赖微软免费服务、无 SLA，微软调整协议时升级 edge-tts 包即可（见 [docs/ai-predict/ai-predict-tts-plan.md](docs/ai-predict/ai-predict-tts-plan.md)）。
 
 ### 📧 邮件通知（Resend）
 
