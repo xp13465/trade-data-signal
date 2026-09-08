@@ -8,6 +8,15 @@
 #           (update_all.sh 17:50 挂载已注释,一天一次 20:40,避 20:35 intraday-snapshot)
 schedule_enabled: true
 
+# ── AI 预测总开关(2026-09-06 用户拍板:砍整链退规则版)────────────────────
+#   false = 默认走规则版(非AI,内置规则拼装,零 DeepSeek API 成本;产出 version=rule)。
+#           定时入口(run_daily_brief.sh 20:40)与手动 CLI 不传参都走规则版;
+#           --mock(模拟AI输出)/--rule-only(强制规则版)测试 flag 仍保留。
+#   true  = 恢复 AI 预测主链路(多角色编排优先,失败降级单 prompt,再失败降级规则版)。
+#   AI 代码(run_multi_agent/build_prompt/call_deepseek/parse_ai_output)全部保留不删,
+#   未来想恢复把此项改回 true 即可。
+ai_prediction_enabled: false
+
 # ── 合规开关(默认开启)─────────────────────────────────────────────────
 #   true  = prompt 禁指令词(买入/卖出/加仓/建仓/仓位等黑名单,只允许 关注/警惕/观察/留意)
 #           + 生成后正则脱敏兜底 + 免责声明行(对外安全)
@@ -41,7 +50,7 @@ notify_enabled: true          # true=生成后邮件+飞书报告群通知;false
 # ── 输出 ──────────────────────────────────────────────────────────────
 max_watch_items: 5            # 明日关注标的条数上限
 # 免责声明行(输出 meta.disclaimer + text.note 末尾)。{date} 被替换为预测日期。
-disclaimer: "AI 生成,研究用途,不构成投资建议。基于 {date} 收盘数据,历史命中率不代表未来。"
+disclaimer: "每日速递,研究用途,不构成投资建议。基于 {date} 收盘数据,历史命中率不代表未来。"
 
 # ── 成本监控(P2-1)─────────────────────────────────────────────────────
 cost_log: data/daily_brief_cost.log      # 每次调用 token/费用 追加日志(相对 repo 根)

@@ -14951,7 +14951,7 @@ async function renderOverview() {
         const snapBadge = `<span class="summary-snap-tag" style="color:#e6a23c">⏰ ${_lunch ? "午休小结" : "盘中动态小结"}</span>`;
         const _tLabel = _lunch ? "13:00复牌" : `更新于 ${_intradayDynamicTime || hhmm}`;
         const _pulse = '<span class="dyn-pulse" id="banner-pulse"><span class="dyn-pulse-dot"></span>1min</span>';
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中（每日 20:40 更新）">🤖 AI 预测</button><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap, s)}</div>`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日速递与历史命中（每日 20:40 更新）">📋 每日速递</button><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap, s)}</div>`;
         // s 保留给盘中轮询 _applyDynamicToChips 复用（沪深300四档 chip 读 s.market_state = 最近收盘档位，§22 一致）
         _bannerRenderCtx = { el: banner, s, snap, type: "intraday" };
       } else {
@@ -14987,7 +14987,7 @@ async function renderOverview() {
         const sentimentBadge = s.sentiment_label ? `<span class="summary-fg-tag">${s.sentiment_label}</span>` : "";
         // 情绪标签+恐贪标签移到第二行(与 summary-meta 同行),行1只留日期标题
         const titleTags = (sentimentBadge || fgBadge || freezeBadge) ? `${sentimentBadge}${fgBadge}${freezeBadge}` : "";
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日AI预测与历史命中（每日 20:40 更新）">🤖 AI 预测</button>${titleTags ? `<span class="summary-title-tags">${titleTags}</span>` : ""}<span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日速递与历史命中（每日 20:40 更新）">📋 每日速递</button>${titleTags ? `<span class="summary-title-tags">${titleTags}</span>` : ""}<span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
         _bannerRenderCtx = { el: banner, s, snap, type: "summary" };
       }
       content.insertBefore(banner, content.firstChild);
@@ -27328,7 +27328,7 @@ function _summaryHistoryItemHtml(s, briefByDate, newsDigest) {
   const it = (briefByDate && s.date) ? briefByDate[s.date] : null;
   if (it) {
     const meta = it.meta || {};
-    aiBlock = `<div class="sh-ai-brief"><div class="sh-ai-brief-head"><span class="db-dir ${_dbDirCls(meta.direction)}">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}<span class="sh-ai-brief-title">🤖 AI预测</span>${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}${_dbHitHtml(meta)}${_dbActualHtml(meta)}${_dbPlayBtn(meta, it.date || meta.date)}</div>${_dbBriefDetailHtml(it)}</div>`;
+    aiBlock = `<div class="sh-ai-brief"><div class="sh-ai-brief-head"><span class="db-dir ${_dbDirCls(meta.direction)}">${_dbDirLabel(meta.direction)}</span>${_dbRangeLabel(meta)}<span class="sh-ai-brief-title">每日速递</span>${_dbVersionBadge(meta)}${_dbConfidenceBadge(meta)}${_dbHitHtml(meta)}${_dbActualHtml(meta)}${_dbPlayBtn(meta, it.date || meta.date)}</div>${_dbBriefDetailHtml(it)}</div>`;
   }
   // 2026-08-16 历史「事件对照」:当日大事 1-3 条。日期==news_digest.date 用已加载缓存(同步);
   // 否则占位容器(data-arch-date), 渲染后由 _loadHistNewsAsync 异步读归档 news_digest/<date>.json 注入, 无归档显示空态。
@@ -27451,7 +27451,7 @@ function _dailyBriefModalEl() {
   modal = document.createElement("div");
   modal.id = "dailyBriefModal";
   modal.className = "rule-modal hidden";
-  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body summary-history-body"><div class="rule-modal-header"><h3>🤖 每日AI预测</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content"><div class="daily-brief-stats"></div><div class="summary-history-info"></div><div class="summary-history-list"></div><div class="summary-history-pager"><button class="sh-prev">‹ 上一页</button><div class="sh-pages"></div><button class="sh-next">下一页 ›</button></div></div></div>';
+  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body summary-history-body"><div class="rule-modal-header"><h3>📋 每日速递</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content"><div class="daily-brief-stats"></div><div class="summary-history-info"></div><div class="summary-history-list"></div><div class="summary-history-pager"><button class="sh-prev">‹ 上一页</button><div class="sh-pages"></div><button class="sh-next">下一页 ›</button></div></div></div>';
   document.body.appendChild(modal);
   modal.querySelector(".rule-modal-overlay").addEventListener("click", closeDailyBriefModal);
   modal.querySelector(".rule-modal-close").addEventListener("click", closeDailyBriefModal);
@@ -27620,16 +27620,16 @@ function _dbConfidenceBadge(meta) {
 }
 
 // 2026-08-12 弃用标志/版本徽标: 基于 meta.version(后端 gen_daily_brief.py 写入) 渲染生成版本。
-//   ai-multi=多角色协作完整版(当前默认); ai=旧单模型版(ai-multi 上线前主版, 已被多角色版取代);
-//   rule=AI生成失败规则兜底版(无多角色辩论); minimal=最小兜底版。
+//   rule=规则版(2026-09-06 起当前默认, 非AI, 内置规则拼装不调 DeepSeek); ai-multi=多角色协作完整版
+//   (AI预测版, 2026-09-06 起不再默认生成, 历史条目仍展示); ai=旧单模型版(已被多角色版取代); minimal=最小兜底版。
 // 三处消费点(弹窗条目/历史收盘分析/公示行)统一走本函数, §22 一致性。
 function _dbVersionBadge(meta) {
   meta = meta || {};
   const v = meta.version;
   if (!v) return "";
-  if (v === "ai-multi") return '<span class="db-ver db-ver-multi" title="6角色协作版：技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规">🤖 多角色</span>';
+  if (v === "ai-multi") return '<span class="db-ver db-ver-multi" title="6角色协作版（AI预测版，2026-09-06 起不再默认生成，历史条目仍展示）：技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规">🤖 多角色</span>';
   if (v === "ai") return '<span class="db-ver db-ver-old" title="旧单模型版（ai-multi 多角色版上线前的主版本），已被多角色版取代">旧版单模型</span>';
-  if (v === "rule") return '<span class="db-ver db-ver-rule" title="AI 生成失败时的规则兜底版（无多角色辩论/无完整 AI 解读）">⚠️ 降级版</span>';
+  if (v === "rule") return '<span class="db-ver db-ver-rule" title="规则版（当前默认，非AI，基于内置规则生成，不调 DeepSeek API）">📋 规则版</span>';
   if (v === "minimal") return '<span class="db-ver db-ver-min" title="AI 与规则均不可用时的最小兜底版">⚠️ 精简版</span>';
   return "";
 }
@@ -27918,11 +27918,11 @@ function _renderDailyBriefStats(brief) {
   const todayConf = (tb && tb.meta) ? _dbConfidenceBadge(tb.meta) : "";
   el.innerHTML =
     '<div class="db-stats-box">' +
-      '<span class="db-stats-title">📊 AI预测命中率（三层全命中：大盘+中间层7押+板块自适应带；方向押注单独统计，meta机检次日回填）</span>' +
+      '<span class="db-stats-title">📊 每日速递命中率（三层全命中：大盘+中间层7押+板块自适应带；方向押注单独统计，meta机检次日回填）</span>' +
       `<span class="db-stats-item db-stats-sched">🕗 每日 20:40 更新${genAt}${todayConf ? ` · 今日${todayConf}` : ""}</span>` +
       `<span class="db-stats-item">三层命中 近30日：<b>${s30 && s30.n ? `${s30.hit}/${s30.n}（${rate(s30)}）` : "暂无样本"}</b> · 近90日：<b>${s90 && s90.n ? `${s90.hit}/${s90.n}（${rate(s90)}）` : "暂无样本"}</b></span>` +
       `<span class="db-stats-item">方向押注 近30日：<b>${d30 && d30.n ? `${d30.hit}/${d30.n}（${rate(d30)}）` : "样本积累中"}</b> · 近90日：<b>${d90 && d90.n ? `${d90.hit}/${d90.n}（${rate(d90)}）` : "样本积累中"}</b></span>` +
-      '<details class="db-stats-how-fold"><summary>📊 命中率统计与算法说明 ▸</summary><div class="db-stats-how">AI每日盘后基于当日收盘数据，默认由6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规），产出复盘·趋势·关注·风险四段预测 + 🎯今日要点 + 多角色讨论（展开可看四角色结论与多空辩论）；任一环节失败自动降级单模型生成兜底。meta结构化断言：预测给出<b>明确方向 + 具体涨跌幅区间</b>（大盘上证 + <b>中间层7个全押</b>（深证成指/创业板指/科创50/北证50/恒生指数/恒生科技涨跌幅% + 10年国债收益率变化基点）+ 1-3个领涨/领跌板块次日涨跌幅区间，区间宽度≤0.5%，越窄越准；方向由区间体现：全正=涨/全负=跌/含0=平震荡）。<b>10年国债</b>预测口径为<b>次日收益率变化基点</b>（1基点=0.01%，区间如 +1~-1 即预期次日收益率在 当日−1bp~+1bp，用整数基点、宽度≤3bp），命中=次日实际收益率减当日收益率（×100）落在预期基点区间。命中判定=<b>三层全命中</b>：大盘实际涨跌幅 ∈ 大盘预测区间，且<b>中间层7个全部命中</b>（前6涨跌幅%落各自区间 + 10年国债基点落区间），且所有预测板块实际涨跌幅 ∈ 各自的<b>波动率自适应判定带</b>。<b>板块层口径升级（2026-08-24）</b>：AI 预测的原始窄区间照旧展示不改，但命中判定带=以 AI 预测区间中点为中心、宽 max(该板块近5个交易日日涨跌幅绝对值的中位数×2, 0.3pp)——比 std 抗毛刺、随板块自身波动自适应放大收窄。校准依据（docs/ai-predict/scripts/calibrate_sector_band.py 自然覆盖率法）：近500个交易日×全部申万行业覆盖率 59.9%，落在 40-65% 目标域（既有区分度又不恒错）；此口径前的固定 ±0.25pp 窄带 vs 板块日常 ±2~4% 波动，板块曾 10 天 0/10 全脱靶属数学必然而非模型判断力问题；每条 sector_hits 同时保留 raw_hit（原窄口径对照）可追溯。极端行情（单日|涨跌|≥3%）任何合理带宽都难兜住，此时脱靶=真难非口径病。（大盘+中间层7押+板块=✅三层命中；任一层数据缺失 N/A 则整体不硬判，标"层级N/A"）。<b>历史老条目</b>（改造前无区间/无中间层的预测）不伪造区间，只保留旧"方向相等"判定（✅仅方向命中），区间命中标"层级N/A"（不算中不算不中），故命中率为新老口径混合统计。<b>命中率</b>仅对改造后含区间的条目计，老条目 N/A 不计入。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。<b>版本徽标</b>：🤖多角色=6角色完整版（默认）／旧版单模型=多角色版上线前旧版（已被取代）／⚠️降级版=AI生成失败规则兜底（无多角色辩论）／⚠️精简版=最小兜底；降级/精简版仅供参考。每条预测含<b>🧭结论</b>行（融合结论=研究员多空辩论收敛结果，不展开即可见），<b>辩论详情</b>折叠面板可展开看四角色结论与多空论据（含论据数）。<b>增量参考面</b>：预测已综合当天新闻快讯/宏观事件（今日要闻/明日关键事件）/8宽基估值位置（1y/3y历史百分位）等增量参考——AI 在这些面之上判断方向，但这些面本身不参与区间命中判定。<b>历史反思校准（自成长）</b>：每次预测生成前，系统会读历史失败预测样本（方向/区间误判+归因）做反思注入，让模型参考既往失误谨慎校准本次判断（严格时间隔离，只用本预测日之前已回填的失败样本，防未来函数）；有样本时预测详情块显示「🔍 含历史反思校准」折叠面板（默认收起只占标题栏一行，标题含参考次数/注入次数/方向误判徽标；点开看说明与参考的具体失败样本：日期+类型+归因，样本多时分批「加载更多」逐批查看），样本积累中则暂不显示。<b>🧭 方向押注（direction_call，2026-08-24 新增）</b>：AI 每日除区间外必须额外给出强制二选一的纯方向判断（up/down，禁止 flat 和稀泥、禁止省略），与 range 区间相互独立、单独统计命中率（详情块「方向押注」行）。<b>白话</b>：假设明天必须押涨或跌一边，AI 押对的比例——衡量真方向能力，不含"说震荡蒙对"的安全分。<b>什么时候看它</b>：想验证 AI 是不是只会和稀泥、或大跌/大涨次日它敢不敢坚持反向判断时看这行；三层命中是含幅度的联合事件天然难，方向押注是单维度纯方向题，两者对照看。<b>1:1 直白举例</b>：某日 AI direction_call=down，次日上证收盘 -2.40%（超 ±0.5% 阈值=实际跌）→ ✅中；若次日 +0.24%（±0.5% 内=实际震荡）→ ❌未中（押方向本就该难，震荡日算方向题的一部分）。<b>板块判定带 1:1 直白举例</b>（真实数据）：20260821 AI 预测电子 +0.5~+1.0%（宽仅 0.5pp），按截至当日电子近5日 |涨跌幅|=[0.73, 0.13, 7.77, 0.31, 4.61]% 取中位数 0.73 → 判定带宽 = max(0.73×2, 0.3)=1.46pp → 有效带 +0.02~+1.48%；次日 0824 电子实际 -2.35%，自适应带下仍脱靶——因为方向本身错了，自适应只治"幅度带过窄"不治"方向错"，如实标注。方向押注样本自 2026-08-25 起积累，n 小仅供参考。命中率仅为历史统计，不构成投资建议。</div></details>' +
+      '<details class="db-stats-how-fold"><summary>📊 命中率统计与算法说明 ▸</summary><div class="db-stats-how">每日盘后基于当日收盘数据生成。2026-09-06 起<b>默认由规则版生成</b>（非AI，内置规则拼装 复盘·趋势·关注·风险 四段 + 方向/区间断言，不调 DeepSeek API）；此前为 AI 6角色协作生成（技术面/资金面/情绪面/风控分析师并行 → 研究员多空辩论 → 主编组装合规，任一环节失败自动降级单模型生成兜底），历史条目按各自 meta.version 展示。meta结构化断言：预测给出<b>明确方向 + 具体涨跌幅区间</b>（大盘上证 + <b>中间层7个全押</b>（深证成指/创业板指/科创50/北证50/恒生指数/恒生科技涨跌幅% + 10年国债收益率变化基点）+ 1-3个领涨/领跌板块次日涨跌幅区间，区间宽度≤0.5%，越窄越准；方向由区间体现：全正=涨/全负=跌/含0=平震荡）。<b>10年国债</b>预测口径为<b>次日收益率变化基点</b>（1基点=0.01%，区间如 +1~-1 即预期次日收益率在 当日−1bp~+1bp，用整数基点、宽度≤3bp），命中=次日实际收益率减当日收益率（×100）落在预期基点区间。命中判定=<b>三层全命中</b>：大盘实际涨跌幅 ∈ 大盘预测区间，且<b>中间层7个全部命中</b>（前6涨跌幅%落各自区间 + 10年国债基点落区间），且所有预测板块实际涨跌幅 ∈ 各自的<b>波动率自适应判定带</b>。<b>板块层口径升级（2026-08-24）</b>：AI 预测的原始窄区间照旧展示不改，但命中判定带=以 AI 预测区间中点为中心、宽 max(该板块近5个交易日日涨跌幅绝对值的中位数×2, 0.3pp)——比 std 抗毛刺、随板块自身波动自适应放大收窄。校准依据（docs/ai-predict/scripts/calibrate_sector_band.py 自然覆盖率法）：近500个交易日×全部申万行业覆盖率 59.9%，落在 40-65% 目标域（既有区分度又不恒错）；此口径前的固定 ±0.25pp 窄带 vs 板块日常 ±2~4% 波动，板块曾 10 天 0/10 全脱靶属数学必然而非模型判断力问题；每条 sector_hits 同时保留 raw_hit（原窄口径对照）可追溯。极端行情（单日|涨跌|≥3%）任何合理带宽都难兜住，此时脱靶=真难非口径病。（大盘+中间层7押+板块=✅三层命中；任一层数据缺失 N/A 则整体不硬判，标"层级N/A"）。<b>历史老条目</b>（改造前无区间/无中间层的预测）不伪造区间，只保留旧"方向相等"判定（✅仅方向命中），区间命中标"层级N/A"（不算中不算不中），故命中率为新老口径混合统计。<b>命中率</b>仅对改造后含区间的条目计，老条目 N/A 不计入。把握度=多空辩论收敛程度（0-100），按梯度四档：高70-100/中55-70/低30-55/看不清0-30。信号口径：买/卖=真实指数可交易信号（指数走势触发）；情绪买/卖=情绪分模拟信号（0-100衍生指标，非可交易标的，仅情绪参考，表述均标注"情绪分"）。<b>版本徽标</b>：📋规则版=内置规则生成（当前默认，非AI，不调 DeepSeek）／🤖多角色=AI 6角色完整版（2026-09-06 起不再默认生成，历史条目仍展示）／旧版单模型=多角色版上线前旧版（已被取代）／⚠️精简版=最小兜底；规则版/精简版仅供参考。每条预测含<b>🧭结论</b>行（融合结论=研究员多空辩论收敛结果，不展开即可见），<b>辩论详情</b>折叠面板可展开看四角色结论与多空论据（含论据数）。<b>增量参考面</b>：预测已综合当天新闻快讯/宏观事件（今日要闻/明日关键事件）/8宽基估值位置（1y/3y历史百分位）等增量参考——AI 在这些面之上判断方向，但这些面本身不参与区间命中判定。<b>历史反思校准（自成长）</b>：每次预测生成前，系统会读历史失败预测样本（方向/区间误判+归因）做反思注入，让模型参考既往失误谨慎校准本次判断（严格时间隔离，只用本预测日之前已回填的失败样本，防未来函数）；有样本时预测详情块显示「🔍 含历史反思校准」折叠面板（默认收起只占标题栏一行，标题含参考次数/注入次数/方向误判徽标；点开看说明与参考的具体失败样本：日期+类型+归因，样本多时分批「加载更多」逐批查看），样本积累中则暂不显示。<b>🧭 方向押注（direction_call，2026-08-24 新增）</b>：AI 每日除区间外必须额外给出强制二选一的纯方向判断（up/down，禁止 flat 和稀泥、禁止省略），与 range 区间相互独立、单独统计命中率（详情块「方向押注」行）。<b>白话</b>：假设明天必须押涨或跌一边，AI 押对的比例——衡量真方向能力，不含"说震荡蒙对"的安全分。<b>什么时候看它</b>：想验证 AI 是不是只会和稀泥、或大跌/大涨次日它敢不敢坚持反向判断时看这行；三层命中是含幅度的联合事件天然难，方向押注是单维度纯方向题，两者对照看。<b>1:1 直白举例</b>：某日 AI direction_call=down，次日上证收盘 -2.40%（超 ±0.5% 阈值=实际跌）→ ✅中；若次日 +0.24%（±0.5% 内=实际震荡）→ ❌未中（押方向本就该难，震荡日算方向题的一部分）。<b>板块判定带 1:1 直白举例</b>（真实数据）：20260821 AI 预测电子 +0.5~+1.0%（宽仅 0.5pp），按截至当日电子近5日 |涨跌幅|=[0.73, 0.13, 7.77, 0.31, 4.61]% 取中位数 0.73 → 判定带宽 = max(0.73×2, 0.3)=1.46pp → 有效带 +0.02~+1.48%；次日 0824 电子实际 -2.35%，自适应带下仍脱靶——因为方向本身错了，自适应只治"幅度带过窄"不治"方向错"，如实标注。方向押注样本自 2026-08-25 起积累，n 小仅供参考。命中率仅为历史统计，不构成投资建议。</div></details>' +
     '</div>';
 }
 
