@@ -52,6 +52,8 @@
                       B2 generated_at/文件 mtime <=48h(周末按最近交易日放宽);
                       B3 etf_daily accum_nav 最新日 >=T 但 trades 最新 <=T-2 → SEVERE
                       + 缺 nav 前3 ETF(QDII 513xxx 缺当日 nav 降 info)。
+                      nav 最新日/次日价判定均排除盘中占位行(etf_name=etf_code 同值假数据,
+                      NAV_REAL_WHERE), 盘中占位不推进到 T 不判 SEVERE(F2 返修)。
   kelly_backtest_fail backtest/deploy 链路运行证据(防「任务没跑或跑挂了旧产物还在」):
                       C1 最近成功 deploy(deploy_*.log 含「退出码=0」)距今 >2 天 → WARN;
                       C2 最新 deploy_*.log 尾部 rc 行无「退出码=0」→ WARN(最近 deploy
@@ -141,6 +143,10 @@ KELLY_FAIL_MAX_DAYS = 2       # C1: 最近成功 deploy(deploy_*.log 含「退�
 KELLY_TRADES_FILE = "signal_kelly_trades.json"
 KELLY_BACKTEST_FILE = "signal_kelly_backtest.json"
 KELLY_DEPLOY_OK_ANCHOR = "退出码=0"   # deploy.sh L799 成功行锚点: 「=== deploy.sh 结束 ... 退出码=0 ===」
+# 盘中占位行特征: etf_daily 写入的同值假数据行(etf_name=etf_code, accum_nav/open 全同值, close=NULL),
+# 不算真实价格 —— 所有「覆盖源推进日 / 次日价齐」判定必须排除(设计 §4.1: 覆盖源推进到 T 收盘价齐才判档)。
+# 已收盘日(9/4/9/7)占位=0 行; 盘中(9/8 实测 1540 行)占位经此条件过滤后 nav 最新日回落至上一收盘日。
+NAV_REAL_WHERE = "etf_name <> etf_code"
 
 
 def _jd(d: str) -> int:
@@ -706,7 +712,8 @@ def _missing_reason(repo: Path, d: str, iid: str, be: dict, win: list[str]) -> t
     if edb.exists():
         conn = sqlite3.connect(f"file:{edb}?mode=ro", uri=True, timeout=30.0)
         try:
-            row = _q1(conn, "SELECT accum_nav, open FROM etf_daily WHERE etf_code=? AND date=?",
+            row = _q1(conn, "SELECT accum_nav, open FROM etf_daily WHERE etf_code=? AND date=? "
+                            f"AND {NAV_REAL_WHERE}",
                       (code, nxt))
         finally:
             conn.close()
@@ -820,14 +827,16 @@ def check_kelly_stale(repo: Path, today: datetime) -> list[Finding]:
     out: list[Finding] = []
 
     # 覆盖源推进日: etf_daily accum_nav 最新日(KELLY_BUY_NEXTDAY 定价源; nav 未到 T=T 日价未齐,
-    # T-1 信号还在定价窗内, 未入账属正常时序——9/8 上午盘中场景, 22:35 盘后 nav 已齐才判真断档)
+    # T-1 信号还在定价窗内, 未入账属正常时序——9/8 上午盘中场景, 22:35 盘后 nav 已齐才判真断档)。
+    # 盘中占位行(etf_name=etf_code 同值假数据)不算真价: 用 NAV_REAL_WHERE 排除,
+    # 否则 MAX(date) 被占位行推到当日 → nav_ready 假 True → B1/B3 假 SEVERE(F2 返修)
     edb = repo / "data" / "etf_national_team.db"
     nav_max = ""
     if edb.exists():
         conn = sqlite3.connect(f"file:{edb}?mode=ro", uri=True, timeout=30.0)
         try:
             nav_row = conn.execute(
-                "SELECT MAX(date) FROM etf_daily WHERE accum_nav IS NOT NULL").fetchone()
+                f"SELECT MAX(date) FROM etf_daily WHERE accum_nav IS NOT NULL AND {NAV_REAL_WHERE}").fetchone()
             nav_max = str(nav_row[0] or "") if nav_row else ""
         finally:
             conn.close()
@@ -882,7 +891,7 @@ def check_kelly_stale(repo: Path, today: datetime) -> list[Finding]:
             if nav_max and nav_max >= T and latest and latest <= t_prev2:
                 rows3 = conn.execute(
                     "SELECT etf_code, etf_name, MAX(date) FROM etf_daily "
-                    "WHERE date>=? AND accum_nav IS NOT NULL "
+                    f"WHERE date>=? AND accum_nav IS NOT NULL AND {NAV_REAL_WHERE} "
                     "GROUP BY etf_code ORDER BY MAX(date) ASC LIMIT 3", (win[0],)).fetchall()
                 lacking = [r for r in rows3]
         finally:
@@ -951,11 +960,14 @@ def check_kelly_backtest_fail(repo: Path, today: datetime) -> list[Finding]:
         latest_log = logs[0]
         tail = b""
         try:
+            # 用 Path.stat() 取 size; open 后 f 是 io.BufferedReader 无 .stat() 方法,
+            # 原实现每次必抛 AttributeError 被吞 → tail 恒空 → 「退出码=0」不命中 → 每天假 WARN(F1 必现 bug)
+            size = latest_log.stat().st_size
             with open(latest_log, "rb") as f:
-                size = f.stat().st_size
                 f.seek(max(0, size - 2000))
                 tail = f.read()
-        except Exception:
+        except Exception as e:
+            print(f"[check_data_gap] C2 读 deploy 日志尾部失败 {latest_log}: {e}", file=sys.stderr)
             tail = b""
         tail_txt = tail.decode("utf-8", errors="replace")
         if ok_anchor not in tail_txt:
@@ -1295,9 +1307,11 @@ def self_test() -> int:
             fails.append("case A7c QDII 新增缺价应有 info 观察条目")
 
         # ── case K/K2/K4: 交易记录断档监控 two-way 自测(设计 §7 项 1/4) ──
-        def _kelly_files(repo_p, sd_sigs, latest_trades, nav_ok):
+        def _kelly_files(repo_p, sd_sigs, latest_trades, nav_ok, placeholder_98=False):
             """写 kelly 检查器依赖文件(board_etf_map/universe_rules/trade_dates/trades + signal_daily + 次日价)。
-            nav_ok=False 时 9/4 三 ETF 不写 9/7 次日价(模拟 R3 缺价 → 应降 WARN 场景)。"""
+            nav_ok=False 时 9/4 三 ETF 不写 9/7 次日价(模拟 R3 缺价 → 应降 WARN 场景)。
+            placeholder_98=True 时 9/8 写盘中占位行(etf_name=etf_code 同值假数据 accum_nav=1.5/open=1.49,
+            模拟 F2 盘中场景: 占位行不算真价, 覆盖源不推进到 9/8 → nav_ready 不判 SEVERE)。"""
             d = repo_p
             (d / "static-site" / "data").mkdir(parents=True, exist_ok=True)
             (d / "config").mkdir(parents=True, exist_ok=True)
@@ -1329,12 +1343,16 @@ def self_test() -> int:
             nav_rows = []
             for code, name in codes:
                 if nav_ok:
-                    nav_rows.append(("20260907", code, name, 1.1))
-                nav_rows.append(("20260908", code, name, 1.2))
+                    nav_rows.append(("20260907", code, name, 1.1, None))
+                if placeholder_98:
+                    # 盘中占位行: etf_name=etf_code 同值假数据(accum_nav/open 全同值, 无 close)
+                    nav_rows.append(("20260908", code, code, 1.5, 1.49))
+                else:
+                    nav_rows.append(("20260908", code, name, 1.2, None))
             conn = sqlite3.connect(d / "data" / "etf_national_team.db")
             conn.execute("DELETE FROM etf_daily WHERE etf_code IN ('159011','159275','562510')")
-            conn.executemany("INSERT OR IGNORE INTO etf_daily (date, etf_code, etf_name, accum_nav) "
-                             "VALUES (?,?,?,?)", nav_rows)
+            conn.executemany("INSERT OR IGNORE INTO etf_daily (date, etf_code, etf_name, accum_nav, open) "
+                             "VALUES (?,?,?,?,?)", nav_rows)
             conn.commit()
             conn.close()
 
@@ -1373,6 +1391,81 @@ def self_test() -> int:
         kc4 = [f for f in fK4 if f.key == KELLY_COVERAGE_KEY]
         if not kc4 or kc4[0].level != "warn":
             fails.append(f"case K4 全缺次日价应降 warn, 实得 {(kc4[0].level if kc4 else '无')}")
+
+        # case K5: 盘中占位行(etf_name=etf_code 同值假数据)不算真价 → nav 不推进到 T,
+        # 9/7 信号缺次日价(9/8 占位被排除) → coverage 降 warn + stale 不判 SEVERE(F2 返修回归)。
+        # K5 断档深度仍=2(trades 到 9/4, T=9/8), 但全部缺失集中在 =T-1 且缺次日价 → 该降 warn。
+        k_intraday = {"G": {"all_w": [["20260903", "csi_931946", "buy_special"],
+                                      ["20260904", "csi_931946", "buy_special"],
+                                      ["20260904", "sw_801010", "buy_special"],
+                                      ["20260904", "sw_801210", "buy_special"]]}}
+        k_sig5 = [("20260903", "csi_931946", "buy_special"),
+                  ("20260904", "csi_931946", "buy_special"),
+                  ("20260904", "sw_801010", "buy_special"),
+                  ("20260904", "sw_801210", "buy_special"),
+                  ("20260907", "csi_931946", "buy_special"),   # 9/7 有信号无 trade → 缺次日价(9/8 占位) → 应降 warn
+                  ("20260908", "csi_399976", "buy_aux")]
+        _kelly_files(base, k_sig5, k_intraday, nav_ok=True, placeholder_98=True)
+        fK5 = check_kelly_coverage(base, now) + check_kelly_stale(base, now)
+        kc5 = [f for f in fK5 if f.key == KELLY_COVERAGE_KEY]
+        if kc5 and kc5[0].level == "severe":
+            fails.append("case K5(盘中占位行)coverage 不应 severe(缺次日价应降 warn), 实得 severe")
+        badK5 = [f for f in fK5 if SEV_ORDER.get(f.level, 0) >= 2]
+        if badK5:
+            fails.append(f"case K5(盘中占位行)不应命中 severe: {[(f.key, f.level) for f in badK5]}")
+
+        # case K6: 22:35 盘后无占位行 + nav 真推进到 T + trades 落后>=2交易日 → SEVERE 仍触发
+        # (F2 返修双保险: 排除占位行不能把「真断档」也一并吞掉)
+        _kelly_files(base, k_sig, k_break, nav_ok=True)
+        fK6 = check_kelly_coverage(base, now) + check_kelly_stale(base, now)
+        kc6 = [f for f in fK6 if f.key == KELLY_COVERAGE_KEY]
+        if not kc6 or kc6[0].level != "severe":
+            fails.append(f"case K6(盘后真断档)coverage 应仍 severe, 实得 {(kc6[0].level if kc6 else '无')}")
+        b1_6 = [f for f in fK6 if f.key == KELLY_STALE_KEY and "最新信号日" in f.title]
+        if not b1_6 or b1_6[0].level != "severe":
+            fails.append(f"case K6(盘后真断档)stale B1 应仍 severe, 实得 {(b1_6[0].level if b1_6 else '无')}")
+
+        # ── case C1/C2: check_kelly_backtest_fail two-way 自测(F3 返修, 设计 §7 项 3/4) ──
+        # 用临时 deploy 日志夹具掩盖 F1「tail 读空→假 WARN」回归: C2ok 断言含锚点不告警。
+        def _deploy_logs(repo_p, files):
+            """写 deploy_*.log 夹具(先清旧 deploy 日志, 防跨 case 残留)。files=[(name, content, age_days)]。
+            age_days>0 时把 mtime 回拨(相对自测 now), 驱动 C1「成功 deploy 距今>2天」判定。"""
+            ld = repo_p / "data" / "logs"
+            ld.mkdir(parents=True, exist_ok=True)
+            for old in ld.glob("deploy_*.log"):
+                old.unlink(missing_ok=True)
+            for name, content, age_days in files:
+                p = ld / name
+                p.write_text(content, encoding="utf-8")
+                if age_days:
+                    ts = now.timestamp() - age_days * 86400
+                    os.utime(p, (ts, ts))
+
+        _anchor_ok = "=== deploy.sh 结束 2026-09-08 09:31:10 退出码=0 ===\n"
+        _anchor_fail = "=== deploy.sh 结束 2026-09-08 09:31:10 退出码=1 ===\n"
+        # C1ok: 含成功锚点 + mtime 近 → 不告警
+        _deploy_logs(base, [("deploy_20260908_0908.log", _anchor_ok, 0)])
+        if check_kelly_backtest_fail(base, now):
+            fails.append(f"case C1ok 最近成功 deploy 不应告警: "
+                         f"{[(f.key, f.level, f.title) for f in check_kelly_backtest_fail(base, now)]}")
+        # C1stale: 唯一成功锚点距今 3 天(>KELLY_FAIL_MAX_DAYS=2) → C1 WARN
+        _deploy_logs(base, [("deploy_20260905_2235.log", _anchor_ok, 3)])
+        fC1 = check_kelly_backtest_fail(base, now)
+        c1 = [f for f in fC1 if f.key == KELLY_BT_FAIL_KEY and "deploy 距今" in f.title]
+        if not c1 or c1[0].level != "warn":
+            fails.append(f"case C1stale 期望 C1 WARN(成功 deploy 距今>2 天), 实得 {[(f.key, f.level, f.title) for f in fC1]}")
+        # C2ok: 最新 deploy 尾部含成功锚点 → 不告警(F1 回归守门: tail 读空→假 WARN 必须被抓)
+        _deploy_logs(base, [("deploy_20260908_0908.log", _anchor_ok, 0)])
+        if check_kelly_backtest_fail(base, now):
+            fails.append(f"case C2ok 最新 deploy 尾部含成功锚点不应告警(F1 回归): "
+                         f"{[(f.key, f.level, f.title) for f in check_kelly_backtest_fail(base, now)]}")
+        # C2fail: 最新 deploy 尾部无成功锚点(rc=1) → C2 WARN
+        _deploy_logs(base, [("deploy_20260908_0908.log", _anchor_fail, 0)])
+        fC2 = check_kelly_backtest_fail(base, now)
+        c2 = [f for f in fC2 if f.key == KELLY_BT_FAIL_KEY and "无成功标记" in f.title]
+        if not c2 or c2[0].level != "warn":
+            fails.append(f"case C2fail 最新 deploy 尾部无锚点应 C2 WARN, "
+                         f"实得 {[(f.key, f.level, f.title) for f in fC2]}")
 
         # ── case A4: run_alerts 出口链路(stub notify 真发模式): state 登记+dedup+恢复通知
         # + extra_state 内部键保留(dry-run 不落盘由生产 --dry-run 行为保证) ──
@@ -1470,7 +1563,8 @@ def self_test() -> int:
           " / A4 出口 dedup+恢复链路 / A5-F1 低增info不发恢复+真消失才恢复 / A6-F2 原子写失败保留旧文件"
           " / A7 新增缺价 diff: 首轮建档+无新增静默+非QDII回归warn+QDII时滞info"
           " / K 断档 trades只到9/3→kelly_coverage SEVERE+stale B1 SEVERE / K2 全入账零命中"
-          " / K4 全缺次日价降warn)")
+          " / K4 全缺次日价降warn / K5 盘中占位行不算真价→不判SEVERE / K6 盘后真断档仍SEVERE"
+          " / C1 成功deploy锚点近不告警+距今>2天告警 / C2 尾部锚点在/不在 two-way)")
     return 0
 
 
