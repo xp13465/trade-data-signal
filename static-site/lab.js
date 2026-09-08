@@ -9384,6 +9384,13 @@ async function renderSigKellyLab() {
   bar.className = "lab-sigkelly-bar";
   wrapper.appendChild(bar);
 
+  // 盘中增量回测档·独立盘中视图(2026-09-08, intraday-backtest-rerun): 交易日 9:40 盘中补跑产物
+  // signal_kelly_trades_intraday.json 只含上一交易日信号用今日真实开盘价入账的交易, 标注盘中价;
+  // 17:50 后前端自动以全量版为准, 本视图降级历史临时视图。实现单源在 common.js _kellyIntradayRender(§22)。
+  if (typeof window._kellyIntradayRender === "function") {
+    window._kellyIntradayRender(bar);
+  }
+
   // AI报告折叠区(静态AI报告, 不依赖周期/费率, 放wrapper层避免随_renderSigKellyQuadrants重渲染重置open状态)
   // 2026-08-12 升级: 3AI新版(默认) / 双AI历史 双模式切换(localStorage 记忆 lab_sigkelly_ai_mode)
   //   3AI模式= 3ai-comparison(3AI结论对比) + comprehensive + deepseek + claude-v4(Claude第三角色)

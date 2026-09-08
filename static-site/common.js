@@ -1318,3 +1318,115 @@ function _gihRealizeRealForce(sel, dt, feeCfg) {
 
 window._kkellyRealNavEnsure = _gihRealNavEnsure;
 window._kkellyRealizeRealForce = _gihRealizeRealForce;
+
+// =============================== 盘中增量回测档(独立盘中视图, 2026-09-08 intraday-backtest-rerun) ===============================
+// 背景: 交易日 9:40 盘中补跑(scripts/kelly_intraday_rerun.sh -> signal_kelly_backtest.py --intraday-rerun)
+// 用今日真实开盘价把上一交易日信号提前入账, 产物独立小文件 signal_kelly_trades_intraday.json
+// (只含 T 日信号交易, 定价=信号日 accum_nav × 今日开盘/信号日真实 close, 不覆盖 72MB 主档)。
+// 报告: docs/kelly/analysis/intraday-backtest-rerun-design-20260908.md §6 用户拍板——「独立盘中视图+标注盘中价;
+// 17:50 后前端自动以全量版为准, 盘中视图降级为历史临时视图」。前端在凯利区(lab.js)与模拟回测弹窗(app.js)
+// 各以独立当日视图展示; 本模块是两消费点唯一实现(§22 同源一致性 + §5.4⑦ 防第二份实现漂移)。
+// 活动判定(纯前端, 无交易日接口): file.intraday.mode=='intraday' && next_open_date==今日YYYYMMDD
+//   && 现在<17:50 → 标注盘中价的活跃视图; 同日 >=17:50 → 降级灰注「已由全量版接管」(历史临时视图);
+//   换日(next_open_date!=今日) → 不渲染(全量版已接管, 不残留陈旧 banner)。
+// 经 window._kellyIntradayRender(anchorEl) 注入: fetch(单例 promise, _labCustomCacheBust 破缓存) → 贴到 anchor 之后。
+(function () {
+  var _INTRA_URL = "./data/signal_kelly_trades_intraday.json";
+  var _promise = null;
+  function _pad(n) { return n < 10 ? "0" + n : "" + n; }
+  function _todayS() { var d = new Date(); return "" + d.getFullYear() + _pad(d.getMonth() + 1) + _pad(d.getDate()); }
+  function _hm() { var d = new Date(); return d.getHours() * 100 + d.getMinutes(); }
+  function _fmtDate(s) {
+    // 20260907 -> 9/7
+    if (!s || String(s).length !== 8) return s;
+    return String(parseInt(s.slice(4, 6), 10)) + "/" + String(parseInt(s.slice(6, 8), 10));
+  }
+  function _fetch() {
+    if (_promise) return _promise;
+    var cb = (typeof _labCustomCacheBust === "function" && _labCustomCacheBust()) || "";
+    _promise = fetch(_INTRA_URL + (cb ? "?v=" + cb : ""), { cache: "no-store" })
+      .then(function (r) { if (!r.ok) return null; return r.json(); })
+      .catch(function () { return null; });
+    return _promise;
+  }
+  function _esc(x) {
+    return String(x == null ? "" : x).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function _bannerHtml(d) {
+    if (!d || !d.intraday || d.intraday.mode !== "intraday") return "";
+    var meta = d.intraday;
+    var sameDay = meta.next_open_date === _todayS();
+    if (!sameDay) return "";               // 换日 → 不渲染(全量版已接管)
+    var active = _hm() < 1750;             // 同日 17:50 前 → 活跃盘中视图
+    var f = d.fields || [];
+    function I(nm) { return f.indexOf(nm); }
+    var si = I("signal_date"), xi = I("index_id"), gi = I("signal"), ci = I("etf_code"),
+        ni = I("etf_name"), bi = I("buy_price"), pi = I("current_price"), rmi = I("return_pct"),
+        srI = I("sell_reason");
+    // 跨象限去重(每笔交易同现于评级/ETF/信号/大类多象限, 按全行 tuple 去重) + 收集模式集
+    var seen = {}, unique = [], modes = [], modeSeen = {};
+    for (var qk in d.quadrants) {
+      var mk = d.quadrants[qk];
+      for (var m2 in mk) {
+        var arr = mk[m2];
+        if (!modeSeen[m2]) { modeSeen[m2] = 1; modes.push(m2); }
+        for (var i = 0; i < arr.length; i++) {
+          var r = arr[i], key = String(r.join("|"));
+          if (seen[key]) continue;
+          seen[key] = 1;
+          unique.push(r);
+        }
+      }
+    }
+    modes.sort();
+    var n = unique.length;
+    if (n === 0) return "";
+    var cap = _fmtDate(meta.rerun_date || "");
+    var R = active
+      ? '#e74c3c'
+      : '#999';
+    var head = active
+      ? '<b>📊 盘中增量回测</b> · 上一交易日(<b>' + cap + '</b>)信号已用今日开盘价<br>提前入账 <b>' + n + '</b> 笔（' + modes.length + ' 卖出模式） · <b style="color:' + R + '">标注=盘中价（今日真实开盘定价，非最终收盘口径）</b>'
+      : '<b>📋 盘中增量回测</b> · <span style="color:' + R + '">已由 17:50 全量版接管（本视图为盘中历史临时视图，价格仍为盘中开盘口径，最终以全量版为准）</span>';
+    var rows = "";
+    for (var j = 0; j < unique.length; j++) {
+      var row = unique[j];
+      var bpx = row[bi], cur = row[pi], rp = row[rmi];
+      var bpxTxt = bpx == null || bpx === "" ? "-" : (typeof bpx === "number" ? bpx.toFixed(4) : bpx);
+      var curTxt = cur == null || cur === "" ? (row[srI] == null ? "持仓中" : "-") : (typeof cur === "number" ? cur.toFixed(4) : cur);
+      var rpTxt = rp == null || rp === "" ? "" : (typeof rp === "number" ? (rp >= 0 ? "+" : "") + rp.toFixed(2) + "%" : rp);
+      rows += '<tr><td>' + _fmtDate(row[si]) + '</td><td>' + _esc(row[xi]) + '</td><td>' + _esc(row[gi]) + '</td>' +
+        '<td>' + _esc(row[ci]) + (row[ni] ? ' <span style="color:#889">' + _esc(row[ni]) + '</span>' : '') + '</td>' +
+        '<td>' + bpxTxt + '</td><td>' + curTxt + '</td><td>' + rpTxt + '</td></tr>';
+    }
+    return '<div style="border:1px solid ' + (active ? '#f0a3a3' : '#ddd') + ';background:' + (active ? '#fff6f4' : '#f7f7f7') + ';border-radius:8px;padding:8px 12px;margin:6px 0;font-size:12px;line-height:1.6;color:#333">' +
+      head +
+      '<div style="max-height:220px;overflow:auto;margin-top:6px;border:1px solid #eee;border-radius:6px">' +
+      '<table style="border-collapse:collapse;font-size:11px;white-space:nowrap"><thead><tr style="position:sticky;top:0;background:#fff">' +
+      '<th style="padding:3px 8px;text-align:left">信号日</th><th style="padding:3px 8px;text-align:left" title="指数(信号标的)">指数</th>' +
+      '<th style="padding:3px 8px;text-align:left">信号</th><th style="padding:3px 8px;text-align:left">入账ETF</th>' +
+      '<th style="padding:3px 8px;text-align:right" title="盘中价=信号日净值×今日真实开盘/信号日收盘">买入价(盘中)</th>' +
+      '<th style="padding:3px 8px;text-align:right" title="按今日开盘等价值估算, 持仓中未卖出">当前价(盘中)</th>' +
+      '<th style="padding:3px 8px;text-align:right">收益率</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div style="color:#889;font-size:11px;margin-top:4px">' +
+      (active ? '⏰ 17:50 全量回测后前端自动以全量版为准, 本盘中视图降级为历史临时视图（价格可能随收盘口径跳变）。' : '') +
+      '定价口径与主档一致（信号次日开盘）, 仅价格源=今日真实开盘(akshare)。纯展示, 不构成投资建议。</div></div>';
+  }
+  function render(anchorEl) {
+    if (!anchorEl || !anchorEl.parentNode) return;
+    _fetch().then(function (d) {
+      var html = _bannerHtml(d);
+      if (!html) return;
+      var el = document.createElement("div");
+      el.innerHTML = html;
+      anchorEl.insertAdjacentElement("afterend", el.firstElementChild);
+    });
+  }
+  window._kellyIntradayRender = render;
+  window._kellyIntradayFetch = _fetch;
+})();
+
+window._kkellyRealNavEnsure = _gihRealNavEnsure;
+window._kkellyRealizeRealForce = _gihRealizeRealForce;

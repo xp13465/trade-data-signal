@@ -511,6 +511,42 @@ def _next_trading_day(signal_date, sorted_dates_list):
     return None
 
 
+def _fetch_intraday_open_prices(codes):
+    """盘中(9:40)拉 akshare fund_etf_spot_em 真实开盘价, 返回 {etf_code: open_price}。
+
+    技术修正(2026-09-08 前置实测): 设计报告 §6/§3 字面写 fund_etf_fund_daily_em 作开盘价源,
+    但该源只有「市价」列无「开盘价」; 实测 fund_etf_spot_em(同为东财源, build_board_etf_map.py /
+    gen_etf_index_map.py 已在用) 37 列含「开盘价」且返回真实当日开盘价(516660=0.937 /
+    510300=4.638 / 159920=1.483, 数据日期=2026-09-08), 故以 fund_etf_spot_em 为数据就绪闸判定源。
+    失败/空/缺列/目标 ETF 零命中: 抛 RuntimeError(调用方转退出码 5, 盘中本轮跳过留给 17:50)。
+    """
+    import warnings
+    try:
+        import akshare as ak
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"akshare 不可用: {type(e).__name__}: {e}") from e
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        try:
+            df = ak.fund_etf_spot_em()
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"akshare fund_etf_spot_em 拉取失败: {type(e).__name__}: {e}") from e
+    if df is None or df.empty or "代码" not in df.columns or "开盘价" not in df.columns:
+        raise RuntimeError("akshare fund_etf_spot_em 返回空/缺列, 无法取盘中真实开盘价")
+    df = df[df["代码"].isin([str(c) for c in codes])]
+    out = {}
+    for _, row in df.iterrows():
+        try:
+            op = float(row.get("开盘价"))
+        except (TypeError, ValueError):
+            continue
+        if op and op > 0:
+            out[str(row["代码"])] = op
+    if not out:
+        raise RuntimeError("akshare fund_etf_spot_em 未返回任何目标 ETF 的真实开盘价(数据就绪闸 FAIL)")
+    return out
+
+
 def _calendar_days(d1, d2):
     """两个 YYYYMMDD 日期字符串间的自然日天数(max 0)。"""
     try:
@@ -1052,6 +1088,187 @@ def _compute_stats(trades, period_key="all", buy_amount=None):
 
 # ── 主流程 ────────────────────────────────────────────────────────────────────
 
+def _classify_buy_rows(buy_rows, best_etf, etf_freeze, signal_stats, market_map,
+                       price_map, open_map, close_map, sorted_dates_map, sell_timeline,
+                       market_state, market_dates, market_tiers, cyb_tiers, today_str):
+    """逐信号分类 + 10 模式回测(compute 全量与 compute_intraday 盘中增量共用, 单一实现防漂移 §5.4⑦)。
+
+    buy_rows: [(date, index_id, signal)]; 价格/信号时间线/大盘态已由调用方按口径准备好
+    (compute: 全量; compute_intraday: 截断到 T 日 + 注入 T+1 真实开盘价 + 卖出信号截断到 <=T)。
+    返回 (quadrants {qk: {mk: [trade,...]}}, 统计 dict)。副作用: 就地写 etf_freeze
+    (新信号事件固化 ETF 选择)——是否持久化由调用方决定(全量档保存, 盘中档只读不保存)。
+    """
+    quadrants = {qk: {mk: [] for mk in SELL_MODES} for qk in QUADRANT_META}
+    skipped_no_etf = skipped_no_score = skipped_no_price = 0
+    classified = 0
+    frozen_used = 0  # 使用已固化 ETF 的信号事件数(历史成交固化, 不随当前 best 变更)
+
+    # ETF track_tier -> 象限后缀映射(none+null -> has_track, 2026-08-24 与首页筛选档4口径统一;
+    # tier 仅五态(strong/related/approx/none/None)无脏值, None 键=track_score<30 或 N<30 无分)
+    etf_quad_map = {"strong": "strong", "related": "related", "approx": "approx", "none": "has_track",
+                    None: "has_track"}
+
+    for date, iid, sig in buy_rows:
+        if KELLY_ASOF and date > KELLY_ASOF:
+            continue  # 仅验证用: 数据截止复现报告数字
+        be, be_frozen = _resolve_etf(date, iid, sig, best_etf, etf_freeze)
+        if not be:
+            skipped_no_etf += 1
+            continue
+        if be_frozen:
+            frozen_used += 1
+
+        etf_code = be["code"]
+        tier = be["track_tier"]
+
+        # 信号评级(按 signal_stats 10d score)
+        stats_entry = signal_stats.get(iid, {}).get(sig, {})
+        score_10d = stats_entry.get("10d", {}).get("score") if isinstance(stats_entry, dict) else None
+        if score_10d is None:
+            skipped_no_score += 1
+            continue  # 无评级, 跳过(不纳入任何象限)
+
+        if score_10d >= RATING_HIGH:
+            rating = "high"
+        elif score_10d >= RATING_MID:
+            rating = "mid"
+        else:
+            rating = "low"
+
+        # ETF 归类(strong/related/approx/has_track; none+null 同归 has_track, 2026-08-24 口径统一)
+        etf_quad = etf_quad_map.get(tier)
+
+        # 大盘择时 market_state: A股类(a/concept/industry)按hs300 MA60实际状态, 非A股类标True不过滤
+        market = market_map.get(iid)
+        if market in A_STOCK_MARKETS:
+            ms = _is_market_bull(date, market_state, market_dates)
+        else:
+            ms = True
+        # 四档 market_tier(v1.1.2 三键): hs300 四档判定。
+        mt_all = _market_tier_at(date, market_tiers, market_dates)
+        mt = mt_all if market in A_STOCK_MARKETS else ""
+        mt_cyb = _market_tier_at(date, cyb_tiers, market_dates)
+        mt_cyb = mt_cyb if market in A_STOCK_MARKETS else ""
+
+        # 10 模式回测(A-F/J 固定规则 + G/H/I 信号驱动)
+        prices = price_map.get(etf_code, {})
+        sdates = sorted_dates_map.get(etf_code, [])
+        sell_signals = sell_timeline.get(iid, [])  # 该指数卖出信号时间线(G/H/I 用)
+        any_valid = False
+        for mode_key, mode_def in SELL_MODES.items():
+            result = _backtest_one(date, prices, sdates, etf_code, be["name"], mode_def["stop_profit"],
+                                   iid, sig, be.get("track_tier"), be.get("track_score"),
+                                   be.get("match_method"), be.get("track_low_confidence"),
+                                   today=today_str, hold_days=mode_def["hold_days"], market_state=ms, rating=rating,
+                                   sell_mode=mode_key, sell_signals=sell_signals, market_tier=mt, market_tier_all=mt_all,
+                                   market_tier_cyb=mt_cyb, open_map=open_map, close_map=close_map)
+            if result is None:
+                continue  # 数据不足(信号日无价格/未来不足 hold_days 天)
+            any_valid = True
+            # 归入评级象限
+            quadrants[f"rating_{rating}"][mode_key].append(result)
+            # 归入 ETF 归类象限(如有)
+            if etf_quad:
+                quadrants[f"etf_{etf_quad}"][mode_key].append(result)
+            # 归入信号类型象限(按 signal 字段, 互斥覆盖全体)
+            sig_quad = SIG_QUAD_MAP.get(sig)
+            if sig_quad:
+                quadrants[sig_quad][mode_key].append(result)
+            # 归入指数大类象限(按 indicators.yaml market 字段, market 已在循环外算)
+            mkt_quad = MARKET_QUAD_MAP.get(market)
+            if mkt_quad:
+                quadrants[mkt_quad][mode_key].append(result)
+
+        if any_valid:
+            classified += 1
+        else:
+            skipped_no_price += 1
+
+    return quadrants, {
+        "classified": classified, "skipped_no_etf": skipped_no_etf,
+        "skipped_no_score": skipped_no_score, "skipped_no_price": skipped_no_price,
+        "frozen_used": frozen_used,
+    }
+
+
+def _build_outputs(quadrants):
+    """由 quadrants 聚合周期统计 + trades 列式文件结构(compute 全量与 compute_intraday 共用)。
+
+    返回 (output, trades_output)。两档结构完全一致, 保证前端同一渲染逻辑可读盘中档。
+    """
+    output = {
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "config": {
+            "buy_amount": BUY_AMOUNT,
+            "hold_days": HOLD_DAYS,
+            "sell_modes": SELL_MODES,
+            "periods": {k: v["label"] for k, v in PERIODS.items()},
+            "period_cutoffs": {k: v["cutoff"] for k, v in PERIODS.items()},
+            "rating_thresholds": {"high": RATING_HIGH, "mid": RATING_MID},
+            "etf_tiers": ["strong", "related", "approx", "none"],
+            "commission_rate": COMMISSION_RATE,
+            "slippage": SLIPPAGE,
+            "min_commission": MIN_COMMISSION,
+            "transfer_fee_rate_sh": TRANSFER_FEE_RATE_SH,
+            "buy_signals": list(BUY_SIGNALS),
+            "signal_type_quads": SIG_QUAD_MAP,
+            "market_quads": MARKET_QUAD_MAP,
+            "buy_price_basis": "next_day_open" if KELLY_BUY_NEXTDAY else "signal_day_close",
+        },
+        "quadrants": {},
+    }
+
+    # trades 列文件(列式存储, 每 quadrant x mode 存 all 周期全量, 前端按 cutoff 过滤 y1/y3)
+    TRADE_FIELDS = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name",
+                    "track_tier", "track_score", "match_method", "track_low_confidence",
+                    "buy_price", "sell_price", "shares", "profit", "return_pct",
+                    "hold_days", "sell_reason", "current_price", "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
+    trades_output = {
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "buy_amount": BUY_AMOUNT,
+        "period_cutoffs": {k: v["cutoff"] for k, v in PERIODS.items()},
+        "fields": TRADE_FIELDS,
+        "quadrants": {},
+    }
+
+    for quad_key, quad_meta in QUADRANT_META.items():
+        quad_data = {"label": quad_meta["label"], "desc": quad_meta["desc"], "periods": {}, "guidance": {}}
+        for mode_key in SELL_MODES:
+            quad_data["guidance"][mode_key] = _guidance(quad_key, mode_key)
+        for period_key, period_def in PERIODS.items():
+            cutoff = period_def["cutoff"]
+            period_data = {}
+            for mode_key in SELL_MODES:
+                all_trades = quadrants[quad_key][mode_key]
+                # 按周期过滤(信号买入日期 >= cutoff)
+                if cutoff and cutoff != "0":
+                    period_trades = [t for t in all_trades if t["buy_date"] >= cutoff]
+                else:
+                    period_trades = list(all_trades)
+                period_data[mode_key] = _compute_stats(period_trades, period_key)
+            quad_data["periods"][period_key] = period_data
+        output["quadrants"][quad_key] = quad_data
+        # trades 文件: 每 quadrant x mode 存 all 周期全量(列式)
+        trades_output["quadrants"][quad_key] = {}
+        for mode_key in SELL_MODES:
+            trades_output["quadrants"][quad_key][mode_key] = [
+                [t.get(f, "") for f in TRADE_FIELDS]
+                for t in quadrants[quad_key][mode_key]
+            ]
+
+    # 6. 汇总打印
+    print("\n=== 回测结果汇总 ===")
+    for quad_key in QUADRANT_META:
+        for period_key in PERIODS:
+            n_a = output["quadrants"][quad_key]["periods"][period_key]["A"]["n"]
+            n_b = output["quadrants"][quad_key]["periods"][period_key]["B"]["n"]
+            if n_a > 0:
+                hk = output["quadrants"][quad_key]["periods"][period_key]["A"]["half_kelly"]
+                wr = output["quadrants"][quad_key]["periods"][period_key]["A"]["win_rate"]
+                print(f"  {quad_key:14s} {period_key:3s}  A: n={n_a:5d} win_rate={wr:.3f} half_kelly={hk:.1f}%  B: n={n_b:5d}")
+
+    return output, trades_output
+
 def compute():
     """执行完整回测, 返回结果 dict。"""
     from datetime import timedelta
@@ -1130,96 +1347,17 @@ def compute():
     if today_str:
         print(f"   全局最新数据日 today={today_str}")
 
-    # 4. 逐信号分类 + 6 模式回测
-    # quadrants[quad_key][mode_key] = [trade, ...]
-    quadrants = {qk: {mk: [] for mk in SELL_MODES} for qk in QUADRANT_META}
-    skipped_no_etf = skipped_no_score = skipped_no_price = 0
-    classified = 0
-    frozen_used = 0  # 使用已固化 ETF 的信号事件数(历史成交固化, 不随当前 best 变更)
-
-    # ETF track_tier -> 象限后缀映射(none+null -> has_track, 2026-08-24 与首页筛选档4口径统一;
-    # tier 仅五态(strong/related/approx/none/None)无脏值, None 键=track_score<30 或 N<30 无分)
-    etf_quad_map = {"strong": "strong", "related": "related", "approx": "approx", "none": "has_track",
-                    None: "has_track"}
-
-    for date, iid, sig in buy_rows:
-        if KELLY_ASOF and date > KELLY_ASOF:
-            continue  # 仅验证用: 数据截止复现报告数字
-        be, be_frozen = _resolve_etf(date, iid, sig, best_etf, etf_freeze)
-        if not be:
-            skipped_no_etf += 1
-            continue
-        if be_frozen:
-            frozen_used += 1
-
-        etf_code = be["code"]
-        tier = be["track_tier"]
-
-        # 信号评级(按 signal_stats 10d score)
-        stats_entry = signal_stats.get(iid, {}).get(sig, {})
-        score_10d = stats_entry.get("10d", {}).get("score") if isinstance(stats_entry, dict) else None
-        if score_10d is None:
-            skipped_no_score += 1
-            continue  # 无评级, 跳过(不纳入任何象限)
-
-        if score_10d >= RATING_HIGH:
-            rating = "high"
-        elif score_10d >= RATING_MID:
-            rating = "mid"
-        else:
-            rating = "low"
-
-        # ETF 归类(strong/related/approx/has_track; none+null 同归 has_track, 2026-08-24 口径统一)
-        etf_quad = etf_quad_map.get(tier)
-
-        # 大盘择时 market_state: A股类(a/concept/industry)按hs300 MA60实际状态, 非A股类标True不过滤
-        market = market_map.get(iid)
-        if market in A_STOCK_MARKETS:
-            ms = _is_market_bull(date, market_state, market_dates)
-        else:
-            ms = True
-        # 四档 market_tier(v1.1.2 三键): hs300 四档判定。
-        #   market_tier = A股类(a/concept/industry)四档, 非A股类为 ""(主键 excludeSpecialBear 仅A股类, 与 market_state 同守卫);
-        #   market_tier_all = 全市场四档(备选键 declinePhaseSpecial 下降期×buy_special 全市场用)。
-        #   market_tier_cyb(#69): A股类信号注入 cyb(创业板指)四档, 非A股类为 ""(新键 excludeSpecialBearCyb 用, 与 market_tier 同构守卫)。
-        mt_all = _market_tier_at(date, market_tiers, market_dates)
-        mt = mt_all if market in A_STOCK_MARKETS else ""
-        mt_cyb = _market_tier_at(date, cyb_tiers, market_dates)
-        mt_cyb = mt_cyb if market in A_STOCK_MARKETS else ""
-
-        # 10 模式回测(A-F/J 固定规则 + G/H/I 信号驱动)
-        prices = price_map.get(etf_code, {})
-        sdates = sorted_dates_map.get(etf_code, [])
-        sell_signals = sell_timeline.get(iid, [])  # 该指数卖出信号时间线(G/H/I 用)
-        any_valid = False
-        for mode_key, mode_def in SELL_MODES.items():
-            result = _backtest_one(date, prices, sdates, etf_code, be["name"], mode_def["stop_profit"],
-                                   iid, sig, be.get("track_tier"), be.get("track_score"),
-                                   be.get("match_method"), be.get("track_low_confidence"),
-                                   today=today_str, hold_days=mode_def["hold_days"], market_state=ms, rating=rating,
-                                   sell_mode=mode_key, sell_signals=sell_signals, market_tier=mt, market_tier_all=mt_all,
-                                   market_tier_cyb=mt_cyb, open_map=open_map, close_map=close_map)
-            if result is None:
-                continue  # 数据不足(信号日无价格/未来不足 hold_days 天)
-            any_valid = True
-            # 归入评级象限
-            quadrants[f"rating_{rating}"][mode_key].append(result)
-            # 归入 ETF 归类象限(如有)
-            if etf_quad:
-                quadrants[f"etf_{etf_quad}"][mode_key].append(result)
-            # 归入信号类型象限(按 signal 字段, 互斥覆盖全体)
-            sig_quad = SIG_QUAD_MAP.get(sig)
-            if sig_quad:
-                quadrants[sig_quad][mode_key].append(result)
-            # 归入指数大类象限(按 indicators.yaml market 字段, market 已在循环外算)
-            mkt_quad = MARKET_QUAD_MAP.get(market)
-            if mkt_quad:
-                quadrants[mkt_quad][mode_key].append(result)
-
-        if any_valid:
-            classified += 1
-        else:
-            skipped_no_price += 1
+    # 4. 逐信号分类 + 10 模式回测(_classify_buy_rows 与盘中增量档共用, 单一实现防漂移 §5.4⑦)
+    quadrants, loop_stats = _classify_buy_rows(
+        buy_rows, best_etf, etf_freeze, signal_stats, market_map,
+        price_map, open_map, close_map, sorted_dates_map, sell_timeline,
+        market_state, market_dates, market_tiers, cyb_tiers, today_str,
+    )
+    classified = loop_stats["classified"]
+    skipped_no_etf = loop_stats["skipped_no_etf"]
+    skipped_no_score = loop_stats["skipped_no_score"]
+    skipped_no_price = loop_stats["skipped_no_price"]
+    frozen_used = loop_stats["frozen_used"]
 
     print(f"   分类完成: {classified} 信号有有效回测")
     print(f"   跳过: 无ETF映射={skipped_no_etf}, 无评级score={skipped_no_score}, 无ETF价格/未来不足={skipped_no_price}")
@@ -1234,79 +1372,219 @@ def compute():
     except OSError as e:
         print(f"   ⚠ 冻结表写盘失败(不影响本次回测结果): {e}", file=sys.stderr)
 
-    # 5. 按周期聚合统计
-    output = {
-        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "config": {
-            "buy_amount": BUY_AMOUNT,
-            "hold_days": HOLD_DAYS,
-            "sell_modes": SELL_MODES,
-            "periods": {k: v["label"] for k, v in PERIODS.items()},
-            "period_cutoffs": {k: v["cutoff"] for k, v in PERIODS.items()},
-            "rating_thresholds": {"high": RATING_HIGH, "mid": RATING_MID},
-            "etf_tiers": ["strong", "related", "approx", "none"],
-            "commission_rate": COMMISSION_RATE,
-            "slippage": SLIPPAGE,
-            "min_commission": MIN_COMMISSION,
-            "transfer_fee_rate_sh": TRANSFER_FEE_RATE_SH,
-            "buy_signals": list(BUY_SIGNALS),
-            "signal_type_quads": SIG_QUAD_MAP,
-            "market_quads": MARKET_QUAD_MAP,
-            "buy_price_basis": "next_day_open" if KELLY_BUY_NEXTDAY else "signal_day_close",
-        },
-        "quadrants": {},
-    }
-
-    # trades 列文件(列式存储, 每 quadrant x mode 存 all 周期全量, 前端按 cutoff 过滤 y1/y3)
-    TRADE_FIELDS = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name",
-                    "track_tier", "track_score", "match_method", "track_low_confidence",
-                    "buy_price", "sell_price", "shares", "profit", "return_pct",
-                    "hold_days", "sell_reason", "current_price", "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
-    trades_output = {
-        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "buy_amount": BUY_AMOUNT,
-        "period_cutoffs": {k: v["cutoff"] for k, v in PERIODS.items()},
-        "fields": TRADE_FIELDS,
-        "quadrants": {},
-    }
-
-    for quad_key, quad_meta in QUADRANT_META.items():
-        quad_data = {"label": quad_meta["label"], "desc": quad_meta["desc"], "periods": {}, "guidance": {}}
-        for mode_key in SELL_MODES:
-            quad_data["guidance"][mode_key] = _guidance(quad_key, mode_key)
-        for period_key, period_def in PERIODS.items():
-            cutoff = period_def["cutoff"]
-            period_data = {}
-            for mode_key in SELL_MODES:
-                all_trades = quadrants[quad_key][mode_key]
-                # 按周期过滤(信号买入日期 >= cutoff)
-                if cutoff and cutoff != "0":
-                    period_trades = [t for t in all_trades if t["buy_date"] >= cutoff]
-                else:
-                    period_trades = list(all_trades)
-                period_data[mode_key] = _compute_stats(period_trades, period_key)
-            quad_data["periods"][period_key] = period_data
-        output["quadrants"][quad_key] = quad_data
-        # trades 文件: 每 quadrant x mode 存 all 周期全量(列式)
-        trades_output["quadrants"][quad_key] = {}
-        for mode_key in SELL_MODES:
-            trades_output["quadrants"][quad_key][mode_key] = [
-                [t.get(f, "") for f in TRADE_FIELDS]
-                for t in quadrants[quad_key][mode_key]
-            ]
-
-    # 6. 汇总打印
-    print("\n=== 回测结果汇总 ===")
-    for quad_key in QUADRANT_META:
-        for period_key in PERIODS:
-            n_a = output["quadrants"][quad_key]["periods"][period_key]["A"]["n"]
-            n_b = output["quadrants"][quad_key]["periods"][period_key]["B"]["n"]
-            if n_a > 0:
-                hk = output["quadrants"][quad_key]["periods"][period_key]["A"]["half_kelly"]
-                wr = output["quadrants"][quad_key]["periods"][period_key]["A"]["win_rate"]
-                print(f"  {quad_key:14s} {period_key:3s}  A: n={n_a:5d} win_rate={wr:.3f} half_kelly={hk:.1f}%  B: n={n_b:5d}")
+    # 5. 按周期聚合统计 + trades 列式结构(_build_outputs 与盘中增量档共用, 单一实现防漂移 §5.4⑦)
+    output, trades_output = _build_outputs(quadrants)
 
     return output, trades_output
+
+
+# ── 盘中增量回测档(--intraday-rerun, 2026-09-08 实施) ────────────────────────
+# 背景: 9/7 信号的交易要等 9/8 17:50 全量回测才入账(定价=信号次日开盘价)。用户拍板方向 A:
+# 交易日 9:40 开盘后补跑一轮, 用 9/8 真实开盘价提前入账当日信号。核心铁律: 盘中补跑只做加法
+# (新增 T 日交易), 绝不覆盖(重算历史)——盘中裸跑全量必污染历史(9/8 占位价 accum_nav=1.5 /
+# open=1.49/close=NULL 的 1540 只假价 + 当日盘中临时信号 + index_daily 盘中态, 报告 §1.3)。
+# 方案 A(报告 §3 + §6 用户拍板):
+#   ① buy_rows 只取 date == T(隔离 T+1 盘中临时信号);
+#   ② 价格时间线截断到 <= T(结构性排除 T+1 占位行);
+#   ③ T+1 真实开盘价 akshare fund_etf_spot_em 注入 open_map(next_date 键), 买入定价走既有
+#      KELLY_BUY_NEXTDAY 口径(信号日 accum_nav × 真实开盘/信号日真实 close), PSEUDO_GAP_EXCLUDE 沿用;
+#   ④ 大盘择时天然只用 <= T 态(_is_market_bull/_market_tier_at 的 bisect_right 保证);
+#   ⑤ 冻结表只读不持久化(防污染);
+#   ⑥ 产物独立 signal_kelly_trades_intraday.json / signal_kelly_backtest_intraday.json,
+#      不覆盖主档; 17:50 全量回测照常, 前端 17:50 后以全量版为准。
+
+def _main_pre_date_hash(trades_path, signal_date_str):
+    """主档 signal_kelly_trades.json 中 signal_date < signal_date_str 的交易哈希(对账机检基线)。
+
+    盘中增量档生成时记录, 对账机检(--intraday-verify)时重算比对, 漂移即 FAIL——
+    防止主档历史已变(冻结/宇宙/口径变更)而盘中视图仍基于旧基线发布(§5.4⑦ 同构对账)。
+    """
+    if not trades_path or not os.path.exists(trades_path):
+        return None
+    with open(trades_path, encoding="utf-8") as f:
+        data = json.load(f)
+    fields = data.get("fields", [])
+    try:
+        sig_i = fields.index("signal_date")
+    except ValueError:
+        return None
+    rows = []
+    for qk, mk_map in data.get("quadrants", {}).items():
+        for mk, arr in mk_map.items():
+            for r in arr:
+                if r[sig_i] < signal_date_str:
+                    rows.append((qk, mk, tuple(r)))
+    import hashlib
+    rows.sort()
+    return hashlib.sha256(
+        json.dumps(rows, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def compute_intraday(signal_date_str, main_trades_path):
+    """盘中增量回测: 只处理 signal_date_str(T 日)当日买信号, 产出独立盘中交易/统计结构。
+
+    main_trades_path: 主档 signal_kelly_trades.json(用于记录 pre-T 哈希对账基线,
+    不收 pre-T 主档交易本身——盘中档结构上零历史, 只含 T 日交易)。
+    数据就绪闸: akshare 取不到真实开盘价 -> raise RuntimeError(调用方转退出码 5)。
+    返回 (trades_data, stats_data), trades_data 带 intraday 元信息(rerun_date/main_pre_date_hash/
+    next_open_date/price_basis), 供前端盘中视图识别与对账机检使用。
+    """
+    from datetime import timedelta
+    today = datetime.now()
+    PERIODS["y1"]["cutoff"] = (today - timedelta(days=365)).strftime("%Y%m%d")
+    PERIODS["y3"]["cutoff"] = (today - timedelta(days=365 * 3)).strftime("%Y%m%d")
+    PERIODS["y5"]["cutoff"] = (today - timedelta(days=365 * 5)).strftime("%Y%m%d")
+    PERIODS["y10"]["cutoff"] = (today - timedelta(days=365 * 10)).strftime("%Y%m%d")
+
+    print("=" * 60)
+    print("盘中增量回测档(intraday-rerun)")
+    print(f"ROOT = {ROOT}")
+    print(f"信号日 T = {signal_date_str}")
+    print("=" * 60, flush=True)
+
+    # 1. 加载(与 compute 同源: signal_stats/board_etf_map/freeze/market_map)
+    signal_stats = _load_signal_stats()
+    etf_map = _load_board_etf_map()
+    best_etf = _build_best_etf(etf_map)
+    etf_freeze = _load_etf_freeze()
+    market_map = _load_market_map()
+
+    # 2. 读 T 日买信号(隔离 T+1 盘中临时信号) + 卖出信号时间线截断到 <= T
+    conn = get_conn()
+    ph = ",".join("?" * len(BUY_SIGNALS))
+    buy_rows = conn.execute(
+        f"SELECT date, index_id, signal FROM signal_daily "
+        f"WHERE date = ? AND signal IN ({ph}) ORDER BY date",
+        (signal_date_str, *BUY_SIGNALS),
+    ).fetchall()
+    sell_rows = conn.execute(
+        "SELECT date, index_id, signal FROM signal_daily "
+        "WHERE signal IN ('sell','sell_stop_loss') AND date <= ? ORDER BY index_id, date",
+        (signal_date_str,),
+    ).fetchall()
+    sell_timeline = {}
+    for _d, _iid, _sig in sell_rows:
+        sell_timeline.setdefault(_iid, []).append((_d, _sig))
+    # 大盘择时: hs300 MA60 + 四档 + cyb 四档(_is_market_bull/_market_tier_at 只取 <= T 态)
+    market_state, market_dates = _load_market_state(conn)
+    market_tiers = _load_market_tiers(conn)
+    cyb_tiers = _load_market_tiers(conn, index_id='cyb')
+    conn.close()
+    print(f"   T 日买信号 {len(buy_rows)} 条; 卖出信号时间线 {sum(len(v) for v in sell_timeline.values())} 条", flush=True)
+    if not buy_rows:
+        print("   ⚠ T 日无买信号, 盘中档产物为空结构(前端无盘中视图, 正常)", file=sys.stderr)
+
+    # 3. 需要的 ETF + 批量价格(截断到 <= T, 结构性排除 T+1 占位行)
+    needed_etfs = set()
+    for _date, iid, _sig in buy_rows:
+        be, _frozen = _resolve_etf(_date, iid, _sig, best_etf, etf_freeze)
+        if be:
+            needed_etfs.add(be["code"])
+    print(f"-> 批量加载 {len(needed_etfs)} 只 ETF 价格 ...", flush=True)
+    price_map, open_map, close_map, sorted_dates_map = _batch_load_etf_prices(needed_etfs)
+    for c in needed_etfs:
+        price_map[c] = {d: v for d, v in price_map.get(c, {}).items() if d <= signal_date_str}
+        open_map[c] = {d: v for d, v in open_map.get(c, {}).items() if d <= signal_date_str}
+        close_map[c] = {d: v for d, v in close_map.get(c, {}).items() if d <= signal_date_str}
+        sorted_dates_map[c] = sorted(price_map[c].keys())
+
+    # 4. akshare 真实开盘价注入(数据就绪闸: 取不到真价 -> raise -> 退出码 5, 本轮跳过留给 17:50)
+    print("-> akshare fund_etf_spot_em 拉真实开盘价(数据就绪闸) ...", flush=True)
+    real_opens = _fetch_intraday_open_prices(needed_etfs)
+    missing_keys = sorted(set(needed_etfs) - set(real_opens))
+    if missing_keys:
+        raise RuntimeError(
+            f"数据就绪闸 FAIL: {len(missing_keys)} 只 ETF 取不到真实开盘价: {missing_keys[:10]}{'...' if len(missing_keys) > 10 else ''}"
+        )
+    next_date = datetime.now().strftime("%Y%m%d")
+    print(f"   注入 {next_date} 真实开盘价 {len(real_opens)} 只", flush=True)
+    for c, op in real_opens.items():
+        open_map[c][next_date] = op
+        # 当前价估值: next_date 开盘的 accum_nav 等价值(供持仓中 current_price 用,
+        # 使盘中视图 P&L 锚定"开盘买入"而非 T 日收盘, 避免开盘买入却按昨收估值的假亏)
+        sig_close = close_map[c].get(signal_date_str)
+        sig_nav = price_map[c].get(signal_date_str)
+        if sig_close and sig_close > 0 and sig_nav and sig_nav > 0:
+            price_map[c][next_date] = sig_nav * (op / sig_close)
+        if next_date not in sorted_dates_map[c]:
+            sorted_dates_map[c].append(next_date)
+            sorted_dates_map[c].sort()
+
+    # 全局数据日(注入后 = next_date, 供持仓中 trade 预估当前价 + hold_days 计交易日)
+    today_str = max((sorted_dates_map[c][-1] for c in sorted_dates_map if sorted_dates_map[c]), default=None)
+    if today_str:
+        print(f"   盘中档 today={today_str}(注入 {next_date} 后)")
+
+    # 5. 分类 + 聚合(与全量档同一 _classify_buy_rows/_build_outputs, 单一实现防漂移)
+    quadrants, loop_stats = _classify_buy_rows(
+        buy_rows, best_etf, etf_freeze, signal_stats, market_map,
+        price_map, open_map, close_map, sorted_dates_map, sell_timeline,
+        market_state, market_dates, market_tiers, cyb_tiers, today_str,
+    )
+    print(f"   盘中档分类完成: {loop_stats['classified']} 信号有有效回测 / {loop_stats['skipped_no_price']} 跳过(T+1 无价或伪跳空)")
+    output, trades_output = _build_outputs(quadrants)
+
+    # 6. 盘中档元信息 + pre-T 主档哈希对账基线(不持久化 freeze, 见模块注释 ⑤)
+    pre_hash = _main_pre_date_hash(main_trades_path, signal_date_str)
+    trades_output["intraday"] = {
+        "mode": "intraday",
+        "rerun_date": signal_date_str,
+        "next_open_date": next_date,
+        "price_basis": "next_day_open_akshare_spot",
+        "main_pre_date_hash": pre_hash,
+        "note": "盘中增量档: 只含 T 日信号新增交易, 定价=信号日 accum_nav × (T+1 真实开盘 / T 日真实 close), "
+                "历史交易零改动; 17:50 全量回测后以全量版为准",
+    }
+    output["intraday"] = dict(trades_output["intraday"])
+    return trades_output, output
+
+
+def verify_intraday(intraday_path, rerun_date, main_trades_path):
+    """盘中增量档对账机检(§5.4⑦ 同构对账; FAIL -> 退出码 3, 不发布盘中视图)。
+
+    ① 结构性: 盘中档所有交易 signal_date == rerun_date(零历史/零 T+1 盘中信号);
+    ② 主档漂移: 当前主档 signal_kelly_trades.json 的 pre-T 交易哈希 == 盘中档生成时记录
+       (intraday.main_pre_date_hash), 不一致=主档历史已变, 盘中视图基线过时, 不发布。
+    """
+    problems = []
+    if not os.path.exists(intraday_path):
+        print(f"✗ 对账机检 FAIL: 盘中档文件不存在: {intraday_path}", file=sys.stderr)
+        return 3
+    with open(intraday_path, encoding="utf-8") as f:
+        data = json.load(f)
+    fields = data.get("fields", [])
+    if "signal_date" not in fields:
+        print("✗ 对账机检 FAIL: 盘中档缺 fields.signal_date", file=sys.stderr)
+        return 3
+    sig_i = fields.index("signal_date")
+    n_total = 0
+    bad_dates = set()
+    for _qk, mk_map in data.get("quadrants", {}).items():
+        for _mk, arr in mk_map.items():
+            for r in arr:
+                n_total += 1
+                if str(r[sig_i]) != str(rerun_date):
+                    bad_dates.add(str(r[sig_i]))
+    print(f"   对账①结构性: {n_total} 行全部 signal_date=={rerun_date}"
+          + ("" if not bad_dates else f" FAIL(含 {sorted(bad_dates)[:5]})"), flush=True)
+    if bad_dates:
+        problems.append(f"含非 {rerun_date} 的 signal_date: {sorted(bad_dates)[:5]}")
+
+    rec = data.get("intraday", {}).get("main_pre_date_hash") if isinstance(data.get("intraday"), dict) else None
+    cur = _main_pre_date_hash(main_trades_path, rerun_date)
+    drift = (rec and cur and rec != cur) or (not rec or not cur)
+    print(f"   对账②主档漂移: pre-T 哈希 {'PASS' if rec and cur and rec == cur else 'FAIL'}(盘中记录={rec is not None}, 当前={cur is not None})", flush=True)
+    if rec and cur and rec != cur:
+        problems.append("主档 pre-T 交易哈希漂移(主档历史已变, 盘中视图基线过时)")
+    elif not rec or not cur:
+        problems.append(f"主档 pre-T 哈希缺失(盘中记录={rec is not None}, 当前={cur is not None})")
+    if problems:
+        for p in problems:
+            print(f"✗ 对账机检 FAIL: {p}", file=sys.stderr)
+        return 3
+    print("✓ 盘中增量档对账机检 PASS")
+    return 0
 
 
 def _atomic_write(path, payload):
@@ -1586,10 +1864,50 @@ def main():
     parser.add_argument("--skip-parts", action="store_true", help="跳过分片导出(signal_kelly_trades_parts/, 默认生成)")
     parser.add_argument("--export-lab-slices-only", action="store_true",
                         help="#97批次C: 只重导 lab 弹窗象限×模式切片(读现有 signal_kelly_trades.json, 不重跑回测)")
+    parser.add_argument("--intraday-rerun", default=None, metavar="DATE",
+                        help="盘中增量回测档: 只处理指定 T 日(YYYYMMDD)买信号, akshare 注入 T+1 真实开盘价, 产物独立 "
+                             "(signal_kelly_trades_intraday.json / signal_kelly_backtest_intraday.json), 不覆盖主档")
+    parser.add_argument("--intraday-verify", default=None, metavar="FILE",
+                        help="盘中增量档对账机检(结构性 signal_date==T + 主档 pre-T 哈希漂移), FAIL 退出码 3")
+    parser.add_argument("--rerun-date", default=None, metavar="DATE",
+                        help="--intraday-verify 的 T 日(YYYYMMDD)")
+    parser.add_argument("--intraday-main", default=None, metavar="FILE",
+                        help="--intraday-verify 对账用主档交易文件(默认 static-site/data/signal_kelly_trades.json)")
+    parser.add_argument("--intraday-outdir", default=None, metavar="DIR",
+                        help="--intraday-rerun 产物目录(默认 主档同目录=static-site/data/)")
     args = parser.parse_args()
 
     output_path = args.output or os.path.join(ROOT, "static-site", "data", "signal_kelly_backtest.json")
     trades_path = args.trades_output or os.path.join(os.path.dirname(output_path), "signal_kelly_trades.json")
+
+    # ── 盘中增量回测档(--intraday-rerun / --intraday-verify) ─────────────────
+    if args.intraday_rerun:
+        out_dir = args.intraday_outdir or os.path.dirname(trades_path)
+        intraday_trades_path = os.path.join(out_dir, "signal_kelly_trades_intraday.json")
+        intraday_stats_path = os.path.join(out_dir, "signal_kelly_backtest_intraday.json")
+        try:
+            trades_data, stats_data = compute_intraday(args.intraday_rerun, trades_path)
+        except RuntimeError as e:
+            print(f"✗ 数据就绪闸 FAIL: {e}", file=sys.stderr)
+            sys.exit(5)
+        os.makedirs(out_dir, exist_ok=True)
+        with open(intraday_trades_path, "w", encoding="utf-8") as f:
+            json.dump(trades_data, f, ensure_ascii=False, separators=(",", ":"))
+        with open(intraday_stats_path, "w", encoding="utf-8") as f:
+            json.dump(stats_data, f, ensure_ascii=False, separators=(",", ":"))
+        t_size = os.path.getsize(intraday_trades_path)
+        total_trades = sum(len(v) for q in trades_data.get("quadrants", {}).values() for v in q.values())
+        print(f"\n✓ 盘中交易记录: {intraday_trades_path} ({t_size} bytes, {total_trades} 行)")
+        print(f"✓ 盘中统计: {intraday_stats_path} ({os.path.getsize(intraday_stats_path)} bytes)")
+        return
+
+    if args.intraday_verify:
+        if not args.rerun_date:
+            print("✗ --intraday-verify 必须带 --rerun-date DATE", file=sys.stderr)
+            sys.exit(2)
+        main_trades = args.intraday_main or trades_path
+        rc = verify_intraday(args.intraday_verify, args.rerun_date, main_trades)
+        sys.exit(rc)
 
     if args.export_lab_slices_only:
         print(f"只重导 lab 切片, 读: {trades_path}")
