@@ -1354,6 +1354,23 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
     });
   }
+  // 2026-09-08 中文化(用户反馈): 信号英文→中文。labelKey 与 app.js _SIG_TYPE_META 同构,
+  // 经 _t()(i18n.js 双字典) 求值 → 自动跟随精简关注版/完整买卖版切换(用户提示「轻量/完整版描述」)。
+  // _t 定义于 i18n.js,本文件先加载,运行时(事件回调)必有 → typeof 防御兜底,缺失时回退原码。
+  var _SIG_LABEL_KEYS = {
+    buy: "type_buy", buy_aux: "buy_aux", buy_special: "buy_special", buy_backup: "buy_backup",
+    band_hold: "band_hold", band_sell: "type_band_sell", sell: "sell_short", sell_stop_loss: "type_sell_stop_loss"
+  };
+  function _sigCName(sig) {
+    var lk = _SIG_LABEL_KEYS[sig] || sig;
+    return (typeof _t === "function") ? _t(lk) : lk;
+  }
+  // index_id→中文名: 复用 app.js indexIdToName(_INDEX_NAME_MAP 全站单源, 与凯利交易日弹窗/首页信号卡同口径 §22);
+  // typeof 防御(app.js 后加载), 映射不到保留原码(app.js indexIdToName 已兜底)。
+  function _idxName(id) {
+    if (id == null || id === "") return "";
+    return (typeof indexIdToName === "function") ? (indexIdToName(id) || id) : id;
+  }
   function _bannerHtml(d) {
     if (!d || !d.intraday || d.intraday.mode !== "intraday") return "";
     var meta = d.intraday;
@@ -1397,20 +1414,23 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
       var bpxTxt = bpx == null || bpx === "" ? "-" : (typeof bpx === "number" ? bpx.toFixed(4) : bpx);
       var curTxt = cur == null || cur === "" ? (row[srI] == null ? "持仓中" : "-") : (typeof cur === "number" ? cur.toFixed(4) : cur);
       var rpTxt = rp == null || rp === "" ? "" : (typeof rp === "number" ? (rp >= 0 ? "+" : "") + rp.toFixed(2) + "%" : rp);
-      rows += '<tr><td>' + _fmtDate(row[si]) + '</td><td>' + _esc(row[xi]) + '</td><td>' + _esc(row[gi]) + '</td>' +
-        '<td>' + _esc(row[ci]) + (row[ni] ? ' <span style="color:#889">' + _esc(row[ni]) + '</span>' : '') + '</td>' +
+      // 2026-09-08 中文化: 指数列走 _idxName(全站 indexIdToName), 信号列走 _sigCName(_t 双字典)
+      rows += '<tr><td class="txt">' + _fmtDate(row[si]) + '</td><td class="txt">' + _esc(_idxName(row[xi])) + '</td><td class="txt">' + _esc(_sigCName(row[gi])) + '</td>' +
+        '<td class="txt">' + _esc(row[ci]) + (row[ni] ? ' <span class="sim-etf-name-sub">' + _esc(row[ni]) + '</span>' : '') + '</td>' +
         '<td>' + bpxTxt + '</td><td>' + curTxt + '</td><td>' + rpTxt + '</td></tr>';
     }
-    return '<div style="border:1px solid ' + (active ? '#f0a3a3' : '#ddd') + ';background:' + (active ? '#fff6f4' : '#f7f7f7') + ';border-radius:8px;padding:8px 12px;margin:6px 0;font-size:12px;line-height:1.6;color:#333">' +
-      head +
-      '<div style="max-height:220px;overflow:auto;margin-top:6px;border:1px solid #eee;border-radius:6px">' +
-      '<table style="border-collapse:collapse;font-size:11px;white-space:nowrap"><thead><tr style="position:sticky;top:0;background:#fff">' +
-      '<th style="padding:3px 8px;text-align:left">信号日</th><th style="padding:3px 8px;text-align:left" title="指数(信号标的)">指数</th>' +
-      '<th style="padding:3px 8px;text-align:left">信号</th><th style="padding:3px 8px;text-align:left">入账ETF</th>' +
-      '<th style="padding:3px 8px;text-align:right" title="盘中价=信号日净值×今日真实开盘/信号日收盘">买入价(盘中)</th>' +
-      '<th style="padding:3px 8px;text-align:right" title="按今日开盘等价值估算, 持仓中未卖出">当前价(盘中)</th>' +
-      '<th style="padding:3px 8px;text-align:right">收益率</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-      '<div style="color:#889;font-size:11px;margin-top:4px">' +
+    // 视觉整合(2026-09-08 用户反馈「与下方主交易记录表割裂」): 外层复用 .sim-table-wrap(与主表同容器),
+    // 内层表用 .sim-intraday-tbl(与主表 .sim-tbl 同表头/行高/边框/字号体系, 见 style.css)。
+    // 幂等容器 id 供 render 去旧插新(弹窗重开/筛选重渲染不累积)。
+    return '<div class="sim-table-wrap kelly-intraday-view" id="kelly-intraday-view">' +
+      '<div class="kelly-intraday-note' + (active ? ' kelly-intraday-note-active' : ' kelly-intraday-note-idle') + '">' + head + '</div>' +
+      '<table class="sim-intraday-tbl"><thead><tr>' +
+      '<th class="txt">信号日</th><th class="txt" title="指数(信号标的)">指数</th>' +
+      '<th class="txt">信号</th><th class="txt">入账ETF</th>' +
+      '<th title="盘中价=信号日净值×今日真实开盘/信号日收盘">买入价(盘中)</th>' +
+      '<th title="按今日开盘等价值估算, 持仓中未卖出">当前价(盘中)</th>' +
+      '<th>收益率</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '<div class="kelly-intraday-foot">' +
       (active ? '⏰ 17:50 全量回测后前端自动以全量版为准, 本盘中视图降级为历史临时视图（价格可能随收盘口径跳变）。' : '') +
       '定价口径与主档一致（信号次日开盘）, 仅价格源=今日真实开盘(akshare)。纯展示, 不构成投资建议。</div></div>';
   }
@@ -1418,6 +1438,12 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
     if (!anchorEl || !anchorEl.parentNode) return;
     _fetch().then(function (d) {
       var html = _bannerHtml(d);
+      // 幂等(2026-09-08 收进 lab 交易记录弹窗后弹窗重渲染/筛选翻页会重复调 render): 先移除 anchor 后旧容器再插,
+      // 保证任意消费点(首页弹窗/凯利交易弹窗)多次调用都只有一个增量视图(§22 单源不漂移)。
+      var prev = anchorEl.nextElementSibling;
+      if (prev && prev.id === "kelly-intraday-view") {
+        anchorEl.parentNode.removeChild(prev);
+      }
       if (!html) return;
       var el = document.createElement("div");
       el.innerHTML = html;

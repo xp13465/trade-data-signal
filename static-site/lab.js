@@ -9384,13 +9384,7 @@ async function renderSigKellyLab() {
   bar.className = "lab-sigkelly-bar";
   wrapper.appendChild(bar);
 
-  // 盘中增量回测档·独立盘中视图(2026-09-08, intraday-backtest-rerun): 交易日 9:40 盘中补跑产物
-  // signal_kelly_trades_intraday.json 只含上一交易日信号用今日真实开盘价入账的交易, 标注盘中价;
-  // 17:50 后前端自动以全量版为准, 本视图降级历史临时视图。实现单源在 common.js _kellyIntradayRender(§22)。
-  if (typeof window._kellyIntradayRender === "function") {
-    window._kellyIntradayRender(bar);
-  }
-
+  
   // AI报告折叠区(静态AI报告, 不依赖周期/费率, 放wrapper层避免随_renderSigKellyQuadrants重渲染重置open状态)
   // 2026-08-12 升级: 3AI新版(默认) / 双AI历史 双模式切换(localStorage 记忆 lab_sigkelly_ai_mode)
   //   3AI模式= 3ai-comparison(3AI结论对比) + comprehensive + deepseek + claude-v4(Claude第三角色)
@@ -12646,6 +12640,9 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
             `<option value="neg"${filter.profit === "neg" ? " selected" : ""}>仅亏损</option>` +
           `</select>` +
         `</div>` +
+        // 2026-09-08 用户反馈③: 盘中增量回测不再凯利页顶部显著独立展示, 收进交易记录弹窗内作为一节
+        // (与交易记录在一起, 非抢眼球); 渲染逻辑单源在 common.js _kellyIntradayRender(§22), 此处只放 anchor。
+        `<div class="lab-sigkelly-intraday-anchor"></div>` +
         `<div class="lab-sigkelly-modal-tablewrap">` +
           `<table class="lab-sigkelly-trades-table">` +
             `<thead><tr>${thHTML}</tr></thead>` +
@@ -12683,6 +12680,13 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
           `</div>`
         ) : "") +
       `</div>`;
+
+    // 盘中增量视图挂载(2026-09-08 用户反馈③): overlay.innerHTML 渲染完成后调 common.js 单源渲染,
+    // 增量节出现在过滤条与主表之间(与交易记录一体的非显著展示); 幂等在 common.js render(重渲染不累积)。
+    if (typeof window._kellyIntradayRender === "function") {
+      const _intaAnchor = overlay.querySelector(".lab-sigkelly-intraday-anchor");
+      if (_intaAnchor) window._kellyIntradayRender(_intaAnchor);
+    }
 
     // 关闭
     overlay.querySelector(".lab-sigkelly-modal-close").onclick = () => { overlay.style.display = "none"; };

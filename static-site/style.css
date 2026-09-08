@@ -7223,6 +7223,22 @@ main { padding: 16px 24px; }
 .sim-tbl th:nth-child(13) { width: 60px; }  /* 累积盈亏 */
 .sim-tbl th:nth-child(14) { width: 70px; }  /* 累积金额 */
 .sim-tbl th:nth-child(15) { width: 80px; }  /* 累积对错 */
+/* 盘中增量回测表(2026-09-08 用户反馈②「与下方主交易记录表割裂」): 复用 .sim-table-wrap 容器 + 自建
+   .sim-intraday-tbl 与主表 .sim-tbl 同表头/行高/边框/字号体系(CSS 变量同源, light/dark/redgold 三主题自适应)。
+   列数不同(7列 vs 15列)故不套 .sim-tbl 逐列定宽(table-layout:fixed 15列定宽会撑坏 7 列表)。 */
+.kelly-intraday-view { margin: 4px 0 12px; }
+.kelly-intraday-note { font-size: 12px; line-height: 1.6; color: #333; padding: 8px 12px; border-radius: 6px; border: 1px solid #eee; margin-bottom: 4px; }
+[data-theme="dark"] .kelly-intraday-note, [data-theme="redgold"] .kelly-intraday-note { color: var(--text-1); }
+.kelly-intraday-note-active { background: #fff6f4; border-color: #f0a3a3; }
+.kelly-intraday-note-idle { background: #f7f7f7; border-color: #ddd; }
+[data-theme="dark"] .kelly-intraday-note-active, [data-theme="redgold"] .kelly-intraday-note-active { background: rgba(231,76,60,0.10); border-color: rgba(231,76,60,0.35); }
+[data-theme="dark"] .kelly-intraday-note-idle, [data-theme="redgold"] .kelly-intraday-note-idle { background: rgba(255,255,255,0.04); border-color: var(--border); }
+.sim-intraday-tbl { width: 100%; border-collapse: collapse; font-size: 11px; white-space: nowrap; }
+.sim-intraday-tbl th, .sim-intraday-tbl td { padding: 4px 6px; border: 1px solid var(--border); text-align: right; overflow: hidden; text-overflow: ellipsis; }
+.sim-intraday-tbl th { position: sticky; top: 0; background: var(--bg-card); z-index: 1; color: var(--text-1); font-weight: 700; }
+.sim-intraday-tbl th.txt, .sim-intraday-tbl td.txt { text-align: left; }
+.kelly-intraday-foot { font-size: 11px; color: #889; margin-top: 4px; }
+[data-theme="dark"] .kelly-intraday-foot, [data-theme="redgold"] .kelly-intraday-foot { color: var(--text-3); }
 .sim-up { color: #cf1322; }
 .sim-down { color: #389e0d; }
 [data-theme="dark"] .sim-up, [data-theme="redgold"] .sim-up { color: #ff4d4f; }
