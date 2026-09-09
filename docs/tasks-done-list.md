@@ -303,3 +303,11 @@
 
 ## 2026-09-07 会话移入(#55 新手引导动态化完成)
 - [x] **#55 策略实验页新手引导卡动态化(完成上线 2026-09-07)** — 调研 docs/lab/strategy-newbie-guide-dynamic-research-20260906.md(现状:引导卡固化统一文案,9 子模式全显示不随 tab 变化,sigkelly/aiwarn/aiscore/ablation/symmetry/paramscan 6 模式内容完全不相关)→ 方案①(用户拍板做):`_labNewbieGuideHTML(subMode)` 收参 + 9 分支文案表,调用处传 `state.labSubMode`。实施 feat/strategy-newbie-guide-55(894c9e643:+172/-21,仅 lab.js):single 默认文案与现状逐字节一致(md5 252bc1798c96b75687f8581f730384d8,835 字节,byte-equal)、9 模式分支零遗漏、§21 口径对齐 purpose-notes(lab.* 块逐字)。reviewer PASS(8 维独立核验)+ finding B 修(423851d7d:retest 引导①⭐️门槛补全五条件「近5/3/1年回撤≤10% 且 交易≥10 且 综合分≥0.6 且 胜率≥55% 且 风险调整≥1.5」)。main-merge 统一 bump **a549**(702279c5d)→ deploy(05:23 退出码 0)→ §0 三查 PASS(三域名 lab.min.js 含凯利引导+五条件)。⚠️ finding A(上报用户拍板,既有问题非本次引入):purpose-notes lab.sigkelly 公示「4 维度 16 组」vs 页面实际「6 象限(3评级+3 ETF归类)」不一致。→ 巡检 cron 58406b71/f0be4841/f5a0b59d 已删
+
+## 2026-09-09 会话移入(#82-84/86-88 收官,merge+deploy 完成)
+- [x] **#82 C6:turnover 摘出 update_all 主链改独立任务延后跑(完成上线 2026-09-09)** — 摘出后主链 175→~85min(实测 112-121min);配套 launchd com.trade.turnover-backfill 已部署(交易日 周一~五 21:10,脚本 symlink 已同步 trade-data),schedule_monitor.sh 收录;副作用自动治好 update_lab 饿死 + C2 告警阈值失真。commit 链见 feat/perf-turnover-detach@e095ae837
+- [x] **#83 C8:changelog 补登并入 main-merge.sh bump 流程(完成 merge 2026-09-09)** — feat/c8-fix-p1@c41fa60d3
+- [x] **#84 告警降噪:C3 心跳假阳性 + C4 backfill 退出码 + C2 阈值联动(完成 merge 2026-09-09)** — 阈值联动见 #82 C6 根因落地
+- [x] **#86 统一 merge 五支进 main(完成 2026-09-09)** — C8→C6→增量(kelly-intraday-linked-filter)→p0-nav→netasset 串行全合入,版本串 20260909-a565,deploy 16:39 exit 0,§0 三查 PASS(线上 3 min md5 == 本地 build);netasset 手动 resolve accum_nav_map.json 冲突取 b2 线上干净版
+- [x] **#87 P0:盘中增量 5 笔交易定价污染(已根治上线 2026-09-09)** — 根因 9/8 全市场占位事故(accum_nav=1.5 残留)污染定价链;两库清理(1441 真实+38 NULL)+ 重跑,线上 512820=1.667074;防御=p0-nav-placeholder-defense(_prune_placeholder_nav 哨兵+check_data_gap_alerts+deploy gate+_nav_skip_placeholder 回退)。TODO:reviewer 低危建议——孤立 1.5(530000 41天gap)判定加「相邻日间隔」检查
+- [x] **#88 修资产走势较前日 +23393.67/+22.70% 展示异常(已修复上线 2026-09-09)** — 根因 accum_nav_map.json 0908 99% 为 1.5(同 #87 占位事故)→ 重跑生成器(1454 non-null/1368 unique)+ check_accum_nav_map_price_sane 机检挂 deploy 防回归;线上 md5 一致
