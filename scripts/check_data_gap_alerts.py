@@ -109,7 +109,7 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  # trade/scripts/
 _ROOT_DIR = os.path.dirname(_SCRIPT_DIR)                  # trade/
 if _ROOT_DIR not in sys.path:
     sys.path.insert(0, _ROOT_DIR)
-from app.collector.nav_placeholder_defense import CANDIDATE_WHERE, is_placeholder_row  # noqa: E402
+from app.collector.nav_placeholder_defense import CANDIDATE_WHERE, is_placeholder_row, trading_gap_between  # noqa: E402
 
 DEFAULT_REPO = Path(os.environ.get("REPO", "/Users/linhuichen/code/trade-data"))
 REPO = DEFAULT_REPO  # --repo 可覆盖(见 main)
@@ -502,7 +502,11 @@ def check_nav_placeholder_residue(repo: Path, today: datetime) -> list[Finding]:
                     if dd == d:
                         prev_nav = seq[i - 1][1] if i >= 1 else None
                         next_nav = seq[i + 1][1] if i + 1 < len(seq) else None
-                        if is_placeholder_row(nv, prev_nav, next_nav):
+                        # gap 维度(9/9): seq 只含该 code 非占位行, 索引差≠交易日差, 走交易日历
+                        # (长缺口场景 530000 相邻行索引差=1 实际间隔 41, 靠 gap 挡盲点)。
+                        prev_gap = trading_gap_between(seq[i - 1][0], dd) if i >= 1 else None
+                        next_gap = trading_gap_between(dd, seq[i + 1][0]) if i + 1 < len(seq) else None
+                        if is_placeholder_row(nv, prev_nav, next_nav, prev_gap, next_gap):
                             hits.append((c, d))
                         break
     finally:

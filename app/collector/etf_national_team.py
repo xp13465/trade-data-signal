@@ -50,7 +50,7 @@ from . import base  # noqa: F401
 import akshare as ak
 
 from .base import em_get, safe_call, throttle
-from .nav_placeholder_defense import is_placeholder_row  # noqa: E402
+from .nav_placeholder_defense import is_placeholder_row, trading_gap_between  # noqa: E402
 
 # B4 并发改造(2026-07-24):mootdx client 单连接不支持并发调用,
 # fallback 段用此 Lock 串行化,保证 akshare sina 并发时 mootdx 不撞协议竞态
@@ -2111,7 +2111,11 @@ def update_accum_nav(conn, lookback_days: int = 30) -> dict:
                 if dd == d:
                     prev_nav = seq[i - 1][1] if i >= 1 else None
                     next_nav = seq[i + 1][1] if i + 1 < len(seq) else None
-                    if is_placeholder_row(nav, prev_nav, next_nav):
+                    # gap 维度(9/9): seq 只含该 code 非占位行, 索引差≠交易日差——数据缺口
+                    # (530000 20260810~0907 无行)下相邻行索引差=1 但实际间隔 41, 必须走交易日历。
+                    prev_gap = trading_gap_between(seq[i - 1][0], dd) if i >= 1 else None
+                    next_gap = trading_gap_between(dd, seq[i + 1][0]) if i + 1 < len(seq) else None
+                    if is_placeholder_row(nav, prev_nav, next_nav, prev_gap, next_gap):
                         need.setdefault(code, []).append(d)
                     break
     if not need:

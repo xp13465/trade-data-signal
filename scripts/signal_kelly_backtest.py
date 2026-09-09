@@ -50,7 +50,7 @@ from simulate_trade import (  # noqa: E402
     COMMISSION_RATE, SLIPPAGE, MIN_COMMISSION, TRANSFER_FEE_RATE_SH,
 )
 from app.db import get_conn  # noqa: E402
-from app.collector.nav_placeholder_defense import is_placeholder_row  # noqa: E402
+from app.collector.nav_placeholder_defense import is_placeholder_row, trading_gap_between  # noqa: E402
 
 # 凯利回测默认费率(保持该回测的既定口径, 不受 simulate_trade 重构影响)
 # simulate_trade._sell_with_fees 重构后默认新增印花税万5 + 过户费沪深统一;
@@ -621,9 +621,15 @@ def _nav_skip_placeholder(prices, open_map, etf_code, dates, ref_date):
         if nav is None or nav <= 0:
             i -= 1
             continue
-        prev_nav = prices.get(dates[i - 1]) if i >= 1 else None
-        next_nav = prices.get(dates[i + 1]) if i + 1 < len(dates) else None
-        if is_placeholder_row(nav, prev_nav, next_nav):
+        prev_date = dates[i - 1] if i >= 1 else None
+        next_date = dates[i + 1] if i + 1 < len(dates) else None
+        prev_nav = prices.get(prev_date) if prev_date is not None else None
+        next_nav = prices.get(next_date) if next_date is not None else None
+        # gap 维度(9/9): dates 是已排序日期列表, 但中间缺交易日时索引差≠交易日差
+        # (长缺口场景 530000 相邻行索引差=1 实际间隔 41), 走交易日历算真实间隔。
+        prev_gap = trading_gap_between(prev_date, d) if prev_date is not None else None
+        next_gap = trading_gap_between(d, next_date) if next_date is not None else None
+        if is_placeholder_row(nav, prev_nav, next_nav, prev_gap, next_gap):
             i -= 1  # 占位残留混合行, 继续往前找真实日
             continue
         return nav, d
