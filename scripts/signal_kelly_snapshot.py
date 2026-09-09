@@ -42,6 +42,8 @@
     # 只读模式告警检测(挂 backfill_metrics.sh 02:00/16:35/21:00 尾部,
     #   backfill 侧必须显式 --data-dir "$REPO/static-site/data" 与 export 写侧一致)
     python scripts/signal_kelly_snapshot.py --check --data-dir <DATA_DIR>
+    # 从快照目录全量重建 index.json(2026-09-10 P0 修复配套: sig_main 显式取 + 防污染拦截)
+    python scripts/signal_kelly_snapshot.py --rebuild --data-dir <DATA_DIR>
 退出码语义(调用方依赖, 变更需同步 backfill_metrics.sh 快照段):
     0 = 快照成功 / --check 无告警
     1 = --check 检测到预期告警(停滞/突变; 正常路径, 非脚本错误, 不阻塞 backfill)
@@ -68,6 +70,9 @@ MIN_SAMPLES = 5                   # 窗口样本下限(不足跳过突变检测)
 MIN_N = 20                        # 样本门: n<20 的模式不参与突变告警(小样本噪声大)
 LAG_ALERT_TD = 2                  # 停滞档: max_signal_date 落后 ≥2 个交易日告警
 DEDUP_WINDOW = 86400              # dedup 防抖窗口(24h)
+MUTATION_RATIO = 0.30             # 防污染: 单日 total_return 相对上一快照日突变比 >30% 视为污染
+                                  #   (sig_main all 全史累计收益每日正常波动 <1%, 30% 必为数据污染;
+                                  #    2026-09-10 P0: 9/8 accum_nav 残留致 G/H/I 虚高 ~82%)
 LOG_TAG = "[sigkelly_snapshot]"
 
 
@@ -229,21 +234,63 @@ def save_snapshot(data_dir: Path, snapshot: dict) -> None:
         json.dump(snapshot, f, ensure_ascii=False)
 
 
+def _sig_main_all(snapshot: dict) -> dict:
+    """取 sig_main 象限 all 周期 modes(演进弹窗数据源, 与 16 象限卡 sig_main 卡片一致)。
+
+    2026-09-10 P0 修复: 原实现遍历全部 quadrants, 后写的象限覆盖前面的(mkt_concept 在键序
+    最后), 导致 index.json 每行实际存的是 mkt_concept 而非 sig_main, 演进弹窗曲线与
+    16 象限卡 sig_main 数值对不上。改为显式取 sig_main(单一事实源, §22 一致性)。
+    """
+    q = snapshot.get("quadrants", {}).get("sig_main", {})
+    all_p = q.get("all", {}) if isinstance(q, dict) else {}
+    if not isinstance(all_p, dict):
+        return {}
+    return {m: d for m, d in all_p.items() if isinstance(d, dict)}
+
+
+def _polluted_ratio(prev_tr, tr) -> float:
+    """单日 total_return 相对上一快照日变化比(|Δ|/|prev|)。"""
+    if not isinstance(prev_tr, (int, float)) or not isinstance(tr, (int, float)):
+        return 0.0
+    if prev_tr == 0:
+        return 0.0
+    return abs(tr - prev_tr) / abs(prev_tr)
+
+
 def append_to_index(index: dict, snapshot: dict) -> None:
-    """把今日快照压成迷你演进行(每模式 all 周期 total_return/n), 去重覆盖同日。"""
+    """把今日快照压成迷你演进行(每模式 all 周期 total_return/n), 去重覆盖同日。
+
+    2026-09-10 P0 修复双件:
+    ① 数据源=显式 sig_main 象限(见 _sig_main_all), 不再按 quadrants 键序遍历互相覆盖。
+    ② 防污染: 写每 mode 前对比上一快照日同 mode 的 tr, 突变比 > MUTATION_RATIO
+       (且非发布日 version 变化) → 该 mode 值置 null + polluted:true, 不写入虚高数字。
+       背景: 9/8 accum_nav=1.5 占位残留污染 G/H/I total_return 虚高 ~82%(9/9 da1064998 已修),
+       9/8 快照 sig_main 的 G/H/I 已被污染固化; 防污染逻辑保证「重跑脚本不复活污染点」
+       (重建 index 时 9/8 G/H/I 自动拦截成 null, 演进曲线无尖峰; A-F/J 正常值保留)。
+    """
     day_row = {"d": snapshot["date"], "m": snapshot["max_signal_date"],
                "v": snapshot["version"], "modes": {}}
-    quadrants = snapshot.get("quadrants", {})
-    for qname, periods in quadrants.items():
-        all_p = periods.get("all", {})
-        if not isinstance(all_p, dict):
+    for mode, mdata in _sig_main_all(snapshot).items():
+        tr = mdata.get("total_return")
+        n = mdata.get("n")
+        # 防污染: 对比上一快照日同 mode
+        prev_row = index.get("days", [])[-1] if index.get("days") else None
+        polluted = False
+        if isinstance(tr, (int, float)) and prev_row is not None:
+            prev_md = prev_row.get("modes", {}).get(mode)
+            prev_tr = prev_md.get("tr") if isinstance(prev_md, dict) else None
+            version_changed = prev_row.get("v") != snapshot["version"]
+            if isinstance(prev_tr, (int, float)) and not version_changed and \
+                    _polluted_ratio(prev_tr, tr) > MUTATION_RATIO:
+                polluted = True
+        if polluted:
+            log(f"[防污染] {snapshot['date']} mode={mode} "
+                f"total_return={tr:.2f} 相对昨日={prev_tr:.2f} "
+                f"突变比>={MUTATION_RATIO:.0%}, 置 null 防虚高 "
+                f"(2026-09-10 P0 类 accum_nav 污染防护)")
+            day_row["modes"][mode] = {"tr": None, "n": n, "polluted": True}
             continue
-        for mode, mdata in all_p.items():
-            if not isinstance(mdata, dict):
-                continue
-            day_row["modes"].setdefault(mode, {})
-            day_row["modes"][mode]["tr"] = mdata.get("total_return")
-            day_row["modes"][mode]["n"] = mdata.get("n")
+        day_row["modes"][mode] = {"tr": tr, "n": n}
     days = index.get("days", [])
     # 去重: 同日覆盖
     for i, row in enumerate(days):
@@ -439,17 +486,61 @@ def run_check(data_dir: Path, dry_run: bool) -> int:
     return 1
 
 
+def rebuild_index(data_dir: Path, dry_run: bool = False) -> tuple[int, int]:
+    """从快照目录全量重建 index.json(2026-09-10 P0 修复配套)。
+
+    场景:  append_to_index 曾有覆盖 bug(写 mkt_concept 而非 sig_main) + 9/8 快照
+    G/H/I 被 accum_nav 污染固化, 历史 index 行需按修复后口径(sig_main 显式取 +
+    MUTATION_RATIO 防污染)一次性重建。逐日有序 append(index 里 prev_row 为实际前一天),
+    防污染逻辑自动把 9/8 的 G/H/I 置 null(polluted:true), A-F/J 正常值保留。
+    返回 (写入行数, 防污染拦截 mode 数)。
+    """
+    sd = snap_dir(data_dir)
+    dates = sorted(p.stem for p in sd.glob("20*.json")
+                   if p.stem not in ("latest_posrating", "index"))
+    index = {"version": SNAPSHOT_VERSION, "updated_at": "", "days": []}
+    blocked = 0
+    for d in dates:
+        p = sd / f"{d}.json"
+        try:
+            snap = json.loads(p.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            log(f"[rebuild] {d}.json 读取失败(跳过): {exc}")
+            continue
+        if not isinstance(snap, dict) or not snap.get("quadrants"):
+            log(f"[rebuild] {d}.json 无 quadrants(跳过, 疑似残缺产物)")
+            continue
+        # 用 append_to_index 逐日有序重建(防污染逻辑随附); 返回前计数拦截
+        before = sum(1 for row in index.get("days", []) for md in row.get("modes", {}).values()
+                     if md.get("polluted"))
+        append_to_index(index, snap)
+        after = sum(1 for row in index.get("days", []) for md in row.get("modes", {}).values()
+                    if md.get("polluted"))
+        blocked += after - before
+    index["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    if not dry_run:
+        save_index(data_dir, index)
+    print(f"[sigkelly_snapshot] rebuild: {len(dates)} 快照日 → {len(index['days'])} index 行, "
+          f"防污染拦截 {blocked} 个 mode", flush=True)
+    return len(index["days"]), blocked
+
+
 def _main() -> int:
     ap = argparse.ArgumentParser(description="信号凯利回测快照/演进/告警")
     ap.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR),
                     help="回测产物所在 data 目录(默认 static-site/data)")
     ap.add_argument("--check", action="store_true",
                     help="只读告警检测模式(读 index.json, 不生成快照)")
+    ap.add_argument("--rebuild", action="store_true",
+                    help="从快照目录全量重建 index.json(2026-09-10 P0 修复配套)")
     ap.add_argument("--dry-run", action="store_true", help="不写文件/不发通知")
     args = ap.parse_args()
     data_dir = _resolve_ro_frame(args.data_dir)
     if args.check:
         return run_check(data_dir, args.dry_run)
+    if args.rebuild:
+        rebuild_index(data_dir, args.dry_run)
+        return 0
     index = load_index(data_dir)
     snapshot = build_snapshot(data_dir)
     if args.dry_run:

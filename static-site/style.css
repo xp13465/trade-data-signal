@@ -7192,6 +7192,14 @@ main { padding: 16px 24px; }
 .sim-kbtn.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700; }
 .sim-summary { padding: 8px 4px; font-size: 12px; color: var(--text-1); }
 .sim-table-wrap { max-height: 56vh; overflow: auto; overflow-x: auto; min-width: 0; }
+/* 盘中增量回测表(2026-09-10 P0 修复): 完全展开无内部纵向滚动条, 与首页模拟回测·全历史真实过滤弹窗一致。
+   根因两件(value 2026-09-09 内联 max-height:none+overflow-y:visible 已被实测无效后根因修复):
+   ①同元素 overflow-x:auto 会把 overflow-y:visible 计算成 auto(CSS 规范, 横向滚动保留则纵向无法 visible);
+   ②flex 父容器(.rule-modal-body max-height:85vh) flex-shrink 默认把本容器压到不足内容高 → 内部纵向滚动条。
+   根治: max-height:none + flex-shrink:0 → 容器高度=内容高度(60+ 行也不出内滚), overflow-x:auto 保留
+   窄屏横向滚动; 纵向不再有内部滚动条, 超高内容随弹窗整体滚动。特异性(.kelly-intraday-view 双类)高于
+   .sim-table-wrap 单类, 可靠覆盖。 */
+.sim-table-wrap.kelly-intraday-view, .kelly-intraday-view { max-height: none; flex-shrink: 0; overflow-x: auto; overflow-y: auto; }
 /* 逐日净资产走势图(2026-09-04 #51, 纯新增展示): 插在表格与汇总之间; lw 图由 _lwSetup 渲染在 .sim-netasset-body 内, 高度自稳 */
 .sim-netasset-chart { margin: 2px 0 10px; padding: 8px 10px 2px; background: var(--bg-card); border-radius: 8px; box-shadow: 0 1px 3px var(--shadow); }
 .sim-netasset-head { font-size: 12px; font-weight: 600; color: var(--text-1); padding: 2px 2px 6px; }

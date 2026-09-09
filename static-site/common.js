@@ -1576,10 +1576,14 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
     // 视觉整合(2026-09-08 用户反馈「与下方主交易记录表割裂」): 外层复用 .sim-table-wrap(与主表同容器),
     // 内层表用 .sim-intraday-tbl(与主表 .sim-tbl 同表头/行高/边框/字号体系, 见 style.css)。
     // 幂等容器 id 供 render 去旧插新(弹窗重开/筛选重渲染不累积)。
-    // #90 收尾(2026-09-09 用户确认): 容器内联 max-height:none+overflow-y:visible 覆盖 .sim-table-wrap
-    // 的 max-height:56vh 限高(内容多时出现内部纵向滚动条), 撑开为无内部滚动条、随弹窗整体滚动,
-    // 与首页模拟回测·全历史真实过滤弹窗表格一致; 横向滚动(overflow-x:auto)保留不破坏窄屏。
-    return '<div class="sim-table-wrap kelly-intraday-view" id="kelly-intraday-view" style="max-height:none;overflow-y:visible">' +
+    // #90 收尾(2026-09-09) + 2026-09-10 P0 修复: 盘中表要"完全展开无内部纵向滚动条"(用户拍板, 与
+    // 首页模拟回测·全历史真实过滤弹窗一致)。滚动条根因两件: ①.sim-table-wrap 全局 overflow-x:auto
+    // 使同元素 overflow-y:visible 被 CSS 规范计算成 auto(内联 max-height:none+overflow-y:visible 无效,
+    // 9/9 收尾已试); ②flex 父容器(.rule-modal-body max-height:85vh)把本容器 flex-shrink 压到不足内容高。
+    // 根治: 移走内联 hack, 由 style.css 专用类 .kelly-intraday-view 统一覆盖——max-height:none +
+    // flex-shrink:0 → 容器高度=内容高(60+ 行也不出内部滚动条), overflow-x:auto 保留窄屏横滚,
+    // overflow-y 自然不滚(高度即内容, 无溢出)。窄屏横滚仍在容器内发生, 不撑破弹窗(M5 模式)。
+    return '<div class="sim-table-wrap kelly-intraday-view" id="kelly-intraday-view">' +
       '<div class="kelly-intraday-note' + (active ? ' kelly-intraday-note-active' : ' kelly-intraday-note-idle') + '">' + head + '</div>' +
       '<table class="sim-intraday-tbl"><thead><tr>' +
       '<th class="txt">信号日</th><th class="txt" title="指数(信号标的)">指数</th>' +
