@@ -318,6 +318,12 @@ TRANSIENT_TIMEOUT_THRESHOLD = 3
 #   否则完成态检查(3609>3600)会复发假SEVERE(8-14 正常完成 exit=0 却曾报 dur>1800s)。
 #   update_all 4200s(70min, max 3609s + ~10min 裕量); backfill_evening 4500s(75min,
 #   覆盖 16:35 槽 max 2776s + 21:00 槽 08-10 达 3707s)。
+#   [2026-09-09 #84 C2 联动标注] update_all 实测已涨到 135~175min(2026-09-08 dur=10271s≈171min,
+#   近 10 次 P90≈11000s), 4200s 阈值失真导致每天 2-3 封「执行耗时超标」SEVERE。此处**不抬阈值**
+#   (抬了会掩埋 update_all 主链变慢的退化信号)。治本 = #82 C6(turnover 摘出 update_all 主链,
+#   175→~85min, 待用户拍板): C6 落地后 update_all 主链耗时回落, 届时按新实测 max 重标本阈值
+#   (原则同 L316: 阈值必须 > 新实测 max, 防完成态检查复发假 SEVERE); C6 未落地前保持现状,
+#   让「执行耗时超标」继续暴露主链退化(硬信号)而不是被阈值吞掉。
 DUR_THRESHOLDS = {
     "intraday_snapshot": 600,   # 10min
     "update_all": 4200,         # 70min(实测 max 3609s, 2026-08-14)
@@ -1265,13 +1271,23 @@ except Exception as e:
 #    用户发消息无回显且无任何告警，坏几天才发现；与维度⑦ feishu.json 缺失检测互补——
 #    ⑦ 覆盖"配置丢失"，本维度覆盖"hook 未接线/未触发"）。
 #    hook 每次被调用在 /tmp/feishu_hook_heartbeat 更新 mtime（见 feishu_chat_hook.py main）。
-#    判定：Claude Code 会话活跃(pgrep claude 有进程)但心跳缺失或 >90min 陈旧 → 告警。
-#    防误报：心跳文件缺失时(刚开机/刚清 /tmp)，额外要求 claude 进程存活 >30min 才告警。
+#    判定：Claude Code 会话活跃但心跳缺失或 >90min 陈旧 → 告警。
+#    [2026-09-09 #84 C3 降噪] 会话活跃判定由「pgrep claude 有进程」改为「~/.claude/projects/
+#    **/*.jsonl 最近 mtime」，根因：claude bg-spare/bg-pty-host 常驻 daemon 进程 24h 挂着，
+#    pgrep 恒有 pid → 无用户会话活动时段(深夜/周末)心跳陈旧 = 假阳性 SEVERE(schedule_monitor_
+#    launchd.log 09-09 03:00 first_seen，7 天 12 封「suppress/恢复 feishu_hb」对)；jsonl = Claude
+#    Code 会话实时追加的最后活动时间戳，更贴近「用户真在用」。
+#    三层判定：
+#      a) 会话活跃期(session 90min 内有用过) 且 心跳陈旧/缺失 → SEVERE(真断，hook 该触发没触发)
+#      b) 会话不活跃(用户暂时没用) 且 心跳陈旧 → 降级 warn 只记日志不发邮件(预期，假阳性消除)
+#      c) 极长时间无会话活动(>7 天 jsonl 无新增) 且 claude 进程存活 且 心跳缺失/陈旧 →
+#         环境疑似彻底停摆，仍 SEVERE(「心跳真断(长时间无任何活动)仍要报」)
+#    防误报：心跳文件缺失时(刚开机/刚清 /tmp)，额外要求 claude 进程存活 >30min 才计较。
 #    复用 alert_state.json 去重（key=feishu_hb_stale，key 前缀 feishu_ 已加入主恢复循环
 #    特殊跳过，inline 处理恢复，与维度⑦同模式）。
 try:
     _hb_path = Path("/tmp/feishu_hook_heartbeat")
-    # 会话活跃判定：pgrep claude 有进程（monitor 自身是 bash，不含 claude 字样，无自匹配）
+    # claude 进程采集(仅用于 c 层兜底 + 缺失时防误报的进程判定, 不再直接当"会话活跃")
     _hb_claude_pids = []
     try:
         _hb_pgrep = subprocess.run(["pgrep", "-f", "claude"],
@@ -1279,7 +1295,31 @@ try:
         _hb_claude_pids = [p for p in _hb_pgrep.stdout.split() if p]
     except Exception as _e:
         _hb_claude_pids = []
-    _hb_active = bool(_hb_claude_pids)
+    # 会话活跃判定(#84 C3)：~/.claude/projects/**/*.jsonl 最近 mtime
+    #   jsonl 会话实时追加<mtime 即最后活动>；扫描异常退化用旧 pgrep 判定(保守不清误报也降级过判)
+    _hb_session_active = False
+    _hb_long_inactive = False
+    _hb_session_last = None
+    try:
+        _hb_proj = Path.home() / ".claude" / "projects"
+        _hb_newest = 0.0
+        if _hb_proj.exists():
+            for _p in _hb_proj.glob("*/*.jsonl"):
+                try:
+                    _mt = _p.stat().st_mtime
+                    if _mt > _hb_newest:
+                        _hb_newest = _mt
+                except Exception:
+                    pass
+        if _hb_newest > 0:
+            _hb_session_last = datetime.fromtimestamp(_hb_newest)
+            _hb_session_active = (NOW.timestamp() - _hb_newest) < 5400   # 90min 与心跳同窗口
+            _hb_long_inactive = (NOW.timestamp() - _hb_newest) > 7 * 86400  # >7 天完全无活动
+        else:
+            _hb_long_inactive = True  # 无任何 jsonl(projects 目录空/不存在)= 无法确认活跃
+    except Exception:
+        _hb_session_active = bool(_hb_claude_pids)  # 退化: 扫描异常回旧 pgrep 判定
+        _hb_long_inactive = False
     # 心跳新鲜度：文件存在则 mtime(BSD %m)距当前 <90min = 新鲜
     _hb_fresh = False
     _hb_missing = False
@@ -1305,8 +1345,14 @@ try:
                 _hb_old_proc = (NOW - _hb_lstart) > timedelta(minutes=30)
         except Exception:
             _hb_old_proc = False
-    # 告警条件：活跃 + (陈旧 或 (缺失且进程存活>30min))
-    _hb_alert = _hb_active and (not _hb_fresh) and (_hb_old_proc or not _hb_missing)
+    # 告警条件(#84 C3 三层判定)：
+    #   心跳异常(陈旧 或 缺失且进程存活>30min) 为前提；
+    #   a) session 活跃(90min 内有用过) → SEVERE(真断)
+    #   c) 极长时间无活动(>7 天) 且 claude 进程存活 → SEVERE(长时间无任何活动仍要报)
+    #   b) 其余(会话不活跃，用户暂时没用) → 降级 warn 只记日志不发邮件(假阳性消除)
+    _hb_hb_bad = (not _hb_fresh) and (_hb_old_proc or not _hb_missing)
+    _hb_active_use = _hb_session_active or (_hb_long_inactive and bool(_hb_claude_pids))
+    _hb_alert = _hb_hb_bad and _hb_active_use
     _hb_key = "feishu_hb_stale"
     _hb_reason = ""
     if _hb_missing:
@@ -1317,8 +1363,10 @@ try:
         seen_keys_this_run.add(_hb_key)
         _ex_hb = alert_state.get(_hb_key)
         if _ex_hb is None or _ex_hb.get("status") != "active":
+            # a) 会话活跃期真断 / c) 极长时间无活动兜底; b) 会话不活跃已下方降级 warn, 不进这里
+            _hb_ctx = "Claude Code 会话活跃" if _hb_session_active else "极长时间无会话活动(>7天)"
             alerts.append(
-                f"SEVERE: 飞书 hook 心跳自检（{_hb_reason}，Claude Code 会话活跃但 hook "
+                f"SEVERE: 飞书 hook 心跳自检（{_hb_reason}，{_hb_ctx}但 hook "
                 f"超90min未触发）。影响：飞书抄送可能静默停摆，用户消息无回显且无告警。"
                 f"恢复：确认 .claude/settings.json 的 UserPromptSubmit/Stop hooks 指向 "
                 f"scripts/feishu_chat_hook.py 且脚本无报错；或重启 Claude Code 会话"
@@ -1334,20 +1382,26 @@ try:
             print(f"[suppress] 飞书 hook 心跳陈旧持续中, "
                   f"last_alerted={_ex_hb.get('last_alerted')}, 不重发")
     else:
-        # 恢复检测（inline，与维度⑦同模式）：异常已消失 -> 发恢复邮件
-        _ex_hb = alert_state.get(_hb_key)
-        if _ex_hb is not None and _ex_hb.get("status") == "active":
-            _emit = _recovery_cooldown_ok(_hb_key, _ex_hb)
-            _ex_hb["status"] = "recovered"
-            _ex_hb["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
-            if _emit:
-                recoveries.append({
-                    "task": "feishu_hb", "keyword": "feishu_hb_stale",
-                    "first_seen": _ex_hb.get("first_seen", "?"),
-                })
-            else:
-                print(f"[cooldown] feishu_hb_stale 恢复邮件静默(上次恢复<30min前)")
-            print(f"[recovery] 飞书 hook 心跳已恢复 (首次发现: {_ex_hb.get('first_seen')})")
+        if _hb_hb_bad:
+            # b) 心跳仍异常但会话不活跃(用户暂时没用)= 预期, 降级 warn 只记日志不发邮件(#84 C3)
+            #    且不判"已恢复"(hook 可能仍坏着, 防降级期误发恢复邮件); active 状态保持等真恢复
+            print(f"[warn] 飞书 hook 心跳{_hb_reason}但无会话活跃"
+                  f"(最后活动={_hb_session_last or '无 jsonl'}), 属预期(用户未使用), 不告警(#84 C3 降噪)")
+        else:
+            # 恢复检测（inline，与维度⑦同模式）：心跳真恢复(fresh) -> 发恢复邮件
+            _ex_hb = alert_state.get(_hb_key)
+            if _ex_hb is not None and _ex_hb.get("status") == "active":
+                _emit = _recovery_cooldown_ok(_hb_key, _ex_hb)
+                _ex_hb["status"] = "recovered"
+                _ex_hb["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                if _emit:
+                    recoveries.append({
+                        "task": "feishu_hb", "keyword": "feishu_hb_stale",
+                        "first_seen": _ex_hb.get("first_seen", "?"),
+                    })
+                else:
+                    print(f"[cooldown] feishu_hb_stale 恢复邮件静默(上次恢复<30min前)")
+                print(f"[recovery] 飞书 hook 心跳已恢复 (首次发现: {_ex_hb.get('first_seen')})")
     # 飞书心跳检查在 save_alert_state(L660) 之后运行, 需补存防状态丢失（同维度⑦）
     save_alert_state(alert_state)
 except Exception as e:

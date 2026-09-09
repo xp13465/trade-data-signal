@@ -201,6 +201,73 @@ else
   echo "  feat 未触碰前端源码(9 源: app/lab/common/style/lab.css/purpose-notes/kelly-review-notes/kelly-reports-content/index.html), 跳过统一 bump"
 fi
 
+# ---- 6.5 changelog 补登自动同步(#83 C8, 2026-09-09 用户拍板): bump 后保证 changelog.json 必有该版本条目 ----
+# 背景: 2026-09-08 O1 deploy 被 check_changelog_current_version 拦截(static-site/changelog.json 缺
+#   新版本串条目, update_all_20260908_1750.log L1429), 人工补登才放行(deploy_20260908_2307.log
+#   L683)。根因 = bump 版本串(main-merge.sh 统一 bump)与 changelog 补登是两条链路, 改代码忘记补登
+#   就断链 → 本步把补登并入 bump 流程(用户拍板 #83)。
+# 判定: 与 check_data_integrity.check_changelog_current_version 同源 = index.html lab-asset-url
+#   meta 的 ?v=<ver> 必须在 changelog.json 有非空 list 条目(check 只在缺失时 FAIL 阻断, 存在即 PASS)。
+# 条目来源: feat 分支 HEAD commit 标题(feat 最后一次功能 commit 的 message 第一行), 提取不到给
+#   占位「版本发布」——check 要求「存在」条目即可 PASS, 不缺行即可(说明可后续手工润色)。
+# 兼容: 已登记条目(bump 前已手工补登或本分支已补)= 跳过不动, pre-main-merge 手工补登仍可用;
+#   未 bump 版本串(上面 CHANGED_SRC 为空)也跑一遍补登 → 历史断链(老版本无条目)一并兜底修复。
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo "  [dry-run] 跳过 changelog 补登"
+else
+  echo "--- changelog 补登自动同步(#83 C8) ---"
+  export CHANGELOG_REPO="$REPO" CHANGELOG_IDX="$REPO/static-site/index.html" \
+         CHANGELOG_PATH="$REPO/static-site/changelog.json" CHANGELOG_FEAT="$FEAT"
+  if "$PY" - <<'PYEOF'
+import json, os, re, subprocess, sys
+from pathlib import Path
+
+idx = Path(os.environ["CHANGELOG_IDX"])
+chg = Path(os.environ["CHANGELOG_PATH"])
+feat = os.environ.get("CHANGELOG_FEAT", "")
+repo = os.environ.get("CHANGELOG_REPO", "")
+
+if not idx.exists() or not chg.exists():
+    print(f"⚠ changelog 补登跳过: index.html({idx.exists()}) 或 changelog.json({chg.exists()}) 不存在")
+    sys.exit(0)
+text = idx.read_text(encoding="utf-8", errors="replace")
+m = re.search(r'meta name=["\']lab-asset-url["\'][^>]*content=["\'][^"\']*[?&]v=([^&"\']+)', text)
+if not m:
+    print("⚠ changelog 补登跳过: index.html 未找到 lab-asset-url 版本串")
+    sys.exit(0)
+ver = m.group(1).strip()
+data = json.loads(chg.read_text(encoding="utf-8", errors="replace"))
+have = data.get(ver)
+if isinstance(have, list) and have:
+    print(f"✓ changelog.json 已登记 {ver}({len(have)} 条), 无需补登")
+    sys.exit(0)
+# 条目说明: feat 分支 HEAD commit 标题(取不到给占位「版本发布」)
+msg = ""
+try:
+    out = subprocess.run(["git", "-C", repo, "log", "-1", "--format=%s", feat],
+                         capture_output=True, text=True, timeout=10)
+    msg = (out.stdout or "").strip()
+except Exception:
+    msg = ""
+if not msg:
+    msg = "版本发布"
+data.setdefault(ver, []).append(msg)
+# 保持 ensure_ascii=True + indent=2 与现有文件风格一致(现有文件中文为 \uXXXX 转义)
+chg.write_text(json.dumps(data, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+print(f"✓ changelog.json 补登 {ver}: {msg}")
+sys.exit(0)
+PYEOF
+  then
+    if ! $GIT diff --quiet -- static-site/changelog.json; then
+      echo "  ✓ changelog.json 已更新, 将随 bump 产物一起 commit"
+    else
+      echo "  · changelog.json 无变更(已登记或无需补登)"
+    fi
+  else
+    echo "✗ changelog 补登脚本异常, 请人工检查(§23.11 不静默; 不阻断 merge 主流程, 但上线 check 会 FAIL)" >&2
+  fi
+fi
+
 # 7. §24⑤ 校验 index 引用版本串 == 实际文件内容 md5
 #    这里用 check_version_progress.py 的 A 任务承担(版本串 ≥ 祖先天花板 + 源码 diff 必须前进);
 #    §24⑤ 的「内容哈希==引用」由 bump 脚本自身保证(每次 bump 强制换新串)。
@@ -262,12 +329,14 @@ if ! $GIT diff --cached --quiet; then
   :
 fi
 # 若 bump 后工作区有未暂存变更(第 6 步 build_min/bump 产生的 min/html/sw.js 变更), 需 add
-# ⚠️ 13 个 bump 产物全量 add(与 bump_asset_version.py 实际写入对齐):
+# ⚠️ bump 阶段产物全量 add(与 bump_asset_version.py 实际写入对齐):
 #    8 个 min 产物(common/purpose-notes/kelly-review-notes/kelly-reports-content/app/lab
 #    的 .min.js + style.min.css + lab.min.css)
 #    + 4 个 html(index/about/guide/privacy——bump 脚本对 static-site/*.html 全量 glob,
 #    当前含 ?v= 引用会被写入的就是这 4 个; 其余 8 个 html(databrief/trade_sim*)无资源引用
-#    不会被写入, 不列) + sw.js。
+#    不会被写入, 不列) + sw.js
+#    + static-site/changelog.json(#83 C8, 2026-09-09): 第 6.5 步 changelog 补登产物, 同属
+#    bump 阶段待 commit 文件, 并入本数组随第 9 步一起 add+commit)。
 #    漏 add = 版本串更新残留工作区进不了 git, 线上引用旧版本串(CSS 一变即 §24 孤儿快照断链;
 #    2026-08-22 凌晨两次 merge 后 about/guide/privacy 均复现, main 7cb8208a0 手工补提交)。
 # ⚠️ 判断条件只盯 bump 产物 diff, 不用整个工作区 diff(2026-08-19 实测卡死根因):
@@ -280,7 +349,7 @@ BUMP_PRODUCTS=(static-site/app.min.js static-site/lab.min.js static-site/common.
                static-site/style.min.css static-site/lab.min.css \
                static-site/index.html static-site/about.html \
                static-site/guide.html static-site/privacy.html \
-               static-site/sw.js)
+               static-site/sw.js static-site/changelog.json)
 if ! $GIT diff --quiet -- "${BUMP_PRODUCTS[@]}"; then
   $GIT add "${BUMP_PRODUCTS[@]}"
   $GIT commit -m "build(统一bump): main-merge.sh 统一 build_min+bump 版本串(机制C, feat=$FEAT)
