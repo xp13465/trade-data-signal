@@ -12731,9 +12731,10 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     // #53 追加3(2026-09-09 用户确认): 资产变化走势功能块——复用首页模拟回测弹窗净资产走势图单源实现
     // (window._simRenderNetassetChart, §5.4⑦ 不另写第二份); fp 传 null=默认费率档(与首页弹窗默认同源);
     // initCapital 按每笔本金 1 万(peakDisp=0); allHistReady=true(lab 弹窗懒加载已完成全量)。
-    // 容器插在主分页之后、淘汰区之前(弹窗最底部综述块), 口径=每笔 1 万本金+同一费率模型, 与首页走势图逐位同源。
+    // #90 收尾(2026-09-09 用户确认): 容器从「主分页之后、淘汰区之前」(弹窗最底部)移到交易记录主表上方
+    // (盘中增量视图之后、主表之前), 与首页模拟回测弹窗「走势在上、表格在下」布局一致; 兜底链保留原位置防异常。
     (function () {
-      const _naRef = overlay.querySelector(".lab-sigkelly-modal-elimwrap") || overlay.querySelector(".lab-sigkelly-modal-pagination");
+      const _naRef = overlay.querySelector(".lab-sigkelly-modal-tablewrap") || overlay.querySelector(".lab-sigkelly-modal-elimwrap") || overlay.querySelector(".lab-sigkelly-modal-pagination");
       if (!_naRef || !_naRef.parentNode) return;
       const _naWrap = document.createElement("div");
       _naWrap.className = "sim-netasset-chart lab-sigkelly-netasset";

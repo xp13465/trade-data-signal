@@ -1576,7 +1576,10 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
     // 视觉整合(2026-09-08 用户反馈「与下方主交易记录表割裂」): 外层复用 .sim-table-wrap(与主表同容器),
     // 内层表用 .sim-intraday-tbl(与主表 .sim-tbl 同表头/行高/边框/字号体系, 见 style.css)。
     // 幂等容器 id 供 render 去旧插新(弹窗重开/筛选重渲染不累积)。
-    return '<div class="sim-table-wrap kelly-intraday-view" id="kelly-intraday-view">' +
+    // #90 收尾(2026-09-09 用户确认): 容器内联 max-height:none+overflow-y:visible 覆盖 .sim-table-wrap
+    // 的 max-height:56vh 限高(内容多时出现内部纵向滚动条), 撑开为无内部滚动条、随弹窗整体滚动,
+    // 与首页模拟回测·全历史真实过滤弹窗表格一致; 横向滚动(overflow-x:auto)保留不破坏窄屏。
+    return '<div class="sim-table-wrap kelly-intraday-view" id="kelly-intraday-view" style="max-height:none;overflow-y:visible">' +
       '<div class="kelly-intraday-note' + (active ? ' kelly-intraday-note-active' : ' kelly-intraday-note-idle') + '">' + head + '</div>' +
       '<table class="sim-intraday-tbl"><thead><tr>' +
       '<th class="txt">信号日</th><th class="txt" title="指数(信号标的)">指数</th>' +
