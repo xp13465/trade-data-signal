@@ -35,7 +35,7 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  # trade/docs/kelly/pos
 _ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_SCRIPT_DIR))))  # trade/
 if _ROOT_DIR not in sys.path:
     sys.path.insert(0, _ROOT_DIR)
-from app.collector.nav_placeholder_defense import is_placeholder_row  # noqa: E402
+from app.collector.nav_placeholder_defense import is_placeholder_row, trading_gap_between  # noqa: E402
 
 DEFAULT_REPO = "/Users/linhuichen/code/trade-data"
 OUT_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "accum_nav_map.json")
@@ -44,15 +44,20 @@ OUT_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "accum_nav_m
 def _filter_placeholder(seq: list[tuple]) -> dict[str, float]:
     """过滤占位残留混合行, 返回 {str(date): accum_nav}。
 
-    判定单一来源 is_placeholder_row(单哨兵 accum_nav=1.5 + 前后交易日不连续):
-    只滤孤立跳变到 1.5 的真残留; 真实 1.5 平滑行(前后连续)保留不误删。
+    判定单一来源 is_placeholder_row(单哨兵 accum_nav=1.5 + 前后交易日不连续 + gap 间隔):
+    只滤孤立跳变到 1.5 的真残留; 真实 1.5 平滑行(前后连续且间隔 ≤5)保留不误删。
+    gap 维度(9/9): seq 只含该 code 非占位行, 索引差≠交易日差——长缺口(530000
+    20260810~0907 无行)下相邻行索引差=1 但实际间隔 30, 8.3%<15% 跳变会被误豁免,
+    必须走交易日历算真实间隔(与回测/检测器三处同源)。
     """
     out: dict[str, float] = {}
     n = len(seq)
     for i, (d, nav) in enumerate(seq):
         prev_nav = seq[i - 1][1] if i >= 1 else None
         next_nav = seq[i + 1][1] if i + 1 < n else None
-        if is_placeholder_row(nav, prev_nav, next_nav):
+        prev_gap = trading_gap_between(seq[i - 1][0], d) if i >= 1 else None
+        next_gap = trading_gap_between(d, seq[i + 1][0]) if i + 1 < n else None
+        if is_placeholder_row(nav, prev_nav, next_nav, prev_gap, next_gap):
             continue  # 占位残留, 滤掉(防前端取到 1.5 假价)
         out[str(d)] = nav
     return out
