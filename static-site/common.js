@@ -1333,6 +1333,8 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
 (function () {
   var _INTRA_URL = "./data/signal_kelly_trades_intraday.json";
   var _promise = null;
+  // #90 任务③: 当前增量表过滤后行集(render 点击 etf 走势时传给 _openEtfTrendPinModal 的事件来源)
+  var _lastUnique = [];
   function _pad(n) { return n < 10 ? "0" + n : "" + n; }
   function _todayS() { var d = new Date(); return "" + d.getFullYear() + _pad(d.getMonth() + 1) + _pad(d.getDate()); }
   function _hm() { var d = new Date(); return d.getHours() * 100 + d.getMinutes(); }
@@ -1482,7 +1484,9 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
     function I(nm) { return f.indexOf(nm); }
     var si = I("signal_date"), xi = I("index_id"), gi = I("signal"), ci = I("etf_code"),
         ni = I("etf_name"), bi = I("buy_price"), pi = I("current_price"), rmi = I("return_pct"),
-        srI = I("sell_reason");
+        srI = I("sell_reason"),
+        // #90 方案C(2026-09-09): 真实市价列(盘中产物重跑后含, 老产物缺字段时 I() 返回 -1, 展示回退复权价)
+        rbi = I("real_buy_price"), rpi = I("real_current_price");
     // 完整字段索引(供宿主谓词 _simPassesFade 使用, 与主档 fIdx 同构)
     var fIdx = {};
     for (var _fiI = 0; _fiI < f.length; _fiI++) fIdx[f[_fiI]] = _fiI;
@@ -1532,6 +1536,7 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
       unique = kept;
     }
     if (K > 0) unique = _intradayTopK(unique, fIdx, K, modeId);
+    _lastUnique = unique; // #90 任务③: 供 etf 点击走势取事件来源(过滤+K 后当前行集)
     nKept = unique.length;
     var cap = _fmtDate(meta.rerun_date || "");
     var R = active
@@ -1554,13 +1559,18 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
     var rows = "";
     for (var j = 0; j < unique.length; j++) {
       var row = unique[j];
-      var bpx = row[bi], cur = row[pi], rp = row[rmi];
+      // #90 方案C(2026-09-09): 买价/当前价展示真实市价(real_ 字段优先, 老产物缺字段回退复权 buy_price/current_price, 不白屏)
+      var bpx = (rbi >= 0 && row[rbi] != null && row[rbi] !== "" && +row[rbi] > 0) ? row[rbi] : row[bi];
+      var cur = (rpi >= 0 && row[rpi] != null && row[rpi] !== "" && +row[rpi] > 0) ? row[rpi] : row[pi];
+      var rp = row[rmi];
       var bpxTxt = bpx == null || bpx === "" ? "-" : (typeof bpx === "number" ? bpx.toFixed(4) : bpx);
       var curTxt = cur == null || cur === "" ? (row[srI] == null ? "持仓中" : "-") : (typeof cur === "number" ? cur.toFixed(4) : cur);
       var rpTxt = rp == null || rp === "" ? "" : (typeof rp === "number" ? (rp >= 0 ? "+" : "") + rp.toFixed(2) + "%" : rp);
       // 2026-09-08 中文化: 指数列走 _idxName(全站 indexIdToName), 信号列走 _sigCName(_t 双字典)
+      // #90 任务③(2026-09-09): 盘中增量表 etf 代码列带 data-code/data-name + 点击走势类(与主交易记录表同交互),
+      //   点击绑定在 render 内(el 插入 DOM 后), 复用 lab.js _openEtfTrendPinModal(全局函数, app.min.js 已加载)。
       rows += '<tr><td class="txt">' + _fmtDate(row[si]) + '</td><td class="txt">' + _esc(_idxName(row[xi])) + '</td><td class="txt">' + _esc(_sigCName(row[gi])) + '</td>' +
-        '<td class="txt">' + _esc(row[ci]) + (row[ni] ? ' <span class="sim-etf-name-sub">' + _esc(row[ni]) + '</span>' : '') + '</td>' +
+        '<td class="txt kelly-intraday-etf" data-code="' + _esc(row[ci]) + '" data-name="' + _esc(row[ni] || row[ci]) + '" title="点击查看走势">' + _esc(row[ci]) + (row[ni] ? ' <span class="sim-etf-name-sub">' + _esc(row[ni]) + '</span>' : '') + '</td>' +
         '<td>' + bpxTxt + '</td><td>' + curTxt + '</td><td>' + rpTxt + '</td></tr>';
     }
     // 视觉整合(2026-09-08 用户反馈「与下方主交易记录表割裂」): 外层复用 .sim-table-wrap(与主表同容器),
@@ -1577,6 +1587,25 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
       '<div class="kelly-intraday-foot">' +
       (active ? '⏰ 17:50 全量回测后前端自动以全量版为准, 本盘中视图降级为历史临时视图（价格可能随收盘口径跳变）。' : '') +
       '定价口径与主档一致（信号次日开盘）, 仅价格源=今日真实开盘(akshare)。纯展示, 不构成投资建议。</div></div>';
+  }
+  // #90 任务③(2026-09-09): 盘中增量表 etf 代码点击 → 走势+买卖/强平 pin 弹窗。
+  // 复用 lab.js _openEtfTrendPinModal(全局 async 函数, 事件回调时必已加载; typeof 防御), 事件源=当前过滤后行集
+  // _lastUnique + 盘中产物 fields; eliminated=[](盘中增量无淘汰区)。srcRow 传触发行(关闭后高亮定位)。
+  function _bindEtfClicks(rootEl, d) {
+    if (!rootEl || typeof window._openEtfTrendPinModal !== "function") return;
+    var tds = rootEl.querySelectorAll(".kelly-intraday-etf");
+    for (var i2 = 0; i2 < tds.length; i2++) {
+      (function (td) {
+        td.onclick = function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          var code = td.getAttribute("data-code") || "";
+          var nm = td.getAttribute("data-name") || "";
+          if (!code) return;
+          window._openEtfTrendPinModal(code, nm, _lastUnique, [], (d && d.fields) || [], td.closest ? td.closest("tr") : null, null);
+        };
+      })(tds[i2]);
+    }
   }
   function render(anchorEl, opts) {
     if (!anchorEl || !anchorEl.parentNode) return;
@@ -1603,7 +1632,9 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
         if (!html) return;
         var el = document.createElement("div");
         el.innerHTML = html;
-        anchorEl.insertAdjacentElement("afterend", el.firstElementChild);
+        var rootEl = el.firstElementChild;
+        anchorEl.insertAdjacentElement("afterend", rootEl);
+        _bindEtfClicks(rootEl, d);
       });
     });
   }

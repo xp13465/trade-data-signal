@@ -4636,12 +4636,18 @@ function _collectSimEtfPinEvents(code, fIdx, rows, fp, gihActive) {
     const _calc = _calcRow(t);
     const _base = { t: t, _fIdx: fIdx, _calc: _calc };
     const bd = t[fIdx.buy_date];
-    if (bd) evs.push({
-      date: String(bd),
-      kind: "buy",
-      price: t[fIdx.buy_price] != null ? Number(t[fIdx.buy_price]) : null,
-      ..._base
-    });
+    if (bd) {
+      // #90 方案C(2026-09-09): 买点标签显示真实市价(real_buy_price 优先, 老数据回退复权 buy_price)与买价列同口径 §22
+      const _rbp = (fIdx.real_buy_price != null && t[fIdx.real_buy_price] != null && +t[fIdx.real_buy_price] > 0)
+        ? Number(t[fIdx.real_buy_price])
+        : (t[fIdx.buy_price] != null ? Number(t[fIdx.buy_price]) : null);
+      evs.push({
+        date: String(bd),
+        kind: "buy",
+        price: _rbp,
+        ..._base
+      });
+    }
     const sd = t[fIdx.sell_date];
     if (sd) {
       const isF = !!t._gihForced;
@@ -4950,8 +4956,10 @@ async function _openSimEtfTrendPinModal(code, name, events, srcRow, srcKey) {
           html += `<div class="lab-etf-pin-pop-row lab-etf-pin-pop-total">合计清仓本金 <b>${_fmtAmt(_totAmt)} 元</b></div>`;
         }
       } else {
-        // 持仓中(对齐 lab): 至今真实价(current_price)/持有天数/至今收益率
-        const cp = (bt && bf.current_price != null) ? Number(bt[bf.current_price]) : null;
+        // 持仓中(对齐 lab): 至今真实价(real_current_price 优先 #90, 缺字段回退 current_price)/持有天数/至今收益率
+        const cp = (bt && bf.real_current_price != null && +bt[bf.real_current_price] > 0)
+          ? Number(bt[bf.real_current_price])
+          : ((bt && bf.current_price != null) ? Number(bt[bf.current_price]) : null);
         html += `<div class="lab-etf-pin-pop-row">持有中 · 至今真实价:${(cp != null ? cp.toFixed(4) : "-")}</div>`;
         const hd = (bt && bf.hold_days != null) ? (+bt[bf.hold_days] || 0) : 0;
         html += `<div class="lab-etf-pin-pop-row">持有:${hd} 个交易日</div>`;
@@ -5111,6 +5119,8 @@ function _simPeakPositions(rows, fIdx) {
   }
   return { peak, peakFirstDate };
 }
+// #90 任务②(2026-09-09): 挂 window 供 lab 凯利弹窗资产走势块复用(单源 §5.4⑦), 不再恒为 1 万初始资金。
+window._simPeakPositions = _simPeakPositions;
 
 function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, gihOn, peakAllHist, peakAllHistRaw, allHistReady) {
   const bodyEl = modal.querySelector(".sim-table-body");
@@ -5214,6 +5224,13 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
     if (!isFinite(n) || n <= 0) return '<span style="color:var(--text-3)">-</span>';
     return n.toFixed(4);
   };
+  // #90 方案C(2026-09-09): 买价列展示真实市价(real_buy_price 优先, 老产物无该字段回退复权 buy_price, 不白屏);
+  //   回测收益率仍用复权口径(profit/return_pct 展示不动)。
+  const _realBuyPx = (t, fIdx) => {
+    const _rbi = fIdx.real_buy_price;
+    if (_rbi != null && t[_rbi] != null && +t[_rbi] > 0) return t[_rbi];
+    return t[fIdx.buy_price];
+  };
   // 计划买入时间列(2026-09-06 用户需求 #91): 上下换行=上「信号日期」/ 下「实际买入日期」。
   // 实际买入日期按当前价格口径: 次日开盘=信号日下一交易日(_simBuildTradeCal 算后继), 当日收盘=信号日当天;
   // 最新信号(已加载交易日历末位, 无后继交易日)次日尚未到来 → 下行「—」+ tooltip。
@@ -5308,7 +5325,7 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
         '<td>' + _simSigTypeLabel(t[fIdx.signal]) + '</td>' +
         '<td class="sim-etf-code-cell" data-code="' + _escAttr(t[fIdx.etf_code] || "") + '" data-name="' + _escAttr(t[fIdx.etf_name] || "") + '" title="点击查看走势"><span class="sim-etf-code-link">' + _simEtfLightHtml(t, fIdx) + (t[fIdx.etf_code] || "") + '</span> <span class="sim-etf-name-sub">' + (t[fIdx.etf_name] || "") + '</span></td>' +
         '<td>' + _simBuyTimeCell(t, fIdx, _getObsCal) + '</td>' +
-        '<td>' + _simPriceCell(t[fIdx.buy_price]) + '</td>' +
+        '<td>' + _simPriceCell(_realBuyPx(t, fIdx)) + '</td>' +
         (_gihForcedFlag ? _gihFeeInclCell : _feeCell(c ? c.buyFee : null)) +
         '<td>' + (c && c.isHolding ? '<span class="simbt-holding-tag">持仓中</span>' : (t[fIdx.sell_date] || "")) + '</td>' +
         '<td>' + _simPriceCell(t[fIdx.sell_price], !!(c && c.isHolding)) + '</td>' +

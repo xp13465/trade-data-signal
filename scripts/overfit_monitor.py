@@ -365,14 +365,16 @@ def load_trades():
         else:
             raise FileNotFoundError("signal_kelly_trades.json 未找到 (static-site/data/ 和 data/ 都没有)")
 
-    # trade 行字段(2026-08-23 收尾修复): schema 实际 24 列, index20-22 为 market_tier 三兄弟
-    # (signal_kelly_backtest.py L469/L576-577: market_tier/market_tier_all/market_tier_cyb),
-    # rating 在 index 23。原硬编码 21 项缺这 3 列 → t["rating"] 读到 market_tier 字符串,
+    # trade 行字段(2026-08-23 收尾修复 + #90 方案C 补 2 列): schema 实际 26 列,
+    # index18-19 为 real_buy_price/real_current_price(#90 真实价), index20-22 为 market_tier 三兄弟
+    # (signal_kelly_backtest.py TRADE_FIELDS: market_tier/market_tier_all/market_tier_cyb),
+    # rating 在 index 25。原硬编码 21 项缺这 3 列 → t["rating"] 读到 market_tier 字符串,
     # by_grade 回测桶/评级类过滤键(janMidRating 等)全部静默失效(§23.7⑤ 上报后用户确认修)。
     FIELD = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code",
              "etf_name", "track_tier", "track_score", "match_method", "track_low_confidence",
              "buy_price", "sell_price", "shares", "profit", "return_pct", "hold_days",
-             "sell_reason", "current_price", "market_state",
+             "sell_reason", "current_price", "real_buy_price", "real_current_price",
+             "market_state",
              "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
     IDX = {f: i for i, f in enumerate(FIELD)}
 

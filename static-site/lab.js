@@ -12530,11 +12530,17 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       const _cpIdx = fIdx.current_price;
       // 2026-09-01 需求: 「买价」+「卖价」合并为上下布局一列(仿 shares 列「主值+sub副值」), 保留三态既有逻辑
       //   上行买价 / 下行卖价; isNavMissing→「—」(缺真实价禁显示0/估算), isHolding→卖价显示当前价+「至今」标签
+      // #90 方案C(2026-09-09 用户拍板 512820 复权价 vs 真实价): 买价/至今价展示真实市价(real_ 字段),
+      //   缺字段(老产物无 real_ 列)回退复权 buy_price/current_price, 不白屏; 回测收益率(profit/return_pct)仍用复权口径不动。
+      const _rbiIdx = fIdx.real_buy_price;
+      const _rciIdx = fIdx.real_current_price;
+      const _buyPx = (_rbiIdx != null && +t[_rbiIdx] > 0) ? +t[_rbiIdx] : (+t[fIdx.buy_price]);
+      const _curPx = (_rciIdx != null && +t[_rciIdx] > 0) ? +t[_rciIdx] : (_cpIdx != null ? +t[_cpIdx] : 0);
       const priceCell = isNavMissing
         ? `<td class="lab-sigkelly-missing-px">—<div class="lab-sigkelly-trades-price-sub">—</div></td>`
         : (isHolding
-            ? `<td>${(+t[fIdx.buy_price]).toFixed(4)}<div class="lab-sigkelly-trades-price-sub lab-sigkelly-est">${(+(_cpIdx != null ? t[_cpIdx] : 0)).toFixed(4)}<span class="lab-sigkelly-est-tag">至今</span></div></td>`
-            : `<td>${(+t[fIdx.buy_price]).toFixed(4)}<div class="lab-sigkelly-trades-price-sub">卖 ${(+t[fIdx.sell_price]).toFixed(4)}</div></td>`);
+            ? `<td>${_buyPx.toFixed(4)}<div class="lab-sigkelly-trades-price-sub lab-sigkelly-est">${_curPx.toFixed(4)}<span class="lab-sigkelly-est-tag">至今</span></div></td>`
+            : `<td>${_buyPx.toFixed(4)}<div class="lab-sigkelly-trades-price-sub">卖 ${(+t[fIdx.sell_price]).toFixed(4)}</div></td>`);
       const profitCell = isNavMissing
         ? `<td class="lab-sigkelly-missing-px">— 缺价</td>`
         : (isHolding
@@ -12734,7 +12740,15 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       _naWrap.innerHTML = '<div class="sim-netasset-head"></div><div class="sim-netasset-body"></div><div class="sim-netasset-note" style="display:none"></div>';
       _naRef.parentNode.insertBefore(_naWrap, _naRef);
       if (typeof window._simRenderNetassetChart === "function") {
-        window._simRenderNetassetChart(_naWrap, trades, fIdx, null, 0, "", "", true);
+        // #90 任务②(2026-09-09 用户确认): 初始资金=首页净资产曲线同口径「峰值同时持仓笔数×¥10000」,
+        //   优先复用 app.js window._simPeakPositions 单源实现(§5.4⑦ 不另写第二份), 不再恒为 1 万。
+        var _peakDisp = 0;
+        try {
+          if (typeof window._simPeakPositions === "function") {
+            _peakDisp = (window._simPeakPositions(trades, fIdx) || {}).peak || 0;
+          }
+        } catch (e) { _peakDisp = 0; }
+        window._simRenderNetassetChart(_naWrap, trades, fIdx, null, _peakDisp, "", "", true);
       }
     })();
     // 排序
@@ -12835,7 +12849,13 @@ function _collectEtfPinEvents(code, fields, trades, eliminated) {
     const c = t[fIdx2.etf_code] ?? t[fIdx2.code];
     if (c === undefined || c === null || String(c) !== String(code)) return;
     const bd = t[fIdx2.buy_date];
-    if (bd) evs.push({ date: String(bd), kind: "buy", price: t[fIdx2.buy_price] != null ? Number(t[fIdx2.buy_price]) : null, t: t, f: fIdx2, src: src });
+    // #90 方案C(2026-09-09): 买点标签显示真实市价(real_buy_price 优先, 老数据回退复权 buy_price), 与主表买价列展示同口径 §22
+    if (bd) {
+      const _rbp2 = (fIdx2.real_buy_price != null && t[fIdx2.real_buy_price] != null && +t[fIdx2.real_buy_price] > 0)
+        ? Number(t[fIdx2.real_buy_price])
+        : (t[fIdx2.buy_price] != null ? Number(t[fIdx2.buy_price]) : null);
+      evs.push({ date: String(bd), kind: "buy", price: _rbp2, t: t, f: fIdx2, src: src });
+    }
     const sd = t[fIdx2.sell_date];
     if (sd) {
       const isF = !!t._gihForced;
@@ -13163,7 +13183,9 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
         html += `<div class="lab-etf-pin-pop-row lab-etf-pin-pop-total">合计清仓本金 <b>${_fmtAmt(_totAmt)} 元</b></div>`;
       }
     } else {
-      const cp = (bt && bf.current_price != null) ? Number(bt[bf.current_price]) : null;
+      const cp = (bt && bf.real_current_price != null && +bt[bf.real_current_price] > 0)
+        ? Number(bt[bf.real_current_price])
+        : ((bt && bf.current_price != null) ? Number(bt[bf.current_price]) : null);
       html += `<div class="lab-etf-pin-pop-row">持有中 · 至今真实价:${(cp != null ? cp.toFixed(4) : "-")}</div>`;
       const hd = (bt && bf.hold_days != null) ? (+bt[bf.hold_days] || 0) : 0;
       html += `<div class="lab-etf-pin-pop-row">持有:${hd} 个交易日</div>`;
