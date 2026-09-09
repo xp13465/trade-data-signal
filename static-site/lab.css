@@ -1900,6 +1900,10 @@ td.lab-sigkelly-elim-reason { text-decoration: none; color: var(--text-2); font-
 .lab-sigkelly-modal-elimwrap { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; max-height: 40vh; display: flex; flex-direction: column; min-height: 0; }
 .lab-sigkelly-modal-elimtablewrap { overflow: auto; flex: 1; min-height: 0; }
 .lab-sigkelly-modal-elimtitle { font-size: 11px; font-weight: 700; color: #868e96; margin-bottom: 6px; }
+/* 2026-09-09 #53 追加2(用户确认): 淘汰原因表格默认折叠, 点击标题行展开/收起(压缩弹窗默认大小) */
+.lab-sigkelly-elim-toggle { cursor: pointer; user-select: none; }
+.lab-sigkelly-elim-toggle:hover { color: var(--text-1); }
+.lab-sigkelly-elim-arrow { display: inline-block; width: 1.1em; font-size: 10px; }
 /* 2026-09-01 bug修复: 淘汰原因筛选下放到淘汰区内部(表头上方), 只作用于下方淘汰表, 不占顶部全局筛选条;
    顶部 ETF/盈利/亏损仍对两表生效。 */
 .lab-sigkelly-modal-elimfilters { display: flex; align-items: center; gap: 6px; margin: 2px 0 8px; }

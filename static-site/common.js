@@ -1371,7 +1371,103 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
     if (id == null || id === "") return "";
     return (typeof indexIdToName === "function") ? (indexIdToName(id) || id) : id;
   }
-  function _bannerHtml(d) {
+  // ─── 盘中增量联动过滤(2026-09-09 #53 用户确认: 切换模式顶部增量跟着变) ───
+  // 渲染时按 opts 联动: ①opts.mode→只取该卖出模式象限(复刻 app.js _simBuildModePool 口径:
+  //   baseKey 去重+缺失聚合维度按 qk 补全); ②opts.modeId+fadeOn→复用宿主过滤谓词
+  //   window._simPassesFade/_simActiveMonthMask(s06/s06p1 走 per-date _tdsS06FiltersForDate,
+  //   静态模式走 _tdsFadeModeById 键集构建 58 键布尔); ③opts.K→每日 top-K(排序口径与
+  //   app.js _simRenderOnce 同源)。§5.4⑦: 全部复用宿主现成过滤链, 严禁另写过滤副本防漂移;
+  //   opts 为空/缺字段 → 现状全量展示(单参数旧调用兼容)。
+  var _simQkDimCompat = function (qk) {
+    if (qk.indexOf("mkt_") === 0) return { type: "mkt", val: qk.slice(4) };
+    if (qk.indexOf("etf_") === 0) return { type: "etf", val: qk.slice(4) };
+    if (qk.indexOf("sig_") === 0) return { type: "sig", val: qk.slice(4) };
+    if (qk.indexOf("rating_") === 0) return { type: "rating", val: qk.slice(7) };
+    return null;
+  };
+  var _intradayBaseKey = function (t, fIdx) {
+    return (t[fIdx.signal_date] || "") + "|" + (t[fIdx.index_id] || "") + "|" + (t[fIdx.signal] || "") + "|" + (t[fIdx.buy_date] || "") + "|" + (t[fIdx.etf_code] || "");
+  };
+  // 按 mode 建池(与 app.js _simBuildModePool 同构: baseKey 去重 + 缺失维度按 qk 补全)
+  var _intradayPool = function (d, mode, fIdx) {
+    var seen = {}, out = [];
+    for (var qk in d.quadrants) {
+      var dim = _simQkDimCompat(qk);
+      var arr = (d.quadrants[qk] && d.quadrants[qk][mode]) || [];
+      for (var i = 0; i < arr.length; i++) {
+        var orig = arr[i];
+        if (fIdx.signal_date == null || fIdx.index_id == null || fIdx.signal == null || fIdx.buy_date == null || fIdx.etf_code == null) { out.push(orig); continue; }
+        var bk = _intradayBaseKey(orig, fIdx);
+        var rec = seen[bk];
+        if (!rec) {
+          rec = orig.slice();
+          rec._mktD = ""; rec._etfD = ""; rec._ratD = "";
+          seen[bk] = rec;
+          out.push(rec);
+        }
+        if (dim) {
+          if (dim.type === "mkt") { if (!rec._mktD) rec._mktD = dim.val; }
+          else if (dim.type === "etf") { if (!rec._etfD) rec._etfD = dim.val; }
+          else if (dim.type === "rating") { if (!rec._ratD) rec._ratD = dim.val; }
+        }
+      }
+    }
+    return out;
+  };
+  var _intradayFiltersFor = function (modeId) {
+    var preset = (typeof _tdsFadeModeById === "function") ? _tdsFadeModeById(modeId) : null;
+    if (!preset) return null;
+    if (preset.dynamic) return { dynamic: true };
+    if (Array.isArray(preset.keys)) {
+      var f = {};
+      for (var i = 0; i < _KELLY_FADE_ALL_KEYS.length; i++) f[_KELLY_FADE_ALL_KEYS[i]] = false;
+      for (var j = 0; j < preset.keys.length; j++) f[preset.keys[j]] = true;
+      return { dynamic: false, filters: f };
+    }
+    return null;
+  };
+  // 降亏过滤单笔判定(精确复用宿主谓词, 非副本): 返回 {keep, note}
+  var _intradayFadeKeep = function (t, fIdx, cfg) {
+    var filters = null, dS = String(t[fIdx.signal_date] || "");
+    if (cfg.dynamic) {
+      filters = (typeof _tdsS06FiltersForDate === "function") ? _tdsS06FiltersForDate(dS) : null;
+      if (!filters) return { keep: true, note: "failopen" };   // 快照缺行/不可用 → fail-open(与主档同语义)
+    } else {
+      filters = cfg.filters;
+    }
+    if (typeof window._simPassesFade !== "function" || typeof window._simActiveMonthMask !== "function") {
+      return { keep: true, note: "nofn" };   // 宿主谓词缺失 → fail-open 并标注(不静默)
+    }
+    var keep = !!window._simPassesFade(t, fIdx, filters, window._simActiveMonthMask(filters));
+    return { keep: keep, note: keep ? "kept" : "filtered" };
+  };
+  // 每日 top-K(排序口径与 app.js _simRenderOnce 同源: track_score DESC → rating → signal → buy_date ASC)
+  var _intradayTopK = function (rows, fIdx, K) {
+    if (!(K > 0)) return rows;
+    var byDate = {};
+    rows.forEach(function (t) { var sd = String(t[fIdx.signal_date] || ""); (byDate[sd] || (byDate[sd] = [])).push(t); });
+    var RATING_RANK = { high: 0, mid: 1, low: 2, _d: 3 };
+    var SIG_RANK = { buy_backup: 0, buy: 1, buy_aux: 2, buy_special: 3, _d: 9 };
+    var _rk = function (r) { return (Object.prototype.hasOwnProperty.call(RATING_RANK, r) ? RATING_RANK[r] : 3); };
+    var _sk = function (s) { return (Object.prototype.hasOwnProperty.call(SIG_RANK, s) ? SIG_RANK[s] : 9); };
+    var out = [];
+    for (var sd in byDate) {
+      var rows2 = byDate[sd];
+      rows2.sort(function (a, b) {
+        var sa = Number(a[fIdx.track_score]); var sb = Number(b[fIdx.track_score]);
+        if (sb !== sa) return sb - sa;
+        var ra = _rk(String(a[fIdx.rating] || "")), rb = _rk(String(b[fIdx.rating] || ""));
+        if (ra !== rb) return ra - rb;
+        var sga = _sk(String(a[fIdx.signal] || "")), sgb = _sk(String(b[fIdx.signal] || ""));
+        if (sga !== sgb) return sga - sgb;
+        var da = String(a[fIdx.buy_date] || ""), db = String(b[fIdx.buy_date] || "");
+        return da < db ? -1 : (da > db ? 1 : 0);
+      });
+      for (var j = 0; j < Math.min(K, rows2.length); j++) out.push(rows2[j]);
+    }
+    return out;
+  };
+  function _bannerHtml(d, opts) {
     if (!d || !d.intraday || d.intraday.mode !== "intraday") return "";
     var meta = d.intraday;
     var sameDay = meta.next_open_date === _todayS();
@@ -1382,30 +1478,73 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
     var si = I("signal_date"), xi = I("index_id"), gi = I("signal"), ci = I("etf_code"),
         ni = I("etf_name"), bi = I("buy_price"), pi = I("current_price"), rmi = I("return_pct"),
         srI = I("sell_reason");
-    // 跨象限去重(每笔交易同现于评级/ETF/信号/大类多象限, 按全行 tuple 去重) + 收集模式集
-    var seen = {}, unique = [], modes = [], modeSeen = {};
-    for (var qk in d.quadrants) {
-      var mk = d.quadrants[qk];
-      for (var m2 in mk) {
-        var arr = mk[m2];
-        if (!modeSeen[m2]) { modeSeen[m2] = 1; modes.push(m2); }
-        for (var i = 0; i < arr.length; i++) {
-          var r = arr[i], key = String(r.join("|"));
-          if (seen[key]) continue;
-          seen[key] = 1;
-          unique.push(r);
+    // 完整字段索引(供宿主谓词 _simPassesFade 使用, 与主档 fIdx 同构)
+    var fIdx = {};
+    for (var _fiI = 0; _fiI < f.length; _fiI++) fIdx[f[_fiI]] = _fiI;
+    var optsMode = (opts && opts.mode) || null;
+    var fadeOn = !(opts && opts.fadeOn === false);   // 缺省=开(与主档 fadeOn 缺省=开同语义)
+    var modeId = (opts && opts.modeId) || null;
+    var K = (opts && parseInt(opts.K, 10)) || 0;
+    // 收集模式集 + 基笔池: 指定模式 → 单模式池(_simBuildModePool 口径, 带聚合维度);
+    // 未指定 → 现状全 mode 并集去重(不重建池, 行=原数组引用, 行为与旧版逐位一致)
+    var unique = [], modes = [], modeSeen = {};
+    if (optsMode) {
+      unique = _intradayPool(d, optsMode, fIdx);
+      modes.push(optsMode);
+    } else {
+      var seen = {};
+      for (var qk in d.quadrants) {
+        var mk = d.quadrants[qk];
+        for (var m2 in mk) {
+          var arr = mk[m2];
+          if (!modeSeen[m2]) { modeSeen[m2] = 1; modes.push(m2); }
+          for (var i = 0; i < arr.length; i++) {
+            var r = arr[i], key = String(r.join("|"));
+            if (seen[key]) continue;
+            seen[key] = 1;
+            unique.push(r);
+          }
         }
       }
     }
     modes.sort();
-    var n = unique.length;
-    if (n === 0) return "";
+    var nAll = unique.length;
+    if (nAll === 0) return "";
+    // 联动过滤(复用宿主谓词)
+    var linked = fadeOn && modeId;
+    var cfg = linked ? _intradayFiltersFor(modeId) : null;
+    var fNotes = [], nKept = nAll;
+    if (cfg) {
+      var kept = [];
+      var failopenCnt = 0, nofnCnt = 0;
+      for (var j2 = 0; j2 < unique.length; j2++) {
+        var rr = _intradayFadeKeep(unique[j2], fIdx, cfg);
+        if (rr.keep) { kept.push(unique[j2]); if (rr.note === "failopen") failopenCnt++; }
+        else if (rr.note === "nofn") { kept.push(unique[j2]); nofnCnt++; }
+      }
+      if (failopenCnt > 0) fNotes.push("⚠ " + failopenCnt + " 笔快照缺行未过滤(fail-open)");
+      if (nofnCnt > 0) fNotes.push("⚠ 过滤谓词缺失, 已全量展示");
+      unique = kept;
+    }
+    if (K > 0) unique = _intradayTopK(unique, fIdx, K);
+    nKept = unique.length;
     var cap = _fmtDate(meta.rerun_date || "");
     var R = active
       ? '#e74c3c'
       : '#999';
+    // 口径标注: 联动态显示(模式/降亏/K 过滤后 N 笔), 现状态显示 N 笔(全部卖出模式);
+    // fadeOn=false 时降亏未生效(不显示 modeId), 但 K 独立生效照常标注。
+    var scopeTxt;
+    if (optsMode) {
+      var _bits = ['按 <b>' + _esc(optsMode) + '</b> 卖出模式'];
+      if (linked && modeId) _bits.push('<b>' + _esc(modeId) + '</b>降亏');
+      if (K > 0) _bits.push('K=' + K);
+      scopeTxt = _bits.join(' · ') + ' 过滤后 <b>' + nKept + '</b>/' + nAll + ' 笔' + (fNotes.length ? '（' + fNotes.join('；') + '）' : '');
+    } else {
+      scopeTxt = '提前入账 <b>' + nAll + '</b> 笔（' + modes.length + ' 卖出模式）';
+    }
     var head = active
-      ? '<b>📊 盘中增量回测</b> · 上一交易日(<b>' + cap + '</b>)信号已用今日开盘价<br>提前入账 <b>' + n + '</b> 笔（' + modes.length + ' 卖出模式） · <b style="color:' + R + '">标注=盘中价（今日真实开盘定价，非最终收盘口径）</b>'
+      ? '<b>📊 盘中增量回测</b> · 上一交易日(<b>' + cap + '</b>)信号已用今日开盘价<br>' + scopeTxt + ' · <b style="color:' + R + '">标注=盘中价（今日真实开盘定价，非最终收盘口径）</b>'
       : '<b>📋 盘中增量回测</b> · <span style="color:' + R + '">已由 17:50 全量版接管（本视图为盘中历史临时视图，价格仍为盘中开盘口径，最终以全量版为准）</span>';
     var rows = "";
     for (var j = 0; j < unique.length; j++) {
@@ -1434,20 +1573,33 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
       (active ? '⏰ 17:50 全量回测后前端自动以全量版为准, 本盘中视图降级为历史临时视图（价格可能随收盘口径跳变）。' : '') +
       '定价口径与主档一致（信号次日开盘）, 仅价格源=今日真实开盘(akshare)。纯展示, 不构成投资建议。</div></div>';
   }
-  function render(anchorEl) {
+  function render(anchorEl, opts) {
     if (!anchorEl || !anchorEl.parentNode) return;
     _fetch().then(function (d) {
-      var html = _bannerHtml(d);
-      // 幂等(2026-09-08 收进 lab 交易记录弹窗后弹窗重渲染/筛选翻页会重复调 render): 先移除 anchor 后旧容器再插,
-      // 保证任意消费点(首页弹窗/凯利交易弹窗)多次调用都只有一个增量视图(§22 单源不漂移)。
-      var prev = anchorEl.nextElementSibling;
-      if (prev && prev.id === "kelly-intraday-view") {
-        anchorEl.parentNode.removeChild(prev);
+      // 联动过滤前置预热(与主档同语义): ①降亏特征 JSON(app.js _simEnsureLossFeat, 新键判定查值);
+      // ②s06 快照(_tdsS06StateEnsure, per-date 基座查值)。均失败/缺失 → 过滤 fail-open, 不静默。
+      var pre = Promise.resolve();
+      if (opts && opts.modeId && opts.fadeOn !== false) {
+        if (typeof window._simEnsureLossFeat === "function") {
+          pre = pre.then(function () { return window._simEnsureLossFeat().catch(function () { return null; }); });
+        }
+        if (typeof window._tdsS06StateEnsure === "function") {
+          pre = pre.then(function () { return window._tdsS06StateEnsure().catch(function () { return null; }); });
+        }
       }
-      if (!html) return;
-      var el = document.createElement("div");
-      el.innerHTML = html;
-      anchorEl.insertAdjacentElement("afterend", el.firstElementChild);
+      return pre.then(function () {
+        var html = _bannerHtml(d, opts);
+        // 幂等(2026-09-08 收进 lab 交易记录弹窗后弹窗重渲染/筛选翻页会重复调 render): 先移除 anchor 后旧容器再插,
+        // 保证任意消费点(首页弹窗/凯利交易弹窗)多次调用都只有一个增量视图(§22 单源不漂移)。
+        var prev = anchorEl.nextElementSibling;
+        if (prev && prev.id === "kelly-intraday-view") {
+          anchorEl.parentNode.removeChild(prev);
+        }
+        if (!html) return;
+        var el = document.createElement("div");
+        el.innerHTML = html;
+        anchorEl.insertAdjacentElement("afterend", el.firstElementChild);
+      });
     });
   }
   window._kellyIntradayRender = render;

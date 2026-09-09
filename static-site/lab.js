@@ -12656,8 +12656,14 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
         `</div>` +
         (eliminated.length > 0 ? (
           `<div class="lab-sigkelly-modal-elimwrap">` +
-            `<div class="lab-sigkelly-modal-elimtitle">⚠ 被${_elimReasonLabel}淘汰的交易 ${eliminated.length} 笔（删除线=不参与统计,已从卡片/按年表剔除;仅在此展示对照哪些被淘汰、因何淘汰）· 已筛 ${elimFilteredCount}/${eliminated.length} 笔` +
-              `${filter.elimReason !== "all" && elimFilteredCount > 0 ? ` · 该类信号盈亏:盈利 ${elimWinCount} / 亏损 ${elimLossCount} · 胜率 ${elimWinRate}% · 总盈亏 ${(elimTotalProfit >= 0 ? "+" : "") + elimTotalProfit.toFixed(0)} 元` : ""}</div>` +
+            // #53 追加2(2026-09-09 用户确认): 淘汰原因表格默认折叠, 点击标题行展开/收起(压缩弹窗默认大小);
+            // 状态记忆 state._sigKellyElimOpen(默认 undefined=折叠; 展开后跨弹窗保留用户偏好)。
+            `<div class="lab-sigkelly-modal-elimtitle lab-sigkelly-elim-toggle" data-role="elim-toggle" title="点击展开/收起淘汰明细">` +
+              `<span class="lab-sigkelly-elim-arrow" data-role="elim-arrow">${state._sigKellyElimOpen ? "▾" : "▸"}</span>` +
+              `⚠ 被${_elimReasonLabel}淘汰的交易 ${eliminated.length} 笔（删除线=不参与统计,已从卡片/按年表剔除;仅在此展示对照哪些被淘汰、因何淘汰）· 已筛 ${elimFilteredCount}/${eliminated.length} 笔` +
+              `${filter.elimReason !== "all" && elimFilteredCount > 0 ? ` · 该类信号盈亏:盈利 ${elimWinCount} / 亏损 ${elimLossCount} · 胜率 ${elimWinRate}% · 总盈亏 ${(elimTotalProfit >= 0 ? "+" : "") + elimTotalProfit.toFixed(0)} 元` : ""}` +
+            `</div>` +
+            `<div class="lab-sigkelly-elim-body" data-role="elim-body" style="${state._sigKellyElimOpen ? "" : "display:none"}">` +
             `<div class="lab-sigkelly-modal-elimfilters">` +
               `<label class="lab-sigkelly-elimfilter-label">淘汰原因:</label>` +
               `<select class="lab-input lab-sigkelly-filter-elimreason">` +
@@ -12677,20 +12683,57 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
               `<span class="lab-sigkelly-page-info">第 ${state._sigKellyElimPage} / ${elimTotalPages} 页(共 ${elimFilteredCount} 笔)</span>` +
               `<button type="button" class="lab-sigkelly-page-next-elim" ${state._sigKellyElimPage >= elimTotalPages ? "disabled" : ""}>下一页 ›</button>` +
             `</div>` +
+            `</div>` +
           `</div>`
         ) : "") +
       `</div>`;
 
     // 盘中增量视图挂载(2026-09-08 用户反馈③): overlay.innerHTML 渲染完成后调 common.js 单源渲染,
     // 增量节出现在过滤条与主表之间(与交易记录一体的非显著展示); 幂等在 common.js render(重渲染不累积)。
+    // #53(2026-09-09 用户确认): 带当前状态 opts 联动—— mode=弹窗卖出模式 / modeId=当前降亏模式基座/
+    // K=positionCap 当日 K / fadeOn=恒开(主档交易记录过滤链 _pcFadeFn 无条件套降亏, 与总开关关时弹窗仍过滤同口径)。
     if (typeof window._kellyIntradayRender === "function") {
       const _intaAnchor = overlay.querySelector(".lab-sigkelly-intraday-anchor");
-      if (_intaAnchor) window._kellyIntradayRender(_intaAnchor);
+      if (_intaAnchor) {
+        window._kellyIntradayRender(_intaAnchor, {
+          mode: modeKey,
+          modeId: state.labSigKellyFadeModeBase || null,
+          fadeOn: true,
+          K: (_filters && _filters.positionCap && _filters.positionCapK > 0) ? _filters.positionCapK : 0
+        });
+      }
     }
 
     // 关闭
     overlay.querySelector(".lab-sigkelly-modal-close").onclick = () => { overlay.style.display = "none"; };
     overlay.onclick = (e) => { if (e.target === overlay) overlay.style.display = "none"; };
+    // #53 追加2: 淘汰原因区点击标题行展开/收起(状态记忆, 不重渲染主表)
+    const _elimToggle = overlay.querySelector('[data-role="elim-toggle"]');
+    if (_elimToggle) {
+      _elimToggle.onclick = (e) => {
+        e.stopPropagation();
+        state._sigKellyElimOpen = !state._sigKellyElimOpen;
+        const body = overlay.querySelector('[data-role="elim-body"]');
+        const arrow = overlay.querySelector('[data-role="elim-arrow"]');
+        if (body) body.style.display = state._sigKellyElimOpen ? "" : "none";
+        if (arrow) arrow.textContent = state._sigKellyElimOpen ? "▾" : "▸";
+      };
+    }
+    // #53 追加3(2026-09-09 用户确认): 资产变化走势功能块——复用首页模拟回测弹窗净资产走势图单源实现
+    // (window._simRenderNetassetChart, §5.4⑦ 不另写第二份); fp 传 null=默认费率档(与首页弹窗默认同源);
+    // initCapital 按每笔本金 1 万(peakDisp=0); allHistReady=true(lab 弹窗懒加载已完成全量)。
+    // 容器插在主分页之后、淘汰区之前(弹窗最底部综述块), 口径=每笔 1 万本金+同一费率模型, 与首页走势图逐位同源。
+    (function () {
+      const _naRef = overlay.querySelector(".lab-sigkelly-modal-elimwrap") || overlay.querySelector(".lab-sigkelly-modal-pagination");
+      if (!_naRef || !_naRef.parentNode) return;
+      const _naWrap = document.createElement("div");
+      _naWrap.className = "sim-netasset-chart lab-sigkelly-netasset";
+      _naWrap.innerHTML = '<div class="sim-netasset-head"></div><div class="sim-netasset-body"></div><div class="sim-netasset-note" style="display:none"></div>';
+      _naRef.parentNode.insertBefore(_naWrap, _naRef);
+      if (typeof window._simRenderNetassetChart === "function") {
+        window._simRenderNetassetChart(_naWrap, trades, _fIdx, null, 0, "", "", true);
+      }
+    })();
     // 排序
     overlay.querySelectorAll(".lab-sigkelly-trades-th").forEach((th) => {
       th.onclick = () => {
