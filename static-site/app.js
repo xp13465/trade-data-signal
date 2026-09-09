@@ -3542,6 +3542,13 @@ function _simPassesFade(t, fIdx, filters, monthMask) {
   return true;
 }
 
+// #53(2026-09-09 盘中增量联动): 挂 window 供 common.js _kellyIntradayRender 复用宿主过滤谓词
+// (s06/s06p1 per-date 快照分支 + 静态键集分支共用同一链; §5.4⑦ 严禁另写过滤副本防漂移;
+// 盘中增量产物字段与主档同构, fIdx=产物 fields 索引)。
+window._simPassesFade = _simPassesFade;
+window._simActiveMonthMask = _simActiveMonthMask;
+window._simEnsureLossFeat = _ensureSimLossFeat;
+
 // (2026-08-22 用户拍板) 新降亏键独立谓词: 牛市·主升(hs300四档) × 信号∈{buy_aux辅买, buy_backup备买} → 拦下
 // 与 lab.js _kellyPassesFadeFilters 的 bullAuxBackupStop 分支同源(§22 一致); market_tier 为空(hk/global 类)=天然不命中=A股限定。
 // sim 弹窗内为独立开关(不并入 filters 对象), 与当前模式键集(v1.1.5 起=NEW14)AND 叠加; 仅 A-F 短线模式生效(G/H/I 由调用方强制关闭)。
@@ -3894,6 +3901,32 @@ function _simGihTiersHtml(curMode) {
   return out;
 }
 
+// #53(2026-09-09 盘中增量联动): 从弹窗当前控件状态读盘中增量视图的过滤 opts——
+// mode=卖出模式下拉 / modeId=降亏模式下拉 / fadeOn=总开关checkbox / K=K档按钮。联动口径与下方
+// _simRenderOnce 消费的控件状态逐位同源(同一批控件, 不重读不另算, §5.4⑦)。
+function _simIntradayOpts(modal) {
+  const _mSel = modal.querySelector(".sim-mode-sel");
+  const _fmSel = modal.querySelector(".sim-fade-mode-sel");
+  const _fadeCb = modal.querySelector(".sim-fade-on-cb");
+  const _kBtn = modal.querySelector(".sim-kbtn.active");
+  let K = 0;
+  if (_kBtn && _kBtn.dataset) K = parseInt(_kBtn.dataset.k, 10) || 0;
+  return {
+    mode: _mSel ? (_mSel.value || null) : null,
+    modeId: _fmSel ? (_fmSel.value || null) : null,
+    fadeOn: !(_fadeCb && !_fadeCb.checked),
+    K: K
+  };
+}
+
+// #53(2026-09-09): 盘中增量视图随控件 change 联动重渲染(锚点=弹窗头, 与首开调用同一函数同一 opts 源)。
+function _simRenderIntraday(modal) {
+  if (typeof window._kellyIntradayRender === "function") {
+    const anchor = modal.querySelector(".rule-modal-header");
+    if (anchor) window._kellyIntradayRender(anchor, _simIntradayOpts(modal));
+  }
+}
+
 function _openSimBacktestModal() {
   let modal = document.getElementById("simBacktestModal");
   const isFirst = !modal;
@@ -4000,12 +4033,17 @@ function _openSimBacktestModal() {
   // 盘中增量回测档·独立盘中视图(2026-09-08, intraday-backtest-rerun): 交易日 9:40 盘中补跑产物
   // signal_kelly_trades_intraday.json 只含上一交易日信号用今日真实开盘价入账的交易, 标注盘中价;
   // 17:50 后以全量版为准, 本视图降级历史临时视图。实现单源在 common.js _kellyIntradayRender(§22 与凯利区一致)。
-  if (typeof window._kellyIntradayRender === "function") {
-    window._kellyIntradayRender(modal.querySelector(".rule-modal-header"));
-  }
+  // #53(2026-09-09 用户确认): 首开即带当前控件状态的 opts 联动过滤(按卖出模式/降亏模式/K 档);
+  // 之后控件 change 由 _bindSimBacktestControls 统一补调 render(见 .sim-kbtn/.sim-date-*/.sim-fade-mode-sel/.sim-mode-sel 绑定)。
+  // 首调移到 _bindSimBacktestControls 之后(F3, 2026-09-09 review 修): 降亏下拉 .sim-fade-mode-sel 由
+  // _tdsFadeModeSelectMount(_bindSimBacktestControls 内)才挂载, 提前首调 _simIntradayOpts 读 modeId=null
+  // → 首开增量不带降亏过滤(全量 5/5 而非 s06 过滤 1/5); 移到挂载后, 首开即按当前控件状态全联动。
   modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
   _bindSimBacktestControls(modal, _close);
+  if (typeof window._kellyIntradayRender === "function") {
+    window._kellyIntradayRender(modal.querySelector(".rule-modal-header"), _simIntradayOpts(modal));
+  }
   _simRender(modal);
 }
 
@@ -4040,6 +4078,7 @@ function _bindSimBacktestControls(modal, _close) {
     _simFadeCb.addEventListener("change", () => {
       try { localStorage.setItem("tds_sim_fade", _simFadeCb.checked ? "1" : "0"); } catch (e) {}
       _simRender(modal); // 仅重渲染过滤层; 模式记忆/下拉选中值全程不变
+      _simRenderIntraday(modal); // #53: 顶部盘中增量视图随过滤开关联动
     });
   }
   // #91 价格口径双档切换(默认次日开盘 / 可选当日收盘对比, 2026-09-06 用户需求): 数据源整体替换 →
@@ -4074,6 +4113,7 @@ function _bindSimBacktestControls(modal, _close) {
       kbtns.forEach((x) => x.classList.remove("active"));
       b.classList.add("active");
       _simRender(modal);
+      _simRenderIntraday(modal); // #53: 顶部盘中增量视图随 K 档联动
     });
   });
   modal.querySelectorAll(".sim-date-start,.sim-date-end,.sim-fade-mode-sel,.sim-mode-sel").forEach((el) => {
@@ -4084,6 +4124,7 @@ function _bindSimBacktestControls(modal, _close) {
         _tdsStoreWithTTL("tds_sim_fade_mode", { mode: el.value });
       }
       _simRender(modal);
+      _simRenderIntraday(modal); // #53: 顶部盘中增量视图随日期/降亏模式/卖出模式联动
     });
   });
   // (2026-08-23 用户拍板) sim-bullstop-cb/sim-fade-cb 两旧控件删除, 其绑定一并移除(防删定义留调用);
@@ -5505,8 +5546,14 @@ function _simNetassetCurve(rows, fIdx, fp, initCapital, nav, winStart, winEnd) {
 }
 
 function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD, allHistReady) {
-  const wrapEl = modal.querySelector(".sim-netasset-chart");
+  // #53(2026-09-09 lab 交易记录弹窗复用): 兼容「modal(内含 .sim-netasset-chart)」与
+  // 「容器直传(本身带 sim-netasset-chart class)」两种调用; fp 缺失→默认费率档(与首页弹窗默认同源);
+  // 单源图表实现, 不另写第二份(§5.4⑦)。
+  const wrapEl = (modal && modal.classList && modal.classList.contains("sim-netasset-chart"))
+    ? modal
+    : (modal && modal.querySelector ? modal.querySelector(".sim-netasset-chart") : null);
   if (!wrapEl) return;
+  if (!fp) { try { fp = _simBtInitFee().fp; } catch (e) {} }
   const headEl = wrapEl.querySelector(".sim-netasset-head");
   const bodyEl = wrapEl.querySelector(".sim-netasset-body");
   const noteEl = wrapEl.querySelector(".sim-netasset-note");
@@ -5674,9 +5721,9 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD, 
   if (typeof window !== "undefined" && window._kkellyRealNav) { _render(); return; }
   if (typeof window !== "undefined" && typeof window._kkellyRealNavEnsure === "function") {
     if (bodyEl) bodyEl.innerHTML = '<div class="sim-netasset-note-inline">净值曲线加载中…</div>';
-    window._kkellyRealNavEnsure().then(() => { if (!modal.classList.contains("hidden")) _render(); })
+    window._kkellyRealNavEnsure().then(() => { if (!modal || !modal.classList || !modal.classList.contains("hidden")) _render(); })
       .catch(() => {
-        if (!modal.classList.contains("hidden")) {
+        if (!modal || !modal.classList || !modal.classList.contains("hidden")) {
           if (bodyEl) bodyEl.innerHTML = "";
           if (noteEl) { noteEl.style.display = ""; noteEl.textContent = "净值数据加载失败, 走势图暂不可用"; }
         }
@@ -5686,6 +5733,8 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD, 
     noteEl.textContent = "净值数据未就绪(common.js 版本过旧), 走势图暂不可用";
   }
 }
+// #53(2026-09-09 追加3): lab 交易记录弹窗复用同一资产/净资产走势图(单源实现, §5.4⑦)。
+window._simRenderNetassetChart = _simRenderNetassetChart;
 
 // === 模拟回测弹窗费率: 快捷档位+自定义(2026-08-22) ===
 // 只读复用交易模拟区既有资产(_SIM_FEE_PRESETS/_simBuyWithFees/_simSellWithFees, 本体不动 §23.7);
