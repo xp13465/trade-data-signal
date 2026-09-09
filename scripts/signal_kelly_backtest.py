@@ -50,6 +50,7 @@ from simulate_trade import (  # noqa: E402
     COMMISSION_RATE, SLIPPAGE, MIN_COMMISSION, TRANSFER_FEE_RATE_SH,
 )
 from app.db import get_conn  # noqa: E402
+from app.collector.nav_placeholder_defense import is_placeholder_row  # noqa: E402
 
 # 凯利回测默认费率(保持该回测的既定口径, 不受 simulate_trade 重构影响)
 # simulate_trade._sell_with_fees 重构后默认新增印花税万5 + 过户费沪深统一;
@@ -597,17 +598,16 @@ def _calendar_days(d1, d2):
 
 
 # 盘中占位哨兵: 2026-09-08 事故 —— 盘中全市场占位行 accum_nav=1.5/open=1.49 同值假数据,
-# 盘后 backfill 把 etf_name/close 覆盖成真实值但 accum_nav 残留 1.5(混合行)。
+# 盘后 backfill 把 etf_name/close/open 覆盖成真实值但 accum_nav 残留 1.5(混合行)。
 # current_price 取值若命中该哨兵, 回退上一真实日, 防虚高收益率(占位 1.5 vs 真实 ~1.5x 可差 80%+)。
-NAV_PLACEHOLDER_VAL = 1.5
-NAV_PLACEHOLDER_OPEN = 1.49
-
-
+# 判定单一来源: app/collector/nav_placeholder_defense.py(单哨兵 accum_nav=1.5 + 前后日不连续)。
 def _nav_skip_placeholder(prices, open_map, etf_code, dates, ref_date):
     """取 ref_date(或回退最近可用日)的 accum_nav, 跳过盘中占位残留日。
 
-    判定: 该日 accum_nav≈1.5 且 open≈1.49(与 etf_daily 盘中占位哨兵同值,
-    混合行 etf_name 已真实但 accum_nav 残留), 视为占位残留, 继续沿 dates 往前找真实日。
+    判定(单一来源 is_placeholder_row): 该日 accum_nav≈1.5 且与前后交易日不连续
+    (孤立跳变到 1.5)= 占位残留, 继续沿 dates 往前找真实日。
+    open=1.49 只作辅助线索不作必要条件(9/8 事故 backfill 已把 open 全覆盖成真实值,
+    真残留 open 无一等于 1.49)。
     纯占位行(etf_name=etf_code)已被 _batch_load_etf_prices 的 etf_name<>etf_code 过滤,
     这里只拦「过滤后仍残留 1.5 的混合行」。
     返回 (current_nav, price_date) 或 (None, None)(无可用价)。
@@ -621,8 +621,9 @@ def _nav_skip_placeholder(prices, open_map, etf_code, dates, ref_date):
         if nav is None or nav <= 0:
             i -= 1
             continue
-        op = (open_map or {}).get(etf_code, {}).get(d)
-        if abs(nav - NAV_PLACEHOLDER_VAL) < 1e-9 and op is not None and abs(op - NAV_PLACEHOLDER_OPEN) < 1e-9:
+        prev_nav = prices.get(dates[i - 1]) if i >= 1 else None
+        next_nav = prices.get(dates[i + 1]) if i + 1 < len(dates) else None
+        if is_placeholder_row(nav, prev_nav, next_nav):
             i -= 1  # 占位残留混合行, 继续往前找真实日
             continue
         return nav, d
@@ -693,6 +694,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
             index_id, etf_name, track_tier, track_score, match_method, track_low_confidence,
             market_state, rating, buy_price, shares, market_tier, market_tier_all,
             market_tier_cyb,
+            open_map=open_map,
         )
 
     future_dates = dates[idx:idx + hold_days]
@@ -792,7 +794,8 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
 
 def _backtest_signal_sell(signal_date, prices, dates, etf_code, sell_mode, signal, sell_signals,
                           today, index_id, etf_name, track_tier, track_score, match_method,
-                          track_low_confidence, market_state, rating, buy_price, shares, market_tier=None, market_tier_all=None, market_tier_cyb=None):
+                          track_low_confidence, market_state, rating, buy_price, shares, market_tier=None, market_tier_all=None, market_tier_cyb=None,
+                          open_map=None):
     """模式 G/H/I 信号驱动卖出(每笔交易独立, 混合指数回测)。
 
     G: 对应指数后续第一个 sell 信号日卖出, 无 sell 信号则持有至回测结束。

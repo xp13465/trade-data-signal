@@ -50,6 +50,7 @@ from . import base  # noqa: F401
 import akshare as ak
 
 from .base import em_get, safe_call, throttle
+from .nav_placeholder_defense import is_placeholder_row  # noqa: E402
 
 # B4 并发改造(2026-07-24):mootdx client 单连接不支持并发调用,
 # fallback 段用此 Lock 串行化,保证 akshare sina 并发时 mootdx 不撞协议竞态
@@ -2079,15 +2080,40 @@ def update_accum_nav(conn, lookback_days: int = 30) -> dict:
     """
     t0 = time.time()
     start = (dt.datetime.now() - dt.timedelta(days=lookback_days)).strftime("%Y%m%d")
+    # 2026-09-06 reviewer F2 根治: 占位残留哨兵改单哨兵 accum_nav=1.5(9/8 backfill 已把 open
+    # 全覆盖成真实值, 原「AND open=1.49」双哨兵对真残留全漏检)。候选行再经 is_placeholder_row
+    # 前后日连续判定(单一来源 app/collector/nav_placeholder_defense), 真实 1.5 平滑行
+    # (588930/159303 前后连续)不误拉, 只补「孤立跳变到 1.5」的真残留 + NULL 缺口。
     rows = conn.execute(
-        "SELECT etf_code, date FROM etf_daily "
-        "WHERE date >= ? AND (accum_nav IS NULL OR (accum_nav=1.5 AND open=1.49)) "
+        "SELECT etf_code, date, accum_nav FROM etf_daily "
+        "WHERE date >= ? AND (accum_nav IS NULL OR accum_nav = 1.5) AND etf_name <> etf_code "
         "ORDER BY etf_code, date",
         (start,),
     ).fetchall()
     need: dict[str, list[str]] = {}
-    for r in rows:
-        need.setdefault(r["etf_code"], []).append(r["date"])
+    if rows:
+        # 对 accum_nav=1.5 候选, 拉该 code 近窗口序列做前后连续判定
+        ph_codes = sorted({r["etf_code"] for r in rows if r["accum_nav"] is not None})
+        ph_seq: dict[str, list[tuple]] = {}
+        for c in ph_codes:
+            ph_seq[c] = conn.execute(
+                "SELECT date, accum_nav FROM etf_daily "
+                "WHERE etf_code=? AND etf_name<>etf_code AND date>=? ORDER BY date",
+                (c, start),
+            ).fetchall()
+        for r in rows:
+            code, d, nav = r["etf_code"], r["date"], r["accum_nav"]
+            if nav is None:
+                need.setdefault(code, []).append(d)
+                continue
+            seq = ph_seq.get(code, [])
+            for i, (dd, nv) in enumerate(seq):
+                if dd == d:
+                    prev_nav = seq[i - 1][1] if i >= 1 else None
+                    next_nav = seq[i + 1][1] if i + 1 < len(seq) else None
+                    if is_placeholder_row(nav, prev_nav, next_nav):
+                        need.setdefault(code, []).append(d)
+                    break
     if not need:
         print(f"  [accum_nav] 近 {lookback_days} 天无缺失行,跳过", flush=True)
         return {"filled": 0, "codes": 0, "skip": 0, "secs": 0.0}

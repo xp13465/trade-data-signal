@@ -104,6 +104,13 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
+# 供 import app.collector.nav_placeholder_defense(判定单一来源, F2 根治: 三处防御共用)
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  # trade/scripts/
+_ROOT_DIR = os.path.dirname(_SCRIPT_DIR)                  # trade/
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
+from app.collector.nav_placeholder_defense import CANDIDATE_WHERE, is_placeholder_row  # noqa: E402
+
 DEFAULT_REPO = Path(os.environ.get("REPO", "/Users/linhuichen/code/trade-data"))
 REPO = DEFAULT_REPO  # --repo 可覆盖(见 main)
 
@@ -458,36 +465,70 @@ NAV_PLACEHOLDER_KEY = "data_gap:nav_placeholder_residue"
 
 
 def check_nav_placeholder_residue(repo: Path, today: datetime) -> list[Finding]:
-    """检测 etf_daily 占位残留混合行(真实名 + 残留 accum_nav=1.5/open=1.49)。
+    """检测 etf_daily 占位残留混合行(真实名 + 残留 accum_nav=1.5)。
 
-    判定: 存在 etf_name<>etf_code 且 accum_nav=1.5 且 open=1.49 的行 → 占位残留污染。
-    纯占位行(etf_name=etf_code)不在本检查范围(NAV_REAL_WHERE 已排除, 属正常盘中占位)。
+    判定(单一来源 app/collector/nav_placeholder_defense.is_placeholder_row):
+    accum_nav≈1.5 且与前后交易日不连续(孤立跳变到 1.5)= 占位残留污染。
+    open=1.49 只作辅助线索不作必要条件(9/8 backfill 已把 open 全覆盖成真实值,
+    真残留 open 无一等于 1.49)。真实 1.5 平滑行(588930@20260908 / 159303@20260721
+    前后连续)不命中。
+    纯占位行(etf_name=etf_code)不在本检查范围(CANDIDATE_WHERE 已排除, 属正常盘中占位)。
     """
     db = repo / "data" / "etf_national_team.db"
     if not db.exists():
         return []
     conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=30.0)
+    hits: list[tuple[str, str]] = []
     try:
-        n, sample = _q1(conn, "SELECT COUNT(*), MIN(date) FROM etf_daily "
-                              "WHERE etf_name <> etf_code "
-                              "AND accum_nav = 1.5 AND open = 1.49")
-        rows = conn.execute(
-            "SELECT etf_code, etf_name, date, close FROM etf_daily "
-            "WHERE etf_name <> etf_code AND accum_nav = 1.5 AND open = 1.49 "
-            "ORDER BY date DESC LIMIT 5").fetchall()
+        # 候选 = 单哨兵 accum_nav=1.5 + 真实名(CANDIDATE_WHERE 单一来源), 最终判定走 Python
+        cands = conn.execute(
+            "SELECT etf_code, date FROM etf_daily WHERE " + CANDIDATE_WHERE +
+            " ORDER BY etf_code, date").fetchall()
+        if cands:
+            codes = sorted({c for c, _ in cands})
+            seq_by_code: dict[str, list[tuple[str, float]]] = {}
+            for i in range(0, len(codes), 500):  # SQLite IN 占位符上限
+                batch = codes[i:i + 500]
+                placeholders = ",".join("?" * len(batch))
+                rs = conn.execute(
+                    f"SELECT etf_code, date, accum_nav FROM etf_daily "
+                    f"WHERE etf_code IN ({placeholders}) AND etf_name <> etf_code "
+                    f"ORDER BY etf_code, date", batch).fetchall()
+                for c, d, nav in rs:
+                    seq_by_code.setdefault(c, []).append((d, nav))
+            for c, d in cands:
+                seq = seq_by_code.get(c, [])
+                for i, (dd, nv) in enumerate(seq):
+                    if dd == d:
+                        prev_nav = seq[i - 1][1] if i >= 1 else None
+                        next_nav = seq[i + 1][1] if i + 1 < len(seq) else None
+                        if is_placeholder_row(nv, prev_nav, next_nav):
+                            hits.append((c, d))
+                        break
     finally:
         conn.close()
-    n = int(n or 0)
+    n = len(hits)
     if n == 0:
         return []
+    sample_rows = []
+    conn2 = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=30.0)
+    try:
+        for c, d in hits[:5]:
+            r = conn2.execute(
+                "SELECT etf_code, etf_name, date, close FROM etf_daily WHERE etf_code=? AND date=?",
+                (c, d)).fetchone()
+            if r:
+                sample_rows.append(tuple(r))
+    finally:
+        conn2.close()
     sample_txt = "; ".join(
-        f"{c} {name}@{d}(close={cl})" for c, name, d, cl in rows) if rows else f"最老 {sample}"
+        f"{c} {name}@{d}(close={cl})" for c, name, d, cl in sample_rows) if sample_rows else ""
     return [Finding(
         NAV_PLACEHOLDER_KEY, "severe",
-        f"etf_daily 占位残留混合行 {n} 行(真实名 + 残留 accum_nav=1.5/open=1.49)",
-        f"9/8 P0 事故形态: 盘中占位 accum_nav=1.5/open=1.49 被盘后 backfill 覆盖成"
-        f"「真实名+真实close+残留1.5」混合行(etf_name<>etf_code 已真实, accum_nav 残留 1.5),"
-        f"穿透全部现有检测, 回测 current_price 取该日 1.5 虚高收益率 80%+。<br>"
+        f"etf_daily 占位残留混合行 {n} 行(真实名 + 残留 accum_nav=1.5)",
+        f"9/8 P0 事故形态: 盘中占位 accum_nav=1.5 被盘后 backfill 覆盖成"
+        f"「真实名+真实close+残留1.5」混合行(etf_name<>etf_code 已真实, accum_nav 残留 1.5,"
+        f"与前后交易日不连续), 穿透全部现有检测, 回测 current_price 取该日 1.5 虚高收益率 80%+。<br>"
         f"样例: {sample_txt}<br>"
         f"建议: accum-nav --lookback 增量补齐已扩 SELECT 纳入 1.5 哨兵行自动覆盖; "
         f"若仍未清, 人工 `python -m app.collector.etf_national_team accum-nav --lookback 60` 补拉。")]

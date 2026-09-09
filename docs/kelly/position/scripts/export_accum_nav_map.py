@@ -4,7 +4,7 @@
 目的:
   为 kelly_ghi_real_price_rebase.mjs 提供"强平日真实卖出净值"的数据源。
   trades.json 的 buy_price/sell_price 均为 accum_nav 口径(已验证:ell_price/0.999 与
- 主库 etf_daily.accum_nav 逐位一致),因此强平日真实价 = 该 ETF 该日 accum_nav,
+  主库 etf_daily.accum_nav 逐位一致),因此强平日真实价 = 该 ETF 该日 accum_nav,
   与 _kellyRecomputeTrade 的卖出还原价完全同口径。
 
 方法口径:
@@ -12,6 +12,12 @@
     避免读静态镜像或前复权 ohlc(C_etf 漂移的 6 只新 ETF 同样正确)。
   - 输出 {"etf_code": {"YYYYMMDD": accum_nav, ...}} 紧凑 JSON。
   - 用 soft RECORD 缺省输出(默认 1000 只 ETF 以内样例;全量用 --all)。
+
+占位残留过滤(2026-09-06 reviewer F3 根治,与回测/检测器同源):
+  9/8 事故残留行 = 真实名 + accum_nav 残留 1.5(open/close/name 已被 backfill 覆盖真实值)。
+  生成时用 app/collector/nav_placeholder_defense.is_placeholder_row(单一来源)滤掉
+  「孤立跳变到 1.5」的残留行, 防前端净资产曲线/强平日真价取到 1.5 假价;
+  真实 1.5 平滑行(588930@20260908 / 159303@20260721 前后连续)不误删。
 
 输入依赖:  $REPO/data/etf_national_team.db(REPO env 缺省 /Users/linhuichen/code/trade-data)
 输出:       docs/kelly/position/scripts/accum_nav_map.json
@@ -22,9 +28,34 @@ import argparse
 import json
 import os
 import sqlite3
+import sys
+
+# 供 import app.collector.nav_placeholder_defense(占位残留判定单一来源, F3)
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  # trade/docs/kelly/position/scripts/
+_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_SCRIPT_DIR))))  # trade/
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
+from app.collector.nav_placeholder_defense import is_placeholder_row  # noqa: E402
 
 DEFAULT_REPO = "/Users/linhuichen/code/trade-data"
 OUT_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "accum_nav_map.json")
+
+
+def _filter_placeholder(seq: list[tuple]) -> dict[str, float]:
+    """过滤占位残留混合行, 返回 {str(date): accum_nav}。
+
+    判定单一来源 is_placeholder_row(单哨兵 accum_nav=1.5 + 前后交易日不连续):
+    只滤孤立跳变到 1.5 的真残留; 真实 1.5 平滑行(前后连续)保留不误删。
+    """
+    out: dict[str, float] = {}
+    n = len(seq)
+    for i, (d, nav) in enumerate(seq):
+        prev_nav = seq[i - 1][1] if i >= 1 else None
+        next_nav = seq[i + 1][1] if i + 1 < n else None
+        if is_placeholder_row(nav, prev_nav, next_nav):
+            continue  # 占位残留, 滤掉(防前端取到 1.5 假价)
+        out[str(d)] = nav
+    return out
 
 
 def main() -> None:
@@ -50,15 +81,24 @@ def main() -> None:
         rows = conn.execute(
             "SELECT etf_code, date, accum_nav FROM etf_daily WHERE accum_nav IS NOT NULL ORDER BY etf_code, date"
         ).fetchall()
+        cur_code: str | None = None
+        seq: list[tuple] = []
         for r in rows:
-            maps.setdefault(r["etf_code"], {})[str(r["date"])] = r["accum_nav"]
+            if r["etf_code"] != cur_code:
+                if cur_code is not None:
+                    maps[cur_code] = _filter_placeholder(seq)
+                cur_code = r["etf_code"]
+                seq = []
+            seq.append((r["date"], r["accum_nav"]))
+        if cur_code is not None:
+            maps[cur_code] = _filter_placeholder(seq)
     else:
         for c in codes:
             rows = conn.execute(
                 "SELECT date, accum_nav FROM etf_daily WHERE etf_code=? AND accum_nav IS NOT NULL ORDER BY date",
                 (c,),
             ).fetchall()
-            maps[c] = {str(r["date"]): r["accum_nav"] for r in rows}
+            maps[c] = _filter_placeholder([(r["date"], r["accum_nav"]) for r in rows])
     conn.close()
 
     with open(OUT_JSON, "w", encoding="utf-8") as f:
