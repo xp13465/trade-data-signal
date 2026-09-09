@@ -12699,7 +12699,10 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
           mode: modeKey,
           modeId: state.labSigKellyFadeModeBase || null,
           fadeOn: true,
-          K: (_filters && _filters.positionCap && _filters.positionCapK > 0) ? _filters.positionCapK : 0
+          // F1 同类修(2026-09-09 review 复验): _filters 只在 _openSigKellyTradesModal 以局部 var 声明,
+          // 作用域不达 _renderSigKellyTradesModal, 引用必抛 ReferenceError 中断后续(走势块/排序/翻页全挂);
+          // 改为 state.labSigKellyFilters 显式引用(state 全局可及, 与 _open 内 _filters 同源)。
+          K: (state.labSigKellyFilters && state.labSigKellyFilters.positionCap && state.labSigKellyFilters.positionCapK > 0) ? state.labSigKellyFilters.positionCapK : 0
         });
       }
     }
@@ -12731,7 +12734,7 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
       _naWrap.innerHTML = '<div class="sim-netasset-head"></div><div class="sim-netasset-body"></div><div class="sim-netasset-note" style="display:none"></div>';
       _naRef.parentNode.insertBefore(_naWrap, _naRef);
       if (typeof window._simRenderNetassetChart === "function") {
-        window._simRenderNetassetChart(_naWrap, trades, _fIdx, null, 0, "", "", true);
+        window._simRenderNetassetChart(_naWrap, trades, fIdx, null, 0, "", "", true);
       }
     })();
     // 排序

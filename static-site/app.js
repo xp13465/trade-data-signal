@@ -4035,12 +4035,15 @@ function _openSimBacktestModal() {
   // 17:50 后以全量版为准, 本视图降级历史临时视图。实现单源在 common.js _kellyIntradayRender(§22 与凯利区一致)。
   // #53(2026-09-09 用户确认): 首开即带当前控件状态的 opts 联动过滤(按卖出模式/降亏模式/K 档);
   // 之后控件 change 由 _bindSimBacktestControls 统一补调 render(见 .sim-kbtn/.sim-date-*/.sim-fade-mode-sel/.sim-mode-sel 绑定)。
-  if (typeof window._kellyIntradayRender === "function") {
-    window._kellyIntradayRender(modal.querySelector(".rule-modal-header"), _simIntradayOpts(modal));
-  }
+  // 首调移到 _bindSimBacktestControls 之后(F3, 2026-09-09 review 修): 降亏下拉 .sim-fade-mode-sel 由
+  // _tdsFadeModeSelectMount(_bindSimBacktestControls 内)才挂载, 提前首调 _simIntradayOpts 读 modeId=null
+  // → 首开增量不带降亏过滤(全量 5/5 而非 s06 过滤 1/5); 移到挂载后, 首开即按当前控件状态全联动。
   modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
   _bindSimBacktestControls(modal, _close);
+  if (typeof window._kellyIntradayRender === "function") {
+    window._kellyIntradayRender(modal.querySelector(".rule-modal-header"), _simIntradayOpts(modal));
+  }
   _simRender(modal);
 }
 

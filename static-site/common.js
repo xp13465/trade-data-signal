@@ -1442,8 +1442,13 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
     return { keep: keep, note: keep ? "kept" : "filtered" };
   };
   // 每日 top-K(排序口径与 app.js _simRenderOnce 同源: track_score DESC → rating → signal → buy_date ASC)
-  var _intradayTopK = function (rows, fIdx, K) {
+  var _intradayTopK = function (rows, fIdx, K, modeId) {
     if (!(K > 0)) return rows;
+    // s06p1(2026-08-29 观察档): 与主档 _simRenderOnce 每日 top-K 前同源剔除——仅 K=1 时剔除 rating=high
+    // (mid/low 递补), K=2/3/4 不剔(Δ=0 铁律)。单一事实源=本文件 _tdsS06P1StripHigh(modeId, K), 禁止写死副本。
+    if (_tdsS06P1StripHigh(modeId, K)) {
+      rows = rows.filter(function (t) { return String(t[fIdx.rating] || "") !== "high"; });
+    }
     var byDate = {};
     rows.forEach(function (t) { var sd = String(t[fIdx.signal_date] || ""); (byDate[sd] || (byDate[sd] = [])).push(t); });
     var RATING_RANK = { high: 0, mid: 1, low: 2, _d: 3 };
@@ -1526,7 +1531,7 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
       if (nofnCnt > 0) fNotes.push("⚠ 过滤谓词缺失, 已全量展示");
       unique = kept;
     }
-    if (K > 0) unique = _intradayTopK(unique, fIdx, K);
+    if (K > 0) unique = _intradayTopK(unique, fIdx, K, modeId);
     nKept = unique.length;
     var cap = _fmtDate(meta.rerun_date || "");
     var R = active
