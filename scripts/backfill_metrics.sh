@@ -30,47 +30,12 @@ if [ "$idx_rc" -ne 0 ]; then
 fi
 
 # 2) 补采 direct:类指标（主力净流入 a_fund_main 等；东财封禁时 direct.py 内置 akshare fallback）
-"$REPO/.venv/bin/python" -c "
-import sys
-from app.collector.fetchers import load_config, collect_direct
-from app.collector.runner import upsert_metrics_many
-from app.collector.base import log_collect
-from app.db import get_conn
-from app.calendar import last_trading_day
-cfg = load_config()
-date = last_trading_day()
-ok = fail = 0
-for m in cfg.get('metrics', []):
-    if not m.get('enabled'):
-        continue
-    if not m.get('func', '').startswith('direct:'):
-        continue
-    mid = m['id']
-    try:
-        rows, msg = collect_direct(m)
-        if rows:
-            upsert_metrics_many(mid, rows)
-            # 补采成功=告警解除:清同 run_date 该 metric 旧非 ok 记录,
-            # 让 collect_health 反映最新状态(同任务2清 disabled 误报同理)
-            _c = get_conn()
-            _c.execute('DELETE FROM collect_log WHERE run_date=? AND metric_id=? AND status<>?',
-                       (date, mid, 'ok'))
-            _c.commit(); _c.close()
-            ok += 1
-            print(f'[ok] {mid} +{len(rows)} rows', flush=True)
-            log_collect(date, mid, 'ok', f'{len(rows)} rows')
-        else:
-            fail += 1
-            print(f'[fail] {mid} {msg}', flush=True)
-            log_collect(date, mid, 'error', msg)
-    except Exception as e:
-        fail += 1
-        print(f'[fail] {mid} {e}', flush=True)
-        log_collect(date, mid, 'error', str(e))
-print(f'=== direct metrics 补采 ok={ok} fail={fail} ===', flush=True)
-# 主采集退出码: 任一 direct metric 补采失败即非 0(供 backfill 总退出码聚合; 2026-09-09 #84 C4)
-sys.exit(1 if fail else 0)
-" 2>&1 | tee -a "$LOG"
+#    独立脚本 scripts/backfill_direct_metrics.py（2026-09-09 从内嵌 python 提取，逻辑逐行一致，
+#    唯一变更=缺口判定）。退出码语义：仅「真失败」（no direct.fetch_* 配置缺失 / direct:* error:
+#    采集异常 / 抛异常）计 fail → exit 1；「两源皆败无数据」= 数据源正常缺口(gap)，不计 fail、
+#    不进退出码，缺口由 collect_health 通道反映（#84 reviewer P1-1：02:00 槽 a_fund_main 每日
+#    必现该缺口，旧逻辑计 fail → 每日 exit 1 → schedule_monitor 假 SEVERE+恢复邮件循环）。
+"$REPO/.venv/bin/python" "$REPO/scripts/backfill_direct_metrics.py" 2>&1 | tee -a "$LOG"
 drc=${PIPESTATUS[0]}
 if [ "$drc" -ne 0 ]; then
     echo "⚠ direct metrics 补采有失败(退出码 $drc), 计入 backfill 退出码" | tee -a "$LOG"
