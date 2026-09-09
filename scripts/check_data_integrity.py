@@ -29,6 +29,7 @@ deploy.sh 接入(L105 后):
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import os
 import re
@@ -1035,6 +1036,55 @@ def check_accum_nav_map_fresh(data_dir: Path) -> CheckResult:
     return _ok(name, f"最新 nav 日期={last_dt} (滞后 {days} 天)")
 
 
+def check_accum_nav_map_price_sane(data_dir: Path) -> CheckResult:
+    """校验 accum_nav_map.json 单日价格分布正常(防批量同价污染, P0-2 2026-09-09)。
+
+    # 事故(2026-09-09): 20260908 全 ETF accum_nav 被污染为统一 1.5(1552 只中 1540 只=99%),
+    # 净资产曲线末日持仓市值全按 1.5 估值 → 用户看到「较前日 +23393/+22.7%」假涨。
+    # 数据链: 主库 etf_daily.accum_nav 当时脏 → export_accum_nav_map.py 原样导出 → R2/static-site 同步上线。
+    # 本项机检: 任意日期「非空值 code ≥30 且不同价格数 <5」或「众数价格占比 >80%」即判批量污染,
+    # 阻断 deploy(净资产曲线/强平日真价共用该数据源, 污染=展示假涨+强平假盈亏)。
+    # 阈值宽松不会误报: 正常单日 1400+ 只 ≈ 1400+ 个不同价格, unique 占比 >95%。
+    """
+    name = "accum_nav_map_price_sane"
+    path = data_dir / "accum_nav_map.json"
+    data, err = _load_json(path)
+    if err:
+        return _fail(name, err)
+    if not isinstance(data, dict) or not data:
+        return _fail(name, f"accum_nav_map.json 空或非 dict: {path}")
+    by_date: dict[str, list[float]] = {}
+    for m in data.values():
+        if not isinstance(m, dict):
+            continue
+        for dt, v in m.items():
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            if not (fv > 0):
+                continue
+            by_date.setdefault(str(dt), []).append(fv)
+    bad: list[str] = []
+    for dt in sorted(by_date):
+        vals = by_date[dt]
+        n = len(vals)
+        if n < 30:
+            continue
+        uniq = len(set(round(v, 4) for v in vals))
+        if uniq < 5:
+            bad.append(f"{dt}: {n} 只仅 {uniq} 个不同价格(批量同价污染)")
+            continue
+        cnt = collections.Counter(round(v, 4) for v in vals)
+        top_v, top_n = cnt.most_common(1)[0]
+        if top_n / n > 0.8:
+            bad.append(f"{dt}: 众数价格 {top_v} 占 {top_n}/{n}({top_n / n:.0%}, 批量同价污染)")
+    if bad:
+        samples = "; ".join(bad[:5])
+        return _fail(name, f"accum_nav_map 单日价格分布异常: {samples}")
+    return _ok(name, f"{len(by_date)} 个日期价格分布正常(无批量同价污染)")
+
+
 def _latest_published_quarter_end(today: datetime) -> datetime | None:
     """返回最近已发布的季度末（季度末 + 20 天 <= 今天），与 hkex_ccass_quarterly._quarter_end_dates 同口径。
 
@@ -1791,6 +1841,8 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     results.append(check_fapi_mutex())
     # accum_nav_map.json 新鲜度(#52, 净资产曲线+强平日真价共用数据源; deploy.sh 每日生成兜底)
     results.append(check_accum_nav_map_fresh(data_dir))
+    # accum_nav_map.json 单日价格分布 sanity(P0-2 2026-09-09 批量同价污染事故防再犯: 全 ETF 同价=净资产曲线假涨)
+    results.append(check_accum_nav_map_price_sane(data_dir))
     results.append(check_trade_sim_indices(data_dir))
     results.append(check_etf_since_return(data_dir))
     # #10 ETF 全史日K产物目录（export_etf_hist.py -> R2 etf/ 前缀）
