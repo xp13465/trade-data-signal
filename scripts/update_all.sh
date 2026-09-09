@@ -7,7 +7,9 @@
 #   width       慢宽度（mootdx/行业宽度/全市场宽度）
 #   futures     独立（期货机构持仓）
 #   stock_daily 后台死端（全 A 股日线备用源），不 export 不 push，不阻塞
-#   turnover    慢（baostock 增量 + cleanup 算 a_turnover）
+#   turnover    已摘出主链（#82 C6）：baostock 增量 + cleanup 算 a_turnover 独立任务
+#                scripts/turnover_backfill.sh 延后跑（launchd com.trade.turnover-backfill 21:10），
+#                update_all 不再等待其完成（当日 a_turnover 晚 1-2h 上线，用户已拍板）。
 # O1 收敛（2026-08-17 批次A）：deploy 由「每条 pipeline 各跑一遍完整 deploy（4 遍=88min 主因）」
 #   收敛为「末尾统一 1 次完整 deploy」——各 pipeline 只采集+计算写入 DB，等全部完成后再统一
 #   跑 1 次完整 deploy（覆盖全部 4 pipeline 产物，§22 一致性），配套 ab#39 增量导出提速。
@@ -74,27 +76,25 @@ fi
 [ "$FORCE" = "1" ] && [ "$IS_TRADING" != "1" ] && echo "⚠ force 模式：非交易日强制采集（补数据/校准）" | tee -a "$LOG"
 
 # 交易日：并发启动 pipeline
-# core/width/futures/turnover 前台并发（wait 等，turnover 慢但需 export+push 上线，等其完成再发通知）；
-# stock_daily 后台（死端不 wait，不阻塞）
-echo "-> 并发启动 pipeline: core / width / futures / turnover / stock_daily(后台)" | tee -a "$LOG"
+# core/width/futures 前台并发（wait 等）；stock_daily 后台（死端不 wait，不阻塞）。
+# turnover 已摘出主链（#82 C6）：a_turnover 由独立任务 scripts/turnover_backfill.sh 延后跑
+# （launchd com.trade.turnover-backfill），不再阻塞主链、不再参与本脚本通知。
+echo "-> 并发启动 pipeline: core / width / futures / stock_daily(后台)" | tee -a "$LOG"
 bash "$REPO/scripts/pipeline.sh" core        >> "$LOG" 2>&1 &
 PID_CORE=$!
 bash "$REPO/scripts/pipeline.sh" width       >> "$LOG" 2>&1 &
 PID_WIDTH=$!
 bash "$REPO/scripts/pipeline.sh" futures     >> "$LOG" 2>&1 &
 PID_FUTURES=$!
-bash "$REPO/scripts/pipeline.sh" turnover    >> "$LOG" 2>&1 &
-PID_TURNOVER=$!
 bash "$REPO/scripts/pipeline.sh" stock_daily >> "$LOG" 2>&1 &
 PID_STOCK=$!
-echo "  PID: core=$PID_CORE width=$PID_WIDTH futures=$PID_FUTURES turnover=$PID_TURNOVER stock_daily=$PID_STOCK(后台不等)" | tee -a "$LOG"
+echo "  PID: core=$PID_CORE width=$PID_WIDTH futures=$PID_FUTURES stock_daily=$PID_STOCK(后台不等)" | tee -a "$LOG"
 
-# 等核心四线（stock_daily 后台不等；turnover 慢但需上线，故 wait）
+# 等核心三线（stock_daily 后台不等；turnover 已摘出独立任务）
 wait "$PID_CORE";     RC_CORE=$?
 wait "$PID_WIDTH";    RC_WIDTH=$?
 wait "$PID_FUTURES";  RC_FUTURES=$?
-wait "$PID_TURNOVER"; RC_TURNOVER=$?
-echo "pipeline 退出码: core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER (stock_daily PID=$PID_STOCK 仍在后台)" | tee -a "$LOG"
+echo "pipeline 退出码: core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES (stock_daily PID=$PID_STOCK 仍在后台)" | tee -a "$LOG"
 
 # #11 基金全史净值（export_fund_nav, 弹窗净值走势数据源）——先刷产物再过闸门(fund_nav 时序倒挂修复 2026-08-27)
 # 原排在 O1 统一 deploy 之后, 而 deploy 内 check_data_integrity 抽样拿当晚已进新净值的 DB
@@ -235,7 +235,7 @@ if [ "$FUND_NAV_RC" -eq 0 ]; then
 fi
 
 echo "=== update_all.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
-echo "core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER check_signals=$SIGNAL_RC" | tee -a "$LOG"
+echo "core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES check_signals=$SIGNAL_RC" | tee -a "$LOG"
 
 # 数据时效断言：校验刚 deploy 的 overview.json/intraday_snapshot.json 是否新鲜。
 # overview.date 应 == 最近交易日；intraday_snapshot.collected_at 应在 3h 内（本流程刚采集）。
@@ -293,7 +293,7 @@ MM_DD_HM=$(date '+%m-%d %H:%M')
 
 # 失败 pipeline 明细（退出码非 0）：名 + rc + 最近一份 pipeline 日志名，并入通知正文
 FAILED_DETAILS=""
-for _name in core width futures turnover; do
+for _name in core width futures; do
   _rcvar="RC_$(printf '%s' "$_name" | tr '[:lower:]' '[:upper:]')"
   _rc="${!_rcvar:-0}"
   if [ "$_rc" != "0" ]; then
@@ -303,7 +303,7 @@ for _name in core width futures turnover; do
 done
 [ -n "$FAILED_DETAILS" ] && FAILED_DETAILS="<br>失败明细:${FAILED_DETAILS}"
 
-NOTIFY_BODY="update_all 完成<br>耗时：${ELAPSED_MIN} 分钟（${ELAPSED}秒）<br>退出码：core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER deploy_all=${DEPLOY_ALL_RC:-0} check_signals=$SIGNAL_RC${FAILED_DETAILS}<br>数据时效：$FRESH_MSG<br>日志：$LOG<br>结束时间：$NOW_STR"
+NOTIFY_BODY="update_all 完成<br>耗时：${ELAPSED_MIN} 分钟（${ELAPSED}秒）<br>退出码：core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES deploy_all=${DEPLOY_ALL_RC:-0} check_signals=$SIGNAL_RC${FAILED_DETAILS}<br>数据时效：$FRESH_MSG<br>日志：$LOG<br>结束时间：$NOW_STR"
 if [ "$SEVERE" -eq 1 ]; then
   ISSUE="update_all 严重告警："
   [ "$ELAPSED" -gt 3600 ] && ISSUE="${ISSUE}耗时超1h(${ELAPSED_MIN}分钟) "

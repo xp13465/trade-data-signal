@@ -82,6 +82,14 @@ TASKS = [
     # schedule_monitor.sh TASKS 同步加漏跑检查条目。
     {"task": "check_data_gap", "name": "数据缺口检测", "script": "check_data_gap_alerts.sh",
      "schedule": "22:35", "log": "check_data_gap_launchd.log", "mode": "standard"},
+    # turnover_backfill: 2026-09-09 补入(#82 C6: turnover 摘出 update_all 主链独立延后跑)。
+    # launchd com.trade.turnover-backfill 交易日 21:10 跑 turnover_backfill.sh
+    # (baostock 增量 + cleanup_d3d2 算 a_turnover_* 入 daily_metric + 增量重导 overview/a-stock 传 R2)。
+    # 日志固定 append + 标准开始/结束行, standard 模式可解析;
+    # schedule_monitor.sh TASKS 已同步收录漏跑检查(同 s06_snapshot 先例)。
+    # ⚠️ 时点 21:10 为默认建议值, 最终以主控 merge 时确认的 launchd 部署时点为准。
+    {"task": "turnover_backfill", "name": "换手率独立延后", "script": "turnover_backfill.sh",
+     "schedule": "21:10", "log": "turnover_backfill_launchd.log", "mode": "standard"},
 ]
 
 _TS = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})'
@@ -112,6 +120,7 @@ LABEL_MAP = {
     "overfit_monitor": "com.trade.overfit-monitor",
     "s06_snapshot": "com.trade.s06-snapshot",
     "check_data_gap": "com.trade.check-data-gap",
+    "turnover_backfill": "com.trade.turnover-backfill",
 }
 
 # launchctl print "last exit code = N" 行（N 可为 143/0/1/None，None 显 "last exit code = (none)"）

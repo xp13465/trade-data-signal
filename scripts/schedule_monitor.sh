@@ -133,6 +133,15 @@ TASKS = [
     {"task": "check_data_gap",      "log": "check_data_gap_launchd.log",
      "trading_day_only": True,  # 非交易日脚本闸门跳过不写开始行, 必需跳过漏跑检查避免周末误报
      "schedules": ["22:35"]},
+    # turnover_backfill: 2026-09-09 补入(#82 C6: turnover 摘出 update_all 主链独立延后跑)。
+    # launchd com.trade.turnover-backfill 交易日 21:10 跑 turnover_backfill.sh
+    # (baostock 增量 + cleanup_d3d2 算 a_turnover_* 入 daily_metric + 增量重导 overview/a-stock
+    # 传 R2)。固定 append + 标准开始/结束行, standard 模式可解析; 此处只管漏跑+进行中超时。
+    # ⚠️ 时点 21:10 为默认建议值(避 21:00 backfill/futures、21:30 etf-nt、22:00 public-fund-full),
+    #    最终以主控 merge 时确认的 launchd 部署时点为准。
+    {"task": "turnover_backfill",   "log": "turnover_backfill_launchd.log",
+     "trading_day_only": True,  # 非交易日脚本闸门跳过不写开始行, 必需跳过漏跑检查避免周末误报
+     "schedules": ["21:10"]},
 ]
 
 # 标准任务开始行：=== xxx.sh 开始 YYYY-MM-DD HH:MM:SS ===
@@ -320,7 +329,12 @@ TRANSIENT_TIMEOUT_THRESHOLD = 3
 #   覆盖 16:35 槽 max 2776s + 21:00 槽 08-10 达 3707s)。
 DUR_THRESHOLDS = {
     "intraday_snapshot": 600,   # 10min
-    "update_all": 4200,         # 70min(实测 max 3609s, 2026-08-14)
+    # 2026-09-09 #82 C6 重标: turnover 已摘出主链(独立任务 com.trade.turnover-backfill 21:10),
+    # update_all 主链 = width(实测 36min) + 后续串行(export_fund_nav→deploy→…→daily_summary,
+    # 实测 76-85min) ≈ 112-121min。阈值 8100s(135min) = 实测 max + ~14min 裕量,
+    # 防 121min 正常完成 > 4200s 旧阈值复发假 SEVERE(2026-08-14 同病)。turnover 自身耗时
+    # 由新任务 turnover_backfill 独立监控(schedule_monitor TASKS 已收录)。原 4200s 废弃。
+    "update_all": 8100,         # 135min(摘出 turnover 后主链实测 112-121min + 裕量, 2026-09-09)
     "backfill_evening": 4500,   # 75min(实测 max ~3707s 21:00槽 08-10)
     "us_stock_morning": 1800,   # 30min(任务本身秒级,慢在全量 deploy 17-26min 恒超 900s;2026-08-18 900->1800)
     "overfit_monitor": 900,     # 15min(实测打点+双 parity 自检 76s, 2026-08-25; 大裕量防 trades 重算抖动)
@@ -556,7 +570,7 @@ if STATS_FILE.exists():
 #   对齐近9交易日实测 max, 2026-08-14 修复 A1 误报正常日)。
 # 超时 key 进 seen_keys_this_run(防误恢复), 已 active 则 suppress 不重发。
 IN_PROGRESS_BUFFER = {
-    "update_all": 30,          # 计划17:50 +70min阈值(4200s) +30min缓冲 = 19:30 未完成才告警
+    "update_all": 30,          # 计划17:50 +135min阈值(8100s,#82 C6 摘出 turnover 后) +30min缓冲 = 21:35 未完成才告警
                                # (原 18:40 早于正常完成 18:50 误报, reviewer FAIL 2026-08-14)
     "backfill_evening": 15,    # +75min阈值(4500s) +15min = 90min 窗口
     "intraday_snapshot": 10,
@@ -634,6 +648,7 @@ LAUNCHCTL_LABELS = [
     "com.trade.us-stock-morning",
     "com.trade.etf-national-team",
     "com.trade.lab-auto",
+    "com.trade.turnover-backfill",
     "com.trade.self-heal",
     # 不含 com.trade.schedule-monitor 自己（防递归，靠 heartbeat 兜底）
 ]
@@ -1495,6 +1510,7 @@ except Exception as e:
 #   [严重度] 任务 异常类型 / 影响:XX / 日志:路径 / 建议:XX。按任务写对应影响与建议。
 _IMPACT_MAP = {
     "update_all": "全站 overview/评分/预警/ETF清单等数据可能过期或未更新, 前端读到旧版",
+    "turnover_backfill": "换手率分布(a_turnover_*)当日数据可能缺失, 首页折叠区/A股走势图换手率读 T-1",
     "backfill_evening": "回填数据(指数/分红等)可能缺失或未更新, 前端对应指标读旧",
     "intraday_snapshot": "盘中 overview/intraday 快照可能过期, 前端分时/实时数据读旧",
     "futures_backfill": "期货数据可能缺失或未更新, 前端期货指标读旧",
@@ -1508,6 +1524,7 @@ _IMPACT_MAP = {
 }
 _SUGGEST_MAP = {
     "update_all": "自动恢复中; 若持续(超时告警)请人工查 update_all 进程/卡死点",
+    "turnover_backfill": "自动恢复中; 若持续请人工查 turnover_backfill/baostock 采集是否被封禁(10001011)",
     "backfill_evening": "自动恢复中; 若持续请人工检查回填进程",
     "intraday_snapshot": "自动恢复中; 若持续请人工检查盘中采集/push 链路",
     "etf_national_team": "自动恢复中; 若持续(进程池退化)请人工检查",

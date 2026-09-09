@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.trade.turnover-backfill</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/linhuichen/code/trade-data/scripts/turnover_backfill.sh</string>
+    </array>
+    <!-- 交易日 21:10 跑: 换手率分布(a_turnover_*)独立延后任务(#82 C6, 2026-09-09 用户拍板)。
+         turnover 从 update_all 主链摘出(原 90.8min 长尾), 主链 175→~85min(实测 112-121min),
+         本任务延后 1-2h 跑, 当日 turnover 数据晚 1-2h 上线(用户已确认可接受)。
+         时点选择依据(§14): 21:10 晚于 update_all 主链实测结束(~19:45) + 30min 裕量;
+         避 21:00 backfill_evening/futures_backfill、21:30 etf-nt、22:00 public-fund-full;
+         早于 21:40 overfit-monitor + 22:35 check-data-gap, 任务 ~90min 与其错峰不抢资源。
+         pmset 无需新增唤醒: 既有 wakepoweron 工作日 17:48, 机器持续活跃至 21:40+ overfit-monitor,
+         21:10 落在活跃区间内; 任务 90min 会延到 22:40+, 期间机器不退睡(caffeinate 持有)。
+         非交易日脚本内闸门跳过(传 force 可补跑)。
+         ⚠️ 21:10 为默认建议值, 最终以主控 merge 时确认的 launchd 部署时点为准(改动需同步
+         schedule_monitor.sh TASKS schedules 与 gen_schedule_stats.py TASKS schedule 字段)。 -->
+    <key>StartCalendarInterval</key>
+    <array>
+      <dict>
+        <key>Weekday</key>
+        <integer>1</integer>
+        <key>Hour</key>
+        <integer>21</integer>
+        <key>Minute</key>
+        <integer>10</integer>
+      </dict>
+      <dict>
+        <key>Weekday</key>
+        <integer>2</integer>
+        <key>Hour</key>
+        <integer>21</integer>
+        <key>Minute</key>
+        <integer>10</integer>
+      </dict>
+      <dict>
+        <key>Weekday</key>
+        <integer>3</integer>
+        <key>Hour</key>
+        <integer>21</integer>
+        <key>Minute</key>
+        <integer>10</integer>
+      </dict>
+      <dict>
+        <key>Weekday</key>
+        <integer>4</integer>
+        <key>Hour</key>
+        <integer>21</integer>
+        <key>Minute</key>
+        <integer>10</integer>
+      </dict>
+      <dict>
+        <key>Weekday</key>
+        <integer>5</integer>
+        <key>Hour</key>
+        <integer>21</integer>
+        <key>Minute</key>
+        <integer>10</integer>
+      </dict>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>REPO</key>
+        <string>/Users/linhuichen/code/trade-data</string>
+        <key>GIT_REPO</key>
+        <string>/Users/linhuichen/code/trade</string>
+    </dict>
+    <key>WorkingDirectory</key>
+    <string>/Users/linhuichen/code/trade-data</string>
+    <key>StandardOutPath</key>
+    <string>/Users/linhuichen/code/trade-data/data/logs/turnover_backfill_launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/linhuichen/code/trade-data/data/logs/turnover_backfill_launchd.err</string>
+    <key>RunAtLoad</key>
+    <false/>
+    <!-- codex008 F5 更正: ExitTimeOut 不是运行时长超时, 只是任务被停止(SIGTERM)后等待
+         优雅退出再 SIGKILL 的宽限窗口。防挂死由 turnover_backfill.sh 内 run_to 超时包装承担
+         (pipeline 7200s + 重导/上传 600s); 此处 300s 仅保证超时被杀时日志 flush 留全 -->
+    <key>ExitTimeOut</key>
+    <integer>300</integer>
+</dict>
+</plist>
