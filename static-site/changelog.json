@@ -52,5 +52,8 @@
   ],
   "20260909-a565": [
     "test(kelly-intraday): review \u4e09\u5fc5\u6539\u9879\u4fee\u590d\u9a8c\u6536\u811a\u672c\u843d\u6863(\u00a723.5, F1/F2/F3)"
+  ],
+  "20260909-a566": [
+    "feat(#90): \u76d8\u4e2d\u589e\u91cf\u771f\u5b9e\u4e70\u4ef7\u5c55\u793a+\u8d44\u4ea7\u8d70\u52bf\u521d\u59cb\u8d44\u91d1+ETF\u70b9\u51fb\u8d70\u52bf \u4e09\u4ef6\u6253\u5305"
   ]
 }
