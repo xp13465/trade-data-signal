@@ -269,6 +269,21 @@ if [ "$VER_RC" -ne 0 ]; then
 fi
 echo "✓ 版本一致性校验通过" | tee -a "$LOG"
 
+# 1.3.1 etf_daily 占位残留混合行闸门(2026-09-08 P0 事故根因防御)
+# 9/8 盘中全市场占位(accum_nav=1.5/open=1.49)被盘后 backfill 覆盖成「真实名+真实close+残留1.5」
+# 混合行, 穿透全部现有检测, 回测 current_price 取 1.5 虚高收益率 80%+。本步常驻拦截:
+# 只要 etf_daily 存在 etf_name<>etf_code 且 accum_nav=1.5/open=1.49 的行 → FAIL 阻断上线,
+# 污染未清不放行(§23.15 上线必须完整版 / §22 数据一致性)。定时告警仍由 check_data_gap_alerts.sh
+# 22:35 跑(含 dedup/ack/恢复通知), 本闸门只做只读断言。
+echo "-> 运行 check_data_gap_alerts.py --deploy-mode 占位残留混合行闸门 ..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/check_data_gap_alerts.py" --repo "$REPO" --deploy-mode 2>&1 | tee -a "$LOG"
+PH_RC=${PIPESTATUS[0]}
+if [ "$PH_RC" -ne 0 ]; then
+  echo "✗ 占位残留混合行闸门失败(退出码 $PH_RC)，终止部署(9/8 P0 污染未清, accum_nav=1.5 残留)" | tee -a "$LOG"
+  exit "$PH_RC"
+fi
+echo "✓ 占位残留混合行闸门通过" | tee -a "$LOG"
+
 # 1.4 intraday_snapshot.json global_realtime 防覆盖检查（2026-07-31 德法角标三重根因修复）
 # 根因：export.py 调 load_latest_snapshot 从 DB reload 生成 intraday_snapshot.json，
 # 若 DB 镜像滞后或旧 snapshot 行无 global_realtime，reload 丢失 global_realtime 致前端德法角标无实时数据。

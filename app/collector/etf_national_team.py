@@ -2064,9 +2064,14 @@ def _run_with_timeout(code: str, timeout_sec: int = 60) -> dict[str, float]:
 
 def update_accum_nav(conn, lookback_days: int = 30) -> dict:
     """增量补齐 etf_daily.accum_nav(已复权累计净值),返回统计 dict。
-    目标行 = 近 lookback_days 天内 accum_nav IS NULL 的 etf_daily 行(缺口/新交易日),
+    目标行 = 近 lookback_days 天内 accum_nav IS NULL 的 etf_daily 行(缺口/新交易日)
+    + 「占位残留混合行」(2026-09-08 事故: 盘中全市场占位 accum_nav=1.5/open=1.49
+    被盘后 backfill 覆盖成 "真实名+真实close+残留1.5" 混合行, accum_nav IS NULL
+    判定永远补不到它) —— 连同 1.5 占位哨兵也纳入增量补齐, 拉真实序列覆盖。
     逐只调 fund_open_fund_info_em 拉序列按 date 补齐。upsert 幂等可重复跑。
     只更新缺失(增量)不重刷全量;单只失败降级跳过(留待下次);源缺失日期不写保持 NULL。
+    纯占位行(etf_name=etf_code 且 close NULL, 拉不到真实值)不会被误覆盖:
+    series 里无该日期则 up_rows 无该行, 保持原样。
 
     2026-08-28 修复: 单只 akshare 调用改用 multiprocessing.Process 隔离执行,
     避免 akshare 内部 C 层阻塞(socket pthread_cond_wait)拖死主进程,主进程可 timeout
@@ -2076,7 +2081,8 @@ def update_accum_nav(conn, lookback_days: int = 30) -> dict:
     start = (dt.datetime.now() - dt.timedelta(days=lookback_days)).strftime("%Y%m%d")
     rows = conn.execute(
         "SELECT etf_code, date FROM etf_daily "
-        "WHERE date >= ? AND accum_nav IS NULL ORDER BY etf_code, date",
+        "WHERE date >= ? AND (accum_nav IS NULL OR (accum_nav=1.5 AND open=1.49)) "
+        "ORDER BY etf_code, date",
         (start,),
     ).fetchall()
     need: dict[str, list[str]] = {}

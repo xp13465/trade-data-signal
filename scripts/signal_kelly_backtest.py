@@ -596,6 +596,39 @@ def _calendar_days(d1, d2):
         return 0
 
 
+# 盘中占位哨兵: 2026-09-08 事故 —— 盘中全市场占位行 accum_nav=1.5/open=1.49 同值假数据,
+# 盘后 backfill 把 etf_name/close 覆盖成真实值但 accum_nav 残留 1.5(混合行)。
+# current_price 取值若命中该哨兵, 回退上一真实日, 防虚高收益率(占位 1.5 vs 真实 ~1.5x 可差 80%+)。
+NAV_PLACEHOLDER_VAL = 1.5
+NAV_PLACEHOLDER_OPEN = 1.49
+
+
+def _nav_skip_placeholder(prices, open_map, etf_code, dates, ref_date):
+    """取 ref_date(或回退最近可用日)的 accum_nav, 跳过盘中占位残留日。
+
+    判定: 该日 accum_nav≈1.5 且 open≈1.49(与 etf_daily 盘中占位哨兵同值,
+    混合行 etf_name 已真实但 accum_nav 残留), 视为占位残留, 继续沿 dates 往前找真实日。
+    纯占位行(etf_name=etf_code)已被 _batch_load_etf_prices 的 etf_name<>etf_code 过滤,
+    这里只拦「过滤后仍残留 1.5 的混合行」。
+    返回 (current_nav, price_date) 或 (None, None)(无可用价)。
+    """
+    if not dates or not ref_date:
+        return None, None
+    i = bisect.bisect_right(dates, ref_date) - 1  # ref_date 及之前的最近日期
+    while i >= 0:
+        d = dates[i]
+        nav = prices.get(d)
+        if nav is None or nav <= 0:
+            i -= 1
+            continue
+        op = (open_map or {}).get(etf_code, {}).get(d)
+        if abs(nav - NAV_PLACEHOLDER_VAL) < 1e-9 and op is not None and abs(op - NAV_PLACEHOLDER_OPEN) < 1e-9:
+            i -= 1  # 占位残留混合行, 继续往前找真实日
+            continue
+        return nav, d
+    return None, None
+
+
 def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, stop_profit,
                   index_id=None, signal=None, track_tier=None, track_score=None,
                   match_method=None, track_low_confidence=None, today=None, hold_days=HOLD_DAYS,
@@ -667,11 +700,9 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
     # 持仓中: 未来不足 hold_days 个交易日, 按当前价预估盈亏(不丢弃, 含未实现综合表现)
     if len(future_dates) < hold_days:
         ref_today = today if today else (dates[-1] if dates else None)
-        current_nav = prices.get(ref_today) if ref_today else None
-        price_date = ref_today  # current_nav 实际取值日期(回退时下方更新为 dates[-1])
-        if current_nav is None and dates:
-            current_nav = prices.get(dates[-1])  # 回退到本ETF最后日期
-            price_date = dates[-1]
+        # 占位残留防御(2026-09-08 事故): ref_today 若是 accum_nav=1.5/open=1.49 混合行,
+        # 回退上一真实日, 防 current_price 取 1.5 虚高收益率。
+        current_nav, price_date = _nav_skip_placeholder(prices, open_map, etf_code, dates, ref_today)
         if current_nav is None or current_nav <= 0:
             return None  # 无当前价, 无法预估
         _sp, _sell_amount, _comm2, _tf2, net, _st = _sell_with_fees(shares, current_nav, etf_code, _KELLY_FEE_CONFIG)
@@ -793,11 +824,9 @@ def _backtest_signal_sell(signal_date, prices, dates, etf_code, sell_mode, signa
     if sell_date is None:
         # 无匹配卖出信号: 持有至回测结束, 按当前价预估盈亏(复用持仓中口径)
         ref_today = today if today else (dates[-1] if dates else None)
-        current_nav = prices.get(ref_today) if ref_today else None
-        price_date = ref_today
-        if current_nav is None and dates:
-            current_nav = prices.get(dates[-1])
-            price_date = dates[-1]
+        # 占位残留防御(2026-09-08 事故): ref_today 若是 accum_nav=1.5/open=1.49 混合行,
+        # 回退上一真实日, 防 current_price 取 1.5 虚高收益率。
+        current_nav, price_date = _nav_skip_placeholder(prices, open_map, etf_code, dates, ref_today)
         if current_nav is None or current_nav <= 0:
             return None
         _sp, _sell_amount, _comm2, _tf2, net, _st = _sell_with_fees(shares, current_nav, etf_code, _KELLY_FEE_CONFIG)
