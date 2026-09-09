@@ -50,6 +50,7 @@ from . import base  # noqa: F401
 import akshare as ak
 
 from .base import em_get, safe_call, throttle
+from .nav_placeholder_defense import is_placeholder_row  # noqa: E402
 
 # B4 并发改造(2026-07-24):mootdx client 单连接不支持并发调用,
 # fallback 段用此 Lock 串行化,保证 akshare sina 并发时 mootdx 不撞协议竞态
@@ -2064,9 +2065,14 @@ def _run_with_timeout(code: str, timeout_sec: int = 60) -> dict[str, float]:
 
 def update_accum_nav(conn, lookback_days: int = 30) -> dict:
     """增量补齐 etf_daily.accum_nav(已复权累计净值),返回统计 dict。
-    目标行 = 近 lookback_days 天内 accum_nav IS NULL 的 etf_daily 行(缺口/新交易日),
+    目标行 = 近 lookback_days 天内 accum_nav IS NULL 的 etf_daily 行(缺口/新交易日)
+    + 「占位残留混合行」(2026-09-08 事故: 盘中全市场占位 accum_nav=1.5/open=1.49
+    被盘后 backfill 覆盖成 "真实名+真实close+残留1.5" 混合行, accum_nav IS NULL
+    判定永远补不到它) —— 连同 1.5 占位哨兵也纳入增量补齐, 拉真实序列覆盖。
     逐只调 fund_open_fund_info_em 拉序列按 date 补齐。upsert 幂等可重复跑。
     只更新缺失(增量)不重刷全量;单只失败降级跳过(留待下次);源缺失日期不写保持 NULL。
+    纯占位行(etf_name=etf_code 且 close NULL, 拉不到真实值)不会被误覆盖:
+    series 里无该日期则 up_rows 无该行, 保持原样。
 
     2026-08-28 修复: 单只 akshare 调用改用 multiprocessing.Process 隔离执行,
     避免 akshare 内部 C 层阻塞(socket pthread_cond_wait)拖死主进程,主进程可 timeout
@@ -2074,14 +2080,40 @@ def update_accum_nav(conn, lookback_days: int = 30) -> dict:
     """
     t0 = time.time()
     start = (dt.datetime.now() - dt.timedelta(days=lookback_days)).strftime("%Y%m%d")
+    # 2026-09-06 reviewer F2 根治: 占位残留哨兵改单哨兵 accum_nav=1.5(9/8 backfill 已把 open
+    # 全覆盖成真实值, 原「AND open=1.49」双哨兵对真残留全漏检)。候选行再经 is_placeholder_row
+    # 前后日连续判定(单一来源 app/collector/nav_placeholder_defense), 真实 1.5 平滑行
+    # (588930/159303 前后连续)不误拉, 只补「孤立跳变到 1.5」的真残留 + NULL 缺口。
     rows = conn.execute(
-        "SELECT etf_code, date FROM etf_daily "
-        "WHERE date >= ? AND accum_nav IS NULL ORDER BY etf_code, date",
+        "SELECT etf_code, date, accum_nav FROM etf_daily "
+        "WHERE date >= ? AND (accum_nav IS NULL OR accum_nav = 1.5) AND etf_name <> etf_code "
+        "ORDER BY etf_code, date",
         (start,),
     ).fetchall()
     need: dict[str, list[str]] = {}
-    for r in rows:
-        need.setdefault(r["etf_code"], []).append(r["date"])
+    if rows:
+        # 对 accum_nav=1.5 候选, 拉该 code 近窗口序列做前后连续判定
+        ph_codes = sorted({r["etf_code"] for r in rows if r["accum_nav"] is not None})
+        ph_seq: dict[str, list[tuple]] = {}
+        for c in ph_codes:
+            ph_seq[c] = conn.execute(
+                "SELECT date, accum_nav FROM etf_daily "
+                "WHERE etf_code=? AND etf_name<>etf_code AND date>=? ORDER BY date",
+                (c, start),
+            ).fetchall()
+        for r in rows:
+            code, d, nav = r["etf_code"], r["date"], r["accum_nav"]
+            if nav is None:
+                need.setdefault(code, []).append(d)
+                continue
+            seq = ph_seq.get(code, [])
+            for i, (dd, nv) in enumerate(seq):
+                if dd == d:
+                    prev_nav = seq[i - 1][1] if i >= 1 else None
+                    next_nav = seq[i + 1][1] if i + 1 < len(seq) else None
+                    if is_placeholder_row(nav, prev_nav, next_nav):
+                        need.setdefault(code, []).append(d)
+                    break
     if not need:
         print(f"  [accum_nav] 近 {lookback_days} 天无缺失行,跳过", flush=True)
         return {"filled": 0, "codes": 0, "skip": 0, "secs": 0.0}

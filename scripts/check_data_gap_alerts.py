@@ -104,6 +104,13 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
+# 供 import app.collector.nav_placeholder_defense(判定单一来源, F2 根治: 三处防御共用)
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  # trade/scripts/
+_ROOT_DIR = os.path.dirname(_SCRIPT_DIR)                  # trade/
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
+from app.collector.nav_placeholder_defense import CANDIDATE_WHERE, is_placeholder_row  # noqa: E402
+
 DEFAULT_REPO = Path(os.environ.get("REPO", "/Users/linhuichen/code/trade-data"))
 REPO = DEFAULT_REPO  # --repo 可覆盖(见 main)
 
@@ -445,6 +452,86 @@ def check_accum_nav_new_gap(repo: Path, today: datetime,
         f"ETF 累计净值新增缺价 {len(bad)} 条(回归 {len(regress)} / 当日新缺 {len(fresh)})",
         detail))
     return (out, new_snapshot)
+
+
+# ── checker 5b: etf_daily 占位残留混合行(2026-09-08 P0 事故根因防御) ──
+# 事故: 盘中全市场占位行(accum_nav=1.5/open=1.49 同值假数据, etf_name=etf_code, close NULL)
+# 被盘后 backfill 覆盖成「真实名+真实close+残留1.5」混合行(etf_name<>etf_code 且 close 有值
+# 但 accum_nav 仍=1.5)。该混合行穿透所有现有检测(NAV_REAL_WHERE=etf_name<>etf_code 只排纯
+# 占位行, 混合行 etf_name 已真实), 回测 current_price 取该日 1.5 虚高收益率 80%+。
+# 本检查: 命中即 SEVERE(数据污染, 需人工介入/backfill 覆盖), 不可豁免。
+
+NAV_PLACEHOLDER_KEY = "data_gap:nav_placeholder_residue"
+
+
+def check_nav_placeholder_residue(repo: Path, today: datetime) -> list[Finding]:
+    """检测 etf_daily 占位残留混合行(真实名 + 残留 accum_nav=1.5)。
+
+    判定(单一来源 app/collector/nav_placeholder_defense.is_placeholder_row):
+    accum_nav≈1.5 且与前后交易日不连续(孤立跳变到 1.5)= 占位残留污染。
+    open=1.49 只作辅助线索不作必要条件(9/8 backfill 已把 open 全覆盖成真实值,
+    真残留 open 无一等于 1.49)。真实 1.5 平滑行(588930@20260908 / 159303@20260721
+    前后连续)不命中。
+    纯占位行(etf_name=etf_code)不在本检查范围(CANDIDATE_WHERE 已排除, 属正常盘中占位)。
+    """
+    db = repo / "data" / "etf_national_team.db"
+    if not db.exists():
+        return []
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=30.0)
+    hits: list[tuple[str, str]] = []
+    try:
+        # 候选 = 单哨兵 accum_nav=1.5 + 真实名(CANDIDATE_WHERE 单一来源), 最终判定走 Python
+        cands = conn.execute(
+            "SELECT etf_code, date FROM etf_daily WHERE " + CANDIDATE_WHERE +
+            " ORDER BY etf_code, date").fetchall()
+        if cands:
+            codes = sorted({c for c, _ in cands})
+            seq_by_code: dict[str, list[tuple[str, float]]] = {}
+            for i in range(0, len(codes), 500):  # SQLite IN 占位符上限
+                batch = codes[i:i + 500]
+                placeholders = ",".join("?" * len(batch))
+                rs = conn.execute(
+                    f"SELECT etf_code, date, accum_nav FROM etf_daily "
+                    f"WHERE etf_code IN ({placeholders}) AND etf_name <> etf_code "
+                    f"ORDER BY etf_code, date", batch).fetchall()
+                for c, d, nav in rs:
+                    seq_by_code.setdefault(c, []).append((d, nav))
+            for c, d in cands:
+                seq = seq_by_code.get(c, [])
+                for i, (dd, nv) in enumerate(seq):
+                    if dd == d:
+                        prev_nav = seq[i - 1][1] if i >= 1 else None
+                        next_nav = seq[i + 1][1] if i + 1 < len(seq) else None
+                        if is_placeholder_row(nv, prev_nav, next_nav):
+                            hits.append((c, d))
+                        break
+    finally:
+        conn.close()
+    n = len(hits)
+    if n == 0:
+        return []
+    sample_rows = []
+    conn2 = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=30.0)
+    try:
+        for c, d in hits[:5]:
+            r = conn2.execute(
+                "SELECT etf_code, etf_name, date, close FROM etf_daily WHERE etf_code=? AND date=?",
+                (c, d)).fetchone()
+            if r:
+                sample_rows.append(tuple(r))
+    finally:
+        conn2.close()
+    sample_txt = "; ".join(
+        f"{c} {name}@{d}(close={cl})" for c, name, d, cl in sample_rows) if sample_rows else ""
+    return [Finding(
+        NAV_PLACEHOLDER_KEY, "severe",
+        f"etf_daily 占位残留混合行 {n} 行(真实名 + 残留 accum_nav=1.5)",
+        f"9/8 P0 事故形态: 盘中占位 accum_nav=1.5 被盘后 backfill 覆盖成"
+        f"「真实名+真实close+残留1.5」混合行(etf_name<>etf_code 已真实, accum_nav 残留 1.5,"
+        f"与前后交易日不连续), 穿透全部现有检测, 回测 current_price 取该日 1.5 虚高收益率 80%+。<br>"
+        f"样例: {sample_txt}<br>"
+        f"建议: accum-nav --lookback 增量补齐已扩 SELECT 纳入 1.5 哨兵行自动覆盖; "
+        f"若仍未清, 人工 `python -m app.collector.etf_national_team accum-nav --lookback 60` 补拉。")]
 
 
 # ── checker 4: 宽度族保鲜/断档(#103 二) ──
@@ -1120,6 +1207,7 @@ def run(repo: Path, dry_run: bool) -> int:
     findings += gap_f
     if new_gap:
         extra["_accum_nav_gap_snapshot"] = new_gap
+    findings += check_nav_placeholder_residue(repo, today)
     findings += check_width(repo, today)
     findings += check_kelly_coverage(repo, today)
     findings += check_kelly_stale(repo, today)
@@ -1129,6 +1217,23 @@ def run(repo: Path, dry_run: bool) -> int:
           f"warn={sum(1 for f in findings if f.level == 'warn')}, "
           f"info={sum(1 for f in findings if f.level == 'info')})")
     run_alerts(repo, findings, dry_run=dry_run, now=today, extra_state=extra or None)
+    return 0
+
+
+def run_deploy_gate(repo: Path) -> int:
+    """deploy 闸门: 只查占位残留混合行(9/8 P0 事故根因防御)。命中 → exit 1 阻断上线。
+
+    与告警 run() 分离: 定时告警走 run()(含 dedup/ack/恢复通知), deploy 前本函数只做
+    只读断言, 污染未清不放行(§23.15 上线必须完整版 / §22 数据一致性)。
+    """
+    findings = check_nav_placeholder_residue(repo, datetime.now())
+    for f in findings:
+        print(f"[check_data_gap][{f.level}] {f.title}")
+        print(f"  {f.detail}")
+    if any(f.level == "severe" for f in findings):
+        print("[check_data_gap] ✗ 占位残留混合行存在, 终止部署(9/8 P0 污染未清)")
+        return 1
+    print("[check_data_gap] ✓ 无占位残留混合行")
     return 0
 
 
@@ -1574,11 +1679,15 @@ def main() -> int:
     ap.add_argument("--repo", default="", help="仓根(缺省 REPO env 或 trade-data)")
     ap.add_argument("--dry-run", action="store_true", help="只打印 findings 不发送")
     ap.add_argument("--self-test", action="store_true", help="two-way 自测")
+    ap.add_argument("--deploy-mode", action="store_true",
+                    help="deploy 闸门: 只查占位残留混合行, 命中 exit 1 阻断上线")
     a = ap.parse_args()
     if a.self_test:
         return self_test()
     if a.repo:
         REPO = Path(a.repo)
+    if a.deploy_mode:
+        return run_deploy_gate(REPO)
     return run(REPO, dry_run=a.dry_run)
 
 
