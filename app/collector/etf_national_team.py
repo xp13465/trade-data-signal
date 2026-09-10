@@ -1300,10 +1300,142 @@ def pipeline_intraday_close() -> dict:
     # 导出 JSON(包括 -1m.json 末日 share_change_yi 不存在 -> 前端预估触发)
     export_json_files()
 
+    # 盘中增量回测档当前价跟随刷新(15:00+ fund_etf_fund_daily_em 返回收盘价,自拉一次 ~0.5s)
+    refresh_intraday_cur_prices()
+
     dt_sec = time.time() - t0
     print(f"[etf_nt] intraday-close 完成 {dt_sec:.1f}s: ohlc={stats['ohlc']} signals={stats['signals']}",
           flush=True)
     return stats
+
+
+# ── Pipeline: 盘中增量回测档「当前价/收益率」跟随盘中实时刷新（2026-09-10 用户拍板）──
+# 背景：signal_kelly_trades_intraday.json 由 kelly_intraday_rerun.sh 9:40 一次性生成，
+#   real_current_price 定格在 T+1 开盘价(== real_buy_price)，盘中不再更新 -> 用户看到
+#   "当前价(盘中)"不跟随实时行情。用户拍板方案：复用 pipeline_intraday_realtime 已拉的
+#   akshare fund_etf_fund_daily_em 全市场实时价 df，顺带刷新每笔 real_current_price，
+#   并按 (real_current - real_buy)/real_buy 重算 return_pct，保证"当前价"与"收益率"两列
+#   一致(§22 数据一致性铁律)。17:50 全量版接管后前端自动降级，本刷新幂等无害。
+# 时点：9:35-14:50 realtime 复用 df（零额外拉取）；15:00+ close 自拉一次(~0.5s)刷新收盘价。
+def _intraday_trades_path() -> Path:
+    """定位盘中增量档 JSON（kelly_intraday_rerun.sh 产物，REPO=静态数据侧）。"""
+    cands = []
+    rep = os.environ.get("REPO")
+    if rep:
+        cands.append(Path(rep) / "static-site" / "data" / "signal_kelly_trades_intraday.json")
+    cands.append(STATIC_DATA_DIR / "signal_kelly_trades_intraday.json")
+    cands.append(Path.cwd() / "static-site" / "data" / "signal_kelly_trades_intraday.json")
+    for p in cands:
+        if p.exists():
+            return p
+    return cands[0]
+
+
+def refresh_intraday_cur_prices(df=None) -> int:
+    """刷新盘中增量回测档每笔 real_current_price + return_pct，返回更新笔数。
+
+    盘中档字段：fields 列式索引 + quadrants{qk: {mode: [行数组]}}。刷新规则：
+      real_current_price = 该 ETF 最新市价（df 的「市价」列）；若该 ETF 不在 df 映射
+      （如 df 缺该基金）则保持原值不覆盖。
+      return_pct = (real_current - real_buy) / real_buy * 100，round 4。
+    文件不存在 / 非盘中档 / df 拉取失败 -> 打日志跳过返回 0，不抛异常（不阻塞快照主流程）。
+    df：akshare fund_etf_fund_daily_em 全市场实时行情 df；None 时内部拉一次。
+    """
+    path = _intraday_trades_path()
+    if not path.exists():
+        print(f"[etf_nt] 盘中档 {path.name} 不存在,跳过当前价刷新", flush=True)
+        return 0
+    if df is None:
+        try:
+            df = ak.fund_etf_fund_daily_em()
+        except Exception as e:  # noqa: BLE001
+            print(f"[etf_nt] fund_etf_fund_daily_em 拉取失败({type(e).__name__}: {e}),跳过当前价刷新",
+                  flush=True)
+            return 0
+    if df is None or df.empty or "基金代码" not in df.columns or "市价" not in df.columns:
+        print("[etf_nt] df 空/缺列,跳过当前价刷新", flush=True)
+        return 0
+
+    # 市价映射 {code: float}
+    mkt = {}
+    for _, row in df.iterrows():
+        code = str(row.get("基金代码", "")).strip()
+        ps = str(row.get("市价", "")).strip()
+        if not code or not ps or ps == "---":
+            continue
+        try:
+            v = float(ps)
+        except ValueError:
+            continue
+        if v > 0:
+            mkt[code] = v
+    if not mkt:
+        print("[etf_nt] df 无有效市价,跳过当前价刷新", flush=True)
+        return 0
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:  # noqa: BLE001
+        print(f"[etf_nt] 盘中档读失败({type(e).__name__}: {e}),跳过当前价刷新", flush=True)
+        return 0
+    if not isinstance(data, dict) or (data.get("intraday") or {}).get("mode") != "intraday":
+        print("[etf_nt] 非盘中增量档(mode!=intraday),跳过当前价刷新", flush=True)
+        return 0
+
+    fields = data.get("fields") or []
+    def _fi(nm):
+        try:
+            return fields.index(nm)
+        except ValueError:
+            return -1
+    i_code, i_rbuy, i_rcur, i_ret = (_fi(nm) for nm in
+                                     ("etf_code", "real_buy_price", "real_current_price", "return_pct"))
+    if i_code < 0 or i_rbuy < 0 or i_rcur < 0 or i_ret < 0:
+        print(f"[etf_nt] 盘中档 fields 缺关键列(code={i_code} rbuy={i_rbuy} "
+              f"rcur={i_rcur} ret={i_ret}),跳过当前价刷新", flush=True)
+        return 0
+
+    upd = 0
+    quads = data.get("quadrants") or {}
+    for qk, mk in quads.items():
+        if not isinstance(mk, dict):
+            continue
+        for mode, rows in mk.items():
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                if not isinstance(row, list) or len(row) <= i_ret:
+                    continue
+                code = str(row[i_code] if i_code < len(row) else "").strip()
+                cur = mkt.get(code)
+                if cur is None:
+                    continue  # df 缺该 ETF,保持原值
+                rbuy = row[i_rbuy]
+                try:
+                    rbuy_f = float(rbuy)
+                except (TypeError, ValueError):
+                    rbuy_f = 0.0
+                if rbuy_f <= 0:
+                    continue  # 缺真实买价无法算收益率
+                row[i_rcur] = round(cur, 6)
+                row[i_ret] = round((cur - rbuy_f) / rbuy_f * 100, 4)
+                upd += 1
+
+    if upd:
+        data["generated_at"] = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+        tmp = path.with_suffix(".json.tmp")
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+            os.replace(tmp, path)
+        except Exception as e:  # noqa: BLE001
+            print(f"[etf_nt] 盘中档写回失败({type(e).__name__}: {e}),跳过当前价刷新", flush=True)
+            return 0
+        print(f"[etf_nt] 盘中档当前价刷新 {upd} 笔(市价映射 {len(mkt)} 只,目标文件 {path})", flush=True)
+    else:
+        print(f"[etf_nt] 盘中档当前价刷新 0 笔(quadrants 空或 df 无命中)", flush=True)
+    return upd
 
 
 # ── Pipeline: intraday 盘中实时价预估（AZ54 P1-5, 2026-07-29）──────────────────────
@@ -1379,6 +1511,9 @@ def pipeline_intraday_realtime() -> dict:
 
     # 导出 JSON（末日 share_change_yi 不存在 -> 前端 chgNull=true 预估触发）
     export_json_files()
+
+    # 盘中增量回测档当前价跟随刷新(复用已拉 df,零额外拉取;盘中档存在才更新)
+    refresh_intraday_cur_prices(df)
 
     dt_sec = time.time() - t0
     print(f"[etf_nt] intraday-realtime 完成 {dt_sec:.1f}s: ohlc={stats['ohlc']} signals={stats['signals']}",

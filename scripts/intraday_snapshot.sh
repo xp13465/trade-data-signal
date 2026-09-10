@@ -155,6 +155,16 @@ if ! "$PY" "$REPO/scripts/upload_r2.py" upload-intraday 2>&1 | tee -a "$LOG"; th
   "$PY" "$REPO/scripts/notify.py" "[告警] intraday R2上传失败 ${ALERT_TIME}" "intraday 数据(overview/intraday_snapshot/a-stock等)未推 R2，前端将读旧数据，需手动补刷: bash scripts/upload_r2.py upload-intraday<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key intraday_upload_intraday_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
 fi
 
+# 2.525) 盘中增量回测档当前价跟随刷新的 R2 上传(2026-09-10 用户拍板)
+#       realtime/close pipeline 已刷新该 JSON 的 real_current_price/return_pct(§22 两列一致),
+#       此处上传 R2 + purge(ttl=0 no-cache，purge 无害)，前端盘中视图 60s 轮询重拉即见跳变。
+#       文件不存在(9:40 前/非交易日 force 补测时)自动跳过;失败不阻塞快照(下一轮 10min 后重试)。
+if [ -f "$REPO/static-site/data/signal_kelly_trades_intraday.json" ]; then
+  "$PY" "$REPO/scripts/upload_r2.py" upload-data-files signal_kelly_trades_intraday.json 2>&1 | tee -a "$LOG" || {
+    echo "⚠ signal_kelly_trades_intraday R2 上传失败(不阻塞快照，下一轮重试)" | tee -a "$LOG"
+  }
+fi
+
 # 2.53) 同步 intraday 盘中数据到 staticdata 数据仓库（灾备第2层差异日志/留档）
 #       R2 迁移阶段3 后本脚本只 upload_r2 不再 git push，漏了 staticdata 同步
 #       -> staticdata 仓库 intraday_snapshot.json 停在昨日 20:35，盘中每 10 分钟

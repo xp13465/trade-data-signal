@@ -1554,8 +1554,8 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
       scopeTxt = '提前入账 <b>' + nAll + '</b> 笔（' + modes.length + ' 卖出模式）';
     }
     var head = active
-      ? '<b>📊 盘中增量回测</b> · 上一交易日(<b>' + cap + '</b>)信号已用今日开盘价<br>' + scopeTxt + ' · <b style="color:' + R + '">标注=盘中价（今日真实开盘定价，非最终收盘口径）</b>'
-      : '<b>📋 盘中增量回测</b> · <span style="color:' + R + '">已由 17:50 全量版接管（本视图为盘中历史临时视图，价格仍为盘中开盘口径，最终以全量版为准）</span>';
+      ? '<b>📊 盘中增量回测</b> · 上一交易日(<b>' + cap + '</b>)信号已用今日开盘价<br>' + scopeTxt + ' · <b style="color:' + R + '">标注=盘中价（买价=今日真实开盘定价，当前价/收益率盘中实时跟随，非最终收盘口径）</b>'
+      : '<b>📋 盘中增量回测</b> · <span style="color:' + R + '">已由 17:50 全量版接管（本视图为盘中历史临时视图，价格仍为盘中口径，最终以全量版为准）</span>';
     var rows = "";
     for (var j = 0; j < unique.length; j++) {
       var row = unique[j];
@@ -1589,10 +1589,10 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
       '<th class="txt">信号日</th><th class="txt" title="指数(信号标的)">指数</th>' +
       '<th class="txt">信号</th><th class="txt">入账ETF</th>' +
       '<th title="盘中价=信号日净值×今日真实开盘/信号日收盘">买入价(盘中)</th>' +
-      '<th title="按今日开盘等价值估算, 持仓中未卖出">当前价(盘中)</th>' +
+      '<th title="盘中实时市价(约10分钟跟随刷新), 持仓中未卖出">当前价(盘中)</th>' +
       '<th>收益率</th></tr></thead><tbody>' + rows + '</tbody></table>' +
       '<div class="kelly-intraday-foot">' +
-      (active ? '⏰ 17:50 全量回测后前端自动以全量版为准, 本盘中视图降级为历史临时视图（价格可能随收盘口径跳变）。' : '') +
+      (active ? '⏰ 当前价/收益率盘中约10分钟跟随行情刷新；17:50 全量回测后前端自动以全量版为准, 本盘中视图降级为历史临时视图（价格可能随收盘口径跳变）。' : '') +
       '定价口径与主档一致（信号次日开盘）, 仅价格源=今日真实开盘(akshare)。纯展示, 不构成投资建议。</div></div>';
   }
   // #90 任务③(2026-09-09): 盘中增量表 etf 代码点击 → 走势+买卖/强平 pin 弹窗。
@@ -1633,35 +1633,75 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
       }).catch(function () { /* 懒加载失败 → 静默 */ });
     });
   }
+  // ─── 盘中轮询刷新(2026-09-10 用户拍板: 当前价跟随盘中实时行情) ───
+  // 后端 realtime/close pipeline 每 10 分钟刷新盘中档 real_current_price/return_pct 并上传 R2;
+  // 前端盘中活跃时段(_hm()<1750 && next_open_date==今日) 每 60s 重拉重渲染, 显示价格跳变。
+  // 清理: interval 句柄按弹窗容器(anchorEl)属性挂, 每次 render 先清同 anchor 旧轮询(幂等单例);
+  //   anchor 离开 DOM(isConnected=false)/换日/17:50 后 → 下个 tick 判 false 自动停(防泄漏)。
+  // 首拉仍走 _fetch(单例 promise 幂等), 轮询走 _fetchFresh(破单例缓存, 重拉即拿新数据)。
+  function _pollActive(anchorEl, d) {
+    if (!anchorEl || !anchorEl.isConnected) return false;      // 容器不在 DOM → 停
+    if (!d || !d.intraday || d.intraday.mode !== "intraday") return false;
+    if (d.intraday.next_open_date !== _todayS()) return false; // 换日 → 停(全量版已接管)
+    if (_hm() >= 1750) return false;                            // 17:50 后 → 停(视图降级)
+    return true;
+  }
+  function _stopPoll(anchorEl) {
+    if (anchorEl && anchorEl.__kellyIntradayIv) {
+      clearInterval(anchorEl.__kellyIntradayIv);
+      anchorEl.__kellyIntradayIv = null;
+    }
+  }
+  function _fetchFresh() {
+    var cb = (typeof _labCustomCacheBust === "function" && _labCustomCacheBust()) || "";
+    return fetch(_INTRA_URL + (cb ? "?v=" + cb : ""), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; });
+  }
+  function _ensurePoll(anchorEl, opts, d) {
+    if (!_pollActive(anchorEl, d)) { _stopPoll(anchorEl); return; }
+    if (anchorEl.__kellyIntradayIv) return;   // 同容器已有轮询, 不重复挂
+    anchorEl.__kellyIntradayIv = setInterval(function () {
+      _fetchFresh().then(function (nd) {
+        if (!_pollActive(anchorEl, nd)) { _stopPoll(anchorEl); return; }
+        _renderInner(anchorEl, opts, nd);
+      });
+    }, 60000);
+  }
+  function _renderInner(anchorEl, opts, d) {
+    // 联动过滤前置预热(与主档同语义): ①降亏特征 JSON(app.js _simEnsureLossFeat, 新键判定查值);
+    // ②s06 快照(_tdsS06StateEnsure, per-date 基座查值)。均失败/缺失 → 过滤 fail-open, 不静默。
+    var pre = Promise.resolve();
+    if (opts && opts.modeId && opts.fadeOn !== false) {
+      if (typeof window._simEnsureLossFeat === "function") {
+        pre = pre.then(function () { return window._simEnsureLossFeat().catch(function () { return null; }); });
+      }
+      if (typeof window._tdsS06StateEnsure === "function") {
+        pre = pre.then(function () { return window._tdsS06StateEnsure().catch(function () { return null; }); });
+      }
+    }
+    return pre.then(function () {
+      var html = _bannerHtml(d, opts);
+      // 幂等(2026-09-08 收进 lab 交易记录弹窗后弹窗重渲染/筛选翻页会重复调 render): 先移除 anchor 后旧容器再插,
+      // 保证任意消费点(首页弹窗/凯利交易弹窗)多次调用都只有一个增量视图(§22 单源不漂移)。
+      var prev = anchorEl.nextElementSibling;
+      if (prev && prev.id === "kelly-intraday-view") {
+        anchorEl.parentNode.removeChild(prev);
+      }
+      if (!html) return;
+      var el = document.createElement("div");
+      el.innerHTML = html;
+      var rootEl = el.firstElementChild;
+      anchorEl.insertAdjacentElement("afterend", rootEl);
+      _bindEtfClicks(rootEl, d);
+    });
+  }
   function render(anchorEl, opts) {
     if (!anchorEl || !anchorEl.parentNode) return;
+    _stopPoll(anchorEl);   // 幂等: 每次 render 先清同 anchor 旧轮询, 防多弹窗/筛选联动累积
     _fetch().then(function (d) {
-      // 联动过滤前置预热(与主档同语义): ①降亏特征 JSON(app.js _simEnsureLossFeat, 新键判定查值);
-      // ②s06 快照(_tdsS06StateEnsure, per-date 基座查值)。均失败/缺失 → 过滤 fail-open, 不静默。
-      var pre = Promise.resolve();
-      if (opts && opts.modeId && opts.fadeOn !== false) {
-        if (typeof window._simEnsureLossFeat === "function") {
-          pre = pre.then(function () { return window._simEnsureLossFeat().catch(function () { return null; }); });
-        }
-        if (typeof window._tdsS06StateEnsure === "function") {
-          pre = pre.then(function () { return window._tdsS06StateEnsure().catch(function () { return null; }); });
-        }
-      }
-      return pre.then(function () {
-        var html = _bannerHtml(d, opts);
-        // 幂等(2026-09-08 收进 lab 交易记录弹窗后弹窗重渲染/筛选翻页会重复调 render): 先移除 anchor 后旧容器再插,
-        // 保证任意消费点(首页弹窗/凯利交易弹窗)多次调用都只有一个增量视图(§22 单源不漂移)。
-        var prev = anchorEl.nextElementSibling;
-        if (prev && prev.id === "kelly-intraday-view") {
-          anchorEl.parentNode.removeChild(prev);
-        }
-        if (!html) return;
-        var el = document.createElement("div");
-        el.innerHTML = html;
-        var rootEl = el.firstElementChild;
-        anchorEl.insertAdjacentElement("afterend", rootEl);
-        _bindEtfClicks(rootEl, d);
-      });
+      _renderInner(anchorEl, opts, d);
+      _ensurePoll(anchorEl, opts, d);
     });
   }
   window._kellyIntradayRender = render;
