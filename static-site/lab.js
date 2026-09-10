@@ -10270,9 +10270,9 @@ function _labKellyEvoOpen() {
         });
       };
     });
-    overlay.querySelectorAll(".lab-kelly-evo-gran-btn").forEach((btn) => {
+    overlay.querySelectorAll(".lab-kelly-evo-gran-btn:not([data-evo-range])").forEach((btn) => {
       btn.onclick = () => {
-        overlay.querySelectorAll(".lab-kelly-evo-gran-btn").forEach((b) => b.classList.toggle("active", b === btn));
+        overlay.querySelectorAll(".lab-kelly-evo-gran-btn:not([data-evo-range])").forEach((b) => b.classList.toggle("active", b === btn));
         const evoData = overlay.__evoData;
         const host = overlay.querySelector("#lab-kelly-evo-table-host");
         if (evoData && host) _labKellyEvoRenderTable(host, evoData.evo, evoData.polluted, btn.dataset.evoGran);
