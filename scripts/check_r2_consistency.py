@@ -76,6 +76,15 @@ FILES = [
         "https://ssd.fx8.store/data/overfit_monitor_ext.json",
         "https://ss.fx8.store/r2/data/overfit_monitor_ext.json",
     ),
+    # 次日买入计划(PRD 阶段一, 2026-09-10 F1 补入): 盘后 nextday_plan_generator.py →
+    # upload_r2 upload-data-files 上传 /data/ 前缀。指纹=date+|empty/plan 首条 etf_code+buy_date
+    # (空计划 {date, empty:true} 合法, 指纹含 empty 标志同态比对; 三版本不一致=CDN/容器滞留旧计划)。
+    (
+        "nextday_plan",
+        "nextday_plan.json",
+        "https://ssd.fx8.store/data/nextday_plan.json",
+        "https://ss.fx8.store/r2/data/nextday_plan.json",
+    ),
 ]
 
 
@@ -148,6 +157,16 @@ def _fingerprint(data: object, kind: str) -> dict[str, object]:
         fbk = data.get("filtered_by_k")
         if isinstance(fbk, dict):
             fp["filtered_by_k_keys"] = ",".join(sorted(fbk.keys()))
+    elif kind == "nextday_plan":
+        # 次日买入计划(2026-09-10 F1): 指纹=date + empty/plan 首条 etf_code+buy_date。
+        # 空计划 {date, empty:true} 合法, 指纹含 empty 标志同态比对; 非空取首条足够定位
+        # CDN/容器滞留旧计划(plan 内容错位=date 或 empty 至少一个变, 空→非空/非空→空必现)。
+        fp["date"] = data.get("date")
+        fp["empty"] = data.get("empty")
+        plan = data.get("plan")
+        if isinstance(plan, list) and plan and isinstance(plan[0], dict):
+            fp["p0_code"] = plan[0].get("etf_code")
+            fp["p0_buy"] = plan[0].get("buy_date")
     return fp
 
 
