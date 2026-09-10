@@ -10180,28 +10180,32 @@ function _labKellyEvoModalHTML(idx) {
   const modeBtns = modeKeys.map((m) =>
     `<button type="button" class="lab-kelly-evo-mode${m === "G" ? " active" : ""}" data-evo-mode="${m}">${m}</button>`
   ).join("");
-  let table = `<table class="lab-kelly-evo-table"><thead><tr><th>快照日</th><th>max_signal_date</th>` +
-    modeKeys.map((m) => `<th>${m}</th>`).join("") + `</tr></thead><tbody>`;
-  const showRows = days.slice(-8).reverse();
-  for (const d of showRows) {
-    table += `<tr><td>${d.d}</td><td>${d.m}</td>` + modeKeys.map((m) => {
-      const md = (d.modes && d.modes[m]) || {};
-      return `<td>${typeof md.tr === "number" ? (md.tr >= 1000 ? (md.tr / 1000).toFixed(1) + "k" : md.tr.toFixed(0)) : "-"}<span class="lab-kelly-evo-n">${md.n || ""}</span></td>`;
-    }).join("") + `</tr>`;
-  }
-  table += `</tbody></table>`;
   return `<div class="lab-signal-modal lab-kelly-evo-modal">` +
     `<div class="lab-signal-modal-head">` +
     `<span class="lab-signal-modal-title">📈 信号凯利回测演进</span>` +
     `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
     `</div>` +
     `<div class="lab-signal-modal-body lab-kelly-evo-body">` +
-    `<div class="lab-kelly-evo-meta">版本 v${(idx && idx.version) || "-"} · 更新 ${(idx && idx.updated_at) || "-"} · 共 ${days.length} 个快照日 · 模式=全部周期(all) total_return</div>` +
+    `<div class="lab-kelly-evo-meta">版本 v${(idx && idx.version) || "-"} · 更新 ${(idx && idx.updated_at) || "-"} · 共 ${days.length} 个快照日</div>` +
     lagWarn +
-    `<div class="lab-kelly-evo-modes">${modeBtns}</div>` +
-    `<div id="lab-kelly-evo-curve-host">${_labKellyEvoSVG(days, "G")}</div>` +
-    `<div class="lab-kelly-evo-foot">💡 曲线=该模式全周期累计收益(total_return)随快照日演进; 停滞=max_signal_date 不涨(断链信号)。数据源=signal_kelly_snapshots/index.json, 每日盘后 export 生成。</div>` +
-    table +
+    `<div class="lab-kelly-evo-tabs">` +
+      `<button type="button" class="lab-kelly-evo-tab active" data-evo-tab="curve">📊 曲线</button>` +
+      `<button type="button" class="lab-kelly-evo-tab" data-evo-tab="table">📋 表格(按日快照)</button>` +
+    `</div>` +
+    `<div class="lab-kelly-evo-pane" data-evo-pane="curve">` +
+      `<div class="lab-kelly-evo-modes">${modeBtns}</div>` +
+      `<div id="lab-kelly-evo-curve-host">${_labKellyEvoSVG(days, "G")}</div>` +
+      `<div class="lab-kelly-evo-foot">💡 曲线=该模式全周期累计收益(total_return)随快照日演进; 停滞=max_signal_date 不涨(断链信号)。数据源=signal_kelly_snapshots/index.json, 每日盘后 export 生成。</div>` +
+    `</div>` +
+    `<div class="lab-kelly-evo-pane" data-evo-pane="table" style="display:none">` +
+      `<div class="lab-kelly-evo-caliber" title="口径与全信号卡同源, 随上方降亏勾选/费率档/K档实时联动重算">${_labKellyEvoCaliberHTML()}</div>` +
+      `<div class="lab-kelly-evo-granbar">` +
+        `<span class="lab-kelly-evo-gran-label">行数:</span>` +
+        `<button type="button" class="lab-kelly-evo-gran-btn active" data-evo-gran="60">近 60 行</button>` +
+        `<button type="button" class="lab-kelly-evo-gran-btn" data-evo-gran="all">全史</button>` +
+      `</div>` +
+      `<div class="lab-kelly-evo-loading" id="lab-kelly-evo-table-host">⏳ 表格实时重算中…(读全信号卡同源 trades)</div>` +
+    `</div>` +
     `</div></div>`;
 }
 
@@ -10229,6 +10233,24 @@ function _labKellyEvoOpen() {
         if (host) host.innerHTML = _labKellyEvoSVG((idx && idx.days) || [], btn.dataset.evoMode);
       };
     });
+    overlay.querySelectorAll(".lab-kelly-evo-tab").forEach((btn) => {
+      btn.onclick = () => {
+        overlay.querySelectorAll(".lab-kelly-evo-tab").forEach((b) => b.classList.toggle("active", b === btn));
+        const pane = btn.dataset.evoTab;
+        overlay.querySelectorAll(".lab-kelly-evo-pane").forEach((p) => {
+          p.style.display = p.dataset.evoPane === pane ? "" : "none";
+        });
+      };
+    });
+    overlay.querySelectorAll(".lab-kelly-evo-gran-btn").forEach((btn) => {
+      btn.onclick = () => {
+        overlay.querySelectorAll(".lab-kelly-evo-gran-btn").forEach((b) => b.classList.toggle("active", b === btn));
+        const evoData = overlay.__evoData;
+        const host = overlay.querySelector("#lab-kelly-evo-table-host");
+        if (evoData && host) _labKellyEvoRenderTable(host, evoData.evo, evoData.polluted, btn.dataset.evoGran);
+      };
+    });
+    _labKellyEvoBuildTable(overlay, idx);
   }).catch((e) => {
     if (!overlay) return;
     overlay.innerHTML = _labKellyEvoModalHTML(null) + `<div class="lab-kelly-evo-error">加载失败: ${e && e.message ? e.message : e}</div>`;
@@ -10243,6 +10265,397 @@ function _labKellyEvoClose() {
     overlay.innerHTML = "";
     document.body.style.overflow = "";
   }
+}
+
+// ===== 演进弹窗·表格视图(2026-09-10 方案B 前端实时重算) =====
+// 目标: 表格每格数字与「全信号卡」同源实时重算(逐位一致), 不复读后端静态主档 sig_main。
+// 口径(§21 公示): 全信号卡(评级三区并集)× 当前降亏基座(默认 S06 动态, 按每笔 signal_date 取当日 a9/new14)×
+//   AI仓位建议 K(每日只买最优 K 笔, 每日资金池 1 万等分)× ETF 主流费率重算。
+// 历史行口径=截至该日已平仓(closed-by-D): 每个快照日 D 的行 = 到 D 为止已平仓(非空 sell_date ≤ D)的
+//   累计净利 + 峰值资金收益率(= 前缀累计净利 ÷ 前缀峰值资金 × 100); 已平仓卖价=历史收盘价固定 → 历史行天然稳定。
+// 「📌 当前全量」末行 = 全量(含未平仓按最新价预估), 与全信号卡「最后结果」逐位一致。
+// 性能: 峰值资金用线段树离散化区间加维护全局最大值(每笔 O(log n)), 轴点数×模式数实时重算 ~百毫秒级。
+function _labKellyEvoCaliberHTML() {
+  var _modeName = "S06 动态基座按日切换";
+  try {
+    var _base = state.labSigKellyFadeModeBase;
+    if (!_base) _base = (typeof window._KELLY_FADE_DEFAULT_MODE === "string") ? window._KELLY_FADE_DEFAULT_MODE : "new14";
+    if (state.labSigKellyFadeModeBase === "s06" || state.labSigKellyFadeModeBase === "s06p1") {
+      _modeName = "S06 动态基座(a9/new14 按日切换)";
+    } else {
+      var _d = (typeof window._tdsFadeModeById === "function") ? window._tdsFadeModeById(_base) : null;
+      if (_d && _d.name) _modeName = _d.name.replace(/\(默认\)$/, "");
+    }
+  } catch (e) {}
+  var _k = ((state.labSigKellyFilters || {}).positionCapK) || 1;
+  var _kOn = !!((state.labSigKellyFilters || {}).positionCap);
+  return `口径 = 全信号卡(评级三区并集) × ${_modeName} × AI仓位建议 ${_kOn ? ("K=" + _k + " 每日只买最优 " + _k + " 笔") : "关"} × 每日资金池 1 万等分 × ETF 主流费率重算; 历史上行 = 截至该日已平仓口径(累计净利元 + 峰值资金收益率%); 数字与全信号卡同源实时重算`;
+}
+
+// 演进表格操作池: 与 _kellyApplyFeeRecompute 同引擎同口径(§22), 返回 per-mode 已过滤+费率重算的 trades(按 sell_date 升序)。
+// A-F/J: 直接全量重算(与卡 total_profit 同源); G/H/I + GIH 开: 套 _kellyAihlineApply 后取 real(与卡 __gihb1 同源)。
+async function _kellyOperationalPool(feeParams) {
+  var data = state.labSigKellyData;
+  if (!data || !data.quadrants) return null;
+  var _labModeBase = state.labSigKellyFadeModeBase;
+  var _labS06Family = (_labModeBase === "s06" || _labModeBase === "s06p1");
+  if (_labS06Family && typeof window._tdsS06StateEnsure === "function") await window._tdsS06StateEnsure();
+  if (!state.labSigKellyTradesData) {
+    var ok = await _labKellyTradesEnsure();
+    if (!ok) return null;
+    _kellyClearComputeCaches();
+  }
+  if (state.labSigKellyGihOn) await _kellyRealNavEnsure();
+  var td = state.labSigKellyTradesData;
+  var fields = td.fields || [];
+  var fIdx = {};
+  fields.forEach(function (f, i) { fIdx[f] = i; });
+  var buyAmount = td.buy_amount || (data.config && data.config.buy_amount) || 10000;
+  var quads = td.quadrants || {};
+  var sellModes = (data.config && data.config.sell_modes) || {};
+  // 全信号伪象限 all = 评级三区并集(与主引擎逐字同构)
+  var quadsAll = {};
+  var _qAllRatingKeys = ["rating_high", "rating_mid", "rating_low"];
+  for (var _qmk in sellModes) {
+    var _qa = [];
+    _qAllRatingKeys.forEach(function (_rk) { var _qq = (quads[_rk] || {})[_qmk] || []; _qa = _qa.concat(_qq); });
+    quadsAll[_qmk] = _qa;
+  }
+  var filters = Object.assign({}, state.labSigKellyFilters || _kellyDefaultFilters());
+  var _tradeDims = state.labSigKellyTradeDims;
+  if (!_tradeDims && td.quadrants) {
+    _tradeDims = _kellyBuildTradeDims(td, fIdx);
+    state.labSigKellyTradeDims = _tradeDims;
+  }
+  var feeSig = _kellyFeeSig(feeParams);
+  var _labS06 = (_labModeBase === "s06" || _labModeBase === "s06p1");
+  var monthMask = _kellyActiveMonthMask(filters);
+  // S06 谓词(与主引擎 passesFade L8850-8902 逐字同构, fail-open 口径一致)
+  var _s6OpenSet = new Set();
+  var _s6FallbackSet = new Set();
+  var _s6F6 = function (t) {
+    return (typeof window._tdsS06FiltersForDate === "function") ? window._tdsS06FiltersForDate(String(t[fIdx.signal_date] || "")) : null;
+  };
+  var passesFade;
+  if (_labS06) {
+    passesFade = function (t) {
+      var f6 = _s6F6(t);
+      if (!f6) { _s6OpenSet.add(_kellyBaseKey(t, fIdx)); return true; }
+      var dc = String(t[fIdx.signal_date] || "");
+      var b0 = (typeof window._tdsS06BaseForDate === "function") ? window._tdsS06BaseForDate(dc) : null;
+      if (b0 && b0.ok && (b0.reason === "out_of_range_fallback" || b0.reason === "bad_mode_fallback")) _s6FallbackSet.add(_kellyBaseKey(t, fIdx));
+      return _kellyPassesFadeFilters(t, fIdx, f6, _kellyTradeFeatureCache, _tradeDims, _kellyActiveMonthMask(f6));
+    };
+  } else {
+    passesFade = function (t) {
+      return _kellyPassesFadeFilters(t, fIdx, filters, _kellyTradeFeatureCache, _tradeDims, monthMask);
+    };
+  }
+  var _bullOn = _labS06 ? true : !!filters.bullAuxBackupStop;
+  var passesFadeNoBull = null;
+  if (_labS06) {
+    var _s6NoBullCache = {};
+    var _s6BuildNB = function (baseId) {
+      var f = {};
+      var allK = window._KELLY_FADE_ALL_KEYS || [];
+      for (var i = 0; i < allK.length; i++) f[allK[i]] = false;
+      var p = (typeof window._tdsFadeModeById === "function") ? window._tdsFadeModeById(baseId) : null;
+      if (p && Array.isArray(p.keys)) for (var j = 0; j < p.keys.length; j++) f[p.keys[j]] = true;
+      f.bullAuxBackupStop = false;
+      return f;
+    };
+    passesFadeNoBull = function (t) {
+      var dStr = String(t[fIdx.signal_date] || "");
+      var b = (typeof window._tdsS06BaseForDate === "function") ? window._tdsS06BaseForDate(dStr) : null;
+      if (!b || !b.ok) { _s6OpenSet.add(_kellyBaseKey(t, fIdx)); return true; }
+      if (b.reason === "out_of_range_fallback" || b.reason === "bad_mode_fallback") _s6FallbackSet.add(_kellyBaseKey(t, fIdx));
+      if (!_s6NoBullCache[b.base]) _s6NoBullCache[b.base] = _s6BuildNB(b.base);
+      var nb = _s6NoBullCache[b.base];
+      return _kellyPassesFadeFilters(t, fIdx, nb, _kellyTradeFeatureCache, _tradeDims, _kellyActiveMonthMask(nb));
+    };
+  } else if (_bullOn) {
+    var filtersNoBull = {};
+    for (var _fbk in filters) filtersNoBull[_fbk] = filters[_fbk];
+    filtersNoBull.bullAuxBackupStop = false;
+    passesFadeNoBull = (function (_fNB) {
+      return function (t) {
+        return _kellyPassesFadeFilters(t, fIdx, _fNB, _kellyTradeFeatureCache, _tradeDims, monthMask);
+      };
+    })(filtersNoBull);
+  }
+  var _isLongMode = function (mk) { return mk === "G" || mk === "H" || mk === "I"; };
+  // positionCap 基笔池/kept/每日池计数(与主引擎同构)
+  var posCapKept = null;
+  var posDayCounts = null;
+  var posCapKeptNB = null;
+  var posDayCountsNB = null;
+  var _labS06P1 = (_labModeBase === "s06p1");
+  var _stripHighNow = _labS06P1 && (typeof window !== "undefined" && typeof window._tdsS06P1StripHigh === "function")
+    && window._tdsS06P1StripHigh(_labModeBase, filters.positionCapK);
+  var _rp1Skip = _stripHighNow ? "rating_high" : null;
+  if (filters.positionCap && filters.positionCapK > 0) {
+    var basePool = await _kellyCollectBasePool(quads, sellModes, fIdx, passesFade, _rp1Skip);
+    posCapKept = _kellyPositionCapKeptKeys(basePool, fIdx, filters.positionCapK);
+    posDayCounts = _kellyKeptDayCounts(posCapKept);
+    if (_bullOn) {
+      var basePoolNB = await _kellyCollectBasePool(quads, sellModes, fIdx, passesFadeNoBull, _rp1Skip);
+      posCapKeptNB = _kellyPositionCapKeptKeys(basePoolNB, fIdx, filters.positionCapK);
+      posDayCountsNB = _kellyKeptDayCounts(posCapKeptNB);
+    }
+  }
+  // per-mode 过滤 + 费率重算 + (G/H/I)套长线仓位法
+  var perModeTrades = {};
+  for (var modeKey in sellModes) {
+    var rawTrades = quadsAll[modeKey] || [];
+    var _pf = (_bullOn && _isLongMode(modeKey)) ? passesFadeNoBull : passesFade;
+    var _pk = (_bullOn && _isLongMode(modeKey) && posCapKeptNB) ? posCapKeptNB : posCapKept;
+    var toggled = rawTrades.filter(function (t) {
+      if (!_pf(t)) return false;
+      if (_pk && !_pk[_kellyBaseKey(t, fIdx)]) return false;
+      return true;
+    });
+    var _pdcM = (_bullOn && _isLongMode(modeKey) && posDayCountsNB) ? posDayCountsNB : posDayCounts;
+    var recomputed = toggled.map(function (t) {
+      var amt = _kellyPerTradeAmount(t, fIdx, buyAmount, _pdcM ? _pdcM[t[fIdx.signal_date]] : null);
+      var c = _kellyRecomputeCache.get(t);
+      if (!c || c.sig !== feeSig || c.amt !== amt) {
+        var r = _kellyRecomputeTrade(t, fIdx, feeParams, amt);
+        c = { sig: feeSig, amt: amt, r: r };
+        _kellyRecomputeCache.set(t, c);
+      }
+      return { profit: c.r.profit, return_pct: c.r.return_pct, fee_cost: c.r.fee_cost,
+               buy_date: t[fIdx.buy_date] || "", sell_date: t[fIdx.sell_date] || "",
+               hold_days: t[fIdx.hold_days] || 0, amount: amt,
+               etf_code: t[fIdx.etf_code] || "", buy_price: t[fIdx.buy_price] || 0, sell_price: t[fIdx.sell_price] || 0 };
+    });
+    var finalTrades = recomputed;
+    if (state.labSigKellyGihOn && _kellyIsGih(modeKey) && _kellyGihStrat(modeKey)) {
+      var _gihSim = _kellyAihlineApply(recomputed, _kellyGihStrat(modeKey), "all");
+      finalTrades = (_gihSim.real ? _gihSim.real.filter(function (k) { return k.profit !== null && k.profit !== undefined; }) : []);
+    }
+    var closed = finalTrades.filter(function (t) { return t.sell_date; });
+    closed.sort(function (a, b) { return a.sell_date < b.sell_date ? -1 : (a.sell_date > b.sell_date ? 1 : 0); });
+    perModeTrades[modeKey] = { full: finalTrades, closed: closed };
+    await _kellyYield();
+  }
+  return {
+    perModeTrades: perModeTrades,
+    modeKeys: Object.keys(sellModes),
+    buyAmount: buyAmount, fIdx: fIdx, feeSig: feeSig,
+    s6OpenCount: _s6OpenSet.size, s6FallbackCount: _s6FallbackSet.size
+  };
+}
+
+// 峰值资金线段树: 离散化 buy_date∪sell_date, 区间加 [idx(buy), idx(sell)) + amount, 全局 max=树根。
+// 与 _kellyMaxConcurrentCapital(同日先减后加)同语义: 持仓区间=[buy 当日, sell 当日前), 跨日仅先减后加顺序不同但峰值逐位一致。
+function _kellyEvoSegForClosed(closed) {
+  var dates = {};
+  for (var i = 0; i < closed.length; i++) {
+    if (closed[i].buy_date) dates[closed[i].buy_date] = 1;
+    if (closed[i].sell_date) dates[closed[i].sell_date] = 1;
+  }
+  var ds = Object.keys(dates).sort();
+  var idx = {};
+  for (var j = 0; j < ds.length; j++) idx[ds[j]] = j;
+  var n = ds.length;
+  var tree = new Array(Math.max(4 * n + 5, 8)).fill(0);
+  var lazy = new Array(Math.max(4 * n + 5, 8)).fill(0);
+  function _add(node, l, r, ql, qr, v) {
+    if (ql > r || qr < l) return;
+    if (ql <= l && r <= qr) { tree[node] += v; lazy[node] += v; return; }
+    var mid = (l + r) >> 1;
+    _add(node * 2, l, mid, ql, qr, v);
+    _add(node * 2 + 1, mid + 1, r, ql, qr, v);
+    tree[node] = lazy[node] + Math.max(tree[node * 2], tree[node * 2 + 1]);
+  }
+  return {
+    profitSum: 0,
+    n: 0,
+    addInterval: function (bd, sd, v) {
+      if (!bd || !sd || sd <= bd || !(bd in idx)) return;
+      var l = idx[bd];
+      var r = sd in idx ? idx[sd] : n;
+      if (l >= r) return;
+      _add(1, 0, n - 1, l, r - 1, v);
+    },
+    maxCapital: function () {
+      var m = tree[1] || 0;
+      return Math.round(m * 10000) / 10000;
+    }
+  };
+}
+
+// 演进表格数据构建(方案B): 轴点=池内全部(含未平仓)唯一 buy_date 升序; 每轴点 D 的行 = closed-by-D(sell_date ≤ D)前缀。
+async function _labKellyEvoTableBuild(feeParams) {
+  var t0 = Date.now();
+  var pool = await _kellyOperationalPool(feeParams);
+  if (!pool) return null;
+  var modeKeys = pool.modeKeys;
+  if (!modeKeys.length) return null;
+  // 轴点 = 唯一 buy_date(跨模式并集, 升序)
+  var axesSet = {};
+  for (var mi = 0; mi < modeKeys.length; mi++) {
+    var full = pool.perModeTrades[modeKeys[mi]].full;
+    for (var i = 0; i < full.length; i++) {
+      var bd = full[i].buy_date || "";
+      if (bd) axesSet[bd] = 1;
+    }
+  }
+  var axes = Object.keys(axesSet).sort();
+  // 每模式一个线段树 + 指针(closed 已按 sell_date 升序)
+  var segs = {}, ptr = {};
+  for (var mi2 = 0; mi2 < modeKeys.length; mi2++) {
+    var mk = modeKeys[mi2];
+    segs[mk] = _kellyEvoSegForClosed(pool.perModeTrades[mk].closed);
+    ptr[mk] = 0;
+  }
+  var rows = [];
+  for (var ai = 0; ai < axes.length; ai++) {
+    var D = axes[ai];
+    var rowModes = {};
+    for (var mi3 = 0; mi3 < modeKeys.length; mi3++) {
+      var mk2 = modeKeys[mi3];
+      var seg = segs[mk2];
+      var closed = pool.perModeTrades[mk2].closed;
+      while (ptr[mk2] < closed.length && closed[ptr[mk2]].sell_date <= D) {
+        var tr = closed[ptr[mk2]];
+        seg.addInterval(tr.buy_date, tr.sell_date, tr.amount || 0);
+        seg.profitSum += (tr.profit || 0);
+        seg.n++;
+        ptr[mk2]++;
+      }
+      var py = Math.round(seg.profitSum * 10000) / 10000;
+      var pc = seg.maxCapital();
+      rowModes[mk2] = {
+        profit_yuan: py,
+        return_pct: pc > 0 ? Math.round(py / pc * 100 * 10000) / 10000 : 0,
+        peak_capital: pc,
+        n: seg.n
+      };
+    }
+    rows.push({ d: D, modes: rowModes });
+  }
+  var elapsedMs = Date.now() - t0;
+  // 末行「当前全量」: 优先读全信号卡 stats(逐位一致), 缺失才从池内全量现算
+  var fs = state.labSigKellyFeeStats;
+  var finalStats = {};
+  for (var mi4 = 0; mi4 < modeKeys.length; mi4++) {
+    var mk3 = modeKeys[mi4];
+    var st = null;
+    if (fs && fs.all && fs.all.all) {
+      if (state.labSigKellyGihOn && _kellyIsGih(mk3)) st = fs.all.all[mk3 + "__gihb1"] || null;
+      if (!st) st = fs.all.all[mk3] || null;
+    }
+    if (!st) st = _kellyComputeStats(pool.perModeTrades[mk3].full, "all", pool.buyAmount);
+    finalStats[mk3] = st;
+  }
+  return {
+    axes: axes, rows: rows, finalStats: finalStats, modeKeys: modeKeys,
+    elapsedMs: elapsedMs, s6OpenCount: pool.s6OpenCount, s6FallbackCount: pool.s6FallbackCount
+  };
+}
+
+// 表格视图构建入口: 门控 _labKellyAllReady(未就绪显示占位 + 全量加载中, 就绪后自动补建)
+async function _labKellyEvoBuildTable(overlay, idx) {
+  var host = overlay.querySelector("#lab-kelly-evo-table-host");
+  if (!host) return;
+  if (!_labKellyAllReady) {
+    host.innerHTML = `<div class="lab-kelly-evo-loading lab-sigkelly-all-loading">⏳ 全量分片加载中${_labKellyProgStr()}…就绪后自动补出表格</div>`;
+    var _waitAll = function () {
+      if (!overlay || !document.body.contains(overlay)) return;
+      var h = overlay.querySelector("#lab-kelly-evo-table-host");
+      if (!h) return;
+      if (_labKellyAllReady) {
+        _labKellyEvoBuildTable(overlay, idx);
+      } else {
+        setTimeout(_waitAll, 1000);
+      }
+    };
+    _waitAll();
+    return;
+  }
+  host.innerHTML = `<div class="lab-kelly-evo-loading">⏳ 表格实时重算中…(读全信号卡同源 trades, 约 1-3 秒)</div>`;
+  var feeParams = state.labSigKellyFeeParams || { commission_rate: 0.00005, min_commission: 0.1, slippage: 0.001, transfer_fee_rate_sh: 0.00001, stamp_duty_rate: 0 };
+  var evo = null;
+  try {
+    evo = await _labKellyEvoTableBuild(feeParams);
+  } catch (e) {
+    console.error("[evo-table] 实时重算失败", e);
+    evo = null;
+  }
+  if (!overlay || !document.body.contains(overlay)) return;
+  if (!evo || !evo.rows.length) {
+    host.innerHTML = `<div class="lab-kelly-evo-empty">演进表格实时重算失败或数据未就绪, 请关闭重开重试。</div>`;
+    return;
+  }
+  // 污染快照日集合(index.json days 中 polluted 标记, 如 20260908 G/H/I tr:null)
+  var polluted = {};
+  if (idx && idx.days) {
+    for (var i = 0; i < idx.days.length; i++) {
+      var dd = idx.days[i];
+      if (dd.polluted) polluted[dd.d] = 1;
+      var md = dd.modes || {};
+      for (var mk in md) { if (md[mk] && md[mk].polluted) polluted[dd.d] = 1; }
+    }
+  }
+  overlay.__evoData = { evo: evo, polluted: polluted };
+  _labKellyEvoRenderTable(host, evo, polluted, "60");
+}
+
+// 表格渲染: 日期行 × A-J 列, 每格两行小字(累计净利元 + 峰值资金收益率%), +/- 着色; 末行=当前全量(与全信号卡一致)
+function _labKellyEvoRenderTable(host, evo, polluted, gran) {
+  var modeKeys = evo.modeKeys;
+  var rows = evo.rows;
+  var total = rows.length;
+  var show = (gran === "all") ? total : Math.min(60, total);
+  var start = Math.max(total - show, 0);
+  var head = `<tr><th>日期(buy)</th>` + modeKeys.map(function (m) { return `<th>${m}</th>`; }).join("") + `</tr>`;
+  var body = "";
+  for (var i = start; i < total; i++) {
+    var r = rows[i];
+    var isPolluted = !!(polluted && polluted[r.d]);
+    body += `<tr${isPolluted ? ' class="lab-kelly-evo-polluted"' : ""}>` +
+      `<td class="lab-kelly-evo-date">${r.d}</td>`;
+    for (var mi = 0; mi < modeKeys.length; mi++) {
+      var m = modeKeys[mi];
+      if (isPolluted) { body += `<td title="污染日已拦截(该快照日回测数据不可靠, 不展示)">—</td>`; continue; }
+      var cell = r.modes[m];
+      if (!cell || !cell.n) { body += `<td title="截至该日无已平仓交易">—</td>`; continue; }
+      var py = cell.profit_yuan, rp = cell.return_pct;
+      var pyCls = py >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
+      var rpCls = rp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
+      var pyStr = (py >= 0 ? "+" : "") + py.toFixed(0);
+      var rpStr = (rp >= 0 ? "+" : "") + rp.toFixed(2) + "%";
+      body += `<td class="lab-kelly-evo-cell" title="截至 ${r.d} 已平仓 ${cell.n} 笔 · 累计净利 ${pyStr} 元 · 峰值资金收益率 ${rpStr}">` +
+        `<span class="lab-kelly-evo-p ${pyCls}">${pyStr}</span>` +
+        `<span class="lab-kelly-evo-p ${rpCls}">${rpStr}</span>` +
+        `<span class="lab-kelly-evo-n">${cell.n}笔</span>` +
+        `</td>`;
+    }
+    body += `</tr>`;
+  }
+  // 末行: 当前全量(与全信号卡最后结果逐位一致, 含未平仓按最新价预估)
+  body += `<tr class="lab-kelly-evo-pin-row">` +
+    `<td class="lab-kelly-evo-date" title="当前全量(含未平仓按最新价预估), 与全信号卡「最后结果」逐位一致">📌 当前全量</td>`;
+  for (var mi2 = 0; mi2 < modeKeys.length; mi2++) {
+    var mk = modeKeys[mi2];
+    var st = evo.finalStats[mk];
+    if (!st) { body += `<td title="无数据">—</td>`; continue; }
+    var tp = st.total_profit || 0, rmh = st.return_pct_max_holding || 0;
+    var tCls = tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
+    var rCls = rmh >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
+    body += `<td class="lab-kelly-evo-cell" title="当前全量: 净利 ${(tp >= 0 ? "+" : "") + tp.toFixed(0)} 元 · 峰值资金收益率 ${(rmh >= 0 ? "+" : "") + rmh.toFixed(2)}% · ${st.n || 0} 笔(含未平仓按最新价预估), 与全信号卡同源">` +
+      `<span class="lab-kelly-evo-p ${tCls}">${(tp >= 0 ? "+" : "") + tp.toFixed(0)}</span>` +
+      `<span class="lab-kelly-evo-p ${rCls}">${(rmh >= 0 ? "+" : "") + rmh.toFixed(2)}%</span>` +
+      `<span class="lab-kelly-evo-n">${st.n || 0}笔</span>` +
+      `</td>`;
+  }
+  body += `</tr>`;
+  host.innerHTML = `<div class="lab-kelly-evo-table-wrap">` +
+    `<table class="lab-kelly-evo-table"><thead>${head}</thead><tbody>${body}</tbody></table>` +
+    `</div>` +
+    `<div class="lab-kelly-evo-foot">💡 共 ${total} 个买入日轴点 × ${modeKeys.length} 模式(全部周期 all 口径); 每格第一行=累计净利(元), 第二行=峰值资金收益率(%); 历史行=截至该日已平仓, 已平仓卖价历史固定→行天然稳定; <b>末行=当前全量(与全信号卡最后结果逐位一致, 含未平仓按最新价预估)</b>。实时重算耗时 ${evo.elapsedMs}ms。</div>` +
+    (evo.s6OpenCount ? `<div class="lab-kelly-evo-warn">⚠ S06 快照 ${evo.s6OpenCount} 笔 fail-open(快照缺行/未就绪按放行计数), 与全信号卡同警示</div>` : "");
 }
 
 function _renderSigKellyBar(bar, data, period) {

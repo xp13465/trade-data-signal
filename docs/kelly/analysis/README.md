@@ -84,3 +84,4 @@
 | kelly-fee-presets.md | 费率预设 |
 | kelly-return-linear-analysis.md | 收益线性分析 |
 | kelly-timing-analysis.md | 时机分析 |
+| evolution-table-impl-20260910.md | **演进弹窗·表格视图实施报告(方案B 前端实时重算)**:📈 演进弹窗新增「📋 表格(按日快照)」Tab=日期行×10 卖出模式列, 每格两行小字(累计净利元+峰值资金收益率%, ±着色), 末行「📌 当前全量」与全信号卡最后结果**逐位一致**——表格在浏览器端从同源 trades 实时重算(复用卡同引擎 `_kellyApplyFeeRecompute` 同口径:评级三区并集×S06 动态基座按每笔 signal_date 取 a9/new14×AI仓位建议 K=1 每日池 1 万等分×ETF 主流费率), 不复读后端静态主档, 随降亏勾选/费率档/K 档实时联动; 历史行=截至该日已平仓(closed-by-D)口径天然稳定; 污染快照日(20260908)显示「—」+标注; 实测 582 轴点×10 模式 954ms; Playwright 对账 A/E/G/H/I 末行 vs 卡逐位一致 5/5 OK、重开稳定、全史 583 行(2026-09-10; 实现 lab.js/lab.css; 对账脚本 `scripts/evolution-table-verify.cjs`) |
