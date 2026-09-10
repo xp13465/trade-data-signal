@@ -71,6 +71,25 @@ def log(msg):
     print(f"{LOG_TAG} {msg}", flush=True)
 
 
+def _severe_alert(subject, body):
+    """严重失败告警(notify.py --severe, 带 dedup 防轰炸)。
+
+    F2(2026-09-10): 生成器内 R2 上传失败/写盘失败等「会让线上停滞」的失败不再静默只 log,
+    调 notify.py --severe 告警 + 最终退出码非 0(与 nextday_plan.sh 包装的 --severe 双保险,
+    dedup key 不同不互吞; 包装只在 RC!=0 时兜底, 生成器内先行带明细 stderr)。
+    """
+    log_path = REPO / "data" / "logs" / "nextday_plan_launchd.log"
+    cmd = [PY, str(SCRIPT_DIR / "notify.py"), subject, body,
+           "--severe", "--from-prefix", "[告警]",
+           "--alert-issue", subject, "--alert-log", str(log_path),
+           "--dedup-key", "nextday_plan_gen_fail", "--dedup-window", "3600"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        log(f"severe 告警 rc={r.returncode}")
+    except Exception as e:
+        log(f"⚠ severe 告警调用异常(无法送达): {e}")
+
+
 def _load_json(name: str, base: Path):
     p = base / name
     if not p.exists():
@@ -340,6 +359,10 @@ def main():
             written.append(str(sp))
 
     # ---- R2 上传(§22 三步同步; 盘后产物走 upload-data-files 段) ----
+    # F2(2026-09-10): R2 失败不再静默 —— notify --severe + 最终退出码非 0。
+    # 范围边界: 只对「会让线上停滞」的失败(R2 上传失败)告警; notify 通道自身波动
+    # 不升级(计划已落盘本地, git/次日 deploy 兜底, 流程不要求在盘中强一致)。
+    r2_rc = 0
     if not args.no_r2 and not args.dry_run:
         r2_files = ["nextday_plan.json"]
         if plan:
@@ -352,11 +375,36 @@ def main():
             r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
             log(f"R2 退出码={r.returncode}\n{r.stdout}")
             if r.returncode != 0:
-                log(f"⚠ R2 上传失败(告警): {r.stderr[-2000:]}")
+                _err = r.stderr[-2000:]
+                log(f"⚠ R2 上传失败(将告警): {_err}")
+                _severe_alert(
+                    f"[告警] 次日买入计划 R2 上传失败 rc={r.returncode} {T}",
+                    f"nextday_plan_generator.py: R2 upload-data-files 退出码 {r.returncode}, "
+                    f"次日买入计划本地已落盘但 R2 未同步(线上 sss/s 备站可能滞后)。"
+                    f"<br>R2 stderr: <pre>{_err}</pre>"
+                    f"<br>日志: {REPO}/data/logs/nextday_plan_launchd.log",
+                )
+                r2_rc = 1
+        except subprocess.TimeoutExpired:
+            log("⚠ R2 上传超时(300s, 将告警)")
+            _severe_alert(
+                f"[告警] 次日买入计划 R2 上传超时 {T}",
+                "nextday_plan_generator.py: R2 upload-data-files 300s 超时, "
+                "次日买入计划本地已落盘但 R2 未同步确认(线上备站可能滞后)。<br>日志: "
+                f"{REPO}/data/logs/nextday_plan_launchd.log",
+            )
+            r2_rc = 1
         except Exception as e:
             log(f"⚠ R2 上传异常: {e}")
+            _severe_alert(
+                f"[告警] 次日买入计划 R2 上传异常 {T}",
+                f"nextday_plan_generator.py: R2 上传异常 {type(e).__name__}: {e}。<br>日志: "
+                f"{REPO}/data/logs/nextday_plan_launchd.log",
+            )
+            r2_rc = 1
 
     # ---- 通知(邮件+飞书, 复用 notify.send 链路; 干跑阶段通知内容是「明日计划」) ----
+    notify_rc = 0
     if not args.no_notify and not args.dry_run:
         if plan:
             lines = []
@@ -376,11 +424,21 @@ def main():
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
             log(f"notify 退出码={r.returncode}")
+            if r.returncode != 0:
+                # F2: 关键 notify(计划已生成)失败 = 用户收不到次日计划, 属会让线上停滞的一环
+                # (计划产物本身已落盘, 但通知是 PRD 阶段一交付物的显式出口, 失败必须非 0 暴露,
+                # 由 nextday_plan.sh 包装层兜底再发 severe; 此处只在包装已存在基础上叠加非 0,
+                # 不重复发 severe —— 包装 --dedup-key nextday_plan_fail 已覆盖该失败面)
+                log(f"⚠ notify 失败 rc={r.returncode}(计划已生成但通知未送达, 退出码非 0 交包装层告警)")
+                notify_rc = 1
         except Exception as e:
             log(f"⚠ notify 异常: {e}")
+            notify_rc = 1
 
     log("落盘完成: " + ", ".join(written))
-    return 0
+    # F2: 任一「会让线上停滞」的失败(R2 上传失败/关键 notify 失败)都让退出码非 0,
+    # 交 nextday_plan.sh 包装层走 notify --severe + schedule_monitor 漏跑/退出码监控兜底。
+    return 1 if (r2_rc or notify_rc) else 0
 
 
 if __name__ == "__main__":

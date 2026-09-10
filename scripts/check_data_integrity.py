@@ -1866,6 +1866,11 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     # A3 键集对齐/A4 阈值公示单源），任一 FAIL 阻断上线（§22 同链精神）
     results.append(check_s06_state_snapshot(data_dir))
 
+    # 次日买入计划 nextday_plan 机检（2026-09-10 F1 补入，PRD 阶段一产物）：
+    # L45 数据供给四件套补「机检」件（文件存在/date 合法/结构合法/auto_trade_steps 可选），
+    # 空计划 {date, empty:true} 为合法态不误报；文件缺失 = 生成器未跑 = FAIL 阻断
+    results.append(check_nextday_plan(data_dir))
+
     # #fix555 changelog 与版本串一致性（2026-09-07）：index.html lab-asset-url 版本串
     # 必须在 changelog.json 有登记，否则更新 toast「本次更新」预览静默不显示。
     # 读源与前端 loadUpdateChangelog 同一 meta；FAIL 阻断上线强制补条目(§22 一致性)。
@@ -1875,6 +1880,89 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     results.extend(check_key_files(data_dir, repo_data_dir))
 
     return results
+
+
+def check_nextday_plan(data_dir: Path) -> CheckResult:
+    """nextday_plan.json 盘后产物机检（2026-09-10 PRD 阶段一产物，F1 接入校验链）。
+
+    L45 数据供给四件套补「机检」件：文件存在 + date 字段合法(当前交易日或下一交易日) +
+    结构合法({date, plan[]|empty:true})。auto_trade_steps.json 存在则校验 schema_version()v1)+steps 数组。
+    空计划 {date, empty:true} 为合法态(无信号日正常状态, 不误报)。文件不存在 = FAIL：
+    次日买入计划未生成, 前端 T+1 无参考(生成器同链 s06 先例, 缺失=事故级不许静默)。
+    """
+    name = "nextday_plan"
+    path = data_dir / "nextday_plan.json"
+    data, err = _load_json(path)
+    if err:
+        return _fail(name, f"{err} (nextday_plan_generator.py 盘后未生成?)")
+    if not isinstance(data, dict):
+        return _fail(name, f"nextday_plan.json 不是 dict: {type(data).__name__}")
+
+    # date 字段合法性: 当前交易日或下一交易日 (YYYYMMDD, 容忍跨日/节假历史日期)
+    d = data.get("date")
+    try:
+        import datetime as _dt
+        dt_val = _dt.datetime.strptime(str(d).strip(), "%Y%m%d").date()
+    except (ValueError, TypeError, AttributeError):
+        return _fail(name, f"date 字段非 YYYYMMDD: {d!r}")
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from app.calendar import is_trading_day, last_trading_day
+        _today = _dt.date.today()
+        allowed = {last_trading_day(_today)}          # 当前交易日(最近一个 <=today)
+        # 上一交易日: 生成器交易日 20:55 跑, 周一 17:50 deploy 时文件仍是上周五 date(容忍)
+        allowed.add(last_trading_day(_today - _dt.timedelta(days=1)))
+        # 下一交易日: 沿日历向前找第一个交易日 (max 15 天跨长假)
+        nxt = _today
+        for _ in range(16):
+            nxt += _dt.timedelta(days=1)
+            if is_trading_day(nxt):
+                allowed.add(nxt.strftime("%Y%m%d").zfill(8))
+                break
+        allowed_dates = {str(x) for x in allowed}
+        allowed_dates.add(_today.strftime("%Y%m%d"))
+        if dt_val.strftime("%Y%m%d") not in allowed_dates:
+            return _fail(name, f"date={d} 不是最近交易日/当前交易日/下一交易日 (允许={sorted(allowed_dates)})")
+    except Exception as e:
+        # 交易日历不可用: 退化为 7 天内宽限 (timestamp 校验, 避免假期误报)
+        if (datetime.now().date() - dt_val).days > 7:
+            return _fail(name, f"date={d} 距今天 {(datetime.now().date() - dt_val).days} 天 (>7, 交易日历不可用退化校验)")
+
+    # auto_trade_steps.json 可选校验 (空计划时不生成, 存在即须 schema_version=v1 + steps 数组)
+    steps_path = data_dir / "auto_trade_steps.json"
+    if steps_path.exists():
+        sdata, serr = _load_json(steps_path)
+        if serr:
+            return _fail(name, f"auto_trade_steps.json: {serr}")
+        if not isinstance(sdata, dict):
+            return _fail(name, f"auto_trade_steps.json 不是 dict: {type(sdata).__name__}")
+        if sdata.get("schema_version") != "v1":
+            return _fail(name, f"auto_trade_steps.json schema_version={sdata.get('schema_version')!r} != v1")
+        if not isinstance(sdata.get("steps"), list):
+            return _fail(name, f"auto_trade_steps.json steps 不是数组: {type(sdata.get('steps')).__name__}")
+
+    # 结构合法: {date, plan[]} 或 {date, empty:true}
+    has_empty = data.get("empty") is True
+    plan = data.get("plan")
+    if has_empty:
+        # empty:true 时 plan 允许缺省/空数组
+        if plan is not None and not isinstance(plan, list):
+            return _fail(name, f"empty:true 但 plan 非数组: {type(plan).__name__}")
+        return _ok(name, f"空计划(empty:true) date={d}")
+    if not isinstance(plan, list):
+        return _fail(name, f"plan 不是数组: {type(plan).__name__} (且无 empty:true)")
+    if not plan:
+        return _fail(name, "plan 为空数组且无 empty:true (异常态, 生成器应写 {date, empty:true})")
+    # 计划条目结构抽查
+    need_fields = ("etf_code", "etf_name", "prev_close", "amount", "signal", "buy_date")
+    for i, item in enumerate(plan[:5]):
+        if not isinstance(item, dict):
+            return _fail(name, f"plan[{i}] 不是 dict: {type(item).__name__}")
+        missing = [f for f in need_fields if f not in item]
+        if missing:
+            return _fail(name, f"plan[{i}] 缺字段: {missing}")
+
+    return _ok(name, f"计划条目={len(plan)} date={d}")
 
 
 def check_s06_state_snapshot(data_dir: Path, timeout: int = 300) -> CheckResult:

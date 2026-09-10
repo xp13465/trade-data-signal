@@ -90,6 +90,14 @@ TASKS = [
     # ⚠️ 时点 21:10 为默认建议值, 最终以主控 merge 时确认的 launchd 部署时点为准。
     {"task": "turnover_backfill", "name": "换手率独立延后", "script": "turnover_backfill.sh",
      "schedule": "21:10", "log": "turnover_backfill_launchd.log", "mode": "standard"},
+    # nextday_plan: 2026-09-10 补入(PRD 阶段一次日买入计划生成器, F1 机检链收编;
+    # 与 schedule_monitor.sh TASKS + check_data_integrity.nextday_plan 三处同步注册)。
+    # launchd com.trade.nextday-plan 交易日 20:55 跑 nextday_plan.sh
+    # (读 4 产物 → K=1 top1 → 写 data/nextday_plan.json + 两树 + R2 + 通知; 空计划合法)。
+    # 日志固定 append + 标准开始/结束行, standard 模式直读;
+    # schedule_monitor.sh TASKS 已同步加漏跑检查条目(同 s06_snapshot 先例)。
+    {"task": "nextday_plan", "name": "次日买入计划", "script": "nextday_plan.sh",
+     "schedule": "20:55", "log": "nextday_plan_launchd.log", "mode": "standard"},
 ]
 
 _TS = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})'
@@ -121,6 +129,7 @@ LABEL_MAP = {
     "s06_snapshot": "com.trade.s06-snapshot",
     "check_data_gap": "com.trade.check-data-gap",
     "turnover_backfill": "com.trade.turnover-backfill",
+    "nextday_plan": "com.trade.nextday-plan",
 }
 
 # launchctl print "last exit code = N" 行（N 可为 143/0/1/None，None 显 "last exit code = (none)"）
