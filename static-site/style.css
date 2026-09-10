@@ -7245,6 +7245,21 @@ main { padding: 16px 24px; }
 .sim-intraday-tbl th, .sim-intraday-tbl td { padding: 4px 6px; border: 1px solid var(--border); text-align: right; overflow: hidden; text-overflow: ellipsis; }
 .sim-intraday-tbl th { position: sticky; top: 0; background: var(--bg-card); z-index: 1; color: var(--text-1); font-weight: 700; }
 .sim-intraday-tbl th.txt, .sim-intraday-tbl td.txt { text-align: left; }
+/* 盘中增量表 etf 代码可点击(hover+点击走势, 2026-09-10 用户反馈对齐主交易记录表交互)。
+   §22: 两消费点(首页模拟回测弹窗 app.js / lab 凯利交易记录弹窗 lab.js)共用本样式定义于 style.css,
+   不依赖 lab.css(lab.min.css 仅 lab tab 加载, 首页弹窗消费点不可用)。视觉语言与主表
+   .lab-sigkelly-trades-etfcode 一致: cursor/primary 蓝/dotted 下划线/hover 高亮。 */
+.kelly-intraday-etf { cursor: pointer; position: relative; }
+.kelly-intraday-etf .kelly-intraday-etf-code-link {
+  color: var(--acc, #4da3ff);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.kelly-intraday-etf .kelly-intraday-etf-code-link:hover {
+  filter: brightness(1.25);
+  background: rgba(77, 163, 255, 0.12);
+  border-radius: 3px;
+}
 .kelly-intraday-foot { font-size: 11px; color: #889; margin-top: 4px; }
 [data-theme="dark"] .kelly-intraday-foot, [data-theme="redgold"] .kelly-intraday-foot { color: var(--text-3); }
 .sim-up { color: #cf1322; }

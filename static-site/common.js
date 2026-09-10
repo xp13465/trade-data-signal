@@ -1570,7 +1570,7 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
       // #90 任务③(2026-09-09): 盘中增量表 etf 代码列带 data-code/data-name + 点击走势类(与主交易记录表同交互),
       //   点击绑定在 render 内(el 插入 DOM 后), 复用 lab.js _openEtfTrendPinModal(全局函数, app.min.js 已加载)。
       rows += '<tr><td class="txt">' + _fmtDate(row[si]) + '</td><td class="txt">' + _esc(_idxName(row[xi])) + '</td><td class="txt">' + _esc(_sigCName(row[gi])) + '</td>' +
-        '<td class="txt kelly-intraday-etf" data-code="' + _esc(row[ci]) + '" data-name="' + _esc(row[ni] || row[ci]) + '" title="点击查看走势">' + _esc(row[ci]) + (row[ni] ? ' <span class="sim-etf-name-sub">' + _esc(row[ni]) + '</span>' : '') + '</td>' +
+        '<td class="txt kelly-intraday-etf" data-code="' + _esc(row[ci]) + '" data-name="' + _esc(row[ni] || row[ci]) + '" title="点击查看走势"><span class="kelly-intraday-etf-code-link">' + _esc(row[ci]) + '</span>' + (row[ni] ? ' <span class="sim-etf-name-sub">' + _esc(row[ni]) + '</span>' : '') + '</td>' +
         '<td>' + bpxTxt + '</td><td>' + curTxt + '</td><td>' + rpTxt + '</td></tr>';
     }
     // 视觉整合(2026-09-08 用户反馈「与下方主交易记录表割裂」): 外层复用 .sim-table-wrap(与主表同容器),
@@ -1596,23 +1596,42 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
       '定价口径与主档一致（信号次日开盘）, 仅价格源=今日真实开盘(akshare)。纯展示, 不构成投资建议。</div></div>';
   }
   // #90 任务③(2026-09-09): 盘中增量表 etf 代码点击 → 走势+买卖/强平 pin 弹窗。
-  // 复用 lab.js _openEtfTrendPinModal(全局 async 函数, 事件回调时必已加载; typeof 防御), 事件源=当前过滤后行集
-  // _lastUnique + 盘中产物 fields; eliminated=[](盘中增量无淘汰区)。srcRow 传触发行(关闭后高亮定位)。
+  // 复用 lab.js _openEtfTrendPinModal(全局 async 函数), 事件源=当前过滤后行集 _lastUnique + 盘中产物 fields;
+  // eliminated=[](盘中增量无淘汰区)。srcRow 传触发行(关闭后高亮定位)。
+  // 2026-09-10 修复(用户反馈点击无弹窗): 改为容器级 click 委托。根因=lab.min.js 是懒加载(index.html
+  // 不再预加载, 切 lab tab 才注入 app.js loadLabScript()), 首页弹窗盘中表渲染时 _openEtfTrendPinModal
+  // 常未定义 → 旧实现 _bindEtfClicks 开头 typeof 防御直接 return → td.onclick 永不绑定 → 点击无反应
+  // (与主交易记录表不一致)。委托方案天然免疫加载时序: 事件发生时(用户点击)才实时取参调用。
+  // 叠加自动懒加载: lab.min.js 未注入时先走 loadLabScript()(app.js 全局, single promise)加载完成后立即弹,
+  // 任何展示位/任何时序点击都能弹; loadLabScript 也不可用(异常环境)才静默。幂等: render 每次新建容器
+  // 元素, 元素级标记防同一元素重复绑双保险。
   function _bindEtfClicks(rootEl, d) {
-    if (!rootEl || typeof window._openEtfTrendPinModal !== "function") return;
-    var tds = rootEl.querySelectorAll(".kelly-intraday-etf");
-    for (var i2 = 0; i2 < tds.length; i2++) {
-      (function (td) {
-        td.onclick = function (ev) {
-          ev.preventDefault();
-          ev.stopPropagation();
-          var code = td.getAttribute("data-code") || "";
-          var nm = td.getAttribute("data-name") || "";
-          if (!code) return;
-          window._openEtfTrendPinModal(code, nm, _lastUnique, [], (d && d.fields) || [], td.closest ? td.closest("tr") : null, null);
-        };
-      })(tds[i2]);
-    }
+    if (!rootEl || rootEl.__kellyIntradayEtfDelegated) return;
+    rootEl.__kellyIntradayEtfDelegated = true;
+    var _openPin = function (td) {
+      var code = td.getAttribute("data-code") || "";
+      var nm = td.getAttribute("data-name") || "";
+      window._openEtfTrendPinModal(code, nm, _lastUnique, [], (d && d.fields) || [], td.closest ? td.closest("tr") : null, null);
+    };
+    rootEl.addEventListener("click", function (ev) {
+      var td = ev.target && ev.target.closest ? ev.target.closest(".kelly-intraday-etf") : null;
+      if (!td || !td.getAttribute) return;
+      if (!td.getAttribute("data-code")) return;
+      if (typeof window._openEtfTrendPinModal === "function") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        _openPin(td);
+        return;
+      }
+      var loader = window.loadLabScript;
+      if (typeof loader !== "function") return;  // 异常环境(无 loader) → 静默无害
+      ev.preventDefault();
+      ev.stopPropagation();
+      loader().then(function () {
+        if (typeof window._openEtfTrendPinModal !== "function") return;
+        _openPin(td);
+      }).catch(function () { /* 懒加载失败 → 静默 */ });
+    });
   }
   function render(anchorEl, opts) {
     if (!anchorEl || !anchorEl.parentNode) return;
