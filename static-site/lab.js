@@ -10172,6 +10172,15 @@ function _labKellyEvoSVG(days, mode) {
     `</svg></div>`;
 }
 
+// 曲线范围切片辅助(2026-09-10 问题3): range=20/60/all, 取最近 N 个快照日切片重绘; 口径不变(仍是全周期
+// 累计收益 total_return 演进), 仅视图范围缩放。全史=idx.days 全量(既有行为), 切片不足 N 时全量渲染。
+function _labKellyEvoCurveHTML(idx, mode, range) {
+  const days = (idx && idx.days) || [];
+  const n = range === "20" ? 20 : (range === "60" ? 60 : days.length);
+  const slice = n >= days.length ? days : days.slice(-n);
+  return _labKellyEvoSVG(slice, mode);
+}
+
 function _labKellyEvoModalHTML(idx) {
   const days = (idx && idx.days) || [];
   const latest = days.length ? days[days.length - 1] : null;
@@ -10194,8 +10203,14 @@ function _labKellyEvoModalHTML(idx) {
     `</div>` +
     `<div class="lab-kelly-evo-pane" data-evo-pane="curve">` +
       `<div class="lab-kelly-evo-modes">${modeBtns}</div>` +
+      `<div class="lab-kelly-evo-granbar lab-kelly-evo-rangbar">` +
+        `<span class="lab-kelly-evo-gran-label">范围:</span>` +
+        `<button type="button" class="lab-kelly-evo-gran-btn" data-evo-range="20">近 20 快照日</button>` +
+        `<button type="button" class="lab-kelly-evo-gran-btn" data-evo-range="60">近 60 快照日</button>` +
+        `<button type="button" class="lab-kelly-evo-gran-btn active" data-evo-range="all">全史</button>` +
+      `</div>` +
       `<div id="lab-kelly-evo-curve-host">${_labKellyEvoSVG(days, "G")}</div>` +
-      `<div class="lab-kelly-evo-foot">💡 曲线=该模式全周期累计收益(total_return)随快照日演进; 停滞=max_signal_date 不涨(断链信号)。数据源=signal_kelly_snapshots/index.json, 每日盘后 export 生成。</div>` +
+      `<div class="lab-kelly-evo-foot">💡 曲线=该模式全周期累计收益(total_return)随快照日演进; 范围=取最近 N 个快照日切片重绘(默认全史); 停滞=max_signal_date 不涨(断链信号)。数据源=signal_kelly_snapshots/index.json, 每日盘后 export 生成。</div>` +
     `</div>` +
     `<div class="lab-kelly-evo-pane" data-evo-pane="table" style="display:none">` +
       `<div class="lab-kelly-evo-caliber" title="口径与全信号卡同源, 随上方降亏勾选/费率档/K档实时联动重算">${_labKellyEvoCaliberHTML()}</div>` +
@@ -10225,12 +10240,25 @@ function _labKellyEvoOpen() {
   fetchJSON("./data/signal_kelly_snapshots/index.json").then((idx) => {
     if (!overlay) return;
     overlay.innerHTML = _labKellyEvoModalHTML(idx);
+    overlay.__evoRange = "all"; // 曲线范围状态(2026-09-10 问题3): 默认全史=既有行为
     overlay.querySelector(".lab-rank-modal-close").onclick = _labKellyEvoClose;
     overlay.querySelectorAll(".lab-kelly-evo-mode").forEach((btn) => {
       btn.onclick = () => {
         overlay.querySelectorAll(".lab-kelly-evo-mode").forEach((b) => b.classList.toggle("active", b === btn));
         const host = overlay.querySelector("#lab-kelly-evo-curve-host");
-        if (host) host.innerHTML = _labKellyEvoSVG((idx && idx.days) || [], btn.dataset.evoMode);
+        if (host) host.innerHTML = _labKellyEvoCurveHTML(idx, btn.dataset.evoMode, overlay.__evoRange || "all");
+      };
+    });
+    // 曲线范围按钮(2026-09-10 问题3): 按当前 active mode 取最近 N 个快照日切片重绘
+    overlay.querySelectorAll(".lab-kelly-evo-rangbar .lab-kelly-evo-gran-btn").forEach((btn) => {
+      btn.onclick = () => {
+        overlay.querySelectorAll(".lab-kelly-evo-rangbar .lab-kelly-evo-gran-btn").forEach((b) => b.classList.toggle("active", b === btn));
+        overlay.__evoRange = btn.dataset.evoRange;
+        const host = overlay.querySelector("#lab-kelly-evo-curve-host");
+        if (host) {
+          const curMode = overlay.querySelector(".lab-kelly-evo-mode.active");
+          host.innerHTML = _labKellyEvoCurveHTML(idx, (curMode && curMode.dataset.evoMode) || "G", overlay.__evoRange);
+        }
       };
     });
     overlay.querySelectorAll(".lab-kelly-evo-tab").forEach((btn) => {
@@ -10242,9 +10270,9 @@ function _labKellyEvoOpen() {
         });
       };
     });
-    overlay.querySelectorAll(".lab-kelly-evo-gran-btn").forEach((btn) => {
+    overlay.querySelectorAll(".lab-kelly-evo-gran-btn:not([data-evo-range])").forEach((btn) => {
       btn.onclick = () => {
-        overlay.querySelectorAll(".lab-kelly-evo-gran-btn").forEach((b) => b.classList.toggle("active", b === btn));
+        overlay.querySelectorAll(".lab-kelly-evo-gran-btn:not([data-evo-range])").forEach((b) => b.classList.toggle("active", b === btn));
         const evoData = overlay.__evoData;
         const host = overlay.querySelector("#lab-kelly-evo-table-host");
         if (evoData && host) _labKellyEvoRenderTable(host, evoData.evo, evoData.polluted, btn.dataset.evoGran);
@@ -10608,10 +10636,11 @@ function _labKellyEvoRenderTable(host, evo, polluted, gran) {
   var rows = evo.rows;
   var total = rows.length;
   var show = (gran === "all") ? total : Math.min(60, total);
-  var start = Math.max(total - show, 0);
+  var start = Math.max(total - show, 0); // 最近 show 个轴点的起始下标(rows 按 buy_date 升序, 尾部=最新)
   var head = `<tr><th>日期(buy)</th>` + modeKeys.map(function (m) { return `<th>${m}</th>`; }).join("") + `</tr>`;
   var body = "";
-  for (var i = start; i < total; i++) {
+  // 2026-09-10 问题4: 最新日期置顶——降序遍历(最新→旧), 近 N 行=最近 N 个轴点保持正确, 末行「当前全量」仍在最后
+  for (var i = total - 1; i >= start; i--) {
     var r = rows[i];
     var isPolluted = !!(polluted && polluted[r.d]);
     body += `<tr${isPolluted ? ' class="lab-kelly-evo-polluted"' : ""}>` +
@@ -10654,7 +10683,7 @@ function _labKellyEvoRenderTable(host, evo, polluted, gran) {
   host.innerHTML = `<div class="lab-kelly-evo-table-wrap">` +
     `<table class="lab-kelly-evo-table"><thead>${head}</thead><tbody>${body}</tbody></table>` +
     `</div>` +
-    `<div class="lab-kelly-evo-foot">💡 共 ${total} 个买入日轴点 × ${modeKeys.length} 模式(全部周期 all 口径); 每格第一行=累计净利(元), 第二行=峰值资金收益率(%); 历史行=截至该日已平仓, 已平仓卖价历史固定→行天然稳定; <b>末行=当前全量(与全信号卡最后结果逐位一致, 含未平仓按最新价预估)</b>。实时重算耗时 ${evo.elapsedMs}ms。</div>` +
+    `<div class="lab-kelly-evo-foot">💡 共 ${total} 个买入日轴点 × ${modeKeys.length} 模式(全部周期 all 口径); <b>日期最新在上(第1行=最新买入日轴点, 由新到旧; 近 N 行=最近 N 个轴点)</b>; 每格第一行=累计净利(元), 第二行=峰值资金收益率(%); 历史行=截至该日已平仓, 已平仓卖价历史固定→行天然稳定; <b>末行=当前全量(与全信号卡最后结果逐位一致, 含未平仓按最新价预估)</b>。实时重算耗时 ${evo.elapsedMs}ms。</div>` +
     (evo.s6OpenCount ? `<div class="lab-kelly-evo-warn">⚠ S06 快照 ${evo.s6OpenCount} 笔 fail-open(快照缺行/未就绪按放行计数), 与全信号卡同警示</div>` : "");
 }
 
@@ -13304,6 +13333,9 @@ async function _openEtfTrendPinModal(code, name, trades, eliminated, fields, src
     overlay.className = "lab-sigkelly-overlay";
     document.body.appendChild(overlay);
   }
+  // 层级修复(2026-09-10): 无条件重新 append 到 body 末尾 + 专用 z-index(#lab-etf-pin-overlay 10001),
+  // 保证在交易记录/全信号等同样 z-index 9999 的弹窗之上(惰性复用导致 DOM 顺序可能落后被盖住)。
+  document.body.appendChild(overlay);
   overlay.innerHTML =
     `<div class="lab-sigkelly-modal lab-etf-pin-modal">` +
       `<div class="lab-sigkelly-modal-head">` +

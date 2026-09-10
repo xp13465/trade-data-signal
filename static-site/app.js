@@ -4682,6 +4682,9 @@ async function _openSimEtfTrendPinModal(code, name, events, srcRow, srcKey) {
     overlay.className = "lab-sigkelly-overlay";
     document.body.appendChild(overlay);
   }
+  // 层级修复(2026-09-10, 与 lab _openEtfTrendPinModal 同款): 无条件重新 append 到 body 末尾 + 专用
+  // z-index(#sim-etf-pin-overlay 10001), 防惰性复用 DOM 顺序落后被同为 z-index 9999 的其他弹窗盖住。
+  document.body.appendChild(overlay);
   // 是否支持正式区/淘汰区切换(2026-08-31 升级): sim 侧有 `_gihForced` 标志可区分(0.31+ 数据)
   const hasZone = events.some((e) => e.kind === "force");
   overlay.innerHTML =
