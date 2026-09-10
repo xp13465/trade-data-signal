@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.trade.nextday-plan</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/linhuichen/code/trade-data/scripts/nextday_plan.sh</string>
+    </array>
+    <!-- 交易日 20:55 跑: 次日买入计划生成器(PRD 阶段一 §3/§6, 干跑 AUTO_EXEC_ON=false)。
+         时点选择依据(§14, 2026-09-10 launchctl list + plist StartCalendarInterval 实证):
+         输入 4 产物(signal_kelly_trades/backtest/s06/loss)由 17:50 update-all export +
+         20:35 s06-snapshot 定稿, 20:55 晚于全部源(20:40 daily-brief/20:45 brief-push 不涉
+         本链产物); 21:00 已有 backfill-evening + futures-backfill 两任务, 21:10 turnover
+         -backfill / 21:15 ab-direction-anchor / 21:30 etf-national-team 紧跟, 20:55 落
+         20:45~21:00 空档且秒级完成不抢资源。
+         不推 main 不写 DB(只写 static-site/data JSON + R2), §14「盘后时点不推 main」满足。
+         pmset 无需新增唤醒: 既有 wakepoweron=工作日 17:48, 机器活跃至 21:40 overfit-monitor。
+         非交易日脚本内闸门跳过(传 force 可补跑)。 -->
+    <key>StartCalendarInterval</key>
+    <array>
+      <dict>
+        <key>Weekday</key>
+        <integer>1</integer>
+        <key>Hour</key>
+        <integer>20</integer>
+        <key>Minute</key>
+        <integer>55</integer>
+      </dict>
+      <dict>
+        <key>Weekday</key>
+        <integer>2</integer>
+        <key>Hour</key>
+        <integer>20</integer>
+        <key>Minute</key>
+        <integer>55</integer>
+      </dict>
+      <dict>
+        <key>Weekday</key>
+        <integer>3</integer>
+        <key>Hour</key>
+        <integer>20</integer>
+        <key>Minute</key>
+        <integer>55</integer>
+      </dict>
+      <dict>
+        <key>Weekday</key>
+        <integer>4</integer>
+        <key>Hour</key>
+        <integer>20</integer>
+        <key>Minute</key>
+        <integer>55</integer>
+      </dict>
+      <dict>
+        <key>Weekday</key>
+        <integer>5</integer>
+        <key>Hour</key>
+        <integer>20</integer>
+        <key>Minute</key>
+        <integer>55</integer>
+      </dict>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>REPO</key>
+        <string>/Users/linhuichen/code/trade-data</string>
+        <key>GIT_REPO</key>
+        <string>/Users/linhuichen/code/trade</string>
+    </dict>
+    <key>WorkingDirectory</key>
+    <string>/Users/linhuichen/code/trade-data</string>
+    <key>StandardOutPath</key>
+    <string>/Users/linhuichen/code/trade-data/data/logs/nextday_plan_launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/linhuichen/code/trade-data/data/logs/nextday_plan_launchd.err</string>
+    <key>RunAtLoad</key>
+    <false/>
+    <!-- 秒级任务(读 4 json + etf_daily + 算 top1 + 写两 json + R2 上传), 600s 给足余量 -->
+    <key>ExitTimeOut</key>
+    <integer>600</integer>
+</dict>
+</plist>
