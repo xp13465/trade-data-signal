@@ -1406,6 +1406,10 @@
 .lab-kelly-evo-table-wrap { max-height: 60vh; overflow: auto; border: 1px solid var(--border); border-radius: 4px; margin: 4px 0; }
 .lab-kelly-evo-date { font-weight: 600; color: var(--text-2); }
 .lab-kelly-evo-cell { line-height: 1.5; }
+/* 2026-09-11 现象3(口径标注): 日期列表头「已平仓」小标 + 表格顶部口径说明行; 现象2: ⚑快照不可靠角标 */
+.lab-kelly-evo-cal-tag { display: inline-block; margin-left: 3px; font-size: 9px; font-weight: 400; color: var(--text-3); background: rgba(128,128,128,0.12); border-radius: 3px; padding: 0 3px; vertical-align: 1px; }
+.lab-kelly-evo-caliber-note { margin: 0 0 6px; padding: 5px 8px; border: 1px solid rgba(250,173,20,0.35); border-radius: 4px; background: rgba(250,173,20,0.07); font-size: 11px; line-height: 1.55; color: var(--text-2); }
+.lab-kelly-evo-cell .lab-kelly-evo-poll-badge { display: inline-block; margin-top: 1px; font-size: 9px; color: #b8860b; background: rgba(184,134,11,0.12); border-radius: 3px; padding: 0 3px; }
 .lab-kelly-evo-cell .lab-kelly-evo-p { display: block; font-weight: 700; font-size: 11px; }
 .lab-kelly-evo-table tr.lab-kelly-evo-polluted td { color: var(--text-4); background: repeating-linear-gradient(45deg, rgba(128,128,128,0.06), rgba(128,128,128,0.06) 6px, transparent 6px, transparent 12px); }
 .lab-kelly-evo-table tr.lab-kelly-evo-pin-row td { background: rgba(250,173,20,0.10); font-weight: 600; }

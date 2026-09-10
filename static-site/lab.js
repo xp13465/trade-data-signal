@@ -10157,22 +10157,18 @@ function _labKellyEvoSVG(days, mode) {
   for (let i = 0; i < pts.length; i += xStep) {
     xLabels += `<text x="${sx(i).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="var(--text-3,#999)">${pts[i].d.slice(4)}</text>`;
   }
-  // 2026-09-11 修: 每个数据点加 hover 点(透明命中区 circle + <title> tooltip, 显示 日期·累计收益元),
-  // 末点保留强调(大圆+白边+数值标注)。
+  // 2026-09-11 修: 原生 <title> tooltip 替换为自定义跟随 tooltip(_labKellyEvoBindCurveTip 绑定)。
+  // 数据点只保留视觉圆点(末点强调=大圆+白边+数值标注), 命中区交给容器 mousemove 按最近点吸附(横向半个点距竖条带)。
   let ptDots = "";
   for (let i = 0; i < pts.length; i++) {
     const px = sx(i).toFixed(1);
     const py = sy(pts[i].v).toFixed(1);
     const isLast = i === pts.length - 1;
-    const vStr = (pts[i].v >= 0 ? "+" : "") + pts[i].v.toFixed(0);
-    ptDots += `<g>` +
-      `<circle cx="${px}" cy="${py}" r="8" fill="transparent" pointer-events="all"><title>${pts[i].d} · 累计收益 ${vStr} 元</title></circle>` +
-      `<circle cx="${px}" cy="${py}" r="${isLast ? 4 : 2.5}" fill="${lineColor}"${isLast ? ' stroke="#fff" stroke-width="1.5"' : ' fill-opacity="0.85"'} pointer-events="none"/>` +
-      `</g>`;
+    ptDots += `<circle cx="${px}" cy="${py}" r="${isLast ? 4 : 2.5}" fill="${lineColor}"${isLast ? ' stroke="#fff" stroke-width="1.5"' : ' fill-opacity="0.85"'} pointer-events="none"/>`;
   }
   const lastX = sx(pts.length - 1);
   const lastY = sy(lastVal);
-  return `<div class="lab-kelly-evo-curve">` +
+  return `<div class="lab-kelly-evo-curve" style="position:relative">` +
     `<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="演进曲线">` +
     `<defs><linearGradient id="labEvoGrad" x1="0" y1="0" x2="0" y2="1">` +
     `<stop offset="0%" stop-color="${lineColor}" stop-opacity="0.25"/><stop offset="100%" stop-color="${lineColor}" stop-opacity="0.02"/>` +
@@ -10182,7 +10178,71 @@ function _labKellyEvoSVG(days, mode) {
     `<polyline points="${linePts}" fill="none" stroke="${lineColor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
     ptDots +
     `<text x="${(lastX + 4).toFixed(1)}" y="${(lastY - 5).toFixed(1)}" font-size="11" fill="${lineColor}" font-weight="700">${lastVal >= 1000 ? (lastVal / 1000).toFixed(1) + "k" : lastVal.toFixed(0)}</text>` +
-    `</svg></div>`;
+    `</svg>` +
+    `<div class="lab-kelly-evo-tip" style="display:none;position:absolute;left:0;top:0;z-index:30;background:var(--bg-card,#fff);border:1px solid var(--border,#ddd);border-radius:6px;padding:4px 9px;font-size:11px;color:var(--text-1,#333);box-shadow:0 2px 8px rgba(0,0,0,.18);pointer-events:none;white-space:nowrap"></div>` +
+    `</div>`;
+}
+
+// 曲线 hover 自定义跟随 tooltip 绑定(现象1): 命中区=横向半个点距竖条带(最近点吸附), 显示「日期 · 累计收益 +XXXX 元」。
+// 传入 host=#lab-kelly-evo-curve-host; 由调用方在每次 innerHTML 重建曲线后调用; __evoTipClean 幂等清理旧监听。
+function _labKellyEvoBindCurveTip(host, idx, mode, range) {
+  if (!host || !idx || !idx.days) return;
+  var days = idx.days;
+  var want = range === "20" ? 20 : (range === "60" ? 60 : days.length);
+  var showAll = want >= days.length;
+  var slice = showAll ? days : days.slice(-want);
+  var pts = [];
+  for (var i = 0; i < slice.length; i++) {
+    var md = (slice[i].modes && slice[i].modes[mode]) || {};
+    if (typeof md.tr !== "number") continue;
+    pts.push({ d: slice[i].d, v: md.tr });
+  }
+  if (pts.length < 2) return;
+  var curve = host.querySelector(".lab-kelly-evo-curve");
+  if (!curve) return;
+  var svg = curve.querySelector("svg");
+  var tip = curve.querySelector(".lab-kelly-evo-tip");
+  if (!svg || !tip) return;
+  if (curve.__evoTipClean) curve.__evoTipClean();
+  var W = 780, H = 150, ml = 64, mr = 12, mb = 26;
+  var pw = W - ml - mr, ph = H - 10 - mb;
+  var vals = pts.map(function (p) { return p.v; });
+  var yMin = Math.min.apply(null, vals.concat([0])) * 1.05;
+  var yMax = Math.max.apply(null, vals) * 1.05;
+  if (yMax <= yMin) yMax = yMin + 1;
+  var sy = function (v) { return 10 + ph - ((v - yMin) / (yMax - yMin)) * ph; };
+  var sx = function (i) { return ml + (i / (pts.length - 1)) * pw; };
+  var onMove = function (e) {
+    var svgRect = svg.getBoundingClientRect();
+    if (!svgRect.width) return;
+    // 鼠标 x 映射到 SVG viewBox 坐标, 限绘图区(横向竖条带吸附最近点)
+    var vx = (e.clientX - svgRect.left) / svgRect.width * W;
+    if (vx < ml - 4 || vx > W - mr + 4) { tip.style.display = "none"; return; }
+    var best = 0, bestD = Infinity;
+    for (var i2 = 0; i2 < pts.length; i2++) {
+      var d = Math.abs(vx - sx(i2));
+      if (d < bestD) { bestD = d; best = i2; }
+    }
+    var p = pts[best];
+    var vStr = (p.v >= 0 ? "+" : "") + p.v.toFixed(0);
+    tip.textContent = p.d + " · 累计收益 " + vStr + " 元";
+    tip.style.display = "block";
+    var rect = curve.getBoundingClientRect();
+    var tx = e.clientX - rect.left + 12;
+    var ty = e.clientY - rect.top + 12;
+    var tw = tip.offsetWidth || 150, th = tip.offsetHeight || 26;
+    if (tx + tw > rect.width - 4) tx = e.clientX - rect.left - tw - 12;
+    if (ty + th > rect.height - 4) ty = e.clientY - rect.top - th - 4;
+    tip.style.left = tx + "px";
+    tip.style.top = ty + "px";
+  };
+  var onLeave = function () { tip.style.display = "none"; };
+  curve.addEventListener("mousemove", onMove);
+  curve.addEventListener("mouseleave", onLeave);
+  curve.__evoTipClean = function () {
+    curve.removeEventListener("mousemove", onMove);
+    curve.removeEventListener("mouseleave", onLeave);
+  };
 }
 
 // 曲线范围切片辅助(2026-09-10 问题3): range=20/60/all, 取最近 N 个快照日切片重绘; 口径不变(仍是全周期
@@ -10270,12 +10330,18 @@ function _labKellyEvoOpen() {
     if (!overlay) return;
     overlay.innerHTML = _labKellyEvoModalHTML(idx);
     overlay.__evoRange = "all"; // 曲线范围状态(2026-09-10 问题3): 默认全史=既有行为
+    // 现象1: 初始曲线渲染后绑定自定义跟随 tooltip(替代原生 title)
+    var _evoInitCurveHost = overlay.querySelector("#lab-kelly-evo-curve-host");
+    if (_evoInitCurveHost) _labKellyEvoBindCurveTip(_evoInitCurveHost, idx, "G", "all");
     overlay.querySelector(".lab-rank-modal-close").onclick = _labKellyEvoClose;
     overlay.querySelectorAll(".lab-kelly-evo-mode").forEach((btn) => {
       btn.onclick = () => {
         overlay.querySelectorAll(".lab-kelly-evo-mode").forEach((b) => b.classList.toggle("active", b === btn));
         const host = overlay.querySelector("#lab-kelly-evo-curve-host");
-        if (host) host.innerHTML = _labKellyEvoCurveHTML(idx, btn.dataset.evoMode, overlay.__evoRange || "all");
+        if (host) {
+          host.innerHTML = _labKellyEvoCurveHTML(idx, btn.dataset.evoMode, overlay.__evoRange || "all");
+          _labKellyEvoBindCurveTip(host, idx, btn.dataset.evoMode, overlay.__evoRange || "all"); // 现象1: 重绘后重绑定
+        }
       };
     });
     // 曲线范围按钮(2026-09-10 问题3): 按当前 active mode 取最近 N 个快照日切片重绘
@@ -10286,7 +10352,9 @@ function _labKellyEvoOpen() {
         const host = overlay.querySelector("#lab-kelly-evo-curve-host");
         if (host) {
           const curMode = overlay.querySelector(".lab-kelly-evo-mode.active");
-          host.innerHTML = _labKellyEvoCurveHTML(idx, (curMode && curMode.dataset.evoMode) || "G", overlay.__evoRange);
+          const curModeKey = (curMode && curMode.dataset.evoMode) || "G";
+          host.innerHTML = _labKellyEvoCurveHTML(idx, curModeKey, overlay.__evoRange);
+          _labKellyEvoBindCurveTip(host, idx, curModeKey, overlay.__evoRange); // 现象1: 重绘后重绑定
         }
       };
     });
@@ -10346,7 +10414,7 @@ function _labKellyEvoCaliberHTML() {
   } catch (e) {}
   var _k = ((state.labSigKellyFilters || {}).positionCapK) || 1;
   var _kOn = !!((state.labSigKellyFilters || {}).positionCap);
-  return `口径 = 全信号卡(评级三区并集) × ${_modeName} × AI仓位建议 ${_kOn ? ("K=" + _k + " 每日只买最优 " + _k + " 笔") : "关"} × 每日资金池 1 万等分 × ETF 主流费率重算; 历史上行 = 截至该日已平仓口径(累计净利元 + 峰值资金收益率%); 数字与全信号卡同源实时重算`;
+  return `口径 = 全信号卡(评级三区并集) × ${_modeName} × AI仓位建议 ${_kOn ? ("K=" + _k + " 每日只买最优 " + _k + " 笔") : "关"} × 每日资金池 1 万等分 × ETF 主流费率重算; 数字与全信号卡同源实时重算; 日期行=截至该日已平仓(closed-by-D), 首/末行「当前全量」=含未平仓按最新价预估(两口径天生不同属正常)`;
 }
 
 // 演进表格操作池: 与 _kellyApplyFeeRecompute 同引擎同口径(§22), 返回 per-mode 已过滤+费率重算的 trades(按 sell_date 升序)。
@@ -10646,8 +10714,9 @@ async function _labKellyEvoBuildTable(overlay, idx) {
     return;
   }
   // 污染快照日×模式集合(index.json days 中 polluted 标记, 如 20260908 G/H/I tr:null)。
-  // 2026-09-11 修: 由「整行标记」降为「列级标记」 polluted[dd.d][mode]=1,
-  // 渲染时只置灰该快照日该 mode 的格, 不再误杀同快照日 A-F/J 有真数据的列。
+  // 2026-09-11 修(现象2): polluted 只用于「曲线跳过该点」与「表格格角标提示」, 绝不置空实时重算值——
+  // 表格是读全信号卡同源 trades 实时重算的, 去 polluted 后完全可算出(20260908 G/H/I 重算 G=+148391/572笔 等),
+  // 所以快速照不可靠的格正常显示重算值 + ⚑角标, 不再误杀成「—」。
   var polluted = {};
   if (idx && idx.days) {
     for (var i = 0; i < idx.days.length; i++) {
@@ -10665,7 +10734,7 @@ async function _labKellyEvoBuildTable(overlay, idx) {
 // 全量钉子行(首行+末行复用): 当前全量, 与全信号卡最后结果逐位一致(含未平仓按最新价预估)。
 function _labKellyEvoPinRowHTML(modeKeys, finalStats) {
   var h = `<tr class="lab-kelly-evo-pin-row">` +
-    `<td class="lab-kelly-evo-date" title="当前全量(含未平仓按最新价预估), 与全信号卡「最后结果」逐位一致">📌 当前全量</td>`;
+    `<td class="lab-kelly-evo-date" title="📌 当前全量 = 实时视角口径: 含未平仓按最新价预估(非已平仓口径), 与全信号卡「最后结果」逐位一致; 与「日期行=截至该日已平仓」天生不同属正常">📌 当前全量</td>`;
   for (var mi = 0; mi < modeKeys.length; mi++) {
     var mk = modeKeys[mi];
     var st = finalStats[mk];
@@ -10684,7 +10753,9 @@ function _labKellyEvoPinRowHTML(modeKeys, finalStats) {
 }
 
 // 表格渲染: 日期行 × A-J 列, 每格两行小字(累计净利元 + 峰值资金收益率%), +/- 着色; 首行+末行=当前全量(与全信号卡一致)
-// 2026-09-11 修: 污染粒度由整行降为按列(仅该快照日该 mode 置灰, 不再误杀 A-F/J 真数据列);
+// 2026-09-11 修(现象2): 污染不置空实时重算值——快照不可靠的格正常显示 + ⚑角标「快照不可靠」;
+// 现象3(口径标注): 首/末行「当前全量」title 标注「含未平仓按最新价预估(非已平仓口径)」, 日期列表头标「已平仓」,
+// 表格顶部加口径说明行(白话+1:1 例), 两口径天生不同属正常;
 // 降序(最新在上)下首行补「📌 当前全量」, 用户打开弹窗第一眼看到最新 + 当前整体。
 function _labKellyEvoRenderTable(host, evo, polluted, gran) {
   var modeKeys = evo.modeKeys;
@@ -10692,7 +10763,7 @@ function _labKellyEvoRenderTable(host, evo, polluted, gran) {
   var total = rows.length;
   var show = (gran === "all") ? total : Math.min(60, total);
   var start = Math.max(total - show, 0); // 最近 show 个轴点的起始下标(rows 按 buy_date 升序, 尾部=最新)
-  var head = `<tr><th>日期(buy)</th>` + modeKeys.map(function (m) { return `<th>${m}</th>`; }).join("") + `</tr>`;
+  var head = `<tr><th title="每行 = 截至该日已平仓(closed-by-D)口径: 只累计到该日为止已平仓的交易, 卖价历史固定→行天然稳定; 与首/末行「当前全量」口径不同(后者含未平仓按最新价预估), 两口径天生不同属正常">日期(buy)<span class="lab-kelly-evo-cal-tag">已平仓</span></th>` + modeKeys.map(function (m) { return `<th>${m}</th>`; }).join("") + `</tr>`;
   var body = "";
   // 首行: 当前全量(最新置顶下第一眼可见整体)
   body += _labKellyEvoPinRowHTML(modeKeys, evo.finalStats);
@@ -10705,7 +10776,9 @@ function _labKellyEvoRenderTable(host, evo, polluted, gran) {
       `<td class="lab-kelly-evo-date">${r.d}</td>`;
     for (var mi = 0; mi < modeKeys.length; mi++) {
       var m = modeKeys[mi];
-      if (rowPoll && rowPoll[m]) { body += `<td class="lab-kelly-evo-cell" style="color:var(--text-4);opacity:.75" title="该快照日 ${m} 模式回测数据不可靠(tr=null), 不展示">—</td>`; continue; }
+      // 现象2(20260908 GHI 误杀修复): 表格实时重算不因 polluted 置空——快照源不可靠的格仍显示实时重算值,
+      // 仅加 ⚑ 角标 + title 提示「按实时重算」(快照曲线仍跳过污染点, 曲线行为不变)。
+      var snapBad = (rowPoll && rowPoll[m]) ? true : false;
       var cell = r.modes[m];
       if (!cell || !cell.n) { body += `<td title="截至该日无已平仓交易">—</td>`; continue; }
       var py = cell.profit_yuan, rp = cell.return_pct;
@@ -10713,20 +10786,27 @@ function _labKellyEvoRenderTable(host, evo, polluted, gran) {
       var rpCls = rp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
       var pyStr = (py >= 0 ? "+" : "") + py.toFixed(0);
       var rpStr = (rp >= 0 ? "+" : "") + rp.toFixed(2) + "%";
-      body += `<td class="lab-kelly-evo-cell" title="截至 ${r.d} 已平仓 ${cell.n} 笔 · 累计净利 ${pyStr} 元 · 峰值资金收益率 ${rpStr}">` +
+      var pollBadge = snapBad
+        ? `<span class="lab-kelly-evo-poll-badge" title="该快照日 ${r.d} ${m} 快照回测不可靠(tr:null), 本格按实时重算展示">⚑快照不可靠</span>`
+        : "";
+      body += `<td class="lab-kelly-evo-cell" title="截至 ${r.d} 已平仓 ${cell.n} 笔 · 累计净利 ${pyStr} 元 · 峰值资金收益率 ${rpStr}${snapBad ? ' · 该快照日快照源不可靠(tr:null), 本格按实时重算展示' : ''}">` +
         `<span class="lab-kelly-evo-p ${pyCls}">${pyStr}</span>` +
         `<span class="lab-kelly-evo-p ${rpCls}">${rpStr}</span>` +
         `<span class="lab-kelly-evo-n">${cell.n}笔</span>` +
+        pollBadge +
         `</td>`;
     }
     body += `</tr>`;
   }
   // 末行: 当前全量(保留原有, 与全信号卡最后结果逐位一致, 含未平仓按最新价预估)
   body += _labKellyEvoPinRowHTML(modeKeys, evo.finalStats);
-  host.innerHTML = `<div class="lab-kelly-evo-table-wrap">` +
+  // 现象3(口径标注): 表格顶部口径说明行(§23.9 白话+1:1 例)——当前全量 vs 日期行两口径天生不同
+  var calNote = `<div class="lab-kelly-evo-caliber-note">💡 <b>口径提醒</b>: <b>当前全量</b>(首/末行)=含未平仓按最新价预估的实时视角, 与全信号卡「最后结果」一致; <b>日期行</b>(每行)=截至该日已平仓的真实成绩(closed-by-D)。例:「20260908」行=到 2026-09-08 为止已平仓交易的累计净利+峰值资金收益率, 当天未平仓的交易不计入; 两口径天生不同属正常, 别直接对比。</div>`;
+  host.innerHTML = calNote +
+    `<div class="lab-kelly-evo-table-wrap">` +
     `<table class="lab-kelly-evo-table"><thead>${head}</thead><tbody>${body}</tbody></table>` +
     `</div>` +
-    `<div class="lab-kelly-evo-foot">💡 共 ${total} 个买入日轴点 × ${modeKeys.length} 模式(全部周期 all 口径); <b>日期最新在上(第1行=最新买入日轴点, 由新到旧; 近 N 行=最近 N 个轴点)</b>; 每格第一行=累计净利(元), 第二行=峰值资金收益率(%); 历史行=截至该日已平仓, 已平仓卖价历史固定→行天然稳定; <b>首行+末行=当前全量(与全信号卡最后结果逐位一致, 含未平仓按最新价预估)</b>; 该快照日某模式回测不可靠(tr=null)时仅该格置「—」, 不影响同列其他模式。实时重算耗时 ${evo.elapsedMs}ms。</div>` +
+    `<div class="lab-kelly-evo-foot">💡 共 ${total} 个买入日轴点 × ${modeKeys.length} 模式(全部周期 all 口径); <b>日期最新在上(第1行=最新买入日轴点, 由新到旧; 近 N 行=最近 N 个轴点)</b>; 每格第一行=累计净利(元), 第二行=峰值资金收益率(%); <b>日期行=截至该日已平仓</b>, 已平仓卖价历史固定→行天然稳定; <b>首行+末行=当前全量</b>(含未平仓按最新价预估, 与全信号卡最后结果逐位一致)——两口径天生不同属正常; 该快照日某模式快照回测不可靠(tr:null)时该格显示⚑角标并按实时重算展示(快照曲线仍跳过该点)。实时重算耗时 ${evo.elapsedMs}ms。</div>` +
     (evo.s6OpenCount ? `<div class="lab-kelly-evo-warn">⚠ S06 快照 ${evo.s6OpenCount} 笔 fail-open(快照缺行/未就绪按放行计数), 与全信号卡同警示</div>` : "");
 }
 

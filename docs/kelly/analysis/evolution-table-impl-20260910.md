@@ -10,7 +10,7 @@
 
 | 文件 | 改动 |
 |---|---|
-| `static-site/lab.js` | ①`_labKellyEvoModalHTML` 改造:Tab「📊 曲线 / 📋 表格(按日快照)」+ 粒度「近60行/全史」+ 口径行 + 表格占位;②`_labKellyEvoOpen` 改 async(先 fetch index.json 再渲染);③新增 `_kellyOperationalPool()`(与 `_kellyApplyFeeRecompute` 同引擎同口径的 per-mode 过滤+费率重算链);④新增 `_kellyEvoSegForClosed()`(线段树区间加维护峰值资金, O(n log n));⑤新增 `_labKellyEvoTableBuild()`(轴点扫描 + closed-by-D 指针前缀);⑥新增 `_labKellyEvoBuildTable()`(门控 `_labKellyAllReady` 未就绪显示占位+自动补建);⑦新增 `_labKellyEvoRenderTable()`(渲染表格 + 📌 当前全量末行 + 污染日「—」);⑧新增 `_labKellyEvoCaliberHTML()`(口径标注行) |
+| `static-site/lab.js` | ①`_labKellyEvoModalHTML` 改造:Tab「📊 曲线 / 📋 表格(按日快照)」+ 粒度「近60行/全史」+ 口径行 + 表格占位;②`_labKellyEvoOpen` 改 async(先 fetch index.json 再渲染);③新增 `_kellyOperationalPool()`(与 `_kellyApplyFeeRecompute` 同引擎同口径的 per-mode 过滤+费率重算链);④新增 `_kellyEvoSegForClosed()`(线段树区间加维护峰值资金, O(n log n));⑤新增 `_labKellyEvoTableBuild()`(轴点扫描 + closed-by-D 指针前缀);⑥新增 `_labKellyEvoBuildTable()`(门控 `_labKellyAllReady` 未就绪显示占位+自动补建);⑦新增 `_labKellyEvoRenderTable()`(渲染表格 + 📌 当前全量首/末行 + 污染日⚑角标按实时重算展示, 2026-09-11 由置「—」改为不置空);⑧新增 `_labKellyEvoCaliberHTML()`(口径标注行) |
 | `static-site/lab.css` | 演进弹窗 max-width 980px + tabs/granbar/caliber/table-wrap/date/cell/polluted/pin-row 样式 |
 | `static-site/purpose-notes.js` | `lab.sigkelly` 尾部补「演进表格视图(2026-09-10)」口径说明段(§21 公示) |
 | `README.md` | 演进弹窗 bullet 补表格视图描述 + 报告链接(§23.1) |
@@ -26,7 +26,7 @@
 - **轴点**:池内全部(含未平仓)交易的唯一 buy_date 跨模式并集升序(实测 582 个)。
 - **峰值资金**:`_kellyEvoSegForClosed` 线段树区间加 [idx(buy_date), idx(sell_date)) + amount, 全局 max = 树根——与 `_kellyMaxConcurrentCapital` 同日先减后加语义逐位一致。
 - **末行「📌 当前全量」**:直接读 `state.labSigKellyFeeStats.all.all[modeKey]`(GIH 开时 `modeKey + "__gihb1"`), 保证与全信号卡逐位一致;缺失才从池内全量现算兜底。
-- **污染日**:从 `signal_kelly_snapshots/index.json` days 的 polluted 标记取(如 2026-09-08 G/H/I tr:null), 轴点落集合显示「—」+ title「污染日已拦截」。
+- **污染日**:从 `signal_kelly_snapshots/index.json` days 的 polluted 标记取(如 2026-09-08 G/H/I tr:null)。**2026-09-11 拍板修订(现象2 污染误杀修复)**:polluted 只作用于快照曲线(跳过该点), 表格是实时重算(读同源 trades)完全可算出——该快照日该模式格正常显示重算值 + 「⚑快照不可靠」角标, 不再置「—」(原始设计为显示「—」+ title「污染日已拦截」)。
 - **防前视**:历史行只累计已平仓(sell_date ≤ D)、卖价=历史收盘固定;当前全量行读卡 stats 含未平仓按最新价预估——两条都在 t 时刻可见信息内, 无后视。
 - **性能**:全史 582 轴点 × 10 模式实测 954ms(第 1 次拉取含 S06 快照 ensure, 二次打开同理), 可接受;粒度默认「近60行」防首渲长表。
 
