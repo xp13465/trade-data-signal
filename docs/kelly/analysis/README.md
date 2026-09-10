@@ -28,6 +28,7 @@
 - **NEW14+剔象限(14+1)证伪**:quadrant-drop-14plus1-mine29-20260823.md(含 08-24 勘误)+ `scripts/sim_window_loss_mining_20260822/data/mine29_quadrant_drop_14plus1.json` → 脚本 `scripts/sim_window_loss_mining_20260822/mine29_quadrant_drop_14plus1.py`
 - **方法论文调研档案**(9 大方向 22 方法,后续挖掘先查它防重跑):method-survey-loss-filter-20260822.md
 - **交易弹窗淘汰原因列合成验证**(2026-09-01,ZCode 代班轮):脚本 `scripts/kelly-elim-align-test.js`——feat/kelly-elim-reason(8b741acb5)review 的独立验证可复现凭证(原因对齐/补集不相交/nav_missing 归宿/GIH-off 守卫/计数守恒 5 断言);无独立报告,结论落 docs/tasks-done-list.md「2026-09-01 会话追加 1」;复现 `node docs/kelly/analysis/scripts/kelly-elim-align-test.js`
+- **盘中增量表 etf 代码交互修复**(2026-09-10):常见.js `_bindEtfClicks` 改容器级事件委托 + style.css 补 hover 样式,对齐主表交易记录交互;根因=lab.min.js 懒加载时序(typeof 防御 return 永不绑 onclick)+ 样式零定义;自测 15 项全 PASS(Playwright 无痕,懒加载时序复现/弹窗/边界/回归/两消费点);报告 `intraday-etf-click-fix-20260910.md`;自测脚本 `/tmp/intraday-etf-click-test.mjs`
 - **toggle 交互落地目录**:`../toggle/README.md`(总览)/ ai-mode-dropdown-research-20260823.md(下拉 7 方案调研)/ kelly-loss-reduction-toggle-plan.md・kelly-loss-reduction-toggle-v2-plan.md(历版 toggle 方案)
 - 以上脚本均位于 `scripts/sim_window_loss_mining_20260822/`,数据位于其 `data/` 子目录;§23.5 复现命令见各报告末尾「## 复现」节。
 
