@@ -64,6 +64,6 @@ generated_at = 2026-09-09 22:40
 ## 复现
 - 探针脚本(报告同目录 scripts/, 死脚本): `scripts/probe_intraday_view_missing.mjs`(真实日期验证隐藏)、`scripts/probe_intraday_view_sameday.mjs`(mock Date 验证同日渲染)
 - 数据依赖: 线上 https://ss.fx8.store/lab.html + https://ss.fx8.store/data/signal_kelly_trades_intraday.json(next_open_date=20260909)
-- 重跑命令: `cd docs/kelly/analysis/scripts && node probe_intraday_view_missing.mjs` ; `node probe_intraday_view_sameday.mjs 20260909`
+- 重跑命令: `cd docs/kelly/analysis/scripts && node probe_intraday_view_missing.mjs` ; `node probe_intraday_view_sameday.mjs`(脚本内已写死 mock 2026-09-09,不用传参)
 - 数据截止: 2026-09-10 09:20(盘中)
 - 关键口径: 盘中增量表仅当 `intraday.next_open_date == 今日(YYYYMMDD)` 渲染,换日整块隐藏,9:40 补跑后自动恢复
