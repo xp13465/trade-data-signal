@@ -13992,6 +13992,18 @@ function _atAmtStr(v) {
   const n = _atNum(v);
   return n == null ? "-" : (n >= 10000 ? (n / 10000).toFixed(1) + "万" : String(Math.round(n)));
 }
+// 与后端 nextday_plan_generator._shares_planned(金额÷价格 向下取整到 100 份整数倍)同构
+function _atSharesPlanned(amount, price) {
+  const a = _atNum(amount), p = _atNum(price);
+  if (a == null || p == null || p <= 0) return null;
+  return Math.floor(a / p / 100) * 100;
+}
+// 主表/弹窗共用的「金额/份额」展示串(弹窗已用此格式, 主表对齐)
+function _atAmtSharesStr(d) {
+  const amt = _atNum(d.amount);
+  const shares = _atNum(d.shares_planned) != null ? _atNum(d.shares_planned) : _atSharesPlanned(d.amount, d.order_price);
+  return (amt != null ? _atAmtStr(amt) : "") + (shares != null ? " / " + Math.round(shares) + "份" : "");
+}
 // 复用全局 fetchJSON(备站 URL 改写 + .gz 解压兜底 + 15s 超时), 唯一 query 串破缓存
 function _atFetch(url) {
   const u = url + "?_=" + Date.now();
@@ -14040,6 +14052,7 @@ function _atDaySummary(date, steps) {
     action: last.action || first.action || "buy",
     order_price: _atNum(last.order_price != null ? last.order_price : first.order_price),
     amount: _atNum(last.amount != null ? last.amount : first.amount),
+    shares_planned: _atNum(last.shares_planned != null ? last.shares_planned : first.shares_planned),
     status: last.status || "pending",
     status_text: last.status_text || last.status || "",
     actual_price: _atNum(last.actual_price),
@@ -14052,16 +14065,21 @@ function _atPlanRows(doc) {
   if (!doc || typeof doc !== "object") return [];
   const out = [];
   if (Array.isArray(doc.plan) && doc.date) {
-    const date = String(doc.date);
+    const sigDate = String(doc.date);
     doc.plan.forEach(function (p) {
       if (!p || typeof p !== "object") return;
+      // 用户视角=执行日操作计划: 日期统一用 buy_date(执行日, 与 auto_trade_steps.date 同语义), 无 buy_date 的老数据回退信号日
+      const date = p.buy_date ? String(p.buy_date) : sigDate;
+      const price = _atNum(p.prev_close != null ? p.prev_close : p.order_price);
+      const amount = _atNum(p.amount);
       out.push({
         date: date,
         etf_code: p.etf_code || "",
         etf_name: p.etf_name || p.name || "",
         action: p.action || "buy",
-        order_price: _atNum(p.prev_close != null ? p.prev_close : p.order_price),
-        amount: _atNum(p.amount),
+        order_price: price,
+        amount: amount,
+        shares_planned: _atSharesPlanned(amount, price),
         status: "pending",
         status_text: "待执行(计划)",
         actual_price: null,
@@ -14085,6 +14103,7 @@ function _atPlanRows(doc) {
             action: d.action || "buy",
             order_price: _atNum(d.prev_close != null ? d.prev_close : d.order_price),
             amount: _atNum(d.amount),
+            shares_planned: _atNum(d.shares_planned),
             status: d.status || "pending",
             status_text: d.status_text || "待执行(计划)",
             actual_price: _atNum(d.actual_price),
@@ -14138,10 +14157,12 @@ function _atRowHtml(d, today) {
   const stCls = _AT_STATUS_CLS[d.status] || "gry";
   const actionable = (d.status === "pending" || d.status === "submitted");
   const hl = (d.date === today && actionable) ? " auto-trade-steps-day-hl" : "";
+  const amtSharesStr = _atAmtSharesStr(d);
   return '<tr class="auto-trade-steps-row' + hl + '" data-date="' + _atEsc(d.date) + '" title="点击查看更多当日操作时间线">' +
     '<td class="auto-trade-steps-date">' + _atFmtDate(d.date) + '</td>' +
     '<td class="auto-trade-steps-action">' + _atEsc(_atActionLabel(d)) + '</td>' +
     '<td>' + _atPriceStr(d.order_price) + '</td>' +
+    '<td>' + (amtSharesStr || "-") + '</td>' +
     '<td><span class="auto-trade-steps-st auto-trade-steps-st-' + stCls + '">' + _atEsc(d.status_text || d.status || "-") + '</span></td>' +
     '<td>' + _atPriceStr(d.actual_price) + '</td>' +
     '<td class="auto-trade-steps-note" title="' + _atEsc(d.trigger_note || "") + '">' + _atEsc(d.trigger_note || "-") + '</td>' +
@@ -14169,7 +14190,7 @@ function _atRender(slot, planDoc, stepsDoc) {
   let bodyHtml;
   if (days.length) {
     bodyHtml = '<div class="auto-trade-steps-tablewrap"><table class="auto-trade-steps-table"><thead><tr>' +
-      '<th>日期</th><th>计划动作</th><th>挂单价</th><th>状态</th><th>实际成交价</th><th>触发条件摘要</th>' +
+      '<th>日期</th><th>计划动作</th><th>挂单价</th><th>金额/份数</th><th>状态</th><th>实际成交价</th><th>触发条件摘要</th>' +
       '</tr></thead><tbody>' + days.map(function (d) { return _atRowHtml(d, today); }).join("") + '</tbody></table></div>';
   } else {
     bodyHtml = '<div class="auto-trade-steps-empty">暂无实操计划。次日买入计划生成(交易日 21:00 后)后自动显示。</div>';
@@ -14230,9 +14251,7 @@ function _atModalDates() {
 }
 function _atModalRowHtml(st, hl) {
   const stCls = _AT_STATUS_CLS[st.status] || "gry";
-  const amt = _atNum(st.amount);
-  const shares = _atNum(st.shares_planned);
-  const amtStr = (amt != null ? _atAmtStr(amt) : "") + (shares != null ? " / " + Math.round(shares) + "份" : "");
+  const amtStr = _atAmtSharesStr(st);
   return '<tr class="' + (hl ? "auto-trade-steps-modal-hl" : "") + '">' +
     '<td>' + _atEsc(st.time_slot || "-") + '</td>' +
     '<td class="auto-trade-steps-action">' + _atEsc(_AT_ACTION_LABEL[st.action] || st.action || "-") + '</td>' +
