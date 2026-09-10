@@ -9384,7 +9384,14 @@ async function renderSigKellyLab() {
   bar.className = "lab-sigkelly-bar";
   wrapper.appendChild(bar);
 
-  
+  // 实操步骤表格(次日买入 PRD 阶段一, 2026-09-10): AI仓位建议卡(.lab-sigkelly-bar)下方新增展示位
+  // 纯读展示不重算算法(§21): 数据源 = ./data/nextday_plan.json(当日计划概要) + ./data/auto_trade_steps.json(行为级全史追加)
+  // 挂载即轮询(盘中60s/盘后与休市5min), 文件不存在时控件隐藏不崩
+  const stepsSlot = document.createElement("div");
+  stepsSlot.id = "lab-autotrade-steps-slot";
+  wrapper.appendChild(stepsSlot);
+
+
   // AI报告折叠区(静态AI报告, 不依赖周期/费率, 放wrapper层避免随_renderSigKellyQuadrants重渲染重置open状态)
   // 2026-08-12 升级: 3AI新版(默认) / 双AI历史 双模式切换(localStorage 记忆 lab_sigkelly_ai_mode)
   //   3AI模式= 3ai-comparison(3AI结论对比) + comprehensive + deepseek + claude-v4(Claude第三角色)
@@ -9605,6 +9612,9 @@ async function renderSigKellyLab() {
   _renderSigKellyQuadrants(host, data, period);
   // 触发初始重算(加载trades.json获取费率消耗列)
   _kellyOnFeeChange(state.labSigKellyFeePreset);
+
+  // 实操步骤表格初始化(每次 render 重建 slot, 旧轮询由 isConnected 自停)
+  _atInit(stepsSlot);
 }
 
 // 从 state.labSigKellyData.config.sell_modes 动态获取卖出模式标签(去硬编码 ABCD)
@@ -13925,3 +13935,374 @@ let _labEtfTrendPinReqSeq = 0;
     if (labBtn) labBtn.click();
   }, 0);
 })();
+
+/* ============================================================
+ * 实操步骤表格(次日买入 PRD 阶段一展示位, 2026-09-10)
+ * ------------------------------------------------------------
+ * 数据源(纯读展示, 不重算算法, §21 公示):
+ *   ./data/nextday_plan.json       当日计划概要 {date, plan:[{etf_code,name,prev_close,amount,signal,track_score,...}]}
+ *   ./data/auto_trade_steps.json   行为级全史追加 {schema_version, date, steps:[{seq,time_slot,action,etf_code,
+ *                                  etf_name,order_price,expected_range,decision,amount,shares_planned,status,
+ *                                  status_text,signal,track_score,entrust_no,trigger_note,updated_at,date}]}
+ * 字段结构: PRD docs/auto-trade/next-day-buy-prd-20260910.md §6.2; 状态机 §6.3:
+ *   pending待执行灰 / submitted已挂单蓝 / filled已成交绿 / partial_filled部分成交橙 /
+ *   cancelled已撤销灰 / tailback已兜底紫 / skipped已跳过灰 / done已完成绿 / failed执行失败红
+ * 交互: 主表每日1行(date DESC) / 点行弹当日全时间线 / 「现在该干嘛」提示条+当日行高亮 / 盘中60s盘后5min轮询就地更新
+ * 前缀 _at / auto-trade-steps- 防与既有 lab 逻辑冲突。
+ * ============================================================ */
+const _AT_URL_PLAN = "./data/nextday_plan.json";
+const _AT_URL_STEPS = "./data/auto_trade_steps.json";
+const _AT_STATUS_CLS = { pending: "gry", submitted: "blue", filled: "green", partial_filled: "orange", cancelled: "gry", tailback: "purple", skipped: "gry", done: "green", failed: "red" };
+const _AT_ACTION_LABEL = { buy: "买入", sell: "卖出", summary: "总结" };
+let _atSched = null;      // {slot, timerId} 轮询调度(每次 render 新建 slot 时自停旧调)
+let _atStepsDoc = null;   // auto_trade_steps.json 最近一次成功拉取
+let _atPlanDoc = null;    // nextday_plan.json 最近一次成功拉取
+let _atModalDate = null;  // 当前弹窗打开的日期(YYYYMMDD)
+
+// ---- 本地辅助(不依赖 common.js IIFE 私有助手) ----
+function _atToday() {
+  const d = new Date();
+  return "" + d.getFullYear() + ("0" + (d.getMonth() + 1)).slice(-2) + ("0" + d.getDate()).slice(-2);
+}
+function _atHM() {
+  const d = new Date();
+  return d.getHours() * 100 + d.getMinutes();
+}
+function _atEsc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+function _atFmtDate(dateS) {
+  if (!dateS) return "-";
+  const s = String(dateS);
+  if (/^\d{8}$/.test(s)) return s.slice(0, 4) + "-" + s.slice(4, 6) + "-" + s.slice(6, 8);
+  return s;
+}
+function _atNum(v) {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return isNaN(n) ? null : n;
+}
+function _atPriceStr(v) {
+  const n = _atNum(v);
+  return n == null ? "-" : n.toFixed(3);
+}
+function _atAmtStr(v) {
+  const n = _atNum(v);
+  return n == null ? "-" : (n >= 10000 ? (n / 10000).toFixed(1) + "万" : String(Math.round(n)));
+}
+// 复用全局 fetchJSON(备站 URL 改写 + .gz 解压兜底 + 15s 超时), 唯一 query 串破缓存
+function _atFetch(url) {
+  const u = url + "?_=" + Date.now();
+  if (typeof fetchJSON === "function") {
+    return fetchJSON(u, 15000).catch(function () { return null; });
+  }
+  return fetch(u, { cache: "no-store" }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+}
+
+// ---- 数据归一化(PRD §6.2 字段) ----
+function _atStepsList(doc) {
+  if (!doc || typeof doc !== "object") return [];
+  const list = [];
+  const docDate = doc.date ? String(doc.date) : "";
+  const pushOne = function (st) {
+    if (!st || typeof st !== "object") return;
+    const d = st.date ? String(st.date) : docDate;
+    if (d) list.push(Object.assign({}, st, { date: d }));
+  };
+  if (Array.isArray(doc.steps)) doc.steps.forEach(pushOne);
+  else if (Array.isArray(doc)) doc.forEach(pushOne);
+  return list;
+}
+function _atStepsByDate(doc) {
+  const map = {};
+  _atStepsList(doc).forEach(function (st) {
+    const d = st.date;
+    if (!map[d]) map[d] = [];
+    map[d].push(st);
+  });
+  Object.keys(map).forEach(function (d) {
+    map[d].sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
+  });
+  return map;
+}
+// 该日最高 seq 行为作摘要行(主表每日1行)
+function _atDaySummary(date, steps) {
+  const list = (steps || []).slice().sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
+  if (!list.length) return null;
+  const last = list[list.length - 1];
+  const first = list[0];
+  return {
+    date: String(date),
+    etf_code: last.etf_code || first.etf_code || "",
+    etf_name: last.etf_name || first.etf_name || "",
+    action: last.action || first.action || "buy",
+    order_price: _atNum(last.order_price != null ? last.order_price : first.order_price),
+    amount: _atNum(last.amount != null ? last.amount : first.amount),
+    status: last.status || "pending",
+    status_text: last.status_text || last.status || "",
+    actual_price: _atNum(last.actual_price),
+    trigger_note: last.trigger_note || last.decision || first.trigger_note || first.decision || "",
+    plan: false
+  };
+}
+// nextday_plan.json -> 天级计划行(仅当日)
+function _atPlanRows(doc) {
+  if (!doc || typeof doc !== "object") return [];
+  const out = [];
+  if (Array.isArray(doc.plan) && doc.date) {
+    const date = String(doc.date);
+    doc.plan.forEach(function (p) {
+      if (!p || typeof p !== "object") return;
+      out.push({
+        date: date,
+        etf_code: p.etf_code || "",
+        etf_name: p.etf_name || p.name || "",
+        action: p.action || "buy",
+        order_price: _atNum(p.prev_close != null ? p.prev_close : p.order_price),
+        amount: _atNum(p.amount),
+        status: "pending",
+        status_text: "待执行(计划)",
+        actual_price: null,
+        trigger_note: p.trigger_note || (p.signal ? ("信号 " + p.signal + " · 跟踪分 " + (p.track_score != null ? p.track_score : "-")) : "次日买入计划"),
+        plan: true
+      });
+    });
+    return out;
+  }
+  if (Array.isArray(doc)) {
+    doc.forEach(function (d) {
+      if (d && typeof d === "object" && d.date) {
+        if (Array.isArray(d.steps)) {
+          const sum = _atDaySummary(String(d.date), d.steps);
+          if (sum) out.push(sum);
+        } else {
+          out.push({
+            date: String(d.date),
+            etf_code: d.etf_code || "",
+            etf_name: d.etf_name || d.name || "",
+            action: d.action || "buy",
+            order_price: _atNum(d.prev_close != null ? d.prev_close : d.order_price),
+            amount: _atNum(d.amount),
+            status: d.status || "pending",
+            status_text: d.status_text || "待执行(计划)",
+            actual_price: _atNum(d.actual_price),
+            trigger_note: d.trigger_note || "",
+            plan: true
+          });
+        }
+      }
+    });
+    return out;
+  }
+  return out;
+}
+// 主表行集合 = 计划行(当日) + 步骤摘要行(全史), 按 date DESC, 同日有步骤则以步骤摘要为准(补齐计划缺的 etf_name/amount)
+function _atBuildDays(planDoc, stepsDoc) {
+  const map = {};
+  _atPlanRows(planDoc).forEach(function (r) { if (r.date && !map[r.date]) map[r.date] = r; });
+  const byDate = _atStepsByDate(stepsDoc);
+  Object.keys(byDate).forEach(function (d) {
+    const sum = _atDaySummary(d, byDate[d]);
+    if (!sum) return;
+    if (!map[d]) map[d] = sum;
+    else {
+      sum.etf_name = sum.etf_name || map[d].etf_name;
+      sum.amount = _atNum(sum.amount) == null ? map[d].amount : sum.amount;
+      sum.trigger_note = sum.trigger_note || map[d].trigger_note;
+      map[d] = sum;
+    }
+  });
+  const days = Object.keys(map).map(function (d) { return map[d]; });
+  days.sort(function (a, b) { return a.date < b.date ? 1 : -1; }); // date DESC
+  return days;
+}
+// 「现在该干嘛」: 当日 pending/submitted 中 seq 最小者; 无则 null(提示条与高亮隐藏)
+function _atNowAction(steps) {
+  if (!steps || !steps.length) return null;
+  const actionable = steps.filter(function (s) { return s.status === "pending" || s.status === "submitted"; });
+  if (!actionable.length) return null;
+  actionable.sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
+  return actionable[0];
+}
+
+// ---- 渲染 ----
+function _atActionLabel(d) {
+  const act = (_AT_ACTION_LABEL[d.action] || d.action || "");
+  const code = d.etf_code ? " " + d.etf_code : "";
+  const name = d.etf_name ? " " + d.etf_name : "";
+  return act + code + name;
+}
+function _atRowHtml(d, today) {
+  const stCls = _AT_STATUS_CLS[d.status] || "gry";
+  const actionable = (d.status === "pending" || d.status === "submitted");
+  const hl = (d.date === today && actionable) ? " auto-trade-steps-day-hl" : "";
+  return '<tr class="auto-trade-steps-row' + hl + '" data-date="' + _atEsc(d.date) + '" title="点击查看更多当日操作时间线">' +
+    '<td class="auto-trade-steps-date">' + _atFmtDate(d.date) + '</td>' +
+    '<td class="auto-trade-steps-action">' + _atEsc(_atActionLabel(d)) + '</td>' +
+    '<td>' + _atPriceStr(d.order_price) + '</td>' +
+    '<td><span class="auto-trade-steps-st auto-trade-steps-st-' + stCls + '">' + _atEsc(d.status_text || d.status || "-") + '</span></td>' +
+    '<td>' + _atPriceStr(d.actual_price) + '</td>' +
+    '<td class="auto-trade-steps-note" title="' + _atEsc(d.trigger_note || "") + '">' + _atEsc(d.trigger_note || "-") + '</td>' +
+    '</tr>';
+}
+function _atNowBarHtml(act) {
+  const price = _atNum(act.order_price);
+  const priceStr = price == null ? "" : " 挂单 " + price.toFixed(3);
+  return '<div class="auto-trade-steps-bar">' +
+    '<span class="auto-trade-steps-bar-ic">⏱</span>' +
+    '<span class="auto-trade-steps-bar-txt"><b>' + _atEsc(act.time_slot || "") + '</b> ' +
+    _atEsc(act.status_text || act.status || "") + ': ' +
+    _atEsc(act.etf_code || "") + (act.etf_name ? " " + _atEsc(act.etf_name) : "") + priceStr +
+    ' · ' + _atEsc(act.trigger_note || act.decision || "等待执行") + '</span>' +
+    '</div>';
+}
+function _atRender(slot, planDoc, stepsDoc) {
+  _atPlanDoc = planDoc;
+  _atStepsDoc = stepsDoc;
+  const today = _atToday();
+  const days = _atBuildDays(planDoc, stepsDoc);
+  const byDate = _atStepsByDate(stepsDoc);
+  const nowAct = _atNowAction(byDate[today] || []);
+  const barHtml = nowAct ? _atNowBarHtml(nowAct) : "";
+  let bodyHtml;
+  if (days.length) {
+    bodyHtml = '<div class="auto-trade-steps-tablewrap"><table class="auto-trade-steps-table"><thead><tr>' +
+      '<th>日期</th><th>计划动作</th><th>挂单价</th><th>状态</th><th>实际成交价</th><th>触发条件摘要</th>' +
+      '</tr></thead><tbody>' + days.map(function (d) { return _atRowHtml(d, today); }).join("") + '</tbody></table></div>';
+  } else {
+    bodyHtml = '<div class="auto-trade-steps-empty">暂无实操计划。次日买入计划生成(交易日 21:00 后)后自动显示。</div>';
+  }
+  slot.innerHTML =
+    '<div class="auto-trade-steps">' +
+      '<div class="auto-trade-steps-head">' +
+        '<span class="auto-trade-steps-title">📋 实操步骤</span>' +
+        '<span class="auto-trade-steps-sub">次日买入计划·每日1行·点行看当日全时间线(读 nextday_plan + auto_trade_steps, 纯展示不重算算法)</span>' +
+      '</div>' +
+      barHtml + bodyHtml +
+    '</div>';
+  slot.querySelectorAll(".auto-trade-steps-row").forEach(function (row) {
+    row.onclick = function () { _atOpenModal(row.getAttribute("data-date")); };
+  });
+}
+
+// ---- 轮询(盘中 60s / 盘后与休市 5min, 就地更新不整页刷新) ----
+function _atPollingMs() {
+  const day = new Date().getDay();
+  const hm = _atHM();
+  if (day >= 1 && day <= 5 && hm >= 900 && hm < 1750) return 60000;
+  return 300000;
+}
+function _atStopSched() {
+  if (_atSched && _atSched.timerId) clearTimeout(_atSched.timerId);
+  _atSched = null;
+}
+function _atSchedule() {
+  if (!_atSched || !_atSched.slot || !_atSched.slot.isConnected) { _atStopSched(); return; }
+  _atSched.timerId = setTimeout(function () {
+    if (!_atSched || !_atSched.slot || !_atSched.slot.isConnected) { _atStopSched(); return; }
+    _atLoadAndRender(_atSched.slot);
+    _atSchedule();
+  }, _atPollingMs());
+}
+function _atLoadAndRender(slot) {
+  Promise.all([_atFetch(_AT_URL_PLAN), _atFetch(_AT_URL_STEPS)]).then(function (rs) {
+    if (!slot || !slot.isConnected) return;
+    _atRender(slot, rs[0], rs[1]);
+  });
+}
+function _atInit(slot) {
+  if (_atSched && _atSched.slot === slot) return;
+  _atStopSched();
+  _atSched = { slot: slot, timerId: 0 };
+  _atLoadAndRender(slot);
+  _atSchedule();
+}
+
+// ---- 弹窗: 当日全时间线(seq 排序, 多日翻页) ----
+function _atModalDates() {
+  const dates = [];
+  Object.keys(_atStepsByDate(_atStepsDoc)).forEach(function (d) { if (dates.indexOf(d) < 0) dates.push(d); });
+  _atPlanRows(_atPlanDoc).forEach(function (r) { if (r.date && dates.indexOf(r.date) < 0) dates.push(r.date); });
+  dates.sort(function (a, b) { return a < b ? 1 : -1; }); // DESC
+  return dates;
+}
+function _atModalRowHtml(st, hl) {
+  const stCls = _AT_STATUS_CLS[st.status] || "gry";
+  const amt = _atNum(st.amount);
+  const shares = _atNum(st.shares_planned);
+  const amtStr = (amt != null ? _atAmtStr(amt) : "") + (shares != null ? " / " + Math.round(shares) + "份" : "");
+  return '<tr class="' + (hl ? "auto-trade-steps-modal-hl" : "") + '">' +
+    '<td>' + _atEsc(st.time_slot || "-") + '</td>' +
+    '<td class="auto-trade-steps-action">' + _atEsc(_AT_ACTION_LABEL[st.action] || st.action || "-") + '</td>' +
+    '<td>' + _atEsc(st.etf_code || "-") + (st.etf_name ? '<div class="auto-trade-steps-etfname">' + _atEsc(st.etf_name) + '</div>' : "") + '</td>' +
+    '<td>' + _atPriceStr(st.order_price) + '</td>' +
+    '<td>' + (amtStr || "-") + '</td>' +
+    '<td><span class="auto-trade-steps-st auto-trade-steps-st-' + stCls + '">' + _atEsc(st.status_text || st.status || "-") + '</span></td>' +
+    '<td>' + _atPriceStr(st.actual_price) + '</td>' +
+    '<td class="auto-trade-steps-note">' + _atEsc(st.trigger_note || st.decision || "-") + '</td>' +
+    '<td>' + _atEsc(st.updated_at || "-") + '</td>' +
+    '</tr>';
+}
+function _atModalRender(overlay) {
+  if (!_atModalDate) return;
+  const date = _atModalDate;
+  const byDate = _atStepsByDate(_atStepsDoc);
+  const dates = _atModalDates();
+  const curIdx = dates.indexOf(date);
+  const steps = byDate[date] || [];
+  const prevDate = (curIdx >= 0 && curIdx < dates.length - 1) ? dates[curIdx + 1] : null; // 更旧一天
+  const nextDate = curIdx > 0 ? dates[curIdx - 1] : null;                                 // 更新一天
+  let rowsHtml;
+  if (steps.length) {
+    const today = _atToday();
+    rowsHtml = steps.map(function (st) {
+      const hl = (date === today && (st.status === "pending" || st.status === "submitted"));
+      return _atModalRowHtml(st, hl);
+    }).join("");
+  } else {
+    rowsHtml = '<tr><td colspan="9" class="auto-trade-steps-empty">该日暂无行为级记录(仅有当日计划概要, 见主表)。</td></tr>';
+  }
+  const head = '<div class="lab-sigkelly-modal-head">' +
+    '<span class="auto-trade-steps-modal-title">📋 实操步骤 · ' + _atFmtDate(date) + ' 全时间线</span>' +
+    '<span class="auto-trade-steps-sub">seq 排序 · 高亮行 = 当前待执行/已挂单(现在该干嘛)</span>' +
+    '<span style="flex:1"></span>' +
+    (nextDate ? '<button class="auto-trade-steps-nav-btn" data-nav="next">后一天 ▲</button>' : "") +
+    (prevDate ? '<button class="auto-trade-steps-nav-btn" data-nav="prev">前一天 ▼</button>' : "") +
+    '<button class="lab-sigkelly-modal-close">✕</button>' +
+    '</div>';
+  const body = '<div class="lab-sigkelly-modal-tablewrap"><table class="lab-sigkelly-trades-table auto-trade-steps-modal-table">' +
+    '<thead><tr><th>时点</th><th>动作</th><th>ETF</th><th>挂单价</th><th>金额/份额</th><th>状态</th><th>实际成交价</th><th>触发条件说明</th><th>更新时间</th></tr></thead>' +
+    '<tbody>' + rowsHtml + '</tbody></table></div>';
+  overlay.innerHTML = '<div class="lab-sigkelly-modal auto-trade-steps-modal">' + head + body + '</div>';
+  const closeBtn = overlay.querySelector(".lab-sigkelly-modal-close");
+  if (closeBtn) closeBtn.onclick = function () { _atModalClose(); };
+  overlay.querySelectorAll(".auto-trade-steps-nav-btn").forEach(function (btn) {
+    btn.onclick = function () {
+      const target = btn.getAttribute("data-nav") === "next" ? nextDate : prevDate;
+      if (!target) return;
+      _atModalDate = target;
+      _atModalRender(overlay);
+    };
+  });
+}
+function _atOpenModal(date) {
+  if (!date) return;
+  let overlay = document.getElementById("lab-autotrade-steps-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "lab-autotrade-steps-overlay";
+    overlay.className = "lab-sigkelly-overlay";
+    document.body.appendChild(overlay);
+  }
+  _atModalDate = date;
+  _atModalRender(overlay);
+  overlay.style.display = "flex";
+  overlay.onclick = function (e) { if (e.target === overlay) _atModalClose(); };
+}
+function _atModalClose() {
+  const overlay = document.getElementById("lab-autotrade-steps-overlay");
+  if (overlay) { overlay.style.display = "none"; overlay.innerHTML = ""; }
+  _atModalDate = null;
+}
