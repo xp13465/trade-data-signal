@@ -2,45 +2,55 @@
 """nextday_plan_generator.py - 次日买入计划生成器(PRD 阶段一 §3/§6, 干跑模式 AUTO_EXEC_ON=false)
 
 目的:
-    每天 21:00 盘后(launchd com.trade.nextday-plan)生成次日(T+1)买入计划:
-      ①复用 kelly_posrating 同构逻辑(K=1 每日 top1)选出当日信号, 输出 data/nextday_plan.json
+    每天盘后(launchd com.trade.nextday-plan)生成次日(T+1)买入计划:
+      ①复用首页 AI建议同一条选取链(K=1 每日 top1)选出当日信号, 输出 data/nextday_plan.json
       ②把计划写进 static-site/data/auto_trade_steps.json(行为级状态机, seq1 挂单行为 pending,
         §6.2 全字段)
       ③同步两树 static-site/data/ + R2(upload_r2 upload-data-files, §22 三步同步)
       ④通知(邮件+飞书, 复用 notify.send 链路)
     干跑模式: 本阶段只生成计划+通知书, 不连 easytrader 不真实下单(AUTO_EXEC_ON=false, PRD §8/§9)。
 
-方法口径(与 signal_kelly_backtest 回测同构, 防前视一致):
-    - 交易候选 = signal_kelly_trades.json quadrants 三评级×A 模式并集(posRaw 同 kelly_posrating)
-    - 过滤 = kelly_posrating.make_passes_fade(fIdx, trade_dims, loss_spec_map, feat_at, s06)
-             (S06 per-date 动态基座 + 降亏键过滤, 复用现成模块)
-    - base_pool = _collect_base_pool(三评级×全部 sell_modes, baseKey 去重)
-    - K=1 保留 = _position_cap_kept_keys(base_pool, fIdx, K=1): 按 signal_date 分组,
-      组内排序 track_score DESC→rating(high>mid>low)→signal(buy_backup>buy>buy_aux>buy_special)→buy_date ASC,
-      保留前 1(即每日 top1)
-    - 当日计划 = signal_date == T(今天/指定 --date)且被 K=1 保留的交易
-    - buy_date = T 的下一个交易日(从 etf_daily 日期集取下一条已知日期, §11.4 长假处理)
-    - prev_close = 该 etf 昨日收盘(etf_daily 中 <= T 最近一天 close, 即挂单价上限)
+方法口径(2026-09-10 方案A根治, 设计缺口: 原实现从 signal_kelly_trades.json 选 signal_date==T,
+但主回测 KELLY_BUY_NEXTDAY=1 口径下买价=次日开盘价, 今日信号永远不在 trades 里 → 定时跑必出
+空计划误导。方案A(用户拍板): 生成器改走首页同一条路 = signal_daily 当日信号 + 冻结表 top1 ETF):
+    - 信号源 = sentiment.db signal_daily 当日(T)全部信号, 排除 s.* 情绪分(与首页查询
+      app/queries.py L1123-1128 一致), 再只取买信号 BUY_SIGNALS={buy,buy_aux,buy_special,
+      buy_backup}(buy_special_filtered 归一为 buy_special, 与 queries._AI_MACRO_BUY_SIGNALS 一致)
+    - top1 判定 = 冻结表 data/signal_kelly_etf_freeze.json(key=date|index_id|signal)命中
+      → 冻结 code 为权威 top1(_bk_top); 未命中 → 前端 _topEtfByScore 同构(纯 max(track_score),
+      平手回退 similarity)。track_score 取 board_etf_map 注入值(与首页 overview 逐位一致)。
+    - 降亏过滤 = 首页同款(queries._ai_macro_hit_filters, ctx 与 overview 完全同构) ∩ S06
+      基座成员集(s06.filters_for_date(T) True 键; 快照缺行 fail-open 放行)。a9 基座补
+      bullAuxBackupStop 前端分支(buy_aux/buy_backup × hs300 四档=牛市·主升)。
+    - K=1 保留 = kelly 排序准则(track_score DESC → rating high>mid>low → signal
+      buy_backup>buy>buy_aux>buy_special → buy_date ASC), 与首页 AI建议 top1 一致。
+    - buy_date = T 的下一个交易日(权威交易日历 data/trade_dates.txt, §11.4 长假处理)
+    - prev_close = 该 etf T 日收盘(etf_daily, 即挂单价上限; 与首页 etf_close 同源同口径)
     - amount = 每日资金池 1 万等分(K=1 即 1 万)
-    - 双校验: ① prev_close>0 非停牌(该 etf 前一日有成交) ② prev_close vs 信号日收盘 ±20% 内(伪跳空剔除同款,
-      防除权/份额折算错位; 信号日收盘 = trades 该笔 real_buy_price 信号日近似或 etf_daily 该 etf T 日 close)
+    - 双校验: ① prev_close>0 非停牌(该 etf 前一日有成交) ② prev_close vs 信号日收盘 ±20% 内
+      (伪跳空剔除同款, 防除权/份额折算错位; 信号日收盘 = etf_daily 该 etf T 日 close)
 
 输入依赖:
-    - <REPO>/static-site/data/signal_kelly_trades.json   (回测交易记录, 26 字段/笔, export 17:50 生成)
-    - <REPO>/static-site/data/signal_kelly_backtest.json (config.sell_modes 定义 A-J 卖出模式)
-    - <REPO>/static-site/data/kelly_mode_s06_state.json  (S06 动态基座快照, 20:35 每日重生)
-    - <REPO>/static-site/data/kelly_loss_features.json   (降亏特征 + meta.rules 规格)
-    - <REPO>/data/etf_national_team.db etf_daily         (取标的昨日收盘 -> 挂单价上限 + 交易日集合)
+    - <REPO>/data/sentiment.db signal_daily  (当日信号, 首页同源)
+    - <REPO>/data/signal_kelly_etf_freeze.json(冻结表, key=date|index_id|signal → top1 ETF)
+    - <REPO>/data/signal_stats.json           (评级 10d score, 首页同源)
+    - <REPO>/config/indicators.yaml          (指数 market 归类, 首页同源)
+    - <REPO>/static-site/data/kelly_mode_s06_state.json(S06 动态基座快照, 20:35 每日重生)
+    - <REPO>/static-site/data/kelly_loss_features.json(降亏特征, ai_macro 内部读取)
+    - <REPO>/data/board_etf_map.json         (每信号 ETF 候选映射, 首页同源)
+    - <REPO>/data/etf_national_team.db etf_daily(取标的 T 日收盘 -> 挂单价上限 + 交易日集合)
+    - <REPO>/data/trade_dates.txt            (权威交易日历, buy_date 下一交易日)
 输出:
     - data/nextday_plan.json(本地权威: {date, plan:[{etf_code,etf_name,prev_close,amount,signal,track_score,signal_date,buy_date}]}; 空计划 {date, empty:true})
     - static-site/data/nextday_plan.json(用户页面可见, 同内容)
     - static-site/data/auto_trade_steps.json({schema_version:"v1", steps:[...]}, 追加模式幂等: 同 date 已存在则跳过)
-关键参数(常量, 与 kelly_posrating/common.js 逐位对齐, 改参数必须同步 §22):
+关键参数(常量, 与 kelly_posrating/前端逐位对齐, 改参数必须同步 §22):
     - K=1, BUY_AMOUNT=10000, PSEUDO_GAP=0.20(伪跳空剔除阈值同 signal_kelly_backtest.PSEUDO_GAP_EXCLUDE)
 复现命令:
-    REPO=/Users/linhuichen/code/trade-data python3 scripts/nextday_plan_generator.py --date 20260908 --dry-run
+    REPO=/Users/linhuichen/code/trade-data GIT_REPO=/Users/linhuichen/code/trade python3 scripts/nextday_plan_generator.py --date 20260910 --dry-run
     # --dry-run 只计算打印不落盘不发通知(自测); 无 --date 取今天; 无 --dry-run 会落盘两树+R2+通知
-    REPO=/Users/linhuichen/code/trade-data python3 scripts/nextday_plan_generator.py   # launchd 同款(真跑)
+    REPO=/Users/linhuichen/code/trade-data GIT_REPO=/Users/linhuichen/code/trade python3 scripts/nextday_plan_generator.py   # launchd 同款(真跑)
+    # 数据未就绪退出非 0(退出码 2), 可 NEXTDAY_PLAN_FORCE=1 强制跳过(不推荐, 防误导空计划)
 """
 import argparse
 import json
@@ -58,13 +68,21 @@ GIT_REPO = Path(os.environ.get("GIT_REPO", str(ROOT)))
 PY = os.environ.get("PY", str(REPO / ".venv" / "bin" / "python"))
 SCRIPT_DIR = Path(__file__).resolve().parent
 
+sys.path.insert(0, str(REPO))  # 优先 REPO(实时数据侧; app 经 symlink 读 trade, __file__ 不 resolve → data 路径落 REPO)
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(SCRIPT_DIR))
-import kelly_posrating as kp  # noqa: E402  (复用 make_passes_fade/_collect_base_pool/_position_cap_kept_keys)
 
-K = 1                       # K 档(每日 top1)
+import kelly_posrating as kp  # noqa: E402  (复用 S06Resolver + _tds_fade_spec_hit(bullAuxBackupStop))
+from app import queries as appq  # noqa: E402  (首页 AI建议同款: etf_for/_etf_freeze/_align_home_top1_to_backtest/_ai_macro_*)
+from app.collector.fetchers import load_config  # noqa: E402  (indicators.yaml indicator.market 归类)
+
+K = 1                       # K 档(每日 top1, 与首页 AI仓位建议默认 K=1 一致)
 BUY_AMOUNT = 10000          # 每日资金池 1 万等分
 PSEUDO_GAP = 0.20           # 伪跳空剔除阈值(与 signal_kelly_backtest.PSEUDO_GAP_EXCLUDE 同款)
 LOG_TAG = "[nextday_plan]"
+BUY_SIGNALS = {"buy", "buy_aux", "buy_special", "buy_backup"}  # 与 queries._AI_MACRO_BUY_SIGNALS 同源
+_RATING_RANK = {"high": 0, "mid": 1, "low": 2, "": 3}
+_SIG_RANK = {"buy_backup": 0, "buy": 1, "buy_aux": 2, "buy_special": 3, "": 9}
 
 
 def log(msg):
@@ -110,7 +128,7 @@ def _trade_calendar_dates(db_path: Path) -> list[str]:
 
 
 def _prev_close(db_path: Path, etf_code: str, on_or_before: str):
-    """etf_daily 该 etf <= on_or_before 最近一天 close(昨收=挂单价上限)。"""
+    """etf_daily 该 etf <= on_or_before 最近一天 close(T 日收盘=挂单价上限)。"""
     con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
         cur = con.cursor()
@@ -145,51 +163,104 @@ def _shares_planned(amount: float, price: float) -> int:
     return int(amount / price / 100) * 100
 
 
-def _build_passes(trades_doc, backtest_doc, s06_doc, loss_feat_doc):
-    """与 kelly_posrating.compute_posrating 同构构建 fIdx/passes/kept(复用现成模块)。"""
-    fields = trades_doc.get("fields") or []
-    fIdx = {f: i for i, f in enumerate(fields)}
-    for need in ("signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code",
-                 "buy_price", "sell_price", "current_price", "track_tier", "track_score",
-                 "market_tier", "market_tier_all", "market_tier_cyb", "market_state", "rating"):
-        if need not in fIdx:
-            raise ValueError(f"trades.fields 缺必需字段: {need}")
-    quads = trades_doc.get("quadrants") or {}
-    sell_modes = ((backtest_doc.get("config") or {}).get("sell_modes")) or {}
-    if not sell_modes:
-        raise ValueError("backtest.config.sell_modes 缺失")
-    trade_dims = kp._trade_dims(quads, fIdx)
-    spec_map = {}
-    feat_at = lambda name, date: None  # noqa: E731
-    if loss_feat_doc:
-        for r in (loss_feat_doc.get("meta") or {}).get("rules") or []:
-            if isinstance(r, dict) and r.get("key"):
-                spec_map[r["key"]] = r
-        feats = loss_feat_doc.get("features") or {}
-
-        def _feat_at(name, date):
-            series = feats.get(name)
-            if not series:
-                return None
-            return series.get(str(date))
-
-        feat_at = _feat_at
-    s06 = kp.S06Resolver(s06_doc)
-    passes_fade = kp.make_passes_fade(fIdx, trade_dims, spec_map, feat_at, s06)
-    base_pool = kp._collect_base_pool(quads, sell_modes, fIdx, passes_fade)
-    kept = kp._position_cap_kept_keys(base_pool, fIdx, K)
-    log(f"basePool={len(base_pool)} kept_K{K}={len(kept)}")
-    return fIdx, passes_fade, base_pool, kept
+def _norm_signal(sig: str) -> str:
+    """买信号归一: buy_special_filtered(邮件链路变体名) -> buy_special(与 queries/前端同口径)。"""
+    return "buy_special" if str(sig or "") == "buy_special_filtered" else str(sig or "")
 
 
-def _trades_signal_close(trades_doc, fIdx, t, etf_code, signal_date):
-    """信号日收盘近似: 优先该笔 trades 的 current_price(信号日收盘), 缺失回退 None。"""
-    idx_cur = fIdx.get("current_price")
-    if idx_cur is not None:
-        v = t[idx_cur]
-        if v is not None and float(v) > 0:
-            return float(v)
-    return None
+def _top_etf_by_score(etfs):
+    """首页 AI建议 top1 判定(static-site/app.js _topEtfByScore 同构):
+    _bk_top(冻结表权威)优先; 未命中 → 纯 max(track_score), 平手回退 similarity(与回测 _build_best_etf 同准则)。"""
+    if not etfs:
+        return None
+    for _e in etfs:
+        if isinstance(_e, dict) and _e.get("_bk_top") is True:
+            return _e
+    best = None
+    for _e in etfs:
+        if not isinstance(_e, dict):
+            continue
+        ts = _e.get("track_score")
+        if ts is None:
+            continue
+        if best is None or ts > best.get("track_score", -1):
+            best = _e
+        elif ts == best.get("track_score"):
+            if (_e.get("similarity") or -1) > (best.get("similarity") or -1):
+                best = _e
+    return best
+
+
+def _signal_candidates(conn, cfg, T, freeze, sig_stats):
+    """首页 overview 同款构建当日信号候选(signal_daily 注入 etfs + 冻结 _bk_top + ai_macro)。
+
+    返回 sigs, 每条含: date/index_id/signal/reason/etfs/_bt_in_universe/ai_macro/_top1/_rating。
+    """
+    rows = conn.execute(
+        "SELECT date, index_id, signal, reason FROM signal_daily "
+        "WHERE date=? AND index_id NOT LIKE 's.%%' ORDER BY index_id",
+        (T,),
+    ).fetchall()
+    sigs = [dict(r) for r in rows]
+    if not sigs:
+        return sigs
+    _mkt_map = appq._ai_macro_build_market_map(cfg)
+    _tier_state, _tier_dates, _ma60_bull_state = appq._ai_macro_build_market_state(conn)
+    _cyb_state, _cyb_dates = appq._ai_macro_build_cyb_tier(conn)
+    _ctx = {
+        "rating_of": lambda _s: appq._ai_macro_rating_of(_s, sig_stats),
+        "market_of": lambda _iid: _mkt_map.get(_iid or "", ""),
+        "track_score_of": appq._ai_macro_track_score_of,
+        "tier_of": lambda _d: appq._ai_macro_tier_at(_d, _tier_state, _tier_dates),
+        "ma60_bull_of": lambda _d: appq._ai_macro_ma60_bull_at(_d, _ma60_bull_state, _tier_dates),
+        "cyb_tier_of": lambda _d: appq._ai_macro_tier_at(_d, _cyb_state, _cyb_dates),
+    }
+    for _s in sigs:
+        # ETF 候选注入(board_etf_map 或 self ETF), 与 overview L1186-1193 同款
+        _self = appq._self_etf_for(_s["index_id"], cfg, conn)
+        if _self:
+            _s["etfs"] = _self["etfs"]
+        else:
+            _s["etfs"] = [dict(_e) for _e in (appq.etf_for(_s["index_id"]).get("etfs") or [])]
+        # 冻结表命中 → 该信号 top1 = 回测标的(标 _bk_top 权威); 空数组指数不从冻结 prepend(同首页)
+        appq._align_home_top1_to_backtest(_s, freeze)
+        _s["_bt_in_universe"] = any(_e.get("track_score") is not None for _e in (_s.get("etfs") or []))
+        # AI宏降亏命中标注(与 overview L1444-1452 同款)
+        _f = appq._ai_macro_hit_filters(_s, _ctx)
+        _s["ai_macro"] = {"hit": bool(_f), "filters": _f}
+        _s["_top1"] = _top_etf_by_score(_s.get("etfs"))
+        _s["_rating"] = appq._ai_macro_rating_of(_s, sig_stats)
+        # hs300 四档(T 日大盘状态, bullAuxBackupStop a9 分支判定用)
+        _s["_tier_at"] = appq._ai_macro_tier_at(T, _tier_state, _tier_dates)
+    return sigs
+
+
+def _ai_fade_hit(sig: dict, members) -> bool:
+    """首页 _isAiFadeHit 同款降亏判定: ai_macro.filters ∩ S06 基座成员集; a9 基座补 bullAuxBackupStop。
+
+    members: s06.filters_for_date(T) 的 True 键集合; None = S06 快照缺行 fail-open(放行)。
+    """
+    if members is None:
+        return False
+    if sig.get("ai_macro", {}).get("hit"):
+        fs = sig.get("ai_macro", {}).get("filters") or []
+        if any(_fk in members for _fk in fs):
+            return True
+    if "bullAuxBackupStop" in members:
+        # 前端 _isBullStopHit(app.js L2904)同构: sig∈{buy_aux,buy_backup} × tier=牛市·主升
+        # 用 kp._tds_fade_spec_hit(LEGACY_SPECS 同源)判定, 避免内联复制分叉
+        if kp._tds_fade_spec_hit("bullAuxBackupStop",
+                                 {"sig": str(sig.get("signal") or ""), "tier": str(sig.get("_tier_at") or "")}):
+            return True
+    return False
+
+
+def _kelly_sort_key(cand: dict):
+    """K=1 排序准则(kelly _position_cap_kept_keys / 首页 _posCapSortedFn 同款):
+    track_score DESC → rating(high>mid>low) → signal(buy_backup>buy>buy_aux>buy_special) → buy_date ASC。"""
+    ts = cand["track_score"] if cand["track_score"] is not None else -1.0
+    return (-float(ts), _RATING_RANK.get(str(cand.get("_rating") or ""), 3),
+            _SIG_RANK.get(str(cand.get("signal") or ""), 9), str(cand.get("buy_date") or ""))
 
 
 def main():
@@ -205,52 +276,110 @@ def main():
     db_path = REPO / "data" / "etf_national_team.db"
     if not db_path.exists():
         db_path = ROOT / "data" / "etf_national_team.db"
+    sent_db = REPO / "data" / "sentiment.db"
+    if not sent_db.exists():
+        sent_db = ROOT / "data" / "sentiment.db"
     log(f"REPO={REPO} T={T} dry_run={args.dry_run}")
 
-    # 输入 5 产物
-    trades_doc = _load_json("signal_kelly_trades.json", data_dir)
-    backtest_doc = _load_json("signal_kelly_backtest.json", data_dir)
+    # 输入产物
     s06_doc = _load_json("kelly_mode_s06_state.json", data_dir)
-    loss_feat_doc = _load_json("kelly_loss_features.json", data_dir)
+    freeze = appq._etf_freeze()
 
-    fIdx, passes_fade, base_pool, kept = _build_passes(trades_doc, backtest_doc, s06_doc, loss_feat_doc)
+    # ---- 数据就绪 gate(§23.15 不上残缺版): etf_daily 需已更新到 T 日(backfill-evening 补完后),
+    #      否则 prev_close 非 T 日收盘 → 计划挂单价失真, 明确告警退出, 不产出误导性受限计划。
+    #      NEXTDAY_PLAN_FORCE=1 可跳过(不推荐, 仅人工核查用)。
+    etf_dates = _etf_daily_dates(db_path)
+    if etf_dates and etf_dates[-1] < T:
+        if os.environ.get("NEXTDAY_PLAN_FORCE") == "1":
+            log(f"⚠ FORCE: etf_daily 最新日 {etf_dates[-1]} < T {T}, 强制继续(prev_close 可能非 T 日收盘)")
+        else:
+            log(f"✗ 数据未就绪: etf_daily 最新日 {etf_dates[-1]} < T {T}(backfill-evening 未完成), "
+                f"不产出误导性计划。可 NEXTDAY_PLAN_FORCE=1 强制跳过(不推荐)")
+            return 2
+    elif not etf_dates:
+        log("✗ etf_daily 为空, 无法确定 prev_close 与交易日")
+        return 2
+    # s06 基座成员集(S06Resolver fail-open: 快照缺行 → None → 降亏放行, 同前端降级契约)
+    s06 = kp.S06Resolver(s06_doc)
+    _f6 = s06.filters_for_date(T)
+    members = {k for k, v in (_f6 or {}).items() if v} if _f6 else None
+    if members is None:
+        log("⚠ s06 快照缺行(T 无基座), 降亏过滤 fail-open 放行(与前端降级契约一致)")
+
+    # ---- 信号候选(首页同款构建) ----
+    conn = sqlite3.connect(f"file:{sent_db}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        cfg = load_config()
+        sig_stats = appq.sigstats.load()
+    except Exception as e:
+        conn.close()
+        log(f"✗ 信号统计/配置加载失败: {e}")
+        return 2
+    sigs = _signal_candidates(conn, cfg, T, freeze, sig_stats)
+    conn.close()
+    log(f"T={T} signal_daily 信号(排除 s.*)={len(sigs)}")
+
+    # 买信号 + 入样宇宙 + 降亏过滤(首页 kept 同款): 先滤降亏再选 top-K
+    kept_signals = []
+    fade_cut = []
+    for _s in sigs:
+        _sig = _norm_signal(_s["signal"])
+        if _sig not in BUY_SIGNALS:
+            continue
+        if not _s.get("_bt_in_universe"):
+            keep_cut_note = f"{_s['index_id']} {_sig} 未入样宇宙(无跟踪 ETF track_score)"
+            log(f"  - {keep_cut_note}")
+            continue
+        top1 = _s.get("_top1")
+        if not top1 or top1.get("track_score") is None:
+            continue
+        if _ai_fade_hit(_s, members):
+            fade_cut.append(f"{_s['index_id']} {_s['signal']} ai_filters={_s['ai_macro']['filters']}")
+            continue
+        kept_signals.append({
+            "signal_date": T,
+            "index_id": _s["index_id"],
+            "signal": _sig,
+            "etf_code": str(top1.get("code") or ""),
+            "etf_name": str(top1.get("name") or "") or str(top1.get("code") or ""),
+            "track_score": top1.get("track_score"),
+            "track_tier": top1.get("track_tier"),
+            "_rating": _s.get("_rating"),
+        })
+    for _c in fade_cut:
+        log(f"  ✗ 降亏过滤剔除: {_c}")
+    log(f"当日买入信号通过降亏候选={len(kept_signals)}")
+
+    # ---- K=1 保留(首页 AI建议 top1 同款排序) ----
     etf_dates = _etf_daily_dates(db_path)
     cal_dates = _trade_calendar_dates(db_path)
-    # buy_date = 权威交易日历(含未来)中 > T 的最小日期; 日历不可用回退 etf_daily 历史日期集
     trade_dates = cal_dates or etf_dates
     if not trade_dates:
-        raise RuntimeError("交易日历与 etf_daily 均为空, 无法确定下一交易日")
-
-    idx = {
-        "signal_date": fIdx["signal_date"], "index_id": fIdx["index_id"], "signal": fIdx["signal"],
-        "buy_date": fIdx["buy_date"], "etf_code": fIdx["etf_code"], "etf_name": fIdx["etf_name"],
-        "track_score": fIdx["track_score"],
-    }
-
-    # 当日(T)通过过滤且 K=1 保留的交易
-    day_rows = []
-    for t in base_pool:
-        if str(t[idx["signal_date"]] or "") != T:
-            continue
-        if kp._base_key(t, fIdx) not in kept:
-            continue
-        day_rows.append(t)
-    log(f"T={T} 当日通过过滤且 K=1 保留候选={len(day_rows)}")
+        log("✗ 交易日历与 etf_daily 均为空, 无法确定下一交易日")
+        return 2
 
     buy_date = _next_trading_day(trade_dates, T)
     if buy_date is None:
         log(f"⚠ 交易日历无 > {T} 的下一交易日(可能 T 已是日历最后一天), 走空计划")
-        day_rows = []
+        kept_signals = []
+    for _c in kept_signals:
+        _c["buy_date"] = buy_date
+    kept_signals.sort(key=_kelly_sort_key)
+    kept_signals = kept_signals[:K]
+    _kept_desc = [f"{c['index_id']}|{c['signal']}|{c['etf_code']} ts={c['track_score']}" for c in kept_signals]
+    log(f"K={K} 保留信号={_kept_desc}")
 
+    # ---- prev_close + 双校验(原逻辑保留) ----
     plan = []
-    for t in day_rows:
-        etf_code = str(t[idx["etf_code"]] or "")
-        etf_name = str(t[idx["etf_name"]] or "")
-        signal = str(t[idx["signal"]] or "")
-        track_score = t[idx["track_score"]] if idx["track_score"] is not None else None
-        sig_close = _trades_signal_close(trades_doc, fIdx, t, etf_code, T)
+    for t in kept_signals:
+        etf_code = t["etf_code"]
+        etf_name = t["etf_name"]
+        track_score = t["track_score"]
+        # 信号日收盘 = etf_daily 该 etf T 日 close(伪跳空校验参考点)
+        last_date, sig_close = _prev_close(db_path, etf_code, T)
         # 双校验 ①: prev_close>0 非停牌(该 etf 前一日有成交)
-        last_date, prev_close = _prev_close(db_path, etf_code, T)
+        _, prev_close = _prev_close(db_path, etf_code, T)
         if prev_close is None or prev_close <= 0:
             log(f"  ✗ {etf_code} {etf_name} prev_close={prev_close}(非停牌校验失败, 前一日无成交)")
             continue
@@ -265,7 +394,7 @@ def main():
             "etf_name": etf_name,
             "prev_close": round(prev_close, 4),
             "amount": BUY_AMOUNT,
-            "signal": signal,
+            "signal": t["signal"],
             "track_score": track_score,
             "signal_date": T,
             "buy_date": buy_date,

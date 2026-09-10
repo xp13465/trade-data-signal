@@ -7,14 +7,18 @@
 | 文件 | 内容 | 状态 |
 |---|---|---|
 | next-day-buy-prd-20260910.md | 自动化次日买入操作 PRD(细化): 两阶段总纲(阶段一=傻瓜式操作指南+操作步骤表格展示, 阶段二=同一 JSON 自动化)、S06+K=1+A 模式口径、每日时间轴、执行策略回测定稿(挂昨收价限价最优)、§6 实操步骤表格(字段/STATUS状态机/盘中发布链/手动指引/自动化衔接/1:1示例)、风控/记账/监控、分阶段路线 | 2026-09-10 v1.1, 待用户审阅拍板 |
-| nextday-plan-backend-implement-20260910.md | 阶段一实施报告(后端): nextday_plan 计划生成器 + auto_trade_steps 状态机落档; 复用 kelly_posrating K=1 同构逻辑、双校验、R2/两树同步、20:55 launchd、复现段 | 2026-09-10 已实施(干跑 AUTO_EXEC_ON=false) |
+| nextday-plan-backend-implement-20260910.md | 阶段一实施报告(后端 v0): nextday_plan 计划生成器 + auto_trade_steps 状态机落档; 复用 kelly_posrating K=1 同构逻辑、双校验、R2/两树同步、20:55 launchd、复现段(⚠ v0 从 trades 选当日信号有设计缺口, 已由方案A根治) | 2026-09-10 v0 已实施(干跑), 2026-09-10 晚被方案A取代 |
+| nextday-plan-signal-daily-design-20260910.md | **方案A根治**(用户拍板): 生成器改走首页 AI建议 1:1 同一条选取链(signal_daily 当日信号 + 冻结表 top1 + _ai_macro_hit_filters ∩ S06 基座, 不再读 trades); 数据就绪 gate(etf_daily<T → exit 2); 20260910 真跑 513080 与首页逐位对账; 复现段 | 2026-09-10 已实施并真跑验证 |
 
 ## 计划生成器(scripts/ 根, 生产链路)
 
 PRD 阶段一后端产物的生产入口在 `scripts/nextday_plan_generator.py`(每日 20:55 launchd
 `com.trade.nextday-plan` 通过 `scripts/nextday_plan.sh` 触发), 生成
 `data/nextday_plan.json` + `static-site/data/nextday_plan.json` + `auto_trade_steps.json`
-并 R2 同步。详见实施报告 `nextday-plan-backend-implement-20260910.md`。
+并 R2 同步。**2026-09-10 方案A根治**: 生成器改走首页 AI建议同一条选取链(signal_daily 当日信号 +
+冻结表 top1 + _ai_macro_hit_filters ∩ S06 基座), 数据就绪 gate 防误导空计划(etf_daily<T → exit 2)。
+详见方案A设计 `nextday-plan-signal-daily-design-20260910.md`, 旧 v0 实施报告
+`nextday-plan-backend-implement-20260910.md` 仅留档历史。
 
 ## 脚本(scripts/)
 
