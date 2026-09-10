@@ -99,7 +99,7 @@ def main():
     s0_all = sum(p["profit0"] for p in plans)
     print(f"S0-baseline(开盘价直接买, 全买 {len(plans)} 笔) = {s0_all:+.0f} 元 (总投入 {len(plans)*10000:.0f} 元, 收益率 {s0_all/(len(plans)*10000)*100:+.2f}%)")
     print()
-    DISCOUNTS = [0.003, 0.005, 0.008, 0.010, 0.012, 0.015]
+    DISCOUNTS = [0.0, 0.003, 0.005, 0.008, 0.010, 0.012, 0.015]
     print(f"{'折扣/昨收':>9} | {'口径':>6} | {'成/放弃/兜底':>14} | {'总收益':>12} | {'Σ投入':>10} | {'总收益率':>9} | {'每笔均值':>10}")
     print("-" * 95)
     res = {}
@@ -132,9 +132,10 @@ def main():
             print(f"{(1-d)*100:>7.1f}% | {ma:>6} | {n_fill:>5}/{n_skip:>5}/{n_tail:>5} | {tot_p:>+11.0f} | {tot_inv:>9.0f} | {rate:>+8.2f}% | {tot_p/n:>+9.1f}")
             res.setdefault(d, {})[ma] = {"tot_profit": tot_p, "tot_inv": tot_inv, "rate": rate, "n_fill": n_fill, "n_skip": n_skip, "n_tail": n_tail}
 
-    # S0 基准(挂昨收价限价: 低开或回落至昨收即成交)
-    s0_d0 = sum(p["profit0"] - 10000 * (0.0 if p["O"] <= p["PC"] else (p["PC"] / p["O"] - 1 if p["L"] <= p["PC"] else 0.0)) for p in plans)
-    print(f"S0-挂昨收价限价(85.3%成交): {s0_d0:+.0f} 元")
+    # S0 基准(挂昨收价限价) = d=0 档真值(⚠️ 2026-09-10 修复: 旧公式未成交仍计 profit0, 虚高; 现统一走循环口径)
+    s0_skip, s0_tail = res.get(0.0, {}).get("skip", {}), res.get(0.0, {}).get("tail", {})
+    print(f"S0-挂昨收价限价+skip(真放弃): {s0_skip.get('tot_profit', 0):+.0f} 元 (成交 {s0_skip.get('n_fill', 0)}/放弃 {s0_skip.get('n_skip', 0)})")
+    print(f"S0-挂昨收价限价+tail(尾盘兜底): {s0_tail.get('tot_profit', 0):+.0f} 元 (成交 {s0_tail.get('n_fill', 0)}/兜底 {s0_tail.get('n_tail', 0)})")
 
     json.dump({"n": n, "res": res}, open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "nextday_buy_full_loop.json"), "w"), ensure_ascii=False, indent=1)
     print("已输出 nextday_buy_full_loop.json")
