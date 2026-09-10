@@ -1637,10 +1637,27 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
   // 后端 realtime/close pipeline 每 10 分钟刷新盘中档 real_current_price/return_pct 并上传 R2;
   // 前端盘中活跃时段(_hm()<1750 && next_open_date==今日) 每 60s 重拉重渲染, 显示价格跳变。
   // 清理: interval 句柄按弹窗容器(anchorEl)属性挂, 每次 render 先清同 anchor 旧轮询(幂等单例);
-  //   anchor 离开 DOM(isConnected=false)/换日/17:50 后 → 下个 tick 判 false 自动停(防泄漏)。
+  //   宿主弹窗隐藏(display:none, FAIL1 修)/anchor 离开 DOM(isConnected=false)/换日/17:50 后 →
+  //   下个 tick 判 false 自动停(防泄漏); 弹窗重开 → render 重挂恢复。
+  // FAIL1 修(2026-09-10 reviewer): 弹窗关闭(lab.js overlay display:none / app.js .hidden)只是隐藏元素,
+  // anchorEl 仍在 DOM(isConnected=true) → 旧实现 _pollActive 判 true, interval 每 60s 照常 fetch+重渲染。
+  // 宿主可见性感知: 沿祖先链查 getComputedStyle display/visibility, 任一隐藏 → 判隐藏。
+  // 选 getComputedStyle 祖先链而非 offsetParent(offsetParent 对 position:fixed 恒 null, 会误杀可见弹窗)。
+  // 弹窗隐藏 → tick 判 false → _stopPoll 清句柄(单例不泄漏); 弹窗重开 → render 走 _ensurePoll 重挂
+  // (每次 render 先 _stopPoll 幂等清同 anchor 旧轮询, 再重挂, 无多实例累积)。
+  function _hostHidden(anchorEl) {
+    var el = anchorEl;
+    while (el && el.nodeType === 1 && el !== document.body && el !== document.documentElement) {
+      var st = getComputedStyle(el);
+      if (st.display === "none" || st.visibility === "hidden") return true;
+      el = el.parentNode;
+    }
+    return false;
+  }
   // 首拉仍走 _fetch(单例 promise 幂等), 轮询走 _fetchFresh(破单例缓存, 重拉即拿新数据)。
   function _pollActive(anchorEl, d) {
     if (!anchorEl || !anchorEl.isConnected) return false;      // 容器不在 DOM → 停
+    if (_hostHidden(anchorEl)) return false;                   // FAIL1: 宿主弹窗隐藏(display:none) → 停轮询
     if (!d || !d.intraday || d.intraday.mode !== "intraday") return false;
     if (d.intraday.next_open_date !== _todayS()) return false; // 换日 → 停(全量版已接管)
     if (_hm() >= 1750) return false;                            // 17:50 后 → 停(视图降级)
@@ -1662,6 +1679,9 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
     if (!_pollActive(anchorEl, d)) { _stopPoll(anchorEl); return; }
     if (anchorEl.__kellyIntradayIv) return;   // 同容器已有轮询, 不重复挂
     anchorEl.__kellyIntradayIv = setInterval(function () {
+      // 先判再拉(FAIL1 强化): 隐藏/换日/17:50 在 fetch 前拦截, 不发无谓请求。
+      // 判据用 render 时初始 d(隐藏/换日/17:50 与 d 内容无关, 等价且省一次白拉)。
+      if (!_pollActive(anchorEl, d)) { _stopPoll(anchorEl); return; }
       _fetchFresh().then(function (nd) {
         if (!_pollActive(anchorEl, nd)) { _stopPoll(anchorEl); return; }
         _renderInner(anchorEl, opts, nd);
