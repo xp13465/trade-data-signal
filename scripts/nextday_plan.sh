@@ -52,7 +52,7 @@ fi
 echo "=== nextday_plan.sh 开始 $(date '+%F %T') ===" >> "$LOG"
 
 RC=0
-"$PY" scripts/nextday_plan_generator.py "${GEN_ARGS[@]:-}" >> "$LOG" 2>&1
+"$PY" scripts/nextday_plan_generator.py "${GEN_ARGS[@]}" >> "$LOG" 2>&1
 RC=$?
 if [ "$RC" -ne 0 ]; then
   echo "✗ 次日买入计划生成失败 rc=${RC}" >> "$LOG"
