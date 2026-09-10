@@ -2485,3 +2485,177 @@ td.lab-sigkelly-elim-reason { text-decoration: none; color: var(--text-2); font-
 .lab-etf-pin-modal {
   max-height: 94vh;
 }
+
+/* ============================================================
+ * 实操步骤表格(次日买入 PRD 阶段一, 2026-09-10)
+ * 前缀 auto-trade-steps- 防冲突; 主题变量跟随既有 --bg-card/--border/--text-* 约定
+ * 状态配色 §6.3: pending/submitted/filled/partial_filled/cancelled/tailback/skipped/done/failed
+ * ============================================================ */
+.auto-trade-steps {
+  margin: 10px 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.auto-trade-steps-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-bottom: 6px;
+}
+.auto-trade-steps-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.auto-trade-steps-sub {
+  font-size: 11px;
+  color: var(--text-3);
+}
+/* 「现在该干嘛」提示条 */
+.auto-trade-steps-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  border: 1px solid rgba(64, 128, 255, 0.45);
+  background: rgba(64, 128, 255, 0.08);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.auto-trade-steps-bar-ic {
+  font-size: 13px;
+  flex: none;
+}
+.auto-trade-steps-bar-txt b {
+  color: var(--text-1);
+}
+[data-theme="dark"] .auto-trade-steps-bar,
+[data-theme="redgold"] .auto-trade-steps-bar {
+  border-color: rgba(91, 140, 255, 0.55);
+  background: rgba(64, 128, 255, 0.15);
+}
+.auto-trade-steps-tablewrap {
+  overflow-x: auto;
+}
+.auto-trade-steps-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.auto-trade-steps-table th,
+.auto-trade-steps-table td {
+  padding: 5px 8px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.auto-trade-steps-table th {
+  font-weight: 600;
+  color: var(--text-3);
+  font-size: 11px;
+  background: var(--bg-card);
+}
+.auto-trade-steps-table td.auto-trade-steps-note {
+  text-align: left;
+  white-space: normal;
+  min-width: 180px;
+  max-width: 340px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.auto-trade-steps-row {
+  cursor: pointer;
+}
+.auto-trade-steps-row:hover td {
+  background: rgba(64, 128, 255, 0.06);
+}
+.auto-trade-steps-day-hl td {
+  box-shadow: inset 0 0 0 1px rgba(64, 128, 255, 0.6);
+}
+.auto-trade-steps-row.auto-trade-steps-modal-hl td {
+  background: rgba(64, 128, 255, 0.10);
+  box-shadow: inset 0 0 0 1px rgba(64, 128, 255, 0.5);
+}
+.auto-trade-steps-etfname {
+  font-size: 10px;
+  color: var(--text-3);
+  margin-top: 1px;
+}
+.auto-trade-steps-st {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.auto-trade-steps-st-gry { color: #868e96; background: rgba(134, 142, 150, 0.15); }
+.auto-trade-steps-st-blue { color: #1c7ed6; background: rgba(28, 126, 214, 0.15); }
+.auto-trade-steps-st-green { color: #2f9e44; background: rgba(47, 158, 68, 0.15); }
+.auto-trade-steps-st-orange { color: #e8590c; background: rgba(232, 89, 12, 0.15); }
+.auto-trade-steps-st-purple { color: #7048e8; background: rgba(112, 72, 232, 0.15); }
+.auto-trade-steps-st-red { color: #e03131; background: rgba(224, 49, 49, 0.15); }
+[data-theme="dark"] .auto-trade-steps-st-gry,
+[data-theme="redgold"] .auto-trade-steps-st-gry { color: #9aa4b2; background: rgba(134, 142, 150, 0.22); }
+[data-theme="dark"] .auto-trade-steps-st-blue,
+[data-theme="redgold"] .auto-trade-steps-st-blue { color: #74c0fc; background: rgba(28, 126, 214, 0.25); }
+[data-theme="dark"] .auto-trade-steps-st-green,
+[data-theme="redgold"] .auto-trade-steps-st-green { color: #69db7c; background: rgba(47, 158, 68, 0.25); }
+[data-theme="dark"] .auto-trade-steps-st-orange,
+[data-theme="redgold"] .auto-trade-steps-st-orange { color: #ffc078; background: rgba(232, 89, 12, 0.25); }
+[data-theme="dark"] .auto-trade-steps-st-purple,
+[data-theme="redgold"] .auto-trade-steps-st-purple { color: #b197fc; background: rgba(112, 72, 232, 0.25); }
+[data-theme="dark"] .auto-trade-steps-st-red,
+[data-theme="redgold"] .auto-trade-steps-st-red { color: #ff8787; background: rgba(224, 49, 49, 0.25); }
+.auto-trade-steps-empty {
+  color: var(--text-4);
+  text-align: center;
+  padding: 14px 8px;
+  font-size: 12px;
+}
+.auto-trade-steps-date {
+  font-weight: 600;
+  color: var(--text-1);
+}
+.auto-trade-steps-action {
+  font-weight: 600;
+  color: var(--text-2);
+}
+.auto-trade-steps-modal {
+  max-width: 1180px;
+}
+.auto-trade-steps-modal-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.auto-trade-steps-nav-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.auto-trade-steps-nav-btn:hover {
+  border-color: var(--primary, #2f6fed);
+  color: var(--primary, #2f6fed);
+}
+.auto-trade-steps-modal-table th,
+.auto-trade-steps-modal-table td {
+  white-space: nowrap;
+  padding: 5px 8px;
+  text-align: center;
+}
+.auto-trade-steps-modal-table td.auto-trade-steps-note {
+  text-align: left;
+  white-space: normal;
+  min-width: 180px;
+  max-width: 300px;
+}
