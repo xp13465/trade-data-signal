@@ -1,0 +1,79 @@
+{
+ "n": 545,
+ "cutoff": "20260908",
+ "gap": {
+  "up": 218,
+  "flat_down": 327,
+  "up_reach": 138,
+  "up_no_reach": 80,
+  "up_rate": 0.4,
+  "up_no_reach_rate": 0.14678899082568808
+ },
+ "scenarios": [
+  {
+   "name": "S0 开盘直买全投(545)",
+   "tot_profit": 158396.5533000001,
+   "tot_inv": 5450000.0,
+   "n_fill": 545,
+   "n_skip": 0,
+   "n_tail": 0,
+   "peak_cash": 100000.0,
+   "peak_n": 10,
+   "avg_pos": 14332.187252049722,
+   "idle_rate": 0.0,
+   "return_pct_max_holding": 158.39655330000008
+  },
+  {
+   "name": "挂昨收+尾盘兜底(465+80)",
+   "tot_profit": 156259.86133366998,
+   "tot_inv": 5450000.0,
+   "n_fill": 465,
+   "n_skip": 0,
+   "n_tail": 80,
+   "peak_cash": 100000.0,
+   "peak_n": 10,
+   "avg_pos": 14332.187252049722,
+   "idle_rate": 0.0,
+   "return_pct_max_holding": 156.25986133367
+  },
+  {
+   "name": "挂昨收+放弃(465 投入)",
+   "tot_profit": 135969.20507919916,
+   "tot_inv": 4650000.0,
+   "n_fill": 465,
+   "n_skip": 80,
+   "n_tail": 0,
+   "peak_cash": 100000.0,
+   "peak_n": 10,
+   "avg_pos": 12205.765670457551,
+   "idle_rate": 0.14678899082568808,
+   "return_pct_max_holding": 135.96920507919916
+  },
+  {
+   "name": "-0.5% 放弃(328 投入)",
+   "tot_profit": 108813.70239750858,
+   "tot_inv": 3280000.0,
+   "n_fill": 328,
+   "n_skip": 217,
+   "n_tail": 0,
+   "peak_cash": 80000.0,
+   "peak_n": 8,
+   "avg_pos": 8603.54403596932,
+   "idle_rate": 0.39816513761467887,
+   "return_pct_max_holding": 136.01712799688573
+  },
+  {
+   "name": "-1% 放弃(188 投入)",
+   "tot_profit": 68602.1904918863,
+   "tot_inv": 1880000.0,
+   "n_fill": 188,
+   "n_skip": 357,
+   "n_tail": 0,
+   "peak_cash": 60000.0,
+   "peak_n": 6,
+   "avg_pos": 5249.1601343785,
+   "idle_rate": 0.655045871559633,
+   "return_pct_max_holding": 114.33698415314385
+  }
+ ]
+}
