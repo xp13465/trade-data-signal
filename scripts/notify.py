@@ -232,6 +232,22 @@ def load_telegram_config() -> dict | None:
         return None
 
 
+def telegram_configured() -> bool:
+    """telegram 是否已真正配置（配置文件存在且 bot_token/chat_id 非占位符非空）。
+
+    告警噪音根治 2026-09-11(docs/alerts/alert-noise-rootfix-20260910.md B4):
+    telegram.json 是 YOUR_BOT_TOKEN 占位符从未配置, 之前每条告警都带 telegram=FAIL(视觉放大器)。
+    本函数供告警汇总/镜像用——未配置的通道不应显示 FAIL(那是"发送失败", 未配置是"跳过")。
+    判定口径与 send_telegram L387-402 对齐: 文件缺失/解析失败/占位符/空 → 未配置。
+    """
+    cfg = load_telegram_config()
+    if cfg is None:
+        return False
+    token = str(cfg.get("bot_token", "")).strip()
+    chat = str(cfg.get("chat_id", "")).strip()
+    return bool(token and chat and token != PLACEHOLDER_TG_TOKEN and chat != PLACEHOLDER_TG_CHAT)
+
+
 def _html_to_text(html: str) -> str:
     """简易 HTML -> 纯文本（Telegram 不支持 table 等富 HTML，转纯文本发送）。
 
@@ -1125,8 +1141,13 @@ def _mirror_severe(subject: str, body: str, results: dict | None = None,
         if isinstance(results, dict):
             def _ok(k: str) -> str:
                 return "OK" if results.get(k) else "FAIL"
-            ch_line = (f"- **通道**: email={_ok('email')} "
-                       f"telegram={_ok('telegram')} feishu={_ok('feishu')}\n")
+            # 告警噪音根治 2026-09-11: telegram 未配置(占位符)不显示该通道字段(不标 FAIL,
+            # FAIL 语义=发送失败; 未配置=跳过)。配置生效后自动恢复显示。
+            ch_parts = [f"email={_ok('email')}"]
+            if telegram_configured():
+                ch_parts.append(f"telegram={_ok('telegram')}")
+            ch_parts.append(f"feishu={_ok('feishu')}")
+            ch_line = f"- **通道**: {' '.join(ch_parts)}\n"
         entry = (f"## [severe] {now} · {subj_line}\n"
                  f"- **级别**: severe\n"
                  f"- **来源**: {src}\n"
@@ -2021,7 +2042,9 @@ def main(argv: list[str] | None = None) -> int:
         if results.get("suppressed"):
             return 0
         ok = [ch for ch, v in results.items() if v]
-        fail = [ch for ch, v in results.items() if not v and ch != "suppressed"]
+        # 告警噪音根治 2026-09-11: telegram 未配置不计入"未发出"(未配置=跳过非失败), 与 _mirror_severe 同口径
+        fail = [ch for ch, v in results.items()
+                if not v and ch != "suppressed" and (ch != "telegram" or telegram_configured())]
         if ok:
             print(f"[notify][agent-done] 汇总：已发出 {'/'.join(ok)}"
                   + (f"（未发出：{'/'.join(fail)}）" if fail else ""), file=sys.stderr)
@@ -2039,7 +2062,8 @@ def main(argv: list[str] | None = None) -> int:
                    feishu_only=args.feishu_only,
                    reply_to_message_id=args.reply_to_message_id)
     ok = [ch for ch, v in results.items() if v]
-    fail = [ch for ch, v in results.items() if not v]
+    # 告警噪音根治 2026-09-11: telegram 未配置不计入"未发出"(未配置=跳过非失败), 与 _mirror_severe 同口径
+    fail = [ch for ch, v in results.items() if not v and (ch != "telegram" or telegram_configured())]
     if ok:
         print(f"[notify] 汇总：已发出 {'/'.join(ok)}"
               + (f"（未发出：{'/'.join(fail)}）" if fail else ""), file=sys.stderr)

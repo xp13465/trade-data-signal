@@ -444,9 +444,9 @@ run_r2_upload "upload-all-data" upload-all-data || { echo "⚠ upload-all-data �
 run_r2_upload "upload-kelly-snapshots" upload-kelly-snapshots || { echo "⚠ upload-kelly-snapshots 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-snapshots"; }
 # feed.xml 走 R2（2026-08-10）：gen_rss 生成的 RSS 上传到 R2 data/feed.xml，不再 git push
 run_r2_upload "upload-feed" upload-data-files feed.xml || { echo "⚠ upload feed.xml 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-feed"; }
-if [ -n "$R2_FAIL" ]; then
-  "$PY" "$REPO/scripts/notify.py" "[告警] deploy R2上传失败" "deploy.sh R2 上传失败:$R2_FAIL<br>前端可能读旧数据，需手动补刷: bash scripts/upload_r2.py upload-all-data<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_r2_upload_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
-fi
+# R2_FAIL 告警延迟到 deploy 收尾(见下方收尾段): 通道失败立即告警=误报(09-10 事故链——
+# 单文件 PUT 超时进程异常退出触发告警, 实际上传与 purge 全成功)。upload_r2.py 已补
+# try/except 兜底(单文件失败不异常中断), 走到收尾仍 R2_FAIL 非空=真失败才告警。
 
 # 1.9 末尾统一 purge 低频文件（决策清单项5+项8，2026-08-18）
 # 低频文件(LOW_FREQ 3600s 档) CF 会把 max-age 拉长成 4h edge 残留，上传时 purge 若失败/漏跑
@@ -809,6 +809,16 @@ if [ "$_FEISHU_NEED_RESTART" = "1" ]; then
   fi
 else
   echo "→ feishu listener 无代码变更，跳过重启" | tee -a "$LOG"
+fi
+
+# === R2 上传失败告警(收尾段, 告警噪音根治 2026-09-11) ===
+# 原在通道失败时立即发, 单文件 PUT 超时进程异常退出即触发, 但后续通道/自愈已补传成功=
+# 误报(09-10 18:52 事故链, 实际 103/103 上传+504/504 purge 全成功 rc=0)。延迟到整个 deploy
+# 收尾再发: 走到此处=deploy 未提前退出(整体 rc=0); 配合 upload_r2.py try/except 兜底
+# (单文件失败不异常中断, 全部成功则命令 rc=0 → R2_FAIL 不置位), R2_FAIL 非空=真有文件失败。
+if [ -n "$R2_FAIL" ]; then
+  echo "⚠ R2 上传有失败通道:$R2_FAIL (deploy 整体 rc=0, 收尾统一告警)" | tee -a "$LOG"
+  "$PY" "$REPO/scripts/notify.py" "[告警] deploy R2上传失败" "deploy.sh R2 上传部分通道失败:$R2_FAIL<br>deploy 整体已跑完(rc=0), 请人工确认失败通道文件是否已补传/需手动补刷: bash scripts/upload_r2.py upload-all-data<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_r2_upload_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
 fi
 
 echo "=== deploy.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 ===" | tee -a "$LOG"

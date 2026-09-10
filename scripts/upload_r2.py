@@ -366,17 +366,29 @@ def cmd_upload_lab():
     files = sorted(lab.glob("*.json"))
     if not files:
         sys.exit(f"无 lab json: {lab}")
+    # 告警噪音根治 2026-09-11(docs/alerts/alert-noise-rootfix-20260910.md B2):
+    # 单文件 PUT 超时(TimeoutError 在 s3_request 5 次重试后 raise)原无 try 兜底,
+    # 整个 upload-lab 进程异常退出 rc≠0 → deploy.sh 误报「R2上传失败」(09-10 事故链:
+    # 实际 103/103 上传 + purge 504/504 全成功)。补 try/except 单文件失败打印跳过继续,
+    # 末尾 ok<total 才 exit 1(与 _upload_glob 系列命令对齐: 真失败仍让 deploy 收尾告警,
+    # 单文件瞬时抖动不再异常中断致后续文件全没传 = 不再误报整体失败)。
     ok = 0
-    for f in files:
+    total = len(files)
+    for i, f in enumerate(files, 1):
         key = f"lab/{f.name}"
-        payload = f.read_bytes()
-        status, data = s3_request("PUT", key, payload)
-        if status == 200:
-            ok += 1
-            print(f"✓ {f.name} ({len(payload) // 1024}KB)")
-        else:
-            print(f"✗ {f.name} status={status} {data[:200]}")
-    print(f"共上传 {ok}/{len(files)} -> {PUBLIC}/lab/")
+        try:
+            payload = f.read_bytes()
+            status, data = s3_request("PUT", key, payload)
+            if status == 200:
+                ok += 1
+                print(f"[{i}/{total}] ✓ {f.name} ({len(payload) // 1024}KB)")
+            else:
+                print(f"[{i}/{total}] ✗ {f.name} status={status} {data[:200]}")
+        except Exception as e:
+            print(f"[{i}/{total}] ✗ {f.name} 异常({type(e).__name__}: {e})")
+    print(f"共上传 {ok}/{total} -> {PUBLIC}/lab/")
+    if ok != total:
+        sys.exit(1)
 
 
 def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_fn=None,

@@ -279,7 +279,10 @@ END_TS=$(date +%s)
 ELAPSED=$((END_TS - START_TS))
 ELAPSED_MIN=$((ELAPSED / 60))
 SEVERE=0
-[ "$ELAPSED" -gt 3600 ] && SEVERE=1
+# 告警噪音根治 2026-09-11(docs/alerts/alert-noise-rootfix-20260910.md B1): 阈值 3600s→5400s(90min)
+# 背景: 2026-07-11 引入 3600s 后从未重标, 09-09 #82 C6 摘出 turnover 后主链新常态 ~72min(4328s),
+# 但 3600s 仍每天必超→每天 1 封例行噪音严重告警。5400s = 72min 新常态 + 25% 裕量, 真退化(>90min)仍捕获。
+[ "$ELAPSED" -gt 5400 ] && SEVERE=1
 [ "$RC_CORE" -ne 0 ] && SEVERE=1
 [ "${DEPLOY_ALL_RC:-0}" -ne 0 ] && SEVERE=1
 [ "$FRESH_OK" != "1" ] && SEVERE=1
@@ -306,7 +309,9 @@ done
 NOTIFY_BODY="update_all 完成<br>耗时：${ELAPSED_MIN} 分钟（${ELAPSED}秒）<br>退出码：core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES deploy_all=${DEPLOY_ALL_RC:-0} check_signals=$SIGNAL_RC${FAILED_DETAILS}<br>数据时效：$FRESH_MSG<br>日志：$LOG<br>结束时间：$NOW_STR"
 if [ "$SEVERE" -eq 1 ]; then
   ISSUE="update_all 严重告警："
-  [ "$ELAPSED" -gt 3600 ] && ISSUE="${ISSUE}耗时超1h(${ELAPSED_MIN}分钟) "
+  # 告警噪音根治 2026-09-11: 文案同步 1h→90min; 分钟数从 ISSUE 串去掉(进 dedup key 会天天变→去重失效),
+  # 分钟数已在 NOTIFY_BODY 与邮件 subject 展示, 无需重复。
+  [ "$ELAPSED" -gt 5400 ] && ISSUE="${ISSUE}耗时超90min "
   [ "$RC_CORE" -ne 0 ] && ISSUE="${ISSUE}core退出码非0($RC_CORE) "
   [ "${DEPLOY_ALL_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}统一deploy失败(${DEPLOY_ALL_RC}) "
   [ "$FRESH_OK" != "1" ] && ISSUE="${ISSUE}数据时效异常($FRESH_MSG)"
@@ -318,6 +323,8 @@ if [ "$SEVERE" -eq 1 ]; then
   # 发送成功才登记/suppress 静默退0/fail-open; 先例=intraday upload-index R2 失败去重)。
   # key=完整 ISSUE 问题串: 同一问题组合 30min 内只发一次(手动补跑/force 连跑窗口防轰炸),
   # 问题组合变化(rc 或触发项不同)=新 key 正常发送, 不漏报。
+  # 告警噪音根治 2026-09-11: ISSUE 已不含分钟数(见上), key 同日同类型稳定→去重真正生效,
+  # 不再"每天耗时不同→key 不同→每天新发"。
   "$PY" "$REPO/scripts/notify.py" "[告警] update_all ${ISSUE} ${MM_DD_HM}" "$NOTIFY_BODY" --severe --from-prefix "[告警]" --alert-issue "$ISSUE" --alert-log "$LOG" --dedup-key "update_all_severe:${ISSUE}" --dedup-window 1800 || true
 else
   "$PY" "$REPO/scripts/notify.py" "[完成] update_all ${ELAPSED_MIN}min ${MM_DD_HM}" "$NOTIFY_BODY" --from-prefix "[完成]" || true
