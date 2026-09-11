@@ -16,9 +16,13 @@
       annualized_return}; 每 (quadrant, period, mode) 一个指标对象。
     - max_signal_date = 全部成交 signal_date 最大值; recent 10 = 按 signal_date 降序
       取全局最新 10 笔(compact 数组 + fields, 对齐 trades 产物结构)。
-    - 突变告警阈值基准 = 滚动窗口(近 60 个快照日, 含昨天不含今天) mean±3.0×std,
-      或单日 Δ>20pp 且 n≥20 且连续 2 个交易日同向。⚠️ 防前视 (§5.1⑥): 阈值只用
-      t 之前(含 t-1)的数据计算, 绝不用全期分位/未来数据反推。
+    - 突变告警判定 = (std_jump and pp_jump) or (pp_jump and dir_confirmed)(#109 相对口径):
+      std_jump = |今日 total_return − 窗口均值| > MUTATION_STD×std;
+      pp_jump  = |单日 Δ| > max(窗口均值×MUTATION_PCT, ABS_FLOOR_DELTA(若窗口均值<ABS_FLOOR_MEAN));
+      dir_confirmed = 前一日 Δ 与同向阈值(窗口均值×MUTATION_DIR_PCT)同向。
+      ⚠️ 防前视 (§5.1⑥): 窗口/阈值只用 t 之前(含 t-1)的数据计算, 绝不用全期分位/未来数据反推。
+    - 突变的绝对下限: 窗口均值 < ABS_FLOOR_MEAN(500元, 小模式如 E 百元量级)时,
+      单日 |Δ| > ABS_FLOOR_DELTA(200元) 仍算 pp_jump(防小模式逃逸)。
     - 发布日(快照 version 变化)豁免突变告警; 停滞档不设趋势门(缺失即告警)。
     - 告警走 scripts/notify.py send()(邮件+飞书同 body, §23.10), dedup-key+24h 防抖。
 
@@ -33,8 +37,9 @@
       K 档段, 供首页首屏注入; s06 状态缺失跳过=防残缺数据上线, 详见 write_posrating_file)
 关键参数(常量, 不可从外部配置):
     - SNAPSHOT_VERSION 常量: "1.0", bump 当日=发布日豁免突变告警
-    - ROLLING_WINDOW=60(快照日), MUTATION_STD=3.0, MUTATION_PP=20,
-      MIN_SAMPLES=5(窗口样本下限), MIN_N=20(样本门), LAG_ALERT_TD=2(交易日),
+    - ROLLING_WINDOW=60(快照日), MUTATION_STD=3.0, MUTATION_PCT=0.05,
+      MUTATION_DIR_PCT=0.01, ABS_FLOOR_MEAN=500.0, ABS_FLOOR_DELTA=200.0,
+      MIN_SAMPLES=5(窗口样本下限), LAG_ALERT_TD=2(交易日),
       DEDUP_WINDOW=86400(24h 防抖)
 复现命令:
     # 生成今日快照 + 更新 index(export.py L1223 内部以 --data-dir DATA_DIR 调用, 写 trade-data 侧)
