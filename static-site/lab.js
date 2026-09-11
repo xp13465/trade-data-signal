@@ -13947,7 +13947,7 @@ let _labEtfTrendPinReqSeq = 0;
  * 字段结构: PRD docs/auto-trade/next-day-buy-prd-20260910.md §6.2; 状态机 §6.3:
  *   pending待执行灰 / submitted已挂单蓝 / filled已成交绿 / partial_filled部分成交橙 /
  *   cancelled已撤销灰 / tailback已兜底紫 / skipped已跳过灰 / done已完成绿 / failed执行失败红
- * 交互: 主表每日1行(date DESC) / 点行弹当日全时间线 / 「现在该干嘛」提示条+当日行高亮 / 盘中60s盘后5min轮询就地更新
+ * 交互: 主表买入按日成行 + 卖出按 sell_date 独立成行(date DESC) / 点行弹所属日全时间线 / 「现在该干嘛」提示条+当日行高亮 / 盘中60s盘后5min轮询就地更新
  * 前缀 _at / auto-trade-steps- 防与既有 lab 逻辑冲突。
  * ============================================================ */
 const _AT_URL_PLAN = "./data/nextday_plan.json";
@@ -14226,7 +14226,7 @@ function _atStepsByDate(doc) {
   });
   return map;
 }
-// 该日最高 seq 行为作摘要行(主表每日1行); 当日取「按时钟推进到的当前行为」(需求1 时间派生)
+// 该日最高 seq 行为作摘要行(买入组每日1行, 卖出行 #108 独立按 sell_date 成行); 当日取「按时钟推进到的当前行为」(需求1 时间派生)
 function _atDaySummary(date, steps) {
   const list = (steps || []).slice().sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
   if (!list.length) return null;
@@ -14276,6 +14276,31 @@ function _atActionCellHtml(d) {
   const badge = d.backfilled ? _atBackfilledBadgeHtml() : "";
   if (code) return _atEsc(act) + " " + _atEtfLinkHtml(code, d.etf_name) + (name ? " " + name : "") + badge;
   return _atEsc(act) + (name ? " " + name : "") + badge;
+}
+// #108: 每条卖出计划按 sell_date 独立成行(主表卖出行一眼可见)。字段取 sell 条自身;
+// src_date=所属买入组日期(弹窗打开该组完整时间线), src_step=原 sell 条引用(标记态/现价读取)
+function _atSellRow(s, sellDate) {
+  const date = String(sellDate || s.sell_date || s.date || "");
+  const shares = _atNum(s.shares_planned) != null ? _atNum(s.shares_planned) : _atSharesPlanned(_atNum(s.amount), _atNum(s.order_price));
+  return {
+    date: date,
+    etf_code: s.etf_code || "",
+    etf_name: s.etf_name || "",
+    action: "sell",
+    backfilled: !!s.backfilled,
+    order_price: _atNum(s.order_price),
+    amount: _atNum(s.amount),
+    shares_planned: shares,
+    status: s.status || "pending",
+    status_text: s.status_text || s.status || "",
+    actual_price: _atNum(s.actual_price),
+    trigger_note: s.trigger_note || s.decision || "",
+    sell_date: s.sell_date ? String(s.sell_date) : date,
+    src_date: String(s.date || ""),
+    src_step: s,
+    plan: false,
+    sell: true
+  };
 }
 // nextday_plan.json -> 天级计划行(仅当日)
 function _atPlanRows(doc) {
@@ -14334,7 +14359,8 @@ function _atPlanRows(doc) {
   }
   return out;
 }
-// 主表行集合 = 计划行(当日) + 步骤摘要行(全史), 按 date DESC, 同日有步骤则以步骤摘要为准(补齐计划缺的 etf_name/amount)
+// 主表行集合 = 计划行(当日) + 步骤摘要行(全史) + 卖出独立行(按 sell_date, #108),
+// 按 date DESC, 同日有步骤则以步骤摘要为准(补齐计划缺的 etf_name/amount); 卖出日与买入日撞日期时买入行优先
 function _atBuildDays(planDoc, stepsDoc) {
   const map = {};
   _atPlanRows(planDoc).forEach(function (r) { if (r.date && !map[r.date]) map[r.date] = r; });
@@ -14350,6 +14376,15 @@ function _atBuildDays(planDoc, stepsDoc) {
       map[d] = sum;
     }
   });
+  // #108 卖出行: 每条含 sell_date 的卖出计划, 以 sell_date 为日期独立入行(未到期也展示为计划行)
+  Object.keys(byDate).forEach(function (d) {
+    (byDate[d] || []).forEach(function (s) {
+      if ((s.action || "") !== "sell" || !s.sell_date) return;
+      const sellDate = String(s.sell_date);
+      if (!sellDate || map[sellDate]) return; // 卖出日已存在行(买入/计划)时不覆盖
+      map[sellDate] = _atSellRow(s, sellDate);
+    });
+  });
   const days = Object.keys(map).map(function (d) { return map[d]; });
   days.sort(function (a, b) { return a.date < b.date ? 1 : -1; }); // date DESC
   return days;
@@ -14359,11 +14394,15 @@ function _atRowHtml(d, today, hlDate, daySteps) {
   const stCls = _AT_STATUS_CLS[d.status] || "gry";
   const hl = (d.date === hlDate) ? " auto-trade-steps-day-hl" : "";
   const amtSharesStr = _atAmtSharesStr(d);
-  const allMarked = (d.date === today) && _atDayAllMarked(daySteps);
+  // #108 卖出行: 自身标记态直接反映为「已操作(手动)」; 点击弹所属买入组时间线(data-open-date)
+  const sellMarked = d.sell && d.src_step && _atIsMarked(d.src_step);
+  const allMarked = ((d.date === today) && _atDayAllMarked(daySteps)) || sellMarked;
   const statusHtml = allMarked
     ? '<span class="auto-trade-steps-st auto-trade-steps-st-green">已操作(手动)</span>'
     : '<span class="auto-trade-steps-st auto-trade-steps-st-' + stCls + '">' + _atEsc(d.status_text || d.status || "-") + '</span>';
-  return '<tr class="auto-trade-steps-row' + hl + '" data-date="' + _atEsc(d.date) + '" data-name="' + _atEsc(d.etf_name || "") + '" title="点击查看更多当日操作时间线">' +
+  return '<tr class="auto-trade-steps-row' + (d.sell ? " auto-trade-steps-row-sell" : "") + hl + '" data-date="' + _atEsc(d.date) + '"' +
+    (d.sell && d.src_date ? ' data-open-date="' + _atEsc(d.src_date) + '"' : "") +
+    ' data-name="' + _atEsc(d.etf_name || "") + '" title="' + (d.sell ? "卖出计划 · 点击查看所属买入组时间线" : "点击查看更多当日操作时间线") + '">' +
     '<td class="auto-trade-steps-date">' + _atFmtDate(d.date) + '</td>' +
     '<td class="auto-trade-steps-action">' + _atActionCellHtml(d) + '</td>' +
     '<td>' + _atPriceStr(d.order_price) + '</td>' +
@@ -14399,7 +14438,8 @@ function _atRender(slot, planDoc, stepsDoc) {
   const days = _atBuildDays(planDoc, stepsDoc);
   const byDate = _atStepsByDate(stepsDoc);
   const nowAct = _atNowAction(byDate);
-  const nowActDate = nowAct ? String(nowAct.date || "") : "";
+  // #108 卖出行按 sell_date 成行: 卖出到期时高亮落卖出行(sell_date 优先), 买入用买入日
+  const nowActDate = nowAct ? String(nowAct.sell_date || nowAct.date || "") : "";
   const hint = _atTimeHint(byDate);
   const barHtml = nowAct ? _atNowBarHtml(nowAct, hint) : "";
   let bodyHtml;
@@ -14414,12 +14454,13 @@ function _atRender(slot, planDoc, stepsDoc) {
     '<div class="auto-trade-steps">' +
       '<div class="auto-trade-steps-head">' +
         '<span class="auto-trade-steps-title">📋 实操步骤</span>' +
-        '<span class="auto-trade-steps-sub">次日买入计划·每日1行·点行看当日全时间线(读 nextday_plan + auto_trade_steps, 纯展示不重算算法)</span>' +
+        '<span class="auto-trade-steps-sub">买入计划按日成行·卖出按卖出日独立成行·点行看所属日全时间线(读 nextday_plan + auto_trade_steps, 纯展示不重算算法)</span>' +
       '</div>' +
       barHtml + bodyHtml +
     '</div>';
   slot.querySelectorAll(".auto-trade-steps-row").forEach(function (row) {
-    row.onclick = function () { _atOpenModal(row.getAttribute("data-date")); };
+    // #108 卖出行 data-open-date=所属买入组, 弹该组完整时间线; 其余行用 data-date
+    row.onclick = function () { _atOpenModal(row.getAttribute("data-open-date") || row.getAttribute("data-date")); };
   });
   // 需求4: 主表 ETF 代码点击出走势(不触发行弹窗)
   slot.querySelectorAll(".auto-trade-steps-etf-link").forEach(function (a) {
