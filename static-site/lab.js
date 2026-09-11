@@ -14230,8 +14230,13 @@ function _atStepsByDate(doc) {
 function _atDaySummary(date, steps) {
   const list = (steps || []).slice().sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
   if (!list.length) return null;
-  const cur = (String(date) === _atToday()) ? _atPickTodayStep(list) : null;
-  const last = cur || list[list.length - 1];
+  const isToday = (String(date) === _atToday());
+  const cur = isToday ? _atPickTodayStep(list) : null;
+  // 摘要行动作防「整表变卖出」(reviewer P1): seq5 的 date=买入日, 若直接取 list 末位(action=sell)
+  // 则每个含 steps 的行摘要都显示卖出。非当天/无当前步骤时: 组内含 buy 类行(seq1/seq3)取最高 buy seq 作摘要,
+  // 仅纯 sell 组(只有 seq5)才取 sell。当日取当前应执行步骤优先。
+  const buys = list.filter(function (s) { return (s.action || "buy") !== "sell"; });
+  const last = cur || (buys.length ? buys[buys.length - 1] : list[list.length - 1]);
   const first = list[0];
   return {
     date: String(date),

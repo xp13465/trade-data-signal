@@ -244,6 +244,7 @@ def _build_steps_for_plan(p, now: str, sell_date: str) -> list[dict]:
     })
     seq5 = dict(base, **{
         "seq": 5, "time_slot": f"D+10 14:55", "action": "sell", "order_price": None,
+        "sell_date": sell_date,  # 结构化键(YYYYMMDD): 前端 _atFindSellDue 按 today>=sell_date 判卖出到期, 防 D+1 提前叫卖
         "expected_range": f"第 10 个交易日({sell_date})收盘市价卖出 {share_str} 份",
         "decision": f"decision D: 到 A 模式到期日(D+10, {sell_date})? 是→市价卖出全部份额; Phase1 提醒手动 / Phase2 自动",
         "trigger_note": f"A 模式固定 10 个交易日到期: 卖出日 {sell_date}, 收盘市价卖出 {share_str} 份; Phase1 提醒手动 / Phase2 自动",
