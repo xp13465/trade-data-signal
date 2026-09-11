@@ -14360,7 +14360,8 @@ function _atPlanRows(doc) {
   return out;
 }
 // 主表行集合 = 计划行(当日) + 步骤摘要行(全史) + 卖出独立行(按 sell_date, #108),
-// 按 date DESC, 同日有步骤则以步骤摘要为准(补齐计划缺的 etf_name/amount); 卖出日与买入日撞日期时买入行优先
+// 按 date DESC, 同日有步骤则以步骤摘要为准(补齐计划缺的 etf_name/amount);
+// 卖出日与买入日撞日期时买入行+卖出行同时显示(不互斥, 用户拍板语义)
 function _atBuildDays(planDoc, stepsDoc) {
   const map = {};
   _atPlanRows(planDoc).forEach(function (r) { if (r.date && !map[r.date]) map[r.date] = r; });
@@ -14377,12 +14378,15 @@ function _atBuildDays(planDoc, stepsDoc) {
     }
   });
   // #108 卖出行: 每条含 sell_date 的卖出计划, 以 sell_date 为日期独立入行(未到期也展示为计划行)
+  // 复合键 sellDate|etf|src_date: 同日多笔不同 ETF 卖出各占一行(原单 sellDate 键会把同日第二笔直接吞掉);
+  // 键含 etf_code/src_date 前缀不会与买入/计划行键(纯 date 无前缀)互斥, 卖出日撞买入日时买入行+卖出行同时显示
   Object.keys(byDate).forEach(function (d) {
     (byDate[d] || []).forEach(function (s) {
       if ((s.action || "") !== "sell" || !s.sell_date) return;
       const sellDate = String(s.sell_date);
-      if (!sellDate || map[sellDate]) return; // 卖出日已存在行(买入/计划)时不覆盖
-      map[sellDate] = _atSellRow(s, sellDate);
+      const key = sellDate + "|" + (s.etf_code || "") + "|" + (s.date || "");
+      if (map[key]) return; // 同键(同日同 ETF 同买入组)去重, 不吞不同键卖出行
+      map[key] = _atSellRow(s, sellDate);
     });
   });
   const days = Object.keys(map).map(function (d) { return map[d]; });
