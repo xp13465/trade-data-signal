@@ -2659,3 +2659,56 @@ td.lab-sigkelly-elim-reason { text-decoration: none; color: var(--text-2); font-
   min-width: 180px;
   max-width: 300px;
 }
+/* 需求2/3/4 新增(2026-09-06): 标记按钮 / 已标记行 / ETF 代码链接 / 盘中现价 / 走势弹窗 */
+.auto-trade-steps-etf-link {
+  color: var(--accent, #1c7ed6);
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.auto-trade-steps-etf-link:hover { filter: brightness(1.25); }
+.auto-trade-steps-mark-btn {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border, #ddd);
+  background: var(--bg-card, #fff);
+  color: var(--accent, #1c7ed6);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.auto-trade-steps-mark-btn:hover { filter: brightness(1.1); }
+.auto-trade-steps-mark-btn.is-marked {
+  background: rgba(47, 158, 68, 0.15);
+  border-color: rgba(47, 158, 68, 0.4);
+  color: #2f9e44;
+  cursor: pointer;
+}
+[data-theme="dark"] .auto-trade-steps-mark-btn.is-marked,
+[data-theme="redgold"] .auto-trade-steps-mark-btn.is-marked {
+  color: #69db7c;
+}
+.auto-trade-steps-row-marked td { opacity: 0.55; }
+.auto-trade-steps-row-marked .auto-trade-steps-action,
+.auto-trade-steps-row-marked .auto-trade-steps-etfname { opacity: 1; }
+.auto-trade-steps-rt-wrap { display: inline-block; text-align: right; line-height: 1.35; }
+.auto-trade-steps-rt { font-variant-numeric: tabular-nums; }
+.auto-trade-steps-rt-pl { display: block; font-size: 10px; color: var(--text-4); margin-top: 1px; }
+.auto-trade-steps-price-up { color: #e03131; }
+.auto-trade-steps-price-down { color: #2f9e44; }
+.auto-trade-steps-price-flat { color: var(--text-3); }
+[data-theme="dark"] .auto-trade-steps-price-up,
+[data-theme="redgold"] .auto-trade-steps-price-up { color: #ff8787; }
+[data-theme="dark"] .auto-trade-steps-price-down,
+[data-theme="redgold"] .auto-trade-steps-price-down { color: #69db7c; }
+.auto-trade-steps-bar-hint {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent, #1c7ed6);
+  margin-left: 8px;
+}
+.auto-trade-steps-etf-modal { max-width: 680px; }
+.auto-trade-steps-etf-body { padding: 10px 12px 12px; }
+.auto-trade-steps-etf-body .lab-etf-pin-wrap svg { display: block; }

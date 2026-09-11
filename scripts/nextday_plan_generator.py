@@ -171,6 +171,18 @@ def _next_trading_day(dates: list[str], t: str) -> str:
     return None
 
 
+def _nth_trading_day_after(dates: list[str], t: str, n: int) -> str:
+    """取 > t 的第 n 个交易日(PRD §6.2 seq5 D+10 卖出日, 与回测 A 模式 hold_days=10 同口径:
+    卖出日 = 买入日之后第 10 个交易日)。n=0 返回 _next_trading_day 同款。"""
+    cnt = 0
+    for d in dates:
+        if d > t:
+            cnt += 1
+            if cnt >= n:
+                return d
+    return None
+
+
 def _today():
     return date.today().strftime("%Y%m%d")
 
@@ -180,6 +192,117 @@ def _shares_planned(amount: float, price: float) -> int:
     if price <= 0:
         return 0
     return int(amount / price / 100) * 100
+
+
+# 标准行为序号集(PRD §6.2 时间线): 1=09:15挂单 2=09:25竞价判定 3=14:55尾盘兜底 5=D+10卖出
+STANDARD_SEQS = (1, 2, 3, 5)
+
+
+def _build_steps_for_plan(p, now: str, sell_date: str) -> list[dict]:
+    """某计划条目的完整行为链(PRD §6.2 时间线, 用户「兜底买入步骤什么时候显示」诉求的产物)。
+
+    seq1 09:15 挂单(昨收限价单) / seq2 09:25 竞价判定(低开按开盘价成交, 高开等回落) /
+    seq3 14:55 尾盘兜底(未成交撤单改市价) / seq5 D+10 卖出(A 模式持有 10 个交易日到期, 独立行)。
+    全部 status=pending 待执行, 由前端按时钟推进展示(干跑阶段不写回执行状态)。
+    """
+    code = str(p.get("etf_code") or "")
+    name = str(p.get("etf_name") or "")
+    price = p.get("prev_close")
+    amount = p.get("amount")
+    shares = _shares_planned(amount, price) if (amount and price) else None
+    buy_date = str(p.get("buy_date") or "")
+    base = {
+        "date": buy_date,
+        "etf_code": code,
+        "etf_name": name,
+        "amount": amount,
+        "shares_planned": shares,
+        "status": "pending",
+        "status_text": "待执行",
+        "signal": p.get("signal") or "",
+        "track_score": p.get("track_score"),
+        "updated_at": now,
+    }
+    share_str = str(shares) if shares is not None else "全部"
+    seq1 = dict(base, **{
+        "seq": 1, "time_slot": "09:15", "action": "buy", "order_price": price,
+        "expected_range": f"低开按开盘价成交; 高开等回落至 {price} 或尾盘兜底",
+        "decision": f"9:25 集合竞价: O ≤ {price}? 是→按O成交; 否→高开等回落触及 {price}; 14:55 仍未触及→撤单市价兜底",
+        "trigger_note": f"按昨收价 {price} 挂限价买单, 9:25 集合竞价撮合(干跑阶段只生成计划, 不真实下单)",
+    })
+    seq2 = dict(base, **{
+        "seq": 2, "time_slot": "09:25", "action": "buy", "order_price": price,
+        "expected_range": f"开盘 O ≤ 昨收 {price} → 按 O 成交; 高开 → 等回落触及 {price} 或尾盘兜底",
+        "decision": f"decision A: 开盘 O ≤ 昨收 {price}? 是→按 O 成交(更低更优); 否→高开等回落触及 {price}, 14:55 未触及→撤单市价兜底",
+        "trigger_note": "9:25 集合竞价撮合判定: 开盘价 ≤ 昨收即按开盘价成交; 高开则限价单挂盘面等回落触价自动成交",
+    })
+    seq3 = dict(base, **{
+        "seq": 3, "time_slot": "14:55", "action": "buy", "order_price": price,
+        "expected_range": f"14:55 仍未触及 {price} → 撤单改市价兜底买入(保证今日资金投出)",
+        "decision": f"decision C: 已成交? 是→无事; 否→14:55 撤未成交单改市价买入(挂昨收+尾盘兜底为默认档, PRD §4.4)",
+        "trigger_note": "尾盘兜底: 日内未回落触及挂单价, 撤未成交限价单, 改按当时市价买入保证今日投出资金",
+    })
+    seq5 = dict(base, **{
+        "seq": 5, "time_slot": f"D+10 14:55", "action": "sell", "order_price": None,
+        "expected_range": f"第 10 个交易日({sell_date})收盘市价卖出 {share_str} 份",
+        "decision": f"decision D: 到 A 模式到期日(D+10, {sell_date})? 是→市价卖出全部份额; Phase1 提醒手动 / Phase2 自动",
+        "trigger_note": f"A 模式固定 10 个交易日到期: 卖出日 {sell_date}, 收盘市价卖出 {share_str} 份; Phase1 提醒手动 / Phase2 自动",
+    })
+    return [seq1, seq2, seq3, seq5]
+
+
+def _backfill_missing_seqs(steps: list, trade_dates: list[str], now: str) -> bool:
+    """迁移逻辑(需求①): 已存在 seq1 但缺 seq2/3/5 的 date|etf 组自动补完整链。
+
+    只对 date|etf 组内有 seq1 的组补(说明该日真实生成了计划), 不丢已有 seq1 状态,
+    已有 seq 不重复追加(幂等)。返回是否写入了新行。
+    """
+    if not isinstance(steps, list) or not steps:
+        return False
+    changed = False
+    groups = {}
+    order = []
+    for s in steps:
+        if not isinstance(s, dict):
+            continue
+        d = str(s.get("date") or "")
+        c = str(s.get("etf_code") or "")
+        if not d or not c:
+            continue
+        k = (d, c)
+        if k not in groups:
+            groups[k] = []
+            order.append(k)
+        groups[k].append(s)
+    for k in order:
+        rows = groups[k]
+        have = {int(s.get("seq") or 0) for s in rows}
+        if 1 not in have or all(x in have for x in STANDARD_SEQS):
+            continue
+        s1 = next((s for s in rows if str(s.get("seq")) == "1"), None)
+        if not s1:
+            continue
+        # 卖出日 = 信号日后第 10 交易日; 老行无 signal_date, 用 buy_date 等价换算(第 9 个 > buy_date)
+        sell_date = ""
+        if trade_dates:
+            sell_date = _nth_trading_day_after(trade_dates, str(s1.get("date") or ""), 9)
+        p = {
+            "buy_date": s1["date"],
+            "etf_code": s1["etf_code"],
+            "etf_name": s1.get("etf_name") or "",
+            "prev_close": s1.get("order_price"),
+            "amount": s1.get("amount") or BUY_AMOUNT,
+            "signal": s1.get("signal") or "",
+            "track_score": s1.get("track_score"),
+        }
+        for st in _build_steps_for_plan(p, now, sell_date):
+            if int(st["seq"]) in have:
+                continue
+            steps.append(st)
+            have.add(int(st["seq"]))
+            changed = True
+            log(f"auto_trade_steps 迁移补齐 seq{st['seq']} {s1['etf_code']} {s1['etf_name']} date={s1['date']}")
+    return changed
 
 
 def _norm_signal(sig: str) -> str:
@@ -453,35 +576,26 @@ def main():
             except Exception:
                 pass
     # 幂等: steps 的 date = 执行日(buy_date, §6.2 交易日), 已存在该执行日的 seq1 挂单行则跳过
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    steps_changed = False
     if plan and any(str(s.get("date")) == buy_date and str(s.get("seq")) == "1"
                     for s in steps_doc["steps"]):
         log(f"auto_trade_steps 已含执行日 date={buy_date}, 幂等跳过追加")
     elif plan:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         for p in plan:
-            shares = _shares_planned(p["amount"], p["prev_close"])
-            step = {
-                "date": p["buy_date"],
-                "seq": 1,
-                "time_slot": "09:15",
-                "action": "buy",
-                "etf_code": p["etf_code"],
-                "etf_name": p["etf_name"],
-                "order_price": p["prev_close"],
-                "expected_range": f"低开按开盘价成交; 高开等回落至 {p['prev_close']} 或尾盘兜底",
-                "decision": f"9:25 集合竞价: O ≤ {p['prev_close']}? 是→按O成交; 否→高开等回落触及 {p['prev_close']}; 14:55 仍未触及→撤单市价兜底",
-                "amount": p["amount"],
-                "shares_planned": shares,
-                "status": "pending",
-                "status_text": "待执行",
-                "signal": p["signal"],
-                "track_score": p["track_score"],
-                "trigger_note": f"按昨收价 {p['prev_close']} 挂限价买单, 9:25 集合竞价撮合(干跑阶段只生成计划, 不真实下单)",
-                "updated_at": now,
-            }
-            steps_doc["steps"].append(step)
-            log(f"auto_trade_steps 追加 seq1 {step['etf_code']} {step['etf_name']} buy_date={step['date']} shares={shares}")
+            # 卖出日 = 信号日后第 10 交易日(A 模式 hold_days=10, 与回测 sell_date 口径一致)
+            sell_date = _nth_trading_day_after(trade_dates, str(p["signal_date"]), 10) if trade_dates else ""
+            for st in _build_steps_for_plan(p, now, sell_date):
+                steps_doc["steps"].append(st)
+            steps_changed = True
+            log(f"auto_trade_steps 追加完整行为链 {p['etf_code']} {p['etf_name']} "
+                f"buy_date={p['buy_date']} sell_date={sell_date} seq1/2/3/5")
 
+    # 迁移: 已有 seq1 缺 seq2/3/5 的历史组自动补齐(需求① 不丢已有 seq1 状态)
+    if _backfill_missing_seqs(steps_doc["steps"], trade_dates, now):
+        steps_changed = True
+
+    if steps_changed:
         for sp in steps_paths:
             with sp.open("w", encoding="utf-8") as f:
                 json.dump(steps_doc, f, ensure_ascii=False, indent=1)

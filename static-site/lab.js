@@ -13958,6 +13958,8 @@ let _atSched = null;      // {slot, timerId} 轮询调度(每次 render 新建 s
 let _atStepsDoc = null;   // auto_trade_steps.json 最近一次成功拉取
 let _atPlanDoc = null;    // nextday_plan.json 最近一次成功拉取
 let _atModalDate = null;  // 当前弹窗打开的日期(YYYYMMDD)
+let _atRealtime = {};     // 盘中现价缓存 {code: {price, prev_close, open, time, change, pct, high, low}}(腾讯直连)
+let _atEtfChartReqSeq = 0; // ETF 走势弹窗请求序号(丢弃过期响应)
 
 // ---- 本地辅助(不依赖 common.js IIFE 私有助手) ----
 function _atToday() {
@@ -14013,6 +14015,191 @@ function _atFetch(url) {
   return fetch(u, { cache: "no-store" }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
 }
 
+// ---- 需求2「✓ 我已操作」持久化(localStorage, 单设备本地提醒, 不写回 JSON 不 R2, 避免写放大+并发风险) ----
+const _AT_MARKED_KEY = "at_steps_marked";
+function _atMarkedGet() {
+  try { return JSON.parse(localStorage.getItem(_AT_MARKED_KEY) || "{}") || {}; }
+  catch (e) { return {}; }
+}
+function _atMarkedSet(map) {
+  try { localStorage.setItem(_AT_MARKED_KEY, JSON.stringify(map || {})); }
+  catch (e) { /* 隐私模式/禁用 storage 时静默降级 */ }
+}
+function _atMarkedKey(st) {
+  return String(st.date || "") + "|" + String(st.etf_code || "") + "|" + (st.seq || 0) + "|" + String(st.action || "");
+}
+function _atIsMarked(st) {
+  if (!st) return false;
+  return !!_atMarkedGet()[_atMarkedKey(st)];
+}
+function _atToggleMark(st) {
+  const map = _atMarkedGet();
+  const k = _atMarkedKey(st);
+  if (map[k]) delete map[k];
+  else map[k] = { marked_at: _atToday() + " " + (function () { const d = new Date(); return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2); })() };
+  _atMarkedSet(map);
+}
+// 状态已落定(非 pending/submitted)= 不再作为「现在该干嘛」候选
+function _atStepSettled(st) {
+  const s = st.status || "";
+  return !(s === "pending" || s === "submitted");
+}
+
+// ---- 需求3 盘中现价: 腾讯 qt.gtimg.cn 直连(CORS * 实测, GBK 解码) ----
+function _atTencentPrefix(code) {
+  const c = String(code);
+  if (c.startsWith("51") || c.startsWith("56") || c.startsWith("58")) return "sh";
+  if (c.startsWith("15") || c.startsWith("16")) return "sz";
+  return "";
+}
+async function _atFetchRealtimeBatch(codes) {
+  // 返回 {code: {price, prev_close, open, time, change, pct, high, low}}; 失败返回 {}
+  const uniq = []; const seen = {};
+  (codes || []).forEach(function (c) {
+    const cc = String(c);
+    if (cc && !seen[cc]) { seen[cc] = 1; uniq.push(cc); }
+  });
+  const results = {};
+  if (!uniq.length) return results;
+  const q = uniq.map(function (c) { const p = _atTencentPrefix(c); return p ? p + c : ""; }).filter(Boolean).join(",");
+  if (!q) return results;
+  try {
+    const r = await fetch("https://qt.gtimg.cn/q=" + q, { cache: "no-store" });
+    if (!r.ok) return results;
+    const buf = await r.arrayBuffer();
+    const text = new TextDecoder("gbk").decode(buf);
+    text.split(";").forEach(function (line) {
+      const m = line.match(/v_([^=]+)="([^"]*)"/);
+      if (!m) return;
+      const parts = m[2].split("~");
+      if (parts.length < 35) return;
+      const price = Number(parts[3]);
+      if (!isFinite(price) || price <= 0) return;
+      const code = parts[2] || m[1].replace(/^(sh|sz)/, "");
+      results[code] = {
+        price: price,
+        prev_close: isFinite(Number(parts[4])) ? Number(parts[4]) : null,
+        open: isFinite(Number(parts[5])) ? Number(parts[5]) : null,
+        time: parts[30] || "",
+        change: isFinite(Number(parts[31])) ? Number(parts[31]) : null,
+        pct: isFinite(Number(parts[32])) ? Number(parts[32]) : null,
+        high: isFinite(Number(parts[33])) ? Number(parts[33]) : null,
+        low: isFinite(Number(parts[34])) ? Number(parts[34]) : null
+      };
+    });
+  } catch (e) { /* 网络不可达 → 空对象, 前端列显「-」降级 */ }
+  return results;
+}
+function _atRtFor(code) {
+  const c = String(code);
+  return _atRealtime[c] || null;
+}
+// 「现价/成交」列: 已成交显实际价; 未成交显盘中现价 + 相对挂单价盈亏色(红涨绿跌, 站点涨跌约定)
+function _atRtHtml(st) {
+  const ap = _atNum(st.actual_price);
+  if (ap != null) return _atPriceStr(ap);
+  const rt = _atRtFor(st.etf_code);
+  const op = _atNum(st.order_price);
+  if (!rt) return "-";
+  let pl = "";
+  let plCss = "";
+  if (op != null && op > 0 && rt.price > 0) {
+    const diff = (rt.price - op) / op * 100;
+    plCss = diff > 0.0001 ? "auto-trade-steps-price-up" : diff < -0.0001 ? "auto-trade-steps-price-down" : "auto-trade-steps-price-flat";
+    pl = '<span class="auto-trade-steps-rt-pl ' + plCss + '">' + (diff > 0 ? "+" : "") + diff.toFixed(2) + '%</span>';
+  }
+  const tip = "现价 " + rt.price.toFixed(3)
+    + " · 昨收 " + (rt.prev_close != null ? rt.prev_close.toFixed(3) : "-")
+    + " · 今开 " + (rt.open != null ? rt.open.toFixed(3) : "-")
+    + " · 高 " + (rt.high != null ? rt.high.toFixed(3) : "-")
+    + " · 低 " + (rt.low != null ? rt.low.toFixed(3) : "-")
+    + (rt.time ? " · " + rt.time : "");
+  const tipFull = (op != null && op > 0)
+    ? tip + " · 相对挂单 " + (((rt.price - op) / op * 100) >= 0 ? "+" : "") + ((rt.price - op) / op * 100).toFixed(2) + "%"
+    : tip;
+  return '<span class="auto-trade-steps-rt-wrap" title="' + _atEsc(tipFull) + '">' +
+    '<span class="auto-trade-steps-rt">' + rt.price.toFixed(3) + '</span>' + pl + '</span>';
+}
+
+// ---- 需求1 时钟时间派生推进(「现在该干嘛」) ----
+// 当日买行为按时钟取当前应执行步骤(事务日推进, 跨日按状态机落定不高亮)
+function _atPickTodayStep(todaySteps) {
+  const hm = _atHM();
+  const sorted = (todaySteps || []).filter(function (s) { return (s.action || "buy") !== "sell"; })
+    .slice().sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
+  if (!sorted.length) return null;
+  const expectSeq = hm >= 1455 ? 3 : (hm >= 925 ? 2 : 1); // <09:15→seq1; 09:15-09:25→seq1; 09:25-14:55→seq2; ≥14:55→seq3
+  for (let i = 0; i < sorted.length; i++) {
+    const s = sorted[i];
+    if ((s.seq || 0) < expectSeq) continue;
+    if (_atStepSettled(s) || _atIsMarked(s)) continue;
+    return s;
+  }
+  return null;
+}
+// 卖出(seq5, D+10)在「卖出日(sell_date)当天起」变为「现在该干嘛」(需求1: 时间线推进到卖出日, 不提前叫)
+function _atFindSellDue(stepsByDate) {
+  const today = _atToday();
+  const sells = [];
+  Object.keys(stepsByDate).forEach(function (d) {
+    (stepsByDate[d] || []).forEach(function (s) {
+      if ((s.action || "") !== "sell") return;
+      if (_atStepSettled(s) || _atIsMarked(s)) return;
+      // 卖出到期判定: 有 sell_date 时须 today >= sell_date(YYYYMMDD 字符串序即日期序);
+      // 老数据无 sell_date 时回退「买日已过」口径(向后兼容, §23.7)
+      if (s.sell_date) { if (!(today >= String(s.sell_date))) return; }
+      else if (!(today > String(s.date || ""))) return;
+      sells.push(s);
+    });
+  });
+  if (!sells.length) return null;
+  sells.sort(function (a, b) {
+    const sa = a.sell_date ? String(a.sell_date) : String(a.date || "");
+    const sb = b.sell_date ? String(b.sell_date) : String(b.date || "");
+    return sa < sb ? -1 : sa > sb ? 1 : 0;
+  });
+  return sells[0];
+}
+function _atNowAction(stepsByDate) {
+  const today = _atToday();
+  const cur = _atPickTodayStep(stepsByDate[today] || []);
+  if (cur) return cur;
+  return _atFindSellDue(stepsByDate);
+}
+// 时间线提示(需求1 中文文案: 到 09:15 前显示「等待 09:15 挂单」等)
+function _atTimeHint(stepsByDate) {
+  const today = _atToday();
+  const todaySteps = stepsByDate[today] || [];
+  const buySteps = todaySteps.filter(function (s) { return (s.action || "buy") !== "sell"; });
+  if (!buySteps.length) return "";
+  const hm = _atHM();
+  if (hm < 915) return "等待 09:15 挂单";
+  if (hm < 925) return "09:15-09:25 挂单可操作";
+  if (hm < 1455) return "09:25 竞价判定";
+  return "14:55 尾盘兜底";
+}
+// 当日买行为是否全部已操作/已落定(主表摘要同步「已操作(手动)」)
+function _atDayAllMarked(steps) {
+  const buySteps = (steps || []).filter(function (s) { return (s.action || "buy") !== "sell"; });
+  if (!buySteps.length) return false;
+  return buySteps.every(function (s) { return _atStepSettled(s) || _atIsMarked(s); });
+}
+// 主表/弹窗收集需要拉盘中现价的 ETF 代码(计划 + 近期步骤, 上限 20 只一次批量)
+function _atCollectCodes(planDoc, stepsDoc) {
+  const codes = []; const seen2 = {};
+  const push = function (c) {
+    const cc = String(c || "");
+    if (cc && !seen2[cc]) { seen2[cc] = 1; codes.push(cc); }
+  };
+  _atPlanRows(planDoc).forEach(function (r) { push(r.etf_code); });
+  const byDate = _atStepsByDate(stepsDoc);
+  const dates = Object.keys(byDate).sort(function (a, b) { return a < b ? 1 : -1; });
+  for (let i = 0; i < dates.length && codes.length < 20; i++) {
+    byDate[dates[i]].forEach(function (s) { push(s.etf_code); });
+  }
+  return codes;
+}
+
 // ---- 数据归一化(PRD §6.2 字段) ----
 function _atStepsList(doc) {
   if (!doc || typeof doc !== "object") return [];
@@ -14039,11 +14226,12 @@ function _atStepsByDate(doc) {
   });
   return map;
 }
-// 该日最高 seq 行为作摘要行(主表每日1行)
+// 该日最高 seq 行为作摘要行(主表每日1行); 当日取「按时钟推进到的当前行为」(需求1 时间派生)
 function _atDaySummary(date, steps) {
   const list = (steps || []).slice().sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
   if (!list.length) return null;
-  const last = list[list.length - 1];
+  const cur = (String(date) === _atToday()) ? _atPickTodayStep(list) : null;
+  const last = cur || list[list.length - 1];
   const first = list[0];
   return {
     date: String(date),
@@ -14059,6 +14247,21 @@ function _atDaySummary(date, steps) {
     trigger_note: last.trigger_note || last.decision || first.trigger_note || first.decision || "",
     plan: false
   };
+}
+// ETF 代码可点击出走势(需求4); 主表/弹窗共用
+function _atEtfLinkHtml(code, name) {
+  if (!code) return "";
+  const c = _atEsc(String(code));
+  const n = name ? _atEsc(String(name)) : "";
+  return '<a href="javascript:void(0)" class="auto-trade-steps-etf-link" data-code="' + c + '" data-name="' + n + '" title="点击看走势图">' + c + '</a>';
+}
+// 动作列(计划动作 + 可点击 ETF 代码 + 名称)
+function _atActionCellHtml(d) {
+  const act = (_AT_ACTION_LABEL[d.action] || d.action || "");
+  const code = d.etf_code ? String(d.etf_code) : "";
+  const name = d.etf_name ? _atEsc(d.etf_name) : "";
+  if (code) return _atEsc(act) + " " + _atEtfLinkHtml(code, d.etf_name) + (name ? " " + name : "");
+  return _atEsc(act) + (name ? " " + name : "");
 }
 // nextday_plan.json -> 天级计划行(仅当日)
 function _atPlanRows(doc) {
@@ -14137,45 +14340,41 @@ function _atBuildDays(planDoc, stepsDoc) {
   days.sort(function (a, b) { return a.date < b.date ? 1 : -1; }); // date DESC
   return days;
 }
-// 「现在该干嘛」: 当日 pending/submitted 中 seq 最小者; 无则 null(提示条与高亮隐藏)
-function _atNowAction(steps) {
-  if (!steps || !steps.length) return null;
-  const actionable = steps.filter(function (s) { return s.status === "pending" || s.status === "submitted"; });
-  if (!actionable.length) return null;
-  actionable.sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
-  return actionable[0];
-}
-
 // ---- 渲染 ----
-function _atActionLabel(d) {
-  const act = (_AT_ACTION_LABEL[d.action] || d.action || "");
-  const code = d.etf_code ? " " + d.etf_code : "";
-  const name = d.etf_name ? " " + d.etf_name : "";
-  return act + code + name;
-}
-function _atRowHtml(d, today) {
+function _atRowHtml(d, today, hlDate, daySteps) {
   const stCls = _AT_STATUS_CLS[d.status] || "gry";
-  const actionable = (d.status === "pending" || d.status === "submitted");
-  const hl = (d.date === today && actionable) ? " auto-trade-steps-day-hl" : "";
+  const hl = (d.date === hlDate) ? " auto-trade-steps-day-hl" : "";
   const amtSharesStr = _atAmtSharesStr(d);
-  return '<tr class="auto-trade-steps-row' + hl + '" data-date="' + _atEsc(d.date) + '" title="点击查看更多当日操作时间线">' +
+  const allMarked = (d.date === today) && _atDayAllMarked(daySteps);
+  const statusHtml = allMarked
+    ? '<span class="auto-trade-steps-st auto-trade-steps-st-green">已操作(手动)</span>'
+    : '<span class="auto-trade-steps-st auto-trade-steps-st-' + stCls + '">' + _atEsc(d.status_text || d.status || "-") + '</span>';
+  return '<tr class="auto-trade-steps-row' + hl + '" data-date="' + _atEsc(d.date) + '" data-name="' + _atEsc(d.etf_name || "") + '" title="点击查看更多当日操作时间线">' +
     '<td class="auto-trade-steps-date">' + _atFmtDate(d.date) + '</td>' +
-    '<td class="auto-trade-steps-action">' + _atEsc(_atActionLabel(d)) + '</td>' +
+    '<td class="auto-trade-steps-action">' + _atActionCellHtml(d) + '</td>' +
     '<td>' + _atPriceStr(d.order_price) + '</td>' +
     '<td>' + (amtSharesStr || "-") + '</td>' +
-    '<td><span class="auto-trade-steps-st auto-trade-steps-st-' + stCls + '">' + _atEsc(d.status_text || d.status || "-") + '</span></td>' +
-    '<td>' + _atPriceStr(d.actual_price) + '</td>' +
+    '<td>' + statusHtml + '</td>' +
+    '<td>' + _atRtHtml(d) + '</td>' +
     '<td class="auto-trade-steps-note" title="' + _atEsc(d.trigger_note || "") + '">' + _atEsc(d.trigger_note || "-") + '</td>' +
     '</tr>';
 }
-function _atNowBarHtml(act) {
+function _atNowBarHtml(act, hint) {
   const price = _atNum(act.order_price);
   const priceStr = price == null ? "" : " 挂单 " + price.toFixed(3);
+  const marked = _atIsMarked(act);
+  const stText = marked ? "已操作(手动)" : (act.status_text || act.status || "");
+  const rt = _atRtFor(act.etf_code);
+  const rtStr = rt ? " · 现价 " + rt.price.toFixed(3) : "";
+  const sellHint = (act.action === "sell" && act.sell_date) ? " · 卖出日 " + act.sell_date : "";
+  const prefix = hint ? '<span class="auto-trade-steps-bar-hint">[' + _atEsc(hint) + ']</span> ' : "";
   return '<div class="auto-trade-steps-bar">' +
-    '<span class="auto-trade-steps-bar-ic">⏱</span>' +
-    '<span class="auto-trade-steps-bar-txt"><b>' + _atEsc(act.time_slot || "") + '</b> ' +
-    _atEsc(act.status_text || act.status || "") + ': ' +
+    '<span class="auto-trade-steps-bar-ic">' + (marked ? "✅" : "⏱") + '</span>' +
+    '<span class="auto-trade-steps-bar-txt">' + prefix +
+    '<b>' + _atEsc(act.time_slot || "") + '</b> ' +
+    _atEsc(stText) + ': ' +
     _atEsc(act.etf_code || "") + (act.etf_name ? " " + _atEsc(act.etf_name) : "") + priceStr +
+    (rtStr || "") + (sellHint || "") +
     ' · ' + _atEsc(act.trigger_note || act.decision || "等待执行") + '</span>' +
     '</div>';
 }
@@ -14185,13 +14384,15 @@ function _atRender(slot, planDoc, stepsDoc) {
   const today = _atToday();
   const days = _atBuildDays(planDoc, stepsDoc);
   const byDate = _atStepsByDate(stepsDoc);
-  const nowAct = _atNowAction(byDate[today] || []);
-  const barHtml = nowAct ? _atNowBarHtml(nowAct) : "";
+  const nowAct = _atNowAction(byDate);
+  const nowActDate = nowAct ? String(nowAct.date || "") : "";
+  const hint = _atTimeHint(byDate);
+  const barHtml = nowAct ? _atNowBarHtml(nowAct, hint) : "";
   let bodyHtml;
   if (days.length) {
     bodyHtml = '<div class="auto-trade-steps-tablewrap"><table class="auto-trade-steps-table"><thead><tr>' +
-      '<th>日期</th><th>计划动作</th><th>挂单价</th><th>金额/份数</th><th>状态</th><th>实际成交价</th><th>触发条件摘要</th>' +
-      '</tr></thead><tbody>' + days.map(function (d) { return _atRowHtml(d, today); }).join("") + '</tbody></table></div>';
+      '<th>日期</th><th>计划动作</th><th>挂单价</th><th>金额/份数</th><th>状态</th><th>现价/成交</th><th>触发条件摘要</th>' +
+      '</tr></thead><tbody>' + days.map(function (d) { return _atRowHtml(d, today, nowActDate, byDate[d.date] || []); }).join("") + '</tbody></table></div>';
   } else {
     bodyHtml = '<div class="auto-trade-steps-empty">暂无实操计划。次日买入计划生成(交易日 21:00 后)后自动显示。</div>';
   }
@@ -14205,6 +14406,14 @@ function _atRender(slot, planDoc, stepsDoc) {
     '</div>';
   slot.querySelectorAll(".auto-trade-steps-row").forEach(function (row) {
     row.onclick = function () { _atOpenModal(row.getAttribute("data-date")); };
+  });
+  // 需求4: 主表 ETF 代码点击出走势(不触发行弹窗)
+  slot.querySelectorAll(".auto-trade-steps-etf-link").forEach(function (a) {
+    a.onclick = function (e) {
+      e.stopPropagation();
+      e.preventDefault();
+      _atOpenEtfChart(a.getAttribute("data-code"), a.getAttribute("data-name") || "");
+    };
   });
 }
 
@@ -14230,7 +14439,17 @@ function _atSchedule() {
 function _atLoadAndRender(slot) {
   Promise.all([_atFetch(_AT_URL_PLAN), _atFetch(_AT_URL_STEPS)]).then(function (rs) {
     if (!slot || !slot.isConnected) return;
-    _atRender(slot, rs[0], rs[1]);
+    const planDoc = rs[0], stepsDoc = rs[1];
+    // 需求3: 主表展示涉及的 ETF 代码批量拉盘中现价(腾讯直连, 60s 轮询复用 _atPollingMs)
+    _atFetchRealtimeBatch(_atCollectCodes(planDoc, stepsDoc)).then(function (rt) {
+      _atRealtime = rt || {};
+      if (!slot || !slot.isConnected) return;
+      _atRender(slot, planDoc, stepsDoc);
+    }).catch(function () {
+      _atRealtime = {};
+      if (!slot || !slot.isConnected) return;
+      _atRender(slot, planDoc, stepsDoc);
+    });
   });
 }
 function _atInit(slot) {
@@ -14252,16 +14471,26 @@ function _atModalDates() {
 function _atModalRowHtml(st, hl) {
   const stCls = _AT_STATUS_CLS[st.status] || "gry";
   const amtStr = _atAmtSharesStr(st);
-  return '<tr class="' + (hl ? "auto-trade-steps-modal-hl" : "") + '">' +
+  const marked = _atIsMarked(st);
+  const d = _atEsc(String(st.date || ""));
+  const c = _atEsc(String(st.etf_code || ""));
+  const q = Number(st.seq || 0);
+  const markBtn = marked
+    ? '<button type="button" class="auto-trade-steps-mark-btn is-marked" data-date="' + d + '" data-code="' + c + '" data-seq="' + q + '" title="再次点击取消标记(本地提醒)">✓ 已操作</button>'
+    : '<button type="button" class="auto-trade-steps-mark-btn" data-date="' + d + '" data-code="' + c + '" data-seq="' + q + '" title="标记我已操作过(本地提醒, 不写回服务端)">✓ 我已操作</button>';
+  const statusText = marked ? "已操作(手动)" : (st.status_text || st.status || "-");
+  const etfLink = st.etf_code ? _atEtfLinkHtml(st.etf_code, st.etf_name) : _atEsc(st.etf_code || "-");
+  return '<tr class="' + (hl ? "auto-trade-steps-modal-hl" : "") + (marked ? " auto-trade-steps-row-marked" : "") + '">' +
     '<td>' + _atEsc(st.time_slot || "-") + '</td>' +
     '<td class="auto-trade-steps-action">' + _atEsc(_AT_ACTION_LABEL[st.action] || st.action || "-") + '</td>' +
-    '<td>' + _atEsc(st.etf_code || "-") + (st.etf_name ? '<div class="auto-trade-steps-etfname">' + _atEsc(st.etf_name) + '</div>' : "") + '</td>' +
+    '<td>' + etfLink + (st.etf_name ? '<div class="auto-trade-steps-etfname">' + _atEsc(st.etf_name) + '</div>' : "") + '</td>' +
     '<td>' + _atPriceStr(st.order_price) + '</td>' +
     '<td>' + (amtStr || "-") + '</td>' +
-    '<td><span class="auto-trade-steps-st auto-trade-steps-st-' + stCls + '">' + _atEsc(st.status_text || st.status || "-") + '</span></td>' +
-    '<td>' + _atPriceStr(st.actual_price) + '</td>' +
+    '<td><span class="auto-trade-steps-st auto-trade-steps-st-' + (marked ? "green" : stCls) + '">' + _atEsc(statusText) + '</span></td>' +
+    '<td>' + _atRtHtml(st) + '</td>' +
     '<td class="auto-trade-steps-note">' + _atEsc(st.trigger_note || st.decision || "-") + '</td>' +
     '<td>' + _atEsc(st.updated_at || "-") + '</td>' +
+    '<td>' + markBtn + '</td>' +
     '</tr>';
 }
 function _atModalRender(overlay) {
@@ -14276,23 +14505,24 @@ function _atModalRender(overlay) {
   let rowsHtml;
   if (steps.length) {
     const today = _atToday();
+    const nowAct = _atNowAction(byDate); // 现在该干嘛(仅今日有值)
     rowsHtml = steps.map(function (st) {
-      const hl = (date === today && (st.status === "pending" || st.status === "submitted"));
+      const hl = (date === today && st === nowAct); // 引用相等 = 精确高亮当前应执行步骤
       return _atModalRowHtml(st, hl);
     }).join("");
   } else {
-    rowsHtml = '<tr><td colspan="9" class="auto-trade-steps-empty">该日暂无行为级记录(仅有当日计划概要, 见主表)。</td></tr>';
+    rowsHtml = '<tr><td colspan="10" class="auto-trade-steps-empty">该日暂无行为级记录(仅有当日计划概要, 见主表)。</td></tr>';
   }
   const head = '<div class="lab-sigkelly-modal-head">' +
     '<span class="auto-trade-steps-modal-title">📋 实操步骤 · ' + _atFmtDate(date) + ' 全时间线</span>' +
-    '<span class="auto-trade-steps-sub">seq 排序 · 高亮行 = 当前待执行/已挂单(现在该干嘛)</span>' +
+    '<span class="auto-trade-steps-sub">seq 排序 · 高亮行 = 当前待执行/已挂单(现在该干嘛) · 点 ETF 代码看走势 · ✓ 标记操作后退出高亮</span>' +
     '<span style="flex:1"></span>' +
     (nextDate ? '<button class="auto-trade-steps-nav-btn" data-nav="next">后一天 ▲</button>' : "") +
     (prevDate ? '<button class="auto-trade-steps-nav-btn" data-nav="prev">前一天 ▼</button>' : "") +
     '<button class="lab-sigkelly-modal-close">✕</button>' +
     '</div>';
   const body = '<div class="lab-sigkelly-modal-tablewrap"><table class="lab-sigkelly-trades-table auto-trade-steps-modal-table">' +
-    '<thead><tr><th>时点</th><th>动作</th><th>ETF</th><th>挂单价</th><th>金额/份额</th><th>状态</th><th>实际成交价</th><th>触发条件说明</th><th>更新时间</th></tr></thead>' +
+    '<thead><tr><th>时点</th><th>动作</th><th>ETF</th><th>挂单价</th><th>金额/份额</th><th>状态</th><th>现价/成交</th><th>触发条件说明</th><th>更新时间</th><th>操作</th></tr></thead>' +
     '<tbody>' + rowsHtml + '</tbody></table></div>';
   overlay.innerHTML = '<div class="lab-sigkelly-modal auto-trade-steps-modal">' + head + body + '</div>';
   const closeBtn = overlay.querySelector(".lab-sigkelly-modal-close");
@@ -14303,6 +14533,29 @@ function _atModalRender(overlay) {
       if (!target) return;
       _atModalDate = target;
       _atModalRender(overlay);
+    };
+  });
+  // 需求4: 弹窗 ETF 代码点击出走势(不触发行外动作)
+  overlay.querySelectorAll(".auto-trade-steps-etf-link").forEach(function (a) {
+    a.onclick = function (e) {
+      e.stopPropagation();
+      _atOpenEtfChart(a.getAttribute("data-code"), a.getAttribute("data-name") || "");
+    };
+  });
+  // 需求2: 「✓ 我已操作」标记(localStorage, 标记后置灰/打勾 + 主表同步)
+  overlay.querySelectorAll(".auto-trade-steps-mark-btn").forEach(function (btn) {
+    btn.onclick = function (e) {
+      e.stopPropagation();
+      const date2 = btn.getAttribute("data-date");
+      const code2 = btn.getAttribute("data-code");
+      const seq2 = Number(btn.getAttribute("data-seq"));
+      const st = (_atStepsByDate(_atStepsDoc)[date2] || []).find(function (s) {
+        return String(s.etf_code || "") === String(code2) && (s.seq || 0) === seq2;
+      });
+      if (!st) return;
+      _atToggleMark(st);
+      _atModalRender(overlay);                                   // 弹窗就地刷新(打勾/置灰)
+      if (_atSched && _atSched.slot && _atSched.slot.isConnected) _atLoadAndRender(_atSched.slot); // 主表同步
     };
   });
 }
@@ -14324,4 +14577,48 @@ function _atModalClose() {
   const overlay = document.getElementById("lab-autotrade-steps-overlay");
   if (overlay) { overlay.style.display = "none"; overlay.innerHTML = ""; }
   _atModalDate = null;
+}
+
+// 需求4: 点击 ETF 代码 → 轻量走势弹窗(复用 app.js 全局 _etfTrendLiteHTML/_etfTrendLiteBind +
+// R2 {code}-all.json; 实操步骤场景无交易事件, 不可复用 _openEtfTrendPinModal(空事件直接 return))
+async function _atOpenEtfChart(code, name) {
+  if (!code) return;
+  const reqSeq = ++_atEtfChartReqSeq;
+  let overlay = document.getElementById("lab-autotrade-etf-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "lab-autotrade-etf-overlay";
+    overlay.className = "lab-sigkelly-overlay";
+    document.body.appendChild(overlay);
+  }
+  document.body.appendChild(overlay); // 层级保障: 无条件置 body 末尾(同 _openEtfTrendPinModal 2026-09-10 修复)
+  overlay.innerHTML =
+    '<div class="lab-sigkelly-modal auto-trade-steps-etf-modal">' +
+      '<div class="lab-sigkelly-modal-head">' +
+        '<div class="lab-sigkelly-modal-title">📈 ' + _esc(code) + (_esc(name) ? " · " + _esc(name) : "") + ' · 走势</div>' +
+        '<button type="button" class="lab-sigkelly-modal-close" title="关闭">✕</button>' +
+      '</div>' +
+      '<div class="auto-trade-steps-etf-body" id="lab-autotrade-etf-body-loading"><div class="lab-sigkelly-modal-loading">⏳ 加载走势…</div></div>' +
+    '</div>';
+  overlay.style.display = "flex";
+  const closeChart = function () { overlay.style.display = "none"; overlay.innerHTML = ""; };
+  overlay.querySelector(".lab-sigkelly-modal-close").onclick = closeChart;
+  overlay.onclick = function (e) { if (e.target === overlay) closeChart(); };
+
+  const body = overlay.querySelector(".auto-trade-steps-etf-body");
+  let hist = null;
+  try { hist = await fetchJSON(_LAB_ETF_PIN_URL(code), 15000); } catch (e) { hist = null; }
+  if (!hist || !hist.ohlc || !hist.ohlc.length) {
+    try { hist = await fetchJSON(_LAB_ETF_PIN_FALLBACK(code), 15000); } catch (e2) { hist = null; }
+  }
+  if (reqSeq !== _atEtfChartReqSeq) return; // 已关/已换, 丢弃过期响应
+  if (!hist || !hist.ohlc || !Array.isArray(hist.ohlc) || hist.ohlc.length < 2) {
+    body.innerHTML = '<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 走势数据加载失败</div>' +
+      '<div class="lab-custom-error-detail">' + _esc(code) + '-all.json 不可用（R2 与本地均失败）</div></div>';
+    return;
+  }
+  const ohlc = hist.ohlc; // [[YYYYMMDD, o, h, l, c], ...]
+  body.innerHTML = '<div class="lab-etf-pin-wrap">' + _etfTrendLiteHTML(ohlc) + '</div>';
+  const svg = body.querySelector("svg.etf-trend-lite");
+  if (svg) _etfTrendLiteBind(svg, ohlc, { panZoom: true });
 }
