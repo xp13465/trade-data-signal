@@ -1356,6 +1356,154 @@ def _backfill_concept_daily(concepts: list[dict]) -> int:
     return n
 
 
+# ============ 历史信号宇宙盘中补采（#107，2026-09-11）============
+# 背景：首页历史信号弹窗走势图盘中无当日点，根因=盘中 affected 只重导
+# 「今日 index_daily 有当日行 ∩ 历史信号宇宙」，103 个历史信号指数
+# （csi_*/gz_*/港股行业/外盘等）今日盘中 index_daily 无行 → 不重导 →
+# R2 index/{iid}-all.json 停昨日 → 前端无当日点可画。
+# 方案：历史信号宇宙中腾讯 qt 有实时码的指数，盘中批量补采实时价 →
+# UPSERT 写 index_daily 当日行（与 _backfill_index_daily 同模式，写真实 OHLC）
+# → 9/7 affected 重导逻辑（index_daily 当日行 ∩ 历史信号宇宙）自动覆盖
+# → upload-index 传 R2 → 前端当日点。
+# 映射实测 2026-09-11（逐码请求 qt.gtimg.cn 验证）：48/103 可补；
+# 规则：csi_000xxx→sh、csi_399xxx→sz、csi_000330(深证100)→sz399330、
+# csi_000673(创业板50)→sz399673、gz_399xxx→sz、hk 3 个 r_hk 前缀、
+# sz_div→sz399324、csi_div(中证红利)→sh000922、csi_970070→sz970070。
+# 跳过 55 个：930/931/932/H 系列腾讯无码（r_hkCSHKLRE/r_hkCSHKLC 亦无码），
+# 外盘(us_*/cac40/dax/ftse100/kospi/nikkei225)按 global 源口径不强行补，
+# 商品/汇率(g.*)/情绪(s.*)非指数不补，cgb_10y_future 实时源不支持。
+# 风险容错：单批失败不阻断主链路（try/except 跳过继续）；非交易日闸门不采。
+_SIGNAL_UNIVERSE_TENCENT_MAP = {
+    "csi_000010": "sh000010",  # 上证180
+    "csi_000102": "sh000102",  # 沪投资品
+    "csi_000510": "sh000510",  # 中证A500
+    "csi_000680": "sh000680",  # 科创综指
+    "csi_000698": "sh000698",  # 科创100
+    "csi_000699": "sh000699",  # 科创200
+    "csi_000805": "sh000805",  # A股资源
+    "csi_000813": "sh000813",  # 细分化工
+    "csi_000827": "sh000827",  # 中证环保
+    "csi_000903": "sh000903",  # 中证A100
+    "csi_000935": "sh000935",  # 中证信息
+    "csi_000961": "sh000961",  # 中证上游
+    "csi_000998": "sh000998",  # 中证TMT
+    "csi_000330": "sz399330",  # 深证100
+    "csi_000673": "sz399673",  # 创业板50
+    "csi_399707": "sz399707",  # CSSW证券
+    "csi_399803": "sz399803",  # 工业4.0
+    "csi_399806": "sz399806",  # 环境治理
+    "csi_399807": "sz399807",  # 高铁产业
+    "csi_399808": "sz399808",  # 中证新能
+    "csi_399811": "sz399811",  # CSSW电子
+    "csi_399967": "sz399967",  # 中证军工
+    "csi_399970": "sz399970",  # 移动互联
+    "csi_399971": "sz399971",  # 中证传媒
+    "csi_399975": "sz399975",  # 证券公司
+    "csi_399976": "sz399976",  # CS新能车
+    "csi_399986": "sz399986",  # 中证银行
+    "csi_399989": "sz399989",  # 中证医疗
+    "csi_399991": "sz399991",  # 一带一路
+    "csi_399994": "sz399994",  # 信息安全
+    "csi_399995": "sz399995",  # 基建工程
+    "csi_399996": "sz399996",  # 智能家居
+    "csi_399998": "sz399998",  # 中证煤炭
+    "csi_970070": "sz970070",  # 创业板AI
+    "csi_div": "sh000922",  # 中证红利
+    "gz_399365": "sz399365",  # 国证粮食
+    "gz_399368": "sz399368",  # 国证军工
+    "gz_399395": "sz399395",  # 国证有色
+    "gz_399396": "sz399396",  # 国证食品
+    "gz_399417": "sz399417",  # 新能源车
+    "gz_399431": "sz399431",  # 国证银行
+    "gz_399439": "sz399439",  # 国证油气
+    "gz_399440": "sz399440",  # 国证钢铁
+    "sse_000685": "sh000685",  # 科创芯片
+    "sz_div": "sz399324",  # 深证红利
+    "hk_cesg10": "r_hkCESG10",  # 中华博彩
+    "hk_hscci": "r_hkHSCCI",  # 恒生中资企业
+    "hk_hsmpi": "r_hkHSMPI",  # 恒生内地地产
+}
+
+
+def _backfill_signal_universe_tencent(today: str = None) -> int:
+    """盘中给「历史信号宇宙 ∩ 腾讯 qt 有实时码」的缺口指数补 index_daily 当日行。
+
+    返回写入条数。调用方（collect_and_save）负责 try/except 兜底，
+    本函数内部也逐批容错（某批请求失败跳过继续，不阻断主链路）。
+    交易日闸门：非交易日直接返回 0（不写当日行，防 qt 返旧价污染）。
+    """
+    from ..calendar import is_trading_day
+
+    today = today or datetime.now().strftime("%Y%m%d")
+    if not is_trading_day(today):
+        print(f"  [intraday] 非交易日({today})，跳过历史信号宇宙腾讯补采", flush=True)
+        return 0
+
+    conn = get_conn()
+    # 今日已有行的 index_id（避免重复补）
+    have = {r[0] for r in conn.execute(
+        "SELECT DISTINCT index_id FROM index_daily WHERE date=?", (today,))}
+    # 历史信号宇宙全量
+    universe = {r[0] for r in conn.execute(
+        "SELECT DISTINCT index_id FROM signal_daily")}
+    # 缺口 = 历史信号宇宙 - 今日已有行，只取映射表内有腾讯码的
+    missing = sorted(set(universe) - have)
+    pairs = [(iid, _SIGNAL_UNIVERSE_TENCENT_MAP[iid])
+             for iid in missing if iid in _SIGNAL_UNIVERSE_TENCENT_MAP]
+    if not pairs:
+        print(f"  [intraday] 历史信号宇宙腾讯补采: 今日已覆盖，无可补缺口", flush=True)
+        conn.close()
+        return 0
+    print(f"  [intraday] 历史信号宇宙腾讯补采: 缺口 {len(missing)}，可补 {len(pairs)}", flush=True)
+
+    # 腾讯 qt 批量请求（分批发，防 URL 过长；批失败不阻断）
+    n = 0
+    ok_ids = []
+    for i in range(0, len(pairs), 30):
+        batch = pairs[i:i + 30]
+        try:
+            throttle()
+            url = "http://qt.gtimg.cn/q=" + ",".join(tx for _, tx in batch)
+            r = _safe_get(url, headers={"User-Agent": UA}, timeout=10)
+            tdata = _parse_tencent(r.content.decode("gbk"))
+            by_key = {d["code"]: d for d in tdata if d.get("price")}
+        except Exception as e:  # noqa: BLE001
+            print(f"  [intraday] 历史信号宇宙腾讯补采第 {i // 30 + 1} 批失败（跳过）: "
+                  f"{type(e).__name__} {e}", flush=True)
+            continue
+        for iid, tx in batch:
+            # _parse_tencent 提取 key 时 strip "v_" + split("_")[-1]：
+            #   A 股 v_sh000001 -> "sh000001"；港股 v_r_hkHSI -> "hkHSI"（r_ 被吃掉）
+            key = tx[2:] if tx.startswith("r_hk") else tx
+            d = by_key.get(key)
+            if d is None:
+                print(f"  [intraday] 补采 {iid}（{tx}）腾讯无码/无价，跳过", flush=True)
+                continue
+            price = d.get("price")
+            if price is None:
+                continue
+            dtstr = d.get("datetime", "")
+            snap_date = dtstr[:8] if len(dtstr) >= 8 else ""
+            if snap_date and snap_date != today:
+                print(f"  [intraday] 补采 {iid} 快照日期 {snap_date} != 今日 {today}，跳过", flush=True)
+                continue
+            conn.execute(
+                "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount) "
+                "VALUES (?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(date, index_id) DO UPDATE SET "
+                "open=excluded.open, high=excluded.high, low=excluded.low, "
+                "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount",
+                (today, iid, d.get("open"), d.get("high"), d.get("low"),
+                 price, d.get("pct_change"), d.get("amount")),
+            )
+            n += 1
+            ok_ids.append(iid)
+    conn.commit()
+    conn.close()
+    print(f"  [intraday] 历史信号宇宙腾讯补采完成: {n} 条 ({', '.join(ok_ids)})", flush=True)
+    return n
+
+
 def _backfill_commodity_metrics(commodities: list[dict]) -> int:
     """把 6 商品实时价格写入 daily_metric（覆盖当日值，source='intraday'）。
 
@@ -2381,6 +2529,18 @@ def collect_and_save() -> dict:
                 print(f"  [intraday] 重新 dump intraday_snapshot.json 失败（不阻断）: {type(e).__name__} {e}", flush=True)
         n_ind = _backfill_industry_daily(snap["industries"])
         n_concept = _backfill_concept_daily(snap["concepts"])
+        # 历史信号宇宙腾讯码补采（#107）：盘中给 csi_/gz_/hk_ 缺口指数写 index_daily 当日行，
+        # 让 affected 重导逻辑（index_daily 当日行 ∩ 历史信号宇宙）自动覆盖到它们，
+        # R2 index/{iid}-all.json 到当日 → 首页历史信号弹窗走势图盘中有点可画。
+        # 可配置开关：INTRADAY_SIGNAL_UNIVERSE_PATCH=0 关闭（默认开启），不绑定 17 基础
+        # 之外的原有行为，异常时可直接关掉降级回原逻辑（§14 生产稳定性）。
+        # 失败不阻断（补采是增强，17:50 update_all 全量会覆盖为收盘值）。
+        n_sig = 0
+        if os.environ.get("INTRADAY_SIGNAL_UNIVERSE_PATCH", "1") != "0":
+            try:
+                n_sig = _backfill_signal_universe_tencent(datetime.now().strftime("%Y%m%d"))
+            except Exception as e:  # noqa: BLE001
+                print(f"[intraday] 历史信号宇宙腾讯补采失败（不阻断）: {type(e).__name__} {e}", flush=True)
         # 重算：指数反哺 或 width 指标采集 都触发（width 有当日值后 a_sentiment/cross_market 能出分）
         if n_backfill > 0 or width_n > 0:
             _recompute_scores()
@@ -2388,10 +2548,11 @@ def collect_and_save() -> dict:
         # 行业/概念反哺后重算轮动速度（rotation.json 才有当日行 + 当日领涨 top3）
         if n_ind > 0 or n_concept > 0:
             _recompute_rotation()
-        if n_backfill > 0 or n_ind > 0 or n_concept > 0 or width_n > 0:
+        if n_backfill > 0 or n_ind > 0 or n_concept > 0 or n_sig > 0 or width_n > 0:
             _export_affected_json(is_closed=snap["is_closed"])
             print(f"[intraday] 反哺+width+重算+export 完成"
-                  f"（{n_backfill} 指数 + {n_ind} 行业 + {n_concept} 概念反哺 + {width_n} width 指标"
+                  f"（{n_backfill} 指数 + {n_ind} 行业 + {n_concept} 概念 + {n_sig} 信号宇宙补采"
+                  f" + {width_n} width 指标"
                   f" + {n_comm} 商品 + {n_fx} usdcnh + {n_cn10y_etf} cn10y_etf）",
                   flush=True)
         else:

@@ -10514,11 +10514,17 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
     if (_todayDateB2 && _lastDateB2 && _lastDateB2 < _todayDateB2) {
       try { _estPtB2 = await _appendIntradayEstimate(chartData, sigs, indexId, _todayDateB2, isValue); } catch (e) { _estPtB2 = false; }
     }
-    if (!_estPtB2 && _todayDateB2 && _lastDateB2 && _lastDateB2 < _todayDateB2 && _hasTodaySigB2) {
+    // #107(2026-09-11): 滞后提示条件从「今日该指数有信号」扩为「末日<T日且补点失败」即显示——
+    // 历史信号指数今日无信号时补点也常失败(无实时源)，原条件致静默缺(无任何提示)。
+    // 文案区分：今日有信号=原文案(有信号·预估中)；无信号=中性文案(盘中无当日实时价，17:50 同步)。
+    // 补点成功(末日已到 T 日)仍不提示(图表已有今日数据)，维持 2026-07-28 方案0 防误报精神。
+    if (!_estPtB2 && _todayDateB2 && _lastDateB2 && _lastDateB2 < _todayDateB2) {
       const _lagHint = document.createElement("div");
       _lagHint.className = "sig-chart-lag-hint";
       _lagHint.setAttribute("style", "margin-bottom:8px;padding:6px 10px;font-size:12px;color:#e6a23c;background:rgba(230,162,60,0.1);border:1px solid rgba(230,162,60,0.3);border-radius:4px;line-height:1.5;");
-      _lagHint.innerHTML = "⚠ 走势图数据截止 " + fmtDate(_lastDateB2) + "，T日(" + fmtDate(_todayDateB2) + ")有信号·盘中实时预估中，收盘后(17:50)同步最终pin";
+      _lagHint.innerHTML = _hasTodaySigB2
+        ? "⚠ 走势图数据截止 " + fmtDate(_lastDateB2) + "，T日(" + fmtDate(_todayDateB2) + ")有信号·盘中实时预估中，收盘后(17:50)同步最终pin"
+        : "⚠ 走势图数据截止 " + fmtDate(_lastDateB2) + "，该指数盘中暂无当日实时价，收盘后(17:50)同步今日K线";
       body.appendChild(_lagHint);
     }
     // 信号对错盈亏行（方案B后端算）：文案=成功/失败·N日窗盈亏 ±X%（2026-08-24 到期冻结窗：N=实际生效窗长
@@ -31194,13 +31200,43 @@ async function _appendIntradayEstimate(chartData, sigs, indexId, todayDate, isVa
     // KPI 场景：调用方已查好 T 日值（overview.today），无需 snapshot 反查
     idx = { price: todayValueOverride };
   } else {
-    // 信号弹窗场景：从 intraday_snapshot 反查腾讯全码
-    const code = _SNAPSHOT_IID_TO_CODE[indexId];
-    if (!code) return false; // 不在 17 基础指数，无实时价来源
+    // 信号弹窗场景：从 intraday_snapshot 反查实时价
     const snap = await _getCachedSnapshot();
-    if (!snap || !snap.indices) return false;
-    idx = snap.indices.find(it => it.code === code);
-    if (!idx || idx.price == null) return false;
+    if (!snap) return false;
+    const code = _SNAPSHOT_IID_TO_CODE[indexId];
+    if (code && snap.indices) {
+      // 17 基础指数：腾讯全码实时价（真实 OHLC）
+      idx = snap.indices.find(it => it.code === code);
+      if (!idx || idx.price == null) return false;
+    } else if (indexId.indexOf("sw_") === 0 || indexId.indexOf("thsc_") === 0) {
+      // 行业/概念指数（#107 兜底）：快照 industries/concepts 当日涨跌幅 × 前收算当日 close。
+      // 覆盖历史信号宇宙的 sw_(31)/thsc_(27)——今日无信号的也补点，
+      // 杜绝历史信号弹窗走势图盘中静默缺当日点（数据层 csi_/gz_/hk_ 由生成侧 A 方案补采）。
+      let pct = null;
+      let con = null;
+      if (indexId.indexOf("sw_") === 0) {
+        const ind = (snap.industries || []).find(it => it.sw_code === indexId);
+        if (ind && ind.pct_change != null) { pct = ind.pct_change; con = ind; }
+      } else {
+        const c = (snap.concepts || []).find(it => it.id === indexId);
+        if (c && c.pct_change != null) { pct = c.pct_change; con = c; }
+      }
+      if (pct == null) return false; // 该行业/概念不在当日快照（采集失败/非交易日）
+      const prevClose = chartData[chartData.length - 1].close;
+      if (prevClose == null) return false;
+      // 概念快照含合成 close（昨收×(1+涨幅)）优先；行业只有涨跌幅用前收计算法
+      const closeVal = (con && con.close != null) ? con.close : prevClose * (1 + pct / 100);
+      idx = {
+        price: closeVal,
+        open: (con && con.open != null) ? con.open : closeVal,
+        high: (con && con.high != null) ? con.high : closeVal,
+        low: (con && con.low != null) ? con.low : closeVal,
+        pct_change: pct,
+        amount: (con && con.amount != null) ? con.amount : null,
+      };
+    } else {
+      return false; // 非 17 基础 + 非行业/概念，无实时价来源
+    }
   }
   // 补 T 日点到 chartData 末尾
   if (isValue) {
