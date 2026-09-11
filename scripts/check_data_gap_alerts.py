@@ -819,6 +819,37 @@ def _missing_reason(repo: Path, d: str, iid: str, be: dict, win: list[str]) -> t
     return (f"已具备次日价仍无 trade(需人工核查…可能评级缺失/冻结缺失): {code} {name}", False)
 
 
+def _kelly_missing_candidates(repo: Path, db: Path, win: list[str], t_prev: str,
+                              sig_set: set, excluded: tuple, best_etf: dict) -> list[list[str]]:
+    """窗口内宇宙内入样 buy 系信号中「应已入账却没有对应 trade」的候选(单一事实源, 供
+    coverage 与 stale 共用, 防双份实现漂移——#102 9/11 SEVERE 误报根治: stale 复用本判定
+    做「信号缺席感知」门控)。返回 [[d, iid, sig, code, name], ...]; 空=无应入账缺失。
+    口径与 signal_kelly_backtest._build_best_etf 对齐(best_etf 含 key ⟺ map 有 key+非空+有 track_score;
+    宇宙外跳过; signal_date>T-1 未来不足容差跳过——次日 open 定价, 天然未入账不算缺失)。"""
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=30.0)
+    try:
+        cands = conn.execute(
+            "SELECT date, index_id, signal FROM signal_daily "
+            "WHERE signal IN ('buy','buy_aux','buy_special','buy_backup') AND date>=? "
+            "ORDER BY date, index_id", (win[0],)).fetchall()
+    finally:
+        conn.close()
+    out: list[list[str]] = []
+    for d, iid, sig in cands:
+        d, iid, sig = str(d), str(iid), str(sig)
+        if _iid_in_excluded(iid, excluded):
+            continue
+        be = best_etf.get(iid)
+        if not be:
+            continue
+        if (d, iid, sig) in sig_set:
+            continue
+        if t_prev and d > t_prev:
+            continue  # 未来不足(signal_date>T-1): 需次日 open 定价, 天然未入账
+        out.append([d, iid, sig, str(be.get("code") or "?"), str(be.get("name") or "?")])
+    return out
+
+
 def check_kelly_coverage(repo: Path, today: datetime) -> list[Finding]:
     """checker 6: 信号→交易正向覆盖检查(9/7 断档根治核心, 设计 §4.1)。
     候选=signal_daily 最近 N 交易日 buy 系; 对照 trades 集合; 「有信号无 trade」列出。
@@ -841,29 +872,11 @@ def check_kelly_coverage(repo: Path, today: datetime) -> list[Finding]:
                         "signal_daily 无任何 buy 系信号, 覆盖检查不适用")]
     t_prev = win[-2] if len(win) >= 2 else ""
 
-    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=30.0)
-    try:
-        cands = conn.execute(
-            "SELECT date, index_id, signal FROM signal_daily "
-            "WHERE signal IN ('buy','buy_aux','buy_special','buy_backup') AND date>=? "
-            "ORDER BY date, index_id", (win[0],)).fetchall()
-    finally:
-        conn.close()
-
+    cands = _kelly_missing_candidates(repo, db, win, t_prev, sig_set, excluded, best_etf)
     missing: list[tuple[str, str, str, str, str, str, bool]] = []
-    for d, iid, sig in cands:
-        d, iid, sig = str(d), str(iid), str(sig)
-        if _iid_in_excluded(iid, excluded):
-            continue
-        be = best_etf.get(iid)
-        if not be:
-            continue
-        if (d, iid, sig) in sig_set:
-            continue
-        if t_prev and d > t_prev:
-            continue  # 未来不足(signal_date>T-1): 需次日 open 定价, 天然未入账
-        r = _missing_reason(repo, d, iid, be, win)
-        missing.append((d, iid, sig, str(be.get("code") or "?"), str(be.get("name") or "?"), r[0], r[1]))
+    for d, iid, sig, code, name in cands:
+        r = _missing_reason(repo, d, iid, best_etf.get(iid, {}), win)
+        missing.append((d, iid, sig, code, name, r[0], r[1]))
     if not missing:
         return []
 
@@ -901,7 +914,11 @@ def check_kelly_coverage(repo: Path, today: datetime) -> list[Finding]:
 def check_kelly_stale(repo: Path, today: datetime) -> list[Finding]:
     """checker 7: 交易记录产物新鲜度(9/7「时间戳新内容旧」双保险, 设计 §4.2)。
     B1 trades 最新 signal_date<T-1 → SEVERE; B2 generated_at/mtime >48h(周末按交易日放宽) → SEVERE;
-    B3 nav 最新日>=T 但 trades<=T-2 → SEVERE + 缺 nav 前3 ETF(QDII 降 info)。"""
+    B3 nav 最新日>=T 但 trades<=T-2 → SEVERE + 缺 nav 前3 ETF(QDII 降 info)。
+    #102 信号缺席感知(2026-09-11 SEVERE 误报根治): B1/B3 时间戳机械对比前先看「最近窗口内
+    宇宙内入样 buy 系信号是否应入账却未入账」(复用 kelly_coverage 同源 _kelly_missing_candidates,
+    单源防漂移)——窗口内根本没有应入账 buy 信号(trades 停更=无信号可入账, 属正确状态)时,
+    B1/B3 不升 SEVERE(最多 WARN), 只有 coverage 层面确有缺失(coverage missing 非空)才允许 SEVERE。"""
     db = repo / "data" / "sentiment.db"
     if not db.exists():
         return [Finding(KELLY_STALE_KEY, "warn", "交易记录新鲜度检查跳过(主库缺失)",
@@ -911,7 +928,8 @@ def check_kelly_stale(repo: Path, today: datetime) -> list[Finding]:
     if trades is None or tp is None:
         return [Finding(KELLY_STALE_KEY, "severe", "交易记录产物缺失, 新鲜度检查无法进行",
                         f"{tp or KELLY_TRADES_FILE} 不存在/不可读。存在产物或已刷新需人工确认。")]
-    _, latest, generated = _scan_trades(trades)
+    sig_set, latest, generated = _scan_trades(trades)
+    excluded, best_etf = _load_universe(repo)
 
     win, T = _recent_signal_days(repo, KELLY_COVERAGE_BACK)
     t_prev = win[-2] if win and len(win) >= 2 else ""
@@ -932,19 +950,43 @@ def check_kelly_stale(repo: Path, today: datetime) -> list[Finding]:
         finally:
             conn.close()
 
+    # 信号缺席感知(#102): 最近窗口内宇宙内入样 buy 系信号是否有「应入账却未入账」(coverage 同源判定)。
+    #   cov_missing 非空 → 确实有信号缺 trade → B1/B3 时间戳对比才允许升 SEVERE(9/7 真断档形态);
+    #   cov_missing 空 → 窗口内无应入账信号(或全部已入账/全部未来不足跳过)→ trades 停更是正确状态,
+    #   09-11 场景: 9/10 无 buy 系信号、9/11 有但 KELLY_BUY_NEXTDAY=1 次日开盘定价 9/14 才入账,
+    #   trades 停 9/9 属正常 → B1/B3 降级不报 SEVERE(防 SEVERE 误报, researcher #110 实锤)。
+    if latest and t_prev:
+        cov_missing = _kelly_missing_candidates(repo, db, win, t_prev, sig_set, excluded, best_etf)
+        no_expected_buys = not cov_missing
+    else:
+        no_expected_buys = False
+    kelly_stale_gate_severe = not no_expected_buys  # False=信号缺席, 禁止 B1/B3 升 SEVERE
+
     # B1: 最新 signal_date 应 >= T-1(KELLY_BUY_NEXTDAY: T-1 信号在 T 盘后必有次日(T 日) open 可定价, 必须入账)
     # nav 未推进到 T(次日价未齐) → 降 WARN 定价窗内, 不吓人(L172 括号语义)
     if latest and t_prev and latest < t_prev:
         nav_ready = bool(nav_max and T and nav_max >= T)
-        b1_title = (f"交易记录最新信号日 {latest} 落后(应≥{t_prev})" if nav_ready
-                    else f"交易记录最新信号日 {latest} 未更新(T 日价未齐, 定价窗内)")
+        # #102 信号缺席门控: 窗口内无应入账 buy 信号 → 即使 nav 已齐也不判 SEVERE(9/11 误报根治)
+        b1_gated = nav_ready and kelly_stale_gate_severe
+        if b1_gated:
+            b1_title = f"交易记录最新信号日 {latest} 落后(应≥{t_prev})"
+            b1_nav_txt = (f"覆盖源 etf_daily accum_nav 最新日={nav_max or '无'} ≥ T → T-1 信号应有 trade 却无"
+                          f" = 9/7 断档同形态(产物有但内容旧, backtest rc=0/deploy 全绿照样漏)。")
+        elif no_expected_buys:
+            b1_title = f"交易记录最新信号日 {latest} 未更新(最近窗口无应入账 buy 信号, 停更属正常)"
+            b1_nav_txt = (f"最近 {len(win)} 个交易日窗口内无「宇宙内入样 buy 系信号且应已入账却缺失」"
+                          f"(全部已入账或全部处于 KELLY_BUY_NEXTDAY 次日开盘定价窗内), trades 停在 {latest} 是正确状态"
+                          f", 不误报 SEVERE(#102 信号缺席感知, 09-11 场景 9/10 无 buy 系信号/9/11 信号 9/14 才入账)。")
+        else:
+            b1_title = f"交易记录最新信号日 {latest} 未更新(T 日价未齐, 定价窗内)"
+            b1_nav_txt = (f"覆盖源 etf_daily accum_nav 最新日={nav_max or '无'} < T → T 日价未齐, "
+                          f"T-1 信号尚在次日定价窗内, 属正常时序(22:35 盘后价齐才升级 SEVERE)。")
         b1_detail = (f"signal_kelly_trades.json 最新 signal_date={latest}, 最近完整交易日 T={T}(T-1={t_prev})。<br>"
-                     f"覆盖源 etf_daily accum_nav 最新日={nav_max or '无'}"
-                     f"{' ≥ T → T-1 信号应有 trade 却无 = 9/7 断档同形态(产物有但内容旧, backtest rc=0/deploy 全绿照样漏)' if nav_ready else ' < T → T 日价未齐, T-1 信号尚在次日定价窗内, 属正常时序(22:35 盘后价齐才升级 SEVERE)'}。<br>"
+                     f"{b1_nav_txt}<br>"
                      f"影响: 首页模拟回测弹窗/lab 凯利卡交易记录停在 {latest}。<br>"
                      f"日志: {repo}/data/logs/update_all_launchd.log + deploy_*.log。<br>"
                      f"建议: 补 etf_daily 次日价后重跑 export/signal_kelly_backtest。")
-        out.append(Finding(KELLY_STALE_KEY, "severe" if nav_ready else "warn", b1_title, b1_detail))
+        out.append(Finding(KELLY_STALE_KEY, "severe" if b1_gated else "warn", b1_title, b1_detail))
 
     # B2: generated_at / 文件 mtime 新鲜度(取较旧保守判定; 周末/节假日按最近交易日放宽)
     ts_cands = [datetime.fromtimestamp(tp.stat().st_mtime)]
@@ -990,13 +1032,21 @@ def check_kelly_stale(repo: Path, today: datetime) -> list[Finding]:
         if lacking:
             non_qdii = [r for r in lacking if not _is_qdii(str(r[1] or ""))]
             codes_txt = "; ".join(f"{r[0]}[{r[1]}] 止步 {r[2]}" for r in lacking)
+            # #102 信号缺席门控: 窗口内无应入账 buy 信号 → trades 停更是正确状态, B3 降 WARN
+            b3_gated = kelly_stale_gate_severe
+            b3_title = (f"净值已到 {nav_max}(≥T={T}) 但交易记录仅到 {latest}(≤T-2={t_prev2})" if b3_gated
+                        else f"净值已到 {nav_max} 但交易记录仅到 {latest}(窗口无应入账 buy 信号, 正常)")
+            b3_detail = (f"etf_daily accum_nav 最新日 {nav_max} ≥ 最近完整交易日 {T}, 而 trades 最新 "
+                         f"signal_date={latest} ≤ T-2={t_prev2} → 断档(9/7 形态: nav 齐但 9/4 未入账)。"
+                         if b3_gated else
+                         f"etf_daily accum_nav 最新日 {nav_max} ≥ 最近完整交易日 {T}, trades 最新 "
+                         f"signal_date={latest}, 但最近 {len(win)} 交易日窗口内无应入账 buy 信号"
+                         f"(全部已入账或处于 KELLY_BUY_NEXTDAY 次日开盘定价窗内), 停更属正确状态, "
+                         f"不误报 SEVERE(#102 信号缺席感知)。")
             if non_qdii or not all(_is_qdii(str(r[1] or "")) for r in lacking):
                 out.append(Finding(
-                    KELLY_STALE_KEY, "severe",
-                    f"净值已到 {nav_max}(≥T={T}) 但交易记录仅到 {latest}(≤T-2={t_prev2})",
-                    f"etf_daily accum_nav 最新日 {nav_max} ≥ 最近完整交易日 {T}, 而 trades 最新 "
-                    f"signal_date={latest} ≤ T-2={t_prev2} → 断档(9/7 形态: nav 齐但 9/4 未入账)。<br>"
-                    f"最新 nav 也缺的前 3 ETF: {codes_txt}。<br>"
+                    KELLY_STALE_KEY, "severe" if b3_gated else "warn", b3_title,
+                    f"{b3_detail}<br>最新 nav 也缺的前 3 ETF: {codes_txt}。<br>"
                     f"建议: 补缺价 ETF 的 etf_daily 后重跑 export(含 signal_kelly_backtest)。"))
             else:
                 out.append(Finding(

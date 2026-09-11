@@ -1938,8 +1938,20 @@ def check_nextday_plan(data_dir: Path) -> CheckResult:
             return _fail(name, f"auto_trade_steps.json 不是 dict: {type(sdata).__name__}")
         if sdata.get("schema_version") != "v1":
             return _fail(name, f"auto_trade_steps.json schema_version={sdata.get('schema_version')!r} != v1")
-        if not isinstance(sdata.get("steps"), list):
-            return _fail(name, f"auto_trade_steps.json steps 不是数组: {type(sdata.get('steps')).__name__}")
+        steps = sdata.get("steps")
+        if not isinstance(steps, list):
+            return _fail(name, f"auto_trade_steps.json steps 不是数组: {type(steps).__name__}")
+        # #98 补: steps 数组非空(生成器每次作业后 auto_trade_steps 应含执行链;
+        #  空数组=生成器异常态「有写入但无任何 execute 链」, 不许静默)
+        if not steps:
+            return _fail(name, "auto_trade_steps.json steps 为空数组(生成器应含 ≥1 执行链, 空=异常)")
+        # 每步结构抽查: date(执行日)/seq/action 必备, 缺=结构退化
+        for i, st in enumerate(steps[:5]):
+            if not isinstance(st, dict):
+                return _fail(name, f"auto_trade_steps.json steps[{i}] 不是 dict: {type(st).__name__}")
+            for f in ("date", "seq", "action"):
+                if f not in st:
+                    return _fail(name, f"auto_trade_steps.json steps[{i}] 缺字段: {f}")
 
     # 结构合法: {date, plan[]} 或 {date, empty:true}
     has_empty = data.get("empty") is True

@@ -692,6 +692,13 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
         if not real_buy or real_buy <= 0:
             real_buy = open_map.get(etf_code, {}).get(signal_date) if open_map else None
 
+    # 真实买入日期(方案C, #90 同族 #72 2026-09-09): 与 real_buy_price 配套, 前端「计划买入时间」列下行
+    # 展示真实成交日, 不再用 trades 并集近似(并集缺真实交易日会错位)。KELLY_BUY_NEXTDAY=1: 次日开盘成交,
+    # 真实买入日=signal_date 下一交易日(与 nxt_open 同源 _next_trading_day); =0: 当日收盘=signal_date 当天。
+    # 仅新增展示字段, 不动 buy_date(signal_date 语义) → 峰值持仓/年化/周期过滤统计口径零变化。
+    _ntd = _next_trading_day(signal_date, sorted_dates_list) if KELLY_BUY_NEXTDAY else signal_date
+    real_buy_date = _ntd if _ntd else signal_date
+
     # 买入(含费率)
     buy_price, shares, _comm, _tf = _buy_with_fees(BUY_AMOUNT, buy_nav, etf_code, _KELLY_FEE_CONFIG)
     if shares <= 0:
@@ -709,7 +716,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
             index_id, etf_name, track_tier, track_score, match_method, track_low_confidence,
             market_state, rating, buy_price, shares, market_tier, market_tier_all,
             market_tier_cyb,
-            open_map=open_map, real_buy=real_buy, close_map=close_map,
+            open_map=open_map, real_buy=real_buy, close_map=close_map, real_buy_date=real_buy_date,
         )
 
     future_dates = dates[idx:idx + hold_days]
@@ -762,6 +769,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
             "sell_reason": "持有中",
             "current_price": round(current_nav, 6),
             "real_buy_price": round(real_buy, 6),
+            "real_buy_date": real_buy_date,
             "real_current_price": round(real_cur, 6) if real_cur else 0,
             "market_state": market_state,
             "market_tier": market_tier,
@@ -810,6 +818,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
         "sell_reason": sell_reason,
         "current_price": 0,
         "real_buy_price": round(real_buy, 6),
+        "real_buy_date": real_buy_date,
         "real_current_price": 0,
         "market_state": market_state,
         "market_tier": market_tier,
@@ -822,7 +831,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
 def _backtest_signal_sell(signal_date, prices, dates, etf_code, sell_mode, signal, sell_signals,
                           today, index_id, etf_name, track_tier, track_score, match_method,
                           track_low_confidence, market_state, rating, buy_price, shares, market_tier=None, market_tier_all=None, market_tier_cyb=None,
-                          open_map=None, real_buy=None, close_map=None):
+                          open_map=None, real_buy=None, close_map=None, real_buy_date=None):
     """模式 G/H/I 信号驱动卖出(每笔交易独立, 混合指数回测)。
 
     G: 对应指数后续第一个 sell 信号日卖出, 无 sell 信号则持有至回测结束。
@@ -831,6 +840,10 @@ def _backtest_signal_sell(signal_date, prices, dates, etf_code, sell_mode, signa
     卖出价 = 信号日当日 ETF 收盘价(accum_nav)。sell_signals 为该指数 [(date, signal)] 按日期排序。
     返回与 _backtest_one 同结构 dict, 或 None(无当前价无法预估)。
     """
+    # 真实买入日期兜底(方案C, #72): 调用方(_backtest_one)已传真实值; 防其他调用点漏传时自算。
+    if not real_buy_date:
+        _ntd_s = _next_trading_day(signal_date, dates) if KELLY_BUY_NEXTDAY else signal_date
+        real_buy_date = _ntd_s if _ntd_s else signal_date
     # 决定该笔交易的卖出信号类型集合: 读 SELL_MODES 配置(G=sell / H=sell+sell_stop_loss /
     # I=buy_special 追关注用 special_sell_types, 其他用 sell_types), 不硬编码模式逻辑
     mode_def = SELL_MODES[sell_mode]
@@ -894,6 +907,7 @@ def _backtest_signal_sell(signal_date, prices, dates, etf_code, sell_mode, signa
             "sell_reason": "持有中",
             "current_price": round(current_nav, 6),
             "real_buy_price": round(real_buy, 6) if real_buy else 0,
+            "real_buy_date": real_buy_date,
             "real_current_price": round(real_cur, 6) if real_cur else 0,
             "market_state": market_state,
             "market_tier": market_tier,
@@ -932,6 +946,7 @@ def _backtest_signal_sell(signal_date, prices, dates, etf_code, sell_mode, signa
         "sell_reason": sell_reason,
         "current_price": 0,
         "real_buy_price": round(real_buy, 6) if real_buy else 0,
+        "real_buy_date": real_buy_date,
         "real_current_price": 0,
         "market_state": market_state,
         "market_tier": market_tier,
@@ -1331,7 +1346,8 @@ def _build_outputs(quadrants):
     TRADE_FIELDS = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name",
                     "track_tier", "track_score", "match_method", "track_low_confidence",
                     "buy_price", "sell_price", "shares", "profit", "return_pct",
-                    "hold_days", "sell_reason", "current_price", "real_buy_price", "real_current_price",
+                    "hold_days", "sell_reason", "current_price", "real_buy_price", "real_buy_date",
+                    "real_current_price",
                     "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
     trades_output = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),

@@ -3278,6 +3278,7 @@ function _bindSigSwitchRow(sigCard) {
 var _simKellyData = null;     // signal_kelly_trades.json 解析后的 {fields, fIdx, quadrants}(quadrants=原始分域×分模式平行数组, 按选中 mode 在 _simBuildModePool 现筛)
 var _simKellyCfg = null;      // signal_kelly_backtest.json 解析后的 {sell_modes, ...}
 var _simKellyLoading = false;
+var _simBasisGen = 0;         // #72 买入口径切档代际: 切档+1, 作废旧口径 in-flight 加载的写回(防跨口径串数据)
 var _simKellyLoadErr = null;
 // 分片加载(2026-08-22): 打开弹窗只拉 recent.json 热区片秒开; 提交范围超出热区时按年并行拉 t{YYYY}.json。
 // 两策略互斥(热区内只用 recent / 超出只用年片覆盖), 合并不重复计数。任一分片失败回退拉全量(老路径兜底)。
@@ -3599,10 +3600,15 @@ function _simTradesPartsName(name) { return _simTradesBaseName() + "_parts/" + n
 function _simTradesFullName() { return _simTradesBaseName() + ".json"; }
 function _simSummaryName() { return _simIsSdc() ? "signal_kelly_backtest_sdc" : "signal_kelly_backtest"; }
 // #91 口径切换: 数据源整体替换 → 清全部数据/加载/缓存状态 → 整区重建(防切档后显示旧口径数据 §22)
+// F1(#72 2026-09-06 竞态根治): 切档递增 _simBasisGen(旧口径 in-flight 加载的写回判定失效),
+// 并重置 _simKellyLoading=false——此前只清 _simKellyData 没清 loading, 切档后 _simRenderOnce
+// 仍走「加载中」分支卡在 loading, 且旧口径 recent 回来后写回 _simKellyData(跨口径串数据 §22)。
 async function _simSetBuyBasis(basis) {
   if (basis !== "next_day_open" && basis !== "signal_day_close") return;
   if (basis === _simBuyBasis()) return;
   try { localStorage.setItem("tds_sim_buy_basis", basis); } catch (e) {}
+  _simBasisGen++;                       // 作废所有 in-flight 旧口径加载(写回前 gen 校验拦截)
+  _simKellyLoading = false;             // #72: 清数据必须同清 loading(防切档后卡 loading 分支/旧结果写回)
   // 数据源整体替换(口径不同=产物完全独立), 清全部数据/加载/分片缓存(防跨口径串数据 §22)
   _simKellyData = null;
   _simKellyCfg = null;
@@ -3629,9 +3635,11 @@ function _simParseTrades(tr) {
 }
 // 兜底全量加载(老路径 signal_kelly_trades.json 仍在, 分片任一步失败即走此路, 天然兜底)
 async function _simLoadFull() {
+  const gen = _simBasisGen;              // #72 捕获切档代际, 写回前校验(防跨口径串数据)
   try {
     console.warn("[simbt] 分片加载失败, 回退全量 " + _simTradesFullName() + "(约64MB, 首次数秒)");
     const tr = await _fetchSimTrades(_simTradesFullName());
+    if (gen !== _simBasisGen) return false;  // #72 加载期间已切档 → 丢弃旧口径全量结果
     _simKellyData = _simParseTrades(tr);
     _simFullFallback = true;
     return true;
@@ -3659,6 +3667,8 @@ function _simMergeShards(shards) {
 // 一级加载(打开弹窗): 只拉 recent.json 热区片(≤3MB 秒开), 记录热区上下界; recent 失败回退全量
 async function _loadSimKellyData() {
   if (_simKellyData || _simKellyLoading) return _simKellyData;
+  const gen = _simBasisGen;              // #72 捕获切档代际: 切档后本加载作废(写回前校验拦截)
+  const stale = () => gen !== _simBasisGen;
   _simKellyLoading = true;
   _simKellyLoadErr = null;
   // cfg 独立并行拉(recent 失败走全量兜底时也要有 sell_modes); cfg 按当前买入口径取对应产物(见 _simSummaryName)
@@ -3666,6 +3676,7 @@ async function _loadSimKellyData() {
   const cfgP = fetchJSON(cfgUrl).catch(() => null);
   try {
     const recent = await _fetchSimTrades(_simTradesPartsName("recent"));
+    if (stale()) return null;            // #72 加载期间已切档 → 丢弃旧口径 recent
     const parsed = _simParseTrades(recent);
     _simPartsCache.set("recent", parsed);
     // 热区上下界 = recent 片内 signal_date 最小/最大(供提交时判断范围是否落在热区内)
@@ -3682,16 +3693,19 @@ async function _loadSimKellyData() {
         }
       }
     }
+    if (stale()) return null;            // #72 热区扫描期间切档 → 丢弃(状态已清)
     _simHotMinDate = mn;
     _simHotMaxDate = mx;
     _simKellyData = parsed;
     const cfg = await cfgP;
+    if (stale()) return null;            // #72 cfg 等待期间切档 → 不写旧口径 cfg
     _simKellyCfg = (cfg && cfg.config) ? cfg.config : { sell_modes: {} };
   } catch (e) {
     console.warn("[simbt] recent.json 加载失败, 回退全量:", e);
     const okF = await _simLoadFull();
     if (okF) {
       const cfg = await cfgP;
+      if (stale()) return null;          // #72 兜底加载期间切档 → 不写旧口径 cfg
       _simKellyCfg = (cfg && cfg.config) ? cfg.config : { sell_modes: {} };
     }
   } finally {
@@ -3703,6 +3717,8 @@ async function _loadSimKellyData() {
 // 切范围不重复拉), 全部到位合并后渲染; 任一年片失败回退全量。返回 true=就绪 / false=失败(_simKellyLoadErr 已置)。
 // onStep(msg): 拉片期间更新 loading 文案(如「正在加载 2020 年数据…」)。
 async function _simEnsureRange(startD, endD, onStep) {
+  const gen = _simBasisGen;              // #72 捕获切档代际: 切档后本拉片作废(写回前校验拦截)
+  const stale = () => gen !== _simBasisGen;
   if (_simFullFallback) return !_simKellyLoadErr;
   if (!_simKellyData || !_simHotMinDate) return !!_simKellyData;
   // 热区判定: 仅当「设了下界且下界落在热区内」时 recent 已覆盖所选范围(startD 为空=不筛下界=要最老数据, 须拉年片)
@@ -3719,6 +3735,7 @@ async function _simEnsureRange(startD, endD, onStep) {
     const results = await Promise.all(missing.map((nm) =>
       _fetchSimTrades(_simTradesPartsName(nm))
         .then((tr) => {
+          if (stale()) return true;      // #72 拉片期间切档 → 不写旧口径年片缓存
           _simPartsCache.set(nm, _simParseTrades(tr));
           doneN++;
           if (onStep) onStep("正在加载 " + nm.slice(1) + " 年数据…" + (doneN < missing.length ? "(" + doneN + "/" + missing.length + ")" : ""));
@@ -3731,6 +3748,7 @@ async function _simEnsureRange(startD, endD, onStep) {
     ));
     if (results.some((r) => !r)) return _simLoadFull();
   }
+  if (stale()) return false;             // #72 合并前切档 → 丢弃, 等新口径重拉
   // 合并年片(互斥策略: 走年片就不用 recent —— 年片覆盖含热区内全部日期, 拼接无重复行)
   const shards = years.map((nm) => _simPartsCache.get(nm)).filter(Boolean);
   if (shards.length) _simKellyData = _simMergeShards(shards);
@@ -5235,24 +5253,36 @@ function _simRenderTable(modal, rows, fIdx, fp, startD, endD, fadeOn, K, mode, g
     return t[fIdx.buy_price];
   };
   // 计划买入时间列(2026-09-06 用户需求 #91): 上下换行=上「信号日期」/ 下「实际买入日期」。
-  // 实际买入日期按当前价格口径: 次日开盘=信号日下一交易日(_simBuildTradeCal 算后继), 当日收盘=信号日当天;
+  // #72 根治(2026-09-09): 实际买入日期优先读后端 real_buy_date 字段(真实成交日, 与 real_buy_price 同源:
+  // 次日开盘口径=信号日下一真实交易日, 当日收盘口径=信号日当天), 不再用 trades 并集近似
+  // (并集缺真实交易日的稀疏场景会错位, 见 #72 F2)。老产物无该字段 → 回退原近似逻辑。
   // 最新信号(已加载交易日历末位, 无后继交易日)次日尚未到来 → 下行「—」+ tooltip。
   // 切档后第5列下行随口径变(次日档=下一交易日 / 当日档=当天), 与数据源/汇总同口径 §22。
   const _simBuyTimeCell = (t, fIdx, getCal) => {
     const sd = String(t[fIdx.signal_date] || "");
     let bd = null;
-    if (!_simIsSdc()) {
-      const cal = getCal ? getCal() : null;
-      if (cal && cal.length) {
-        const last = cal[cal.length - 1];
-        if (sd < last) {
-          let lo = 0, hi = cal.length;
-          while (lo < hi) { const mid = (lo + hi) >> 1; if (cal[mid] <= sd) lo = mid + 1; else hi = mid; }
-          bd = lo < cal.length ? cal[lo] : null;
-        }
+    let bdFromField = false;
+    if (fIdx.real_buy_date != null) {
+      const _rbd = t[fIdx.real_buy_date];
+      if (_rbd !== undefined && _rbd !== null && String(_rbd) !== "") {
+        bd = String(_rbd);
+        bdFromField = true;
       }
-    } else {
-      bd = sd;
+    }
+    if (!bdFromField) {
+      if (!_simIsSdc()) {
+        const cal = getCal ? getCal() : null;
+        if (cal && cal.length) {
+          const last = cal[cal.length - 1];
+          if (sd < last) {
+            let lo = 0, hi = cal.length;
+            while (lo < hi) { const mid = (lo + hi) >> 1; if (cal[mid] <= sd) lo = mid + 1; else hi = mid; }
+            bd = lo < cal.length ? cal[lo] : null;
+          }
+        }
+      } else {
+        bd = sd;
+      }
     }
     const _sub = bd
       ? '<div class="sim-buytime-bd">' + bd + '</div>'
