@@ -78,6 +78,7 @@ from app.collector.fetchers import load_config  # noqa: E402  (indicators.yaml i
 
 K = 1                       # K 档(每日 top1, 与首页 AI仓位建议默认 K=1 一致)
 BUY_AMOUNT = 10000          # 每日资金池 1 万等分
+BACKFILL_WINDOW_DAYS = 10   # 历史持仓回填窗口(最近 N 个交易日, #106; 窗口起点随每日前移, 已过期组滑出不删只不再补)
 PSEUDO_GAP = 0.20           # 伪跳空剔除阈值(与 signal_kelly_backtest.PSEUDO_GAP_EXCLUDE 同款)
 LOG_TAG = "[nextday_plan]"
 BUY_SIGNALS = {"buy", "buy_aux", "buy_special", "buy_backup"}  # 与 queries._AI_MACRO_BUY_SIGNALS 同源
@@ -406,12 +407,141 @@ def _kelly_sort_key(cand: dict):
             _SIG_RANK.get(str(cand.get("signal") or ""), 9), str(cand.get("buy_date") or ""))
 
 
+def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s06, prefix=""):
+    """给定信号日 T 构建当日买入计划(首页 AI建议同一条链; 任意 T 通用, 回填段逐日重演即复用本函数)。
+
+    与主链当日计划同一代码路径(信号候选 → 买信号/宇宙/降亏过滤 → K=1 保留 → prev_close 双校验),
+    避免回填另写一份造成「第二份实现」漂移(§5.4⑦)。
+    返回 plan 列表(每条含 etf_code/etf_name/prev_close/amount/signal/track_score/signal_date/buy_date;
+    空列表=当日无计划)。
+    """
+    _logp = (lambda m: log(f"{prefix} {m}")) if prefix else log
+    sigs = _signal_candidates(conn, cfg, T, freeze, sig_stats)
+    _logp(f"T={T} signal_daily 信号(排除 s.*)={len(sigs)}")
+
+    # 买信号 + 入样宇宙 + 降亏过滤(首页 kept 同款): 先滤降亏再选 top-K
+    _f6 = s06.filters_for_date(T)
+    members = {k for k, v in (_f6 or {}).items() if v} if _f6 else None
+    if members is None:
+        _logp(f"⚠ s06 快照缺行(T={T} 无基座), 降亏过滤 fail-open 放行(与前端降级契约一致)")
+    kept_signals = []
+    fade_cut = []
+    for _s in sigs:
+        _sig = _norm_signal(_s["signal"])
+        if _sig not in BUY_SIGNALS:
+            continue
+        if not _s.get("_bt_in_universe"):
+            _logp(f"  - {_s['index_id']} {_sig} 未入样宇宙(无跟踪 ETF track_score)")
+            continue
+        top1 = _s.get("_top1")
+        if not top1 or top1.get("track_score") is None:
+            continue
+        if _ai_fade_hit(_s, members):
+            fade_cut.append(f"{_s['index_id']} {_s['signal']} ai_filters={_s['ai_macro']['filters']}")
+            continue
+        kept_signals.append({
+            "signal_date": T,
+            "index_id": _s["index_id"],
+            "signal": _sig,
+            "etf_code": str(top1.get("code") or ""),
+            "etf_name": str(top1.get("name") or "") or str(top1.get("code") or ""),
+            "track_score": top1.get("track_score"),
+            "track_tier": top1.get("track_tier"),
+            "_rating": _s.get("_rating"),
+        })
+    for _c in fade_cut:
+        _logp(f"  ✗ 降亏过滤剔除: {_c}")
+    _logp(f"当日买入信号通过降亏候选={len(kept_signals)}")
+
+    # ---- K=1 保留(首页 AI建议 top1 同款排序) ----
+    buy_date = _next_trading_day(trade_dates, T)
+    if buy_date is None:
+        _logp(f"⚠ 交易日历无 > {T} 的下一交易日(可能 T 已是日历最后一天), 走空计划")
+        kept_signals = []
+    for _c in kept_signals:
+        _c["buy_date"] = buy_date
+    kept_signals.sort(key=_kelly_sort_key)
+    kept_signals = kept_signals[:K]
+    _kept_desc = [f"{c['index_id']}|{c['signal']}|{c['etf_code']} ts={c['track_score']}" for c in kept_signals]
+    _logp(f"K={K} 保留信号={_kept_desc}")
+
+    # ---- prev_close + 双校验(原逻辑保留) ----
+    plan = []
+    for t in kept_signals:
+        etf_code = t["etf_code"]
+        etf_name = t["etf_name"]
+        track_score = t["track_score"]
+        # 信号日收盘 = etf_daily 该 etf T 日 close(伪跳空校验参考点)
+        last_date, sig_close = _prev_close(db_path, etf_code, T)
+        # 双校验 ①: prev_close>0 非停牌(该 etf 前一日有成交)
+        _, prev_close = _prev_close(db_path, etf_code, T)
+        if prev_close is None or prev_close <= 0:
+            _logp(f"  ✗ {etf_code} {etf_name} prev_close={prev_close}(非停牌校验失败, 前一日无成交)")
+            continue
+        # 双校验 ②: prev_close vs 信号日收盘 ±20%(伪跳空剔除同款)
+        if sig_close is not None and sig_close > 0:
+            gap = prev_close / sig_close - 1.0
+            if abs(gap) > PSEUDO_GAP:
+                _logp(f"  ✗ {etf_code} {etf_name} 伪跳空剔除 prev_close={prev_close} sig_close={sig_close} gap={gap:.2%}")
+                continue
+        plan.append({
+            "etf_code": etf_code,
+            "etf_name": etf_name,
+            "prev_close": round(prev_close, 4),
+            "amount": BUY_AMOUNT,
+            "signal": t["signal"],
+            "track_score": track_score,
+            "signal_date": T,
+            "buy_date": buy_date,
+        })
+    return plan
+
+
+def _backfill_historical_groups(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s06,
+                                steps_doc, now):
+    """历史持仓回填段(#106): 最近 BACKFILL_WINDOW_DAYS 交易日窗口内补未到期卖出行。
+
+    对窗口内每个历史信号日 T'(< T 且落在窗口), 用 _build_plan_for_day 重演当日计划,
+    把生成的完整行为链(seq1-5)追加到 steps_doc, 每条带 backfilled=true 标记。
+    幂等: 沿用「date(buy_date)+seq1 已存在即跳过」判定, 重复跑不产生重复行。
+    只补未到期组(sell_date >= T 且非空): 已到期(sell_date < T)的旧持仓不生成卖出提醒(防过期骚扰)。
+    返回是否写入了新行。
+    """
+    if not trade_dates:
+        return False
+    window = [d for d in trade_dates if d < T][-BACKFILL_WINDOW_DAYS:]
+    _logp = lambda m: log(f"[回填] {m}")
+    changed = False
+    for Tb in window:
+        plan_b = _build_plan_for_day(conn, cfg, db_path, trade_dates, Tb, freeze, sig_stats, s06,
+                                     prefix=f"[回填{Tb}]")
+        if not plan_b:
+            continue
+        for p in plan_b:
+            bd = str(p["buy_date"] or "")
+            # 幂等: 已有该执行日(buy_date)的 seq1 挂单行则跳过(与主链当日追加同判定)
+            if any(str(s.get("date")) == bd and str(s.get("seq")) == "1" for s in steps_doc["steps"]):
+                _logp(f"幂等跳过 {p['etf_code']} {p['etf_name']} buy_date={bd}(已在表)")
+                continue
+            sell_date = _nth_trading_day_after(trade_dates, str(p["signal_date"]), 10) if trade_dates else ""
+            if not sell_date or sell_date < T:
+                _logp(f"跳过已到期组 {p['etf_code']} {p['etf_name']} buy_date={bd} sell_date={sell_date}(< T {T})")
+                continue
+            for st in _build_steps_for_plan(p, now, sell_date):
+                st["backfilled"] = True
+                steps_doc["steps"].append(st)
+            changed = True
+            _logp(f"回填补历史持仓卖出行 {p['etf_code']} {p['etf_name']} buy_date={bd} sell_date={sell_date} backfilled")
+    return changed
+
+
 def main():
     ap = argparse.ArgumentParser(description="次日买入计划生成器(PRD 阶段一 §3/§6, 干跑)")
     ap.add_argument("--date", default=None, help="信号日 T(YYYYMMDD, 缺省=今天)")
     ap.add_argument("--dry-run", action="store_true", help="只计算打印, 不落盘两树/不 R2/不通知")
     ap.add_argument("--no-r2", action="store_true", help="落盘但不传 R2(自测用)")
     ap.add_argument("--no-notify", action="store_true", help="落盘但不通知(自测用)")
+    ap.add_argument("--no-backfill", action="store_true", help="关闭历史持仓回填段(自测/临时关)")
     args = ap.parse_args()
 
     T = args.date or _today()
@@ -442,14 +572,17 @@ def main():
     elif not etf_dates:
         log("✗ etf_daily 为空, 无法确定 prev_close 与交易日")
         return 2
-    # s06 基座成员集(S06Resolver fail-open: 快照缺行 → None → 降亏放行, 同前端降级契约)
+    # s06 解析器(fail-open: 快照缺行 → None → 降亏放行, 同前端降级契约; 成员集计算在 _build_plan_for_day 内按 T 求)
     s06 = kp.S06Resolver(s06_doc)
-    _f6 = s06.filters_for_date(T)
-    members = {k for k, v in (_f6 or {}).items() if v} if _f6 else None
-    if members is None:
-        log("⚠ s06 快照缺行(T 无基座), 降亏过滤 fail-open 放行(与前端降级契约一致)")
 
-    # ---- 信号候选(首页同款构建) ----
+    # 交易日集合(权威交易日历优先; 回填窗口与 buy_date 推算共用)
+    cal_dates = _trade_calendar_dates(db_path)
+    trade_dates = cal_dates or etf_dates
+    if not trade_dates:
+        log("✗ 交易日历与 etf_daily 均为空, 无法确定下一交易日")
+        return 2
+
+    # ---- 信号候选 → 当日计划(复用 _build_plan_for_day, 回填段同一代码路径) ----
     conn = sqlite3.connect(f"file:{sent_db}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
@@ -459,111 +592,15 @@ def main():
         conn.close()
         log(f"✗ 信号统计/配置加载失败: {e}")
         return 2
-    sigs = _signal_candidates(conn, cfg, T, freeze, sig_stats)
-    conn.close()
-    log(f"T={T} signal_daily 信号(排除 s.*)={len(sigs)}")
-
-    # 买信号 + 入样宇宙 + 降亏过滤(首页 kept 同款): 先滤降亏再选 top-K
-    kept_signals = []
-    fade_cut = []
-    for _s in sigs:
-        _sig = _norm_signal(_s["signal"])
-        if _sig not in BUY_SIGNALS:
-            continue
-        if not _s.get("_bt_in_universe"):
-            keep_cut_note = f"{_s['index_id']} {_sig} 未入样宇宙(无跟踪 ETF track_score)"
-            log(f"  - {keep_cut_note}")
-            continue
-        top1 = _s.get("_top1")
-        if not top1 or top1.get("track_score") is None:
-            continue
-        if _ai_fade_hit(_s, members):
-            fade_cut.append(f"{_s['index_id']} {_s['signal']} ai_filters={_s['ai_macro']['filters']}")
-            continue
-        kept_signals.append({
-            "signal_date": T,
-            "index_id": _s["index_id"],
-            "signal": _sig,
-            "etf_code": str(top1.get("code") or ""),
-            "etf_name": str(top1.get("name") or "") or str(top1.get("code") or ""),
-            "track_score": top1.get("track_score"),
-            "track_tier": top1.get("track_tier"),
-            "_rating": _s.get("_rating"),
-        })
-    for _c in fade_cut:
-        log(f"  ✗ 降亏过滤剔除: {_c}")
-    log(f"当日买入信号通过降亏候选={len(kept_signals)}")
-
-    # ---- K=1 保留(首页 AI建议 top1 同款排序) ----
-    etf_dates = _etf_daily_dates(db_path)
-    cal_dates = _trade_calendar_dates(db_path)
-    trade_dates = cal_dates or etf_dates
-    if not trade_dates:
-        log("✗ 交易日历与 etf_daily 均为空, 无法确定下一交易日")
-        return 2
-
-    buy_date = _next_trading_day(trade_dates, T)
-    if buy_date is None:
-        log(f"⚠ 交易日历无 > {T} 的下一交易日(可能 T 已是日历最后一天), 走空计划")
-        kept_signals = []
-    for _c in kept_signals:
-        _c["buy_date"] = buy_date
-    kept_signals.sort(key=_kelly_sort_key)
-    kept_signals = kept_signals[:K]
-    _kept_desc = [f"{c['index_id']}|{c['signal']}|{c['etf_code']} ts={c['track_score']}" for c in kept_signals]
-    log(f"K={K} 保留信号={_kept_desc}")
-
-    # ---- prev_close + 双校验(原逻辑保留) ----
-    plan = []
-    for t in kept_signals:
-        etf_code = t["etf_code"]
-        etf_name = t["etf_name"]
-        track_score = t["track_score"]
-        # 信号日收盘 = etf_daily 该 etf T 日 close(伪跳空校验参考点)
-        last_date, sig_close = _prev_close(db_path, etf_code, T)
-        # 双校验 ①: prev_close>0 非停牌(该 etf 前一日有成交)
-        _, prev_close = _prev_close(db_path, etf_code, T)
-        if prev_close is None or prev_close <= 0:
-            log(f"  ✗ {etf_code} {etf_name} prev_close={prev_close}(非停牌校验失败, 前一日无成交)")
-            continue
-        # 双校验 ②: prev_close vs 信号日收盘 ±20%(伪跳空剔除同款)
-        if sig_close is not None and sig_close > 0:
-            gap = prev_close / sig_close - 1.0
-            if abs(gap) > PSEUDO_GAP:
-                log(f"  ✗ {etf_code} {etf_name} 伪跳空剔除 prev_close={prev_close} sig_close={sig_close} gap={gap:.2%}")
-                continue
-        plan.append({
-            "etf_code": etf_code,
-            "etf_name": etf_name,
-            "prev_close": round(prev_close, 4),
-            "amount": BUY_AMOUNT,
-            "signal": t["signal"],
-            "track_score": track_score,
-            "signal_date": T,
-            "buy_date": buy_date,
-        })
-
+    plan = _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s06)
+    buy_date = plan[0]["buy_date"] if plan else (_next_trading_day(trade_dates, T) if trade_dates else "")
     plan_doc = {"date": T, "plan": plan} if plan else {"date": T, "empty": True}
     log(f"计划条目={len(plan)} buy_date={buy_date}")
     for p in plan:
         log(f"  {p['etf_code']} {p['etf_name']} prev_close={p['prev_close']} amount={p['amount']} "
             f"signal={p['signal']} track_score={p['track_score']} buy_date={p['buy_date']}")
 
-    if args.dry_run:
-        log("DRY-RUN: 不落盘不 R2 不通知")
-        print(json.dumps(plan_doc, ensure_ascii=False, indent=2))
-        return 0
-
-    # ---- 落盘: 本地 data/nextday_plan.json + 两树 static-site/data/ ----
-    write_targets = [ROOT / "data", data_dir, GIT_REPO / "static-site" / "data"]
-    written = []
-    for d in write_targets:
-        d.mkdir(parents=True, exist_ok=True)
-        with (d / "nextday_plan.json").open("w", encoding="utf-8") as f:
-            json.dump(plan_doc, f, ensure_ascii=False, indent=1)
-        written.append(str(d / "nextday_plan.json"))
-
-    # ---- auto_trade_steps.json 追加(幂等: 同 date 已存在则跳过) ----
+    # ---- auto_trade_steps.json 处理(加载 → 当日计划追加 → 历史回填 → 迁移; 全内存计算后统一落盘) ----
     steps_doc = {"schema_version": "v1", "steps": []}
     steps_paths = [data_dir / "auto_trade_steps.json", GIT_REPO / "static-site" / "data" / "auto_trade_steps.json"]
     for sp in steps_paths:
@@ -592,15 +629,38 @@ def main():
             log(f"auto_trade_steps 追加完整行为链 {p['etf_code']} {p['etf_name']} "
                 f"buy_date={p['buy_date']} sell_date={sell_date} seq1/2/3/5")
 
+    # 历史持仓回填段(#106): 窗口内每个历史交易日 T' 重演当日计划, 补未到期卖出行(幂等并入同一判定)
+    if not args.no_backfill:
+        if _backfill_historical_groups(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s06,
+                                       steps_doc, now):
+            steps_changed = True
+
+    conn.close()  # 回填段为 conn 最后使用点, 后续落盘/R2/notify 均不依赖 SQLite 连接
+
     # 迁移: 已有 seq1 缺 seq2/3/5 的历史组自动补齐(需求① 不丢已有 seq1 状态)
     if _backfill_missing_seqs(steps_doc["steps"], trade_dates, now):
         steps_changed = True
+
+    if args.dry_run:
+        log("DRY-RUN: 不落盘不 R2 不通知")
+        print(json.dumps(plan_doc, ensure_ascii=False, indent=2))
+        return 0
+
+    # ---- 落盘: 本地 data/nextday_plan.json + 两树 static-site/data/ ----
+    write_targets = [ROOT / "data", data_dir, GIT_REPO / "static-site" / "data"]
+    written = []
+    for d in write_targets:
+        d.mkdir(parents=True, exist_ok=True)
+        with (d / "nextday_plan.json").open("w", encoding="utf-8") as f:
+            json.dump(plan_doc, f, ensure_ascii=False, indent=1)
+        written.append(str(d / "nextday_plan.json"))
 
     if steps_changed:
         for sp in steps_paths:
             with sp.open("w", encoding="utf-8") as f:
                 json.dump(steps_doc, f, ensure_ascii=False, indent=1)
             written.append(str(sp))
+        log(f"auto_trade_steps 落盘完成(steps_changed): {len(steps_doc['steps'])} 行")
 
     # ---- R2 上传(§22 三步同步; 盘后产物走 upload-data-files 段) ----
     # F2(2026-09-10): R2 失败不再静默 —— notify --severe + 最终退出码非 0。
@@ -609,7 +669,8 @@ def main():
     r2_rc = 0
     if not args.no_r2 and not args.dry_run:
         r2_files = ["nextday_plan.json"]
-        if plan:
+        # #106: 只要有 steps 变更(当日计划新增 / 历史回填补行 / 迁移补齐)就传, 不只看 plan(空计划日回填会漏传)
+        if steps_changed:
             r2_files.append("auto_trade_steps.json")
         cmd = [PY, str(SCRIPT_DIR / "upload_r2.py"), "upload-data-files"] + r2_files
         log("R2: " + " ".join(cmd))
