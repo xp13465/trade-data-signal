@@ -85,6 +85,15 @@ FILES = [
         "https://ssd.fx8.store/data/nextday_plan.json",
         "https://ss.fx8.store/r2/data/nextday_plan.json",
     ),
+    # auto_trade_steps(PRD 阶段一执行链, 2026-09-11 #98 F1b 补入): 与 nextday_plan 同批生成,
+    # 仅在 steps 有变更时随 upload-data-files 上传 /data/ 前缀。指纹=schema_version+steps 条数+
+    # 最新执行日(date)+首条 etf_code(条数/日期变即指纹变, 定位 CDN 滞留旧执行链)。
+    (
+        "auto_trade_steps",
+        "auto_trade_steps.json",
+        "https://ssd.fx8.store/data/auto_trade_steps.json",
+        "https://ss.fx8.store/r2/data/auto_trade_steps.json",
+    ),
 ]
 
 
@@ -167,6 +176,18 @@ def _fingerprint(data: object, kind: str) -> dict[str, object]:
         if isinstance(plan, list) and plan and isinstance(plan[0], dict):
             fp["p0_code"] = plan[0].get("etf_code")
             fp["p0_buy"] = plan[0].get("buy_date")
+    elif kind == "auto_trade_steps":
+        # 执行链(2026-09-11 #98 F1b): 指纹=schema_version + steps 条数 + 最新执行日 + 首条 etf_code。
+        # steps 条数/日期任一变即指纹变(追加链/回填/迁移都会改变), 定位 CDN 滞留旧执行链。
+        fp["schema_version"] = data.get("schema_version")
+        steps = data.get("steps")
+        if isinstance(steps, list):
+            fp["steps_n"] = len(steps)
+            dates = [s.get("date") for s in steps if isinstance(s, dict) and s.get("date")]
+            if dates:
+                fp["latest_date"] = max(dates)
+            if steps and isinstance(steps[0], dict):
+                fp["p0_code"] = steps[0].get("etf_code")
     return fp
 
 

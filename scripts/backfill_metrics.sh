@@ -42,8 +42,9 @@ if [ "$drc" -ne 0 ]; then
 fi
 
 # 3) 信号凯利回测快照告警(2026-09-04 断链根治配套): 读 static-site/data/signal_kelly_snapshots/
-#    index.json, 检测 max_signal_date 停滞(≥2 交易日) + total_return 突变(滚动窗 mean±3std /
-#    单日Δ>20pp 且 n≥20 且连 2 日同向), 走 notify.py 邮件+飞书同 body(dedup 24h)。
+#    index.json, 检测 max_signal_date 停滞(≥2 交易日) + total_return 突变(相对口径: 单日|Δ|>
+#    窗口均值×5% + dir_confirmed 同向确认, 多 mode 合并单条, 详见 signal_kelly_snapshot.py docstring),
+#    走 notify.py 邮件+飞书同 body(dedup 24h)。
 #    数据目录必须显式 --data-dir "$REPO/static-site/data"(与 export.py 写侧一致; snapshot.py
 #    resolve 回 trade/scripts 时默认 data-dir 落 trade 侧旧目录, 与 export 写侧不一致, 故显式传参)。
 #    [2026-09-09 #84 C4] sigkelly 停滞检查已从 backfill 退出码剥离: snapshot.py 检测到停滞/突变

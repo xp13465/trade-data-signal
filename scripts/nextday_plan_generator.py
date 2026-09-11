@@ -747,4 +747,22 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # F2(#98): 主流程未捕获 Exception 兜底 —— 既有 exit 分支(error 均 return 非 0)已覆盖
+    # 已知失败面, 此处兜「意外异常」(如产物结构新 bug/DB 读错), 不再只打 traceback 静默:
+    # ①log 错误 ②notify.py --severe 告警(带 stderr) ③exit 非 0 → schedule_monitor 感知
+    try:
+        rc = main()
+    except SystemExit:
+        raise
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        log(f"✗ 未捕获异常({type(e).__name__}): {e}\n{tb}")
+        _severe_alert(
+            f"[告警] 次日买入计划生成器异常 {type(e).__name__}",
+            f"nextday_plan_generator.py 主流程未捕获异常, 次日买入计划生成中断(线上文件保持上一批)。"
+            f"<br>异常: <pre>{tb[-2000:]}</pre>"
+            f"<br>日志: {REPO}/data/logs/nextday_plan_launchd.log",
+        )
+        sys.exit(2)
+    sys.exit(rc)

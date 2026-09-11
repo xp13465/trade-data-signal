@@ -16,9 +16,13 @@
       annualized_return}; 每 (quadrant, period, mode) 一个指标对象。
     - max_signal_date = 全部成交 signal_date 最大值; recent 10 = 按 signal_date 降序
       取全局最新 10 笔(compact 数组 + fields, 对齐 trades 产物结构)。
-    - 突变告警阈值基准 = 滚动窗口(近 60 个快照日, 含昨天不含今天) mean±3.0×std,
-      或单日 Δ>20pp 且 n≥20 且连续 2 个交易日同向。⚠️ 防前视 (§5.1⑥): 阈值只用
-      t 之前(含 t-1)的数据计算, 绝不用全期分位/未来数据反推。
+    - 突变告警判定 = (std_jump and pp_jump) or (pp_jump and dir_confirmed)(#109 相对口径):
+      std_jump = |今日 total_return − 窗口均值| > MUTATION_STD×std;
+      pp_jump  = |单日 Δ| > max(窗口均值×MUTATION_PCT, ABS_FLOOR_DELTA(若窗口均值<ABS_FLOOR_MEAN));
+      dir_confirmed = 前一日 Δ 与同向阈值(窗口均值×MUTATION_DIR_PCT)同向。
+      ⚠️ 防前视 (§5.1⑥): 窗口/阈值只用 t 之前(含 t-1)的数据计算, 绝不用全期分位/未来数据反推。
+    - 突变的绝对下限: 窗口均值 < ABS_FLOOR_MEAN(500元, 小模式如 E 百元量级)时,
+      单日 |Δ| > ABS_FLOOR_DELTA(200元) 仍算 pp_jump(防小模式逃逸)。
     - 发布日(快照 version 变化)豁免突变告警; 停滞档不设趋势门(缺失即告警)。
     - 告警走 scripts/notify.py send()(邮件+飞书同 body, §23.10), dedup-key+24h 防抖。
 
@@ -33,8 +37,9 @@
       K 档段, 供首页首屏注入; s06 状态缺失跳过=防残缺数据上线, 详见 write_posrating_file)
 关键参数(常量, 不可从外部配置):
     - SNAPSHOT_VERSION 常量: "1.0", bump 当日=发布日豁免突变告警
-    - ROLLING_WINDOW=60(快照日), MUTATION_STD=3.0, MUTATION_PP=20,
-      MIN_SAMPLES=5(窗口样本下限), MIN_N=20(样本门), LAG_ALERT_TD=2(交易日),
+    - ROLLING_WINDOW=60(快照日), MUTATION_STD=3.0, MUTATION_PCT=0.05,
+      MUTATION_DIR_PCT=0.01, ABS_FLOOR_MEAN=500.0, ABS_FLOOR_DELTA=200.0,
+      MIN_SAMPLES=5(窗口样本下限), LAG_ALERT_TD=2(交易日),
       DEDUP_WINDOW=86400(24h 防抖)
 复现命令:
     # 生成今日快照 + 更新 index(export.py L1223 内部以 --data-dir DATA_DIR 调用, 写 trade-data 侧)
@@ -65,7 +70,14 @@ DEFAULT_DATA_DIR = ROOT / "static-site" / "data"
 SNAPSHOT_VERSION = "1.0"          # 发布日=version 变化当日, 豁免突变告警
 ROLLING_WINDOW = 60               # 滚动窗快照日数(含昨天不含今天)
 MUTATION_STD = 3.0                # 突变档: |today - 窗口均值| > k×std
-MUTATION_PP = 20.0                # 突变档: 单日 |Δ| > 20pp(percentage points)
+MUTATION_PCT = 0.05               # 突变档: 单日 |Δ| > 窗口均值 × MUTATION_PCT(相对口径)
+                                  #   #109 根治: 原 MUTATION_PP=20 按"20个百分点"设计, 但
+                                  #   total_return 单位是元, 9000 元量级模式(G/I)单日正常波动
+                                  #   一两百元(占窗口均值 2-4%)恒误报; 取 5% 兼容正常波动(20260911
+                                  #   G Δ2.87%/H Δ4.34% 均不误报), 真突变(>5%)仍告警。
+MUTATION_DIR_PCT = 0.01           # 突变档 dir_confirmed: 前一日同向 |Δ| > 窗口均值 × 0.01
+ABS_FLOOR_MEAN = 500.0            # 窗口均值 < 此值视为小模式(如 E 百元量级), 启用 abs 下限
+ABS_FLOOR_DELTA = 200.0           # 小模式 abs 下限: 单日 |Δ| > 200 元仍算突变(防小模式逃逸)
 MIN_SAMPLES = 5                   # 窗口样本下限(不足跳过突变检测)
 MIN_N = 20                        # 样本门: n<20 的模式不参与突变告警(小样本噪声大)
 LAG_ALERT_TD = 2                  # 停滞档: max_signal_date 落后 ≥2 个交易日告警
@@ -415,23 +427,33 @@ def detect_mutation(index: dict) -> list[dict]:
         day_delta = today_tr - prev1["modes"][mode]["tr"] if isinstance(
             prev1.get("modes", {}).get(mode), dict
         ) and isinstance(prev1["modes"][mode].get("tr"), (int, float)) else 0.0
-        pp_jump = abs(day_delta) > MUTATION_PP
+        # 相对口径(#109 根治): 单日 |Δ| > 窗口均值 × MUTATION_PCT 才叫突变
+        # (total_return 单位=元, 不同 mode 量级差异大, 绝对阈值会误伤/漏检)
+        pct_threshold = mean * MUTATION_PCT
+        if mean < ABS_FLOOR_MEAN:
+            # 小模式(百元量级) abs 下限兜底, 防相对阈值过低导致逃逸
+            pct_threshold = max(pct_threshold, ABS_FLOOR_DELTA)
+        pp_jump = abs(day_delta) > pct_threshold
         dir_confirmed = False
         if prev2 is not None and isinstance(prev2.get("modes", {}).get(mode), dict) \
                 and isinstance(prev2["modes"][mode].get("tr"), (int, float)):
             prev_delta = prev1["modes"][mode]["tr"] - prev2["modes"][mode]["tr"]
-            if (day_delta > 0 and prev_delta > MUTATION_PP) or \
-               (day_delta < 0 and prev_delta < -MUTATION_PP):
+            dir_threshold = mean * MUTATION_DIR_PCT
+            if (day_delta > 0 and prev_delta > dir_threshold) or \
+               (day_delta < 0 and prev_delta < -dir_threshold):
                 dir_confirmed = True
-        if (std_jump and pp_jump) or (pp_jump and dir_confirmed) or \
-                (std_jump and abs(day_delta) > MUTATION_PP * 0.5):
+        # 相对口径组合(#109 根治): 去掉原"std_jump and 单日Δ>半阈值"第三条——该条在
+        # 绝对口径下(MUTATION_PP*0.5=10元)对 9000 元量级模式恒触发, 改成相对半阈值后
+        # 仍会让"std 大但相对波动正常"(G 今日 5.8σ=4.2% 属正常)误报, 故删除;
+        # 只保留两条纯相对口径组合: std 偏离+相对日波幅 双确认 / 相对日波幅+连续两日同向
+        if (std_jump and pp_jump) or (pp_jump and dir_confirmed):
             alerts.append({
                 "type": "mutation", "mode": mode, "n": today_n,
                 "today_tr": round(today_tr, 2), "mean": round(mean, 2),
                 "std": round(std, 2) if std else 0,
                 "day_delta": round(day_delta, 2),
                 "detail": f"[{mode}] 今日 total_return={today_tr:.2f}, "
-                          f"窗口均值={mean:.2f}, std={std:.2f}, 单日Δ={day_delta:+.2f}pp",
+                          f"窗口均值={mean:.2f}, std={std:.2f}, 单日Δ={day_delta:+.2f}",
             })
     return alerts
 
@@ -457,7 +479,11 @@ def run_check(data_dir: Path, dry_run: bool) -> int:
         log(f"告警检测通过: 最新快照天={days[-1].get('d')} "
             f"max_signal_date={days[-1].get('m')}")
         return 0
-    for a in alerts:
+    # 多条同 type=mutation 合并为 1 条发送(#109 根因2: G/H/I 各自独立 dedup key
+    # 各打各的=一次 3 条轰炸; 合并后标题前缀 mode 列表, detail 逐 mode 列出)
+    mutation_alerts = [a for a in alerts if a["type"] == "mutation"]
+    other_alerts = [a for a in alerts if a["type"] != "mutation"]
+    for a in other_alerts:
         subject = "[告警] 信号凯利回测停滞" if a["type"] in ("stagnation", "posrating_stale") else "[告警] 信号凯利回测指标突变"
         body_lines = [
             subject,
@@ -470,18 +496,34 @@ def run_check(data_dir: Path, dry_run: bool) -> int:
                               "(s06_snapshot.sh 20:35 + export/build_snapshot 17:50 双点生成); "
                               "停更时首页静默回退静态兜底 86.60% 历史数字, 用户无感知, 需及时补跑")
             body_lines.append("补跑: bash scripts/kelly_posrating.py --data-dir <static-site/data> --write")
-        if a["type"] == "mutation":
-            body_lines.append(f"样本数 n={a.get('n')} (门 ≥{MIN_N})")
-            body_lines.append("影响面提示: 回测 total_return 突变可能源于价格库数据缺口"
-                              "(如 accum_nav 未补致信号跳单) 或真实市场风格切换, "
-                              "建议查 check_data_integrity 信号滞后告警 + 最近 3 日成交明细。")
         body_lines.append("发版豁免: 今日为发布日则本突变告警属预期(已跳过突变检测)。")
         body = "\n".join(body_lines)
         dedup_key = f"sigkelly_snapshot_{a['type']}_{a.get('mode', '')}_{days[-1]['d']}"
         if dry_run:
             log(f"[dry-run] 将发告警: {subject} | {a.get('detail', '')}")
         else:
-            _send_notify(subject, body, severe=(a["type"] == "mutation"),
+            _send_notify(subject, body, severe=False,
+                         dry_run=dry_run, dedup_key=dedup_key)
+    if mutation_alerts:
+        modes = "/".join(sorted(a.get("mode", "?") for a in mutation_alerts))
+        subject = f"[告警] 信号凯利回测指标突变({modes})"
+        body_lines = [subject, "判定档位: mutation"]
+        for a in mutation_alerts:
+            body_lines.append(a.get("detail", ""))
+        body_lines.append(f"数据截止日: {days[-1].get('d')} 快照 / max_signal_date={days[-1].get('m')}")
+        n_str = ", ".join(f"{a.get('mode')}={a.get('n')}" for a in mutation_alerts)
+        body_lines.append(f"样本数 {n_str} (门 ≥{MIN_N})")
+        body_lines.append("影响面提示: 回测 total_return 突变可能源于价格库数据缺口"
+                          "(如 accum_nav 未补致信号跳单) 或真实市场风格切换, "
+                          "建议查 check_data_integrity 信号滞后告警 + 最近 3 日成交明细。")
+        body_lines.append("发版豁免: 今日为发布日则本突变告警属预期(已跳过突变检测)。")
+        body = "\n".join(body_lines)
+        # dedup key 不按 mode 拆分: 跨 mode 合并后只留 date 级 key, 防 24h 内重复轰炸
+        dedup_key = f"sigkelly_snapshot_mutation_{days[-1]['d']}"
+        if dry_run:
+            log(f"[dry-run] 将发告警: {subject} | 合并 {len(mutation_alerts)} 条 mode [{modes}]")
+        else:
+            _send_notify(subject, body, severe=True,
                          dry_run=dry_run, dedup_key=dedup_key)
     return 1
 
