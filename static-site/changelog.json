@@ -88,5 +88,8 @@
   ],
   "20260911-a578": [
     "fix(nextday-steps): P0 seq5 sell_date \u5b57\u6bb5\u7f3a\u5931 + P1 \u4e3b\u8868\u6458\u8981\u6700\u9ad8seq\u8bef\u5224,reviewer finding \u4fee\u590d"
+  ],
+  "20260911-a579": [
+    "fix(\u9996\u9875\u4fe1\u53f7\u5f39\u7a97): \u5386\u53f2\u4fe1\u53f7\u8d70\u52bf\u56fe\u76d8\u4e2d\u7f3a\u5f53\u65e5\u70b9\u4fee\u590d(#107) A+B"
   ]
 }
