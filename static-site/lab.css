@@ -2612,6 +2612,25 @@ td.lab-sigkelly-elim-reason { text-decoration: none; color: var(--text-2); font-
 [data-theme="redgold"] .auto-trade-steps-st-purple { color: #b197fc; background: rgba(112, 72, 232, 0.25); }
 [data-theme="dark"] .auto-trade-steps-st-red,
 [data-theme="redgold"] .auto-trade-steps-st-red { color: #ff8787; background: rgba(224, 49, 49, 0.25); }
+/* 历史回填角标(#106 回填行): 主表摘要行/弹窗行为级行 etf 代码/名称旁, hover 显示 tooltip */
+.auto-trade-steps-backfilled-badge {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  color: #7048e8;
+  background: rgba(112, 72, 232, 0.15);
+  vertical-align: 1px;
+  cursor: help;
+}
+[data-theme="dark"] .auto-trade-steps-backfilled-badge,
+[data-theme="redgold"] .auto-trade-steps-backfilled-badge {
+  color: #b197fc;
+  background: rgba(112, 72, 232, 0.25);
+}
 .auto-trade-steps-empty {
   color: var(--text-4);
   text-align: center;

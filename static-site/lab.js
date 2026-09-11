@@ -14238,11 +14238,14 @@ function _atDaySummary(date, steps) {
   const buys = list.filter(function (s) { return (s.action || "buy") !== "sell"; });
   const last = cur || (buys.length ? buys[buys.length - 1] : list[list.length - 1]);
   const first = list[0];
+  // 组内任一行带 backfilled 标记则摘要行标记为历史回填(#106 生成器每行打 backfilled=true)
+  const backfilled = list.some(function (s) { return !!s.backfilled; });
   return {
     date: String(date),
     etf_code: last.etf_code || first.etf_code || "",
     etf_name: last.etf_name || first.etf_name || "",
     action: last.action || first.action || "buy",
+    backfilled: backfilled,
     order_price: _atNum(last.order_price != null ? last.order_price : first.order_price),
     amount: _atNum(last.amount != null ? last.amount : first.amount),
     shares_planned: _atNum(last.shares_planned != null ? last.shares_planned : first.shares_planned),
@@ -14260,13 +14263,19 @@ function _atEtfLinkHtml(code, name) {
   const n = name ? _atEsc(String(name)) : "";
   return '<a href="javascript:void(0)" class="auto-trade-steps-etf-link" data-code="' + c + '" data-name="' + n + '" title="点击看走势图">' + c + '</a>';
 }
+// 历史回填角标(#106 回填行): 纯新增展示, 不改变行 action/status/日期语义
+const _AT_BACKFILL_TIP = "历史回填: 卖出计划按信号日+10交易日补登, track_score 为当日快照值非冻结值";
+function _atBackfilledBadgeHtml() {
+  return '<span class="auto-trade-steps-backfilled-badge" title="' + _atEsc(_AT_BACKFILL_TIP) + '">回填</span>';
+}
 // 动作列(计划动作 + 可点击 ETF 代码 + 名称)
 function _atActionCellHtml(d) {
   const act = (_AT_ACTION_LABEL[d.action] || d.action || "");
   const code = d.etf_code ? String(d.etf_code) : "";
   const name = d.etf_name ? _atEsc(d.etf_name) : "";
-  if (code) return _atEsc(act) + " " + _atEtfLinkHtml(code, d.etf_name) + (name ? " " + name : "");
-  return _atEsc(act) + (name ? " " + name : "");
+  const badge = d.backfilled ? _atBackfilledBadgeHtml() : "";
+  if (code) return _atEsc(act) + " " + _atEtfLinkHtml(code, d.etf_name) + (name ? " " + name : "") + badge;
+  return _atEsc(act) + (name ? " " + name : "") + badge;
 }
 // nextday_plan.json -> 天级计划行(仅当日)
 function _atPlanRows(doc) {
@@ -14485,10 +14494,11 @@ function _atModalRowHtml(st, hl) {
     : '<button type="button" class="auto-trade-steps-mark-btn" data-date="' + d + '" data-code="' + c + '" data-seq="' + q + '" title="标记我已操作过(本地提醒, 不写回服务端)">✓ 我已操作</button>';
   const statusText = marked ? "已操作(手动)" : (st.status_text || st.status || "-");
   const etfLink = st.etf_code ? _atEtfLinkHtml(st.etf_code, st.etf_name) : _atEsc(st.etf_code || "-");
+  const badge = st.backfilled ? _atBackfilledBadgeHtml() : "";
   return '<tr class="' + (hl ? "auto-trade-steps-modal-hl" : "") + (marked ? " auto-trade-steps-row-marked" : "") + '">' +
     '<td>' + _atEsc(st.time_slot || "-") + '</td>' +
     '<td class="auto-trade-steps-action">' + _atEsc(_AT_ACTION_LABEL[st.action] || st.action || "-") + '</td>' +
-    '<td>' + etfLink + (st.etf_name ? '<div class="auto-trade-steps-etfname">' + _atEsc(st.etf_name) + '</div>' : "") + '</td>' +
+    '<td>' + etfLink + (st.etf_name ? '<div class="auto-trade-steps-etfname">' + _atEsc(st.etf_name) + badge + '</div>' : badge) + '</td>' +
     '<td>' + _atPriceStr(st.order_price) + '</td>' +
     '<td>' + (amtStr || "-") + '</td>' +
     '<td><span class="auto-trade-steps-st auto-trade-steps-st-' + (marked ? "green" : stCls) + '">' + _atEsc(statusText) + '</span></td>' +

@@ -31225,7 +31225,8 @@ async function _appendIntradayEstimate(chartData, sigs, indexId, todayDate, isVa
       const prevClose = chartData[chartData.length - 1].close;
       if (prevClose == null) return false;
       // 概念快照含合成 close（昨收×(1+涨幅)）优先；行业只有涨跌幅用前收计算法
-      const closeVal = (con && con.close != null) ? con.close : prevClose * (1 + pct / 100);
+      // 计算法 round(4) 对齐后端 _backfill_industry_daily(close=round(prev*(1+pct/100),4))
+      const closeVal = (con && con.close != null) ? con.close : Math.round(prevClose * (1 + pct / 100) * 1e4) / 1e4;
       idx = {
         price: closeVal,
         open: (con && con.open != null) ? con.open : closeVal,
