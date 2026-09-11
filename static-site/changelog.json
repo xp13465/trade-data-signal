@@ -85,5 +85,8 @@
   ],
   "20260910-a577": [
     "fix(lab): \u6b21\u65e5\u4e70\u5165\u5b9e\u64cd\u6b65\u9aa4\u8868\u683c \u53bb910/911\u91cd\u590d + \u4e3b\u8868\u52a0\u91d1\u989d/\u4efd\u6570\u5217"
+  ],
+  "20260911-a578": [
+    "fix(nextday-steps): P0 seq5 sell_date \u5b57\u6bb5\u7f3a\u5931 + P1 \u4e3b\u8868\u6458\u8981\u6700\u9ad8seq\u8bef\u5224,reviewer finding \u4fee\u590d"
   ]
 }
