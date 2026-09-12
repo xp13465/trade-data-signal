@@ -117,10 +117,14 @@ def _is_single_repo() -> bool:
     """单仓判定: 部署源树 == git 仓(无 trade/trade-data 之分)。
 
     云上单仓(REPO=GIT_REPO 同路径)或 MAIN_REPO env 直接指向 git 仓时成立;
-    此时写 git 仓即写源树, 无需守卫误写拦截。"""
+    此时写 git 仓即写源树, 无需守卫误写拦截。
+
+    单仓判定必须排除「独立源树 trade-data 仍存在」的情况(2026-09-12 F1):
+    macOS 双仓下 REPO=GIT_REPO=trade 若 trade-data 仍在, 仍是误写 git 仓, 不算单仓。"""
     repo = os.environ.get("REPO", "").strip()
     git = os.environ.get("GIT_REPO", "").strip()
-    if repo and git and Path(repo).resolve() == Path(git).resolve():
+    if (repo and git and Path(repo).resolve() == Path(git).resolve()
+            and (MAIN_REPO.resolve() == Path(git).resolve() or not MAIN_REPO.exists())):
         return True
     return MAIN_REPO.resolve() == pick_git_repo().resolve()
 

@@ -8,6 +8,7 @@
 
 set -u
 REPO="${REPO:-/Users/linhuichen/code/trade-data}"
+GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"   # git 仓(trade):app/ 实际所在;云上单仓 GIT_REPO==REPO
 CFG="$REPO/config/daily_brief.yaml"
 PY="$REPO/.venv/bin/python"
 
@@ -29,7 +30,7 @@ fi
 
 # 非交易日跳过(复用 trade/app/calendar.py 节假日历;非交易日不生成不覆盖不通知)
 # PY=trade-data/.venv/bin/python,import trade/app/calendar.py(scripts/config 是 symlink 指向 trade,venv 可访问)
-if ! "$PY" -c "import sys; sys.path.insert(0,'/Users/linhuichen/code/trade'); from app.calendar import is_trading_day; import datetime as _dt; sys.exit(0 if is_trading_day(_dt.date.today()) else 1)"; then
+if ! "$PY" -c "import sys; sys.path.insert(0,'$GIT_REPO'); from app.calendar import is_trading_day; import datetime as _dt; sys.exit(0 if is_trading_day(_dt.date.today()) else 1)"; then
   echo "[run_daily_brief] 非交易日,跳过(不生成不覆盖不通知) $(date '+%Y-%m-%d %H:%M:%S')" | tee -a "$LOG"
   exit 0
 fi
