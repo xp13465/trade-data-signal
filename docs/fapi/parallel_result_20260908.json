@@ -1,0 +1,1221 @@
+{
+ "end": "20260908",
+ "window": "20260708~20260908",
+ "rows": [
+  {
+   "id": "thsc_300816",
+   "name": "机器人概念",
+   "fapi_thscode": "885517.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 3906.723,
+     "ak_close": 3906.723,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 3943.197,
+     "ak_close": 3943.197,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 3967.635,
+     "ak_close": 3967.635,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 3753.549,
+     "ak_close": 3753.549,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 3798.321,
+     "ak_close": 3798.321,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_309119",
+   "name": "人形机器人",
+   "fapi_thscode": "886069.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 2500.734,
+     "ak_close": 2500.734,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 2529.654,
+     "ak_close": 2529.654,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 2539.233,
+     "ak_close": 2539.233,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 2382.941,
+     "ak_close": 2382.941,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 2407.565,
+     "ak_close": 2407.565,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_308700",
+   "name": "第三代半导体",
+   "fapi_thscode": "885908.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 2938.317,
+     "ak_close": 2938.317,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 3073.018,
+     "ak_close": 3073.018,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 2978.084,
+     "ak_close": 2978.084,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 2777.1,
+     "ak_close": 2777.1,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 2800.571,
+     "ak_close": 2800.571,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_309049",
+   "name": "共封装光学(CPO)",
+   "fapi_thscode": "886033.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 6353.753,
+     "ak_close": 6353.753,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 6630.356,
+     "ak_close": 6630.356,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 6459.174,
+     "ak_close": 6459.174,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 5993.752,
+     "ak_close": 5993.752,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 6191.99,
+     "ak_close": 6191.99,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_301085",
+   "name": "芯片概念",
+   "fapi_thscode": "885756.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 5378.732,
+     "ak_close": 5378.732,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 5551.854,
+     "ak_close": 5551.854,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 5471.035,
+     "ak_close": 5471.035,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 5136.671,
+     "ak_close": 5136.671,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 5180.036,
+     "ak_close": 5180.036,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_307940",
+   "name": "存储芯片",
+   "fapi_thscode": "886042.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 3176.999,
+     "ak_close": 3176.999,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 3370.925,
+     "ak_close": 3370.925,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 3242.805,
+     "ak_close": 3242.805,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 3035.099,
+     "ak_close": 3035.099,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 3065.792,
+     "ak_close": 3065.792,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_302035",
+   "name": "人工智能",
+   "fapi_thscode": "885728.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 1237.019,
+     "ak_close": 1237.019,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 1248.79,
+     "ak_close": 1248.79,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 1267.074,
+     "ak_close": 1267.074,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 1210.936,
+     "ak_close": 1210.936,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 1219.02,
+     "ak_close": 1219.02,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_309068",
+   "name": "算力租赁",
+   "fapi_thscode": "886050.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 1343.345,
+     "ak_close": 1343.345,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 1360.416,
+     "ak_close": 1360.416,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 1382.099,
+     "ak_close": 1382.099,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 1319.666,
+     "ak_close": 1319.666,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 1320.672,
+     "ak_close": 1320.672,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_308828",
+   "name": "东数西算(算力)",
+   "fapi_thscode": "885957.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 2189.826,
+     "ak_close": 2189.826,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 2228.579,
+     "ak_close": 2228.579,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 2244.843,
+     "ak_close": 2244.843,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 2123.297,
+     "ak_close": 2123.297,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 2132.253,
+     "ak_close": 2132.253,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_309020",
+   "name": "信创",
+   "fapi_thscode": "886013.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 1872.964,
+     "ak_close": 1872.964,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 1896.178,
+     "ak_close": 1896.178,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 1917.001,
+     "ak_close": 1917.001,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 1831.898,
+     "ak_close": 1831.898,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 1828.131,
+     "ak_close": 1828.131,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_309060",
+   "name": "数据要素",
+   "fapi_thscode": "886041.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 1099.138,
+     "ak_close": 1099.138,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 1107.05,
+     "ak_close": 1107.05,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 1128.299,
+     "ak_close": 1128.299,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 1078.915,
+     "ak_close": 1078.915,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 1082.457,
+     "ak_close": 1082.457,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_300008",
+   "name": "新能源汽车",
+   "fapi_thscode": "885431.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 4644.848,
+     "ak_close": 4644.848,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 4684.755,
+     "ak_close": 4684.755,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 4687.949,
+     "ak_close": 4687.949,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 4421.082,
+     "ak_close": 4421.082,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 4492.527,
+     "ak_close": 4492.527,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_301079",
+   "name": "光伏概念",
+   "fapi_thscode": "885531.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 4357.092,
+     "ak_close": 4357.092,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 4417.136,
+     "ak_close": 4417.136,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 4412.508,
+     "ak_close": 4412.508,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 4158.999,
+     "ak_close": 4158.999,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 4219.538,
+     "ak_close": 4219.538,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_300733",
+   "name": "锂电池概念",
+   "fapi_thscode": "885710.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 1944.068,
+     "ak_close": 1944.068,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 1953.709,
+     "ak_close": 1953.709,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 1939.707,
+     "ak_close": 1939.707,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 1832.422,
+     "ak_close": 1832.422,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 1869.898,
+     "ak_close": 1869.898,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_306380",
+   "name": "储能",
+   "fapi_thscode": "885921.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 2439.386,
+     "ak_close": 2439.386,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 2453.182,
+     "ak_close": 2453.182,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 2458.571,
+     "ak_close": 2458.571,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 2332.331,
+     "ak_close": 2332.331,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 2368.942,
+     "ak_close": 2368.942,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_308294",
+   "name": "固态电池",
+   "fapi_thscode": "886032.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 1493.57,
+     "ak_close": 1493.57,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 1498.931,
+     "ak_close": 1498.931,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 1476.031,
+     "ak_close": 1476.031,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 1385.232,
+     "ak_close": 1385.232,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 1414.944,
+     "ak_close": 1414.944,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_309115",
+   "name": "低空经济",
+   "fapi_thscode": "886067.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 2039.667,
+     "ak_close": 2039.667,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 2062.49,
+     "ak_close": 2062.49,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 2092.223,
+     "ak_close": 2092.223,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 1975.591,
+     "ak_close": 1975.591,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 1982.185,
+     "ak_close": 1982.185,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_308014",
+   "name": "创新药",
+   "fapi_thscode": "886015.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 1206.348,
+     "ak_close": 1206.348,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 1204.879,
+     "ak_close": 1204.879,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 1241.331,
+     "ak_close": 1241.331,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 1240.06,
+     "ak_close": 1240.06,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 1271.474,
+     "ak_close": 1271.474,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_300082",
+   "name": "军工",
+   "fapi_thscode": "885700.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 2327.96,
+     "ak_close": 2327.96,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 2358.942,
+     "ak_close": 2358.942,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 2399.445,
+     "ak_close": 2399.445,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 2242.357,
+     "ak_close": 2242.357,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 2248.319,
+     "ak_close": 2248.319,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_300830",
+   "name": "量子科技",
+   "fapi_thscode": "885730.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 2414.727,
+     "ak_close": 2414.727,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 2450.05,
+     "ak_close": 2450.05,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 2466.707,
+     "ak_close": 2466.707,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 2326.691,
+     "ak_close": 2326.691,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 2332.317,
+     "ak_close": 2332.317,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_308725",
+   "name": "汽车芯片",
+   "fapi_thscode": "885945.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 1548.231,
+     "ak_close": 1548.231,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 1609.948,
+     "ak_close": 1609.948,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 1564.915,
+     "ak_close": 1564.915,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 1470.095,
+     "ak_close": 1470.095,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 1478.531,
+     "ak_close": 1478.531,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_308300",
+   "name": "MCU芯片",
+   "fapi_thscode": "885925.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 1942.696,
+     "ak_close": 1942.696,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 2012.728,
+     "ak_close": 2012.728,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 1981.565,
+     "ak_close": 1981.565,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 1868.57,
+     "ak_close": 1868.57,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 1870.964,
+     "ak_close": 1870.964,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_309113",
+   "name": "飞行汽车(eVTOL)",
+   "fapi_thscode": "886066.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 1799.878,
+     "ak_close": 1799.878,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 1814.151,
+     "ak_close": 1814.151,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 1834.622,
+     "ak_close": 1834.622,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 1730.198,
+     "ak_close": 1730.198,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 1745.202,
+     "ak_close": 1745.202,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_308491",
+   "name": "氢能源",
+   "fapi_thscode": "885823.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 2588.146,
+     "ak_close": 2588.146,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 2598.407,
+     "ak_close": 2598.407,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 2615.415,
+     "ak_close": 2615.415,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 2503.167,
+     "ak_close": 2503.167,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 2543.704,
+     "ak_close": 2543.704,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_308870",
+   "name": "数字经济",
+   "fapi_thscode": "885976.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 1443.96,
+     "ak_close": 1443.96,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 1450.421,
+     "ak_close": 1450.421,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 1472.053,
+     "ak_close": 1472.053,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 1409.17,
+     "ak_close": 1409.17,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 1416.403,
+     "ak_close": 1416.403,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_308752",
+   "name": "元宇宙",
+   "fapi_thscode": "885934.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 1738.774,
+     "ak_close": 1738.774,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 1762.499,
+     "ak_close": 1762.499,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 1787.163,
+     "ak_close": 1787.163,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 1692.394,
+     "ak_close": 1692.394,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 1699.178,
+     "ak_close": 1699.178,
+     "close_diff_pct": 0.0
+    }
+   ]
+  },
+  {
+   "id": "thsc_309128",
+   "name": "军工信息化",
+   "fapi_thscode": "886076.TI",
+   "match": "OK",
+   "fapi_days": 45,
+   "ak_days": 44,
+   "overlap": 44,
+   "close_align": 44,
+   "close_rate": 100.0,
+   "pct_align": null,
+   "pct_rate": null,
+   "samples": [
+    {
+     "date": "20260708",
+     "fapi_close": 1609.79,
+     "ak_close": 1609.79,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260709",
+     "fapi_close": 1635.352,
+     "ak_close": 1635.352,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260710",
+     "fapi_close": 1689.918,
+     "ak_close": 1689.918,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260713",
+     "fapi_close": 1569.223,
+     "ak_close": 1569.223,
+     "close_diff_pct": 0.0
+    },
+    {
+     "date": "20260714",
+     "fapi_close": 1548.04,
+     "ak_close": 1548.04,
+     "close_diff_pct": 0.0
+    }
+   ]
+  }
+ ]
+}

@@ -1,35 +1,113 @@
 {
-  "n_eval": 0,
+  "n_eval": 7,
   "overall": {
-    "n": 0,
-    "production_hit": 0,
-    "production_hit_rate": null,
-    "ref_hit": 0,
-    "ref_hit_rate": null,
-    "delta_prod_minus_ref": null
+    "n": 7,
+    "production_hit": 3,
+    "production_hit_rate": 0.429,
+    "ref_hit": 1,
+    "ref_hit_rate": 0.143,
+    "delta_prod_minus_ref": 0.286
   },
   "nonflat_production": {
-    "n": 0,
-    "production_hit": 0,
-    "production_hit_rate": null,
-    "ref_hit": 0,
-    "ref_hit_rate": null,
-    "delta_prod_minus_ref": null
+    "n": 5,
+    "production_hit": 1,
+    "production_hit_rate": 0.2,
+    "ref_hit": 1,
+    "ref_hit_rate": 0.2,
+    "delta_prod_minus_ref": 0.0
   },
   "nonflat_ref": {
-    "n": 0,
-    "production_hit": 0,
-    "production_hit_rate": null,
-    "ref_hit": 0,
-    "ref_hit_rate": null,
-    "delta_prod_minus_ref": null
+    "n": 7,
+    "production_hit": 3,
+    "production_hit_rate": 0.429,
+    "ref_hit": 1,
+    "ref_hit_rate": 0.143,
+    "delta_prod_minus_ref": 0.286
   },
-  "same_direction": 0,
-  "diff_direction": 0,
-  "rows": [],
-  "note": "开锚=生产(方向锚注入);关锚=参考(不注入)。两通道唯一变量=方向锚注入文本。7日样本稀疏,命中率仅累积参考,不构成显著统计意义(§5.1 诚实标注)。",
-  "reached_7d": false,
+  "same_direction": 4,
+  "diff_direction": 3,
+  "rows": [
+    {
+      "date": "20260901",
+      "next_date": "20260902",
+      "actual_sh_pct": -0.97,
+      "actual_direction": "down",
+      "production_direction": "down",
+      "production_hit": true,
+      "ref_direction": "down",
+      "ref_hit": true,
+      "same_direction": true
+    },
+    {
+      "date": "20260902",
+      "next_date": "20260903",
+      "actual_sh_pct": 0.02,
+      "actual_direction": "flat",
+      "production_direction": "down",
+      "production_hit": false,
+      "ref_direction": "down",
+      "ref_hit": false,
+      "same_direction": true
+    },
+    {
+      "date": "20260903",
+      "next_date": "20260904",
+      "actual_sh_pct": -0.3,
+      "actual_direction": "flat",
+      "production_direction": "up",
+      "production_hit": false,
+      "ref_direction": "N/A",
+      "ref_hit": false,
+      "same_direction": false
+    },
+    {
+      "date": "20260904",
+      "next_date": "20260907",
+      "actual_sh_pct": 0.07,
+      "actual_direction": "flat",
+      "production_direction": "down",
+      "production_hit": false,
+      "ref_direction": "down",
+      "ref_hit": false,
+      "same_direction": true
+    },
+    {
+      "date": "20260907",
+      "next_date": "20260908",
+      "actual_sh_pct": 0.2,
+      "actual_direction": "flat",
+      "production_direction": "up",
+      "production_hit": false,
+      "ref_direction": "up",
+      "ref_hit": false,
+      "same_direction": true
+    },
+    {
+      "date": "20260908",
+      "next_date": "20260909",
+      "actual_sh_pct": 0.28,
+      "actual_direction": "flat",
+      "production_direction": "flat",
+      "production_hit": true,
+      "ref_direction": "up",
+      "ref_hit": false,
+      "same_direction": false
+    },
+    {
+      "date": "20260909",
+      "next_date": "20260910",
+      "actual_sh_pct": -0.43,
+      "actual_direction": "flat",
+      "production_direction": "flat",
+      "production_hit": true,
+      "ref_direction": "up",
+      "ref_hit": false,
+      "same_direction": false
+    }
+  ],
+  "note": "开锚=生产(方向锚注入);关锚=参考(不注入)。两通道唯一变量=方向锚注入文本。7日样本仅累积参考(7 样本二项分布下 Δ≈±3.8pp≈1 sigmas 属正常噪声),不构成严格统计显著性;|Δ|<10pp 不做去留决策,只 |Δ|≥10pp 才给倾向判断(§5.1 诚实标注)。",
+  "reached_7d": true,
   "records_path": "/Users/linhuichen/code/trade-data/data/ab_direction_anchor.json",
-  "records_total": 0,
+  "records_total": 7,
   "reconciled_new": 0
 }
