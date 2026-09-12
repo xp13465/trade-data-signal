@@ -9,7 +9,7 @@
 | 类别 | 数量 | 产物 |
 |---|---|---|
 | 周期任务(必迁) | 35 | 35 个 `.timer` + 35 个 `.service`(OnCalendar= 时点) |
-| 飞书常驻 listener(已拍板迁) | 1 | 1 个 `.service`(Restart=always 代替 KeepAlive) |
+| 飞书常驻 listener(已拍板不迁) | 1 | 无(留本机:需求入口依赖本机 Claude;云上飞书通知走 notify.py) |
 | backup_db 独立备份 | 1 | 1 个 `.timer`(21:00)+ 1 个 `.service` |
 | 本机 Claude 开发环境专属(不迁) | 5 | 见 §5(thinking-proxy / sensenova-healthcheck / agent-inbox-watcher / token-cache-stats / com.claude.self-backup) |
 | plist 存在但未加载(不迁) | 3 | 见 §6(codex-watcher / monitor-72h / sentiment) |
@@ -46,10 +46,7 @@ timedatectl set-timezone Asia/Shanghai
 | EnvironmentVariables | Environment= | 逐项一行一个 KEY=VALUE |
 | ExitTimeOut(秒) | TimeoutStartSec= | 任务整体超时 |
 | WorkingDirectory | WorkingDirectory= | |
-| KeepAlive | Restart=always | 常驻服务(feishu-listener) |
-| ThrottleInterval | RestartSec= | 重启间隔 |
 | StandardOutPath / StandardErrorPath | StandardOutput=append: / StandardError=append: | 保留原日志文件路径(监控/告警排查靠 `find data/logs -mmin` 扫描,路径不可变) |
-| RunAtLoad | (timer 不需要;常驻 service 用 [Install] WantedBy= + systemctl enable) | |
 
 ### 1.5 PATH Linux 化
 本机 plist 内嵌 `PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`,其中 `/opt/homebrew/bin` 在 Linux 不存在。服务器统一为:
@@ -1300,35 +1297,9 @@ StandardOutput=append:/opt/trade/data/logs/schedule_monitor_launchd.log
 StandardError=append:/opt/trade/data/logs/schedule_monitor_launchd.err
 ```
 
-## 3. 飞书常驻 listener(已拍板迁)
+## 3. 飞书常驻 listener(已拍板不迁)
 
-- 源:`com.trade.feishu-listener`(KeepAlive=1 + RunAtLoad=1 + ThrottleInterval=10)
-- 脚本:`feishu_ws_listener.py`(venv python,lark-oapi 1.5.5 长连接;trade venv 才有,trade-data venv 无)
-- systemd 映射:KeepAlive→Restart=always;ThrottleInterval→RestartSec=10
-- 凭证:`config/feishu.json` 随迁(由用户拍板飞书 app 凭证迁移)
-
-`trade-feishu-listener.service`:
-```ini
-[Unit]
-Description=Trade feishu WS listener (源 com.trade.feishu-listener)
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-WorkingDirectory=/opt/trade
-ExecStart=/opt/trade/.venv/bin/python /opt/trade/scripts/feishu_ws_listener.py
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
-Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Restart=always
-RestartSec=10
-StandardOutput=append:/opt/trade/data/logs/feishu_listener.log
-StandardError=append:/opt/trade/data/logs/feishu_listener.err
-
-[Install]
-WantedBy=multi-user.target
-```
+决策(2026-09-12 用户拍板):feishu-listener **留本机不迁**。理由:飞书 WS 长连接的产出是 `append_todo_to_tasks` 落盘 TASKS.md,给本机 Claude 主控读需求清单,本质是"给本机 Claude 收需求"的入口,云上无 Claude Code 即无意义。云上需要"发飞书抄送通知"的能力由 `notify.py`(config/feishu.json + lark-oapi,已随迁)覆盖。
 
 ## 4. backup_db 独立 timer(21:00)
 
