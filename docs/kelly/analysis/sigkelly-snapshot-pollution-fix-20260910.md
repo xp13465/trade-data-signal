@@ -18,7 +18,7 @@ Commits:`55a29495c`(源码) + `7b14deea2`(min+bump)
 
 ### 修复
 - `scripts/signal_kelly_snapshot.py` 新增 `MUTATION_RATIO = 0.30`:单日 total_return 相对上一快照日突变比 >30% 且非发布日,判定为污染。
-  - 依据:sig_main all 全史累计收益每日正常波动**实测最大 2.63%**(reviewer 误伤矩阵实测,9/4~9/7 无误标),距 30% 阈值约 50 倍余量,30% 必为数据污染。
+  - 依据:sig_main all 累计收益每日正常波动,9/4~9/7 窗口实测最大 2.63%(H 模式,reviewer 误伤矩阵,9/4~9/7 无误标);即便按后续已演进更高值(H 9/10→9/11 突变 -4.37%,G/I -2.91%,数据截至 2026-09-12),距 30% 阈值仍约 7 倍余量,30% 必为数据污染。
 - 新增 `rebuild_index(data_dir, dry_run)`:按日期对 `20*.json` 逐日 append,统计被拦截的 polluted modes。
 - 新增 `--rebuild` CLI flag。
 
