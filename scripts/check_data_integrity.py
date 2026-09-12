@@ -1952,6 +1952,26 @@ def check_nextday_plan(data_dir: Path) -> CheckResult:
             for f in ("date", "seq", "action"):
                 if f not in st:
                     return _fail(name, f"auto_trade_steps.json steps[{i}] 缺字段: {f}")
+        # reviewer P2 ⑥(2026-09-12): seq 链完整性 — 每个有买入计划的执行日须覆盖
+        # 标准行为链 seq1(09:15挂单)/seq2(09:25竞价)/seq3(14:55兜底)/seq5(D+10卖出)。
+        # 缺任一环 = 前端时间线推进断链(如只有 seq1 无 seq2/3 = 只有挂单提示没有后续判定),
+        # 生成器回填历史持仓时"只有 seq1 老行"是预期中间态(迁移补行会补全), 但当前产物不完整仍 FAIL。
+        by_day = {}
+        for st in steps:
+            if not isinstance(st, dict):
+                continue
+            by_day.setdefault(str(st.get("date") or ""), set()).add(int(st.get("seq") or 0))
+        for day, seqs in sorted(by_day.items()):
+            if not day:
+                continue
+            have_buy = any(str(st.get("date")) == day and (st.get("action") or "buy") != "sell"
+                           for st in steps)
+            if not have_buy:
+                continue  # 纯卖出行(独立卖出日)不要求完整买入链
+            missing = [s for s in (1, 2, 3, 5) if s not in seqs]
+            if missing:
+                return _fail(name, f"auto_trade_steps.json 执行日 {day} seq 链不完整: 缺 seq{missing} "
+                                    f"(应有 1/2/3/5, 实有 {sorted(seqs)})")
 
     # 结构合法: {date, plan[]} 或 {date, empty:true}
     has_empty = data.get("empty") is True

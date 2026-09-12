@@ -61,7 +61,7 @@
 
 - **买入标的选取 = AI仓位建议 K=1**: 从信号凯利回测入样宇宙(S06 动态基座 + 降亏键过滤 + A 模式三 rating 伪象限)按 `track_score DESC -> rating(high>mid>low) -> signal(buy_backup>buy>buy_aux>buy_special) -> buy_date ASC` 排序, **每日只保留最优 1 笔**; 金额 = 每日资金池 1 万等分(K=1 即 1 万/笔)
   - 证据: kelly_posrating.py L588-630 `_position_cap_kept_keys`, lab.js L7800 同构; latest_posrating.json `values.1 = {最激进, ret 163.37%, dd 3.89%, n 545}`
-- **卖出方法 = A 模式(固定 10 天)**: `SELL_MODES["A"] = {label: 固定10天, hold_days: 10, stop_profit: None}` —— 买入后第 10 个交易日收盘价卖出, 不止盈不止损
+- **卖出方法 = A 模式(固定 10 天)**: `SELL_MODES["A"] = {label: 固定10天, hold_days: 10, stop_profit: None}` —— **信号日后第 10 个交易日**(= 含买入日共持有 10 个交易日; 买入日 = 信号日次日)收盘价卖出, 不止盈不止损。示例: 9/4 信号 → 9/7 买入 → 9/18 卖出(非 9/21, "买入日后第 10"是误算口径)
   - 证据: signal_kelly_backtest.py L86, L774-775「模式 A/E/F: 最后一天卖出(不止盈)」; sell_reason="到期"
 - **买入价口径 = 信号次日开盘价**: `KELLY_BUY_NEXTDAY=1`(v1.1.4 起默认) = 信号日收盘后固化, 次日开盘才成交; buy_price = 信号日 accum_nav × (次日原始 open / 信号日原始 close); 伪跳空(±20%)剔除
   - 证据: signal_kelly_backtest.py L669-688
@@ -424,7 +424,7 @@ pending ──9:15挂单成功──→ submitted ──成交──→ filled �
       "seq": 4, "time_slot": "15:00", "action": "summary",
       "etf_code": "159023", "etf_name": "养殖ETF万家",
       "status": "done", "status_text": "买入完成·持有中",
-      "trigger_note": "当日买入闭环: 8900 份 @ 1.123 = 9,994.7 元 + 费约 5 元; 预计 D+10(2026-09-21)A 模式到期卖出",
+      "trigger_note": "当日买入闭环: 8900 份 @ 1.123 = 9,994.7 元 + 费约 5 元; 预计 D+10(2026-09-18)A 模式到期卖出",
       "updated_at": "2026-09-07 15:00:18"
     },
     {
