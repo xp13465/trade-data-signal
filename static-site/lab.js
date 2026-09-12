@@ -13947,7 +13947,10 @@ let _labEtfTrendPinReqSeq = 0;
  * 字段结构: PRD docs/auto-trade/next-day-buy-prd-20260910.md §6.2; 状态机 §6.3:
  *   pending待执行灰 / submitted已挂单蓝 / filled已成交绿 / partial_filled部分成交橙 /
  *   cancelled已撤销灰 / tailback已兜底紫 / skipped已跳过灰 / done已完成绿 / failed执行失败红
- * 交互: 主表买入按日成行 + 卖出按 sell_date 独立成行(date DESC) / 点行弹所属日全时间线 / 「现在该干嘛」提示条+当日行高亮 / 盘中60s盘后5min轮询就地更新
+ * 交互(2026-09-06 改提醒视图, 用户拍板替代 #108 全量 16 行): 主表=提醒视图, 只显示「最近未过期交易日 T0 + 下一交易日 T1」两天,
+ *   每天内按买入/卖出分类(该日 N 只 ETF 买入 = N 行买入, M 笔卖出到期 = M 行卖出);
+ *   更早全部历史收「📄 查看全部计划」弹窗(含未到期, 卖出按 sell_date 独立成行); 点行弹所属日全时间线;
+ *   「现在该干嘛」提示条+当日行高亮 / 盘中60s盘后5min轮询就地更新
  * 前缀 _at / auto-trade-steps- 防与既有 lab 逻辑冲突。
  * ============================================================ */
 const _AT_URL_PLAN = "./data/nextday_plan.json";
@@ -14227,6 +14230,7 @@ function _atStepsByDate(doc) {
   return map;
 }
 // 该日最高 seq 行为作摘要行(买入组每日1行, 卖出行 #108 独立按 sell_date 成行); 当日取「按时钟推进到的当前行为」(需求1 时间派生)
+// 注(2026-09-06): 主表已改提醒视图, _atRemindDayRows 按 ETF 分组调用本函数生成该日各买入组摘要; 全量构建/「查看全部」仍走本函数
 function _atDaySummary(date, steps) {
   const list = (steps || []).slice().sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
   if (!list.length) return null;
@@ -14359,9 +14363,10 @@ function _atPlanRows(doc) {
   }
   return out;
 }
-// 主表行集合 = 计划行(当日) + 步骤摘要行(全史) + 卖出独立行(按 sell_date, #108),
+// 全量行集合 = 计划行(当日) + 步骤摘要行(全史) + 卖出独立行(按 sell_date, #108),
 // 按 date DESC, 同日有步骤则以步骤摘要为准(补齐计划缺的 etf_name/amount);
 // 卖出日与买入日撞日期时买入行+卖出行同时显示(不互斥, 用户拍板语义)
+// 注(2026-09-06): 主表已改提醒视图(_atRender 直接用 _atRemindDayRows), 本函数仍供「查看全部计划」弹窗全量列表使用
 function _atBuildDays(planDoc, stepsDoc) {
   const map = {};
   _atPlanRows(planDoc).forEach(function (r) { if (r.date && !map[r.date]) map[r.date] = r; });
@@ -14392,6 +14397,110 @@ function _atBuildDays(planDoc, stepsDoc) {
   const days = Object.keys(map).map(function (d) { return map[d]; });
   days.sort(function (a, b) { return a.date < b.date ? 1 : -1; }); // date DESC
   return days;
+}
+
+// ---- 提醒视图(用户拍板 2026-09-06, 语义见 docs/pending-features-index.md #108 替代): 主表只显示「最近未过期交易日 T0 + 下一交易日 T1」两天 ----
+// 交易日序列 = 产物里既有交易日历(与 _atBuildDays 同源: auto_trade_steps 的 date/sell_date + nextday_plan 的 buy_date)
+// (权威 trade_dates.txt 在后端 data/, 前端无 API 不可达, 不新增依赖; 数据缺时降级取 byDate 键, 不白屏)
+const _AT_WEEKDAY_CN = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+function _atWeekday(dateS) {
+  const s = String(dateS || "");
+  if (!/^\d{8}$/.test(s)) return "";
+  const dt = new Date(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6, 8)));
+  return isNaN(dt.getTime()) ? "" : _AT_WEEKDAY_CN[dt.getDay()];
+}
+// 交易日序列(升序): byDate 键(买入日) + 卖出 sell_date + 计划 buy_date; 空则返回 []
+function _atTradeDates(planDoc, stepsDoc) {
+  const set = {};
+  const byDate = _atStepsByDate(stepsDoc);
+  Object.keys(byDate).forEach(function (d) { set[d] = 1; });
+  Object.keys(byDate).forEach(function (d) {
+    (byDate[d] || []).forEach(function (s) {
+      if (s && s.sell_date) set[String(s.sell_date)] = 1;
+    });
+  });
+  _atPlanRows(planDoc).forEach(function (r) { if (r.date) set[String(r.date)] = 1; });
+  return Object.keys(set).sort();
+}
+// T0/T1 判定(用户拍板「滚动两个交易日」): T0=最近未过期交易日
+// 今天若是交易日且当前时刻未收盘(<=15:00)→ 今天; 否则(盘后/非交易日)→ 下一个交易日; T1 = T0 的下一个交易日
+// today/hm 可注入(自测/边界用), 缺省取本地时钟
+function _atRemindPair(tradeDates, today, hm) {
+  const t = today || _atToday();
+  const h = (hm == null) ? _atHM() : hm;
+  const dates = tradeDates || [];
+  let T0 = null;
+  if (dates.indexOf(t) >= 0 && h <= 1500) {
+    T0 = t;                                   // 今天交易日且未收盘 → 今天
+  } else {
+    for (let i = 0; i < dates.length; i++) {  // 盘后/非交易日 → 滚动到下一个交易日
+      if (String(dates[i]) > String(t)) { T0 = dates[i]; break; }
+    }
+  }
+  let T1 = null;
+  if (T0) {
+    for (let i = 0; i < dates.length; i++) {
+      if (String(dates[i]) > String(T0)) { T1 = dates[i]; break; }
+    }
+  }
+  return { T0: T0, T1: T1 };
+}
+// 某交易日提醒行: buys=买入行(该日 N 只 ETF = N 行买入, 用户拍板语义), sells=卖出行(按 sell_date 独立成行)
+// 不受 _atBuildDays 纯 date 键「每日 1 摘要」限制, 直接按 ETF 分组展开; 摘要逻辑复用 _atDaySummary
+function _atRemindDayRows(date, planDoc, stepsDoc) {
+  const byDate = _atStepsByDate(stepsDoc);
+  const daySteps = byDate[String(date)] || [];
+  const buys = [], sells = [];
+  const groups = {};
+  daySteps.forEach(function (s) {
+    if ((s.action || "buy") === "sell") return; // 卖出行统一走下方全量扫描(卖出日可能非 byDate 键)
+    const k = String(s.etf_code || "_");
+    if (!groups[k]) groups[k] = [];
+    groups[k].push(s);
+  });
+  // 卖出到期行: 全量扫描所有买入组的 sell_date == 该日(卖出日独立成日, 可能不在 byDate 键中)
+  Object.keys(byDate).forEach(function (d) {
+    (byDate[d] || []).forEach(function (s) {
+      if ((s.action || "") === "sell" && s.sell_date && String(s.sell_date) === String(date)) {
+        sells.push(_atSellRow(s, String(date)));
+      }
+    });
+  });
+  Object.keys(groups).forEach(function (k) {
+    const sum = _atDaySummary(String(date), groups[k]);
+    if (sum) buys.push(sum);
+  });
+  // 计划源补位(该日有 plan 行而无步骤摘要时, 补齐字段或独立入行)
+  _atPlanRows(planDoc).forEach(function (r) {
+    if (String(r.date) !== String(date)) return;
+    const hit = buys.filter(function (b) { return String(b.etf_code) === String(r.etf_code); })[0];
+    if (hit) {
+      if (!hit.etf_name) hit.etf_name = r.etf_name;
+      if (_atNum(hit.amount) == null) hit.amount = r.amount;
+      if (!hit.trigger_note) hit.trigger_note = r.trigger_note;
+    } else {
+      buys.push(r);
+    }
+  });
+  buys.sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
+  return { buys: buys, sells: sells };
+}
+// 提醒视图某日 HTML(日期分隔行 + 买入分组行 + 卖出分组行, 单表结构复用 7 列; inline style 零夹带不碰 lab.css)
+function _atRemindGroupHtml(g, today, hlDate, byDate) {
+  const wd = _atWeekday(g.date);
+  const daySepStyle = 'background:rgba(128,128,128,0.10);font-weight:700;text-align:left;padding:5px 8px;color:var(--text-1);border-bottom:1px solid var(--border);';
+  const actSepStyle = 'text-align:left;padding:3px 8px;color:var(--text-3);font-size:11px;border-bottom:none;';
+  let rows = '<tr class="auto-trade-steps-daysep"><td colspan="7" style="' + daySepStyle + '">' +
+    _atEsc(g.label || "") + (wd ? " · " + _atEsc(wd) : "") + '</td></tr>';
+  if (g.buys.length) {
+    rows += '<tr class="auto-trade-steps-acts"><td colspan="7" style="' + actSepStyle + '">▼ 买入 ' + g.buys.length + ' 笔</td></tr>' +
+      g.buys.map(function (r) { return _atRowHtml(r, today, hlDate, byDate[g.date] || []); }).join("");
+  }
+  if (g.sells.length) {
+    rows += '<tr class="auto-trade-steps-acts"><td colspan="7" style="' + actSepStyle + '">▼ 卖出 ' + g.sells.length + ' 笔</td></tr>' +
+      g.sells.map(function (r) { return _atRowHtml(r, today, hlDate, byDate[g.date] || []); }).join("");
+  }
+  return rows;
 }
 // ---- 渲染 ----
 function _atRowHtml(d, today, hlDate, daySteps) {
@@ -14446,11 +14555,35 @@ function _atRender(slot, planDoc, stepsDoc) {
   const nowActDate = nowAct ? String(nowAct.sell_date || nowAct.date || "") : "";
   const hint = _atTimeHint(byDate);
   const barHtml = nowAct ? _atNowBarHtml(nowAct, hint) : "";
+  // 提醒视图(用户拍板 2026-09-06): T0/T1 两天, 每天按买入/卖出分类, 历史收「查看全部计划」弹窗
+  const pair = _atRemindPair(_atTradeDates(planDoc, stepsDoc));
+  const groups = [];
+  if (pair.T0) {
+    const r0 = _atRemindDayRows(pair.T0, planDoc, stepsDoc);
+    groups.push({
+      date: pair.T0,
+      buys: r0.buys,
+      sells: r0.sells,
+      label: (pair.T0 === today ? "🟢 今日" : "🟢 下一交易日") + " · " + _atFmtDate(pair.T0)
+    });
+  }
+  if (pair.T1) {
+    const r1 = _atRemindDayRows(pair.T1, planDoc, stepsDoc);
+    groups.push({
+      date: pair.T1,
+      buys: r1.buys,
+      sells: r1.sells,
+      label: (pair.T0 === today ? "🔜 下一交易日" : "🔜 再下一交易日") + " · " + _atFmtDate(pair.T1)
+    });
+  }
   let bodyHtml;
-  if (days.length) {
+  if (groups.length) {
     bodyHtml = '<div class="auto-trade-steps-tablewrap"><table class="auto-trade-steps-table"><thead><tr>' +
       '<th>日期</th><th>计划动作</th><th>挂单价</th><th>金额/份数</th><th>状态</th><th>现价/成交</th><th>触发条件摘要</th>' +
-      '</tr></thead><tbody>' + days.map(function (d) { return _atRowHtml(d, today, nowActDate, byDate[d.date] || []); }).join("") + '</tbody></table></div>';
+      '</tr></thead><tbody>' + groups.map(function (g) { return _atRemindGroupHtml(g, today, nowActDate, byDate); }).join("") +
+      '</tbody></table></div>';
+  } else if (days.length) {
+    bodyHtml = '<div class="auto-trade-steps-empty">近两个交易日暂无买卖计划, 历史计划见「查看全部计划」。</div>';
   } else {
     bodyHtml = '<div class="auto-trade-steps-empty">暂无实操计划。次日买入计划生成(交易日 21:00 后)后自动显示。</div>';
   }
@@ -14458,7 +14591,8 @@ function _atRender(slot, planDoc, stepsDoc) {
     '<div class="auto-trade-steps">' +
       '<div class="auto-trade-steps-head">' +
         '<span class="auto-trade-steps-title">📋 实操步骤</span>' +
-        '<span class="auto-trade-steps-sub">买入计划按日成行·卖出按卖出日独立成行·点行看所属日全时间线(读 nextday_plan + auto_trade_steps, 纯展示不重算算法)</span>' +
+        '<span class="auto-trade-steps-sub">提醒视图 · 今日+下一交易日 · 每日期内按买入/卖出分类 · 历史见「查看全部计划」(读 nextday_plan + auto_trade_steps, 纯展示不重算算法)</span>' +
+        '<button type="button" class="auto-trade-steps-more-btn" style="margin-left:auto;padding:2px 8px;border:1px solid var(--border);border-radius:5px;background:var(--bg-card);color:var(--text-2);font-size:11px;cursor:pointer;white-space:nowrap;">📄 查看全部计划</button>' +
       '</div>' +
       barHtml + bodyHtml +
     '</div>';
@@ -14466,6 +14600,9 @@ function _atRender(slot, planDoc, stepsDoc) {
     // #108 卖出行 data-open-date=所属买入组, 弹该组完整时间线; 其余行用 data-date
     row.onclick = function () { _atOpenModal(row.getAttribute("data-open-date") || row.getAttribute("data-date")); };
   });
+  // 「查看全部计划」: 全量历史列表弹窗(含未到期计划, 卖出独立成行)
+  const moreBtn = slot.querySelector(".auto-trade-steps-more-btn");
+  if (moreBtn) moreBtn.onclick = function () { _atOpenAllModal(); };
   // 需求4: 主表 ETF 代码点击出走势(不触发行弹窗)
   slot.querySelectorAll(".auto-trade-steps-etf-link").forEach(function (a) {
     a.onclick = function (e) {
@@ -14630,6 +14767,54 @@ function _atOpenModal(date) {
   }
   _atModalDate = date;
   _atModalRender(overlay);
+  overlay.style.display = "flex";
+  overlay.onclick = function (e) { if (e.target === overlay) _atModalClose(); };
+}
+// ---- 「查看全部计划」弹窗(提醒视图历史收口, 2026-09-06 用户拍板): 全部历史计划完整列表 ----
+// 含未到期计划, 卖出按 sell_date 独立成行; 点行打开所属买入组/所属日全时间线(复用 _atOpenModal/_atModalRender 能力)
+function _atAllModalRender(overlay) {
+  const days = _atBuildDays(_atPlanDoc, _atStepsDoc);
+  const today = _atToday();
+  const byDate = _atStepsByDate(_atStepsDoc);
+  const nowAct = _atNowAction(byDate);
+  const nowActDate = nowAct ? String(nowAct.sell_date || nowAct.date || "") : "";
+  const rowsHtml = days.map(function (d) {
+    return _atRowHtml(d, today, nowActDate, byDate[d.date] || []);
+  }).join("");
+  const head = '<div class="lab-sigkelly-modal-head">' +
+    '<span class="auto-trade-steps-modal-title">📋 实操步骤 · 全部计划</span>' +
+    '<span class="auto-trade-steps-sub">全部历史计划(含未到期)· 卖出按卖出日独立成行 · 点行看所属日全时间线 · 点 ETF 代码看走势</span>' +
+    '<span style="flex:1"></span>' +
+    '<button class="lab-sigkelly-modal-close">✕</button>' +
+    '</div>';
+  const body = rowsHtml
+    ? '<div class="lab-sigkelly-modal-tablewrap"><table class="lab-sigkelly-trades-table auto-trade-steps-modal-table">' +
+      '<thead><tr><th>日期</th><th>计划动作</th><th>挂单价</th><th>金额/份数</th><th>状态</th><th>现价/成交</th><th>触发条件摘要</th></tr></thead>' +
+      '<tbody>' + rowsHtml + '</tbody></table></div>'
+    : '<div class="auto-trade-steps-empty">暂无实操计划。</div>';
+  overlay.innerHTML = '<div class="lab-sigkelly-modal auto-trade-steps-modal">' + head + body + '</div>';
+  const closeBtn = overlay.querySelector(".lab-sigkelly-modal-close");
+  if (closeBtn) closeBtn.onclick = function () { _atModalClose(); };
+  overlay.querySelectorAll(".auto-trade-steps-row").forEach(function (row) {
+    row.onclick = function () { _atOpenModal(row.getAttribute("data-open-date") || row.getAttribute("data-date")); };
+  });
+  overlay.querySelectorAll(".auto-trade-steps-etf-link").forEach(function (a) {
+    a.onclick = function (e) {
+      e.stopPropagation();
+      _atOpenEtfChart(a.getAttribute("data-code"), a.getAttribute("data-name") || "");
+    };
+  });
+}
+function _atOpenAllModal() {
+  let overlay = document.getElementById("lab-autotrade-steps-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "lab-autotrade-steps-overlay";
+    overlay.className = "lab-sigkelly-overlay";
+    document.body.appendChild(overlay);
+  }
+  _atModalDate = null;
+  _atAllModalRender(overlay);
   overlay.style.display = "flex";
   overlay.onclick = function (e) { if (e.target === overlay) _atModalClose(); };
 }
