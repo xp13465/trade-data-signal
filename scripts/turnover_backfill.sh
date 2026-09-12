@@ -19,7 +19,9 @@
 set -uo pipefail
 
 # 防脚本运行期间 mac 休眠(caffeinate 跟随脚本 PID, 退出自动结束)
-caffeinate -i -w $$ >/dev/null 2>&1 &
+if [ "$(uname -s)" = "Darwin" ]; then
+    caffeinate -i -w $$ >/dev/null 2>&1 &
+fi
 
 # ⚠️ 必须 export(2026-08-26 手动裸跑事故根因): upload_r2.py 从 os.environ 读 REPO 派生
 # STATIC_DIR, 只设 shell 变量不 export 时子进程读不到 → 回退 ROOT=trade 触发盘中守卫 abort。

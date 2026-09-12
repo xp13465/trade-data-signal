@@ -7,7 +7,9 @@
 # 2026-07-29 加 21:00 槽：中证红利(csi_div/div_lowvol)T 日晚发布，21:00 提前采(原仅 02:00 兜底)。
 set -uo pipefail
 # 防脚本运行期间 mac 休眠（caffeinate 跟随脚本 PID，退出自动结束）
-caffeinate -i -w $$ >/dev/null 2>&1 &
+if [ "$(uname -s)" = "Darwin" ]; then
+    caffeinate -i -w $$ >/dev/null 2>&1 &
+fi
 REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 cd "$REPO"
 STAMP=$(date +%Y%m%d_%H%M)

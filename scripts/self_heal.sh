@@ -35,6 +35,7 @@ echo "=== retry_failed_metrics 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -80,9 +81,28 @@ LABELS = {
 
 
 def launchctl_state(label):
-    """返回 launchctl state（如 'running'/'not running'），失败返回 None。"""
+    """返回任务运行状态（macOS launchctl / Linux systemctl），失败返回 None。
+    条件兼容：检测到 systemctl 用 `systemctl is-active <label>.service`，active→'running'；
+    否则走 macOS launchctl print（state = running/not running）。
+    调用方 `"running" in st` 判断在跑跳过。
+    """
     if not label:
         return None
+    if shutil.which("systemctl"):
+        # Linux: systemd unit 名 = launchd label + '.service'（与 systemd timer agent 对齐）
+        unit = f"{label}.service"
+        try:
+            r = subprocess.run(
+                ["systemctl", "is-active", unit],
+                capture_output=True, text=True, timeout=10,
+            )
+        except Exception:
+            return None
+        st = (r.stdout or "").strip()
+        if not st:
+            return None
+        return "running" if st == "active" else st
+    # macOS: launchctl print
     try:
         r = subprocess.run(
             ["launchctl", "print", f"gui/{os.getuid()}/{label}"],

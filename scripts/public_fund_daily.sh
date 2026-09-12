@@ -21,7 +21,9 @@
 # 日志: data/logs/public_fund_daily_YYYYMMDD_HHMM.log
 set -uo pipefail
 # 防脚本运行期间 mac 休眠
-caffeinate -i -w $$ >/dev/null 2>&1 &
+if [ "$(uname -s)" = "Darwin" ]; then
+    caffeinate -i -w $$ >/dev/null 2>&1 &
+fi
 
 REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 PY="$REPO/.venv/bin/python"

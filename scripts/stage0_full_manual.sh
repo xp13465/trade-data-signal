@@ -29,7 +29,9 @@ PY="$REPO/.venv/bin/python"
 cd "$REPO" || { echo "cd $REPO failed" >> "$PROGRESS"; exit 1; }
 
 # 整体 caffeinate 防休眠(跨多天长任务必须防休眠, -w $$ 绑定本进程)
-caffeinate -i -w $$ >/dev/null 2>&1 &
+if [ "$(uname -s)" = "Darwin" ]; then
+    caffeinate -i -w $$ >/dev/null 2>&1 &
+fi
 
 ts() { date '+%F %T'; }
 
