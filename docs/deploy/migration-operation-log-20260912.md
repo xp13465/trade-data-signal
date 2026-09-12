@@ -44,6 +44,7 @@
 | 19:38 | scp 敏感配置 | 6 json + 合并 .env(**取并集 21 键**:trade-data 15 键全量 + trade 独有 6 键 R2 S3/HITHINK),md5 7/7 一致,chmod 600 |
 | 19:40 | clone staticdata | 云上 SSH 浅 clone 限速 33-50KB/s(约 2h),后台跑不阻塞主线 |
 | 20:10 | 数据起盘完成 | scp 19 文件(public_fund 2.4G + stock_daily 112M + A/B 级状态文件)md5 19/19 一致 + download-db 拉 sentiment 126M/etf_national_team 177M(20260911),云上 data/ 共 2.9G |
+| 21:33 | systemd 落地 | 云 pull 拉 gen_systemd_units.py,生成 72 unit 到 /etc/systemd/system/ + daemon-reload(static 未启用,阶段4b 才 enable/start) |
 
 ## 阶段1 打地基 ✅ 完成(swap 4G + 代码仓 clone + Python3.11 + 86 依赖包)
 
@@ -57,7 +58,7 @@
 - [x] systemd 文档拿掉 feishu service 段(commit 1827ed9a0,改不迁说明)
 - [ ] staticdata clone(19:40 后台 clone 被 SSH 断连 SIGHUP 杀掉,目录/进程消失;延后配代理后重跑)
 - [x] merge 两个 feat 后云 pull(main 9ef5b0b,云上已 pull 同 HEAD)
-- [ ] 阶段4a:云上 systemd 落地(35 timer/service 写 /etc/systemd/system + daemon-reload)
+- [x] 阶段4a:云上 systemd 落地(生成器脚本 merge 007e90f2c + 云上 72 unit 落地 /etc/systemd/system + daemon-reload,static 未启用)
 - [ ] 阶段4b:云上跑通采集→export→R2 上传,curl 验证线上
 - [ ] 阶段4c:停本地 launchd(备份 plist + 一键还原脚本),观察云上稳定后由用户拍板停本地
 
