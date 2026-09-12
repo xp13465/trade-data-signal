@@ -39,7 +39,8 @@
     - SNAPSHOT_VERSION 常量: "1.0", bump 当日=发布日豁免突变告警
     - ROLLING_WINDOW=60(快照日), MUTATION_STD=3.0, MUTATION_PCT=0.05,
       MUTATION_DIR_PCT=0.01, ABS_FLOOR_MEAN=500.0, ABS_FLOOR_DELTA=200.0,
-      MIN_SAMPLES=5(窗口样本下限), LAG_ALERT_TD=2(交易日),
+      MIN_SAMPLES=5(窗口样本下限), LAG_ALERT_TD=2(posrating 停更档, 交易日),
+      STAGNATION_LAG_ALERT_TD=3(停滞档, 容忍次日开盘成交 1 天延迟),
       DEDUP_WINDOW=86400(24h 防抖)
 复现命令:
     # 生成今日快照 + 更新 index(export.py L1223 内部以 --data-dir DATA_DIR 调用, 写 trade-data 侧)
@@ -80,7 +81,14 @@ ABS_FLOOR_MEAN = 500.0            # 窗口均值 < 此值视为小模式(如 E �
 ABS_FLOOR_DELTA = 200.0           # 小模式 abs 下限: 单日 |Δ| > 200 元仍算突变(防小模式逃逸)
 MIN_SAMPLES = 5                   # 窗口样本下限(不足跳过突变检测)
 MIN_N = 20                        # 样本门: n<20 的模式不参与突变告警(小样本噪声大)
-LAG_ALERT_TD = 2                  # 停滞档: max_signal_date 落后 ≥2 个交易日告警
+LAG_ALERT_TD = 2                  # posrating 停更档: 生成日落后最新快照日 ≥2 个交易日告警
+STAGNATION_LAG_ALERT_TD = 3       # 停滞档: max_signal_date 落后 ≥3 个交易日告警
+                                  #   次日开盘成交口径(KELLY_BUY_NEXTDAY=1)下, 信号日 T 的买价由
+                                  #   T+1 开盘定价, 快照当天的 max_signal_date 天然少 1 个交易日;
+                                  #   若再逢单日无买系信号, 健康 lag 即达 2。阈值放宽到 3, 只告警
+                                  #   "连续 ≥2 个交易日无新信号"的真停滞, 排除周末+次日成交的正常
+                                  #   延迟(2026-09-12 周六误报: 9-11 周五有 buy 但 9-14 周一才成交,
+                                  #   max_signal_date 停 9-9, 自然日 lag=2 被误报)
 DEDUP_WINDOW = 86400              # dedup 防抖窗口(24h)
 MUTATION_RATIO = 0.30             # 防污染: 单日 total_return 相对上一快照日突变比 >30% 视为污染
                                   #   (sig_main all 全史累计收益每日正常波动 <1%, 30% 必为数据污染;
@@ -381,7 +389,12 @@ def detect_posrating_stale(data_dir: Path, index: dict) -> list[dict]:
 
 
 def detect_stagnation(index: dict, today_str: str) -> list[dict]:
-    """停滞档: max_signal_date 落后最新交易日 ≥LAG_ALERT_TD 个交易日。"""
+    """停滞档: max_signal_date 落后今日 ≥STAGNATION_LAG_ALERT_TD 个交易日。
+
+    阈值比 posrating 停更档(LAG_ALERT_TD=2)宽 1 天: 次日开盘成交口径下, 当天快照的
+    max_signal_date 只含"T+1 开盘已发生"的信号, 天然少 1 个交易日; 单日无买系信号
+    也会再推后 1 天。故健康 lag 最高到 2, 只有 ≥3(连续 ≥2 交易日无新信号)才算真停滞。
+    """
     days = index.get("days", [])
     if not days:
         return []
@@ -389,9 +402,9 @@ def detect_stagnation(index: dict, today_str: str) -> list[dict]:
     if not newest:
         return [{"type": "stagnation", "detail": "max_signal_date 为空(产物异常)"}]
     lag = trading_days_lag(today_str, newest)
-    if lag >= LAG_ALERT_TD:
+    if lag >= STAGNATION_LAG_ALERT_TD:
         return [{"type": "stagnation", "detail": f"max_signal_date={newest} "
-                f"落后今日{lag}个交易日(≥{LAG_ALERT_TD}告警)"}]
+                f"落后今日{lag}个交易日(≥{STAGNATION_LAG_ALERT_TD}告警)"}]
     return []
 
 
