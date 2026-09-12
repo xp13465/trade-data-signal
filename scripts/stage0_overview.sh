@@ -16,7 +16,7 @@ if [ "$(uname -s)" = "Darwin" ]; then
     caffeinate -i -w $$ >/dev/null 2>&1 &
 fi
 
-REPO="/Users/linhuichen/code/trade-data"
+REPO="${REPO:-/Users/linhuichen/code/trade-data}"   # 云上单仓用 REPO env 覆盖
 PY="$REPO/.venv/bin/python"
 LOG="$REPO/data/logs/stage0-overview.log"
 LOCK="/tmp/stage0-overview.lock"

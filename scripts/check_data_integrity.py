@@ -845,16 +845,29 @@ def check_etf_since_return(data_dir: Path) -> CheckResult:
     return _ok(name, f"非 null 占比 {ratio:.1%} ({nonnull}/{total})")
 
 
+def _db_candidates(db_name: str) -> list[Path]:
+    """候选主库路径: env REPO/GIT_REPO 优先(单仓/双仓), 回退 macOS 本机 trade-data/trade。
+
+    云上单仓(REPO=GIT_REPO)下 env 注入同一仓, 主库即 $REPO/data/<db_name>;
+    本机双仓无 env 时回退 trade-data/trade 镜像, 行为不变。
+    """
+    out: list[Path] = []
+    for root in (os.environ.get("REPO", ""), os.environ.get("GIT_REPO", ""),
+                 "/Users/linhuichen/code/trade-data", "/Users/linhuichen/code/trade"):
+        if not root:
+            continue
+        p = Path(root) / "data" / db_name
+        if p not in out:
+            out.append(p)
+    return out
+
+
 def _find_sentiment_db() -> Path | None:
     """定位主库 sentiment.db（daily_metric 写入端同库）。
 
-    优先 trade-data/data/sentiment.db（launchd 写端 cwd=REPO=trade-data，最新主库），
-    回退 trade/data/sentiment.db（镜像）。找不到返回 None。
+    env REPO/GIT_REPO 优先(单仓/双仓主库), 回退 macOS 本机 trade-data/trade 镜像。找不到返回 None。
     """
-    for c in (
-        Path("/Users/linhuichen/code/trade-data/data/sentiment.db"),
-        Path("/Users/linhuichen/code/trade/data/sentiment.db"),
-    ):
+    for c in _db_candidates("sentiment.db"):
         if c.exists():
             return c
     return None
@@ -863,13 +876,9 @@ def _find_sentiment_db() -> Path | None:
 def _find_stock_db() -> Path | None:
     """定位 stock_daily.db（mootdx_daily_raw + fapi_daily_raw 同库）。
 
-    优先 trade-data/data/stock_daily.db（FAPI 采集写端主库），回退 trade/data/stock_daily.db。
-    找不到返回 None。
+    env REPO/GIT_REPO 优先(单仓/双仓主库), 回退 macOS 本机 trade-data/trade 镜像。找不到返回 None。
     """
-    for c in (
-        Path("/Users/linhuichen/code/trade-data/data/stock_daily.db"),
-        Path("/Users/linhuichen/code/trade/data/stock_daily.db"),
-    ):
+    for c in _db_candidates("stock_daily.db"):
         if c.exists():
             return c
     return None
@@ -878,13 +887,9 @@ def _find_stock_db() -> Path | None:
 def _find_etf_db() -> Path | None:
     """定位主库 etf_national_team.db（accum_nav 写入端同库，回测 _get_etf_db_path 同优先）。
 
-    优先 trade-data/data/etf_national_team.db（launchd 写端主库），
-    回退 trade/data/etf_national_team.db（镜像，可能损坏/过期）。找不到返回 None。
+    env REPO/GIT_REPO 优先(单仓/双仓主库), 回退 macOS 本机 trade-data/trade 镜像。找不到返回 None。
     """
-    for c in (
-        Path("/Users/linhuichen/code/trade-data/data/etf_national_team.db"),
-        Path("/Users/linhuichen/code/trade/data/etf_national_team.db"),
-    ):
+    for c in _db_candidates("etf_national_team.db"):
         if c.exists():
             return c
     return None
@@ -1152,13 +1157,9 @@ def check_etf_hist(data_dir: Path) -> CheckResult:
 def _find_public_fund_db() -> Path | None:
     """定位公募基金库 public_fund.db（fund_daily_nav 写入端同库）。
 
-    优先 trade-data/data/public_fund.db（launchd 写端 cwd=REPO=trade-data，最新主库），
-    回退 trade/data/public_fund.db（镜像）。找不到返回 None。
+    env REPO/GIT_REPO 优先(单仓/双仓主库), 回退 macOS 本机 trade-data/trade 镜像。找不到返回 None。
     """
-    for p in (
-        Path("/Users/linhuichen/code/trade-data/data/public_fund.db"),
-        Path("/Users/linhuichen/code/trade/data/public_fund.db"),
-    ):
+    for p in _db_candidates("public_fund.db"):
         if p.exists():
             return p
     return None

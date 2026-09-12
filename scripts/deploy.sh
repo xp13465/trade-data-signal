@@ -151,8 +151,8 @@ echo "✓ export.py 完成" | tee -a "$LOG"
 # (R2 上传源)。§22 三步由本 deploy 链闭环: 后续 upload-data-large/upload-all-data 传 R2 data/ 前缀
 # + rsync 同步 trade git + git push。失败阻断(前端强平日真价/净资产曲线依赖, 防线上旧数据)。
 echo "-> 生成 accum_nav_map.json ..." | tee -a "$LOG"
-# 显式 REPO=trade-data 读主库(防 deploy 从 trade 手动跑时 REPO=trade 读到 rsync 镜像)
-REPO=/Users/linhuichen/code/trade-data "$PY" "$GIT_REPO/docs/kelly/position/scripts/export_accum_nav_map.py" --all 2>&1 | tee -a "$LOG"
+# 显式 REPO=$REPO 读主库(单仓下 REPO 即主库; 双仓下 REPO 默认 trade-data, 防 deploy 从 trade 手动跑时读到 rsync 镜像)
+REPO="$REPO" "$PY" "$GIT_REPO/docs/kelly/position/scripts/export_accum_nav_map.py" --all 2>&1 | tee -a "$LOG"
 ACCUM_RC=${PIPESTATUS[0]}
 if [ "$ACCUM_RC" -ne 0 ]; then
   echo "✗ export_accum_nav_map.py 失败(退出码 $ACCUM_RC)，终止部署(前端 simnetasset 净资产曲线/强平日真价依赖)" | tee -a "$LOG"

@@ -58,7 +58,7 @@ except ImportError:  # pragma: no cover
 # ── 路径解析 ────────────────────────────────────────────────────────────
 # ROOT = scripts/ 的父目录(trade/,经 trade-data/scripts symlink resolve 后同此)
 ROOT = Path(__file__).resolve().parent.parent
-MAIN_REPO = Path("/Users/linhuichen/code/trade-data")  # launchd 主库/主数据(与 update_all.sh REPO 一致)
+MAIN_REPO = Path(os.environ.get("MAIN_REPO", "/Users/linhuichen/code/trade-data"))  # launchd 主库/主数据(与 update_all.sh REPO 一致); 云上单仓用 MAIN_REPO env 覆盖
 
 # ── 通知(2026-08-11 追加需求):邮件+飞书报告群 ──────────────────────────────
 # import notify(多渠道统一出口)前把 scripts/ 放 sys.path,与 check_signals.py 同款。

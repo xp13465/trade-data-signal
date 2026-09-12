@@ -16,7 +16,7 @@ if [ "$(uname -s)" = "Darwin" ]; then
     caffeinate -i -w $$ >/dev/null 2>&1 &
 fi
 
-REPO="/Users/linhuichen/code/trade-data"
+REPO="${REPO:-/Users/linhuichen/code/trade-data}"   # 云上单仓用 REPO env 覆盖
 GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"   # git 始终在 trade 仓库(trade-data 不 git init)
 export REPO GIT_REPO   # #75 显式导出,确保 upload_r2.py 子进程继承 REPO(防缺省回退读 trade 旧库)
 PY="$REPO/.venv/bin/python"
@@ -42,11 +42,11 @@ echo "=== $(date '+%F %T') pf-score-daily start ==="
 RC1=$?
 "$PY" "$REPO/scripts/export_fund_score.py" --top-n 2000
 RC2=$?
-rsync -a --checksum "$REPO/static-site/data/fund_score"* "/Users/linhuichen/code/trade/static-site/data/" 2>/dev/null || true
+[ "$REPO" = "$GIT_REPO" ] || rsync -a --checksum "$REPO/static-site/data/fund_score"* "$GIT_REPO/static-site/data/" 2>/dev/null || true
 "$PY" "$REPO/scripts/upload_r2.py" upload-fund-score
 RC3=$?
 # D1 全量同步（#79 方案C step3: /api/fund_score 数据源; 失败告警不阻塞评分主流程）
-bash /Users/linhuichen/code/trade/scripts/sync_fund_score_to_d1.sh || \
+bash "$GIT_REPO/scripts/sync_fund_score_to_d1.sh" || \
   echo "⚠ sync_fund_score_to_d1 失败（不阻塞主流程, D1 数据滞后一轮）"
 echo "=== $(date '+%F %T') pf-score-daily end compute=$RC1 export=$RC2 upload=$RC3 ==="
 exit $RC1
