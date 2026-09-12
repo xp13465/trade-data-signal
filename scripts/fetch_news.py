@@ -73,7 +73,8 @@ OUT_FILE = DATA_DIR / "news_digest.json"
 ARCHIVE_DIR = DATA_DIR / "news_digest"  # 按日期归档累积: news_digest/<date>.json
 
 # launchd 主库/主数据 = 部署源树(trade-data),update_all/deploy.sh 从它 rsync 到 trade 上线
-MAIN_REPO = Path("/Users/linhuichen/code/trade-data")
+# 云上单仓下用 MAIN_REPO env 覆盖(当前仅文档锚点, 实际 repo 解析统一走 pick_repo)。
+MAIN_REPO = Path(os.environ.get("MAIN_REPO", "/Users/linhuichen/code/trade-data"))
 
 
 # 统一部署源树/上传 helper(防再犯机制 E, 2026-08-18): pick_repo/pick_git_repo/force_env/guard

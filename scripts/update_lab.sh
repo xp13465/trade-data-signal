@@ -243,9 +243,9 @@ fi
 # $REPO/static-site/data/lab/（trade-data/），但 upload_r2.py 的 ROOT 用 Path.resolve()
 # 解析符号链接到 trade/，读 trade/static-site/data/lab/。不同步则 upload_r2 上传 trade/ 旧数据。
 # rsync 同步确保 upload_r2 读到 launchd 本次生成的最新数据（手动在 trade/ 跑时 REPO=trade 跳过）。
-TRADE_LAB="/Users/linhuichen/code/trade/static-site/data/lab"
-TRADE_DATA="/Users/linhuichen/code/trade/static-site/data"
-if [ "$REPO" != "/Users/linhuichen/code/trade" ] && [ -d "$TRADE_LAB" ]; then
+TRADE_LAB="$GIT_REPO/static-site/data/lab"
+TRADE_DATA="$GIT_REPO/static-site/data"
+if [ "$REPO" != "$GIT_REPO" ] && [ -d "$TRADE_LAB" ]; then
   # A) 同步 lab/ 子目录 -> upload_r2 读取
   rsync -a "$REPO/static-site/data/lab/" "$TRADE_LAB/"
   echo "✓ 同步 lab/ 子目录 $REPO -> trade/（供 upload_r2 读取）" | tee -a "$LOG"

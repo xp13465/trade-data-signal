@@ -110,9 +110,10 @@ if [ "$FUND_NAV_RC" -ne 0 ]; then
   # rsync+upload, 防把截断/过期净值发布被前端消费。显式告警写入日志, 不静默吞掉(L44)。
   echo "【CRITICAL】export_fund_nav 失败(退出码 $FUND_NAV_RC), fund_nav 产物未刷新, 硬闸门跳过后续 fund_nav rsync+upload-fund-nav(§22 一致性)" | tee -a "$LOG"
 else
-  # export 写 JSON 到 $REPO/static-site/data/(trade-data), 同步到 trade/static-site/data/ 供
+  # export 写 JSON 到 $REPO/static-site/data/(trade-data), 同步到 $GIT_REPO/static-site/data/ 供
   # upload_r2 + deploy(trade 跑时 no-op); 随 export 前置, O1 闸门校验到的就是刚刷新的最新产物
-  rsync -a --delete --checksum "$REPO/static-site/data/fund_nav/" "/Users/linhuichen/code/trade/static-site/data/fund_nav/" 2>>"$LOG" || \
+  # 云上单仓(REPO==GIT_REPO)下自同步 no-op, 用 [ "$REPO" = "$GIT_REPO" ] || 跳过。
+  [ "$REPO" = "$GIT_REPO" ] || rsync -a --delete --checksum "$REPO/static-site/data/fund_nav/" "$GIT_REPO/static-site/data/fund_nav/" 2>>"$LOG" || \
     echo "⚠ fund_nav rsync 同步失败, 可能发布不全" | tee -a "$LOG"
 fi
 
@@ -168,9 +169,10 @@ if [ "$SCORE_LIST_RC" -ne 0 ]; then
   # 防把截断/过期买卖清单发布到 R2。显式告警入日志不静默(L44)。
   echo "【CRITICAL】export_etf_score_list 失败(退出码 $SCORE_LIST_RC), 硬闸门跳过 etf_score_list rsync+upload-etf-score, 防发布截断/过期清单(§22 一致性)" | tee -a "$LOG"
 else
-# export 写 JSON 到 $REPO/static-site/data/(trade-data), 同步到 trade/static-site/data/ 供 upload_r2 + deploy
+# export 写 JSON 到 $REPO/static-site/data/(trade-data), 同步到 $GIT_REPO/static-site/data/ 供 upload_r2 + deploy
 # (deploy.sh rsync 在 pipeline 内跑, export 在 pipeline 后跑, 需单独同步; trade 跑时 no-op)
-rsync -a --checksum "$REPO/static-site/data/etf_score_list_"* "/Users/linhuichen/code/trade/static-site/data/" 2>>"$LOG" || \
+# 云上单仓(REPO==GIT_REPO)下自同步 no-op, 用 [ "$REPO" = "$GIT_REPO" ] || 跳过。
+[ "$REPO" = "$GIT_REPO" ] || rsync -a --checksum "$REPO/static-site/data/etf_score_list_"* "$GIT_REPO/static-site/data/" 2>>"$LOG" || \
   echo "⚠ etf_score_list rsync 同步失败, 可能发布不全" | tee -a "$LOG"
 "$PY" "$REPO/scripts/upload_r2.py" upload-etf-score >> "$LOG" 2>&1 || \
   echo "⚠ upload-etf-score R2上传失败（不阻塞主流程）" | tee -a "$LOG"
@@ -186,7 +188,7 @@ if [ "$ETF_HIST_RC" -ne 0 ]; then
   # 防把截断/过期全史日K发布到 R2。显式告警入日志不静默(L44)。
   echo "【CRITICAL】export_etf_hist 失败(退出码 $ETF_HIST_RC), 硬闸门跳过 etf rsync+upload-etf-hist, 防发布截断/过期日K(§22 一致性)" | tee -a "$LOG"
 else
-  rsync -a --delete --checksum "$REPO/static-site/data/etf/" "/Users/linhuichen/code/trade/static-site/data/etf/" 2>>"$LOG" || \
+  [ "$REPO" = "$GIT_REPO" ] || rsync -a --delete --checksum "$REPO/static-site/data/etf/" "$GIT_REPO/static-site/data/etf/" 2>>"$LOG" || \
     echo "⚠ etf rsync 同步失败, 可能发布不全" | tee -a "$LOG"
   "$PY" "$REPO/scripts/upload_r2.py" upload-etf-hist >> "$LOG" 2>&1 || \
     echo "⚠ upload-etf-hist R2上传失败（不阻塞主流程）" | tee -a "$LOG"
@@ -219,7 +221,7 @@ if [ "$FUND_SCORE_RC" -ne 0 ]; then
   # 防把截断/过期评分发布到 R2。显式告警入日志不静默(L44)。
   echo "【CRITICAL】export_fund_score 失败(退出码 $FUND_SCORE_RC), 硬闸门跳过 fund_score rsync+upload-fund-score, 防发布截断/过期评分(§22 一致性)" | tee -a "$LOG"
 else
-  rsync -a --checksum "$REPO/static-site/data/fund_score"* "/Users/linhuichen/code/trade/static-site/data/" 2>>"$LOG" || \
+  [ "$REPO" = "$GIT_REPO" ] || rsync -a --checksum "$REPO/static-site/data/fund_score"* "$GIT_REPO/static-site/data/" 2>>"$LOG" || \
     echo "⚠ fund_score rsync 同步失败, 可能发布不全" | tee -a "$LOG"
   "$PY" "$REPO/scripts/upload_r2.py" upload-fund-score >> "$LOG" 2>&1 || \
     echo "⚠ upload-fund-score R2上传失败（不阻塞主流程）" | tee -a "$LOG"

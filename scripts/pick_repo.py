@@ -17,6 +17,8 @@
 目录语义:
   - trade-data(/Users/linhuichen/code/trade-data) = 部署源树/上传源树(launchd 主数据, 非 git 仓)
   - trade(/Users/linhuichen/code/trade) = git 仓库(deploy.rsync trade-data -> trade, commit+push)
+  - 云上单仓(/home/ubuntu/code/trade-data-signal, REPO=GIT_REPO 同路径): 部署源树 == git 仓,
+    MAIN_REPO/REPO/GIT_REPO 均由 env 注入同一路径, guard 单仓判定直接放行(2026-09-12)。
 """
 from __future__ import annotations
 
@@ -26,16 +28,20 @@ import sys
 from pathlib import Path
 
 # 部署源树(上传源树, 非 git 仓): launchd/update_all 写主数据的位置
-MAIN_REPO = Path("/Users/linhuichen/code/trade-data")
+# 云上单仓(REPO=GIT_REPO)下用 MAIN_REPO env 覆盖为单仓路径; 默认 macOS 本机 trade-data。
+MAIN_REPO = Path(os.environ.get("MAIN_REPO", "/Users/linhuichen/code/trade-data"))
 # git 仓库: deploy.sh commit/push 目标
 GIT_REPO_DEFAULT = Path(__file__).resolve().parent.parent  # trade/scripts/pick_repo.py -> trade
 
 
 def candidate_repos() -> list[Path]:
-    """候选 repo 列表(去重, 保序): trade-data 优先, 再 git 仓, 再 env 注入。"""
+    """候选 repo 列表(去重, 保序): env 注入(REPO/GIT_REPO)优先, 再 MAIN_REPO, 再 git 仓。
+
+    云上单仓(REPO=GIT_REPO)下 env 注入的 repo 排最前; 本机双仓无 env 时顺序
+    = MAIN_REPO(trade-data) → git 仓(trade), 行为不变。"""
     out: list[Path] = []
-    for c in ([str(MAIN_REPO), str(GIT_REPO_DEFAULT),
-               os.environ.get("GIT_REPO", ""), os.environ.get("REPO", "")]):
+    for c in ([os.environ.get("REPO", ""), os.environ.get("GIT_REPO", ""),
+               str(MAIN_REPO), str(GIT_REPO_DEFAULT)]):
         if not c:
             continue
         p = Path(c).resolve()
@@ -55,18 +61,26 @@ def pick_git_repo() -> Path:
 
 
 def pick_repo() -> Path:
-    """部署源树(写/上传)repo: 挑 static-site/data/overview.json.date 最新者, 同日期优先 trade-data。
+    """部署源树(写/上传)repo。
+
+    云上单仓/显式 REPO env 注入时直接信任 env 指定仓(不按 date 猜, 防回退到 macOS 硬编码仓);
+    无 env 时挑 static-site/data/overview.json.date 最新者(本机双仓老路径, 同日期优先 trade-data)。
 
     launchd/update_all 从 trade-data(部署源树)跑, 手动从 trade 跑。写 + R2 上传 + staticdata
     同步统一落到本函数选中的同一树, 保证部署链读到新版不 clobber(2026-08-18 断点根因)。
     仅当 trade-data 不存在/不可用时才回退其他候选(dev 环境无 trade-data)。"""
+    env_repo = os.environ.get("REPO", "").strip()
+    if env_repo:
+        p = Path(env_repo).resolve()
+        if p.is_dir():
+            return p
     best, best_date = None, ""
     for r in candidate_repos():
         ov = r / "static-site" / "data" / "overview.json"
         if not ov.exists():
             continue
         d = _read_overview_date(ov)
-        if d > best_date:  # 严格大于: 同日期保留先出现者(trade-data 在前)
+        if d > best_date:  # 严格大于: 同日期保留先出现者(env/trade-data 在前)
             best_date, best = d, r
     if best is None:
         best = candidate_repos()[0]
@@ -99,16 +113,36 @@ def _alert_guard_blocked(msg: str) -> None:
         pass
 
 
+def _is_single_repo() -> bool:
+    """单仓判定: 部署源树 == git 仓(无 trade/trade-data 之分)。
+
+    云上单仓(REPO=GIT_REPO 同路径)或 MAIN_REPO env 直接指向 git 仓时成立;
+    此时写 git 仓即写源树, 无需守卫误写拦截。
+
+    单仓判定必须排除「独立源树 trade-data 仍存在」的情况(2026-09-12 F1):
+    macOS 双仓下 REPO=GIT_REPO=trade 若 trade-data 仍在, 仍是误写 git 仓, 不算单仓。"""
+    repo = os.environ.get("REPO", "").strip()
+    git = os.environ.get("GIT_REPO", "").strip()
+    if (repo and git and Path(repo).resolve() == Path(git).resolve()
+            and (MAIN_REPO.resolve() == Path(git).resolve() or not MAIN_REPO.exists())):
+        return True
+    return MAIN_REPO.resolve() == pick_git_repo().resolve()
+
+
 def guard_deploy_source_tree(repo: Path | str) -> Path:
     """写源树守卫(§23.11): 写部署源树的目标必须 = trade-data(上传源树)。
 
     若解析出的 repo == trade(git 仓) 而 trade-data 存在 → 误写 git 仓(会把 trade-data 新版
     clobber 回旧版的老 bug), 立即报错阻断, 绝不静默继续。返回规范化 repo(合法时)。
+    云上单仓(部署源树 == git 仓)下写 git 仓即写源树, 直接放行。
     """
     repo = Path(repo).resolve()
     git = pick_git_repo().resolve()
     # 只有「解析到 git 仓」才需要守卫检查; 若本来就是 trade-data 或非 git 仓目录, 直接放行
     if repo != git:
+        return repo
+    # 单仓(部署源树 == git 仓): 写 git 仓即写源树, 无需误写拦截
+    if _is_single_repo():
         return repo
     # repo == git 仓(trade): 若 trade-data(部署源树)存在, 则本次写目标是 git 仓 = 误写
     trade_data = MAIN_REPO.resolve()

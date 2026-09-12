@@ -22,7 +22,7 @@
 # 撞 update_all 17:50: stage0 与 update_all 写不同表, 不撞 public_fund.lock, 安全
 set -uo pipefail
 
-REPO="/Users/linhuichen/code/trade-data"
+REPO="${REPO:-/Users/linhuichen/code/trade-data}"   # 云上单仓用 REPO env 覆盖
 PROGRESS="/tmp/stage0-full-manual-progress.md"
 PY="$REPO/.venv/bin/python"
 

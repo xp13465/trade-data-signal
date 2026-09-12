@@ -77,7 +77,10 @@ def guard_repo_default(cmd: str) -> None:
 # 故定时读 trade-data 新库正确;唯一区别是手动命令没继承 REPO → 退化成读 trade 旧库。
 # 正确手动跑法(必须显式 REPO,缺省即读 trade 旧库覆盖线上):
 #   REPO=/Users/linhuichen/code/trade-data python scripts/upload_r2.py upload-intraday
-_TRADE_STATIC = str((Path("/Users/linhuichen/code/trade") / "static-site").resolve())
+# 云上单仓(REPO=GIT_REPO)下 git 仓 = 唯一源树, 用 GIT_REPO env 派生; 默认 macOS 本机 trade。
+_TRADE_STATIC = str((Path(os.environ.get("GIT_REPO", "/Users/linhuichen/code/trade")) / "static-site").resolve())
+# 独立源树 trade-data(同 pick_repo.MAIN_REPO): 单仓判定须排除「trade-data 仍存在」的情况(2026-09-12 F1)
+MAIN_REPO = Path(os.environ.get("MAIN_REPO", "/Users/linhuichen/code/trade-data"))
 
 
 def _is_trade_side_dir() -> bool:
@@ -85,7 +88,15 @@ def _is_trade_side_dir() -> bool:
 
     launchd 定时(REPO=trade-data)解析到 trade-data/static-site,不命中;
     手动未带 REPO 时 STATIC_DIR=ROOT=trade/static-site,命中 → 读滞后库风险。
+    云上单仓(REPO==GIT_REPO)下 STATIC_DIR 与 git 仓同树, 无独立滞后镜像 → 放行(False)。
+    单仓判定必须排除「独立源树 trade-data 仍存在」的情况(2026-09-12 F1):
+    macOS 双仓下 REPO=GIT_REPO=trade 若 trade-data 仍在, 仍是滞后 trade 侧, 不算单仓。
     """
+    repo = os.environ.get("REPO", "").strip()
+    git = os.environ.get("GIT_REPO", "").strip()
+    if (repo and git and Path(repo).resolve() == Path(git).resolve()
+            and (MAIN_REPO.resolve() == Path(git).resolve() or not MAIN_REPO.exists())):
+        return False  # 单仓: 无 trade/trade-data 之分, 不构成「滞后 trade 侧」
     s = str(STATIC_DIR.resolve() if STATIC_DIR.is_absolute() else STATIC_DIR)
     return s == _TRADE_STATIC or "/trade/static-site" in s
 
