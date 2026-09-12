@@ -55,11 +55,11 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 ```
 
 ### 1.6 PURGE_SECRET 覆盖纠正(重要)
-inventory §6.4 写「PURGE_SECRET 逐项迁移(backfill-evening/etf-national-team/etf-track-index 三任务)」——**实测 PURGE_SECRET 实际嵌在 24 个 plist 里**,不只 3 个。本节已逐项迁进对应 .service 的 Environment=。24 个任务清单:
+inventory §6.4 写「PURGE_SECRET 逐项迁移(backfill-evening/etf-national-team/etf-track-index 三任务)」——**实测 PURGE_SECRET 实际嵌在 24 个 plist 里**,不只 3 个。本节已统一改为对应 .service 的 `EnvironmentFile=/opt/trade/.env`(值从服务器 .env 读,不进 git)。24 个任务清单:
 backfill-evening / etf-national-team / etf-track-index / futures-backfill / gold-night / intraday-snapshot / kelly-intraday-rerun / lab-auto / lhb-backfill / pf-score-daily / pf-score-weekly / pf-stage0-manager / pf-stage0-nav / pf-stage0-overview / pf-stage0-risk / public-fund-daily / public-fund-estimation / public-fund-full / public-fund-quarterly / rzhb-backfill / schedule-monitor / self-heal / update-all / us-stock-morning。
 
-PURGE_SECRET 值(本机全部 plist 一致):`2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd`。
-> ⚠️ 这是敏感凭证。stage4 落地时可改为 `EnvironmentFile=/opt/trade/.env` 或单独 secret 文件,避免明文进 git。本文件按任务要求「逐项迁进 Environment=」以明文落档,勿把本文件推到公开仓库。
+PURGE_SECRET 值(本机全部 plist 一致):见 `/opt/trade/.env`(scp 合并 21 键,值不进 git;此处不落明文)。
+> ⚠️ 这是敏感凭证。本文件已统一改为 `EnvironmentFile=/opt/trade/.env`(systemd 从服务器 .env 读,值不进 git),不再落明文。
 
 ### 1.7 环境变量清单(通用)
 多数任务共用下面 4 项环境(逐项以服务器路径重写):
@@ -109,7 +109,7 @@ ExecStart=/bin/bash /opt/trade/scripts/update_all.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=7200
 StandardOutput=append:/opt/trade/data/logs/update_all_launchd.log
 StandardError=append:/opt/trade/data/logs/update_all_launchd.err
@@ -173,7 +173,7 @@ ExecStart=/bin/bash /opt/trade/scripts/intraday_snapshot.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=1800
 StandardOutput=append:/opt/trade/data/logs/intraday_snapshot_launchd.log
 StandardError=append:/opt/trade/data/logs/intraday_snapshot_launchd.err
@@ -207,7 +207,7 @@ ExecStart=/bin/bash /opt/trade/scripts/kelly_intraday_rerun.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=200
 StandardOutput=append:/opt/trade/data/logs/kelly_intraday_rerun_launchd.log
 StandardError=append:/opt/trade/data/logs/kelly_intraday_rerun_launchd.err
@@ -243,7 +243,7 @@ ExecStart=/bin/bash /opt/trade/scripts/backfill_metrics.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=7200
 StandardOutput=append:/opt/trade/data/logs/backfill_evening_launchd.log
 StandardError=append:/opt/trade/data/logs/backfill_evening_launchd.err
@@ -278,7 +278,7 @@ ExecStart=/bin/bash /opt/trade/scripts/etf_national_team_backfill.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=3600
 StandardOutput=append:/opt/trade/data/logs/etf_national_team_launchd.log
 StandardError=append:/opt/trade/data/logs/etf_national_team_launchd.err
@@ -312,7 +312,7 @@ ExecStart=/opt/trade/.venv/bin/python /opt/trade/scripts/fetch_etf_track_index.p
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=1800
 StandardOutput=append:/opt/trade/data/logs/etf-track-index-launchd.log
 StandardError=append:/opt/trade/data/logs/etf-track-index-launchd.err
@@ -380,7 +380,7 @@ ExecStart=/bin/bash /opt/trade/scripts/futures_backfill.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=3600
 StandardOutput=append:/opt/trade/data/logs/futures_backfill_launchd.log
 StandardError=append:/opt/trade/data/logs/futures_backfill_launchd.err
@@ -414,7 +414,7 @@ ExecStart=/bin/bash /opt/trade/scripts/gold_night.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=600
 StandardOutput=append:/opt/trade/data/logs/gold_night_launchd.log
 StandardError=append:/opt/trade/data/logs/gold_night_launchd.err
@@ -449,7 +449,7 @@ ExecStart=/bin/bash /opt/trade/scripts/lhb_backfill.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=3600
 StandardOutput=append:/opt/trade/data/logs/lhb_backfill_launchd.log
 StandardError=append:/opt/trade/data/logs/lhb_backfill_launchd.err
@@ -484,7 +484,7 @@ ExecStart=/bin/bash /opt/trade/scripts/rzhb_backfill.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=3600
 StandardOutput=append:/opt/trade/data/logs/rzhb_backfill_launchd.log
 StandardError=append:/opt/trade/data/logs/rzhb_backfill_launchd.err
@@ -811,7 +811,7 @@ ExecStart=/bin/bash /opt/trade/scripts/pf_score_daily.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=1800
 StandardOutput=append:/opt/trade/data/logs/pf-score-daily-launchd.log
 StandardError=append:/opt/trade/data/logs/pf-score-daily-launchd.log
@@ -845,7 +845,7 @@ ExecStart=/bin/bash /opt/trade/scripts/pf_score_weekly.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=14400
 StandardOutput=append:/opt/trade/data/logs/pf-score-weekly-launchd.log
 StandardError=append:/opt/trade/data/logs/pf-score-weekly-launchd.log
@@ -879,7 +879,7 @@ ExecStart=/bin/bash /opt/trade/scripts/stage0_nav.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=21600
 StandardOutput=append:/opt/trade/data/logs/stage0-nav-launchd.log
 StandardError=append:/opt/trade/data/logs/stage0-nav-launchd.log
@@ -913,7 +913,7 @@ ExecStart=/bin/bash /opt/trade/scripts/stage0_overview.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=25200
 StandardOutput=append:/opt/trade/data/logs/stage0-overview-launchd.log
 StandardError=append:/opt/trade/data/logs/stage0-overview-launchd.log
@@ -947,7 +947,7 @@ ExecStart=/bin/bash /opt/trade/scripts/stage0_risk.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=18000
 StandardOutput=append:/opt/trade/data/logs/stage0-risk-launchd.log
 StandardError=append:/opt/trade/data/logs/stage0-risk-launchd.log
@@ -981,7 +981,7 @@ ExecStart=/bin/bash /opt/trade/scripts/stage0_manager.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=12600
 StandardOutput=append:/opt/trade/data/logs/stage0-manager-launchd.log
 StandardError=append:/opt/trade/data/logs/stage0-manager-launchd.log
@@ -1016,7 +1016,7 @@ ExecStart=/bin/bash /opt/trade/scripts/public_fund_daily.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=300
 StandardOutput=append:/opt/trade/data/logs/public_fund_daily_launchd.log
 StandardError=append:/opt/trade/data/logs/public_fund_daily_launchd.err
@@ -1053,7 +1053,7 @@ ExecStart=/bin/bash /opt/trade/scripts/public_fund_estimation.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=120
 StandardOutput=append:/opt/trade/data/logs/public_fund_estimation_launchd.log
 StandardError=append:/opt/trade/data/logs/public_fund_estimation_launchd.err
@@ -1087,7 +1087,7 @@ ExecStart=/bin/bash /opt/trade/scripts/public_fund_full.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=21600
 StandardOutput=append:/opt/trade/data/logs/public_fund_full_launchd.log
 StandardError=append:/opt/trade/data/logs/public_fund_full_launchd.err
@@ -1123,7 +1123,7 @@ ExecStart=/bin/bash /opt/trade/scripts/public_fund_quarterly.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=3600
 StandardOutput=append:/opt/trade/data/logs/public_fund_quarterly_launchd.log
 StandardError=append:/opt/trade/data/logs/public_fund_quarterly_launchd.err
@@ -1189,7 +1189,7 @@ WorkingDirectory=/opt/trade
 ExecStart=/bin/bash /opt/trade/scripts/update_lab.sh
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=7200
 StandardOutput=append:/opt/trade/data/logs/update_lab_launchd.log
 StandardError=append:/opt/trade/data/logs/update_lab_launchd.err
@@ -1223,7 +1223,7 @@ ExecStart=/bin/bash /opt/trade/scripts/us_stock_morning.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=1800
 StandardOutput=append:/opt/trade/data/logs/us_stock_morning_launchd.log
 StandardError=append:/opt/trade/data/logs/us_stock_morning_launchd.err
@@ -1257,7 +1257,7 @@ ExecStart=/bin/bash /opt/trade/scripts/self_heal.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=1800
 StandardOutput=append:/opt/trade/data/logs/self_heal_launchd.log
 StandardError=append:/opt/trade/data/logs/self_heal_launchd.err
@@ -1291,7 +1291,7 @@ ExecStart=/bin/bash /opt/trade/scripts/schedule_monitor.sh
 Environment=GIT_REPO=/opt/trade
 Environment=REPO=/opt/trade
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=PURGE_SECRET=2268f345ab8e8ee4a17ab015d199b14a12030bd13e169e319fa84d464ed983fd
+EnvironmentFile=/opt/trade/.env
 TimeoutStartSec=600
 StandardOutput=append:/opt/trade/data/logs/schedule_monitor_launchd.log
 StandardError=append:/opt/trade/data/logs/schedule_monitor_launchd.err
@@ -1361,7 +1361,7 @@ TimeoutStartSec=7200
 2. **时区**:先 `timedatectl set-timezone Asia/Shanghai`,否则 OnCalendar= 全部偏移。
 3. **§14 时点纪律不变**:17:50 update-all、20:40 daily-brief、盘中 9:30-15:30 不跑全量 export+deploy;服务器同北京时间。
 4. **§5.6 deepseek 峰谷**:daily-brief 20:40 低谷不变;key 在 trade-data/.env 随迁。
-5. **PURGE_SECRET 明文**:§1.6 已纠正覆盖 24 任务;落地可改 EnvironmentFile 防泄漏,勿推公开仓库。
+5. **PURGE_SECRET 明文**:§1.6 已纠正覆盖 24 任务,统一改为 `EnvironmentFile=/opt/trade/.env`(值不进 git);勿推公开仓库。
 6. **macOS 专属点适配**(inventory §5,阶段4 改脚本,非本文件范围):pmset/caffeinate 删段、timeout→gtimeout 降级链、self-heal/schedule-monitor 的 launchctl 检查、/opt/homebrew/bin PATH。本文件只生成 systemd 配置,不动任何 .sh。
 7. **单仓化**:服务器 `/opt/trade` 单仓;双份 DB/backups 问题自然消失(REPO=GIT_REPO=/opt/trade)。
 8. **21:00 并发提示(§14 生产稳定性)**:21:00 现有 3 个 timer 并发——backfill-evening(backfill_metrics.sh)、futures-backfill(futures_backfill.sh)、backup-db(backup_db.sh)。backup_db 用 sqlite3 `.backup()` 在线热备(WAL 一致快照,不锁库,inventory §4.1.1),与另两者不冲突;本机 launchd 原本就有 backfill-evening@21:00 + futures-backfill@21:00 并发,新加 backup_db@21:00 是 inventory §4.3 指定的独立时点(update-all 17:50 完成后 DB 最新)。若 stage4 实测发现 DB 写竞争,可把 backup-db 顺延到 21:05。
