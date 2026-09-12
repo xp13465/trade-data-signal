@@ -1,6 +1,6 @@
 ---
 name: role-reviewer
-description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 skills 字段启动全文注入。含主功能回归复查(原 §15 操作层)、改动分级 A/B/C 审查口径、回归机制三层、smoke 清单执行、数据完整性校验、§21 公示查证、reviewer 专属教训蒸馏、审查方法论增强(多维独立审查/置信度过滤/误报清单/静默失败专查)。共享核心(§6/§22/§23/§8§14摘要/§18索引)在根 CLAUDE.md 自动注入,本 skill 只放角色专属。
+description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 skills 字段启动全文注入。含主功能回归复查(原 §15 操作层)、改动分级 A/B/C 审查口径、回归机制三层、smoke 清单执行、数据完整性校验、§21 公示查证、reviewer 专属教训蒸馏、审查方法论增强(多维独立审查/置信度过滤/误报清单/静默失败专查)。共享核心在根 CLAUDE.md 自动注入(§23 已改摘要注入,专属条目操作版全文见本 skill)。
 ---
 
 # reviewer agent 专属规范(role-reviewer)

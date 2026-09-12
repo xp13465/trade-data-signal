@@ -1,6 +1,6 @@
 ---
 name: role-implementer
-description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的 skills 字段启动全文注入。含单版前端铁律(原 §9 全文)、算法公示同步(原 §21 全文)、上线操作细节(原 §8 操作层)、生产稳定时点(原 §14 操作层)、修 bug 三铁律操作化、实施专属教训蒸馏。共享核心(§6/§22/§5/§23/§8§14摘要/§18索引)在根 CLAUDE.md 自动注入,本 skill 只放角色专属。
+description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的 skills 字段启动全文注入。含单版前端铁律(原 §9 全文)、算法公示同步(原 §21 全文)、上线操作细节(原 §8 操作层)、生产稳定时点(原 §14 操作层)、修 bug 三铁律操作化、实施专属教训蒸馏。共享核心在根 CLAUDE.md 自动注入(§23 已改摘要注入,专属条目操作版全文见本 skill)。
 ---
 
 # 实施 agent 专属规范(role-implementer)
