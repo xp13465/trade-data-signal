@@ -33,9 +33,9 @@
 set -u
 
 # codex008 F5(P3②): 三段命令统一超时包装防挂死(输入文件异常巨大/网络卡住时占住
-# launchd 槽位拖垮后续任务)。macOS 无 coreutils timeout, fallback 链:
-# timeout → gtimeout(brew coreutils)→ perl alarm-exec(alarm 计时器跨 exec 保留, 等效
-# timeout 语义); 超时按非零处理走既有 FAIL 告警链。
+# launchd/systemd 槽位拖垮后续任务)。条件兼容双平台: Linux 原生 coreutils timeout
+# 直接可用; macOS 无 timeout 走 gtimeout(brew coreutils)→ perl alarm-exec(alarm 计时器
+# 跨 exec 保留, 等效 timeout 语义); 超时按非零处理走既有 FAIL 告警链。
 run_to() {
   local t="$1"
   shift

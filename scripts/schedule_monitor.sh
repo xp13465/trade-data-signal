@@ -55,6 +55,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timedelta
@@ -671,9 +672,28 @@ LAUNCHCTL_LABELS = [
 
 
 def launchctl_loaded(label):
-    """检查 launchd label 是否已加载（复用 self_heal.sh L73 launchctl_state 逻辑）。
-    returncode!=0 或无 `state = ` 行 = 未加载。调用失败（timeout/异常）保守视为未加载（告警）。
+    """检查任务是否已加载（macOS launchctl print / Linux systemctl is-active）。
+    条件兼容：检测到 systemctl 用 is-active，active/inactive 算已加载，failed/不存在算未加载；
+    否则走 macOS launchctl print（returncode!=0 或无 `state = ` 行 = 未加载）。
+    调用失败（timeout/异常）保守视为未加载（告警）。
     """
+    if shutil.which("systemctl"):
+        # Linux: systemd unit 名 = launchd label + '.service'（与 systemd timer agent 对齐）
+        unit = f"{label}.service"
+        try:
+            r = subprocess.run(
+                ["systemctl", "is-active", unit],
+                capture_output=True, text=True, timeout=10,
+            )
+        except Exception:
+            return False  # 调用失败保守视为未加载（告警）
+        st = (r.stdout or "").strip()
+        # is-active 退出码: 0=active(在跑), 3=inactive(unit 已注册未跑), 4=unit 不存在;
+        # failed 也是 3 但 stdout='failed'。active/inactive 算已加载, failed/不存在算未加载。
+        if st == "failed":
+            return False
+        return r.returncode in (0, 3)
+    # macOS: launchctl print
     try:
         r = subprocess.run(
             ["launchctl", "print", f"gui/{os.getuid()}/{label}"],

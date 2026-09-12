@@ -12,7 +12,9 @@
 # 日志: data/logs/pf-score-weekly.log (append)
 set -uo pipefail
 # 防脚本运行期间 mac 休眠 (2.3h 长任务必须防休眠)
-caffeinate -i -w $$ >/dev/null 2>&1 &
+if [ "$(uname -s)" = "Darwin" ]; then
+    caffeinate -i -w $$ >/dev/null 2>&1 &
+fi
 
 REPO="/Users/linhuichen/code/trade-data"
 GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"   # git 始终在 trade 仓库(trade-data 不 git init)

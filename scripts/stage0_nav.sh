@@ -13,7 +13,9 @@
 # 日志: data/logs/stage0-nav.log(append)
 set -uo pipefail
 # 防脚本运行期间 mac 休眠(5 年净值大工程, 长任务必须防休眠)
-caffeinate -i -w $$ >/dev/null 2>&1 &
+if [ "$(uname -s)" = "Darwin" ]; then
+    caffeinate -i -w $$ >/dev/null 2>&1 &
+fi
 
 REPO="/Users/linhuichen/code/trade-data"
 PY="$REPO/.venv/bin/python"
