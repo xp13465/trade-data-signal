@@ -354,8 +354,9 @@ fi
 # 如需改回 17:50 挂载：取消下行注释 + launchctl unload com.trade.daily-brief。
 # bash "$REPO/scripts/run_daily_brief.sh" 2>&1 | tee -a "$LOG"
 
-# 每日 DB 热备 + R2 异地备份已改独立 systemd timer 21:00 单点管理(2026-09-12 迁移)。
-# 从 update_all 内嵌移除,避免 17:50 主链与独立 timer 双跑;备份逻辑/脚本本身不变(见 scripts/backup_db.sh)。
+# 每日 DB 热备 + R2 异地备份（update_all 跑完后 DB 已是最新，此时备份最稳）。
+# 失败不影响 update_all 退出码（RC_CORE 保持看板状态）。
+bash "$REPO/scripts/backup_db.sh" || echo "⚠ backup_db 失败(不影响update_all) rc=$?"
 
 # 刷新 schedule_stats.json（2026-07-24 方案A根治：从 deploy.sh:72 移到此处，在"结束"行后调用，
 # gen_stats 能读到完整"开始+结束"对，正确配对当前任务 exit/dur，不再 pending null；

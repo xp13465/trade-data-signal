@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -179,17 +180,38 @@ PUSH_SUCCESS_RE = re.compile(
 
 
 def launchctl_last_exit(label: str | None) -> int | None:
-    """调 `launchctl print gui/UID/label` 读真实 last exit code。
+    """读真实 last exit code（macOS launchctl / Linux systemctl）。
 
     返回 int 退出码（0=成功，非0=失败如 143=SIGTERM 超时被杀，1=脚本异常）。
-    label 为 None/空、launchctl 调用失败、解析不到、或值为 "none"（任务从没跑过）时返回 None。
+    label 为 None/空、调用失败、解析不到、或值为 "none"（任务从没跑过）时返回 None。
 
     用途：pending_start（有 start 无 end，崩在结束行前）时，日志启发式只能 age>3h 猜 143，
-    launchctl 记录真实退出码（含 SIGTERM=143 / 脚本异常 exit=1 / 正常 exit=0），
+    launchctl/systemctl 记录真实退出码（含 SIGTERM=143 / 脚本异常 exit=1 / 正常 exit=0），
     优先用真实码消除漏报（exit=1 漏报为 None）和误报（exit=0 误报为 143）。
     """
     if not label:
         return None
+    if shutil.which("systemctl"):
+        # Linux: systemd unit 名同 F2 映射口径（com.trade.update-all -> trade-update-all.service）。
+        # systemctl show -p ExecMainStatus 读主进程真实退出码（-p Result 辅助判定执行结果）。
+        unit = f"trade-{label.removeprefix('com.trade.')}.service"
+        try:
+            result = subprocess.run(
+                ["systemctl", "show", "-p", "ExecMainStatus", "-p", "Result", unit],
+                capture_output=True, text=True, timeout=10,
+            )
+        except Exception:
+            return None
+        if result.returncode != 0:
+            return None
+        m = re.search(r"^ExecMainStatus=(-?\d+)$", result.stdout, re.MULTILINE)
+        if not m:
+            return None
+        try:
+            return int(m.group(1))
+        except ValueError:
+            return None
+    # macOS: launchctl print
     try:
         result = subprocess.run(
             ["launchctl", "print", f"gui/{os.getuid()}/{label}"],

@@ -678,8 +678,9 @@ def launchctl_loaded(label):
     调用失败（timeout/异常）保守视为未加载（告警）。
     """
     if shutil.which("systemctl"):
-        # Linux: systemd unit 名 = launchd label + '.service'（与 systemd timer agent 对齐）
-        unit = f"{label}.service"
+        # Linux: systemd unit 名 = trade- + label 去掉 com.trade. 前缀 + '.service'
+        # （如 com.trade.update-all -> trade-update-all.service，与 systemd timer agent 对齐）
+        unit = f"trade-{label.removeprefix('com.trade.')}.service"
         try:
             r = subprocess.run(
                 ["systemctl", "is-active", unit],

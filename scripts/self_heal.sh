@@ -82,15 +82,16 @@ LABELS = {
 
 def launchctl_state(label):
     """返回任务运行状态（macOS launchctl / Linux systemctl），失败返回 None。
-    条件兼容：检测到 systemctl 用 `systemctl is-active <label>.service`，active→'running'；
+    条件兼容：检测到 systemctl 用 `systemctl is-active <unit>`，active/activating→'running'；
     否则走 macOS launchctl print（state = running/not running）。
     调用方 `"running" in st` 判断在跑跳过。
     """
     if not label:
         return None
     if shutil.which("systemctl"):
-        # Linux: systemd unit 名 = launchd label + '.service'（与 systemd timer agent 对齐）
-        unit = f"{label}.service"
+        # Linux: systemd unit 名 = trade- + label 去掉 com.trade. 前缀 + '.service'
+        # （如 com.trade.update-all -> trade-update-all.service，与 systemd timer agent 对齐）
+        unit = f"trade-{label.removeprefix('com.trade.')}.service"
         try:
             r = subprocess.run(
                 ["systemctl", "is-active", unit],
@@ -101,7 +102,7 @@ def launchctl_state(label):
         st = (r.stdout or "").strip()
         if not st:
             return None
-        return "running" if st == "active" else st
+        return "running" if st in ("active", "activating") else st
     # macOS: launchctl print
     try:
         r = subprocess.run(
