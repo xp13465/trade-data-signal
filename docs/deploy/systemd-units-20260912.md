@@ -17,15 +17,15 @@
 ## 1. 统一约定
 
 ### 1.1 服务器路径(单仓化,依据 inventory §4.3)
-服务器只建一个 `/opt/trade`(REPO=GIT_REPO 同路径),本机双仓结构(trade 代码仓 + trade-data 数据仓)在服务器上合并。路径映射:
+服务器只建一个 `/home/ubuntu/code/trade-data-signal`(REPO=GIT_REPO 同路径),本机双仓结构(trade 代码仓 + trade-data 数据仓)在服务器上合并。路径映射:
 
 | 本机路径 | 服务器路径 |
 |---|---|
-| `/Users/linhuichen/code/trade-data`(REPO) | `/opt/trade` |
-| `/Users/linhuichen/code/trade`(GIT_REPO) | `/opt/trade` |
-| `/Users/linhuichen/code/trade-data/.venv/bin/python` | `/opt/trade/.venv/bin/python` |
-| `/Users/linhuichen/code/trade-data/data/logs/...` | `/opt/trade/data/logs/...` |
-| `/Users/linhuichen/code/trade/scripts/...` | `/opt/trade/scripts/...` |
+| `/Users/linhuichen/code/trade-data`(REPO) | `/home/ubuntu/code/trade-data-signal` |
+| `/Users/linhuichen/code/trade`(GIT_REPO) | `/home/ubuntu/code/trade-data-signal` |
+| `/Users/linhuichen/code/trade-data/.venv/bin/python` | `/home/ubuntu/code/trade-data-signal/.venv/bin/python` |
+| `/Users/linhuichen/code/trade-data/data/logs/...` | `/home/ubuntu/code/trade-data-signal/data/logs/...` |
+| `/Users/linhuichen/code/trade/scripts/...` | `/home/ubuntu/code/trade-data-signal/scripts/...` |
 
 ### 1.2 时区
 服务器必须设北京时间(§14 时点纪律不变):
@@ -55,23 +55,24 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 ```
 
 ### 1.6 PURGE_SECRET 覆盖纠正(重要)
-inventory §6.4 写「PURGE_SECRET 逐项迁移(backfill-evening/etf-national-team/etf-track-index 三任务)」——**实测 PURGE_SECRET 实际嵌在 24 个 plist 里**,不只 3 个。本节已统一改为对应 .service 的 `EnvironmentFile=/opt/trade/.env`(值从服务器 .env 读,不进 git)。24 个任务清单:
+inventory §6.4 写「PURGE_SECRET 逐项迁移(backfill-evening/etf-national-team/etf-track-index 三任务)」——**实测 PURGE_SECRET 实际嵌在 24 个 plist 里**,不只 3 个。本节已统一改为对应 .service 的 `EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env`(值从服务器 .env 读,不进 git)。24 个任务清单:
 backfill-evening / etf-national-team / etf-track-index / futures-backfill / gold-night / intraday-snapshot / kelly-intraday-rerun / lab-auto / lhb-backfill / pf-score-daily / pf-score-weekly / pf-stage0-manager / pf-stage0-nav / pf-stage0-overview / pf-stage0-risk / public-fund-daily / public-fund-estimation / public-fund-full / public-fund-quarterly / rzhb-backfill / schedule-monitor / self-heal / update-all / us-stock-morning。
 
-PURGE_SECRET 值(本机全部 plist 一致):见 `/opt/trade/.env`(scp 合并 21 键,值不进 git;此处不落明文)。
-> ⚠️ 这是敏感凭证。本文件已统一改为 `EnvironmentFile=/opt/trade/.env`(systemd 从服务器 .env 读,值不进 git),不再落明文。
+PURGE_SECRET 值(本机全部 plist 一致):见 `/home/ubuntu/code/trade-data-signal/.env`(scp 合并 21 键,值不进 git;此处不落明文)。
+> ⚠️ 这是敏感凭证。本文件已统一改为 `EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env`(systemd 从服务器 .env 读,值不进 git),不再落明文。
 
 ### 1.7 环境变量清单(通用)
 多数任务共用下面 4 项环境(逐项以服务器路径重写):
 
 | 变量 | 本机值 | 服务器值 |
 |---|---|---|
-| GIT_REPO | /Users/linhuichen/code/trade | /opt/trade |
-| REPO | /Users/linhuichen/code/trade-data | /opt/trade |
+| GIT_REPO | /Users/linhuichen/code/trade | /home/ubuntu/code/trade-data-signal |
+| REPO | /Users/linhuichen/code/trade-data | /home/ubuntu/code/trade-data-signal |
+| MAIN_REPO | /Users/linhuichen/code/trade-data | /home/ubuntu/code/trade-data-signal |
 | PATH | /opt/homebrew/bin:... | /usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin |
 | PURGE_SECRET | 见 §1.6 | 同左 |
 
-个别任务特殊 env:ab-direction-anchor 只有 `TRADE_DIR`(→ /opt/trade);check-data-gap / fapi-daily 只有 PATH+REPO(无 GIT_REPO、无 PURGE_SECRET);fetch-news 完全无 env。
+阶段4b 统一(2026-09-13):全部 36 service 均注入 `REPO`/`GIT_REPO`/`MAIN_REPO`(= /home/ubuntu/code/trade-data-signal,与 pick_repo.py 单仓判定一致,防 /Users 语义翻转)。个别任务保留特殊 env:ab-direction-anchor 额外有 `TRADE_DIR`(→ /home/ubuntu/code/trade-data-signal)。
 
 ## 2. 35 个周期任务完整对照表 + unit 内容
 
@@ -104,15 +105,16 @@ Description=Trade update-all (源 com.trade.update-all)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/update_all.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/update_all.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=7200
-StandardOutput=append:/opt/trade/data/logs/update_all_launchd.log
-StandardError=append:/opt/trade/data/logs/update_all_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/update_all_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/update_all_launchd.err
 ```
 
 ### 2.2 intraday-snapshot(盘中 30 时点 + 20:35)
@@ -168,15 +170,16 @@ Description=Trade intraday-snapshot (源 com.trade.intraday-snapshot)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/intraday_snapshot.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/intraday_snapshot.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=1800
-StandardOutput=append:/opt/trade/data/logs/intraday_snapshot_launchd.log
-StandardError=append:/opt/trade/data/logs/intraday_snapshot_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/intraday_snapshot_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/intraday_snapshot_launchd.err
 ```
 
 ### 2.3 kelly-intraday-rerun(9:40)
@@ -202,15 +205,16 @@ Description=Trade kelly-intraday-rerun (源 com.trade.kelly-intraday-rerun)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/kelly_intraday_rerun.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/kelly_intraday_rerun.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=200
-StandardOutput=append:/opt/trade/data/logs/kelly_intraday_rerun_launchd.log
-StandardError=append:/opt/trade/data/logs/kelly_intraday_rerun_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/kelly_intraday_rerun_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/kelly_intraday_rerun_launchd.err
 ```
 
 ### 2.4 backfill-evening(16:35 / 21:00 / 2:00)
@@ -238,15 +242,16 @@ Description=Trade backfill-evening (源 com.trade.backfill-evening)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/backfill_metrics.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/backfill_metrics.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=7200
-StandardOutput=append:/opt/trade/data/logs/backfill_evening_launchd.log
-StandardError=append:/opt/trade/data/logs/backfill_evening_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/backfill_evening_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/backfill_evening_launchd.err
 ```
 
 ### 2.5 etf-national-team(20:07 / 21:30)
@@ -273,15 +278,16 @@ Description=Trade etf-national-team (源 com.trade.etf-national-team)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/etf_national_team_backfill.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/etf_national_team_backfill.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=3600
-StandardOutput=append:/opt/trade/data/logs/etf_national_team_launchd.log
-StandardError=append:/opt/trade/data/logs/etf_national_team_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/etf_national_team_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/etf_national_team_launchd.err
 ```
 
 ### 2.6 etf-track-index(周日 3:30)
@@ -307,19 +313,20 @@ Description=Trade etf-track-index (源 com.trade.etf-track-index)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/opt/trade/.venv/bin/python /opt/trade/scripts/fetch_etf_track_index.py
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/home/ubuntu/code/trade-data-signal/.venv/bin/python /home/ubuntu/code/trade-data-signal/scripts/fetch_etf_track_index.py
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=1800
-StandardOutput=append:/opt/trade/data/logs/etf-track-index-launchd.log
-StandardError=append:/opt/trade/data/logs/etf-track-index-launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/etf-track-index-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/etf-track-index-launchd.err
 ```
 
 ### 2.7 fapi-daily(18:10)
-- 脚本:`fapi_daily_syn.sh`(源路径在 trade/scripts,单仓后同 /opt/trade/scripts)| 时点:18:10 | ExitTimeOut=600
+- 脚本:`fapi_daily_syn.sh`(源路径在 trade/scripts,单仓后同 /home/ubuntu/code/trade-data-signal/scripts)| 时点:18:10 | ExitTimeOut=600
 - env:仅 PATH + REPO(无 GIT_REPO、无 PURGE_SECRET)
 
 `trade-fapi-daily.timer`:
@@ -342,13 +349,15 @@ Description=Trade fapi-daily (源 com.trade.fapi-daily)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/fapi_daily_syn.sh
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/fapi_daily_syn.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 TimeoutStartSec=600
-StandardOutput=append:/opt/trade/data/logs/fapi_daily_launchd.log
-StandardError=append:/opt/trade/data/logs/fapi_daily_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/fapi_daily_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/fapi_daily_launchd.err
 ```
 
 ### 2.8 futures-backfill(20:05 / 21:00)
@@ -375,15 +384,16 @@ Description=Trade futures-backfill (源 com.trade.futures-backfill)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/futures_backfill.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/futures_backfill.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=3600
-StandardOutput=append:/opt/trade/data/logs/futures_backfill_launchd.log
-StandardError=append:/opt/trade/data/logs/futures_backfill_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/futures_backfill_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/futures_backfill_launchd.err
 ```
 
 ### 2.9 gold-night(2:40 黄金夜盘)
@@ -409,15 +419,16 @@ Description=Trade gold-night (源 com.trade.gold-night)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/gold_night.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/gold_night.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=600
-StandardOutput=append:/opt/trade/data/logs/gold_night_launchd.log
-StandardError=append:/opt/trade/data/logs/gold_night_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/gold_night_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/gold_night_launchd.err
 ```
 
 ### 2.10 lhb-backfill(18:30 / 19:30 龙虎榜)
@@ -444,15 +455,16 @@ Description=Trade lhb-backfill (源 com.trade.lhb-backfill)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/lhb_backfill.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/lhb_backfill.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=3600
-StandardOutput=append:/opt/trade/data/logs/lhb_backfill_launchd.log
-StandardError=append:/opt/trade/data/logs/lhb_backfill_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/lhb_backfill_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/lhb_backfill_launchd.err
 ```
 
 ### 2.11 rzhb-backfill(8:00 / 19:15 融资融券)
@@ -479,15 +491,16 @@ Description=Trade rzhb-backfill (源 com.trade.rzhb-backfill)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/rzhb_backfill.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/rzhb_backfill.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=3600
-StandardOutput=append:/opt/trade/data/logs/rzhb_backfill_launchd.log
-StandardError=append:/opt/trade/data/logs/rzhb_backfill_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/rzhb_backfill_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/rzhb_backfill_launchd.err
 ```
 
 ### 2.12 turnover-backfill(周一~五 21:10)
@@ -513,19 +526,20 @@ Description=Trade turnover-backfill (源 com.trade.turnover-backfill)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/turnover_backfill.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/turnover_backfill.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 TimeoutStartSec=300
-StandardOutput=append:/opt/trade/data/logs/turnover_backfill_launchd.log
-StandardError=append:/opt/trade/data/logs/turnover_backfill_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/turnover_backfill_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/turnover_backfill_launchd.err
 ```
 
 ### 2.13 ab-direction-anchor(21:15)
 - 脚本:`run_ab_direction_anchor.sh` | 时点:21:15
-- env:仅 `TRADE_DIR`(→ /opt/trade),无 REPO/GIT_REPO/PURGE_SECRET;无 ExitTimeOut、无 WorkingDirectory(源 plist 未设,此处补 WorkingDirectory=/opt/trade 保险)
+- env:仅 `TRADE_DIR`(→ /home/ubuntu/code/trade-data-signal),无 REPO/GIT_REPO/PURGE_SECRET;无 ExitTimeOut、无 WorkingDirectory(源 plist 未设,此处补 WorkingDirectory=/home/ubuntu/code/trade-data-signal 保险)
 
 `trade-ab-direction-anchor.timer`:
 ```ini
@@ -547,11 +561,14 @@ Description=Trade ab-direction-anchor (源 com.trade.ab-direction-anchor)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/run_ab_direction_anchor.sh
-Environment=TRADE_DIR=/opt/trade
-StandardOutput=append:/opt/trade/data/logs/ab_direction_anchor.out.log
-StandardError=append:/opt/trade/data/logs/ab_direction_anchor.err.log
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/run_ab_direction_anchor.sh
+Environment=TRADE_DIR=/home/ubuntu/code/trade-data-signal
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/ab_direction_anchor.out.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/ab_direction_anchor.err.log
 ```
 
 ### 2.14 nextday-plan(周一~五 20:55 干跑)
@@ -577,14 +594,15 @@ Description=Trade nextday-plan (源 com.trade.nextday-plan)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/nextday_plan.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/nextday_plan.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 TimeoutStartSec=600
-StandardOutput=append:/opt/trade/data/logs/nextday_plan_launchd.log
-StandardError=append:/opt/trade/data/logs/nextday_plan_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/nextday_plan_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/nextday_plan_launchd.err
 ```
 
 ### 2.15 s06-snapshot(周一~五 20:35)
@@ -610,14 +628,15 @@ Description=Trade s06-snapshot (源 com.trade.s06-snapshot)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/s06_snapshot.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/s06_snapshot.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 TimeoutStartSec=600
-StandardOutput=append:/opt/trade/data/logs/s06_snapshot_launchd.log
-StandardError=append:/opt/trade/data/logs/s06_snapshot_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/s06_snapshot_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/s06_snapshot_launchd.err
 ```
 
 ### 2.16 check-data-gap(周一~五 22:35)
@@ -644,13 +663,15 @@ Description=Trade check-data-gap (源 com.trade.check-data-gap)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/check_data_gap_alerts.sh
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/check_data_gap_alerts.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 TimeoutStartSec=600
-StandardOutput=append:/opt/trade/data/logs/check_data_gap_launchd.out
-StandardError=append:/opt/trade/data/logs/check_data_gap_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/check_data_gap_launchd.out
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/check_data_gap_launchd.err
 ```
 
 ### 2.17 daily-brief(20:40,--multi)
@@ -676,14 +697,15 @@ Description=Trade daily-brief --multi (源 com.trade.daily-brief)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/run_daily_brief.sh --multi
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/run_daily_brief.sh --multi
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 TimeoutStartSec=900
-StandardOutput=append:/opt/trade/data/logs/daily_brief_launchd.log
-StandardError=append:/opt/trade/data/logs/daily_brief_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/daily_brief_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/daily_brief_launchd.err
 ```
 
 ### 2.18 daily-summary-supplement(20:30)
@@ -709,14 +731,15 @@ Description=Trade daily-summary-supplement (源 com.trade.daily-summary-suppleme
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/opt/trade/.venv/bin/python /opt/trade/scripts/daily_summary_email.py --mode supplement
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/home/ubuntu/code/trade-data-signal/.venv/bin/python /home/ubuntu/code/trade-data-signal/scripts/daily_summary_email.py --mode supplement
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 TimeoutStartSec=600
-StandardOutput=append:/opt/trade/data/logs/daily_summary_supplement_launchd.log
-StandardError=append:/opt/trade/data/logs/daily_summary_supplement_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/daily_summary_supplement_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/daily_summary_supplement_launchd.err
 ```
 
 ### 2.19 brief-push(20:45)
@@ -742,14 +765,15 @@ Description=Trade brief-push (源 com.trade.brief-push)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/brief_push_wrapper.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/brief_push_wrapper.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 TimeoutStartSec=300
-StandardOutput=append:/opt/trade/data/logs/brief_push_launchd.log
-StandardError=append:/opt/trade/data/logs/brief_push_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/brief_push_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/brief_push_launchd.err
 ```
 
 ### 2.20 fetch-news(每小时 :01 与 :31,共 48 次)
@@ -775,10 +799,13 @@ Description=Trade fetch-news (源 com.trade.fetch-news)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/opt/trade/.venv/bin/python /opt/trade/scripts/fetch_news.py
-StandardOutput=append:/opt/trade/data/logs/fetch_news_launchd.log
-StandardError=append:/opt/trade/data/logs/fetch_news_launchd.err
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/home/ubuntu/code/trade-data-signal/.venv/bin/python /home/ubuntu/code/trade-data-signal/scripts/fetch_news.py
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/fetch_news_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/fetch_news_launchd.err
 ```
 > 注:源 plist 无 Environment=,沿用系统 PATH。stage4 若脚本内部调用 git/curl 等系统工具,确认在 /usr/bin 可见即可。
 
@@ -806,15 +833,16 @@ Description=Trade pf-score-daily (源 com.trade.pf-score-daily)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/pf_score_daily.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/pf_score_daily.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=1800
-StandardOutput=append:/opt/trade/data/logs/pf-score-daily-launchd.log
-StandardError=append:/opt/trade/data/logs/pf-score-daily-launchd.log
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/pf-score-daily-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/pf-score-daily-launchd.log
 ```
 
 ### 2.22 pf-score-weekly(周日 3:17)
@@ -840,15 +868,16 @@ Description=Trade pf-score-weekly (源 com.trade.pf-score-weekly)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/pf_score_weekly.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/pf_score_weekly.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=14400
-StandardOutput=append:/opt/trade/data/logs/pf-score-weekly-launchd.log
-StandardError=append:/opt/trade/data/logs/pf-score-weekly-launchd.log
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/pf-score-weekly-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/pf-score-weekly-launchd.log
 ```
 
 ### 2.23 pf-stage0-nav(周五 1:43)
@@ -874,15 +903,16 @@ Description=Trade pf-stage0-nav (源 com.trade.pf-stage0-nav)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/stage0_nav.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/stage0_nav.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=21600
-StandardOutput=append:/opt/trade/data/logs/stage0-nav-launchd.log
-StandardError=append:/opt/trade/data/logs/stage0-nav-launchd.log
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/stage0-nav-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/stage0-nav-launchd.log
 ```
 
 ### 2.24 pf-stage0-overview(周日 2:17)
@@ -908,15 +938,16 @@ Description=Trade pf-stage0-overview (源 com.trade.pf-stage0-overview)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/stage0_overview.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/stage0_overview.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=25200
-StandardOutput=append:/opt/trade/data/logs/stage0-overview-launchd.log
-StandardError=append:/opt/trade/data/logs/stage0-overview-launchd.log
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/stage0-overview-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/stage0-overview-launchd.log
 ```
 
 ### 2.25 pf-stage0-risk(每月 15 日 2:33)
@@ -942,15 +973,16 @@ Description=Trade pf-stage0-risk (源 com.trade.pf-stage0-risk)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/stage0_risk.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/stage0_risk.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=18000
-StandardOutput=append:/opt/trade/data/logs/stage0-risk-launchd.log
-StandardError=append:/opt/trade/data/logs/stage0-risk-launchd.log
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/stage0-risk-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/stage0-risk-launchd.log
 ```
 
 ### 2.26 pf-stage0-manager(每月 1 日 2:47)
@@ -976,15 +1008,16 @@ Description=Trade pf-stage0-manager (源 com.trade.pf-stage0-manager)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/stage0_manager.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/stage0_manager.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=12600
-StandardOutput=append:/opt/trade/data/logs/stage0-manager-launchd.log
-StandardError=append:/opt/trade/data/logs/stage0-manager-launchd.log
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/stage0-manager-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/stage0-manager-launchd.log
 ```
 
 ### 2.27 public-fund-daily(16:30 / 17:00)
@@ -1011,15 +1044,16 @@ Description=Trade public-fund-daily (源 com.trade.public-fund-daily)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/public_fund_daily.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/public_fund_daily.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=300
-StandardOutput=append:/opt/trade/data/logs/public_fund_daily_launchd.log
-StandardError=append:/opt/trade/data/logs/public_fund_daily_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/public_fund_daily_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/public_fund_daily_launchd.err
 ```
 
 ### 2.28 public-fund-estimation(10:00 / 11:00 / 13:30 / 14:30)
@@ -1048,15 +1082,16 @@ Description=Trade public-fund-estimation (源 com.trade.public-fund-estimation)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/public_fund_estimation.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/public_fund_estimation.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=120
-StandardOutput=append:/opt/trade/data/logs/public_fund_estimation_launchd.log
-StandardError=append:/opt/trade/data/logs/public_fund_estimation_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/public_fund_estimation_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/public_fund_estimation_launchd.err
 ```
 
 ### 2.29 public-fund-full(22:00)
@@ -1082,15 +1117,16 @@ Description=Trade public-fund-full (源 com.trade.public-fund-full)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/public_fund_full.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/public_fund_full.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=21600
-StandardOutput=append:/opt/trade/data/logs/public_fund_full_launchd.log
-StandardError=append:/opt/trade/data/logs/public_fund_full_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/public_fund_full_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/public_fund_full_launchd.err
 ```
 
 ### 2.30 public-fund-quarterly(3:00 / 4:00 / 7:00)
@@ -1118,15 +1154,16 @@ Description=Trade public-fund-quarterly (源 com.trade.public-fund-quarterly)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/public_fund_quarterly.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/public_fund_quarterly.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=3600
-StandardOutput=append:/opt/trade/data/logs/public_fund_quarterly_launchd.log
-StandardError=append:/opt/trade/data/logs/public_fund_quarterly_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/public_fund_quarterly_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/public_fund_quarterly_launchd.err
 ```
 
 ### 2.31 overfit-monitor(周一~五 21:40)
@@ -1152,14 +1189,15 @@ Description=Trade overfit-monitor (源 com.trade.overfit-monitor)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/overfit_monitor.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/overfit_monitor.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 TimeoutStartSec=900
-StandardOutput=append:/opt/trade/data/logs/overfit_monitor_launchd.log
-StandardError=append:/opt/trade/data/logs/overfit_monitor_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/overfit_monitor_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/overfit_monitor_launchd.err
 ```
 
 ### 2.32 lab-auto(19:00 lab 页数据)
@@ -1185,14 +1223,16 @@ Description=Trade lab-auto (源 com.trade.lab-auto)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/update_lab.sh
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/update_lab.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=7200
-StandardOutput=append:/opt/trade/data/logs/update_lab_launchd.log
-StandardError=append:/opt/trade/data/logs/update_lab_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/update_lab_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/update_lab_launchd.err
 ```
 
 ### 2.33 us-stock-morning(5:00 美股早盘)
@@ -1218,15 +1258,16 @@ Description=Trade us-stock-morning (源 com.trade.us-stock-morning)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/us_stock_morning.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/us_stock_morning.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=1800
-StandardOutput=append:/opt/trade/data/logs/us_stock_morning_launchd.log
-StandardError=append:/opt/trade/data/logs/us_stock_morning_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/us_stock_morning_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/us_stock_morning_launchd.err
 ```
 
 ### 2.34 self-heal(每 15 分 :07/:22/:37/:52)
@@ -1252,15 +1293,16 @@ Description=Trade self-heal (源 com.trade.self-heal)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/self_heal.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/self_heal.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=1800
-StandardOutput=append:/opt/trade/data/logs/self_heal_launchd.log
-StandardError=append:/opt/trade/data/logs/self_heal_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/self_heal_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/self_heal_launchd.err
 ```
 
 ### 2.35 schedule-monitor(每 15 分 :00/:15/:30/:45)
@@ -1286,15 +1328,16 @@ Description=Trade schedule-monitor (源 com.trade.schedule-monitor)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/schedule_monitor.sh
-Environment=GIT_REPO=/opt/trade
-Environment=REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/schedule_monitor.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-EnvironmentFile=/opt/trade/.env
+EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env
 TimeoutStartSec=600
-StandardOutput=append:/opt/trade/data/logs/schedule_monitor_launchd.log
-StandardError=append:/opt/trade/data/logs/schedule_monitor_launchd.err
+StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/schedule_monitor_launchd.log
+StandardError=append:/home/ubuntu/code/trade-data-signal/data/logs/schedule_monitor_launchd.err
 ```
 
 ## 3. 飞书常驻 listener(已拍板不迁)
@@ -1305,7 +1348,7 @@ StandardError=append:/opt/trade/data/logs/schedule_monitor_launchd.err
 
 - 源:本机无独立 launchd 任务,由 `update_all.sh` L357 内嵌调用 `bash "$REPO/scripts/backup_db.sh"`。
 - 改法(inventory §4.3):独立 systemd timer 21:00(update-all 17:50 完成后 DB 最新);阶段4 删 update_all.sh L357 段,备份单点管理。
-- 参数:`REPO=/opt/trade`(Environment 注入,一行不改脚本默认值);`RETAIN_DAYS=7`(脚本 L23 默认 14 → 注入 7,改后 7 天约 2.1G)。
+- 参数:`REPO=/home/ubuntu/code/trade-data-signal`(Environment 注入,一行不改脚本默认值);`RETAIN_DAYS=7`(脚本 L23 默认 14 → 注入 7,改后 7 天约 2.1G)。
 
 `trade-backup-db.timer`:
 ```ini
@@ -1327,15 +1370,16 @@ Description=Trade backup_db (sqlite .backup 热备 + 推 R2 signal-backup + veri
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/trade
-ExecStart=/bin/bash /opt/trade/scripts/backup_db.sh
-Environment=REPO=/opt/trade
-Environment=GIT_REPO=/opt/trade
+WorkingDirectory=/home/ubuntu/code/trade-data-signal
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data-signal
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data-signal
+ExecStart=/bin/bash /home/ubuntu/code/trade-data-signal/scripts/backup_db.sh
 Environment=RETAIN_DAYS=7
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 TimeoutStartSec=7200
 ```
-> 注:backup_db.sh 自身写 `$LOG`(data/logs 下)并 `notify.py --severe` 告警,stdout/stderr 走 journal 即可;如要保留文件可加 `StandardOutput=append:/opt/trade/data/logs/backup_db_systemd.log`。
+> 注:backup_db.sh 自身写 `$LOG`(data/logs 下)并 `notify.py --severe` 告警,stdout/stderr 走 journal 即可;如要保留文件可加 `StandardOutput=append:/home/ubuntu/code/trade-data-signal/data/logs/backup_db_systemd.log`。
 
 ## 5. 不迁(本机 Claude 开发环境专属,5 个)
 
@@ -1361,7 +1405,7 @@ TimeoutStartSec=7200
 2. **时区**:先 `timedatectl set-timezone Asia/Shanghai`,否则 OnCalendar= 全部偏移。
 3. **§14 时点纪律不变**:17:50 update-all、20:40 daily-brief、盘中 9:30-15:30 不跑全量 export+deploy;服务器同北京时间。
 4. **§5.6 deepseek 峰谷**:daily-brief 20:40 低谷不变;key 在 trade-data/.env 随迁。
-5. **PURGE_SECRET 明文**:§1.6 已纠正覆盖 24 任务,统一改为 `EnvironmentFile=/opt/trade/.env`(值不进 git);勿推公开仓库。
+5. **PURGE_SECRET 明文**:§1.6 已纠正覆盖 24 任务,统一改为 `EnvironmentFile=/home/ubuntu/code/trade-data-signal/.env`(值不进 git);勿推公开仓库。
 6. **macOS 专属点适配**(inventory §5,阶段4 改脚本,非本文件范围):pmset/caffeinate 删段、timeout→gtimeout 降级链、self-heal/schedule-monitor 的 launchctl 检查、/opt/homebrew/bin PATH。本文件只生成 systemd 配置,不动任何 .sh。
-7. **单仓化**:服务器 `/opt/trade` 单仓;双份 DB/backups 问题自然消失(REPO=GIT_REPO=/opt/trade)。
+7. **单仓化**:服务器 `/home/ubuntu/code/trade-data-signal` 单仓;双份 DB/backups 问题自然消失(REPO=GIT_REPO=/home/ubuntu/code/trade-data-signal)。
 8. **21:00 并发提示(§14 生产稳定性)**:21:00 现有 3 个 timer 并发——backfill-evening(backfill_metrics.sh)、futures-backfill(futures_backfill.sh)、backup-db(backup_db.sh)。backup_db 用 sqlite3 `.backup()` 在线热备(WAL 一致快照,不锁库,inventory §4.1.1),与另两者不冲突;本机 launchd 原本就有 backfill-evening@21:00 + futures-backfill@21:00 并发,新加 backup_db@21:00 是 inventory §4.3 指定的独立时点(update-all 17:50 完成后 DB 最新)。若 stage4 实测发现 DB 写竞争,可把 backup-db 顺延到 21:05。
