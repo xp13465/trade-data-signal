@@ -268,3 +268,5 @@ scripts/uumit/
 # 备份文件
 docs/archive/*.bak*
 config/email.json.bak*
+# Playwright 测试状态文件(每次跑自动覆盖,非报告)
+test-results/
