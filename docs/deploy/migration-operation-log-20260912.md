@@ -61,6 +61,14 @@
 - [ ] 阶段4b:云上跑通采集→export→R2 上传,curl 验证线上
 - [ ] 阶段4c:停本地 launchd(备份 plist + 一键还原脚本),观察云上稳定后由用户拍板停本地
 
+## PURGE_SECRET 泄漏事件(2026-09-12 发现并处理)
+
+- **事件**:systemd 落档文档把 PURGE_SECRET(CF /api/purge-cache 清缓存凭证)明文写入,merge+push 到 public 仓,凭证泄漏。
+- **处理(用户拍板 1+2 做、3 跳过)**:
+  1. ~~轮换 PURGE_SECRET~~ → **用户决定不轮换**(清缓存会自动重建、数据不丢不篡改,实际危害小;敞口可随时关闭)。
+  2. **文档去明文** ✅ 已做:24 处 `Environment=PURGE_SECRET=明文` → `EnvironmentFile=/opt/trade/.env`(值从服务器合并 21 键 .env 读,不进 git),§1.6 值说明行去明文 + 加敏感凭证提示。feat/systemd-purge-secret-envfile → main fd95be096。查证:.env 纯 KEY=VALUE 格式,systemd EnvironmentFile 兼容。
+  3. **force push 清历史** → 跳过(旧值已公开,清不清历史都一样敞口;force push 风险>收益)。
+
 ## 阶段1 收尾小隐患(不影响当前,后续 requirements.txt 补约束)
 
 1. **mini-racer 顺序依赖隐患**:mootdx 强拉 sqreen `py-mini-racer 0.6.0`,实测 bpcreech `mini-racer 0.14.1` 后装覆盖胜出(能 import + eval 正常)。但这是"安装顺序决定"的,以后重装若顺序反转可能拿错版。→ 建议后续 requirements.txt 显式 pin `mini-racer==0.14.1`。
