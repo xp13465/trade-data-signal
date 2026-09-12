@@ -174,7 +174,8 @@ def _next_trading_day(dates: list[str], t: str) -> str:
 
 def _nth_trading_day_after(dates: list[str], t: str, n: int) -> str:
     """取 > t 的第 n 个交易日(PRD §6.2 seq5 D+10 卖出日, 与回测 A 模式 hold_days=10 同口径:
-    卖出日 = 买入日之后第 10 个交易日)。n=0 返回 _next_trading_day 同款。"""
+    卖出日 = 信号日后第 10 个交易日。买入日 = 信号日次日(D+1=买入日), D+10 卖出 = 含买入日共持有 10 个交易日)。
+    即 9/4 信号 → 9/7 买入 → 9/18 卖出(非 9/21, 后者是误按"买入日后第10"算的)。n=0 返回 _next_trading_day 同款。"""
     cnt = 0
     for d in dates:
         if d > t:
@@ -300,6 +301,8 @@ def _backfill_missing_seqs(steps: list, trade_dates: list[str], now: str) -> boo
         for st in _build_steps_for_plan(p, now, sell_date):
             if int(st["seq"]) in have:
                 continue
+            # 迁移补行与回填段(#106)同标记: 前端显示「回填」角标, 说明干跑阶段恒 pending 不回写执行状态
+            st["backfilled"] = True
             steps.append(st)
             have.add(int(st["seq"]))
             changed = True

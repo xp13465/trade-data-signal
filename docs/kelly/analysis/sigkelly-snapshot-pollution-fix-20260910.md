@@ -18,7 +18,7 @@ Commits:`55a29495c`(源码) + `7b14deea2`(min+bump)
 
 ### 修复
 - `scripts/signal_kelly_snapshot.py` 新增 `MUTATION_RATIO = 0.30`:单日 total_return 相对上一快照日突变比 >30% 且非发布日,判定为污染。
-  - 依据:sig_main all 全史累计收益每日正常波动 <1%,30% 必为数据污染。
+  - 依据:sig_main all 全史累计收益每日正常波动**实测最大 2.63%**(reviewer 误伤矩阵实测,9/4~9/7 无误标),距 30% 阈值约 50 倍余量,30% 必为数据污染。
 - 新增 `rebuild_index(data_dir, dry_run)`:按日期对 `20*.json` 逐日 append,统计被拦截的 polluted modes。
 - 新增 `--rebuild` CLI flag。
 
@@ -98,5 +98,5 @@ pageErrors: none
 - **输出**:`static-site/data/signal_kelly_snapshots/index.json`(9/8 污染拦截日志见 stdout `[防污染]`)
 - **数据截止**:2026-09-10 05:11(20260910.json)
 - **关键口径一句话**:append_to_index 显式写 `quadrants.sig_main.all`;单日 total_return 突变比 >30% 且非发布日 → 写 `{"tr": None, "n": n, "polluted": true}`。
-- **Playwright 验证脚本**:`/tmp/probe-intraday-fade0.mjs`(60 行注入,断言无内部滚动);演进弹窗数值对账见上文。
+- **Playwright 验证脚本**:`docs/kelly/analysis/scripts/probe-intraday-fade0.mjs`(60 行注入,断言无内部滚动;2026-09-12 自 /tmp 迁入报告目录,头部含复现命令);演进弹窗数值对账见上文。
 - **上线链路**:index.json 走 R2/static-site(data 层被 gitignore),min+bump 已 commit feat 分支,deploy 由主控排期统一执行。

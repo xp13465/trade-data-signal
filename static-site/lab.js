@@ -14170,11 +14170,19 @@ function _atNowAction(stepsByDate) {
   return _atFindSellDue(stepsByDate);
 }
 // 时间线提示(需求1 中文文案: 到 09:15 前显示「等待 09:15 挂单」等)
-function _atTimeHint(stepsByDate) {
+// reviewer P2 ⑤(2026-09-12): 与 bar 一致 — 当前动作已是卖出行(seq5)或今日买入全闭环时,
+// 不再报「09:25 竞价判定」等买入时间窗, 避免与 bar 主体(卖出提醒/已操作完成)错位。
+function _atTimeHint(stepsByDate, cur) {
+  // 当前动作 = 卖出行(seq5, 卖出日已到): 提示卖出语义, 不报买入时间窗
+  if (cur && (cur.action || "buy") === "sell") {
+    return cur.sell_date ? "到 " + String(cur.sell_date) + " 卖出日" : "到卖出日";
+  }
   const today = _atToday();
   const todaySteps = stepsByDate[today] || [];
   const buySteps = todaySteps.filter(function (s) { return (s.action || "buy") !== "sell"; });
   if (!buySteps.length) return "";
+  // 今日买行为全部已操作/已落定: bar 主体已不再提示挂单, 时间窗提示也同步收口
+  if (buySteps.every(function (s) { return _atStepSettled(s) || _atIsMarked(s); })) return "";
   const hm = _atHM();
   if (hm < 915) return "等待 09:15 挂单";
   if (hm < 925) return "09:15-09:25 挂单可操作";
@@ -14267,8 +14275,9 @@ function _atEtfLinkHtml(code, name) {
   const n = name ? _atEsc(String(name)) : "";
   return '<a href="javascript:void(0)" class="auto-trade-steps-etf-link" data-code="' + c + '" data-name="' + n + '" title="点击看走势图">' + c + '</a>';
 }
-// 历史回填角标(#106 回填行): 纯新增展示, 不改变行 action/status/日期语义
-const _AT_BACKFILL_TIP = "历史回填: 卖出计划按信号日+10交易日补登, track_score 为当日快照值非冻结值";
+// 历史回填角标(#106 回填行 + #108 迁移补齐行): 纯新增展示, 不改变行 action/status/日期语义
+// 说明含「恒 pending」语义: 阶段一干跑不回写真实执行状态, 历史补登行状态即待执行快照
+const _AT_BACKFILL_TIP = "历史补登: 卖出计划按信号日+10交易日补登 / 迁移补齐 seq2/3/5 上下游链。阶段一干跑不回写真实执行状态, 恒显示待执行; track_score 为当日快照值非冻结值";
 function _atBackfilledBadgeHtml() {
   return '<span class="auto-trade-steps-backfilled-badge" title="' + _atEsc(_AT_BACKFILL_TIP) + '">回填</span>';
 }
@@ -14557,7 +14566,7 @@ function _atRender(slot, planDoc, stepsDoc) {
   const nowAct = _atNowAction(byDate);
   // #108 卖出行按 sell_date 成行: 卖出到期时高亮落卖出行(sell_date 优先), 买入用买入日
   const nowActDate = nowAct ? String(nowAct.sell_date || nowAct.date || "") : "";
-  const hint = _atTimeHint(byDate);
+  const hint = _atTimeHint(byDate, nowAct);
   const barHtml = nowAct ? _atNowBarHtml(nowAct, hint) : "";
   // 提醒视图(用户拍板 2026-09-06): T0/T1 两天, 每天按买入/卖出分类, 历史收「查看全部计划」弹窗
   const pair = _atRemindPair(_atTradeDates(planDoc, stepsDoc));
