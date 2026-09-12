@@ -14422,19 +14422,23 @@ function _atTradeDates(planDoc, stepsDoc) {
   _atPlanRows(planDoc).forEach(function (r) { if (r.date) set[String(r.date)] = 1; });
   return Object.keys(set).sort();
 }
-// T0/T1 判定(用户拍板「滚动两个交易日」): T0=最近未过期交易日
-// 今天若是交易日且当前时刻未收盘(<=15:00)→ 今天; 否则(盘后/非交易日)→ 下一个交易日; T1 = T0 的下一个交易日
-// today/hm 可注入(自测/边界用), 缺省取本地时钟
+// T0/T1 判定(用户拍板 2026-09-12): T0=最近未过期交易日
+// 今天若是交易日(盘中/盘后)→ 今天; 今天非交易日(周末/节假日)→ 今天之前最近交易日(周六→上周五)
+// T1 = T0 的下一个交易日; today/hm 可注入(自测/边界用), 缺省取本地时钟; hm 当前口径不再依赖时刻
 function _atRemindPair(tradeDates, today, hm) {
   const t = today || _atToday();
-  const h = (hm == null) ? _atHM() : hm;
   const dates = tradeDates || [];
+  const st = String(t);
   let T0 = null;
-  if (dates.indexOf(t) >= 0 && h <= 1500) {
-    T0 = t;                                   // 今天交易日且未收盘 → 今天
+  if (dates.some(function (d) { return String(d) === st; })) {
+    T0 = t;                                            // 今天交易日(盘中/盘后)→ 今天
   } else {
-    for (let i = 0; i < dates.length; i++) {  // 盘后/非交易日 → 滚动到下一个交易日
-      if (String(dates[i]) > String(t)) { T0 = dates[i]; break; }
+    // 周末/节假日: 今天不在交易序列 → 今天之前最近交易日(排序序列中最后一个 < 今天的)
+    const past = dates.filter(function (d) { return String(d) < st; });
+    if (past.length) {
+      T0 = past[past.length - 1];
+    } else {
+      T0 = dates[0] || null;                           // 数据全在未来 → 回退第一个(未来最近), 保证不空
     }
   }
   let T1 = null;
@@ -14564,7 +14568,7 @@ function _atRender(slot, planDoc, stepsDoc) {
       date: pair.T0,
       buys: r0.buys,
       sells: r0.sells,
-      label: (pair.T0 === today ? "🟢 今日" : "🟢 下一交易日") + " · " + _atFmtDate(pair.T0)
+      label: (pair.T0 === today ? "🟢 今日" : "🟢 最近交易日") + " · " + _atFmtDate(pair.T0)
     });
   }
   if (pair.T1) {
@@ -14573,7 +14577,7 @@ function _atRender(slot, planDoc, stepsDoc) {
       date: pair.T1,
       buys: r1.buys,
       sells: r1.sells,
-      label: (pair.T0 === today ? "🔜 下一交易日" : "🔜 再下一交易日") + " · " + _atFmtDate(pair.T1)
+      label: "🔜 下一交易日" + " · " + _atFmtDate(pair.T1)
     });
   }
   let bodyHtml;
@@ -14591,7 +14595,7 @@ function _atRender(slot, planDoc, stepsDoc) {
     '<div class="auto-trade-steps">' +
       '<div class="auto-trade-steps-head">' +
         '<span class="auto-trade-steps-title">📋 实操步骤</span>' +
-        '<span class="auto-trade-steps-sub">提醒视图 · 今日+下一交易日 · 每日期内按买入/卖出分类 · 历史见「查看全部计划」(读 nextday_plan + auto_trade_steps, 纯展示不重算算法)</span>' +
+        '<span class="auto-trade-steps-sub">提醒视图 · 最近交易日+下一交易日 · 每日期内按买入/卖出分类 · 历史见「查看全部计划」(读 nextday_plan + auto_trade_steps, 纯展示不重算算法)</span>' +
         '<button type="button" class="auto-trade-steps-more-btn" style="margin-left:auto;padding:2px 8px;border:1px solid var(--border);border-radius:5px;background:var(--bg-card);color:var(--text-2);font-size:11px;cursor:pointer;white-space:nowrap;">📄 查看全部计划</button>' +
       '</div>' +
       barHtml + bodyHtml +
