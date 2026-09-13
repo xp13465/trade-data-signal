@@ -8,7 +8,7 @@
 - Telegram：读 config/telegram.json（bot_token/chat_id/api_base，POST Bot API sendMessage；
   国内 GFW 不可达时 api_base 设 CF Workers 反代 URL，详见 telegram.json.example）。
 - 飞书：读 config/feishu.json（app_id/app_secret 从 .env 读 FEISHU_APP_ID/FEISHU_APP_SECRET，
-  三群 chat_id 映射 alert=运维群/agent_done=开发群/report=报告群，tenant_access_token +
+  四群 chat_id 映射 alert=运维群/agent_done=开发群/report=报告群/follow=跟单群，tenant_access_token +
   im/v1/messages API，详见 feishu.json.example 与 docs/feishu-bot-integration-plan.md）。
 - 严重告警额外写 data/alerts/latest.md（覆盖式记最新一次严重），供下轮 Claude 开工优先排查。
 - 邮件兜底保留：飞书失败不阻塞邮件（best-effort），SEVERE 告警邮件始终发（防飞书故障无通知）。
@@ -30,7 +30,7 @@
   --alert-log       配合 --alert-issue，记录日志文件路径
   --from-prefix     邮件发件人名前缀（如 [告警] -> "From: [告警] 信号实验室 <user>"）。
                     默认 None 时用 "信号实验室监控"。
-  --feishu-group    飞书群 key 显式覆盖（alert/agent_done/report）
+  --feishu-group    飞书群 key 显式覆盖（alert/agent_done/report/follow）
   --feishu-only     只发飞书（跳过邮件/Telegram），调试用
   --dry-run         不真发，只 print 到 stderr（自验用）
 
@@ -453,8 +453,9 @@ def send_telegram(subject: str, body: str, dry_run: bool = False,
 # ── 飞书渠道（自建应用 tenant_access_token + im/v1/messages API）────────────────
 # 配置 config/feishu.json（gitignore，feishu.json.example 模板）。app_id/app_secret 默认从
 # .env 读（FEISHU_APP_ID/FEISHU_APP_SECRET，存 /Users/linhuichen/code/trade-data/.env），
-# 也可在 config/feishu.json 显式覆盖。三群映射：alert=运维群(SEVERE告警+计划任务异常) /
-# agent_done=开发群(agent完成+用户提需求) / report=报告群(收盘分析+盘中信号+小时级节点)。
+# 也可在 config/feishu.json 显式覆盖。四群映射：alert=运维群(SEVERE告警+计划任务异常) /
+# agent_done=开发群(agent完成+用户提需求) / report=报告群(收盘分析+盘中信号+小时级节点) /
+# follow=跟单群(次日买入计划 nextday_plan，--feishu-group follow 显式指定，不参与自动路由)。
 # 邮件兜底保留：飞书失败不阻塞邮件（best-effort），SEVERE 告警邮件始终发（防飞书故障无通知）。
 
 
@@ -729,8 +730,8 @@ def _alert_feishu_config_missing(dry_run: bool = False) -> None:
 
 恢复指引：
 1. 复制模板恢复：cp config/feishu.json.example config/feishu.json
-   （example 已含真实三群 chat_id，凭证走 .env 不填）
-2. 确认 chat_ids 三项非空（alert/agent_done/report）
+   （example 已含真实四群 chat_id，凭证走 .env 不填）
+2. 确认 chat_ids 四项非空（alert/agent_done/report/follow）
 3. 重启 listener：launchctl kickstart -k gui/$(id -u)/com.trade.feishu-listener
 4. 校验：python scripts/notify.py --dry-run 测试发送
 
@@ -749,14 +750,14 @@ def send_feishu(subject: str, body: str, chat_key: str | None = None,
                 feishu_post: dict | None = None) -> bool:
     """发飞书群消息（自建应用 im/v1/messages 或 webhook 模式）。
 
-    chat_key 显式指定（alert/agent_done/report）；None 时按 _resolve_feishu_chat_key
+    chat_key 显式指定（alert/agent_done/report/follow）；None 时按 _resolve_feishu_chat_key
     自动映射。配置缺失/enabled=false/占位符 -> 静默跳过（同 Telegram 未配置口径）。
     发送失败只 print 警告不抛异常（不阻塞调用方/不阻塞邮件）。
     返回 True 表示发出（或 dry_run 模拟成功），False 表示未发/失败。
 
-    feishu_post（3 群差异化）：仅 report 群生效——非空时用 post 富文本发送
+    feishu_post（分群差异化）：仅 report 群生效——非空时用 post 富文本发送
       （build_feishu_post 产出，买卖点/汪汪队信号消息用，买红/卖绿/持有灰分组+彩色标题，A股红涨绿跌约定）。
-      alert/agent_done 群忽略 feishu_post 保持简短 text（可读性已够，不破坏现有格式）。
+      alert/agent_done/follow 群忽略 feishu_post 保持简短 text（可读性已够，不破坏现有格式）。
 
     reply_to_message_id（引用回复）：非空时应用模式 body 加 reply_to_message_id，
     把消息作为对指定消息 ID 的引用回复发送（挂靠原消息下追踪）。webhook 模式不支持
@@ -932,13 +933,13 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
     source：镜像登记的来源通道标注（None=NOTIFY_SOURCE env > 调用脚本名 > unknown）。
     dry_run=True 所有渠道都只 print 不真发。
     from_prefix：邮件发件人名前缀（None=默认 "信号实验室监控"，非空如 "[告警]" -> "[告警] 信号实验室"）。
-    feishu_group：飞书群 key 显式覆盖自动路由（alert/agent_done/report）；None=按
+    feishu_group：飞书群 key 显式覆盖自动路由（alert/agent_done/report/follow）；None=按
       severe/[告警]/[完成]/[恢复] 自动映射（见 _resolve_feishu_chat_key）。
     feishu_only：True 时只发飞书（跳过邮件/Telegram），调试用。
     reply_to_message_id（引用回复）：仅飞书应用模式生效，透传给 send_feishu -> _send_feishu_api，
       body 加 reply_to_message_id 回复挂靠原消息；email/telegram 忽略此参数。
     feishu_post（2026-08-11 飞书格式模板）：post 富文本数据（build_feishu_post 产出）。
-      仅 report 群生效（买卖点/汪汪队信号消息用），alert/agent_done 群忽略保持 text。
+      仅 report 群生效（买卖点/汪汪队信号消息用），alert/agent_done/follow 群忽略保持 text。
     邮件兜底保留：飞书失败不阻塞、邮件照发（SEVERE 告警邮件始终发，防飞书故障无通知）。
     """
     # B3 恢复即静默清零（2026-08-26）：恢复类消息（[恢复]/[72h恢复] 等）到达时清除
@@ -985,7 +986,7 @@ def send_to(subject: str, body: str, email: str | None = None,
     from_prefix：邮件发件人名前缀（None=默认 "信号实验室监控"）。
     feishu_group：飞书群 key（None=按前缀自动映射，订阅信号推送默认进 report 报告群）。
     feishu_post（2026-08-11 飞书格式模板）：post 富文本数据（build_feishu_post 产出），
-      仅 report 群生效，alert/agent_done 群忽略保持 text。
+      仅 report 群生效，alert/agent_done/follow 群忽略保持 text。
     """
     email_ok = _send_email(subject, body, dry_run=dry_run, to=email, from_prefix=from_prefix) if email and not feishu_only else False
     tg_ok = send_telegram(subject, body, dry_run=dry_run, chat_id=chat_id) if chat_id and not feishu_only else False
@@ -2008,7 +2009,7 @@ def main(argv: list[str] | None = None) -> int:
                              "None/空=默认 '信号实验室监控'，非空 -> '<prefix> 信号实验室'")
     parser.add_argument("--feishu-group", default=None, metavar="KEY",
                         help="飞书群 key 显式覆盖自动路由：alert=运维群 / agent_done=开发群"
-                             " / report=报告群。默认按 severe/[告警]/[完成]/[恢复] 自动映射")
+                             " / report=报告群 / follow=跟单群。默认按 severe/[告警]/[完成]/[恢复] 自动映射")
     parser.add_argument("--feishu-only", action="store_true",
                         help="调试用：只发飞书（跳过邮件/Telegram）")
     parser.add_argument("--reply-to-message-id", default=None, metavar="ID",

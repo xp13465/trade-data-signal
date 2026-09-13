@@ -727,7 +727,8 @@ def main():
             subject = f"明日买入计划 {T}(空)"
             body = "明日无买入计划(无信号或 T 日非交易日)。"
         cmd = [PY, str(SCRIPT_DIR / "notify.py"), subject, body,
-               "--dedup-key", f"nextday_plan_{T}", "--dedup-window", "86400"]
+               "--dedup-key", f"nextday_plan_{T}", "--dedup-window", "86400",
+               "--feishu-group", "follow"]
         log("notify: " + subject)
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
