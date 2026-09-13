@@ -89,8 +89,8 @@ def launchctl_state(label):
     if not label:
         return None
     if shutil.which("systemctl"):
-        # Linux: systemd unit 名 = launchd label + '.service'（与 systemd timer agent 对齐）
-        unit = f"{label}.service"
+        # Linux: systemd unit 名 = launchd label 把 com.trade. 前缀映射成 trade-（云上实际 unit 名）
+        unit = label.replace("com.trade.", "trade-", 1) + ".service"
         try:
             r = subprocess.run(
                 ["systemctl", "is-active", unit],
@@ -101,7 +101,8 @@ def launchctl_state(label):
         st = (r.stdout or "").strip()
         if not st:
             return None
-        return "running" if st == "active" else st
+        # oneshot 服务运行中 is-active=activating(非 active),同样视为在跑,避免误判重跑误杀
+        return "running" if st in ("active", "activating") else st
     # macOS: launchctl print
     try:
         r = subprocess.run(
@@ -175,7 +176,11 @@ if state["count"] >= DAILY_LIMIT:
            f"{json.dumps(state['healed'], ensure_ascii=False)}")
     print(f"[self_heal] {msg}", file=sys.stderr)
     audit(f"LIMIT 达上限 count={state['count']}: {msg}")
-    notify_severe("自愈脚本达到每日上限停止", msg)
+    # 当天只发一次 SEVERE：limit_notified 标志防每 15 分钟重复告警（跨天随 state 重置自然清空）
+    if not state.get("limit_notified"):
+        notify_severe("自愈脚本达到每日上限停止", msg)
+        state["limit_notified"] = True
+        save_state(state)
     sys.exit(0)
 
 # 3) 筛选需 heal 的任务：last_exit!=0 且 last_run 24h 内 且 launchctl state 不是 running
@@ -225,7 +230,10 @@ for task, exit_code, last_run_str, st, log_anomaly in to_heal:
                f"已 heal: {json.dumps(state['healed'], ensure_ascii=False)}")
         print(f"[self_heal] {msg}", file=sys.stderr)
         audit(f"LIMIT {msg}")
-        notify_severe("自愈脚本达到每日上限停止", msg)
+        # 同样用 limit_notified 只发一次（本分支本身只触发一次，统一标志更稳）
+        if not state.get("limit_notified"):
+            notify_severe("自愈脚本达到每日上限停止", msg)
+            state["limit_notified"] = True
         break
     cmd = HEAL_ACTIONS.get(task)
     if not cmd:
