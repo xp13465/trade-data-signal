@@ -624,6 +624,42 @@ def _load_lof_track_index() -> dict[str, dict]:
     return out
 
 
+def _load_empty_array_ids() -> set[str]:
+    """读 universe_rules.yaml excluded_categories 里 mode=empty_array 的 match 列表(单一事实源)。
+
+    返回 {index_id} 集合(如 csi_399707/gz_399417/sw_801130/thsc_306380 等)。
+    这些指数「无场内专属 ETF」,场内 LOF 不算 ETF(用户 2026-09-14 拍板「维持排除」),
+    故 LOF 不得填充这些指数,维持空数组。读不到/解析失败返回空集(不阻断 build,
+    由 check_universe_alignment.py 兜底校验 §23.6 对称性)。
+    """
+    try:
+        import yaml
+    except ImportError:
+        return set()
+    path = Path(__file__).resolve().parent.parent / "config" / "universe_rules.yaml"
+    if not path.exists():
+        return set()
+    try:
+        with open(path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+    except Exception:
+        return set()
+    ids: set[str] = set()
+    for cat in (cfg or {}).get("excluded_categories", []) or []:
+        if not isinstance(cat, dict):
+            continue
+        if cat.get("mode") != "empty_array":
+            continue
+        m = cat.get("match")
+        if isinstance(m, str):
+            ids.add(m)
+        elif isinstance(m, list):
+            for x in m:
+                if isinstance(x, str):
+                    ids.add(x)
+    return ids
+
+
 def _match_by_track_index(
     iid: str,
     track_idx_map: dict[str, dict],
@@ -1412,8 +1448,12 @@ def main():
 
     # 第1层：track_index_name 关键词匹配（所有 board_id，merge 到宽基base上）
     # 宽基全量：宽基已有 _build_index_etf_map_auto 的 track_index_code base，此层补充 track_index_name 匹配
+    empty_array_ids = _load_empty_array_ids()
     for iid in board_ids:
         etfs = _match_by_track_index(iid, track_idx_map, df_by_code)
+        if iid in empty_array_ids:
+            # 无场内专属 ETF 指数：场内 LOF 不算 ETF，过滤 LOF 维持空数组（用户 2026-09-14 拍板「维持排除」）
+            etfs = [e for e in etfs if e.get("fund_type") != "lof"]
         if not etfs:
             out.setdefault(iid, [])
             continue
