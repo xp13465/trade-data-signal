@@ -249,7 +249,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/backfill_metrics.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=7200
+TimeoutStartSec=0
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/backfill_evening_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/backfill_evening_launchd.err
 ```
@@ -1293,6 +1293,7 @@ Description=Trade self-heal (源 com.trade.self-heal)
 
 [Service]
 Type=oneshot
+KillMode=process
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
 Environment=REPO=/home/ubuntu/code/trade-data
