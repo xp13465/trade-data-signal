@@ -730,6 +730,12 @@ echo "✓ push 成功（MaoziYun 自动拉取 git main 部署，有拉取延迟 
 # DB 因>100MB 不进 git（git-lfs 未装），仅 rsync 到本地 staticdata/db/ 作备份
 # 灾备第3层（R2 私有桶 gz 快照）是 DB 的云端备份
 STATICDATA_REPO="${STATICDATA_REPO:-/Users/linhuichen/code/trade-data-signal-staticdata}"
+# 云上单仓: 本机硬编码 staticdata 路径不存在时, 回退 GIT_REPO 派生的 sibling 路径
+# (云上 GIT_REPO=/home/ubuntu/code/trade-data-signal -> ...-staticdata), 防云上静默跳过备份
+# (2026-09-13 迁移残留修)。
+if [ ! -d "$STATICDATA_REPO/.git" ] && [ -n "${GIT_REPO:-}" ] && [ -d "${GIT_REPO}-staticdata/.git" ]; then
+  STATICDATA_REPO="${GIT_REPO}-staticdata"
+fi
 if [ -d "$STATICDATA_REPO/.git" ]; then
   echo "-> staticdata 备份（best-effort）..." | tee -a "$LOG"
   STATICDATA_FAIL=0

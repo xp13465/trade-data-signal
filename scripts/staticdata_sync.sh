@@ -26,6 +26,12 @@ set -u
 REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
 STATICDATA_REPO="${STATICDATA_REPO:-/Users/linhuichen/code/trade-data-signal-staticdata}"
+# 云上单仓: 本机硬编码 staticdata 路径不存在时, 回退 GIT_REPO 派生的 sibling 路径
+# (云上 GIT_REPO=/home/ubuntu/code/trade-data-signal -> ...-staticdata), 防云上静默跳过备份
+# (2026-09-13 迁移残留修)。
+if [ ! -d "$STATICDATA_REPO/.git" ] && [ -n "${GIT_REPO:-}" ] && [ -d "${GIT_REPO}-staticdata/.git" ]; then
+  STATICDATA_REPO="${GIT_REPO}-staticdata"
+fi
 PY="${PY:-$REPO/.venv/bin/python}"
 LOCK="/tmp/trade_deploy.lock"
 

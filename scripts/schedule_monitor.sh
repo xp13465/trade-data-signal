@@ -1707,7 +1707,7 @@ if recoveries:
 # 本检查补「任务跑了但产物仍过期」的语义盲区(如 gen 成功但 index 输入断更)。
 try:
     _r_s06 = subprocess.run(
-        [sys.executable, str(REPO / "scripts" / "check_s06_freshness.py"), "--notify"],
+        [sys.executable, str(REPO / "scripts" / "check_s06_freshness.py"), "--repo", str(REPO), "--notify"],
         capture_output=True, text=True, timeout=120, check=False,
     )
     if _r_s06.returncode == 0:

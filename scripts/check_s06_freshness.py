@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -40,8 +41,17 @@ from pathlib import Path
 # absolute() 非 resolve(): 保持 trade-data/scripts symlink 字面路径,
 # 使子进程 notify.py 的 REPO 探测落在与调用方(schedule_monitor flusher)同一棵树
 SCRIPT_DIR = Path(__file__).absolute().parent
+# 数据仓候选: env 注入(REPO/GIT_REPO/MAIN_REPO, 与 pick_repo.candidate_repos 同类语义)优先,
+# 云上单仓(REPO=GIT_REPO=MAIN_REPO=/home/ubuntu/code/trade-data-signal)env 排最前;
+# env 缺失回退 macOS 本机 trade-data(向后兼容, 行为不变)。云上若仍用本机硬编码会读不到
+# static-site/data → 每轮 rc=2 且新鲜度兜底告警失守(2026-09-13 迁移残留修)。
 DEFAULT_REPO_CANDIDATES = [
-    Path("/Users/linhuichen/code/trade-data"),
+    Path(c) for c in (
+        os.environ.get("REPO", ""),
+        os.environ.get("GIT_REPO", ""),
+        os.environ.get("MAIN_REPO", ""),
+        "/Users/linhuichen/code/trade-data",
+    ) if c
 ]
 DEFAULT_REPO = next((p for p in DEFAULT_REPO_CANDIDATES if (p / "static-site" / "data").exists()),
                     DEFAULT_REPO_CANDIDATES[0])

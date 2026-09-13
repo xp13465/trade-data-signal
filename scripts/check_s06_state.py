@@ -40,6 +40,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -47,6 +48,12 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_REPO = SCRIPT_DIR.parent
 _DEFAULT_DATA_CANDIDATES = [
+    Path(c) for c in (
+        os.environ.get("REPO", ""),
+        os.environ.get("GIT_REPO", ""),
+        os.environ.get("MAIN_REPO", ""),
+    ) if c
+] + [
     DEFAULT_REPO.parent / "trade-data",            # 主仓布局: <repo>/../trade-data
     Path("/Users/linhuichen/code/trade-data"),      # worktree 布局: .claude/worktrees/<agent> 下 parent 无 trade-data, 回退主仓数据仓
 ]

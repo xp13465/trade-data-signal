@@ -84,9 +84,11 @@ CREATE INDEX IF NOT EXISTS idx_fapi_daily_date ON fapi_daily_raw(date);
 
 def load_key() -> str:
     """从 .env 读 HITHINK_FINANCE_API_KEY,绝不打印明文。"""
-    # key 实际放 trade/.env;launchd 从 trade-data 跑时 __file__ 定位到 trade-data 侧,
-    # 故两处都查:先 trade-data(生产运行目录),再 trade(开发目录)。
-    for cand in (Path("/Users/linhuichen/code/trade-data/.env"),
+    # 优先 __file__ 派生的仓根 .env(云上单仓 /home/ubuntu/code/trade-data-signal/.env),
+    # 再回退 macOS 本机 trade-data/trade 硬编码(向后兼容)。云上仅 mac 硬编码会读不到
+    # key → SystemExit(2026-09-13 迁移残留修)。
+    for cand in (_DATA_DIR.parent / ".env",
+                 Path("/Users/linhuichen/code/trade-data/.env"),
                  Path("/Users/linhuichen/code/trade/.env")):
         if cand.exists():
             for line in cand.read_text(encoding="utf-8", errors="replace").splitlines():

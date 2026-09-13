@@ -20,6 +20,7 @@ import json
 import os
 import re as _re
 import time as _time
+from pathlib import Path
 
 import requests
 
@@ -34,7 +35,10 @@ CCASS_URL_SZ = "https://www3.hkexnews.hk/sdw/search/mutualmarket.aspx?t=sz"
 _QUARTER_END_MONTHS = [(3, 31), (6, 30), (9, 30), (12, 31)]
 
 # 收盘价缓存库：mootdx_daily_raw / baostock_daily_raw（本模块只读 + 写 baostock_daily_raw 写穿缓存）
-_STOCK_DB_PATH = "/Users/linhuichen/code/trade-data/data/stock_daily.db"
+# __file__ 派生仓根 data/stock_daily.db(absolute() 保持 symlink 字面路径, 同 public_fund.py 先例):
+# 云上单仓 /home/ubuntu/code/trade-data-signal/data, macOS 双仓 trade-data/data(与旧硬编码一致,
+# 2026-09-13 迁移残留修)。
+_STOCK_DB_PATH = str(Path(__file__).absolute().parent.parent.parent / "data" / "stock_daily.db")
 
 # 写穿缓存分批大小：每取到 N 只批量 ON CONFLICT 写一次 baostock_daily_raw。
 # 硬时限(alarm)中途被杀也缓存了已取部分，下槽续用（自我修复），
