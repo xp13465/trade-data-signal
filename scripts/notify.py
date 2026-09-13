@@ -743,6 +743,21 @@ def _alert_feishu_config_missing(dry_run: bool = False) -> None:
         update_dedup(dedup_key)
 
 
+def _host_tag_subject(subject: str) -> str:
+    """告警来源机器标注（#12）：TRADE_HOST_TAG=mac/cloud 时在 subject 前加 [mac]/[cloud] 前缀。
+
+    云迁移后用户收到告警邮件/飞书看不出是哪台机器（本机 mac vs 云服务器）发出的，
+    统一在 subject 处理入口加来源前缀。TRADE_HOST_TAG 缺失/其他值 -> 无前缀（向后兼容，
+    不破坏现有告警格式）。挂在 _send_email（邮件）与 send_feishu（飞书）各自入口，
+    保证所有调用方（send/send_to/send_feishu_post_segmented/brief_push/codex_notify_bridge
+    直调 send_feishu 等）都生效，不漏链路。
+    """
+    tag = os.environ.get("TRADE_HOST_TAG", "").strip().lower()
+    if tag in ("mac", "cloud"):
+        return f"[{tag}] {subject}"
+    return subject
+
+
 def send_feishu(subject: str, body: str, chat_key: str | None = None,
                 dry_run: bool = False, severe: bool = False,
                 from_prefix: str | None = None,
@@ -763,6 +778,7 @@ def send_feishu(subject: str, body: str, chat_key: str | None = None,
     把消息作为对指定消息 ID 的引用回复发送（挂靠原消息下追踪）。webhook 模式不支持
     引用回复（im/v1/messages 专属能力），忽略此参数。email/telegram 忽略此参数。
     """
+    subject = _host_tag_subject(subject)  # #12 告警来源机器标注(邮件+飞书双链路统一入口)
     cfg = load_feishu_config()
     if cfg is None:
         # 三件套①：配置缺失但 .env 有 FEISHU 凭证 = 配置本该存在却异常丢失 -> 发邮件告警。
@@ -861,6 +877,7 @@ def _send_email(subject: str, body: str, dry_run: bool = False,
       - None/空：用默认 "信号实验室监控"
       - 非空（如 "[告警]"）：用 "<prefix> 信号实验室"（前缀后加空格）
     """
+    subject = _host_tag_subject(subject)  # #12 告警来源机器标注(邮件+飞书双链路统一入口)
     if dry_run:
         print(f"[notify][dry-run] email subject={subject} to={to or '(config默认)'}", file=sys.stderr)
         print(f"[notify][dry-run] email body=\n{body}", file=sys.stderr)
