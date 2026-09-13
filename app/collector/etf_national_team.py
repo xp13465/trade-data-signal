@@ -202,9 +202,10 @@ _UNIVERSE_CACHE: list[tuple[str, str, str]] | None = None  # [(code, name, mkt)]
 def _etf_market(code: str) -> str:
     """从 ETF 代码前缀判断市场 sh/sz。
     沪: 510xxx/511xxx/512xxx/513xxx/515xxx/516xxx/517xxx/518xxx/560xxx/561xxx/562xxx/563xxx/588xxx
+        501xxx/502xxx(沪市 LOF)
     深: 159xxx/150xxx/164xxx/161xxx/163xxx/165xxx
     """
-    if code.startswith(("51", "56", "58")):
+    if code.startswith(("51", "56", "58", "50")):
         return "sh"
     if code.startswith(("15", "16")):
         return "sz"
@@ -261,6 +262,41 @@ def universe_etf_codes(refresh: bool = False) -> list[tuple[str, str, str]]:
 def is_national_team(code: str) -> bool:
     """判断 ETF 代码是否属于 12 汪汪队宽基清单(ETF_LIST)。"""
     return code in ETF_BY_CODE
+
+
+def _board_etf_map_lof_codes() -> list[tuple[str, str, str]]:
+    """读 board_etf_map.json，返回 fund_type=lof 且场内前缀(16/15/501/502)的 [(code, name, mkt)]。
+    供 pipeline_daily 把场内 LOF 纳入 OHLC 采集——否则 LOF 无 etf_daily 行，accum_nav/etf_since_return
+    恒 NULL。不改 universe_etf_codes 本身(export_etf_score_list 全市场宇宙不扩 LOF)。
+    """
+    path = _DATA_DIR / "board_etf_map.json"
+    if not path.exists():
+        return []
+    try:
+        bm = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"  [universe] board_etf_map.json 读取失败: {e}，跳过 LOF 纳入", flush=True)
+        return []
+    out: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+    for k, v in bm.items():
+        if k == "_meta" or not isinstance(v, list):
+            continue
+        for e in v:
+            if not isinstance(e, dict) or e.get("fund_type") != "lof":
+                continue
+            code = str(e.get("code", "")).strip().zfill(6)
+            if not re.match(r'^(16|15|501|502)', code):
+                continue  # 场内前缀防御(场外 00/01/02 无场内行情)
+            if code in seen:
+                continue
+            mkt = _etf_market(code)
+            if not mkt:
+                continue
+            name = str(e.get("name", "")).strip() or code
+            out.append((code, name, mkt))
+            seen.add(code)
+    return out
 
 # ── v2: cninfo PDF 解析汇金/证金具名持有人 ──────────────────────────────────────
 # cninfo 公告查询 API（巨潮资讯网）
@@ -1137,6 +1173,14 @@ def pipeline_daily() -> dict:
     #    mootdx client 每进程懒创建(_get_worker_tdx);upsert 串行(SQLite conn 不支持并发写)。
     #    B4 稳定性(2026-07-24):ProcessPool 崩溃(BrokenProcessPool 等)时 fallback 串行采集保底。
     universe = universe_etf_codes(refresh=True)  # 每日刷新清单(新发ETF自动纳入)
+    # 追加场内 LOF（board_etf_map fund_type=lof 且 16/15/501/502 前缀），使 LOF 也有 etf_daily OHLC，
+    # 否则 accum_nav/etf_since_return 恒 NULL（LOF 不在 fund_etf_fund_daily_em 全量 ETF 清单）。
+    lof_codes = _board_etf_map_lof_codes()
+    if lof_codes:
+        uni_codes = {c for c, _, _ in universe}
+        lof_new = [x for x in lof_codes if x[0] not in uni_codes]
+        universe = universe + lof_new
+        print(f"  [etf_nt] 追加场内 LOF {len(lof_new)} 只纳入 OHLC 采集", flush=True)
     _ohlc_start = (dt.datetime.now() - dt.timedelta(days=15)).strftime("%Y%m%d")
 
     # 并发 fetch(每进程独立 V8 isolate,8 进程=CPU 核数)

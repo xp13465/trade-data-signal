@@ -13,6 +13,7 @@
 """
 import bisect
 import json
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -283,7 +284,9 @@ ETF_TRACK_INDEX_PATH = ROOT / "data" / "etf_track_index.json"
 # LOF track_index 缓存路径（fundf10 抓取，scripts/fetch_lof_track_index.py 生成）
 # LOF（上市开放式基金）如 160225 国泰国证新能源汽车LOF，fund_etf_spot_em 不含，
 # 需独立采集 fundf10 跟踪标的 + fund_open_fund_rank_em 预筛，纳入候选池
-LOF_TRACK_INDEX_PATH = ROOT / "data" / "lof_track_index.json"
+LOF_TRACK_INDEX_PATH = Path(__file__).resolve().parent.parent / "data" / "lof_track_index.json"
+# resolve() 解析 symlink：从 trade-data 跑时 scripts/ 是 symlink 指向 trade/scripts/，
+# resolve() 后读 trade/data/lof_track_index.json（真实路径，与 fetch_lof_track_index.py 写出的路径一致）。
 
 # 排除词：跨境/债券/商品/货币等非 A 股行业主题 ETF
 EXCLUDE = ["债", "货币", "黄金", "白银", "原油", "海外", "美国", "日本", "德国",
@@ -611,6 +614,8 @@ def _load_lof_track_index() -> dict[str, dict]:
     for k, v in d.items():
         if k.startswith("_") or not isinstance(v, dict):
             continue
+        if not re.match(r'^(16|15|501|502)', k):
+            continue  # 防御：只收场内 LOF（16/15/501/502 前缀），场外 00/01/02 无场内行情
         if v.get("fund_type") != "lof":
             continue  # 只取 fund_type=lof
         if not v.get("track_index"):

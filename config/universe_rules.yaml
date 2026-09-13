@@ -123,3 +123,29 @@ self_etf_exception:
 # ⑤ 校验: 上述规则由 scripts/check_universe_alignment.py 机器校验(挂 deploy 链, FAIL 阻断上线)。
 #    改规则 → 同步公示(purpose-notes.js lab.sigkelly + lab.js AI仓位 tooltip + app.js AI建议 tooltip)
 #    → 重跑 build_board_etf_map.py → 重跑 signal_kelly_backtest.py → 重跑 export → 跑本校验 → §22 三步同步。
+
+# ⑥ LOF 纳入规则(2026-09-14 场内 LOF 完整修复, 用户拍板「完整 5 部分」)
+#    场内/场外区分=代码前缀: 场内 16/15(深)+501/502(沪), 场外 00/01/02。
+#    场内 LOF 进 board_etf_map 候选池(首页 AI 建议可见), 场外 LOF 明确排除。
+lof_inclusion:
+  # ① 场内白名单前缀(只收这些, 其余场外前缀排除)
+  on_exchange_prefixes: ["16", "15", "501", "502"]
+  # ② 场外前缀(00/01/02)明确排除 + 理由
+  off_exchange_prefixes: ["00", "01", "02"]
+  off_exchange_reason: >
+    场外 LOF(00/01/02 前缀)无 sina 场内行情且不进 etf_daily, accum_nav 恒 NULL,
+    会拖垮 etf_since_return 校验(86.18% < 90% FAIL), 故 fetch+build 生成层即排除。
+  # ③ 数据源
+  data_source: >
+    lof_track_index.json(fundf10 jbgk 跟踪标的 + fund_open_fund_rank_em 预筛)
+    + etf_daily accum_nav 回填(fund_open_fund_info_em 累计净值走势)。
+  # ④ 入样宇宙联动
+  universe_linkage: >
+    board_etf_map 含场内 LOF(fund_type=lof); etf_since_return 依赖 accum_nav 补齐
+    (pipeline_daily 把场内 LOF 纳入 OHLC 采集 + accum-nav 增量补齐 accum_nav)。
+  # ⑤ 变更联动清单
+  change_linkage:
+    - check_data_integrity.py check_etf_since_return 90% 阈值场景(场内 LOF 回填后 >=90%)
+    - scripts/fetch_lof_track_index.py(mask 改场内前缀 + 清存量场外条目)
+    - scripts/build_board_etf_map.py(_load_lof_track_index 场内前缀防御)
+    - app/collector/etf_national_team.py(_etf_market 加 50 + pipeline_daily 追加场内 LOF)

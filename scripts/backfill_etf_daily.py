@@ -43,6 +43,7 @@ ROOT = Path(__file__).resolve().parent.parent  # trade/
 
 ETF_INDEX_MAP_PATH = ROOT / "data" / "etf_index_map.json"
 BOARD_ETF_MAP_PATH = ROOT / "data" / "board_etf_map.json"
+LOF_TRACK_INDEX_PATH = ROOT / "data" / "lof_track_index.json"
 
 
 def _get_etf_db_path() -> Path:
@@ -89,6 +90,34 @@ def _load_board_etf_codes() -> set:
             if isinstance(e, dict) and e.get("code"):
                 codes.add(str(e["code"]).zfill(6))
     return codes
+
+
+def _load_name_fallback_map() -> dict:
+    """场内 LOF 不在 etf_index_map 时 name 缺失，从 board_etf_map.json / lof_track_index.json 补名。
+    返回 {code: name}（board_etf_map 优先，lof_track_index 兜底；code 统一 zfill(6)）。"""
+    names: dict = {}
+    if BOARD_ETF_MAP_PATH.exists():
+        try:
+            bm = json.loads(BOARD_ETF_MAP_PATH.read_text(encoding="utf-8"))
+            for k, v in bm.items():
+                if k == "_meta" or not isinstance(v, list):
+                    continue
+                for e in v:
+                    if isinstance(e, dict) and e.get("code") and e.get("name"):
+                        names[str(e["code"]).zfill(6)] = str(e["name"])
+        except Exception:
+            pass
+    if LOF_TRACK_INDEX_PATH.exists():
+        try:
+            lt = json.loads(LOF_TRACK_INDEX_PATH.read_text(encoding="utf-8"))
+            for k, v in lt.items():
+                if k.startswith("_") or not isinstance(v, dict):
+                    continue
+                if v.get("name"):
+                    names.setdefault(str(k).zfill(6), str(v["name"]))
+        except Exception:
+            pass
+    return names
 
 
 def _get_industry_priority_codes(etf_map: dict) -> list:
@@ -198,6 +227,9 @@ def main():
         print("✗ etf_index_map.json 读不到，退出")
         return 1
 
+    # 场内 LOF 不在 etf_index_map，name 回退源（board_etf_map.json / lof_track_index.json）
+    name_fallback = _load_name_fallback_map()
+
     # 确定补采清单
     if args.only_industry:
         codes = _get_industry_priority_codes(etf_map)
@@ -233,6 +265,8 @@ def main():
     for i, code in enumerate(codes, 1):
         info = etf_map.get(code, {})
         etf_name = info.get("name", "") if isinstance(info, dict) else ""
+        if not etf_name:  # LOF 不在 etf_index_map → name 恒空，回退 board_etf_map/lof_track_index 补名
+            etf_name = name_fallback.get(code, "")
         t0 = time.time()
         try:
             n, status = backfill_one(conn, code, etf_name)
