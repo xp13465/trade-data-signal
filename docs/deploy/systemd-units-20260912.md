@@ -27,6 +27,8 @@
 | `/Users/linhuichen/code/trade-data/data/logs/...` | `/home/ubuntu/code/trade-data/data/logs/...` |
 | `/Users/linhuichen/code/trade/scripts/...` | `/home/ubuntu/code/trade-data/scripts/...` |
 
+> 注:.venv 软链为云上独有(→ 代码仓 .venv,本机 trade-data 无此软链):本机各 launchd plist 各自写死 .venv 绝对路径,云上 systemd 统一 ExecStart 用 `/home/ubuntu/code/trade-data/.venv/bin/python`,故在数据目录补一条 .venv 软链指回代码仓统一路径。
+
 ### 1.2 时区
 服务器必须设北京时间(§14 时点纪律不变):
 ```
@@ -104,6 +106,7 @@ WantedBy=timers.target
 Description=Trade update-all (源 com.trade.update-all)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -169,6 +172,7 @@ WantedBy=timers.target
 Description=Trade intraday-snapshot (源 com.trade.intraday-snapshot)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -204,6 +208,7 @@ WantedBy=timers.target
 Description=Trade kelly-intraday-rerun (源 com.trade.kelly-intraday-rerun)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -241,6 +246,7 @@ WantedBy=timers.target
 Description=Trade backfill-evening (源 com.trade.backfill-evening)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -277,6 +283,7 @@ WantedBy=timers.target
 Description=Trade etf-national-team (源 com.trade.etf-national-team)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -312,6 +319,7 @@ WantedBy=timers.target
 Description=Trade etf-track-index (源 com.trade.etf-track-index)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -348,6 +356,8 @@ WantedBy=timers.target
 Description=Trade fapi-daily (源 com.trade.fapi-daily)
 
 [Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -383,6 +393,7 @@ WantedBy=timers.target
 Description=Trade futures-backfill (源 com.trade.futures-backfill)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -418,6 +429,7 @@ WantedBy=timers.target
 Description=Trade gold-night (源 com.trade.gold-night)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -454,6 +466,7 @@ WantedBy=timers.target
 Description=Trade lhb-backfill (源 com.trade.lhb-backfill)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -490,6 +503,7 @@ WantedBy=timers.target
 Description=Trade rzhb-backfill (源 com.trade.rzhb-backfill)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -525,6 +539,8 @@ WantedBy=timers.target
 Description=Trade turnover-backfill (源 com.trade.turnover-backfill)
 
 [Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -560,6 +576,8 @@ WantedBy=timers.target
 Description=Trade ab-direction-anchor (源 com.trade.ab-direction-anchor)
 
 [Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -593,6 +611,8 @@ WantedBy=timers.target
 Description=Trade nextday-plan (源 com.trade.nextday-plan)
 
 [Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -627,6 +647,8 @@ WantedBy=timers.target
 Description=Trade s06-snapshot (源 com.trade.s06-snapshot)
 
 [Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -662,6 +684,8 @@ WantedBy=timers.target
 Description=Trade check-data-gap (源 com.trade.check-data-gap)
 
 [Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -696,6 +720,8 @@ WantedBy=timers.target
 Description=Trade daily-brief --multi (源 com.trade.daily-brief)
 
 [Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -730,6 +756,7 @@ WantedBy=timers.target
 Description=Trade daily-summary-supplement (源 com.trade.daily-summary-supplement)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -764,6 +791,8 @@ WantedBy=timers.target
 Description=Trade brief-push (源 com.trade.brief-push)
 
 [Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -798,6 +827,8 @@ WantedBy=timers.target
 Description=Trade fetch-news (源 com.trade.fetch-news)
 
 [Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -832,6 +863,7 @@ WantedBy=timers.target
 Description=Trade pf-score-daily (源 com.trade.pf-score-daily)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -867,6 +899,7 @@ WantedBy=timers.target
 Description=Trade pf-score-weekly (源 com.trade.pf-score-weekly)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -902,6 +935,7 @@ WantedBy=timers.target
 Description=Trade pf-stage0-nav (源 com.trade.pf-stage0-nav)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -937,6 +971,7 @@ WantedBy=timers.target
 Description=Trade pf-stage0-overview (源 com.trade.pf-stage0-overview)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -972,6 +1007,7 @@ WantedBy=timers.target
 Description=Trade pf-stage0-risk (源 com.trade.pf-stage0-risk)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -1007,6 +1043,7 @@ WantedBy=timers.target
 Description=Trade pf-stage0-manager (源 com.trade.pf-stage0-manager)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -1043,6 +1080,7 @@ WantedBy=timers.target
 Description=Trade public-fund-daily (源 com.trade.public-fund-daily)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -1081,6 +1119,7 @@ WantedBy=timers.target
 Description=Trade public-fund-estimation (源 com.trade.public-fund-estimation)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -1116,6 +1155,7 @@ WantedBy=timers.target
 Description=Trade public-fund-full (源 com.trade.public-fund-full)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -1153,6 +1193,7 @@ WantedBy=timers.target
 Description=Trade public-fund-quarterly (源 com.trade.public-fund-quarterly)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -1188,6 +1229,8 @@ WantedBy=timers.target
 Description=Trade overfit-monitor (源 com.trade.overfit-monitor)
 
 [Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -1222,6 +1265,7 @@ WantedBy=timers.target
 Description=Trade lab-auto (源 com.trade.lab-auto)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -1257,6 +1301,7 @@ WantedBy=timers.target
 Description=Trade us-stock-morning (源 com.trade.us-stock-morning)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -1292,6 +1337,7 @@ WantedBy=timers.target
 Description=Trade self-heal (源 com.trade.self-heal)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -1327,6 +1373,7 @@ WantedBy=timers.target
 Description=Trade schedule-monitor (源 com.trade.schedule-monitor)
 
 [Service]
+User=ubuntu
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
@@ -1369,6 +1416,8 @@ WantedBy=timers.target
 Description=Trade backup_db (sqlite .backup 热备 + 推 R2 signal-backup + verify)
 
 [Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
 Type=oneshot
 WorkingDirectory=/home/ubuntu/code/trade-data
 Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
