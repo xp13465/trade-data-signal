@@ -1310,7 +1310,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/us_stock_morning.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=1800
+TimeoutStartSec=7200
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/us_stock_morning_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/us_stock_morning_launchd.err
 ```
