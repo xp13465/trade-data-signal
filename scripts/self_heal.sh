@@ -101,7 +101,8 @@ def launchctl_state(label):
         st = (r.stdout or "").strip()
         if not st:
             return None
-        return "running" if st == "active" else st
+        # oneshot 服务运行中 is-active=activating(非 active),同样视为在跑,避免误判重跑误杀
+        return "running" if st in ("active", "activating") else st
     # macOS: launchctl print
     try:
         r = subprocess.run(
