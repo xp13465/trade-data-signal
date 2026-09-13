@@ -205,10 +205,16 @@ SERVICE = "s3"
 
 HOST = urlparse(ENDPOINT).hostname
 
-# R2 上传连接超时(秒):默认 30(本机带宽快够用);云上跨境上传带宽 ~1.2-1.6Mbps,
+# R2 上传 HTTP 连接超时(秒):默认 30(本机带宽快够用);云上跨境上传带宽 ~1.2-1.6Mbps,
 # >7MB 大文件(凯利交易明细 74.7MB/累积净值 18.5MB 等)必超时失败,云上 systemd 设
-# R2_UPLOAD_TIMEOUT=600。env 缺失/空 -> 30(向后兼容)。
-R2_UPLOAD_TIMEOUT = int(os.environ.get("R2_UPLOAD_TIMEOUT") or "30")
+# R2_UPLOAD_HTTP_TIMEOUT=600。env 缺失/空 -> 30(向后兼容)。
+# 命名注意:deploy.sh L379 已有同名 shell 变量 R2_UPLOAD_TIMEOUT(看门狗 kill 超时,默认 300s,
+# 不 export),python 侧用 R2_UPLOAD_HTTP_TIMEOUT 区分语义(HTTP 连接超时),防 env 同名连锁。
+try:
+    R2_UPLOAD_HTTP_TIMEOUT = int(os.environ.get("R2_UPLOAD_HTTP_TIMEOUT") or "30")
+except ValueError:
+    # 非法值(如 "600s"/"abc")回退默认 30,不崩在 import(云上手写 env 写错不全线停摆)
+    R2_UPLOAD_HTTP_TIMEOUT = 30
 
 # macOS 系统 Python 缺 CA 束（CERTIFICATE_VERIFY_FAILED），用系统 /etc/ssl/cert.pem
 _CA = "/etc/ssl/cert.pem"
@@ -245,7 +251,7 @@ _CONTENT_TYPE_MAP = {
 def s3_request(method, key, payload=b"", query="", bucket=None, content_type=None):
     """path-style: /BUCKET/key, host = endpoint host。bucket=None 用默认 BUCKET。
 
-    带连接超时(R2_UPLOAD_TIMEOUT 秒,默认 30s)+ 重试(5 次,SSL/连接错退避 1s/2s/4s/8s),防 R2 偶发断连致脚本挂死。
+    带连接超时(R2_UPLOAD_HTTP_TIMEOUT 秒,默认 30s)+ 重试(5 次,SSL/连接错退避 1s/2s/4s/8s),防 R2 偶发断连致脚本挂死。
     content_type=None 时按 key 扩展名推断(_CONTENT_TYPE_MAP),未知扩展名回退 application/octet-stream。
     """
     if content_type is None:
@@ -292,7 +298,7 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
                 f"SignedHeaders={signed_headers}, Signature={signature}"
             )
 
-            conn = http.client.HTTPSConnection(HOST, timeout=R2_UPLOAD_TIMEOUT, context=_CTX)
+            conn = http.client.HTTPSConnection(HOST, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
             uri = path + ("?" + query if query else "")
             body = payload if method in ("PUT", "POST") else None
             conn.request(method, uri, body=body, headers=headers)
@@ -1177,7 +1183,7 @@ def purge_cache(r2_keys, cache_prefix="/"):
         last_err = ""
         attempts = PURGE_RETRY + 1
         for attempt in range(attempts):
-            conn = http.client.HTTPSConnection("ss.fx8.store", timeout=R2_UPLOAD_TIMEOUT, context=_CTX)
+            conn = http.client.HTTPSConnection("ss.fx8.store", timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
             try:
                 conn.request("POST", "/api/purge-cache", body=body,
                              headers={"Content-Type": "application/json"})
