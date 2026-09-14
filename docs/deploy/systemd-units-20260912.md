@@ -622,7 +622,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_ab_direction_anchor.sh
 Environment=TRADE_DIR=/home/ubuntu/code/trade-data-signal
-TimeoutStartSec=600
+TimeoutStartSec=900
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/ab_direction_anchor.out.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/ab_direction_anchor.err.log
 ```
@@ -873,7 +873,7 @@ Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
 Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/fetch_news.py
-TimeoutStartSec=900
+TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/fetch_news_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/fetch_news_launchd.err
 ```
