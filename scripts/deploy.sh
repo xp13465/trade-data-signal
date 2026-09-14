@@ -414,10 +414,10 @@ run_r2_upload() {
 echo "-> 上传 lab/trade_sim/index/industry/public_fund/etf_score/data-large/all-data/kelly-snapshots 到 R2 ..." | tee -a "$LOG"
 # 阶段3：数据唯一走 R2，上传失败需 notify 告警让 schedule_monitor 发现
 R2_FAIL=""
-run_r2_upload "upload-lab" upload-lab || { echo "⚠ upload-lab 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-lab"; }
-run_r2_upload "upload-trade-sim" upload-trade-sim || { echo "⚠ upload-trade-sim 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-trade-sim"; }
-run_r2_upload "upload-trade-sim-json" upload-trade-sim-json || { echo "⚠ upload-trade-sim-json 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-trade-sim-json"; }
-run_r2_upload "upload-index" upload-index || { echo "⚠ upload-index 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-index"; }
+run_r2_upload "upload-lab" 900 upload-lab || { echo "⚠ upload-lab 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-lab"; }
+run_r2_upload "upload-trade-sim" 900 upload-trade-sim || { echo "⚠ upload-trade-sim 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-trade-sim"; }
+run_r2_upload "upload-trade-sim-json" 900 upload-trade-sim-json || { echo "⚠ upload-trade-sim-json 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-trade-sim-json"; }
+run_r2_upload "upload-index" 900 upload-index || { echo "⚠ upload-index 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-index"; }
 # ETF 全史日K etf/{code}-all.json -> R2 etf/ 前缀(#10 ETF弹窗长历史, 2026-08-22; 1532只~87MB, 8线程并发)
 # 2026-08-23: 改增量上传(upload_r2.py 状态清单只传变化文件)+ 本通道超时放宽 900s(根治间歇超时告警);
 # 首跑/每周日强制全量一次防状态漂移, 增量正常秒级~分钟级完成。
@@ -431,19 +431,19 @@ run_r2_upload "upload-etf-hist" 900 upload-etf-hist || { echo "⚠ upload-etf-hi
 #   ② upload_r2.py upload-fund-nav 加分片 checkpoint 断点续传(kill 后最多重传最近 500 只,
 #      非从头全量), 双保险后即使极端情况被 kill 也不再引发恶性循环。
 run_r2_upload "upload-fund-nav" 7200 upload-fund-nav || { echo "⚠ upload-fund-nav 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-fund-nav"; }
-run_r2_upload "upload-industry" upload-industry || { echo "⚠ upload-industry 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-industry"; }
-run_r2_upload "upload-public-fund" upload-public-fund || { echo "⚠ upload-public-fund 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-public-fund"; }
-run_r2_upload "upload-etf-score" upload-etf-score || { echo "⚠ upload-etf-score 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-score"; }
+run_r2_upload "upload-industry" 900 upload-industry || { echo "⚠ upload-industry 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-industry"; }
+run_r2_upload "upload-public-fund" 900 upload-public-fund || { echo "⚠ upload-public-fund 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-public-fund"; }
+run_r2_upload "upload-etf-score" 900 upload-etf-score || { echo "⚠ upload-etf-score 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-score"; }
 run_r2_upload "upload-data-large" 900 upload-data-large || { echo "⚠ upload-data-large 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-data-large"; }
 run_r2_upload "upload-kelly-parts" 900 upload-kelly-parts || { echo "⚠ upload-kelly-parts 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-parts"; }
 # #91(2026-09-06) 当日收盘对比档分片(signal_kelly_trades_sdc_parts/, 凯利页「买入口径」切换用; 独立前缀命令)
 run_r2_upload "upload-kelly-parts-sdc" 900 upload-kelly-parts-sdc || { echo "⚠ upload-kelly-parts-sdc 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-parts-sdc"; }
-run_r2_upload "upload-all-data" upload-all-data || { echo "⚠ upload-all-data 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-all-data"; }
+run_r2_upload "upload-all-data" 900 upload-all-data || { echo "⚠ upload-all-data 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-all-data"; }
 # signal_kelly_snapshots/ 每日快照+演进 index(lab 凯利区「演进」入口, 2026-09-04 断链根治配套;
 # 子目录走独立命令, upload-all-data/upload-data-large 的 *.json glob 不递归天然不匹配, 见 upload_r2.py)
-run_r2_upload "upload-kelly-snapshots" upload-kelly-snapshots || { echo "⚠ upload-kelly-snapshots 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-snapshots"; }
+run_r2_upload "upload-kelly-snapshots" 900 upload-kelly-snapshots || { echo "⚠ upload-kelly-snapshots 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-snapshots"; }
 # feed.xml 走 R2（2026-08-10）：gen_rss 生成的 RSS 上传到 R2 data/feed.xml，不再 git push
-run_r2_upload "upload-feed" upload-data-files feed.xml || { echo "⚠ upload feed.xml 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-feed"; }
+run_r2_upload "upload-feed" 900 upload-data-files feed.xml || { echo "⚠ upload feed.xml 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-feed"; }
 # R2_FAIL 告警延迟到 deploy 收尾(见下方收尾段): 通道失败立即告警=误报(09-10 事故链——
 # 单文件 PUT 超时进程异常退出触发告警, 实际上传与 purge 全成功)。upload_r2.py 已补
 # try/except 兜底(单文件失败不异常中断), 走到收尾仍 R2_FAIL 非空=真失败才告警。
@@ -453,7 +453,7 @@ run_r2_upload "upload-feed" upload-data-files feed.xml || { echo "⚠ upload fee
 # 前端读最长 4h 旧版。此步 deploy 末尾统一 purge 低频档文件消除残留窗口（项5）。
 # purge 失败告警：upload_r2.py purge_cache 内部已对「部分批失败/无 PURGE_SECRET」notify 告警（项8）；
 # 命令自身失败/超时（如 HTTP 连接异常）由 run_r2_upload 失败分支在此 notify 兜底。
-run_r2_upload "purge-low-freq" purge-low-freq || {
+run_r2_upload "purge-low-freq" 900 purge-low-freq || {
   echo "⚠ purge-low-freq 失败/超时, 低频文件 edge cache 可能残留 4h 旧版" | tee -a "$LOG"
   "$PY" "$REPO/scripts/notify.py" "[告警] deploy 末尾 purge 低频文件失败" \
     "deploy.sh 末尾统一 purge 低频文件失败(purge-low-freq 命令失败/超时)，CF edge cache 低频文件可能残留最长 4h 旧版。<br>建议手动重试: bash scripts/upload_r2.py purge-low-freq<br>日志: $LOG" \

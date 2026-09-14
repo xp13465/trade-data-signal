@@ -115,7 +115,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/update_all.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=7200
+TimeoutStartSec=10800
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/update_all_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/update_all_launchd.err
 ```
@@ -292,7 +292,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/etf_national_team_backfill.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=3600
+TimeoutStartSec=7200
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/etf_national_team_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/etf_national_team_launchd.err
 ```
@@ -439,7 +439,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/futures_backfill.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=3600
+TimeoutStartSec=7200
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/futures_backfill_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/futures_backfill_launchd.err
 ```
@@ -512,7 +512,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/lhb_backfill.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=3600
+TimeoutStartSec=7200
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/lhb_backfill_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/lhb_backfill_launchd.err
 ```
@@ -549,7 +549,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/rzhb_backfill.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=3600
+TimeoutStartSec=7200
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/rzhb_backfill_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/rzhb_backfill_launchd.err
 ```
@@ -622,6 +622,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_ab_direction_anchor.sh
 Environment=TRADE_DIR=/home/ubuntu/code/trade-data-signal
+TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/ab_direction_anchor.out.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/ab_direction_anchor.err.log
 ```
@@ -848,10 +849,10 @@ StandardError=append:/home/ubuntu/code/trade-data/data/logs/brief_push_launchd.e
 `trade-fetch-news.timer`:
 ```ini
 [Unit]
-Description=Trade fetch-news hourly :01/:31 (源 com.trade.fetch-news)
+Description=Trade fetch-news hourly :01/:45 (源 com.trade.fetch-news)
 
 [Timer]
-OnCalendar=*-*-* *:01,31:00
+OnCalendar=*-*-* *:01,45:00
 Persistent=true
 
 [Install]
@@ -872,6 +873,7 @@ Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
 Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/fetch_news.py
+TimeoutStartSec=900
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/fetch_news_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/fetch_news_launchd.err
 ```
@@ -1126,7 +1128,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/public_fund_daily.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=300
+TimeoutStartSec=1800
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/public_fund_daily_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/public_fund_daily_launchd.err
 ```
@@ -1239,7 +1241,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/public_fund_quarterly.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=3600
+TimeoutStartSec=7200
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/public_fund_quarterly_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/public_fund_quarterly_launchd.err
 ```
@@ -1384,7 +1386,7 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/self_heal.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
-TimeoutStartSec=1800
+TimeoutStartSec=10800
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/self_heal_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/self_heal_launchd.err
 ```
