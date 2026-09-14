@@ -13,7 +13,7 @@
 #   3) 执行耗时：last_duration_sec 超阈值告警（intraday>10min/update_all>70min/backfill>75min，
 #      2026-08-14 依实测重标，原 update_all>30min 误报正常日 60min）
 #   4) launchctl 加载：11 个 com.trade label 未加载 = launchd 层挂了
-#   5) 产物时效（Worker路径）：线上 overview.json collected_at vs NOW, 3域名容错, 盘中<20min
+#   5) 产物时效（Worker路径）：线上 overview.json collected_at vs NOW, 主站单域名(R2直连容错见⑥), 盘中<20min
 #   6) R2直连时效：ssd.fx8.store overview/intraday collected_at 时效 + R2可达性
 #      （R2直连stale+Worker stale=upload_r2断; R2直连fresh+Worker stale=CF cache purge失效）
 #   7) 飞书配置：config/feishu.json 缺失且 .env 有 FEISHU 凭证（配置丢失），或
@@ -896,10 +896,14 @@ if etf_log.exists():
 #    15:05 上限：15:05 时 intraday 15:02 刚推完（完成~15:05）lag≈0-3min 安全；15:15/15:30 是
 #    intraday 空窗期（15:02 已推、15:35 未推）检查必误报，故窗口不含 15:15/15:30。
 #    2026-07-20 15:30 误报事故根因：窗口含 15:30，overview 停在 15:02 lag=27min>20min 阈值必报。
-#    多域名容错：依次试 ss.fx8.store/sss.sugas.site/s.sugas.site，任一不 lag 即 OK，
-#    规避 CF Workers cache 滞后单域名误报。滞后 > 20min（3域名全 lag）告警 SEVERE
-#    （intraday 10min 频率 + 10min buffer；2026-07-24 从 30min 改 20min 适配 10min 频率）。
-#    curl 超时 8s（subprocess timeout 12s 兜底）不阻塞 launchd 15min 周期。
+#    容错说明（2026-09-14 修假阳性）：原依次试 3 域名容错，但 R2 迁移后备站
+#    sss.sugas.site/s.sugas.site 无 data 目录（GH Pages/MaoziYun 部署不含 data/），
+#    /data/overview.json 永久 404，主站一超时 404 兜不住 → 3 域名全 lag 误报 SEVERE。
+#    故 domains 只留主站 ss.fx8.store（Worker 路径），R2 直连容错由第 6) 节 R2 直连时效检查覆盖
+#    （两层独立：R2 stale + Worker stale = upload_r2 断；R2 fresh + Worker stale = CF cache purge 失效）。
+#    滞后 > 20min 告警 SEVERE（intraday 10min 频率 + 10min buffer）。
+#    curl 超时 25s（subprocess timeout 30s 兜底）：overview.json 1.1MB 正常 5~9s，
+#    原 8s 踩线致网络稍慢 curl rc=28 超时假阳性；25s 给足余量不阻塞 launchd 15min 周期。
 #    用 /usr/bin/curl 而非 urllib：venv python 缺系统 CA 证书会 SSL 校验失败，curl 走系统证书更稳。
 try:
     from app.calendar import is_trading_day
@@ -913,13 +917,12 @@ try:
     # 2026-07-24 12:30 误报事故根因：午休未排除，12:15 起 lag>30min 触发 SEVERE。
     # 非交易日已由 is_trading_day() 排除（周末/节假日 overview 滞后正常）。
     if is_trading_day() and "0950" <= now_hm <= "1505" and not ("1130" <= now_hm < "1315"):
-        # 多域名容错：CF Workers Static Assets 靠部署自动 purge，但 intraday push
-        # main 不触发 CF wrangler redeploy，ss.fx8.store cache 可能滞后；依次试 3 域名，
-        # 任一 collected_at 在 30min 内即 OK（不 lag），都滞后才告警。
+        # 单域名主站检查：CF Workers Static Assets 靠部署自动 purge，但 intraday push
+        # main 不触发 CF wrangler redeploy，ss.fx8.store cache 可能滞后；滞后即告警。
+        # 只留主站 ss.fx8.store（Worker 路径）：备站 sss.sugas.site/s.sugas.site 自 R2 迁移后
+        # 无 data 目录 /data/overview.json 永久 404，删掉防假阳性；R2 直连容错见第 6) 节。
         domains = [
             "https://ss.fx8.store",
-            "https://sss.sugas.site",
-            "https://s.sugas.site",
         ]
         lag_results = []  # [(domain, collected_at, lag_min, status)]
         all_lag = True
@@ -927,8 +930,8 @@ try:
             url = f"{base}/data/overview.json"
             try:
                 result = subprocess.run(
-                    ["/usr/bin/curl", "-sS", "--max-time", "8", url],
-                    capture_output=True, text=True, timeout=12,
+                    ["/usr/bin/curl", "-sS", "--max-time", "25", url],
+                    capture_output=True, text=True, timeout=30,
                 )
             except subprocess.TimeoutExpired:
                 lag_results.append((base, None, None, "timeout"))
@@ -967,7 +970,7 @@ try:
             if _existing is None or _existing.get("status") != "active":
                 # 首次发现 或 恢复后再次出现 = 发 SEVERE + 写 state
                 alerts.append(
-                    f"SEVERE: 线上 overview.json 时效滞后(3域名全lag) "
+                    f"SEVERE: 线上 overview.json 时效滞后(主站 ss.fx8.store lag) "
                     f"threshold<20min> now<{now_full}> 详情: {detail}"
                 )
                 alert_state[dedup_key] = {
