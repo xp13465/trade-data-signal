@@ -135,17 +135,24 @@ lof_inclusion:
   off_exchange_reason: >
     场外 LOF(00/01/02 前缀)无 sina 场内行情且不进 etf_daily, accum_nav 恒 NULL,
     会拖垮 etf_since_return 校验(86.18% < 90% FAIL), 故 fetch+build 生成层即排除。
-  # ③ 数据源
+  # ③ 退市 LOF 过滤(2026-09-14 用户拍板「退市 LOF 全局过滤」+ reviewer 复审纠错)
+  delisted_filter: >
+    场内 etf_daily 零行(且经 scripts/backfill_etf_daily.py 全量回填后仍零行)=
+    场内份额终止上市(现 19 只, 如 160137/501006), 场外 fund_daily_nav 仍日更净值
+    能算 grade 但场内买不到 → build_board_etf_map.py 生成层过滤(不进候选池)。
+    关键区分: 「净值无覆盖」LOF(场内有行情, 只是东财累计净值接口无 accum_nav)
+    不是退市, 不滤; 过滤条件落在「etf_daily 零行」, 不落在「accum_nav NULL」。
+  # ④ 数据源
   data_source: >
     lof_track_index.json(fundf10 jbgk 跟踪标的 + fund_open_fund_rank_em 预筛)
     + etf_daily accum_nav 回填(fund_open_fund_info_em 累计净值走势)。
-  # ④ 入样宇宙联动
+  # ⑤ 入样宇宙联动
   universe_linkage: >
     board_etf_map 含场内 LOF(fund_type=lof); etf_since_return 依赖 accum_nav 补齐
     (pipeline_daily 把场内 LOF 纳入 OHLC 采集 + accum-nav 增量补齐 accum_nav)。
-  # ⑤ 变更联动清单
+  # ⑥ 变更联动清单
   change_linkage:
     - check_data_integrity.py check_etf_since_return 90% 阈值场景(场内 LOF 回填后 >=90%)
     - scripts/fetch_lof_track_index.py(mask 改场内前缀 + 清存量场外条目)
-    - scripts/build_board_etf_map.py(_load_lof_track_index 场内前缀防御)
+    - scripts/build_board_etf_map.py(_load_lof_track_index 场内前缀防御 + _load_etf_daily_codes 退市过滤)
     - app/collector/etf_national_team.py(_etf_market 加 50 + pipeline_daily 追加场内 LOF)
