@@ -592,7 +592,7 @@ StandardError=append:/home/ubuntu/code/trade-data/data/logs/turnover_backfill_la
 
 ### 2.13 ab-direction-anchor(21:15)
 - 脚本:`run_ab_direction_anchor.sh` | 时点:21:15
-- env:全量注入 REPO/MAIN_REPO(= 数据目录)、GIT_REPO/TRADE_DIR(= 代码仓);无 ExitTimeOut、无 WorkingDirectory(源 plist 未设,此处补 WorkingDirectory=/home/ubuntu/code/trade-data 数据目录 保险)
+- env:全量注入 REPO/MAIN_REPO(= 数据目录)、GIT_REPO/TRADE_DIR(= 代码仓);源 plist 无 ExitTimeOut、无 WorkingDirectory(此处补 WorkingDirectory=/home/ubuntu/code/trade-data 数据目录 + TimeoutStartSec=900 保险,防 systemd 默认 90s 强杀)
 
 `trade-ab-direction-anchor.timer`:
 ```ini
@@ -622,6 +622,7 @@ Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/run_ab_direction_anchor.sh
 Environment=TRADE_DIR=/home/ubuntu/code/trade-data-signal
+TimeoutStartSec=900
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/ab_direction_anchor.out.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/ab_direction_anchor.err.log
 ```
@@ -843,7 +844,7 @@ StandardError=append:/home/ubuntu/code/trade-data/data/logs/brief_push_launchd.e
 ```
 
 ### 2.20 fetch-news(每小时 :01 与 :31,共 48 次)
-- 脚本:`fetch_news.py`(venv python)| 源 plist **无任何 env**(依赖系统默认 PATH),无 ExitTimeOut
+- 脚本:`fetch_news.py`(venv python)| 源 plist **无任何 env**(依赖系统默认 PATH),无 ExitTimeOut(此处补 TimeoutStartSec=600 保险,防 systemd 默认 90s 强杀)
 
 `trade-fetch-news.timer`:
 ```ini
@@ -872,6 +873,7 @@ Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
 Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/fetch_news.py
+TimeoutStartSec=600
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/fetch_news_launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/fetch_news_launchd.err
 ```
