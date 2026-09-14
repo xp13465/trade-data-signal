@@ -624,6 +624,29 @@ def _load_lof_track_index() -> dict[str, dict]:
     return out
 
 
+def _load_etf_daily_codes() -> set[str] | None:
+    """读 etf_daily 表里「有任何行」的 etf_code 集合,用于过滤「场内零行」的退市 LOF。
+
+    退市 LOF(场内份额终止上市)特征:sina+mootdx 双源回填后 etf_daily 零行,
+    但场外 fund_daily_nav 仍日更净值 → fund_open_fund_info_em 能取累计净值算 grade,
+    会误导用户以为能场内买入。故按「etf_daily 历史累积零行」过滤(不是「最近 N 天
+    没新数据」,临时采集漏数不会误伤:正常 LOF 历史有行)。
+    关键区分:35 只「净值无覆盖」LOF 场内有行情(etf_daily 有行),只是东财累计净值
+    接口无数据(accum_nav NULL),这些是好的,不被本函数过滤(它们有行→保留)。
+    返回 None=DB 读不到(降级:调用方跳过过滤,宁不过滤不误杀);否则返回有行 code 集合。
+    """
+    db = _get_etf_db_path()
+    if not db.exists():
+        return None
+    try:
+        conn = sqlite3.connect(str(db))
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT etf_code FROM etf_daily")
+        return {r[0] for r in cur.fetchall()}
+    except Exception:
+        return None
+
+
 def _load_empty_array_ids() -> set[str]:
     """读 universe_rules.yaml excluded_categories 里 mode=empty_array 的 match 列表(单一事实源)。
 
@@ -1414,6 +1437,15 @@ def main():
     # 加载 LOF track_index 缓存（fundf10 抓取，含 160225 等 LOF，纳入候选池）
     lof_track_map = _load_lof_track_index()
     if lof_track_map:
+        # 退市 LOF 全局过滤（用户 2026-09-14 拍板）：场内 etf_daily 零行（场内份额终止上市、
+        # sina+mootdx 双源无场内行情，场外 fund_daily_nav 仍日更净值能算 grade）的 LOF 不进候选池，
+        # 防误导用户以为能场内买入。场内零行=历史累积零行，临时采集漏数不误伤（正常 LOF 历史有行）。
+        live_codes = _load_etf_daily_codes()
+        if live_codes is not None:
+            n_lof = len(lof_track_map)
+            lof_track_map = {k: v for k, v in lof_track_map.items() if k in live_codes}
+            if n_lof != len(lof_track_map):
+                print(f"  + LOF 过滤场内零行（退市/无场内行情）{n_lof - len(lof_track_map)} 只")
         print(f"  + LOF track_index 缓存 {len(lof_track_map)} 只（fund_type=lof，纳入候选池）")
         track_idx_map.update(lof_track_map)  # 合并，LOF 已标 fund_type=lof
 
