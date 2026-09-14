@@ -8,7 +8,7 @@
 
 | 类别 | 数量 | 产物 |
 |---|---|---|
-| 周期任务(必迁) | 35 | 35 个 `.timer` + 35 个 `.service`(OnCalendar= 时点) |
+| 周期任务(必迁) | 36 | 36 个 `.timer` + 36 个 `.service`(OnCalendar= 时点) |
 | 飞书常驻 listener(已拍板不迁) | 1 | 无(留本机:需求入口依赖本机 Claude;云上飞书通知走 notify.py) |
 | backup_db 独立备份 | 1 | 1 个 `.timer`(21:00)+ 1 个 `.service` |
 | 本机 Claude 开发环境专属(不迁) | 5 | 见 §5(thinking-proxy / sensenova-healthcheck / agent-inbox-watcher / token-cache-stats / com.claude.self-backup) |
@@ -76,7 +76,7 @@ PURGE_SECRET 值(本机全部 plist 一致):见 `/home/ubuntu/code/trade-data/.e
 
 阶段4b 统一(2026-09-13):全部 36 service 均注入 `REPO`/`GIT_REPO`/`MAIN_REPO`(REPO=MAIN_REPO=/home/ubuntu/code/trade-data 数据目录,GIT_REPO=/home/ubuntu/code/trade-data-signal 代码仓,与 pick_repo.py 双仓判定一致,防 /Users 语义翻转)。个别任务保留特殊 env:ab-direction-anchor 额外有 `TRADE_DIR`(→ /home/ubuntu/code/trade-data-signal 代码仓)。
 
-## 2. 35 个周期任务完整对照表 + unit 内容
+## 2. 36 个周期任务完整对照表 + unit 内容
 
 > 每个任务给出:源 plist 摘要(脚本/时点/env/超时)→ `.timer` 与 `.service` 完整内容。
 > 统一模板:`Type=oneshot` + `Persistent=true`(服务器宕机错过时点后补跑,等价于保证数据完整)。
@@ -331,6 +331,43 @@ EnvironmentFile=/home/ubuntu/code/trade-data/.env
 TimeoutStartSec=1800
 StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/etf-track-index-launchd.log
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/etf-track-index-launchd.err
+```
+
+### 2.6-1 lof-track-index(周日 4:00)
+- 脚本:`fetch_lof_track_index.py`(venv python)| 时点:周日(Weekday 0)4:00 | ExitTimeOut=1800
+- 场内 LOF(16/15/501/502)跟踪指数入候选池;场外(00/01/02)排除(无 sina 场内行情且不进 etf_daily)
+
+`trade-lof-track-index.timer`:
+```ini
+[Unit]
+Description=Trade lof-track-index weekly Sun 04:00 (源 com.trade.lof-track-index)
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+`trade-lof-track-index.service`:
+```ini
+[Unit]
+Description=Trade lof-track-index (源 com.trade.lof-track-index)
+
+[Service]
+User=ubuntu
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/home/ubuntu/code/trade-data/.venv/bin/python /home/ubuntu/code/trade-data/scripts/fetch_lof_track_index.py
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+TimeoutStartSec=1800
+StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/lof-track-index-launchd.log
+StandardError=append:/home/ubuntu/code/trade-data/data/logs/lof-track-index-launchd.err
 ```
 
 ### 2.7 fapi-daily(18:10)

@@ -42,8 +42,8 @@ from pathlib import Path
 
 import akshare as ak
 
-ROOT = Path(__file__).absolute().parent.parent
-OUT = ROOT / "data" / "lof_track_index.json"
+ROOT = Path(__file__).resolve().parent.parent  # resolve() 解析 symlink → 恒指真实 trade/
+OUT = (ROOT / "data" / "lof_track_index.json").resolve()
 
 # 关闭 SSL 验证（eastmoney 自签证书，和 fetch_etf_track_index 同策略）
 _CTX = ssl.create_default_context()
@@ -119,7 +119,7 @@ def prefilter_lof_candidates(df) -> list[tuple[str, str]]:
     has_idx = name.str.contains('指数', na=False)
     # 代码 LOF 段：16/15 开头（深市），501/502 开头（沪市）
     lof_seg = code.str.match(r'^(16|15|50[12])')
-    mask = has_lof | (has_idx & lof_seg)
+    mask = lof_seg & (has_lof | has_idx)
     cand = df[mask]
     return [(str(r['基金代码']), str(r['基金简称'])) for _, r in cand.iterrows()]
 
@@ -145,6 +145,13 @@ def main():
             cache = {}
     elif args.force:
         print("-> --force 强制重抓")
+
+    # 清存量场外条目（00/01/02 前缀）：旧缓存含场外 LOF（sina 无场内行情且不进 etf_daily），
+    # 因增量更新"已有 track_index 跳过"会让它们永久赖着，需主动清除，只保留场内 16/15/501/502。
+    n_before = len(cache)
+    cache = {k: v for k, v in cache.items() if k.startswith("_") or re.match(r'^(16|15|501|502)', k)}
+    if len(cache) != n_before:
+        print(f"-> 清除场外 LOF 存量条目 {n_before - len(cache)} 条（保留场内 16/15/501/502 前缀）")
 
     # 拉 akshare 全量开放式基金（fund_lof_spot_em 不稳定，改用 fund_open_fund_rank_em）
     print(f"-> 拉取 akshare fund_open_fund_rank_em(symbol='全部') ...")

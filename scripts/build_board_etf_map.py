@@ -13,6 +13,7 @@
 """
 import bisect
 import json
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -283,7 +284,9 @@ ETF_TRACK_INDEX_PATH = ROOT / "data" / "etf_track_index.json"
 # LOF track_index 缓存路径（fundf10 抓取，scripts/fetch_lof_track_index.py 生成）
 # LOF（上市开放式基金）如 160225 国泰国证新能源汽车LOF，fund_etf_spot_em 不含，
 # 需独立采集 fundf10 跟踪标的 + fund_open_fund_rank_em 预筛，纳入候选池
-LOF_TRACK_INDEX_PATH = ROOT / "data" / "lof_track_index.json"
+LOF_TRACK_INDEX_PATH = Path(__file__).resolve().parent.parent / "data" / "lof_track_index.json"
+# resolve() 解析 symlink：从 trade-data 跑时 scripts/ 是 symlink 指向 trade/scripts/，
+# resolve() 后读 trade/data/lof_track_index.json（真实路径，与 fetch_lof_track_index.py 写出的路径一致）。
 
 # 排除词：跨境/债券/商品/货币等非 A 股行业主题 ETF
 EXCLUDE = ["债", "货币", "黄金", "白银", "原油", "海外", "美国", "日本", "德国",
@@ -611,12 +614,76 @@ def _load_lof_track_index() -> dict[str, dict]:
     for k, v in d.items():
         if k.startswith("_") or not isinstance(v, dict):
             continue
+        if not re.match(r'^(16|15|501|502)', k):
+            continue  # 防御：只收场内 LOF（16/15/501/502 前缀），场外 00/01/02 无场内行情
         if v.get("fund_type") != "lof":
             continue  # 只取 fund_type=lof
         if not v.get("track_index"):
             continue  # 跳过 no_track
         out[k] = v
     return out
+
+
+def _load_etf_daily_codes() -> set[str] | None:
+    """读 etf_daily 表里「有任何行」的 etf_code 集合,用于过滤「场内零行」的退市 LOF。
+
+    退市 LOF(场内份额终止上市)特征:经 scripts/backfill_etf_daily.py 全量回填
+    (fund_etf_hist_sina 全史)后 etf_daily 仍零行,但场外 fund_daily_nav 仍日更净值 →
+    fund_open_fund_info_em 能取累计净值算 grade,会误导用户以为能场内买入。
+    故按「etf_daily 历史累积零行」过滤(不是「最近 N 天没新数据」,临时采集漏数
+    不会误伤:正常 LOF 历史有行)。⚠ 判定前提=已全量回填后仍零行才=退市,否则
+    「track_index 不匹配 board_id → 不进采集清单 → 零行」的存活 LOF 会被误杀
+    (reviewer 2026-09-14 复审纠错:回填前 49 只零行含 30 只存活,回填后仅 19 只真死)。
+    关键区分:「净值无覆盖」LOF 场内有行情(etf_daily 有行),只是东财累计净值接口
+    无数据(accum_nav NULL),这些是好的,不被本函数过滤(它们有行→保留)。
+    返回 None=DB 读不到(降级:调用方跳过过滤,宁不过滤不误杀);否则返回有行 code 集合。
+    """
+    db = _get_etf_db_path()
+    if not db.exists():
+        return None
+    try:
+        conn = sqlite3.connect(str(db))
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT etf_code FROM etf_daily")
+        return {r[0] for r in cur.fetchall()}
+    except Exception:
+        return None
+
+
+def _load_empty_array_ids() -> set[str]:
+    """读 universe_rules.yaml excluded_categories 里 mode=empty_array 的 match 列表(单一事实源)。
+
+    返回 {index_id} 集合(如 csi_399707/gz_399417/sw_801130/thsc_306380 等)。
+    这些指数「无场内专属 ETF」,场内 LOF 不算 ETF(用户 2026-09-14 拍板「维持排除」),
+    故 LOF 不得填充这些指数,维持空数组。读不到/解析失败返回空集(不阻断 build,
+    由 check_universe_alignment.py 兜底校验 §23.6 对称性)。
+    """
+    try:
+        import yaml
+    except ImportError:
+        return set()
+    path = Path(__file__).resolve().parent.parent / "config" / "universe_rules.yaml"
+    if not path.exists():
+        return set()
+    try:
+        with open(path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+    except Exception:
+        return set()
+    ids: set[str] = set()
+    for cat in (cfg or {}).get("excluded_categories", []) or []:
+        if not isinstance(cat, dict):
+            continue
+        if cat.get("mode") != "empty_array":
+            continue
+        m = cat.get("match")
+        if isinstance(m, str):
+            ids.add(m)
+        elif isinstance(m, list):
+            for x in m:
+                if isinstance(x, str):
+                    ids.add(x)
+    return ids
 
 
 def _match_by_track_index(
@@ -1373,6 +1440,16 @@ def main():
     # 加载 LOF track_index 缓存（fundf10 抓取，含 160225 等 LOF，纳入候选池）
     lof_track_map = _load_lof_track_index()
     if lof_track_map:
+        # 退市 LOF 全局过滤（用户 2026-09-14 拍板）：已全量回填后场内 etf_daily 仍零行
+        # （场内份额终止上市、fund_etf_hist_sina 全史回填后仍无场内行情，场外 fund_daily_nav
+        # 仍日更净值能算 grade）的 LOF 不进候选池，防误导用户以为能场内买入。
+        # 场内零行=历史累积零行，临时采集漏数不误伤（正常 LOF 历史有行）。
+        live_codes = _load_etf_daily_codes()
+        if live_codes is not None:
+            n_lof = len(lof_track_map)
+            lof_track_map = {k: v for k, v in lof_track_map.items() if k in live_codes}
+            if n_lof != len(lof_track_map):
+                print(f"  + LOF 过滤场内零行（退市/无场内行情）{n_lof - len(lof_track_map)} 只")
         print(f"  + LOF track_index 缓存 {len(lof_track_map)} 只（fund_type=lof，纳入候选池）")
         track_idx_map.update(lof_track_map)  # 合并，LOF 已标 fund_type=lof
 
@@ -1407,8 +1484,12 @@ def main():
 
     # 第1层：track_index_name 关键词匹配（所有 board_id，merge 到宽基base上）
     # 宽基全量：宽基已有 _build_index_etf_map_auto 的 track_index_code base，此层补充 track_index_name 匹配
+    empty_array_ids = _load_empty_array_ids()
     for iid in board_ids:
         etfs = _match_by_track_index(iid, track_idx_map, df_by_code)
+        if iid in empty_array_ids:
+            # 无场内专属 ETF 指数：场内 LOF 不算 ETF，过滤 LOF 维持空数组（用户 2026-09-14 拍板「维持排除」）
+            etfs = [e for e in etfs if e.get("fund_type") != "lof"]
         if not etfs:
             out.setdefault(iid, [])
             continue
