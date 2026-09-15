@@ -416,7 +416,9 @@ echo "-> 上传 lab/trade_sim/index/industry/public_fund/etf_score/data-large/al
 R2_FAIL=""
 run_r2_upload "upload-lab" 900 upload-lab || { echo "⚠ upload-lab 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-lab"; }
 run_r2_upload "upload-trade-sim" 900 upload-trade-sim || { echo "⚠ upload-trade-sim 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-trade-sim"; }
-run_r2_upload "upload-trade-sim-json" 900 upload-trade-sim-json || { echo "⚠ upload-trade-sim-json 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-trade-sim-json"; }
+# 2026-09-15 R2 上传增量化(设计文档 §3.5): trade-sim-json 全量 370MB@4.2Mbps=739s+连接开销,
+# 900s 周日/首跑全量偏紧(09-14 17:50 update_all exit 143 事故根因之一), 放宽 1800s 留 2 倍余量(仿 fund-nav)。
+run_r2_upload "upload-trade-sim-json" 1800 upload-trade-sim-json || { echo "⚠ upload-trade-sim-json 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-trade-sim-json"; }
 run_r2_upload "upload-index" 900 upload-index || { echo "⚠ upload-index 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-index"; }
 # ETF 全史日K etf/{code}-all.json -> R2 etf/ 前缀(#10 ETF弹窗长历史, 2026-08-22; 1532只~87MB, 8线程并发)
 # 2026-08-23: 改增量上传(upload_r2.py 状态清单只传变化文件)+ 本通道超时放宽 900s(根治间歇超时告警);
@@ -444,6 +446,9 @@ run_r2_upload "upload-all-data" 900 upload-all-data || { echo "⚠ upload-all-da
 run_r2_upload "upload-kelly-snapshots" 900 upload-kelly-snapshots || { echo "⚠ upload-kelly-snapshots 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-snapshots"; }
 # feed.xml 走 R2（2026-08-10）：gen_rss 生成的 RSS 上传到 R2 data/feed.xml，不再 git push
 run_r2_upload "upload-feed" 900 upload-data-files feed.xml || { echo "⚠ upload feed.xml 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-feed"; }
+# 2026-09-15 层3 防漏传机检(设计文档 §3.4): 周期全量对账, 周日全量+平日增量自适应。
+# 发现并自动补传不一致 key; 补传失败/命令失败 → exit 1 → 此处累积 R2_FAIL 走收尾 notify(层4)。
+run_r2_upload "verify-r2" 1800 verify-r2 || { echo "⚠ verify-r2 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL verify-r2"; }
 # R2_FAIL 告警延迟到 deploy 收尾(见下方收尾段): 通道失败立即告警=误报(09-10 事故链——
 # 单文件 PUT 超时进程异常退出触发告警, 实际上传与 purge 全成功)。upload_r2.py 已补
 # try/except 兜底(单文件失败不异常中断), 走到收尾仍 R2_FAIL 非空=真失败才告警。

@@ -32,6 +32,10 @@ ROOT = Path(__file__).resolve().parent.parent
 # 故 upload 命令必须用 REPO 才能读到采集器刚写的实时数据(非 deploy rsync 后的 trade/)。
 STATIC_DIR = Path(os.environ.get("REPO", str(ROOT))) / "static-site"
 
+# --dry-run 全局标志(验收自测用, 设计文档 §7 验收①): 引擎只打印「将传 N/M」不 PUT。
+# 由 __main__ 解析 --dry-run 后置 True; 各通道函数不逐处传参, 引擎默认 dry_run=None 时读此全局。
+_DRY_RUN = False
+
 
 # ---- REPO 缺省分级闸 (2026-08-22, #75) ----
 # 捕获须在 load_env() 之前(下方 L146),防 .env setdefault 污染判定(加注释钉死顺序)。
@@ -328,6 +332,68 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
     raise last_exc  # 不可达,防 mypy
 
 
+def s3_head(key, bucket=None):
+    """HEAD 对象取 ETag(不下载 body)。返回 (status, etag_str_or_None)。
+
+    R2 单 PUT 的 ETag=内容 md5(本项目 upload_r2.py 纯单 PUT 无 multipart, 恒成立;
+    multipart 才不是)。层2 上传对账 + 层3 verify-r2 均用它: HEAD 快(单请求 RTT ~0.3s),
+    比对「R2 对象 == 本地整文件 md5」验证上传正确性/查漏传。
+    网络异常/5xx 退避重试 5 次, 最终失败返回 (0, None) —— 调用方按「不一致/缺失」处理
+    (补传方向安全, 宁多传不漏传)。"""
+    bkt = bucket or BUCKET
+    for attempt in range(5):
+        try:
+            now = datetime.datetime.utcnow()
+            amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+            date_stamp = now.strftime("%Y%m%d")
+            payload_hash = hashlib.sha256(b"").hexdigest()
+            path = f"/{bkt}"
+            if key:
+                path += "/" + quote(key, safe="/")
+            headers = {
+                "host": HOST,
+                "x-amz-date": amz_date,
+                "x-amz-content-sha256": payload_hash,
+            }
+            sorted_items = sorted(headers.items(), key=lambda x: x[0])
+            canonical_headers = "".join(f"{k}:{v.strip()}\n" for k, v in sorted_items)
+            signed_headers = ";".join(k for k, _ in sorted_items)
+            canonical_request = "\n".join([
+                "HEAD", path, "", canonical_headers, signed_headers, payload_hash,
+            ])
+            scope = f"{date_stamp}/{REGION}/{SERVICE}/aws4_request"
+            string_to_sign = "\n".join([
+                "AWS4-HMAC-SHA256", amz_date, scope,
+                hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+            ])
+            signature = _hmac_hex(signing_key(date_stamp), string_to_sign)
+            headers["authorization"] = (
+                f"AWS4-HMAC-SHA256 Credential={AK}/{scope}, "
+                f"SignedHeaders={signed_headers}, Signature={signature}"
+            )
+            conn = http.client.HTTPSConnection(HOST, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
+            conn.request("HEAD", path, headers=headers)
+            resp = conn.getresponse()
+            etag = resp.getheader("ETag")
+            status = resp.status
+            resp.read()
+            conn.close()
+            if status >= 500 and attempt < 4:
+                wait = 2 ** attempt
+                print(f"  ⚠ HEAD {key} HTTP {status} attempt {attempt+1}, {wait}s 后重试", file=sys.stderr)
+                time.sleep(wait)
+                continue
+            return status, etag
+        except (ssl.SSLError, OSError, http.client.HTTPException) as e:
+            if attempt < 4:
+                wait = 2 ** attempt
+                print(f"  ⚠ HEAD {key} attempt {attempt+1} 失败({type(e).__name__}: {e}), {wait}s 后重试", file=sys.stderr)
+                time.sleep(wait)
+            else:
+                return 0, None
+    return 0, None
+
+
 def cmd_list(prefix="", bucket=None):
     q = "list-type=2&max-keys=100"
     if prefix:
@@ -380,41 +446,27 @@ def cmd_upload(local, key):
 
 
 def cmd_upload_lab():
-    # lab JSON 由 scripts/lab/*.py 按 __file__ 写 ROOT(trade/)static-site/data/lab/,
-    # REPO=trade-data 时 trade-data/static-site/data/lab/ 可能不存在(或滞后),回退 ROOT。
+    """上传 static-site/data/lab/*.json 到 R2 lab/ 前缀(2026-09-15 迁增量引擎, A 档整文件 md5)。
+
+    lab JSON 由 scripts/lab/*.py 按 __file__ 写 ROOT(trade/)static-site/data/lab/,
+    REPO=trade-data 时 trade-data/static-site/data/lab/ 可能不存在(或滞后), 回退 ROOT。
+    盘后 17:50 全重算, 非交易日全省(增量最大确定性收益); 原串行自写循环由引擎
+    8 线程 + 状态清单 + 层2 ETag 对账替代(告警噪音根治 2026-09-11 语义保留在引擎:
+    单文件失败不异常中断, 末尾 ok<total 才 exit 1)。
+    """
     lab = STATIC_DIR / "data/lab"
     if not lab.exists() or not any(lab.glob("*.json")):
         lab = ROOT / "static-site" / "data" / "lab"
-    files = sorted(lab.glob("*.json"))
-    if not files:
+    if not any(f.exists() for f in lab.glob("*.json")):
         sys.exit(f"无 lab json: {lab}")
-    # 告警噪音根治 2026-09-11(docs/alerts/alert-noise-rootfix-20260910.md B2):
-    # 单文件 PUT 超时(TimeoutError 在 s3_request 5 次重试后 raise)原无 try 兜底,
-    # 整个 upload-lab 进程异常退出 rc≠0 → deploy.sh 误报「R2上传失败」(09-10 事故链:
-    # 实际 103/103 上传 + purge 504/504 全成功)。补 try/except 单文件失败打印跳过继续,
-    # 末尾 ok<total 才 exit 1(与 _upload_glob 系列命令对齐: 真失败仍让 deploy 收尾告警,
-    # 单文件瞬时抖动不再异常中断致后续文件全没传 = 不再误报整体失败)。
-    ok = 0
-    total = len(files)
-    for i, f in enumerate(files, 1):
-        key = f"lab/{f.name}"
-        try:
-            payload = f.read_bytes()
-            status, data = s3_request("PUT", key, payload)
-            if status == 200:
-                ok += 1
-                print(f"[{i}/{total}] ✓ {f.name} ({len(payload) // 1024}KB)")
-            else:
-                print(f"[{i}/{total}] ✗ {f.name} status={status} {data[:200]}")
-        except Exception as e:
-            print(f"[{i}/{total}] ✗ {f.name} 异常({type(e).__name__}: {e})")
-    print(f"共上传 {ok}/{total} -> {PUBLIC}/lab/")
-    if ok != total:
-        sys.exit(1)
+    # 失败时引擎内部已 print FAILED_FILES + exit 1
+    _incremental_upload(
+        lab, ["*.json"], "lab", ".r2_lab_state.json", label="lab")
+    # lab 原命令不 purge(前端 lab 数据经 /data/ rewrite 读 R2, 短 TTL), 保持不 purge。
 
 
 def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_fn=None,
-                 only_files=None, on_success=None):
+                 only_files=None, on_success=None, verify_etag=False):
     """通用 glob 上传：local_dir 下按 patterns 匹配文件，上传到 R2 r2_prefix/。
 
     R2 key = r2_prefix/{相对 local_dir 的路径}。返回 (ok, total, failed_rels, uploaded_keys)。
@@ -482,8 +534,18 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
             # 仅记日志跳过,不影响其他文件上传。
             payload = f.read_bytes()
             size = len(payload)
+            md5_local = hashlib.md5(payload).hexdigest()
             status, data = s3_request("PUT", key, payload)
             if status == 200:
+                # 层2 上传正确性对账(verify_etag=True 时): PUT 后 HEAD 取 ETag 与本地整文件
+                # md5 比对, 不一致记失败(传上去的内容不对)。HEAD 失败(etag=None, 网络抖动/
+                # 404)不判失败 —— 刚 PUT 200 成功, 对账通道拿不到 ETag 更可能是 HEAD 抖动,
+                # 若判失败会误报告警(09-10 事故链教训); 只有 ETag 明确存在且 != 本地 md5 才判失败。
+                if verify_etag:
+                    _st, etag = s3_head(key)
+                    if etag is not None and etag.strip('"') != md5_local:
+                        return (i, False, rel, size,
+                                f"ETag对账不一致 etag={etag} local_md5={md5_local}", None)
                 return (i, True, rel, size, None, key)
             return (i, False, rel, size, f"status={status} {data[:200]}", None)
         except (OSError, FileNotFoundError) as e:
@@ -514,6 +576,269 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
     return ok, total, failed_rels, uploaded_keys
 
 
+def _file_md5(path):
+    """A 档指纹: 整文件字节 md5(大部分通道; 无天天变元数据字段的文件本体指纹)。"""
+    return hashlib.md5(path.read_bytes()).hexdigest()
+
+
+def _norm_state_val(v):
+    """归一化状态 files 的值: 双字段 {size, md5} -> (size, md5); 旧单字段 md5 字符串 -> (None, md5)。"""
+    if isinstance(v, dict):
+        return (v.get("size"), v.get("md5"))
+    if isinstance(v, str):
+        return (None, v)  # etf-hist/fund-nav 旧状态: {name: md5字符串}, 迁移后兼容读取
+    return (None, None)
+
+
+def _kelly_parts_md5(path):
+    """B 档指纹(kelly-parts / kelly-parts-sdc): 剔除 generated_at/period_cutoffs/buy_amount
+    后规范化序列化 md5。
+
+    三字段=生成器元数据(生成时刻+滚动周期切点+本金常量), 前端零消费(已 grep app.js/lab.js
+    核实: _simParseTrades / _labKellyParseTrades 只取 fields/fIdx/quadrants, 顶层三字段不读);
+    不剔除则天天变致增量失效(复现 etf-hist exported_at 先例)。json 解析失败退化为整文件字节
+    md5(坏文件必与上次不同 -> 触发重传, 失败方向宁多勿漏)。"""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        if isinstance(payload, dict):
+            payload.pop("generated_at", None)
+            payload.pop("period_cutoffs", None)
+            payload.pop("buy_amount", None)
+            raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            return hashlib.md5(raw.encode("utf-8")).hexdigest()
+    except (OSError, ValueError):
+        pass
+    return hashlib.md5(path.read_bytes()).hexdigest()
+
+
+def _etf_hist_md5(path):
+    """C 档指纹(etf-hist): 剔除 exported_at 后规范化序列化 md5(先例原版 _fingerprint 同口径)。
+
+    exported_at 天天变但与数据本体无关(前端零消费), 不剔除则天天判全变致增量失效。"""
+    raw = None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        if isinstance(payload, dict):
+            payload.pop("exported_at", None)
+            raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    except (OSError, ValueError):
+        raw = None
+    if raw is None:
+        return hashlib.md5(path.read_bytes()).hexdigest()
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+
+def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
+                        fingerprint=None, exclude_fn=None, checkpoint_every=0,
+                        dry_run=None, label=None):
+    """通用增量上传引擎(2026-09-15 R2 上传增量化, 12 通道复用; 参数化 etf-hist 先例全套机制)。
+
+    一次实现, 12 通道共用; 机制逐条继承 cmd_upload_etf_hist(scripts/upload_r2.py 先例):
+      - 状态清单 data/.r2_<channel>_state.json 与数据同仓(untracked 不进 git), 结构
+        {version, updated_at, mode, count, files:{rel:{size,md5}}, changed:[rel]};
+        rel = 相对 local_dir 的路径(与 _upload_glob 的 rel 同口径, 便于 r2_key = r2_prefix/rel)。
+      - 指纹: A 档整文件 md5(默认); B/C 档传 fingerprint 回调(结构化剔除)。size 字段按方案
+        存双字段(结构对齐), 判定以 md5 为准(本地算 md5 快; 不做「size 快筛 + 上传后回填 md5」
+        的 A/B 分叉优化, 少写抽象——见 CLAUDE.md §6.5)。
+      - 首跑/状态缺失或损坏 -> 自动退化全量; 每周日强制全量一次(防 R2 侧对象丢失/状态漂移);
+      - 增量 0 待传=正常完成(不报错, 防 deploy 把「今天没变化」当失败告警);
+      - 状态只在全部上传成功后 tmp+os.replace 原子写; 部分失败保持旧状态下次重传面更大
+        —— 失败方向宁多传不漏传;
+      - 层2 上传正确性对账: 本次 PUT 的 key 逐一 HEAD 取 ETag == 本地整文件 md5(_upload_glob
+        verify_etag=True), 不一致记入 failed_rels(传上去的内容不对=失败, 触发调用方告警);
+      - checkpoint_every>0 时启用分片 checkpoint 断点续传(fund-nav 模式, 治「超时 kill->状态
+        缺失->下次更慢全量->再被 kill」恶性循环); checkpoint 落 data/.r2_<channel>_ckpt.json;
+      - dry_run=True 只打印「将传 N/M」不 PUT(验收自测用)。
+    返回 (ok, total, failed_rels, uploaded_keys) —— 与 _upload_glob 同签名, 调用方照旧拿
+    uploaded_keys 调 purge_cache(引擎不负责 purge, 各通道 purge 口径不同由通道函数自理)。"""
+    label = label or state_name
+    local_dir = Path(local_dir)
+    fingerprint = fingerprint or _file_md5
+    state_path = STATIC_DIR.parent / "data" / state_name
+    if dry_run is None:
+        dry_run = _DRY_RUN
+
+    # 1. 收集文件(glob + exclude_fn + broken symlink 过滤), 与 _upload_glob 收集逻辑同口径
+    files = []
+    for pat in glob_patterns:
+        files.extend(local_dir.glob(pat))
+    files = sorted(set(files))
+    if exclude_fn:
+        before = len(files)
+        files = [f for f in files if not exclude_fn(f)]
+        excluded = before - len(files)
+        if excluded:
+            print(f"[{label}] 排除 {excluded} 个文件(exclude_fn)")
+    broken = [f for f in files if not f.exists()]
+    if broken:
+        print(f"[{label}] ⚠ 跳过 {len(broken)} 个不存在/broken-symlink 文件(首个: {broken[0]})")
+        files = [f for f in files if f.exists()]
+    if not files:
+        print(f"[{label}] ⚠ {local_dir} 下 {glob_patterns} 无匹配文件")
+        return 0, 0, [], []
+    all_json = sorted(files)
+
+    # 2. 读状态(兼容 etf-hist/fund-nav 旧单字段格式, 归一化到 (size, md5))
+    old_files = {}
+    if state_path.exists():
+        try:
+            with open(state_path, "r", encoding="utf-8") as f:
+                st = json.load(f)
+            if isinstance(st.get("files"), dict):
+                old_files = st["files"]
+        except (OSError, ValueError):
+            print(f"[{label}] ⚠ 状态清单损坏/不可读({state_path}), 退化为全量")
+            old_files = {}
+
+    # 3. 指纹扫描 + 增量判定
+    t0 = time.time()
+    sigs = {}       # rel -> {size, md5}
+    changed = []    # 待传文件(Path)
+    for p in all_json:
+        rel = str(p.relative_to(local_dir))
+        try:
+            sz = p.stat().st_size
+        except OSError:
+            continue
+        md5 = fingerprint(p)
+        sigs[rel] = {"size": sz, "md5": md5}
+        old = _norm_state_val(old_files.get(rel))
+        if old[1] is None or old[1] != md5:
+            changed.append(p)
+
+    today_weekday = datetime.date.today().weekday()   # Monday=0 ... Sunday=6
+    force_full = (not old_files) or today_weekday == 6
+    if force_full:
+        mode = "周日强制全量" if today_weekday == 6 and old_files else "首次/无状态全量"
+        changed = list(all_json)
+    else:
+        mode = "增量"
+
+    print(f"[{label}] 模式={mode} 本次待传 {len(changed)}/{len(all_json)}"
+          f"(其余 {len(all_json) - len(changed)} 个内容未变化跳过)")
+
+    def _save_state(sig_map, run_mode, changed_rels):
+        """原子写状态清单(tmp + os.replace); 仅在上传全部成功后调用。
+        状态重建为本次扫描全集, 本地已删除条目自然剔除(R2 残留旧 key 无害, 不做删除)。
+        changed 字段记录本次实际待传 rel 清单, 供 verify-r2 平日对账「当日增量通道的 key」。"""
+        new_state = {
+            "version": 1,
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "mode": run_mode,
+            "count": len(sig_map),
+            "files": sig_map,
+            "changed": changed_rels,
+        }
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = state_path.with_name(state_path.name + ".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(new_state, f, ensure_ascii=False, sort_keys=True)
+        os.replace(tmp_path, state_path)
+
+    if not changed:
+        elapsed = time.time() - t0
+        print(f"[{label}] ✓ 全部 {len(all_json)} 个内容未变化, 无需上传, 耗时 {elapsed:.1f}s")
+        if dry_run:
+            print(f"[{label}] [dry-run] 无待传文件")
+        else:
+            _save_state(sigs, mode, [])
+        return 0, 0, [], []
+
+    changed_rels = [str(p.relative_to(local_dir)) for p in changed]
+
+    if dry_run:
+        print(f"[{label}] [dry-run] 将传 {len(changed)}/{len(all_json)} 个文件(不 PUT):")
+        for rel in changed_rels:
+            print(f"  - {r2_prefix}/{rel}")
+        return len(changed), len(changed), [], []
+
+    # 4. checkpoint 续传(checkpoint_every>0, fund-nav 模式)
+    ckpt_path = None
+    ckpt_files = {}
+    if checkpoint_every > 0:
+        ckpt_path = state_path.with_name(state_name.replace("_state.json", "_ckpt.json"))
+
+        def _save_ckpt(done_map):
+            """checkpoint 原子写(tmp + fsync + rename), 崩溃不留半截。"""
+            ckpt_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = ckpt_path.with_name(ckpt_path.name + f".tmp.{os.getpid()}")
+            try:
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump({"version": 1,
+                               "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                               "count": len(done_map),
+                               "files": done_map}, f, ensure_ascii=False, sort_keys=True)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, ckpt_path)
+            except OSError:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise
+
+        try:
+            with open(ckpt_path, "r", encoding="utf-8") as f:
+                st = json.load(f)
+            if isinstance(st.get("files"), dict):
+                ckpt_files = st["files"]
+        except (OSError, ValueError):
+            ckpt_files = {}
+        if ckpt_files:
+            # 上次中断的 checkpoint 里, 指纹与当前仍一致的文件视为已传成功, 从待传清单剔除
+            resumed_rels = {str(p.relative_to(local_dir)) for p in changed
+                            if ckpt_files.get(str(p.relative_to(local_dir))) == sigs[str(p.relative_to(local_dir))]["md5"]}
+            n_resumed = len(resumed_rels)
+            changed = [p for p in changed if str(p.relative_to(local_dir)) not in resumed_rels]
+            if n_resumed:
+                print(f"[{label}] ↩ 断点续传: checkpoint 命中 {n_resumed} 个已上传(跳过), "
+                      f"本次实传 {len(changed)} 个")
+
+    # 5. 上传(only_files + 8 线程 + 层2 ETag 对账)
+    done_map = dict(ckpt_files)   # 继承旧 checkpoint, 累积本次新成功
+    since_ckpt = 0
+
+    def _on_success(f, rel):
+        nonlocal since_ckpt
+        done_map[str(rel)] = sigs[str(rel)]["md5"]
+        since_ckpt += 1
+        if checkpoint_every > 0 and since_ckpt >= checkpoint_every:
+            _save_ckpt(done_map)
+            since_ckpt = 0
+
+    ok, total, failed_rels, uploaded_keys = _upload_glob(
+        local_dir, glob_patterns, r2_prefix, only_files=changed,
+        on_success=_on_success if checkpoint_every > 0 else None,
+        verify_etag=True)
+    elapsed = time.time() - t0
+    if total == 0:
+        sys.exit(f"[{label}] 无文件可传: {local_dir}")
+    print(f"[{label}] ✓ 上传完成 {ok}/{total}, 耗时 {elapsed:.1f}s "
+          f"(较全量少传 {len(all_json) - total} 个)")
+
+    if ok != total:
+        # 失败也把已成功部分刷进 checkpoint(下轮续传), 但 state 保持旧值不写 —— 宁多传不漏传。
+        if ckpt_path is not None:
+            try:
+                _save_ckpt(done_map)
+            except OSError as e:
+                print(f"[{label}] ⚠ checkpoint 落盘失败({e}), 下轮将从断点前续传")
+        print(f"FAILED_FILES: {', '.join(failed_rels)}")
+        sys.exit(1)
+
+    _save_state(sigs, mode, changed_rels)
+    if ckpt_path is not None:
+        try:
+            ckpt_path.unlink(missing_ok=True)  # 全量完成, checkpoint 使命结束清理
+        except OSError:
+            pass
+
+    return ok, total, failed_rels, uploaded_keys
+
+
 def cmd_upload_trade_sim():
     """上传 static-site/trade_sim_*.html 到 R2 trade_sim/ 前缀。
 
@@ -528,11 +853,11 @@ def cmd_upload_trade_sim():
     # 用 exists()(对 broken symlink 返回 False)判断是否真有可上传文件。
     if not any(f.exists() for f in ts_dir.glob("trade_sim_*.html")):
         ts_dir = ROOT / "static-site"
-    ok, total, _, _ = _upload_glob(ts_dir, ["trade_sim_*.html"], "trade_sim")
-    if total == 0:
+    if not any(f.exists() for f in ts_dir.glob("trade_sim_*.html")):
         sys.exit(f"无 trade_sim html: {ts_dir}/trade_sim_*.html")
-    if ok != total:
-        sys.exit(1)
+    # 失败时引擎内部已 print FAILED_FILES + exit 1
+    _incremental_upload(
+        ts_dir, ["trade_sim_*.html"], "trade_sim", ".r2_trade_sim_html_state.json", label="trade-sim")
 
 
 def cmd_upload_trade_sim_json():
@@ -551,11 +876,11 @@ def cmd_upload_trade_sim_json():
     ts_dir = STATIC_DIR / "data/trade_sim"
     if not ts_dir.exists() or not any(ts_dir.glob("*.json")):
         ts_dir = ROOT / "static-site" / "data" / "trade_sim"
-    ok, total, _, uploaded_keys = _upload_glob(ts_dir, ["*.json"], "trade_sim_data")
-    if total == 0:
+    if not any(f.exists() for f in ts_dir.glob("*.json")):
         sys.exit(f"无 trade_sim json: {ts_dir}")
-    if ok != total:
-        sys.exit(1)
+    # 失败时引擎内部已 print FAILED_FILES + exit 1
+    _, _, _, uploaded_keys = _incremental_upload(
+        ts_dir, ["*.json"], "trade_sim_data", ".r2_trade_sim_json_state.json", label="trade-sim-json")
     # 清 CF 边缘缓存(同其他 R2 前缀命令模式):uploaded_keys 含 "trade_sim_data/" 前缀,
     # cache_prefix="/r2/" -> "/r2/trade_sim_data/{id}_stats.json" 匹配 r2ProxyHandler cacheKey。
     # 2026-08-19 补:此前本命令从不 purge, trade_sim JSON 在 CF edge 残留最长 4h,
@@ -571,14 +896,11 @@ def cmd_upload_index():
     intraday_snapshot 盘中会重写本地 index/{iid}-all.json，deploy.sh 调本命令同步 R2。
     """
     idx_dir = STATIC_DIR / "data/index"
-    ok, total, failed_rels, uploaded_keys = _upload_glob(idx_dir, ["*.json"], "index")
-    if total == 0:
+    if not any(f.exists() for f in idx_dir.glob("*.json")):
         sys.exit(f"无 index json: {idx_dir}")
-    if ok != total:
-        # 打印失败文件清单供 intraday_snapshot.sh 抓取引用到告警 body(改动2)。
-        # 格式: FAILED_FILES: rel1, rel2, ... (rel 是相对 static-site/data/index/ 的路径)
-        print(f"FAILED_FILES: {', '.join(failed_rels)}")
-        sys.exit(1)
+    # 失败时引擎内部已 print FAILED_FILES(rel 相对 index/, intraday_snapshot.sh 抓取引用告警 body)+ exit 1
+    _, _, _, uploaded_keys = _incremental_upload(
+        idx_dir, ["*.json"], "index", ".r2_index_state.json", label="index")
     # 清 CF 边缘缓存(同 cmd_upload_industry 模式):uploaded_keys 含 "index/" 前缀,
     # cache_prefix="/r2/" -> "/r2/index/{id}-all.json" 匹配 r2ProxyHandler cacheKey。
     # 不用 "/r2/index/" 否则双 index 致 purge 无效。
@@ -589,121 +911,22 @@ def cmd_upload_etf_hist():
     """上传 static-site/data/etf/*.json 到 R2 etf/ 前缀(#10 ETF 弹窗长历史, 2026-08-22)。
 
     R2 key = etf/{code}-all.json(1532 只全史日K, scripts/export_etf_hist.py 生成)。
-    前端 ETF 评分弹窗 period tab 懒加载 fetchJSON -> https://ss.fx8.store/r2/etf/{code}-all.json
-    (同 cmd_upload_index 模式:硬编码 R2 URL + /r2/ 代理路由)。
-    §8.1 按前缀建独立命令; etf/ 子目录不被 upload-data-large/upload-all-data 的非递归
-    *.json glob 覆盖, 无双副本风险。update_all.sh / deploy.sh 已接入本命令。
+    前端 ETF 评分弹窗 period tab 懒加载 fetchJSON -> https://ss.fx8.store/r2/etf/{code}-all.json。
 
-    增量上传(2026-08-23, 根治 deploy upload-etf-hist 300s 超时告警):
-      背景: export_etf_hist.py 每次(每日 update_all 17:50)无条件重写全部 1532 文件,
-      且 payload 含当天 exported_at 字段 → 文件内容天天变 + 总量随每日新增 K 线累积
-      缓慢变大, 全量 PUT ~87MB 在 run_r2_upload 的超时线上间歇性被 kill 触发告警。
-      机制: 本地状态清单 data/.r2_etf_hist_state.json(code 文件名→数据本体指纹),
-      只传指纹有变化的文件:
-      - 指纹 = md5(json 规范化后序列化, 剔除 exported_at 字段)。为什么不用 size+mtime:
-        export 每天全量重写所有文件 mtime 全变, mtime 口径会天天判「全变」致增量失效;
-        为什么剔除 exported_at: 它天天变但与数据本体无关(前端零消费, 已 grep 核实),
-        不剔除则同样天天判全变。数据本体(ohlc/name/count/date 等)真变了才传,
-        免疫 touch/复制等纯 mtime 抖动。
-      - 首跑/状态缺失或损坏 → 自动退化为全量;
-      - 每周日强制全量一次(防「R2 侧对象丢失/损坏而本地状态无感知」的漂移);
-      - 状态只在全部上传成功后 tmp+os.replace 原子更新;部分失败保持旧状态,
-        下次重传面更大 —— 失败方向宁多传不漏传;
-      - 并发不变(_upload_glob 内置 8 线程); purge_cache 只清本次实际上传的 key。
+    2026-09-15 迁移进通用增量引擎 _incremental_upload(口径零变化):
+      - C 档指纹 _etf_hist_md5 = 剔除 exported_at 后规范化序列化 md5(前端零消费, 已 grep 核实),
+        数据本体(ohlc/name/count/date 等)真变才传, 免疫 export 每天全量重写 mtime 抖动;
+      - 沿用状态文件名 .r2_etf_hist_state.json(旧单字段 {name:md5} 格式引擎 _norm_state_val
+        兼容读取); 首跑/状态损坏退化全量、周日强制全量、原子写状态、宁多传不漏传语义不变;
+      - 新增层2 ETag 对账(本次 PUT 后 HEAD 对 ETag==本地 md5, 不一致判失败)。
+    purge 只清本次实际上传 key(cache_prefix="/r2/")。
     """
     etf_dir = STATIC_DIR / "data/etf"
-    all_json = sorted(p for p in etf_dir.glob("*.json") if p.is_file())
-    if not all_json:
+    if not any(f.exists() for f in etf_dir.glob("*.json")):
         sys.exit(f"无 etf json: {etf_dir} (先跑 scripts/export_etf_hist.py 生成)")
-
-    # 状态清单与数据同仓: X/static-site/data/etf -> X/data/.r2_etf_hist_state.json
-    state_path = etf_dir.parents[2] / "data" / ".r2_etf_hist_state.json"
-    old_files = {}
-    if state_path.exists():
-        try:
-            with open(state_path, "r", encoding="utf-8") as f:
-                st = json.load(f)
-            if isinstance(st.get("files"), dict):
-                old_files = st["files"]
-        except (OSError, ValueError):
-            print(f"[etf-hist] ⚠ 状态清单损坏/不可读({state_path}),退化为全量")
-            old_files = {}
-
-    def _fingerprint(path):
-        """数据本体指纹: json 解析剔除 exported_at 后规范化序列化取 md5。
-        解析失败(截断/坏 json)退化为整文件字节 md5 —— 坏文件必与上次不同 → 触发重传,
-        失败方向宁多勿漏。json.dumps(sort_keys=True) 同一解释器内序列化稳定,
-        若跨版本序列化差异导致误判变化也只是多传, 不漏传。"""
-        raw = None
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                payload = json.load(f)
-            if isinstance(payload, dict):
-                payload.pop("exported_at", None)
-                raw = json.dumps(payload, ensure_ascii=False, sort_keys=True,
-                                 separators=(",", ":"))
-        except (OSError, ValueError):
-            raw = None
-        if raw is None:
-            return hashlib.md5(path.read_bytes()).hexdigest()
-        return hashlib.md5(raw.encode("utf-8")).hexdigest()
-
-    t0 = time.time()
-    sigs = {p.name: _fingerprint(p) for p in all_json}
-    today_weekday = datetime.date.today().weekday()   # Monday=0 ... Sunday=6
-    force_full = (not old_files) or today_weekday == 6
-    if force_full:
-        mode = "周日强制全量" if today_weekday == 6 and old_files else "首次/无状态全量"
-        changed = list(all_json)
-    else:
-        mode = "增量"
-        changed = [p for p in all_json if old_files.get(p.name) != sigs[p.name]]
-    print(f"[etf-hist] 模式={mode} 本次待传 {len(changed)}/{len(all_json)}"
-          f"(其余 {len(all_json) - len(changed)} 个内容未变化跳过)")
-
-    def _save_state(path, sig_map, run_mode):
-        """原子写状态清单(tmp + os.replace, 防半截状态被读到); 仅在上传全部成功后调用。
-        状态重建为本次扫描全集, 本地已删除的条目自然剔除(R2 残留旧 key 无害, 不做删除)。"""
-        new_state = {
-            "version": 1,
-            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "mode": run_mode,
-            "count": len(sig_map),
-            "files": sig_map,
-        }
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = path.with_name(path.name + ".tmp")
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(new_state, f, ensure_ascii=False, sort_keys=True)
-        os.replace(tmp_path, path)
-
-    if not changed:
-        # 增量 0 待传是正常路径(全部内容未变化): 直接完成, 不算失败。
-        # (不能落到下方 total==0 判错 —— 那会让 deploy 把「今天没变化」当上传失败告警)
-        elapsed = time.time() - t0
-        print(f"[etf-hist] ✓ 全部 {len(all_json)} 个内容未变化, 无需上传, 耗时 {elapsed:.1f}s")
-        _save_state(state_path, sigs, mode)
-        return
-
-    ok, total, failed_rels, uploaded_keys = _upload_glob(
-        etf_dir, ["*.json"], "etf", only_files=changed)
-    elapsed = time.time() - t0
-    if total == 0:
-        sys.exit(f"无 etf json 可传: {etf_dir}")
-    print(f"[etf-hist] ✓ 上传完成 {ok}/{total},耗时 {elapsed:.1f}s "
-          f"(较全量少传 {len(all_json) - total} 个)")
-
-    if ok != total:
-        # 有失败:保持旧状态不更新(本次成功的文件下次会重传, 宁多勿漏), 告警交由调用方。
-        print(f"FAILED_FILES: {', '.join(failed_rels)}")
-        sys.exit(1)
-
-    # 全部成功才写状态(部分失败保持旧状态, 下次重传更多 —— 宁多勿漏)。
-    _save_state(state_path, sigs, mode)
-
-    # 清 CF 边缘缓存(同 cmd_upload_index 模式):cache_prefix="/r2/" ->
-    # "/r2/etf/{code}-all.json" 匹配 r2ProxyHandler cacheKey。只 purge 本次实际上传的
-    # key(未变化的文件 R2 上就是最新版, edge 缓存无需失效)。
+    _, _, _, uploaded_keys = _incremental_upload(
+        etf_dir, ["*.json"], "etf", ".r2_etf_hist_state.json",
+        fingerprint=_etf_hist_md5, label="etf-hist")
     purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
@@ -715,172 +938,29 @@ def cmd_upload_fund_nav():
     https://ss.fx8.store/r2/fund_nav/{code}.json(复刻 etf/{code}-all.json 模式:
     worker /r2/ 为通用 key 代理无前缀白名单, 新前缀零 worker 改动)。
     §8.1 按前缀建独立命令; fund_nav/ 子目录不被 upload-data-large/upload-all-data 的
-    非递归 *.json glob 覆盖, 无双副本风险(已核 glob 实现 L809)。已接入 update_all.sh / deploy.sh。
+    非递归 *.json glob 覆盖, 无双副本风险。已接入 update_all.sh / deploy.sh。
 
-    增量指纹上传(复刻 cmd_upload_etf_hist 机制, 简化点):
-      - 指纹 = 整文件字节 md5。export_fund_nav.py **不放 exported_at 字段**(与 etf-hist
-        的差异), 文件内容只在净值序列真变化时变化 -> 无需 json 解析剔除逻辑;
-        清盘老基金序列冻结 -> 内容不变 -> 指纹不变 -> 自然跳过, 每日真重传仅活跃基金。
-      - 首跑/状态缺失或损坏 → 自动退化为全量;
-      - 每周日强制全量一次(防「R2 侧对象丢失而本地状态无感知」漂移, 同 etf-hist);
-      - 状态只在全部上传成功后 tmp+os.replace 原子更新;部分失败保持旧状态下次重传
-        —— 失败方向宁多传不漏传;
-      - 体量提示: 全量 ~514MB(26118 只 x ~26KB), 日增量=当日有新净值的活跃基金
-        (实测 ~23,897 只/91.5%, 2026-08-25 reviewer F3 实证——「清盘冻结跳过」只省 8.5%);
-        上游超时由调用方 run_r2_upload 1800s 承接, 失败不阻塞 deploy 主流程(同 upload-etf-hist)。
-      - **跳过 purge(F3 主控拍板 NO_CACHE 方案, 2026-08-25)**: worker headers.js r2ProxyHandler
-        对 fund_nav/ 前缀 no-store 不查不写 edge cache(先例 dataCacheTtl ttl=0,
-        memory edge-cache-ttl-stretch-no-cache), 前端每次回源 R2 拿最新 -> purge 无意义且
-        日增 2.4 万 keys ≈ 800 批估 27min 会把 deploy 链 1800s 超时 kill, 整个环节省掉。
+    2026-09-15 迁移进通用增量引擎 _incremental_upload(口径零变化):
+      - A 档整文件字节 md5。export_fund_nav.py **不放 exported_at 字段**(与 etf-hist 差异),
+        文件内容只在净值序列真变化时变化; 清盘老基金序列冻结 -> 内容不变 -> 指纹不变 ->
+        自然跳过, 每日真重传仅活跃基金(~91.5%);
+      - 沿用状态文件名 .r2_fund_nav_state.json(旧单字段 {name:md5} 引擎 _norm_state_val 兼容)
+        + checkpoint_every=500 断点续传(治「超时 kill→状态缺失→下次更慢全量→再被 kill」
+        恶性循环), checkpoint 文件 .r2_fund_nav_ckpt.json 同名同仓;
+      - 首跑/状态损坏退化全量、周日强制全量、原子写状态、宁多传不漏传语义不变;
+      - 新增层2 ETag 对账(本次 PUT 后 HEAD 对 ETag==本地 md5, 不一致判失败)。
+      - **跳过 purge(F3 主控拍板 NO_CACHE, 2026-08-25)**: worker 对 fund_nav/ 前缀 no-store
+        不查不写 edge cache, 前端每次回源 R2 拿最新; 日增量 ~2.4 万 keys 的 purge(~27min)
+        会拖垮 deploy 链 1800s 超时 kill, 整个环节省掉。
     """
     nav_dir = STATIC_DIR / "data/fund_nav"
-    all_json = sorted(p for p in nav_dir.glob("*.json") if p.is_file())
-    if not all_json:
+    if not any(f.exists() for f in nav_dir.glob("*.json")):
         sys.exit(f"无 fund_nav json: {nav_dir} (先跑 scripts/export_fund_nav.py 生成)")
-
-    # 状态清单与数据同仓: X/static-site/data/fund_nav -> X/data/.r2_fund_nav_state.json
-    state_path = nav_dir.parents[2] / "data" / ".r2_fund_nav_state.json"
-    # 断点续传 checkpoint(2026-08-25, 治「超时 kill→状态缺失→下次全量 90min→再被 kill」恶性循环):
-    # 每 PUT 成功分片落盘(每 500 只 tmp+fsync+rename), kill 后重跑从断点续传而非从头全量。
-    ckpt_path = nav_dir.parents[2] / "data" / ".r2_fund_nav_ckpt.json"
-    old_files = {}
-    if state_path.exists():
-        try:
-            with open(state_path, "r", encoding="utf-8") as f:
-                st = json.load(f)
-            if isinstance(st.get("files"), dict):
-                old_files = st["files"]
-        except (OSError, ValueError):
-            print(f"[fund-nav] ⚠ 状态清单损坏/不可读({state_path}),退化为全量")
-            old_files = {}
-
-    def _load_ckpt() -> dict:
-        """读上次中断留下的 checkpoint {文件名: 指纹}; 损坏/缺失返回 {}。"""
-        try:
-            with open(ckpt_path, "r", encoding="utf-8") as f:
-                st = json.load(f)
-            return st.get("files") if isinstance(st, dict) and isinstance(st.get("files"), dict) else {}
-        except (OSError, ValueError):
-            return {}
-
-    def _save_ckpt(done_map: dict) -> None:
-        """checkpoint 原子写(tmp + fsync + rename), 崩溃不留半截。"""
-        ckpt_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = ckpt_path.with_name(ckpt_path.name + f".tmp.{os.getpid()}")
-        try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump({"version": 1,
-                           "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                           "count": len(done_map),
-                           "files": done_map}, f, ensure_ascii=False, sort_keys=True)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, ckpt_path)
-        except OSError:
-            try:
-                tmp.unlink(missing_ok=True)
-            except OSError:
-                pass
-            raise
-
-    def _fingerprint(path):
-        """数据本体指纹: 整文件字节 md5(payload 无 exported_at, 内容只在数据变时变)。"""
-        return hashlib.md5(path.read_bytes()).hexdigest()
-
-    t0 = time.time()
-    sigs = {p.name: _fingerprint(p) for p in all_json}
-    today_weekday = datetime.date.today().weekday()   # Monday=0 ... Sunday=6
-    force_full = (not old_files) or today_weekday == 6
-    if force_full:
-        mode = "周日强制全量" if today_weekday == 6 and old_files else "首次/无状态全量"
-        changed = list(all_json)
-    else:
-        mode = "增量"
-        changed = [p for p in all_json if old_files.get(p.name) != sigs[p.name]]
-
-    # 断点续传: 上次中断的 checkpoint 里, 指纹与当前仍一致的文件视为已传成功, 从待传清单剔除
-    # (指纹不一致=导出已重跑内容变了, 必须重传; 一致=R2 侧已是最新内容)。
-    ckpt_files = _load_ckpt()
-    if ckpt_files:
-        resumed_names = {p.name for p in changed if ckpt_files.get(p.name) == sigs[p.name]}
-        n_resumed = len(resumed_names)
-        changed = [p for p in changed if p.name not in resumed_names]
-    else:
-        n_resumed = 0
-    if n_resumed:
-        print(f"[fund-nav] ↩ 断点续传: checkpoint 命中 {n_resumed} 个已上传(跳过), "
-              f"本次实传 {len(changed)} 个")
-
-    print(f"[fund-nav] 模式={mode} 本次待传 {len(changed)}/{len(all_json)}"
-          f"(其余 {len(all_json) - len(changed)} 个内容未变化跳过)")
-
-    def _save_state(path, sig_map, run_mode):
-        """原子写状态清单(tmp + os.replace); 仅在上传全部成功后调用。
-        状态重建为本次扫描全集, 本地已删除条目自然剔除(R2 残留旧 key 无害)。"""
-        new_state = {
-            "version": 1,
-            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "mode": run_mode,
-            "count": len(sig_map),
-            "files": sig_map,
-        }
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = path.with_name(path.name + ".tmp")
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(new_state, f, ensure_ascii=False, sort_keys=True)
-        os.replace(tmp_path, path)
-
-    if not changed:
-        elapsed = time.time() - t0
-        print(f"[fund-nav] ✓ 全部 {len(all_json)} 个内容未变化(或已被 checkpoint 覆盖), "
-              f"无需上传, 耗时 {elapsed:.1f}s")
-        _save_state(state_path, sigs, mode)
-        try:
-            ckpt_path.unlink(missing_ok=True)  # 全部完成, checkpoint 清理
-        except OSError:
-            pass
-        return
-
-    # 分片 checkpoint: 每 PUT 成功记入 done_map, 每 CKPT_EVERY 只原子落盘一次
-    # (每只都落盘太贵——26118 次 rename; kill 后最多重传最近 500 只, 非从头全量)。
-    CKPT_EVERY = 500
-    done_map = dict(ckpt_files)   # 继承旧 checkpoint, 累积本次新成功
-    since_ckpt = 0
-
-    def _on_success(f, rel):
-        nonlocal since_ckpt
-        done_map[str(rel)] = sigs[f.name]
-        since_ckpt += 1
-        if since_ckpt >= CKPT_EVERY:
-            _save_ckpt(done_map)
-            since_ckpt = 0
-
-    ok, total, failed_rels, uploaded_keys = _upload_glob(
-        nav_dir, ["*.json"], "fund_nav", only_files=changed, on_success=_on_success)
-    elapsed = time.time() - t0
-    if total == 0:
-        sys.exit(f"无 fund_nav json 可传: {nav_dir}")
-    print(f"[fund-nav] ✓ 上传完成 {ok}/{total},耗时 {elapsed:.1f}s "
-          f"(较全量少传 {len(all_json) - total} 个)")
-
-    if ok != total:
-        # 失败也把已成功的部分刷进 checkpoint(下轮续传), 但 state 保持旧值不写
-        # ——失败方向宁多传不漏传, checkpoint 只是加速续传不改正确性语义。
-        try:
-            _save_ckpt(done_map)
-        except OSError as e:
-            print(f"[fund-nav] ⚠ checkpoint 落盘失败({e}), 下轮将从断点前续传")
-        print(f"FAILED_FILES: {', '.join(failed_rels)}")
-        sys.exit(1)
-
-    _save_state(state_path, sigs, mode)
-    try:
-        ckpt_path.unlink(missing_ok=True)  # 全量完成, checkpoint 使命结束清理
-    except OSError:
-        pass
-    # 不调 purge_cache(F3): worker 对 fund_nav/ 前缀 no-store(不查不写 edge cache),
-    # 无 edge 缓存可清; 日增量 ~2.4 万 keys 的 purge(~800 批/估 27min)会拖垮 deploy 链 1800s。
-    # 若未来 worker 恢复该前缀缓存, 必须同步恢复本处 purge(两登记点联动)。
+    # 失败时引擎内部已 print FAILED_FILES + exit 1(宁多传不漏传, checkpoint 续传语义在引擎内)
+    _incremental_upload(
+        nav_dir, ["*.json"], "fund_nav", ".r2_fund_nav_state.json",
+        checkpoint_every=500, label="fund-nav")
+    # 不调 purge_cache(F3): 见 docstring。
 
 
 def cmd_upload_industry():
@@ -893,6 +973,9 @@ def cmd_upload_industry():
     R2 key = industry/{原 data/ 下相对路径}，如 industry/industry-all-indices/{iid}.json。
     前端改 fetchJSON ./data/industry-X -> https://ssd.fx8.store/industry/industry-X。
     intraday_snapshot 盘中会重算 write_industry_split 重写本地文件，deploy.sh 调本命令同步 R2。
+
+    2026-09-15 迁增量引擎(A 档整文件 md5, 4 组 glob pattern 保留): 非交易日全省, 盘中/盘后
+    行情天天变时只传变化文件。
     """
     data_dir = STATIC_DIR / "data"
     # 3 个拆分目录 + 扁平 industry-*.json
@@ -902,11 +985,10 @@ def cmd_upload_industry():
         "industry-3y-indices/*",
         "industry-*.json",
     ]
-    ok, total, _, uploaded_keys = _upload_glob(data_dir, patterns, "industry")
-    if total == 0:
+    if not any(f.exists() for pat in patterns for f in data_dir.glob(pat)):
         sys.exit(f"无 industry 文件: {data_dir}/industry-*")
-    if ok != total:
-        sys.exit(1)
+    _, _, _, uploaded_keys = _incremental_upload(
+        data_dir, patterns, "industry", ".r2_industry_state.json", label="industry")
     purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
@@ -915,14 +997,12 @@ def cmd_upload_public_fund():
 
     覆盖当前 5 小样本 + 未来全量品种(public_fund-{id}-holdings-5y.json 等)。
     架构同 lab/index/industry(按路径前缀,非大小阈值),新增品种自动走 R2 零维护。
+    2026-09-15 迁增量引擎(A 档整文件 md5); 无文件=正常(引擎返回 0 待传, 不 purge)。
     """
     data_dir = STATIC_DIR / "data"
-    ok, total, _, uploaded_keys = _upload_glob(data_dir, ["public_fund*.json"], "public_fund")
-    if total == 0:
-        print(f"⚠ 无 public_fund json: {data_dir}/public_fund*.json")
-        return
-    if ok != total:
-        sys.exit(1)
+    _, _, _, uploaded_keys = _incremental_upload(
+        data_dir, ["public_fund*.json"], "public_fund",
+        ".r2_public_fund_state.json", label="public-fund")
     purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
@@ -968,14 +1048,12 @@ def cmd_upload_etf_score():
     3 文件均走 R2 data/ 前缀(前端硬编码 ssd.fx8.store/data/ URL), 不依赖 upload-data-large 阈值。
     §8.1 新类别按前缀建独立命令; upload-data-large exclude etf_score_list_ 防双副本。
     etf_score_list_buy.json ~1.4MB / sell ~1.2MB / hold ~13MB, 均 >1MB 但走独立命令非阈值兜底。
+    2026-09-15 迁增量引擎(A 档整文件 md5): 盘后重算时天天变, 非交易日全省。
     """
     data_dir = STATIC_DIR / "data"
-    ok, total, _, uploaded_keys = _upload_glob(data_dir, ["etf_score_list_*.json"], "data")
-    if total == 0:
-        print(f"⚠ 无 etf_score_list_* json: {data_dir}/etf_score_list_*.json")
-        return
-    if ok != total:
-        sys.exit(1)
+    _, _, _, uploaded_keys = _incremental_upload(
+        data_dir, ["etf_score_list_*.json"], "data",
+        ".r2_etf_score_state.json", label="etf-score")
     purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
@@ -986,14 +1064,14 @@ def cmd_upload_kelly_parts():
     §8.1 新类别按前缀建独立命令(子目录不被 upload-data-large/upload-all-data 的非递归
     *.json glob 覆盖, 必须独立命令)。前端走 /data/ rewrite 原生 URL, R2 key =
     data/signal_kelly_trades_parts/<name>, purge 用默认 cache_prefix="/"(匹配 dataRewriteHandler)。
+    2026-09-15 迁增量引擎(B 档结构化指纹: 剔除 generated_at/period_cutoffs/buy_amount 后
+    md5, 前端零消费已 grep 核实) —— 深历史片(t2019/t2016 等)跨天本体一致可省, 工作日
+    省 ~10-15MB, 非交易日全省。
     """
     parts_dir = STATIC_DIR / "data" / "signal_kelly_trades_parts"
-    ok, total, _, uploaded_keys = _upload_glob(parts_dir, ["*.json"], "data/signal_kelly_trades_parts")
-    if total == 0:
-        print(f"⚠ 无分片文件: {parts_dir}/*.json (先跑 signal_kelly_backtest.py 生成分片)")
-        return
-    if ok != total:
-        sys.exit(1)
+    _, _, _, uploaded_keys = _incremental_upload(
+        parts_dir, ["*.json"], "data/signal_kelly_trades_parts",
+        ".r2_kelly_parts_state.json", fingerprint=_kelly_parts_md5, label="kelly-parts")
     purge_cache(uploaded_keys)
 
 
@@ -1004,14 +1082,12 @@ def cmd_upload_kelly_parts_sdc():
     产物与 NDO(次日开盘)完全独立(signal_kelly_trades_sdc_parts/), 由 signal_kelly_backtest.py
     KELLY_BUY_NEXTDAY=0 生成。§8.1 同规矩独立命令(子目录 glob 不递归); 前端 /data/ rewrite
     R2 key = data/signal_kelly_trades_sdc_parts/<name>, purge 默认 cache_prefix="/"。
+    2026-09-15 迁增量引擎(B 档结构化指纹, 同 kelly-parts)。
     """
     parts_dir = STATIC_DIR / "data" / "signal_kelly_trades_sdc_parts"
-    ok, total, _, uploaded_keys = _upload_glob(parts_dir, ["*.json"], "data/signal_kelly_trades_sdc_parts")
-    if total == 0:
-        print(f"⚠ 无分片文件: {parts_dir}/*.json (先跑 signal_kelly_backtest.py KELLY_BUY_NEXTDAY=0 生成分片)")
-        return
-    if ok != total:
-        sys.exit(1)
+    _, _, _, uploaded_keys = _incremental_upload(
+        parts_dir, ["*.json"], "data/signal_kelly_trades_sdc_parts",
+        ".r2_kelly_sdc_state.json", fingerprint=_kelly_parts_md5, label="kelly-parts-sdc")
     purge_cache(uploaded_keys)
 
 
@@ -1023,18 +1099,59 @@ def cmd_upload_kelly_snapshots():
     *.json glob 覆盖, 必须独立命令)。前端 lab 凯利区「演进」读 ./data/signal_kelly_snapshots/
     index.json(dataRewriteHandler 原生 URL), R2 key = data/signal_kelly_snapshots/<name>,
     purge 用默认 cache_prefix="/"(匹配 dataRewriteHandler)。
+    2026-09-15 迁增量引擎(A 档整文件 md5): 每日新增快照=新文件自然增量, 旧快照不变跳过。
     """
     snap_dir = STATIC_DIR / "data" / "signal_kelly_snapshots"
     if not snap_dir.exists():
         print(f"ℹ 快照目录不存在(尚无快照): {snap_dir}")
         return
-    ok, total, _, uploaded_keys = _upload_glob(snap_dir, ["*.json"], "data/signal_kelly_snapshots")
-    if total == 0:
-        print(f"⚠ 无快照文件: {snap_dir}/*.json (先跑 signal_kelly_snapshot.py 生成快照)")
-        return
-    if ok != total:
-        sys.exit(1)
+    _, _, _, uploaded_keys = _incremental_upload(
+        snap_dir, ["*.json"], "data/signal_kelly_snapshots",
+        ".r2_kelly_snapshots_state.json", label="kelly-snapshots")
     purge_cache(uploaded_keys)
+
+
+# ---- data-large / all-data 文件集划分共享口径(2026-09-15 修双传, 设计文档 §1.1/§3.5) ----
+# 两个命令都扫 static-site/data/ 顶层 *.json, 必须互斥(同 key 双传 = 纯浪费, 每天 ~34MB@4.2Mbps≈68s)。
+# 口径: data-large 传「>=1MB 或 大 range 或 overfit_monitor 前缀」; all-data 传「其余小文件」。
+# 互斥机检断言(data-large ∩ all-data = ∅)见 cmd_verify_r2 内部, 口径常量集中此处防两命令漂移。
+_DATA_EXCLUDE_PREFIXES = ("industry-", "public_fund", "offshore_fund", "fund_score", "etf_score_list")
+# 大 range 文件前端 dataUrl 必走 R2(与 app.js _R2_LARGE_RANGE_RE 同规则), 无大小限制上传
+# (2026-08-03 sentiment-3y 962KB<1MB 漏传致线上 404 修复)
+_LARGE_RANGE_RE = re.compile(r'-(?:all|5y|3y)\.json$')
+LARGE_THRESHOLD = 1 * 1024 * 1024  # 1MB
+
+
+def _is_data_large_file(f):
+    """data-large 上传条件(满足任一): 大 range 文件(前端强制走 R2) / >=1MB 阈值兜底 /
+    overfit_monitor 前缀(首页走势图盘后核心产物, static-site/data/ 已整体 gitignore 移出 git,
+    不传 R2 则备站/主站 /data/ rewrite 拿不到; 2026-08-24 B拆分覆盖主文件+ext)。"""
+    if any(f.name.startswith(p) for p in _DATA_EXCLUDE_PREFIXES):
+        return False
+    try:
+        sz = f.stat().st_size
+    except OSError:
+        return False
+    return (sz >= LARGE_THRESHOLD or bool(_LARGE_RANGE_RE.search(f.name))
+            or f.name.startswith("overfit_monitor"))
+
+
+def _is_all_data_excluded(f):
+    """all-data 排除条件(True=跳过): 独立命令前缀 + signal_kelly_trades + 大 range + overfit_monitor
+    + >=1MB。后两者与 data-large 文件集互斥(修双传, 设计文档 §3.5)。"""
+    name = f.name
+    if any(name.startswith(p) for p in _DATA_EXCLUDE_PREFIXES):
+        return True
+    if name.startswith("signal_kelly_trades"):
+        return True
+    if _LARGE_RANGE_RE.search(name):
+        return True
+    if name.startswith("overfit_monitor"):
+        return True
+    try:
+        return f.stat().st_size >= LARGE_THRESHOLD
+    except OSError:
+        return False
 
 
 def cmd_upload_data_large():
@@ -1052,51 +1169,14 @@ def cmd_upload_data_large():
        无大小限制上传(架构一致性; 2026-08-03 sentiment-3y 962KB<1MB 漏传致线上 404 修复)。
     2. >=1MB 的大文件: 阈值兜底,小文件留 git 减 R2 请求延迟。
     新增大文件自动覆盖（glob + 过滤，无需维护硬编码清单）。
+
+    2026-09-15 迁增量引擎(A 档整文件 md5, 顺手改串行自写循环 → 8 线程): 稳定件
+    (kelly_loss_features 等)跨天不变自然跳过, 工作日省稳定件, 非交易日全省。
     """
     data_dir = STATIC_DIR / "data"
-    LARGE_THRESHOLD = 1 * 1024 * 1024  # 1MB
-    # 大 range 文件前端 dataUrl 必走 R2(与 app.js _R2_LARGE_RANGE_RE 同规则), 无大小限制上传
-    _LARGE_RANGE_RE = re.compile(r'-(?:all|5y|3y)\.json$')
-    # 排除已走独立 R2 前缀的（industry-/public_fund/offshore_fund/fund_score/etf_score_list 由各自命令处理）
-    # P0-2: etf_score_list (无下划线)同时排除旧单文件 etf_score_list.json 和新拆分 etf_score_list_*.json,
-    # 旧文件不再生成但本地可能残留, upload-etf-score 只上传 etf_score_list_*.json(下划线 glob)
-    exclude_prefixes = ("industry-", "public_fund", "offshore_fund", "fund_score", "etf_score_list")
-    files = []
-    for f in sorted(data_dir.glob("*.json")):
-        if any(f.name.startswith(p) for p in exclude_prefixes):
-            continue
-        try:
-            sz = f.stat().st_size
-        except OSError:
-            continue
-        # 大 range 文件(前端强制走 R2)或 >=1MB 的大文件才上传 R2
-        # overfit_monitor* 例外: 首页走势图盘后核心产物(需走 R2),
-        # static-site/data/ 已整体 gitignore 移出 git, 不传 R2 则备站/主站 /data/ rewrite 拿不到。
-        # 2026-08-24 B拆分: 前缀匹配覆盖主文件+ext(by_k/filtered_by_k 拆 overfit_monitor_ext.json)。
-        _OVERFIT_FORCE = f.name.startswith("overfit_monitor")
-        if sz >= LARGE_THRESHOLD or _LARGE_RANGE_RE.search(f.name) or _OVERFIT_FORCE:
-            files.append(f)
-    if not files:
-        print(f"⚠ 无 >{LARGE_THRESHOLD // 1024}KB 的顶层 .json: {data_dir}")
-        return
-    ok = 0
-    uploaded_keys = []
-    total = len(files)
-    for i, f in enumerate(files, 1):
-        key = f"data/{f.name}"
-        payload = f.read_bytes()
-        size = len(payload)
-        try:
-            status, data = s3_request("PUT", key, payload)
-            if status == 200:
-                ok += 1
-                uploaded_keys.append(key)
-                print(f"[{i}/{total}] ✓ {f.name} ({size // 1024}KB)")
-            else:
-                print(f"[{i}/{total}] ✗ {f.name} status={status} {data[:200]}")
-        except Exception as e:
-            print(f"[{i}/{total}] ✗ {f.name} 异常({type(e).__name__}: {e})")
-    print(f"共上传 {ok}/{total} -> {PUBLIC}/data/")
+    _, _, _, uploaded_keys = _incremental_upload(
+        data_dir, ["*.json"], "data", ".r2_data_large_state.json",
+        exclude_fn=lambda f: not _is_data_large_file(f), label="data-large")
     # 清 CF 边缘缓存(同 cmd_upload_industry 模式):uploaded_keys 含 "data/" 前缀,
     # cache_prefix="/r2/" -> "/r2/data/{name}" 匹配 r2ProxyHandler cacheKey。
     # 不用 "/r2/data/" 否则双 data 致 purge 无效。
@@ -1257,42 +1337,22 @@ def cmd_upload_all_data():
       - offshore_fund* (upload-offshore-fund -> offshore_fund/ 前缀; 定时链已停用 P2-15, exclude 保留防手动场景双副本)
       - fund_score* (upload-fund-score -> fund_score/ 前缀)
       - etf_score_list* (upload-etf-score -> data/ 前缀,独立命令已处理)
-      - signal_kelly_trades* (5.84MB >=1MB,upload-data-large 已覆盖,防双副本)
+      - signal_kelly_trades* (>=1MB,upload-data-large 已覆盖,防双副本)
       - signal_kelly_trades_parts/ 子目录(upload-kelly-parts 独立命令; *.json glob 不递归天然不匹配,此处记录防漏)
       - signal_kelly_snapshots/ 子目录(upload-kelly-snapshots 独立命令; *.json glob 不递归天然不匹配,此处记录防漏)
       - 大 range 文件 *-{all,5y,3y}.json (upload-data-large -> data/ 前缀)
+      - **>=1MB 或 overfit_monitor 前缀**(upload-data-large 已覆盖, 2026-09-15 修双传 §1.1:
+        原口径漏排 >=1MB 文件, 与 data-large 每天双传同 key ~34MB; 现两命令文件集互斥)
       - .gz 不再生成(CF 自动 br 压缩替代),只传 *.json pattern
       - feed.xml: 非 .json,*.json glob 天然不匹配
-    复用 _upload_glob 8 线程并发上传。
+    2026-09-15 迁增量引擎(A 档整文件 md5): purge 只清本次实际上传 key(未变化文件 R2 已最新)。
     """
     data_dir = STATIC_DIR / "data"
-    # 排除已在独立命令处理的文件前缀(和 cmd_upload_data_large exclude_prefixes 一致)
-    # signal_kelly_trades: 5.84MB >=1MB,upload-data-large 已覆盖,避免双副本上传
-    exclude_prefixes = (
-        "industry-", "public_fund", "offshore_fund", "fund_score", "etf_score_list",
-        "signal_kelly_trades",
-    )
-    # 排除大 range 文件(upload-data-large 已处理)
-    _LARGE_RANGE_RE = re.compile(r'-(?:all|5y|3y)\.json$')
-
-    def _exclude_fn(f):
-        name = f.name
-        if any(name.startswith(p) for p in exclude_prefixes):
-            return True
-        if _LARGE_RANGE_RE.search(name):
-            return True
-        return False
-
-    ok, total, _, _ = _upload_glob(data_dir, ["*.json"], "data", exclude_fn=_exclude_fn)
-    if total == 0:
-        print(f"⚠ 无小 .json 文件: {data_dir}/*.json")
-        return
-    if ok != total:
-        sys.exit(1)
-    # 阶段2：上传成功后清 CF 边缘缓存（purge_cache 失败不中断）
-    purge_keys = [f"data/{f.name}" for f in sorted(set(data_dir.glob("*.json")))
-                  if not _exclude_fn(f) and f.exists()]
-    purge_cache(purge_keys)
+    _, _, _, uploaded_keys = _incremental_upload(
+        data_dir, ["*.json"], "data", ".r2_all_data_state.json",
+        exclude_fn=_is_all_data_excluded, label="all-data")
+    # 阶段2：上传成功后清 CF 边缘缓存（purge_cache 失败不中断; 只 purge 本次实际上传 key）
+    purge_cache(uploaded_keys)
 
 
 def cmd_upload_intraday():
@@ -1699,7 +1759,184 @@ def cmd_download_latest_db(name, out_dir=None):
     return str(db_path)
 
 
+# ---- verify-r2 通道登记表(2026-09-15, 层3 防漏传对账) ----
+# 每通道: label / local_dir(可调用, 镜像 cmd_upload_* 的 ROOT 回退) / patterns / r2_prefix /
+# state_name(读 changed 字段做平日增量对账) / exclude_fn(镜像各通道口径) / sample(平日抽样上限,
+# None=全量; fund-nav 平日抽样 100, 周日全量)。
+def _resolve_lab_dir():
+    lab = STATIC_DIR / "data/lab"
+    if not lab.exists() or not any(lab.glob("*.json")):
+        lab = ROOT / "static-site" / "data" / "lab"
+    return lab
+
+
+def _resolve_trade_sim_html_dir():
+    ts_dir = STATIC_DIR
+    if not any(f.exists() for f in ts_dir.glob("trade_sim_*.html")):
+        ts_dir = ROOT / "static-site"
+    return ts_dir
+
+
+def _resolve_trade_sim_json_dir():
+    ts_dir = STATIC_DIR / "data/trade_sim"
+    if not ts_dir.exists() or not any(ts_dir.glob("*.json")):
+        ts_dir = ROOT / "static-site" / "data" / "trade_sim"
+    return ts_dir
+
+
+_R2_CHANNELS = [
+    {"label": "lab", "local_dir": _resolve_lab_dir, "patterns": ["*.json"], "r2_prefix": "lab",
+     "state_name": ".r2_lab_state.json"},
+    {"label": "trade-sim", "local_dir": _resolve_trade_sim_html_dir, "patterns": ["trade_sim_*.html"],
+     "r2_prefix": "trade_sim", "state_name": ".r2_trade_sim_html_state.json"},
+    {"label": "trade-sim-json", "local_dir": _resolve_trade_sim_json_dir, "patterns": ["*.json"],
+     "r2_prefix": "trade_sim_data", "state_name": ".r2_trade_sim_json_state.json"},
+    {"label": "index", "local_dir": lambda: STATIC_DIR / "data/index", "patterns": ["*.json"],
+     "r2_prefix": "index", "state_name": ".r2_index_state.json"},
+    {"label": "etf-hist", "local_dir": lambda: STATIC_DIR / "data/etf", "patterns": ["*.json"],
+     "r2_prefix": "etf", "state_name": ".r2_etf_hist_state.json"},
+    {"label": "fund-nav", "local_dir": lambda: STATIC_DIR / "data/fund_nav", "patterns": ["*.json"],
+     "r2_prefix": "fund_nav", "state_name": ".r2_fund_nav_state.json", "sample": 100},
+    {"label": "industry", "local_dir": lambda: STATIC_DIR / "data",
+     "patterns": ["industry-all-indices/*", "industry-5y-indices/*", "industry-3y-indices/*", "industry-*.json"],
+     "r2_prefix": "industry", "state_name": ".r2_industry_state.json"},
+    {"label": "public-fund", "local_dir": lambda: STATIC_DIR / "data", "patterns": ["public_fund*.json"],
+     "r2_prefix": "public_fund", "state_name": ".r2_public_fund_state.json"},
+    {"label": "etf-score", "local_dir": lambda: STATIC_DIR / "data", "patterns": ["etf_score_list_*.json"],
+     "r2_prefix": "data", "state_name": ".r2_etf_score_state.json"},
+    {"label": "kelly-parts", "local_dir": lambda: STATIC_DIR / "data/signal_kelly_trades_parts", "patterns": ["*.json"],
+     "r2_prefix": "data/signal_kelly_trades_parts", "state_name": ".r2_kelly_parts_state.json"},
+    {"label": "kelly-parts-sdc", "local_dir": lambda: STATIC_DIR / "data/signal_kelly_trades_sdc_parts", "patterns": ["*.json"],
+     "r2_prefix": "data/signal_kelly_trades_sdc_parts", "state_name": ".r2_kelly_sdc_state.json"},
+    {"label": "kelly-snapshots", "local_dir": lambda: STATIC_DIR / "data/signal_kelly_snapshots", "patterns": ["*.json"],
+     "r2_prefix": "data/signal_kelly_snapshots", "state_name": ".r2_kelly_snapshots_state.json"},
+    {"label": "data-large", "local_dir": lambda: STATIC_DIR / "data", "patterns": ["*.json"],
+     "r2_prefix": "data", "state_name": ".r2_data_large_state.json",
+     "exclude_fn": lambda f: not _is_data_large_file(f)},
+    {"label": "all-data", "local_dir": lambda: STATIC_DIR / "data", "patterns": ["*.json"],
+     "r2_prefix": "data", "state_name": ".r2_all_data_state.json", "exclude_fn": _is_all_data_excluded},
+]
+
+
+def _assert_no_double_upload(data_dir):
+    """机检断言 all-data 文件集 ∩ data-large 文件集 = ∅(设计文档 §4 风险8 / §7 验收②)。"""
+    large = set()
+    small = set()
+    for f in sorted(data_dir.glob("*.json")):
+        if f.exists():
+            if _is_data_large_file(f):
+                large.add(f.name)
+            if not _is_all_data_excluded(f):
+                small.add(f.name)
+    overlap = large & small
+    if overlap:
+        print(f"[verify-r2] ✗ 双传互斥断言 FAIL: {sorted(overlap)} 同时落入 data-large 与 all-data")
+        return False
+    print(f"[verify-r2] ✓ 双传互斥断言 PASS(data-large {len(large)} 文件 ∩ all-data {len(small)} 文件 = ∅)")
+    return True
+
+
+def cmd_verify_r2():
+    """verify-r2 周期全量对账(层3 防漏传机检, 设计文档 §3.4)。
+
+    周日(weekday==6)全量对账: 每通道 HEAD 每个本地文件的 R2 key, ETag != 本地整文件 md5
+    或 404(本地有 R2 无)→ 自动补传(_upload_glob only_files + 层2 ETag 对账)。R2 有本地无
+    → 不删(残留无害; list-type-2 单页 1000 上限且残留无害, 不做 LIST 枚举孤儿 key)。
+    平日只对账当日增量通道的 key 清单(读状态文件 changed 字段, 秒级; fund-nav 抽样 100)。
+    补传失败 → exit 1 → deploy.sh R2_FAIL 收尾 notify(层4 告警链)。
+    另含双传互斥断言(data-large ∩ all-data = ∅)。
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    today_weekday = datetime.date.today().weekday()
+    full = today_weekday == 6
+    print(f"[verify-r2] 模式={'周日全量对账' if full else '平日增量对账'}")
+
+    if not _assert_no_double_upload(STATIC_DIR / "data"):
+        print("[verify-r2] ✗ 双传互斥断言 FAIL → 中止(exit 1), 走 deploy.sh R2_FAIL 收尾 notify")
+        sys.exit(1)
+
+    repaired_total = 0
+    repair_failed = []
+
+    for ch in _R2_CHANNELS:
+        label = ch["label"]
+        local_dir = ch["local_dir"]()
+        r2_prefix = ch["r2_prefix"]
+        if not local_dir.exists():
+            print(f"[verify-r2] {label}: 本地目录不存在 {local_dir}, 跳过")
+            continue
+        # 收集本地文件(glob + exclude_fn + broken 过滤, 与引擎同口径)
+        files = []
+        for pat in ch["patterns"]:
+            files.extend(local_dir.glob(pat))
+        files = sorted(set(files))
+        if ch.get("exclude_fn"):
+            files = [f for f in files if not ch["exclude_fn"](f)]
+        files = [f for f in files if f.exists()]
+        if not files:
+            continue
+
+        if full:
+            to_check = files
+        else:
+            # 平日: 只对账当日增量 key(状态文件 changed 字段)
+            state_path = STATIC_DIR.parent / "data" / ch["state_name"]
+            changed_rels = set()
+            if state_path.exists():
+                try:
+                    with open(state_path, "r", encoding="utf-8") as f:
+                        st = json.load(f)
+                    changed_rels = set(st.get("changed") or [])
+                except (OSError, ValueError):
+                    changed_rels = set()
+            to_check = [f for f in files if str(f.relative_to(local_dir)) in changed_rels]
+            if ch.get("sample") and len(to_check) > ch["sample"]:
+                to_check = to_check[:ch["sample"]]
+        if not to_check:
+            print(f"[verify-r2] {label}: 无需对账 key, 跳过")
+            continue
+
+        def _check(f):
+            rel = str(f.relative_to(local_dir))
+            key = f"{r2_prefix}/{rel}"
+            try:
+                local_md5 = _file_md5(f)
+            except OSError:
+                return f, True  # 本地读失败, 视为一致跳过(不判失败)
+            _st, etag = s3_head(key)
+            ok = etag is not None and etag.strip('"') == local_md5
+            return f, ok
+
+        mismatches = []
+        ch_checked = 0
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futures = [pool.submit(_check, f) for f in to_check]
+            for fut in as_completed(futures):
+                f, ok = fut.result()
+                ch_checked += 1
+                if not ok:
+                    mismatches.append(f)
+        if mismatches:
+            print(f"[verify-r2] {label}: 发现 {len(mismatches)} 个不一致/缺失 key(共查 {ch_checked}), 自动补传")
+            ok, total, failed_rels, _ = _upload_glob(
+                local_dir, ch["patterns"], r2_prefix, only_files=mismatches, verify_etag=True)
+            repaired_total += ok
+            if ok != total:
+                repair_failed.extend(f"{label}/{r}" for r in failed_rels)
+        else:
+            print(f"[verify-r2] {label}: 共查 {ch_checked} key 全部一致 ✓")
+
+    if repair_failed:
+        print(f"FAILED_FILES: {', '.join(repair_failed)}")
+        sys.exit(1)
+    print(f"[verify-r2] ✓ 对账完成, 自动补传 {repaired_total} 个")
+
+
 if __name__ == "__main__":
+    # --dry-run 全局标志(验收自测): 引擎只打印「将传 N/M」不 PUT(不写状态, 不 purgate)。
+    if "--dry-run" in sys.argv:
+        _DRY_RUN = True
+        sys.argv = [a for a in sys.argv if a != "--dry-run"]
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     guard_repo_default(cmd)                     # #75 分级闸:REPO 缺省且非白名单命令 → exit 3
     if cmd == "list":
@@ -1758,6 +1995,9 @@ if __name__ == "__main__":
     elif cmd == "purge-low-freq":
         # purge-low-freq  deploy 末尾统一 purge 低频文件(决策清单项5, 2026-08-18)
         cmd_purge_low_freq()
+    elif cmd == "verify-r2":
+        # verify-r2  周期全量对账(层3 防漏传机检): 周日全量对账+平日增量对账, deploy.sh 每日调用
+        cmd_verify_r2()
     elif cmd == "upload-db":
         cmd_upload_db()
     elif cmd == "upload-claude-backup":
@@ -1790,5 +2030,5 @@ if __name__ == "__main__":
             "upload-fund-nav|upload-data-large|upload-kelly-parts|upload-kelly-parts-sdc|upload-db|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup|"
             "upload-claude-backup [path]|upload-decommissioned <local> <key_name>|"
-            "upload-all-data|upload-intraday|purge-low-freq]"
+            "upload-all-data|upload-intraday|purge-low-freq|verify-r2]"
         )
