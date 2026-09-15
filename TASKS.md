@@ -11,7 +11,7 @@
 **最后更新**(2026-09-15 周一 16:1x):✅ **外审 review 门禁链路恢复并端到端验证通过**。背景:v1.1.17/v1.1.18 外审被跳过(门禁 retry 风暴 + claude 回传静默断链)。本轮 fix 全在 main(main==origin/main==`c457a8b09`):①`07de081ff` 外审模型钉深(deepseek-v4-pro-0813)+重试风暴根治 +`fc18cc3be` 终态 request 的 git ref 泄漏清理 ②`c7077c37f` **PIPE 满死锁根治**(spawn stdout/stderr=PIPE 却只在退出后排水,子进程写满 64KB 永久卡死→改文件重定向)③`6e2c9dc20` **claude 回传静默断链 P1**(is_already_processed 误短路 claude 队列,消费者永不 spawn→短路仅对 codex 队列)④`a56be8e04` plist 单一事实源归位 launchd/(删 scripts/ 重复 + 补齐 CLAUDE_BIN/CODEX_REVIEWER_MODEL/PYTHONUNBUFFERED)⑤`c457a8b09` claude 消费者预算 0.50→5.00(deepseek 下不够烧,exit=1)。**mini test(2 commit)全链路验证全绿**:watcher 接单→codex 外审(deepseek)→报告落盘→claude 回传 spawn→**claude 消费者回执 exit=0**→ref 清理;外审 FAIL 的 4 findings(P1/P2x2/P3)经 claude 消费者逐条复核已全部修复。
 **✅ codex 缓存命中修复(2026-09-15 实测)**:根因=非默认 `disable_response_storage=true`(关服务器 response storage,炸掉 Responses API 多轮前缀缓存);改回默认 `false` 后同 2-commit 外审 token **143,207→97,995(−32%)**、无接口报错、verdict/回传/ref 链路正常,已保留(bak: `~/.codex/config.toml.bak-cachetest-20260915-162351`)。进一步候选(未做):codex base_url 改走 thinking_proxy 127.0.0.1:8899 借 cache_control,可能再提命中,但需验 bailian 兼容性。
 **前序**(2026-09-12,详见 docs/archive/TASKS-handoff-20260912.md):✅ 8 项 reviewer 非阻断小项打包上线(main-merge 20260912-a585)+README 角标 2.5 语义同步 + #91 次日开盘口径核销。
-**待办指针**:#65 四档升级判定源 hs300→cyb 待拍板;#98 CodeGraph ui 待官方发包;v1.1.16..v1.1.18 外审补审(263 commits)待定预算/范围;codex 缓存命中优化(上);`feat/lof-path-absolute-align` 分支 ahead of origin by 2(重复 commit)待 main-merge 收尾。
+**待办指针**:#108 四档升级判定源 hs300→cyb 待拍板;#98 CodeGraph ui 待官方发包;v1.1.16..v1.1.18 外审补审(263 commits)待定预算/范围;codex 缓存命中优化(上);`feat/lof-path-absolute-align` 分支 ahead of origin by 2(重复 commit)待 main-merge 收尾。
 
 ## 📋 待办（2026-08-20 治理后:全移 todolist,本文件无活跃 checkbox）
 
