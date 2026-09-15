@@ -246,6 +246,13 @@ def _is_sw_ths_source(idx):
 def run(date=None, verbose=True, steps=None):
     if date is None:
         date = last_trading_day()
+        # 门控(2026-09-15,对齐 index_backfill.main 的 now.hour<15 回退):last_trading_day()
+        # 在交易日当天未收盘(<15:00)仍返回今日,凌晨/盘前补跑(如 self_heal 00:07)会拿
+        # 未开盘日期当目标,三源当日行必然空 -> 10 条「指数今日数据缺失」warn 误报。
+        # 未收盘回退前一交易日(补昨天);盘后 17:50 now.hour>=15 不回退(补当日收盘)。
+        _now = dt.datetime.now()
+        if date == _now.strftime("%Y%m%d") and _now.hour < 15:
+            date = last_trading_day(_now.date() - dt.timedelta(days=1))
     cfg = fetchers.load_config()
     ok = fail = 0
     details = []
