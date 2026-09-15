@@ -706,6 +706,18 @@ def launchctl_loaded(label):
     return bool(re.search(r"^\s*state = .+$", r.stdout, re.MULTILINE))
 
 
+def not_loaded_help(label):
+    """未加载告警的「探测描述 + 恢复命令」文案(按平台, 与 launchctl_loaded 同映射)。
+    云上 Linux systemd 不存在 launchctl, 恢复建议须给 systemctl restart <unit>.service;
+    macOS 保持 launchctl bootstrap ~/Library/LaunchAgents/<label>.plist。
+    """
+    if shutil.which("systemctl"):
+        unit = label.replace("com.trade.", "trade-", 1) + ".service"
+        return (f"systemctl is-active {unit} 未加载", f"systemctl restart {unit}")
+    return (f"launchctl print gui/{os.getuid()}/{label} 未加载",
+            f"launchctl bootstrap ~/Library/LaunchAgents/{label}.plist")
+
+
 for _label in LAUNCHCTL_LABELS:
     if launchctl_loaded(_label):
         continue  # 已加载，不 add seen（让恢复检测处理 active/pending->recovered）
@@ -720,16 +732,16 @@ for _label in LAUNCHCTL_LABELS:
             "last_alerted": None,
             "consecutive_count": 1,
             "keyword": "not_loaded",
-            "line_sample": f"launchctl print gui/{os.getuid()}/{_label} 未加载",
+            "line_sample": not_loaded_help(_label)[0],
             "tier": "self_heal",
         }
         print(f"[self_heal pending] {_label} 未加载(自愈类), 连续1/{SELF_HEAL_THRESHOLD}, 暂不通知")
     elif _existing.get("status") == "pending":
         _nl_count = _existing.get("consecutive_count", 0) + 1
         if _nl_count >= SELF_HEAL_THRESHOLD:
+            _detect_desc, _recover_cmd = not_loaded_help(_label)
             alerts.append(
-                f"SEVERE: {_label} 未加载，需 launchctl bootstrap "
-                f"~/Library/LaunchAgents/{_label}.plist 恢复"
+                f"SEVERE: {_label} 未加载，需 {_recover_cmd} 恢复"
             )
             _existing["status"] = "active"
             _existing["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
