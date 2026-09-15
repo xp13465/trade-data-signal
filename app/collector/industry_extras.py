@@ -12,10 +12,16 @@ clist 端点（fs=m:90 t:2）按名称匹配获取，固化在 SW_EM_MAP 里。
 - ind_turn_<sw_id>   换手率（%）
 成交额已在 index_daily.amount（F1 的 index_hist_sw 返回），不重复采集。
 """
+import sqlite3
 import time
+from pathlib import Path
 
 from .base import em_get, safe_call
 from ..db import get_conn
+
+# stock_daily.db（baostock_daily_raw 换手率聚合原料库）
+_DATA_DIR = Path(__file__).absolute().parent.parent.parent / "data"
+STOCK_DB_PATH = _DATA_DIR / "stock_daily.db"
 
 # 申万一级 801xxx → 东财行业板块 BKxxxx 映射（2026-07 通过 clist 按名称匹配获取）
 SW_EM_MAP = {
@@ -56,7 +62,8 @@ SW_EM_MAP = {
 # (RemoteDisconnected)，ind_flow_sw_* / ind_turn_sw_* 0710 起采不到。
 # base.py 已关系统代理(NO_PROXY=*)仍被封，疑 IP 级封锁非代理问题。
 # 资金流已换同花顺 stock_board_industry_summary_ths（见 _fetch_fund_flow_ths）。
-# 换手率 fetch_turnover 暂留东财（kline 部分可用，非必痛点）。
+# 换手率已换 baostock 全A日线聚合（2026-09-15，东财 kline 云上 IP 封禁，见
+# fetch_turnover_baostock）；旧 fetch_turnover 保留供东财解封后回切。
 # 东财 IP 解封后可回切：把 collect_industry_extras 资金流段改回 fetch_fund_flow。
 FFLOW_URL = "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
 KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
@@ -378,7 +385,8 @@ def _fetch_fund_flow_ths():
 
 
 def fetch_turnover(em_code, beg="20240101", end="20261231"):
-    """行业换手率历史。返回 [(date_yyyymmdd, value_pct), ...]。
+    """[已弃用 2026-09-15] 东财 kline f61 行业换手率，云上 IP 封禁，改用
+    fetch_turnover_baostock()。保留供东财解封后回切。
 
     kline: f51=日期...f61=换手率（%）。beg/end 控制范围。
     """
@@ -412,12 +420,72 @@ def fetch_turnover(em_code, beg="20240101", end="20261231"):
     return rows, "ok"
 
 
+def fetch_turnover_baostock(sw_id, beg="20240101", end="20261231"):
+    """行业换手率历史（baostock 全 A 日线 + 申万成分聚合）。返回 [(date_yyyymmdd, value_pct), ...]。
+
+    换源背景（2026-09-15）：东财 push2his kline（原 fetch_turnover）被云上 IP 封禁，
+    31 行业换手率 ind_turn_* 自 09-08 起全缺。改用本地 stock_daily.db 的
+    baostock_daily_raw 聚合，零新网络数据源（baostock 已每日增量采，走 turnover_backfill）。
+
+    公式（2026-09-15 对账东财 kline f61 旧值，11 行业平均偏差 1.5%/最大 3.8%）：
+        行业换手率(%) = Σ(成分股成交量 volume) / Σ(成分股成交量 / 个股换手率 turnover)
+    即「行业总成交量 / 行业总流通股本 × 100」（流通股本加权、每股等权，**非市值加权**）。
+    个股 turnover 单位已为 %（如 0.202 表 0.202%），volume 单位为股。同口径东财 f61
+    即行业指数换手率（总成交量/总流通股本），故对账偏差 < 4% 而非市值加权的 61%。
+
+    成分：复用 industry_width.load_components()（legulegu 源 data/sw_components.json，
+    与 F3 行业内宽度同一份映射，§22 一致性），不再逐行业调 index_component_sw。
+
+    注意：baostock 为 T+1 盘后数据，当日换手率需等 baostock_daily 增量（turnover_backfill）
+    跑完后才可聚合；提前跑会缺当日成分股日线（聚合值偏低）。
+    """
+    from .industry_width import load_components
+
+    # sw_801010 -> 801010（sw_components.json 的 key 不带 sw_ 前缀，同 queries.py L1992）
+    ind_code = sw_id[3:] if sw_id.startswith("sw_") else sw_id
+    comps = load_components().get(ind_code)
+    if not comps:
+        return [], f"no components for {sw_id}"
+
+    qmarks = ",".join("?" for _ in comps)
+    conn = sqlite3.connect(STOCK_DB_PATH, timeout=30.0)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            f"SELECT date, volume, turnover FROM baostock_daily_raw "
+            f"WHERE date >= ? AND date <= ? AND code IN ({qmarks})",
+            [beg, end] + comps,
+        ).fetchall()
+    finally:
+        conn.close()
+
+    # 按日期聚合：Σvolume / Σ(volume/turnover)
+    agg = {}  # date -> (sum_vol, sum_vol_over_turn)
+    for r in rows:
+        v = r["volume"]
+        t = r["turnover"]
+        if v is None or t is None or t <= 0:
+            continue
+        d = r["date"]
+        sv, st = agg.get(d, (0.0, 0.0))
+        agg[d] = (sv + v, st + v / t)
+
+    out = []
+    for d in sorted(agg):
+        sv, st = agg[d]
+        if st <= 0:
+            continue
+        out.append((d, sv / st))
+    return out, f"ok ({len(out)} days, {len(comps)} comps)"
+
+
 def collect_industry_extras(verbose=True):
     """采集 31 个申万一级行业的资金流 + 换手率，入 daily_metric。
 
     资金流：同花顺 stock_board_industry_summary_ths（1 次 API 拿 90 子行业 ->
     聚合 31 申万一级）。东财 IP 封后 2026-07-13 换源。
-    换手率：东财 kline（暂留东财，非必痛点；封 IP 时连续失败提前结束）。
+    换手率：baostock 全A日线 + 申万成分聚合（2026-09-15 换源，东财 kline 云上 IP
+    封禁，见 fetch_turnover_baostock）。
     成交额已在 index_daily.amount（F1），不重复采。
     """
     from ..calendar import last_trading_day
@@ -455,11 +523,11 @@ def collect_industry_extras(verbose=True):
         log_collect(today, "industry_extras", "warn",
                     f"同花顺资金流采集失败: {msg}")
 
-    # ── 换手率：东财 kline（暂不换源，IP 封时连续失败提前结束）──
+    # ── 换手率：baostock 全A日线 + 申万成分聚合（2026-09-15 换源，东财 kline 封 IP）──
     consec_fail = 0
     ABORT_THRESHOLD = 3
-    for i, (sw_id, em_code) in enumerate(items):
-        rows, tmsg = fetch_turnover(em_code)
+    for i, (sw_id, _em_code) in enumerate(items):
+        rows, tmsg = fetch_turnover_baostock(sw_id)
         turn_ok = bool(rows)
         if turn_ok:
             _upsert_many(f"ind_turn_{sw_id}", rows)
@@ -479,15 +547,15 @@ def collect_industry_extras(verbose=True):
             if consec_fail >= ABORT_THRESHOLD:
                 skip_n = len(items) - i - 1
                 details.append(("industry_extras", "skip",
-                                f"连续{ABORT_THRESHOLD}换手率失败(东财封IP),跳过剩余{skip_n}"))
+                                f"连续{ABORT_THRESHOLD}换手率失败(baostock聚合),跳过剩余{skip_n}"))
                 if verbose:
-                    print(f"  ⚠ 连续{ABORT_THRESHOLD}个换手率失败(东财封IP),提前结束剩余{skip_n}个", flush=True)
-                # 2026-09-02 提速分析:连续失败提前结束=28 行业 ind_turn 静默缺口(数据
-                # 缺失,前端换手率展示无值)。此前只有 details skip + stdout,无告警上报,
-                # 运维不看 stdout 即无感知 → 补 log_collect warn(与上方同花顺失败同通道)。
+                    print(f"  ⚠ 连续{ABORT_THRESHOLD}个换手率失败(baostock聚合),提前结束剩余{skip_n}个", flush=True)
+                # 连续失败提前结束=剩余行业 ind_turn 缺口(数据缺失,前端换手率展示无值)。
+                # 换源 baostock 后失败根因通常是 baostock_daily_raw 当日增量未跑/成分缺失,
+                # 补 log_collect warn(与上方同花顺失败同通道)供运维感知。
                 log_collect(today, "industry_extras", "warn",
-                            f"东财换手率连续{ABORT_THRESHOLD}个失败(疑似封IP),提前结束,"
-                            f"跳过剩余{skip_n}个行业(ind_turn缺口),下轮采集前需核查")
+                            f"换手率连续{ABORT_THRESHOLD}个失败(baostock聚合,疑似日线未更新),提前结束,"
+                            f"跳过剩余{skip_n}个行业(ind_turn缺口),下轮采集前需核查 turnover_backfill")
                 break
         else:
             consec_fail = 0

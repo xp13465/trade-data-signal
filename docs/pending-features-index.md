@@ -139,6 +139,14 @@
 
 > 本模块 #73(8代宽基四档展示)已完成:移入 docs/tasks-done-list.md「2026-08-20 pending-features-index 治理批量移入」。
 
+## 十三·补、四档升级 v2:excludeSpecialBear 判定源换 cyb(研究层待拍板)
+
+> 背景:四档升级 v2 多指数判定源穷举回测研究报告已出(docs/market-state/kelly-fourtier-v2-multiindex.md),结论推荐 cyb。但 excludeSpecialBear 是 v1.1.2 已上线默认主键,动判定源属「改历史功能」B+ 级,须先经用户拍板才实施(§23.7 冻结契约);实施需走 §21 公示 + §23.6 联动 + §22 三步同步,且动核心键须发版本(§5.4⑥)。
+
+| # | 项 | 出处 | 说明 | 状态 |
+|---|---|---|---|---|
+| 108 | **四档升级 v2:excludeSpecialBear 判定源换 cyb** | docs/market-state/kelly-fourtier-v2-multiindex.md | 研究报告已出结论推荐 cyb(+16,720/+12.86pp,G 模式,9 模式 8 正 1 小负);excludeSpecialBear 判定源 hs300→cyb 属改历史功能 B+ 级,须用户拍板后实施,§5.4⑥ 动核心键发版本 | **待拍板** |
+
 ## 十四、R2 覆盖防护根治(方案1)(2026-08-19 用户定:等稳定后跟进)
 
 > 背景:2026-08-19 盘中线上 overview.json 被 trade 侧旧库(8-18)覆盖(手动 upload_r2.py 未带 REPO,STATIC_DIR 缺省回退 trade,抓走 trade/static-site 旧库 631607B 覆盖 R2)。已实现 方案2(盘中读 trade 侧 abort 哨兵)+ 方案3(统一入口+skill 条款)+ 方案4(上传前 STATIC_DIR vs REPO 一致性比对),根因报告见 `docs/archive/overview-r2-overwrite-repo-env-20260819.md`(implementer 落档)。**方案1(读路径强校验:REPO 缺省不回退 trade)因涉及 lab/trade_sim 合法 trade 回退产物甄别,误伤面需细判,2026-08-19 用户定「落待办,等 2/3/4 稳定后再跟进」**。
