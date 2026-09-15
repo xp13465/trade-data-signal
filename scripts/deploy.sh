@@ -448,7 +448,7 @@ run_r2_upload "upload-kelly-snapshots" 900 upload-kelly-snapshots || { echo "⚠
 run_r2_upload "upload-feed" 900 upload-data-files feed.xml || { echo "⚠ upload feed.xml 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-feed"; }
 # 2026-09-15 层3 防漏传机检(设计文档 §3.4): 周期全量对账, 周日全量+平日增量自适应。
 # 发现并自动补传不一致 key; 补传失败/命令失败 → exit 1 → 此处累积 R2_FAIL 走收尾 notify(层4)。
-run_r2_upload "verify-r2" 900 verify-r2 || { echo "⚠ verify-r2 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL verify-r2"; }
+run_r2_upload "verify-r2" 1800 verify-r2 || { echo "⚠ verify-r2 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL verify-r2"; }
 # R2_FAIL 告警延迟到 deploy 收尾(见下方收尾段): 通道失败立即告警=误报(09-10 事故链——
 # 单文件 PUT 超时进程异常退出触发告警, 实际上传与 purge 全成功)。upload_r2.py 已补
 # try/except 兜底(单文件失败不异常中断), 走到收尾仍 R2_FAIL 非空=真失败才告警。

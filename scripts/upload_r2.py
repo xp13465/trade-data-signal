@@ -1851,7 +1851,9 @@ def cmd_verify_r2():
     full = today_weekday == 6
     print(f"[verify-r2] 模式={'周日全量对账' if full else '平日增量对账'}")
 
-    _assert_no_double_upload(STATIC_DIR / "data")
+    if not _assert_no_double_upload(STATIC_DIR / "data"):
+        print("[verify-r2] ✗ 双传互斥断言 FAIL → 中止(exit 1), 走 deploy.sh R2_FAIL 收尾 notify")
+        sys.exit(1)
 
     repaired_total = 0
     repair_failed = []
