@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-PLIST_SRC=$(cd "$(dirname "$0")/.." && pwd)/scripts/com.trade.agent-inbox-watcher.plist
+PLIST_SRC=$(cd "$(dirname "$0")/.." && pwd)/launchd/com.trade.agent-inbox-watcher.plist
 PLIST_DST="$HOME/Library/LaunchAgents/com.trade.agent-inbox-watcher.plist"
 LABEL="com.trade.agent-inbox-watcher"
 
