@@ -365,15 +365,16 @@ def load_trades():
         else:
             raise FileNotFoundError("signal_kelly_trades.json 未找到 (static-site/data/ 和 data/ 都没有)")
 
-    # trade 行字段(2026-08-23 收尾修复 + #90 方案C 补 2 列): schema 实际 26 列,
-    # index18-19 为 real_buy_price/real_current_price(#90 真实价), index20-22 为 market_tier 三兄弟
-    # (signal_kelly_backtest.py TRADE_FIELDS: market_tier/market_tier_all/market_tier_cyb),
-    # rating 在 index 25。原硬编码 21 项缺这 3 列 → t["rating"] 读到 market_tier 字符串,
-    # by_grade 回测桶/评级类过滤键(janMidRating 等)全部静默失效(§23.7⑤ 上报后用户确认修)。
+    # trade 行字段: schema 实际 27 列, 必须与 signal_kelly_backtest.py TRADE_FIELDS 逐位一致
+    # (#90 真实价 real_buy_price/real_current_price + #90 同族 #72 真实买入日 real_buy_date,
+    #  index 19/20/21, market_tier/market_tier_all/market_tier_cyb 在 index 23/24/25, rating 在 index 26)。
+    # 若漏列 → 后续列整体前移, t["rating"] 读到 market_tier 字符串, by_grade 回测桶/评级类过滤键
+    # (janMidRating 等) 全部静默失效(§23.7⑤ 上报后用户确认修; 本次 overfit-monitor exit=1
+    # 根因即漏 real_buy_date → rating 读到 index25 market_tier_cyb → recent.gr 空 → 校验 FAIL)。
     FIELD = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code",
              "etf_name", "track_tier", "track_score", "match_method", "track_low_confidence",
              "buy_price", "sell_price", "shares", "profit", "return_pct", "hold_days",
-             "sell_reason", "current_price", "real_buy_price", "real_current_price",
+             "sell_reason", "current_price", "real_buy_price", "real_buy_date", "real_current_price",
              "market_state",
              "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
     IDX = {f: i for i, f in enumerate(FIELD)}
