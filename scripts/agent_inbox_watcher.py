@@ -29,6 +29,7 @@ LOG_DIR = REPO / "data" / "logs"
 LOG_FILE = LOG_DIR / "agent_inbox_watcher.log"
 REF_STATUS_DIR = Path("/tmp/codex-ref-status")
 CODEX_BIN = os.environ.get("CODEX_BIN", "/Users/linhuichen/.nvm/versions/node/v25.8.0/bin/codex")
+REVIEWER_MODEL = os.environ.get("CODEX_REVIEWER_MODEL", "").strip()  # 外审模型, 缺省跟随 config.toml
 OR_API_KEY = os.environ.get("OR_API_KEY") or os.environ.get("OPENROUTER_API_KEY") or ""
 if not OR_API_KEY:
     _key_file = Path.home() / ".codex" / ".or_api_key"
@@ -115,8 +116,8 @@ def transition(src, new_state):
     return dst
 
 def is_already_processed(request_id):
-    """已处理 = claude-inbox 有 .ready 或 .done (Claude 已收到回传)."""
-    for state in ("ready", "done"):
+    """已处理 = claude-inbox 已收到回传(.ready/.done/.skipped/.blocked)."""
+    for state in ("ready", "done", "skipped", "blocked"):
         if (CLAUDE_INBOX / f"{request_id}.{state}").exists():
             return True
     return False
@@ -137,6 +138,25 @@ def bump_retry(request_id):
     except Exception as e:
         log(f"bump_retry error {request_id}: {e}")
 
+def _failed_at(request_id):
+    """读上次失败时间戳, 缺省 0."""
+    p = REF_STATUS_DIR / f"{request_id}.failed_at"
+    try:
+        return float(p.read_text(encoding="utf-8").strip())
+    except (FileNotFoundError, ValueError):
+        return 0.0
+
+def _touch_failed(request_id):
+    try:
+        REF_STATUS_DIR.mkdir(parents=True, exist_ok=True)
+        (REF_STATUS_DIR / f"{request_id}.failed_at").write_text(str(time.time()), encoding="utf-8")
+    except Exception as e:
+        log(f"_touch_failed error {request_id}: {e}")
+
+def retry_backoff_ok(request_id):
+    """距上次失败是否已满退避时间(首次失败视为已満)."""
+    return (time.time() - _failed_at(request_id)) >= RETRY_DELAY_SECONDS
+
 def cleanup_ref(request_id):
     """报告/信号都落盘后, 删 git ref + /tmp 镜像 + 锁残留 retry 计数."""
     ref_short = f"refs/codex/req/{request_id}"
@@ -148,7 +168,7 @@ def cleanup_ref(request_id):
         log(f"cleanup_ref removed git ref {ref_short}")
     except Exception as e:
         log(f"cleanup_ref git error {request_id}: {e}")
-    for ext in (".retry",):
+    for ext in (".retry", ".failed_at"):
         try:
             (REF_STATUS_DIR / f"{request_id}{ext}").unlink()
         except FileNotFoundError:
@@ -190,7 +210,10 @@ def sync_git_refs():
                 _write_blocked(rid)
                 cleanup_ref(rid)
                 continue
-            # retry 未耗尽, fall through 补 ready
+            if not retry_backoff_ok(rid):
+                # 退避时间未满, 暂不重建 ready
+                continue
+            # retry 未耗尽且退避已满, fall through 补 ready
         # blocked 终态, 不再处理
         blocked = CODEX_INBOX / f"{rid}.blocked"
         if blocked.exists():
@@ -243,6 +266,45 @@ def _write_blocked(request_id):
         log(f"sync_git_refs write blocked error {request_id}: {e}")
 
 
+def sweep_stale_state():
+    """启动时清理没有对应 git ref 的僵尸 active 状态与 retry 计数(防无限重试)."""
+    try:
+        r = subprocess.run(
+            ["git", "for-each-ref", "refs/codex/req", "--format=%(refname:short)"],
+            capture_output=True, text=True, cwd=str(REPO), timeout=10
+        )
+        ref_ids = set()
+        for line in r.stdout.strip().splitlines():
+            rid = line.strip().split("/")[-1]
+            if ID_PATTERN.fullmatch(rid):
+                ref_ids.add(rid)
+    except Exception as e:
+        log(f"sweep_stale_state git error: {e}")
+        return
+    active_suffixes = (".ready", ".processing", ".failed")
+    for inbox in (CODEX_INBOX, CLAUDE_INBOX):
+        if not inbox.exists():
+            continue
+        for sig in inbox.iterdir():
+            if not sig.is_file() or sig.suffix not in active_suffixes:
+                continue
+            if sig.stem not in ref_ids:
+                try:
+                    sig.unlink()
+                    log(f"sweep_stale_state removed {sig}")
+                except Exception as e:
+                    log(f"sweep_stale_state remove error {sig}: {e}")
+    for ext in (".retry", ".failed_at"):
+        if not REF_STATUS_DIR.exists():
+            break
+        for rc in REF_STATUS_DIR.iterdir():
+            if rc.suffix == ext and rc.stem not in ref_ids:
+                try:
+                    rc.unlink()
+                    log(f"sweep_stale_state removed counter {rc}")
+                except Exception as e:
+                    log(f"sweep_stale_state counter error {rc}: {e}")
+
 def build_codex_command_prompt(request_id):
     return (
         "你是 trade 仓库的 Codex 外部 reviewer。先读 AGENTS.md 和 "
@@ -275,17 +337,25 @@ def pump_queue(inbox, kind, running, cmd_factory):
             log(f"pump_queue read_signal error {stem}: {e}")
             transition(ready, "invalid")
             continue
-        processing = transition(ready, "processing")
         request_id = str(payload.get("request_id", stem))
         if not ID_PATTERN.fullmatch(request_id):
-            transition(processing, "invalid")
+            transition(ready, "invalid")
             continue
+        if retry_count(request_id) >= MAX_RETRIES:
+            log(f"pump_queue blocked {request_id}: retry exhausted")
+            transition(ready, "blocked")
+            _write_blocked(request_id)
+            cleanup_ref(request_id)
+            continue
+        processing = transition(ready, "processing")
         if kind == "codex":
             prompt = cmd_factory(request_id)
             cmd = [CODEX_BIN, "exec", "--cd", str(REPO),
                    "--add-dir", "/tmp/codex-reports", "--ephemeral",
-                   "--sandbox", "workspace-write", "--color", "never",
-                   "-c", "model_max_output_tokens=64000", prompt]
+                   "--sandbox", "workspace-write", "--color", "never"]
+            if REVIEWER_MODEL:
+                cmd += ["-m", REVIEWER_MODEL]
+            cmd += ["-c", "model_max_output_tokens=64000", prompt]
         else:
             cmd = cmd_factory(request_id)
         log(f"spawn kind={kind} request_id={request_id} retry={retry_count(request_id)}")
@@ -381,8 +451,15 @@ def poll_running(running):
             transition(processing, "done")
             cleanup_ref(request_id)
         else:
-            transition(processing, "failed")
+            _touch_failed(request_id)
             bump_retry(request_id)
+            if retry_count(request_id) >= MAX_RETRIES:
+                log(f"retry exhausted request_id={request_id} -> blocked")
+                transition(processing, "blocked")
+                _write_blocked(request_id)
+                cleanup_ref(request_id)
+            else:
+                transition(processing, "failed")
 
 def main():
     if not acquire_lock():
@@ -397,6 +474,7 @@ def main():
         CODEX_INBOX.mkdir(parents=True, exist_ok=True)
         CLAUDE_INBOX.mkdir(parents=True, exist_ok=True)
         REF_STATUS_DIR.mkdir(parents=True, exist_ok=True)
+        sweep_stale_state()
         log(f"watcher started pid={os.getpid()} max_retries={MAX_RETRIES} retry_delay={RETRY_DELAY_SECONDS}s CODEX_BIN={CODEX_BIN}")
         running = {}
         while not _stop.is_set():
