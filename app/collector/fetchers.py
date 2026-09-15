@@ -126,12 +126,20 @@ NEEDS_DATE_RANGE = {
 # 昂贵的快照函数，缓存结果供多指标复用（如 stock_zh_a_spot 要 30s）
 _spot_cache = [None]
 
+# 全市场 spot 正常 5000+ 行(沪深京)。东财封 IP 时 akshare 只采回小部分行(~80 行)，
+# sum/count 被当正常写库 → 脏值(2026-09-13 a_amount 48.64 亿事故)。低于此阈值拒绝入库，
+# 保护 a_amount / a_width_up_count / a_width_down_count 三个 stock_zh_a_spot 指标。
+MIN_SPOT_ROWS = 3000
+
 
 def _get_spot_df():
     if _spot_cache[0] is None:
         # 全市场 spot 正常 30s+(2026-08-24 超时保护:120s 总预算防新浪假死卡死)
         df = _safe_call_guarded(ak.stock_zh_a_spot, timeout=120.0)
         if not isinstance(df, Exception) and df is not None:
+            if len(df) < MIN_SPOT_ROWS:
+                # 源端只采回小部分行(东财封 IP 等),拒绝入库防脏值(2026-09-13 事故)
+                return None
             _spot_cache[0] = df
     return _spot_cache[0]
 
@@ -161,7 +169,8 @@ def _scale(metric, v):
 
 
 # ================ 突跳检测（spike_guard） ================
-# 防源端数值层面放大（如 2026-08-04 两融余额源端放大 1000 倍，scale 挡不住）。
+# 防源端数值层面放大或缩小（如 2026-08-04 两融余额源端放大 1000 倍、2026-09-13
+# a_amount 源端缩小到 1/400，scale 挡不住）。放大/缩小均防，防「脏对脏 0.9x」漏网。
 # 在 indicators.yaml 给指标配 spike_guard: <倍数阈值>（如 5.0），不配则不检测
 # （避免误伤合理跳变如新股上市）。检测在入库前：序列型逐日比对前一日值，
 # 快照型查 DB 前一交易日值。触发则拒绝入库 + runner 写 collect_log 告警。
@@ -169,9 +178,9 @@ def _scale(metric, v):
 
 def _spike_guard_filter_series(metric, rows):
     """序列型突跳检测：对 rows=[(date,value),...] 逐日比对前一日值。
-    配 metric['spike_guard']（倍数阈值，如 5.0）；prev!=0 且 abs(v/prev)>阈值 时剔除该行。
-    返回 (filtered_rows, rejected)，rejected=[(date,v,prev,ratio),...]。
-    被剔除行不更新 prev（避免被放大的值连锁误剔后续正常行）。
+    配 metric['spike_guard']（倍数阈值，如 5.0）；prev!=0 且 max(v/prev, prev/v)>阈值 时剔除该行
+    （放大/缩小均防）。返回 (filtered_rows, rejected)，rejected=[(date,v,prev,ratio),...]。
+    被剔除行不更新 prev（避免被跳变的值连锁误剔后续正常行）。
     """
     threshold = metric.get("spike_guard")
     if not threshold:
@@ -181,7 +190,7 @@ def _spike_guard_filter_series(metric, rows):
     prev = None
     for d, v in rows:
         if prev is not None and prev != 0 and v != 0:
-            ratio = abs(v / prev)
+            ratio = max(v / prev, prev / v)  # 放大/缩小对称检测(只拦放大漏脏对脏 0.9x)
             if ratio > threshold:
                 rejected.append((d, v, prev, ratio))
                 continue  # 跳过此行，不更新 prev
@@ -213,7 +222,7 @@ def _spike_guard_check_snapshot(metric, date, value):
     prev = float(row["value"])
     if prev == 0:
         return False, prev, None, row["date"]
-    ratio = abs(value / prev)
+    ratio = max(value / prev, prev / value)  # 放大/缩小对称检测(只拦放大漏脏对脏 0.9x)
     if ratio > threshold:
         return True, prev, ratio, row["date"]
     return False, prev, ratio, row["date"]
@@ -573,7 +582,7 @@ def collect_snapshot(metric, date):
     if func_name == "stock_zh_a_spot":
         df = _get_spot_df()
         if isinstance(df, Exception) or df is None:
-            return None, "stock_zh_a_spot unavailable"
+            return None, f"stock_zh_a_spot unavailable or partial (<{MIN_SPOT_ROWS} rows)"
     else:
         fn = getattr(ak, func_name, None)
         if fn is None:
@@ -619,6 +628,11 @@ def collect_snapshot(metric, date):
     if val is None:
         return None, f"{func_name} transform None (cols={list(df.columns)[:8]})"
     scaled = _scale(metric, val)
+    # 绝对下限保护(如 a_amount < min_value 拒绝入库):防「脏对脏 0.9x」让 spike_guard 漏网
+    # (2026-09-13 a_amount 48.64 亿 vs 前日脏值 0.9x 不拦,正确值 337x 反被拦的根因之一)。
+    min_v = metric.get("min_value")
+    if min_v is not None and scaled is not None and scaled < min_v:
+        return None, f"{metric['id']} value {scaled:.4g} < min_value {min_v} (拒绝入库)"
     # 突跳检测:配 spike_guard 的指标(如 a_amount)，与前一交易日值比对，跳变超阈值拒绝入库
     blocked, prev, ratio, prev_date = _spike_guard_check_snapshot(metric, date, scaled)
     if blocked:
