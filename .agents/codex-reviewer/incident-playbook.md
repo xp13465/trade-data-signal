@@ -127,7 +127,7 @@
 - **症状**：`cp /path/x.plist ~/Library/LaunchAgents/x.plist` 报 `Operation not permitted`
 - **绕道**：`require_escalated` 一次完成 cp + launchctl load（一次授权搞定）
   ```bash
-  cp scripts/com.trade.agent-inbox-watcher.plist ~/Library/LaunchAgents/
+  cp launchd/com.trade.agent-inbox-watcher.plist ~/Library/LaunchAgents/
   launchctl unload ~/Library/LaunchAgents/com.trade.agent-inbox-watcher.plist 2>/dev/null
   launchctl load ~/Library/LaunchAgents/com.trade.agent-inbox-watcher.plist
   launchctl list | grep agent-inbox-watcher  # 验证 PID
@@ -171,6 +171,9 @@
 ✅ git push origin main → 0f436aa96..09e47d2e9 main -> main
 ✅ pre-commit lint → 全通过 (161 shell + 84 py)
 ```
+
+> 注(2026-09-15 校准): 现行服务 label 已回归 `com.trade.agent-inbox-watcher`
+> (本 case 中的 `com.trade.codex-watcher` 重命名后来未落地)。现行 plist 单一事实源 = `launchd/com.trade.agent-inbox-watcher.plist`。
 
 ---
 

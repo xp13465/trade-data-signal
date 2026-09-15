@@ -9,6 +9,12 @@
         <!-- launchd 环境 PATH 不含 nvm,watcher 的 os.environ.get("CODEX_BIN", "codex") 必须给绝对路径 -->
         <key>CODEX_BIN</key>
         <string>/Users/linhuichen/.nvm/versions/node/v25.8.0/bin/codex</string>
+        <key>CLAUDE_BIN</key>
+        <string>/Users/linhuichen/.nvm/versions/node/v25.8.0/bin/claude</string>
+        <key>CODEX_REVIEWER_MODEL</key>
+        <string>deepseek-v4-pro-0813</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
     </dict>
     <key>Label</key>
     <string>com.trade.agent-inbox-watcher</string>
