@@ -50,6 +50,8 @@ timedatectl set-timezone Asia/Shanghai
 | WorkingDirectory | WorkingDirectory= | |
 | StandardOutPath / StandardErrorPath | StandardOutput=append: / StandardError=append: | 保留原日志文件路径(监控/告警排查靠 `find data/logs -mmin` 扫描,路径不可变) |
 
+> ⚠️ **例外(2026-09-15 根治 append 日志 root 属主冲突)**:凡脚本自己 `>> "$LOG"` 写同一个固定名 `*_launchd.log`(而非 STAMP/独立名),该 unit **必须去掉** `StandardOutput=` / `StandardError=` 的 append 重定向(恢复 journal 默认)。原因:systemd 主进程(root)创建 append 文件属主 root(644),脚本(ubuntu)再 `echo >>` 同一文件 re-open 写不进 → Permission denied → 任务超时/失败(2026-09-14 盘后 turnover/nextday/overfit 等 6 任务失败)。去掉后由脚本自己建文件(ubuntu 属主),无冲突、监控直读路径不变。共 6 个:trade-turnover-backfill / trade-nextday-plan / trade-overfit-monitor / trade-s06-snapshot / trade-schedule-monitor / trade-self-heal。其余 30 个 unit 脚本写 STAMP/独立名日志(无 re-open 冲突)或完全依赖 systemd 捕获 stdout,保留 append 不动。
+
 ### 1.5 PATH Linux 化
 本机 plist 内嵌 `PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`,其中 `/opt/homebrew/bin` 在 Linux 不存在。服务器统一为:
 ```
@@ -586,8 +588,6 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/turnover_backfill.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 TimeoutStartSec=300
-StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/turnover_backfill_launchd.log
-StandardError=append:/home/ubuntu/code/trade-data/data/logs/turnover_backfill_launchd.err
 ```
 
 ### 2.13 ab-direction-anchor(21:15)
@@ -659,8 +659,6 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/nextday_plan.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 TimeoutStartSec=600
-StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/nextday_plan_launchd.log
-StandardError=append:/home/ubuntu/code/trade-data/data/logs/nextday_plan_launchd.err
 ```
 
 ### 2.15 s06-snapshot(周一~五 20:35)
@@ -695,8 +693,6 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/s06_snapshot.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 TimeoutStartSec=600
-StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/s06_snapshot_launchd.log
-StandardError=append:/home/ubuntu/code/trade-data/data/logs/s06_snapshot_launchd.err
 ```
 
 ### 2.16 check-data-gap(周一~五 22:35)
@@ -1278,8 +1274,6 @@ Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/overfit_monitor.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 TimeoutStartSec=900
-StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/overfit_monitor_launchd.log
-StandardError=append:/home/ubuntu/code/trade-data/data/logs/overfit_monitor_launchd.err
 ```
 
 ### 2.32 lab-auto(19:00 lab 页数据)
@@ -1387,8 +1381,6 @@ ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/self_heal.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
 TimeoutStartSec=10800
-StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/self_heal_launchd.log
-StandardError=append:/home/ubuntu/code/trade-data/data/logs/self_heal_launchd.err
 ```
 
 ### 2.35 schedule-monitor(每 15 分 :00/:15/:30/:45)
@@ -1423,8 +1415,6 @@ ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/schedule_monitor.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 EnvironmentFile=/home/ubuntu/code/trade-data/.env
 TimeoutStartSec=600
-StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/schedule_monitor_launchd.log
-StandardError=append:/home/ubuntu/code/trade-data/data/logs/schedule_monitor_launchd.err
 ```
 
 ## 3. 飞书常驻 listener(已拍板不迁)
@@ -1498,3 +1488,4 @@ TimeoutStartSec=7200
 6. **macOS 专属点适配**(inventory §5,阶段4 改脚本,非本文件范围):pmset/caffeinate 删段、timeout→gtimeout 降级链、self-heal/schedule-monitor 的 launchctl 检查、/opt/homebrew/bin PATH。本文件只生成 systemd 配置,不动任何 .sh。
 7. **单仓化**:服务器 `/home/ubuntu/code/trade-data` 单仓;双份 DB/backups 问题自然消失(REPO=GIT_REPO=/home/ubuntu/code/trade-data)。
 8. **21:00 并发提示(§14 生产稳定性)**:21:00 现有 3 个 timer 并发——backfill-evening(backfill_metrics.sh)、futures-backfill(futures_backfill.sh)、backup-db(backup_db.sh)。backup_db 用 sqlite3 `.backup()` 在线热备(WAL 一致快照,不锁库,inventory §4.1.1),与另两者不冲突;本机 launchd 原本就有 backfill-evening@21:00 + futures-backfill@21:00 并发,新加 backup_db@21:00 是 inventory §4.3 指定的独立时点(update-all 17:50 完成后 DB 最新)。若 stage4 实测发现 DB 写竞争,可把 backup-db 顺延到 21:05。
+9. **append 例外勿回填(2026-09-15 根治)**:trade-turnover-backfill / trade-nextday-plan / trade-overfit-monitor / trade-s06-snapshot / trade-schedule-monitor / trade-self-heal 这 6 个 service **刻意无** `StandardOutput=/StandardError=` append(脚本自己写同名 `*_launchd.log`)。落地阶段若有人"补齐一致性"给这 6 个补回 append,会复发 root 属主冲突(见 §1.4 例外注)。
