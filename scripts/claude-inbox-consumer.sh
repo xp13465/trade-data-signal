@@ -41,6 +41,6 @@ exec "${CLAUDE_BIN:-claude}" -p "$PROMPT" \
     --tools Read Edit Write Glob Grep Bash \
     --allowedTools Read Edit Write Glob Grep Bash \
     --disallowedTools WebFetch WebSearch 'Bash(git commit*)' 'Bash(git push*)' 'Bash(curl*)' 'Bash(wget*)' \
-    --max-budget-usd "${AGENT_CLAUDE_BUDGET_USD:-0.50}" \
+    --max-budget-usd "${AGENT_CLAUDE_BUDGET_USD:-5.00}" \
     --no-session-persistence \
     --output-format text
