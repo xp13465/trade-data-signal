@@ -63,11 +63,48 @@ if [ "$IS_TRADING" = "1" ] && [ "$CURRENT_HM" -ge 0930 ] && [ "$CURRENT_HM" -le 
   exit 1
 fi
 
+# git fetch 超时保护（2026-09-15）：云上连 GitHub 22 端口间歇性卡死（ssh git@github.com
+# git-upload-pack 曾卡 51 分钟死拽 /tmp/trade_deploy.lock，连锁卡 staticdata_sync +
+# trade-public-fund-daily 被 systemd 强杀），给 git fetch 包超时兜底。
+# macOS/Linux 无 timeout 命令，用 bash 原生 background+sleep+kill（同 run_r2_upload 模式）；
+# git fetch 会 spawn ssh 子进程，光杀 git 留 orphan ssh 继续卡，故 pkill -P 连子进程一起杀。
+# 返回 0=成功 / 124=超时 / 其他=失败。
+git_fetch_timeout() {
+  local limit="${1:-120}"
+  local tmp_log pid slept rc
+  tmp_log=$(mktemp)
+  git -C "$GIT_REPO" fetch origin main >"$tmp_log" 2>&1 &
+  pid=$!
+  slept=0
+  rc=""
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 5
+    slept=$((slept + 5))
+    if [ "$slept" -ge "$limit" ]; then
+      echo "⚠ git fetch origin main 超 ${limit}s 未退出，kill pid=$pid 释放 deploy.lock" | tee -a "$LOG"
+      pkill -TERM -P "$pid" 2>/dev/null || true
+      kill -TERM "$pid" 2>/dev/null; sleep 2
+      pkill -KILL -P "$pid" 2>/dev/null || true
+      kill -KILL "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      rc=124
+      break
+    fi
+  done
+  if [ -z "$rc" ]; then
+    wait "$pid"; rc=$?
+  fi
+  tail -n 30 "$tmp_log" >> "$LOG" 2>/dev/null || true
+  rm -f "$tmp_log"
+  return "$rc"
+}
+
 # 0.5 fetch origin main（后续 unmerged 检查 + rebase 需要）
 # R2 阶段4a 后 static-site/data/ 全量移出 git（含 feed.xml，2026-08-10 也走 R2），
 # 原 checkout intraday_snapshot/notifications.json 防通配带入已无效（文件 gitignored），
 # DATA_FILES 改精确列表（min JS/CSS）不再通配 add，无残留带入风险。
-git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
+# fetch 失败/超时不阻断（|| true 语义：fetch 仅同步远端供 unmerged 检查用，卡死就跳过继续）。
+git_fetch_timeout "${GIT_FETCH_TIMEOUT:-120}" || echo "⚠ git fetch origin main 未成功（rc=$?），继续部署（unmerged 检查用本地 ref 兜底）" | tee -a "$LOG"
 
 # 0.7 兜底：清理工作区残留 unmerged 状态（2026-07-31 根治，方案B 双保险）
 # 根因：pop_rebase_stash bug（rebase 后 stash pop 冲突只 echo 不解决）曾留 unmerged 污染，
@@ -529,7 +566,8 @@ git -C "$GIT_REPO" push origin main:main 2>&1 | tee -a "$LOG"
 PUSH_RC=${PIPESTATUS[0]:-1}
 if [ "$PUSH_RC" -ne 0 ]; then
   # 可能是并发竞争 non-fast-forward：fetch 后确认 HEAD 是否已被推到 origin/main
-  git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
+  # 同 L70 超时保护：避免此处 fetch 卡 GitHub 22 端口死拽 deploy.lock
+  git_fetch_timeout "${GIT_FETCH_TIMEOUT:-120}" || echo "⚠ push 重试路径 git fetch 未成功（rc=$?），用本地 origin/main ref 判断" | tee -a "$LOG"
   if git -C "$GIT_REPO" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
     echo "⚠ push 返回 $PUSH_RC 但 HEAD 已在 origin/main（并发 deploy 已推送），视为幂等成功" | tee -a "$LOG"
     PUSH_RC=0
