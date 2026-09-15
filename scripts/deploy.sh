@@ -99,6 +99,40 @@ git_fetch_timeout() {
   return "$rc"
 }
 
+# git push 超时保护（2026-09-15）：与 git_fetch_timeout 对称（同 background+sleep+kill 模式、
+# 同 pkill -P 杀 ssh 子进程），防 push 卡 GitHub 22 端口死拽 /tmp/trade_deploy.lock 连锁卡后续
+# 所有 deploy。git push 同样 spawn ssh 子进程，光杀 git 留 orphan ssh 继续卡，故 pkill -P 连杀。
+# 返回 0=成功 / 124=超时 / 其他=失败。
+git_push_timeout() {
+  local limit="${1:-120}"
+  local tmp_log pid slept rc
+  tmp_log=$(mktemp)
+  git -C "$GIT_REPO" push origin main:main >"$tmp_log" 2>&1 &
+  pid=$!
+  slept=0
+  rc=""
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 5
+    slept=$((slept + 5))
+    if [ "$slept" -ge "$limit" ]; then
+      echo "⚠ git push origin main:main 超 ${limit}s 未退出，kill pid=$pid 释放 deploy.lock" | tee -a "$LOG"
+      pkill -TERM -P "$pid" 2>/dev/null || true
+      kill -TERM "$pid" 2>/dev/null; sleep 2
+      pkill -KILL -P "$pid" 2>/dev/null || true
+      kill -KILL "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      rc=124
+      break
+    fi
+  done
+  if [ -z "$rc" ]; then
+    wait "$pid"; rc=$?
+  fi
+  tail -n 30 "$tmp_log" >> "$LOG" 2>/dev/null || true
+  rm -f "$tmp_log"
+  return "$rc"
+}
+
 # 0.5 fetch origin main（后续 unmerged 检查 + rebase 需要）
 # R2 阶段4a 后 static-site/data/ 全量移出 git（含 feed.xml，2026-08-10 也走 R2），
 # 原 checkout intraday_snapshot/notifications.json 防通配带入已无效（文件 gitignored），
@@ -561,9 +595,9 @@ if [ "$CUR_BRANCH" != "main" ]; then
   exit 1
 fi
 echo "→ git push（分支校验通过: main）..." | tee -a "$LOG"
-git -C "$GIT_REPO" push origin main:main 2>&1 | tee -a "$LOG"
-# :-1 防御 set -u 未绑定（macOS bash 3.2 数组边界用例）；默认失败不掩盖真实 rc（区别于旧 :-0）
-PUSH_RC=${PIPESTATUS[0]:-1}
+git_push_timeout "${GIT_PUSH_TIMEOUT:-120}"
+# push rc：0=成功 / 124=超时 / 其他=失败；超时已在函数内 kill git+ssh 释放 deploy.lock
+PUSH_RC=$?
 if [ "$PUSH_RC" -ne 0 ]; then
   # 可能是并发竞争 non-fast-forward：fetch 后确认 HEAD 是否已被推到 origin/main
   # 同 L70 超时保护：避免此处 fetch 卡 GitHub 22 端口死拽 deploy.lock
@@ -645,8 +679,8 @@ if [ "$PUSH_RC" -ne 0 ]; then
     git -C "$GIT_REPO" rebase origin/main 2>&1 | tee -a "$LOG"
     REBASE_RC=${PIPESTATUS[0]:-1}
     if [ "$REBASE_RC" -eq 0 ]; then
-      git -C "$GIT_REPO" push origin main:main 2>&1 | tee -a "$LOG"
-      PUSH_RC=${PIPESTATUS[0]:-1}
+      git_push_timeout "${GIT_PUSH_TIMEOUT:-120}"
+      PUSH_RC=$?
       pop_rebase_stash   # push 后恢复工作区 M 文件（无论 push 成功失败都 pop）
       if [ "$PUSH_RC" -eq 0 ]; then
         echo "✓ rebase + 重试 push 成功" | tee -a "$LOG"
@@ -728,8 +762,8 @@ if [ "$PUSH_RC" -ne 0 ]; then
             echo "-> 第 $ATTEMPT 次循环：数据冲突已解决(--theirs=本地最新)，继续 rebase..." | tee -a "$LOG"
           done
           if [ "$REBASE_DONE" -eq 1 ]; then
-            git -C "$GIT_REPO" push origin main:main 2>&1 | tee -a "$LOG"
-            PUSH_RC=${PIPESTATUS[0]:-1}
+            git_push_timeout "${GIT_PUSH_TIMEOUT:-120}"
+            PUSH_RC=$?
             pop_rebase_stash
             if [ "$PUSH_RC" -eq 0 ]; then
               echo "✓ rebase(数据冲突 --theirs, 循环 $ATTEMPT 次) + 重试 push 成功" | tee -a "$LOG"
