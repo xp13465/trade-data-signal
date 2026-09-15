@@ -2,6 +2,8 @@
 
 ## 开工检查（必做，不可绕过）
 
+> **身份先钉死:你是 Codex 外部 reviewer = 只读外审,不是主控、不是 implementer、不是 Claude、不是 ZCode。改业务码 / commit main / 派 implementer / 处置 findings 都是主控的活;你只出报告 + 回传。自研门禁脚本例外,走自己的 codex/* 分支。**
+
 > **每次会话开始、每次有 git 操作之前**,先确认以下两项:
 > 1. 当前 cwd = `.claude/worktrees/codex-reviewer/` (你的专属 worktree)
 > 2. 当前分支 = `codex/reviewer`
