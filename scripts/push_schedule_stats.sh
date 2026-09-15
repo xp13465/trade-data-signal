@@ -49,7 +49,12 @@ if [ ! -f "$SRC" ]; then
   echo "✗ 源文件不存在：${SRC}（gen_schedule_stats.py 未运行？），跳过 push" | tee -a "$LOG" >&2
   exit 1
 fi
-echo "源文件：$SRC ($(stat -f '%z' "$SRC") bytes, mtime $(stat -f '%Sm' "$SRC"))" | tee -a "$LOG"
+# 源文件大小+mtime 用 python3 os.stat 跨平台取值(2026-09-15 用户拍板系统自适应)。
+# 根因:原 stat -f '%z'/'%Sm' 是 macOS BSD 格式,Linux GNU stat 不认,云上每跑报
+#   "stat: cannot read file system information for '%z'/'%Sm'"。os.stat 单一实现,
+#   Darwin/Linux/任意服务器行为一致,迁回 mac 不反着错。mtime 格式对齐本脚本 date 时间戳。
+SRC_INFO=$("$PY" -c 'import os, sys, datetime; p = sys.argv[1]; st = os.stat(p); mt = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"); print(f"{st.st_size} bytes, mtime {mt}")' "$SRC")
+echo "源文件：$SRC ($SRC_INFO)" | tee -a "$LOG"
 
 # 上传 schedule_stats.json 到 R2（阶段3：替代 git push，前端走 R2）
 # gen_stats 已刷新本地 schedule_stats.json，upload-data-files 上传到 R2 + purge_cache。
