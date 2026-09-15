@@ -338,7 +338,9 @@ def pump_queue(inbox, kind, running, cmd_factory):
         if not ID_PATTERN.fullmatch(stem):
             transition(ready, "invalid")
             continue
-        if is_already_processed(stem):
+        # is_already_processed 短路只服务 codex 队列(避免重跑已回传请求);
+        # claude 队列的 .ready 就是待消费信号, 不能短路, 否则 claude-inbox-consumer 永不 spawn
+        if kind == "codex" and is_already_processed(stem):
             transition(ready, "skipped")
             cleanup_ref(stem)
             log(f"skipped already-processed request {stem} (ref cleaned)")
