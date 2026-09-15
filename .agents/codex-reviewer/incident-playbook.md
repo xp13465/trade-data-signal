@@ -127,10 +127,10 @@
 - **症状**：`cp /path/x.plist ~/Library/LaunchAgents/x.plist` 报 `Operation not permitted`
 - **绕道**：`require_escalated` 一次完成 cp + launchctl load（一次授权搞定）
   ```bash
-  cp scripts/com.trade.codex-watcher.plist ~/Library/LaunchAgents/
-  launchctl unload ~/Library/LaunchAgents/com.trade.codex-watcher.plist 2>/dev/null
-  launchctl load ~/Library/LaunchAgents/com.trade.codex-watcher.plist
-  launchctl list | grep codex-watcher  # 验证 PID
+  cp scripts/com.trade.agent-inbox-watcher.plist ~/Library/LaunchAgents/
+  launchctl unload ~/Library/LaunchAgents/com.trade.agent-inbox-watcher.plist 2>/dev/null
+  launchctl load ~/Library/LaunchAgents/com.trade.agent-inbox-watcher.plist
+  launchctl list | grep agent-inbox-watcher  # 验证 PID
   ```
 
 ### S3-5：沙盒只读目录（`.agents/`、`.codex/`、`~/Library/LaunchAgents/`）
@@ -182,5 +182,5 @@
 2. grep -n "sk-or-v1" <改动文件> → 是否还有 hardcoded key？
 3. git status --short | grep "?? data/" → 有无未跟踪 data 文件要 .gitignore？
 4. bash scripts/lint_scripts.sh → 本地预演 lint
-5. launchctl list | grep codex-watcher → 守护进程活着？
+5. launchctl list | grep agent-inbox-watcher → 守护进程活着？
 ```
