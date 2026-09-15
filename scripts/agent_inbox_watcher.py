@@ -322,7 +322,7 @@ def build_codex_command_prompt(request_id):
         "docs/codex-collab-protocol.md,再检查 refs/codex/req 下所有 pending "
         "request。只按 request JSON 的 base..head 与 focus_areas 执行独立复核;"
         "报告必须先写 .tmp 再 rename 到 /tmp/codex-reports/<request_id>.json;"
-        "每个完成项调用 python3 scripts/codex_review_complete.py <request_id> "
+        "全部复核完成、完整报告落盘后只调用一次 python3 scripts/codex_review_complete.py <request_id> "
         "--verdict <PASS|FAIL|BLOCKED> 建立 Claude 回传信号(verdict 必须与 "
         "报告 JSON 中 verdict 字段一致, 否则 raise)。不要 commit/push。"
     )
@@ -361,6 +361,13 @@ def pump_queue(inbox, kind, running, cmd_factory):
             _write_blocked(request_id)
             cleanup_ref(request_id)
             continue
+        # 根治竞态(2026-09-16):codex worker 还在跑时,其子 agent 可能已过早回传
+        # .ready(中间态报告),此时消费会拿到半成品并反复覆盖 claude 回执。等 codex 收尾。
+        if kind == "claude":
+            cw = running.get("codex")
+            if cw is not None and (cw.get("request_id") == stem or cw.get("request_id") == request_id):
+                log(f"claude queue wait: codex worker still running for {stem}")
+                continue
         processing = transition(ready, "processing")
         if kind == "codex":
             prompt = cmd_factory(request_id)
@@ -426,6 +433,18 @@ def _run_codex_complete(request_id, verdict):
     except Exception as e:
         log(f"codex_review_complete error {request_id}: {e}")
 
+def _notify_feishu(request_id, title, body):
+    """外审/复核完成直接推飞书(2026-09-16 根治, 不要复线)。
+    通知不再依赖 codex 的 ~/.codex/config.toml notify(该键会被 computer-use
+    插件覆盖导致静默断链, 属「被覆盖就不应出现」的根因)。改为内嵌到 watcher 主循环,
+    版本受 git 管理, 不可被插件改写。任何异常只 log 不抛, 绝不影响主循环。"""
+    try:
+        sys.path.insert(0, str(REPO / "scripts"))
+        from notify import send_feishu
+        send_feishu(f"[codex-review] {title} {request_id}", body, chat_key="agent_done")
+    except Exception as e:  # noqa: BLE001
+        log(f"_notify_feishu error {request_id}: {e}")
+
 def poll_running(running):
     now = time.time()
     for kind in list(running):
@@ -471,6 +490,11 @@ def poll_running(running):
                 transition(processing, "done")
                 _run_codex_complete(request_id, verdict)
                 cleanup_ref(request_id)
+                _notify_feishu(
+                    request_id,
+                    f"外审完成 verdict={verdict}",
+                    f"报告: /tmp/codex-reports/{request_id}.json",
+                )
             else:
                 # 报告缺失/不可解析 -> BLOCKED 终态(不重试, 同 prompt 大概率同样失败)
                 log(f"job_done but report invalid request_id={request_id} -> blocked")
@@ -481,6 +505,11 @@ def poll_running(running):
         elif rc == 0:
             transition(processing, "done")
             cleanup_ref(request_id)
+            _notify_feishu(
+                request_id,
+                "复核完成",
+                f"claude 消费者 exit=0, 回执: /tmp/codex-reports/claude-actions/{request_id}.json",
+            )
         else:
             _touch_failed(request_id)
             bump_retry(request_id)
