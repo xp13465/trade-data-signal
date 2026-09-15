@@ -89,6 +89,7 @@ _NETWORK_ERROR_CODES = frozenset({
     "10002006",  # SENDSOCK_TIMEOUT
     "10002007",  # RECVSOCK_FAIL（断线典型）
     "10002008",  # RECVSOCK_TIMEOUT
+    "10001001",  # 用户未登录（login session 过期，重连=重新 login）
 })
 # 重连参数：3 次重试，每次间隔 2 秒（避免死循环 + 给服务端恢复时间）。
 _RECONNECT_MAX_RETRIES = 3
