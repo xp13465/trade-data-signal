@@ -46,7 +46,8 @@ def get_failed_metrics(date: str) -> list[dict]:
     """读 collect_log 当日最新 status=error 的 metric_id 列表(去重,取最新一条)。
 
     与 queries.collect_health 同逻辑:ORDER BY run_at DESC,_seen 去重保留最新。
-    只返回最新状态非 ok 的指标。
+    只返回最新状态为 error 的指标(warn 不进重试:warn 是"已知/降级"告警,重采也
+    无济于事,只会像 2026-09-15 那样四轮 "no config" 白转到每日上限)。
     """
     conn = get_conn()
     try:
@@ -55,18 +56,30 @@ def get_failed_metrics(date: str) -> list[dict]:
             "WHERE run_date=? ORDER BY run_at DESC",
             (date,),
         ).fetchall()
+        seen: set[str] = set()
+        failed: list[dict] = []
+        for r in rows:
+            mid = r["metric_id"]
+            if mid in seen:
+                continue
+            seen.add(mid)
+            if r["status"] != "error":
+                continue
+            msg = r["message"] or ""
+            # 防空转(2026-09-15):"指数今日数据缺失"是 index_backfill 凌晨补采时
+            # 目标日期未开盘导致的三源全空误报(盘中 intraday 反哺后 index_daily
+            # 已有当日 close)。复核 index_daily 当日 close,有值则跳过不重试。
+            if "指数今日数据缺失" in msg:
+                _chk = conn.execute(
+                    "SELECT close FROM index_daily WHERE index_id=? AND date=?",
+                    (mid, date),
+                ).fetchone()
+                if _chk and _chk["close"] is not None:
+                    continue  # 实际已有数据,跳过陈旧误报
+            failed.append({"metric_id": mid, "message": msg})
+        return failed
     finally:
         conn.close()
-    seen: set[str] = set()
-    failed: list[dict] = []
-    for r in rows:
-        mid = r["metric_id"]
-        if mid in seen:
-            continue
-        seen.add(mid)
-        if r["status"] != "ok":
-            failed.append({"metric_id": mid, "message": r["message"] or ""})
-    return failed
 
 
 def _clear_old_errors(date: str, mid: str) -> None:

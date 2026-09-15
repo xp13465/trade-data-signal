@@ -1642,7 +1642,7 @@ def overview(conn, cfg):
         # 但盘中 intraday_snapshot 反哺后 index_daily 已有当日 close，旧告警成陈旧误报，
         # 前端小红点因此常亮误导用户。对核心 A 股指数（index_backfill.CORE_A_INDICES）
         # 的该类 item 复核 index_daily 是否已有当日 close，有则移除该 item。
-        _CORE_A_IDX = {"sh", "sz", "hs300", "sz50", "csi500", "csi1000", "cyb", "kc50", "bj50"}
+        _CORE_A_IDX = {"sh", "sz", "hs300", "sz50", "csi500", "csi1000", "cyb", "kc50", "bj50", "sz_div"}
         _hrun_date = _last["run_date"]
         _filtered = []
         for _r in _hrows:
