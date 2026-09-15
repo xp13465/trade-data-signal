@@ -938,10 +938,13 @@ def fetch_estimation() -> int:
         df = safe_call(ak.fund_value_estimation_em, retries=2)
         if isinstance(df, Exception):
             # 修复c(2026-08-03): akshare API 故障(如 NoneType subscriptable)优雅降级返回0, 不抛异常
-            print(f"[E2] fund_value_estimation_em API 故障(优雅降级返回0): {type(df).__name__}: {df}", flush=True)
+            # 2026-09-15 补注: 天天基金实时估值产品已下线(页面404 + API Data:null 暂无数据),
+            # 此 Exception 分支根因=产品级下线(非云上封IP), 属数据源暂停非代码故障。
+            print(f"[E2] fund_value_estimation_em 数据源下线(天天基金实时估值已下线 2026-09, "
+                  f"优雅降级返回0): {type(df).__name__}: {df}", flush=True)
             return 0
         if df is None or len(df) == 0:
-            print(f"[E2] fund_value_estimation_em 无数据(盘后/非交易日正常): {df}", flush=True)
+            print(f"[E2] fund_value_estimation_em 无数据(盘后/非交易日正常, 或天天基金实时估值已下线): {df}", flush=True)
             return 0
         today = dt.date.today().strftime("%Y%m%d")
         rows: list[tuple] = []

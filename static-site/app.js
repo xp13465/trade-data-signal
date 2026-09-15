@@ -20526,7 +20526,7 @@ async function renderPublicFund(container) {
       <div><b>88 魔咒 / 80 抄底</b>：基金平均仓位 <b>&gt;88%</b> 时加仓空间有限，历史多对应阶段性顶部（应验 <b>2009/7、2015/5、2021/1</b> 等）；<b>&lt;80%</b> 时仓位低有加仓空间，多对应阶段性底部。<b>反向指标，非精确触发</b>--2020 年仓位持续 90%+ 大盘仍涨，仅作风险提示。</div>
       <div><b>4 维资金面共振</b>：北向（外资 / 日更）+ 两融（杠杆 / 日更）+ 产业资本（内部人 / 月更）+ 基金持仓（机构 / 季更），<b>4 维同向信号最强</b>。如「北向流出 + 两融下降 + 产业资本减持 + 基金减仓」= 4 维共振看空。</div>
       <div><b>滞后性与披露规则</b>：季报季末 +15 工作日披露（Q1≈4/22、Q2≈7/22、Q3≈10/22、年报≈3/31 前），季报只披露<b>前十大重仓 + 资产配置 + 行业配置</b>，全部持仓要等中报（60 日内）/年报（90 日内）。</div>
-      <div><b>数据源</b>：东方财富基金详情页（持仓/重仓/行业/资产/经理/净值/分红等子页）+ akshare 9 个接口（基金持仓/基金估值等），免费无需密钥。</div>
+      <div><b>数据源</b>：东方财富基金详情页（持仓/重仓/行业/资产/经理/净值/分红等子页）+ akshare 9 个接口（基金持仓等），免费无需密钥。<b>实时估值</b>：天天基金官方已于 2026-09 下线实时估值产品，实时估算净值暂不可用（非故障，数据源暂停），本板块展示官方单位净值。</div>
       <div><b>学术背景</b>：①中国公募基金存在显著羊群效应（许年行等 2013《经济研究》），加剧「抱团-瓦解」循环 ②基金平均仓位与未来大盘收益负相关（88 魔咒统计显著）③2021/1 白酒新能源抱团瓦解领先沪深 300 见顶（2021/2/18 5930 点）约 1 个月 ④基金净申赎与未来 1-3 个月大盘收益负相关（散户情绪反向）。</div>
       <div class="pf-help-warn">⚠ 本板块为辅助参考维度，滞后性强不作主信号；88 魔咒为历史规律未必未来应验。研究参考，不构成投资建议，历史回测不代表未来收益。</div>
     </div>`;
@@ -24318,7 +24318,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     const miniSpecs = [
       { label: "资金流", data: fundFlow, color: "#5b8ff9", fmt: (v) => v.toFixed(1) + "亿" },
       { label: "成交额", data: amountData, color: "#9b6dff", fmt: (v) => v.toFixed(0) + "亿" },
-      { label: "换手率", data: turnover, color: "#36cfc9", fmt: (v) => v.toFixed(2) + "%" },
+      { label: "换手率", data: turnover, color: "#36cfc9", fmt: (v) => v.toFixed(2) + "%", note: "口径:baostock个股聚合(总成交量/总流通股本)" },
     ];
     let hasAnyMetric = false;
     for (const spec of miniSpecs) {
@@ -24340,7 +24340,8 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
         tooltip: { trigger: "axis", formatter: (p) => {
           const d = spec.data[p[0].dataIndex];
           if (!d || d.value == null) return `${p[0].axisValue}<br/>${spec.label}: -`;
-          return `${p[0].axisValue}<br/>${spec.label}: ${spec.fmt(d.value)}`;
+          return `${p[0].axisValue}<br/>${spec.label}: ${spec.fmt(d.value)}` +
+            (spec.note ? `<br/><span style="opacity:.6;font-size:10px">${spec.note}</span>` : "");
         } },
         series: [{
           type: "line", smooth: true, symbol: "none",
