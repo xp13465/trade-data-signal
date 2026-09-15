@@ -796,10 +796,14 @@ def check_etf_since_return(data_dir: Path) -> CheckResult:
     """校验 overview.json signals_today etfs 的 etf_since_return 非 null 占比。
 
     事故场景：后端注入失败 -> 走势卡 ETF 至今盈亏全 null。
-    口径修正(2026-08-13)：排除"今日信号"设计 null —— 信号日 == score_date(overview.json 顶层
-    date)的行无"至今"语义，queries.py L657 对今日信号恒置 None，属设计非事故。分母只算
+    口径修正(2026-08-13)：排除"今日信号"设计 null —— 信号日 == 最新信号日 sig_dates[0] 的
+    行无"至今"语义，queries.py 对今日信号(sig_dates[0])恒置 None，属设计非事故。分母只算
     "应有值"行（非今日信号），防止把设计 null 误算进事故拦截。真事故拦截不放松：注入全 null
     时非今日信号行仍全 null -> 占比 0% -> 仍 FAIL。
+    2026-09-16 修复：旧口径用 score_date(overview.json 顶层 date=last_trading_day())，与
+    queries.py 实际 null 化的 sig_dates[0](signals 内最新信号日) 会差 1 天(信号日落后一日/
+    次日凌晨自愈窗口无当日信号)，导致"今日信号"整片设计 null 被误计入分母 -> 占比假性跌破
+    90% 阻断 deploy（#35）。改用 signals 内最新信号日，与 queries.py sig_dates[0] 对齐。
     """
     name = "etf_since_return"
     path = data_dir / "overview.json"
@@ -813,15 +817,18 @@ def check_etf_since_return(data_dir: Path) -> CheckResult:
     if not isinstance(signals, list):
         return _warn(name, "overview.json 无 signals_today list")
 
-    # 今日信号(信号日==score_date)无"至今"语义，设计 null 不计入分母（对齐 queries.py L657）
-    score_date = data.get("date")
+    # 今日信号(信号日==最新信号日 sig_dates[0])无"至今"语义，设计 null 不计入分母（对齐 queries.py）
+    # 2026-09-16 修复：旧口径用 score_date(顶层 date=last_trading_day())，与 queries.py 实际
+    # null 化的 sig_dates[0] 会差 1 天 -> 今日信号整片设计 null 被误计入分母（#35）。
+    _sig_dates = [s.get("date") for s in signals if isinstance(s, dict) and s.get("date")]
+    latest_sig_date = max(_sig_dates) if _sig_dates else data.get("date")
     total = 0
     nonnull = 0
     for s in signals:
         if not isinstance(s, dict):
             continue
-        # 顶层 date 缺失时无法识别今日信号 -> 按旧口径全量统计（保守，不放松）
-        if score_date is not None and s.get("date") == score_date:
+        # signals 无任何日期时无法识别今日信号 -> 按旧口径全量统计（保守，不放松）
+        if latest_sig_date is not None and s.get("date") == latest_sig_date:
             continue
         etfs = s.get("etfs")
         if not isinstance(etfs, list):
