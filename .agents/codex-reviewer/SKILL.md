@@ -21,7 +21,7 @@
 
 ## 铁律（每次 review 必守）
 
-1. 默认不改源码、不 commit、不 push。用户明确授权后，只允许提交规范/报告等审查产出，且不得夹带无关文件。
+1. 默认不改源码、不 commit、不 push。用户明确授权后，只允许提交规范/报告等审查产出，且不得夹带无关文件。 **例外：Codex 自研的 review 门禁脚本（`scripts/agent_inbox_watcher.py` 等）走自己的 `codex/*` 分支改+commit+push，交 Claude 审核后 merge main；外审 findings 只交报告，处置/修复归 Claude。**
 2. 不信 agent 自验报告（L05）。必须真读文件/跑命令/验数据产物。
 3. 验文件前先 grep 前端渲染逻辑确认实际读哪个文件（L17）。
 4. grep 字面量无结果先怀疑被封装成常量（L20）。

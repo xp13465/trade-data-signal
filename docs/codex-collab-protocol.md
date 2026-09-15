@@ -1,6 +1,7 @@
 # Codex 外部 Review 协议
 
 > 2026-08-24 定。Codex 作为外部只读 tester/reviewer，不 commit、不 push、不改源码。
+> **例外(2026-09-16 定)**：Codex 自研的 review 门禁脚本（`scripts/agent_inbox_watcher.py` 等 `codex/` 自研改动）不属「外审只读」——走自己的 `codex/*` 分支改、commit、push，交 Claude 主控审核后 main-merge 上 main；外审 findings 一律只交报告给 Claude，处置/修复归 Claude。
 
 ## 角色
 
