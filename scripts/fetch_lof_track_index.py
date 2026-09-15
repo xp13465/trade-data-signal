@@ -42,8 +42,8 @@ from pathlib import Path
 
 import akshare as ak
 
-ROOT = Path(__file__).resolve().parent.parent  # resolve() 解析 symlink → 恒指真实 trade/
-OUT = (ROOT / "data" / "lof_track_index.json").resolve()
+ROOT = Path(__file__).absolute().parent.parent  # absolute() 保持 symlink 路径 → 运行侧数据目录 data(权威)；resolve() 会解析到代码仓(下游副本)
+OUT = ROOT / "data" / "lof_track_index.json"
 
 # 关闭 SSL 验证（eastmoney 自签证书，和 fetch_etf_track_index 同策略）
 _CTX = ssl.create_default_context()

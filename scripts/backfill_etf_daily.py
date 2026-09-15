@@ -39,7 +39,7 @@ from pathlib import Path
 import akshare as ak
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parent.parent  # trade/
+ROOT = Path(__file__).absolute().parent.parent  # absolute() 保持 symlink 路径 → 运行侧数据目录 data(权威)
 
 ETF_INDEX_MAP_PATH = ROOT / "data" / "etf_index_map.json"
 BOARD_ETF_MAP_PATH = ROOT / "data" / "board_etf_map.json"

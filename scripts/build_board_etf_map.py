@@ -284,9 +284,9 @@ ETF_TRACK_INDEX_PATH = ROOT / "data" / "etf_track_index.json"
 # LOF track_index 缓存路径（fundf10 抓取，scripts/fetch_lof_track_index.py 生成）
 # LOF（上市开放式基金）如 160225 国泰国证新能源汽车LOF，fund_etf_spot_em 不含，
 # 需独立采集 fundf10 跟踪标的 + fund_open_fund_rank_em 预筛，纳入候选池
-LOF_TRACK_INDEX_PATH = Path(__file__).resolve().parent.parent / "data" / "lof_track_index.json"
-# resolve() 解析 symlink：从 trade-data 跑时 scripts/ 是 symlink 指向 trade/scripts/，
-# resolve() 后读 trade/data/lof_track_index.json（真实路径，与 fetch_lof_track_index.py 写出的路径一致）。
+LOF_TRACK_INDEX_PATH = ROOT / "data" / "lof_track_index.json"
+# 用 ROOT（.absolute() 保持 symlink 路径）落到运行侧数据目录 data(权威)，
+# 与 fetch_lof_track_index.py 写出的路径一致（云上 trade-data/data，非代码仓 trade-data-signal/data 下游副本）。
 
 # 排除词：跨境/债券/商品/货币等非 A 股行业主题 ETF
 EXCLUDE = ["债", "货币", "黄金", "白银", "原油", "海外", "美国", "日本", "德国",
@@ -324,9 +324,9 @@ EXCLUDE = ["债", "货币", "黄金", "白银", "原油", "海外", "美国", "�
 # 候选结构：list[dict]，每项 {"code": str, "name": str, "amount": float, "approx": bool}
 #   name/amount 优先用 akshare fund_etf_spot_em() 实时值（df_by_code），查不到用 etf_index_map.json 的 amount。
 #   按 amount 降序排（成交额大的居首，流动性最好）。
-ETF_INDEX_MAP_PATH = Path(__file__).resolve().parent.parent / "data" / "etf_index_map.json"
-# resolve() 解析 symlink：从 trade-data 跑时 scripts/ 是 symlink 指向 trade/scripts/，
-# resolve() 后读 trade/data/etf_index_map.json（真实路径，前序任务生成在此）。
+ETF_INDEX_MAP_PATH = ROOT / "data" / "etf_index_map.json"
+# 用 ROOT（.absolute() 保持 symlink 路径）落到运行侧数据目录 data(权威)，
+# 与 gen_etf_index_map.py 写出的路径一致（云上 trade-data/data，非代码仓 trade-data-signal/data 下游副本）。
 
 
 def _get_etf_db_path() -> Path:
