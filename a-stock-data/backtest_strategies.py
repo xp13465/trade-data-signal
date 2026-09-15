@@ -12,14 +12,19 @@
 
 所有指标自复刻（RSI EWM α=1/14 adjust=False 复刻 app/compute/signals.py `_rsi`）。
 """
+import os
 import sqlite3
 import time
 import numpy as np
 import pandas as pd
 
-STOCK_DB = '/Users/linhuichen/code/trade/data/stock_daily.db'
-SENT_DB = '/Users/linhuichen/code/trade/data/sentiment.db'
-REPORT = '/Users/linhuichen/code/trade/08-买卖点策略深度回测.md'
+# REPO 基座:与 scripts/update_lab.sh 同一套环境变量约定(云上 systemd 设 REPO=/home/ubuntu/code/trade-data)。
+# REPO 未设时回退本机代码仓路径,保持本机直接跑(python backtest_strategies.py)行为与历史一致。
+REPO = os.environ.get('REPO', '/Users/linhuichen/code/trade')
+
+STOCK_DB = os.path.join(REPO, 'data', 'stock_daily.db')
+SENT_DB = os.path.join(REPO, 'data', 'sentiment.db')
+REPORT = os.path.join(REPO, '08-买卖点策略深度回测.md')
 
 # 13 主要指数 + 3 红利（与 06/07 报告一致）
 MAIN_INDICES = ['sh', 'sz', 'hs300', 'csi500', 'csi1000', 'cyb', 'kc50',
@@ -733,7 +738,7 @@ def main():
     # 全量 22策略 × 5窗口 × 4horizon = 440 数据点，供前端「策略实验室」多周期对比。
     # mean 存为小数（% ÷ 100，如 0.1% -> 0.001）；win 存为 0-1 小数。
     import json
-    JSON_PATH = '/Users/linhuichen/code/trade/a-stock-data/lab_backtest.json'
+    JSON_PATH = os.path.join(REPO, 'a-stock-data', 'lab_backtest.json')
     PERIOD_ORDER = [p[0] for p in PERIODS_JSON]
     all_strats = [('buy', s) for s in BUY_ORDER] + [('sell', s) for s in SELL_ORDER]
     lab = {
