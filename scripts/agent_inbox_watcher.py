@@ -200,7 +200,13 @@ def sync_git_refs():
         failed = CODEX_INBOX / f"{rid}.failed"
         skipped = CODEX_INBOX / f"{rid}.skipped"
         processing = CODEX_INBOX / f"{rid}.processing"
-        if ready.exists() or done.exists() or skipped.exists() or processing.exists():
+        # 在途: ready/processing 不重复建
+        if ready.exists() or processing.exists():
+            continue
+        # 终态: done/skipped 但 ref 未删(cleanup 失败或 skip 未清理) -> 补删 ref 防泄漏
+        if done.exists() or skipped.exists():
+            log(f"sync_git_refs terminal {rid} -> cleanup_ref")
+            cleanup_ref(rid)
             continue
         # failed 但 retry 未耗尽 -> 重建 .ready 让 pump 重试
         if failed.exists():
@@ -218,12 +224,17 @@ def sync_git_refs():
         blocked = CODEX_INBOX / f"{rid}.blocked"
         if blocked.exists():
             continue
+        # claude 已收到回传 -> 终态, 直接删 ref 防泄漏
         if is_already_processed(rid):
-            # claude-inbox 已收到回传, 仅同步 ready 让 pump 跳过即可
-            try:
-                ready.write_text(json.dumps({"request_id": rid, "status": "done"}), encoding="utf-8")
-            except Exception:
-                pass
+            log(f"sync_git_refs already-processed {rid} -> cleanup_ref")
+            cleanup_ref(rid)
+            continue
+        # 报告已落盘但可能未回传(一次 exec 审所有 ref 的场景) -> 补回传 + 清理
+        verdict = _read_report_verdict(rid)
+        if verdict:
+            log(f"sync_git_refs report-done {rid} verdict={verdict} -> complete+cleanup")
+            _run_codex_complete(rid, verdict)
+            cleanup_ref(rid)
             continue
         if retry_count(rid) >= MAX_RETRIES:
             log(f"sync_git_refs skip {rid}: retry_count >= {MAX_RETRIES}")
@@ -329,7 +340,8 @@ def pump_queue(inbox, kind, running, cmd_factory):
             continue
         if is_already_processed(stem):
             transition(ready, "skipped")
-            log(f"skipped already-processed request {stem}")
+            cleanup_ref(stem)
+            log(f"skipped already-processed request {stem} (ref cleaned)")
             continue
         try:
             payload = read_signal(ready)
