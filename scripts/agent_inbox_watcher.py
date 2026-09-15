@@ -371,21 +371,29 @@ def pump_queue(inbox, kind, running, cmd_factory):
         else:
             cmd = cmd_factory(request_id)
         log(f"spawn kind={kind} request_id={request_id} retry={retry_count(request_id)}")
+        # stdout/stderr 用文件重定向, 避免 PIPE 缓冲写满导致子进程阻塞死锁
+        # (此前 PIPE 只在进程退出后才 communicate 排水, 子进程写满 64KB 后永久卡住)
+        log_path = LOG_DIR / f"inbox-{kind}-{request_id}.log"
         try:
+            outf = log_path.open("wb")
             proc = subprocess.Popen(
                 cmd,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                stdout=outf, stderr=subprocess.STDOUT,
                 cwd=str(REPO), preexec_fn=os.setpgrp,
-                text=True, encoding="utf-8", errors="replace"
             )
         except Exception as e:
             log(f"spawn error kind={kind} request_id={request_id}: {e}")
+            try:
+                outf.close()
+            except Exception:
+                pass
             transition(processing, "failed")
             continue
         running[kind] = dict(request_id=request_id, proc=proc,
                               processing=processing, started_at=time.time(),
-                              cmd_kind=kind, cmd=cmd)
+                              cmd_kind=kind, cmd=cmd,
+                              outfile=outf, log_path=log_path)
         return
 
 def _detect_429(proc) -> bool:
@@ -436,15 +444,24 @@ def poll_running(running):
         request_id = info["request_id"]
         processing = info["processing"]
         log(f"job_done kind={kind} request_id={request_id} exit={rc}")
-        # 捕获输出做诊断
-        try:
-            out, err = proc.communicate(timeout=5)
-            if err and ("429" in err or "Rate limit" in err or "quota" in err.lower()):
-                log(f"job_{request_id} 429 detected: {err[:200]}")
-            if out and len(out) > 0:
-                log(f"job_{request_id} stdout: {out[:300]}")
-        except Exception:
-            pass
+        # 关输出文件句柄, 读 log 尾部做诊断
+        outfile = info.get("outfile")
+        if outfile is not None:
+            try:
+                outfile.flush()
+                outfile.close()
+            except Exception:
+                pass
+        log_path = info.get("log_path")
+        if log_path is not None:
+            try:
+                tail = log_path.read_text(encoding="utf-8", errors="replace")[-800:]
+                if tail and ("429" in tail or "Rate limit" in tail or "quota" in tail.lower()):
+                    log(f"job_{request_id} 429 detected: {tail[-300:]}")
+                elif tail:
+                    log(f"job_{request_id} output tail: {tail[-300:]}")
+            except Exception:
+                pass
         running.pop(kind, None)
         if rc == 0 and kind == "codex":
             verdict = _read_report_verdict(request_id)
