@@ -115,5 +115,8 @@
   ],
   "20260915-a587": [
     "fix(tasks): CI \u95e8\u7981 #65 \u7f16\u53f7\u649e\u8f66\u6362\u53f7\u2014\u2014\u56db\u6863\u5224\u5b9a\u6e90 #65\u2192#108 \u6d88\u6b8b\u7559\u5173\u95ed\u6307\u9488"
+  ],
+  "20260916-a588": [
+    "build(lab): \u91cd\u5efa lab.min.js \u540c\u6b65 _atInit \u632a\u4f4d\u4fee\u590d"
   ]
 }
