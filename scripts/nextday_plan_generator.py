@@ -27,7 +27,8 @@
     - buy_date = T 的下一个交易日(权威交易日历 data/trade_dates.txt, §11.4 长假处理)
     - prev_close = 该 etf T 日收盘(etf_daily, 即挂单价上限; 与首页 etf_close 同源同口径)
     - amount = 每日资金池 1 万等分(K=1 即 1 万)
-    - 校验: prev_close>0 非停牌(该 etf 前一日有成交)
+    - 双校验: ① prev_close>0 非停牌(该 etf 前一日有成交) ② prev_close vs 信号日收盘 ±20% 内
+      (伪跳空剔除同款, 防除权/份额折算错位; 信号日收盘 = etf_daily 该 etf T 日 close)
 
 输入依赖:
     - <REPO>/data/sentiment.db signal_daily  (当日信号, 首页同源)
@@ -44,7 +45,7 @@
     - static-site/data/nextday_plan.json(用户页面可见, 同内容)
     - static-site/data/auto_trade_steps.json({schema_version:"v1", steps:[...]}, 追加模式幂等: 同 date 已存在则跳过)
 关键参数(常量, 与 kelly_posrating/前端逐位对齐, 改参数必须同步 §22):
-    - K=1, BUY_AMOUNT=10000
+    - K=1, BUY_AMOUNT=10000, PSEUDO_GAP=0.20(伪跳空剔除阈值同 signal_kelly_backtest.PSEUDO_GAP_EXCLUDE)
 复现命令:
     REPO=/Users/linhuichen/code/trade-data GIT_REPO=/Users/linhuichen/code/trade python3 scripts/nextday_plan_generator.py --date 20260910 --dry-run
     # --dry-run 只计算打印不落盘不发通知(自测); 无 --date 取今天; 无 --dry-run 会落盘两树+R2+通知
@@ -78,6 +79,7 @@ from app.collector.fetchers import load_config  # noqa: E402  (indicators.yaml i
 K = 1                       # K 档(每日 top1, 与首页 AI仓位建议默认 K=1 一致)
 BUY_AMOUNT = 10000          # 每日资金池 1 万等分
 BACKFILL_WINDOW_DAYS = 10   # 历史持仓回填窗口(最近 N 个交易日, #106; 窗口起点随每日前移, 已过期组滑出不删只不再补)
+PSEUDO_GAP = 0.20           # 伪跳空剔除阈值(与 signal_kelly_backtest.PSEUDO_GAP_EXCLUDE 同款)
 LOG_TAG = "[nextday_plan]"
 BUY_SIGNALS = {"buy", "buy_aux", "buy_special", "buy_backup"}  # 与 queries._AI_MACRO_BUY_SIGNALS 同源
 _RATING_RANK = {"high": 0, "mid": 1, "low": 2, "": 3}
@@ -433,7 +435,7 @@ def _kelly_sort_key(cand: dict):
 def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s06, prefix=""):
     """给定信号日 T 构建当日买入计划(首页 AI建议同一条链; 任意 T 通用, 回填段逐日重演即复用本函数)。
 
-    与主链当日计划同一代码路径(信号候选 → 买信号/宇宙/降亏过滤 → K=1 保留 → prev_close 非停牌校验),
+    与主链当日计划同一代码路径(信号候选 → 买信号/宇宙/降亏过滤 → K=1 保留 → prev_close 双校验),
     避免回填另写一份造成「第二份实现」漂移(§5.4⑦)。
     返回 plan 列表(每条含 etf_code/etf_name/prev_close/amount/signal/track_score/signal_date/buy_date;
     空列表=当日无计划)。
@@ -488,21 +490,25 @@ def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s
     _kept_desc = [f"{c['index_id']}|{c['signal']}|{c['etf_code']} ts={c['track_score']}" for c in kept_signals]
     _logp(f"K={K} 保留信号={_kept_desc}")
 
-    # ---- prev_close 非停牌校验 ----
-
+    # ---- prev_close + 双校验(原逻辑保留) ----
     plan = []
     for t in kept_signals:
         etf_code = t["etf_code"]
         etf_name = t["etf_name"]
         track_score = t["track_score"]
-        # 非停牌校验: prev_close>0(该 etf 前一日有成交)。
-        # 伪跳空剔除②已移除(codex findings #39 P2-3): 方案A 后 sig_close 与 prev_close 同源恒相等,
-        # gap 恒 0 是恒真死代码; 独立参照价 signal_kelly_trades.current_price 在 KELLY_BUY_NEXTDAY
-        # 口径下不含当日信号(信号次日才入账), 已不可用 → 死代码删除而非打补丁。
+        # 信号日收盘 = etf_daily 该 etf T 日 close(伪跳空校验参考点)
+        last_date, sig_close = _prev_close(db_path, etf_code, T)
+        # 双校验 ①: prev_close>0 非停牌(该 etf 前一日有成交)
         _, prev_close = _prev_close(db_path, etf_code, T)
         if prev_close is None or prev_close <= 0:
             _logp(f"  ✗ {etf_code} {etf_name} prev_close={prev_close}(非停牌校验失败, 前一日无成交)")
             continue
+        # 双校验 ②: prev_close vs 信号日收盘 ±20%(伪跳空剔除同款)
+        if sig_close is not None and sig_close > 0:
+            gap = prev_close / sig_close - 1.0
+            if abs(gap) > PSEUDO_GAP:
+                _logp(f"  ✗ {etf_code} {etf_name} 伪跳空剔除 prev_close={prev_close} sig_close={sig_close} gap={gap:.2%}")
+                continue
         plan.append({
             "etf_code": etf_code,
             "etf_name": etf_name,
