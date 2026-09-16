@@ -122,22 +122,27 @@ jobs:
           node-version: 'lts/*'
 
       - name: 下载生产数据产物(供 ⑥⑦)
+        id: download
         run: |
           mkdir -p "$GITHUB_WORKSPACE/static-site/data"
+          ok=1
           curl -fsSL --retry 3 -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36" \
             -o "$GITHUB_WORKSPACE/static-site/data/kelly_loss_features.json" \
-            "https://ssd.fx8.store/data/kelly_loss_features.json" || echo "⚠ 下载 kelly_loss_features.json 失败(⑥⑦将跳过)"
+            "https://ssd.fx8.store/data/kelly_loss_features.json" || { echo "⚠ 下载 kelly_loss_features.json 失败(⑥⑦将跳过)"; ok=0; }
           curl -fsSL --retry 3 -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36" \
             -o "$GITHUB_WORKSPACE/static-site/data/signal_kelly_trades.json" \
-            "https://ssd.fx8.store/data/signal_kelly_trades.json" || echo "⚠ 下载 signal_kelly_trades.json 失败(⑥⑦将跳过)"
+            "https://ssd.fx8.store/data/signal_kelly_trades.json" || { echo "⚠ 下载 signal_kelly_trades.json 失败(⑥⑦将跳过)"; ok=0; }
           ls -la "$GITHUB_WORKSPACE/static-site/data/"
+          echo "ok=$ok" >> "$GITHUB_OUTPUT"
 
       - name: ⑥ AI降亏三层一致性(特征/谓词/阈值 vs 挖掘权威)
+        if: steps.download.outputs.ok == '1'
         env:
           TRADES_JSON: "${{ github.workspace }}/static-site/data/signal_kelly_trades.json"
         run: python3 scripts/check_loss_rules_vs_mining.py
 
       - name: ⑦ fade 谓词规格迁移一致性(单边)
+        if: steps.download.outputs.ok == '1'
         env:
           TRADES_JSON: "${{ github.workspace }}/static-site/data/signal_kelly_trades.json"
         run: node scripts/check_fade_predicate_parity.mjs
