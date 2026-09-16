@@ -26,6 +26,8 @@ if [ "$(uname -s)" = "Darwin" ]; then
 fi
 
 REPO="${REPO:-/Users/linhuichen/code/trade-data}"
+GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"   # git 始终在 trade 仓库(trade-data 不 git init)
+export REPO GIT_REPO   # 确保 upload_r2.py 子进程继承 REPO(防缺省回退读 trade 旧库, 同 deploy.sh)
 PY="$REPO/.venv/bin/python"
 LOGDIR="$REPO/data/logs"
 STAMP=$(date +%Y%m%d_%H%M)
@@ -90,6 +92,24 @@ echo "-> 补齐 ETF 累计净值 accum_nav ..." | tee -a "$LOG"
 ACCUM_RC=${PIPESTATUS[0]}
 echo "accum_nav 补齐退出码=$ACCUM_RC" | tee -a "$LOG"
 
+# 1.7) ETF 全史日K导出（export_etf_hist, 弹窗长历史数据源）——从 17:50 update_all 主链挪到本 20:07
+#      采集链（#38 根因修复）: etf_daily 的 T 日 OHLC 要 20:07 daily 采集 + accum-nav 补完后才全，
+#      17:50 跑太早会缺 T 日 → 弹窗走势 JSON 停旧日。放 accum-nav 之后（前复权因子 accum_nav 也需最新），
+#      deploy.sh 之前（后续 deploy 的 upload-etf-hist 会把刚生成的 etf/{code}-all.json 传 R2）。
+#      硬闸门（2026-08-25 同款）：导出失败绝不继续 rsync+upload，防把截断/过期全史日K发布到 R2。
+echo "-> ETF全史日K（export_etf_hist, 弹窗长历史数据源, 20:07 补完 etf_daily 后导出）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/export_etf_hist.py" 2>&1 | tee -a "$LOG"
+ETF_HIST_RC=${PIPESTATUS[0]}
+echo "export_etf_hist 退出码=$ETF_HIST_RC" | tee -a "$LOG"
+if [ "$ETF_HIST_RC" -ne 0 ]; then
+  echo "【CRITICAL】export_etf_hist 失败(退出码 $ETF_HIST_RC), 硬闸门跳过 etf rsync+upload-etf-hist, 防发布截断/过期日K(§22 一致性)" | tee -a "$LOG"
+else
+  [ "$REPO" = "$GIT_REPO" ] || rsync -a --delete --checksum "$REPO/static-site/data/etf/" "$GIT_REPO/static-site/data/etf/" 2>>"$LOG" || \
+    echo "⚠ etf rsync 同步失败, 可能发布不全" | tee -a "$LOG"
+  "$PY" "$REPO/scripts/upload_r2.py" upload-etf-hist 2>&1 | tee -a "$LOG" || \
+    echo "⚠ upload-etf-hist R2上传失败（不阻塞主流程）" | tee -a "$LOG"
+fi
+
 # 2) 持 deploy 锁推送（串行化 git，阻塞排队；deploy.sh 重新 export 全量 JSON + git push）
 #    deploy.sh 幂等：export 生成相同 JSON -> git add 无新变更 -> 跳过 commit -> push up-to-date。
 #    无新数据时也安全（仅多跑一次 export.py）。
@@ -106,6 +126,7 @@ DEPLOY_RC=${PIPESTATUS[0]}
 FINAL_RC=0
 [ "$COLLECT_RC" -ne 0 ] && FINAL_RC=$COLLECT_RC
 [ "$ACCUM_RC" -ne 0 ] && FINAL_RC=$ACCUM_RC
+[ "${ETF_HIST_RC:-0}" -ne 0 ] && FINAL_RC=$ETF_HIST_RC
 [ "$DEPLOY_RC" -ne 0 ] && FINAL_RC=$DEPLOY_RC
 if [ "$FINAL_RC" -ne 0 ]; then
   # 抓 collector 的 duration(若有完成行),失败也带 duration 便于前端展示
