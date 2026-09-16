@@ -36,19 +36,31 @@ def section(title):
     print(f"\n{'=' * 8} {title} {'=' * 8}")
 
 
-# ---------- ①D: TRADE_FIELDS vs overfit FIELD ----------
-section("D1 TRADE_FIELDS(24列权威) vs overfit_monitor.FIELD")
-tf = re.search(r"TRADE_FIELDS\s*=\s*\[(.*?)\]", rd("scripts/signal_kelly_backtest.py"), re.S).group(1)
-tf = re.findall(r'"([a-z_0-9]+)"', tf)
-of = re.search(r"FIELD = \[(.*?)\]", rd("scripts/overfit_monitor.py"), re.S).group(1)
-of = re.findall(r'"([a-z_0-9]+)"', of)
-print(f"TRADE_FIELDS={len(tf)}  overfit FIELD={len(of)}")
-if tf != of:
-    msg = f"漂移: 权威有而 FIELD 无={sorted(set(tf)-set(of))}; FIELD 多出={sorted(set(of)-set(tf))}"
-    print("DIFF", msg)
-    issues.append(("D1", msg))
+# ---------- ①D: TRADE_FIELDS 单一事实源 vs overfit FIELD ----------
+section("D1 TRADE_FIELDS 单一事实源 vs overfit_monitor.FIELD")
+tf = re.findall(r'"([a-z_0-9]+)"', re.search(
+    r"TRADE_FIELDS\s*=\s*\[(.*?)\]", rd("scripts/signal_kelly_backtest.py"), re.S).group(1))
+ov_txt = rd("scripts/overfit_monitor.py")
+single_source = re.search(r"from signal_kelly_backtest import TRADE_FIELDS", ov_txt) is not None
+if single_source:
+    # 单源在位: overfit_monitor 直接 import TRADE_FIELDS, 结构上不可能与权威漂移(2026-09-16 修)
+    print(f"PASS overfit_monitor 单一事实源 import 在位(TRADE_FIELDS={len(tf)} 列, 漂移结构上不可能)")
 else:
-    print("PASS 两清单逐位一致")
+    # 退化回硬编码: 逐列 diff 权威 vs FIELD 字面量
+    m = re.search(r"FIELD = \[(.*?)\]", ov_txt)
+    if not m:
+        msg = "overfit_monitor FIELD 既无单源 import 也无字面量清单(可能未定义, 需排查)"
+        print("DIFF", msg)
+        issues.append(("D1", msg))
+    else:
+        of = re.findall(r'"([a-z_0-9]+)"', m.group(1))
+        print(f"TRADE_FIELDS={len(tf)}  overfit FIELD={len(of)}(硬编码, 建议改单源防再漂移)")
+        if tf != of:
+            msg = f"漂移: 权威有而 FIELD 无={sorted(set(tf)-set(of))}; FIELD 多出={sorted(set(of)-set(tf))}"
+            print("DIFF", msg)
+            issues.append(("D1", msg))
+        else:
+            print("PASS 两清单逐位一致(但仍建议改单源防再漂移)")
 
 # ---------- ①D: loss_rules NEW_KEYS_PROD vs 前端三处 ----------
 section("D2 loss_rules 20新键 vs 前端 common/app/lab 字面量清单")

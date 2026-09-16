@@ -71,6 +71,9 @@ sys.path.insert(0, SCRIPT_DIR)
 # 统一部署源树/上传 helper(防再犯机制 E, 2026-08-18): REPO = 部署源树(trade-data),
 # guard_deploy_source_tree 防误写 git 仓(trade); R2 上传 env 用 force_env 强制覆盖。
 from pick_repo import pick_repo, pick_git_repo, force_env, guard_deploy_source_tree  # noqa: E402
+# trade 行 schema 单一事实源(防列序漂移, 2026-08-23/09-15 两次同款病灶): 不再各自硬编码 FIELD。
+# signal_kelly_backtest 顶层仅常量/函数定义, 无 DB 连接/重计算副作用, import 安全。
+from signal_kelly_backtest import TRADE_FIELDS  # noqa: E402
 REPO = str(guard_deploy_source_tree(pick_repo()))         # trade-data/(部署源树)
 
 # ── 常量 ──────────────────────────────────────────────────────────────────────
@@ -365,18 +368,10 @@ def load_trades():
         else:
             raise FileNotFoundError("signal_kelly_trades.json 未找到 (static-site/data/ 和 data/ 都没有)")
 
-    # trade 行字段: schema 实际 27 列, 必须与 signal_kelly_backtest.py TRADE_FIELDS 逐位一致
-    # (#90 真实价 real_buy_price/real_current_price + #90 同族 #72 真实买入日 real_buy_date,
-    #  index 19/20/21, market_tier/market_tier_all/market_tier_cyb 在 index 23/24/25, rating 在 index 26)。
-    # 若漏列 → 后续列整体前移, t["rating"] 读到 market_tier 字符串, by_grade 回测桶/评级类过滤键
-    # (janMidRating 等) 全部静默失效(§23.7⑤ 上报后用户确认修; 本次 overfit-monitor exit=1
-    # 根因即漏 real_buy_date → rating 读到 index25 market_tier_cyb → recent.gr 空 → 校验 FAIL)。
-    FIELD = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code",
-             "etf_name", "track_tier", "track_score", "match_method", "track_low_confidence",
-             "buy_price", "sell_price", "shares", "profit", "return_pct", "hold_days",
-             "sell_reason", "current_price", "real_buy_price", "real_buy_date", "real_current_price",
-             "market_state",
-             "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
+    # trade 行字段: schema 实际 27 列, 单一事实源 = signal_kelly_backtest.TRADE_FIELDS(顶部 import)。
+    # 若列序与 trades.json 漂移 → 后续列整体前移, t["rating"] 读到 market_tier 字符串, by_grade
+    # 回测桶/评级类过滤键全部静默失效。改为单源后不再各自硬编码(2026-08-23/09-15 两次同款病灶)。
+    FIELD = list(TRADE_FIELDS)
     IDX = {f: i for i, f in enumerate(FIELD)}
 
     with open(p, encoding="utf-8") as f:
@@ -391,8 +386,13 @@ def load_trades():
             if not isinstance(arr, list):
                 continue
             for tr in arr:
-                if not isinstance(tr, list) or len(tr) < len(FIELD):
+                if not isinstance(tr, list):
                     continue
+                if len(tr) != len(FIELD):
+                    raise ValueError(
+                        f"signal_kelly_trades.json 列数漂移: trade 行 {len(tr)} 列 != TRADE_FIELDS {len(FIELD)} 列 "
+                        f"(疑似 trades.json 由旧版 schema 生成, 静默 continue 会空化 recent.gr/回测桶, 见 "
+                        f"docs/kelly/analysis/ov-parity-fail-rootcause-20260916.md)")
                 d = tr[IDX["signal_date"]]
                 by_date[d].append({
                     "signal": tr[IDX["signal"]],

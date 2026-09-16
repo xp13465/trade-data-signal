@@ -160,6 +160,16 @@ MARKET_QUAD_MAP = {
     "concept": "mkt_concept",
 }
 
+# trades 列式文件 schema(列式存储, 每 quadrant x mode 存 all 周期全量, 前端按 cutoff 过滤 y1/y3)。
+# 单一事实源: overfit_monitor.py 直接 import 本常量(不再各自硬编码), 防列序漂移
+# (2026-08-23 21列 / 2026-09-15 26列两次同款病灶, 见 docs/kelly/analysis/ov-parity-fail-rootcause-20260916.md)。
+TRADE_FIELDS = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name",
+                "track_tier", "track_score", "match_method", "track_low_confidence",
+                "buy_price", "sell_price", "shares", "profit", "return_pct",
+                "hold_days", "sell_reason", "current_price", "real_buy_price", "real_buy_date",
+                "real_current_price",
+                "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
+
 
 # ── 数据加载 ──────────────────────────────────────────────────────────────────
 
@@ -768,7 +778,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
             "hold_days": hold,
             "sell_reason": "持有中",
             "current_price": round(current_nav, 6),
-            "real_buy_price": round(real_buy, 6),
+            "real_buy_price": round(real_buy, 6) if real_buy else 0,
             "real_buy_date": real_buy_date,
             "real_current_price": round(real_cur, 6) if real_cur else 0,
             "market_state": market_state,
@@ -817,7 +827,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
         "hold_days": hold,
         "sell_reason": sell_reason,
         "current_price": 0,
-        "real_buy_price": round(real_buy, 6),
+        "real_buy_price": round(real_buy, 6) if real_buy else 0,
         "real_buy_date": real_buy_date,
         "real_current_price": 0,
         "market_state": market_state,
@@ -1342,13 +1352,8 @@ def _build_outputs(quadrants):
         "quadrants": {},
     }
 
-    # trades 列文件(列式存储, 每 quadrant x mode 存 all 周期全量, 前端按 cutoff 过滤 y1/y3)
-    TRADE_FIELDS = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name",
-                    "track_tier", "track_score", "match_method", "track_low_confidence",
-                    "buy_price", "sell_price", "shares", "profit", "return_pct",
-                    "hold_days", "sell_reason", "current_price", "real_buy_price", "real_buy_date",
-                    "real_current_price",
-                    "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
+    # trades 列文件(列式存储, 每 quadrant x mode 存 all 周期全量, 前端按 cutoff 过滤 y1/y3);
+    # 列序 = 模块级常量 TRADE_FIELDS(单一事实源, 与 overfit_monitor.py 共用, 防列序漂移)
     trades_output = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "buy_amount": BUY_AMOUNT,
