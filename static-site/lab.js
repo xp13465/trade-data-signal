@@ -9390,6 +9390,10 @@ async function renderSigKellyLab() {
   const stepsSlot = document.createElement("div");
   stepsSlot.id = "lab-autotrade-steps-slot";
   wrapper.appendChild(stepsSlot);
+  // 实操步骤表格初始化提前到此(2026-09-16 渲染顺序修复): 板块只依赖 nextday_plan.json + auto_trade_steps.json
+  //   + 腾讯实时现价, 不碰 state.labSigKellyData; 提前即与主数据(约69MB)并行加载秒开, 不再被主数据 await 阻塞。
+  //   每次 renderSigKellyLab 重建 slot 时, _atInit 内 _atStopSched 停旧轮询、旧 slot isConnected 自停兜底, 机制不变。
+  _atInit(stepsSlot);
 
 
   // AI报告折叠区(静态AI报告, 不依赖周期/费率, 放wrapper层避免随_renderSigKellyQuadrants重渲染重置open状态)
@@ -9612,9 +9616,6 @@ async function renderSigKellyLab() {
   _renderSigKellyQuadrants(host, data, period);
   // 触发初始重算(加载trades.json获取费率消耗列)
   _kellyOnFeeChange(state.labSigKellyFeePreset);
-
-  // 实操步骤表格初始化(每次 render 重建 slot, 旧轮询由 isConnected 自停)
-  _atInit(stepsSlot);
 }
 
 // 从 state.labSigKellyData.config.sell_modes 动态获取卖出模式标签(去硬编码 ABCD)
