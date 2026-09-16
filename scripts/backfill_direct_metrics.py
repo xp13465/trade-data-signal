@@ -10,7 +10,7 @@ akshare 等多源 fallback 兜底,间歇封禁后 backfill-evening 槽位补回�
 口径:
 - ok  = 补采成功(rows 非空),写 ok 并清同 run_date 该 metric 旧非 ok 记录
        (让 collect_health 反映最新状态)
-- gap = 数据源无数据(collect_direct 返回空且 msg 含「两源皆败无数据」)=
+- gap = 数据源无数据(collect_direct 返回空且 msg 含「多源皆败无数据」)=
        正常缺口非任务失败。仍 log_collect error 让 collect_health 通道反映,
        但**不计 fail、不影响退出码**。2026-09-09 #84 reviewer P1-1: 02:00 槽
        a_fund_main 每日必现该缺口,旧逻辑计 fail → backfill 每日 exit 1 →
@@ -44,7 +44,7 @@ from app.collector.fetchers import collect_direct, load_config
 from app.collector.runner import upsert_metrics_many
 from app.db import get_conn
 
-GAP_MARKER = "两源皆败无数据"  # collect_direct 空返回的固定 msg(数据源无数据=正常缺口)
+GAP_MARKER = "多源皆败无数据"  # collect_direct 空返回的固定 msg(数据源无数据=正常缺口)
 
 
 def main() -> int:
@@ -74,7 +74,7 @@ def main() -> int:
                 print(f"[ok] {mid} +{len(rows)} rows", flush=True)
                 log_collect(date, mid, "ok", f"{len(rows)} rows")
             elif GAP_MARKER in msg:
-                # 数据源无数据(两源皆败)=正常缺口,非任务失败:仍记 error 供
+                # 数据源无数据(多源皆败)=正常缺口,非任务失败:仍记 error 供
                 # collect_health 反映,但不计 fail、不进退出码。
                 gap += 1
                 print(f"[gap] {mid} {msg}", flush=True)

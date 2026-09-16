@@ -65,6 +65,19 @@ def fetch_market_fund_flow():
     只需方向判断，25% 偏差可接受；东财解封后优先回切主源拿口径一致+历史数据。
     限制：① 只能拿当日"即时"值(非历史K线) ② 口径为全部资金净额(非主力) ③ 周末访问返回
     周五收盘数据，日期做周末往前推修正。
+
+    2026-09-16 第六源：同花顺实测存在反爬脆弱性（同会话第二次请求即 401），且现有五源仅
+    2 供应商（东财 eastmoney.com + 同花顺 10jqka.com.cn），两者曾同时失败。新增新浪指数
+    资金流 vip.stock.finance.sina.com.cn 作真正独立第三供应商：沪深各一次请求
+    （zhishu_000001 上证指数=沪市全部 + zhishu_399106 深证综指=深市全部），取 netamount
+    （净额，单位元）沪深合计=全市场资金流合计。⚠️ 口径差异：netamount=各档净额合计，
+    方向 vs 东财主力 77%、vs 东财超大单 93%（30 交易日实测），量级不稳定（不可数值对账，
+    只贡献方向）；simple 类型 a_fund_main 只需方向判断达标（量级差与同花顺现状相当，
+    调研报告已诚实标注）。
+    限制：① 数据 T+1（最新到昨日，盘中无当日）→ 只适合盘后槽位（15:35/16:00），
+    盘中用只会补昨日（幂等，不会错标今日）② 请求头必须带 Referer: https://finance.sina.com.cn/
+    （实测缺 Referer 返回异常）③ opendate 为自然日序列，用 last_trading_day(昨日) 对齐
+    取最新交易日（沪深两值都拿到才算数，缺任一市宁可空不半对）。
     """
     # 主源：东财 push2his（历史日K，近 120 日）
     try:
@@ -233,7 +246,50 @@ def fetch_market_fund_flow():
     except Exception:
         pass
 
-    return []  # 五源皆败，返回空（collect_direct 转 fail 记 error）
+    # 第六源：新浪指数资金流（真正独立第三供应商，防 eastmoney 全家桶 + 同花顺同败）
+    # 2026-09-16 新增：新浪财经指数资金流接口（vip.stock.finance.sina.com.cn），独立于
+    # 东财 + 同花顺的第三供应商。沪深各一次请求（zhishu_000001 上证指数=沪市全部 +
+    # zhishu_399106 深证综指=深市全部），取 netamount（净额，单位元）沪深合计=全市场资金流。
+    # ⚠️ 口径差异：netamount=各档净额合计，方向 vs 东财主力 77%、vs 东财超大单 93%
+    # （30 交易日实测），量级不稳定（不可数值对账，只贡献方向）；simple 类型 a_fund_main
+    # 只需方向判断达标（与同花顺 25% 量级差同精神，报告已诚实标注）。
+    # 限制：① 数据 T+1（最新到昨日，盘中无当日）→ 只适合盘后槽位（15:35/16:00），
+    # 盘中用只会补昨日（幂等，不会错标今日）② 必须带 Referer: https://finance.sina.com.cn/
+    # 请求头（实测缺 Referer 返回异常）③ opendate 自然日序列，用 last_trading_day(昨日)
+    # 对齐取最新交易日。
+    try:
+        from ..calendar import last_trading_day
+        # 新浪 T+1：最新数据到昨日，目标日 = 昨日（含）前最近交易日
+        ltd = last_trading_day(_dt.date.today() - _dt.timedelta(days=1))
+        s = requests.Session()
+        s.headers.update({
+            "User-Agent": UA,
+            "Referer": "https://finance.sina.com.cn/",
+        })
+        total_net = 0.0
+        got = 0
+        for bankuai in ("zhishu_000001", "zhishu_399106"):
+            r = s.get(
+                "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+                "MoneyFlow.ssl_bkzj_zjlrqs",
+                params={
+                    "page": 1, "num": 30, "sort": "opendate", "asc": 0,
+                    "bankuai": bankuai,
+                },
+                timeout=15,
+            )
+            arr = r.json()
+            for item in arr:
+                if str(item.get("opendate", "")).replace("-", "") == ltd:
+                    total_net += float(item.get("netamount") or 0)
+                    got += 1
+                    break
+        if got == 2:  # 沪深都拿到（缺任一市宁可空不半对）
+            return [(ltd, total_net)]
+    except Exception:
+        pass
+
+    return []  # 六源皆败，返回空（collect_direct 转 fail 记 error）
 
 
 # ── a_fund_north 预算治理常量(2026-08-26 根治「90天循环 vs 90s守护预算」矛盾) ──

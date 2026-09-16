@@ -34,7 +34,7 @@ fi
 # 2) 补采 direct:类指标（主力净流入 a_fund_main 等；东财封禁时 direct.py 内置 akshare fallback）
 #    独立脚本 scripts/backfill_direct_metrics.py（2026-09-09 从内嵌 python 提取，逻辑逐行一致，
 #    唯一变更=缺口判定）。退出码语义：仅「真失败」（no direct.fetch_* 配置缺失 / direct:* error:
-#    采集异常 / 抛异常）计 fail → exit 1；「两源皆败无数据」= 数据源正常缺口(gap)，不计 fail、
+#    采集异常 / 抛异常）计 fail → exit 1；「多源皆败无数据」= 数据源正常缺口(gap)，不计 fail、
 #    不进退出码，缺口由 collect_health 通道反映（#84 reviewer P1-1：02:00 槽 a_fund_main 每日
 #    必现该缺口，旧逻辑计 fail → 每日 exit 1 → schedule_monitor 假 SEVERE+恢复邮件循环）。
 "$REPO/.venv/bin/python" "$REPO/scripts/backfill_direct_metrics.py" 2>&1 | tee -a "$LOG"
