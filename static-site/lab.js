@@ -9390,10 +9390,6 @@ async function renderSigKellyLab() {
   const stepsSlot = document.createElement("div");
   stepsSlot.id = "lab-autotrade-steps-slot";
   wrapper.appendChild(stepsSlot);
-  // 实操步骤表格初始化提前到此(2026-09-16 渲染顺序修复): 板块只依赖 nextday_plan.json + auto_trade_steps.json
-  //   + 腾讯实时现价, 不碰 state.labSigKellyData; 提前即与主数据(约69MB)并行加载秒开, 不再被主数据 await 阻塞。
-  //   每次 renderSigKellyLab 重建 slot 时, _atInit 内 _atStopSched 停旧轮询、旧 slot isConnected 自停兜底, 机制不变。
-  _atInit(stepsSlot);
 
 
   // AI报告折叠区(静态AI报告, 不依赖周期/费率, 放wrapper层避免随_renderSigKellyQuadrants重渲染重置open状态)
@@ -9493,6 +9489,7 @@ async function renderSigKellyLab() {
 
   content.querySelectorAll(".lab-sigkelly-wrap").forEach((el) => el.remove());
   content.appendChild(wrapper);
+  _atInit(stepsSlot);   // 必须在 wrapper 挂载后调用, 否则 _atSchedule 的 isConnected 守卫会掐死轮询
 
   // fetch 数据(缓存到 state, 周期切换不重新 fetch; #91 口径切换时 state.labSigKellyData 已置 null, 走此重载)
   if (!state.labSigKellyData) {
