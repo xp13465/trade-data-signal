@@ -32,7 +32,8 @@
   .venv/bin/python scripts/export_etf_hist.py --limit 3          # 小规模验证
   .venv/bin/python scripts/export_etf_hist.py --codes 510050,510300
 
-定时链路: update_all.sh(etf_score_list 导出后同步跑 + rsync + upload-etf-hist);
+定时链路: etf_national_team_backfill.sh 20:07 采集链(daily 采集 + accum-nav 补完后
+  跑 export_etf_hist + rsync + upload-etf-hist);
   deploy.sh run_r2_upload 列表含 upload-etf-hist(R2 三步同步 §22)。
 
 复现命令:

@@ -178,21 +178,9 @@ else
   echo "⚠ upload-etf-score R2上传失败（不阻塞主流程）" | tee -a "$LOG"
 fi
 
-# #10 ETF弹窗长历史(2026-08-22): ETF 全史日K etf/{code}-all.json (1532只~87MB, ~5s)
-# 前端 period tab 懒加载 R2 etf/ 前缀; 跟随 etf_score_list 每日重算后同步导出
-echo "-> ETF全史日K（export_etf_hist, 弹窗长历史数据源）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/export_etf_hist.py" >> "$LOG" 2>&1
-ETF_HIST_RC=$?
-if [ "$ETF_HIST_RC" -ne 0 ]; then
-  # 硬闸门(2026-08-25 同款, 用户已确认根治): 导出失败绝不继续 rsync+upload,
-  # 防把截断/过期全史日K发布到 R2。显式告警入日志不静默(L44)。
-  echo "【CRITICAL】export_etf_hist 失败(退出码 $ETF_HIST_RC), 硬闸门跳过 etf rsync+upload-etf-hist, 防发布截断/过期日K(§22 一致性)" | tee -a "$LOG"
-else
-  [ "$REPO" = "$GIT_REPO" ] || rsync -a --delete --checksum "$REPO/static-site/data/etf/" "$GIT_REPO/static-site/data/etf/" 2>>"$LOG" || \
-    echo "⚠ etf rsync 同步失败, 可能发布不全" | tee -a "$LOG"
-  "$PY" "$REPO/scripts/upload_r2.py" upload-etf-hist >> "$LOG" 2>&1 || \
-    echo "⚠ upload-etf-hist R2上传失败（不阻塞主流程）" | tee -a "$LOG"
-fi
+# #10 ETF弹窗长历史(2026-08-22): export_etf_hist 已挪到 20:07 etf_national_team_backfill.sh
+# (#38 根因修复: 17:50 跑太早, etf_daily T 日 OHLC 未补完 → 弹窗走势缺最新日; deploy.sh 的
+#  run_r2_upload 仍含 upload-etf-hist, 17:50 增量 no-op, 真正刷新等 20:07 采集链导出)。
 
 # P2-新-W 浏览器通知源 JSON（根因①修复：收盘全量后导出 notifications.json，覆盖 post_close 场景）
 # 读 DB 当日信号/预警/恐贪/异动 + post_close=True 标志（18:00 后），前端弹"收盘速递"通知。
@@ -292,7 +280,7 @@ SEVERE=0
 [ "$FRESH_OK" != "1" ] && SEVERE=1
 [ "${FUND_NAV_RC:-0}" -ne 0 ] && SEVERE=1  # P2返修 2026-08-27: 前置导出失败=fund_nav 数据断供(产物不刷新+跳过上传), 升级严重告警
 [ "${SCORE_LIST_RC:-0}" -ne 0 ] && SEVERE=1  # 样板抄齐 2026-08-27: 导出失败=买卖清单数据断供(R2 停旧版+跳过上传), 升级严重告警
-[ "${ETF_HIST_RC:-0}" -ne 0 ] && SEVERE=1    # 样板抄齐 2026-08-27: 导出失败=ETF全史日K数据断供, 升级严重告警
+# (2026-09-16 #38) ETF_HIST_RC 随 export_etf_hist 挪到 20:07 etf_national_team_backfill.sh, 此处不再判 SEVERE
 [ "${FUND_SCORE_RC:-0}" -ne 0 ] && SEVERE=1  # 样板抄齐 2026-08-27: 导出失败=基金评分数据断供, 升级严重告警
 NOW_STR=$(date '+%Y-%m-%d %H:%M:%S')
 # 邮件 subject 统一模板 [类型]关键信息 MM-DD HH:MM（2026-07-20 改造）
@@ -321,7 +309,6 @@ if [ "$SEVERE" -eq 1 ]; then
   [ "$FRESH_OK" != "1" ] && ISSUE="${ISSUE}数据时效异常($FRESH_MSG)"
   [ "${FUND_NAV_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}fund_nav导出失败(rc=${FUND_NAV_RC:-0},产物未刷新) "
   [ "${SCORE_LIST_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}etf_score_list导出失败(rc=${SCORE_LIST_RC:-0},产物未刷新) "
-  [ "${ETF_HIST_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}etf_hist导出失败(rc=${ETF_HIST_RC:-0},产物未刷新) "
   [ "${FUND_SCORE_RC:-0}" -ne 0 ] && ISSUE="${ISSUE}fund_score导出失败(rc=${FUND_SCORE_RC:-0},产物未刷新) "
   # 防噪 2026-08-27: 复用 notify.py 现成 --dedup-key/--dedup-window(状态文件 data/notify_dedup.json,
   # 发送成功才登记/suppress 静默退0/fail-open; 先例=intraday upload-index R2 失败去重)。

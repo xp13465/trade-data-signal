@@ -128,6 +128,28 @@ def _etf_daily_dates(db_path: Path) -> list[str]:
         con.close()
 
 
+def _etf_latest_date(db_path: Path, etf_code: str) -> str | None:
+    """etf_daily 该 etf 的最新交易日(无则 None)。用于计划内逐只就绪 gate(#38)。"""
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        cur = con.cursor()
+        cur.execute("SELECT MAX(date) FROM etf_daily WHERE etf_code=?", (etf_code,))
+        row = cur.fetchone()
+        return row[0] if row and row[0] else None
+    finally:
+        con.close()
+
+
+def _plan_stale_codes(db_path: Path, plan: list[dict], T: str) -> list[str]:
+    """计划内 ETF 最新日 < T 的 etf_code 列表(就绪 gate: 计划内每只 ETF 最新日须 == T)。
+
+    #38 根治: 原 gate 用全局 max date(任一 ETF 到 T 就放行), 计划内停在旧日的 ETF(如 159880
+    停在 09-14)被纳入 → prev_close 非 T 日收盘失真。改为逐只校验计划内 etf_code 最新日。
+    """
+    codes = sorted({str(p.get("etf_code") or "") for p in plan if p.get("etf_code")})
+    return [c for c in codes if (_etf_latest_date(db_path, c) or "") < T]
+
+
 def _trade_calendar_dates(db_path: Path) -> list[str]:
     """权威交易日历(含未来, up to 当年): data/trade_dates.txt(akshare tool_trade_date_hist_sina 缓存)。
 
@@ -561,18 +583,9 @@ def main():
     s06_doc = _load_json("kelly_mode_s06_state.json", data_dir)
     freeze = appq._etf_freeze()
 
-    # ---- 数据就绪 gate(§23.15 不上残缺版): etf_daily 需已更新到 T 日(backfill-evening 补完后),
-    #      否则 prev_close 非 T 日收盘 → 计划挂单价失真, 明确告警退出, 不产出误导性受限计划。
-    #      NEXTDAY_PLAN_FORCE=1 可跳过(不推荐, 仅人工核查用)。
+    # etf_daily 基础就绪检查(全空无法取 prev_close 与交易日)
     etf_dates = _etf_daily_dates(db_path)
-    if etf_dates and etf_dates[-1] < T:
-        if os.environ.get("NEXTDAY_PLAN_FORCE") == "1":
-            log(f"⚠ FORCE: etf_daily 最新日 {etf_dates[-1]} < T {T}, 强制继续(prev_close 可能非 T 日收盘)")
-        else:
-            log(f"✗ 数据未就绪: etf_daily 最新日 {etf_dates[-1]} < T {T}(backfill-evening 未完成), "
-                f"不产出误导性计划。可 NEXTDAY_PLAN_FORCE=1 强制跳过(不推荐)")
-            return 2
-    elif not etf_dates:
+    if not etf_dates:
         log("✗ etf_daily 为空, 无法确定 prev_close 与交易日")
         return 2
     # s06 解析器(fail-open: 快照缺行 → None → 降亏放行, 同前端降级契约; 成员集计算在 _build_plan_for_day 内按 T 求)
@@ -596,6 +609,20 @@ def main():
         log(f"✗ 信号统计/配置加载失败: {e}")
         return 2
     plan = _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s06)
+
+    # ---- 数据就绪 gate(§23.15 不上残缺版): 计划内每只 ETF 的 etf_daily 最新日必须 == T。
+    #      #38 根治: 原 gate 用全局 max date(任一 ETF 到 T 就放行), 计划内停在旧日的 ETF(如 159880
+    #      停在 09-14)被纳入 → prev_close 非 T 日收盘失真。改为逐只校验计划内 etf_code 最新日,
+    #      任一 < T 拦截退出 2; NEXTDAY_PLAN_FORCE=1 可跳过(不推荐, 仅人工核查用)。
+    stale_codes = _plan_stale_codes(db_path, plan, T)
+    if stale_codes:
+        if os.environ.get("NEXTDAY_PLAN_FORCE") == "1":
+            log(f"⚠ FORCE: 计划内 ETF 停在旧日(最新日 < T {T}): {stale_codes}, 强制继续(prev_close 可能非 T 日收盘)")
+        else:
+            log(f"✗ 数据未就绪: 计划内 ETF 停在旧日(最新日 < T {T}): {stale_codes} "
+                f"(backfill-evening 未完成), 不产出误导性计划。可 NEXTDAY_PLAN_FORCE=1 强制跳过(不推荐)")
+            return 2
+
     buy_date = plan[0]["buy_date"] if plan else (_next_trading_day(trade_dates, T) if trade_dates else "")
     plan_doc = {"date": T, "plan": plan} if plan else {"date": T, "empty": True}
     log(f"计划条目={len(plan)} buy_date={buy_date}")

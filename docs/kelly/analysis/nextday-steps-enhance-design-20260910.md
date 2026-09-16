@@ -117,7 +117,7 @@
   4. overlay 骨架参照 `_openEtfTrendPinModal` L13472-13483(overlay id 换 `lab-autotrade-etf-overlay`,z-index 10001 同款)。
 - 理由:`_etfTrendLiteHTML/_etfTrendLiteBind/_etfTrendGeom` 是 app.js 全局纯函数,输入仅 ohlc,零依赖;`{code}-all.json` 数据已就绪(513080 1515 根,R2 已同步);R2 URL 常量已存在(`_LAB_ETF_PIN_URL` L13415)。
 - **不可直接复用 `_openEtfTrendPinModal`**:它强依赖 trades/eliminated 交易事件,空事件直接 return 不弹(lab.js L13456-13459)。
-- 数据供给链路:`{code}-all.json` 由 `scripts/export_etf_hist.py`(盘后 update-all 链)生成 + upload-etf-hist 传 R2,已有(launchd 17:50 update-all + 每日 deploy)。
+- 数据供给链路:`{code}-all.json` 由 `scripts/export_etf_hist.py`(20:07 采集链 etf_national_team_backfill.sh)生成 + upload-etf-hist 传 R2,已有(launchd 20:07 etf_national_team_backfill + 每日 deploy)。
 
 **改动点清单**:
 - 前端 `lab.js` `_at` 区块:`_atOpenEtfChart(code, name)`(~50 行)+ 主表/弹窗 ETF 代码单元格点击绑定(~30 行)。
@@ -147,7 +147,7 @@
 |---|---|---|---|---|---|
 | seq2/3 步骤行 | 生成器 nextday_plan_generator.py | 20:55 launchd(已有) | check_data_integrity L1931(已有) | 生成器 F2 severe(已有) | 低(盘后一次) |
 | 盘中现价/推进 | **前端直连腾讯实时源** | 前端 60s 轮询(已有) | 腾讯源自身 | 不可达→列显「-」降级 | 无(实时源自更新) |
-| 走势图 {code}-all.json | export_etf_hist.py | 17:50 update-all(已有) | check_data_integrity | deploy 链 | 低(日更) |
+| 走势图 {code}-all.json | export_etf_hist.py | 20:07 采集链 etf_national_team_backfill.sh(已有) | check_data_integrity | deploy 链 | 低(日更) |
 | 操作标记 | localStorage(用户动作) | 用户点击 | 无(单设备) | 无 | 单设备,不跨端 |
 
 ## 5. 关键证据引用(供 §0 单点验收)
