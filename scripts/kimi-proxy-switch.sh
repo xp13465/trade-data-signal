@@ -1,5 +1,5 @@
 #!/bin/bash
-# kimi-proxy-switch.sh — kimi-k3 / v4-flash 双代理一键切换(只改 ~/.claude/settings.json,不碰 launchd)
+# kimi-proxy-switch.sh — kimi-k3 / v4-flash 双代理一键切换(改 ~/.claude/settings.json; kimi-k3 已停用 2026-09-06, plist 归档 .disabled/)
 #
 # 用途:两个商汤轮换代理同时常驻(v4-flash 版 8899 / kimi-k3 版 8898),本脚本只改
 #      ~/.claude/settings.json 的 ANTHROPIC_BASE_URL + 所有模型键,把 Claude 会话指到对应代理。
@@ -10,7 +10,7 @@
 #   - 先备份当前 settings.json 到 settings.json.bak-kimi-switch-<日期> 再写(可回退,幂等可重复)。
 #   - 只操作 env.ANTHROPIC_BASE_URL + 模型键(ANTHROPIC_MODEL/ANTHROPIC_DEFAULT_*_MODEL/
 #     ANTHROPIC_DEFAULT_*_MODEL_NAME/CLAUDE_CODE_SUBAGENT_MODEL),其他键原样保留。
-#   - 不 load/unload launchd:两个代理都常驻,靠 BASE_URL 切换;token 不动(两代理共用 SENSENOVA_KEY*)。
+#   - kimi-k3 已停用(2026-09-06):v4-flash 常驻;切 kimi 会先 load 归档 plist 拉起 8898(否则 BASE_URL 指向死端口)。
 
 set -u
 
@@ -27,7 +27,16 @@ KIMI_MODEL="kimi-k3"
 
 case "$MODE" in
   kimi)
-    NEW_URL="$KIMI_URL"; NEW_MODEL="$KIMI_MODEL"; DESC="kimi-k3 代理(8898)"
+    NEW_URL="$KIMI_URL"; NEW_MODEL="$KIMI_MODEL"; DESC="kimi-k3 代理(8898,已停用)"
+    # kimi-k3 已停用(2026-09-06): plist 已归档 scripts/.disabled/, 需先 load 拉起 8898 才能真正切换,
+    # 否则 BASE_URL 指向死端口。load 失败则中止, 不静默指向死端口(codex findings #39 P2-7)。
+    KIMI_PLIST="$(cd "$(dirname "$0")" && pwd)/.disabled/com.trade.thinking-proxy-kimi.plist"
+    if [ -f "$KIMI_PLIST" ]; then
+      echo "!! kimi-k3 已停用(2026-09-06), 先 load 归档 plist 拉起 8898"
+      launchctl load "$KIMI_PLIST" || { echo "!! load 失败, 中止切换(避免指向死端口 8898)"; exit 1; }
+    else
+      echo "!! kimi-k3 已停用且归档 plist 缺失($KIMI_PLIST), 中止切换"; exit 1
+    fi
     ;;
   v4flash)
     NEW_URL="$V4_URL"; NEW_MODEL="$V4_MODEL"; DESC="v4-flash 代理(8899)"

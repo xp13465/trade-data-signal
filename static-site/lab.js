@@ -14522,7 +14522,9 @@ function _atRowHtml(d, today, hlDate, daySteps) {
   const amtSharesStr = _atAmtSharesStr(d);
   // #108 卖出行: 自身标记态直接反映为「已操作(手动)」; 点击弹所属买入组时间线(data-open-date)
   const sellMarked = d.sell && d.src_step && _atIsMarked(d.src_step);
-  const allMarked = ((d.date === today) && _atDayAllMarked(daySteps)) || sellMarked;
+  // 卖出行只认自身标记态(sellMarked); 买入行才按「该日期买入组是否全闭环」短路。
+  // 否则撞日期场景下卖出行会被同日买入组闭包 OR 短路误显绿色「已操作」(codex findings #39 P2-2)。
+  const allMarked = d.sell ? sellMarked : (((d.date === today) && _atDayAllMarked(daySteps)));
   const statusHtml = allMarked
     ? '<span class="auto-trade-steps-st auto-trade-steps-st-green">已操作(手动)</span>'
     : '<span class="auto-trade-steps-st auto-trade-steps-st-' + stCls + '">' + _atEsc(d.status_text || d.status || "-") + '</span>';

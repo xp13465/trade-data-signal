@@ -252,7 +252,9 @@ def _save_cooldown():
         _data = {"keys": _cooldown_snapshot(), "updated_at": int(time.time() * 1000)}
         _dir = os.path.dirname(COOLDOWN_FILE)
         os.makedirs(_dir, exist_ok=True)
-        _tmp = "%s.tmp.%d" % (COOLDOWN_FILE, os.getpid())
+        # 线程唯一 tmp 名(codex findings #39 P2-6 同款, 与主版 sensenova-rotate-proxy.py 一致):
+        # 同进程所有线程 os.getpid() 相同, 并发写同一 tmp 相互截断 → 用 threading.get_ident()。
+        _tmp = "%s.tmp.%d" % (COOLDOWN_FILE, threading.get_ident())
         with open(_tmp, "w") as _f:
             json.dump(_data, _f)
         os.replace(_tmp, COOLDOWN_FILE)
