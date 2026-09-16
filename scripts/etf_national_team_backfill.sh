@@ -97,17 +97,23 @@ echo "accum_nav 补齐退出码=$ACCUM_RC" | tee -a "$LOG"
 #      17:50 跑太早会缺 T 日 → 弹窗走势 JSON 停旧日。放 accum-nav 之后（前复权因子 accum_nav 也需最新），
 #      deploy.sh 之前（后续 deploy 的 upload-etf-hist 会把刚生成的 etf/{code}-all.json 传 R2）。
 #      硬闸门（2026-08-25 同款）：导出失败绝不继续 rsync+upload，防把截断/过期全史日K发布到 R2。
-echo "-> ETF全史日K（export_etf_hist, 弹窗长历史数据源, 20:07 补完 etf_daily 后导出）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/export_etf_hist.py" 2>&1 | tee -a "$LOG"
-ETF_HIST_RC=${PIPESTATUS[0]}
-echo "export_etf_hist 退出码=$ETF_HIST_RC" | tee -a "$LOG"
-if [ "$ETF_HIST_RC" -ne 0 ]; then
-  echo "【CRITICAL】export_etf_hist 失败(退出码 $ETF_HIST_RC), 硬闸门跳过 etf rsync+upload-etf-hist, 防发布截断/过期日K(§22 一致性)" | tee -a "$LOG"
+#      前置闸门（2026-09-16 #38 P2）：daily 采集失败（COLLECT_RC != 0）时 etf_daily 停在 T-1 或 partial，
+#      直接跳过整个 export_etf_hist 块，防把旧/混合日K发布到 R2。
+if [ "$COLLECT_RC" -eq 0 ]; then
+  echo "-> ETF全史日K（export_etf_hist, 弹窗长历史数据源, 20:07 补完 etf_daily 后导出）..." | tee -a "$LOG"
+  "$PY" "$REPO/scripts/export_etf_hist.py" 2>&1 | tee -a "$LOG"
+  ETF_HIST_RC=${PIPESTATUS[0]}
+  echo "export_etf_hist 退出码=$ETF_HIST_RC" | tee -a "$LOG"
+  if [ "$ETF_HIST_RC" -ne 0 ]; then
+    echo "【CRITICAL】export_etf_hist 失败(退出码 $ETF_HIST_RC), 硬闸门跳过 etf rsync+upload-etf-hist, 防发布截断/过期日K(§22 一致性)" | tee -a "$LOG"
+  else
+    [ "$REPO" = "$GIT_REPO" ] || rsync -a --delete --checksum "$REPO/static-site/data/etf/" "$GIT_REPO/static-site/data/etf/" 2>>"$LOG" || \
+      echo "⚠ etf rsync 同步失败, 可能发布不全" | tee -a "$LOG"
+    "$PY" "$REPO/scripts/upload_r2.py" upload-etf-hist 2>&1 | tee -a "$LOG" || \
+      echo "⚠ upload-etf-hist R2上传失败（不阻塞主流程）" | tee -a "$LOG"
+  fi
 else
-  [ "$REPO" = "$GIT_REPO" ] || rsync -a --delete --checksum "$REPO/static-site/data/etf/" "$GIT_REPO/static-site/data/etf/" 2>>"$LOG" || \
-    echo "⚠ etf rsync 同步失败, 可能发布不全" | tee -a "$LOG"
-  "$PY" "$REPO/scripts/upload_r2.py" upload-etf-hist 2>&1 | tee -a "$LOG" || \
-    echo "⚠ upload-etf-hist R2上传失败（不阻塞主流程）" | tee -a "$LOG"
+  echo "[etf_nt] daily 采集失败 exit=${COLLECT_RC}，跳过 export_etf_hist 防发布旧/混合日K" | tee -a "$LOG"
 fi
 
 # 2) 持 deploy 锁推送（串行化 git，阻塞排队；deploy.sh 重新 export 全量 JSON + git push）

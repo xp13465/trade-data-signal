@@ -223,7 +223,7 @@ P2 需求2「ETF 评分弹窗 30 天外长历史」已实施上线（feat 分支
 |---|---|---|
 | 数据层 | `scripts/export_etf_hist.py`（新） | 从 etf_daily 表生成 per-ETF 全史前复权日K → `static-site/data/etf/{code}-all.json`；复用 `_fetch_recent_ohlc` 单一事实源（accum_nav 前复权因子）；1532 只 87MB 全量 4.2s |
 | 上传通道 | `scripts/upload_r2.py` | 新 `upload-etf-hist` 命令（glob + purge_cache，照 upload-index 模式，R2 前缀 `etf/`） |
-| 定时链 | `scripts/deploy.sh` / `scripts/update_all.sh` | deploy 加 run_r2_upload；update_all 在 upload-etf-score 后加 export→rsync→upload 块 |
+| 定时链 | `scripts/etf_national_team_backfill.sh`(20:07 采集链) / `scripts/deploy.sh` | deploy 加 run_r2_upload(upload-etf-hist)；export→rsync→upload 块在 etf_national_team_backfill.sh 20:07 采集链执行(已从 update_all 17:50 主链挪出) |
 | 完整性 | `scripts/check_data_integrity.py` | 新 `check_etf_hist`：目录存在+文件数+抽样 date/count/ohlc 结构 |
 | 前端 | `static-site/app.js` | ETF 弹窗加 period tab（30日默认/3m~5y/all），30d 读 overview e.ohlc 零请求零行为变化；长周期懒加载 R2 `etf/{code}-all.json` + 内存缓存；`_signalModalCutoff` 复用过滤；轻量 SVG（>300点省略逐点圆）与 echarts 双路径均支持 |
 
