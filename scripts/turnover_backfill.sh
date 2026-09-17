@@ -29,9 +29,15 @@ export REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 export GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
 PY="${PY:-$REPO/.venv/bin/python}"
 LOGDIR=$REPO/data/logs
-mkdir -p "$LOGDIR"
-cd "$REPO"
 LOG="$LOGDIR/turnover_backfill_launchd.log"
+# #44 日志不可写隐患根治(同 s06_snapshot 先例): LOGDIR 不可创建/不可写或 $LOG 不可追加时,
+# 非交互 bash 里 `>> "$LOG"` 重定向失败会让整条命令(含末尾 notify.py 告警)根本不执行 →
+# 告警静默跳过。此处显式兜底: 落到 /tmp 保证可写的 fallback, 警告打到 stderr, 不静默吞告警。
+if ! mkdir -p "$LOGDIR" 2>/dev/null || [ ! -w "$LOGDIR" ] || ! ( : >> "$LOG" ) 2>/dev/null; then
+  LOG="/tmp/turnover_backfill_$(date +%s).log"
+  echo "$(date '+%F %T') [turnover_backfill] 警告: 日志 $LOGDIR/turnover_backfill_launchd.log 不可写(磁盘满/权限), 改落 fallback $LOG" >&2
+fi
+cd "$REPO"
 LOCK="/tmp/trade_turnover.lock"
 
 # codex008 F5(P3②): 三段命令统一超时包装防挂死(macOS 无 coreutils timeout,
@@ -153,7 +159,7 @@ if [ "$FINAL_RC" -ne 0 ]; then
     "turnover 独立延后任务(21:10)四段(pipeline 采集 / 增量重导 overview+a-stock / upload-intraday / upload-data-large)任一失败, 当日 a_turnover_* 数据可能缺失或未上线。<br>日志: $LOG (尾部 50 行)<br>影响: 首页折叠区/A股走势图换手率读 T-1(缺当日不报错, 前端 T1_COLLECT_DEADLINE 18:00 会标红色异常至数据上线)。" \
     --severe --from-prefix "[告警]" \
     --alert-issue "turnover 独立任务链路异常" --alert-log "$LOG" \
-    --dedup-key turnover_backfill_fail --dedup-window 3600 >> "$LOG" 2>&1
+    --dedup-key turnover_backfill_fail --dedup-window 3600 2>&1 | tee -a "$LOG" || true
 fi
 
 echo "=== turnover_backfill.sh 结束 $(date '+%F %T') 退出码=$FINAL_RC ===" >> "$LOG"

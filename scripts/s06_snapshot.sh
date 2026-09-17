@@ -56,9 +56,16 @@ export REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 export GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
 PY="${PY:-$REPO/.venv/bin/python}"
 LOGDIR=$REPO/data/logs
-mkdir -p "$LOGDIR"
-cd "$REPO"
 LOG="$LOGDIR/s06_snapshot_launchd.log"
+# #44 日志不可写隐患根治: LOGDIR 不可创建/不可写或 $LOG 不可追加时(磁盘满/权限),
+# 非交互 bash 里 `>> "$LOG"` 重定向失败会让整条命令(含末尾 notify.py 告警)根本不执行
+# → 告警静默跳过。此处显式兜底: 落到 /tmp 保证可写的 fallback 日志, 警告打到 stderr
+# (launchd/systemd 捕获), 不静默吞日志更不静默吞告警。
+if ! mkdir -p "$LOGDIR" 2>/dev/null || [ ! -w "$LOGDIR" ] || ! ( : >> "$LOG" ) 2>/dev/null; then
+  LOG="/tmp/s06_snapshot_$(date +%s).log"
+  echo "$(date '+%F %T') [s06_snapshot] 警告: 日志 $LOGDIR/s06_snapshot_launchd.log 不可写(磁盘满/权限), 改落 fallback $LOG" >&2
+fi
+cd "$REPO"
 
 # 交易日闸门(同 overfit_monitor.sh; 失败 fail-open 默认跑, 防日历源异常静默停更)
 if [ "${1:-}" != "force" ]; then
@@ -133,7 +140,7 @@ if [ "$FINAL_RC" -ne 0 ]; then
     "S06 每日重生四段(gen 重生成 / check A1-A4 机检 / r2 R2同步 / pr latest_posrating 首页K档评级)任一失败, 快照可能过期或带病。<br>日志: $LOG (尾部 50 行)<br>影响: 前端 S06 档超覆盖期 fail-open 不拦截, 静默退化; pr 生成失败首页 K 档评级回退静态兜底 86.60%, pr R2 上传失败则线上约 21h 展示昨日版(次日 deploy 追上)。" \
     --severe --from-prefix "[告警]" \
     --alert-issue "S06 快照重生链路异常" --alert-log "$LOG" \
-    --dedup-key s06_snapshot_fail --dedup-window 3600 >> "$LOG" 2>&1
+    --dedup-key s06_snapshot_fail --dedup-window 3600 2>&1 | tee -a "$LOG" || true
 fi
 
 echo "=== s06_snapshot.sh 结束 $(date '+%F %T') 退出码=$FINAL_RC ===" >> "$LOG"

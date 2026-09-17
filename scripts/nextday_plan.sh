@@ -31,9 +31,15 @@ export REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 export GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
 PY="${PY:-$REPO/.venv/bin/python}"
 LOGDIR=$REPO/data/logs
-mkdir -p "$LOGDIR"
-cd "$REPO"
 LOG="$LOGDIR/nextday_plan_launchd.log"
+# #44 日志不可写隐患根治(同 s06_snapshot 先例): LOGDIR 不可创建/不可写或 $LOG 不可追加时,
+# 非交互 bash 里 `>> "$LOG"` 重定向失败会让整条命令(含末尾 notify.py 告警)根本不执行 →
+# 告警静默跳过。此处显式兜底: 落到 /tmp 保证可写的 fallback, 警告打到 stderr, 不静默吞告警。
+if ! mkdir -p "$LOGDIR" 2>/dev/null || [ ! -w "$LOGDIR" ] || ! ( : >> "$LOG" ) 2>/dev/null; then
+  LOG="/tmp/nextday_plan_$(date +%s).log"
+  echo "$(date '+%F %T') [nextday_plan] 警告: 日志 $LOGDIR/nextday_plan_launchd.log 不可写(磁盘满/权限), 改落 fallback $LOG" >&2
+fi
+cd "$REPO"
 
 # 交易日闸门(同 overfit_monitor.sh; 失败 fail-open 默认跑, 防日历源异常静默停更)
 # 参数: 含 "force" 绕过闸门; 其余参数原样透传给生成器(--date 等)
@@ -66,7 +72,7 @@ if [ "$RC" -ne 0 ]; then
     "nextday_plan_generator.py 退出码 ${RC}, 次日买入计划未生成。<br>日志: $LOG(尾部 50 行)<br>影响: 明日无自动买入计划(干跑阶段, 不真实下单); 需人工核查产物(signal_kelly_trades/backtest/s06/loss 是否就绪)。" \
     --severe --from-prefix "[告警]" \
     --alert-issue "次日买入计划生成失败" --alert-log "$LOG" \
-    --dedup-key nextday_plan_fail --dedup-window 3600 >> "$LOG" 2>&1
+    --dedup-key nextday_plan_fail --dedup-window 3600 2>&1 | tee -a "$LOG" || true
 fi
 
 echo "=== nextday_plan.sh 结束 $(date '+%F %T') 退出码=$RC ===" >> "$LOG"
