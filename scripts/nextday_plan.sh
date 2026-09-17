@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# nextday_plan.sh - 次日买入计划生成器 launchd 包装(交易日 20:55 定时, PRD 阶段一 §3/§6)
+# nextday_plan.sh - 次日买入计划生成器 launchd 包装(交易日 22:30 定时, PRD 阶段一 §3/§6)
 #
-# 背景: 把「T 日盘后选标的 -> T+1 日开盘买入」全流程自动化的第一步 —— 每天 20:55
+# 背景: 把「T 日盘后选标的 -> T+1 日开盘买入」全流程自动化的第一步 —— 每天 22:30
 # 生成次日买入计划(复用 kelly_posrating K=1 top1 同构逻辑), 落盘两树 + R2 + 通知。
 # 本脚本=launchd com.trade.nextday-plan 的包装:
 #   ①nextday_plan_generator.py 生成计划(读 4 产物 + etf_daily, 复用 kelly_posrating
@@ -10,13 +10,14 @@
 #   ③notify.send 邮件+飞书推送「明日计划」(干跑阶段 AUTO_EXEC_ON=false 不真实下单)
 # 任一段 FAIL → notify.py --severe 告警(同 s06_snapshot 先例)。
 #
-# 时点选择依据(§14, 2026-09-10 实测 launchctl list + plist StartCalendarInterval):
-#   20:55 —— 输入 4 产物由 17:50 update-all export + 20:35 s06-snapshot 定稿, 20:55 晚于
-#   全部源(20:40 daily-brief / 20:45 brief-push 不涉本链产物); 21:00 已有 backfill-evening
-#   + futures-backfill 两任务, 21:10 turnover-backfill / 21:15 ab-direction-anchor / 21:30
-#   etf-national-team 紧跟, 20:55 落 20:45~21:00 空档且秒级完成不抢资源。
+# 时点选择依据(§14 + 时序倒挂根治 2026-09-17):
+#   22:30 —— 核心约束 = etf_daily 当日(T)收盘价必须已入库(否则 _prev_close 退化为前日价, 次日
+#   买入价时序倒挂)。etf_national_team 20:07 采集对当日数据可能返空, 21:47 第二批 backfill 才
+#   补上 T 日收盘价, 故 20:55 后移到 22:30 晚于 21:47。其余源(4 产物 17:50 export / 20:35
+#   s06-snapshot)均早于 22:30; 22:30 落 22:00 deploy 后、22:35 check-data-gap 前空档, 秒级完成。
 #   不推 main 不写 DB(只写 static-site/data JSON + R2), §14「盘后时点不推 main」约束满足。
-#   pmset 无需新增唤醒: 既有 wakepoweron=工作日 17:48, 机器持续活跃至 21:40 overfit-monitor。
+#   ⚠️ pmset/唤醒: 22:30 晚于「机器活跃至 21:40 overfit-monitor」窗口, 若机器已睡需 launchd 唤醒
+#   (StartCalendarInterval 标准行为)或主控补 pmset 定时唤醒, 上线后验首晚是否漏跑。
 # 非交易日: 跳过(闸门同 overfit_monitor.sh; 失败 fail-open 默认跑, 防日历源异常静默停更)。
 #   传 force 绕过闸门补跑。
 #

@@ -9,15 +9,16 @@
         <string>/bin/bash</string>
         <string>/Users/linhuichen/code/trade-data/scripts/nextday_plan.sh</string>
     </array>
-    <!-- 交易日 20:55 跑: 次日买入计划生成器(PRD 阶段一 §3/§6, 干跑 AUTO_EXEC_ON=false)。
-         时点选择依据(§14, 2026-09-10 launchctl list + plist StartCalendarInterval 实证):
-         输入 4 产物(signal_kelly_trades/backtest/s06/loss)由 17:50 update-all export +
-         20:35 s06-snapshot 定稿, 20:55 晚于全部源(20:40 daily-brief/20:45 brief-push 不涉
-         本链产物); 21:00 已有 backfill-evening + futures-backfill 两任务, 21:10 turnover
-         -backfill / 21:15 ab-direction-anchor / 21:30 etf-national-team 紧跟, 20:55 落
-         20:45~21:00 空档且秒级完成不抢资源。
+    <!-- 交易日 22:30 跑: 次日买入计划生成器(PRD 阶段一 §3/§6, 干跑 AUTO_EXEC_ON=false)。
+         时点后移 20:55 → 22:30(时序倒挂根治 2026-09-17): 核心约束 = etf_daily 当日(T)收盘价
+         必须已入库, 否则 _prev_close 退化为前日价 → 次日买入价用前日收盘价(时序倒挂)。
+         实证: etf_national_team 20:07 采集 sina/mootdx OHLC 源对当日数据可能返空, 21:47 第二批
+         backfill 才补上 T 日收盘价; 20:55 跑必拿前日价。22:30 晚于 21:47 第二批, 确保当日收盘价就绪。
+         其余源(4 产物 17:50 export / 20:35 s06-snapshot)均早于 22:30; 22:30 落 22:00 deploy 后、
+         22:35 check-data-gap 前空档, 秒级完成不抢资源。
          不推 main 不写 DB(只写 static-site/data JSON + R2), §14「盘后时点不推 main」满足。
-         pmset 无需新增唤醒: 既有 wakepoweron=工作日 17:48, 机器活跃至 21:40 overfit-monitor。
+         ⚠️ pmset/唤醒: 22:30 晚于原「机器活跃至 21:40 overfit-monitor」窗口, 若机器已睡需
+         launchd StartCalendarInterval 唤醒(标准行为)或主控补 pmset 定时唤醒, 上线后验首晚是否漏跑。
          非交易日脚本内闸门跳过(传 force 可补跑)。 -->
     <key>StartCalendarInterval</key>
     <array>
@@ -25,41 +26,41 @@
         <key>Weekday</key>
         <integer>1</integer>
         <key>Hour</key>
-        <integer>20</integer>
+        <integer>22</integer>
         <key>Minute</key>
-        <integer>55</integer>
+        <integer>30</integer>
       </dict>
       <dict>
         <key>Weekday</key>
         <integer>2</integer>
         <key>Hour</key>
-        <integer>20</integer>
+        <integer>22</integer>
         <key>Minute</key>
-        <integer>55</integer>
+        <integer>30</integer>
       </dict>
       <dict>
         <key>Weekday</key>
         <integer>3</integer>
         <key>Hour</key>
-        <integer>20</integer>
+        <integer>22</integer>
         <key>Minute</key>
-        <integer>55</integer>
+        <integer>30</integer>
       </dict>
       <dict>
         <key>Weekday</key>
         <integer>4</integer>
         <key>Hour</key>
-        <integer>20</integer>
+        <integer>22</integer>
         <key>Minute</key>
-        <integer>55</integer>
+        <integer>30</integer>
       </dict>
       <dict>
         <key>Weekday</key>
         <integer>5</integer>
         <key>Hour</key>
-        <integer>20</integer>
+        <integer>22</integer>
         <key>Minute</key>
-        <integer>55</integer>
+        <integer>30</integer>
       </dict>
     </array>
     <key>EnvironmentVariables</key>

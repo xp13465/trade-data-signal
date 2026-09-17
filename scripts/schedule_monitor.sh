@@ -144,14 +144,14 @@ TASKS = [
      "trading_day_only": True,  # 非交易日脚本闸门跳过不写开始行, 必需跳过漏跑检查避免周末误报
      "schedules": ["21:10"]},
     # nextday_plan: 2026-09-10 补入(PRD 阶段一次日买入计划生成器, F1 机检链收编)。
-    # launchd com.trade.nextday-plan 交易日 20:55 跑 nextday_plan.sh
-    # (17:50 export + 20:35 s06 定稿后, 20:55 生成次日计划 → data/nextday_plan.json +
-    #  两树 static-site/data/ + R2 + 通知; 空计划 {date,empty:true} 合法)。
+    # launchd com.trade.nextday-plan 交易日 22:30 跑 nextday_plan.sh
+    # (17:50 export + 20:35 s06 定稿后, 等 21:47 etf_daily 第二批回补当日收盘价再 22:30 生成
+    #  次日计划 → data/nextday_plan.json + 两树 static-site/data/ + R2 + 通知; 空计划合法)。
     # 日志固定 append + 标准开始/结束行, standard 模式可解析; 此处只管漏跑+进行中超时,
     # 数据级(过期/缺失/结构)由 check_data_integrity.nextday_plan + check_r2_consistency 出口兜底。
     {"task": "nextday_plan",        "log": "nextday_plan_launchd.log",
      "trading_day_only": True,  # 非交易日脚本闸门跳过不写开始行, 必需跳过漏跑检查避免周末误报
-     "schedules": ["20:55"]},
+     "schedules": ["22:30"]},
 ]
 
 # 标准任务开始行：=== xxx.sh 开始 YYYY-MM-DD HH:MM:SS ===

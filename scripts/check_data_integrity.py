@@ -1918,7 +1918,7 @@ def check_nextday_plan(data_dir: Path) -> CheckResult:
         from app.calendar import is_trading_day, last_trading_day
         _today = _dt.date.today()
         allowed = {last_trading_day(_today)}          # 当前交易日(最近一个 <=today)
-        # 上一交易日: 生成器交易日 20:55 跑, 周一 17:50 deploy 时文件仍是上周五 date(容忍)
+        # 上一交易日: 生成器交易日 22:30 跑, 周一 17:50 deploy 时文件仍是上周五 date(容忍)
         allowed.add(last_trading_day(_today - _dt.timedelta(days=1)))
         # 下一交易日: 沿日历向前找第一个交易日 (max 15 天跨长假)
         nxt = _today

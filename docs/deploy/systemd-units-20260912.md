@@ -627,16 +627,16 @@ StandardOutput=append:/home/ubuntu/code/trade-data/data/logs/ab_direction_anchor
 StandardError=append:/home/ubuntu/code/trade-data/data/logs/ab_direction_anchor.err.log
 ```
 
-### 2.14 nextday-plan(周一~五 20:55 干跑)
+### 2.14 nextday-plan(周一~五 22:30 干跑)
 - 脚本:`nextday_plan.sh` | ExitTimeOut=600
 
 `trade-nextday-plan.timer`:
 ```ini
 [Unit]
-Description=Trade nextday-plan Mon..Fri 20:55 (源 com.trade.nextday-plan)
+Description=Trade nextday-plan Mon..Fri 22:30 (源 com.trade.nextday-plan)
 
 [Timer]
-OnCalendar=Mon..Fri *-*-* 20:55:00
+OnCalendar=Mon..Fri *-*-* 22:30:00
 Persistent=true
 
 [Install]

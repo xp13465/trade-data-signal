@@ -113,7 +113,7 @@ requirements.txt 只有 9 个包(fastapi/uvicorn/akshare/mootdx/stockstats/pyyam
 | 11 | rzhb-backfill | rzhb_backfill.sh | 8:00 / 19:15 | 融资融券 |
 | 12 | turnover-backfill | turnover_backfill.sh | 21:10 周一~五 | |
 | 13 | ab-direction-anchor | run_ab_direction_anchor.sh | 21:15 | env TRADE_DIR=trade |
-| 14 | nextday-plan | nextday_plan.sh | 20:55 周一~五 | 次日计划生成(干跑,不连 easytrader) |
+| 14 | nextday-plan | nextday_plan.sh | 22:30 周一~五 | 次日计划生成(干跑,不连 easytrader) |
 | 15 | s06-snapshot | s06_snapshot.sh | 20:35 周一~五 | timeout 降级链需 Linux 化(见 §5) |
 | 16 | check-data-gap | check_data_gap_alerts.sh | 22:35 周一~五 | |
 | 17 | daily-brief | run_daily_brief.sh --multi | 20:40 | deepseek 官方 API(§5.6 峰谷:20:40 低谷,key 在 trade-data/.env 需迁) |

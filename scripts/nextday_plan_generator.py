@@ -50,7 +50,7 @@
     REPO=/Users/linhuichen/code/trade-data GIT_REPO=/Users/linhuichen/code/trade python3 scripts/nextday_plan_generator.py --date 20260910 --dry-run
     # --dry-run 只计算打印不落盘不发通知(自测); 无 --date 取今天; 无 --dry-run 会落盘两树+R2+通知
     REPO=/Users/linhuichen/code/trade-data GIT_REPO=/Users/linhuichen/code/trade python3 scripts/nextday_plan_generator.py   # launchd 同款(真跑)
-    # 数据未就绪退出非 0(退出码 2), 可 NEXTDAY_PLAN_FORCE=1 强制跳过(不推荐, 防误导空计划)
+    # 数据未就绪(缺当日收盘价)退出非 0(退出码 2, fail-closed 阻塞 + 告警, 不再 FORCE 用前日价)
 """
 import argparse
 import json
@@ -612,16 +612,20 @@ def main():
 
     # ---- 数据就绪 gate(§23.15 不上残缺版): 计划内每只 ETF 的 etf_daily 最新日必须 == T。
     #      #38 根治: 原 gate 用全局 max date(任一 ETF 到 T 就放行), 计划内停在旧日的 ETF(如 159880
-    #      停在 09-14)被纳入 → prev_close 非 T 日收盘失真。改为逐只校验计划内 etf_code 最新日,
-    #      任一 < T 拦截退出 2; NEXTDAY_PLAN_FORCE=1 可跳过(不推荐, 仅人工核查用)。
+    #      停在 09-14)被纳入 → prev_close 非 T 日收盘失真。改为逐只校验计划内 etf_code 最新日。
+    #      时序倒挂根治(2026-09-17): fail-closed —— 缺当日收盘价(最新日 < T)时阻塞 + 告警,
+    #      不再提供 NEXTDAY_PLAN_FORCE=1 强制继续用前日价(fail-open 已移除)。
     stale_codes = _plan_stale_codes(db_path, plan, T)
     if stale_codes:
-        if os.environ.get("NEXTDAY_PLAN_FORCE") == "1":
-            log(f"⚠ FORCE: 计划内 ETF 停在旧日(最新日 < T {T}): {stale_codes}, 强制继续(prev_close 可能非 T 日收盘)")
-        else:
-            log(f"✗ 数据未就绪: 计划内 ETF 停在旧日(最新日 < T {T}): {stale_codes} "
-                f"(backfill-evening 未完成), 不产出误导性计划。可 NEXTDAY_PLAN_FORCE=1 强制跳过(不推荐)")
-            return 2
+        _severe_alert(
+            f"[告警] 次日买入计划数据未就绪(缺当日收盘价) {T}",
+            f"nextday_plan_generator.py: 计划内 ETF 最新交易日 < T {T}(etf_daily 当日收盘价未入库), "
+            f"_prev_close 会退化为前日价(次日买入价时序倒挂), 已阻塞不产出计划。"
+            f"<br>stale_codes: {stale_codes}<br>日志: {REPO}/data/logs/nextday_plan_launchd.log",
+        )
+        log(f"✗ 数据未就绪: 计划内 ETF 停在旧日(最新日 < T {T}, 缺当日收盘价): {stale_codes} "
+            f"(etf_daily 当日收盘价未入库, 次日买入价会时序倒挂), 不产出误导性计划(fail-closed)")
+        return 2
 
     buy_date = plan[0]["buy_date"] if plan else (_next_trading_day(trade_dates, T) if trade_dates else "")
     plan_doc = {"date": T, "plan": plan} if plan else {"date": T, "empty": True}
