@@ -95,7 +95,7 @@ perl -e 'alarm shift @ARGV; exec @ARGV' 180 \
     --intraday-rerun "$T_DATE" \
     --intraday-main "$MAIN_TRADES" \
     --intraday-outdir "$OUTDIR" 2>&1 | tee -a "$LOG"
-BK_RC=${PIPESTATUS[1]}
+BK_RC=${PIPESTATUS[0]}
 echo "回测退出码=$BK_RC" | tee -a "$LOG"
 if [ "$BK_RC" -ne 0 ]; then
   case "$BK_RC" in
