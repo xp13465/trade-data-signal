@@ -8111,6 +8111,11 @@ function _kellyAihlineRealizeReal(sel, dt) {
   if (!nav || nav <= 0) {
     // 2026-08-30 用户铁律(b0/b1 已废除): 真实价缺失=数据异常, 硬报错+当日监控——不许 b1 估算兜底, pr=null 标记 nav_missing
     // 渲染层: 该行盈亏/收益率显示「— 缺价」红字, 不计入收益统计合计; 窗口顶部红字横幅报 X 笔
+    if (!_kellyNavReadyNow()) {
+      // 2026-09-17 时序门控(fix-gih-nav-ready-gate): nav 未就绪=时序窗口(非真数据缺口), 跳过硬报错与计数
+      //   (与 common.js _gihRealizeRealForce 同口径; 本分支仅 common 未挂载时的本地兜底, 生产常态走 common)。
+      return { pr: null, rp: null, hd: Math.round(_kellyAihlineDaySpan(sel.buy_date, dt)), flag: "nav_missing", sell_price: 0, closed: null };
+    }
     try {
       window.__gih_missing_px_ = (typeof window.__gih_missing_px_ === "number" ? window.__gih_missing_px_ : 0) + 1;
       console.error("[__gih_missing_px_] 强平日真实价缺失(数据异常): etf_code=" + (sel && sel.etf_code) + " buy_date=" + (sel && sel.buy_date) + " force_date=" + dt);
@@ -10583,6 +10588,7 @@ async function _kellyOperationalPool(feeParams) {
   }
   // per-mode 过滤 + 费率重算 + (G/H/I)套长线仓位法
   var perModeTrades = {};
+  var _poolNavPending = false;   // 2026-09-17 时序门控: G/H/I 需真实价但 nav 尚未就绪 → 整体标记, 供演进表占位等 nav 到位重建
   for (var modeKey in sellModes) {
     var rawTrades = quadsAll[modeKey] || [];
     var _pf = (_bullOn && _isLongMode(modeKey)) ? passesFadeNoBull : passesFade;
@@ -10608,8 +10614,16 @@ async function _kellyOperationalPool(feeParams) {
     });
     var finalTrades = recomputed;
     if (state.labSigKellyGihOn && _kellyIsGih(modeKey) && _kellyGihStrat(modeKey)) {
-      var _gihSim = _kellyAihlineApply(recomputed, _kellyGihStrat(modeKey), "all");
-      finalTrades = (_gihSim.real ? _gihSim.real.filter(function (k) { return k.profit !== null && k.profit !== undefined; }) : []);
+      if (_kellyNavReadyNow()) {
+        var _gihSim = _kellyAihlineApply(recomputed, _kellyGihStrat(modeKey), "all");
+        finalTrades = (_gihSim.real ? _gihSim.real.filter(function (k) { return k.profit !== null && k.profit !== undefined; }) : []);
+      } else {
+        // 2026-09-17 时序门控(fix-gih-nav-ready-gate): nav 未就绪就跑 real 强平, 每笔 pr=null 会被下方 filter 静默剔除,
+        //   导致 G/H/I 数字失真(强平笔整段消失)。不跑 real、不做剔除, 保留 recomputed 原位并标记 navPending,
+        //   上层演进表识别后占位「净值加载中」, nav 到位重建才是真值(real 结算口径/kept/filtered 判定链零改动)。
+        _poolNavPending = true;
+        finalTrades = recomputed;
+      }
     }
     var closed = finalTrades.filter(function (t) { return t.sell_date; });
     closed.sort(function (a, b) { return a.sell_date < b.sell_date ? -1 : (a.sell_date > b.sell_date ? 1 : 0); });
@@ -10620,7 +10634,8 @@ async function _kellyOperationalPool(feeParams) {
     perModeTrades: perModeTrades,
     modeKeys: Object.keys(sellModes),
     buyAmount: buyAmount, fIdx: fIdx, feeSig: feeSig,
-    s6OpenCount: _s6OpenSet.size, s6FallbackCount: _s6FallbackSet.size
+    s6OpenCount: _s6OpenSet.size, s6FallbackCount: _s6FallbackSet.size,
+    navPending: _poolNavPending
   };
 }
 
@@ -10668,6 +10683,11 @@ async function _labKellyEvoTableBuild(feeParams) {
   var t0 = Date.now();
   var pool = await _kellyOperationalPool(feeParams);
   if (!pool) return null;
+  if (pool.navPending) {
+    // 2026-09-17 时序门控(fix-gih-nav-ready-gate): nav 未就绪, G/H/I 真实价还没法算,
+    //   直接返回 pending(不建行不渲染失真数字), 上层占位「净值加载中」并注册 waiter 等 nav 到位重建。
+    return { navPending: true, modeKeys: pool.modeKeys, elapsedMs: Date.now() - t0 };
+  }
   var modeKeys = pool.modeKeys;
   if (!modeKeys.length) return null;
   // 轴点 = 唯一 buy_date(跨模式并集, 升序)
@@ -10762,6 +10782,19 @@ async function _labKellyEvoBuildTable(overlay, idx) {
     evo = null;
   }
   if (!overlay || !document.body.contains(overlay)) return;
+  if (evo && evo.navPending) {
+    // 2026-09-17 时序门控(fix-gih-nav-ready-gate): nav 未就绪, G/H/I 真实价还没法算,
+    //   占位「净值加载中…」而非先渲染失真数字; nav 到位 _kellyNavFlush 触发本 waiter 重建表, 重建后才是真值。
+    host.innerHTML = `<div class="lab-kelly-evo-loading">⏳ 净值加载中…(G/H/I 真实价待净值就绪自动补算)</div>`;
+    _kellyNavWarmup();
+    _kellyNavWhenReady(function () {
+      var _ov = document.getElementById("labKellyEvoOverlay");
+      if (_ov && _ov.classList.contains("show") && document.body.contains(_ov)) {
+        _labKellyEvoBuildTable(_ov, idx);
+      }
+    });
+    return;
+  }
   if (!evo || !evo.rows.length) {
     host.innerHTML = `<div class="lab-kelly-evo-empty">演进表格实时重算失败或数据未就绪, 请关闭重开重试。</div>`;
     return;
@@ -10782,16 +10815,8 @@ async function _labKellyEvoBuildTable(overlay, idx) {
   }
   overlay.__evoData = { evo: evo, polluted: polluted };
   _labKellyEvoRenderTable(host, evo, polluted, "60");
-  // 2026-09-17 弱网卡死根治第1步: 演进表格含 G/H/I 且 nav 未就绪 → 先出「缺价」, nav 到位重算真实价(表格仍在展示才补)
-  if (state.labSigKellyGihOn && !_kellyNavReadyNow()) {
-    _kellyNavWarmup();
-    _kellyNavWhenReady(function () {
-      var _ov = document.getElementById("labKellyEvoOverlay");
-      if (_ov && _ov.classList.contains("show") && document.body.contains(_ov)) {
-        _labKellyEvoBuildTable(_ov, idx);
-      }
-    });
-  }
+  // (2026-09-17 弱网卡死根治原「先出缺价再等 nav 重建」分支已由上方 navPending 占位分支取代:
+  //  nav 未就绪时演进表不再渲染失真数字, 直接占位等 nav 到位重建, 见 _kellyOperationalPool navPending + 上方守卫。)
 }
 
 // 全量钉子行(首行+末行复用): 当前全量, 与全信号卡最后结果逐位一致(含未平仓按最新价预估)。
