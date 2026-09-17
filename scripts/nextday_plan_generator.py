@@ -363,28 +363,32 @@ def _backfill_missing_seqs(steps: list, trade_dates: list[str], now: str) -> boo
 
 def _idempotency_check(steps, buy_date, new_codes):
     """幂等判定(2026-09-17 升级 buy_date+seq1 → buy_date+seq1+etf_code, 根治「过时快照不自愈」;
-    2026-09-18 ⑤ 加已过执行日冻结 gate)。
+    2026-09-18 ⑤ 加已过执行日 replace 冻结 gate)。
 
     执行日 buy_date 已有 seq1 挂单行时, 比较其 etf_code 集合与本次重算 top1(new_codes):
       - 一致 → "skip"(无漂移, 幂等跳过)
-      - 不一致 → 漂移, 原地删该 buy_date 全部旧行, 返回 "replace"(调用方重写)
-    无 seq1 行 → "append"(正常追加)。
+      - 不一致 → 漂移; 若 buy_date 已过执行日(<=today)则 "skip"(⑤ 禁 replace, 防改写已过执行日行),
+        否则原地删该 buy_date 全部旧行, 返回 "replace"(调用方重写)
+    无 seq1 行 → "append"(正常追加; 回填段 #106 用它补历史未到期卖出行)。
     返回 (action, removed_count); removed_count 仅在 "replace" 时非 0。
 
-    ⚠ ⑤ 已过执行日冻结 gate(2026-09-18, 3版本漂移根因③): buy_date <= 运行日 today 时——
-      - 已有 seq1 行一律 "skip"(禁止 replace: 9-17 22:30 回填 20260916 曾 replace 改写 9-17 执行日行)
-      - 无 seq1 行也 "skip"(禁止 append: 执行日已过的历史组不再补登/补卖出行)
-      主链 buy_date=T+1>today 不受影响; 回填段历史 T' 的 buy_date<=today 全部冻结保持。
-      迁移 _backfill_missing_seqs(L342-360)不走本函数, 不受影响; gap_check 改执行状态不走生成器, 不受影响。
+    ⚠ ⑤ 已过执行日 replace 冻结 gate(2026-09-18, 3版本漂移根因③): 只包住 replace 分支——
+      - 有 seq1 且漂移 且 buy_date <= today → "skip"(禁止 replace: 9-17 22:30 回填 20260916
+        曾 replace 改写 9-17 执行日行; 执行日已过的历史组不再重写)
+      - append/skip 分支不受 gate 影响: 无 seq1 的历史组仍 append 补卖出行(#106 正常功能, 不改写
+        已存在行, 只补缺失提醒, 无执行风险), 一致组照常 skip。
+      主链 buy_date=T+1>today 的漂移自愈不受影响; 迁移 _backfill_missing_seqs(L342-360)不走本函数,
+      不受影响; gap_check 改执行状态不走生成器, 不受影响。
     """
-    _today_str = _today()  # YYYYMMDD
-    if str(buy_date or "") <= _today_str:
-        return "skip", 0
     existing_seq1 = [s for s in steps if str(s.get("date")) == buy_date and str(s.get("seq")) == "1"]
     if not existing_seq1:
         return "append", 0
     existing_codes = {str(s.get("etf_code") or "") for s in existing_seq1}
     if existing_codes == new_codes:
+        return "skip", 0
+    # 漂移且已过执行日 → 禁 replace(⑤ 目标), 保持历史行不动; 未来执行日仍自愈替换。
+    _today_str = _today()  # YYYYMMDD
+    if str(buy_date or "") <= _today_str:
         return "skip", 0
     removed = sum(1 for s in steps if str(s.get("date")) == buy_date)
     steps[:] = [s for s in steps if str(s.get("date")) != buy_date]

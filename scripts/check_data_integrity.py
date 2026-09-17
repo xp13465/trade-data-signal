@@ -1604,10 +1604,13 @@ def check_track_score_overview_vs_map(data_dir: Path, repo_data_dir: Path) -> Ch
 
     overview 已进必更白名单（export.py MUST_RECOMPUTE，每次全量重算读当前 map），
     今日 pair 应恒等；不等 = 必更白名单失效回归信号（overview 停旧 map 快照）。
-    排除两类设计内注入（queries.py）：
+    排除三类设计内注入（queries.py）：
       - match_method=="self"（ETF 本体兜底，map 无 key）
       - code 不在 map 的 _bk_top 条目（#60 方案A 冻结 ETF 被 map 换代后 prepend，带冻结时旧分，
-        首页 1:1 对齐回测属设计内）；_bk_top 且 code 在 map 的条目数值=当前 map，正常比对。
+        首页 1:1 对齐回测属设计内）
+      - code 在 map 且 _bk_top 为真 + 带 _bk_ts 的冻结命中条目（③ 契约：queries.py 已把 track_score
+        原地覆盖为冻结分 _bk_ts，与 map 当前分非同源，豁免比对；同冻结 prepend 精神）。
+    普通 _bk_top 但无 _bk_ts 的条目仍正常比对（哨兵不失效）。
     指数整体不在 map（tmap 无 key）时跳过该信号（无快照关系，防边界误报）。
     """
     name = "track_score_overview_vs_map"
@@ -1636,6 +1639,10 @@ def check_track_score_overview_vs_map(data_dir: Path, repo_data_dir: Path) -> Ch
                 if e.get("_bk_top"):
                     continue  # 冻结 prepend（设计内）
                 bad.append((iid, e["code"], "overview有/map无"))
+                continue
+            # ③ 冻结命中豁免: queries.py 已把冻结命中条目 track_score 原地覆盖为冻结分 _bk_ts,
+            # 与 map 当前分非同源(实证冻结命中里绝大多数不等), 正常全等比对必 FAIL 哨兵误报 → 豁免。
+            if e.get("_bk_top") and e.get("_bk_ts") is not None:
                 continue
             a = _ts_float(e.get("track_score"))
             b = _ts_float(ref.get("track_score"))
