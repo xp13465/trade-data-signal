@@ -124,5 +124,8 @@
   ],
   "20260917-a590": [
     "fix(nextday-gap-check): reviewer F2/F3/F6 \u4e09\u5c0f\u6539(#45)"
+  ],
+  "20260917-a591": [
+    "fix(sim): \u9996\u9875\u6a21\u62df\u56de\u6d4b\u5f39\u7a97\u6458 nav await \u6539\u540e\u53f0\u9884\u70ed(\u540c\u6e90\u7b2c\u4e8c\u6d88\u8d39\u70b9)"
   ]
 }
