@@ -14325,6 +14325,7 @@ function _atPlanRows(doc) {
       const date = p.buy_date ? String(p.buy_date) : sigDate;
       const price = _atNum(p.prev_close != null ? p.prev_close : p.order_price);
       const amount = _atNum(p.amount);
+      const gapExcluded = !!p.gap_excluded;  // #45: 9:26 gap-check 二次剔除标记(计划概要角标, 与 steps skipped 一致)
       out.push({
         date: date,
         etf_code: p.etf_code || "",
@@ -14333,8 +14334,8 @@ function _atPlanRows(doc) {
         order_price: price,
         amount: amount,
         shares_planned: _atSharesPlanned(amount, price),
-        status: "pending",
-        status_text: "待执行(计划)",
+        status: gapExcluded ? "skipped" : "pending",
+        status_text: gapExcluded ? "伪跳空剔除" : "待执行(计划)",
         actual_price: null,
         trigger_note: p.trigger_note || (p.signal ? ("信号 " + p.signal + " · 跟踪分 " + (p.track_score != null ? p.track_score : "-")) : "次日买入计划"),
         plan: true

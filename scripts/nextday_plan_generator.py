@@ -27,8 +27,10 @@
     - buy_date = T 的下一个交易日(权威交易日历 data/trade_dates.txt, §11.4 长假处理)
     - prev_close = 该 etf T 日收盘(etf_daily, 即挂单价上限; 与首页 etf_close 同源同口径)
     - amount = 每日资金池 1 万等分(K=1 即 1 万)
-    - 双校验: ① prev_close>0 非停牌(该 etf 前一日有成交) ② prev_close vs 信号日收盘 ±20% 内
-      (伪跳空剔除同款, 防除权/份额折算错位; 信号日收盘 = etf_daily 该 etf T 日 close)
+    - 双校验: ① prev_close>0 非停牌(信号日 T 有成交, 挂单价上限有效) ② 伪跳空剔除真口径
+      (次日 open / 信号日收盘 - 1, |gap|>20% 剔除; 与回测 PSEUDO_GAP_EXCLUDE 同式; 信号日收盘 =
+      etf_daily 该 etf T 日 close, 次日 open = etf_daily 该 etf T+1 日 open)
+    - T+1 开盘价未入库(当日计划, 次日未开盘)时跳过该剔除, 留 9:26 nextday_gap_check 二次兜底
 
 输入依赖:
     - <REPO>/data/sentiment.db signal_daily  (当日信号, 首页同源)
@@ -45,7 +47,7 @@
     - static-site/data/nextday_plan.json(用户页面可见, 同内容)
     - static-site/data/auto_trade_steps.json({schema_version:"v1", steps:[...]}, 幂等: 同 date 已存在且 etf_code 一致则跳过, 漂移则删旧行重写)
 关键参数(常量, 与 kelly_posrating/前端逐位对齐, 改参数必须同步 §22):
-    - K=1, BUY_AMOUNT=10000, PSEUDO_GAP=0.20(伪跳空剔除阈值同 signal_kelly_backtest.PSEUDO_GAP_EXCLUDE)
+    - K=1, BUY_AMOUNT=10000, PSEUDO_GAP=signal_kelly_backtest.PSEUDO_GAP_EXCLUDE(伪跳空剔除阈值同源)
 复现命令:
     REPO=/Users/linhuichen/code/trade-data GIT_REPO=/Users/linhuichen/code/trade python3 scripts/nextday_plan_generator.py --date 20260910 --dry-run
     # --dry-run 只计算打印不落盘不发通知(自测); 无 --date 取今天; 无 --dry-run 会落盘两树+R2+通知
@@ -75,11 +77,12 @@ sys.path.insert(0, str(SCRIPT_DIR))
 import kelly_posrating as kp  # noqa: E402  (复用 S06Resolver + _tds_fade_spec_hit(bullAuxBackupStop))
 from app import queries as appq  # noqa: E402  (首页 AI建议同款: etf_for/_etf_freeze/_align_home_top1_to_backtest/_ai_macro_*)
 from app.collector.fetchers import load_config  # noqa: E402  (indicators.yaml indicator.market 归类)
+from signal_kelly_backtest import PSEUDO_GAP_EXCLUDE  # noqa: E402  (伪跳空阈值同源, 不各写一个数)
 
 K = 1                       # K 档(每日 top1, 与首页 AI仓位建议默认 K=1 一致)
 BUY_AMOUNT = 10000          # 每日资金池 1 万等分
 BACKFILL_WINDOW_DAYS = 10   # 历史持仓回填窗口(最近 N 个交易日, #106; 窗口起点随每日前移, 已过期组滑出不删只不再补)
-PSEUDO_GAP = 0.20           # 伪跳空剔除阈值(与 signal_kelly_backtest.PSEUDO_GAP_EXCLUDE 同款)
+PSEUDO_GAP = PSEUDO_GAP_EXCLUDE  # 伪跳空剔除阈值(与 signal_kelly_backtest.PSEUDO_GAP_EXCLUDE 同源同常量, 不各写一个数)
 LOG_TAG = "[nextday_plan]"
 BUY_SIGNALS = {"buy", "buy_aux", "buy_special", "buy_backup"}  # 与 queries._AI_MACRO_BUY_SIGNALS 同源
 _RATING_RANK = {"high": 0, "mid": 1, "low": 2, "": 3}
@@ -182,6 +185,30 @@ def _prev_close(db_path: Path, etf_code: str, on_or_before: str):
         if row is None:
             return None, None
         return row[0], (float(row[1]) if row[1] is not None else None)
+    finally:
+        con.close()
+
+
+def _next_open(db_path: Path, etf_code: str, after_date: str):
+    """etf_daily 该 etf > after_date 最近一天 open(T+1 开盘价, 伪跳空校验分子)。
+
+    返回 open(float) 或 None。与回测 signal_kelly_backtest._batch_load_etf_prices 同款过滤
+    (etf_name<>etf_code 排除盘中占位假数据行 + open 非空)。T+1 开盘价只在 T+1 日 20:07
+    etf_national_team 采集后入库; 当日计划(次日未开盘)查不到 → 返回 None(留 9:26
+    nextday_gap_check 二次剔除, 语义=「还没开盘」不是「无数据」)。
+    """
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        cur = con.cursor()
+        cur.execute(
+            "SELECT open FROM etf_daily WHERE etf_code=? AND date>? "
+            "AND etf_name<>etf_code AND open IS NOT NULL ORDER BY date ASC LIMIT 1",
+            (etf_code, after_date),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return float(row[0])
     finally:
         con.close()
 
@@ -516,19 +543,24 @@ def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s
         etf_code = t["etf_code"]
         etf_name = t["etf_name"]
         track_score = t["track_score"]
-        # 信号日收盘 = etf_daily 该 etf T 日 close(伪跳空校验参考点)
-        last_date, sig_close = _prev_close(db_path, etf_code, T)
-        # 双校验 ①: prev_close>0 非停牌(该 etf 前一日有成交)
+        # 信号日收盘 = etf_daily 该 etf T 日 close(挂单价上限 + 伪跳空校验参考点)
         _, prev_close = _prev_close(db_path, etf_code, T)
+        sig_close = prev_close
+        # 双校验 ①: prev_close>0 非停牌(信号日 T 有成交, 挂单价上限有效)
         if prev_close is None or prev_close <= 0:
-            _logp(f"  ✗ {etf_code} {etf_name} prev_close={prev_close}(非停牌校验失败, 前一日无成交)")
+            _logp(f"  ✗ {etf_code} {etf_name} prev_close={prev_close}(非停牌校验失败, 信号日无成交)")
             continue
-        # 双校验 ②: prev_close vs 信号日收盘 ±20%(伪跳空剔除同款)
-        if sig_close is not None and sig_close > 0:
-            gap = prev_close / sig_close - 1.0
+        # 双校验 ②: 伪跳空剔除真口径(次日 open / 信号日收盘 - 1, |gap|>20% 剔除;
+        #            与回测 signal_kelly_backtest.PSEUDO_GAP_EXCLUDE 同式, 防除权/份额折算错位)
+        nxt_open = _next_open(db_path, etf_code, T)
+        if nxt_open is not None and nxt_open > 0:
+            gap = nxt_open / sig_close - 1.0
             if abs(gap) > PSEUDO_GAP:
-                _logp(f"  ✗ {etf_code} {etf_name} 伪跳空剔除 prev_close={prev_close} sig_close={sig_close} gap={gap:.2%}")
+                _logp(f"  ✗ {etf_code} {etf_name} 伪跳空剔除 nxt_open={nxt_open} sig_close={sig_close} gap={gap:.2%}")
                 continue
+        else:
+            # T+1 开盘价未入库(当日计划, 次日未开盘) → 跳过, 留 9:26 nextday_gap_check 二次剔除
+            _logp(f"  ~ {etf_code} {etf_name} 次日开盘价未入库(nxt_open={nxt_open}), 留 9:26 gap-check 兜底")
         plan.append({
             "etf_code": etf_code,
             "etf_name": etf_name,
