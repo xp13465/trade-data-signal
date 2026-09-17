@@ -8,7 +8,7 @@
 
 | 类别 | 数量 | 产物 |
 |---|---|---|
-| 周期任务(必迁) | 36 | 36 个 `.timer` + 36 个 `.service`(OnCalendar= 时点) |
+| 周期任务(必迁) | 37 | 37 个 `.timer` + 37 个 `.service`(OnCalendar= 时点) |
 | 飞书常驻 listener(已拍板不迁) | 1 | 无(留本机:需求入口依赖本机 Claude;云上飞书通知走 notify.py) |
 | backup_db 独立备份 | 1 | 1 个 `.timer`(21:00)+ 1 个 `.service` |
 | 本机 Claude 开发环境专属(不迁) | 5 | 见 §5(thinking-proxy / sensenova-healthcheck / agent-inbox-watcher / token-cache-stats / com.claude.self-backup) |
@@ -50,7 +50,7 @@ timedatectl set-timezone Asia/Shanghai
 | WorkingDirectory | WorkingDirectory= | |
 | StandardOutPath / StandardErrorPath | StandardOutput=append: / StandardError=append: | 保留原日志文件路径(监控/告警排查靠 `find data/logs -mmin` 扫描,路径不可变) |
 
-> ⚠️ **例外(2026-09-15 根治 append 日志 root 属主冲突)**:凡脚本自己 `>> "$LOG"` 写同一个固定名 `*_launchd.log`(而非 STAMP/独立名),该 unit **必须去掉** `StandardOutput=` / `StandardError=` 的 append 重定向(恢复 journal 默认)。原因:systemd 主进程(root)创建 append 文件属主 root(644),脚本(ubuntu)再 `echo >>` 同一文件 re-open 写不进 → Permission denied → 任务超时/失败(2026-09-14 盘后 turnover/nextday/overfit/s06 等 4 任务失败)。去掉后由脚本自己建文件(ubuntu 属主),无冲突、监控直读路径不变。共 4 个 shell 型(脚本自己 `>> "$LOG"` 写同名 `*_launchd.log`):trade-turnover-backfill / trade-nextday-plan / trade-overfit-monitor / trade-s06-snapshot。**另 2 个 python heredoc 型(trade-schedule-monitor / trade-self-heal)不去 append**:它们的 `MONITOR_LOG` 只定义从未 open 写入,日志一直靠 systemd append 产生,去掉会停更、且 schedule_monitor 告警把 MONITOR_LOG 当路径写进 latest.md 指向陈旧日志(L46 `find -mmin` 扫描法对这 2 个也失效)。其余 32 个 unit 脚本写 STAMP/独立名日志(无 re-open 冲突)或完全依赖 systemd 捕获 stdout,保留 append 不动。
+> ⚠️ **例外(2026-09-15 根治 append 日志 root 属主冲突)**:凡脚本自己 `>> "$LOG"` 写同一个固定名 `*_launchd.log`(而非 STAMP/独立名),该 unit **必须去掉** `StandardOutput=` / `StandardError=` 的 append 重定向(恢复 journal 默认)。原因:systemd 主进程(root)创建 append 文件属主 root(644),脚本(ubuntu)再 `echo >>` 同一文件 re-open 写不进 → Permission denied → 任务超时/失败(2026-09-14 盘后 turnover/nextday/overfit/s06 等 4 任务失败)。去掉后由脚本自己建文件(ubuntu 属主),无冲突、监控直读路径不变。共 5 个 shell 型(脚本自己 `>> "$LOG"` 写同名 `*_launchd.log`):trade-turnover-backfill / trade-nextday-plan / trade-nextday-gap-check / trade-overfit-monitor / trade-s06-snapshot。**另 2 个 python heredoc 型(trade-schedule-monitor / trade-self-heal)不去 append**:它们的 `MONITOR_LOG` 只定义从未 open 写入,日志一直靠 systemd append 产生,去掉会停更、且 schedule_monitor 告警把 MONITOR_LOG 当路径写进 latest.md 指向陈旧日志(L46 `find -mmin` 扫描法对这 2 个也失效)。其余 32 个 unit 脚本写 STAMP/独立名日志(无 re-open 冲突)或完全依赖 systemd 捕获 stdout,保留 append 不动。
 
 ### 1.5 PATH Linux 化
 本机 plist 内嵌 `PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`,其中 `/opt/homebrew/bin` 在 Linux 不存在。服务器统一为:
@@ -78,7 +78,7 @@ PURGE_SECRET 值(本机全部 plist 一致):见 `/home/ubuntu/code/trade-data/.e
 
 阶段4b 统一(2026-09-13):全部 36 service 均注入 `REPO`/`GIT_REPO`/`MAIN_REPO`(REPO=MAIN_REPO=/home/ubuntu/code/trade-data 数据目录,GIT_REPO=/home/ubuntu/code/trade-data-signal 代码仓,与 pick_repo.py 双仓判定一致,防 /Users 语义翻转)。个别任务保留特殊 env:ab-direction-anchor 额外有 `TRADE_DIR`(→ /home/ubuntu/code/trade-data-signal 代码仓)。
 
-## 2. 36 个周期任务完整对照表 + unit 内容
+## 2. 37 个周期任务完整对照表 + unit 内容
 
 > 每个任务给出:源 plist 摘要(脚本/时点/env/超时)→ `.timer` 与 `.service` 完整内容。
 > 统一模板:`Type=oneshot` + `Persistent=true`(服务器宕机错过时点后补跑,等价于保证数据完整)。
@@ -657,6 +657,41 @@ Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
 Environment=REPO=/home/ubuntu/code/trade-data
 Environment=MAIN_REPO=/home/ubuntu/code/trade-data
 ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/nextday_plan.sh
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+TimeoutStartSec=600
+```
+
+### 2.14-1 nextday-gap-check(周一~五 9:26 伪跳空二次剔除)
+- 脚本:`nextday_gap_check.sh` | ExitTimeOut=600(内含开盘价就绪闸 + 300s 重试)
+- 说明:nextday-plan 22:30 生成次日计划时,当日计划的 T+1 开盘价尚未产生,生成器侧真校验(A1)跳过留兜底;本任务 9:26(集合竞价 9:25 结束后)拉 akshare 当日开盘价,对 buy_date==today 买入行做伪跳空二次剔除(gap=|开盘/信号日收盘-1|>0.20 剔除,与回测 `PSEUDO_GAP_EXCLUDE` 同式同阈值),剔除形态=steps 行 skipped + status_text「伪跳空剔除」+ nextday_plan.json 条目 gap_excluded:true。
+
+`trade-nextday-gap-check.timer`:
+```ini
+[Unit]
+Description=Trade nextday-gap-check Mon..Fri 09:26 (源 com.trade.nextday-gap-check)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 09:26:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+`trade-nextday-gap-check.service`:
+```ini
+[Unit]
+Description=Trade nextday-gap-check (源 com.trade.nextday-gap-check)
+
+[Service]
+User=ubuntu
+EnvironmentFile=/home/ubuntu/code/trade-data/.env
+Type=oneshot
+WorkingDirectory=/home/ubuntu/code/trade-data
+Environment=GIT_REPO=/home/ubuntu/code/trade-data-signal
+Environment=REPO=/home/ubuntu/code/trade-data
+Environment=MAIN_REPO=/home/ubuntu/code/trade-data
+ExecStart=/bin/bash /home/ubuntu/code/trade-data/scripts/nextday_gap_check.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 TimeoutStartSec=600
 ```
@@ -1492,4 +1527,4 @@ TimeoutStartSec=7200
 6. **macOS 专属点适配**(inventory §5,阶段4 改脚本,非本文件范围):pmset/caffeinate 删段、timeout→gtimeout 降级链、self-heal/schedule-monitor 的 launchctl 检查、/opt/homebrew/bin PATH。本文件只生成 systemd 配置,不动任何 .sh。
 7. **单仓化**:服务器 `/home/ubuntu/code/trade-data` 单仓;双份 DB/backups 问题自然消失(REPO=GIT_REPO=/home/ubuntu/code/trade-data)。
 8. **21:00 并发提示(§14 生产稳定性)**:21:00 现有 3 个 timer 并发——backfill-evening(backfill_metrics.sh)、futures-backfill(futures_backfill.sh)、backup-db(backup_db.sh)。backup_db 用 sqlite3 `.backup()` 在线热备(WAL 一致快照,不锁库,inventory §4.1.1),与另两者不冲突;本机 launchd 原本就有 backfill-evening@21:00 + futures-backfill@21:00 并发,新加 backup_db@21:00 是 inventory §4.3 指定的独立时点(update-all 17:50 完成后 DB 最新)。若 stage4 实测发现 DB 写竞争,可把 backup-db 顺延到 21:05。
-9. **append 例外勿回填(2026-09-15 根治)**:trade-turnover-backfill / trade-nextday-plan / trade-overfit-monitor / trade-s06-snapshot 这 4 个 shell 型 service **刻意无** `StandardOutput=/StandardError=` append(脚本自己写同名 `*_launchd.log`)。落地阶段若有人"补齐一致性"给这 4 个补回 append,会复发 root 属主冲突(见 §1.4 例外注)。**trade-self-heal / trade-schedule-monitor 是例外中的例外**:这 2 个是 python heredoc 型,`MONITOR_LOG` 只定义从未 open 写入,日志一直靠 systemd append 产生,所以**保留 append 不去**——落地阶段勿去掉,否则日志停更、schedule_monitor 告警把 MONITOR_LOG 当路径写进 latest.md 指向陈旧日志。
+9. **append 例外勿回填(2026-09-15 根治)**:trade-turnover-backfill / trade-nextday-plan / trade-nextday-gap-check / trade-overfit-monitor / trade-s06-snapshot 这 5 个 shell 型 service **刻意无** `StandardOutput=/StandardError=` append(脚本自己写同名 `*_launchd.log`)。落地阶段若有人"补齐一致性"给这 5 个补回 append,会复发 root 属主冲突(见 §1.4 例外注)。**trade-self-heal / trade-schedule-monitor 是例外中的例外**:这 2 个是 python heredoc 型,`MONITOR_LOG` 只定义从未 open 写入,日志一直靠 systemd append 产生,所以**保留 append 不去**——落地阶段勿去掉,否则日志停更、schedule_monitor 告警把 MONITOR_LOG 当路径写进 latest.md 指向陈旧日志。
