@@ -15,6 +15,7 @@ description: 测试 agent 专属规范 — 由 .claude/agents/tester.md 的 skil
   - **② Playwright 交互验证**:`scripts/playwright-accept/` 脚手架脚本,验关键交互行为(页面加载/元素存在/数据渲染)
   - **③ 用户确认显示**:观感/视觉类展示交用户最终拍板
 - 失败项立即报,不掩藏
+- **简洁输出·结论优先(2026-09-17 用户定,Concise 语义落地)**:汇报先给结论(第一句=PASS/FAIL 及哪项),跳过开场白,短默认为主。**但结论后必须带证据点**——指认的命令 + 真跑输出关键行/exit code + 失败项原文(即 §5.1 四步门的产出),不因短而摘要;"失败项立即报不掩藏"照旧,失败输出完整照贴不裁。
 
 ## 2. 数据完整性校验
 - **check_data_integrity.py**:deploy.sh 前置,校验关键 JSON"该有的数据在不在"(缺失/滞后/空 key 超标即 FAIL)。规则示例:`board_etf_map.json` 空key占比<30% / `overview.json` a_amount非空 / `intraday_snapshot.json` collected_at今日
