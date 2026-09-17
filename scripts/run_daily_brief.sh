@@ -13,7 +13,14 @@ CFG="$REPO/config/daily_brief.yaml"
 PY="$REPO/.venv/bin/python"
 
 LOG="${LOG:-$REPO/data/logs/daily_brief.log}"
-mkdir -p "$(dirname "$LOG")"
+# #44 日志不可写隐患根治(同 s06_snapshot 先例): 日志目录/文件不可写时(磁盘满/权限),
+# 非交互 bash 里 `>> "$LOG"` 重定向失败会让整条命令(含 notify.py 告警)根本不执行 →
+# 告警静默跳过。落到 /tmp fallback, 警告打到 stderr, 不静默吞告警。
+_ORIG_LOG="$LOG"
+if ! mkdir -p "$(dirname "$LOG")" 2>/dev/null || [ ! -w "$(dirname "$LOG")" ] || ! ( : >> "$LOG" ) 2>/dev/null; then
+  LOG="/tmp/daily_brief_$(date +%s).log"
+  echo "$(date '+%F %T') [run_daily_brief] 警告: 日志 ${_ORIG_LOG} 不可写(磁盘满/权限), 改落 fallback $LOG" >&2
+fi
 
 if [ ! -f "$CFG" ]; then
   echo "[run_daily_brief] 配置缺失 $CFG,跳过" | tee -a "$LOG"
@@ -42,7 +49,7 @@ else
   rc=$?
   echo "[run_daily_brief] ✗ 失败 rc=$rc(不阻塞主流程)" | tee -a "$LOG"
   "$PY" "$REPO/scripts/notify.py" "[告警] daily_brief 生成失败 rc=$rc" \
-    "run_daily_brief 退出码 $rc<br>日志: $LOG" --from-prefix "[告警]" --dedup-key daily_brief_fail --dedup-window 1800 >> "$LOG" 2>&1 || true
+    "run_daily_brief 退出码 $rc<br>日志: $LOG" --from-prefix "[告警]" --dedup-key daily_brief_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
 fi
 
 # ── 影子模式对账聚算(2026-08-24 四项改进R1 挂载)────────────────────────────

@@ -31,7 +31,13 @@ LOGDIR="$REPO/data/logs"
 LOG="$LOGDIR/verify_backup_${STAMP}.log"
 TMPDIR=$(mktemp -d /tmp/verify-backup-XXXXXX)
 
-mkdir -p "$LOGDIR"
+# #44 日志不可写隐患根治(同 s06_snapshot 先例): 日志目录/文件不可写时(磁盘满/权限),
+# 非交互 bash 里 `2>>"$LOG"` 重定向失败会让 notify.py 告警命令根本不执行 → 告警静默跳过。
+# 落到 /tmp fallback, 警告打到 stderr。
+if ! mkdir -p "$LOGDIR" 2>/dev/null || [ ! -w "$LOGDIR" ] || ! ( : >> "$LOG" ) 2>/dev/null; then
+  LOG="/tmp/verify_backup_${STAMP}.log"
+  echo "$(date '+%F %T') [verify_backup] 警告: 日志 $LOGDIR/verify_backup_${STAMP}.log 不可写(磁盘满/权限), 改落 fallback $LOG" >&2
+fi
 # 临时目录用完即清（无论退出码）；不动真实 data/*.db
 trap 'rm -rf "$TMPDIR"' EXIT
 
@@ -83,7 +89,7 @@ if [ "$DL_RC" -ne 0 ]; then
   [ -f "$REPO/scripts/notify.py" ] && \
     "$PY" "$REPO/scripts/notify.py" "[告警] verify_backup R2下载失败 $(date '+%m-%d %H:%M')" "$BODY" --severe \
       --from-prefix "[告警]" \
-      --alert-issue "verify_backup.sh R2下载失败(无法演练恢复)" --alert-log "$LOG" $DRY_FLAG 2>>"$LOG" || true
+      --alert-issue "verify_backup.sh R2下载失败(无法演练恢复)" --alert-log "$LOG" $DRY_FLAG 2>&1 | tee -a "$LOG" || true
   exit 1
 fi
 
@@ -202,7 +208,7 @@ if [ "$VERIFY_OK" != "1" ]; then
     "$PY" "$REPO/scripts/notify.py" "[告警] verify_backup 校验失败 $(date '+%m-%d %H:%M')" "$BODY" --severe \
       --from-prefix "[告警]" \
       --alert-issue "verify_backup.sh 恢复演练失败(integrity/行数异常)" --alert-log "$LOG" \
-      $DRY_FLAG 2>>"$LOG" || true
+      $DRY_FLAG 2>&1 | tee -a "$LOG" || true
 fi
 
 echo "=== verify_backup.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=$RC ===" | tee -a "$LOG"

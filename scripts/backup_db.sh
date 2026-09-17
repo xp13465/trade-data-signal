@@ -25,7 +25,14 @@ STAMP=$(date +%Y%m%d_%H%M)
 LOGDIR="$REPO/data/logs"
 LOG="$LOGDIR/backup_db_${STAMP}.log"
 
-mkdir -p "$BACKUP_DIR" "$LOGDIR"
+# #44 日志不可写隐患根治(同 s06_snapshot 先例): 日志目录/文件不可写时(磁盘满/权限),
+# 非交互 bash 里 `2>>"$LOG"` 重定向失败会让 notify.py 告警命令根本不执行 → 告警静默跳过。
+# 落到 /tmp fallback, 警告打到 stderr。BACKUP_DIR 不可写另行暴露(备份失败自然告警)。
+if ! mkdir -p "$LOGDIR" 2>/dev/null || [ ! -w "$LOGDIR" ] || ! ( : >> "$LOG" ) 2>/dev/null; then
+  LOG="/tmp/backup_db_${STAMP}.log"
+  echo "$(date '+%F %T') [backup_db] 警告: 日志 $LOGDIR/backup_db_${STAMP}.log 不可写(磁盘满/权限), 改落 fallback $LOG" >&2
+fi
+mkdir -p "$BACKUP_DIR"
 
 echo "=== backup_db.sh 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
 echo "BACKUP_DIR=$BACKUP_DIR RETAIN_DAYS=$RETAIN_DAYS" | tee -a "$LOG"
@@ -118,7 +125,7 @@ if [ "$RC" -ne 0 ] && [ -f "$REPO/scripts/notify.py" ]; then
     --from-prefix "[告警]" \
     --alert-issue "backup_db.sh 备份失败(rc=$RC,失败DB=${FAILED_DBS})" \
     --alert-log "$LOG" \
-    $DRY_FLAG 2>>"$LOG" || true
+    $DRY_FLAG 2>&1 | tee -a "$LOG" || true
 fi
 
 exit "$RC"
