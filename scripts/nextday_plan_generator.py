@@ -18,7 +18,9 @@
       buy_backup}(buy_special_filtered 归一为 buy_special, 与 queries._AI_MACRO_BUY_SIGNALS 一致)
     - top1 判定 = 冻结表 data/signal_kelly_etf_freeze.json(key=date|index_id|signal)命中
       → 冻结 code 为权威 top1(_bk_top); 未命中 → 前端 _topEtfByScore 同构(纯 max(track_score),
-      平手回退 similarity)。track_score 取 board_etf_map 注入值(与首页 overview 逐位一致)。
+      平手回退 similarity)。track_score 命中冻结时取冻结表冻结分(2026-09-18 ③ 随信号日 T 固化,
+      不随 board_etf_map 双树/重生值漂移, 3 版本漂移根因②), 未命中取 board_etf_map 注入值
+      (与首页 overview 逐位一致)。
     - 降亏过滤 = 首页同款(queries._ai_macro_hit_filters, ctx 与 overview 完全同构) ∩ S06
       基座成员集(s06.filters_for_date(T) True 键; 快照缺行 fail-open 放行)。a9 基座补
       bullAuxBackupStop 前端分支(buy_aux/buy_backup × hs300 四档=牛市·主升)。
@@ -360,14 +362,24 @@ def _backfill_missing_seqs(steps: list, trade_dates: list[str], now: str) -> boo
 
 
 def _idempotency_check(steps, buy_date, new_codes):
-    """幂等判定(2026-09-17 升级 buy_date+seq1 → buy_date+seq1+etf_code, 根治「过时快照不自愈」)。
+    """幂等判定(2026-09-17 升级 buy_date+seq1 → buy_date+seq1+etf_code, 根治「过时快照不自愈」;
+    2026-09-18 ⑤ 加已过执行日冻结 gate)。
 
     执行日 buy_date 已有 seq1 挂单行时, 比较其 etf_code 集合与本次重算 top1(new_codes):
       - 一致 → "skip"(无漂移, 幂等跳过)
       - 不一致 → 漂移, 原地删该 buy_date 全部旧行, 返回 "replace"(调用方重写)
     无 seq1 行 → "append"(正常追加)。
     返回 (action, removed_count); removed_count 仅在 "replace" 时非 0。
+
+    ⚠ ⑤ 已过执行日冻结 gate(2026-09-18, 3版本漂移根因③): buy_date <= 运行日 today 时——
+      - 已有 seq1 行一律 "skip"(禁止 replace: 9-17 22:30 回填 20260916 曾 replace 改写 9-17 执行日行)
+      - 无 seq1 行也 "skip"(禁止 append: 执行日已过的历史组不再补登/补卖出行)
+      主链 buy_date=T+1>today 不受影响; 回填段历史 T' 的 buy_date<=today 全部冻结保持。
+      迁移 _backfill_missing_seqs(L342-360)不走本函数, 不受影响; gap_check 改执行状态不走生成器, 不受影响。
     """
+    _today_str = _today()  # YYYYMMDD
+    if str(buy_date or "") <= _today_str:
+        return "skip", 0
     existing_seq1 = [s for s in steps if str(s.get("date")) == buy_date and str(s.get("seq")) == "1"]
     if not existing_seq1:
         return "append", 0
@@ -386,11 +398,19 @@ def _norm_signal(sig: str) -> str:
 
 def _top_etf_by_score(etfs):
     """首页 AI建议 top1 判定(static-site/app.js _topEtfByScore 同构):
-    _bk_top(冻结表权威)优先; 未命中 → 纯 max(track_score), 平手回退 similarity(与回测 _build_best_etf 同准则)。"""
+    _bk_top(冻结表权威)优先; 未命中 → 纯 max(track_score), 平手回退 similarity(与回测 _build_best_etf 同准则)。
+
+    2026-09-18 ③ K=1 赢家随信号日 T 固化: 命中 _bk_top 且带 _bk_ts(冻结分)时返回冻结分副本
+    (track_score 覆盖为 _bk_ts), 与前端同构——排序值用冻结时点分, 不随 board_etf_map 双树/重生值漂移。"""
     if not etfs:
         return None
     for _e in etfs:
         if isinstance(_e, dict) and _e.get("_bk_top") is True:
+            _bk_ts = _e.get("_bk_ts")
+            if isinstance(_bk_ts, (int, float)):
+                _fz = dict(_e)
+                _fz["track_score"] = _bk_ts
+                return _fz
             return _e
     best = None
     for _e in etfs:
@@ -473,8 +493,14 @@ def _ai_fade_hit(sig: dict, members) -> bool:
 
 def _kelly_sort_key(cand: dict):
     """K=1 排序准则(kelly _position_cap_kept_keys / 首页 _posCapSortedFn 同款):
-    track_score DESC → rating(high>mid>low) → signal(buy_backup>buy>buy_aux>buy_special) → buy_date ASC。"""
-    ts = cand["track_score"] if cand["track_score"] is not None else -1.0
+    track_score DESC → rating(high>mid>low) → signal(buy_backup>buy>buy_aux>buy_special) → buy_date ASC。
+
+    2026-09-18 ③ K=1 赢家随信号日 T 固化: 排序分优先取冻结分(_bk_ts, 随信号日 T 固化),
+    未命中冻结无 _bk_ts 则取 track_score(与前端 _topEtfByScore 同构, 防双树/重生值漂移)。"""
+    _bk_ts = cand.get("_bk_ts")
+    ts = _bk_ts if isinstance(_bk_ts, (int, float)) else cand.get("track_score")
+    if ts is None:
+        ts = -1.0
     return (-float(ts), _RATING_RANK.get(str(cand.get("_rating") or ""), 3),
             _SIG_RANK.get(str(cand.get("signal") or ""), 9), str(cand.get("buy_date") or ""))
 
@@ -520,6 +546,8 @@ def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s
             "track_score": top1.get("track_score"),
             "track_tier": top1.get("track_tier"),
             "_rating": _s.get("_rating"),
+            # ③ 2026-09-18 冻结分双保险: 命中 _bk_top 时带冻结分, _kelly_sort_key 优先用它排序
+            "_bk_ts": top1.get("_bk_ts"),
         })
     for _c in fade_cut:
         _logp(f"  ✗ 降亏过滤剔除: {_c}")

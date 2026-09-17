@@ -202,6 +202,26 @@ cp "$REPO/data/board_etf_map.json" "$REPO/static-site/data/board_etf_map.json" 2
   && echo "✓ board_etf_map.json 已同步到 static-site/data/（build 后自动联动，前端 R2 与 overview 一致）" | tee -a "$LOG" \
   || echo "⚠ 同步 board_etf_map.json 到 static-site/data/ 失败（不阻断，export 仍用 data/ 新版）" | tee -a "$LOG"
 
+# 项6.1: 双树单源对齐（2026-09-18 ④，3版本漂移根因②）——board_etf_map.json 同步到 $GIT_REPO/data/。
+# 背景: queries.py _ETF_MAP_PATH = Path(__file__).absolute().parent.parent/"data"/"board_etf_map.json"
+#   （L73 不 resolve symlink），从哪个树启动进程读哪个树 data/ → trade-data 与 trade-data-signal 双树
+#   board_etf_map 分叉（机器人 91.5 vs 76.4 / a500 75.8 vs 83.3），冻结表 4 批 frozen_at 的 track_score
+#   取各树自己注入值 → K=1 赢家 top1 漂移出 3 版本。
+# 此步 build 成功后复制到 $GIT_REPO/data/（git 树），保证双树同源 + 哈希校验（§22 一致性）。
+# ⚠ 与项6 不同: 项6 目标是 $REPO/static-site/data/（R2 上传源）；此处目标是 $GIT_REPO（trade 侧后端读的 data/）。
+#   git 检查 gitignore 忽略 data/board_etf_map.json，cp 不产生新 commit（纯本机数据层对齐）。
+# cp 后哈希校验，不一致丢 §22 一致性阻断（防后续从老树启动的进程读旧版再反向写冻结表）。
+cp "$REPO/data/board_etf_map.json" "$GIT_REPO/data/board_etf_map.json" 2>>"$LOG" \
+  && echo "✓ board_etf_map.json 已同步到 $GIT_REPO/data/（双树单源）" | tee -a "$LOG" \
+  || echo "⚠ 同步 board_etf_map.json 到 $GIT_REPO/data/ 失败（不阻断，export 仍用 $REPO 新版）" | tee -a "$LOG"
+_MAP_H1=$("$PY" -c "import hashlib,sys;print(hashlib.md5(open(sys.argv[1],'rb').read()).hexdigest())" "$REPO/data/board_etf_map.json" 2>/dev/null)
+_MAP_H2=$("$PY" -c "import hashlib,sys;print(hashlib.md5(open(sys.argv[1],'rb').read()).hexdigest())" "$GIT_REPO/data/board_etf_map.json" 2>/dev/null)
+if [ -n "$_MAP_H1" ] && [ -n "$_MAP_H2" ] && [ "$_MAP_H1" != "$_MAP_H2" ]; then
+  echo "✗ board_etf_map.json 双树哈希不一致（$REPO=${_MAP_H1} vs $GIT_REPO=${_MAP_H2}），阻断 deploy（§22 双树单源）" | tee -a "$LOG"
+  exit 1
+fi
+echo "✓ board_etf_map.json 双树哈希校验通过（${_MAP_H1}）" | tee -a "$LOG"
+
 # 1. 导出 JSON
 # ab#39 增量导出（2026-08-17 批次A）：--incremental 让 export 只重算源数据已变化的 JSON，
 # 其余复用现有文件（消除全量 353 JSON 重复重算）。安全：仅当依赖表 MAX(date) 与上次 export 相同才跳过，

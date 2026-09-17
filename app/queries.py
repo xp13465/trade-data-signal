@@ -280,7 +280,10 @@ def _align_home_top1_to_backtest(_s: dict, freeze: dict) -> None:
     """把一条 signals_today 信号与其回测标的 1:1 对齐: 命中 #58 冻结表则把冻结 ETF 标为权威 top1。
 
     - 命中冻结: 在信号 etfs 中给冻结 code 所在条目加 `_bk_top: True`(权威 top1, 前端 _topEtfByScore
-      优先返回); 若冻结 code 不在当前 etfs(已被 board_etf_map 换代), 按冻结条目 prepend 到 etfs 首。
+      优先返回); **同时用冻结 entry 的 track_score 覆盖该条目 track_score(2026-09-18 ③ K=1 赢家
+      随信号日 T 固化: 冻结分覆盖当前注入值, 防 board_etf_map 双树/重生值不同致 top1 排序漂移,
+      3 版本漂移根因②)**; 若冻结 code 不在当前 etfs(已被 board_etf_map 换代), 按冻结条目 prepend
+      到 etfs 首(prepend 条目即来自冻结表, track_score 天然为冻结分)。
     - 未命中冻结: 不改动(前端纯 max(track_score) 自然对齐回测 would-be 冻结)。
     _s["etfs"] 为 list[dict]; 返回前原地改 _s["etfs"] 并置 _s["_bk_top"]。
     """
@@ -294,6 +297,11 @@ def _align_home_top1_to_backtest(_s: dict, freeze: dict) -> None:
     if idx >= 0:
         etfs[idx] = dict(etfs[idx])
         etfs[idx]["_bk_top"] = True
+        _frozen_ts = frozen.get("track_score")
+        if isinstance(_frozen_ts, (int, float)):
+            # ③ 冻结分覆盖: 排序/返回/展示统一用冻结时点 track_score(随信号日 T 固化)
+            etfs[idx]["track_score"] = _frozen_ts
+            etfs[idx]["_bk_ts"] = _frozen_ts  # 冻结分显式字段(前端/生成器 _bk_top 命中优先用)
     elif not etfs:
         # board_etf_map 该指数 etfs 为空数组 = 显式"无场内专属ETF"(收录与否的单一事实源=map, §23.6①),
         # 不从冻结表 prepend 兜底标的 —— 否则 map 换代前(20260813 中间版含持仓重叠兜底层)的残留冻结键
@@ -306,6 +314,9 @@ def _align_home_top1_to_backtest(_s: dict, freeze: dict) -> None:
         # 冻结 ETF 已被 board_etf_map 换代移除 → prepend 冻结条目, 保证首页仍显回测标的
         entry = {k: v for k, v in frozen.items() if k != "frozen_at"}
         entry["_bk_top"] = True
+        _frozen_ts = frozen.get("track_score")
+        if isinstance(_frozen_ts, (int, float)):
+            entry["_bk_ts"] = _frozen_ts  # ③ 冻结分显式字段(entry 已带冻结 track_score, 双保险)
         etfs.insert(0, entry)
     _s["_bk_top"] = True
 

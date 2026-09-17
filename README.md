@@ -86,6 +86,13 @@
 - 🔹 **场外基金评分排行（#79 方案C 全量化）** — 对全市场约 2.7 万只场外公募基金（申赎型）按「6 维业绩/风险调整/回撤/稳定性/规模流动性/费率 + 5 风险指标夏普/索提诺/卡玛/信息比率/Alpha + 经理 6 维 + 半凯利仓位 + 市场乘数」综合评分；登录用户经 CF Workers + D1 服务端分页查询全市场（每页 50，支持排序/搜索/类型筛选），点击任一基金卡片弹出「决策头/凯利仓位/六维雷达/风险与经理六维/净值走势/基础信息」6 区块详情；API 不可用时自动降级 Top100 兜底数据不白屏。数据源覆盖 akshare 基金基础信息（公司/经理/费率/规模等）
 - 🔹 **基金全史净值走势（#11，2026-08-25）** — 基金评分弹窗「净值走势」区块：26,118 只基金全史日净值（单位净值+累计净值，`fund_daily_nav` 表 2,177 万行逐只切片为 `R2 fund_nav/{code}.json`），period tab 30 日/3 月/6 月/1 年/3 年/5 年/全部切换（复刻 #10 ETF 弹窗长历史交互：点开才拉、per-code 缓存、轻量 SVG 与 echarts 双版本随皮肤）；R2 增量指纹上传只传真变化文件（清盘老基金序列冻结自然跳过），每日 update_all 盘后链自动刷新；当日净值晚间公布，入图最新通常 T-1。配套机检 `check_fund_nav`（抽样 DB↔产物逐位一致+覆盖率校验）挂 deploy 校验链
 
+#### v1.1.19（2026-09-18 合入）
+
+- 🔹 **买入计划 3 版本漂移根治（③④⑤）** — 「9-17 买入计划 3 版本漂移」根因修复三件（方案见 `/tmp/kelly-rootfix-research-result.md`）：
+  - **③ K=1 赢家随信号日 T 固化**（3版本漂移根因②）：命中信号日冻结表（`signal_kelly_etf_freeze.json`）的 K=1 赢家，排序/返回/展示统一取**冻结时点 track_score**（新增 `_bk_ts` 显式冻结分字段），不随 board_etf_map 双树/重生值漂移；三端同构覆盖——后端 `_align_home_top1_to_backtest`（`app/queries.py`）/ 前端 `_topEtfByScore`（`static-site/app.js`）/ 买入计划生成器 `_top_etf_by_score` + `_kelly_sort_key`（`scripts/nextday_plan_generator.py`），§21 公示同步（purpose-notes.js / app.js / lab.js）
+  - **④ board_etf_map 双树单源对齐**（3版本漂移根因②）：deploy.sh 项6.1 在 build 成功后把 `$REPO/data/board_etf_map.json` 同步到 git 树 `$GIT_REPO/data/` + 双树哈希校验（§22 一致性），哈希不一致阻断 deploy——双树同源，根除「同信号不同树读不同 board_etf_map → 冻结表各批 track_score 分叉」的漂移源
+  - **⑤ auto_trade_steps 过去执行日冻结**（3版本漂移根因③）：`_idempotency_check` 入口加 gate——`buy_date <= 运行日 today` 时，已有 seq1 行一律 skip（**禁 replace** 改写）、无 seq1 行也 skip（**禁 append** 补登）；主链 buy_date=T+1>today 不受影响，回填段历史组冻结保持
+
 #### v1.1.7（2026-08-27 合入）
 
 - 🔹 **S06 动态模式切默认基座**（`fb13dbde8`/`ff930e657`）：S06·大盘领先切换由可选档升为 v1.1.7 起默认基座（common.js `_KELLY_FADE_DEFAULT_MODE="s06"` 单源），选址依据=综合 auto 王者，用户拍板观察期
