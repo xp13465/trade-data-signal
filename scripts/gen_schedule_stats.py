@@ -98,6 +98,12 @@ TASKS = [
     # schedule_monitor.sh TASKS 已同步加漏跑检查条目(同 s06_snapshot 先例)。
     {"task": "nextday_plan", "name": "次日买入计划", "script": "nextday_plan.sh",
      "schedule": "22:30", "log": "nextday_plan_launchd.log", "mode": "standard"},
+    # nextday_gap_check: 2026-09-17 补入(#45 伪跳空二次剔除, F3 机检链收编;
+    # 与 schedule_monitor.sh TASKS 同步注册, 同 nextday_plan 先例)。
+    # systemd trade-nextday-gap-check.timer 交易日 09:26 跑 nextday_gap_check.sh
+    # (拉 akshare 当日开盘价, 对 buy_date==today 买入行做伪跳空二次剔除; standard 模式零特殊逻辑直读)。
+    {"task": "nextday_gap_check", "name": "次日买入计划伪跳空剔除", "script": "nextday_gap_check.sh",
+     "schedule": "09:26", "log": "nextday_gap_check_launchd.log", "mode": "standard"},
 ]
 
 _TS = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})'

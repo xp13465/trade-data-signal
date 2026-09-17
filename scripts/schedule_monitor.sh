@@ -152,6 +152,14 @@ TASKS = [
     {"task": "nextday_plan",        "log": "nextday_plan_launchd.log",
      "trading_day_only": True,  # 非交易日脚本闸门跳过不写开始行, 必需跳过漏跑检查避免周末误报
      "schedules": ["22:30"]},
+    # nextday_gap_check: 2026-09-17 补入(#45 伪跳空二次剔除, F3 机检链收编)。
+    # systemd trade-nextday-gap-check.timer 交易日 09:26 跑 nextday_gap_check.sh
+    # (集合竞价 9:25 结束后拉 akshare 当日开盘价, 对 buy_date==today 买入行做伪跳空二次剔除;
+    #  就绪闸 + 300s 重试, 最坏 ~600s; 开盘价取不到则 severe 告警 + 标「待人工」)。
+    # 日志固定 append + 标准开始/结束行, standard 模式可解析; 此处只管漏跑+进行中超时。
+    {"task": "nextday_gap_check",   "log": "nextday_gap_check_launchd.log",
+     "trading_day_only": True,  # 非交易日脚本闸门跳过不写开始行, 必需跳过漏跑检查避免周末误报
+     "schedules": ["09:26"]},
 ]
 
 # 标准任务开始行：=== xxx.sh 开始 YYYY-MM-DD HH:MM:SS ===
@@ -356,6 +364,7 @@ DUR_THRESHOLDS = {
     "overfit_monitor": 900,     # 15min(实测打点+双 parity 自检 76s, 2026-08-25; 大裕量防 trades 重算抖动)
     "s06_snapshot": 900,        # 15min(三段 run_to 超时上限 300+300+600s, 全超时也 <900s; codex008 F5)
     "nextday_plan": 900,        # 15min(生成器读4产物+K=1重算+写两树+R2上传(300s超时)+通知(120s超时), 实测秒级; 裕量防 R2 重试)
+    "nextday_gap_check": 900,   # 15min(就绪闸+300s重试+R2上传+通知, 最坏 ~600s; 裕量防 akshare 网络抖动重试)
 }
 # stats 初始化(2026-08-14 A1 补): A1 进行中检测块引用 stats, 须保证 STATS_FILE 不存在/
 #   解析失败时 stats 仍为 [] 而非 NameError(否则进行中检测整块崩溃)。

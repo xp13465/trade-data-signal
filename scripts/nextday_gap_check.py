@@ -239,7 +239,10 @@ def main():
             written.append(str(sp))
         log(f"auto_trade_steps 落盘(steps_changed): {len(steps_doc['steps'])} 行")
     if excluded:
-        for d in [REPO / "data", data_dir, git_data_dir]:
+        # 本地权威副本 = ROOT/data(与生成器 nextday_plan_generator.py write_targets 一致),
+        # 不是 REPO/data: 云上 REPO=trade-data 运行副本、ROOT=脚本所在树, 两处若分叉则 gap_excluded
+        # 永远进不了生成器 docstring 声明的「本地权威」ROOT/data/nextday_plan.json(§22 reviewer F2)。
+        for d in [ROOT / "data", data_dir, git_data_dir]:
             d.mkdir(parents=True, exist_ok=True)
             with (d / "nextday_plan.json").open("w", encoding="utf-8") as f:
                 json.dump(plan_doc, f, ensure_ascii=False, indent=1)
