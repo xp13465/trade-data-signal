@@ -118,5 +118,8 @@
   ],
   "20260916-a588": [
     "build(lab): \u91cd\u5efa lab.min.js \u540c\u6b65 _atInit \u632a\u4f4d\u4fee\u590d"
+  ],
+  "20260917-a589": [
+    "revert(codex): \u56de\u9000 finding [3] \u4f2a\u8df3\u7a7a\u6b7b\u4ee3\u7801\u6539\u52a8,\u4fdd\u7559 6 \u6761 + P1 \u4fee\u590d"
   ]
 }
