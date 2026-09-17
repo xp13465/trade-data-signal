@@ -8041,8 +8041,51 @@ function _kellyAihlineCalSpan(bd, sd) {
 var _kellyRealNav = null;
 var _kellyRealNavPromise = null;
 var _kellyRealNavFailAt = 0;   // 本地回退路径失败冷却起点(正常走 common 单例, 此路径仅 common 未挂载时兜底)
-function _kellyRealNavEnsure() {
-  // 2026-08-30 P1-① §22(shared core): 优先用 common.js 挂载的 window._kkellyRealNavEnsure(首页 sim 弹窗与 lab 弹窗共用同一懒加载实例, 防双份缓存漂移)
+// 懒加载目标集 = G/H/I 涉及 etf_code 并集(≤116, 全量 ~1MB, 先粗后细; 过滤/管位后精确集只会更小, 粗集已覆盖,
+// 多拉无遗漏且 nav 文件 append-only 历史日永不变; §22 逐位一致不受影响——多拉的 code 不进任何统计)。
+// 结果按 trades 数据引用缓存: 分片加载替换 td 引用时缓存自然失效, 新集更大则再暖(diff 补拉)。
+var _kellyNavCodesRef = null;
+var _kellyNavCodesCache = null;
+function _kellyCollectNavCodes(td) {
+  if (_kellyNavCodesRef === td && _kellyNavCodesCache) return _kellyNavCodesCache;
+  var out = [];
+  if (td && td.fields && td.quadrants) {
+    var f = td.fields;
+    var eIdx = -1;
+    for (var i = 0; i < f.length; i++) if (f[i] === "etf_code") { eIdx = i; break; }
+    if (eIdx >= 0) {
+      var set = {};
+      var quads = td.quadrants;
+      for (var qk in quads) {
+        var q = quads[qk];
+        if (!q || typeof q !== "object") continue;
+        for (var mk in q) {
+          if (mk !== "G" && mk !== "H" && mk !== "I") continue;   // 仅 G/H/I(长线策略)需真实净值重算
+          var arr = q[mk] || [];
+          for (var k = 0; k < arr.length; k++) {
+            var c = arr[k][eIdx];
+            if (c && !set[c]) set[c] = 1;
+          }
+        }
+      }
+      for (var cc in set) out.push(cc);
+    }
+  }
+  _kellyNavCodesRef = td;
+  _kellyNavCodesCache = out.length ? out : null;
+  return _kellyNavCodesCache;
+}
+function _kellyNavTarget() {
+  // 懒加载目标集; 未开 GIH 或 trades 未载 → null(退全量/全局语义)
+  return (state && state.labSigKellyGihOn) ? _kellyCollectNavCodes(state.labSigKellyTradesData) : null;
+}
+function _kellyRealNavEnsure(codes) {
+  // 2026-08-30 P1-① §22(shared core): 优先用 common.js 挂载的加载器(首页 sim 与 lab 共用单例, 防双份缓存漂移);
+  // 2026-09-17 懒加载: 有 codes → per-ETF(window._kkellyRealNavEnsureCodes); 无 codes → 老全量(_kkellyRealNavEnsure)。
+  if (codes && codes.length && typeof window !== "undefined" && typeof window._kkellyRealNavEnsureCodes === "function") {
+    return window._kkellyRealNavEnsureCodes(codes);
+  }
+  // 老 common 无 per-ETF API 或未传 codes → 退回全量(仍防自身赋值递归)
   if (typeof window !== "undefined" && typeof window._kkellyRealNavEnsure === "function" && window._kkellyRealNavEnsure !== _kellyRealNavEnsure) {
     return window._kkellyRealNavEnsure();
   }
@@ -8065,11 +8108,35 @@ function _kellyRealNavEnsure() {
 // ---- nav 后台预热(2026-09-17 弱网卡死根治第1步, 见 docs/kelly/analysis/sigkelly-webslow-y1-not-render-20260917.md) ----
 // 摘掉重算主链对 accum_nav_map 的同步 await(旧最坏 480s/轮 压死「计算中」遮罩): G/H/I 行先按「缺价」占位渲染,
 // nav 到位后事件触发补算(卡面=静默重算一轮; 打开中的交易/演进弹窗=经 waiter 重渲染), 补完数值与「先 await 再算」逐位一致。
-var _kellyNavArmed = true;                              // 尚未成功应用 nav(成功后置 false, 单例常驻无需再补)
+// 2026-09-17 懒加载: 预热目标从全量改为 G/H/I 涉及 code 集(per-ETF), 三态门控区分时序窗口 vs 真缺口。
+var _kellyNavArmed = true;                              // 尚未成功应用 nav(成功后置 false, 单例常驻无需再补; 仅老全量路径用)
 var _kellyNavWaiters = [];                              // nav 到位后待补算回调(弹窗重渲染等)
-function _kellyNavReadyNow() {
+// 单 code 三态(委托 common._kkellyNavCodeStatus; 本地兜底仅 common 未挂载时)
+function _kellyNavStatus(code) {
+  if (typeof window !== "undefined" && typeof window._kkellyNavCodeStatus === "function") {
+    return window._kkellyNavCodeStatus(code);
+  }
+  if (_kellyRealNav && _kellyRealNav[code]) return "loaded";
+  if (_kellyRealNav) return "failed";   // 本地全量已载且无此 code = 真缺口
+  return "pending";
+}
+function _kellyNavReadyNow(codes) {
+  if (codes && codes.length) {
+    // per-ETF 集语义: 涉及集全部 loaded 才算就绪
+    for (var i = 0; i < codes.length; i++) if (_kellyNavStatus(codes[i]) !== "loaded") return false;
+    return true;
+  }
   return (typeof window !== "undefined" && window._kkellyRealNav && typeof window._kkellyRealNav === "object")
       || (_kellyRealNav && typeof _kellyRealNav === "object");
+}
+// 目标集「落定」= 每个 code 已 loaded 或 failed(无 pending)。这是「可以算最终数」的判据:
+// 失败 code 不阻塞(其行由三态门控标「— 缺价」), 只有仍 pending(尚未拉完)才算占位待补。
+function _kellyNavSettled(codes) {
+  if (!codes || !codes.length) return _kellyNavReadyNow();
+  for (var i = 0; i < codes.length; i++) {
+    if (_kellyNavStatus(codes[i]) === "pending") return false;
+  }
+  return true;
 }
 function _kellyNavFlush() {
   _kellyNavArmed = false;
@@ -8081,15 +8148,27 @@ function _kellyNavFlush() {
   }
 }
 function _kellyNavWhenReady(cb) {
-  if (_kellyNavReadyNow()) { try { cb(true); } catch (e) {} return; }
+  if (_kellyNavSettled(_kellyNavTarget())) { try { cb(true); } catch (e) {} return; }
   if (typeof cb === "function") _kellyNavWaiters.push(cb);
 }
-function _kellyNavWarmup() {
+function _kellyNavWarmup(codes) {
+  var target = (codes && codes.length) ? codes : _kellyNavTarget();
+  if (target && target.length) {
+    // per-ETF 预热(懒加载): 只要目标集还有 pending code 就(再)发动; ensureCodes 内部 inflight 去重 + 失败冷却,
+    // 单个 code 失败不阻塞其余 code 真价补上。发动后等全部落定(loaded∪failed)再 flush。
+    if (_kellyNavSettled(target)) return;
+    var p = _kellyRealNavEnsure(target);
+    if (p && typeof p.then === "function") {
+      p.then(function () { if (_kellyNavSettled(target)) _kellyNavFlush(); });
+    }
+    return;
+  }
+  // 老全量路径(无 trades 数据 / 未开 GIH / 老 common 无 per-code): 保留原 armed 门控
   if (_kellyNavReadyNow()) return;   // 已就绪(同步可用, 计算直接读 nav, 无需补算)
   if (!_kellyNavArmed) return;       // 已成功补算过 / 冷却中(common 兜底), 不再重复火力
-  var p = _kellyRealNavEnsure();
-  if (p && typeof p.then === "function") {
-    p.then(function (ok) {
+  var p2 = _kellyRealNavEnsure();
+  if (p2 && typeof p2.then === "function") {
+    p2.then(function (ok) {
       if (!ok) return;               // 失败: 冷却兜底, armed 仍 true → 下轮 recompute 再暖(不再 480s/轮)
       if (!_kellyNavReadyNow()) return;
       _kellyNavFlush();
@@ -10614,7 +10693,7 @@ async function _kellyOperationalPool(feeParams) {
     });
     var finalTrades = recomputed;
     if (state.labSigKellyGihOn && _kellyIsGih(modeKey) && _kellyGihStrat(modeKey)) {
-      if (_kellyNavReadyNow()) {
+      if (_kellyNavSettled(_kellyNavTarget())) {
         var _gihSim = _kellyAihlineApply(recomputed, _kellyGihStrat(modeKey), "all");
         finalTrades = (_gihSim.real ? _gihSim.real.filter(function (k) { return k.profit !== null && k.profit !== undefined; }) : []);
       } else {
@@ -12975,7 +13054,7 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
     // 2026-09-17 弱网卡死根治第1步: 摘 await 改后台预热; nav 未就绪时 G/H/I 先按「缺价」渲染,
     //   nav 到位经 waiter 重开本弹窗补真实价(数值与「先 await 再算」逐位一致)
     _kellyNavWarmup();
-    if (!_kellyNavReadyNow()) {
+    if (!_kellyNavSettled(_kellyNavTarget())) {
       _kellyNavWhenReady(function () {
         var _ov = document.getElementById("lab-sigkelly-trades-overlay");
         if (_ov && _ov.style.display !== "none" && document.body.contains(_ov)) {

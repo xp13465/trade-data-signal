@@ -232,6 +232,14 @@ data/.r2_fund_nav_state.json.tmp.*
 data/.r2_fund_nav_ckpt.json
 data/.r2_fund_nav_ckpt.json.tmp.*
 
+# accum_nav per-ETF 拆分目录(2026-09-17 懒加载): export_accum_nav_map.py --all 生成 ~1554 只 ~18.5MB,
+# R2 accum_nav/ 前缀托管, 本地 untracked 不进 git(同 etf//fund_nav/ 模式)
+docs/kelly/position/scripts/accum_nav/
+# accum_nav R2 上传状态(2026-09-17): 运行时产物, 本地各树独立
+data/.r2_accum_nav_state.json
+data/.r2_accum_nav_state.json.tmp
+data/.r2_accum_nav_state.json.tmp.*
+
 # AI 预测融合底座每日对账底稿(2026-08-26 反思重构 Phase1;数据产物留本地不进 git)
 data/brief_ledger.json
 

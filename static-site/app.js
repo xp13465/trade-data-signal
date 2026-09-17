@@ -4454,12 +4454,15 @@ async function _simRenderOnce(modal) {
     //   首页 sim 弹窗 G/H/I 重算主链不再同步等 19M accum_nav_map(common.js 双 URL 旧 120s, 弱网最坏 480s/轮);
     //   nav 未就绪时 _gihRealizeRealForce 判缺价(nav_missing)先出「— 缺价」, nav 到位且弹窗仍在展示时
     //   经「未就绪→就绪」跃迁补渲一次(至多一次防成环, 同 _featReadyBefore 补渲模式)。
-    const _navReadyBefore = !!(typeof window !== "undefined" && window._kkellyRealNav && typeof window._kkellyRealNav === "object");
-    if (!_navReadyBefore && typeof window !== "undefined" && typeof window._kkellyRealNavEnsure === "function") {
-      window._kkellyRealNavEnsure().then((_navOk) => {
-        if (!_navOk || modal.classList.contains("hidden")) return;
-        const _nowReady = !!(typeof window !== "undefined" && window._kkellyRealNav && typeof window._kkellyRealNav === "object");
-        if (_nowReady) {
+    // 2026-09-17 懒加载: 目标集 = 管位前 kept 行的 etf_code 并集(管位只减不增, 此集⊇实际需用集, 多拉无遗漏);
+    // 「未落定→落定」跃迁补渲一次(至多一次防成环, 同 _featReadyBefore 补渲模式), 判定从「map 是 object」细化到「涉及 codes 全落定」。
+    const _simGihNavCodes = _simCollectNavCodes(kept, fIdx);
+    const _navReadyBefore = _simGihNavCodes.length ? _simNavCodesSettled(_simGihNavCodes)
+      : !!(typeof window !== "undefined" && window._kkellyRealNav && typeof window._kkellyRealNav === "object");
+    if (!_navReadyBefore && typeof window !== "undefined" && typeof window._kkellyRealNavEnsureCodes === "function") {
+      window._kkellyRealNavEnsureCodes(_simGihNavCodes).then(() => {
+        if (modal.classList.contains("hidden")) return;
+        if (_simNavCodesSettled(_simGihNavCodes)) {
           _simRenderPending = true;   // 合批: 渲染中则由循环兜底; 空闲则立即补一次(仅此一次)
           if (!_simRenderBusy) _simRender(modal);
         }
@@ -5607,6 +5610,28 @@ function _simNetassetCurve(rows, fIdx, fp, initCapital, nav, winStart, winEnd) {
   return { curve: curve, navFF: navFF };
 }
 
+// ---- accum_nav per-ETF 懒加载(2026-09-17)----
+// 收集 rows 涉及 etf_code 并集(G/H/I 强平重算 + 净资产曲线共用), 与 lab _kellyCollectNavCodes 同语义但按本弹窗实际行集精收集。
+function _simCollectNavCodes(rows, fIdx) {
+  const out = [];
+  const set = {};
+  for (let i = 0; i < rows.length; i++) {
+    const c = String(rows[i][fIdx.etf_code] || "");
+    if (c && !set[c]) { set[c] = 1; out.push(c); }
+  }
+  return out;
+}
+// per-ETF 就绪判定: 「落定」= 每 code loaded 或 failed(无 pending); failed code 不阻塞(其行由三态门控标缺价),
+// 只有仍 pending(尚未拉完)才占位待补。兼容老 common 无 per-code API 时退化看全局 map(保留现有行为)。
+function _simNavCodesSettled(codes) {
+  if (typeof window !== "undefined" && typeof window._kkellyNavCodeStatus === "function") {
+    for (let i = 0; i < codes.length; i++) {
+      if (window._kkellyNavCodeStatus(codes[i]) === "pending") return false;
+    }
+    return true;
+  }
+  return !!(typeof window !== "undefined" && window._kkellyRealNav && typeof window._kkellyRealNav === "object");
+}
 function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD, allHistReady) {
   // #53(2026-09-09 lab 交易记录弹窗复用): 兼容「modal(内含 .sim-netasset-chart)」与
   // 「容器直传(本身带 sim-netasset-chart class)」两种调用; fp 缺失→默认费率档(与首页弹窗默认同源);
@@ -5780,10 +5805,13 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD, 
     if (headEl) headEl.textContent = "📈 逐日总资产变化走势(自然日打点每天 1 点, 非交易日按最近收盘净值计、周末平线 · 虚线=初始本金 " + initCapital.toLocaleString("zh-CN") + " 元 · 副线=持仓市值 · " + pts.length + " 点 · " + pts[0].date + "~" + lastP.date + ")";
     if (bodyEl) _lwSetup(bodyEl, cfg);
   };
-  if (typeof window !== "undefined" && window._kkellyRealNav) { _render(); return; }
-  if (typeof window !== "undefined" && typeof window._kkellyRealNavEnsure === "function") {
+  // 2026-09-17 懒加载: 曲线 code 范围 = rows 涉及 etf_code ∪ 持仓中未平仓 code; 首判从「map 是 object」细化到「涉及 codes 全落定」。
+  const _curveNavCodes = _simCollectNavCodes(rows, fIdx);
+  const _curveReady = _simNavCodesSettled(_curveNavCodes);
+  if (_curveReady) { _render(); return; }
+  if (typeof window !== "undefined" && typeof window._kkellyRealNavEnsureCodes === "function") {
     if (bodyEl) bodyEl.innerHTML = '<div class="sim-netasset-note-inline">净值曲线加载中…</div>';
-    window._kkellyRealNavEnsure().then(() => { if (!modal || !modal.classList || !modal.classList.contains("hidden")) _render(); })
+    window._kkellyRealNavEnsureCodes(_curveNavCodes).then(() => { if (!modal || !modal.classList || !modal.classList.contains("hidden")) _render(); })
       .catch(() => {
         if (!modal || !modal.classList || !modal.classList.contains("hidden")) {
           if (bodyEl) bodyEl.innerHTML = "";

@@ -1048,6 +1048,58 @@ def check_accum_nav_map_fresh(data_dir: Path) -> CheckResult:
     return _ok(name, f"最新 nav 日期={last_dt} (滞后 {days} 天)")
 
 
+def check_accum_nav_split_consistency(data_dir: Path) -> CheckResult:
+    """per-ETF 拆分 accum_nav/ vs 全量 accum_nav_map.json 同源逐位对账(§5.4⑦ 生成同源机检, 2026-09-17)。
+
+    懒加载上线前提: 前端 per-ETF 懒加载读 accum_nav/{code}.json 的值必须与全量文件 maps[code]
+    逐位一致(同一取数口径, 只换「map 如何组装到位」)。本机检 load 全量 + 目录每个 per-ETF 文件,
+    逐 code 对 dict 等值, 任何漂移/缺文件/陈旧多文件 = FAIL 阻断(防「全量 vs 拆分」两源漂移)。
+    """
+    name = "accum_nav_split_consistency"
+    full_path = data_dir / "accum_nav_map.json"
+    full, err = _load_json(full_path)
+    if err:
+        return _fail(name, err)
+    if not isinstance(full, dict) or not full:
+        return _fail(name, f"accum_nav_map.json 空或非 dict: {full_path}")
+
+    split_dir = data_dir / "accum_nav"
+    if not split_dir.is_dir():
+        return _fail(name, f"accum_nav/ 拆分目录不存在: {split_dir}(懒加载无数据源, 先跑 export_accum_nav_map.py --all)")
+    files = sorted(split_dir.glob("*.json"))
+    if not files:
+        return _fail(name, f"accum_nav/ 无 JSON 文件: {split_dir}(懒加载无数据源)")
+
+    file_codes: set[str] = set()
+    bad: list[str] = []
+    for f in files:
+        code = f.name[:-5]  # 去 ".json"
+        if code not in full:
+            bad.append(f"{f.name}: 全量文件无此 code(陈旧残留)")
+            continue
+        file_codes.add(code)
+        d, e = _load_json(f)
+        if e:
+            bad.append(f"{f.name}: {e}")
+            continue
+        m = full[code]
+        if not isinstance(d, dict) or not isinstance(m, dict) or d != m:
+            if not isinstance(d, dict) or not isinstance(m, dict):
+                bad.append(f"{f.name}: 非 dict 或与全量类型不符")
+            else:
+                keys_a = set(m.keys()); keys_b = set(d.keys())
+                miss = [k for k in keys_a if k not in keys_b]
+                extra = [k for k in keys_b if k not in keys_a]
+                diff = [k for k in keys_a & keys_b if m[k] != d[k]]
+                bad.append(f"{f.name}: 与全量漂移 缺{len(miss)} 多{len(extra)} 值异{len(diff)} 例={diff[:3]}")
+    missing_files = [c for c in full if c not in file_codes]
+    if missing_files:
+        bad.append(f"全量有但拆分缺失 {len(missing_files)} code: {missing_files[:5]}...")
+    if bad:
+        return _fail(name, "; ".join(bad))
+    return _ok(name, f"{len(files)} 个 per-ETF 文件与全量({len(full)} code)逐位一致")
+
+
 def check_accum_nav_map_price_sane(data_dir: Path) -> CheckResult:
     """校验 accum_nav_map.json 单日价格分布正常(防批量同价污染, P0-2 2026-09-09)。
 
@@ -1851,6 +1903,8 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     results.append(check_accum_nav_map_fresh(data_dir))
     # accum_nav_map.json 单日价格分布 sanity(P0-2 2026-09-09 批量同价污染事故防再犯: 全 ETF 同价=净资产曲线假涨)
     results.append(check_accum_nav_map_price_sane(data_dir))
+    # per-ETF 拆分 vs 全量同源逐位对账(2026-09-17 懒加载上线前提, §5.4⑦: 拆分=同源同 dict, 漂移即 FAIL 阻断)
+    results.append(check_accum_nav_split_consistency(data_dir))
     results.append(check_trade_sim_indices(data_dir))
     results.append(check_etf_since_return(data_dir))
     # #10 ETF 全史日K产物目录（export_etf_hist.py -> R2 etf/ 前缀）

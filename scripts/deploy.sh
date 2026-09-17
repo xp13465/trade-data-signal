@@ -232,6 +232,12 @@ fi
 cp "$GIT_REPO/docs/kelly/position/scripts/accum_nav_map.json" "$REPO/static-site/data/accum_nav_map.json" 2>>"$LOG" \
   && echo "✓ accum_nav_map.json 已同步到 static-site/data/(R2 上传源, 新鲜度由 check_data_integrity accum_nav_map_fresh 机检)" | tee -a "$LOG" \
   || { echo "✗ accum_nav_map.json 同步到 static-site/data/ 失败" | tee -a "$LOG"; exit 1; }
+# per-ETF 拆分(2026-09-17 懒加载): 与全量同源同 dict, 一并 cp 到 R2 上传源; rm -rf 旧目录再 cp, 防退市/移除
+# code 的陈旧文件残留触发 check_accum_nav_split_consistency「全量无此 code」FAIL(§5.4⑦ 同源对账)。
+rm -rf "$REPO/static-site/data/accum_nav" 2>>"$LOG" || true
+cp -R "$GIT_REPO/docs/kelly/position/scripts/accum_nav" "$REPO/static-site/data/accum_nav" 2>>"$LOG" \
+  && echo "✓ accum_nav/ per-ETF 拆分已同步到 static-site/data/(R2 上传源, 同源对账由 check_accum_nav_split_consistency 机检)" | tee -a "$LOG" \
+  || { echo "✗ accum_nav/ per-ETF 拆分同步到 static-site/data/ 失败" | tee -a "$LOG"; exit 1; }
 
 # 1.1 数据产物校验（4 类事故拦截：board_etf_map 全空 / boot.date 不一致 /
 # amount_forecast 爆炸 / 关键文件丢失）。--deploy-mode 仅 fail 阻断（exit 1），
@@ -504,6 +510,9 @@ run_r2_upload "upload-etf-hist" 900 upload-etf-hist || { echo "⚠ upload-etf-hi
 #   ② upload_r2.py upload-fund-nav 加分片 checkpoint 断点续传(kill 后最多重传最近 500 只,
 #      非从头全量), 双保险后即使极端情况被 kill 也不再引发恶性循环。
 run_r2_upload "upload-fund-nav" 7200 upload-fund-nav || { echo "⚠ upload-fund-nav 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-fund-nav"; }
+# ETF 全史累计净值 per-ETF 拆分 accum_nav/{code}.json -> R2 accum_nav/ 前缀(2026-09-17 懒加载;
+# ~1554 只~18.5MB, 与 etf-hist 同量级, 900s 留余量; 增量指纹上传只传变化 code, 首跑/周日全量)
+run_r2_upload "upload-accum-nav" 900 upload-accum-nav || { echo "⚠ upload-accum-nav 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-accum-nav"; }
 run_r2_upload "upload-industry" 900 upload-industry || { echo "⚠ upload-industry 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-industry"; }
 run_r2_upload "upload-public-fund" 900 upload-public-fund || { echo "⚠ upload-public-fund 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-public-fund"; }
 run_r2_upload "upload-etf-score" 900 upload-etf-score || { echo "⚠ upload-etf-score 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-score"; }

@@ -1243,8 +1243,18 @@ function _gihDaySpan(bd, sd) {
   return Math.max(Math.round((d2 - d1) / 86400000), 0);
 }
 
+function _gihNavFetchFn() {
+  return (typeof fetchJSON === "function") ? fetchJSON : function (u, t) {
+    return fetch(u, { signal: AbortSignal.timeout(t || 15000) }).then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); });
+  };
+}
+
+// 全量 accum_nav_map.json 加载器(保留: 回测本地源/对账对象/线上回退兜底, §23.7 新增不改旧)。
+// 2026-09-17 懒加载改造: 旧守卫 `if (window._kkellyRealNav)` 改为 `if (window._kkellyRealNavFull)`——
+// 懒加载下 map 可能是「部分 code 已合并」的半成品, 旧守卫会短路导致后续 code 永不拉全量(failed 无限重试类)。
+// 全量加载成功才置 _kkellyRealNavFull=true, 用于 _kkellyNavCodeStatus 区分「全量缺 code=真缺口」。
 function _gihRealNavEnsure() {
-  if (window._kkellyRealNav) return Promise.resolve(true);
+  if (window._kkellyRealNavFull) return Promise.resolve(true);
   if (window._kkellyRealNavPromise) return window._kkellyRealNavPromise;
   // 2026-09-17 弱网卡死根治(sigkelly-webslow-y1-not-render 第2/3步): ①失败冷却 60s——nav 失败后单例清空,
   //   下一轮 recompute 若立刻重发会把 R2→./data→fetchJSON 重试 整条链再吃一遍(旧最坏 480s/轮);
@@ -1254,13 +1264,12 @@ function _gihRealNavEnsure() {
     return Promise.resolve(false);
   }
   var urls = ["https://ss.fx8.store/r2/data/accum_nav_map.json", "./data/accum_nav_map.json"];
-  var fetchFn = typeof fetchJSON === "function" ? fetchJSON : function (u, t) {
-    return fetch(u, { signal: AbortSignal.timeout(t || 15000) }).then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); });
-  };
+  var fetchFn = _gihNavFetchFn();
   window._kkellyRealNavPromise = fetchFn(urls[0], 15000)
     .catch(function () { return fetchFn(urls[1], 15000); })
     .then(function (d) {
       window._kkellyRealNav = (d && typeof d === "object") ? d : null;
+      window._kkellyRealNavFull = !!window._kkellyRealNav;
       window._kkellyRealNavPromise = null;
       window._kkellyRealNavFailAt = 0;
       return true;
@@ -1273,23 +1282,91 @@ function _gihRealNavEnsure() {
   return window._kkellyRealNavPromise;
 }
 
+// per-ETF 净值懒加载(2026-09-17 拍板): 并行拉 accum_nav/{code}.json 合并进 window._kkellyRealNav。
+// 值 = 该 code 的 {YYYYMMDD: accum_nav}(与全量 maps[code] 同一对象, 逐位一致 §5.4⑦)。
+// 主要入口 = lab _kellyNavWarmup(codes) / app _simRenderOnce / _simRenderNetassetChart 三处,
+// 后两者经 common 挂载的 window._kkellyRealNavEnsureCodes 调用(与 lab@_kellyRealNavEnsure 共用单例)。
+window._kkellyRealNavEnsureCodes = function (codesArr) {
+  if (!codesArr || !codesArr.length) return Promise.resolve(true);
+  if (!window._kkellyRealNav) window._kkellyRealNav = {};
+  if (!window._kkellyNavFailedCodes) window._kkellyNavFailedCodes = {};
+  if (!window._kkellyNavInflight) window._kkellyNavInflight = {};
+  var COOLDOWN = 60000;
+  var now = Date.now();
+  var baseUrl = window._kkellyNavBaseUrl || "https://ss.fx8.store/r2/accum_nav/";
+  var fallbackBase = window._kkellyNavFallbackBase || "./data/accum_nav/";
+  var fetchFn = _gihNavFetchFn();
+  var jobs = [];
+  var seen = {};
+  for (var i = 0; i < codesArr.length; i++) {
+    var code = String(codesArr[i]);
+    if (!code || seen[code]) continue;
+    seen[code] = 1;
+    if (window._kkellyRealNav[code]) continue;                                   // 已合并(含空 dict=合法空数据)
+    var failAt = window._kkellyNavFailedCodes[code];
+    if (failAt && (now - failAt) < COOLDOWN) continue;                           // 冷却期不重拉(防 480s/轮旧病)
+    if (window._kkellyNavInflight[code]) { jobs.push(window._kkellyNavInflight[code]); continue; }  // 并发去重
+    var job = fetchFn(baseUrl + code + ".json", 15000)
+      .catch(function () { return fetchFn(fallbackBase + code + ".json", 15000); })
+      .then(function (d) {
+        if (d && typeof d === "object" && !Array.isArray(d)) {
+          window._kkellyRealNav[code] = d;
+          delete window._kkellyNavFailedCodes[code];
+          return true;
+        }
+        throw new Error("bad nav payload");
+      })
+      .catch(function () {
+        window._kkellyNavFailedCodes[code] = Date.now();                        // 该 code 失败冷却起点(60s)
+        return false;
+      })
+      .then(function (r) { delete window._kkellyNavInflight[code]; return r; });
+    window._kkellyNavInflight[code] = job;
+    jobs.push(job);
+  }
+  if (!jobs.length) return Promise.resolve(true);
+  return Promise.all(jobs).then(function (rs) {
+    for (var j = 0; j < rs.length; j++) if (rs[j] !== true) return false;
+    return true;
+  });
+};
+
+// 单 code 三态(2026-09-17 懒加载门控): loaded=该 code 已合并 / failed=全量缺此 code 或单文件拉取失败 /
+// pending=尚在拉取或未请求(时序窗口)。_gihRealizeRealForce 据此区分「时序窗口跳过」vs「真缺口计数」,
+// 防懒加载下两个新 bug:①某 code 未及时载入被误吞为时序窗口(应计数却跳过)②零件齐全反而误计缺价(应跳过却计数)。
+window._kkellyNavCodeStatus = function (code) {
+  if (!code) return "pending";
+  if (window._kkellyRealNav && window._kkellyRealNav[code]) return "loaded";
+  if (window._kkellyRealNavFull) return "failed";                              // 全量已载且无此 code = 真缺口
+  if (window._kkellyNavFailedCodes && window._kkellyNavFailedCodes[code]) return "failed";
+  return "pending";
+};
+
 // 与 lab.js _kkellyAihlineRealizeReal() 同款口径的 strong-day 重算; 返回 {pr, rp, hd, sell_price, flag}
 // flag: "nav_missing"=该强平日真实净值缺失(数据异常), "no_buy_price", "buy_zero" 等异常返回 pr=null 表示缺价不计入统计
 // feeCfg(可选, 2026-08-30): 传入=按自定义 5 参数费率档重算(首页 sim 弹窗用户费率); 不传=保持 FEE_MAIN 现状逐位不变(lab 卡面权威口径, 验收硬项)。
 function _gihRealizeRealForce(sel, dt, feeCfg) {
   var px = null;
-  var navReadyNow = (typeof window !== "undefined" && window._kkellyRealNav && typeof window._kkellyRealNav === "object");
-  if (navReadyNow && sel && sel.etf_code && window._kkellyRealNav[sel.etf_code]) {
-    px = window._kkellyRealNav[sel.etf_code][dt];
+  var code = sel && sel.etf_code ? String(sel.etf_code) : "";
+  // 单 code 三态门控(2026-09-17 懒加载): loaded=取价; pending=时序窗口(跳过计数); failed=真缺口(计数)。
+  // 缺 etf_code 时退化为「全量已载=缺口 / 未载=时序」, 与旧全局 navReadyNow 语义逐字对齐。
+  var codeStatus = window._kkellyRealNavFull ? "failed" : "pending";
+  if (code) {
+    codeStatus = window._kkellyNavCodeStatus(code);
+    if (codeStatus === "loaded" && window._kkellyRealNav[code]) {
+      px = window._kkellyRealNav[code][dt];
+    }
   }
   if (px == null || !isFinite(px) || px <= 0) {
     // 2026-08-30 用户铁律(b0/b1 已废除): 真实价缺失=数据异常, 硬报错+当日监控——不许 b1 估算兜底, pr=null 标记 nav_missing
-    if (!navReadyNow) {
+    if (codeStatus === "pending") {
       // 2026-09-17 时序门控(fix-gih-nav-ready-gate): nav 尚在预热/未就绪=时序窗口(非真数据缺口),
       //   跳过硬报错与 __gih_missing_px_ 计数, 防时序窗口每笔强平误污染监控; 口径不变仍返回 nav_missing(「— 缺价」红字口径不动)。
+      //   (懒加载细化: 单 code 尚在拉取/未请求=pending; 拉取失败=ded 进 failed 走下方计数, 不再被误吞为时序窗口。)
       return { pr: null, rp: null, hd: _gihDaySpan(sel && sel.buy_date, dt), flag: "nav_missing", sell_price: 0 };
     }
     // 计数点与 lab.js _kellyAihlineRealizeReal 同挂 window.__gih_missing_px_, 单点监控两展示位共用
+    // (failed=单文件拉取失败/全量缺 code; loaded 但缺该 dt=数据异常, 均计为真缺口)
     try {
       window.__gih_missing_px_ = (typeof window.__gih_missing_px_ === "number" ? window.__gih_missing_px_ : 0) + 1;
       if (typeof console !== "undefined" && console.error) {

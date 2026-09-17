@@ -963,6 +963,33 @@ def cmd_upload_fund_nav():
     # 不调 purge_cache(F3): 见 docstring。
 
 
+def cmd_upload_accum_nav():
+    """上传 static-site/data/accum_nav/*.json 到 R2 accum_nav/ 前缀(凯利 G/H/I 强平日真实净值 per-ETF 懒加载, 2026-09-17)。
+
+    R2 key = accum_nav/{code}.json(~1554 只全史累计净值, export_accum_nav_map.py --all 生成拆分)。
+    前端 common.js _kkellyRealNavEnsureCodes 懒加载 fetchJSON ->
+    https://ss.fx8.store/r2/accum_nav/{code}.json(仅拉组合涉及的 ≤116 只, 复刻 etf/{code}-all.json
+    模式: worker /r2/ 为通用 key 代理无前缀白名单, 新前缀零 worker 改动)。
+    全量 accum_nav_map.json 继续每日生成+上传(data-large), 作回测本地源 + 对账对象 + 回退兜底(§23.7 新增不改旧)。
+
+    2026-09-17 复用通用增量引擎 _incremental_upload(与 fund-nav 同口径):
+      - A 档整文件 md5。accum_nav/{code}.json **不放 exported_at 字段**, 且历史日 nav append-only 永不变,
+        文件内容只在「该 ETF 新增净值日」时变化 → 每日增量仅更新昨日新出的 code 子集;
+      - 状态文件名 .r2_accum_nav_state.json; 首跑/状态损坏退化全量、周日强制全量、原子写状态、
+        宁多传不漏传语义不变(与 fund-nav 同, 对象数仅 ~1554 无 checkpoint 需求);
+      - 层2 ETag 对账(本次 PUT 后 HEAD 对 ETag==本地 md5, 不一致判失败)。
+      - purge 用 etf 模式(非 fund_nav no-store): 边缘 3600s + 上传后 purge 本次 key(cache_prefix="/r2/"),
+        nav 历史日 append-only 强平日都是历史日期, 1h 边缘缓存重开弹窗零流量(方案 §三 依据)。
+    """
+    nav_dir = STATIC_DIR / "data/accum_nav"
+    if not any(f.exists() for f in nav_dir.glob("*.json")):
+        sys.exit(f"无 accum_nav json: {nav_dir} (先跑 scripts/export_accum_nav_map.py --all 生成)")
+    _, _, _, uploaded_keys = _incremental_upload(
+        nav_dir, ["*.json"], "accum_nav", ".r2_accum_nav_state.json",
+        label="accum-nav")
+    purge_cache(uploaded_keys, cache_prefix="/r2/")
+
+
 def cmd_upload_industry():
     """上传 static-site/data/industry-* 到 R2 industry/ 前缀（保留原相对路径）。
 
@@ -1797,6 +1824,8 @@ _R2_CHANNELS = [
      "r2_prefix": "etf", "state_name": ".r2_etf_hist_state.json"},
     {"label": "fund-nav", "local_dir": lambda: STATIC_DIR / "data/fund_nav", "patterns": ["*.json"],
      "r2_prefix": "fund_nav", "state_name": ".r2_fund_nav_state.json", "sample": 100},
+    {"label": "accum-nav", "local_dir": lambda: STATIC_DIR / "data/accum_nav", "patterns": ["*.json"],
+     "r2_prefix": "accum_nav", "state_name": ".r2_accum_nav_state.json"},
     {"label": "industry", "local_dir": lambda: STATIC_DIR / "data",
      "patterns": ["industry-all-indices/*", "industry-5y-indices/*", "industry-3y-indices/*", "industry-*.json"],
      "r2_prefix": "industry", "state_name": ".r2_industry_state.json"},
@@ -1960,6 +1989,9 @@ if __name__ == "__main__":
     elif cmd == "upload-fund-nav":
         # upload-fund-nav  基金全史净值 fund_nav/{code}.json -> R2 fund_nav/ 前缀(#11, 2026-08-25)
         cmd_upload_fund_nav()
+    elif cmd == "upload-accum-nav":
+        # upload-accum-nav  ETF 全史累计净值 per-ETF 拆分 accum_nav/{code}.json -> R2 accum_nav/ 前缀(2026-09-17 懒加载)
+        cmd_upload_accum_nav()
     elif cmd == "upload-industry":
         cmd_upload_industry()
     elif cmd == "upload-public-fund":
@@ -2027,7 +2059,7 @@ if __name__ == "__main__":
             "用法: upload_r2.py [list [prefix]|upload-lab|upload-trade-sim|"
             "upload-trade-sim-json|upload-index|upload-industry|upload-public-fund|"
             "upload-offshore-fund|upload-fund-score|upload-etf-score|upload-etf-hist|"
-            "upload-fund-nav|upload-data-large|upload-kelly-parts|upload-kelly-parts-sdc|upload-db|"
+            "upload-fund-nav|upload-accum-nav|upload-data-large|upload-kelly-parts|upload-kelly-parts-sdc|upload-db|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup|"
             "upload-claude-backup [path]|upload-decommissioned <local> <key_name>|"
             "upload-all-data|upload-intraday|purge-low-freq|verify-r2]"

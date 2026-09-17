@@ -20,7 +20,7 @@
   真实 1.5 平滑行(588930@20260908 / 159303@20260721 前后连续)不误删。
 
 输入依赖:  $REPO/data/etf_national_team.db(REPO env 缺省 /Users/linhuichen/code/trade-data)
-输出:       docs/kelly/position/scripts/accum_nav_map.json
+输出:       docs/kelly/position/scripts/accum_nav_map.json(全量) + accum_nav/{code}.json(per-ETF 拆分, 仅 --all)
 复现命令:
   python3 scripts/export_accum_nav_map.py --all
 """
@@ -39,6 +39,9 @@ from app.collector.nav_placeholder_defense import is_placeholder_row, trading_ga
 
 DEFAULT_REPO = "/Users/linhuichen/code/trade-data"
 OUT_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "accum_nav_map.json")
+# per-ETF 拆分输出目录(懒加载, 2026-09-17): {code}.json = 该 code 的 {YYYYMMDD: accum_nav}(即全量 maps[code])。
+# 与全量 accum_nav_map.json 同源同 dict 逐位一致(§5.4⑦ 生成同源机检对账对象), 前端 per-ETF 懒加载只拉组合涉及 code。
+SPLIT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "accum_nav")
 
 
 def _filter_placeholder(seq: list[tuple]) -> dict[str, float]:
@@ -61,6 +64,38 @@ def _filter_placeholder(seq: list[tuple]) -> dict[str, float]:
             continue  # 占位残留, 滤掉(防前端取到 1.5 假价)
         out[str(d)] = nav
     return out
+
+
+def _atomic_write_json(path: str, data) -> None:
+    """tmp+os.replace 原子写, 防 deploy 生成/读取窗口读到撕裂文件(1554 个小文件, 成本可忽略)。"""
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+    os.replace(tmp, path)
+
+
+def _dump_split(maps: dict[str, dict[str, float]], out_dir: str) -> None:
+    """按 ETF 拆写 per-ETF 文件 {code}.json(值 = 该 code 的 {date: nav}, 与全量 maps[code] 同一对象)。
+
+    顺带清理 out_dir 下「maps 中已不存在的 code」残留 .json(退市/移除 ETF), 防陈旧 per-ETF 文件
+    长期滞留造成全量 vs 拆分不一致(前端懒加载若拉到已退市 code 的旧文件不影响正确性——组合只会要
+    trades 中仍在的 code, 但保持同源自洽仍是 §5.4⑦ 机检前提)。
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    valid_names = {f"{c}.json" for c in maps}
+    removed = 0
+    for f in os.listdir(out_dir):
+        if f.endswith(".json") and f not in valid_names:
+            try:
+                os.remove(os.path.join(out_dir, f))
+                removed += 1
+            except OSError:
+                pass
+    for code, m in maps.items():
+        _atomic_write_json(os.path.join(out_dir, f"{code}.json"), m)
+    if removed:
+        print(f"accum_nav/ 清理陈旧文件 {removed} 个")
+    print(f"split {len(maps)} ETF per-ETF files -> {out_dir}")
 
 
 def main() -> None:
@@ -111,6 +146,11 @@ def main() -> None:
     n_etf = len(maps)
     n_dates = sum(len(v) for v in maps.values())
     print(f"exported {n_etf} ETF {n_dates} date-rows -> {OUT_JSON}")
+
+    # per-ETF 拆分(懒加载, 2026-09-17): 仅 --all(全量, deploy.sh 调用)才拆写——样例 1000 只不完整,
+    # 拆出会造成全量 vs 拆分码集不一致(§5.4⑦ 机检对象以全量为准)。
+    if args.all:
+        _dump_split(maps, SPLIT_DIR)
 
 
 if __name__ == "__main__":
