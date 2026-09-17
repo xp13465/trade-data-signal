@@ -1278,11 +1278,17 @@ function _gihRealNavEnsure() {
 // feeCfg(可选, 2026-08-30): 传入=按自定义 5 参数费率档重算(首页 sim 弹窗用户费率); 不传=保持 FEE_MAIN 现状逐位不变(lab 卡面权威口径, 验收硬项)。
 function _gihRealizeRealForce(sel, dt, feeCfg) {
   var px = null;
-  if (window._kkellyRealNav && sel && sel.etf_code && window._kkellyRealNav[sel.etf_code]) {
+  var navReadyNow = (typeof window !== "undefined" && window._kkellyRealNav && typeof window._kkellyRealNav === "object");
+  if (navReadyNow && sel && sel.etf_code && window._kkellyRealNav[sel.etf_code]) {
     px = window._kkellyRealNav[sel.etf_code][dt];
   }
   if (px == null || !isFinite(px) || px <= 0) {
     // 2026-08-30 用户铁律(b0/b1 已废除): 真实价缺失=数据异常, 硬报错+当日监控——不许 b1 估算兜底, pr=null 标记 nav_missing
+    if (!navReadyNow) {
+      // 2026-09-17 时序门控(fix-gih-nav-ready-gate): nav 尚在预热/未就绪=时序窗口(非真数据缺口),
+      //   跳过硬报错与 __gih_missing_px_ 计数, 防时序窗口每笔强平误污染监控; 口径不变仍返回 nav_missing(「— 缺价」红字口径不动)。
+      return { pr: null, rp: null, hd: _gihDaySpan(sel && sel.buy_date, dt), flag: "nav_missing", sell_price: 0 };
+    }
     // 计数点与 lab.js _kellyAihlineRealizeReal 同挂 window.__gih_missing_px_, 单点监控两展示位共用
     try {
       window.__gih_missing_px_ = (typeof window.__gih_missing_px_ === "number" ? window.__gih_missing_px_ : 0) + 1;
