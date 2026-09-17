@@ -1286,12 +1286,14 @@ function _gihRealNavEnsure() {
 // 值 = 该 code 的 {YYYYMMDD: accum_nav}(与全量 maps[code] 同一对象, 逐位一致 §5.4⑦)。
 // 主要入口 = lab _kellyNavWarmup(codes) / app _simRenderOnce / _simRenderNetassetChart 三处,
 // 后两者经 common 挂载的 window._kkellyRealNavEnsureCodes 调用(与 lab@_kellyRealNavEnsure 共用单例)。
+// 失败冷却阈值(单点): per-ETF 拉取失败后 60s 内不重拉(防 480s/轮旧病), 到期后可重试。
+window._kkellyNavRetryCooldown = 60000;
 window._kkellyRealNavEnsureCodes = function (codesArr) {
   if (!codesArr || !codesArr.length) return Promise.resolve(true);
   if (!window._kkellyRealNav) window._kkellyRealNav = {};
   if (!window._kkellyNavFailedCodes) window._kkellyNavFailedCodes = {};
   if (!window._kkellyNavInflight) window._kkellyNavInflight = {};
-  var COOLDOWN = 60000;
+  var COOLDOWN = window._kkellyNavRetryCooldown || 60000;
   var now = Date.now();
   var baseUrl = window._kkellyNavBaseUrl || "https://ss.fx8.store/r2/accum_nav/";
   var fallbackBase = window._kkellyNavFallbackBase || "./data/accum_nav/";
@@ -1340,6 +1342,22 @@ window._kkellyNavCodeStatus = function (code) {
   if (window._kkellyRealNavFull) return "failed";                              // 全量已载且无此 code = 真缺口
   if (window._kkellyNavFailedCodes && window._kkellyNavFailedCodes[code]) return "failed";
   return "pending";
+};
+
+// 失败冷却可重试判定(2026-09-17 F1 根治): 某 code 的 per-ETF 拉取失败且冷却已到期仍未 load → true。
+// 消费方(lab _kellyNavWarmup / app _simRenderOnce·_simRenderNetassetChart)据此补一次 ensureCodes 再发动,
+// 自愈瞬时网络失败, 防「冷却形同虚设 → 整场永久缺价」退化(此前 failed 也算 settled, 每轮短路无人再拉)。
+// 仅认 per-ETF 失败(_kkellyNavFailedCodes 有记录), 不认「全量已载且无此 code」的真缺口(全量权威, 重试无益)。
+window._kkellyNavRetryable = function (codesArr) {
+  if (!codesArr || !window._kkellyNavFailedCodes || !window._kkellyRealNavEnsureCodes) return false;
+  var now = Date.now();
+  var cooldown = window._kkellyNavRetryCooldown || 60000;
+  for (var i = 0; i < codesArr.length; i++) {
+    var c = String(codesArr[i]);
+    var t = window._kkellyNavFailedCodes[c];
+    if (t && (now - t) >= cooldown && !(window._kkellyRealNav && window._kkellyRealNav[c])) return true;
+  }
+  return false;
 };
 
 // 与 lab.js _kkellyAihlineRealizeReal() 同款口径的 strong-day 重算; 返回 {pr, rp, hd, sell_price, flag}

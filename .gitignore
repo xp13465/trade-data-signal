@@ -114,6 +114,9 @@ static-site/data/etf/
 # 基金全史净值(#11 2026-08-25):fund_nav/{code}.json 26118 只 ~566MB, R2 fund_nav/ 前缀托管
 # (upload-fund-nav, 同 etf/ 模式本地 untracked 不进 git), 生成 scripts/export_fund_nav.py
 static-site/data/fund_nav/
+# accum_nav 按 ETF 拆分(2026-09-17 懒加载):accum_nav/{code}.json 1554 只 ~18.5MB, R2 accum_nav/ 前缀托管
+# (upload-accum-nav, 同 etf/fund_nav 模式), 生成 docs/kelly/position/scripts/export_accum_nav_map.py + deploy.sh 拷贝侧
+static-site/data/accum_nav/
 
 # R2 阶段4 顶层大 JSON 瘦身（2026-07-24）：industry 顶层大文件前端已从 R2 industry/ 读
 # （app.js _loadIndustryData L8249/8251 走 https://ssd.fx8.store/industry/），git 带是冗余。

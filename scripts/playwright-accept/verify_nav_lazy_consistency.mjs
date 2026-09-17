@@ -86,19 +86,22 @@ async function waitRows(page, t0) {
   return n;
 }
 
-// 等 nav 落定(无 pending target)+再等一小段让补算 flush
+// 等 nav 落定(轮询三态内核可视态)+ 主流程再等一小段让补算 flush。
+// 原实现依赖 window._kellyNavTarget(未挂 window 的 lab 局部函数, 恒 null → 死等误判 settled);
+// 改为只认真实暴露的全局: _kkellyRealNavFull 置位 或 无 in-flight 单 code 请求且已落定(loaded∪failed)。
 async function waitSettled(page) {
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 120; i++) {
     const d = await page.evaluate(() => {
-      const target = (typeof window._kellyNavTarget === "function") ? window._kellyNavTarget() : null;
-      if (!target || !target.length) return { settled: true, pending: 0 };
-      let pending = 0;
-      for (let k = 0; k < target.length; k++) {
-        if ((typeof window._kkellyNavCodeStatus === "function") && window._kkellyNavCodeStatus(target[k]) === "pending") pending++;
-      }
-      return { settled: pending === 0, pending };
+      const full = !!window._kkellyRealNavFull;
+      const inflight = (window._kkellyNavInflight && typeof window._kkellyNavInflight === "object")
+        ? Object.keys(window._kkellyNavInflight).length : 0;
+      const loaded = (window._kkellyRealNav && typeof window._kkellyRealNav === "object")
+        ? Object.keys(window._kkellyRealNav).length : 0;
+      const failed = (window._kkellyNavFailedCodes && typeof window._kkellyNavFailedCodes === "object")
+        ? Object.keys(window._kkellyNavFailedCodes).length : 0;
+      return { full, inflight, loaded, failed };
     });
-    if (d.settled) return;
+    if (d.full || (d.inflight === 0 && (d.loaded > 0 || d.failed > 0))) return;
     await new Promise((r) => setTimeout(r, 500));
   }
 }

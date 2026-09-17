@@ -8156,7 +8156,10 @@ function _kellyNavWarmup(codes) {
   if (target && target.length) {
     // per-ETF 预热(懒加载): 只要目标集还有 pending code 就(再)发动; ensureCodes 内部 inflight 去重 + 失败冷却,
     // 单个 code 失败不阻塞其余 code 真价补上。发动后等全部落定(loaded∪failed)再 flush。
-    if (_kellyNavSettled(target)) return;
+    // F1 根治: 全落定但有「冷却已到期的失败 code」时不再短路, 补一次 ensureCodes 再发动(自愈瞬时失败,
+    // 否则 failed 也算 settled → 每轮短路 → 整场永久缺价, 只剩刷新能救)。判定逻辑统一走 common 的 _kkellyNavRetryable。
+    var _navRetryable = (typeof window !== "undefined" && window._kkellyNavRetryable) ? window._kkellyNavRetryable(target) : false;
+    if (_kellyNavSettled(target) && !_navRetryable) return;
     var p = _kellyRealNavEnsure(target);
     if (p && typeof p.then === "function") {
       p.then(function () { if (_kellyNavSettled(target)) _kellyNavFlush(); });

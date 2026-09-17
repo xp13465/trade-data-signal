@@ -94,6 +94,15 @@ FILES = [
         "https://ssd.fx8.store/data/auto_trade_steps.json",
         "https://ss.fx8.store/r2/data/auto_trade_steps.json",
     ),
+    # accum_nav_map 全量(凯利 G/H/I 强平日真实净值, 2026-09-17 懒加载保留全量作回测源+对账对象+
+    # 回退兜底): 走 data-large(data/ 前缀)。三版本一致性指纹=n_codes+首/中/末 code 抽样
+    # (同日生成逐位一致, 任一版本滞留=报)。
+    (
+        "accum_nav_map",
+        "accum_nav_map.json",
+        "https://ssd.fx8.store/data/accum_nav_map.json",
+        "https://ss.fx8.store/r2/data/accum_nav_map.json",
+    ),
 ]
 
 
@@ -188,6 +197,24 @@ def _fingerprint(data: object, kind: str) -> dict[str, object]:
                 fp["latest_date"] = max(dates)
             if steps and isinstance(steps[0], dict):
                 fp["p0_code"] = steps[0].get("etf_code")
+    elif kind == "accum_nav_map":
+        # accum_nav_map.json {etf_code: {YYYYMMDD: accum_nav}}(凯利 G/H/I 强平日真实净值全量,
+        # 2026-09-17 懒加载保留全量作回测源+对账对象+回退兜底)。三版本一致性指纹:
+        # n_codes + 确定性抽样(首/中/末 code)日期数+最新日净值, 追三版本漂移(CDN/容器滞留旧 map)。
+        # 同 etf/fund_nav 拆分 dir 不同: 这是顶层 data/ 前缀单文件, 走三版本 spot-check(拆分 dir 由
+        # check_data_integrity.check_accum_nav_split_consistency + upload_r2 verify-r2 _R2_CHANNELS 覆盖)。
+        codes = sorted(data.keys()) if isinstance(data, dict) else []
+        fp["n_codes"] = len(codes)
+        if codes:
+            for i in sorted({0, len(codes) // 2, len(codes) - 1}):
+                c = codes[i]
+                inner = data.get(c)
+                if isinstance(inner, dict) and inner:
+                    dates = sorted(inner.keys())
+                    fp[f"{c}_ndates"] = len(dates)
+                    fp[f"{c}_last"] = f"{dates[-1]}={inner[dates[-1]]}"
+                else:
+                    fp[f"{c}_empty"] = True
     return fp
 
 

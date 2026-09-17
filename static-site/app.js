@@ -4459,7 +4459,9 @@ async function _simRenderOnce(modal) {
     const _simGihNavCodes = _simCollectNavCodes(kept, fIdx);
     const _navReadyBefore = _simGihNavCodes.length ? _simNavCodesSettled(_simGihNavCodes)
       : !!(typeof window !== "undefined" && window._kkellyRealNav && typeof window._kkellyRealNav === "object");
-    if (!_navReadyBefore && typeof window !== "undefined" && typeof window._kkellyRealNavEnsureCodes === "function") {
+    // F1 根治: 已落定但有「冷却已到期的失败 code」也要补发动一次, 自愈瞬时失败(否则永久缺价到重开弹窗)。
+    const _navRetryable = (typeof window !== "undefined" && window._kkellyNavRetryable) ? window._kkellyNavRetryable(_simGihNavCodes) : false;
+    if ((!_navReadyBefore || _navRetryable) && typeof window !== "undefined" && typeof window._kkellyRealNavEnsureCodes === "function") {
       window._kkellyRealNavEnsureCodes(_simGihNavCodes).then(() => {
         if (modal.classList.contains("hidden")) return;
         if (_simNavCodesSettled(_simGihNavCodes)) {
@@ -5808,9 +5810,11 @@ function _simRenderNetassetChart(modal, rows, fIdx, fp, peakDisp, startD, endD, 
   // 2026-09-17 懒加载: 曲线 code 范围 = rows 涉及 etf_code ∪ 持仓中未平仓 code; 首判从「map 是 object」细化到「涉及 codes 全落定」。
   const _curveNavCodes = _simCollectNavCodes(rows, fIdx);
   const _curveReady = _simNavCodesSettled(_curveNavCodes);
-  if (_curveReady) { _render(); return; }
+  // F1 根治: 已落定但有「冷却已到期的失败 code」也补发动一次, 自愈瞬时失败(否则曲线永久缺该股净值)。
+  const _curveRetryable = (typeof window !== "undefined" && window._kkellyNavRetryable) ? window._kkellyNavRetryable(_curveNavCodes) : false;
+  if (_curveReady && !_curveRetryable) { _render(); return; }
   if (typeof window !== "undefined" && typeof window._kkellyRealNavEnsureCodes === "function") {
-    if (bodyEl) bodyEl.innerHTML = '<div class="sim-netasset-note-inline">净值曲线加载中…</div>';
+    if (!_curveReady) bodyEl.innerHTML = '<div class="sim-netasset-note-inline">净值曲线加载中…</div>';
     window._kkellyRealNavEnsureCodes(_curveNavCodes).then(() => { if (!modal || !modal.classList || !modal.classList.contains("hidden")) _render(); })
       .catch(() => {
         if (!modal || !modal.classList || !modal.classList.contains("hidden")) {
