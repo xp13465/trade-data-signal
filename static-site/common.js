@@ -1246,18 +1246,30 @@ function _gihDaySpan(bd, sd) {
 function _gihRealNavEnsure() {
   if (window._kkellyRealNav) return Promise.resolve(true);
   if (window._kkellyRealNavPromise) return window._kkellyRealNavPromise;
+  // 2026-09-17 弱网卡死根治(sigkelly-webslow-y1-not-render 第2/3步): ①失败冷却 60s——nav 失败后单例清空,
+  //   下一轮 recompute 若立刻重发会把 R2→./data→fetchJSON 重试 整条链再吃一遍(旧最坏 480s/轮);
+  //   冷却期内直接 resolve(false) 不发网络, 冷却过后才允许重试。②R2 直链超时 120s→15s(与 fetchJSON 默认一致),
+  //   失败兜底仍由两条 catch 串行承担(单轮最坏降至 ~60s)。
+  if (window._kkellyRealNavFailAt && (Date.now() - window._kkellyRealNavFailAt) < 60000) {
+    return Promise.resolve(false);
+  }
   var urls = ["https://ss.fx8.store/r2/data/accum_nav_map.json", "./data/accum_nav_map.json"];
   var fetchFn = typeof fetchJSON === "function" ? fetchJSON : function (u, t) {
-    return fetch(u, { signal: AbortSignal.timeout(t || 120000) }).then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); });
+    return fetch(u, { signal: AbortSignal.timeout(t || 15000) }).then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); });
   };
-  window._kkellyRealNavPromise = fetchFn(urls[0], 120000)
-    .catch(function () { return fetchFn(urls[1], 120000); })
+  window._kkellyRealNavPromise = fetchFn(urls[0], 15000)
+    .catch(function () { return fetchFn(urls[1], 15000); })
     .then(function (d) {
       window._kkellyRealNav = (d && typeof d === "object") ? d : null;
       window._kkellyRealNavPromise = null;
+      window._kkellyRealNavFailAt = 0;
       return true;
     })
-    .catch(function () { window._kkellyRealNavPromise = null; return false; });
+    .catch(function () {
+      window._kkellyRealNavPromise = null;
+      window._kkellyRealNavFailAt = Date.now();  // 失败冷却起点(60s)
+      return false;
+    });
   return window._kkellyRealNavPromise;
 }
 

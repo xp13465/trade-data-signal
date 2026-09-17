@@ -8040,6 +8040,7 @@ function _kellyAihlineCalSpan(bd, sd) {
 // 真实净值映射 {etf_code:{YYYYMMDD:accum_nav}}, 懒加载单例(R2 data/ + ./data/ fallback, 与阶段1 kelly_ghi_real_price_rebase.mjs 同源)
 var _kellyRealNav = null;
 var _kellyRealNavPromise = null;
+var _kellyRealNavFailAt = 0;   // 本地回退路径失败冷却起点(正常走 common 单例, 此路径仅 common 未挂载时兜底)
 function _kellyRealNavEnsure() {
   // 2026-08-30 P1-① §22(shared core): 优先用 common.js 挂载的 window._kkellyRealNavEnsure(首页 sim 弹窗与 lab 弹窗共用同一懒加载实例, 防双份缓存漂移)
   if (typeof window !== "undefined" && typeof window._kkellyRealNavEnsure === "function" && window._kkellyRealNavEnsure !== _kellyRealNavEnsure) {
@@ -8047,16 +8048,53 @@ function _kellyRealNavEnsure() {
   }
   if (_kellyRealNav) return Promise.resolve(true);
   if (_kellyRealNavPromise) return _kellyRealNavPromise;
+  // 2026-09-17 弱网卡死根治(与 common.js _gihRealNavEnsure 同口径): 失败冷却 60s + 直链超时 15s
+  if (_kellyRealNavFailAt && (Date.now() - _kellyRealNavFailAt) < 60000) return Promise.resolve(false);
   var urls = ["https://ss.fx8.store/r2/data/accum_nav_map.json", "./data/accum_nav_map.json"];
-  _kellyRealNavPromise = fetchJSON(urls[0], 120000)
-    .catch(function () { return fetchJSON(urls[1], 120000); })
+  _kellyRealNavPromise = fetchJSON(urls[0], 15000)
+    .catch(function () { return fetchJSON(urls[1], 15000); })
     .then(function (d) {
       _kellyRealNav = (d && typeof d === "object") ? d : null;
       _kellyRealNavPromise = null;
+      _kellyRealNavFailAt = 0;
       return true;
     })
-    .catch(function () { _kellyRealNavPromise = null; return false; });
+    .catch(function () { _kellyRealNavPromise = null; _kellyRealNavFailAt = Date.now(); return false; });
   return _kellyRealNavPromise;
+}
+// ---- nav 后台预热(2026-09-17 弱网卡死根治第1步, 见 docs/kelly/analysis/sigkelly-webslow-y1-not-render-20260917.md) ----
+// 摘掉重算主链对 accum_nav_map 的同步 await(旧最坏 480s/轮 压死「计算中」遮罩): G/H/I 行先按「缺价」占位渲染,
+// nav 到位后事件触发补算(卡面=静默重算一轮; 打开中的交易/演进弹窗=经 waiter 重渲染), 补完数值与「先 await 再算」逐位一致。
+var _kellyNavArmed = true;                              // 尚未成功应用 nav(成功后置 false, 单例常驻无需再补)
+var _kellyNavWaiters = [];                              // nav 到位后待补算回调(弹窗重渲染等)
+function _kellyNavReadyNow() {
+  return (typeof window !== "undefined" && window._kkellyRealNav && typeof window._kkellyRealNav === "object")
+      || (_kellyRealNav && typeof _kellyRealNav === "object");
+}
+function _kellyNavFlush() {
+  _kellyNavArmed = false;
+  var ws = _kellyNavWaiters.splice(0, _kellyNavWaiters.length);
+  for (var wi = 0; wi < ws.length; wi++) { try { ws[wi](true); } catch (e) { /* 弹窗重渲染失败不影响主链 */ } }
+  // 卡面补算: GIH 开 + 宿主在册 → 静默重算一轮(真实价补上「缺价」, silent 不遮罩不锁屏, 同 #sigkelly-silent-fill)
+  if (state && state.labSigKellyGihOn && typeof _kellyOnFilterChange === "function" && document.querySelector(".lab-sigkelly-host")) {
+    _kellyOnFilterChange({ keepS06: true, silent: true });
+  }
+}
+function _kellyNavWhenReady(cb) {
+  if (_kellyNavReadyNow()) { try { cb(true); } catch (e) {} return; }
+  if (typeof cb === "function") _kellyNavWaiters.push(cb);
+}
+function _kellyNavWarmup() {
+  if (_kellyNavReadyNow()) return;   // 已就绪(同步可用, 计算直接读 nav, 无需补算)
+  if (!_kellyNavArmed) return;       // 已成功补算过 / 冷却中(common 兜底), 不再重复火力
+  var p = _kellyRealNavEnsure();
+  if (p && typeof p.then === "function") {
+    p.then(function (ok) {
+      if (!ok) return;               // 失败: 冷却兜底, armed 仍 true → 下轮 recompute 再暖(不再 480s/轮)
+      if (!_kellyNavReadyNow()) return;
+      _kellyNavFlush();
+    });
+  }
 }
 // real 强平通路: 强平日 dt 按 accum_nav_map 真实净值重算(与阶段1 __realizeReal L296-320 逐字同口径, FEE_MAIN)
 // 买入=buy_price/(1+原滑点) 还原 close → 加回测费重算持仓; 卖出=当日真实 nav*(1-滑点)-费; profit=net-amt
@@ -8362,12 +8400,16 @@ async function _kellyRunRecompute(host, loadingHtml, onResult, onDone, silent) {
     //   未就绪周期仍走 _labKellyPeriodIsReady gate 显示占位(§23.15 不显残缺数), 全量就绪后整轮重算覆盖(最终一致)。
     //   非窗口期零行为变化(§23.7 纯新增)。
     if (_epoch !== _labKellyEpoch) break; // 代际过期: 不就地渲染旧口径 y1
-    if (_labKellyY1Ready && !_labKellyAllReady && typeof onDone === "function") {
+    // 2026-09-17 修 y1 窄窗口(sigkelly-webslow-y1-not-render 第4步): 原条件 _labKellyY1Ready && !_labKellyAllReady
+    //   赌「全量未就绪」时序——弱网下阶段2(14片并行)可能抢在本轮 onResult 前闭合 _labKellyAllReady → 分支永远错过,
+    //   y1 先渲染名存实亡。改为「y1 在册 && 尚未就地渲染过」单向阀: 不赌 allReady 时序, 全量就绪后整轮重算仍覆盖(最终一致)。
+    if (_labKellyY1Ready && !_labKellyY1Rendered && typeof onDone === "function") {
       var _h0 = host;
       if (!_h0.isConnected) {
         var _liveH0 = document.querySelector(".lab-sigkelly-host");
         if (_liveH0) _h0 = _liveH0;
       }
+      _labKellyY1Rendered = true;
       onDone(_h0);
     }
   } while (_kellyRecomputePending);
@@ -8398,6 +8440,7 @@ var _labKellyLoadProgress = { done: 0, total: 16, lastYear: "" }; // 分片加�
 //   y5=6片(y2021~26), y10=11片(y2016~26), all=16片(y2011~26); 已加载片数不足=该周期未就绪 → 渲染层只显示占位, 不显残缺数(§23.15)
 var _labKellyY1Ready = false;          // 阶段1 完成(两片已合并, state.labSigKellyTradesData 覆盖近1年)
 var _labKellyAllReady = false;         // 阶段2 完成(16片已合并, state.labSigKellyTradesData=全量)
+var _labKellyY1Rendered = false;       // y1 先渲染单向阀(2026-09-17): 阶段1 已就地渲染过 y1, 防全量就绪后重复就地渲染
 var _labKellyLoadedYears = [];         // 已成功加载并合并的年份(顺序无关, _labKellyMergeShards 按输入序)
 var _labKellyPeriodShardNeed = { y1: 2, y3: 4, y5: 6, y10: 11, all: 16 }; // 周期→所需片数(就绪判定)
 var _labKellyY1Years = ["2026", "2025"];   // 阶段1 近1年两片(数据实证 y1 窗口基笔 100% 落这两片, 顺序与全量一致)
@@ -8443,6 +8486,7 @@ async function _labKellySetBuyBasis(basis) {
   _labKellyFullFallback = false;
   _labKellyY1Ready = false;
   _labKellyAllReady = false;
+  _labKellyY1Rendered = false;
   _labKellyLoadedYears = [];
   _labKellyShardStore = {};
   _labKellyLoadProgress = { done: 0, total: _labKellyAllYears.length, lastYear: "" };
@@ -8778,8 +8822,9 @@ async function _kellyApplyFeeRecompute(feeParams) {
     if (!ok) { console.error("[sigkelly] trades.json load failed"); return null; }
     _kellyClearComputeCaches();
   }
-  // GIH real 强平日需 accum_nav_map 真实净值(2026-08-30): GIH 开则预加载(单例已载立即 resolve, nav 缺失=硬报错标「缺价」, 无 b1 兜底)
-  if (state.labSigKellyGihOn) await _kellyRealNavEnsure();
+  // GIH real 强平日需 accum_nav_map 真实净值(2026-08-30): GIH 开则后台预热(不 await, nav 缺失=硬报错标「缺价」无 b1 兜底,
+  //   nav 到位后 _kellyNavFlush 静默补算真实价; 2026-09-17 弱网卡死根治第1步, 见 sigkelly-webslow-y1-not-render)
+  if (state.labSigKellyGihOn) _kellyNavWarmup();
   var td = state.labSigKellyTradesData;
   var fields = td.fields || [];
   var fIdx = {};
@@ -10438,7 +10483,7 @@ async function _kellyOperationalPool(feeParams) {
     if (!ok) return null;
     _kellyClearComputeCaches();
   }
-  if (state.labSigKellyGihOn) await _kellyRealNavEnsure();
+  if (state.labSigKellyGihOn) _kellyNavWarmup();
   var td = state.labSigKellyTradesData;
   var fields = td.fields || [];
   var fIdx = {};
@@ -10737,6 +10782,16 @@ async function _labKellyEvoBuildTable(overlay, idx) {
   }
   overlay.__evoData = { evo: evo, polluted: polluted };
   _labKellyEvoRenderTable(host, evo, polluted, "60");
+  // 2026-09-17 弱网卡死根治第1步: 演进表格含 G/H/I 且 nav 未就绪 → 先出「缺价」, nav 到位重算真实价(表格仍在展示才补)
+  if (state.labSigKellyGihOn && !_kellyNavReadyNow()) {
+    _kellyNavWarmup();
+    _kellyNavWhenReady(function () {
+      var _ov = document.getElementById("labKellyEvoOverlay");
+      if (_ov && _ov.classList.contains("show") && document.body.contains(_ov)) {
+        _labKellyEvoBuildTable(_ov, idx);
+      }
+    });
+  }
 }
 
 // 全量钉子行(首行+末行复用): 当前全量, 与全信号卡最后结果逐位一致(含未平仓按最新价预估)。
@@ -12892,7 +12947,17 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
   //   输入=recompute 后数组行(带 _src 引用+etf_code/buy_price/sell_price), sim kept 映射回显示行(真实买卖价+利润)
   var _gihKept = null;
   if (state.labSigKellyGihOn && _kellyIsGih(modeKey)) {
-    await _kellyRealNavEnsure();
+    // 2026-09-17 弱网卡死根治第1步: 摘 await 改后台预热; nav 未就绪时 G/H/I 先按「缺价」渲染,
+    //   nav 到位经 waiter 重开本弹窗补真实价(数值与「先 await 再算」逐位一致)
+    _kellyNavWarmup();
+    if (!_kellyNavReadyNow()) {
+      _kellyNavWhenReady(function () {
+        var _ov = document.getElementById("lab-sigkelly-trades-overlay");
+        if (_ov && _ov.style.display !== "none" && document.body.contains(_ov)) {
+          _openSigKellyTradesModal(quadKey, modeKey, period);
+        }
+      });
+    }
     var _efIdx = {};
     extFields.forEach(function (f2, i2) { _efIdx[f2] = i2; });
     var _simIn = trades.map(function (t) {
