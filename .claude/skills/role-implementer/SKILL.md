@@ -76,7 +76,7 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
   - **关联规范源**:`scripts/upload_r2.py:33 STATIC_DIR 缺省回退 trade`(哨兵注释) + `scripts/intraday_snapshot.sh` 显式 `REPO=...; export REPO`(定时链路默认 REPO=trade-data)。改了 REPO 默认/STATIC_DIR 逻辑/交易日时段口径,同步此条款。
 
 ## 4. 生产稳定时点(原 §14 操作层,核心摘要见根共享核心)
-- **任务冲突检查不应由用户提醒才做**:每次派任务/设 cron/推 main 前**必须主动查 launchd 定时任务清单**(`launchctl list | grep trade` + 查 plist `StartCalendarInterval`),列当日盘后任务时点确认不撞,并主动给用户时点建议
+- **任务冲突检查不应由用户提醒才做**:每次派任务/设 cron/推 main 前**必须主动查定时任务清单**——**生产定时任务全在云上 systemd timer(ssh 云上 `systemctl list-timers`;云上 `/etc/systemd/system/*.timer` 单元文件手动管理,git pull 不更新),本机 mac 纯开发不跑定时任务(launchd 已废弃,查 `launchctl` 是错的,详见 memory `local-dev-cloud-prod-split`)**。列当日盘后任务时点确认不撞,并主动给用户时点建议
 - **核心冲突类型**:①推 main(intraday-snapshot 15:35/20:35 + update-all 17:50 + deploy)vs 另一推 main = 互相覆盖事故 ②写 DB(评分/采集)vs 同 DB 任务 = DB锁/progress撞 ③采集脚本并发 = 限流空转
 - **盘后定时任务时点(15:35/16:00/17:50/20:35/22:00)不推 main 不写 public_fund.db**;安全窗口 23:00 后无推 main/评分/采集任务
 - **agent 只 push feat 分支,不碰 main**(机制 D):agent 不 push main,盘后时点(15:35/16:00/17:50/20:35/22:00 ±5min 缓冲)与 cron 任务撞车由主控 `scripts/main-merge.sh` 统一检查拦截,agent 无需也不得自行判断 main 时点(避撞=主控 merge 入口职责)

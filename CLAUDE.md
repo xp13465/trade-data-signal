@@ -158,7 +158,7 @@
 
 ## 14. 生产稳定性 P0(摘要;时点/launchd 细节见 .claude/skills/role-implementer §4)
 - **核心一句话:生产稳定性是 P0 第一要素**。项目已上线生产(ss.fx8.store/sss.sugas.site/s.sugas.site + ssd.fx8.store R2),定时任务撞车会导致线上数据覆盖事故/DB锁/用户看到错误数据,是不可逆生产故障
-- **任务冲突检查不应由用户提醒才做**:每次派任务/设 cron/推 main 前**必须主动查 launchd 定时任务清单**(`launchctl list | grep trade` + 查 plist `StartCalendarInterval`),列当日盘后任务时点确认不撞,并主动给用户时点建议
+- **任务冲突检查不应由用户提醒才做**:每次派任务/设 cron/推 main 前**必须主动查定时任务清单**——**生产定时任务全在云上 systemd timer(ssh 云上 `systemctl list-timers`;云上 `/etc/systemd/system/*.timer` 单元文件手动管理,git pull 不更新),本机 mac 纯开发不跑定时任务(launchd 已废弃,查 `launchctl` 是错的,详见 memory `local-dev-cloud-prod-split`)**。列当日盘后任务时点确认不撞,并主动给用户时点建议
 - **盘后定时任务时点(15:35/16:00/17:50/20:35/22:00)不推 main 不写 public_fund.db**;**交易日盘中(09:30-15:30)不跑全量 export+deploy**(§8 已有,休市可随时跑);**安全窗口 23:00 后**无推 main/评分/采集任务
 - **push main 要避开**盘后定时任务时点(尤其 17:50 update_all deploy.sh 推 main non-ff 竞争;盘中 push 代码不避 intraday——R2 迁移后 intraday 走 R2 不推 main)。main-merge.sh 内含 §14 安全窗口检查,盘后时点自动拒绝;agent 只 push feat 不 push main(机制 D)
 
