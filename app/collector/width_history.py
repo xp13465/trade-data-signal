@@ -135,7 +135,28 @@ def load_daily_fapi_fallback(load_start: str, load_end: str) -> pd.DataFrame:
     finally:
         conn.close()
     if len(df) == 0:
-        return df
+        # #102 空值兜底(codex findings #39 P2-5): mootdx 整个加载窗口零行(完全停采/被清表)时,
+        # 原实现静默 return df, 断片检测靠 groupby 走不到、也不读 FAPI → 主宽度断更击穿 #102「空值兜底」。
+        # 改为读 FAPI 全窗口补缺(字段同构可直接返回), FAPI 宇宙排除 920 北交所(与断片补缺同口径)。
+        print(f"[D2] WARN: mootdx 窗口全空({load_start}~{load_end}), 尝试 FAPI 全量兜底 (#102)", flush=True)
+        conn = sqlite3.connect(f"file:{STOCK_DB_PATH}?mode=ro", uri=True, timeout=30.0)
+        try:
+            fapi_df = pd.read_sql_query(
+                "SELECT code, date, high, low, close, amount, pct_change "
+                "FROM fapi_daily_raw "
+                "WHERE date >= ? AND date <= ? AND code NOT LIKE '920%' "
+                "ORDER BY code, date",
+                conn,
+                params=(load_start, load_end),
+            )
+        finally:
+            conn.close()
+        if len(fapi_df) == 0:
+            print(f"[D2] WARN: mootdx 全空且 FAPI 也无可补数据({load_start}~{load_end}), 按空处理", flush=True)
+            return df
+        print(f"[D2] mootdx 全空, FAPI 兜底补 {len(fapi_df):,} 行覆盖 {fapi_df['date'].nunique()} 个日期 "
+              f"({fapi_df['date'].min()}~{fapi_df['date'].max()})", flush=True)
+        return fapi_df.reset_index(drop=True)
 
     # 每日 code 覆盖数，找断片日期
     per_day = df.groupby("date")["code"].nunique()

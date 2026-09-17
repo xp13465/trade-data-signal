@@ -237,7 +237,10 @@ def _save_cooldown():
         _data = {"keys": _cooldown_snapshot(), "updated_at": int(time.time() * 1000)}
         _dir = os.path.dirname(COOLDOWN_FILE)
         os.makedirs(_dir, exist_ok=True)
-        _tmp = "%s.tmp.%d" % (COOLDOWN_FILE, os.getpid())
+        # 线程唯一 tmp 名(codex findings #39 P2-6): 同进程所有线程 os.getpid() 相同, 并发 429
+        # 时 _mark_cool/_unmark_cool 锁外并发写同一 tmp 会相互截断、os.replace 把半截 JSON 发布为
+        # 冷却文件。用 threading.get_ident() 保证每线程独立 tmp, os.replace 原子换入(最后写者胜, 文件完整)。
+        _tmp = "%s.tmp.%d" % (COOLDOWN_FILE, threading.get_ident())
         with open(_tmp, "w") as _f:
             json.dump(_data, _f)
         os.replace(_tmp, COOLDOWN_FILE)

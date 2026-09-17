@@ -17,9 +17,13 @@
   python3 docs/auto-trade/scripts/nextday_exec_manual.py --status 20260907 5 done --note "手动卖出完成"
 """
 import argparse, json, sys, datetime, os
+from pathlib import Path
 
-ROOT = "/Users/linhuichen/code/trade"
-STEPS_PATH = os.path.join(ROOT, "static-site/data/auto_trade_steps.json")
+# 权威树 = REPO(trade-data)/static-site/data(与生成器 nextday_plan_generator.py 同口径, codex findings #39 P2-4),
+# 不再硬编码本机绝对路径(云单仓 REPO=GIT_REPO 同样可用); REPO 缺省回退脚本所在仓根(trade)。
+ROOT = Path(__file__).resolve().parent.parent.parent.parent
+REPO = Path(os.environ.get("REPO", str(ROOT)))
+STEPS_PATH = REPO / "static-site" / "data" / "auto_trade_steps.json"
 
 STATUS_TEXT = {
     "pending": "待执行", "submitted": "已挂单", "filled": "已成交",
