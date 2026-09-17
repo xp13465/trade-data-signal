@@ -130,5 +130,8 @@
   ],
   "20260917-a593": [
     "build(sigkelly): \u91cd\u5efa min + bump \u7248\u672c\u4e32 20260917-a591\u2192a592(GIH nav \u95e8\u63a7)"
+  ],
+  "20260917-a594": [
+    "fix(kelly): nav \u61d2\u52a0\u8f7d F1/F2 \u4fee\u590d(\u5931\u8d25\u51b7\u5374\u91cd\u8bd5\u89e6\u53d1 + gitignore \u90e8\u7f72\u4fa7\u76ee\u5f55)"
   ]
 }
