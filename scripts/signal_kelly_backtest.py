@@ -562,38 +562,63 @@ def _next_trading_day(signal_date, sorted_dates_list):
 
 
 def _fetch_intraday_open_prices(codes):
-    """盘中(9:40)拉 akshare fund_etf_spot_em 真实开盘价, 返回 {etf_code: open_price}。
+    """盘中(9:40)拉 akshare 真实开盘价, 返回 {etf_code: open_price}。
 
     技术修正(2026-09-08 前置实测): 设计报告 §6/§3 字面写 fund_etf_fund_daily_em 作开盘价源,
     但该源只有「市价」列无「开盘价」; 实测 fund_etf_spot_em(同为东财源, build_board_etf_map.py /
     gen_etf_index_map.py 已在用) 37 列含「开盘价」且返回真实当日开盘价(516660=0.937 /
     510300=4.638 / 159920=1.483, 数据日期=2026-09-08), 故以 fund_etf_spot_em 为数据就绪闸判定源。
-    失败/空/缺列/目标 ETF 零命中: 抛 RuntimeError(调用方转退出码 5, 盘中本轮跳过留给 17:50)。
+
+    LOF 兜底(2026-09-18): fund_etf_spot_em 只覆盖 15 前缀场内 ETF, 16 前缀 LOF(如 160717
+    嘉实H股 QDII-LOF) 不在该源; 此类目标从 fund_etf_spot_em 取不到时, 回退 fund_lof_spot_em
+    (东财 LOF 实时行情, akshare 源码 fund_lof_em.py 确认列名「代码」/「开盘价」与 etf 源一致)。
+
+    失败/空/缺列/目标零命中: 抛 RuntimeError(调用方转退出码 5, 盘中本轮跳过留给 17:50)。
+    数据就绪闸保持 fail-closed: 加兜底不放松闸, 任一目标取不到真实开盘价即拒绝发布。
     """
     import warnings
     try:
         import akshare as ak
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(f"akshare 不可用: {type(e).__name__}: {e}") from e
+    target = [str(c) for c in codes]
+    out = {}
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
+        # 主源: 东财 ETF 实时行情(覆盖 15 前缀场内 ETF; 16 前缀 LOF 不在该源)
         try:
             df = ak.fund_etf_spot_em()
         except Exception as e:  # noqa: BLE001
             raise RuntimeError(f"akshare fund_etf_spot_em 拉取失败: {type(e).__name__}: {e}") from e
-    if df is None or df.empty or "代码" not in df.columns or "开盘价" not in df.columns:
-        raise RuntimeError("akshare fund_etf_spot_em 返回空/缺列, 无法取盘中真实开盘价")
-    df = df[df["代码"].isin([str(c) for c in codes])]
-    out = {}
-    for _, row in df.iterrows():
-        try:
-            op = float(row.get("开盘价"))
-        except (TypeError, ValueError):
-            continue
-        if op and op > 0:
-            out[str(row["代码"])] = op
+        if df is None or df.empty or "代码" not in df.columns or "开盘价" not in df.columns:
+            raise RuntimeError("akshare fund_etf_spot_em 返回空/缺列, 无法取盘中真实开盘价")
+        for _, row in df[df["代码"].isin(target)].iterrows():
+            try:
+                op = float(row.get("开盘价"))
+            except (TypeError, ValueError):
+                continue
+            if op and op > 0:
+                out[str(row["代码"])] = op
+
+        # 兜底源: 东财 LOF 实时行情(16 前缀 LOF 在 fund_etf_spot_em 取不到)
+        missing = [c for c in target if c not in out]
+        lof_codes = [c for c in missing if c.startswith("16")]
+        if lof_codes:
+            try:
+                ldf = ak.fund_lof_spot_em()
+            except Exception as e:  # noqa: BLE001
+                raise RuntimeError(f"akshare fund_lof_spot_em 拉取失败: {type(e).__name__}: {e}") from e
+            if ldf is None or ldf.empty or "代码" not in ldf.columns or "开盘价" not in ldf.columns:
+                raise RuntimeError("akshare fund_lof_spot_em 返回空/缺列, 无法取 LOF 盘中真实开盘价")
+            for _, row in ldf[ldf["代码"].isin(lof_codes)].iterrows():
+                try:
+                    op = float(row.get("开盘价"))
+                except (TypeError, ValueError):
+                    continue
+                if op and op > 0:
+                    out[str(row["代码"])] = op
     if not out:
-        raise RuntimeError("akshare fund_etf_spot_em 未返回任何目标 ETF 的真实开盘价(数据就绪闸 FAIL)")
+        raise RuntimeError("akshare 未返回任何目标 ETF/LOF 的真实开盘价(数据就绪闸 FAIL)")
     return out
 
 
