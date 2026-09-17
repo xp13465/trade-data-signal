@@ -43,7 +43,7 @@
 输出:
     - data/nextday_plan.json(本地权威: {date, plan:[{etf_code,etf_name,prev_close,amount,signal,track_score,signal_date,buy_date}]}; 空计划 {date, empty:true})
     - static-site/data/nextday_plan.json(用户页面可见, 同内容)
-    - static-site/data/auto_trade_steps.json({schema_version:"v1", steps:[...]}, 追加模式幂等: 同 date 已存在则跳过)
+    - static-site/data/auto_trade_steps.json({schema_version:"v1", steps:[...]}, 幂等: 同 date 已存在且 etf_code 一致则跳过, 漂移则删旧行重写)
 关键参数(常量, 与 kelly_posrating/前端逐位对齐, 改参数必须同步 §22):
     - K=1, BUY_AMOUNT=10000, PSEUDO_GAP=0.20(伪跳空剔除阈值同 signal_kelly_backtest.PSEUDO_GAP_EXCLUDE)
 复现命令:
@@ -332,6 +332,26 @@ def _backfill_missing_seqs(steps: list, trade_dates: list[str], now: str) -> boo
     return changed
 
 
+def _idempotency_check(steps, buy_date, new_codes):
+    """幂等判定(2026-09-17 升级 buy_date+seq1 → buy_date+seq1+etf_code, 根治「过时快照不自愈」)。
+
+    执行日 buy_date 已有 seq1 挂单行时, 比较其 etf_code 集合与本次重算 top1(new_codes):
+      - 一致 → "skip"(无漂移, 幂等跳过)
+      - 不一致 → 漂移, 原地删该 buy_date 全部旧行, 返回 "replace"(调用方重写)
+    无 seq1 行 → "append"(正常追加)。
+    返回 (action, removed_count); removed_count 仅在 "replace" 时非 0。
+    """
+    existing_seq1 = [s for s in steps if str(s.get("date")) == buy_date and str(s.get("seq")) == "1"]
+    if not existing_seq1:
+        return "append", 0
+    existing_codes = {str(s.get("etf_code") or "") for s in existing_seq1}
+    if existing_codes == new_codes:
+        return "skip", 0
+    removed = sum(1 for s in steps if str(s.get("date")) == buy_date)
+    steps[:] = [s for s in steps if str(s.get("date")) != buy_date]
+    return "replace", removed
+
+
 def _norm_signal(sig: str) -> str:
     """买信号归一: buy_special_filtered(邮件链路变体名) -> buy_special(与 queries/前端同口径)。"""
     return "buy_special" if str(sig or "") == "buy_special_filtered" else str(sig or "")
@@ -528,7 +548,7 @@ def _backfill_historical_groups(conn, cfg, db_path, trade_dates, T, freeze, sig_
 
     对窗口内每个历史信号日 T'(< T 且落在窗口), 用 _build_plan_for_day 重演当日计划,
     把生成的完整行为链(seq1-5)追加到 steps_doc, 每条带 backfilled=true 标记。
-    幂等: 沿用「date(buy_date)+seq1 已存在即跳过」判定, 重复跑不产生重复行。
+    幂等: date(buy_date)+seq1+etf_code 判定(一致跳过, 漂移删旧行重写自愈替换), 重复跑不产生重复行。
     只补未到期组(sell_date >= T 且非空): 已到期(sell_date < T)的旧持仓不生成卖出提醒(防过期骚扰)。
     返回是否写入了新行。
     """
@@ -542,16 +562,22 @@ def _backfill_historical_groups(conn, cfg, db_path, trade_dates, T, freeze, sig_
                                      prefix=f"[回填{Tb}]")
         if not plan_b:
             continue
+        bd = str(plan_b[0]["buy_date"] or "")
+        # 先判到期(与旧口径一致: 已到期组不删只不再补, 防过期骚扰; 漂移自愈只作用于未到期组)
+        sell_date = _nth_trading_day_after(trade_dates, str(plan_b[0]["signal_date"]), 10) if trade_dates else ""
+        if not sell_date or sell_date < T:
+            _logp(f"跳过已到期组 buy_date={bd} sell_date={sell_date}(< T {T})")
+            continue
+        # 幂等(与主链当日追加同判定, 2026-09-17 升级 buy_date+seq1+etf_code): 已有该执行日 seq1
+        # 且 etf_code 一致 → 跳过; 漂移 → 删旧行重写(自愈替换)。
+        _new_codes = {str(p.get("etf_code") or "") for p in plan_b}
+        _action, _removed = _idempotency_check(steps_doc["steps"], bd, _new_codes)
+        if _action == "skip":
+            _logp(f"幂等跳过 buy_date={bd}(已在表且 etf_code 一致)")
+            continue
+        if _action == "replace":
+            _logp(f"自愈替换 buy_date={bd} 旧行 etf_code 漂移, 删旧行 {_removed} 行重写")
         for p in plan_b:
-            bd = str(p["buy_date"] or "")
-            # 幂等: 已有该执行日(buy_date)的 seq1 挂单行则跳过(与主链当日追加同判定)
-            if any(str(s.get("date")) == bd and str(s.get("seq")) == "1" for s in steps_doc["steps"]):
-                _logp(f"幂等跳过 {p['etf_code']} {p['etf_name']} buy_date={bd}(已在表)")
-                continue
-            sell_date = _nth_trading_day_after(trade_dates, str(p["signal_date"]), 10) if trade_dates else ""
-            if not sell_date or sell_date < T:
-                _logp(f"跳过已到期组 {p['etf_code']} {p['etf_name']} buy_date={bd} sell_date={sell_date}(< T {T})")
-                continue
             for st in _build_steps_for_plan(p, now, sell_date):
                 st["backfilled"] = True
                 steps_doc["steps"].append(st)
@@ -647,21 +673,27 @@ def main():
                     break
             except Exception:
                 pass
-    # 幂等: steps 的 date = 执行日(buy_date, §6.2 交易日), 已存在该执行日的 seq1 挂单行则跳过
+    # 幂等(2026-09-17 升级 buy_date+seq1 → buy_date+seq1+etf_code, 根治过时快照不自愈):
+    # 执行日 buy_date 已有 seq1 且 etf_code 与本次重算 top1 一致 → 跳过; 漂移 → 删旧行重写。
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     steps_changed = False
-    if plan and any(str(s.get("date")) == buy_date and str(s.get("seq")) == "1"
-                    for s in steps_doc["steps"]):
-        log(f"auto_trade_steps 已含执行日 date={buy_date}, 幂等跳过追加")
-    elif plan:
-        for p in plan:
-            # 卖出日 = 信号日后第 10 交易日(A 模式 hold_days=10, 与回测 sell_date 口径一致)
-            sell_date = _nth_trading_day_after(trade_dates, str(p["signal_date"]), 10) if trade_dates else ""
-            for st in _build_steps_for_plan(p, now, sell_date):
-                steps_doc["steps"].append(st)
-            steps_changed = True
-            log(f"auto_trade_steps 追加完整行为链 {p['etf_code']} {p['etf_name']} "
-                f"buy_date={p['buy_date']} sell_date={sell_date} seq1/2/3/5")
+    if plan:
+        _new_codes = {str(p.get("etf_code") or "") for p in plan}
+        _action, _removed = _idempotency_check(steps_doc["steps"], buy_date, _new_codes)
+        if _action == "skip":
+            log(f"auto_trade_steps 已含执行日 date={buy_date} 且 etf_code 一致, 幂等跳过追加")
+        else:
+            if _action == "replace":
+                log(f"auto_trade_steps 自愈替换: 执行日 date={buy_date} 旧行 etf_code 与本次重算 "
+                    f"top1 {sorted(_new_codes)} 漂移, 删旧行 {_removed} 行重写")
+            for p in plan:
+                # 卖出日 = 信号日后第 10 交易日(A 模式 hold_days=10, 与回测 sell_date 口径一致)
+                sell_date = _nth_trading_day_after(trade_dates, str(p["signal_date"]), 10) if trade_dates else ""
+                for st in _build_steps_for_plan(p, now, sell_date):
+                    steps_doc["steps"].append(st)
+                steps_changed = True
+                log(f"auto_trade_steps 追加完整行为链 {p['etf_code']} {p['etf_name']} "
+                    f"buy_date={p['buy_date']} sell_date={sell_date} seq1/2/3/5")
 
     # 历史持仓回填段(#106): 窗口内每个历史交易日 T' 重演当日计划, 补未到期卖出行(幂等并入同一判定)
     if not args.no_backfill:
