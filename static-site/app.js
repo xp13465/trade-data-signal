@@ -4450,8 +4450,20 @@ async function _simRenderOnce(modal) {
   if (gihOn && _SIM_GHI_TIERS[mode]) {
     // 2026-08-30 P1-① §22(real 通路共享核): 强平重算前先确保 accum_nav_map 已加载
     // (common.js window._kkellyRealNavEnsure, 与 lab.js _kellyRealNavEnsure 共用同一单例缓存, 防双份拉取漂移)
-    if (typeof window !== "undefined" && typeof window._kkellyRealNavEnsure === "function") {
-      try { await window._kkellyRealNavEnsure(); } catch (e) { /* nav 加载失败由 _kkellyRealizeRealForce 判缺价, 不静默 */ }
+    // 2026-09-17 弱网卡死根治(sigkelly-webslow-y1-not-render 第二消费点): 摘 await 改后台预热——
+    //   首页 sim 弹窗 G/H/I 重算主链不再同步等 19M accum_nav_map(common.js 双 URL 旧 120s, 弱网最坏 480s/轮);
+    //   nav 未就绪时 _gihRealizeRealForce 判缺价(nav_missing)先出「— 缺价」, nav 到位且弹窗仍在展示时
+    //   经「未就绪→就绪」跃迁补渲一次(至多一次防成环, 同 _featReadyBefore 补渲模式)。
+    const _navReadyBefore = !!(typeof window !== "undefined" && window._kkellyRealNav && typeof window._kkellyRealNav === "object");
+    if (!_navReadyBefore && typeof window !== "undefined" && typeof window._kkellyRealNavEnsure === "function") {
+      window._kkellyRealNavEnsure().then((_navOk) => {
+        if (!_navOk || modal.classList.contains("hidden")) return;
+        const _nowReady = !!(typeof window !== "undefined" && window._kkellyRealNav && typeof window._kkellyRealNav === "object");
+        if (_nowReady) {
+          _simRenderPending = true;   // 合批: 渲染中则由循环兜底; 空闲则立即补一次(仅此一次)
+          if (!_simRenderBusy) _simRender(modal);
+        }
+      }).catch(() => { /* nav 加载失败由 _gihRealizeRealForce 判缺价, 不静默 */ });
     }
     const _ghir = _simGhiHoldCap(kept, mode, fIdx);
     kept = _ghir.rows;
