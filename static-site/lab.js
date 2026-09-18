@@ -14705,7 +14705,15 @@ function _atNowActKey(act) {
 }
 function _atRowHtml(d, today, nowAct, daySteps) {
   const stCls = _AT_STATUS_CLS[d.status] || "gry";
-  const hl = (_atNowActKey(nowAct) === _atRowKey(d)) ? " auto-trade-steps-day-hl" : "";
+  // 蓝框精确圈「当前动作」; nowAct 为 null(今天买入+今天到期卖出都操作完)时,
+  // 今天的所有行保留「已操作态」绿框(区别于待办蓝框), 历史行不落边框。
+  const nowKey = _atNowActKey(nowAct);
+  let hl = "";
+  if (nowKey && nowKey === _atRowKey(d)) {
+    hl = " auto-trade-steps-day-hl";
+  } else if (!nowAct && d && String(d.date || "") === String(today || "")) {
+    hl = " auto-trade-steps-day-done";
+  }
   const amtSharesStr = _atAmtSharesStr(d);
   // #108 卖出行: 自身标记态直接反映为「已操作(手动)」; 点击弹所属买入组时间线(data-open-date)
   const sellMarked = d.sell && d.src_step && _atIsMarked(d.src_step);

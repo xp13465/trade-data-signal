@@ -2585,6 +2585,14 @@ td.lab-sigkelly-elim-reason { text-decoration: none; color: var(--text-2); font-
 .auto-trade-steps-day-hl td {
   box-shadow: inset 0 0 0 1px rgba(64, 128, 255, 0.6);
 }
+/* 今日动作全部操作完: 保留「已操作态」绿框(复用「已操作(手动)」绿色语义, 区别于待办蓝框) */
+.auto-trade-steps-day-done td {
+  box-shadow: inset 0 0 0 1px rgba(47, 158, 68, 0.55);
+}
+[data-theme="dark"] .auto-trade-steps-day-done td,
+[data-theme="redgold"] .auto-trade-steps-day-done td {
+  box-shadow: inset 0 0 0 1px rgba(105, 219, 124, 0.6);
+}
 .auto-trade-steps-row.auto-trade-steps-modal-hl td {
   background: rgba(64, 128, 255, 0.10);
   box-shadow: inset 0 0 0 1px rgba(64, 128, 255, 0.5);
