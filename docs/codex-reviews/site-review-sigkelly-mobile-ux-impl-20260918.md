@@ -4,6 +4,11 @@
 - 目标：同一份 DOM 与 CSS，只在 `@media (max-width: 760px)` 内做信息层级降级，不改桌面端、不动核心逻辑。
 - 现状锚点（390×844 实测）：16 卡回测网格 top≈4228px；首屏 75% 是免责/引导/说明。
 
+> ## ⚠️ 作用域红线：本次改动**只影响移动端**，桌面端零回归
+> 1. 所有 CSS 改动**只允许写在 `@media (max-width: 760px)` 内**；禁止改全局规则。
+> 2. 所有 JS 改动（去 `<details open>`、localStorage 已读、动态隐藏）必须用 `window.matchMedia('(max-width:760px)')` 门控——桌面端(>760px)行为与现状逐像素一致（引导默认展开、免责可见、实操表格可见、建议指南可见）。
+> 3. 提交前跑双视口验收：`scripts/playwright-accept/accept_mobile_ux_sigkelly.mjs`，390(移动) + 1280(桌面) 都 PASS 才可合。
+
 ## 0. 总原则（先读）
 1. **数据优先**：移动端 DOM 顺序 = 一行结论 → `.lab-sigkelly-bar`(sticky) → `.lab-sigkelly-grid` → 其余说明后置。
 2. **说明一律 `<details>` 默认收起** + localStorage 记住已读。
@@ -73,4 +78,5 @@
 - 全部改动限制在 `@media (max-width:760px)` 内，桌面端零影响；建议先上 CSS-only 项（1/4/5/6），再上 JS 项（2/3）小步验收。
 
 ## 8. 量化目标（验收口径）
-首屏非数据 636px(75%) → <120px；`.lab-sigkelly-grid` top 4228 → ≤1600；解释/引导总占高 4200 → ≤600。
+移动端(390)：首屏非数据 636px(75%) → <120px；`.lab-sigkelly-grid` top 4228 → ≤1600；解释/引导总占高 4200 → ≤600。
+桌面端(1280)：`.lab-top-disclaimer` 可见；`.lab-newbie-guide` 默认展开；`.auto-trade-steps` 可见；`.lab-sigkelly-advice` 可见——与改前一致。
