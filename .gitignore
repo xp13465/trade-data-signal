@@ -247,8 +247,10 @@ data/.r2_accum_nav_state.json.tmp.*
 data/brief_ledger.json
 
 # --- 2026-08-28 补充 ---
-# Playwright 测试截图/报告(本地验证用,不上线)
-scripts/playwright-accept/
+# Playwright 测试截图/报告(本地验证用,不上线);.mjs 验收脚本默认跟踪(git add -f 不再需要)
+# 注:必须用 /* 忽略目录内容而非整目录,否则父目录被排除后 !否定规则无法 re-include 子文件(git 规则)
+scripts/playwright-accept/*
+!scripts/playwright-accept/*.mjs
 # plist 备份/临时
 scripts/com.trade.*.plist.bak*
 scripts/*.bak-*

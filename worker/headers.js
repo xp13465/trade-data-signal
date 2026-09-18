@@ -37,7 +37,13 @@ const SECURITY_HEADERS = {
 const CACHE_RULES = [
   // 1) 版本化静态资源：1 年 immutable（改动靠 ?v= 换 URL 破缓存）
   {
-    match: p => /^\/(style\.css|app\.min\.js|lab\.min\.js|lab\.css|qr\.js)$/.test(p) || p.startsWith('/vendor/'),
+    // ASSETS 全量对齐 scripts/bump_asset_version.py:31（style.min.css/common.min.js/purpose-notes.min.js/
+    //   kelly-review-notes.min.js/kelly-reports-content.min.js/app.min.js/lab.min.css/lab.min.js/qr.js/
+    //   vendor/echarts.min.js/i18n.js/inline-init.js），均走 ?v= 版本串换 URL 破缓存，1 年 immutable 安全。
+    //   manifest.json/changelog.json 固定 URL 不走版本串，不加 immutable（防内容更新缓存滞留）。
+    match: p =>
+      /^\/((style|lab)\.min\.css|(app|common|lab|purpose-notes|kelly-review-notes|kelly-reports-content)\.min\.js|qr\.js|i18n\.js|inline-init\.js)$/.test(p) ||
+      p.startsWith('/vendor/'),
     cc: 'public, max-age=31536000, immutable',
   },
   // 2) HTML 入口 / feed / trade_sim：no-store 彻底禁止缓存(CF 边缘+浏览器)
