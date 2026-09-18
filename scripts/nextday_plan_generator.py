@@ -673,7 +673,8 @@ def _backfill_historical_groups(conn, cfg, db_path, trade_dates, T, freeze, sig_
     只补未到期组(sell_date >= T 且非空): 已到期(sell_date < T)的旧持仓不生成卖出提醒(防过期骚扰)。
     repair_backfill=True(--repair-backfill): 透传 _idempotency_check 豁免 ⑤ gate, 一次性重写已过执行日
     的漂移 backfilled 历史行(commit 2f9502a92 排序改冻结分前写错的行); 窗口扩展为
-    _repair_backfill_window(常规窗口 + 枚举现有 backfilled 行 signal_date, 覆盖窗口外历史漂移行)。
+    _repair_backfill_window(常规窗口 + 枚举现有 backfilled 行 signal_date, 覆盖窗口外历史漂移行);
+    并豁免「已到期组跳过」gate(缺陷c: 已到期组的 ts/code 漂移同样要改对, 日常模式保持跳过)。
     返回是否写入了新行。
     """
     if not trade_dates:
@@ -688,9 +689,11 @@ def _backfill_historical_groups(conn, cfg, db_path, trade_dates, T, freeze, sig_
         if not plan_b:
             continue
         bd = str(plan_b[0]["buy_date"] or "")
-        # 先判到期(与旧口径一致: 已到期组不删只不再补, 防过期骚扰; 漂移自愈只作用于未到期组)
+        # 先判到期(与旧口径一致: 已到期组不删只不再补, 防过期骚扰; 漂移自愈只作用于未到期组)。
+        # repair 模式豁免(缺陷c 2026-09-18): --repair-backfill 目的就是改写历史漂移行, 已到期组
+        # (卖出日 < T)同样有历史漂移, 必须继续走幂等 replace 改对 ts/code; 日常模式保持跳过不变。
         sell_date = _nth_trading_day_after(trade_dates, str(plan_b[0]["signal_date"]), 10) if trade_dates else ""
-        if not sell_date or sell_date < T:
+        if (not sell_date or sell_date < T) and not repair_backfill:
             _logp(f"跳过已到期组 buy_date={bd} sell_date={sell_date}(< T {T})")
             continue
         # 幂等(与主链当日追加同判定, 2026-09-17 升级 buy_date+seq1+etf_code): 已有该执行日 seq1
