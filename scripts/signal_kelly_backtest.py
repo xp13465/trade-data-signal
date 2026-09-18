@@ -32,6 +32,7 @@ import bisect
 import json
 import os
 import sqlite3
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -244,6 +245,32 @@ def _save_etf_freeze(freeze):
     os.replace(tmp, p)
 
 
+def _alert_frozen_missing(events):
+    """冻结表缺失历史信号事件告警(--severe)。events: {(date, index_id, signal), ...}。
+
+    背景(2026-09-18 根治): 冻结分时点防御闸拒绝补冻历史信号(date < latest)后, 这些信号
+    事件不写入冻结表, 若事件非空说明生产冻结流程有缺口(如 dev sync 后本机冻结表落后),
+    通过 notify.py --severe 提醒人工核查, 防止静默跳过导致回测缺信号。
+    """
+    sorted_events = sorted(events)
+    subject = f"[kelly] 冻结表缺失历史信号事件 {len(sorted_events)} 个"
+    sample = "; ".join(f"{d}|{i}|{s}" for d, i, s in sorted_events[:5])
+    body = (f"回测拒绝补冻历史信号事件 {len(sorted_events)} 个(冻结分时点防御闸触发)。"
+            f"冻结表缺失 {len(sorted_events)} 个历史信号事件, 拒绝补冻已跳过, 请核查生产冻结流程。"
+            f"样例: {sample}")
+    cmd = [sys.executable, os.path.join(SCRIPT_DIR, "notify.py"), subject, body,
+           "--severe", "--from-prefix", "[kelly]",
+           "--dedup-key", "signal_kelly_frozen_missing", "--dedup-window", "3600"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        print(f"   ⚠ 冻结缺失告警 rc={r.returncode} ({len(sorted_events)} 个历史信号事件拒绝补冻)",
+              file=sys.stderr)
+        if r.returncode != 0:
+            print(f"      notify stderr: {(r.stderr or r.stdout or '')[-300:]}", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001
+        print(f"   ⚠ 冻结缺失告警调用异常: {e}", file=sys.stderr)
+
+
 # ── 宇宙感知剪枝(v1.1.7 实施批, 2026-08-24 用户拍板) ─────────────────────────
 # 背景: 冻结固化机制(#58)对已固化信号事件直接返回冻结 ETF, 绕过当前宇宙判定——
 # board_etf_map 已把 bj50(北证50) 等改为空数组(显式不收录, build_board_etf_map.py 不留兜底),
@@ -258,6 +285,10 @@ def _save_etf_freeze(freeze):
 
 _PRUNED_UNIVERSE_N = 0     # 剪枝计数(调用级: needed_etfs 与分类循环各扫一遍, 全量跑下≈事件数×2)
 _EXCLUDED_MATCHERS_CACHE = None
+# 冻结表缺失事件清单(2026-09-18 根治「冻结分时点漂移」): 回测首次碰到历史信号(date < latest)
+# 但冻结表无值(dev sync 拉新 DB 后本机冻结表停在旧日期)时, 拒绝就地补冻并记入本清单,
+# 结尾据此 --severe 告警; 用 set 防去重(needed_etfs 收集与分类循环各扫一遍会重复记同一事件)。
+_FROZEN_MISSING_EVENTS = set()
 
 
 def _excluded_matchers():
@@ -292,17 +323,21 @@ def _iid_in_excluded_category(iid):
     return False
 
 
-def _resolve_etf(date, iid, sig, best_etf, freeze):
+def _resolve_etf(date, iid, sig, best_etf, freeze, latest_signal_date=None):
     """解析某信号事件 (date,index_id,signal) 匹配的 ETF。
 
     - 宇宙感知剪枝(v1.1.7): 该指数命中 config/universe_rules.yaml 排除类别(债/情绪/
       全球商品利率/港股行业/空数组)→视为无效不入样, 返回 (None, False)(与 "map 无此 key"
       同语义); 冻结值也不得穿透排除类别(freeze 文件本体不动, 读取侧剪枝)。
     - 若该信号事件已在冻结查找表: 返回冻结的 ETF 值(历史成交固化, 不再随当前 best 变更)。
-    - 若未冻结(新信号): 用当前 best ETF, 并就地写入 freeze(便于 compute() 结束时持久化)。
+    - 若未冻结(新信号): 仅在 `date == latest_signal_date`(当天盘后新信号)时用当前 best ETF
+      就地冻结; 历史信号(date < latest_signal_date)缺失冻结值(dev sync 拉新 DB 后本机冻结表
+      停在旧日期, 回测首次碰到 9-14~9-17 历史信号)→ 拒绝用今天 map 重冻(否则冻结分随
+      本机 board_etf_map 漂移, 2026-09-18 根治), 记入 _FROZEN_MISSING_EVENTS 结尾 --severe 告警,
+      返回 (None, False)。
     返回 (etf_dict, is_frozen)。best_etf 无此指数时返回 (None, False)。
     """
-    global _PRUNED_UNIVERSE_N
+    global _PRUNED_UNIVERSE_N, _FROZEN_MISSING_EVENTS
     if _iid_in_excluded_category(iid):
         _PRUNED_UNIVERSE_N += 1
         return None, False
@@ -312,6 +347,13 @@ def _resolve_etf(date, iid, sig, best_etf, freeze):
         return frozen, True
     be = best_etf.get(iid)
     if not be:
+        return None, False
+    # 冻结分时点漂移防御(2026-09-18): 历史信号(date < latest_signal_date)未冻结 → 拒绝补冻。
+    # 位置: 在 be 判定之后——best_etf 本就没有该指数(如 track_score=None 被过滤的新指数)时,
+    # 直接返回 (None, False) 不计异常; 只有「有 ETF 可补冻但该信号日已过」才拒绝补冻记异常。
+    # YYYYMMDD 字符串字典序比较即数值序, 勿转 datetime。
+    if latest_signal_date is not None and date < latest_signal_date:
+        _FROZEN_MISSING_EVENTS.add((date, iid, sig))
         return None, False
     # 冻结当前 best(补充 frozen_at 时间戳便于审计)
     entry = dict(be)
@@ -1286,11 +1328,16 @@ def _compute_stats(trades, period_key="all", buy_amount=None):
 
 def _classify_buy_rows(buy_rows, best_etf, etf_freeze, signal_stats, market_map,
                        price_map, open_map, close_map, sorted_dates_map, sell_timeline,
-                       market_state, market_dates, market_tiers, cyb_tiers, today_str):
+                       market_state, market_dates, market_tiers, cyb_tiers, today_str,
+                       latest_signal_date=None):
     """逐信号分类 + 10 模式回测(compute 全量与 compute_intraday 盘中增量共用, 单一实现防漂移 §5.4⑦)。
 
     buy_rows: [(date, index_id, signal)]; 价格/信号时间线/大盘态已由调用方按口径准备好
     (compute: 全量; compute_intraday: 截断到 T 日 + 注入 T+1 真实开盘价 + 卖出信号截断到 <=T)。
+    latest_signal_date: 冻结分时点防御闸(2026-09-18 根治)——只允许 date == latest_signal_date
+    (当天盘后新信号)就地补冻, date < latest_signal_date 的历史信号缺失冻结值→拒绝补冻记异常。
+    全量档传 etf_daily 最新数据日(与 today_str 同语义, 但需在 needed_etfs 前可算);
+    盘中档传 signal_date_str(T 日, 因为盘中 today_str 是 T+1 注入后不可用)。
     返回 (quadrants {qk: {mk: [trade,...]}}, 统计 dict)。副作用: 就地写 etf_freeze
     (新信号事件固化 ETF 选择)——是否持久化由调用方决定(全量档保存, 盘中档只读不保存)。
     """
@@ -1307,7 +1354,7 @@ def _classify_buy_rows(buy_rows, best_etf, etf_freeze, signal_stats, market_map,
     for date, iid, sig in buy_rows:
         if KELLY_ASOF and date > KELLY_ASOF:
             continue  # 仅验证用: 数据截止复现报告数字
-        be, be_frozen = _resolve_etf(date, iid, sig, best_etf, etf_freeze)
+        be, be_frozen = _resolve_etf(date, iid, sig, best_etf, etf_freeze, latest_signal_date)
         if not be:
             skipped_no_etf += 1
             continue
@@ -1525,9 +1572,17 @@ def compute():
 
     # 3. 确定需要的 ETF 代码集合, 批量加载价格。注意: 用 _resolve_etf 而非直接 best_etf.get,
     #    这样已固化的历史信号事件用冻结 ETF, 新信号事件就地冻结当前 best。
+    # 冻结分时点防御闸(2026-09-18 根治): latest_signal_date = etf_daily 全表最新数据日
+    # (与 today_str 语义等价, 但 today_str 依赖价格加载才能算, 而 needed_etfs 收集在价格
+    # 加载之前, 故此处用 etf_daily MAX(date) 提前取得)。生产盘后 etf_daily 更新到当天 →
+    # 当天新信号 date==latest 允许补冻, 历史信号 date<latest 缺失冻结值则拒绝补冻。
+    _etf_latest_ready, _etf_latest_date, _etf_latest_cov = _etf_daily_today_ready()
+    latest_signal_date = _etf_latest_date or None
+    if latest_signal_date:
+        print(f"   冻结分时点防御闸: latest_signal_date={latest_signal_date}(etf_daily MAX)")
     needed_etfs = set()
     for _date, iid, _sig in buy_rows:
-        be, _frozen = _resolve_etf(_date, iid, _sig, best_etf, etf_freeze)
+        be, _frozen = _resolve_etf(_date, iid, _sig, best_etf, etf_freeze, latest_signal_date)
         if be:
             needed_etfs.add(be["code"])
     print(f"-> 批量加载 {len(needed_etfs)} 只 ETF 的 accum_nav/open/close ...", flush=True)
@@ -1545,6 +1600,7 @@ def compute():
         buy_rows, best_etf, etf_freeze, signal_stats, market_map,
         price_map, open_map, close_map, sorted_dates_map, sell_timeline,
         market_state, market_dates, market_tiers, cyb_tiers, today_str,
+        latest_signal_date,
     )
     classified = loop_stats["classified"]
     skipped_no_etf = loop_stats["skipped_no_etf"]
@@ -1564,6 +1620,11 @@ def compute():
         print(f"   ✓ 已固化 {len(etf_freeze)} 个信号事件 -> {_etf_freeze_path()}")
     except OSError as e:
         print(f"   ⚠ 冻结表写盘失败(不影响本次回测结果): {e}", file=sys.stderr)
+
+    # 冻结分时点漂移根治(2026-09-18): 本轮回测拒绝补冻的历史信号事件(dev sync 拉新 DB 后冻结表
+    # 停在旧日期, 首次碰到 9-14~9-17 历史信号)→ --severe 告警, 提醒核查生产冻结流程。
+    if _FROZEN_MISSING_EVENTS:
+        _alert_frozen_missing(_FROZEN_MISSING_EVENTS)
 
     # 5. 按周期聚合统计 + trades 列式结构(_build_outputs 与盘中增量档共用, 单一实现防漂移 §5.4⑦)
     output, trades_output = _build_outputs(quadrants)
@@ -1669,9 +1730,13 @@ def compute_intraday(signal_date_str, main_trades_path):
         print("   ⚠ T 日无买信号, 盘中档产物为空结构(前端无盘中视图, 正常)", file=sys.stderr)
 
     # 3. 需要的 ETF + 批量价格(截断到 <= T, 结构性排除 T+1 占位行)
+    # 冻结分时点防御闸(2026-09-18): 盘中档 buy_rows 全是 T 日信号, latest_signal_date = T
+    # (signal_date_str, 允许 T 日当天信号补冻/返回冻结值; 绝不能用盘中 today_str——那是注入
+    # T+1 真实开盘后的 next_date, 会让所有 T 日信号 date < latest 被当作"历史信号"拒绝)。
+    latest_signal_date = signal_date_str
     needed_etfs = set()
     for _date, iid, _sig in buy_rows:
-        be, _frozen = _resolve_etf(_date, iid, _sig, best_etf, etf_freeze)
+        be, _frozen = _resolve_etf(_date, iid, _sig, best_etf, etf_freeze, latest_signal_date)
         if be:
             needed_etfs.add(be["code"])
     print(f"-> 批量加载 {len(needed_etfs)} 只 ETF 价格 ...", flush=True)
@@ -1714,6 +1779,7 @@ def compute_intraday(signal_date_str, main_trades_path):
         buy_rows, best_etf, etf_freeze, signal_stats, market_map,
         price_map, open_map, close_map, sorted_dates_map, sell_timeline,
         market_state, market_dates, market_tiers, cyb_tiers, today_str,
+        latest_signal_date,
     )
     print(f"   盘中档分类完成: {loop_stats['classified']} 信号有有效回测 / {loop_stats['skipped_no_price']} 跳过(T+1 无价或伪跳空)")
     output, trades_output = _build_outputs(quadrants)
