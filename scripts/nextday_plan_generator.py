@@ -361,20 +361,26 @@ def _backfill_missing_seqs(steps: list, trade_dates: list[str], now: str) -> boo
     return changed
 
 
-def _idempotency_check(steps, buy_date, new_codes):
+def _idempotency_check(steps, buy_date, new_codes, allow_past_replace=False):
     """幂等判定(2026-09-17 升级 buy_date+seq1 → buy_date+seq1+etf_code, 根治「过时快照不自愈」;
     2026-09-18 ⑤ 加已过执行日 replace 冻结 gate)。
 
     执行日 buy_date 已有 seq1 挂单行时, 比较其 etf_code 集合与本次重算 top1(new_codes):
       - 一致 → "skip"(无漂移, 幂等跳过)
-      - 不一致 → 漂移; 若 buy_date 已过执行日(<=today)则 "skip"(⑤ 禁 replace, 防改写已过执行日行),
+      - 不一致 → 漂移; 若 buy_date 已过执行日(<=today)则默认 "skip"(⑤ 禁 replace, 防改写已过执行日行),
         否则原地删该 buy_date 全部旧行, 返回 "replace"(调用方重写)
     无 seq1 行 → "append"(正常追加; 回填段 #106 用它补历史未到期卖出行)。
-    返回 (action, removed_count); removed_count 仅在 "replace" 时非 0。
+    返回 (action, removed_count, skip_reason): removed_count 仅在 "replace" 时非 0;
+    skip_reason ∈ {"match"(etf_code 一致, 幂等跳过), "gate_past"(漂移但已过执行日, ⑤ 禁 replace),
+    "repair_past"(修复模式替换已过执行日行), "drift_replace"(未来执行日自愈替换)}。
+
+    allow_past_replace=True(--repair-backfill 一次性修复模式): 漂移且已过执行日时仍 replace, 用于把
+    commit 2f9502a92(K=1 排序改用信号日冻结分)之前写错的 backfilled 历史行重写正确。日常运行(False)
+    行为不变: ⑤ gate 仍冻结已过执行日行, 防改写历史组(修复不会天天来回改)。
 
     ⚠ ⑤ 已过执行日 replace 冻结 gate(2026-09-18, 3版本漂移根因③): 只包住 replace 分支——
       - 有 seq1 且漂移 且 buy_date <= today → "skip"(禁止 replace: 9-17 22:30 回填 20260916
-        曾 replace 改写 9-17 执行日行; 执行日已过的历史组不再重写)
+        曾 replace 改写 9-17 执行日行; 执行日已过的历史组不再重写; 仅 --repair-backfill 显式豁免)
       - append/skip 分支不受 gate 影响: 无 seq1 的历史组仍 append 补卖出行(#106 正常功能, 不改写
         已存在行, 只补缺失提醒, 无执行风险), 一致组照常 skip。
       主链 buy_date=T+1>today 的漂移自愈不受影响; 迁移 _backfill_missing_seqs(L342-360)不走本函数,
@@ -382,17 +388,19 @@ def _idempotency_check(steps, buy_date, new_codes):
     """
     existing_seq1 = [s for s in steps if str(s.get("date")) == buy_date and str(s.get("seq")) == "1"]
     if not existing_seq1:
-        return "append", 0
+        return "append", 0, "append"
     existing_codes = {str(s.get("etf_code") or "") for s in existing_seq1}
     if existing_codes == new_codes:
-        return "skip", 0
-    # 漂移且已过执行日 → 禁 replace(⑤ 目标), 保持历史行不动; 未来执行日仍自愈替换。
+        return "skip", 0, "match"
     _today_str = _today()  # YYYYMMDD
-    if str(buy_date or "") <= _today_str:
-        return "skip", 0
+    past = str(buy_date or "") <= _today_str
+    if past and not allow_past_replace:
+        # 漂移且已过执行日 → ⑤ gate 禁 replace(默认), 保持历史行不动(--repair-backfill 显式豁免)。
+        return "skip", 0, "gate_past"
+    # 漂移 → 删旧行重写: 未来执行日自愈(past=False), 或修复模式豁免已过执行日行(past and allow_past_replace)。
     removed = sum(1 for s in steps if str(s.get("date")) == buy_date)
     steps[:] = [s for s in steps if str(s.get("date")) != buy_date]
-    return "replace", removed
+    return "replace", removed, "repair_past" if past else "drift_replace"
 
 
 def _norm_signal(sig: str) -> str:
@@ -607,13 +615,15 @@ def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s
 
 
 def _backfill_historical_groups(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s06,
-                                steps_doc, now):
+                                steps_doc, now, repair_backfill=False):
     """历史持仓回填段(#106): 最近 BACKFILL_WINDOW_DAYS 交易日窗口内补未到期卖出行。
 
     对窗口内每个历史信号日 T'(< T 且落在窗口), 用 _build_plan_for_day 重演当日计划,
     把生成的完整行为链(seq1-5)追加到 steps_doc, 每条带 backfilled=true 标记。
     幂等: date(buy_date)+seq1+etf_code 判定(一致跳过, 漂移删旧行重写自愈替换), 重复跑不产生重复行。
     只补未到期组(sell_date >= T 且非空): 已到期(sell_date < T)的旧持仓不生成卖出提醒(防过期骚扰)。
+    repair_backfill=True(--repair-backfill): 透传 _idempotency_check 豁免 ⑤ gate, 一次性重写已过执行日
+    的漂移 backfilled 历史行(commit 2f9502a92 排序改冻结分前写错的行)。
     返回是否写入了新行。
     """
     if not trade_dates:
@@ -633,14 +643,19 @@ def _backfill_historical_groups(conn, cfg, db_path, trade_dates, T, freeze, sig_
             _logp(f"跳过已到期组 buy_date={bd} sell_date={sell_date}(< T {T})")
             continue
         # 幂等(与主链当日追加同判定, 2026-09-17 升级 buy_date+seq1+etf_code): 已有该执行日 seq1
-        # 且 etf_code 一致 → 跳过; 漂移 → 删旧行重写(自愈替换)。
+        # 且 etf_code 一致 → 跳过; 漂移 → 删旧行重写(自愈替换); --repair-backfill 豁免 ⑤ gate 改已过执行日行。
         _new_codes = {str(p.get("etf_code") or "") for p in plan_b}
-        _action, _removed = _idempotency_check(steps_doc["steps"], bd, _new_codes)
+        _action, _removed, _skip_reason = _idempotency_check(
+            steps_doc["steps"], bd, _new_codes, allow_past_replace=repair_backfill)
         if _action == "skip":
-            _logp(f"幂等跳过 buy_date={bd}(已在表且 etf_code 一致)")
+            if _skip_reason == "gate_past":
+                _logp(f"幂等跳过 buy_date={bd}(漂移但已过执行日, ⑤ gate 禁 replace, 不改写历史)")
+            else:
+                _logp(f"幂等跳过 buy_date={bd}(已在表且 etf_code 一致)")
             continue
         if _action == "replace":
-            _logp(f"自愈替换 buy_date={bd} 旧行 etf_code 漂移, 删旧行 {_removed} 行重写")
+            _tag = "修复替换(--repair-backfill)" if _skip_reason == "repair_past" else "自愈替换"
+            _logp(f"{_tag} buy_date={bd} 旧行 etf_code 漂移, 删旧行 {_removed} 行重写")
         for p in plan_b:
             for st in _build_steps_for_plan(p, now, sell_date):
                 st["backfilled"] = True
@@ -657,6 +672,9 @@ def main():
     ap.add_argument("--no-r2", action="store_true", help="落盘但不传 R2(自测用)")
     ap.add_argument("--no-notify", action="store_true", help="落盘但不通知(自测用)")
     ap.add_argument("--no-backfill", action="store_true", help="关闭历史持仓回填段(自测/临时关)")
+    ap.add_argument("--repair-backfill", action="store_true",
+                    help="一次性修复模式: 豁免 _idempotency_check ⑤ gate, 允许 replace 已过执行日的漂移 "
+                         "backfilled 历史行(commit 2f9502a92 改信号日冻结分前写错的行; 日常勿用)")
     args = ap.parse_args()
 
     T = args.date or _today()
@@ -743,12 +761,17 @@ def main():
     steps_changed = False
     if plan:
         _new_codes = {str(p.get("etf_code") or "") for p in plan}
-        _action, _removed = _idempotency_check(steps_doc["steps"], buy_date, _new_codes)
+        _action, _removed, _skip_reason = _idempotency_check(
+            steps_doc["steps"], buy_date, _new_codes, allow_past_replace=args.repair_backfill)
         if _action == "skip":
-            log(f"auto_trade_steps 已含执行日 date={buy_date} 且 etf_code 一致, 幂等跳过追加")
+            if _skip_reason == "gate_past":
+                log(f"auto_trade_steps 漂移但已过执行日 date={buy_date}, ⑤ gate 禁 replace, 幂等跳过(不改写历史)")
+            else:
+                log(f"auto_trade_steps 已含执行日 date={buy_date} 且 etf_code 一致, 幂等跳过追加")
         else:
             if _action == "replace":
-                log(f"auto_trade_steps 自愈替换: 执行日 date={buy_date} 旧行 etf_code 与本次重算 "
+                _repair_tag = "修复替换(--repair-backfill)" if _skip_reason == "repair_past" else "自愈替换"
+                log(f"auto_trade_steps {_repair_tag}: 执行日 date={buy_date} 旧行 etf_code 与本次重算 "
                     f"top1 {sorted(_new_codes)} 漂移, 删旧行 {_removed} 行重写")
             for p in plan:
                 # 卖出日 = 信号日后第 10 交易日(A 模式 hold_days=10, 与回测 sell_date 口径一致)
@@ -762,7 +785,7 @@ def main():
     # 历史持仓回填段(#106): 窗口内每个历史交易日 T' 重演当日计划, 补未到期卖出行(幂等并入同一判定)
     if not args.no_backfill:
         if _backfill_historical_groups(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s06,
-                                       steps_doc, now):
+                                       steps_doc, now, repair_backfill=args.repair_backfill):
             steps_changed = True
 
     conn.close()  # 回填段为 conn 最后使用点, 后续落盘/R2/notify 均不依赖 SQLite 连接
