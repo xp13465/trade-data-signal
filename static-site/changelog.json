@@ -142,5 +142,8 @@
   ],
   "20260918-a598": [
     "feat(lab): \u4eca\u65e5\u52a8\u4f5c\u5168\u90e8\u64cd\u4f5c\u5b8c\u540e\u300c\u4eca\u5929\u300d\u884c\u4fdd\u7559\u5df2\u64cd\u4f5c\u6001\u7eff\u6846"
+  ],
+  "20260919-a600": [
+    "build(min+bump): \u79fb\u52a8\u7aef\u4fdd\u7559\u5206\u4eab/\u767b\u5f55\u5165\u53e3\u540e\u91cd\u5efa style.min + bump v20260919-a599"
   ]
 }
