@@ -47,7 +47,7 @@ if [ "${STATICDATA_SYNC_LOCKED:-}" != "1" ]; then
   if [ "${STATICDATA_SYNC_NONBLOCK:-}" = "1" ]; then
     exec "$PY" "$GIT_REPO/scripts/with_lock.py" --nb "$LOCK" bash "$0" "$@"
   else
-    exec "$PY" "$GIT_REPO/scripts/with_lock.py" "$LOCK" bash "$0" "$@"
+    exec "$PY" "$GIT_REPO/scripts/with_lock.py" --block-timeout 3600 "$LOCK" bash "$0" "$@"
   fi
 fi
 
