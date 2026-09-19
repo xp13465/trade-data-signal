@@ -83,6 +83,7 @@ WAITED=0
 while pgrep -f 'update_all\.sh' >/dev/null 2>&1; do
   if [ "$WAITED" -ge "$WAIT_MAX" ]; then
     echo "⚠ update_all 仍运行中（已等 ${WAITED}s），超时放弃本次 lab（避免读旧数据）" | tee -a "$LOG"
+    echo "=== update_lab.sh 结束（超时放弃）$(date '+%Y-%m-%d %H:%M:%S') 退出码=1 ===" | tee -a "$LOG"
     exit 1
   fi
   echo "update_all 仍在运行，等待...（${WAITED}s）" | tee -a "$LOG"

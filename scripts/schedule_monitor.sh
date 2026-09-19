@@ -682,9 +682,14 @@ LAUNCHCTL_LABELS = [
 
 def launchctl_loaded(label):
     """检查任务是否已加载（macOS launchctl print / Linux systemctl is-active）。
-    条件兼容：检测到 systemctl 用 is-active，active/inactive 算已加载，failed/不存在算未加载；
-    否则走 macOS launchctl print（returncode!=0 或无 `state = ` 行 = 未加载）。
-    调用失败（timeout/异常）保守视为未加载（告警）。
+    返回三态字符串：
+      'loaded'      = 已加载且正常（active/inactive 均算，unit 已注册）
+      'failed'      = 已加载但运行失败（systemd is-active 返回 failed）——不是未加载！
+      'not_loaded'  = 未加载（unit 不存在 / launchctl 探测不到 / 调用失败保守处理）
+    语义修正(2026-09-19): 原实现把 failed 与不存在一律归「未加载」，
+    与 exit!=0 通道（schedule_stats.json last_exit）对同一现象双登记制造噪音。
+    现改为 failed 单独成态：failed=unit 存在但运行失败，运行失败信息由
+    exit!=0 通道登记，launchctl 通道只负责真未加载（unit 不存在/未注册）。
     """
     if shutil.which("systemctl"):
         # Linux: systemd unit 名 = launchd label 把 com.trade. 前缀映射成 trade-（云上实际 unit 名）
@@ -695,13 +700,14 @@ def launchctl_loaded(label):
                 capture_output=True, text=True, timeout=10,
             )
         except Exception:
-            return False  # 调用失败保守视为未加载（告警）
+            return "not_loaded"  # 调用失败保守视为未加载（告警）
         st = (r.stdout or "").strip()
         # is-active 退出码: 0=active(在跑), 3=inactive(unit 已注册未跑), 4=unit 不存在;
-        # failed 也是 3 但 stdout='failed'。active/inactive 算已加载, failed/不存在算未加载。
+        # failed 也是 3 但 stdout='failed'。active/inactive 算 loaded, failed 算 failed(已加载但运行失败),
+        # 只有 unit 不存在(exit 4)才算 not_loaded。
         if st == "failed":
-            return False
-        return r.returncode in (0, 3)
+            return "failed"
+        return "loaded" if r.returncode in (0, 3) else "not_loaded"
     # macOS: launchctl print
     try:
         r = subprocess.run(
@@ -709,10 +715,10 @@ def launchctl_loaded(label):
             capture_output=True, text=True, timeout=10,
         )
     except Exception:
-        return False  # 调用失败保守视为未加载（告警）
+        return "not_loaded"  # 调用失败保守视为未加载（告警）
     if r.returncode != 0:
-        return False
-    return bool(re.search(r"^\s*state = .+$", r.stdout, re.MULTILINE))
+        return "not_loaded"
+    return "loaded" if re.search(r"^\s*state = .+$", r.stdout, re.MULTILINE) else "not_loaded"
 
 
 def not_loaded_help(label):
@@ -728,8 +734,17 @@ def not_loaded_help(label):
 
 
 for _label in LAUNCHCTL_LABELS:
-    if launchctl_loaded(_label):
+    _lstate = launchctl_loaded(_label)
+    if _lstate == "loaded":
         continue  # 已加载，不 add seen（让恢复检测处理 active/pending->recovered）
+    if _lstate == "failed":
+        # 2026-09-19 语义修正: failed=已加载但运行失败, 不是"未加载"。
+        # 运行失败信息由 exit!=0 通道(schedule_stats.json last_exit)登记并去重,
+        # launchctl 通道不在此双登记(消除同一现象 not_loaded+exit!=0 两条告警噪音)。
+        # 不 add seen: 本通道不认 failed 为 not_loaded, 若此前 not_loaded 已 active,
+        # 由恢复检测按未 seen 判"未加载已消失"(语义正确: 不再未加载, 转为运行失败由 exit!=0 通道接管)。
+        print(f"[skip] {_label} systemd is-active=failed(已加载但运行失败), 交给 exit!=0 通道登记, 不重复 not_loaded")
+        continue
     dedup_key = f"{_label}|not_loaded"
     seen_keys_this_run.add(dedup_key)
     _existing = alert_state.get(dedup_key)
