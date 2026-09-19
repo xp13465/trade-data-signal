@@ -145,5 +145,8 @@
   ],
   "20260919-a600": [
     "build(min+bump): \u79fb\u52a8\u7aef\u4fdd\u7559\u5206\u4eab/\u767b\u5f55\u5165\u53e3\u540e\u91cd\u5efa style.min + bump v20260919-a599"
+  ],
+  "20260919-a601": [
+    "fix(sigkelly-batch2): d/m \u5224\u636e\u65e5\u671f\u5dee\u6539\u7cbe\u786e\u81ea\u7136\u65e5\u5dee, \u4fee\u6708\u8fb9\u754c\u5931\u771f(reviewer \u8fd4\u4fee)"
   ]
 }
