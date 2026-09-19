@@ -19,6 +19,8 @@
 #   8. 调 check_version_progress.py(A/B: 版本串倒退哨兵 + merge 净回退校验) → FAIL 阻断
 #   8.5 pending-index 销账软提醒(只提醒不阻断不自动改, 2026-08-22 用户授权流程小机制)
 #   9. commit(自动追加 Co-Authored-By) + push main
+#   10. merge 即同步: push main 成功后自动 ssh 云上 git pull(2026-09-19 用户定, 根治「忘 pull」;
+#       云上 /home/ubuntu/code/trade-data 手动 pull, 不 pull 不生效。失败不静默打醒目 [!!] 告警 + exit 6)
 #
 # 用法:
 #   bash scripts/main-merge.sh <feat 分支名> [--dry-run]
@@ -366,4 +368,48 @@ if ! $GIT push origin main; then
   $GIT push origin main
 fi
 echo "✓ push main 成功"
-echo "=== main-merge.sh 完成(feat=$FEAT 已合入并推送 main) ==="
+
+# 10. merge 即同步: push main 成功后自动 ssh 云上 git pull(2026-09-19 用户定, 根治「忘 pull」)
+#     背景: 云上 trade-data 是手动 git pull, 不 pull 不生效(如 check_data_integrity.py 改查 R2 的
+#           commit 3f245e446 合入 origin/main 后, 云上不 pull 就仍跑旧校验, 用户已拍板根治)。
+#     说明: 云上 /home/ubuntu/code/trade-data 的 scripts 等目录是 symlink 指向真实 git 仓库
+#           /home/ubuntu/code/trade-data-signal(2026-09-15 阶段4b 单仓路径, 原 /opt/trade;
+#           memory trade-data-code-dirs-are-symlinks)。pull 必须在真实 git 仓库内执行,
+#           故 cd 进 $CLOUD_GIT_REPO。ssh 必须带 -i ~/tdsignal.pem(非默认 id_rsa,
+#           memory ssh-cloud-uses-tdsignal-pem)。失败不静默(§23.11): 醒目 [!!] 告警 + 非零退出。
+CLOUD_SSH_HOST="ubuntu@122.51.111.173"
+CLOUD_SSH_KEY="$HOME/tdsignal.pem"
+CLOUD_GIT_REPO="/home/ubuntu/code/trade-data-signal"
+sync_cloud_pull() {
+  echo "--- 10. merge 即同步: ssh 云上 git pull($CLOUD_GIT_REPO) ---"
+  if [[ ! -f "$CLOUD_SSH_KEY" ]]; then
+    echo "[!!] 云上代码同步失败: 本机私钥 $CLOUD_SSH_KEY 不存在" >&2
+    echo "    请主控手动执行: ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 'cd $CLOUD_GIT_REPO && git pull origin main'" >&2
+    return 1
+  fi
+  local out rc=0
+  # 注意: set -e 下命令替换非零会触发退出, 用 || rc=$? 接住 ssh 退出码再自行判断
+  out="$(ssh -o ConnectTimeout=15 -i "$CLOUD_SSH_KEY" "$CLOUD_SSH_HOST" "cd $CLOUD_GIT_REPO && git pull origin main" 2>&1)" || rc=$?
+  if [[ $rc -ne 0 ]]; then
+    echo ""
+    echo "  ██████████████████████████████████████████████████████████████████████" >&2
+    echo "  [!!] 云上代码同步失败(ssh 退出码=$rc), 生产校验脚本仍是旧版" >&2
+    echo "      main 已 push 成功, 但云上未 pull, 请主控立即手动同步:" >&2
+    echo "      ssh -i $CLOUD_SSH_KEY $CLOUD_SSH_HOST 'cd $CLOUD_GIT_REPO && git pull origin main'" >&2
+    echo "     ssh 输出如下:" >&2
+    echo "    --------------------------------------------------------------" >&2
+    echo "$out" | sed 's/^/    /' >&2
+    echo "    --------------------------------------------------------------" >&2
+    echo "  ██████████████████████████████████████████████████████████████████████" >&2
+    echo ""
+    return 1
+  fi
+  # 成功: 回显 pull 结果(Updating/Already up to date/Fast-forward)
+  echo "$out" | sed 's/^/    /'
+  local cloud_head
+  cloud_head="$(ssh -o ConnectTimeout=15 -i "$CLOUD_SSH_KEY" "$CLOUD_SSH_HOST" "git -C $CLOUD_GIT_REPO rev-parse --short HEAD" 2>/dev/null || echo '?')"
+  echo "✓ 云上已同步到 origin/main($cloud_head)"
+  return 0
+}
+sync_cloud_pull || { echo "✗ main 已 push 但云上同步失败, 见上方 [!!] 告警。请手动 ssh pull 后人工补同步(§23.11 不静默)" >&2; exit 6; }
+echo "=== main-merge.sh 完成(feat=$FEAT 已合入并推送 main, 云上已同步) ==="
