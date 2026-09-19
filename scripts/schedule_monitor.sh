@@ -679,6 +679,18 @@ LAUNCHCTL_LABELS = [
     # 不含 com.trade.schedule-monitor 自己（防递归，靠 heartbeat 兜底）
 ]
 
+# 被 exit!=0 通道覆盖的 label 集合（单一事实源：由已加载的 schedule_stats stats 推导，
+# task -> label 映射规则 `com.trade.{task 下划线转连字符}` 与 gen_schedule_stats LABEL_MAP 一致）。
+# 这些 label 的 failed 状态由 exit!=0 通道（schedule_stats.json last_exit）登记，
+# launchctl failed 分支 skip 防双登记。不在该集合的 label（如 com.trade.self-heal：
+# 自身不在 gen_schedule_stats TASKS，exit!=0 通道读不到它）failed 时必须降级告警
+# 保留发现能力，否则自愈机制失效完全静默（2026-09-19 review 阻断项）。
+# ⚠️ 该集合为空（stats 刷新失败/无数据）= 保守降级：所有 failed 都走降级告警（宁可多告警不漏报）。
+_schedule_stats_labels = {
+    "com.trade." + s.get("task", "").replace("_", "-")
+    for s in stats if s.get("task")
+}
+
 
 def launchctl_loaded(label):
     """检查任务是否已加载（macOS launchctl print / Linux systemctl is-active）。
@@ -738,12 +750,43 @@ for _label in LAUNCHCTL_LABELS:
     if _lstate == "loaded":
         continue  # 已加载，不 add seen（让恢复检测处理 active/pending->recovered）
     if _lstate == "failed":
-        # 2026-09-19 语义修正: failed=已加载但运行失败, 不是"未加载"。
-        # 运行失败信息由 exit!=0 通道(schedule_stats.json last_exit)登记并去重,
-        # launchctl 通道不在此双登记(消除同一现象 not_loaded+exit!=0 两条告警噪音)。
-        # 不 add seen: 本通道不认 failed 为 not_loaded, 若此前 not_loaded 已 active,
-        # 由恢复检测按未 seen 判"未加载已消失"(语义正确: 不再未加载, 转为运行失败由 exit!=0 通道接管)。
-        print(f"[skip] {_label} systemd is-active=failed(已加载但运行失败), 交给 exit!=0 通道登记, 不重复 not_loaded")
+        # 2026-09-19 语义修正 第一层: failed=已加载但运行失败, 不是"未加载"。
+        if _label in _schedule_stats_labels:
+            # 被 exit!=0 通道覆盖的 label: 运行失败信息由 exit!=0 通道
+            # (schedule_stats.json last_exit)登记并去重, launchctl 通道不在此登记
+            # (消除同一现象 not_loaded+exit!=0 两条告警噪音)。
+            # 不 add seen: 本通道不认 failed 为 not_loaded, 若此前 not_loaded 已 active,
+            # 由恢复检测按未 seen 判"未加载已消失"(语义正确: 不再未加载, 转为运行失败由 exit!=0 通道接管)。
+            print(f"[skip] {_label} systemd is-active=failed(已加载但运行失败), 交给 exit!=0 通道登记, 不重复 not_loaded")
+            continue
+        # ⚠️ 语义修正 第二层(2026-09-19 review 阻断项): self-heal 等不在 gen_schedule_stats
+        # TASKS 的 label, exit!=0 通道读不到, 上面 continue 会让 failed 状态彻底静默
+        # (自愈机制失效无人知晓)。此处降级为本通道登记: 首次发 SEVERE + 写 state active,
+        # 已 active = suppress 不重发(去重), 恢复(本 label 才出现/不再 failed)时由恢复检测
+        # 按下条规则发恢复邮件即可(需 add seen 防误报恢复)。
+        # severity=SEVERE 直接发: self-heal 是自愈机制本体, 它 failed 无下游可救, 必须直达人。
+        _failed_key = f"{_label}|failed"
+        seen_keys_this_run.add(_failed_key)
+        _existing_failed = alert_state.get(_failed_key)
+        if _existing_failed is None or _existing_failed.get("status") == "recovered":
+            alerts.append(
+                f"SEVERE: {_label} systemd is-active=failed(运行失败) 且不在 schedule_stats "
+                f"TASKS(exit!=0 通道读不到), 自愈机制失效已无下游接管, 需人工处理"
+            )
+            alert_state[_failed_key] = {
+                "status": "active",
+                "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                "keyword": "failed",
+                "line_sample": _label,
+            }
+            print(f"[self-heal failed] {_label} 运行失败且无 exit!=0 通道覆盖, 首次发 SEVERE")
+        else:
+            # 已 active = 抑制不重发,只 log
+            print(
+                f"[suppress] {_label} systemd is-active=failed(无 exit!=0 覆盖) 持续中, "
+                f"last_alerted={_existing_failed.get('last_alerted')}, 不重发"
+            )
         continue
     dedup_key = f"{_label}|not_loaded"
     seen_keys_this_run.add(dedup_key)
