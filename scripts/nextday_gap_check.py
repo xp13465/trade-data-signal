@@ -18,8 +18,10 @@
       status=skipped + status_text「伪跳空剔除(|开盘/信号日收盘-1|=xx%)」
     - nextday_plan.json: 条目加 gap_excluded:true
 
-数据就绪闸: 开盘价取不到 → 等 --retry-wait 秒(默认 300, 9:26→9:31)重试一次 → 仍失败 →
-    severe 告警 + 买入行 status_text「伪跳空校验未完成(待人工)」(干跑阶段, 不真实下单)。
+数据就绪闸: 开盘价取不到 / 数据日期陈旧(fund_etf_spot_em「数据日期」!= 执行日, F4) → 等
+    --retry-wait 秒(默认 300, 9:26→9:31)重试一次 → 仍失败 → severe 告警 + 买入行 status_text
+    「伪跳空校验未完成(待人工)」(干跑阶段, 不真实下单)。陈旧快照绝不照算旧价(防 9:26 拉到
+    昨日数据误剔真实跳空)。
 
 幂等: 执行日买入行已有「伪跳空」标记 → 跳过, 不重复标记/通知。
 
@@ -94,11 +96,12 @@ def _read_first(paths, name):
     return None, None
 
 
-def _fetch_opens(codes, test_open):
+def _fetch_opens(codes, test_open, expect_date=None):
     """拉执行日开盘价 {etf_code: open}。
 
-    test_open 非空 → 用注入假开盘价(自测, 不拉 akshare);
-    否则复用回测 _fetch_intraday_open_prices(同源同函数, 不另写一份 akshare 拉取)。
+    test_open 非空 → 用注入假开盘价(自测, 不拉 akshare, 不做日期校验);
+    否则复用回测 _fetch_intraday_open_prices(同源同函数, 不另写一份 akshare 拉取),
+    expect_date(=执行日 today)触发 F4 数据日期新鲜度校验(fail-closed)。
     全量失败抛 RuntimeError(由调用方重试 + severe 告警)。
     """
     if test_open:
@@ -113,7 +116,7 @@ def _fetch_opens(codes, test_open):
             except ValueError:
                 continue
         return out
-    return _fetch_intraday_open_prices(codes)
+    return _fetch_intraday_open_prices(codes, expect_date=expect_date)
 
 
 def main():
@@ -167,7 +170,8 @@ def main():
     else:
         for attempt in (1, 2):
             try:
-                opens = _fetch_opens(list(target.keys()), None)
+                # F4: 传执行日 today 做数据日期新鲜度校验(陈旧快照抛 RuntimeError 走重试链)
+                opens = _fetch_opens(list(target.keys()), None, today)
                 break
             except RuntimeError as e:
                 last_err = str(e)

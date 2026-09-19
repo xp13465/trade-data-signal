@@ -603,7 +603,51 @@ def _next_trading_day(signal_date, sorted_dates_list):
     return None
 
 
-def _fetch_intraday_open_prices(codes):
+def _normalize_date_str(v):
+    """把 pandas Timestamp/datetime.date/np.datetime64/str 统一成 YYYYMMDD; 无法解析返回 None。
+
+    实测 fund_etf_spot_em「数据日期」= Timestamp('2026-09-18 00:00:00') → str() 形如
+    '2026-09-18 00:00:00'; numpy datetime64 可能是 '2026-09-18T00:00:00'。两分隔符都处理。
+    """
+    if v is None:
+        return None
+    s = str(v).strip()
+    if not s or s.lower() in ("nan", "nat", "none"):
+        return None
+    s = s.split(" ")[0].split("T")[0].replace("-", "")
+    if len(s) == 8 and s.isdigit():
+        return s
+    return None
+
+
+def _verify_spot_data_date(df, expect_date):
+    """fund_etf_spot_em「数据日期」新鲜度校验(fail-closed, F4)。
+
+    要求数据日期 == expect_date(YYYYMMDD); 陈旧(或超前)快照抛 RuntimeError 拒用,
+    调用方走就绪重试 → 仍陈旧则跳过本轮 + severe 告警, 不照算旧价(防 9:26 误剔真实跳空)。
+    注: 16 前缀 LOF 兜底源(新浪/腾讯实时行情)无日期字段、数量少且为实时快照接口,
+    陈旧风险低, 不单独强制校验; 但主源数据日期校验覆盖整批(fail-closed 优先), 主源陈旧
+    时整批拒用、不落到 LOF 兜底。
+    """
+    if "数据日期" not in df.columns:
+        raise RuntimeError("fund_etf_spot_em 缺「数据日期」列, 无法校验数据新鲜度(拒用)")
+    s = None
+    for v in df["数据日期"].tolist():
+        s = _normalize_date_str(v)
+        if s:
+            break
+    if not s:
+        raise RuntimeError("fund_etf_spot_em「数据日期」全空/无法解析, 无法校验数据新鲜度(拒用)")
+    if s != expect_date:
+        tag = "陈旧" if s < expect_date else "超前"
+        raise RuntimeError(
+            f"fund_etf_spot_em 数据日期={s} != 执行日 {expect_date}({tag}快照), "
+            f"拒用旧价(fail-closed, 走就绪重试)"
+        )
+    return s
+
+
+def _fetch_intraday_open_prices(codes, expect_date=None):
     """盘中(9:40)拉 akshare 真实开盘价, 返回 {etf_code: open_price}。
 
     技术修正(2026-09-08 前置实测): 设计报告 §6/§3 字面写 fund_etf_fund_daily_em 作开盘价源,
@@ -616,6 +660,12 @@ def _fetch_intraday_open_prices(codes):
     接口取今开价(双源主备: 新浪 split(',')[1]=今开, 腾讯 split('~')[5]=今开, 见
     _fetch_lof_open_via_http)。fund_lof_spot_em 曾作兜底但 2026-09-18 云上实测 4 连
     RemoteDisconnected 弃用(与 2026-08-05 历史弃用原因一致)。
+
+    expect_date(可选, YYYYMMDD): 非 None 时做数据日期新鲜度校验(fail-closed, F4),
+    要求 fund_etf_spot_em「数据日期」列 == expect_date, 陈旧快照(如 9:26 拉到昨日数据)抛
+    RuntimeError 拒用旧价(调用方走就绪重试, 仍陈旧则跳过本轮 + severe 告警, 绝不照算旧价)。
+    回测调用(盘中增量档 L1752 等)取的是"执行日当天"真实开盘价且天然即 expect_date 当天,
+    但默认不传保持行为不变; 仅 gap-check 层显式传 today。
 
     失败/空/缺列/目标零命中: 抛 RuntimeError(调用方转退出码 5, 盘中本轮跳过留给 17:50)。
     数据就绪闸保持 fail-closed: 加兜底不放松闸, 任一目标取不到真实开盘价即拒绝发布。
@@ -636,6 +686,11 @@ def _fetch_intraday_open_prices(codes):
             raise RuntimeError(f"akshare fund_etf_spot_em 拉取失败: {type(e).__name__}: {e}") from e
         if df is None or df.empty or "代码" not in df.columns or "开盘价" not in df.columns:
             raise RuntimeError("akshare fund_etf_spot_em 返回空/缺列, 无法取盘中真实开盘价")
+        if expect_date is not None:
+            # F4 数据日期新鲜度校验(2026-09-19): 37 列实测含「数据日期」(pandas Timestamp,
+            # 如 2026-09-18)。9:26 若源返回昨日快照(开盘价非空但陈旧), 照算 gap 可能误剔
+            # 真实跳空 —— 日期陈旧等同取不到当日真实开盘价, fail-closed 抛 RuntimeError。
+            _verify_spot_data_date(df, expect_date)
         for _, row in df[df["代码"].isin(target)].iterrows():
             try:
                 op = float(row.get("开盘价"))
