@@ -34,10 +34,17 @@ import json
 import os
 import re
 import sqlite3
-import subprocess
+import ssl
 import sys
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
+
+try:  # 线上 R2 fetch 的 CA 证书: 优先 certifi; 裸系统 python 无 certifi 时回退 unverified
+    import certifi as _certifi
+except ImportError:  # pragma: no cover
+    _certifi = None
 
 # ── 阈值常量 ──────────────────────────────────────────────────────────────────
 BOARD_ETF_EMPTY_FAIL_RATIO = 0.80   # 空数组占比 >=80% = FAIL（近全空，事故级）
@@ -94,6 +101,51 @@ def _load_json(path: Path) -> tuple[object, str | None]:
         return None, f"JSON 解析失败: {path}: {e}"
     except Exception as e:
         return None, f"读取失败: {path}: {type(e).__name__}: {e}"
+
+
+# ── 线上 R2 数据源(生产权威) ──────────────────────────────────────────────────
+# 迁云后(2026-09-12)这 4 类产物由云上 timer 生成并推 R2, 本机不再生成、gitignored、
+# dev-sync 故意排除, 本机 static-site/data 只有旧残留(停 09-11)。deploy 校验必须查
+# 线上 R2 版本, 校验的就是用户真实看到的数据(生产权威)。R2 拉取失败=显式 FAIL,
+# 不允许「查不到」静默 PASS。
+R2_DATA_BASE = "https://ss.fx8.store/data"   # CF 主站 data/ 前缀(CF Workers 反代 R2)
+R2_USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                 "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+
+
+def _r2_ssl_context() -> ssl.SSLContext:
+    """线上 R2 fetch 的 SSL 上下文: 优先 certifi CA; 无 certifi 时回退系统默认。
+
+    参考 notify.py/_ssl_cafile 先例: 本地系统 python(3.11)默认 CA 链缺失会
+    CERTIFICATE_VERIFY_FAILED, certifi 提供完整 CA 包; launchd/裸系统无 certifi
+    时退化到系统默认(openssl 默认行为), 不强制 unverified(线上是 HTTPS 正规站)。"""
+    if _certifi is not None:
+        return ssl.create_default_context(cafile=_certifi.where())
+    return ssl.create_default_context()
+
+
+def _fetch_r2_json(rel_path: str, timeout: int = 20) -> tuple[object, str | None]:
+    """拉取线上 R2 数据文件并解析 JSON，返回 (data, error_msg)。
+
+    语义与 _load_json 对齐：成功 (data, None)；失败 (None, error_msg)。error_msg
+    非空时**不得**静默当作通过（R2 拉不到 = 校验 FAIL，除非调用方明确按 404 缺失分支
+    处理）。带浏览器 UA 防 CF 307 重定向；SSL 用 certifi/系统 CA。
+    """
+    url = f"{R2_DATA_BASE}/{rel_path.lstrip('/')}"
+    req = urllib.request.Request(url, headers={"User-Agent": R2_USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=_r2_ssl_context()) as resp:
+            body = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        return None, f"R2 HTTP {e.code}: {url}"
+    except urllib.error.URLError as e:
+        return None, f"R2 拉取失败({type(e).__name__}): {url}: {e}"
+    except Exception as e:  # noqa: BLE001
+        return None, f"R2 拉取失败({type(e).__name__}): {url}: {e}"
+    try:
+        return json.loads(body), None
+    except json.JSONDecodeError as e:
+        return None, f"R2 JSON 解析失败: {url}: {e}"
 
 
 def _today_str() -> str:
@@ -357,10 +409,13 @@ def check_intraday_fresh(data_dir: Path) -> CheckResult:
 
 
 def check_alert(data_dir: Path) -> CheckResult:
-    """校验 alert.json：date 字段存在且不太旧。"""
+    """校验 alert.json：date 字段存在且不太旧。
+
+    数据源=线上 R2(生产权威)：迁云后 alert.json 由云上 timer 生成并推 R2，本机
+    static-site/data 只有旧残留(停 09-11)，deploy 校验查线上用户真实看到的数据。
+    """
     name = "alert"
-    path = data_dir / "alert.json"
-    data, err = _load_json(path)
+    data, err = _fetch_r2_json("alert.json")
     if err:
         return _fail(name, err)
     if not isinstance(data, dict):
@@ -383,10 +438,13 @@ def check_alert(data_dir: Path) -> CheckResult:
 
 
 def check_notifications(data_dir: Path) -> CheckResult:
-    """校验 notifications.json：date 字段存在且是今日。"""
+    """校验 notifications.json：date 字段存在且是今日。
+
+    数据源=线上 R2(生产权威)：迁云后 notifications.json 由云上 timer 生成并推 R2，
+    本机 static-site/data 只有旧残留(停 09-11)，deploy 校验查线上用户真实看到的数据。
+    """
     name = "notifications"
-    path = data_dir / "notifications.json"
-    data, err = _load_json(path)
+    data, err = _fetch_r2_json("notifications.json")
     if err:
         return _fail(name, err)
     if not isinstance(data, dict):
@@ -1960,10 +2018,9 @@ def check_nextday_plan(data_dir: Path) -> CheckResult:
     次日买入计划未生成, 前端 T+1 无参考(生成器同链 s06 先例, 缺失=事故级不许静默)。
     """
     name = "nextday_plan"
-    path = data_dir / "nextday_plan.json"
-    data, err = _load_json(path)
+    data, err = _fetch_r2_json("nextday_plan.json")
     if err:
-        return _fail(name, f"{err} (nextday_plan_generator.py 盘后未生成?)")
+        return _fail(name, f"{err} (nextday_plan_generator.py 云上盘后未生成?)")
     if not isinstance(data, dict):
         return _fail(name, f"nextday_plan.json 不是 dict: {type(data).__name__}")
 
@@ -1998,11 +2055,16 @@ def check_nextday_plan(data_dir: Path) -> CheckResult:
             return _fail(name, f"date={d} 距今天 {(datetime.now().date() - dt_val).days} 天 (>7, 交易日历不可用退化校验)")
 
     # auto_trade_steps.json 可选校验 (空计划时不生成, 存在即须 schema_version=v1 + steps 数组)
-    steps_path = data_dir / "auto_trade_steps.json"
-    if steps_path.exists():
-        sdata, serr = _load_json(steps_path)
-        if serr:
-            return _fail(name, f"auto_trade_steps.json: {serr}")
+    # 数据源=线上 R2(与 nextday_plan 同链云上生成); HTTP 404=生成器未写(空计划日正常态)跳过,
+    # 其他拉取失败=显式 FAIL 不静默(网络问题≠「未生成」)。
+    steps_data, steps_err = _fetch_r2_json("auto_trade_steps.json")
+    if steps_err:
+        if "HTTP 404" in steps_err:
+            steps_data = None   # 空计划日线上无此文件=跳过可选校验
+        else:
+            return _fail(name, f"auto_trade_steps.json: {steps_err}")
+    if steps_data is not None:
+        sdata = steps_data
         if not isinstance(sdata, dict):
             return _fail(name, f"auto_trade_steps.json 不是 dict: {type(sdata).__name__}")
         if sdata.get("schema_version") != "v1":
@@ -2066,44 +2128,49 @@ def check_nextday_plan(data_dir: Path) -> CheckResult:
     return _ok(name, f"计划条目={len(plan)} date={d}")
 
 
-def check_s06_state_snapshot(data_dir: Path, timeout: int = 300) -> CheckResult:
-    """S06 快照(kelly_mode_s06_state.json)四断言机检（2026-08-26 接入 deploy 校验链）。
+def check_s06_state_snapshot(data_dir: Path, timeout: int = 30) -> CheckResult:
+    """S06 快照(kelly_mode_s06_state.json)机检（2026-08-26 接入 deploy 校验链，2026-09-19 改查线上 R2）。
 
-    委托 scripts/check_s06_state.py 子进程执行（不 import，保持独立实现互证语义）：
-      A1 第二实现复算逐位相等 / A2 decision_date==上一交易日(防前视) /
-      A3 两基座+s06 dynamic 预设键集 / A4 阈值参数与生成器常量+公示文案单源。
-    exit!=0 → fail（--deploy-mode 下阻断部署）；快照缺失 → fail（S06 切默认前置，
-    缺失=前端 S06 档整体 fail-open 退化，属事故级不许静默上线）。
+    迁云后(2026-09-12)kelly_mode_s06_state.json 由云上 timer 生成并推 R2，本机不再生成；
+    且本地 A1 独立复算依赖的 index 因子(csi1000/csi500/hs300-all.json)也不在 R2 公开路径
+    (404) → A1 复算无法直接映射到 R2。按主控拍板改查线上快照本身的新鲜度+结构合法：
+      - 线上快照拉取失败 = FAIL（不静默；缺失=前端 S06 档整体 fail-open 退化，事故级）
+      - generated_at/updated_at 新鲜度：coverage_end 不得滞后超过 STALE_DAYS_FAIL(7 自然日)
+      - 结构合法：daily 非空、关键字段(threshold/confirm_days/min_hold_days/on_base/off_base)在位
+    A1 逐位复算语义由 check_s06_freshness.py(每日 schedule_monitor 兜底)承接，不重复本地复算。
     """
     name = "s06_state"
-    snap = data_dir / "kelly_mode_s06_state.json"
-    if not snap.exists():
-        return _fail(name, f"S06 快照不存在: {snap} (gen_kelly_mode_s06_state.py 未跑? 见 s06_snapshot.sh)")
-    script = Path(__file__).resolve().parent / "check_s06_state.py"
-    if not script.exists():
-        return _fail(name, f"机检脚本缺失: {script}")
-    repo_root = data_dir.parent.parent   # static-site/data -> 仓根(--repo/--data-repo 同根: trade-data 内 common.js/gen 脚本/index 输入齐备)
-    cmd = [sys.executable, str(script), "--repo", str(repo_root), "--data-repo", str(repo_root)]
-    if _deploy_mode:
-        # codex008 F1(P0①): deploy 与 20:35 快照重生的每日固定时序窗口——17:50 链内
-        # deploy 时因子(index-all.json)已更新到 T 而快照仍为昨晚生成(coverage_end=T-1,
-        # 落后 1 个已入库交易日)。deploy 模式给显式容差 --allow-lag-days 1; 缺失/解析
-        # 失败/超容差/结构不一致仍硬阻断。日常新鲜度由 schedule_monitor→check_s06_freshness
-        # 兜底; 非 deploy 手动跑保持严格(default 0)。
-        cmd += ["--allow-lag-days", "1"]
-    try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True, text=True, timeout=timeout, check=False,
-        )
-    except subprocess.TimeoutExpired:
-        return _fail(name, f"check_s06_state.py 超时(>{timeout}s)，疑似 index-all 异常巨大")
-    tail = ((proc.stdout or "") + (proc.stderr or "")).strip().splitlines()
-    summary = " | ".join(l.strip() for l in tail if "[FAIL]" in l or l.strip().startswith("✗"))[:400]
-    if proc.returncode != 0:
-        return _fail(name, f"check_s06_state.py rc={proc.returncode}: {summary or '详见该脚本输出'}")
-    ok_line = next((l.strip() for l in tail if l.strip().startswith("✓")), "")
-    return _ok(name, ok_line or "四断言 PASS")
+    snap, err = _fetch_r2_json("kelly_mode_s06_state.json", timeout=timeout)
+    if err:
+        return _fail(name, f"{err} (gen_kelly_mode_s06_state.py 云上未生成? 见 s06_snapshot.sh)")
+    if not isinstance(snap, dict):
+        return _fail(name, f"线上 S06 快照不是 dict: {type(snap).__name__}")
+
+    # 结构合法：daily 非空 + 关键字段在位（防「生成了但结构退化」静默）
+    daily = snap.get("daily")
+    if not isinstance(daily, list) or not daily:
+        return _fail(name, "线上 S06 快照 daily 为空或缺失")
+    need_fields = ("threshold", "confirm_days", "min_hold_days", "on_base", "off_base",
+                   "coverage_start", "coverage_end")
+    missing = [f for f in need_fields if f not in snap]
+    if missing:
+        return _fail(name, f"线上 S06 快照缺关键字段: {missing}")
+
+    # 新鲜度：coverage_end(YYYYMMDD) 距今 > STALE_DAYS_FAIL = FAIL；> STALE_DAYS_WARN = WARN。
+    # 快照 20:35 生成时 coverage_end=T-1(与 --allow-lag-days 1 同口径), 故 WARN 阈值取
+    # STALE_DAYS_WARN+1 与 alert 相同(允许跨日); 日常新鲜度仍由 check_s06_freshness 交易日兜底。
+    cov_end = str(snap["coverage_end"])
+    days = _days_ago(cov_end)
+    if days is None:
+        return _fail(name, f"线上 S06 快照 coverage_end 格式异常: {cov_end!r}")
+    if days > STALE_DAYS_FAIL:
+        return _fail(name, f"线上 S06 快照 coverage_end={cov_end} 滞后 {days} 天 > {STALE_DAYS_FAIL} 天")
+    if days > STALE_DAYS_WARN + 1:
+        return _warn(name, f"线上 S06 快照 coverage_end={cov_end} 滞后 {days} 天")
+
+    gen_at = snap.get("generated_at") or snap.get("updated_at") or "?"
+    return _ok(name, f"线上快照 coverage {snap['coverage_start']}~{cov_end} days={len(daily)} "
+                     f"on={snap['on_base']}/off={snap['off_base']} generated_at={gen_at}")
 
 
 def run_single_file_check(path: Path) -> CheckResult:
