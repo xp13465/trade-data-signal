@@ -56,7 +56,10 @@ echo "=== deploy.sh 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
 FORCE=0
 case " $* " in *" force "*) FORCE=1;; esac
 CURRENT_HM=$(date +%H%M)
-IS_TRADING=$(cd "$REPO" && "$PY" -c "from app.calendar import is_trading_day; print(1 if is_trading_day() else 0)" 2>/dev/null || echo 0)
+# 判断失败时保守当交易日(echo 1=拦盘中)：盘中闸本意是「交易日盘中 09:30-15:30 不跑全量
+# export+deploy」，判断失败(calendar import 异常/cd REPO 失败)若误放=可能覆盖 intraday
+# 实时版；失败降级方向与 main-merge.sh is_trading_day_now(失败 exit 2 按交易日保守拦)同向(§14 P0)。
+IS_TRADING=$(cd "$REPO" && "$PY" -c "from app.calendar import is_trading_day; print(1 if is_trading_day() else 0)" 2>/dev/null || echo 1)
 echo "时段闸门: IS_TRADING=${IS_TRADING} CURRENT_HM=$CURRENT_HM FORCE=$FORCE" | tee -a "$LOG"
 if [ "$IS_TRADING" = "1" ] && [ "$CURRENT_HM" -ge 0930 ] && [ "$CURRENT_HM" -le 1530 ] && [ "$FORCE" != "1" ]; then
   echo "✗ 交易日盘中（09:30-15:30），拒跑全量 export+deploy（防覆盖 intraday 实时版；force 可绕过）" | tee -a "$LOG"

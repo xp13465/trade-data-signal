@@ -67,13 +67,28 @@ fi
 START_TS=$(date +%s)
 echo "=== update_lab.sh 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
 
+# force 手动补跑入口（2026-09-19 用户拍板）：bash scripts/update_lab.sh force
+# 背景：9-18 晚 R2 链路波动致 lab 数据停在 9-17，正常要等下一交易日 update_all 后自动补，
+# force 想当天补数据就能补，不用干等。force 只绕过下方两个防呆闸门（非交易日跳过 +
+# 等待 update_all 超时放弃），其余逻辑（回测/写产物/日志/结束行）与非 force 完全一致。
+# ⚠️ 数据来源：补跑依赖 update_all 已入库的日线（researcher 已核实 9-18 日线已入库）；
+#   若 fetch_astock_index_daily 恰好存在 update_all.sh 进程则等完再跑（下方 while 仍生效），
+#   force 仅在自己不等待的情形（非交易日/等满 90min 仍在跑）直接开跑——此时若目标日期
+#   的日线尚未入库，回测会产出与上次相同/更早的结果，日志中 IS_TRADING/等待信息可辨认。
+FORCE=0
+case " $* " in *" force "*) FORCE=1;; esac
+
 # 交易日闸门（非交易日无新日线，跳过省时间；与 update_all.sh 一致）
 IS_TRADING=$("$PY" -c "from app.calendar import is_trading_day; print(1 if is_trading_day() else 0)" 2>/dev/null)
 echo "交易日判断: IS_TRADING=${IS_TRADING:-unknown}" | tee -a "$LOG"
 if [ "$IS_TRADING" != "1" ]; then
-  echo "非交易日，跳过 lab 回测（无新日线）" | tee -a "$LOG"
-  echo "=== update_lab.sh 结束（非交易日）$(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
-  exit 0
+  if [ "$FORCE" = "1" ]; then
+    echo "⚠ force 手动补跑：非交易日仍强制回测（补跑已入库日线，见上方 force 数据来源说明）" | tee -a "$LOG"
+  else
+    echo "非交易日，跳过 lab 回测（无新日线）" | tee -a "$LOG"
+    echo "=== update_lab.sh 结束（非交易日）$(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
+    exit 0
+  fi
 fi
 
 # 等待 update_all 完成（防撞车 + 防读旧数据缺当天）
@@ -82,6 +97,10 @@ WAIT_MAX=5400  # 90 min
 WAITED=0
 while pgrep -f 'update_all\.sh' >/dev/null 2>&1; do
   if [ "$WAITED" -ge "$WAIT_MAX" ]; then
+    if [ "$FORCE" = "1" ]; then
+      echo "⚠ force 手动补跑：update_all 仍运行中（已等 ${WAITED}s），跳过等待强制回测（可能读目标日前最后一份已入库数据，见 force 数据来源说明）" | tee -a "$LOG"
+      break
+    fi
     echo "⚠ update_all 仍运行中（已等 ${WAITED}s），超时放弃本次 lab（避免读旧数据）" | tee -a "$LOG"
     echo "=== update_lab.sh 结束（超时放弃）$(date '+%Y-%m-%d %H:%M:%S') 退出码=1 ===" | tee -a "$LOG"
     exit 1
