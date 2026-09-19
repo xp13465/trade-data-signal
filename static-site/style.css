@@ -435,7 +435,7 @@ main { padding: 16px 24px; }
 .card-realtime-badge.down { color: #2e8b57; border-color: rgba(46,139,87,0.5); background: rgba(46,139,87,0.18); }
 .card-realtime-badge.flat { color: #ff9800; border-color: rgba(255,152,0,0.5); background: rgba(255,152,0,0.18); }
 @media (max-width: 640px) {
-  .card-realtime-badge { font-size: 10px; padding: 1px 5px; top: 26px; right: 6px; }
+  .card-realtime-badge { font-size: 11px; padding: 1px 5px; top: 26px; right: 6px; }
 }
 /* 数据停更水印：北向资金等源端长期停更指标,半透明灰字斜叠卡片中部,叠加不遮蔽数值(点击穿透) */
 .stale-watermark {
@@ -1026,7 +1026,7 @@ main { padding: 16px 24px; }
 /* 2026-08-30: P3d 档(先卖≤3天年轻仓 G/I)红色高亮警示——结果稳定性存疑+实操性差, 用户拍板 H 主推配套(自验项: 红字宽泛/dark·redgold 主题仍红) */
 .sig-kbtn-help-pop-warn-red, .rule-card .rule-card-warn-red { color: #d4380d; font-weight: 700; }
 [data-theme="dark"] .sig-kbtn-help-pop-warn-red, [data-theme="dark"] .rule-card .rule-card-warn-red, [data-theme="redgold"] .sig-kbtn-help-pop-warn-red, [data-theme="redgold"] .rule-card .rule-card-warn-red { color: #ff7875; }
-@media (max-width: 760px) { .sig-kbtn-help-pop { width: min(330px, calc(100vw - 16px)); font-size: 10.5px; padding: 7px 9px; } }
+@media (max-width: 760px) { .sig-kbtn-help-pop { width: min(330px, calc(100vw - 16px)); font-size: 11px; padding: 7px 9px; } }
 /* 2026-08-13 AI 降亏过滤命中灰显: 总开关开 + 命中降亏条件(凯利区实际开启) → 灰显+删除线(建议回避), 与 poscap 灰显视觉区分(更强调) */
 .sig-item.sig-ai-hit { opacity: 0.45; filter: grayscale(0.5); text-decoration: line-through; }
 .sig-ai-hit-badge { font-size: 10px; vertical-align: super; line-height: 0; margin-left: 2px; cursor: help; font-weight: 600; border-radius: 3px; padding: 0 3px; color: #b42318; background: #b423181a; text-decoration: none; }
@@ -1642,7 +1642,7 @@ main { padding: 16px 24px; }
 @media (max-width: 768px) {
   .hist-row-label { flex-basis: 92px; font-size: 11px; }
   .hist-pos-bar-wrap { min-width: 180px; }
-  .hist-pos-scale { font-size: 9px; }
+  .hist-pos-scale { font-size: 11px; }
 }
 .astock-top-grid {
   display: grid;
@@ -3911,7 +3911,7 @@ main { padding: 16px 24px; }
   .h5-tab-name { font-size: 15px; font-weight: 600; color: var(--text-1); white-space: nowrap; }
   .h5-meta { display: flex; align-items: center; gap: 4px; flex-shrink: 0; min-width: 0; overflow: hidden; }
   .pc-collect-time { display: none; }
-  .h5-collect-time { display: inline; font-size: 10px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .h5-collect-time { display: inline; font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
   /* PC tab 栏隐藏（4 tab 移到底部导航）；周期选择器移到 H5 周期条 */
   nav.tabs { display: none; }
@@ -3934,6 +3934,7 @@ main { padding: 16px 24px; }
   .h5-periods button {
     padding: 5px 14px; border: 1px solid var(--border-strong); background: var(--bg-card);
     border-radius: var(--radius-sm); font-size: 13px; cursor: pointer; flex-shrink: 0; color: var(--text-2);
+    min-height: 44px;
   }
   .h5-periods button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 
@@ -3967,7 +3968,7 @@ main { padding: 16px 24px; }
   .card.kpi { min-width: 0; padding: 10px 12px; }
   .card.kpi .card-value { font-size: 20px; }
   /* 盘中标注角标移动端更小，避免遮住 KPI 数值；大卡(走势图)右上角，小卡(KPI)右下角 */
-  .card-time-badge { font-size: 10px; padding: 1px 5px; bottom: 5px; right: 6px; }
+  .card-time-badge { font-size: 11px; padding: 1px 5px; bottom: 5px; right: 6px; }
   .chart-card .card-time-badge { top: 5px; right: 6px; bottom: auto; }
   .chart-card.hm-badge-bottom .card-time-badge { top: auto; bottom: 5px; right: 6px; }
   .card.kpi .card-time-badge { font-size: 9px; padding: 1px 4px; bottom: 3px; right: 4px; }
@@ -4023,7 +4024,7 @@ main { padding: 16px 24px; }
   .summary-title-text { font-size: 14px; font-weight: 600; }
   .summary-meta { flex-wrap: nowrap; flex-shrink: 0; order: 1; }   /* order:1 排在 title(0) 之后 titleTags(2) 之前 */
   /* 移动端横幅两按钮(AI预测+更多)缩字号防溢出 */
-  .summary-ai-btn, .summary-history-btn { padding: 2px 7px; font-size: 11px; margin-left: 5px; }
+  .summary-ai-btn, .summary-history-btn { padding: 2px 7px; font-size: 11px; margin-left: 5px; min-height: 44px; }
   .summary-title-tags { flex: 0 0 100%; margin-top: 2px; order: 2; }   /* order:2 排到 meta 之后,避免 DOM 顺序 title->titleTags->meta 时 titleTags 100% 把 meta 挤到行3;视觉顺序 title->meta->titleTags,行1 title+meta 同行,行2 titleTags 独占 */
   .summary-time-label { display: none; }
 
@@ -4061,7 +4062,7 @@ main { padding: 16px 24px; }
   .h5-bottomnav button {
     flex: 1; border: none; background: transparent; cursor: pointer;
     display: flex; flex-direction: column; align-items: center; gap: 2px;
-    padding: 4px 0; color: var(--text-3); font-size: 11px;
+    padding: 4px 0; color: var(--text-3); font-size: 11px; min-height: 44px;
   }
   .h5-bottomnav button.active { color: var(--primary); }
   .h5-bottomnav .bn-icon { font-size: 20px; line-height: 1; }
