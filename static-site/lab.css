@@ -2829,6 +2829,10 @@ td.lab-sigkelly-elim-reason { text-decoration: none; color: var(--text-2); font-
   .lab-sigkelly-wm-cmp-noop-badge { font-size: 11px; }
   .lab-sigkelly-toggle-hint,
   .lab-sigkelly-toggle-tip { font-size: 11px; }
+  /* --- 实操提醒(auto-trade-steps)全局 10px 覆盖为 ≥11px(外审返修) --- */
+  .auto-trade-steps-etfname { font-size: 11px; }
+  .auto-trade-steps-backfilled-badge { font-size: 11px; }
+  .auto-trade-steps-rt-pl { font-size: 11px; }
   /* --- 点击目标 ≥44px(按钮/chip/开关/折叠summary) --- */
   .lab-sigkelly-periods .lab-sigkelly-period-btn { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
   .lab-sigkelly-params-toggle { min-height: 44px; display: inline-flex; align-items: center; }

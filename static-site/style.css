@@ -7355,4 +7355,7 @@ select.tds-fade-mode-sel:hover, select.tds-fade-mode-sel:focus { border-color: v
   /* §5 版本更新 toast 改小 pill(单行紧凑, 不遮挡主数据) */
   #sw-update-toast { padding: 8px 12px; font-size: 12px; border-radius: 20px; max-width: 92vw; }
   #sw-update-toast .sw-update-btn { padding: 2px 8px; font-size: 11px; }
+
+  /* 帮助弹窗脚注(sig-kbtn-help-pop-foot)全局 10px 覆盖为 ≥11px(外审返修) */
+  .sig-kbtn-help-pop-foot { font-size: 11px; }
 }
