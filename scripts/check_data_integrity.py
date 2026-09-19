@@ -35,6 +35,7 @@ import os
 import re
 import sqlite3
 import ssl
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -72,8 +73,6 @@ KEY_FILES_STATIC = [
     "overview.json",
     "boot.json",
     "intraday_snapshot.json",
-    "alert.json",
-    "notifications.json",
     "schedule_stats.json",
     "fund_score.json",
     "ad_line.json",
@@ -2128,19 +2127,60 @@ def check_nextday_plan(data_dir: Path) -> CheckResult:
     return _ok(name, f"计划条目={len(plan)} date={d}")
 
 
-def check_s06_state_snapshot(data_dir: Path, timeout: int = 30) -> CheckResult:
-    """S06 快照(kelly_mode_s06_state.json)机检（2026-08-26 接入 deploy 校验链，2026-09-19 改查线上 R2）。
+def check_s06_state_snapshot(data_dir: Path, timeout: int = 300) -> CheckResult:
+    """S06 快照(kelly_mode_s06_state.json)机检（2026-08-26 接入 deploy 校验链；2026-09-19 分级）。
 
-    迁云后(2026-09-12)kelly_mode_s06_state.json 由云上 timer 生成并推 R2，本机不再生成；
-    且本地 A1 独立复算依赖的 index 因子(csi1000/csi500/hs300-all.json)也不在 R2 公开路径
-    (404) → A1 复算无法直接映射到 R2。按主控拍板改查线上快照本身的新鲜度+结构合法：
-      - 线上快照拉取失败 = FAIL（不静默；缺失=前端 S06 档整体 fail-open 退化，事故级）
-      - generated_at/updated_at 新鲜度：coverage_end 不得滞后超过 STALE_DAYS_FAIL(7 自然日)
-      - 结构合法：daily 非空、关键字段(threshold/confirm_days/min_hold_days/on_base/off_base)在位
-    A1 逐位复算语义由 check_s06_freshness.py(每日 schedule_monitor 兜底)承接，不重复本地复算。
+    两级互证(2026-09-19 reviewer 证伪补强, 防「带病快照穿透 deploy」):
+      ① 本地 data_dir 存在 kelly_mode_s06_state.json **且 coverage_end 新鲜(近 7 天)** →
+         即云上工作区=将上传版本, 继续跑 scripts/check_s06_state.py 子进程 A1-A6 完整互证
+         (A1 独立第二实现复算 / A2 decision_date 防前视 / A3 两基座+s06 预设键集 /
+          A4 阈值与生成器常量+公示文案单源 / A5 锁死不变式 / A6 前段元数据)。exit!=0 → FAIL。
+      ② 本地快照缺失或过期(如本机 09-11 旧残留) → 降级查线上 R2 现役快照新鲜度+结构合法
+         (校验用户真实看到的线上版本)。
+    两级都不静默 PASS：本地新鲜 → A1-A6 任一断言 FAIL 即 FAIL；本地缺失/过期 →
+    R2 拉取失败/JSON 解析失败/结构退化/coverage_end 过期也 FAIL。本地快照解析失败 =
+    将上传版本损坏 → 直接 FAIL 不降级(降级会查 R2 健康版掩盖本地带病产物)。
     """
     name = "s06_state"
-    snap, err = _fetch_r2_json("kelly_mode_s06_state.json", timeout=timeout)
+    snap_path = data_dir / "kelly_mode_s06_state.json"
+    local_fresh = False
+    if snap_path.exists():
+        snap_local, serr = _load_json(snap_path)
+        if serr:
+            return _fail(name, f"S06 本地快照解析失败: {serr} (将上传版本损坏, 不许降级掩盖)")
+        if not isinstance(snap_local, dict):
+            return _fail(name, f"S06 本地快照不是 dict: {type(snap_local).__name__}")
+        cov_end = str(snap_local.get("coverage_end") or "")
+        days = _days_ago(cov_end)
+        if days is None:
+            return _fail(name, f"S06 本地快照 coverage_end 格式异常: {cov_end!r}")
+        local_fresh = days <= STALE_DAYS_FAIL
+
+    if local_fresh:
+        # ── ① 本地新鲜 → A1-A6 完整互证(校验「将上传的快照」本身逐位正确) ──
+        script = Path(__file__).resolve().parent / "check_s06_state.py"
+        if not script.exists():
+            return _fail(name, f"机检脚本缺失: {script}")
+        repo_root = data_dir.parent.parent   # static-site/data -> 仓根
+        cmd = [sys.executable, str(script), "--repo", str(repo_root), "--data-repo", str(repo_root)]
+        if _deploy_mode:
+            # 与 a2ad36b8f^ 原语义一致: 17:50 链内 deploy 时因子已更新到 T 而快照仍为昨晚
+            # (coverage_end=T-1), 给显式容差 --allow-lag-days 1; 缺失/解析失败/超容差/结构
+            # 不一致仍硬阻断。日常新鲜度由 check_s06_freshness 兜底。
+            cmd += ["--allow-lag-days", "1"]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+        except subprocess.TimeoutExpired:
+            return _fail(name, f"check_s06_state.py 超时(>{timeout}s)，疑似 index-all 异常巨大")
+        tail = ((proc.stdout or "") + (proc.stderr or "")).strip().splitlines()
+        summary = " | ".join(l.strip() for l in tail if "[FAIL]" in l or l.strip().startswith("✗"))[:400]
+        if proc.returncode != 0:
+            return _fail(name, f"check_s06_state.py rc={proc.returncode}: {summary or '详见该脚本输出'}")
+        ok_line = next((l.strip() for l in tail if l.strip().startswith("✓")), "")
+        return _ok(name, ok_line or "A1-A6 互证 PASS")
+
+    # ── ② 本地缺失/过期 → 降级查线上 R2 现役快照(用户真实看到的数据) ──
+    snap, err = _fetch_r2_json("kelly_mode_s06_state.json", timeout=min(timeout, 30))
     if err:
         return _fail(name, f"{err} (gen_kelly_mode_s06_state.py 云上未生成? 见 s06_snapshot.sh)")
     if not isinstance(snap, dict):
