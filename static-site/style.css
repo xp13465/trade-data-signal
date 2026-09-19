@@ -7358,4 +7358,62 @@ select.tds-fade-mode-sel:hover, select.tds-fade-mode-sel:focus { border-color: v
 
   /* 帮助弹窗脚注(sig-kbtn-help-pop-foot)全局 10px 覆盖为 ≥11px(外审返修) */
   .sig-kbtn-help-pop-foot { font-size: 11px; }
+
+  /* ===== 移动端字号补全(2026-09-19, 纯CSS, 桌面>760px 零回归) =====
+     扫描全文件 <11px 规则, 移动端可见可读标签统一覆盖 ≥11px (只加覆盖不动全局定义)。
+     保持不动(judgment): sig-acc-dot色点/rule-toggle箭头/sim-cmp-arrow排序箭头=装饰图标;
+     card-time-badge 9px/10px=防遮KPI数值设计(外审已定保留, 移动端特例已覆盖); clickable-card::after=桌面hover专属 */
+  #refresh-debug { font-size: 11px; }
+  .chip-weak-placeholder .chip-tip,
+  .chip-overfit-placeholder .chip-tip,
+  .overfit-warn-row .warn-tip { font-size: 11px; }
+  .comp-w { font-size: 11px; }
+  .chart-hint .hint-concept,
+  .chart-hint .hint-minor-tag { font-size: 11px; }
+  .sig-late-badge, .sig-score, .sig-poscap-badge { font-size: 11px; }
+  .sig-kbtn-r, .sig-kbtn-help .sig-kbtn-r { font-size: 11px; }
+  .sig-ai-hit-badge, .sig-correct { font-size: 11px; }
+  .kpi-sent-tooltip .kst-comp-title,
+  .kpi-sent-tooltip .kst-comp-row { font-size: 11px; }
+  .kpi-forecast-pop .kfp-dev-label { font-size: 11px; }
+  .card.kpi .card-value .cv-tags .tag,
+  .card.kpi .card-value .cv-val .tag { font-size: 11px !important; }
+  .dyn-pulse { font-size: 11px; }
+  .hist-pos-scale { font-size: 11px; }
+  .etf-tag { font-size: 11px; }
+  .etf-tag .etf-more,
+  .etf-tag .etf-approx-mark,
+  .etf-tag.etf-tag-empty { font-size: 11px; }
+  .etf-pop-title, .etf-pop-sig { font-size: 11px; }
+  .etf-pop-row .etf-approx-mark,
+  .etf-pop-type { font-size: 11px; }
+  .etf-pop-track, .etf-match-tag { font-size: 11px; }
+  .etf-pop-pnl { font-size: 11px; }
+  .industry-cell .signal-chip-row .signal-chip,
+  .industry-cell .signal-chip-row .chip-weak-placeholder,
+  .industry-cell .signal-chip-row .chip-overfit-placeholder,
+  .industry-cell .overfit-warn-row { font-size: 11px; }
+  .industry-cell .overfit-warn-row .warn-tip { font-size: 11px; }
+  .spark-cell .chart-hint,
+  .spark-cell .chart-hint .hint-strategy,
+  .spark-cell .chart-hint .hint-header { font-size: 11px; }
+  .ind-metric-empty,
+  .ind-metric-label,
+  .ind-metric-val { font-size: 11px; }
+  .collect-health-tag { font-size: 11px; }
+  .accuracy-table td.acc-cell-low small,
+  .accuracy-table td.acc-cell-high small { font-size: 11px; }
+  .gt-src { font-size: 11px; }
+  .news-src { font-size: 11px; }
+  .trade-sim-modal-body .sim-fee-hint { font-size: 11px; }
+  .hold-src-badge { font-size: 11px; }
+  .lab-aiscore-nt { font-size: 11px; }
+  .etf-nt-tag, .etf-hold-tag { font-size: 11px; }
+  .pin-stat-item .hint-sig { font-size: 11px; }
+  .pin-disclaimer { font-size: 11px; }
+  .overfit-acc-title .ov-sub,
+  .overfit-risk-title .ov-sub { font-size: 11px; }
+  .sim-buytime-bd { font-size: 11px; }
+  .simbt-obs { font-size: 11px; }
+  .sim-etf-name-sub { font-size: 11px; }
 }

@@ -2850,4 +2850,40 @@ td.lab-sigkelly-elim-reason { text-decoration: none; color: var(--text-2); font-
   .lab-sigkelly-toggle-detail-btn,
   .lab-sigkelly-buybasis-btn,
   .lab-sigkelly-ai-switch-btn { min-height: 44px; display: inline-flex; align-items: center; }
+
+  /* ===== 移动端字号补全(2026-09-19, 纯CSS, 桌面>760px 零回归) =====
+     扫描全文件 <11px 规则, 移动端可见可读标签统一覆盖 ≥11px (只加覆盖不动全局定义)。
+     保持不动(judgment): caret/箭头图标(elim-arrow/review-summary/cat-caret)=装饰; 600px段已隐藏/外审已覆盖的不重复 */
+  .lab-mw, .lab-mn, .lab-my { font-size: 11px; }
+  .lab-matrix-good .lab-mw { font-size: 11px; }
+  .lab-sim-pair-card .pc-meta,
+  .lab-sim-pair-card .pc-mode-tag,
+  .lab-sim-pair-card .pc-win-sm,
+  .lab-sim-holding-tag { font-size: 11px; }
+  .lab-rank-small, .lab-rank-honor-badge { font-size: 11px; }
+  .lab-retest-rank-sub, .lab-idx-tag { font-size: 11px; }
+  .lab-gross-tag, .lab-compound-tag { font-size: 11px; }
+  .lab-kelly-evo-n,
+  .lab-kelly-evo-cal-tag,
+  .lab-kelly-evo-cell .lab-kelly-evo-poll-badge { font-size: 11px; }
+  .lab-sigkelly-kbtn-r { font-size: 11px; }
+  .lab-sigkelly-fee-hint { font-size: 11px; }
+  .lab-sigkelly-mode-compare-note,
+  .lab-sigkelly-mode-tagline,
+  .lab-sigkelly-mode-caliber,
+  .lab-sigkelly-mode-chip,
+  .lab-sigkelly-mode-perf,
+  .lab-sigkelly-mode-compare-foot { font-size: 11px; }
+  .lab-sigkelly-rec-badge,
+  .lab-sigkelly-toggle-new,
+  .lab-sigkelly-toggle-linked { font-size: 11px; }
+  .lab-sigkelly-modelbl,
+  .lab-sigkelly-tier { font-size: 11px; }
+  #lab-kelly-gih-compare-body .lab-sigkelly-gihc-mode-th .lab-sigkelly-modelbl,
+  #lab-kelly-gih-compare-body .lab-sigkelly-gihc-metric { font-size: 11px; }
+  .lab-sigkelly-trades-etfname-sub,
+  .lab-sigkelly-trades-amt-sub,
+  .lab-sigkelly-trades-price-sub { font-size: 11px; }
+  .lab-sigkelly-navgap-tag,
+  .lab-sigkelly-est-tag { font-size: 11px; }
 }
