@@ -30,11 +30,12 @@ async function runMobile() {
     const h = s => { const el = q(s); return el ? Math.round(el.getBoundingClientRect().height) : null; };
     const hidden = s => { const el = q(s); return el ? (el.offsetHeight === 0 || getComputedStyle(el).display === "none") : null; };
     return {
-      disclaimerHidden: hidden(".lab-top-disclaimer"),
+      disclaimerH: h(".lab-top-disclaimer"),
       guideOpen: q(".lab-newbie-guide") ? q(".lab-newbie-guide").open : null,
       guideH: h(".lab-newbie-guide"),
       purposeH: h(".purpose-note"),
-      autoStepsHidden: hidden(".auto-trade-steps"),
+      autoStepsH: h(".auto-trade-steps"),
+      autoStepsSummary: !!document.querySelector(".auto-trade-steps-collapse summary"),
       adviceH: h(".lab-sigkelly-advice"),
       gridTop: top(".lab-sigkelly-grid") || top(".lab-sigkelly-group"),
       overflowPx: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -42,10 +43,10 @@ async function runMobile() {
   });
 
   console.log("\n[mobile 390x844]", JSON.stringify(m));
-  ok("M1 免责 lab-top-disclaimer 已隐藏", m.disclaimerHidden === true);
+  ok("M1 免责 lab-top-disclaimer 折叠(≤80px)", m.disclaimerH !== null && m.disclaimerH <= 80, `h=${m.disclaimerH}`);
   ok("M2 新手引导默认收起(<70px)", m.guideH !== null && m.guideH < 70, `open=${m.guideOpen} h=${m.guideH}`);
   ok("M3 purpose-note 折叠(≤60px)", m.purposeH !== null && m.purposeH <= 60, `h=${m.purposeH}`);
-  ok("M4 实操提醒 auto-trade-steps 已收起/隐藏", m.autoStepsHidden === true);
+  ok("M4 实操提醒 auto-trade-steps 折叠(≤60px+可展开summary)", m.autoStepsH !== null && m.autoStepsH <= 60 && m.autoStepsSummary, `h=${m.autoStepsH} summary=${m.autoStepsSummary}`);
   ok("M5 建议指南 advice 折叠(≤120px)", m.adviceH !== null && m.adviceH <= 120, `h=${m.adviceH}`);
   ok("M6 主数据网格 top ≤1600", m.gridTop !== null && m.gridTop <= 1600, `top=${m.gridTop}`);
   ok("M7 无横向溢出", m.overflowPx <= 0, `overflow=${m.overflowPx}px`);
