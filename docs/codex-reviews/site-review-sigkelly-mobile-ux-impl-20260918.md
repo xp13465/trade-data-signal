@@ -16,16 +16,17 @@
 4. **sticky 链条**：`.lab-sigkelly-bar` 的 `top` 依赖 `--tab-h / --lab-subnav-h / --lab-subnav-child-h`（lab.css:1367、lab.js:3759 计量）。改动顶部 nav 高度时必须同步这几个 CSS 变量，否则 sticky 悬空。
 
 ## 1. 免责二合一 + 移动端折叠（省 ~214px，首屏 223~437）
-- 现状：全局 `risk-banner`（status 顶部，app.js:11220 附近，切 tab 不消失）+ lab 页 `lab-top-disclaimer`（lab.js:2438 恒渲染），文案重复（非持牌/不构成投资建议/历史不预示未来）。
-- 改法（CSS 优先）：
-  ```css
-  @media (max-width:760px){
-    .lab-top-disclaimer { display:none; }            /* lab 页沿用全局 risk-banner 即可 */
-    .risk-banner { font-size:11px; line-height:1.5; } /* 只留一条，压到 2~3 行 */
-  }
-  ```
-  若要保留全文：把 `lab-top-disclaimer` 包成 `<details><summary>📚 免责声明</summary>…</details>`（lab.js:2438 模板加 2 个标签）。
-- 验收：lab 首屏 223~437 消失；剩余 disclaimer ≤3 行。
+- 现状：全局 `risk-banner`（status 顶部，app.js:11220 附近，切 tab 不消失）+ lab 页 `lab-top-disclaimer`（lab.js:2438 恒渲染），文案大部分重复（非持牌/不构成投资建议），但 lab 条可能含 lab 专属合规口径。
+- **前置（必须，先于任何 CSS）**：三源核对两条免责文案差异（§23.13），确认 lab 专属措辞（回测历史不预示未来、非操作建议等）在合并后有承接，再动手——**不得盲藏**。
+- 改法（核对后二选一）：
+  - 合并：把 lab 专属句并入全局 `risk-banner`，然后移动端只留一条：
+    ```css
+    @media (max-width:760px){
+      .lab-top-disclaimer { display:none; }          /* 仅当 lab 专属句已并入他处方可 */
+    }
+    ```
+  - 折叠：把 `lab-top-disclaimer` 包成 `<details><summary>📚 免责声明</summary>…</details>` 默认收起，保留全文。
+- 验收：合规措辞不丢（核对记录可追溯）；移动端免责收成一条/一行（≤~100px）。
 
 ## 2. 新手引导默认收起 + 已读持久化（省 ~271px，首屏 450~769）
 - 现状：lab.js:2578（sigkelly）等 9 处 `<details class="lab-newbie-guide" open>` **硬编码 open**，无 localStorage，每次进都展开 319px。
@@ -43,30 +44,30 @@
 - 验收：888 处降到 summary 一行（~44px）。
 
 ## 4. 核心数据上移（最大项：grid 4228 → ~1500）
-根因不是 grid 本身，是 `bar` 与 `grid` 之间插入了两大块非核心内容：
-- `auto-trade-steps`（实操提醒，633px，lab.js:9519 生成）
-- `lab-sigkelly-advice`（操作建议指南，798px，lab.css:1682 区域）
-- 改法（最小侵入，推荐）：
-  ```css
-  @media (max-width:760px){
-    .lab-sigkelly-advice .lab-sigkelly-advice-details,
-    .lab-sigkelly-advice .lab-sigkelly-advice-outer { display:none; } /* 只留 .lab-sigkelly-advice-summary-short 一行 */
-    .auto-trade-steps { display:none; }  /* 或包 details 默认收起；移动端入口在底部 nav 保留 */
-  }
-  ```
-- 若产品要求移动端仍可见：给这两个块套 `<details>` 默认收起（约 60px 一节）。
-- 验收：bar 之后下一个可见块 = 第一张数据卡；grid top 4228 → ≤1600。
+根因不是 grid 本身，是 `bar` 与 `grid` 之间插入两大块：
+- `auto-trade-steps`（633px，lab.js:9519）= 下一交易日买卖计划 / 蓝框「现在该干嘛」载体，**核心功能，严禁 `display:none`**。
+- `lab-sigkelly-advice`（798px，lab.css:1682）。
+- 改法：
+  - `auto-trade-steps` 外层改 `<details><summary>📋 实操步骤 · 待执行 N 笔</summary>…</details>`，**默认收起成一行 + 保留展开入口**（约 60px），移动端仍能展开看「今天买什么/卖什么」。
+  - `lab-sigkelly-advice` 只留 `.lab-sigkelly-advice-summary-short` 一行结论，其余折叠：
+    ```css
+    @media (max-width:760px){
+      .lab-sigkelly-advice .lab-sigkelly-advice-details,
+      .lab-sigkelly-advice .lab-sigkelly-advice-outer { display:none; }
+    }
+    ```
+- 验收：auto-trade-steps 默认一行(≤~80px)且可展开；advice 只留一行(≤120px)；grid top 4228 → ≤1600。
 
 ## 5. 顶部条减负 + 版本 toast（首屏 0~57 噪音）
-- 现状：h5-topbar 内含 分享/采集时间/动态/通知×2/主题/登录/策略实验 等，390px 挤成一团；版本更新 `.show` toast 在 623px 处横插。
-- 改法：
+- 现状：h5-topbar 含 分享/采集时间/动态/通知×2/主题/登录/策略实验 等，390px 挤作一团；版本更新 `.show` toast 在 623px 处横插。
+- 改法：只收敛「采集时间/动态/主题」等**非关键**项；**「通知」入口（`.notify-btn`）必须保留**——通知即时性优先，只可改小图标，不可隐藏。
   ```css
   @media (max-width:760px){
-    .h5-topbar .h5-topbar-right > *:not(.h5-btn-essential){ display:none; } /* 按实际结构收敛到 标题+核心1~2 个 */
-    .show{ max-height:40px; overflow:hidden; font-size:11px; } /* toast 单行小 pill */
+    .h5-topbar .h5-xxx-nonessential { display:none; } /* 按实际 class，仅非关键项 */
+    .show { max-height:40px; overflow:hidden; font-size:11px; }  /* toast 单行小 pill */
   }
   ```
-- 验收：首屏 0~57 只剩标题 + 关键切换。
+- 验收：首屏 0~57 收敛为「标题 + 核心切换 + 通知入口」；`.notify-btn` 仍可见可点。
 
 ## 6. 全站统一规范（其余 tab 同款）
 - 全局 `risk-banner`、`chart-hint`、`hint-*`、`pf-help`、各「这板块有什么用」统一：`@media(max-width:760px)` 下默认折叠/单行，数据块优先。

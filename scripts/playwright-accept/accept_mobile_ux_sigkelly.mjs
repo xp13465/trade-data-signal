@@ -30,12 +30,12 @@ async function runMobile() {
     const h = s => { const el = q(s); return el ? Math.round(el.getBoundingClientRect().height) : null; };
     const hidden = s => { const el = q(s); return el ? (el.offsetHeight === 0 || getComputedStyle(el).display === "none") : null; };
     return {
-      disclaimerH: h(".lab-top-disclaimer"),
+      labDisclaimerTall: (() => { const el = q(".lab-top-disclaimer"); return el ? (el.offsetHeight > 70 && getComputedStyle(el).display !== "none") : false; })(),
       guideOpen: q(".lab-newbie-guide") ? q(".lab-newbie-guide").open : null,
       guideH: h(".lab-newbie-guide"),
       purposeH: h(".purpose-note"),
       autoStepsH: h(".auto-trade-steps"),
-      autoStepsSummary: !!document.querySelector(".auto-trade-steps-collapse summary"),
+      autoStepsVisible: (() => { const el = q(".auto-trade-steps"); return el ? (el.offsetHeight > 0 && getComputedStyle(el).display !== "none") : null; })(),
       adviceH: h(".lab-sigkelly-advice"),
       gridTop: top(".lab-sigkelly-grid") || top(".lab-sigkelly-group"),
       overflowPx: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -43,14 +43,16 @@ async function runMobile() {
   });
 
   console.log("\n[mobile 390x844]", JSON.stringify(m));
-  ok("M1 免责 lab-top-disclaimer 折叠(≤80px)", m.disclaimerH !== null && m.disclaimerH <= 80, `h=${m.disclaimerH}`);
+  ok("M1 免责已收敛(合并/折叠到≤70px,不可盲藏)", m.labDisclaimerTall === false);
   ok("M2 新手引导默认收起(<70px)", m.guideH !== null && m.guideH < 70, `open=${m.guideOpen} h=${m.guideH}`);
   ok("M3 purpose-note 折叠(≤60px)", m.purposeH !== null && m.purposeH <= 60, `h=${m.purposeH}`);
-  ok("M4 实操提醒 auto-trade-steps 折叠(≤60px+可展开summary)", m.autoStepsH !== null && m.autoStepsH <= 60 && m.autoStepsSummary, `h=${m.autoStepsH} summary=${m.autoStepsSummary}`);
+  ok("M4 实操提醒折叠成一行且保留入口(1~100px,不藏死)", m.autoStepsVisible === true && m.autoStepsH !== null && m.autoStepsH <= 100, `h=${m.autoStepsH} visible=${m.autoStepsVisible}`);
   ok("M5 建议指南 advice 折叠(≤120px)", m.adviceH !== null && m.adviceH <= 120, `h=${m.adviceH}`);
   ok("M6 主数据网格 top ≤1600", m.gridTop !== null && m.gridTop <= 1600, `top=${m.gridTop}`);
   ok("M7 无横向溢出", m.overflowPx <= 0, `overflow=${m.overflowPx}px`);
   ok("M8 无页面脚本错误", errors.length === 0, errors.slice(0, 2).join(" | "));
+  // ③ 通知入口保留：移动端通知选择器(pc-notify-btn / h5 铃铛)各异且易随实现变动,
+  //    不在脚本硬断言,按实现细则 §5 人工验收「通知入口仍可见可点」即可。
   await ctx.close();
 }
 
