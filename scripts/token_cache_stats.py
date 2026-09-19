@@ -541,7 +541,9 @@ def _git_commit_push_readme(date_str):
           用户确认: 追加完自动 commit + push main。绕开 main-merge.sh 统一入口
           (只动这一个文档文件、23:30 安全窗口跑, 走统一入口太重)。
 
-    幂等: README 无实际变更(同日重复跑=更新不重复追加)时跳过 commit+push, 不制造空提交。
+    幂等: README + 当天快照 整体无实际变更(同日重复跑=更新不重复追加)时跳过 commit+push,
+    不制造空提交。快照文件与 README 同 commit 进 git(防快照 untracked 污染工作区,
+    与 2026-08-19「README 未提交 M 污染工作区」同病复发)。
 
     push 失败(non-fast-forward)按 §8 处理: git fetch + rebase origin/main + 重试,
     不 force;rebase 失败/仍失败则打日志告警退出非 0, 绝不静默吞掉(§23.11)。
@@ -550,16 +552,25 @@ def _git_commit_push_readme(date_str):
     import subprocess
     git = ["git", "-C", TRADE_ROOT]
 
-    # 1. README 是否真的变了(相对 HEAD, 覆盖工作区+暂存区);幂等无变更→跳过
-    r = subprocess.run(git + ["diff", "--quiet", "--", README_REL],
-                       cwd=TRADE_ROOT, capture_output=True, text=True)
-    if r.returncode == 0:
-        print("README 无实际变更, 跳过 commit+push(幂等 %s)" % date_str)
-        return
-
-    # 2. add + commit
+    # 1. add README + 当天快照(精确路径, 不 add 整个 config-snapshots/ 目录, 防未来误含敏感文件)
     subprocess.run(git + ["add", README_REL],
                    cwd=TRADE_ROOT, capture_output=True, text=True, check=True)
+    snapshot_rel = os.path.join(CONFIG_SNAPSHOT_REL, "%s.json" % date_str)
+    snap_path = os.path.join(TRADE_ROOT, snapshot_rel)
+    if os.path.exists(snap_path):
+        subprocess.run(git + ["add", snapshot_rel],
+                       cwd=TRADE_ROOT, capture_output=True, text=True, check=True)
+    else:
+        print("warn: 当天快照不存在 %s, 仅提交 README" % snap_path, file=sys.stderr)
+
+    # 2. 幂等无变更(README + 当天快照 整体无 staged 变更)→跳过 commit
+    r = subprocess.run(git + ["diff", "--cached", "--quiet", "--", README_REL, snapshot_rel],
+                       cwd=TRADE_ROOT, capture_output=True, text=True)
+    if r.returncode == 0:
+        print("README+快照 无实际变更, 跳过 commit+push(幂等 %s)" % date_str)
+        return
+
+    # 3. commit
     msg = (
         "chore(命中率走势): %s 自动追加(token-cache-stats 每日收尾)\n\n"
         "Co-Authored-By: Claude <noreply@anthropic.com>" % date_str
@@ -572,7 +583,7 @@ def _git_commit_push_readme(date_str):
     commit_tail = (c.stdout or "").strip().splitlines()
     print("commit 完成: %s" % (commit_tail[-1] if commit_tail else c.returncode))
 
-    # 3. push origin main(§8: non-ff 优先 fetch+rebase+重试, 不 force, 失败告警非 0 绝不静默)
+    # 4. push origin main(§8: non-ff 优先 fetch+rebase+重试, 不 force, 失败告警非 0 绝不静默)
     p = subprocess.run(git + ["push", "origin", "main"],
                        cwd=TRADE_ROOT, capture_output=True, text=True)
     if p.returncode == 0:
