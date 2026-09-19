@@ -1136,6 +1136,7 @@ def main():
         # GIT_REPO 不传：deploy.sh L25 默认 trade（.git 只在 trade，trade-data 不 git init）正确。
         subprocess.run(
             [sys.executable, str(repo / "scripts" / "with_lock.py"),
+             "--block-timeout", "3600",
              "/tmp/trade_deploy.lock", "bash", "scripts/deploy.sh", "backfill"],
             cwd=repo, env={**os.environ, "REPO": str(repo)}, check=False)
         # P0-1(2026-08-14 迟到信号增量补通知根治)：补采重算 signal_daily + export 后，
