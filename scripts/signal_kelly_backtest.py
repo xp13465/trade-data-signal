@@ -664,8 +664,9 @@ def _fetch_intraday_open_prices(codes, expect_date=None):
     expect_date(可选, YYYYMMDD): 非 None 时做数据日期新鲜度校验(fail-closed, F4),
     要求 fund_etf_spot_em「数据日期」列 == expect_date, 陈旧快照(如 9:26 拉到昨日数据)抛
     RuntimeError 拒用旧价(调用方走就绪重试, 仍陈旧则跳过本轮 + severe 告警, 绝不照算旧价)。
-    回测调用(盘中增量档 L1752 等)取的是"执行日当天"真实开盘价且天然即 expect_date 当天,
-    但默认不传保持行为不变; 仅 gap-check 层显式传 today。
+    回测盘中增量档(L1807)与 gap-check 层均显式传 expect_date=执行日 today(2026-09-19 F4
+    同类面补齐: 盘中档 9:40 也会拉到昨日快照, 不传会把昨开当今日注入 open_map)。
+    全量档/历史档不调本函数, 不受影响。
 
     失败/空/缺列/目标零命中: 抛 RuntimeError(调用方转退出码 5, 盘中本轮跳过留给 17:50)。
     数据就绪闸保持 fail-closed: 加兜底不放松闸, 任一目标取不到真实开盘价即拒绝发布。
@@ -1804,13 +1805,16 @@ def compute_intraday(signal_date_str, main_trades_path):
 
     # 4. akshare 真实开盘价注入(数据就绪闸: 取不到真价 -> raise -> 退出码 5, 本轮跳过留给 17:50)
     print("-> akshare fund_etf_spot_em 拉真实开盘价(数据就绪闸) ...", flush=True)
-    real_opens = _fetch_intraday_open_prices(needed_etfs)
+    # next_date = 执行日 today, 与下方注入 open_map 的键同源(2026-09-19 F4 同类面补齐:
+    # 传 expect_date=next_date 走数据日期新鲜度校验 fail-closed, 防 9:40 拉到昨日快照
+    # 把昨开价当今日价注入 open_map)。
+    next_date = datetime.now().strftime("%Y%m%d")
+    real_opens = _fetch_intraday_open_prices(needed_etfs, expect_date=next_date)
     missing_keys = sorted(set(needed_etfs) - set(real_opens))
     if missing_keys:
         raise RuntimeError(
             f"数据就绪闸 FAIL: {len(missing_keys)} 只 ETF 取不到真实开盘价: {missing_keys[:10]}{'...' if len(missing_keys) > 10 else ''}"
         )
-    next_date = datetime.now().strftime("%Y%m%d")
     print(f"   注入 {next_date} 真实开盘价 {len(real_opens)} 只", flush=True)
     for c, op in real_opens.items():
         open_map[c][next_date] = op
