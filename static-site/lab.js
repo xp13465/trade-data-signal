@@ -10474,9 +10474,11 @@ function _labKellyEvoModalHTML(idx) {
   const _dD = latest ? String(latest.d) : "";
   let _lagDays = 0;
   if (_mD.length === 8 && _dD.length === 8) {
-    // YYYYMMDD -> 日期差(避免 Date.parse 对无分隔符格式的 Safari 兼容坑, 手动换算)
-    const _toDays = (s) => Number(s.slice(0, 4)) * 372 + (Number(s.slice(4, 6)) - 1) * 31 + Number(s.slice(6, 8));
-    _lagDays = _toDays(_dD) - _toDays(_mD);
+    // YYYYMMDD -> 精确自然日差(reviewer 返修 2026-09-19: 原近似 y*372+(m-1)*31+day 把月按 31 天算, 月边界失真——
+    //   d=20260302/m=20260227 真实差 3 天被算成 6 天误触发 warn; 改 Date.UTC 精确换算, 月参数 0-based 故 dm-1)
+    const _dy = Number(_dD.slice(0, 4)), _dm = Number(_dD.slice(4, 6)), _dd = Number(_dD.slice(6, 8));
+    const _my = Number(_mD.slice(0, 4)), _mm = Number(_mD.slice(4, 6)), _md = Number(_mD.slice(6, 8));
+    _lagDays = Math.round((Date.UTC(_dy, _dm - 1, _dd) - Date.UTC(_my, _mm - 1, _md)) / 86400000);
   }
   const lagWarn = latest && _lagDays > 3 ? `<div class="lab-kelly-evo-warn">⚠ max_signal_date=${latest.m} 落后快照日 ${latest.d} ${_lagDays} 日(超过正常 T+1/周末错位窗口, 交易记录可能停滞, 见 check_data_integrity 信号滞后告警)</div>` : "";
   const modeKeys = ["A", "B", "C", "D", "E", "F", "J", "G", "H", "I"];
