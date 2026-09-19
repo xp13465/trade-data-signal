@@ -68,7 +68,42 @@ time_to_min() {
   echo $(( 10#$hh * 60 + 10#$mm ))
 }
 
+# 今日是否交易日(2026-09-19 用户定, 与 §8「休市可随时跑」口径对齐)
+# 复用 trade/app/calendar.py 节假日历(周末+法定节假日休市; calendar 源缺失降级周末判断, 权威口径)
+# 退出码: 0=交易日  1=非交易日  2=判断失败(import 异常/日历不可得)
+# 判断失败必须与正常非交易日区分(正常非交易日 exit 1 放开; 失败 exit 2 由调用方按交易日保守拦, §14 P0 宁多拦不可漏拦)
+is_trading_day_now() {
+  # python 打印状态码(1=交易日 0=非交易日 2=异常), 函数再归一成退出码,
+  # 避免 cd "$REPO" 失败(非0错误码==python 正常 sys.exit(1) 混淆)被误判为非交易日放开
+  local out
+  out="$( cd "$REPO" 2>/dev/null && "$PY" -c "
+import sys, datetime as _dt
+sys.path.insert(0, '$REPO')
+try:
+    from app.calendar import is_trading_day
+    print(1 if is_trading_day(_dt.date.today()) else 0)
+except Exception:
+    print(2)
+" 2>/dev/null )" || out=2
+  case "$out" in
+    1) return 0;;   # 交易日
+    0) return 1;;   # 非交易日
+    *) return 2;;   # 判断失败(cd失败/import异常/非预期输出)
+  esac
+}
+
 check_disk_after() {
+  # 非交易日(周末/节假日休市)跳过盘后时点闸, 与 §8「休市可随时跑」对齐
+  # 交易日判断失败(exit 2)→ 按交易日保守处理照常检查盘后时点, 不放开(§14 P0)
+  local trc=0
+  is_trading_day_now || trc=$?
+  if [[ "$trc" -eq 1 ]]; then
+    echo "✓ §14 安全窗口: 今天非交易日(休市), 跳过盘后时点闸(§8 口径: 休市可随时跑)"
+    return 0
+  fi
+  if [[ "$trc" -ne 0 ]]; then
+    echo "⚠️ 今日交易日判断失败(exit $trc), 按交易日保守处理, 继续检查盘后时点闸(§14 P0 宁多拦不可漏拦)" >&2
+  fi
   local now; now="$(current_time)"
   local now_min; now_min="$(time_to_min "$now")"
   local t t_min diff
