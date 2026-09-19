@@ -6595,11 +6595,36 @@ async function renderAIScoreListLab() {
   // 持仓自查:传入 buy+sell 全量清单(含持仓标的,便于查任意ETF)+ dateStr
   // 修复2026-07-24:515030等非汪汪队ETF在etf_score_list有评分但无iid,原逻辑报"未识别",现先查etf_score_list降级显示评分卡片
   _renderAIScoreQuerySection(queryHost, codeToIid, buyListRaw.concat(sellListRaw), dateStr);
+  // batch2(2026-09-19): 进入 AI评分 tab 即后台预取 hold 数据(10.3M, 只拉数据挂 registry 不渲染)——
+  // 用户点「加载持有观察」时 _ensureLabHoldLoaded 经 _preloadJSON(同 URL)秒返/共享 promise, 弱网不再等一整轮。
+  _preloadLabHold();
+}
+
+// ===== 资源预热 helper(batch2 2026-09-19, 与 app.js _preloadJSON 同构; 不碰 fetchJSON 全局超时/兜底语义) =====
+// 机制: module 级 Map 挂起 promise(url → promise), 同 URL 共享 in-flight——state(holdLoading)被渲染重建
+//   置 null 时 registry 仍持有真实 promise, 后续消费点复用不重复发; resolve/reject 后清除允许最新重拉。
+// app.js 侧同构实现见 _preloadJSON(两文件独立无共享模块层, 各带一份; 语义一致由 home 与 lab 分别收口)。
+var _preloadRegistry = new Map();
+function _preloadJSON(url, timeoutMs) {
+  if (!_preloadRegistry.has(url)) {
+    const p = fetchJSON(url, timeoutMs).then(
+      (data) => { _preloadRegistry.delete(url); return data; },
+      (err) => { _preloadRegistry.delete(url); throw err; }
+    );
+    _preloadRegistry.set(url, p);
+  }
+  return _preloadRegistry.get(url);
+}
+// 后台预取 hold 数据(只拉不渲染; 点「加载持有观察」时 _ensureLabHoldLoaded 经同一 url 秒返/共享 promise)
+function _preloadLabHold() {
+  _preloadJSON("https://ss.fx8.store/r2/data/etf_score_list_hold.json", 60000).catch(() => {});
 }
 
 // P0-2 (2026-08-05): 懒加载 hold JSON -- lab AI评分 tab 点"加载持有观察"按钮触发
 // fetch etf_score_list_hold.json (~13MB, br~783KB), 解析 hold_list 后重渲染 hold 区
 // _labAiscoreState.holdLoaded 跟踪状态, holdLoading 缓存进行中 promise 防并发重复 fetch
+// batch2(2026-09-19): 改走 _preloadJSON(资源预热 helper)——renderAIScoreListLab 已 fire-and-forget 预取,
+//   点按钮大概率秒返; state 重建丢 promise 引用时 registry 兜底不重复发。
 async function _ensureLabHoldLoaded(holdHost, codeToIid, dateStr, holdCount) {
   const st = _labAiscoreState;
   if (st.holdLoaded) return true;
@@ -6607,7 +6632,7 @@ async function _ensureLabHoldLoaded(holdHost, codeToIid, dateStr, holdCount) {
   st.holdLoading = (async () => {
     try {
       // perf批一 P3-D(2026-08-24): hold 分件大, 补 timeoutMs=60000(对齐 app.js _ensureHoldLoaded 同源点)。
-      const r = await fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_hold.json", 60000);
+      const r = await _preloadJSON("https://ss.fx8.store/r2/data/etf_score_list_hold.json", 60000);
       const holdItems = Array.isArray(r.hold_list) ? r.hold_list : [];
       if (st.data) st.data.hold_list = holdItems;
       st.holdLoaded = true;
@@ -10439,7 +10464,21 @@ function _labKellyEvoCurveHTML(idx, mode, range) {
 function _labKellyEvoModalHTML(idx) {
   const days = (idx && idx.days) || [];
   const latest = days.length ? days[days.length - 1] : null;
-  const lagWarn = latest && latest.m < latest.d ? `<div class="lab-kelly-evo-warn">⚠ max_signal_date=${latest.m} 落后快照日 ${latest.d}(交易记录可能停滞, 见 check_data_integrity 信号滞后告警)</div>` : "";
+  // batch2(2026-09-19): d=快照日(每日盘后 export 生成该快照的日期) / m=信号日(该快照覆盖到的最晚 signal_date)。
+  //   因 T+1 次日开盘定价成交, m 天然比 d 早 1 个交易日(信号日买入次日开盘才成交入账), 属固有错位非断更;
+  //   只有 m 连续多日不涨且 d 持续推进才是真断链(见 check_data_integrity 信号滞后告警)。
+  const _dmNote = `<div class="lab-kelly-evo-dm" style="font-size:11px;color:var(--text-3,#999);margin:2px 0">🕐 d=快照日 / m=信号日(该快照覆盖的最晚 signal_date); m 因 T+1 次日开盘定价天然比 d 早 1 交易日, 属固有错位非断更。</div>`;
+  // 说明: m<d 在 T+1 固有错位下恒成立, 此警示仅当「m 明显落后 d」时提示关注(跨周末/节假日 3 日内属正常, 判据见
+  //   check_data_integrity 信号滞后告警); 此处只消解错误联想——不再让用户把「m 比最新信号晚 1 日」当断更。
+  const _mD = latest ? String(latest.m) : "";
+  const _dD = latest ? String(latest.d) : "";
+  let _lagDays = 0;
+  if (_mD.length === 8 && _dD.length === 8) {
+    // YYYYMMDD -> 日期差(避免 Date.parse 对无分隔符格式的 Safari 兼容坑, 手动换算)
+    const _toDays = (s) => Number(s.slice(0, 4)) * 372 + (Number(s.slice(4, 6)) - 1) * 31 + Number(s.slice(6, 8));
+    _lagDays = _toDays(_dD) - _toDays(_mD);
+  }
+  const lagWarn = latest && _lagDays > 3 ? `<div class="lab-kelly-evo-warn">⚠ max_signal_date=${latest.m} 落后快照日 ${latest.d} ${_lagDays} 日(超过正常 T+1/周末错位窗口, 交易记录可能停滞, 见 check_data_integrity 信号滞后告警)</div>` : "";
   const modeKeys = ["A", "B", "C", "D", "E", "F", "J", "G", "H", "I"];
   const modeBtns = modeKeys.map((m) =>
     `<button type="button" class="lab-kelly-evo-mode${m === "G" ? " active" : ""}" data-evo-mode="${m}">${m}</button>`
@@ -10451,6 +10490,7 @@ function _labKellyEvoModalHTML(idx) {
     `</div>` +
     `<div class="lab-signal-modal-body lab-kelly-evo-body">` +
     `<div class="lab-kelly-evo-meta">版本 v${(idx && idx.version) || "-"} · 更新 ${(idx && idx.updated_at) || "-"} · 共 ${days.length} 个快照日</div>` +
+    _dmNote +
     lagWarn +
     `<div class="lab-kelly-evo-tabs">` +
       `<button type="button" class="lab-kelly-evo-tab active" data-evo-tab="curve">📊 曲线</button>` +
@@ -10465,7 +10505,7 @@ function _labKellyEvoModalHTML(idx) {
         `<button type="button" class="lab-kelly-evo-gran-btn active" data-evo-range="all">全史</button>` +
       `</div>` +
       `<div id="lab-kelly-evo-curve-host">${_labKellyEvoSVG(days, "G")}</div>` +
-      `<div class="lab-kelly-evo-foot">💡 曲线=该模式全周期累计收益(total_return)随快照日演进; 范围=取最近 N 个快照日切片重绘(默认全史); 停滞=max_signal_date 不涨(断链信号)。数据源=signal_kelly_snapshots/index.json, 每日盘后 export 生成。</div>` +
+      `<div class="lab-kelly-evo-foot">💡 曲线=该模式全周期累计收益(total_return)随快照日演进; 范围=取最近 N 个快照日切片重绘(默认全史); 停滞=max_signal_date(m)不涨(断链信号); d=快照日/m=信号日, m 因 T+1 次日开盘定价天然比 d 早 1 交易日, 属固有错位非断更。数据源=signal_kelly_snapshots/index.json, 每日盘后 export 生成。</div>` +
     `</div>` +
     `<div class="lab-kelly-evo-pane" data-evo-pane="table" style="display:none">` +
       `<div class="lab-kelly-evo-caliber" title="口径与全信号卡同源, 随上方降亏勾选/费率档/K档实时联动重算">${_labKellyEvoCaliberHTML()}</div>` +
@@ -11347,7 +11387,7 @@ function _renderSigKellyBar(bar, data, period) {
   const _paramBtn = `<button type="button" class="lab-sigkelly-params-toggle" id="lab-kelly-params-toggle" data-no-pop="" title="展开/收起 费率·降亏过滤·AI仓位·G/H/I 全部参数控制台">${_sigParamsOpenState ? "参数收起 ▲" : "⚙️ 参数 ▼"}</button>`;
   // 2026-09-04 断链根治配套: 「演进」入口 = 每日回测快照迷你曲线(读 signal_kelly_snapshots/index.json,
   // 只读小 JSON, 展示 max_signal_date 演进 + 各模式 total_return 迷你曲线, 断链/突变可视化)。
-  const _evoBtn = `<button type="button" class="lab-sigkelly-params-toggle" id="lab-kelly-evo-btn" data-no-pop="" title="信号凯利回测演进: 每日快照的 max_signal_date 与 total_return 迷你曲线(断链/突变可视化, 数据源=signal_kelly_snapshots/index.json)">📈 演进</button>`;
+  const _evoBtn = `<button type="button" class="lab-sigkelly-params-toggle" id="lab-kelly-evo-btn" data-no-pop="" title="信号凯利回测演进: 每日快照的 max_signal_date(m=信号日)与 total_return 迷你曲线(断链/突变可视化; d=快照日/m=信号日, m 因 T+1 次日开盘定价天然比 d 早 1 交易日属正常错位, 数据源=signal_kelly_snapshots/index.json)">📈 演进</button>`;
   const _paramsBodyOpen = _sigParamsOpenState ? " lab-sigkelly-params-open" : "";
   // #78(2026-08-15): 信息行 + AI仓位历史回测面板 从参数折叠区移出, 改挂到「全信号操作建议指南」卡片(折叠区外恒显)。
   //   存到全局 state 供 _kellyComboAdviceHtml() 读取渲染; 金额口径=每日资金池(与建议指南正文一致, 消除旧"每笔固定1万"双口径混乱 §22)。
@@ -12937,8 +12977,11 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
       overlay.querySelector(".lab-custom-retry").onclick = () => {
         // #100 F2-A: 重试必须重置整个两阶段状态机(不只 data/dims/FullFallback), 否则 _labKellyY1Ready 残留 true 会
         //   让 _labKellyLoadYearParts 短路(return false)不再重新加载 → 卡死只能刷新; 重置后重试真正重新走加载链路
+        // batch2(2026-09-19, reviewer 防御位): 同步重置 y1 就地渲染单向阀——弱网下阶段1 完成后曾就地渲染过 y1
+        //   (Y1Rendered=true)时, 不重置则重试后的阶段1(y1Ready 重新=true)不再触发 y1 就地渲染, 静默丢 y1 首屏快速预览。
         state.labSigKellyTradesData = null; state.labSigKellyTradeDims = null;
         _labKellyFullFallback = false; _labKellyY1Ready = false; _labKellyAllReady = false;
+        _labKellyY1Rendered = false;
         _openSigKellyTradesModal(quadKey, modeKey, period);
       };
       return;

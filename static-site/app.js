@@ -3674,18 +3674,29 @@ function _simMergeShards(shards) {
   }
   return { fields: first.fields, fIdx: first.fIdx, quadrants };
 }
-// 一级加载(打开弹窗): 只拉 recent.json 热区片(≤3MB 秒开), 记录热区上下界; recent 失败回退全量
+// 一级加载(打开弹窗): 只拉 recent.json 热区片(≤3MB 秒开), 记录热区上下界;
+// batch2(2026-09-19): recent 失败改「重试 recent」不直接回退全量 75M(nav-async-scan 高3)——弱网下回退全量
+//   最坏 120s 长拉阻塞主链, 重试 recent(双 URL 已内置 R2→./data 兜底)命中临时抖动的概率更高, 重试仍失败则
+//   明确报错/降档(置 _simKellyLoadErr 由弹窗展示重试), 不再逼近 75M 长拉。数值口径零改动(只动加载时序/失败路径)。
 async function _loadSimKellyData() {
   if (_simKellyData || _simKellyLoading) return _simKellyData;
   const gen = _simBasisGen;              // #72 捕获切档代际: 切档后本加载作废(写回前校验拦截)
   const stale = () => gen !== _simBasisGen;
   _simKellyLoading = true;
   _simKellyLoadErr = null;
-  // cfg 独立并行拉(recent 失败走全量兜底时也要有 sell_modes); cfg 按当前买入口径取对应产物(见 _simSummaryName)
+  // cfg 独立并行拉(recent 失败走重试时也要有 sell_modes); cfg 按当前买入口径取对应产物(见 _simSummaryName)
   const cfgUrl = "./data/" + _simSummaryName() + ".json" + (_simCacheBust() ? "?v=" + _simCacheBust() : "");
   const cfgP = fetchJSON(cfgUrl).catch(() => null);
   try {
-    const recent = await _fetchSimTrades(_simTradesPartsName("recent"));
+    // recent 分片: 首次失败不直接回退全量, 退避后重试一次(临时网络抖动/单次超时命中概率高)
+    let recent;
+    try {
+      recent = await _fetchSimTrades(_simTradesPartsName("recent"));
+    } catch (e1) {
+      console.warn("[simbt] recent.json 首次加载失败, 退避后重试一次(不回退全量):", e1);
+      await new Promise((r) => setTimeout(r, 500));
+      recent = await _fetchSimTrades(_simTradesPartsName("recent"));
+    }
     if (stale()) return null;            // #72 加载期间已切档 → 丢弃旧口径 recent
     const parsed = _simParseTrades(recent);
     _simPartsCache.set("recent", parsed);
@@ -3711,13 +3722,10 @@ async function _loadSimKellyData() {
     if (stale()) return null;            // #72 cfg 等待期间切档 → 不写旧口径 cfg
     _simKellyCfg = (cfg && cfg.config) ? cfg.config : { sell_modes: {} };
   } catch (e) {
-    console.warn("[simbt] recent.json 加载失败, 回退全量:", e);
-    const okF = await _simLoadFull();
-    if (okF) {
-      const cfg = await cfgP;
-      if (stale()) return null;          // #72 兜底加载期间切档 → 不写旧口径 cfg
-      _simKellyCfg = (cfg && cfg.config) ? cfg.config : { sell_modes: {} };
-    }
+    // recent 重试仍失败: 明确报错降档, 不回退全量 75M(batch2 弱网修复; 全量回退仅保留给年片 _simEnsureRange)
+    console.error("[simbt] recent.json 重试仍失败, 不回退全量:", e);
+    _simKellyLoadErr = "recent 分片加载失败(已重试): " + (e && e.message ? e.message : String(e)) + " — 请检查网络后重试";
+    _simKellyData = null;
   } finally {
     _simKellyLoading = false;
   }
@@ -25519,13 +25527,36 @@ function _applyEtfScoreFilter() {
 // 初次调用 fetch etf_score_list_hold.json (~13MB, br~783KB), 解析 hold_list 合并进 _etfScoreState.all
 // 后续调用直接 resolve(holdLoaded=true), 不重复 fetch。holdLoading 缓存进行中 promise 防并发重复 fetch。
 // fetch 失败设 holdError 供 UI 显示重试按钮, holdLoaded 保持 false 允许重试。
+// ===== 资源预热 helper(batch2 2026-09-19, 抽自 hold 预取, 调用面收口; 不碰 fetchJSON 全局超时/兜底语义) =====
+// 目的: 大 JSON(hold 10.3M 等)「进 tab 后台预取, 点按钮时大概率已就绪」, 弱网不再点一次挂 60s。
+// 机制: module 级 Map 挂起 promise(url → promise), 同 URL 多处调用共享同一 in-flight promise——即使 state
+//   (如 _etfScoreState.holdLoading) 在渲染重建时被重置置 null, registry 里仍持有真实 promise, 后续消费点再调
+//   时拿到同一 promise 不重复发请求(防弱网双 fetch); resolve/reject 后清除注册(下一次可重新预取最新数据)。
+// 与 fetchJSON 自身 in-flight 去重(_inflightFetch)互补: 本层管「预热注册表/提前发+共享挂起」, fetchJSON 管
+//   「网络请求级去重+5min 缓存」。不重造网络层: 超时/兜底/重试全走 fetchJSON 既有语义。
+var _preloadRegistry = new Map();
+function _preloadJSON(url, timeoutMs) {
+  if (!_preloadRegistry.has(url)) {
+    const p = fetchJSON(url, timeoutMs).then(
+      (data) => { _preloadRegistry.delete(url); return data; },
+      (err) => { _preloadRegistry.delete(url); throw err; }
+    );
+    _preloadRegistry.set(url, p);
+  }
+  return _preloadRegistry.get(url);
+}
+
 async function _ensureHoldLoaded() {
   if (_etfScoreState.holdLoaded) return true;
   if (_etfScoreState.holdLoading) return _etfScoreState.holdLoading;
   _etfScoreState.holdLoading = (async () => {
     try {
       // perf批一 P3-D(2026-08-24): hold 分件大(~16MB,去indent后~8MB), 补 timeoutMs=60000 防弱网撞默认 15s。
-      const r = await fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_hold.json", 60000);
+      // batch2(2026-09-19): 改走 _preloadJSON(资源预热 helper)——renderEtfScore 重建时可能把本 promise
+      //   从 state 置空, 但 registry 仍持有真实 promise, 重复调用不双 fetch; 首次由 renderFund 进 tab 预取触发。
+      const r = await _preloadJSON("https://ss.fx8.store/r2/data/etf_score_list_hold.json", 60000);
+      // 幂等: renderEtfScore 重建后再次触发时, 若并发 IIFE(共享同一 registry promise)已先合并完成, 跳过防重复追加
+      if (_etfScoreState.holdLoaded) return true;
       // hold_list item -> 统一格式(同 renderEtfScore 合并逻辑, side="hold")
       const holdItems = (r.hold_list || []).map((e) => ({
         etf_code: e.etf_code, name: e.name, score: e.score, side: "hold",
@@ -26268,6 +26299,10 @@ async function renderEtfScore(container) {
   _etfScoreState.holdLoaded = false;
   _etfScoreState.holdLoading = null;
   _etfScoreState.holdError = null;
+  // batch2(2026-09-19): 重建 all 后立即后台预取 hold(10.3M)——hold 若在 pull buy/sell 期间已并发拉完,
+  //   这里 concat 进的是新 all, 防止「预取先完成→旧 all 被覆盖→白拉」竞态; 若仍在拉则与 renderFund 的
+  //   fire-and-forget 经 _preloadRegistry 共享同一 promise 不重复发。点「持有」chip 时大概率已就绪。
+  _ensureHoldLoaded();
   _etfScoreState.filtered = all.slice();
   _etfScoreState.page = 1;
   _etfScoreState.pageSellHold = 1;
