@@ -2782,7 +2782,7 @@ td.lab-sigkelly-elim-reason { text-decoration: none; color: var(--text-2); font-
   .lab-sigkelly-advice-outer > summary { font-size: 12px; padding: 2px 2px; }
 
   /* §4 实操提醒(auto-trade-steps)折叠: 严禁 display:none(「今天该干嘛」蓝框核心功能), 收成 head+summary 一行, 点开看明细 */
-  .auto-trade-steps { padding: 6px 8px; margin: 8px 0; }
+  .auto-trade-steps { padding: 4px 8px; margin: 8px 0; }
   .auto-trade-steps-head { margin-bottom: 2px; }
   .auto-trade-steps-sub { display: none; }
   .auto-trade-steps-collapse-summary {
@@ -2791,4 +2791,15 @@ td.lab-sigkelly-elim-reason { text-decoration: none; color: var(--text-2); font-
   }
   .auto-trade-steps-collapse-summary::-webkit-details-marker { display: none; }
   .auto-trade-steps-collapse-body { padding-top: 4px; }
+
+  /* §6 全信号表(最后结果)说明类块折叠(移动端): 口径说明/TOP1推荐卡/白话解释 收成 summary 一行(点开看全文),
+       按年表(modebar+表格)是数据本体保留展开; 桌面端不包 details 原样输出(见 lab.js _labFold) */
+  .lab-sigkelly-collapse { margin: 4px 0 8px; }
+  .lab-sigkelly-collapse > summary {
+    list-style: none; cursor: pointer; font-size: 12px; font-weight: 600;
+    color: var(--primary, #1c7ed6); padding: 3px 0;
+  }
+  .lab-sigkelly-collapse > summary::-webkit-details-marker { display: none; }
+  .lab-sigkelly-collapse > summary::before { content: "▸ "; }
+  .lab-sigkelly-collapse[open] > summary::before { content: "▾ "; }
 }

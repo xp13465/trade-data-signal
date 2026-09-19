@@ -12264,12 +12264,19 @@ function _sigKellyAllSignalGroupHtml(period) {
   // 渐进加载(#100 2026-09-06): 阶段1 完成但全量未就绪 → 按年表只有已加载年份行, 加「全量加载中」轻标注(§23.15 不显示残缺为全)
   const _ymProgNote = (_labKellyY1Ready && !_labKellyAllReady)
     ? `<tr><td colspan="7" class="lab-sigkelly-all-empty">⬇️ 全量分片加载中, 当前仅展示 2025/2026 近1年行, 其余年份完成后自动补齐…</td></tr>` : "";
+  // 2026-09-19 移动端「数据优先+说明折叠」: 全信号表(最后结果)里的说明类块(口径说明/TOP1推荐卡/白话解释)移动端折叠成 summary 一行,
+  //   桌面端(>760px)按 render 时 matchMedia 判定原样输出不包 details(零回归 by construction, 与 §1 disclaimer 同模式)。
+  //   按年表(modebar+表格)是数据本体保留展开; 只折叠/隐藏不移除 DOM(事件委托不失效)。
+  const _labMobile = !!window.matchMedia && window.matchMedia("(max-width:760px)").matches;
+  const _labFold = (sum, inner) => _labMobile
+    ? `<details class="lab-sigkelly-collapse"><summary class="lab-sigkelly-collapse-summary">${sum}</summary>${inner}</details>`
+    : inner;
   return (
     `<div class="lab-sigkelly-group lab-sigkelly-all-group">` +
       `<div class="lab-sigkelly-group-title">📌 全信号表（最后结果 · 全量信号融合）<span class="lab-sigkelly-all-badge">最后结果</span></div>` +
-      `<div class="lab-sigkelly-all-desc">总建议口径：全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 H 模式）。金额口径=每日资金池等分+top-K（2026-08-13 恢复：当日保留前K基笔，每笔=10000/当日保留数，每日总投入恒1万，K档最大持仓恒定）。买入口径=当前顶部「买入口径」按钮所选（默认<b>次日开盘</b>，可切<b>当日收盘</b>对比 #91）。下表实时随上方降亏组合勾选 / 费率档 / 周期切换联动。年份窗口表为全周期口径（非当前周期窗口），**各模式各自独立按年增长**（2026-08-14 扩展：下方下拉选择 A-G 任一模式查看其各自的按年窗口增长，非混算；H 模式=当前推荐卖出法（满仓不买@5万），与「总建议=遵守H模式卖出」语义对齐）。</div>` +
+      _labFold('📏 回测口径说明（每日资金池+top-K / 买入口径 / 联动）', `<div class="lab-sigkelly-all-desc">总建议口径：全信号都看 + 完全遵守交易页面展示的交易方法（卖出信号 H 模式）。金额口径=每日资金池等分+top-K（2026-08-13 恢复：当日保留前K基笔，每笔=10000/当日保留数，每日总投入恒1万，K档最大持仓恒定）。买入口径=当前顶部「买入口径」按钮所选（默认<b>次日开盘</b>，可切<b>当日收盘</b>对比 #91）。下表实时随上方降亏组合勾选 / 费率档 / 周期切换联动。年份窗口表为全周期口径（非当前周期窗口），**各模式各自独立按年增长**（2026-08-14 扩展：下方下拉选择 A-G 任一模式查看其各自的按年窗口增长，非混算；H 模式=当前推荐卖出法（满仓不买@5万），与「总建议=遵守H模式卖出」语义对齐）。</div>`) +
       `<div class="lab-sigkelly-all-main">` +
-        `<div class="lab-sigkelly-all-card">${cardHtml}</div>` +
+        _labFold('🏆 最后结果 · TOP1·A 推荐（比较/水印/三态定义）', `<div class="lab-sigkelly-all-card">${cardHtml}</div>`) +
         `<div class="lab-sigkelly-all-yearly lab-sigkelly-all-yearly-block">` +
           `<div class="lab-sigkelly-all-sub">按年窗口增长</div>` +
           `<div class="lab-sigkelly-yearly-modebar">` +
@@ -12281,7 +12288,7 @@ function _sigKellyAllSignalGroupHtml(period) {
             `<thead><tr><th>年份</th><th>笔数</th><th>净盈亏(元)</th><th>累计净盈亏(元)</th><th>胜率</th><th title="=该年最终的赚钱结果 ÷ 该年手上同时拿着最多的钱 ×100;注意回撤≠收益率:回撤是过程中最深一次从高点跌下来的幅度,收益率是最终净结果,两者是不同尺子">峰值资金<br>收益率</th><th title="=该年过程中最深一次从高点跌下来的幅度(最大回撤金额÷峰值同时持仓资金);与收益率(最终净结果)不同,回撤通常≥亏损,因为过程可能先涨后跌">峰值资金<br>回撤</th></tr></thead>` +
             `<tbody>${yRows}${_ymEmptyRows}${_ymProgNote}</tbody>` +
           `</table></div>` +
-          `<div class="lab-sigkelly-all-note">💡 白话解释：收益率=这一年最终赚的钱 ÷ 这一年手里同时拿得最多的那笔钱；回撤=这一年过程中最深一次从高点跌下去的幅度。它俩是两把不同的尺子，回撤一般会比亏损大，因为过程可能先涨后跌——别拿这两列直接比大小。<b>举个真实例子（G 模式·K=1，S06 动态默认基座下实时重算）</b>：2021 年，过程最深回撤 <b>-8.7%</b>（这一年累计盈利先冲高到峰值、再往下最深跌了 8.7%），年末最终净结果却是 <b>-3.8%</b>——一个「先涨上去又跌下来」的年份，所以回撤这一列（8.7%）明显比收益率那列（-3.8%）大，因为回撤量的是「过程里从最高点往下最深的一刀」，收益率量的是「年末最后一笔总账」，是不同时点的两个数，不能直接比大小。<i>核实源=当前数据实时重算(signal_kelly_trades.json→前端按年聚合 peak_return_pct/peak_drawdown_pct)</i>。全周期回撤见「AI仓位建议」的 K 按钮评级。</div>` +
+          _labFold('💡 白话解释（收益率 vs 回撤，怎么读）', `<div class="lab-sigkelly-all-note">💡 白话解释：收益率=这一年最终赚的钱 ÷ 这一年手里同时拿得最多的那笔钱；回撤=这一年过程中最深一次从高点跌下去的幅度。它俩是两把不同的尺子，回撤一般会比亏损大，因为过程可能先涨后跌——别拿这两列直接比大小。<b>举个真实例子（G 模式·K=1，S06 动态默认基座下实时重算）</b>：2021 年，过程最深回撤 <b>-8.7%</b>（这一年累计盈利先冲高到峰值、再往下最深跌了 8.7%），年末最终净结果却是 <b>-3.8%</b>——一个「先涨上去又跌下来」的年份，所以回撤这一列（8.7%）明显比收益率那列（-3.8%）大，因为回撤量的是「过程里从最高点往下最深的一刀」，收益率量的是「年末最后一笔总账」，是不同时点的两个数，不能直接比大小。<i>核实源=当前数据实时重算(signal_kelly_trades.json→前端按年聚合 peak_return_pct/peak_drawdown_pct)</i>。全周期回撤见「AI仓位建议」的 K 按钮评级。</div>`) +
         `</div>` +
       `</div>` +
     `</div>`
