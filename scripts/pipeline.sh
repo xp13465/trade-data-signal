@@ -68,7 +68,7 @@ fi
 DEPLOY_EACH="${DEPLOY_EACH:-0}"
 if [ "$DO_EXPORT" = "1" ] && [ "$DEPLOY_EACH" = "1" ]; then
   echo "-> [$NAME] 等待 deploy 锁（串行化 git）..." | tee -a "$LOG"
-  "$PY" "$REPO/scripts/with_lock.py" "$LOCK" bash "$REPO/scripts/deploy.sh" "$NAME" >> "$LOG" 2>&1
+  "$PY" "$REPO/scripts/with_lock.py" --block-timeout 3600 "$LOCK" bash "$REPO/scripts/deploy.sh" "$NAME" >> "$LOG" 2>&1
   DEPLOY_RC=$?
   [ "$DEPLOY_RC" -ne 0 ] && echo "✗ [$NAME] deploy 失败 (rc=$DEPLOY_RC)" | tee -a "$LOG"
 elif [ "$DO_EXPORT" = "1" ] && [ "$DEPLOY_EACH" != "1" ]; then

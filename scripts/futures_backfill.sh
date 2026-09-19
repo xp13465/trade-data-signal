@@ -94,7 +94,7 @@ fi
 
 # 2) 有新数据 -> 持 deploy 锁推送（串行化 git，阻塞排队；20:00-20:07 密集时段等 backfill 释放）
 echo "-> 持 deploy 锁推送（串行化 git，可能排队等 backfill/etf）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/with_lock.py" /tmp/trade_deploy.lock bash "$REPO/scripts/deploy.sh" futures 2>&1 | tee -a "$LOG"
+"$PY" "$REPO/scripts/with_lock.py" --block-timeout 3600 /tmp/trade_deploy.lock bash "$REPO/scripts/deploy.sh" futures 2>&1 | tee -a "$LOG"
 DEPLOY_RC=${PIPESTATUS[0]}
 [ "$DEPLOY_RC" -ne 0 ] && echo "✗ deploy 失败 (rc=$DEPLOY_RC)" | tee -a "$LOG"
 

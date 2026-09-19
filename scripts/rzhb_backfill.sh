@@ -131,7 +131,7 @@ echo "-> 重算情绪分 ..." | tee -a "$LOG"
 "$PY" -c "from app.compute import runner; runner.run()" 2>&1 | tee -a "$LOG"
 
 echo "-> 持 deploy 锁推送（串行化 git）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/with_lock.py" /tmp/trade_deploy.lock bash "$REPO/scripts/deploy.sh" rzhb 2>&1 | tee -a "$LOG"
+"$PY" "$REPO/scripts/with_lock.py" --block-timeout 3600 /tmp/trade_deploy.lock bash "$REPO/scripts/deploy.sh" rzhb 2>&1 | tee -a "$LOG"
 DEPLOY_RC=${PIPESTATUS[0]}
 [ "$DEPLOY_RC" -ne 0 ] && echo "✗ deploy 失败 (rc=$DEPLOY_RC)" | tee -a "$LOG"
 

@@ -123,7 +123,7 @@ fi
 # 单次完整 deploy 覆盖全部 4 pipeline 产物（§22 一致性：无一 pipeline 产物漏 deploy）。
 # 与并发 backfill 脚本共用 deploy.lock 串行化 git（防 index.lock 竞争）。
 echo "-> O1 统一 1 次完整 deploy（覆盖全部 pipeline 产物，原 4 遍→1 遍）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/with_lock.py" /tmp/trade_deploy.lock bash "$REPO/scripts/deploy.sh" all >> "$LOG" 2>&1
+"$PY" "$REPO/scripts/with_lock.py" --block-timeout 3600 /tmp/trade_deploy.lock bash "$REPO/scripts/deploy.sh" all >> "$LOG" 2>&1
 DEPLOY_ALL_RC=$?
 if [ "$DEPLOY_ALL_RC" -ne 0 ]; then
   echo "✗ O1 统一 deploy 失败 (rc=$DEPLOY_ALL_RC)" | tee -a "$LOG"

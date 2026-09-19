@@ -87,7 +87,7 @@ fi
 # 2) 持 deploy 锁推送（串行化 git，阻塞排队；deploy.sh public-fund 重新 export 全量 JSON + git push）
 #    deploy.sh 幂等: export 生成相同 JSON -> git add 无新变更 -> 跳过 commit -> push up-to-date。
 echo "-> 持 deploy 锁推送（串行化 git，可能排队等 full/other backfill）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/with_lock.py" /tmp/trade_deploy.lock bash "$REPO/scripts/deploy.sh" public-fund 2>&1 | tee -a "$LOG"
+"$PY" "$REPO/scripts/with_lock.py" --block-timeout 3600 /tmp/trade_deploy.lock bash "$REPO/scripts/deploy.sh" public-fund 2>&1 | tee -a "$LOG"
 DEPLOY_RC=${PIPESTATUS[0]}
 [ "$DEPLOY_RC" -ne 0 ] && echo "✗ deploy 失败 (rc=$DEPLOY_RC)" | tee -a "$LOG"
 
