@@ -44,7 +44,7 @@
 | 20 | **凯利交叉分组卡片可切换二级筛选** | docs/kelly/analysis/kelly-analysis.md L223 | 信号类型×大类交叉卡片数爆炸,建议做成可切换二级筛选而非平铺。交叉分组样本量易<30,实施前先确认象限样本>100 | 无 | **远期待办**(2026-08-13 用户定:交叉分组样本坍塌+置顶已缓解爆炸,ROI 低暂缓) |
 | 21 | **高胜率子群深化研究(并入 #17 v5 方向)** | docs/kelly/backtest-ai/kelly-backtest-deepseek-review.md L89 | 两象限表现优异但样本小,下一步分析行业/市值/技术形态特征,扩充样本或找适用场景 | 依赖新数据(行业/市值/技术形态字段,signal_kelly_trades.json 无),样本小(n=85) | **远期待办**(2026-08-13 用户定:并入 #17 v5,需先接入 ETF 属性维度/扩充样本再做) |
 | 22 | **凯利过滤层 walk-forward(调阈值验证持续)** | docs/archive/walk-forward-report.md L183 | 过滤层多轮迭代调参有过拟合风险,建议未来对过滤层做 walk-forward | 无 | **已关闭**(08-22 299db6167,方法论沉淀随 #16 落地) |
-| 103 | **凯利回测页移动端方案B(移动优先重排+数据切片;区别于 #97 README 精炼已完成)** | docs/kelly/mobile-refactor-plan-20260826.md | 移动优先重排+数据切片,根治凯利回测页移动端体验差 | 08-25 用户拍板(7637959fb) | **已拍板待实施**(08-25 用户拍板 7637959fb,方案见 docs/kelly/mobile-refactor-plan-20260826.md) |
+| 103 | **凯利回测页移动端方案B(移动优先重排+数据切片;区别于 #97 README 精炼已完成)** | docs/kelly/mobile-refactor-plan-20260826.md | 移动优先重排+数据切片,根治凯利回测页移动端体验差 | 08-25 用户拍板(7637959fb) | **已完成(2026-09-18 换路径达成)**:未按原「移动优先重排+数据切片」方案做,改走 codex 评测后「数据优先+说明折叠」6项落地(bdfc9391e→5abefabb3→04948a8b9 merge main,双视口验收 accept_mobile_ux_sigkelly.mjs),目标(根治移动端体验差)已达成 |
 | ~~95~~ | ~~ETF→权重龙头个股 回测分支~~ | 2026-08-20 | ~~B1/B2/B3全跑~~ | **已关闭**(2026-08-21 回测结论=无实际价值不推荐,维持v1.1.3;A全面优于B1/B2,B3与A持平但3倍操作量;详见 docs/kelly/backtest-ai/etf-weight-leader/etf-weight-leader-conclusion.md) | ~~数据源~~ | ~~已关闭~~ |
 
 > 本模块 #16(Walk-forward)/#74(ai_macro.hit 白名单过滤 41105d6a8)已完成:移入 docs/tasks-done-list.md「2026-08-20 pending-features-index 治理批量移入」。
