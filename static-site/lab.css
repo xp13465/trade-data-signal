@@ -33,6 +33,11 @@
 [data-theme="redgold"] .lab-top-disclaimer .lab-top-title,
 [data-theme="dark"] .lab-top-disclaimer b,
 [data-theme="redgold"] .lab-top-disclaimer b { color: #ff9c9a; }
+/* 2026-09-19 §1 免责折叠: lab-top-disclaimer 改 <details><summary> 结构(桌面端 open 全文可见, 移动端收起)。
+   新增元素的新增样式(非改既有全局规则): 隐藏 details 默认三角标, 让 summary 呈现原「📚 教育研究工具声明」红标题观感。 */
+.lab-top-disclaimer summary { list-style: none; cursor: pointer; }
+.lab-top-disclaimer summary::-webkit-details-marker { display: none; }
+.lab-top-disclaimer-body { margin-top: 2px; }
 
 /* P2-3: 新手引导卡（置顶常驻，<details> 原生折叠，默认展开） */
 .lab-newbie-guide {
@@ -2746,3 +2751,44 @@ td.lab-sigkelly-elim-reason { text-decoration: none; color: var(--text-2); font-
 .auto-trade-steps-etf-modal { max-width: 680px; }
 .auto-trade-steps-etf-body { padding: 10px 12px 12px; }
 .auto-trade-steps-etf-body .lab-etf-pin-wrap svg { display: block; }
+
+/* === 移动端「数据优先 + 说明折叠」sigkelly 段(2026-09-19, §1-§4) ===
+   作用域红线: 全部只写在 @media(max-width:760px) 内, 桌面端(>760px)零回归。
+   对应评测: docs/codex-reviews/site-review-sigkelly-mobile-ux-impl-20260918.md */
+@media (max-width:760px){
+  /* §1 免责二合一 + 折叠: lab-top-disclaimer 折叠态压小(summary 一行), 全局 risk-banner 压小字(style.css 公共段) */
+  .lab-top-disclaimer { padding: 6px 10px; margin-bottom: 8px; }
+  .lab-top-disclaimer .lab-top-title { font-size: 12px; margin-bottom: 0; }
+  .lab-top-disclaimer-body { font-size: 12px; line-height: 1.6; }
+
+  /* §3 purpose-note 默认收起: 已折叠(summary 即标题), 但 summary 文案过长撑高 → 移动端截断 2 行, 点开看全文 */
+  .purpose-note.lab-sm { padding: 6px 10px; margin-bottom: 8px; font-size: 12px; }
+  .purpose-note-summary {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.5;
+    font-size: 12px;
+    white-space: normal;
+  }
+
+  /* §4 建议指南折叠成 summary 一行(≤120px): 隐藏标题/口径注/meta 行, 只留 advice-outer 折叠 summary(展开入口保留) */
+  .lab-sigkelly-advice { padding: 4px 8px; margin-bottom: 8px; }
+  .lab-sigkelly-advice-title,
+  .lab-sigkelly-advice > .lab-sigkelly-advice-li,
+  .lab-sigkelly-advice .lab-sigkelly-gen-row { display: none; }
+  .lab-sigkelly-advice-outer { margin-top: 0; }
+  .lab-sigkelly-advice-outer > summary { font-size: 12px; padding: 2px 2px; }
+
+  /* §4 实操提醒(auto-trade-steps)折叠: 严禁 display:none(「今天该干嘛」蓝框核心功能), 收成 head+summary 一行, 点开看明细 */
+  .auto-trade-steps { padding: 6px 8px; margin: 8px 0; }
+  .auto-trade-steps-head { margin-bottom: 2px; }
+  .auto-trade-steps-sub { display: none; }
+  .auto-trade-steps-collapse-summary {
+    cursor: pointer; list-style: none; font-weight: 600; font-size: 12px;
+    color: var(--primary); padding: 2px 0; border-top: 1px dashed var(--border);
+  }
+  .auto-trade-steps-collapse-summary::-webkit-details-marker { display: none; }
+  .auto-trade-steps-collapse-body { padding-top: 4px; }
+}

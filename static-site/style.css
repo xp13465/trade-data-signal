@@ -7332,3 +7332,28 @@ select.tds-fade-mode-sel:hover, select.tds-fade-mode-sel:focus { border-color: v
   word-break: break-word;
   line-height: 1.45;
 }
+
+/* === mobile-progressive-disclosure 公共段(2026-09-19, §6) ===
+   移动端「说明折叠 + 数据优先」统一规范: ≤760px 下说明/引导/免责默认折叠或单行, 数据块优先。
+   公共 helper = window.collapseOnMobile(selector, storageKey) 定义在 common.js, 供后续 tab 逐 tab 接入。
+   本批次已套: sigkelly(lab.css 移动端段) + h5-topbar 减负 + 版本 toast 小 pill + risk-banner 压小字;
+   其余 tab 本批次不动(保证桌面零回归)。实现细则见 docs/codex-reviews/site-review-sigkelly-mobile-ux-impl-20260918.md §6 */
+@media (max-width:760px){
+  /* 通用工具类(供后续 tab 复用) */
+  .mobile-hide { display: none !important; }
+  .mobile-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+  /* §1 全局 risk-banner 压小字(仍可见, 与 lab 折叠免责共同承接合规说明) */
+  .risk-banner { font-size: 11px; line-height: 1.5; padding: 6px 10px; }
+
+  /* §5 顶部条减负: 收敛次要图标——只留标题 + 通知(🔔 必备, 不算次要); 藏分享/采集时间/主题/登录 */
+  .h5-topbar .h5-share-btn,
+  .h5-topbar .h5-theme-btn,
+  .h5-topbar .h5-auth-btn,
+  .h5-topbar .h5-collect-time { display: none !important; }
+  .h5-topbar .h5-notify-btn { display: inline-flex; }
+
+  /* §5 版本更新 toast 改小 pill(单行紧凑, 不遮挡主数据) */
+  #sw-update-toast { padding: 8px 12px; font-size: 12px; border-radius: 20px; max-width: 92vw; }
+  #sw-update-toast .sw-update-btn { padding: 2px 8px; font-size: 11px; }
+}

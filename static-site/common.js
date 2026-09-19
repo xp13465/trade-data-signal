@@ -1843,3 +1843,33 @@ window._kkellyRealizeRealForce = _gihRealizeRealForce;
 
 window._kkellyRealNavEnsure = _gihRealNavEnsure;
 window._kkellyRealizeRealForce = _gihRealizeRealForce;
+
+// === 移动端说明折叠公共 helper(2026-09-19, §6 mobile-progressive-disclosure) ===
+// 用途: 后续 tab 接入移动端「说明/引导/免责默认收起 + localStorage 记忆」的统一入口, 避免逐页自造。
+// 用法: collapseOnMobile('.risk-banner', 'tds_collapse_risk') — 在对应 tab render 后调用一次。
+// 行为: 匹配元素须为 <details>/<summary> 结构。
+//   移动端(≤760px): 一律默认收起(数据优先, 展开需用户点一下)。
+//   桌面端(>760px): 默认展开(零回归); 用户曾主动收起则尊重其选择(存 storageKey)。
+//   toggle 事件写回 storageKey(open/closed), 与 lab 页新手引导持久化同模式。
+// 本批次仅定义未调用(其他 tab 后续接入), sigkelly 已用 lab.js 内联逻辑实现(见 §1-§4)。
+window.collapseOnMobile = function (selector, storageKey) {
+  try {
+    var els = document.querySelectorAll(selector);
+    for (var i = 0; i < els.length; i++) {
+      (function (el) {
+        if (!el || el.tagName !== "DETAILS") return;
+        var saved = null;
+        try { saved = localStorage.getItem(storageKey); } catch (e) {}
+        var isMobile = window.matchMedia("(max-width:760px)").matches;
+        if (isMobile) {
+          el.removeAttribute("open");
+        } else if (saved !== "closed") {
+          el.setAttribute("open", "");
+        }
+        el.addEventListener("toggle", function () {
+          try { localStorage.setItem(storageKey, el.open ? "open" : "closed"); } catch (e) {}
+        });
+      })(els[i]);
+    }
+  } catch (e) { /* 兜底不崩 */ }
+};

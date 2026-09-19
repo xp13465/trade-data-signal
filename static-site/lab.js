@@ -2433,12 +2433,18 @@ function _labWarningEssayHTML(status) {
     `<p class="lab-backtest-disclaimer">⚠ <strong>回测非投资建议；过往表现不代表未来收益。</strong>以下为历史回测统计，含幸存者偏差与过拟合风险，实盘收益通常低于回测。回测基于历史数据理想化模拟，未考虑实盘滑点、流动性冲击与极端行情。所有收益/胜率/年化均为历史回测结果，非投资建议或收益承诺。</p>`;
 }
 
-// C: 实验室顶部合规声明（置顶显著，非折叠，教育研究定位）
+// C: 实验室顶部合规声明(置顶显著, 教育研究定位)。
+// 2026-09-19 移动端数据优先(§1): 改 <details><summary> 折叠结构——桌面端带 open(零回归, 全文可见),
+//   移动端默认收起, 仅留 summary 一行, 点开可看全文。⚠ 免责三源核对: 本块含 lab 专属回测口径
+//   (回测统计/幸存者偏差与过拟合/实盘收益通常低于回测), 全局 risk-banner 无承接 → 全文必须保留在折叠体内, 不得 display:none。
 function _labTopDisclaimerHTML() {
-  return `<div class="lab-top-disclaimer">` +
-    `<span class="lab-top-title">📚 教育研究工具声明</span>` +
+  const _isMobile = window.matchMedia("(max-width:760px)").matches;
+  const _openAttr = _isMobile ? "" : " open";
+  return `<details class="lab-top-disclaimer"${_openAttr}>` +
+    `<summary class="lab-top-title">📚 教育研究工具声明</summary>` +
+    `<div class="lab-top-disclaimer-body">` +
     `本实验室为个人学习/研究用途，<b>非持牌证券投资咨询机构</b>。⚠ 以下为历史回测统计，含<b>幸存者偏差与过拟合风险</b>，实盘收益通常低于回测。所有策略与信号均为历史数据回测统计与技术分析参考，<b>不构成任何投资建议或交易指令</b>。所有收益/胜率/年化均为历史回测结果，<b>不代表未来收益，非投资建议或收益承诺</b>。投资有风险，决策需谨慎。` +
-    `</div>`;
+    `</div></details>`;
 }
 
 // P2-3: 新手引导卡（置顶常驻，可折叠，<details> 原生折叠免 JS）
@@ -2448,7 +2454,7 @@ function _labNewbieGuideHTML(subMode) {
   switch (mode) {
     // fusion: 融合信号实验(阶段一仅元数据 + 配对榜 + 三切片; 融合 n<30 灰态专有)
     case "fusion":
-      return `<details class="lab-newbie-guide" open>` +
+      return `<details class="lab-newbie-guide">` +
         `<summary class="lab-newbie-guide-summary">🧭 新手引导 · 融合信号实验三步 <span class="lab-newbie-toggle"></span></summary>` +
         `<div class="lab-newbie-guide-body">` +
         `<div class="lab-newbie-step">` +
@@ -2467,7 +2473,7 @@ function _labNewbieGuideHTML(subMode) {
         `</div></details>`;
     // retest: 二次测试实验(选⭐️配对 → 三切片 → 三稳才是真稳健)
     case "retest":
-      return `<details class="lab-newbie-guide" open>` +
+      return `<details class="lab-newbie-guide">` +
         `<summary class="lab-newbie-guide-summary">🧭 新手引导 · 二次测试三步 <span class="lab-newbie-toggle"></span></summary>` +
         `<div class="lab-newbie-guide-body">` +
         `<div class="lab-newbie-step">` +
@@ -2485,7 +2491,7 @@ function _labNewbieGuideHTML(subMode) {
         `</div></details>`;
     // ablation: 信号拆解(N-1 消融 → 看贡献正负 → 右栏柱状图定主次)
     case "ablation":
-      return `<details class="lab-newbie-guide" open>` +
+      return `<details class="lab-newbie-guide">` +
         `<summary class="lab-newbie-guide-summary">🧭 新手引导 · 信号拆解三步 <span class="lab-newbie-toggle"></span></summary>` +
         `<div class="lab-newbie-guide-body">` +
         `<div class="lab-newbie-step">` +
@@ -2503,7 +2509,7 @@ function _labNewbieGuideHTML(subMode) {
         `</div></details>`;
     // symmetry: 多空对称(选指数 → top8 做多/做空对照 → 右栏对称比柱状图)
     case "symmetry":
-      return `<details class="lab-newbie-guide" open>` +
+      return `<details class="lab-newbie-guide">` +
         `<summary class="lab-newbie-guide-summary">🧭 新手引导 · 多空对称三步 <span class="lab-newbie-toggle"></span></summary>` +
         `<div class="lab-newbie-guide-body">` +
         `<div class="lab-newbie-step">` +
@@ -2521,7 +2527,7 @@ function _labNewbieGuideHTML(subMode) {
         `</div></details>`;
     // paramscan: 参数扫描(选策略 → 选指数 → 热力图/柱状图看参数敏感性)
     case "paramscan":
-      return `<details class="lab-newbie-guide" open>` +
+      return `<details class="lab-newbie-guide">` +
         `<summary class="lab-newbie-guide-summary">🧭 新手引导 · 参数扫描三步 <span class="lab-newbie-toggle"></span></summary>` +
         `<div class="lab-newbie-guide-body">` +
         `<div class="lab-newbie-step">` +
@@ -2539,7 +2545,7 @@ function _labNewbieGuideHTML(subMode) {
         `</div></details>`;
     // aiwarn: AI预警(选标的 → 情绪告警 → 维度拆解+历史类比; AI 分析非回测语义)
     case "aiwarn":
-      return `<details class="lab-newbie-guide" open>` +
+      return `<details class="lab-newbie-guide">` +
         `<summary class="lab-newbie-guide-summary">🧭 新手引导 · AI预警三步 <span class="lab-newbie-toggle"></span></summary>` +
         `<div class="lab-newbie-guide-body">` +
         `<div class="lab-newbie-step">` +
@@ -2557,7 +2563,7 @@ function _labNewbieGuideHTML(subMode) {
         `</div></details>`;
     // aiscore: AI评分(输入持仓自查 → 买清单/卖清单 → 持有建议; AI 分析非回测语义)
     case "aiscore":
-      return `<details class="lab-newbie-guide" open>` +
+      return `<details class="lab-newbie-guide">` +
         `<summary class="lab-newbie-guide-summary">🧭 新手引导 · AI评分三步 <span class="lab-newbie-toggle"></span></summary>` +
         `<div class="lab-newbie-guide-body">` +
         `<div class="lab-newbie-step">` +
@@ -2575,7 +2581,7 @@ function _labNewbieGuideHTML(subMode) {
         `</div></details>`;
     // sigkelly: 信号凯利回测(选周期/参数 → 16卡半凯利仓位回测 → AI 报告; Kelly 比例=仓位建议)
     case "sigkelly":
-      return `<details class="lab-newbie-guide" open>` +
+      return `<details class="lab-newbie-guide">` +
         `<summary class="lab-newbie-guide-summary">🧭 新手引导 · 信号凯利回测三步 <span class="lab-newbie-toggle"></span></summary>` +
         `<div class="lab-newbie-guide-body">` +
         `<div class="lab-newbie-step">` +
@@ -2594,7 +2600,7 @@ function _labNewbieGuideHTML(subMode) {
     // single(默认): 现状原文逐字保留
     case "single":
     default:
-      return `<details class="lab-newbie-guide" open>` +
+      return `<details class="lab-newbie-guide">` +
         `<summary class="lab-newbie-guide-summary">🧭 新手引导 · 不熟悉回测？先看这三步 <span class="lab-newbie-toggle"></span></summary>` +
         `<div class="lab-newbie-guide-body">` +
         `<div class="lab-newbie-step">` +
@@ -2612,6 +2618,24 @@ function _labNewbieGuideHTML(subMode) {
         `<div class="lab-newbie-tip">💡 融合实验中 <b>n&lt;30</b> 的候选已标灰「样本不足，仅供参考」——样本量小统计意义弱，收益/胜率易被极端值拉偏，谨慎参考。</div>` +
         `</div></details>`;
   }
+}
+
+// P2-3 移动端数据优先(2026-09-19, §2): 新手引导默认收起; 桌面端保持默认展开(零回归)并记住用户展开/收起偏好。
+//   模板已去硬编码 open(9 处); render 后调用本函数按视口/已读态恢复, 并绑定 toggle 写回 localStorage。
+function _labApplyNewbieGuideState(sub) {
+  const el = document.querySelector(".lab-newbie-guide");
+  if (!el) return;
+  const key = "tds_lab_guide_" + (sub || "single");
+  let saved = null;
+  try { saved = localStorage.getItem(key); } catch (e) {}
+  const isDesktop = !window.matchMedia("(max-width:760px)").matches;
+  // 桌面端: 默认展开(与改前一致); 用户曾主动收起则尊重其选择。移动端: 一律默认收起(数据优先, 展开需用户点一下)。
+  if (isDesktop) {
+    if (saved !== "closed") el.setAttribute("open", "");
+  }
+  el.addEventListener("toggle", function () {
+    try { localStorage.setItem(key, el.open ? "open" : "closed"); } catch (e) {}
+  });
 }
 
 // 融合信号实验自白黄块
@@ -5995,6 +6019,8 @@ async function renderSignalLab() {
 
   // P2-3: 新手引导卡（置顶常驻，可折叠，全子模式可见；#55 按子模式动态化文案）
   content.insertAdjacentHTML("beforeend", _labNewbieGuideHTML(state.labSubMode));
+  // 2026-09-19 §2: 引导默认收起 + 已读持久化(桌面端默认展开零回归)
+  _labApplyNewbieGuideState(state.labSubMode);
 
   // === 二级导航（单一信号实验 / 融合信号实验）===
   _renderLabSubNav();
@@ -14796,6 +14822,16 @@ function _atRender(slot, planDoc, stepsDoc) {
   } else {
     bodyHtml = '<div class="auto-trade-steps-empty">暂无实操计划。次日买入计划生成(交易日 21:00 后)后自动显示。</div>';
   }
+  // 2026-09-19 移动端数据优先(§4 修正①): 实操步骤=「今天该干嘛」蓝框核心功能, 严禁 display:none。
+  //   移动端把 bar(今天该干嘛)+body 折叠成一行 summary(展开入口保留, 可点开看今日买卖计划);
+  //   桌面端保持展开(零回归)。details 在移动端每次轮询重渲染后仍默认收起, 与「默认折叠」一致。
+  const _atIsMobile = window.matchMedia("(max-width:760px)").matches;
+  const _atBodyHtml = _atIsMobile
+    ? '<details class="auto-trade-steps-collapse">' +
+        '<summary class="auto-trade-steps-collapse-summary">▶ 今天该干嘛 · 实操步骤明细</summary>' +
+        '<div class="auto-trade-steps-collapse-body">' + barHtml + bodyHtml + '</div>' +
+      '</details>'
+    : barHtml + bodyHtml;
   slot.innerHTML =
     '<div class="auto-trade-steps">' +
       '<div class="auto-trade-steps-head">' +
@@ -14803,7 +14839,7 @@ function _atRender(slot, planDoc, stepsDoc) {
         '<span class="auto-trade-steps-sub">提醒视图 · 最近交易日+下一交易日 · 每日期内按买入/卖出分类 · 历史见「查看全部计划」(读 nextday_plan + auto_trade_steps, 纯展示不重算算法)</span>' +
         '<button type="button" class="auto-trade-steps-more-btn" style="margin-left:auto;padding:2px 8px;border:1px solid var(--border);border-radius:5px;background:var(--bg-card);color:var(--text-2);font-size:11px;cursor:pointer;white-space:nowrap;">📄 查看全部计划</button>' +
       '</div>' +
-      barHtml + bodyHtml +
+      _atBodyHtml +
     '</div>';
   slot.querySelectorAll(".auto-trade-steps-row").forEach(function (row) {
     // #108 卖出行 data-open-date=所属买入组, 弹该组完整时间线; 其余行用 data-date
