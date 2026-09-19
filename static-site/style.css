@@ -7346,10 +7346,8 @@ select.tds-fade-mode-sel:hover, select.tds-fade-mode-sel:focus { border-color: v
   /* §1 全局 risk-banner 压小字(仍可见, 与 lab 折叠免责共同承接合规说明) */
   .risk-banner { font-size: 11px; line-height: 1.5; padding: 6px 10px; }
 
-  /* §5 顶部条减负: 收敛次要图标——只留标题 + 通知(🔔 必备, 不算次要); 藏分享/采集时间/主题/登录 */
-  .h5-topbar .h5-share-btn,
+  /* §5 顶部条减负: 收敛纯展示项——只藏采集时间/主题; 分享图/登录是功能入口(移动端无替代入口), 保留可见 */
   .h5-topbar .h5-theme-btn,
-  .h5-topbar .h5-auth-btn,
   .h5-topbar .h5-collect-time { display: none !important; }
   .h5-topbar .h5-notify-btn { display: inline-flex; }
 
