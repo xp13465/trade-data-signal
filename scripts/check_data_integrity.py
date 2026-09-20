@@ -716,108 +716,6 @@ def check_signal_kelly_backtest_sdc(data_dir: Path) -> CheckResult:
     return _ok(name, f"{len(quads)}象限×5周期×{len(expected_modes)}模式完整, buy_price_basis=signal_day_close, all/A 总样本={total_n}")
 
 
-def check_kelly_lab_slices(data_dir: Path) -> CheckResult:
-    """校验凯利移动端切片(signal_kelly_trades_parts/)与整包同版（#97 批次C，F1 review-kelly-mobile-20260825）。
-
-    事故场景：回测重跑只更新整包、切片由旧版脚本跑的没跟着导出 -> 「新整包+旧切片」同时上线
-    -> 移动端弹窗快速预览数字 != 正式表数字（§22 数据一致性违反）。校验四件：
-      ① lab_meta.generated_at == signal_kelly_trades.json.generated_at（混版 FAIL 阻断）
-      ② meta.parts 记录的每片文件在位（防片丢失）
-      ③ 目录 lab_ 片集合 == meta 记录集合（防孤儿/残留片被前端拉到旧数据）
-      ④ codex-002 增强: 逐片深度校验——JSON 可解析+片 generated_at/fields 与整包一致
-        + size==meta.bytes + 行数==meta.rows + 组内行数和==meta.total（防半截写入/单片混版）
-    meta 不存在 = WARN 不阻断（切片未生成的老环境向后兼容；merge 后跑
-    `python scripts/signal_kelly_backtest.py --export-lab-slices-only` 补生成）。
-    整包 generated_at 用头 4KB 正则轻量提取（62MB 不全量加载；该键恒为首键，见产物头部）。
-    """
-    name = "kelly_lab_slices"
-    trades_path = data_dir / "signal_kelly_trades.json"
-    parts_dir = data_dir / "signal_kelly_trades_parts"
-    meta_path = parts_dir / "lab_meta.json"
-    if not trades_path.exists():
-        return _warn(name, f"整包不存在: {trades_path.name}")
-    if not meta_path.exists():
-        return _warn(name, "lab_meta.json 不存在（切片未生成; merge 后跑 scripts/signal_kelly_backtest.py --export-lab-slices-only 同步）")
-
-    # 整包 generated_at（首键，头 4KB 必含）
-    with open(trades_path, "rb") as f:
-        head = f.read(4096).decode("utf-8", errors="replace")
-    m = re.search(r'"generated_at"\s*:\s*"([^"]+)"', head)
-    if not m:
-        return _warn(name, "整包头 4KB 未找到 generated_at（结构变更? 需人工核对）")
-    full_ts = m.group(1)
-
-    meta, err = _load_json(meta_path)
-    if err:
-        return _fail(name, f"lab_meta.json 解析失败: {err}")
-    if not isinstance(meta, dict):
-        return _fail(name, f"lab_meta.json 不是 dict: {type(meta).__name__}")
-    meta_ts = meta.get("generated_at")
-    if meta_ts != full_ts:
-        return _fail(
-            name,
-            f"切片/整包混版: lab_meta.generated_at={meta_ts} != signal_kelly_trades.generated_at={full_ts}"
-            f"（先跑 python scripts/signal_kelly_backtest.py --export-lab-slices-only 同步再 deploy, §22）",
-        )
-
-    # 片在位 + 双向集合比对（missing=meta 记了文件没了; orphan=目录有 meta 没记=残留旧片）
-    expected = set()
-    for g in (meta.get("groups") or {}).values():
-        for p in ((g or {}).get("parts") or []):
-            if p.get("name"):
-                expected.add(p["name"])
-    actual = {
-        p.name for p in parts_dir.glob("lab_*.json")
-        if p.name != "lab_meta.json" and re.match(r"^lab_.+__.+_p\d+\.json$", p.name)
-    }
-    missing = sorted(expected - actual)
-    orphan = sorted(actual - expected)
-    if missing:
-        return _fail(name, f"meta 记录 {len(expected)} 片, 缺 {len(missing)} 片如 {missing[:3]}")
-    if orphan:
-        return _fail(name, f"目录存在 meta 未记录的残留片 {len(orphan)} 个如 {orphan[:3]}（重导后未清/混版）")
-
-    # codex-002 high 增强: 逐片深度校验（防「文件在位但内容坏/旧」——半截写入/重导中断/混版单片的
-    # 情况集合比对拦不住）。每片解析 JSON + 头部 generated_at/fields 与整包一致 + size==meta.bytes
-    # + 数组行数==meta.rows。303 片全量 json.load 实测秒级, 可接受(仅 deploy 链跑)。
-    bad = []
-    checked_rows = 0
-    for gkey, g in (meta.get("groups") or {}).items():
-        declared_total = 0
-        for p in ((g or {}).get("parts") or []):
-            pn = p.get("name") or ""
-            pp = parts_dir / pn
-            try:
-                if pp.stat().st_size != p.get("bytes"):
-                    bad.append(f"{pn}:size({pp.stat().st_size}!={p.get('bytes')})")
-                    continue
-                shard = json.loads(pp.read_text(encoding="utf-8"))
-                if shard.get("generated_at") != full_ts:
-                    bad.append(f"{pn}:generated_at({shard.get('generated_at')}!={full_ts})")
-                    continue
-                if list(shard.get("fields") or []) != list(meta.get("fields") or []):
-                    bad.append(f"{pn}:fields不一致")
-                    continue
-                qkv = (shard.get("quadrants") or {})
-                n_rows = sum(len(v) for mk_map in qkv.values() for v in (mk_map.values() if isinstance(mk_map, dict) else []))
-                if n_rows != p.get("rows"):
-                    bad.append(f"{pn}:rows({n_rows}!={p.get('rows')})")
-                    continue
-                declared_total += n_rows
-                checked_rows += n_rows
-            except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                bad.append(f"{pn}:JSON解析失败({type(e).__name__})")
-            except OSError as e:
-                bad.append(f"{pn}:读取失败({type(e).__name__})")
-        if isinstance(g, dict) and g.get("total") is not None and declared_total != g["total"]:
-            bad.append(f"{gkey}:组总行数({declared_total}!=meta.total {g['total']})")
-    if bad:
-        return _fail(name, f"逐片深度校验 FAIL {len(bad)} 片如: {'; '.join(bad[:4])}（重导切片再 deploy）")
-
-    n_groups = len(meta.get("groups") or {})
-    return _ok(name, f"切片与整包同版({full_ts}), {n_groups}组/{len(expected)}片深度校验齐({checked_rows}行)")
-
-
 def check_trade_sim_indices(data_dir: Path) -> CheckResult:
     """校验 trade_sim_indices.json：存在 + 非滞后（trade_sim JSON 无调度致滞后拦截）。
 
@@ -1984,8 +1882,6 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     # P1-D2 export 导出面全量断言（2026-08-23，单一事实源=export.py EXPORT_MANIFEST，
     # E16 防「生成了没上线」31 产物盲区，见 docs/bug-pattern-site-audit-20260823.md D 族）
     results.append(check_export_manifest(data_dir))
-    # #97 凯利移动端切片↔整包同版校验（F1 review-kelly-mobile-20260825，防「新整包+旧切片」混版上线 §22）
-    results.append(check_kelly_lab_slices(data_dir))
 
     # S06 动态模式快照机检（2026-08-26 接入 deploy 同链，S06 切全站默认前置条件）：
     # 委托 scripts/check_s06_state.py 四断言（A1 独立复算/A2 decision_date 防前视/

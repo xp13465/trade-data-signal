@@ -30,7 +30,7 @@
 
 ## 本轮落档(2026-08-25)
 
-- #97 移动端方案B实施与冒烟记录: `mobile-refactor-20260825-smoke.md`(三批次 commit/iOS 四件前后对比/桌面零变化证明 he5bffb1e/切片 144组303片 max280.5KB+全量机检 PASS/弱网预览链路诊断)+ 脚本 `scripts/kelly_mobile_smoke.js`(Playwright 冒烟 desktop/mobile 双模式)、`scripts/kelly_mobile_preview_diag.js`(切片预览→整包替换链路诊断); 配套生成端 `scripts/signal_kelly_backtest.py --export-lab-slices-only`
+- #97 移动端方案B实施与冒烟记录: `mobile-refactor-20260825-smoke.md`(三批次 commit/iOS 四件前后对比/桌面零变化证明 he5bffb1e/切片 144组303片 max280.5KB+全量机检 PASS/弱网预览链路诊断)+ 脚本 `scripts/kelly_mobile_smoke.js`(Playwright 冒烟 desktop/mobile 双模式)、`scripts/kelly_mobile_preview_diag.js`(切片预览→整包替换链路诊断); ⚠️ 配套生成端 `--export-lab-slices-only` 与 lab_ 前缀切片(含 check_kelly_lab_slices 机检)已于 2026-09-20 用户拍板摘除, 该命令/产物/机检不复存在, 本节为历史记录
 
 ## 本轮落档(2026-08-15)
 

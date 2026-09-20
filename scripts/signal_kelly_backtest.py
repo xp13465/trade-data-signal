@@ -1938,7 +1938,7 @@ def _cleanup_stale_tmp(parts_dir, keep_names):
     """
     n = 0
     for fn in os.listdir(parts_dir):
-        if fn.endswith(".tmp") and fn not in keep_names and not fn.startswith("lab_meta.json"):
+        if fn.endswith(".tmp") and fn not in keep_names:
             stem = fn[:-4].rsplit(".", 2)  # [path..., pid, rand]
             if len(stem) == 3 and stem[1].isdigit():
                 try:
@@ -2078,110 +2078,11 @@ def _export_trades_parts(trades_data, trades_path):
     _cleanup_stale_tmp(parts_dir, keep_names=set())
 
 
-def _export_lab_slices(trades_data, trades_path):
-    """lab 弹窗象限×模式切片导出(#97 批次C, 2026-08-25 移动端首屏提速)。
-
-    目的: signal_kelly_trades.json 全量 ~62MB 移动端不可拉; lab 交易记录弹窗(≤768px)
-    首屏改为按 (象限×模式) 组并行拉小片快速渲染明细预览, 整包在后台懒加载就绪后
-    切换完整口径(fade/positionCap/费率重算依赖跨象限 dims, 预览态不含, 见 lab.js
-    _sigKellyOpenTradesPreview)。桌面 >768px 恒走整包零变化。
-
-    口径:
-    - 每组 (qk, mk) 行序保持全量文件原序, 按「行数≤2000 且 序列化字节≤280KB」先到为准
-      切 chunk → 文件 lab_{qk}__{mk}_p{n}.json(n 从 1), 拼接=与原数组逐位一致(机检脚本断言)。
-    - 每片结构与全量一致 {generated_at,buy_amount,period_cutoffs,fields,quadrants},
-      quadrants 只含该组该 chunk 的行。
-    - lab_meta.json 清单: groups["{qk}|{mk}"] = {total, parts:[{name,rows,bytes}]},
-      顶层带 fields/buy_amount/period_cutoffs/generated_at 供前端预览直接使用。
-    - 与首页 recent/t{YYYY}.json 同目录(signal_kelly_trades_parts/), 复用
-      upload_r2.py upload-kelly-parts 的 *.json glob 上传链(零上传端改动)。
-
-    复现: python3 scripts/signal_kelly_backtest.py --export-lab-slices-only
-      (读现有 static-site/data/signal_kelly_trades.json, 不重跑回测)
-    """
-    parts_dir = _trades_parts_dir(trades_path)
-    fields = trades_data["fields"]
-    max_rows = 2000
-    max_bytes = 280 * 1024
-
-    def _row_size(row):
-        # UTF-8 编码字节数(非字符数): 中文 ETF 名/信号名多字节, 按字符数切会低估致片超 300KB
-        return len(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1
-
-    os.makedirs(parts_dir, exist_ok=True)
-    meta = {
-        "generated_at": trades_data.get("generated_at"),
-        "buy_amount": trades_data.get("buy_amount"),
-        "period_cutoffs": trades_data.get("period_cutoffs"),
-        "fields": fields,
-        "groups": {},
-    }
-    total_parts = 0
-    for qk, mk_map in trades_data.get("quadrants", {}).items():
-        for mk, arr in mk_map.items():
-            if not arr:
-                continue
-            # 先按行数粗分, 再按字节细切(逐行累加, 超 280KB 即断片)
-            chunks = []
-            cur, cur_bytes = [], 0
-            for r in arr:
-                rs = _row_size(r)
-                if cur and (len(cur) >= max_rows or cur_bytes + rs > max_bytes):
-                    chunks.append(cur)
-                    cur, cur_bytes = [], 0
-                cur.append(r)
-                cur_bytes += rs
-            if cur:
-                chunks.append(cur)
-            parts = []
-            for n, rows in enumerate(chunks, start=1):
-                name = f"lab_{qk}__{mk}_p{n}.json"
-                shard = {
-                    "generated_at": trades_data.get("generated_at"),
-                    "buy_amount": trades_data.get("buy_amount"),
-                    "period_cutoffs": trades_data.get("period_cutoffs"),
-                    "fields": fields,
-                    "quadrants": {qk: {mk: rows}},
-                }
-                payload = json.dumps(shard, ensure_ascii=False, separators=(",", ":"))
-                # codex-002 high: 原子写(同 _export_trades_parts._dump), 防半截片被前端拉到
-                _atomic_write(os.path.join(parts_dir, name), payload)
-                b = len(payload.encode("utf-8"))
-                if b > 300 * 1024:
-                    print(f"⚠ lab切片超300KB: {name} ({b / 1024:.1f} KB)", file=sys.stderr)
-                parts.append({"name": name, "rows": len(rows), "bytes": b})
-                total_parts += 1
-            meta["groups"][f"{qk}|{mk}"] = {"total": len(arr), "parts": parts}
-    meta_path = os.path.join(parts_dir, "lab_meta.json")
-    # codex-002 high: meta 最后原子写(meta 是前端预览入口, 半截=整链失败)
-    _atomic_write(meta_path, json.dumps(meta, ensure_ascii=False, separators=(",", ":")))
-    _cleanup_stale_tmp(parts_dir, keep_names=set())
-    # 清理不在本批 meta 中的旧 lab_* 残留片(历史数据量大时会多切 p2/p3, 重跑后
-    # 数据量缩小片数减少, 旧片不再被 meta 记录但文件仍留 → check_data_integrity FAIL)
-    expected_names = set()
-    for g in meta["groups"].values():
-        for p in g.get("parts", []):
-            expected_names.add(p["name"])
-    stale_n = 0
-    for fn in os.listdir(parts_dir):
-        if (fn.startswith("lab_") and fn.endswith(".json") and fn != "lab_meta.json"
-                and "_p" in fn and fn not in expected_names):
-            os.remove(os.path.join(parts_dir, fn))
-            stale_n += 1
-    if stale_n:
-        print(f"  清理 {stale_n} 个旧 lab 残留片", file=sys.stderr)
-    n_groups = len(meta["groups"])
-    print(f"✓ lab弹窗切片导出完成: {n_groups} 组 / {total_parts} 片 + lab_meta.json "
-          f"({os.path.getsize(meta_path) / 1024:.1f} KB)")
-
-
 def main():
     parser = argparse.ArgumentParser(description="信号凯利回测")
     parser.add_argument("--output", default=None, help="输出 JSON 路径(默认 static-site/data/signal_kelly_backtest.json)")
     parser.add_argument("--trades-output", default=None, help="交易记录 JSON 路径(默认 static-site/data/signal_kelly_trades.json)")
     parser.add_argument("--skip-parts", action="store_true", help="跳过分片导出(signal_kelly_trades_parts/, 默认生成)")
-    parser.add_argument("--export-lab-slices-only", action="store_true",
-                        help="#97批次C: 只重导 lab 弹窗象限×模式切片(读现有 signal_kelly_trades.json, 不重跑回测)")
     parser.add_argument("--intraday-rerun", default=None, metavar="DATE",
                         help="盘中增量回测档: 只处理指定 T 日(YYYYMMDD)买信号, akshare 注入 T+1 真实开盘价, 产物独立 "
                              "(signal_kelly_trades_intraday.json / signal_kelly_backtest_intraday.json), 不覆盖主档")
@@ -2227,13 +2128,6 @@ def main():
         rc = verify_intraday(args.intraday_verify, args.rerun_date, main_trades)
         sys.exit(rc)
 
-    if args.export_lab_slices_only:
-        print(f"只重导 lab 切片, 读: {trades_path}")
-        with open(trades_path, "r", encoding="utf-8") as f:
-            _td = json.load(f)
-        _export_lab_slices(_td, trades_path)
-        return
-
     print("=" * 60)
     print("信号凯利回测: 16象限 × 10模式 × 5周期")
     print(f"ROOT = {ROOT}")
@@ -2276,10 +2170,6 @@ def main():
             _export_trades_parts(trades_data, trades_path)
         except Exception as e:  # noqa: BLE001
             print(f"⚠ 分片导出失败(不影响全量文件): {type(e).__name__}: {e}", file=sys.stderr)
-        try:
-            _export_lab_slices(trades_data, trades_path)
-        except Exception as e:  # noqa: BLE001
-            print(f"⚠ lab弹窗切片导出失败(不影响全量文件): {type(e).__name__}: {e}", file=sys.stderr)
 
     # 生成 .gz
     import gzip

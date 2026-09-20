@@ -90,7 +90,6 @@
 | kelly_mobile_preview_diag.js | 弱网预览链路诊断(route 拖慢整包抓预览态) | node kelly_mobile_preview_diag.js |
 | kelly_fix_f2f3_window.js | reviewer F2/F3 自验:失败窗口红条+loading 共存、移动收起态(serviceWorkers:"block" 必须,SW 会绕过 page.route) | node kelly_fix_f2f3_window.js |
 | kelly_fix_f2_replace.js | reviewer F2 自验:整包就绪后正式表替换红条零残留 | node kelly_fix_f2_replace.js |
-| kelly_atomic_export_test.py | codex-002 high 自验:切片原子写导出(内容一致/无tmp残留/历史tmp被清) | python3 kelly_atomic_export_test.py |
 | kelly_codex002_verify.js | codex-002 自验:空groups红条+触控44px+桌面hash对照(serviceWorkers:"block") | node kelly_codex002_verify.js |
 | kelly_codex002_touch_verify.js | codex-002 low 补验:弹窗内 cols-btn/筛选框/cols-item 实测高度 | node kelly_codex002_touch_verify.js |
 | sig-visible-step2-repro-20260827.js | 「仅显示可用信号」Step2 死码 bug 离线复现(csi_399976@20260817「当日已满」置灰未隐藏; 四口径 before/after 对比+边界断言) | node sig-visible-step2-repro-20260827.js [overview.json路径] |
