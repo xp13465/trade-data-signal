@@ -3285,7 +3285,7 @@ function _bindSigSwitchRow(sigCard) {
 //   在其余键全关时, 与首页(默认 s06 模式)判定完全一致。
 //   trades 记录无 ai_macro 字段, 且维度(mkt/etf/rating)分散在16个子域qk副本中, 故先跨全 qk 去重聚合出带全部维度的基笔池,
 //   再对每笔独立判定(等价 lab.js _kellyPassesFadeFilters + _kellyCollectBasePool 去重)。
-var _simKellyData = null;     // signal_kelly_trades.json 解析后的 {fields, fIdx, quadrants}(quadrants=原始分域×分模式平行数组, 按选中 mode 在 _simBuildModePool 现筛)
+var _simKellyData = null;     // signal_kelly_trades*_unique.json 解析后的 {fields(27), fIdx(27), ufIdx(19), uvIdx(8), qk_groups, base, variants, quadrants(形态A还原)}; base/variants 供形态 B/D 直建, quadrants 供分片合并 concat
 var _simKellyCfg = null;      // signal_kelly_backtest.json 解析后的 {sell_modes, ...}
 var _simKellyLoading = false;
 var _simBasisGen = 0;         // #72 买入口径切档代际: 切档+1, 作废旧口径 in-flight 加载的写回(防跨口径串数据)
@@ -3607,7 +3607,7 @@ function _simBuyBasis() {
 function _simIsSdc() { return _simBuyBasis() === "signal_day_close"; }
 function _simTradesBaseName() { return _simIsSdc() ? "signal_kelly_trades_sdc" : "signal_kelly_trades"; }
 function _simTradesPartsName(name) { return _simTradesBaseName() + "_parts/" + name + ".json"; }
-function _simTradesFullName() { return _simTradesBaseName() + ".json"; }
+function _simTradesFullName() { return _simTradesBaseName() + "_unique.json"; }
 function _simSummaryName() { return _simIsSdc() ? "signal_kelly_backtest_sdc" : "signal_kelly_backtest"; }
 // #91 口径切换: 数据源整体替换 → 清全部数据/加载/缓存状态 → 整区重建(防切档后显示旧口径数据 §22)
 // F1(#72 2026-09-06 竞态根治): 切档递增 _simBasisGen(旧口径 in-flight 加载的写回判定失效),
@@ -3636,18 +3636,83 @@ async function _simSetBuyBasis(basis) {
   });
   await _simRender(modal);
 }
-// 分片/全量统一解析(fields 列式 → fIdx 下标表; 不预聚合全模式并集, 按 mode 在 _simBuildModePool 现筛)
+// ── 唯一化三表解析(L42 数据瘦身 Phase B) ──
+// 数据源三表 unique JSON: {fields:19共享, variant_fields:8卖出, base(19+4归属枚举), variants[mode](8卖出),
+//   qk_groups:{rating/etf/sig/mkt:[qk名]}, base_key_fields}。解析器必须把 base(19)+variants(8)
+// 拼回旧 27 列完整行再喂下游(R1 头号风险: 三表 fields 无 sell_date 等 8 卖出字段下标,
+// 直接拿 19 列 base 行喂下游= t[fIdx.sell_date] undefined 静默崩)。
+// 统一输出: {fields:27列合成序, fIdx(27), ufIdx(19), uvIdx(8), qk_groups, base, variants, quadrants(形态A还原)}
+// 27 列合成顺序 = 旧 trades.fields 顺序(与 parity 对账脚本 check_kelly_unique_frontend_parity.mjs 同源), 下游全按名读列。
+var _SIM_UNIQUE_FIELDS27 = [
+  "signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name", "track_tier", "track_score",
+  "match_method", "track_low_confidence", "buy_price", "sell_price", "shares", "profit", "return_pct", "hold_days",
+  "sell_reason", "current_price", "real_buy_price", "real_buy_date", "real_current_price", "market_state",
+  "market_tier", "market_tier_all", "market_tier_cyb", "rating"
+];
+// 分片/全量统一解析。数据源现为唯一化三表; 兼容老 quadrants 结构(兜底, tr.quadrants 存在时走老路径)。
 function _simParseTrades(tr) {
+  if (tr && tr.base && tr.variants && tr.qk_groups) return _simParseUnique(tr);
   const fields = tr.fields;
   const fIdx = {};
   fields.forEach((f, i) => { fIdx[f] = i; });
   return { fields, fIdx, quadrants: tr.quadrants || {} };
 }
-// 兜底全量加载(老路径 signal_kelly_trades.json 仍在, 分片任一步失败即走此路, 天然兜底)
+// 唯一化三表 → 统一结构(惰性还原形态 A quadrants 供 _simMergeShards 分片 concat; base/variants 原样保留供形态 B/D)
+function _simParseUnique(uniq) {
+  const ufIdx = {}; uniq.fields.forEach((f, i) => { ufIdx[f] = i; });
+  const uvIdx = {}; uniq.variant_fields.forEach((f, i) => { uvIdx[f] = i; });
+  const fIdx = {};
+  _SIM_UNIQUE_FIELDS27.forEach((f, i) => { fIdx[f] = i; });
+  const isShare = _SIM_UNIQUE_FIELDS27.map((f) => ufIdx[f] !== undefined); // 旧27列 ∈19共享 → base, 否则 → variant
+  const nShare = uniq.fields.length;
+  const groupNames = Object.keys(uniq.qk_groups);     // 与 base 枚举码同序
+  // 归属码反查: (groupIdx, code) → qk(只在 group 边界内合法; R3 45 条 signal 差异笔已按 base_key 拆行, 恰 4 枚举)
+  const qkOf = [];
+  for (let gi = 0; gi < groupNames.length; gi++) {
+    const g = uniq.qk_groups[groupNames[gi]];
+    const byIdx = {};
+    for (let ci = 0; ci < g.length; ci++) if (g[ci] != null) byIdx[ci] = g[ci];
+    qkOf.push(byIdx);
+  }
+  // 还原形态 A: quadrants[qk][mode] = [row27, ...](跨 base 遍历, 同一 row27 引用进 4 归属 qk, 与旧结构语义一致)
+  const quadrants = {};
+  const modes = Object.keys(uniq.variants || {});
+  for (let i = 0; i < uniq.base.length; i++) {
+    const brow = uniq.base[i];
+    const attr = brow.slice(nShare);
+    const targets = [];
+    for (let gi = 0; gi < groupNames.length; gi++) {
+      const code = attr[gi];
+      if (code >= 0 && qkOf[gi] && qkOf[gi][code] !== undefined) targets.push(qkOf[gi][code]);
+    }
+    for (let mi = 0; mi < modes.length; mi++) {
+      const mk = modes[mi];
+      const vrow = (uniq.variants[mk] || [])[i];
+      if (vrow == null) continue;                     // R8: null 哨兵跳过
+      const row27 = _simSynthRow27(brow, vrow, isShare);
+      for (let ti = 0; ti < targets.length; ti++) {
+        const qk = targets[ti];
+        const dst = quadrants[qk] || (quadrants[qk] = {});
+        (dst[mk] || (dst[mk] = [])).push(row27);
+      }
+    }
+  }
+  return { fields: _SIM_UNIQUE_FIELDS27, fIdx, ufIdx, uvIdx, qk_groups: uniq.qk_groups, base: uniq.base, variants: uniq.variants, quadrants, _isShare: isShare };
+}
+// 按旧 27 列序合成完整行: 列 ∈19 共享 → base 值(顺序取), 否则 → variant 值(顺序取)
+function _simSynthRow27(brow, vrow, isShare) {
+  const row27 = [];
+  let si = 0, vi = 0;
+  for (let ci = 0; ci < isShare.length; ci++) {
+    row27.push(isShare[ci] ? brow[si++] : vrow[vi++]);
+  }
+  return row27;
+}
+// 兜底全量加载(unique 全量 signal_kelly_trades*_unique.json ~4MB, 分片任一步失败即走此路, 天然兜底)
 async function _simLoadFull() {
   const gen = _simBasisGen;              // #72 捕获切档代际, 写回前校验(防跨口径串数据)
   try {
-    console.warn("[simbt] 分片加载失败, 回退全量 " + _simTradesFullName() + "(约64MB, 首次数秒)");
+    console.warn("[simbt] 分片加载失败, 回退全量 " + _simTradesFullName() + "(约4MB, 首次数秒)");
     const tr = await _fetchSimTrades(_simTradesFullName());
     if (gen !== _simBasisGen) return false;  // #72 加载期间已切档 → 丢弃旧口径全量结果
     _simKellyData = _simParseTrades(tr);
@@ -3659,7 +3724,8 @@ async function _simLoadFull() {
     return false;
   }
 }
-// 已缓存分片合并(quadrants 同 key 数组拼接; 调用方保证各分片行集互斥, 拼接不重复计数)
+// 已缓存分片合并。三表路径: base/variants 逐片 concat(各片按 signal_date 互斥、base 与 variants 行对齐, 拼接收敛后仍对齐,
+// 形态 A quadrants 同 key 数组拼接与旧 concat 语义一致 R7); 老 quadrants 路径: 仅 concat(调用方保证各分片行集互斥, 拼接不重复计数)。
 function _simMergeShards(shards) {
   const first = shards[0];
   const quadrants = {};
@@ -3672,7 +3738,30 @@ function _simMergeShards(shards) {
       }
     }
   }
-  return { fields: first.fields, fIdx: first.fIdx, quadrants };
+  const out = { fields: first.fields, fIdx: first.fIdx, quadrants };
+  // 三表 base/variants 透传合并(形态 B/D 的 _simBuildModePool/_simBuildTradeCal 消费)
+  if (first.base) {
+    const modeKeys = [];
+    const seenMk = {};
+    for (const s of shards) for (const mk in (s.variants || {})) if (!seenMk[mk]) { seenMk[mk] = 1; modeKeys.push(mk); }
+    out.base = [];
+    out.variants = {};
+    for (const mk of modeKeys) out.variants[mk] = [];
+    for (const s of shards) {
+      const nb = (s.base || []).length;
+      out.base = out.base.concat(s.base || []);
+      for (let mi = 0; mi < modeKeys.length; mi++) {
+        const mk = modeKeys[mi];
+        const src = (s.variants || {})[mk];
+        const dst = out.variants[mk];
+        if (src) for (let i = 0; i < src.length; i++) dst.push(src[i]);
+        else for (let i = 0; i < nb; i++) dst.push(null);   // 该片缺 mode=补 null 哨兵保行对齐(R8 语义)
+      }
+    }
+    if (first.ufIdx) { out.ufIdx = first.ufIdx; out.uvIdx = first.uvIdx; out.qk_groups = first.qk_groups; }
+    if (first._isShare) out._isShare = first._isShare;
+  }
+  return out;
 }
 // 一级加载(打开弹窗): 只拉 recent.json 热区片(≤3MB 秒开), 记录热区上下界;
 // batch2(2026-09-19): recent 失败改「重试 recent」不直接回退全量 75M(nav-async-scan 高3)——弱网下回退全量
@@ -3691,26 +3780,32 @@ async function _loadSimKellyData() {
     // recent 分片: 首次失败不直接回退全量, 退避后重试一次(临时网络抖动/单次超时命中概率高)
     let recent;
     try {
-      recent = await _fetchSimTrades(_simTradesPartsName("recent"));
+      recent = await _fetchSimTrades(_simTradesPartsName("unique_recent"));
     } catch (e1) {
-      console.warn("[simbt] recent.json 首次加载失败, 退避后重试一次(不回退全量):", e1);
+      console.warn("[simbt] unique_recent.json 首次加载失败, 退避后重试一次(不回退全量):", e1);
       await new Promise((r) => setTimeout(r, 500));
-      recent = await _fetchSimTrades(_simTradesPartsName("recent"));
+      recent = await _fetchSimTrades(_simTradesPartsName("unique_recent"));
     }
     if (stale()) return null;            // #72 加载期间已切档 → 丢弃旧口径 recent
     const parsed = _simParseTrades(recent);
     _simPartsCache.set("recent", parsed);
-    // 热区上下界 = recent 片内 signal_date 最小/最大(供提交时判断范围是否落在热区内)
+    // 热区上下界 = recent 片 base 主表 signal_date 最小/最大(base 按 signal_date 升序 → 直接取首末, R9; 兜底全遍历)
     let mn = "", mx = "";
-    const sdI = parsed.fIdx.signal_date;
-    for (const qk in parsed.quadrants) {
-      const mks = parsed.quadrants[qk];
-      for (const mk in mks) {
-        const arr = mks[mk];
-        for (let i = 0; i < arr.length; i++) {
-          const sd = String(arr[i][sdI] || "");
-          if (sd && (!mn || sd < mn)) mn = sd;
-          if (sd && sd > mx) mx = sd;
+    if (parsed.base && parsed.base.length) {
+      mn = String(parsed.base[0][0] || "");
+      mx = String(parsed.base[parsed.base.length - 1][0] || "");
+      if (!mn) mn = "";                                   // base[0][0] 空=异常数据, 置空交由 _simEnsureRange 判断
+    } else {
+      const sdI = parsed.fIdx.signal_date;
+      for (const qk in parsed.quadrants) {
+        const mks = parsed.quadrants[qk];
+        for (const mk in mks) {
+          const arr = mks[mk];
+          for (let i = 0; i < arr.length; i++) {
+            const sd = String(arr[i][sdI] || "");
+            if (sd && (!mn || sd < mn)) mn = sd;
+            if (sd && sd > mx) mx = sd;
+          }
         }
       }
     }
@@ -3751,7 +3846,7 @@ async function _simEnsureRange(startD, endD, onStep) {
   if (missing.length) {
     let doneN = 0;
     const results = await Promise.all(missing.map((nm) =>
-      _fetchSimTrades(_simTradesPartsName(nm))
+      _fetchSimTrades(_simTradesPartsName("unique_" + nm))
         .then((tr) => {
           if (stale()) return true;      // #72 拉片期间切档 → 不写旧口径年片缓存
           _simPartsCache.set(nm, _simParseTrades(tr));
@@ -4540,8 +4635,60 @@ function _simPoolCached(mode) {
   return p;
 }
 
-// 基于 quadrants[*][mode] 构建该模式基笔池(带聚合维度, 去重)
+// 构建该模式基笔池(带聚合维度)。三表路径=形态 B(方案 §2.1 buildModePool): 遍历 base(每基笔一行, 无重复)
+// → 归属枚举码 → variants[mode] 拼 27 列 + 直接落 _mktD/_etfD/_ratD(qk 前缀派生, 与旧 _simQkDim 同规则;
+// 注意 app 的 _etfD 语义=qk 前缀 etf_ 后缀 strong/related/approx/has_track, 非 track_tier 列, R2)。
+// 输出行与旧 quadrants 遍历路径逐位一致(parity 对账 §4.1-3); base 无重复故无需 seen 去重(保兜底零成本)。
 function _simBuildModePool(data, mode) {
+  if (!data.base || !data.variants) return _simBuildModePoolLegacy(data, mode);
+  const { fIdx, qk_groups, base } = data;
+  const isShare = data._isShare || _SIM_UNIQUE_FIELDS27.map((f) => (data.ufIdx || {})[f] !== undefined);
+  const groupNames = data.qk_groups ? Object.keys(data.qk_groups) : [];
+  // 归属枚举码数 = groupNames 数(base 行 = 19 共享字段 + n 个枚举码, 故共享字段数 = 行长 - groupNames 数)
+  const nShare = base.length > 0 ? (base[0].length - groupNames.length) : _SIM_UNIQUE_FIELDS27.length;
+  // 归属码 → qk 反查表(组内 index 越界/负哨兵=无归属该维度, 跳过)
+  const qkOf = [];
+  for (let gi = 0; gi < groupNames.length; gi++) {
+    const g = data.qk_groups[groupNames[gi]];
+    const byIdx = {};
+    for (let ci = 0; ci < g.length; ci++) if (g[ci] != null) byIdx[ci] = g[ci];
+    qkOf.push(byIdx);
+  }
+  const vrowArr = (data.variants[mode] || []);
+  const records = [];
+  const seen = {};                                     // 兜底(理论 base 无重复)
+  for (let i = 0; i < base.length; i++) {
+    const brow = base[i];
+    const vrow = vrowArr[i];
+    if (vrow == null) continue;                        // R8: null 哨兵跳过
+    const attr = brow.slice(nShare);
+    let _mktD = "", _etfD = "", _ratD = "";
+    for (let gi = 0; gi < groupNames.length; gi++) {
+      const code = attr[gi];
+      if (code < 0) continue;
+      if (!qkOf[gi] || qkOf[gi][code] === undefined) continue;
+      const dim = _simQkDim(qkOf[gi][code]);
+      if (!dim) continue;
+      if (dim.type === "mkt") { if (!_mktD) _mktD = dim.val; }
+      else if (dim.type === "etf") { if (!_etfD) _etfD = dim.val; }
+      else if (dim.type === "rating") { if (!_ratD) _ratD = dim.val; }
+    }
+    // 27 列合成(完整行, 含卖出字段 R1)
+    const row27 = [];
+    let si = 0, vi = 0;
+    for (let ci = 0; ci < isShare.length; ci++) {
+      row27.push(isShare[ci] ? brow[si++] : vrow[vi++]);
+    }
+    const bk = _simBaseKey(row27, fIdx);
+    if (seen[bk]) continue;
+    seen[bk] = 1;
+    row27._mktD = _mktD; row27._etfD = _etfD; row27._ratD = _ratD;
+    records.push(row27);
+  }
+  return records;
+}
+// 老 quadrants 结构兜底(数据源未走三表解析): 遍历 16 qk × mode 数组, base_key 去重+维度补值(旧实现逐行等价)
+function _simBuildModePoolLegacy(data, mode) {
   const { fIdx, quadrants } = data;
   const seen = {};
   const records = [];
@@ -4611,16 +4758,41 @@ function _simEtfLightHtml(t, fIdx) {
 // 计划日在最后数据日之后的未来段无人能预知节假日 → 剔周末近似, tooltip 注明。
 function _simBuildTradeCal(data, fIdx) {
   const set = {};
-  const qs = data.quadrants;
-  for (const qk in qs) {
-    const mks = qs[qk];
-    for (const mk in mks) {
-      const arr = mks[mk];
-      for (let i = 0; i < arr.length; i++) {
-        const r = arr[i];
-        if (r[fIdx.signal_date]) set[r[fIdx.signal_date]] = 1;
-        if (r[fIdx.buy_date]) set[r[fIdx.buy_date]] = 1;
-        if (r[fIdx.sell_date]) set[r[fIdx.sell_date]] = 1;
+  if (data.base && data.variants) {
+    // 形态 D(方案 §二.1 buildTradeCal): base 收 signal_date/buy_date + variants 全 mode 收 sell_date 并集。
+    // R4 关键: 卖出日期只存在 variants 表(旧 27 列 sell_date 不属 19 共享), 只收 base 会丢卖出日 → 观察期倒计时错。
+    const ufIdx = data.ufIdx || {};
+    const uvIdx = data.uvIdx || {};
+    const sdI = ufIdx.signal_date, bdI = ufIdx.buy_date, svI = uvIdx.sell_date;
+    const b = data.base;
+    for (let i = 0; i < b.length; i++) {
+      const r = b[i];
+      if (sdI != null && r[sdI]) set[r[sdI]] = 1;
+      if (bdI != null && r[bdI]) set[r[bdI]] = 1;
+    }
+    if (svI != null) {
+      for (const mk in data.variants) {
+        const arr = data.variants[mk];
+        for (let i = 0; i < arr.length; i++) {
+          const v = arr[i];
+          if (v == null) continue;                     // R8: null 哨兵跳过
+          if (v[svI]) set[v[svI]] = 1;
+        }
+      }
+    }
+  } else {
+    // 老 quadrants 结构兜底: 全遍历收 signal/buy/sell 日期并集
+    const qs = data.quadrants;
+    for (const qk in qs) {
+      const mks = qs[qk];
+      for (const mk in mks) {
+        const arr = mks[mk];
+        for (let i = 0; i < arr.length; i++) {
+          const r = arr[i];
+          if (r[fIdx.signal_date]) set[r[fIdx.signal_date]] = 1;
+          if (r[fIdx.buy_date]) set[r[fIdx.buy_date]] = 1;
+          if (r[fIdx.sell_date]) set[r[fIdx.sell_date]] = 1;
+        }
       }
     }
   }
