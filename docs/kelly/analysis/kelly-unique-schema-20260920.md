@@ -144,3 +144,9 @@
 - compute_intraday 共用 `_build_outputs`(L1844)不受影响——三表导出只在 compute 主流程 main() 末尾显式调用,盘中档不触发(盘中档无 40 倍膨胀,唯一化无必要,见消费方审计 §2.2)。
 - 双套独立:main() 在 KELLY_BUY_NEXTDAY=1/0 两次运行时各自生成自己的 unique 文件,文件名带 _sdc 后缀区分,不共用(主档基笔集 ⊂ sdc,基笔数不等)。
 - 产物只写 static-site/data/(正常上线渠道),不提交 git(由运行回测生成)。
+
+## 六、分片唯一化三表指针(L42 步2 Phase1)
+
+分片(recent + t{YYYY})也已切成同一三表结构,产物 `unique_recent.json`/`unique_t{YYYY}.json` 落同一
+parts 目录,结构与本文档全量三表逐字段同构(同一 `_build_unique_tables` 产出,字段划分/基笔键/归属全复用)。
+schema、还原规则、对账工具与体积实测见 **`docs/kelly/analysis/kelly-unique-parts-schema-20260920.md`**。

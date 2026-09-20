@@ -2145,6 +2145,10 @@ def _export_trades_parts(trades_data, trades_path):
         size, _n = _dump("recent.json", rows_by_qm)
         print(f"✓ 分片 recent.json (60天兜底, {cnt} 行, {size / 1024:.1f} KB)")
 
+    # 记录 recent 热区边界(供分片唯一化三表复用同窗, L42 步2 Phase1)
+    recent_rows = rows_by_qm
+    recent_cut = cut
+
     # 年份切片(空年份不出文件; 用 id(row) 集合按年筛引用)
     by_year = {}
     for r in all_rows:
@@ -2162,8 +2166,61 @@ def _export_trades_parts(trades_data, trades_path):
         size, _n = _dump(f"t{y}.json", rows_by_qm)
         total_size += size
         print(f"✓ 分片 t{y}.json ({cnt} 行, {size / 1024:.1f} KB)")
+    # 分片唯一化三表导出(L42 数据瘦身步2 Phase1, 2026-09-20; KELLY_UNIQUE_EXPORT=1 才触发,
+    # 开关关=完全不生成, 现有分片零变化)。旧 quadrants 分片照旧生成不受影响。
+    if KELLY_UNIQUE_EXPORT:
+        try:
+            _export_unique_parts(parts_dir, recent_rows, recent_cut, by_year, grouped)
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠ 分片唯一化三表导出失败(不影响全量/分片产物): {type(e).__name__}: {e}",
+                  file=sys.stderr)
+
     print(f"✓ 分片导出完成: {parts_dir} ({len(by_year)} 个年片 + recent)")
     _cleanup_stale_tmp(parts_dir, keep_names=set())
+
+
+def _export_unique_parts(parts_dir, recent_rows, recent_cut, by_year, grouped):
+    """分片唯一化三表导出(L42 数据瘦身步2 Phase1, 2026-09-20; KELLY_UNIQUE_EXPORT=1 时由
+    _export_trades_parts 调用, 开关关=本函数完全不触发)。
+
+    与全量唯一化三表同构(schema 见 docs/kelly/analysis/kelly-unique-schema-20260920.md §二):
+    每片独立 = {base 主表 + variants 变体表 + qk_groups 归属}, 由 _build_unique_tables 对
+    该片 quadrants 直接生成——字段划分(19 共享/8 卖出)/基笔键(signal_date|index_id|signal|
+    buy_date|etf_code)/qk 归属枚举全部复用步1 结论, 不重新发明(一致性)。
+    切法 = 按基笔 signal_date, 变体行跟着基笔走:
+      unique_recent.json : signal_date >= recent_cut 的基笔(与 quadrants recent.json 同窗)
+      unique_t{YYYY}.json: signal_date 年份 = YYYY 的基笔(与 quadrants t{YYYY}.json 同界)
+    产物放同一 parts 目录与旧 quadrants 分片并存; 空片不出文件(与 quadrants 分片同策略)。
+    还原规则(对每片三表重建 == 原分片 quadrants 逐位)与对账脚本见
+    scripts/check_kelly_unique_parts_restore.py。
+    """
+    def _dump_unique(name, quadrants):
+        if not any(mk for mk in quadrants.values()):
+            return 0
+        uniq = _build_unique_tables(quadrants)
+        payload = json.dumps(uniq, ensure_ascii=False, separators=(",", ":"))
+        _atomic_write(os.path.join(parts_dir, name), payload)
+        return len(payload)
+
+    total_size = 0
+    n_recent = sum(len(rows) for mk in recent_rows.values() for rows in mk.values())
+    if n_recent:
+        total_size += _dump_unique("unique_recent.json", recent_rows)
+    n_year_files = 0
+    for y in sorted(by_year):
+        ids = by_year[y]
+        rows_by_qm = {}
+        cnt = 0
+        for (qk, mk), arr in grouped.items():
+            sel = [r for r in arr if id(r) in ids]
+            if sel:
+                rows_by_qm.setdefault(qk, {})[mk] = sel
+                cnt += len(sel)
+        if cnt:
+            total_size += _dump_unique(f"unique_t{y}.json", rows_by_qm)
+            n_year_files += 1
+    print(f"✓ 分片唯一化三表导出: {parts_dir} (unique_recent + {n_year_files} 个年片, "
+          f"{total_size / 1024:.1f} KB 累计)")
 
 
 def main():
