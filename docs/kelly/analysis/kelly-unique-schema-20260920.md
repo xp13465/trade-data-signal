@@ -108,6 +108,7 @@
 对账方法(§5.4⑦ 同构对账铁律):
 - 集合等价:三表重建的 {(qk, mode, base_key)} 键集 == 原 quadrants 键集,零缺零多。
 - 值逐位:遍历原 quadrants 每行,base_key 索引三表还原 27 列,与原行逐位比对;304,320 行(4qk×10mode×7608)全 PASS。
+- 正式工具:`scripts/check_kelly_unique_restore.py --unique <unique.json> --trades <trades.json>`(import signal_kelly_backtest.TRADE_FIELDS 单一事实源,FAIL 退出码 1)。
 
 ## 四、体积实测(本地 9-13 主档 78,296,778 字节)
 
