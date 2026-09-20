@@ -75,6 +75,12 @@ HOLD_DAYS = 10             # 默认最大持有交易日(ABCD 模式用; E=5/F=1
 # 买入价口径: 1=次日开盘(真实跟单口径, v1.1.4 起默认, 见 kelly-nextday-open-backtest.md)
 #            0=信号日收盘等价 accum_nav(旧基线, 用于回退验证)
 KELLY_BUY_NEXTDAY = int(os.environ.get("KELLY_BUY_NEXTDAY", "1"))
+# 基笔唯一化三表导出开关(L42 数据瘦身步1, 2026-09-20): 默认 0 关闭,
+# 开=在 main() 末尾额外生成 signal_kelly_trades_unique.json(主档)/ _sdc_unique.json(sdc 双套),
+# 由 quadrants 中间态拆出「主表(19 共享字段+4 qk 归属)+ 变体表(8 卖出字段×10 mode)」,
+# 消除同一基笔 4qk×10mode=40 倍重复膨胀(75MB→~5MB)。关=完全不生成三表, 现有产物零变化;
+# 注意: 开关默认关, compute_intraday 共用 _build_outputs 不受影响(盘中档无膨胀, 唯一化无必要)。
+KELLY_UNIQUE_EXPORT = int(os.environ.get("KELLY_UNIQUE_EXPORT", "0"))
 # 份额折算伪跳空阈值(|次日open/信号日close - 1| > 该值即剔除该笔, 见报告 §1.4)
 PSEUDO_GAP_EXCLUDE = 0.20
 # 数据截止日(仅用于自验复现报告 §2.1 数字, 默认不设=全量; 不进线上默认路径)
@@ -1565,6 +1571,88 @@ def _build_outputs(quadrants):
 
     return output, trades_output
 
+
+def _build_unique_tables(quadrants):
+    """基笔唯一化三表(L42 数据瘦身步1, 2026-09-20; 纯新增不消费)。
+
+    由 _classify_buy_rows 的 quadrants 中间态直接生成, 不触碰 _build_outputs 任何逻辑
+    (output/trades_output 一行不改, 现有产物零变化)。拆出逻辑三表:
+      base     : 每基笔一行 = 19 共享字段(跨 qk/mode 全同, 实证) + 4 个 qk_group 枚举码归属
+      variants : 每 mode 一个数组 = 每基笔×mode 的 8 卖出侧字段(随 mode 变); 索引 i ↔ base[i]
+      qk_groups: 4 组 qk 枚举(rating/etf/sig/mkt), 每基笔每组恰取 1 个 qk(实证 7608/7608 零例外)
+
+    基笔键 = signal_date|index_id|signal|buy_date|etf_code(前端 _simBaseKey 口径)。
+    无损还原: 遍历 base 每行, 19 共享 + 归属 4 码, 对每 mode 取 variants[mode][i] 8 卖出字段,
+    按 TRADE_FIELDS 原列序拼回 27 列, 该基笔进归属 qk 的该 mode。逐位对账与体积实测见
+    docs/kelly/analysis/kelly-unique-schema-20260920.md。
+    注意: 本函数只在 main() 主流程(全量 compute)由环境变量 KELLY_UNIQUE_EXPORT 显式触发,
+    compute_intraday 共用 _build_outputs 不触发(盘中档无 40 倍膨胀, 唯一化无必要)。
+    """
+    # 字段划分(实证见 schema 文档 §一): 共享 19 / 卖出 8
+    share_fields = ["signal_date", "index_id", "signal", "buy_date", "etf_code", "etf_name",
+                    "track_tier", "track_score", "match_method", "track_low_confidence",
+                    "buy_price", "shares", "real_buy_price", "real_buy_date",
+                    "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
+    sell_fields = ["sell_date", "sell_price", "profit", "return_pct", "hold_days", "sell_reason",
+                   "current_price", "real_current_price"]
+    key_fields = ["signal_date", "index_id", "signal", "buy_date", "etf_code"]
+    share_idx = [TRADE_FIELDS.index(f) for f in share_fields]
+    sell_idx = [TRADE_FIELDS.index(f) for f in sell_fields]
+    key_idx = [TRADE_FIELDS.index(f) for f in key_fields]
+
+    qk_groups = {
+        "rating": ["rating_high", "rating_mid", "rating_low"],
+        "etf": ["etf_strong", "etf_related", "etf_approx", "etf_has_track"],
+        "sig": ["sig_main", "sig_aux", "sig_special", "sig_backup"],
+        "mkt": ["mkt_a", "mkt_hk", "mkt_global", "mkt_industry", "mkt_concept"],
+    }
+    qk_group_of = {q: g for g, qs in qk_groups.items() for q in qs}
+    qk_enum_of = {q: i for g, qs in qk_groups.items() for i, q in enumerate(qs)}
+
+    base_map = {}       # key -> 19 共享值 list
+    attr_map = {}       # key -> {group: enum_code}
+    variants_map = {}   # (key, mode) -> 8 卖出值 list
+    for qk, mk_map in quadrants.items():
+        g = qk_group_of.get(qk)
+        e = qk_enum_of.get(qk)
+        for mode, rows in mk_map.items():
+            for r in rows:
+                k = tuple(r[i] for i in key_idx)
+                if k not in base_map:
+                    base_map[k] = [r[i] for i in share_idx]
+                if g is not None and g not in attr_map.setdefault(k, {}):
+                    attr_map[k][g] = e
+                if (k, mode) not in variants_map:
+                    variants_map[(k, mode)] = [r[i] for i in sell_idx]
+
+    # base 规范行序: 按 base_key 排序(signal_date 升序为主, 同日按全键)
+    base_keys = sorted(base_map)
+    n_base = len(base_keys)
+
+    base_out = []
+    variants_out = {m: [] for m in SELL_MODES}
+    for k in base_keys:
+        base_out.append(base_map[k] + [attr_map[k].get(g, -1) for g in qk_groups])
+        for m in SELL_MODES:
+            # 每基笔×mode 全覆盖(实证 7608×10 零缺失); 未来若某 mode 无有效回测
+            # (result None 未 push)则用 None 哨兵, 还原时跳过该基笔该 mode。
+            variants_out[m].append(variants_map.get((k, m)))
+
+    return {
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "buy_amount": BUY_AMOUNT,
+        "period_cutoffs": {k: v["cutoff"] for k, v in PERIODS.items()},
+        "modes": list(SELL_MODES),
+        "fields": share_fields,
+        "variant_fields": sell_fields,
+        "base_key_fields": key_fields,
+        "qk_groups": qk_groups,
+        "n_base": n_base,
+        "base": base_out,
+        "variants": variants_out,
+    }
+
+
 def compute():
     """执行完整回测, 返回结果 dict。"""
     from datetime import timedelta
@@ -2178,6 +2266,26 @@ def main():
         with open(p, "rb") as src, gzip.open(gz_path, "wb") as dst:
             dst.write(src.read())
         print(f"✓ gzip: {gz_path} ({os.path.getsize(gz_path)} bytes)")
+
+    # 基笔唯一化三表导出(L42 数据瘦身步1, 2026-09-20; 开关 KELLY_UNIQUE_EXPORT 默认关; 纯新增不消费)。
+    # 双口径各自生成: 主档 signal_kelly_trades_unique.json / sdc signal_kelly_trades_sdc_unique.json
+    # (由 trades_path 文件名派生, 与 _trades_parts_dir 双口径命名同思路, 基笔数不等不共用)。
+    # 失败不影响主产物(与分片导出同策略, 三表是后续步的待消费增量)。
+    if KELLY_UNIQUE_EXPORT:
+        try:
+            unique_path = os.path.splitext(trades_path)[0] + "_unique.json"
+            unique_data = _build_unique_tables(trades_data["quadrants"])
+            with open(unique_path, "w", encoding="utf-8") as f:
+                json.dump(unique_data, f, ensure_ascii=False, separators=(",", ":"))
+            u_size = os.path.getsize(unique_path)
+            print(f"✓ 基笔唯一化三表: {unique_path} ({u_size} bytes = {u_size / 1024:.1f} KB, "
+                  f"base={unique_data['n_base']} × 10mode)")
+            gz_path = unique_path + ".gz"
+            with open(unique_path, "rb") as src, gzip.open(gz_path, "wb") as dst:
+                dst.write(src.read())
+            print(f"✓ gzip: {gz_path} ({os.path.getsize(gz_path)} bytes)")
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠ 基笔唯一化三表导出失败(不影响主产物): {type(e).__name__}: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
