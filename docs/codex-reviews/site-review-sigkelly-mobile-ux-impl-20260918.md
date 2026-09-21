@@ -90,3 +90,11 @@
   3) **参数面板底部抽屉化**：`.lab-sigkelly-params-body` 改底部 sheet（`max-height:65vh` + 内部滚动），展开不占满屏、不把主内容顶飞。
 - 验收新增哨兵：`M9` 筛选条高 ≤100px（现状 145 会 flag）；`M10` 参数面板展开 ≤55% 视口（现状 76% 会 flag）。
 
+## 10. 实施记录（2026-09-21，feat/mobile-ux-revert-44px，commit f20d9af1e）
+- **删除筛选区 44px 全套**：lab.css 原 L2837-2841 + L2848-2852（`.lab-sigkelly-periods .lab-sigkelly-period-btn`/`.lab-sigkelly-params-toggle`/`.lab-sigkelly-fee-btn`/`.lab-sigkelly-toggle-combo`/`.lab-sigkelly-toggle`/`.lab-sigkelly-toggle-more-summary`/`.lab-sigkelly-toggle-tier-cat`/`.lab-sigkelly-toggle-detail-btn`/`.lab-sigkelly-buybasis-btn`/`.lab-sigkelly-ai-switch-btn` 的 `min-height:44px` 及配套 min-width/inline-flex），恢复原紧凑 chip 尺寸；**未另设 32~36px 下限**。
+- **保留不回退**：①L2810-2835 移动端字号 ≥11px 覆盖整段 ②L2840-2842 折叠/免责/公示 summary 44px（`.lab-sigkelly-collapse > summary`/`.auto-trade-steps-collapse-summary`/`.lab-sigkelly-advice-outer > summary`/`.lab-top-disclaimer summary`/`.purpose-note-summary`）。
+- **参数面板底部抽屉**：`.lab-sigkelly-params-body.lab-sigkelly-params-open` 由 `display:block;width:100%` 改为 `display:block;width:100%;margin-top:4px;max-height:54vh;overflow-y:auto`。
+  - ⚠️ **65vh → 54vh 修正**：按 §9 写 65vh 时,390×844 下截断后 ratio=0.65 仍 > M10 硬门槛 55%（0.55）。实测内容自然高 885px（> 视口 844），必须把 max-height 压到 ≤55vh 才可能 PASS；取 54vh，展开 456px / ratio=0.54，M10 PASS。
+- **验收**（本地 `BASE_URL=http://localhost:8123`，数据软链主仓库 static-site/data）：M1~M10 全 PASS（M9 barH=83 ≤100；M10 h=456 ratio=0.54 ≤0.55）+ 桌面 D1~D5 全 PASS = 15/15。
+- 仅 commit `static-site/lab.css`（1 文件，+3/-13）；`lab.min.css` 本地验证产物已还原，版本串 bump 由 main-merge.sh 统一。
+
