@@ -118,6 +118,18 @@ systemctl list-timers trade-update-all.timer           # 验证下次触发
 > 这验证了「本地滞后 vs R2 = 真缺口 → 该告警」分支; 云上真实场景 deploy 刚跑完、源=上传源,
 > 单 PUT ETag==本地 md5, 数据完整 → exit 0 → 降级。两条路径均正确。
 
+## reviewer 返修(2026-09-21, 已并入)
+
+| # | 项 | 修法 | 自测 |
+|---|---|---|---|
+| D-1 | `cmd_verify_channels` 对非 `upload-` 前缀 desc 直接 continue, verify-r2 也被跳过 → 若同批含 verify-r2+upload 通道全通过 → exit 0 静默缺口 | desc_list 含 `verify-r2` 立即 exit 1(保守保留告警) | 场景E verify-r2+upload 全通过混合 → exit 1 PASS |
+| A1 | `_multipart_part_sizes` parts cap 到 10000 后 rem>0 无人校验 → 切片和<文件大小, complete 成功静默截尾 | 循环后 `if rem>0: raise ValueError`(`_upload_one` 的 `except Exception` 捕住记失败) | 场景F 超上限抛 ValueError PASS |
+| A3 | `hdrs.get("ETag")` 大小写敏感, 若 R2/网关回小写 `etag` → multipart 永远判失败 abort | 新增 `_header_lookup()` 统一小写比对, `_put_part` 改用 | 场景G 小写/大写/空 dict 全 PASS |
+
+> 自测路径说明:selftest 通过 `spec_from_file_location` 显式加载
+> `/Users/linhuichen/code/trade/.claude/worktrees/agent-a87b228ddc79c9e00/scripts/upload_r2.py`(worktree 新代码),
+> 非主工作区旧代码;返修后场景 C(仅 verify-r2→exit 1)与场景 E(混合→exit 1)均重跑 PASS。
+
 ## 上线步骤
 
 1. 本分支仅含 `scripts/deploy.sh` + `scripts/upload_r2.py` + 本文档

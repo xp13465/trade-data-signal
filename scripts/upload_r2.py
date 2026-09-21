@@ -260,7 +260,12 @@ _MULTIPART_WORKERS = 4                         # 分片并发(连接数适度, �
 
 
 def _multipart_part_sizes(total):
-    """按 64MiB 目标切片的实际各片字节数列表(片数 = ceil(total/64MiB))。"""
+    """按 64MiB 目标切片的实际各片字节数列表(片数 = ceil(total/64MiB))。
+
+    A1 返修(2026-09-21 reviewer): 总大小 > 10000×64MiB(~640GiB)时 parts 被 cap 到 _MULTIPART_MAX_PARTS,
+    原实现 cap 后循环切完不校验 rem, 切片和 < 文件大小 → complete 成功却静默截尾。现在循环后若 rem>0
+    显式抛错(调用方 _upload_one 捕到按失败返回, 不静默传半个文件)。
+    """
     import math
     parts = max(1, math.ceil(total / _MULTIPART_PART_SIZE))
     parts = min(parts, _MULTIPART_MAX_PARTS)
@@ -270,6 +275,10 @@ def _multipart_part_sizes(total):
         sz = min(_MULTIPART_PART_SIZE, rem)
         sizes.append(sz)
         rem -= sz
+    if rem > 0:
+        raise ValueError(
+            f"multipart 超 R2 上限: total={total} bytes 需 {math.ceil(total / _MULTIPART_PART_SIZE)} 片 "
+            f"> _MULTIPART_MAX_PARTS={_MULTIPART_MAX_PARTS}, 无法完整分片, abort")
     return sizes
 
 
@@ -552,6 +561,19 @@ def _infer_content_type(key):
     return _CONTENT_TYPE_MAP.get(ext, "application/octet-stream")
 
 
+def _header_lookup(hdrs, name):
+    """大小写不敏感取响应 header(A3 返修, 2026-09-21 reviewer): dict(resp.getheaders()) 的 key
+    保留 wire 原始大小写, 若 R2/网关回小写 etag 等, 直接 hdrs.get("ETag") 会 miss → multipart
+    永远判失败 abort。用统一小写比对兜底。"""
+    if not hdrs:
+        return None
+    low = name.lower()
+    for k, v in hdrs.items():
+        if k.lower() == low:
+            return v
+    return None
+
+
 def _parse_upload_id(resp_body):
     """从 InitiateMultipartUploadResult XML 解析 UploadId; 失败返回 None。"""
     import xml.etree.ElementTree as ET
@@ -594,8 +616,8 @@ def _upload_multipart(key, payload, content_type):
         q = "partNumber=%d&uploadId=%s" % (pn, quote(upload_id, safe=""))
         s, d, hdrs = s3_request("PUT", key, payload=parts[pn], query=q,
                                 content_type=content_type, with_headers=True)
-        if s == 200 and hdrs is not None:
-            etag = hdrs.get("ETag")
+        if s == 200:
+            etag = _header_lookup(hdrs, "ETag")
             if etag:
                 return pn, etag, None
         err = d[:200] if isinstance(d, (bytes, bytearray)) else d
@@ -2202,6 +2224,12 @@ def cmd_verify_channels(desc_list):
     "upload-feed" 抽查 data/feed.xml; "verify-r2" 本身即对账命令超时, 不做降级(保守保留告警)。
     """
     if not desc_list:
+        sys.exit(1)
+    # D-1 返修(2026-09-21 reviewer): verify-r2 失败意味着「层3 对账未完成」, 缺口无法用轻量抽查兜底。
+    # 只要 desc_list 含 verify-r2 就整体 exit 1 保守保留告警——即使同批有 upload-* 通道轻量对账通过,
+    # 也不允许用它把 verify-r2 未完成的对账缺口静默。(原实现把 verify-r2 当未知通道 continue,
+    # 会走到 checked_any/bad 判定, 若同批 upload 通道全通过 → exit 0 → deploy.sh 抑制告警 → 静默缺口。)
+    if "verify-r2" in desc_list:
         sys.exit(1)
     bad = []
     checked_any = False
