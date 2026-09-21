@@ -94,3 +94,17 @@
 
 - 改造后运行同一采集脚本(等最终态)重录 baseline, 与本文档逐项 diff, 空 diff = 数值零改动 PASS。
 - parity 脚本(子任务2): `scripts/check_kelly_unique_frontend_parity.mjs` 已在 Phase A 跑通(主档 7608 基笔 × 10 mode、sdc 7612 基笔 × 10 mode 全 ALL PASS), 作为解析器层回归基线。
+
+## 8. Phase C 改造后复测(2026-09-21, lab.js 吃三表)
+
+- 采集: `scripts/playwright-accept/capture_lab_phasec_final.mjs`(本地 http.server 8231 无痕浏览器, 阻断非 localhost;
+  本机无 unique 分片 → lab 渐进加载阶段1 失败回退「unique 全量」路径, 等价验证全量还原; 分片路径由
+  check_kelly_unique_lab_parity.mjs 的 merge 冒烟 + 生成端 parts_restore 覆盖)。
+- 对账机检: `scripts/check_kelly_unique_lab_parity.mjs --unique <unique.json> --trades <trades.json>`(抽 lab.js 真实函数本体, 非第二份实现):
+  - 主档(7,608 基笔)与 sdc 档(7,612 基笔): 形态A还原 quadrants 逐位、维度表键集+值、pool 键集+27列逐位、剔rating_high 场景、merge 透传合并 —— **全 ALL PASS**。
+- 页面数字 diff(固定口径 G/y1/all × K1 × S06 默认 × 费率默认):
+  - **y1 G 行**: `17.2%保守 51.7% 2.78 3.20% ⚠️29 +9,281元⚠稳定性存疑 9.28% -632 10笔/10.0万 10笔/10.0万 9.28% 0.49% 0.34 18.81` —— 与 §4 基线逐位一致。
+  - **all G 行**: `24.7%保守 62.2% 2.95 6.10% ⚠️45 +27,429元⚠稳定性存疑 27.43% -1,008 10笔/10.0万 16.07% 0.61% 0.34 26.30` —— 与 §5 基线逐位一致。
+  - **「最后结果」三档表(y1)**: G 146.72%/+146,718/10万 · H 230.83%/+115,416/5万 · I 159.63%/+143,670/9万 —— 与 §3 一致。
+  - toolbar: period=y1[→all]、K=1、fee=etf_main、buyBasis=next_day_open、tradeRows=174 —— 与基线 174 一致; 最终态判定(G 行含 P≤3d 且 trade-rows>100)两周期均 reached。
+- 结论: lab.js 三表改造数值零改动 PASS(§5.4⑦ 页面实测锚点 diff 空)。

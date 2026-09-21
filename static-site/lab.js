@@ -7469,7 +7469,11 @@ function _kellyBuypriceBin(price) {
   return "vhigh";
 }
 // 降亏标志v3 helper: 从quadrant keys构建trade维度查找map(独立遍历所有quadrant key,非dedup内)
+// 构建维度查找表 dims[key]={rating,etf,sig,mkt}(v3 标志/匹配谓词按维度取值的核心索引)。
+// key 语义(2026-09-21 Phase C 形态 C 保留): signal_date|index_id|signal|buy_date|etf_code|sell_date ——
+//   含 sell_date 是因 per-mode 变体行卖出日期各不同(条目数 = n_base×10, 与旧实现遍历 16qk×10mode 一致)。
 function _kellyBuildTradeDims(td, fIdx) {
+  if (td && td.base && td.variants && td.qk_groups) return _kellyBuildTradeDimsUnique(td, fIdx);
   var dims = {};
   var quads = td.quadrants || {};
   for (var qk in quads) {
@@ -7484,6 +7488,49 @@ function _kellyBuildTradeDims(td, fIdx) {
         if (!dims[key]) dims[key] = {};
         dims[key][dimType] = dimVal;
       }
+    }
+  }
+  return dims;
+}
+// 形态 C(L42 数据瘦身 Phase C, 与 app.js _simBuildModePool 同精神): base 遍历 → 归属 4 枚举 →
+// 每基笔对每个 mode 的变体行建 baseKey+|sell_date → dims[key]={rating,etf,sig,mkt}(从 qk_groups 组名/枚举名派生)。
+//   与旧实现差异: 维度从 qk_groups 枚举码反查(旧从 quadrants key 拆分), 产出键集/值逐位一致(lab 对账脚本断言)。
+function _kellyBuildTradeDimsUnique(td, fIdx) {
+  var dims = {};
+  var qk_groups = td.qk_groups || {};
+  var groupNames = Object.keys(qk_groups);
+  var ufIdx = td.ufIdx || {}, uvIdx = td.uvIdx || {};
+  var sdI = ufIdx.signal_date, idI = ufIdx.index_id, sigI = ufIdx.signal, bdI = ufIdx.buy_date, eI = ufIdx.etf_code, svI = uvIdx.sell_date;
+  var nShare = td.base.length > 0 ? (td.base[0].length - groupNames.length) : _LAB_UNIQUE_FIELDS27.length;
+  // 归属码反查: (groupIdx, code) → qk(组内 index 越界/负哨兵=无归属该维度, 跳过)
+  var qkOf = [];
+  for (var gi = 0; gi < groupNames.length; gi++) {
+    var g = qk_groups[groupNames[gi]];
+    var byIdx = {};
+    for (var ci = 0; ci < g.length; ci++) if (g[ci] != null) byIdx[ci] = g[ci];
+    qkOf.push(byIdx);
+  }
+  var modes = Object.keys(td.variants || {});
+  for (var i = 0; i < td.base.length; i++) {
+    var brow = td.base[i];
+    var attr = brow.slice(nShare);
+    var dimVals = {};
+    for (var gi2 = 0; gi2 < groupNames.length; gi2++) {
+      var code = attr[gi2];
+      if (code < 0) continue;
+      var qk = qkOf[gi2] && qkOf[gi2][code];
+      if (qk === undefined || qk === null) continue;
+      var type = groupNames[gi2];               // rating/etf/sig/mkt
+      dimVals[type] = qk.slice(type.length + 1); // rating_high → high
+    }
+    var prefix = (brow[sdI] || "") + '|' + (brow[idI] || "") + '|' + (brow[sigI] || "") + '|' + (brow[bdI] || "") + '|' + (brow[eI] || "");
+    for (var mi = 0; mi < modes.length; mi++) {
+      var mk = modes[mi];
+      var vrow = (td.variants[mk] || [])[i];
+      if (vrow == null) continue;               // R8: null 哨兵跳过
+      var key = prefix + '|' + (vrow[svI] || "");
+      if (!dims[key]) dims[key] = {};
+      for (var dt in dimVals) dims[key][dt] = dimVals[dt];
     }
   }
   return dims;
@@ -7890,7 +7937,14 @@ function _kellyPositionCapKeptKeys(pool, fIdx, K) {
 // 改为每 (象限,模式) 桶后让步一帧; 唯一调用方 _kellyApplyFeeRecompute 本就是 async, 语义零变化。
 // s06p1(2026-08-29 观察档): 可选第5参 skipRatingKey="rating_high" → 收集时整区跳过该评级象限(让 mid/low 递补),
 //   四消费点统一由 common.js _tdsS06P1StripHigh(modeId,K) 判否要传; 不传=逐位与旧行为一致(§23.7 纯新增)。
-async function _kellyCollectBasePool(quads, sellModes, fIdx, passFn, skipRatingKey) {
+// 收集 positionCap 基笔池: 跨全部卖出模式 × rating 三分区(互斥全量), 按 baseKey 去重, 只保留通过 passFn 的基笔。
+// 形态 B(L42 数据瘦身 Phase C, 2026-09-21, 与 app.js _simBuildModePool 同精神): 主表 base 遍历 → 按归属枚举
+//   仅进 rating 3 组过滤(skipRatingKey=rating_high 时跳过) → variants[mode] 拼 27 列 → passFn 先于 push →
+//   baseKey 去重。返回行必须是还原的 27 列数组(R1, 非 19 列 base 行)。第一参 td 为解析后数据(含 base/variants;
+//   兜底兼容老 quadrants 直传走旧路径)。
+async function _kellyCollectBasePool(td, sellModes, fIdx, passFn, skipRatingKey) {
+  if (td && td.base && td.variants) return await _kellyCollectBasePoolUnique(td, sellModes, fIdx, passFn, skipRatingKey);
+  var quads = td;
   var pool = [], seen = {};
   var _rks = ["rating_high", "rating_mid", "rating_low"];
   for (var _ri = 0; _ri < _rks.length; _ri++) {
@@ -7906,6 +7960,44 @@ async function _kellyCollectBasePool(quads, sellModes, fIdx, passFn, skipRatingK
       }
       await _kellyYield();
     }
+  }
+  return pool;
+}
+async function _kellyCollectBasePoolUnique(td, sellModes, fIdx, passFn, skipRatingKey) {
+  var pool = [], seen = {};
+  var qk_groups = td.qk_groups || {};
+  var groupNames = Object.keys(qk_groups);
+  if (!groupNames.length || !td.base.length) return pool;
+  var ratingGi = -1;
+  for (var gi = 0; gi < groupNames.length; gi++) if (groupNames[gi] === "rating") { ratingGi = gi; break; }
+  if (ratingGi < 0) return pool;
+  var ufIdx = td.ufIdx || {};
+  var nShare = td.base[0].length - groupNames.length;
+  var isShare = td._isShare || _LAB_UNIQUE_FIELDS27.map(function (f) { return ufIdx[f] !== undefined; });
+  var qkOf = [];
+  for (var gi2 = 0; gi2 < groupNames.length; gi2++) {
+    var g = qk_groups[groupNames[gi2]];
+    var byIdx = {};
+    for (var ci = 0; ci < g.length; ci++) if (g[ci] != null) byIdx[ci] = g[ci];
+    qkOf.push(byIdx);
+  }
+  var modes = Object.keys(td.variants || {});
+  for (var i = 0; i < td.base.length; i++) {
+    var brow = td.base[i];
+    var code = brow[nShare + ratingGi];
+    if (code < 0 || !qkOf[ratingGi] || qkOf[ratingGi][code] === undefined) continue;
+    var ratingQk = qkOf[ratingGi][code];
+    if (skipRatingKey && ratingQk === skipRatingKey) continue;
+    for (var mi = 0; mi < modes.length; mi++) {
+      var mk = modes[mi];
+      var vrow = (td.variants[mk] || [])[i];
+      if (vrow == null) continue;               // R8: null 哨兵跳过
+      var row27 = _kellySynthRow27(brow, vrow, isShare);
+      if (passFn && !passFn(row27)) continue;   // passFn 先于 push(与旧实现同序)
+      var _bk = _kellyBaseKey(row27, fIdx);
+      if (!seen[_bk]) { seen[_bk] = 1; pool.push(row27); }
+    }
+    if ((i & 255) === 255) await _kellyYield(); // 每 256 基笔让步一次(近似旧 30 次让步, 防 7608 次 setTimeout 拖慢)
   }
   return pool;
 }
@@ -8599,8 +8691,10 @@ var _labKellyBuyBasisTip = {
 function _labKellyBuyBasis() { return state.labSigKellyBuyBasis || "next_day_open"; }
 function _labKellyIsSdc() { return _labKellyBuyBasis() === "signal_day_close"; }
 function _labKellyTradesBaseName() { return _labKellyIsSdc() ? "signal_kelly_trades_sdc" : "signal_kelly_trades"; }
-function _labKellyTradesPartsName(year) { return _labKellyTradesBaseName() + "_parts/t" + year + ".json"; }
-function _labKellyTradesFullName() { return _labKellyTradesBaseName() + ".json"; }
+// L42 数据瘦身 Phase C(L8699 三表解析同批): 分片/全量 URL 改 unique 三表(生成端已同命名, ~4MB vs 旧69MB);
+//   双套基名(sdc/主档)保留, 兜底全量也走 unique(_labKellyLoadFull 消费)。
+function _labKellyTradesPartsName(year) { return _labKellyTradesBaseName() + "_parts/unique_t" + year + ".json"; }
+function _labKellyTradesFullName() { return _labKellyTradesBaseName() + "_unique.json"; }
 function _labKellySummaryName() { return _labKellyIsSdc() ? "signal_kelly_backtest_sdc" : "signal_kelly_backtest"; }
 function _labKellyEnsureBuyBasis() {
   if (state.labSigKellyBuyBasis) return;
@@ -8696,13 +8790,79 @@ function _labKellyFetchTradesRetry(name, attempts, delays) {
   }
   return attempt(0);
 }
+// ── 唯一化三表解析(L42 数据瘦身 Phase C, 2026-09-21, 与 app.js _simParseUnique 同构) ──
+// 数据源三表 unique JSON: {fields:19共享, variant_fields:8卖出, base(19+4归属枚举), variants[mode](8卖出),
+//   qk_groups:{rating/etf/sig/mkt:[qk名]}, base_key_fields}。解析器必须把 base(19)+variants(8)
+// 拼回旧 27 列完整行再喂下游(R1 头号风险: 三表 fields 无 sell_date 等 8 卖出字段下标,
+// 直接拿 19 列 base 行喂下游= t[fIdx.sell_date] undefined 静默崩)。
+// 统一输出: {fields:27列合成序, fIdx(27), ufIdx(19), uvIdx(8), qk_groups, base, variants, quadrants(形态A还原)}
+// 27 列合成顺序 = 旧 trades.fields 顺序(lab 对账脚本 check_kelly_unique_lab_parity.mjs 同源), 下游全按名读列。
+const _LAB_UNIQUE_FIELDS27 = [
+  "signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name", "track_tier", "track_score",
+  "match_method", "track_low_confidence", "buy_price", "sell_price", "shares", "profit", "return_pct", "hold_days",
+  "sell_reason", "current_price", "real_buy_price", "real_buy_date", "real_current_price", "market_state",
+  "market_tier", "market_tier_all", "market_tier_cyb", "rating"
+];
+// 分片/全量统一解析。数据源现为唯一化三表; 兼容老 quadrants 结构(兜底, tr.quadrants 存在时走老路径)。
 function _labKellyParseTrades(tr) {
+  if (tr && tr.base && tr.variants && tr.qk_groups) return _labKellyParseUnique(tr);
   var fields = tr.fields;
   var fIdx = {};
   for (var i = 0; i < fields.length; i++) fIdx[fields[i]] = i;
   return { fields: fields, fIdx: fIdx, quadrants: tr.quadrants || {} };
 }
-// 分片合并(quadrants 同 key 拼接)
+// 唯一化三表 → 统一结构(惰性还原形态 A quadrants 供 _labKellyMergeShards 分片 concat; base/variants 原样保留供形态 B/C/D)
+function _labKellyParseUnique(uniq) {
+  var ufIdx = {}; uniq.fields.forEach(function (f, i) { ufIdx[f] = i; });
+  var uvIdx = {}; uniq.variant_fields.forEach(function (f, i) { uvIdx[f] = i; });
+  var fIdx = {};
+  _LAB_UNIQUE_FIELDS27.forEach(function (f, i) { fIdx[f] = i; });
+  var isShare = _LAB_UNIQUE_FIELDS27.map(function (f) { return ufIdx[f] !== undefined; }); // 旧27列 ∈19共享 → base, 否则 → variant
+  var nShare = uniq.fields.length;
+  var groupNames = Object.keys(uniq.qk_groups);     // 与 base 枚举码同序
+  // 归属码反查: (groupIdx, code) → qk(只在 group 边界内合法; R3 45 条 signal 差异笔已按 base_key 拆行, 恰 4 枚举)
+  var qkOf = [];
+  for (var gi = 0; gi < groupNames.length; gi++) {
+    var g = uniq.qk_groups[groupNames[gi]];
+    var byIdx = {};
+    for (var ci = 0; ci < g.length; ci++) if (g[ci] != null) byIdx[ci] = g[ci];
+    qkOf.push(byIdx);
+  }
+  // 还原形态 A: quadrants[qk][mode] = [row27, ...](跨 base 遍历, 同一 row27 引用进 4 归属 qk, 与旧结构语义一致)
+  var quadrants = {};
+  var modes = Object.keys(uniq.variants || {});
+  for (var i = 0; i < uniq.base.length; i++) {
+    var brow = uniq.base[i];
+    var attr = brow.slice(nShare);
+    var targets = [];
+    for (var gi = 0; gi < groupNames.length; gi++) {
+      var code = attr[gi];
+      if (code >= 0 && qkOf[gi] && qkOf[gi][code] !== undefined) targets.push(qkOf[gi][code]);
+    }
+    for (var mi = 0; mi < modes.length; mi++) {
+      var mk = modes[mi];
+      var vrow = (uniq.variants[mk] || [])[i];
+      if (vrow == null) continue;                     // R8: null 哨兵跳过
+      var row27 = _kellySynthRow27(brow, vrow, isShare);
+      for (var ti = 0; ti < targets.length; ti++) {
+        var qk = targets[ti];
+        var dst = quadrants[qk] || (quadrants[qk] = {});
+        (dst[mk] || (dst[mk] = [])).push(row27);
+      }
+    }
+  }
+  return { fields: _LAB_UNIQUE_FIELDS27, fIdx: fIdx, ufIdx: ufIdx, uvIdx: uvIdx, qk_groups: uniq.qk_groups, base: uniq.base, variants: uniq.variants, quadrants: quadrants, _isShare: isShare };
+}
+// 按旧 27 列序合成完整行: 列 ∈19 共享 → base 值(顺序取), 否则 → variant 值(顺序取)
+function _kellySynthRow27(brow, vrow, isShare) {
+  var row27 = [];
+  var si = 0, vi = 0;
+  for (var ci = 0; ci < isShare.length; ci++) {
+    row27.push(isShare[ci] ? brow[si++] : vrow[vi++]);
+  }
+  return row27;
+}
+// 分片合并(quadrants 同 key 拼接 = 形态 A concat, R7); 三表 base/variants 透传合并(形态 B/C/D 消费, null 哨兵保行对齐)
 function _labKellyMergeShards(shards) {
   var first = shards[0];
   var quadrants = {};
@@ -8717,7 +8877,30 @@ function _labKellyMergeShards(shards) {
       }
     }
   }
-  return { fields: first.fields, fIdx: first.fIdx, quadrants: quadrants };
+  var out = { fields: first.fields, fIdx: first.fIdx, quadrants: quadrants };
+  // 三表 base/variants 透传合并(形态 B/C/D 的 _kellyBuildTradeDims/_kellyCollectBasePool 消费) —— 2026-09-21 Phase C
+  if (first.base) {
+    var modeKeys = [];
+    var seenMk = {};
+    for (var s2 = 0; s2 < shards.length; s2++) for (var mk2 in (shards[s2].variants || {})) if (!seenMk[mk2]) { seenMk[mk2] = 1; modeKeys.push(mk2); }
+    out.base = [];
+    out.variants = {};
+    for (var mi2 = 0; mi2 < modeKeys.length; mi2++) out.variants[modeKeys[mi2]] = [];
+    for (var s3 = 0; s3 < shards.length; s3++) {
+      var nb = (shards[s3].base || []).length;
+      out.base = out.base.concat(shards[s3].base || []);
+      for (var mi3 = 0; mi3 < modeKeys.length; mi3++) {
+        var mk3 = modeKeys[mi3];
+        var src = (shards[s3].variants || {})[mk3];
+        var dst = out.variants[mk3];
+        if (src) for (var i3 = 0; i3 < src.length; i3++) dst.push(src[i3]);
+        else for (var i4 = 0; i4 < nb; i4++) dst.push(null);   // 该片缺 mode=补 null 哨兵保行对齐(R8 语义)
+      }
+    }
+    if (first.ufIdx) { out.ufIdx = first.ufIdx; out.uvIdx = first.uvIdx; out.qk_groups = first.qk_groups; }
+    if (first._isShare) out._isShare = first._isShare;
+  }
+  return out;
 }
 // 全量兜底
 async function _labKellyLoadFull() {
@@ -9098,11 +9281,11 @@ async function _kellyApplyFeeRecompute(feeParams) {
     && window._tdsS06P1StripHigh(_labModeBase, filters.positionCapK);
   var _rp1Skip = _stripHighNow ? "rating_high" : null;
   if (filters.positionCap && filters.positionCapK > 0) {
-    var basePool = await _kellyCollectBasePool(quads, sellModes, fIdx, passesFade, _rp1Skip);
+    var basePool = await _kellyCollectBasePool(td, sellModes, fIdx, passesFade, _rp1Skip);
     posCapKept = _kellyPositionCapKeptKeys(basePool, fIdx, filters.positionCapK);
     posDayCounts = _kellyKeptDayCounts(posCapKept);
     if (_bullOn) {
-      var basePoolNB = await _kellyCollectBasePool(quads, sellModes, fIdx, passesFadeNoBull, _rp1Skip);
+      var basePoolNB = await _kellyCollectBasePool(td, sellModes, fIdx, passesFadeNoBull, _rp1Skip);
       posCapKeptNB = _kellyPositionCapKeptKeys(basePoolNB, fIdx, filters.positionCapK);
       posDayCountsNB = _kellyKeptDayCounts(posCapKeptNB);
     }
@@ -9279,7 +9462,7 @@ async function _kellyApplyFeeRecompute(feeParams) {
         for (var _pmk2 in sellModes) { if (String((sellModes[_pmk2] || {}).label || "").indexOf("固定10") >= 0) { _posModeKey = _pmk2; break; } }
       }
       if (_posModeKey && quadsAll[_posModeKey]) {
-        var _posBase = basePool || (await _kellyCollectBasePool(quads, sellModes, fIdx, passesFade));
+        var _posBase = basePool || (await _kellyCollectBasePool(td, sellModes, fIdx, passesFade));
         // s06p1(2026-08-29 观察档): K档评级表须分别展示「K=1 剔 high / K=2/3/4 不剔(Δ=0)」,
         //   故 need 两池: _posBaseP1(K=1 行用剔high池)、_posBaseK2(K=2/3/4 行用全池)。
         //   非 s06p1 态两者同引用 basePool = 行为逐位不变(§23.7 纯新增)。
@@ -9287,10 +9470,10 @@ async function _kellyApplyFeeRecompute(feeParams) {
         if (_labS06P1) {
           if (basePool) {
             // 当前 basePool 品种取决于用户当前 K 档: K=1 时已是剔池; K=2/3/4 时是全池。
-            _posBaseK2 = _stripHighNow ? (await _kellyCollectBasePool(quads, sellModes, fIdx, passesFade)) : basePool;
-            _posBaseP1 = _stripHighNow ? basePool : (await _kellyCollectBasePool(quads, sellModes, fIdx, passesFade, "rating_high"));
+            _posBaseK2 = _stripHighNow ? (await _kellyCollectBasePool(td, sellModes, fIdx, passesFade)) : basePool;
+            _posBaseP1 = _stripHighNow ? basePool : (await _kellyCollectBasePool(td, sellModes, fIdx, passesFade, "rating_high"));
           } else {
-            _posBaseP1 = await _kellyCollectBasePool(quads, sellModes, fIdx, passesFade, "rating_high");
+            _posBaseP1 = await _kellyCollectBasePool(td, sellModes, fIdx, passesFade, "rating_high");
           }
         }
         var _posRaw = quadsAll[_posModeKey];
@@ -10727,11 +10910,11 @@ async function _kellyOperationalPool(feeParams) {
     && window._tdsS06P1StripHigh(_labModeBase, filters.positionCapK);
   var _rp1Skip = _stripHighNow ? "rating_high" : null;
   if (filters.positionCap && filters.positionCapK > 0) {
-    var basePool = await _kellyCollectBasePool(quads, sellModes, fIdx, passesFade, _rp1Skip);
+    var basePool = await _kellyCollectBasePool(td, sellModes, fIdx, passesFade, _rp1Skip);
     posCapKept = _kellyPositionCapKeptKeys(basePool, fIdx, filters.positionCapK);
     posDayCounts = _kellyKeptDayCounts(posCapKept);
     if (_bullOn) {
-      var basePoolNB = await _kellyCollectBasePool(quads, sellModes, fIdx, passesFadeNoBull, _rp1Skip);
+      var basePoolNB = await _kellyCollectBasePool(td, sellModes, fIdx, passesFadeNoBull, _rp1Skip);
       posCapKeptNB = _kellyPositionCapKeptKeys(basePoolNB, fIdx, filters.positionCapK);
       posDayCountsNB = _kellyKeptDayCounts(posCapKeptNB);
     }
@@ -13081,7 +13264,7 @@ async function _openSigKellyTradesModal(quadKey, modeKey, period) {
     var _fModeNow = state.labSigKellyFadeModeBase;
     var _p1Skip = (typeof window !== "undefined" && typeof window._tdsS06P1StripHigh === "function")
       && window._tdsS06P1StripHigh(_fModeNow, _filters.positionCapK) ? "rating_high" : null;
-    var _basePool = await _kellyCollectBasePool(td.quadrants, cfg.sell_modes || {}, _fIdx, _pcFadeFn, _p1Skip);
+    var _basePool = await _kellyCollectBasePool(td, cfg.sell_modes || {}, _fIdx, _pcFadeFn, _p1Skip);
     _posCapKept = _kellyPositionCapKeptKeys(_basePool, _fIdx, _filters.positionCapK);
     _posDayCounts = _kellyKeptDayCounts(_posCapKept);
   }
