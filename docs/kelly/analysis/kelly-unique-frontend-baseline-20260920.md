@@ -108,3 +108,24 @@
   - **「最后结果」三档表(y1)**: G 146.72%/+146,718/10万 · H 230.83%/+115,416/5万 · I 159.63%/+143,670/9万 —— 与 §3 一致。
   - toolbar: period=y1[→all]、K=1、fee=etf_main、buyBasis=next_day_open、tradeRows=174 —— 与基线 174 一致; 最终态判定(G 行含 P≤3d 且 trade-rows>100)两周期均 reached。
 - 结论: lab.js 三表改造数值零改动 PASS(§5.4⑦ 页面实测锚点 diff 空)。
+
+## 9. Phase D 脚本改读记录(2026-09-21, 消费方脚本兼容读唯一化三表)
+
+- 落地方式统一(10 个脚本同模式): unique 三表按 TRADE_FIELDS 27 列序(col_build: base 19 共享列 + variants[mode] 8 卖出列)还原为旧 quadrants 形态后, 喂既有逻辑零改动消费; 值链/过滤谓词/口径/断言值全不动。旧 quadrants 文件无 base/variants 时原样直走(天然兼容)。
+- **完成 commit**: `840c5bd8c`(feat/kelly-unique-appjs, 10 files, push 远端通过)。
+- 各脚本改法摘要 + 自测结果(全部 read unique vs read old 逐位一致 PASS):
+
+| # | 脚本 | 改法摘要(读 old quadrants → 读 unique 三表还原等价路径) | 自测结果 |
+|---|---|---|---|
+| 1 | scripts/check_universe_alignment.py | 新增 `_is_unique_trades` + `_iter_trade_rows` 生成器(base × 4 归属 × 10 mode 展开 = 旧 quadrants 遍历); tr_path 解析优先 unique 再回退 | 304320=304320 笔全对齐 PASS |
+| 2 | scripts/check_data_gap_alerts.py | 新增 `KELLY_TRADES_UNIQUE` 常量; `_trades_path` 优先 unique 再回退; `_scan_trades` 加 unique 分支读 base | sig_set 0 差异, latest 一致 PASS |
+| 3 | scripts/overfit_monitor.py | 新增 `_is_unique_doc` + `_restore_full_quadrants`(TRADE_FIELDS 序渲染, 非 share+var 拼接, 防列错位); load_trades 优先 unique | 1574 日期 / 304320 行逐位一致 PASS |
+| 4 | scripts/signal_kelly_snapshot.py | load_trades 优先 unique; scan_trades 加 unique 分支读 base row | max_date 一致 PASS |
+| 5 | scripts/kelly_posrating.py | 同 3 的 `_is_unique_doc` + `_restore_full_quadrants`; compute_posrating 开头适配 | 四档逐字节一致 PASS |
+| 6 | scripts/check_fade_predicate_parity.mjs | 27 列 col_build 还原为旧结构喂沙箱; APP_SYMBOLS 补 `_simBuildModePoolLegacy` | 57 键命中集合 old vs unique 逐字段一致 PASS |
+| 7 | scripts/check_posrating_parity.mjs | 同 6 还原适配为纯旧结构(不带 base/variants, 保留 buy_amount) | K1-K4 retNum/ddNum/nNum 逐位一致; k1Kept 546 笔 + basepool 2224 笔键列表逐位一致 PASS |
+| 8 | scripts/check_loss_rules_vs_mining.py | `_restore_unique_to_legacy` 还原写临时文件经 `R.prepare_rows` 零改动消费(finally unlink 清理); 谓词/断言不动 | 层2 逐键行数 5093 / 不一致数两版一致; S1/S2 各 2 为既有数据差异两版同型 PASS |
+| 9 | scripts/tests/test_kelly_stats.py | 新增 `_restore_unique_to_legacy` + `test_unique_restore_rating_high_A_matches_frozen_5`(unique 还原 rating_high/A 前 5 行 == FROZEN_TRADES_5); unique 缺失 pytest.skip | 33 passed(含新增); 缺失路径 32 passed+1 skipped PASS |
+| 10 | scripts/tests/test_loss_rules_20keys.py | 新增 `_old_trades_or_skip` + `test_unique_restore_quadrants_match_old`(unique 还原全量 16 qk × 全部 mode 逐字段 == old); unique/old 任一缺失 skip | 34 passed(含新增); 缺失路径 33 passed+1 skipped PASS |
+
+- 汇总: 两套 pytest 67 passed; fade parity old vs unique 逐字段一致; posrating 四档 + k1Kept/basepool 键列表逐位一致; 10 脚本 read unique vs read old 全部逐字节一致。第 11 项(playwright-accept)/第 12 项(intraday)按 Phase D 任务范围不碰, 保留读 old 原样。
