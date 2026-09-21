@@ -81,3 +81,12 @@
 ## 8. 量化目标（验收口径）
 移动端(390)：首屏非数据 636px(75%) → <120px；`.lab-sigkelly-grid` top 4228 → ≤1600；解释/引导总占高 4200 → ≤600。
 桌面端(1280)：`.lab-top-disclaimer` 可见；`.lab-newbie-guide` 默认展开；`.auto-trade-steps` 可见；`.lab-sigkelly-advice` 可见——与改前一致。
+
+## 9. 复审修正 v3（2026-09-21）：回退「点击≥44px」+ 参数抽屉化
+- 背景：上线走查发现外审结论4「点击≥44px」被 implementer 全量套到筛选区每个 chip/按钮（lab.css:2836 起 `min-height:44px` 一串），导致 `.lab-sigkelly-bar` 82→145px（换行成两行）、`.lab-sigkelly-params-body` 展开 644px 占满整屏——判定为回归，用户拍板修正。
+- 修正：
+  1) **回退「点击≥44px」**：删除 lab.css:2836 起 `min-height:44px` 全套（`.lab-sigkelly-period-btn / -params-toggle / -fee-btn / -toggle-combo / -toggle / -buybasis-btn / -ai-switch-btn` 等），**恢复原紧凑 chip 尺寸**；**不再另设 32~36px 下限**（用户拍板原尺寸足够，热区靠整行/留白，不靠撑高每个按钮）。
+  2) **保留**：字号 ≥11px（可读性，未造成问题）+ §1~§6 的数据优先/折叠/免责收敛。
+  3) **参数面板底部抽屉化**：`.lab-sigkelly-params-body` 改底部 sheet（`max-height:65vh` + 内部滚动），展开不占满屏、不把主内容顶飞。
+- 验收新增哨兵：`M9` 筛选条高 ≤100px（现状 145 会 flag）；`M10` 参数面板展开 ≤55% 视口（现状 76% 会 flag）。
+
