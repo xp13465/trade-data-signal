@@ -959,8 +959,21 @@ def _main():
         snap_dir = data_dir / "signal_kelly_snapshots"
         snap_dir.mkdir(parents=True, exist_ok=True)
         out = snap_dir / "latest_posrating.json"
-        with open(out, "w", encoding="utf-8") as f:
-            json.dump(result, f, ensure_ascii=False)
+        # 原子写(2026-09-21 同类错误面根治, 同 signal_kelly_backtest.py 事故): 进程被杀不留半截
+        import tempfile
+        fd, tmp = tempfile.mkstemp(dir=str(snap_dir), prefix="latest_posrating.json.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, out)
+        finally:
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
         log(f"已写入 {out}")
     return 0
 

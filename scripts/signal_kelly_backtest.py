@@ -2255,10 +2255,9 @@ def main():
             print(f"✗ 数据就绪闸 FAIL: {e}", file=sys.stderr)
             sys.exit(5)
         os.makedirs(out_dir, exist_ok=True)
-        with open(intraday_trades_path, "w", encoding="utf-8") as f:
-            json.dump(trades_data, f, ensure_ascii=False, separators=(",", ":"))
-        with open(intraday_stats_path, "w", encoding="utf-8") as f:
-            json.dump(stats_data, f, ensure_ascii=False, separators=(",", ":"))
+        # 盘中档同原子写(2026-09-21 同类错误面: 原 open(w)+json.dump 被杀留半截)
+        _atomic_write(intraday_trades_path, json.dumps(trades_data, ensure_ascii=False, separators=(",", ":")))
+        _atomic_write(intraday_stats_path, json.dumps(stats_data, ensure_ascii=False, separators=(",", ":")))
         t_size = os.path.getsize(intraday_trades_path)
         total_trades = sum(len(v) for q in trades_data.get("quadrants", {}).values() for v in q.values())
         print(f"\n✓ 盘中交易记录: {intraday_trades_path} ({t_size} bytes, {total_trades} 行)")
@@ -2296,15 +2295,15 @@ def main():
     data, trades_data = compute()
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+    # 原子写(2026-09-21 生产事故根治): 原 open(w)+json.dump 进程被杀留半截 JSON(32MB
+    # 半截 signal_kelly_trades.json), _atomic_write = 同目录 tmp + fsync + os.replace 全有或全无。
+    _atomic_write(output_path, json.dumps(data, ensure_ascii=False, separators=(",", ":")))
 
     size = os.path.getsize(output_path)
     print(f"\n✓ 输出: {output_path} ({size} bytes = {size / 1024:.1f} KB)")
 
-    # 交易记录文件(列式存储, all 周期全量)
-    with open(trades_path, "w", encoding="utf-8") as f:
-        json.dump(trades_data, f, ensure_ascii=False, separators=(",", ":"))
+    # 交易记录文件(列式存储, all 周期全量), 同原子写
+    _atomic_write(trades_path, json.dumps(trades_data, ensure_ascii=False, separators=(",", ":")))
     t_size = os.path.getsize(trades_path)
     total_trades = sum(len(v) for q in trades_data.get("quadrants", {}).values() for v in q.values())
     print(f"✓ 交易记录: {trades_path} ({t_size} bytes = {t_size / 1024:.1f} KB, {total_trades} 笔)")
@@ -2332,8 +2331,7 @@ def main():
         try:
             unique_path = os.path.splitext(trades_path)[0] + "_unique.json"
             unique_data = _build_unique_tables(trades_data["quadrants"])
-            with open(unique_path, "w", encoding="utf-8") as f:
-                json.dump(unique_data, f, ensure_ascii=False, separators=(",", ":"))
+            _atomic_write(unique_path, json.dumps(unique_data, ensure_ascii=False, separators=(",", ":")))
             u_size = os.path.getsize(unique_path)
             print(f"✓ 基笔唯一化三表: {unique_path} ({u_size} bytes = {u_size / 1024:.1f} KB, "
                   f"base={unique_data['n_base']} × 10mode)")

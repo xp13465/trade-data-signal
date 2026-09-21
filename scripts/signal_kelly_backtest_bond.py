@@ -391,8 +391,21 @@ def main():
             }
 
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
-    with open(args.output, "w", encoding="utf-8") as f:
-        json.dump(comparison, f, ensure_ascii=False, indent=2)
+    # 原子写(2026-09-21 同类错误面根治, 同 signal_kelly_backtest.py 事故): 进程被杀不留半截 JSON
+    import tempfile
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(args.output), prefix=os.path.basename(args.output) + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(comparison, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, args.output)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
     print(f"\n✓ 对比输出: {args.output}")
 
     # 打印关键对比表(all 周期)
