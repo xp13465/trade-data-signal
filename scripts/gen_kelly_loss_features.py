@@ -41,6 +41,7 @@ OUT = os.path.join(ROOT, "static-site", "data", "kelly_loss_features.json")
 import sys
 sys.path.insert(0, HERE)
 from loss_rules import QTH, RULE_SPECS, MINING_TO_PROD_KEY, H_VOL20_V2_CONST  # noqa: E402
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-21 signal_kelly 链路同类错误面根治)
 
 METRIC_OF = {
     "div_yield": "a_div_yield",
@@ -199,8 +200,7 @@ def main():
     }
 
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    with open(OUT, "w") as f:
-        json.dump(doc, f, ensure_ascii=False, separators=(",", ":"))
+    atomic_write_json(OUT, doc, separators=(",", ":"))
 
     size = os.path.getsize(OUT)
     print("written %s (%.1f KB)" % (OUT, size / 1024))

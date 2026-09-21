@@ -52,6 +52,7 @@ from simulate_trade import (  # noqa: E402
 )
 from app.db import get_conn  # noqa: E402
 from app.collector.nav_placeholder_defense import is_placeholder_row, trading_gap_between  # noqa: E402
+from util_atomic import atomic_write_text, atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-21 同类错误面根治)
 
 # 凯利回测默认费率(保持该回测的既定口径, 不受 simulate_trade 重构影响)
 # simulate_trade._sell_with_fees 重构后默认新增印花税万5 + 过户费沪深统一;
@@ -242,13 +243,15 @@ def _load_etf_freeze():
 
 
 def _save_etf_freeze(freeze):
-    """写冻结查找表(原子写: 先写临时文件再 rename)。"""
+    """写冻结查找表(pre-existing 2026-09-18, 2026-09-21 补齐原子写缺件):
+
+    原实现: 固定 tmp 名(p + '.tmp', 并发写会碰撞) + 无 flush/fsync(replace 可能指到
+    空/截断 inode)。改走公共 util_atomic(同目录 pid+随机 tmp + flush + fsync + os.replace
+    + fchmod 0644), 输出字节与原一致(ensure_ascii=False + separators(',',':'))。
+    """
     p = _etf_freeze_path()
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    tmp = p + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(freeze, f, ensure_ascii=False, separators=(",", ":"))
-    os.replace(tmp, p)
+    atomic_write_json(p, freeze, separators=(",", ":"))
 
 
 def _alert_frozen_missing(events):
@@ -1993,34 +1996,11 @@ def verify_intraday(intraday_path, rerun_date, main_trades_path):
     return 0
 
 
-def _atomic_write(path, payload):
-    """分片原子写(codex-002 high, 2026-08-25): 同目录唯一 .tmp(pid+随机) + flush + fsync + os.replace。
-
-    为什么: 分片直接 write_text 最终文件, 进程被 kill/磁盘满/并发跑两个导出时会留半截 JSON 在
-    最终路径——前端 fetch 到解析炸或旧数据混版(§22); os.replace 同分区原子替换, 读侧要么旧完整
-    要么新完整。fsync 落盘防断电后 replace 指到空/截断 inode。
-    """
-    import random as _random
-    tmp = f"{path}.{os.getpid()}.{_random.randint(100000, 999999)}.tmp"
-    try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(payload)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, path)
-    finally:
-        if os.path.exists(tmp):
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
-
-
 def _cleanup_stale_tmp(parts_dir, keep_names):
     """导出完成后清理目录里非本批产物的 .tmp 残留(codex-002 high): 历史中断遗留的
-    半截 tmp 不再被误当分片; 本批 tmp 已由 _atomic_write 的 finally 自清, 此处兜底历史残留。
+    半截 tmp 不再被误当分片; 本批 tmp 已由 atomic_write_text 的 finally 自清, 此处兜底历史残留。
 
-    codex004 P3: 并发误删防护——_atomic_write 的 tmp 名含写入进程 pid
+    codex004 P3: 并发误删防护——atomic_write_text 的 tmp 名含写入进程 pid
     ({path}.{pid}.{rand}.tmp), 解析出 pid 仍存活 = 另一导出进程正在写该 tmp,
     跳过不删(pid 复用导致误判存活只是残留多留一轮, 无害; zombie 同理延迟清理)。
     """
@@ -2095,7 +2075,7 @@ def _export_trades_parts(trades_data, trades_path):
         payload = json.dumps(shard, ensure_ascii=False, separators=(",", ":"))
         # codex-002 high: 分片原子写——同目录唯一 .tmp + flush + fsync + os.replace,
         # 防进程中断/并发写把半截 JSON 留在最终文件被前端 fetch 到(解析炸/旧数据混版)
-        _atomic_write(os.path.join(parts_dir, name), payload)
+        atomic_write_text(os.path.join(parts_dir, name), payload)
         return len(payload), n
 
     # 全量行按 (qk, mk) 分组引用(不拷贝行内容, 切片只筛引用)
@@ -2199,7 +2179,7 @@ def _export_unique_parts(parts_dir, recent_rows, recent_cut, by_year, grouped):
             return 0
         uniq = _build_unique_tables(quadrants)
         payload = json.dumps(uniq, ensure_ascii=False, separators=(",", ":"))
-        _atomic_write(os.path.join(parts_dir, name), payload)
+        atomic_write_text(os.path.join(parts_dir, name), payload)
         return len(payload)
 
     total_size = 0
@@ -2256,8 +2236,8 @@ def main():
             sys.exit(5)
         os.makedirs(out_dir, exist_ok=True)
         # 盘中档同原子写(2026-09-21 同类错误面: 原 open(w)+json.dump 被杀留半截)
-        _atomic_write(intraday_trades_path, json.dumps(trades_data, ensure_ascii=False, separators=(",", ":")))
-        _atomic_write(intraday_stats_path, json.dumps(stats_data, ensure_ascii=False, separators=(",", ":")))
+        atomic_write_text(intraday_trades_path, json.dumps(trades_data, ensure_ascii=False, separators=(",", ":")))
+        atomic_write_text(intraday_stats_path, json.dumps(stats_data, ensure_ascii=False, separators=(",", ":")))
         t_size = os.path.getsize(intraday_trades_path)
         total_trades = sum(len(v) for q in trades_data.get("quadrants", {}).values() for v in q.values())
         print(f"\n✓ 盘中交易记录: {intraday_trades_path} ({t_size} bytes, {total_trades} 行)")
@@ -2296,14 +2276,14 @@ def main():
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     # 原子写(2026-09-21 生产事故根治): 原 open(w)+json.dump 进程被杀留半截 JSON(32MB
-    # 半截 signal_kelly_trades.json), _atomic_write = 同目录 tmp + fsync + os.replace 全有或全无。
-    _atomic_write(output_path, json.dumps(data, ensure_ascii=False, separators=(",", ":")))
+    # 半截 signal_kelly_trades.json), atomic_write_text = 同目录 tmp + fsync + os.replace 全有或全无。
+    atomic_write_text(output_path, json.dumps(data, ensure_ascii=False, separators=(",", ":")))
 
     size = os.path.getsize(output_path)
     print(f"\n✓ 输出: {output_path} ({size} bytes = {size / 1024:.1f} KB)")
 
     # 交易记录文件(列式存储, all 周期全量), 同原子写
-    _atomic_write(trades_path, json.dumps(trades_data, ensure_ascii=False, separators=(",", ":")))
+    atomic_write_text(trades_path, json.dumps(trades_data, ensure_ascii=False, separators=(",", ":")))
     t_size = os.path.getsize(trades_path)
     total_trades = sum(len(v) for q in trades_data.get("quadrants", {}).values() for v in q.values())
     print(f"✓ 交易记录: {trades_path} ({t_size} bytes = {t_size / 1024:.1f} KB, {total_trades} 笔)")
@@ -2331,7 +2311,7 @@ def main():
         try:
             unique_path = os.path.splitext(trades_path)[0] + "_unique.json"
             unique_data = _build_unique_tables(trades_data["quadrants"])
-            _atomic_write(unique_path, json.dumps(unique_data, ensure_ascii=False, separators=(",", ":")))
+            atomic_write_text(unique_path, json.dumps(unique_data, ensure_ascii=False, separators=(",", ":")))
             u_size = os.path.getsize(unique_path)
             print(f"✓ 基笔唯一化三表: {unique_path} ({u_size} bytes = {u_size / 1024:.1f} KB, "
                   f"base={unique_data['n_base']} × 10mode)")

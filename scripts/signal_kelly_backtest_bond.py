@@ -37,6 +37,7 @@ sys.path.insert(0, ROOT)
 
 import signal_kelly_backtest as S  # noqa: E402  (复用现有全部基础设施)
 from app.db import get_conn  # noqa: E402
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-21 同类错误面根治)
 
 SELF_ETF_FUNC = "fund_etf_hist_sina"  # indicators.yaml func, 首页 _self_etf_for 判定
 
@@ -391,21 +392,9 @@ def main():
             }
 
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
-    # 原子写(2026-09-21 同类错误面根治, 同 signal_kelly_backtest.py 事故): 进程被杀不留半截 JSON
-    import tempfile
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(args.output), prefix=os.path.basename(args.output) + ".", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(comparison, f, ensure_ascii=False, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, args.output)
-    finally:
-        if os.path.exists(tmp):
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
+    # 原子写(2026-09-21 同类错误面根治, 公共模块 util_atomic): 同目录 tmp + flush + fsync +
+    # os.replace + fchmod 0644(mkstemp 版缺 0644, replace 后 0600 与现状产物权限不一致)
+    atomic_write_json(args.output, comparison, indent=2)
     print(f"\n✓ 对比输出: {args.output}")
 
     # 打印关键对比表(all 周期)

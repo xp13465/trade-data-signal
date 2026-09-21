@@ -53,6 +53,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parent
 DEFAULT_DATA_DIR = ROOT / "static-site" / "data"
 
+sys.path.insert(0, str(SCRIPT_DIR))
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-21 同类错误面根治)
+
 # ---------------------------------------------------------------------------
 # 常量(与前端逐位对齐)
 # ---------------------------------------------------------------------------
@@ -959,21 +962,9 @@ def _main():
         snap_dir = data_dir / "signal_kelly_snapshots"
         snap_dir.mkdir(parents=True, exist_ok=True)
         out = snap_dir / "latest_posrating.json"
-        # 原子写(2026-09-21 同类错误面根治, 同 signal_kelly_backtest.py 事故): 进程被杀不留半截
-        import tempfile
-        fd, tmp = tempfile.mkstemp(dir=str(snap_dir), prefix="latest_posrating.json.", suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(result, f, ensure_ascii=False)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, out)
-        finally:
-            if os.path.exists(tmp):
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
+        # 原子写(2026-09-21 同类错误面根治, 公共模块 util_atomic): 同目录 tmp + flush + fsync +
+        # os.replace + fchmod 0644(mkstemp 版缺 0644, replace 后 0600 与现状产物权限不一致)
+        atomic_write_json(out, result)
         log(f"已写入 {out}")
     return 0
 

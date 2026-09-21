@@ -62,6 +62,9 @@ import os
 import sys
 from datetime import datetime
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from util_atomic import atomic_write_text  # noqa: E402  (原子写公共模块, 2026-09-21 signal_kelly 链路同类错误面根治)
+
 # ── 关键参数种子(S06 单一事实源; 前端禁第二份硬编码, 公示文案数值须与本处逐位一致) ──
 THRESHOLD = -3.524224785046781   # 2016-2020 选段 q30 冻结值(codex s06_grid_selection_freeze.py)
 CONFIRM_DAYS = 15                # A 前提连续破坏确认期(交易日)
@@ -238,10 +241,7 @@ def main() -> int:
     ]
     for t in targets:
         os.makedirs(os.path.dirname(t), exist_ok=True)
-        tmp = t + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(body)
-        os.replace(tmp, t)  # 原子写, 防半截文件被前端拉走
+        atomic_write_text(t, body)  # 原子写: 同目录 pid+随机 tmp + flush + fsync + os.replace + 0644
         print("✓ wrote", t, f"({len(body)} bytes)")
 
     n_a9 = sum(1 for r in daily_full if r["effective_mode"] == "a9")

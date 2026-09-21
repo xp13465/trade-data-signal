@@ -67,6 +67,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parent
 DEFAULT_DATA_DIR = ROOT / "static-site" / "data"
 
+sys.path.insert(0, str(SCRIPT_DIR))
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-21 同类错误面根治)
+
 # 阈值/参数常量区 —— 滚动窗基准, 非全期分位(§5.1⑥ 防前视)
 SNAPSHOT_VERSION = "1.0"          # 发布日=version 变化当日, 豁免突变告警
 ROLLING_WINDOW = 60               # 滚动窗快照日数(含昨天不含今天)
@@ -200,7 +203,7 @@ def write_posrating_file(data_dir: Path, bt: dict, trades: dict) -> None:
         loss_doc = json.loads(feats_path.read_text(encoding="utf-8")) if feats_path.exists() else None
         result = compute_posrating(trades, bt, s06_doc, loss_doc)
         p = snap_dir(data_dir) / "latest_posrating.json"
-        p.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        atomic_write_json(p, result)
         v = result["values"][1]  # compute_posrating 内 key 为 int, 序列化后转字符串
         log(f"latest_posrating.json 已生成: K1 {v['ret']} dd={v['dd']} n={v['n']}")
     except Exception as e:  # noqa: BLE001
@@ -243,15 +246,13 @@ def load_index(data_dir: Path) -> dict:
 
 def save_index(data_dir: Path, index: dict) -> None:
     p = snap_dir(data_dir) / "index.json"
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump(index, f, ensure_ascii=False)
+    atomic_write_json(p, index)
 
 
 def save_snapshot(data_dir: Path, snapshot: dict) -> None:
     d = snap_dir(data_dir)
     p = d / f"{snapshot['date']}.json"
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump(snapshot, f, ensure_ascii=False)
+    atomic_write_json(p, snapshot)
 
 
 def _sig_main_all(snapshot: dict) -> dict:
