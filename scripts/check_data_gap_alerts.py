@@ -148,6 +148,7 @@ KELLY_WARN_BACK = 1           # 落后 =1 交易日 → WARN(首日, 次日定�
 KELLY_STALE_MAX_H = 48        # B2: 产物 generated_at/mtime 距今上限(自然小时; 周末按交易日放宽)
 KELLY_FAIL_MAX_DAYS = 2       # C1: 最近成功 deploy(deploy_*.log 含「退出码=0」)距今上限(自然日)
 KELLY_TRADES_FILE = "signal_kelly_trades.json"
+KELLY_TRADES_UNIQUE = "signal_kelly_trades_unique.json"   # L42 数据瘦身 Phase D: 基笔唯一化三表优先读
 KELLY_BACKTEST_FILE = "signal_kelly_backtest.json"
 KELLY_DEPLOY_OK_ANCHOR = "退出码=0"   # deploy.sh L799 成功行锚点: 「=== deploy.sh 结束 ... 退出码=0 ===」
 # 盘中占位行特征: etf_daily 写入的同值假数据行(etf_name=etf_code, accum_nav/open 全同值, close=NULL),
@@ -628,12 +629,17 @@ KELLY_COVERAGE_KEY = "data_gap:kelly_coverage"
 KELLY_STALE_KEY = "data_gap:kelly_stale"
 KELLY_BT_FAIL_KEY = "data_gap:kelly_backtest_fail"
 
-# trades.json 72MB, 同轮多 checker 复用(模块级 mtime 缓存, 变了才重载)
+# trades.json 72MB(unique 三表 ~6MB), 同轮多 checker 复用(模块级 mtime 缓存, 变了才重载)
 _TRADES_CACHE: dict = {}
 
 
 def _trades_path(repo: Path) -> Path | None:
-    """signal_kelly_trades.json 路径: static-site/data/ 优先, 回退 data/(对照 check_universe_alignment L244-245)。"""
+    """signal_kelly_trades{,_unique}.json 路径: unique 三表优先(基笔唯一化, ~6MB 提速 12x),
+    回退旧 quadrants 全量(对照 check_universe_alignment L244-245)。"""
+    for base in (repo / "static-site" / "data", repo / "data"):
+        p = base / KELLY_TRADES_UNIQUE
+        if p.exists():
+            return p
     for base in (repo / "static-site" / "data", repo / "data"):
         p = base / KELLY_TRADES_FILE
         if p.exists():
@@ -642,7 +648,7 @@ def _trades_path(repo: Path) -> Path | None:
 
 
 def _load_trades_obj(repo: Path):
-    """加载 trades.json(scanned 前 body), mtime 缓存避免多 checker 重复 load 72MB。返回 obj 或 None。"""
+    """加载 trades doc(scanned 前 body), mtime 缓存避免多 checker 重复 load(72MB→unique ~6MB)。返回 obj 或 None。"""
     p = _trades_path(repo)
     if p is None:
         return None
@@ -653,18 +659,32 @@ def _load_trades_obj(repo: Path):
     try:
         obj = json.loads(p.read_text(encoding="utf-8"))
     except Exception as e:
-        print(f"[check_data_gap] {KELLY_TRADES_FILE} 读取失败: {e}", file=sys.stderr)
+        print(f"[check_data_gap] {p.name} 读取失败: {e}", file=sys.stderr)
         return None
     _TRADES_CACHE[str(p)] = (mt, obj)
     return obj
 
 
 def _scan_trades(trades: dict) -> tuple[set, str, str]:
-    """扫 trades.json quadrants(行内 index 0=signal_date, 1=index_id, 2=signal, 对齐
-    check_universe_alignment.py L150-153)。返回 (signal_set, latest_signal_date, generated_at)。"""
+    """扫交易记录(unique 三表 base 或旧 quadrants; 行内 index 0=signal_date, 1=index_id, 2=signal, 对齐
+    check_universe_alignment.py _iter_trade_rows)。返回 (signal_set, latest_signal_date, generated_at)。
+
+    unique 三表路径: base 主表 19 共享列 0/1/2 与旧行同位, 每行=唯一基笔(去重天然成立,
+    signal_set 为集合逐位一致); base 按 signal_date 升序 → latest 即 base[-1][0]。
+    """
     sig_set: set = set()
     latest = ""
     generated = str((trades or {}).get("generated_at") or "")
+    if isinstance(trades, dict) and isinstance(trades.get("base"), list) and isinstance(trades.get("variants"), dict):
+        base = trades["base"]
+        for r in base:
+            if not isinstance(r, (list, tuple)) or len(r) < 3:
+                continue
+            d, iid, sig = str(r[0]), str(r[1]), str(r[2])
+            sig_set.add((d, iid, sig))
+            if d > latest:
+                latest = d
+        return sig_set, latest, generated
     for qk, modes in ((trades or {}).get("quadrants") or {}).items():
         if not isinstance(modes, dict):
             continue

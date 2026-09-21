@@ -144,7 +144,7 @@ const LAB_SYMBOLS = [
 const APP_SYMBOLS = [
   "_SIM_LOSS_NEW_KEYS", "_simBuyWeekday", "_simBuypriceBin", "_simQkDim", "_simBaseKey",
   "_simBuildModePool", "_simDefaultFadeFilters", "_simMonthMask", "_simActiveMonthMask",
-  "_simLossRuleHit", "_simPassesFade", "_simPassesBullStop",
+  "_simLossRuleHit", "_simPassesFade", "_simPassesBullStop", "_simBuildModePoolLegacy",
   // T3-2 任务④: 首页作用域(_isBullStopHit 迁规格单源; _AI_MACRO_FILTER_NAMES 保留中文名映射, 键集合须≡p8.keys)
   "_isBullStopHit", "_AI_MACRO_FILTER_NAMES",
 ];
@@ -162,7 +162,62 @@ const LEGACY_37 = [
 ];
 
 console.log(`[parity] ref=${REF || "(working tree)"} trades=${TRADES_JSON}`);
-const td = JSON.parse(fs.readFileSync(TRADES_JSON, "utf8"));
+const tdRaw = JSON.parse(fs.readFileSync(TRADES_JSON, "utf8"));
+
+// L42 数据瘦身 Phase D(2026-09-21): 兼容「基笔唯一化三表」(signal_kelly_trades_unique.json)。
+// 27 列序单一事实源 = scripts/signal_kelly_backtest.py TRADE_FIELDS(L173); 三表还原为旧
+// quadrants 形态后, 下游(r0 lab/r1 lab/app 谓词 + _kellyBuildTradeDims)零改动消费。
+// 还原规则(方案 §二/kelly-unique-schema ②③): base[i] 19 共享列 + variants[mode][i] 8
+// 卖出列按 TRADE_FIELDS 序拼 27 列; 归属=base 尾 4 枚举码(qk_groups 键序 rating/etf/sig/mkt);
+// variants[mode][i]==null = R8 哨兵该 mode 无有效回测, 跳过。
+const TRADE_FIELDS_27 = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name",
+  "track_tier", "track_score", "match_method", "track_low_confidence", "buy_price", "sell_price", "shares",
+  "profit", "return_pct", "hold_days", "sell_reason", "current_price", "real_buy_price", "real_buy_date",
+  "real_current_price", "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating"];
+
+function isUniqueDoc(doc) { return doc && Array.isArray(doc.base) && doc.variants; }
+
+function restoreFullQuadrants(uniq) {
+  const share = uniq.fields, varf = uniq.variant_fields;
+  if (share.length + varf.length !== TRADE_FIELDS_27.length)
+    throw new Error(`signal_kelly_trades_unique.json 列数漂移: fields(${share.length})+variant_fields(${varf.length}) != 27`);
+  const shareIdx = {}, varIdx = {};
+  share.forEach((f, i) => { shareIdx[f] = i; });
+  varf.forEach((f, i) => { varIdx[f] = i; });
+  const colBuild = TRADE_FIELDS_27.map((f) =>
+    f in shareIdx ? [0, shareIdx[f]] : (f in varIdx ? [1, varIdx[f]] : null));
+  if (colBuild.some((c) => c === null)) throw new Error("TRADE_FIELDS 字段不在 unique fields/variant_fields(三表 schema 漂移)");
+  const groupKeys = Object.keys(uniq.qk_groups || {});
+  const nShare = share.length;
+  const qkList = [];
+  groupKeys.forEach((g) => { (uniq.qk_groups[g] || []).forEach((qk) => qkList.push(qk)); });
+  const quads = {};
+  qkList.forEach((qk) => { quads[qk] = {}; Object.keys(uniq.variants).forEach((m) => { quads[qk][m] = []; }); });
+  for (let i = 0; i < uniq.base.length; i++) {
+    const b = uniq.base[i];
+    if (!Array.isArray(b) || b.length < nShare) continue;
+    if (b.length !== nShare + groupKeys.length)
+      throw new Error(`unique base 行${i} 走样: ${b.length} 列 != share(${nShare})+归属(${groupKeys.length})`);
+    for (let gi = 0; gi < groupKeys.length; gi++) {
+      const code = b[nShare + gi];
+      if (typeof code !== "number" || !Number.isInteger(code) || code < 0) continue;
+      const group = uniq.qk_groups[groupKeys[gi]];
+      if (!group || code >= group.length) continue;
+      const qk = group[code];
+      for (const m of Object.keys(uniq.variants)) {
+        const v = uniq.variants[m][i];
+        if (v === null || v === undefined) continue;  // R8 哨兵
+        if (!Array.isArray(v) || v.length !== varf.length)
+          throw new Error(`unique variants[${m}][${i}] 走样: ${v.length} 列 != ${varf.length}`);
+        quads[qk][m].push(colBuild.map(([src, idx]) => (src === 0 ? b[idx] : v[idx])));
+      }
+    }
+  }
+  return { fields: TRADE_FIELDS_27.slice(), quadrants: quads };
+}
+
+// 统一适配: unique 三表 → 还原 27 列 quadrants 形态; 旧 quadrants 文件原样
+const td = isUniqueDoc(tdRaw) ? restoreFullQuadrants(tdRaw) : tdRaw;
 let featDoc = null;
 try { featDoc = JSON.parse(fs.readFileSync(FEAT_JSON, "utf8")); } catch { featDoc = null; }
 

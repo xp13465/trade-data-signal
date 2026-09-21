@@ -116,7 +116,10 @@ def load_backtest(data_dir: Path) -> dict:
 
 
 def load_trades(data_dir: Path) -> dict:
-    p = data_dir / "signal_kelly_trades.json"
+    """signal_kelly_trades{,_unique}.json 读取: L42 Phase D 优先基笔唯一化三表, 回退旧全量。"""
+    p = data_dir / "signal_kelly_trades_unique.json"
+    if not p.exists():
+        p = data_dir / "signal_kelly_trades.json"
     if not p.exists():
         raise FileNotFoundError(f"交易记录不存在: {p}")
     with open(p, "r", encoding="utf-8") as f:
@@ -150,7 +153,28 @@ def scan_trades(trades: dict) -> tuple[str, list]:
     """全象限成交里找 max_signal_date + 最近 10 笔(按 signal_date 降序)。
     trades.quadrants = {qname: {mode: [compact_trade_array, ...]}};
     compact_trade[0] = signal_date。返回 (max_signal_date, recent10)。
+
+    L42 Phase D: unique 三表格式(base 主表, 行 0=signal_date, 19 共享列)时读 base 行
+    row[0](方案 §2.5 #4); base 按 signal_date 升序 → max_date=base[-1][0], recent 为最近
+    10 基笔共享行(旧 quadrants 为 40x 含 mode 重复, 语义等价为最近 10 基笔, recent_trades
+    无前端消费方)。
     """
+    if isinstance(trades, dict) and isinstance(trades.get("base"), list) and isinstance(trades.get("variants"), dict):
+        base = trades["base"]
+        recent: list[list] = []
+        max_date = ""
+        for tr in base:
+            if not isinstance(tr, (list, tuple)) or not tr:
+                continue
+            sd = str(tr[0]) or ""
+            if not sd:
+                continue
+            if sd > max_date:
+                max_date = sd
+            recent.append(tr)
+        recent.sort(key=lambda t: str(t[0]) if t else "", reverse=True)
+        return max_date, recent[:10]
+
     fields = trades.get("fields", [])
     qs = trades.get("quadrants", {})
     max_date = ""

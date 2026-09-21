@@ -826,8 +826,69 @@ def _derive_names(pos_vals):
     return pos_vals
 
 
+def _is_unique_doc(doc) -> bool:
+    """判定 trades 文档是否为「基笔唯一化三表」格式(L42 Phase A *_unique.json)。"""
+    return (isinstance(doc, dict) and isinstance(doc.get("base"), list)
+            and isinstance(doc.get("variants"), dict))
+
+
+def _restore_full_quadrants(uniq, FIELD):
+    """unique 三表 → 旧 quadrants 形态 {fields: TRADE_FIELDS 27列名, quadrants: {qk:{mode:[27列行]}}}。
+
+    还原行按 TRADE_FIELDS 列序拼回(方案 R1: 绝不把 19 列 base 行直接喂下游, 否则
+    sell_date 等 8 卖出列下标 undefined)。归属=base 尾 4 枚举码(qk_groups 键序 rating/etf/
+    sig/mkt); variants[mode][i]==null=R8 哨兵该 mode 无有效回测跳过。与 overfit_monitor.py
+    _restore_full_quadrants 同构(两处内联, 任务约束只改 10 脚本不新增共享模块)。
+    """
+    share = uniq["fields"]
+    varf = uniq["variant_fields"]
+    base = uniq["base"]
+    variants = uniq["variants"]
+    qkgroups = uniq.get("qk_groups") or {}
+    n_share = len(share)
+    if n_share + len(varf) != len(FIELD):
+        raise ValueError(
+            f"signal_kelly_trades_unique.json 列数漂移: fields({n_share})+variant_fields({len(varf)}) "
+            f"!= TRADE_FIELDS({len(FIELD)}) 列")
+    share_idx = {f: i for i, f in enumerate(share)}
+    var_idx = {f: i for i, f in enumerate(varf)}
+    col_build = []
+    for f in FIELD:
+        if f in share_idx:
+            col_build.append((0, share_idx[f]))
+        elif f in var_idx:
+            col_build.append((1, var_idx[f]))
+        else:
+            raise ValueError(f"TRADE_FIELDS 字段 {f} 不在 unique fields/variant_fields(三表 schema 漂移)")
+    qk_list = [qk for group in qkgroups.values() if isinstance(group, list) for qk in group]
+    quads = {qk: {m: [] for m in variants} for qk in qk_list}
+    for i, b in enumerate(base):
+        if not isinstance(b, (list, tuple)) or len(b) < n_share:
+            continue
+        if len(b) != n_share + len(qkgroups):
+            raise ValueError(f"unique base 行走样: 行{i} 列 {len(b)} != share({n_share})+归属({len(qkgroups)})")
+        for gi, group in enumerate(qkgroups.values()):
+            code = b[n_share + gi]
+            if not isinstance(code, int) or code < 0 or code >= len(group):
+                continue
+            qk = group[code]
+            for m, varr in variants.items():
+                v = varr[i] if i < len(varr) else None
+                if v is None:
+                    continue  # R8 哨兵
+                if not isinstance(v, (list, tuple)) or len(v) != len(varf):
+                    raise ValueError(f"unique variants[{m}][{i}] 走样: {len(v) if isinstance(v,(list,tuple)) else type(v)} 列 != {len(varf)}")
+                quads[qk][m].append([b[si] if src == 0 else v[si] for src, si in col_build])
+    return {"fields": list(FIELD), "quadrants": quads}
+
+
 def compute_posrating(trades_doc, backtest_doc, s06_doc, loss_feat_doc):
     """主计算入口。返回 { computed, date, mode, fee, values:{1..4} }。"""
+    # L42 数据瘦身 Phase D: unique 三表优先, 还原为旧 quadrants 形态后再走原逻辑
+    # (读法改造零口径改动; 还原含全部 mode, A 模式 all 与 _trade_dims 与原逻辑逐位一致)。
+    if _is_unique_doc(trades_doc):
+        from signal_kelly_backtest import TRADE_FIELDS  # noqa: E402
+        trades_doc = _restore_full_quadrants(trades_doc, list(TRADE_FIELDS))
     fields = trades_doc.get("fields") or []
     fIdx = {f: i for i, f in enumerate(fields)}
     for need in ("signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code",

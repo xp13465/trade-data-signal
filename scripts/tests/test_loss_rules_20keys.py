@@ -26,6 +26,8 @@
 【关键参数种子】QTH 阈值快照 = mine10_features.json 2026-08-22 版全史分位(见 loss_rules.py L40-44
   设计取舍公示: 仅挖掘筛选用途, 若用于实盘择时须改 expanding 窗口重算 §5.1⑥)。
 """
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -98,6 +100,135 @@ def test_frozen_snapshot_hit_sets():
     for i, (trade, expect) in enumerate(zip(FROZEN_TRADES, FROZEN_EXPECT)):
         got = _frozen_run(trade)
         assert got == sorted(expect), f"冻结样本{i} 命中集合漂移: 期望 {sorted(expect)} 实得 {got}"
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Phase D(2026-09-21 基笔唯一化): unique 三表还原 = 旧 quadrants 行(命中集合打平断言)
+# 【目的】锁死「基笔唯一化三表」还原出的 27 列行喂 rule_hit 的命中集合与 FROZEN_EXPECT
+#   冻结快照逐位一致(即 FROZEN_TRADES 来源=rating_high/A 行0-2)。unique 产物缺失时
+#   pytest.skip——保在线性链路, 数据产物缺不影响常规 CI 结论。
+# ────────────────────────────────────────────────────────────────────────────
+UNIQUE_TRADES_JSON = Path(os.environ.get(
+    "UNIQUE_TRADES_JSON", "/tmp/kelly-unique-phasea-out/signal_kelly_trades_unique.json"))
+OLD_TRADES_JSON = Path(os.environ.get(
+    "OLD_TRADES_JSON", str(ROOT / "static-site" / "data" / "signal_kelly_trades.json")))
+
+# 27 列序单一事实源 = scripts/signal_kelly_backtest.py TRADE_FIELDS(L173)
+TRADE_FIELDS_27 = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name",
+                   "track_tier", "track_score", "match_method", "track_low_confidence", "buy_price",
+                   "sell_price", "shares", "profit", "return_pct", "hold_days", "sell_reason",
+                   "current_price", "real_buy_price", "real_buy_date", "real_current_price",
+                   "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
+
+
+def _restore_unique_to_legacy(uniq):
+    """unique 三表 → {fields: TRADE_FIELDS_27, quadrants:{qk:{mode:[27列行]}}}。
+    规则见 scripts/check_loss_rules_vs_mining.py 同函数(多消费方共用一套还原口径)。"""
+    share, varf = uniq["fields"], uniq["variant_fields"]
+    if len(share) + len(varf) != len(TRADE_FIELDS_27):
+        raise ValueError("unique 列数漂移: fields(%d)+variant_fields(%d) != 27" % (len(share), len(varf)))
+    share_idx = {f: i for i, f in enumerate(share)}
+    var_idx = {f: i for i, f in enumerate(varf)}
+    col_build = []
+    for f in TRADE_FIELDS_27:
+        if f in share_idx:
+            col_build.append((0, share_idx[f]))
+        elif f in var_idx:
+            col_build.append((1, var_idx[f]))
+        else:
+            raise ValueError("TRADE_FIELDS 字段 %s 不在 unique schema" % f)
+    group_keys = list(uniq.get("qk_groups") or {})
+    n_share = len(share)
+    qk_list = []
+    for g in group_keys:
+        for qk in (uniq["qk_groups"].get(g) or []):
+            qk_list.append(qk)
+    modes = list(uniq.get("variants") or {})
+    quads = {qk: {m: [] for m in modes} for qk in qk_list}
+    base = uniq.get("base") or []
+    for i, b in enumerate(base):
+        if not isinstance(b, list) or len(b) < n_share:
+            continue
+        if len(b) != n_share + len(group_keys):
+            raise ValueError("unique base 行%d 走样: %d 列 != share(%d)+归属(%d)" % (i, len(b), n_share, len(group_keys)))
+        for gi, g in enumerate(group_keys):
+            code = b[n_share + gi]
+            if not isinstance(code, int) or code < 0:
+                continue
+            group = uniq["qk_groups"].get(g) or []
+            if code >= len(group):
+                continue
+            qk = group[code]
+            for m in modes:
+                v = uniq["variants"][m][i]
+                if v is None:
+                    continue
+                if not isinstance(v, list) or len(v) != len(varf):
+                    raise ValueError("unique variants[%s][%d] 走样: %d 列 != %d" % (m, i, len(v), len(varf)))
+                quads[qk][m].append([b[idx] if src == 0 else v[idx] for src, idx in col_build])
+    return {"fields": TRADE_FIELDS_27[:], "quadrants": quads}
+
+
+def _unique_trades_or_skip():
+    """unique 产物缺失/不可读 → pytest.skip; 否则返回还原后旧结构 dict。"""
+    if not UNIQUE_TRADES_JSON.exists():
+        pytest.skip("unique 三表产物缺失(Phase A 未生成或不在本机): %s" % UNIQUE_TRADES_JSON)
+    try:
+        with open(UNIQUE_TRADES_JSON) as f:
+            uniq = json.load(f)
+    except Exception as e:  # pragma: no cover
+        pytest.skip("unique 三表产物不可读: %s" % e)
+    return _restore_unique_to_legacy(uniq)
+
+
+def _ctx_from_row(row, fIdx, feats):
+    """还原 27 列行 → rule_hit ctx(feat_at 用冻结特征表同名映射)。"""
+    dt = str(row[fIdx["signal_date"]] or "")
+    feats_dt = {k: {dt: v} for k, v in feats[dt].items()}
+    return dict(
+        date=dt,
+        sig=str(row[fIdx["signal"]] or ""),
+        mkt=str(row[fIdx["market_state"]] or ""),
+        tier=str(row[fIdx["market_tier"]] or ""),
+        ts=row[fIdx["track_score"]],
+        rating=str(row[fIdx["rating"]] or ""),
+        track_tier=str(row[fIdx["track_tier"]] or "") if row[fIdx["track_tier"]] is not None else "null",
+        smonth=dt[4:6],
+        feat_at=make_feat_at(feats_dt),
+    )
+
+
+def _old_trades_or_skip():
+    """old quadrants 文件缺失/不可读 → pytest.skip; 否则返回 dict。"""
+    if not OLD_TRADES_JSON.exists():
+        pytest.skip("old trades 文件缺失: %s" % OLD_TRADES_JSON)
+    try:
+        with open(OLD_TRADES_JSON) as f:
+            return json.load(f)
+    except Exception as e:  # pragma: no cover
+        pytest.skip("old trades 文件不可读: %s" % e)
+
+
+def test_unique_restore_quadrants_match_old():
+    """Phase D 核心对账: unique 三表还原的 quadrants 与 old 原始 quadrants 全量逐字段一致
+    (16 qk × 全部 mode; read unique ≡ read old)。"""
+    legacy = _unique_trades_or_skip()
+    old = _old_trades_or_skip()
+    fU = {f: i for i, f in enumerate(legacy["fields"])}
+    fO = {f: i for i, f in enumerate(old["fields"])}
+    assert fU == fO, "unique 还原 fields != old fields"
+    assert set(legacy["quadrants"]) == set(old["quadrants"]), "qk 键集不一致"
+    for qk in old["quadrants"]:
+        o_modes = old["quadrants"][qk] or {}
+        u_modes = (legacy["quadrants"].get(qk, {}) or {})
+        assert set(u_modes) == set(o_modes), f"{qk} mode 键集不一致"
+        for m in o_modes:
+            o_rows = o_modes[m] or []
+            u_rows = u_modes[m] or []
+            assert len(u_rows) == len(o_rows), f"{qk}/{m} 行数: unique={len(u_rows)} old={len(o_rows)}"
+            for i, (ru, ro) in enumerate(zip(u_rows, o_rows)):
+                assert json.dumps(ru, sort_keys=True) == json.dumps(ro, sort_keys=True), \
+                    f"{qk}/{m} 第{i}行: unique {ru} != old {ro}"
 
 
 # ────────────────────────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@
 import json
 import os
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, ".."))
@@ -26,6 +27,80 @@ from loss_rules import QTH, RULE_SPECS, MINING_TO_PROD_KEY, make_feat_at, rule_h
 
 MINING_KEY_ORDER = ["N1", "T1", "D1", "Q1", "H1", "M1", "D2", "P1", "V1", "S1", "R1",
                     "R2b", "R2g", "N2", "V2", "S2", "W1", "A1", "V3", "AD1"]
+
+
+def _prepare_rows_legacy_compat(R, trades_path):
+    """unique 三表时先写还原旧结构临时文件再走 R.prepare_rows; 旧 quadrants 文件原样直走。"""
+    with open(trades_path) as f:
+        raw = json.load(f)
+    if isinstance(raw, dict) and "base" in raw and "variants" in raw:
+        legacy = _restore_unique_to_legacy(raw)
+        fd, tmp = tempfile.mkstemp(suffix=".json", prefix="trades_legacy_")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(legacy, f)
+            return R.prepare_rows(tmp)
+        finally:
+            os.unlink(tmp)
+    return R.prepare_rows(trades_path)
+
+# L42 数据瘦身 Phase D(2026-09-21): 兼容「基笔唯一化三表」(signal_kelly_trades_unique.json)。
+# 27 列序单一事实源 = scripts/signal_kelly_backtest.py TRADE_FIELDS(L173); 三表还原为旧
+# quadrants 形态后写临时文件, 复用 R.prepare_rows(sim_core.load) 零改动消费, 不产第二份实现。
+TRADE_FIELDS_27 = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name",
+                   "track_tier", "track_score", "match_method", "track_low_confidence", "buy_price",
+                   "sell_price", "shares", "profit", "return_pct", "hold_days", "sell_reason",
+                   "current_price", "real_buy_price", "real_buy_date", "real_current_price",
+                   "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
+
+
+def _restore_unique_to_legacy(uniq):
+    """unique 三表 → {fields: TRADE_FIELDS_27, quadrants:{qk:{mode:[27列行]}}}。
+    规则: base[i]=19共享列+4归属枚举码(qk_groups 键序); variants[mode][i]=8卖出列;
+    variants[mode][i]==None = R8 哨兵该 mode 无有效回测, 跳过。"""
+    share, varf = uniq["fields"], uniq["variant_fields"]
+    if len(share) + len(varf) != len(TRADE_FIELDS_27):
+        raise ValueError("unique 列数漂移: fields(%d)+variant_fields(%d) != 27" % (len(share), len(varf)))
+    share_idx = {f: i for i, f in enumerate(share)}
+    var_idx = {f: i for i, f in enumerate(varf)}
+    col_build = []
+    for f in TRADE_FIELDS_27:
+        if f in share_idx:
+            col_build.append((0, share_idx[f]))
+        elif f in var_idx:
+            col_build.append((1, var_idx[f]))
+        else:
+            raise ValueError("TRADE_FIELDS 字段 %s 不在 unique schema" % f)
+    group_keys = list(uniq.get("qk_groups") or {})
+    n_share = len(share)
+    qk_list = []
+    for g in group_keys:
+        for qk in (uniq["qk_groups"].get(g) or []):
+            qk_list.append(qk)
+    modes = list(uniq.get("variants") or {})
+    quads = {qk: {m: [] for m in modes} for qk in qk_list}
+    base = uniq.get("base") or []
+    for i, b in enumerate(base):
+        if not isinstance(b, list) or len(b) < n_share:
+            continue
+        if len(b) != n_share + len(group_keys):
+            raise ValueError("unique base 行%d 走样: %d 列 != share(%d)+归属(%d)" % (i, len(b), n_share, len(group_keys)))
+        for gi, g in enumerate(group_keys):
+            code = b[n_share + gi]
+            if not isinstance(code, int) or code < 0:
+                continue
+            group = uniq["qk_groups"].get(g) or []
+            if code >= len(group):
+                continue
+            qk = group[code]
+            for m in modes:
+                v = uniq["variants"][m][i]
+                if v is None:
+                    continue
+                if not isinstance(v, list) or len(v) != len(varf):
+                    raise ValueError("unique variants[%s][%d] 走样: %d 列 != %d" % (m, i, len(v), len(varf)))
+                quads[qk][m].append([b[idx] if src == 0 else v[idx] for src, idx in col_build])
+    return {"fields": TRADE_FIELDS_27[:], "quadrants": quads}
 
 
 def layer3_thresholds():
@@ -92,7 +167,8 @@ def layer2_predicates():
     trades_path = os.environ.get("TRADES_JSON") or os.path.join(ROOT, "static-site", "data", "signal_kelly_trades.json")
     if not os.path.exists(trades_path):
         trades_path = "/Users/linhuichen/code/trade/static-site/data/signal_kelly_trades.json"
-    rows, fIdx = R.prepare_rows(trades_path)  # mode A + 8键基座(与生产 trades 同源)
+    # Phase D: unique 三表还原为旧 quadrants 形态临时文件, R.prepare_rows 零改动消费
+    rows, fIdx = _prepare_rows_legacy_compat(R, trades_path)
     mD = len(fIdx)
 
     mining_rules = build_rules(feats_mining, fIdx)

@@ -144,26 +144,66 @@ def assertion2(overview, buy_whitelist) -> bool:
     return (not bad, det)
 
 
+def _is_unique_trades(doc) -> bool:
+    """判定 trades 文档是否为「基笔唯一化三表」格式(Phase A 生成的 *_unique.json)。"""
+    return (isinstance(doc, dict) and isinstance(doc.get("base"), list)
+            and isinstance(doc.get("variants"), dict) and doc.get("variants"))
+
+
+def _iter_trade_rows(trades):
+    """统一遍历「回测交易行」迭代器: 兼容旧 quadrants 结构与 unique 三表结构。
+
+    unique 三表遍历 = 读主表 base 行(row[1]=index_id, row[2]=signal, 19 共享列序与旧行
+    1/2 同位), 再按归属枚举(qk_groups 尾列)展开到每个 (qk, mode), variants[mode][i]==null
+    哨兵=R8 该 mode 无有效回测, 跳过。展开等价旧 quadrants 遍历(Q 同一基笔恰好 4 qk × 10
+    mode = 40 次), 输出逐位一致(R3 45 条 signal 差异笔按 base_key 拆分不受影响)。
+    """
+    if _is_unique_trades(trades):
+        base = trades["base"]
+        variants = trades["variants"]
+        qkgroups = trades.get("qk_groups") or {}
+        modes = trades.get("modes") or list(variants.keys())
+        group_keys = [g for g in qkgroups if isinstance(qkgroups[g], list)]
+        n_share = len(trades.get("fields") or [])
+        for i, b in enumerate(base):
+            if not isinstance(b, (list, tuple)) or len(b) < 3:
+                continue
+            for gi in range(len(group_keys)):
+                code = b[n_share + gi] if len(b) > n_share + gi else -1
+                if not isinstance(code, int) or code < 0:
+                    continue
+                qk = qkgroups[group_keys[gi]][code]
+                for mk in modes:
+                    varr = variants.get(mk) or []
+                    if i < len(varr) and varr[i] is not None:
+                        yield (qk, mk, b)
+    else:
+        quadrants = trades.get("quadrants", {}) or {}
+        for qk, modes in quadrants.items():
+            if not isinstance(modes, dict):
+                continue
+            for mk, rows in modes.items():
+                if not isinstance(rows, list):
+                    continue
+                for r in rows:
+                    yield (qk, mk, r)
+
+
 def assertion3(trades, buy_whitelist, excluded_categories) -> bool:
     """断言3: 回测交易无排除类别 + 交易 signal ⊆ buy_whitelist。"""
     whitelist = set(buy_whitelist)
-    quadrants = trades.get("quadrants", {}) or {}
     bad_ids, bad_sigs = [], []
     total = 0
-    for qk, modes in quadrants.items():
-        if not isinstance(modes, dict):
+    for qk, mk, r in _iter_trade_rows(trades):
+        if not isinstance(r, (list, tuple)) or len(r) < 3:
             continue
-        for mk, rows in modes.items():
-            for r in rows:
-                if not isinstance(r, (list, tuple)) or len(r) < 3:
-                    continue
-                total += 1
-                iid, sig = r[1], r[2]
-                if sig not in whitelist:
-                    bad_sigs.append((qk, mk, iid, sig))
-                for cat in excluded_categories:
-                    if _match_any(iid, cat.get("match")):
-                        bad_ids.append((qk, mk, iid, sig, cat.get("name")))
+        total += 1
+        iid, sig = r[1], r[2]
+        if sig not in whitelist:
+            bad_sigs.append((qk, mk, iid, sig))
+        for cat in excluded_categories:
+            if _match_any(iid, cat.get("match")):
+                bad_ids.append((qk, mk, iid, sig, cat.get("name")))
     if bad_ids or bad_sigs:
         det = f"共 {total} 笔交易, 违规 {len(bad_ids)} 条类别 + {len(bad_sigs)} 条信号:"
         if bad_ids:
@@ -238,11 +278,14 @@ def main() -> int:
     # trades 默认路径(2026-08-24 根修): 回测 signal_kelly_backtest.py 实际写 static-site/data/,
     # 原默认 {repo}/data/ 是 8-09 后不再更新的陈旧副本, 断言3 曾长期校验旧文件(177k 行 vs 活产物 274k 行)
     # = 机检盲区(§23.2③ 同类排查)。改为 static-site/data/ 优先 + data/ 回退, 与 overfit_monitor.py 同模式。
+    # L42 数据瘦身 Phase D(2026-09-21): 优先读「基笔唯一化三表」signal_kelly_trades_unique.json,
+    # 回退旧 quadrants 全量(unique 开关未开/旧数据兜底), 断言3 读法见 _iter_trade_rows。
     if args.trades:
         tr_path = Path(args.trades)
     else:
+        tr_unique = repo / "static-site" / "data" / "signal_kelly_trades_unique.json"
         tr_live = repo / "static-site" / "data" / "signal_kelly_trades.json"
-        tr_path = tr_live if tr_live.exists() else repo / "data" / "signal_kelly_trades.json"
+        tr_path = tr_unique if tr_unique.exists() else (tr_live if tr_live.exists() else repo / "data" / "signal_kelly_trades.json")
 
     for p, label in [(cfg_path, "universe_rules.yaml"), (ind_path, "indicators.yaml"),
                      (ov_path, "overview.json"), (map_path, "board_etf_map.json"), (tr_path, "signal_kelly_trades.json")]:
@@ -267,7 +310,10 @@ def main() -> int:
     print(f"  universe_rules.yaml : {cfg_path}")
     print(f"  overview            : {ov_path}  signals_today={len(overview.get('signals_today', []) or [])}")
     print(f"  board_etf_map       : {map_path}  keys={len([k for k in board_map if k != '_meta'])}")
-    print(f"  signal_kelly_trades : {tr_path}  quadrants={len(trades.get('quadrants', {}) or {})}")
+    if _is_unique_trades(trades):
+        print(f"  signal_kelly_trades : {tr_path}  unique 三表 base={len(trades.get('base') or [])} (基笔唯一化)")
+    else:
+        print(f"  signal_kelly_trades : {tr_path}  quadrants={len(trades.get('quadrants', {}) or {})}")
     print()
 
     ok = True

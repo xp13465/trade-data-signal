@@ -24,6 +24,8 @@
 【输出】pytest PASS/FAIL。CI 挂载: .github/workflows/ci.yml ⑧(scripts/tests/ 限定收集)。
 【复现命令】cd /Users/linhuichen/code/trade && .venv/bin/python -m pytest -q scripts/tests/test_kelly_stats.py
 """
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -219,6 +221,110 @@ def test_compute_stats_frozen_5():
     stats = sk._compute_stats(FROZEN_TRADES_5, "all", buy_amount=10000)
     for k, v in EXPECT_STATS_5.items():
         assert stats[k] == v, f"字段 {k}: 期望 {v} 实得 {stats[k]}"
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Phase D(2026-09-21 基笔唯一化): unique 三表还原 = 旧 quadrants 行(打平断言)
+# 【目的】锁死「基笔唯一化三表」还原出的 27 列行与旧 quadrants.rating_high.A 前 5 行
+#   (即 FROZEN_TRADES_5 冻结快照来源)逐字段一致。unique 产物(Phase A 生成, 未进 git)
+#   缺失时 pytest.skip——本测试保在线性链路, 数据产物缺不影响常规 CI 结论。
+# ────────────────────────────────────────────────────────────────────────────
+UNIQUE_TRADES_JSON = Path(os.environ.get(
+    "UNIQUE_TRADES_JSON", "/tmp/kelly-unique-phasea-out/signal_kelly_trades_unique.json"))
+
+# 27 列序单一事实源 = scripts/signal_kelly_backtest.py TRADE_FIELDS(L173)
+TRADE_FIELDS_27 = ["signal_date", "index_id", "signal", "buy_date", "sell_date", "etf_code", "etf_name",
+                   "track_tier", "track_score", "match_method", "track_low_confidence", "buy_price",
+                   "sell_price", "shares", "profit", "return_pct", "hold_days", "sell_reason",
+                   "current_price", "real_buy_price", "real_buy_date", "real_current_price",
+                   "market_state", "market_tier", "market_tier_all", "market_tier_cyb", "rating"]
+
+
+def _restore_unique_to_legacy(uniq):
+    """unique 三表 → {fields: TRADE_FIELDS_27, quadrants:{qk:{mode:[27列行]}}}。
+    规则见 scripts/check_loss_rules_vs_mining.py 同函数(多消费方共用一套还原口径): base[i]=
+    19共享列+4归属枚举码(qk_groups 键序); variants[mode][i]=8卖出列; variants[mode][i]==None=
+    R8 哨兵该 mode 无有效回测, 跳过。"""
+    share, varf = uniq["fields"], uniq["variant_fields"]
+    if len(share) + len(varf) != len(TRADE_FIELDS_27):
+        raise ValueError("unique 列数漂移: fields(%d)+variant_fields(%d) != 27" % (len(share), len(varf)))
+    share_idx = {f: i for i, f in enumerate(share)}
+    var_idx = {f: i for i, f in enumerate(varf)}
+    col_build = []
+    for f in TRADE_FIELDS_27:
+        if f in share_idx:
+            col_build.append((0, share_idx[f]))
+        elif f in var_idx:
+            col_build.append((1, var_idx[f]))
+        else:
+            raise ValueError("TRADE_FIELDS 字段 %s 不在 unique schema" % f)
+    group_keys = list(uniq.get("qk_groups") or {})
+    n_share = len(share)
+    qk_list = []
+    for g in group_keys:
+        for qk in (uniq["qk_groups"].get(g) or []):
+            qk_list.append(qk)
+    modes = list(uniq.get("variants") or {})
+    quads = {qk: {m: [] for m in modes} for qk in qk_list}
+    base = uniq.get("base") or []
+    for i, b in enumerate(base):
+        if not isinstance(b, list) or len(b) < n_share:
+            continue
+        if len(b) != n_share + len(group_keys):
+            raise ValueError("unique base 行%d 走样: %d 列 != share(%d)+归属(%d)" % (i, len(b), n_share, len(group_keys)))
+        for gi, g in enumerate(group_keys):
+            code = b[n_share + gi]
+            if not isinstance(code, int) or code < 0:
+                continue
+            group = uniq["qk_groups"].get(g) or []
+            if code >= len(group):
+                continue
+            qk = group[code]
+            for m in modes:
+                v = uniq["variants"][m][i]
+                if v is None:
+                    continue
+                if not isinstance(v, list) or len(v) != len(varf):
+                    raise ValueError("unique variants[%s][%d] 走样: %d 列 != %d" % (m, i, len(v), len(varf)))
+                quads[qk][m].append([b[idx] if src == 0 else v[idx] for src, idx in col_build])
+    return {"fields": TRADE_FIELDS_27[:], "quadrants": quads}
+
+
+def _unique_trades_or_skip():
+    """unique 产物缺失/不可读 → pytest.skip; 否则返回还原后旧结构 dict。"""
+    if not UNIQUE_TRADES_JSON.exists():
+        pytest.skip("unique 三表产物缺失(Phase A 未生成或不在本机): %s" % UNIQUE_TRADES_JSON)
+    try:
+        with open(UNIQUE_TRADES_JSON) as f:
+            uniq = json.load(f)
+    except Exception as e:  # pragma: no cover
+        pytest.skip("unique 三表产物不可读: %s" % e)
+    return _restore_unique_to_legacy(uniq)
+
+
+def test_unique_restore_rating_high_A_matches_frozen_5():
+    """unique 还原 rating_high/A 前 5 行 == FROZEN_TRADES_5(冻结快照来源, 逐字段)。"""
+    legacy = _unique_trades_or_skip()
+    fIdx = {f: i for i, f in enumerate(legacy["fields"])}
+    rows = (legacy["quadrants"].get("rating_high", {}).get("A") or [])
+    assert len(rows) >= 5, "unique 还原 rating_high/A 行数 < 5(数据漂移?)"
+    for i, got in enumerate(rows[:5]):
+        exp = FROZEN_TRADES_5[i]
+        got5 = dict(
+            buy_date=str(got[fIdx["buy_date"]] or ""),
+            sell_date=str(got[fIdx["sell_date"]] or ""),
+            profit=round(float(got[fIdx["profit"]] or 0), 6),
+            return_pct=round(float(got[fIdx["return_pct"]] or 0), 6),
+            hold_days=int(got[fIdx["hold_days"]] or 0),
+        )
+        exp5 = dict(
+            buy_date=exp["buy_date"],
+            sell_date=exp["sell_date"],
+            profit=round(float(exp["profit"]), 6),
+            return_pct=round(float(exp["return_pct"]), 6),
+            hold_days=int(exp["hold_days"]),
+        )
+        assert got5 == exp5, "第%d 行 unique 还原 %r != 冻结 %r" % (i + 1, got5, exp5)
 
 
 def test_compute_stats_frozen_6_with_holding_loss():

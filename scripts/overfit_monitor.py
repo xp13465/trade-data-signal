@@ -355,18 +355,79 @@ def load_index_close(conn):
     return close_map
 
 
+def _is_unique_doc(doc) -> bool:
+    """判定 trades 文档是否为「基笔唯一化三表」格式(L42 Phase A *_unique.json)。"""
+    return (isinstance(doc, dict) and isinstance(doc.get("base"), list)
+            and isinstance(doc.get("variants"), dict))
+
+
+def _restore_full_quadrants(uniq, FIELD):
+    """unique 三表 → 旧 quadrants 形态 {fields: TRADE_FIELDS 27列名, quadrants: {qk:{mode:[27列行]}}}。
+
+    还原行 = base[i] 共享列 + variants[mode][i] 卖出列, 按 **TRADE_FIELDS 列序**拼回
+    (R1 单一事实源=signal_kelly_backtest.TRADE_FIELDS; 下游按 TRADE_FIELDS 建 IDX 下标取值,
+    还原行必须 TRADE_FIELDS 序, 否则整体错位 —— 2026-09-21 自测抓到 share+var 序错位)。
+    归属 = base 尾 4 枚举码(qk_groups 键序 rating/etf/sig/mkt), 码 -1 组跳过;
+    variants[mode][i]==null = R8 哨兵该 mode 无有效回测, 跳过。
+    """
+    share = uniq["fields"]
+    varf = uniq["variant_fields"]
+    base = uniq["base"]
+    variants = uniq["variants"]
+    qkgroups = uniq.get("qk_groups") or {}
+    n_share = len(share)
+    # 列数漂移保护(替代旧「trade 行 len==27 硬校验」, 新 schema 按 share/variant 两段校验)
+    if n_share + len(varf) != len(FIELD):
+        raise ValueError(
+            f"signal_kelly_trades_unique.json 列数漂移: fields({n_share})+variant_fields({len(varf)}) "
+            f"!= TRADE_FIELDS({len(FIELD)}) 列 (见 docs/kelly/analysis/ov-parity-fail-rootcause-20260916.md)")
+    share_idx = {f: i for i, f in enumerate(share)}
+    var_idx = {f: i for i, f in enumerate(varf)}
+    col_build = []  # (来源, 下标): 0=base share, 1=variant; 预编译 TRADE_FIELDS 每列取数位置
+    for f in FIELD:
+        if f in share_idx:
+            col_build.append((0, share_idx[f]))
+        elif f in var_idx:
+            col_build.append((1, var_idx[f]))
+        else:
+            raise ValueError(f"TRADE_FIELDS 字段 {f} 不在 unique fields/variant_fields(三表 schema 漂移)")
+    qk_list = [qk for group in qkgroups.values() if isinstance(group, list) for qk in group]
+    quads = {qk: {m: [] for m in variants} for qk in qk_list}
+    for i, b in enumerate(base):
+        if not isinstance(b, (list, tuple)) or len(b) < n_share:
+            continue
+        if len(b) != n_share + len(qkgroups):
+            raise ValueError(f"unique base 行走样: 行{i} 列 {len(b)} != share({n_share})+归属({len(qkgroups)})")
+        for gi, group in enumerate(qkgroups.values()):
+            code = b[n_share + gi]
+            if not isinstance(code, int) or code < 0 or code >= len(group):
+                continue
+            qk = group[code]
+            for m, varr in variants.items():
+                v = varr[i] if i < len(varr) else None
+                if v is None:
+                    continue  # R8 哨兵
+                if not isinstance(v, (list, tuple)) or len(v) != len(varf):
+                    raise ValueError(f"unique variants[{m}][{i}] 走样: {len(v) if isinstance(v,(list,tuple)) else type(v)} 列 != {len(varf)}")
+                row = [b[si] if src == 0 else v[si] for src, si in col_build]
+                quads[qk][m].append(row)
+    return {"fields": list(FIELD), "quadrants": quads}
+
+
 def load_trades():
     """返回 (trades_by_date, mode_label)。
     trades_by_date: {signal_date: [ {signal, index_id, return_pct, mode, market_state, rating} ]}
-    读 static-site/data/signal_kelly_trades.json(export 最新版), 回退 data/(根目录)。
+    读 static-site/data/signal_kelly_trades{,_unique}.json(export 最新版; L42 Phase D 优先 unique
+    三表), 回退 data/(根目录)。
     """
-    p = os.path.join(REPO, "static-site", "data", "signal_kelly_trades.json")
-    if not os.path.exists(p):
-        p2 = os.path.join(REPO, "data", "signal_kelly_trades.json")
-        if os.path.exists(p2):
-            p = p2
-        else:
-            raise FileNotFoundError("signal_kelly_trades.json 未找到 (static-site/data/ 和 data/ 都没有)")
+    cands = [
+        os.path.join(REPO, "static-site", "data", "signal_kelly_trades_unique.json"),
+        os.path.join(REPO, "static-site", "data", "signal_kelly_trades.json"),
+        os.path.join(REPO, "data", "signal_kelly_trades.json"),
+    ]
+    p = next((c for c in cands if os.path.exists(c)), None)
+    if p is None:
+        raise FileNotFoundError("signal_kelly_trades.json 未找到 (static-site/data/ 和 data/ 都没有)")
 
     # trade 行字段: schema 实际 27 列, 单一事实源 = signal_kelly_backtest.TRADE_FIELDS(顶部 import)。
     # 若列序与 trades.json 漂移 → 后续列整体前移, t["rating"] 读到 market_tier 字符串, by_grade
@@ -376,6 +437,8 @@ def load_trades():
 
     with open(p, encoding="utf-8") as f:
         data = json.load(f)
+    if _is_unique_doc(data):
+        data = _restore_full_quadrants(data, FIELD)
 
     by_date = defaultdict(list)  # date -> [trades]
     quad = data.get("quadrants", {})
