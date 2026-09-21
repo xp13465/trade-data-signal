@@ -551,7 +551,13 @@ run_r2_upload "upload-kelly-snapshots" 900 upload-kelly-snapshots || { echo "⚠
 run_r2_upload "upload-feed" 900 upload-data-files feed.xml || { echo "⚠ upload feed.xml 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-feed"; }
 # 2026-09-15 层3 防漏传机检(设计文档 §3.4): 周期全量对账, 周日全量+平日增量自适应。
 # 发现并自动补传不一致 key; 补传失败/命令失败 → exit 1 → 此处累积 R2_FAIL 走收尾 notify(层4)。
-run_r2_upload "verify-r2" 1800 verify-r2 || { echo "⚠ verify-r2 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL verify-r2"; }
+# 2026-09-21 R2 根治: watchdog 1800→7200(周日全量 ~3万 key 逐个 HEAD + keep-alive 复用省握手,
+# 原 1800s 结构性超时成为告警噪音放大器之一, 与 fund-nav 7200 同档)。
+# ⚠ 周日错峰(改动4, 方案说明见 docs/ops/r2-upload-failure-fix-20260921.md): 周日 force_full 全量
+# (etf-hist/fund-nav/trade_sim/verify-r2 ~3万 key)由 upload_r2.py weekday==6 触发, deploy.sh 无时点
+# 判断可改——时点在云上 systemd timer(trade-update-all.timer OnCalendar), 建议把周日全量大通道
+# 前移到凌晨带宽低谷段(timer 方案见上址文档, 本期仅产出方案不 ssh 改云上)。
+run_r2_upload "verify-r2" 7200 verify-r2 || { echo "⚠ verify-r2 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL verify-r2"; }
 # R2_FAIL 告警延迟到 deploy 收尾(见下方收尾段): 通道失败立即告警=误报(09-10 事故链——
 # 单文件 PUT 超时进程异常退出触发告警, 实际上传与 purge 全成功)。upload_r2.py 已补
 # try/except 兜底(单文件失败不异常中断), 走到收尾仍 R2_FAIL 非空=真失败才告警。
@@ -933,7 +939,20 @@ fi
 # (单文件失败不异常中断, 全部成功则命令 rc=0 → R2_FAIL 不置位), R2_FAIL 非空=真有文件失败。
 if [ -n "$R2_FAIL" ]; then
   echo "⚠ R2 上传有失败通道:$R2_FAIL (deploy 整体 rc=0, 收尾统一告警)" | tee -a "$LOG"
-  "$PY" "$REPO/scripts/notify.py" "[告警] deploy R2上传失败" "deploy.sh R2 上传部分通道失败:$R2_FAIL<br>deploy 整体已跑完(rc=0), 请人工确认失败通道文件是否已补传/需手动补刷: bash scripts/upload_r2.py upload-all-data<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_r2_upload_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+  # 2026-09-21 告警降噪(root cause=看门狗超时 kill, 数据已传完): 失败通道先做轻量对账
+  # (verify-channel 抽查最新关键文件 R2 HEAD vs 本地 md5/size, keep-alive 连接复用)。
+  # 对账全通过 → 改普通日志不告警(噪音); 真缺文件/verify-r2 本身失败 → 照常 --severe 告警。
+  "$PY" "$REPO/scripts/upload_r2.py" verify-channels $R2_FAIL > /tmp/r2_verify_channels.log 2>&1
+  _vc_rc=$?
+  if [ "$_vc_rc" -eq 0 ]; then
+    echo "✓ R2 失败通道轻量对账通过(数据完整, 疑似看门狗超时噪音, 不告警):$R2_FAIL" | tee -a "$LOG"
+  else
+    echo "✗ R2 失败通道轻量对账发现缺口(verify-channels rc=$_vc_rc, 照常告警):$R2_FAIL" | tee -a "$LOG"
+    # verify-channels 输出经 HTML 转义(防 < > 破坏邮件体)
+    _vc_tail="$(tail -8 /tmp/r2_verify_channels.log 2>/dev/null | sed 's/</\&lt;/g; s/>/\&gt;/g' | tr '\n' ' ')"
+    "$PY" "$REPO/scripts/notify.py" "[告警] deploy R2上传失败" "deploy.sh R2 上传部分通道失败(轻量对账确认有缺口):$R2_FAIL<br>deploy 整体已跑完(rc=0), 请人工确认失败通道文件是否已补传/需手动补刷: bash scripts/upload_r2.py upload-all-data<br>verify-channels 详情: $([ -n "$_vc_tail" ] && echo "$_vc_tail" || echo 无输出)<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_r2_upload_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+    unset _vc_rc _vc_tail
+  fi
 fi
 
 echo "=== deploy.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 ===" | tee -a "$LOG"

@@ -16,7 +16,7 @@
   python3 scripts/upload_r2.py upload-claude-backup [path] # Claude 自我备份 tar.gz -> signal-backup/claude-backup/
   python3 scripts/upload_r2.py download-db <name> [dir]   # 下载最新备份(解压后.db路径到stdout)
 """
-import os, sys, re, hashlib, hmac, http.client, datetime, ssl, json, time
+import os, sys, re, hashlib, hmac, http.client, datetime, ssl, json, time, threading
 from pathlib import Path
 from urllib.parse import urlparse, quote
 
@@ -224,6 +224,54 @@ except ValueError:
 _CA = "/etc/ssl/cert.pem"
 _CTX = ssl.create_default_context(cafile=_CA) if Path(_CA).exists() else ssl._create_unverified_context()
 
+# ---- keep-alive 连接复用 (2026-09-21 R2 上传失败根治: verify-r2 周日全量对账 ~3万 key 逐个 HEAD,
+# 每个 HEAD 新建 HTTPSConnection 跨境握手 ~1s 结构性超时; 同一连接复用连续 HEAD 省 60%+ 对账时间)。
+# 线程局部单连接: ThreadPoolExecutor worker 线程内连续请求复用, 连接失效自动重建。
+_KA_TLS = threading.local()
+
+
+def _get_keepalive_conn():
+    conn = getattr(_KA_TLS, "conn", None)
+    if conn is None:
+        conn = http.client.HTTPSConnection(HOST, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
+        _KA_TLS.conn = conn
+    return conn
+
+
+def _drop_keepalive_conn():
+    conn = getattr(_KA_TLS, "conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    _KA_TLS.conn = None
+
+
+# ---- multipart 大文件上传 (2026-09-21 R2 上传失败根治: >阈值单文件走 create-multipart-upload →
+# 并行 upload-part → complete, 消除「单 PUT 卡 600s 超时重试 5 次」放大器)。
+# 阈值/分片大小调研 R2 官方文档: multipart 分片 5MiB-5GiB, 最多 10000 片, >100MB 建议 multipart
+# (单 PUT 上限 5GiB 但 `~100MB 以内建议单 PUT`)。本脚本按类别下发, 跨 1.1GB 全量周末大关,
+# 取阈值 100MB、分片默认 64MiB(>5MiB 合法且单请求时长<看门狗/HTTP 超时至少 8:1 余量)。
+_MULTIPART_THRESHOLD = 100 * 1024 * 1024      # 100MB
+_MULTIPART_PART_SIZE = 64 * 1024 * 1024       # 64MiB/片
+_MULTIPART_MAX_PARTS = 10000                   # R2 官方上限
+_MULTIPART_WORKERS = 4                         # 分片并发(连接数适度, 与既有 8 线程区分防止叠加过多连接)
+
+
+def _multipart_part_sizes(total):
+    """按 64MiB 目标切片的实际各片字节数列表(片数 = ceil(total/64MiB))。"""
+    import math
+    parts = max(1, math.ceil(total / _MULTIPART_PART_SIZE))
+    parts = min(parts, _MULTIPART_MAX_PARTS)
+    sizes = []
+    rem = total
+    for _ in range(parts):
+        sz = min(_MULTIPART_PART_SIZE, rem)
+        sizes.append(sz)
+        rem -= sz
+    return sizes
+
 
 def _hmac(key_bytes, msg):
     return hmac.new(key_bytes, msg.encode("utf-8"), hashlib.sha256).digest()
@@ -252,11 +300,14 @@ _CONTENT_TYPE_MAP = {
 }
 
 
-def s3_request(method, key, payload=b"", query="", bucket=None, content_type=None):
+def s3_request(method, key, payload=b"", query="", bucket=None, content_type=None, with_headers=False, keep_alive=False):
     """path-style: /BUCKET/key, host = endpoint host。bucket=None 用默认 BUCKET。
 
     带连接超时(R2_UPLOAD_HTTP_TIMEOUT 秒,默认 30s)+ 重试(5 次,SSL/连接错退避 1s/2s/4s/8s),防 R2 偶发断连致脚本挂死。
     content_type=None 时按 key 扩展名推断(_CONTENT_TYPE_MAP),未知扩展名回退 application/octet-stream。
+    with_headers=True: 返回 (status, data, resp_headers_dict)(upload-part 取 ETag 用)。
+    keep_alive=True: 复用线程本地 HTTPSConnection(连续 HEAD/PUT 对账省跨境握手, 2026-09-21 R2 根治);
+      失败/5xx 自动丢弃重建, 不影响正确性。
     """
     if content_type is None:
         ext = os.path.splitext(key)[1].lower()
@@ -264,6 +315,7 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
     bkt = bucket or BUCKET
     last_exc = None
     for attempt in range(5):
+        conn = None
         try:
             now = datetime.datetime.utcnow()
             amz_date = now.strftime("%Y%m%dT%H%M%SZ")
@@ -279,7 +331,7 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
                 "x-amz-date": amz_date,
                 "x-amz-content-sha256": payload_hash,
             }
-            if method == "PUT":
+            if method in ("PUT", "POST"):
                 headers["content-type"] = content_type
 
             sorted_items = sorted(headers.items(), key=lambda x: x[0])
@@ -302,13 +354,18 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
                 f"SignedHeaders={signed_headers}, Signature={signature}"
             )
 
-            conn = http.client.HTTPSConnection(HOST, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
+            if keep_alive:
+                conn = _get_keepalive_conn()
+            else:
+                conn = http.client.HTTPSConnection(HOST, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
             uri = path + ("?" + query if query else "")
             body = payload if method in ("PUT", "POST") else None
             conn.request(method, uri, body=body, headers=headers)
             resp = conn.getresponse()
             data = resp.read()
-            conn.close()
+            resp_headers = dict(resp.getheaders()) if with_headers else None
+            if not keep_alive:
+                conn.close()
             # HTTP 5xx 重试(R2 S3 API 偶发 InternalError,与网络异常重试对称)。
             # R2 侧偶发 500 InternalError 自愈,重试 1-2 次通常即成功,避免单文件 5xx
             # 致整批 ok!=total -> intraday 告警邮件轰炸(2026-07-30 修复)。
@@ -317,11 +374,17 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
                 import time
                 wait = 2 ** attempt  # 1s, 2s, 4s, 8s
                 print(f"  ⚠ {method} {key} HTTP {resp.status} attempt {attempt+1}, {wait}s 后重试", file=sys.stderr)
+                if keep_alive:
+                    _drop_keepalive_conn()
                 time.sleep(wait)
                 continue
+            if with_headers:
+                return resp.status, data, resp_headers
             return resp.status, data
         except (ssl.SSLError, OSError, http.client.HTTPException) as e:
             last_exc = e
+            if keep_alive:
+                _drop_keepalive_conn()
             if attempt < 4:
                 import time
                 wait = 2 ** attempt  # 1s, 2s, 4s, 8s
@@ -332,16 +395,20 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
     raise last_exc  # 不可达,防 mypy
 
 
-def s3_head(key, bucket=None):
-    """HEAD 对象取 ETag(不下载 body)。返回 (status, etag_str_or_None)。
+def s3_head(key, bucket=None, keep_alive=False, with_len=False):
+    """HEAD 对象取 ETag(不下载 body)。返回 (status, etag_str_or_None) 或 with_len 时 (status, etag, content_length_or_None)。
 
-    R2 单 PUT 的 ETag=内容 md5(本项目 upload_r2.py 纯单 PUT 无 multipart, 恒成立;
-    multipart 才不是)。层2 上传对账 + 层3 verify-r2 均用它: HEAD 快(单请求 RTT ~0.3s),
+    R2 单 PUT 的 ETag=内容 md5(本项目 upload_r2.py 单 PUT 走此判定; multipart 上传的对象
+    ETag=分片 md5 组合(形如 xxxx-N) 不是内容 md5, 对账须改用「存在 + Content-Length==本地大小」,
+    见 cmd_verify_r2._check / _upload_one)。层2 上传对账 + 层3 verify-r2 均用它: HEAD 快(单请求 RTT ~0.3s),
     比对「R2 对象 == 本地整文件 md5」验证上传正确性/查漏传。
     网络异常/5xx 退避重试 5 次, 最终失败返回 (0, None) —— 调用方按「不一致/缺失」处理
-    (补传方向安全, 宁多传不漏传)。"""
+    (补传方向安全, 宁多传不漏传)。
+    keep_alive=True(2026-09-21 R2 根治): 复用线程本地连接连续 HEAD, 省跨境握手(~1s/次)。
+    """
     bkt = bucket or BUCKET
     for attempt in range(5):
+        conn = None
         try:
             now = datetime.datetime.utcnow()
             amz_date = now.strftime("%Y%m%dT%H%M%SZ")
@@ -371,26 +438,41 @@ def s3_head(key, bucket=None):
                 f"AWS4-HMAC-SHA256 Credential={AK}/{scope}, "
                 f"SignedHeaders={signed_headers}, Signature={signature}"
             )
-            conn = http.client.HTTPSConnection(HOST, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
+            if keep_alive:
+                conn = _get_keepalive_conn()
+            else:
+                conn = http.client.HTTPSConnection(HOST, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
             conn.request("HEAD", path, headers=headers)
             resp = conn.getresponse()
             etag = resp.getheader("ETag")
             status = resp.status
+            content_len = resp.getheader("Content-Length")
             resp.read()
-            conn.close()
+            if not keep_alive:
+                conn.close()
             if status >= 500 and attempt < 4:
                 wait = 2 ** attempt
+                if keep_alive:
+                    _drop_keepalive_conn()
                 print(f"  ⚠ HEAD {key} HTTP {status} attempt {attempt+1}, {wait}s 后重试", file=sys.stderr)
                 time.sleep(wait)
                 continue
+            if with_len:
+                return status, etag, content_len
             return status, etag
         except (ssl.SSLError, OSError, http.client.HTTPException) as e:
+            if keep_alive:
+                _drop_keepalive_conn()
             if attempt < 4:
                 wait = 2 ** attempt
                 print(f"  ⚠ HEAD {key} attempt {attempt+1} 失败({type(e).__name__}: {e}), {wait}s 后重试", file=sys.stderr)
                 time.sleep(wait)
             else:
+                if with_len:
+                    return 0, None, None
                 return 0, None
+    if with_len:
+        return 0, None, None
     return 0, None
 
 
@@ -465,6 +547,90 @@ def cmd_upload_lab():
     # lab 原命令不 purge(前端 lab 数据经 /data/ rewrite 读 R2, 短 TTL), 保持不 purge。
 
 
+def _infer_content_type(key):
+    ext = os.path.splitext(key)[1].lower()
+    return _CONTENT_TYPE_MAP.get(ext, "application/octet-stream")
+
+
+def _parse_upload_id(resp_body):
+    """从 InitiateMultipartUploadResult XML 解析 UploadId; 失败返回 None。"""
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(resp_body)
+        for el in root.iter():
+            if el.tag.split("}")[-1] == "UploadId" and el.text:
+                return el.text.strip()
+    except ET.ParseError as e:
+        print(f"  ⚠ multipart create 响应解析失败({e})", file=sys.stderr)
+    return None
+
+
+def _upload_multipart(key, payload, content_type):
+    """大文件 multipart 上传: create -> 并行 upload-part -> complete(R2 官方流程)。
+
+    2026-09-21 R2 上传失败根治: >100MB 单文件单 PUT 卡 600s 超时重试 5 次(放大器) →
+    改 multipart 分片并行, 单片 64MiB 单请求时长 << HTTP/看门狗超时, 失败只重传片不整文件。
+    注意: multipart 上传对象 ETag=分片组合(non-md5), 不参与 ETag=md5 对账(调用方以 complete
+    200 视为内容就位; verify-r2 对 multipart 大文件改「存在 + Content-Length==本地大小」判定)。
+    """
+    # 1) create (POST /key?uploads=)
+    st, data = s3_request("POST", key, payload=b"", query="uploads=", content_type=content_type)
+    if st != 200:
+        return st, data
+    upload_id = _parse_upload_id(data)
+    if not upload_id:
+        return st, data
+
+    # 2) 分片并行 upload-part (PUT /key?partNumber=N&uploadId=)
+    sizes = _multipart_part_sizes(len(payload))
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    parts = {}
+    offset = 0
+    for i, sz in enumerate(sizes, 1):
+        parts[i] = payload[offset:offset + sz]
+        offset += sz
+
+    def _put_part(pn):
+        q = "partNumber=%d&uploadId=%s" % (pn, quote(upload_id, safe=""))
+        s, d, hdrs = s3_request("PUT", key, payload=parts[pn], query=q,
+                                content_type=content_type, with_headers=True)
+        if s == 200 and hdrs is not None:
+            etag = hdrs.get("ETag")
+            if etag:
+                return pn, etag, None
+        err = d[:200] if isinstance(d, (bytes, bytearray)) else d
+        return pn, None, f"part {pn} status={s} {err}"
+
+    uploaded = {}   # pn -> etag
+    with ThreadPoolExecutor(max_workers=_MULTIPART_WORKERS) as pool:
+        futs = {pool.submit(_put_part, pn): pn for pn in parts}
+        for fut in as_completed(futs):
+            pn, etag, err = fut.result()
+            if err:
+                try:
+                    s3_request("DELETE", key, query="uploadId=%s" % quote(upload_id, safe=""))
+                except Exception:
+                    pass
+                return 500, err.encode("utf-8", errors="replace")
+            uploaded[pn] = etag
+
+    # 3) complete (POST /key?uploadId= + CompleteMultipartUpload XML)
+    if sorted(uploaded) != sorted(parts):
+        try:
+            s3_request("DELETE", key, query="uploadId=%s" % quote(upload_id, safe=""))
+        except Exception:
+            pass
+        return 500, "multipart 缺分片, abort".encode("utf-8", errors="replace")
+    parts_xml = "".join(
+        "<Part><PartNumber>%d</PartNumber><ETag>%s</ETag></Part>" % (pn, uploaded[pn])
+        for pn in sorted(uploaded))
+    body = ("<CompleteMultipartUpload>%s</CompleteMultipartUpload>" % parts_xml).encode("utf-8")
+    st, data = s3_request("POST", key, payload=body,
+                          query="uploadId=%s" % quote(upload_id, safe=""),
+                          content_type="application/xml")
+    return st, data
+
+
 def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_fn=None,
                  only_files=None, on_success=None, verify_etag=False):
     """通用 glob 上传：local_dir 下按 patterns 匹配文件，上传到 R2 r2_prefix/。
@@ -535,6 +701,15 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
             payload = f.read_bytes()
             size = len(payload)
             md5_local = hashlib.md5(payload).hexdigest()
+            if size > _MULTIPART_THRESHOLD:
+                # 大文件 multipart(2026-09-21 R2 根治): 单 PUT 卡 600s 超时重试 5 次放大器,
+                # 改 create/并行 part/complete, 单片 64MiB 单请求时长可控。multipart 对象
+                # ETag=分片组合(non-md5), complete 200 即内容就位, 不做 ETag=md5 对账。
+                status, data = _upload_multipart(key, payload, _infer_content_type(key))
+                if status == 200:
+                    return (i, True, rel, size, None, key)
+                return (i, False, rel, size,
+                        f"multipart status={status} {data[:200] if isinstance(data, (bytes, bytearray)) else data}", None)
             status, data = s3_request("PUT", key, payload)
             if status == 200:
                 # 层2 上传正确性对账(verify_etag=True 时): PUT 后 HEAD 取 ETag 与本地整文件
@@ -1930,10 +2105,18 @@ def cmd_verify_r2():
             key = f"{r2_prefix}/{rel}"
             try:
                 local_md5 = _file_md5(f)
+                local_size = f.stat().st_size
             except OSError:
                 return f, True  # 本地读失败, 视为一致跳过(不判失败)
-            _st, etag = s3_head(key)
-            ok = etag is not None and etag.strip('"') == local_md5
+            # keep_alive 连接复用(2026-09-21 R2 根治): 全量对账 ~3万 HEAD 每线程复用一个连接,
+            # 省跨境握手(~1s/次)。multipart 大文件(>100MB)ETag=分片组合 non-md5, 改「存在 +
+            # Content-Length==本地大小」判定(ETag 对账仅适用单 PUT 小文件)。
+            if local_size > _MULTIPART_THRESHOLD:
+                _st, _etag, clen = s3_head(key, keep_alive=True, with_len=True)
+                ok = (_st == 200 and clen is not None and int(clen) == local_size)
+            else:
+                _st, etag = s3_head(key, keep_alive=True)
+                ok = etag is not None and etag.strip('"') == local_md5
             return f, ok
 
         mismatches = []
@@ -1959,6 +2142,94 @@ def cmd_verify_r2():
         print(f"FAILED_FILES: {', '.join(repair_failed)}")
         sys.exit(1)
     print(f"[verify-r2] ✓ 对账完成, 自动补传 {repaired_total} 个")
+
+
+_LIGHT_CHECK_SAMPLE = 20  # 轻量对账每通道抽查文件数(decline 快速降噪, 不全量扫描)
+
+
+def _light_check_single_file(r2_key, local_path, tag):
+    """单个本地文件 ↔ R2 key 轻量比对。multipart 大文件按「存在+Content-Length==本地大小」,
+    否则按 ETag==本地 md5。返回 (ok, why)。"""
+    try:
+        sz = local_path.stat().st_size
+        md5 = hashlib.md5(local_path.read_bytes()).hexdigest()
+    except OSError as e:
+        return False, f"{tag} 本地读失败({type(e).__name__}: {e})"
+    if sz > _MULTIPART_THRESHOLD:
+        _st, _etag, clen = s3_head(r2_key, keep_alive=True, with_len=True)
+        ok = (_st == 200 and clen is not None and int(clen) == sz)
+        return ok, f"{tag} status={_st} clen={clen} local={sz}"
+    _st, etag = s3_head(r2_key, keep_alive=True)
+    ok = (_st == 200 and etag is not None and etag.strip('"') == md5)
+    return ok, f"{tag} status={_st} etag={etag} md5={md5}"
+
+
+def _light_check_channel(ch, label):
+    """单通道轻量对账: 取本地最新 _LIGHT_CHECK_SAMPLE 个文件, 逐个 HEAD 抽查 R2 一致性。"""
+    local_dir = ch["local_dir"]()
+    if not local_dir.exists():
+        return True, "本地目录不存在, 跳过"
+    files = []
+    for pat in ch["patterns"]:
+        files.extend(local_dir.glob(pat))
+    files = sorted(set(files))
+    if ch.get("exclude_fn"):
+        files = [f for f in files if not ch["exclude_fn"](f)]
+    files = [f for f in files if f.exists()]
+    if not files:
+        return True, "无本地文件, 跳过"
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    sample = files[:_LIGHT_CHECK_SAMPLE]
+    bad = []
+    for f in sample:
+        rel = str(f.relative_to(local_dir))
+        key = f"{ch['r2_prefix']}/{rel}"
+        ok, why = _light_check_single_file(key, f, f"{label}/{rel}")
+        if not ok:
+            bad.append(why)
+    if bad:
+        return False, "; ".join(bad[:5])
+    return True, f"抽查 {len(sample)} 个最新文件全部一致"
+
+
+def cmd_verify_channels(desc_list):
+    """deploy.sh 收尾降噪: 对 R2_FAIL 通道做轻量对账(2026-09-21 R2 根治)。
+
+    告警噪音真相=看门狗超时 kill(数据已传完), 非上传失败。对失败通道抽查最近上传的
+    关键文件 R2 HEAD(ETag/Content-Length vs 本地 md5/size), 全部一致 → exit 0
+    (deploy.sh 改普通日志不告警); 任一缺失/不一致 → exit 1(照常告警, 保住「真缺文件」场景)。
+    通道名 = deploy.sh R2_FAIL 里的 desc: "upload-<label>" 映射 _R2_CHANNELS;
+    "upload-feed" 抽查 data/feed.xml; "verify-r2" 本身即对账命令超时, 不做降级(保守保留告警)。
+    """
+    if not desc_list:
+        sys.exit(1)
+    bad = []
+    checked_any = False
+    for desc in desc_list:
+        if desc == "upload-feed":
+            ok, why = _light_check_single_file("data/feed.xml", STATIC_DIR / "data" / "feed.xml", "feed.xml")
+            checked_any = True
+            if not ok:
+                bad.append(why)
+            continue
+        if not desc.startswith("upload-"):
+            continue  # verify-r2/purge-low-freq 等不下探(保守保留告警)
+        label = desc[len("upload-"):]
+        ch = next((c for c in _R2_CHANNELS if c["label"] == label), None)
+        if ch is None:
+            continue
+        ok, why = _light_check_channel(ch, label)
+        checked_any = True
+        if not ok:
+            bad.append(why)
+    if not checked_any:
+        # 全部通道都跳过(如仅 verify-r2), 保守保留告警, 不降级。
+        sys.exit(1)
+    if bad:
+        print(f"LIGHT_CHECK_FAILED: {'; '.join(bad)}")
+        sys.exit(1)
+    print("轻量对账通过: 失败通道 R2 数据完整, 降级为普通日志不告警")
+    sys.exit(0)
 
 
 if __name__ == "__main__":
@@ -2030,6 +2301,11 @@ if __name__ == "__main__":
     elif cmd == "verify-r2":
         # verify-r2  周期全量对账(层3 防漏传机检): 周日全量对账+平日增量对账, deploy.sh 每日调用
         cmd_verify_r2()
+    elif cmd == "verify-channels":
+        # verify-channels <desc...>  deploy.sh 收尾降噪轻量对账(改动1, 2026-09-21 R2 根治):
+        # 对 R2_FAIL 失败通道抽查关键文件 R2 HEAD, 数据完整 exit 0(改普通日志不告警),
+        # 真缺文件 exit 1(照常告警)。
+        cmd_verify_channels(sys.argv[2:])
     elif cmd == "upload-db":
         cmd_upload_db()
     elif cmd == "upload-claude-backup":
@@ -2062,5 +2338,5 @@ if __name__ == "__main__":
             "upload-fund-nav|upload-accum-nav|upload-data-large|upload-kelly-parts|upload-kelly-parts-sdc|upload-db|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup|"
             "upload-claude-backup [path]|upload-decommissioned <local> <key_name>|"
-            "upload-all-data|upload-intraday|purge-low-freq|verify-r2]"
+            "upload-all-data|upload-intraday|purge-low-freq|verify-r2|verify-channels <desc...>]"
         )
