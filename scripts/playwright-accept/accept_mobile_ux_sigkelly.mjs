@@ -53,6 +53,14 @@ async function runMobile() {
   ok("M8 无页面脚本错误", errors.length === 0, errors.slice(0, 2).join(" | "));
   // ③ 通知入口保留：移动端通知选择器(pc-notify-btn / h5 铃铛)各异且易随实现变动,
   //    不在脚本硬断言,按实现细则 §5 人工验收「通知入口仍可见可点」即可。
+
+  // v3 复审哨兵：回退点击44px + 参数抽屉化
+  const barH = await page.evaluate(() => { const el = document.querySelector(".lab-sigkelly-bar"); return el ? Math.round(el.getBoundingClientRect().height) : null; });
+  await page.evaluate(() => { const el = document.querySelector(".lab-sigkelly-params-toggle"); if (el) el.click(); });
+  await page.waitForTimeout(900);
+  const pp = await page.evaluate(() => { const el = document.querySelector(".lab-sigkelly-params-body"); const r = el ? el.getBoundingClientRect() : null; return { h: r ? Math.round(r.height) : 0, ratio: (r && window.innerHeight) ? +(r.height / window.innerHeight).toFixed(2) : null }; });
+  ok("M9 筛选条不膨胀(≤100px)", barH !== null && barH <= 100, `barH=${barH}`);
+  ok("M10 参数面板不占满屏(≤55%视口)", pp.ratio !== null && pp.ratio <= 0.55, `h=${pp.h} ratio=${pp.ratio}`);
   await ctx.close();
 }
 
