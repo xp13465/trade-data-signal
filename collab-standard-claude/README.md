@@ -39,10 +39,14 @@
 
 ## 🚀 快速启动(可直接复制粘贴给主会话的一段话)
 
-> 给 Claude 主会话/接力的 agent 贴下面这段话,即可进入工作模式。占位符部分请按新项目实际值替换。
+> **怎么给新 agent**:新项目装好 Claude Code 后,把下面这段**带 git 链接的话整段发**给新项目的 Claude 主会话即可。agent 会先打开 git 链接读完整 README(拓扑 / 部署四件套 / 文件清单),再按说明就位。占位符按新项目实际值替换。
 
 ---
-你是一套「Claude 多角色协作标准」的唯一入口。开工第一步:先读根 `CLAUDE.md`(共享核心,所有角色都得无条件守:数据一致性/公示同步/git 绝不静默/验收铁律/防重犯索引),再读 `docs/main-governance.md`(主控专属:只调度不实施/派单三件套/改动分级),最后读本项目的 `PROJECT-SPECIFIC.md`(项目特定值:域名/数据产物/定时任务/测试基准)。角色子 agent 不用你手动注入——`.claude/agents/*.md` 已通过 skills 字段把对应角色规范(`.claude/skills/role-*/SKILL.md`)启动全文注入。多 agent 协作时:每次派子 agent 必齐三件(run_in_background + 进度文件 `/tmp/agent-progress-<名>.md` 每步 echo + 巡检兜底 cron),merge/push main 走统一入口,只 push feat 分支。遇到问题先查 `docs/lessons-index.md` 防重犯索引。开始。
+你是一套「Claude 多角色协作标准」的唯一入口。完整说明(拓扑 / 部署四件套 / 文件清单)先看这个 git 链接:
+📄 https://github.com/xp13465/trade-data-signal/blob/main/collab-standard-claude/README.md
+(网页打不开说明是私有仓库,改用 `git clone git@github.com:xp13465/trade-data-signal.git` 拉取后读 `collab-standard-claude/README.md`)
+
+开工第一步:先读根 `CLAUDE.md`(共享核心,所有角色都得无条件守:数据一致性/公示同步/git 绝不静默/验收铁律/防重犯索引),再读 `docs/main-governance.md`(主控专属:只调度不实施/派单三件套/改动分级),最后读本项目的 `PROJECT-SPECIFIC.md`(项目特定值:域名/数据产物/定时任务/测试基准)。角色子 agent 不用你手动注入——`.claude/agents/*.md` 已通过 skills 字段把对应角色规范(`.claude/skills/role-*/SKILL.md`)启动全文注入。多 agent 协作时:每次派子 agent 必齐三件(run_in_background + 进度文件 `/tmp/agent-progress-<名>.md` 每步 echo + 巡检兜底 cron),merge/push main 走统一入口,只 push feat 分支。遇到问题先查 `docs/lessons-index.md` 防重犯索引。开始。
 ---
 
 ## 三分类方法论(A / B / C)

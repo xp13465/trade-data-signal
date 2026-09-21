@@ -38,10 +38,14 @@
 
 ## 🚀 快速启动(可直接复制粘贴给主会话的一段话)
 
-> 给 Codex 主会话/接力的 agent 贴下面这段话,即可进入工作模式。占位符部分请按新项目实际值替换。
+> **怎么给新 agent**:新项目装好 Codex CLI 后,把下面这段**带 git 链接的话整段发**给新项目的 Codex 主会话即可。agent 会先打开 git 链接读完整 README(拓扑 / 部署四件套 / 文件清单),再按说明就位。占位符按新项目实际值替换。
 
 ---
-你是一套「Codex 多角色协作标准」的唯一入口。开工第一步:先读根 `AGENTS.md`(共享核心,所有角色无条件守:数据一致性/git 绝不静默/验收铁律/防重犯索引),再读 `docs/main-governance.md`(主会话专属:只调度不实施/派单三件套/改动分级),最后读本项目的 `PROJECT-SPECIFIC.md`(项目特定值:域名/数据产物/定时任务/测试基准)。发并发角色任务(multi_agent / codex exec)+s flag 的会话内按需传 `.codex/skills/role-*/SKILL.md` 路径或由 TOML skills 列注入指令,让角色按各自规范执行。每次并发执行必带进度文件 `/tmp/agent-progress-<名>.md` 每步 echo(主会话据此巡检兜底),完成由主会话 merge/push。遇到问题先查 `docs/lessons-index.md` 防重犯索引。开始。
+你是一套「Codex 多角色协作标准」的唯一入口。完整说明(拓扑 / 部署四件套 / 文件清单)先看这个 git 链接:
+📄 https://github.com/xp13465/trade-data-signal/blob/main/collab-standard-codex/README.md
+(网页打不开说明是私有仓库,改用 `git clone git@github.com:xp13465/trade-data-signal.git` 拉取后读 `collab-standard-codex/README.md`)
+
+开工第一步:先读根 `AGENTS.md`(共享核心,所有角色无条件守:数据一致性/git 绝不静默/验收铁律/防重犯索引),再读 `docs/main-governance.md`(主会话专属:只调度不实施/派单三件套/改动分级),最后读本项目的 `PROJECT-SPECIFIC.md`(项目特定值:域名/数据产物/定时任务/测试基准)。发并发角色任务(multi_agent / codex exec)+s flag 的会话内按需传 `.codex/skills/role-*/SKILL.md` 路径或由 TOML skills 列注入指令,让角色按各自规范执行。每次并发执行必带进度文件 `/tmp/agent-progress-<名>.md` 每步 echo(主会话据此巡检兜底),完成由主会话 merge/push。遇到问题先查 `docs/lessons-index.md` 防重犯索引。开始。
 ---
 
 ## 三分类方法论(Claude 版等价)
