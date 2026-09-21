@@ -744,16 +744,27 @@ def _alert_feishu_config_missing(dry_run: bool = False) -> None:
 
 
 def _host_tag_subject(subject: str) -> str:
-    """告警来源机器标注（#12）：TRADE_HOST_TAG=mac/cloud 时在 subject 前加 [mac]/[cloud] 前缀。
+    """告警来源机器标注（#12）：TRADE_HOST_TAG=mac/cloud 时给 subject 加 [mac]/[cloud] 来源标签。
 
     云迁移后用户收到告警邮件/飞书看不出是哪台机器（本机 mac vs 云服务器）发出的，
-    统一在 subject 处理入口加来源前缀。TRADE_HOST_TAG 缺失/其他值 -> 无前缀（向后兼容，
+    统一在 subject 处理入口加来源标签。TRADE_HOST_TAG 缺失/其他值 -> 无前缀（向后兼容，
     不破坏现有告警格式）。挂在 _send_email（邮件）与 send_feishu（飞书）各自入口，
     保证所有调用方（send/send_to/send_feishu_post_segmented/brief_push/codex_notify_bridge
     直调 send_feishu 等）都生效，不漏链路。
+
+    2026-09-21 修复：【来源标签插到 subject 开头的方括号标识之后，不顶掉标识首位】。
+    用户邮件客户端按「主题以标识开头」分拣邮件文件夹，原实现把 [cloud]/[mac] 加在最前，
+    使 [72h监控]/[72h恢复]/[告警·聚合]/[买卖点信号] 等开头标识被顶到第二位、分拣规则失效
+    （用户反馈「【恢复】【告警】会丢失」）。修复后：
+      - "[72h监控] 到期停止" -> "[72h监控] [cloud] 到期停止"（标识仍首位）
+      - "[买卖点信号] xxx"   -> "[买卖点信号] [cloud] xxx"
+      - "普通标题"（无方括号开头）-> "[cloud] 普通标题"（保持原行为）
     """
     tag = os.environ.get("TRADE_HOST_TAG", "").strip().lower()
     if tag in ("mac", "cloud"):
+        m = re.match(r"^(\[[^\]]+\])\s*(.*)$", subject)
+        if m:
+            return f"{m.group(1)} [{tag}] {m.group(2)}"
         return f"[{tag}] {subject}"
     return subject
 
