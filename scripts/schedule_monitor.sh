@@ -362,7 +362,7 @@ DUR_THRESHOLDS = {
     "backfill_evening": 4500,   # 75min(实测 max ~3707s 21:00槽 08-10)
     "us_stock_morning": 1800,   # 30min(任务本身秒级,慢在全量 deploy 17-26min 恒超 900s;2026-08-18 900->1800)
     "overfit_monitor": 900,     # 15min(实测打点+双 parity 自检 76s, 2026-08-25; 大裕量防 trades 重算抖动)
-    "s06_snapshot": 900,        # 15min(三段 run_to 超时上限 300+300+600s, 全超时也 <900s; codex008 F5)
+    "s06_snapshot": 900,        # 15min(串行 run_to: gen300+check300+R2上传900+posrating300×2+快照上传900; 正常秒级, 裕量防 R2 上传重试; codex008 F5)
     "nextday_plan": 900,        # 15min(生成器读4产物+K=1重算+写两树+R2上传(300s超时)+通知(120s超时), 实测秒级; 裕量防 R2 重试)
     "nextday_gap_check": 900,   # 15min(就绪闸+300s重试+R2上传+通知, 最坏 ~600s; 裕量防 akshare 网络抖动重试)
 }
