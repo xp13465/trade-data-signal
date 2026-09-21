@@ -104,7 +104,7 @@ fi
 #    同 export.py main 的 write_json 语义; 只写 REPO 主库树, git 渠道随次日 17:50 deploy 追上)
 if [ "$RC_PIPE" -eq 0 ]; then
   echo "-> 增量重导 overview.json + a-stock-{3m,6m,1y,3y,5y,all}.json ..." >> "$LOG"
-  run_to 600 "$PY" - <<'PYEOF' >> "$LOG" 2>&1
+  run_to 900 "$PY" - <<'PYEOF' >> "$LOG" 2>&1
 import importlib.util
 import os
 from pathlib import Path
@@ -140,10 +140,10 @@ fi
 #    upload-data-large 兜底大 range 3y/5y/all; 失败仅告警不阻断——git 渠道随次日 deploy 追上)
 if [ "$RC_EXPORT" -eq 0 ]; then
   echo "-> 上传 R2(upload-intraday + upload-data-large) ..." >> "$LOG"
-  run_to 600 "$PY" scripts/upload_r2.py upload-intraday >> "$LOG" 2>&1
+  run_to 900 "$PY" scripts/upload_r2.py upload-intraday >> "$LOG" 2>&1
   RC_R2=$?
   [ "$RC_R2" -ne 0 ] && echo "⚠ upload-intraday R2 同步失败 rc=${RC_R2}(git 渠道随次日 deploy 追上)" >> "$LOG"
-  run_to 600 "$PY" scripts/upload_r2.py upload-data-large >> "$LOG" 2>&1
+  run_to 900 "$PY" scripts/upload_r2.py upload-data-large >> "$LOG" 2>&1
   RC_R2L=$?
   [ "$RC_R2L" -ne 0 ] && echo "⚠ upload-data-large R2 同步失败 rc=${RC_R2L}(git 渠道随次日 deploy 追上)" >> "$LOG"
 fi

@@ -95,8 +95,9 @@ else
   if [ "$RC_CHK" -ne 0 ]; then
     echo "✗ S06 快照机检 FAIL rc=${RC_CHK}(产物可能带病, 告警人工核查)" >> "$LOG"
   else
-    # ③ R2 兜底副本即时同步(上传+purge 一条龙; 含网络往返给 600s; 失败不阻断——git 渠道随次日 deploy 追上)
-    run_to 600 "$PY" scripts/upload_r2.py upload-data-files kelly_mode_s06_state.json >> "$LOG" 2>&1
+    # ③ R2 兜底副本即时同步(上传+purge 一条龙; 含网络往返给 900s; 失败不阻断——git 渠道随次日 deploy 追上)
+    #    (900s 对齐 deploy.sh 看门狗 900: 内层 R2_UPLOAD_HTTP_TIMEOUT=600 重试须有梯度余量, 2026-09-21)
+    run_to 900 "$PY" scripts/upload_r2.py upload-data-files kelly_mode_s06_state.json >> "$LOG" 2>&1
     RC_R2=$?
     [ "$RC_R2" -ne 0 ] && echo "⚠ S06 快照 R2 同步失败 rc=${RC_R2}(git 渠道随次日 deploy 追上)" >> "$LOG"
   fi
@@ -124,7 +125,7 @@ for _D in "$REPO/static-site/data" "$GIT_REPO/static-site/data"; do
   [ "$_rc" -ne 0 ] && echo "⚠ latest_posrating.json 生成失败 rc=${_rc} data-dir=$_D(首页回退静态兜底 86.60%)" >> "$LOG"
   [ "$RC_PR" -eq 0 ] && RC_PR=$_rc
 done
-run_to 600 "$PY" scripts/upload_r2.py upload-kelly-snapshots >> "$LOG" 2>&1
+run_to 900 "$PY" scripts/upload_r2.py upload-kelly-snapshots >> "$LOG" 2>&1
 RC_PR_R2=$?
 [ "$RC_PR_R2" -ne 0 ] && echo "⚠ latest_posrating R2 同步失败 rc=${RC_PR_R2}(git 渠道随次日 deploy 追上)" >> "$LOG"
 
