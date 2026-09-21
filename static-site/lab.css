@@ -1421,7 +1421,7 @@
 [data-theme="dark"] .lab-kelly-evo-table tr.lab-kelly-evo-pin-row td, [data-theme="redgold"] .lab-kelly-evo-table tr.lab-kelly-evo-pin-row td { background: rgba(240,185,11,0.16); }
 .lab-kelly-evo-table tr.lab-kelly-evo-pin-row td:first-child { font-weight: 700; }
 .lab-sigkelly-params-body { display: none; }
-.lab-sigkelly-params-body.lab-sigkelly-params-open { display: block; width: 100%; margin-top: 4px; }
+.lab-sigkelly-params-body.lab-sigkelly-params-open { display: block; width: 100%; margin-top: 4px; max-height: 54vh; overflow-y: auto; }
 .lab-sigkelly-periods { display: flex; gap: 4px; flex-wrap: wrap; }
 .lab-sigkelly-params { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--text-3); align-items: center; }
 /* 2026-08-26 排版调整(用户拍板): 「ai长线模式(G/H/I)仓位管理」块从降亏过滤区后移到费率模块后——
@@ -2833,23 +2833,13 @@ td.lab-sigkelly-elim-reason { text-decoration: none; color: var(--text-2); font-
   .auto-trade-steps-etfname { font-size: 11px; }
   .auto-trade-steps-backfilled-badge { font-size: 11px; }
   .auto-trade-steps-rt-pl { font-size: 11px; }
-  /* --- 点击目标 ≥44px(按钮/chip/开关/折叠summary) --- */
-  .lab-sigkelly-periods .lab-sigkelly-period-btn { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
-  .lab-sigkelly-params-toggle { min-height: 44px; display: inline-flex; align-items: center; }
-  .lab-sigkelly-fee-btn { min-height: 44px; display: inline-flex; align-items: center; }
-  .lab-sigkelly-toggle-combo { min-height: 44px; }
-  .lab-sigkelly-toggle { min-height: 44px; }
+  /* --- 点击目标 ≥44px(2026-09-21 v3 复审回退: 筛选区 chip/按钮恢复紧凑尺寸,
+        只保留折叠/免责/公示类 summary 的 44px; 热区靠整行/留白不撑高按钮) --- */
   .lab-sigkelly-collapse > summary, .auto-trade-steps-collapse-summary,
   .lab-sigkelly-advice-outer > summary,
   .lab-top-disclaimer summary { min-height: 44px; display: flex; align-items: center; }
   /* purpose-note-summary 走 -webkit-line-clamp 两行截断(见上方 §3), 不覆盖 display, 只提最小高度+内边距保点击区 */
   .purpose-note-summary { min-height: 44px; padding: 4px 0; }
-  /* 参数区次级交互: 更多开关/分组标题/详情折叠/买入口径/AI报告切换 也保 44px 点击区 */
-  .lab-sigkelly-toggle-more-summary,
-  .lab-sigkelly-toggle-tier-cat,
-  .lab-sigkelly-toggle-detail-btn,
-  .lab-sigkelly-buybasis-btn,
-  .lab-sigkelly-ai-switch-btn { min-height: 44px; display: inline-flex; align-items: center; }
 
   /* ===== 移动端字号补全(2026-09-19, 纯CSS, 桌面>760px 零回归) =====
      扫描全文件 <11px 规则, 移动端可见可读标签统一覆盖 ≥11px (只加覆盖不动全局定义)。
