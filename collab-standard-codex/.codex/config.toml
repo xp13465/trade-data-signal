@@ -1,0 +1,31 @@
+# Codex 协作标准配置(去业务化)
+# 移植到新项目时替换 <尖括号> 占位符,删除不适用的行。
+
+# ── 模型 ─────────────────────────────────────────────────────────────
+# 模型占位,不写死具体型号(按项目实际提供方/模型档位填写)
+# 例: model = "gpt-5.2" / "claude-sonnet-4-5" / "o4-mini" / "<模型占位>"
+model = "<模型占位>"
+
+# ── multi_agent:默认开启 ──────────────────────────────────────────────
+# 本项目协作标准基于「主会话调度 + 并发角色会话(multi_agent / codex exec)」。
+# multi_agent 默认开启 = 主会话可以把多个角色任务(implementer/reviewer/
+#   researcher/tester)作为并发子会话派发,角色各自带 skill 执行,符合
+#   AGENTS.md + .codex/skills/role-* 的按需加载设计。
+# 若某个阶段想退回到纯串行单会话,注释掉下面一行即可;串行时角色 skill
+#   改由 prompt 显式引用 .codex/skills/role-*/SKILL.md 路径加载。
+multi_agent = true
+
+# ── 角色 skill 自动注入(可选)─────────────────────────────────────────
+# 想让「并发角色会话」启动即带对应 skill,在 skills 下列出;留空=按需引用。
+# 格式为相对本 config 的路径:
+# skills = [
+#   ".codex/skills/role-implementer/SKILL.md",
+#   ".codex/skills/role-reviewer/SKILL.md",
+#   ".codex/skills/role-researcher/SKILL.md",
+#   ".codex/skills/role-tester/SKILL.md",
+# ]
+# 注意:一次性全列=每次并发会话都注入全部 skill,与「按需加载」冲突。
+# 推荐:留空,由主会话在派单时显式传对应角色 skill 路径(见 AGENTS.md §0)。
+
+# ── 其他(按项目需要打开)──────────────────────────────────────────────
+# 输出/行为配置见官方 config.toml 参考,按项目实际填写。
