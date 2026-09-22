@@ -518,7 +518,7 @@ def cmd_clean_data_backup():
         print(f"  - {k}")
     deleted = 0
     for key in keys:
-        st, _ = s3_request("DELETE", key, bucket=BUCKET)
+        st, _ = s3_request("DELETE", key, bucket=BUCKET, keep_alive=True)
         if st == 204:
             deleted += 1
             print(f"  删除 {BUCKET}/{key}")
@@ -614,8 +614,9 @@ def _upload_multipart(key, payload, content_type):
 
     def _put_part(pn):
         q = "partNumber=%d&uploadId=%s" % (pn, quote(upload_id, safe=""))
+        # keep_alive(2026-09-22 同类根治): 每线程连续传多个 part 复用线程本地连接, 省 part 间握手
         s, d, hdrs = s3_request("PUT", key, payload=parts[pn], query=q,
-                                content_type=content_type, with_headers=True)
+                                content_type=content_type, with_headers=True, keep_alive=True)
         if s == 200:
             etag = _header_lookup(hdrs, "ETag")
             if etag:
@@ -732,14 +733,17 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
                     return (i, True, rel, size, None, key)
                 return (i, False, rel, size,
                         f"multipart status={status} {data[:200] if isinstance(data, (bytes, bytearray)) else data}", None)
-            status, data = s3_request("PUT", key, payload)
+            status, data = s3_request("PUT", key, payload, keep_alive=True)
             if status == 200:
-                # 层2 上传正确性对账(verify_etag=True 时): PUT 后 HEAD 取 ETag 与本地整文件
-                # md5 比对, 不一致记失败(传上去的内容不对)。HEAD 失败(etag=None, 网络抖动/
-                # 404)不判失败 —— 刚 PUT 200 成功, 对账通道拿不到 ETag 更可能是 HEAD 抖动,
+                # 层3 上传正确性对账(verify_etag=True 时): PUT 后 HEAD 取 ETag 与本地整文件
+                # md5 比对, 不一致记上传失败(传上去的内容不对)。HEAD 失败(etag=None, 网络抖动/
+                # 404)不判失败 —— 刚 PUT 成功, 对账通道传可信 ETag 更可能是 HEAD 抖动,
                 # 若判失败会误报告警(09-10 事故链教训); 只有 ETag 明确存在且 != 本地 md5 才判失败。
+                # keep_alive(2026-09-22 主上传通道补接, 2026-09-21 R2 根治只接了 verify-r2 通道):
+                # PUT + 对账 HEAD 复用线程本地连接, 省每文件 2 次跨境握手(TCP 1.16s/首字节 2.10s),
+                # 21957 文件(如 fund-nav)6225s -> ~1500-2000s, 治 deploy 攥锁 2h47m 连锁超时。
                 if verify_etag:
-                    _st, etag = s3_head(key)
+                    _st, etag = s3_head(key, keep_alive=True)
                     if etag is not None and etag.strip('"') != md5_local:
                         return (i, False, rel, size,
                                 f"ETag对账不一致 etag={etag} local_md5={md5_local}", None)
@@ -1800,7 +1804,7 @@ def _prune_layer(prefix, keep_days, bucket=None):
         except ValueError:
             continue
         if kd < cutoff:
-            st, _ = s3_request("DELETE", key, bucket=bkt)
+            st, _ = s3_request("DELETE", key, bucket=bkt, keep_alive=True)
             if st == 204:
                 deleted += 1
                 print(f"  删除旧 {bkt}/{key}")

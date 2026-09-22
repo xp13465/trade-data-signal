@@ -139,6 +139,10 @@ LABEL_MAP = {
     "check_data_gap": "com.trade.check-data-gap",
     "turnover_backfill": "com.trade.turnover-backfill",
     "nextday_plan": "com.trade.nextday-plan",
+    # nextday_gap_check: 2026-09-17 补入(#45), 云上 trade-nextday-gap-check.service
+    # (2026-09-22 补: 云上 Linux 用 systemctl 读真实码, unit 映射靠 com.trade. -> trade- 规则,
+    #  缺此项则 standard 模式读不到真实码 -> 回退启发式猜 143 误报, 与本次治误报同根因)。
+    "nextday_gap_check": "com.trade.nextday-gap-check",
 }
 
 # launchctl print "last exit code = N" 行（N 可为 143/0/1/None，None 显 "last exit code = (none)"）
@@ -188,17 +192,30 @@ PUSH_SUCCESS_RE = re.compile(
 
 
 def launchctl_last_exit(label: str | None) -> int | None:
-    """调 `launchctl print gui/UID/label` 读真实 last exit code。
+    """读任务最近一次运行的**真实退出码**(平台分支 mac/linux)。
 
-    返回 int 退出码（0=成功，非0=失败如 143=SIGTERM 超时被杀，1=脚本异常）。
-    label 为 None/空、launchctl 调用失败、解析不到、或值为 "none"（任务从没跑过）时返回 None。
+    云上(systemd timer)没有 launchctl, 旧代码调 launchctl 必然失败返回 None,
+    回退 L491 启发式「pending_start age>3h 猜 exit=143」→ 所有跑超 3h 任务误报
+    143 假 SIGTERM。而云上 systemd TimeoutStartSec=0 根本不杀(journal 实证
+    `Deactivated successfully`, 退出码 0)。2026-09-22 治误报(根因修)。
 
-    用途：pending_start（有 start 无 end，崩在结束行前）时，日志启发式只能 age>3h 猜 143，
-    launchctl 记录真实退出码（含 SIGTERM=143 / 脚本异常 exit=1 / 正常 exit=0），
-    优先用真实码消除漏报（exit=1 漏报为 None）和误报（exit=0 误报为 143）。
+    - macOS: 调 `launchctl print gui/UID/label` 读真实 last exit code。
+    - Linux(systemd): 调 `systemctl show` 读 ExecMainCode/ExecMainStatus:
+        LoadState != "loaded"(unit 不存在) -> None(未知, 不猜)
+        ExecMainCode=1(CLD_EXITED)      -> ExecMainStatus=真实退出码
+        ExecMainCode=2/3(信号杀/dump)    -> 128+ExecMainStatus(对齐 launchd 143=SIGTERM 15)
+        其他(从未跑/调用失败)            -> None(降级为「未知」, 不猜 143)
+
+    返回 int 退出码(0=成功,非0=失败如 143=SIGTERM, 1=脚本异常)。
+    label 为 None/空、读不到真实码、任务从没跑过(ExecMainCode=0 或 None)时返回 None。
+    用途: pending_start(有 start 无 end, 崩在结束行前)时 systemd/launchd 记录真实退出码
+    (含 143 / exit=1 / exit=0), 优先用真实码消除误报(云上跑超3h 正常退出被猜 143)。
     """
     if not label:
         return None
+    if sys.platform.startswith("linux"):
+        return _systemd_last_exit(label)
+    # macOS: launchctl print
     try:
         result = subprocess.run(
             ["launchctl", "print", f"gui/{os.getuid()}/{label}"],
@@ -218,6 +235,53 @@ def launchctl_last_exit(label: str | None) -> int | None:
         return int(val)
     except ValueError:
         return None
+
+
+def _label_to_systemd_unit(label: str) -> str | None:
+    """launchd label -> systemd unit 名(云上实际 unit, 与 self_heal.sh 同映射)。
+
+    规律: launchd label `com.trade.update-all` -> 云上 systemd unit `trade-update-all.service`。
+    映射失败(不以 com.trade. 开头)返回 None(视为无法定位, 降级「未知」不猜 143)。
+    """
+    if not label or not label.startswith("com.trade."):
+        return None
+    return label.replace("com.trade.", "trade-", 1) + ".service"
+
+
+def _systemd_last_exit(label: str) -> int | None:
+    """systemd 读真实退出码(Linux 分支)。unit 不存在/从未跑/读不到 -> None(未知)。"""
+    unit = _label_to_systemd_unit(label)
+    if not unit:
+        return None
+    try:
+        # 一次 get-properties 抓三属性(带属性名前缀 key=value, 免 --value 输出顺序依赖)
+        r = subprocess.run(
+            ["systemctl", "show", unit, "-p", "LoadState", "-p", "ExecMainCode",
+             "-p", "ExecMainStatus"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception:
+        return None
+    if r.returncode != 0:
+        return None
+    props = {}
+    for line in r.stdout.splitlines():
+        if "=" in line:
+            k, _, v = line.partition("=")
+            props[k.strip()] = v.strip()
+    if props.get("LoadState") != "loaded":
+        return None  # unit 不存在: 降级「未知」, 不猜 143
+    code, status = props.get("ExecMainCode"), props.get("ExecMainStatus")
+    try:
+        ec = int(code) if code not in (None, "") else None
+        es = int(status) if status not in (None, "") else None
+    except ValueError:
+        return None
+    if ec == 1 and es is not None:   # CLD_EXITED: 真实退出码
+        return es
+    if ec in (2, 3) and es is not None:  # CLD_KILLED/CLD_DUMPED: 128+signal 对齐 launchd 143
+        return 128 + es
+    return None  # 从未跑(ec=0)/缺字段: 未知
 
 
 def scan_log_anomaly(log_path: Path, script: str, mode: str,
@@ -487,8 +551,13 @@ def build():
                     code = None  # 在跑(场景B/D, age<=3h): 残留码不采信, last_exit=null
                 elif t["mode"] == "etf_nt":
                     code = None  # etf_nt 不启发式标 143(launchctl 读不到才 None)
+                elif sys.platform.startswith("linux"):
+                    # 云上 systemd(TimeoutStartSec=0 不杀, journal 实证 Deactivated successfully
+                    # 退出码 0)读不到真实码 = 未知(None), 绝不回退猜 143 —— 2026-09-22 治误报根因:
+                    # 旧逻辑 launchctl 在 Linux 必然失败 -> 启发式 age>3h 猜 143, 所有跑超 3h 任务误报。
+                    code = None
                 else:
-                    code = 143 if age > MAX_GAP_SEC else None  # standard 回退启发式
+                    code = 143 if age > MAX_GAP_SEC else None  # macOS launchd 回退启发式(ExitTimeOut 真杀)
                 # P1(2026-07-29): pending_start(当前在跑) + 上次运行确实 crash = 重试中,
                 # 标记 pending_crash_retry 供后续 log_anomaly 标注。
                 # 2026-08-15 Bug1 修复(运维告警误报根因): 判定依据从 launchctl 历史残留码
