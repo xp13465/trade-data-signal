@@ -198,15 +198,20 @@ _BOARD_MAP_BAK="$REPO/data/board_etf_map.json.deploybak"
 "$PY" "$REPO/scripts/build_board_etf_map.py" >> "$LOG" 2>&1
 BUILD_RC=$?
 SKIP_MAP_SYNC=0
+MAP_STALE=0
 if [ "$BUILD_RC" -ne 0 ]; then
   SKIP_MAP_SYNC=1
+  MAP_STALE=1
   echo "✗ build_board_etf_map.py 失败(退出码 ${BUILD_RC}，14 宽基校验未过/akshare 兜底也失败)，board_etf_map 用旧版兜底，跳过该项更新（其余产物照常生成）" | tee -a "$LOG"
   if [ -f "$_BOARD_MAP_BAK" ]; then
     cp -p "$_BOARD_MAP_BAK" "$REPO/data/board_etf_map.json" 2>>"$LOG" \
       && echo "✓ board_etf_map.json 已从备份恢复旧版（build 失败前备份）" | tee -a "$LOG" \
-      || echo "⚠ 恢复 board_etf_map.json 旧版备份失败，需人工核查 data/board_etf_map.json" | tee -a "$LOG"
+      || { echo "✗ 恢复 board_etf_map.json 旧版备份失败（data/ 现为 build 失败写坏的 map），宁可终止 deploy 也绝不让坏 map 经 export.py 生成坏 overview 绕过 check 上线" | tee -a "$LOG"; exit 1; }
   else
-    echo "⚠ 无 board_etf_map.json 旧版备份可用（首次部署？），跳过恢复" | tee -a "$LOG"
+    # 2026-09-22 F2 加固: 无备份可用（首次部署/备份 cp 失败）同样 exit 1——build 已失败时
+    # data/board_etf_map.json 必为坏/空 map，继续 export 会用坏 map 生成 overview 绕过 check 上线。
+    echo "✗ 无 board_etf_map.json 旧版备份可用（首次部署？），且 build 失败 data/ 已是坏 map，终止 deploy" | tee -a "$LOG"
+    exit 1
   fi
 fi
 rm -f "$_BOARD_MAP_BAK"
@@ -983,6 +988,16 @@ if [ -n "$R2_FAIL" ]; then
     "$PY" "$REPO/scripts/notify.py" "[告警] deploy R2上传失败" "deploy.sh R2 上传部分通道失败(轻量对账确认有缺口):$R2_FAIL<br>deploy 整体已跑完(rc=0), 请人工确认失败通道文件是否已补传/需手动补刷: bash scripts/upload_r2.py upload-all-data<br>verify-channels 详情: $([ -n "$_vc_tail" ] && echo "$_vc_tail" || echo 无输出)<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_r2_upload_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
     unset _vc_rc _vc_tail
   fi
+fi
+
+# === board_etf_map 旧版兜底告警(收尾段, 2026-09-22 F1) ===
+# build_board_etf_map.py 失败时已降级为「恢复旧版 + SKIP_MAP_SYNC=1」继续其余产物(deploy 整体 rc=0),
+# 但告警通道此前静默——akshare 反爬/构建持续失败时, deploy 每天照跑旧版 map 却无人知情。
+# 此处延迟到收尾发(走到这里=deploy 整体成功), 带 --dedup-key 防 akshare 反爬持续时每次 deploy 轰炸。
+# 不影响 exit 0 与其余产物生成(纯告警)。
+if [ "$MAP_STALE" -eq 1 ]; then
+  echo "⚠ board_etf_map 用旧版兜底(build_board_etf_map.py 失败), 收尾统一告警" | tee -a "$LOG"
+  "$PY" "$REPO/scripts/notify.py" "[告警] board_etf_map 旧版兜底" "deploy.sh build_board_etf_map.py 构建失败(14 宽基校验未过/akshare 反爬兜底也失败), board_etf_map 已用旧版兜底, deploy 其余产物照常生成(rc=0)。<br>旧版兜底期间前端 ETF 联动 tag 可能落后, 需人工核查数据源(akshare 反爬? / build 脚本): 脚本: $REPO/scripts/build_board_etf_map.py<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key board_etf_map_stale --dedup-window 3600 2>&1 | tee -a "$LOG" || true
 fi
 
 echo "=== deploy.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 ===" | tee -a "$LOG"
