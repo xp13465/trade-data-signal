@@ -10481,7 +10481,7 @@ function _labKellyEvoModalHTML(idx) {
     _lagDays = Math.round((Date.UTC(_dy, _dm - 1, _dd) - Date.UTC(_my, _mm - 1, _md)) / 86400000);
   }
   const lagWarn = latest && _lagDays > 3 ? `<div class="lab-kelly-evo-warn">⚠ max_signal_date=${latest.m} 落后快照日 ${latest.d} ${_lagDays} 日(超过正常 T+1/周末错位窗口, 交易记录可能停滞, 见 check_data_integrity 信号滞后告警)</div>` : "";
-  const modeKeys = ["A", "B", "C", "D", "E", "F", "J", "G", "H", "I"];
+  const modeKeys = ["A", "B", "C", "D", "E", "K", "F", "J", "G", "H", "I"];
   const modeBtns = modeKeys.map((m) =>
     `<button type="button" class="lab-kelly-evo-mode${m === "G" ? " active" : ""}" data-evo-mode="${m}">${m}</button>`
   ).join("");
@@ -12113,7 +12113,7 @@ function _kellyComboAdviceHtml() {
           `<div class="lab-sigkelly-advice-section-title">📐 按投资周期选</div>` +
           `<div class="lab-sigkelly-advice-li">近1年冲收益 → A 固定10天 <b>29.62%</b> 全模式第1（10w/10x 可操作零盯盘）；长期稳健 → H 满仓不买 <b>230.83%</b> 全周期第1（H 最简：无强平，到5万停买）。</div>` +
           `<div class="lab-sigkelly-advice-section-title">分投资习惯怎么用（A/F/J/G 四玩法实时并列）</div>` +
-          `<div class="lab-sigkelly-advice-li"><b>三玩法并列</b>（实时随上方降亏组合勾选 / 费率档联动，全周期 all 口径（与下方总建议一致）；下方「最后结果」卡随周期切换，切到「全部」时同值；金额口径=每日资金池等分+top-K）：A=固定10天短线（快进快出）；F=持有15天短线；J=固定20天短线；G=卖出信号长线（指数卖出信号触发离场、无信号持有至回测结束）；长线主推见「总建议」行=H（满仓不买@5万，G/I 为可选档；G 用户建议开上方「ai长线模式(G/H/I)仓位管理」套 P≤3d 可操作档）。</div>` +
+          `<div class="lab-sigkelly-advice-li"><b>三玩法并列</b>（实时随上方降亏组合勾选 / 费率档联动，全周期 all 口径（与下方总建议一致）；下方「最后结果」卡随周期切换，切到「全部」时同值；金额口径=每日资金池等分+top-K）：A=固定10天短线（快进快出）；K=固定11天短线（11天档，比 A 多持 1 天，测试优于 10 天且属稳健档）；F=持有15天短线；J=固定20天短线；G=卖出信号长线（指数卖出信号触发离场、无信号持有至回测结束）；长线主推见「总建议」行=H（满仓不买@5万，G/I 为可选档；G 用户建议开上方「ai长线模式(G/H/I)仓位管理」套 P≤3d 可操作档）。</div>` +
           _sigKellyAfgRealtimeHtml() +
           `<table class="lab-sigkelly-table lab-sigkelly-advice-table"><thead><tr><th>投资习惯</th><th>建议</th><th>真实回测数据</th></tr></thead><tbody>` +
             `<tr><td>追高/趋势型</td><td>追关注信号只做牛市（MA60 之上），熊市追涨坚决回避</td><td>牛市 n=19,323 净 <b>+490万</b> 胜率60.5% 盈亏比1.94；熊市 n=1,908 净 -16.3万 胜率41.7% 盈亏比0.97（亏损区）</td></tr>` +
@@ -12150,6 +12150,7 @@ function _sigKellyAfgRealtimeHtml() {
   }
   const modes = [
     { key: "A", name: "A · 固定10天短线", desc: "买入后固定持有 10 天卖出, 快进快出" },
+    { key: "K", name: "K · 固定11天短线", desc: "买入后固定持有 11 天卖出(11天档)" },
     { key: "F", name: "F · 持有15天短线", desc: "买入后固定持有 15 天卖出" },
     { key: "J", name: "J · 固定20天短线", desc: "买入后固定持有 20 天卖出" },
     { key: "G", name: "G · 卖出信号中长线", desc: "指数卖出信号触发离场, 无信号持有至回测结束; 可选档(长线主推 H 见「总建议」行)" },

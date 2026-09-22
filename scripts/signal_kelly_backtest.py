@@ -78,7 +78,7 @@ HOLD_DAYS = 10             # 默认最大持有交易日(ABCD 模式用; E=5/F=1
 KELLY_BUY_NEXTDAY = int(os.environ.get("KELLY_BUY_NEXTDAY", "1"))
 # 基笔唯一化三表导出开关(L42 数据瘦身步1, 2026-09-20): 默认 0 关闭,
 # 开=在 main() 末尾额外生成 signal_kelly_trades_unique.json(主档)/ _sdc_unique.json(sdc 双套),
-# 由 quadrants 中间态拆出「主表(19 共享字段+4 qk 归属)+ 变体表(8 卖出字段×10 mode)」,
+# 由 quadrants 中间态拆出「主表(19 共享字段+4 qk 归属)+ 变体表(8 卖出字段×11 mode)」,
 # 消除同一基笔 4qk×10mode=40 倍重复膨胀(75MB→~5MB)。关=完全不生成三表, 现有产物零变化;
 # 注意: 开关默认关, compute_intraday 共用 _build_outputs 不受影响(盘中档无膨胀, 唯一化无必要)。
 KELLY_UNIQUE_EXPORT = int(os.environ.get("KELLY_UNIQUE_EXPORT", "0"))
@@ -96,6 +96,7 @@ SELL_MODES = {
     "C": {"label": "5%止盈",   "hold_days": 10, "stop_profit": 0.05},
     "D": {"label": "7%止盈",   "hold_days": 10, "stop_profit": 0.07},
     "E": {"label": "持有5天",  "hold_days": 5,  "stop_profit": None},
+    "K": {"label": "固定11天", "hold_days": 11, "stop_profit": None},
     "F": {"label": "持有15天", "hold_days": 15, "stop_profit": None},
     "J": {"label": "固定20天", "hold_days": 20, "stop_profit": None},
     # G/H/I: 信号驱动卖出(每笔交易查对应指数后续 sell/sell_stop_loss 信号, 无则持有至回测结束)
@@ -826,7 +827,7 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, st
     today: 全局最新数据日(YYYYMMDD), 用于持仓中trade预估; None 时回退本ETF最后日期。
     hold_days: 最大持有交易日(per-mode, A/B/C/D=10, E=5, F=15; G/H/I=None 信号驱动不用)。
     market_state: 大盘择时状态(True=多头进场允许/False=空头跳过过滤; 非A股类标True)。
-    sell_mode: 卖出模式 key(A-J), G/H/I 走信号驱动卖出分支。
+    sell_mode: 卖出模式 key(A-K), G/H/I 走信号驱动卖出分支。
     sell_signals: 该指数 [(date, signal)] 按日期排序的卖出信号时间线(G/H/I 用, 可能为 [])。
     返回 dict {signal_date, index_id, signal, buy_date, sell_date, etf_code, etf_name,
               track_tier, track_score, match_method, track_low_confidence,
@@ -2253,7 +2254,7 @@ def main():
         sys.exit(rc)
 
     print("=" * 60)
-    print("信号凯利回测: 16象限 × 10模式 × 5周期")
+    print("信号凯利回测: 16象限 × 11模式 × 5周期")
     print(f"ROOT = {ROOT}")
     print(f"输出 = {output_path}")
     print(f"交易记录 = {trades_path}")
