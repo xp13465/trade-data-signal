@@ -101,7 +101,7 @@ SELL_MODES = {
     "C": {"label": "5%止盈",   "hold_days": 10, "stop_profit": 0.05},
     "D": {"label": "7%止盈",   "hold_days": 10, "stop_profit": 0.07},
     "E": {"label": "持有5天",  "hold_days": 5,  "stop_profit": None},
-    "K": {"label": "固定11天", "hold_days": 11, "stop_profit": None},
+    "K": {"label": "固定9天", "hold_days": 9, "stop_profit": None},
     "F": {"label": "持有15天", "hold_days": 15, "stop_profit": None},
     "J": {"label": "固定20天", "hold_days": 20, "stop_profit": None},
     # G/H/I: 信号驱动卖出(每笔交易查对应指数后续 sell/sell_stop_loss 信号, 无则持有至回测结束)
