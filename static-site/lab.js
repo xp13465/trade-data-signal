@@ -14801,10 +14801,11 @@ function _atRowHtml(d, today, nowAct, daySteps) {
   const statusHtml = allMarked
     ? '<span class="auto-trade-steps-st auto-trade-steps-st-green">已操作(手动)</span>'
     : '<span class="auto-trade-steps-st auto-trade-steps-st-' + stCls + '">' + _atEsc(d.status_text || d.status || "-") + '</span>';
+  const d10PopHtml = (d.sell && d.src_step) ? _atD10PopHtml(d.src_step) : "";
   return '<tr class="auto-trade-steps-row' + (d.sell ? " auto-trade-steps-row-sell" : "") + hl + '" data-date="' + _atEsc(d.date) + '"' +
     (d.sell && d.src_date ? ' data-open-date="' + _atEsc(d.src_date) + '"' : "") +
     ' data-name="' + _atEsc(d.etf_name || "") + '" title="' + (d.sell ? "卖出计划 · 点击查看所属买入组时间线" : "点击查看更多当日操作时间线") + '">' +
-    '<td class="auto-trade-steps-date">' + _atFmtDate(d.date) + '</td>' +
+    '<td class="auto-trade-steps-date">' + _atFmtDate(d.date) + (d10PopHtml ? '<span class="auto-trade-steps-d10-wrap">D+10<span class="auto-trade-steps-d10-pop-wrap">' + d10PopHtml + '</span></span>' : "") + '</td>' +
     '<td class="auto-trade-steps-action">' + _atActionCellHtml(d) + '</td>' +
     '<td>' + _atPriceStr(d.order_price) + '</td>' +
     '<td>' + (amtSharesStr || "-") + '</td>' +
@@ -14908,6 +14909,8 @@ function _atRender(slot, planDoc, stepsDoc) {
       _atOpenEtfChart(a.getAttribute("data-code"), a.getAttribute("data-name") || "");
     };
   });
+  // 2026-09-22 用户需求: 主表卖出行 D+10 徽标 hoverpop(桌面 hover / 移动端 tap)
+  _bindAtStepsD10Pop(slot);
 }
 
 // ---- 轮询(盘中 60s / 盘后与休市 5min, 就地更新不整页刷新) ----
@@ -14961,6 +14964,36 @@ function _atModalDates() {
   dates.sort(function (a, b) { return a < b ? 1 : -1; }); // DESC
   return dates;
 }
+// 2026-09-22 用户需求: sell 行(seq5, D+10)第一列附加 hoverpop, 展示「信号日→买入日→…→卖出日」交易日链
+// 口径: 信号日 = 交易日序列中买入日(date)的前一交易日; 卖出日(sell_date) = 信号日后第 10 个交易日(非买入日后第 10)
+// 交易日序列复用 _atTradeDates(products 既有交易日历, 与 _atBuildDays 同源), 不新造
+function _atD10FirstCellHtml(st, rowDateShort) {
+  const popHtml = _atD10PopHtml(st);
+  return _atEsc(rowDateShort) + ' <span class="auto-trade-steps-d10-wrap">' +
+    _atEsc(st.time_slot || "-") +
+    (popHtml ? '<span class="auto-trade-steps-d10-pop-wrap">' + popHtml + '</span>' : "") +
+    '</span>';
+}
+// 构造 D+10 交易日链 HTML; 无法推导(缺 sell_date / 事务日序列不足)时返回 "" 不弹 pop
+function _atD10PopHtml(st) {
+  const buyDate = String(st.date || "");
+  const sellDate = st.sell_date ? String(st.sell_date) : "";
+  if (!buyDate || !sellDate) return "";
+  const td = _atTradeDates(_atPlanDoc, _atStepsDoc); // 升序交易日序列
+  const bi = td.indexOf(buyDate);
+  if (bi < 1) return ""; // 无前一交易日 → 信号日不可推导
+  const sigDate = td[bi - 1];
+  const si = td.indexOf(sellDate);
+  if (si < bi) return "";
+  const chain = td.slice(bi - 1, si + 1); // 信号日..卖出日
+  const fmt = function (d) { const s = String(d); return /^\d{8}$/.test(s) ? s.slice(4, 6) + "-" + s.slice(6, 8) : s; };
+  const chainStr = chain.map(fmt).join(" → ");
+  return '<span class="auto-trade-steps-d10-pop">' +
+    '<span class="auto-trade-steps-d10-pop-title">D+10 到期 · 信号日后第 10 个交易日</span>' +
+    '<span class="auto-trade-steps-d10-pop-chain">' + fmt(sigDate) + '(信号日) → ' + fmt(buyDate) + '(买入日) → … → ' + fmt(sellDate) + '(卖出日·D+10)</span>' +
+    '<span class="auto-trade-steps-d10-pop-days">对应交易日:' + chainStr + '</span>' +
+    '</span>';
+}
 function _atModalRowHtml(st, hl) {
   const stCls = _AT_STATUS_CLS[st.status] || "gry";
   const amtStr = _atAmtSharesStr(st);
@@ -14974,8 +15007,14 @@ function _atModalRowHtml(st, hl) {
   const statusText = marked ? "已操作(手动)" : (st.status_text || st.status || "-");
   const etfLink = st.etf_code ? _atEtfLinkHtml(st.etf_code, st.etf_name) : _atEsc(st.etf_code || "-");
   const badge = st.backfilled ? _atBackfilledBadgeHtml() : "";
+  // 2026-09-22 用户需求: 弹窗第一列「时点」改「日期+时间」——buy 行日期=执行日(date), sell 行日期=卖出日(sell_date, §22 与主表卖出行一致);
+  // sell 行(seq5, D+10)在时间上附加 hoverpop 提示「信号日→买入日→…→卖出日」交易日链(口径: 卖出日=信号日后第10交易日, 非买入日后第10)
+  const rowDate = (st.action || "") === "sell" && st.sell_date ? String(st.sell_date) : String(st.date || "");
+  const rowDateShort = /^\d{8}$/.test(rowDate) ? rowDate.slice(4, 6) + "-" + rowDate.slice(6, 8) : _atFmtDate(rowDate);
+  const isSellD10 = (st.action || "") === "sell" && st.sell_date && /D\+10/.test(String(st.time_slot || ""));
+  const firstCellHtml = isSellD10 ? _atD10FirstCellHtml(st, rowDateShort) : _atEsc(rowDateShort + " " + (st.time_slot || "-"));
   return '<tr class="' + (hl ? "auto-trade-steps-modal-hl" : "") + (marked ? " auto-trade-steps-row-marked" : "") + '">' +
-    '<td>' + _atEsc(st.time_slot || "-") + '</td>' +
+    '<td class="auto-trade-steps-dt">' + firstCellHtml + '</td>' +
     '<td class="auto-trade-steps-action">' + _atEsc(_AT_ACTION_LABEL[st.action] || st.action || "-") + '</td>' +
     '<td>' + etfLink + (st.etf_name ? '<div class="auto-trade-steps-etfname">' + _atEsc(st.etf_name) + badge + '</div>' : badge) + '</td>' +
     '<td>' + _atPriceStr(st.order_price) + '</td>' +
@@ -15016,7 +15055,7 @@ function _atModalRender(overlay) {
     '<button class="lab-sigkelly-modal-close">✕</button>' +
     '</div>';
   const body = '<div class="lab-sigkelly-modal-tablewrap"><table class="lab-sigkelly-trades-table auto-trade-steps-modal-table">' +
-    '<thead><tr><th>时点</th><th>动作</th><th>ETF</th><th>挂单价</th><th>金额/份额</th><th>状态</th><th>现价/成交</th><th>触发条件说明</th><th>更新时间</th><th>操作</th></tr></thead>' +
+    '<thead><tr><th>日期+时间</th><th>动作</th><th>ETF</th><th>挂单价</th><th>金额/份额</th><th>状态</th><th>现价/成交</th><th>触发条件说明</th><th>更新时间</th><th>操作</th></tr></thead>' +
     '<tbody>' + rowsHtml + '</tbody></table></div>';
   overlay.innerHTML = '<div class="lab-sigkelly-modal auto-trade-steps-modal">' + head + body + '</div>';
   const closeBtn = overlay.querySelector(".lab-sigkelly-modal-close");
@@ -15052,6 +15091,8 @@ function _atModalRender(overlay) {
       if (_atSched && _atSched.slot && _atSched.slot.isConnected) _atLoadAndRender(_atSched.slot); // 主表同步
     };
   });
+  // 2026-09-22 用户需求: D+10 hoverpop(桌面 hover / 移动端 tap 切换), 复用 _bindSigKellyWmPop 同款交互模式
+  _bindAtStepsD10Pop(overlay);
 }
 function _atOpenModal(date) {
   if (!date) return;
@@ -15100,6 +15141,8 @@ function _atAllModalRender(overlay) {
       _atOpenEtfChart(a.getAttribute("data-code"), a.getAttribute("data-name") || "");
     };
   });
+  // 2026-09-22 用户需求: 全部计划弹窗卖出行 D+10 徽标 hoverpop(与主表/时间线弹窗同源同交互)
+  _bindAtStepsD10Pop(overlay);
 }
 function _atOpenAllModal() {
   let overlay = document.getElementById("lab-autotrade-steps-overlay");
@@ -15118,6 +15161,55 @@ function _atModalClose() {
   const overlay = document.getElementById("lab-autotrade-steps-overlay");
   if (overlay) { overlay.style.display = "none"; overlay.innerHTML = ""; }
   _atModalDate = null;
+}
+// 2026-09-22 用户需求: D+10 卖出格 hoverpop(桌面 hover / 移动端 tap 切换), 复用水印 pop 的定位+关闭逻辑
+// 弹窗表格容器有 overflow:auto, 绝对定位会被裁剪 → 用 position:fixed 相对视口定位
+function _atD10Position(trig, pop) {
+  const pw = pop.offsetWidth;
+  const ph = pop.offsetHeight;
+  const tr = trig.getBoundingClientRect();
+  // 预放 trigger 下方; 底部视口放不下则上弹; 左右防越界
+  let top = tr.bottom + 6;
+  if (top + ph > window.innerHeight - 8) top = Math.max(8, tr.top - ph - 6);
+  let left = tr.left;
+  if (left + pw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - pw);
+  pop.style.top = top + "px";
+  pop.style.left = left + "px";
+}
+function _bindAtStepsD10Pop(overlay) {
+  if (!overlay) return;
+  const isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
+  overlay.querySelectorAll(".auto-trade-steps-d10-wrap").forEach(function (trig) {
+    const pop = trig.querySelector(".auto-trade-steps-d10-pop-wrap");
+    if (!pop) return;
+    let openByClick = false;
+    const show = function () { pop.style.display = "block"; _atD10Position(trig, pop); };
+    const hide = function () { pop.style.display = "none"; pop.style.top = ""; pop.style.left = ""; };
+    trig.addEventListener("mouseenter", function () { if (!openByClick) show(); });
+    trig.addEventListener("mouseleave", function () { if (!openByClick) hide(); });
+    trig.addEventListener("click", function (e) {
+      e.stopPropagation();
+      if (isTouch) {
+        openByClick = pop.style.display !== "block";
+        if (openByClick) show(); else hide();
+      }
+    });
+  });
+  // 移动端: 点别处/滚动关闭所有 D+10 pop(全局绑一次)
+  if (isTouch && !document._atStepsD10DocBound) {
+    document._atStepsD10DocBound = true;
+    document.addEventListener("click", function (e) {
+      if (e.target.closest && e.target.closest(".auto-trade-steps-d10-wrap")) return;
+      overlay.querySelectorAll(".auto-trade-steps-d10-pop-wrap").forEach(function (p) {
+        if (p.style.display === "block") { p.style.display = "none"; p.style.top = ""; p.style.left = ""; }
+      });
+    }, true);
+    window.addEventListener("scroll", function () {
+      overlay.querySelectorAll(".auto-trade-steps-d10-pop-wrap").forEach(function (p) {
+        if (p.style.display === "block") { p.style.display = "none"; p.style.top = ""; p.style.left = ""; }
+      });
+    }, { passive: true, capture: true });
+  }
 }
 
 // 需求4: 点击 ETF 代码 → 轻量走势弹窗(复用 app.js 全局 _etfTrendLiteHTML/_etfTrendLiteBind +

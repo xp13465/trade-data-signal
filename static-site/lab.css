@@ -2751,6 +2751,31 @@ td.lab-sigkelly-elim-reason { text-decoration: none; color: var(--text-2); font-
 .auto-trade-steps-etf-modal { max-width: 680px; }
 .auto-trade-steps-etf-body { padding: 10px 12px 12px; }
 .auto-trade-steps-etf-body .lab-etf-pin-wrap svg { display: block; }
+/* 2026-09-22 用户需求: 弹窗第一列日期+时间 + D+10 hoverpop(卖出日交易日链提示) */
+.auto-trade-steps-dt { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.auto-trade-steps-d10-wrap { position: relative; display: inline-block; cursor: help; text-decoration: underline dotted; text-underline-offset: 2px; }
+.auto-trade-steps-d10-pop-wrap { position: fixed; z-index: 60; left: 0; top: 0; display: none; }
+.auto-trade-steps-d10-pop-wrap::before { content: ""; position: absolute; top: -6px; left: 0; right: 0; height: 6px; }
+.auto-trade-steps-d10-pop {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-shadow: 0 4px 16px var(--shadow-strong);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-2);
+  width: 250px;
+  max-width: calc(100vw - 16px);
+  white-space: normal;
+  display: block;
+}
+.auto-trade-steps-d10-pop-title { font-size: 12px; font-weight: 700; color: var(--text-1); margin-bottom: 4px; }
+.auto-trade-steps-d10-pop-chain { display: block; color: var(--text-2); margin-bottom: 4px; }
+.auto-trade-steps-d10-pop-days { display: block; color: var(--text-3); border-top: 1px solid var(--border); padding-top: 4px; font-size: 10px; }
+[data-theme="dark"] .auto-trade-steps-d10-pop-days,
+[data-theme="redgold"] .auto-trade-steps-d10-pop-days { color: var(--text-4); }
+@media (max-width: 760px) { .auto-trade-steps-d10-pop { width: min(250px, calc(100vw - 16px)); font-size: 11px; padding: 7px 9px; } }
 
 /* === 移动端「数据优先 + 说明折叠」sigkelly 段(2026-09-19, §1-§4) ===
    作用域红线: 全部只写在 @media(max-width:760px) 内, 桌面端(>760px)零回归。
