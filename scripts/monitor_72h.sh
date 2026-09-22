@@ -373,7 +373,7 @@ if _is_today_trading:
 
 # ==================== 检查2：上传 R2 各前缀代表性文件 ====================
 
-def curl_json(url, timeout=8):
+def curl_json(url, timeout=20):
     """curl 获取 JSON，返回 (data_dict, error_str)。"""
     try:
         result = subprocess.run(
@@ -390,7 +390,7 @@ def curl_json(url, timeout=8):
         return None, f"json parse fail: {e}"
 
 
-def curl_text(url, timeout=8):
+def curl_text(url, timeout=20):
     """curl 获取纯文本（如 sw.js），返回 (text_str, error_str)。"""
     try:
         result = subprocess.run(
@@ -846,6 +846,12 @@ else:
     print(f"[{NOW_STR}] PASS 所有检查正常（5类覆盖: 采集/R2/发布/稳定性/及时性）")
 
 # 恢复邮件
+# 2026-09-22 告警去噪: r2_* 前缀为自愈类(网络抖动/R2 故障可被 self_heal 自愈), 统一
+# suppress r2_* 恢复邮件——状态已在恢复检测置 recovered(仅抑制邮件)。R2_CHECKS 的
+# dedup_key(id: r2_prefix_index_fail / r2_prefix_industry_fail / r2_prefix_trade_sim_fail
+# / r2_prefix_public_fund_fail / r2_prefix_signal_kelly_fail)与通用恢复 L811 的
+# task(剥掉 72h_ 后仍 r2_ 开头)全被覆盖; 非 r2_ 恢复(push_age 时效/pf 数据等)仍正常发。
+recoveries = [r for r in recoveries if not str(r.get("task", "")).startswith("r2_")]
 if recoveries:
     print(f"[{NOW_STR}] 检测到 {len(recoveries)} 个异常恢复:")
     for r in recoveries:
