@@ -1117,7 +1117,7 @@ try:
                 continue
         return None
 
-    def _curl_r2_json(filename, timeout=8):
+    def _curl_r2_json(filename, timeout=20):
         """curl R2 直连获取 JSON body, 返回 (data_dict, error_str)"""
         url = f"{R2_BASE}/data/{filename}"
         try:
@@ -1749,6 +1749,11 @@ else:
     print(f"[{now_str}] OK 所有任务按计划执行，无漏跑，无退出失败")
 
 # 恢复邮件(独立于 SEVERE,异常消失即发,不加 --severe 前缀)
+# 2026-09-22 告警去噪: r2_* 前缀为自愈类(网络抖动/R2 故障可被 self_heal/网络自愈,
+# 见 L247 通知分级注释), 每次抖动发"告警+恢复"2 封(179 封里 82 封是恢复邮件)。
+# 统一 suppress r2_* 恢复邮件——状态已在各 inline 恢复点置 recovered(仅抑制邮件),
+# 与 72h_ 等自愈类口径一致; 非 r2_ 恢复(漏跑/exit失败/数据错等严重类)仍正常发。
+recoveries = [r for r in recoveries if not str(r.get("task", "")).startswith("r2_")]
 if recoveries:
     print(f"[{now_str}] 检测到 {len(recoveries)} 个异常恢复:")
     for r in recoveries:
