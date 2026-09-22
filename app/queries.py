@@ -276,6 +276,43 @@ def _signal_key(date: str, index_id: str, signal: str) -> str:
     return f"{date}|{index_id}|{signal}"
 
 
+# 信号类型优先级(与 scripts/signal_kelly_backtest.py `_SIG_RANK` 同源; 数字越小越优先)。
+# 冻结表键 = date|index_id|signal, 信号类型可能盘中漂移(如冻结时 sz_div=signal=buy,
+# 重算后现值改写为 buy_aux)导致精确键缺失 → 按 (date, index_id) 兜底取最高优先变体。
+# 仍返回「信号发生时点」固化的冻结 ETF, 不回退当前 board_etf_map(防前视不破, 与回测一致)。
+_SIG_RANK = {"buy_backup": 0, "buy": 1, "buy_aux": 2, "buy_special": 3, "": 9}
+
+# (date, index_id) → (rank, signal, frozen_entry) 索引缓存。按 len(freeze) 失效重建:
+# 冻结表由回测脚本盘后追加(每天新增信号事件), len 变化即内容变化, 与回测 `_freeze_fallback`
+# 同模式; 索引构建 O(28211) 一次, 后续每请求 O(1) 命中(避免每条信号逐 key 兜底扫描)。
+_FREEZE_DI_IDX = None
+_FREEZE_DI_IDX_LEN = -1
+
+
+def _build_freeze_di_idx(freeze: dict):
+    idx = {}
+    for k, entry in freeze.items():
+        parts = k.split("|")
+        if len(parts) != 3:
+            continue
+        d, iid, sig = parts
+        r = _SIG_RANK.get(sig, 9)
+        cur = idx.get((d, iid))
+        if cur is None or r < cur[0]:
+            idx[(d, iid)] = (r, sig, entry)
+    return idx
+
+
+def _freeze_fallback(freeze: dict, date: str, index_id: str):
+    """按 (date, index_id) 取冻结表最高优先 signal 变体的冻结条目; 该组合从未冻结过返回 None。"""
+    global _FREEZE_DI_IDX, _FREEZE_DI_IDX_LEN
+    if _FREEZE_DI_IDX is None or len(freeze) != _FREEZE_DI_IDX_LEN:
+        _FREEZE_DI_IDX = _build_freeze_di_idx(freeze)
+        _FREEZE_DI_IDX_LEN = len(freeze)
+    hit = _FREEZE_DI_IDX.get((date, index_id))
+    return hit[2] if hit else None
+
+
 def _align_home_top1_to_backtest(_s: dict, freeze: dict) -> None:
     """把一条 signals_today 信号与其回测标的 1:1 对齐: 命中 #58 冻结表则把冻结 ETF 标为权威 top1。
 
@@ -289,6 +326,12 @@ def _align_home_top1_to_backtest(_s: dict, freeze: dict) -> None:
     """
     key = _signal_key(_s.get("date", ""), _s.get("index_id", ""), _s.get("signal", ""))
     frozen = freeze.get(key)
+    if frozen is None:
+        # 信号类型漂移兜底(2026-09-22 根治): 精确键(date|index|signal)缺失时, 若该 (date, index)
+        # 在冻结表有其他 signal 变体(如现值 buy_aux 但冻结时是 buy), 按 _SIG_RANK 取最高者——
+        # 与回测 scripts/signal_kelly_backtest.py `_resolve_etf` 同源逻辑, 保证首页 top1 =
+        # 回测成交标的 1:1(§22)。真缺失((date,index) 从没冻结过)仍返回不改动(前端 max(track_score))。
+        frozen = _freeze_fallback(freeze, _s.get("date", ""), _s.get("index_id", ""))
     if not frozen or not isinstance(_s.get("etfs"), list):
         return
     etfs = _s["etfs"]

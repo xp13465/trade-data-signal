@@ -90,6 +90,11 @@ KELLY_ASOF = os.environ.get("KELLY_ASOF", "")
 # 改动必须与 yaml 同步, 并跑 scripts/check_universe_alignment.py 对称校验(断言3 会拦截白名单漂移)。
 BUY_SIGNALS = ("buy", "buy_aux", "buy_special", "buy_backup")
 
+# 信号类型优先级(冻结表类型漂移兜底用;越低越优先, 与 scripts/nextday_plan_generator.py _SIG_RANK
+# 同源同序: buy_backup > buy > buy_aux > buy_special > 空)。单一事实源 = nextday_plan_generator._SIG_RANK
+# (K=1 排序用), 此处为对齐副本防循环 import。见 L226 附近 _signal_key 兜底注释。
+_SIG_RANK = {"buy_backup": 0, "buy": 1, "buy_aux": 2, "buy_special": 3, "": 9}
+
 SELL_MODES = {
     "A": {"label": "固定10天", "hold_days": 10, "stop_profit": None},
     "B": {"label": "3%止盈",   "hold_days": 10, "stop_profit": 0.03},
@@ -228,6 +233,51 @@ def _signal_key(date, iid, sig):
     return f"{date}|{iid}|{sig}"
 
 
+# ── 冻结表键「信号类型漂移」读取侧兜底(2026-09-22 根治) ────────────────────────
+# 背景(memory freeze-key-signal-type-drift): 冻结表键含信号类型字段(date|index|signal)。
+# 信号类型会被盘中快照全量重算改写(buy→buy_aux, 9/18 sz_div 实例), 冻结时写的键是当时类型
+# (如 20260918|sz_div|buy), 重算后 signal_daily 现值是 buy_aux → 精确键 20260918|sz_div|buy_aux
+# 查不到 → 冻结分时点防御闸按「历史信号未冻结」拒绝补冻 → 该信号交易跳过 + --severe 告警。
+# 铁律约束:
+#   - 冻结表本体不动(L292 只读旁路, 不删不改键), 兜底发生在读取侧。
+#   - 不得破坏防前视语义: 兜底返回的仍是「信号发生时点」固化的冻结 ETF 值, 只是放宽「类型」维度;
+#     绝不回退读当前 board_etf_map。
+#   - 不得削弱防御闸: 非类型漂移的真缺失(该 date|index 从没冻结过)仍照常拒绝补冻 + 告警。
+# 取键策略: 精确匹配 date|index|signal 失败时, 按 date|index|* 兜底; 若同 (date,index) 有多个
+# 信号变体, 按 _SIG_RANK(与 nextday_plan_generator/_SIG_RANK 同源, buy_backup>buy>buy_aux>buy_special)
+# 取最高者。索引惰性构建一次(冻结表运行时只读, 不增删键, 缓存安全)。
+_FREEZE_DI_IDX = None
+_FREEZE_DI_IDX_LEN = -1
+
+
+def _build_freeze_di_idx(freeze):
+    """构建 {(date, index_id): (rank, signal, entry)} 兜底索引(惰性)。"""
+    idx = {}
+    for k, entry in freeze.items():
+        parts = k.split("|")
+        if len(parts) != 3:
+            continue
+        d, iid, sig = parts
+        r = _SIG_RANK.get(sig, 9)
+        cur = idx.get((d, iid))
+        if cur is None or r < cur[0]:
+            idx[(d, iid)] = (r, sig, entry)
+    return idx
+
+
+def _freeze_fallback(freeze, date, iid):
+    """精确键缺失时按 (date, index) 兜底取冻结值; 无则返回 None。
+
+    索引随 freeze 长度变化惰性重建(运行中新信号会就地补冻结写新键, len 变化即视为迁移)。
+    """
+    global _FREEZE_DI_IDX, _FREEZE_DI_IDX_LEN
+    if _FREEZE_DI_IDX is None or len(freeze) != _FREEZE_DI_IDX_LEN:
+        _FREEZE_DI_IDX = _build_freeze_di_idx(freeze)
+        _FREEZE_DI_IDX_LEN = len(freeze)
+    hit = _FREEZE_DI_IDX.get((date, iid))
+    return hit[2] if hit else None
+
+
 def _load_etf_freeze():
     """读冻结查找表 {signal_key: {code, name, track_tier, ..., frozen_at}}。文件不存在返回 {}。"""
     p = _etf_freeze_path()
@@ -355,6 +405,13 @@ def _resolve_etf(date, iid, sig, best_etf, freeze, latest_signal_date=None):
     frozen = freeze.get(key)
     if frozen is not None:
         return frozen, True
+    # 信号类型漂移兜底(2026-09-22 根治): 精确键(date|index|signal)缺失时, 若该 (date, index)
+    # 在冻结表有其他 signal 变体(如现值 buy_aux 但冻结时是 buy), 按 _SIG_RANK 取最高者返回——
+    # 仍返回「信号发生时点」固化的冻结 ETF 值, 不回退当前 board_etf_map(防前视不破);
+    # 真缺失((date,index) 从没冻结过)不受影响, 仍走下方防御闸拒绝补冻 + 告警。
+    fb = _freeze_fallback(freeze, date, iid)
+    if fb is not None:
+        return fb, True
     be = best_etf.get(iid)
     if not be:
         return None, False
