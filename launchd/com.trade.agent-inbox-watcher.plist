@@ -12,7 +12,7 @@
         <key>CLAUDE_BIN</key>
         <string>/Users/linhuichen/.nvm/versions/node/v25.8.0/bin/claude</string>
         <key>CODEX_REVIEWER_MODEL</key>
-        <string>deepseek-v4-pro-0813</string>
+        <string>deepseek-v4.1-flash</string>
         <key>PYTHONUNBUFFERED</key>
         <string>1</string>
     </dict>
