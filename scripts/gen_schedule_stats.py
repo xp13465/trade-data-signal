@@ -190,6 +190,28 @@ PUSH_SUCCESS_RE = re.compile(
     r'|视为幂等成功'
 )
 
+# Fix A(2026-09-23): multiprocessing 子进程正常退出时清理 semaphore 的噪音。
+# 现象: backfill_evening 日志出现 "Exception ignored in: <Finalize object, dead>"
+#   + Traceback + "FileNotFoundError: [Errno 2]"(进程已退出、sem 已被回收的正常清理),
+#   任务本身成功,但被 ANOMALY_RE 的 Traceback/FileNotFoundError 命中 → 每天假告警。
+# 判定: ANOMALY 命中行向上回溯,若存在 "Exception ignored in: <Finalize object, dead>"
+#   行且其间只有 Traceback/缩进帧/异常类名行(无普通日志) → 属该噪音块,不报。
+# 注意口子不开大: 真实 Traceback / 真实 FileNotFoundError(非清理链)仍报。
+FINALIZER_NOISE_START_RE = re.compile(r'Exception ignored in: <Finalize object, dead>')
+
+# Fix B(2026-09-23): nextday_gap_check 内置 300s 重试成功自愈。
+# 根因: 9:26 首拉 ConnectionError -> 内置重试 -> 9:31 成功(exit=0);旧逻辑命中即报
+#   不认后续成功, nextday_gap_check|ConnectionError 卡 active 至今。
+# 自愈判定: 同窗口出现重试成功标记(显式 "✓ 重试成功" / 逐 ETF "✓ xxx 正常 open=" /
+#   "全部 N 笔无伪跳空, 无标记", 后两者仅重试拿到开盘价才会走到) → ConnectionError/
+#   TimeoutError 命中自愈不报; 重试也失败(exit=2、无成功标记) → 照报。
+GAP_RETRY_SUCCESS_RE = re.compile(
+    r'\[nextday_gap_check\] ✓ 重试成功'
+    r'|\[nextday_gap_check\] +✓ \d+ 正常 open='
+    r'|\[nextday_gap_check\] 执行日 \d+ 笔无伪跳空, 无标记'
+)
+TRANSIENT_NET_ERR_RE = re.compile(r'\b(?:ConnectionError|TimeoutError)\s*:')
+
 
 def launchctl_last_exit(label: str | None) -> int | None:
     """读任务最近一次运行的**真实退出码**(平台分支 mac/linux)。
@@ -284,6 +306,58 @@ def _systemd_last_exit(label: str) -> int | None:
     return None  # 从未跑(ec=0)/缺字段: 未知
 
 
+def _finalizer_noise_ranges(lines: list, lo: int, hi: int) -> list:
+    """在 [lo, hi) 行区间内找所有 multiprocessing finalizer 清理噪音块(Fix A)。
+
+    噪音块结构(约 8 行, 实证 2026-09-22 backfill_evening):
+        Exception ignored in: <Finalize object, dead>
+        Traceback (most recent call last):
+          File ".../multiprocessing/util.py", line 227, in __call__
+            ...
+          File ".../multiprocessing/synchronize.py", line 87, in _cleanup
+            sem_unlink(name)
+        FileNotFoundError: [Errno 2] No such file or directory
+    切块方式(精确, 不回溯, 防噪音块后紧跟真实异常被误吞):
+      起点 = "Exception ignored in: <Finalize object, dead>" 行;
+      向后吃 Traceback/缩进帧/代码行(这些行本身非 ANOMALY 命中, 但属于块结构);
+      吃到第一个异常类型行(无缩进 "FileNotFoundError: ...")为块结束(该行也属于块);
+      额外要求块内至少一帧含 "multiprocessing/" —— 证明是清理链而非普通真实异常
+      (真实异常帧路径如 intraday_snapshot.py 不含)。
+    返回 [(start_idx, end_idx_exclusive), ...]。
+    """
+    ranges = []
+    i = lo
+    while i < hi:
+        if FINALIZER_NOISE_START_RE.search(lines[i]):
+            start = i
+            i += 1
+            # 向后吃 Traceback / 缩进帧 / 缩进代码行
+            while i < hi:
+                lk = lines[i]
+                if lk.startswith((" ", "\t")) or lk.strip().startswith("Traceback"):
+                    i += 1
+                    continue
+                break
+            # i 应指向异常类型行(无缩进 "FileNotFoundError: ...")
+            if i < hi and re.match(r"^[A-Za-z_][A-Za-z0-9_.]*Error:", lines[i].strip()):
+                block = lines[start:i + 1]
+                # 块内含 multiprocessing 帧 = 确认是清理链, 才算噪音块
+                if any("multiprocessing/" in b for b in block):
+                    ranges.append((start, i + 1))
+                    i += 1
+                    continue
+            # 不构成噪音块(非清理链/结构不符): 从起点后一行继续找
+            i = start + 1
+        else:
+            i += 1
+    return ranges
+
+
+def _in_finalizer_noise(ranges: list, idx: int) -> bool:
+    """命中行 idx 是否落在任一 finalizer 清理噪音块区间内(Fix A)。"""
+    return any(a <= idx < b for a, b in ranges)
+
+
 def scan_log_anomaly(log_path: Path, script: str, mode: str,
                      last_exit: int | None = None) -> dict | None:
     """扫描 log 文件最近一次运行窗口内的异常关键词(第4盲区修复)。
@@ -357,10 +431,24 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
     #   其他关键词(Traceback/异常类名/FATAL)逻辑不变,命中即报。
     window_lines = lines[last_start_idx:end_idx]
     has_push_success = any(PUSH_SUCCESS_RE.search(l) for l in window_lines)
+    has_gap_retry_success = any(GAP_RETRY_SUCCESS_RE.search(l) for l in window_lines)
+    finalizer_ranges = _finalizer_noise_ranges(lines, last_start_idx, end_idx)
     for i in range(last_start_idx, end_idx):
         # 优先扫非 push 失败类异常(Traceback/异常类名/FATAL):命中即报,不抑制
         m = ANOMALY_RE.search(lines[i])
         if m:
+            # Fix A(2026-09-23): multiprocessing finalizer 清理噪音块内命中不报
+            # (进程正常退出的清理,偶然语气=异常实际非任务失败)
+            if _in_finalizer_noise(finalizer_ranges, i):
+                print(f"[finalizer-noise] {log_path.name} 命中行属于 multiprocessing "
+                      f"清理噪音, 不报")
+                continue
+            # Fix B(2026-09-23): nextday_gap_check 内置重试成功 -> 瞬时网络异常自愈不报
+            # (9:26 ConnectionError -> 9:31 重试成功 exit=0; 重试也失败无成功标记照报)
+            if has_gap_retry_success and TRANSIENT_NET_ERR_RE.search(lines[i]):
+                print(f"[retry-self-heal] {log_path.name} 瞬时网络异常命中但同窗口 "
+                      f"有重试成功标记, 不报")
+                continue
             return {
                 "keyword": m.group(0),
                 "line": lines[i].strip()[:200],

@@ -92,8 +92,11 @@ if [ "$IS_TRADING" != "1" ]; then
 fi
 
 # 等待 update_all 完成（防撞车 + 防读旧数据缺当天）
-# update_all 持 /tmp/trade_update_all.lock 并跑 update_all.sh 进程；最多等 90 分钟防异常久。
-WAIT_MAX=5400  # 90 min
+# update_all 持 /tmp/trade_update_all.lock 并跑 update_all.sh 进程；最多等 150 分钟防异常久。
+# 2026-09-23: 90min→150min。根因: fund-nav 上传 6225s(每文件2次跨境TLS握手), deploy.sh 3h4m,
+#   update_all 3h36m; keep_alive 修复后 fund-nav→~2000s, update_all≈2h26m(17:50→20:16),
+#   距 90min 上限仅~14min 余量太薄(9-22 实测超时放弃 lab 当天未更新)。留足余量。
+WAIT_MAX=9000  # 150 min
 WAITED=0
 while pgrep -f 'update_all\.sh' >/dev/null 2>&1; do
   if [ "$WAITED" -ge "$WAIT_MAX" ]; then

@@ -173,6 +173,10 @@ def main():
             try:
                 # F4: 传执行日 today 做数据日期新鲜度校验(陈旧快照抛 RuntimeError 走重试链)
                 opens = _fetch_opens(list(target.keys()), None, today)
+                if attempt == 2:
+                    # Fix B(2026-09-23): 重试成功显式标记, 供 gen_schedule_stats 扫描侧
+                    # 识别"窗口内异常后自愈"(否则 ConnectionError 命中即报, 卡 active 至今)
+                    log(f"✓ 重试成功(第1次失败后重试): {last_err}")
                 break
             except RuntimeError as e:
                 last_err = str(e)
