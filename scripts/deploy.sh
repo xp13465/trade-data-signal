@@ -177,19 +177,39 @@ fi
 # build_board_etf_map.py：行业/概念关键词匹配 + 14 宽基/红利/港股指数代码精确匹配。
 # 根因修复（2026-08-06）：etf_index_map.json 从未成功生成（生成脚本不存在），_load_etf_index_map_reverse
 #   读不到只 warning + exit 0 静默失败，致 board_etf_map.json 14 宽基全空，首页"全部无 ETF"。
-#   现前置 gen_etf_index_map.py 刷新输入，build_board_etf_map.py 失败 exit 1 阻断 deploy
-#   （不再"继续用旧 map"静默覆盖空数组），且内置 akshare 名称匹配兜底 + 14 宽基校验。
+#   现前置 gen_etf_index_map.py 刷新输入，build_board_etf_map.py 失败时（2026-09-22 加固）:
+#   降级为「board_etf_map 用旧版兜底 + 该文件跳过」而非终止整个 deploy（9/21 断档根因:
+#   build 失败 exit 终止 deploy → export 没跑 → signal_kelly_trades 停更 2 天）。
+#   原语义「防静默覆盖空 map」保留: build 失败绝不用空/坏 map 覆盖现有 board_etf_map.json
+#   （build_board_etf_map.py 内部先写盘后校验, 失败时文件已写坏 → 必须 build 前备份 + 失败恢复）。
 echo "-> 刷新 etf_index_map.json (gen 名称匹配反推 track_index_code) ..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/gen_etf_index_map.py" >> "$LOG" 2>&1 || {
   echo "⚠ gen_etf_index_map.py 失败(akshare 反爬/网络?)，build_board_etf_map.py 将走名称匹配兜底" | tee -a "$LOG"
 }
 echo "-> 刷新 board_etf_map.json (ETF 联动 tag 数据源) ..." | tee -a "$LOG"
+# 2026-09-22 加固（9/21 断档根因）: build_board_etf_map.py 失败不再终止整个 deploy。
+# 根因: build_board_etf_map.py 内部先 OUT.write_text 写盘后 14 宽基校验(exit 1)，
+#   失败时 $REPO/data/board_etf_map.json 已被写成坏/空 map → 原逻辑 exit 终止 deploy 防它上线；
+#   但连带 export 没跑 → signal_kelly_trades 停更。现改为: build 前备份旧 map，
+#   build 失败 → 恢复旧版 + SKIP_MAP_SYNC=1（跳过项6/6.1 的 cp 与哈希，防坏 map 进 R2/双树），
+#   不 exit，export/其余产物照常生成。防静默覆盖语义保留（坏 map 绝不覆盖现有文件）。
+_BOARD_MAP_BAK="$REPO/data/board_etf_map.json.deploybak"
+[ -f "$REPO/data/board_etf_map.json" ] && cp -p "$REPO/data/board_etf_map.json" "$_BOARD_MAP_BAK" 2>>"$LOG" || true
 "$PY" "$REPO/scripts/build_board_etf_map.py" >> "$LOG" 2>&1
 BUILD_RC=$?
+SKIP_MAP_SYNC=0
 if [ "$BUILD_RC" -ne 0 ]; then
-  echo "✗ build_board_etf_map.py 失败(退出码 ${BUILD_RC}，14 宽基校验未过/akshare 兜底也失败)，终止 deploy（防静默覆盖空 map）" | tee -a "$LOG"
-  exit "$BUILD_RC"
+  SKIP_MAP_SYNC=1
+  echo "✗ build_board_etf_map.py 失败(退出码 ${BUILD_RC}，14 宽基校验未过/akshare 兜底也失败)，board_etf_map 用旧版兜底，跳过该项更新（其余产物照常生成）" | tee -a "$LOG"
+  if [ -f "$_BOARD_MAP_BAK" ]; then
+    cp -p "$_BOARD_MAP_BAK" "$REPO/data/board_etf_map.json" 2>>"$LOG" \
+      && echo "✓ board_etf_map.json 已从备份恢复旧版（build 失败前备份）" | tee -a "$LOG" \
+      || echo "⚠ 恢复 board_etf_map.json 旧版备份失败，需人工核查 data/board_etf_map.json" | tee -a "$LOG"
+  else
+    echo "⚠ 无 board_etf_map.json 旧版备份可用（首次部署？），跳过恢复" | tee -a "$LOG"
+  fi
 fi
+rm -f "$_BOARD_MAP_BAK"
 
 # 项6: build 成功后同步新版 board_etf_map.json 到 static-site/data/（前端 R2 上传源，2026-08-18）。
 # 背景: build_board_etf_map.py 只写 data/board_etf_map.json（export_overview 读它），但前端 R2 的
@@ -201,9 +221,15 @@ fi
 # ⚠ 目标必须用 $REPO（trade-data，upload 源）而非 $GIT_REPO（trade）：launchd 自动 deploy 在 trade-data 跑，
 #   upload_r2.py STATIC_DIR=trade-data/static-site 从 $REPO 上传；cp 到 $GIT_REPO（trade）会被下方
 #   rsync "$REPO/static-site/data/" -> "$GIT_REPO/static-site/data/" 用 trade-data 侧 8/9 旧版反覆盖（7e19a5bb6 项6 错位）。
+# 2026-09-22 加固: build 失败(SKIP_MAP_SYNC=1)时跳过 cp——data/ 已恢复旧版，static-site/data/ 保持旧版，
+#   R2 前端读旧版与 overview 仍一致(同一旧版)，且绝不把坏 map 带上线(防静默覆盖语义保留)。
+if [ "$SKIP_MAP_SYNC" -eq 0 ]; then
 cp "$REPO/data/board_etf_map.json" "$REPO/static-site/data/board_etf_map.json" 2>>"$LOG" \
   && echo "✓ board_etf_map.json 已同步到 static-site/data/（build 后自动联动，前端 R2 与 overview 一致）" | tee -a "$LOG" \
   || echo "⚠ 同步 board_etf_map.json 到 static-site/data/ 失败（不阻断，export 仍用 data/ 新版）" | tee -a "$LOG"
+else
+  echo "ℹ build_board_etf_map 失败，跳过 board_etf_map.json 同步到 static-site/data/（R2 前端保持旧版一致）" | tee -a "$LOG"
+fi
 
 # 项6.1: 双树单源对齐（2026-09-18 ④，3版本漂移根因②）——board_etf_map.json 同步到 $GIT_REPO/data/。
 # 背景: queries.py _ETF_MAP_PATH = Path(__file__).absolute().parent.parent/"data"/"board_etf_map.json"
@@ -214,6 +240,7 @@ cp "$REPO/data/board_etf_map.json" "$REPO/static-site/data/board_etf_map.json" 2
 # ⚠ 与项6 不同: 项6 目标是 $REPO/static-site/data/（R2 上传源）；此处目标是 $GIT_REPO（trade 侧后端读的 data/）。
 #   git 检查 gitignore 忽略 data/board_etf_map.json，cp 不产生新 commit（纯本机数据层对齐）。
 # cp 后哈希校验，不一致丢 §22 一致性阻断（防后续从老树启动的进程读旧版再反向写冻结表）。
+if [ "$SKIP_MAP_SYNC" -eq 0 ]; then
 cp "$REPO/data/board_etf_map.json" "$GIT_REPO/data/board_etf_map.json" 2>>"$LOG" \
   && echo "✓ board_etf_map.json 已同步到 $GIT_REPO/data/（双树单源）" | tee -a "$LOG" \
   || echo "⚠ 同步 board_etf_map.json 到 $GIT_REPO/data/ 失败（不阻断，export 仍用 $REPO 新版）" | tee -a "$LOG"
@@ -224,6 +251,9 @@ if [ -n "$_MAP_H1" ] && [ -n "$_MAP_H2" ] && [ "$_MAP_H1" != "$_MAP_H2" ]; then
   exit 1
 fi
 echo "✓ board_etf_map.json 双树哈希校验通过（${_MAP_H1}）" | tee -a "$LOG"
+else
+  echo "ℹ build_board_etf_map 失败，跳过双树单源同步与哈希校验（$GIT_REPO/data/ 保持旧版一致）" | tee -a "$LOG"
+fi
 
 # 1. 导出 JSON
 # ab#39 增量导出（2026-08-17 批次A）：--incremental 让 export 只重算源数据已变化的 JSON，
