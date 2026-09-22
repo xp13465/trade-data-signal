@@ -258,6 +258,9 @@ def _build_steps_for_plan(p, now: str, sell_date: str) -> list[dict]:
     seq1 09:15 挂单(昨收限价单) / seq2 09:25 竞价判定(低开按开盘价成交, 高开等回落) /
     seq3 14:55 尾盘兜底(未成交撤单改市价) / seq5 D+10 卖出(A 模式持有 10 个交易日到期, 独立行)。
     全部 status=pending 待执行, 由前端按时钟推进展示(干跑阶段不写回执行状态)。
+    seq1 trigger_note 附带「竞价档」可选操作提示(2026-09-22 用户拍板: 加提示, 默认档不变):
+    9:15-9:25 挂昨收×1.02 高价限价单, 集合竞价按最大成交量原则统一以开盘价成交(沪深通用规则),
+    效果≈开盘直买, 回测全史十年较默认档多 +2,254 元(+1.44%)。来源: docs/auto-trade/nextday-buy-mix-table-20260922.md。
     """
     code = str(p.get("etf_code") or "")
     name = str(p.get("etf_name") or "")
@@ -282,7 +285,7 @@ def _build_steps_for_plan(p, now: str, sell_date: str) -> list[dict]:
         "seq": 1, "time_slot": "09:15", "action": "buy", "order_price": price,
         "expected_range": f"低开按开盘价成交; 高开等回落至 {price} 或尾盘兜底",
         "decision": f"9:25 集合竞价: O ≤ {price}? 是→按O成交; 否→高开等回落触及 {price}; 14:55 仍未触及→撤单市价兜底",
-        "trigger_note": f"按昨收价 {price} 挂限价买单, 9:25 集合竞价撮合(干跑阶段只生成计划, 不真实下单)",
+        "trigger_note": f"按昨收价 {price} 挂限价买单, 9:25 集合竞价撮合(干跑阶段只生成计划, 不真实下单)。竞价档(可选): 9:15-9:25 挂昨收×1.02 高价限价单, 集合竞价以开盘价成交, 历史比默认档多 +2,254 元(+1.44%)",
     })
     seq2 = dict(base, **{
         "seq": 2, "time_slot": "09:25", "action": "buy", "order_price": price,
