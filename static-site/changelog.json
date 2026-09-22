@@ -157,5 +157,8 @@
   ],
   "20260921-a604": [
     "docs(mobile-ux v3): \u843d\u6863 \u00a710 \u5b9e\u65bd\u8bb0\u5f55(\u56de\u900044px+\u53c2\u6570\u62bd\u5c4954vh)"
+  ],
+  "20260922-a605": [
+    "feat(\u5b9e\u64cd\u6b65\u9aa4\u5f39\u7a97): \u7b2c\u4e00\u5217\u6539\u65e5\u671f+\u65f6\u95f4 + D+10 hoverpop \u4ea4\u6613\u65e5\u94fe\u63d0\u793a"
   ]
 }
