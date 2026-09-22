@@ -52,6 +52,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from signal_kelly_backtest import PSEUDO_GAP_EXCLUDE, _fetch_intraday_open_prices  # noqa: E402
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 
 LOG_TAG = "[nextday_gap_check]"
 DEFAULT_RETRY_WAIT = 300   # 9:26 → 9:31 重试间隔(秒)
@@ -238,8 +239,7 @@ def main():
     if steps_doc is not None and steps_changed:
         for sp in [data_dir / "auto_trade_steps.json", git_data_dir / "auto_trade_steps.json"]:
             sp.parent.mkdir(parents=True, exist_ok=True)
-            with sp.open("w", encoding="utf-8") as f:
-                json.dump(steps_doc, f, ensure_ascii=False, indent=1)
+            atomic_write_json(sp, steps_doc, indent=1)
             written.append(str(sp))
         log(f"auto_trade_steps 落盘(steps_changed): {len(steps_doc['steps'])} 行")
     if excluded:
@@ -248,8 +248,7 @@ def main():
         # 永远进不了生成器 docstring 声明的「本地权威」ROOT/data/nextday_plan.json(§22 reviewer F2)。
         for d in [ROOT / "data", data_dir, git_data_dir]:
             d.mkdir(parents=True, exist_ok=True)
-            with (d / "nextday_plan.json").open("w", encoding="utf-8") as f:
-                json.dump(plan_doc, f, ensure_ascii=False, indent=1)
+            atomic_write_json(d / "nextday_plan.json", plan_doc, indent=1)
             written.append(str(d / "nextday_plan.json"))
         log("nextday_plan.json 落盘(gap_excluded 标记)")
 
@@ -356,8 +355,7 @@ def _mark_unverified(steps_doc, today, target, now, write_paths):
     if changed:
         for sp in write_paths:
             sp.parent.mkdir(parents=True, exist_ok=True)
-            with sp.open("w", encoding="utf-8") as f:
-                json.dump(steps_doc, f, ensure_ascii=False, indent=1)
+            atomic_write_json(sp, steps_doc, indent=1)
         log("auto_trade_steps 落盘(未完成标记)")
 
 

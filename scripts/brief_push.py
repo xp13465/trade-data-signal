@@ -39,6 +39,9 @@ import urllib.error
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).absolute().parent))
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
+
 REPO = Path(__file__).absolute().parent.parent
 # daily_brief 数据源（与 gen_daily_brief.py 双写位置一致；launchd 从 trade-data 跑，脚本 resolve 到 trade/scripts）
 DATA_DIR = Path(__file__).absolute().parent.parent / "static-site" / "data"
@@ -83,7 +86,7 @@ def load_state() -> dict:
 
 def save_state(state: dict) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
+    atomic_write_json(STATE_FILE, state, indent=1)
 
 
 def is_trading_day(date: str) -> bool:

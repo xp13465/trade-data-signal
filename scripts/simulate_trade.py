@@ -27,7 +27,9 @@ from datetime import datetime, timedelta
 
 DB = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "sentiment.db")
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.dirname(__file__))
 from app.db import get_conn
+from util_atomic import atomic_write_json, atomic_write_text  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 OUTPUT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static-site", "trade_sim.html")
 
 TOTAL_CAPITAL = 100_000   # 总资金池
@@ -1966,10 +1968,8 @@ def _generate_json(index_id, name_map, out_dir_data, fee_config=None):
     os.makedirs(out_dir, exist_ok=True)
     stats_path = os.path.join(out_dir, f'trade_sim_{index_id}_stats.json')
     full_path = os.path.join(out_dir, f'trade_sim_{index_id}_full.json')
-    with open(stats_path, 'w', encoding='utf-8') as f:
-        json.dump(stats_json, f, ensure_ascii=False, separators=(',', ':'))
-    with open(full_path, 'w', encoding='utf-8') as f:
-        json.dump(full_json, f, ensure_ascii=False, separators=(',', ':'))
+    atomic_write_json(stats_path, stats_json, separators=(',', ':'))
+    atomic_write_json(full_path, full_json, separators=(',', ':'))
     return True
 
 
@@ -2148,8 +2148,7 @@ def _generate_fee_compare(index_id, out_dir_data):
     out_dir = os.path.join(out_dir_data, 'trade_sim')
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f'trade_sim_{index_id}_fee_compare.json')
-    with open(out_path, 'w', encoding='utf-8') as f:
-        json.dump(out_json, f, ensure_ascii=False, separators=(',', ':'))
+    atomic_write_json(out_path, out_json, separators=(',', ':'))
     print(f"FEE_COMPARE Generated: {index_id} -> {out_path}")
     return True
 
@@ -2234,8 +2233,7 @@ def _generate_one(index_id, name_map, out_dir_static, output=None):
         ]
     for out in outputs:
         os.makedirs(os.path.dirname(out), exist_ok=True)
-        with open(out, "w", encoding="utf-8") as f:
-            f.write(html)
+        atomic_write_text(out, html)
     return True
 
 
@@ -2259,8 +2257,7 @@ def _generate_indices_list(out_dir_data):
             indices.append(fn[len(prefix):-len(suffix)])
     indices.sort()
     out_path = os.path.join(out_dir_data, 'trade_sim_indices.json')
-    with open(out_path, 'w', encoding='utf-8') as f:
-        json.dump(indices, f, ensure_ascii=False, separators=(',', ':'))
+    atomic_write_json(out_path, indices, separators=(',', ':'))
     print(f"索引清单已生成: {len(indices)} 个 -> {out_path}")
 
 

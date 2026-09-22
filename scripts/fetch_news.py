@@ -93,6 +93,10 @@ except Exception:  # noqa: BLE001  (scripts/ 在 sys.path 时)
 # 允许 app.calendar 被 import（同 daily_summary_email.py 做法）
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
+_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 
 NEWS_CAP = 40          # news 总量上限
 
@@ -613,11 +617,9 @@ def main():
     }
 
     # 当日 news_digest.json(累积快照,前端实时读) + 归档同写(年目录) + 每天索引
-    with open(OUT_FILE, "w", encoding="utf-8") as f:
-        json.dump(digest, f, ensure_ascii=False, indent=2)
+    atomic_write_json(OUT_FILE, digest, indent=2)
     archive_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(archive_file, "w", encoding="utf-8") as f:
-        json.dump(digest, f, ensure_ascii=False, indent=2)
+    atomic_write_json(archive_file, digest, indent=2)
     _write_index()
     print(f"[fetch_news] 已写 {OUT_FILE} + 归档 {archive_file} date={day_str} "
           f"[{merge_from}] news={len(news)} upcoming={len(upcoming)} "

@@ -109,7 +109,10 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  # trade/scripts/
 _ROOT_DIR = os.path.dirname(_SCRIPT_DIR)                  # trade/
 if _ROOT_DIR not in sys.path:
     sys.path.insert(0, _ROOT_DIR)
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
 from app.collector.nav_placeholder_defense import CANDIDATE_WHERE, is_placeholder_row, trading_gap_between  # noqa: E402
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 
 DEFAULT_REPO = Path(os.environ.get("REPO", "/Users/linhuichen/code/trade-data"))
 REPO = DEFAULT_REPO  # --repo 可覆盖(见 main)
@@ -1324,7 +1327,7 @@ def _make_dbs(base: Path, tables: dict[str, list[tuple]],
     if north_state is None:
         sp.unlink(missing_ok=True)
     else:
-        sp.write_text(json.dumps(north_state), encoding="utf-8")
+        atomic_write_json(sp, north_state)
     lp = data / "logs" / "backfill_evening_launchd.log"
     if cap_giveup_line is None:
         lp.unlink(missing_ok=True)

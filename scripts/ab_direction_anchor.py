@@ -87,6 +87,7 @@ AB_OUT_FILE = "ab_direction_anchor_7d.json"
 HISTORY_FILE = "daily_brief_history.json"
 
 from pick_repo import pick_repo, pick_git_repo  # noqa: E402
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 
 
 def _read_json(path: Path) -> dict | list | None:
@@ -300,7 +301,7 @@ def _main() -> int:
         db_path = _pick_db(repo)
         records, n_new = _reconcile_records(records, db_path)
         if n_new:
-            rec_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+            atomic_write_json(rec_path, records, indent=2)
         agg = _eval_records(records)
         agg["records_path"] = str(rec_path)
         agg["records_total"] = len(records)
@@ -308,7 +309,7 @@ def _main() -> int:
         # 落盘报告产物(§23.5)
         out_path = git_repo / AB_OUT_DIR / AB_OUT_FILE
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(agg, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(out_path, agg, indent=2)
         if args.json:
             print(json.dumps(agg, ensure_ascii=False, indent=2))
         else:
@@ -385,7 +386,7 @@ def _main() -> int:
         "elapsed_s": elapsed,
     }
     records.append(rec)
-    rec_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_json(rec_path, records, indent=2)
     log(f"✅ {date} 关锚参考已落盘({len(records)} 条)。direction={ref_dir} "
         f"prod_direction={prod_dir} 耗时{elapsed}s")
     log(f"记录文件: {rec_path}")

@@ -16,10 +16,11 @@ from __future__ import annotations
 import json
 import os
 import sys
-import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 SUBS_PATH = REPO / "config" / "subscriptions.json"
 PWD_PATH = REPO / "config" / "sub_pwd.json"
 EXPORT_URL = "https://ss.fx8.store/api/subscribe/export"
@@ -83,21 +84,13 @@ def main() -> int:
         print("[sync_subscriptions] 响应格式异常（非 {subscriptions:[...]}），跳过同步", file=sys.stderr)
         return 1
 
-    # 原子写（.tmp + rename）：防 check_signals 并发读半截文件
+    # 原子写（util_atomic 公共模块, 2026-09-22 统一）：同目录 pid+随机 tmp + flush + fsync + os.replace
+    # 防 check_signals 并发读半截文件
     SUBS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(data, ensure_ascii=False, indent=2)
-    fd, tmp_path = tempfile.mkstemp(dir=str(SUBS_PATH.parent), prefix=".sub_sync_", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.replace(tmp_path, SUBS_PATH)
+        atomic_write_json(SUBS_PATH, data, indent=2)
     except Exception as e:
         print(f"[sync_subscriptions] 写文件失败：{e}，跳过同步", file=sys.stderr)
-        try:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-        except OSError:
-            pass
         return 1
 
     count = len(data.get("subscriptions", []))

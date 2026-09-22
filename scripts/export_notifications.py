@@ -30,6 +30,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 from datetime import datetime
@@ -37,8 +38,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).absolute().parent.parent  # 不 resolve：trade-data/scripts symlink -> trade/scripts
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.db import get_conn  # noqa: E402
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 
 DB_PATH = ROOT / "data" / "sentiment.db"
 ETF_DB_PATH = ROOT / "data" / "etf_national_team.db"
@@ -393,8 +396,7 @@ def export_notifications(date: str | None = None) -> dict:
         "post_close": post_close,
     }
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(OUT_JSON, "w", encoding="utf-8") as f:
-        json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
+    atomic_write_json(OUT_JSON, out, separators=(",", ":"))
     print(
         f"[export_notifications] 导出 {OUT_JSON.name} "
         f"(date={date} signals={len(signals)} "

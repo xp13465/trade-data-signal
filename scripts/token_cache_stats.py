@@ -45,6 +45,9 @@ import sys
 from collections import defaultdict
 from datetime import datetime, timedelta
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
+
 
 def parse_usage(line_obj):
     """从一行事件对象提取 usage 三字段,失败返回 None。"""
@@ -346,8 +349,7 @@ def _write_config_snapshot(date_str):
         print("warn: 创建快照目录失败 %s: %s" % (snap_dir, e), file=sys.stderr)
         return
     path = os.path.join(snap_dir, "%s.json" % date_str)
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(snap, fh, ensure_ascii=False, indent=2)
+    atomic_write_json(path, snap, indent=2)
     print("配置快照已落盘: %s (仅端点三字段,无 token)" % path)
 
 

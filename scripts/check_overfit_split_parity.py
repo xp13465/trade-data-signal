@@ -34,6 +34,9 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
+
 # 拆分归属单一事实源(与 overfit_monitor.py B件套产出/app.js _ovNeedsExtBank 判定同口径)
 EXT_KEYS = ("by_k", "filtered_by_k")
 DATA_KEYS = ("accuracy", "overfit", "filtered", "recent") + EXT_KEYS
@@ -64,10 +67,7 @@ def make_fixtures(src_path: str, out_dir: str) -> int:
     mp = os.path.join(out_dir, "overfit_monitor.json")
     ep = os.path.join(out_dir, "overfit_monitor_ext.json")
     for p, obj in ((mp, main), (ep, ext)):
-        tmp = p + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(obj, f, ensure_ascii=False, separators=(",", ":"))
-        os.replace(tmp, p)
+        atomic_write_json(p, obj, separators=(",", ":"))
         print(f"  fixture 已写: {p} ({os.path.getsize(p) / 1048576:.2f}MB)")
     return 0
 

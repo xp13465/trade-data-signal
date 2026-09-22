@@ -74,6 +74,7 @@ from pick_repo import pick_repo, pick_git_repo, force_env, guard_deploy_source_t
 # trade 行 schema 单一事实源(防列序漂移, 2026-08-23/09-15 两次同款病灶): 不再各自硬编码 FIELD。
 # signal_kelly_backtest 顶层仅常量/函数定义, 无 DB 连接/重计算副作用, import 安全。
 from signal_kelly_backtest import TRADE_FIELDS  # noqa: E402
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 REPO = str(guard_deploy_source_tree(pick_repo()))         # trade-data/(部署源树)
 
 # ── 常量 ──────────────────────────────────────────────────────────────────────
@@ -1766,15 +1767,9 @@ def build_output(rebuild=False, dry_run=False):
     # 写文件(A瘦身 2026-08-24): indent=2 → compact separators。indent 纯缩进空格占 64% 体积
     # (线上实测 26.6MB→9.7MB compact), br 压缩后传输同步下降; 字段/数值零变化(json.load 无感)。
     os.makedirs(os.path.dirname(OUT_JSON), exist_ok=True)
-    tmp = OUT_JSON + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
-    os.replace(tmp, OUT_JSON)
+    atomic_write_json(OUT_JSON, out, separators=(",", ":"))
     # B拆分(2026-08-24): ext 文件同 compact 口径落盘(by_k/filtered_by_k), 与主文件同一次打点。
-    tmp2 = OUT_EXT_JSON + ".tmp"
-    with open(tmp2, "w", encoding="utf-8") as f:
-        json.dump(ext_out, f, ensure_ascii=False, separators=(",", ":"))
-    os.replace(tmp2, OUT_EXT_JSON)
+    atomic_write_json(OUT_EXT_JSON, ext_out, separators=(",", ":"))
     print(f"✅ overfit_monitor.json 已写: {OUT_JSON} (compact)")
     print(f"✅ overfit_monitor_ext.json 已写: {OUT_EXT_JSON} (by_k/filtered_by_k 拆分)")
 
@@ -1807,9 +1802,7 @@ def build_output(rebuild=False, dry_run=False):
         print("   无触发预警")
 
     # 回写包含 sent 状态(A瘦身: 同 compact 口径; ext 文件不含 alerts 无需回写)
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
-    os.replace(tmp, OUT_JSON)
+    atomic_write_json(OUT_JSON, out, separators=(",", ":"))
     if alerts:
         print(f"   (预警记录已回写 {len(alerts)} 条)")
 

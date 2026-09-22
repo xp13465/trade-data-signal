@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 from datetime import datetime
@@ -26,6 +27,7 @@ import pandas as pd
 
 ROOT = Path(__file__).absolute().parent.parent  # 不用 .resolve()：trade-data/scripts 是 trade/scripts 的 symlink，resolve() 会跳回 trade 致 alert*.json 绕过 trade-data 写到 trade
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.alert_score import (  # noqa: E402
     HIGH_WEIGHTS,
@@ -33,6 +35,7 @@ from app.alert_score import (  # noqa: E402
     compute_alert_scores,
     load_index_close,
 )
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 
 _SENT_DB = ROOT / "data" / "sentiment.db"
 DATA_DIR = ROOT / "static-site" / "data"
@@ -232,8 +235,7 @@ def export_for_date(date: str | None = None) -> dict:
         "history": _recent_history(actual_date),
     }
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(ALERT_JSON, "w", encoding="utf-8") as f:
-        json.dump(alert, f, ensure_ascii=False, indent=2)
+    atomic_write_json(ALERT_JSON, alert, indent=2)
     print(f"  导出 {ALERT_JSON} (date={actual_date} high={alert['high']['score']} low={alert['low']['score']})")
     return alert
 

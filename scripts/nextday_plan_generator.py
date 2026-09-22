@@ -80,6 +80,7 @@ import kelly_posrating as kp  # noqa: E402  (复用 S06Resolver + _tds_fade_spec
 from app import queries as appq  # noqa: E402  (首页 AI建议同款: etf_for/_etf_freeze/_align_home_top1_to_backtest/_ai_macro_*)
 from app.collector.fetchers import load_config  # noqa: E402  (indicators.yaml indicator.market 归类)
 from signal_kelly_backtest import PSEUDO_GAP_EXCLUDE  # noqa: E402  (伪跳空阈值同源, 不各写一个数)
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 
 K = 1                       # K 档(每日 top1, 与首页 AI仓位建议默认 K=1 一致)
 BUY_AMOUNT = 10000          # 每日资金池 1 万等分
@@ -865,14 +866,12 @@ def main():
     written = []
     for d in write_targets:
         d.mkdir(parents=True, exist_ok=True)
-        with (d / "nextday_plan.json").open("w", encoding="utf-8") as f:
-            json.dump(plan_doc, f, ensure_ascii=False, indent=1)
+        atomic_write_json(d / "nextday_plan.json", plan_doc, indent=1)
         written.append(str(d / "nextday_plan.json"))
 
     if steps_changed:
         for sp in steps_paths:
-            with sp.open("w", encoding="utf-8") as f:
-                json.dump(steps_doc, f, ensure_ascii=False, indent=1)
+            atomic_write_json(sp, steps_doc, indent=1)
             written.append(str(sp))
         log(f"auto_trade_steps 落盘完成(steps_changed): {len(steps_doc['steps'])} 行")
 
