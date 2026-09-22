@@ -45,6 +45,11 @@ import threading
 import time
 from pathlib import Path
 
+_SCRIPTS_DIR = Path(__file__).absolute().parent.parent.parent / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
+
 # 必须先 import base，应用 trust_env=False 全局补丁（绕 Clash 代理直连东财/上交所）
 from . import base  # noqa: F401
 import akshare as ak
@@ -2121,13 +2126,10 @@ def export_json_files() -> None:
     daily_json, quarterly_json, holders_json = export_data()
     STATIC_DATA_DIR.mkdir(parents=True, exist_ok=True)
     for rng in _NT_ALL_RANGES:
-        (STATIC_DATA_DIR / f"etf_national_team-{rng}.json").write_text(
-            json.dumps(_nt_slice_by_range(daily_json, rng), ensure_ascii=False, separators=(",", ":")),
-            encoding="utf-8")
-    (STATIC_DATA_DIR / "etf_national_team_quarterly.json").write_text(
-        json.dumps(quarterly_json, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    (STATIC_DATA_DIR / "etf_national_team_holders.json").write_text(
-        json.dumps(holders_json, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        atomic_write_json(STATIC_DATA_DIR / f"etf_national_team-{rng}.json",
+                          _nt_slice_by_range(daily_json, rng), separators=(",", ":"))
+    atomic_write_json(STATIC_DATA_DIR / "etf_national_team_quarterly.json", quarterly_json, separators=(",", ":"))
+    atomic_write_json(STATIC_DATA_DIR / "etf_national_team_holders.json", holders_json, separators=(",", ":"))
     print(f"[etf_nt] export JSON 完成 -> static-site/data/ "
           f"(daily ×{len(_NT_ALL_RANGES)} ranges + quarterly + holders)", flush=True)
 
@@ -2153,11 +2155,9 @@ def _load_skip_list() -> set[str]:
 def _save_skip_list(skip_codes: set[str]):
     """保存 accum_nav_skip.json 跳过列表。"""
     try:
-        import json
         ACCUM_NAV_SKIP_PATH.parent.mkdir(parents=True, exist_ok=True)
         data = {"skip_codes": sorted(list(skip_codes)), "updated": dt.datetime.now().strftime("%Y%m%d")}
-        with open(ACCUM_NAV_SKIP_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        atomic_write_json(ACCUM_NAV_SKIP_PATH, data, indent=2)
     except Exception:
         pass
 def fetch_accum_nav_series(code: str) -> dict[str, float]:

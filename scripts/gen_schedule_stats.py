@@ -27,6 +27,8 @@ from datetime import datetime
 from pathlib import Path
 
 REPO = Path(__file__).parent.parent  # 不用 .resolve()：trade-data/scripts 是 trade/scripts 的 symlink，resolve() 会跳回 trade 导致读旧日志。保留 symlink 路径让 REPO=实际调用方(trade-data)
+sys.path.insert(0, str(Path(__file__).parent))
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 LOG_DIR = REPO / "data" / "logs"
 OUT = REPO / "static-site" / "data" / "schedule_stats.json"
 MAX_GAP_SEC = 3 * 3600  # >3h 视为错位，丢弃
@@ -521,7 +523,7 @@ def build():
             "log_anomaly_line": anomaly["line"] if anomaly else None,
         })
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_json(OUT, result, indent=2)
     print(f"✓ {OUT.relative_to(REPO)} ({len(result)} tasks)")
     for r in result:
         flag = " ⚠ANOMALY" if r.get("log_anomaly") else ""

@@ -27,6 +27,8 @@ from pathlib import Path
 import akshare as ak
 
 ROOT = Path(__file__).absolute().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 OUT = ROOT / "data" / "etf_index_map.json"
 
 # 14 指数名称匹配规则（include/exclude 关键词，反推 track_index_code）。
@@ -128,7 +130,7 @@ def main():
 
     # 写盘
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_json(OUT, out, indent=2)
 
     # 摘要
     print(f"✓ 生成 {OUT.name}：{len(out)} 只 ETF（ok={n_ok} 有 track_index_code，no_track={n_no_track}）")

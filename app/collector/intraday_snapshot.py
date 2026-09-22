@@ -27,6 +27,11 @@ from pathlib import Path
 
 import requests
 
+_SCRIPTS_DIR = Path(__file__).absolute().parent.parent.parent / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+from util_atomic import atomic_write_text  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
+
 from ..db import get_conn
 from .base import UA, throttle, log_collect, safe_call
 from .industry_extras import THS_TO_SW
@@ -2484,7 +2489,7 @@ def collect_and_save() -> dict:
     STATIC_DATA_DIR.mkdir(parents=True, exist_ok=True)
     out_path = STATIC_DATA_DIR / "intraday_snapshot.json"
     text = json.dumps(snap, ensure_ascii=False, separators=(",", ":"))
-    out_path.write_text(text, encoding="utf-8")
+    atomic_write_text(out_path, text)
 
     dt = time.time() - t0
     print(f"[intraday] 快照完成：{len(snap['indices'])} 指数（9 A 股 + 3 港股） / "
@@ -2523,7 +2528,7 @@ def collect_and_save() -> dict:
             snap["amount_forecast"] = width_res["amount_forecast"]
             try:
                 _snap_text = json.dumps(snap, ensure_ascii=False, separators=(",", ":"))
-                out_path.write_text(_snap_text, encoding="utf-8")
+                atomic_write_text(out_path, _snap_text)
                 print(f"  [intraday] intraday_snapshot.json 重新 dump（含 amount_forecast={width_res['amount_forecast']}）", flush=True)
             except Exception as e:  # noqa: BLE001
                 print(f"  [intraday] 重新 dump intraday_snapshot.json 失败（不阻断）: {type(e).__name__} {e}", flush=True)

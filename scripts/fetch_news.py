@@ -550,10 +550,10 @@ def _write_index() -> None:
     entries.sort(key=lambda e: e["date"], reverse=True)
     ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
     try:
-        index_file.write_text(
-            json.dumps({"generated_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "days": entries}, ensure_ascii=False, indent=2),
-            encoding="utf-8")
+        atomic_write_json(
+            index_file,
+            {"generated_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+             "days": entries}, indent=2)
     except Exception as e:  # noqa: BLE001
         print(f"⚠ [fetch_news] 写 _index.json 失败(不阻塞): {e}")
 

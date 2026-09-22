@@ -36,6 +36,8 @@ from pathlib import Path
 # 复用 app 包代码（与 API 完全一致的查询逻辑）
 ROOT = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
+from util_atomic import atomic_write_text, atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 export.py 353 产物统一入口)
 from app.collector.fetchers import load_config  # noqa: E402
 from app.compute import signal_stats as sigstats  # noqa: E402
 from app.db import get_conn  # noqa: E402
@@ -829,7 +831,7 @@ def write_json(path: Path, data):
     # 默认 ', '/': ' 分隔会让其超 Cloudflare Pages 25MB 单文件限制。
     text = json.dumps(data, ensure_ascii=False, default=_json_default,
                       separators=(",", ":"))
-    path.write_text(text, encoding="utf-8")
+    atomic_write_text(path, text)
     return len(text)
 
 
@@ -934,11 +936,11 @@ def _load_manifest():
 def _save_manifest(freshness: dict) -> None:
     try:
         import time
-        _MANIFEST_PATH.write_text(
-            json.dumps({"tables": freshness, "code": _code_fingerprint(),
-                        "written_at": time.strftime("%Y-%m-%d %H:%M:%S")},
-                       ensure_ascii=False),
-            encoding="utf-8")
+        atomic_write_json(
+            _MANIFEST_PATH,
+            {"tables": freshness, "code": _code_fingerprint(),
+             "written_at": time.strftime("%Y-%m-%d %H:%M:%S")},
+            ensure_ascii=False)
     except Exception as e:  # noqa: BLE001
         print(f"  ⚠ 写增量 manifest 失败(不阻塞): {e}")
 

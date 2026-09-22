@@ -101,6 +101,7 @@ STRONG_INSTRUCTION_RE = re.compile(
 from pick_repo import (  # noqa: E402
     candidate_repos, pick_repo, pick_git_repo, force_env, guard_deploy_source_tree,
 )
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 
 
 def pick_db(repo: Path) -> Path:
@@ -3167,7 +3168,7 @@ def _load_reflections(ref_path: Path) -> dict:
 def _write_reflections(ref_path: Path, data: dict) -> None:
     try:
         ref_path.parent.mkdir(parents=True, exist_ok=True)
-        ref_path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        atomic_write_json(ref_path, data, indent=1)
     except Exception as e:
         print(f"[gen_daily_brief] ⚠ reflections 写盘失败(不阻塞): {e}")
 
@@ -3647,7 +3648,7 @@ def archive_injected_text(ref_path: Path, date: str, text: str) -> None:
             except Exception:
                 d = {}
         d[date] = text
-        ref_path.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
+        atomic_write_json(ref_path, d, indent=1)
     except Exception as e:
         print(f"[gen_daily_brief] ⚠ 注入归档写盘失败(不阻塞): {e}")
 

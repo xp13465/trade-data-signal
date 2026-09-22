@@ -21,7 +21,10 @@ def _load_trade_dates() -> set[str]:
     df = ak.tool_trade_date_hist_sina()
     dates = {str(d).replace("-", "") for d in df["trade_date"]}
     _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _CACHE_PATH.write_text("\n".join(sorted(dates)))
+    # 原子写：先写临时文件再 rename（与 refresh 路径通用，避免半写文件污染缓存）
+    tmp = _CACHE_PATH.with_suffix(".txt.tmp")
+    tmp.write_text("\n".join(sorted(dates)))
+    tmp.replace(_CACHE_PATH)
     return dates
 
 

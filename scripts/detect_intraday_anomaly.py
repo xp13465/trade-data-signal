@@ -26,6 +26,8 @@ from pathlib import Path
 # 用 .absolute()（非 .resolve()）保留 symlink 路径：trade-data/scripts/ -> trade/scripts/
 # 时 REPO=trade-data/，读 trade-data/data/ 的实时 DB（非 trade/data/ 滞后镜像，§9）。
 REPO = Path(__file__).absolute().parent.parent
+sys.path.insert(0, str(Path(__file__).absolute().parent))
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 SENT_DB = REPO / "data" / "sentiment.db"
 SNAPSHOT_JSON = REPO / "static-site" / "data" / "intraday_snapshot.json"
 NOTIFY_PY = REPO / "scripts" / "notify.py"
@@ -239,7 +241,7 @@ def filter_and_record(alerts: list[dict]) -> list[dict]:
     dedup = {today: today_set}
     try:
         DEDUP_FILE.parent.mkdir(parents=True, exist_ok=True)
-        DEDUP_FILE.write_text(json.dumps(dedup, ensure_ascii=False), encoding="utf-8")
+        atomic_write_json(DEDUP_FILE, dedup)
     except Exception as e:
         print(f"[anomaly] 写去重文件失败: {e}", file=sys.stderr)
     return new_alerts

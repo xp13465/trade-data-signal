@@ -23,6 +23,8 @@ import numpy as np
 
 ROOT = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
+from util_atomic import atomic_write_text  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 from app.collector.fetchers import load_config
 from app.collector.overlap_fetcher import match_overlap as _overlap_match
 from app.collector.overlap_fetcher import match_holdings_overlap as _holdings_match
@@ -1701,7 +1703,9 @@ def main():
 
     # 写盘（compact 格式减体积：加 track_* 8字段后 indent=2 771KB/indent=1 704KB 超 700KB，
     # compact ~615KB 达标。后端文件 json.loads 读取不受格式影响，debug 用 python -m json.tool 查看）
-    OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    # 原子写：失败时 data/board_etf_map.json 保持旧版(不半截)，deploy.sh 靠 exit code + .deploybak 兜底，
+    # 时序不变(先写盘后 14 宽基校验 exit 1)，兜底照常成立(2026-09-22 核对)。
+    atomic_write_text(OUT, json.dumps(out, ensure_ascii=False, separators=(",", ":")))
 
     # 防静默失败校验（§15 防复现）：14 宽基/红利/港股指数中，除 sz_div（已有 manual_fallback 兜底注入 159905 红利ETF工银，靠兜底非正常匹配故不列入必填）
     # 和 bj50（无活跃跟踪ETF）外，其余 12 个必须非空。空则 exit 1，让 deploy.sh 捕获失败用旧 map，

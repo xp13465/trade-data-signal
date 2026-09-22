@@ -88,7 +88,7 @@ def main() -> int:
     # 防 check_signals 并发读半截文件
     SUBS_PATH.parent.mkdir(parents=True, exist_ok=True)
     try:
-        atomic_write_json(SUBS_PATH, data, indent=2)
+        atomic_write_json(SUBS_PATH, data, indent=2, mode=0o600)
     except Exception as e:
         print(f"[sync_subscriptions] 写文件失败：{e}，跳过同步", file=sys.stderr)
         return 1

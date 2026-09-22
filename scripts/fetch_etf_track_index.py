@@ -29,6 +29,8 @@ from pathlib import Path
 import akshare as ak
 
 ROOT = Path(__file__).absolute().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 OUT = ROOT / "data" / "etf_track_index.json"
 
 # 关闭 SSL 验证（eastmoney 自签证书）
@@ -187,7 +189,7 @@ def main():
                 'skipped': skipped,
             }
             OUT.parent.mkdir(parents=True, exist_ok=True)
-            OUT.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding='utf-8')
+            atomic_write_json(OUT, cache, indent=2)
         time.sleep(random.uniform(args.sleep_min, args.sleep_max))
 
     # 最终写盘
@@ -201,7 +203,7 @@ def main():
         'skipped': skipped,
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding='utf-8')
+    atomic_write_json(OUT, cache, indent=2)
 
     print(f"\n✓ 生成 {OUT.name}：本次抓 {total} 只（ok={ok}, no_track={no_track}, err={err}, skipped={skipped}）")
     print(f"   缓存总条目: {len(cache) - 1}（含历史）")

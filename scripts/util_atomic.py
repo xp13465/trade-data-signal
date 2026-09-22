@@ -27,12 +27,15 @@ def _tmp_path(path) -> str:
     return f"{path}.{os.getpid()}.{_random.randint(100000, 999999)}.tmp"
 
 
-def atomic_write_text(path, payload: str) -> None:
-    """字符串原子写(payload 为 str)。path 接受 str 或 Path。"""
+def atomic_write_text(path, payload: str, mode: int = 0o644) -> None:
+    """字符串原子写(payload 为 str)。path 接受 str 或 Path。
+
+    mode: 最终文件权限(默认 0o644 与历史产物一致; PII 类文件如 subscriptions.json
+    传 0o600 恢复原 0600 权限——mkstemp 默认 0600, 换原子写后必须显式恢复, 防权限放宽)。"""
     tmp = _tmp_path(path)
     try:
         with open(tmp, "w", encoding="utf-8") as f:
-            os.fchmod(f.fileno(), 0o644)
+            os.fchmod(f.fileno(), mode)
             f.write(payload)
             f.flush()
             os.fsync(f.fileno())
@@ -45,13 +48,16 @@ def atomic_write_text(path, payload: str) -> None:
                 pass
 
 
-def atomic_write_json(path, obj, ensure_ascii=False, indent=None, separators=None) -> None:
+def atomic_write_json(path, obj, ensure_ascii=False, indent=None, separators=None, mode: int = 0o644) -> None:
     """JSON 原子写。kwargs 透传 json.dump(默认行为与 json.dumps(obj, ensure_ascii=False) 一致,
-    即 indent=None 时保持默认 separators=', ' 与 ': ', 输出逐字节与裸 dumps 相同)。"""
+    即 indent=None 时保持默认 separators=', ' 与 ': ', 输出逐字节与裸 dumps 相同)。
+
+    mode: 最终文件权限(默认 0o644 与历史产物一致; PII 类文件如 subscriptions.json
+    传 0o600 恢复原 0600 权限——mkstemp 默认 0600, 换原子写后必须显式恢复, 防权限放宽)。"""
     tmp = _tmp_path(path)
     try:
         with open(tmp, "w", encoding="utf-8") as f:
-            os.fchmod(f.fileno(), 0o644)
+            os.fchmod(f.fileno(), mode)
             json.dump(obj, f, ensure_ascii=ensure_ascii, indent=indent, separators=separators)
             f.flush()
             os.fsync(f.fileno())

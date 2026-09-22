@@ -43,6 +43,8 @@ from pathlib import Path
 import akshare as ak
 
 ROOT = Path(__file__).absolute().parent.parent  # absolute() 保持 symlink 路径 → 运行侧数据目录 data(权威)；resolve() 会解析到代码仓(下游副本)
+sys.path.insert(0, str(ROOT / "scripts"))
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 OUT = ROOT / "data" / "lof_track_index.json"
 
 # 关闭 SSL 验证（eastmoney 自签证书，和 fetch_etf_track_index 同策略）
@@ -247,7 +249,7 @@ def main():
                 'skipped': skipped,
             }
             OUT.parent.mkdir(parents=True, exist_ok=True)
-            OUT.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding='utf-8')
+            atomic_write_json(OUT, cache, indent=2)
         time.sleep(random.uniform(args.sleep_min, args.sleep_max))
 
     # 最终写盘
@@ -262,7 +264,7 @@ def main():
         'skipped': skipped,
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding='utf-8')
+    atomic_write_json(OUT, cache, indent=2)
 
     # 统计真 LOF（fund_type=lof 且 track_index 非空）
     lof_with_track = sum(1 for k, v in cache.items()

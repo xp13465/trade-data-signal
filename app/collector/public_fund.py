@@ -68,7 +68,10 @@ import akshare as ak
 from .base import safe_call, throttle
 
 # ── 路径与常量 ──────────────────────────────────────────────────────────────────
-_DATA_DIR = Path(__file__).absolute().parent.parent.parent / "data"
+_ROOT = Path(__file__).absolute().parent.parent.parent
+sys.path.insert(0, str(_ROOT / "scripts"))  # util_atomic 原子写公共模块(2026-09-22 非 kelly 链路统一)
+from util_atomic import atomic_write_json  # noqa: E402
+_DATA_DIR = _ROOT / "data"
 DB_PATH = _DATA_DIR / "public_fund.db"
 LOCK_PATH = _DATA_DIR / "public_fund.lock"
 STATIC_DATA_DIR = Path(__file__).absolute().parent.parent.parent / "static-site" / "data"
@@ -5230,9 +5233,7 @@ def export_json_files() -> None:
         "public_fund_manuf_subind_fund_map.json": manuf_subind_fund_map,
     }
     for fname, data in files.items():
-        (STATIC_DATA_DIR / fname).write_text(
-            json.dumps(data, ensure_ascii=False, separators=(",", ":")),
-            encoding="utf-8")
+        atomic_write_json(STATIC_DATA_DIR / fname, data, separators=(",", ":"))
         size = (STATIC_DATA_DIR / fname).stat().st_size
         print(f"  [export] {fname} ({size} bytes)", flush=True)
     # G功能: 88 魔咒历史回测(独立计算, 不走 export_data 7 元组, 避免解包破坏)
@@ -5248,35 +5249,25 @@ def export_json_files() -> None:
     finally:
         conn.close()
     if backtest:
-        (STATIC_DATA_DIR / "public_fund_position_backtest.json").write_text(
-            json.dumps(backtest, ensure_ascii=False, separators=(",", ":")),
-            encoding="utf-8")
+        atomic_write_json(STATIC_DATA_DIR / "public_fund_position_backtest.json", backtest, separators=(",", ":"))
         size = (STATIC_DATA_DIR / "public_fund_position_backtest.json").stat().st_size
         print(f"  [export] public_fund_position_backtest.json ({size} bytes)", flush=True)
     if concentration_ts:
-        (STATIC_DATA_DIR / "public_fund_holding_concentration_ts.json").write_text(
-            json.dumps(concentration_ts, ensure_ascii=False, separators=(",", ":")),
-            encoding="utf-8")
+        atomic_write_json(STATIC_DATA_DIR / "public_fund_holding_concentration_ts.json", concentration_ts, separators=(",", ":"))
         size = (STATIC_DATA_DIR / "public_fund_holding_concentration_ts.json").stat().st_size
         print(f"  [export] public_fund_holding_concentration_ts.json ({size} bytes)", flush=True)
     if scale_change_ts:
-        (STATIC_DATA_DIR / "public_fund_scale_change_ts.json").write_text(
-            json.dumps(scale_change_ts, ensure_ascii=False, separators=(",", ":")),
-            encoding="utf-8")
+        atomic_write_json(STATIC_DATA_DIR / "public_fund_scale_change_ts.json", scale_change_ts, separators=(",", ":"))
         size = (STATIC_DATA_DIR / "public_fund_scale_change_ts.json").stat().st_size
         print(f"  [export] public_fund_scale_change_ts.json ({size} bytes)", flush=True)
     if industry_rotation_ts:
-        (STATIC_DATA_DIR / "public_fund_industry_rotation_ts.json").write_text(
-            json.dumps(industry_rotation_ts, ensure_ascii=False, separators=(",", ":")),
-            encoding="utf-8")
+        atomic_write_json(STATIC_DATA_DIR / "public_fund_industry_rotation_ts.json", industry_rotation_ts, separators=(",", ":"))
         size = (STATIC_DATA_DIR / "public_fund_industry_rotation_ts.json").stat().st_size
         print(f"  [export] public_fund_industry_rotation_ts.json ({size} bytes)", flush=True)
     # 方案A: 今日预估仓位 + 历史预估时序 (净值回归反推 + lg 校准, 独立计算非 7 元组)
     # position_estimate 已在 try 块内算好 (复用 conn)
     if position_estimate:
-        (STATIC_DATA_DIR / "public_fund_position_estimate.json").write_text(
-            json.dumps(position_estimate, ensure_ascii=False, separators=(",", ":")),
-            encoding="utf-8")
+        atomic_write_json(STATIC_DATA_DIR / "public_fund_position_estimate.json", position_estimate, separators=(",", ":"))
         size = (STATIC_DATA_DIR / "public_fund_position_estimate.json").stat().st_size
         print(f"  [export] public_fund_position_estimate.json ({size} bytes)", flush=True)
     print(f"[export] 7 个 JSON 写入 -> {STATIC_DATA_DIR}", flush=True)

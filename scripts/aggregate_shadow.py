@@ -31,6 +31,7 @@ SHADOW_FILE = "brief_shadow.json"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pick_repo import pick_repo  # noqa: E402
 from shadow_track_md import update_shadow_track_md  # noqa: E402  (维护 docs/ai-predict-shadow-track.md)
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 
 
 def _pick_db() -> Path:
@@ -203,7 +204,7 @@ def main() -> int:
     if not args.no_reconcile:
         rows, n_new = _reconcile(rows, db_path, only_date=args.date or None)
         if n_new:
-            shadow_path.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+            atomic_write_json(shadow_path, rows, indent=2)
     else:
         n_new = 0
 

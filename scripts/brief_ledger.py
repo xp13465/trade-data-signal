@@ -72,6 +72,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pick_repo import pick_repo, candidate_repos  # noqa: E402
+from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 
 LEDGER_FILE = "brief_ledger.json"
 SHADOW_FILE = "brief_shadow.json"
@@ -100,7 +101,7 @@ def load_ledger(repo: Path) -> list[dict]:
 def save_ledger(repo: Path, rows: list[dict]) -> None:
     p = ledger_path(repo)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_json(p, rows, indent=2)
 
 
 def _pick_db(explicit: str = "") -> Path:
