@@ -73,7 +73,7 @@ echo "=== update_lab.sh 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
 # 等待 update_all 超时放弃），其余逻辑（回测/写产物/日志/结束行）与非 force 完全一致。
 # ⚠️ 数据来源：补跑依赖 update_all 已入库的日线（researcher 已核实 9-18 日线已入库）；
 #   若 fetch_astock_index_daily 恰好存在 update_all.sh 进程则等完再跑（下方 while 仍生效），
-#   force 仅在自己不等待的情形（非交易日/等满 90min 仍在跑）直接开跑——此时若目标日期
+#   force 仅在自己不等待的情形（非交易日/等满 150min 仍在跑）直接开跑——此时若目标日期
 #   的日线尚未入库，回测会产出与上次相同/更早的结果，日志中 IS_TRADING/等待信息可辨认。
 FORCE=0
 case " $* " in *" force "*) FORCE=1;; esac

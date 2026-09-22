@@ -203,12 +203,15 @@ FINALIZER_NOISE_START_RE = re.compile(r'Exception ignored in: <Finalize object, 
 # 根因: 9:26 首拉 ConnectionError -> 内置重试 -> 9:31 成功(exit=0);旧逻辑命中即报
 #   不认后续成功, nextday_gap_check|ConnectionError 卡 active 至今。
 # 自愈判定: 同窗口出现重试成功标记(显式 "✓ 重试成功" / 逐 ETF "✓ xxx 正常 open=" /
-#   "全部 N 笔无伪跳空, 无标记", 后两者仅重试拿到开盘价才会走到) → ConnectionError/
-#   TimeoutError 命中自愈不报; 重试也失败(exit=2、无成功标记) → 照报。
+#   "执行日 {today} 全部 {N} 笔无伪跳空, 无标记", 后两者仅重试拿到开盘价才会走到) →
+#   ConnectionError/TimeoutError 命中且命中行属于 _fetch_opens 重试链(含「拉开盘价失败」,
+#   重试链 ConnectionError 只在 "⚠ 第 N 次拉开盘价失败: {last_err}" 这行出现) → 自愈不报;
+#   重试也失败(exit=2、无成功标记)照报; 后续 R2 上传失败的 ConnectionError(真实失败)
+#   文案不含「拉开盘价失败」→ 不抑制, 照报(P2-2, reviewer S8 场景)。
 GAP_RETRY_SUCCESS_RE = re.compile(
     r'\[nextday_gap_check\] ✓ 重试成功'
     r'|\[nextday_gap_check\] +✓ \d+ 正常 open='
-    r'|\[nextday_gap_check\] 执行日 \d+ 笔无伪跳空, 无标记'
+    r'|\[nextday_gap_check\] 执行日 \S+ 全部 \d+ 笔无伪跳空, 无标记'
 )
 TRANSIENT_NET_ERR_RE = re.compile(r'\b(?:ConnectionError|TimeoutError)\s*:')
 
@@ -445,8 +448,12 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
                 continue
             # Fix B(2026-09-23): nextday_gap_check 内置重试成功 -> 瞬时网络异常自愈不报
             # (9:26 ConnectionError -> 9:31 重试成功 exit=0; 重试也失败无成功标记照报)
-            if has_gap_retry_success and TRANSIENT_NET_ERR_RE.search(lines[i]):
-                print(f"[retry-self-heal] {log_path.name} 瞬时网络异常命中但同窗口 "
+            # P2-2(2026-09-23): 抑制仅限 _fetch_opens 重试链的 ConnectionError(命中行含
+            # 「拉开盘价失败」)。同窗口重试成功后、尾部 R2 上传失败的真实 ConnectionError
+            # 文案不含「拉开盘价失败」→ 不抑制, 照报(reviewer S8 场景, exit=1 必须报)。
+            if (has_gap_retry_success and TRANSIENT_NET_ERR_RE.search(lines[i])
+                    and "拉开盘价失败" in lines[i]):
+                print(f"[retry-self-heal] {log_path.name} 重试链瞬时网络异常命中但同窗口 "
                       f"有重试成功标记, 不报")
                 continue
             return {
