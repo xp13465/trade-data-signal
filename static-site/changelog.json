@@ -160,5 +160,8 @@
   ],
   "20260922-a605": [
     "feat(\u5b9e\u64cd\u6b65\u9aa4\u5f39\u7a97): \u7b2c\u4e00\u5217\u6539\u65e5\u671f+\u65f6\u95f4 + D+10 hoverpop \u4ea4\u6613\u65e5\u94fe\u63d0\u793a"
+  ],
+  "20260922-a606": [
+    "feat(kelly): \u4fe1\u53f7\u51ef\u5229\u56de\u6d4b\u52a0 K \u6863\u56fa\u5b9a11\u5929\u6301\u6709\u671f"
   ]
 }
