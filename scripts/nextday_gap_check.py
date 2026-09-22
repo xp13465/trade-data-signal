@@ -175,8 +175,11 @@ def main():
                 opens = _fetch_opens(list(target.keys()), None, today)
                 if attempt == 2:
                     # Fix B(2026-09-23): 重试成功显式标记, 供 gen_schedule_stats 扫描侧
-                    # 识别"窗口内异常后自愈"(否则 ConnectionError 命中即报, 卡 active 至今)
-                    log(f"✓ 重试成功(第1次失败后重试): {last_err}")
+                    # 识别"窗口内异常后自愈"(否则 ConnectionError 命中即报, 卡 active 至今)。
+                    # ⚠️ 纯标记, 不拼 last_err: last_err 含 "ConnectionError:" 会自命中
+                    # ANOMALY_RE 且不含「拉开盘价失败」导致抑制不生效照样报(主控揪出, 09-23)。
+                    # 失败原因上一行 "⚠ 第 N 次拉开盘价失败: {last_err}" 已有。
+                    log("✓ 重试成功(第1次失败后重试)")
                 break
             except RuntimeError as e:
                 last_err = str(e)
