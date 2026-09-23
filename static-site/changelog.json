@@ -175,5 +175,8 @@
   ],
   "20260923-a610": [
     "test(a11y): \u9a8c\u6536\u811a\u672c\u8865 onboarding \u5f39\u7a97 dismiss(\u9996\u6b21\u8bbf\u95ee\u906e\u7f69\u62e6\u622a\u5e95\u90e8\u5bfc\u822a\u70b9\u51fb)"
+  ],
+  "20260923-a611": [
+    "feat(signal-freeze): \u9996\u9875\u5386\u53f2\u4fe1\u53f7\u56fa\u5316\u5feb\u7167\u6839\u6cbb T+1 \u665a\u5230\u6570\u636e\u6f02\u79fb"
   ]
 }
