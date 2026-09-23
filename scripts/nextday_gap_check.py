@@ -206,8 +206,11 @@ def main():
         # 标记后 steps 已改 → 与单只缺失路径共用 R2 上传 + purge + 通知(§22 三步同步)
         _mark_unverified(steps_doc, today, target, now,
                          [data_dir / "auto_trade_steps.json", git_data_dir / "auto_trade_steps.json"])
-        _sync_r2_and_notify([], True, today,
-                            no_r2=args.no_r2, no_notify=args.no_notify)  # 就绪 FAIL 无 excluded → 仅 R2 传 auto_trade_steps.json
+        # 就绪 FAIL 无 excluded → 仅 R2 传 auto_trade_steps.json(§22 三步同步)
+        r2_rc, notify_rc = _sync_r2_and_notify([], True, today,
+                                               no_r2=args.no_r2, no_notify=args.no_notify)
+        if r2_rc or notify_rc:
+            log(f"⚠ 就绪闸 FAIL 的线上同步未完全成功(r2_rc={r2_rc} notify_rc={notify_rc}),线上状态可能仍滞留旧计划")
         log("落盘完成(auto_trade_steps.json 未完成标记)")
         return 2
 
