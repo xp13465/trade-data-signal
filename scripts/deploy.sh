@@ -532,23 +532,58 @@ R2_UPLOAD_TIMEOUT="${R2_UPLOAD_TIMEOUT:-300}"
 # 缺省仍用全局 R2_UPLOAD_TIMEOUT。upload-etf-hist(1532 只全史日K ~87MB)量大且总量随每日
 # 新增K线累积缓慢变大, 曾在 300s 线间歇性被 kill 触发「deploy R2上传失败」告警;
 # 配合 upload_r2.py 增量上传(正常增量秒级~分钟级), 全量兜底(首跑/周日)放宽到 900s。
+# 2026-09-23 ③: 通用大通道(不传显式超时的 upload-data-large / upload-kelly-parts 等)改为
+# 按 upload_r2.py 打印的 R2_BYTES_TOTAL=<待传字节> 估算超时(详见 run_r2_upload 函数注释,
+# 口径: 150KB/s × 2 余量 + 240s 开销, 上限 7200s), 根治「固定 900s 杀近全量 190MB」事故。
 run_r2_upload() {
   local desc="$1"; shift
   local ch_timeout=""
   if [[ "${1:-}" =~ ^[0-9]+$ ]]; then
     ch_timeout="$1"; shift
   fi
-  local ch_limit="${ch_timeout:-$R2_UPLOAD_TIMEOUT}"
   local tmp_log pid slept rc
   tmp_log=$(mktemp)
   "$PY" "$REPO/scripts/upload_r2.py" "$@" >"$tmp_log" 2>&1 &
   pid=$!
+  # 看门狗超时估算(2026-09-23 ③根治 900s 写死; 详见实测与口径):
+  #   9-23 21:00 backfill_evening: upload-data-large/upload-kelly-parts 两通道被固定 900s
+  #   看门狗 kill → 27 个 R2 缺口(12 kelly-parts + 15 sdc_parts)。近全量 190MB 在云上跨境
+  #   带宽 ~1.2-1.6Mbps(150-200KB/s)下本来就需 950-1270s, 不该固定 900s。
+  #   估算口径: upload_r2.py 增量引擎 scan 后打印 R2_BYTES_TOTAL=<待传字节 N>(含 dry-run);
+  #     est_limit = max(300, N/150000(150KB/s 保守) × 2(余量) + 240s(连接/重试固定开销))
+  #     上限 7200s 保「真死锁仍能被杀掉」, 不因放宽而无限挂住。
+  #   显式传入的 ch_timeout(调优通道 verify-r2 7200 / trade-sim-json 1800 / fund-nav 等)优先,
+  #   估算只覆盖未显式调优的通用通道(upload-data-large / upload-kelly-parts 等, 见下方调用)。
+  #   读不到 R2_BYTES_TOTAL 行(非增量引擎命令如 upload-db/upload-data-files)回退全局默认。
+  local est_limit=0 r2bytes=""
+  local _i
+  for _i in $(seq 1 40); do
+    r2bytes=$(grep -Eo 'R2_BYTES_TOTAL=[0-9]+' "$tmp_log" 2>/dev/null | tail -1 | cut -d= -f2)
+    [ -n "$r2bytes" ] && break
+    if ! kill -0 "$pid" 2>/dev/null && ! grep -q "R2_BYTES_TOTAL" "$tmp_log" 2>/dev/null; then
+      break  # 进程已退出且非增量命令(未打印字节量行) → 不用再空等
+    fi
+    sleep 0.5
+  done
+  if [ -n "$r2bytes" ] && [[ "$r2bytes" =~ ^[0-9]+$ ]] && [ "$r2bytes" -gt 0 ] 2>/dev/null; then
+    est_limit=$(( r2bytes / 150000 * 2 + 240 ))
+    est_limit=$(( est_limit > 7200 ? 7200 : est_limit ))
+    est_limit=$(( est_limit < 300 ? 300 : est_limit ))
+  fi
+  local ch_limit
+  if [ -n "$ch_timeout" ]; then
+    ch_limit="$ch_timeout"
+  elif [ "$est_limit" -gt 0 ]; then
+    ch_limit="$est_limit"
+  else
+    ch_limit="$R2_UPLOAD_TIMEOUT"
+  fi
   slept=0
   while kill -0 "$pid" 2>/dev/null; do
     sleep 5
     slept=$((slept + 5))
     if [ "$slept" -ge "$ch_limit" ]; then
-      echo "⚠ $desc 超 ${ch_limit}s 未退出，kill pid=$pid 释放 deploy.lock" | tee -a "$LOG"
+      echo "⚠ $desc 超 ${ch_limit}s(估算/显式)未退出，kill pid=$pid 释放 deploy.lock" | tee -a "$LOG"
       kill -TERM "$pid" 2>/dev/null; sleep 2
       kill -KILL "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
@@ -588,8 +623,11 @@ run_r2_upload "upload-accum-nav" 900 upload-accum-nav || { echo "⚠ upload-accu
 run_r2_upload "upload-industry" 900 upload-industry || { echo "⚠ upload-industry 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-industry"; }
 run_r2_upload "upload-public-fund" 900 upload-public-fund || { echo "⚠ upload-public-fund 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-public-fund"; }
 run_r2_upload "upload-etf-score" 900 upload-etf-score || { echo "⚠ upload-etf-score 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-score"; }
-run_r2_upload "upload-data-large" 900 upload-data-large || { echo "⚠ upload-data-large 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-data-large"; }
-run_r2_upload "upload-kelly-parts" 900 upload-kelly-parts || { echo "⚠ upload-kelly-parts 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-parts"; }
+# 2026-09-23 ③: upload-data-large / upload-kelly-parts 改走「按字节量估算超时」(run_r2_upload
+# 不传第二参): 9-23 21:00 backfill_evening 近全量 190MB(跨境 ~150KB/s 需 950-1270s)被固定 900s
+# 看门狗 kill → 27 个 R2 缺口。增量时字节小 → 估算超时小; 全量/周日回退大 → 估算超时大。
+run_r2_upload "upload-data-large" upload-data-large || { echo "⚠ upload-data-large 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-data-large"; }
+run_r2_upload "upload-kelly-parts" upload-kelly-parts || { echo "⚠ upload-kelly-parts 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-parts"; }
 # #91(2026-09-06) 当日收盘对比档分片(signal_kelly_trades_sdc_parts/, 凯利页「买入口径」切换用; 独立前缀命令)
 run_r2_upload "upload-kelly-parts-sdc" 900 upload-kelly-parts-sdc || { echo "⚠ upload-kelly-parts-sdc 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-parts-sdc"; }
 run_r2_upload "upload-all-data" 900 upload-all-data || { echo "⚠ upload-all-data 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-all-data"; }
