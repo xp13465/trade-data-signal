@@ -181,5 +181,8 @@
   ],
   "20260923-a612": [
     "fix(snapshot-p2): signal_kelly_day_snapshot \u673a\u68c0\u767b\u8bb0 + AI\u5efa\u8bae tooltip \u516c\u793a\u8865\u5feb\u7167\u673a\u5236"
+  ],
+  "20260924-a613": [
+    "docs(r2): \u6e05\u7406 R2 \u8d85\u65f6\u56de\u9000 300s\u2192900s \u6587\u6863/\u6ce8\u91ca\u6f02\u79fb"
   ]
 }
