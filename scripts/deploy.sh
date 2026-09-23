@@ -560,14 +560,11 @@ run_r2_upload "upload-index" 900 upload-index || { echo "⚠ upload-index 失败
 # 首跑/每周日强制全量一次防状态漂移, 增量正常秒级~分钟级完成。
 run_r2_upload "upload-etf-hist" 900 upload-etf-hist || { echo "⚠ upload-etf-hist 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-hist"; }
 # 基金全史净值 fund_nav/{code}.json -> R2 fund_nav/ 前缀(#11 基金弹窗净值走势, 2026-08-25;
-# 26118只~566MB, 增量指纹上传只传变化文件; 首跑/周日强制全量一次防状态漂移)
-# 基金全史净值 fund_nav/{code}.json -> R2 fund_nav/ 前缀(#11 基金弹窗净值走势, 2026-08-25;
-# 26118 只~514MB)。2026-08-25 恶性循环根治: 全量实测 5398s≈90min 曾超 1800s 被 kill ->
-# 状态文件没写成 -> 下次退化为更慢全量 -> 再被 kill。两件修:
-#   ① 本通道超时 1800s -> 7200s(全量 90min 留 2 倍余量);
-#   ② upload_r2.py upload-fund-nav 加分片 checkpoint 断点续传(kill 后最多重传最近 500 只,
-#      非从头全量), 双保险后即使极端情况被 kill 也不再引发恶性循环。
-run_r2_upload "upload-fund-nav" 7200 upload-fund-nav || { echo "⚠ upload-fund-nav 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-fund-nav"; }
+# 26118 只~514MB)。2026-09-23 P1 主链有界化: 本通道上传从 deploy 主链移除, 改由 update_all.sh
+# 在 export_fund_nav 成功后异步触发(systemd-run transient service, 拆出主链等待区间;
+# 9-22 曾拖 6225s=1h43m 占 deploy 段 56%/9-18 超 7200s 被 kill)。上传本体 + 失败告警
+# (notify --severe, 不静默)见 scripts/fund_nav_upload_async.sh; upload_r2.py 增量指纹 +
+# checkpoint 断点续传语义保留(双保险不丢, 缺传由 async 告警 + 次日 checkpoint 续传兜底)。
 # ETF 全史累计净值 per-ETF 拆分 accum_nav/{code}.json -> R2 accum_nav/ 前缀(2026-09-17 懒加载;
 # ~1554 只~18.5MB, 与 etf-hist 同量级, 900s 留余量; 增量指纹上传只传变化 code, 首跑/周日全量)
 run_r2_upload "upload-accum-nav" 900 upload-accum-nav || { echo "⚠ upload-accum-nav 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-accum-nav"; }

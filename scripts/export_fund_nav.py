@@ -27,7 +27,8 @@
   连接复用 app.collector.public_fund 的 DB_PATH/STATIC_DATA_DIR, 与 export_fund_score.py
   同机制——从 trade-data 跑读实时库写 trade-data/static-site/data/)。
 输出: static-site/data/fund_nav/{code}.json(~26KB/只均, 全量 ~700MB; gitignore 不进 git,
-  R2 上传走 upload_r2.py upload-fund-nav -> R2 fund_nav/ 前缀, deploy.sh/update_all.sh 已接入)。
+  R2 上传走 upload_r2.py upload-fund-nav -> R2 fund_nav/ 前缀, 2026-09-23 起由 update_all.sh
+  异步触发(fund_nav_upload_async.sh, 拆出主链等待区间), deploy.sh 不再接入)。
 关键参数种子: 无采样/截断参数(全史全量); PF_STAGE0 无关。
 
 用法:
@@ -35,8 +36,8 @@
   .venv/bin/python scripts/export_fund_nav.py --limit 3          # 小规模验证
   .venv/bin/python scripts/export_fund_nav.py --codes 000001,110011
 
-定时链路: update_all.sh(fund_score 导出后同步跑 + rsync + upload-fund-nav);
-  deploy.sh run_r2_upload 列表含 upload-fund-nav(R2 三步同步 §22)。
+定时链路: update_all.sh(export 后 rsync + 异步触发 fund_nav_upload_async.sh 走
+  upload_r2.py upload-fund-nav; 2026-09-23 P1 起拆出主链等待区间, deploy.sh 不再含本通道)。
 
 复现命令:
   REPO=/Users/linhuichen/code/trade-data .venv/bin/python scripts/export_fund_nav.py

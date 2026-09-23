@@ -101,7 +101,8 @@ echo "pipeline 退出码: core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES (sto
 # #11 基金全史净值（export_fund_nav, 弹窗净值走势数据源）——先刷产物再过闸门(fund_nav 时序倒挂修复 2026-08-27)
 # 原排在 O1 统一 deploy 之后, 而 deploy 内 check_data_integrity 抽样拿当晚已进新净值的 DB
 # 对昨晚产物逐位比对 -> 时序倒挂误拦(17:02/17:58 两连拦实证)。这里整体前置: 先全量重出
-# fund_nav 产物, 再让 O1 deploy 过数据完整性闸门; upload-fund-nav 上传环节仍留脚本后段原位不动。
+# fund_nav 产物, 再让 O1 deploy 过数据完整性闸门; upload-fund-nav 上传环节 2026-09-23 P1 起
+# 在本块 else 末尾异步触发(systemd-run 拆出主链等待区间, 见下), 不再由 deploy.sh/脚本后段重复跑。
 echo "-> 基金全史净值（export_fund_nav, 弹窗净值走势数据源, 先刷产物再过闸门）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/export_fund_nav.py" >> "$LOG" 2>&1
 FUND_NAV_RC=$?
@@ -115,6 +116,23 @@ else
   # 云上单仓(REPO==GIT_REPO)下自同步 no-op, 用 [ "$REPO" = "$GIT_REPO" ] || 跳过。
   [ "$REPO" = "$GIT_REPO" ] || rsync -a --delete --checksum "$REPO/static-site/data/fund_nav/" "$GIT_REPO/static-site/data/fund_nav/" 2>>"$LOG" || \
     echo "⚠ fund_nav rsync 同步失败, 可能发布不全" | tee -a "$LOG"
+  # P1(2026-09-23) fund-nav 上传异步化: 产物已就绪(export 跑完 + rsync 已同步), 上传拆出主链等待区间。
+  # 背景: fund-nav 上传(26458 文件 ~578MB)曾拖 deploy 段 6225s(9-22, 1h43m, 占 56%)/9-18 超 7200s
+  # 被 kill。上传本体见 scripts/fund_nav_upload_async.sh(失败内部 notify 告警, 不静默)。
+  # 云上走 systemd transient service(独立 cgroup, update_all 退出时不被 cgroup 清理杀掉);
+  # 无 systemd 环境(本地开发)fallback nohup 后台。deploy.sh 内 run_r2_upload upload-fund-nav 已移除。
+  echo "-> 触发 fund-nav R2 上传(异步, 拆出主链等待区间)..." | tee -a "$LOG"
+  if command -v systemd-run >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo -n systemd-run --collect --unit="fund-nav-upload-$(date +%H%M%S)" \
+      --uid="$(id -u)" --gid="$(id -g)" \
+      --setenv=REPO="$REPO" --setenv=GIT_REPO="$GIT_REPO" \
+      bash "$REPO/scripts/fund_nav_upload_async.sh" 2>&1 | tee -a "$LOG" || \
+      echo "⚠ fund-nav 异步上传触发失败(systemd-run), 需手动补跑: cd $REPO && python scripts/upload_r2.py upload-fund-nav" | tee -a "$LOG"
+  else
+    # 无 systemd(本地开发): nohup 脱离 SIGHUP 后台跑(尽力而为; macOS 无 setsid 命令, 不依赖它)
+    nohup bash "$REPO/scripts/fund_nav_upload_async.sh" >> "$LOG" 2>&1 &
+    echo "  → fund-nav 异步上传已后台触发(nohup fallback, 非 systemd 环境)" | tee -a "$LOG"
+  fi
 fi
 
 # O1 收敛（2026-08-17 批次A）：4 条 pipeline 已各自完成采集+计算写入 DB，
@@ -215,16 +233,11 @@ else
     echo "⚠ upload-fund-score R2上传失败（不阻塞主流程）" | tee -a "$LOG"
 fi
 
-# #11 基金弹窗净值走势 R2 上传(2026-08-25): 基金全史净值 fund_nav/{code}.json -> R2 fund_nav/
-# 前缀; 前端「净值走势」period tab 懒加载 R2 fund_nav/; 复刻 #10 etf-hist 链路(增量指纹上传,
-# 清盘基金序列冻结自然跳过); 当日净值多晚间公布, 入图最新通常为 T-1(走势历史场景无感)
-# (2026-08-27 fund_nav 时序倒挂修复: export_fund_nav.py + rsync 已整体前置到 O1 统一 deploy
-# 之前「先刷产物再过闸门」; 本处仅保留 upload-fund-nav 上传环节原位不动, FUND_NAV_RC!=0 即
-# export 失败时跳过上传 = 硬闸门语义不变)
-if [ "$FUND_NAV_RC" -eq 0 ]; then
-  "$PY" "$REPO/scripts/upload_r2.py" upload-fund-nav >> "$LOG" 2>&1 || \
-    echo "⚠ upload-fund-nav R2上传失败（不阻塞主流程）" | tee -a "$LOG"
-fi
+# #11 基金弹窗净值走势 R2 上传(2026-08-25): 2026-09-23 P1 起上传环节已前置异步化——
+# export_fund_nav 成功后立即 systemd-run 触发 scripts/fund_nav_upload_async.sh(拆出主链等待区间),
+# 此处不再重复跑 upload-fund-nav(原尾部第二次扫描虽~10s, 但每次多摸 26458 文件; 且 9-18 场景
+# 下还会实际补传被 kill 的剩余文件, 徒增主链时长)。上传幂等 + checkpoint, 缺传由 async 自身
+# 告警 + 次日 checkpoint 续传兜底。
 
 echo "=== update_all.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
 echo "core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES check_signals=$SIGNAL_RC" | tee -a "$LOG"
