@@ -200,9 +200,15 @@ def main():
             f"<br>日志: {REPO}/data/logs/nextday_gap_check_launchd.log",
         )
         log(f"✗ 开盘价就绪闸 FAIL(重试后仍失败): {last_err}; 标记未完成(待人工)")
-        if not args.dry_run:
-            _mark_unverified(steps_doc, today, target, now,
-                             [data_dir / "auto_trade_steps.json", git_data_dir / "auto_trade_steps.json"])
+        if args.dry_run:
+            log("DRY-RUN: 不落盘不 R2 不通知")
+            return 2
+        # 标记后 steps 已改 → 与单只缺失路径共用 R2 上传 + purge + 通知(§22 三步同步)
+        _mark_unverified(steps_doc, today, target, now,
+                         [data_dir / "auto_trade_steps.json", git_data_dir / "auto_trade_steps.json"])
+        _sync_r2_and_notify([], True, today,
+                            no_r2=args.no_r2, no_notify=args.no_notify)  # 就绪 FAIL 无 excluded → 仅 R2 传 auto_trade_steps.json
+        log("落盘完成(auto_trade_steps.json 未完成标记)")
         return 2
 
     # ---- 逐 ETF 判定 gap ----
@@ -259,51 +265,9 @@ def main():
             written.append(str(d / "nextday_plan.json"))
         log("nextday_plan.json 落盘(gap_excluded 标记)")
 
-    # ---- R2 上传 + purge(§22 三步同步) ----
-    r2_rc = 0
-    if not args.no_r2:
-        r2_files = []
-        if excluded:
-            r2_files.append("nextday_plan.json")
-        if steps_changed:
-            r2_files.append("auto_trade_steps.json")
-        if r2_files:
-            cmd = [PY, str(SCRIPT_DIR / "upload_r2.py"), "upload-data-files"] + r2_files
-            log("R2: " + " ".join(cmd))
-            try:
-                env = dict(os.environ)
-                env.setdefault("REPO", str(REPO))
-                r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
-                log(f"R2 退出码={r.returncode}\n{r.stdout}")
-                if r.returncode != 0:
-                    log(f"⚠ R2 上传失败: {r.stderr[-2000:]}")
-                    r2_rc = 1
-            except Exception as e:
-                log(f"⚠ R2 上传异常: {e}")
-                r2_rc = 1
-
-    # ---- 通知(邮件+飞书) ----
-    notify_rc = 0
-    if not args.no_notify:
-        if excluded:
-            lines = [f"{code} 伪跳空剔除(|开盘/信号日收盘-1|={abs(gap):.2%}, open/sig_close gap={gap:+.2%})"
-                     for code, gap in excluded]
-            subject = f"次日买入计划伪跳空剔除 {today}"
-            body = "<br>".join(lines)
-            cmd = [PY, str(SCRIPT_DIR / "notify.py"), subject, body,
-                   "--dedup-key", f"nextday_gap_excluded_{today}", "--dedup-window", "86400",
-                   "--feishu-group", "follow"]
-            log("notify: " + subject)
-            try:
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-                log(f"notify 退出码={r.returncode}")
-                if r.returncode != 0:
-                    log(f"⚠ notify 失败 rc={r.returncode}")
-                    notify_rc = 1
-            except Exception as e:
-                log(f"⚠ notify 异常: {e}")
-                notify_rc = 1
-
+    # ---- R2 上传 + purge + 通知(§22 三步同步; 与 FAIL 路径共用 _sync_r2_and_notify) ----
+    r2_rc, notify_rc = _sync_r2_and_notify(excluded, steps_changed, today,
+                                           no_r2=args.no_r2, no_notify=args.no_notify)
     log("落盘完成: " + ", ".join(written))
     return 1 if (r2_rc or notify_rc) else 0
 
@@ -364,6 +328,58 @@ def _mark_unverified(steps_doc, today, target, now, write_paths):
             sp.parent.mkdir(parents=True, exist_ok=True)
             atomic_write_json(sp, steps_doc, indent=1)
         log("auto_trade_steps 落盘(未完成标记)")
+
+
+def _sync_r2_and_notify(excluded, steps_changed, today, no_r2=False, no_notify=False):
+    """R2 上传 + purge + 通知(邮件+飞书)。excluded=[(code, gap)], steps_changed 决定是否推 auto_trade_steps.json。
+
+    FAIL 路径(opens is None)与单只缺失路径共用此段(§22 三步同步; 2026-09-23 修复: FAIL 此前提前
+    return 漏走 R2, 线上滞留旧计划致多展示位不一致)。返回 (r2_rc, notify_rc)。
+    """
+    r2_rc = 0
+    if not no_r2:
+        r2_files = []
+        if excluded:
+            r2_files.append("nextday_plan.json")
+        if steps_changed:
+            r2_files.append("auto_trade_steps.json")
+        if r2_files:
+            cmd = [PY, str(SCRIPT_DIR / "upload_r2.py"), "upload-data-files"] + r2_files
+            log("R2: " + " ".join(cmd))
+            try:
+                env = dict(os.environ)
+                env.setdefault("REPO", str(REPO))
+                r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
+                log(f"R2 退出码={r.returncode}\n{r.stdout}")
+                if r.returncode != 0:
+                    log(f"⚠ R2 上传失败: {r.stderr[-2000:]}")
+                    r2_rc = 1
+            except Exception as e:
+                log(f"⚠ R2 上传异常: {e}")
+                r2_rc = 1
+
+    notify_rc = 0
+    if not no_notify:
+        if excluded:
+            lines = [f"{code} 伪跳空剔除(|开盘/信号日收盘-1|={abs(gap):.2%}, open/sig_close gap={gap:+.2%})"
+                     for code, gap in excluded]
+            subject = f"次日买入计划伪跳空剔除 {today}"
+            body = "<br>".join(lines)
+            cmd = [PY, str(SCRIPT_DIR / "notify.py"), subject, body,
+                   "--dedup-key", f"nextday_gap_excluded_{today}", "--dedup-window", "86400",
+                   "--feishu-group", "follow"]
+            log("notify: " + subject)
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                log(f"notify 退出码={r.returncode}")
+                if r.returncode != 0:
+                    log(f"⚠ notify 失败 rc={r.returncode}")
+                    notify_rc = 1
+            except Exception as e:
+                log(f"⚠ notify 异常: {e}")
+                notify_rc = 1
+
+    return r2_rc, notify_rc
 
 
 if __name__ == "__main__":

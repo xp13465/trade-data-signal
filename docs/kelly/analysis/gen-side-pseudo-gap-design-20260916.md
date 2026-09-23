@@ -59,7 +59,7 @@
 **A2(新增 launchd,交易日 9:26)**:
 - 新脚本 `scripts/nextday_gap_check.py`:读 auto_trade_steps.json 中 date==today 的买入行(及 nextday_plan.json buy_date==today 的条目)→ akshare 拉计划内 ETF 开盘价(复用回测 `_fetch_intraday_open_prices` 同款实现/或 import)→ `gap = today_open / signal_date_close - 1`(|gap|>0.20 剔除)。
 - 剔除形态:steps 对应行 status=skipped + status_text「伪跳空剔除(|开盘/信号日收盘-1|=xx%)」;nextday_plan.json 条目加 `gap_excluded:true`;R2 上传 + purge + notify(邮件+飞书)。
-- 数据就绪闸:开盘价取不到 → 9:31 重试一次 → 仍失败 → severe 告警 + 行标记「伪跳空校验未完成(待人工)」(干跑阶段);Phase2 接执行器时复用同一判定函数。
+- 数据就绪闸:开盘价取不到 → 9:31 重试一次 → 仍失败 → severe 告警 + 行标记「伪跳空校验未完成(待人工)」(干跑阶段);Phase2 接执行器时复用同一判定函数。**就绪闸 FAIL 的「待人工」标记同样推线上展示**(与单只缺失路径共用 R2 上传 + purge,2026-09-23 定:FAIL 若只落本地两树不上 R2,线上 R2/CF 滞留旧计划 → §22 多展示位不一致,用户看到的状态失真)。
 - 时点:9:26 与 intraday-snapshot 9:25 轮次错开 1 分钟(该任务秒级);与 9:40 kelly rerun / 9:45 snapshot 不冲突。plist 依 §14 新注册,Weekday 1-5 + 交易日闸门。
 - 幂等:执行日行已有 gap 标记则跳过;RunAtLoad=false 防重启重复。
 
@@ -89,7 +89,7 @@
 - 逐字对齐:`gap = nxt_open / sig_close - 1.0`,`abs(gap) > 0.20` 剔除 —— 与 backtest L684-686 完全同式;阈值常量从 generator `PSEUDO_GAP`(L82)复用或集中定义(§22 代码内常量登记点精神:backtest L78 / generator L82 / 新 gap-check 共 3 副本,建议新脚本 import,防漂移)。
 - 分母=信号日 etf_daily 原始 close;分子=次日原始开盘价。akshare 实时开盘价 vs etf_daily 收盘后 open 可能有微小源差(盘中档与 17:50 全量版本来就是两套产物),gap-check 用 akshare(执行时点唯一可得),与回测盘中档同源;可留 20:07 后 etf_daily 复核对账(可选,Phase2 时定)。
 - 防前视(§5.1⑥):gap-check 在 T+1 9:26 用「已产生的开盘价」判定,无前视;A1 回填段重演历史天然无前视;信号日收盘 17:50 已定稿(20:55 生成时无未来数据)。
-- 缺价语义:回测缺 nxt_open → return None(剔);A2 缺开盘价 → 告警+标记待人工(干跑);Phase2 挂单前置判定缺价 → 不挂单(同向),语义对齐留 Phase2 定稿。
+- 缺价语义:回测缺 nxt_open → return None(剔);A2 缺开盘价 → 告警+标记待人工(干跑,标记推 R2 线上,2026-09-23 修正);Phase2 挂单前置判定缺价 → 不挂单(同向),语义对齐留 Phase2 定稿。
 
 ## 4. 版本升级判断(调研维度 6,§5.4⑥)
 - 伪跳空剔除 = **数据质量处理**(回测报告 kelly-nextday-open-backtest.md §1.4 定性),不是「AI 推荐/降亏过滤」默认组合,也不动 K=1/BUY_AMOUNT/S06 基座/买入口径默认值。
