@@ -31,3 +31,13 @@
 4. 两源均取不到真实>0 今开才 RuntimeError(fail-closed 不放松)。
 - **需用户拍板点**:①东财源失败才启用兜底,不改变主源口径(开盘价口径三源实测一致) ②涉及核心实用功能(伪跳空剔除),按 §5.4⑥ 动 AI 推荐/过滤链路的默认组合/算法需发中间版本;但此处是**加兜底不改主源默认**,倾向不动版本,由主控确认。
 - 判据区分:「临时封禁无需改」= 明日 9:26 前东财自行恢复且连续 N 日稳定;「需建兜底」= 明早仍 000 或反复(本项目历史:东财 push2 家族 2026-07/08/09 反复封禁,memory 已多次弃用,建兜底概率高)。
+
+## 五、兜底已落地(2026-09-23 用户已拍板实施,实现见 `scripts/signal_kelly_backtest.py`)
+**泛化已上线到代码**(feat/gapcheck-multisource,实施实现细节):
+1. **主源失败路径**:`_fetch_intraday_open_prices`(L717)主源 `ak.fund_etf_spot_em()` 抛异常时,对**全部 target**(不再只 16 前缀)走新泛化函数 `_fetch_intraday_open_via_http`(L795,由原 `_fetch_lof_open_via_http` 泛化)。
+2. **主源成功路径行为零变化**:主源成功时仍按原逻辑取 `fund_etf_spot_em`「开盘价」列 + F4 数据日期校验;missing 的 16 前缀 LOF 仍走兜底(但改用泛化函数,L795-789 注释说明"主源成功时行为零变化,15 前缀主源已覆盖,不额外启用兜底")。
+3. **前缀规则**:`code[0]=='5'→'sh'`(上交所,如 561120/510300)、`'1'→'sz'`(深交所,如 159920/160717)。
+4. **当日性校验(等效 F4)**:兜底用腾讯时间戳字段[30]=YYYYMMDDHHMMSS 前 8 位 == expect_date 校验当日;腾讯取不到/时间戳缺失/非当日 → 该 target 拒用(fail-closed,同 F4「陈旧快照拒用」精神)。
+5. **fail-closed 不放松**:任一 target 两源均取不到真实 >0 今开才 RuntimeError(不拿 0/空值当今开);主源失败原因随附在异常消息里便于排查。
+- **消费点覆盖**:`_fetch_intraday_open_prices` 两处调用方均自动受益——`scripts/nextday_gap_check.py:120`(gap-check 就绪闸)与 `scripts/signal_kelly_backtest.py:1993`(回测盘中增量档)。
+- **未改前端源码,不 bump 版本串**;主源口径/默认组合不变(§5.4⑥ 纯新增降级路径,不动版本)。

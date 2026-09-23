@@ -722,11 +722,13 @@ def _fetch_intraday_open_prices(codes, expect_date=None):
     gen_etf_index_map.py 已在用) 37 列含「开盘价」且返回真实当日开盘价(516660=0.937 /
     510300=4.638 / 159920=1.483, 数据日期=2026-09-08), 故以 fund_etf_spot_em 为数据就绪闸判定源。
 
-    LOF 兜底(2026-09-18): fund_etf_spot_em 只覆盖 15 前缀场内 ETF, 16 前缀 LOF(如 160717
-    嘉实H股 QDII-LOF) 不在该源; 此类目标从 fund_etf_spot_em 取不到时, 直连新浪/腾讯行情
-    接口取今开价(双源主备: 新浪 split(',')[1]=今开, 腾讯 split('~')[5]=今开, 见
-    _fetch_lof_open_via_http)。fund_lof_spot_em 曾作兜底但 2026-09-18 云上实测 4 连
-    RemoteDisconnected 弃用(与 2026-08-05 历史弃用原因一致)。
+    双源兜底(2026-09-18 起 16 LOF, 2026-09-23 泛化到全部 15/16 前缀): fund_etf_spot_em 覆盖
+    15 前缀场内 ETF, 16 前缀 LOF(如 160717 嘉实H股 QDII-LOF) 不在该源; 2026-09-23 东财
+    push2 家族封禁(HTTP 000 连续 6h+, 本机+云上双地实测)致主源整体拉取失败 → 泛化双源兜底到
+    全部 15/16 前缀 target。此类目标从 fund_etf_spot_em 取不到/主源抛异常时, 直连新浪/腾讯
+    行情接口取今开价(双源主备: 新浪 split(',')[1]=今开, 腾讯 split('~')[5]=今开, 当日性
+    校验=腾讯时间戳[30], 见 _fetch_intraday_open_via_http)。fund_lof_spot_em 曾作兜底但
+    2026-09-18 云上实测 4 连 RemoteDisconnected 弃用(与 2026-08-05 历史弃用原因一致)。
 
     expect_date(可选, YYYYMMDD): 非 None 时做数据日期新鲜度校验(fail-closed, F4),
     要求 fund_etf_spot_em「数据日期」列 == expect_date, 陈旧快照(如 9:26 拉到昨日数据)抛
@@ -751,7 +753,17 @@ def _fetch_intraday_open_prices(codes, expect_date=None):
         try:
             df = ak.fund_etf_spot_em()
         except Exception as e:  # noqa: BLE001
-            raise RuntimeError(f"akshare fund_etf_spot_em 拉取失败: {type(e).__name__}: {e}") from e
+            # 2026-09-23 东财 push2 家族封禁(HTTP 000, 连续 6h+, 本机+云上双地实测):
+            # 主源拉取失败 → 对全部 target 走新浪(主)+腾讯(备)双源兜底(泛化, 不再只
+            # 16 前缀 LOF); 兜底内部任一目标双源均取不到真实>0 今开会抛 RuntimeError
+            # (fail-closed 不放松), 主源失败原因随附在消息里便于排查。
+            try:
+                return _fetch_intraday_open_via_http(target, expect_date=expect_date)
+            except RuntimeError as e2:
+                raise RuntimeError(
+                    f"akshare fund_etf_spot_em 拉取失败: {type(e).__name__}: {e}; "
+                    f"且新浪/腾讯双源兜底亦失败: {e2}"
+                ) from e2
         if df is None or df.empty or "代码" not in df.columns or "开盘价" not in df.columns:
             raise RuntimeError("akshare fund_etf_spot_em 返回空/缺列, 无法取盘中真实开盘价")
         if expect_date is not None:
@@ -768,57 +780,77 @@ def _fetch_intraday_open_prices(codes, expect_date=None):
                 out[str(row["代码"])] = op
 
         # 兜底源: 新浪/腾讯行情直连(16 前缀 LOF 在 fund_etf_spot_em 取不到;
-        # fund_lof_spot_em 2026-09-18 云上实测 4 连 RemoteDisconnected 弃用)
+        # fund_lof_spot_em 2026-09-18 云上实测 4 连 RemoteDisconnected 弃用;
+        # 2026-09-23 泛化: 兜底函数已覆盖全部 15/16 前缀, 此处仍只对 16 LOF 补缺
+        # ——主源成功时行为零变化, 15 前缀主源已覆盖, 不额外启用兜底)
         missing = [c for c in target if c not in out]
         lof_codes = [c for c in missing if c.startswith("16")]
         if lof_codes:
-            out.update(_fetch_lof_open_via_http(lof_codes))
+            out.update(_fetch_intraday_open_via_http(lof_codes, expect_date=expect_date))
     if not out:
         raise RuntimeError("akshare 未返回任何目标 ETF/LOF 的真实开盘价(数据就绪闸 FAIL)")
     return out
 
 
-def _fetch_lof_open_via_http(lof_codes):
-    """双源直连取 16 前缀 LOF 今开价(新浪主 + 腾讯备), 返回 {code: open}。
+def _fetch_intraday_open_via_http(codes, expect_date=None):
+    """双源直连取场内 ETF/LOF 今开价(新浪主 + 腾讯备), 返回 {code: open}。
 
-    16 前缀 LOF 全为深交所代码(sz 前缀), 直接拼 sz+代码。
-    新浪: https://hq.sinajs.cn/list=sz160717, 需 header Referer=finance.sina.com.cn,
+    2026-09-23 泛化(由 _fetch_lof_open_via_http 仅 16 前缀 LOF 泛化到全部 15/16 前缀):
+    fund_etf_spot_em(东财 push2 家族)拉取失败/未覆盖时的兜底。前缀规则:
+    code[0]=='5' → sh(上交所), '1' → sz(深交所)。
+    新浪: https://hq.sinajs.cn/list=sh510300 / sz159920, 需 header Referer=finance.sina.com.cn,
           返回 GBK 逗号分隔, split(',')[1]=今开价。
-    腾讯: https://qt.gtimg.cn/q=sz160717, 返回 GBK 波浪号分隔, split('~')[5]=今开价。
-    任一目标双源都取不到真实>0 今开价 -> 抛 RuntimeError(fail-closed, 调用方转退出码 5)。
-    2026-09-18 云上实测: 两源均 6/6 成功、逐位一致(160717 今开=0.696)。
+    腾讯: https://qt.gtimg.cn/q=sh510300 / sz159920, 返回 GBK 波浪号分隔, split('~')[5]=今开价,
+          时间戳字段 [30]=YYYYMMDDHHMMSS 用于当日性校验(等效 F4, 2026-09-23 加)。
+    expect_date(可选, YYYYMMDD): 非 None 时用腾讯时间戳[30]前 8 位 == expect_date 校验当日性;
+    腾讯取不到/时间戳缺失/非当日 → 当日性无法确认 → 该 target 拒用(fail-closed, 同 F4
+    "陈旧快照拒用"精神, 不许拿 0/空值/无法证实当日的价格当今开)。
+    任一目标双源均取不到真实>0 今开价 -> 抛 RuntimeError(fail-closed, 调用方转退出码 5)。
+    2026-09-23 云上+本地实测: 两源均 8/8 成功、逐位一致(561120 今开=1.250)。
     """
     import requests  # 已有依赖(us_stock_morning.py 同用)
 
     _SINA_HEADERS = {"Referer": "https://finance.sina.com.cn"}
     out = {}
-    for code in lof_codes:
-        symbol = f"sz{code}"
-        price = None
-        # 新浪(主)
+    for code in codes:
+        prefix = "sh" if str(code).startswith("5") else "sz"
+        symbol = f"{prefix}{code}"
+        ts = None
+        tencent_p = None
+        # 腾讯(备 + 当日性锚): 先取, 提供时间戳字段[30] 作当日性校验
+        try:
+            r = requests.get(f"https://qt.gtimg.cn/q={symbol}", timeout=10)
+            fields = r.content.decode("gbk", errors="replace").split("~")
+            if len(fields) > 5:
+                p = float(fields[5])
+                if p > 0:
+                    tencent_p = p
+                    ts = fields[30] if len(fields) > 30 else None
+        except (requests.RequestException, ValueError, IndexError):
+            tencent_p, ts = None, None
+        # 当日性校验(等效 F4): expect_date 非 None 时, 须腾讯时间戳前 8 位 == expect_date
+        if expect_date is not None:
+            if not ts or ts[:8] != expect_date:
+                raise RuntimeError(
+                    f"腾讯行情 {code} 时间戳 {ts or '(缺失)'} != 执行日 {expect_date}, "
+                    f"当日性无法确认(等效 F4 fail-closed, 拒用旧价)"
+                )
+        # 新浪(主): 当日性确认后取新浪价
+        sina_p = None
         try:
             r = requests.get(f"https://hq.sinajs.cn/list={symbol}", headers=_SINA_HEADERS, timeout=10)
             fields = r.content.decode("gbk", errors="replace").split(",")
             if len(fields) > 1:
                 p = float(fields[1])
                 if p > 0:
-                    price = p
+                    sina_p = p
         except (requests.RequestException, ValueError, IndexError):
-            price = None
-        # 腾讯(备): 新浪失败/取到非正值时兜底
-        if price is None:
-            try:
-                r = requests.get(f"https://qt.gtimg.cn/q={symbol}", timeout=10)
-                fields = r.content.decode("gbk", errors="replace").split("~")
-                if len(fields) > 5:
-                    p = float(fields[5])
-                    if p > 0:
-                        price = p
-            except (requests.RequestException, ValueError, IndexError):
-                price = None
+            sina_p = None
+        # 定价: 新浪主, 腾讯备
+        price = sina_p if sina_p is not None else tencent_p
         if price is None or price <= 0:
             raise RuntimeError(
-                f"新浪/腾讯行情均未取得 LOF {code} 真实开盘价(数据就绪闸 FAIL)"
+                f"新浪/腾讯行情均未取得 {code} 真实开盘价(数据就绪闸 FAIL)"
             )
         out[code] = price
     return out
