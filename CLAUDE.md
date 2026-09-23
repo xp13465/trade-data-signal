@@ -26,6 +26,7 @@
 - **每次 Agent 工具派出子 agent,同一轮必齐三件**:①`run_in_background`(同步阻塞=违规)②prompt 写明进度文件 `/tmp/agent-progress-<名>.md` 且每步 echo ③**巡检兜底 cron 在位**(CronList 查已有 durable 巡检 job 且覆盖本 agent→复用;无→CronCreate 15min 档 `3,18,33,48`+durable+门控零输出;全部 agent 完成后 CronDelete)
 - **通知送达不可靠是架构事实**(task-notification/SendMessage 均会丢),cron 兜底是唯一可靠残余;裸派=L01 违规
 - **机械强制**:`.claude/settings.json` PostToolUse(Agent) hook 每次派单自动弹三件套自查(scripts/agent_dispatch_cron_reminder.py),收到提醒当场补齐缺项再继续
+- **续跑同一任务派单必延续原 feat 分支(2026-09-23 用户定,防分支身份漂移+废弃分支)**:同一任务后续改动落同一分支,不新开分支 cherry-pick。派单前主控先 `git worktree list | grep <原分支>` 查占用,被已完成的 agent 残留 worktree 占死→先 `git worktree remove --force <路径>` 释放;prompt 写全延续指令(`git checkout <原分支>` + `git branch --show-current` 确认)。根因=isolation worktree 有 commit 不自动清理占死原分支,续跑 agent checkout 报 `fatal: already checked out` 只能 cherry-pick 致废弃分支+hash 漂移(详见 memory [[resume-same-task-reuse-branch]],implementer 侧操作见 role-implementer skill §3)
 
 ## 1. 开工先读
 每次会话开始/恢复上下文/接新任务,第一件事:主控先 Read docs/main-governance.md,子 agent 已由 agent 定义注入角色 skill,再读本共享核心(或对应 memory),不是想读才读。这是和"杜绝 token 浪费"并列的硬准则。
