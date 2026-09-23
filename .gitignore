@@ -114,6 +114,8 @@ static-site/data/etf/
 # 基金全史净值(#11 2026-08-25):fund_nav/{code}.json 26118 只 ~566MB, R2 fund_nav/ 前缀托管
 # (upload-fund-nav, 同 etf/ 模式本地 untracked 不进 git), 生成 scripts/export_fund_nav.py
 static-site/data/fund_nav/
+# 2026-09-23 桶化(§9B): nav_bucket/{xx}.json 256 桶(R2 nav_bucket/ 前缀), 与 fund_nav/ 同模式
+static-site/data/nav_bucket/
 # accum_nav 按 ETF 拆分(2026-09-17 懒加载):accum_nav/{code}.json 1554 只 ~18.5MB, R2 accum_nav/ 前缀托管
 # (upload-accum-nav, 同 etf/fund_nav 模式), 生成 docs/kelly/position/scripts/export_accum_nav_map.py + deploy.sh 拷贝侧
 static-site/data/accum_nav/

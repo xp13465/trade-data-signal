@@ -1180,32 +1180,34 @@ def _find_public_fund_db() -> Path | None:
 
 
 def check_fund_nav(data_dir: Path) -> CheckResult:
-    """校验 fund_nav/ 全史净值产物目录（#11，export_fund_nav.py 生成）。
+    """校验 nav_bucket/ 桶化全史净值产物目录（#11，export_fund_nav.py 生成）。
 
-    事故场景：fund_nav/ 目录丢失或文件为空 -> 前端基金评分弹窗「净值走势」
-    fetchJSON 404 -> 走势区空白。校验四层（codex-001 medium 加深, 2026-08-26）：
-      1) 目录存在 + 文件数>0 + 抽样 date/count/nav 结构非空
-         （count==0 视为合法空数据基金放行：全 NULL 净值 code export 正常产出空 JSON，
-          实测 136/26118 只；仅 count 显式为 0 放行，count 字段缺失仍判结构坏）;
-      2) **全量轻量结构校验**: 逐文件 json.load + 顶层 dict + code/date 字段存在性
-         （不读全量内容, 26120 文件实测 ~7s; 防随机抽样漏掉大面积定向损坏穿透）,
+    2026-09-23 桶化(docs/ops/task-slow-rootcause-20260923.md §9B): 产物从
+    fund_nav/{code}.json 26458 文件 -> nav_bucket/{xx}.json 256 桶(每桶 {code: payload}
+    map, 桶名=hash(code) 末 8bit)。校验四层对齐桶结构（codex-001 medium 加深）：
+      1) 目录存在 + 桶数>0 + 桶内 code 数>0;
+      2) **全量轻量结构校验**: 逐桶 json.load + 顶层 dict + 桶内每 payload code/date 存在
+         （桶 256 个 json.load ~527MB 实测 ~8s; 防随机抽样漏掉大面积定向损坏穿透）,
          抽样数可用 env FUND_NAV_SAMPLE_N 调节(默认 30);
-      3) 覆盖率: 文件数 vs DB distinct fund_code
+      3) 覆盖率: 桶内 code 并集 vs DB distinct fund_code
          （常规 <90% FAIL / <95% WARN; deploy 模式收紧到 <98% FAIL——deploy 是最后闸门）;
       4) 抽样最多 N 只 DB<->产物逐位一致（最新 3 个有效净值点 date/unit_nav/acc_nav 全等；
-         空数据文件两侧均为空序列, 天然一致）。
+         空数据基金两侧均为空序列, 天然一致）。
     """
     import random
 
     name = "fund_nav"
-    nav_dir = data_dir / "fund_nav"
+    nav_dir = data_dir / "nav_bucket"
     if not nav_dir.is_dir():
-        return _warn(name, f"fund_nav/ 目录不存在: {nav_dir}（基金弹窗「净值走势」将空白，"
+        return _warn(name, f"nav_bucket/ 目录不存在: {nav_dir}（基金弹窗「净值走势」将空白，"
                      f"跑 export_fund_nav.py 生成；评分/凯利区块不受影响）")
 
     files = sorted(nav_dir.glob("*.json"))
     if not files:
-        return _warn(name, f"fund_nav/ 目录无 JSON 文件: {nav_dir}")
+        return _warn(name, f"nav_bucket/ 目录无 JSON 文件: {nav_dir}")
+    if len(files) > 256:
+        return _fail(name, f"nav_bucket/ 桶文件数 {len(files)} > 256（桶数应固定 256, "
+                           f"疑似 hash 分桶实现漂移/残留旧文件）")
 
     # codex-001 medium: 抽样数可配置(env FUND_NAV_SAMPLE_N, 默认 5->30), deploy 模式下
     # 大面积损坏靠全量轻量层兜住, 抽样只负责深度形状/DB 逐位比对
@@ -1214,22 +1216,37 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
     except ValueError:
         sample_n = 30
 
-    # ── 第2层: 全量轻量结构校验(逐文件 json.load 头部, 不读全量 nav 内容)──
+    # ── 第2层: 全量轻量结构校验(逐桶 json.load, 校验顶层 dict + 桶内每 payload 形状)──
     light_bad = []
+    bucket_codes: dict[str, list] = {}   # 桶名 -> 桶内 code 列表(覆盖率用)
+    total_codes = 0
     for f in files:
         try:
             with open(f, "r", encoding="utf-8") as fh:
                 d = json.load(fh)
             if not isinstance(d, dict):
                 light_bad.append(f"{f.name}: 顶层非对象({type(d).__name__})")
-            elif not d.get("code"):
-                light_bad.append(f"{f.name}: 缺 code")
-            # date 口径对齐抽样层空数据契约: 键必须存在, 值允许空串
-            # （count==0 合法空数据基金 exporter 写 date="", 实测 136/26118 只）
-            elif "date" not in d:
-                light_bad.append(f"{f.name}: 缺 date")
-            elif not isinstance(d.get("nav"), list):
-                light_bad.append(f"{f.name}: nav 非数组")
+                continue
+            b_codes = []
+            for c, payload in d.items():
+                if not isinstance(payload, dict):
+                    light_bad.append(f"{f.name}: code {c} 的 payload 非对象")
+                    break
+                if payload.get("code") != c:
+                    light_bad.append(f"{f.name}: code {c} 的 payload.code 不一致({payload.get('code')!r})")
+                    break
+                # date 口径对齐抽样层空数据契约: 键必须存在, 值允许空串
+                # （count==0 合法空数据基金 exporter 写 date="", 实测 136/26118 只）
+                if "date" not in payload:
+                    light_bad.append(f"{f.name}: code {c} 缺 date")
+                    break
+                if not isinstance(payload.get("nav"), list):
+                    light_bad.append(f"{f.name}: code {c} nav 非数组")
+                    break
+                b_codes.append(c)
+            else:
+                bucket_codes[f.name] = b_codes
+                total_codes += len(b_codes)
         except json.JSONDecodeError as e:
             light_bad.append(f"{f.name}: JSON 解析失败 {e}")
         except OSError as e:
@@ -1237,68 +1254,80 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
         if len(light_bad) >= 8:
             break
     if light_bad:
-        return _fail(name, f"全量轻量结构校验 {len(light_bad)}+ 个坏文件如: "
+        return _fail(name, f"全量轻量结构校验 {len(light_bad)}+ 个坏桶/坏 payload 如: "
                      + "; ".join(light_bad[:4]))
+    if total_codes == 0:
+        return _fail(name, "nav_bucket/ 桶内 code 总数为 0（产物为空）")
 
-    # 结构抽验(最多 N 只): date/count/nav 非空且 count==len(nav); count==0 合法空数据放行
+    # 桶内所有 code 列表(桶间互斥: 每基金只在一个桶, 并集=sum, 无重复)
+    all_codes = [c for cs in bucket_codes.values() for c in cs]
+
+    # 结构抽验(最多 N 只): 随机取 N 个桶各 1 只, date/count/nav 非空且 count==len(nav);
+    # count==0 合法空数据放行
     sample = random.sample(files, min(sample_n, len(files)))
     bad = []
     empty_cnt = 0
+    checked = 0
     for f in sample:
         try:
             d, err = _load_json(f)
             if err:
                 bad.append(f"{f.name}: {err}")
                 continue
-            # 顶层必须是 dict（codex review high: 顶层数组/null 会让 d.get 抛 AttributeError 穿透）
-            if not isinstance(d, dict):
-                bad.append(f"{f.name}: 顶层非对象({type(d).__name__})")
+            if not isinstance(d, dict) or not d:
+                bad.append(f"{f.name}: 桶顶层非对象/空桶({type(d).__name__})")
                 continue
-            count = d.get("count")
+            code = random.choice(sorted(d.keys()))
+            payload = d[code]
+            if not isinstance(payload, dict):
+                bad.append(f"{f.name}: code {code} payload 非对象")
+                continue
+            count = payload.get("count")
             # 空数据契约: count 必须严格 int==0 且非 bool; nav 空数组; 含 code/name/source + date 字段
-            # （保留内部 reviewer 已加的「count 缺失仍 FAIL」语义: count 缺失→非空分支→bad）
             if count == 0:
                 if not isinstance(count, int) or isinstance(count, bool):
-                    bad.append(f"{f.name}: count==0 但类型非 int({type(count).__name__})")
-                elif not isinstance(d.get("nav"), list) or len(d["nav"]) != 0:
-                    bad.append(f"{f.name}: 空数据但 nav 非空/非数组")
+                    bad.append(f"{f.name}[{code}]: count==0 但类型非 int({type(count).__name__})")
+                elif not isinstance(payload.get("nav"), list) or len(payload["nav"]) != 0:
+                    bad.append(f"{f.name}[{code}]: 空数据但 nav 非空/非数组")
                 else:
                     missing = [k for k in ("code", "name", "source")
-                               if k not in d or d.get(k) in (None, "")]
+                               if k not in payload or payload.get(k) in (None, "")]
                     if missing:
-                        bad.append(f"{f.name}: 空数据缺关键字段 {missing}")
-                    elif "date" not in d:
-                        bad.append(f"{f.name}: 空数据缺 date 字段")
+                        bad.append(f"{f.name}[{code}]: 空数据缺关键字段 {missing}")
+                    elif "date" not in payload:
+                        bad.append(f"{f.name}[{code}]: 空数据缺 date 字段")
                     else:
                         empty_cnt += 1
+                        checked += 1
                 continue
             # 非空数据: 关键字段存在 + count 为 int + count==len(nav) + 逐项校验 nav 形状
-            if count is None or not d.get("date") or not d.get("nav"):
-                bad.append(f"{f.name}: date/count/nav 有空值")
+            if count is None or not payload.get("date") or not payload.get("nav"):
+                bad.append(f"{f.name}[{code}]: date/count/nav 有空值")
                 continue
             if not isinstance(count, int) or isinstance(count, bool):
-                bad.append(f"{f.name}: count 类型非 int({type(count).__name__})")
+                bad.append(f"{f.name}[{code}]: count 类型非 int({type(count).__name__})")
                 continue
-            if len(d["nav"]) != count:
-                bad.append(f"{f.name}: count={count} != len(nav)={len(d['nav'])}")
+            if len(payload["nav"]) != count:
+                bad.append(f"{f.name}[{code}]: count={count} != len(nav)={len(payload['nav'])}")
                 continue
-            for row in d["nav"]:
+            for row in payload["nav"]:
                 if not isinstance(row, (list, tuple)) or len(row) != 3:
-                    bad.append(f"{f.name}: nav 元素非 [date,unit_nav,acc_nav] 三元组")
+                    bad.append(f"{f.name}[{code}]: nav 元素非 [date,unit_nav,acc_nav] 三元组")
                     break
                 rdate, unit, acc = row
                 if not isinstance(rdate, str) or not rdate:
-                    bad.append(f"{f.name}: nav 元素 date 非法")
+                    bad.append(f"{f.name}[{code}]: nav 元素 date 非法")
                     break
                 if not isinstance(unit, (int, float)) or (acc is not None and not isinstance(acc, (int, float))):
-                    bad.append(f"{f.name}: nav 元素 unit_nav/acc_nav 非数值")
+                    bad.append(f"{f.name}[{code}]: nav 元素 unit_nav/acc_nav 非数值")
                     break
+            checked += 1
         except Exception as e:
             bad.append(f"{f.name}: 抽样校验异常 {type(e).__name__}: {e}")
     if bad:
         return _fail(name, "; ".join(bad[:4]))
 
-    # 覆盖率: 产物文件数 vs DB distinct fund_code
+    # 覆盖率: 桶内 code 并集 vs DB distinct fund_code
     db = _find_public_fund_db()
     db_codes = None
     conn = None
@@ -1315,7 +1344,7 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
                 conn.close()
     if db_codes:
         # codex-001 low: exporter 会把非法字符替换成 _（_safe_code, 同 export_fund_nav.py）,
-        # DB 脏 code 场景下 f.stem 与 DB code 直接交集口径错位 -> 建 filename->code 映射再算
+        # DB 脏 code 场景下桶内 code(原始值) 与 DB code 直接交集可能错位 -> safe 映射再算
         safe_re = re.compile(r"[^A-Za-z0-9_]")
 
         def _safe_code(code: str) -> str:
@@ -1325,8 +1354,8 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
         for c in db_codes:
             fname_to_codes.setdefault(_safe_code(c), []).append(c)
         collisions = [k for k, v in fname_to_codes.items() if len(v) > 1]
-        local_names = {f.stem for f in files}
-        covered = len(local_names & set(fname_to_codes))
+        local_codes = {_safe_code(c) for c in all_codes}
+        covered = len(local_codes & set(fname_to_codes))
         ratio = covered / len(db_codes)
         if collisions:
             print(f"  ⚠ {name}: safe_code 映射碰撞 {len(collisions)} 个"
@@ -1372,16 +1401,19 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
 
             for f in sample:
                 d, err = _load_json(f)
-                if err or not isinstance(d, dict):
+                if err or not isinstance(d, dict) or not d:
                     continue
-                code = d.get("code", f.stem)
+                code = random.choice(sorted(d.keys()))
+                payload = d[code]
+                if not isinstance(payload, dict):
+                    continue
                 rows = conn.execute(
                     "SELECT date, unit_nav, acc_nav FROM fund_daily_nav "
                     "WHERE fund_code=? AND unit_nav IS NOT NULL ORDER BY date DESC LIMIT 3",
                     (code,),
                 ).fetchall()
                 got = [(r[0], r[1], r[2]) for r in rows]
-                exp = [(r[0], r[1], r[2]) for r in list(reversed(d.get("nav", [])))[:3]]
+                exp = [(r[0], r[1], r[2]) for r in list(reversed(payload.get("nav", [])))[:3]]
                 if got != exp:
                     note = _dir_note(got[0][0] if got else None, exp[0][0] if exp else None)
                     mismatch.append(
@@ -1393,10 +1425,10 @@ def check_fund_nav(data_dir: Path) -> CheckResult:
         finally:
             conn.close()
 
-    msg = f"{len(files)} 只基金全史净值，抽样 {len(sample)} 只结构+DB逐位一致"
+    msg = f"{len(files)} 桶/{total_codes} 只基金全史净值，抽样 {checked} 只结构+DB逐位一致"
     if empty_cnt:
         msg += f"（含合法空数据基金 {empty_cnt} 只）"
-    if db_codes and len({f.stem for f in files} & set(fname_to_codes)) / len(db_codes) >= 0.95:
+    if db_codes and len({_safe_code(c) for c in all_codes} & set(fname_to_codes)) / len(db_codes) >= 0.95:
         msg += "，覆盖率 ≥95%"
     return _ok(name, msg)
 
@@ -1871,7 +1903,7 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     results.append(check_etf_since_return(data_dir))
     # #10 ETF 全史日K产物目录（export_etf_hist.py -> R2 etf/ 前缀）
     results.append(check_etf_hist(data_dir))
-    # #11 基金全史净值产物目录（export_fund_nav.py -> R2 fund_nav/ 前缀, 2026-08-25）
+    # #11 基金全史净值产物目录（export_fund_nav.py -> R2 nav_bucket/ 前缀, 2026-08-25; 2026-09-23 桶化 256 桶）
     results.append(check_fund_nav(data_dir))
     # #29 track_score 跨产物一致性（2026-08-22 起两路全量对比，替代旧 5 样本三版本抽样）
     results.append(check_track_score_map_vs_index(data_dir, repo_data_dir))

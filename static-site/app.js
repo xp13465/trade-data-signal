@@ -9254,7 +9254,7 @@ const _NO_CACHE_URLS = /(?:^|\/)(?:boot|overview|intraday_snapshot|metrics|notif
 // 同性质需与首页信号 pin 实时对齐)。其余 R2 前缀(public_fund/industry/lab/index-all 等)
 // 为盘后聚合产物且无坏 payload 风险, 恢复通用 5min 结果缓存(切 tab/重开不再重复拉大 JSON)。
 // 注: /r2/index/{id}-all 另被 _NO_CACHE_URLS 的 index\/[^/]+-all 分支排除, 不受本正则影响。
-const _NO_R2_CACHE_URLS = /\/r2\/(?:fund_nav|etf)\//;
+const _NO_R2_CACHE_URLS = /\/r2\/(?:fund_nav|nav_bucket|etf)\//;
 const _CACHE_TTL = 5 * 60 * 1000; // 历史类数据缓存 5 分钟
 // R2 大range 路由（2026-07-24）：all/5y/3y 从 R2 读（减 git 仓库 ~60M），小 range（3m/6m/1y）留本地减延迟。
 // fetchJSON 统一走 .json + CF br 压缩（2026-08-01 全部跳 .gz，根治 CF .gz 4h edge 缓存滞后）。
@@ -26879,12 +26879,26 @@ function _fundScoreRadarSVG(e) {
 
 // #11 基金弹窗净值走势(2026-08-25): 复刻 #10 _renderEtfTrendSection 整套交互(period tab/
 // 竞态防护/lite SVG+echarts 双版本/R2 懒加载 per-code 缓存), 数据源差异点:
-// - 数据源 R2 fund_nav/{code}.json(payload.nav=[[date,unit_nav,acc_nav],...], 点开才拉);
-//   基金评分列表 item 无内置近30日净值序列 -> 30d 默认周期同样走懒拉取(单文件 ~26KB)
+// - 数据源 R2 nav_bucket/{xx}.json(桶=256, 桶内 {code: payload} map, 点开才拉该桶);
+//   桶名 = FNV-1a hash(code) 末 8bit(00-ff), **必须与 scripts/export_fund_nav.py
+//   `_fund_bucket` 同构**(第二份实现防漂移 §5.4⑦); 校验同端自测对账。
+// - 桶缺失/桶内无该 code -> 回退旧 per-code R2 fund_nav/{code}.json(过渡期旧 per-code
+//   保留在 R2 不删, 兜底旧缓存前端与桶数据滞后场景, §24 防撕裂)
 // - 单位净值映射为伪 OHLC [date,v,v,v,v] 复用 _etfTrendLiteHTML/_etfTrendLiteBind
 //   (valueLabel=单位净值/valueDecimals=4; 两 helper 缺省「收盘」+3 位, ETF 行为零变化 §23.7)
-// - 缓存: 模块级 per-code 全量 payload(~26KB/只), 弹窗关开/切周期不重复拉取
+// - 缓存: 模块级 per-bucket 整桶 map(弹窗关开/切周期不重复拉桶) + per-code payload
+//   双缓存; 桶内多只基金共享一次桶拉取, 同桶后续基金零网络
 const _fundNavCache = {};
+const _fundNavBucketCache = {};
+// 确定性 FNV-1a hash -> 桶名(与后端 export_fund_nav._fund_bucket 同构, 勿改!)
+function _fundNavBucket(code) {
+  let h = 2166136261;
+  const s = String(code || "");
+  for (let i = 0; i < s.length; i++) {
+    h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
+  }
+  return (h & 0xff).toString(16).padStart(2, "0");
+}
 let _fundNavChart = null;
 // 净值请求序号: 模块级全局单调递增(F2, 同 _etfTrendReqSeq)——modal._ctx 随 open 重置、
 // close 不失效, A 基金 fetch in-flight 中关开到 B 会把 A 的走势画进 B 弹窗; 全局计数器不复位。
@@ -26918,9 +26932,28 @@ async function _renderFundNavSection(modal, code, period) {
   let hist = _fundNavCache[code];
   if (!hist) {
     sec.innerHTML = '<div class="lab-custom-loading">⏳ 净值走势加载中…</div>';
+    const bucket = _fundNavBucket(code);
     try {
-      // 硬编码 R2 直链(/r2/ 代理路由为通用 key 代理, fund_nav/ 新前缀零 worker 改动)
-      hist = await fetchJSON(`https://ss.fx8.store/r2/fund_nav/${code}.json`);
+      // 桶化主路径: 拉所在桶 nav_bucket/{xx}.json -> 桶内 map[code] 取 payload(点开才拉该桶,
+      // 同桶多只基金共享一次桶拉取; 首屏零全拉, 懒加载语义不退化 §24)
+      let bucketMap = _fundNavBucketCache[bucket];
+      if (bucketMap === undefined) {
+        try {
+          // 桶化主路径: 拉所在桶 nav_bucket/{xx}.json -> 桶内 map[code] 取 payload(点开才拉该桶,
+          // 同桶多只基金共享一次桶拉取; 首屏零全拉, 懒加载语义不退化 §24)
+          bucketMap = await fetchJSON(`https://ss.fx8.store/r2/nav_bucket/${bucket}.json`);
+        } catch (_bucketErr) {
+          // 桶拉取失败(404/网络/超时) -> 降级 null, 走下方 per-code 回退(fetchJSON 对 !ok 抛错,
+          // 桶 404 绝不能直接跳外层 catch 丢弃回退机会; 过渡期旧 per-code 保留在 R2 就是为此)
+          bucketMap = null;
+        }
+        _fundNavBucketCache[bucket] = bucketMap; // 桶缓存: 弹窗关开/同桶后续基金零网络
+      }
+      hist = (bucketMap && bucketMap[code]) || null;
+      // 桶内无该 code(新基金/桶滞后) -> 回退旧 per-code(过渡期 R2 旧文件保留)
+      if (!_validFundNavPayload(code, hist)) {
+        hist = await fetchJSON(`https://ss.fx8.store/r2/fund_nav/${code}.json`);
+      }
       // codex-001 medium: 先验后存——结构验证不通过不写 per-code 缓存, 走失败分支
       // 可重试(通用 _resultCache 已对该 URL 前缀跳过写入, 见 fetchJSON _NO_R2_CACHE_URLS)
       if (!_validFundNavPayload(code, hist)) {
@@ -27028,7 +27061,8 @@ function openFundScoreDetailModal(code) {
       </div>`;
     // #11 净值走势(2026-08-25): period tab 切换(UI/交互 pattern 复刻 openEtfScoreDetailModal
     // #10 模式: .signal-chart-periods + .lab-signal-period-btn + modal._ctx 重入)。
-    // 全部周期都从 R2 fund_nav/{code}.json 懒加载(per-code 缓存), 点开才拉。
+    // 全部周期都从 R2 nav_bucket/{xx}.json 桶懒加载(2026-09-23 桶化; 桶缺失回退旧
+    // fund_nav/{code}.json per-code, 过渡期双读), 点开才拉。
     modal.querySelectorAll(".lab-signal-period-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         modal.querySelectorAll(".lab-signal-period-btn").forEach((b) => b.classList.remove("active"));

@@ -132,7 +132,10 @@ async function r2ProxyHandler(request, env, ctx, url) {
   //   no-store 后 upload-fund-nav 跳过 purge 环节整个省掉，且即使漏传/失败也无旧版残留窗口
   //   （TTL=0 每次回源 R2 拿最新）。单文件 ~26KB 回源成本可接受；基金净值 T+1 晚间入图，
   //   无盘中时效压力，用户点开弹窗才拉属低频访问。etf/ 等其余前缀行为不变。
-  const noEdgeCache = key.startsWith('fund_nav/');
+  //   2026-09-23 桶化：nav_bucket/（256 桶全史净值）与 fund_nav/（旧 per-code 前缀）同数据
+  //   同语义，一并 no-store；否则每日上传后 CF 边缘按 max-age=3600 缓存旧桶最长 1h +
+  //   upload 跳过 purge → 前端读到旧净值（§22 数据一致性）。
+  const noEdgeCache = key.startsWith('fund_nav/') || key.startsWith('nav_bucket/');
   // 1. 边缘缓存命中（key 用 pathname 剥离 query，?_=Date.now() 不影响命中；noEdgeCache 跳过）
   const cacheKey = new Request(url.origin + url.pathname);
   if (!noEdgeCache) {
