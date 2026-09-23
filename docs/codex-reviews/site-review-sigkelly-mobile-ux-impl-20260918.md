@@ -98,3 +98,20 @@
 - **验收**（本地 `BASE_URL=http://localhost:8123`，数据软链主仓库 static-site/data）：M1~M10 全 PASS（M9 barH=83 ≤100；M10 h=456 ratio=0.54 ≤0.55）+ 桌面 D1~D5 全 PASS = 15/15。
 - 仅 commit `static-site/lab.css`（1 文件，+3/-13）；`lab.min.css` 本地验证产物已还原，版本串 bump 由 main-merge.sh 统一。
 
+## 10. 复审修正 v4（2026-09-23）：a11y「点击≥44px」全站误伤回退（市场全景等）
+
+- 背景：v3 只回退了 lab.css（凯利区），**style.css 整个漏了**，导致同一批 a11y「点击≥44px」在市场全景等处仍生效，布局变差（用户点名：顶部「每日速递/更多」、周期条）。
+- 全量落点（`git grep min-height:44px static-site/*.css`）：
+
+| # | 文件:行 | 选择器 | 处置 |
+|---|---|---|---|
+| 1 | style.css:4027 | `.summary-ai-btn, .summary-history-btn`（每日速递/更多） | **回退**（实测确认 h=44，桌面 24，是真回归）：删 `min-height:44px`，恢复 `padding:2px 10px` 紧凑 pill |
+| 2 | style.css:3937 | `.h5-periods button`（周期条） | **回退**：删 `min-height:44px`（注：**市场全景页该条本就 display:none**，`app.js:11130`；此条仅影响「大盘/情绪」tab 的周期条，仍应回退） |
+| 3 | style.css:4065 | `.h5-bottomnav button`（底部主导航） | **保留** 44px（底部主导航，合理） |
+| 4 | style.css:2716 | `.futures-*-grid .chart-card h3` | **不动**（标题等高对齐设计，非 a11y 影响） |
+| 5 | lab.css 折叠 summary / 免责 summary | `.lab-sigkelly-collapse>summary` 等 | **保留**（折叠触发器，44px 不占版面） |
+
+- 「近期技术分析参考点」区（`sig-acc-*`）：**实测确认 a11y 未碰**——chip 19~21px、12px 字号、padding 0，与桌面同款；观感变差更可能是顶部速递/更多被撑高带偏，或字号 11px 覆盖的连带（待用户指认具体按钮）。
+- 范围红线同 §0：仅在 `@media (max-width:760px)` 内改，桌面端零回归。
+- 验收哨兵见 `scripts/playwright-accept/accept_market_overview_buttons.mjs`（市场全景两处按钮尺寸）。
+
