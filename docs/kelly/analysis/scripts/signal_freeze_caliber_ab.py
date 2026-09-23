@@ -13,7 +13,9 @@
   - profit 用前端实时重算(_kellyRecomputeTrade, 默认费率 etf_main 万0.5/min0.1 + 滑点 0.1% + 经手费)
   - rmh(峰值资金收益率) = 总盈亏 / 峰值同时持仓资金 × 100, 峰值资金按每笔(买日+10000/卖日-10000)现金流叠加求最大
   - 历史对账锚点: 9-22 旧数据版本(线上产物到 9-15) A=549笔/+161.63%(tp 161,629/峰值10万)、K=155.42%;
-    当前 9-23 数据版本(线上到 9-22, 与 /tmp/bk_env/A 一致) A=554笔/+154.34%(tp 154,336/峰值10万)
+    【已废弃口径·可反查】researcher 原报告口径(非标费率, 页面任何档都不是): 当前 9-23 数据版本 A=554笔/+154.34%(tp 154,336/峰值10万);
+    【权威口径 = 页面默认档 etf_main】2026-09-24 对账修正(§5.4⑦): 当前 9-23 数据版本(与 /tmp/bk_env/A 一致) A=554笔/+162,283.80(tp)/162.28%(rmh)/峰值10万,
+    B=546笔/+163,645.92(tp)/163.65%(rmh)/峰值10万
 
 用法(路径可配置,不依赖 /tmp; --trades-json 可传多次配对 --label):
   python3 signal_freeze_caliber_ab.py \
@@ -31,11 +33,13 @@ DEFAULT_ROOT = "/Users/linhuichen/code/trade"
 DEFAULT_S06 = DEFAULT_ROOT + "/static-site/data/kelly_mode_s06_state.json"
 DEFAULT_FEATURES = DEFAULT_ROOT + "/static-site/data/kelly_loss_features.json"
 
-# ---- 费率预设(lab.js KELLY_FEE_PRESETS 同源, 默认档 etf_def=万3/最低5, 与前端默认及页面对账口径一致) ----
+# ---- 费率预设(lab.js KELLY_FEE_PRESETS 同源) ----
+# 页面默认费率档 = etf_main(万0.5/最低0.1), 脚本 --fee-preset 默认与之一致(2026-09-24 对账修正)。
+# etf_def(万3/最低5)为可选档, 非页面默认。
 FEE_PRESETS = {
     "zero":      dict(commission_rate=0,       min_commission=0,   slippage=0,     transfer_fee_rate_sh=0,       stamp_duty_rate=0),
-    "etf_def":   dict(commission_rate=0.0003,  min_commission=5,   slippage=0.001, transfer_fee_rate_sh=0.00001, stamp_duty_rate=0),   # 万3 最低5 当前(默认)
-    "etf_main":  dict(commission_rate=0.00005, min_commission=0.1, slippage=0.001, transfer_fee_rate_sh=0.00001, stamp_duty_rate=0),   # 万0.5 最低0.1
+    "etf_def":   dict(commission_rate=0.0003,  min_commission=5,   slippage=0.001, transfer_fee_rate_sh=0.00001, stamp_duty_rate=0),   # 万3 最低5(可选档, 非默认)
+    "etf_main":  dict(commission_rate=0.00005, min_commission=0.1, slippage=0.001, transfer_fee_rate_sh=0.00001, stamp_duty_rate=0),   # 万0.5 最低0.1(页面默认档)
     "etf_cheap": dict(commission_rate=0.00001, min_commission=0,   slippage=0.001, transfer_fee_rate_sh=0.00001, stamp_duty_rate=0),   # 万0.1 免5
     "stock_def": dict(commission_rate=0.0005,  min_commission=5,   slippage=0.002, transfer_fee_rate_sh=0.00001, stamp_duty_rate=0.0005),
 }
@@ -197,7 +201,7 @@ class _CaliberRunner:
 
     def __init__(self, trades_path, s06_path, feat_path, buy_amount=10000.0, fee_params=None):
         self.buy_amount = buy_amount
-        self.fee = fee_params or FEE_PRESETS['etf_def']
+        self.fee = fee_params or FEE_PRESETS['etf_main']   # 与页面默认档一致(2026-09-24 对账修正)
         d = json.load(open(trades_path))
         self.d = d
         self.FI = {f: i for i, f in enumerate(d['fields'])}
@@ -500,8 +504,8 @@ def main():
                     help='kelly_loss_features.json 路径(默认项目内)')
     ap.add_argument('--buy-amount', type=float, default=10000.0,
                     help='每日资金池总额(默认 10000 = K1 每日池单笔保留时每笔=10000/1)')
-    ap.add_argument('--fee-preset', default='etf_def', choices=list(FEE_PRESETS.keys()),
-                    help='费率档(默认 etf_def=万3/最低5, 与前端默认/页面口径一致)')
+    ap.add_argument('--fee-preset', default='etf_main', choices=list(FEE_PRESETS.keys()),
+                    help='费率档(默认 etf_main=万0.5/最低0.1, 与页面默认档一致; 2026-09-24 对账修正自 etf_def)')
     ap.add_argument('--json', action='store_true', help='输出机器可读 JSON 汇总')
     args = ap.parse_args()
 
