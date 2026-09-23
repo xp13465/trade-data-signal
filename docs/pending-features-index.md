@@ -68,6 +68,8 @@
 | 30 | **R2 审计 P2×4:purge 失败告警 / check_data_integrity 覆盖 / _headers 不生效 / upload_r2 不设 Cache-Control** | docs/r2-migration-implementation-report.md §3.3/§6.2 | 详见报告 | check_data_integrity 已补 etf_since_return + trade_sim_indices 校验(脚本 L48/548),其余未做 | **已废弃**(08-21 移入 docs/abandoned-features.md L13-14,11507746c) |
 | 31 | **simulate_trade JSON 模式自动调度(launchd 定时)** | docs/r2-migration-implementation-report.md §3.2 P1-2 | update_lab.sh 只跑 --html 模式,trade_sim JSON 需手动触发,建议加 launchd 定时 | update_lab.sh 已含 --all JSON 生成+ R2 上传(2026-08-09 补) | **已完成**(08-21 96ee60bf7) |
 | 32 | **perf 剩余小优化:etf_nt 缓存 / industry 批查** | docs/perf-p1-plan.md L264 | 共省 ~0.9s,收益小改动风险,建议暂不动;若做优先 etf_nt 缓存 | 无 | **已废弃**(08-21 移入 docs/abandoned-features.md L13-14,11507746c) |
+| 110 | **update_all 主链 staticdata 备份积压拖慢(故障后次日补传 25789 文件约 30-40min)** | 2026-09-23 生产巡检 update_all 超时调研 | 9-22 update_all 216min 中,staticdata 备份(git add 25789 文件,备份 repo commit 160030698)估 30-40min,与 fund-nav 上传同为「前一日故障 → 次日积压补传」模式(9-21 deploy 失败致积压)。9-23 已修 fund-nav(异步化 4fdb52d88 + 桶化 4beaffe48),备份仍挂 deploy 主链。建议评估:备份失败独立补跑/不进主链,或积压超阈值时跳过当次仅告警 | 无 | **待评估** |
+| 111 | **旧 fund_nav/ per-code 目录清理(531MB / 26458 文件)** | 2026-09-23 桶化上线 + update_all 调研 | 桶化(nav_bucket/ 256 桶)上线后,旧 `fund_nav/` 前缀 26458 文件(~531MB)仍残留 static-site/data/,桶化版无清理逻辑,占盘且 rsync 继续带进备份仓库。用户拍板「稳定 1-2 周后清」;届时先验桶上传连续稳定(每日 PUT 256 / 无 severe 告警 / check_r2_consistency 通过)再删旧前缀,前端 fund_nav/ 回退双读逻辑可一并下线(简化) | 桶化稳定运行 1-2 周 | **待执行(约 2026-10-07~10-14)** |
 
 ## 六、管理端 / 新功能
 
