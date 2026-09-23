@@ -166,5 +166,8 @@
   ],
   "20260922-a607": [
     "feat(signal-kelly): K\u6863\u6301\u6709\u671f 11\u5929\u21929\u5929, \u4fee\u6b63\u300c\u4f18\u4e8e10\u5929\u300d\u5931\u771f\u6587\u6848"
+  ],
+  "20260923-a608": [
+    "fix(fund-nav): codex \u5916\u5ba1 4 \u9879\u2014\u2014worker no-store \u767d\u540d\u5355\u8865 nav_bucket + export \u6d41\u5f0f\u5199\u964d\u5185\u5b58 + README \u6876\u5316\u53e3\u5f84 + \u5220\u6b7b\u4ee3\u7801"
   ]
 }
