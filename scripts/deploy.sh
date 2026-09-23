@@ -526,8 +526,10 @@ fi
 # R2 上传超时监控（A3，2026-07-23）：upload_r2 卡 TCP SYN_SENT 会持 deploy.lock
 # 阻塞后续 update_all（2026-07-23 实测卡 8分20秒，主控 kill 释放锁）。
 # macOS 无 timeout/gtimeout 命令，用 bash 原生 background+sleep+kill 实现：
-# 后台跑 upload_r2，每 5s 探活，超 R2_UPLOAD_TIMEOUT（默认 300s=5min）即 kill 释放锁。
-R2_UPLOAD_TIMEOUT="${R2_UPLOAD_TIMEOUT:-300}"
+# 后台跑 upload_r2，每 5s 探活，看门狗超时 ch_limit = 显式通道值 / 按字节估算值 / 回退基线 900s
+# （三选一逻辑见 run_r2_upload 函数内注释）。2026-09-24 P2-估算回退: 原回退用 R2_UPLOAD_TIMEOUT
+# （默认 300s）短于修复前通用大通道固定值 900s，已改为固定回退 900s 兜底（见回退分支注释），
+# 该变量随之移除，不留死定义。
 # 单通道超时覆盖(2026-08-23): run_r2_upload 第二参若为纯数字, 则作为本通道专属超时秒数,
 # 缺省仍用全局 R2_UPLOAD_TIMEOUT。upload-etf-hist(1532 只全史日K ~87MB)量大且总量随每日
 # 新增K线累积缓慢变大, 曾在 300s 线间歇性被 kill 触发「deploy R2上传失败」告警;
@@ -554,7 +556,9 @@ run_r2_upload() {
   #     上限 7200s 保「真死锁仍能被杀掉」, 不因放宽而无限挂住。
   #   显式传入的 ch_timeout(调优通道 verify-r2 7200 / trade-sim-json 1800 / fund-nav 等)优先,
   #   估算只覆盖未显式调优的通用通道(upload-data-large / upload-kelly-parts 等, 见下方调用)。
-  #   读不到 R2_BYTES_TOTAL 行(非增量引擎命令如 upload-db/upload-data-files)回退全局默认。
+  #   读不到 R2_BYTES_TOTAL 行(非增量引擎命令如 upload-db/upload-data-files)回退 900s 基线
+  #   (2026-09-24 P2-估算回退: 原回退 R2_UPLOAD_TIMEOUT 默认 300s 短于修复前固定 900s, 已固定 900s,
+  #   理由见回退分支注释)。
   local est_limit=0 r2bytes=""
   local _i
   for _i in $(seq 1 40); do
@@ -576,7 +580,14 @@ run_r2_upload() {
   elif [ "$est_limit" -gt 0 ]; then
     ch_limit="$est_limit"
   else
-    ch_limit="$R2_UPLOAD_TIMEOUT"
+    # ⚠ 回退基线固定 900s（2026-09-24 P2-估算回退根治，挡后续回归）：估算失败（非增量引擎命令 /
+    # 20s 窗口内读不到 R2_BYTES_TOTAL 行）时，回退值**不得短于**修复前通用大通道的固定看门狗值
+    # 900s——若回退到更短的值（原全局默认 300s = 修复前的 1/3），未来近全量大通道一旦落入回退
+    # 分支会比修复前更容易被 kill（9-23 21:00 事故同族：上传-data-large/upload-kelly-parts/sdc_parts
+    # 近全量 190MB 需 950-1270s，固定 900s 都偏紧，回退更短必死）。900s = 修复前通用大通道
+    # （upload-kelly-parts 等）固定值，宁宽不窄；真死锁仍由「估算成功分支」的 7200s 上限 + 显式
+    # 通道（verify-r2 7200 等）兜底，回退 900s 每条通道单次仍会被 kill，不因放宽而无限挂住。
+    ch_limit=900
   fi
   slept=0
   while kill -0 "$pid" 2>/dev/null; do
@@ -623,13 +634,18 @@ run_r2_upload "upload-accum-nav" 900 upload-accum-nav || { echo "⚠ upload-accu
 run_r2_upload "upload-industry" 900 upload-industry || { echo "⚠ upload-industry 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-industry"; }
 run_r2_upload "upload-public-fund" 900 upload-public-fund || { echo "⚠ upload-public-fund 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-public-fund"; }
 run_r2_upload "upload-etf-score" 900 upload-etf-score || { echo "⚠ upload-etf-score 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-score"; }
-# 2026-09-23 ③: upload-data-large / upload-kelly-parts 改走「按字节量估算超时」(run_r2_upload
-# 不传第二参): 9-23 21:00 backfill_evening 近全量 190MB(跨境 ~150KB/s 需 950-1270s)被固定 900s
-# 看门狗 kill → 27 个 R2 缺口。增量时字节小 → 估算超时小; 全量/周日回退大 → 估算超时大。
+# 2026-09-23 ③ + 2026-09-24 P2-sdc 补齐: upload-data-large / upload-kelly-parts / upload-kelly-parts-sdc
+# 改走「按字节量估算超时」(run_r2_upload 不传第二参): 9-23 21:00 backfill_evening 近全量 190MB
+# (跨境 ~150KB/s 需 950-1270s)被固定 900s 看门狗 kill → 27 个 R2 缺口(12 kelly-parts + 15 sdc_parts)。
+# 增量时字节小 → 估算超时小; 全量/周日回退大 → 估算超时大。sdc 与 kelly-parts 同属 B 档增量引擎, 同根因。
 run_r2_upload "upload-data-large" upload-data-large || { echo "⚠ upload-data-large 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-data-large"; }
 run_r2_upload "upload-kelly-parts" upload-kelly-parts || { echo "⚠ upload-kelly-parts 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-parts"; }
 # #91(2026-09-06) 当日收盘对比档分片(signal_kelly_trades_sdc_parts/, 凯利页「买入口径」切换用; 独立前缀命令)
-run_r2_upload "upload-kelly-parts-sdc" 900 upload-kelly-parts-sdc || { echo "⚠ upload-kelly-parts-sdc 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-parts-sdc"; }
+# 2026-09-24 P2-sdc 同类补齐: 与 upload-kelly-parts 同走「按字节估算超时」(run_r2_upload 不传第二参
+# → 唯一一套估算逻辑, 不复制第二份)。9-23 21:00 事故 27 缺口里 15 个正是 sdc_parts, 固定 900s 同根因
+# 只修一半; sdc 与 kelly-parts 同属 upload_r2.py B 档增量引擎(_kelly_parts_md5 指纹, 同样打印
+# R2_BYTES_TOTAL), 近全量/周日场景同样会超 900s, 必须同一套估算。
+run_r2_upload "upload-kelly-parts-sdc" upload-kelly-parts-sdc || { echo "⚠ upload-kelly-parts-sdc 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-kelly-parts-sdc"; }
 run_r2_upload "upload-all-data" 900 upload-all-data || { echo "⚠ upload-all-data 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-all-data"; }
 # signal_kelly_snapshots/ 每日快照+演进 index(lab 凯利区「演进」入口, 2026-09-04 断链根治配套;
 # 子目录走独立命令, upload-all-data/upload-data-large 的 *.json glob 不递归天然不匹配, 见 upload_r2.py)
