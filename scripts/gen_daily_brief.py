@@ -3087,6 +3087,13 @@ def upload_to_r2(repo: Path, no_upload: bool, files: list[str] | None = None) ->
             print(f"[R2] {out.splitlines()[-1]}{_sync_warn_extra('R2', out, err)}")
         else:
             print(f"⚠ R2 上传 rc={r.returncode} {out[-300:] if out else ''} {err[-300:] if err else ''}")
+    except subprocess.TimeoutExpired:
+        # 绝不静默(2026-09-24 硬化 P1-B 同口径): 本调用不带 --skip-if-locked(低频排队语义),
+        # 20:40 撞 R2 锁时排队会触发 timeout=120 → 旧 except Exception 吞成 ⚠ exit 0 静默失败
+        # (R2 没传但监控显通过)。打显式可 grep 的 ✗_TIMEOUT 标记, 关联注释见 fetch_news.py。
+        print(f"✗ R2_UPLOAD_TIMEOUT: daily_brief R2 上传超 120s 未完成, "
+              f"上传文件可能缺口(缺口由 17:50 deploy upload-all-data 或次日任务兜底), "
+              f"请核对 R2 是否缺", file=sys.stderr)
     except Exception as e:
         print(f"⚠ R2 上传异常(不阻塞): {e}")
 

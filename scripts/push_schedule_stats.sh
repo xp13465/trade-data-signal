@@ -59,9 +59,13 @@ echo "源文件：$SRC ($SRC_INFO)" | tee -a "$LOG"
 # 上传 schedule_stats.json 到 R2（阶段3：替代 git push，前端走 R2）
 # gen_stats 已刷新本地 schedule_stats.json，upload-data-files 上传到 R2 + purge_cache。
 # R2 上传失败发告警邮件（notify.py --severe），让 schedule_monitor 发现。
+# --skip-if-locked(2026-09-24 P2-4, r2-false-success-rootfix): schedule_stats 低频可迟报,
+# 有 deploy.sh 17:50 upload-all-data 兜底(schedule_stats.json 在 data/ 非递归 glob 内), 撞
+# deploy 全量持锁窗口排队会拉爆调用方 DUR 阈值(overfit_monitor.sh:106 → overfit DUR 900s 噪音)。
+# 拿不到锁立即跳过, 下次任务 gen_stats 后再传, 不排队。
 ALERT_TIME=$(date '+%m-%d %H:%M')
-echo "-> 上传 schedule_stats.json 到 R2（upload-data-files + purge）..." | tee -a "$LOG"
-if ! "$PY" "$REPO/scripts/upload_r2.py" upload-data-files schedule_stats.json 2>&1 | tee -a "$LOG"; then
+echo "-> 上传 schedule_stats.json 到 R2（upload-data-files + purge, 带 --skip-if-locked）..." | tee -a "$LOG"
+if ! "$PY" "$REPO/scripts/upload_r2.py" --skip-if-locked upload-data-files schedule_stats.json 2>&1 | tee -a "$LOG"; then
   echo "✗ schedule_stats R2 上传失败，发告警邮件" | tee -a "$LOG"
   "$PY" "$REPO/scripts/notify.py" \
     "[告警] schedule_stats R2上传失败 ${ALERT_TIME}" \

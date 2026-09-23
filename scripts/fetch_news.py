@@ -644,7 +644,9 @@ def sync_news_digest_live(day_str: str) -> None:
     部署链 update_all/deploy.sh 从 trade-data rsync 到 trade 上线,若只写 trade/static-site/data,
     下一次 deploy(REPO=trade-data)会把 trade-data/static-site/data 旧版 rsync 覆盖新版(8/18 断点根因)。
     故写 + 上传/staticdata 源目录全部走 pick_repo() 选中的同一树,保证部署链读到新版不 clobber。
-    失败不阻塞主流程(采集已落盘,盘后 gen_daily_brief 20:40 兜底再同步)。
+    失败不阻塞主流程(采集已落盘,缺口由下一轮 fetch_news 30min 后自动重试兜底,顶层
+    news_digest.json 另有 17:50 deploy upload-all-data 兜底;非依赖 20:40 gen_daily_brief——
+    它只在 news_meta.available=True 时条件性带 news_digest, 见 sync_news_digest_live 注释)。
     """
     try:
         repo = pick_repo()
@@ -711,14 +713,20 @@ def sync_news_digest_live(day_str: str) -> None:
             [str(repo / ".venv/bin/python"), str(repo / "scripts/upload_r2.py"),
              # --skip-if-locked(2026-09-24 硬化 P1-A): 本调用可被 deploy 全量持锁窗口拖住排队,
              # 排队必然触发 timeout=120 被 except 吞掉 → exit 0 静默失败(R2 没传但监控显通过)。带该
-             # flag = 拿不到锁立即跳过本轮; 缺口由下一轮 fetch_news / gen_daily_brief 20:40 兜底链自愈。
+             # flag = 拿不到锁立即跳过本轮; 缺口由真实兜底链自愈(2026-09-24 P2-3 修正注释):
+             #   ①下一轮 fetch_news(30min 后)自动重试(本脚本 :01/:31 两档) ②17:50 deploy
+             #   upload-all-data 兜底顶层 news_digest.json(非递归 glob 不覆盖 news_digest/<YYYY>/ 归档,
+             #   归档仅由①补) ③gen_daily_brief 20:40 条件性兜底(news_meta.available=True 才带
+             #   news_digest, 且其 upload 同款 P1-B 病灶已收口打 ✗_TIMEOUT, 不可当作主兜底)。
              "--skip-if-locked", "upload-data-files"] + arch_files,
             cwd=str(repo), env=env, timeout=120, capture_output=True, check=False)
         _skip_locked = (r.returncode == 0 and
                         b"SKIPPED_LOCKED" in (r.stdout or b"") + (r.stderr or b""))
         if _skip_locked:
-            # 显式标记, 可被 grep(绝不静默, 2026-09-24 硬化 P1-B): 跳过非失败, 缺口由兜底链自愈。
-            print(f"[fetch_news] SKIPPED_LOCKED: R2 上传锁忙, 本轮跳过 news_digest 归档上传(缺口由 20:40 gen_daily_brief 兜底)")
+            # 显式标记, 可被 grep(绝不静默, 2026-09-24 硬化 P1-B): 跳过非失败, 缺口由兜底链自愈
+            # (下一轮 fetch_news 30min 后自动重试, 非 20:40 gen_daily_brief——它只条件性带 news_digest)。
+            print(f"[fetch_news] SKIPPED_LOCKED: R2 上传锁忙, 本轮跳过 news_digest 归档上传"
+                  f"(缺口由下一轮 fetch_news 30min 后自动重试兜底)")
         elif r.returncode == 0:
             out = (r.stdout or b"").decode("utf-8", errors="replace").strip()
             # 打印结果汇总行 + 全部 ⚠/✗ 告警明细行（2026-08-23 防再犯：只打最后一行曾把
@@ -742,7 +750,8 @@ def sync_news_digest_live(day_str: str) -> None:
     except subprocess.TimeoutExpired:
         # 绝不静默(2026-09-24 硬化 P1-B): 排队→timeout 被吞=监控显通过实未上传。打显式可 grep 标记。
         print(f"✗ [fetch_news] R2/staticdata 同步超时(timeout 触发), news_digest 归档可能未上线, "
-              f"缺口由 20:40 gen_daily_brief 兜底, 请人工确认 R2 是否缺 news_digest/")
+              f"缺口由下一轮 fetch_news 30min 后自动重试兜底(顶层 news_digest.json 另有 17:50 "
+              f"deploy upload-all-data 兜底), 请人工确认 R2 是否缺 news_digest/")
     except Exception as e:  # noqa: BLE001
         print(f"✗ [fetch_news] 同步上线异常(非静默): {e}")
 

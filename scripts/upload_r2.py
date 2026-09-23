@@ -2352,11 +2352,14 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False):
     + exit 1(fail-closed, 显式失败走调用方既有告警链, 不静默跳过、不造静默缺口)。
     正常等待时间 = 前一个上传通道实际耗时(有界, 见 deploy.sh run_r2_upload ③估算看门狗)。
 
-    timeout 缺省读 env R2_UPLOAD_LOCK_TIMEOUT(默认 7300)。该值只约束「排队等锁」时长,
-    与 deploy.sh 看门狗上限(deploy 自己的上传超时上限, 单通道显式/估算最大 7200s)的关系:
-    默认 7300 略大于 7200, 保证「deploy 只要没被看门狗 kill 就一定等得到锁」(低频/漏传留缺口
-    通道不被 deploy 长通道误伤); 真死锁(持锁方 hang)则看门狗先 kill、锁内核自动释放, 或本 timeout
-    兜底 fail-closed(exit 1, 走调用方告警链), 不会 fail-open 无锁上传破互斥保证, 也不会静默留缺口。
+    timeout 缺省读 env R2_UPLOAD_LOCK_TIMEOUT(默认 7300), 只约束「排队等锁」时长上限。
+    与 deploy.sh run_r2_upload 看门狗的关系: 看门狗上限按通道显式/按字节量估算, 无单一统一值
+    (大部分通道 900s, trade-sim-json 1800, verify-r2/fund-nav 7200, 估算通道上限 7200)。
+    等锁方实际等待 = 持锁进程实际持有时间(持锁方 R2 段完成才释放锁; deploy 持锁时长受其
+    看门狗 kill 约束, 实测远小于对应上限)。默认 7300 对任何通道都给足余量, 保证等锁方总能
+    等得到锁、不因等锁超时误伤 deploy 正常长通道; 真死锁(持锁方 hang)则由本
+    timeout 兜底 fail-closed(exit 1, 走调用方既有告警链), 不会 fail-open 无锁上传破互斥保证,
+    也不会静默留缺口。
 
     skip_if_locked(opt-in, 2026-09-24 硬化 P1-A): 高频/下轮可重试通道专用。拿不到锁时
     立即返回 _SKIP_R2_LOCKED 哨兵(不排队), 由 __main__ 统一打印可 grep 的 SKIPPED_LOCKED

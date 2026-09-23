@@ -167,6 +167,9 @@ ANOMALY_RE = re.compile(
     r'UnicodeError|UnicodeDecodeError|UnicodeEncodeError|ConnectionError|TimeoutError|'
     r'JSONDecodeError|Exception)\s*:'
     r'|FATAL\b|panic:|Segmentation fault|core dumped'
+    r'|✗\s*R2_UPLOAD_TIMEOUT'
+    r'|✗\s*R2 上传(?:失败|异常)'
+    r'|✗\s*\[fetch_news\]\s*(?:R2/staticdata 同步超时|同步上线异常)'
 )
 
 # 第4盲区修复补丁(2026-07-29): push 失败类关键词单独处理,避免 deploy.sh 内置
@@ -385,15 +388,17 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
           16 条 self-healed 假警报实证),exit code 是权威判据。
 
     Returns:
-        {"keyword": "AttributeError", "line": "AttributeError: '...' ..."} 或 None。
-        line 截断到 200 字符避免 JSON 过大;keyword 为正则命中的字符串。
+        ({"keyword": ..., "line": ...}|None, skip_count): 二元组。
+        skip_count = 该运行窗口内 SKIPPED_LOCKED(R2 上传锁被占用跳过本轮)出现次数,
+        独立于 log_anomaly 标注——skip 是设计让路(下轮/兜底链重试), 不算失败不上 SEVERE,
+        但给出独立计数供 schedule_stats 前端/巡检观察(2026-09-24 P2-2 硬化)。
     """
     if not log_path.exists():
-        return None
+        return None, 0
     try:
         lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
     except Exception:
-        return None
+        return None, 0
 
     # 找最后一个 start 行(standard 用 START_RE+fullmatch script, etf_nt 用 ETF_START_RE)
     last_start_idx = None
@@ -409,7 +414,7 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
                 last_start_idx = i
                 break
     if last_start_idx is None:
-        return None  # log 里无 start 行,无法切窗口
+        return None, 0  # log 里无 start 行,无法切窗口
 
     # 找 start 后第一个 end 行(限定本次运行窗口,避免扫到下一轮 start 之间)
     # 若无 end(进行中或被杀),扫到文件末尾
@@ -433,6 +438,9 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
     #   等标记。若同窗口出现成功标记,判已恢复不报;无成功标记才报真实失败。
     #   其他关键词(Traceback/异常类名/FATAL)逻辑不变,命中即报。
     window_lines = lines[last_start_idx:end_idx]
+    # P2-2(2026-09-24): SKIPPED_LOCKED 独立计数——skip=设计让路(锁忙下轮重试)不上 SEVERE,
+    # 但命中次数需可观察(intraday 每轮都可能撞 deploy 锁, 连 skip 多轮=收盘版可能上不了 R2)。
+    skip_count = sum(1 for _l in window_lines if "SKIPPED_LOCKED" in _l)
     has_push_success = any(PUSH_SUCCESS_RE.search(l) for l in window_lines)
     has_gap_retry_success = any(GAP_RETRY_SUCCESS_RE.search(l) for l in window_lines)
     finalizer_ranges = _finalizer_noise_ranges(lines, last_start_idx, end_idx)
@@ -459,7 +467,7 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
             return {
                 "keyword": m.group(0),
                 "line": lines[i].strip()[:200],
-            }
+            }, skip_count
         # push 失败类:同窗口有成功标记=已恢复,跳过;无成功标记但最终 exit==0/None 也跳过
         # (2026-08-24 降噪:仅最终 exit!=0 才报。16 条 self-healed 假警报根因=成功标记文案
         # 漂移,exit code 是权威——rebase 自愈成功 exit 必为 0;真失败 exit!=0 照报;
@@ -475,8 +483,8 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
             return {
                 "keyword": mp.group(0),
                 "line": lines[i].strip()[:200],
-            }
-    return None
+            }, skip_count
+    return None, skip_count
 
 
 def _iter_lines(path: Path):
@@ -671,7 +679,7 @@ def build():
         # 第4盲区修复: 扫最近一次运行窗口的 log 找异常关键词,
         # 即使 exit=0(异常被 try/except 吞)也能抓到告警
         # (2026-08-24: 传 last_exit=code,push 失败类仅最终 exit!=0 才报)
-        anomaly = scan_log_anomaly(log_path, t["script"], t["mode"], last_exit=code)
+        anomaly, r2_skip_count = scan_log_anomaly(log_path, t["script"], t["mode"], last_exit=code)
         # P1 稳定性(2026-07-29): pending_start + last_exit!=0 = 上次crash现在重试中,
         # log_anomaly 标注 "pending但上次exit非0"(不覆盖 log 关键词扫描已发现的 anomaly)
         if not anomaly and pending_crash_retry:
@@ -686,6 +694,9 @@ def build():
             "log_anomaly": bool(anomaly),
             "log_anomaly_keyword": anomaly["keyword"] if anomaly else None,
             "log_anomaly_line": anomaly["line"] if anomaly else None,
+            # P2-2(2026-09-24): R2 上传锁 skip 次数独立计数(schedule_monitor 不升级 SEVERE,
+            # 前端"执行统计"可见; 连续 skip 多轮=上传缺口信号需人工关注)
+            "r2_skip_count": r2_skip_count,
         })
     OUT.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_json(OUT, result, indent=2)
