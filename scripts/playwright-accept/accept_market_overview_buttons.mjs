@@ -45,6 +45,10 @@ async function run(width, isMobile, tag) {
     // 改为: 切到显示周期栏的 market tab(指数表现=大盘), 测 .h5-periods button 真实移动端高度。
     // 同时覆盖盲区2: 第 2 处回退点(.h5-periods button 删 min-height)的量化断言。
     if (m.barH !== null && m.barH === 0) {
+      // 首次访问会弹 onboarding 引导(rule-modal), 遮罩拦截底部导航点击; 先 dismiss 所有可见弹窗
+      await page.evaluate(() => {
+        document.querySelectorAll(".rule-modal:not(.hidden)").forEach(ml => ml.classList.add("hidden"));
+      });
       await page.click('nav.h5-bottomnav button[data-tab="market"]');
       await page.waitForFunction(() => {
         const bar = document.querySelector(".h5-period-bar");
