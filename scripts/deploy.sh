@@ -392,6 +392,22 @@ if [ "$OVR_RC" -ne 0 ]; then
 fi
 echo "✓ AI监控卡组集一致性校验通过" | tee -a "$LOG"
 
+# 1.2.4 critical-css 与 style.css 双源一致性机检(CLAUDE.md §24 + §22 一致性精神, 2026-09-23 建立)
+# index.html <style id="critical-css"> 是首屏防 FOUC 的内联手抄样式, 移动端按钮样式与 style.css
+# 同名 @media(max-width:768px) 块重复。历史: style.css 改过(安全区修复/字号a11y/44px触控)而
+# critical-css 未同步, 形成静默漂移(header safe-area padding / collect-time字号 / period-bar top /
+# bottomnav min-height 4 处)。本步常驻拦截: critical-css 每条规则(选择器+规范化声明集)必须能在
+# style.css 全文件找到等值副本, 任一无等值 → FAIL 阻断上线(style.css 改漏同步 critical 即触发)。
+# 校验源 = $GIT_REPO/static-site(即将上线的代码本身)。
+echo "-> 运行 check_dual_src_sync.py critical-css 与 style.css 双源一致性机检 ..." | tee -a "$LOG"
+"$PY" "$GIT_REPO/scripts/check-dual-src/check_dual_src_sync.py" --site-dir "$GIT_REPO/static-site" --deploy-mode 2>&1 | tee -a "$LOG"
+DDS_RC=${PIPESTATUS[0]}
+if [ "$DDS_RC" -ne 0 ]; then
+  echo "✗ critical-css 与 style.css 双源一致性机检失败(退出码 $DDS_RC)，终止部署(§24 双源防漂移 FAIL 阻断上线)" | tee -a "$LOG"
+  exit "$DDS_RC"
+fi
+echo "✓ critical-css 与 style.css 双源一致性机检通过" | tee -a "$LOG"
+
 # 1.3 版本一致性校验(CLAUDE.md §24⑤, 2026-08-15 补; #48)
 # 适配 #46 日期+批次版本串机制: index引用版本串格式/与sw批次一致/资源存在/min比源新,
 # 任一 FAIL → 非0退出阻断上线(防孤儿快照再产生, 2026-08-14 全站白屏事故根因⑤)。
