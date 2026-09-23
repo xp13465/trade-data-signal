@@ -32325,7 +32325,7 @@ function _renderScheduleStats(rows) {
       ? ` <span data-tip="⚠️ 上次执行异常: 退出码=${r.last_exit}（非0=脚本异常退出,可能部分采集失败）。详见日志 data/logs/${r.task || r.name}_launchd.log">⚠️</span>`
       : "";
     const skipText = (typeof r.r2_skip_count === "number" && r.r2_skip_count > 0)
-      ? `<span data-tip="⚠️ 当次执行 R2 上传锁忙被跳过 ${r.r2_skip_count} 次（SKIPPED_LOCKED 让路；schedule_monitor 检测连续多轮 skip 会发 SEVERE 告警）。详见 data/logs/ 各任务日志">⚠️ R2跳过 ${r.r2_skip_count} 次</span>`
+      ? `<span data-tip="⚠️ 最近运行段内 R2 上传锁忙被跳过 ${r.r2_skip_count} 次（SKIPPED_LOCKED 让路下轮重试；schedule_monitor 检测连续多轮 skip 会发 SEVERE 告警）。详见 data/logs/ 各任务日志">⚠️ R2跳过 ${r.r2_skip_count} 次</span>`
       : "-";
     return `<tr><td>${r.name || r.task || ""}</td><td>${r.schedule || ""}</td><td>${r.est_text || "-"}</td><td>${r.last_run || "-"}${warn}</td><td>${skipText}</td></tr>`;
   }).join("");

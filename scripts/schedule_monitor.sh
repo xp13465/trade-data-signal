@@ -338,6 +338,23 @@ STALE_EXIT_THRESHOLD = timedelta(hours=24)
 # 超时连续 11 次全部自愈,每轮都发 SEVERE 邮件=假警报轰炸。
 TRANSIENT_TIMEOUT_TASKS = {"intraday_snapshot"}
 TRANSIENT_TIMEOUT_THRESHOLD = 3
+# P1-A(2026-09-24 r2 终审): EXTRA 降级任务(fetch_news/gen_daily_brief, 见
+# gen_schedule_stats.EXTRA_MARKER_SCANS)。它们的 log_anomaly 标记分两档:
+#   severity=degrade(⚠ 前缀, 设计内降级/不阻塞/有兜底链, 如 ⚠ [fetch_news] 同步上线异常)
+#   severity=critical(✗ 前缀/R2_UPLOAD_TIMEOUT, 真异常非静默/超时)
+# 降级标记不该「首次即 SEVERE」(用户 2026-08 定: ⚠ 是设计内降级, 且滞留窗口曾致
+# 上线即 SEVERE 永不恢复) → 对 degrade 档复用下方 TRANSIENT 桶机制连续 N 轮才 SEVERE;
+# critical 档维持首次即 SEVERE(真异常不该拖)。恢复检测对 EXTRA 任务同 TRANSIENT 自愈逻辑。
+EXTRA_DEGRADE_TASKS = {"fetch_news", "gen_daily_brief"}
+# P2(2026-09-24 r2 终审): EXTRA 任务停摆(部署外生成器整个不跑)漏跑检查阈值。
+# fetch_news/gen_daily_brief 不在 MISSED_TASKS 漏跑检查(TASKS 表无对应条目), 若其
+#   生成器/systemd timer 被删/崩, 将无声无息。本 dict 定义"多久未运行=停摆发 SEVERE":
+#   fetch_news: 计划 30min 一轮(7:30-21:00), 停摆 4h≈错过 ~8 轮, 余量充足防误报
+#   gen_daily_brief: 每日 20:40 一轮, 停摆 26h(昨日没跑也一样覆盖次日 22 点前)不误报
+EXTRA_MARKER_STALE_LOOPS = {
+    "fetch_news": timedelta(hours=4),
+    "gen_daily_brief": timedelta(hours=26),
+}
 
 # 执行耗时阈值(R2迁移72h监控 2026-08-08): 移到循环外避免每次迭代重建(L2)
 # 2026-08-14 修复(reviewer FAIL, A1 误报正常日): 依据 update_all_launchd.log 近9交易日实际耗时
@@ -465,8 +482,15 @@ if STATS_FILE.exists():
                         # 瞬时类任务(intraday_snapshot)的 Timeout 关键词先入稳定桶计数
                         # (line md5 每次不同,不能按 dedup_key 计数),连续>=3 次跨轮仍异常
                         # 才升级 SEVERE;未达阈值只记 dashboard 不通知(warning 语义)。
-                        if s.get("task") in TRANSIENT_TIMEOUT_TASKS and "Timeout" in keyword:
-                            _bk = f"{s.get('task')}|transient_timeout"
+                        # P1-A(2026-09-24 r2 终审扩展): EXTRA 降级任务(fetch_news/
+                        # gen_daily_brief)的 severity=degrade 标记(⚠ 前缀, 设计内降级/
+                        # 不阻塞/有兜底)同样入桶连续 N 轮才 SEVERE——否则「首次即 SEVERE」
+                        # 致线上 ⚠ [fetch_news] 同步上线异常 一出现就告警(旧窗口滞留曾
+                        # 恒 True 永不恢复)。severity=critical(✗ 真异常)走下方 else 首报。
+                        if ((s.get("task") in TRANSIENT_TIMEOUT_TASKS and "Timeout" in keyword)
+                                or (s.get("task") in EXTRA_DEGRADE_TASKS
+                                    and s.get("log_anomaly_severity") == "degrade")):
+                            _bk = f"{s.get('task')}|marker_buffer"
                             _b = alert_state.get(_bk) or {}
                             _bs = _b.get("status")
                             if _bs == "pending":
@@ -480,14 +504,14 @@ if STATS_FILE.exists():
                                 "status": "alerted" if _c >= TRANSIENT_TIMEOUT_THRESHOLD else "pending",
                                 "first_seen": _b.get("first_seen") or NOW.strftime("%Y-%m-%d %H:%M:%S"),
                                 "consecutive_count": _c,
-                                "keyword": "transient_timeout",
+                                "keyword": "marker_buffer",
                                 "line_sample": line_sample,
                             }
                             if _c < TRANSIENT_TIMEOUT_THRESHOLD:
                                 print(
-                                    f"[transient] {s.get('task')} {keyword} 连续{_c}/"
-                                    f"{TRANSIENT_TIMEOUT_THRESHOLD} 次未自愈,暂不通知"
-                                    f"(11次全自愈教训,连续>=3才SEVERE)"
+                                    f"[marker_buffer] {s.get('task')} {keyword} 连续{_c}/"
+                                    f"{TRANSIENT_TIMEOUT_THRESHOLD} 轮未自愈,暂不通知"
+                                    f"(降级/瞬时标记连续>=3轮才SEVERE)"
                                 )
                             else:
                                 alerts.append(
@@ -526,17 +550,21 @@ if STATS_FILE.exists():
             # 2026-08-24 瞬时超时桶自愈重置: 本轮该任务无 log 异常=抖动已过去,
             # 桶翻 recovered 静默(不发恢复邮件); 若已达阈值发过 SEVERE, 原告警 key
             # 的恢复通知仍由主恢复循环负责(桶只管计数,不管通知生命周期)。
-            if not s.get("log_anomaly") and s.get("task") in TRANSIENT_TIMEOUT_TASKS:
-                _bk_r = f"{s.get('task')}|transient_timeout"
+            # P1-A(2026-09-24 r2 终审): 桶 key 统一为 |marker_buffer(intraday 超时 +
+            # EXTRA 降级共用), 恢复检测覆盖两类任务。
+            if not s.get("log_anomaly") and (
+                    s.get("task") in TRANSIENT_TIMEOUT_TASKS
+                    or s.get("task") in EXTRA_DEGRADE_TASKS):
+                _bk_r = f"{s.get('task')}|marker_buffer"
                 _b_r = alert_state.get(_bk_r)
                 if _b_r and _b_r.get("status") in ("pending", "alerted"):
                     alert_state[_bk_r] = {
                         **_b_r,
                         "status": "recovered",
                         "recovered_at": NOW.strftime("%Y-%m-%d %H:%M:%S"),
-                        "recovery_reason": "transient_timeout_self_healed",
+                        "recovery_reason": "marker_buffer_self_healed",
                     }
-                    print(f"[transient] {s.get('task')} 超时抖动已自愈(连续计数重置)")
+                    print(f"[marker_buffer] {s.get('task')} 标记/超时抖动已自愈(连续计数重置)")
             # 维度③: 执行耗时阈值检查（R2迁移72h监控 2026-08-08）
             # schedule_stats.json 的 last_duration_sec 字段,超阈值告警(进程退化/卡死信号)。
             # intraday ~7min正常 >600s(10min)告警(重叠下一10min槽=下轮读旧数据);
@@ -564,6 +592,11 @@ if STATS_FILE.exists():
                 # 建议)且 P2-1 收盘轮排队最坏 ~7300s, 600s 必爆「执行耗时超标」SEVERE 噪音。
                 # 按 last_run 的 HH:MM 分档: >=20:00 盘后槽放宽到 1800s; 盘中槽保持 600s 严格
                 # (时效敏感, 超时即重叠下一 10min 槽读旧数据)。只动 intraday, 其余任务不受影响。
+                # 【P2② 实测复核(2026-09-24, 云上 intraday_snapshot_launchd.log 9/14-9/23 全配对)】:
+                #   intraday_snapshot 无 16:00/17:50 槽(plist 仅盘中10min档+15:35+20:35, TASKS 表
+                #   同源; 17:50 是 update_all 独立任务)。15:35 槽近8交易日 max=418s 恒<600s 无需
+                #   放宽; 20:35 槽近8交易日 max=965s(9/15), >=20:00 放宽到 1800s 已覆盖、无超档。
+                #   结论: 无需给 16:00/17:50 加 dur 分档(槽点不存在), 现状分档正确。
                 if _dur_task == "intraday_snapshot":
                     _dur_lr_slot = s.get("last_run") or ""
                     try:
@@ -657,6 +690,46 @@ if STATS_FILE.exists():
                 if _r2_prev and int(_r2_prev.get("skip_rounds") or 0) > 0:
                     _r2_prev["skip_rounds"] = 0
                     print(f"[r2-skip] {s['task']} R2 锁连续skip清零(本轮无skip)")
+        # P2(2026-09-24 r2 终审): EXTRA 任务停摆漏跑告警。
+        # fetch_news/gen_daily_brief 不在 MISSED_TASKS 漏跑检查(TASKS 表无对应条目,
+        #   gen_schedule_stats.EXTRA_MARKER_SCANS 单独扫), 若部署外生成器整个停摆
+        #   (systemd timer/脚本被删/崩) 将无声无息, 无任何告警。
+        # 补: 对 EXTRA 两任务, 若 last_run(文件 mtime≈最近运行) 距今超过该任务
+        #   计划频率的 N 倍(停摆阈值), 发 SEVERE。计划频率: fetch_news 30min 一轮
+        #   (7:30-21:00), gen_daily_brief 每日 20:40 一轮。
+        #   阈值(余量充足防误报): fetch_news 4h(错过 ~8 轮才告警), gen_daily_brief 26h。
+        #   只发一次挂 active(主恢复循环在任务恢复后自动发恢复邮件)。
+        for _es in stats:
+            _et = _es.get("task")
+            if _et not in EXTRA_MARKER_STALE_LOOPS:
+                continue
+            _elr = _es.get("last_run") or ""
+            if not _elr:
+                continue
+            try:
+                _elr_dt = datetime.strptime(_elr, "%Y-%m-%d %H:%M")
+            except ValueError:
+                continue
+            _eloop = EXTRA_MARKER_STALE_LOOPS[_et]
+            if NOW - _elr_dt <= _eloop:
+                continue
+            _stale_key = f"{_et}|extra_stale"
+            seen_keys_this_run.add(_stale_key)
+            _ex_stale = alert_state.get(_stale_key)
+            if _ex_stale is None or _ex_stale.get("status") != "active":
+                alerts.append(
+                    f"SEVERE: {_et} 停摆(超{int(_eloop.total_seconds()//3600)}h 未运行) "
+                    f"last_run={_elr} (定时器可能被删/脚本崩, 无标准漏跑检查覆盖)"
+                )
+                alert_state[_stale_key] = {
+                    "status": "active",
+                    "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                    "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                    "keyword": "extra_stale",
+                    "line_sample": f"last_run={_elr}",
+                }
+            else:
+                print(f"[suppress] {_et} 停摆告警持续中, last_alerted={_ex_stale.get('last_alerted')}, 不重发")
     except Exception as e:
         print(f"[warn] 解析 schedule_stats.json 失败: {e}", file=sys.stderr)
 
