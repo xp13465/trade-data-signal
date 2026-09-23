@@ -16,7 +16,7 @@
   python3 scripts/upload_r2.py upload-claude-backup [path] # Claude 自我备份 tar.gz -> signal-backup/claude-backup/
   python3 scripts/upload_r2.py download-db <name> [dir]   # 下载最新备份(解压后.db路径到stdout)
 """
-import os, sys, re, hashlib, hmac, http.client, datetime, ssl, json, time, threading
+import os, sys, re, hashlib, hmac, http.client, datetime, ssl, json, time, threading, fcntl
 from pathlib import Path
 from urllib.parse import urlparse, quote
 
@@ -212,8 +212,9 @@ HOST = urlparse(ENDPOINT).hostname
 # R2 上传 HTTP 连接超时(秒):默认 30(本机带宽快够用);云上跨境上传带宽 ~1.2-1.6Mbps,
 # >7MB 大文件(凯利交易明细 74.7MB/累积净值 18.5MB 等)必超时失败,云上 systemd 设
 # R2_UPLOAD_HTTP_TIMEOUT=600。env 缺失/空 -> 30(向后兼容)。
-# 命名注意:deploy.sh L379 已有同名 shell 变量 R2_UPLOAD_TIMEOUT(看门狗 kill 超时,默认 300s,
-# 不 export),python 侧用 R2_UPLOAD_HTTP_TIMEOUT 区分语义(HTTP 连接超时),防 env 同名连锁。
+# 命名注意:deploy.sh 已无同名 shell 变量 R2_UPLOAD_TIMEOUT(2026-09-24 round6 移除,现 run_r2_upload
+# 超时 = 通道显式值 / 按字节估算 / 回退基线固定 900s),python 侧用 R2_UPLOAD_HTTP_TIMEOUT 区分语义
+# (HTTP 连接超时),防 env 同名连锁。
 try:
     R2_UPLOAD_HTTP_TIMEOUT = int(os.environ.get("R2_UPLOAD_HTTP_TIMEOUT") or "30")
 except ValueError:
@@ -847,6 +848,12 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
       - 增量 0 待传=正常完成(不报错, 防 deploy 把「今天没变化」当失败告警);
       - 状态只在全部上传成功后 tmp+os.replace 原子写; 部分失败保持旧状态下次重传面更大
         —— 失败方向宁多传不漏传;
+      - fail-closed 未确认态(2026-09-23 ①): 上传开始前写 .r2_<channel>_uploading.marker,
+        正常结束(全成功写状态)删除; 进程中途被 kill(看门狗 TERM/KILL)marker 残留 → 下轮
+        scan 发现 → 强制全量重传(fail-closed: 宁可多传一次, 不可假成功)。兼容旧状态文件
+        (无 marker 不触发全量, 首跑/周日仍按原逻辑)。
+      - 待传字节量行 R2_BYTES_TOTAL=<N>(③): 看门狗(deploy.sh run_r2_upload)按 N/150KB/s×2
+        余量+固定开销估算超时, 根治「固定 900s 杀近全量」的事故; 显式通道超时优先覆盖。
       - 层2 上传正确性对账: 本次 PUT 的 key 逐一 HEAD 取 ETag == 本地整文件 md5(_upload_glob
         verify_etag=True), 不一致记入 failed_rels(传上去的内容不对=失败, 触发调用方告警);
       - checkpoint_every>0 时启用分片 checkpoint 断点续传(fund-nav 模式, 治「超时 kill->状态
@@ -858,6 +865,13 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
     local_dir = Path(local_dir)
     fingerprint = fingerprint or _file_md5
     state_path = STATIC_DIR.parent / "data" / state_name
+    # 上传开始标记(fail-closed, 2026-09-23 ①假成功根治): 上传进程若在 PUT 中途被外部 kill
+    # (看门狗超时 TERM/KILL), 状态文件不会写(引擎只在全成功后才写), 下轮只能基于上一轮状态
+    # 判定增量——但若此前某轮状态文件已记录「新指纹」而 kill 发生在写入后的 R2 一致性验证之前,
+    # 未真正落到 R2 的文件会被判「待传 0」永久跳过 → 静默缺口固化(9-23 事故: kelly-parts/
+    # sdc-parts 共 27 个 R2 缺口 --dry-run 显示"待传 0")。上传开始前写 marker, 正常结束删除;
+    # scan 发现残留 marker → 强制全量重传(fail-closed: 宁可多传一次, 不可假成功)。
+    marker_path = state_path.with_name(state_name.replace("_state.json", "_uploading.marker"))
     if dry_run is None:
         dry_run = _DRY_RUN
 
@@ -910,12 +924,20 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
             changed.append(p)
 
     today_weekday = datetime.date.today().weekday()   # Monday=0 ... Sunday=6
-    force_full = (not old_files) or today_weekday == 6
-    if force_full:
-        mode = "周日强制全量" if today_weekday == 6 and old_files else "首次/无状态全量"
-        changed = list(all_json)
+    marker_stale = marker_path.exists()
+    if marker_stale:
+        print(f"[{label}] ⚠ 检测到上次上传未正常结束({marker_path.name}), 强制全量重传(fail-closed)")
+    force_full = (not old_files) or today_weekday == 6 or marker_stale
+    if marker_stale:
+        mode = "上次上传中断强制全量"
+    elif today_weekday == 6 and old_files:
+        mode = "周日强制全量"
+    elif not old_files:
+        mode = "首次/无状态全量"
     else:
         mode = "增量"
+    if force_full:
+        changed = list(all_json)
 
     print(f"[{label}] 模式={mode} 本次待传 {len(changed)}/{len(all_json)}"
           f"(其余 {len(all_json) - len(changed)} 个内容未变化跳过)")
@@ -945,15 +967,32 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
             print(f"[{label}] [dry-run] 无待传文件")
         else:
             _save_state(sigs, mode, [])
+            try:
+                marker_path.unlink(missing_ok=True)   # 本轮完整结束, 清理残留 marker
+            except OSError:
+                pass
         return 0, 0, [], []
 
     changed_rels = [str(p.relative_to(local_dir)) for p in changed]
+
+    # 待传字节量(③ 看门狗按字节量估算超时): 机器可解析行 R2_BYTES_TOTAL=<N>。增量小 → 小超时;
+    # 全量/周日/中断回退大 → 大超时(9-23 事故: 近全量 190MB@~150KB/s 需 950-1270s, 固定 900s
+    # 零并发都可能被杀; 按字节量估算才不误杀)。dry-run 也打印供人工校验。
+    total_pending = sum(p.stat().st_size for p in changed if p.exists())
+    print(f"[{label}] R2_BYTES_TOTAL={total_pending}")
 
     if dry_run:
         print(f"[{label}] [dry-run] 将传 {len(changed)}/{len(all_json)} 个文件(不 PUT):")
         for rel in changed_rels:
             print(f"  - {r2_prefix}/{rel}")
         return len(changed), len(changed), [], []
+
+    # 上传开始标记: 正常结束(_save_state)时删除; 中途被 kill(看门狗/系统)则残留 → 下轮强制全量。
+    try:
+        marker_path.parent.mkdir(parents=True, exist_ok=True)
+        marker_path.write_text(time.strftime("%Y-%m-%dT%H:%M:%S") + f" pid={os.getpid()}", encoding="utf-8")
+    except OSError as e:
+        print(f"[{label}] ⚠ 上传标记写入失败({e})", file=sys.stderr)
 
     # 4. checkpoint 续传(checkpoint_every>0, fund-nav 模式)
     ckpt_path = None
@@ -1031,6 +1070,10 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
         sys.exit(1)
 
     _save_state(sigs, mode, changed_rels)
+    try:
+        marker_path.unlink(missing_ok=True)   # 全量成功 → 上传标记使命结束
+    except OSError:
+        pass
     if ckpt_path is not None:
         try:
             ckpt_path.unlink(missing_ok=True)  # 全量完成, checkpoint 使命结束清理
@@ -2071,6 +2114,20 @@ def _assert_no_double_upload(data_dir):
     return True
 
 
+def _uniform_sample(files, n):
+    """全量均匀抽样(2026-09-23 ②): 不用 mtime 取最新 —— 最新恰好与当日 changed 强相关,
+    存量缺口(状态已记新指纹但 R2 旧/缺, 且不在最近 changed 里)按 mtime 永远查不到。
+    files 已排序; 按均匀间隔取 n 个 + 末尾一个(防尾部遗漏), 保证全池范围覆盖近似均匀。
+    文件数 < n 时全收。"""
+    m = len(files)
+    if m <= n:
+        return list(files)
+    k = m / float(n)
+    idx = {int(i * k) for i in range(n)}
+    idx.add(m - 1)
+    return [files[i] for i in sorted(idx)]
+
+
 def cmd_verify_r2():
     """verify-r2 周期全量对账(层3 防漏传机检, 设计文档 §3.4)。
 
@@ -2114,7 +2171,10 @@ def cmd_verify_r2():
         if full:
             to_check = files
         else:
-            # 平日: 只对账当日增量 key(状态文件 changed 字段)
+            # 平日: 当日增量 key(状态文件 changed 字段) + 全池均匀小抽样兜底。
+            # 2026-09-23 ②根治: 单一 changed 盲区查不到「状态假成功」存量缺口(状态文件已记录
+            # 新指纹但 R2 实际旧/缺, 该 key 不在 recent changed 里 → never 对账直到周日)。
+            # 全池均匀取 ~20 个 key(不限 mtime), 让旧 key 也被覆盖; sample 上限口径保留。
             state_path = STATIC_DIR.parent / "data" / ch["state_name"]
             changed_rels = set()
             if state_path.exists():
@@ -2125,6 +2185,11 @@ def cmd_verify_r2():
                 except (OSError, ValueError):
                     changed_rels = set()
             to_check = [f for f in files if str(f.relative_to(local_dir)) in changed_rels]
+            sample_n = 20
+            sampled = _uniform_sample(files, sample_n)
+            if sampled:
+                print(f"[verify-r2] {label}: 平日增量 {len(to_check)} 个 + 全池抽样 {len(sampled)} 个")
+            to_check = sorted(set(to_check) | set(sampled))
             if ch.get("sample") and len(to_check) > ch["sample"]:
                 to_check = to_check[:ch["sample"]]
         if not to_check:
@@ -2209,8 +2274,10 @@ def _light_check_channel(ch, label):
     files = [f for f in files if f.exists()]
     if not files:
         return True, "无本地文件, 跳过"
-    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    sample = files[:_LIGHT_CHECK_SAMPLE]
+    # 全池均匀抽样(2026-09-23 ②): 不再只抽「最新 mtime」—— 最新文件恰好是当日增量相关,
+    # 查不到「状态假成功」存量缺口(状态已记新指纹但 R2 旧/缺, 且该 key 不在 recent changed)。
+    # 均匀抽全池样本让旧 key 也被覆盖。
+    sample = _uniform_sample(files, _LIGHT_CHECK_SAMPLE)
     bad = []
     for f in sample:
         rel = str(f.relative_to(local_dir))
@@ -2269,13 +2336,100 @@ def cmd_verify_channels(desc_list):
     sys.exit(0)
 
 
+# --skip-if-locked 拿不到锁时的哨兵返回值(区别于正常持锁 fd 与 None=锁不可用)。
+_SKIP_R2_LOCKED = object()
+
+
+def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False):
+    """R2 上传统一进程互斥锁(2026-09-23 ④: 直传通道无 deploy.lock → 三路并发抢带宽)。
+
+    deploy 主链的 R2 段在 deploy.lock 内, 但 etf_national_team_backfill.sh:112(upload-etf-hist)、
+    turnover_backfill.sh:143/146(upload-intraday/upload-data-large)等直调 upload_r2.py 不持锁,
+    可与 deploy 主链 R2 段并发 → 跨境带宽互抢, 单通道变慢被看门狗 kill(9-23 事故诱因之一)。
+    本锁收敛到 upload_r2.py 入口: 一切调用方(deploy/backfill/manual)天然互斥。
+
+    默认行为 = 排队(绝不跳过): 拿不到锁就阻塞轮询(任务④硬约束), flock 由内核持有、
+    持锁进程退出/被杀自动释放, 不会死持。timeout 只是极端兜底护栏: 超时 → stderr 提示
+    + exit 1(fail-closed, 显式失败走调用方既有告警链, 不静默跳过、不造静默缺口)。
+    正常等待时间 = 前一个上传通道实际耗时(有界, 见 deploy.sh run_r2_upload ③估算看门狗)。
+
+    timeout 缺省读 env R2_UPLOAD_LOCK_TIMEOUT(默认 7300), 只约束「排队等锁」时长上限。
+    与 deploy.sh run_r2_upload 看门狗的关系: 看门狗上限按通道显式/按字节量估算, 无单一统一值
+    (大部分通道 900s, trade-sim-json 1800, verify-r2 7200, 估算通道上限 7200; fund-nav 已拆出
+    deploy 主链改 fund_nav_upload_async.sh 异步上传(2026-09-23 P1 主链有界化), 不再受 deploy.sh
+    看门狗约束——异步独立进程 + checkpoint 断点续传, 由 async 脚本 notify 告警兜底)。
+    等锁方实际等待 = 持锁进程实际持有时间(持锁方 R2 段完成才释放锁; deploy 持锁时长受其
+    看门狗 kill 约束, 实测远小于对应上限)。默认 7300 对任何通道都给足余量, 保证等锁方总能
+    等得到锁、不因等锁超时误伤 deploy 正常长通道; 真死锁(持锁方 hang)则由本
+    timeout 兜底 fail-closed(exit 1, 走调用方既有告警链), 不会 fail-open 无锁上传破互斥保证,
+    也不会静默留缺口。
+
+    skip_if_locked(opt-in, 2026-09-24 硬化 P1-A): 高频/下轮可重试通道专用。拿不到锁时
+    立即返回 _SKIP_R2_LOCKED 哨兵(不排队), 由 __main__ 统一打印可 grep 的 SKIPPED_LOCKED
+    行 + exit 0(不触发调用方 `|| 告警邮件` 分支)。跳过 = 本轮不传, 下一轮 10min 后自然重试,
+    对 intraday_snapshot/overfit_monitor/fetch_news 这类高频或兜底链通道是安全的;
+    对 deploy.sh 日链 data-large/kelly-parts 等「跳过就留数据缺口」的低频通道**不适用**(它们
+    不带该 flag, 保持排队语义不变)。
+
+    list/delete/download-db/clean-data-backup 等只读/低频调试命令不走本锁(避免排查时被上传阻塞);
+    upload(单文件 <100KB)轻量命令豁免。upload-db/upload-claude-backup/upload-decommissioned
+    等私有桶备份也持锁(与主数据上传互斥, 防抢带宽)。
+    """
+    if timeout is None:
+        try:
+            timeout = int(os.environ.get("R2_UPLOAD_LOCK_TIMEOUT", "7300"))
+        except ValueError:
+            timeout = 7300
+    lock_path = Path(os.environ.get("R2_UPLOAD_LOCK", "/tmp/trade_r2_upload.lock"))
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
+    except OSError as e:
+        print(f"⚠ 无法打开 R2 上传锁 {lock_path}({e}), 不持锁继续(并发风险自知)", file=sys.stderr)
+        return None
+    deadline = time.time() + timeout
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd
+        except OSError:
+            if skip_if_locked:
+                os.close(fd)
+                print(
+                    "SKIPPED_LOCKED: R2 上传锁被占用, 跳过本轮上传(--skip-if-locked, 下轮重试)",
+                    file=sys.stderr,
+                )
+                return _SKIP_R2_LOCKED
+            if time.time() >= deadline:
+                print(
+                    f"✗ R2 上传锁 {lock_path} 排队等待超 {timeout}s 仍被占用, 拒绝本次上传"
+                    f"(fail-closed, 防与持锁进程并发抢带宽; 持锁进程退出自动释放锁, 若长期占用"
+                    f"请人工 `lsof {lock_path}` 排查持锁进程, 等其结束或等 timeout 后重试)",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            time.sleep(2)
+
+
 if __name__ == "__main__":
     # --dry-run 全局标志(验收自测): 引擎只打印「将传 N/M」不 PUT(不写状态, 不 purgate)。
     if "--dry-run" in sys.argv:
         _DRY_RUN = True
         sys.argv = [a for a in sys.argv if a != "--dry-run"]
+    # --skip-if-locked 全局标志(2026-09-24 硬化 P1-A): 高频/下轮可重试通道 opt-in——
+    # 拿不到锁立即打印 SKIPPED_LOCKED 标记行 + exit 0(不排队, 不触发调用方 || 告警分支)。
+    # 默认不带该 flag = 排队语义不变(deploy.sh 日链低频/漏传留缺口通道不受影响)。
+    if "--skip-if-locked" in sys.argv:
+        _SKIP_IF_LOCKED = True
+        sys.argv = [a for a in sys.argv if a != "--skip-if-locked"]
+    else:
+        _SKIP_IF_LOCKED = False
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     guard_repo_default(cmd)                     # #75 分级闸:REPO 缺省且非白名单命令 → exit 3
+    # ④ R2 上传统一互斥锁: 只读/单文件小命令豁免, 其余 upload_*/verify_*/purge_* 持锁排队。
+    if cmd and cmd not in {"list", "delete", "download-db", "clean-data-backup", "upload"}:
+        _lock = _acquire_r2_upload_lock(skip_if_locked=_SKIP_IF_LOCKED)
+        if _lock is _SKIP_R2_LOCKED:
+            sys.exit(0)   # SKIPPED_LOCKED 已在 _acquire 内打印到 stderr; 退出码 0 不触发告警邮件
     if cmd == "list":
         # list [prefix] [bucket]   bucket 默认 signal-data;查私有桶(如 signal-backup)时显式传
         prefix = sys.argv[2] if len(sys.argv) > 2 else ""

@@ -266,7 +266,7 @@ upload-data-large / upload-all-data
 ```
 
 - **R2 上传失败不阻断 deploy**：记 `R2_FAIL` 变量，发 notify 告警邮件（`--severe --dedup-key deploy_r2_upload_fail`）
-- **超时保护**：`run_r2_upload` 内置 `R2_UPLOAD_TIMEOUT`（默认 300s），超时 kill 释放 deploy.lock
+- **超时保护**：`run_r2_upload` 内置看门狗超时（通道显式值 / 按字节估算 / 回退基线固定 900s），超时 kill 释放 deploy.lock
 - **git push 只推代码**：`DATA_FILES` 只含 min JS/CSS + feed.xml（阶段 3：数据走 R2，只 push 代码 + RSS）
 
 ### 5.2 intraday_snapshot.sh（盘中快照）
@@ -565,7 +565,7 @@ launchctl list | grep trade
 | 症状 | 原因 | 解决 |
 |---|---|---|
 | 上传失败 | .env 凭证错误/过期 | 检查 R2_S3_ACCESS_KEY_ID/SECRET_ACCESS_KEY/ENDPOINT |
-| 卡 TCP SYN_SENT | 网络问题 | deploy.sh 内置超时 kill（R2_UPLOAD_TIMEOUT=300s） |
+| 卡 TCP SYN_SENT | 网络问题 | deploy.sh 内置超时 kill（回退基线固定 900s） |
 | 部分文件上传失败 | 单文件 R2 5xx InternalError | upload_r2.py 内置 5 次重试（1s/2s/4s/8s 退避） |
 | broken symlink 上传失败 | trade_sim_*.html symlink 目标被删 | _upload_glob 自动过滤 broken symlink；手动检查 `ls -la static-site/trade_sim_*.html` |
 

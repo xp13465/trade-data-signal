@@ -4047,6 +4047,10 @@ main { padding: 16px 24px; }
   .update-rules-modal .ur-table { font-size: 12px; }
   .update-rules-modal .ur-table th,
   .update-rules-modal .ur-table td { padding: 5px 6px; }
+  /* 近期执行统计 5 列窄屏过挤: 藏「预估耗时」列(EXTRA 任务恒为 "-",价值最低),
+     只留 任务/调度时点/最后执行/R2跳过 4 列; 表头 groupP 需同步藏第3列 */
+  .update-rules-modal #schedule-stats-table th:nth-child(3),
+  .update-rules-modal #schedule-stats-table td:nth-child(3) { display: none; }
 
   /* 浮动按钮上移避开底部导航 */
   .back-to-top { bottom: 88px; right: 16px; width: 40px; height: 40px; font-size: 20px; }

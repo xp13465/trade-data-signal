@@ -109,6 +109,40 @@ TASKS = [
      "schedule": "09:26", "log": "nextday_gap_check_launchd.log", "mode": "standard"},
 ]
 
+# P1-1/P1-2 消费补口(2026-09-24, r2-false-success-rootfix P1-1+P1-2):
+# 下两任务不在 TASKS 表——它们无标准 `=== xxx.sh 开始/结束 ===` 行,塞不进 scan_log_anomaly
+# 的窗口切分(取尾部窗口专门扫)。gen_daily_brief(daily_brief.log,每天20:40,deploy外生成器)
+# 与 fetch_news(fetch_news_launchd.log,盘中7:30-21:00每30min)的
+#   ✗ R2_UPLOAD_TIMEOUT / ✗ [fetch_news] R2/staticdata 同步超时 标记此前悬空
+# (ANOMALY_RE 能匹配但日志不参与扫描 → 无自动消费方,连续异常无法自动发现)。
+# 修法: EXTRA_MARKER_SCANS 尾部窗口扫描 → log_anomaly/r2_skip_count 输出进 schedule_stats.json,
+# schedule_monitor 每次跑前调本脚本重生成 + 全量遍历 stats 自动消费(L427 log_anomaly 告警 +
+# 本批新增 r2_skip_count 消费),标记即有真正自动消费方。
+EXTRA_MARKER_SCANS = [
+    {
+        "task": "gen_daily_brief", "name": "AI每日速递",
+        "schedule": "每日 20:40", "log": "daily_brief.log",
+        # 部署外生成器日志无标准开始/结束行。轮次作用域(2026-09-24 P1-A/P1-B 收口):
+        #   以每轮必打的「开始生成」行为本轮起点, 窗口=[最后开始生成行, 文件末尾)
+        #   = 最近一轮完整运行段, 标记滞留问题根治(旧尾部窗口 600 行 < 每日1轮则
+        #   覆盖 1 轮, 无滞留问题, 但为统一机制仍走 round_start_re)。
+        # round_start_re: daily_brief.log 每轮必打 `[run_daily_brief] schedule_enabled=true,开始生成 <ts>`
+        "tail_lines": 600,
+        "round_start_re": r'\[run_daily_brief\] schedule_enabled=true,开始生成 ',
+    },
+    {
+        "task": "fetch_news", "name": "新闻采集",
+        "schedule": "7:30-21:00 每30min", "log": "fetch_news_launchd.log",
+        # P1-A/P1-B(2026-09-24 r2 终审收口): 尾部 400 行窗口滞留 ~10-20h(30min 一轮,
+        #   每轮 4-6 行), ⚠/SKIPPED_LOCKED 滞留=「窗口存在」≠「本轮发生」。改为轮次
+        #   作用域: 每轮必打 `[fetch_news] 已写 ... date=...` 行(采集成功写盘后), 以最后
+        #   一个「已写」行为本轮起点, 窗口=[已写行, 文件末尾) = 最近一轮完整同步段。
+        #   下一轮成功时新「已写」行把旧标记挤出窗口 → log_anomaly/计数自动对应当本轮。
+        "tail_lines": 400,
+        "round_start_re": r'\[fetch_news\] 已写 ',
+    },
+]
+
 _TS = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})'
 # 开始:=== xxx.sh 开始 <ts> ===
 START_RE = re.compile(r'=== (\S+\.sh) 开始 ' + _TS + r' ===')
@@ -167,6 +201,9 @@ ANOMALY_RE = re.compile(
     r'UnicodeError|UnicodeDecodeError|UnicodeEncodeError|ConnectionError|TimeoutError|'
     r'JSONDecodeError|Exception)\s*:'
     r'|FATAL\b|panic:|Segmentation fault|core dumped'
+    r'|✗\s*R2_UPLOAD_TIMEOUT'
+    r'|✗\s*R2 上传(?:失败|异常)'
+    r'|✗\s*\[fetch_news\]\s*(?:R2/staticdata 同步超时|同步上线异常)'
 )
 
 # 第4盲区修复补丁(2026-07-29): push 失败类关键词单独处理,避免 deploy.sh 内置
@@ -385,15 +422,17 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
           16 条 self-healed 假警报实证),exit code 是权威判据。
 
     Returns:
-        {"keyword": "AttributeError", "line": "AttributeError: '...' ..."} 或 None。
-        line 截断到 200 字符避免 JSON 过大;keyword 为正则命中的字符串。
+        ({"keyword": ..., "line": ...}|None, skip_count): 二元组。
+        skip_count = 该运行窗口内 SKIPPED_LOCKED(R2 上传锁被占用跳过本轮)出现次数,
+        独立于 log_anomaly 标注——skip 是设计让路(下轮/兜底链重试), 不算失败不上 SEVERE,
+        但给出独立计数供 schedule_stats 前端/巡检观察(2026-09-24 P2-2 硬化)。
     """
     if not log_path.exists():
-        return None
+        return None, 0
     try:
         lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
     except Exception:
-        return None
+        return None, 0
 
     # 找最后一个 start 行(standard 用 START_RE+fullmatch script, etf_nt 用 ETF_START_RE)
     last_start_idx = None
@@ -409,7 +448,7 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
                 last_start_idx = i
                 break
     if last_start_idx is None:
-        return None  # log 里无 start 行,无法切窗口
+        return None, 0  # log 里无 start 行,无法切窗口
 
     # 找 start 后第一个 end 行(限定本次运行窗口,避免扫到下一轮 start 之间)
     # 若无 end(进行中或被杀),扫到文件末尾
@@ -433,6 +472,9 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
     #   等标记。若同窗口出现成功标记,判已恢复不报;无成功标记才报真实失败。
     #   其他关键词(Traceback/异常类名/FATAL)逻辑不变,命中即报。
     window_lines = lines[last_start_idx:end_idx]
+    # P2-2(2026-09-24): SKIPPED_LOCKED 独立计数——skip=设计让路(锁忙下轮重试)不上 SEVERE,
+    # 但命中次数需可观察(intraday 每轮都可能撞 deploy 锁, 连 skip 多轮=收盘版可能上不了 R2)。
+    skip_count = sum(1 for _l in window_lines if "SKIPPED_LOCKED" in _l)
     has_push_success = any(PUSH_SUCCESS_RE.search(l) for l in window_lines)
     has_gap_retry_success = any(GAP_RETRY_SUCCESS_RE.search(l) for l in window_lines)
     finalizer_ranges = _finalizer_noise_ranges(lines, last_start_idx, end_idx)
@@ -459,7 +501,7 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
             return {
                 "keyword": m.group(0),
                 "line": lines[i].strip()[:200],
-            }
+            }, skip_count
         # push 失败类:同窗口有成功标记=已恢复,跳过;无成功标记但最终 exit==0/None 也跳过
         # (2026-08-24 降噪:仅最终 exit!=0 才报。16 条 self-healed 假警报根因=成功标记文案
         # 漂移,exit code 是权威——rebase 自愈成功 exit 必为 0;真失败 exit!=0 照报;
@@ -475,8 +517,124 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
             return {
                 "keyword": mp.group(0),
                 "line": lines[i].strip()[:200],
-            }
-    return None
+            }, skip_count
+    return None, skip_count
+
+
+# P1-2 闭环修正(2026-09-24, r2-false-success-rootfix): 真实标记形态核实。
+# fetch_news.py 实际打印是 ⚠ 前缀(fetch_news.py L725/732/735: `⚠ [fetch_news] 同步上线异常`、
+#   `⚠ [fetch_news] R2 上传 rc=...`、`⚠ [fetch_news] staticdata 同步 rc=...`),gen_daily_brief.py
+#   L3089/3091 是 `⚠ R2 上传 rc=...` / `⚠ R2 上传异常`——全是 ⚠ 无 ✗[fetch_news] 前缀。
+# 上一轮 EXTRA_MARKER_SCANS 引用全局 ANOMALY_RE(✗\s*\[fetch_news\]...三支)对真实日志
+#   grep=0 命中(实测 fetch_news_launchd.log 含 ⚠ [fetch_news] 117 行, ✗ [fetch_news] 0 行),
+#   连续异常仍无消费方(悬空未解)。修正: 专属 MARKER_ANOMALY_RE 匹配真实 ⚠ 形态,
+#   全局 ANOMALY_RE 保持不动(TASKS 表内任务误报面不扩大)。
+MARKER_ANOMALY_RE = re.compile(
+    r'⚠\s*\[fetch_news\]\s*(?:同步上线异常|R2 上传 rc|staticdata 同步 rc)'
+    r'|⚠\s*R2 上传 rc=\S+|⚠\s*R2 上传异常'
+    r'|✗\s*\[fetch_news\]\s*(?:R2|staticdata)(?: 同步超时|同步上线异常)?|同步上线异常'
+    r'|R2_UPLOAD_TIMEOUT'
+)
+
+
+def scan_marker_log(log_path: Path, tail_lines: int, round_start_re: re.Pattern | None = None) -> tuple:
+    """轮次作用域扫描 deploy 外生成器日志(gen_daily_brief/fetch_news, P1-1/P1-2 消费补口)。
+
+    这两个任务不在 TASKS 表、无标准 `=== xxx.sh 开始/结束 ===` 行,scan_log_anomaly 窗口
+    切不出来返回 (None,0) → 其 R2 上传失败/同步异常标记此前无自动消费方,连续异常无法
+    自动发现。此处扫描专属 MARKER_ANOMALY_RE(fetch_news/gen_daily_brief 真实 ⚠/✗ 标记
+    形态) + 独立计 SKIPPED_LOCKED 次数。
+
+    【P1-A/P1-B 轮次作用域(2026-09-24 r2 终审收口)】: 旧尾部行数窗口(tail_lines)对
+    低频任务滞留严重——fetch_news 30min 一轮每轮约 4-6 行,tail 400 行 ≈ 覆盖 20-40 轮
+    ≈ 10-20 小时;标记行一旦滞留窗口内,「窗口里存在该行」就不再等价「本轮发生」:
+      ① P1-A: ⚠ [fetch_news] 同步上线异常(设计内降级标记)滞留 → log_anomaly 恒 True,
+         monitor 对非瞬时桶任务首次即 SEVERE → 上线即告警、永不恢复(等着随窗口滚出)。
+      ② P1-B: SKIPPED_LOCKED 语义=「本轮让路、下轮自愈」,但窗口滞留把「窗口里攒了
+         N 行」当「N 轮连续 skip」→ 一次 15min 锁忙 45min 后必 SEVERE、挂 1-2 天。
+    → 改为**轮次作用域**: 传入 round_start_re(本轮运行起点标志正则,要求每轮必打),
+      从文件末尾反向找最后一个 round_start 命中行,窗口=[该行, 文件末尾) = 最近一轮
+      完整运行段。窗口里有标记 ≈ 本轮发生了标记;下一轮成功时新的起点行把旧标记
+      挤出窗口,log_anomaly 自动恢复 False(本轮自愈语义)。
+
+    Args:
+        log_path: log 文件路径
+        tail_lines: 兜底尾部窗口行数(round_start_re 找不到本轮起点时回退使用)
+        round_start_re: 本轮起点正则(fetch_news=每轮必打的「已写」行,
+            gen_daily_brief=每轮必打的「开始生成」行)。None=纯尾部窗口(旧行为)。
+
+    Returns:
+        (anomaly_dict|None, skip_count): 二元组, 与 scan_log_anomaly 同构。
+        anomaly_dict 含 keyword/line 字段(与现有 log_anomaly_keyword/line 同构)。
+        last_run 由调用方(EXTRA_MARKER_SCANS 循环)按 mtime/行内时间戳补充。
+    """
+    if not log_path.exists():
+        return None, 0
+    lines = _read_tail_lines(log_path)
+    window = None
+    if round_start_re is not None:
+        for i in range(len(lines) - 1, -1, -1):
+            if round_start_re.search(lines[i]):
+                window = lines[i:]
+                break
+    if window is None:
+        window = lines[-tail_lines:] if tail_lines and tail_lines > 0 else lines
+    skip_count = sum(1 for _l in window if "SKIPPED_LOCKED" in _l)
+    for _l in window:
+        m = MARKER_ANOMALY_RE.search(_l)
+        if m:
+            # P1-A(2026-09-24 r2 终审): ⚠ [fetch_news] 同步上线异常 / ⚠ R2 上传 rc / ⚠
+            # staticdata 同步 rc 是设计内降级标记(日志原文自带「不阻塞」/「兜底」), 不该
+            # 首次即 SEVERE → 返回 severity=degrade, monitor 消费端走连续 N 轮缓冲;
+            # ✗ 前缀 / R2_UPLOAD_TIMEOUT 是真异常(非静默/超时), severity=critical
+            # 维持首次即 SEVERE。
+            _sev = "degrade" if _l.strip().startswith("⚠") else "critical"
+            return {"keyword": m.group(0), "line": _l.strip()[:200],
+                    "severity": _sev}, skip_count
+    return None, skip_count
+
+
+def _compile_rsre(pattern: str | None) -> re.Pattern | None:
+    """把 EXTRA_MARKER_SCANS 的 round_start_re 字符串编译为正则(None=纯尾部窗口)。"""
+    if not pattern:
+        return None
+    try:
+        return re.compile(pattern)
+    except re.error:
+        return None  # 配置写错不崩, 回退尾部窗口
+
+
+# P2(2026-09-24 r2 终审): 日志无限增长性能债——fetch_news_launchd.log 已 205KB 且每日
+# append, read_text 全量读每次 gen_schedule_stats 都扫整文件(O(n) 线性增长)。改为只读
+# 尾部 _TAIL_READ_BYTES 字节(覆盖最近一轮完整运行段足够: fetch_news 每轮 4-6 行,
+# 512KB ≈ 数万行 ≈ 数百轮; gen_daily_brief 每日 1 轮日志 12KB, 512KB 覆盖近 40 天)。
+_TAIL_READ_BYTES = 512 * 1024
+
+
+def _read_tail_lines(path: Path, n_bytes: int = _TAIL_READ_BYTES) -> list[str]:
+    """只读文件尾部至多 n_bytes 字节并拆行(空文件/异常返回 [])。
+
+    边界处理: 若尾部截断落在某行中间, 该行首部不完整——从最后一条完整换行后截断,
+    丢弃不完整头行(不影响轮次作用域找「已写/开始生成」等完整标志行)。
+    """
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            if size == 0:
+                return []
+            start = max(0, size - n_bytes)
+            f.seek(start)
+            chunk = f.read()
+    except Exception:
+        return []
+    text = chunk.decode("utf-8", errors="replace")
+    if start > 0:
+        # 截断可能落在行中: 从第一个换行之后开始, 丢不完整头行
+        nl = text.find("\n")
+        if nl >= 0:
+            text = text[nl + 1:]
+    return text.splitlines()
 
 
 def _iter_lines(path: Path):
@@ -587,7 +745,10 @@ def build():
                            "est_text": "-", "last_run": None, "last_exit": None,
                            "last_duration_sec": None,
                            "log_anomaly": False, "log_anomaly_keyword": None,
-                           "log_anomaly_line": None})
+                           "log_anomaly_line": None,
+                           # P2-2(2026-09-24): 无日志分支也补 r2_skip_count,17 条字段一致
+                           # (schedule_monitor 消费 + 前端渲染需字段在位)
+                           "r2_skip_count": 0})
             continue
         if t["mode"] == "etf_nt":
             pairs, pending_start = parse_etf_nt(log_path)
@@ -671,7 +832,7 @@ def build():
         # 第4盲区修复: 扫最近一次运行窗口的 log 找异常关键词,
         # 即使 exit=0(异常被 try/except 吞)也能抓到告警
         # (2026-08-24: 传 last_exit=code,push 失败类仅最终 exit!=0 才报)
-        anomaly = scan_log_anomaly(log_path, t["script"], t["mode"], last_exit=code)
+        anomaly, r2_skip_count = scan_log_anomaly(log_path, t["script"], t["mode"], last_exit=code)
         # P1 稳定性(2026-07-29): pending_start + last_exit!=0 = 上次crash现在重试中,
         # log_anomaly 标注 "pending但上次exit非0"(不覆盖 log 关键词扫描已发现的 anomaly)
         if not anomaly and pending_crash_retry:
@@ -686,6 +847,37 @@ def build():
             "log_anomaly": bool(anomaly),
             "log_anomaly_keyword": anomaly["keyword"] if anomaly else None,
             "log_anomaly_line": anomaly["line"] if anomaly else None,
+            # P2-2(2026-09-24): R2 上传锁 skip 次数独立计数(schedule_monitor 不升级 SEVERE,
+            # 前端"执行统计"可见; 连续 skip 多轮=上传缺口信号需人工关注)
+            "r2_skip_count": r2_skip_count,
+        })
+    # P1-1/P1-2(2026-09-24, r2-false-success-rootfix): 补扫 deploy 外生成器日志
+    # (gen_daily_brief/fetch_news)。这两个任务不在 TASKS 表, 无标准开始/结束行,
+    # 此前 ✗ R2_UPLOAD_TIMEOUT / ✗ [fetch_news] 标记悬空无自动消费方。尾部窗口扫描
+    # 结果并入 schedule_stats.json, schedule_monitor 全量遍历自动消费
+    # (log_anomaly→SEVERE 告警 / r2_skip_count→连续跳过计数, 见 schedule_monitor.sh)。
+    for m in EXTRA_MARKER_SCANS:
+        log_path = LOG_DIR / m["log"]
+        anomaly, skip_count = scan_marker_log(log_path, m["tail_lines"],
+                                              round_start_re=_compile_rsre(m.get("round_start_re")))
+        # last_run = 文件最后写入时刻(近似最近运行时刻; 无标准开始行可解析时间戳)
+        _mtime = None
+        try:
+            if log_path.exists():
+                _mtime = datetime.fromtimestamp(log_path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+        except (OSError, ValueError):
+            _mtime = None
+        result.append({
+            "task": m["task"], "name": m["name"], "schedule": m["schedule"],
+            "est_text": "-", "last_run": _mtime, "last_exit": None,
+            "last_duration_sec": None,
+            "log_anomaly": bool(anomaly),
+            "log_anomaly_keyword": anomaly["keyword"] if anomaly else None,
+            "log_anomaly_line": anomaly["line"] if anomaly else None,
+            # P1-A(2026-09-24 r2 终审): ⚠ 降级标记(不阻塞/兜底)标注 severity=degrade,
+            # schedule_monitor 对 EXTRA 任务走连续 N 轮缓冲不首报 SEVERE(见 monitor 消费端)
+            "log_anomaly_severity": anomaly.get("severity") if anomaly else None,
+            "r2_skip_count": skip_count,
         })
     OUT.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_json(OUT, result, indent=2)

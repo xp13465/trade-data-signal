@@ -32308,7 +32308,7 @@ function updateRulesContentHtml() {
     '</div>' +
     '<div class="rule-section">' +
       '<h4>📊 近期执行统计</h4>' +
-      '<table class="ur-table" id="schedule-stats-table"><thead><tr><th>任务</th><th>调度时点</th><th>预估耗时</th><th>最后执行</th></tr></thead><tbody><tr><td colspan="4">加载中…</td></tr></tbody></table>' +
+      '<table class="ur-table" id="schedule-stats-table"><thead><tr><th>任务</th><th>调度时点</th><th>预估耗时</th><th>最后执行</th><th>R2跳过</th></tr></thead><tbody><tr><td colspan="5">加载中…</td></tr></tbody></table>' +
       '<p class="ur-note">预估耗时＝近10次有效平均；最后执行＝最近一次开始时间，退出码非0标 ⚠️（数据部署时刷新）</p>' +
     '</div>'
   );
@@ -32317,14 +32317,17 @@ function _renderScheduleStats(rows) {
   const tb = document.querySelector("#schedule-stats-table tbody");
   if (!tb) return;
   if (!Array.isArray(rows) || !rows.length) {
-    tb.innerHTML = '<tr><td colspan="4">暂无统计</td></tr>';
+    tb.innerHTML = '<tr><td colspan="5">暂无统计</td></tr>';
     return;
   }
   tb.innerHTML = rows.map((r) => {
     const warn = (r.last_exit != null && r.last_exit !== 0)
       ? ` <span data-tip="⚠️ 上次执行异常: 退出码=${r.last_exit}（非0=脚本异常退出,可能部分采集失败）。详见日志 data/logs/${r.task || r.name}_launchd.log">⚠️</span>`
       : "";
-    return `<tr><td>${r.name || r.task || ""}</td><td>${r.schedule || ""}</td><td>${r.est_text || "-"}</td><td>${r.last_run || "-"}${warn}</td></tr>`;
+    const skipText = (typeof r.r2_skip_count === "number" && r.r2_skip_count > 0)
+      ? `<span data-tip="⚠️ 最近运行段内 R2 上传锁忙被跳过 ${r.r2_skip_count} 次（SKIPPED_LOCKED 让路下轮重试；schedule_monitor 检测连续多轮 skip 会发 SEVERE 告警）。详见 data/logs/ 各任务日志">⚠️ R2跳过 ${r.r2_skip_count} 次</span>`
+      : "-";
+    return `<tr><td>${r.name || r.task || ""}</td><td>${r.schedule || ""}</td><td>${r.est_text || "-"}</td><td>${r.last_run || "-"}${warn}</td><td>${skipText}</td></tr>`;
   }).join("");
 }
 function _loadScheduleStats() {
@@ -32332,7 +32335,7 @@ function _loadScheduleStats() {
     .then(_renderScheduleStats)
     .catch(() => {
       const tb = document.querySelector("#schedule-stats-table tbody");
-      if (tb) tb.innerHTML = '<tr><td colspan="4">暂无统计</td></tr>';
+      if (tb) tb.innerHTML = '<tr><td colspan="5">暂无统计</td></tr>';
     });
 }
 // 渲染弹窗内"各数据源实时时效"区块（原首页数据时效横幅移入）。
