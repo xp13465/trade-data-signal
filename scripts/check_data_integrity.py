@@ -1925,6 +1925,11 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     # 空计划 {date, empty:true} 为合法态不误报；文件缺失 = 生成器未跑 = FAIL 阻断
     results.append(check_nextday_plan(data_dir))
 
+    # 首页历史信号冻结快照机检（2026-09-23 信号漂移根治 9a546256f 新增，P2-F3 接入校验链）：
+    # schema_version/days/日期条目必需字段齐全；文件缺失 = 生成器未跑 = FAIL 阻断
+    # (首页历史信号退回重算漂移, 事故级不许静默)
+    results.append(check_signal_kelly_day_snapshot(data_dir))
+
     # #fix555 changelog 与版本串一致性（2026-09-07）：index.html lab-asset-url 版本串
     # 必须在 changelog.json 有登记，否则更新 toast「本次更新」预览静默不显示。
     # 读源与前端 loadUpdateChangelog 同一 meta；FAIL 阻断上线强制补条目(§22 一致性)。
@@ -2053,6 +2058,57 @@ def check_nextday_plan(data_dir: Path) -> CheckResult:
             return _fail(name, f"plan[{i}] 缺字段: {missing}")
 
     return _ok(name, f"计划条目={len(plan)} date={d}")
+
+
+def check_signal_kelly_day_snapshot(data_dir: Path) -> CheckResult:
+    """首页历史信号冻结快照机检（2026-09-23 信号漂移根治 9a546256f 新增，P2-F3 接入校验链）。
+
+    背景: 首页历史信号「T+1 晚到数据重算漂移」根治 = 固化时点快照
+    signal_kelly_day_snapshot.json（nextday_plan_generator.py 22:30 盘后生成,
+    与 nextday_plan 同批 upload-data-files 推 R2 data/ 前缀）。前端读快照定格的 top-K 排序,
+    已固化日期不随每日重算覆盖（固化即定格）。
+    L45 数据供给四件套补「机检」件: 结构校验 schema_version 存在 + days 为 dict +
+    每个日期条目数组逐条必需字段(index_id/signal/etf_code/etf_name/track_score)齐全。
+    数据源=线上 R2(与 nextday_plan 同链云上生成, 生产权威); 文件缺失(HTTP 404)=
+    生成器未跑/未推 R2 = FAIL 阻断(首页历史信号退回重算漂移, 事故级不许静默)。
+    """
+    name = "signal_kelly_day_snapshot"
+    data, err = _fetch_r2_json("signal_kelly_day_snapshot.json")
+    if err:
+        return _fail(name, f"{err} (nextday_plan_generator.py 云上盘后未生成快照?)")
+
+    if not isinstance(data, dict):
+        return _fail(name, f"signal_kelly_day_snapshot.json 不是 dict: {type(data).__name__}")
+    if "schema_version" not in data:
+        return _fail(name, "signal_kelly_day_snapshot.json 缺 schema_version 字段")
+    days = data.get("days")
+    if not isinstance(days, dict):
+        return _fail(name, f"days 不是 dict: {type(days).__name__} (快照应含 schema_version + days 日期映射)")
+
+    # 每个日期条目逐条抽查: 数组 + 必需字段齐全(index_id/signal/etf_code/etf_name/track_score)
+    need_fields = ("index_id", "signal", "etf_code", "etf_name", "track_score")
+    n_days = len(days)
+    n_recs = 0
+    bad = []
+    for day, recs in sorted(days.items()):
+        if not isinstance(recs, list):
+            bad.append(f"{day}: 非数组 {type(recs).__name__}")
+            continue
+        for i, rec in enumerate(recs[:5]):
+            if not isinstance(rec, dict):
+                bad.append(f"{day}[{i}]: 不是 dict {type(rec).__name__}")
+                continue
+            missing = [f for f in need_fields if f not in rec]
+            if missing:
+                bad.append(f"{day}[{i}]: 缺字段 {missing}")
+        n_recs += len(recs)
+    if bad:
+        return _fail(name, f"快照结构异常: {'; '.join(bad[:3])}")
+
+    if n_days == 0:
+        return _fail(name, "days 为空 dict(首页历史信号无固化日期, 快照未生成?)")
+
+    return _ok(name, f"schema_version={data.get('schema_version')} days={n_days} 条={n_recs}")
 
 
 def check_s06_state_snapshot(data_dir: Path, timeout: int = 300) -> CheckResult:

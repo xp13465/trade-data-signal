@@ -94,6 +94,17 @@ FILES = [
         "https://ssd.fx8.store/data/auto_trade_steps.json",
         "https://ss.fx8.store/r2/data/auto_trade_steps.json",
     ),
+    # signal_kelly_day_snapshot(首页历史信号冻结快照, 2026-09-23 信号漂移根治 commit 9a546256f 新增,
+    # P2-F2 reviewer 补入): 与 nextday_plan 同批由 nextday_plan_generator.py 生成,
+    # 无条件随 upload-data-files 上传 /data/ 前缀。指纹=schema_version+days 天数+最新固化日+
+    # 最新日条目数+首条 index_id/signal/etf_code/track_score(快照固化即定格, 天数/最新日/首条
+    # 任一漂移=版本错位或重算覆盖固化, 定位 CDN/容器滞留旧快照)。
+    (
+        "signal_kelly_day_snapshot",
+        "signal_kelly_day_snapshot.json",
+        "https://ssd.fx8.store/data/signal_kelly_day_snapshot.json",
+        "https://ss.fx8.store/r2/data/signal_kelly_day_snapshot.json",
+    ),
     # accum_nav_map 全量(凯利 G/H/I 强平日真实净值, 2026-09-17 懒加载保留全量作回测源+对账对象+
     # 回退兜底): 走 data-large(data/ 前缀)。三版本一致性指纹=n_codes+首/中/末 code 抽样
     # (同日生成逐位一致, 任一版本滞留=报)。
@@ -197,6 +208,38 @@ def _fingerprint(data: object, kind: str) -> dict[str, object]:
                 fp["latest_date"] = max(dates)
             if steps and isinstance(steps[0], dict):
                 fp["p0_code"] = steps[0].get("etf_code")
+    elif kind == "signal_kelly_day_snapshot":
+        # 首页历史信号冻结快照(2026-09-23 信号漂移根治 9a546256f 新增): 结构
+        # {schema_version, days: {YYYYMMDD: [{index_id, signal, etf_code, etf_name,
+        # track_score, rating, bk_ts, late, source}, ...]}}。快照固化即定格(已固化日期不覆盖),
+        # 三版本一致性指纹=schema_version + days 天数 + 最新固化日 + 最新日条目数 +
+        # 最新日首条(index_id/signal/etf_code/track_score)。任一漂移=版本错位或重算覆盖固化,
+        # 定位 CDN/容器滞留旧快照或生成器重写已固化日。
+        fp["schema_version"] = data.get("schema_version")
+        days = data.get("days")
+        if isinstance(days, dict):
+            dates = sorted(str(k) for k in days.keys() if isinstance(k, (str, int)))
+            fp["days_n"] = len(dates)
+            if dates:
+                fp["latest_date"] = dates[-1]
+                # 当日(最新日)可能为空数组(固化当日无入样买信号, 合法态); p0 取最新非空日
+                # 首条, 保证指纹总能探到实际内容漂移(CDN/容器滞留旧快照定位)。
+                last_recs = days.get(dates[-1])
+                if isinstance(last_recs, list):
+                    fp["latest_n"] = len(last_recs)
+                src_recs = last_recs if (isinstance(last_recs, list) and last_recs) else None
+                if not src_recs:
+                    for _d in reversed(dates):
+                        _r = days.get(_d)
+                        if isinstance(_r, list) and _r:
+                            src_recs = _r
+                            break
+                if src_recs and isinstance(src_recs[0], dict):
+                    r0 = src_recs[0]
+                    fp["p0_index"] = r0.get("index_id")
+                    fp["p0_signal"] = r0.get("signal")
+                    fp["p0_code"] = r0.get("etf_code")
+                    fp["p0_score"] = r0.get("track_score")
     elif kind == "accum_nav_map":
         # accum_nav_map.json {etf_code: {YYYYMMDD: accum_nav}}(凯利 G/H/I 强平日真实净值全量,
         # 2026-09-17 懒加载保留全量作回测源+对账对象+回退兜底)。三版本一致性指纹:
