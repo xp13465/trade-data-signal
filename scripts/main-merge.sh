@@ -318,6 +318,25 @@ else
   fi
 fi
 
+# 7.5 critical-css 与 style.css 双源一致性机检(§24 + §22 一致性精神, 2026-09-23 主控补充挂主入口)
+#     背景: 该机检原只挂 deploy.sh 1.2.4(数据上线链, 当天 17:50 update_all 才跑)。但
+#     「改 style.css 忘同步 critical-css」的典型路径是 push main 走本脚本(代码上线链),
+#     漂移不会被立即拦, 要等当天 17:50 数据 deploy 才 FAIL——且那时 FAIL 拦的是数据上线(风险倒挂)。
+#     本步前置拦截: 在真正 push main 之前跑同一机检, 复用 scripts/check-dual-src/check_dual_src_sync.py
+#     (单点实现双入口调用, 不复制逻辑)。校验源 = $REPO/static-site(merge 后+bump 前的即将上线代码)。
+#     注: 与第 7 步 check_version_progress 同处 merge 后/bump 后、push 前;deploy.sh 1.2.4 仍保留,
+#     双入口互为兜底(代码上线链立即拦, 数据上线链仍拦)。
+echo "--- critical-css 与 style.css 双源一致性机检(挂主入口, §24 双源防漂移) ---"
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo "  [dry-run] 跳过 check_dual_src_sync"
+else
+  if ! "$PY" "$REPO/scripts/check-dual-src/check_dual_src_sync.py" --site-dir "$REPO/static-site"; then
+    echo "✗ critical-css 与 style.css 双源一致性机检 FAIL, 阻断 merge(§24 双源防漂移)" >&2
+    exit 1
+  fi
+  echo "✓ critical-css 与 style.css 双源一致性机检通过"
+fi
+
 # 8.5 pending-index 销账软提醒(2026-08-22 用户授权流程小机制: 只提醒不阻断不自动改文件)
 #     背景: merge 进 main 的 commit message 常引用 docs/pending-features-index.md 的 #NN 编号但没人顺手销账。
 #     逻辑: 从本次 merge 带入的 commit message(标题+body, 范围=merge 前 origin/main..HEAD)提取 #编号,
