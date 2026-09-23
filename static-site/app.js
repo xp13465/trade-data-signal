@@ -2608,6 +2608,37 @@ async function _ensureSigEtfCacheFromOverview() {
   }
 }
 
+// ===== 信号冻结快照(2026-09-23 首页历史日期漂移根治) =====
+// 数据源: scripts/nextday_plan_generator.py 每次生成操作计划时固化「当日完整入样买信号 top-K 排序
+// 结果」(剔除 T+1 晚到信号)写入 signal_kelly_day_snapshot.json; 已固化日期不覆盖(固化即定格)。
+// 首页历史日期(非 overview.date 当日)的 AI建议 top-K 判定读本快照排序, 不随每天重算漂移
+// (深层问题: 9-22 深证红利 sz_div 是 T+1 晚到, 9-23 17:50 全量重建 signal_daily 才补入
+//   —— 若仍动态重算会压过 9-22 当时固化赢家 家电 561120, §5.1⑥ 防前视: 固化即定格)。
+// 快照缺失日期(覆盖期外/加载失败)回退动态判定(与 s06 快照降级契约同精神, 见 _tdsS06BaseForDate)。
+var _sigSnapByDate = null;       // date -> [{index_id,signal,etf_code,etf_name,track_score,rating,bk_ts,late}, ...] 固化排序
+var _sigSnapPromise = null;      // 单例加载 promise
+function _daySnapKeyOf(d) { return d == null ? "" : String(d).replace(/[^0-9]/g, ""); }
+function _ensureSigSnap() {
+  if (_sigSnapByDate) return Promise.resolve(_sigSnapByDate);
+  if (!_sigSnapPromise) {
+    _sigSnapPromise = (typeof fetchJSON === "function"
+      ? fetchJSON("./data/signal_kelly_day_snapshot.json")
+      : fetch("./data/signal_kelly_day_snapshot.json").then(function (r) {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.json();
+        }))
+      .then(function (d) {
+        if (!d || !d.schema_version || !d.days) return null;
+        _sigSnapByDate = d.days;
+        var _ok2 = _sigSnapByDate && typeof _rerenderSigCardContent === "function";
+        if (_ok2) { try { _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot); } catch (e) {} }
+        return d.days;
+      })
+      .catch(function () { _sigSnapPromise = null; return null; });
+  }
+  return _sigSnapPromise;
+}
+
 // 2026-08-05 ETF 至今盈亏格式化：红涨绿跌（A股配色 #e6492e/#2e8b57），正数加+，百分比+括号价格差。
 // _etfPnlText 返回纯文本（如"至今 +1.21% (+0.012)"），None/NaN 返 ""；_etfPnlColor 返回对应颜色。
 function _etfPnlText(ret, diff) {
@@ -6072,6 +6103,10 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // 而非过时的 r.date("20260817" 字符串可直接比较)。空 items 已在上面 return, 此处安全。
   // 冰点卡(kind==="freeze")不在此分支, 仍用 r.date(当前交易日语义), 不受影响。
   if (kind === "signal" && items && items.length) {
+    // 2026-09-23 触发冻结快照加载(历史日期 AI建议 top-K 读快照, 根治 T+1 晚到漂移):
+    // fire-and-forget 拉取 signal_kelly_day_snapshot.json, 成功后会调 _rerenderSigCardContent 重绘
+    // (首次渲染走动态判定, 快照到位后自动刷新为固化排序; 快照缺失日期维持动态降级)。
+    try { _ensureSigSnap(); } catch (e) {}
     let _latestSigDate = "";
     for (const _it of items) {
       if (_it && _it.date && _it.date > _latestSigDate) _latestSigDate = _it.date;
@@ -6352,7 +6387,26 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
             return 0;
           });
           _posCapKeptMap = new Map();
+          const _snapDtKey = (d2) => _daySnapKeyOf(d2);
           for (const dt of dates) {
+            // 2026-09-23 历史日期漂移根治: 历史日期(非 overview.date 当日)读固化信号快照排序——
+            // 去动态重算。固化时点=操作计划生成(剔除晚到 T+1 信号), 已固化日期定格不随每天 17:50
+            // 重算漂移(9-22 恒 家电 561120, 不被 9-23 才补入的 sz_div 压过)。当日仍动态判定
+            // (盘中可能变化, 收盘后 17:50 重算定版, 与 _topEtfByScore 动态口径一致)。
+            // 快照缺失(覆盖期外/加载失败/前端先于快照文件上线)回退下方动态判定(降级契约)。
+            const _snapIsToday = _daySnapKeyOf(dt) === _daySnapKeyOf(todayDate);
+            const _snapList = (!_snapIsToday && _sigSnapByDate)
+              ? (_sigSnapByDate[_daySnapKeyOf(dt)] || null) : null;
+            if (_snapList && _snapList.length) {
+              // 快照已固化完整入样买排序(剔除晚到); 取前 K; 信号 key 与动态口径同款
+              // (index_id|date|signal)。晚到信号不在快照 → 不参与 top-K(正是根治点)。
+              // snap 条目字段: index_id/signal/etf_code/etf_name/track_score/rating/bk_ts/late
+              const _snapKept = _snapList.slice(0, _posCapK)
+                .map((s2) => s2.index_id + '|' + dt + '|' + s2.signal)
+                .filter(Boolean);
+              if (_snapKept.length) { _posCapKeptMap.set(dt, new Set(_snapKept)); }
+              continue;
+            }
             // 2026-08-14 fix(用户报 814 列表只1条却标AI建议2): kept 集人口须与列表展示一致(popItems 档位筛选 + 排除 band_hold),
             //   原来用 windowedItems(全量) 算 kept → 被默认档位筛选藏掉的信号仍占AI建议位, 导致列表可见项编号跳号(如列表只1条却标AI建议2)。
             //   现改为 popItems(同函数作用域, L1868 档位筛选后人口) 上算, 并排除 band_hold(持有中性, 与「AI建议买入」语义不符且默认不可见), 编号与展示一一对应。
@@ -6655,7 +6709,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           const _capRank = _posCapRank.get(it.index_id + '|' + it.date + '|' + it.signal) || 0;
           if (_capRank) {
             posCapCls = " sig-poscap-kept";
-            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(仓位控制过滤)已开启(K=${_posCapK}): 口径与凯利回测一致「先滤AI降亏、再选top-K」——命中降亏的信号不占AI建议位、顺延补位; 只在回测入样宇宙内挑选(按官方入样规则, 只收买入类信号: ${_t("type_buy")}/${_t("buy_aux")}/${_t("buy_special")}/${_t("buy_backup")}; 需标的有 ETF/场内 LOF(16/15/501/502) 跟踪且有跟踪分; 排除类别=债类/情绪类/全球商品利率/港股行业/无ETF的空类别; 例外=10年国债ETF走自我兜底), 未入样标的与卖类信号(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不进入AI建议买入; 在当前档位筛出的存活信号内, 按跟踪分→评级→信号类型→买入日排序, 取前${_posCapK}名进入AI建议买入(与列表同人口, 编号不跳号); 序号=当日跟踪分降序第${_capRank}名(与回测K档口径一致, 不随K档跳变; 命中信号日冻结表的信号其排序分取冻结时点值, 不随board_etf_map双树/重生值漂移, 2026-09-18③; 列表位置可能与编号不同序, 以编号为准); 存活者若命中AI降亏仍显示删除线建议回避（按指数级 top-K 展示，与回测每ETF粒度有差异；近30交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议${_capRank}</sup>`;
+            posCapBadge = `<sup class="sig-poscap-badge sig-poscap-ok" data-tip="AI仓位建议(仓位控制过滤)已开启(K=${_posCapK}): 口径与凯利回测一致「先滤AI降亏、再选top-K」——命中降亏的信号不占AI建议位、顺延补位; 只在回测入样宇宙内挑选(按官方入样规则, 只收买入类信号: ${_t("type_buy")}/${_t("buy_aux")}/${_t("buy_special")}/${_t("buy_backup")}; 需标的有 ETF/场内 LOF(16/15/501/502) 跟踪且有跟踪分; 排除类别=债类/情绪类/全球商品利率/港股行业/无ETF的空类别; 例外=10年国债ETF走自我兜底), 未入样标的与卖类信号(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不进入AI建议买入; 在当前档位筛出的存活信号内, 按跟踪分→评级→信号类型→买入日排序, 取前${_posCapK}名进入AI建议买入(与列表同人口, 编号不跳号); 序号=当日跟踪分降序第${_capRank}名(与回测K档口径一致, 不随K档跳变; 命中信号日冻结表的信号其排序分取冻结时点值, 不随board_etf_map双树/重生值漂移, 2026-09-18③; 列表位置可能与编号不同序, 以编号为准); 历史日期(非当日)从「固化信号快照」读取该日期操作计划生成时的 top-K 排序结果(2026-09-23 根治: 操作计划在 22:30 固化时点定格当日入样买信号排序, 剔除 T+1 晚到数据(sz_div/深证红利 9-22 当晚不可见、9-23 才补入即不参与 9-22 排序), 固化即定格不随每天 17:50 重算漂移, 与当日动态判定同口径——同日候选仍按跟踪分→评级→信号类型→买入日排序取前K; 固化记录来源分级: 有 launchd 权威固化日志记录的日期(近期)采信日志快照, 无权威记录的更早日期为当前数据重演近似(诚实标注, 非完美还原历史, 核心目标=上线后日期定格不再漂)); 当日及快照缺失日期仍动态判定; 存活者若命中AI降亏仍显示删除线建议回避（按指数级 top-K 展示，与回测每ETF粒度有差异；近30交易日每个日期都按同一口径展示，历史日期为复盘视角）">AI建议${_capRank}</sup>`;
           } else {
             posCapCls = " sig-poscap-excluded";
             posCapBadge = `<sup class="sig-poscap-badge sig-poscap-full" data-tip="AI仓位建议(仓位控制过滤)已开启(K=${_posCapK}): 当日从当前档位筛出的存活买入类信号, 只建议最优${_posCapK}个, 本信号未进前${_posCapK}, 当日已满; 命中AI降亏的信号已被过滤不占位; 卖类/持有中性信号(${_t("sell_short")}/${_t("type_sell_stop_loss")}/${_t("type_band_sell")}/${_t("band_hold")})不涉及当日已满语义, 不显示本badge（按指数级 top-K 展示，与回测每ETF粒度有差异；近30交易日每个日期都按同一口径展示，历史日期为复盘视角）">当日已满</sup>`;

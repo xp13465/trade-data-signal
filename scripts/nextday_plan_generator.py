@@ -59,6 +59,7 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import sqlite3
@@ -85,6 +86,8 @@ from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块,
 K = 1                       # K 档(每日 top1, 与首页 AI仓位建议默认 K=1 一致)
 BUY_AMOUNT = 10000          # 每日资金池 1 万等分
 BACKFILL_WINDOW_DAYS = 10   # 历史持仓回填窗口(最近 N 个交易日, #106; 窗口起点随每日前移, 已过期组滑出不删只不再补)
+SNAPSHOT_FILE = "signal_kelly_day_snapshot.json"  # 首页历史信号冻结快照(固化时点完整 top-K 排序结果, §22/§24 数据一致性)
+SNAPSHOT_DAYS = 30          # 快照覆盖首页 signals_today 展示窗口(近30交易日, §23.15 覆盖对齐展示范围)
 PSEUDO_GAP = PSEUDO_GAP_EXCLUDE  # 伪跳空剔除阈值(与 signal_kelly_backtest.PSEUDO_GAP_EXCLUDE 同源同常量, 不各写一个数)
 LOG_TAG = "[nextday_plan]"
 BUY_SIGNALS = {"buy", "buy_aux", "buy_special", "buy_backup"}  # 与 queries._AI_MACRO_BUY_SIGNALS 同源
@@ -495,6 +498,27 @@ def _signal_candidates(conn, cfg, T, freeze, sig_stats):
         "ma60_bull_of": lambda _d: appq._ai_macro_ma60_bull_at(_d, _ma60_bull_state, _tier_dates),
         "cyb_tier_of": lambda _d: appq._ai_macro_tier_at(_d, _cyb_state, _cyb_dates),
     }
+    # 晚到信号判定(与 overview L1197-1262 同口径): T+1 晚到补入(sz_div/深证红利 9-22 当晚未入库、
+    # 9-23 17:50 全量重建才补入)的信号需在固化时剔除 —— 固化快照只收「固化时点已可见」的信号集,
+    # 防首页历史日期被晚到数据改写(用户 2026-08-14 口径: 17:50 固化后/21:00 补采才进=迟到)。
+    _late_excl_markets = {"global", "hk", "hk_industry"}
+    _mkt_cfg = {i["id"]: i.get("market") for i in cfg.get("indices", [])}
+    _il_cov = {}
+    _ile_first = {}
+    try:
+        _row = conn.execute(
+            "SELECT date, COUNT(*) AS n, MIN(time) AS m FROM signal_intraday_log "
+            "WHERE date=? GROUP BY date", (T,),
+        ).fetchone()
+        if _row:
+            _il_cov[T] = (_row["n"], _row["m"])
+        for _r in conn.execute(
+            "SELECT date, index_id, signal, MIN(time) AS m FROM signal_intraday_log "
+            "WHERE date=? AND time <= '17:00' GROUP BY date, index_id, signal", (T,),
+        ).fetchall():
+            _ile_first[(_r["date"], _r["index_id"], _r["signal"])] = _r["m"]
+    except Exception:
+        _il_cov, _ile_first = {}, {}
     for _s in sigs:
         # ETF 候选注入(board_etf_map 或 self ETF), 与 overview L1186-1193 同款
         _self = appq._self_etf_for(_s["index_id"], cfg, conn)
@@ -512,7 +536,94 @@ def _signal_candidates(conn, cfg, T, freeze, sig_stats):
         _s["_rating"] = appq._ai_macro_rating_of(_s, sig_stats)
         # hs300 四档(T 日大盘状态, bullAuxBackupStop a9 分支判定用)
         _s["_tier_at"] = appq._ai_macro_tier_at(T, _tier_state, _tier_dates)
+        # 晚到判定(与 overview 同款三条件): 非 global/hk 市场 ∧ 当日盘中无首现 ∧ 当日盘中轮覆盖完整
+        _iid = _s["index_id"]
+        if _iid.startswith(("g.", "s.")):
+            _s["_bt_late"] = False
+        elif _mkt_cfg.get(_iid, None) in _late_excl_markets:
+            _s["_bt_late"] = False
+        else:
+            _cov = _il_cov.get(_s["date"])
+            _cov_ok = bool(_cov) and _cov[0] >= 3 and (_cov[1] or "24:00") <= "17:00"
+            _seen = (_s["date"], _iid, _s["signal"]) in _ile_first
+            _s["_bt_late"] = _cov_ok and not _seen
     return sigs
+
+
+# 权威固化记录索引(日志解析, 2026-09-23 协调者钉):
+#   launchd 日志里每次运行主链会打印「K=1 保留信号=['index_id|signal|etf_code ts=xx']」,
+#   这就是该信号日 T 固化时点的权威 K=1 记录(22:30 定时固化, 用的是当刻真实 DB)。
+#   回填过去 30 天时**优先采信这份日志**, 不要用当前 DB 重演近似——重演修不了「当时在但
+#   冻结分晚到」的漂(9-16 例: H30590 当时就在, 只是冻结分 22:02 才追加, 固化时选了 159219
+#   恒 深证100ETF; 用当前 DB 重演照样选 H30590→159213, 还原不出固化的 159219。只有日志能还原)。
+class _AuthoritativeLogRecord:
+    """单条权威固化记录: 信号日 T -> {index_id, signal, etf_code, etf_name, track_score}。
+    来源=launchd 日志主链「K=1 保留信号」行(+紧跟的「计划条目」行补齐 etf_name)。"""
+    __slots__ = ("index_id", "signal", "etf_code", "etf_name", "track_score")
+    def __init__(self, index_id, signal, etf_code, etf_name, track_score):
+        self.index_id = index_id
+        self.signal = signal
+        self.etf_code = etf_code
+        self.etf_name = etf_name
+        self.track_score = track_score
+
+
+_LOG_K1_RE = re.compile(
+    r"K=1 保留信号=\['([^|]+)\|([^|]+)\|(\d{6})\s+ts=([0-9.]+)'"
+    r"(?:,\s*'[^']*')*\]"
+)
+_LOG_RUN_RE = re.compile(r"T=(\d{8})")
+_LOG_PLAN_ITEM_RE = re.compile(r"nextday_plan\]\s+(\d{6})\s+(\S+)\s+prev_close=")
+_LOG_BACKFILL_RE = re.compile(r"\[回填\d{8}")
+
+
+def _load_authoritative_log(log_path=None) -> dict:
+    """从 launchd 日志(或路径)解析各信号日的权威固化 K=1 记录。
+
+    规则:
+      - 只采信「主链」段的 K=1 保留信号行(行内无 [回填T] 前缀; [回填T] 段是重演近似, 非权威)。
+      - 每条记录配「REPO=... T=YYYYMMDD」锚定信号日(主链 T 即当日固化信号日)。
+      - 相邻「计划条目」行的 etf_name 补齐本记录(日志顺序: T → 当日计划条目行 → K=1 行)。
+        (实际更稳: 计划条目行先到, K=1 行后到; 此处按「段落」聚合, 以 计划条目 行为准补名。)
+    返回 { 信号日T: [ _AuthoritativeLogRecord, ... ] }  (同日仅 K=1 一条)。
+    日志缺失/无匹配 → 空 dict(调用方回退重演近似, 诚实标注)。
+    """
+    if log_path is None:
+        log_path = REPO / "data" / "logs" / "nextday_plan_launchd.log"
+    lp = Path(log_path)
+    if not lp.exists():
+        return {}
+    out = {}
+    cur_T = None
+    name_map = {}            # etf_code -> etf_name(整段收集, 解析完统一后补; 日志顺序=K=1 行在前、计划条目行在后)
+    try:
+        for line in lp.read_text(encoding="utf-8", errors="replace").splitlines():
+            if _LOG_BACKFILL_RE.search(line):
+                continue  # [回填T] 段=重演近似, 非权威, 整段跳过
+            m = _LOG_RUN_RE.search(line)
+            if m and "REPO=" in line:
+                cur_T = m.group(1)
+                continue
+            pm = _LOG_PLAN_ITEM_RE.search(line)
+            if pm:
+                name_map[pm.group(1)] = pm.group(2)
+                continue
+            km = _LOG_K1_RE.search(line)
+            if not km or not cur_T:
+                continue
+            index_id, signal, etf_code, ts_s = km.group(1), km.group(2), km.group(3), km.group(4)
+            rec = _AuthoritativeLogRecord(index_id, signal, etf_code, "", float(ts_s))
+            # 同日多段(如先 dry-run 后实跑)取后一条(实跑); 同日多条取最后
+            out[cur_T] = [rec]
+    except Exception as e:
+        log(f"⚠ 权威固化日志解析失败({lp}): {e}, 回退重演近似")
+        return {}
+    # 后补 etf_name(计划条目行常晚于 K=1 行出现)
+    for _recs in out.values():
+        for _r in _recs:
+            if not _r.etf_name and _r.etf_code in name_map:
+                _r.etf_name = name_map[_r.etf_code]
+    return out
 
 
 def _ai_fade_hit(sig: dict, members) -> bool:
@@ -549,7 +660,7 @@ def _kelly_sort_key(cand: dict):
             _SIG_RANK.get(str(cand.get("signal") or ""), 9), str(cand.get("buy_date") or ""))
 
 
-def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s06, prefix=""):
+def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s06, prefix="", snapshot=None):
     """给定信号日 T 构建当日买入计划(首页 AI建议同一条链; 任意 T 通用, 回填段逐日重演即复用本函数)。
 
     与主链当日计划同一代码路径(信号候选 → 买信号/宇宙/降亏过滤 → K=1 保留 → prev_close 双校验),
@@ -592,6 +703,8 @@ def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s
             "_rating": _s.get("_rating"),
             # ③ 2026-09-18 冻结分双保险: 命中 _bk_top 时带冻结分, _kelly_sort_key 优先用它排序
             "_bk_ts": top1.get("_bk_ts"),
+            # 晚到标记(固化剔除用): T+1 晚到补入的信号不写入历史冻结快照(防首页历史日期被改写)
+            "_bt_late": _s.get("_bt_late") is True,
         })
     for _c in fade_cut:
         _logp(f"  ✗ 降亏过滤剔除: {_c}")
@@ -605,6 +718,29 @@ def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s
     for _c in kept_signals:
         _c["buy_date"] = buy_date
     kept_signals.sort(key=_kelly_sort_key)
+    # ---- 信号冻结快照固化(2026-09-23 首页历史日期漂移根治) ----
+    # 固化时点 = 操作计划生成时刻: 捕获「当日完整入样买信号 top-K 排序结果」(排序后未截断, 含
+    # lost 全部候选), 写入快照 days[T] —— 含每个信号的 code/name/track_score/冻结分/对应标的。
+    # 历史日期(非 overview.date 当日)前端读快照排序, 不随每天重算漂移(§5.1⑥ 防前视: 固化即定格)。
+    # 剔除晚到信号(_bt_late=true): T+1 晚到补入(如 9-22 sz_div 深证红利 9-23 17:50 才入库)当时
+    # 固化不可见, 不得写入快照压过当时可见的赢家(9-22 家电 561120 恒在首位)。
+    if snapshot is not None and snapshot.get("schema_version"):
+        _snap_days = snapshot.setdefault("days", {})
+        # 已固化日期不覆盖(固化即定格): 防二次运行时用变化后的 DB 数据改写历史固化结果
+        if T not in _snap_days:
+            _snap_days[T] = [{
+                "index_id": c["index_id"],
+                "signal": c["signal"],
+                "etf_code": c["etf_code"],
+                "etf_name": c["etf_name"],
+                "track_score": c["track_score"],
+                "rating": c.get("_rating"),
+                "bk_ts": c.get("_bk_ts"),
+                "late": c.get("_bt_late") is True,
+                "source": "replay",  # 重演近似(无权威固化日志记录/当日主链); 权威日志回填置 "log"
+            } for c in kept_signals if not c.get("_bt_late")]
+            _logp(f"📌 快照固化 {T}: {len(_snap_days[T])} 条排序结果(剔除晚到 "
+                  f"{sum(1 for c in kept_signals if c.get('_bt_late'))} 条)")
     kept_signals = kept_signals[:K]
     _kept_desc = [f"{c['index_id']}|{c['signal']}|{c['etf_code']} ts={c['track_score']}" for c in kept_signals]
     _logp(f"K={K} 保留信号={_kept_desc}")
@@ -670,7 +806,7 @@ def _repair_backfill_window(trade_dates, T, steps_doc):
 
 
 def _backfill_historical_groups(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s06,
-                                steps_doc, now, repair_backfill=False):
+                                steps_doc, now, repair_backfill=False, snapshot=None):
     """历史持仓回填段(#106): 最近 BACKFILL_WINDOW_DAYS 交易日窗口内补未到期卖出行。
 
     对窗口内每个历史信号日 T'(< T 且落在窗口), 用 _build_plan_for_day 重演当日计划,
@@ -692,7 +828,7 @@ def _backfill_historical_groups(conn, cfg, db_path, trade_dates, T, freeze, sig_
     changed = False
     for Tb in window:
         plan_b = _build_plan_for_day(conn, cfg, db_path, trade_dates, Tb, freeze, sig_stats, s06,
-                                     prefix=f"[回填{Tb}]")
+                                     prefix=f"[回填{Tb}]", snapshot=snapshot)
         if not plan_b:
             continue
         bd = str(plan_b[0]["buy_date"] or "")
@@ -781,7 +917,60 @@ def main():
         conn.close()
         log(f"✗ 信号统计/配置加载失败: {e}")
         return 2
-    plan = _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s06)
+    # 信号冻结快照加载(覆盖首页近30交易日; 固化时点定格, 已固化日期不覆盖)
+    snapshot = {"schema_version": 1, "days": {}}
+    for _sp in (data_dir / SNAPSHOT_FILE, GIT_REPO / "static-site" / "data" / SNAPSHOT_FILE,
+                ROOT / "data" / SNAPSHOT_FILE):
+        if _sp.exists():
+            try:
+                with _sp.open("r", encoding="utf-8") as _f:
+                    _sd = json.load(_f)
+                if isinstance(_sd, dict) and isinstance(_sd.get("days"), dict):
+                    snapshot = _sd
+                    log(f"快照已加载 {len(snapshot['days'])} 日(源 {_sp})")
+                    break
+            except Exception as _e:
+                log(f"⚠ 快照加载失败({_sp}): {_e}, 重建空快照")
+    # 首次/缺口回填: 覆盖首页近 SNAPSHOT_DAYS 交易日(含 T)。复用 _build_plan_for_day 固化
+    # (同一条链, 不含第二份实现); 仅取快照副作用, 返回 plan 忽略。已固化日期 _build_plan_for_day
+    # 内「T not in days」guard 跳过 → 固化即定格, 不覆盖。
+    # ⭐ 协调者钉(2026-09-23): 有权威固化记录的日子优先采信 launchd 日志主链「K=1 保留信号」
+    #   (固化时点快照, 22:30 当刻真实 DB 选择), 不要用当前 DB 重演近似——重演修不了「当时在但
+    #   冻结分晚到」的漂(9-16 例: 固化选 159219, 当前 DB 重演选 H30590→159213, 只有日志能还原)。
+    #   auto_trade_steps 也可能被重算改写(9-16 buy_date=20260917 记录的就是漂移后的 159213)。
+    #   没有权威记录的更早日期才用重演近似, 诚实标注 source=replay(§23.15 完整版, 无降级展示项)。
+    _auth_log = _load_authoritative_log()
+    _win = [d for d in trade_dates if d <= T][-SNAPSHOT_DAYS:]
+    _auth_used, _replay_used = 0, 0
+    for _Tb in _win:
+        if _Tb in snapshot.get("days", {}):
+            continue  # 已固化(首次已有 / 上次 run 写入)不覆盖
+        _auth_recs = _auth_log.get(_Tb)
+        if _auth_recs:  # 权威日志记录 → 直接采信固化(非重演), 写成快照 days[T]
+            snapshot.setdefault("days", {})[_Tb] = [{
+                "index_id": r.index_id,
+                "signal": r.signal,
+                "etf_code": r.etf_code,
+                "etf_name": r.etf_name or "",
+                "track_score": r.track_score,
+                "rating": None,
+                "bk_ts": None,
+                "late": False,
+                "source": "log",  # 权威固化日志, 非重演
+            } for r in _auth_recs]
+            _auth_used += 1
+            _logp = (lambda m: log(f"[快照{_Tb}] {m}"))
+            _logp(f"📌 快照固化 {_Tb}: 采信 launchd 权威固化记录 {len(_auth_recs)} 条(非重演, 源=日志)")
+            continue
+        # 无权威记录 → 复用 _build_plan_for_day 重演近似(与主链同一条链)
+        _build_plan_for_day(conn, cfg, db_path, trade_dates, _Tb, freeze, sig_stats, s06,
+                            prefix=f"[快照{_Tb}]", snapshot=snapshot)
+        _replay_used += 1
+    log(f"信号快照固化完成: {len(snapshot.get('days', {}))} 日(窗口最近 {SNAPSHOT_DAYS} 交易日; "
+        f"权威日志 {_auth_used} 日 / 重演近似 {_replay_used} 日 / 已固化跳过 {len(_win) - _auth_used - _replay_used} 日)")
+
+    plan = _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s06,
+                               snapshot=snapshot)
 
     # ---- 数据就绪 gate(§23.15 不上残缺版): 计划内每只 ETF 的 etf_daily 最新日必须 == T。
     #      #38 根治: 原 gate 用全局 max date(任一 ETF 到 T 就放行), 计划内停在旧日的 ETF(如 159880
@@ -853,7 +1042,8 @@ def main():
     # 历史持仓回填段(#106): 窗口内每个历史交易日 T' 重演当日计划, 补未到期卖出行(幂等并入同一判定)
     if not args.no_backfill:
         if _backfill_historical_groups(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s06,
-                                       steps_doc, now, repair_backfill=args.repair_backfill):
+                                       steps_doc, now, repair_backfill=args.repair_backfill,
+                                       snapshot=snapshot):
             steps_changed = True
 
     conn.close()  # 回填段为 conn 最后使用点, 后续落盘/R2/notify 均不依赖 SQLite 连接
@@ -881,6 +1071,13 @@ def main():
             written.append(str(sp))
         log(f"auto_trade_steps 落盘完成(steps_changed): {len(steps_doc['steps'])} 行")
 
+    # 信号冻结快照落盘(覆盖首页近30交易日; 已固化日期在 _build_plan_for_day 内 guard 不覆盖)
+    for sp in write_targets:
+        sp.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(sp / SNAPSHOT_FILE, snapshot, indent=1)
+        written.append(str(sp / SNAPSHOT_FILE))
+    log(f"信号冻结快照落盘: {len(snapshot.get('days', {}))} 日 -> {SNAPSHOT_FILE}")
+
     # ---- R2 上传(§22 三步同步; 盘后产物走 upload-data-files 段) ----
     # F2(2026-09-10): R2 失败不再静默 —— notify --severe + 最终退出码非 0。
     # 范围边界: 只对「会让线上停滞」的失败(R2 上传失败)告警; notify 通道自身波动
@@ -891,6 +1088,7 @@ def main():
         # #106: 只要有 steps 变更(当日计划新增 / 历史回填补行 / 迁移补齐)就传, 不只看 plan(空计划日回填会漏传)
         if steps_changed:
             r2_files.append("auto_trade_steps.json")
+        r2_files.append(SNAPSHOT_FILE)
         cmd = [PY, str(SCRIPT_DIR / "upload_r2.py"), "upload-data-files"] + r2_files
         log("R2: " + " ".join(cmd))
         try:
