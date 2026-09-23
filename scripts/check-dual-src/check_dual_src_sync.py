@@ -19,7 +19,26 @@
 格式说明: critical-css 为单行压缩、style.css 为展开带注释, 文本级 diff 不可行,
           但语法级解析+规范化(拆选择器组/去注释/压空白/去尾分号)后逐条等值比对可行。
 
-挂载: scripts/deploy.sh 1.2.4(任一 FAIL 非0退出阻断上线)。
+保守比对声明(2026-09-23 P3 收尾补充):
+  本机检为保守比对——声明集按「顺序敏感」比较, 且不归一简写(margin:0 vs
+  margin:0 0 0 0)与单位(0px vs 0)。因此「纯语义等值但写法不同」的规则
+  (如声明顺序调整/简写展开/0px 与 0)会报 FAIL, 属预期设计非 bug:
+  保守侧宁可误报, 也要保证「同一选择器必须逐字等值」这一最强约束,
+  避免 critical-css 与 style.css 因「看似等值实则漂移」而静默失联。
+  处置方式: 这类 FAIL 应反手把 critical-css 与 style.css 两处的写法对齐,
+  而不是放宽机检。
+
+覆盖范围声明(2026-09-23 P3 收尾补充):
+  本机检范围**仅静态站点 index.html 的 <style id="critical-css"> 块**——
+  即「手抄 style.css 关键样式防 FOUC」这一语义的那一块。index.html 另有
+  2 个内联 style 块不在机检范围:
+    - static-site/index.html L169(tv-embed 宽度体系注释块, 无 id, 非 critical 语义)
+    - static-site/index.html L301(#sw-update-toast 极简单行样式, 无 id, 非 critical 语义)
+  若日后新增强制要求「index.html 全部内联样式与 style.css 等值」, 需扩大
+  extract_critical_block 的匹配语义并同步本声明。
+
+挂载: scripts/deploy.sh 1.2.4 + scripts/main-merge.sh 第7步(代码上线链前端统一 bump 前,
+      任一 FAIL 非0退出阻断上线/阻断 merge)。
 """
 import argparse
 import os
@@ -188,7 +207,6 @@ def check(site_dir):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--site-dir', default='static-site')
-    ap.add_argument('--deploy-mode', action='store_true')
     args = ap.parse_args()
 
     site_dir = args.site_dir
