@@ -114,11 +114,13 @@ else
   # export 写 JSON 到 $REPO/static-site/data/(trade-data), 同步到 $GIT_REPO/static-site/data/ 供
   # upload_r2 + deploy(trade 跑时 no-op); 随 export 前置, O1 闸门校验到的就是刚刷新的最新产物
   # 云上单仓(REPO==GIT_REPO)下自同步 no-op, 用 [ "$REPO" = "$GIT_REPO" ] || 跳过。
-  [ "$REPO" = "$GIT_REPO" ] || rsync -a --delete --checksum "$REPO/static-site/data/fund_nav/" "$GIT_REPO/static-site/data/fund_nav/" 2>>"$LOG" || \
-    echo "⚠ fund_nav rsync 同步失败, 可能发布不全" | tee -a "$LOG"
+# 2026-09-23 桶化(§9B): 产物目录 fund_nav/ -> nav_bucket/(256 桶), 上传 PUT 次数固定 256。
+  [ "$REPO" = "$GIT_REPO" ] || rsync -a --delete --checksum "$REPO/static-site/data/nav_bucket/" "$GIT_REPO/static-site/data/nav_bucket/" 2>>"$LOG" || \
+    echo "⚠ nav_bucket rsync 同步失败, 可能发布不全" | tee -a "$LOG"
   # P1(2026-09-23) fund-nav 上传异步化: 产物已就绪(export 跑完 + rsync 已同步), 上传拆出主链等待区间。
-  # 背景: fund-nav 上传(26458 文件 ~578MB)曾拖 deploy 段 6225s(9-22, 1h43m, 占 56%)/9-18 超 7200s
-  # 被 kill。上传本体见 scripts/fund_nav_upload_async.sh(失败内部 notify 告警, 不静默)。
+  # 背景: fund-nav 上传(桶化前 26458 文件 ~578MB)曾拖 deploy 段 6225s(9-22, 1h43m, 占 56%)/9-18 超 7200s
+  # 被 kill; 桶化后上传 PUT 次数固定 256 且仍走异步(双保险)。
+  # 上传本体见 scripts/fund_nav_upload_async.sh(失败内部 notify 告警, 不静默)。
   # 云上走 systemd transient service(独立 cgroup, update_all 退出时不被 cgroup 清理杀掉);
   # 无 systemd 环境(本地开发)fallback nohup 后台。deploy.sh 内 run_r2_upload upload-fund-nav 已移除。
   echo "-> 触发 fund-nav R2 上传(异步, 拆出主链等待区间)..." | tee -a "$LOG"
@@ -235,9 +237,10 @@ fi
 
 # #11 基金弹窗净值走势 R2 上传(2026-08-25): 2026-09-23 P1 起上传环节已前置异步化——
 # export_fund_nav 成功后立即 systemd-run 触发 scripts/fund_nav_upload_async.sh(拆出主链等待区间),
-# 此处不再重复跑 upload-fund-nav(原尾部第二次扫描虽~10s, 但每次多摸 26458 文件; 且 9-18 场景
+# 此处不再重复跑 upload-fund-nav(原尾部第二次扫描虽~10s, 但每次多摸文件; 且 9-18 场景
 # 下还会实际补传被 kill 的剩余文件, 徒增主链时长)。上传幂等 + checkpoint, 缺传由 async 自身
-# 告警 + 次日 checkpoint 续传兜底。
+# 告警 + 次日 checkpoint 续传兜底。桶化(2026-09-23 §9B): 产物 nav_bucket/{xx}.json(256 桶),
+# R2 nav_bucket/ 前缀, 上传 PUT 次数固定 256, 定位桶=同源 FNV-1a hash。
 
 echo "=== update_all.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
 echo "core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES check_signals=$SIGNAL_RC" | tee -a "$LOG"

@@ -1132,34 +1132,39 @@ def cmd_upload_etf_hist():
 
 
 def cmd_upload_fund_nav():
-    """上传 static-site/data/fund_nav/*.json 到 R2 fund_nav/ 前缀(#11 基金弹窗净值走势, 2026-08-25)。
+    """上传 static-site/data/nav_bucket/*.json 到 R2 nav_bucket/ 前缀(#11 基金弹窗净值走势, 2026-08-25)。
 
-    R2 key = fund_nav/{code}.json(26118 只全史净值, scripts/export_fund_nav.py 生成)。
+    R2 key = nav_bucket/{xx}.json(256 桶全史净值, scripts/export_fund_nav.py 生成)。
     前端基金评分弹窗「净值走势」period tab 懒加载 fetchJSON ->
-    https://ss.fx8.store/r2/fund_nav/{code}.json(复刻 etf/{code}-all.json 模式:
-    worker /r2/ 为通用 key 代理无前缀白名单, 新前缀零 worker 改动)。
-    §8.1 按前缀建独立命令; fund_nav/ 子目录不被 upload-data-large/upload-all-data 的
+    https://ss.fx8.store/r2/nav_bucket/{xx}.json 取桶内 map[code](复刻 etf/{code}-all.json
+    模式: worker /r2/ 为通用 key 代理无前缀白名单, 新前缀零 worker 改动)。
+    §8.1 按前缀建独立命令; nav_bucket/ 子目录不被 upload-data-large/upload-all-data 的
     非递归 *.json glob 覆盖, 无双副本风险。已接入 update_all.sh / deploy.sh。
+
+    **2026-09-23 桶化**(docs/ops/task-slow-rootcause-20260923.md §9B): 原 per-code 26458
+    个文件(9-22 传 21957 个 6225s 占 deploy 56%) -> 桶化后 PUT 次数固定 256, 上传耗时
+    有界。桶名 = FNV-1a hash(code) 末 8bit(00-ff), 前后端同构(_fund_bucket ==
+    app.js _fundNavBucket, 防第二份实现漂移 §5.4⑦)。
 
     2026-09-15 迁移进通用增量引擎 _incremental_upload(口径零变化):
       - A 档整文件字节 md5。export_fund_nav.py **不放 exported_at 字段**(与 etf-hist 差异),
-        文件内容只在净值序列真变化时变化; 清盘老基金序列冻结 -> 内容不变 -> 指纹不变 ->
-        自然跳过, 每日真重传仅活跃基金(~91.5%);
+        桶内容只在净值序列真变化时变化; 清盘老基金序列冻结 -> 内容不变 -> 指纹不变 ->
+        自然跳过, 每日真重传仅活跃桶;
       - 沿用状态文件名 .r2_fund_nav_state.json(旧单字段 {name:md5} 引擎 _norm_state_val 兼容)
         + checkpoint_every=500 断点续传(治「超时 kill→状态缺失→下次更慢全量→再被 kill」
         恶性循环), checkpoint 文件 .r2_fund_nav_ckpt.json 同名同仓;
       - 首跑/状态损坏退化全量、周日强制全量、原子写状态、宁多传不漏传语义不变;
       - 新增层2 ETag 对账(本次 PUT 后 HEAD 对 ETag==本地 md5, 不一致判失败)。
-      - **跳过 purge(F3 主控拍板 NO_CACHE, 2026-08-25)**: worker 对 fund_nav/ 前缀 no-store
-        不查不写 edge cache, 前端每次回源 R2 拿最新; 日增量 ~2.4 万 keys 的 purge(~27min)
-        会拖垮 deploy 链 1800s 超时 kill, 整个环节省掉。
+      - **跳过 purge(F3 主控拍板 NO_CACHE, 2026-08-25)**: worker 对 nav_bucket/ 前缀 no-store
+        不查不写 edge cache, 前端每次回源 R2 拿最新; 日增量 256 keys 的 purge 本身秒级,
+        但沿用 no-store 语义省掉(与旧 fund_nav/ 前缀一致)。
     """
-    nav_dir = STATIC_DIR / "data/fund_nav"
+    nav_dir = STATIC_DIR / "data/nav_bucket"
     if not any(f.exists() for f in nav_dir.glob("*.json")):
-        sys.exit(f"无 fund_nav json: {nav_dir} (先跑 scripts/export_fund_nav.py 生成)")
+        sys.exit(f"无 nav_bucket json: {nav_dir} (先跑 scripts/export_fund_nav.py 生成)")
     # 失败时引擎内部已 print FAILED_FILES + exit 1(宁多传不漏传, checkpoint 续传语义在引擎内)
     _incremental_upload(
-        nav_dir, ["*.json"], "fund_nav", ".r2_fund_nav_state.json",
+        nav_dir, ["*.json"], "nav_bucket", ".r2_fund_nav_state.json",
         checkpoint_every=500, label="fund-nav")
     # 不调 purge_cache(F3): 见 docstring。
 
@@ -2023,8 +2028,8 @@ _R2_CHANNELS = [
      "r2_prefix": "index", "state_name": ".r2_index_state.json"},
     {"label": "etf-hist", "local_dir": lambda: STATIC_DIR / "data/etf", "patterns": ["*.json"],
      "r2_prefix": "etf", "state_name": ".r2_etf_hist_state.json"},
-    {"label": "fund-nav", "local_dir": lambda: STATIC_DIR / "data/fund_nav", "patterns": ["*.json"],
-     "r2_prefix": "fund_nav", "state_name": ".r2_fund_nav_state.json", "sample": 100},
+    {"label": "fund-nav", "local_dir": lambda: STATIC_DIR / "data/nav_bucket", "patterns": ["*.json"],
+     "r2_prefix": "nav_bucket", "state_name": ".r2_fund_nav_state.json", "sample": 100},
     {"label": "accum-nav", "local_dir": lambda: STATIC_DIR / "data/accum_nav", "patterns": ["*.json"],
      "r2_prefix": "accum_nav", "state_name": ".r2_accum_nav_state.json"},
     {"label": "industry", "local_dir": lambda: STATIC_DIR / "data",
@@ -2290,7 +2295,7 @@ if __name__ == "__main__":
         # upload-etf-hist  ETF 全史日K etf/{code}-all.json -> R2 etf/ 前缀(#10, 2026-08-22)
         cmd_upload_etf_hist()
     elif cmd == "upload-fund-nav":
-        # upload-fund-nav  基金全史净值 fund_nav/{code}.json -> R2 fund_nav/ 前缀(#11, 2026-08-25)
+        # upload-fund-nav  基金全史净值 nav_bucket/{xx}.json(256桶) -> R2 nav_bucket/ 前缀(#11, 2026-08-25)
         cmd_upload_fund_nav()
     elif cmd == "upload-accum-nav":
         # upload-accum-nav  ETF 全史累计净值 per-ETF 拆分 accum_nav/{code}.json -> R2 accum_nav/ 前缀(2026-09-17 懒加载)

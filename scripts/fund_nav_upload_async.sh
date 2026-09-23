@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # fund_nav_upload_async.sh - fund-nav R2 上传异步任务(2026-09-23 P1 主链有界化)
 #
-# 背景: fund-nav 上传(fund_nav/{code}.json, 26458 只 ~578MB)是 update_all 主链最大耗时单点:
+# 背景: fund-nav 上传(桶化前 fund_nav/{code}.json, 26458 只 ~578MB)是 update_all 主链最大耗时单点:
 #   9-22 一次传 21957 只耗时 6225.8s(1h43m), 占 deploy 段 56%; 9-18 超 7200s 被 kill 后
-#   checkpoint 断点续传。P1 方案 = 产物生成仍主链(export_fund_nav 照跑), 上传拆出主链异步,
+#   checkpoint 断点续传。2026-09-23 桶化(§9B): 产物 nav_bucket/{xx}.json 256 桶(~2MB/桶),
+#   PUT 次数固定 256 上传耗时有界。P1 方案 = 产物生成仍主链(export_fund_nav 照跑), 上传拆出主链异步,
 #   主链等待区间不再计入 fund-nav 上传时长(否则 update_lab 19:00 等不到)。
 #
 # 本脚本即异步上传本体:
@@ -40,7 +41,7 @@ if [ "$rc" -ne 0 ]; then
   echo "✗ upload-fund-nav 异步上传失败 rc=$rc (不静默, 走 notify 告警)" | tee -a "$LOG"
   MM_DD_HM=$(date '+%m-%d %H:%M')
   "$PY" "$REPO/scripts/notify.py" "[告警] fund-nav R2 异步上传失败 ${MM_DD_HM}" \
-    "fund_nav 异步上传失败(退出码 $rc)。R2 fund_nav/ 前缀可能停留旧版, 前端「净值走势」懒加载读 R2 会拿到过期数据。<br>建议手动重试: cd $REPO && python scripts/upload_r2.py upload-fund-nav<br>日志: $LOG" \
+    "fund_nav 异步上传失败(退出码 $rc)。R2 nav_bucket/ 前缀可能停留旧版, 前端「净值走势」懒加载读 R2 会拿到过期数据。<br>建议手动重试: cd $REPO && python scripts/upload_r2.py upload-fund-nav<br>日志: $LOG" \
     --severe --from-prefix "[告警]" --alert-issue "fund-nav异步上传失败" --alert-log "$LOG" \
     --dedup-key "fund_nav_async_upload_fail" --dedup-window 3600 2>&1 | tee -a "$LOG" || true
   exit "$rc"
