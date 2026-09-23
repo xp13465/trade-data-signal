@@ -2335,7 +2335,11 @@ def cmd_verify_channels(desc_list):
     sys.exit(0)
 
 
-def _acquire_r2_upload_lock(timeout=3600):
+# --skip-if-locked 拿不到锁时的哨兵返回值(区别于正常持锁 fd 与 None=锁不可用)。
+_SKIP_R2_LOCKED = object()
+
+
+def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False):
     """R2 上传统一进程互斥锁(2026-09-23 ④: 直传通道无 deploy.lock → 三路并发抢带宽)。
 
     deploy 主链的 R2 段在 deploy.lock 内, 但 etf_national_team_backfill.sh:112(upload-etf-hist)、
@@ -2343,15 +2347,33 @@ def _acquire_r2_upload_lock(timeout=3600):
     可与 deploy 主链 R2 段并发 → 跨境带宽互抢, 单通道变慢被看门狗 kill(9-23 事故诱因之一)。
     本锁收敛到 upload_r2.py 入口: 一切调用方(deploy/backfill/manual)天然互斥。
 
-    flock 语义 = 排队(绝不跳过): 拿不到锁就阻塞轮询(任务④硬约束), flock 由内核持有、
+    默认行为 = 排队(绝不跳过): 拿不到锁就阻塞轮询(任务④硬约束), flock 由内核持有、
     持锁进程退出/被杀自动释放, 不会死持。timeout 只是极端兜底护栏: 超时 → stderr 提示
     + exit 1(fail-closed, 显式失败走调用方既有告警链, 不静默跳过、不造静默缺口)。
     正常等待时间 = 前一个上传通道实际耗时(有界, 见 deploy.sh run_r2_upload ③估算看门狗)。
+
+    timeout 缺省读 env R2_UPLOAD_LOCK_TIMEOUT(默认 7300)。该值只约束「排队等锁」时长,
+    与 deploy.sh 看门狗上限(deploy 自己的上传超时上限, 单通道显式/估算最大 7200s)的关系:
+    默认 7300 略大于 7200, 保证「deploy 只要没被看门狗 kill 就一定等得到锁」(低频/漏传留缺口
+    通道不被 deploy 长通道误伤); 真死锁(持锁方 hang)则看门狗先 kill、锁内核自动释放, 或本 timeout
+    兜底 fail-closed(exit 1, 走调用方告警链), 不会 fail-open 无锁上传破互斥保证, 也不会静默留缺口。
+
+    skip_if_locked(opt-in, 2026-09-24 硬化 P1-A): 高频/下轮可重试通道专用。拿不到锁时
+    立即返回 _SKIP_R2_LOCKED 哨兵(不排队), 由 __main__ 统一打印可 grep 的 SKIPPED_LOCKED
+    行 + exit 0(不触发调用方 `|| 告警邮件` 分支)。跳过 = 本轮不传, 下一轮 10min 后自然重试,
+    对 intraday_snapshot/overfit_monitor/fetch_news 这类高频或兜底链通道是安全的;
+    对 deploy.sh 日链 data-large/kelly-parts 等「跳过就留数据缺口」的低频通道**不适用**(它们
+    不带该 flag, 保持排队语义不变)。
 
     list/delete/download-db/clean-data-backup 等只读/低频调试命令不走本锁(避免排查时被上传阻塞);
     upload(单文件 <100KB)轻量命令豁免。upload-db/upload-claude-backup/upload-decommissioned
     等私有桶备份也持锁(与主数据上传互斥, 防抢带宽)。
     """
+    if timeout is None:
+        try:
+            timeout = int(os.environ.get("R2_UPLOAD_LOCK_TIMEOUT", "7300"))
+        except ValueError:
+            timeout = 7300
     lock_path = Path(os.environ.get("R2_UPLOAD_LOCK", "/tmp/trade_r2_upload.lock"))
     try:
         fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
@@ -2364,6 +2386,13 @@ def _acquire_r2_upload_lock(timeout=3600):
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             return fd
         except OSError:
+            if skip_if_locked:
+                os.close(fd)
+                print(
+                    "SKIPPED_LOCKED: R2 上传锁被占用, 跳过本轮上传(--skip-if-locked, 下轮重试)",
+                    file=sys.stderr,
+                )
+                return _SKIP_R2_LOCKED
             if time.time() >= deadline:
                 print(
                     f"✗ R2 上传锁 {lock_path} 排队等待超 {timeout}s 仍被占用, 拒绝本次上传"
@@ -2380,11 +2409,21 @@ if __name__ == "__main__":
     if "--dry-run" in sys.argv:
         _DRY_RUN = True
         sys.argv = [a for a in sys.argv if a != "--dry-run"]
+    # --skip-if-locked 全局标志(2026-09-24 硬化 P1-A): 高频/下轮可重试通道 opt-in——
+    # 拿不到锁立即打印 SKIPPED_LOCKED 标记行 + exit 0(不排队, 不触发调用方 || 告警分支)。
+    # 默认不带该 flag = 排队语义不变(deploy.sh 日链低频/漏传留缺口通道不受影响)。
+    if "--skip-if-locked" in sys.argv:
+        _SKIP_IF_LOCKED = True
+        sys.argv = [a for a in sys.argv if a != "--skip-if-locked"]
+    else:
+        _SKIP_IF_LOCKED = False
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     guard_repo_default(cmd)                     # #75 分级闸:REPO 缺省且非白名单命令 → exit 3
     # ④ R2 上传统一互斥锁: 只读/单文件小命令豁免, 其余 upload_*/verify_*/purge_* 持锁排队。
     if cmd and cmd not in {"list", "delete", "download-db", "clean-data-backup", "upload"}:
-        _acquire_r2_upload_lock()
+        _lock = _acquire_r2_upload_lock(skip_if_locked=_SKIP_IF_LOCKED)
+        if _lock is _SKIP_R2_LOCKED:
+            sys.exit(0)   # SKIPPED_LOCKED 已在 _acquire 内打印到 stderr; 退出码 0 不触发告警邮件
     if cmd == "list":
         # list [prefix] [bucket]   bucket 默认 signal-data;查私有桶(如 signal-backup)时显式传
         prefix = sys.argv[2] if len(sys.argv) > 2 else ""

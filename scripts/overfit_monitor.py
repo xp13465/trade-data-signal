@@ -1819,16 +1819,30 @@ def build_output(rebuild=False, dry_run=False):
             # 是 trade/scripts symlink), 不传则读 trade/static-site/data(旧版), 与本脚本写盘
             # trade-data/static-site/data(新版) 不一致(§22 三步同步, L33 STATIC_DIR=REPO/static-site)。
             # 统一 helper force_env(防再犯机制 E): 强制覆盖 REPO/GIT_REPO, 不用 setdefault。
+            # --skip-if-locked(2026-09-24 硬化 P1-A): overfit_monitor 21:40 打点可能撞 deploy 全量
+            # 持锁窗口, 排队等待必然触发本 subprocess timeout=120 被 except 吞掉 → exit 0 静默失败
+            # (R2 没传但监控显通过)。带该 flag = 拿不到锁立即跳过本轮, 不改打点主流程; 当日 R2
+            # 同步缺口由 deploy 日链 upload-data-large 兜底(OVERFIT_SKIP_R2 语义同侧)。
             _env = force_env(dict(os.environ), REPO)
             r = _sp.run(
-                [sys.executable, os.path.join(SCRIPT_DIR, "upload_r2.py"), "upload-data-large"],
+                [sys.executable, os.path.join(SCRIPT_DIR, "upload_r2.py"),
+                 "--skip-if-locked", "upload-data-large"],
                 capture_output=True, text=True, timeout=120, env=_env)
             if r.returncode == 0:
-                print("   overfit_monitor.json → R2 上传完成")
+                _blob = (r.stdout or "") + (r.stderr or "")
+                if "SKIPPED_LOCKED" in _blob:
+                    # 显式标记, 可被 grep(绝不静默): 本轮跳过非失败, 缺口由 deploy 日链兜底。
+                    print("   [r2] SKIPPED_LOCKED: R2 上传锁忙, 本轮跳过(overfit_monitor.json 由 deploy 日链兜底)", file=sys.stderr)
+                else:
+                    print("   overfit_monitor.json → R2 上传完成")
             else:
-                print(f"   ⚠ R2 上传失败(rc={r.returncode}): {r.stderr[-300:]}", file=sys.stderr)
+                print(f"   ✗ R2 上传失败(rc={r.returncode}): {r.stderr[-300:]}", file=sys.stderr)
+        except subprocess.TimeoutExpired:
+            # 绝不静默(2026-09-24 硬化 P1-B): 排队→timeout 被吞=监控显通过实未传。打显式标记。
+            print("   ✗ R2_UPLOAD_TIMEOUT: overfit_monitor.json R2 上传超 120s 未完成, "
+                  "当日同步缺口由 deploy 日链兜底, 请人工确认", file=sys.stderr)
         except Exception as e:  # noqa: BLE001
-            print(f"   ⚠ R2 上传异常: {e}", file=sys.stderr)
+            print(f"   ✗ R2 上传异常(非静默): {e}", file=sys.stderr)
     return out
 
 

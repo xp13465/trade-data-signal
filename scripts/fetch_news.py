@@ -709,9 +709,17 @@ def sync_news_digest_live(day_str: str) -> None:
         _load_dotenv(env)
         r = subprocess.run(
             [str(repo / ".venv/bin/python"), str(repo / "scripts/upload_r2.py"),
-             "upload-data-files"] + arch_files,
+             # --skip-if-locked(2026-09-24 硬化 P1-A): 本调用可被 deploy 全量持锁窗口拖住排队,
+             # 排队必然触发 timeout=120 被 except 吞掉 → exit 0 静默失败(R2 没传但监控显通过)。带该
+             # flag = 拿不到锁立即跳过本轮; 缺口由下一轮 fetch_news / gen_daily_brief 20:40 兜底链自愈。
+             "--skip-if-locked", "upload-data-files"] + arch_files,
             cwd=str(repo), env=env, timeout=120, capture_output=True, check=False)
-        if r.returncode == 0:
+        _skip_locked = (r.returncode == 0 and
+                        b"SKIPPED_LOCKED" in (r.stdout or b"") + (r.stderr or b""))
+        if _skip_locked:
+            # 显式标记, 可被 grep(绝不静默, 2026-09-24 硬化 P1-B): 跳过非失败, 缺口由兜底链自愈。
+            print(f"[fetch_news] SKIPPED_LOCKED: R2 上传锁忙, 本轮跳过 news_digest 归档上传(缺口由 20:40 gen_daily_brief 兜底)")
+        elif r.returncode == 0:
             out = (r.stdout or b"").decode("utf-8", errors="replace").strip()
             # 打印结果汇总行 + 全部 ⚠/✗ 告警明细行（2026-08-23 防再犯：只打最后一行曾把
             # purge 批次失败的 HTTP status/异常明细丢掉，排障只见汇总不见原因）
@@ -731,8 +739,12 @@ def sync_news_digest_live(day_str: str) -> None:
             err2 = (r2.stderr or b"").decode("utf-8", errors="replace").strip()
             print(f"⚠ [fetch_news] staticdata 同步 rc={r2.returncode} {(r2.stdout or b'').decode('utf-8','replace')[-200:] if r2.stdout else ''} {err2[-200:] if err2 else ''}")
         print(f"[fetch_news] 同步上线完成 date={day_str} (news_digest.json + {len(arch_files)-1} 个日期归档, repo={repo})")
+    except subprocess.TimeoutExpired:
+        # 绝不静默(2026-09-24 硬化 P1-B): 排队→timeout 被吞=监控显通过实未上传。打显式可 grep 标记。
+        print(f"✗ [fetch_news] R2/staticdata 同步超时(timeout 触发), news_digest 归档可能未上线, "
+              f"缺口由 20:40 gen_daily_brief 兜底, 请人工确认 R2 是否缺 news_digest/")
     except Exception as e:  # noqa: BLE001
-        print(f"⚠ [fetch_news] 同步上线异常(不阻塞,盘后 gen_daily_brief 20:40 兜底): {e}")
+        print(f"✗ [fetch_news] 同步上线异常(非静默): {e}")
 
 
 def _load_dotenv(env: dict) -> None:
