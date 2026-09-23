@@ -2354,7 +2354,9 @@ def _acquire_r2_upload_lock(timeout=None, skip_if_locked=False):
 
     timeout 缺省读 env R2_UPLOAD_LOCK_TIMEOUT(默认 7300), 只约束「排队等锁」时长上限。
     与 deploy.sh run_r2_upload 看门狗的关系: 看门狗上限按通道显式/按字节量估算, 无单一统一值
-    (大部分通道 900s, trade-sim-json 1800, verify-r2/fund-nav 7200, 估算通道上限 7200)。
+    (大部分通道 900s, trade-sim-json 1800, verify-r2 7200, 估算通道上限 7200; fund-nav 已拆出
+    deploy 主链改 fund_nav_upload_async.sh 异步上传(2026-09-23 P1 主链有界化), 不再受 deploy.sh
+    看门狗约束——异步独立进程 + checkpoint 断点续传, 由 async 脚本 notify 告警兜底)。
     等锁方实际等待 = 持锁进程实际持有时间(持锁方 R2 段完成才释放锁; deploy 持锁时长受其
     看门狗 kill 约束, 实测远小于对应上限)。默认 7300 对任何通道都给足余量, 保证等锁方总能
     等得到锁、不因等锁超时误伤 deploy 正常长通道; 真死锁(持锁方 hang)则由本

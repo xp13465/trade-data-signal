@@ -351,6 +351,11 @@ TRANSIENT_TIMEOUT_THRESHOLD = 3
 #   175→~85min, 待用户拍板): C6 落地后 update_all 主链耗时回落, 届时按新实测 max 重标本阈值
 #   (原则同 L316: 阈值必须 > 新实测 max, 防完成态检查复发假 SEVERE); C6 未落地前保持现状,
 #   让「执行耗时超标」继续暴露主链退化(硬信号)而不是被阈值吞掉。
+# P1-1(2026-09-24, r2-false-success-rootfix): r2_skip_count 连续 skip 告警阈值。
+# SKIPPED_LOCKED 单次 = 设计让路(锁忙下轮重试), 不告警; 但连续 R2_SKIP_CONTINUOUS_THRESHOLD
+# 轮 monitor(15min/轮)仍 skip = 上传缺口持续(收盘版/每日版可能一直未上 R2), 才升级 SEVERE。
+# monitor 每 15min 轮询, 阈值 3 ≈ intraday(10min/轮)连续 ~4-5 轮 skip(≥45min 上传锁被占)。
+R2_SKIP_CONTINUOUS_THRESHOLD = 3
 DUR_THRESHOLDS = {
     "intraday_snapshot": 600,   # 10min
     # 2026-09-09 #82 C6 重标: turnover 已摘出主链(独立任务 com.trade.turnover-backfill 21:10),
@@ -553,6 +558,19 @@ if STATS_FILE.exists():
                 in_progress_tasks.add(_dur_task)
             if _dur is not None and _dur_task in DUR_THRESHOLDS:
                 _dur_thresh = DUR_THRESHOLDS[_dur_task]
+                # P1-3(2026-09-24, r2-false-success-rootfix): intraday 盘后槽阈值分档。
+                # 600s 按盘中(09:35-15:35)时效设计; 盘后 20:35 槽混入 dump+R2 上传
+                # (实测 8/12 661s、8/13 2493s, alert-system-evaluation.md L120/L172 P0-2
+                # 建议)且 P2-1 收盘轮排队最坏 ~7300s, 600s 必爆「执行耗时超标」SEVERE 噪音。
+                # 按 last_run 的 HH:MM 分档: >=20:00 盘后槽放宽到 1800s; 盘中槽保持 600s 严格
+                # (时效敏感, 超时即重叠下一 10min 槽读旧数据)。只动 intraday, 其余任务不受影响。
+                if _dur_task == "intraday_snapshot":
+                    _dur_lr_slot = s.get("last_run") or ""
+                    try:
+                        if datetime.strptime(_dur_lr_slot, "%Y-%m-%d %H:%M").strftime("%H:%M") >= "20:00":
+                            _dur_thresh = 1800
+                    except (ValueError, TypeError):
+                        pass
                 if _dur > _dur_thresh:
                     _dur_lr = s.get("last_run") or ""
                     _dur_stale = False
@@ -582,6 +600,63 @@ if STATS_FILE.exists():
                         else:
                             print(f"[suppress] {_dur_task} 耗时超阈值持续中, "
                                   f"last_alerted={_ex_dur.get('last_alerted')}, 不重发")
+            # P1-1(2026-09-24, r2-false-success-rootfix): r2_skip_count 真正消费——
+            # SKIPPED_LOCKED(R2 上传锁忙跳过本轮)单次是设计让路(下轮 10min 后重试),
+            # 不上 SEVERE(噪噪音); 但**连续多轮** skip = 上传缺口持续(收盘版/每日版可能
+            # 一直没上 R2), 必须自动发现告警。gen_schedule_stats 已把 TASKS 表任务 +
+            # gen_daily_brief/fetch_news(EXTRA_MARKER_SCANS)的 r2_skip_count 输出进
+            # schedule_stats.json, 此处消费: 连续多轮 r2_skip_count>0 → SEVERE。
+            # 判定: 用 alert_state 的 {task}|r2_skip_continuous 计数跨轮次(15min 一轮
+            # monitor, intraday 10min 一轮, 连续 3 轮 monitor 看到 skip ≈ intraday 连续
+            # 3-5 轮 skip)。恢复: 本轮 r2_skip_count==0/缺失 → 计数清零, key 未 seen
+            # → 主恢复循环自动发恢复邮件。notify 出口与既有告警一致。
+            _r2_skip_cnt = s.get("r2_skip_count")
+            if isinstance(_r2_skip_cnt, int) and _r2_skip_cnt > 0:
+                _r2_cnt_key = f"{s['task']}|r2_skip_rounds"
+                _r2_prev = alert_state.get(_r2_cnt_key) or {}
+                _r2_n = int(_r2_prev.get("skip_rounds") or 0) + 1
+                # 计数 key 只记录连续轮次(不写告警去重 key, 恢复循环按 count_key 判断)
+                _r2_prev["skip_rounds"] = _r2_n
+                _r2_prev.setdefault("first_seen", NOW.strftime("%Y-%m-%d %H:%M:%S"))
+                alert_state[_r2_cnt_key] = _r2_prev
+                if _r2_n < R2_SKIP_CONTINUOUS_THRESHOLD:
+                    print(f"[r2-skip] {s['task']} R2 锁skip 连续{_r2_n}/"
+                          f"{R2_SKIP_CONTINUOUS_THRESHOLD} 轮(未达阈值, 不告警)")
+                else:
+                    # 达到连续阈值: 用独立告警去重 key(计数 key 状态不干扰告警去重)。
+                    # 告警 key 每轮都 seen(告警仍存在) -> skip 停止后(本轮 skip=0 清零
+                    # 分支不 mark)恢复循环才判消失发恢复邮件, 避免同轮 SEVERE+恢复振荡。
+                    _r2_alert_key = f"{s['task']}|r2_skip_alert"
+                    seen_keys_this_run.add(_r2_alert_key)
+                    _r2_exist = alert_state.get(_r2_alert_key)
+                    if _r2_exist is None or _r2_exist.get("status") != "active":
+                        _r2_line = f"r2_skip_count={_r2_skip_cnt} 连续{_r2_n}轮"
+                        alerts.append(
+                            f"SEVERE: {s['task']} R2 上传锁连续 {_r2_n} 轮跳过(SKIPPED_LOCKED), "
+                            f"上传缺口持续(收盘版/每日版可能未上 R2), 需人工关注"
+                        )
+                        alert_state[_r2_alert_key] = {
+                            "status": "active",
+                            "first_seen": _r2_prev["first_seen"],
+                            "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                            "keyword": "r2_skip_continuous",
+                            "line_sample": _r2_line,
+                        }
+                    else:
+                        # 已告警过: 同步刷新计数 key 触发恢复检测(本轮 skip 仍存在)
+                        # 告警 key 已 active, 不重发(与现有 durable 告警语义一致)
+                        _r2_exist["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                        _r2_exist["line_sample"] = f"r2_skip_count={_r2_skip_cnt} 连续{_r2_n}轮"
+                        print(f"[suppress] {s['task']} R2 锁连续skip持续中, "
+                              f"last_alerted={_r2_exist.get('last_alerted')}, 不重发")
+            else:
+                # 本轮无 skip: 连续计数清零。计数 key 本轮未 seen +
+                # skip_rounds=0 -> 主恢复循环把既有告警 key 判为消失发恢复邮件。
+                _r2_cnt_key = f"{s['task']}|r2_skip_rounds"
+                _r2_prev = alert_state.get(_r2_cnt_key)
+                if _r2_prev and int(_r2_prev.get("skip_rounds") or 0) > 0:
+                    _r2_prev["skip_rounds"] = 0
+                    print(f"[r2-skip] {s['task']} R2 锁连续skip清零(本轮无skip)")
     except Exception as e:
         print(f"[warn] 解析 schedule_stats.json 失败: {e}", file=sys.stderr)
 
