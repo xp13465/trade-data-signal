@@ -212,8 +212,9 @@ HOST = urlparse(ENDPOINT).hostname
 # R2 上传 HTTP 连接超时(秒):默认 30(本机带宽快够用);云上跨境上传带宽 ~1.2-1.6Mbps,
 # >7MB 大文件(凯利交易明细 74.7MB/累积净值 18.5MB 等)必超时失败,云上 systemd 设
 # R2_UPLOAD_HTTP_TIMEOUT=600。env 缺失/空 -> 30(向后兼容)。
-# 命名注意:deploy.sh L379 已有同名 shell 变量 R2_UPLOAD_TIMEOUT(看门狗 kill 超时,默认 300s,
-# 不 export),python 侧用 R2_UPLOAD_HTTP_TIMEOUT 区分语义(HTTP 连接超时),防 env 同名连锁。
+# 命名注意:deploy.sh 已无同名 shell 变量 R2_UPLOAD_TIMEOUT(2026-09-24 round6 移除,现 run_r2_upload
+# 超时 = 通道显式值 / 按字节估算 / 回退基线固定 900s),python 侧用 R2_UPLOAD_HTTP_TIMEOUT 区分语义
+# (HTTP 连接超时),防 env 同名连锁。
 try:
     R2_UPLOAD_HTTP_TIMEOUT = int(os.environ.get("R2_UPLOAD_HTTP_TIMEOUT") or "30")
 except ValueError:

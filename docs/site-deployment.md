@@ -940,7 +940,7 @@ deploy.sh 每次 deploy 后自动备份（best-effort，失败不阻塞 deploy�
 |---|---|---|
 | R2 上传失败 | .env 凭证错误/过期 | 检查 R2_S3_ACCESS_KEY_ID/SECRET_ACCESS_KEY/ENDPOINT |
 | R2 直链 DYNAMIC 每次回源 ~1s | public bucket 无边缘缓存 | 阶段 P0-4 已改走 Worker /r2/ 代理（Cache API 边缘缓存） |
-| upload_r2.py 卡 TCP SYN_SENT | 网络问题 | deploy.sh 内置超时 kill（R2_UPLOAD_TIMEOUT=300s） |
+| upload_r2.py 卡 TCP SYN_SENT | 网络问题 | deploy.sh 内置超时 kill（回退基线固定 900s） |
 | s.sugas.site 404 | 超 300MB 限制 | 大文件移出走 R2，控制 static-site/data/ 总量 |
 
 ### 11.3 DB 问题
