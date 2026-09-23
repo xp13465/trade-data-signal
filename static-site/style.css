@@ -3934,7 +3934,6 @@ main { padding: 16px 24px; }
   .h5-periods button {
     padding: 5px 14px; border: 1px solid var(--border-strong); background: var(--bg-card);
     border-radius: var(--radius-sm); font-size: 13px; cursor: pointer; flex-shrink: 0; color: var(--text-2);
-    min-height: 44px;
   }
   .h5-periods button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 
@@ -4024,7 +4023,7 @@ main { padding: 16px 24px; }
   .summary-title-text { font-size: 14px; font-weight: 600; }
   .summary-meta { flex-wrap: nowrap; flex-shrink: 0; order: 1; }   /* order:1 排在 title(0) 之后 titleTags(2) 之前 */
   /* 移动端横幅两按钮(AI预测+更多)缩字号防溢出 */
-  .summary-ai-btn, .summary-history-btn { padding: 2px 7px; font-size: 11px; margin-left: 5px; min-height: 44px; }
+  .summary-ai-btn, .summary-history-btn { padding: 2px 10px; font-size: 11px; margin-left: 5px; }
   .summary-title-tags { flex: 0 0 100%; margin-top: 2px; order: 2; }   /* order:2 排到 meta 之后,避免 DOM 顺序 title->titleTags->meta 时 titleTags 100% 把 meta 挤到行3;视觉顺序 title->meta->titleTags,行1 title+meta 同行,行2 titleTags 独占 */
   .summary-time-label { display: none; }
 
