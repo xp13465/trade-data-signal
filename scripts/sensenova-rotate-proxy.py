@@ -307,6 +307,19 @@ ALL_COOL_BACKOFF_L0 = 30      # 全冷却整体退避 30s 起步
 ALL_COOL_BACKOFF_MAX = 480    # 单次退避封顶 480s(8min)
 ALL_COOL_BACKOFF_CAP = 480    # 累计等待上限 480s(8min),超限仍全冷却 → 返回 429
 
+# ═══ 传输层错误重试(2026-09-24 补,根治"瞬时 DNS 抖动秒杀在飞请求")═══
+# 现象:2026-09-24 14:1x 本地 DNS 抖了几十秒,日志爆出成片
+#   "UPSTREAM ERR [Errno 8] nodename nor servname provided, or not known",
+#   当时 3 个在跑的 agent 全部同一个错死掉。
+# 根因:原实现在 _forward 里首次 err 即 send_response(502) 硬返回 —— 不重试、不换 key、
+#   不留缓冲。传输错误(DNS 解析失败/连接超时/连接被拒)与 key 无关(换 key 也解析不了域名),
+#   属于几十秒级瞬时故障,原地退避重试基本都能恢复。
+# 修法:同一 key 原地退避重试(退避 1/2/4/8/16s,累计 31s),重试期间不写 key 冷却
+#   (非额度问题);重试耗尽才如实 502(不吞错)。ThreadingHTTPServer,退避 sleep 不阻塞其他请求。
+TRANSPORT_RETRY_MAX = int(os.environ.get("TTP_TRANSPORT_RETRY", "5"))
+TRANSPORT_BACKOFF_L0 = 1.0    # 传输错误首次退避 1s
+TRANSPORT_BACKOFF_MAX = 16.0  # 单次退避封顶 16s
+
 # 日志大小上限:超过即裁剪只留尾部(保留最近日志,防无限膨胀;2026-09-01 用户定
 # "文件别太大,问题出现时最近的错误日志就够")。LOG_MAX_BYTES=20MB,裁剪留尾 10MB。
 LOG_MAX_BYTES = 20 * 1024 * 1024
@@ -578,8 +591,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 time.sleep(_rotate_backoff())  # 换 key 重试前轻退避(高峰 1.5s/非高峰 0.3s),避免把多池全打满
             status, resp_body, resp_headers, resp_text, err = _do_upstream(
                 self.command, upstream_path, body, self.headers, key)
+            # 传输层错误原地退避重试(2026-09-24 补,详见 TRANSPORT_RETRY_MAX 注释):
+            # DNS/连接/超时类瞬时故障与 key 无关,换 key 无用 → 同一 key 退避重试,
+            # 不写 key 冷却;重试耗尽才如实 502(不吞错)。
+            _t_try = 0
+            while err is not None and _t_try < TRANSPORT_RETRY_MAX:
+                _t_try += 1
+                _tw = min(TRANSPORT_BACKOFF_L0 * (2 ** (_t_try - 1)), TRANSPORT_BACKOFF_MAX)
+                logmsg(f"UPSTREAM ERR {err} -> transport retry {_t_try}/{TRANSPORT_RETRY_MAX} in {_tw:.0f}s", level="warn")
+                time.sleep(_tw)
+                status, resp_body, resp_headers, resp_text, err = _do_upstream(
+                    self.command, upstream_path, body, self.headers, key)
             if err is not None:
-                logmsg(f"UPSTREAM ERR {err}", level="error")
+                logmsg(f"UPSTREAM ERR {err} (transport retries exhausted)", level="error")
                 self.send_response(502); self.end_headers(); self.wfile.write(str(err).encode()); return
             last = (status, resp_body, resp_headers, resp_text)
             # 成功/非限流响应 -> 清除该 key 冷却(额度恢复,下次额度型 429 重新从 180s 探)
