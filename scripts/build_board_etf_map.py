@@ -26,7 +26,7 @@ ROOT = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 from util_atomic import atomic_write_text  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
-from _etf_spot_fallback import fund_etf_spot_df  # noqa: E402  (东财主源+新浪兜底, 2026-09-24)
+from _etf_spot_fallback import fund_etf_spot_df, was_fallback_used  # noqa: E402  (东财主源+新浪兜底, 2026-09-24)
 from app.collector.fetchers import load_config
 from app.collector.overlap_fetcher import match_overlap as _overlap_match
 from app.collector.overlap_fetcher import match_holdings_overlap as _holdings_match
@@ -1428,7 +1428,10 @@ def main():
         for _, r in df.iterrows():
             df_by_code[str(r["代码"])] = r
 
-    out: dict = {"_meta": {"source": "akshare fund_etf_spot_em + fundf10 track_index",
+    _source_label = ("akshare fund_etf_spot_em + fundf10 track_index"
+                     if not was_fallback_used()
+                     else "新浪+腾讯兜底(东财主源失败, fund_etf_spot_em 不可用) + fundf10 track_index")
+    out: dict = {"_meta": {"source": _source_label,
                            "sort_by": "track_score(降序,跟踪分最高在前; None排最后); LOF净值取自fund_open_fund_info_em",
                            "match_method": "全量叠加: track_index_code(base) + track_index_name + overlap + kw + holdings_overlap(d) + sum_pct(e) 合并去重, 按track_score降序排",
                            "similarity_fields": "similarity(1-max_err/100) / max_err(5周期最大误差%) / grade(excellent<1%/good<5%/warn>=5%) / fund_type(etf|lof)",

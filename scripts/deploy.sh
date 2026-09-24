@@ -1066,7 +1066,7 @@ fi
 # 不影响 exit 0 与其余产物生成(纯告警)。
 if [ "$MAP_STALE" -eq 1 ]; then
   echo "⚠ board_etf_map 用旧版兜底(build_board_etf_map.py 失败), 收尾统一告警" | tee -a "$LOG"
-  "$PY" "$REPO/scripts/notify.py" "[告警] board_etf_map 旧版兜底" "deploy.sh build_board_etf_map.py 构建失败(14 宽基校验未过/akshare 反爬兜底也失败), board_etf_map 已用旧版兜底, deploy 其余产物照常生成(rc=0)。<br>旧版兜底期间前端 ETF 联动 tag 可能落后, 需人工核查数据源(akshare 反爬? / build 脚本): 脚本: $REPO/scripts/build_board_etf_map.py<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key board_etf_map_stale --dedup-window 3600 2>&1 | tee -a "$LOG" || true
+  "$PY" "$REPO/scripts/notify.py" "[告警] board_etf_map 旧版兜底" "deploy.sh build_board_etf_map.py 构建失败(14 宽基校验未过/东财+新浪+腾讯行情源均失败), board_etf_map 已用旧版兜底, deploy 其余产物照常生成(rc=0)。<br>旧版兜底期间前端 ETF 联动 tag 可能落后, 需人工核查行情数据源(东财 fund_etf_spot_em 被反爬 + 新浪/腾讯兜底均失败? / build 脚本): 脚本: $REPO/scripts/build_board_etf_map.py<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key board_etf_map_stale --dedup-window 3600 2>&1 | tee -a "$LOG" || true
 fi
 
 echo "=== deploy.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 ===" | tee -a "$LOG"
