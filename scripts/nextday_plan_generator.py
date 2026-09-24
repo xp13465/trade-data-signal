@@ -990,8 +990,21 @@ def main():
         return 2
 
     buy_date = plan[0]["buy_date"] if plan else (_next_trading_day(trade_dates, T) if trade_dates else "")
-    plan_doc = {"date": T, "plan": plan} if plan else {"date": T, "empty": True}
-    log(f"计划条目={len(plan)} buy_date={buy_date}")
+    # 2026-09-24 空计划日误判根因修复: 产物写交易日历元信息(today/is_trading_day/next_trading_day)。
+    # 空计划文档(empty:true, 无 plan)此前前端只能靠内容反推交易日序列, 该日被吞; 现显式写元信息,
+    # 前端优先读它, 不依赖内容反推。空/非空都写(§22 一致性); 老前端读到新字段忽略不崩, 新前端读旧产物无字段回退旧逻辑。
+    plan_doc = {
+        "date": T,
+        "today": T,
+        "is_trading_day": T in set(trade_dates),
+        "next_trading_day": _next_trading_day(trade_dates, T),
+    }
+    if plan:
+        plan_doc["plan"] = plan
+    else:
+        plan_doc["empty"] = True
+    log(f"计划条目={len(plan)} buy_date={buy_date} is_trading_day={plan_doc['is_trading_day']} "
+        f"next_trading_day={plan_doc['next_trading_day']}")
     for p in plan:
         log(f"  {p['etf_code']} {p['etf_name']} prev_close={p['prev_close']} amount={p['amount']} "
             f"signal={p['signal']} track_score={p['track_score']} buy_date={p['buy_date']}")

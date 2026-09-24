@@ -14660,6 +14660,7 @@ function _atBuildDays(planDoc, stepsDoc) {
 
 // ---- 提醒视图(用户拍板 2026-09-06, 语义见 docs/pending-features-index.md #108 替代): 主表只显示「最近未过期交易日 T0 + 下一交易日 T1」两天 ----
 // 交易日序列 = 产物里既有交易日历(与 _atBuildDays 同源: auto_trade_steps 的 date/sell_date + nextday_plan 的 buy_date)
+// + nextday_plan 日历元信息(today/next_trading_day, 2026-09-24 起后端显式写, 空计划日不再吞日; 旧产物无字段自动回退)
 // (权威 trade_dates.txt 在后端 data/, 前端无 API 不可达, 不新增依赖; 数据缺时降级取 byDate 键, 不白屏)
 const _AT_WEEKDAY_CN = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 function _atWeekday(dateS) {
@@ -14669,6 +14670,9 @@ function _atWeekday(dateS) {
   return isNaN(dt.getTime()) ? "" : _AT_WEEKDAY_CN[dt.getDay()];
 }
 // 交易日序列(升序): byDate 键(买入日) + 卖出 sell_date + 计划 buy_date; 空则返回 []
+// 2026-09-24 空计划日误判根因修复: nextday_plan.json 现带日历元信息 today(is_trading_day=true 时)
+// /next_trading_day, 空计划日(today 无 plan)此前靠内容反推被吞(如 9-23 空计划 → 9-24 缺序列 →
+// 前端把 9-24 当非交易日回退 9-23); 现显式并入序列, 不依赖内容反推。旧产物无字段自动回退既有反推。
 function _atTradeDates(planDoc, stepsDoc) {
   const set = {};
   const byDate = _atStepsByDate(stepsDoc);
@@ -14679,6 +14683,8 @@ function _atTradeDates(planDoc, stepsDoc) {
     });
   });
   _atPlanRows(planDoc).forEach(function (r) { if (r.date) set[String(r.date)] = 1; });
+  if (planDoc && planDoc.is_trading_day && planDoc.today) set[String(planDoc.today)] = 1;
+  if (planDoc && planDoc.next_trading_day) set[String(planDoc.next_trading_day)] = 1;
   return Object.keys(set).sort();
 }
 // T0/T1 判定(用户拍板 2026-09-12): T0=最近未过期交易日
@@ -14762,6 +14768,10 @@ function _atRemindGroupHtml(g, today, nowAct, byDate) {
   if (g.sells.length) {
     rows += '<tr class="auto-trade-steps-acts"><td colspan="7" style="' + actSepStyle + '">▼ 卖出 ' + g.sells.length + ' 笔</td></tr>' +
       g.sells.map(function (r) { return _atRowHtml(r, today, nowAct, byDate[g.date] || []); }).join("");
+  }
+  // 2026-09-24 空计划日显式展示(不吞日): 该日无任何买入/卖出计划 → 明示「当日无计划」
+  if (!g.buys.length && !g.sells.length) {
+    rows += '<tr class="auto-trade-steps-acts"><td colspan="7" style="' + actSepStyle + 'color:var(--text-3);">当日无计划(空)</td></tr>';
   }
   return rows;
 }
@@ -14849,20 +14859,26 @@ function _atRender(slot, planDoc, stepsDoc) {
   const groups = [];
   if (pair.T0) {
     const r0 = _atRemindDayRows(pair.T0, planDoc, stepsDoc);
+    const r0Empty = !r0.buys.length && !r0.sells.length;
     groups.push({
       date: pair.T0,
       buys: r0.buys,
       sells: r0.sells,
-      label: (pair.T0 === today ? "🟢 今日" : "🟢 最近交易日") + " · " + _atFmtDate(pair.T0)
+      empty: r0Empty,
+      label: (pair.T0 === today
+        ? (r0Empty ? "🟢 今日 · 无计划" : "🟢 今日")
+        : (r0Empty ? "🟢 最近交易日 · 无计划" : "🟢 最近交易日")) + " · " + _atFmtDate(pair.T0)
     });
   }
   if (pair.T1) {
     const r1 = _atRemindDayRows(pair.T1, planDoc, stepsDoc);
+    const r1Empty = !r1.buys.length && !r1.sells.length;
     groups.push({
       date: pair.T1,
       buys: r1.buys,
       sells: r1.sells,
-      label: "🔜 下一交易日" + " · " + _atFmtDate(pair.T1)
+      empty: r1Empty,
+      label: "🔜 下一交易日" + (r1Empty ? " · 无计划" : "") + " · " + _atFmtDate(pair.T1)
     });
   }
   let bodyHtml;
