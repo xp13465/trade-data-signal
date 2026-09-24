@@ -187,5 +187,8 @@
   ],
   "20260924-a614": [
     "fix(auto-trade): \u4ea4\u6613\u8ba1\u5212\u9875\u7a7a\u8ba1\u5212\u65e5\u88ab\u541e\u4fee\u590d(9-23\u7a7a\u8ba1\u5212\u21929-24\u8bef\u5224\u975e\u4ea4\u6613\u65e5)"
+  ],
+  "20260924-a615": [
+    "docs(ops): \u62a5\u544a\u4fee\u8ba2\u6bb5\u8865\u672c\u6b21 commit hash"
   ]
 }
