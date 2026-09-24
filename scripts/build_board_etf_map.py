@@ -690,6 +690,18 @@ def _load_empty_array_ids() -> set[str]:
     return ids
 
 
+def _is_lof_code(code: str) -> bool:
+    """场内 LOF 可靠判据=代码前缀(16/15/501/502),与 universe_rules.yaml lof_inclusion.on_exchange_prefixes 同口径。
+
+    2026-09-24 根治背景: 新浪+腾讯兜底源(东财主源被封时启用)拉 lof_hq_fund 节点把场内 LOF 带进 df,
+    而 LOF 无 fund_type 字段,enrich 时统一 setdefault("fund_type","etf") → track_index 层旧守卫
+    (e.get("fund_type") != "lof") 对新浪 LOF 完全失效,empty_array 指数被 kw 名称匹配塞入 LOF。
+    判据说明: 15 前缀含 159 深市 ETF,但本判据只用于 empty_array 过滤(该等指数语义=无场内专属 ETF,
+    必须空数组,多滤 ETF 无伤),不影响其他指数(过滤仅作用于 empty_array_ids)。
+    """
+    return bool(code and re.match(r'^(16|15|501|502)', code))
+
+
 def _match_by_track_index(
     iid: str,
     track_idx_map: dict[str, dict],
@@ -1496,7 +1508,9 @@ def main():
         etfs = _match_by_track_index(iid, track_idx_map, df_by_code)
         if iid in empty_array_ids:
             # 无场内专属 ETF 指数：场内 LOF 不算 ETF，过滤 LOF 维持空数组（用户 2026-09-14 拍板「维持排除」）
-            etfs = [e for e in etfs if e.get("fund_type") != "lof"]
+            # 2026-09-24 根治: fund_type 字段随数据源漂移(新浪兜底 LOF 无 fund_type 字段 → 标成 etf)，
+            # 改用代码前缀可靠判据 _is_lof_code(对齐 universe_rules.yaml on_exchange_prefixes)。
+            etfs = [e for e in etfs if not _is_lof_code(e.get("code", ""))]
         if not etfs:
             out.setdefault(iid, [])
             continue
@@ -1552,6 +1566,11 @@ def main():
             code = str(r["代码"])
             if code in existing_codes:
                 continue  # 已被 track_index/overlap 匹配，不覆盖
+            # 2026-09-24 kw 层 empty_array 守卫(实际漏网点): 新浪兜底把场内 LOF 带进 df,
+            # kw 名称子串会把它塞进无专属 ETF 指数(163415 兴全商业模式LOF→sw_801200 商贸零售,
+            # 168204 煤炭LOF→sw_801950 煤炭)。empty_array 指数禁入场内 LOF(代码前缀判据)。
+            if iid in empty_array_ids and _is_lof_code(code):
+                continue
             # 尝试从 track_idx_map 拿 track_index_name
             tin = ""
             ti_info = track_idx_map.get(code)
@@ -1700,6 +1719,17 @@ def main():
             x.get("track_score") is None,  # False(0) 在前 True(1) 在后 -> None 排最后
             -(x.get("track_score") if x.get("track_score") is not None else 0),  # 降序
         ))
+
+    # ── §23.6 empty_array 指数强制空数组兜底(2026-09-24 P0 根治)──
+    # 单点守卫：无论哪层叠加(track_index/kw/overlap/holdings/global/未来新增层)把 ETF 塞进
+    # 无场内专属 ETF 指数，写盘前一律强制清空，保证 check_universe_alignment.py assertion4 双向
+    # 对称校验 PASS(任何层漏网都不再可能断 deploy)。只作用于 empty_array_ids(33 个指数)，
+    # 其他指数不受影响，无误伤。放 hysteresis 之前：空数组直接 continue，不为它们产生 _hysteresis 记录。
+    for iid in empty_array_ids:
+        if out.get(iid):
+            print(f"  [empty_array兜底] {iid} {name_by_id.get(iid, iid)}: 清空 {len(out[iid])} 只"
+                  f"(该指数无场内专属 ETF, 强制维持空数组)")
+            out[iid] = []
 
     # ── top1 稳定性：延迟纳入 + 3天滞回 stable_top1 ──
     # 读昨日 OUT 的 _hysteresis 状态，今日 eligible top1(track_n>=90) 连续3天领先才切换。
