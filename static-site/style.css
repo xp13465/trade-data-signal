@@ -3026,6 +3026,13 @@ main { padding: 16px 24px; }
 }
 .summary-chips-top { color: var(--text-2); }
 .summary-chips-top > span { font-weight: 500; }
+/* #74 8 宽基四档聚合卡(首页第一张卡, 2026-09-24): 标题带数据日期, 档位行 flex-wrap 窄屏换行不撑破 */
+.tier-card h3 { font-size: 14px; }
+.tier-card .tier-card-summary { font-size: 13px; color: var(--text-2); margin: 0 0 6px; line-height: 1.5; }
+.tier-card .tier-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; padding: 3px 0; font-size: 13px; line-height: 1.6; }
+.tier-card .tier-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 10px; }
+.tier-card .tier-name { font-weight: 600; flex: 0 0 auto; }
+.tier-card .tier-indices { color: var(--text-1); }
 .summary-tag {
   flex-shrink: 0;
   background: var(--primary);

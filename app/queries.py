@@ -712,6 +712,12 @@ def _ai_macro_build_cyb_tier(conn):
     return _ai_macro_classify_tiers(dates, closes), dates
 
 
+# 8 宽基四档名单(单一权威登记点, §22 一致性)。
+# index_detail 注入 tiers(#73) 与 overview.index_tiers(#74 首页聚合卡/小结 chip) 共用,
+# 若加新指数(如 bj50)只改这里一处。
+WIDE_BASE_TIER_IDS = ("hs300", "sh", "sz", "csi500", "cyb", "sz50", "csi1000", "kc50")
+
+
 def _ai_macro_build_index_tiers(conn, index_id):
     """任意宽基指数四档大盘状态(纯展示, 供 index_detail 注入 tiers, #73 8 宽基四档色带)。
     返回 ({date: tier}, [dates])；无数据返回 ({}, [])。
@@ -1581,6 +1587,19 @@ def overview(conn, cfg):
             "last_date": recent[-1]["date"],
         }
 
+    # 8 宽基四档聚合(#74 首页聚合卡 + 小结色点 chip 数据源, 纯新增字段)。
+    # 取每个指数 <= score_date 最近已收盘档位(用 _ai_macro_build_index_tiers 共享纯函数,
+    # 与 index_detail 注入 tiers 同源同口径; bisect 截断=防前视 §5.1⑥, 不引入 t 之后数据)。
+    # hs300 内联实现与共享函数逐字一致(调研已核), 统一走共享函数无分叉。
+    index_tiers = {}
+    for iid in WIDE_BASE_TIER_IDS:
+        _tiers, _t_dates = _ai_macro_build_index_tiers(conn, iid)
+        if not _tiers:
+            continue
+        _ti = bisect.bisect_right(_t_dates, score_date) - 1
+        if _ti >= 0 and _t_dates[_ti] in _tiers:
+            index_tiers[iid] = {"tier": _tiers[_t_dates[_ti]], "date": _t_dates[_ti]}
+
     # 市场宽度近 1 月（上涨/下跌家数，用于堆叠面积）
     width_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=45)).strftime("%Y%m%d")
     width_1m = {
@@ -1881,6 +1900,8 @@ def overview(conn, cfg):
             "metrics": today_metrics,
         },
         "indices_sparkline": indices_sparkline,
+        # #74 8 宽基四档聚合(纯新增字段, 前端 r.index_tiers||null 守卫兼容旧产物)。
+        "index_tiers": index_tiers,
         "width_1m": width_1m,
         "cross_market_6m": cross_6m,
         "a_sentiment_6m": asent_6m,
@@ -2093,8 +2114,8 @@ def index_detail(conn, cfg, index_id, start, end, *, cache=None, stats_all_dict=
     # tiers 数组与 ohlc 一一对应(每日期前向填充最近可用 tier, 无状态=None)。
     # hs300 保持原路径(含 ma60_bull, 逐位与现状一致); cyb 复用 _ai_macro_build_cyb_tier;
     # 其余 sh/sz/csi500/sz50/csi1000/kc50 用 _ai_macro_build_index_tiers(同口径算法)。
-    _WIDE_BASE_TIER_IDS = {"hs300", "sh", "sz", "csi500", "cyb", "sz50", "csi1000", "kc50"}
-    if index_id in _WIDE_BASE_TIER_IDS:
+    # 名单唯一登记点=模块级 WIDE_BASE_TIER_IDS(§22 一致性, overview.index_tiers 共用)。
+    if index_id in WIDE_BASE_TIER_IDS:
         if index_id == "hs300":
             _tiers, _tier_dates, _ma60 = _ai_macro_build_market_state(conn)
         elif index_id == "cyb":
