@@ -142,7 +142,7 @@ headline 说"不入可交易宇宙"与 detail「被 AI 降亏过滤剔除 3 个�
 
 ### 8.3 修复链标注(旧文案保留可反查)
 - 旧文案「当日有买入信号但均无可跟踪的 ETF 标的(不入可交易宇宙)」在 git 历史 `d6547fe50` 的父版本(commit `5560ce452` 及 rebase 后 `d6547fe50` 上一版)可 `git show <旧commit>:scripts/nextday_plan_generator.py` 反查。
-- 本次修订 commit:`<见下方 git log>`(baseline `d6547fe50` 之上追加)。
+- 本次修订 commit:`0c02fee9a`(baseline `d6547fe50` 之上追加)。
 
 ### 8.4 同类错误面清单(§23.2③ 全部 empty_reason 展示位,逐项确认改后一致)
 | # | 展示位 | 位置 | 消费方式 | 改后结果 |
