@@ -1054,7 +1054,9 @@ if [ -n "$R2_FAIL" ]; then
     echo "✗ R2 失败通道轻量对账发现缺口(verify-channels rc=$_vc_rc, 照常告警):$R2_FAIL" | tee -a "$LOG"
     # verify-channels 输出经 HTML 转义(防 < > 破坏邮件体)
     _vc_tail="$(tail -8 /tmp/r2_verify_channels.log 2>/dev/null | sed 's/</\&lt;/g; s/>/\&gt;/g' | tr '\n' ' ')"
-    "$PY" "$REPO/scripts/notify.py" "[告警] deploy R2上传失败" "deploy.sh R2 上传部分通道失败(轻量对账确认有缺口):$R2_FAIL<br>deploy 整体已跑完(rc=0), 请人工确认失败通道文件是否已补传/需手动补刷: bash scripts/upload_r2.py upload-all-data<br>verify-channels 详情: $([ -n "$_vc_tail" ] && echo "$_vc_tail" || echo 无输出)<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_r2_upload_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+    # 2026-09-24 告警降噪 P1: dedup 30min->6h。本分支仅 verify-channels rc!=0(确认真缺口)才走到,
+    # 真缺口仍 6h 内首次直发(不静默), 只防 6h 内多次 deploy 对同一失败面重复轰炸(9-20 一天 8 封噪音)。
+    "$PY" "$REPO/scripts/notify.py" "[告警] deploy R2上传失败" "deploy.sh R2 上传部分通道失败(轻量对账确认有缺口):$R2_FAIL<br>deploy 整体已跑完(rc=0), 请人工确认失败通道文件是否已补传/需手动补刷: bash scripts/upload_r2.py upload-all-data<br>verify-channels 详情: $([ -n "$_vc_tail" ] && echo "$_vc_tail" || echo 无输出)<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_r2_upload_fail --dedup-window 21600 2>&1 | tee -a "$LOG" || true
     unset _vc_rc _vc_tail
   fi
 fi
@@ -1066,7 +1068,7 @@ fi
 # 不影响 exit 0 与其余产物生成(纯告警)。
 if [ "$MAP_STALE" -eq 1 ]; then
   echo "⚠ board_etf_map 用旧版兜底(build_board_etf_map.py 失败), 收尾统一告警" | tee -a "$LOG"
-  "$PY" "$REPO/scripts/notify.py" "[告警] board_etf_map 旧版兜底" "deploy.sh build_board_etf_map.py 构建失败(14 宽基校验未过/东财+新浪+腾讯行情源均失败), board_etf_map 已用旧版兜底, deploy 其余产物照常生成(rc=0)。<br>旧版兜底期间前端 ETF 联动 tag 可能落后, 需人工核查行情数据源(东财 fund_etf_spot_em 被反爬 + 新浪/腾讯兜底均失败? / build 脚本): 脚本: $REPO/scripts/build_board_etf_map.py<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key board_etf_map_stale --dedup-window 3600 2>&1 | tee -a "$LOG" || true
+  "$PY" "$REPO/scripts/notify.py" "[告警] board_etf_map 旧版兜底" "deploy.sh build_board_etf_map.py 构建失败(14 宽基校验未过/东财+新浪+腾讯行情源均失败), board_etf_map 已用旧版兜底, deploy 其余产物照常生成(rc=0)。<br>旧版兜底期间前端 ETF 联动 tag 可能落后, 需人工核查行情数据源(东财 fund_etf_spot_em 被反爬 + 新浪/腾讯兜底均失败? / build 脚本): 脚本: $REPO/scripts/build_board_etf_map.py<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key board_etf_map_stale --dedup-window 21600 2>&1 | tee -a "$LOG" || true
 fi
 
 echo "=== deploy.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 ===" | tee -a "$LOG"

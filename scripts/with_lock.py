@@ -103,10 +103,13 @@ def _notify_block_timeout(waited_sec: int) -> None:
         # WITH_LOCK_NOTIFY_DRY_RUN=1 时走 --dry-run（不真发邮件/飞书，本地模拟自测用，
         # 对齐 on_skip_notify.sh 的 ON_SKIP_DRY_RUN 惯例）。生产不设该变量 → 真发告警。
         dry_flag = ["--dry-run"] if os.environ.get("WITH_LOCK_NOTIFY_DRY_RUN") == "1" else []
+        # 2026-09-24 告警降噪 P2: dedup 30min->6h(排队超时=锁竞争瞬时, 已自愈, 8 封/周噪音)。
+        # 保持 --severe(任务被跳过需补跑提示), 首封立即发, 6h 内同 lockpath 不重复轰炸。
+        # 真锁死(排队任务互相饿死)由 schedule_monitor exit/产物时效/进行中超时通道兜底不掩盖。
         subprocess.run(
             [py, notify_py, subject, body, "--severe", "--from-prefix", "[告警]",
              "--alert-issue", f"with_lock 排队超时跳过({lockpath})",
-             "--dedup-key", f"with_lock_block_timeout:{lockpath}", "--dedup-window", "1800"] + dry_flag,
+             "--dedup-key", f"with_lock_block_timeout:{lockpath}", "--dedup-window", "21600"] + dry_flag,
             timeout=60,
         )
     except Exception as e:  # noqa: BLE001

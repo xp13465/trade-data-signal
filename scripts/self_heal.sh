@@ -145,14 +145,18 @@ def audit(msg):
         f.write(f"[{ts}] {msg}\n")
 
 
-def notify_severe(subject, body):
-    """复用 notify.py 发 SEVERE 邮件 + 写 alerts/latest.md。"""
+def notify_limit_info(subject, body):
+    """复用 notify.py 记 info 级 dashboard(达每日上限=正常状态, 不推送邮件)。
+
+    2026-09-24 告警降噪 P2: 原 --severe 邮件降级 --tier info 只落盘。额度用光=自愈机制
+    正常工作的信号(次日自动重置), 不是故障; 真自愈机制失效由 schedule_monitor 的
+    launchctl failed 通道(self-heal 不在 schedule_stats TASKS → 降级 SEVERE 直发)兜底,
+    与任务 exit!=0 通道互不掩盖。
+    """
     try:
         subprocess.run(
             [sys.executable, str(REPO / "scripts" / "notify.py"),
-             subject, body, "--severe",
-             "--alert-issue", "自愈脚本达到每日上限停止",
-             "--alert-log", str(AUDIT_LOG)],
+             subject, body, "--tier", "info"],
             check=False, capture_output=True, text=True, timeout=60,
         )
     except Exception as e:
@@ -176,9 +180,9 @@ if state["count"] >= DAILY_LIMIT:
            f"{json.dumps(state['healed'], ensure_ascii=False)}")
     print(f"[self_heal] {msg}", file=sys.stderr)
     audit(f"LIMIT 达上限 count={state['count']}: {msg}")
-    # 当天只发一次 SEVERE：limit_notified 标志防每 15 分钟重复告警（跨天随 state 重置自然清空）
+    # 2026-09-24 降噪 P2: 达上限记 info 一次(limit_notified 防每 15 分钟重复落盘, 跨天随 state 重置自然清空)
     if not state.get("limit_notified"):
-        notify_severe("自愈脚本达到每日上限停止", msg)
+        notify_limit_info("自愈脚本达到每日上限停止", msg)
         state["limit_notified"] = True
         save_state(state)
     sys.exit(0)
@@ -230,9 +234,9 @@ for task, exit_code, last_run_str, st, log_anomaly in to_heal:
                f"已 heal: {json.dumps(state['healed'], ensure_ascii=False)}")
         print(f"[self_heal] {msg}", file=sys.stderr)
         audit(f"LIMIT {msg}")
-        # 同样用 limit_notified 只发一次（本分支本身只触发一次，统一标志更稳）
+        # 同样用 limit_notified 只记一次 info（本分支本身只触发一次，统一标志更稳）
         if not state.get("limit_notified"):
-            notify_severe("自愈脚本达到每日上限停止", msg)
+            notify_limit_info("自愈脚本达到每日上限停止", msg)
             state["limit_notified"] = True
         break
     cmd = HEAL_ACTIONS.get(task)

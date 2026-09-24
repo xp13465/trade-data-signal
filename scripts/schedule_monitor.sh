@@ -230,11 +230,14 @@ in_progress_tasks = set()
 # 2026-08-14 告警优化 A3: 恢复邮件最小静默窗口。同 key 上次恢复(last_recovered)距今
 # <30min 则不重复发恢复邮件(防 8-12 振荡: active->recovered->active 快速交替轰炸)。
 # 状态仍置 recovered(异常确已消失), 仅抑制恢复邮件。
-RECOVERY_COOLDOWN = timedelta(minutes=30)
+# 2026-09-24 告警降噪 P1(告警噪音证据 2026-09-24): 30min->6h。计划任务异常 57 封的半噪音
+# 根因 = recovered->active 振荡(瞬时异常每轮复现被当"新异常"反复 SEVERE)。6h 同时充当
+# 恢复邮件静默窗 + _recurrence_suppressed 复现抑制窗: 真卡死(持续 active >6h)仍响, 振荡不轰炸。
+RECOVERY_COOLDOWN = timedelta(hours=6)
 
 
 def _recovery_cooldown_ok(_key, _info):
-    """A3: 同 key 上次恢复(last_recovered)距今 <30min 返回 False(不重复发恢复邮件)。"""
+    """A3: 同 key 上次恢复(last_recovered)距今 <RECOVERY_COOLDOWN(6h) 返回 False(不重复发恢复邮件)。"""
     _lr = _info.get("last_recovered")
     if not _lr:
         return True
@@ -243,6 +246,26 @@ def _recovery_cooldown_ok(_key, _info):
     except (ValueError, TypeError):
         return True
     return NOW - _lr_dt >= RECOVERY_COOLDOWN
+
+
+def _recurrence_suppressed(existing):
+    """P1(2026-09-24 告警降噪): recovered 复现抑制。检测循环里 dedup_key 已存在但
+    status != active(recovered) = 异常曾恢复又复现; 若距上次恢复 <RECOVERY_COOLDOWN(6h)
+    = 同一事件的瞬时振荡(15min 轮询每次 detected 反复当"新异常"直发 = 9-18 一天 13 封
+    根因), 抑制 SEVERE 不重发。首次发现(None)/active(持续异常,走既有 suppress)/超过
+    窗口后复现(真复发)均放行——真卡死不被吞。"""
+    if existing is None:
+        return False
+    if existing.get("status") == "active":
+        return False  # active=持续异常, 由既有 suppress 分支处理
+    _lr = existing.get("last_recovered")
+    if not _lr:
+        return False  # 无恢复记录(如 pending 状态)不抑制
+    try:
+        _lr_dt = datetime.strptime(_lr, "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return False
+    return NOW - _lr_dt < RECOVERY_COOLDOWN
 
 # 通知分级(2026-08-10): 自愈类(not_loaded/r2_unreachable 等可被 self_heal.sh/网络自愈)
 # 连续N次仍异常才通知, 严重类(漏跑/exit失败/数据错)首次即通知。N=2 = 30min(15min频率×2)。
@@ -422,8 +445,18 @@ if STATS_FILE.exists():
                     )
                 else:
                     existing = alert_state.get(dedup_key)
-                    if existing is None or existing.get("status") != "active":
-                        # 首次发现 或 恢复后再次出现 = 发 SEVERE + 写 state
+                    if _recurrence_suppressed(existing):
+                        # P1(2026-09-24 告警降噪): recovered 后 6h 内复现=同一事件振荡,
+                        # 抑制 SEVERE(9-18 一天 13 封根因: 15min 轮询每轮复现当新异常直发)。
+                        # 状态翻 active 保持, 防持续复现时每轮重复进本分支仍被抑制。
+                        existing["status"] = "active"
+                        existing["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                        print(
+                            f"[recurrence-suppress] {s['task']} 退出失败(exit={exit_code}) "
+                            f"恢复后<6h复现, 抑制不重发"
+                        )
+                    elif existing is None or existing.get("status") != "active":
+                        # 首次发现 或 超过抑制窗口后复现 = 发 SEVERE + 写 state
                         alerts.append(
                             f"SEVERE: {s['task']} 退出失败 last_exit={exit_code} "
                             f"last_run={last_run_str}"
@@ -474,7 +507,16 @@ if STATS_FILE.exists():
                     )
                 else:
                     existing = alert_state.get(dedup_key)
-                    if existing is None or existing.get("status") != "active":
+                    if _recurrence_suppressed(existing):
+                        # P1(2026-09-24 告警降噪): recovered 后 6h 内复现=同一事件振荡
+                        # (瞬时 log 异常每轮复现被当"新异常"), 抑制 SEVERE。
+                        # 状态翻 active 保持, 防持续复现每轮重复进本分支仍被抑制。
+                        existing["status"] = "active"
+                        existing["last_alerted"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                        print(
+                            f"[recurrence-suppress] {s['task']} {keyword} 恢复后<6h复现, 抑制不重发"
+                        )
+                    elif existing is None or existing.get("status") != "active":
                         # 2026-08-24 瞬时超时降噪(教训: intraday_snapshot R2 PUT 超时
                         # 连续 11 次全部自愈,每次都 SEVERE 邮件=假警报轰炸)。
                         # 瞬时/降级类标记先入稳定桶计数(line md5 每次不同,不能按
@@ -1029,7 +1071,7 @@ for _key, _info in list(alert_state.items()):
             })
         else:
             print(
-                f"[cooldown] {_task} 恢复邮件静默(上次恢复 <{RECOVERY_COOLDOWN} 前), "
+                f"[cooldown] {_task} 恢复邮件静默(上次恢复 <{int(RECOVERY_COOLDOWN.total_seconds() // 3600)}h 前), "
                 f"状态已置 recovered 但不发邮件 (首次发现: {_info.get('first_seen')})"
             )
         print(
@@ -1896,6 +1938,10 @@ else:
 # 见 L247 通知分级注释), 每次抖动发"告警+恢复"2 封(179 封里 82 封是恢复邮件)。
 # 统一 suppress r2_* 恢复邮件——状态已在各 inline 恢复点置 recovered(仅抑制邮件),
 # 与 72h_ 等自愈类口径一致; 非 r2_ 恢复(漏跑/exit失败/数据错等严重类)仍正常发。
+# 2026-09-24 告警降噪 P1("recovered 改恢复汇总"): 恢复邮件加 --dedup-key + 6h 窗口,
+# 与 RECOVERY_COOLDOWN(6h)+_recurrence_suppressed 三合一压 recovered->active 振荡轰炸;
+# 6h 内无论多少条恢复只发首封(汇总), 6h 后新恢复重新可发——恢复通知是低价值信息,
+# 延迟合并可接受, SEVERE(首次异常直发)不受影响。
 recoveries = [r for r in recoveries if not str(r.get("task", "")).startswith("r2_")]
 if recoveries:
     print(f"[{now_str}] 检测到 {len(recoveries)} 个异常恢复:")
@@ -1924,6 +1970,8 @@ if recoveries:
             "--from-prefix", "[恢复]",
             "--alert-issue", "计划任务监控恢复",
             "--alert-log", str(MONITOR_LOG),
+            # 2026-09-24 P1: 恢复汇总 6h 去重(合并成"恢复汇总"一次性发, 防振荡期每轮一封)
+            "--dedup-key", "schedule_monitor_recovery", "--dedup-window", "21600",
         ],
         check=False,
     )

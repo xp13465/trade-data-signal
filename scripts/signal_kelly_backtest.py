@@ -305,25 +305,43 @@ def _save_etf_freeze(freeze):
     atomic_write_json(p, freeze, separators=(",", ":"))
 
 
+# 2026-09-24 告警降噪 P1: 冻结缺键分级阈值(>=10 大事件 SEVERE / <10 小缺口降 WARN)。
+# 依据: 9-18 622 大事件(冻结键与信号类型漂移, 真 P0) vs 9-21 起每天 1 个的重复键
+# (读侧兜底 9-22 已接住, 不影响回测结果)——10 以内指向单个重复键/少数信号漂移,
+# >=10 指向批量历史暴露(冻结表与生产脱节)需人工核查。证据见 docs/ops/alert-noise-evidence-20260924.md §2.4。
+FROZEN_MISSING_SEVERE_THRESHOLD = 10
+
+
 def _alert_frozen_missing(events):
-    """冻结表缺失历史信号事件告警(--severe)。events: {(date, index_id, signal), ...}。
+    """冻结表缺失历史信号事件告警(分级)。events: {(date, index_id, signal), ...}。
 
     背景(2026-09-18 根治): 冻结分时点防御闸拒绝补冻历史信号(date < latest)后, 这些信号
     事件不写入冻结表, 若事件非空说明生产冻结流程有缺口(如 dev sync 后本机冻结表落后),
-    通过 notify.py --severe 提醒人工核查, 防止静默跳过导致回测缺信号。
+    通过 notify.py 提醒人工核查, 防止静默跳过导致回测缺信号。
+    2026-09-24 分级(告警降噪 P1): >=FROZEN_MISSING_SEVERE_THRESHOLD(10) 个 = 批量历史事件,
+    保持 SEVERE + 1h dedup 直发(真 P0 不降级); <10 个 = 单键漂移(读侧兜底已接住), 降
+    普通邮件(WARN 语义: 不写 latest.md 镜像) + 24h dedup 低频提醒。
     """
     sorted_events = sorted(events)
-    subject = f"[kelly] 冻结表缺失历史信号事件 {len(sorted_events)} 个"
+    n = len(sorted_events)
     sample = "; ".join(f"{d}|{i}|{s}" for d, i, s in sorted_events[:5])
-    body = (f"回测拒绝补冻历史信号事件 {len(sorted_events)} 个(冻结分时点防御闸触发)。"
-            f"冻结表缺失 {len(sorted_events)} 个历史信号事件, 拒绝补冻已跳过, 请核查生产冻结流程。"
+    subject = f"[kelly] 冻结表缺失历史信号事件 {n} 个"
+    body = (f"回测拒绝补冻历史信号事件 {n} 个(冻结分时点防御闸触发)。"
+            f"冻结表缺失 {n} 个历史信号事件, 拒绝补冻已跳过, 请核查生产冻结流程。"
             f"样例: {sample}")
     cmd = [sys.executable, os.path.join(SCRIPT_DIR, "notify.py"), subject, body,
-           "--severe", "--from-prefix", "[kelly]",
-           "--dedup-key", "signal_kelly_frozen_missing", "--dedup-window", "3600"]
+           "--from-prefix", "[kelly]"]
+    if n >= FROZEN_MISSING_SEVERE_THRESHOLD:
+        # 大事件(批量历史暴露)保持 SEVERE + 1h dedup 直发(真 P0 不降级)
+        cmd += ["--severe",
+                "--dedup-key", "signal_kelly_frozen_missing", "--dedup-window", "3600"]
+    else:
+        # 小缺口(1 个/次级重复键)降普通邮件 + 24h dedup(读侧兜底已接住, 不影响回测结果)
+        cmd += ["--dedup-key", "signal_kelly_frozen_missing_small", "--dedup-window", "86400"]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        print(f"   ⚠ 冻结缺失告警 rc={r.returncode} ({len(sorted_events)} 个历史信号事件拒绝补冻)",
+        print(f"   ⚠ 冻结缺失告警 rc={r.returncode} ({n} 个历史信号事件拒绝补冻, "
+              f"{'SEVERE' if n >= FROZEN_MISSING_SEVERE_THRESHOLD else 'WARN'})",
               file=sys.stderr)
         if r.returncode != 0:
             print(f"      notify stderr: {(r.stderr or r.stdout or '')[-300:]}", file=sys.stderr)
