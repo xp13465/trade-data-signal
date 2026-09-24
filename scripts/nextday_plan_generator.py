@@ -807,7 +807,7 @@ def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s
 # ---- 空计划原因标注(2026-09-24 用户拍板: 不配入样宇宙, 但空计划文案要说清原因) ----
 _EMPTY_REASON_CN = {
     "no_buy_signal": "当日无任何买入信号, 按规则不出买入计划",
-    "not_in_universe": "当日有买入信号但均无可跟踪的 ETF 标的(不入可交易宇宙), 按规则不出买入计划",
+    "not_in_universe": "当日有买入信号但均未进入买入计划(未入样/被过滤/被剔除), 按规则不出买入计划",
     "no_next_trading_day": "当日之后无下一交易日(如假期前/交易日历末端), 按规则不出买入计划",
 }
 

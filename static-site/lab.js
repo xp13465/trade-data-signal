@@ -14767,7 +14767,7 @@ function _atEmptyReasonText(planDoc) {
   if (r === "no_buy_signal") {
     txt = "无任何买入信号,按规则不出买入计划";
   } else if (r === "not_in_universe") {
-    txt = "有买入信号但均无可跟踪的 ETF 标的(不入可交易宇宙),按规则不出买入计划";
+    txt = "有买入信号但均未进入买入计划(未入样/被过滤/被剔除), 按规则不出买入计划";
   } else if (r === "no_next_trading_day") {
     txt = "之后无下一交易日(如假期前),按规则不出买入计划";
   } else {

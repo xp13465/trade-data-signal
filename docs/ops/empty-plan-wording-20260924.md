@@ -122,3 +122,60 @@ node + vm 从 lab.js **真实提取** `_atEmptyReasonText` 函数体(非同构�
 - 改动前版本串:`20260924-a614`(lab.min.js?/app.min.js?/sw.js CACHE_VERSION `v6-20260924-a614` 同源)
 - **本 agent 未自行 bump 版本串**(§24 机制 C),版本串统一由主控 merge 走 main-merge.sh 重建 min+bump。
 - 本次改动文件:`scripts/nextday_plan_generator.py`(后端生成器)+ `static-site/lab.js`(前端源码)+ 本报告。
+---
+
+## 8. 修订段(reviewer Finding-1 文案修正,2026-09-24 二次实施)
+
+### 8.1 问题(reviewer 判定 must-fix,置信~85)
+原 `not_in_universe` 文案「当日有买入信号但均无可跟踪的 ETF 标的(不入可交易宇宙)」**语义错误**:
+当有买信号但全部被 **AI 降亏过滤剔除(fade_cut)** 或 **停牌/伪跳空剔除(blocked)** 时,这些信号**有**跟踪 ETF、也**入了样**,只是被其他过滤剔除——
+headline 说"不入可交易宇宙"与 detail「被 AI 降亏过滤剔除 3 个」**自相矛盾**(用户铁律:文案说错原因比不说更糟)。
+实测复现:`reason: not_in_universe | headline: 当日有买入信号但均无可跟踪的 ETF 标的(不入可交易宇宙), 按规则不出买入计划 | detail: 被 AI 降亏过滤剔除 3 个`。
+
+### 8.2 改法(纯文案,2 处字符串;diff 仅此 2 行)
+| 文件 | 位置 | 改动 |
+|---|---|---|
+| scripts/nextday_plan_generator.py | `_EMPTY_REASON_CN["not_in_universe"]`(L810) | 「当日有买入信号但均未进入买入计划(未入样/被过滤/被剔除), 按规则不出买入计划」 |
+| static-site/lab.js | `_atEmptyReasonText`(L14770) | 「有买入信号但均未进入买入计划(未入样/被过滤/被剔除), 按规则不出买入计划」(同后端去掉「当日」,逐字一致) |
+
+**未动**:`_infer_empty_reason` 枚举值/优先级(无下一交易日>无买信号>未入样)、`_build_empty_detail` 数值口径、宇宙规则/queries.py/build_board_etf_map.py、不 bump 版本串不 build_min(机制 C)。
+
+### 8.3 修复链标注(旧文案保留可反查)
+- 旧文案「当日有买入信号但均无可跟踪的 ETF 标的(不入可交易宇宙)」在 git 历史 `d6547fe50` 的父版本(commit `5560ce452` 及 rebase 后 `d6547fe50` 上一版)可 `git show <旧commit>:scripts/nextday_plan_generator.py` 反查。
+- 本次修订 commit:`<见下方 git log>`(baseline `d6547fe50` 之上追加)。
+
+### 8.4 同类错误面清单(§23.2③ 全部 empty_reason 展示位,逐项确认改后一致)
+| # | 展示位 | 位置 | 消费方式 | 改后结果 |
+|---|---|---|---|---|
+| 1 | 后端邮件正文 body | scripts/nextday_plan_generator.py L1223-1228 | 读 `_EMPTY_REASON_CN.get(plan_doc.empty_reason)` 同源字典 | 自动跟随新文案,无硬编码,PASS |
+| 2 | 前端组空行(提醒视图唯一真实渲染点) | static-site/lab.js L14796-14798 | `g.emptyReason`(来自 `_atEmptyReasonText`) | 新文案渲染,PASS |
+| 3 | 前端 T0 空计划 label | lab.js L14885/L14895 | `_atEmptyReasonText(planDoc)` | 经同一函数,自动跟随,PASS |
+| 4 | 前端 T1 空计划 label | lab.js L14886/L14909 | `_atEmptyReasonText(planDoc)` | 经同一函数,自动跟随,PASS |
+- 独立 grep 确认**无第 4 处**渲染点:`grep -rn "empty_reason\|_atEmptyReasonText" lab.js/app.js/common.js` 仅以上;「查看全部计划」弹窗(_atAllModalRender)与 common.js/app.js 无 empty_reason 渲染位;`grep "无可跟踪的 ETF 标的\|不入可交易宇宙"` 全前端源码零残留。
+- 邮件与飞书同 body(notify.py,§23.10),一处 body 双通道一致。
+
+### 8.5 §21 算法公示检查
+`grep -n "无可跟踪\|不入可交易宇宙" static-site/purpose-notes.js` 无结果;本次为**纯原因文案**修改,不涉及算法/数值/匹配规则,purpose-notes.js + app.js/lab.js 算法公示点未触及。**已 grep,无涉及**。
+
+### 8.6 自验逐项结果(全部 PASS)
+| # | 项目 | 结果 |
+|---|---|---|
+| 1 | 三因枚举全跑:no_next_trading_day / no_buy_signal / not_in_universe 各造输入 | 均输出正确 headline(见下方输出) |
+| 2 | 复现 case:有买信号但全被 fade_cut 剔除(3 个) | headline「均未进入买入计划(未入样/被过滤/被剔除)」+ detail「被 AI 降亏过滤剔除 3 个」**不再自相矛盾** |
+| 3 | blocked 剔除同类 | headline 同上 + detail「停牌/伪跳空剔除 1 个」一致 |
+| 4 | 旧产物兼容 `{"date":"20260923","empty":true}` 无 empty_reason | 前端 `_atEmptyReasonText` 返回 `""` → 回退「当日无计划(空)」不报错 |
+| 5 | 前后端文案逐字一致(去「当日」后同一句) | `python` 断言 PASS(含空格逐字一致) |
+| 6 | 语法 | `py_compile` OK + `node --check lab.js` OK |
+
+自验输出摘录:
+```
+=== 自验2(复现 case) ===
+reason=not_in_universe
+headline: 当日有买入信号但均未进入买入计划(未入样/被过滤/被剔除), 按规则不出买入计划
+detail  : 被 AI 降亏过滤剔除 3 个
+自相矛盾? 无(不再矛盾)
+=== 自验5(逐字一致) ===
+后端去当日: 有买入信号但均未进入买入计划(未入样/被过滤/被剔除), 按规则不出买入计划
+前端句    : 有买入信号但均未进入买入计划(未入样/被过滤/被剔除), 按规则不出买入计划
+逐字一致? PASS
+```
