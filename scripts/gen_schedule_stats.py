@@ -236,21 +236,50 @@ PUSH_SUCCESS_RE = re.compile(
 # 注意口子不开大: 真实 Traceback / 真实 FileNotFoundError(非清理链)仍报。
 FINALIZER_NOISE_START_RE = re.compile(r'Exception ignored in: <Finalize object, dead>')
 
-# Fix B(2026-09-23): nextday_gap_check 内置 300s 重试成功自愈。
-# 根因: 9:26 首拉 ConnectionError -> 内置重试 -> 9:31 成功(exit=0);旧逻辑命中即报
-#   不认后续成功, nextday_gap_check|ConnectionError 卡 active 至今。
-# 自愈判定: 同窗口出现重试成功标记(显式 "✓ 重试成功" / 逐 ETF "✓ xxx 正常 open=" /
-#   "执行日 {today} 全部 {N} 笔无伪跳空, 无标记", 后两者仅重试拿到开盘价才会走到) →
-#   ConnectionError/TimeoutError 命中且命中行属于 _fetch_opens 重试链(含「拉开盘价失败」,
-#   重试链 ConnectionError 只在 "⚠ 第 N 次拉开盘价失败: {last_err}" 这行出现) → 自愈不报;
-#   重试也失败(exit=2、无成功标记)照报; 后续 R2 上传失败的 ConnectionError(真实失败)
-#   文案不含「拉开盘价失败」→ 不抑制, 照报(P2-2, reviewer S8 场景)。
+# Fix C(2026-09-24, 用户拍板"自愈识别"方案): 普通 TASKS 路径通用自愈识别(吸收原
+#   Fix B nextday_gap_check 特例——gap 的「第 N 次」行本身是 ⚠ 瞬态/重试行, 同窗口
+#   重试成功标记即对应成功行, 落入下方通用规则, 无需分错误类型(⚠ 前缀=脚本明示
+#   可重试瞬态, 删 TRANSIENT_NET_ERR_RE 的 ConnectionError/TimeoutError 限定)。
+# P2-2 尾部 R2 失败保护(reviewer S8): ⚠ PUT xxx attempt N 失败(ConnectionError...)
+#   是 upload 形态, 通用规则要求「同 basename 的 ✓ 成功行」才自愈——真失败无 ✓ boot.json
+#   不会自愈, 照报; Fix B 旧的「命中行含拉开盘价失败」限定由 basename 匹配天然挡住。
+# 根因(2026-09-23 turnover_backfill 假 SEVERE): upload_r2.py 重试链打
+#   `⚠ PUT data/boot.json attempt 1 失败(TimeoutError: ...), 1s 后重试`, 下一行即
+#   `[28/28] ✓ boot.json` 上传成功, 任务 exit=0; 但旧逻辑 ANOMALY_RE 命中即报不认
+#   后续成功行, 22:15(任务还在跑、窗口无结束行)就首报 SEVERE 发邮件+飞书。
+# 判定链(命中 ANOMALY_RE 的行, 见 scan_log_anomaly 完整注释):
+#   ① 非 ⚠ 瞬态行(Traceback/异常类名/✗/FATAL, 无重试语义) → 照旧首报
+#   ② ⚠ 瞬态行(TRANSIENT_WARN_LINE_RE: ⚠ + attempt N / 第N次重试):
+#       a) 同窗口内该行之后出现对应成功行(同 basename ✓ 上传成功 / gap 重试成功标记)
+#          → 判已自愈, 不报
+#       b) 或任务 last_exit==0(权威退出码) → 判已自愈, 不报
+#       c) 任务在跑(last_exit=None, 窗口无结束行)且无对应成功行 → 结局未定论,
+#          severity=degrade 交 monitor 连续 N 轮缓冲, 不首报 SEVERE(22:15 假报根因=
+#          把进行中的显式瞬态行当终局失败)
+#       d) 任务已结束且 last_exit!=0(或出现 ✗ 行)且无对应成功行 → 真失败,
+#          severity=critical 首报
+# 为什么不漏真事故: 真失败三路径仍首报——(i) ✗/FATAL 行命中 ANOMALY_RE 走①;
+#   (ii) 结束行 exit!=0 走②d, 任务一结束下轮必报(零延迟=任务结束时即告警;
+#   22:15 场景任务 22:17 exit=0 是自愈非失败, 22:30 monitor 会判自愈不报);
+#   (iii) 任务在跑但持续无成功行走②c 缓冲, 连续 3 轮(45min)仍无成功→SEVERE
+#   (卡死/持续失败兜底)。显式瞬态行本身不再是异常终局。
+# 瞬态/重试行: `  ⚠ PUT data/boot.json attempt 1 失败(TimeoutError: ...), 1s 后重试`
+#   (upload_r2.py L401, 网络异常重试)/ `  ⚠ PUT key HTTP 500 attempt 1, 1s 后重试`
+#   (L386, 5xx 重试, 命中者为不含异常类名故仅 attempt 采样)/
+#   `[nextday_gap_check] ⚠ 第 N 次拉开盘价失败: ...`(gap 内置重试)。
+TRANSIENT_WARN_LINE_RE = re.compile(
+    r'⚠\s+.*?(?:attempt\s+\d+|第\s*\d+\s*次)'
+)
+# ⚠ 瞬态行的上传对象 key(⚠ PUT data/boot.json attempt 1 ... → data/boot.json)。
+# 用 basename 匹配对应成功行(成功行印 rel 省略 "data/" 前缀, 防「其他文件成功
+# 掩盖本文件失败」——⚠ PUT data/B.json 后出现 ✓ A.json 不算 B 自愈)。
+UPLOAD_KEY_RE = re.compile(r'⚠\s+(?:PUT|HEAD)\s+(\S+)\s+')
+# gap 内置重试成功标记(2006-09-23 Fix B 原内容, 吸收为非 upload 形态的成功行判定)
 GAP_RETRY_SUCCESS_RE = re.compile(
     r'\[nextday_gap_check\] ✓ 重试成功'
     r'|\[nextday_gap_check\] +✓ \d+ 正常 open='
     r'|\[nextday_gap_check\] 执行日 \S+ 全部 \d+ 笔无伪跳空, 无标记'
 )
-TRANSIENT_NET_ERR_RE = re.compile(r'\b(?:ConnectionError|TimeoutError)\s*:')
 
 
 def launchctl_last_exit(label: str | None) -> int | None:
@@ -398,6 +427,29 @@ def _in_finalizer_noise(ranges: list, idx: int) -> bool:
     return any(a <= idx < b for a, b in ranges)
 
 
+def _retry_self_healed(window_lines: list, idx: int) -> bool:
+    """⚠ 瞬态命中行(idx)之后是否存在**对应成功行** → 判该重试已自愈(Fix C)。
+
+    对应关系 vs 任意成功行:
+    - upload 形态(⚠ PUT/HEAD <key> attempt N ...): 要求同 basename 的 ✓ 行
+      (如 `[28/28] ✓ boot.json`)。⚠ PUT data/B.json 后出现 ✓ A.json 不算
+      B 自愈——防「重试链真失败的 key 被其他文件的成功掩盖」(P2-2, reviewer S8)。
+      basename 匹配: 失败行 key="data/boot.json", 成功行印 "boot.json"(rel 去 data/),
+      取 key 尾部段比对(∩ "\b" 词边界防 boot.json2 误配)。
+    - 非 upload 形态(如 nextday_gap_check `⚠ 第 N 次拉开盘价失败`): key 提取不到,
+      要求 GAP_RETRY_SUCCESS_RE 的重试成功标记(⚠ 前缀本身就是"可重试瞬态"声明,
+      该形态在 gap 日志只来自 _fetch_opens 重试链)。
+    """
+    m = UPLOAD_KEY_RE.search(window_lines[idx])
+    if m:
+        base = m.group(1).split("/")[-1]
+        for line in window_lines[idx + 1:]:
+            if re.search(r'^\s*(?:\[[\d/]+\]\s*)?✓\s*' + re.escape(base) + r'\b', line):
+                return True
+        return False
+    return any(GAP_RETRY_SUCCESS_RE.search(line) for line in window_lines[idx + 1:])
+
+
 def scan_log_anomaly(log_path: Path, script: str, mode: str,
                      last_exit: int | None = None) -> dict | None:
     """扫描 log 文件最近一次运行窗口内的异常关键词(第4盲区修复)。
@@ -476,7 +528,6 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
     # 但命中次数需可观察(intraday 每轮都可能撞 deploy 锁, 连 skip 多轮=收盘版可能上不了 R2)。
     skip_count = sum(1 for _l in window_lines if "SKIPPED_LOCKED" in _l)
     has_push_success = any(PUSH_SUCCESS_RE.search(l) for l in window_lines)
-    has_gap_retry_success = any(GAP_RETRY_SUCCESS_RE.search(l) for l in window_lines)
     finalizer_ranges = _finalizer_noise_ranges(lines, last_start_idx, end_idx)
     for i in range(last_start_idx, end_idx):
         # 优先扫非 push 失败类异常(Traceback/异常类名/FATAL):命中即报,不抑制
@@ -488,16 +539,40 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str,
                 print(f"[finalizer-noise] {log_path.name} 命中行属于 multiprocessing "
                       f"清理噪音, 不报")
                 continue
-            # Fix B(2026-09-23): nextday_gap_check 内置重试成功 -> 瞬时网络异常自愈不报
-            # (9:26 ConnectionError -> 9:31 重试成功 exit=0; 重试也失败无成功标记照报)
-            # P2-2(2026-09-23): 抑制仅限 _fetch_opens 重试链的 ConnectionError(命中行含
-            # 「拉开盘价失败」)。同窗口重试成功后、尾部 R2 上传失败的真实 ConnectionError
-            # 文案不含「拉开盘价失败」→ 不抑制, 照报(reviewer S8 场景, exit=1 必须报)。
-            if (has_gap_retry_success and TRANSIENT_NET_ERR_RE.search(lines[i])
-                    and "拉开盘价失败" in lines[i]):
-                print(f"[retry-self-heal] {log_path.name} 重试链瞬时网络异常命中但同窗口 "
-                      f"有重试成功标记, 不报")
-                continue
+            # Fix C(2026-09-24, 用户拍板"自愈识别"方案, 取代 Fix B 特例): ⚠ 前缀
+            # 瞬态/重试行命中 ANOMALY_RE 时, 同窗口该行之后出现**对应成功行**或任务
+            # last_exit==0 → 判已自愈不报; 任务在跑(last_exit=None)且无对应成功行 →
+            # 结局未定论, severity=degrade 交 monitor 缓冲(22:15 turnover 假报根因=
+            # 把进行中的显式瞬态行当终局失败); 任务已结束且 last_exit!=0 且无对应
+            # 成功行 → 真失败, severity=critical 首报(零延迟=任务一结束即报)。
+            if TRANSIENT_WARN_LINE_RE.search(lines[i]):
+                if _retry_self_healed(window_lines, i - last_start_idx):
+                    print(f"[retry-self-heal] {log_path.name} ⚠ 瞬态重试行命中但同窗口 "
+                          f"该行之后有对应成功行, 判已自愈, 不报")
+                    continue
+                if last_exit == 0:
+                    print(f"[retry-self-heal] {log_path.name} ⚠ 瞬态重试行命中但任务 "
+                          f"last_exit=0(权威退出码), 判已自愈, 不报")
+                    continue
+                if last_exit is None:
+                    # 任务还在跑(窗口无结束行)且无对应成功行: 结局未定, 不首报。
+                    # ⚠ 是脚本明示"我要重试"的瞬态行, 不是终局失败; 真失败最终体现为
+                    # ✗ 行/结束行 exit!=0/无成功行, 任务一结束下轮立即首报, 不漏。
+                    print(f"[retry-pending] {log_path.name} ⚠ 瞬态重试行命中但任务在跑 "
+                          f"(last_exit=None)且无对应成功行, 未定论, severity=degrade 缓冲")
+                    return {
+                        "keyword": m.group(0),
+                        "line": lines[i].strip()[:200],
+                        "severity": "degrade",
+                    }, skip_count
+                # last_exit != 0: 任务已结束但真失败(⚠ 后无对应成功行 + 退出码非 0)
+                print(f"[retry-fail] {log_path.name} ⚠ 瞬态重试行命中但任务结束 "
+                      f"last_exit={last_exit} 且无对应成功行, 真失败, 首报")
+                return {
+                    "keyword": m.group(0),
+                    "line": lines[i].strip()[:200],
+                    "severity": "critical",
+                }, skip_count
             return {
                 "keyword": m.group(0),
                 "line": lines[i].strip()[:200],
@@ -847,6 +922,12 @@ def build():
             "log_anomaly": bool(anomaly),
             "log_anomaly_keyword": anomaly["keyword"] if anomaly else None,
             "log_anomaly_line": anomaly["line"] if anomaly else None,
+            # Fix C(2026-09-24, 用户拍板"自愈识别"方案): 普通路径也输出 severity 语义,
+            # monitor 缓冲条件去掉任务名单限制改按 severity 判断(见 schedule_monitor.sh)。
+            # severity=degrade(⚠ 瞬态未定论/任务在跑)→ 连续 N 轮缓冲; critical/None
+            # (真失败/非瞬态)→ 首报 SEVERE。None = 非瞬态普通异常或 pending_crash_retry,
+            # 维持既有首报语义。
+            "log_anomaly_severity": anomaly.get("severity") if anomaly else None,
             # P2-2(2026-09-24): R2 上传锁 skip 次数独立计数(schedule_monitor 不升级 SEVERE,
             # 前端"执行统计"可见; 连续 skip 多轮=上传缺口信号需人工关注)
             "r2_skip_count": r2_skip_count,

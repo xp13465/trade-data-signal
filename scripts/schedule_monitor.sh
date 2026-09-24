@@ -333,19 +333,17 @@ except Exception as e:
 
 STALE_EXIT_THRESHOLD = timedelta(hours=24)
 
-# 2026-08-24 瞬时超时降噪: 这些任务的 Timeout 类 log 异常按"连续>=3轮未自愈才 SEVERE"
-# 处理(单次/两次视为瞬时抖动,只记 dashboard 不通知)。教训=intraday_snapshot R2 PUT
+# 2026-08-24 瞬时超时降噪: 瞬时/降级类 log 异常按"连续>=3轮未自愈才 SEVERE"处理
+# (单次/两次视为瞬时抖动,只记 dashboard 不通知)。教训=intraday_snapshot R2 PUT
 # 超时连续 11 次全部自愈,每轮都发 SEVERE 邮件=假警报轰炸。
-TRANSIENT_TIMEOUT_TASKS = {"intraday_snapshot"}
+# 2026-09-24 硬化(用户拍板"自愈识别"方案): 缓冲**不再依赖任务名单**——TRANSIENT_TIMEOUT_TASKS/
+# EXTRA_DEGRADE_TASKS 已删(名单硬编码=新任务/新形态漏名单即首报, 且普通路径的 ⚠ 瞬态行
+# 需要同样降噪)。现在统一按 gen_schedule_stats 输出的 log_anomaly_severity 语义判断:
+#   severity=degrade(⚠ 瞬态/设计内降级/未定论)→ 入桶连续 N 轮才 SEVERE
+#   severity=critical 或 None(真失败/非瞬态)→ 首报 SEVERE(真异常不该拖)
+# severity 来源: EXTRA 路径(scan_marker_log, fetch_news/gen_daily_brief ⚠ 降级 vs ✗ 关键)
+#   + 普通路径(Fix C, ⚠ 瞬态行任务在跑无对应成功行=degrade / 任务结束 exit!=0=critical)。
 TRANSIENT_TIMEOUT_THRESHOLD = 3
-# P1-A(2026-09-24 r2 终审): EXTRA 降级任务(fetch_news/gen_daily_brief, 见
-# gen_schedule_stats.EXTRA_MARKER_SCANS)。它们的 log_anomaly 标记分两档:
-#   severity=degrade(⚠ 前缀, 设计内降级/不阻塞/有兜底链, 如 ⚠ [fetch_news] 同步上线异常)
-#   severity=critical(✗ 前缀/R2_UPLOAD_TIMEOUT, 真异常非静默/超时)
-# 降级标记不该「首次即 SEVERE」(用户 2026-08 定: ⚠ 是设计内降级, 且滞留窗口曾致
-# 上线即 SEVERE 永不恢复) → 对 degrade 档复用下方 TRANSIENT 桶机制连续 N 轮才 SEVERE;
-# critical 档维持首次即 SEVERE(真异常不该拖)。恢复检测对 EXTRA 任务同 TRANSIENT 自愈逻辑。
-EXTRA_DEGRADE_TASKS = {"fetch_news", "gen_daily_brief"}
 # P2(2026-09-24 r2 终审): EXTRA 任务停摆(部署外生成器整个不跑)漏跑检查阈值。
 # fetch_news/gen_daily_brief 不在 MISSED_TASKS 漏跑检查(TASKS 表无对应条目), 若其
 #   生成器/systemd timer 被删/崩, 将无声无息。本 dict 定义"多久未运行=停摆发 SEVERE":
@@ -479,17 +477,16 @@ if STATS_FILE.exists():
                     if existing is None or existing.get("status") != "active":
                         # 2026-08-24 瞬时超时降噪(教训: intraday_snapshot R2 PUT 超时
                         # 连续 11 次全部自愈,每次都 SEVERE 邮件=假警报轰炸)。
-                        # 瞬时类任务(intraday_snapshot)的 Timeout 关键词先入稳定桶计数
-                        # (line md5 每次不同,不能按 dedup_key 计数),连续>=3 次跨轮仍异常
-                        # 才升级 SEVERE;未达阈值只记 dashboard 不通知(warning 语义)。
-                        # P1-A(2026-09-24 r2 终审扩展): EXTRA 降级任务(fetch_news/
-                        # gen_daily_brief)的 severity=degrade 标记(⚠ 前缀, 设计内降级/
-                        # 不阻塞/有兜底)同样入桶连续 N 轮才 SEVERE——否则「首次即 SEVERE」
-                        # 致线上 ⚠ [fetch_news] 同步上线异常 一出现就告警(旧窗口滞留曾
-                        # 恒 True 永不恢复)。severity=critical(✗ 真异常)走下方 else 首报。
-                        if ((s.get("task") in TRANSIENT_TIMEOUT_TASKS and "Timeout" in keyword)
-                                or (s.get("task") in EXTRA_DEGRADE_TASKS
-                                    and s.get("log_anomaly_severity") == "degrade")):
+                        # 瞬时/降级类标记先入稳定桶计数(line md5 每次不同,不能按
+                        # dedup_key 计数),连续>=3 次跨轮仍异常才升级 SEVERE;未达阈值
+                        # 只记 dashboard 不通知(warning 语义)。
+                        # 2026-09-24 硬化(用户拍板"自愈识别"方案): 缓冲条件去掉任务名单
+                        # (TRANSIENT_TIMEOUT_TASKS/EXTRA_DEGRADE_TASKS 已删), 改纯 severity
+                        # 语义判断——gen_schedule_stats 已把「⚠ 瞬态/设计内降级/未定论」
+                        # 标 severity=degrade(普通路径 Fix C 的 ⚠ 瞬态行任务在跑、EXTRA 的
+                        # fetch_news/gen_daily_brief ⚠ 降级标记), 真失败/非瞬态标 critical
+                        # 或 None → 走下方 else 首报(真异常不该拖, 零延迟)。
+                        if s.get("log_anomaly_severity") == "degrade":
                             _bk = f"{s.get('task')}|marker_buffer"
                             _b = alert_state.get(_bk) or {}
                             _bs = _b.get("status")
@@ -550,11 +547,9 @@ if STATS_FILE.exists():
             # 2026-08-24 瞬时超时桶自愈重置: 本轮该任务无 log 异常=抖动已过去,
             # 桶翻 recovered 静默(不发恢复邮件); 若已达阈值发过 SEVERE, 原告警 key
             # 的恢复通知仍由主恢复循环负责(桶只管计数,不管通知生命周期)。
-            # P1-A(2026-09-24 r2 终审): 桶 key 统一为 |marker_buffer(intraday 超时 +
-            # EXTRA 降级共用), 恢复检测覆盖两类任务。
-            if not s.get("log_anomaly") and (
-                    s.get("task") in TRANSIENT_TIMEOUT_TASKS
-                    or s.get("task") in EXTRA_DEGRADE_TASKS):
+            # 2026-09-24 硬化: 恢复检测同样去掉名单限制(桶 key 统一 |marker_buffer,
+            # 任何任务本轮无 log 异常即视为抖动自愈, 连续计数重置)。
+            if not s.get("log_anomaly"):
                 _bk_r = f"{s.get('task')}|marker_buffer"
                 _b_r = alert_state.get(_bk_r)
                 if _b_r and _b_r.get("status") in ("pending", "alerted"):
