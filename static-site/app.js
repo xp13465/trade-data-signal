@@ -16413,14 +16413,15 @@ async function renderOverview() {
   const grid = document.createElement("div");
   grid.className = "spark-grid";
   // #74 8 宽基四档聚合卡: banner 之后第一张独立卡(banner→新闻行→本卡→指数 sparkline)。
+  // 先 append grid 再 insertBefore 卡片到 grid 前(insertBefore 前置节点必须已在 content 中, 否则抛 DOMException)。
   // r.index_tiers 缺失(旧产物)时 _renderIndexTiersCard 返回 "" → 整卡隐藏不渲染不报错。
+  content.appendChild(grid);
   const _tierCardHtml = _renderIndexTiersCard(r.index_tiers);
   if (_tierCardHtml) {
     const _tierCard = document.createElement("div");
     _tierCard.innerHTML = _tierCardHtml;
     content.insertBefore(_tierCard.firstChild, grid);
   }
-  content.appendChild(grid);
   const _sparkDynIds = [];
   for (const [sparkId, idx] of Object.entries(r.indices_sparkline || {})) {
     if (!idx.closes || !idx.closes.length) continue;
