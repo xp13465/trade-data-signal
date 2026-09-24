@@ -190,5 +190,8 @@
   ],
   "20260924-a615": [
     "docs(ops): \u62a5\u544a\u4fee\u8ba2\u6bb5\u8865\u672c\u6b21 commit hash"
+  ],
+  "20260924-a616": [
+    "fix(overview): \u805a\u5408\u5361\u63d2\u5165\u5fc5\u987b\u5148 append grid \u518d insertBefore(#74 \u81ea\u9a8c\u4fee\u590d)"
   ]
 }
