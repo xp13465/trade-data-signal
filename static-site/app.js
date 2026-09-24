@@ -12175,6 +12175,70 @@ function injectSnapshotToSummary(text, s, snap) {
   return out;
 }
 
+// ================= 8 宽基四档聚合(#74 2026-09-24: 首页聚合卡 + 小结色点 chip) =================
+// 数据源 overview.json 新字段 index_tiers {iid: {tier, date}}(后端 overview() 生成)。
+// 纯数据派生措辞, UI 文案禁止"大盘/小盘"(代码无既有定义, §23.13); 档位颜色见 _TIER_COLORS。
+// 卡片/芯片共用 _indexTiersSummarize: 按档位强弱分组 + 结论词(点名/计数, 防自相矛盾)。
+const _TIER_ORDER = ["牛市·主升", "上升期", "下降期", "熊市·主跌"];
+const _TIER_SHORT = { "牛市·主升": "主升", "上升期": "上升", "下降期": "下降", "熊市·主跌": "主跌" };
+// 色点阵固定顺序(显示惯例): 核心宽基在前, 依据 position.py POSITION_INDICES 既有 8 A 股指数集合先例微调。
+const _INDEX_TIERS_DOT_ORDER = ["hs300", "sz50", "sh", "sz", "csi500", "csi1000", "cyb", "kc50"];
+const _INDEX_TIERS_TIP = "8 宽基四档口径：价 vs 年线(MA200) + MA20/60/120 排列 → 四档[牛市·主升/上升期/下降期/熊市·主跌]。档位基于最近已收盘交易日收盘数据(盘中不更新)。展示层，不参与任何过滤/回测。";
+function _indexTiersSummarize(tiers) {
+  if (!tiers || typeof tiers !== "object") return null;
+  const groups = _TIER_ORDER.map((t) => [t, []]);
+  let maxDate = "", validN = 0;
+  for (const [iid, v] of Object.entries(tiers)) {
+    if (!v || !v.tier) continue;
+    const g = groups.find(([t]) => t === v.tier);
+    if (g) g[1].push(iid);
+    validN += 1;
+    if (v.date && v.date > maxDate) maxDate = v.date;
+  }
+  const filled = groups.filter(([, list]) => list.length > 0);
+  if (!validN || !filled.length) return null;
+  let cardSummary, chipText;
+  if (filled.length === 1) {
+    // 8 指数全同档: 中性措辞, 不点名(同档点名自相矛盾)。
+    cardSummary = `${validN} 指数一致 · ${filled[0][0]}`;
+    chipText = `一致·${_TIER_SHORT[filled[0][0]]}`;
+  } else {
+    const top = filled[0];                  // 最强档(档位序强→弱)
+    const bot = filled[filled.length - 1];  // 最弱档
+    const name = (iid) => _INDEX_NAME_MAP[iid] || iid;
+    // 各只有 1 个才点名, 任一 >1 个就计数, 不硬挑固定顺序第一个(防"同档为什么点它不点它")。
+    const strong = top[1].length === 1 ? `${name(top[1][0])} 独处${top[0]}` : `${top[1].length}个${top[0]}`;
+    const weak = bot[1].length === 1 ? `${name(bot[1][0])} 独处${bot[0]}` : `${bot[1].length}个${bot[0]}`;
+    cardSummary = `${validN} 指数跨 ${filled.length} 档:${strong},${weak}`;
+    const strongShort = top[1].length === 1 ? `${name(top[1][0])}${_TIER_SHORT[top[0]]}` : `${top[1].length}个${_TIER_SHORT[top[0]]}`;
+    const weakShort = bot[1].length === 1 ? `${name(bot[1][0])}${_TIER_SHORT[bot[0]]}` : `${bot[1].length}个${_TIER_SHORT[bot[0]]}`;
+    chipText = `${strongShort} / ${weakShort}`;
+  }
+  return { groups: filled, cardSummary, chipText, maxDate };
+}
+// 小结色点阵 chip: 8 指数各一个色点(固定顺序, 8px)+ 单字档位结论词(320px 压缩方案)。
+function _renderIndexTiersChip(tiers) {
+  const s = _indexTiersSummarize(tiers);
+  if (!s) return "";
+  const dots = _INDEX_TIERS_DOT_ORDER.map((iid) => {
+    const v = tiers[iid];
+    const c = v && v.tier ? (_TIER_COLORS[v.tier] || "#9aa0a6") : "#9aa0a6";
+    return `<i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};margin-right:2px;vertical-align:middle"></i>`;
+  }).join("");
+  return `<span class="summary-chip" title="${_INDEX_TIERS_TIP}">${dots}${s.chipText}</span>`;
+}
+// 首页聚合卡: 只渲染"有指数在"的档位行; 全同档收成一行(不出分组表); 标题带数据日期。
+function _renderIndexTiersCard(tiers) {
+  const s = _indexTiersSummarize(tiers);
+  if (!s) return "";
+  const dateStr = s.maxDate ? fmtDate(s.maxDate) : "";
+  const rows = s.groups.map(([tier, ids]) => {
+    const color = _TIER_COLORS[tier] || "#9aa0a6";
+    return `<div class="tier-row"><span class="tier-dot" style="background:${color}"></span><span class="tier-name" style="color:${color}">${tier}</span><span class="tier-indices">${ids.map((iid) => _INDEX_NAME_MAP[iid] || iid).join("  ")}</span></div>`;
+  }).join("");
+  return `<div class="chart-card tier-card"><h3 title="${_INDEX_TIERS_TIP}">各指数四档状态${dateStr ? `<span class="chart-latest"> · ${dateStr} 收盘</span>` : ""}</h3><div class="tier-card-summary">${s.groups.length > 1 ? "⚠ " : ""}${s.cardSummary}</div>${s.groups.length > 1 ? rows : ""}</div>`;
+}
+
 // 收盘分析横幅/历史弹窗共用的指标 chips 渲染（双版一致）。
 // snap 存在且未收盘时优先用快照实时值覆盖上证涨跌幅/点位与领涨板块；s 缺值时兜底用快照。
 // 不含恐贪/冰点标签（由调用方自行放置），只返回指标 chips 行 + 领涨板块行。
@@ -12214,7 +12278,7 @@ function _renderMarketStateChip(s) {
   return `<span class="summary-chip" style="color:${_msColor}" title="${_msTip}">沪深300 · ${_ms.tier}</span>`;
 }
 
-function renderSummaryChips(s, snap) {
+function renderSummaryChips(s, snap, indexTiers) {
   // 快照同日校验（避免旧快照覆盖新数据）：以 sh000001 的 datetime 判定
   let snapSameDay = false, snapShIdx = null;
   if (snap && snap.indices) {
@@ -12240,6 +12304,9 @@ function renderSummaryChips(s, snap) {
   // 沪深300四档 chip（四档；展示层，不参与任何过滤/回测）——抽公共 helper，与盘中 renderIntradayChips 共用
   const _msChip = _renderMarketStateChip(s);
   if (_msChip) chips.push(_msChip);
+  // 8 宽基四档色点阵 chip（读 overview.json index_tiers；历史弹窗不传 indexTiers 则不渲染）
+  const _tierDotsChip = _renderIndexTiersChip(indexTiers);
+  if (_tierDotsChip) chips.push(_tierDotsChip);
   // 上证 chip（涨红跌绿，硬编码语义色）
   if (shPct != null) {
     const shColor = shPct >= 0 ? "#e6492e" : "#2e8b57";
@@ -13023,7 +13090,7 @@ function _applyDynamicToChips(snap) {
   if (type === "intraday") {
     host.innerHTML = renderIntradayChips(snap, s); // renderIntradayChips 内部优先读 _intradayDynamicPct；s 提供 market_state 大盘 chip
   } else {
-    host.innerHTML = renderSummaryChips(s, snap);
+    host.innerHTML = renderSummaryChips(s, snap, _bannerRenderCtx.tiers);
   }
 }
 
@@ -15255,8 +15322,8 @@ async function renderOverview() {
         const sentimentBadge = s.sentiment_label ? `<span class="summary-fg-tag">${s.sentiment_label}</span>` : "";
         // 情绪标签+恐贪标签移到第二行(与 summary-meta 同行),行1只留日期标题
         const titleTags = (sentimentBadge || fgBadge || freezeBadge) ? `${sentimentBadge}${fgBadge}${freezeBadge}` : "";
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日速递与历史命中（每日 20:40 更新）">📋 每日速递</button>${titleTags ? `<span class="summary-title-tags">${titleTags}</span>` : ""}<span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
-        _bannerRenderCtx = { el: banner, s, snap, type: "summary" };
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><button class="summary-ai-btn" title="查看每日速递与历史命中（每日 20:40 更新）">📋 每日速递</button>${titleTags ? `<span class="summary-title-tags">${titleTags}</span>` : ""}<span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap, (r && r.index_tiers) || null)}</div>`;
+        _bannerRenderCtx = { el: banner, s, snap, type: "summary", tiers: (r && r.index_tiers) || null };
       }
       content.insertBefore(banner, content.firstChild);
       const histBtn = banner.querySelector(".summary-history-btn");
@@ -16345,7 +16412,16 @@ async function renderOverview() {
   await loadEcharts();   // 方案A: sparkline 改 echarts 需就绪；亦为后续 lineChart(恐贪/A股情绪分)+盘中分时图(renderIntradaySection)就绪
   const grid = document.createElement("div");
   grid.className = "spark-grid";
+  // #74 8 宽基四档聚合卡: banner 之后第一张独立卡(banner→新闻行→本卡→指数 sparkline)。
+  // 先 append grid 再 insertBefore 卡片到 grid 前(insertBefore 前置节点必须已在 content 中, 否则抛 DOMException)。
+  // r.index_tiers 缺失(旧产物)时 _renderIndexTiersCard 返回 "" → 整卡隐藏不渲染不报错。
   content.appendChild(grid);
+  const _tierCardHtml = _renderIndexTiersCard(r.index_tiers);
+  if (_tierCardHtml) {
+    const _tierCard = document.createElement("div");
+    _tierCard.innerHTML = _tierCardHtml;
+    content.insertBefore(_tierCard.firstChild, grid);
+  }
   const _sparkDynIds = [];
   for (const [sparkId, idx] of Object.entries(r.indices_sparkline || {})) {
     if (!idx.closes || !idx.closes.length) continue;
