@@ -14190,6 +14190,8 @@ let _labEtfTrendPinReqSeq = 0;
  * ------------------------------------------------------------
  * 数据源(纯读展示, 不重算算法, §21 公示):
  *   ./data/nextday_plan.json       当日计划概要 {date, plan:[{etf_code,name,prev_close,amount,signal,track_score,...}]}
+ *  空计划 {date, empty:true, empty_reason:no_buy_signal|not_in_universe|no_next_trading_day, empty_detail?: 细分}
+ *                                  (2026-09-24 用户拍板: 空因由后端给出真实原因, 前端读它展示, 旧产物无字段回退「(空)」)
  *   ./data/auto_trade_steps.json   行为级全史追加 {schema_version, date, steps:[{seq,time_slot,action,etf_code,
  *                                  etf_name,order_price,expected_range,decision,amount,shares_planned,status,
  *                                  status_text,signal,track_score,entrust_no,trigger_note,updated_at,date}]}
@@ -14754,6 +14756,26 @@ function _atRemindDayRows(date, planDoc, stepsDoc) {
   buys.sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
   return { buys: buys, sells: sells };
 }
+// 2026-09-24 空计划原因文案(用户拍板: 后端 empty_reason 给出真实原因, 前端读它不硬编码猜):
+//   三种空因 no_buy_signal(当日无买信号)/ not_in_universe(有买信号但全部未入样)/ no_next_trading_day(无下一交易日)
+// 旧产物无 empty_reason 字段 → 返回 ""(优雅回退旧文案「(空)」), 不显示 undefined/不报错。
+function _atEmptyReasonText(planDoc) {
+  if (!planDoc || planDoc.empty !== true) return "";
+  const t = String(planDoc.date || "");
+  const r = planDoc.empty_reason;
+  let txt = "";
+  if (r === "no_buy_signal") {
+    txt = "无任何买入信号,按规则不出买入计划";
+  } else if (r === "not_in_universe") {
+    txt = "有买入信号但均无可跟踪的 ETF 标的(不入可交易宇宙),按规则不出买入计划";
+  } else if (r === "no_next_trading_day") {
+    txt = "之后无下一交易日(如假期前),按规则不出买入计划";
+  } else {
+    return "";
+  }
+  const pre = t ? "信号日 " + t + " " + txt : txt;
+  return planDoc.empty_detail ? pre + ";" + String(planDoc.empty_detail) : pre;
+}
 // 提醒视图某日 HTML(日期分隔行 + 买入分组行 + 卖出分组行, 单表结构复用 7 列; inline style 零夹带不碰 lab.css)
 function _atRemindGroupHtml(g, today, nowAct, byDate) {
   const wd = _atWeekday(g.date);
@@ -14769,9 +14791,11 @@ function _atRemindGroupHtml(g, today, nowAct, byDate) {
     rows += '<tr class="auto-trade-steps-acts"><td colspan="7" style="' + actSepStyle + '">▼ 卖出 ' + g.sells.length + ' 笔</td></tr>' +
       g.sells.map(function (r) { return _atRowHtml(r, today, nowAct, byDate[g.date] || []); }).join("");
   }
-  // 2026-09-24 空计划日显式展示(不吞日): 该日无任何买入/卖出计划 → 明示「当日无计划」
+  // 2026-09-24 空计划日显式展示(不吞日): 该日无任何买入/卖出计划 → 明示「当日无计划」;
+  // 空因由后端 empty_reason 给出(g.emptyReason 人话文案), 旧产物无字段回退「(空)」不猜
   if (!g.buys.length && !g.sells.length) {
-    rows += '<tr class="auto-trade-steps-acts"><td colspan="7" style="' + actSepStyle + 'color:var(--text-3);">当日无计划(空)</td></tr>';
+    const reason = g.emptyReason || "";
+    rows += '<tr class="auto-trade-steps-acts"><td colspan="7" style="' + actSepStyle + 'color:var(--text-3);">当日无计划' + (reason ? " · " + _atEsc(reason) : "(空)") + '</td></tr>';
   }
   return rows;
 }
@@ -14857,6 +14881,9 @@ function _atRender(slot, planDoc, stepsDoc) {
   // 提醒视图(用户拍板 2026-09-06): T0/T1 两天, 每天按买入/卖出分类, 历史收「查看全部计划」弹窗
   const pair = _atRemindPair(_atTradeDates(planDoc, stepsDoc));
   const groups = [];
+  // 2026-09-24 空计划原因(用户拍板): 空组行内展示后端 empty_reason 的人话原因; 旧产物无字段 → "" 回退
+  const t0EmptyReason = pair.T0 ? _atEmptyReasonText(planDoc) : "";
+  const t1EmptyReason = pair.T1 ? _atEmptyReasonText(planDoc) : "";
   if (pair.T0) {
     const r0 = _atRemindDayRows(pair.T0, planDoc, stepsDoc);
     const r0Empty = !r0.buys.length && !r0.sells.length;
@@ -14865,6 +14892,7 @@ function _atRender(slot, planDoc, stepsDoc) {
       buys: r0.buys,
       sells: r0.sells,
       empty: r0Empty,
+      emptyReason: r0Empty ? t0EmptyReason : "",
       label: (pair.T0 === today
         ? (r0Empty ? "🟢 今日 · 无计划" : "🟢 今日")
         : (r0Empty ? "🟢 最近交易日 · 无计划" : "🟢 最近交易日")) + " · " + _atFmtDate(pair.T0)
@@ -14878,6 +14906,7 @@ function _atRender(slot, planDoc, stepsDoc) {
       buys: r1.buys,
       sells: r1.sells,
       empty: r1Empty,
+      emptyReason: r1Empty ? t1EmptyReason : "",
       label: "🔜 下一交易日" + (r1Empty ? " · 无计划" : "") + " · " + _atFmtDate(pair.T1)
     });
   }

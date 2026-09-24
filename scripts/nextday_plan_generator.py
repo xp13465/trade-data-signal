@@ -45,7 +45,7 @@
     - <REPO>/data/etf_national_team.db etf_daily(取标的 T 日收盘 -> 挂单价上限 + 交易日集合)
     - <REPO>/data/trade_dates.txt            (权威交易日历, buy_date 下一交易日)
 输出:
-    - data/nextday_plan.json(本地权威: {date, plan:[{etf_code,etf_name,prev_close,amount,signal,track_score,signal_date,buy_date}]}; 空计划 {date, empty:true})
+    - data/nextday_plan.json(本地权威: {date, plan:[{etf_code,etf_name,prev_close,amount,signal,track_score,signal_date,buy_date}]}; 空计划 {date, empty:true, empty_reason: no_buy_signal|not_in_universe|no_next_trading_day, empty_detail?: 细分说明})
     - static-site/data/nextday_plan.json(用户页面可见, 同内容)
     - static-site/data/auto_trade_steps.json({schema_version:"v1", steps:[...]}, 幂等: 同 date 已存在且 etf_code 一致则跳过, 漂移则删旧行重写)
 关键参数(常量, 与 kelly_posrating/前端逐位对齐, 改参数必须同步 §22):
@@ -660,17 +660,25 @@ def _kelly_sort_key(cand: dict):
             _SIG_RANK.get(str(cand.get("signal") or ""), 9), str(cand.get("buy_date") or ""))
 
 
-def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s06, prefix="", snapshot=None):
+def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s06, prefix="", snapshot=None,
+                        diag=None):
     """给定信号日 T 构建当日买入计划(首页 AI建议同一条链; 任意 T 通用, 回填段逐日重演即复用本函数)。
 
     与主链当日计划同一代码路径(信号候选 → 买信号/宇宙/降亏过滤 → K=1 保留 → prev_close 双校验),
     避免回填另写一份造成「第二份实现」漂移(§5.4⑦)。
     返回 plan 列表(每条含 etf_code/etf_name/prev_close/amount/signal/track_score/signal_date/buy_date;
     空列表=当日无计划)。
+
+    2026-09-24 空计划原因标注: 传 diag(dict)时在函数内回填空计划判定素材
+    (buy_signals/not_in_universe/no_top1/fade_cut/blocked/no_next_trading_day), 供主链写 empty_reason
+    区分「当日无买入信号 / 有信号但全部未入样 / 无下一交易日」三种空因(用户拍板 2026-09-24)。
     """
     _logp = (lambda m: log(f"{prefix} {m}")) if prefix else log
     sigs = _signal_candidates(conn, cfg, T, freeze, sig_stats)
     _logp(f"T={T} signal_daily 信号(排除 s.*)={len(sigs)}")
+    if diag is not None:
+        diag.update({"buy_signals": 0, "not_in_universe": 0, "no_top1": 0,
+                     "fade_cut": 0, "blocked": 0, "no_next_trading_day": False})
 
     # 买信号 + 入样宇宙 + 降亏过滤(首页 kept 同款): 先滤降亏再选 top-K
     _f6 = s06.filters_for_date(T)
@@ -683,14 +691,22 @@ def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s
         _sig = _norm_signal(_s["signal"])
         if _sig not in BUY_SIGNALS:
             continue
+        if diag is not None:
+            diag["buy_signals"] += 1
         if not _s.get("_bt_in_universe"):
+            if diag is not None:
+                diag["not_in_universe"] += 1
             _logp(f"  - {_s['index_id']} {_sig} 未入样宇宙(无跟踪 ETF track_score)")
             continue
         top1 = _s.get("_top1")
         if not top1 or top1.get("track_score") is None:
+            if diag is not None:
+                diag["no_top1"] += 1
             continue
         if _ai_fade_hit(_s, members):
             fade_cut.append(f"{_s['index_id']} {_s['signal']} ai_filters={_s['ai_macro']['filters']}")
+            if diag is not None:
+                diag["fade_cut"] += 1
             continue
         kept_signals.append({
             "signal_date": T,
@@ -713,6 +729,8 @@ def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s
     # ---- K=1 保留(首页 AI建议 top1 同款排序) ----
     buy_date = _next_trading_day(trade_dates, T)
     if buy_date is None:
+        if diag is not None:
+            diag["no_next_trading_day"] = True
         _logp(f"⚠ 交易日历无 > {T} 的下一交易日(可能 T 已是日历最后一天), 走空计划")
         kept_signals = []
     for _c in kept_signals:
@@ -756,6 +774,8 @@ def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s
         sig_close = prev_close
         # 双校验 ①: prev_close>0 非停牌(信号日 T 有成交, 挂单价上限有效)
         if prev_close is None or prev_close <= 0:
+            if diag is not None:
+                diag["blocked"] += 1
             _logp(f"  ✗ {etf_code} {etf_name} prev_close={prev_close}(非停牌校验失败, 信号日无成交)")
             continue
         # 双校验 ②: 伪跳空剔除真口径(次日 open / 信号日收盘 - 1, |gap|>20% 剔除;
@@ -764,6 +784,8 @@ def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s
         if nxt_open is not None and nxt_open > 0:
             gap = nxt_open / sig_close - 1.0
             if abs(gap) > PSEUDO_GAP:
+                if diag is not None:
+                    diag["blocked"] += 1
                 _logp(f"  ✗ {etf_code} {etf_name} 伪跳空剔除 nxt_open={nxt_open} sig_close={sig_close} gap={gap:.2%}")
                 continue
         else:
@@ -780,6 +802,42 @@ def _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s
             "buy_date": buy_date,
         })
     return plan
+
+
+# ---- 空计划原因标注(2026-09-24 用户拍板: 不配入样宇宙, 但空计划文案要说清原因) ----
+_EMPTY_REASON_CN = {
+    "no_buy_signal": "当日无任何买入信号, 按规则不出买入计划",
+    "not_in_universe": "当日有买入信号但均无可跟踪的 ETF 标的(不入可交易宇宙), 按规则不出买入计划",
+    "no_next_trading_day": "当日之后无下一交易日(如假期前/交易日历末端), 按规则不出买入计划",
+}
+
+
+def _infer_empty_reason(diag):
+    """空计划原因枚举判定(优先级: 无下一交易日 > 当日无买信号 > 有买信号但全部未入样)。
+    仅在 plan 为空时有意义; diag 为空 dict(旧路径未收集)时返回 "" 由调用方回退。"""
+    if not diag:
+        return ""
+    if diag.get("no_next_trading_day"):
+        return "no_next_trading_day"
+    if not diag.get("buy_signals"):
+        return "no_buy_signal"
+    return "not_in_universe"
+
+
+def _build_empty_detail(diag):
+    """空计划原因细分(empty_detail): 被挡信号逐类计数, 供前端/邮件人话说明; 无细分返回空串。"""
+    if not diag:
+        return ""
+    parts = []
+    if diag.get("not_in_universe"):
+        parts.append(f"未入样宇宙(无跟踪 ETF) {diag['not_in_universe']} 个")
+    if diag.get("no_top1"):
+        parts.append(f"无匹配 top1 标的 {diag['no_top1']} 个")
+    if diag.get("fade_cut"):
+        parts.append(f"被 AI 降亏过滤剔除 {diag['fade_cut']} 个")
+    if diag.get("blocked"):
+        parts.append(f"停牌/伪跳空剔除 {diag['blocked']} 个")
+    return "；".join(parts) if parts else ""
 
 
 def _repair_backfill_window(trade_dates, T, steps_doc):
@@ -969,8 +1027,9 @@ def main():
     log(f"信号快照固化完成: {len(snapshot.get('days', {}))} 日(窗口最近 {SNAPSHOT_DAYS} 交易日; "
         f"权威日志 {_auth_used} 日 / 重演近似 {_replay_used} 日 / 已固化跳过 {len(_win) - _auth_used - _replay_used} 日)")
 
+    _diag = {}
     plan = _build_plan_for_day(conn, cfg, db_path, trade_dates, T, freeze, sig_stats, s06,
-                               snapshot=snapshot)
+                               snapshot=snapshot, diag=_diag)
 
     # ---- 数据就绪 gate(§23.15 不上残缺版): 计划内每只 ETF 的 etf_daily 最新日必须 == T。
     #      #38 根治: 原 gate 用全局 max date(任一 ETF 到 T 就放行), 计划内停在旧日的 ETF(如 159880
@@ -1003,6 +1062,14 @@ def main():
         plan_doc["plan"] = plan
     else:
         plan_doc["empty"] = True
+        # 2026-09-24 空计划原因标注(用户拍板): 后端给出真实原因, 前端/邮件读它展示, 不许硬编码猜一句。
+        _reason = _infer_empty_reason(_diag)
+        if _reason:
+            plan_doc["empty_reason"] = _reason
+            _detail = _build_empty_detail(_diag)
+            if _detail:
+                plan_doc["empty_detail"] = _detail
+        log(f"空计划原因: empty_reason={_reason or '(未收集)'} empty_detail={plan_doc.get('empty_detail') or '(无)'}")
     log(f"计划条目={len(plan)} buy_date={buy_date} is_trading_day={plan_doc['is_trading_day']} "
         f"next_trading_day={plan_doc['next_trading_day']}")
     for p in plan:
@@ -1152,7 +1219,13 @@ def main():
             body = "<br>".join(lines)
         else:
             subject = f"明日买入计划 {T}(空)"
-            body = "明日无买入计划(无信号或 T 日非交易日)。"
+            # 2026-09-24 空计划原因标注: 邮件 body 读后端 empty_reason(§22 前后端同源), 不再笼统「无信号或非交易日」
+            _reason_txt = _EMPTY_REASON_CN.get(plan_doc.get("empty_reason") or "",
+                                               "无买入信号或 T 日非交易日, 按规则不出买入计划")
+            body = f"明日无买入计划。<br>原因: 信号日 {T} {_reason_txt}"
+            _rdetail = plan_doc.get("empty_detail")
+            if _rdetail:
+                body += f"<br>细分: {_rdetail}"
         cmd = [PY, str(SCRIPT_DIR / "notify.py"), subject, body,
                "--dedup-key", f"nextday_plan_{T}", "--dedup-window", "86400",
                "--feishu-group", "follow"]
