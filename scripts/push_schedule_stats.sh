@@ -65,8 +65,15 @@ echo "源文件：$SRC ($SRC_INFO)" | tee -a "$LOG"
 # 拿不到锁立即跳过, 下次任务 gen_stats 后再传, 不排队。
 ALERT_TIME=$(date '+%m-%d %H:%M')
 echo "-> 上传 schedule_stats.json 到 R2（upload-data-files + purge, 带 --skip-if-locked）..." | tee -a "$LOG"
-if ! "$PY" "$REPO/scripts/upload_r2.py" --skip-if-locked upload-data-files schedule_stats.json 2>&1 | tee -a "$LOG"; then
-  echo "✗ schedule_stats R2 上传失败，发告警邮件" | tee -a "$LOG"
+# P2-5(2026-09-24 r2skip-alert-fix): upload_r2 --skip-if-locked 撞锁时打印 SKIPPED_LOCKED + exit 0,
+# 旧 `if !` 不触发失败分支 → 直接打「✓ schedule_stats.json R2 上传完成」= 假成功标记
+# (云上 2026-09-24 21:40:41 日志实证 skip 后仍打 ✓, r2-false-success-rootfix 未收口)。
+# 修: 捕获合并输出 + PIPESTATUS[0] 取 upload_r2 真实退出码, 区分「跳过(下轮重试, 非成功)」
+# 与「真上传成功」, 假成功标记不再出现。
+R2_UPLOAD_OUT=$("$PY" "$REPO/scripts/upload_r2.py" --skip-if-locked upload-data-files schedule_stats.json 2>&1 | tee -a "$LOG")
+_R2_UPLOAD_RC=${PIPESTATUS[0]}
+if [ "$_R2_UPLOAD_RC" -ne 0 ]; then
+  echo "✗ schedule_stats R2 上传失败(rc=${_R2_UPLOAD_RC})，发告警邮件" | tee -a "$LOG"
   "$PY" "$REPO/scripts/notify.py" \
     "[告警] schedule_stats R2上传失败 ${ALERT_TIME}" \
     "push_schedule_stats R2 上传失败，前端"执行统计"将读旧数据，需手动补刷: bash scripts/upload_r2.py upload-data-files schedule_stats.json<br>日志: $LOG" \
@@ -74,7 +81,11 @@ if ! "$PY" "$REPO/scripts/upload_r2.py" --skip-if-locked upload-data-files sched
     --dedup-key schedule_stats_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
   exit 1
 fi
-echo "✓ schedule_stats.json R2 上传完成" | tee -a "$LOG"
+if echo "$R2_UPLOAD_OUT" | grep -q "SKIPPED_LOCKED"; then
+  echo "⚠ schedule_stats R2 上传锁忙, 本轮跳过(SKIPPED_LOCKED, 下轮重试; 缺口由 deploy 17:50 upload-all-data 兜底), 非上传成功" | tee -a "$LOG"
+else
+  echo "✓ schedule_stats.json R2 上传完成" | tee -a "$LOG"
+fi
 
 echo "=== push_schedule_stats.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 ===" | tee -a "$LOG"
 exit 0
