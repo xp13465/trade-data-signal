@@ -109,8 +109,24 @@ def _load_keys():
     return keys, nums
 
 KEYS, KEY_NUMS = _load_keys()
+
+
+def _env_num(name: str, default, cast):
+    """env 取数值, 非法值(非数字/空串)回退默认, 绝不因环境变量写错让模块加载即崩。
+
+    2026-09-24 reviewer 指出 P0: 模块顶层 `int(os.environ...)` 无保护, env 写错 →
+    ValueError → 模块加载崩溃 → 代理起不来 → 所有会话/子 agent 单点全挂
+    (launchd KeepAlive 只会空转重启, 无告警)。同类 6 处 env 数值解析一并根治
+    (§23.2③ 排查同类: 一个共享守卫 < 每个 caller 各写一个守卫)。
+    """
+    try:
+        return cast(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
 RETRY_ON_429 = os.environ.get("TTP_RETRY_ON_429", "1") == "1"
-ROTATE_BACKOFF = float(os.environ.get("TTP_ROTATE_BACKOFF", "0.3"))
+ROTATE_BACKOFF = _env_num("TTP_ROTATE_BACKOFF", 0.3, float)
 _rotate_idx = 0
 _rotate_lock = threading.Lock()
 
@@ -316,7 +332,7 @@ ALL_COOL_BACKOFF_CAP = 480    # 累计等待上限 480s(8min),超限仍全冷却
 #   属于几十秒级瞬时故障,原地退避重试基本都能恢复。
 # 修法:同一 key 原地退避重试(退避 1/2/4/8/16s,累计 31s),重试期间不写 key 冷却
 #   (非额度问题);重试耗尽才如实 502(不吞错)。ThreadingHTTPServer,退避 sleep 不阻塞其他请求。
-TRANSPORT_RETRY_MAX = int(os.environ.get("TTP_TRANSPORT_RETRY", "5"))
+TRANSPORT_RETRY_MAX = _env_num("TTP_TRANSPORT_RETRY", 5, int)
 TRANSPORT_BACKOFF_L0 = 1.0    # 传输错误首次退避 1s
 TRANSPORT_BACKOFF_MAX = 16.0  # 单次退避封顶 16s
 
@@ -420,8 +436,8 @@ def _detect_log(command, path, body, content_type):
 #   TTP_REQDUMP_KEEP_ERR   # ERR 保留最近 N 个(默认 30)
 REQDUMP_ON = os.environ.get("TTP_REQDUMP", "0") == "1"  # 2026-09-01 用户定:默认关(原默认开)
 REQDUMP_DIR = os.environ.get("TTP_REQDUMP_DIR", "/Users/linhuichen/code/trade-data/data/logs/sensenova-req-dump")
-REQDUMP_KEEP = int(os.environ.get("TTP_REQDUMP_KEEP", "30"))
-REQDUMP_KEEP_ERR = int(os.environ.get("TTP_REQDUMP_KEEP_ERR", "30"))
+REQDUMP_KEEP = _env_num("TTP_REQDUMP_KEEP", 30, int)
+REQDUMP_KEEP_ERR = _env_num("TTP_REQDUMP_KEEP_ERR", 30, int)
 
 def _reqdump_cleanup():
     """滚动清理:非 ERR 文件按 mtime 保留最近 KEEP 个,ERR 保留最近 KEEP_ERR 个,超出删除。
@@ -674,7 +690,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "cooling_keys": list(_snap.keys()),
                 "uptime_sec": int(_up),
                 "started_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(START_TS)),
-                "port": int(os.environ.get("TTP_PORT", "8899")),
+                "port": _env_num("TTP_PORT", 8899, int),
             }, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -693,7 +709,7 @@ START_TS = time.time()  # /healthz uptime 基准(进程启动时刻)
 
 if __name__ == "__main__":
     _load_cooldown()  # P0-2 启动恢复冷却状态(重启不丢病 key 标记)
-    _port = int(os.environ.get("TTP_PORT", "8899"))
+    _port = _env_num("TTP_PORT", 8899, int)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", _port), Handler)
     logmsg(f"sensenova-rotate-proxy listening on 127.0.0.1:{_port} -> https://{UPSTREAM_HOST}{UPSTREAM_BASE} "
            f"rotate_keys={len(KEYS)} retry429={RETRY_ON_429} backoff={ROTATE_BACKOFF}")
