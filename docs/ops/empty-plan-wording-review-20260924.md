@@ -102,3 +102,22 @@
 **PASS-with-conditions**。
 - 必改(才能 merge):Finding-1 两处文案措辞(后端 `_EMPTY_REASON_CN["not_in_universe"]` + 前端 `_atEmptyReasonText` 同分支),改完用户看到任何空计划原因都不会自相矛盾。
 - 其余全部 PASS(三因判定、优先级、旧产物回退、飞书/邮件一致、§23.3 穷尽、宇宙规则未动、§24 合规、§23.15 完整、§23.11 干净)。
+
+---
+
+# 7. Delta 复查(Finding-1 修正后,2026-09-24 二审)
+
+> 对象:分支 rebase 后 tip `6103bfb7e`(d6547fe50→0c02fee9a→6103bfb7e,base `64d15f4fb`);delta 只验修正,不重跑全量。
+> 结论:**PASS**。
+
+| delta 点 | 证据 |
+|---|---|
+| Finding-1 解决 | 独立跑 fade_cut 全剔/blocked 全剔/纯未入样 3 场景:headline 均「当日有买入信号但均未进入买入计划(未入样/被过滤/被剔除)」+ detail 真实原因,**不再自相矛盾**(旧文案「无可跟踪」已零残留) |
+| diff 边界 | `git diff 5560ce452 origin/<分支> -- 两代码文件` = **仅 2 行字符串**;枚举值/三因优先级/empty_detail 口径/宇宙规则/queries.py 全部未动;相对 64d15f4fb 仍只 3 文件 |
+| 前后端逐字一致 | byte-exact 比对:后端去「当日」== 前端(`True`);共同句「有买入信号但均未进入买入计划(未入样/被过滤/被剔除), 按规则不出买入计划」 |
+| 旧产物兼容 | 新版 lab.js 重测 8/8 PASS:`{"date","empty":true}` → "" → 回退「当日无计划(空)」;unknown-enumnull 均不炸 |
+| 无第 4 展示位 | 新分支 lab.js empty_reason 消费点=函数定义+渲染接线 2 处;app/common/purpose-notes 零命中 |
+| §23.11 | rebase 链=自身 3 commit 线性叠 64d15f4fb,无他人 commit 被覆盖;相对旧 tip 内容差只剩 2 行修正,原功能 81+33 行全保留;force-with-lease 只替换自身旧 commit |
+| §21 | 纯文案改动,未动算法/公示正文;purpose-notes.js 不在 diff,实施方"无涉及"结论成立 |
+
+**二审证据文件**(/tmp,已清理):`/tmp/delta_reason_test.py`(后端 3 场景)、`/tmp/delta_front_test.mjs`(前端 8 断言)、`/tmp/delta_text_check.py`(逐字一致)。
