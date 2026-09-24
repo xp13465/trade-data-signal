@@ -118,6 +118,7 @@ def _env_num(name: str, default, cast):
     ValueError → 模块加载崩溃 → 代理起不来 → 所有会话/子 agent 单点全挂
     (launchd KeepAlive 只会空转重启, 无告警)。同类 6 处 env 数值解析一并根治
     (§23.2③ 排查同类: 一个共享守卫 < 每个 caller 各写一个守卫)。
+    第 7 处 PEAK_HOURS 是 "9-14" 这种区间串, 不适用本函数, 就近用 try/except 守卫(见下方)。
     """
     try:
         return cast(os.environ.get(name, str(default)))
@@ -138,7 +139,11 @@ _rotate_lock = threading.Lock()
 # 非高峰行为完全不变。窗口可用 TTP_PEAK_HOURS 覆盖(默认 "9-14",如想扩至 9-16 改 env 即可)。
 # ⚠️ 高峰按北京时间,节假日可能误判是已知边界。
 PEAK_HOURS = os.environ.get("TTP_PEAK_HOURS", "9-14")
-PEAK_START_HOUR, PEAK_END_HOUR = (int(x) for x in PEAK_HOURS.split("-"))
+# env 非法值(非数字/空串/缺横杠)回退默认 9-14, 与 _env_num 同精神: 绝不因 env 手滑让模块加载即崩。
+try:
+    PEAK_START_HOUR, PEAK_END_HOUR = (int(x) for x in PEAK_HOURS.split("-"))
+except (TypeError, ValueError):
+    PEAK_START_HOUR, PEAK_END_HOUR = 9, 14
 PEAK_COOL_MULT = 2.0        # 高峰 quota 冷却时长倍率
 PEAK_ROTATE_BACKOFF = 1.5   # 高峰 429 换 key 退避秒数(非高峰 0.3,见 ROTATE_BACKOFF)
 
