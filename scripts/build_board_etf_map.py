@@ -8,7 +8,8 @@
   - 关键词尽量精准（避免"消费"误匹配消费电子、"设备"误匹配半导体设备）；
   - 排除跨境/债券/商品/货币等非行业主题 ETF。
 
-数据源：akshare fund_etf_spot_em()（A 股场内 ETF 实时行情，含成交额/流通市值）。
+数据源：akshare fund_etf_spot_em()（A 股场内 ETF 实时行情，含成交额/流通市值）；东财被封时自动
+切换新浪+腾讯兜底（scripts/_etf_spot_fallback.py fund_etf_spot_df，2026-09-24 用户拍板"仅主源失败时启用"）。
 可重复跑：python scripts/build_board_etf_map.py，覆盖 data/board_etf_map.json。
 """
 import bisect
@@ -25,6 +26,7 @@ ROOT = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 from util_atomic import atomic_write_text  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
+from _etf_spot_fallback import fund_etf_spot_df  # noqa: E402  (东财主源+新浪兜底, 2026-09-24)
 from app.collector.fetchers import load_config
 from app.collector.overlap_fetcher import match_overlap as _overlap_match
 from app.collector.overlap_fetcher import match_holdings_overlap as _holdings_match
@@ -1415,7 +1417,7 @@ def main():
     board_ids = [i["id"] for i in cfg.get("indices", [])
                  if i.get("market") in ("industry", "concept", "a", "hk") and i.get("enabled", True)]
 
-    df = ak.fund_etf_spot_em()
+    df = fund_etf_spot_df()  # 东财主源 + 新浪兜底(仅主源失败时启用, 2026-09-24)
     df["成交额"] = df["成交额"].fillna(0)
     names = df["名称"].astype(str)
     # 预计算排除掩码

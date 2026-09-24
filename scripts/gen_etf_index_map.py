@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 """生成 data/etf_index_map.json：全量 ETF -> 跟踪指数代码反向映射表。
 
-数据源：akshare fund_etf_spot_em()（A 股场内 ETF 实时行情，~1567 只）。
+数据源：akshare fund_etf_spot_em()（A 股场内 ETF 实时行情，~1567 只）；东财被封时自动切换
+新浪+腾讯兜底（scripts/_etf_spot_fallback.py fund_etf_spot_df，2026-09-24 用户拍板"仅主源失败时启用"）。
 akshare 的 fund_etf_spot_em 本身不返回 track_index_code 字段，本脚本通过 ETF 名称
 关键词匹配（INDEX_NAME_RULES include/exclude）反推每只 ETF 跟踪的标准指数代码，
 生成 build_board_etf_map.py 所需的 {etf_code: {name, track_index_name, track_index_code,
@@ -28,6 +29,7 @@ import akshare as ak
 
 ROOT = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
+from _etf_spot_fallback import fund_etf_spot_df  # noqa: E402  (东财主源+新浪兜底, 2026-09-24)
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
 OUT = ROOT / "data" / "etf_index_map.json"
 
@@ -79,8 +81,8 @@ INDEX_NAME_RULES: dict[str, dict] = {
 
 
 def main():
-    print(f"-> 拉取 akshare fund_etf_spot_em() 全量 ETF 行情 ...")
-    df = ak.fund_etf_spot_em()
+    print(f"-> 拉取 ETF 全量行情(东财主源 + 新浪兜底) ...")
+    df = fund_etf_spot_df()
     df["成交额"] = df["成交额"].fillna(0)
     print(f"   共 {len(df)} 只 ETF")
 
