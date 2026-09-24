@@ -7,9 +7,13 @@ akshare fund_etf_spot_em() 不返回 track_index_code 字段（gen_etf_index_map
 14 个宽基/红利/港股指数），行业/概念 ETF 的 track_index 无数据源。本脚本抓 fundf10 HTML
 填补该空缺，让 build_board_etf_map.py 用 track_index_name 精准匹配行业/概念 ETF。
 
-设计：
-  - 抓全量 ETF（akshare fund_etf_spot_em 的 ~1567 只），sleep 0.4-0.6s 防限流
-  - 解析"跟踪标的"字段（页面声明 utf-8 实际可能 gbk，健壮解码两种）
+数据源：
+  - 全量 ETF 名单/代码/名称/成交额 = fund_etf_spot_df()（东财主源 + 新浪/腾讯兜底仅主源失败
+    时启用，2026-09-24 接入；兜底路径内部自带节流：新浪翻页 0.3s/页、腾讯全称补全 500只/批
+    批间 0.3s——行情拉取环节的节流与下述 fundf10 抓取 sleep 是两件事，互不影响）
+  - 跟踪指数 = fundf10.eastmoney.com/jbgk_<code>.html（HTML 页面"跟踪标的"字段）。
+  - sleep 0.4-0.6s 防限流指 fundf10 逐只抓取环节（兜底模块内部零网络等待时无额外 sleep，
+    行为与主源路径逐位一致）
   - 增量更新：已抓且 fetched_at 当天的不重抓（除非 --force）
   - SSL 证书验证关闭（eastmoney 自签证书）
 
@@ -26,11 +30,10 @@ import urllib.request
 from datetime import date
 from pathlib import Path
 
-import akshare as ak
-
 ROOT = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
+from _etf_spot_fallback import fund_etf_spot_df  # noqa: E402  (东财主源+新浪/腾讯兜底, 2026-09-24)
 OUT = ROOT / "data" / "etf_track_index.json"
 
 # 关闭 SSL 验证（eastmoney 自签证书）
@@ -100,9 +103,9 @@ def main():
     elif args.force:
         print("-> --force 强制重抓")
 
-    # 拉 akshare 全量 ETF 行情
-    print(f"-> 拉取 akshare fund_etf_spot_em() 全量 ETF 行情 ...")
-    df = ak.fund_etf_spot_em()
+    # 拉全量 ETF 行情（东财主源 + 新浪/腾讯兜底仅主源失败时启用，2026-09-24）
+    print(f"-> 拉取 ETF 全量行情（东财主源; 失败走新浪+腾讯兜底） ...")
+    df = fund_etf_spot_df()
     df['成交额'] = df['成交额'].fillna(0)
     print(f"   共 {len(df)} 只 ETF")
 

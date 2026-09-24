@@ -55,10 +55,37 @@
   - 东财主源成功 → 原样返回 fund_etf_spot_em() 结果,**行为完全不变**。
   - 仅主源失败 → 新浪 etf_hq_fund+lof_hq_fund 全量 + 腾讯补全称,打印明确告警(不静默)。
   - 两源都失败 → 抛 RuntimeError(东财+新浪双错因),上游感知失败。
-- 接入点(同链同根因,§23.3 双处覆盖):
+- 接入点(同链同根因,§23.3 三处覆盖):
   - `scripts/gen_etf_index_map.py` L84:`df = fund_etf_spot_df()`
   - `scripts/build_board_etf_map.py` L1419:`df = fund_etf_spot_df()`
-- `scripts/fetch_etf_track_index.py` L105 同款调用(周任务):**未纳入改动,已上报主控定夺**(§L11 不擅自扩大)。
+  - `scripts/fetch_etf_track_index.py` L105(周任务,主控定夺后接入):`df = fund_etf_spot_df()`,
+    删冗余顶层 `import akshare`;docstring 明确 **sleep 0.4-0.6s 指 fundf10 逐只抓取环节**,
+    兜底模块内部节流(新浪翻页 0.3s/页、腾讯 500只/批 批间 0.3s)是另一件事,主源路径零额外等待。
+
+### 全仓调用点逐点处置表(§23.3 同链清点,2026-09-24)
+| 调用点 | 位置 | 处置 | 理由 |
+|---|---|---|---|
+| scripts/build_board_etf_map.py | L1419 | ✅ 已接 | 主链路,东财一封 board_etf_map 断档 2 天,本次核心 |
+| scripts/gen_etf_index_map.py | L84 | ✅ 已接 | 同链同根因,双处覆盖 |
+| scripts/fetch_etf_track_index.py | L105 | ✅ 已接(本次) | 周任务真实生产路径,东财一封整条挂;三列消费一致 |
+| app/collector/overlap_fetcher.py | L669 | ✅ 定性=无需改 | L666-687 仅 `if __name__=="__main__":` 测试入口;生产路径 df_by_code 由 build_board_etf_map.py 预计算传入 match_overlap(L193 注释),不直调行情源 |
+| scripts/signal_kelly_backtest.py | L754 | ✅ 定性=无需改 | `_fetch_intraday_open_prices` 自备新浪主+腾讯备双源兜底(L760-766, 2026-09-23 已泛化全部 15/16 前缀),非本模块职责域 |
+| scripts/nextday_gap_check.py | L54/L120 | ✅ 定性=已随迁 | `from signal_kelly_backtest import _fetch_intraday_open_prices`(L54)复用,L120 直调——兜底已含在 signal_kelly_backtest 内,无需另接本模块 |
+
+### §6.5 七级阶梯复用说明(为什么新建 _etf_spot_fallback.py)
+1. **不写**:否。兜底必须存在,用户拍板「加,仅主源失败时启用」,东财封禁是跨进程共享事实。
+2. **库里已有吗**:否。
+   - signal_kelly_backtest `_fetch_intraday_open_via_http` 是 **单点今开 dict**({code: open_price}),
+     目标是「按 target 逐只取真实开盘价+fail-closed」,形态/字段/语义均与「全量名单+名称+成交额 DataFrame」
+     不同(§5.4⑦ 两份实现职责不同,互不复用不漂移)。可共用部分=前缀映射(`5→sh`/`1→sz`)与
+     腾讯 qt.gtimg.cn HTTP 封装,但均为 2-3 行,抽公共反而制造跨文件耦合,漂移风险>收益。
+   - `_fetch_lof_open_via_http` 同属单点今开形态,同上不复用。
+   - 主源成功路径两者都走 ak.fund_etf_spot_em,行为各自不变。
+3. **能改造现有吗**:否。让单点函数返回全量 DataFrame 违背它 fail-closed 逐只语义,反向改造更危险。
+4. **轻量方案**:否。新浪全量翻页(2 节点×~17 页)+腾讯全称补齐是兜底最小实现,无更轻方案。
+5. **已装依赖复用**:requests/pandas/akshare 均为既有依赖,零新增。
+结论:新建共享单源模块 `_etf_spot_fallback.py` 是唯一正确结构;两类消费点(全量 DataFrame vs 单点 dict)
+各用各的兜底,已在上表逐点标清。
 
 ### BROAD_MUST_NONEMPTY 保守
 - build_board_etf_map.py 末尾 12 宽基校验**原封不动**,兜底路径同样走该校验(12 宽基关键 ETF 全部在新浪池,见自测)。

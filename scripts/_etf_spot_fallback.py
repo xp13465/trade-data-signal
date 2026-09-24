@@ -18,7 +18,12 @@ akshare fund_etf_spot_em() 直挂 → board_etf_map 连续断档)。本模块提
 本模块为共享单源，供以下消费点复用(均已核对只消费 代码/名称/成交额 三列)：
   - scripts/build_board_etf_map.py (L1418)
   - scripts/gen_etf_index_map.py (L83)
-  - scripts/fetch_etf_track_index.py (L105, 周任务,待主控定夺是否纳入)
+  - scripts/fetch_etf_track_index.py (L105, 周任务,已接入 2026-09-24)
+非消费点(职责不同,未接入,见 docs/ops/board-etf-map-sina-fallback-20260924.md)：
+  - scripts/signal_kelly_backtest.py `_fetch_intraday_open_via_http`(单点今开 dict 形态,
+    自备新浪主+腾讯备双源,已含兜底,不复用本模块)
+  - app/collector/overlap_fetcher.py (仅 __main__ 测试入口用 fund_etf_spot_em,生产路径
+    df 由 build_board_etf_map.py 预计算传入)
 """
 import time
 from typing import Dict, Any, List
