@@ -16325,7 +16325,7 @@ async function renderOverview() {
     cards.querySelectorAll(".card.kpi:not(.kpi-disabled)").forEach(c => { c.draggable = true; });
     cards.addEventListener("dragstart", (e) => {
       const c = e.target.closest(".card.kpi");
-      if (!c) return;
+      if (!c || !c.dataset.kpiKey) return; // 四档卡(无 data-kpi-key)不作拖拽源, 与 dragover/drop 同判据
       _draggedKpi = c;
       c.classList.add("dragging");
       e.dataTransfer.effectAllowed = "move";
