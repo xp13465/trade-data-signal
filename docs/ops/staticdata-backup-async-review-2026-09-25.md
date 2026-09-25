@@ -100,3 +100,59 @@ chmod 500 /tmp/staticdata-async-test/staticdata/.git && STATICDATA_REPO=/tmp/...
 # 锁语义数字依据:
 ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 'systemctl list-timers | grep trade'; grep -n block-timeout /home/ubuntu/code/trade-data/scripts/{update_all,futures_backfill,etf_national_team_backfill,rzhb_backfill}.sh
 ```
+
+## 整改复验(b13c7853d) · 静态层
+
+> 作用域:纯静态复核(读代码 + 轻量只读命令 + bash -n),未跑任何测试脚本、未建临时仓库、未动生产路径。动态端到端(改1 四环境 PATH shim、C-2 chmod500 .git 注入、C-3 超36h/未超/fail&running/suppress+恢复、心跳文件真实写入与 monitor 读取闭环)由 tester 独立执行,本层不含。
+> 环境说明:本机 macOS 无 `timeout`/`gtimeout`,git 只读命令均本地秒级完成故直接执行;bash -n 因 `git show | bash -n` 管道被 worktree 沙箱拒绝,改 `git show b13c7853d:<f> > /tmp/sdreview-<f>.sh && bash -n <tmp>` 完成。
+
+| # | 复核项 | 结论 | 证据(命令 + 关键输出) |
+|---|---|---|---|
+| 1 | C-1 PIPESTATUS 紧邻性 | **PASS** | b13c7853d 版 deploy.sh L964 管道 → L965 纯注释 → L966 `_SDRUN_RC="${PIPESTATUS[0]:-0}"`;`git show b13c7853d:scripts/deploy.sh | awk NR 960-966` 可见中间仅注释无命令,注释不重置 PIPESTATUS |
+| 2 | C-1 两级分支自洽 | **PASS** | L960 `if command -v systemd-run && sudo -n true`;else L983 `if [ -d /run/systemd/system ]` → L984-988 alert-only(无 nohup);L989 else → L991 `nohup bash ... >>"$LOG" 2>&1 &` 仅 echo 不发告警。云上 sudo 不可用但 systemd 在跑 → 正确落 alert-only;本机 mac 无 /run/systemd/system → 正确落 nohup。方向未写反 |
+| 3 | C-1 语法 | **PASS** | `bash -n` 三脚本(deploy.sh / staticdata_backup_async.sh / schedule_monitor.sh)均无输出,`&& echo "SYNTAX OK"` 三行全打印 |
+| 4 | C-4 补跑提示 | **PASS** | L971 / L984 echo 提示串均含 `REPO=$REPO GIT_REPO=$GIT_REPO bash $GIT_REPO/scripts/staticdata_backup_async.sh $NAME`,云上可整段粘贴执行 |
+| 5 | C-5 仓库缺失降级 | **PASS** | async L94-104:notify 不带 `--severe`(仅 `--from-prefix "[通知]"`)、`--dedup-key staticdata_backup_repo_missing --dedup-window 21600`、echo 明文列出「候选1 ${STATICDATA_REPO:-无} / 候选2 ${GIT_REPO:-无}-staticdata」、L103 `exit 0` |
+| 6 | DUR_THRESHOLDS 未动 | **PASS** | `git diff cddaa3758 b13c7853d -- scripts/schedule_monitor.sh | grep -c DUR_THRESHOLDS` → 0 |
+| 7 | 扫漏(找「该判退出码却被吞」第三处) | **FAIL(发现 3 处,均 pre-existing,见下)** | `git show b13c7853d:scripts/staticdata_backup_async.sh | grep -n "| tee"` 逐条分类 |
+| 8 | C-3 静态复核(monitor↔async 终态对齐) | **PASS** | 见下 |
+
+### 7. 扫漏详述(异步脚本 `| tee` 全量分类)
+
+grep 全量:async 脚本 29 处 `| tee` / deploy.sh 20 处。分类结论:
+
+- **a) 纯 echo 日志管道(无判定需求)**:async L61/62/83/98/106/117/127/136/152/155/176/178/224/242/245 与 deploy.sh 多数 echo 行,tee 为管道末命令,后续无分支判定,OK。
+- **b) notify `... 2>&1 | tee -a "$LOG" || true`(有意,正确)**:async L102(仓库缺失降级)/L182(oversize 跳过)/L241(失败告警),deploy L975/L988。notify 失败不应影响主流程,`|| true` 合理,符合任务给的区分标准。
+- **c) 数据/git 操作判定失效(漏网,pre-existing)——本项 FAIL 发现的 3 处**:
+  1. **async L113** `rsync -a "$REPO/data/"*.db "$STATICDATA_REPO/db/" 2>&1 | tee -a "$LOG" || { STATICDATA_FAIL=1 }`:脚本**无 `set -o pipefail`**(仅 `set -u`,L32),管道退出码=tee(恒 0)→ `|| {}` 几乎永不触发 → rsync 失败不置 STATICDATA_FAIL → 心跳照写 ok → 无告警。
+  2. **async L132** rsync JSON 同构,L134 `|| { STATICDATA_FAIL=1 }` 同样失效。
+  3. **async L186** `if ! git -C "$STATICDATA_REPO" commit -m ... 2>&1 | tee -a "$LOG"; then`:`! (管道)` 判的是 tee 退出码反值(恒 0 → `! 0`=false)→ commit 失败永走 else(成功路径,进 push)→ 最终心跳 ok 无告警。与改2 修的 add 处(L146-151,已改 PIPESTATUS 判定)同为「git 操作 + tee 管道判定失效」模式。
+  - **定性**:3 处均非本 commit 引入——`git show cddaa3758:scripts/staticdata_backup_async.sh` 核实基线 L79/L97/L145 已是同样写法(本 commit 仅改 add 行)。按 §10.3① pre-existing 不算本次 finding,但**不默默吞**:与改2 整改精神同类(「该判退出码却被吞」→ git 历史缺口/备份失败静默),建议后续同模式取 `PIPESTATUS[0]` 判定或脚本开头 `set -o pipefail`,作为遗留改进项上报主控。
+- **deploy.sh 其他管道**:L160 `git checkout origin/main -- "$_u" 2>&1 | tee -a "$LOG"` 无判定(后续 unmerged 检查兜底),低危。
+
+### 8. C-3 静态复核详述(monitor ↔ async 终态对账)
+
+| 维度 | async 写入端(b13c7853d) | monitor 检查端(b13c7853d) | 一致性 |
+|---|---|---|---|
+| 心跳路径 | L68 `HB_FILE="$REPO/data/staticdata_backup_heartbeat.json"` | L1058 `STATICDATA_HB_FILE = REPO / "data" / "staticdata_backup_heartbeat.json"` | 一致 |
+| ts 格式 | L74 `date '+%Y-%m-%d %H:%M:%S'` | L1067 `strptime(_hb_ts, "%Y-%m-%d %H:%M:%S")` | 一致 |
+| 状态名 | L109 running / L229-235 fail·skip_oversize·ok | L1066 只认 `ok`/`skip_oversize` 判新鲜度,fail/running 自然忽略 | 拼写一致,消费集合一致 |
+| 阈值 | — | L1059 `STATICDATA_HB_STALE = timedelta(hours=36)`;L1069 超→SEVERE+写 alert_state | 单位 h,与 async 无阈值依赖(阈值仅 monitor 侧) |
+| 文件不存在 | — | L1097-1099 不告警(优雅跳过,由 C-5 降级 notify 覆盖) | 与 C-5 注释一致 |
+| 解析异常 | — | L1094 except (ValueError, TypeError, KeyError) → 按无有效状态跳过不告警 | 防假 SEVERE |
+| REPO 取值 | L35 `REPO="${REPO:-/Users/linhuichen/code/trade-data}"`(deploy L963 `--setenv=REPO="$REPO"` 传入) | L44/L64 同默认 /Users/linhuichen/code/trade-data,由 env 传入 | 静态一致,云上 env 实际值未验证 |
+| NOW 类型 | — | L69 `NOW = datetime.now()`(datetime 类型,与 strptime 结果可比较) | 类型匹配 |
+
+### 发现的其他观察(置信度 <80,已过滤,供主控知悉)
+
+- **C3 except 未捕 AttributeError**:L1063 `_hb = json.load(_f)` 后 L1064 `_hb.get("result")`,若心跳文件顶层为 JSON 数组(手工误写)则 `.get` 抛 AttributeError,不在 except (ValueError/TypeError/KeyError) 列表内 → 可能拖崩 monitor Python 主流程。概率极低(仅外部误写文件),25 分过滤,提示一句。
+- **result=running 卡死不告警**:若异步被强杀留 running 心跳且后续触发持续失败,monitor 只认 ok/skip_oversize 不告警——设计取舍已在注释声明(触发失败另有 C-1 SEVERE 兜底),动态团队评估是否需补 running 停滞检测。
+- **心跳文件路径不进 git**:async 注释声明写根 `$REPO/data/`(gitignore/未跟踪区)。静态与 deploy add 范围(static-site/data/+min)无冲突,未逐字验 .gitignore,低危。
+
+### 未验证项(动态测试由 tester 独立执行,本层不含)
+
+1. 改1 四环境 PATH shim(fake sudo/systemd-run + fake PY 拦截 notify)——本层仅静态核分支结构,未跑。
+2. C-2 chmod500 .git 注入验证「FAIL+告警+无✓无新变更」——本层未注入。
+3. C-3 超36h 告警 / 未超不告警 / fail&running 不告警 / suppress+恢复——本层未动生产心跳。
+4. 心跳 ok/skip_oversize 真实文件写入(tmp+mv 原子)与 monitor 读取闭环——未真跑。
+5. 云上 REPO env(monitor 与 async 同值)、云上 /run/systemd/system 存在性、KillMode=control-group 连带杀 nohup 的实测结论——本层无云上访问。

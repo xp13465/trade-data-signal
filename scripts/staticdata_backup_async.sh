@@ -30,6 +30,11 @@
 #   测试(严禁写生产 staticdata 仓库): STATICDATA_REPO 指向 /tmp 临时 git 仓库,
 #   STATICDATA_BACKUP_NOTIFY_DRY_RUN=1 让 notify 走 --dry-run(不真发邮件/飞书)。
 set -u
+# pipefail(2026-09-25 审查整改补): 管道退出码取首命令而非 `| tee` 的 tee(恒 0),
+# 防 `cmd | tee` 首命令失败(rsync DB/JSON、git commit)被静默吞掉 → 心跳照写 ok,
+# 新加的 C-3「36h 无 ok 告警」永不触发。审计全部 | tee 管道: notify 三处带 `|| true`
+# (notify 失败不置位是良性, 语义不变); 其余均为 echo 纯日志管道, 无误伤。
+set -o pipefail
 # 不 set -e: 每步显式判退出码(best-effort, 失败不中断后续步骤)。
 
 REPO="${REPO:-/Users/linhuichen/code/trade-data}"
