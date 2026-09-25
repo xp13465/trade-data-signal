@@ -3,6 +3,12 @@
 状态: 已修复(代码 feat 分支,待主控 merge)+ 已上线验证
 告警来源: 9-24 21:xx 通知邮件 2 条 —— `turnover_backfill|exit!=0|124` + `etf_national_team|exit!=0|1`
 
+> 2026-09-25 reviewer 补强(C1/C3): 测试脚本已更新——C1 修正测试 2 时序为
+> `b.shutdown(SHUT_WR)`(send 成功后对端才关写端 → recv 才返 b""), 并新增测试 2b
+> 原版 send_msg 循环同时序对照(1s 空转 ~210 万次不退出 vs patch 版 0ms 返 None),
+> 证明守卫对 9-24 事故形态有防回归作用; C3 sys.path 改从 `__file__` 推导仓库根
+> (可用 TRADE_REPO_ROOT 覆盖), 不再硬编码 worktree 绝对路径, 仓库任意位置可跑。
+
 ---
 
 ## 一、告警 1:turnover_backfill exit=124(卡死被 7200s 超时 kill)
