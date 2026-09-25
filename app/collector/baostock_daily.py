@@ -57,6 +57,13 @@ from pathlib import Path
 from . import base  # noqa: F401
 import baostock as bs
 
+# 2026-09-25 socket 超时保护(P0 根治, 告警 turnover_backfill exit=124): baostock 库
+# socket 默认阻塞模式无超时, 服务端半开连接时 recv 无限阻塞 -> worker "alive" 但不推进,
+# 直到外部 7200s 超时 kill。patch 后超时 -> 10002007 -> 走下方 _reconnect_with_retry 自愈。
+# 详见 app/collector/baostock_socket_timeout.py。
+from .baostock_socket_timeout import apply_socket_timeout  # noqa: E402
+apply_socket_timeout()
+
 # ── 路径 ──────────────────────────────────────────────────────────────────────
 _DATA_DIR = Path(__file__).absolute().parent.parent.parent / "data"
 STOCK_DB_PATH = _DATA_DIR / "stock_daily.db"          # 与 D1 同库不同表

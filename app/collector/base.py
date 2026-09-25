@@ -34,6 +34,18 @@ import socket as _socket
 if _socket.getdefaulttimeout() is None:
     _socket.setdefaulttimeout(30)
 
+# 2026-09-25 baostock socket 双守卫(P0, 告警 turnover_backfill exit=124 根治):
+# ①所有新建 baostock socket 显式 settimeout(不依赖 setdefaulttimeout 可能被改)
+# ②send_msg 的 recv 返回 b""(对端关闭连接)不再空转死循环 -> 返 None -> query 返
+#   10002007 -> baostock_daily._reconnect_with_retry 自愈。
+# 所有 collector 均经本模块 import, 一处接入全局生效(base 是公共祖先, 先于任何
+# baostock login 执行)。详见 app/collector/baostock_socket_timeout.py。
+try:
+    from .baostock_socket_timeout import apply_socket_timeout  # noqa: E402
+    apply_socket_timeout()
+except ImportError:
+    pass
+
 _orig_getaddrinfo = _socket.getaddrinfo
 
 
