@@ -71,3 +71,35 @@ r.index_tiers 缺失(route 删字段重放): 四档卡完全不渲染(KPI 行 29
 ## 十一、待主控决策
 - 无必须拍板项。建议:(a) dragstart 一行守卫可顺手补(下个前端改动的 commit); (b) 宽度 0.965 与"2 格"有 3.5% 差距, 用户肉眼判断是否满意。
 - §0 上线验证(主控): merge 后 curl 线上 app.min.js 含 `.tier-tooltip` 或 `tier-card` 字符串 + overview.json index_tiers 在位 + 移动端实测。
+
+---
+
+## delta 复验(2026-09-25, 追加)
+
+针对 dragstart 守卫整改(3 commit: 02ecea62d 源码 / 272b63f01 重建min+bump / 38267de12 落档)的定向复验。
+复验环境: 本 reviewer worktree `git checkout 38267de12`(detached 只读), 独立脚本 /tmp/delta-check.js + /tmp/delta-reload.js, 本地站点 /tmp/tier-review-site-delta(38267de12 前端 + 线上 overview.json), Playwright 无痕零 localStorage。
+
+### 1. 三处守卫判据逐字对比(grep -A2 原始行)
+- dragstart(L16328): `if (!c || !c.dataset.kpiKey) return; // 四档卡(无 data-kpi-key)不作拖拽源, 与 dragover/drop 同判据`
+- dragover(L16342): `if (!c || !c.dataset.kpiKey) return; // 四档卡(无 data-kpi-key)不作拖放目标, 固定首张`
+- drop(L16351): `if (!c || c === _draggedKpi || !c.dataset.kpiKey) return; // 四档卡(无 data-kpi-key)不作拖放目标`
+- 结论: 判据逐字一致; drop 多出的 `c === _draggedKpi` 为防自拖(drop 特有语义, 非判据分歧)。
+
+### 2. 独立复跑(自己脚本)
+- [D1 PASS] 真 KPI 卡 dragstart: a_sentiment 拖到第 4 位 → 顺序变更生效, kpiCustomOrder 写入 29 key
+- [D1.5 PASS] 刷新后: 渲染顺序 cross_market,fear_greed,a_sentiment,a_width_up_count == stored 前 3 一致, 四档卡仍首位
+- [D2 PASS] 四档卡 dragstart 被忽略: dispatchEvent 伪造 dragstart 后 `.dragging` 未出现(dragstart 提前 return, _draggedKpi 未设), tierPos 保持 0, 未移位 → **修复前此场景 tierPos 会变 2, 现守卫生效**(修复验证闭合)
+- [D3 PASS] PC 折叠: collapsed=true, maxH=138px, 四档卡可见 126px=完整
+- [D4 PASS] 移动 375: collapsed=true, 可见 88px=完整, overflow=0
+- [D5 PASS] 零 pageerror / console error
+- [D6 PASS] 旧产物(route 删 index_tiers): 四档卡不渲染, KPI 行 29 卡正常, 零报错
+
+### 3. §24 链复验(自己算 md5)
+- build_min 同逻辑从 38267de12 git HEAD 源重建: app.min.js **6dc4e907**(rebuild)== 仓库文件 6dc4e907 ✓(实施报的 6dc4e907 独立核实一致)
+- style.min.css: rebuild **a7489ade** == 仓库文件 a7489ade ✓(本次只改 app.js, style 未变, 合理)
+- 版本串: index.html 14 处 `20260925-a618`, about/guide/privacy 各 2 处, sw.js 1 处; `a617` 残留 grep 全站 0 ✓
+- sw.js: `CACHE_VERSION = 'v6-20260925-a618'` 与 index 版本串一致 ✓
+
+### 4. 新发现
+- 无新增问题。原报的 dragstart 防御缺口已按建议修复, 判据与 dragover/drop 完全对齐。
+- delta 复验结论: **PASS**, 可进入 merge 流程。
