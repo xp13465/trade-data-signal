@@ -951,7 +951,9 @@ echo "✓ push 成功（MaoziYun 自动拉取 git main 部署，有拉取延迟 
 # 失败 notify --severe 告警/step 打点, 不静默)。deploy 全部调用方(update_all/etf_national_team_
 # backfill/futures_backfill/public_fund_daily/lhb_backfill/rzhb_backfill/public_fund_full/
 # public_fund_quarterly 等)零改动全覆盖。
-# 云上走 systemd transient service(独立 cgroup, deploy 退出不清理); 无 systemd 环境(本地)fallback nohup。
+# 云上走 systemd transient service(独立 cgroup, deploy 退出不清理); 触发失败/有 systemd 在跑
+# 一律 alert-only(C-1 实测 KillMode=control-group 下 nohup 子进程随 deploy 退出被连带杀, 不加 nohup),
+# 告警 + 补全 env 的手动补跑提示(改1 C-4); 本地无 systemd(mac) → nohup fallback。
 # async 持 /tmp/trade_deploy.lock 阻塞: 本段触发时锁仍被 deploy 持有 → async 等到 deploy 退出
 # (秒级)再开跑, 零并发写 staticdata git 仓库; 多次触发 → with_lock 排队, 不并发堆叠。
 echo "-> 触发 staticdata 备份(异步, 拆出主链等待区间)..." | tee -a "$LOG"
@@ -959,12 +961,36 @@ if command -v systemd-run >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
   sudo -n systemd-run --collect --unit="staticdata-backup-$(date +%H%M%S)" \
     --uid="$(id -u)" --gid="$(id -g)" \
     --setenv=REPO="$REPO" --setenv=GIT_REPO="$GIT_REPO" \
-    bash "$GIT_REPO/scripts/staticdata_backup_async.sh" "$NAME" 2>&1 | tee -a "$LOG" || \
-    echo "⚠ staticdata 备份异步触发失败(systemd-run), 需手动补跑: bash $GIT_REPO/scripts/staticdata_backup_async.sh $NAME" | tee -a "$LOG"
+    bash "$GIT_REPO/scripts/staticdata_backup_async.sh" "$NAME" 2>&1 | tee -a "$LOG"
+  # 无 pipefail 下管道退出码=tee(恒 0), 必须取 PIPESTATUS[0] 判 systemd-run 真实成败(改1 C-4)。
+  _SDRUN_RC="${PIPESTATUS[0]:-0}"
+  if [ "$_SDRUN_RC" -ne 0 ]; then
+    # C-1(2026-09-25 实测): 云上 deploy 调用方 unit KillMode=control-group, deploy 退出时
+    # systemd 连带杀同 cgroup 的 nohup 子进程 → nohup 兜底不可靠, 不加, 走 alert-only。
+    # C-4: 手动补跑提示补全 env(REPO/GIT_REPO), 云上可直接粘贴执行。
+    echo "⚠ staticdata 备份异步触发失败(systemd-run rc=$_SDRUN_RC), 需手动补跑: REPO=$REPO GIT_REPO=$GIT_REPO bash $GIT_REPO/scripts/staticdata_backup_async.sh $NAME" | tee -a "$LOG"
+    "$PY" "$REPO/scripts/notify.py" "[告警] staticdata备份异步触发失败" \
+      "deploy 触发 staticdata 备份异步任务失败(systemd-run rc=$_SDRUN_RC), 备份可能停摆。<br>需手动补跑(云上直接粘贴执行): REPO=$REPO GIT_REPO=$GIT_REPO bash $GIT_REPO/scripts/staticdata_backup_async.sh $NAME<br>日志: $LOG" \
+      --severe --from-prefix "[告警]" --alert-issue "staticdata备份异步触发失败" --alert-log "$LOG" \
+      --dedup-key staticdata_backup_trigger_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+  fi
 else
-  # 无 systemd(本地开发): nohup 脱离 SIGHUP 后台跑(尽力而为; macOS 无 setsid 命令, 不依赖它)
-  nohup bash "$GIT_REPO/scripts/staticdata_backup_async.sh" "$NAME" >> "$LOG" 2>&1 &
-  echo "  → staticdata 备份已后台触发(nohup fallback, 非 systemd 环境)" | tee -a "$LOG"
+  # C-1(2026-09-25 实测): 云上 deploy 调用方 unit KillMode=control-group, deploy 退出时 systemd
+  # 连带杀同 cgroup 的 nohup 子进程 → 有 systemd 在跑(Linux, /run/systemd/system 存在)的环境
+  # 不加 nohup, 走 alert-only(云上 sudo -n 不可用时 /run/systemd/system 仍在 → 正确落入本层);
+  # 无 systemd(本地 mac 开发)的 nohup 脱离 SIGHUP 是可靠的, 恢复 nohup fallback 不发告警
+  # (防本地每次跑 deploy.sh 都发 --severe 刷屏)。
+  if [ -d /run/systemd/system ]; then
+    echo "⚠ staticdata 备份异步触发失败(systemd-run 不可用但 systemd 在跑), 需手动补跑: REPO=$REPO GIT_REPO=$GIT_REPO bash $GIT_REPO/scripts/staticdata_backup_async.sh $NAME" | tee -a "$LOG"
+    "$PY" "$REPO/scripts/notify.py" "[告警] staticdata备份异步触发失败" \
+      "deploy 触发 staticdata 备份异步任务失败(systemd-run 不可用但 systemd 在跑), 备份可能停摆。<br>需手动补跑(云上直接粘贴执行): REPO=$REPO GIT_REPO=$GIT_REPO bash $GIT_REPO/scripts/staticdata_backup_async.sh $NAME<br>日志: $LOG" \
+      --severe --from-prefix "[告警]" --alert-issue "staticdata备份异步触发失败" --alert-log "$LOG" \
+      --dedup-key staticdata_backup_trigger_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+  else
+    # 无 systemd(本地开发): nohup 脱离 SIGHUP 后台跑(尽力而为; macOS 无 setsid 命令, 不依赖它)
+    nohup bash "$GIT_REPO/scripts/staticdata_backup_async.sh" "$NAME" >> "$LOG" 2>&1 &
+    echo "  → staticdata 备份已后台触发(nohup fallback, 非 systemd 环境)" | tee -a "$LOG"
+  fi
 fi
 
 # === feishu listener 重启（P2 关键，2026-08-11 稳定性修复）===

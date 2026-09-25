@@ -11,7 +11,8 @@
 #     update_all / etf_national_team_backfill / futures_backfill / public_fund_daily /
 #     lhb_backfill / rzhb_backfill / public_fund_full / public_fund_quarterly 等。
 #     云上走 systemd transient service(独立 cgroup, deploy 退出不清理);
-#     无 systemd 环境(本地开发)fallback nohup。
+#     触发失败且 systemd 在跑(/run/systemd/system 存在) → alert-only(改1 C-1: KillMode=
+#     control-group 下 nohup 子进程随 deploy 被连带杀, 不加 nohup); 本地无 systemd(mac) → nohup fallback。
 #   - 持 /tmp/trade_deploy.lock(阻塞 + 排队超时护栏): 防与并发 deploy/staticdata_sync.sh
 #     并发写同一 staticdata git 仓库(git index.lock 冲突 + add 半截 JSON)。deploy 触发本
 #     脚本时锁仍被 deploy 持有 → with_lock 阻塞等到 deploy 退出(秒级)再开跑, 零并发写;
@@ -60,19 +61,52 @@ mkdir -p "$LOGDIR"
 echo "=== staticdata_backup_async 开始 $(date '+%Y-%m-%d %H:%M:%S') (trigger=$TRIGGER) ===" | tee -a "$LOG"
 echo "REPO=$REPO GIT_REPO=$GIT_REPO STATICDATA_REPO=$STATICDATA_REPO" | tee -a "$LOG"
 
-if [ ! -d "$STATICDATA_REPO/.git" ]; then
-  echo "⚠ staticdata 仓库不存在($STATICDATA_REPO),跳过备份" | tee -a "$LOG"
-  exit 0
-fi
+# ── 改4 C-3 心跳状态文件(2026-09-25 审查整改): 供 schedule_monitor 检查异步备份新鲜度 ──
+# 开始写 {ts,result:"running"}, 结束写 {ts,result:ok|fail|skip_oversize,files,bytes,duration_s}。
+# 必须原子写(tmp+mv): 被 systemd 超时强杀会留半截(2026-09-21 signal_kelly_trades 半截先例)。
+# 路径=$REPO/data/(与 schedule_monitor.sh LOG_DIR 同约定), 不进 git(deploy 只 add static-site/data/
+# + min, 根 data/ 是 gitignore/未跟踪区); schedule_monitor.sh 用同路径常量读。
+HB_FILE="$REPO/data/staticdata_backup_heartbeat.json"
+_HB_START=$(date +%s)
+_hb_write() {
+  # 原子写: 写 $TMP 再 mv(禁直接重定向到目标, 防半截)。
+  _hb_result="$1"; _hb_files="${2:-0}"; _hb_bytes="${3:-0}"
+  _hb_ts=$(date '+%Y-%m-%d %H:%M:%S')
+  _hb_dur=$(( $(date +%s) - _HB_START ))
+  _hb_tmp="$REPO/data/.staticdata_backup_heartbeat.tmp.$$"
+  if printf '{"ts":"%s","result":"%s","files":%s,"bytes":%s,"duration_s":%s}\n' \
+      "$_hb_ts" "$_hb_result" "$_hb_files" "$_hb_bytes" "$_hb_dur" > "$_hb_tmp" 2>/dev/null && \
+      mv "$_hb_tmp" "$HB_FILE" 2>/dev/null; then
+    :
+  else
+    rm -f "$_hb_tmp" 2>/dev/null || true
+    echo "⚠ 心跳状态写入失败($HB_FILE)" | tee -a "$LOG"
+  fi
+}
 
 # notify 测试钩子: STATICDATA_BACKUP_NOTIFY_DRY_RUN=1 → notify 走 --dry-run(自验用, 不真发)。
+# 定义须在仓库存在性检查之前(改3 C-5 降级 notify 也要走测试钩子)。
 _NOTIFY_DRY=()
 if [ "${STATICDATA_BACKUP_NOTIFY_DRY_RUN:-}" = "1" ]; then
   _NOTIFY_DRY=(--dry-run)
 fi
 
+if [ ! -d "$STATICDATA_REPO/.git" ]; then
+  # 改3 C-5(2026-09-25 审查整改): 两个候选仓库($STATICDATA_REPO 与 ${GIT_REPO}-staticdata)
+  # 都不存在 → 原实现静默 exit 0(备份缺口无人知)。改为降级 notify(不必 --severe) + 日志
+  # 写清两个候选路径都查过(路径打出来)。dedup 6h 防每次 deploy 重复轰炸。
+  echo "⚠ staticdata 仓库不存在(已查候选1: ${STATICDATA_REPO:-无}, 候选2: ${GIT_REPO:-无}-staticdata), 跳过备份" | tee -a "$LOG"
+  "$PY" "$REPO/scripts/notify.py" "[通知] staticdata 仓库不存在, 跳过备份" \
+    "staticdata 备份仓库不存在, 本次跳过备份(降级, 非 severe, 不影响 deploy 主链)。<br>已查两个候选路径: 候选1 ${STATICDATA_REPO:-无} / 候选2 ${GIT_REPO:-无}-staticdata<br>生产云上至少应存在 ${GIT_REPO:-无}-staticdata 灾备第2层仓库, 若缺失需人工核查 staticdata git 仓库初始化/迁移。<br>日志: $LOG" \
+    --from-prefix "[通知]" --alert-issue "staticdata备份仓库缺失" --alert-log "$LOG" \
+    --dedup-key staticdata_backup_repo_missing --dedup-window 21600 "${_NOTIFY_DRY[@]}" 2>&1 | tee -a "$LOG" || true
+  exit 0
+fi
+
 echo "-> staticdata 备份（best-effort, 异步）..." | tee -a "$LOG"
 STATICDATA_FAIL=0
+_OVERSIZE=0
+_hb_write "running"   # 改4 C-3: 开始心跳(备份启动前; 仓库缺失早退不写, 留上次 ok 心跳自然变旧触发 C3 停摆告警)
 
 # 1. rsync DB原件到 staticdata/db/（本地备份，不进 git，.gitignore 排除 db/*.db）
 _STEP_START=$(date +%s)
@@ -109,8 +143,15 @@ echo "  [step3 JSON rsync] $(( $(date +%s) - _STEP_START ))s" | tee -a "$LOG"
 # 字节口径 = 变更文件当前 wc -c 总和(保守估计: 大 JSON 即使只改 100B 也按全文件计, 与 GitHub
 # 仓库膨胀口径一致, 宁高勿低触发跳过)。
 _STEP_START=$(date +%s)
-git -C "$STATICDATA_REPO" add -A 2>&1 | tee -a "$LOG" || true
-if git -C "$STATICDATA_REPO" diff --cached --quiet 2>/dev/null; then
+git -C "$STATICDATA_REPO" add -A 2>&1 | tee -a "$LOG"
+# 改2 C-2(2026-09-25 审查整改): add 退出码必须判定(原 `|| true` 吞掉 add 失败 → diff --cached
+# 为空 → 误打印"✓ staticdata 无新变更,跳过 commit", 看着正常实际 git 历史缺口)。
+# 无 pipefail 下管道退出码=tee(恒 0), 必须取 PIPESTATUS[0]; add 失败 → STATICDATA_FAIL=1 +
+# 日志明确 + 不得再进"无新变更"分支(直接跳收口段)。
+if [ "${PIPESTATUS[0]:-0}" -ne 0 ]; then
+  echo "⚠ git add 失败(staticdata 仓库 $STATICDATA_REPO), 置 STATICDATA_FAIL=1, 跳过 commit(git 历史缺口, 需人工排查)" | tee -a "$LOG"
+  STATICDATA_FAIL=1
+elif git -C "$STATICDATA_REPO" diff --cached --quiet 2>/dev/null; then
   echo "✓ staticdata 无新变更,跳过 commit" | tee -a "$LOG"
 else
   _CHANGED=$(git -C "$STATICDATA_REPO" diff --cached --name-only)
@@ -181,6 +222,17 @@ else
   fi
 fi
 echo "  [step4 git add+commit+push] $(( $(date +%s) - _STEP_START ))s" | tee -a "$LOG"
+
+# 改4 C-3: 收口前写最终心跳(ok/fail/skip_oversize + files/bytes/duration)。
+# STATICDATA_FAIL=1 优先(fail 已由脚本内 --severe notify 覆盖, C3 检查不重复告警 fail);
+# _OVERSIZE=1(积压超阈值跳过 commit) → skip_oversize(该分支已有超阈值跳过 --severe notify)。
+if [ "$STATICDATA_FAIL" = "1" ]; then
+  _hb_write "fail" "${_N:-0}" "${_BYTES:-0}"
+elif [ "${_OVERSIZE:-0}" = "1" ]; then
+  _hb_write "skip_oversize" "${_N:-0}" "${_BYTES:-0}"
+else
+  _hb_write "ok" "${_N:-0}" "${_BYTES:-0}"
+fi
 
 if [ "$STATICDATA_FAIL" = "1" ]; then
   "$PY" "$REPO/scripts/notify.py" "[告警] staticdata备份失败" \

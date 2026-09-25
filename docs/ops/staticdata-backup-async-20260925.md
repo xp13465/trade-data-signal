@@ -93,3 +93,74 @@ REPO=/tmp/.../fake-repo GIT_REPO=/tmp/.../test-git STATICDATA_REPO=/tmp/.../stat
 # 生产只读核对(云上,勿跑命令本身):
 ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 "systemctl list-timers | grep trade-(update-all|etf|futures|public-fund)"
 ```
+
+## 审查整改(C-1~C-5)(2026-09-25 二次派单,审查静默失败+补备份缺失检测)
+> 背景:上一个 implementer 两次中途停死(只取证没动码),本单高度规定化逐条改。前置取证(已实测,直接采用):
+> **C-1**:云上 deploy 调用方 unit `KillMode=control-group` → deploy 退出时 systemd 连带杀同 cgroup 的 nohup 子进程 → nohup 兜底不可靠,不加,走 alert-only。
+> **C-3 阈值实测**:staticdata 仓库最近 30 天最大 commit 间隔 = 1 天 → 阈值 = `max(24h×1.5, 36h)` = **36h**。
+
+### 改1 deploy.sh staticdata 异步触发失败分支(原 L958-968)
+- **改了什么**:systemd-run 失败分支从「`|| echo` 提示(无 pipefail 下 tee 恒 0,该分支实际死码)」改为「取 `PIPESTATUS[0]` 判真实成败 → notify --severe 告警 + 补全 env(REPO/GIT_REPO)的手动补跑提示(云上可粘贴执行)」。
+- **返工(协调者指出)**:else(无 systemd-run/sudo 不可用)分支原一刀切 alert-only,会害本地 mac 每次 deploy 刷 --severe。改为按 `/run/systemd/system` 再分两层:
+  - Linux + systemd 在跑(云上 sudo -n 不可用时也在)→ alert-only,不加 nohup(C-1);
+  - 本地 mac 无 systemd → 恢复 nohup fallback 不发告警(本地 nohup 脱离 SIGHUP 可靠)。
+- notify 参数:`--severe --from-prefix "[告警]" --alert-issue "staticdata备份异步触发失败" --alert-log "$LOG" --dedup-key staticdata_backup_trigger_fail --dedup-window 1800`(30min 去重)。
+- 自测:四环境 PATH shim(fake sudo 透传 exec / fake systemd-run 按 FAKE_SDRUN_FAIL 成败)+ fake PY 拦截 notify 记参数不真发:
+  - ENV=ok:systemd-run 成功 → 无告警 ✓
+  - ENV=sdfail:systemd-run rc=1 → notify 捕获含 REPO=/GIT_REPO= 提示 ✓
+  - ENV=sudofail + FAKE_SYSTEMD=1(`[` 函数重载模拟 /run/systemd/system 存在, mac 无 /run):alert-only,无 nohup ✓
+  - ENV=local(FAKE_GIT_REPO=stub async):nohup fallback + stub async 真跑,无告警 ✓
+  - 测试台:`/tmp/staticdata-test/trigger-harness.sh`(触发块逐字复制自 deploy.sh L959-995)。
+
+### 改2 async 脚本 git add 退出码判定(原 L108 `|| true` 吞失败)
+- **改了什么**:`git add -A | tee` 后用 `PIPESTATUS[0]` 判定;add 失败 → `STATICDATA_FAIL=1` + 日志「git add 失败(staticdata 仓库 …, 置 STATICDATA_FAIL=1, 跳过 commit(git 历史缺口, 需人工排查)」+ **不再进"✓ 无新变更"分支**(原 bug:add 失败被吞 → diff --cached 为空 → 误报无变更 → git 历史缺口静默)。改 `if add-fail / elif diff-quiet / else 原 commit 逻辑`。
+- 自测:`chmod 500 /tmp/c2-test/staticdata/.git` 后跑 → 输出「⚠ git add 失败」+ 无「✓ 无新变更」+ dry-run notify([告警] staticdata备份失败)+ heartbeat `result:"fail"` ✓
+
+### 改3 async 脚本仓库缺失 C-5(原静默 exit 0)
+- **改了什么**:两个候选仓库(`$STATICDATA_REPO` 与 `${GIT_REPO}-staticdata`)都不存在 → 原静默 `exit 0`(备份缺口无人知)。改为**降级 notify(不必 --severe,`--from-prefix "[通知]"`)+ 日志写清两个候选路径都查过(路径打出来)** + `--alert-issue "staticdata备份仓库缺失"` 镜像 latest.md + `--dedup-key staticdata_backup_repo_missing --dedup-window 21600`(6h 去重)。`_NOTIFY_DRY` 定义上移到仓库检查前(降级 notify 也走 dry-run 测试钩子)。
+- 自测:STATICDATA_REPO=/tmp/nonexist-aa + GIT_REPO 无 -staticdata 兄弟 → 日志「已查候选1: … / 候选2: …-staticdata」+ dry-run notify subject=[通知] staticdata 仓库不存在 + exit 0 + heartbeat 不动 ✓
+
+### 改4 C-3 心跳状态文件(async 脚本)
+- **改了什么**:新增心跳状态文件 `$REPO/data/staticdata_backup_heartbeat.json`(路径=schedule_monitor LOG_DIR 同约定,根 data/ 不进 git,deploy 只 add static-site/data/):
+  - 开始写 `{ts, result:"running"}`(放仓库存在性检查后:仓库缺失早退不写,留上次 ok 心跳自然变旧 → 触发 C3 停摆告警,防 running 卡死遮蔽);
+  - 结束写 `{ts, result:"ok"|"fail"|"skip_oversize", files, bytes, duration_s}`;
+  - **原子写**:写 `$REPO/data/.staticdata_backup_heartbeat.tmp.$$` 再 `mv`,禁止直接重定向(被 systemd 超时强杀会留半截,2026-09-21 signal_kelly_trades 半截先例);
+  - result 判定:STATICDATA_FAIL=1 → fail;`_OVERSIZE=1`(积压超阈值跳过 commit)→ skip_oversize;else ok。
+- 自测:正常路径 → heartbeat `{"result":"ok","files":44,"bytes":85438,"duration_s":6}` + push 到 bare origin 成功;无新变更 → `ok files=0`;oversize(5001 文件)→ `skip_oversize files=5001` 且无 commit ✓
+
+### 改5 schedule_monitor.sh C-3 心跳新鲜度检查
+- **改了什么**:python heredoc 恢复检测循环前插入检查块(复用 alerts 聚合 + alert_state suppress/恢复 + 下方恢复循环):
+  - 最近一次 `result ∈ {ok, skip_oversize}` 的 ts 距今 > **36h**(阈值注释写明实测依据 = staticdata 仓库最近 30 天最大 commit 间隔 1 天 → max(24h×1.5,36h)=36h)→ SEVERE(经 alerts 聚合,末段 notify.py `--alert-issue "计划任务监控告警"` 统一镜像 latest.md);
+  - suppress:已 active 不重发;恢复:心跳 fresh 后未 seen → 恢复循环自动发恢复邮件;
+  - **状态文件不存在 → 不告警**(优雅跳过,防上线即假 SEVERE,盲区写入注释;仓库缺失由 async 脚本改3 降级 notify 覆盖);
+  - `result=="fail"` / `"running"` 不告警(fail/skip_oversize 各自已有脚本内 --severe notify,不重复);
+  - **未动 `DUR_THRESHOLDS`**(约 L405,独立待办)。
+- 自测:独立提取 C3 块执行(不真发邮件):fresh ok <36h 不告警 ✓ / old ok 40h 告警 ✓ / old skip 50h 告警 ✓ / 文件不存在不告警 ✓ / fail old 不告警 ✓ / running old 不告警 ✓ / 首告警→active→suppress(第二次 0 告警)→fresh 恢复(0 告警 + 不 seen 交给恢复循环)✓
+
+### 自测命令与结果(汇总)
+```
+bash -n scripts/deploy.sh && bash -n scripts/staticdata_backup_async.sh && bash -n scripts/schedule_monitor.sh   # 三脚本 OK
+# 改1 四环境: /tmp/staticdata-test/trigger-harness.sh (RUNMODE=ok|sdfail|sudofail|local)
+# 改2 注入: STATICDATA_REPO=/tmp/c2-test/staticdata(.git chmod 500) 跑 async → FAIL+告警,无"✓ 无新变更"
+# 改3: STATICDATA_REPO=/tmp/nonexist-aa 跑 async → 降级 notify + 双候选路径列出
+# 改4: 正常/无变更/oversize 三跑 → heartbeat ok/ok-files0/skip_oversize
+# 改5: /tmp/staticdata-test/c3-test.py + c3-suppress-test.py(独立提取 C3 块执行)
+# notify 全程 STATICDATA_BACKUP_NOTIFY_DRY_RUN=1(dry-run 不真发); 未碰生产 staticdata 仓/生产 R2, 未跑真 deploy.sh, 未 ssh。
+```
+
+### 复现段(可 grep 自验)
+```
+# 本整改全部自测在 /tmp 完成(测试环境现留 /tmp/staticdata-test /tmp/c2-test /tmp/ok-test,可直接重跑):
+REPO=/tmp/staticdata-test/repo GIT_REPO=/tmp/staticdata-test/repo \
+STATICDATA_REPO=/tmp/ok-test/staticdata STATICDATA_BACKUP_LOCKED=1 \
+STATICDATA_BACKUP_NOTIFY_DRY_RUN=1 PY=/usr/bin/python3 \
+bash scripts/staticdata_backup_async.sh <trigger>    # 正常路径/无变更/oversize/C2注入/C5缺失
+# 改1 触发块四环境: RUNMODE=ok|sdfail|sudofail|local bash /tmp/staticdata-test/trigger-harness.sh
+# 改5 C3 块: python /tmp/staticdata-test/c3-test.py && python /tmp/staticdata-test/c3-suppress-test.py
+# grep 锚点(改动落点):
+grep -n "staticdata_backup_trigger_fail" scripts/deploy.sh            # 改1 告警 dedup-key
+grep -n "PIPESTATUS\[0\]" scripts/staticdata_backup_async.sh          # 改2/改1 真实退出码判定
+grep -n "staticdata_backup_repo_missing" scripts/staticdata_backup_async.sh  # 改3 C-5 降级 notify
+grep -n "staticdata_backup_heartbeat.json" scripts/staticdata_backup_async.sh scripts/schedule_monitor.sh  # 改4/改5 心跳
+grep -n "STATICDATA_HB_STALE" scripts/schedule_monitor.sh             # 改5 36h 阈值
+```
