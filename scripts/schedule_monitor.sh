@@ -1046,6 +1046,58 @@ for _label in LAUNCHCTL_LABELS:
             f"last_alerted={_existing.get('last_alerted')}, 不重发"
         )
 
+# ── C3 staticdata 备份心跳新鲜度检查(2026-09-25 审查整改) ──
+# 背景: staticdata 灾备第2层备份已拆异步(scripts/staticdata_backup_async.sh), 若异步任务
+# 停摆(触发失败/脚本崩/锁死)将无声无息 → 用其心跳状态文件做新鲜度兜底告警。
+# 阈值依据(C-3 实测): staticdata 仓库最近 30 天最大 commit 间隔 = 1 天
+#   → 阈值 = max(24h × 1.5, 36h) = 36h。超过 36h 无 ok/skip_oversize 完成 = 备份停摆。
+# 状态文件不存在 → 不告警(优雅跳过, 防上线即假 SEVERE): 仓库缺失另有独立降级 notify
+#   (async 脚本 C-5, --alert-issue 镜像 latest.md), 此处对缺失状态不发 SEVERE。
+# result=="fail" / "skip_oversize" 本身已有各自 notify(脚本内 --severe), 不重复告警:
+#   本检查只看「最近一次 ok/skip_oversize 完成」的新鲜度, 不看 fail/running。
+STATICDATA_HB_FILE = REPO / "data" / "staticdata_backup_heartbeat.json"
+STATICDATA_HB_STALE = timedelta(hours=36)  # C-3 阈值 36h(见上注释)
+if STATICDATA_HB_FILE.exists():
+    try:
+        with open(STATICDATA_HB_FILE, encoding="utf-8") as _f:
+            _hb = json.load(_f)
+        _hb_result = _hb.get("result")
+        _hb_ts = _hb.get("ts")
+        if _hb_result in ("ok", "skip_oversize") and _hb_ts:
+            _hb_dt = datetime.strptime(_hb_ts, "%Y-%m-%d %H:%M:%S")
+            _hb_age_h = int((NOW - _hb_dt).total_seconds() // 3600)
+            if NOW - _hb_dt > STATICDATA_HB_STALE:
+                _hb_key = "staticdata_backup_stale"
+                seen_keys_this_run.add(_hb_key)  # 标记本次仍存在, 防误报恢复
+                _hb_existing = alert_state.get(_hb_key)
+                if _hb_existing is None or _hb_existing.get("status") != "active":
+                    # 首次发现 或 恢复后再次出现 = 发 SEVERE + 写 state
+                    alerts.append(
+                        f"SEVERE: staticdata_backup staticdata 异步备份停摆 "
+                        f"最近完成<{_hb_result}> 距今{_hb_age_h}h "
+                        f"(>{int(STATICDATA_HB_STALE.total_seconds()//3600)}h 阈值) 备份时间<{_hb_ts}>"
+                    )
+                    alert_state[_hb_key] = {
+                        "status": "active",
+                        "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                        "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                        "keyword": f"hb_stale_{_hb_result}",
+                        "line_sample": f"last_ok={_hb_ts}",
+                    }
+                else:
+                    # 已 active = 抑制不重发, 只 log(恢复由下方恢复检测循环处理:
+                    # 心跳恢复 fresh 后未 seen → 自动发恢复邮件)
+                    print(
+                        f"[suppress] staticdata_backup 异步备份停摆持续中, "
+                        f"last_alerted={_hb_existing.get('last_alerted')}, 不重发"
+                    )
+    except (ValueError, TypeError, KeyError) as _e:
+        # 心跳格式异常/解析失败: 按无有效状态处理, 不告警(防上线即假 SEVERE, 盲区写入注释)。
+        print(f"[warn] staticdata 备份心跳解析失败(按无有效状态跳过): {_e}", file=sys.stderr)
+else:
+    # 状态文件不存在 → 不告警(盲区: 仓库缺失/首跑前无法判断停摆; 由 async 脚本 C-5 降级 notify 覆盖)
+    print("[info] staticdata 备份心跳文件不存在, 跳过停摆检查(仓库缺失/首跑前, C-5 降级 notify 覆盖)")
+
 # 恢复检测: state 里 active 但本次未 seen = 异常已消失,发恢复邮件
 # (gen_schedule_stats 每任务只记首个命中,故每 task 至多1个 active key)
 # 漏跑 key(missed|...) 特殊处理: 不发恢复邮件(漏跑补跑不需通知, 任务补跑 stats
