@@ -193,5 +193,8 @@
   ],
   "20260924-a616": [
     "fix(overview): \u805a\u5408\u5361\u63d2\u5165\u5fc5\u987b\u5148 append grid \u518d insertBefore(#74 \u81ea\u9a8c\u4fee\u590d)"
+  ],
+  "20260925-a619": [
+    "docs(ops): tiercard-kpirow reviewer delta \u590d\u9a8c(dragstart \u5b88\u536b)\u8ffd\u52a0 2026-09-25"
   ]
 }
