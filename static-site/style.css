@@ -3026,13 +3026,34 @@ main { padding: 16px 24px; }
 }
 .summary-chips-top { color: var(--text-2); }
 .summary-chips-top > span { font-weight: 500; }
-/* #74 8 宽基四档聚合卡(首页第一张卡, 2026-09-24): 标题带数据日期, 档位行 flex-wrap 窄屏换行不撑破 */
-.tier-card h3 { font-size: 14px; }
-.tier-card .tier-card-summary { font-size: 13px; color: var(--text-2); margin: 0 0 6px; line-height: 1.5; }
-.tier-card .tier-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; padding: 3px 0; font-size: 13px; line-height: 1.6; }
-.tier-card .tier-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 10px; }
-.tier-card .tier-name { font-weight: 600; flex: 0 0 auto; }
-.tier-card .tier-indices { color: var(--text-1); }
+/* #74 8 宽基四档聚合卡(KPI 行首张, 2026-09-25): 复用 .card.kpi 外观, flex:2 1 300px 占 2 格宽与 KPI 卡同高。
+   三行结构(card-title/tier-value/card-sub)对齐 KPI 卡纵向节奏; hover 浮层展示 4 档各自具体指数(hover 口)。
+   注意: .card.kpi 选择器 specificity(0,2,0) 高于单 .tier-card(0,1,0), 覆盖 flex 必须用 .card.kpi.tier-card(0,3,0);
+   不加 .tier-tooltip 触发类(.kpi-fg-tooltip 之类), hover 浮层纯 CSS 实现, 不与 KPI 卡 .hover-active 交互打架。 */
+.card.kpi.tier-card { flex: 2 1 300px; min-width: 0; }
+.tier-card .tier-title { text-overflow: ellipsis; }
+.tier-card .tier-date { color: var(--text-4); font-size: 11px; font-weight: 400; white-space: nowrap; }
+.tier-card .tier-value { display: flex; align-items: center; gap: 8px; margin: 4px 0; min-height: 24px; }
+.tier-card .tier-chip { font-size: 13px; color: var(--text-2); font-weight: 500; white-space: nowrap; }
+.tier-card .tier-sub { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* hover 明细浮层: 与 KPI 卡 .kpi-fg-tooltip 同模式(absolute overlay, 覆盖整卡, hover 显示) */
+.tier-card .tier-tooltip {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; flex-direction: column; justify-content: center; gap: 5px;
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border-radius: inherit;
+  opacity: 0; visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  pointer-events: none;
+  overflow: hidden;
+}
+.tier-card:hover .tier-tooltip { opacity: 1; visibility: visible; }
+.tier-card .tier-tooltip-title { font-size: 11px; color: var(--text-3); text-align: center; margin-bottom: 2px; font-weight: 600; }
+.tier-card .tier-detail-row { display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 1.5; }
+.tier-card .tier-detail-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
+.tier-card .tier-detail-name { font-weight: 600; flex: 0 0 auto; }
+.tier-card .tier-detail-indices { color: var(--text-2); }
 .summary-tag {
   flex-shrink: 0;
   background: var(--primary);

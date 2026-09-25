@@ -12227,16 +12227,23 @@ function _renderIndexTiersChip(tiers) {
   }).join("");
   return `<span class="summary-chip" title="${_INDEX_TIERS_TIP}">${dots}${s.chipText}</span>`;
 }
-// 首页聚合卡: 只渲染"有指数在"的档位行; 全同档收成一行(不出分组表); 标题带数据日期。
+// 首页聚合卡 → KPI 行首张(2026-09-25 用户拍板): 复用 .card.kpi 外观(玻璃拟态/金条/左色条/hover 上浮),
+// 三行结构 card-title/tier-value/card-sub 与 KPI 卡同高, flex:2 1 300px 占 2 格宽。
+// 8 色点固定顺序(与横幅 _renderIndexTiersChip 同口径同序); 完整档位明细收进 hover 浮层(信息不丢)。
 function _renderIndexTiersCard(tiers) {
   const s = _indexTiersSummarize(tiers);
   if (!s) return "";
   const dateStr = s.maxDate ? fmtDate(s.maxDate) : "";
-  const rows = s.groups.map(([tier, ids]) => {
-    const color = _TIER_COLORS[tier] || "#9aa0a6";
-    return `<div class="tier-row"><span class="tier-dot" style="background:${color}"></span><span class="tier-name" style="color:${color}">${tier}</span><span class="tier-indices">${ids.map((iid) => _INDEX_NAME_MAP[iid] || iid).join("  ")}</span></div>`;
+  const dots = _INDEX_TIERS_DOT_ORDER.map((iid) => {
+    const v = tiers[iid];
+    const c = v && v.tier ? (_TIER_COLORS[v.tier] || "#9aa0a6") : "#9aa0a6";
+    return `<i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};margin-right:3px;vertical-align:middle"></i>`;
   }).join("");
-  return `<div class="chart-card tier-card"><h3 title="${_INDEX_TIERS_TIP}">各指数四档状态${dateStr ? `<span class="chart-latest"> · ${dateStr} 收盘</span>` : ""}</h3><div class="tier-card-summary">${s.groups.length > 1 ? "⚠ " : ""}${s.cardSummary}</div>${s.groups.length > 1 ? rows : ""}</div>`;
+  const detailRows = s.groups.map(([tier, ids]) => {
+    const color = _TIER_COLORS[tier] || "#9aa0a6";
+    return `<div class="tier-detail-row"><i class="tier-detail-dot" style="background:${color}"></i><span class="tier-detail-name" style="color:${color}">${tier}</span><span class="tier-detail-indices">${ids.map((iid) => _INDEX_NAME_MAP[iid] || iid).join(" · ")}</span></div>`;
+  }).join("");
+  return `<div class="card kpi tier-card" title="${_INDEX_TIERS_TIP}"><div class="card-title tier-title">各指数四档状态${dateStr ? `<span class="tier-date"> · ${dateStr} 收盘</span>` : ""}</div><div class="tier-value">${dots}<span class="tier-chip">${s.chipText}</span></div><div class="card-sub tier-sub">${s.groups.length > 1 ? "⚠ " : ""}${s.cardSummary}</div><div class="tier-tooltip"><div class="tier-tooltip-title">各指数四档分布</div>${detailRows}</div></div>`;
 }
 
 // 收盘分析横幅/历史弹窗共用的指标 chips 渲染（双版一致）。
@@ -16332,7 +16339,7 @@ async function renderOverview() {
     cards.addEventListener("dragover", (e) => {
       if (!_draggedKpi) return;
       const c = e.target.closest(".card.kpi");
-      if (!c) return;
+      if (!c || !c.dataset.kpiKey) return; // 四档卡(无 data-kpi-key)不作拖放目标, 固定首张
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
       cards.querySelectorAll(".card.kpi.drag-over").forEach(x => x.classList.remove("drag-over"));
@@ -16341,7 +16348,7 @@ async function renderOverview() {
     cards.addEventListener("drop", (e) => {
       if (!_draggedKpi) return;
       const c = e.target.closest(".card.kpi");
-      if (!c || c === _draggedKpi) return;
+      if (!c || c === _draggedKpi || !c.dataset.kpiKey) return; // 四档卡(无 data-kpi-key)不作拖放目标
       e.preventDefault();
       // 鼠标落在目标卡左半=插前, 右半=插后
       const rect = c.getBoundingClientRect();
@@ -16412,16 +16419,18 @@ async function renderOverview() {
   await loadEcharts();   // 方案A: sparkline 改 echarts 需就绪；亦为后续 lineChart(恐贪/A股情绪分)+盘中分时图(renderIntradaySection)就绪
   const grid = document.createElement("div");
   grid.className = "spark-grid";
-  // #74 8 宽基四档聚合卡: banner 之后第一张独立卡(banner→新闻行→本卡→指数 sparkline)。
-  // 先 append grid 再 insertBefore 卡片到 grid 前(insertBefore 前置节点必须已在 content 中, 否则抛 DOMException)。
+  // #74 8 宽基四档聚合卡 → KPI 行首张(2026-09-25 用户拍板): 插到 cards 首位(cards 已在 16358 append 入 content)。
+  // 四档卡带 .card.kpi 但无 data-kpi-key: 不参与 KPI 拖拽排序持久化; drag drop/dragover 已排除无 key 卡,
+  // 它固定首张不被挤走; 折叠 _kpiCollapsedMaxHeight 会把它算进第一行(完整可见), 插入后重算一次裁剪。
   // r.index_tiers 缺失(旧产物)时 _renderIndexTiersCard 返回 "" → 整卡隐藏不渲染不报错。
-  content.appendChild(grid);
   const _tierCardHtml = _renderIndexTiersCard(r.index_tiers);
   if (_tierCardHtml) {
     const _tierCard = document.createElement("div");
     _tierCard.innerHTML = _tierCardHtml;
-    content.insertBefore(_tierCard.firstChild, grid);
+    cards.insertBefore(_tierCard.firstChild, cards.firstChild);
+    if (_applyKpiCollapse) _applyKpiCollapse(); // 四档卡入行后重算折叠裁剪(它在第一行, 完整可见)
   }
+  content.appendChild(grid);
   const _sparkDynIds = [];
   for (const [sparkId, idx] of Object.entries(r.indices_sparkline || {})) {
     if (!idx.closes || !idx.closes.length) continue;
