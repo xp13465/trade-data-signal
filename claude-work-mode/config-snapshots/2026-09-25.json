@@ -1,0 +1,7 @@
+{
+  "date": "2026-09-25",
+  "model": "deepseek-v4-pro",
+  "subagent_model": "deepseek-v4-flash",
+  "base_url": "http://127.0.0.1:8899",
+  "_note": "去敏快照,只含端点三字段;不落 token(防 GitHub Push Protection)"
+}
