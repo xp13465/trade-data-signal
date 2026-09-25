@@ -94,3 +94,68 @@ STATICDATA_REPO=/tmp/sdfixC REPO=/tmp/sdfixFempty PY=/Users/linhuichen/code/trad
 - 复现测试需:本地 `/Users/linhuichen/code/trade/.venv/bin/python`(with_lock.py re-exec 用),四个 /tmp 临时 git 仓库(sdfixC/sdfixD/sdfixE 均 init+commit 一次),REPO 侧 runs 目录按需 seed 或留空。
 - 测试命令与断言见上文「自测命令与原始输出」。全部命令不改生产静态数据仓库,`STATICDATA_REPO` 只指 /tmp;生产部署由 `deploy.sh` 触发,不受本测试影响。
 - 配套 commit 含本实施文档 + 脚本 pipefail 改动 + 两份 review 文档并入(feat/staticdata-backup-async 分支)。
+
+## 复验(2da9db159) · 静态层
+
+独立 reviewer 静态复核(2026-09-25,只读代码,未跑测试脚本、未建临时仓库、无任何 .git 写操作)。
+
+### 1. diff 洁净度:PASS
+
+`git show 2da9db159 -- scripts/staticdata_backup_async.sh` = 仅在 `set -u` 下方新增 4 行注释 + `set -o pipefail`,共 5 行,无夹带。
+`git diff b13c7853d 2da9db159 -- scripts/staticdata_backup_async.sh` 与上一命令同(只有这 5 行增量),确认 b13c7853d 的 C-1~C-5 既有整改(C-5 仓库缺失降级/C-3 心跳/_hb_write/C-2 add 退出码判定/PIPESTATUS 双保险)未被误改或回退。
+
+### 2. 文档并入逐字节一致:PASS
+
+- `git diff 2262ddf10 2da9db159 -- docs/ops/staticdata-backup-async-review-2026-09-25.md` → 无输出
+- `git diff 3296c162f 2da9db159 -- docs/ops/staticdata-backup-async-review-tests-2026-09-25.md` → 无输出
+
+两份 review 文档与来源 commit 完全一致,逐字节并入无漂移。
+
+### 3. 27 处 | tee 管道审计复核:PASS
+
+`git show 2da9db159:scripts/staticdata_backup_async.sh | grep -n "| tee"` 排除新增注释 3 行,实际 27 处,逐一核对:
+
+- **20 处 echo 纯日志管道**(L66/67/88/103/111/119/122/132/138/141/157/160/181/183/192/207/223/229/247/250):echo 恒 0,pipefail 添加后管道退出码仍 0,无误伤。
+- **3 处 notify `| tee ... || true`**(L107 仓库缺失降级/L187 超阈值跳过/L246 备份失败告警):notify 失败不置位、不中断主链是良性,`|| true` 语义在 pipefail 下仍兜底,语义不变。
+- **2 处 rsync `| tee ... || { echo ...; STATICDATA_FAIL=1; }`**(L118 DB、L137 JSON):pipefail 让 rsync 失败正确进入 `||` 块置 FAIL。这正是本次修复目标(修复前管道退出码=tee 恒 0,`||` 永不触发,rsync 失败被静默吞掉)。这两个 `|| { STATICDATA_FAIL=1 }` 块在 b13c7853d 已存在(非本次新增),本次是把它们从"永不触发"变"真正生效"。
+- **1 处 git add**(L151):pipefail 后 `git add ... | tee` 管道退出码=git add 的 rc;既有 L152 `if [ "${PIPESTATUS[0]:-0}" -ne 0 ]` 双保险保留且与 pipefail 取值一致不冲突(pipefail 改的是管道整体退出码,PIPESTATUS[0] 读首命令 rc,两者同时成立,行为正确)。
+- **1 处 git commit**(L191): `if ! git -C ... commit ... 2>&1 | tee -a "$LOG"; then` → pipefail 下 commit 失败时管道非 0,`if !` 正确进 then 分支置 FAIL(best-effort)。
+
+无"首命令非 0 退出属预期"的管道被误触发 `||` 处理器或 `if !` 分支。
+
+### 4. 非 tee 管道审计:PASS
+
+grep 全部 `|[^|]` 含"命令替换内管道"两处,pipefail 对它们无实质影响:
+
+- **L163** `_N=$(printf '%s\n' "$_CHANGED" | grep -c . || true)`:命令替换在赋值上下文,内部管道末尾 `|| true` 兜底,且 grep -c 有匹配即 0,行为不变。
+- **L190** `_BODY=$(printf '%s\n' "$_CHANGED" | sed ... | sort | uniq -c | sort -rn | head -5 | awk ...)`:命令替换内管道,赋值语句退出码=命令替换退出码(取最后命令 awk 的 rc,恒 0);pipefail 下中间命令失败也只影响该命令替换(不进 `if`/`||`,无 set -e),不中断脚本。行为不变。
+- L130 `sed 's|/Users/linhuichen|...|'` 中的 `|` 是 sed 分隔符非管道,grep 误匹配,无影响。
+- bg push 段 `wait "$_push_pid"` 单命令取 rc,非管道,pipefail 不涉及。
+
+### 5. 行为变更影响面(§15 重点):PASS
+
+加 pipefail 后:正常路径行为不变(echo 恒 0、rsync/add/commit 成功 rc=0);失败路径从"静默通过(tee 恒 0)"变"置 STATICDATA_FAIL=1 + --severe 告警 + 心跳 fail"。逐场景评估"会不会误报":
+
+- **rsync 返回非 0 但无害**:唯一现实场景是 rsync code 23(partial transfer)或 24(vanish),多为源文件在备份期间被并发写/个别文件瞬时不可读。但:①备份为异步任务,deploy.lock 持锁等 deploy 退出后才 rsync,源码并发窗口极小;②即便偶发 code 23,备份确实不完整,触发告警+心跳 fail 符合 C-3 设计意图(宁可告警让 C-3 不重复炸,也不能静默写 ok)= **不算误报,性质是"该报的报"**。dedup 1h 限频。
+- **git commit 无变更返回非 0**:**已有守卫**——L159 `elif git -C "$STATICDATA_REPO" diff --cached --quiet 2>/dev/null; then echo "✓ staticdata 无新变更,跳过 commit"`。无变更时走此 elif 分支,根本不进 commit(`if ! ... commit` 在 else 分支内)**不会出现"无变更→commit 返回 1→误置 FAIL"**。
+- **git add 失败**:真实失败(索引写不了),置 FAIL 符合 C-2 整改目标,非误报。
+- **push 失败/超时**:真实失败(远端不可达),且既有 900s 超时 kill 保护链路未受影响。
+- **notify 失败**:`|| true` 兜底,不置 FAIL,不误报。
+
+结论:**无实质误报场景**——正常路径不变,唯一"非 0 但可能无害"的 rsync code 23 属"备份不完整该看见",方向正确;commit 无变更场景已被 diff --cached --quiet 守卫挡在 commit 之前,不会误置 FAIL。
+
+### 6. 注释准确性(小 nit,裁定)
+
+新增注释第 4 行"其余均为 echo 纯日志管道, 无误伤"在字面上不准确:除 notify 3 处外,实际 27 处 | tee 里还有 2 处 rsync + 1 处 git add + 1 处 git commit 共 4 处非管道。但上下文本身已在前文(commit message 及实施文档审计表)把这 4 处单独点明,现在注释这行属于"审计结论压缩"时把非 echo 的四处误合并进"其余均为 echo"。**裁定:建议改,但不阻塞本 commit**(可下个 commit 顺手),理由:①注释是对代码读者的承诺,把 rsync/commit 说成"纯 echo"误导后来者以为这 4 处无需关注;改为"其余为 20 处 echo + 2 处 rsync + 1 处 git add + 1 处 git commit,均已核对"更严谨。②改动成本 1 行,零风险。按 §10.2 属 50 分 nit(不重要但表述真实可改),不进阻塞性 finding。
+
+### 7. 语法:PASS
+
+`git show 2da9db159:scripts/staticdata_backup_async.sh > /tmp/sdreview-pf.sh && bash -n /tmp/sdreview-pf.sh` → SYNTAX-OK
+
+### 8. §24/§8 无关性:PASS
+
+`git show 2da9db159 --stat` 文件清单仅 `scripts/staticdata_backup_async.sh`(5 行)+ 3 份 docs/ops/*.md(实施文档 96 行 + 并入 review 56 行 + 并入 tests 167 行)。**无任何前端文件**(app.js/lab.js/common.js/style.css/index.html 均不在 diff),无版本串/bump 的 concern。不需要 bump 版本串 / build_min。§22 数据一致性不涉及(本次无数据产物)。
+
+## 复验结论
+
+8 项全部 PASS;0 FAIL 0 存疑。唯一建议:第 6 项注释措辞可优化(不阻塞,实施侧下一步可顺手);§15 影响面已确认 OK(调用方 deploy.sh 异步触发、退出码不因本次改动产生误报;新增 FAIL 告警 → notify dedup 限频 + 心跳 fail 是修复目标本身)。
