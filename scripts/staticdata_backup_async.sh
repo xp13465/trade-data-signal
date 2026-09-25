@@ -17,7 +17,7 @@
 #     并发写同一 staticdata git 仓库(git index.lock 冲突 + add 半截 JSON)。deploy 触发本
 #     脚本时锁仍被 deploy 持有 → with_lock 阻塞等到 deploy 退出(秒级)再开跑, 零并发写;
 #     多次触发(如 17:50 async 还在跑时 20:07 etf deploy 又触发)→ with_lock 排队, 不并发。
-#   - 积压兜底: 待提交变更 >5000 文件 或 总字节 >300MB → 仅 rsync 磁盘留档 + 告警,
+#   - 积压兜底: 待提交变更 >5000 文件 或 总字节 >500MB → 仅 rsync 磁盘留档 + 告警,
 #     跳过 git commit/push(次日 deploy 的 rsync 全量自然追平, 数据不丢; 防大 push 拖死
 #     async 自身 + git gc 膨胀)。
 #   - 失败必须告警(不静默): notify.py --severe + --alert-issue(写 data/alerts/latest.md),
@@ -33,7 +33,8 @@ set -u
 # pipefail(2026-09-25 审查整改补): 管道退出码取首命令而非 `| tee` 的 tee(恒 0),
 # 防 `cmd | tee` 首命令失败(rsync DB/JSON、git commit)被静默吞掉 → 心跳照写 ok,
 # 新加的 C-3「36h 无 ok 告警」永不触发。审计全部 | tee 管道: notify 三处带 `|| true`
-# (notify 失败不置位是良性, 语义不变); 其余均为 echo 纯日志管道, 无误伤。
+# (notify 失败不置位是良性, 语义不变); 其余非 echo 管道共 4 处: rsync DB(L118)/rsync JSON(L136)/
+# git add(L151, PIPESTATUS[0] 判定)/git commit(L191)——均已在各步显式判定退出码; echo 纯日志管道无误伤。
 set -o pipefail
 # 不 set -e: 每步显式判退出码(best-effort, 失败不中断后续步骤)。
 
@@ -140,10 +141,36 @@ rsync -a \
 }
 echo "  [step3 JSON rsync] $(( $(date +%s) - _STEP_START ))s" | tee -a "$LOG"
 
+# 3.5 大 JSON 移出 staticdata git + R2 私有桶备份(2026-09-25, feat/large-json-r2-core)
+# 背景: 7 个大 JSON(>20MB, ~320MB)天天变天天进 delta, .git 膨胀 3.3G, 9-25 撞 >300MB 积压阈值跳过 commit。
+# 本步 = 排除规则单一源 large_json_excludes.py 维护 .gitignore 受管区块(幂等, 精确路径 /data/...),
+# 再 upload_r2.py upload-large-json 按 large-json/<YYYY-MM-DD>/<相对data路径>.gz gzip 上传私有桶
+# signal-backup(幂等: 内容没变跳过 PUT)+ 日14天/周8周/月12月滚动保留 + 自动重写 docs/large-json-backup-manifest.md。
+# 失败不阻塞后续 git 步骤(大文件仍在 git 由原链路兜底), 置 STATICDATA_FAIL=1 进心跳与严重告警。
+# 注意: git rm --cached(真正移出 git)由一次性迁移脚本 migrate_large_json_out_of_git.sh 完成,
+# 本步只保证 .gitignore 区块最新(防已排除文件被 git add -A 重新纳入) + R2 备份持续。
+_STEP_START=$(date +%s)
+if "$PY" "$GIT_REPO/scripts/large_json_excludes.py" --repo "$STATICDATA_REPO" 2>&1 | tee -a "$LOG"; then
+  echo "  [step3.5a large-json .gitignore 区块] ✓" | tee -a "$LOG"
+else
+  echo "⚠ large_json_excludes.py 维护 .gitignore 受管区块失败, 不阻塞" | tee -a "$LOG"
+  STATICDATA_FAIL=1
+fi
+if STATICDATA_REPO="$STATICDATA_REPO" GIT_REPO="$GIT_REPO" "$PY" "$GIT_REPO/scripts/upload_r2.py" upload-large-json 2>&1 | tee -a "$LOG"; then
+  echo "  [step3.5b large-json R2 上传] ✓" | tee -a "$LOG"
+else
+  echo "⚠ upload_r2.py upload-large-json 失败, 不阻塞" | tee -a "$LOG"
+  STATICDATA_FAIL=1
+fi
+echo "  [step3.5 large-json 排除+R2] $(( $(date +%s) - _STEP_START ))s" | tee -a "$LOG"
+
 # 4. git commit + push（差异化日志，best-effort）——积压超阈值跳过 commit 仅磁盘留档
 # 阈值依据(researcher 报告 update-all-staticdata-backup-eval-20260925.md): 正常日 58~487 文件
 # ≈22min 固定开销; 9-22 积压 25789 文件 ≈70-75min(rsync 拉长 + push 7min + GitHub 大文件警告)。
-# >5000 文件 或 变更文件当前总字节 >300MB → 跳过 commit/push, 仅 rsync 磁盘留档 + 告警;
+#   - 积压兜底阈值 500MB(2026-09-25 抬升, feat/large-json-r2-core): 7 个大 JSON(~320MB, 天天
+#     变天天进 delta)已移出 staticdata git、改走 R2 私有桶 large-json/ 每日备份(见 step3.5),
+#     正常日变更字节不再触 300MB; 抬到 500MB 给异常日留余量(如首跑大回填), 防误触跳过 commit。
+#     >5000 文件 或 变更文件当前总字节 >500MB → 跳过 commit/push, 仅 rsync 磁盘留档 + 告警;
 # 次日 deploy 的 rsync 全量自然追平 git, 数据不丢, 只 git 历史缺一档(防大 push 拖死 async 自身)。
 # 字节口径 = 变更文件当前 wc -c 总和(保守估计: 大 JSON 即使只改 100B 也按全文件计, 与 GitHub
 # 仓库膨胀口径一致, 宁高勿低触发跳过)。
@@ -176,13 +203,13 @@ else
         _BYTES=$((_BYTES + _sz))
       fi
     done <<< "$_CHANGED"
-    [ "$_BYTES" -gt 300000000 ] && _OVERSIZE=1
+    [ "$_BYTES" -gt 500000000 ] && _OVERSIZE=1
   fi
   echo "  [变更量] 文件数=$_N 字节=$_BYTES 超阈值=$_OVERSIZE" | tee -a "$LOG"
   if [ "$_OVERSIZE" = "1" ]; then
-    echo "⚠ 变更量超阈值(文件=$_N >5000 或 字节=$_BYTES >300MB), 跳过 commit/push 仅磁盘留档(积压兜底)" | tee -a "$LOG"
+    echo "⚠ 变更量超阈值(文件=$_N >5000 或 字节=$_BYTES >500MB), 跳过 commit/push 仅磁盘留档(积压兜底)" | tee -a "$LOG"
     "$PY" "$REPO/scripts/notify.py" "[告警] staticdata 变更量超阈值跳过 commit" \
-      "staticdata 备份变更量超阈值(文件 ${_N} >5000 或 字节 ${_BYTES} >300MB), 本次仅 rsync 磁盘留档未 commit/push。<br>数据已在 $STATICDATA_REPO/data/ 与 db/ 磁盘留档(灾备第1/2层安全), 次日 deploy 的 rsync 全量自然追平 git。<br>如连续多日触发, 需评估: 是否大 JSON 需入 .gitignore(>50MB 先例 signal_kelly_trades*.json)<br>日志: $LOG" \
+      "staticdata 备份变更量超阈值(文件 ${_N} >5000 或 字节 ${_BYTES} >500MB), 本次仅 rsync 磁盘留档未 commit/push。<br>数据已在 $STATICDATA_REPO/data/ 与 db/ 磁盘留档(灾备第1/2层安全), 次日 deploy 的 rsync 全量自然追平 git。<br>如连续多日触发, 需评估: 是否大 JSON 需入 .gitignore(>50MB 先例 signal_kelly_trades*.json)<br>日志: $LOG" \
       --severe --from-prefix "[告警]" --alert-issue "staticdata备份变更量超阈值跳过commit" --alert-log "$LOG" \
       --dedup-key "staticdata_backup_oversize_skip" --dedup-window 21600 "${_NOTIFY_DRY[@]}" 2>&1 | tee -a "$LOG" || true
   else

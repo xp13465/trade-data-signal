@@ -43,7 +43,8 @@ _RAW_REPO = os.environ.get("REPO")            # 原始 env,捕获时机早于 lo
 REPO_EXPLICIT = bool(_RAW_REPO)
 
 # A 类与 REPO 无关(读显式路径或私有桶固定 key)→ 放行
-_A_CLASS = {"list", "upload", "upload-claude-backup", "upload-decommissioned", "download-db", "delete", "clean-data-backup"}
+# upload-large-json(2026-09-25): 读 STATICDATA_REPO 显式路径 + 私有桶 signal-backup 固定 key, 与 REPO/STATIC_DIR 无关 → A 类
+_A_CLASS = {"list", "upload", "upload-claude-backup", "upload-decommissioned", "download-db", "delete", "clean-data-backup", "upload-large-json"}
 # B 类 design 合法回退:生成器按 __file__ 写 trade 树,trade-data 侧天然缺/滞后(update_lab.sh rsync 补偿)→ 白名单放行
 _TRADE_FALLBACK_OK = {"upload-lab", "upload-trade-sim", "upload-trade-sim-json"}
 
@@ -2035,6 +2036,175 @@ def cmd_download_latest_db(name, out_dir=None):
     return str(db_path)
 
 
+def _large_json_staticdata_repo():
+    """解析 staticdata 备份 git 仓库路径(env STATICDATA_REPO > 默认), 云上单仓回退(同
+    staticdata_backup_async.sh L50-52 / large_json_excludes.py)。"""
+    repo = Path(os.environ.get("STATICDATA_REPO", "/Users/linhuichen/code/trade-data-signal-staticdata"))
+    if not (repo / ".git").is_dir():
+        git_repo = os.environ.get("GIT_REPO", "")
+        if git_repo and Path(f"{git_repo}-staticdata/.git").is_dir():
+            repo = Path(f"{git_repo}-staticdata")
+    if not (repo / ".git").is_dir():
+        sys.exit(f"✗ staticdata 仓库不存在(.git 缺失): {repo}")
+    return repo
+
+
+def _tier_of_today(today_str):
+    """保留档位判定: 日(总是) + 周(周日那份) + 月(每月1号那份)。"""
+    import datetime as _dt
+    d = _dt.datetime.strptime(today_str, "%Y-%m-%d").date()
+    tier = ["日"]
+    if d.isoweekday() == 7:
+        tier.append("周")
+    if d.day == 1:
+        tier.append("月")
+    return "+".join(tier)
+
+
+def _prune_large_json(bucket=None):
+    """large-json/ 前缀分层滚动清理(复用 _list_keys 列取 + _prune_layer 逐 key DELETE 模式,
+    DB 备份 backup/ weekly/ monthly/ 三层独立清理同构; key 日期在目录前缀故不能用 _prune_layer 正则):
+
+      - 日档: 保留最近 14 天(含今天)的 large-json/<YYYY-MM-DD>/ 目录。
+      - 周档: 周日生成的目录, 保留最近 8 个存在的周日目录(ISO 周日=一周最后一天)。
+      - 月档: 每月1号生成的目录, 保留最近 12 个存在的1号目录。
+    任一目录被任一层保留 = 整目录 key 保留; 否则 DELETE(幂等, 重跑无害)。"""
+    import re
+    import datetime as _dt
+    bkt = bucket or BACKUP_BUCKET
+    keys = _list_keys("large-json/", bucket=bkt)
+    by_date = {}
+    for k in keys:
+        m = re.match(r"large-json/(\d{4}-\d{2}-\d{2})/", k)
+        if m:
+            by_date.setdefault(m.group(1), []).append(k)
+    if not by_date:
+        return 0
+    dates = sorted(by_date)
+    today = _dt.datetime.now().date()
+    keep = set()
+    # 日档: 最近 14 天(含今天)
+    for d in dates:
+        dd = _dt.datetime.strptime(d, "%Y-%m-%d").date()
+        if (today - dd).days < 14:
+            keep.add(d)
+    # 周档: 最近 8 个存在的周日目录
+    sundays = [d for d in dates
+               if _dt.datetime.strptime(d, "%Y-%m-%d").date().isoweekday() == 7]
+    keep.update(sundays[-8:])
+    # 月档: 最近 12 个存在的每月1号目录
+    firsts = [d for d in dates if d.endswith("-01")]
+    keep.update(firsts[-12:])
+    deleted = 0
+    for d in dates:
+        if d in keep:
+            continue
+        for k in by_date[d]:
+            st, _ = s3_request("DELETE", k, bucket=bkt, keep_alive=True)
+            if st in (204, 404):
+                deleted += 1
+            else:
+                print(f"  ⚠ 删除失败 {bkt}/{k} status={st}")
+    if deleted:
+        print(f"{bkt} large-json/ 滚动清理共 {deleted} 个旧 key(保留 {len(keep)} 个目录: 日14天+周8周+月12月)")
+    return deleted
+
+
+def _write_large_json_manifest(rows, today_str):
+    """自动重写 docs/large-json-backup-manifest.md(排除对象 ↔ R2 副本索引, 不手工维护)。"""
+    import datetime as _dt
+    out = ROOT / "docs" / "large-json-backup-manifest.md"
+    now = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    tier = _tier_of_today(today_str)
+    lines = [
+        "# large-json 备份清单(large-json-backup-manifest)",
+        "",
+        f"> 由 `scripts/upload_r2.py upload-large-json` 自动生成({now}), 勿手改。",
+        "",
+        "大 JSON(staticdata 备份 git 排除对象, >20MB)走 R2 私有桶 `signal-backup`",
+        "`large-json/<YYYY-MM-DD>/<相对data路径>.gz` 每日 gzip 备份。",
+        "滚动保留: 日档 14 天 + 周档(周日那份) 8 周 + 月档(每月1号那份) 12 个月。",
+        "",
+        "| 相对 data/ 路径 | 完整字节 | sha256 | 最新 R2 key | 保留档位 | 生成时间 |",
+        "|---|---|---|---|---|---|",
+    ]
+    for relpath, size, sha, key in sorted(rows):
+        lines.append(f"| {relpath} | {size} | {sha} | `{key}` | {tier} | {today_str} |")
+    lines.append("")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_suffix(".md.tmp")
+    tmp.write_text("\n".join(lines), encoding="utf-8")
+    os.replace(tmp, out)
+    print(f"✓ manifest 已重写: {out}({len(rows)} 行)")
+
+
+def cmd_upload_large_json():
+    """大 JSON(staticdata 备份 git 排除对象)按日 gzip 推 R2 私有桶 signal-backup large-json/ 前缀 + 分层滚动保留。
+
+    背景(2026-09-25): staticdata 备份 git 仓库 7 个大 JSON(>20MB, 共~320MB)天天变天天进 delta,
+    .git 膨胀到 3.3G, 9-25 首跑撞「变更总字节 >300MB」积压阈值跳过 commit。本命令 = 排除对象异地备份:
+      - 对象清单 = scripts/large_json_excludes.py --print(.gitignore 受管区块单一源; 迁移后仍持续备份,
+        git rm --cached 只移出 git 不动磁盘/R2)。
+      - key 格式 = large-json/<YYYY-MM-DD>/<相对 data/ 的路径>.gz(冻结接口, 主控定)。
+      - 幂等: s3_head 比对 ETag(单 PUT ETag=内容 md5; gzip.compress 必须显式 mtime=0——
+        Python 3.11 默认 mtime=当前时间, 同内容每次 gzip 字节不同 ETag 永不相等, 幂等失效,
+        2026-09-25 实测发现修复), 内容没变跳过 PUT 不重复上传。
+      - 滚动保留 = _prune_large_json(日14天 + 周档周日那份8周 + 月档每月1号那份12月)。
+      - 跑完自动重写 docs/large-json-backup-manifest.md(相对路径/完整字节/sha256/最新key/档位/生成时间)。
+    """
+    import gzip
+    import hashlib
+    import subprocess
+    import datetime as _dt
+    repo = _large_json_staticdata_repo()
+    excludes = ROOT / "scripts" / "large_json_excludes.py"
+    r = subprocess.run([sys.executable, str(excludes), "--print", "--repo", str(repo)],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"✗ large_json_excludes.py --print 失败: {r.stderr[:500]}")
+    entries = []  # (relpath 相对 data/, bytes)
+    for line in r.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split("\t")
+        if len(parts) == 2 and parts[1].isdigit():
+            entries.append((parts[0], int(parts[1])))
+    if not entries:
+        print("✓ 无大 JSON 需备份(large-json 清单为空)")
+        return
+    today = _dt.datetime.now().strftime("%Y-%m-%d")
+    ok = 0
+    manifest_rows = []
+    for relpath, size in sorted(entries):
+        src = repo / "data" / relpath
+        if not src.is_file():
+            print(f"⚠ 跳过(源不存在): data/{relpath}")
+            continue
+        raw = src.read_bytes()
+        payload = gzip.compress(raw, compresslevel=6, mtime=0)  # mtime=0 固定, 同内容同字节(幂等 ETag 前提)
+        key = f"large-json/{today}/{relpath}.gz"
+        local_md5 = hashlib.md5(payload).hexdigest()
+        st, etag = s3_head(key, bucket=BACKUP_BUCKET)
+        if st == 200 and etag is not None and etag.strip('"') == local_md5:
+            print(f"✓ 已存在且内容未变, 跳过 PUT: {BACKUP_BUCKET}/{key}")
+            ok += 1
+        else:
+            status, data = s3_request("PUT", key, payload, bucket=BACKUP_BUCKET, content_type="application/gzip")
+            if status == 200:
+                ok += 1
+                print(f"✓ {relpath} ({size // 1024 // 1024}MB -> {len(payload) // 1024 // 1024}MB gzip)"
+                      f" -> {BACKUP_BUCKET}/{key}")
+            else:
+                print(f"✗ {relpath} status={status} {data.decode('utf-8', errors='replace')[:300]}")
+        manifest_rows.append((relpath, size, hashlib.sha256(raw).hexdigest(), key))
+    _prune_large_json()
+    _write_large_json_manifest(manifest_rows, today)
+    print(f"large-json 上传 {ok}/{len(entries)} -> {BACKUP_BUCKET}/large-json/{today}/ (私有桶)")
+    if ok != len(entries):
+        sys.exit(1)
+
+
 # ---- verify-r2 通道登记表(2026-09-15, 层3 防漏传对账) ----
 # 每通道: label / local_dir(可调用, 镜像 cmd_upload_* 的 ROOT 回退) / patterns / r2_prefix /
 # state_name(读 changed 字段做平日增量对账) / exclude_fn(镜像各通道口径) / sample(平日抽样上限,
@@ -2499,6 +2669,10 @@ if __name__ == "__main__":
         cmd_verify_channels(sys.argv[2:])
     elif cmd == "upload-db":
         cmd_upload_db()
+    elif cmd == "upload-large-json":
+        # upload-large-json  staticdata 备份 git 排除的大 JSON -> 私有桶 large-json/<日期>/<路径>.gz
+        # (2026-09-25, 排除对象清单来源 large_json_excludes.py --print)
+        cmd_upload_large_json()
     elif cmd == "upload-claude-backup":
         # upload-claude-backup [local_path]  Claude 自我备份 tar.gz -> signal-backup/claude-backup/
         local_path = sys.argv[2] if len(sys.argv) > 2 else None
@@ -2526,7 +2700,7 @@ if __name__ == "__main__":
             "用法: upload_r2.py [list [prefix]|upload-lab|upload-trade-sim|"
             "upload-trade-sim-json|upload-index|upload-industry|upload-public-fund|"
             "upload-offshore-fund|upload-fund-score|upload-etf-score|upload-etf-hist|"
-            "upload-fund-nav|upload-accum-nav|upload-data-large|upload-kelly-parts|upload-kelly-parts-sdc|upload-db|"
+            "upload-fund-nav|upload-accum-nav|upload-data-large|upload-kelly-parts|upload-kelly-parts-sdc|upload-db|upload-large-json|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup|"
             "upload-claude-backup [path]|upload-decommissioned <local> <key_name>|"
             "upload-all-data|upload-intraday|purge-low-freq|verify-r2|verify-channels <desc...>]"

@@ -408,6 +408,22 @@ if [ "$DDS_RC" -ne 0 ]; then
 fi
 echo "✓ critical-css 与 style.css 双源一致性机检通过" | tee -a "$LOG"
 
+# 1.2.5 大 JSON 移出 staticdata git 机检(scripts/check_large_json_excluded.py, 2026-09-25)
+# staticdata 备份 git 排除对象 >20MB 必须全部移出 git(走 R2 私有桶 signal-backup large-json/ 备份,
+# 排除规则单一源 large_json_excludes.py + 上传 upload_r2.py upload-large-json),
+# 防 .git 膨胀 3.3G/积压超阈值跳过 commit(9-25 首跑 skip_oversize 事故)。迁移 =
+# scripts/migrate_large_json_out_of_git.sh(硬顺序先 R2 后 rm --cached, 留给人 commit+push)。
+# 本步常驻拦截: 仍存在 tracked 大文件 → FAIL 阻断上线。
+# ⚠ 本功能 merge 后须先人工跑迁移脚本再下一次 deploy(否则被本闸门拦, 即本闸门的目的)。
+echo "-> 运行 check_large_json_excluded.py 大 JSON 移出 staticdata git 机检 ..." | tee -a "$LOG"
+"$PY" "$GIT_REPO/scripts/check_large_json_excluded.py" --repo "$GIT_REPO" --deploy-mode 2>&1 | tee -a "$LOG"
+LJE_RC=${PIPESTATUS[0]}
+if [ "$LJE_RC" -ne 0 ]; then
+  echo "✗ 大 JSON 移出 staticdata git 机检失败(退出码 $LJE_RC)，终止部署(仍有 >20MB tracked 大文件, 须先跑 scripts/migrate_large_json_out_of_git.sh)" | tee -a "$LOG"
+  exit "$LJE_RC"
+fi
+echo "✓ 大 JSON 移出 staticdata git 机检通过" | tee -a "$LOG"
+
 # 1.3 版本一致性校验(CLAUDE.md §24⑤, 2026-08-15 补; #48)
 # 适配 #46 日期+批次版本串机制: index引用版本串格式/与sw批次一致/资源存在/min比源新,
 # 任一 FAIL → 非0退出阻断上线(防孤儿快照再产生, 2026-08-14 全站白屏事故根因⑤)。
