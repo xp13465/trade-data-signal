@@ -178,21 +178,32 @@ cd /Users/linhuichen/code/trade
 # ① 列出所有可用快照（按日期分组 + 每个文件大小）
 bash scripts/restore-large-json.sh --list
 
-# ② 单个还原：默认取该文件最新快照，写回 data/<原相对路径>
+# ② 单个还原：默认取该文件最新快照，写回 <目标目录>/<原相对路径>
 bash scripts/restore-large-json.sh signal_kelly_trades.json
 bash scripts/restore-large-json.sh signal_kelly_trades_parts/t2025.json
 
-# ③ 还原指定日期的全部快照
+# ③ 还原指定日期的全部快照（也支持 --date=YYYY-MM-DD 等号形式）
 bash scripts/restore-large-json.sh --date 2026-09-25
 
 # ④ 还原最新日期那一份的全部文件
 bash scripts/restore-large-json.sh --all
+
+# ⑤ 可选 [--target <dir>] 显式指定目标目录（默认见下；可加在任意位置）
+bash scripts/restore-large-json.sh --list --target /tmp/restore-test
 ```
+
+**恢复目标**：默认 = `$STATICDATA_REPO/data/`（环境变量 `STATICDATA_REPO` 仅测试用，缺省
+`/Users/linhuichen/code/trade-data`）= **生产数据目录 `trade-data/data/`**。这些大 JSON 的生产
+"家"就是 `trade-data/data/`（git 不再跟踪它们），恢复回生产原位与 `db.py`/`export.py` 读的库
+同源，不随 cwd 漂移。**非默认目标目录（覆盖了 `STATICDATA_REPO` 或传 `--target`）会打印醒目
+警告**：可能是别的目录，直接覆盖有风险，测试临时目录也应看清再继续。
 
 **还原行为安全网（全在脚本内）**：
 - 先下到同目录 `.tmp`（pid+随机）再 `os.replace` 原子覆盖，读侧要么旧完整要么新完整，绝不半截
-- 覆盖前把原文件备份成 `<文件>.bak-<时间戳>`（可回滚）
-- gzip 解压；`docs/large-json-backup-manifest.md` 有该 key 的 sha256 记录则比对，不匹配即中止不覆盖
+- 覆盖前把原文件备份成 `<文件>.bak-<时间戳>`（`copy2` 副本，旧文件在替换前始终在位，无短暂缺失窗口，可回滚）
+- gzip 解压；`docs/large-json-backup-manifest.md` 有该完整 R2 key（含日期）的 sha256 记录则比对，不匹配即中止（不改名跳过并汇总非 0 退出）
+- 路径安全：恢复写入前校验相对路径（非空/不含 `..` 段/不以 `/` 开头/realpath 落在目标根内），非法跳过并汇总
+- 网络快速失败：S3 调用注入 10s 连接超时（不受外部 `R2_UPLOAD_HTTP_TIMEOUT` 大值影响），网络不可达/超时立即报错，不做无限等待
 - **绝不写 R2 上任何对象、绝不删除 R2 上任何对象**（本脚本只有 GET/LIST）
 
 **凭证**：复用 `scripts/upload_r2.py` 的 `s3_request()`（`sys.path.insert(0,"scripts"); import upload_r2`，

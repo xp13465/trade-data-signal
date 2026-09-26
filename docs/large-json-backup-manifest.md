@@ -17,14 +17,15 @@
   - 例：`large-json/2026-09-25/signal_kelly_trades.json.gz`
   - 例：`large-json/2026-09-25/signal_kelly_trades_parts/t2025.json.gz`
 - 保留档位：日档 14 天 + 周档(周日那份)8 周 + 月档(每月 1 号那份)12 个月
-- 恢复：`bash scripts/restore-large-json.sh <文件名|--list|--date YYYY-MM-DD|--all>`
+- 恢复：`bash scripts/restore-large-json.sh <文件名|--list|--date YYYY-MM-DD|--all> [--target <dir>]`
   - 还原时先下同目录 `.tmp` 再原子覆盖，覆盖前旧文件备份为 `<文件>.bak-<时间戳>`，
     本清单有 sha256 记录的会比对，不匹配即中止。
+  - 默认还原到生产数据目录 `trade-data/data/`（`STATICDATA_REPO`/`--target` 可覆盖，非默认目录会打警告）。
 
 ---
 
 ## 二、快照明细
 
-| R2 key(signal-backup/large-json/) | 日期 | 原相对路径(还原到 data/ 下) | 大小(B) | sha256(64位) |
+| R2 key(signal-backup/large-json/) | 日期 | 原相对路径(还原到目标目录对应位置) | 大小(B) | sha256(64位) |
 | --- | --- | --- | --- | --- |
 | <!-- 由 upload_r2.py upload-large-json 自动填写，勿手工编辑 --> |  |  |  |  |
