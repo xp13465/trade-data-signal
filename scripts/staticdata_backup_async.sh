@@ -117,6 +117,7 @@ fi
 echo "-> staticdata 备份（best-effort, 异步）..." | tee -a "$LOG"
 STATICDATA_FAIL=0
 _OVERSIZE=0
+_SKIP_NONPROD=0   # 2026-09-26 feat/staticdata-write-guard: 非生产机守卫拦截/闸门拒绝 → 心跳 skip_nonprod
 _hb_write "running"   # 改4 C-3: 开始心跳(备份启动前; 仓库缺失早退不写, 留上次 ok 心跳自然变旧触发 C3 停摆告警)
 
 # 1. rsync DB原件到 staticdata/db/（本地备份，不进 git，.gitignore 排除 db/*.db）
@@ -184,17 +185,101 @@ echo "  [step3.5 large-json 排除+R2] $(( $(date +%s) - _STEP_START ))s" | tee 
 # 字节口径 = 变更文件当前 wc -c 总和(保守估计: 大 JSON 即使只改 100B 也按全文件计, 与 GitHub
 # 仓库膨胀口径一致, 宁高勿低触发跳过)。
 _STEP_START=$(date +%s)
-git -C "$STATICDATA_REPO" add -A 2>&1 | tee -a "$LOG"
-# 改2 C-2(2026-09-25 审查整改): add 退出码必须判定(原 `|| true` 吞掉 add 失败 → diff --cached
-# 为空 → 误打印"✓ staticdata 无新变更,跳过 commit", 看着正常实际 git 历史缺口)。
-# 无 pipefail 下管道退出码=tee(恒 0), 必须取 PIPESTATUS[0]; add 失败 → STATICDATA_FAIL=1 +
-# 日志明确 + 不得再进"无新变更"分支(直接跳收口段)。
-if [ "${PIPESTATUS[0]:-0}" -ne 0 ]; then
-  echo "⚠ git add 失败(staticdata 仓库 $STATICDATA_REPO), 置 STATICDATA_FAIL=1, 跳过 commit(git 历史缺口, 需人工排查)" | tee -a "$LOG"
+# 写权限守卫(2026-09-26, feat/staticdata-write-guard): staticdata git 写判定单一源
+# staticdata_write_guard.py(消除"mac 还是生产机"时代遗留的全量覆盖事故, 见
+# docs/ops/staticdata-mac-write-path-research-20260926.md)。调用点 = git 段最前
+# (rsync 段已跑完, 数据已磁盘留档, 守卫只影响是否 commit/push)。rc:
+#   0 = 生产机(原逻辑不动, 云上行为零变化)
+#   1 = 非生产机默认拒绝(git 段整体跳过, 仅 rsync 磁盘 + R2 + 降级通知)
+#       显式 STATICDATA_ALLOW_PUSH=1 → 改走 --check-fresh 数据闸门(只增不覆盖)
+#   2 = 内部错误(置 STATICDATA_FAIL=1, 按生产机降级继续 best-effort)
+# 非生产机跳过 git 段时心跳写 skip_nonprod(只在 mac 本地数据目录, 不达云上 monitor)。
+_GA_NEW_ADD=""
+_GA_GIT_SKIP=0
+_GA_MSG=$("$PY" "$GIT_REPO/scripts/staticdata_write_guard.py" --check-write-auth --repo "$STATICDATA_REPO" 2>&1)
+_GA_RC=$?
+echo "  [写权限守卫] $_GA_MSG" | tee -a "$LOG"
+if [ "$_GA_RC" -eq 2 ]; then
+  echo "⚠ staticdata 写权限判定异常(rc=2), 置 STATICDATA_FAIL=1, 按生产机继续(best-effort)" | tee -a "$LOG"
   STATICDATA_FAIL=1
-elif git -C "$STATICDATA_REPO" diff --cached --quiet 2>/dev/null; then
-  echo "✓ staticdata 无新变更,跳过 commit" | tee -a "$LOG"
-else
+elif [ "$_GA_RC" -eq 1 ]; then
+  # 非生产机: 默认拒绝 git 写; 显式 STATICDATA_ALLOW_PUSH=1 → 数据闸门(只增不覆盖)。
+  if [ "${STATICDATA_ALLOW_PUSH:-}" = "1" ]; then
+    echo "⚠ 非生产机 + STATICDATA_ALLOW_PUSH=1: 走数据闸门(只增不覆盖)" | tee -a "$LOG"
+    _GATE_LIST=$("$PY" "$GIT_REPO/scripts/staticdata_write_guard.py" --check-fresh --repo "$STATICDATA_REPO" 2>/dev/null)
+    _GATE_RC=$?
+    if [ "$_GATE_RC" -eq 1 ]; then
+      echo "⚠ 数据闸门拒绝($STATICDATA_REPO): 跳过 commit/push 仅磁盘留档(只增不覆盖不成立, 见 guard stderr)" | tee -a "$LOG"
+      "$PY" "$REPO/scripts/notify.py" "[通知] staticdata 数据闸门拒绝非生产机 git 写" \
+        "staticdata 备份(trigger=$TRIGGER) 非生产机显式 STATICDATA_ALLOW_PUSH=1 但数据闸门拒绝(本地旧于远端 / 无远端不存在的新路径 / fetch 失败)。<br>本次仅 rsync 磁盘留档未 commit/push, 不覆盖生产 DR 仓库, 灾备第1/2层不丢。<br>日志: $LOG" \
+        --from-prefix "[通知]" --alert-issue "staticdata数据闸门拒绝非生产机写" --alert-log "$LOG" \
+        --dedup-key staticdata_backup_gate_reject --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>&1 | tee -a "$LOG" || true
+      _GA_GIT_SKIP=1
+      _SKIP_NONPROD=1
+    elif [ "$_GATE_RC" -eq 2 ]; then
+      echo "⚠ 数据闸门内部错误(rc=2), 置 STATICDATA_FAIL=1, 跳过 commit(best-effort, 无法保证只增不覆盖)" | tee -a "$LOG"
+      "$PY" "$REPO/scripts/notify.py" "[告警] staticdata 数据闸门内部错误跳过 commit" \
+        "staticdata 备份(trigger=$TRIGGER) 数据闸门内部错误(rc=2), 无法保证只增不覆盖 → 跳过 commit/push, 仅磁盘留档。<br>日志: $LOG" \
+        --from-prefix "[告警]" --alert-issue "staticdata数据闸门内部错误" --alert-log "$LOG" \
+        --dedup-key staticdata_backup_gate_error --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>&1 | tee -a "$LOG" || true
+      STATICDATA_FAIL=1
+      _GA_GIT_SKIP=1
+      _SKIP_NONPROD=1
+    else
+      _GA_NEW_ADD="$_GATE_LIST"
+      echo "  [数据闸门] 放行 $(printf '%s\n' "$_GATE_LIST" | grep -c . || true) 项(仅新增/不旧覆盖)" | tee -a "$LOG"
+    fi
+  else
+    echo "⚠ 非生产机($STATICDATA_REPO): staticdata git 写被守卫拦截(rc=1), 跳过 commit/push, 仅 rsync 磁盘 + R2 留档" | tee -a "$LOG"
+    "$PY" "$REPO/scripts/notify.py" "[通知] 非生产机 staticdata git 写已跳过" \
+      "staticdata 备份(trigger=$TRIGGER) 在本机(非生产机, 路径非 /home/ubuntu/)被 staticdata 写权限守卫拦截, 跳过 git commit/push。<br>数据已 rsync 磁盘留档 + R2 上传(灾备第1/2层不丢)。<br>如需从本机显式推合法数据: 设 STATICDATA_ALLOW_PUSH=1 重跑(走只增不覆盖数据闸门)。<br>仓库: $STATICDATA_REPO<br>日志: $LOG" \
+      --from-prefix "[通知]" --alert-issue "非生产机staticdata git写被守卫拦截" --alert-log "$LOG" \
+      --dedup-key staticdata_backup_nonprod_skip --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>&1 | tee -a "$LOG" || true
+    _GA_GIT_SKIP=1
+    _SKIP_NONPROD=1
+  fi
+fi
+if [ "$_GA_GIT_SKIP" = "0" ]; then
+  # 进 git 段(生产机 / 守卫异常降级 / 非生产机显式放行通过数据闸门)。
+  _GIT_DONE=0
+  if [ -n "$_GA_NEW_ADD" ]; then
+    # 非生产机显式放行: 只 add 闸门放行清单(先 unstage 清空, 防残留已暂存项混入)。
+    git -C "$STATICDATA_REPO" reset -q 2>&1 | tee -a "$LOG" || true
+    _ALLOWED_COUNT=0
+    while IFS= read -r _f; do
+      [ -z "$_f" ] && continue
+      if [ -e "$STATICDATA_REPO/$_f" ] || [ -L "$STATICDATA_REPO/$_f" ]; then
+        if git -C "$STATICDATA_REPO" add -- "$_f" 2>&1 | tee -a "$LOG"; then
+          _ALLOWED_COUNT=$((_ALLOWED_COUNT + 1))
+        else
+          STATICDATA_FAIL=1
+        fi
+      fi
+    done <<EOF
+$_GA_NEW_ADD
+EOF
+    echo "  [数据闸门 add] 成功暂存 $_ALLOWED_COUNT 项(不用 git add -A, 防覆盖远端)" | tee -a "$LOG"
+    if [ "$_ALLOWED_COUNT" = "0" ]; then
+      echo "✓ staticdata 数据闸门放行项全部落空,跳过 commit(仅磁盘留档)" | tee -a "$LOG"
+      _GIT_DONE=1
+    fi
+  else
+    git -C "$STATICDATA_REPO" add -A 2>&1 | tee -a "$LOG"
+    # 改2 C-2(2026-09-25 审查整改): add 退出码必须判定(原 `|| true` 吞掉 add 失败 → diff --cached
+    # 为空 → 误打印"✓ staticdata 无新变更,跳过 commit", 看着正常实际 git 历史缺口)。
+    # 无 pipefail 下管道退出码=tee(恒 0), 必须取 PIPESTATUS[0]; add 失败 → STATICDATA_FAIL=1 +
+    # 日志明确 + 不得再进"无新变更"分支(直接跳收口段)。
+    if [ "${PIPESTATUS[0]:-0}" -ne 0 ]; then
+      echo "⚠ git add 失败(staticdata 仓库 $STATICDATA_REPO), 置 STATICDATA_FAIL=1, 跳过 commit(git 历史缺口, 需人工排查)" | tee -a "$LOG"
+      STATICDATA_FAIL=1
+      _GIT_DONE=1
+    fi
+  fi
+  if [ "$_GIT_DONE" = "0" ] && git -C "$STATICDATA_REPO" diff --cached --quiet 2>/dev/null; then
+    echo "✓ staticdata 无新变更,跳过 commit" | tee -a "$LOG"
+    _GIT_DONE=1
+  fi
+  if [ "$_GIT_DONE" = "0" ]; then
   # 单文件大 JSON 守卫(2026-09-26 P1 修复后, feat/large-json-guard-sync 改调单一源):
   # 判定逻辑已全部下沉到 large_json_excludes.py --check-staged(本脚本不再重复实现,
   # staticdata_sync.sh 同调该模式, 消除双实现)。口径与 async 原有内联守卫逐项一致: 清单 =
@@ -284,13 +369,18 @@ else
       fi
     fi
   fi
+  fi
 fi
 echo "  [step4 git add+commit+push] $(( $(date +%s) - _STEP_START ))s" | tee -a "$LOG"
 
-# 改4 C-3: 收口前写最终心跳(ok/fail/skip_oversize + files/bytes/duration)。
+# 改4 C-3: 收口前写最终心跳(ok/fail/skip_oversize/skip_nonprod + files/bytes/duration)。
 # STATICDATA_FAIL=1 优先(fail 已由脚本内 --severe notify 覆盖, C3 检查不重复告警 fail);
-# _OVERSIZE=1(积压超阈值跳过 commit) → skip_oversize(该分支已有超阈值跳过 --severe notify)。
-if [ "$STATICDATA_FAIL" = "1" ]; then
+# _OVERSIZE=1(积压超阈值跳过 commit) → skip_oversize(该分支已有超阈值跳过 --severe notify);
+# _SKIP_NONPROD=1(非生产机守卫拦截/数据闸门拒绝, 2026-09-26 feat/staticdata-write-guard)
+# → skip_nonprod(降级 notify 已发, 非 severe; 该结果只在 mac 本地数据目录, 不达云上 monitor)。
+if [ "${_SKIP_NONPROD:-0}" = "1" ]; then
+  _hb_write "skip_nonprod" "${_N:-0}" "${_BYTES:-0}"
+elif [ "$STATICDATA_FAIL" = "1" ]; then
   _hb_write "fail" "${_N:-0}" "${_BYTES:-0}"
 elif [ "${_OVERSIZE:-0}" = "1" ]; then
   _hb_write "skip_oversize" "${_N:-0}" "${_BYTES:-0}"
@@ -306,4 +396,8 @@ if [ "$STATICDATA_FAIL" = "1" ]; then
   echo "✗ staticdata 备份完成但部分失败(已告警)" | tee -a "$LOG"
   exit 1
 fi
-echo "✓ staticdata 备份完成 $(date '+%Y-%m-%d %H:%M:%S')" | tee -a "$LOG"
+if [ "${_SKIP_NONPROD:-0}" = "1" ]; then
+  echo "✓ staticdata 备份完成(非生产机 git 写已跳过, 仅磁盘+R2 留档, 已降级通知) $(date '+%Y-%m-%d %H:%M:%S')" | tee -a "$LOG"
+else
+  echo "✓ staticdata 备份完成 $(date '+%Y-%m-%d %H:%M:%S')" | tee -a "$LOG"
+fi
