@@ -146,6 +146,33 @@ $PY -m py_compile scripts/large_json_excludes.py scripts/check_large_json_exclud
 4. 之后 async 每日: step3.5 维护区块 + 上传 R2 持续备份; 若新出现 >20MB tracked 文件,
    `--check` 会 FAIL 提醒再跑一次迁移脚本。
 
+## 8. 提交前大 JSON 守卫双入口:async + sync 共用单一源(2026-09-26 补)
+
+> 本报告初版只写了 async(staticdata_backup_async.sh)侧的守卫。2026-09-26 `feat/large-json-guard-sync`
+> (merge 7be5da14e, 独立审查报告 1a70665b3 = `docs/ops/large-json-guard-sync-review-20260926.md`)
+> 给 **staticdata_sync.sh(每 ~30min 同步入口)也补了同一守卫**,两个入口现在共用
+> `large_json_excludes.py --check-staged` 单一源判定,消除双实现(F4 文档滞后补齐项)。
+
+- **守卫职责**:staticdata 备份仓库 commit/push 前拦「待提交变更超阈值」(文件数 >5000 或
+  单文件 >20MB 大 JSON 未迁移 或 变更总字节 >500MB),防止 `.git` 继续膨胀。
+- **两个入口现在都走三段式(顺序不能乱)**:
+  1. **先刷 .gitignore 受管区块**(`large_json_excludes.py --repo`,必须在 `git add` 之前)——让新
+     >20MB 文件先被 ignore,否则 `git add -A` 会把未进区块的大文件暂存,而 `.gitignore` 移除不掉
+     已暂存项,下一轮就提交了。
+  2. **`git add -A` 判退出码**(原 `|| true` 静默吞掉 add 失败 → `diff --cached` 为空 → 误打"无新变更";
+     sync/async 均已整改)。
+  3. **`large_json_excludes.py --check-staged` 判定待提交变更是否超阈值**:rc=1 → 跳过 commit/push
+     仅磁盘留档 + 告警(async 走 `--severe`, sync 走普通告警 + `--dedup-key`);rc=2(判定脚本自身异常)
+     → 置 FAIL 但继续 commit(best-effort,不为判定脚本 bug 阻塞灾备)。
+- **口径一致细节**:两个入口都与原 async 内联守卫逐项同口径(`git diff --cached --name-only
+  --diff-filter=d` 必须排除已暂存删除 D——2026-09-26 P1 自锁修复,见
+  `docs/ops/large-json-guard-fix-review-20260926.md`);阈值数字单一源 = `large_json_excludes.py`
+  (不写死数字,`--check-staged` 读它)。
+- **差异**:async 失败退出码保持 1(告警升级);sync 保持 best-effort 契约恒 0(不阻塞调用方),
+  sync 的 rc=2 守卫失效由 async 侧兜底。
+- **清单来源仍单一**:R2 上传对象清单 = `large_json_excludes.py --print`(step3.5b),与守卫判定
+  同源;迁移后仍持续每日备份(`git rm --cached` 只移出 git 不动磁盘/R2)。
+
 ## 复现段
 
 - 本报告所有「改了什么」对应 commit 均在本 feat 分支 `feat/large-json-r2-core`(agent 只 commit+push feat,
