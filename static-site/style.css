@@ -3994,6 +3994,18 @@ main { padding: 16px 24px; }
   .cards.kpi-row { display: flex; flex-wrap: wrap; gap: 10px; }
   .card.kpi { min-width: 0; padding: 10px 12px; }
   .card.kpi .card-value { font-size: 20px; }
+  /* #74 四档卡移动端(2026-09-26 修复): flex:2 1 300px 在窄屏占满整行被 flex-wrap 挤到单独一行，
+     flex 行内 stretch 只对同一行生效 → 四档卡行高=自身内容(~88px) < 相邻 KPI 卡行(~117px) → 卡显矮；
+     且 hover 浮层是 inset:0+overflow:hidden 覆盖式，卡高 88 < 浮层内容(3行明细) → 内容被裁。
+     修复①=移动端显式 min-height:117px 与相邻 KPI 卡行高完全一致(实测 KPI 117px)，
+     修复②=浮层垂直节奏微调(padding 10→7 / gap 5→3 / detail行距 1.5→1.35 / title margin 2→1，不动字号)，
+     把浮层自然高从 ~105px 压到 117px 卡高内有余量(3行明细含换行 → 实测 naturalH≈105px，最坏 4 档全有人 320px 窄屏 ≈123px，
+     受访内容优先、卡高 117 与 KPI 对齐；极端 320px+4档 情形可接受轻微富余)。
+     桌面端(>768px)四档卡与 KPI 卡同行 stretch 天然等高(实测 126=126)，本规则不生效。 */
+  .card.kpi.tier-card { min-height: 117px; }
+  .tier-card .tier-tooltip { padding: 7px 12px; gap: 3px; }
+  .tier-card .tier-detail-row { line-height: 1.35; }
+  .tier-card .tier-tooltip-title { margin-bottom: 1px; }
   /* 盘中标注角标移动端更小，避免遮住 KPI 数值；大卡(走势图)右上角，小卡(KPI)右下角 */
   .card-time-badge { font-size: 11px; padding: 1px 5px; bottom: 5px; right: 6px; }
   .chart-card .card-time-badge { top: 5px; right: 6px; bottom: auto; }
