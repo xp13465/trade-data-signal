@@ -105,7 +105,7 @@ if [ ! -d "$STATICDATA_REPO/.git" ]; then
   "$PY" "$REPO/scripts/notify.py" "[通知] staticdata 仓库不存在, 跳过备份" \
     "staticdata 备份仓库不存在, 本次跳过备份(降级, 非 severe, 不影响 deploy 主链)。<br>已查两个候选路径: 候选1 ${STATICDATA_REPO:-无} / 候选2 ${GIT_REPO:-无}-staticdata<br>生产云上至少应存在 ${GIT_REPO:-无}-staticdata 灾备第2层仓库, 若缺失需人工核查 staticdata git 仓库初始化/迁移。<br>日志: $LOG" \
     --from-prefix "[通知]" --alert-issue "staticdata备份仓库缺失" --alert-log "$LOG" \
-    --dedup-key staticdata_backup_repo_missing --dedup-window 21600 "${_NOTIFY_DRY[@]}" 2>&1 | tee -a "$LOG" || true
+    --dedup-key staticdata_backup_repo_missing --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>&1 | tee -a "$LOG" || true
   exit 0
 fi
 
@@ -186,51 +186,44 @@ if [ "${PIPESTATUS[0]:-0}" -ne 0 ]; then
 elif git -C "$STATICDATA_REPO" diff --cached --quiet 2>/dev/null; then
   echo "✓ staticdata 无新变更,跳过 commit" | tee -a "$LOG"
 else
-  # 单文件大 JSON 守卫(2026-09-26 P1 修复, feat/large-json-guard-fix): 若待提交变更里有单文件
-  # >20MB(staticdata 备份 git 排除对象, 尚未迁移) → 置 _OVERSIZE=1 复用「跳过 commit 仅磁盘
-  # 留档 + --severe 告警」分支。注意覆盖度与原 deploy 闸门不同: 原闸门每次查「全量 tracked 大
-  # JSON」, 本守卫只查「本次待提交变更里的单文件 >20MB」。
-  # 为何已够用(2026-09-26 修正): 迁移完成后 7+1 个大文件都在 .gitignore 受管区块内, `git add -A`
-  # 不会重新收进 index; 但迁移的过渡态 = 「M .gitignore + N 个已暂存删除(D)」——git rm --cached
-  # 保留磁盘文件, 若 D 路径被计入守卫, L217 的 `-f` 判断磁盘文件为真会按全文件字节误算 → 永久
-  # 误触发跳过, 反而拦死「唯一能解除它自己的那次提交」。因此守卫计算清单用 `--diff-filter=d`
-  # 排除已暂存删除(D 不增加仓库体积); 未迁移(未 .gitignore)的大 JSON 仍是 M/A 状态出现在清单
-  # 里被本守卫拦下。爆炸半径从 deploy 主链缩到备份 git 提交——永不拦上线。
-  # 阈值单一源 large_json_excludes.py(不许写死数字); import 失败 = 链路异常置 STATICDATA_FAIL=1,
-  # 守卫自身跳过(积压字节守卫仍兜底)。
+  # 单文件大 JSON 守卫(2026-09-26 P1 修复后, feat/large-json-guard-sync 改调单一源):
+  # 判定逻辑已全部下沉到 large_json_excludes.py --check-staged(本脚本不再重复实现,
+  # staticdata_sync.sh 同调该模式, 消除双实现)。口径与 async 原有内联守卫逐项一致: 清单 =
+  # git diff --cached --name-only --diff-filter=d(必须排除已暂存删除 D——2026-09-26 P1 自锁修复,
+  # 见 docs/ops/large-json-guard-fix-review-20260926.md: 迁移过渡态「rm --cached 后磁盘文件仍在」
+  # 的 D 按全文件字节误算会永久误触发, 反拦死解除它自己的那次提交; 别改回去)+
+  # 文件数>5000 或 单文件>20MB(大 JSON 未迁移)或 变更总字节>500MB。
+  # rc: 0=干净 1=超阈值 2=判定脚本自身异常。阈值单一源 large_json_excludes.py(不许写死数字);
+  # import/判定失败 = 链路异常置 STATICDATA_FAIL=1, 守卫失效但继续 commit(best-effort)。
   _LJE_THRESHOLD=$("$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); from large_json_excludes import THRESHOLD; print(THRESHOLD)' "$GIT_REPO/scripts" 2>/dev/null || true)
   if [ -z "$_LJE_THRESHOLD" ]; then
-    echo "⚠ 无法从 large_json_excludes.py 读取单文件大 JSON 阈值(import 失败), 单文件守卫跳过, 置 STATICDATA_FAIL=1" | tee -a "$LOG"
+    echo "⚠ 无法从 large_json_excludes.py 读取单文件大 JSON 阈值(import 失败), 置 STATICDATA_FAIL=1" | tee -a "$LOG"
     STATICDATA_FAIL=1
-    _LJE_THRESHOLD=999999999999
+    _LJE_THRESHOLD=20000000
   fi
-  # 已暂存删除(D, git rm --cached 后磁盘文件仍在)不增加仓库体积, 不计入「大文件/积压」判定 →
-  # 守卫计算用排除 D 的清单(--diff-filter=d); 全量清单保留给 commit body 分类计数(删除本身也是
-  # 本次提交的内容, 迁移提交的 data/ 目录删除应在 body 体现)。
+  # 全量清单(含已暂存删除)保留给 commit body 分类计数(删除本身也是本次提交的内容, 迁移提交的
+  # data/ 目录删除应在 body 体现)。
   _CHANGED_ALL=$(git -C "$STATICDATA_REPO" diff --cached --name-only)
-  _CHANGED=$(git -C "$STATICDATA_REPO" diff --cached --name-only --diff-filter=d)
-  _N=$(printf '%s\n' "$_CHANGED" | grep -c . || true)
-  _BYTES=0
-  _OVERSIZE=0
-  _OVERSIZE_REASON=""
-  # 文件数阈值短路: >5000 直接跳过(积压场景 32k 文件逐个 wc 白耗 ~30s, 阈值已定不再需要字节数)。
-  if [ "$_N" -gt 5000 ]; then
-    _OVERSIZE=1
-    _OVERSIZE_REASON="backlog"
+  _N=0; _BYTES=0; _OVERSIZE=0; _OVERSIZE_REASON=""
+  _CS_TMP=$(mktemp)
+  _CS_OUT=$("$PY" "$GIT_REPO/scripts/large_json_excludes.py" --check-staged --repo "$STATICDATA_REPO" 2>"$_CS_TMP")
+  _CS_RC=$?
+  if [ -n "$_CS_OUT" ]; then
+    echo "  [变更量] $_CS_OUT" | tee -a "$LOG"
+    # 解析守卫输出回填心跳字段(_N/_BYTES 别留空)
+    _N=$(printf '%s\n' "$_CS_OUT" | sed -n 's/.*文件数=\([0-9]*\).*/\1/p')
+    _BYTES=$(printf '%s\n' "$_CS_OUT" | sed -n 's/.*字节=\([0-9]*\).*/\1/p')
+    _OVERSIZE_REASON=$(printf '%s\n' "$_CS_OUT" | sed -n 's/.*原因=\(.*\)$/\1/p')
   else
-    # 字节口径 = 变更文件当前 wc -c 总和(保守估计: 大 JSON 即使只改 100B 也按全文件计, 与 GitHub
-    # 仓库膨胀口径一致, 宁高勿低触发跳过)。单文件 >20MB(大 JSON 未迁移)同样置 _OVERSIZE=1。
-    while IFS= read -r _f; do
-      [ -z "$_f" ] && continue
-      if [ -f "$STATICDATA_REPO/$_f" ]; then
-        _sz=$(wc -c < "$STATICDATA_REPO/$_f" 2>/dev/null || echo 0)
-        _BYTES=$((_BYTES + _sz))
-        [ "$_sz" -gt "$_LJE_THRESHOLD" ] && { _OVERSIZE=1; _OVERSIZE_REASON="largejson"; }
-      fi
-    done <<< "$_CHANGED"
-    [ "$_BYTES" -gt 500000000 ] && { _OVERSIZE=1; [ -z "$_OVERSIZE_REASON" ] && _OVERSIZE_REASON="backlog"; }
+    echo "  [变更量] 守卫无输出(rc=$_CS_RC), 置 STATICDATA_FAIL=1" | tee -a "$LOG"
+    if [ -s "$_CS_TMP" ]; then tail -n 5 "$_CS_TMP" | tee -a "$LOG"; fi
+    STATICDATA_FAIL=1
+    _N=$(git -C "$STATICDATA_REPO" diff --cached --name-only --diff-filter=d | grep -c . || true)
+    _BYTES=0
   fi
-  echo "  [变更量] 文件数=$_N 字节=$_BYTES 超阈值=$_OVERSIZE 原因=${_OVERSIZE_REASON:-无}" | tee -a "$LOG"
+  rm -f "$_CS_TMP"
+  # rc=1 超阈值 → 复用「跳过 commit 仅磁盘留档 + --severe 告警」分支; rc=2 → 守卫失效但继续(已置 FAIL)。
+  [ "$_CS_RC" -eq 1 ] && _OVERSIZE=1
   if [ "$_OVERSIZE" = "1" ]; then
     _OV_REASON="变更量超阈值(文件 ${_N} >5000 或 字节 ${_BYTES} >500MB)"
     if [ "$_OVERSIZE_REASON" = "largejson" ]; then
@@ -240,7 +233,7 @@ else
     "$PY" "$REPO/scripts/notify.py" "[告警] staticdata 变更量超阈值跳过 commit" \
       "staticdata 备份 $_OV_REASON, 本次仅 rsync 磁盘留档未 commit/push。<br>数据已在 $STATICDATA_REPO/data/ 与 db/ 磁盘留档(灾备第1/2层安全), 次日 deploy 的 rsync 全量自然追平 git。<br>若因大 JSON 未迁移: 请跑 bash scripts/migrate_large_json_out_of_git.sh 将其移出 staticdata git, 改走 R2 私有桶 large-json/ 每日备份。<br>日志: $LOG" \
       --severe --from-prefix "[告警]" --alert-issue "staticdata备份变更量超阈值跳过commit" --alert-log "$LOG" \
-      --dedup-key "staticdata_backup_oversize_skip" --dedup-window 21600 "${_NOTIFY_DRY[@]}" 2>&1 | tee -a "$LOG" || true
+      --dedup-key "staticdata_backup_oversize_skip" --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>&1 | tee -a "$LOG" || true
   else
     # commit message 详细化：标题含触发 pipeline 名($TRIGGER) + 变更文件数；body 按顶层目录分类计数 top5
     # (用全量 _CHANGED_ALL 含已暂存删除, 让迁移删除在 body 可见; 守卫尺寸判定仍用排除 D 的 _CHANGED)
@@ -300,7 +293,7 @@ if [ "$STATICDATA_FAIL" = "1" ]; then
   "$PY" "$REPO/scripts/notify.py" "[告警] staticdata备份失败" \
     "staticdata_backup_async.sh staticdata备份部分失败(不阻塞主链)<br>日志: $LOG" \
     --severe --from-prefix "[告警]" --dedup-key staticdata_backup_fail --dedup-window 3600 \
-    "${_NOTIFY_DRY[@]}" 2>&1 | tee -a "$LOG" || true
+    "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>&1 | tee -a "$LOG" || true
   echo "✗ staticdata 备份完成但部分失败(已告警)" | tee -a "$LOG"
   exit 1
 fi
