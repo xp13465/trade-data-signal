@@ -150,3 +150,74 @@ launchctl load ~/Library/LaunchAgents/com.trade.lab-auto.plist
 - `scripts/backup_db.sh` -- 本地热备（Python `src.backup(dst)` 在线 API，WAL 一致快照）+ R2 异地 + verify 演练 + 失败邮件告警
 - `scripts/upload_r2.py` -- R2 上传/下载/清理（`upload-db` / `download-db <name>` / `_prune_r2_backup` 三层分层）
 - `scripts/verify_backup.sh` -- 恢复演练（下载 + integrity_check + 行数对比，只读零风险）
+
+---
+
+## 八、大 JSON 私有桶备份与恢复（signal-backup 桶 large-json/ 前缀）
+
+### 背景：为什么大 JSON 不进 git
+
+staticdata 备份仓库里跟踪着 7 个 >20MB 的 JSON（共 319MB，如 `signal_kelly_trades.json` 等，
+见 `docs/large-json-backup-manifest.md` 明细）。它们天天变化、天天进 delta，把备份的「变更量」
+顶到 357MB > 300MB 阈值 → 备份天天 `skip_oversize` 不 commit。**已把它们移出 staticdata git 跟踪**，
+改走 R2 私有桶 `signal-backup` 的 `large-json/` 前缀版本化快照（gzip 压缩，只留小文件 + 上传/恢复脚本在 git）。
+
+### 备份机制
+
+- 上传：`scripts/upload_r2.py upload-large-json`（活脚本，由核心侧每日挂载，本手册只写恢复侧）
+- key 格式：`large-json/<YYYY-MM-DD>/<相对 data/ 的路径>.gz`
+  - 例：`large-json/2026-09-25/signal_kelly_trades.json.gz`
+  - 例：`large-json/2026-09-25/signal_kelly_trades_parts/t2025.json.gz`
+- 保留档位：日档 14 天 + 周档（周日那份）8 周 + 月档（每月 1 号那份）12 个月
+- 索引/校验依据：`docs/large-json-backup-manifest.md`（含 sha256，自动生成勿手编）
+
+### 恢复（restore-large-json.sh，只读 R2）
+
+```bash
+cd /Users/linhuichen/code/trade
+# ① 列出所有可用快照（按日期分组 + 每个文件大小）
+bash scripts/restore-large-json.sh --list
+
+# ② 单个还原：默认取该文件最新快照，写回 <目标目录>/<原相对路径>
+bash scripts/restore-large-json.sh signal_kelly_trades.json
+bash scripts/restore-large-json.sh signal_kelly_trades_parts/t2025.json
+
+# ③ 还原指定日期的全部快照（也支持 --date=YYYY-MM-DD 等号形式）
+bash scripts/restore-large-json.sh --date 2026-09-25
+
+# ④ 还原最新日期那一份的全部文件
+bash scripts/restore-large-json.sh --all
+
+# ⑤ 可选 [--target <dir>] 显式指定目标目录（默认见下；可加在任意位置）
+bash scripts/restore-large-json.sh --list --target /tmp/restore-test
+```
+
+**恢复目标**：默认 = `$STATICDATA_REPO/data/`（环境变量 `STATICDATA_REPO` 仅测试用，缺省
+`/Users/linhuichen/code/trade-data`）= **生产数据目录 `trade-data/data/`**。这些大 JSON 的生产
+"家"就是 `trade-data/data/`（git 不再跟踪它们），恢复回生产原位与 `db.py`/`export.py` 读的库
+同源，不随 cwd 漂移。**非默认目标目录（覆盖了 `STATICDATA_REPO` 或传 `--target`）会打印醒目
+警告**：可能是别的目录，直接覆盖有风险，测试临时目录也应看清再继续。
+
+**还原行为安全网（全在脚本内）**：
+- 先下到同目录 `.tmp`（pid+随机）再 `os.replace` 原子覆盖，读侧要么旧完整要么新完整，绝不半截
+- 覆盖前把原文件备份成 `<文件>.bak-<时间戳>`（`copy2` 副本，旧文件在替换前始终在位，无短暂缺失窗口，可回滚）
+- gzip 解压；`docs/large-json-backup-manifest.md` 有该完整 R2 key（含日期）的 sha256 记录则比对，不匹配即中止（不改名跳过并汇总非 0 退出）
+- 路径安全：恢复写入前校验相对路径（非空/不含 `..` 段/不以 `/` 开头/realpath 落在目标根内），非法跳过并汇总
+- 网络快速失败：S3 调用注入 10s 连接超时（不受外部 `R2_UPLOAD_HTTP_TIMEOUT` 大值影响），网络不可达/超时立即报错，不做无限等待
+- 收尾总结：打印「成功 N 个 / 失败 M 个 / 跳过 K 个」三计数（跳过=该日期该文件在 R2 不存在/路径非法；失败=下载/写入出错）；失败数 > 0 或存在跳过均非 0 退出，不静默当成功
+- **绝不写 R2 上任何对象、绝不删除 R2 上任何对象**（本脚本只有 GET/LIST）
+
+**凭证**：复用 `scripts/upload_r2.py` 的 `s3_request()`（`sys.path.insert(0,"scripts"); import upload_r2`，
+import 时 `load_env()` 自动载入 `.env` 的 `R2_S3_ENDPOINT` / `R2_S3_ACCESS_KEY_ID` / `R2_S3_SECRET_ACCESS_KEY`）。凭证缺失打印清晰报错并退出码非 0。
+
+### 与原有四层灾备的关系
+
+| 层 | 原四层 | 大 JSON（本机制） |
+| --- | --- | --- |
+| 第 1 层 | git 仓库（trade + staticdata） | **移出 staticdata git 跟踪**，不再走 git |
+| 第 2 层 | R2 私有桶 `signal-backup` 的 `backup/`（DB）/ `decommissioned/`（退役归档） | **新增 `large-json/` 前缀**（版本化快照，同桶不同前缀） |
+| 第 3 层 | 本地 `data/backups/` 热备 | 大 JSON 本地保留当前副本（`data/` 下），历史版本只在 R2 |
+| 第 4 层 | 公开桶（对外只读） | 不涉及（大 JSON 体积大且频繁变，不进公开层） |
+
+**一句话**：大 JSON 从 git 层搬到 R2 私有桶版本化层，`signal-backup` 桶仍是 DB + 大 JSON 的
+统一异地灾备锚点；恢复侧统一入口 = `restore-large-json.sh`。
