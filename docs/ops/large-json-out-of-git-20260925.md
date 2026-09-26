@@ -42,7 +42,7 @@
 | C | `scripts/upload_r2.py` | 新增子命令 `upload-large-json`(注册进 `_A_CLASS` L46 + `__main__` 分发 + 用法串): gzip 上传 `large-json/<日期>/<相对data路径>.gz`(幂等:s3_head ETag==内容 md5 跳过 PUT);`_prune_large_json` 分层滚动清理(日14天+周周日8周+月1号12月,复用 `_list_keys`/`_prune_layer` 删除模式);自动重写 `docs/large-json-backup-manifest.md` |
 | D | `scripts/staticdata_backup_async.sh`(接链) | step3.5: 先 `large_json_excludes.py --repo`(区块最新),再 `upload_r2.py upload-large-json`(R2 私有桶备份),各带失败判定置 STATICDATA_FAIL=1 进心跳与严重告警 |
 | E | `scripts/migrate_large_json_out_of_git.sh`(新) | 一次性迁移(幂等): 硬顺序①先上传(R2 副本齐全 + manifest 已生成)→②再 `git rm --cached -- data/<path>`(磁盘文件保留,绝不删);任一步失败中止不摘 git;结尾只打印人工 commit+push 步骤,脚本不代做;`--dry-run` 只打印不执行 |
-| F | `scripts/check_large_json_excluded.py`(新) + `scripts/deploy.sh` | 机检: 包装 `large_json_excludes.py --check`,有漏网 tracked 大文件 FAIL;挂 deploy.sh 1.2.5 段(同 check_task_state/check_fade_keys 待遇,FAIL 阻断上线) |
+| F | `scripts/check_large_json_excluded.py`(新) | 独立体检: 包装 `large_json_excludes.py --check`,有漏网 tracked 大文件非零退出(FAIL)。**不挂 deploy**(2026-09-26 整改,闸门自 deploy.sh 移出): 防 .git 膨胀的守卫改为 `staticdata_backup_async.sh` 的「提交前单文件守卫」(见 A/D 行——提交前拦大 JSON 进备份 git,不拦上线)。`--print` 由 `upload_r2.py upload-large-json` 直接调用大文件清单 |
 | G | `docs/ops/large-json-out-of-git-20260925.md`(本报告) | §23.5 四件套 |
 
 ## 4. 关键设计决策(单一源 + 迁移后防断链)
@@ -125,7 +125,8 @@ $PY -m py_compile scripts/large_json_excludes.py scripts/check_large_json_exclud
 
 - 代码层: 本 feat 不 push main; 若 merge 后需回滚, 主控 `main-merge.sh` 反向 merge 或 revert
   `feat/large-json-r2-core` 的 commit(改动集中在 A/C/F: async 阈值与 step3.5、upload_r2 新命令、
-  deploy.sh 1.2.5 闸门)。回滚后 deploy.sh 闸门消失, staticdata 恢复原备份方式。
+  check_large_json_excluded.py 独立体检)。回滚后 async 提交前单文件守卫消失, staticdata 恢复原备份方式
+  (原 deploy.sh 1.2.5 闸门方案已废弃, 2026-09-26 整改移出, 回滚以 revert commit 为准, 不反向恢复旧闸门)。
 - 数据层(迁移后回滚): 人工在 staticdata 仓库执行 `git add data/<path>` 把大文件重新纳入 git
   (remove 掉 .gitignore 区块内对应行或 `git add -f`), commit + push;R2 large-json/ 副本不受影响
   (可留作历史归档)。
@@ -138,8 +139,10 @@ $PY -m py_compile scripts/large_json_excludes.py scripts/check_large_json_exclud
 2. **上线后立即在本机 + 云上跑迁移脚本**(migrate_large_json_out_of_git.sh, 本机可先跑,
    云上 `${GIT_REPO}-staticdata` clone 同样处理或 `git pull` 同步远端):
    硬顺序先上传确认副本齐全, 再 rm --cached, 人工 commit + push。
-3. **在下一次 deploy 前完成迁移**——否则 deploy.sh 1.2.5 闸门 check_large_json_excluded 会
-   FAIL 阻断上线(这正是闸门目的: 强制迁移完成, 防 .git 继续膨胀)。
+3. **尽早完成迁移**(旧方案「deploy.sh 1.2.5 闸门 FAIL 阻断上线」已废弃, 2026-09-26 整改移出)——未迁移时
+   staticdata_backup_async.sh 的「提交前单文件守卫」会拦截大 JSON 进备份 git(跳过 commit 仅磁盘留档 +
+   severe 告警, 这正是守卫目的: 强制迁移完成, 防 .git 继续膨胀;不拦上线)。迁移完成后 7+1 个大文件
+   都在 .gitignore 受管区块内, `git add -A` 不再收进待提交变更, 守卫自然不再触发。
 4. 之后 async 每日: step3.5 维护区块 + 上传 R2 持续备份; 若新出现 >20MB tracked 文件,
    `--check` 会 FAIL 提醒再跑一次迁移脚本。
 

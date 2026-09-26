@@ -188,8 +188,10 @@ elif git -C "$STATICDATA_REPO" diff --cached --quiet 2>/dev/null; then
 else
   # 单文件大 JSON 守卫(2026-09-26 审查整改, feat/large-json-r2-core): 若待提交变更里有单文件
   # >20MB(staticdata 备份 git 排除对象, 尚未迁移) → 置 _OVERSIZE=1 复用「跳过 commit 仅磁盘
-  # 留档 + --severe 告警」分支。覆盖度与原 deploy 闸门完全一样(每次 deploy 都会触发本 async),
-  # 但爆炸半径从 deploy 主链缩到备份 git 提交——永不拦上线。
+  # 留档 + --severe 告警」分支。注意覆盖度与原 deploy 闸门不同: 原闸门每次查「全量 tracked 大
+  # JSON」, 本守卫只查「本次待提交变更里的单文件 >20MB」。为何已够用: 迁移完成后 7+1 个大文件
+  # 都在 .gitignore 受管区块内, `git add -A` 不会收进待提交变更 → 守卫永不误触发; 未迁移的才会
+  # 出现在变更里被本守卫拦下。爆炸半径从 deploy 主链缩到备份 git 提交——永不拦上线。
   # 阈值单一源 large_json_excludes.py(不许写死数字); import 失败 = 链路异常置 STATICDATA_FAIL=1,
   # 守卫自身跳过(积压字节守卫仍兜底)。
   _LJE_THRESHOLD=$("$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); from large_json_excludes import THRESHOLD; print(THRESHOLD)' "$GIT_REPO/scripts" 2>/dev/null || true)

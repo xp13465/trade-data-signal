@@ -1,15 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""check_large_json_excluded.py - 大 JSON 移出 staticdata git 机检(2026-09-25, feat/large-json-r2-core)
+"""check_large_json_excluded.py - 大 JSON 移出 staticdata git 独立体检工具(2026-09-25, feat/large-json-r2-core)
 
 调 large_json_excludes.py --check: staticdata 备份 git 仓库里仍存在 >20MB 的 tracked 大文件
-→ 非零退出(FAIL), 打印漏网清单。挂 deploy 链常驻拦截(同 check_task_state/check_fade_keys 待遇:
-FAIL 阻断上线), 防 .git 继续膨胀/积压超阈值跳过 commit 事故复发。
+→ 非零退出(FAIL), 打印漏网清单。**不挂 deploy**(2026-09-26 整改, 全项目零调用确认): 防 .git
+膨胀的守卫已改为 staticdata_backup_async.sh 的「提交前单文件守卫」(提交前拦大 JSON 进备份 git,
+不拦上线); 本工具为手动/迁移验证用的独立体检。
 
 背景(9-25 首跑 skip_oversize): 7 个大 JSON(~320MB)天天进 delta, 撞 >300MB 积压阈值跳过 commit。
 迁移 = scripts/migrate_large_json_out_of_git.sh(硬顺序先 R2 后 rm --cached, 留给人 commit+push)。
-本机检 = 迁移是否完成 + 有无新漏网。⚠ merge 后须先人工跑迁移脚本再下一次 deploy, 否则被本闸门拦
-(这正是闸门的目的)。
+体检 = 迁移是否完成 + 有无新漏网。配套 large_json_excludes.py: --check 供本工具/手动迁移验证用;
+--print 供 upload_r2.py upload-large-json 输出待上传清单(.gitignore 受管区块单一源)。
+
+(旧方案: 曾挂 deploy.sh 1.2.5 段 FAIL 阻断上线, 2026-09-26 整改移出, 保留此标注供反查。)
 
 用法: python check_large_json_excluded.py --repo <GIT_REPO trade 仓库路径> [--deploy-mode]
 """
