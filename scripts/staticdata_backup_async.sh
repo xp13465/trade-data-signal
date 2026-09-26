@@ -27,7 +27,12 @@
 #
 # 日志: $REPO/data/logs/staticdata_backup_async_YYYYMMDD_HHMMSS.log
 # 用法: 由 deploy.sh 自动触发; 也可手动: bash scripts/staticdata_backup_async.sh <trigger>
-#   测试(严禁写生产 staticdata 仓库): STATICDATA_REPO 指向 /tmp 临时 git 仓库,
+#   测试隔离三件套(F1, 2026-09-26, 严禁写生产 staticdata 仓库 / 生产 R2 私有桶 signal-backup):
+#     1) STATICDATA_REPO 指向 /tmp 临时 git 仓库(备份对象落 /tmp, 不碰生产 staticdata)。
+#     2) R2_BACKUP_BUCKET 指向不存在的桶名(实测 404, 不污染真实 signal-backup)——
+#        step3.5b 的 upload_r2.py upload-large-json 读它当目标桶。
+#     3) STATICDATA_BACKUP_SKIP_R2_UPLOAD=1 跳过 step3.5b R2 上传(日志写明原因);
+#        或让 upload-large-json 走 --dry-run(只打印清单, 零 R2 接触)。
 #   STATICDATA_BACKUP_NOTIFY_DRY_RUN=1 让 notify 走 --dry-run(不真发邮件/飞书)。
 set -u
 # pipefail(2026-09-25 审查整改补): 管道退出码取首命令而非 `| tee` 的 tee(恒 0),
@@ -156,7 +161,11 @@ else
   echo "⚠ large_json_excludes.py 维护 .gitignore 受管区块失败, 不阻塞" | tee -a "$LOG"
   STATICDATA_FAIL=1
 fi
-if STATICDATA_REPO="$STATICDATA_REPO" GIT_REPO="$GIT_REPO" "$PY" "$GIT_REPO/scripts/upload_r2.py" upload-large-json 2>&1 | tee -a "$LOG"; then
+# step3.5b 测试隔离钩子(F1, 2026-09-26): STATICDATA_BACKUP_SKIP_R2_UPLOAD=1 → 跳过 R2 上传并写明原因。
+# 其余测试隔离: STATICDATA_REPO 指 /tmp 克隆 + R2_BACKUP_BUCKET 指不存在的桶名(实测 404, 不污染生产桶)。
+if [ "${STATICDATA_BACKUP_SKIP_R2_UPLOAD:-}" = "1" ]; then
+  echo "  [step3.5b large-json R2 上传] 跳过(STATICDATA_BACKUP_SKIP_R2_UPLOAD=1 测试隔离钩子, 未写生产 R2)" | tee -a "$LOG"
+elif STATICDATA_REPO="$STATICDATA_REPO" GIT_REPO="$GIT_REPO" "$PY" "$GIT_REPO/scripts/upload_r2.py" upload-large-json 2>&1 | tee -a "$LOG"; then
   echo "  [step3.5b large-json R2 上传] ✓" | tee -a "$LOG"
 else
   echo "⚠ upload_r2.py upload-large-json 失败, 不阻塞" | tee -a "$LOG"

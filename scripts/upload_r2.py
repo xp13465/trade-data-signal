@@ -15,6 +15,13 @@
   python3 scripts/upload_r2.py upload-db                  # 每日 DB 备份推 R2(signal-backup)
   python3 scripts/upload_r2.py upload-claude-backup [path] # Claude 自我备份 tar.gz -> signal-backup/claude-backup/
   python3 scripts/upload_r2.py download-db <name> [dir]   # 下载最新备份(解压后.db路径到stdout)
+  python3 scripts/upload_r2.py upload-large-json [--dry-run]  # 大 JSON 私有桶备份(signal-backup/large-json/)
+
+测试隔离三件套(F1, 2026-09-26, 严禁写生产 R2):
+  1) STATICDATA_REPO=/tmp/xxx —— 指向 /tmp 临时 staticdata git 克隆(见 docs/ops/large-json-out-of-git-20260925.md §5.1)。
+  2) R2_BACKUP_BUCKET=不存在的桶名(如 demo-nowhere)—— 指向不存在的桶实测 404, 不污染真实 signal-backup。
+  3) upload-large-json --dry-run(或 async 侧 STATICDATA_BACKUP_SKIP_R2_UPLOAD=1)—— 只打印将上传清单与计划动作,
+     不 PUT / 不 DELETE / 不重写 manifest / 不跑 prune, 全程零 R2 接触。
 """
 import os, sys, re, hashlib, hmac, http.client, datetime, ssl, json, time, threading, fcntl
 from pathlib import Path
@@ -2115,10 +2122,17 @@ def _write_large_json_manifest(rows, today_str):
 
     固定头部内嵌恢复侧说明(2026-09-26 审查整改, feat/large-json-r2-core): 恢复侧分支
     feat/large-json-r2-restore 写的说明文要点并入生成器头部, 防整体重写把恢复指引覆盖成简表头。
+
+    幂等(#115, 2026-09-26): 头部时间戳只到日期(not 时分秒)——否则同内容每次跑 manifest 都变一行,
+    async 每跑必留一个 M 脏文件(sync 每 ~30min 一次 churn 更密)。表内「生成时间」列本来就只用日期, 不受影响。
+
+    ⚠ 仓库里 docs/large-json-backup-manifest.md 那版(=恢复侧分支手写版)是「厚表头 + 空表骨架」,
+    而生成器写的是「薄表头 + 带 sha256 的完整表」——两者暂时不等是 async 长期 `skip_oversize`
+    未 commit 造成的滞后, 恢复正常 commit 后生成器版会自然入库, 不需要手工改那份 md。
     """
     import datetime as _dt
     out = ROOT / "docs" / "large-json-backup-manifest.md"
-    now = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = _dt.datetime.now().strftime("%Y-%m-%d")
     tier = _tier_of_today(today_str)
     lines = [
         "# large-json 备份清单(large-json-backup-manifest)",
@@ -2169,11 +2183,15 @@ def cmd_upload_large_json():
         2026-09-25 实测发现修复), 内容没变跳过 PUT 不重复上传。
       - 滚动保留 = _prune_large_json(日14天 + 周档周日那份8周 + 月档每月1号那份12月)。
       - 跑完自动重写 docs/large-json-backup-manifest.md(相对路径/完整字节/sha256/最新key/档位/生成时间)。
+      - dry-run(2026-09-26 F1): `upload-large-json --dry-run`(或 async 侧 STATICDATA_BACKUP_SKIP_R2_UPLOAD=1)
+        只打印将上传清单 + 将做的事,**不 PUT / 不 DELETE / 不重写 manifest / 不跑 _prune_large_json,
+        且全程不接触 R2**(纯本地计算)——测试隔离钩子, 防集成测试污染生产桶(2026-09-26 实际事故)。
     """
     import gzip
     import hashlib
     import subprocess
     import datetime as _dt
+    dry_run = _DRY_RUN
     repo = _large_json_staticdata_repo()
     excludes = ROOT / "scripts" / "large_json_excludes.py"
     r = subprocess.run([sys.executable, str(excludes), "--print", "--repo", str(repo)],
@@ -2203,6 +2221,13 @@ def cmd_upload_large_json():
         payload = gzip.compress(raw, compresslevel=6, mtime=0)  # mtime=0 固定, 同内容同字节(幂等 ETag 前提)
         key = f"large-json/{today}/{relpath}.gz"
         local_md5 = hashlib.md5(payload).hexdigest()
+        if dry_run:
+            # F1 dry-run: 只打印将上传清单, 不 PUT / 不 HEAD, 全程零 R2 接触。
+            print(f"[dry-run] 将上传 {relpath} ({size // 1024 // 1024}MB -> "
+                  f"{len(payload) // 1024 // 1024}MB gzip, md5={local_md5[:10]}…) -> {BACKUP_BUCKET}/{key}")
+            manifest_rows.append((relpath, size, hashlib.sha256(raw).hexdigest(), key))
+            ok += 1
+            continue
         st, etag = s3_head(key, bucket=BACKUP_BUCKET)
         if st == 200 and etag is not None and etag.strip('"') == local_md5:
             print(f"✓ 已存在且内容未变, 跳过 PUT: {BACKUP_BUCKET}/{key}")
@@ -2221,6 +2246,12 @@ def cmd_upload_large_json():
                 # 失败详情走 stderr, 最终 ok != len(entries) 保持非 0 退出。
                 print(f"✗ {relpath} status={status} {data.decode('utf-8', errors='replace')[:300]}",
                       file=sys.stderr)
+    if dry_run:
+        # F1 dry-run 收尾: 只打印「将做的事」, 不真跑 prune / 不重写 manifest。
+        print("[dry-run] 将运行 _prune_large_json(日14天 + 周周日8周 + 月1号12月滚动保留)")
+        print(f"[dry-run] 将重写 docs/large-json-backup-manifest.md({len(manifest_rows)} 行)")
+        print(f"[dry-run] large-json 计划上传 {ok}/{len(entries)} -> {BACKUP_BUCKET}/large-json/{today}/ (私有桶, 未执行)")
+        return
     _prune_large_json()
     _write_large_json_manifest(manifest_rows, today)
     print(f"large-json 上传 {ok}/{len(entries)} -> {BACKUP_BUCKET}/large-json/{today}/ (私有桶)")
@@ -2693,8 +2724,9 @@ if __name__ == "__main__":
     elif cmd == "upload-db":
         cmd_upload_db()
     elif cmd == "upload-large-json":
-        # upload-large-json  staticdata 备份 git 排除的大 JSON -> 私有桶 large-json/<日期>/<路径>.gz
+        # upload-large-json [--dry-run]  staticdata 备份 git 排除的大 JSON -> 私有桶 large-json/<日期>/<路径>.gz
         # (2026-09-25, 排除对象清单来源 large_json_excludes.py --print)
+        # --dry-run(2026-09-26 F1): 走全局 _DRY_RUN 标志, 只打印清单计划动作, 零 R2 接触。
         cmd_upload_large_json()
     elif cmd == "upload-claude-backup":
         # upload-claude-backup [local_path]  Claude 自我备份 tar.gz -> signal-backup/claude-backup/
