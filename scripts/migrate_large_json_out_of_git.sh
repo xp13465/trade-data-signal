@@ -32,7 +32,14 @@ fi
 echo "== migrate_large_json_out_of_git 开始 $(date '+%Y-%m-%d %H:%M:%S') =="
 
 # 1. 待迁移清单(排除规则单一源 --print, 相对 data/ 路径 + 字节数)
-LIST=$("$PY" "$GIT_REPO/scripts/large_json_excludes.py" --print --repo "$STATICDATA_REPO" 2>/dev/null || true)
+# ⚠ 2026-09-26 审查整改: 原 `2>/dev/null || true` 静默吞 --print 失败(迁移=摘 git 的关键操作,
+# 静默失败=高危), 会误判「无需迁移」exit 0。改为显式判退出码: 失败打印原因(上方 stderr)并非 0 退出。
+LIST=$("$PY" "$GIT_REPO/scripts/large_json_excludes.py" --print --repo "$STATICDATA_REPO")
+_LJE_PRINT_RC=$?
+if [ "$_LJE_PRINT_RC" -ne 0 ]; then
+  echo "✗ large_json_excludes.py --print 失败(退出码 $_LJE_PRINT_RC, 上方 stderr 为原因), 中止迁移。"
+  exit "$_LJE_PRINT_RC"
+fi
 if [ -z "$LIST" ]; then
   echo "✓ 无 >20MB tracked 大文件, 无需迁移(幂等重复跑自动到这里)"
   exit 0

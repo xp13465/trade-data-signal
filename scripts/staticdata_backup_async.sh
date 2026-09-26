@@ -186,30 +186,49 @@ if [ "${PIPESTATUS[0]:-0}" -ne 0 ]; then
 elif git -C "$STATICDATA_REPO" diff --cached --quiet 2>/dev/null; then
   echo "✓ staticdata 无新变更,跳过 commit" | tee -a "$LOG"
 else
+  # 单文件大 JSON 守卫(2026-09-26 审查整改, feat/large-json-r2-core): 若待提交变更里有单文件
+  # >20MB(staticdata 备份 git 排除对象, 尚未迁移) → 置 _OVERSIZE=1 复用「跳过 commit 仅磁盘
+  # 留档 + --severe 告警」分支。覆盖度与原 deploy 闸门完全一样(每次 deploy 都会触发本 async),
+  # 但爆炸半径从 deploy 主链缩到备份 git 提交——永不拦上线。
+  # 阈值单一源 large_json_excludes.py(不许写死数字); import 失败 = 链路异常置 STATICDATA_FAIL=1,
+  # 守卫自身跳过(积压字节守卫仍兜底)。
+  _LJE_THRESHOLD=$("$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); from large_json_excludes import THRESHOLD; print(THRESHOLD)' "$GIT_REPO/scripts" 2>/dev/null || true)
+  if [ -z "$_LJE_THRESHOLD" ]; then
+    echo "⚠ 无法从 large_json_excludes.py 读取单文件大 JSON 阈值(import 失败), 单文件守卫跳过, 置 STATICDATA_FAIL=1" | tee -a "$LOG"
+    STATICDATA_FAIL=1
+    _LJE_THRESHOLD=999999999999
+  fi
   _CHANGED=$(git -C "$STATICDATA_REPO" diff --cached --name-only)
   _N=$(printf '%s\n' "$_CHANGED" | grep -c . || true)
   _BYTES=0
   _OVERSIZE=0
+  _OVERSIZE_REASON=""
   # 文件数阈值短路: >5000 直接跳过(积压场景 32k 文件逐个 wc 白耗 ~30s, 阈值已定不再需要字节数)。
   if [ "$_N" -gt 5000 ]; then
     _OVERSIZE=1
+    _OVERSIZE_REASON="backlog"
   else
     # 字节口径 = 变更文件当前 wc -c 总和(保守估计: 大 JSON 即使只改 100B 也按全文件计, 与 GitHub
-    # 仓库膨胀口径一致, 宁高勿低触发跳过)。
+    # 仓库膨胀口径一致, 宁高勿低触发跳过)。单文件 >20MB(大 JSON 未迁移)同样置 _OVERSIZE=1。
     while IFS= read -r _f; do
       [ -z "$_f" ] && continue
       if [ -f "$STATICDATA_REPO/$_f" ]; then
         _sz=$(wc -c < "$STATICDATA_REPO/$_f" 2>/dev/null || echo 0)
         _BYTES=$((_BYTES + _sz))
+        [ "$_sz" -gt "$_LJE_THRESHOLD" ] && { _OVERSIZE=1; _OVERSIZE_REASON="largejson"; }
       fi
     done <<< "$_CHANGED"
-    [ "$_BYTES" -gt 500000000 ] && _OVERSIZE=1
+    [ "$_BYTES" -gt 500000000 ] && { _OVERSIZE=1; [ -z "$_OVERSIZE_REASON" ] && _OVERSIZE_REASON="backlog"; }
   fi
-  echo "  [变更量] 文件数=$_N 字节=$_BYTES 超阈值=$_OVERSIZE" | tee -a "$LOG"
+  echo "  [变更量] 文件数=$_N 字节=$_BYTES 超阈值=$_OVERSIZE 原因=${_OVERSIZE_REASON:-无}" | tee -a "$LOG"
   if [ "$_OVERSIZE" = "1" ]; then
-    echo "⚠ 变更量超阈值(文件=$_N >5000 或 字节=$_BYTES >500MB), 跳过 commit/push 仅磁盘留档(积压兜底)" | tee -a "$LOG"
+    _OV_REASON="变更量超阈值(文件 ${_N} >5000 或 字节 ${_BYTES} >500MB)"
+    if [ "$_OVERSIZE_REASON" = "largejson" ]; then
+      _OV_REASON="存在单文件 >${_LJE_THRESHOLD} 字节的大 JSON 仍待提交(未移出 staticdata git)"
+    fi
+    echo "⚠ $_OV_REASON, 跳过 commit/push 仅磁盘留档(积压兜底)" | tee -a "$LOG"
     "$PY" "$REPO/scripts/notify.py" "[告警] staticdata 变更量超阈值跳过 commit" \
-      "staticdata 备份变更量超阈值(文件 ${_N} >5000 或 字节 ${_BYTES} >500MB), 本次仅 rsync 磁盘留档未 commit/push。<br>数据已在 $STATICDATA_REPO/data/ 与 db/ 磁盘留档(灾备第1/2层安全), 次日 deploy 的 rsync 全量自然追平 git。<br>如连续多日触发, 需评估: 是否大 JSON 需入 .gitignore(>50MB 先例 signal_kelly_trades*.json)<br>日志: $LOG" \
+      "staticdata 备份 $_OV_REASON, 本次仅 rsync 磁盘留档未 commit/push。<br>数据已在 $STATICDATA_REPO/data/ 与 db/ 磁盘留档(灾备第1/2层安全), 次日 deploy 的 rsync 全量自然追平 git。<br>若因大 JSON 未迁移: 请跑 bash scripts/migrate_large_json_out_of_git.sh 将其移出 staticdata git, 改走 R2 私有桶 large-json/ 每日备份。<br>日志: $LOG" \
       --severe --from-prefix "[告警]" --alert-issue "staticdata备份变更量超阈值跳过commit" --alert-log "$LOG" \
       --dedup-key "staticdata_backup_oversize_skip" --dedup-window 21600 "${_NOTIFY_DRY[@]}" 2>&1 | tee -a "$LOG" || true
   else

@@ -2111,7 +2111,11 @@ def _prune_large_json(bucket=None):
 
 
 def _write_large_json_manifest(rows, today_str):
-    """自动重写 docs/large-json-backup-manifest.md(排除对象 ↔ R2 副本索引, 不手工维护)。"""
+    """自动重写 docs/large-json-backup-manifest.md(排除对象 ↔ R2 副本索引, 不手工维护)。
+
+    固定头部内嵌恢复侧说明(2026-09-26 审查整改, feat/large-json-r2-core): 恢复侧分支
+    feat/large-json-r2-restore 写的说明文要点并入生成器头部, 防整体重写把恢复指引覆盖成简表头。
+    """
     import datetime as _dt
     out = ROOT / "docs" / "large-json-backup-manifest.md"
     now = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -2121,9 +2125,21 @@ def _write_large_json_manifest(rows, today_str):
         "",
         f"> 由 `scripts/upload_r2.py upload-large-json` 自动生成({now}), 勿手改。",
         "",
-        "大 JSON(staticdata 备份 git 排除对象, >20MB)走 R2 私有桶 `signal-backup`",
-        "`large-json/<YYYY-MM-DD>/<相对data路径>.gz` 每日 gzip 备份。",
-        "滚动保留: 日档 14 天 + 周档(周日那份) 8 周 + 月档(每月1号那份) 12 个月。",
+        "## 机制一句话",
+        "",
+        "staticdata 备份仓库 7 个 >20MB JSON(共 ~319MB)已移出 git 跟踪(备份天天 `skip_oversize`",
+        "不 commit 的根因), 改走 R2 私有桶 `signal-backup` 的 `large-json/` 前缀版本化快照。",
+        "",
+        "- key 格式: `large-json/<YYYY-MM-DD>/<相对 data/ 的路径>.gz`",
+        "  - 例: `large-json/2026-09-25/signal_kelly_trades.json.gz`",
+        "  - 例: `large-json/2026-09-25/signal_kelly_trades_parts/t2025.json.gz`",
+        "- 保留档位: 日档 14 天 + 周档(周日那份) 8 周 + 月档(每月 1 号那份) 12 个月",
+        "- 恢复: `bash scripts/restore-large-json.sh <文件名|--list|--date YYYY-MM-DD|--all>`",
+        "  还原时先下同目录 `.tmp` 再原子覆盖, 覆盖前旧文件备份为 `<文件>.bak-<时间戳>`(详见",
+        "  `docs/backup-restore.md` 第八节)。",
+        "- 相关脚本: `scripts/upload_r2.py`(上传) / `scripts/restore-large-json.sh`(恢复入口)。",
+        "",
+        "## 快照明细",
         "",
         "| 相对 data/ 路径 | 完整字节 | sha256 | 最新 R2 key | 保留档位 | 生成时间 |",
         "|---|---|---|---|---|---|",
@@ -2189,15 +2205,20 @@ def cmd_upload_large_json():
         if st == 200 and etag is not None and etag.strip('"') == local_md5:
             print(f"✓ 已存在且内容未变, 跳过 PUT: {BACKUP_BUCKET}/{key}")
             ok += 1
+            # R2 已有同内容副本 = 真实成功, 进 manifest
+            manifest_rows.append((relpath, size, hashlib.sha256(raw).hexdigest(), key))
         else:
             status, data = s3_request("PUT", key, payload, bucket=BACKUP_BUCKET, content_type="application/gzip")
             if status == 200:
                 ok += 1
                 print(f"✓ {relpath} ({size // 1024 // 1024}MB -> {len(payload) // 1024 // 1024}MB gzip)"
                       f" -> {BACKUP_BUCKET}/{key}")
+                manifest_rows.append((relpath, size, hashlib.sha256(raw).hexdigest(), key))
             else:
-                print(f"✗ {relpath} status={status} {data.decode('utf-8', errors='replace')[:300]}")
-        manifest_rows.append((relpath, size, hashlib.sha256(raw).hexdigest(), key))
+                # 上传失败的行不得进 manifest(manifest 只能反映真实成功上传, 防机检误判已备份);
+                # 失败详情走 stderr, 最终 ok != len(entries) 保持非 0 退出。
+                print(f"✗ {relpath} status={status} {data.decode('utf-8', errors='replace')[:300]}",
+                      file=sys.stderr)
     _prune_large_json()
     _write_large_json_manifest(manifest_rows, today)
     print(f"large-json 上传 {ok}/{len(entries)} -> {BACKUP_BUCKET}/large-json/{today}/ (私有桶)")
