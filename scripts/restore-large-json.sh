@@ -158,7 +158,9 @@ def human(n):
 
 def restore_one(date, rel, manifest_sha, target_root):
     """下载 large-json/<date>/<rel>.gz → 解压 → sha256 比对 → 备份旧文件 → 原子写回 <target_root>/<rel>。
-    成功返回 None；任何需中止该对象的场景返回错误字符串(调用方汇总跳过清单,不中断其他文件)。"""
+    成功返回 None；任何中止该对象的场景返回 ("skip"|"fail", 错误字符串)：
+    skip = 该日期该文件在 R2 不存在或路径非法(调用方汇总跳过清单)；fail = 下载/写入出错(调用方额外汇总失败计数)。
+    均不中断其他文件。"""
     key = f"{PREFIX}{date}/{rel}.gz"
 
     # 路径安全第二道(realpath 兜底,防 parse_key 漏网/未来改动)：解析后绝对路径必须落在目标根内
@@ -166,24 +168,26 @@ def restore_one(date, rel, manifest_sha, target_root):
     real_root = os.path.realpath(target_root)
     real_out = os.path.realpath(out_path)
     if not (real_out == real_root or real_out.startswith(real_root + os.sep)):
-        return f"✗ 非法路径 rel={rel!r},目标 {real_out} 不在根目录 {real_root} 内,已跳过"
+        return ("skip", f"✗ 非法路径 rel={rel!r},目标 {real_out} 不在根目录 {real_root} 内,已跳过")
 
     try:
         status, data = upload_r2.s3_request("GET", key, bucket=BUCKET)
     except Exception as e:
-        return f"✗ 下载网络调用失败 {BUCKET}/{key}(快速失败,已设 {os.environ.get('R2_UPLOAD_HTTP_TIMEOUT')}s 超时): {type(e).__name__}: {e}(已跳过,不中断其他文件)"
+        return ("fail", f"✗ 下载网络调用失败 {BUCKET}/{key}(快速失败,已设 {os.environ.get('R2_UPLOAD_HTTP_TIMEOUT')}s 超时): {type(e).__name__}: {e}(已跳过,不中断其他文件)")
     if status != 200:
-        return f"✗ 下载失败 {BUCKET}/{key} status={status}(已跳过,不中断其他文件)"
+        if status == 404:
+            return ("skip", f"✗ 该日期该文件在 R2 不存在 {BUCKET}/{key} status={status}(已跳过,不中断其他文件)")
+        return ("fail", f"✗ 下载失败 {BUCKET}/{key} status={status}(已跳过,不中断其他文件)")
     try:
         payload = gzip.decompress(data)
     except Exception as e:
-        return f"✗ gzip 解压失败 {key}: {e}"
+        return ("fail", f"✗ gzip 解压失败 {key}: {e}")
 
     got = hashlib.sha256(payload).hexdigest()
     expect = manifest_sha.get(key)  # 完整 key(含日期)查 hash —— P1-1 修复,多日期不串
     if expect:
         if got != expect:
-            return f"✗ sha256 不匹配 {key}: manifest={expect[:16]}… 实际={got[:16]}…,已中止(勿覆盖)"
+            return ("fail", f"✗ sha256 不匹配 {key}: manifest={expect[:16]}… 实际={got[:16]}…,已中止(勿覆盖)")
         print(f"  sha256 ✓ {got[:16]}… 与 manifest 一致")
     else:
         print(f"  (manifest 无 {key} 记录,跳过 sha256 比对;本地 sha256 = {got[:16]}…)")
@@ -338,19 +342,39 @@ else:  # single
     print(f"还原 {payload} 最新快照(日期 {date}):")
     target_pairs = [(date, payload, key)]
 
-skipped = []
+ok_n = fail_n = skip_n = 0
+skipped = []   # 跳过清单(该日期该文件在 R2 不存在/路径非法；含 bad_keys)
+failed = []    # 失败清单(下载/写入出错：网络失败/非 404 下载失败/解压失败/sha 不匹配)
 for date, rel, key in target_pairs:
-    err = restore_one(date, rel, manifest_sha, target_root)
-    if err:
-        skipped.append((key, err))
+    r = restore_one(date, rel, manifest_sha, target_root)
+    if r is None:
+        ok_n += 1
+    elif r[0] == "fail":
+        fail_n += 1
+        failed.append((key, r[1]))
+    else:
+        skip_n += 1
+        skipped.append((key, r[1]))
 
 for k in bad_keys:
+    skip_n += 1
     skipped.append((k, "✗ 对象格式/路径非法,已跳过"))
+
+# 收尾汇总：成功/失败/跳过三计数,批量还原一眼看整体成败
+print(f"\n总结: 成功 {ok_n} 个 / 失败 {fail_n} 个 / 跳过 {skip_n} 个")
+
 if skipped:
     print(f"\n⚠️ 共 {len(skipped)} 个对象被跳过:", file=sys.stderr)
     for key, err in skipped:
         print(f"  - {key}: {err}", file=sys.stderr)
-    # 恢复不完整=失败：任何对象被跳过(网络失败/非法路径/sha 不匹配等)都以非 0 退出,
-    # 让调用方(人工/定时)能感知恢复未完整完成,不静默当成功。
+if failed:
+    print(f"\n⚠️ 共 {len(failed)} 个对象恢复失败:", file=sys.stderr)
+    for key, err in failed:
+        print(f"  - {key}: {err}", file=sys.stderr)
+    # 下载/写入出错>0 = 恢复不完整 = 失败：非 0 退出,让调用方(人工/定时)能感知,不静默当成功。
+    sys.exit(1)
+if skipped:
+    # 跳过(该日期该文件在 R2 不存在/路径非法)保持现有语义：非空也以非 0 退出,
+    # 恢复不完整=失败。与 failed 分开统计、分开退出,不合并。
     sys.exit(1)
 PYEOF

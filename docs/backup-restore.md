@@ -204,6 +204,7 @@ bash scripts/restore-large-json.sh --list --target /tmp/restore-test
 - gzip 解压；`docs/large-json-backup-manifest.md` 有该完整 R2 key（含日期）的 sha256 记录则比对，不匹配即中止（不改名跳过并汇总非 0 退出）
 - 路径安全：恢复写入前校验相对路径（非空/不含 `..` 段/不以 `/` 开头/realpath 落在目标根内），非法跳过并汇总
 - 网络快速失败：S3 调用注入 10s 连接超时（不受外部 `R2_UPLOAD_HTTP_TIMEOUT` 大值影响），网络不可达/超时立即报错，不做无限等待
+- 收尾总结：打印「成功 N 个 / 失败 M 个 / 跳过 K 个」三计数（跳过=该日期该文件在 R2 不存在/路径非法；失败=下载/写入出错）；失败数 > 0 或存在跳过均非 0 退出，不静默当成功
 - **绝不写 R2 上任何对象、绝不删除 R2 上任何对象**（本脚本只有 GET/LIST）
 
 **凭证**：复用 `scripts/upload_r2.py` 的 `s3_request()`（`sys.path.insert(0,"scripts"); import upload_r2`，
