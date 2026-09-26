@@ -186,12 +186,16 @@ if [ "${PIPESTATUS[0]:-0}" -ne 0 ]; then
 elif git -C "$STATICDATA_REPO" diff --cached --quiet 2>/dev/null; then
   echo "✓ staticdata 无新变更,跳过 commit" | tee -a "$LOG"
 else
-  # 单文件大 JSON 守卫(2026-09-26 审查整改, feat/large-json-r2-core): 若待提交变更里有单文件
+  # 单文件大 JSON 守卫(2026-09-26 P1 修复, feat/large-json-guard-fix): 若待提交变更里有单文件
   # >20MB(staticdata 备份 git 排除对象, 尚未迁移) → 置 _OVERSIZE=1 复用「跳过 commit 仅磁盘
   # 留档 + --severe 告警」分支。注意覆盖度与原 deploy 闸门不同: 原闸门每次查「全量 tracked 大
-  # JSON」, 本守卫只查「本次待提交变更里的单文件 >20MB」。为何已够用: 迁移完成后 7+1 个大文件
-  # 都在 .gitignore 受管区块内, `git add -A` 不会收进待提交变更 → 守卫永不误触发; 未迁移的才会
-  # 出现在变更里被本守卫拦下。爆炸半径从 deploy 主链缩到备份 git 提交——永不拦上线。
+  # JSON」, 本守卫只查「本次待提交变更里的单文件 >20MB」。
+  # 为何已够用(2026-09-26 修正): 迁移完成后 7+1 个大文件都在 .gitignore 受管区块内, `git add -A`
+  # 不会重新收进 index; 但迁移的过渡态 = 「M .gitignore + N 个已暂存删除(D)」——git rm --cached
+  # 保留磁盘文件, 若 D 路径被计入守卫, L217 的 `-f` 判断磁盘文件为真会按全文件字节误算 → 永久
+  # 误触发跳过, 反而拦死「唯一能解除它自己的那次提交」。因此守卫计算清单用 `--diff-filter=d`
+  # 排除已暂存删除(D 不增加仓库体积); 未迁移(未 .gitignore)的大 JSON 仍是 M/A 状态出现在清单
+  # 里被本守卫拦下。爆炸半径从 deploy 主链缩到备份 git 提交——永不拦上线。
   # 阈值单一源 large_json_excludes.py(不许写死数字); import 失败 = 链路异常置 STATICDATA_FAIL=1,
   # 守卫自身跳过(积压字节守卫仍兜底)。
   _LJE_THRESHOLD=$("$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); from large_json_excludes import THRESHOLD; print(THRESHOLD)' "$GIT_REPO/scripts" 2>/dev/null || true)
@@ -200,7 +204,11 @@ else
     STATICDATA_FAIL=1
     _LJE_THRESHOLD=999999999999
   fi
-  _CHANGED=$(git -C "$STATICDATA_REPO" diff --cached --name-only)
+  # 已暂存删除(D, git rm --cached 后磁盘文件仍在)不增加仓库体积, 不计入「大文件/积压」判定 →
+  # 守卫计算用排除 D 的清单(--diff-filter=d); 全量清单保留给 commit body 分类计数(删除本身也是
+  # 本次提交的内容, 迁移提交的 data/ 目录删除应在 body 体现)。
+  _CHANGED_ALL=$(git -C "$STATICDATA_REPO" diff --cached --name-only)
+  _CHANGED=$(git -C "$STATICDATA_REPO" diff --cached --name-only --diff-filter=d)
   _N=$(printf '%s\n' "$_CHANGED" | grep -c . || true)
   _BYTES=0
   _OVERSIZE=0
@@ -235,7 +243,8 @@ else
       --dedup-key "staticdata_backup_oversize_skip" --dedup-window 21600 "${_NOTIFY_DRY[@]}" 2>&1 | tee -a "$LOG" || true
   else
     # commit message 详细化：标题含触发 pipeline 名($TRIGGER) + 变更文件数；body 按顶层目录分类计数 top5
-    _BODY=$(printf '%s\n' "$_CHANGED" | sed 's|/.*||' | sort | uniq -c | sort -rn | head -5 | awk '{printf "%s %s\n", $2, $1}')
+    # (用全量 _CHANGED_ALL 含已暂存删除, 让迁移删除在 body 可见; 守卫尺寸判定仍用排除 D 的 _CHANGED)
+    _BODY=$(printf '%s\n' "$_CHANGED_ALL" | sed 's|/.*||' | sort | uniq -c | sort -rn | head -5 | awk '{printf "%s %s\n", $2, $1}')
     if ! git -C "$STATICDATA_REPO" commit -m "data backup [$TRIGGER] $(date +%Y-%m-%d_%H:%M) - ${_N} files" -m "$_BODY" 2>&1 | tee -a "$LOG"; then
       echo "⚠ staticdata commit 失败(best-effort)" | tee -a "$LOG"
       STATICDATA_FAIL=1
