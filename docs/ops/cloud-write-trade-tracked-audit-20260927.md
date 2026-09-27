@@ -13,12 +13,14 @@
 5. 对 38 个 ExecStart 脚本链内全部 py/sh 写目标穷举 grep(`scripts/ app/ a-stock-data/ static-site/export.py + docs/ 下被调 py`)
 6. 反向:对 tracked JSON 候选 grep 文件名找写入方
 
-## 2. 交集(全量 = 恰好 2 例,无第三例)
+## 2. 当前已踩响且可安全脱跟踪 = 恰好 2 例(同机制但本次不动的另见 §7)
+
+> 说明:全量同机制对象 = 本 2 例 + §7 的 4 个 `data/` 文件;§7 那 4 个因有真实消费方/bootstrap 契约依赖,本次不动。
 
 | 文件 | 写入方 | 触发 | 频率 | tracked | 消费方 | mtime |
 |---|---|---|---|---|---|---|
 | `docs/kelly/position/scripts/accum_nav_map.json`(26MB) | `export_accum_nav_map.py` L41 `OUT_JSON`(脚本同目录)+ L44 `SPLIT_DIR` 同目录 `accum_nav/`,经 `deploy.sh` L284 `--all` 调 | `trade-us-stock-morning`(每天 05:00)+ `trade-update-all`(每天 17:50)→ 各跑一次 deploy.sh | 每天 2 次 | 是(`git ls-files`) | 无直接消费;**唯一=deploy.sh L290 cp 到 static-site/data/**(cp 源只需磁盘存在,不需要进 git);前端读 R2/`./data/`(common.js L1266 / lab.js L8147) | 09-27 05:08:38, 26MB |
-| `docs/ai-predict/out/ab_direction_anchor_7d.json`(3KB) | `scripts/ab_direction_anchor.py` L85 `AB_OUT_FILE` + L310 `--reconcile` 分支写 | `trade-ab-direction-anchor`(每天 21:15,仅满 7 交易日才真重写) | 满 7 交易日一次(约 1.5-2 周) | 是(`git ls-files`) | **零消费方**(全仓 grep 仅自身 docstring) | 09-24 21:15:01, 3062 B |
+| `docs/ai-predict/out/ab_direction_anchor_7d.json`(3KB) | `scripts/ab_direction_anchor.py` L85 `AB_OUT_FILE` + L312 `--reconcile` 分支写 | `trade-ab-direction-anchor`(每天 21:15;满 7 交易日后每次触发都走 `--reconcile --force`) | 满 7 交易日后每天 21:15 重写(无条件 atomic_write,内容可能不变) | 是(`git ls-files`) | **零消费方**(全仓 grep 仅自身 docstring) | 09-24 21:15:01, 3062 B |
 
 **踩响频率判据(提交历史)**:`accum_nav_map.json` main 近 5 commit(b2e588e30/c7637cd0e/1e8474a05/c9a69190d/d1a26756f,08月底~09-06)→ main 改动约周级 → **踩响≈周级**;`ab_direction_anchor_7d.json` main 仅 2 commit → 几周~几月级。
 
@@ -29,8 +31,8 @@
 - `deploy.sh` L284:`"$PY" "$GIT_REPO/docs/kelly/position/scripts/export_accum_nav_map.py" --all`
 - `deploy_20260927_0500.log` L539-540:"生成 accum_nav_map.json ... exported 1710 ETF 1472559 date-rows -> /home/ubuntu/code/trade-data-signal/docs/kelly/position/scripts/accum_nav_map.json"
 - `export_accum_nav_map.py` L41 OUT_JSON = 脚本同目录;L44 SPLIT_DIR = 同目录 `accum_nav/`
-- `run_ab_direction_anchor.sh`:满 7 日 → `ab_direction_anchor.py --reconcile --force`;`ab_direction_anchor.py` L310 out_path = git_repo / `docs/ai-predict/out/` / `ab_direction_anchor_7d.json`(仅 reconcile 分支写)
-- `trade-ab-direction-anchor.timer` OnCalendar=21:15(每天);mtime 09-24 21:15:01 吻合
+- `run_ab_direction_anchor.sh`:满 7 日 → 每次调用都走 `ab_direction_anchor.py --reconcile --force`(即满 7 交易日后每天 21:15 都重写,不再只写一次);`ab_direction_anchor.py` L312 out_path = git_repo / `docs/ai-predict/out/` / `ab_direction_anchor_7d.json`(reconcile 分支内无条件 `atomic_write_json`)
+- `trade-ab-direction-anchor.timer` OnCalendar=21:15(每天);满 7 交易日后每次触发都 `--reconcile --force` 重写;mtime 09-24 21:15:01 吻合
 
 ## 4. 消费方分析(为何脱跟踪安全)
 
@@ -86,6 +88,8 @@
 
 ## 8. 云上首拉清理步骤(主控 merge 后执行,精确命令)
 
+> ⚠️ **时序硬约束**:merge 后必须赶在云上下一次定时 deploy(**`trade-us-stock-morning` 每天 05:00 / `trade-update-all` 每天 17:50**)之前完成本清理。否则定时 deploy 的 fetch+rebase(`deploy.sh:799-887`)遇「本地 M + main 删除该文件」会被挡;deploy 的 unmerged 兜底只清 `static-site/data/*`(`deploy.sh:161/798`),不覆盖这类数据文件 → 非数据 unmerged 直接 `exit 1` 拒绝整轮 deploy(`deploy.sh:169`),且会反复阻断当日所有定时任务。
+
 > 目标:云上代码仓 `GIT_REPO=/home/ubuntu/code/trade-data-signal` 在 pull main 前先清掉本地脏文件,使两文件回到「untracked + ignored」状态,不再因 main 改动该文件而中断 pull。
 
 ```bash
@@ -95,21 +99,25 @@ cd /home/ubuntu/code/trade-data-signal
 
 # 2. 确认脏文件(mtime 近 = 定时任务刚写过;git status 应为 M)
 ls -l docs/kelly/position/scripts/accum_nav_map.json docs/ai-predict/out/ab_direction_anchor_7d.json
-git status --porcelain | grep -E "accum_nav_map|ab_direction_anchor_7d"
+# 先跑全量 git status --porcelain:任何 tracked M 都会挡 git pull(不只这两文件;
+#   §7 的 data/ 下 4 个(index_etf_map.json/stock_codes.json/trade.db/trade_dates.txt)也会被 deploy.sh:514 rsync 覆盖写)
+git status --porcelain
+# ⚠️ 发现除这两文件外的任何 M → 先停下上报主控,不要盲清
 
-# 3. 备份一份到 /tmp(防 merge 前后续任务仍要 cp 源)
-cp docs/kelly/position/scripts/accum_nav_map.json /tmp/accum_nav_map.json.bak-20260927 2>/dev/null || true
-cp docs/ai-predict/out/ab_direction_anchor_7d.json /tmp/ab_direction_anchor_7d.json.bak-20260927 2>/dev/null || true
+# 3. 备份一份到 /tmp(防 merge 前后续任务仍要 cp 源);必须成功才继续,失败=停下,不能丢弃本地数据
+cp docs/kelly/position/scripts/accum_nav_map.json /tmp/accum_nav_map.json.bak-20260927 || { echo "✗ 备份失败,停止"; exit 1; }
+cp docs/ai-predict/out/ab_direction_anchor_7d.json /tmp/ab_direction_anchor_7d.json.bak-20260927 || { echo "✗ 备份失败,停止"; exit 1; }
 
 # 4. 丢弃本地脏(只这两个文件,精准路径,不用 git reset/checkout -- . )
 git checkout -- docs/kelly/position/scripts/accum_nav_map.json docs/ai-predict/out/ab_direction_anchor_7d.json
 
 # 5. 拉 main(merge 后此步无阻碍)
 git pull
+#    若仍被挡 = 步骤 2 有漏 M,停下上报,不要继续丢弃其它文件
 
 # 6. 拉完重建磁盘文件(下次定时任务会自己重写;若需立即到位,手动重跑生成)
 #    accum_nav_map: 等下次 17:50 update_all 或 05:00 us-stock-morning 自动重写即可(2 次/天)
-#    ab_direction_anchor: 等满 7 交易日 reconcile 自动重写
+#    ab_direction_anchor: 满 7 交易日后每天 21:15 定时自动重写(无条件 atomic_write)
 #    也可手动: cd /home/ubuntu/code/trade-data && bash scripts/deploy.sh(会触发 export_accum_nav_map)
 ```
 
@@ -121,6 +129,18 @@ git pull
 - **修复复现**:本地 `git rm --cached` 两文件 → `git status` 中两文件进入 D(未 staged);磁盘文件仍在(`ls -l` 验证);`.gitignore` 新增两条后 `git check-ignore` 两路径返回命中 → 云上 `git pull` 不再因这两文件中断
 - **消费方不受影响验证**:前端读 R2/`./data/`(common.js L1266 / lab.js L8147);deploy.sh L290 cp 源只需磁盘存在;check_data_integrity / upload_r2 全走 static-site/data
 - **四件套**:本体(本文)+ 生成脚本(无,纯手动审计 + 命令)+ 复现段(本节)+ 配套 commit(feat 分支)
+
+## reviewer 审查结论与 P2 整改记录(2026-09-27)
+
+reviewer 独立审查结论 = **可 merge**(P0 无 / P1 无阻塞项),提出 4 条 P2(全在报告文本)+ 1 条时序提醒,已全部整改:
+
+| 项 | 改了什么 |
+|---|---|
+| **P2-1(事实错误,必修)** | `ab_direction_anchor_7d.json` 写入频率改准:此前误记为低频(约两周才写一次),实际满 7 交易日后**每天 21:15** 都经 `--reconcile --force` 无条件 `atomic_write_json`(内容可能不变);同步改 §2 表格频率列/触发列、§3 触发链、§8 步骤 6 注释 |
+| **P2-4(口径表述,必修)** | §2 标题改为「当前已踩响且可安全脱跟踪 = 恰好 2 例(同机制但本次不动的另见 §7)」,标题下补说明「全量同机制对象 = 本 2 例 + §7 的 4 个 data/ 文件」 |
+| **P2-2(执行步骤补强,必修)** | §8 步骤 2 改先跑全量 `git status --porcelain`(不再只 grep 两文件),发现除这两文件外的任何 M 先停下上报不盲清;步骤 5 `git pull` 后补「若仍被挡 = 步骤 2 有漏 M,停下上报」 |
+| **P2-3(静默吞失败,必修)** | §8 步骤 3 两条 `cp ... 2>/dev/null || true` 改为失败即 `exit 1` 停止,上方注释写明「必须成功才继续,失败=停下,不能丢弃本地数据」 |
+| **P1(时序提醒)** | §8 开头补醒目前置:merge 后必须赶在云上下一次定时 deploy(05:00 / 17:50)前完成清理,否则 fetch+rebase 被本地 M 挡,deploy unmerged 兜底只清 `static-site/data/*`,非数据文件直接 exit 1 拒绝整轮 deploy |
 
 ## 关联
 
