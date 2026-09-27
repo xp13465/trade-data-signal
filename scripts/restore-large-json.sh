@@ -135,15 +135,19 @@ def _manifest_candidates():
     """#115(2026-09-27): manifest 归属已迁至 staticdata 备份仓库(async/sync 的 git add -A 提交对象,
     写 trade 仓库没有任何环节提交它→永久 M 脏文件)。恢复侧双路径兼容: 先读 staticdata 仓库新路径,
     回退 trade 仓库旧路径(历史快照见 git 历史)。candidates = [新路径..., 旧路径(相对本脚本 cwd=trade 根)]。
-    staticdata 仓库解析同 upload_r2._large_json_staticdata_repo 口径: STATICDATA_REPO > GIT_REPO-staticdata
-    > 默认本机路径(仅测 .git 是否存在, 不 sys.exit——manifest 缺失对恢复是良性回退, 返回 {} 即可)。"""
+    staticdata 仓库解析必须先 STATICDATA_REPO 再 GIT_REPO-staticdata, 与写侧
+    upload_r2._large_json_staticdata_repo 的优先级方向一致(写侧 STATICDATA_REPO > GIT_REPO-staticdata
+    > 默认本机路径; reviewer P2-② 修正: 原实现读侧顺序写反成 GIT_REPO-staticdata 优先)。
+    注: mac 生产环境只设 STATICDATA_REPO、云上生产环境只设 GIT_REPO(-staticdata 相邻), 两个实际
+    环境各自只有一条路径可达, 所以方向反了也没暴露; 统一成与写侧一致以防未来双环境同设时读写错位。
+    (仅测 .git 是否存在, 不 sys.exit——manifest 缺失对恢复是良性回退, 返回 {} 即可)。"""
     cands = []
     sd = os.environ.get("STATICDATA_REPO", "/Users/linhuichen/code/trade-data-signal-staticdata")
     git_repo = os.environ.get("GIT_REPO", "")
-    if git_repo and Path(git_repo + "-staticdata/.git").is_dir():
-        cands.append(Path(git_repo + "-staticdata") / "docs" / "large-json-backup-manifest.md")
     if Path(sd + "/.git").is_dir():
         cands.append(Path(sd) / "docs" / "large-json-backup-manifest.md")
+    if git_repo and Path(git_repo + "-staticdata/.git").is_dir():
+        cands.append(Path(git_repo + "-staticdata") / "docs" / "large-json-backup-manifest.md")
     # 旧路径: 脚本 cd 到仓库根(trade), 相对路径 = trade 仓库 docs/large-json-backup-manifest.md
     cands.append(Path("docs") / "large-json-backup-manifest.md")
     # 去重保序: 新路径优先, 旧路径兜底

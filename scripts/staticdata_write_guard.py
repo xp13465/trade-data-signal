@@ -23,7 +23,8 @@
   ① 先 git fetch origin, 失败即拒(远端不可达 / 网络失败 → 不能判断远端现状 → 拒);
   ② 只允许「远端不存在的新路径(A)」+ 「M 中本地不旧于远端者」
      (M 陈旧判定 = 本地文件 mtime < 远端该路径最后一次 commit 时间 → 本地旧 → 排除;
-      M3(2026-09-27): 远端路径→commit 时间 映射一次 git log 批量建, 不再逐路径 git log -1);
+      M3(2026-09-27): 远端路径→commit 时间 映射一次 git log 批量建, 不再逐路径 git log -1;
+      主理由=fail-closed 语义更保守+只起一次 git 进程, 性能环境敏感不作承诺, 详见 _remote_last_commit_map);
   ③ 排除 D(本地删除: 不允许非生产机删远端路径, 防误删共享仓库;
      有意识取舍 L2: D 永远排除 → DR 仓库只增不缩, 见 check_fresh 内注释);
   ④ stdout 输出被允许的 add 清单(每行一个相对仓库根路径), 调用方 git add 只用这份清单,
@@ -88,9 +89,15 @@ def _git(repo, args, description):
 def _remote_last_commit_map(repo, paths, remote=REMOTE_NAME, branch=BRANCH_NAME):
     """一次 git log 批量取「候选路径 → 远端该路径最后一次 commit 的 unix 时间戳」映射。
 
-    #117 M3(2026-09-27): 替代原 _remote_last_commit_ts 逐候选路径跑一次 `git log -1 origin/main -- path`
-    (候选路径数万时逐条起进程 = 数十分钟~小时级)。本函数单次 git 调用 + --literal-pathspecs 传全部
-    候选路径为 pathspec, git 内部一次 revision walk(带路径过滤), O(1) 查表。
+    #117 M3(2026-09-27): 替代原 _remote_last_commit_ts 逐候选路径跑一次 `git log -1 origin/main -- path`。
+    采用批量的主理由 = **fail-closed 语义更保守 + 只起一次 git 进程**, 不是性能:
+    - fail-closed: 本函数一次 git log 整体失败 → 返回 None → 调用方按内部错误 rc=2 拒绝本轮提交
+      (旧逐路径实现单条失败是放行跳过该路径, 语义更松)。
+    - 只起一次 git 进程: 逐路径实现每个候选路径起一次 git, 候选数百~数万时进程数线性放大,
+      失败面/日志噪音大; 本实现一次调用拿到全部映射。
+    性能实测(同口径, 两边都含 git 进程启动+IO 完整 wall time): 本机 warm 仓与 /tmp 冷克隆
+    (fresh, 3016 commits) 均批量更快(200 路径 1:13~1:14, 2000 路径 1:11), 但存在环境敏感
+    (reviewer 在其环境实测批量反而略慢 0.8x, 本机无法复现), 故性能不作为主理由, 不承诺加速。
     输出格式用 `--format=%x01<ct>` 前缀标记时间戳行(文件路径不可能以 \x01 开头, 防纯数字路径
     被误判成时间戳)。git log 从新到旧输出, 每个路径只记第一次(最新)出现的 commit 时间 = 原语义
     (与 `git log -1 origin/main -- path` 的 %ct 一致)。失败 → None(调用方按内部错误 rc=2 处理)。

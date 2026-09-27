@@ -227,8 +227,11 @@ elif [ "$_GA_RC" -eq 1 ]; then
       _SKIP_NONPROD=1
     elif [ "$_GATE_RC" -eq 2 ]; then
       # #117 M1(2026-09-27): 本分支是「内部错误」= 故障, 必须心跳写 fail。原来同时设 _SKIP_NONPROD=1,
-      # 而收口心跳优先级 _SKIP_NONPROD 排最前 → 心跳写 skip_nonprod 盖住 fail, 云上 monitor 语义混淆
-      # (只认 ok/skip_oversize 白名单), 只能靠 36h 停摆兜底。修法=不设 _SKIP_NONPROD, 让心跳写 fail。
+      # 而收口心跳优先级 _SKIP_NONPROD 排最前 → 心跳写 skip_nonprod 盖住 fail。真实效果注记(reviewer
+      # P2-④ 核实): 云上 monitor C3 白名单 = ok/skip_oversize, skip_nonprod 与 fail 恰都不在白名单,
+      # 且本分支改前就置 STATICDATA_FAIL=1 → 收口 severe notify(staticdata_backup_gate_error)本来就有,
+      # 所以改前改后 monitor 告警行为完全不变。本修复 = 心跳字段语义正确化(fail 场景不再被标成
+      # skip_nonprod 的语义污染), 不是告警行为变化。修法=不设 _SKIP_NONPROD, 让心跳写 fail。
       echo "⚠ 数据闸门内部错误(rc=2), 置 STATICDATA_FAIL=1, 跳过 commit(best-effort, 无法保证只增不覆盖)" | tee -a "$LOG"
       "$PY" "$REPO/scripts/notify.py" "[告警] staticdata 数据闸门内部错误跳过 commit" \
         "staticdata 备份(trigger=$TRIGGER) 数据闸门内部错误(rc=2), 无法保证只增不覆盖 → 跳过 commit/push, 仅磁盘留档。<br>日志: $LOG" \

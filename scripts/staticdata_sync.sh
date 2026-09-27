@@ -62,6 +62,13 @@ if [ "${STATICDATA_SYNC_LOCKED:-}" != "1" ]; then
   fi
 fi
 
+# 日志(2026-09-27, reviewer P2-③): 与 async 对齐, 新增 notify 不再 `2>/dev/null || true` 静默
+# (notify 自身失败也要留痕, §23.11 精神)。放在持锁 exec 之后定义——exec 以 `bash "$0"` 重新执行,
+# 顶部变量会被重置, 此处定义才在最终执行体里生效。日志去向同 async: $REPO/data/logs/。
+LOGDIR="${LOGDIR:-$REPO/data/logs}"
+LOG="$LOGDIR/staticdata_sync_$(date +%Y%m%d_%H%M%S).log"
+mkdir -p "$LOGDIR" 2>/dev/null || true
+
 TRIGGER="${1:-manual}"
 shift 2>/dev/null || true
 
@@ -143,10 +150,12 @@ if [ "$_GAUTH_RC" -eq 2 ]; then
   # #117 M2 同类补强(2026-09-27): 与 async 侧同步补降级 notify(顶层守卫内部错误分支原先无即时通知,
   # 设计依赖收口 SYNC_FAIL=1; async 侧 #117 M2 已补, 本文件为同模式遗漏, 一并补齐)。
   echo "⚠ staticdata 写权限判定异常(rc=2), 置 SYNC_FAIL=1, 按生产机继续(best-effort, 降级保守)"
+  # P2-③(2026-09-27): notify 输出对齐 async 的 `2>&1 | tee -a "$LOG"` 风格(原为 2>/dev/null 静默),
+  # notify 自身失败也要在日志留痕(§23.11), 不在失败时吞掉 stderr。
   "$PY" "$REPO/scripts/notify.py" "[告警] staticdata 写权限守卫内部错误" \
     "staticdata 同步(trigger=$TRIGGER) 写权限守卫内部错误(rc=2), 按生产机降级继续(best-effort), 已置 SYNC_FAIL=1。" \
     --from-prefix "[告警]" --alert-issue "staticdata写权限守卫内部错误" \
-    --dedup-key staticdata_sync_guard_error --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>/dev/null || true
+    --dedup-key staticdata_sync_guard_error --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>&1 | tee -a "$LOG" || true
   SYNC_FAIL=1
 elif [ "$_GAUTH_RC" -eq 1 ]; then
   # 非生产机: 默认拒绝 git 写; 显式 STATICDATA_ALLOW_PUSH=1 → 数据闸门(只增不覆盖)。
