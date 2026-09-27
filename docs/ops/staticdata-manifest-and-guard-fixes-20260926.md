@@ -146,6 +146,41 @@
 
 > 第 5 条你没改的理由: 无——4 条全部整改完毕, 无遗漏或有意不改项。
 
+## 6. 云端上线验证(主控 §0 三查, 2026-09-27)
+
+**① main 链**:`scripts/main-merge.sh feat/staticdata-manifest-and-guard-fixes` → `355d15dd2..e32d4dc73`
+(版本哨兵 PASS, critical-css 双源 77/77 PASS)。
+
+**② 云上同步第一次 FAIL,原因是 #115 的现场实证**:云上
+`/home/ubuntu/code/trade-data-signal` 停在 `d22e2e4b4`,有 3 个 M 脏文件,其中
+`docs/large-json-backup-manifest.md` 是**旧生成器写出、无任何环节提交**的孤儿(内容 = 当日快照索引,
+表头自述「由 `upload_r2.py upload-large-json` 自动生成(2026-09-27), 勿手改」)→
+`git pull` 报 `error: Your local changes to the following files would be overwritten by merge`。
+即 #115 想根治的现象在云上每天都在发生,本次只是被 pull 撞个正着。
+
+**处置(可逆, 非静默)**:先 `cp` 该文件到 `/tmp/large-json-manifest-cloud-orphan-20260927.md`
+(sha256 `0e439955c4a11b6ce9a7b7bf0a745d3f0c6fe0faa8e7f6f7b0b13bc0c357e8cb`, 2940 B)→ 仅对这一个文件
+`git checkout --`(另 2 个脏文件与 main 无交集、原样未动)→ `git pull origin main` → 云上 HEAD =
+`e32d4dc73c9ba8167be423a566c783dd84102469` ✓ 与 main 一致,该孤儿脏文件消失(被 main 的指针版覆盖,
+正是 #115 想要的终态)。
+
+**③ 生产口径实跑验证(env 对齐 systemd 单元: `GIT_REPO=…-signal` / `REPO=trade-data` /
+`STATICDATA_REPO` 未设走 `${GIT_REPO}-staticdata` 回退)**:
+
+- `python3 scripts/upload_r2.py upload-large-json --dry-run` 输出终行
+  `将重写 staticdata仓库/docs/large-json-backup-manifest.md(#115, 8 行)`
+  —— **新路径在云上生产环境解析成功,#115 修复实证生效**;8/8 大 JSON 全部识别;
+  dry-run 全程零 R2 接触(§4 已验)。
+- 恢复侧 `bash scripts/restore-large-json.sh --list` 云上实测可用:直列 R2 前缀得
+  `共 16 个对象,其中 16 个可用`(2026-09-27 / 09-26 各 8 文件),**不依赖 manifest**。
+  清单缺失时仅跳过 sha256 比对(脚本 L225 `manifest 无 {key} 记录,跳过 sha256 比对`)不阻断恢复
+  → **本次 pull 未造成恢复能力降级**;staticdata 仓库清单在下次真跑(周一 async)首次生成后自愈。
+
+**④ 遗留(新登记 #118, 不阻塞本项)**:云上另 2 个 M 脏文件
+`docs/ai-predict/out/ab_direction_anchor_7d.json`、`docs/kelly/position/scripts/accum_nav_map.json`
+同样「tracked + 云上定时重写 + 无人提交」,本次未拦 pull 故未动,但 main 下次改动其一时云上 pull
+会再次中断 —— 已登记 `docs/pending-features-index.md` #118。
+
 ## 复现段
 
 复现 #115/#116/#117 全部自验 = 按上文 §4 各条在 /tmp 隔离目录重跑(需: 一个带 .git 的临时 staticdata 仓
