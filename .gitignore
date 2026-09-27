@@ -240,6 +240,12 @@ data/.r2_fund_nav_ckpt.json.tmp.*
 # accum_nav per-ETF 拆分目录(2026-09-17 懒加载): export_accum_nav_map.py --all 生成 ~1554 只 ~18.5MB,
 # R2 accum_nav/ 前缀托管, 本地 untracked 不进 git(同 etf//fund_nav/ 模式)
 docs/kelly/position/scripts/accum_nav/
+# accum_nav_map.json 全量(26MB)由 export_accum_nav_map.py 经 deploy.sh --all 每日重写 2 次, 云上留 M 脏文件
+# 致 git pull local changes 中断(#118, 2026-09-27): 消费方全在 static-site/R2, 代码仓仅作 deploy cp 源(磁盘存在即可), 脱跟踪
+docs/kelly/position/scripts/accum_nav_map.json
+# A/B 方向锚 7 日对账报告(3KB)由 ab_direction_anchor.py --reconcile 满 7 交易日重写, 云上留 M 脏文件
+# 致 git pull local changes 中断(#118, 2026-09-27): 全仓 grep 零消费方, 纯报告产物脱跟踪
+docs/ai-predict/out/ab_direction_anchor_7d.json
 # accum_nav R2 上传状态(2026-09-17): 运行时产物, 本地各树独立
 data/.r2_accum_nav_state.json
 data/.r2_accum_nav_state.json.tmp
