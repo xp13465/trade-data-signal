@@ -142,6 +142,33 @@ reviewer 独立审查结论 = **可 merge**(P0 无 / P1 无阻塞项),提出 4 �
 | **P2-3(静默吞失败,必修)** | §8 步骤 3 两条 `cp ... 2>/dev/null || true` 改为失败即 `exit 1` 停止,上方注释写明「必须成功才继续,失败=停下,不能丢弃本地数据」 |
 | **P1(时序提醒)** | §8 开头补醒目前置:merge 后必须赶在云上下一次定时 deploy(05:00 / 17:50)前完成清理,否则 fetch+rebase 被本地 M 挡,deploy unmerged 兜底只清 `static-site/data/*`,非数据文件直接 exit 1 拒绝整轮 deploy |
 
+## 上线验证与云端落地记录(主控 §0, 2026-09-27)
+
+**① main 链**:`scripts/main-merge.sh worktree-agent-ac68db13b10659eb5` → `89eade0a9..21c5cd55e`
+(版本哨兵 A/B PASS、critical-css 双源 77/77 PASS、前端零改动跳过统一 bump)。
+
+**② 云上清理(§8 修正版实跑,可逆非静默)**:清理前云上全量 `git status --porcelain` = **恰好 2 个 M**
+(仅本两文件,**无第三例**,与 §2 穷举结论一致)→ 两文件 `cp` 备份到 `/tmp/*.bak-20260927`
+(`accum_nav_map` sha256 `9fa1cb91…` / 26,181,355 B;`ab_direction_anchor_7d` sha256 `ef26c646…` / 3,062 B)
+→ `git checkout --` 精准两文件(未用 `checkout -- .` / `reset --hard`)→ status 归零 → merge 第 10 步
+自动 `git pull` 成功(未再被挡)。
+
+**③ 云上终态**:HEAD = `21c5cd55e`(与 origin/main 逐位一致),`git status --porcelain` **空**;
+两文件已从云上磁盘消失(下次 deploy L284 / 21:15 reconcile 自动重生),
+`git check-ignore` 两路径命中 `.gitignore:245` / `:248` → **「M 脏文件挡 pull」机制闭环根除**。
+
+**④ 生产未受影响(关键)**:云上 `static-site/data/accum_nav_map.json`(26,181,355 B, 09-27 05:08)
+与 `accum_nav/` per-ETF 桶目录**原样未动**——前端读 R2 / `./data/`,脱跟踪只动代码仓 `docs/` 那份副本;
+生产数据位无缺口,无需补数。
+
+**⑤ 本机同态与一条使用注意**:本地 main 同样已脱跟踪 + ignore 生效;本地 `docs/` 那份磁盘文件随 merge
+一并删除(deploy.sh L284 下次本地 deploy 自动重生)。**注意**:手动回测脚本
+`docs/kelly/position/scripts/kelly_ghi_avsp_sweep.mjs:32`(`NAV_JSON = path.join(__dirname, "accum_nav_map.json")`)
+读的是脚本同目录磁盘文件——本机首次使用前需先跑一次 `python3 docs/kelly/position/scripts/export_accum_nav_map.py --all`
+生成,否则报文件缺失。该脚本无 git 历史依赖,脱跟踪本身不影响它。
+
+**⑥ §0 三查③(前端展示层)**:本次前端零改动,不涉及。
+
 ## 关联
 
 - #118 索引行:pending-features-index.md(状态 → 已完成)
