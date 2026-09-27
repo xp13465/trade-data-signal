@@ -11,7 +11,9 @@
   R2_BACKUP_BUCKET=<不存在的桶名>」写进 upload_r2.py 头部 + 运维文档。
 - **#117**: 守卫 reviewer 遗留 M1(数据闸门 rc=2 心跳写 fail 而非 skip_nonprod——心跳字段语义正确化,
   非告警行为变化)/ M2(顶层守卫 rc=2 补 notify)/ M3(逐路径 git log -1 → 批量 pathspec, 主理由
-  fail-closed 语义更保守 + 只起一次 git 进程, 性能仅如实记录非主理由)/ L2-L3(有意识取舍文档化)。
+  fail-closed 语义更保守 + 只起一次 git 进程, **非提速**——tester 定论: 生产候选集=当日变更集(实测
+  ≤94 条), 生产规模批量 vs 逐路径耗时相当、逐路径略快, 「批量快 30 倍」仅同目录集中清单成立不适用生产)/
+  L2-L3(有意识取舍文档化)。
 
 ## 2. 改了什么(逐文件)
 
@@ -36,21 +38,40 @@
   已实测 `STATICDATA_REPO=/tmp/不存在/.git` → `_large_json_staticdata_repo()` 非零退出带明确文案。
 
 ### #117 M3: 批量 git log + pathspec(不是逐路径 git log -1)
-- **采用批量的主理由 = fail-closed 语义更保守 + 只起一次 git 进程, 不是性能**(reviewer P2-① 修正:
-  原报告「12x 加速」是假数字——拿批量的纯解析时间对比逐路径完整耗时, 两边口径不一致, 已删除)。
+- **核心一句(tester 定论, 2026-09-27)**: 批量 vs 逐路径在**生产候选集(当日变更集, 实测历史 ≤94 条)**
+  上耗时相当、逐路径略快(0.02~0.97s vs 批量 0.12~1.11s), guard 现行逐路径实现**无性能问题**;
+  「批量快 30 倍」仅在 `data/accum_nav` 类**同目录集中清单**上成立, **不适用于生产**
+  (若明文写「30 倍」必须限定清单范围)。
+- **采用批量的主理由 = fail-closed 语义更保守 + 只起一次 git 进程, 不是提速**(tester 定论推翻的
+  不只是数字, 是 M3 立项前提「逐路径太慢」——生产候选集是当日变更集非全仓, 现行逐路径从来不是瓶颈)。
   - **fail-closed**: 本实现一次 git log 整体失败 → 返回 None → 调用方按内部错误 rc=2 拒绝本轮提交;
     旧逐路径实现单条失败是放行跳过该路径, 语义更松。
-  - **只起一次 git 进程**: 逐路径实现每个候选路径起一次 git, 候选数百~数万时进程数线性放大;
-    本实现单次调用拿到全部映射。
-- 同口径性能对比(两边都含 git 进程启动 + IO 完整 wall time, 各跑 2 轮取最小):
-  | 环境 | 样本 | 批量 | 逐路径 | 比值 |
+  - **只起一次 git 进程**: 逐路径实现每个候选路径起一次 git, 失败面/日志噪音大; 本实现单次调用
+    拿到全部映射。
+- **性能矩阵(tester 2026-09-27 实测, 同仓 /Users/linhuichen/code/trade-data-signal-staticdata, 同 git
+  版本, warm 态 3 轮取最小; 只读操作未写仓库)**:
+  | 清单 | 路径数 | 批量 min | 逐路径 min | 批量:逐路径 |
   |---|---|---|---|---|
-  | 本机 staticdata 仓(warm) | 200 路径 | 0.129s | 1.752s | 1:13.6 |
-  | /tmp 冷克隆(fresh, 3016 commits) | 200 路径 | 0.126s | 1.742s | 1:13.8 |
-  | /tmp 冷克隆(fresh) | 2000 路径 | 1.756s | 19.905s | 1:11.3 |
-  → 本机 warm 与 /tmp 冷克隆均批量更快(~11~14x), 外推全仓 31,548 路径 ≈ 28s vs ≈ 314s。
-  ⚠️ 诚实标注: 本机无法复现 reviewer 在其环境实测的 0.8x(批量 3.9s vs 逐路径 3.27s), 性能存在
-  **环境敏感**(仓库状态/机器负载/git 版本均影响), 故性能**不承诺、不作采用主理由**, 仅如实记录。
+  | A seed7 全仓随机(复刻 reviewer) | 200 | 3.869s | 3.540s(全测) | 0.92x 逐路径略快 |
+  | B astock6+accum_nav194(复刻我第一轮) | 200 | 0.127s | 1.781s(全测) | 14.0x 批量完胜 |
+  | C 全仓随机 | 2000 | 40.06s | 32.6s(外推, 基于 100 条实测) | 0.81x 逐路径快 |
+  | **典型 94(历史真实大 commit 的变更文件)** | 94 | 1.108s | 0.784s(全测) | 0.70x **逐路径快** |
+  | 极端 fund_nav 同目录 | 2000 | 6.86s | 34.4s(外推) | 5.0x 批量快 |
+  | 小 3(news_digest 高频文件) | 3 | 0.118s | 0.023s(全测) | 0.17x 逐路径快 |
+  | **混合 50(40 真实 M + 10 远端不存在 A)** | 50 | 0.484s | 0.970s(全测) | 2.0x 批量快 |
+  对照: 空 pathspec 全仓库 walk 骨架=0.375s; git 进程启动=7.0ms/次(逐路径单条耗时下限)。
+  A/B 复刻: reviewer 3.898s → tester 3.869s; 我 0.129s → tester 0.127s,**两边实测都真实**。
+  → **30 倍差异 100% 来自清单特征**(pathspec 条数 × 目录分散度 × 路径变动频率), 不是实现、不是冷热
+  (决定性量不是输出字节——B 输出 136KB 比 A 的 104KB 还大却快 30 倍, 真正决定批量耗时的是
+  rev-walk + tree-diff pathspec 匹配成本)。凡写倍数必须限定清单范围, 裸写「快 N 倍」不成立。
+- **reviewer 0.8x 结论定性(tester §4)**: 样本对但代表性错 + 方法糙。A 在 A 清单上方向没错
+  (全仓随机清单批量确实不占优 0.92x), 但把「全仓随机清单」推广为「批量不值得做」是代表性错——
+  生产候选集是当日变更的 data 目录文件, 不是全仓随机; 真实候选规模上批量无优势, 假设极端档才有
+  5 倍优势, 都不是 30 倍。
+- **生产候选集规模依据**: guard `--check-fresh` 候选 = 当日变更集(`git diff --name-status origin/main`
+  的 M/D + `git ls-files --others` 的 A), 不是全仓。历史: 近 30 commit 中位 **3 个文件**、最大 **94 个**;
+  近 60 commit **无 >100 文件推送**。→ 生产真实规模上批量没有优势, 仅「同目录上千条」极端场景(现实无此
+  候选)批量快约 5 倍。M3 诚实定位 = fail-closed 语义 + 极端假设场景的稳健性, 不是日常提速。
 - `--literal-pathspecs` 防 glob 通配符(路径含 `*`/`[` 等不会被 git 当 pattern 展开)。
 
 ### #117 M1 根因: 心跳字段语义正确化(不是告警行为变化)
@@ -101,10 +122,16 @@
 | sync.sh 同模式(§23.3 举一反三) | 已补顶层 rc=2 降级 notify(staticdata_sync_guard_error) |
 
 ### #117 M3
-- 同口径性能对比(两边都含 git 进程启动 + IO 完整 wall time, 各 2 轮取最小, 详见 §3): 本机 warm 仓
-  200 路径 批量 0.129s vs 逐路径 1.752s(1:13.6); /tmp 冷克隆 fresh 200 路径 0.126s vs 1.742s(1:13.8),
-  2000 路径 1.756s vs 19.905s(1:11.3)。**性能环境敏感, 不作承诺**(reviewer 环境 0.8x 本机无法复现);
-  采用批量主理由 = fail-closed 语义 + 只起一次 git 进程。
+- **性能自验(tester 对照表关键行, 同仓 warm 3 轮取最小, 完整 7 行表见 §3)**: 生产候选集的真实写照——
+  「典型 94(历史真实大 commit 变更文件)」批量 1.108s vs 逐路径 0.784s(0.70x 逐路径快);
+  「混合 50(40 真实 M + 10 远端不存在 A)」批量 0.484s vs 逐路径 0.970s(2.0x 批量快);
+  「小 3(news_digest 高频文件)」批量 0.118s vs 逐路径 0.023s(0.17x 逐路径快);极端同目录 2000 才
+  批量 5x。→ 真实档(≤94 条)**批量 0.48~1.11s vs 逐路径(现状)0.02~0.97s, 逐路径略快或打平,
+  现行逐路径实现无性能瓶颈**。「批量快 30 倍」(指批量耗时在不同清单间的 30x 差)仅在我第一轮 bench
+  的 `data/accum_nav` 类同目录集中清单上成立, 不适用于生产。
+- **生产候选集规模依据**: guard `--check-fresh` 候选 = 当日变更集(`git diff --name-status origin/main`
+  的 M/D + `git ls-files --others` 的 A)。历史统计: 近 30 commit 中位 **3 个文件**、最大 **94 个**;
+  近 60 commit **无 >100 文件推送**。
 - `_remote_last_commit_map()` 单测: 200 路径 → map 条目与候选数一致(重复路径去重), 时间戳合理
   (如 data/a-stock-1y.json -> 1790372707)。
 
@@ -112,7 +139,7 @@
 
 | # | 修复 | 证据 |
 |---|---|---|
-| P2-①(必改) | 报告「12x 加速」假数字删除(原=批量纯解析时间 vs 逐路径完整耗时,口径不一致)。重跑同口径对比(§3 M3 表): 本机 warm 200 路径 1:13.6、冷克隆 200 路径 1:13.8、2000 路径 1:11.3,均批量更快但**环境敏感**(reviewer 环境 0.8x 本机无法复现)。采用批量主理由=**fail-closed 语义更保守**(整体 git log 失败→rc=2 拒绝,旧逐路径失败是放行)+ **只起一次 git 进程**;性能仅如实记录、不作承诺、不硬拗成"更快"。代码注释(staticdata_write_guard.py `_remote_last_commit_map` docstring)同步改准 | 同口径重跑脚本 `/tmp/m3_bench_fair.py`(本机)+ `/tmp/m3_bench_cold.py`(冷克隆 200)+ `/tmp/m3_bench_2000.py`(冷克隆 2000),数字见 §3 M3 表 |
+| P2-①(必改) | 报告「12x 加速」假数字删除(原=批量纯解析时间 vs 逐路径完整耗时,口径不一致)。**第二轮(tester 定论 2026-09-27)进一步推翻 M3 立项前提**: 批量 vs 逐路径耗时差距 100% 来自清单特征(pathspec 条数 × 目录分散度 × 路径变动频率), 生产候选集 = 当日变更集(实测 ≤94 条)非全仓, 生产真实规模(≤94 条)批量 0.48~1.11s vs 逐路径 0.02~0.97s = **逐路径略快或打平, 批量无提速优势**;「批量快 30 倍」仅 `data/accum_nav` 类同目录集中清单成立, 不适用生产(完整 7 行对照表见 §3 M3, A/B 数字已被 tester 复刻都真实, A 定性=样本对但代表性错)。M3 诚实定位 = **fail-closed 语义更保守**(整体 git log 失败→rc=2 拒绝, 旧逐路径失败是放行)+ **只起一次 git 进程** + 极端假设场景(同目录上千条)约 5x, **不是日常提速**。代码注释(staticdata_write_guard.py `_remote_last_commit_map` docstring + check_fresh 调用处)同步改准(只改文字不动逻辑) | tester 对照表(§3 M3 表 7 行) + 生产候选集规模依据(近 30 commit 中位 3/最大 94, 近 60 commit 无 >100); tester 复现材料 `/tmp/m3_bench_final.py`(正式矩阵)/`/tmp/m3_ctrl.py`(进程开销)/`/tmp/m3_check_candidates.py`(历史 commit 规模)/清单 `/tmp/m3_paths_{A,txt,2000,typical94,extreme_fn,small3,mix50}.txt` + 全仓 `/tmp/m3_lsfiles.txt` |
 | P2-② | restore 侧 `_manifest_candidates` 顺序对齐写侧: STATICDATA_REPO → GIT_REPO-staticdata → trade 旧路径(原实现读侧写反成 GIT_REPO-staticdata 优先)。注释注明: 两个实际环境(mac 只设 STATICDATA_REPO / 云上只设 GIT_REPO 相邻)各自只有一条路径可达,所以方向反了没暴露;统一防未来双环境同设时读写错位 | 文本断言(STATICDATA_REPO 分支在 GIT_REPO-staticdata 之前)PASS + 双路径并存执行级测试(两路径都在时选中 STATICDATA_REPO)PASS |
 | P2-③ | sync.sh 顶层 rc=2 notify 从 `2>/dev/null || true` 改 `2>&1 \| tee -a "$LOG" || true`(对齐 async 风格, notify 自身失败也要留痕 §23.11)。新增 LOG 变量(放持锁 exec 之后, exec 以 bash "$0" 重跑会重置顶部变量,此时定义才在最终执行体生效),去向=$REPO/data/logs/staticdata_sync_*.log 同 async | /tmp/sdtest-syncp2 隔离 harness(假守卫 exit 2 + notify stub): rc=2 分支跑通, notify stdout+stderr(含 notify 自身报错)均 tee 进 LOG 落盘, 不阻塞(exit 0) |
 | P2-④ | 报告 M1 根因描述改准: 「云上 monitor 语义混淆→看不到故障,靠 36h 兜底」不成立。核实(schedule_monitor.sh C3 白名单=("ok","skip_oversize"), skip_nonprod 与 fail 都不在白名单; rc=2 分支改前就置 STATICDATA_FAIL=1 → 收口 severe notify 本来就有)→ 改前改后 monitor 行为完全相同。真实效果=**心跳字段语义正确化**(fail 场景不再被标 skip_nonprod), **非告警行为变化**。async.sh M1 注释同步改准 | 读 schedule_monitor.sh L1050-1080(白名单逻辑)+ async.sh 收口心跳段(改前已置 STATICDATA_FAIL=1) |
@@ -123,7 +150,10 @@
 
 复现 #115/#116/#117 全部自验 = 按上文 §4 各条在 /tmp 隔离目录重跑(需: 一个带 .git 的临时 staticdata 仓
 +/ 一个临时 trade 仓 + demo-nowhere 桶 + 假守卫 rc 环境变量)。**P2 四条复现**:
-- P2-①: 重跑 `/tmp/m3_bench_fair.py` / `m3_bench_cold.py` / `m3_bench_2000.py`(样本路径清单 `/tmp/m3_paths_2000.txt`)。
+- P2-①: 重跑 tester 材料(`/tmp/m3_bench_final.py` 正式矩阵 + `/tmp/m3_ctrl.py` 进程开销对照 +
+  `/tmp/m3_check_candidates.py` 历史 commit 规模; 清单 `/tmp/m3_paths_{A,txt,2000,typical94,extreme_fn,small3,mix50}.txt`
+  + 全仓 `/tmp/m3_lsfiles.txt`; 只读 staticdata 仓, 3 轮取最小)。我第一轮的 `/tmp/m3_bench_fair/cold/2000.py`
+  仍可复跑, 但数字只对各自清单成立、不作生产结论(引用时须限定清单)。
 - P2-②: 见 §5 的双路径并存测试(临时 staticdataA + staticdataB 各带 .git 与 manifest)。
 - P2-③: 见 §5 的 /tmp/sdtest-syncp2 harness(STATICDATA_SYNC_LOCKED=1 跳过持锁 + 假守卫 exit 2 + notify stub)。
 - P2-④: 读 schedule_monitor.sh C3 白名单与 async.sh 收口心跳段即可核实(无需实跑)。
