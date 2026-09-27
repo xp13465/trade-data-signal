@@ -9,8 +9,8 @@
 | 角色 | 上下文来源(每会话启动注入) |
 |---|---|
 | 主控 | 本共享核心 + 按需 Read docs/main-governance.md(§2/3/4/7/11/15/16/19+COMPACT) |
-| 实施 agent | 本共享核心 + .claude/skills/role-implementer(§9 前端/§21 公示/§8§14 操作/修bug三铁律/举一反三) |
-| reviewer agent | 本共享核心 + .claude/skills/role-reviewer(§15 回归/改动分级/smoke/数据校验) |
+| 实施 agent | 本共享核心 + .claude/skills/role-implementer(§9 前端/§24 防撕裂/§21 公示/§8§14 操作/修bug三铁律/举一反三) |
+| reviewer agent | 本共享核心 + .claude/skills/role-reviewer(§15 回归/改动分级/§24 四查/smoke/数据校验) |
 | 调研 agent | 本共享核心 + .claude/skills/role-researcher(调研方法论/防误判/§5.1 穷举回测/数据挖掘) |
 | 测试 agent | 本共享核心 + .claude/skills/role-tester(smoke/数据校验/curl 三查/一致性) |
 > 设计原则:根文件只留"所有角色都该无条件知道"的共享核心;角色专属规范进 role skill(启动全文注入,确定性,不依赖主动读);主控专属进 governance(子 agent 永不读,不再为其 token 买单)。
@@ -140,17 +140,17 @@
 - **用户原则(2026-08-09 用户原话)**:"不管层级 我的理解是。作为用户 3个展示位看到的数据一定要统一。比如不能存在文件不一致or 缓存不一致。都会产生误解。只有一致才是最好的解释。你的所有策略都只决定更新频率or排序。但是一旦更新肯定是3处一起同步"
 - **所有策略只决定何时更新or如何排序**:stable_top1滞回/排序/更新频率等策略只决定更新时机或排序,**一旦更新必须N文件+N缓存(R2/CF)同步**。不能文件不一致(一个新版一个旧版)or 缓存不一致(R2新CF旧)
 - **代码内常量登记点也是一致性对象(2026-08-24 教训补)**:同一事实(键集/字段清单/白名单)存在多处代码副本时,切基座/改口径必须 grep 全部登记点逐一同步+机检脚本比对一致(挂 deploy 链 FAIL 阻断),不靠人肉记忆——v1.1.5 切 NEW14 漏 check_signals.py 邮件白名单即此病灶(邮件链路不在改动 diff 里就没人打开它);18 处登记点全量表见 docs/kelly/analysis/v115-new14-baseline-alignment-audit.md
-- **机制(权威)**:export/deploy 时校验N文件版本一致(关键字段如量子top1/stable_top1),不一致阻断或告警。**算法改动重跑数据产物时,列所有依赖该数据产物清单逐个确认"重跑+同步static-site+R2"三步完整**(§18 索引 16/18 + §8.1 checklist 同此)
+- **机制(权威)**:export/deploy 时校验N文件版本一致(关键字段如量子top1/stable_top1),不一致阻断或告警。**算法改动重跑数据产物时,列所有依赖该数据产物清单逐个确认"重跑+同步static-site+R2"三步完整**(§18 索引 16/18 + R2 checklist 见 implementer skill §3.1)
 - **与 §15/§18 互参**:§15 是"改坏老功能"回归复查(见 governance/reviewer skill),本条是"用户视角多展示位一致性"铁律,§18 记具体犯错(2026-08-09 量子科技3展示位不一致)。三者互补:§15 防改坏、§22 防不一致、§18 记教训
 
 ## 8. 改完必须推送(摘要;操作细节见 .claude/skills/role-implementer §3-§3.1)
 - **push main 统一入口(防再犯机制 D,2026-08-19)**:agent 只 commit + push **feat 分支**,**禁止 agent 直接 push main**;merge+push main 一律由主控走 `scripts/main-merge.sh <feat>` 统一入口(内含 §14 安全窗口/merge/base 新鲜/统一 build_min+bump/check_version_progress/push main)。改前端源码的 feat 由 main-merge.sh 统一 bump 版本串(机制 C,worktree agent 不自行 bump)。commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
-- 不 add **根目录 data/** 下任何文件(sentiment.db/etf_national_team.db/signal_stats.json 保持本地 M / untracked 不推);**`static-site/data/` 是正常上线渠道**,后端新增 JSON 字段/新品种必须跑 `bash scripts/deploy.sh` 推数据上线(R2 架构 §8.1 全文见 implementer skill §3.1)
+- 不 add **根目录 data/** 下任何文件(sentiment.db/etf_national_team.db/signal_stats.json 保持本地 M / untracked 不推);**`static-site/data/` 是正常上线渠道**,后端新增 JSON 字段/新品种必须跑 `bash scripts/deploy.sh` 推数据上线(R2 架构准则全文见 implementer skill §3.1)
 - 线上 curl 验证任一域名到新版即算上线 OK,不卡单域名 404(ss.fx8.store CF 主站优先 / sss.sugas.site / s.sugas.site)
 - ⚠️ **不 force**:force-with-lease / force push 是最后手段;non-fast-forward 优先 `git fetch + rebase origin/main + 重试 push`(deploy.sh L141-160 内置),rebase 失败 abort 等人工。agent 不得擅自强推,尤其 main
 - ⚠️ **"功能 done"三查清单(唯一权威,2026-08-11 AI 预测前端漏上线教训补)**:验收"已上线/done"必须三查齐:①main 链含 commit(git log origin/main 含 hash)②数据层生效(curl 线上 JSON 字段有值/无旧字段残留)③**前端展示层上线(curl 线上 app.min.js/lab.js 含新功能 class/中文字符串)**。只验①②不验③=前端代码写了但从未 commit main+上线,用户看不到。**reviewer 验本地 min ≠ 前端上线**,reviewer PASS 后主控 §0 必须补验③
 
-## 8.1 派单 prompt 必带定位锚点(2026-08-15 优化 P0-4 加;操作细节全文见 docs/main-governance.md §16「派单锚点规范」)
+## 8.1 派单 prompt 必带定位锚点(2026-08-15 优化 P0-4 加;操作细节全文见 docs/main-governance.md §16 之「派单锚点规范」子节)
 > **核心一句话**:派单 prompt 必带 `@关键文件:行号` 或关键符号锚点(函数名/class/字符串/常量),让子 agent 直接跳到定位点,不从第 1 行 grep 大文件;可复用锚点表见 `docs/agent-quickstart.md`。
 
 ## 14. 生产稳定性 P0(摘要;时点/launchd 细节见 .claude/skills/role-implementer §4)

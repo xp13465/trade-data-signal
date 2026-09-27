@@ -11,6 +11,7 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - §3 push main 统一入口(agent 只推 feat)/版本串统一 bump/完成报告带 base commit → 根 CLAUDE.md §8「改完必须推送」+ §23.11(git 冲突绝不静默)+ 机制 C/D(防再犯,docs/conflict-overwrite-rootcause-2026-08-18.md)
 - §3 开工强制 rebase + base 新鲜校验 → 防再犯缺口①(docs/conflict-overwrite-triggers-2026-08-18.md)
 - §1 单版前端铁律(build_min/bump sw.js/export 路径同步) → 根 CLAUDE.md §24 前端部署缓存防撕裂
+- §1.1 前端部署防撕裂全文(原根 §24 ①~⑤ 机制 + 白屏事故背景) → 根 CLAUDE.md §24(保留触发词+核心一句话+验收口径)+ §22(数据一致性三步)
 - §2 算法公示 → 根 CLAUDE.md §21
 - §4 生产稳定时点 → 根 CLAUDE.md §14
 - §5 修 bug 三铁律 / §6 举一反三 → 根 CLAUDE.md §23.2/§23.3
