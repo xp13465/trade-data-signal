@@ -69,7 +69,8 @@ if ! STATICDATA_REPO="$STATICDATA_REPO" GIT_REPO="$GIT_REPO" "$PY" "$GIT_REPO/sc
   echo "✗ 上传失败, 中止(不摘 git)。修复后重跑本脚本(幂等)。"
   exit 1
 fi
-MANIFEST="$GIT_REPO/docs/large-json-backup-manifest.md"
+# #115(2026-09-27): manifest 已迁至 staticdata 仓库(原本写 trade 仓库→没有任何环节提交它→trade 留永久 M 脏文件)。
+MANIFEST="$STATICDATA_REPO/docs/large-json-backup-manifest.md"
 if [ ! -f "$MANIFEST" ]; then
   echo "✗ manifest 未生成: $MANIFEST, 中止(不摘 git)。"
   exit 1

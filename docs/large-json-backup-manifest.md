@@ -1,31 +1,32 @@
-# 大 JSON 私有桶备份清单(large-json-backup-manifest.md)
+# 大 JSON 备份清单(large-json-backup-manifest)——指针说明
 
-> 本文件是 **staticdata 备份大 JSON 移出 git 后** 的 R2 快照索引：7 个 >20MB JSON(共 319MB)
-> 已从 staticdata 备份仓库的 git 跟踪移出(备份天天 `skip_oversize` 不 commit 的根因)，改走
-> R2 私有桶 `signal-backup` 的 `large-json/` 前缀版本化快照。
-> 本文件**由 `upload_r2.py upload-large-json` 自动重写,勿手工编辑**；恢复请用
-> `scripts/restore-large-json.sh`(详见 `docs/backup-restore.md` 第八节)。
->
-> 相关脚本：`scripts/upload_r2.py`(上传,活脚本)/ `scripts/restore-large-json.sh`(恢复入口)。
+> **本文件已不是"当前清单",只是指针**(2026-09-27, #115 归属决策)。
 
----
+## 当前清单在哪
 
-## 一、机制一句话
+**已迁至 staticdata 备份仓库**:
 
-- R2 私有桶：`signal-backup`(与 DB 备份同桶不同前缀)
-- key 格式：`large-json/<YYYY-MM-DD>/<相对 data/ 的路径>.gz`
-  - 例：`large-json/2026-09-25/signal_kelly_trades.json.gz`
-  - 例：`large-json/2026-09-25/signal_kelly_trades_parts/t2025.json.gz`
-- 保留档位：日档 14 天 + 周档(周日那份)8 周 + 月档(每月 1 号那份)12 个月
-- 恢复：`bash scripts/restore-large-json.sh <文件名|--list|--date YYYY-MM-DD|--all> [--target <dir>]`
-  - 还原时先下同目录 `.tmp` 再原子覆盖，覆盖前旧文件备份为 `<文件>.bak-<时间戳>`，
-    本清单有 sha256 记录的会比对，不匹配即中止。
-  - 默认还原到生产数据目录 `trade-data/data/`（`STATICDATA_REPO`/`--target` 可覆盖，非默认目录会打警告）。
+```
+<staticdata 备份仓库>/docs/large-json-backup-manifest.md
+```
 
----
+- staticdata 备份仓库默认路径:
+  - 本机 mac:`/Users/linhuichen/code/trade-data-signal-staticdata`
+  - 云上生产:`/home/ubuntu/code/trade-data-signal-staticdata`(即 `${GIT_REPO}-staticdata`)
+  - 运行时可用 `STATICDATA_REPO` 环境变量覆盖。
+- 由 `scripts/upload_r2.py upload-large-json` 自动重写(每次上传跑完即刷新, 勿手工编辑)。
 
-## 二、快照明细
+**为什么迁走**:该清单原本写在 trade 仓库 `docs/` 下, 而每日备份 async/sync 提交的是 **staticdata 仓库**
+——没有任何环节提交 trade 侧这份文件, 且表体是每日快照索引(内容天然天天变), 导致每次 async 跑完
+trade 仓库必留一个 M 脏文件。迁到 staticdata 仓库后, async/sync 的 `git add -A` 自然提交它, trade 侧
+不再有脏文件。
 
-| R2 key(signal-backup/large-json/) | 日期 | 原相对路径(还原到目标目录对应位置) | 大小(B) | sha256(64位) |
-| --- | --- | --- | --- | --- |
-| <!-- 由 upload_r2.py upload-large-json 自动填写，勿手工编辑 --> |  |  |  |  |
+## 恢复脚本兼容
+
+`scripts/restore-large-json.sh` 已**双路径兼容**:先读 staticdata 仓库新路径, 读不到回退 trade 仓库旧路径
+(历史快照见 git 历史, 即本文件的旧版本)。两处都能读, 无需手工指定。
+
+## 恢复入口不变
+
+`bash scripts/restore-large-json.sh <文件名|--list|--date YYYY-MM-DD|--all> [--target <dir>]`
+详见 `docs/backup-restore.md` 第八节。

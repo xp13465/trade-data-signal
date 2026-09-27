@@ -151,7 +151,8 @@ echo "  [step3 JSON rsync] $(( $(date +%s) - _STEP_START ))s" | tee -a "$LOG"
 # 背景: 7 个大 JSON(>20MB, ~320MB)天天变天天进 delta, .git 膨胀 3.3G, 9-25 撞 >300MB 积压阈值跳过 commit。
 # 本步 = 排除规则单一源 large_json_excludes.py 维护 .gitignore 受管区块(幂等, 精确路径 /data/...),
 # 再 upload_r2.py upload-large-json 按 large-json/<YYYY-MM-DD>/<相对data路径>.gz gzip 上传私有桶
-# signal-backup(幂等: 内容没变跳过 PUT)+ 日14天/周8周/月12月滚动保留 + 自动重写 docs/large-json-backup-manifest.md。
+# signal-backup(幂等: 内容没变跳过 PUT)+ 日14天/周8周/月12月滚动保留 + 自动重写
+# staticdata仓库/docs/large-json-backup-manifest.md(#115: 写本仓库=git add -A 提交对象)。
 # 失败不阻塞后续 git 步骤(大文件仍在 git 由原链路兜底), 置 STATICDATA_FAIL=1 进心跳与严重告警。
 # 注意: git rm --cached(真正移出 git)由一次性迁移脚本 migrate_large_json_out_of_git.sh 完成,
 # 本步只保证 .gitignore 区块最新(防已排除文件被 git add -A 重新纳入) + R2 备份持续。
@@ -200,7 +201,15 @@ _GA_MSG=$("$PY" "$GIT_REPO/scripts/staticdata_write_guard.py" --check-write-auth
 _GA_RC=$?
 echo "  [写权限守卫] $_GA_MSG" | tee -a "$LOG"
 if [ "$_GA_RC" -eq 2 ]; then
-  echo "⚠ staticdata 写权限判定异常(rc=2), 置 STATICDATA_FAIL=1, 按生产机继续(best-effort)" | tee -a "$LOG"
+  # #117 M2(2026-09-27): 顶层守卫内部错误分支原先只有 echo + FAIL=1, 无即时 notify(schedule_monitor 对
+  # fail 不重复告警, 设计依赖脚本内 notify)→ 即时告警缺口, 靠 36h 停摆兜底。补降级 notify(非 severe,
+  # 收口 fail 仍会补 severe)。L3 有意识取舍: 守卫 crash 时 fail-open 按生产机继续 best-effort(宁留日志+
+  # 告警不停灾备), 不是 bug。
+  echo "⚠ staticdata 写权限判定异常(rc=2), 置 STATICDATA_FAIL=1, 按生产机继续(best-effort, 降级保守)" | tee -a "$LOG"
+  "$PY" "$REPO/scripts/notify.py" "[告警] staticdata 写权限守卫内部错误" \
+    "staticdata 备份(trigger=$TRIGGER) 写权限守卫内部错误(rc=2), 按生产机降级继续(best-effort), 已置 FAIL 收口补 severe。<br>日志: $LOG" \
+    --from-prefix "[告警]" --alert-issue "staticdata写权限守卫内部错误" --alert-log "$LOG" \
+    --dedup-key staticdata_backup_guard_error --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>&1 | tee -a "$LOG" || true
   STATICDATA_FAIL=1
 elif [ "$_GA_RC" -eq 1 ]; then
   # 非生产机: 默认拒绝 git 写; 显式 STATICDATA_ALLOW_PUSH=1 → 数据闸门(只增不覆盖)。
@@ -217,6 +226,9 @@ elif [ "$_GA_RC" -eq 1 ]; then
       _GA_GIT_SKIP=1
       _SKIP_NONPROD=1
     elif [ "$_GATE_RC" -eq 2 ]; then
+      # #117 M1(2026-09-27): 本分支是「内部错误」= 故障, 必须心跳写 fail。原来同时设 _SKIP_NONPROD=1,
+      # 而收口心跳优先级 _SKIP_NONPROD 排最前 → 心跳写 skip_nonprod 盖住 fail, 云上 monitor 语义混淆
+      # (只认 ok/skip_oversize 白名单), 只能靠 36h 停摆兜底。修法=不设 _SKIP_NONPROD, 让心跳写 fail。
       echo "⚠ 数据闸门内部错误(rc=2), 置 STATICDATA_FAIL=1, 跳过 commit(best-effort, 无法保证只增不覆盖)" | tee -a "$LOG"
       "$PY" "$REPO/scripts/notify.py" "[告警] staticdata 数据闸门内部错误跳过 commit" \
         "staticdata 备份(trigger=$TRIGGER) 数据闸门内部错误(rc=2), 无法保证只增不覆盖 → 跳过 commit/push, 仅磁盘留档。<br>日志: $LOG" \
@@ -224,7 +236,6 @@ elif [ "$_GA_RC" -eq 1 ]; then
         --dedup-key staticdata_backup_gate_error --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>&1 | tee -a "$LOG" || true
       STATICDATA_FAIL=1
       _GA_GIT_SKIP=1
-      _SKIP_NONPROD=1
     else
       _GA_NEW_ADD="$_GATE_LIST"
       echo "  [数据闸门] 放行 $(printf '%s\n' "$_GATE_LIST" | grep -c . || true) 项(仅新增/不旧覆盖)" | tee -a "$LOG"

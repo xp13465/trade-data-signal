@@ -158,7 +158,8 @@ launchctl load ~/Library/LaunchAgents/com.trade.lab-auto.plist
 ### 背景：为什么大 JSON 不进 git
 
 staticdata 备份仓库里跟踪着 7 个 >20MB 的 JSON（共 319MB，如 `signal_kelly_trades.json` 等，
-见 `docs/large-json-backup-manifest.md` 明细）。它们天天变化、天天进 delta，把备份的「变更量」
+明细见 `<staticdata 备份仓库>/docs/large-json-backup-manifest.md`——#115 起该清单已迁至 staticdata 仓库，
+trade 仓库的 `docs/large-json-backup-manifest.md` 只是指针说明）。它们天天变化、天天进 delta，把备份的「变更量」
 顶到 357MB > 300MB 阈值 → 备份天天 `skip_oversize` 不 commit。**已把它们移出 staticdata git 跟踪**，
 改走 R2 私有桶 `signal-backup` 的 `large-json/` 前缀版本化快照（gzip 压缩，只留小文件 + 上传/恢复脚本在 git）。
 
@@ -169,7 +170,9 @@ staticdata 备份仓库里跟踪着 7 个 >20MB 的 JSON（共 319MB，如 `sign
   - 例：`large-json/2026-09-25/signal_kelly_trades.json.gz`
   - 例：`large-json/2026-09-25/signal_kelly_trades_parts/t2025.json.gz`
 - 保留档位：日档 14 天 + 周档（周日那份）8 周 + 月档（每月 1 号那份）12 个月
-- 索引/校验依据：`docs/large-json-backup-manifest.md`（含 sha256，自动生成勿手编）
+- 索引/校验依据：`<staticdata 备份仓库>/docs/large-json-backup-manifest.md`（含 sha256，自动生成勿手编）。
+  #115(2026-09-27)清单从 trade 仓库迁到 staticdata 仓库(async/sync 的 git add -A 提交对象)；恢复脚本
+  `restore-large-json.sh` 已双路径兼容：先读 staticdata 仓库新路径，回退 trade 仓库旧路径。
 
 ### 恢复（restore-large-json.sh，只读 R2）
 
@@ -201,7 +204,7 @@ bash scripts/restore-large-json.sh --list --target /tmp/restore-test
 **还原行为安全网（全在脚本内）**：
 - 先下到同目录 `.tmp`（pid+随机）再 `os.replace` 原子覆盖，读侧要么旧完整要么新完整，绝不半截
 - 覆盖前把原文件备份成 `<文件>.bak-<时间戳>`（`copy2` 副本，旧文件在替换前始终在位，无短暂缺失窗口，可回滚）
-- gzip 解压；`docs/large-json-backup-manifest.md` 有该完整 R2 key（含日期）的 sha256 记录则比对，不匹配即中止（不改名跳过并汇总非 0 退出）
+- gzip 解压；manifest（先 `<staticdata 备份仓库>/docs/large-json-backup-manifest.md`，回退 trade 仓库旧路径）有该完整 R2 key（含日期）的 sha256 记录则比对，不匹配即中止（不改名跳过并汇总非 0 退出）
 - 路径安全：恢复写入前校验相对路径（非空/不含 `..` 段/不以 `/` 开头/realpath 落在目标根内），非法跳过并汇总
 - 网络快速失败：S3 调用注入 10s 连接超时（不受外部 `R2_UPLOAD_HTTP_TIMEOUT` 大值影响），网络不可达/超时立即报错，不做无限等待
 - 收尾总结：打印「成功 N 个 / 失败 M 个 / 跳过 K 个」三计数（跳过=该日期该文件在 R2 不存在/路径非法；失败=下载/写入出错）；失败数 > 0 或存在跳过均非 0 退出，不静默当成功

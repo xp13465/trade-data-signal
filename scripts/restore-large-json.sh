@@ -29,11 +29,13 @@
 #       凭证从 .env / 环境变量读(upload_r2 模块 import 时 load_env)。
 # 输出：<目标目录>/<原相对路径>(先下同目录 .tmp 再 os.replace 原子覆盖,读侧要么旧完整要么新完整;
 #       覆盖前旧文件备份为 <文件>.bak-<时间戳>(copy2 副本,旧文件在原子替换前始终在位,无短暂缺失窗口);
-#       gzip 解压;若 docs/large-json-backup-manifest.md 有该完整 R2 key(含日期)的 sha256 则比对,
+#       gzip 解压;若大 JSON 备份清单(<staticdata 仓库>/docs/large-json-backup-manifest.md,#115 起,
+#       缺失回退 trade 仓库旧路径)有该完整 R2 key(含日期)的 sha256 则比对,
 #       不匹配即中止(中止发生在备份旧文件之前,不碰原文件))。
 # 安全：只读 signal-backup 桶 large-json/ 前缀(GET/LIST)，绝不写、绝不删除 R2 上任何对象。
 #       恢复写入前校验 rel 路径(非空/不含 .. 段/不以 / 开头/realpath 落在目标根内),非法跳过并汇总。
-# 复现命令：见 docs/large-json-backup-manifest.md 与 docs/backup-restore.md「八、大 JSON 私有桶备份与恢复」。
+# 复现命令：见 <staticdata 仓库>/docs/large-json-backup-manifest.md(缺失回退 trade 仓库旧路径)
+# 与 docs/backup-restore.md「八、大 JSON 私有桶备份与恢复」。
 
 set -euo pipefail
 cd "$(dirname "$0")/.."   # 定位到仓库根(供 scripts/ 模块导入与 docs/ 相对引用；恢复目标由 --target/STATICDATA_REPO 决定)
@@ -49,6 +51,7 @@ fi
 # --list 只读查询；单文件/--date/--all 只读 R2 + 写本地目标目录。
 python3 - "$@" <<'PYEOF'
 import sys, gzip, os, re, hashlib, shutil, datetime, urllib.parse
+from pathlib import Path
 
 # stdout 重定向到文件时块缓冲,会与 stderr 输出顺序颠倒(skipped 汇总跑到进度前),强制行缓冲
 sys.stdout.reconfigure(line_buffering=True)
@@ -128,15 +131,39 @@ def parse_key(key):
     return (date, rel)
 
 
+def _manifest_candidates():
+    """#115(2026-09-27): manifest 归属已迁至 staticdata 备份仓库(async/sync 的 git add -A 提交对象,
+    写 trade 仓库没有任何环节提交它→永久 M 脏文件)。恢复侧双路径兼容: 先读 staticdata 仓库新路径,
+    回退 trade 仓库旧路径(历史快照见 git 历史)。candidates = [新路径..., 旧路径(相对本脚本 cwd=trade 根)]。
+    staticdata 仓库解析同 upload_r2._large_json_staticdata_repo 口径: STATICDATA_REPO > GIT_REPO-staticdata
+    > 默认本机路径(仅测 .git 是否存在, 不 sys.exit——manifest 缺失对恢复是良性回退, 返回 {} 即可)。"""
+    cands = []
+    sd = os.environ.get("STATICDATA_REPO", "/Users/linhuichen/code/trade-data-signal-staticdata")
+    git_repo = os.environ.get("GIT_REPO", "")
+    if git_repo and Path(git_repo + "-staticdata/.git").is_dir():
+        cands.append(Path(git_repo + "-staticdata") / "docs" / "large-json-backup-manifest.md")
+    if Path(sd + "/.git").is_dir():
+        cands.append(Path(sd) / "docs" / "large-json-backup-manifest.md")
+    # 旧路径: 脚本 cd 到仓库根(trade), 相对路径 = trade 仓库 docs/large-json-backup-manifest.md
+    cands.append(Path("docs") / "large-json-backup-manifest.md")
+    # 去重保序: 新路径优先, 旧路径兜底
+    seen, out = set(), []
+    for c in cands:
+        if c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
 def load_manifest_sha():
-    """读 docs/large-json-backup-manifest.md,返回 {完整 R2 key(含日期): sha256_hex}。
-    map 键=完整 key,与 restore_one 查的 key 一一对应 —— 同 rel 不同日期各占一条,多日期快照
-    不串日期(P1-1 修复)。文件缺失返回 {}；行内含 large-json/ key 且含 64-hex 才记
-    (宽松,列格式由核心侧自动生成)。"""
-    mp = "docs/large-json-backup-manifest.md"
-    if not os.path.exists(mp):
+    """读 large-json-backup-manifest.md(先 staticdata 仓库新路径, 回退 trade 仓库旧路径),返回
+    {完整 R2 key(含日期): sha256_hex}。map 键=完整 key,与 restore_one 查的 key 一一对应 ——
+    同 rel 不同日期各占一条,多日期快照不串日期(P1-1 修复)。文件均缺失返回 {}；行内含
+    large-json/ key 且含 64-hex 才记(宽松,列格式由核心侧自动生成)。"""
+    mp = next((c for c in _manifest_candidates() if c.is_file()), None)
+    if mp is None:
         return {}
-    text = open(mp, encoding="utf-8").read()
+    text = mp.read_text(encoding="utf-8")
     m = {}
     for line in text.splitlines():
         if "large-json/" not in line:
@@ -144,7 +171,8 @@ def load_manifest_sha():
         hs = re.findall(r"([0-9a-f]{64})", line)
         if not hs:
             continue
-        for cell in [c.strip() for c in line.split("|")]:
+        for cell in [c.strip().strip("`") for c in line.split("|")]:
+            # strip("`"): 生成器写 key 列带反引号(`large-json/...`), 旧手写版无 —— 两者都解析
             if cell.startswith(PREFIX):
                 p = parse_key(cell)
                 if p:

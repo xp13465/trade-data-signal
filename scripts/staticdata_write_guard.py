@@ -22,11 +22,18 @@
 - --check-fresh: 数据闸门(非生产机 + 显式 STATICDATA_ALLOW_PUSH=1 时调用)。
   ① 先 git fetch origin, 失败即拒(远端不可达 / 网络失败 → 不能判断远端现状 → 拒);
   ② 只允许「远端不存在的新路径(A)」+ 「M 中本地不旧于远端者」
-     (M 陈旧判定 = 本地文件 mtime < 远端该路径最后一次 commit 时间 → 本地旧 → 排除);
-  ③ 排除 D(本地删除: 不允许非生产机删远端路径, 防误删共享仓库);
+     (M 陈旧判定 = 本地文件 mtime < 远端该路径最后一次 commit 时间 → 本地旧 → 排除;
+      M3(2026-09-27): 远端路径→commit 时间 映射一次 git log 批量建, 不再逐路径 git log -1);
+  ③ 排除 D(本地删除: 不允许非生产机删远端路径, 防误删共享仓库;
+     有意识取舍 L2: D 永远排除 → DR 仓库只增不缩, 见 check_fresh 内注释);
   ④ stdout 输出被允许的 add 清单(每行一个相对仓库根路径), 调用方 git add 只用这份清单,
      不许再 git add -A(这是"只增不覆盖"的实现点); 摘要/排除原因走 stderr。
   rc: 0=放行(清单非空) 1=拒绝(fetch 失败 / 无允许项) 2=内部错误(git 命令异常)。
+
+有意识取舍 L3(2026-09-27 文档化, 防误当 bug): 守卫脚本 crash(Python rc=2)或 PY 缺失(rc=127)时,
+调用方按「内部错误 → 按生产机降级继续 best-effort(fail-open)」处理——守卫失效不等于停灾备, 宁留
+日志 + 告警(置 FAIL + notify)不停 commit/push, 代价是本轮"只增不覆盖"判定不成立(风险自知)。
+这正是守卫作者的有意识设计, 不是疏漏; 若未来要 fail-closed, 需把调用方 rc=2 分支改为直接拒 git 段。
 
 失败显性(§23.11): 拒绝 = rc 1 + 明确日志(写清"为什么拒/怎么显式放行"),
 调用方对拒绝必须告警(降级 notify), 绝不许静默 exit 0。
@@ -78,18 +85,35 @@ def _git(repo, args, description):
     return out, None
 
 
-def _remote_last_commit_ts(repo, path):
-    """远端 main 上该路径最后一次 commit 的 unix 时间戳(没有 → None)。"""
+def _remote_last_commit_map(repo, paths, remote=REMOTE_NAME, branch=BRANCH_NAME):
+    """一次 git log 批量取「候选路径 → 远端该路径最后一次 commit 的 unix 时间戳」映射。
+
+    #117 M3(2026-09-27): 替代原 _remote_last_commit_ts 逐候选路径跑一次 `git log -1 origin/main -- path`
+    (候选路径数万时逐条起进程 = 数十分钟~小时级)。本函数单次 git 调用 + --literal-pathspecs 传全部
+    候选路径为 pathspec, git 内部一次 revision walk(带路径过滤), O(1) 查表。
+    输出格式用 `--format=%x01<ct>` 前缀标记时间戳行(文件路径不可能以 \x01 开头, 防纯数字路径
+    被误判成时间戳)。git log 从新到旧输出, 每个路径只记第一次(最新)出现的 commit 时间 = 原语义
+    (与 `git log -1 origin/main -- path` 的 %ct 一致)。失败 → None(调用方按内部错误 rc=2 处理)。
+    paths 为空 → 直接返回空映射(无候选无需查)。
+    """
+    paths = sorted(set(paths))
+    if not paths:
+        return {}
     out = subprocess.run(
-        ["git", "-C", repo, "log", "-1", "--format=%ct", f"{REMOTE_NAME}/{BRANCH_NAME}", "--", path],
+        ["git", "-C", repo, "--literal-pathspecs", "log", f"{remote}/{branch}",
+         "--format=%x01%ct", "--name-only", "--"] + paths,
         capture_output=True, text=True)
     if out.returncode != 0:
         return None
-    ts = out.stdout.strip()
-    try:
-        return int(ts) if ts else None
-    except ValueError:
-        return None
+    m = {}
+    cur_ts = None
+    for line in out.stdout.splitlines():
+        if line.startswith("\x01"):
+            cur_ts = int(line[1:])
+            continue
+        if line and line not in m:
+            m[line] = cur_ts
+    return m
 
 
 def check_fresh(repo, remote=REMOTE_NAME, branch=BRANCH_NAME):
@@ -126,13 +150,22 @@ def check_fresh(repo, remote=REMOTE_NAME, branch=BRANCH_NAME):
         u = u.strip()
         if u:
             candidates.append(("A", u))
+    # #117 M3: 一次 git log(带候选路径 pathspec)批量取「候选路径→远端最近 commit 时间」映射,
+    # 替代逐候选路径 git log -1(数万路径时分钟~小时级→单次调用秒级, 见 docs/ops/staticdata-manifest-and-guard-fixes-20260926.md §M3 实测)。
+    remote_map = _remote_last_commit_map(repo, [p for _st, p in candidates], remote=remote, branch=branch)
+    if remote_map is None:
+        print(f"✗ 数据闸门内部错误: git log {remote}/{branch} 失败(无法批量取远端路径 commit 时间), "
+              f"无法判定只增不覆盖 → 拒绝。", file=sys.stderr)
+        return 2
     for st, path in candidates:
         if st == "D":
-            denied.append((path, "D:不允许非生产机删除远端路径"))
+            # L2 有意识取舍(2026-09-27 文档化): D(本地删除远端路径)永远排除 → DR 仓库只增不缩
+            # (灾备差异留档之目的, 宁可多留不删; 远端有权删除时由生产机原逻辑 `git add -A` 处理)。
+            denied.append((path, "D:不允许非生产机删除远端路径(D 永远排除 = DR 仓库只增不缩, 有意识取舍)"))
             continue
         # 该路径在远端分支树上是否存在?
-        exists_on_remote = _remote_last_commit_ts(repo, path) is not None
-        if not exists_on_remote:
+        remote_ts = remote_map.get(path)
+        if remote_ts is None:
             allow.append(path)  # A: 远端不存在的新路径, 只增, 不覆盖任何东西
             continue
         # M: 本地旧于远端 → 排除(防旧数据覆盖新数据)。
@@ -142,11 +175,10 @@ def check_fresh(repo, remote=REMOTE_NAME, branch=BRANCH_NAME):
         except OSError:
             denied.append((path, "M:本地文件缺失/不可读, 排除"))
             continue
-        remote_ts = _remote_last_commit_ts(repo, path)
-        if remote_ts is not None and local_mtime < remote_ts:
+        if local_mtime < remote_ts:
             denied.append((path, f"M:本地旧(本地mtime={local_mtime} < 远端commit={remote_ts}), 排除"))
             continue
-        allow.append(path)  # M 本地不旧于远端(或读不到远端时间)——允许
+        allow.append(path)  # M 本地不旧于远端——允许
     # ③ 输出结果
     for path in allow:
         print(path)

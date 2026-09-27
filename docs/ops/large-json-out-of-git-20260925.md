@@ -31,7 +31,8 @@
   - 例: `data/signal_kelly_trades.json` → `large-json/2026-09-25/signal_kelly_trades.json.gz`
   - 例: `data/signal_kelly_trades_parts/t2025.json` → `large-json/2026-09-25/signal_kelly_trades_parts/t2025.json.gz`
 - 保留 = 日档 14 天 + 周档(周日那份)8 周 + 月档(每月 1 号那份)12 个月。复用 `upload_r2.py` 里 DB 备份已有的滚动保留实现。
-- 索引文件路径 = `docs/large-json-backup-manifest.md`,由上传脚本自动生成(不手工维护)。
+- 索引文件路径 = `<staticdata 备份仓库>/docs/large-json-backup-manifest.md`(#115 起迁至 staticdata
+  仓库 = async/sync 的 `git add -A` 提交对象;trade 仓库旧路径仅作恢复侧回退),由上传脚本自动生成(不手工维护)。
 
 ## 3. 改了什么(交付物 A-F)
 
@@ -180,3 +181,18 @@ $PY -m py_compile scripts/large_json_excludes.py scripts/check_large_json_exclud
   机检, 全部 PASS 即复现。
 - 遗留风险: 迁移脚本不代 commit/push(冻结接口要求留给人), 故迁移后 staticdata 远端 git 历史缺
   「rm --cached」档, 需人工执行 §5.3 步骤 3 的 commit+push 补上。
+
+## 附: 私有桶写命令的唯一隔离手段(#116, 2026-09-27)
+
+> #116 文档化任务(与上传改动同批): `--dry-run` 对私有桶写命令(upload-db / upload-decommissioned /
+> upload-claude-backup 等不消费它的命令)是**静默失效**的——`upload_r2.py` 的 `__main__` 曾把
+> `--dry-run` 从 argv 移除后照常真写生产桶。2026-09-26 事故: 集成测试传 `--dry-run` 仍污染生产 R2。
+
+- **`--dry-run` 契约(现状)**: 只对消费它的通道有效(`_DRY_RUN_CONSUMERS` 白名单: 增量引擎通道
+  upload-lab / upload-index / upload-etf-hist 等 + upload-large-json)。对白名单外命令传 `--dry-run`
+  → `__main__` **硬报错非零退出 + 明确提示**(2026-09-27 #116 修复), 不再静默移除。
+- **私有桶/公共桶写命令(含 upload-db / upload-decommissioned / upload-claude-backup / upload /
+  delete / clean-data-backup / upload-intraday / upload-data-files / purge-low-freq 等)的唯一隔离手段
+  = `R2_BACKUP_BUCKET=<不存在的桶名>`**(实测 404 零污染, 见 upload_r2.py 头部 docstring §--dry-run 契约)。
+  别指望 `--dry-run`。
+- **测试/验证该契约**: 见 `docs/ops/staticdata-manifest-and-guard-fixes-20260926.md` §#116 自验。

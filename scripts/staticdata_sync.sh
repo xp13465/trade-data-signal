@@ -138,7 +138,15 @@ _GA_OK=0         # 守卫裁定: 0=走 git 段 1=跳过 git 段
 _GAUTH_OUT=$("$PY" "$GIT_REPO/scripts/staticdata_write_guard.py" --check-write-auth --repo "$STATICDATA_REPO" 2>&1)
 _GAUTH_RC=$?
 if [ "$_GAUTH_RC" -eq 2 ]; then
+  # L3 有意识取舍(2026-09-27 文档化, 防误当 bug): 守卫 crash 时 fail-open 按生产机继续 best-effort,
+  # 宁留日志+告警不停灾备(代价=本轮只增不覆盖判定不成立, 风险自知; 要 fail-closed 需改本分支拒 git 段)。
+  # #117 M2 同类补强(2026-09-27): 与 async 侧同步补降级 notify(顶层守卫内部错误分支原先无即时通知,
+  # 设计依赖收口 SYNC_FAIL=1; async 侧 #117 M2 已补, 本文件为同模式遗漏, 一并补齐)。
   echo "⚠ staticdata 写权限判定异常(rc=2), 置 SYNC_FAIL=1, 按生产机继续(best-effort, 降级保守)"
+  "$PY" "$REPO/scripts/notify.py" "[告警] staticdata 写权限守卫内部错误" \
+    "staticdata 同步(trigger=$TRIGGER) 写权限守卫内部错误(rc=2), 按生产机降级继续(best-effort), 已置 SYNC_FAIL=1。" \
+    --from-prefix "[告警]" --alert-issue "staticdata写权限守卫内部错误" \
+    --dedup-key staticdata_sync_guard_error --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>/dev/null || true
   SYNC_FAIL=1
 elif [ "$_GAUTH_RC" -eq 1 ]; then
   # 非生产机: 默认拒绝 git 写; 显式 STATICDATA_ALLOW_PUSH=1 → 数据闸门(只增不覆盖)。
