@@ -150,12 +150,8 @@
 - ⚠️ **不 force**:force-with-lease / force push 是最后手段;non-fast-forward 优先 `git fetch + rebase origin/main + 重试 push`(deploy.sh L141-160 内置),rebase 失败 abort 等人工。agent 不得擅自强推,尤其 main
 - ⚠️ **"功能 done"三查清单(唯一权威,2026-08-11 AI 预测前端漏上线教训补)**:验收"已上线/done"必须三查齐:①main 链含 commit(git log origin/main 含 hash)②数据层生效(curl 线上 JSON 字段有值/无旧字段残留)③**前端展示层上线(curl 线上 app.min.js/lab.js 含新功能 class/中文字符串)**。只验①②不验③=前端代码写了但从未 commit main+上线,用户看不到。**reviewer 验本地 min ≠ 前端上线**,reviewer PASS 后主控 §0 必须补验③
 
-## 8.1 派单 prompt 必带定位锚点(2026-08-15 优化 P0-4 加)
-> 背景:每个子 agent fresh context 重读大文件(app.js/lab.js 1.3MB 等),任务 prompt 不带定位锚点就从头 grep,纯 token 消耗。core:主控派单时先把定位点给足,让子 agent 直接跳到,不重读重扫。
-- **派单 prompt 必带 `@关键文件:行号` 或关键符号锚点(函数名/class/字符串/常量)**,让子 agent 直接跳到定位点,不从 1 行开始 grep 大文件
-- **大文件(app.js/lab.js/common.js/export.py/signal_stats.py 等)派单时,主控先给出定位锚点**(函数名/行号/中文字符串/字段名),子 agent 用 `grep -n "锚点" 文件` 直达,不整文件从头读
-- **主控派单前快速定位锚点**:grep 目标符号得到行号,写进 prompt("定位:app.js L1234 _dayItems 附近");拿不准锚点可让子 agent grep 关键词,但 anchor 已给=省一轮
-- 可复用锚点表见 `docs/agent-quickstart.md`(若有 app.js/lab.js 关键函数锚点表缓存则直接引用,缺则本次定位后回填)
+## 8.1 派单 prompt 必带定位锚点(2026-08-15 优化 P0-4 加;操作细节全文见 docs/main-governance.md §16「派单锚点规范」)
+> **核心一句话**:派单 prompt 必带 `@关键文件:行号` 或关键符号锚点(函数名/class/字符串/常量),让子 agent 直接跳到定位点,不从第 1 行 grep 大文件;可复用锚点表见 `docs/agent-quickstart.md`。
 
 ## 14. 生产稳定性 P0(摘要;时点/launchd 细节见 .claude/skills/role-implementer §4)
 - **核心一句话:生产稳定性是 P0 第一要素**。项目已上线生产(ss.fx8.store/sss.sugas.site/s.sugas.site + ssd.fx8.store R2),定时任务撞车会导致线上数据覆盖事故/DB锁/用户看到错误数据,是不可逆生产故障
@@ -217,16 +213,11 @@
 ### 23.13 口径三源核对+不统一必上报拍板(指针,全文见 .claude/skills/role-reviewer/SKILL.md §7「强制第三方锚点检查」+ archive L44)
 触发词:涉"分类/档位/象限/阈值/区间"语义需求/派单/实施/review;发现两处描述同一概念但说法不同。核心一句话:动手前必须 UI 文案、产品文档、代码现状三源核对;发现不统一=停下上报用户拍板,绝不自行选边;需求理解不足直接问,不猜不抢答。验收口径:派单 prompt 含三源原文;reviewer 查「文案↔实现」对照记录;发现不统一未上报=验收不过。
 
-## 24. 前端部署/缓存/SW更新防撕裂(2026-08-14 用户定,全站白屏P0事故根治,防再犯)
+## 24. 前端部署/缓存/SW更新防撕裂(2026-08-14 用户定,全站白屏P0事故根治,防再犯;全文见 .claude/skills/role-implementer §1.1 + .claude/skills/role-reviewer §5.2)
 **触发词**:发版/改app.js·lab.js·common.js·index.html/bump版本串/站点白/点更新新版白/Cannot read 'scores'/_aiPoscapRatingSummary is not defined/三站版本混乱/缓存滞留。
-**背景(2026-08-14 P0 全站白屏事故)**:版本串=内容 md5 哈希(bump_asset_version.py"内容相同则版本号相同"),A+B实施期集中改前端+备站数据不同步+中间"改源码漏bump"断链点→CDN/浏览器缓存滞留「孤儿旧快照」(引不存在对应内容产物的版本串)→SW更新清缓存重建时裸崩全白。根因=「版本串机制 + SW更新接管 + 数据同步」三处设计未闭环。
 **核心一句话:版本串必须随内容强制刷新(杜绝指纹断链),SW 更新接管必须壳芯配套+失败回退,部署后必须验"内容哈希==index引用版本串"。**
-- **① 版本串改「发布序号(日期+批次)」而非纯内容哈希**(2026-08-14 定):每次部署强制换新串,内容相同也换,杜绝"指纹断链、旧缓存不清、不触发更新"死角。改 `scripts/bump_asset_version.py` 由内容md5换为 日期+自增/哈希混合,保证每次不同
-- **② 改前端源码必同 commit bump 版本串 + 同 commit 重建 min(§22 扩展硬约束,2026-08-18 B 强化)**:改 app.js/lab.js/common.js/style.css 等前端源 → **必须同 commit 跑 build_min.py(现在从 git HEAD 读源生成 min)+ bump_asset_version.py + push + 验线上 index 引用`?v=`与实际文件内容md5一致**;禁止"源码改了版本串/没重建 min 没跟着变"漏跑。**⚠️ 禁 reset --soft 对齐分支**(16:30 事故根因):reset --soft 只移 HEAD 不动工作区,会留旧版 M 脏文件,deploy 安全网 build_min 读工作区旧源生成旧 min 覆盖正确版;要让 HEAD 对齐用 checkout <commit> -- <文件> 或正常 checkout,确需 reset --soft 事后必 git status 核对工作区无 M 脏文件再 push。**deploy 只在 main 分支跑**(deploy.sh 已加分支校验+显式 main:main push)。
-- **③ SW 更新接管需「壳与芯配套 + 失败回退」安全网**:activate 清缓存/claim 接管前,先确认 app shell(app.min.js/common.min.js/index)已预缓存就绪;未就绪不 claim 不强推,失败回退旧SW/旧缓存,绝不全白(sw.js 实现,参考 §0 sw 模式)
-- **④ 数据全站同步(§22 三步)覆盖盘后核心产物**:overview.json/a-stock-3m.json 等盘后产物必须随 §22 三步同步到备站(GH/Maozi)或可靠 fallback 主站,备站不得缺核心文件
-- **⑤ 部署后自动校验「内容哈希==index版本串」**:deploy 链加 check(如对 app/lab/common 每文件算 md5 前8,与 index 引用比对),不一致即阻断上线,防孤儿快照再产生
-- **验收口径**:上线/发版任务自验含「版本串每次更换确认 + 改码同commit bump + 部署后哈希==引用校验 PASS + 备站核心数据在位」;reviewer 查这4项,漏=验收不过。事故根因全文见 memory `deploy-cdn-stale-snapshot-blue-screen`
+**验收口径**:上线/发版任务自验含「版本串每次更换确认 + 改码同commit bump + 部署后哈希==引用校验 PASS + 备站核心数据在位」;reviewer 查这4项,漏=验收不过。事故根因全文见 memory `deploy-cdn-stale-snapshot-blue-screen`
+**全文**:①~⑤ 机制实现细节(版本串发布序号强制换新/改源码同 commit bump+重建 min/禁 reset --soft/SW 壳芯配套+失败回退/数据全站同步/部署后哈希==引用校验)+ 08-14 白屏事故背景,见 implementer skill §1.1(兼看 §3 机制 C);reviewer 四查执行细则见 reviewer skill §5.2。
 
 ## 历史/约束归档引用(全文已归档,按需查)
 - **§10 切分支保护 DB**(2026-07-14 已根治):DB(sentiment.db/etf_national_team.db)已移出 git untracked,切分支不再污染;绝不能 `git restore/checkout -- data/sentiment.db`;同步 main 避免本地 checkout。原文全量见 docs/archive/CLAUDE-history.md

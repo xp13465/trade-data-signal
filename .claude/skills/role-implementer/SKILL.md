@@ -38,6 +38,17 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - ⚠️ **min 版 JS 验证用字符串非变量名**(2026-08-07 补):terser mangle 重命名 let 局部变量(_compBarsHtml 等),grep 验 min 版上线用 class 名/中文字符串(kst-comp-fill/分项构成/优秀)非变量名
 - ⚠️ **export 输出路径同步**(2026-08-07 补,§9 cwd trade-data 衍生陷阱):export.py cwd trade-data 写 JSON 落 trade-data/static-site/data/,但 deploy.sh 从 trade/static-site/data/ 推 git,两路径不同步推旧版。export 后必须 cp 或确认 rsync 同步
 
+## 1.1 前端部署/缓存/SW更新防撕裂(原根 CLAUDE.md §24 全文,2026-09-27 下沉;根文件留触发词+核心一句话+验收口径)
+**触发词**:发版/改app.js·lab.js·common.js·index.html/bump版本串/站点白/点更新新版白/Cannot read 'scores'/_aiPoscapRatingSummary is not defined/三站版本混乱/缓存滞留。
+**背景(2026-08-14 P0 全站白屏事故)**:版本串=内容 md5 哈希(bump_asset_version.py"内容相同则版本号相同"),A+B实施期集中改前端+备站数据不同步+中间"改源码漏bump"断链点→CDN/浏览器缓存滞留「孤儿旧快照」(引不存在对应内容产物的版本串)→SW更新清缓存重建时裸崩全白。根因=「版本串机制 + SW更新接管 + 数据同步」三处设计未闭环。
+**核心一句话:版本串必须随内容强制刷新(杜绝指纹断链),SW 更新接管必须壳芯配套+失败回退,部署后必须验"内容哈希==index引用版本串"。**
+- **① 版本串改「发布序号(日期+批次)」而非纯内容哈希**(2026-08-14 定):每次部署强制换新串,内容相同也换,杜绝"指纹断链、旧缓存不清、不触发更新"死角。改 `scripts/bump_asset_version.py` 由内容md5换为 日期+自增/哈希混合,保证每次不同
+- **② 改前端源码必同 commit bump 版本串 + 同 commit 重建 min(§22 扩展硬约束,2026-08-18 B 强化)**:改 app.js/lab.js/common.js/style.css 等前端源 → **必须同 commit 跑 build_min.py(现在从 git HEAD 读源生成 min)+ bump_asset_version.py + push + 验线上 index 引用`?v=`与实际文件内容md5一致**;禁止"源码改了版本串/没重建 min 没跟着变"漏跑。**⚠️ 禁 reset --soft 对齐分支**(16:30 事故根因):reset --soft 只移 HEAD 不动工作区,会留旧版 M 脏文件,deploy 安全网 build_min 读工作区旧源生成旧 min 覆盖正确版;要让 HEAD 对齐用 checkout <commit> -- <文件> 或正常 checkout,确需 reset --soft 事后必 git status 核对工作区无 M 脏文件再 push。**deploy 只在 main 分支跑**(deploy.sh 已加分支校验+显式 main:main push)。
+- **③ SW 更新接管需「壳与芯配套 + 失败回退」安全网**:activate 清缓存/claim 接管前,先确认 app shell(app.min.js/common.min.js/index)已预缓存就绪;未就绪不 claim 不强推,失败回退旧SW/旧缓存,绝不全白(sw.js 实现,参考 §0 sw 模式)
+- **④ 数据全站同步(§22 三步)覆盖盘后核心产物**:overview.json/a-stock-3m.json 等盘后产物必须随 §22 三步同步到备站(GH/Maozi)或可靠 fallback 主站,备站不得缺核心文件
+- **⑤ 部署后自动校验「内容哈希==index版本串」**:deploy 链加 check(如对 app/lab/common 每文件算 md5 前8,与 index 引用比对),不一致即阻断上线,防孤儿快照再产生
+- **验收口径**:上线/发版任务自验含「版本串每次更换确认 + 改码同commit bump + 部署后哈希==引用校验 PASS + 备站核心数据在位」;reviewer 查这4项(执行细则见 reviewer skill §5.2),漏=验收不过。事故根因全文见 memory `deploy-cdn-stale-snapshot-blue-screen`
+
 ## 2. 算法改动同步公示(原 §21 全文,2026-08-08 定,防算法公示与实施不同步)
 - **核心一句话:改算法逻辑必须同步改前端算法公示文案**。算法公示是用户理解算法的依据,算法改了公示不改=用户看老规则误导,修复成本高(发现+返工)
 - **触发**:任何改 track_score/评分/权重/分段函数/匹配规则等算法逻辑的改动(build_board_etf_map.py/queries.py/simulate_trade.py 等后端算法),必须 grep 前端算法公示文案同步更新

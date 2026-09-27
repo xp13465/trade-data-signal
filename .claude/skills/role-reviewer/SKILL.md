@@ -44,6 +44,16 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - 审查择时/状态/信号类改动(前端重放或后端预计算)必查:①信号判定是否只用 t 时点前数据(t 收盘出信号次日生效)②分位数阈值是 expanding/滚动窗口而非全期分位 ③复用的特征库固化口径是否纯历史;
 - 涉及回测结论落地的改动,查报告「防前视」专节+时点穿越测试是否在(全文见 researcher skill §3.1);缺=review 不通过。
 
+## 5.2 前端部署防撕裂四查(原根 CLAUDE.md §24 reviewer 侧,2026-09-27 下沉)
+**触发**:review 任何改 app.js/lab.js/common.js/style.css/index.html/sw.js 的改动,或 bump 版本串/发版/deploy 类任务。
+- **四查(逐项给证据,漏一项=验收不过)**:
+  1. **版本串每次更换确认**:本次 bump 后版本串与上一版不同(格式 `YYYYMMDD-a<N>`,同内容也强制换新,杜绝指纹断链);index.html 引用的 `?v=` 与实际文件内容对应,不引"孤儿快照";
+  2. **改码同 commit bump + 重建 min**:前端源改动与 bump、build_min 产物在同一 commit(禁"源码改了版本串/没重建 min 没跟着变"漏跑);**禁 reset --soft 对齐分支**(只移 HEAD 不动工作区,留旧版 M 脏文件会被 deploy 安全网 build_min 读旧源生成旧 min 覆盖正确版);
+  3. **部署后哈希==引用校验 PASS**:deploy 链校验(对 app/lab/common 每文件算 md5 前8,与 index 引用比对)通过;线上验 index 的 `?v=` 与线上文件实际内容一致;
+  4. **备站核心数据在位**:overview.json/a-stock-3m.json 等盘后核心产物随 §22 三步同步到备站(GH/Maozi)或可靠 fallback 主站,备站不缺核心文件。
+- **附带查**:sw.js CACHE_VERSION 与版本串同源(由 main-merge.sh 统一 bump,见 implementer skill §1 机制 C);改前端源码的 worktree agent 是否**未自行 bump**。
+- 机制细节全文见 implementer skill §1.1;事故根因见 memory `deploy-cdn-stale-snapshot-blue-screen`。
+
 ## 6. 团队协作审查口径(§23.4/23.5 reviewer 侧,2026-08-12 用户定,reviewer 只需了解这一层)
 实施 agent 改完,你查以下几点(团队协作/同模块冲突预防的验收检查,不需要像实施那样全文掌握):
 - **预留覆盖**:实施 agent 改动是否 scan 了 `docs/pending-features-index.md` 本模块项,是否预留了"已落档未开发功能"的接口/展示位/常量位,或说明为何不相关。改死了本模块待开发功能的位置=验收不过
