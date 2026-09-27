@@ -1,0 +1,23 @@
+import { chromium } from "playwright";
+const BASE = "http://127.0.0.1:8124";
+const browser = await chromium.launch({ headless: true });
+const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+const log = [];
+// 记录所有 /data/ 相关请求
+const page = await ctx.newPage();
+page.on("request", (r) => { const u = r.url(); if (/data\/|\.json|\.gz|signal_kelly/i.test(u)) log.push("REQ " + u.slice(0, 150)); });
+page.on("response", async (r) => { const u = r.url(); if (/signal_kelly|\.json|\.gz/i.test(u)) log.push("RESP " + r.status() + " " + u.slice(0, 150) + " ct=" + (r.headers()["content-type"]||"")?.slice(0,25)); });
+page.on("pageerror", (e) => log.push("ERR " + String(e).slice(0, 150)));
+page.on("console", (m) => { const t = m.text(); if (/sigkelly|kelly|失败|回退|fallback/i.test(t)) log.push("CONS [" + m.type() + "] " + t.slice(0, 150)); });
+await page.goto(BASE + "/index.html", { waitUntil: "domcontentloaded" });
+await page.waitForTimeout(1500);
+const ob = page.locator(".onboarding-modal:not(.hidden)");
+if (await ob.count()) await page.locator(".onboarding-skip").first().click().catch(() => {});
+await page.waitForTimeout(300);
+await page.locator('button[data-tab="lab"]').first().click({ force: true });
+await page.waitForTimeout(20000);
+console.log("动作日志(" + log.length + "):");
+log.slice(0, 40).forEach((x) => console.log("  " + x));
+const st = await page.evaluate(() => ({ loadErr: window._labKellyLoadErr, prog: window._labKellyLoadProgress, all: window._labKellyAllReady }));
+console.log("加载状态:", JSON.stringify(st));
+await browser.close();

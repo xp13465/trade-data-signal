@@ -1,0 +1,87 @@
+{
+ "n_ops": 545,
+ "decomp": {
+  "open": {
+   "n": 343,
+   "sum_yuan": 0.0
+  },
+  "limit": {
+   "n": 129,
+   "sum_yuan": 7037.45
+  },
+  "tail": {
+   "n": 73,
+   "sum_yuan": -9291.4
+  }
+ },
+ "slope_per_1pct": 22.5395,
+ "mix_table": [
+  {
+   "b_quoted": 0.0,
+   "b_plan": 1.0,
+   "tot_profit": 154539.75,
+   "ret_max_hold_pct": 171.7108
+  },
+  {
+   "b_quoted": 0.1,
+   "b_plan": 0.9,
+   "tot_profit": 154765.15,
+   "ret_max_hold_pct": 171.9613
+  },
+  {
+   "b_quoted": 0.2,
+   "b_plan": 0.8,
+   "tot_profit": 154990.54,
+   "ret_max_hold_pct": 172.2117
+  },
+  {
+   "b_quoted": 0.3,
+   "b_plan": 0.7,
+   "tot_profit": 155215.94,
+   "ret_max_hold_pct": 172.4622
+  },
+  {
+   "b_quoted": 0.4,
+   "b_plan": 0.6,
+   "tot_profit": 155441.33,
+   "ret_max_hold_pct": 172.7126
+  },
+  {
+   "b_quoted": 0.5,
+   "b_plan": 0.5,
+   "tot_profit": 155666.73,
+   "ret_max_hold_pct": 172.963
+  },
+  {
+   "b_quoted": 0.6,
+   "b_plan": 0.4,
+   "tot_profit": 155892.12,
+   "ret_max_hold_pct": 173.2135
+  },
+  {
+   "b_quoted": 0.7,
+   "b_plan": 0.3,
+   "tot_profit": 156117.52,
+   "ret_max_hold_pct": 173.4639
+  },
+  {
+   "b_quoted": 0.8,
+   "b_plan": 0.2,
+   "tot_profit": 156342.92,
+   "ret_max_hold_pct": 173.7144
+  },
+  {
+   "b_quoted": 0.9,
+   "b_plan": 0.1,
+   "tot_profit": 156568.31,
+   "ret_max_hold_pct": 173.9648
+  },
+  {
+   "b_quoted": 1.0,
+   "b_plan": 0.0,
+   "tot_profit": 156793.71,
+   "ret_max_hold_pct": 174.2152
+  }
+ ],
+ "note": "b_quoted=竞价仓(挂高价限价单吃开盘价)比例, b_plan=挂昨收+尾盘兜底比例; 口径=S06+K=1+A ops(exec=real_buy_date)"
+}
