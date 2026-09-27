@@ -121,6 +121,19 @@ R2 架构内容当时迁到了 `.claude/skills/role-implementer/SKILL.md` 的 **
 
 **分支**:feat 分支 `worktree-agent-acfa8a42d73097741`(任务书原写 `fix-section-8.1-refs`,实际 worktree 建分支名不同,已在完成报告注明);commit 待 merge。
 
+### 6.2 续跑整改(2026-09-27 reviewer 验收补):同行 §9 悬空修正 2 处
+
+reviewer 验收发现:`docs/data-deploy-quickstart.md:4` 与 `:225` 两处同行还引用**根 CLAUDE.md 已沉降的 §9**(单版前端铁律,2026-07-15 迁至 implementer skill §1)。逐一核查本次改过的 30 处位置,同行引用其他 CLAUDE.md 节号的仅此 2 处,已修正:
+
+| 位置 | 原文 | 改后 | 真址依据 |
+|---|---|---|---|
+| data-deploy:4 | `CLAUDE.md §8/implementer skill §3.1/§9` | `CLAUDE.md §8 + implementer skill §1(原 §9 单版前端铁律)·§3.1(原 §8.1 R2 存储架构)` | §8=`CLAUDE.md:146`「## 8. 改完必须推送」;implementer skill §1=`SKILL.md:33`「## 1. 单版前端铁律(原 §9 全文)」;§3.1=`SKILL.md:76` |
+| data-deploy:225 | `CLAUDE.md §8(…)/ implementer skill §3.1(R2 存储架构准则)/ §9(单版前端 + build_min/bump sw)/ §14(…)` | `CLAUDE.md §8(…)/ implementer skill §1(原 §9 单版前端铁律 + build_min/bump sw)·§3.1(原 §8.1 R2 存储架构准则)/ §14(…)` | §14=`CLAUDE.md:156`「## 14. 生产稳定性 P0」;余同上行 |
+
+其余 28 处改动行同行仅 `implementer skill §3.1`,无其他节号引用,无悬空。
+
+**全仓 pre-existing §9 悬空(本次范围外,单独列出待主控拍板)**:`docs/data-deploy-quickstart.md:116/122`、`docs/agent-quickstart.md:52/57/90/114/152/291/292/306/436`、`docs/kelly/toggle/kelly-loss-reduction-toggle-v2-plan.md:226/227/254/255`、`docs/r2-migration-implementation-report.md:183` 等均引「§9」指单版前端铁律,非本次 diff 引入,按边界未动,建议后续按同样「→implementer skill §1」统一清理。
+
 ## 7. 建议处置(排期建议,待用户拍板)
 
 | 批次 | 范围 | 风险 | 建议 |

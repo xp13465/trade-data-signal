@@ -1,7 +1,7 @@
 # 数据上线快速上手引导（data-deploy-quickstart.md）
 
 > 子 agent 直接照做的数据上线速查。R2 迁移（2026-08-08 阶段 1-5 完成）后，数据 JSON 不再 git push，走 R2 + Worker /data/ rewrite。
-> 本文档是"操作速查"视角：改了东西怎么上线，3 步内做完。深入架构/从零重建/灾备见 [`docs/r2-deployment.md`](r2-deployment.md) + [`docs/site-deployment.md`](site-deployment.md) + CLAUDE.md §8/implementer skill §3.1/§9。
+> 本文档是"操作速查"视角：改了东西怎么上线，3 步内做完。深入架构/从零重建/灾备见 [`docs/r2-deployment.md`](r2-deployment.md) + [`docs/site-deployment.md`](site-deployment.md) + CLAUDE.md §8 + implementer skill §1(原 §9 单版前端铁律)·§3.1(原 §8.1 R2 存储架构)。
 
 ---
 
@@ -222,5 +222,5 @@ curl -sI https://ss.fx8.store/r2/index/sh000001-all.json | grep -i "cf-cache"
 - [`docs/r2-deployment.md`](r2-deployment.md) — 完整 R2 架构 + 从零重建 + 灾备 4 层 + 排障
 - [`docs/site-deployment.md`](site-deployment.md) — 站点部署全文档
 - [`docs/smoke-checklist.md`](smoke-checklist.md) — P0/P1 主功能 smoke 清单（reviewer agent 用）
-- CLAUDE.md §8（改完推送 + 三域名验证）/ implementer skill §3.1（R2 存储架构准则）/ §9（单版前端 + build_min/bump sw）/ §14（生产稳定性 P0 定时任务时点）
+- CLAUDE.md §8（改完推送 + 三域名验证）/ implementer skill §1（原 §9 单版前端铁律 + build_min/bump sw）·§3.1（原 §8.1 R2 存储架构准则）/ §14（生产稳定性 P0 定时任务时点）
 - memory：`r2-arch-by-category-not-size` / `r2-migration-complete` / `export-output-path-sync` / `fetchjson-skip-gz` / `r2-upload-from-trade` / `cf-workers-large-json-404-r2-fallback` / `verify-feature-live-not-code-in-main`
