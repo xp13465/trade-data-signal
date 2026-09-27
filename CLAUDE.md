@@ -9,8 +9,8 @@
 | 角色 | 上下文来源(每会话启动注入) |
 |---|---|
 | 主控 | 本共享核心 + 按需 Read docs/main-governance.md(§2/3/4/7/11/15/16/19+COMPACT) |
-| 实施 agent | 本共享核心 + .claude/skills/role-implementer(§9 前端/§21 公示/§8§14 操作/修bug三铁律/举一反三) |
-| reviewer agent | 本共享核心 + .claude/skills/role-reviewer(§15 回归/改动分级/smoke/数据校验) |
+| 实施 agent | 本共享核心 + .claude/skills/role-implementer(§9 前端/§24 防撕裂/§21 公示/§8§14 操作/修bug三铁律/举一反三) |
+| reviewer agent | 本共享核心 + .claude/skills/role-reviewer(§15 回归/改动分级/§24 四查/smoke/数据校验) |
 | 调研 agent | 本共享核心 + .claude/skills/role-researcher(调研方法论/防误判/§5.1 穷举回测/数据挖掘) |
 | 测试 agent | 本共享核心 + .claude/skills/role-tester(smoke/数据校验/curl 三查/一致性) |
 > 设计原则:根文件只留"所有角色都该无条件知道"的共享核心;角色专属规范进 role skill(启动全文注入,确定性,不依赖主动读);主控专属进 governance(子 agent 永不读,不再为其 token 买单)。
@@ -140,22 +140,18 @@
 - **用户原则(2026-08-09 用户原话)**:"不管层级 我的理解是。作为用户 3个展示位看到的数据一定要统一。比如不能存在文件不一致or 缓存不一致。都会产生误解。只有一致才是最好的解释。你的所有策略都只决定更新频率or排序。但是一旦更新肯定是3处一起同步"
 - **所有策略只决定何时更新or如何排序**:stable_top1滞回/排序/更新频率等策略只决定更新时机或排序,**一旦更新必须N文件+N缓存(R2/CF)同步**。不能文件不一致(一个新版一个旧版)or 缓存不一致(R2新CF旧)
 - **代码内常量登记点也是一致性对象(2026-08-24 教训补)**:同一事实(键集/字段清单/白名单)存在多处代码副本时,切基座/改口径必须 grep 全部登记点逐一同步+机检脚本比对一致(挂 deploy 链 FAIL 阻断),不靠人肉记忆——v1.1.5 切 NEW14 漏 check_signals.py 邮件白名单即此病灶(邮件链路不在改动 diff 里就没人打开它);18 处登记点全量表见 docs/kelly/analysis/v115-new14-baseline-alignment-audit.md
-- **机制(权威)**:export/deploy 时校验N文件版本一致(关键字段如量子top1/stable_top1),不一致阻断或告警。**算法改动重跑数据产物时,列所有依赖该数据产物清单逐个确认"重跑+同步static-site+R2"三步完整**(§18 索引 16/18 + §8.1 checklist 同此)
+- **机制(权威)**:export/deploy 时校验N文件版本一致(关键字段如量子top1/stable_top1),不一致阻断或告警。**算法改动重跑数据产物时,列所有依赖该数据产物清单逐个确认"重跑+同步static-site+R2"三步完整**(§18 索引 16/18 + R2 checklist 见 implementer skill §3.1)
 - **与 §15/§18 互参**:§15 是"改坏老功能"回归复查(见 governance/reviewer skill),本条是"用户视角多展示位一致性"铁律,§18 记具体犯错(2026-08-09 量子科技3展示位不一致)。三者互补:§15 防改坏、§22 防不一致、§18 记教训
 
 ## 8. 改完必须推送(摘要;操作细节见 .claude/skills/role-implementer §3-§3.1)
 - **push main 统一入口(防再犯机制 D,2026-08-19)**:agent 只 commit + push **feat 分支**,**禁止 agent 直接 push main**;merge+push main 一律由主控走 `scripts/main-merge.sh <feat>` 统一入口(内含 §14 安全窗口/merge/base 新鲜/统一 build_min+bump/check_version_progress/push main)。改前端源码的 feat 由 main-merge.sh 统一 bump 版本串(机制 C,worktree agent 不自行 bump)。commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
-- 不 add **根目录 data/** 下任何文件(sentiment.db/etf_national_team.db/signal_stats.json 保持本地 M / untracked 不推);**`static-site/data/` 是正常上线渠道**,后端新增 JSON 字段/新品种必须跑 `bash scripts/deploy.sh` 推数据上线(R2 架构 §8.1 全文见 implementer skill §3.1)
+- 不 add **根目录 data/** 下任何文件(sentiment.db/etf_national_team.db/signal_stats.json 保持本地 M / untracked 不推);**`static-site/data/` 是正常上线渠道**,后端新增 JSON 字段/新品种必须跑 `bash scripts/deploy.sh` 推数据上线(R2 架构准则全文见 implementer skill §3.1)
 - 线上 curl 验证任一域名到新版即算上线 OK,不卡单域名 404(ss.fx8.store CF 主站优先 / sss.sugas.site / s.sugas.site)
 - ⚠️ **不 force**:force-with-lease / force push 是最后手段;non-fast-forward 优先 `git fetch + rebase origin/main + 重试 push`(deploy.sh L141-160 内置),rebase 失败 abort 等人工。agent 不得擅自强推,尤其 main
 - ⚠️ **"功能 done"三查清单(唯一权威,2026-08-11 AI 预测前端漏上线教训补)**:验收"已上线/done"必须三查齐:①main 链含 commit(git log origin/main 含 hash)②数据层生效(curl 线上 JSON 字段有值/无旧字段残留)③**前端展示层上线(curl 线上 app.min.js/lab.js 含新功能 class/中文字符串)**。只验①②不验③=前端代码写了但从未 commit main+上线,用户看不到。**reviewer 验本地 min ≠ 前端上线**,reviewer PASS 后主控 §0 必须补验③
 
-## 8.1 派单 prompt 必带定位锚点(2026-08-15 优化 P0-4 加)
-> 背景:每个子 agent fresh context 重读大文件(app.js/lab.js 1.3MB 等),任务 prompt 不带定位锚点就从头 grep,纯 token 消耗。core:主控派单时先把定位点给足,让子 agent 直接跳到,不重读重扫。
-- **派单 prompt 必带 `@关键文件:行号` 或关键符号锚点(函数名/class/字符串/常量)**,让子 agent 直接跳到定位点,不从 1 行开始 grep 大文件
-- **大文件(app.js/lab.js/common.js/export.py/signal_stats.py 等)派单时,主控先给出定位锚点**(函数名/行号/中文字符串/字段名),子 agent 用 `grep -n "锚点" 文件` 直达,不整文件从头读
-- **主控派单前快速定位锚点**:grep 目标符号得到行号,写进 prompt("定位:app.js L1234 _dayItems 附近");拿不准锚点可让子 agent grep 关键词,但 anchor 已给=省一轮
-- 可复用锚点表见 `docs/agent-quickstart.md`(若有 app.js/lab.js 关键函数锚点表缓存则直接引用,缺则本次定位后回填)
+## 8.1 派单 prompt 必带定位锚点(2026-08-15 优化 P0-4 加;操作细节全文见 docs/main-governance.md §16 之「派单锚点规范」子节)
+> **核心一句话**:派单 prompt 必带 `@关键文件:行号` 或关键符号锚点(函数名/class/字符串/常量),让子 agent 直接跳到定位点,不从第 1 行 grep 大文件;可复用锚点表见 `docs/agent-quickstart.md`。
 
 ## 14. 生产稳定性 P0(摘要;时点/launchd 细节见 .claude/skills/role-implementer §4)
 - **核心一句话:生产稳定性是 P0 第一要素**。项目已上线生产(ss.fx8.store/sss.sugas.site/s.sugas.site + ssd.fx8.store R2),定时任务撞车会导致线上数据覆盖事故/DB锁/用户看到错误数据,是不可逆生产故障
@@ -217,16 +213,11 @@
 ### 23.13 口径三源核对+不统一必上报拍板(指针,全文见 .claude/skills/role-reviewer/SKILL.md §7「强制第三方锚点检查」+ archive L44)
 触发词:涉"分类/档位/象限/阈值/区间"语义需求/派单/实施/review;发现两处描述同一概念但说法不同。核心一句话:动手前必须 UI 文案、产品文档、代码现状三源核对;发现不统一=停下上报用户拍板,绝不自行选边;需求理解不足直接问,不猜不抢答。验收口径:派单 prompt 含三源原文;reviewer 查「文案↔实现」对照记录;发现不统一未上报=验收不过。
 
-## 24. 前端部署/缓存/SW更新防撕裂(2026-08-14 用户定,全站白屏P0事故根治,防再犯)
+## 24. 前端部署/缓存/SW更新防撕裂(2026-08-14 用户定,全站白屏P0事故根治,防再犯;全文见 .claude/skills/role-implementer §1.1 + .claude/skills/role-reviewer §5.2)
 **触发词**:发版/改app.js·lab.js·common.js·index.html/bump版本串/站点白/点更新新版白/Cannot read 'scores'/_aiPoscapRatingSummary is not defined/三站版本混乱/缓存滞留。
-**背景(2026-08-14 P0 全站白屏事故)**:版本串=内容 md5 哈希(bump_asset_version.py"内容相同则版本号相同"),A+B实施期集中改前端+备站数据不同步+中间"改源码漏bump"断链点→CDN/浏览器缓存滞留「孤儿旧快照」(引不存在对应内容产物的版本串)→SW更新清缓存重建时裸崩全白。根因=「版本串机制 + SW更新接管 + 数据同步」三处设计未闭环。
 **核心一句话:版本串必须随内容强制刷新(杜绝指纹断链),SW 更新接管必须壳芯配套+失败回退,部署后必须验"内容哈希==index引用版本串"。**
-- **① 版本串改「发布序号(日期+批次)」而非纯内容哈希**(2026-08-14 定):每次部署强制换新串,内容相同也换,杜绝"指纹断链、旧缓存不清、不触发更新"死角。改 `scripts/bump_asset_version.py` 由内容md5换为 日期+自增/哈希混合,保证每次不同
-- **② 改前端源码必同 commit bump 版本串 + 同 commit 重建 min(§22 扩展硬约束,2026-08-18 B 强化)**:改 app.js/lab.js/common.js/style.css 等前端源 → **必须同 commit 跑 build_min.py(现在从 git HEAD 读源生成 min)+ bump_asset_version.py + push + 验线上 index 引用`?v=`与实际文件内容md5一致**;禁止"源码改了版本串/没重建 min 没跟着变"漏跑。**⚠️ 禁 reset --soft 对齐分支**(16:30 事故根因):reset --soft 只移 HEAD 不动工作区,会留旧版 M 脏文件,deploy 安全网 build_min 读工作区旧源生成旧 min 覆盖正确版;要让 HEAD 对齐用 checkout <commit> -- <文件> 或正常 checkout,确需 reset --soft 事后必 git status 核对工作区无 M 脏文件再 push。**deploy 只在 main 分支跑**(deploy.sh 已加分支校验+显式 main:main push)。
-- **③ SW 更新接管需「壳与芯配套 + 失败回退」安全网**:activate 清缓存/claim 接管前,先确认 app shell(app.min.js/common.min.js/index)已预缓存就绪;未就绪不 claim 不强推,失败回退旧SW/旧缓存,绝不全白(sw.js 实现,参考 §0 sw 模式)
-- **④ 数据全站同步(§22 三步)覆盖盘后核心产物**:overview.json/a-stock-3m.json 等盘后产物必须随 §22 三步同步到备站(GH/Maozi)或可靠 fallback 主站,备站不得缺核心文件
-- **⑤ 部署后自动校验「内容哈希==index版本串」**:deploy 链加 check(如对 app/lab/common 每文件算 md5 前8,与 index 引用比对),不一致即阻断上线,防孤儿快照再产生
-- **验收口径**:上线/发版任务自验含「版本串每次更换确认 + 改码同commit bump + 部署后哈希==引用校验 PASS + 备站核心数据在位」;reviewer 查这4项,漏=验收不过。事故根因全文见 memory `deploy-cdn-stale-snapshot-blue-screen`
+**验收口径**:上线/发版任务自验含「版本串每次更换确认 + 改码同commit bump + 部署后哈希==引用校验 PASS + 备站核心数据在位」;reviewer 查这4项,漏=验收不过。事故根因全文见 memory `deploy-cdn-stale-snapshot-blue-screen`
+**全文**:①~⑤ 机制实现细节(版本串发布序号强制换新/改源码同 commit bump+重建 min/禁 reset --soft/SW 壳芯配套+失败回退/数据全站同步/部署后哈希==引用校验)+ 08-14 白屏事故背景,见 implementer skill §1.1(兼看 §3 机制 C);reviewer 四查执行细则见 reviewer skill §5.2。
 
 ## 历史/约束归档引用(全文已归档,按需查)
 - **§10 切分支保护 DB**(2026-07-14 已根治):DB(sentiment.db/etf_national_team.db)已移出 git untracked,切分支不再污染;绝不能 `git restore/checkout -- data/sentiment.db`;同步 main 避免本地 checkout。原文全量见 docs/archive/CLAUDE-history.md
