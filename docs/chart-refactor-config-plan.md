@@ -175,7 +175,7 @@ config/site.yaml          ← 用户直接改的配置文件（单一事实源�
 | 数据一致性 | — | 两实现读同一数据准备函数（§22） |
 
 ### 4.5 需求2/3 落地路径（挂到本方案的后续阶段）
-- **需求2（ETF 30天外历史）**：① 数据源调研（fund_etf_hist_sina / 腾讯日K / akshare 历史上限，TASKS L1208 待调研①）② 后端新增 ETF 历史数据产物（如 `etf/{code}-all.json` 或合并文件，走 R2 大 range 架构 §8.1）③ 前端 ETF 弹窗加 period tab（复用信号弹窗 3m/6m/1y/3y/5y/all 交互 + chartLite canvas 渲染）
+- **需求2（ETF 30天外历史）**：① 数据源调研（fund_etf_hist_sina / 腾讯日K / akshare 历史上限，TASKS L1208 待调研①）② 后端新增 ETF 历史数据产物（如 `etf/{code}-all.json` 或合并文件，走 R2 大 range 架构，见 implementer skill §3.1）③ 前端 ETF 弹窗加 period tab（复用信号弹窗 3m/6m/1y/3y/5y/all 交互 + chartLite canvas 渲染）
 - **需求3（场外基金走势）**：① fund_daily_nav（DB 已有）→ 导出净值序列 JSON（如 `fund_nav/{code}.json` 或 Top100 合并文件，R2）② 场外基金卡片加净值走势 + 弹窗历史 + 指标介绍 ③ 依赖 fund_basic 字段补齐（pf-fund-screener-real-requirements，TASKS L1214）
 
 ---

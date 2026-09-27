@@ -2,7 +2,7 @@
 # staticdata_sync.sh — 通用 staticdata 数据仓库同步(best-effort)
 #
 # staticdata 仓库 = trade-data-signal-staticdata(灾备第2层差异日志 / 数据留档 / 复原,
-# 见 CLAUDE.md §8.1 + docs/staticdata-daily-brief-sync.md)。
+# 见 implementer skill §3.1 + docs/staticdata-daily-brief-sync.md)。
 # 原同步机制 = deploy.sh L507-558 每次 deploy 后全量 rsync。但「只写 static-site/data/
 # + R2 上传、不跑 deploy.sh」的独立生成器(如 gen_daily_brief.py)不触发 deploy → staticdata
 # 留旧版直到下次 deploy(同步时机缺口, docs/staticdata-daily-brief-sync.md §二)。

@@ -225,7 +225,7 @@ if (ratingCb) ratingCb.onchange = function () {
    - `signal_kelly_backtest.py` 无 launchd 定时（已确认 launchctl list 无 kelly），需手动跑
    - 命令：`cd /Users/linhuichen/code/trade-data && /Users/linhuichen/code/trade/.venv/bin/python /Users/linhuichen/code/trade/scripts/signal_kelly_backtest.py`（cwd trade-data 读主库，§9）
    - 输出落在 `trade-data/data/signal_kelly_trades.json`，需 cp 或 rsync 同步到 `trade/static-site/data/`（§9 export 输出路径同步）
-   - 上传 R2：`upload_r2.py upload-data-large` 或手动上传 signal_kelly_trades.json（§8.1）
+   - 上传 R2：`upload_r2.py upload-data-large` 或手动上传 signal_kelly_trades.json（implementer skill §3.1）
 
 ### 5.3 重跑后 rating 字段在 trade 记录里
 
@@ -273,7 +273,7 @@ if (ratingCb) ratingCb.onchange = function () {
 | 3+5月过拟合 | 6年里3月3亏3盈、5月3亏3盈，系统性不强 | toggle 默认关闭，hover 标注"可能过拟合" |
 | rating=low样本少 | 排除low后仅剩 high(83笔)+mid(1219笔)=1302笔，样本少 | toggle 默认关闭，hover 标注"剩样本少可能过拟合" |
 | 后端重跑耗时 | signal_kelly_backtest.py 全量回测 7472 笔 × 6 模式 | trade-data 跑，预计几分钟（历史 backfill 已跑过） |
-| trades.json 体积 | 加 rating 字段后 32MB→约 34MB | R2 已承载，前端走 R2 直链（§8.1） |
+| trades.json 体积 | 加 rating 字段后 32MB→约 34MB | R2 已承载，前端走 R2 直链（implementer skill §3.1） |
 
 ---
 

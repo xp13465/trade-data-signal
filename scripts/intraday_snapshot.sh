@@ -185,7 +185,7 @@ fi
 # 2.53) 同步 intraday 盘中数据到 staticdata 数据仓库（灾备第2层差异日志/留档）
 #       R2 迁移阶段3 后本脚本只 upload_r2 不再 git push，漏了 staticdata 同步
 #       -> staticdata 仓库 intraday_snapshot.json 停在昨日 20:35，盘中每 10 分钟
-#       新数据 5 小时空窗不落档（违反 §8.1 checklist「写 static-site/data 的生成器
+#       新数据 5 小时空窗不落档（违反 implementer skill §3.1 checklist「写 static-site/data 的生成器
 #       必须同时接 ①R2 上传 ②staticdata 同步」）。用户已确认盘中每 10 分钟同步。
 #       文件列表与 upload-intraday 清单一致（intraday 盘中实际更新的小 json），
 #       非 --all 全量（避免拖慢高频任务+引入无关文件）。staticdata_sync.sh 内部

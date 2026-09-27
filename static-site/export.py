@@ -965,7 +965,7 @@ def _incremental_skip(manifest, current: dict, fname: str, deps) -> bool:
 # ============ boot.json：首屏 11 JSON 合并（P1-8 性能优化）============
 # 首屏原 22 个 fetch（renderOverview + init 阶段），合并后 1 个 fetch boot.json 分发到各模块。
 # 首屏请求数减 95%，首屏体感最大。boot.json ~524KB 未压缩 / ~130-175KB br，走 CF Workers Static Assets
-# （§8.1：小文件 <5MB 总量走 CF 非 R2；upload-data-large 兜底 >=1MB 不会上传 boot.json）。
+# （implementer skill §3.1：小文件 <5MB 总量走 CF 非 R2；upload-data-large 兜底 >=1MB 不会上传 boot.json）。
 # 合并的 11 个 JSON（均首屏必需，<300KB 单文件）：
 #   overview/signal_stats/intraday_snapshot/summary/alert/ma_alignment/position/
 #   ad_line/volume_ratio/new_high_low/trade_sim_indices

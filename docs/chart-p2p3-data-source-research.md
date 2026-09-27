@@ -44,7 +44,7 @@
 **推荐：per-ETF 懒加载 JSON `etf/{code}-all.json`**（复刻 index/{iid}-all.json 模式）：
 - 结构：`{date, code, name, ohlc:[[date,o,h,l,c],...]}`（复用现有 e.ohlc 格式，前端零改造数据解析）
 - 产出：扩展 `export_etf_score_list.py`，复用 `_fetch_recent_ohlc` 前复权逻辑**去掉日期 cutoff**，对 1211 只评分列表 ETF（或全 1520 只）导出到 `static-site/data/etf/{code}-all.json`
-- 上传：新增 `upload_r2.py cmd_upload_etf_hist`（读 `static-site/data/etf/*.json` → R2 `etf/` 前缀，§8.1 按前缀建命令；`upload-data-large` exclude `etf/` 防双副本）；deploy.sh 加上传
+- 上传：新增 `upload_r2.py cmd_upload_etf_hist`（读 `static-site/data/etf/*.json` → R2 `etf/` 前缀，implementer skill §3.1 按前缀建命令；`upload-data-large` exclude `etf/` 防双副本）；deploy.sh 加上传
 - 前端：ETF 弹窗加 period tab（3月/6月/1年/3年/5年/全部），复用信号弹窗 `openSignalChartModal`（app.js L4617+）的 period 切换 + `_signalModalCutoff`（L4657+）客户端过滤模式；数据 `fetchJSON("https://ss.fx8.store/r2/etf/${code}-all.json")`（硬编码 R2 URL，同 index 模式；不匹配 dataUrl 的 `-(all|5y|3y).json$` 正则的 `data/` 前缀，需硬编码）
 - 渲染：chartLite / `_etfTrendLiteHTML` 类轻量组件渲染长序列（P1 已落地）
 
@@ -60,7 +60,7 @@
 - 1211 只总 95.9 万行 → **per-ETF 懒加载平均 ~29 KB/只**（合理，点开弹窗才拉单只）
 - 若合并单文件 `etf_history_all.json` → **~34.8 MB**（单文件过大，前端一次性解析太重，不建议）
 
-**R2 前缀判断**：per-ETF 文件 9-186KB，单文件 <1MB 但**类别数量大（1211+ 文件）**，按 §8.1"新类别按前缀建独立命令"，走 `etf/` 前缀（同 index/ 前缀，index/{iid}-all.json 就是硬编码 R2 URL + upload-index 命令）。CF Static Assets 放 1211+ 文件不经济（且弹窗只需懒加载单只，R2 直链最简）。
+**R2 前缀判断**：per-ETF 文件 9-186KB，单文件 <1MB 但**类别数量大（1211+ 文件）**，按 implementer skill §3.1"新类别按前缀建独立命令"，走 `etf/` 前缀（同 index/ 前缀，index/{iid}-all.json 就是硬编码 R2 URL + upload-index 命令）。CF Static Assets 放 1211+ 文件不经济（且弹窗只需懒加载单只，R2 直链最简）。
 
 ### P2-3 改动影响面（§15 回归风险）
 
@@ -100,7 +100,7 @@
 **推荐：per-基金懒加载 JSON `fund_nav/{code}.json`**：
 - 结构：`{date, fund_code, fund_name, series:[[date, unit_nav, acc_nav], ...]}`（升序，unit_nav 为主、acc_nav 可选）
 - 产出：新脚本 `export_fund_nav.py`（或扩展 export_fund_score.py）——从 fund_daily_nav 按 fund_code 导出。**覆盖范围：优先 fund_score 表全量（~2000+ 只已评分基金）或 Top100**；全市场 25994 只也支持但建议按需/分批
-- 上传：新增 `upload_r2.py cmd_upload_fund_nav`（`static-site/data/fund_nav/*.json` → R2 `fund_nav/` 前缀，§8.1 按前缀建命令；upload-data-large exclude 防双副本）；deploy.sh 接入
+- 上传：新增 `upload_r2.py cmd_upload_fund_nav`（`static-site/data/fund_nav/*.json` → R2 `fund_nav/` 前缀，implementer skill §3.1 按前缀建命令；upload-data-large exclude 防双副本）；deploy.sh 接入
 - 前端：场外基金行加点击 → 详情弹窗（Phase B 5区块：决策头/评分/走势/经理/风险，plan §4.5）+ **净值走势区块**（chartLite 轻量渲染），数据 `fetchJSON("https://ss.fx8.store/r2/fund_nav/${code}.json")` 懒加载（点开才拉单只）
 - 净值口径：unit_nav（单位净值）做走势主序列；nav_change_pct 可做涨跌标注。注意累计净值 acc_nav 含分红再投，走势图用 unit_nav 与用户认知一致（§22 一致性：同一 fund_daily_nav 源，卡片/弹窗同序列）
 
@@ -110,7 +110,7 @@
 - 全市场 25994 只合并单文件 → **~491 MB（过大，必须 per-基金懒加载）**
 - fund_score 全量（~2000 只已评分）per-基金懒加载 → 总量 ~60 MB 但单只 ~30KB 按需拉取合理
 
-**R2 前缀判断**：per-基金文件 ~30KB，**类别量大（2000-25994 个文件）**，按 §8.1 走新前缀 `fund_nav/`（同 index/etf/ 模式）。不走 upload-data-large 阈值（防双副本 + 前端硬编码 R2 直链懒加载）。
+**R2 前缀判断**：per-基金文件 ~30KB，**类别量大（2000-25994 个文件）**，按 implementer skill §3.1 走新前缀 `fund_nav/`（同 index/etf/ 模式）。不走 upload-data-large 阈值（防双副本 + 前端硬编码 R2 直链懒加载）。
 
 **备选方案**：仅在 fund_score_top.json 100 条内嵌 nav 序列（Top100 合并 ~3MB，单请求零新增 fetch）——优点零新产物；缺点只覆盖 Top100，用户搜索/筛选到 Top100 外无图，且 fund_score.json（2000 只）不覆盖。**不推荐作主方案**，可作 P3 Phase A 过渡。
 

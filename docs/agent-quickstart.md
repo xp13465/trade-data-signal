@@ -55,7 +55,7 @@
 
 1. 改 export 脚本（如 `scripts/export_*.py`）。
 2. 跑 export 生成 JSON（cwd 注意 §9：读 DB 用 `trade-data/`，但写 JSON 输出路径要同步回 `trade/`）。
-3. 跑 `upload_r2.py` 推 R2（按类别选命令，见下表）。**新类别优先按前缀建独立命令，不依赖 1MB 阈值**（§8.1）。
+3. 跑 `upload_r2.py` 推 R2（按类别选命令，见下表）。**新类别优先按前缀建独立命令，不依赖 1MB 阈值**（implementer skill §3.1）。
 4. purge cache（Worker `/api/purge-cache` 或等 CF edge 刷新；CF Static Assets 无视 Cache-Control 靠部署自动 purge，R2 走 Worker 代理的需主动 purge）。
    - **purge_cache 必分批**（§18 经验① ea64df512）：一次性发 400+ keys 致 CF Worker CPU/wall time 超限 -> 500 error。每批 30 keys（PURGE_BATCH_SIZE，20-50 安全区间）+ 批间 sleep 0.5s 避 CF 限流。`upload_r2.py` 已内置分批逻辑，手动 purge 也须分批。
 5. curl 3 域名 + R2 直链验证数据层（见 [§E](#e-上线验证)）。
@@ -76,7 +76,7 @@
 | `upload-db` | 每日 DB 备份推 signal-backup 私有桶 | backup/ |
 | `download-db <name>` | 下载最新备份（解压后 .db 路径到 stdout） | - |
 
-> 走 R2 的判定（§8.1，按数据类别不按单文件大小）：全量品种多 / 有大 range 历史序列（`-all/-5y/-3y` 单文件 >1MB）/ 类别整体大。走 CF Workers Static Assets 的小文件：单文件 <100KB 且类别总量 <5MB 的状态/监控小文件。
+> 走 R2 的判定（implementer skill §3.1，按数据类别不按单文件大小）：全量品种多 / 有大 range 历史序列（`-all/-5y/-3y` 单文件 >1MB）/ 类别整体大。走 CF Workers Static Assets 的小文件：单文件 <100KB 且类别总量 <5MB 的状态/监控小文件。
 
 ### 前端读 R2 的两种模式
 

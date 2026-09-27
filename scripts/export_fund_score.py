@@ -14,7 +14,7 @@
     未采集到的基金这些字段为 null(前端需容错)。
 
 输出路径: static-site/data/(deploy.sh rsync 同步到 trade/static-site/data/ 推 git)
-R2 上传: upload_r2.py upload-fund-score(§8.1 新类别按前缀命令)
+R2 上传: upload_r2.py upload-fund-score(implementer skill §3.1 新类别按前缀命令)
 
 用法: python scripts/export_fund_score.py [--top-n 2000]
 

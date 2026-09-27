@@ -36,7 +36,7 @@
 
 ### 1.3 数据类别走R2 vs CF Workers Static Assets
 
-按数据类别(非按单文件大小)判断(§8.1):
+按数据类别(非按单文件大小)判断(implementer skill §3.1):
 
 **走R2的类别(满足任一)**:
 - 全量品种多(100+ index / 31 industry / 100+ trade_sim / 1000+ public_fund)

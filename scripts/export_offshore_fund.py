@@ -11,7 +11,7 @@
   7. offshore_fund_fee_detail.json     费率分档(逐只9档)
 
 输出路径: static-site/data/(deploy.sh rsync 同步到 trade/static-site/data/ 推 git)
-R2 上传: upload_r2.py upload-offshore-fund(§8.1 新类别按前缀命令)
+R2 上传: upload_r2.py upload-offshore-fund(implementer skill §3.1 新类别按前缀命令)
 
 新鲜度闸门(参考 collector has_new_data 思路, export 不查源纯 DB 判断):
   offshore JSON 0 前端引用(pf-stage0 未来功能), 非披露窗口季报表无新数据时

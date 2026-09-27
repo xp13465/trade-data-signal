@@ -19,7 +19,7 @@
 - **REPO 取值**: deploy.sh L24 `REPO=${REPO:-/Users/linhuichen/code/trade-data}`(与 gen_daily_brief 写盘目录同源,无 export-output-path-sync 陷阱)。
 
 ### 同步清单/排除规则(staticdata/.gitignore)
-**无白名单,是全量 rsync**。gitignore 排除的都是「大小无法进入 git」的类别(§8.1 R2 架构):
+**无白名单,是全量 rsync**。gitignore 排除的都是「大小无法进入 git」的类别(implementer skill §3.1 R2 架构):
 - `index-*` / `industry-*` / `lab-*` / `trade_sim_*[0-9]*`(全量品种/大 range 历史,走 R2 公开桶)
 - `*.gz`(git 无法 diff 二进制 gz)
 - `feed.xml`、`db/*.db`
@@ -56,7 +56,7 @@
 ## 四、加方案
 
 ### 原则
-凡 static-site/data 下数据产物,除超大文件外都应进 staticdata。daily_brief 是每日 2KB 级小文件,进 staticdata 完全合理,且与 R2 双份不冲突(§8.1:小文件走 CF/staticdata 差异日志,R2 是公开分发,两不冲突)。
+凡 static-site/data 下数据产物,除超大文件外都应进 staticdata。daily_brief 是每日 2KB 级小文件,进 staticdata 完全合理,且与 R2 双份不冲突(implementer skill §3.1:小文件走 CF/staticdata 差异日志,R2 是公开分发,两不冲突)。
 
 ### 1. 核心改动:gen_daily_brief.py 生成后追加 staticdata 同步(推荐) ✅ 已实施(2026-08-11)
 在 `scripts/gen_daily_brief.py`:
@@ -79,7 +79,7 @@
 
 ### 5. 不做的事(边界)
 - 不把 staticdata 同步并入 R2 上传(两者语义不同:R2=线上分发,staticdata=留档/复原)。
-- 不改 §8.1 大文件 gitignore 规则(index/industry/lab/trade_sim 仍只走 R2 公开桶,符合「除大小无法进入」)。
+- 不改 implementer skill §3.1 大文件 gitignore 规则(index/industry/lab/trade_sim 仍只走 R2 公开桶,符合「除大小无法进入」)。
 
 ## 五、验证步骤
 

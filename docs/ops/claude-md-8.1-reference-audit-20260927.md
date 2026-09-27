@@ -90,6 +90,37 @@ R2 架构内容当时迁到了 `.claude/skills/role-implementer/SKILL.md` 的 **
 
 **为什么只改这 2 处**:它们是**根文件内部自相矛盾**(读者在根文件里按「§8.1」找 R2 会撞到派单锚点),且本次正在编辑同一文件,顺手自纠属同一次编辑的一致性;其余 28 处跨文件/跨仓,超出本次任务范围,按 §23.7⑤ **上报用户拍板**,不自行扩大。
 
+### 6.1 执行记录(2026-09-27 implementer 统一修正 A 类)
+
+**拍板**:用户同意按 §7 建议清理 A 类错引(2026-09-27)。
+
+**实际改动**:13 文件、**29 处文本替换**(`§8.1`[指 R2] → `implementer skill §3.1`),覆盖 §3.1/§3.2 清单全部 A 类条目。
+
+| 文件 | 处数 | 说明 |
+|---|---|---|
+| docs/data-deploy-quickstart.md | 4 | L4/55/212/225 |
+| docs/agent-quickstart.md | 2 | L58/79 |
+| docs/staticdata-daily-brief-sync.md | 3 | L22/59/82;L97 保留(见下) |
+| docs/chart-refactor-config-plan.md | 1 | L178 |
+| docs/r2-migration-implementation-report.md | 1 | L39 |
+| docs/chart-p2p3-data-source-research.md | 4 | L47/63/103/113 |
+| docs/kelly/toggle/kelly-loss-reduction-toggle-v2-plan.md | 2 | L228/276 |
+| scripts/upload_r2.py | 7 | L1211/1317/1334/1352/1367/1386/1401(docstring) |
+| scripts/export_fund_score.py | 1 | L17(docstring) |
+| scripts/export_offshore_fund.py | 1 | L14(docstring) |
+| scripts/staticdata_sync.sh | 1 | L5(注释) |
+| scripts/intraday_snapshot.sh | 1 | L188(注释) |
+| static-site/export.py | 1 | L968(注释) |
+
+**与清单数字的差异(如实标注)**:
+- 清单标题「28 处」= 按报告 §3.1/§3.2 **条目行数**统计(#13 一行含 4 位置、#14 一行含 2 位置、#15 一行含 7 位置);按**实际 §8.1 出现位置**计 docs 18 + scripts 12 = 30 处。
+- scripts 报告 §2 标「14 处」,实核 **12 处**(表内 #15 7 处 + #16-#20 各 1 处),已全部处理。
+- **`docs/staticdata-daily-brief-sync.md:97`「已补 CLAUDE.md §8.1」= 历史陈述**(记录 2026-08-11 当时把 checklist 补进当时的 §8.1),按任务边界「历史陈述不改=不篡改历史」**保留原样**,本次不改。
+
+**未动(核实符合边界)**:B 类 9 处(CLAUDE.md:109、role-reviewer:33、main-governance:129、claude-md-slim-audit 4 处、context-optimization/architecture-review、claude-work-mode README 对照表)+ C 类(NOTES.md 3 处、claude-work-mode/collab-* 外部同步仓、kelly-fourtier 报告内部节号、docs/archive)。scripts/*.py 与 static-site/export.py 仅改 docstring/注释文字,未动任何可执行代码。未新增/删除文件。
+
+**分支**:feat 分支 `worktree-agent-acfa8a42d73097741`(任务书原写 `fix-section-8.1-refs`,实际 worktree 建分支名不同,已在完成报告注明);commit 待 merge。
+
 ## 7. 建议处置(排期建议,待用户拍板)
 
 | 批次 | 范围 | 风险 | 建议 |

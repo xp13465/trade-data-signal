@@ -1208,7 +1208,7 @@ def cmd_upload_fund_nav():
     前端基金评分弹窗「净值走势」period tab 懒加载 fetchJSON ->
     https://ss.fx8.store/r2/nav_bucket/{xx}.json 取桶内 map[code](复刻 etf/{code}-all.json
     模式: worker /r2/ 为通用 key 代理无前缀白名单, 新前缀零 worker 改动)。
-    §8.1 按前缀建独立命令; nav_bucket/ 子目录不被 upload-data-large/upload-all-data 的
+    implementer skill §3.1 按前缀建独立命令; nav_bucket/ 子目录不被 upload-data-large/upload-all-data 的
     非递归 *.json glob 覆盖, 无双副本风险。已接入 update_all.sh / deploy.sh。
 
     **2026-09-23 桶化**(docs/ops/task-slow-rootcause-20260923.md §9B): 原 per-code 26458
@@ -1314,7 +1314,7 @@ def cmd_upload_offshore_fund():
 
     ⚠ 定时链已停用(2026-08-22 P2-15, 用户确认): update_all.sh/deploy.sh 不再调用, 仅手动使用(#84 未来用 export_offshore_fund.py 生成后手动上传)。
     筛选器阶段0(2026-08-02 新增): 7 类 JSON(5 大文件 >1MB + 2 小文件, 全量后均大)。
-    按类别走 R2(§8.1 新类别按前缀建独立命令, 不依赖 1MB 阈值兜底)。
+    按类别走 R2(implementer skill §3.1 新类别按前缀建独立命令, 不依赖 1MB 阈值兜底)。
     offshore_fund_basic 13MB / performance 5.8MB / manager 6.7MB / purchase_status 4.9MB / rating 2.4MB。
     """
     data_dir = STATIC_DIR / "data"
@@ -1331,7 +1331,7 @@ def cmd_upload_fund_score():
     """上传 static-site/data/fund_score*.json 到 R2 fund_score/ 前缀。
 
     阶段1 评分引擎(2026-07-20 新增): fund_score.json(头部2000) + fund_score_top.json(Top100)。
-    按类别走 R2(§8.1 新类别按前缀建独立命令, 不依赖 1MB 阈值兜底)。
+    按类别走 R2(implementer skill §3.1 新类别按前缀建独立命令, 不依赖 1MB 阈值兜底)。
     """
     data_dir = STATIC_DIR / "data"
     ok, total, _, uploaded_keys = _upload_glob(data_dir, ["fund_score*.json"], "fund_score")
@@ -1349,7 +1349,7 @@ def cmd_upload_etf_score():
     P0-2 (2026-08-05): 原 18MB 单文件 etf_score_list.json 拆 3 JSON (buy/sell/hold),
     前端懒加载 hold (初始只加载 buy+sell ~153KB br, hold 783KB br 点"持有观察"才加载)。
     3 文件均走 R2 data/ 前缀(前端硬编码 ssd.fx8.store/data/ URL), 不依赖 upload-data-large 阈值。
-    §8.1 新类别按前缀建独立命令; upload-data-large exclude etf_score_list_ 防双副本。
+    implementer skill §3.1 新类别按前缀建独立命令; upload-data-large exclude etf_score_list_ 防双副本。
     etf_score_list_buy.json ~1.4MB / sell ~1.2MB / hold ~13MB, 均 >1MB 但走独立命令非阈值兜底。
     2026-09-15 迁增量引擎(A 档整文件 md5): 盘后重算时天天变, 非交易日全省。
     """
@@ -1364,7 +1364,7 @@ def cmd_upload_kelly_parts():
     """上传 static-site/data/signal_kelly_trades_parts/*.json 到 R2 data/signal_kelly_trades_parts/ 前缀。
 
     2026-08-22 首页模拟回测弹窗分片加载(recent.json 热区片 + t{YYYY}.json 年片)。
-    §8.1 新类别按前缀建独立命令(子目录不被 upload-data-large/upload-all-data 的非递归
+    implementer skill §3.1 新类别按前缀建独立命令(子目录不被 upload-data-large/upload-all-data 的非递归
     *.json glob 覆盖, 必须独立命令)。前端走 /data/ rewrite 原生 URL, R2 key =
     data/signal_kelly_trades_parts/<name>, purge 用默认 cache_prefix="/"(匹配 dataRewriteHandler)。
     2026-09-15 迁增量引擎(B 档结构化指纹: 剔除 generated_at/period_cutoffs/buy_amount 后
@@ -1383,7 +1383,7 @@ def cmd_upload_kelly_parts_sdc():
 
     #91(2026-09-06) 当日收盘对比档分片: 凯利回测页「买入口径」切到「当日收盘」时按年分片渐进加载,
     产物与 NDO(次日开盘)完全独立(signal_kelly_trades_sdc_parts/), 由 signal_kelly_backtest.py
-    KELLY_BUY_NEXTDAY=0 生成。§8.1 同规矩独立命令(子目录 glob 不递归); 前端 /data/ rewrite
+    KELLY_BUY_NEXTDAY=0 生成。implementer skill §3.1 同规矩独立命令(子目录 glob 不递归); 前端 /data/ rewrite
     R2 key = data/signal_kelly_trades_sdc_parts/<name>, purge 默认 cache_prefix="/"。
     2026-09-15 迁增量引擎(B 档结构化指纹, 同 kelly-parts)。
     """
@@ -1398,7 +1398,7 @@ def cmd_upload_kelly_snapshots():
     """上传 static-site/data/signal_kelly_snapshots/*.json 到 R2 data/signal_kelly_snapshots/ 前缀。
 
     2026-09-04 信号凯利回测断链根治配套(每日快照+演进 index, 见 scripts/signal_kelly_snapshot.py)。
-    §8.1 新类别按前缀建独立命令(子目录不被 upload-data-large/upload-all-data 的非递归
+    implementer skill §3.1 新类别按前缀建独立命令(子目录不被 upload-data-large/upload-all-data 的非递归
     *.json glob 覆盖, 必须独立命令)。前端 lab 凯利区「演进」读 ./data/signal_kelly_snapshots/
     index.json(dataRewriteHandler 原生 URL), R2 key = data/signal_kelly_snapshots/<name>,
     purge 用默认 cache_prefix="/"(匹配 dataRewriteHandler)。
