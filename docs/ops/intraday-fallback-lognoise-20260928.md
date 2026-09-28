@@ -65,6 +65,8 @@
 | `_simPoolCache` | L4552 | 按 `_simKellyData` 引用键整体 clear + LRU 上限 |
 | `_emotionIndexCurveCache` | L1471 | **同类但判定不改**:历史日线静态序列(每日新增一根 K 线),仅「跨日不关页」才可见轻微滞后,且属另一展示位(情绪分走势);若要改走 TTL 即可,本次不动 |
 | `_sigEtfCache` | L2582 | **同类但判定不改**:index→ETF 静态映射(配置型非盘中数据),按 index\|date 内容键控,裸 index 兜底键仅信号无日期时用,低频变化,影响轻微 |
+| `_industryFundMapCache` | L20557 | **同类但判定不改**:行业→基金列表静态映射 JSON(配置型非盘中数据),基金收录低频更新,跨日仅长时间驻留页面才可见轻微滞后,影响轻微 |
+| `_manufSubindFundMapCache` | L20573 | **同类但判定不改**:制造业子行业→基金详情列表静态映射 JSON,同上(配置型非盘中数据,低频变化),影响轻微 |
 
 **§21 公示判断(P2-2 同款结论)**:缓存时效是取数链路/加载策略,非评分/权重/匹配规则算法口径;公示文案无「迷你图数据实时性」承诺需同步。**不需要改公示**。
 
@@ -86,9 +88,12 @@
 
 ## 四、配套 commit
 - 本报告 + `static-site/app.js` + `static-site/app.min.js`(重建)→ feat 分支 `fix/intraday-fallback-log-noise`(push 完成见 git log)。
-  - `9c8ac963d` 改动 A 日志降噪(EM/QQ 聚合)+ THS 判断注释
-  - `e84fd540d` 重建 app.min.js(改动 A)
-  - `dff2d1bed` 改动 B 渲染双腿 helper + 改动 C(P2-2)迷你图缓存时效判定
-  - `e6f378833` 重建 app.min.js(改动 B/C)
+  - `faeb1db9e` 改动 A 日志降噪(EM/QQ 聚合)+ THS 判断注释
+  - `19d501ad8` 重建 app.min.js(改动 A)
+  - `59f53628a` 改动 B 渲染双腿 helper + 改动 C(P2-2)迷你图缓存时效判定
+  - `724e6ae9a` 重建 app.min.js(改动 B/C)
+  - `195b9c168` 报告落档(P2-2,含 §23.2 清单)
+  - (第二轮回) P2-1 注释如实行描述 + P2-2 时段上界收紧(≥15:05 停) + §23.2 补列 fund map 两缓存 + 本节 hash 更新
+- **hash 说明**:因 commit 署名修正(`Co-Authored-By: Claude Code` → `Claude`)**做过 `git filter-branch` 历史重写**,本报告引用的 hash 已按重写后 `git log --oneline` 更新,内容逐字未变(重写映射:9c8ac963d→faeb1db9e / e84fd540d→19d501ad8 / dff2d1bed→59f53628a / e6f378833→724e6ae9a)。
 - merge + push main 由主控 `scripts/main-merge.sh fix/intraday-fallback-log-noise` 执行(禁 agent push main,机制 D)。
 - ⚠️ **盘中禁 deploy/push main**:本改动在交易时段内完成,merge/上线由主控按 §14 安全窗口调度。
