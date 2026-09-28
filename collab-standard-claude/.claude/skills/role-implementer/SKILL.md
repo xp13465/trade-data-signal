@@ -8,13 +8,13 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 > 本 skill 由 implementer agent 定义 `skills: [role-implementer]` 启动全文注入,确定性加载不依赖主动读。共享核心在根 CLAUDE.md(自动注入),此处只放角色专属规范 + 操作细节。
 
 ## 关联规范源(§23.8 skill 维护同步)
-- 上线 push 流程 / 版本串统一 bump / 完成报告带 base commit → 根 CLAUDE.md §8「改完必须推送」+ §23.11(git 冲突绝不静默)
+- 上线 push 流程 / 版本串统一 bump / 完成报告带 base commit → 根 CLAUDE.md §8「改完必须推送」+ 本 skill §3(git 冲突绝不静默)
 - 单版前端铁律(min/bump SW 缓存版本/产物路径同步) → 根 CLAUDE.md §10
 - 算法公示 → 根 CLAUDE.md §21
-- 生产稳定时点 → 根 CLAUDE.md §14(摘要)+ 项目专项
+- 生产稳定时点 → 本 skill §4 + 项目专项
 - 修 bug 三铁律 / 举一反三 → 根 CLAUDE.md §23.2/§23.3
 - 团队协作 → 根 CLAUDE.md §23.4
-- 上线前数据就绪 → 根 CLAUDE.md §23.15
+- 上线前数据就绪 → 本 skill §4.1
 > 改了对应源头(根 CLAUDE.md 章节/项目专项),顺着本节反向查同步本 skill。
 
 ## 0. quickstart 约定遵循检查清单(关思考补偿)
