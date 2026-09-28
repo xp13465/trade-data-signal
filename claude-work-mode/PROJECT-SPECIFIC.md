@@ -105,7 +105,7 @@
 - **盘后定时任务时点（15:35/16:00/16:30/17:50/20:35/22:00 等）不推 main 不写 public_fund.db**；**盘中（09:30-15:30）不跑全量 export+deploy**（§2 已有）
 - **安全窗口：23:00 后**无推 main/评分/采集任务（3:17 pf-score-weekly / 5:00 us-stock-morning 不写 public_fund.db），大型实施任务放此窗口
 - **agent 只 push feat 分支，不碰 main（机制 D）**：agent 不 push main，盘后时点（15:35/16:00/17:50/20:35/22:00 ±5min 缓冲）与 cron 任务撞车由主控 `scripts/main-merge.sh` 统一检查拦截，agent 无需也不得自行判断 main 时点（避撞=主控 merge 入口职责）
-- **盘中 push 前端代码 main 也避开 intraday-snapshot 每10分钟时点**（09:25-11:32 + 13:01-15:02 共 27 次推 intraday_snapshot.json 到 main）。agent 改 app.js/style.css 后 push feat:main 虽改不同文件 rebase 能合并，但 git push 竞争 non-ff 重试有风险，尽量错开。**盘中 push main 选 :00/:10/:20/:30/:40/:50 之外的安全分钟，或等盘后 23:00+ 窗口**（2026-08-10 R2 迁移后：盘中 intraday 走 R2 不推 main，盘中 push 代码 main 不避 intraday；仍避盘后 17:50 update_all 推 main non-ff 竞争）
+- **盘中 push main 不避 intraday**（2026-08-10 R2 迁移后：盘中 intraday-snapshot 走 R2 上传、不推 main，盘中 push 代码 main 不避 intraday 时点）；仍避盘后 `<update-all 时点>` update_all deploy 推 main non-ff 竞争——该避让由主控 `<main-merge脚本>` merge 入口统一检查拦截，agent 只 push feat 不 push main（机制 D）
 
 ### 6.1 定时任务时点表（时点清单为参考;权威实况 = 云上 systemd timer,ssh 云上 `systemctl list-timers` 核对）
 

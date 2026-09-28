@@ -129,7 +129,7 @@
 **核心一句话:生产稳定性是 P0 第一要素**。项目已上线生产，定时任务撞车会导致线上数据覆盖事故/DB 锁/用户看到错误数据，是不可逆生产故障。
 - **任务冲突检查不应由用户提醒才做**：每次派任务/设 cron/推 main 前**必须主动查定时任务清单**（`<任务调度器> 如 launchd/cron`），列当日盘后任务时点，确认新任务不撞，并**主动给用户时点建议**
 - **盘后定时任务时点 `<T1>/<T2>/<T3>...` 不推 main 不写 `<DB名>`**；**交易日盘中（`<盘中时段>`）不跑全量 export+deploy**（§8 已有，休市可随时跑）；**安全窗口 `<深夜时点> 后`** 无推 main/评分/采集任务
-- **agent 自己 push feat:main 也要避开**盘后定时任务时点（尤其 `<update-all 时点>` deploy 推 main non-ff 竞争）
+- **push main 要避开**盘后定时任务时点（尤其 `<update-all 时点>` deploy 推 main non-ff 竞争;盘中 push 代码不避 intraday——R2 迁移后 intraday 走 R2 不推 main）。`<main-merge脚本>` 内含安全窗口检查,盘后时点自动拒绝;**agent 只 push feat 不 push main(机制 D)**
 
 ## 15. 主功能回归复查 + 改动分级 + reviewer（已下沉 → role-reviewer skill §1-§4 + <docs/main-governance.md> §15）
 > 核心：新功能绝对不可以影响老功能。A/B/C 改动分级审查口径、回归机制三层、smoke 清单执行全文见 reviewer skill §1-§4；主控侧调度见 `<docs/main-governance.md>` §15。
