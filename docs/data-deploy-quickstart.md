@@ -124,7 +124,7 @@ push main 触发 GH Actions（`wrangler deploy` Worker + GH Pages 部署 sss.sug
 **最容易踩的坑**：export.py 在 trade-data 跑，JSON 写到 `trade-data/static-site/data/`，但 deploy.sh 从 `trade/static-site/data/` 推 git / 上传 R2。两路径不同步会推旧版。
 
 ```
-trade-data/   ← launchd 采集 + export.py 写 JSON 落此处（主库 DB 也在此）
+trade-data/   ← 采集（云上 systemd timer 触发）+ export.py 写 JSON 落此处（主库 DB 也在此）
 trade/        ← git 仓库 + deploy.sh 上线源
 ```
 
@@ -137,7 +137,7 @@ trade/        ← git 仓库 + deploy.sh 上线源
   ```
 - 验证同步：`diff trade-data/static-site/data/<file>.json trade/static-site/data/<file>.json`
 
-> upload_r2.py L28-33：`STATIC_DIR = Path(os.environ.get("REPO", str(ROOT))) / "static-site"`。launchd 设 `REPO=trade-data`，故定时任务读采集器刚写的实时数据。手动从 trade 跑（无 REPO）读 trade/static-site/data/（deploy rsync 后的版本）。
+> upload_r2.py L28-33：`STATIC_DIR = Path(os.environ.get("REPO", str(ROOT))) / "static-site"`。定时任务（云上 systemd timer）设 `REPO=trade-data`，故读采集器刚写的实时数据。手动从 trade 跑（无 REPO）读 trade/static-site/data/（deploy rsync 后的版本）。
 
 ---
 

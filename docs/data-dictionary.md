@@ -608,7 +608,7 @@ ETF 元素：
 
 ## 18. schedule_stats.json + signal_freq.json · 调度统计与信号频率
 
-### 18.1 schedule_stats.json · launchd 任务执行统计
+### 18.1 schedule_stats.json · systemd timer 任务执行统计
 
 ```json
 [

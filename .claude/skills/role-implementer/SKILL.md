@@ -164,7 +164,7 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - **E21 全信号表双视图**:多因子系统拆分调试+结果双视图 | archive:L91
 
 ### 新增教训(非 archive 锚点)
-- **动态/状态类功能·数据供给链路四件自检(2026-08-26 S06 快照教训,L45,依据 CLAUDE.md §18+§5)**:做动态切换/状态机/择时信号/任何"随时间变化的数据驱动"功能,交付自检必含**数据供给四件**:生成脚本→定时挂载(launchd/cron)→机检校验→过期告警,缺一=功能未完成不算 done;实现若取静态快照/手动生成等降级形态,**必须作为方向性分叉上报主控转用户拍板**(§5),拿不准算不算方向分叉=算,报。关联规范源:CLAUDE.md §18 锚点 L45/memory s06-static-snapshot-missing-daily-regen
+- **动态/状态类功能·数据供给链路四件自检(2026-08-26 S06 快照教训,L45,依据 CLAUDE.md §18+§5)**:做动态切换/状态机/择时信号/任何"随时间变化的数据驱动"功能,交付自检必含**数据供给四件**:生成脚本→定时挂载(云上 systemd timer)→机检校验→过期告警,缺一=功能未完成不算 done;实现若取静态快照/手动生成等降级形态,**必须作为方向性分叉上报主控转用户拍板**(§5),拿不准算不算方向分叉=算,报。关联规范源:CLAUDE.md §18 锚点 L45/memory s06-static-snapshot-missing-daily-regen
 - **涉档位/分类/阈值语义任务·开工三源逐字对照(2026-08-24 has_track 口径 P0,依据 CLAUDE.md §23.13)**:开工第一件事=逐字对照派单 prompt 附的 UI 文案+产品文档原文 vs 代码现状,对不上=停下上报主控,不照单全收;上游(挖掘报告/调研结论)的语义声明一律视为待验证假设而非事实(本案:X1 规格书把「整剔 none」当事实,实际设计口径=「剔 none+null」,照单落地致口径三版本事故)| 来源:memory has-track-caliber-p0-reflection
 - **商汤代理测试实例·命令前缀必须带 `ttp-`(2026-09-07 pkill 误杀生产 8899 事故,用户拍板采纳)**:启动/清理商汤代理测试实例时,命令前缀统一 `ttp-`(如 `python3 ttp-proxy-18999 ...`,或测试脚本/日志命名带 ttp- 前缀,与 sensenova-rotate-proxy.py 既有 TTP_PORT/TTP_LOG 等 TTP_* 环境变量前缀同族);**清理测试实例前必须先排除生产 pid,禁止裸 `pkill -f "sensenova-rotate-proxy.py"`**(2026-09-07 实施清理测试实例时匹配过宽,把生产 8899 进程一起杀了,靠 launchd KeepAlive 自动恢复无持久影响)。杀进程按端口精确定位:`lsof -ti :<port>` 拿 pid 再 kill,或用 `pkill -f "ttp-"`;生产 pid 用 `lsof -ti :8899` 核对排除。| 来源:docs/sensenova/sensenova-proxy-healthcheck.md
 
