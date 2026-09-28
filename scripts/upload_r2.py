@@ -870,7 +870,7 @@ def _incremental_upload(local_dir, glob_patterns, r2_prefix, state_name, *,
         rel = 相对 local_dir 的路径(与 _upload_glob 的 rel 同口径, 便于 r2_key = r2_prefix/rel)。
       - 指纹: A 档整文件 md5(默认); B/C 档传 fingerprint 回调(结构化剔除)。size 字段按方案
         存双字段(结构对齐), 判定以 md5 为准(本地算 md5 快; 不做「size 快筛 + 上传后回填 md5」
-        的 A/B 分叉优化, 少写抽象——见 CLAUDE.md §6.5)。
+        的 A/B 分叉优化, 少写抽象——见 .claude/skills/role-implementer §6.5(原 §6.5))。
       - 首跑/状态缺失或损坏 -> 自动退化全量; 每周日强制全量一次(防 R2 侧对象丢失/状态漂移);
       - 增量 0 待传=正常完成(不报错, 防 deploy 把「今天没变化」当失败告警);
       - 状态只在全部上传成功后 tmp+os.replace 原子写; 部分失败保持旧状态下次重传面更大

@@ -34,7 +34,7 @@ cd "$REPO"
 echo "=== gold_night.sh 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
 
 # 1) 采集 + 导出 (gold_night.py 内含 is_trading_day(昨日) 闸门 + 采集 nf_AU0/nf_SC0 + 导出 global)
-#    cwd=$REPO(trade-data) 让 app.db 读主库 trade-data/data/sentiment.db (CLAUDE.md §9)
+#    cwd=$REPO(trade-data) 让 app.db 读主库 trade-data/data/sentiment.db (.claude/skills/role-implementer §1, 原 §9 单版前端铁律)
 echo "-> 采集夜盘收盘价 + 导出 global JSON ..." | tee -a "$LOG"
 "$PY" -m app.collector.gold_night 2>&1 | tee -a "$LOG"
 COLLECT_RC=${PIPESTATUS[0]}

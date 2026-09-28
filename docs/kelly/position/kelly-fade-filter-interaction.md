@@ -109,7 +109,7 @@ host.innerHTML = html;
 | 8 | `static-site/lab.css` 或 style.css | (可选) | sigkelly 复用 `.lab-custom-host--loading`(style.css L4392 已有,不需新增) |
 | 9 | `static-site/lab.js` | L7836 renderSigKellyLab 初始 | (可选)后台预取 trades.json |
 
-**构建上线三步**(改 lab.js 必做):`bash scripts/build_min.py` + `bash scripts/bump_asset_version.py` + **bump `sw.js` CACHE_VERSION**,否则旧 Service Worker 缓存旧 lab.min.js(CLAUDE.md §9)。
+**构建上线三步**(改 lab.js 必做):`bash scripts/build_min.py` + `bash scripts/bump_asset_version.py` + **bump `sw.js` CACHE_VERSION**,否则旧 Service Worker 缓存旧 lab.min.js(.claude/skills/role-implementer §1,原 §9 单版前端铁律)。
 
 **§21 算法公示**:本次不改算法语义,只改交互渲染层;仍建议 grep `purpose-notes.js` 确认无"实时整卡刷新"类描述需同步(降亏过滤说明文案不涉及)。
 

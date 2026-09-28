@@ -107,7 +107,7 @@
 
 **调用方式分布**：shell 脚本走 CLI（22 处），python 脚本走 `import notify` 函数（check_signals / check_nt_signals / upload_r2 / detect_intraday_anomaly）。**绝大多数（22/34）都走 `notify.py` CLI 这一个入口** → 改造飞书渠道只需集中在 notify.py，调用点基本不用动。
 
-### 1.3 现有通知机制定位（CLAUDE.md §11/§16）
+### 1.3 现有通知机制定位（docs/main-governance.md 同名节，原 §11/§16）
 
 - 当前机制四层：cron 兜底为主 + SendMessage/task-notification 补充（不可靠，~1.9%/~12% 送达率）+ 进度文件 DONE + **notify.py 邮件只重要节点**（上线完成/生产异常/需用户介入），非每 agent 完成。
 - harness 架构硬限制：无"子 agent 完成结论可靠送达主控 session"的完美主动通知方案；cron 兜底是架构限制下最优残余。

@@ -142,6 +142,6 @@ grep -rnE "CLAUDE\.md §(9|15|7|2|11|10|6\.5|12)([^0-9.]|$)" \
 ## 七、执行状态
 
 - **阶段 1（对照表）** ✅ 2026-09-28：根 CLAUDE.md「历史/约束归档引用」段首加一行精简对照,末尾详情指向本文件。
-- **阶段 2（清 17 处）** ⏸ 待用户开令。施工图=本文件第二/五节。
+- **阶段 2（清 17 处）** ✅ 2026-09-28（feat/section-ref-cleanup-20260928）：按第二节对照表逐处替换主树 A 类 17 处（smoke-checklist 5 / backup-restore 2 / agent-quickstart 1 / data-deploy-quickstart 1 / feishu 1 / r2-report 1 / kelly-fade 1 / reviewer skill 1 / 代码注释 4）,全部带「原 §N」溯源标注。B 类（NOTES 历史陈述 8）/C 类（worktrees 镜像 25）/D 类（外部同步仓 1）不改,处置理由见第五节。
 - **阶段 3（外部同步仓）** ⏸ 与 #120 ④批 3 仓合并处理。⚠️ `claude-work-mode` 每日被 token-cache-stats 自动任务写,需避撞车。
-- **死指针（第四节）** ⏸ 待用户拍板甲/乙。
+- **死指针（第四节）** ✅ 2026-09-28（走乙案）:§12/§13 全文已从框架仓 claude-work-mode 对应节还原补进 `docs/archive/CLAUDE-history.md`（顶部标题已更新含 §12/§13;每节首行标注「非本仓下沉前原文逐字留存,核心约束一致,细节可能有出入」）。根 CLAUDE.md 两行「原文见 docs/archive/CLAUDE-history.md」指针现真实可达,不再指空。

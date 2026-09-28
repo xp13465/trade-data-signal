@@ -4,13 +4,13 @@
 > **触发时机**:当天开发功能多后 / 大阶段结束 / 上线前 / 改动数据产物生成脚本后。
 > **执行者**:task-reviewer 子 agent(不占主控上下文),按本清单逐项 curl 验证。
 > **模型约束**:只文本禁图片,验证用 curl JSON 数据层 + 关键交互文字描述 + 让用户确认显示 三层。
-> **落档**:本文件进 git,reviewer agent 读取执行。CLAUDE.md §15 三层机制③。
+> **落档**:本文件进 git,reviewer agent 读取执行。.claude/skills/role-reviewer §3(原 §15 操作层回归机制三层)三层机制③。
 
 ---
 
 ## Part 1: 数据产物完整性校验规则（拦截"文件丢了/空了"）
 
-> 对应 CLAUDE.md §15 ①。脚本设计见 Part 2，超标 fail 不让 deploy。
+> 对应 .claude/skills/role-reviewer §3(原 §15 操作层回归机制三层)①。脚本设计见 Part 2，超标 fail 不让 deploy。
 
 ### 校验项表
 
@@ -127,7 +127,7 @@ done
 
 ## Part 2: check_data_integrity.py（已实施）
 
-> 对应 CLAUDE.md §15 ①。**已实施**: `scripts/check_data_integrity.py`(commit f00978545 起步 12 校验函数,现已演进至 22 个:含 #10 `check_etf_hist`(C30)/#29 track_score 双路一致性/T1 kelly_loss_features/P1-D2 export_manifest 等),已接入 `scripts/deploy.sh` L122-123(`--deploy-mode` fail 则 exit 阻断 deploy)。校验规则见 Part 1 表。
+> 对应 .claude/skills/role-reviewer §3(原 §15 操作层回归机制三层)①。**已实施**: `scripts/check_data_integrity.py`(commit f00978545 起步 12 校验函数,现已演进至 22 个:含 #10 `check_etf_hist`(C30)/#29 track_score 双路一致性/T1 kelly_loss_features/P1-D2 export_manifest 等),已接入 `scripts/deploy.sh` L122-123(`--deploy-mode` fail 则 exit 阻断 deploy)。校验规则见 Part 1 表。
 >
 > 运行: `python3 scripts/check_data_integrity.py [--deploy-mode] [--strict]`
 >
@@ -391,7 +391,7 @@ fi
 
 ## Part 3: P0 核心功能 Smoke 清单（拦截"上线后才发现"）
 
-> 对应 CLAUDE.md §15 ③。每项给 curl 数据层验证 + 关键交互文字描述 + 关联文件。reviewer agent 上线前必跑。
+> 对应 .claude/skills/role-reviewer §3(原 §15 操作层回归机制三层)③。每项给 curl 数据层验证 + 关键交互文字描述 + 关联文件。reviewer agent 上线前必跑。
 
 ### P0-01 首页 KPI 角标（19 卡）
 - **数据层 curl**: `curl -s https://ss.fx8.store/data/overview.json | python3 -c "import sys,json;d=json.load(sys.stdin);print('date:',d['date']);s=d['today']['scores'];print('scores:',{k:s.get(k) is not None for k in ['a_sentiment','cross_market','fear_greed','sentiment_csi1000','sentiment_csi500','sentiment_cyb','sentiment_hs300','sentiment_kc50','sentiment_sz50']})"`
@@ -560,7 +560,7 @@ fi
 
 ## Part 5: 改动影响面 grep 清单（reviewer agent push 前必跑）
 
-> 对应 CLAUDE.md §15 ②。改了 X 文件 → grep 谁引用 X → 列出受影响老功能点 → 跑相关 P0/P1 smoke。
+> 对应 .claude/skills/role-reviewer §3(原 §15 操作层回归机制三层)②。改了 X 文件 → grep 谁引用 X → 列出受影响老功能点 → 跑相关 P0/P1 smoke。
 
 ### grep 模板
 

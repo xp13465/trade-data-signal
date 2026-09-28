@@ -113,7 +113,7 @@ git push origin feat/xxx:main    # 或先 push feat 再 merge main
 
 push main 触发 GH Actions（`wrangler deploy` Worker + GH Pages 部署 sss.sugas.site）。
 
-> 改 app.js/lab.js **三步缺一不可**：build_min + bump_asset_version + **bump sw.js CACHE_VERSION**（CLAUDE.md §9）。漏 bump sw.js → 旧 Service Worker 缓存旧 app.min.js → 用户硬刷后退回旧数据。
+> 改 app.js/lab.js **三步缺一不可**：build_min + bump_asset_version + **bump sw.js CACHE_VERSION**（.claude/skills/role-implementer §1，原 §9 单版前端铁律）。漏 bump sw.js → 旧 Service Worker 缓存旧 app.min.js → 用户硬刷后退回旧数据。
 >
 > 验证 min 版 JS 上线用**字符串非变量名**（terser mangle 重命名 let 局部变量）：grep class 名/中文字符串（如 `kst-comp-fill` / `分项构成`），不 grep 变量名。
 

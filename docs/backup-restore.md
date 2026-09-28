@@ -137,10 +137,10 @@ launchctl load ~/Library/LaunchAgents/com.trade.lab-auto.plist
 ## 六、紧急注意事项
 
 - **恢复后必须验证**：`sqlite3 integrity_check` + 关键表 `COUNT(*)` 对比昨日（`score_daily / signal_daily / daily_metric` 等）。
-- **恢复时禁推 git**：DB 已 untracked（CLAUDE.md §10），不要 `git add data/*.db` 否则切分支污染重现 2026-07-14 事故。
+- **恢复时禁推 git**：DB 已 untracked（docs/archive/CLAUDE-history.md，原 §10 切分支保护 DB），不要 `git add data/*.db` 否则切分支污染重现 2026-07-14 事故。
 - **WAL/SHM 文件**：若存在 `sentiment.db-wal` / `sentiment.db-shm`，恢复主 db 后应一并删除（步骤 4 已含），旧 WAL 会与新 db 冲突。
 - **告警链路**：恢复后 `scripts/verify_backup.sh` 会自跑恢复演练（备份时联动），失败发 severe 邮件 + `data/alerts/latest.md`，留意。
-- **线上数据不受影响**：前端只读 `static-site/data/*.json` 静态产物（CLAUDE.md §9），DB 恢复不影响线上展示，只需保证下一轮 `update_all` 能正常写入。
+- **线上数据不受影响**：前端只读 `static-site/data/*.json` 静态产物（.claude/skills/role-implementer §1，原 §9 单版前端铁律），DB 恢复不影响线上展示，只需保证下一轮 `update_all` 能正常写入。
 - **日志排查**：`data/logs/backup_db_*.log` 看每日备份结果，`data/logs/verify_backup_*.log` 看演练结果。
 
 ---

@@ -19,7 +19,7 @@
   (写 date=交易日, UPSERT 幂等, 不动 date=周六点)。
 
 跑法: cd trade-data && python -m app.collector.gold_night
-(cwd=trade-data 让 app.db 读主库 trade-data/data/sentiment.db, 见 CLAUDE.md §9)
+(cwd=trade-data 让 app.db 读主库 trade-data/data/sentiment.db, 见 .claude/skills/role-implementer §1, 原 §9 单版前端铁律)
 """
 import datetime as dt
 import sys

@@ -10,7 +10,7 @@ upsert 到 daily_metric，使 lhb_count 卡获得标准 sparkline + 6m 分位 ho
 - lhb_inst_net: stock_lhb_jgmmtj_em, transform=sum, column=机构买入净额, scale=1e-8
 
 回填按"上榜日"/"上榜日期"分组复现单日逻辑（批量版）。
-写主库 /Users/linhuichen/code/trade-data/data/sentiment.db (CLAUDE.md §9)。
+写主库 /Users/linhuichen/code/trade-data/data/sentiment.db (.claude/skills/role-implementer §1, 原 §9 单版前端铁律)。
 幂等：INSERT OR REPLACE，重复跑覆盖。
 """
 import sqlite3
