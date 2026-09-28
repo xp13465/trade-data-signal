@@ -1,42 +1,70 @@
 ---
 name: role-implementer
-description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的 skills 字段启动全文注入。含单版前端铁律(原 §9 全文)、算法公示同步(原 §21 全文)、上线操作细节(原 §8 操作层)、生产稳定时点(原 §14 操作层)、修 bug 三铁律操作化、实施专属教训蒸馏。共享核心(§6/§22/§5/§23/§8§14摘要/§18索引)在根 CLAUDE.md 自动注入,本 skill 只放角色专属。
+description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的 skills 字段启动全文注入。含单版前端铁律(原 §9 全文)、前端部署防撕裂全文(§24)、算法公示同步(原 §21 全文)、上线操作细节(原 §8 操作层)、生产稳定时点(原 §14 操作层)、上线前数据就绪自检(§23.15)、修 bug 三铁律操作化、写码前 7 级阶梯+根因修复+少写抽象、举一反三、团队协作、实施专属教训蒸馏、token 优化行为层。共享核心(§6/§22/§5/§23/§8§14摘要/§18索引)在根 CLAUDE.md 自动注入,本 skill 只放角色专属。
 ---
 
 # 实施 agent 专属规范(role-implementer)
 
 > 本 skill 由 implementer agent 定义 `skills: [role-implementer]` 启动全文注入,确定性加载不依赖主动读。共享核心在根 CLAUDE.md(自动注入),此处只放角色专属规范 + 操作细节。
 
+## 关联规范源(§23.8 skill 维护同步)
+- 上线 push 流程 / 版本串统一 bump / 完成报告带 base commit → 根 CLAUDE.md §8「改完必须推送」+ 本 skill §3
+- 单版前端铁律(min/bump SW 缓存版本/产物路径同步) → 根 CLAUDE.md §10(原 §9,本 skill §1)
+- 前端部署防撕裂全文 → 根 CLAUDE.md §24(本 skill §1.1)
+- 算法公示 → 根 CLAUDE.md §21(本 skill §2)
+- 生产稳定时点 → 根 CLAUDE.md §14 + 项目专项(本 skill §4)
+- 修 bug 三铁律 / 举一反三 → 根 CLAUDE.md §23.2/§23.3(本 skill §5/§6)
+- 团队协作 → 根 CLAUDE.md §23.4(本 skill §8)
+- 上线前数据就绪 → 根 CLAUDE.md §23.15(本 skill §4.1)
+> 改了对应源头(根 CLAUDE.md 章节/项目专项),顺着本节反向查同步本 skill。
+
 ## 0. quickstart 约定遵循检查清单(关思考补偿,2026-08-15 优化 P0-2 加)
-> 执行 agent 常被配置 flash+关思考以省 token(省 97-99% output token),但关思考后对 B 级跨文件/约定遵循任务有降质风险(benvanik 数据:thinking 降 67-75% 时约定遵循违规 0→173 次),被 reviewer 打回=返工更费 token。本清单把实施 agent 最容易违反的规范浓缩成 8 条硬勾选,**开工前读一遍、完工自验逐条勾**,靠 prompt 不看 thinking 也守住核心约定。逐条对应的规范全文见下方对应节,参考实现见 `docs/agent-quickstart.md`。
+> 执行 agent 常被配置 flash+关思考以省 token(省 97-99% output token),但关思考后对 B 级跨文件/约定遵循任务有降质风险(benvanik 数据:thinking 降 67-75% 时约定遵循违规 0→173 次),被 reviewer 打回=返工更费 token。本清单把实施 agent 最容易违反的规范浓缩成 8 条硬勾选,**开工前读一遍、完工自验逐条勾**,靠 prompt 不看 thinking 也守住核心约定。逐条对应的规范全文见下方对应节,参考实现见 <docs/agent-quickstart.md>。
 - [ ] **§21 算法公示**:改算法逻辑/数值(评分/权重/匹配/分段),必 grep 前端公示文案 purpose-notes.js + app.js/lab.js(算法/跟踪分/TE/R²/IR/权重/百分位/match_method)同步改,不只 tooltip 实施点
 - [ ] **§22 数据一致性**:改数据产物,必重跑 + 同步 static-site/ + R2(三步),N 展示位一致,不进根 data/ 目录
 - [ ] **§23.2 修 bug 三铁律**:修完整(先列同类错误面清单)+ 自测完成(全覆盖)+ 排查同类(根因修,不逐文件补丁)
 - [ ] **§23.3 举一反三**:做 A 主动覆盖同模式/同数据源/同组件所有消费点+相关展示位,不只用户点名处(自验列清单)
-- [ ] **§24 改前端源码** app.js/lab.js/common.js/index.html:必同 commit bump 版本串(bump_asset_version.py)+ 重建 min(build_min.py)+ bump sw.js CACHE_VERSION
-- [ ] **§8 上线链路**:改完必 commit+push feat+merge main+push main(commit message 加 Co-Authored-By 行)
+- [ ] **§24 改前端源码** app.js/lab.js/common.js/index.html:含前端源码改动时,本 agent **不自行 bump 版本串**(机制 C:主控 merge 走 `scripts/main-merge.sh` 统一 build_min+bump+sw.js),完成报告必带 base commit + 改动前版本串值
+- [ ] **§8 上线链路**:改完必 commit+push **feat**(commit message 加 Co-Authored-By 行);**禁止 agent 直接 push main**(机制 D:merge+push main 由主控走 `scripts/main-merge.sh`)
 - [ ] **§23.5 新产物落档**:新增报告/脚本/数据当场落最合适目录+建/跟索引+git 已跟踪,不靠定期整理
+- [ ] **防前视铁律**(§5.1⑥/§21):实现择时/状态/信号类功能时,信号判定在 t 时点只能用 t 之前数据(t 收盘出信号次日生效);分位数阈值禁用全期分位(用 expanding/滚动窗口);复用特征库先核查固化口径。全文见 researcher skill §3.1
 - [ ] **data/ 隔离**:不 add/提交根目录 data/(sentiment.db/etf_national_team.db/signal_stats.json 等留本地);static-site/data/ 走 deploy.sh 正常上线
 
 ## 1. 单版前端铁律(原 §9 全文,2026-07-15 web/ 弃用)
 - 前端源码统一在 static-site/(web/ 已删,不再双写);app/main.py 挂载 static-site/ 到根 /,/api/* 读 DB 不变
-- 改 CSS/JS 后跑 `scripts/build_min.py`(terser minify,仅 app.js+lab.js 2对)+ `scripts/bump_asset_version.py`(md5 前 8 位破缓存)
+- **worktree agent 不自行 bump 版本串**(机制 C):改前端源码后,本地验证产物可用 `scripts/build_min.py` 确认,但**不 commit bump_asset_version 改动**——版本串统一由主控 merge 走 `scripts/main-merge.sh` 跑 build_min+bump(版本串唯一权威入口)。产物共 **8 对**(非 2 对):common/purpose-notes/kelly-review-notes/kelly-reports-content/app/lab 的 .min.js + style.min.css + lab.min.css;版本串格式为 `YYYYMMDD-a<N>`(非 md5 前 8 位),每次 bump 强制换新串
 - 本地开发:`cd /Users/linhuichen/code/trade-data && /Users/linhuichen/code/trade/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000`(看页面+调API)或 `python -m http.server -d static-site`
 - ⚠️ **uvicorn cwd 必须是 trade-data/**(2026-07-20 方案B,根治线上读滞后镜像):app/db.py 用 `.absolute()` 读最新主库 `trade-data/data/sentiment.db`(launchd 写 trade-data/data/),从 trade/ 跑读滞后镜像(仅 deploy.sh rsync 同步)致 export 漏数据;resolve 修复 f0f6df78 需 cwd 切 trade-data 才生效。trade-data/app 是 symlink 指向 trade/app
-- ⚠️ **改 app.js/lab.js 必 bump sw.js CACHE_VERSION**(2026-08-07 补):否则旧 Service Worker CacheFirst 缓存旧 app.min.js 致用户拿不到新代码(硬刷后退回旧数据)。build_min + bump_asset_version + **bump sw.js CACHE_VERSION** 三步缺一不可
+- ⚠️ **sw.js CACHE_VERSION 与版本串同源,由 main-merge.sh 统一 bump**(2026-08-07 补 + 2026-08-19 机制 C 改造):`bump_asset_version.py` 已内置把 sw.js CACHE_VERSION 同步为同一 `YYYYMMDD-a<N>`(与 index 同源,不再手工维护);**agent 不自行 bump**,由主控 merge 走 main-merge.sh 统一 build_min+bump(含 sw.js)
 - ⚠️ **min 版 JS 验证用字符串非变量名**(2026-08-07 补):terser mangle 重命名 let 局部变量(_compBarsHtml 等),grep 验 min 版上线用 class 名/中文字符串(kst-comp-fill/分项构成/优秀)非变量名
 - ⚠️ **export 输出路径同步**(2026-08-07 补,§9 cwd trade-data 衍生陷阱):export.py cwd trade-data 写 JSON 落 trade-data/static-site/data/,但 deploy.sh 从 trade/static-site/data/ 推 git,两路径不同步推旧版。export 后必须 cp 或确认 rsync 同步
+
+## 1.1 前端部署/缓存/SW更新防撕裂(原根 CLAUDE.md §24 全文,2026-08-14 用户定)
+**触发词**:发版/改app.js·lab.js·common.js·index.html/bump版本串/站点白/点更新新版白/Cannot read 'scores'/_aiPoscapRatingSummary is not defined/三站版本混乱/缓存滞留。
+**背景(2026-08-14 P0 全站白屏事故)**:版本串=内容 md5 哈希(bump_asset_version.py"内容相同则版本号相同"),A+B实施期集中改前端+备站数据不同步+中间"改源码漏bump"断链点→CDN/浏览器缓存滞留「孤儿旧快照」(引不存在对应内容产物的版本串)→SW更新清缓存重建时裸崩全白。根因=「版本串机制 + SW更新接管 + 数据同步」三处设计未闭环。
+**核心一句话:版本串必须随内容强制刷新(杜绝指纹断链),SW 更新接管必须壳芯配套+失败回退,部署后必须验"内容哈希==index引用版本串"。**
+- **① 版本串改「发布序号(日期+批次)」而非纯内容哈希**(2026-08-14 定):每次部署强制换新串,内容相同也换,杜绝"指纹断链、旧缓存不清、不触发更新"死角。改 `scripts/bump_asset_version.py` 由内容md5换为 日期+自增/哈希混合,保证每次不同
+- **② 改前端源码必同 commit bump 版本串 + 同 commit 重建 min(§22 扩展硬约束,2026-08-18 B 强化)**:改 app.js/lab.js/common.js/style.css 等前端源 → **必须同 commit 跑 build_min.py(现在从 git HEAD 读源生成 min)+ bump_asset_version.py + push + 验线上 index 引用`?v=`与实际文件内容md5一致**;禁止"源码改了版本串/没重建 min 没跟着变"漏跑。(**机制 C:此 bump 发生在主控 merge 走 main-merge.sh 统一 build_min+bump 时;worktree agent 不自行跑 bump_asset_version.py**,见 §3) **⚠️ 禁 reset --soft 对齐分支**(16:30 事故根因):reset --soft 只移 HEAD 不动工作区,会留旧版 M 脏文件,deploy 安全网 build_min 读工作区旧源生成旧 min 覆盖正确版;要让 HEAD 对齐用 checkout <commit> -- <文件> 或正常 checkout,确需 reset --soft 事后必 git status 核对工作区无 M 脏文件再 push。**deploy 只在 main 分支跑**(deploy.sh 已加分支校验+显式 main:main push)。
+- **③ SW 更新接管需「壳与芯配套 + 失败回退」安全网**:activate 清缓存/claim 接管前,先确认 app shell(app.min.js/common.min.js/index)已预缓存就绪;未就绪不 claim 不强推,失败回退旧SW/旧缓存,绝不全白(sw.js 实现)
+- **④ 数据全站同步(§22 三步)覆盖盘后核心产物**:overview.json/a-stock-3m.json 等盘后产物必须随 §22 三步同步到备站(GH/Maozi)或可靠 fallback 主站,备站不得缺核心文件
+- **⑤ 部署后自动校验「内容哈希==index版本串」**:deploy 链加 check(对 app/lab/common 每文件算 md5 前8,与 index 引用比对),不一致即阻断上线,防孤儿快照再产生
+- **验收口径**:上线/发版任务自验含「版本串每次更换确认 + 改码同commit bump + 部署后哈希==引用校验 PASS + 备站核心数据在位」;reviewer 查这4项(执行细则见 rev skill §5.2),漏=验收不过。事故根因全文见 memory `deploy-cdn-stale-snapshot-blue-screen`
 
 ## 2. 算法改动同步公示(原 §21 全文,2026-08-08 定,防算法公示与实施不同步)
 - **核心一句话:改算法逻辑必须同步改前端算法公示文案**。算法公示是用户理解算法的依据,算法改了公示不改=用户看老规则误导,修复成本高(发现+返工)
 - **触发**:任何改 track_score/评分/权重/分段函数/匹配规则等算法逻辑的改动(build_board_etf_map.py/queries.py/simulate_trade.py 等后端算法),必须 grep 前端算法公示文案同步更新
-- **算法公示文案位置**:app.js/lab.js 中 track_score/跟踪分/算法/TE/R²/IR/权重/百分位/match_method 等相关说明文字(弹窗/tooltip/策略实验室公式展示)。实施 agent 须 grep 这些关键词找全所有公示点(调研 agent 产出位置清单落档 docs/ 供查)
+- **算法公示文案位置**:app.js/lab.js 中 track_score/跟踪分/算法/TE/R²/IR/权重/百分位/match_method 等相关说明文字(弹窗/tooltip/策略实验室公式展示)。实施 agent 须 grep 这些关键词找全所有公示点(调研 agent 产出位置清单落档 <docs/> 供查)
 - **验收口径**:算法改动 agent 自验须含「grep 确认公示文案已更新为新规则」,reviewer 须查公示同步。算法改了公示没改=验收不通过
 - ⚠️ **已复发 2 次强化款(2026-08-10 教训 L18 / 2026-08-11 教训 L25;遵 §19 历史对照优化:复发不新开条,强化原条款)**:条款存在但 fresh context agent 仍不主动读(同会话降亏4toggle agent c818fddd3 做对了、费率 agent 963ba3881 没做——不能因"别的 agent 做过"假定本 agent 会主动做)。**防重犯:主控 prompt 每次都要显式列 grep 动作+文件名**(purpose-notes.js + app.js/lab.js 所有算法说明),不只引用"见§21";修一个数值要 grep 全站同一数值所有出现处同步改(同 §22 数据一致性铁律),不只 tooltip 实施点;漏=验收不过
 - **历史教训**:曾算法改了公示没改用户看老规则,修复需重新定位所有公示点+更新+重新上线,成本高
 
 ## 3. 上线操作细节(原 §8 操作层,摘要见根共享核心)
-- 每次改完 commit + push feat + merge main + push main(不推=白干,别人无法验收);commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
+- ⚠️ **push main 统一入口(防再犯机制 D,2026-08-19)**:agent 只 commit+push **feat 分支**,**禁止 agent 直接 push main**。merge+push main 一律由主控走 `scripts/main-merge.sh <feat>` 统一入口(内含 base 新鲜校验 + merge + 统一 build_min/bump + §24⑤/check_version_progress + push main)。push main 不归 agent。
+- ⚠️ **worktree agent 改前端源码不自行 bump 版本串**(防再犯机制 C,2026-08-19):改 app.js/lab.js/common.js/style.css 的 worktree agent **不自行跑 bump_asset_version.py**(多 agent 各自 bump 会撞号/stale bump),由主控 merge 时 main-merge.sh 统一跑 build_min+bump(版本串唯一权威入口)。
+- ⚠️ **完成报告必带「base commit + 版本串前后值」**(防再犯机制 D,2026-08-19):agent 完成报告必须写明 base commit(开工时基于的 origin/main 或 merge-base)+ 改动前后版本串值(若改前端源码,记录改动前版本串,由主控 merge 统一 bump 成新值)。
+- **开工强制 rebase origin/main + base 新鲜校验**(防再犯缺口①,2026-08-19):worktree 或分支开工前先 `git fetch origin && git rebase origin/main`;提交前用 `git merge-base --is-ancestor origin/main HEAD && echo base-fresh || echo base-stale` 校验 base 新鲜(base 落后则先 rebase 再提交,防基于旧 base 提交静默覆盖最近改动)。
+- **续跑同一任务必须延续原 feat 分支,不新开分支 cherry-pick(2026-09-23 用户定,防分支身份漂移+废弃分支)**:同一任务的后续改动落在同一分支。根因=isolation worktree 的 agent 有 commit 不自动清理,原分支被原 worktree 占死(`git worktree list` 查),续跑 agent `git checkout 原分支` 会 `fatal: already checked out` 只能 cherry-pick → 废弃分支+hash 漂移。正确操作:①先 `git worktree list | grep <原分支>` 查占用,若被已完成的 agent 残留 worktree 占用→报主控释放(或确认安全后 `git worktree remove --force <路径>`)②释放后 `git checkout <原分支>` 继续,commit 追加在原分支 ③`git branch --show-current` 确认落在原分支。被「还在跑」的活 agent 占用则报主控定,不擅自 cherry-pick。验收:续跑自验含「分支延续检查(落在原分支)」,漂移=验收不过。关联 memory [[resume-same-task-reuse-branch]]。
+- 每次改完 commit + push feat(不推=白干,别人无法验收);commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>` **⚠️ agent 只 push feat,不 merge main/push main**(机制 D:merge+push main 由主控走 `scripts/main-merge.sh <feat>` 统一入口,agent 不自做)
 - 不 add **根目录 data/** 下任何文件(sentiment.db/etf_national_team.db/signal_stats.json 保持本地 M / untracked 不推);**`static-site/data/` 是正常上线渠道**(deploy.sh 的 git add 只加 static-site/data/ + min JS,不碰根 data/)。后端新增 JSON 字段/新品种后**必须跑 `bash scripts/deploy.sh` 推数据上线**,否则前端读旧数据
 - 线上 curl 验证/测试:任一域名(ss.fx8.store CF 主站优先 / sss.sugas.site GitHub Pages / s.sugas.site MaoziYun)验证到新版即算上线 OK,不卡单域名 404;`_headers`+br 压缩仅 CF 主站生效
 - ⚠️ **force-with-lease / force push 是最后手段,不是首选**:non-fast-forward 优先 `git fetch + rebase origin/main + 重试 push`(deploy.sh L141-160 内置),rebase 失败 abort 等人工。**不得擅自强推,尤其 main**;确需强推须主控确认
@@ -57,11 +85,22 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - **判断 checklist(扫描 agent 用)**:①该类别是否有 upload-{prefix} 命令? ②前端 fetch 是否用 R2 URL 或 dataUrl 走 R2? ③upload-data-large exclude 是否含该前缀(防双副本)? 三条齐全=架构合规
 
 ## 4. 生产稳定时点(原 §14 操作层,核心摘要见根共享核心)
-- **任务冲突检查不应由用户提醒才做**:每次派任务/设 cron/推 main 前**必须主动查 launchd 定时任务清单**(`launchctl list | grep trade` + 查 plist `StartCalendarInterval`),列当日盘后任务时点确认不撞,并主动给用户时点建议
+- **任务冲突检查不应由用户提醒才做**:每次派任务/设 cron/推 main 前**必须主动查定时任务清单**——**生产定时任务全在云上 systemd timer(ssh 云上 `systemctl list-timers`;云上 `/etc/systemd/system/*.timer` 单元文件手动管理,git pull 不更新),本机 mac 纯开发不跑定时任务(launchd 已废弃,查 `launchctl` 是错的,详见 memory `local-dev-cloud-prod-split`)**。列当日盘后任务时点确认不撞,并主动给用户时点建议
 - **核心冲突类型**:①推 main(intraday-snapshot 15:35/20:35 + update-all 17:50 + deploy)vs 另一推 main = 互相覆盖事故 ②写 DB(评分/采集)vs 同 DB 任务 = DB锁/progress撞 ③采集脚本并发 = 限流空转
 - **盘后定时任务时点(15:35/16:00/17:50/20:35/22:00)不推 main 不写 public_fund.db**;安全窗口 23:00 后无推 main/评分/采集任务
-- **agent 自己 push feat:main 也要避开**盘后定时任务时点,不只 cron 任务。prompt 须写明"避开 15:35/16:00/17:50/20:35 push main,撞 intraday-snapshot/update-all 推 main = 互相覆盖事故"
+- **agent 只 push feat 分支,不碰 main**(机制 D):agent 不 push main,盘后时点(15:35/16:00/17:50/20:35/22:00 ±5min 缓冲)与 cron 任务撞车由主控 `scripts/main-merge.sh` 统一检查拦截,agent 无需也不得自行判断 main 时点(避撞=主控 merge 入口职责)
 - ⚠️[2026-08-10 R2迁移阶段3 更新]盘中 push 代码 main 不避 intraday(intraday-snapshot 走 R2 上传不推 main);**仍避盘后 17:50 update_all deploy.sh 推 main non-ff 竞争**(deploy.sh 有 rebase 重试,non-ff 自动 rebase);盘中全量 export+deploy 仍禁(防覆盖 R2 实时数据)
+
+## 4.1 上线前数据就绪自检(原 §23.15 操作层,2026-09-02 用户定)
+> 关联规范源:CLAUDE.md §23.15(上线必须完整版铁律:残缺版上线=生产事故,数据就绪=上线前置)。改源头时反向同步本节。
+- **触发**:任何功能/数据/算法上生产前;看到"先上残缺版,数据以后补齐"念头;回测/快照/数据覆盖不全想"先上线等后台追"
+- **上线前必填数据就绪清单(缺一=不上线)**:
+  1. **展示全集无残缺**:前端展示 N 笔,数据源必须能判定 N 笔;逐项核对无"X 笔没套规则/读不到/暂时展示"这类降级展示
+  2. **覆盖范围核对 PASS**:快照/回测/数据覆盖范围 vs 展示范围逐项比对,全部命中才 PASS
+  3. **无降级展示项**:上线前就消灭降级项,不靠上线后"自动消失"
+  4. **同构对账互证(数据含回测/复现数字时)**:经 researcher skill §3.2 同构对账机检(§5.4⑦)确认与页面一致,残缺口径数字不进生产
+- **宁等不等错**:数据没就绪=不上线,先补齐再发;§4 安全窗口是"时点锁",本条是"就绪锁",两把锁都开才上线
+- **发现"先上残缺版"念头=停**:上报主控停住,不自作主张(§23.15 验收口径)
 
 ## 5. 修 bug 三铁律操作化(原 §23.2,用户 2026-08-11 定)
 - ①**修完整**:修一个 bug 前先全面调研同类错误面(用户报 1 个,先 grep 前端全量数据依赖+curl 多处状态码列全同类异常,不只听用户报的),根因修复不只表面症状
@@ -75,8 +114,26 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - **验收口径**:自验须含「同模式/同数据源/同组件还被谁用+相关展示位清单+逐项覆盖结果」,不只做用户点名处;reviewer 查举一反三覆盖,漏=验收不过
 - 防重犯:①需求理解/方案阶段先列"同类消费点/相关展示位"清单,不全员覆盖不实施 ②只做用户点名处=违反本规范 ③与修 bug 三铁律③同源,一为正(修bug排查已坏同类)一为前(做方案覆盖未做同类)
 
+## 6.5 写码前 7 级阶梯 + 根因修复 + 少写抽象(2026-09-01 蒸馏 ponytail 主 skill,本地化接现有铁律)
+> 蒸馏来源:开源项目 DietrichGebert/ponytail 主 skill 的「7 级阶梯」「根因修复」「少写抽象」三条,用户拍板蒸馏而非装 plugin。与现有铁律同一精神的两个面——本节是「写之前省」,§5/§6 是「改之时查全」。**关联规范源**:CLAUDE.md §23.2(修 bug 三铁律)/§5(默认准则「以工作量为衡量偷懒」)。改了对应源头时反向同步本节。
+
+**核心一句话:写码/改码前自问「能否不写/少写」,先理解问题再爬阶梯;修 bug 修根因不修症状;删除优先于添加。**
+
+- **7 级阶梯(写任何代码/加任何逻辑前,自上而下停在第 1 个成立的层,不跳过前面的层)**:
+  1. **需要存在吗** → 不需要=YAGNI 跳过,不做(接「不加需求外改动」,先复述需求确认要不要)
+  2. **库里已有吗** → 复用现有函数/数据产物/展示位,不重写(§6 举一反三:先查同模式/同数据源/同组件已被谁用)
+  3. **标准库有吗** → 用标准库(时间/排序/聚合等),不手搓
+  4. **原生平台能力有吗** → 用平台原生能力(fetch/URL/Intl/正则等 JS 原生;Python 内置模块)
+  5. **已装依赖有吗** → 用已装依赖(项目 .venv/package.json 里已有的),不新装
+  6. **一行能搞定吗** → 一行搞定(短路/三元/单表达式),不写函数
+  7. **以上都不行才写最小可用代码**:只写满足当前需求的最小实现,不留"以后可能用到"的扩展位(§5.3 优化核心保障是"保核心不丢",本节是"不堆多余",两者不冲突——先写最小,核心演进后再补)
+  - **强调:先理解问题再爬阶梯**。不跳过"读现有代码/读需求"直接开写——看不懂问题就写,容易在第 2 层误判"库里没有"而重写(认知有限→先调研/查现有,不闭门重造)
+- **根因修复(bug fix = 修根因非修症状)**:接 §23.2 修 bug 三铁律操作化(§5)——改前 grep 每个 caller 确认影响面,**一个共享函数里的守卫 < 每个 caller 各写一个守卫**(能在一个根因点修,不在 N 个调用处打补丁);修完按 §5 列同类错误面清单+自测覆盖,不逐文件打补丁
+- **少写抽象(不写"可能用到"的抽象层)**:不写单实现的 interface、单产品的 factory、永不变化的 config;抽象只有在出现第二个真实使用者时才提取,不提前造。**删除优先于添加**——改代码先想"能不能删掉/简化现有"而不是"再加一层"(接「不加需求外改动」,§5.3「精简保核心」)
+- **验收口径**:实施任务自验须含「写码前过 7 级阶梯自问(第几层成立/为何不再低层)+ 复用点清单(库/数据源/组件已有复用)+ 无多余抽象确认」;修 bug 任务须含「根因修复点(单点守卫 vs 逐 caller)+ 每个 caller 影响面已 grep」。reviewer 查阶梯复用覆盖+无过度抽象(见 rev skill §10.6),漏=验收不过
+
 ## 7. 实施 agent 专属教训蒸馏(2026-08-12 用户定 §18 按归属拆分:21 条 = 过错 11 + 经验 10)
-> 每条一行(锚点|一句话防重犯|归档行号),防重犯原文(含根因+场景+防重犯全文)在 `docs/archive/CLAUDE-errors-2026-08.md` 反追。**命中场景读本清单 → grep 锚点 → 归档原文**。零丢失校验:实施归属 = L03/L06/L07/L08/L10/L11/L16/L18/L25/L19/L27(11 过错)+ E01/E02/E04/E06/E08/E09/E11/E17/E20/E21(10 经验)= 21 条。通用/主控/调研/测试归属教训见各自文件,不经本 skill 注入。
+> 每条一行(锚点|一句话防重犯|归档行号),防重犯原文(含根因+场景+防重犯全文)在 <docs/archive/CLAUDE-errors-2026-08.md> 反追。**命中场景读本清单 → grep 锚点 → 归档原文**。零丢失校验:实施归属 = L03/L06/L07/L08/L10/L11/L16/L18/L25/L19/L27(11 过错)+ E01/E02/E04/E06/E08/E09/E11/E17/E20/E21(10 经验)= 21 条。通用/主控/调研/测试归属教训见各自文件,不经本 skill 注入。
 
 ### 实施专属过错(11 条)
 - **L03 exclude偏离全量**:用户说"全量/全部"不擅自 exclude/清理,先确认 | archive:L15
@@ -104,15 +161,22 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 
 ## 8. 团队协作:开发任务先查"已落档未开发功能"+ 同模块冲突预防(原 §23.4/23.5,2026-08-12 用户定,实施层核心)
 用户原话"开发一个任务时是否会考虑到已经落档的其他调研报告出了但是没开发完成的功能?这应该也是一个要求。毕竟多个子agent应该是一个团队。你不能只顾管自己的开发工作。别人干的活和你懂的模块有关。就要提前考虑进去" + "现在主要靠主会话调度 分派任务。但是子agent其实也要有同模块功能的考量。更好的写作或预留好位置等" + "如果互相都考量到了。真碰到开发时。冲突问题应该也可以进一步得到缓解。否则2个任务对同一个模块对态度存在对立时。大概率是后者覆盖前者了。但这其实也不太对。然后反而还要碰到问题后找我确认。其实这一开始就应该暴露问题出来 又起现在有很多待办都是堆积的时候。等真开干了 很可能和实际项目存在脱节了。实施起来还要重新讨论。但开发人员因为知道有这么件事。提前留好了改造空间。就会和谐很多"
-- **核心一句话**:多个子 agent 是一个团队,不能只顾自己的活。**开工前先查 `docs/pending-features-index.md`(已落档未开发功能索引,团队共享地图)**,凡"方案已出但未开发"的功能与本任务同模块/同数据源/同组件/同展示位的,必须提前考虑进去
+- **核心一句话**:多个子 agent 是一个团队,不能只顾自己的活。**开工前先查 <docs/pending-features-index.md>(已落档未开发功能索引,团队共享地图)**,凡"方案已出但未开发"的功能与本任务同模块/同数据源/同组件/同展示位的,必须提前考虑进去
 - **预留位置(用户强调)**:实施时主动 scan 索引同模块项,写代码时**预留好位置**(接口/数据结构/配置位/展示位/常量表),或在与待开发功能相关的点留 TODO/注释说明"待某功能接入",不自顾自封死;发现与索引项相关但无法预留的,在报告里显式提出
 - **同模块冲突预防(后覆盖前禁止)**:两个任务改同一模块(同文件/同数据源/同组件),不得各自闷头改后让"后完成者覆盖先完成者"。正确流程:①开工前查同模块占用(此模块是否另有任务在改→冲突第一时间上报主控协调=排队/约定共用约定/分区域) ②不默默并行,不闷头做到碰壁才找用户确认 ③独立 commit+分区,merge 前 §0/reviewer 核对无覆盖
 - **待办-现状对账(防脱节)**:开做某待办前,先核对当前代码/数据现状与方案假设是否一致(pending-features-index 待办项依赖现状,项目变则项失效),不一致先更新方案(§5 调研)再实施,不硬套旧方案
 - **验收口径**:自验须含「scan 了 pending-features-index.md 本模块项 + 已预留位置清单(或说明为何不相关)+ 同模块占用检查(冲突已上报协调)+ 待办对账(方案假设 vs 当前代码现状一致才动手)」;reviewer 查预留覆盖+冲突预防,漏=验收不过
 - 防重犯:①开工前必查索引同模块项+同模块占用 ②只做点名需求、不查团队其他未开发方案=违反本规范 ③同模块后覆盖前=违反本规范 ④拿过时方案硬套=违反本规范;与 §6 举一反三互补:§6 查"现有已上线功能"的同类位,本节查"已落档未开发功能"的衔接位+冲突预防+待办对账
 
-## 9. 相关文件指针
-- docs/pending-features-index.md(已落档未开发功能索引,开工先查本模块项)
-- docs/agent-quickstart.md(按任务类型 A-F 的操作步骤速查,接任务先读对应类型)
-- docs/data-deploy-quickstart.md(数据上线类速查)
-- docs/main-governance.md(主控专属,实施 agent 一般不读,除非主控要求)
+## 9. token 优化行为层(实施专属,2026-08-15 社区调研落档)
+> 与共享核心 §5.5 互补:本节约实施专属子集(①不贴回已写文件 ②命令静默化 ④@文件引用 ⑤简洁输出)。每条带"收益"便于理解。
+- **① 不贴回已写文件**:改完文件报结论时**不贴回文件全文/大段代码**,只给关键 diff 点/发生变化的行+最终状态。收益:省输出 30~60%。
+- **② 命令静默化**:**git status --porcelain、git log --oneline、测试带 -q、日志 tail/截断、大 JSON 输出落盘不内联**(写 /tmp 或 static-site/data/ 再 grep 而非整段打印)。收益:工具输出占上下文 ~60%,大幅压缩。curl 验上线仍按 §3 三查清单执行,只是输出裁剪不裁剪校验动作。
+- **④ @文件直接引用代替 Read**:定位/回报用 `@文件路径:函数/变量/行号` 直接引用,能定位到行就不整文件 Read;查大文件按需定点 grep 看片段评估,不无脑全量读。收益:省 Read+搜索,防无限探索。
+- **⑤ 简洁输出·结论优先**:完成报告/每步汇报**先给结论**(第一句=结果/发生了什么),跳过开场白。**但结论后必须带证据点**——改了哪些文件(路径/行号)、自测逐项结果、口径标注(非基准须声明)三点是验收命门,**简洁砍的是废话,不砍证据**;主控要验收时按 §5/§6.5 自验清单逐项给得出。
+
+## 10. 相关文件指针
+- <docs/pending-features-index.md>(已落档未开发功能索引,开工先查本模块项)
+- <docs/agent-quickstart.md>(按任务类型 A-F 的操作步骤速查,接任务先读对应类型)
+- <docs/data-deploy-quickstart.md>(数据上线类速查)
+- <docs/main-governance.md>(主控专属,实施 agent 一般不读,除非主控要求)

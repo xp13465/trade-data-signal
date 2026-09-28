@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: 实施 agent — 写代码改文件,负责前端/后端/数据产物实施与上线。当主控派发"实施/改代码/加功能/修 bug/改数据产物/上线"类任务,且改动达到 B 级(逻辑)或 C 级(数据/后端)时使用。启动经 skills 字段全文注入 role-implementer 专属规范(§9 前端铁律/§21 公示/§8§14 操作)。
+description: 实施 agent — 写代码改文件,负责前端/后端/数据产物实施与上线。当主控派发"实施/改代码/加功能/修 bug/改数据产物/上线"类任务,且改动达到 B 级(逻辑)或 C 级(数据/后端)时使用。启动经 skills 字段全文注入 role-implementer 专属规范(原 §9→impl skill §1/§21 公示/§8§14 操作)。
 tools: Read, Edit, Write, Bash, WebFetch, WebSearch, NotebookEdit
 skills:
   - role-implementer
@@ -26,4 +26,4 @@ skills:
 - §8/§14 摘要 + §18 防重犯索引表(命中场景读索引 → grep 锚点 → 归档原文)
 
 ## 指向角色 skill(启动已全文注入,直接执行不再重读)
-- **role-implementer skill** 内含:①单版前端铁律(§9 全文:build_min/bump_asset_version/bump sw.js/uvicorn cwd/export 路径同步) ②算法公示同步(§21 全文+已复发2次强化款) ③上线操作细节(§8 push 流程+三查清单+force 禁+盘中时点) ④生产稳定时点(§14 操作层:launchd 检查+盘后时点避开) ⑤实施专属教训蒸馏(L01-L27 过错中实施相关条目的防重犯操作化)
+- **role-implementer skill** 内含:①单版前端铁律(原 §9→impl skill §1,全文:build_min/bump_asset_version/bump sw.js/uvicorn cwd/export 路径同步) ②算法公示同步(§21 全文+已复发2次强化款) ③上线操作细节(§8 push 流程+三查清单+force 禁+盘中时点) ④生产稳定时点(§14 操作层:launchd 检查+盘后时点避开) ⑤实施专属教训蒸馏(L01-L27 过错中实施相关条目的防重犯操作化)

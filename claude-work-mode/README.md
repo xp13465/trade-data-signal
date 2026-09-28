@@ -16,13 +16,13 @@
 │  .claude/skills/role-*/= 角色专属规范全文（经 skills 字段启动     │
 │  SKILL.md                全文注入，确定性不依赖主动读）         │
 ├────────────────────────────────────────────────────────────┤
-│  docs/main-governance.md = 主控专属规范（§2/3/4/7/11/15/16/19  │
+│  <docs/main-governance.md> = 主控专属规范（§2/3/4/7/11/15/16/19│
 │                          + COMPACT 恢复 5 步），主控按需 Read， │
 │                          子 agent 永不读                      │
 ├────────────────────────────────────────────────────────────┤
-│  docs/archive/CLAUDE-errors-2026-08.md = §18 教训原文全量归档   │
-│  docs/smoke-checklist.md = P0/P1 主功能 smoke 清单             │
-│  docs/role-based-context-research.md = 角色拆分调研报告        │
+│  <docs/archive/CLAUDE-errors-2026-08.md> = §18 教训原文全量归档 │
+│  <docs/smoke-checklist.md> = P0/P1 主功能 smoke 清单           │
+│  <docs/role-based-context-research.md> = 角色拆分调研报告      │
 ├────────────────────────────────────────────────────────────┤
 │  ★ claude-work-mode/   = 本可移植备份包（本次同步主体）         │
 │     CLAUDE.md（通用） + PROJECT-SPECIFIC.md（项目专项）         │
@@ -32,8 +32,8 @@
 
 ## 包内文件
 
-- `CLAUDE.md` - **通用工作模式规范**（可移植，无项目业务知识；项目专项配置用 `<占位符>` 标注，移植时替换为实际值）。= 根 `CLAUDE.md` 共享核心的**通用部分** + 被瘦身移出但通用可移植的章节（§0.1/§5.1-§5.5/§8.1/§9 隔离/§10 破缓存/§11 子agent生命周期/§12 API错误不卡死/§13 模型约束/§15 回归分级/§16 角色画像/§17 superpowers/§23.4-§23.7/§24 前端防撕裂 等）
-- `PROJECT-SPECIFIC.md` - **A股看板项目专项规范**（域名/DB/数据产物/采集脚本/launchd 定时任务时点/R2 架构/上传链路/§4.1 前端防撕裂·§4.2 测试基准定义/§22 一致性项目化/§23 项目验收口径 9.1-9.6/角色拆分后各文件定位）
+- `CLAUDE.md` - **通用工作模式规范**（可移植，无项目业务知识；项目专项配置用 `<占位符>` 标注，移植时替换为实际值）。= 根 `CLAUDE.md` 共享核心的**通用部分**，含两类章节：**通用可移植摘要**（活跃规范：§0.1 主控红线/§0.2 派单三件套/§5.1-§5.6 调研与优化/§6 中文口语化/§8 推送/§8.1 锚点/§14 生产 P0/§18 防重犯索引/§21 算法公示/§22 数据一致性/§23.1-§23.15 用户铁律/§24 前端防撕裂 等）+ **已下沉/归档对照行**（历史节号保留索引，正文在 role skill / governance / 历史归档：§9 隔离/§10 破缓存/§11 子agent生命周期/§12 API错误不卡死/§13 模型约束/§15 回归分级/§16 角色画像/§17 superpowers/§19 高峰省token）
+- `PROJECT-SPECIFIC.md` - **A股看板项目专项规范**（域名/DB/数据产物/采集脚本/定时任务时点/R2 架构/上传链路/§4.1 前端防撕裂·§4.2 测试基准定义/§22 一致性项目化/§23 项目验收口径 9.1-9.6/角色拆分后各文件定位）
 - `.claude/agents/ + .claude/skills/role-*/` - **角色 agent 定义 + 角色规范全文**（执行层，8 文件：`agents/{implementer,researcher,reviewer,tester}.md` 4 个 + `skills/role-{implementer,researcher,reviewer,tester}/SKILL.md` 4 个；镜像项目结构，移植时整体回拷）。agent `model:` 为项目私有配置（代理白名单），移植到其他环境按需替换
 - `README.md` - 本说明文件（含 📈 命中率走势结果报告 —— claude-work-mode/ 内嵌的每日追加工作表）
 
@@ -41,7 +41,7 @@
 
 ### 给 `trade` 项目（本仓库）
 
-根 `CLAUDE.md` 是实际加载的共享核心（角色拆分后已瘦身），`.claude/agents/` + `.claude/skills/role-*/` + `docs/main-governance.md` 是实际加载的角色/主控规范。本目录是**可移植备份包**，便于：
+根 `CLAUDE.md` 是实际加载的共享核心（角色拆分后已瘦身），`.claude/agents/` + `.claude/skills/role-*/` + <docs/main-governance.md> 是实际加载的角色/主控规范。本目录是**可移植备份包**，便于：
 
 - 复用通用部分到其他项目时只取 `CLAUDE.md`
 - 工作模式演进后，定期同步拆分到此两文件，保持备份完整
@@ -86,10 +86,10 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 ## 拆分原则（2026-08-12 更新）
 
 - **通用部分**（可移植，无业务）：工作模式/协作机制/方法论。项目特定配置用 `<占位符>`（域名/模型名/定时任务时点/数据产物/文件名等），移植时替换。
-- **项目专项**（A股看板业务）：具体域名/DB/数据产物/采集脚本/launchd 定时任务时点/技能库版本/模型提供方。
-- **角色拆分核心原则**：根 CLAUDE.md 删不掉、躲不开子 agent（启动全量注入），所以根文件只留"所有角色都该无条件知道"的共享核心；角色专属规范进 `.claude/skills/<role>/SKILL.md` 经 agent 定义 `skills` 字段**启动全文注入**（确定性）；主控专属进 `docs/main-governance.md`（主控按需 Read，子 agent 永不读）。业界共识：指令文件要小、按需加载、按角色/目录拆分。
+- **项目专项**（A股看板业务）：具体域名/DB/数据产物/采集脚本/定时任务时点/技能库版本/模型提供方。
+- **角色拆分核心原则**：根 CLAUDE.md 删不掉、躲不开子 agent（启动全量注入），所以根文件只留"所有角色都该无条件知道"的共享核心；角色专属规范进 `.claude/skills/<role>/SKILL.md` 经 agent 定义 `skills` 字段**启动全文注入**（确定性）；主控专属进 <docs/main-governance.md>（主控按需 Read，子 agent 永不读）。业界共识：指令文件要小、按需加载、按角色/目录拆分。
 
-边界章节（如 §7 落档、§8 推送、§11 子 agent、§13 模型、§15 回归、§17 高峰）按「通用模式 + 专项配置」拆：通用机制放 `CLAUDE.md`，具体值/事故 id/项目文件名放 `PROJECT-SPECIFIC.md`。
+边界章节（如原 §7 落档、§8 推送、原 §11 子 agent、原 §13 模型、原 §15 回归、原 §17 高峰；原 §N=已下沉/归档的历史节号，现址见下方「章节映射」表）按「通用模式 + 专项配置」拆：通用机制放 `CLAUDE.md`，具体值/事故 id/项目文件名放 `PROJECT-SPECIFIC.md`。
 
 > **部署落点**：`~/.claude/CLAUDE.md`（全局）只承载共享核心；角色规范放**项目 `.claude/`**（`.claude/agents/` + `.claude/skills/role-*/`），因为 agent 定义是项目级（如 `model:` 代理白名单为项目私有），全局全拷会污染所有项目的子 agent。
 
@@ -107,7 +107,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
   5.4 **测试基准锚点** - 一切回测/测试以已定稿推荐最优组合为前提，偏离=违规
   5.5 **token 优化 6 条** - 输出简洁/命令静默/派单只回结论/@文件直引/小任务不spawn/失败方向rewind
 6. **始终用中文回复**（附口语化）
-8. **改完必须推送** - commit+push+merge main；验上线验功能生效层非代码在 main；三查清单；非-ff rebase 不强推
+8. **改完必须推送** - commit+push feat；merge+push main 由主控 `<main-merge脚本>` 统一入口（机制 D，agent 只 push feat）；验上线验功能生效层非代码在 main；三查清单；非-ff rebase 不强推
   8.1 **派单定位锚点** - 派单 prompt 必带 @文件:行号/符号锚点，省重读重扫 token
 9. **新功能先隔离** - tab/独立表/物理隔离，验证后再融合
 10. **改静态资源必须破缓存** - 版本号+SW CACHE_VERSION+min 版用字符串验证
@@ -122,23 +122,23 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 19. **高峰时段省 token** - 若模型提供方有高峰倍率，派 agent 避开高峰
 21. **算法改动同步公示** - 改算法逻辑必须同步改前端公示文案（用户铁律，已复发 2 次）
 22. **数据一致性铁律** - 用户在 N 个展示位看到的数据必须统一，更新必 N 文件+N 缓存同步
-23. **用户新增铁律** - 23.1 README 维护 / 23.2 修 bug 三铁律 / 23.3 举一反三 / 23.4 团队协作查已落档 / 23.5 新产物当场落档 / 23.6 入样宇宙规则 / 23.7 版本冻结契约
+23. **用户新增铁律** - 23.1 README 维护 / 23.2 修 bug 三铁律 / 23.3 举一反三 / 23.4 团队协作查已落档 / 23.5 新产物当场落档 / 23.6 入样宇宙规则 / 23.7 版本冻结契约 / 23.8 skill 维护同步 / 23.9 三档互证教学法 / 23.10 飞书一致 / 23.11 git 不静默 / 23.12 任务治理 / 23.12-1 状态单一源 / 23.13 三源核对 / 23.14 外审点名 / 23.15 完整版上线
 24. **前端部署/SW 防撕裂** - 版本串强制刷新 + SW 壳芯配套失败回退 + 部署后验哈希==引用
 - **验收铁律** - 逐字验证关键结论，不信 agent 报告
 
-> 注：编号继承根/旧版（§0/§1/§5/§6/§8/§9-§19/§21/§22/§23），§20（快速上手引导维护）为主控专属，在 `docs/main-governance.md`。
+> 注：编号继承根/旧版（§0/§1/§5/§6/§8/§9-§19/§21/§22/§23），§20（快速上手引导维护）为主控专属，在 <docs/main-governance.md>；其中 §9/§10/§11/§12/§13/§15/§16/§17/§19 已下沉/归档，现址见下方「章节映射」表（原 §N 为历史节号）。
 
 ## 项目专项清单（PROJECT-SPECIFIC.md，trade 仓库）
 
 0. 项目概览 + 角色拆分后工作模式拓扑（各文件定位表）
-1. 项目文件结构与落档（NOTES/TASKS 历史拆分、docs/archive、docs/smoke-checklist.md）
+1. 项目文件结构与落档（NOTES/TASKS 历史拆分、<docs/archive>、<docs/smoke-checklist.md>）
 2. 改完推送专项（3 域名 ss.fx8.store/sss.sugas.site/s.sugas.site + R2 ssd.fx8.store + deploy.sh + force push 事故 + intraday 时点 + 三查清单项目化）
 3. R2 存储架构（index/industry/trade_sim/public_fund 类别 + upload_r2 命令 + 新类别上线 checklist + fetchJSON 跳 gz）
 4. 单版前端铁律（static-site + trade-data cwd + build_min + bump sw + min 验证 + export 路径同步）
   4.1 前端部署/SW 防撕裂专项（bump_asset_version 改发布序号 + sw.js 壳芯配套 + 部署后哈希==index 校验）
   4.2 测试基准锚点专项（v1.1.1 当前基准 / v1.1.0「基础5」推荐最优组合定义 / 版本升级原则）
 5. 切分支保护 DB（sentiment.db/etf_national_team.db + commit 8e3f5fa）
-6. 生产稳定性 P0（launchd 定时任务时点全表：intraday 27 次 + 15:35/16:00/16:30/17:50/20:35/22:00 + daily-brief 20:40 + 23:00 安全窗口）
+6. 生产稳定性 P0（定时任务时点全表：intraday 27 次 + 15:35/16:00/16:30/17:50/20:35/22:00 + daily-brief 20:40 + 23:00 安全窗口）
 7. 主功能回归复查（board_etf_map.json/overview.json/intraday_snapshot.json + check_data_integrity.py + 08-06 教训）
 8. §22 一致性项目专项（overview/board_etf_map/concepts 三展示位 + R2/CF 缓存）
 9. §23 项目验收口径（9.1 README 现状 / 9.2 备站多模块例 / 9.3 走势图切换例 / 9.4 团队协作 / 9.5 入样宇宙规则 / 9.6 版本冻结契约）
@@ -153,30 +153,31 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | §0 角色分上下文速览 | §0（通用化 5 角色） | §0.1（各文件定位表） | - |
 | §0.1 主控角色红线 | §0.1 | -（治理文档） | - |
 | §1 开工先读 | §1 | - | - |
-| §5 调研后方案 | §5（含 5.1-5.5） | §4.2（测试基准定义） | researcher skill §3 |
+| §5 调研后方案 | §5（含 5.1-5.6） | §4.2（测试基准定义） | researcher skill §3 |
 | §6 中文（附口语化） | §6 | - | - |
 | §8 改完推送 | §8（通用+三查） | §2（域名/deploy.sh/data 路径/项目例） | implementer §3 |
 | §8.1 派单定位锚点 | §8.1 | - | - |
 | §8.1 R2 | - | §3（全 R2 内容） | implementer §3.1 |
-| §9 单版前端 | §10（破缓存通用） | §4（static-site/trade-data cwd/build_min/bump sw） | implementer §1 |
-| §10 切分支 DB | 历史归档引用 | §5（sentiment.db/etf_national_team.db/8e3f5fa） | - |
-| §11 子 agent 卡死/429 | §11（机制） | §11（具体 agent id 教训） | 主控治理文档 |
-| §12 superpowers | §17（融合规则通用） | - | - |
-| §13 模型能力 | §13（通用约束） | §12（daily-brief-deepseek） | - |
-| §14 生产 P0 | §14（主动查冲突通用） | §6（launchd 时点全表/23:00 窗口） | implementer §4 |
-| §15 回归复查 | §15（分级/reviewer/smoke 通用） | §7（数据产物/校验脚本/08-06 教训） | reviewer skill |
-| §16 agent 角色画像 | §16 | §0.1（角色定义定位） | agents/*.md 定义 |
-| §17 火山方舟高峰 | §19（高峰避让通用） | §12（模型切换后注） | - |
+| 原 §9 单版前端 | §10（破缓存通用） | §4（static-site/trade-data cwd/build_min/bump sw） | implementer §1 |
+| 原 §10 切分支 DB | 历史归档引用 | §5（sentiment.db/etf_national_team.db/8e3f5fa） | - |
+| 原 §11 子 agent 卡死/429 | §11（机制） | §11（具体 agent id 教训） | 主控治理文档 |
+| 原 §12 superpowers | §17（融合规则通用） | - | - |
+| 原 §13 模型能力 | §13（通用约束） | §12（daily-brief-deepseek） | - |
+| §14 生产 P0 | §14（主动查冲突通用） | §6（时点全表/23:00 窗口） | implementer §4 |
+| 原 §15 回归复查 | §15（分级/reviewer/smoke 通用） | §7（数据产物/校验脚本/08-06 教训） | reviewer skill |
+| 原 §16 agent 角色画像 | §16 | §0.1（角色定义定位） | agents/*.md 定义 |
+| 原 §17 火山方舟高峰 | §19（高峰避让通用） | §12（模型切换后注） | - |
 | §18 防重犯索引 | §18（L01-L39 摘要表） | §11（agent id 教训引用）+§9.5 | 各 role skill 教训蒸馏 |
 | §21 算法公示 | §21（指针+强化款） | - | implementer §2 |
 | §22 数据一致性 | §22（通用化） | §8（三展示位项目化） | tester/reviewer 校验 |
-| §23 三铁律（已延至 23.7） | §23（通用化 23.1-23.7） | §9（项目验收口径 9.1-9.6） | implementer §5/§6 |
+| §23 用户铁律（23.1-23.15） | §23（通用化 23.1-23.15） | §9（项目验收口径 9.1-9.6） | implementer §5/§6 |
 | §24 前端部署/SW 防撕裂 | §24 | §4.1（bump_asset_version/sw.js/部署校验） | implementer §1/§24 |
 | 验收铁律 | 验收铁律 | - | - |
+> 注：根 CLAUDE.md 已瘦身为共享核心，§9-§19 中已下沉/归档节号在根文件「历史/约束归档引用」保留对照行；本表「原 §N」=历史节号，现址=右侧对应列。
 
 ## 同步约定
 
-- **根 `CLAUDE.md`（共享核心）是 source of truth**，实际加载；`.claude/agents/` + `.claude/skills/role-*/` + `docs/main-governance.md` 承载角色/主控规范；本目录是拆分备份。
+- **根 `CLAUDE.md`（共享核心）是 source of truth**，实际加载；`.claude/agents/` + `.claude/skills/role-*/` + <docs/main-governance.md> 承载角色/主控规范；本目录是拆分备份。
 - 根 `CLAUDE.md` 或角色 skill 更新后（新增章节/教训），**定期同步**到此两文件：通用部分进 `CLAUDE.md`，项目专项进 `PROJECT-SPECIFIC.md`，并更新本 README 的清单与映射表。
 - 通用 `CLAUDE.md` 的 `<占位符>` 在移植到新项目时替换；本项目专项值在 `PROJECT-SPECIFIC.md` 里是实际值。
 - 角色 skill 与 quickstart 分工：quickstart=操作步骤（怎么上线/怎么验），role skill=角色职责+专属规范+专属教训；改动任一 grep 另一处同步。

@@ -3,7 +3,7 @@
 > 本文件是 `trade` 项目（A股情绪看板）的业务/数据/部署/定时任务专项规范，配合通用 `CLAUDE.md` 使用。
 >
 > - **通用工作模式**见同目录 `CLAUDE.md`（可移植，占位符待替换）
-> - **角色拆分（2026-08-12）后本文件定位**：根 `CLAUDE.md` 已瘦身为共享核心（所有角色通用），主控专属在 `docs/main-governance.md`，角色专属在 `.claude/agents/` + `.claude/skills/role-*/`，本文件只承载**项目业务/数据/部署/定时任务专项**知识。通用 + 专项 + 角色 skill = 完整工作模式拓扑（见同目录 README.md）
+> - **角色拆分（2026-08-12）后本文件定位**：根 `CLAUDE.md` 已瘦身为共享核心（所有角色通用），主控专属在 <docs/main-governance.md>，角色专属在 `.claude/agents/` + `.claude/skills/role-*/`，本文件只承载**项目业务/数据/部署/定时任务专项**知识。通用 + 专项 + 角色 skill = 完整工作模式拓扑（见同目录 README.md）
 > - 技术栈/公网/关键文件路径详见 memory `trade-sentiment-dashboard` 及项目 `NOTES.md`。
 
 ## 0. 项目概览 + 角色拆分后工作模式拓扑
@@ -12,29 +12,29 @@
 - 前端源码统一在 `static-site/`；后端 `app/`；数据产物 `static-site/data/*.json`；DB `data/sentiment.db` + `data/etf_national_team.db`（untracked，不进 git）
 - compact 恢复第一动作：读 `TASKS.md` 会话状态小节 + `NOTES.md` 近期章节
 
-### 0.1 角色拆分后各文件定位（2026-08-12，详见 docs/role-based-context-research.md）
+### 0.1 角色拆分后各文件定位（2026-08-12，详见 <docs/role-based-context-research.md>）
 
 | 文件/目录 | 定位 |
 |---|---|
 | 根 `CLAUDE.md` | **共享核心**（所有角色启动自动注入）：§0 角色速览/§1 开工先读/§6 中文/§5 调研/§18 防重犯索引表[L01-L28]/§22 一致性/§8 推送摘要/§14 稳定性摘要/§21 公示指针/§23 三铁律/历史归档/验收铁律 |
 | `.claude/agents/implementer.md` 等 4 个 | **角色 agent 定义**（name/description/tools/model/skills 字段），body=角色 system prompt |
-| `.claude/skills/role-implementer/SKILL.md` 等 4 个 | **角色专属规范全文**（经 agent 定义 `skills` 字段**启动全文注入**，确定性不依赖主动读）：implementer=§9 前端铁律/§21 公示/§8§14 操作/修bug三铁律/举一反三；reviewer=§15 回归/改动分级/smoke/数据校验/公示查证；researcher=调研方法论/防误判/§5.1 穷举回测/数据挖掘；tester=smoke/数据校验/curl 三查/一致性 |
-| `docs/main-governance.md` | **主控专属规范全文**（§2/§3/§4/§7/§11/§15/§16/§19 + COMPACT 恢复 5 步），主控开工第一件事 Read，子 agent 永不读 |
-| `docs/archive/CLAUDE-errors-2026-08.md` | **§18 教训原文全量归档**（28 锚点 L01-L28 + 经验 E01-E22 + 每日归纳），根文件只留索引表，`grep 锚点id` 反向追 |
-| `docs/role-based-context-research.md` | 角色分上下文调研报告（用户反思触发，2026-08-12 建） |
-| `docs/smoke-checklist.md` | P0/P1 主功能点 smoke 清单，reviewer/tester agent 读取执行 |
+| `.claude/skills/role-implementer/SKILL.md` 等 4 个 | **角色专属规范全文**（经 agent 定义 `skills` 字段**启动全文注入**，确定性不依赖主动读）：implementer=原 §9(impl skill §1)/§21 公示/§8§14 操作/修bug三铁律/举一反三；reviewer=原 §15(rev skill §1-§4)/改动分级/smoke/数据校验/公示查证；researcher=调研方法论/防误判/§5.1 穷举回测/数据挖掘；tester=smoke/数据校验/curl 三查/一致性 |
+| <docs/main-governance.md> | **主控专属规范全文**（§2/§3/§4/§7/§11/§15/§16/§19 + COMPACT 恢复 5 步），主控开工第一件事 Read，子 agent 永不读 |
+| <docs/archive/CLAUDE-errors-2026-08.md> | **§18 教训原文全量归档**（28 锚点 L01-L28 + 经验 E01-E22 + 每日归纳），根文件只留索引表，`grep 锚点id` 反向追 |
+| <docs/role-based-context-research.md> | 角色分上下文调研报告（用户反思触发，2026-08-12 建） |
+| <docs/smoke-checklist.md> | P0/P1 主功能点 smoke 清单，reviewer/tester agent 读取执行 |
 | `claude-work-mode/` | **可移植备份包**（通用 CLAUDE.md + 项目专项 + README），用于跨项目复用 |
-| `docs/agent-quickstart.md` | 按任务类型 A-F 的操作步骤速查（按需 Read 型，非注入） |
+| <docs/agent-quickstart.md> | 按任务类型 A-F 的操作步骤速查（按需 Read 型，非注入） |
 
-## 1. 项目文件结构与落档（§7 专项）
+## 1. 项目文件结构与落档（原 §7 专项）
 
-- `NOTES.md`/`TASKS.md` 已拆分历史章节（2026-07-21）：历史章节（§1-§47，2026-07-06~07-20）归档到 `docs/archive/NOTES-history.md`；已完成项归档到 `docs/archive/TASKS-done.md`。主文件只保留近期章节 + 活跃待办 + 工作约定 + R2/全站性能待办。查历史在此二档
-- smoke 清单落 `docs/smoke-checklist.md` 进 git，reviewer agent 读取执行
+- `NOTES.md`/`TASKS.md` 已拆分历史章节（2026-07-21）：历史章节（§1-§47，2026-07-06~07-20）归档到 <docs/archive/NOTES-history.md>；已完成项归档到 <docs/archive/TASKS-done.md>。主文件只保留近期章节 + 活跃待办 + 工作约定 + R2/全站性能待办。查历史在此二档
+- smoke 清单落 <docs/smoke-checklist.md> 进 git，reviewer agent 读取执行
 - 长任务 progress ledger 落 `.superpowers/sdd/progress.md` 进 git，跨 compaction 可恢复
 
 ## 2. 改完推送专项（§8 专项：域名/data 路径/deploy.sh）
 
-- commit + push feat + merge main + push main（不推=白干，别人无法验收）；commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
+- commit + push feat（不推=白干，别人无法验收）；merge main + push main 由主控 `<main-merge脚本>` 统一入口执行（机制 D：agent 只 push feat，不自行 push main）；commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
 - **不 add 根目录 `data/` 下任何文件**（`sentiment.db`/`etf_national_team.db`/`signal_stats.json` 保持本地 M/untracked 不推）
 - **`static-site/data/` 是正常上线渠道，不是禁推对象**：前端读的线上数据产物，`scripts/deploy.sh` 设计就是 commit+push 它（git 历史有 `data update [all]` commit 为证）。后端新增 JSON 字段/新品种后**必须跑 `bash scripts/deploy.sh` 推数据上线**，否则前端读旧数据。deploy.sh 的 `git add` 只加 `static-site/data/` + min JS，不碰根 `data/`，安全
 - **线上 curl 验证/测试优先用 `https://ss.fx8.store/`**（CF 主站，server: cloudflare，wrangler.jsonc Workers 绑定，push main 自动 deploy，支持 br 压缩 + `_headers`）；备站 `https://sss.sugas.site/`（GitHub Pages，trade-data-signal 仓库）；`https://s.sugas.site/`（MaoziYun 备站，**有 300MB 总大小限制，超了拒绝部署一直 404**，需瘦身到 300MB 以下才恢复）。**3 域名任一验证到新版即算上线 OK，不卡单域名 404**（2026-07-22 教训：曾整晚死磕 s.sugas.site 404 56 次忘 ss.fx8.store/sss.sugas.site 已上线）
@@ -59,7 +59,7 @@
 - **判断 checklist（扫描 agent 用）**：①该类别是否有 upload-{prefix} 命令？②前端 fetch 是否用 R2 URL 或 dataUrl 走 R2？③upload-data-large exclude 是否含该前缀（防双副本）？三条齐全=架构合规
 - **fetchJSON 全跳 gz**（2026-08-01）：app.js+lab.js `tryGz=false` 全跳 .gz，统一走 .json+CF br 压缩；根因 CF .gz edge cache max-age=14400 4h 滞后致 public_fund 暂无数据；本地/R2 保留 .gz 不删，前端只是不 fetch；.gz fallback 保留防御性但不触发
 
-## 4. 单版前端铁律（§9）
+## 4. 单版前端铁律（原 §9）
 
 - 前端源码统一在 `static-site/`（web/ 已删，不再双写）；`app/main.py` 挂载 static-site/ 到根 /，`/api/*` 读 DB 不变
 - 改 CSS/JS 后跑 `scripts/build_min.py`（terser minify，仅 static-site/app.js+lab.js 2 对）+ `scripts/bump_asset_version.py`（md5 前 8 位破缓存）
@@ -80,34 +80,39 @@
 
 ## 4.2 测试基准锚点专项（§5.4，trade 已定稿推荐最优组合定义）
 
-- **当前基准 = v1.1.1（2026-08-16 收尾版本）**：v1.1.0「推荐最优组合」不变，一切回测/测试/挖掘/穷举前提 = v1.1.0 推荐最优组合。v1.1.1 = 纯数据/展示层修正（K 档 by_k 数据人口对齐首页/21:00 文案跟版本走/凯利首列 2 行版），非新组合，不回测基准定义
-- **v1.1.0 推荐最优组合定义（2026-08-15 用户拍板，定名「基础5」）**：默认 AI 推荐 = **AI宏 5+3+1 = 基础5[n2NovSpecialIndustry/excludeSpecialBear/janMidRating/janMidSpecial/k2c5HkChase] + 核心3[r7MayReinforced/excludeAuxCross/greedy15] + 1类回测剔除**（债类/波段不入宇宙 `_bt_in_universe`）= **8键+1类，总数9**。K2C5 已穷举验证并入基础5（不再是"第8键"），16组合全扫 K2C5 与核心3无叠加冲突、全局最优
-- **组合口径**：每日资金池等分 + AI仓位建议 K=1 + **G 用 13万 P≤3d「先卖年轻仓」可操作口径**（峰持仓≤20倍本金）；A/F 短持 = 每日池+top-K。**裸 G（无 P≤3d，不可操作）不是基准**
-- **版本计数**：v1.0.0 = AI宏 4+3+1（7键+1类）；v1.1.0 = AI宏 5+3+1（基础5+核心3 = 8键+1类，总数9）
-- **偏离=违规**：要测非基准口径（裸G/其他K档/其他P档/历史 fixed 口径/旧 v1.0.0 无 K2C5），必须显式声明"非 v1.1.0 基准口径" + 说明为什么测 + 结论标注差异，不作为主推结论
-- **派单钉基准**：主控派回测/挖掘任务 prompt 必须写「测试基准 = v1.1.0 推荐最优组合（定义见 §5.4①/§4.2）」
-- **版本升级原则（§5.4⑥）**：动到 AI 推荐/降亏过滤核心默认组合/算法，必须发中间版本（v1.0.0→v1.1.0→v1.1.1→...），同步更新：本基准定义 + memory 基准锚点 + 前端默认值 + §21 公示 + README；凡动了默认组合本身才升级测试基准定义
-- **依据文档**：`docs/kelly/analysis/kelly-k2c5-return-quadrant-check.md` + `kelly-k2c5-exhaust-interaction.md` + memory `test-baseline-v110-anchor` / `test-baseline-v111-anchor`
+> **当前基准版本定义（状态型）的权威 = memory `test-baseline-v112-anchor`**（每会话注入，含版本链对照/复现数字）；状态型内容留 memory/文档不进 skill（§5.4 原则），本节只保留行为纪律 + 项目定稿快照。
 
-## 5. 切分支保护 DB（§10，2026-07-14 已根治，作历史教训留存）
+- **当前基准 = v1.1.7（2026-08-27，git tag @384005e222）**：AI 降亏默认基座 = **S06 动态模式**（a9/new15 按日切，快照单源禁自算；T 日收盘算 size_spread≤-3.524% 次日切 A 进攻王 a9，否则回 new15 防守，状态机快照单源生成、前端只读禁自算、缺快照 fail-open 不拦截+红字降级），一切回测/测试/挖掘/穷举前提 = 当前基准。v1.1.1「v1.1.0 推荐最优组合」、v1.1.5 NEW14 等历史版本为对照，不再作测试前提
+- **历史定稿快照（对照用，非当前基准）**：v1.1.0 推荐最优组合 = AI宏 5+3+1 = 基础5[n2NovSpecialIndustry/excludeSpecialBear/janMidRating/janMidSpecial/k2c5HkChase] + 核心3[r7MayReinforced/excludeAuxCross/greedy15] + 1类回测剔除（债类/波段不入宇宙）= **8键+1类，总数9**；v1.1.5 = NEW14 十四键（hist 6 + 规则 8）。**裸 G（无 P≤3d，不可操作）不是基准**
+- **② 测试前提 = 基准**：一切回测/测试/挖掘/穷举，**默认前提必须是当前基准**（memory `test-baseline-v112-anchor` 为准）。要测非基准口径（裸G/其他K档/其他P档/历史 fixed 口径/旧 v1.0.0 无 K2C5/静态 NEW14/NEW15/8键），必须**显式声明"非当前基准口径"** + 说明为什么测它 + 结论标注口径差异，不作为主推结论
+- **③ 派单钉基准**：主控/所有角色派回测/测试/挖掘任务，prompt 必须写「测试基准 = current baseline（具体定义见 memory `test-baseline-v112-anchor`）」，防认知偏离。researcher 设计口径第一件事 = 确认基线落在基准上（能复现基准基线才往下，复现数字以记忆锚点为准）
+- **④ 偏离=认知或派单错误**：测试结论若基于非基准口径且未显式声明，本质是认知偏离或派单遗漏（教训：2.0 挖掘第一轮用裸 G 测「剔除整象限 G -74,954」，用户质疑后核实确实是裸 G 不可操作口径，结论需重测）
+- **⑤ 与 §5.1 关系**：穷举最大化（§5.1）指维度/子群穷举，不豁免基准口径——穷举是在基准组合前提下穷举待验证维度，不是把基准本身当可选项
+- **⑥ 版本升级原则（§5.4⑥）**：动到 AI 推荐/降亏过滤核心默认组合/算法，必须发中间版本，同步更新：基准定义（memory `test-baseline-v112-anchor`）+ 前端默认值 + §21 公示 + README + 全部键集登记点（前后端+邮件链路白名单，主仓 18 处全量表见 docs/kelly/analysis/v115-new14-baseline-alignment-audit.md）+ 键集一致性机检 PASS；纯新增不影响默认行为的可不动基准版本。**v1.1.1 先例**：动到数据层人口口径（非默认组合本身）也须发版本标记，但不回测基准定义；凡动了默认组合/算法本身才升级测试基准定义。基准升级时，老版本组合不再作测试前提，但保留在 memory/文档供对照
+- **⑦ 复现脚本同构对账铁律（§5.4⑦）**：凡「复刻前端逻辑」的复现/回测/对账脚本 = 第二份实现，前端改逻辑副本不自动跟、静默漂移是必然；任何进报告的核心数字发布前必须①同构对账机检（脚本输出 vs 页面真实渲染逐位对账，漂移即 FAIL）②页面实测锚点优先（无痕浏览器零 localStorage 实测，禁止预设"用户记错/切过档"）③报告复现段标注修复链（旧假数保留可反查）。涉复刻脚本/报告数字任务自验含「对账机检+页面实测锚点+复现段修复说明」，缺=验收不过
+- **版本链对照**：v1.0.0（AI宏 4+3+1，无 K2C5，仅对照）→ v1.1.0（K2C5 并基础5，8键+1类）→ v1.1.1（K 档 by_k 人口对齐，纯展示层，基准仍 v1.1.0）→ v1.1.5（NEW14 十四键）→ v1.1.7（S06 动态，当前基准）→ v1.1.8~v1.1.19（均未动基准定义，测试基准仍=v1.1.7）；git tag -l 全量核对版本链，缺哪个先报用户确认再补
+- **依据文档**：memory `test-baseline-v112-anchor`（权威）+ <docs/kelly/analysis/kelly-k2c5-return-quadrant-check.md> + `kelly-k2c5-exhaust-interaction.md`（主仓现用;包内旧 v110/v111 锚点已过时,不另行建档）
+
+## 5. 切分支保护 DB（原 §10，2026-07-14 已根治，作历史教训留存）
 
 - 历史隐患：`data/sentiment.db`（80MB）+ `data/etf_national_team.db` 曾进 git 跟踪，切分支时 git 用旧版覆盖污染 DB，致 2026-07-14 事故（收盘快照丢失）
 - **2026-07-14 已根治（commit 8e3f5fa）**：两 DB 移出 git（git rm --cached + .gitignore），现 untracked。线上全是 `static-site/data/*.json` 静态产物，不依赖 DB
 - 切分支现在不会再碰 DB（untracked 文件 git 不跟踪）
 - **教训（派 agent 同步分支时注意）**：DB 仍 tracked 时，checkout 切到另一分支会触发 git 用该分支版本覆盖本地 DB。正确同步 main 的方式 = 避免本地 checkout，用 `git fetch origin && git push origin feat/xxx:main` 或 reset，而非 `git checkout main && merge --ff-only`（中间态 checkout 仍 track DB 的分支会复现事故）
 - 绝不能 `git restore data/sentiment.db` / `git checkout -- data/sentiment.db`（若不慎重新 add）
+- **注脚（机制 D,现权属）**：上述 `git push origin feat/xxx:main` 是历史场景（DB 仍 tracked）下的同步手段；**当前** merge main + push main 一律由主控 `<main-merge脚本>` 统一入口执行,agent 只 push feat 分支,不自行执行本命令（机制 D,详见 §2）
 
-## 6. 生产稳定性 P0（§14 专项：launchd 定时任务时点全清单）
+## 6. 生产稳定性 P0（§14 专项：定时任务时点全清单）
 
 - **核心一句话：生产稳定性是 P0 第一要素**。项目已上线生产（ss.fx8.store/sss.sugas.site/s.sugas.site + ssd.fx8.store R2），定时任务撞车会导致线上数据覆盖事故/DB 锁/用户看到错误数据，是不可逆生产故障
-- **任务冲突检查不应由用户提醒才做**。每次派任务/设 cron/推 main 前**必须主动查 launchd 定时任务清单**（`launchctl list | grep trade` + 查 plist `StartCalendarInterval`），列当日盘后任务时点，确认新任务不撞，并**主动给用户时点建议**（不等用户问"会不会冲突"）
+- **任务冲突检查不应由用户提醒才做**。每次派任务/设 cron/推 main 前**必须主动查定时任务清单**——**生产定时任务全在云上 systemd timer（ssh 云上 `systemctl list-timers`；云上 `/etc/systemd/system/*.timer` 单元文件手动管理，git pull 不更新），本机 mac 纯开发不跑定时任务（launchd 已废弃，查 `launchctl` 是错的，详见 memory `local-dev-cloud-prod-split`）**。列当日盘后任务时点，确认新任务不撞，并**主动给用户时点建议**（不等用户问"会不会冲突"）
 - **核心冲突类型**：① 推 main（intraday-snapshot 15:35/20:35 + update-all 17:50 + deploy）vs 另一推 main = 互相覆盖事故（§2 已有 2026-07-20 gz 方案B事故）② 写 DB（评分/采集）vs 同 DB 任务 = DB 锁/progress 撞 ③ 采集脚本并发 = 限流空转
 - **盘后定时任务时点（15:35/16:00/16:30/17:50/20:35/22:00 等）不推 main 不写 public_fund.db**；**盘中（09:30-15:30）不跑全量 export+deploy**（§2 已有）
 - **安全窗口：23:00 后**无推 main/评分/采集任务（3:17 pf-score-weekly / 5:00 us-stock-morning 不写 public_fund.db），大型实施任务放此窗口
-- **agent 自己 push feat:main 也要避开**盘后定时任务时点，不只 cron 任务。agent prompt 须写明"避开 15:35/16:00/16:30/17:50/20:35/22:00 push main，撞 intraday-snapshot/update-all 推 main = 互相覆盖事故"
-- **盘中 push 前端代码 main 也避开 intraday-snapshot 每10分钟时点**（09:25-11:32 + 13:01-15:02 共 27 次推 intraday_snapshot.json 到 main）。agent 改 app.js/style.css 后 push feat:main 虽改不同文件 rebase 能合并，但 git push 竞争 non-ff 重试有风险，尽量错开。**盘中 push main 选 :00/:10/:20/:30/:40/:50 之外的安全分钟，或等盘后 23:00+ 窗口**（2026-08-10 R2 迁移后：盘中 intraday 走 R2 不推 main，盘中 push 代码 main 不避 intraday；仍避盘后 17:50 update_all 推 main non-ff 竞争）
+- **agent 只 push feat 分支，不碰 main（机制 D）**：agent 不 push main，盘后时点（15:35/16:00/17:50/20:35/22:00 ±5min 缓冲）与 cron 任务撞车由主控 `scripts/main-merge.sh` 统一检查拦截，agent 无需也不得自行判断 main 时点（避撞=主控 merge 入口职责）
+- **盘中 push main 不避 intraday**（2026-08-10 R2 迁移后：盘中 intraday-snapshot 走 R2 上传、不推 main，盘中 push 代码 main 不避 intraday 时点）；仍避盘后 `<update-all 时点>` update_all deploy 推 main non-ff 竞争——该避让由主控 `<main-merge脚本>` merge 入口统一检查拦截，agent 只 push feat 不 push main（机制 D）
 
-### 6.1 launchd 定时任务时点表（2026-08-12 实测 `launchctl list | grep trade`）
+### 6.1 定时任务时点表（时点清单为参考;权威实况 = 云上 systemd timer,ssh 云上 `systemctl list-timers` 核对）
 
 | 任务 | 时点 |
 |---|---|
@@ -138,13 +143,13 @@
 
 > 核心冲突时点记忆：**15:35/16:00/17:50/20:35/22:00**（旧文档/§14 摘要常用，等同上表 5 个）。
 
-## 7. 主功能回归复查（§15 专项：数据产物）
+## 7. 主功能回归复查（原 §15 专项：数据产物）
 
 - **数据产物完整性校验**：被多模块读的关键 JSON：`board_etf_map.json`（空 key 占比 <30%）/ `overview.json`（a_amount 非空）/ `intraday_snapshot.json`（collected_at 今日）等。生成脚本跑完自动校验，超标 fail 不让 deploy（`check_data_integrity.py` deploy.sh 前置，已接入）。扩展 `collect_health` 到数据产物
 - **task-reviewer 子 agent**：每次代码改动 push 前派独立 reviewer agent，不看新功能，专看"改动可能影响哪些老功能"（grep 改动文件被谁引用 + 跑关键老功能点），不占主控上下文
 - **关键功能 smoke 清单**：维护 P0/P1 主功能点清单（首页 KPI 角标/指数表现 ETF/分时图 hover/情绪分/信号/策略实验室入口等），每次上线前 reviewer agent 跑一遍 curl 数据层 + 关键交互文字描述验证，失败项立即修
 - **2026-08-06 教训**：`board_etf_map.json` 因 `etf_index_map.json` 缺失常 27/72 空数组，致指数表现模块 ETF 展示全失效（"全部无ETF"），用户发现时已上线。根因是某改动让数据产物损坏但无校验拦截。此 bug 触发本规范建立。教训对应 C 级（数据产物损坏），非显示改
-- **smoke 清单落档**：主功能清单+数据校验规则放 `docs/smoke-checklist.md` 进 git（非 memory），reviewer agent 读取执行
+- **smoke 清单落档**：主功能清单+数据校验规则放 <docs/smoke-checklist.md> 进 git（非 memory），reviewer agent 读取执行
 - 模型只文本不能看 UI，回归验证用 curl JSON 数据层 + 关键交互文字描述 + 让用户确认显示三层
 
 ## 8. §22 数据一致性铁律项目专项（用户视角多展示位必须一致）
@@ -181,7 +186,7 @@
 
 ### 9.4 团队协作项目例（23.4）
 
-- 开工前先查 `docs/pending-features-index.md`（已落档未开发功能索引，团队共享地图）同模块项
+- 开工前先查 <docs/pending-features-index.md>（已落档未开发功能索引，团队共享地图）同模块项
 - 同模块多任务不许"后覆盖前"；冲突/依赖/过时**一开始就暴露**上报主控
 - 本驱动源（凯利回测/首页 AI 过滤/前端展示）的历史待办索引项，写代码前先 scan，冲突先上报
 
@@ -203,15 +208,15 @@
 
 - **数据产物**（static-site/data/*.json）：overview.json（首页核心）/ board_etf_map.json（指数表现 ETF 评分）/ concepts.json（概念）/ intraday_snapshot.json（分时快照）/ index-*.json（指数全量+历史 range）/ industry-*.json（31 行业）/ trade_sim-*.json（策略实验室回测）/ public_fund-*.json（公募基金）/ signal_kelly_*.json（凯利回测）/ daily_brief.json（AI 速递，gen_daily_brief.py 生成）/ alert.json/daily_metric.json/schedule_stats.json（监控小文件）等
 - **采集脚本**：collector 系列（mootdx/baostock/腾讯多源）、index_backfill.py（指数补采）、futures/rzhb/lhb 回填、pf-stage0 系列（公募基金分阶段）、gen_daily_brief.py（AI 速递，deepseek，schedule 默认关）
-- **定时任务**：见 §6.1 launchd 表
+- **定时任务**：见 §6.1 定时任务时点表
 - **R2 上传链路**：export.py 自动跑 / upload_r2.py 按前缀命令 / staticdata_sync.sh（staticdata 同步）——见 §3
 
-## 11. 子 agent 教训（§11 专项：具体 agent id，精简留存）
+## 11. 子 agent 教训（原 §11 专项：具体 agent id，精简留存）
 
 - **2026-07-15 教训 a194f/afe9**：a194f 曾只写"开始"641 秒不回写进度致盲区；429 后误判原会话终止重派 afe9 从头跑，浪费 a194f 已查的上下文。实际 task-notification note 明说"can resume"，429 和卡死都优先 resume——配额恢复后第一动作是 SendMessage resume 原会话，不是重派
 - **2026-07-15 a5c6**：改名反复 came to rest，SendMessage 推进 3 次才完成；阈值可降到 240 秒
 - **2026-08-07 ETF盈亏4轮振荡**：中途改口径停旧派新，SendMessage 让旧 agent 继续致误操作反向（a11439db9 拒绝大重构 -> 改派 a00f4f2c8b 成功）
-- 最新教训索引：L01-L28 全文在 docs/archive/CLAUDE-errors-2026-08.md（根 CLAUDE.md §18 索引表可反向追）
+- 最新教训索引：L01-L28 全文在 <docs/archive/CLAUDE-errors-2026-08.md>（根 CLAUDE.md §18 索引表可反向追）
 
 ## 12. 其他项目专项 memory 速查（开工现读）
 
@@ -230,4 +235,4 @@
 - `r2-arch-by-category-not-size` / `r2-optimize-after-generate` / `r2-upload-from-trade` - R2 架构按类别非按大小 + 生成后即走 + 从 trade 跑
 - `compact-recovery-checklist` - compact 后第一动作 5 步
 - `daily-brief-deepseek` - AI 速递已切 deepseek（非 glm），key 在 trade-data/.env 非 git；2026-08-10 第一阶段后端已上线，前端首盘小结展示待续
-- `main-governance`（memory 索引） - 主控开工第一件事 Read docs/main-governance.md
+- `main-governance`（memory 索引） - 主控开工第一件事 Read <docs/main-governance.md>
