@@ -164,7 +164,7 @@
 
 - **核心一句话**:绕弯路解决的问题,下次子 agent 不应重复--把它写进 `docs/agent-quickstart.md` 对应任务类型的"这类任务怎么直接做对"step + 常见坑速查,子 agent 接任务读速查直接做对
 - **触发条件(识别"这次绕弯路")**:
-  ① 子 agent fresh context 反复调研同一已知架构/流程(R2 上线/CF Workers 路由/build_min+bump_asset+bump sw 三步/launchd 清单/export cwd 路径同步 等)
+  ① 子 agent fresh context 反复调研同一已知架构/流程(R2 上线/CF Workers 路由/build_min+bump_asset+bump sw 三步/systemd timer 清单/export cwd 路径同步 等)
   ② 试错返工:方案未充分调研就实施致返工(§18 索引 7 hoverpop/移动端)
   ③ 误解口径/方向偏差:调研下结论前未验证(§18 索引 8/9/11/12,如"无/0/不可改善"过早断定、调研跳到生成层不对准 UI 位置)
   ④ 子 agent 重新发现已知的坑(§18 已记录但 fresh context 不知道,速查文档是它真正会读的入口)

@@ -337,6 +337,23 @@ else
   echo "✓ critical-css 与 style.css 双源一致性机检通过"
 fi
 
+# 7.6 文档「时点/调度口径」一致性机检(§22 一致性铁律 + B 线 launchd 扫除根治, 2026-09-29 挂主入口)
+#     背景: launchd → 云上 systemd timer 迁移后, 文档口径曾 4 轮 FAIL(改邻行漏紧邻行, 人眼扫必然漏)。
+#     触发词: 任何文档含 launchd·launchctl·LaunchAgents·15:33·废弃 unit 名的改动都该在 merge 前被拦。
+#     逻辑: 扫 $REPO/docs/**/*.md + .claude/**/*.md + README.md, 命中过时口径(现行文档断言 launchd/15:33
+#            现行迁移前的旧时点)且不在豁免上下文即 FAIL。豁免=历史快照(文件名带日期/清单内)/显式标记
+#            <!-- staleness-ok -->/行内迁移对照与本机工具上下文词(详见脚本头注释)。
+echo "--- 文档时点/调度口径一致性机检(§22 + B 线 launchd 扫除) ---"
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo "  [dry-run] 跳过 check_doc_staleness"
+else
+  if ! "$PY" "$REPO/scripts/check_doc_staleness.py" --root "$REPO"; then
+    echo "✗ 文档时点/调度口径一致性机检 FAIL, 阻断 merge(§22 一致性铁律, 修复指引见上方命中行)" >&2
+    exit 1
+  fi
+  echo "✓ 文档时点/调度口径一致性机检通过"
+fi
+
 # 8.5 pending-index 销账软提醒(2026-08-22 用户授权流程小机制: 只提醒不阻断不自动改文件)
 #     背景: merge 进 main 的 commit message 常引用 docs/pending-features-index.md 的 #NN 编号但没人顺手销账。
 #     逻辑: 从本次 merge 带入的 commit message(标题+body, 范围=merge 前 origin/main..HEAD)提取 #编号,

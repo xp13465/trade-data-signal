@@ -76,7 +76,7 @@
 
 | 时间 | 任务 | 说明 |
 |------|------|------|
-| 15:33 | `update_all.sh` 全量采集 | 4 条并行 pipeline(core/width/futures/stock_daily)，各自采集→计算→导出→push |
+| 17:50 | `update_all.sh` 全量采集 | 4 条并行 pipeline(core/width/futures/stock_daily)，各自采集→计算→导出→push（原 15:33 实测采不到当日已后移，见 scripts/README.md 定时任务配置） |
 | 20:00 | `backfill_indices.sh` 补采兜底 | 校验 9 核心指数 + 31 申万行业指数缺失，多源补采后重算情绪分 + push |
 
 非交易日跳过采集，仅 deploy + check_signals。
@@ -301,7 +301,7 @@
 - **框架**：FastAPI + Uvicorn
 - **数据库**：SQLite（WAL 模式，busy_timeout=30000ms）
 - **前端**：原生 JS + ECharts（无框架），CSS + HTML
-- **调度**：macOS launchd（com.trade.update-all + com.trade.backfill-evening）
+- **调度**：云上 systemd timer（trade-update-all + trade-backfill-evening，见 docs/deploy/systemd-units-20260912.md）
 
 ### 6.2 公网部署
 
@@ -352,7 +352,7 @@ SQLite `data/sentiment.db`，11 张表：
 | 计算 | pandas + numpy（RSI/MACD/KDJ/ATR/Supertrend 等指标） |
 | 前端 | 原生 JS + ECharts 5 + Canvas（分享图/净值曲线 SVG） |
 | 样式 | 原生 CSS（无框架），@media 响应式 H5 适配 |
-| 部署 | Cloudflare Pages（静态） + macOS launchd（调度） |
+| 部署 | Cloudflare Pages（静态） + 云上 systemd timer（调度） |
 | 版本控制 | Git，每次采集 auto-commit + push |
 
 ---

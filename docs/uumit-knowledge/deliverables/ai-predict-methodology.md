@@ -467,7 +467,7 @@ AI 预测不是"测完就完",而是**每次预测都留下一个可判分的样
 2. **看历史命中**:`daily_brief_history.json` — 6 条,stats n=5 hit=3 0.6;8-14 那条带 `hit` 字段(三层全失败原始数据)。
 3. **看反思库**:`daily_brief_reflections.json` — total_samples=1(8-10 规则版反思);8-17 条注入 reflection n=1 dir_fail=1。
 4. **看注入面体积**:对 8-14 跑数据注入聚合(load_data),JSON 32,428 字节 ≈2.2 万 token(第 3 章实测)。
-5. **看生成脚本入口**:生成脚本 main 段 = `backfill_hits → write_outputs → notify → upload_to_r2 → staticdata_sync`,是整条链路的执行骨架;触发由 `run_daily_brief.sh`(带交易日判断)+ launchd `com.trade.daily-brief`(每个交易日 17:50)驱动。
+5. **看生成脚本入口**:生成脚本 main 段 = `backfill_hits → write_outputs → notify → upload_to_r2 → staticdata_sync`,是整条链路的执行骨架;触发由 `run_daily_brief.sh --multi`(带交易日判断)+ 云上 systemd timer `trade-daily-brief`(每个交易日 20:40)驱动。
 
 **复刻要点(给想自己做的人)**:不需要照抄我的脚本,核心是复刻**四件事**——①结构化 meta 断言层(让预测可机检);②三层双命中判分(严格,不注水);③降级契约(非交易日/数据不全/区间非法四道刹车);④自成长闭环(失败→归因→反思→注入)。数据源换成你自己能拿到的即可。
 

@@ -13,7 +13,7 @@
   - backfill 等(经 index_backfill 内部触发)
 - **同步内容**(deploy.sh L507-558 四步):
   1. rsync `$REPO/data/*.db` → staticdata/db/(本地备份,不进 git,`db/*.db` gitignore)
-  2. cp wrangler.jsonc + launchd plist(脱敏)→ staticdata/config/
+  2. cp wrangler.jsonc + systemd 单元配置(脱敏)→ staticdata/config/
   3. **rsync 全量 `$REPO/static-site/data/` → staticdata/data/**(全量镜像,无白名单)
   4. `git -C staticdata add -A` + commit + push origin main(best-effort,失败不阻塞 deploy)
 - **REPO 取值**: deploy.sh L24 `REPO=${REPO:-/Users/linhuichen/code/trade-data}`(与 gen_daily_brief 写盘目录同源,无 export-output-path-sync 陷阱)。

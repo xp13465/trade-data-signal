@@ -46,7 +46,7 @@
 | 层 | 存储 | 内容 | 用途 |
 |---|---|---|---|
 | ① trade git | GitHub `xp13465/trade-data-signal` | 代码（app/scripts/static-site源码/worker/wrangler.jsonc），不含 data/ | 代码版本管理 |
-| ② staticdata git | GitHub `xp13465/trade-data-signal-staticdata` | 差异日志：DB 原件（本地 rsync，不进 git）+ 配置（脱敏 .env.example/wrangler.jsonc/launchd plist）+ 小 JSON（git diff 追踪每日变化） | 看变化历史（git diff） |
+| ② staticdata git | GitHub `xp13465/trade-data-signal-staticdata` | 差异日志：DB 原件（本地 rsync，不进 git）+ 配置（脱敏 .env.example/wrangler.jsonc/systemd 单元配置）+ 小 JSON（git diff 追踪每日变化） | 看变化历史（git diff） |
 | ③ R2 signal-backup 私有桶 | R2（不绑公开域名） | 备份快照压缩：DB gz 分层（backup/30 天 + weekly/28 天 + monthly/365 天）+ Claude 自我备份 | 全量恢复（解压快照） |
 | ④ R2 signal-data 公开桶 | R2（ssd.fx8.store 直链 + Worker binding） | 线上静态资源分发：所有线上用的静态资源（小 JSON + 大文件 index/industry/lab/trade_sim/public_fund） | 前端 fetch |
 
@@ -303,7 +303,7 @@ upload-data-large / upload-all-data
 每次 deploy 后（best-effort，失败不阻塞 deploy）：
 
 1. **rsync DB 原件**到 `staticdata/db/`（本地备份，不进 git，`.gitignore` 排除 `db/*.db`）
-2. **cp 配置**到 `staticdata/config/`：wrangler.jsonc + launchd plist（sed 脱敏 `/Users/linhuichen` -> `/Users/USER`）
+2. **cp 配置**到 `staticdata/config/`：wrangler.jsonc + systemd 单元配置（sed 脱敏 `/Users/linhuichen` -> `/Users/USER`）
 3. **rsync 全量 JSON**到 `staticdata/data/`（全量备份，DB 不在此目录）
 4. **git commit + push**（差异化日志，`data backup [deploy] YYYY-MM-DD_HH:MM`）
 
@@ -312,7 +312,7 @@ upload-data-large / upload-all-data
 | 内容 | 位置 | 进 git | 说明 |
 |---|---|---|---|
 | DB 原件 | `staticdata/db/*.db` | 否（.gitignore 排除，GitHub 100MB 限制） | 本地双副本防误删 |
-| 配置（脱敏） | `staticdata/config/` | 是 | wrangler.jsonc + launchd plist（路径脱敏） |
+| 配置（脱敏） | `staticdata/config/` | 是 | wrangler.jsonc + systemd 单元配置（路径脱敏） |
 | 小 JSON | `staticdata/data/` | 是 | git diff 追踪每日变化 |
 | 大文件 | 只 R2 公开桶 | 否 | 体量大 git 不适合 |
 
@@ -488,23 +488,16 @@ git push origin main
 # -> GH Actions 自动跑 wrangler deploy + GH Pages deploy
 ```
 
-### 步骤 9：配置 launchd 定时任务
+### 步骤 9：配置定时任务
+
+生产定时任务已迁云上 systemd timer（37 个 `.timer`/`.service`，生成与启用步骤见 [`docs/deploy/systemd-units-20260912.md`](deploy/systemd-units-20260912.md) 与 `docs/deploy/migration-checklist-20260912.md`）；**本机 mac 纯开发不配置生产定时任务**。
 
 ```bash
-# 复制 plist 到 LaunchAgents（修改路径为新机器路径）
-cp scripts/plists/*.plist ~/Library/LaunchAgents/
-# 或手动创建 plist（参考现有 plist 结构）
-
-# 加载所有任务
-for plist in ~/Library/LaunchAgents/com.trade.*.plist; do
-  launchctl load "$plist"
-done
-
-# 验证
-launchctl list | grep trade
+# 云上查看/管理生产定时任务
+ssh -i ~/tdsignal.pem ubuntu@122.51.111.173
+systemctl list-timers
+sudo systemctl enable --now trade-update-all.timer   # 示例：启用主采集
 ```
-
-> **plist 含机器绝对路径**（`/Users/linhuichen/code/trade-data/scripts/...`），每台机器需修改路径后加载。plist 模板在 staticdata git 仓库 `config/launchd/` 下（路径已脱敏）。
 
 ### 步骤 10：验证
 
@@ -527,8 +520,8 @@ curl -s -X POST https://ss.fx8.store/api/purge-cache \
 # 验证 DB
 sqlite3 /Users/linhuichen/code/trade-data/data/sentiment.db "SELECT COUNT(*) FROM daily_metric;"
 
-# 验证定时任务
-launchctl list | grep trade
+# 验证定时任务（云上）
+ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 "systemctl list-timers | grep trade"
 ```
 
 ---
