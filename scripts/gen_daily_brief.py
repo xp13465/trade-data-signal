@@ -3062,6 +3062,23 @@ def _sync_warn_extra(tag: str, out: str, err: str = "") -> str:
 
 
 # ── R2 上传(数据走 R2,上传后前端可读)─────────────────────────────────────
+def _r2_has(file_name: str, timeout: int = 8) -> bool:
+    """R2 兜底已生效检查: ssd.fx8.store data/ 前缀 HTTP 200 = 文件已到位。
+
+    2026-09-29 告警降噪(改动5): R2 上传超时后先查兜底(17:50 deploy upload-all-data /
+    次日任务已补齐) → 已到位则不打 ✗ R2_UPLOAD_TIMEOUT(非真缺口, 免 gen_schedule_stats
+    critical 首报); 未到位才打 ✗(真缺口)。用 urllib(标准库), 不依赖 requests 可用性。
+    """
+    try:
+        import urllib.request as _ur
+        req = _ur.Request(f"https://ssd.fx8.store/data/{file_name}",
+                          method="HEAD", headers={"User-Agent": "signal-lab/check"})
+        with _ur.urlopen(req, timeout=timeout) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
 def upload_to_r2(repo: Path, no_upload: bool, files: list[str] | None = None) -> None:
     """上传 daily_brief*.json 到 R2 data/ 前缀 + purge edge cache。
     必须传 REPO=repo 给 upload_r2.py,否则其 STATIC_DIR 解析到 trade/ 而非本脚本写入的 trade-data/,
@@ -3088,12 +3105,18 @@ def upload_to_r2(repo: Path, no_upload: bool, files: list[str] | None = None) ->
         else:
             print(f"⚠ R2 上传 rc={r.returncode} {out[-300:] if out else ''} {err[-300:] if err else ''}")
     except subprocess.TimeoutExpired:
-        # 绝不静默(2026-09-24 硬化 P1-B 同口径): 本调用不带 --skip-if-locked(低频排队语义),
-        # 20:40 撞 R2 锁时排队会触发 timeout=120 → 旧 except Exception 吞成 ⚠ exit 0 静默失败
-        # (R2 没传但监控显通过)。打显式可 grep 的 ✗_TIMEOUT 标记, 关联注释见 fetch_news.py。
-        print(f"✗ R2_UPLOAD_TIMEOUT: daily_brief R2 上传超 120s 未完成, "
-              f"上传文件可能缺口(缺口由 17:50 deploy upload-all-data 或次日任务兜底), "
-              f"请核对 R2 是否缺", file=sys.stderr)
+        # 2026-09-29 告警降噪(改动5): 上传超时后先查 R2 兜底已生效(17:50 deploy 的
+        # upload-all-data 或次日任务已补齐) → 已到位则只打 ⚠ degrade(gen_schedule_stats
+        # severity=degrade, schedule_monitor 连续 3 轮未自愈才 SEVERE, 不即时轰炸);
+        # 未到位才打 ✗ R2_UPLOAD_TIMEOUT(critical 首报, 真缺口)。
+        # 绝不静默(2026-09-24 硬化 P1-B 同口径): 兜底未到位时 ✗ 标记照打, 不会吞。
+        _probe = BRIEF_FILE if BRIEF_FILE in files else (files[0] if files else "daily_brief.json")
+        if _r2_has(_probe):
+            print(f"⚠ R2 上传超 120s 但 R2 已有 {_probe}(兜底已生效), 不视为缺口")
+        else:
+            print(f"✗ R2_UPLOAD_TIMEOUT: daily_brief R2 上传超 120s 未完成, "
+                  f"上传文件可能缺口(缺口由 17:50 deploy upload-all-data 或次日任务兜底), "
+                  f"请核对 R2 是否缺", file=sys.stderr)
     except Exception as e:
         print(f"⚠ R2 上传异常(不阻塞): {e}")
 

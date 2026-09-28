@@ -153,6 +153,9 @@ KELLY_FAIL_MAX_DAYS = 2       # C1: 最近成功 deploy(deploy_*.log 含「退�
 KELLY_TRADES_FILE = "signal_kelly_trades.json"
 KELLY_BACKTEST_FILE = "signal_kelly_backtest.json"
 KELLY_DEPLOY_OK_ANCHOR = "退出码=0"   # deploy.sh L799 成功行锚点: 「=== deploy.sh 结束 ... 退出码=0 ===」
+KELLY_C2_GRACE_MIN = 30        # 改动9(2026-09-29): C2 对「最新 deploy 日志 mtime 距今 <30min」跳过
+                               # (deploy 定时任务 17:50 起, 18:00 检查时 deploy 可能仍在跑/刚结束尚未写成功行,
+                               # 此时 C2 尾行无「退出码=0」是正常的, 等下一轮再判, 防盘后 deploy 期间误报)
 # 盘中占位行特征: etf_daily 写入的同值假数据行(etf_name=etf_code, accum_nav/open 全同值, close=NULL),
 # 不算真实价格 —— 所有「覆盖源推进日 / 次日价齐」判定必须排除(设计 §4.1: 覆盖源推进到 T 收盘价齐才判档)。
 # 已收盘日(9/4/9/7)占位=0 行; 盘中(9/8 实测 1540 行)占位经此条件过滤后 nav 最新日回落至上一收盘日。
@@ -427,6 +430,20 @@ def check_accum_nav_new_gap(repo: Path, today: datetime,
         else:
             fresh.append((code, name, d))
 
+    # 2026-09-29 告警降噪(改动8): fresh(当日新缺)细分为「近端时滞」vs「真断供」。
+    # 当日/近端新缺(A 股 ETF 净值晚间/次日发布, 22:35 检查时当日 nav 未入库属正常时滞,
+    # 09-28 227 条含 512660 军工等, 次日自然补齐) → 降 info;
+    # 只有 fresh 中 date 相对最近完整交易日 T 落后 >=KELLY_SEVERE_BACK(2) 交易日仍缺
+    # = 真净值采集断供 → 保留 WARN。QDII 名称豁免(qdii_codes)逻辑不变。
+    fresh_info, fresh_warn = [], []
+    _today_str = today.strftime("%Y%m%d")
+    for code, name, d in fresh:
+        _lag = _trading_days_gap(repo, d, _today_str)
+        if _lag >= KELLY_SEVERE_BACK:
+            fresh_warn.append((code, name, d))
+        else:
+            fresh_info.append((code, name, d))
+
     out: list[Finding] = []
     if qdii:
         out.append(Finding(
@@ -435,24 +452,34 @@ def check_accum_nav_new_gap(repo: Path, today: datetime,
             f"QDII T+1 净值时滞: 当日 close 有值但 nav 次日公布, 属正常现象, 不告警不处理。"
             f"例: {'; '.join(f'{c} {n}@{d}' for c, n, d in qdii[:5])}。"))
 
-    bad = regress + fresh
+    bad = regress + fresh_warn
+    # 改动8(2026-09-29): 全部当日新缺均近端时滞(无真断供, regress 也没有) → 只记 info,
+    # 不推 WARN(次日自然补齐; 09-28 227 条当日净值时滞刷屏场景根治)。
     if not bad:
+        if fresh_info and not regress:
+            out.append(Finding(
+                ACC_NAV_GAP_KEY, "info",
+                f"ETF 累计净值当日新缺 {len(fresh_info)} 条(净值时滞, 次日自然补齐, 不告警)",
+                f"对比 {prev_latest or '-'} 快照, 新增缺价均为当日/近端(A 股 ETF 净值晚间/次日发布, "
+                f"22:35 检查时当日 nav 未入库属正常时滞, 2026-09-29 告警降噪)。"
+                f"次日仍缺将自然进入下次新增 diff 或回归告警。"
+                f"例: {'; '.join(f'{c} {n}@{d}' for c, n, d in fresh_info[:6])}。"))
         return (out, new_snapshot)
 
     regress_txt = ("; ".join(f"{c} {n}@{d}" for c, n, d in regress[:6])) if regress else "无"
-    fresh_txt = ("; ".join(f"{c} {n}@{d}" for c, n, d in fresh[:6])) if fresh else "无"
+    fresh_txt = ("; ".join(f"{c} {n}@{d}" for c, n, d in fresh_warn[:6])) if fresh_warn else "无"
     impact_note = ("影响=0 口径: 缺价日发生在已交易时段且无持仓依赖则不影响信号与回测"
                    "(2026-09-06 分析三重交叉实证: 历史缺价日∩信号日∩强平日=0); "
                    "若新增缺价日命中信号日/强平日, 属需要人工介入的真事故。")
     detail = (f"对比 {prev_latest or '-'} 快照, 新增缺价 {len(bad)} 条:"
               f"<br>① 历史回归(之前有价今天变缺): {len(regress)} 条 — {regress_txt}"
-              f"<br>② 当日新缺(该日该有价却缺): {len(fresh)} 条 — {fresh_txt}"
-              f"<br>另有 QDII 跨境时滞 {len(qdii)} 条(info)。<br>{impact_note}"
+              f"<br>② 当日新缺已落后>=2交易日仍缺(净值采集断供): {len(fresh_warn)} 条 — {fresh_txt}"
+              f"<br>另有近端时滞 {len(fresh_info)} 条 + QDII 跨境时滞 {len(qdii)} 条(info)。<br>{impact_note}"
               f"<br>建议: 回退/污染类先查 etf_national_team 采集是否覆盖该日该代码; "
               f"持续出现走 accum-nav --lookback 补采。")
     out.append(Finding(
         ACC_NAV_GAP_KEY, "warn",
-        f"ETF 累计净值新增缺价 {len(bad)} 条(回归 {len(regress)} / 当日新缺 {len(fresh)})",
+        f"ETF 累计净值新增缺价 {len(bad)} 条(回归 {len(regress)} / 真断供 {len(fresh_warn)})",
         detail))
     return (out, new_snapshot)
 
@@ -894,6 +921,14 @@ def check_kelly_coverage(repo: Path, today: datetime) -> list[Finding]:
         explainable = [m for m in missing if m[0] == t_prev and m[6]]
         if len(explainable) == len(missing):
             level = "warn"
+    # C 类降级(2026-09-29 告警降噪, #125 方案①「接受缺口+降噪」): missing 全部为
+    # 「已具备次日价仍无 trade」(blocked=False, 冻结/评级缺失等不可自动修复形态, 非临时数据缺口)。
+    # 权威结论(docs/sigkelly-gap-rootcause-20260928 分支 sigkelly-gap-20260923-rootcause.md):
+    # 链路本身正常(09-28 SDC 档已含 44 行, 主档次日入账 by design), 唯一真缺口=sz_div@09-22
+    # 撞防前视冻结闸(signal_kelly_backtest.py:436-440)永久无法入账 → 每天重报 SEVERE 无意义, 降 WARN。
+    frozen_form = bool(missing) and all(not m[6] for m in missing)
+    if level == "severe" and frozen_form:
+        level = "warn"
 
     items = []
     for d, iid, sig, code, name, reason, blocked in missing:
@@ -904,14 +939,17 @@ def check_kelly_coverage(repo: Path, today: datetime) -> list[Finding]:
               f"在 signal_kelly_trades.json 无对应交易记录(trades 最新 {latest or '无'}, 断档深度 {depth} 交易日):"
               f"<br>{'<br>'.join(items)}"
               f"<br>最近完整交易日 T={T}; 断档深度 = T 与 trades 最新 signal_date 的交易日间隔"
-              f"(≥{KELLY_SEVERE_BACK}=SEVERE 断档, 9/7 事故形态; =1=次日定价窗内; 全缺集中在 =T-1 且缺次日价时降 WARN)。"
+              f"(≥{KELLY_SEVERE_BACK}=SEVERE 断档, 9/7 事故形态; =1=次日定价窗内; 全缺集中在 =T-1 且缺次日价时降 WARN; "
+              f"全缺均为「次日价已齐仍缺(冻结/评级缺失)」时降 WARN, 2026-09-29 #125 方案①)。"
               f"<br>影响: 首页模拟回测弹窗/lab 凯利回测交易记录停更, 用户看到虚假的历史交易缺失。"
               f"<br>日志: {repo}/data/logs/update_all_launchd.log + deploy_*.log(signal_kelly_backtest 阶段)。"
               f"<br>建议: 若缺次日价, 手动补 etf_daily 再重跑 export(static-site/export.py 7.9.2 步); "
-              f"若已具备次日价仍缺, 人工核查 signal_kelly_backtest skipped 明细。")
-    return [Finding(KELLY_COVERAGE_KEY, level,
-                    f"交易记录断档: {len(missing)} 个入样买入信号无对应交易(断档深度 {depth} 交易日)",
-                    detail)]
+              f"若已具备次日价仍缺, 人工核查 signal_kelly_backtest skipped 明细(冻结缺失多为防前视冻结闸 "
+              f"signal_kelly_backtest.py:436-440 拒绝补冻, 属已知接受缺口, 见 sigkelly-gap-20260923-rootcause.md)。")
+    title = (f"交易记录断档: {len(missing)} 个入样买入信号无对应交易(断档深度 {depth} 交易日)"
+             if not (frozen_form and level == "warn") else
+             f"交易记录缺 {len(missing)} 条冻结/评级缺失(不可自动入账, 接受缺口降噪, 断档深度 {depth})")
+    return [Finding(KELLY_COVERAGE_KEY, level, title, detail)]
 
 
 def check_kelly_stale(repo: Path, today: datetime) -> list[Finding]:
@@ -960,10 +998,20 @@ def check_kelly_stale(repo: Path, today: datetime) -> list[Finding]:
     #   trades 停 9/9 属正常 → B1/B3 降级不报 SEVERE(防 SEVERE 误报, researcher #110 实锤)。
     if latest and t_prev:
         cov_missing = _kelly_missing_candidates(repo, db, win, t_prev, sig_set, excluded, best_etf)
-        no_expected_buys = not cov_missing
+        if cov_missing:
+            # C 类降级(2026-09-29 #125 方案①「接受缺口+降噪」): 窗口内缺失全部为
+            # 「已具备次日价仍无 trade」(blocked=False, 冻结/评级缺失等不可自动修复形态,
+            # 典型=sz_div@09-22 撞防前视冻结闸 signal_kelly_backtest.py:436-440 永久无法入账)
+            # → 视同信号缺席: trades 停更是正确状态, B1/B3 不升 SEVERE(防每日重报)。
+            all_frozen = all(
+                not _missing_reason(repo, d, iid, best_etf.get(iid, {}), win)[1]
+                for d, iid, sig, code, name in cov_missing)
+            no_expected_buys = all_frozen
+        else:
+            no_expected_buys = True
     else:
         no_expected_buys = False
-    kelly_stale_gate_severe = not no_expected_buys  # False=信号缺席, 禁止 B1/B3 升 SEVERE
+    kelly_stale_gate_severe = not no_expected_buys  # False=信号缺席/全冻结, 禁止 B1/B3 升 SEVERE
 
     # B1: 最新 signal_date 应 >= T-1(KELLY_BUY_NEXTDAY: T-1 信号在 T 盘后必有次日(T 日) open 可定价, 必须入账)
     # nav 未推进到 T(次日价未齐) → 降 WARN 定价窗内, 不吓人(L172 括号语义)
@@ -978,7 +1026,8 @@ def check_kelly_stale(repo: Path, today: datetime) -> list[Finding]:
         elif no_expected_buys:
             b1_title = f"交易记录最新信号日 {latest} 未更新(最近窗口无应入账 buy 信号, 停更属正常)"
             b1_nav_txt = (f"最近 {len(win)} 个交易日窗口内无「宇宙内入样 buy 系信号且应已入账却缺失」"
-                          f"(全部已入账或全部处于 KELLY_BUY_NEXTDAY 次日开盘定价窗内), trades 停在 {latest} 是正确状态"
+                          f"(全部已入账、全部处于 KELLY_BUY_NEXTDAY 次日开盘定价窗内, 或全部为冻结/评级缺失"
+                          f"不可自动修复形态——2026-09-29 #125 方案①接受缺口降噪), trades 停在 {latest} 是正确状态"
                           f", 不误报 SEVERE(#102 信号缺席感知, 09-11 场景 9/10 无 buy 系信号/9/11 信号 9/14 才入账)。")
         else:
             b1_title = f"交易记录最新信号日 {latest} 未更新(T 日价未齐, 定价窗内)"
@@ -1102,6 +1151,12 @@ def check_kelly_backtest_fail(repo: Path, today: datetime) -> list[Finding]:
     # C2: 最新 deploy 尾部 rc 行
     if logs:
         latest_log = logs[0]
+        # 改动9(2026-09-29): 最新 deploy 日志 mtime 距今 <30min 时跳过 C2(等下一轮)。
+        # deploy 定时任务 17:50 起, 紧邻时点检查时 deploy 可能仍在跑/刚结束但成功行尚未写入,
+        # 此时尾行无「退出码=0」属正常, 不判 WARN; 下一轮(≥30min 后)仍未出现成功行才报警。
+        c2_age_min = (today - datetime.fromtimestamp(latest_log.stat().st_mtime)).total_seconds() / 60
+        if c2_age_min < KELLY_C2_GRACE_MIN:
+            return out
         tail = b""
         try:
             # 用 Path.stat() 取 size; open 后 f 是 io.BufferedReader 无 .stat() 方法,
