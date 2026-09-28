@@ -28560,6 +28560,12 @@ function _dbNewsDateCn(date) {
   if (!m) return "";
   return `${parseInt(m[2], 10)}月${parseInt(m[3], 10)}日`;
 }
+// 归一化任意日期串为「YYYY-MM-DD」(支持 2026-08-16 或 20260816;非法/空返回空串),用于日期字典序比较(YY-MM-DD 直接字符串比)。
+function _dbNewsYMD(date) {
+  if (!date) return "";
+  const m = String(date).match(/(\d{4})[-]?(\d{2})[-]?(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : "";
+}
 
 // 由 news_digest.date 推断「明日」的「X月X日」(→ 8月17日)。upcoming 无结构化日期字段,标题统一标明日日期(宁缺毋滥);非法/空返回空串。
 function _dbTomorrowDateCn(date) {
@@ -28630,8 +28636,12 @@ function _loadHistNewsAsync(root) {
 // ---- 新闻速递弹窗(📰 新闻按钮触发,独立于 AI 预测弹窗;数据源当日 news_digest.json + 归档)----
 // 内容 4 项: ①当日全量新闻(时间倒序,标来源+重要度) ②重要/预告置顶分组(重要新闻+明日预告) ③按来源筛选 chip ④分时/涨幅对照迷你图。
 let _newsModalState = null; // { date, all:[], news: all, upcoming:[], src:'all' }  // news 与 all 同源, 列表/重要分组读 news, 按钮计数读 all
-let _newsModalSparkCached = null; // 上证分时 points 缓存(fetchTencentMinute("sh") 结果)
+let _newsModalSparkCached = null; // 上证分时 points 缓存(_fetchIntradayRenderSource("sh") 结果)
+let _newsModalSparkForDate = ""; // P2-2: 缓存对应的 news_digest.date 锚(YYYY-MM-DD)。锚 digest 日而非"必须等于今天"——
+//   非交易日/盘前/盘初 digest 日为日历日、曲线日为上一交易日, 锚匹配即不重拉, 防误判过期每开必重拉; 换日锚变才重拉。
+let _newsModalSparkCooldown = 0; // P2-2: 探活冷却时间戳——同一 digest 日探到"曲线日仍 < digest 日"(节假日/未开盘无当日行情)后冷却 30min, 防每 5min 空转。
 let _newsModalSparkStatic = null; // 分时不可得时静态降级用 intraday_snapshot 指数项
+let _newsModalSparkStaticForDate = ""; // P2-2: 静态降级快照的 digest 日锚, 换日重拉(与 _newsModalSparkForDate 同款)
 
 // 来源 id -> 中文名(三源: eastmoney 东财 / cls 财联社 / jin10 金十),用于分组/chip/每条标注。
 const _NEWS_SRC_NAMES = { eastmoney: "东财", cls: "财联社", jin10: "金十" };
@@ -28773,6 +28783,17 @@ function _startNewsDigestModalPoll() {
         // 恢复滚动位置(重渲染后 .news-scroll 是新节点,重新查找设置;滚动位置本身不变,不闪回顶部)
         const sc2 = body ? body.querySelector(".news-scroll") : null;
         if (sc2 && scrollTop >= 0) sc2.scrollTop = scrollTop;
+        // P2-2(2026-09-28): 迷你图时效异步刷新(换日/盘中曲线追新),仅缓存对象实际更新才重渲染并恢复滚动;
+        //   失败保留旧曲线不闪空。注意: 列表已在上面渲染过, 这里只补迷你图, 不阻塞列表展示。
+        const _sparkBefore = _newsModalSparkCached;
+        await _ensureNewsModalSpark();
+        if (_newsModalSparkCached !== _sparkBefore) {
+          const _sc3 = body ? body.querySelector(".news-scroll") : null;
+          const _st = _sc3 ? _sc3.scrollTop : (scrollTop >= 0 ? scrollTop : -1);
+          _renderNewsDigestBody();
+          const _sc4 = body ? body.querySelector(".news-scroll") : null;
+          if (_sc4 && _st >= 0) _sc4.scrollTop = _st;
+        }
       } catch (e) { /* 重拉失败保留旧内容,下一轮再试 */ }
       _newsModalPolling = false;
       poll();
@@ -28971,6 +28992,60 @@ function newsDigestModalEl() {
   return modal;
 }
 
+// 迷你图缓存时效判定(2026-09-28 P2-2): 修复「缓存永不失效→挂一上午还是上午那条」。
+// 锚定规则: 缓存以 news_digest.date 为锚(_newsModalSparkForDate), 换日必重拉(每 digest 日至多一次);
+//   同锚日仅当「北京工作日 + 交易时段(9:30~11:30/13:00~15:05) + 曲线末点早于当前时刻」才重拉(交易日盘中曲线在长)。
+// 为何锚 digest 日而非 _bjTodayStr(): 非交易日 digest=周六、曲线=上一交易日(周五), 锚匹配=不重拉;
+//   若写"必须等于今天"会在周末/盘前/盘初把上一交易日曲线误判过期, 每开必重拉(任务点名的坑)。
+// 节假日工作日盘中: 探活一次发现曲线日仍 < digest 日(无当日行情)→ 冷却 30min 再探, 防每 5min 空转;
+//   交易日开盘瞬间(9:30 前后 EM 切新日)最迟 30min 内探到, 曲线日追上后转末点判定正常追新。
+// 失败(双源 null/空): 保留旧缓存不闪空, 下一轮/下次打开再试(与 _loadNewsDigest 保留旧内容同精神)。
+async function _ensureNewsModalSpark() {
+  const digestDate = (_newsModalState && _newsModalState.date) || "";
+  // ① 首拉/换日: 锚 != digest 日 → 重拉(每 digest 日至多一次)
+  if (!_newsModalSparkCached || _newsModalSparkForDate !== digestDate) {
+    const md = await _fetchIntradayRenderSource("sh");
+    if (md && md.points && md.points.length) {
+      _newsModalSparkCached = md;
+      _newsModalSparkForDate = digestDate;
+      _newsModalSparkCooldown = 0; // 新日锚重置探活冷却
+    }
+    return;
+  }
+  // ② 同日盘中时效: 仅北京工作日交易时段内曲线可能新增
+  const dow = _bjDayOfWeek();
+  if (dow < 1 || dow > 5) return; // 周末(节假日前端难判, 兜底按周末, 与 getState 同款)
+  const bjMin = _bjTimeMin();
+  if (bjMin < 9 * 60 + 30 || bjMin > 15 * 60 + 5) return; // 盘前/盘后不探
+  if (bjMin >= 11 * 60 + 30 && bjMin < 13 * 60) return; // 午休曲线 11:30 定格, 探了也空转
+  const pts = _newsModalSparkCached.points;
+  if (!pts || !pts.length) return;
+  // ②a 曲线日 < digest 日(上一交易日曲线 + 交易日盘中已过 9:30 → 新日可能已起): 探活一次, 冷却防节假日空转
+  const dataYmd = _dbNewsYMD(_newsModalSparkCached.date || "");
+  if (dataYmd && dataYmd < _dbNewsYMD(digestDate)) {
+    if (Date.now() < _newsModalSparkCooldown) return;
+    const md = await _fetchIntradayRenderSource("sh");
+    if (md && md.points && md.points.length) {
+      _newsModalSparkCached = md;
+      _newsModalSparkForDate = digestDate;
+    }
+    if (!md || !md.points || !md.points.length || _dbNewsYMD(md.date || "") < _dbNewsYMD(digestDate)) {
+      _newsModalSparkCooldown = Date.now() + 30 * 60 * 1000; // 该 digest 日仍无当日行情(节假日/极早盘) → 冷却 30min
+    }
+    return;
+  }
+  // ②b 曲线日 == digest 日(交易日盘中): 末点早于当前时刻 → 重拉追曲线
+  const lastT = pts[pts.length - 1].time || "";
+  const lastMin = lastT.length === 5 ? parseInt(lastT.slice(0, 2), 10) * 60 + parseInt(lastT.slice(3, 5), 10) : -1;
+  if (lastMin >= 0 && lastMin < bjMin) {
+    const md = await _fetchIntradayRenderSource("sh");
+    if (md && md.points && md.points.length) {
+      _newsModalSparkCached = md;
+      _newsModalSparkForDate = digestDate;
+    }
+  }
+}
+
 // 打开新闻弹窗: 加载当日 news_digest.json + 上证分时序列(可分时则渲染迷你图,否则静态降级)。
 async function openNewsDigestModal() {
   newsDigestModalEl().classList.remove("hidden");
@@ -28986,19 +29061,15 @@ async function openNewsDigestModal() {
     _newsModalState = { all: [], upcoming: [], date: "", src: "all" };
     _newsModalState.err = String((e && e.message) || e);
   }
-  // ④分时序列: 拉上证分时(有则迷你图示;失败/休市空则由静态降级补一句)。
+  // ④分时序列: 拉上证分时(有则迷你图示;失败/休市空则由静态降级补一句)。P2-2 起走时效判定 helper(换日重拉+盘中追新)。
   try {
-    if (!_newsModalSparkCached) {
-      // 2026-09-28: 复用渲染双腿 helper(东财优先,失败转腾讯),EM 抽风时新闻弹窗迷你图不再掉静态降级
-      const md = await _fetchIntradayRenderSource("sh");
-      if (md && md.points && md.points.length) _newsModalSparkCached = md;
-    }
+    await _ensureNewsModalSpark(); // 2026-09-28 P2-2: 首拉/换日重拉 + 盘中追新(详见 helper 注释);失败保留旧缓存走静态降级
   } catch (e2) { /* 分时不可得: 走静态降级 */ }
   try {
-    if (!_newsModalSparkStatic) {
+    if (!_newsModalSparkStatic || _newsModalSparkStaticForDate !== _newsModalState.date) {
       const snap = await fetchJSON("./data/intraday_snapshot.json");
       const idx = (snap && Array.isArray(snap.indices)) ? (snap.indices.find((i) => i && i.name === "上证指数") || snap.indices[0]) : null;
-      _newsModalSparkStatic = idx;
+      if (idx) { _newsModalSparkStatic = idx; _newsModalSparkStaticForDate = _newsModalState.date; }
     }
   } catch (e3) { /* 静态降级数据不可得: 不显示分时区 */ }
   _renderNewsDigestBody();
