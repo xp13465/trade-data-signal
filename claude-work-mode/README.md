@@ -16,13 +16,13 @@
 │  .claude/skills/role-*/= 角色专属规范全文（经 skills 字段启动     │
 │  SKILL.md                全文注入，确定性不依赖主动读）         │
 ├────────────────────────────────────────────────────────────┤
-│  docs/main-governance.md = 主控专属规范（§2/3/4/7/11/15/16/19  │
+│  <docs/main-governance.md> = 主控专属规范（§2/3/4/7/11/15/16/19│
 │                          + COMPACT 恢复 5 步），主控按需 Read， │
 │                          子 agent 永不读                      │
 ├────────────────────────────────────────────────────────────┤
-│  docs/archive/CLAUDE-errors-2026-08.md = §18 教训原文全量归档   │
-│  docs/smoke-checklist.md = P0/P1 主功能 smoke 清单             │
-│  docs/role-based-context-research.md = 角色拆分调研报告        │
+│  <docs/archive/CLAUDE-errors-2026-08.md> = §18 教训原文全量归档 │
+│  <docs/smoke-checklist.md> = P0/P1 主功能 smoke 清单           │
+│  <docs/role-based-context-research.md> = 角色拆分调研报告      │
 ├────────────────────────────────────────────────────────────┤
 │  ★ claude-work-mode/   = 本可移植备份包（本次同步主体）         │
 │     CLAUDE.md（通用） + PROJECT-SPECIFIC.md（项目专项）         │
@@ -41,7 +41,7 @@
 
 ### 给 `trade` 项目（本仓库）
 
-根 `CLAUDE.md` 是实际加载的共享核心（角色拆分后已瘦身），`.claude/agents/` + `.claude/skills/role-*/` + `docs/main-governance.md` 是实际加载的角色/主控规范。本目录是**可移植备份包**，便于：
+根 `CLAUDE.md` 是实际加载的共享核心（角色拆分后已瘦身），`.claude/agents/` + `.claude/skills/role-*/` + <docs/main-governance.md> 是实际加载的角色/主控规范。本目录是**可移植备份包**，便于：
 
 - 复用通用部分到其他项目时只取 `CLAUDE.md`
 - 工作模式演进后，定期同步拆分到此两文件，保持备份完整
@@ -87,7 +87,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 
 - **通用部分**（可移植，无业务）：工作模式/协作机制/方法论。项目特定配置用 `<占位符>`（域名/模型名/定时任务时点/数据产物/文件名等），移植时替换。
 - **项目专项**（A股看板业务）：具体域名/DB/数据产物/采集脚本/launchd 定时任务时点/技能库版本/模型提供方。
-- **角色拆分核心原则**：根 CLAUDE.md 删不掉、躲不开子 agent（启动全量注入），所以根文件只留"所有角色都该无条件知道"的共享核心；角色专属规范进 `.claude/skills/<role>/SKILL.md` 经 agent 定义 `skills` 字段**启动全文注入**（确定性）；主控专属进 `docs/main-governance.md`（主控按需 Read，子 agent 永不读）。业界共识：指令文件要小、按需加载、按角色/目录拆分。
+- **角色拆分核心原则**：根 CLAUDE.md 删不掉、躲不开子 agent（启动全量注入），所以根文件只留"所有角色都该无条件知道"的共享核心；角色专属规范进 `.claude/skills/<role>/SKILL.md` 经 agent 定义 `skills` 字段**启动全文注入**（确定性）；主控专属进 <docs/main-governance.md>（主控按需 Read，子 agent 永不读）。业界共识：指令文件要小、按需加载、按角色/目录拆分。
 
 边界章节（如原 §7 落档、§8 推送、原 §11 子 agent、原 §13 模型、原 §15 回归、原 §17 高峰；原 §N=已下沉/归档的历史节号，现址见下方「章节映射」表）按「通用模式 + 专项配置」拆：通用机制放 `CLAUDE.md`，具体值/事故 id/项目文件名放 `PROJECT-SPECIFIC.md`。
 
@@ -126,12 +126,12 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 24. **前端部署/SW 防撕裂** - 版本串强制刷新 + SW 壳芯配套失败回退 + 部署后验哈希==引用
 - **验收铁律** - 逐字验证关键结论，不信 agent 报告
 
-> 注：编号继承根/旧版（§0/§1/§5/§6/§8/§9-§19/§21/§22/§23），§20（快速上手引导维护）为主控专属，在 `docs/main-governance.md`；其中 §9/§10/§11/§12/§13/§15/§16/§17/§19 已下沉/归档，现址见下方「章节映射」表（原 §N 为历史节号）。
+> 注：编号继承根/旧版（§0/§1/§5/§6/§8/§9-§19/§21/§22/§23），§20（快速上手引导维护）为主控专属，在 <docs/main-governance.md>；其中 §9/§10/§11/§12/§13/§15/§16/§17/§19 已下沉/归档，现址见下方「章节映射」表（原 §N 为历史节号）。
 
 ## 项目专项清单（PROJECT-SPECIFIC.md，trade 仓库）
 
 0. 项目概览 + 角色拆分后工作模式拓扑（各文件定位表）
-1. 项目文件结构与落档（NOTES/TASKS 历史拆分、docs/archive、docs/smoke-checklist.md）
+1. 项目文件结构与落档（NOTES/TASKS 历史拆分、<docs/archive>、<docs/smoke-checklist.md>）
 2. 改完推送专项（3 域名 ss.fx8.store/sss.sugas.site/s.sugas.site + R2 ssd.fx8.store + deploy.sh + force push 事故 + intraday 时点 + 三查清单项目化）
 3. R2 存储架构（index/industry/trade_sim/public_fund 类别 + upload_r2 命令 + 新类别上线 checklist + fetchJSON 跳 gz）
 4. 单版前端铁律（static-site + trade-data cwd + build_min + bump sw + min 验证 + export 路径同步）
@@ -177,7 +177,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 
 ## 同步约定
 
-- **根 `CLAUDE.md`（共享核心）是 source of truth**，实际加载；`.claude/agents/` + `.claude/skills/role-*/` + `docs/main-governance.md` 承载角色/主控规范；本目录是拆分备份。
+- **根 `CLAUDE.md`（共享核心）是 source of truth**，实际加载；`.claude/agents/` + `.claude/skills/role-*/` + <docs/main-governance.md> 承载角色/主控规范；本目录是拆分备份。
 - 根 `CLAUDE.md` 或角色 skill 更新后（新增章节/教训），**定期同步**到此两文件：通用部分进 `CLAUDE.md`，项目专项进 `PROJECT-SPECIFIC.md`，并更新本 README 的清单与映射表。
 - 通用 `CLAUDE.md` 的 `<占位符>` 在移植到新项目时替换；本项目专项值在 `PROJECT-SPECIFIC.md` 里是实际值。
 - 角色 skill 与 quickstart 分工：quickstart=操作步骤（怎么上线/怎么验），role skill=角色职责+专属规范+专属教训；改动任一 grep 另一处同步。

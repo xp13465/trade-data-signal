@@ -3,7 +3,7 @@
 > 本文件是 `trade` 项目（A股情绪看板）的业务/数据/部署/定时任务专项规范，配合通用 `CLAUDE.md` 使用。
 >
 > - **通用工作模式**见同目录 `CLAUDE.md`（可移植，占位符待替换）
-> - **角色拆分（2026-08-12）后本文件定位**：根 `CLAUDE.md` 已瘦身为共享核心（所有角色通用），主控专属在 `docs/main-governance.md`，角色专属在 `.claude/agents/` + `.claude/skills/role-*/`，本文件只承载**项目业务/数据/部署/定时任务专项**知识。通用 + 专项 + 角色 skill = 完整工作模式拓扑（见同目录 README.md）
+> - **角色拆分（2026-08-12）后本文件定位**：根 `CLAUDE.md` 已瘦身为共享核心（所有角色通用），主控专属在 <docs/main-governance.md>，角色专属在 `.claude/agents/` + `.claude/skills/role-*/`，本文件只承载**项目业务/数据/部署/定时任务专项**知识。通用 + 专项 + 角色 skill = 完整工作模式拓扑（见同目录 README.md）
 > - 技术栈/公网/关键文件路径详见 memory `trade-sentiment-dashboard` 及项目 `NOTES.md`。
 
 ## 0. 项目概览 + 角色拆分后工作模式拓扑
@@ -12,24 +12,24 @@
 - 前端源码统一在 `static-site/`；后端 `app/`；数据产物 `static-site/data/*.json`；DB `data/sentiment.db` + `data/etf_national_team.db`（untracked，不进 git）
 - compact 恢复第一动作：读 `TASKS.md` 会话状态小节 + `NOTES.md` 近期章节
 
-### 0.1 角色拆分后各文件定位（2026-08-12，详见 docs/role-based-context-research.md）
+### 0.1 角色拆分后各文件定位（2026-08-12，详见 <docs/role-based-context-research.md>）
 
 | 文件/目录 | 定位 |
 |---|---|
 | 根 `CLAUDE.md` | **共享核心**（所有角色启动自动注入）：§0 角色速览/§1 开工先读/§6 中文/§5 调研/§18 防重犯索引表[L01-L28]/§22 一致性/§8 推送摘要/§14 稳定性摘要/§21 公示指针/§23 三铁律/历史归档/验收铁律 |
 | `.claude/agents/implementer.md` 等 4 个 | **角色 agent 定义**（name/description/tools/model/skills 字段），body=角色 system prompt |
 | `.claude/skills/role-implementer/SKILL.md` 等 4 个 | **角色专属规范全文**（经 agent 定义 `skills` 字段**启动全文注入**，确定性不依赖主动读）：implementer=原 §9(impl skill §1)/§21 公示/§8§14 操作/修bug三铁律/举一反三；reviewer=原 §15(rev skill §1-§4)/改动分级/smoke/数据校验/公示查证；researcher=调研方法论/防误判/§5.1 穷举回测/数据挖掘；tester=smoke/数据校验/curl 三查/一致性 |
-| `docs/main-governance.md` | **主控专属规范全文**（§2/§3/§4/§7/§11/§15/§16/§19 + COMPACT 恢复 5 步），主控开工第一件事 Read，子 agent 永不读 |
-| `docs/archive/CLAUDE-errors-2026-08.md` | **§18 教训原文全量归档**（28 锚点 L01-L28 + 经验 E01-E22 + 每日归纳），根文件只留索引表，`grep 锚点id` 反向追 |
-| `docs/role-based-context-research.md` | 角色分上下文调研报告（用户反思触发，2026-08-12 建） |
-| `docs/smoke-checklist.md` | P0/P1 主功能点 smoke 清单，reviewer/tester agent 读取执行 |
+| <docs/main-governance.md> | **主控专属规范全文**（§2/§3/§4/§7/§11/§15/§16/§19 + COMPACT 恢复 5 步），主控开工第一件事 Read，子 agent 永不读 |
+| <docs/archive/CLAUDE-errors-2026-08.md> | **§18 教训原文全量归档**（28 锚点 L01-L28 + 经验 E01-E22 + 每日归纳），根文件只留索引表，`grep 锚点id` 反向追 |
+| <docs/role-based-context-research.md> | 角色分上下文调研报告（用户反思触发，2026-08-12 建） |
+| <docs/smoke-checklist.md> | P0/P1 主功能点 smoke 清单，reviewer/tester agent 读取执行 |
 | `claude-work-mode/` | **可移植备份包**（通用 CLAUDE.md + 项目专项 + README），用于跨项目复用 |
-| `docs/agent-quickstart.md` | 按任务类型 A-F 的操作步骤速查（按需 Read 型，非注入） |
+| <docs/agent-quickstart.md> | 按任务类型 A-F 的操作步骤速查（按需 Read 型，非注入） |
 
 ## 1. 项目文件结构与落档（原 §7 专项）
 
-- `NOTES.md`/`TASKS.md` 已拆分历史章节（2026-07-21）：历史章节（§1-§47，2026-07-06~07-20）归档到 `docs/archive/NOTES-history.md`；已完成项归档到 `docs/archive/TASKS-done.md`。主文件只保留近期章节 + 活跃待办 + 工作约定 + R2/全站性能待办。查历史在此二档
-- smoke 清单落 `docs/smoke-checklist.md` 进 git，reviewer agent 读取执行
+- `NOTES.md`/`TASKS.md` 已拆分历史章节（2026-07-21）：历史章节（§1-§47，2026-07-06~07-20）归档到 <docs/archive/NOTES-history.md>；已完成项归档到 <docs/archive/TASKS-done.md>。主文件只保留近期章节 + 活跃待办 + 工作约定 + R2/全站性能待办。查历史在此二档
+- smoke 清单落 <docs/smoke-checklist.md> 进 git，reviewer agent 读取执行
 - 长任务 progress ledger 落 `.superpowers/sdd/progress.md` 进 git，跨 compaction 可恢复
 
 ## 2. 改完推送专项（§8 专项：域名/data 路径/deploy.sh）
@@ -87,7 +87,7 @@
 - **偏离=违规**：要测非基准口径（裸G/其他K档/其他P档/历史 fixed 口径/旧 v1.0.0 无 K2C5），必须显式声明"非 v1.1.0 基准口径" + 说明为什么测 + 结论标注差异，不作为主推结论
 - **派单钉基准**：主控派回测/挖掘任务 prompt 必须写「测试基准 = v1.1.0 推荐最优组合（定义见 §5.4①/§4.2）」
 - **版本升级原则（§5.4⑥）**：动到 AI 推荐/降亏过滤核心默认组合/算法，必须发中间版本（v1.0.0→v1.1.0→v1.1.1→...），同步更新：本基准定义 + memory 基准锚点 + 前端默认值 + §21 公示 + README；凡动了默认组合本身才升级测试基准定义
-- **依据文档**：`docs/kelly/analysis/kelly-k2c5-return-quadrant-check.md` + `kelly-k2c5-exhaust-interaction.md` + memory `test-baseline-v110-anchor` / `test-baseline-v111-anchor`
+- **依据文档**：<docs/kelly/analysis/kelly-k2c5-return-quadrant-check.md> + `kelly-k2c5-exhaust-interaction.md` + memory `test-baseline-v110-anchor` / `test-baseline-v111-anchor`
 
 ## 5. 切分支保护 DB（原 §10，2026-07-14 已根治，作历史教训留存）
 
@@ -144,7 +144,7 @@
 - **task-reviewer 子 agent**：每次代码改动 push 前派独立 reviewer agent，不看新功能，专看"改动可能影响哪些老功能"（grep 改动文件被谁引用 + 跑关键老功能点），不占主控上下文
 - **关键功能 smoke 清单**：维护 P0/P1 主功能点清单（首页 KPI 角标/指数表现 ETF/分时图 hover/情绪分/信号/策略实验室入口等），每次上线前 reviewer agent 跑一遍 curl 数据层 + 关键交互文字描述验证，失败项立即修
 - **2026-08-06 教训**：`board_etf_map.json` 因 `etf_index_map.json` 缺失常 27/72 空数组，致指数表现模块 ETF 展示全失效（"全部无ETF"），用户发现时已上线。根因是某改动让数据产物损坏但无校验拦截。此 bug 触发本规范建立。教训对应 C 级（数据产物损坏），非显示改
-- **smoke 清单落档**：主功能清单+数据校验规则放 `docs/smoke-checklist.md` 进 git（非 memory），reviewer agent 读取执行
+- **smoke 清单落档**：主功能清单+数据校验规则放 <docs/smoke-checklist.md> 进 git（非 memory），reviewer agent 读取执行
 - 模型只文本不能看 UI，回归验证用 curl JSON 数据层 + 关键交互文字描述 + 让用户确认显示三层
 
 ## 8. §22 数据一致性铁律项目专项（用户视角多展示位必须一致）
@@ -181,7 +181,7 @@
 
 ### 9.4 团队协作项目例（23.4）
 
-- 开工前先查 `docs/pending-features-index.md`（已落档未开发功能索引，团队共享地图）同模块项
+- 开工前先查 <docs/pending-features-index.md>（已落档未开发功能索引，团队共享地图）同模块项
 - 同模块多任务不许"后覆盖前"；冲突/依赖/过时**一开始就暴露**上报主控
 - 本驱动源（凯利回测/首页 AI 过滤/前端展示）的历史待办索引项，写代码前先 scan，冲突先上报
 
@@ -211,7 +211,7 @@
 - **2026-07-15 教训 a194f/afe9**：a194f 曾只写"开始"641 秒不回写进度致盲区；429 后误判原会话终止重派 afe9 从头跑，浪费 a194f 已查的上下文。实际 task-notification note 明说"can resume"，429 和卡死都优先 resume——配额恢复后第一动作是 SendMessage resume 原会话，不是重派
 - **2026-07-15 a5c6**：改名反复 came to rest，SendMessage 推进 3 次才完成；阈值可降到 240 秒
 - **2026-08-07 ETF盈亏4轮振荡**：中途改口径停旧派新，SendMessage 让旧 agent 继续致误操作反向（a11439db9 拒绝大重构 -> 改派 a00f4f2c8b 成功）
-- 最新教训索引：L01-L28 全文在 docs/archive/CLAUDE-errors-2026-08.md（根 CLAUDE.md §18 索引表可反向追）
+- 最新教训索引：L01-L28 全文在 <docs/archive/CLAUDE-errors-2026-08.md>（根 CLAUDE.md §18 索引表可反向追）
 
 ## 12. 其他项目专项 memory 速查（开工现读）
 
@@ -230,4 +230,4 @@
 - `r2-arch-by-category-not-size` / `r2-optimize-after-generate` / `r2-upload-from-trade` - R2 架构按类别非按大小 + 生成后即走 + 从 trade 跑
 - `compact-recovery-checklist` - compact 后第一动作 5 步
 - `daily-brief-deepseek` - AI 速递已切 deepseek（非 glm），key 在 trade-data/.env 非 git；2026-08-10 第一阶段后端已上线，前端首盘小结展示待续
-- `main-governance`（memory 索引） - 主控开工第一件事 Read docs/main-governance.md
+- `main-governance`（memory 索引） - 主控开工第一件事 Read <docs/main-governance.md>

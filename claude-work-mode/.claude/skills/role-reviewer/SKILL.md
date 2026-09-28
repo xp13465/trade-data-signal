@@ -8,7 +8,7 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 > 本 skill 由 reviewer agent 定义 `skills: [role-reviewer]` 启动全文注入,确定性加载。共享核心在根 CLAUDE.md(自动注入),此处只放角色专属规范。
 
 ## 关联规范源(§23.8 skill 维护同步)
-- 主功能回归/改动分级 → 根 CLAUDE.md §15 操作层(本 skill §1-§4)+ docs/main-governance.md §15 主控侧
+- 主功能回归/改动分级 → 根 CLAUDE.md §15 操作层(本 skill §1-§4)+ <docs/main-governance.md> §15 主控侧
 - 算法公示查证 → 根 CLAUDE.md §21(本 skill §5)
 - 防前视审查要点 → 根 CLAUDE.md §5.1⑥ + researcher skill §3.1(本 skill §5.1)
 - 前端部署防撕裂四查 → 根 CLAUDE.md §24(本 skill §5.2)
@@ -37,7 +37,7 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - ① **数据产物完整性校验**:被多模块读的关键 JSON(`board_etf_map.json`空key占比<30% / `overview.json` a_amount非空 / `intraday_snapshot.json` collected_at今日 等)生成脚本跑完自动校验,超标 fail 不让 deploy(check_data_integrity.py deploy.sh 前置)。扩展 `collect_health` 到数据产物
 - ② **task-reviewer(你)**:grep 改动文件被谁引用 + 跑关键老功能点
 - ③ **关键功能 smoke 清单**:维护 P0/P1 主功能点清单(首页KPI角标/指数表现ETF/分时图hover/情绪分/信号/策略实验室入口等),上线前跑一遍 curl 数据层 + 关键交互文字描述验证,失败项立即修
-- **smoke 清单落档**:主功能清单+数据校验规则放 `docs/smoke-checklist.md` 进 git,你读取执行
+- **smoke 清单落档**:主功能清单+数据校验规则放 <docs/smoke-checklist.md> 进 git,你读取执行
 - 模型只文本不能看 UI,回归验证用 curl JSON 数据层 + 关键交互文字描述 + 让用户确认显示三层
 
 ## 4. 数据完整性校验(原 §15 ① + §8.1)
@@ -66,10 +66,10 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 
 ## 6. 团队协作审查口径(§23.4/23.5 reviewer 侧,2026-08-12 用户定,reviewer 只需了解这一层)
 实施 agent 改完,你查以下几点(团队协作/同模块冲突预防的验收检查,不需要像实施那样全文掌握):
-- **预留覆盖**:实施 agent 改动是否 scan 了 `docs/pending-features-index.md` 本模块项,是否预留了"已落档未开发功能"的接口/展示位/常量位,或说明为何不相关。改死了本模块待开发功能的位置=验收不过
+- **预留覆盖**:实施 agent 改动是否 scan 了 <docs/pending-features-index.md> 本模块项,是否预留了"已落档未开发功能"的接口/展示位/常量位,或说明为何不相关。改死了本模块待开发功能的位置=验收不过
 - **冲突预防**:实施报告/进度里是否确认了同模块无其他任务在改/或冲突已上报主控协调。发现"后覆盖前"风险(两个 commit 改同一模块同区域)=提出,merge 前主控核对
 - **待办对账**:方案假设 vs 当前代码/数据现状是否对得上(索引待办项依赖现状,项目变则项失效),实施是否拿过时方案硬套
-- 验收口径与 §23.4/23.5 实施侧全文见 `.claude/skills/role-implementer/SKILL.md §8 团队协作`(实施侧主);主控调度视角见 docs/main-governance.md。本 skill 只留 reviewer 检查要点
+- 验收口径与 §23.4/23.5 实施侧全文见 `.claude/skills/role-implementer/SKILL.md §8 团队协作`(实施侧主);主控调度视角见 <docs/main-governance.md>。本 skill 只留 reviewer 检查要点
 
 ## 7. reviewer 专属教训蒸馏(来自 §18 索引,操作化防重犯)
 - **L17 §0证伪查错文件**:验收文件类结论时,先 grep 前端渲染逻辑(fetch/dataUrl/fetchJSON)确认实际读哪个文件,不跟 agent 说的文件名查
@@ -160,7 +160,7 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - **四问法(每个捕获点过一遍)**:这个错误谁会看到?日志够不够日后排障?fallback 行为用户是否可见/可知?该不该上抛给上层统一处理?
 
 ### 10.5 逐条 finding 质量标准：trace + verifier(2026-09-01 采纳 Karpathy Skills 放宽版)
-> 采纳来源:`docs/codex-reviews/karpathy-skills-evaluation-20260901.md`,与你(Claude 内部 reviewer)与外部 codex-reviewer 同一标准。**关联规范源**:CLAUDE.md §23.8(skill 活资产同步);改源头时反向同步本节。
+> 采纳来源:<docs/codex-reviews/karpathy-skills-evaluation-20260901.md>,与你(Claude 内部 reviewer)与外部 codex-reviewer 同一标准。**关联规范源**:CLAUDE.md §23.8(skill 活资产同步);改源头时反向同步本节。
 
 **每条进正式报告的 finding 必须可追溯 + 可验证,缺一不算合格 finding。**
 
@@ -192,7 +192,7 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 - **验收口径**:review 报告对每个代码类 finding 应含 over_engineering 维度(action/saves_lines/rationale);实施 agent 收到后按 §6.5 复核是否真可省;只报"这段有问题"不给删除/简化指令 + 量化 = 本节未落地
 
 ## 11. 相关文件指针
-- docs/smoke-checklist.md(P0/P1 主功能清单+数据校验规则,必读执行)
-- docs/agent-quickstart.md(按任务类型操作步骤速查)
+- <docs/smoke-checklist.md>(P0/P1 主功能清单+数据校验规则,必读执行)
+- <docs/agent-quickstart.md>(按任务类型操作步骤速查)
 - 根 CLAUDE.md §22 数据一致性铁律 + §26 防重犯索引表
 - 项目 PROJECT-SPECIFIC.md(数据产物清单/校验规则)

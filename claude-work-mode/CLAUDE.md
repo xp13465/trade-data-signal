@@ -4,7 +4,7 @@
 >
 > **角色分上下文拆分同步版**：根 `CLAUDE.md` 瘦身为「共享核心」（全员通用），主控专属规范移入 `<docs/main-governance.md>`（主控按需读），角色专属规范移入 `.claude/skills/<role>/SKILL.md`（经 `.claude/agents/<role>.md` 的 `skills` 字段启动全文注入）。本文件 = 根共享核心的**通用部分**，是「通用工作模式」的可移植备份。项目专项配置用 `<占位符>` 标注，移植时替换为实际值。
 >
-> 完整工作模式拓扑：**根 CLAUDE.md（共享核心）+ .claude/agents/ + .claude/skills/role-*/（角色专属）+ docs/main-governance.md（主控专属）+ 本包（可移植备份）**。详见同目录 `README.md`。
+> 完整工作模式拓扑：**根 CLAUDE.md（共享核心）+ .claude/agents/ + .claude/skills/role-*/（角色专属）+ <docs/main-governance.md>（主控专属）+ 本包（可移植备份）**。详见同目录 `README.md`。
 
 ---
 
@@ -27,7 +27,7 @@
 - **触发场景**：接 bug/功能需求时想"直接 Edit 快一点"→ 停，先想"该派谁"。紧急小改也走 agent（§23.2 修 bug 三铁律要求 agent 修+自测）。
 - **唯一例外:仅紧急 A 级小改可主控直接改**——A 级=纯文案/格式/单行常数/无逻辑变更/无跨文件影响/一眼可见正确性，且**必须紧急**。常规 A 级仍派 agent，拿不准就派；**B 级+（逻辑/口径/算法/跨文件/需 review）主控永不碰**。改完必须自验（语法/一致性）。
 
-## 0.2 派 background agent 三件套（2026-08-25 用户定，L01 二次复发根治;全文见 docs/main-governance.md §11）
+## 0.2 派 background agent 三件套（2026-08-25 用户定，L01 二次复发根治;全文见 <docs/main-governance.md> §11）
 > 与 L29 同病：此条原在 governance §11（按需读，compact 后不注入），裸派 agent 零兜底。提升为共享核心=每会话必注入。
 - **每次 Agent 工具派出子 agent，同一轮必齐三件**：①`run_in_background`（同步阻塞=违规）②prompt 写明进度文件 `/tmp/agent-progress-<名>.md` 且每步 echo ③**巡检兜底 cron 在位**（查已有 durable 巡检 job 且覆盖本 agent→复用；无→定时档+durable+门控零输出；全部 agent 完成后删）
 - **通知送达不可靠是架构事实**（notify/SendMessage 均会丢），cron 兜底是唯一可靠残余；裸派=违规
@@ -53,7 +53,7 @@
   ④**诚实标注**：退化年/转负模式/净利降幅是设计还是 bug 都如实标注，不选择性隐瞒
   ⑤**全局核心问题报告维度全**：凡「多方案选优/换判定源/换口径/动默认组合或核心实用功能」这类**全局核心问题**的报告，默认必须一次给全维度：①基线复现 ②按年分解（含领先是否靠近期行情撑起） ③稳定性（按年方向/分半/cap敏感性） ④回撤与恢复 ⑤大熊市及极端窗口专项 ⑥不同周期/参数变体 ⑦口径诚实标注。报告初稿先列「维度清单」自检，缺维度=验收不过（操作层见 researcher skill §3）
   ⑥**防前视铁律=调研回测核心宗旨**（用户原话"牛熊分界等这种变化信号一定不能是后视镜模式"）：任何择时/状态/切换类信号在时间点 t **只能用 t 之前的数据判定**，t 日收盘出信号次日生效；三条硬机检：①分位数阈值禁用全期分位，必须 expanding/滚动窗口并写明参数 ②复用既有特征库先核查固化口径 ③时点穿越测试（截断到历史 t 重算，与全量数据逐位一致才 PASS）。全文见 researcher skill §3.1
-- **认知有限→上网调研算法**（用户原话"如果你的认知有限 可以去往上调研可用的数据分析 数据挖掘。和不同算法来跑"）：自己知道的方法不够/不确定最优时，主动 WebSearch/WebFetch 调研业界可用方法，挑合适的拿来跑，不固守自己会的几种；调研后落档 docs/ 方法论，供后续复用
+- **认知有限→上网调研算法**（用户原话"如果你的认知有限 可以去往上调研可用的数据分析 数据挖掘。和不同算法来跑"）：自己知道的方法不够/不确定最优时，主动 WebSearch/WebFetch 调研业界可用方法，挑合适的拿来跑，不固守自己会的几种；调研后落档 <docs/> 方法论，供后续复用
 - **实施联动**：回测结论出来前，实施 agent 代码结构先支持多口径/多档位（如金额口径、K 档位可配置），数据定稿后直接切默认值，不返工
 
 ### 5.2 性能/成本优化铁律：先查模型参数层 + 上社区查经验（2026-08-12 用户定）
@@ -116,7 +116,7 @@
 ## 10. 破缓存/SW/min验证（已下沉 → role-implementer skill §1「单版前端铁律」全文 + §1.1「前端部署防撕裂」）
 > 改静态资源必须破缓存、SW CACHE_VERSION 同步、min 版验证用字符串非变量名等操作层全文已由实施 skill §1 承接。
 
-## 11. 子 agent 生命周期与通知兜底（已下沉 → docs/main-governance.md §11 同名节 + 本文件 §0.2 摘要）
+## 11. 子 agent 生命周期与通知兜底（已下沉 → <docs/main-governance.md> §11 同名节 + 本文件 §0.2 摘要）
 > 卡死/429/came to rest/中途改口径/通知兜底全流程见 `<docs/main-governance.md>` §11（变体：进度文件、worktree 隔离通知不送达、改口径=停旧派新、resume 可能被拒=改派新 agent 初始 prompt 绕过）。
 
 ## 12. 遇 API 错误不卡死（已归档 → 历史引用）
@@ -131,10 +131,10 @@
 - **盘后定时任务时点 `<T1>/<T2>/<T3>...` 不推 main 不写 `<DB名>`**；**交易日盘中（`<盘中时段>`）不跑全量 export+deploy**（§8 已有，休市可随时跑）；**安全窗口 `<深夜时点> 后`** 无推 main/评分/采集任务
 - **agent 自己 push feat:main 也要避开**盘后定时任务时点（尤其 `<update-all 时点>` deploy 推 main non-ff 竞争）
 
-## 15. 主功能回归复查 + 改动分级 + reviewer（已下沉 → role-reviewer skill §1-§4 + docs/main-governance.md §15）
+## 15. 主功能回归复查 + 改动分级 + reviewer（已下沉 → role-reviewer skill §1-§4 + <docs/main-governance.md> §15）
 > 核心：新功能绝对不可以影响老功能。A/B/C 改动分级审查口径、回归机制三层、smoke 清单执行全文见 reviewer skill §1-§4；主控侧调度见 `<docs/main-governance.md>` §15。
 
-## 16. agent 角色画像与 prompt 写作（已下沉 → docs/main-governance.md §16 同名节）
+## 16. agent 角色画像与 prompt 写作（已下沉 → <docs/main-governance.md> §16 同名节）
 > 主控 PM 定位 + 子 agent 角色分工 + prompt 写作规范全量见 `<docs/main-governance.md>` §16。
 
 ## 17. superpowers / skill 库融合规则（已归档 → 历史引用）

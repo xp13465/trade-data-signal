@@ -18,7 +18,7 @@ description: 测试 agent 专属规范 — 由 .claude/agents/tester.md 的 skil
 > 改了对应源头(根 CLAUDE.md 章节),顺着本节反向查同步本 skill。
 
 ## 1. smoke 清单执行
-- 读 `docs/smoke-checklist.md`(P0/P1 主功能点清单+数据校验规则,进 git 维护),逐项执行
+- 读 <docs/smoke-checklist.md>(P0/P1 主功能点清单+数据校验规则,进 git 维护),逐项执行
 - 主功能点示例:首页KPI角标/指数表现ETF/分时图hover/情绪分/信号/策略实验室入口等
 - 验证方式:三层验证(按顺序走):
   - **① curl 数据层**:JSON 字段有值/结构正确(主验证,纯代码不依赖 UI)
@@ -112,7 +112,7 @@ description: 测试 agent 专属规范 — 由 .claude/agents/tester.md 的 skil
 - **验收口径**:测试任务自验须含「安全底线清单(输入/安全/数据丢失兜底逐项验)+ 主路径与关键边界覆盖清单 + 被省掉的冗余测试项说明(为何不测)」;reviewer 查安全底线没被"懒"省略(该验的漏验=FAIL),冗余测试压掉(为测而测=没领会本节)
 
 ## 6. 测试专属教训蒸馏(2026-08-12 用户定 §18 按归属拆分:3 条 = 过错 1 + 经验 2)
-> 每条一行(锚点|一句话防重犯|归档行号),防重犯原文(含根因+场景+防重犯全文)在 `docs/archive/CLAUDE-errors-2026-08.md` 反追。**命中场景读本清单 → grep 锚点 → 归档原文**。零丢失校验:测试归属 = L22(1 过错)+ E03/E16(2 经验)= 3 条。通用/主控/实施/调研归属教训见各自文件,不经本 skill 注入。
+> 每条一行(锚点|一句话防重犯|归档行号),防重犯原文(含根因+场景+防重犯全文)在 <docs/archive/CLAUDE-errors-2026-08.md> 反追。**命中场景读本清单 → grep 锚点 → 归档原文**。零丢失校验:测试归属 = L22(1 过错)+ E03/E16(2 经验)= 3 条。通用/主控/实施/调研归属教训见各自文件,不经本 skill 注入。
 
 ### 测试专属过错(1 条)
 - **L22 curl -v泄漏token**:curl 带认证头诊断禁止 -v/-i(打印请求头泄漏 token);token 从 .env 读不硬编码不 echo | archive:L67
@@ -125,7 +125,7 @@ description: 测试 agent 专属规范 — 由 .claude/agents/tester.md 的 skil
 - **数据校验警惕「报告↔代码」互证闭环**(2026-08-24 has_track 口径 P0):报告与实现可能同源带 bug,两者一致≠正确;机检设计须含独立于被校验双方的参照锚点(UI 文案/产品文档/用户拍板记录);业务守恒断言(如卡数归零)不能只靠键集比对(实例:has_track 键集机检全绿但 14+1 卡不归零,用户肉眼发现)| 来源:archive:L44 + memory has-track-caliber-p0-reflection + CLAUDE.md §23.13
 
 ## 7. 相关文件指针
-- docs/smoke-checklist.md(P0/P1 主功能清单+数据校验规则,必读执行)
-- docs/data-deploy-quickstart.md(数据上线类速查)
+- <docs/smoke-checklist.md>(P0/P1 主功能清单+数据校验规则,必读执行)
+- <docs/data-deploy-quickstart.md>(数据上线类速查)
 - 根 CLAUDE.md §8「功能 done」三查清单 + §22 数据一致性铁律 + §23.13 口径三源核对 + 验收铁律(报完成≠真完成)+ §18 防重犯索引表
 - 方法论原文(只读不抄,蒸馏版在 §5):`~/.claude/plugins/cache/superpowers-marketplace/superpowers/6.1.1/skills/{verification-before-completion,test-driven-development}/SKILL.md` + `test-driven-development/testing-anti-patterns.md`;`~/.claude/plugins/marketplaces/claude-plugins-official/plugins/pr-review-toolkit/agents/pr-test-analyzer.md`(插件缓存可能随版本升级变路径,失效时按插件名重找)
