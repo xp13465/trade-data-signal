@@ -107,7 +107,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
   5.4 **测试基准锚点** - 一切回测/测试以已定稿推荐最优组合为前提，偏离=违规
   5.5 **token 优化 6 条** - 输出简洁/命令静默/派单只回结论/@文件直引/小任务不spawn/失败方向rewind
 6. **始终用中文回复**（附口语化）
-8. **改完必须推送** - commit+push+merge main；验上线验功能生效层非代码在 main；三查清单；非-ff rebase 不强推
+8. **改完必须推送** - commit+push feat；merge+push main 由主控 `<main-merge脚本>` 统一入口（机制 D，agent 只 push feat）；验上线验功能生效层非代码在 main；三查清单；非-ff rebase 不强推
   8.1 **派单定位锚点** - 派单 prompt 必带 @文件:行号/符号锚点，省重读重扫 token
 9. **新功能先隔离** - tab/独立表/物理隔离，验证后再融合
 10. **改静态资源必须破缓存** - 版本号+SW CACHE_VERSION+min 版用字符串验证
