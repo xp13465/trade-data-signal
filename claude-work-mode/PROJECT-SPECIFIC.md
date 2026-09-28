@@ -87,7 +87,7 @@
 - **偏离=违规**：要测非基准口径（裸G/其他K档/其他P档/历史 fixed 口径/旧 v1.0.0 无 K2C5），必须显式声明"非 v1.1.0 基准口径" + 说明为什么测 + 结论标注差异，不作为主推结论
 - **派单钉基准**：主控派回测/挖掘任务 prompt 必须写「测试基准 = v1.1.0 推荐最优组合（定义见 §5.4①/§4.2）」
 - **版本升级原则（§5.4⑥）**：动到 AI 推荐/降亏过滤核心默认组合/算法，必须发中间版本（v1.0.0→v1.1.0→v1.1.1→...），同步更新：本基准定义 + memory 基准锚点 + 前端默认值 + §21 公示 + README；凡动了默认组合本身才升级测试基准定义
-- **依据文档**：<docs/kelly/analysis/kelly-k2c5-return-quadrant-check.md> + `kelly-k2c5-exhaust-interaction.md` + memory `test-baseline-v110-anchor` / `test-baseline-v111-anchor`
+- **依据文档**：<docs/kelly/analysis/kelly-k2c5-return-quadrant-check.md> + `kelly-k2c5-exhaust-interaction.md` + memory `test-baseline-v112-anchor`（主仓现用;包内旧 v110/v111 锚点已过时,不另行建档）
 
 ## 5. 切分支保护 DB（原 §10，2026-07-14 已根治，作历史教训留存）
 
@@ -97,17 +97,17 @@
 - **教训（派 agent 同步分支时注意）**：DB 仍 tracked 时，checkout 切到另一分支会触发 git 用该分支版本覆盖本地 DB。正确同步 main 的方式 = 避免本地 checkout，用 `git fetch origin && git push origin feat/xxx:main` 或 reset，而非 `git checkout main && merge --ff-only`（中间态 checkout 仍 track DB 的分支会复现事故）
 - 绝不能 `git restore data/sentiment.db` / `git checkout -- data/sentiment.db`（若不慎重新 add）
 
-## 6. 生产稳定性 P0（§14 专项：launchd 定时任务时点全清单）
+## 6. 生产稳定性 P0（§14 专项：定时任务时点全清单）
 
 - **核心一句话：生产稳定性是 P0 第一要素**。项目已上线生产（ss.fx8.store/sss.sugas.site/s.sugas.site + ssd.fx8.store R2），定时任务撞车会导致线上数据覆盖事故/DB 锁/用户看到错误数据，是不可逆生产故障
-- **任务冲突检查不应由用户提醒才做**。每次派任务/设 cron/推 main 前**必须主动查 launchd 定时任务清单**（`launchctl list | grep trade` + 查 plist `StartCalendarInterval`），列当日盘后任务时点，确认新任务不撞，并**主动给用户时点建议**（不等用户问"会不会冲突"）
+- **任务冲突检查不应由用户提醒才做**。每次派任务/设 cron/推 main 前**必须主动查定时任务清单**——**生产定时任务全在云上 systemd timer（ssh 云上 `systemctl list-timers`；云上 `/etc/systemd/system/*.timer` 单元文件手动管理，git pull 不更新），本机 mac 纯开发不跑定时任务（launchd 已废弃，查 `launchctl` 是错的，详见 memory `local-dev-cloud-prod-split`）**。列当日盘后任务时点，确认新任务不撞，并**主动给用户时点建议**（不等用户问"会不会冲突"）
 - **核心冲突类型**：① 推 main（intraday-snapshot 15:35/20:35 + update-all 17:50 + deploy）vs 另一推 main = 互相覆盖事故（§2 已有 2026-07-20 gz 方案B事故）② 写 DB（评分/采集）vs 同 DB 任务 = DB 锁/progress 撞 ③ 采集脚本并发 = 限流空转
 - **盘后定时任务时点（15:35/16:00/16:30/17:50/20:35/22:00 等）不推 main 不写 public_fund.db**；**盘中（09:30-15:30）不跑全量 export+deploy**（§2 已有）
 - **安全窗口：23:00 后**无推 main/评分/采集任务（3:17 pf-score-weekly / 5:00 us-stock-morning 不写 public_fund.db），大型实施任务放此窗口
-- **agent 自己 push feat:main 也要避开**盘后定时任务时点，不只 cron 任务。agent prompt 须写明"避开 15:35/16:00/16:30/17:50/20:35/22:00 push main，撞 intraday-snapshot/update-all 推 main = 互相覆盖事故"
+- **agent 只 push feat 分支，不碰 main（机制 D）**：agent 不 push main，盘后时点（15:35/16:00/17:50/20:35/22:00 ±5min 缓冲）与 cron 任务撞车由主控 `scripts/main-merge.sh` 统一检查拦截，agent 无需也不得自行判断 main 时点（避撞=主控 merge 入口职责）
 - **盘中 push 前端代码 main 也避开 intraday-snapshot 每10分钟时点**（09:25-11:32 + 13:01-15:02 共 27 次推 intraday_snapshot.json 到 main）。agent 改 app.js/style.css 后 push feat:main 虽改不同文件 rebase 能合并，但 git push 竞争 non-ff 重试有风险，尽量错开。**盘中 push main 选 :00/:10/:20/:30/:40/:50 之外的安全分钟，或等盘后 23:00+ 窗口**（2026-08-10 R2 迁移后：盘中 intraday 走 R2 不推 main，盘中 push 代码 main 不避 intraday；仍避盘后 17:50 update_all 推 main non-ff 竞争）
 
-### 6.1 launchd 定时任务时点表（2026-08-12 实测 `launchctl list | grep trade`）
+### 6.1 定时任务时点表（时点清单为参考;权威实况 = 云上 systemd timer,ssh 云上 `systemctl list-timers` 核对）
 
 | 任务 | 时点 |
 |---|---|
@@ -203,7 +203,7 @@
 
 - **数据产物**（static-site/data/*.json）：overview.json（首页核心）/ board_etf_map.json（指数表现 ETF 评分）/ concepts.json（概念）/ intraday_snapshot.json（分时快照）/ index-*.json（指数全量+历史 range）/ industry-*.json（31 行业）/ trade_sim-*.json（策略实验室回测）/ public_fund-*.json（公募基金）/ signal_kelly_*.json（凯利回测）/ daily_brief.json（AI 速递，gen_daily_brief.py 生成）/ alert.json/daily_metric.json/schedule_stats.json（监控小文件）等
 - **采集脚本**：collector 系列（mootdx/baostock/腾讯多源）、index_backfill.py（指数补采）、futures/rzhb/lhb 回填、pf-stage0 系列（公募基金分阶段）、gen_daily_brief.py（AI 速递，deepseek，schedule 默认关）
-- **定时任务**：见 §6.1 launchd 表
+- **定时任务**：见 §6.1 定时任务时点表
 - **R2 上传链路**：export.py 自动跑 / upload_r2.py 按前缀命令 / staticdata_sync.sh（staticdata 同步）——见 §3
 
 ## 11. 子 agent 教训（原 §11 专项：具体 agent id，精简留存）

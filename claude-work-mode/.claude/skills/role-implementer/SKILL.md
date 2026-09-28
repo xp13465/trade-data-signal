@@ -24,18 +24,18 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - [ ] **§22 数据一致性**:改数据产物,必重跑 + 同步 static-site/ + R2(三步),N 展示位一致,不进根 data/ 目录
 - [ ] **§23.2 修 bug 三铁律**:修完整(先列同类错误面清单)+ 自测完成(全覆盖)+ 排查同类(根因修,不逐文件补丁)
 - [ ] **§23.3 举一反三**:做 A 主动覆盖同模式/同数据源/同组件所有消费点+相关展示位,不只用户点名处(自验列清单)
-- [ ] **§24 改前端源码** app.js/lab.js/common.js/index.html:必同 commit bump 版本串(bump_asset_version.py)+ 重建 min(build_min.py)+ bump sw.js CACHE_VERSION
-- [ ] **§8 上线链路**:改完必 commit+push feat+merge main+push main(commit message 加 Co-Authored-By 行)
+- [ ] **§24 改前端源码** app.js/lab.js/common.js/index.html:含前端源码改动时,本 agent **不自行 bump 版本串**(机制 C:主控 merge 走 `scripts/main-merge.sh` 统一 build_min+bump+sw.js),完成报告必带 base commit + 改动前版本串值
+- [ ] **§8 上线链路**:改完必 commit+push **feat**(commit message 加 Co-Authored-By 行);**禁止 agent 直接 push main**(机制 D:merge+push main 由主控走 `scripts/main-merge.sh`)
 - [ ] **§23.5 新产物落档**:新增报告/脚本/数据当场落最合适目录+建/跟索引+git 已跟踪,不靠定期整理
 - [ ] **防前视铁律**(§5.1⑥/§21):实现择时/状态/信号类功能时,信号判定在 t 时点只能用 t 之前数据(t 收盘出信号次日生效);分位数阈值禁用全期分位(用 expanding/滚动窗口);复用特征库先核查固化口径。全文见 researcher skill §3.1
 - [ ] **data/ 隔离**:不 add/提交根目录 data/(sentiment.db/etf_national_team.db/signal_stats.json 等留本地);static-site/data/ 走 deploy.sh 正常上线
 
 ## 1. 单版前端铁律(原 §9 全文,2026-07-15 web/ 弃用)
 - 前端源码统一在 static-site/(web/ 已删,不再双写);app/main.py 挂载 static-site/ 到根 /,/api/* 读 DB 不变
-- 改 CSS/JS 后跑 `scripts/build_min.py`(terser minify,仅 app.js+lab.js 2对)+ `scripts/bump_asset_version.py`(md5 前 8 位破缓存)
+- **worktree agent 不自行 bump 版本串**(机制 C):改前端源码后,本地验证产物可用 `scripts/build_min.py` 确认,但**不 commit bump_asset_version 改动**——版本串统一由主控 merge 走 `scripts/main-merge.sh` 跑 build_min+bump(版本串唯一权威入口)。产物共 **8 对**(非 2 对):common/purpose-notes/kelly-review-notes/kelly-reports-content/app/lab 的 .min.js + style.min.css + lab.min.css;版本串格式为 `YYYYMMDD-a<N>`(非 md5 前 8 位),每次 bump 强制换新串
 - 本地开发:`cd /Users/linhuichen/code/trade-data && /Users/linhuichen/code/trade/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000`(看页面+调API)或 `python -m http.server -d static-site`
 - ⚠️ **uvicorn cwd 必须是 trade-data/**(2026-07-20 方案B,根治线上读滞后镜像):app/db.py 用 `.absolute()` 读最新主库 `trade-data/data/sentiment.db`(launchd 写 trade-data/data/),从 trade/ 跑读滞后镜像(仅 deploy.sh rsync 同步)致 export 漏数据;resolve 修复 f0f6df78 需 cwd 切 trade-data 才生效。trade-data/app 是 symlink 指向 trade/app
-- ⚠️ **改 app.js/lab.js 必 bump sw.js CACHE_VERSION**(2026-08-07 补):否则旧 Service Worker CacheFirst 缓存旧 app.min.js 致用户拿不到新代码(硬刷后退回旧数据)。build_min + bump_asset_version + **bump sw.js CACHE_VERSION** 三步缺一不可
+- ⚠️ **sw.js CACHE_VERSION 与版本串同源,由 main-merge.sh 统一 bump**(2026-08-07 补 + 2026-08-19 机制 C 改造):`bump_asset_version.py` 已内置把 sw.js CACHE_VERSION 同步为同一 `YYYYMMDD-a<N>`(与 index 同源,不再手工维护);**agent 不自行 bump**,由主控 merge 走 main-merge.sh 统一 build_min+bump(含 sw.js)
 - ⚠️ **min 版 JS 验证用字符串非变量名**(2026-08-07 补):terser mangle 重命名 let 局部变量(_compBarsHtml 等),grep 验 min 版上线用 class 名/中文字符串(kst-comp-fill/分项构成/优秀)非变量名
 - ⚠️ **export 输出路径同步**(2026-08-07 补,§9 cwd trade-data 衍生陷阱):export.py cwd trade-data 写 JSON 落 trade-data/static-site/data/,但 deploy.sh 从 trade/static-site/data/ 推 git,两路径不同步推旧版。export 后必须 cp 或确认 rsync 同步
 
@@ -44,7 +44,7 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 **背景(2026-08-14 P0 全站白屏事故)**:版本串=内容 md5 哈希(bump_asset_version.py"内容相同则版本号相同"),A+B实施期集中改前端+备站数据不同步+中间"改源码漏bump"断链点→CDN/浏览器缓存滞留「孤儿旧快照」(引不存在对应内容产物的版本串)→SW更新清缓存重建时裸崩全白。根因=「版本串机制 + SW更新接管 + 数据同步」三处设计未闭环。
 **核心一句话:版本串必须随内容强制刷新(杜绝指纹断链),SW 更新接管必须壳芯配套+失败回退,部署后必须验"内容哈希==index引用版本串"。**
 - **① 版本串改「发布序号(日期+批次)」而非纯内容哈希**(2026-08-14 定):每次部署强制换新串,内容相同也换,杜绝"指纹断链、旧缓存不清、不触发更新"死角。改 `scripts/bump_asset_version.py` 由内容md5换为 日期+自增/哈希混合,保证每次不同
-- **② 改前端源码必同 commit bump 版本串 + 同 commit 重建 min(§22 扩展硬约束,2026-08-18 B 强化)**:改 app.js/lab.js/common.js/style.css 等前端源 → **必须同 commit 跑 build_min.py(现在从 git HEAD 读源生成 min)+ bump_asset_version.py + push + 验线上 index 引用`?v=`与实际文件内容md5一致**;禁止"源码改了版本串/没重建 min 没跟着变"漏跑。**⚠️ 禁 reset --soft 对齐分支**(16:30 事故根因):reset --soft 只移 HEAD 不动工作区,会留旧版 M 脏文件,deploy 安全网 build_min 读工作区旧源生成旧 min 覆盖正确版;要让 HEAD 对齐用 checkout <commit> -- <文件> 或正常 checkout,确需 reset --soft 事后必 git status 核对工作区无 M 脏文件再 push。**deploy 只在 main 分支跑**(deploy.sh 已加分支校验+显式 main:main push)。
+- **② 改前端源码必同 commit bump 版本串 + 同 commit 重建 min(§22 扩展硬约束,2026-08-18 B 强化)**:改 app.js/lab.js/common.js/style.css 等前端源 → **必须同 commit 跑 build_min.py(现在从 git HEAD 读源生成 min)+ bump_asset_version.py + push + 验线上 index 引用`?v=`与实际文件内容md5一致**;禁止"源码改了版本串/没重建 min 没跟着变"漏跑。(**机制 C:此 bump 发生在主控 merge 走 main-merge.sh 统一 build_min+bump 时;worktree agent 不自行跑 bump_asset_version.py**,见 §3) **⚠️ 禁 reset --soft 对齐分支**(16:30 事故根因):reset --soft 只移 HEAD 不动工作区,会留旧版 M 脏文件,deploy 安全网 build_min 读工作区旧源生成旧 min 覆盖正确版;要让 HEAD 对齐用 checkout <commit> -- <文件> 或正常 checkout,确需 reset --soft 事后必 git status 核对工作区无 M 脏文件再 push。**deploy 只在 main 分支跑**(deploy.sh 已加分支校验+显式 main:main push)。
 - **③ SW 更新接管需「壳与芯配套 + 失败回退」安全网**:activate 清缓存/claim 接管前,先确认 app shell(app.min.js/common.min.js/index)已预缓存就绪;未就绪不 claim 不强推,失败回退旧SW/旧缓存,绝不全白(sw.js 实现)
 - **④ 数据全站同步(§22 三步)覆盖盘后核心产物**:overview.json/a-stock-3m.json 等盘后产物必须随 §22 三步同步到备站(GH/Maozi)或可靠 fallback 主站,备站不得缺核心文件
 - **⑤ 部署后自动校验「内容哈希==index版本串」**:deploy 链加 check(对 app/lab/common 每文件算 md5 前8,与 index 引用比对),不一致即阻断上线,防孤儿快照再产生
@@ -59,7 +59,12 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - **历史教训**:曾算法改了公示没改用户看老规则,修复需重新定位所有公示点+更新+重新上线,成本高
 
 ## 3. 上线操作细节(原 §8 操作层,摘要见根共享核心)
-- 每次改完 commit + push feat + merge main + push main(不推=白干,别人无法验收);commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
+- ⚠️ **push main 统一入口(防再犯机制 D,2026-08-19)**:agent 只 commit+push **feat 分支**,**禁止 agent 直接 push main**。merge+push main 一律由主控走 `scripts/main-merge.sh <feat>` 统一入口(内含 base 新鲜校验 + merge + 统一 build_min/bump + §24⑤/check_version_progress + push main)。push main 不归 agent。
+- ⚠️ **worktree agent 改前端源码不自行 bump 版本串**(防再犯机制 C,2026-08-19):改 app.js/lab.js/common.js/style.css 的 worktree agent **不自行跑 bump_asset_version.py**(多 agent 各自 bump 会撞号/stale bump),由主控 merge 时 main-merge.sh 统一跑 build_min+bump(版本串唯一权威入口)。
+- ⚠️ **完成报告必带「base commit + 版本串前后值」**(防再犯机制 D,2026-08-19):agent 完成报告必须写明 base commit(开工时基于的 origin/main 或 merge-base)+ 改动前后版本串值(若改前端源码,记录改动前版本串,由主控 merge 统一 bump 成新值)。
+- **开工强制 rebase origin/main + base 新鲜校验**(防再犯缺口①,2026-08-19):worktree 或分支开工前先 `git fetch origin && git rebase origin/main`;提交前用 `git merge-base --is-ancestor origin/main HEAD && echo base-fresh || echo base-stale` 校验 base 新鲜(base 落后则先 rebase 再提交,防基于旧 base 提交静默覆盖最近改动)。
+- **续跑同一任务必须延续原 feat 分支,不新开分支 cherry-pick(2026-09-23 用户定,防分支身份漂移+废弃分支)**:同一任务的后续改动落在同一分支。根因=isolation worktree 的 agent 有 commit 不自动清理,原分支被原 worktree 占死(`git worktree list` 查),续跑 agent `git checkout 原分支` 会 `fatal: already checked out` 只能 cherry-pick → 废弃分支+hash 漂移。正确操作:①先 `git worktree list | grep <原分支>` 查占用,若被已完成的 agent 残留 worktree 占用→报主控释放(或确认安全后 `git worktree remove --force <路径>`)②释放后 `git checkout <原分支>` 继续,commit 追加在原分支 ③`git branch --show-current` 确认落在原分支。被「还在跑」的活 agent 占用则报主控定,不擅自 cherry-pick。验收:续跑自验含「分支延续检查(落在原分支)」,漂移=验收不过。关联 memory [[resume-same-task-reuse-branch]]。
+- 每次改完 commit + push feat(不推=白干,别人无法验收);commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>` **⚠️ agent 只 push feat,不 merge main/push main**(机制 D:merge+push main 由主控走 `scripts/main-merge.sh <feat>` 统一入口,agent 不自做)
 - 不 add **根目录 data/** 下任何文件(sentiment.db/etf_national_team.db/signal_stats.json 保持本地 M / untracked 不推);**`static-site/data/` 是正常上线渠道**(deploy.sh 的 git add 只加 static-site/data/ + min JS,不碰根 data/)。后端新增 JSON 字段/新品种后**必须跑 `bash scripts/deploy.sh` 推数据上线**,否则前端读旧数据
 - 线上 curl 验证/测试:任一域名(ss.fx8.store CF 主站优先 / sss.sugas.site GitHub Pages / s.sugas.site MaoziYun)验证到新版即算上线 OK,不卡单域名 404;`_headers`+br 压缩仅 CF 主站生效
 - ⚠️ **force-with-lease / force push 是最后手段,不是首选**:non-fast-forward 优先 `git fetch + rebase origin/main + 重试 push`(deploy.sh L141-160 内置),rebase 失败 abort 等人工。**不得擅自强推,尤其 main**;确需强推须主控确认
@@ -80,10 +85,10 @@ description: 实施 agent 专属规范 — 由 .claude/agents/implementer.md 的
 - **判断 checklist(扫描 agent 用)**:①该类别是否有 upload-{prefix} 命令? ②前端 fetch 是否用 R2 URL 或 dataUrl 走 R2? ③upload-data-large exclude 是否含该前缀(防双副本)? 三条齐全=架构合规
 
 ## 4. 生产稳定时点(原 §14 操作层,核心摘要见根共享核心)
-- **任务冲突检查不应由用户提醒才做**:每次派任务/设 cron/推 main 前**必须主动查 launchd 定时任务清单**(`launchctl list | grep trade` + 查 plist `StartCalendarInterval`),列当日盘后任务时点确认不撞,并主动给用户时点建议
+- **任务冲突检查不应由用户提醒才做**:每次派任务/设 cron/推 main 前**必须主动查定时任务清单**——**生产定时任务全在云上 systemd timer(ssh 云上 `systemctl list-timers`;云上 `/etc/systemd/system/*.timer` 单元文件手动管理,git pull 不更新),本机 mac 纯开发不跑定时任务(launchd 已废弃,查 `launchctl` 是错的,详见 memory `local-dev-cloud-prod-split`)**。列当日盘后任务时点确认不撞,并主动给用户时点建议
 - **核心冲突类型**:①推 main(intraday-snapshot 15:35/20:35 + update-all 17:50 + deploy)vs 另一推 main = 互相覆盖事故 ②写 DB(评分/采集)vs 同 DB 任务 = DB锁/progress撞 ③采集脚本并发 = 限流空转
 - **盘后定时任务时点(15:35/16:00/17:50/20:35/22:00)不推 main 不写 public_fund.db**;安全窗口 23:00 后无推 main/评分/采集任务
-- **agent 自己 push feat:main 也要避开**盘后定时任务时点,不只 cron 任务。prompt 须写明"避开 15:35/16:00/17:50/20:35 push main,撞 intraday-snapshot/update-all 推 main = 互相覆盖事故"
+- **agent 只 push feat 分支,不碰 main**(机制 D):agent 不 push main,盘后时点(15:35/16:00/17:50/20:35/22:00 ±5min 缓冲)与 cron 任务撞车由主控 `scripts/main-merge.sh` 统一检查拦截,agent 无需也不得自行判断 main 时点(避撞=主控 merge 入口职责)
 - ⚠️[2026-08-10 R2迁移阶段3 更新]盘中 push 代码 main 不避 intraday(intraday-snapshot 走 R2 上传不推 main);**仍避盘后 17:50 update_all deploy.sh 推 main non-ff 竞争**(deploy.sh 有 rebase 重试,non-ff 自动 rebase);盘中全量 export+deploy 仍禁(防覆盖 R2 实时数据)
 
 ## 4.1 上线前数据就绪自检(原 §23.15 操作层,2026-09-02 用户定)

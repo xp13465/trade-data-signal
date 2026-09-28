@@ -101,7 +101,7 @@
 - **口语化（同时适用）**：回答要**口语化**——像跟用户聊天一样自然，不端着、不用书面公文腔；大白话讲清逻辑，短句优先；解释技术用"打个比方/说白了就是"这类口头方式。适用：主控所有面向用户的汇报/解释/进度；子 agent 汇报主控的总结也口语化，但实施/代码本身仍严格规范。
 
 ## 8. 改完必须推送（摘要；操作层全文见 role-implementer skill §3）
-- 每次改完 commit + push feat + merge main + push main；commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
+- **push main 统一入口（机制 D，2026-08-19 用户定）**：agent 只 commit+push **feat 分支**，**禁止 agent 直接 push main**；merge+push main 一律由主控走 `<main-merge脚本> <feat>` 统一入口（内含安全窗口/merge/base 新鲜/统一 bump 版本串/check_version_progress/push main）。改前端源码的 feat 由 `<main-merge脚本>` 统一 bump 版本串（机制 C，worktree agent 不自行 bump）。commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
 - 不 add 根目录 `data/` 下任何文件（本地数据/DB/密钥保持本地 M / untracked 不推）；`static-site/data/` 是正常上线渠道，后端新增 JSON 字段/新品种必须跑 `<deploy脚本>` 推数据上线
 - 线上 curl 验证任一域名到新版即算上线 OK（`<主域名> 优先 / <备站1> / <备站2>`）
 - ⚠️ **不 force**：force-with-lease / force push 是最后手段；non-fast-forward 优先 `git fetch + rebase origin/main + 重试 push`，rebase 失败 abort 等人工。agent 不得擅自强推，尤其 main
