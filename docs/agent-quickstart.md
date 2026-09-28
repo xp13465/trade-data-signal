@@ -163,14 +163,14 @@ push feat:main 触发 GH Actions `deploy-cf.yml` 自动 deploy 到 CF Workers（
 
 > 跑采集脚本 / 加定时任务 / 源切换。**生产稳定性 P0**（§14），撞车会致线上数据覆盖事故/DB锁。
 
-### 跑前必查：launchd 定时任务清单
+### 跑前必查：定时任务清单（生产全在云上 systemd timer）
 
 ```bash
-launchctl list | grep trade          # 查活跃任务 + PID
-ls ~/Library/LaunchAgents/ | grep trade   # 查 plist 文件
-# 看具体时点：
-for f in ~/Library/LaunchAgents/com.trade.*.plist; do echo "=== $(basename $f) ==="; grep -A4 "StartCalendarInterval" "$f" 2>/dev/null; done
+ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 "systemctl list-timers"    # 查生产定时任务 + 下次触发时点
+ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 "ls /etc/systemd/system/*.timer"  # 查 timer 单元文件
 ```
+
+> 生产定时任务全在云上 systemd timer（`/etc/systemd/system/*.timer` 手动管理、git pull 不更新）；本机 mac 纯开发不跑定时任务，launchd 已废弃、查 `launchctl` 是错的（详见 memory `local-dev-cloud-prod-split`）。
 
 **核心冲突时点（盘后，不推 main 不写 DB 不跑采集）**：
 - `15:35` / `16:00` / `17:50`（update-all 全量采集+评分+export+deploy）
@@ -244,7 +244,7 @@ curl -s https://ss.fx8.store/sw.js | grep CACHE_VERSION
 3. **"无/0/不可改善"结论换方法/换数据源验证**：不只验证当前算法覆盖范围，要换方法（第三方平台如同花顺概念搜索）+ 考虑不同关联维度（持仓重叠 vs 成分重叠）。教训：调研断"全市场 0 只量子 ETF/不可改善"，但用户用同花顺搜到多个相关 ETF，真因是算法只看成分股直接重叠不看 ETF 持仓重叠。
 4. **调研结论里列"已验证哪些方法/数据源"**：便于主控判断充分性。
 5. **改体系遍历所有分支**：改动一个灯/样式体系时，grep 所有 `return {cls:` 确认无过时拦截分支，不只改主路径。教训：信号灯统一配色时漏了 `if(track_low_confidence) return 灰蓝虚线` 拦截分支。
-6. **"X 分钟更新"查 launchd plist 非脚本文件头注释**：注释易过时。
+6. **"X 分钟更新"查云上 systemd timer 非脚本文件头注释**：注释易过时。
 7. **派数据重跑/回测任务前先核对当前页面默认筛选/基准真值**（§18 L31）：不沿用旧报告基准。派单前 grep 当前页面 `_kellyDefaultFilters()` / `_kellyComboPresets`（默认键集/组合宏定义），基准写进 prompt 时标注"来源=当前页面 lab.js Lxxxx 核验"；发现基准过时立即 SendMessage 同步在跑 agent（避免全量重跑）。
 8. **需求叫停/改口径先复述"删到什么粒度/保留什么档"**（§18 L30）：用户叫停某功能（如"每日池+买全部没意义"）≠删整个链路，执行前 git show 原实现，列"删除清单+保留清单"确认，不把同链路可保留档（每日池+top-K）一起删；口径类改动后自验关键展示值（K 档切换最大持仓应恒定）。
 9. **口径/基准切换先派影响面审计**（§18 E25）：列"会反转/数值变化/自愈"三类再全面修正，不建立在错误口径上继续固化。
@@ -302,7 +302,7 @@ curl -s https://ssd.fx8.store/data/xxx.json | python3 -c "import sys,json;print(
 
 ### 路径 / 仓库混淆
 
-- **`trade` vs `trade-data`**：`trade` 是主 git 仓库（代码 + deploy.sh 推 git）；`trade-data` 是采集工作区（DB 主库 + launchd 写入 + uvicorn 跑后端）。`trade-data/app` 是 symlink 指向 `trade/app`，代码不变。**读 DB 用 trade-data/，推 git 用 trade/**。
+- **`trade` vs `trade-data`**：`trade` 是主 git 仓库（代码 + deploy.sh 推 git）；`trade-data` 是数据工作区（DB + export 产物，uvicorn 本地开发读它跑后端；**生产采集已迁云上 systemd timer 写入云上 data/，本机 mac 纯开发不跑生产定时任务**）。`trade-data/app` 是 symlink 指向 `trade/app`，代码不变。**读 DB 用 trade-data/，推 git 用 trade/**。
 - **export 输出路径不同步**（§9 衍生）：export 在 trade-data/ 跑写 `trade-data/static-site/data/`，deploy.sh 从 `trade/static-site/data/` 推。export 后必须 cp 或确认 rsync 同步。
 - **agent 误报 trade/trade-data 混淆**：关键结论（路径/文件数类）主控会 §0 验，别把 trade-data 的文件数报成 trade 的。
 
@@ -326,8 +326,8 @@ curl -s https://ssd.fx8.store/data/xxx.json | python3 -c "import sys,json;print(
 - **调研先对准 UI 位置**：用户说"X 不见了"先查渲染层，确认显示层无问题再查生成层。
 - **"无/0/不可改善"结论换方法换数据源**：不只验证当前算法范围，考虑第三方平台 + 不同关联维度（持仓重叠 vs 成分重叠）。
 - **改体系遍历所有分支**：grep 所有 `return`/分支，不只改主路径。
-- **"X 分钟更新"查 launchd plist 非脚本注释**：注释易过时。
-- **commit 时间戳 ≠ 触发时点**：commit 时间戳是 deploy 完成打标签非任务触发。判断任务是否跑看 launchd log 文件存在性，非 commit 时间。
+- **"X 分钟更新"查云上 systemd timer 非脚本注释**：注释易过时。
+- **commit 时间戳 ≠ 触发时点**：commit 时间戳是 deploy 完成打标签非任务触发。判断任务是否跑看云上 `data/logs/*.log` 文件存在性（ssh 云上 `find data/logs -mmin -10` 之类），非 commit 时间。
 - **需求先拆解再派 agent（防误派方向）**：接"分析/建议+新增视图"类核心需求，先列需求拆解清单（要回答什么问题+要新增什么视图+用哪份数据回测）再派 agent；不把相关增量功能当核心需求实施（2026-08-11 误派 J1/J2 当核心需求教训，核心需求实为降亏组合建议+全信号表，§18 教训24）。
 - **数值/算法口径改动必同步全站公示点**：修一个数值要 grep 全站同一数值所有出现处（purpose-notes.js+app.js/lab.js 算法公示文案）同步改，不只 tooltip/实施点（§18 教训25 §21 复发）。
 - **收益率"虚高"标注先算峰值持仓/本金倍数**（§18 L32）：A/F 持仓10-15万=10-15倍单次本金=可操作非虚高；G/H/I 持仓136万=136倍本金=不可操作，"虚高"的是净盈亏金额。"虚高"只用于口径放大数值（每笔1万=虚假杠杆），不用于"高收益但可操作"；top1-G 这类推荐标签需附可操作性校验（≤20倍本金）。
@@ -384,7 +384,7 @@ curl -s https://ssd.fx8.store/data/xxx.json | python3 -c "import sys,json;print(
 | `docs/r2-deployment.md` | R2 数据层架构 + 灾备 |
 | `docs/smoke-checklist.md` | P0 主功能回归清单（reviewer agent 读取执行）|
 | `docs/data-deploy-quickstart.md` | 数据产物改动上线详细（a0a2e9c03 维护）|
-| `~/Library/LaunchAgents/com.trade.*.plist` | launchd 定时任务时点定义 |
+| 云上 `/etc/systemd/system/*.timer` | 生产定时任务时点定义(手动管理,git pull 不更新;本机 launchd 已废弃) |
 
 ---
 

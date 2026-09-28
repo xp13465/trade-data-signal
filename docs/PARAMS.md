@@ -489,12 +489,12 @@ f* = max(0, (b·p − (1−p)) / b)
 
 ## 5 定时任务
 
-> 源文件：`scripts/plists/com.trade.update-all.plist` + `scripts/plists/com.trade.backfill-evening.plist`
+> 生产定时任务已迁云上 systemd timer(2026-09-12,unit=`trade-update-all` / `trade-backfill-evening`)。**时点 17:50/20:00 为实测后口径**:原 15:33 全量采集实测「跑太早采不到当日」已否决后移 17:50(见 `scripts/README.md` 定时任务配置);unit 清单/OnCalendar 权威见 `docs/deploy/systemd-units-20260912.md`。
 
-| 任务 | 时间 | 内容 | plist |
+| 任务 | 时间 | 内容 | systemd unit |
 |------|------|------|-------|
-| 全量采集 | 15:33 | update_all.sh（4 pipeline 并发） | com.trade.update-all.plist |
-| 补采兜底 | 20:00 | backfill_indices.sh（校验+补采+重算+推送） | com.trade.backfill-evening.plist |
+| 全量采集 | 17:50 | update_all.sh（4 pipeline 并发） | trade-update-all |
+| 补采兜底 | 20:00 | backfill_indices.sh（校验+补采+重算+推送） | trade-backfill-evening |
 
 - 非交易日跳过采集，仅 deploy + check_signals
 - `force` 参数可绕过交易日闸门（周末补数据/校准）
@@ -856,7 +856,7 @@ SCORE_IDS = (
 | scripts/lab/lab_simulate.py | 模拟配对回测（9 指数 × 64 配对 × 2 模式） |
 | scripts/update_all.sh | 并行流水线编排（4 pipeline） |
 | scripts/bump_asset_version.py | CSS/JS 版本号破缓存 |
-| scripts/plists/*.plist | launchd 定时任务（15:33 + 20:00） |
+| `docs/deploy/systemd-units-20260912.md` | 生产定时任务权威（37 个 trade- 前缀 systemd timer，update-all 17:50 / backfill-evening 20:00） |
 | web/app.js | 前端主逻辑（2690 行） |
 | web/lab.js | 策略实验室前端（2261 行） |
 | web/style.css | 主样式（1465 行） |

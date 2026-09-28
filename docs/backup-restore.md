@@ -96,40 +96,40 @@ bash scripts/verify_backup.sh
 
 ## 五、恢复到生产路径
 
-**生产路径**（launchd 实跑写入，非 symlink，直接文件）：
+**生产路径**（云上 systemd timer 实跑写入，非 symlink，直接文件；2026-09-12 起生产采集迁云上）：
 
-- `/Users/linhuichen/code/trade-data/data/sentiment.db`
-- `/Users/linhuichen/code/trade-data/data/etf_national_team.db`
+- 云上生产主库：`/home/ubuntu/code/trade-data/data/sentiment.db`
+- 云上生产主库：`/home/ubuntu/code/trade-data/data/etf_national_team.db`
+- 本机开发库：`/Users/linhuichen/code/trade-data/data/`（本机 mac 纯开发不跑生产定时任务）
 
-**注意**：`trade/data/sentiment.db` 与 `trade-data/data/sentiment.db` 是两个独立文件（同 inode 的 hard link 不存在，是两份副本），恢复只覆盖 `trade-data/data/`（launchd 实际写入路径），不要恢复到 `trade/data/` 否则下次 launchd 仍读旧版。
+**注意**：`trade/data/sentiment.db` 与 `trade-data/data/sentiment.db` 是两个独立文件（同 inode 的 hard link 不存在，是两份副本）。**生产恢复必须 ssh 云上对云上 `data/` 操作**，不要恢复到代码仓侧目录；本机开发库恢复直接覆盖本机 `trade-data/data/` 即可（本机无生产定时任务，无需停任务）。
 
 ```bash
-# 1) 停所有写入任务（防 launchd 在恢复中触发）
-launchctl unload ~/Library/LaunchAgents/com.trade.update-all.plist
-launchctl unload ~/Library/LaunchAgents/com.trade.intraday-snapshot.plist
-launchctl unload ~/Library/LaunchAgents/com.trade.etf-national-team.plist
-launchctl unload ~/Library/LaunchAgents/com.trade.lab-auto.plist
+# 0) 生产恢复先登录云上（本机开发库恢复可跳过停/重载步骤）
+ssh -i ~/tdsignal.pem ubuntu@122.51.111.173
 
-# 2) 备份当前损坏版本（防恢复出问题可回滚）
-mv /Users/linhuichen/code/trade-data/data/sentiment.db \
-   /Users/linhuichen/code/trade-data/data/sentiment.db.broken.$(date +%Y%m%d_%H%M)
+# 1) 停所有写入任务（防 systemd timer 在恢复中触发；写 sentiment/etf 库的主要任务）
+sudo systemctl stop trade-update-all.timer trade-intraday-snapshot.timer \
+     trade-etf-national-team.timer trade-lab-auto.timer
 
-# 3) 用下载的备份覆盖（download-db 已返回解压 .db 路径）
-cp /tmp/restore/sentiment_YYYYMMDD.db /Users/linhuichen/code/trade-data/data/sentiment.db
-chmod 644 /Users/linhuichen/code/trade-data/data/sentiment.db
+# 2) 备份当前损坏版本（防恢复出问题可回滚；下方以云上路径为例，本机开发库换本机路径）
+mv /home/ubuntu/code/trade-data/data/sentiment.db \
+   /home/ubuntu/code/trade-data/data/sentiment.db.broken.$(date +%Y%m%d_%H%M)
+
+# 3) 用下载的备份覆盖（download-db 已返回解压 .db 路径；本机下载后传到云上，或云上直接跑 download-db）
+cp /tmp/restore/sentiment_YYYYMMDD.db /home/ubuntu/code/trade-data/data/sentiment.db
+chmod 644 /home/ubuntu/code/trade-data/data/sentiment.db
 
 # 4) 删除旧 WAL/SHM（旧 WAL 会与新 db 冲突）
-rm -f /Users/linhuichen/code/trade-data/data/sentiment.db-wal
-rm -f /Users/linhuichen/code/trade-data/data/sentiment.db-shm
+rm -f /home/ubuntu/code/trade-data/data/sentiment.db-wal
+rm -f /home/ubuntu/code/trade-data/data/sentiment.db-shm
 
 # 5) 恢复后自检
-sqlite3 /Users/linhuichen/code/trade-data/data/sentiment.db "PRAGMA integrity_check; SELECT COUNT(*) FROM score_daily; SELECT COUNT(*) FROM signal_daily;"
+sqlite3 /home/ubuntu/code/trade-data/data/sentiment.db "PRAGMA integrity_check; SELECT COUNT(*) FROM score_daily; SELECT COUNT(*) FROM signal_daily;"
 
-# 6) 重载 launchd 任务恢复写入
-launchctl load ~/Library/LaunchAgents/com.trade.update-all.plist
-launchctl load ~/Library/LaunchAgents/com.trade.intraday-snapshot.plist
-launchctl load ~/Library/LaunchAgents/com.trade.etf-national-team.plist
-launchctl load ~/Library/LaunchAgents/com.trade.lab-auto.plist
+# 6) 重载 systemd timer 恢复写入
+sudo systemctl start trade-update-all.timer trade-intraday-snapshot.timer \
+     trade-etf-national-team.timer trade-lab-auto.timer
 ```
 
 ---

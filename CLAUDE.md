@@ -153,7 +153,7 @@
 ## 8.1 派单 prompt 必带定位锚点(2026-08-15 优化 P0-4 加;操作细节全文见 docs/main-governance.md §16 之「派单锚点规范」子节)
 > **核心一句话**:派单 prompt 必带 `@关键文件:行号` 或关键符号锚点(函数名/class/字符串/常量),让子 agent 直接跳到定位点,不从第 1 行 grep 大文件;可复用锚点表见 `docs/agent-quickstart.md`。
 
-## 14. 生产稳定性 P0(摘要;时点/launchd 细节见 .claude/skills/role-implementer §4)
+## 14. 生产稳定性 P0(摘要;时点/调度细节见 .claude/skills/role-implementer §4)
 - **核心一句话:生产稳定性是 P0 第一要素**。项目已上线生产(ss.fx8.store/sss.sugas.site/s.sugas.site + ssd.fx8.store R2),定时任务撞车会导致线上数据覆盖事故/DB锁/用户看到错误数据,是不可逆生产故障
 - **任务冲突检查不应由用户提醒才做**:每次派任务/设 cron/推 main 前**必须主动查定时任务清单**——**生产定时任务全在云上 systemd timer(ssh 云上 `systemctl list-timers`;云上 `/etc/systemd/system/*.timer` 单元文件手动管理,git pull 不更新),本机 mac 纯开发不跑定时任务(launchd 已废弃,查 `launchctl` 是错的,详见 memory `local-dev-cloud-prod-split`)**。列当日盘后任务时点确认不撞,并主动给用户时点建议
 - **盘后定时任务时点(15:35/16:00/17:50/20:35/22:00)不推 main 不写 public_fund.db**;**交易日盘中(09:30-15:30)不跑全量 export+deploy**(§8 已有,休市可随时跑);**安全窗口 23:00 后**无推 main/评分/采集任务

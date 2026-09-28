@@ -4,7 +4,7 @@
 
 ## 项目架构一句话
 
-FastAPI 后端 + 原生JS前端 + Cloudflare Workers/R2 静态站 + launchd 定时任务 + SQLite 主库。
+FastAPI 后端 + 原生JS前端 + Cloudflare Workers/R2 静态站 + 云上 systemd timer 定时任务（2026-09-12 起迁云上；本机 mac 纯开发不跑生产定时任务）+ SQLite 主库。
 
 ## 关键文件速查
 

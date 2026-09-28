@@ -7,6 +7,6 @@
 > - 二、恢复场景
 > - 三、从 R2 下载最新备份（`download-db`）
 > - 四、完整性校验（`integrity_check` + `verify_backup.sh`）
-> - 五、恢复到生产路径（停 launchd -> 覆盖 -> 删 WAL -> 自检 -> 重载）
+> - 五、恢复到生产路径（云上停 systemd timer -> 覆盖 -> 删 WAL -> 自检 -> 重载）
 > - 六、紧急注意事项
 > - 七、相关脚本
