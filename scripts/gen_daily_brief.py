@@ -3070,8 +3070,11 @@ def _r2_has(file_name: str, timeout: int = 8, min_date: str = "") -> bool:
     critical 首报); 未到位才打 ✗(真缺口)。用 urllib(标准库), 不依赖 requests 可用性。
     2026-09-29 复审(次要项3): 原 HEAD 只验「存在」不验「新鲜」, 3 天前旧版也 200 会误判
     兜底已生效。改 GET 解析 body.date(YYYY-MM-DD), 落后于 min_date(默认近 3 自然日, 覆盖
-    周末不生成)判未到位。无 date 字段但可解析 → 保守按存在算(通道通); 解析失败(损坏/
-    HTML 错误页) → 判未到位(宁多勿漏, 打 ✗ 让用户核对)。
+    周末不生成)判未到位。2026-09-29 复审第二轮: daily_brief.json 的日期在 meta.date 嵌套层
+    (顶层无 date), 原 raw.get("date") 恒空 → 无条件 return True, 新鲜度校验落空。修: 兼容
+    多形态日期取值(先顶层 date, 再 meta.date); 要求新鲜度但取不到日期 → 判未到位(宁多勿漏,
+    打 ✗ 让用户核对); 不要求新鲜度 → 200+JSON 可解析即到位(通道通)。解析失败(损坏/HTML
+    错误页) → 判未到位。
     """
     try:
         import urllib.request as _ur
@@ -3083,9 +3086,11 @@ def _r2_has(file_name: str, timeout: int = 8, min_date: str = "") -> bool:
             body = resp.read().decode("utf-8", errors="replace")
         import json as _json
         raw = _json.loads(body)
-        d = str(raw.get("date") or "")
-        if not min_date or not d:
-            return True  # 未要求新鲜度 / 无 date 字段: 保守按存在算
+        d = str(raw.get("date") or (raw.get("meta") or {}).get("date") or "")
+        if not min_date:
+            return True  # 未要求新鲜度: 200 + JSON 可解析 = 通道通
+        if not d:
+            return False  # 要求新鲜度但取不到日期 → 判未到位(宁多勿漏)
         return d.replace("-", "") >= min_date.replace("-", "")
     except Exception:
         return False
