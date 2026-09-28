@@ -18,7 +18,7 @@
 |---|---|
 | 根 `CLAUDE.md` | **共享核心**（所有角色启动自动注入）：§0 角色速览/§1 开工先读/§6 中文/§5 调研/§18 防重犯索引表[L01-L28]/§22 一致性/§8 推送摘要/§14 稳定性摘要/§21 公示指针/§23 三铁律/历史归档/验收铁律 |
 | `.claude/agents/implementer.md` 等 4 个 | **角色 agent 定义**（name/description/tools/model/skills 字段），body=角色 system prompt |
-| `.claude/skills/role-implementer/SKILL.md` 等 4 个 | **角色专属规范全文**（经 agent 定义 `skills` 字段**启动全文注入**，确定性不依赖主动读）：implementer=§9 前端铁律/§21 公示/§8§14 操作/修bug三铁律/举一反三；reviewer=§15 回归/改动分级/smoke/数据校验/公示查证；researcher=调研方法论/防误判/§5.1 穷举回测/数据挖掘；tester=smoke/数据校验/curl 三查/一致性 |
+| `.claude/skills/role-implementer/SKILL.md` 等 4 个 | **角色专属规范全文**（经 agent 定义 `skills` 字段**启动全文注入**，确定性不依赖主动读）：implementer=原 §9(impl skill §1)/§21 公示/§8§14 操作/修bug三铁律/举一反三；reviewer=原 §15(rev skill §1-§4)/改动分级/smoke/数据校验/公示查证；researcher=调研方法论/防误判/§5.1 穷举回测/数据挖掘；tester=smoke/数据校验/curl 三查/一致性 |
 | `docs/main-governance.md` | **主控专属规范全文**（§2/§3/§4/§7/§11/§15/§16/§19 + COMPACT 恢复 5 步），主控开工第一件事 Read，子 agent 永不读 |
 | `docs/archive/CLAUDE-errors-2026-08.md` | **§18 教训原文全量归档**（28 锚点 L01-L28 + 经验 E01-E22 + 每日归纳），根文件只留索引表，`grep 锚点id` 反向追 |
 | `docs/role-based-context-research.md` | 角色分上下文调研报告（用户反思触发，2026-08-12 建） |
@@ -26,7 +26,7 @@
 | `claude-work-mode/` | **可移植备份包**（通用 CLAUDE.md + 项目专项 + README），用于跨项目复用 |
 | `docs/agent-quickstart.md` | 按任务类型 A-F 的操作步骤速查（按需 Read 型，非注入） |
 
-## 1. 项目文件结构与落档（§7 专项）
+## 1. 项目文件结构与落档（原 §7 专项）
 
 - `NOTES.md`/`TASKS.md` 已拆分历史章节（2026-07-21）：历史章节（§1-§47，2026-07-06~07-20）归档到 `docs/archive/NOTES-history.md`；已完成项归档到 `docs/archive/TASKS-done.md`。主文件只保留近期章节 + 活跃待办 + 工作约定 + R2/全站性能待办。查历史在此二档
 - smoke 清单落 `docs/smoke-checklist.md` 进 git，reviewer agent 读取执行
@@ -59,7 +59,7 @@
 - **判断 checklist（扫描 agent 用）**：①该类别是否有 upload-{prefix} 命令？②前端 fetch 是否用 R2 URL 或 dataUrl 走 R2？③upload-data-large exclude 是否含该前缀（防双副本）？三条齐全=架构合规
 - **fetchJSON 全跳 gz**（2026-08-01）：app.js+lab.js `tryGz=false` 全跳 .gz，统一走 .json+CF br 压缩；根因 CF .gz edge cache max-age=14400 4h 滞后致 public_fund 暂无数据；本地/R2 保留 .gz 不删，前端只是不 fetch；.gz fallback 保留防御性但不触发
 
-## 4. 单版前端铁律（§9）
+## 4. 单版前端铁律（原 §9）
 
 - 前端源码统一在 `static-site/`（web/ 已删，不再双写）；`app/main.py` 挂载 static-site/ 到根 /，`/api/*` 读 DB 不变
 - 改 CSS/JS 后跑 `scripts/build_min.py`（terser minify，仅 static-site/app.js+lab.js 2 对）+ `scripts/bump_asset_version.py`（md5 前 8 位破缓存）
@@ -89,7 +89,7 @@
 - **版本升级原则（§5.4⑥）**：动到 AI 推荐/降亏过滤核心默认组合/算法，必须发中间版本（v1.0.0→v1.1.0→v1.1.1→...），同步更新：本基准定义 + memory 基准锚点 + 前端默认值 + §21 公示 + README；凡动了默认组合本身才升级测试基准定义
 - **依据文档**：`docs/kelly/analysis/kelly-k2c5-return-quadrant-check.md` + `kelly-k2c5-exhaust-interaction.md` + memory `test-baseline-v110-anchor` / `test-baseline-v111-anchor`
 
-## 5. 切分支保护 DB（§10，2026-07-14 已根治，作历史教训留存）
+## 5. 切分支保护 DB（原 §10，2026-07-14 已根治，作历史教训留存）
 
 - 历史隐患：`data/sentiment.db`（80MB）+ `data/etf_national_team.db` 曾进 git 跟踪，切分支时 git 用旧版覆盖污染 DB，致 2026-07-14 事故（收盘快照丢失）
 - **2026-07-14 已根治（commit 8e3f5fa）**：两 DB 移出 git（git rm --cached + .gitignore），现 untracked。线上全是 `static-site/data/*.json` 静态产物，不依赖 DB
@@ -138,7 +138,7 @@
 
 > 核心冲突时点记忆：**15:35/16:00/17:50/20:35/22:00**（旧文档/§14 摘要常用，等同上表 5 个）。
 
-## 7. 主功能回归复查（§15 专项：数据产物）
+## 7. 主功能回归复查（原 §15 专项：数据产物）
 
 - **数据产物完整性校验**：被多模块读的关键 JSON：`board_etf_map.json`（空 key 占比 <30%）/ `overview.json`（a_amount 非空）/ `intraday_snapshot.json`（collected_at 今日）等。生成脚本跑完自动校验，超标 fail 不让 deploy（`check_data_integrity.py` deploy.sh 前置，已接入）。扩展 `collect_health` 到数据产物
 - **task-reviewer 子 agent**：每次代码改动 push 前派独立 reviewer agent，不看新功能，专看"改动可能影响哪些老功能"（grep 改动文件被谁引用 + 跑关键老功能点），不占主控上下文
@@ -206,7 +206,7 @@
 - **定时任务**：见 §6.1 launchd 表
 - **R2 上传链路**：export.py 自动跑 / upload_r2.py 按前缀命令 / staticdata_sync.sh（staticdata 同步）——见 §3
 
-## 11. 子 agent 教训（§11 专项：具体 agent id，精简留存）
+## 11. 子 agent 教训（原 §11 专项：具体 agent id，精简留存）
 
 - **2026-07-15 教训 a194f/afe9**：a194f 曾只写"开始"641 秒不回写进度致盲区；429 后误判原会话终止重派 afe9 从头跑，浪费 a194f 已查的上下文。实际 task-notification note 明说"can resume"，429 和卡死都优先 resume——配额恢复后第一动作是 SendMessage resume 原会话，不是重派
 - **2026-07-15 a5c6**：改名反复 came to rest，SendMessage 推进 3 次才完成；阈值可降到 240 秒
