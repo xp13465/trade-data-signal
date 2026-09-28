@@ -192,11 +192,17 @@ WALK_EXCLUDE_DIR_SEGMENTS = (
 
 def _git_ls_files_md(root: str):
     """用 git ls-files 取 tracked 清单(语义正确: 闸门只管进版本控制的文档)。
-    天然排除 .claude/worktrees/(worktree 副本不 tracked)。非 git 树返回 None(调用方降级 os.walk)。"""
+    天然排除 .claude/worktrees/(worktree 副本不 tracked)。非 git 树返回 None(调用方降级 os.walk)。
+
+    2026-09-29 F2 修复: 裸 `git ls-files` 默认 core.quotepath=true, 中文文件名(md)输出为
+    C 风格转义("docs/\\347\\220\\206..." 带引号) → l.endswith(".md") 永 False → 中文 md
+    被静默漏扫(实测: 主仓扫 214 vs 干净树 215, 差 docs/理财专员使用指南.md)。加
+    `-c core.quotepath=false` 让 git 原样输出文件名(不做 C 转义)。"""
     import subprocess
     try:
         out = subprocess.check_output(
-            ["git", "-C", root, "ls-files"], text=True, stderr=subprocess.DEVNULL,
+            ["git", "-c", "core.quotepath=false", "-C", root, "ls-files"],
+            text=True, stderr=subprocess.DEVNULL,
         )
     except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         return None
