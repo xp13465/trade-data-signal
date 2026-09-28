@@ -13,7 +13,9 @@ signal-backup large-json/ 每日备份」。
   区块 = 当前 tracked 且 >THRESHOLD 的文件 ∪ 区块已有且磁盘仍存在的文件(迁移后仍保留,
   防 git rm --cached 后 R2 备份断链——备份对象清单以区块为权威, 不是动态 tracked)
   ∪ 磁盘 data/ 下未跟踪且未被 ignore 的 >THRESHOLD 新文件(2026-09-26, feat/large-json-guard-sync:
-  缺口 B 修复——新 >20MB 文件在 `git add -A` 前先被 ignore, 防被暂存后 .gitignore 移除不掉)。
+  缺口 B 修复——新 >20MB 文件在 `git add -A` 前先被 ignore, 防被暂存后 .gitignore 移除不掉)
+  ∪ DIR_EXCLUDES 显式声明目录下全部文件(2026-09-28: 拆分/桶化产物目录整体走 R2, 单文件
+  <20MB 启发式捕获不到, 见下方常量注释)。
   排除行用精确路径写法(/data/signal_kelly_trades.json 前导斜杠锚定仓库根), 不用宽通配防误伤。
 - --print: 输出待上传清单(相对 data/ 的路径 + 完整字节数, tab 分隔), 供 upload_r2.py upload-large-json 消费。
 - --check: 若 staticdata 里仍存在 >THRESHOLD 的 tracked 文件 → 非零退出 + 打印清单(机检用,
@@ -50,6 +52,31 @@ THRESHOLD = 20_000_000  # 冻结接口: 20MB(完整文件大小, 非 diff 大小
 BACKLOG_FILE_COUNT = 5000
 BACKLOG_BYTES_THRESHOLD = 500_000_000  # 变更文件当前 wc -c 总和(保守估计, 宁高勿低触发跳过)
 DATA_PREFIX = "data/"  # 排除对象限定 data/ 下(冻结接口)
+
+# 拆分/桶化产物目录显式排除(2026-09-28 补, feat/staticdata-parts-exclude):
+# 单文件虽 <THRESHOLD(20MB) 但目录整体大且天天全量重生成, 启发式「>20MB 单文件」捕获不到 →
+# 每个文件仍进 staticdata git delta, 加总后撑爆积压阈值(9-28 盘后连续 3 次 skip_oversize 断档根因)。
+# 与主仓 .gitignore 一一对应(主仓均已 static-site/data/<dir>/ 移出 git 走 R2 公开桶,
+# staticdata 仓独立 .gitignore 未跟进 → 历史遗留 tracked, gitignore 对已 tracked 无效):
+#   signal_kelly_trades_parts(383 文件 ~89MB, upload-kelly-parts 首页模拟回测弹窗)
+#   signal_kelly_trades_sdc_parts(391 文件 ~90MB, kelly-parts-sdc 凯利页「买入口径」对比档)
+#   nav_bucket(256 桶 ~558MB, upload-fund-nav 场外全史净值桶化)
+#   etf(1712 文件 ~119MB, upload-etf-hist 全史日K) / accum_nav(1711 文件, upload-accum-nav 累计净值)
+#   lab(65 文件 ~99MB, upload-lab) / index(173 文件 ~67MB, upload-index) / trade_sim(89 tracked ~57MB, upload-trade-sim)
+#   fund_nav(26458 文件 ~578MB, 场外全史净值原档, R2 fund_nav/ 前缀, 同 nav_bucket 桶化同源)
+#   (2026-09-28 前序 commit 漏此目录 = 排一漏一: 单目录即超阈值, 不补则下次 deploy 照样 skip_oversize)
+# 语义 = 显式声明走 R2 备份不进 staticdata git; 逐文件精确路径(非目录级), 保 migrate/upload-large-json 消费方兼容。
+DIR_EXCLUDES = (
+    "data/signal_kelly_trades_parts",
+    "data/signal_kelly_trades_sdc_parts",
+    "data/nav_bucket",
+    "data/etf",
+    "data/accum_nav",
+    "data/lab",
+    "data/index",
+    "data/trade_sim",
+    "data/fund_nav",
+)
 
 BLOCK_BEGIN = "# >>> large-json auto-generated >>>"
 BLOCK_END = "# <<< large-json auto-generated <<<"
@@ -92,6 +119,27 @@ def large_tracked(repo, files=None):
         except OSError:
             continue
     return result
+
+
+def dir_exclude_files(repo):
+    """DIR_EXCLUDES 显式目录下磁盘现存的所有文件(相对仓库根, 逐文件精确路径)。
+
+    拆分/桶化产物目录(signal_kelly_trades_parts / sdc_parts / nav_bucket)整体走 R2 公开桶,
+    不进 staticdata git。逐文件枚举(非目录级行): 与既有 8 个大 JSON 的精确路径写法对齐,
+    保 migrate_large_json_out_of_git.sh(git rm --cached 逐文件)与 upload_r2.py upload-large-json
+    (src.is_file() 逐文件 gz 备份)两个消费方语义不变; 目录行会因 is_file()=False 被静默跳过 = 备份断链。
+    """
+    files = []
+    for d in DIR_EXCLUDES:
+        base = os.path.join(repo, d)
+        if not os.path.isdir(base):
+            continue
+        for root, _, fnames in os.walk(base):
+            for fn in fnames:
+                p = os.path.join(root, fn)
+                if os.path.isfile(p):
+                    files.append(os.path.relpath(p, repo))
+    return files
 
 
 def untracked_large_in_data(repo):
@@ -178,11 +226,13 @@ def default_mode(repo):
     tracked = large_tracked(repo)
     existing = block_entries_exist(repo)
     untracked = untracked_large_in_data(repo)
+    direx = dir_exclude_files(repo)
     # 合并: tracked 大文件(新出现即纳入) ∪ 区块已有且磁盘仍在(迁移后 rm --cached 了它们不再
     # tracked, 但备份必须持续, 区块不缩水直到文件从磁盘消失) ∪ 磁盘未跟踪的新大文件
     # (缺口 B: 新 >20MB 文件未进区块时 `git add -A` 会暂存它, 而 .gitignore 移除不掉已暂存项;
-    # 在 git add 前刷新区块让它先被 ignore, 防被提交)。
-    desired = set(tracked) | set(existing) | set(untracked)
+    # 在 git add 前刷新区块让它先被 ignore, 防被提交) ∪ DIR_EXCLUDES 显式目录全部文件
+    # (2026-09-28: 拆分/桶化产物整体走 R2, 单文件 <20MB 启发式捕获不到, 必须显式枚举)。
+    desired = set(tracked) | set(existing) | set(untracked) | set(direx)
     gitignore_path = os.path.join(repo, ".gitignore")
     text = ""
     if os.path.isfile(gitignore_path):
