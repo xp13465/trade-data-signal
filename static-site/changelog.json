@@ -199,5 +199,8 @@
   ],
   "20260926-a620": [
     "docs(review): \u56db\u6863\u5361\u79fb\u52a8\u7aef\u9ad8\u5ea6\u4fee\u590d \u5ba1\u67e5\u62a5\u544a(\u53ef merge)"
+  ],
+  "20260928-a621": [
+    "build(min)+docs(intraday): \u91cd\u5efa min \u540c\u6b65 P2-1/P2-2 \u5fae\u8c03 + \u62a5\u544a hash \u66f4\u65b0(filter-branch \u540e\u771f\u5b9e\u5e8f\u5217) + \u00a723.2 \u8865\u5217 industry/manuf fund map \u4e24\u7f13\u5b58(\u540c\u7c7b\u4f46\u5224\u5b9a\u4e0d\u6539)"
   ]
 }
