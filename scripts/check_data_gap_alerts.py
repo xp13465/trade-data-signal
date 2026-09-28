@@ -152,6 +152,7 @@ KELLY_STALE_MAX_H = 48        # B2: 产物 generated_at/mtime 距今上限(自�
 KELLY_FAIL_MAX_DAYS = 2       # C1: 最近成功 deploy(deploy_*.log 含「退出码=0」)距今上限(自然日)
 KELLY_TRADES_FILE = "signal_kelly_trades.json"
 KELLY_BACKTEST_FILE = "signal_kelly_backtest.json"
+KELLY_FREEZE_FILE = "signal_kelly_etf_freeze.json"
 KELLY_DEPLOY_OK_ANCHOR = "退出码=0"   # deploy.sh L799 成功行锚点: 「=== deploy.sh 结束 ... 退出码=0 ===」
 KELLY_C2_GRACE_MIN = 30        # 改动9(2026-09-29): C2 对「最新 deploy 日志 mtime 距今 <30min」跳过
                                # (deploy 定时任务 17:50 起, 18:00 检查时 deploy 可能仍在跑/刚结束尚未写成功行,
@@ -444,6 +445,22 @@ def check_accum_nav_new_gap(repo: Path, today: datetime,
         else:
             fresh_info.append((code, name, d))
 
+    # P0-1 修复(2026-09-29 复审 FAIL 实锤): fresh_info 的 (code,date) 不得写进快照 gap。
+    # 原实现全量写快照 → 断供项被吸收: 下次 diff 时它已在 prev 清单, 永不再作为新增评估,
+    # 「>=2 交易日仍缺」路径被永久吞掉(真断供当天降 info 后就静默)。
+    # 剔除后它们下轮仍出现在 new_items(prev 无此条), 随 today 推进 _trading_days_gap 自然
+    # 达到 KELLY_SEVERE_BACK → 真断供必能 WARN(1 天后转回归/2 天后 fresh_warn, 两条路都通)。
+    # 保留空列表不删 key: 防 key 消失致下轮 prev_dates=set() 把历史缺价全量误判新增回归。
+    if fresh_info:
+        _drop = {(c, d) for c, _, d in fresh_info}
+        new_snapshot = {
+            **new_snapshot,
+            "gap": {
+                code: sorted(od for od in dates if (code, od) not in _drop)
+                for code, dates in gap_map.items()
+            },
+        }
+
     out: list[Finding] = []
     if qdii:
         out.append(Finding(
@@ -689,6 +706,35 @@ def _load_trades_obj(repo: Path):
     return obj
 
 
+def _load_freeze_map(repo: Path) -> dict:
+    """signal_kelly_etf_freeze.json 冻结表(防前视闸产物): static-site/data/ 优先, 回退 data/。
+    键格式 {date}|{index_id}|{signal}, 值含 code(冻结到的最佳 ETF)。
+    读取失败/缺失返回 {} (空表=无冻结命中, 天然不触发冻结降级, 安全)。"""
+    for base in (repo / "static-site" / "data", repo / "data"):
+        p = base / KELLY_FREEZE_FILE
+        if p.exists():
+            try:
+                obj = json.loads(p.read_text(encoding="utf-8"))
+                return obj if isinstance(obj, dict) else {}
+            except Exception:
+                return {}
+    return {}
+
+
+def _freeze_hit(freeze: dict, d: str, iid: str, sig: str, code: str) -> bool:
+    """冻结表命中判定(P0-2, 2026-09-29 复审 FAIL 实锤):
+    冻结表存在键 {d}|{iid}|{sig} 且其 code 与候选 ETF 一致(或值为空不较验)。
+    只对命中项才允许 C 类降 WARN —— backtest 真挂(有信号+价齐+trades 无)进不了冻结表,
+    天然无键 → 保持 SEVERE; 真·冻结缺失(sz_div@09-22 撞防前视闸)必有冻结键 → 可降 WARN。"""
+    v = freeze.get(f"{d}|{iid}|{sig}")
+    if v is None:
+        return False
+    if isinstance(v, dict):
+        c = str(v.get("code") or "")
+        return not c or c == str(code)
+    return bool(v)
+
+
 def _scan_trades(trades: dict) -> tuple[set, str, str]:
     """扫 trades.json quadrants(行内 index 0=signal_date, 1=index_id, 2=signal, 对齐
     check_universe_alignment.py L150-153)。返回 (signal_set, latest_signal_date, generated_at)。"""
@@ -926,7 +972,14 @@ def check_kelly_coverage(repo: Path, today: datetime) -> list[Finding]:
     # 权威结论(docs/sigkelly-gap-rootcause-20260928 分支 sigkelly-gap-20260923-rootcause.md):
     # 链路本身正常(09-28 SDC 档已含 44 行, 主档次日入账 by design), 唯一真缺口=sz_div@09-22
     # 撞防前视冻结闸(signal_kelly_backtest.py:436-440)永久无法入账 → 每天重报 SEVERE 无意义, 降 WARN。
-    frozen_form = bool(missing) and all(not m[6] for m in missing)
+    # P0-2 修复(2026-09-29 复审 FAIL 实锤): 冻结降级必须「冻结表实查」命中才允许降 WARN。
+    # 原实现只按 blocked=False(已具备次日价仍缺)分类, backtest 真挂(有信号+价齐+trades 无,
+    # 未进冻结表)与真·冻结缺失同分支一起降, 把真事故也降成 WARN。
+    # 现要求: missing 非空 + 全部 blocked=False + 每条都在 signal_kelly_etf_freeze.json 有对应键
+    # ({date}|{index_id}|{signal})。backtest 真挂进不了冻结表 → 无键 → 保持 SEVERE。
+    freeze = _load_freeze_map(repo)
+    frozen_form = bool(missing) and all(
+        (not m[6]) and _freeze_hit(freeze, m[0], m[1], m[2], m[3]) for m in missing)
     if level == "severe" and frozen_form:
         level = "warn"
 
@@ -940,7 +993,8 @@ def check_kelly_coverage(repo: Path, today: datetime) -> list[Finding]:
               f"<br>{'<br>'.join(items)}"
               f"<br>最近完整交易日 T={T}; 断档深度 = T 与 trades 最新 signal_date 的交易日间隔"
               f"(≥{KELLY_SEVERE_BACK}=SEVERE 断档, 9/7 事故形态; =1=次日定价窗内; 全缺集中在 =T-1 且缺次日价时降 WARN; "
-              f"全缺均为「次日价已齐仍缺(冻结/评级缺失)」时降 WARN, 2026-09-29 #125 方案①)。"
+              f"全缺均为「次日价已齐仍缺**且冻结表命中**」时降 WARN —— 冻结表 signal_kelly_etf_freeze.json 实查 "
+              f"每条「日期|指数|信号」键, backtest 真挂无冻结键不降, 2026-09-29 #125 方案① + P0-2 加固)。"
               f"<br>影响: 首页模拟回测弹窗/lab 凯利回测交易记录停更, 用户看到虚假的历史交易缺失。"
               f"<br>日志: {repo}/data/logs/update_all_launchd.log + deploy_*.log(signal_kelly_backtest 阶段)。"
               f"<br>建议: 若缺次日价, 手动补 etf_daily 再重跑 export(static-site/export.py 7.9.2 步); "
@@ -1003,8 +1057,12 @@ def check_kelly_stale(repo: Path, today: datetime) -> list[Finding]:
             # 「已具备次日价仍无 trade」(blocked=False, 冻结/评级缺失等不可自动修复形态,
             # 典型=sz_div@09-22 撞防前视冻结闸 signal_kelly_backtest.py:436-440 永久无法入账)
             # → 视同信号缺席: trades 停更是正确状态, B1/B3 不升 SEVERE(防每日重报)。
+            # P0-2 加固(2026-09-29 复审 FAIL): 每条都要冻结表实查命中(有「日期|指数|信号」键),
+            # backtest 真挂(有信号+价齐+trades 无, 未进冻结表)无键 → all_frozen=False → 保持 SEVERE。
+            _freeze = _load_freeze_map(repo)
             all_frozen = all(
-                not _missing_reason(repo, d, iid, best_etf.get(iid, {}), win)[1]
+                (not _missing_reason(repo, d, iid, best_etf.get(iid, {}), win)[1])
+                and _freeze_hit(_freeze, d, iid, sig, str(best_etf.get(iid, {}).get("code") or ""))
                 for d, iid, sig, code, name in cov_missing)
             no_expected_buys = all_frozen
         else:
@@ -1678,6 +1736,10 @@ def self_test() -> int:
                          f"{[(f.key, f.level, f.title) for f in check_kelly_backtest_fail(base, now)]}")
         # C2fail: 最新 deploy 尾部无成功锚点(rc=1) → C2 WARN
         _deploy_logs(base, [("deploy_20260908_0908.log", _anchor_fail, 0)])
+        # 改动9(2026-09-29): C2 对最新 deploy 日志 mtime 距今 <30min 跳过(grace),
+        # case 夹具回拨 1h 让 C2 真正可判(否则被 grace 跳过只剩 C1 无成功记录, 测不到 C2)
+        _ts_back = now.timestamp() - 3600
+        os.utime(base / "data" / "logs" / "deploy_20260908_0908.log", (_ts_back, _ts_back))
         fC2 = check_kelly_backtest_fail(base, now)
         c2 = [f for f in fC2 if f.key == KELLY_BT_FAIL_KEY and "无成功标记" in f.title]
         if not c2 or c2[0].level != "warn":

@@ -3062,19 +3062,31 @@ def _sync_warn_extra(tag: str, out: str, err: str = "") -> str:
 
 
 # ── R2 上传(数据走 R2,上传后前端可读)─────────────────────────────────────
-def _r2_has(file_name: str, timeout: int = 8) -> bool:
-    """R2 兜底已生效检查: ssd.fx8.store data/ 前缀 HTTP 200 = 文件已到位。
+def _r2_has(file_name: str, timeout: int = 8, min_date: str = "") -> bool:
+    """R2 兜底已生效检查: ssd.fx8.store data/ 前缀 GET 200 且内容 date 新鲜 = 文件已到位。
 
     2026-09-29 告警降噪(改动5): R2 上传超时后先查兜底(17:50 deploy upload-all-data /
     次日任务已补齐) → 已到位则不打 ✗ R2_UPLOAD_TIMEOUT(非真缺口, 免 gen_schedule_stats
     critical 首报); 未到位才打 ✗(真缺口)。用 urllib(标准库), 不依赖 requests 可用性。
+    2026-09-29 复审(次要项3): 原 HEAD 只验「存在」不验「新鲜」, 3 天前旧版也 200 会误判
+    兜底已生效。改 GET 解析 body.date(YYYY-MM-DD), 落后于 min_date(默认近 3 自然日, 覆盖
+    周末不生成)判未到位。无 date 字段但可解析 → 保守按存在算(通道通); 解析失败(损坏/
+    HTML 错误页) → 判未到位(宁多勿漏, 打 ✗ 让用户核对)。
     """
     try:
         import urllib.request as _ur
         req = _ur.Request(f"https://ssd.fx8.store/data/{file_name}",
-                          method="HEAD", headers={"User-Agent": "signal-lab/check"})
+                          headers={"User-Agent": "signal-lab/check"})
         with _ur.urlopen(req, timeout=timeout) as resp:
-            return resp.status == 200
+            if resp.status != 200:
+                return False
+            body = resp.read().decode("utf-8", errors="replace")
+        import json as _json
+        raw = _json.loads(body)
+        d = str(raw.get("date") or "")
+        if not min_date or not d:
+            return True  # 未要求新鲜度 / 无 date 字段: 保守按存在算
+        return d.replace("-", "") >= min_date.replace("-", "")
     except Exception:
         return False
 
@@ -3111,12 +3123,14 @@ def upload_to_r2(repo: Path, no_upload: bool, files: list[str] | None = None) ->
         # 未到位才打 ✗ R2_UPLOAD_TIMEOUT(critical 首报, 真缺口)。
         # 绝不静默(2026-09-24 硬化 P1-B 同口径): 兜底未到位时 ✗ 标记照打, 不会吞。
         _probe = BRIEF_FILE if BRIEF_FILE in files else (files[0] if files else "daily_brief.json")
-        if _r2_has(_probe):
-            print(f"⚠ R2 上传超 120s 但 R2 已有 {_probe}(兜底已生效), 不视为缺口")
+        # 2026-09-29 复审(次要项3): 兜底判定要求内容新鲜(近 3 自然日), 3 天前旧版不算已到位
+        _min_date = (_dt.datetime.now() - _dt.timedelta(days=3)).strftime("%Y%m%d")
+        if _r2_has(_probe, min_date=_min_date):
+            print(f"⚠ R2 上传超 120s 但 R2 已有较新版 {_probe}(date≥{_min_date}, 兜底已生效), 不视为缺口")
         else:
             print(f"✗ R2_UPLOAD_TIMEOUT: daily_brief R2 上传超 120s 未完成, "
                   f"上传文件可能缺口(缺口由 17:50 deploy upload-all-data 或次日任务兜底), "
-                  f"请核对 R2 是否缺", file=sys.stderr)
+                  f"请核对 R2 是否缺/是否仅存旧版", file=sys.stderr)
     except Exception as e:
         print(f"⚠ R2 上传异常(不阻塞): {e}")
 

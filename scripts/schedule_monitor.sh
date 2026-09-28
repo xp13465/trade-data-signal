@@ -1565,6 +1565,11 @@ try:
                 id_lag_r2 = NOW - id_dt_r2
                 id_lag_min_r2 = int(id_lag_r2.total_seconds() // 60)
                 id_thresh_r2 = timedelta(minutes=20)
+                # 2026-09-29 复审(次要项4): buffer 计数 key 加日期维度, 防跨天残留
+                # (昨日累计 pending count=2 残留, 今日首轮滞后 +1=3 直接误 SEVERE;
+                # 「连续3轮≈45min」判定不会跨天, 隔日应重新从 0 计数)。定义在 if/else 外,
+                # 恢复分支(本轮无 lag)也引用同 key。
+                _r2_buf_key = "r2_intraday_lag|buffer|" + NOW.strftime("%Y%m%d")
                 if id_lag_r2 > id_thresh_r2:
                     _r2_id_key = "r2_intraday_lag"
                     seen_keys_this_run.add(_r2_id_key)
@@ -1574,13 +1579,13 @@ try:
                     # 15min/轮)仍滞后才 SEVERE=R2 真断供。参照 marker_buffer 计数:
                     # 独立 buffer key 记连续轮次, 达标才写告警 key active(发 SEVERE);
                     # 未达标只打 [r2-lag-buffer] 不通知(历史告警 key 不 active 不恢复)。
-                    _r2id_bf = alert_state.get("r2_intraday_lag|buffer") or {}
+                    _r2id_bf = alert_state.get(_r2_buf_key) or {}
                     _bf_st = _r2id_bf.get("status")
                     if _bf_st == "alerted":
                         _r2id_c = R2_LAG_CONTINUOUS_THRESHOLD
                     else:
                         _r2id_c = (_r2id_bf.get("consecutive_count") or 0) + 1
-                    alert_state["r2_intraday_lag|buffer"] = {
+                    alert_state[_r2_buf_key] = {
                         "status": "alerted" if _r2id_c >= R2_LAG_CONTINUOUS_THRESHOLD else "pending",
                         "first_seen": _r2id_bf.get("first_seen") or NOW.strftime("%Y-%m-%d %H:%M:%S"),
                         "consecutive_count": _r2id_c,
@@ -1628,10 +1633,11 @@ try:
                         print(f"[recovery] R2 intraday 时效滞后已恢复 "
                               f"(首次发现: {_ex_r2id.get('first_seen')})")
                     # 本轮已恢复 = 连续链中断, 清 buffer 计数(防跨窗口残留计数误升级:
-                    # 若不重置, 恢复前累计到 2 的 consecutive_count 会在下次单次滞后时 +1=3 直接误 SEVERE)
-                    _r2id_bf_r = alert_state.get("r2_intraday_lag|buffer")
+                    # 若不重置, 恢复前累计到 2 的 consecutive_count 会在下次单次滞后时 +1=3 直接误 SEVERE;
+                    # 用当日 key(_r2_buf_key 已在 if 分支定义, 恢复分支同 key → 隔日自动从 0 起)
+                    _r2id_bf_r = alert_state.get(_r2_buf_key)
                     if _r2id_bf_r and _r2id_bf_r.get("status") in ("pending", "alerted"):
-                        alert_state["r2_intraday_lag|buffer"] = {
+                        alert_state[_r2_buf_key] = {
                             **_r2id_bf_r, "status": "recovered",
                             "consecutive_count": 0,
                             "recovered_at": NOW.strftime("%Y-%m-%d %H:%M:%S"),

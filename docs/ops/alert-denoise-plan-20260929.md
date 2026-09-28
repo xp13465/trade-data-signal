@@ -87,7 +87,7 @@
 **原则**:告警 = 需要用户/主控**当天采取动作或知道真相**的事件。任务执行结果/瞬时抖动/例行提醒一律不告警。
 
 **今天点名的任务通知类(全部降级或删除)**:
-- staticdata 备份/同步 oversize ×2(19:03/19:54):备份留档提醒 → 降 info,每周汇总一次
+- staticdata 备份/同步 oversize ×2(19:03/19:54):备份留档提醒 → 降 info(只记 dashboard 不推送,心跳留档 info_log.jsonl 可追溯,人工按需周查,2026-09-29 复审修正:原「每周汇总一次」无周汇总消费者,已删承诺)
 - R2 intraday 时效滞后 ×2(13:45/14:15):单次 19min 滞后 = 上传间隙,非断供 → 连续 ≥3 轮仍滞后才 SEVERE
 - intraday 漏跑 ×1(15:15)与超时 ×2(16:00/21:00):单次自愈 → 连续 2 轮才 SEVERE 或并入日报
 - lhb 漏跑(19:45)、with_lock 排队超时(21:05)、deploy 无成功标记(22:35)、gen_daily_brief R2 超时(20:45):全部"最终成功/已自愈" → 收尾确认后不发(参考 deploy R2 延迟到收尾先例)
@@ -138,8 +138,8 @@
 ### 改动 4:staticdata 备份/同步 oversize 降 info
 - **文件:行号**:`scripts/staticdata_backup_async.sh` L341-344(`--severe` → 去掉或改 info);`scripts/staticdata_sync.sh` L243-246(`--alert-issue` + dedup 21600)
 - **现状**:备份变更量超阈值(>5000 文件或 >500MB)仅 rsync 磁盘留档未 commit,却发 SEVERE/告警(今天 19:03/19:54 各 1 封,每周必然出现)。
-- **改法**:降 info(notify.py --info,只记 info_log 不推送)或并入周报;保留 dedup 防刷。
-- **风险对冲(最坏漏什么)**:staticdata git 长期不同步,灾备第 2 层失效 → 对冲:灾备 4 层第 3/4 层(云上备份/R2)仍有监控;data_gap 检测器兜底;降周报后每周可见。
+- **改法(实际落地 2026-09-29)**:降 info(notify.py `--tier info` 只记 dashboard 不推送,staticdata_sync.sh L246-249 + staticdata_backup_async.sh L341-347)+ 保留 6h dedup 防刷。**不做自动周汇总**:info_log.jsonl 无周汇总消费者,「每周汇总一次」是代码里没有的空头支票——改为如实承诺「运行心跳(ts/result/files/bytes/duration)全部落 info_log.jsonl(backup_async.sh L76-79 收口写),人工按需周查;灾备 3/4 层监控兜底」,2026-09-29 复审删除周报承诺。
+- **风险对冲(最坏漏什么)**:staticdata git 长期不同步,灾备第 2 层失效 → 对冲:灾备 4 层第 3/4 层(云上备份/R2)仍有监控;data_gap 检测器兜底;每次 oversize 仍记 info 可追溯。
 
 ### 改动 5:四类"最终成功不发"(lhb 漏跑 / with_lock 排队 / R2 上传超时 / deploy 无成功标记)
 - **文件:行号**:lhb 漏跑 → `scripts/schedule_monitor.sh` 漏跑检查(L315,补跑成功即静默);with_lock 排队 → with_lock.py/调用方(deploy 实际执行成功即不发);R2 上传超时 → `scripts/gen_daily_brief.py` L3990 附近(上传最终成功/次日兜底即不发);deploy 无成功标记 → `scripts/check_data_gap_alerts.py` C2(见改动 9)。
@@ -153,11 +153,11 @@
 - **改法**:①deploy.sh L513-514 rsync 加 `--exclude=notify_dedup.json --exclude=alert_state.json --exclude=alerts/ --exclude=warning_*`(状态文件不跨树同步,以 REPO 侧为准);②notify.py update_dedup 加 fcntl.flock 防并发读改写丢 key(参考 `scripts/util_atomic.py` 原子写);③可选:DEDUP_FILE 改绝对单源路径。
 - **风险对冲(最坏漏什么)**:状态文件不同步导致某告警在双树各发一次 → 对冲:单源后同一进程只写一份;dedup 语义本身 fail-open(检查失败不 suppress),最多多发不漏发。
 
-### 改动 7:sigkelly dedup key 去日期化
-- **文件:行号**:`scripts/signal_kelly_snapshot.py` L515(`dedup_key = f"sigkelly_snapshot_{a['type']}_{a.get('mode', '')}_{days[-1]['d']}"`)
+### 改动 7:sigkelly dedup key 去日期化(stagnation) + 自然日 key(mutation)
+- **文件:行号**:`scripts/signal_kelly_snapshot.py` L515(`dedup_key` stagnation)/ L543(mutation)
 - **现状**:key 带快照日期(20260928),配合 24h 窗口本意"每日 1 次",但同一天 02:34+16:51 发 2 次 = key 丢失(dedup 文件被覆盖)+ 机制本身脆弱。
-- **改法**:key 去掉日期(`sigkelly_snapshot_stagnation` / `sigkelly_snapshot_mutation`),24h 窗口天然每日一次;跨 repo 跑也不会因 data-dir 不同生成不同 key。
-- **风险对冲(最坏漏什么)**:连续 2 天停滞,24h 窗口可能吞第 2 天第 1 条 → 对冲:停滞状态由 data_gap 断档 SEVERE(独立通道,见 C 类)兜底,信息不丢。
+- **改法(实际落地 2026-09-29)**:①**stagnation** key 去日期(`sigkelly_snapshot_stagnation`),24h 窗口天然每日一次;跨 repo 跑不会因 data-dir 不同生成不同 key。②**mutation** 复审改为「自然日 key」(`sigkelly_snapshot_mutation_{YYYYMMDD}`):同一自然日内重复运行同 key 24h suppress(每日 1 条),跨自然日 key 必变 → 连续 2 天突变两天各发 1 条,根治 24h 滚动起算点漂移吞跨天;双树覆盖丢 key 根因已由改动6 根治,带日期 key 无覆盖风险。
+- **风险对冲(最坏漏什么)**:连续 2 天停滞,24h 窗口可能吞第 2 天第 1 条 → 对冲:停滞信息由 data_gap kelly_coverage 逐日 WARN/SEVERE 通道兜底(2026-09-29 复审修正措辞:冻结缺失场景已降 WARN 非 SEVERE,见 §3);mutation 连续 2 天由自然日 key 保证两天各发,不丢。
 
 ### 改动 8:check_data_gap 当日净值缺价 fresh 时点豁免(QDII/晚发布)
 - **文件:行号**:`scripts/check_data_gap_alerts.py` L420-456(分类:regress 历史回归 / fresh 当日新缺 / QDII 豁免)
@@ -187,7 +187,8 @@
 | intraday 漏跑/超时→连续 2 轮 | intraday 链路整体挂 | 连续漏跑 SEVERE + "exit≠0/无新产物"改判 |
 | staticdata oversize 降 info | staticdata git 长期不同步(灾备2层失效) | 降周报 + 灾备 3/4 层监控 + data_gap 兜底 |
 | with_lock/超时类收尾确认 | 真死锁/真卡死 | 最终 rc≠0 仍发 + 连续 N 轮升级 SEVERE |
-| 信号凯利停滞去重/合并 | **不漏**(断档 SEVERE 独立通道照发) | 停滞与断档二选一,断档保留 |
+| 信号凯利停滞去重/合并(stagnation dedup 去日期) | 连续 2 天停滞,24h 窗口可能吞第 2 天第 1 条 | 停滞信息由 check_data_gap kelly_coverage 逐日 WARN/SEVERE 通道兜底(2026-09-29 复审修正:**P0-2 后断档通道对冻结缺失已降 WARN,不再是「SEVERE 独立通道照发」**,与 §3 新定性对齐) |
+| 信号凯利突变去重(mutation dedup **自然日 key**) | 连续 2 天突变第 2 天被 24h 滚动吞(原去日期化隐患) | 2026-09-29 复审改「自然日 key 带日期」:同日内 24h suppress(每日 1 条),跨自然日 key 必变 → 连续突变每天各发 1 条,根治起算点漂移吞跨天;双树覆盖丢 key 已由改动6(deploy --exclude + flock)根治 |
 | ETF 净值缺价时点豁免 | 真净值采集断供 | 次日仍缺才 WARN + --lookback 补采 |
 | deploy 无标记检查时机 | 真 deploy 失败 kelly 未刷新 | C1 独立兜底 + deploy 结束 rc≠0 仍 WARN |
 
