@@ -220,6 +220,7 @@
 **全文**:①~⑤ 机制实现细节(版本串发布序号强制换新/改源码同 commit bump+重建 min/禁 reset --soft/SW 壳芯配套+失败回退/数据全站同步/部署后哈希==引用校验)+ 08-14 白屏事故背景,见 implementer skill §1.1(兼看 §3 机制 C);reviewer 四查执行细则见 reviewer skill §5.2。
 
 ## 历史/约束归档引用(全文已归档,按需查)
+- **节号对照(历轮瘦身只搬位置不改含义;引用根文件已无的老节号,按本行找现址)**:`§2/§7/§11/§15`→`docs/main-governance.md` 同名节(§15 操作层另见 `.claude/skills/role-reviewer` §1)· `§9`→`.claude/skills/role-implementer` **§1**(单版前端铁律,**节号已变**)· `§6.5`→`.claude/skills/role-implementer` §6.5 · `§10/§17`→`docs/archive/CLAUDE-history.md`(详情+核实+悬空清单:`docs/ops/claude-md-section-map-20260928.md`)
 - **§10 切分支保护 DB**(2026-07-14 已根治):DB(sentiment.db/etf_national_team.db)已移出 git untracked,切分支不再污染;绝不能 `git restore/checkout -- data/sentiment.db`;同步 main 避免本地 checkout。原文全量见 docs/archive/CLAUDE-history.md
 - **§12 superpowers 融合规则**:运维/采集/上线/数据任务跳过 brainstorming HARD-GATE + continuous-execution;大型功能可按需用全套。原文见 docs/archive/CLAUDE-history.md
 - **§13 模型能力约束**:仅文本不支持图片,禁止图片操作(撞 400);视觉验证用文字+ASCII 示意图。原文见 docs/archive/CLAUDE-history.md
