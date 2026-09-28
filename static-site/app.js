@@ -29014,9 +29014,9 @@ async function _ensureNewsModalSpark() {
   }
   // ② 同日盘中时效: 仅北京工作日交易时段内曲线可能新增
   const dow = _bjDayOfWeek();
-  if (dow < 1 || dow > 5) return; // 周末(节假日前端难判, 兜底按周末, 与 getState 同款)
+  if (dow < 1 || dow > 5) return; // 周末(dow=0/6)直接停; 工作日节假日(dow=1~5)由此行放行, 靠下方 ②a 探活+30min 冷却兜住
   const bjMin = _bjTimeMin();
-  if (bjMin < 9 * 60 + 30 || bjMin > 15 * 60 + 5) return; // 盘前/盘后不探
+  if (bjMin < 9 * 60 + 30 || bjMin >= 15 * 60 + 5) return; // 盘前/盘后不探; 15:05 起停(留 5 分钟等收盘 K 线落地, 15:05 整那分钟也不再探)
   if (bjMin >= 11 * 60 + 30 && bjMin < 13 * 60) return; // 午休曲线 11:30 定格, 探了也空转
   const pts = _newsModalSparkCached.points;
   if (!pts || !pts.length) return;
