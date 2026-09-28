@@ -12580,6 +12580,8 @@ async function fetchTencentMinute(code) {
   if (cached) return cached;
   const p = (async () => {
     const path = "/api/qt/stock/trends2/get?secid=" + secid + "&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&iscr=0&ndays=1";
+    // S9 聚合降噪(2026-09-28): 收集失败host+原因,全host失败后统一打一条,避免1min轮询逐host刷屏(单标的单轮 5~10条 -> 1条)
+    const emFails = [];
     for (let hi = 0; hi < _EM_HOSTS.length; hi++) {
       // S1: AbortController+8s超时,防fetch卡死致await永不返回定时器链断(参考fetchJSON L3666)
       const _ctrl = new AbortController();
@@ -12588,9 +12590,9 @@ async function fetchTencentMinute(code) {
         // cache-busting: 加 _=Date.now() + cache:no-store，绕过浏览器/CDN HTTP缓存拿1min最新
         const url = "https://" + _EM_HOSTS[hi] + path + "&_=" + Date.now();
         const resp = await fetch(url, { cache: 'no-store', signal: _ctrl.signal });
-        if (!resp.ok) continue;
+        if (!resp.ok) { emFails.push(_EM_HOSTS[hi] + ':HTTP' + resp.status); continue; }
         const json = await resp.json();
-        if (!json || json.rc !== 0 || !json.data || !json.data.trends) continue;
+        if (!json || json.rc !== 0 || !json.data || !json.data.trends) { emFails.push(_EM_HOSTS[hi] + ':rc!=0或无数据'); continue; }
         const d = json.data;
         const points = [];
         for (const line of d.trends) {
@@ -12605,7 +12607,7 @@ async function fetchTencentMinute(code) {
           const amount = parseFloat(parts[6]) || 0;
           points.push({ time, price, volume, amount });
         }
-        if (!points.length) continue; // 换host重试
+        if (!points.length) { emFails.push(_EM_HOSTS[hi] + ':空点'); continue; } // 换host重试
         const name = d.name || "";
         const curPrice = points[points.length - 1].price;
         const preClose = d.preClose != null ? d.preClose : null;
@@ -12613,13 +12615,14 @@ async function fetchTencentMinute(code) {
         const date = (String(d.trends[0] || "").split(",")[0] || "").split(" ")[0] || "";
         return { name, price: curPrice, preClose, pct, date, points };
       } catch (e) {
-        // S9: 日志便于定位(超时/网络错/CORS)
-        console.warn('[intraday] fetch失败', code, _EM_HOSTS[hi], (e && e.name === 'AbortError') ? '超时'+INTRADAY_FETCH_TIMEOUT_MS+'ms' : (e && e.message));
+        // S9: 聚合进失败列表,循环结束统一打一条(含失败host+原因,不砍定位信息)
+        emFails.push(_EM_HOSTS[hi] + ':' + ((e && e.name === 'AbortError') ? '超时' + INTRADAY_FETCH_TIMEOUT_MS + 'ms' : ((e && e.message) || '未知错误')));
         continue;
       } finally {
         clearTimeout(_tmr);
       }
     }
+    if (emFails.length) console.warn('[intraday] 东财分时失败', code, emFails.length + '/' + _EM_HOSTS.length + ' 个host均失败: ' + emFails.join(' | '));
     return null;
   })();
   _inflightMinute.set(cacheKey, p);
@@ -12645,6 +12648,8 @@ async function fetchQQMinute(code) {
   const cached = _inflightMinute.get(cacheKey);
   if (cached) return cached;
   const p = (async () => {
+    // S9 聚合降噪(2026-09-28): 收集失败host+原因,全host失败后统一打一条(与 fetchTencentMinute 同款)
+    const qqFails = [];
     for (let hi = 0; hi < _QQ_HOSTS.length; hi++) {
       const host = _QQ_HOSTS[hi];
       // S1: AbortController+8s超时,防fetch卡死(同fetchTencentMinute)
@@ -12654,11 +12659,11 @@ async function fetchQQMinute(code) {
         // cache-busting: 加 _=Date.now() + cache:no-store, 绕过浏览器/CDN HTTP缓存拿1min最新
         const url = "https://" + host + _QQ_PATH + qqCode + "&_=" + Date.now();
         const resp = await fetch(url, { cache: 'no-store', signal: _ctrl.signal });
-        if (!resp.ok) continue;
+        if (!resp.ok) { qqFails.push(host + ':HTTP' + resp.status); continue; }
         const json = await resp.json();
-        if (!json || json.code !== 0 || !json.data) continue;
+        if (!json || json.code !== 0 || !json.data) { qqFails.push(host + ':code!=0或无数据'); continue; }
         const d = json.data[qqCode];
-        if (!d || !d.data || !d.data.data) continue;
+        if (!d || !d.data || !d.data.data) { qqFails.push(host + ':无data'); continue; }
         const points = [];
         for (const seg of d.data.data) {
           // 格式: "0930 3815.12 4605103 10182511845.20" (空格分隔4段: 时间/价格/成交量/成交额)
@@ -12673,7 +12678,7 @@ async function fetchQQMinute(code) {
           const amount = parseFloat(parts[3]) || 0;
           points.push({ time, price, volume, amount });
         }
-        if (!points.length) continue; // 换 host 重试
+        if (!points.length) { qqFails.push(host + ':空点'); continue; } // 换 host 重试
         const curPrice = points[points.length - 1].price;
         // date 可能在 d.data.date 或 d.date
         const date = (d.data && d.data.date) || d.date || "";
@@ -12681,13 +12686,14 @@ async function fetchQQMinute(code) {
         // 腾讯无 preClose, 返回 null 由调用方从 _snapPreClose(snap, id) 补 + 重算 pct
         return { name, price: curPrice, preClose: null, pct: null, date, points };
       } catch (e) {
-        // S9: 日志便于定位
-        console.warn('[intraday] fetch失败', code, host, (e && e.name === 'AbortError') ? '超时'+INTRADAY_FETCH_TIMEOUT_MS+'ms' : (e && e.message));
+        // S9: 聚合进失败列表,循环结束统一打一条(含失败host+原因)
+        qqFails.push(host + ':' + ((e && e.name === 'AbortError') ? '超时' + INTRADAY_FETCH_TIMEOUT_MS + 'ms' : ((e && e.message) || '未知错误')));
         continue;
       } finally {
         clearTimeout(_tmr);
       }
     }
+    if (qqFails.length) console.warn('[intraday] 腾讯分时失败', code, qqFails.length + '/' + _QQ_HOSTS.length + ' 个host均失败: ' + qqFails.join(' | '));
     return null;
   })();
   _inflightMinute.set(cacheKey, p);
@@ -12773,7 +12779,8 @@ async function fetchTHSBatchMinute(thsCodes) {
     }
     return { results, ok: Object.keys(results).length > 0 };
   } catch (e) {
-    // S9: 日志便于定位
+    // S9: 日志便于定位。2026-09-28 降噪复核: 本函数单请求单catch(非同花顺自行批量,无逐host循环),
+    // 每批尝试仅 1 条(含全部 codes+原因),无需聚合——与 EM/QQ 逐host 刷屏场景不同,保持原样。
     console.warn('[intraday] 同花顺批量fetch失败', codes.join(','), (e && e.name === 'AbortError') ? '超时'+INTRADAY_FETCH_TIMEOUT_MS+'ms' : (e && e.message));
     return { results: {}, ok: false };
   } finally {
@@ -13276,14 +13283,26 @@ function _renderSnapMinuteSeries(container, code, preClose, snapTime, snap) {
   return true;
 }
 
+// 分时图渲染数据源(2026-09-28 渲染双腿兜底): 东财优先,失败/无数据补试腾讯。
+// 与批量 _fetchDynamicPcts L2/L3 双腿同构(东财抽风风控断连时腾讯仍稳定,实测连发6次全200)。
+// 腾讯无 preClose/pct(返回 null)由调用方从 snap 传入的 preClose 参数补(_renderIntradayChart 内 pc=preClose||result.preClose)。
+async function _fetchIntradayRenderSource(code) {
+  const em = await fetchTencentMinute(code);
+  if (em && em.points && em.points.length) return em;
+  const qq = await fetchQQMinute(code);
+  if (qq && qq.points && qq.points.length) return qq;
+  return null;
+}
+
 // 渲染单个指数分时图。返回 Promise<boolean>（true=成功 false=失败）
 // 方案A 2026-08-06: 优先查 _batchMinuteCache 复用批量拉取结果（3请求架构），
 //                   缓存未命中才 fallback 调 fetchTencentMinute 单只（renderIntradaySection 初始展开单卡时）
+// 2026-09-28: miss 时改走 _fetchIntradayRenderSource（东财失败转腾讯双腿，双源都失败才降级快照）
 function _renderIntradayChart(container, code, preClose, snapTime, snap) {
   if (!container || !container.isConnected) return Promise.resolve(false);
   // 优先用批量缓存（_fetchDynamicPcts 已批量拉取填入），避免重复请求
   const cached = _batchMinuteCache.get(code);
-  const p = cached ? Promise.resolve(cached) : fetchTencentMinute(code);
+  const p = cached ? Promise.resolve(cached) : _fetchIntradayRenderSource(code);
   return p.then((result) => {
     if (!container.isConnected) return false;
     if (!result || !result.points || !result.points.length) {
@@ -28970,7 +28989,8 @@ async function openNewsDigestModal() {
   // ④分时序列: 拉上证分时(有则迷你图示;失败/休市空则由静态降级补一句)。
   try {
     if (!_newsModalSparkCached) {
-      const md = await fetchTencentMinute("sh");
+      // 2026-09-28: 复用渲染双腿 helper(东财优先,失败转腾讯),EM 抽风时新闻弹窗迷你图不再掉静态降级
+      const md = await _fetchIntradayRenderSource("sh");
       if (md && md.points && md.points.length) _newsModalSparkCached = md;
     }
   } catch (e2) { /* 分时不可得: 走静态降级 */ }
