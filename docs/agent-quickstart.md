@@ -302,7 +302,7 @@ curl -s https://ssd.fx8.store/data/xxx.json | python3 -c "import sys,json;print(
 
 ### 路径 / 仓库混淆
 
-- **`trade` vs `trade-data`**：`trade` 是主 git 仓库（代码 + deploy.sh 推 git）；`trade-data` 是采集工作区（DB 主库 + launchd 写入 + uvicorn 跑后端）。`trade-data/app` 是 symlink 指向 `trade/app`，代码不变。**读 DB 用 trade-data/，推 git 用 trade/**。
+- **`trade` vs `trade-data`**：`trade` 是主 git 仓库（代码 + deploy.sh 推 git）；`trade-data` 是数据工作区（DB + export 产物，uvicorn 本地开发读它跑后端；**生产采集已迁云上 systemd timer 写入云上 data/，本机 mac 纯开发不跑生产定时任务**）。`trade-data/app` 是 symlink 指向 `trade/app`，代码不变。**读 DB 用 trade-data/，推 git 用 trade/**。
 - **export 输出路径不同步**（§9 衍生）：export 在 trade-data/ 跑写 `trade-data/static-site/data/`，deploy.sh 从 `trade/static-site/data/` 推。export 后必须 cp 或确认 rsync 同步。
 - **agent 误报 trade/trade-data 混淆**：关键结论（路径/文件数类）主控会 §0 验，别把 trade-data 的文件数报成 trade 的。
 
@@ -327,7 +327,7 @@ curl -s https://ssd.fx8.store/data/xxx.json | python3 -c "import sys,json;print(
 - **"无/0/不可改善"结论换方法换数据源**：不只验证当前算法范围，考虑第三方平台 + 不同关联维度（持仓重叠 vs 成分重叠）。
 - **改体系遍历所有分支**：grep 所有 `return`/分支，不只改主路径。
 - **"X 分钟更新"查云上 systemd timer 非脚本注释**：注释易过时。
-- **commit 时间戳 ≠ 触发时点**：commit 时间戳是 deploy 完成打标签非任务触发。判断任务是否跑看 launchd log 文件存在性，非 commit 时间。
+- **commit 时间戳 ≠ 触发时点**：commit 时间戳是 deploy 完成打标签非任务触发。判断任务是否跑看云上 `data/logs/*.log` 文件存在性（ssh 云上 `find data/logs -mmin -10` 之类），非 commit 时间。
 - **需求先拆解再派 agent（防误派方向）**：接"分析/建议+新增视图"类核心需求，先列需求拆解清单（要回答什么问题+要新增什么视图+用哪份数据回测）再派 agent；不把相关增量功能当核心需求实施（2026-08-11 误派 J1/J2 当核心需求教训，核心需求实为降亏组合建议+全信号表，§18 教训24）。
 - **数值/算法口径改动必同步全站公示点**：修一个数值要 grep 全站同一数值所有出现处（purpose-notes.js+app.js/lab.js 算法公示文案）同步改，不只 tooltip/实施点（§18 教训25 §21 复发）。
 - **收益率"虚高"标注先算峰值持仓/本金倍数**（§18 L32）：A/F 持仓10-15万=10-15倍单次本金=可操作非虚高；G/H/I 持仓136万=136倍本金=不可操作，"虚高"的是净盈亏金额。"虚高"只用于口径放大数值（每笔1万=虚假杠杆），不用于"高收益但可操作"；top1-G 这类推荐标签需附可操作性校验（≤20倍本金）。

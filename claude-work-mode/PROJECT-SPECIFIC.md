@@ -64,7 +64,7 @@
 - 前端源码统一在 `static-site/`（web/ 已删，不再双写）；`app/main.py` 挂载 static-site/ 到根 /，`/api/*` 读 DB 不变
 - 改 CSS/JS 后跑 `scripts/build_min.py`（terser minify，仅 static-site/app.js+lab.js 2 对）+ `scripts/bump_asset_version.py`（md5 前 8 位破缓存）
 - 本地开发：`cd /Users/linhuichen/code/trade-data && /Users/linhuichen/code/trade/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000`（看页面+调 API）或 `python -m http.server -d static-site`
-- ⚠️ **uvicorn cwd 必须是 trade-data/**（2026-07-20 方案B，根治线上读滞后镜像）：让 app/db.py 的 `.absolute()` 读最新主库 `trade-data/data/sentiment.db`，非 `trade/` 滞后镜像（仅 deploy.sh rsync 时同步）。launchd 写 trade-data/data/，uvicorn 从 trade/ 跑会读滞后镜像致 export 漏数据（resolve 修复 commit f0f6df78 需 cwd 切 trade-data 才生效）。trade-data/app 是 symlink 指向 trade/app，代码不变。调试加 `--reload`
+- ⚠️ **uvicorn cwd 必须是 trade-data/**（2026-07-20 方案B，根治线上读滞后镜像）：让 app/db.py 的 `.absolute()` 读最新主库 `trade-data/data/sentiment.db`，非 `trade/` 滞后镜像（仅 deploy.sh rsync 时同步）。生产采集脚本写入 `trade-data/data/`（云上 systemd timer 写云上数据目录），uvicorn 从 trade/ 跑会读滞后镜像致 export 漏数据（resolve 修复 commit f0f6df78 需 cwd 切 trade-data 才生效）。trade-data/app 是 symlink 指向 trade/app，代码不变。调试加 `--reload`
 - ⚠️ **改 app.js/lab.js 必 bump sw.js CACHE_VERSION**（2026-08-07 补）：否则旧 Service Worker CacheFirst 缓存旧 app.min.js 致用户拿不到新代码（硬刷后退回旧数据）。build_min + bump_asset_version + **bump sw.js CACHE_VERSION** 三步缺一不可
 - ⚠️ **min 版 JS 验证用字符串非变量名**（2026-08-07 补）：terser mangle 重命名 let 局部变量（`_compBarsHtml` 等），grep 验 min 版上线用 class 名/中文字符串（`kst-comp-fill`/分项构成/优秀）非变量名
 - ⚠️ **export 输出路径同步**（2026-08-07 补，§9 cwd trade-data 衍生陷阱）：export.py cwd trade-data 写 JSON 落 `trade-data/static-site/data/`，但 deploy.sh 从 `trade/static-site/data/` 推 git，两路径不同步推旧版。export 后必须 cp 或确认 rsync 同步

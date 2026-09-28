@@ -261,7 +261,9 @@ akshare 封装的同花顺接口。
 
 ---
 
-## 采集时点（launchd 8 个任务）
+## 采集时点（生产定时任务）
+
+生产定时任务 2026-09-12 起迁云上 systemd timer（37 个 `.timer` 单元，统一前缀 `trade-`，时点与原 launchd `StartCalendarInterval` 一致，详见 [`docs/deploy/systemd-units-20260912.md`](deploy/systemd-units-20260912.md)），下表「任务」列为原 launchd label，云上 unit = `trade-<name>`。
 
 | 任务 | 时间（CST） | 说明 |
 |---|---|---|
@@ -280,7 +282,7 @@ akshare 封装的同花顺接口。
 
 **盘中时段闸门**：`deploy.sh` 在交易日 09:30-15:30 拒跑全量 export+deploy（防覆盖 intraday 实时版），force 可绕过。
 
-**mac 休眠根治**：launchd 触发时 mac 在睡眠边缘会漏跑，已配 `pmset` 工作日 17:48 唤醒 + `caffeinate -i -w $$` 防跑期间睡。
+**mac 休眠根治（历史，生产已不适用）**：生产采集 2026-09-12 迁云上 systemd timer 后无 mac 休眠问题（云上无睡眠）；此条保留作历史，本机手动跑 `update_all.sh` 仍可用 `caffeinate -i -w $$` 防跑期间睡。
 
 ---
 

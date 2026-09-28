@@ -78,12 +78,12 @@
                           │  ├── wrangler.jsonc                  │
                           │  └── .github/workflows/              │
                           │                                     │
-                          │  launchd 24个定时任务                  │
+                          │  云上 systemd timer 定时调度            │
                           │  (采集/计算/导出/推送/监控/自愈)        │
                           └─────────────────────────────────────┘
 ```
 
-**数据流**：launchd 定时任务 → 采集脚本(akshare/mootdx/baostock) → 写 DB(trade-data/data/) → export.py 导出 JSON → deploy.sh 推 git main + upload_r2.py 推 R2 → CF Workers/GH Pages 自动 deploy → 用户访问。
+**数据流**：云上 systemd timer 定时任务 → 采集脚本(akshare/mootdx/baostock) → 写 DB(data/) → export.py 导出 JSON → deploy.sh 推 git main + upload_r2.py 推 R2 → CF Workers/GH Pages 自动 deploy → 用户访问。
 
 **关键设计**：
 - 采集和 git 上线分离：trade-data 跑采集写 DB，trade 仓库 git push 上线（deploy.sh rsync 同步）
@@ -109,11 +109,11 @@
 trade-data/
 ├── .venv/              # Python 虚拟环境（独立）
 ├── .env                # 运行时密钥（R2凭证 + DeepSeek + PURGE_SECRET）
-├── data/               # 实际 DB + 日志（launchd 写入路径）
+├── data/               # 实际 DB + 日志（生产采集写入路径；云上 systemd timer 写云上 data/）
 │   ├── sentiment.db
 │   ├── etf_national_team.db
 │   ├── public_fund.db
-│   ├── logs/           # 所有 launchd 日志
+│   ├── logs/           # 所有定时任务日志
 │   └── backups/        # 本地 DB 热备（14天滚动）
 ├── static-site/        # export.py 输出路径（rsync 到 trade/static-site/ 上线）
 ├── app -> trade/app    # symlink（代码源在 trade）
@@ -122,7 +122,7 @@ trade-data/
 └── web -> trade/web    # 历史遗留（web/ 已弃用）
 ```
 
-> **为什么 cwd 必须是 trade-data/**：`app/db.py` 的 `Path(__file__).absolute().parent.parent / "data" / "sentiment.db"` 从 cwd 解析 DB 路径。trade-data/data/ 是 launchd 实际写入的主库，trade/data/ 是 rsync 同步的镜像（可能滞后）。uvicorn 从 trade/ 跑会读滞后镜像致 export 漏数据。
+> **为什么 cwd 必须是 trade-data/**：`app/db.py` 的 `Path(__file__).absolute().parent.parent / "data" / "sentiment.db"` 从 cwd 解析 DB 路径。trade-data/data/ 是采集脚本实际写入的数据目录（云上由 systemd timer 写云上 data/），trade/data/ 是 rsync 同步的镜像（可能滞后）。uvicorn 从 trade/ 跑会读滞后镜像致 export 漏数据。
 
 ### 2.2 trade 仓库目录结构
 
@@ -227,7 +227,7 @@ trade/
 
 | 组件 | 版本/要求 | 说明 |
 |---|---|---|
-| macOS | Darwin 23+ (Apple Silicon) | launchd 定时任务、Homebrew |
+| macOS | Darwin 23+ (Apple Silicon) | 本机开发环境（生产定时任务已迁云上 Ubuntu 22.04 systemd timer，本机 launchd 仅剩本机开发工具） |
 | Python | 3.11+ | .venv 虚拟环境 |
 | Node.js | LTS (>=16) | wrangler CLI（npx 或全局安装） |
 | Homebrew | 最新 | 包管理（非必需但推荐） |
@@ -616,11 +616,11 @@ s.sugas.site 有 300MB 总大小限制。`static-site/data/` 已移出 git（走
 
 ## 8. 定时任务
 
-### 8.1 launchd 任务清单
+### 8.1 生产定时任务清单（云上 systemd timer）
 
-所有 plist 在 `~/Library/LaunchAgents/com.trade.*.plist`。`REPO` 环境变量指向 `/Users/linhuichen/code/trade-data`（采集 cwd），`GIT_REPO` 指向 `/Users/linhuichen/code/trade`（git push cwd）。
+生产定时任务 2026-09-12 起迁云上 systemd timer：37 个 `.timer`/`.service` 单元在云上 `/etc/systemd/system/`（统一前缀 `trade-`，如主采集 `trade-update-all.timer`），时点与原 launchd `StartCalendarInterval` 完全一致，配置落档见 [`docs/deploy/systemd-units-20260912.md`](deploy/systemd-units-20260912.md)。下表「原 launchd label」列保留历史名，云上 unit = `trade-<name>`（如 `com.trade.update-all` → `trade-update-all`）。云上 `REPO` 指向 `/home/ubuntu/code/trade-data`（数据目录），`GIT_REPO` 指向 `/home/ubuntu/code/trade-data-signal`（代码仓）。
 
-| 任务 | Label | 时点（CST） | 脚本 | 用途 | push main |
+| 任务 | 原 launchd label（云上 unit=trade-&lt;name&gt;） | 时点（CST） | 脚本 | 用途 | push main |
 |---|---|---|---|---|---|
 | 主采集 | com.trade.update-all | 17:50 | update_all.sh | 4 pipeline 并行采集+计算+导出+部署 | 是（deploy.sh） |
 | 盘中快照 | com.trade.intraday-snapshot | 09:25-15:02 每10min + 15:35 + 20:35 | intraday_snapshot.sh | 盘中实时快照推 main | 是（独立 worktree push） |
@@ -660,26 +660,20 @@ s.sugas.site 有 300MB 总大小限制。`static-site/data/` 已移出 git（走
 
 **安全窗口**：23:00 后无推 main 任务（3:17 weekly 周日才跑，5:00 us-stock-morning 不写 public_fund.db）。盘中 push 前端代码避开 intraday 每 10 分钟时点（:25/:35/:45/:55/:05/:15），选 :00/:10/:20/:30/:40/:50 之外或等盘后 23:00+ 窗口。
 
-### 8.3 安装定时任务
+### 8.3 安装/管理生产定时任务
 
 ```bash
-# plist 模板在 scripts/plists/（部分）
-# 或从现有 ~/Library/LaunchAgents/ 复制
+# 生产定时任务全在云上 systemd（2026-09-12 起；本机 mac 纯开发不跑生产定时任务）
+ssh -i ~/tdsignal.pem ubuntu@122.51.111.173
 
-# 加载任务
-launchctl load ~/Library/LaunchAgents/com.trade.update-all.plist
-
-# 卸载任务
-launchctl unload ~/Library/LaunchAgents/com.trade.update-all.plist
-
-# 查看已加载任务
-launchctl list | grep trade
-
-# 查看任务状态（PID 为 - 表示未在运行，退出码 0 表示上次成功）
-launchctl list | grep com.trade.update-all
+# 示例：启停/查看主采集（trade-update-all）
+sudo systemctl enable --now trade-update-all.timer   # 启用（含 17:50 时点）
+sudo systemctl stop trade-update-all.timer           # 停止
+systemctl list-timers                                # 查全部任务下次触发时点
+systemctl status trade-update-all.timer              # 查单个任务状态
 ```
 
-> **plist 含机器绝对路径**（`/Users/linhuichen/code/trade-data/scripts/...`），每台机器需修改路径后加载。plist 本身不进 git（`scripts/plists/` 已 .gitignore，部分历史 plist tracked）。
+> 单元文件手动管理在云上 `/etc/systemd/system/`（git pull 不更新）；配置生成/落档见 [`docs/deploy/systemd-units-20260912.md`](deploy/systemd-units-20260912.md)。
 
 ### 8.4 deploy.sh 互斥机制
 
@@ -846,18 +840,13 @@ git push origin main
 
 ### 步骤 9：配置定时任务
 
+生产定时任务已迁云上 systemd timer（37 个 `.timer`/`.service`，生成与启用步骤见 [`docs/deploy/systemd-units-20260912.md`](deploy/systemd-units-20260912.md) 与 `docs/deploy/migration-checklist-20260912.md`）；**本机 mac 纯开发不配置生产定时任务**。
+
 ```bash
-# 复制 plist 到 LaunchAgents（修改路径为新机器路径）
-cp scripts/plists/*.plist ~/Library/LaunchAgents/
-# 或手动创建 plist（参考现有 plist 结构）
-
-# 加载所有任务
-for plist in ~/Library/LaunchAgents/com.trade.*.plist; do
-  launchctl load "$plist"
-done
-
-# 验证
-launchctl list | grep trade
+# 云上查看/管理生产定时任务
+ssh -i ~/tdsignal.pem ubuntu@122.51.111.173
+systemctl list-timers
+sudo systemctl enable --now trade-update-all.timer   # 示例：启用主采集
 ```
 
 ### 步骤 10：验证
@@ -876,8 +865,8 @@ curl -sI https://ssd.fx8.store/data/overview.json | grep -i "cf-cache"
 # 验证 DB
 sqlite3 /Users/linhuichen/code/trade-data/data/sentiment.db "SELECT COUNT(*) FROM daily_metric;"
 
-# 验证定时任务
-launchctl list | grep trade
+# 验证定时任务（云上）
+ssh -i ~/tdsignal.pem ubuntu@122.51.111.173 "systemctl list-timers | grep trade"
 ```
 
 ---
@@ -915,7 +904,7 @@ launchctl list | grep trade
 
 deploy.sh 每次 deploy 后自动备份（best-effort，失败不阻塞 deploy）：
 - **DB 原件** rsync 到 `staticdata/db/`（本地备份，不进 git，GitHub 100MB 限制）
-- **配置**（wrangler.jsonc + launchd plist 脱敏）cp 到 `staticdata/config/`
+- **配置**（wrangler.jsonc + systemd 单元配置脱敏）cp 到 `staticdata/config/`
 - **全量 JSON** rsync 到 `staticdata/data/`（git diff 追踪每日变化）
 - **git commit + push** 差异化日志（`data backup [deploy] YYYY-MM-DD_HH:MM`）
 

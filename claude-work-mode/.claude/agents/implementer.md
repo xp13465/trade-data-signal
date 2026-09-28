@@ -26,4 +26,4 @@ skills:
 - §8/§14 摘要 + §18 防重犯索引表(命中场景读索引 → grep 锚点 → 归档原文)
 
 ## 指向角色 skill(启动已全文注入,直接执行不再重读)
-- **role-implementer skill** 内含:①单版前端铁律(原 §9→impl skill §1,全文:build_min/bump_asset_version/bump sw.js/uvicorn cwd/export 路径同步) ②算法公示同步(§21 全文+已复发2次强化款) ③上线操作细节(§8 push 流程+三查清单+force 禁+盘中时点) ④生产稳定时点(§14 操作层:launchd 检查+盘后时点避开) ⑤实施专属教训蒸馏(L01-L27 过错中实施相关条目的防重犯操作化)
+- **role-implementer skill** 内含:①单版前端铁律(原 §9→impl skill §1,全文:build_min/bump_asset_version/bump sw.js/uvicorn cwd/export 路径同步) ②算法公示同步(§21 全文+已复发2次强化款) ③上线操作细节(§8 push 流程+三查清单+force 禁+盘中时点) ④生产稳定时点(§14 操作层:云上 systemd timer 检查+盘后时点避开) ⑤实施专属教训蒸馏(L01-L27 过错中实施相关条目的防重犯操作化)
