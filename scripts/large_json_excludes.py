@@ -63,6 +63,8 @@ DATA_PREFIX = "data/"  # 排除对象限定 data/ 下(冻结接口)
 #   nav_bucket(256 桶 ~558MB, upload-fund-nav 场外全史净值桶化)
 #   etf(1712 文件 ~119MB, upload-etf-hist 全史日K) / accum_nav(1711 文件, upload-accum-nav 累计净值)
 #   lab(65 文件 ~99MB, upload-lab) / index(173 文件 ~67MB, upload-index) / trade_sim(89 tracked ~57MB, upload-trade-sim)
+#   fund_nav(26458 文件 ~578MB, 场外全史净值原档, R2 fund_nav/ 前缀, 同 nav_bucket 桶化同源)
+#   (2026-09-28 前序 commit 漏此目录 = 排一漏一: 单目录即超阈值, 不补则下次 deploy 照样 skip_oversize)
 # 语义 = 显式声明走 R2 备份不进 staticdata git; 逐文件精确路径(非目录级), 保 migrate/upload-large-json 消费方兼容。
 DIR_EXCLUDES = (
     "data/signal_kelly_trades_parts",
@@ -73,6 +75,7 @@ DIR_EXCLUDES = (
     "data/lab",
     "data/index",
     "data/trade_sim",
+    "data/fund_nav",
 )
 
 BLOCK_BEGIN = "# >>> large-json auto-generated >>>"
