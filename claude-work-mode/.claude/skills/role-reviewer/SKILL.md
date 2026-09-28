@@ -95,7 +95,7 @@ description: reviewer agent 专属规范 — 由 .claude/agents/reviewer.md 的 
 ## 9.5 大功能验收·数据供给闭环必查(2026-08-26 S06 快照教训,L45)
 > 关联规范源:CLAUDE.md §18 锚点 L45/memory s06-static-snapshot-missing-daily-regen。改源头时反向同步本节。
 - **触发**:验收任何动态切换/状态机/择时信号/定时数据产物类大功能
-- **必查四件**:生成脚本在位→**定时挂载真实存在**(launchctl list/grep plist/update_all,不轻信汇报)→机检校验挂链→过期告警路径;缺一=FAIL(功能本体再漂亮也不放行)
+- **必查四件**:生成脚本在位→**定时挂载真实存在**(生产定时任务全在云上 systemd timer:ssh 云上 `systemctl list-timers` 核对对应 `.timer` 单元在位且下次触发时点符合预期,云上 `/etc/systemd/system/*.timer` 单元文件手动管理、git pull 不更新;本机 mac 纯开发不跑定时任务,launchd 已废弃、查 `launchctl` 是错的,详见 memory `local-dev-cloud-prod-split`;不轻信汇报)→机检校验挂链→过期告警路径;缺一=FAIL(功能本体再漂亮也不放行)
 - **必问一句**:「这个功能的数据谁每天更新?」答不上=未完成
 - 静态快照/手动生成等降级形态:查实施是否已作为方向分叉上报用户拍板记录,无记录=上报主控补拍板
 

@@ -22,6 +22,13 @@ check_doc_staleness.py — 文档「时点/调度口径」一致性机检(2026-0
       「代理进程」(命中率统计注释)/「本机用」(agent-inbox-watcher 例外)
   - 显式豁免标记: 行内含 `<!-- staleness-ok: ... -->` 视为该行通过(可在豁免规则误判时手动标注)
 
+⚠️ 行级豁免 vs 词级豁免(2026-09-29 评审建议 3 评估, 有意保留行级):
+  行级豁免 = 一行含任一豁免词即整行跳过。词级豁免(只抠掉豁免词覆盖片段, 剩余文本仍跑 stale 检测)
+  实测当前树会引入 ~80 处误报——典型是「launchd 已废弃」「已切 update_all」这类否定/历史对照的正确
+  现行表述: 词级抠掉「已废弃」后, 行内 launchd/launchctl/15:33 字面仍残留被误抓。故保留行级豁免,
+  这是有意权衡: 同一行内「豁免词 + 真过时断言」并存未见实际受害行(reviewer 复核确认), 若未来出现
+  可在该行补 `<!-- staleness-ok: ... -->` 精确定位放行, 而非全局改词级放大误报面。
+
 用法:
   python3 scripts/check_doc_staleness.py [--root <repo>] [--list-files]
     --root      仓库根(默认脚本所在目录的上级)
@@ -62,6 +69,14 @@ CONTEXT_EXEMPT_WORDS = [
     "self-backup", "自备份", "Claude 自备份", "thinking-proxy", "守护", "8899",
     "sensenova-rotate", "sensenova-healthcheck", "SENSENOVA", "agent-inbox", "信号桥",
     "signal-bridge", "feishu_ws_listener", "lark-oapi", "长连接", "watcher", "本机模板",
+    # token-cache-stats = 本机 Claude 开发环境专属「不迁」任务(权威: docs/deploy/systemd-units-20260912.md
+    # L14/L1509), 用 launchd 是现行正确口径(claude-work-mode/README.md 命中), 非过时。
+    # com.trade.token-cache-stats 同上(launchd 任务全名)。
+    "token-cache-stats", "com.trade.token-cache-stats",
+    # 历史 commit 记录行: claude-work-mode/README.md 版本/改动日志表引用历史 commit
+    # 「根治环境幻觉-定时任务清单改云上systemd timer(本机纯开发不跑launchd)」——该行是 commit 存档标题,
+    # 描述的是「launchd 已废弃」的迁移事实本身, 不是断言现行用 launchd, 非过时。
+    "本机纯开发不跑launchd",
     # 任务索引历史状态(已完成/已关闭/待派/待实施 = 描述历史任务, 非现行调度口径)
     "已完成", "已关闭", "待派", "待实施",
     # systemd-units 权威锚点迁移对照词(对照/残留/阶段4 说明)
@@ -77,8 +92,13 @@ PATH_EXEMPT_PREFIXES = [
     "docs/deploy/migration-inventory-",
     "docs/deploy/migration-operation-log-",
     "docs/deploy/migration-data-bootstrap-plan-",
-    # uumit-knowledge = gitignore 知识商品生成目录(.gitignore L280-282), 不在版本控制,
-    # 机检扫它会拦「文件系统有但 git 无」的旧内容 → merge 必误拦, 豁免(其内容由生成流程单独管理)
+    # uumit-knowledge = 知识商品生成目录(43 个文件已 tracked, .gitignore L281 在其后追加)。
+    #   reviewer 复核(2026-09-29): 旧注释称「不在版本控制」与实测不符(实际 43 tracked);
+    #   实测纳入扫描当前 0 命中(内容已被 B 线本轮修复)。保留豁免理由变为:
+    #   ①知识正文是「对外知识商品」, 含大量外部产品/历史性引用, 非本仓「调度口径」受控文档,
+    #      机检语义=拦「本仓定时任务口径」过时, 对知识正文是错位;
+    #   ②其口径一致性由知识商品生成流程单独管理(生成时即按当前口径产出)。
+    #   若未来知识商品内出现 launchd/15:33 字面, 属内容范畴, 由生成流程负责, 不由本闸门拦。
     "docs/uumit-knowledge/",
 ]
 PATH_EXEMPT_FILES = [
@@ -154,26 +174,74 @@ def _is_line_exempt(line: str) -> bool:
     return False
 
 
+# 扫描范围白名单(相对仓库根的顶层前缀)。
+# 根 CLAUDE.md 是全仓口径总源头, claude-work-mode/ 是 21 文件 tracked 活模板(2026-09-29 评审建议 1 纳入)。
+SCOPE_BASES = ("docs", ".claude", "claude-work-mode")
+SCOPE_ROOT_FILES = ("README.md", "CLAUDE.md")
+
+# git ls-files 失败(非 git 树, 如 --root /tmp/xxx 基线验证)时 os.walk 降级的排除目录段。
+# 关键: .claude/worktrees/ 下是其他 worktree 的完整仓库副本(历史/中间态快照, 非本仓受控文档),
+#   os.walk 不排除会把它们全部扫进来 → 巨量假阳性(2026-09-29 P0: 主仓 1663 假命中阻断 merge)。
+# 按「目录名段」匹配(rel_dir split 后任一段命中即跳过): .claude/worktrees/* 的任一路径 split 后
+# 都含 worktrees 段; .git/node_modules/__pycache__/.venv 同理。曾把段写成 ".claude/worktrees"
+# (含斜杠), split 后是单层段列表, "in list" 永 False → 排除失效(实测假命中扫进)。
+WALK_EXCLUDE_DIR_SEGMENTS = (
+    "worktrees", ".git", "node_modules", "__pycache__", ".venv",
+)
+
+
+def _git_ls_files_md(root: str):
+    """用 git ls-files 取 tracked 清单(语义正确: 闸门只管进版本控制的文档)。
+    天然排除 .claude/worktrees/(worktree 副本不 tracked)。非 git 树返回 None(调用方降级 os.walk)。"""
+    import subprocess
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", root, "ls-files"], text=True, stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return None
+    return [l for l in out.splitlines() if l.endswith(".md")]
+
+
 def _collect_md_files(root: str) -> list:
-    """收集 docs/**/*.md + .claude/**/*.md + README.md(排除豁免路径)。"""
+    """收集受控文档 md(docs/** + .claude/** + claude-work-mode/** + 根 README.md/CLAUDE.md)。
+
+    优先 git ls-files(tracked 清单, 不含 .claude/worktrees/ 副本);非 git 树降级 os.walk + 排除表。
+    2026-09-29 P0: 原 os.walk 遍历 docs/.claude 会把 .claude/worktrees/ 下其他 worktree 的完整仓库
+    副本(.claude/worktrees/**/*.md 共 3085 个)扫进来, 主仓实跑 1663 假命中 FAIL, 阻断所有 merge。
+    """
     files = []
-    for base in ("docs", ".claude"):
-        full = os.path.join(root, base)
-        if not os.path.isdir(full):
-            continue
-        for dirpath, _dirnames, filenames in os.walk(full):
-            # 跳过 .git 等隐藏目录
-            if "/.git" in dirpath or dirpath.startswith(".git"):
+
+    def _in_scope(rel: str) -> bool:
+        if rel in SCOPE_ROOT_FILES:
+            return True
+        return any(rel.startswith(base + "/") for base in SCOPE_BASES)
+
+    tracked = _git_ls_files_md(root)
+    if tracked is not None:
+        for rel in sorted(tracked):
+            if not _in_scope(rel):
                 continue
-            for fn in filenames:
-                if fn.endswith(".md"):
-                    rel = os.path.relpath(os.path.join(dirpath, fn), root)
-                    if not _is_path_exempt(rel):
-                        files.append(rel)
-    readme = os.path.join(root, "README.md")
-    if os.path.isfile(readme):
-        files.append("README.md")
-    return sorted(files)
+            if not _is_path_exempt(rel):
+                files.append(rel)
+    else:
+        for base in SCOPE_BASES:
+            full = os.path.join(root, base)
+            if not os.path.isdir(full):
+                continue
+            for dirpath, _dirnames, filenames in os.walk(full):
+                rel_dir = os.path.relpath(dirpath, root)
+                if any(seg in rel_dir.split(os.sep) for seg in WALK_EXCLUDE_DIR_SEGMENTS):
+                    continue
+                for fn in filenames:
+                    if fn.endswith(".md"):
+                        rel = os.path.relpath(os.path.join(dirpath, fn), root)
+                        if not _is_path_exempt(rel):
+                            files.append(rel)
+        for rf in SCOPE_ROOT_FILES:
+            if os.path.isfile(os.path.join(root, rf)) and not _is_path_exempt(rf):
+                files.append(rf)
+    return sorted(set(files))
 
 
 def _check_file(root: str, relpath: str) -> list:
