@@ -110,19 +110,19 @@
 ## 8.1 派单 prompt 必带定位锚点（2026-08-15 优化加）
 > **派单 prompt 必带 `@关键文件:行号` 或关键符号锚点（函数名/class/字符串/常量）**，让子 agent 直接跳到定位点，不从第 1 行 grep 大文件；grep 目标符号得到行号写进 prompt（"定位:file L1234 <函数> 附近"）；拿不准锚点可让子 agent grep 关键词，但 anchor 已给=省一轮。
 
-## 9. 新功能先隔离，验证后再融合（已下沉 → 历史归档；等价 memory new-feature-isolated-tab-first）
+## 9. 新功能先隔离，验证后再融合（泛化新增节，无老 §9 对应；老版 §9=单版前端铁律；等价 memory new-feature-isolated-tab-first）
 > 新功能先隔离做出来看效果，不影响现有功能，验证有效后再融合。全文原见历史版本本文件，记忆化见 `<memory new-feature-isolated-tab-first>`。
 
-## 10. 破缓存/SW/min验证（已下沉 → role-implementer skill §1「单版前端铁律」全文 + §1.1「前端部署防撕裂」）
+## 10. 破缓存/SW/min验证（内容对应老 §9 单版前端铁律，非老 §10 切分支保护DB；已下沉 → role-implementer skill §1「单版前端铁律」全文 + §1.1「前端部署防撕裂」）
 > 改静态资源必须破缓存、SW CACHE_VERSION 同步、min 版验证用字符串非变量名等操作层全文已由实施 skill §1 承接。
 
-## 11. 子 agent 生命周期与通知兜底（已下沉 → <docs/main-governance.md> §11 同名节 + 本文件 §0.2 摘要）
+## 11. 子 agent 生命周期与通知兜底（老 §11，已下沉 → <docs/main-governance.md> §11 同名节 + 本文件 §0.2 摘要）
 > 卡死/429/came to rest/中途改口径/通知兜底全流程见 `<docs/main-governance.md>` §11（变体：进度文件、worktree 隔离通知不送达、改口径=停旧派新、resume 可能被拒=改派新 agent 初始 prompt 绕过）。
 
-## 12. 遇 API 错误不卡死（已归档 → 历史引用）
+## 12. 遇 API 错误不卡死（内容散见老 §11/§13 内 API 错误条款，非老 §12 superpowers；已归档 → 历史引用）
 > 换方案或暂存，不原地卡住不反复重试。原文全量见 `<docs/archive/CLAUDE-history.md>`。
 
-## 13. 模型能力约束（已归档 → 历史引用）
+## 13. 模型能力约束（老 §13，已归档 → 历史引用）
 > 当前模型只支持文本输入不支持图片，禁止图片操作（Read 图片/截图/视觉对比会撞 400），需视觉验证用文字+ASCII 示意图或让用户看。原文全量见 `<docs/archive/CLAUDE-history.md>`。
 
 ## 14. 生产稳定性 P0（摘要；操作层全文见 role-implementer skill §4）
@@ -131,13 +131,13 @@
 - **盘后定时任务时点 `<T1>/<T2>/<T3>...` 不推 main 不写 `<DB名>`**；**交易日盘中（`<盘中时段>`）不跑全量 export+deploy**（§8 已有，休市可随时跑）；**安全窗口 `<深夜时点> 后`** 无推 main/评分/采集任务
 - **push main 要避开**盘后定时任务时点（尤其 `<update-all 时点>` deploy 推 main non-ff 竞争;盘中 push 代码不避 intraday——R2 迁移后 intraday 走 R2 不推 main）。`<main-merge脚本>` 内含安全窗口检查,盘后时点自动拒绝;**agent 只 push feat 不 push main(机制 D)**
 
-## 15. 主功能回归复查 + 改动分级 + reviewer（已下沉 → role-reviewer skill §1-§4 + <docs/main-governance.md> §15）
+## 15. 主功能回归复查 + 改动分级 + reviewer（老 §15，已下沉 → role-reviewer skill §1-§4 + <docs/main-governance.md> §15）
 > 核心：新功能绝对不可以影响老功能。A/B/C 改动分级审查口径、回归机制三层、smoke 清单执行全文见 reviewer skill §1-§4；主控侧调度见 `<docs/main-governance.md>` §15。
 
-## 16. agent 角色画像与 prompt 写作（已下沉 → <docs/main-governance.md> §16 同名节）
+## 16. agent 角色画像与 prompt 写作（老 §16，已下沉 → <docs/main-governance.md> §16 同名节）
 > 主控 PM 定位 + 子 agent 角色分工 + prompt 写作规范全量见 `<docs/main-governance.md>` §16。
 
-## 17. superpowers / skill 库融合规则（已归档 → 历史引用）
+## 17. superpowers / skill 库融合规则（内容对应老 §12 superpowers，非老 §17 火山方舟高峰省token；已归档 → 历史引用）
 > skill 库优先级低于本文件；运维/采集/上线/数据任务跳过 brainstorming HARD-GATE + continuous-execution；大型功能可按需用全套。原文全量见 `<docs/archive/CLAUDE-history.md>`。
 
 ## 18. 防重犯索引表（2026-08-08 起，每次犯错追加；原文全量已归档）
@@ -176,7 +176,7 @@
 | E22 | 并发实验结论已落 §16④;TASKS 归档校验已落 §7 | 仅记引用 | archive:L92 |
 | E21 | "全信号表"双视图方法论 | 多因子系统要拆分调试+结果双视图 | archive:L91 |
 
-## 19. 高峰时段省 token（已归档 → 历史引用）
+## 19. 高峰时段省 token（内容对应老 §17 火山方舟高峰省token，非老 §19 自我成长机制；已归档 → 历史引用）
 > 若历史上曾按高峰时段限流派 agent，已作废。原文全量见 `<docs/archive/CLAUDE-history.md>`。
 
 ## 21. 算法改动同步公示（指针；全文在 role-implementer skill §2）

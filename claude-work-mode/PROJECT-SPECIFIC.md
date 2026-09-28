@@ -34,7 +34,7 @@
 
 ## 2. 改完推送专项（§8 专项：域名/data 路径/deploy.sh）
 
-- commit + push feat + merge main + push main（不推=白干，别人无法验收）；commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
+- commit + push feat（不推=白干，别人无法验收）；merge main + push main 由主控 `<main-merge脚本>` 统一入口执行（机制 D：agent 只 push feat，不自行 push main）；commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
 - **不 add 根目录 `data/` 下任何文件**（`sentiment.db`/`etf_national_team.db`/`signal_stats.json` 保持本地 M/untracked 不推）
 - **`static-site/data/` 是正常上线渠道，不是禁推对象**：前端读的线上数据产物，`scripts/deploy.sh` 设计就是 commit+push 它（git 历史有 `data update [all]` commit 为证）。后端新增 JSON 字段/新品种后**必须跑 `bash scripts/deploy.sh` 推数据上线**，否则前端读旧数据。deploy.sh 的 `git add` 只加 `static-site/data/` + min JS，不碰根 `data/`，安全
 - **线上 curl 验证/测试优先用 `https://ss.fx8.store/`**（CF 主站，server: cloudflare，wrangler.jsonc Workers 绑定，push main 自动 deploy，支持 br 压缩 + `_headers`）；备站 `https://sss.sugas.site/`（GitHub Pages，trade-data-signal 仓库）；`https://s.sugas.site/`（MaoziYun 备站，**有 300MB 总大小限制，超了拒绝部署一直 404**，需瘦身到 300MB 以下才恢复）。**3 域名任一验证到新版即算上线 OK，不卡单域名 404**（2026-07-22 教训：曾整晚死磕 s.sugas.site 404 56 次忘 ss.fx8.store/sss.sugas.site 已上线）
@@ -80,14 +80,18 @@
 
 ## 4.2 测试基准锚点专项（§5.4，trade 已定稿推荐最优组合定义）
 
-- **当前基准 = v1.1.1（2026-08-16 收尾版本）**：v1.1.0「推荐最优组合」不变，一切回测/测试/挖掘/穷举前提 = v1.1.0 推荐最优组合。v1.1.1 = 纯数据/展示层修正（K 档 by_k 数据人口对齐首页/21:00 文案跟版本走/凯利首列 2 行版），非新组合，不回测基准定义
-- **v1.1.0 推荐最优组合定义（2026-08-15 用户拍板，定名「基础5」）**：默认 AI 推荐 = **AI宏 5+3+1 = 基础5[n2NovSpecialIndustry/excludeSpecialBear/janMidRating/janMidSpecial/k2c5HkChase] + 核心3[r7MayReinforced/excludeAuxCross/greedy15] + 1类回测剔除**（债类/波段不入宇宙 `_bt_in_universe`）= **8键+1类，总数9**。K2C5 已穷举验证并入基础5（不再是"第8键"），16组合全扫 K2C5 与核心3无叠加冲突、全局最优
-- **组合口径**：每日资金池等分 + AI仓位建议 K=1 + **G 用 13万 P≤3d「先卖年轻仓」可操作口径**（峰持仓≤20倍本金）；A/F 短持 = 每日池+top-K。**裸 G（无 P≤3d，不可操作）不是基准**
-- **版本计数**：v1.0.0 = AI宏 4+3+1（7键+1类）；v1.1.0 = AI宏 5+3+1（基础5+核心3 = 8键+1类，总数9）
-- **偏离=违规**：要测非基准口径（裸G/其他K档/其他P档/历史 fixed 口径/旧 v1.0.0 无 K2C5），必须显式声明"非 v1.1.0 基准口径" + 说明为什么测 + 结论标注差异，不作为主推结论
-- **派单钉基准**：主控派回测/挖掘任务 prompt 必须写「测试基准 = v1.1.0 推荐最优组合（定义见 §5.4①/§4.2）」
-- **版本升级原则（§5.4⑥）**：动到 AI 推荐/降亏过滤核心默认组合/算法，必须发中间版本（v1.0.0→v1.1.0→v1.1.1→...），同步更新：本基准定义 + memory 基准锚点 + 前端默认值 + §21 公示 + README；凡动了默认组合本身才升级测试基准定义
-- **依据文档**：<docs/kelly/analysis/kelly-k2c5-return-quadrant-check.md> + `kelly-k2c5-exhaust-interaction.md` + memory `test-baseline-v112-anchor`（主仓现用;包内旧 v110/v111 锚点已过时,不另行建档）
+> **当前基准版本定义（状态型）的权威 = memory `test-baseline-v112-anchor`**（每会话注入，含版本链对照/复现数字）；状态型内容留 memory/文档不进 skill（§5.4 原则），本节只保留行为纪律 + 项目定稿快照。
+
+- **当前基准 = v1.1.7（2026-08-27，git tag @384005e222）**：AI 降亏默认基座 = **S06 动态模式**（a9/new15 按日切，快照单源禁自算；T 日收盘算 size_spread≤-3.524% 次日切 A 进攻王 a9，否则回 new15 防守，状态机快照单源生成、前端只读禁自算、缺快照 fail-open 不拦截+红字降级），一切回测/测试/挖掘/穷举前提 = 当前基准。v1.1.1「v1.1.0 推荐最优组合」、v1.1.5 NEW14 等历史版本为对照，不再作测试前提
+- **历史定稿快照（对照用，非当前基准）**：v1.1.0 推荐最优组合 = AI宏 5+3+1 = 基础5[n2NovSpecialIndustry/excludeSpecialBear/janMidRating/janMidSpecial/k2c5HkChase] + 核心3[r7MayReinforced/excludeAuxCross/greedy15] + 1类回测剔除（债类/波段不入宇宙）= **8键+1类，总数9**；v1.1.5 = NEW14 十四键（hist 6 + 规则 8）。**裸 G（无 P≤3d，不可操作）不是基准**
+- **② 测试前提 = 基准**：一切回测/测试/挖掘/穷举，**默认前提必须是当前基准**（memory `test-baseline-v112-anchor` 为准）。要测非基准口径（裸G/其他K档/其他P档/历史 fixed 口径/旧 v1.0.0 无 K2C5/静态 NEW14/NEW15/8键），必须**显式声明"非当前基准口径"** + 说明为什么测它 + 结论标注口径差异，不作为主推结论
+- **③ 派单钉基准**：主控/所有角色派回测/测试/挖掘任务，prompt 必须写「测试基准 = current baseline（具体定义见 memory `test-baseline-v112-anchor`）」，防认知偏离。researcher 设计口径第一件事 = 确认基线落在基准上（能复现基准基线才往下，复现数字以记忆锚点为准）
+- **④ 偏离=认知或派单错误**：测试结论若基于非基准口径且未显式声明，本质是认知偏离或派单遗漏（教训：2.0 挖掘第一轮用裸 G 测「剔除整象限 G -74,954」，用户质疑后核实确实是裸 G 不可操作口径，结论需重测）
+- **⑤ 与 §5.1 关系**：穷举最大化（§5.1）指维度/子群穷举，不豁免基准口径——穷举是在基准组合前提下穷举待验证维度，不是把基准本身当可选项
+- **⑥ 版本升级原则（§5.4⑥）**：动到 AI 推荐/降亏过滤核心默认组合/算法，必须发中间版本，同步更新：基准定义（memory `test-baseline-v112-anchor`）+ 前端默认值 + §21 公示 + README + 全部键集登记点（前后端+邮件链路白名单，主仓 18 处全量表见 docs/kelly/analysis/v115-new14-baseline-alignment-audit.md）+ 键集一致性机检 PASS；纯新增不影响默认行为的可不动基准版本。**v1.1.1 先例**：动到数据层人口口径（非默认组合本身）也须发版本标记，但不回测基准定义；凡动了默认组合/算法本身才升级测试基准定义。基准升级时，老版本组合不再作测试前提，但保留在 memory/文档供对照
+- **⑦ 复现脚本同构对账铁律（§5.4⑦）**：凡「复刻前端逻辑」的复现/回测/对账脚本 = 第二份实现，前端改逻辑副本不自动跟、静默漂移是必然；任何进报告的核心数字发布前必须①同构对账机检（脚本输出 vs 页面真实渲染逐位对账，漂移即 FAIL）②页面实测锚点优先（无痕浏览器零 localStorage 实测，禁止预设"用户记错/切过档"）③报告复现段标注修复链（旧假数保留可反查）。涉复刻脚本/报告数字任务自验含「对账机检+页面实测锚点+复现段修复说明」，缺=验收不过
+- **版本链对照**：v1.0.0（AI宏 4+3+1，无 K2C5，仅对照）→ v1.1.0（K2C5 并基础5，8键+1类）→ v1.1.1（K 档 by_k 人口对齐，纯展示层，基准仍 v1.1.0）→ v1.1.5（NEW14 十四键）→ v1.1.7（S06 动态，当前基准）→ v1.1.8~v1.1.19（均未动基准定义，测试基准仍=v1.1.7）；git tag -l 全量核对版本链，缺哪个先报用户确认再补
+- **依据文档**：memory `test-baseline-v112-anchor`（权威）+ <docs/kelly/analysis/kelly-k2c5-return-quadrant-check.md> + `kelly-k2c5-exhaust-interaction.md`（主仓现用;包内旧 v110/v111 锚点已过时,不另行建档）
 
 ## 5. 切分支保护 DB（原 §10，2026-07-14 已根治，作历史教训留存）
 
@@ -96,6 +100,7 @@
 - 切分支现在不会再碰 DB（untracked 文件 git 不跟踪）
 - **教训（派 agent 同步分支时注意）**：DB 仍 tracked 时，checkout 切到另一分支会触发 git 用该分支版本覆盖本地 DB。正确同步 main 的方式 = 避免本地 checkout，用 `git fetch origin && git push origin feat/xxx:main` 或 reset，而非 `git checkout main && merge --ff-only`（中间态 checkout 仍 track DB 的分支会复现事故）
 - 绝不能 `git restore data/sentiment.db` / `git checkout -- data/sentiment.db`（若不慎重新 add）
+- **注脚（机制 D,现权属）**：上述 `git push origin feat/xxx:main` 是历史场景（DB 仍 tracked）下的同步手段；**当前** merge main + push main 一律由主控 `<main-merge脚本>` 统一入口执行,agent 只 push feat 分支,不自行执行本命令（机制 D,详见 §2）
 
 ## 6. 生产稳定性 P0（§14 专项：定时任务时点全清单）
 
