@@ -211,14 +211,14 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-08-18 | 0.9741 | 5,705,391 | 方舟plan | — | ? | e24d42a54 docs(compact): AUTO_COMPACT_WINDOW 数字校正 600000→1048576 对齐 settings.json 实况; 222db1844 fix(构建): build_min 从 git HEAD 读源+§24⑤内容校验+deploy push 限 main 根治 min 被脏工作区覆盖; 1eec05cdd feat(kelly): v1.1.2 凯利三键改造 — excludeSpecialBear 升四档判定 + 2备选键 + 历史四档轨迹图后端 |
 | 2026-08-19 | 0.9747 | 3,989,072 | 官方直连(混合) | — | ? | ce5ca8dce docs(规范+待办): 全局核心问题报告维度全铁律(§5.1⑤+researcher skill§3⑤) + 落档#69 CYB降亏新标志方向 + 新增#73 多指数四档展示; b74368b5a feat(防再犯CD): push main 统一入口 main-merge.sh + 同文件并发串行 check_file_owners(用户拍板 B 降级安全并行) |
 | 2026-08-20 | 0.9869 | 746,855 | 官方直连 | — | ? | cd8ea5d8e docs(CLAUDE.md): 存量修正3处(用户已拍板全修) 版本基准引用过时+§18过错索引计数; 3d9d9cdab docs(CLAUDE.md): 瘦身方案#94 A1+§5.4状态独立 删§18元信息+基准定义挪memory权威; 8cb60a5a7 docs(CLAUDE.md): §23.12 TASKS任务治理4态流转规范落档(用户2026-08-20定,task活跃/todolist远期/完成文件/归档7天) |
-| 2026-08-21 | 0.1473 | 47,686,787 | mimo-v2.5·opencode | 65% | ? | 无 |
-| 2026-08-22 | 0.8589 | 12,999,772 | ox-alpha·opencode | 79% | ? | 无 |
-| 2026-08-23 | 0.8412 | 14,254,981 | ox-alpha·opencode | 85% | ? | 无 |
-| 2026-08-24 | 0.8757 | 16,791,771 | ox-alpha·opencode | 84% | ? | 17e1aa2ea docs(governance): 主控过错七条缺口根治——L30/L31/L32/L33/L35/L36六条全文回填18.1+L29留指针(已全文化至根CLAUDE.md §0.1防双份分叉)+头部计数20→27(过错16+经验11自洽)+CLAUDE.md §18主控节索引行补L29例外括注; 7f05426da docs(skill+archive+governance): has_track口径P0教训全链路落档——L44入档(archive全文+锚点行+CLAUDE.md表)+四role skill各加教训条(reviewer第三方锚点/implementer开工三源对照/researcher核查分析对象/tester独立锚点机检)+零丢失等式修复(补录L43锚点行,42断链→44==44)+governance回填E25/E26/E27/E29/E30五条经验(15→20条)+reviewer双##7编号顺延修复; 278ba6c42 docs(skill): has_track口径P0教训同步执行层——reviewer新增档位语义强制第三方锚点检查+implementer新增开工三源逐字对照+CLAUDE.md §23.13反向标注(§23.8双向咬合); 677c51b89 docs(规范): §23.13 口径三源核对+不统一必上报拍板(has_track口径事故P0反思,2026-08-24用户定); f4b123a7d docs(规范): §5.4⑥发版联动清单补'全部键集登记点+机检PASS'+§22补'代码内常量登记点也是一致性对象'(v1.1.5漏邮件白名单根因堵口,2026-08-24用户定性=错误非保守); e1fa7f28f docs(落档): 本会话研究四件+全站排查两件+防前视铁律四处+README宗旨段+#94登记 |
-| 2026-08-25 | 0.4497 | 16,105,992 | ox-alpha-free·opencode | 50% | ? | b646f10ff docs(CLAUDE): 新增§23.14 v1.1.6后开发内容必过codex外部review——发起脚本/时点(merge前最优漏了补发)/豁免规则(A级纯文档须声明)/闭环处置;对应.agents/codex-reviewer skill+E31通道防误读; b8d6a2f8a docs(治理): L01二次复发根治——派单三件套进共享核心§0.2+PostToolUse(Agent)hook机械兜底 |
-| 2026-08-26 | 0.7025 | 71,075,244 | ox-alpha-free·opencode | 58% | ? | b11cb60da docs(教训L45): S06快照无每日重生+未上报「快照vs动态」方向分叉——动态功能数据供给四件(生成→定时→机检→告警)是功能本体;静态捷径=方向分叉必上报;验收必查谁每天更新(memory同步落档,§18索引/skill双向咬合) |
-| 2026-08-27 | 0.5886 | 53,797,840 | mimo-v2.5·opencode | 89% | ? | 无 |
-| 2026-08-28 | 0.3405 | 166,663,223 | minimax-m2.7·opencode | 79% | ? | 5a8a3d9b9 docs(§23.12): TASKS状态日志保留上限防复发规范——前次更新日志只留最新一坨,更老轮次落档时折叠/归档; ebd597dcc chore(会话收尾): L31变种拍板材料默认口径锚点+pending漂移重犯+TASKS收尾落档(v1.1.8盘点启动) |
+| 2026-08-21 | 0.1473 | 47,686,787 | opencode | — | ? | 无 |
+| 2026-08-22 | 0.8589 | 12,999,772 | opencode | — | ? | 无 |
+| 2026-08-23 | 0.8412 | 14,254,981 | opencode | — | ? | 无 |
+| 2026-08-24 | 0.8757 | 16,791,771 | opencode | — | ? | 17e1aa2ea docs(governance): 主控过错七条缺口根治——L30/L31/L32/L33/L35/L36六条全文回填18.1+L29留指针(已全文化至根CLAUDE.md §0.1防双份分叉)+头部计数20→27(过错16+经验11自洽)+CLAUDE.md §18主控节索引行补L29例外括注; 7f05426da docs(skill+archive+governance): has_track口径P0教训全链路落档——L44入档(archive全文+锚点行+CLAUDE.md表)+四role skill各加教训条(reviewer第三方锚点/implementer开工三源对照/researcher核查分析对象/tester独立锚点机检)+零丢失等式修复(补录L43锚点行,42断链→44==44)+governance回填E25/E26/E27/E29/E30五条经验(15→20条)+reviewer双##7编号顺延修复; 278ba6c42 docs(skill): has_track口径P0教训同步执行层——reviewer新增档位语义强制第三方锚点检查+implementer新增开工三源逐字对照+CLAUDE.md §23.13反向标注(§23.8双向咬合); 677c51b89 docs(规范): §23.13 口径三源核对+不统一必上报拍板(has_track口径事故P0反思,2026-08-24用户定); f4b123a7d docs(规范): §5.4⑥发版联动清单补'全部键集登记点+机检PASS'+§22补'代码内常量登记点也是一致性对象'(v1.1.5漏邮件白名单根因堵口,2026-08-24用户定性=错误非保守); e1fa7f28f docs(落档): 本会话研究四件+全站排查两件+防前视铁律四处+README宗旨段+#94登记 |
+| 2026-08-25 | 0.4497 | 16,105,992 | opencode | — | ? | b646f10ff docs(CLAUDE): 新增§23.14 v1.1.6后开发内容必过codex外部review——发起脚本/时点(merge前最优漏了补发)/豁免规则(A级纯文档须声明)/闭环处置;对应.agents/codex-reviewer skill+E31通道防误读; b8d6a2f8a docs(治理): L01二次复发根治——派单三件套进共享核心§0.2+PostToolUse(Agent)hook机械兜底 |
+| 2026-08-26 | 0.7025 | 71,075,244 | opencode | — | ? | b11cb60da docs(教训L45): S06快照无每日重生+未上报「快照vs动态」方向分叉——动态功能数据供给四件(生成→定时→机检→告警)是功能本体;静态捷径=方向分叉必上报;验收必查谁每天更新(memory同步落档,§18索引/skill双向咬合) |
+| 2026-08-27 | 0.5886 | 53,797,840 | opencode | — | ? | 无 |
+| 2026-08-28 | 0.3405 | 166,663,223 | minimax-m2.7·opencode | 77% | ? | 5a8a3d9b9 docs(§23.12): TASKS状态日志保留上限防复发规范——前次更新日志只留最新一坨,更老轮次落档时折叠/归档; ebd597dcc chore(会话收尾): L31变种拍板材料默认口径锚点+pending漂移重犯+TASKS收尾落档(v1.1.8盘点启动) |
 | 2026-08-29 | 0.7141 | 111,148,356 | flash-0731·opencode | 91% | ? | 无 |
 | 2026-08-30 | 0.6907 | 90,177,889 | flash-0731·opencode | 80% | ? | 无 |
 | 2026-08-31 | 0.7600 | 33,947,986 | flash-0731·openrouter直连 | 38% | ? | 92e364b0f docs(规范瘦身): CLAUDE.md §23.2/§23.3/§23.4 保守版指针化(audit2 二审用户拍板); 57509a448 docs: 精简根CLAUDE.md至39.4k字符(§5.3核心保障铁律) |
@@ -247,6 +247,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-09-25 | 0.9832 | 772,802 | pro·8899·商汤rotate | 94% | ? | 无 |
 | 2026-09-26 | 0.9771 | 976,983 | pro·8899·商汤rotate | 95% | ? | 无 |
 | 2026-09-27 | 0.9678 | 1,604,529 | pro·8899·商汤rotate | 92% | ? | 2ae94bab3 docs(规范): 下沉改动 reviewer 验收整改 + 根文件 §8.1 错引自纠; c9cd7d912 docs(规范): 下沉 §24 前端部署防撕裂 + §8.1 派单锚点(根 CLAUDE.md 瘦身) |
+| 2026-09-28 | 0.9672 | 1,215,247 | pro·8899·商汤rotate | 90% | ? | df643e112 docs(claude-work-mode): 三轮修复 — 已下沉节加老§N标注 + §4.2基准同步v1.1.7 + §2残留口径; 8b2ecda22 docs(claude-work-mode): 二轮复审 FAIL 修复 — 残留 agent push main 口径 2 处改机制 D; 9a229de43 docs(claude-work-mode): reviewer FAIL 修复——skill §3/§4 对齐机制C/D+云上systemd timer,补 tester 简洁输出条款,修 README/PROJECT-SPECIFIC 过时引用; ed6ea762b docs(claude-work-mode): 包内 docs/ 指针占位符化(55 处,统一 <docs/...> 明示包不含 docs/); 2c7c6ec13 docs(claude-work-mode): 阶段3 引用重核——下沉节号标注「原 §N」溯源(agents §9/§15、README 边界章节+编号注+章节映射表、PROJECT-SPECIFIC 专项标题)+ §23 标题 23.1-23.9→23.1-23.15; 1c7d8d58b docs(claude-work-mode): 阶段2 根 CLAUDE.md 瘦身——513→274 行,节号全保留为对照行; 7f846985b docs(claude-work-mode): 阶段1 skill增厚——4 role skill 对齐 collab 基座逐节搬运; c5a0d63c0 docs(规范): 根 CLAUDE.md 加节号对照行 + #121 悬空引用施工图落档 |
 <!-- token-cache-trend-end -->
 
 **ASCII 迷你柱状图**（每格 = 0.01 命中率，刻度 0.70~1.00，一眼看升降；由脚本 `--append-daily` 随走势表同步更新，保证与实际命中率一致）：
@@ -300,6 +301,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 09-25  ████████████████████████████(28)  772,802       0.9832
 09-26  ████████████████████████████(28)  976,983       0.9771
 09-27  ███████████████████████████(27)  1,604,529     0.9678
+09-28  ███████████████████████████(27)  1,215,247     0.9672
 ```
 <!-- token-cache-ascii-end -->
 
@@ -352,6 +354,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-09-25 | ? | — |
 | 2026-09-26 | ? | — |
 | 2026-09-27 | ? | 2ae94bab3 docs(规范): 下沉改动 reviewer 验收整改 + 根文件 §8.1 错引自纠; c9cd7d912 docs(规范): 下沉 §24 前端部署防撕裂 + §8.1 派单锚点(根 CLAUDE.md 瘦身) |
+| 2026-09-28 | ? | df643e112 docs(claude-work-mode): 三轮修复 — 已下沉节加老§N标注 + §4.2基准同步v1.1.7 + §2残留口径; 8b2ecda22 docs(claude-work-mode): 二轮复审 FAIL 修复 — 残留 agent push main 口径 2 处改机制 D; 9a229de43 docs(claude-work-mode): reviewer FAIL 修复——skill §3/§4 对齐机制C/D+云上systemd timer,补 tester 简洁输出条款,修 README/PROJECT-SPECIFIC 过时引用; ed6ea762b docs(claude-work-mode): 包内 docs/ 指针占位符化(55 处,统一 <docs/...> 明示包不含 docs/); 2c7c6ec13 docs(claude-work-mode): 阶段3 引用重核——下沉节号标注「原 §N」溯源(agents §9/§15、README 边界章节+编号注+章节映射表、PROJECT-SPECIFIC 专项标题)+ §23 标题 23.1-23.9→23.1-23.15; 1c7d8d58b docs(claude-work-mode): 阶段2 根 CLAUDE.md 瘦身——513→274 行,节号全保留为对照行; 7f846985b docs(claude-work-mode): 阶段1 skill增厚——4 role skill 对齐 collab 基座逐节搬运; c5a0d63c0 docs(规范): 根 CLAUDE.md 加节号对照行 + #121 悬空引用施工图落档 |
 <!-- token-cache-changelog-end -->
 
 ### 配置快照日志（2026-09-19 新增：模型/端点/思考%/effort/来源）
@@ -364,14 +367,14 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-08-18 | — | 方舟plan | — | — | 时段表 |
 | 2026-08-19 | — | 官方直连(混合) | — | — | 时段表 |
 | 2026-08-20 | — | 官方直连 | — | — | 时段表 |
-| 2026-08-21 | mimo-v2.5 | opencode | 65% | — | 时段表 |
-| 2026-08-22 | ox-alpha | opencode | 79% | — | 时段表 |
-| 2026-08-23 | ox-alpha | opencode | 85% | — | 时段表 |
-| 2026-08-24 | ox-alpha | opencode | 84% | — | 时段表 |
-| 2026-08-25 | ox-alpha-free | opencode | 50% | — | 时段表 |
-| 2026-08-26 | ox-alpha-free | opencode | 58% | — | 时段表 |
-| 2026-08-27 | mimo-v2.5 | opencode | 89% | — | 时段表 |
-| 2026-08-28 | minimax-m2.7 | opencode | 79% | — | 时段表 |
+| 2026-08-21 | — | opencode | — | — | 时段表 |
+| 2026-08-22 | — | opencode | — | — | 时段表 |
+| 2026-08-23 | — | opencode | — | — | 时段表 |
+| 2026-08-24 | — | opencode | — | — | 时段表 |
+| 2026-08-25 | — | opencode | — | — | 时段表 |
+| 2026-08-26 | — | opencode | — | — | 时段表 |
+| 2026-08-27 | — | opencode | — | — | 时段表 |
+| 2026-08-28 | minimax-m2.7 | opencode | 77% | — | 时段表 |
 | 2026-08-29 | flash-0731 | opencode | 91% | — | 时段表 |
 | 2026-08-30 | flash-0731 | opencode | 80% | — | 时段表 |
 | 2026-08-31 | flash-0731 | openrouter直连 | 38% | — | 时段表 |
@@ -399,5 +402,6 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-09-24 | pro | 8899·商汤rotate | 95% | — | 时段表 |
 | 2026-09-25 | pro | 8899·商汤rotate | 94% | — | 时段表 |
 | 2026-09-26 | pro | 8899·商汤rotate | 95% | — | 时段表 |
-| 2026-09-27 | pro | 8899·商汤rotate | 92% | 主pro 子flash 按角色(impl low/rev·tst·res max) | 实时抓取 |
+| 2026-09-27 | pro | 8899·商汤rotate | 92% | — | 时段表 |
+| 2026-09-28 | pro | 8899·商汤rotate | 90% | 主pro 子flash 按角色(impl low/rev·tst·res max) | 实时抓取 |
 <!-- token-cache-cfglog-end -->
