@@ -196,17 +196,26 @@ def _git_ls_files_md(root: str):
 
     2026-09-29 F2 修复: 裸 `git ls-files` 默认 core.quotepath=true, 中文文件名(md)输出为
     C 风格转义("docs/\\347\\220\\206..." 带引号) → l.endswith(".md") 永 False → 中文 md
-    被静默漏扫(实测: 主仓扫 214 vs 干净树 215, 差 docs/理财专员使用指南.md)。加
-    `-c core.quotepath=false` 让 git 原样输出文件名(不做 C 转义)。"""
+    被静默漏扫(实测: 主仓扫 214 vs 干净树 215, 差 docs/理财专员使用指南.md)。先版加
+    `-c core.quotepath=false` 只关非 ASCII 八进制转义, 但双引号/反斜杠/换行文件名仍走
+    C-quoting → 同样静默漏扫。根治: `git ls-files -z`(NUL 分隔、不做任何转义)+
+    split(b"\\x00"), 免疫全部形态; 每段 decode 用 errors="replace" 兜底非法 UTF-8。"""
     import subprocess
     try:
         out = subprocess.check_output(
-            ["git", "-c", "core.quotepath=false", "-C", root, "ls-files"],
-            text=True, stderr=subprocess.DEVNULL,
+            ["git", "-C", root, "ls-files", "-z"],
+            stderr=subprocess.DEVNULL,
         )
     except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         return None
-    return [l for l in out.splitlines() if l.endswith(".md")]
+    names = []
+    for seg in out.split(b"\x00"):
+        if not seg:
+            continue
+        name = seg.decode("utf-8", errors="replace")
+        if name.endswith(".md"):
+            names.append(name)
+    return names
 
 
 def _collect_md_files(root: str) -> list:

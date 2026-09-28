@@ -98,11 +98,24 @@ def staticdata_repo(repo_arg):
 
 
 def git_ls_files(repo):
-    """staticdata 仓库 git ls-files(只读, 不改 index/不写 .git)。"""
-    out = subprocess.run(["git", "-C", repo, "ls-files"], capture_output=True, text=True)
+    """staticdata 仓库 git ls-files(只读, 不改 index/不写 .git)。
+
+    2026-09-29 与 check_doc_staleness._git_ls_files_md 同构根治: 裸 `git ls-files` 按行消费
+    git 输出, 非 ASCII 走 C-quoting(默认 quotepath), 双引号/反斜杠/换行文件名静默漏;
+    `-z`(NUL 分隔、不做转义)+ split(b"\\x00") 免疫全部形态, decode errors="replace" 兜底
+    非法 UTF-8。staticdata 仓当前 31548 tracked 无非 ASCII/引号/控制符, 属预防性零行为变化。
+    """
+    out = subprocess.run(["git", "-C", repo, "ls-files", "-z"], capture_output=True)
     if out.returncode != 0:
         sys.exit(f"✗ git ls-files 失败: {out.stderr[:500]}")
-    return [l for l in out.stdout.splitlines() if l.strip()]
+    names = []
+    for seg in out.stdout.split(b"\x00"):
+        if not seg:
+            continue
+        name = seg.decode("utf-8", errors="replace")
+        if name.strip():
+            names.append(name)
+    return names
 
 
 def large_tracked(repo, files=None):
