@@ -227,12 +227,14 @@ reviewer进度文件: `/tmp/agent-progress-r2-consistency-p0-reviewer.md`
 |--------|------|
 | `4ea283685` | feat: 方案A track_score IR权重按match_method分层(build_board_etf_map.py) |
 | `a21c28406` | feat: §21 track_score公示文案同步方案A IR权重分层(app.js+app.min.js+sw.js+index.html) |
-| `83a63fcca` | docs: CLAUDE.md §11(→docs/main-governance.md §11)方向纠正(通知机制) |
+| `83a63fcca` | docs: CLAUDE.md §11 方向纠正-稳定方案从主动通知入手非兜底查 |
 | `b6c019eaf` | fix(r2): 高频文件不写edge cache + PURGE_SECRET持久化(R2一致性P0) |
 | `0b8226604` | docs: §18 追加方案A board_etf_map数据产物遗漏+reviewer误报教训 |
 | `0339ee963` | docs: §18 修正board_etf_map根因-data/->static-site/data/复制遗漏 |
 
 以上全部在 origin/main 上(已验证)。
+
+> 注:`83a63fcca` commit message 原文为 `docs: CLAUDE.md §11 方向纠正-稳定方案从主动通知入手非兜底查`(此前曾把 §11 现址提示 `(→docs/main-governance.md §11)` 插在 message 文本中间,观感改写历史,已移至此注释,message 原文一字未动)。§11 条文随 2026-08-12 瘦身迁移,现全文见 docs/main-governance.md §11。
 
 ---
 

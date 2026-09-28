@@ -27,7 +27,7 @@
 
 ## 1. 子 agent 工作模式（所有任务通用）
 
-不论什么任务，先遵守以下工作模式（原 §2/§11 现址 docs/main-governance.md 同名节；原 §13 现址 docs/archive/CLAUDE-history.md 还原版）：
+不论什么任务，先遵守以下工作模式（原 §2/§11 现址 docs/main-governance.md 同名节；原 §13 现址 docs/archive/CLAUDE-history.md 逐字原文（源 commit `d2fb77c0e`））：
 
 1. **进度文件**：`/tmp/agent-progress-<你的名字>.md`，**每步立即 echo 回写**（每个 grep/Edit/Read 都回写，不是每大步骤）。主控靠这个查进度，不依赖 jsonl（大）/通知（会丢）。
 2. **完成时两个动作**：`SendMessage to: 'main', summary: '<10字内>', message: '<结论摘要+关键验收点>'` **+** 进度文件末尾写 `## DONE <总结>`。两件事都做（通知丢失率高，进度文件 DONE 是证据）。

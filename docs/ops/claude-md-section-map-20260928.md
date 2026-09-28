@@ -56,11 +56,16 @@ grep -n "^## \(1\|6\.5\)" .claude/skills/role-implementer/SKILL.md
 
 # 4. archive 各节
 grep -o "§1[0-9]*" docs/archive/CLAUDE-history.md | sort -u
-#  → §10 §14 §17   ⚠️ 无 §12/§13（见第四节）
+#  → §10 §14 §17   ⚠️ 无 §12/§13（2026-09-28 当时快照;同日已用 git commit d2fb77c0e 逐字原文补档,现 archive 含 §12/§13,见第七节）
 ```
 
 > ⚠️ 踩坑记录:`grep "^## 6\.5\."` 匹配不到,因标题是 `## 6.5 `（**空格**非点）。
 > 核实文档节号时正则不要把分隔符写死。
+
+> ⚠️ **勘察盲区教训（2026-09-28 #121 阶段 2 续跑修正,本次 §12/§13 误判根因）**:勘察「某节是否还有留存」时,**除 grep 当前文件外必须查 git 历史**。本仓 git 历史里就有 §12/§13 逐字原文（`git show d2fb77c0e:CLAUDE.md` 的 L66-79,2026-07-16 §13 计入时的版本）,但此前勘察只 grep 当前文件、没查 git 历史,误判「本仓无留存」而走了从外部仓 `claude-work-mode` 还原（还原版丢细节:§13 的 og.png 400 教训段、§12 的独立 task-reviewer 两阶段验收/`.superpowers/sdd/review-*.diff` 文件交接/`progress.md` ledger/using-git-worktrees 隔离）。正确做法:
+> - `git log -S "<章节标题关键词>" -- CLAUDE.md`（按内容增删搜,`-S` 检出引入/删除该串的 commit）
+> - 或 `git log --oneline --grep="<关键词>" -- CLAUDE.md`（按 commit message 搜）
+> - 找到含该节的 commit 后 `git show <commit>:CLAUDE.md | grep -n "## §N"` 定位行号取逐字原文。
 
 ---
 
@@ -142,6 +147,6 @@ grep -rnE "CLAUDE\.md §(9|15|7|2|11|10|6\.5|12)([^0-9.]|$)" \
 ## 七、执行状态
 
 - **阶段 1（对照表）** ✅ 2026-09-28：根 CLAUDE.md「历史/约束归档引用」段首加一行精简对照,末尾详情指向本文件。
-- **阶段 2（清 17 处）** ✅ 2026-09-28（feat/section-ref-cleanup-20260928）：按第二节对照表逐处替换主树 A 类 17 处（smoke-checklist 5 / backup-restore 2 / agent-quickstart 1 / data-deploy-quickstart 1 / feishu 1 / r2-report 1 / kelly-fade 1 / reviewer skill 1 / 代码注释 4）,全部带「原 §N」溯源标注。B 类（NOTES 历史陈述 8）/C 类（worktrees 镜像 25）/D 类（外部同步仓 1）不改,处置理由见第五节。
+- **阶段 2（清 17 处）** ✅ 2026-09-28（feat/section-ref-cleanup-20260928）：按第二节对照表逐处替换主树 A 类 17 处（smoke-checklist 5 / backup-restore 2 / agent-quickstart 1 / data-deploy-quickstart 1 / feishu 1 / r2-report 1 / kelly-fade 1 / reviewer skill 1 / 代码注释 4）,全部带「原 §N」溯源标注。B 类（NOTES 历史陈述 8）/C 类（worktrees 镜像 25）/D 类（外部同步仓 1）不改,处置理由见第五节。补充:2026-09-28 续跑修正——`docs/r2-migration-implementation-report.md` 那处 commit message 复述的补注挪到表下方注释,message 原文一字不动。
 - **阶段 3（外部同步仓）** ⏸ 与 #120 ④批 3 仓合并处理。⚠️ `claude-work-mode` 每日被 token-cache-stats 自动任务写,需避撞车。
-- **死指针（第四节）** ✅ 2026-09-28（走乙案）:§12/§13 全文已从框架仓 claude-work-mode 对应节还原补进 `docs/archive/CLAUDE-history.md`（顶部标题已更新含 §12/§13;每节首行标注「非本仓下沉前原文逐字留存,核心约束一致,细节可能有出入」）。根 CLAUDE.md 两行「原文见 docs/archive/CLAUDE-history.md」指针现真实可达,不再指空。
+- **死指针（第四节）** ✅ 2026-09-28（先走乙案后修正）:§12/§13 全文**已用 git 逐字原文修复**——从本仓 git 历史 commit `d2fb77c0e`(2026-07-16)逐字还原补进 `docs/archive/CLAUDE-history.md`（§13 另补一行现况注,`glm-5.2` 原文保留）,替换了先前从框架仓 claude-work-mode 的还原版（丢细节）。根 CLAUDE.md 两行「原文见 docs/archive/CLAUDE-history.md」指针现真实可达,不再指空。

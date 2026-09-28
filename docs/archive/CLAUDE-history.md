@@ -1,4 +1,4 @@
-# CLAUDE.md 历史章节归档(§17/§10/§12/§13,2026-08-12;§12/§13 于 2026-09-28 从框架仓 claude-work-mode 还原补充)
+# CLAUDE.md 历史章节归档(§17/§10/§12/§13,2026-08-12;§12/§13 于 2026-09-28 以 git 历史 commit d2fb77c0e 逐字原文补档)
 
 > 本节收纳 CLAUDE.md 中已作废/已根治的历史章节原文,由 CLAUDE.md 整理提炼(去重12+提炼8+归档3大件)归档,防重犯条款精华保留在 CLAUDE.md 正文。
 > 归档日期:2026-08-12
@@ -31,31 +31,32 @@
 - 绝不能 `git restore data/sentiment.db` / `git checkout -- data/sentiment.db`(若不慎重新 add)
 
 
-## §13 模型能力约束(2026-09-28 从框架仓 claude-work-mode 还原,非本仓下沉前原文逐字留存)
+## §13 模型能力约束(逐字原文,源 commit `d2fb77c0e`(2026-07-16 §13 计入时的版本))
 
-> 本节为 2026-09-28 从框架仓 claude-work-mode/CLAUDE.md §13 还原,**非本仓下沉前原文逐字留存**;核心约束一致,细节可能与原版有出入。CLAUDE.md 正文现留 1 行摘要(仅文本不支持图片/禁止图片操作/撞 400/视觉验证用文字+ASCII 示意图)。
+> 本节为 2026-09-28 从本仓 git 历史 commit `d2fb77c0e` 的 CLAUDE.md 逐字还原,非框架仓还原版;正文与当时版本逐字一致,仅节末补一行现况注。CLAUDE.md 正文现留 1 行摘要(仅文本不支持图片/禁止图片操作/撞 400/视觉验证用文字+ASCII 示意图)。
 
 ---
 
-## 13. 模型能力约束(开工先确认当前模型能力)
-
-- 开工前确认当前模型(deepseek-v4-pro / flash,文本 only)的能力边界:当前模型**只支持文本输入,不支持图片**,Read 图片/截图/视觉对比会触发 API Error 400 终止 agent
+## 13. 模型能力约束(2026-07-16 计入)
+- 当前模型(glm-5.2)**只支持文本输入,不支持图片**。Read 图片/截图/视觉对比会触发 API Error 400 "Model only support text input",终止 agent
 - 派子 agent 时**禁止图片操作**(截图对比/UI 视觉看图/Read 图片验证效果)。需视觉验证的用文字描述+ASCII 示意图,或让用户自己看
 - 子 agent 撞 400 "Model only support text input" = 尝试了图片输入。若其调研已基本完成,读进度文件 + 主控补完剩余即可,无需重派从头
-- 任何能力受限都同理:撞能力边界别硬试,换文字/数据层验证
+- **2026-07-16 教训**:P2-4 og.png 压缩 agent 在"开始写报告"时疑似 Read og.png 验证压缩效果,撞 400 终止。但 P0-1 压缩调研已完成(坐实不可行),og.png 主控手动 magick 256色压缩补完(67KB->36KB),无损失
+
+> (注:`glm-5.2` 为 2026-07-16 时值;当前模型 deepseek-v4-pro / flash,约束不变)
 
 
-## §12 superpowers 融合规则(2026-09-28 从框架仓 claude-work-mode 还原,非本仓下沉前原文逐字留存)
+## §12 superpowers 融合规则(逐字原文,源 commit `d2fb77c0e`(2026-07-15 装 v6.1.1))
 
-> 本节为 2026-09-28 从框架仓 claude-work-mode/CLAUDE.md 对应节(其编号 §17,内容即本仓 §12)还原,**非本仓下沉前原文逐字留存**;核心约束一致,细节可能与原版有出入。CLAUDE.md 正文现留 1 行摘要(运维/采集/上线/数据任务跳过 brainstorming HARD-GATE + continuous-execution;大型功能可按需用全套)。
+> 本节为 2026-09-28 从本仓 git 历史 commit `d2fb77c0e` 的 CLAUDE.md 逐字还原(§12),非框架仓还原版;正文与当时版本逐字一致。CLAUDE.md 正文现留 1 行摘要(运维/采集/上线/数据任务跳过 brainstorming HARD-GATE + continuous-execution;大型功能可按需用全套)。
 
 ---
 
-## 12. superpowers 融合规则(装于 2026-07-15,superpowers v6.1.1,14 个 skill + 子 skill 共 63 个 SKILL.md)
+## 12. superpowers 融合规则(2026-07-15 装 v6.1.1)
+- superpowers 是纯 skill 库(14个,无 slash command),SessionStart hook 每次开会话强制注入 using-superpowers 全文(~800 token),且默认"1% 可能相关就主动调 skill"
+- **优先级**:本项目 CLAUDE.md 硬规范 > superpowers skill。using-superpowers 声明"只有用户明示跳过才不走 skill",故下条明示跳过
+- **运维/采集/上线/数据任务明示跳过** superpowers 的:①brainstorming 的 HARD-GATE(写码前必经设计门)②executing-plans/subagent-driven-development 的 continuous-execution(连轴转不停问用户)。这类任务**保留现有监工 loop**(§2§11:派 background 子agent→立即返回待命→CronCreate 轮询 jsonl mtime→卡死/429 优先 SendMessage resume→不问 yes/no 用户随时插话)
+- **background 异步 + 卡死/429 轮询恢复机制保留不替换**:superpowers 假设子agent同步返回、无恢复机制,比现有弱
+- **大型功能开发(策略实验室级)可按需用全套**:brainstorming→writing-plans(拆2-5分钟bite-sized task)→subagent-driven-development(implementer+reviewer+fixer循环)→TDD→finishing-a-development-branch
+- **可借鉴技艺补强监工 loop**:①独立 task-reviewer 子agent 两阶段验收(spec合规+代码质量),作"逐字验证"之外第二双眼 ②大 diff 走文件交接(`.superpowers/sdd/review-*.diff`)不进主控上下文 ③progress ledger 落 `.superpowers/sdd/progress.md` 进 git 跨 compaction 可恢复,比 `/tmp/agent-progress-*` 耐久(长任务用)④using-git-worktrees 隔离并行改同区域
 
-本仓环境已装 superpowers 等 skill 库(纯 skill 集,无 slash command,SessionStart hook 每次开会话强制注入全文,默认"1% 可能相关就主动调 skill"):
-
-- **优先级**:项目 CLAUDE.md 硬规范 > skill 库。skill 库默认"只有用户明示跳过才不走",故运维/采集/上线/数据任务明示跳过其 ①brainstorming 的 HARD-GATE(写码前必经设计门)②executing-plans/subagent-driven-development 的 continuous-execution(连轴转不停问用户)
-- **运维/采集/上线/数据任务保留现有监工 loop**(§2/§11:派 background 子 agent->立即返回待命->轮询恢复->不问 yes/no 用户随时插话)。skill 库假设子 agent 同步返回、无恢复机制,比现有弱
-- **大型功能开发可按需用全套**:brainstorming->writing-plans(拆 2-5 分钟 bite-sized task)->subagent-driven-development(implementer+reviewer+fixer 循环)->TDD->finishing-a-development-branch
-- **可借鉴技艺补强监工 loop**:①独立 task-reviewer 子 agent 两阶段验收(spec 合规+代码质量)②大 diff 走文件交接不进主控上下文 ③progress ledger 落 git 跨 compaction 可恢复,比 `/tmp/agent-progress-*` 耐久(长任务用)④using-git-worktrees 隔离并行改同区域
