@@ -1239,19 +1239,30 @@ def update_dedup(key: str) -> None:
         return
     try:
         DEDUP_FILE.parent.mkdir(parents=True, exist_ok=True)
-        state: dict = {}
-        if DEDUP_FILE.exists():
+        # 2026-09-29 告警降噪(改动6): update_dedup 读-改-写加 fcntl.flock 串行化,
+        # 防多进程并发 update_dedup 读改写互相丢 key(09-28 同 key 24h 内 2 次根因之一;
+        # 双树 rsync 覆盖已由 deploy.sh --exclude 隔离, 本锁防同 REPO 内并发写竞态)。
+        # 写回用 a+ + seek + truncate(flock 需要文件句柄持锁期间完成读改写,
+        # 裸 write_text 另开句柄无法持锁)。锁内失败仍 fail-open(不 suppress, 宁多勿漏)。
+        import fcntl as _fcntl
+        _now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(DEDUP_FILE, "a+", encoding="utf-8") as _f:
+            _fcntl.flock(_f, _fcntl.LOCK_EX)
             try:
-                with open(DEDUP_FILE, encoding="utf-8") as f:
-                    state = json.load(f)
+                _f.seek(0)
+                _raw = _f.read()
+                state = json.loads(_raw) if _raw.strip() else {}
                 if not isinstance(state, dict):
                     state = {}
             except Exception:  # noqa: BLE001
                 state = {}
-        state[key] = {"last_alerted": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-        DEDUP_FILE.write_text(
-            json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+            state[key] = {"last_alerted": _now_str}
+            _f.seek(0)
+            _f.truncate()
+            _f.write(json.dumps(state, ensure_ascii=False, indent=2))
+            _f.flush()
+            os.fsync(_f.fileno())
+            _fcntl.flock(_f, _fcntl.LOCK_UN)
         print(f"[notify][dedup] 更新 key={key} last_alerted=now", file=sys.stderr)
     except Exception as e:  # noqa: BLE001
         print(f"[notify][dedup] 更新失败(不影响本次发送)：{e}", file=sys.stderr)

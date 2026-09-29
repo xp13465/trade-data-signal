@@ -338,9 +338,12 @@ EOF
       _OV_REASON="存在单文件 >${_LJE_THRESHOLD} 字节的大 JSON 仍待提交(未移出 staticdata git)"
     fi
     echo "⚠ $_OV_REASON, 跳过 commit/push 仅磁盘留档(积压兜底)" | tee -a "$LOG"
+    # 2026-09-29 告警降噪(改动4): oversize=例行留档提醒(盘后每周必然出现, 09-26 周六仅剩此 1 条),
+    # 非故障(数据已磁盘留档, 仅是 git 未同步, 灾备第2层暂缓) → --tier info 只记 dashboard 不推送。
+    # 保留 dedup 防刷; 最坏漏静态数据 git 长期不同步, 由灾备 3/4 层(云上备份/R2) + data_gap 兜底。
     "$PY" "$REPO/scripts/notify.py" "[告警] staticdata 变更量超阈值跳过 commit" \
       "staticdata 备份 $_OV_REASON, 本次仅 rsync 磁盘留档未 commit/push。<br>数据已在 $STATICDATA_REPO/data/ 与 db/ 磁盘留档(灾备第1/2层安全), 次日 deploy 的 rsync 全量自然追平 git。<br>若因大 JSON 未迁移: 请跑 bash scripts/migrate_large_json_out_of_git.sh 将其移出 staticdata git, 改走 R2 私有桶 large-json/ 每日备份。<br>日志: $LOG" \
-      --severe --from-prefix "[告警]" --alert-issue "staticdata备份变更量超阈值跳过commit" --alert-log "$LOG" \
+      --tier info --from-prefix "[告警]" \
       --dedup-key "staticdata_backup_oversize_skip" --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>&1 | tee -a "$LOG" || true
   else
     # commit message 详细化：标题含触发 pipeline 名($TRIGGER) + 变更文件数；body 按顶层目录分类计数 top5

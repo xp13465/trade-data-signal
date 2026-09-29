@@ -310,18 +310,39 @@ for t in TASKS:
                 seen_keys_this_run.add(missed_key)  # 标记本次仍存在(防误恢复)
                 _existing = alert_state.get(missed_key)
                 if _existing is None or _existing.get("status") != "active":
-                    # 首次发现 或 恢复后再次出现 = 发 SEVERE + 写 state
-                    alerts.append(
-                        f"SEVERE: {t['task']} 漏跑 计划<{sch_hm}> toler<30min> "
-                        f"now<{NOW.strftime('%Y-%m-%d %H:%M:%S')}> last_run<{last_run_str}>"
-                    )
-                    alert_state[missed_key] = {
-                        "status": "active",
-                        "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
-                        "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
-                        "keyword": f"missed<{sch_hm}>",
-                        "line_sample": f"last_run<{last_run_str}>",
-                    }
+                    # 2026-09-29 告警降噪(改动2): 单轮漏跑多为瞬时(09-28 15:02 漏跑 15:35 轮
+                    # 自动补跑 exit=0), 首轮记 pending 不通知; 连续 2 轮(30min, 15min频率×2)
+                    # 仍无运行 = 真漏跑(非瞬时自愈)才 SEVERE。TOLERANCE=30min 窗口内一个 sch
+                    # 最多被检查 2 轮, 故连续 2 轮即覆盖窗口; 窗口内补跑成功(last_run>=sch)
+                    # 不进本分支, pending 自然失效(次日 key 含日期独立)。
+                    _existing_first = _existing.get("first_seen") if _existing else None
+                    _missed_c = (_existing.get("consecutive_count") or 0) + 1 if _existing else 1
+                    if _missed_c >= MISSED_CONTINUOUS_THRESHOLD:
+                        # 连续 2 轮仍漏跑 = 真漏跑(非瞬时自愈)
+                        alerts.append(
+                            f"SEVERE: {t['task']} 漏跑 计划<{sch_hm}> toler<30min> "
+                            f"now<{NOW.strftime('%Y-%m-%d %H:%M:%S')}> last_run<{last_run_str}>"
+                        )
+                        alert_state[missed_key] = {
+                            "status": "active",
+                            "first_seen": _existing_first or NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                            "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                            "consecutive_count": _missed_c,
+                            "keyword": f"missed<{sch_hm}>",
+                            "line_sample": f"last_run<{last_run_str}>",
+                        }
+                    else:
+                        alert_state[missed_key] = {
+                            "status": "pending",
+                            "first_seen": _existing_first or NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                            "consecutive_count": _missed_c,
+                            "keyword": f"missed<{sch_hm}>",
+                            "line_sample": f"last_run<{last_run_str}>",
+                        }
+                        print(
+                            f"[missed-buffer] {t['task']} 漏跑 计划<{sch_hm}> 连续{_missed_c}/"
+                            f"{MISSED_CONTINUOUS_THRESHOLD} 轮, 暂不通知(单轮=瞬时, 补跑即自愈)"
+                        )
                 else:
                     # 已 active = suppress 不重发, 只 log
                     print(
@@ -402,8 +423,17 @@ R2_SKIP_CONTINUOUS_THRESHOLD = 3
 # fetch_news 30min 轮)每轮/隔轮必有新运行, last_run 恒在窗口内 -> 连续 N 轮 SEVERE 行为一条
 # 不改; 每日一轮任务 ~2 轮后即出窗口 -> 单次 skip 最大计数 2 < 阈值 3, 跨轮累积误报根治。
 R2_SKIP_OBS_WINDOW = timedelta(minutes=30)
+# P3(2026-09-29 告警降噪 改动1/2): 连续轮阈值。
+#   R2_LAG_CONTINUOUS_THRESHOLD=3: R2 intraday_snapshot 时效滞后单次多为上传间隙瞬时
+#     (09-28 13:45/14:15 各 1 封=检查落在上传间隙), 连续 3 轮(≈45min, 15min/轮)仍滞后
+#     才 SEVERE; 真断供(前端分时读旧)不会被吞。参照 marker_buffer 计数语义。
+#   MISSED_CONTINUOUS_THRESHOLD=2: 单轮漏跑多为瞬时(15:35 轮自动补跑 exit=0), 连续 2 轮
+#     (30min, 15min频率×2)仍无运行才 SEVERE; TOLERANCE=30min 窗口内一个 sch 最多被检查 2 轮。
+R2_LAG_CONTINUOUS_THRESHOLD = 3
+MISSED_CONTINUOUS_THRESHOLD = 2
 DUR_THRESHOLDS = {
-    "intraday_snapshot": 600,   # 10min
+    "intraday_snapshot": 900,   # 15min(2026-09-29 告警降噪 改动3: 600->900, 正常286s 3倍裕量;
+                                #   盘后>=20:00槽已在 L645-651 分档放宽到 1800s 覆盖, 勿动)
     # 2026-09-09 #82 C6 重标: turnover 已摘出主链(独立任务 com.trade.turnover-backfill 21:10),
     # update_all 主链 = width(实测 36min) + 后续串行(export_fund_nav→deploy→…→daily_summary,
     # 实测 76-85min) ≈ 112-121min。阈值 8100s(135min) = 实测 max + ~14min 裕量,
@@ -1534,16 +1564,44 @@ try:
             if id_dt_r2:
                 id_lag_r2 = NOW - id_dt_r2
                 id_lag_min_r2 = int(id_lag_r2.total_seconds() // 60)
-                id_thresh_r2 = timedelta(minutes=15)
+                id_thresh_r2 = timedelta(minutes=20)
+                # 2026-09-29 复审(次要项4): buffer 计数 key 加日期维度, 防跨天残留
+                # (昨日累计 pending count=2 残留, 今日首轮滞后 +1=3 直接误 SEVERE;
+                # 「连续3轮≈45min」判定不会跨天, 隔日应重新从 0 计数)。定义在 if/else 外,
+                # 恢复分支(本轮无 lag)也引用同 key。
+                _r2_buf_key = "r2_intraday_lag|buffer|" + NOW.strftime("%Y%m%d")
                 if id_lag_r2 > id_thresh_r2:
                     _r2_id_key = "r2_intraday_lag"
                     seen_keys_this_run.add(_r2_id_key)
                     _ex_r2id = alert_state.get(_r2_id_key)
-                    if _ex_r2id is None or _ex_r2id.get("status") != "active":
+                    # 2026-09-29 告警降噪(改动1): 单次 lag>20min 多为上传间隙瞬时滞后
+                    # (09-28 13:45/14:15 各 1 封=检查落在上传间隙), 连续 >=3 轮(≈45min,
+                    # 15min/轮)仍滞后才 SEVERE=R2 真断供。参照 marker_buffer 计数:
+                    # 独立 buffer key 记连续轮次, 达标才写告警 key active(发 SEVERE);
+                    # 未达标只打 [r2-lag-buffer] 不通知(历史告警 key 不 active 不恢复)。
+                    _r2id_bf = alert_state.get(_r2_buf_key) or {}
+                    _bf_st = _r2id_bf.get("status")
+                    if _bf_st == "alerted":
+                        _r2id_c = R2_LAG_CONTINUOUS_THRESHOLD
+                    else:
+                        _r2id_c = (_r2id_bf.get("consecutive_count") or 0) + 1
+                    alert_state[_r2_buf_key] = {
+                        "status": "alerted" if _r2id_c >= R2_LAG_CONTINUOUS_THRESHOLD else "pending",
+                        "first_seen": _r2id_bf.get("first_seen") or NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                        "consecutive_count": _r2id_c,
+                        "keyword": "r2_intraday_lag",
+                        "line_sample": f"lag={id_lag_min_r2}min collected_at={id_collected_r2}",
+                    }
+                    if _r2id_c < R2_LAG_CONTINUOUS_THRESHOLD:
+                        print(
+                            f"[r2-lag-buffer] R2 intraday 滞后连续{_r2id_c}/"
+                            f"{R2_LAG_CONTINUOUS_THRESHOLD} 轮, 暂不通知(单次=上传间隙瞬时)"
+                        )
+                    elif _ex_r2id is None or _ex_r2id.get("status") != "active":
                         alerts.append(
                             f"SEVERE: R2 intraday_snapshot.json 时效滞后 "
                             f"collected_at<{id_collected_r2}> lag={id_lag_min_r2}min "
-                            f"threshold<15min> "
+                            f"threshold<20min> 连续{R2_LAG_CONTINUOUS_THRESHOLD}轮"
                             f"now<{NOW.strftime('%Y-%m-%d %H:%M:%S')}> "
                             f"(upload-intraday 未推新版)"
                         )
@@ -1574,6 +1632,16 @@ try:
                             print(f"[cooldown] r2_intraday_lag 恢复邮件静默(上次恢复<30min前)")
                         print(f"[recovery] R2 intraday 时效滞后已恢复 "
                               f"(首次发现: {_ex_r2id.get('first_seen')})")
+                    # 本轮已恢复 = 连续链中断, 清 buffer 计数(防跨窗口残留计数误升级:
+                    # 若不重置, 恢复前累计到 2 的 consecutive_count 会在下次单次滞后时 +1=3 直接误 SEVERE;
+                    # 用当日 key(_r2_buf_key 已在 if 分支定义, 恢复分支同 key → 隔日自动从 0 起)
+                    _r2id_bf_r = alert_state.get(_r2_buf_key)
+                    if _r2id_bf_r and _r2id_bf_r.get("status") in ("pending", "alerted"):
+                        alert_state[_r2_buf_key] = {
+                            **_r2id_bf_r, "status": "recovered",
+                            "consecutive_count": 0,
+                            "recovered_at": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                        }
 
     # R2 检查在 save_alert_state(L509/L660) 之后运行, 需补存防状态丢失
     save_alert_state(alert_state)

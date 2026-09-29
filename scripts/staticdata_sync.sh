@@ -240,9 +240,12 @@ EOF
     _CS_RC=$?
     if [ "$_CS_RC" -eq 1 ]; then
       echo "⚠ 变更量超阈值, 跳过 commit/push 仅磁盘留档: $_CS_OUT"
+      # 2026-09-29 告警降噪(改动4): oversize=例行留档提醒(每周必然出现), 非故障
+      # (数据已磁盘留档, 灾备第2层 git 暂缓, 次日 deploy async 全量 rsync 追平) →
+      # --tier info 只记 dashboard 不推送; 保留 dedup 防刷; 灾备 3/4 层 + data_gap 兜底。
       "$PY" "$REPO/scripts/notify.py" "[告警] staticdata 同步变更量超阈值跳过 commit" \
         "staticdata 同步(trigger=$TRIGGER) 变更量超阈值: $_CS_OUT<br>本次仅 rsync 磁盘留档未 commit/push(数据已留档, 次日 deploy 的 async 全量 rsync 会追平 git)。<br>若因大 JSON 未迁移: 请跑 bash scripts/migrate_large_json_out_of_git.sh 将其移出 staticdata git, 改走 R2 私有桶 large-json/ 每日备份。" \
-        --from-prefix "[告警]" --alert-issue "staticdata同步变更量超阈值跳过commit" \
+        --tier info --from-prefix "[告警]" \
         --dedup-key staticdata_sync_oversize_skip --dedup-window 21600 "${_NOTIFY_DRY[@]+"${_NOTIFY_DRY[@]}"}" 2>/dev/null || true
       SYNC_FAIL=1
     else

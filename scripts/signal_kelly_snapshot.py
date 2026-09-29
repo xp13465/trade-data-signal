@@ -512,7 +512,14 @@ def run_check(data_dir: Path, dry_run: bool) -> int:
             body_lines.append("补跑: bash scripts/kelly_posrating.py --data-dir <static-site/data> --write")
         body_lines.append("发版豁免: 今日为发布日则本突变告警属预期(已跳过突变检测)。")
         body = "\n".join(body_lines)
-        dedup_key = f"sigkelly_snapshot_{a['type']}_{a.get('mode', '')}_{days[-1]['d']}"
+        # 2026-09-29 告警降噪(改动7): stagnation dedup_key 去日期化(原带快照日期 20260928,
+        # 配合 24h 窗口本意"每日 1 次", 但 09-28 同 key 24h 内发 2 次(dedup 文件被双树覆盖丢
+        # key)+ 机制脆弱)。去日期后 = sigkelly_snapshot_stagnation, 24h 窗口天然每日一次;
+        # 跨 repo 跑也不会因 data-dir 不同生成不同 key。风险对冲: 连续 2 天停滞, 24h 窗口
+        # 可能吞第 2 天第 1 条(P0-2 后断档通道对冻结缺失已降 WARN 非 SEVERE)→ 停滞信息由
+        # check_data_gap kelly_coverage 每日 WARN/SEVERE 通道逐日兜底, 不因本 key 被吞而静默
+        # (方案 §6 改动7 §7 风险对冲, 2026-09-29 复审修正措辞)。
+        dedup_key = f"sigkelly_snapshot_{a['type']}_{a.get('mode', '')}"
         if dry_run:
             log(f"[dry-run] 将发告警: {subject} | {a.get('detail', '')}")
         else:
@@ -532,8 +539,13 @@ def run_check(data_dir: Path, dry_run: bool) -> int:
                           "建议查 check_data_integrity 信号滞后告警 + 最近 3 日成交明细。")
         body_lines.append("发版豁免: 今日为发布日则本突变告警属预期(已跳过突变检测)。")
         body = "\n".join(body_lines)
-        # dedup key 不按 mode 拆分: 跨 mode 合并后只留 date 级 key, 防 24h 内重复轰炸
-        dedup_key = f"sigkelly_snapshot_mutation_{days[-1]['d']}"
+        # dedup key 不按 mode 拆分: 跨 mode 合并后只留类型级 key。2026-09-29 改动7 先做
+        # 去日期, 但复审发现 24h 滚动窗口会吞「连续 2 天突变」的第 2 天(运行时刻漂移时
+        # 距首条 <24h)且 mutation 无独立兜底通道 → 改「自然日 key」带 today_str:
+        # 同一自然日内重复运行同 key 24h 窗口 suppress(每日 1 条), 跨自然日 key 必变 → 连续
+        # 2 天突变两天各发 1 条, 根治 24h 滚动起算点吞跨天。双树覆盖丢 key 根因已由改动6
+        # (deploy.sh --exclude notify_dedup.json + update_dedup flock)根治, 带日期 key 无覆盖风险。
+        dedup_key = f"sigkelly_snapshot_mutation_{today_str}"
         if dry_run:
             log(f"[dry-run] 将发告警: {subject} | 合并 {len(mutation_alerts)} 条 mode [{modes}]")
         else:

@@ -104,11 +104,14 @@ def _notify_block_timeout(waited_sec: int) -> None:
         # 对齐 on_skip_notify.sh 的 ON_SKIP_DRY_RUN 惯例）。生产不设该变量 → 真发告警。
         dry_flag = ["--dry-run"] if os.environ.get("WITH_LOCK_NOTIFY_DRY_RUN") == "1" else []
         # 2026-09-24 告警降噪 P2: dedup 30min->6h(排队超时=锁竞争瞬时, 已自愈, 8 封/周噪音)。
-        # 保持 --severe(任务被跳过需补跑提示), 首封立即发, 6h 内同 lockpath 不重复轰炸。
-        # 真锁死(排队任务互相饿死)由 schedule_monitor exit/产物时效/进行中超时通道兜底不掩盖。
+        # 2026-09-29 告警降噪(改动5): --severe → --tier warning。排队超时多为 deploy 主链
+        # 在跑导致的瞬时竞争(09-28 21:05 排队超时, deploy 实际 21:08-22:16 exit=0 成功),
+        # 任务被跳过但数据由 deploy 全量刷新/后续重跑兜底 → 不再即时 SEVERE 轰炸,
+        # 入 warning buffer 由 schedule_monitor --flush-warnings 30min 聚合批发。
+        # 真锁死(排队任务互相饿死)由 schedule_monitor exit/产物时效/进行中超时通道兜底不掩盖;
+        # 被跳过任务的漏跑检查(schedule_monitor)按连续轮独立兜底。
         subprocess.run(
-            [py, notify_py, subject, body, "--severe", "--from-prefix", "[告警]",
-             "--alert-issue", f"with_lock 排队超时跳过({lockpath})",
+            [py, notify_py, subject, body, "--tier", "warning", "--from-prefix", "[告警]",
              "--dedup-key", f"with_lock_block_timeout:{lockpath}", "--dedup-window", "21600"] + dry_flag,
             timeout=60,
         )

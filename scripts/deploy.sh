@@ -510,8 +510,14 @@ fi
 # 仅 trade-data 跑时触发（REPO != GIT_REPO）；排除 logs/（日志各自独立不互相同步）。
 # 失败不阻断部署（static-site/data/ JSON 已上线，DB 同步仅兜底）。
 if [ "$REPO" != "$GIT_REPO" ]; then
-  echo "-> rsync 采集数据: $REPO/data/ -> $GIT_REPO/data/ (exclude logs) ..." | tee -a "$LOG"
-  rsync -a --exclude=logs/ "$REPO/data/" "$GIT_REPO/data/" 2>&1 | tee -a "$LOG"
+  echo "-> rsync 采集数据: $REPO/data/ -> $GIT_REPO/data/ (exclude logs + 告警状态文件) ..." | tee -a "$LOG"
+  # 2026-09-29 告警降噪(改动6): 排除告警状态文件, 防双树(REPO 数据树 + GIT_REPO git 树)
+  # 各维护一份 data/notify_dedup.json / alert_state.json 被 rsync -a 覆盖互相丢 key
+  # (dedup 失效根因, 09-28 sigkelly_snapshot_stagnation 同 key 24h 内 2 次)。
+  # 状态文件以 REPO(trade-data)侧为准, 不跨树同步; 排除后单源写, dedup 窗口可靠。
+  rsync -a --exclude=logs/ --exclude=notify_dedup.json --exclude=alert_state.json \
+        --exclude=alerts/ --exclude=warning_* \
+        "$REPO/data/" "$GIT_REPO/data/" 2>&1 | tee -a "$LOG"
   RSYNC_DB_RC=${PIPESTATUS[0]}
   if [ "$RSYNC_DB_RC" -ne 0 ]; then
     echo "⚠ rsync data/ 失败(退出码 $RSYNC_DB_RC)，不阻断部署(static-site/data/ JSON 已上线)" | tee -a "$LOG"
