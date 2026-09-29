@@ -2281,7 +2281,11 @@ def cmd_upload_large_json():
                 print(f"⚠ 连续 {_fail_streak} 次网络失败(≥R2_LARGE_JSON_FAIL_LIMIT={_fail_limit}), "
                       f"判定网络劣化, 放弃本轮", file=sys.stderr)
                 break
-        elif st == 200 and etag is not None and etag.strip('"') == local_md5:
+            # 低于熔断阈值: 降格为「当作不存在」继续走 PUT(2026-09-29 评审修正)——PUT 自带 5 次退避重试,
+            # 瞬时 HEAD 失败网络恰好恢复时能自救成功, 不再无谓整轮 exit 1 制造告警噪音。
+            st = 404
+            etag = None
+        if st == 200 and etag is not None and etag.strip('"') == local_md5:
             _fail_streak = 0
             print(f"✓ 已存在且内容未变, 跳过 PUT: {BACKUP_BUCKET}/{key}")
             ok += 1

@@ -1,8 +1,9 @@
 # #129 staticdata 灾备备份 R2 持锁 10h+ 机制缺陷(P1 熔断/预算已实施, P2 锁分离待排期)
 
 - 日期: 2026-09-29
-- 角色: researcher(方案) → implementer(P1 实施)
-- 状态: **P1 已实施待审**(分支 `fix/r2-large-json-fuse-20260929`); **P2 仍在待办**
+- 角色: researcher(方案) → implementer(P1 实施) → 独立评审(PASS + 1 行修正, 2026-09-29)
+- 状态: **P1 已实施待审**(分支 `fix/r2-large-json-fuse-20260929`, 含评审修正); **P2 仍在待办**
+- 评审修正: HEAD 网络失败低于熔断阈值时**降格 `st=404; etag=None` 继续走 PUT**(恢复旧代码「HEAD 失败仍试 PUT」韧性, 瞬时失败可自救, 不无谓 exit 1 造告警噪音; `elif` 改独立 `if` 使降格生效)。详见三.改动点 5/6。
 
 ## 一、根因(事故链)
 
@@ -36,11 +37,13 @@
 | 2 | L2293 | `s3_request("PUT", key, payload, bucket=BACKUP_BUCKET, content_type="application/gzip")` → 追加 `keep_alive=True` |
 | 3 | L2239-2253 | 循环前读 env:`R2_LARGE_JSON_BUDGET`(默认 10800s, `float` 非法值回退)/ `R2_LARGE_JSON_FAIL_LIMIT`(默认 30 次, `int` 非法值回退);`_start=time.monotonic(); _fail_streak=0` |
 | 4 | L2256-2260 | 每文件开头查**整体预算**:超 → print `预算耗尽, 剩余 N 未传` + `break` |
-| 5 | L2277-2283 | `s3_head` 返 `(0,None)`(5 次重试耗尽) → `_fail_streak+=1`, ≥limit → print `熔断` + `break` |
-| 6 | L2284-2289 | `s3_head` ETag 命中(内容未变) → `_fail_streak=0`, 走既有跳过 PUT 成功分支 |
-| 7 | L2292-2303 | PUT 抛异常(5 次重试耗尽, `ssl.SSLError/OSError/http.client.HTTPException`) → 捕获计 `_fail_streak`, 不崩整循环, ≥limit → break |
-| 8 | L2304-2309 | PUT 200 → `_fail_streak=0`, 走既有成功分支 |
-| 9 | L2310-2319 | PUT 非 200 → `_fail_streak+=1`, ≥limit → break(既有 ✗ 打印保留) |
+| 5 | L2277-2287 | `s3_head` 返 `(0,None)`(5 次重试耗尽) → `_fail_streak+=1`, ≥limit → print `熔断` + `break`; **低于阈值 → 降格 `st=404; etag=None` 继续走 PUT**(2026-09-29 评审修正: 恢复旧代码「HEAD 失败仍试 PUT」韧性, 瞬时 HEAD 失败网络恢复时 PUT 自救成功, 不无谓 exit 1 制造告警噪音) |
+| 6 | L2288-2293 | `s3_head` ETag 命中(内容未变) → `_fail_streak=0`, 走既有跳过 PUT 成功分支(⚠ **`elif` 改为独立 `if`**(评审修正): Python 中首个匹配分支执行后 elif/else 不再判, 不改则 L2286 `st=404` 的降格永不生效) |
+| 7 | L2296-2307 | PUT 抛异常(5 次重试耗尽, `ssl.SSLError/OSError/http.client.HTTPException`) → 捕获计 `_fail_streak`, 不崩整循环, ≥limit → break |
+| 8 | L2308-2313 | PUT 200 → `_fail_streak=0`, 走既有成功分支 |
+| 9 | L2314-2323 | PUT 非 200 → `_fail_streak+=1`, ≥limit → break(既有 ✗ 打印保留) |
+
+> 行号已按评审修正后文件刷新(修正使 HEAD 分支 +2 行)。
 
 预算/熔断任一触发 → `ok != len(entries)` → 既有 `sys.exit(1)` → `staticdata_backup_async.sh`
 `STATICDATA_FAIL=1` → heartbeat fail + `notify --severe`(既有链路, 无需新告警)。
@@ -62,10 +65,13 @@ verify-r2/层2 对账/multipart 在生产大量使用(L549/L647/L764/L774/L2460 
 2. 预算分支(fake 仓零 R2 接触, 真实 CLI dry-run):
    `STATICDATA_REPO=/tmp/staticdata-fake-129 R2_LARGE_JSON_BUDGET=0.000000001 ... upload-large-json --dry-run`
    → `⚠ 整体预算耗尽(R2_LARGE_JSON_BUDGET=1e-09s), 剩余 5 未传` + `[dry-run] ... 计划上传 0/5`, exit 0。
-3. 熔断分支(monkeypatch harness `/tmp/test_129_fuse.py`, 零 R2 接触):
-   `s3_head` 恒 `(0,None)` + `R2_LARGE_JSON_FAIL_LIMIT=3` → 第 3 个文件触发
-   `⚠ 连续 3 次网络失败(≥R2_LARGE_JSON_FAIL_LIMIT=3), 判定网络劣化, 放弃本轮`, `ok=0≠5` → SystemExit code=1。
-4. 成功路径无回归(同一 harness `success` 场景): `s3_head` 恒 404 + `s3_request` 恒 200 →
+3. 熔断分支(monkeypatch harness `/tmp/test_129_fuse.py`, 零 R2 接触, **评审修正后重测**):
+   `s3_head` 恒 `(0,None)` + `s3_request` 恒抛 OSError + `R2_LARGE_JSON_FAIL_LIMIT=3` →
+   每文件 HEAD+P 各计 1 次失败, 第 2 个文件触发 `⚠ 连续 3 次网络失败(≥R2_LARGE_JSON_FAIL_LIMIT=3), 判定网络劣化, 放弃本轮`,
+   `ok=0≠5` → SystemExit code=1(熔断语义保留)。
+4. **自救分支(评审修正核心验证)**: `s3_head` 恒 `(0,None)`(瞬时 HEAD 失败)+ `s3_request` 恒 200(PUT 网络已恢复)
+   → 5 文件全 PUT 成功, `large-json 上传 5/5`, **无 SystemExit(exit 0)**——「HEAD 失败但 PUT 能成功」不再整轮 exit 1。
+5. 成功路径无回归(同一 harness `success` 场景): `s3_head` 恒 404 + `s3_request` 恒 200 →
    5 文件全 PUT 成功, `_fail_streak` 每成功清零, `ok=5=5`, 无 SystemExit(exit 0)。dry-run 默认阈值 → `计划上传 5/5`。
 5. 改动只在 `cmd_upload_large_json` 内, 其它 `upload_*` 通道零影响; 生产 deploy 正常路径由明晚 17:50
    update_all 全链回归验证(§8 三查)。
