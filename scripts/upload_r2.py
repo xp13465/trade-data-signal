@@ -2236,8 +2236,28 @@ def cmd_upload_large_json():
         return
     today = _dt.datetime.now().strftime("%Y-%m-%d")
     ok = 0
+    # #129 熔断/整体预算(2026-09-29): 弱网下逐文件最多 5×30s 超时, 3.2 万文件(fund_nav 26458 大头)可能跑
+    # 10h+ 持 trade_deploy.lock → 阻塞生产 deploy(09-29 长跑事故, 见 docs/ops/129-staticdata-backup-r2-lock-and-fuse-20260929.md)。
+    # 加两道闸: ①整体预算(默认 3h, env R2_LARGE_JSON_BUDGET) ②连续网络失败熔断(默认 30 次, env R2_LARGE_JSON_FAIL_LIMIT)。
+    # 任一触发 → break, ok != len(entries) → 既有 exit 1 → heartbeat fail + severe 告警链路;
+    # 数据已磁盘留档, 次日 rsync 全量追平 + HEAD ETag 幂等补传(灾备第1/2层不丢)。
+    try:
+        _budget = float(os.environ.get("R2_LARGE_JSON_BUDGET") or "10800")
+    except ValueError:
+        _budget = 10800.0
+    try:
+        _fail_limit = int(os.environ.get("R2_LARGE_JSON_FAIL_LIMIT") or "30")
+    except ValueError:
+        _fail_limit = 30
+    _start = time.monotonic()
+    _fail_streak = 0
     manifest_rows = []
     for relpath, size in sorted(entries):
+        # 整体预算(每文件开头查一次): 超预算 → 放弃本轮, 剩余走次日 rsync 全量追平 + 幂等补传。
+        if time.monotonic() - _start > _budget:
+            print(f"⚠ 整体预算耗尽(R2_LARGE_JSON_BUDGET={_budget:g}s), 剩余 {len(entries) - ok} 未传, "
+                  f"次日 rsync 全量追平后补传", file=sys.stderr)
+            break
         src = repo / "data" / relpath
         if not src.is_file():
             print(f"⚠ 跳过(源不存在): data/{relpath}")
@@ -2253,15 +2273,36 @@ def cmd_upload_large_json():
             manifest_rows.append((relpath, size, hashlib.sha256(raw).hexdigest(), key))
             ok += 1
             continue
-        st, etag = s3_head(key, bucket=BACKUP_BUCKET)
-        if st == 200 and etag is not None and etag.strip('"') == local_md5:
+        st, etag = s3_head(key, bucket=BACKUP_BUCKET, keep_alive=True)
+        if st == 0 and etag is None:
+            # HEAD 5 次重试耗尽最终网络失败(s3_head 契约返回 (0,None)): 计连续失败, 熔断判定。
+            _fail_streak += 1
+            if _fail_streak >= _fail_limit:
+                print(f"⚠ 连续 {_fail_streak} 次网络失败(≥R2_LARGE_JSON_FAIL_LIMIT={_fail_limit}), "
+                      f"判定网络劣化, 放弃本轮", file=sys.stderr)
+                break
+        elif st == 200 and etag is not None and etag.strip('"') == local_md5:
+            _fail_streak = 0
             print(f"✓ 已存在且内容未变, 跳过 PUT: {BACKUP_BUCKET}/{key}")
             ok += 1
             # R2 已有同内容副本 = 真实成功, 进 manifest
             manifest_rows.append((relpath, size, hashlib.sha256(raw).hexdigest(), key))
         else:
-            status, data = s3_request("PUT", key, payload, bucket=BACKUP_BUCKET, content_type="application/gzip")
+            # 存在但内容变了 / HEAD 非 200(404=不存在等) → 走 PUT; keep_alive 复用同一连接(省跨境握手)。
+            try:
+                status, data = s3_request("PUT", key, payload, bucket=BACKUP_BUCKET,
+                                          content_type="application/gzip", keep_alive=True)
+            except (ssl.SSLError, OSError, http.client.HTTPException) as e:
+                # PUT 5 次重试耗尽仍网络异常(s3_request 契约: 最终失败抛异常): 计连续失败, 不崩整循环。
+                _fail_streak += 1
+                print(f"✗ {relpath} 网络失败(重试耗尽): {type(e).__name__}: {e}", file=sys.stderr)
+                if _fail_streak >= _fail_limit:
+                    print(f"⚠ 连续 {_fail_streak} 次网络失败(≥R2_LARGE_JSON_FAIL_LIMIT={_fail_limit}), "
+                          f"判定网络劣化, 放弃本轮", file=sys.stderr)
+                    break
+                continue
             if status == 200:
+                _fail_streak = 0
                 ok += 1
                 print(f"✓ {relpath} ({size // 1024 // 1024}MB -> {len(payload) // 1024 // 1024}MB gzip)"
                       f" -> {BACKUP_BUCKET}/{key}")
@@ -2269,8 +2310,13 @@ def cmd_upload_large_json():
             else:
                 # 上传失败的行不得进 manifest(manifest 只能反映真实成功上传, 防机检误判已备份);
                 # 失败详情走 stderr, 最终 ok != len(entries) 保持非 0 退出。
+                _fail_streak += 1
                 print(f"✗ {relpath} status={status} {data.decode('utf-8', errors='replace')[:300]}",
                       file=sys.stderr)
+                if _fail_streak >= _fail_limit:
+                    print(f"⚠ 连续 {_fail_streak} 次网络失败(≥R2_LARGE_JSON_FAIL_LIMIT={_fail_limit}), "
+                          f"判定网络劣化, 放弃本轮", file=sys.stderr)
+                    break
     if dry_run:
         # F1 dry-run 收尾: 只打印「将做的事」, 不真跑 prune / 不重写 manifest。
         print("[dry-run] 将运行 _prune_large_json(日14天 + 周周日8周 + 月1号12月滚动保留)")
