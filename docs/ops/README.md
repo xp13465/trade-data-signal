@@ -16,3 +16,6 @@
 
 ## 数据
 - (本次无独立数据文件,统计全部由脚本从主监控日志实时解析)
+
+## 专题:staticdata 迁移路径
+- [126-staticdata-migrate-holiday-window-plan.md](./126-staticdata-migrate-holiday-window-plan.md) - #126 staticdata 9目录(31239文件)移出git灾备迁移·假期窗口执行方案(2026-09-30):根因承接/硬约束/⚠实测推翻"10-03全天无任务"窗口前提(全部 trade timer OnCalendar=*-*-* 每天触发,update-all 非交易日仍跑 deploy→upload-large-json 抢锁)/修订为「短窗分批+让路」策略(预算10500s/首选23:00~02:30)/收口7项验收口径/误kill生产进程根因(PID 2550799 实为 staticdata_backup_async 子进程,教训=按命令名匹配kill在生产环境不可靠,必须核实PPID属主链)
