@@ -735,6 +735,14 @@ def _freeze_hit(freeze: dict, d: str, iid: str, sig: str, code: str) -> bool:
     return bool(v)
 
 
+def _same_date_has_other_trades(sig_set: set, d: str) -> bool:
+    """同日期参照(#125, 2026-09-29 用户拍板): missing 记录 signal_date=d 当天, trades 表(sig_set)
+    有 ≥1 条任意信号入账 → 说明回测链当天确实在跑, 单点数据缺口的良性特征 → 允许 C 类降 WARN。
+    d 当天 0 条入账 → False(链没跑/挂了, 保持 SEVERE, 真故障判别维度)。
+    数据复用 _scan_trades(trades) 的 sig_set 同源, 不新起第二套读取路径(§5.4⑦ 防同构漂移)。"""
+    return any(r[0] == d for r in sig_set)
+
+
 def _scan_trades(trades: dict) -> tuple[set, str, str]:
     """扫 trades.json quadrants(行内 index 0=signal_date, 1=index_id, 2=signal, 对齐
     check_universe_alignment.py L150-153)。返回 (signal_set, latest_signal_date, generated_at)。"""
@@ -975,11 +983,14 @@ def check_kelly_coverage(repo: Path, today: datetime) -> list[Finding]:
     # P0-2 修复(2026-09-29 复审 FAIL 实锤): 冻结降级必须「冻结表实查」命中才允许降 WARN。
     # 原实现只按 blocked=False(已具备次日价仍缺)分类, backtest 真挂(有信号+价齐+trades 无,
     # 未进冻结表)与真·冻结缺失同分支一起降, 把真事故也降成 WARN。
-    # 现要求: missing 非空 + 全部 blocked=False + 每条都在 signal_kelly_etf_freeze.json 有对应键
-    # ({date}|{index_id}|{signal})。backtest 真挂进不了冻结表 → 无键 → 保持 SEVERE。
+    # 现要求: missing 非空 + 全部 blocked=False + 每条「(冻结表有对应键) 或 (signal_date 当天 trades 有入账)」。
+    # 冻结表键格式 {date}|{index_id}|{signal}(_freeze_hit); 同日期参照(_same_date_has_other_trades):
+    # d 当天 trades 有 ≥1 条任意信号入账=回测链当天确实在跑, 单点缺口良性特征; d 当天 0 条入账 → 仍 SEVERE。
     freeze = _load_freeze_map(repo)
     frozen_form = bool(missing) and all(
-        (not m[6]) and _freeze_hit(freeze, m[0], m[1], m[2], m[3]) for m in missing)
+        (not m[6]) and (
+            _freeze_hit(freeze, m[0], m[1], m[2], m[3])
+            or _same_date_has_other_trades(sig_set, m[0])) for m in missing)
     if level == "severe" and frozen_form:
         level = "warn"
 
@@ -993,8 +1004,10 @@ def check_kelly_coverage(repo: Path, today: datetime) -> list[Finding]:
               f"<br>{'<br>'.join(items)}"
               f"<br>最近完整交易日 T={T}; 断档深度 = T 与 trades 最新 signal_date 的交易日间隔"
               f"(≥{KELLY_SEVERE_BACK}=SEVERE 断档, 9/7 事故形态; =1=次日定价窗内; 全缺集中在 =T-1 且缺次日价时降 WARN; "
-              f"全缺均为「次日价已齐仍缺**且冻结表命中**」时降 WARN —— 冻结表 signal_kelly_etf_freeze.json 实查 "
-              f"每条「日期|指数|信号」键, backtest 真挂无冻结键不降, 2026-09-29 #125 方案① + P0-2 加固)。"
+              f"全缺均为「次日价已齐仍缺**且(冻结表命中 或 同日期 trades 有入账)**」时降 WARN —— "
+              f"冻结表 signal_kelly_etf_freeze.json 实查每条「日期|指数|信号」键, 或 signal_date 当天 "
+              f"trades 有 ≥1 条任意信号入账(回测链当天确实在跑, 单点缺口良性特征); 两者皆无(当天 0 条入账)不降, "
+              f"2026-09-29 #125 方案① + P0-2 加固)。"
               f"<br>影响: 首页模拟回测弹窗/lab 凯利回测交易记录停更, 用户看到虚假的历史交易缺失。"
               f"<br>日志: {repo}/data/logs/update_all_launchd.log + deploy_*.log(signal_kelly_backtest 阶段)。"
               f"<br>建议: 若缺次日价, 手动补 etf_daily 再重跑 export(static-site/export.py 7.9.2 步); "
@@ -1002,7 +1015,7 @@ def check_kelly_coverage(repo: Path, today: datetime) -> list[Finding]:
               f"signal_kelly_backtest.py:436-440 拒绝补冻, 属已知接受缺口, 见 sigkelly-gap-20260923-rootcause.md)。")
     title = (f"交易记录断档: {len(missing)} 个入样买入信号无对应交易(断档深度 {depth} 交易日)"
              if not (frozen_form and level == "warn") else
-             f"交易记录缺 {len(missing)} 条冻结/评级缺失(不可自动入账, 接受缺口降噪, 断档深度 {depth})")
+             f"交易记录缺 {len(missing)} 条冻结/评级缺失或同日期有别的入账(接受缺口降噪, 断档深度 {depth})")
     return [Finding(KELLY_COVERAGE_KEY, level, title, detail)]
 
 
@@ -1057,12 +1070,15 @@ def check_kelly_stale(repo: Path, today: datetime) -> list[Finding]:
             # 「已具备次日价仍无 trade」(blocked=False, 冻结/评级缺失等不可自动修复形态,
             # 典型=sz_div@09-22 撞防前视冻结闸 signal_kelly_backtest.py:436-440 永久无法入账)
             # → 视同信号缺席: trades 停更是正确状态, B1/B3 不升 SEVERE(防每日重报)。
-            # P0-2 加固(2026-09-29 复审 FAIL): 每条都要冻结表实查命中(有「日期|指数|信号」键),
-            # backtest 真挂(有信号+价齐+trades 无, 未进冻结表)无键 → all_frozen=False → 保持 SEVERE。
+            # P0-2 加固(2026-09-29 复审 FAIL): 每条都要「冻结表实查命中 或 同日期 trades 有入账」
+            # (有「日期|指数|信号」键 或 signal_date 当天有 ≥1 条任意信号入账)才允许降;
+            # backtest 真挂(有信号+价齐+trades 无, 未进冻结表+当天 0 条入账) → all_frozen=False → 保持 SEVERE。
             _freeze = _load_freeze_map(repo)
             all_frozen = all(
                 (not _missing_reason(repo, d, iid, best_etf.get(iid, {}), win)[1])
-                and _freeze_hit(_freeze, d, iid, sig, str(best_etf.get(iid, {}).get("code") or ""))
+                and (
+                    _freeze_hit(_freeze, d, iid, sig, str(best_etf.get(iid, {}).get("code") or ""))
+                    or _same_date_has_other_trades(sig_set, d))
                 for d, iid, sig, code, name in cov_missing)
             no_expected_buys = all_frozen
         else:
@@ -1084,8 +1100,9 @@ def check_kelly_stale(repo: Path, today: datetime) -> list[Finding]:
         elif no_expected_buys:
             b1_title = f"交易记录最新信号日 {latest} 未更新(最近窗口无应入账 buy 信号, 停更属正常)"
             b1_nav_txt = (f"最近 {len(win)} 个交易日窗口内无「宇宙内入样 buy 系信号且应已入账却缺失」"
-                          f"(全部已入账、全部处于 KELLY_BUY_NEXTDAY 次日开盘定价窗内, 或全部为冻结/评级缺失"
-                          f"不可自动修复形态——2026-09-29 #125 方案①接受缺口降噪), trades 停在 {latest} 是正确状态"
+                          f"(全部已入账、全部处于 KELLY_BUY_NEXTDAY 次日开盘定价窗内, 或全部为冻结表命中/"
+                          f"同日期 trades 有入账的接受缺口形态——2026-09-29 #125 方案①接受缺口降噪), "
+                          f"trades 停在 {latest} 是正确状态"
                           f", 不误报 SEVERE(#102 信号缺席感知, 09-11 场景 9/10 无 buy 系信号/9/11 信号 9/14 才入账)。")
         else:
             b1_title = f"交易记录最新信号日 {latest} 未更新(T 日价未齐, 定价窗内)"
@@ -1582,11 +1599,14 @@ def self_test() -> int:
             fails.append("case A7c QDII 新增缺价应有 info 观察条目")
 
         # ── case K/K2/K4: 交易记录断档监控 two-way 自测(设计 §7 项 1/4) ──
-        def _kelly_files(repo_p, sd_sigs, latest_trades, nav_ok, placeholder_98=False):
+        def _kelly_files(repo_p, sd_sigs, latest_trades, nav_ok, placeholder_98=False,
+                         open_ok=False, freeze=None):
             """写 kelly 检查器依赖文件(board_etf_map/universe_rules/trade_dates/trades + signal_daily + 次日价)。
             nav_ok=False 时 9/4 三 ETF 不写 9/7 次日价(模拟 R3 缺价 → 应降 WARN 场景)。
             placeholder_98=True 时 9/8 写盘中占位行(etf_name=etf_code 同值假数据 accum_nav=1.5/open=1.49,
-            模拟 F2 盘中场景: 占位行不算真价, 覆盖源不推进到 9/8 → nav_ready 不判 SEVERE)。"""
+            模拟 F2 盘中场景: 占位行不算真价, 覆盖源不推进到 9/8 → nav_ready 不判 SEVERE)。
+            open_ok=True 时 9/7 次日价 open 也写(模拟「已具备次日价仍缺」blocked=False, C 类降级可测)。
+            freeze 为 dict 时写冻结表(KELLY_FREEZE_FILE), None 则删旧文件(防跨 case 残留影响 #125 A/C/D)。"""
             d = repo_p
             (d / "static-site" / "data").mkdir(parents=True, exist_ok=True)
             (d / "config").mkdir(parents=True, exist_ok=True)
@@ -1601,6 +1621,11 @@ def self_test() -> int:
                 encoding="utf-8")
             (d / "static-site" / "data" / "signal_kelly_trades.json").write_text(
                 json.dumps({"generated_at": "2026-09-08 05:10", "quadrants": latest_trades}), encoding="utf-8")
+            _fp = d / "static-site" / "data" / KELLY_FREEZE_FILE
+            if freeze is not None:
+                _fp.write_text(json.dumps(freeze), encoding="utf-8")
+            else:
+                _fp.unlink(missing_ok=True)  # 防跨 case 残留(前 case 写了冻结表会污染后 case)
             conn = sqlite3.connect(d / "data" / "sentiment.db")
             conn.execute("CREATE TABLE IF NOT EXISTS signal_daily (date TEXT NOT NULL, index_id TEXT NOT NULL, "
                          "signal TEXT NOT NULL, PRIMARY KEY (date, index_id, signal))")
@@ -1618,7 +1643,7 @@ def self_test() -> int:
             nav_rows = []
             for code, name in codes:
                 if nav_ok:
-                    nav_rows.append(("20260907", code, name, 1.1, None))
+                    nav_rows.append(("20260907", code, name, 1.1, 1.0 if open_ok else None))
                 if placeholder_98:
                     # 盘中占位行: etf_name=etf_code 同值假数据(accum_nav/open 全同值, 无 close)
                     nav_rows.append(("20260908", code, code, 1.5, 1.49))
@@ -1699,6 +1724,51 @@ def self_test() -> int:
         b1_6 = [f for f in fK6 if f.key == KELLY_STALE_KEY and "最新信号日" in f.title]
         if not b1_6 or b1_6[0].level != "severe":
             fails.append(f"case K6(盘后真断档)stale B1 应仍 severe, 实得 {(b1_6[0].level if b1_6 else '无')}")
+
+        # ── #125 C 类降级「同日期参照」two-way 自测(A/C/D 三 case) ──
+        # A: 无冻结键 + signal_date 当天 trades 有别的信号入账 → 回测链当天在跑, 单点缺口良性 → 降 WARN
+        # C: 有冻结键 → 降 WARN(回归, 原行为不许退化; 冻结表命中路径)
+        # D: 无冻结键 + signal_date 当天 trades 0 条入账 → 真故障(链没跑/挂了) → 保持 SEVERE
+        # 构造: 0904 csi_931946 缺失(blocked=False, 0907 次日价齐 via open_ok=True); 0908 信号抬 T=0908,
+        # depth=2 → SEVERE 起点, 再由 C 类判据决定是否降 WARN。
+        # case A: 0904 当天 trades 有 sw_801010 入账(同日期参照命中) → WARN
+        _kelly_files(base, [("20260904", "csi_931946", "buy_special"),
+                            ("20260904", "sw_801010", "buy_special"),
+                            ("20260908", "sw_801010", "buy_special")],
+                     {"G": {"all_w": [["20260904", "sw_801010", "buy_special"]]}},
+                     nav_ok=True, open_ok=True, freeze=None)
+        fA125 = check_kelly_coverage(base, now) + check_kelly_stale(base, now)
+        kcA = [f for f in fA125 if f.key == KELLY_COVERAGE_KEY]
+        if not kcA or kcA[0].level != "warn":
+            fails.append(f"case A(#125 同日期参照)coverage 期望 warn 实得 {(kcA[0].level if kcA else '无')}")
+        badA = [f for f in fA125 if f.key == KELLY_STALE_KEY and SEV_ORDER.get(f.level, 0) >= 2]
+        if badA:
+            fails.append(f"case A(#125)stale 不应 SEVERE(同日期有入账=良性): {[(f.key, f.level) for f in badA]}")
+        # case C: 冻结表有键(0904|csi_931946|buy_special) → WARN(回归)
+        _kelly_files(base, [("20260904", "csi_931946", "buy_special"),
+                            ("20260908", "sw_801010", "buy_special")],
+                     {"G": {"all_w": [["20260903", "csi_931946", "buy_special"]]}},
+                     nav_ok=True, open_ok=True,
+                     freeze={"20260904|csi_931946|buy_special": {"code": "159011"}})
+        fC125 = check_kelly_coverage(base, now) + check_kelly_stale(base, now)
+        kcC = [f for f in fC125 if f.key == KELLY_COVERAGE_KEY]
+        if not kcC or kcC[0].level != "warn":
+            fails.append(f"case C(#125 冻结键回归)coverage 期望 warn 实得 {(kcC[0].level if kcC else '无')}")
+        badC = [f for f in fC125 if f.key == KELLY_STALE_KEY and SEV_ORDER.get(f.level, 0) >= 2]
+        if badC:
+            fails.append(f"case C(#125)stale 不应 SEVERE(冻结表命中): {[(f.key, f.level) for f in badC]}")
+        # case D: 无冻结键 + 当天 0 条入账 → SEVERE(真故障判别维度)
+        _kelly_files(base, [("20260904", "csi_931946", "buy_special"),
+                            ("20260908", "sw_801010", "buy_special")],
+                     {"G": {"all_w": [["20260903", "csi_931946", "buy_special"]]}},
+                     nav_ok=True, open_ok=True, freeze=None)
+        fD125 = check_kelly_coverage(base, now) + check_kelly_stale(base, now)
+        kcD = [f for f in fD125 if f.key == KELLY_COVERAGE_KEY]
+        if not kcD or kcD[0].level != "severe":
+            fails.append(f"case D(#125 真故障)coverage 期望 severe 实得 {(kcD[0].level if kcD else '无')}")
+        b1D = [f for f in fD125 if f.key == KELLY_STALE_KEY and "最新信号日" in f.title]
+        if not b1D or b1D[0].level != "severe":
+            fails.append(f"case D(#125 真故障)stale B1 期望 severe 实得 {(b1D[0].level if b1D else '无')}")
 
         # ── case C1/C2: check_kelly_backtest_fail two-way 自测(F3 返修, 设计 §7 项 3/4) ──
         # 用临时 deploy 日志夹具掩盖 F1「tail 读空→假 WARN」回归: C2ok 断言含锚点不告警。
@@ -1843,6 +1913,8 @@ def self_test() -> int:
           " / A7 新增缺价 diff: 首轮建档+无新增静默+非QDII回归warn+QDII时滞info"
           " / K 断档 trades只到9/3→kelly_coverage SEVERE+stale B1 SEVERE / K2 全入账零命中"
           " / K4 全缺次日价降warn / K5 盘中占位行不算真价→不判SEVERE / K6 盘后真断档仍SEVERE"
+          " / #125-A 无冻结键+当天有别的入账→WARN(同日期参照) / #125-C 有冻结键→WARN(回归)"
+          " / #125-D 无冻结键+当天0入账→SEVERE(真故障判别)"
           " / C1 成功deploy锚点近不告警+距今>2天告警 / C2 尾部锚点在/不在 two-way)")
     return 0
 
