@@ -21,6 +21,8 @@ check_doc_staleness.py — 文档「时点/调度口径」一致性机检(2026-0
       「存档」「已迁」「迁移注」「原 launchd」(对照)/「launchd 已废弃」「查 launchctl 是错的」
       「代理进程」(命中率统计注释)/「本机用」(agent-inbox-watcher 例外)
   - 显式豁免标记: 行内含 `<!-- staleness-ok: ... -->` 视为该行通过(可在豁免规则误判时手动标注)
+  - 机器自动生成块豁免: `<!-- token-cache-*-begin -->` … `<!-- token-cache-*-end -->` 界定块内的行整块跳过。
+    块内是逐字引用的 commit 标题/机器采集值(token-cache-stats 每日 23:30 自动追加), 非文档口径陈述, 不按口径判过时。
 
 ⚠️ 行级豁免 vs 词级豁免(2026-09-29 评审建议 3 评估, 有意保留行级):
   行级豁免 = 一行含任一豁免词即整行跳过。词级豁免(只抠掉豁免词覆盖片段, 剩余文本仍跑 stale 检测)
@@ -143,6 +145,19 @@ HISTORICAL_FILES = [
 # 显式豁免标记: 行内含该标记即豁免
 EXEMPT_MARKER = "<!-- staleness-ok"
 
+# 机器自动生成块(2026-09-30 自锁闸门根治): begin/end 标记界定, 块内整块豁免。
+# 生成器 scripts/token_cache_stats.py --append-daily 每日 23:30 整块重写 claude-work-mode/README.md 的
+# 4 个标记区块(命中率走势 trend / ASCII 柱状图 ascii / 版本改动日志 changelog / 配置快照日志 cfglog),
+# 块内是逐字引用的 commit 标题(可能含 launchd/15:33 等字面)与机器采集值 = 「引用记录」而非「口径陈述」,
+# 不按文档口径判过时(曾自锁: 2026-09-29 行的 commit 标题含 launchd → 之后每次 main-merge 都被本闸门拦死)。
+# 标记行本身也跳过。若未来他处出现同类「机器生成引用块」(带 begin/end 标记), 追加到此表全仓生效。
+MACHINE_BLOCK_MARKERS = [
+    ("token-cache-trend-begin", "token-cache-trend-end"),
+    ("token-cache-ascii-begin", "token-cache-ascii-end"),
+    ("token-cache-changelog-begin", "token-cache-changelog-end"),
+    ("token-cache-cfglog-begin", "token-cache-cfglog-end"),
+]
+
 
 def _is_path_exempt(relpath: str) -> bool:
     if relpath in FORCE_SCAN_FILES:
@@ -172,6 +187,33 @@ def _is_line_exempt(line: str) -> bool:
     if re.search(r"launchd\.(?:log|err|out|\*)", line):
         return True
     return False
+
+
+def _machine_block_ranges(lines: list) -> list:
+    """返回机器自动生成块的 (start, end) 0-based 行区间(含 begin/end 标记行)。
+
+    只豁免「begin 标记与 end 标记都出现且 begin 在 end 之前」的配对块;
+    begin 无配对 end(生成器中断/文件损坏)→ 该块不豁免, 防「未闭合 begin 把文件其余部分整体静默漏扫」。
+    """
+    begins = {b: [] for b, _ in MACHINE_BLOCK_MARKERS}
+    ends = {e: [] for _, e in MACHINE_BLOCK_MARKERS}
+    for idx, line in enumerate(lines):
+        for b, e in MACHINE_BLOCK_MARKERS:
+            if b in line:
+                begins[b].append(idx)
+            if e in line:
+                ends[e].append(idx)
+    ranges = []
+    for b, e in MACHINE_BLOCK_MARKERS:
+        k = 0
+        eq = ends[e]
+        for bi in begins[b]:
+            while k < len(eq) and eq[k] <= bi:
+                k += 1
+            if k < len(eq):
+                ranges.append((bi, eq[k]))
+                k += 1
+    return ranges
 
 
 # 扫描范围白名单(相对仓库根的顶层前缀)。
@@ -269,7 +311,13 @@ def _check_file(root: str, relpath: str) -> list:
     except OSError as e:
         print(f"  [warn] 读 {relpath} 失败: {e}", file=sys.stderr)
         return hits
+    # 机器自动生成块(commit 标题引用/机器采集值)整块豁免, 非文档口径陈述
+    skip = set()
+    for s, e in _machine_block_ranges(lines):
+        skip.update(range(s, e + 1))
     for i, line in enumerate(lines, 1):
+        if (i - 1) in skip:
+            continue
         if _is_line_exempt(line):
             continue
         # launchd 命中(独立判定: 上下文豁免已过滤掉历史/否定声明)
