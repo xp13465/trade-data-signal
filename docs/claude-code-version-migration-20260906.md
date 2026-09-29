@@ -70,11 +70,11 @@
 | TaskOutput block=False 轮询后台任务输出拿全量 | **官方早已废弃 TaskOutput 改 Read 输出文件**(2.1.83 "Deprecated `TaskOutput` tool in favor of using `Read` on the background task's output file path");2.1.261 新加 `taskOutputMaxChars`/`bashOutputMaxChars`(内联上限,最高 128K,超阈值自动落文件) | **直接改用 Read 后台任务输出文件路径**(=官方 2.1.83 起的方向),彻底避开 11.6MB 内联;`taskOutputMaxChars` 调小可进一步压低内联。注意:2.1.203 修过 TaskStop/TaskOutput 找不到异 agent 派生的后台 agent,2.1.260 修过 swap refused | **P0 立即改** |
 | memory/context-optimization-20260906.md 的 TaskOutput 大输出结论 | 方向与官方一致(输出落文件) | 见上 | - |
 
-### 5) hooks 体系(现:PostToolUse(Agent)+ SessionStart 派单三件套自查/抄送)
+### 5) hooks 体系(现:PostToolUse(Agent)+ SessionStart 派单机检(进度+worktree)/抄送)
 
 | 旧 workaround | 2.1.261 状态 | 替代方案建议 | 优先级 |
 |---|---|---|---|
-| PostToolUse(Agent) hook + 派单三件套自查 | 现役;2.1.248 修 hooks 静默吞无效 JSON、2.1.246 修 hook `if` matcher 误触发、2.1.260 修 Stop hooks block 后丢推理 → matcher/可靠性增强 | 维持;matcher 增强后可更精确地按 agent/工具分类 | P2 |
+| PostToolUse(Agent) hook + 派单机检(进度+worktree,2026-09-29 收敛:后台派单/巡检兜底两项结构性不可机检已移除,详见脚本 docstring) | 现役;2.1.248 修 hooks 静默吞无效 JSON、2.1.246 修 hook `if` matcher 误触发、2.1.260 修 Stop hooks block 后丢推理 → matcher/可靠性增强 | 维持;matcher 增强后可更精确地按 agent/工具分类 | P2 |
 | SessionStart 抄送 | 2.1.251 起 SessionStart resume hooks 带 staleness + re-cache 估算(新字段) | 可顺手用新字段增强抄送信息 | P2 |
 | **新事件红利(未用)** | 2.1.261 docs 确认新增:PreModelSwitch(sequential 可 block)/PostModelSwitch、WorktreeCreate/WorktreeRemove(async)、CwdChanged、ConfigChange、InstructionsLoaded、MessageDisplay(display-only)、PostToolBatch、PostToolUseFailure、TaskCreated、PreCompact/PostCompact、Elicitation/ElicitationResult | 值得加的:PostCompact hook 自动恢复锚点;WorktreeCreate/Remove hook 管 worktree 生命周期;MessageDisplay 轻量流式抄送。**五类 hook type(command/http/mcp_tool/prompt/agent)已文档化**,prompt/agent hook 是 LLM 判定型 | P1 |
 | per-agent matcher 区分截图场景 | 未见 matcher 新增 per-agent 字段(事件表 matcher 仍对 tool_name/to_model 等求值) | 维持现状;未查到=不替换 | - |

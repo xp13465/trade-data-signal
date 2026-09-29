@@ -1,18 +1,32 @@
 #!/usr/bin/env python3
-"""PostToolUse(Agent) hook:读实际调用参数逐项机检「派单三件套」。
+"""PostToolUse(Agent) hook:读实际调用参数机检「派单三件套·可机检项」。
 
 背景(2026-09-29):主控派 implementer 反复漏传 isolation="worktree"(2026-09-24、
 2026-09-29 两次同型),导致 agent 在主工作目录 git checkout feat 分支、污染主仓
 HEAD、main-merge 被拒。memory 记两次但无效——机械动作必须机检,不能靠记忆。
 
+⚠️ 为什么只剩这两项(2026-09-29 线上实测收敛,本次交付的核心,改/删前必读):
+三件套(后台派单/进度文件/巡检兜底)原本都在本 hook 机检,实测证明其中两项
+「结构性不可机检」,已移除:
+  - 后台派单(run_in_background):真实 hook 的 tool_input 不转发该字段——线上实测
+    tool_input 含 subagent_type/isolation/prompt(所以这两项判得对),但永远没有
+    run_in_background 键。⇒ 该项在此环境恒报失败,每次派单都刷「② 后台派单缺失」,
+    把「全过静默」的信号价值彻底毁掉。
+  - 巡检兜底(cron):主控常规流程=「派 agent + 建巡检 cron」放同一条消息,而 hook
+    在 Agent 调用那一刻读 .claude/scheduled_tasks.json——那时 cron 必然还没写入
+    ⇒ 恒假报;反过来,文件里存在*任意*历史遗留巡检 job 时又恒绿(已用遗留 job 实测),
+    无法判断「*本 agent* 有没有被兜底」。两头都不成立。
+
+因此本 hook 只机检「① 进度文件」「② worktree 隔离」两项参数直给、可确定性判定的
+机检项。「后台派单」「巡检兜底」仍是派单时必守的人工纪律(CLAUDE.md §0.2 照旧要求),
+只是不由本 hook 机检。看到只检两项不要以为漏了、擅自加回——「为什么删」见上。
+
 行为:stdin 收 hook JSON;只对 tool_name==Agent 且 tool_input 为有内容的 dict 机检
-4 项(字段经 docs/thinking-off-optimization.md:64 确认 AgentInput schema):
+2 项(field 存在性经 docs/thinking-off-optimization.md:64 的 AgentInput schema 确认;
+run_in_background 名义上在 schema 内但平台不转发,已不依赖):
   ① 进度文件:prompt 是否含 /tmp/agent-progress-
-  ② 后台派单:run_in_background is True
-  ③ worktree 隔离:subagent_type==implementer 要求 isolation=="worktree";
+  ② worktree 隔离:subagent_type==implementer 要求 isolation=="worktree";
      只读角色(reviewer/researcher/tester)不作隔离硬要求
-  ④ 巡检兜底:.claude/scheduled_tasks.json 存在 15min 档(cron=="3,18,33,48 * * * *")
-     或 prompt 含「巡检/兜底」关键词的 job,命中报出 job id
 
 输出规则:只输出未通过项(每项带实际观测值);全部通过 → 静默 exit 0(让 hook
 输出=真问题信号,不再是每轮噪音);有未通过项 → stderr + exit 2(保持现状语义:
@@ -25,14 +39,10 @@ import sys
 import json
 import datetime
 
-# 巡检兜底 cron 清单的权威来源(.claude/scheduled_tasks.json),主仓绝对路径。
-SCHEDULED_TASKS_PATH = "/Users/linhuichen/code/trade/.claude/scheduled_tasks.json"
-WATCHDOG_CRON_15MIN = "3,18,33,48 * * * *"
-WATCHDOG_KEYWORDS = ("巡检", "兜底")
 PROGRESS_FILE_MARKER = "/tmp/agent-progress-"
-# ④ 落盘摘要日志:把静默失效变成可诊断(模型侧零噪音,文件可反查)。
+# 落盘摘要日志:把静默失效变成可诊断(模型侧零噪音,文件可反查)。
 DISPATCH_LOG_PATH = "/tmp/agent-hook-dispatch.log"
-PROMPT_PREVIEW_MAX = 120  # ③ prompt 回显截断长度,防超大 prompt 全文灌进上下文
+PROMPT_PREVIEW_MAX = 120  # prompt 回显截断长度,防超大 prompt 全文灌进上下文
 
 
 def _prompt_preview(prompt):
@@ -45,7 +55,7 @@ def _prompt_preview(prompt):
 
 
 def _append_dispatch_log(tool_name, tool_input_ok, fails):
-    """④ append 一行派单摘要到 /tmp/agent-hook-dispatch.log。
+    """append 一行派单摘要到 /tmp/agent-hook-dispatch.log。
 
     硬要求:文件不存在要能创建(append 模式自动建);写日志本身 try/except 吞掉
     异常(目录不可写/磁盘满)绝不因日志让 hook 崩掉。
@@ -59,47 +69,13 @@ def _append_dispatch_log(tool_name, tool_input_ok, fails):
         pass
 
 
-def find_watchdog_job():
-    """返回 (job_id_or_None, err_or_None)。cron 命中 15 分钟档或 prompt 含关键词即判命中。
-
-    已知局限(2026-09-29):本判据是「.claude/scheduled_tasks.json 里存在*任意*巡检 job」,
-    而非「*本 agent* 被兜底覆盖」→
-      假阳性:任意遗留/他人 job 命中 15min 档或关键词即判通过;
-      反向假阴性:cron 格式若写成 `*/15 * * * *`(精确串匹配全失)会漏判。
-    作为提醒钩子可接受,仅作「最坏有没有兜底」的下限信号,不作「本 agent 已被覆盖」的证明。
-    """
-    try:
-        with open(SCHEDULED_TASKS_PATH, encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as e:  # 文件不存在/坏 JSON → 视为无兜底,不抛异常
-        return None, "读取失败: %s" % e
-    # 兼容两形态:①{"tasks":[{job}...]} ②{id:{job}} 或 {<任意key>:{job}}(直接遍历 values)
-    candidates = []
-    if isinstance(data, dict):
-        if isinstance(data.get("tasks"), list):
-            candidates.extend(data["tasks"])
-        for v in data.values():
-            if isinstance(v, dict) and "cron" in v:
-                candidates.append(v)
-    for t in candidates:
-        if not isinstance(t, dict):
-            continue
-        cron = t.get("cron")
-        prompt = t.get("prompt")
-        if cron == WATCHDOG_CRON_15MIN:
-            return t.get("id"), None
-        if isinstance(prompt, str) and any(kw in prompt for kw in WATCHDOG_KEYWORDS):
-            return t.get("id"), None
-    return None, None
-
-
 def main() -> int:
     try:
         data = json.load(sys.stdin)
     except Exception:
         _append_dispatch_log("bad-json", "no", "-")
         return 0
-    # ① 顶层非 dict JSON(数组/字符串/null 等)无 tool_name 可查,静默放行不抛异常
+    # 顶层非 dict JSON(数组/字符串/null 等)无 tool_name 可查,静默放行不抛异常
     if not isinstance(data, dict):
         _append_dispatch_log("non-dict", "no", "-")
         return 0
@@ -115,7 +91,6 @@ def main() -> int:
 
     subagent_type = tool_input.get("subagent_type")
     isolation = tool_input.get("isolation")
-    run_in_background = tool_input.get("run_in_background")
     prompt = tool_input.get("prompt")
     if not isinstance(prompt, str):
         prompt = None  # 类型容错:非 str 一律视为缺失
@@ -123,7 +98,6 @@ def main() -> int:
     is_implementer = isinstance(subagent_type, str) and subagent_type.lower() == "implementer"
     problems = []
     fails = ""
-    watchdog_id, watchdog_err = None, None
 
     # ① 进度文件
     if prompt is None or PROGRESS_FILE_MARKER not in prompt:
@@ -131,34 +105,19 @@ def main() -> int:
             "① 进度文件缺失:prompt 未含 %s 路径(观测 prompt 前 %d 字符=%s)"
             % (PROGRESS_FILE_MARKER, PROMPT_PREVIEW_MAX, _prompt_preview(prompt))
         )
-    # ② 后台派单
-    if run_in_background is not True:
-        problems.append(
-            "② 后台派单缺失:未显式传 run_in_background=true(观测 run_in_background=%r)"
-            % (run_in_background,)
-        )
-    # ③ worktree 隔离(仅 implementer 硬要求)
+    # ② worktree 隔离(仅 implementer 硬要求)
     if is_implementer:
         if isolation != "worktree":
             problems.append(
-                "③ worktree 隔离缺失:subagent_type=implementer 但 isolation=%r(需 'worktree')"
+                "② worktree 隔离缺失:subagent_type=implementer 但 isolation=%r(需 'worktree')"
                 % (isolation,)
             )
-    # ④ 巡检兜底
-    watchdog_id, watchdog_err = find_watchdog_job()
-    if watchdog_id is None:
-        problems.append(
-            "④ 巡检兜底缺失:%s 无 15min 档(%s)或 prompt 含 %r 的 job(%s)"
-            % (SCHEDULED_TASKS_PATH, WATCHDOG_CRON_15MIN, WATCHDOG_KEYWORDS, watchdog_err or "未找到")
-        )
 
     if problems:
-        fails = "".join(p.split(" ", 1)[0] for p in problems)  # 收集失败项编号,如 ①②③
-        lines = ["[派单三件套机检·§11] 以下项未通过(带实际观测值,缺哪件现在补,别裸派):"]
+        fails = "".join(p.split(" ", 1)[0] for p in problems)  # 收集失败项编号,如 ①②
+        lines = ["[派单机检·§0.2] 以下项未通过(带实际观测值,缺哪件现在补,别裸派):"]
         for p in problems:
             lines.append("  - " + p)
-        if watchdog_id:
-            lines.append("  ✓ 巡检兜底已在: id=%s(该项通过)" % watchdog_id)
         if not is_implementer:
             lines.append(
                 "  〔只读/其它 agent %r〕未强制 worktree 隔离,运行期间主控禁止 checkout/merge"
@@ -168,7 +127,7 @@ def main() -> int:
         _append_dispatch_log("Agent", "yes", fails)
         return 2
 
-    # 全部 4 项通过 → 静默 exit 0,不制造噪音。
+    # 全部 2 项通过 → 静默 exit 0,不制造噪音。
     # 注:只读角色隔离非硬要求;此处不再输出任何 stderr(exit 0 时 stderr 只进
     # debug log,模型永远看不到,输出=白写,故全部删除)。
     _append_dispatch_log("Agent", "yes", "-")

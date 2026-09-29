@@ -25,7 +25,7 @@
 > 与 L29 同病:此条原在 governance §11(按需读,compact 后不注入),裸派 3 agent 零兜底。提升为共享核心=每会话必注入。
 - **每次 Agent 工具派出子 agent,同一轮必齐三件**:①`run_in_background`(同步阻塞=违规)②prompt 写明进度文件 `/tmp/agent-progress-<名>.md` 且每步 echo ③**巡检兜底 cron 在位**(CronList 查已有 durable 巡检 job 且覆盖本 agent→复用;无→CronCreate 15min 档 `3,18,33,48`+durable+门控零输出;全部 agent 完成后 CronDelete)
 - **通知送达不可靠是架构事实**(task-notification/SendMessage 均会丢),cron 兜底是唯一可靠残余;裸派=L01 违规
-- **机械强制**:`.claude/settings.json` PostToolUse(Agent) hook 每次派单自动弹三件套自查(scripts/agent_dispatch_cron_reminder.py),收到提醒当场补齐缺项再继续
+- **机械强制(机检两项,2026-09-29 收敛为参数可验证项)**:`.claude/settings.json` PostToolUse(Agent) hook(scripts/agent_dispatch_cron_reminder.py)读 Agent **实际调用参数**机检:①prompt 是否含进度文件路径 `/tmp/agent-progress-` ②implementer 是否 `isolation="worktree"`。只在该补的没补时才发声(带观测值+exit 2),全过静默 exit 0;每次调用落一行日志到 `/tmp/agent-hook-dispatch.log` 便于反查。「后台派单」「巡检兜底」因**结构性不可机检**(②平台不转发该字段;④cron 与派单同批、检查时刻早于写入,且任意遗留 job 恒绿)不由本 hook 机检——**仍是人工纪律照旧要求**(见上面两条 bullet),措辞勿把纪律写没;「为什么删」全文见脚本 docstring
 - **续跑同一任务派单必延续原 feat 分支(2026-09-23 用户定,防分支身份漂移+废弃分支)**:同一任务后续改动落同一分支,不新开分支 cherry-pick。派单前主控先 `git worktree list | grep <原分支>` 查占用,被已完成的 agent 残留 worktree 占死→先 `git worktree remove --force <路径>` 释放;prompt 写全延续指令(`git checkout <原分支>` + `git branch --show-current` 确认)。根因=isolation worktree 有 commit 不自动清理占死原分支,续跑 agent checkout 报 `fatal: already checked out` 只能 cherry-pick 致废弃分支+hash 漂移(详见 memory [[resume-same-task-reuse-branch]],implementer 侧操作见 role-implementer skill §3)
 
 ## 1. 开工先读
