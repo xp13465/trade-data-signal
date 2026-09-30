@@ -202,5 +202,8 @@
   ],
   "20260928-a621": [
     "build(min)+docs(intraday): \u91cd\u5efa min \u540c\u6b65 P2-1/P2-2 \u5fae\u8c03 + \u62a5\u544a hash \u66f4\u65b0(filter-branch \u540e\u771f\u5b9e\u5e8f\u5217) + \u00a723.2 \u8865\u5217 industry/manuf fund map \u4e24\u7f13\u5b58(\u540c\u7c7b\u4f46\u5224\u5b9a\u4e0d\u6539)"
+  ],
+  "20260930-a622": [
+    "fix(static-site): \u5168\u7ad9\u60c5\u7eea\u5206\u9608\u503c\u6587\u6848 \u226420/\u226580 \u7edf\u4e00\u4e3a <20/>80,\u5bf9\u9f50\u540e\u7aef int(val<20)"
   ]
 }
