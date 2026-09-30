@@ -12627,6 +12627,21 @@ const INTRADAY_BACKOFF_CAP_MS = 8 * 60 * 1000; // 退避上限8min
 const INTRADAY_DEGRADED_MS = 5 * 60 * 1000; // S3: 连续失败达上限后降频兜底重试5min(非永久停,7x24自愈)
 const INTRADAY_FETCH_TIMEOUT_MS = 8000; // S1: 分时fetch超时8s(同fetchJSON 15s,分时数据轻量用更短)
 
+// ============ 云上多源行情中转·替补第三腿(2026-09-30 用户拍板) ============
+// 背景: 东财 trends2 间歇性拒绝(3/10), 腾讯 minute/query 北交所只返3段, 新浪无ACAO头只能服务端取。
+// 因此加一个"云上中转服务"做替补源: 前端先走"东财→腾讯"(现有双腿), 都失败才走本第三腿。
+// 中转服务: relay/rt_relay.py, 多源(东财/腾讯/新浪)聚合+熔断+限速+4s缓存, 部署后回源走 CF 子域名 HTTPS。
+// ⚠️ 上线前置(配好中间层后主控改这两处即可): BASE 换成最终地址 + ENABLED 翻 true。
+const RT_RELAY_BASE_URL = "https://rt.fx8.store"; // 占位: 待用户开云上安全组8080 + 配 CF 子域名后启用(见 relay/README.md)
+const RT_RELAY_ENABLED = false;                  // ← 上线开关(生产默认禁, 测试页可 window._rtSetRelay 临时开)
+let _rtRelayBase = RT_RELAY_BASE_URL;            // 运行时生效地址(测试/切域名一处切换)
+let _rtRelayEnabled = RT_RELAY_ENABLED;
+// 测试/上线切换点(顶层 function → 挂 window, 供 Playwright 或线上切域名用; 生产默认禁)
+function _rtSetRelay(enable, base) {
+  _rtRelayEnabled = !!enable;
+  if (base) _rtRelayBase = base;
+}
+
 // 分时fetch in-flight去重（同URL并发只发一次，复用Promise）
 const _inflightMinute = new Map();
 let _intradayFailCount = 0;
@@ -12786,6 +12801,48 @@ async function fetchQQMinute(code) {
   // S2: 超时兜底清理(同上,防毒化)
   const _qqCleanup = setTimeout(() => { _inflightMinute.delete(cacheKey); }, 15000);
   p.finally(() => { _inflightMinute.delete(cacheKey); clearTimeout(_qqCleanup); });
+  return p;
+}
+
+// 云上多源中转·替补第三腿(2026-09-30): 仅当前两腿(东财/腾讯)都失败时由 _fetchIntradayRenderSource 调用。
+// 返回结构与 fetchTencentMinute/fetchQQMinute 同构: {name,price,preClose,pct,date,points:[{time,price,volume,amount}]}。
+// 默认禁(RT_RELAY_ENABLED=false), 上线由主控配好中间层后翻开关+换 BASE; 测试用 _rtSetRelay(true, base)。
+async function fetchRelayMinute(code) {
+  if (!_rtRelayEnabled || !_rtRelayBase) return null;
+  if (!_INDEX_TO_TENCENT_MINUTE[code]) return null;   // 中转端码表与前端12指数同构, 无映射直接跳过
+  const cacheKey = "relay_minute_" + code;
+  const cached = _inflightMinute.get(cacheKey);
+  if (cached) return cached;
+  const p = (async () => {
+    // S1: AbortController+8s超时,防fetch卡死(同fetchTencentMinute/fetchQQMinute)
+    const _ctrl = new AbortController();
+    const _tmr = setTimeout(() => _ctrl.abort(), INTRADAY_FETCH_TIMEOUT_MS);
+    try {
+      // cache-busting: 加 _=Date.now() + cache:no-store(中转侧另有4s缓存, 双缓存不同层)
+      const url = _rtRelayBase + "/intraday?code=" + encodeURIComponent(code) + "&_=" + Date.now();
+      const resp = await fetch(url, { cache: 'no-store', signal: _ctrl.signal });
+      if (!resp.ok) return null;
+      const json = await resp.json();
+      if (!json || !json.points || !json.points.length) return null;
+      return {
+        name: json.name || "",
+        price: json.price,
+        preClose: json.preClose != null ? json.preClose : null,
+        pct: json.pct != null ? json.pct : null,
+        date: json.date || "",
+        points: json.points,
+      };
+    } catch (e) {
+      if (e && e.name === 'AbortError') console.warn('[intraday] 中转分时超时', code);
+      return null;
+    } finally {
+      clearTimeout(_tmr);
+    }
+  })();
+  _inflightMinute.set(cacheKey, p);
+  // S2: 超时兜底清理(同上,防毒化)
+  const _rlCleanup = setTimeout(() => { _inflightMinute.delete(cacheKey); }, 15000);
+  p.finally(() => { _inflightMinute.delete(cacheKey); clearTimeout(_rlCleanup); });
   return p;
 }
 
@@ -13049,6 +13106,17 @@ async function _fetchDynamicPcts(ids, snap) {
       const l3Results = await Promise.all(l3Promises);
       for (const [id, r] of l3Results) {
         applyResult(id, r);
+      }
+    }
+
+    // ---- L4 云上中转·替补第三腿(2026-09-30): L0-L3 后仍失败的(东财/腾讯/同花顺全拒)走中转多源聚合 ----
+    // 前端双腿全废正是中转的启用场景(浏览器直连东财/腾讯被风控/新浪无CORS, 唯服务端可取)。
+    // 默认禁(RT_RELAY_ENABLED=false)时 fetchRelayMinute 立即返 null, 本块行为与旧版逐位一致。
+    if (_rtRelayEnabled) {
+      const l4Ids = valid.filter((id) => results[id] == null);
+      if (l4Ids.length) {
+        const l4Res = await Promise.all(l4Ids.map(async (id) => [id, await fetchRelayMinute(id)]));
+        for (const [id, r] of l4Res) applyResult(id, r);
       }
     }
 
@@ -13369,14 +13437,17 @@ function _renderSnapMinuteSeries(container, code, preClose, snapTime, snap) {
   return true;
 }
 
-// 分时图渲染数据源(2026-09-28 渲染双腿兜底): 东财优先,失败/无数据补试腾讯。
-// 与批量 _fetchDynamicPcts L2/L3 双腿同构(东财抽风风控断连时腾讯仍稳定,实测连发6次全200)。
+// 分时图渲染数据源(2026-09-30 渲染三腿兜底): 东财优先,失败/无数据补试腾讯, 双腿都失败再走云上中转(第三替补腿)。
+// 与批量 _fetchDynamicPcts L2/L3 双腿同构(东财抽风风控断连时腾讯仍稳定,实测连发6次全200);
+// 2026-09-30 第三腿=relay(多源聚合, 服务端才取得到的新浪等, 默认禁 RT_RELAY_ENABLED=false, 无副作用)。
 // 腾讯无 preClose/pct(返回 null)由调用方从 snap 传入的 preClose 参数补(_renderIntradayChart 内 pc=preClose||result.preClose)。
 async function _fetchIntradayRenderSource(code) {
   const em = await fetchTencentMinute(code);
   if (em && em.points && em.points.length) return em;
   const qq = await fetchQQMinute(code);
   if (qq && qq.points && qq.points.length) return qq;
+  const rl = await fetchRelayMinute(code);
+  if (rl && rl.points && rl.points.length) return rl;
   return null;
 }
 
