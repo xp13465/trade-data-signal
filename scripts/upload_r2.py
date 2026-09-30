@@ -2212,7 +2212,10 @@ def _prune_large_json(bucket=None, dry_run=False):
     import re
     import datetime as _dt
     if os.environ.get("R2_LARGE_JSON_DATE_PREFIX", "") == "1":
-        # 逃生门 = 完整回旧行为(旧分层保留), 不按新机制 7 天宽限清理
+        # 逃生门 = 完整回旧行为(旧分层保留), 不按新机制 7 天宽限清理。
+        # ⚠️ 逃生门路径无 R2_LARGE_JSON_PRUNE_LIMIT 预算保护(旧行为, 默认模式才有预算)——
+        #   有意保留: 逃生门=一键回退旧行为, 加预算会与旧行为漂移(旧分层保留本身有周/月档约
+        #   束); 若日后给 R2_LARGE_JSON_* 预算语义, 勿假设逃生门也有。见 docs/ops/126-*.md §9。
         return _prune_large_json_legacy(bucket=bucket, dry_run=dry_run)
     bkt = bucket or BACKUP_BUCKET
     try:

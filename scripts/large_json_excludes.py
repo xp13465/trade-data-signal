@@ -229,6 +229,8 @@ def _render_block(rel_paths):
         "# signal-backup large-json/<相对data路径>.gz(固定前缀, 唯一完整副本, 增量复用, 不滚动删)。",
         "# 逃生门(R2_LARGE_JSON_DATE_PREFIX=1): 回旧 large-json/<YYYY-MM-DD>/<相对data路径>.gz 按天键,",
         "#   保留策略同步回旧分层滚动(日14天+周8周+月12月)。",
+        "# 默认模式: 旧按天键 legacy(large-json/<YYYY-MM-DD>/...) 键龄≥7天由 _prune_large_json 清理;",
+        "#   固定前缀(large-json/<rel>.gz)是唯一副本, 不滚动删。",
     ]
     for rel in sorted(rel_paths):
         lines.append("/" + rel)

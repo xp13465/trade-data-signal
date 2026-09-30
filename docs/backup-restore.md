@@ -191,7 +191,10 @@ bash scripts/restore-large-json.sh signal_kelly_trades_parts/t2025.json
 # ③ 只读旧按天键快照（过渡期历史；固定前缀无日期，该模式对固定前缀无意义）
 bash scripts/restore-large-json.sh --date 2026-09-25
 
-# ④ 还原固定前缀全部文件（最新完整副本）；固定前缀尚未首跑时回退最新日期那份
+# ④ 还原全部文件（并集）：固定前缀全部文件（最新完整副本）∪ 所有 legacy 历史日期目录
+#    全部文件池；每个文件取「含它的最新一个日期」快照，同文件固定前缀优先。过渡期最新
+#    legacy 目录可能是首跑中断半截（有文件只在更老日期有快照），并集保证不漏任何一个
+#    R2 上存在的备份对象；固定前缀缺文件时会打印醒目警告（含 N 个来自非最新 legacy 日期）。
 bash scripts/restore-large-json.sh --all
 
 # ⑤ 可选 [--target <dir>] 显式指定目标目录（默认见下；可加在任意位置）
