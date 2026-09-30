@@ -1997,17 +1997,21 @@ def _recompute_scores() -> None:
             _conn = get_conn()
             _ha = _row.get("high_alert")
             _la = _row.get("low_alert")
+            # 口径漂移修复(2026-09-30): 入库 value 用 4 位精度(与 scripts/export_alert.py _store_score
+            # 完全一致), 标记必须同口径(原用未舍入原值 -> 存 75.0 却标 is_overheat=1 自相矛盾)。
+            _ha_db = None if pd.isna(_ha) else round(float(_ha), 4)
+            _la_db = None if pd.isna(_la) else round(float(_la), 4)
             _conn.execute(
                 "INSERT OR REPLACE INTO score_daily (date, score_id, value, is_freeze, is_overheat, components, updated_at) "
                 "VALUES (?, 'high_alert', ?, 0, ?, ?, ?)",
-                (_date, None if pd.isna(_ha) else round(float(_ha), 4),
-                 1 if (not pd.isna(_ha) and _ha > 75) else 0,
+                (_date, _ha_db,
+                 1 if (_ha_db is not None and _ha_db > 75) else 0,
                  json.dumps(_hcomps, ensure_ascii=False), _now))
             _conn.execute(
                 "INSERT OR REPLACE INTO score_daily (date, score_id, value, is_freeze, is_overheat, components, updated_at) "
                 "VALUES (?, 'low_alert', ?, ?, 0, ?, ?)",
-                (_date, None if pd.isna(_la) else round(float(_la), 4),
-                 1 if (not pd.isna(_la) and _la > 75) else 0,
+                (_date, _la_db,
+                 1 if (_la_db is not None and _la_db > 75) else 0,
                  json.dumps(_lcomps, ensure_ascii=False), _now))
             _conn.commit()
             _conn.close()

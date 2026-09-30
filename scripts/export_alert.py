@@ -132,6 +132,16 @@ def _reason_text(level: str, dims: list[dict], is_high: bool) -> str:
     return f"{first}({'+'.join(hit_names)}),{rest}" if rest else f"{first}({'+'.join(hit_names)})"
 
 
+def _round4(v):
+    """入库精度(4 位)舍入; None/NaN -> None。
+
+    口径漂移修复(2026-09-30): 入库 value 用 round(x,4), 而 is_overheat/is_freeze 原用未舍入
+    原值判定 -> x=75.00003 入库 75.0 却标 is_overheat=1(展示"值 75.0 / 标记过热"自相矛盾)。
+    现统一"先按入库精度舍入, 再用该值判定"。阈值不变(仍 >75), 只统一拿哪个值去比。
+    """
+    return None if v is None or pd.isna(v) else round(float(v), 4)
+
+
 def _store_score(conn, date: str, score_id: str, value, is_overheat: int, is_freeze: int, components: dict):
     conn.execute(
         "INSERT OR REPLACE INTO score_daily (date, score_id, value, is_freeze, is_overheat, components, updated_at) "
@@ -155,16 +165,16 @@ def backfill(start: str = "20160101") -> int:
     with sqlite3.connect(_SENT_DB) as c:
         c.execute("BEGIN")
         for date, row in df.iterrows():
-            ha = row.get("high_alert")
-            la = row.get("low_alert")
+            ha = _round4(row.get("high_alert"))  # 入库值, 与标记同口径
+            la = _round4(row.get("low_alert"))
             hcomps = {k: (None if pd.isna(row.get(k)) else round(float(row[k]), 2)) for k in hkeys}
             lcomps = {k: (None if pd.isna(row.get(k)) else round(float(row[k]), 2)) for k in lkeys}
             _store_score(c, str(date), "high_alert", ha,
-                         is_overheat=1 if (not pd.isna(ha) and ha > 75) else 0,
+                         is_overheat=1 if (ha is not None and ha > 75) else 0,
                          is_freeze=0, components=hcomps)
             _store_score(c, str(date), "low_alert", la,
                          is_overheat=0,
-                         is_freeze=1 if (not pd.isna(la) and la > 75) else 0,
+                         is_freeze=1 if (la is not None and la > 75) else 0,
                          components=lcomps)
             n += 2
         c.execute("COMMIT")
@@ -195,6 +205,9 @@ def export_for_date(date: str | None = None) -> dict:
     actual_date = str(df.index[-1])
     ha = row.get("high_alert")
     la = row.get("low_alert")
+    # 入库用舍入值(与标记同口径); ha/la 原值仍供展示层(level/triggered/score)使用, 展示口径不动
+    ha_db = _round4(ha)
+    la_db = _round4(la)
     hkeys = list(HIGH_WEIGHTS)
     lkeys = list(LOW_WEIGHTS)
 
@@ -202,12 +215,12 @@ def export_for_date(date: str | None = None) -> dict:
     hcomps = {k: (None if pd.isna(row.get(k)) else round(float(row[k]), 2)) for k in hkeys}
     lcomps = {k: (None if pd.isna(row.get(k)) else round(float(row[k]), 2)) for k in lkeys}
     with sqlite3.connect(_SENT_DB) as c:
-        _store_score(c, actual_date, "high_alert", ha,
-                     is_overheat=1 if (not pd.isna(ha) and ha > 75) else 0,
+        _store_score(c, actual_date, "high_alert", ha_db,
+                     is_overheat=1 if (ha_db is not None and ha_db > 75) else 0,
                      is_freeze=0, components=hcomps)
-        _store_score(c, actual_date, "low_alert", la,
+        _store_score(c, actual_date, "low_alert", la_db,
                      is_overheat=0,
-                     is_freeze=1 if (not pd.isna(la) and la > 75) else 0,
+                     is_freeze=1 if (la_db is not None and la_db > 75) else 0,
                      components=lcomps)
 
     h_level = _high_level(ha)

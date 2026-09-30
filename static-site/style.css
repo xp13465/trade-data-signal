@@ -898,6 +898,30 @@ main { padding: 16px 24px; }
 .sig-day-row { display: flex; align-items: flex-start; gap: 10px; padding: 7px 6px; border-bottom: 1px solid var(--bg-hover); }
 .sig-day-row:last-child { border-bottom: none; }
 .sig-day-date { flex: 0 0 70px; font-size: 12px; color: var(--text-3); padding-top: 3px; white-space: nowrap; }
+/* 日期标签点击入口(2026-09-30, 用户拍板"加维度说明/筛选,不删标记"): 点日期查看当天全部触发明细。
+   观感不变(日期文字样式不动), 点击区域=整个日期标签撑满整行高(行高由当日格子内容决定),
+   移动端行高≥44px 满足可点规范; 桌面行高虽不定但标签横向≥70px+竖向上多数字标头条已够点, 无溢出相邻行误触。 */
+.sig-day-date-btn { cursor: pointer; position: relative; align-self: stretch; display: flex; align-items: center; }
+.sig-day-date-btn:hover { color: var(--text-1); }
+.sig-day-date-btn::after { content: " 📋"; font-size: 11px; opacity: 0.55; margin-left: 2px; }
+/* 当天明细弹层(2026-09-30): 复用 rule-modal, 内容列表样式 */
+.sig-cal-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 11px; color: var(--text-3); padding: 2px 6px 8px; }
+.sig-cal-legend .sig-cal-legend-item { display: inline-flex; align-items: center; gap: 4px; }
+.sig-cal-legend .sig-cal-legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.day-detail-modal-body { width: min(92vw, 480px); }
+.day-detail-modal-body .rule-modal-close { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+.day-detail-content { font-size: 13px; line-height: 1.7; }
+.day-detail-title { font-size: 15px; }
+.dd-section-title { font-weight: 600; color: var(--text-1); margin: 4px 0 4px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.dd-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 6px 2px; border-bottom: 1px dashed var(--border); font-size: 14px; }
+.dd-row:last-of-type { border-bottom: none; }
+.dd-name { color: var(--text-2); }
+.dd-val { font-weight: 700; min-width: 3.2em; text-align: right; }
+.dd-reason { color: var(--text-3); font-size: 12px; }
+.dd-sig .dd-val { min-width: 0; }
+.dd-private-empty, .dd-empty { color: var(--text-3); padding: 8px 2px; }
+.dd-sig-title { margin-top: 12px; }
+.dd-foot { margin-top: 12px; font-size: 11px; color: var(--text-3); border-top: 1px solid var(--border); padding-top: 8px; }
 .sig-items { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px 8px; }
 .sig-item { font-size: 13px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sig-item b { font-weight: 600; margin-right: 2px; }
@@ -4021,6 +4045,8 @@ main { padding: 16px 24px; }
   .astock-top-grid .chart-card { height: 420px; min-height: 280px; }
   .sig-items { grid-template-columns: repeat(2, 1fr); }
   .sig-day-date { flex: 0 0 56px; font-size: 11px; }
+  /* 移动端日期标签点击目标≥44px(2026-09-30, 用户拍板): 行高由格子内容撑起通常≥44, 此处仅兜底矮行 */
+  .sig-day-date-btn { min-height: 44px; }
 
   /* 表格横向滚动（display:block + overflow-x:auto，保留表格内对齐）
      注意: .ma-table 不加入此规则——display:block 会让 table 脱离 table-layout 算法,

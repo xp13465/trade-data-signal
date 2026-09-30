@@ -226,7 +226,11 @@ def _render_block(rel_paths):
         BLOCK_BEGIN,
         "# 由 scripts/large_json_excludes.py 自动维护(2026-09-25), 勿手改。",
         "# 排除 staticdata 备份 git 仓库 data/ 下 >20MB 的 JSON: 移出 git, 改走 R2 私有桶",
-        "# signal-backup large-json/<YYYY-MM-DD>/<相对data路径>.gz 每日备份(日14天+周8周+月12月)。",
+        "# signal-backup large-json/<相对data路径>.gz(固定前缀, 唯一完整副本, 增量复用, 不滚动删)。",
+        "# 逃生门(R2_LARGE_JSON_DATE_PREFIX=1): 回旧 large-json/<YYYY-MM-DD>/<相对data路径>.gz 按天键,",
+        "#   保留策略同步回旧分层滚动(日14天+周8周+月12月)。",
+        "# 默认模式: 旧按天键 legacy(large-json/<YYYY-MM-DD>/...) 键龄≥7天由 _prune_large_json 清理;",
+        "#   固定前缀(large-json/<rel>.gz)是唯一副本, 不滚动删。",
     ]
     for rel in sorted(rel_paths):
         lines.append("/" + rel)

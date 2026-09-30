@@ -15,7 +15,7 @@
   python3 scripts/upload_r2.py upload-db                  # 每日 DB 备份推 R2(signal-backup)
   python3 scripts/upload_r2.py upload-claude-backup [path] # Claude 自我备份 tar.gz -> signal-backup/claude-backup/
   python3 scripts/upload_r2.py download-db <name> [dir]   # 下载最新备份(解压后.db路径到stdout)
-  python3 scripts/upload_r2.py upload-large-json [--dry-run]  # 大 JSON 私有桶备份(signal-backup/large-json/)
+  python3 scripts/upload_r2.py upload-large-json [--dry-run]  # 大 JSON 私有桶备份(signal-backup/large-json/, #126 固定前缀)
 
 测试隔离三件套(F1, 2026-09-26, 严禁写生产 R2):
   1) STATICDATA_REPO=/tmp/xxx —— 指向 /tmp 临时 staticdata git 克隆(见 docs/ops/large-json-out-of-git-20260925.md §5.1)。
@@ -31,7 +31,7 @@ upload-intraday / upload-data-files / purge-low-freq 等不消费它的 R2 写�
 """
 import os, sys, re, hashlib, hmac, http.client, datetime, ssl, json, time, threading, fcntl
 from pathlib import Path
-from urllib.parse import urlparse, quote
+from urllib.parse import urlparse, quote, unquote
 
 # stdout 行缓冲:遇换行就 flush,防止 `| tee -a` 管道时 block-buffered
 # 致 industry(268文件~10分钟)等长任务日志静默被误判卡死。
@@ -337,6 +337,31 @@ _CONTENT_TYPE_MAP = {
 }
 
 
+def _sigv4_canonical_query(query):
+    """S3 SigV4 canonical query 规范化：参数按名升序 + 名/值归一化为恰好一次 URI 编码。
+
+    实测(#126, 2026-09-30): 多参数 list 请求 `list-type=2&prefix=...&max-keys=1000` 未按字母序
+    → 403 SignatureDoesNotMatch(R2 服务端按「decode→re-encode→按名排序」重建 canonical query,
+    与签名侧未排序的字符串比对失败); 按字母序 + 值恰好一次编码后 200(对照实验:
+    canonical/URI 同用「已编码+排序」→200; 值裸 `/` 未编码 →403; canonical 与 URI 编码不一致 →403)。
+
+    处理策略 = unquote→quote 归一化: 对调用方已 quote 的值(prefix/continuation-token 等)与裸值
+    都归一成「恰好一次编码」, 防二次 % 转义(实际请求 URI 与签名侧都用归一化后的 query, 保持一致)。
+    R2 多参数请求只出现在 ListObjectsV2(list-type/max-keys/continuation-token/prefix)与
+    multipart(uploads/partNumber/uploadId)。"""
+    if not query:
+        return ""
+    params = []
+    for pair in query.split("&"):
+        if not pair:
+            continue
+        name, _, value = pair.partition("=")
+        params.append((name, value))
+    norm = [(quote(unquote(name), safe=""), quote(unquote(value), safe="")) for name, value in params]
+    norm.sort(key=lambda kv: (kv[0], kv[1]))
+    return "&".join(f"{k}={v}" for k, v in norm)
+
+
 def s3_request(method, key, payload=b"", query="", bucket=None, content_type=None, with_headers=False, keep_alive=False):
     """path-style: /BUCKET/key, host = endpoint host。bucket=None 用默认 BUCKET。
 
@@ -345,6 +370,8 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
     with_headers=True: 返回 (status, data, resp_headers_dict)(upload-part 取 ETag 用)。
     keep_alive=True: 复用线程本地 HTTPSConnection(连续 HEAD/PUT 对账省跨境握手, 2026-09-21 R2 根治);
       失败/5xx 自动丢弃重建, 不影响正确性。
+    query 多参数时自动按名排序(_sigv4_canonical_query)——R2 服务端对多参数 list/multipart 请求要求
+      canonical query 按名升序, 未排序 403(#126); 签名与实际请求 URI 都用规范化后的 query, 保证一致。
     """
     if content_type is None:
         ext = os.path.splitext(key)[1].lower()
@@ -375,8 +402,11 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
             canonical_headers = "".join(f"{k}:{v.strip()}\n" for k, v in sorted_items)
             signed_headers = ";".join(k for k, _ in sorted_items)
 
+            # #126: 多参数 query 必须按名排序后才进 canonical request(SigV4 规范 + R2 实测 403→200)。
+            # 规范化后的 query 同时用于签名与实际请求 URI, 保证服务端重建一致。
+            canonical_query = _sigv4_canonical_query(query)
             canonical_request = "\n".join([
-                method, path, query, canonical_headers, signed_headers, payload_hash,
+                method, path, canonical_query, canonical_headers, signed_headers, payload_hash,
             ])
 
             scope = f"{date_stamp}/{REGION}/{SERVICE}/aws4_request"
@@ -395,7 +425,7 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
                 conn = _get_keepalive_conn()
             else:
                 conn = http.client.HTTPSConnection(HOST, timeout=R2_UPLOAD_HTTP_TIMEOUT, context=_CTX)
-            uri = path + ("?" + query if query else "")
+            uri = path + ("?" + canonical_query if canonical_query else "")
             body = payload if method in ("PUT", "POST") else None
             conn.request(method, uri, body=body, headers=headers)
             resp = conn.getresponse()
@@ -1783,15 +1813,32 @@ def cmd_purge_low_freq():
 
 
 def _list_keys(prefix, bucket=None):
-    """list bucket 下 prefix 的对象 key 列表（list-type=2）。"""
+    """list bucket 下 prefix 的对象 key 列表（list-type=2），带 continuation-token 分页取全量。
+
+    #126(2026-09-30): 单页上限 1000, 原实现只取第一页——large-json/(31663 对象)等超量前缀
+    枚举漏对象, prune 单页即漏。改循环续页直到 NoMoreContents; token 取 XML NextContinuationToken,
+    请求参数原样经 s3_request 的 SigV4 排序(#126 SigV4 修复配套)。"""
     import re
-    q = f"list-type=2&prefix={quote(prefix, safe='')}"
-    status, data = s3_request("GET", "", query=q, bucket=bucket)
-    if status != 200:
-        print(f"⚠ list prefix={prefix} bucket={bucket or BUCKET} 失败 status={status} {data[:200]}")
-        return []
-    text = data.decode("utf-8", errors="replace")
-    return re.findall(r"<Key>([^<]+)</Key>", text)
+    bkt = bucket or BUCKET
+    out = []
+    token = ""
+    while True:
+        q = f"list-type=2&prefix={quote(prefix, safe='')}"
+        if token:
+            q += f"&continuation-token={quote(token, safe='')}"
+        status, data = s3_request("GET", "", query=q, bucket=bkt)
+        if status != 200:
+            print(f"⚠ list prefix={prefix} bucket={bkt} 失败 status={status} {data[:200]}")
+            return out
+        text = data.decode("utf-8", errors="replace")
+        out.extend(re.findall(r"<Key>([^<]+)</Key>", text))
+        if "<IsTruncated>true</IsTruncated>" not in text:
+            break
+        m = re.search(r"<NextContinuationToken>([^<]+)</NextContinuationToken>", text)
+        if not m:
+            break
+        token = m.group(1)
+    return out
 
 
 def _latest_dated_key(prefix, name, bucket=None):
@@ -2087,14 +2134,18 @@ def _tier_of_today(today_str):
     return "+".join(tier)
 
 
-def _prune_large_json(bucket=None):
-    """large-json/ 前缀分层滚动清理(复用 _list_keys 列取 + _prune_layer 逐 key DELETE 模式,
-    DB 备份 backup/ weekly/ monthly/ 三层独立清理同构; key 日期在目录前缀故不能用 _prune_layer 正则):
+def _prune_large_json_legacy(bucket=None, dry_run=False):
+    """逃生门专用: large-json/ 前缀**旧分层滚动清理**(从 #126 固定前缀改造前实现原样恢复,
+    2026-09-30 返工:e01f2a045~1 版本, 逃生门 `R2_LARGE_JSON_DATE_PREFIX=1` 走此路径, 保证
+    「逃生门=完整回旧行为」——key 形态回旧按天键, 保留策略也回旧, 不把逃生门产生的按天键
+    当新机制 legacy 统一 7 天清掉):
 
       - 日档: 保留最近 14 天(含今天)的 large-json/<YYYY-MM-DD>/ 目录。
       - 周档: 周日生成的目录, 保留最近 8 个存在的周日目录(ISO 周日=一周最后一天)。
       - 月档: 每月1号生成的目录, 保留最近 12 个存在的1号目录。
-    任一目录被任一层保留 = 整目录 key 保留; 否则 DELETE(幂等, 重跑无害)。"""
+    任一目录被任一层保留 = 整目录 key 保留; 否则 DELETE(幂等, 重跑无害)。
+
+    dry_run=True 只列不删(读侧零污染, 自测/人工预演用; 原实现无此参数, 返工加, 不动删除语义)。"""
     import re
     import datetime as _dt
     bkt = bucket or BACKUP_BUCKET
@@ -2125,6 +2176,10 @@ def _prune_large_json(bucket=None):
     for d in dates:
         if d in keep:
             continue
+        if dry_run:
+            print(f"  [dry-run] 将删旧日期目录 {d} 的 {len(by_date[d])} 个 key")
+            deleted += len(by_date[d])
+            continue
         for k in by_date[d]:
             st, _ = s3_request("DELETE", k, bucket=bkt, keep_alive=True)
             if st in (204, 404):
@@ -2132,11 +2187,86 @@ def _prune_large_json(bucket=None):
             else:
                 print(f"  ⚠ 删除失败 {bkt}/{k} status={st}")
     if deleted:
-        print(f"{bkt} large-json/ 滚动清理共 {deleted} 个旧 key(保留 {len(keep)} 个目录: 日14天+周8周+月12月)")
+        print(f"{bkt} large-json/ 滚动清理共 {deleted} 个旧 key(保留 {len(keep)} 个目录: 日14天+周8周+月12月)"
+              + (" [dry-run 未执行]" if dry_run else ""))
+    else:
+        print(f"{bkt} large-json/ 无待清理旧日期目录(保留 {len(keep)} 个目录: 日14天+周8周+月12月)"
+              + (" [dry-run 未执行]" if dry_run else ""))
     return deleted
 
 
-def _write_large_json_manifest(rows, today_str):
+def _prune_large_json(bucket=None, dry_run=False):
+    """large-json/ 前缀清理(#126 固定前缀改造后, 2026-09-30):
+
+      - 逃生门(`R2_LARGE_JSON_DATE_PREFIX=1`): 完整回旧行为, 走 _prune_large_json_legacy——
+        旧分层保留(日14天+周8周+月12月), 防止逃生门长期运行时把按天键当 7 天 legacy 清掉
+        (R2 灾备快照只留 7 天的语义矛盾, 2026-09-30 返工修)。
+      - 默认(固定前缀):
+          - legacy 日期目录(large-json/<YYYY-MM-DD>/): 一次性清理, 给 7 天宽限期——新固定前缀机制
+            首跑未完成/过渡期历史快照还可能需要读, 早于 7 天前的旧日期目录整目录 DELETE(幂等, 重跑无害)。
+          - 固定前缀 large-json/<rel>.gz: 唯一完整副本(git 已 rm --cached 移出, R2 只有这一份),
+            **不做滚动删除**(日14天/周8周/月12月旧语义只适用于按天键, 固定前缀下变成 no-op, 删除=丢唯一副本)。
+
+    补预算保护(原实现无界, #126 修): 单轮最多删 R2_LARGE_JSON_PRUNE_LIMIT 个 key(默认 3000),
+    防大枚举+删除拖垮上传轮; 超限留待下轮。dry_run=True 只列不删(读侧零污染, 自测/人工预演用)。"""
+    import re
+    import datetime as _dt
+    if os.environ.get("R2_LARGE_JSON_DATE_PREFIX", "") == "1":
+        # 逃生门 = 完整回旧行为(旧分层保留), 不按新机制 7 天宽限清理。
+        # ⚠️ 逃生门路径无 R2_LARGE_JSON_PRUNE_LIMIT 预算保护(旧行为, 默认模式才有预算)——
+        #   有意保留: 逃生门=一键回退旧行为, 加预算会与旧行为漂移(旧分层保留本身有周/月档约
+        #   束); 若日后给 R2_LARGE_JSON_* 预算语义, 勿假设逃生门也有。见 docs/ops/126-*.md §9。
+        return _prune_large_json_legacy(bucket=bucket, dry_run=dry_run)
+    bkt = bucket or BACKUP_BUCKET
+    try:
+        _limit = int(os.environ.get("R2_LARGE_JSON_PRUNE_LIMIT") or "3000")
+    except ValueError:
+        _limit = 3000
+    keys = _list_keys("large-json/", bucket=bkt)
+    legacy_by_date = {}
+    flat_count = 0
+    for k in keys:
+        m = re.match(r"large-json/(\d{4}-\d{2}-\d{2})/", k)
+        if m:
+            legacy_by_date.setdefault(m.group(1), []).append(k)
+        else:
+            flat_count += 1
+    if not legacy_by_date:
+        return 0
+    today = _dt.datetime.now().date()
+    deleted = 0
+    for d in sorted(legacy_by_date):
+        if deleted >= _limit:
+            break
+        try:
+            dd = _dt.datetime.strptime(d, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if (today - dd).days < 7:
+            # 7 天宽限期内的旧日期目录保留(过渡期快照仍可能被读)
+            continue
+        if dry_run:
+            print(f"  [dry-run] 将删 legacy 目录 {d} 的 {len(legacy_by_date[d])} 个 key")
+            deleted += len(legacy_by_date[d])
+            continue
+        for k in legacy_by_date[d]:
+            if deleted >= _limit:
+                break
+            st, _ = s3_request("DELETE", k, bucket=bkt, keep_alive=True)
+            if st in (204, 404):
+                deleted += 1
+            else:
+                print(f"  ⚠ 删除失败 {bkt}/{k} status={st}")
+    if deleted:
+        print(f"{bkt} large-json/ 清理旧日期目录(legacy) {deleted} 个 key"
+              f"(固定前缀 {flat_count} 个保留, 唯一副本不滚动删)"
+              + (" [dry-run 未执行]" if dry_run else ""))
+    else:
+        print(f"{bkt} large-json/ 无待清理旧日期目录(固定前缀 {flat_count} 个唯一副本保留)")
+    return deleted
+
+
+def _write_large_json_manifest(rows, today_str, date_prefix=False):
     """自动重写 <staticdata仓库>/docs/large-json-backup-manifest.md(排除对象 ↔ R2 副本索引, 不手工维护)。
 
     归属(#115, 2026-09-27, 用户拍板): 写 staticdata 备份仓库 = async/sync 的 `git add -A` 提交对象,
@@ -2149,6 +2279,9 @@ def _write_large_json_manifest(rows, today_str):
     固定头部内嵌恢复侧说明(2026-09-26 审查整改, feat/large-json-r2-core): 恢复侧分支
     feat/large-json-r2-restore 写的说明文要点并入生成器头部, 防整体重写把恢复指引覆盖成简表头。
 
+    #126(2026-09-30): 默认固定前缀 key(large-json/<rel>.gz, 唯一副本, 保留档位=「永久(唯一副本)」,
+    不滚动删); date_prefix=True(逃生门 R2_LARGE_JSON_DATE_PREFIX=1)回旧按天键, 档位沿用 _tier_of_today。
+
     幂等(#115, 2026-09-26): 头部时间戳只到日期(not 时分秒)——否则同内容每次跑 manifest 都变一行,
     async 每跑必留一个 M 脏文件(sync 每 ~30min 一次 churn 更密)。表内「生成时间」列本来就只用日期, 不受影响。
     """
@@ -2156,7 +2289,7 @@ def _write_large_json_manifest(rows, today_str):
     repo = _large_json_staticdata_repo()          # #115: 写 staticdata 仓库; .git 缺失 → 非零退出(不静默不写)
     out = repo / "docs" / "large-json-backup-manifest.md"
     now = _dt.datetime.now().strftime("%Y-%m-%d")
-    tier = _tier_of_today(today_str)
+    tier = _tier_of_today(today_str) if date_prefix else "永久(唯一副本, 不滚动删)"
     lines = [
         "# large-json 备份清单(large-json-backup-manifest)",
         "",
@@ -2167,10 +2300,25 @@ def _write_large_json_manifest(rows, today_str):
         "staticdata 备份仓库 7 个 >20MB JSON(共 ~319MB)已移出 git 跟踪(备份天天 `skip_oversize`",
         "不 commit 的根因), 改走 R2 私有桶 `signal-backup` 的 `large-json/` 前缀版本化快照。",
         "",
-        "- key 格式: `large-json/<YYYY-MM-DD>/<相对 data/ 的路径>.gz`",
-        "  - 例: `large-json/2026-09-25/signal_kelly_trades.json.gz`",
-        "  - 例: `large-json/2026-09-25/signal_kelly_trades_parts/t2025.json.gz`",
-        "- 保留档位: 日档 14 天 + 周档(周日那份) 8 周 + 月档(每月 1 号那份) 12 个月",
+    ]
+    if date_prefix:
+        lines.extend([
+            "- key 格式(逃生门 R2_LARGE_JSON_DATE_PREFIX=1): `large-json/<YYYY-MM-DD>/<相对 data/ 的路径>.gz`",
+            "  回旧按天键行为; 保留档位沿用旧分层滚动(见下), 不按固定前缀的 7 天宽限清理。",
+            "- 保留档位: 日档最近 14 天(含今天) + 周档最近 8 个周日 + 月档最近 12 个 1 号,",
+            "  任一目录被任一层保留=整目录保留(与 `_prune_large_json_legacy` 一致)。",
+        ])
+    else:
+        lines.extend([
+            "- key 格式(#126 固定前缀): `large-json/<相对 data/ 的路径>.gz`(唯一完整副本, 增量复用,",
+            "  内容未变 HEAD ETag 命中跳过 PUT)",
+            "  - 例: `large-json/signal_kelly_trades.json.gz`",
+            "  - 例: `large-json/signal_kelly_trades_parts/t2025.json.gz`",
+            "- legacy 旧日期目录 `large-json/<YYYY-MM-DD>/...`(过渡期按天键快照)保留 7 天宽限期后自动清理;",
+            "  固定前缀本身不滚动删(它是唯一副本, 删除=丢数据)。",
+            "- 保留档位: 固定前缀永久(唯一副本, 不滚动删); legacy 旧日期目录 7 天宽限期后清理",
+        ])
+    lines.extend([
         "- 恢复: `bash scripts/restore-large-json.sh <文件名|--list|--date YYYY-MM-DD|--all> [--target <dir>]`",
         "  还原时先下同目录 `.tmp` 再原子覆盖, 覆盖前旧文件备份为 `<文件>.bak-<时间戳>`; 本清单",
         "  有 sha256 记录的会比对, 不匹配即中止(不改原文件)。默认还原目标 = 生产数据目录",
@@ -2182,7 +2330,7 @@ def _write_large_json_manifest(rows, today_str):
         "",
         "| 相对 data/ 路径 | 完整字节 | sha256 | 最新 R2 key | 保留档位 | 生成时间 |",
         "|---|---|---|---|---|---|",
-    ]
+    ])
     for relpath, size, sha, key in sorted(rows):
         lines.append(f"| {relpath} | {size} | {sha} | `{key}` | {tier} | {today_str} |")
     lines.append("")
@@ -2194,17 +2342,22 @@ def _write_large_json_manifest(rows, today_str):
 
 
 def cmd_upload_large_json():
-    """大 JSON(staticdata 备份 git 排除对象)按日 gzip 推 R2 私有桶 signal-backup large-json/ 前缀 + 分层滚动保留。
+    """大 JSON(staticdata 备份 git 排除对象)gzip 推 R2 私有桶 signal-backup large-json/ 前缀 + legacy 旧目录清理。
 
     背景(2026-09-25): staticdata 备份 git 仓库 7 个大 JSON(>20MB, 共~320MB)天天变天天进 delta,
     .git 膨胀到 3.3G, 9-25 首跑撞「变更总字节 >300MB」积压阈值跳过 commit。本命令 = 排除对象异地备份:
       - 对象清单 = scripts/large_json_excludes.py --print(.gitignore 受管区块单一源; 迁移后仍持续备份,
         git rm --cached 只移出 git 不动磁盘/R2)。
-      - key 格式 = large-json/<YYYY-MM-DD>/<相对 data/ 的路径>.gz(冻结接口, 主控定)。
+      - key 格式(#126, 2026-09-30 固定前缀): `large-json/<相对 data/ 的路径>.gz`(唯一完整副本)。
+        增量复用: 同日多轮/跨天内容不变 → HEAD ETag 命中跳过 PUT, R2 长期保持完整快照, 不再按天
+        翻滚归零; 逃生门 `R2_LARGE_JSON_DATE_PREFIX=1` 回旧 `large-json/<YYYY-MM-DD>/<路径>.gz`。
       - 幂等: s3_head 比对 ETag(单 PUT ETag=内容 md5; gzip.compress 必须显式 mtime=0——
         Python 3.11 默认 mtime=当前时间, 同内容每次 gzip 字节不同 ETag 永不相等, 幂等失效,
         2026-09-25 实测发现修复), 内容没变跳过 PUT 不重复上传。
-      - 滚动保留 = _prune_large_json(日14天 + 周档周日那份8周 + 月档每月1号那份12月)。
+      - 并行(#126): ThreadPoolExecutor 默认 8 线程(env R2_LARGE_JSON_WORKERS), 每线程独立
+        keep-alive 连接——单线程 31663 文件 ~1.14s/文件 ≈10h 超预算(R2_LARGE_JSON_BUDGET=10800)
+        每晚传不完发 severe 告警, 并行是唯一大杠杆(R2 官方 Limits 仅约束同 key 并发写 1/s)。
+      - 清理 = _prune_large_json(legacy 按天旧目录 7 天宽限期后一次性清理; 固定前缀唯一副本不滚动删)。
       - 跑完自动重写 <staticdata仓库>/docs/large-json-backup-manifest.md(#115, 写 async/sync 提交的
         staticdata 仓库而非 trade 仓库, 否则没有任何环节提交它→trade 留永久 M 脏文件; 恢复侧
         restore-large-json.sh 已双路径兼容读旧+新)。
@@ -2235,12 +2388,21 @@ def cmd_upload_large_json():
         print("✓ 无大 JSON 需备份(large-json 清单为空)")
         return
     today = _dt.datetime.now().strftime("%Y-%m-%d")
-    ok = 0
+    # #126 固定前缀改造(2026-09-30): 默认 key = large-json/<rel>.gz(无日期), 增量复用——
+    #   同日多轮/跨天内容不变 → HEAD ETag 命中跳过 PUT, R2 长期保持完整快照(不再按天翻滚归零,
+    #   每晚 31663 文件串行 ~10h 超预算永传不完的根因之一)。
+    #   逃生门: env R2_LARGE_JSON_DATE_PREFIX=1 → 回旧按天键生成行为(便于一键回退/临时对比)。
+    date_prefix = os.environ.get("R2_LARGE_JSON_DATE_PREFIX", "") == "1"
+
     # #129 熔断/整体预算(2026-09-29): 弱网下逐文件最多 5×30s 超时, 3.2 万文件(fund_nav 26458 大头)可能跑
     # 10h+ 持 trade_deploy.lock → 阻塞生产 deploy(09-29 长跑事故, 见 docs/ops/129-staticdata-backup-r2-lock-and-fuse-20260929.md)。
     # 加两道闸: ①整体预算(默认 3h, env R2_LARGE_JSON_BUDGET) ②连续网络失败熔断(默认 30 次, env R2_LARGE_JSON_FAIL_LIMIT)。
-    # 任一触发 → break, ok != len(entries) → 既有 exit 1 → heartbeat fail + severe 告警链路;
+    # 任一触发 → 放弃本轮, ok != len(entries) → 既有 exit 1 → heartbeat fail + severe 告警链路;
     # 数据已磁盘留档, 次日 rsync 全量追平 + HEAD ETag 幂等补传(灾备第1/2层不丢)。
+    # #126 并行化(2026-09-30): keep-alive 已在用(瓶颈是串行不是握手), 改 ThreadPoolExecutor 并行
+    #   (默认 8, env R2_LARGE_JSON_WORKERS), 每线程独立 keep-alive 连接(R2 官方 Limits 仅约束同 key
+    #   并发写 1/s, 不同 key 并行无上限; with_lock 已保证 async 单实例)。预算/熔断计数改共享计数器
+    #   (threading.Lock), 线程安全。
     try:
         _budget = float(os.environ.get("R2_LARGE_JSON_BUDGET") or "10800")
     except ValueError:
@@ -2249,87 +2411,144 @@ def cmd_upload_large_json():
         _fail_limit = int(os.environ.get("R2_LARGE_JSON_FAIL_LIMIT") or "30")
     except ValueError:
         _fail_limit = 30
+    try:
+        _workers = int(os.environ.get("R2_LARGE_JSON_WORKERS") or "8")
+    except ValueError:
+        _workers = 8
+    _workers = max(1, min(_workers, 16))
     _start = time.monotonic()
-    _fail_streak = 0
     manifest_rows = []
-    for relpath, size in sorted(entries):
+    # 线程安全共享态: ok 计数 / 熔断连续失败数 / 停止标志(预算或熔断触发后停派新任务) / 行收集
+    _shared = {"ok": 0, "fail_streak": 0, "stop": False, "lock": threading.Lock(), "rows": manifest_rows}
+
+    def _mk_key(relpath):
+        return f"large-json/{today}/{relpath}.gz" if date_prefix else f"large-json/{relpath}.gz"
+
+    def _note_ok():
+        with _shared["lock"]:
+            _shared["ok"] += 1
+
+    def _note_fail():
+        with _shared["lock"]:
+            _shared["fail_streak"] += 1
+            return _shared["fail_streak"]
+
+    def _reset_fail():
+        with _shared["lock"]:
+            _shared["fail_streak"] = 0
+
+    def _add_row(relpath, size, raw, key):
+        with _shared["lock"]:
+            _shared["rows"].append((relpath, size, hashlib.sha256(raw).hexdigest(), key))
+
+    def _upload_one(relpath, size):
+        """单文件上传(并行 worker 执行)。返回 'ok'/'skip'/'fail'/'stop';'stop' = 预算/熔断触发, 不再派新任务。"""
+        if _shared["stop"]:
+            return "stop"
         # 整体预算(每文件开头查一次): 超预算 → 放弃本轮, 剩余走次日 rsync 全量追平 + 幂等补传。
         if time.monotonic() - _start > _budget:
-            print(f"⚠ 整体预算耗尽(R2_LARGE_JSON_BUDGET={_budget:g}s), 剩余 {len(entries) - ok} 未传, "
+            with _shared["lock"]:
+                if not _shared["stop"]:
+                    _shared["stop"] = True
+            print(f"⚠ 整体预算耗尽(R2_LARGE_JSON_BUDGET={_budget:g}s), 剩余 {len(entries) - _shared['ok']} 未传, "
                   f"次日 rsync 全量追平后补传", file=sys.stderr)
-            break
+            return "stop"
         src = repo / "data" / relpath
         if not src.is_file():
             print(f"⚠ 跳过(源不存在): data/{relpath}")
-            continue
+            return "skip"
         raw = src.read_bytes()
         payload = gzip.compress(raw, compresslevel=6, mtime=0)  # mtime=0 固定, 同内容同字节(幂等 ETag 前提)
-        key = f"large-json/{today}/{relpath}.gz"
+        key = _mk_key(relpath)
         local_md5 = hashlib.md5(payload).hexdigest()
         if dry_run:
             # F1 dry-run: 只打印将上传清单, 不 PUT / 不 HEAD, 全程零 R2 接触。
             print(f"[dry-run] 将上传 {relpath} ({size // 1024 // 1024}MB -> "
                   f"{len(payload) // 1024 // 1024}MB gzip, md5={local_md5[:10]}…) -> {BACKUP_BUCKET}/{key}")
-            manifest_rows.append((relpath, size, hashlib.sha256(raw).hexdigest(), key))
-            ok += 1
-            continue
+            _add_row(relpath, size, raw, key)
+            _note_ok()
+            return "ok"
         st, etag = s3_head(key, bucket=BACKUP_BUCKET, keep_alive=True)
         if st == 0 and etag is None:
             # HEAD 5 次重试耗尽最终网络失败(s3_head 契约返回 (0,None)): 计连续失败, 熔断判定。
-            _fail_streak += 1
-            if _fail_streak >= _fail_limit:
-                print(f"⚠ 连续 {_fail_streak} 次网络失败(≥R2_LARGE_JSON_FAIL_LIMIT={_fail_limit}), "
+            if _note_fail() >= _fail_limit:
+                print(f"⚠ 连续 {_shared['fail_streak']} 次网络失败(≥R2_LARGE_JSON_FAIL_LIMIT={_fail_limit}), "
                       f"判定网络劣化, 放弃本轮", file=sys.stderr)
-                break
+                with _shared["lock"]:
+                    _shared["stop"] = True
+                return "stop"
             # 低于熔断阈值: 降格为「当作不存在」继续走 PUT(2026-09-29 评审修正)——PUT 自带 5 次退避重试,
             # 瞬时 HEAD 失败网络恰好恢复时能自救成功, 不再无谓整轮 exit 1 制造告警噪音。
             st = 404
             etag = None
         if st == 200 and etag is not None and etag.strip('"') == local_md5:
-            _fail_streak = 0
+            _reset_fail()
             print(f"✓ 已存在且内容未变, 跳过 PUT: {BACKUP_BUCKET}/{key}")
-            ok += 1
+            _note_ok()
             # R2 已有同内容副本 = 真实成功, 进 manifest
-            manifest_rows.append((relpath, size, hashlib.sha256(raw).hexdigest(), key))
-        else:
-            # 存在但内容变了 / HEAD 非 200(404=不存在等) → 走 PUT; keep_alive 复用同一连接(省跨境握手)。
+            _add_row(relpath, size, raw, key)
+            return "ok"
+        # 存在但内容变了 / HEAD 非 200(404=不存在等) → 走 PUT; keep_alive 复用线程本地连接(省跨境握手)。
+        try:
+            status, data = s3_request("PUT", key, payload, bucket=BACKUP_BUCKET,
+                                      content_type="application/gzip", keep_alive=True)
+        except (ssl.SSLError, OSError, http.client.HTTPException) as e:
+            # PUT 5 次重试耗尽仍网络异常(s3_request 契约: 最终失败抛异常): 计连续失败, 不崩整循环。
+            print(f"✗ {relpath} 网络失败(重试耗尽): {type(e).__name__}: {e}", file=sys.stderr)
+            if _note_fail() >= _fail_limit:
+                print(f"⚠ 连续 {_shared['fail_streak']} 次网络失败(≥R2_LARGE_JSON_FAIL_LIMIT={_fail_limit}), "
+                      f"判定网络劣化, 放弃本轮", file=sys.stderr)
+                with _shared["lock"]:
+                    _shared["stop"] = True
+                return "stop"
+            return "fail"
+        if status == 200:
+            _reset_fail()
+            _note_ok()
+            print(f"✓ {relpath} ({size // 1024 // 1024}MB -> {len(payload) // 1024 // 1024}MB gzip)"
+                  f" -> {BACKUP_BUCKET}/{key}")
+            _add_row(relpath, size, raw, key)
+            return "ok"
+        # 上传失败的行不得进 manifest(manifest 只能反映真实成功上传, 防机检误判已备份);
+        # 失败详情走 stderr, 最终 ok != len(entries) 保持非 0 退出。
+        print(f"✗ {relpath} status={status} {data.decode('utf-8', errors='replace')[:300]}",
+              file=sys.stderr)
+        if _note_fail() >= _fail_limit:
+            print(f"⚠ 连续 {_shared['fail_streak']} 次网络失败(≥R2_LARGE_JSON_FAIL_LIMIT={_fail_limit}), "
+                  f"判定网络劣化, 放弃本轮", file=sys.stderr)
+            with _shared["lock"]:
+                _shared["stop"] = True
+            return "stop"
+        return "fail"
+
+    # 并行执行: 逐文件 submit, 停止标志触发即不再派新任务; shutdown(wait=True) 等全部已派任务落地。
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=_workers) as _ex:
+        _futures = []
+        for relpath, size in sorted(entries):
+            if _shared["stop"]:
+                break
+            _futures.append((_ex.submit(_upload_one, relpath, size), relpath))
+        for _fut, _rel in _futures:
             try:
-                status, data = s3_request("PUT", key, payload, bucket=BACKUP_BUCKET,
-                                          content_type="application/gzip", keep_alive=True)
-            except (ssl.SSLError, OSError, http.client.HTTPException) as e:
-                # PUT 5 次重试耗尽仍网络异常(s3_request 契约: 最终失败抛异常): 计连续失败, 不崩整循环。
-                _fail_streak += 1
-                print(f"✗ {relpath} 网络失败(重试耗尽): {type(e).__name__}: {e}", file=sys.stderr)
-                if _fail_streak >= _fail_limit:
-                    print(f"⚠ 连续 {_fail_streak} 次网络失败(≥R2_LARGE_JSON_FAIL_LIMIT={_fail_limit}), "
-                          f"判定网络劣化, 放弃本轮", file=sys.stderr)
-                    break
-                continue
-            if status == 200:
-                _fail_streak = 0
-                ok += 1
-                print(f"✓ {relpath} ({size // 1024 // 1024}MB -> {len(payload) // 1024 // 1024}MB gzip)"
-                      f" -> {BACKUP_BUCKET}/{key}")
-                manifest_rows.append((relpath, size, hashlib.sha256(raw).hexdigest(), key))
-            else:
-                # 上传失败的行不得进 manifest(manifest 只能反映真实成功上传, 防机检误判已备份);
-                # 失败详情走 stderr, 最终 ok != len(entries) 保持非 0 退出。
-                _fail_streak += 1
-                print(f"✗ {relpath} status={status} {data.decode('utf-8', errors='replace')[:300]}",
-                      file=sys.stderr)
-                if _fail_streak >= _fail_limit:
-                    print(f"⚠ 连续 {_fail_streak} 次网络失败(≥R2_LARGE_JSON_FAIL_LIMIT={_fail_limit}), "
-                          f"判定网络劣化, 放弃本轮", file=sys.stderr)
-                    break
+                _fut.result()
+            except Exception as e:
+                print(f"✗ 上传线程异常 {_rel}: {type(e).__name__}: {e}", file=sys.stderr)
+    ok = _shared["ok"]
     if dry_run:
         # F1 dry-run 收尾: 只打印「将做的事」, 不真跑 prune / 不重写 manifest。
-        print("[dry-run] 将运行 _prune_large_json(日14天 + 周周日8周 + 月1号12月滚动保留)")
+        if date_prefix:
+            print("[dry-run] 将运行 _prune_large_json(逃生门回旧分层保留: 日14天+周8周+月12月)")
+        else:
+            print("[dry-run] 将运行 _prune_large_json(旧日期目录 7 天宽限期后清理; 固定前缀唯一副本不滚动删)")
         print(f"[dry-run] 将重写 staticdata仓库/docs/large-json-backup-manifest.md(#115, {len(manifest_rows)} 行)")
-        print(f"[dry-run] large-json 计划上传 {ok}/{len(entries)} -> {BACKUP_BUCKET}/large-json/{today}/ (私有桶, 未执行)")
+        print(f"[dry-run] large-json 计划上传 {ok}/{len(entries)} -> {BACKUP_BUCKET}/"
+              f"{('large-json/' + today + '/') if date_prefix else 'large-json/'}(私有桶, 未执行)")
         return
     _prune_large_json()
-    _write_large_json_manifest(manifest_rows, today)
-    print(f"large-json 上传 {ok}/{len(entries)} -> {BACKUP_BUCKET}/large-json/{today}/ (私有桶)")
+    _write_large_json_manifest(manifest_rows, today, date_prefix=date_prefix)
+    print(f"large-json 上传 {ok}/{len(entries)} -> {BACKUP_BUCKET}/"
+          f"{('large-json/' + today + '/') if date_prefix else 'large-json/'}(私有桶)")
     if ok != len(entries):
         sys.exit(1)
 
@@ -2809,8 +3028,10 @@ if __name__ == "__main__":
     elif cmd == "upload-db":
         cmd_upload_db()
     elif cmd == "upload-large-json":
-        # upload-large-json [--dry-run]  staticdata 备份 git 排除的大 JSON -> 私有桶 large-json/<日期>/<路径>.gz
+        # upload-large-json [--dry-run]  staticdata 备份 git 排除的大 JSON -> 私有桶 large-json/
         # (2026-09-25, 排除对象清单来源 large_json_excludes.py --print)
+        # key 格式(#126, 2026-09-30): 默认固定前缀 large-json/<相对路径>.gz(唯一副本增量复用);
+        #   R2_LARGE_JSON_DATE_PREFIX=1 逃生门回旧 large-json/<日期>/<路径>.gz。
         # --dry-run(2026-09-26 F1): 走全局 _DRY_RUN 标志, 只打印清单计划动作, 零 R2 接触。
         cmd_upload_large_json()
     elif cmd == "upload-claude-backup":
