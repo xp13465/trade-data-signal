@@ -7151,9 +7151,80 @@ function _renderSentimentCalendar(cal) {
     }).join("");
     const cells = freezeCells + sigCells;
     if (!cells) continue;
-    rows += `<div class="sig-day-row"><span class="sig-day-date">${dateLabel}</span><div class="sig-items">${cells}</div></div>`;
+    // 日期标签可点：查看当天全部触发明细(2026-09-30, 用户拍板"加维度说明/筛选,不删标记")。
+    // 仅新增日期标签点击入口, 格子渲染/标记完全不动(§23.7 冻结契约)。点击委托见 freezeCard click。
+    rows += `<div class="sig-day-row"><span class="sig-day-date sig-day-date-btn" data-cal-date="${dt}" title="查看当天触发明细">${dateLabel}</span><div class="sig-items">${cells}</div></div>`;
   }
-  return rows ? `<div class="signal-grid">${rows}</div>` : "";
+  if (!rows) return "";
+  // 图例行(2026-09-30, 用户拍板): 说明"本日历合并了哪几类维度的冰点+信号", 不改格子渲染结果。
+  const legend =
+    '<div class="sig-cal-legend">' +
+      '<span class="sig-cal-legend-item"><span class="sig-cal-legend-swatch" style="background:#2563eb"></span>冰点维度（情绪分≤20，当日触发的一起点亮）</span>' +
+      '<span class="sig-cal-legend-item"><span style="color:#e6492e">红</span>=卖</span>' +
+      '<span class="sig-cal-legend-item"><span style="color:#d63384">紫</span>=辅买</span>' +
+      '<span class="sig-cal-legend-item"><span style="color:#2e8b57">绿</span>=买</span>' +
+      '<span class="sig-cal-legend-item">📋 点日期标签查看当天全部触发明细</span>' +
+    '</div>';
+  return legend + `<div class="signal-grid">${rows}</div>`;
+}
+
+// 当天明细弹层(2026-09-30, 用户拍板): 点日期标签查看"那天到底哪几个维度触发冰点"。
+// 复用 rule-modal 样式 + indexIdToName/signalLabel 现有映射(§22 单源一致, 不新造中文名表)。
+function openSentimentDayDetailModal(day) {
+  if (!day || !day.date) return;
+  let modal = document.getElementById("sentimentDayDetailModal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "sentimentDayDetailModal";
+    modal.className = "rule-modal hidden";
+    modal.innerHTML =
+      '<div class="rule-modal-overlay"></div>' +
+      '<div class="rule-modal-body day-detail-modal-body">' +
+        '<div class="rule-modal-header"><h3 class="day-detail-title">情绪明细</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
+        '<div class="rule-modal-content day-detail-content"></div>' +
+      '</div>';
+    document.body.appendChild(modal);
+    const close = () => closeSentimentDayDetailModal();
+    modal.querySelector(".rule-modal-overlay").addEventListener("click", close);
+    modal.querySelector(".rule-modal-close").addEventListener("click", close);
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.classList.contains("hidden")) close(); });
+  }
+  const titleEl = modal.querySelector(".day-detail-title");
+  const body = modal.querySelector(".day-detail-content");
+  const dt = day.date;
+  titleEl.innerHTML = `${fmtDate(dt)} ${dt ? "(" + dt.slice(0,4) + "-" + dt.slice(4,6) + "-" + dt.slice(6,8) + ")" : ""} 情绪明细`;
+  const fr = Array.isArray(day.freeze) ? day.freeze : [];
+  const sigs = Array.isArray(day.signals) ? day.signals.slice() : [];
+  const ord = { buy: 0, buy_aux: 1, sell: 2 };
+  sigs.sort((a, b) => (ord[a.signal] ?? 9) - (ord[b.signal] ?? 9));
+  const freezeHtml = fr.length
+    ? fr.map((it) => {
+        const _name = indexIdToName(it.score_id);
+        const _val = it.value != null ? it.value.toFixed(1) : "-";
+        return `<div class="dd-row"><span class="dd-name">${_esc(_name)}</span><span class="dd-val freeze-val">${_val}</span></div>`;
+      }).join("")
+    : '<div class="dd-empty">当天无冰点维度</div>';
+  const sigHtml = sigs.length
+    ? sigs.map((s) => {
+        const _label = signalLabel(s);
+        const _name = indexIdToName(s.index_id);
+        const _reason = s.reason ? ` · ${_esc(s.reason)}` : "";
+        return `<div class="dd-row dd-sig"><span class="dd-name"><b class="${s.signal}">${_esc(_label)}</b> ${_esc(_name)}</span><span class="dd-reason">${_reason}</span></div>`;
+      }).join("")
+    : "";
+  body.innerHTML =
+    `<div class="dd-section-title">冰点维度（情绪分 ≤ 20 超卖极值）</div>` + freezeHtml +
+    (sigHtml ? `<div class="dd-section-title dd-sig-title">当日情绪分信号</div>` + sigHtml : "") +
+    '<div class="dd-foot">📋 蓝值=冰点触发维度；红/紫/绿=买卖点信号。点击上方格子可看单维度走势。</div>';
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+
+function closeSentimentDayDetailModal() {
+  const modal = document.getElementById("sentimentDayDetailModal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  document.body.style.overflow = "";
 }
 
 // 两段式信号固化三态提示条(2026-08-14, 方案 docs/signal-finalize-time.md §5.3):
@@ -16624,8 +16695,15 @@ async function renderOverview() {
   // 融合口径角标(2026-08-20 #96): 读 _sentCal(sentiment_calendar[0] 最新情绪日), 缺失降级 r.recent_freeze(旧冰点),
   // 两源皆空回退 addCardTimeBadge 绿色 r.date 角标(内部处理, 无 bug)。
   addFreezeEventBadge(freezeCard, _sentCal, r.recent_freeze, r.date, snap);
-  // 点击冰点日卡片弹窗：展示该情绪分走势图+冰点(≤20)标注
+  // 点击冰点日卡片弹窗：①日期标签=当天全部维度明细(2026-09-30新增) ②格子=该维度走势图+冰点(≤20)标注。
+  // 日期标签优先判, 格子交互完全不变(§23.7)。
   freezeCard.addEventListener("click", (e) => {
+    const dayBtn = e.target.closest(".sig-day-date-btn");
+    if (dayBtn && dayBtn.dataset.calDate) {
+      const _day = (_sentCal || []).find((d) => d.date === dayBtn.dataset.calDate);
+      if (_day) { e.preventDefault(); openSentimentDayDetailModal(_day); }
+      return;
+    }
     const item = e.target.closest(".sig-clickable");
     if (!item) return;
     e.preventDefault();
