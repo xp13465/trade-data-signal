@@ -249,6 +249,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-09-27 | 0.9678 | 1,604,529 | pro·8899·商汤rotate | 92% | ? | 2ae94bab3 docs(规范): 下沉改动 reviewer 验收整改 + 根文件 §8.1 错引自纠; c9cd7d912 docs(规范): 下沉 §24 前端部署防撕裂 + §8.1 派单锚点(根 CLAUDE.md 瘦身) |
 | 2026-09-28 | 0.9672 | 1,215,247 | pro·8899·商汤rotate | 90% | ? | df643e112 docs(claude-work-mode): 三轮修复 — 已下沉节加老§N标注 + §4.2基准同步v1.1.7 + §2残留口径; 8b2ecda22 docs(claude-work-mode): 二轮复审 FAIL 修复 — 残留 agent push main 口径 2 处改机制 D; 9a229de43 docs(claude-work-mode): reviewer FAIL 修复——skill §3/§4 对齐机制C/D+云上systemd timer,补 tester 简洁输出条款,修 README/PROJECT-SPECIFIC 过时引用; ed6ea762b docs(claude-work-mode): 包内 docs/ 指针占位符化(55 处,统一 <docs/...> 明示包不含 docs/); 2c7c6ec13 docs(claude-work-mode): 阶段3 引用重核——下沉节号标注「原 §N」溯源(agents §9/§15、README 边界章节+编号注+章节映射表、PROJECT-SPECIFIC 专项标题)+ §23 标题 23.1-23.9→23.1-23.15; 1c7d8d58b docs(claude-work-mode): 阶段2 根 CLAUDE.md 瘦身——513→274 行,节号全保留为对照行; 7f846985b docs(claude-work-mode): 阶段1 skill增厚——4 role skill 对齐 collab 基座逐节搬运; c5a0d63c0 docs(规范): 根 CLAUDE.md 加节号对照行 + #121 悬空引用施工图落档 |
 | 2026-09-29 | 0.9725 | 1,075,867 | pro·8899·商汤rotate | 92% | ? | 5488b35bc fix(hooks): agent_dispatch_cron_reminder 收敛为参数可机检两项; 15dbfdfa8 fix(scripts): check_doc_staleness 覆盖缺口补全 + 遍历层根治 worktrees 假命中; a100eb06c docs(sweep): 全仓 launchd 口径大扫除续修 — scripts/README + 4 功能 README + PARAMS/signal-finalize/staticdata/理财指南/标题×2 |
+| 2026-09-30 | 0.9780 | 1,542,579 | pro·8899·商汤rotate | 93% | ? | 无 |
 <!-- token-cache-trend-end -->
 
 **ASCII 迷你柱状图**（每格 = 0.01 命中率，刻度 0.70~1.00，一眼看升降；由脚本 `--append-daily` 随走势表同步更新，保证与实际命中率一致）：
@@ -304,6 +305,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 09-27  ███████████████████████████(27)  1,604,529     0.9678
 09-28  ███████████████████████████(27)  1,215,247     0.9672
 09-29  ███████████████████████████(27)  1,075,867     0.9725
+09-30  ████████████████████████████(28)  1,542,579     0.9780
 ```
 <!-- token-cache-ascii-end -->
 
@@ -358,6 +360,7 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-09-27 | ? | 2ae94bab3 docs(规范): 下沉改动 reviewer 验收整改 + 根文件 §8.1 错引自纠; c9cd7d912 docs(规范): 下沉 §24 前端部署防撕裂 + §8.1 派单锚点(根 CLAUDE.md 瘦身) |
 | 2026-09-28 | ? | df643e112 docs(claude-work-mode): 三轮修复 — 已下沉节加老§N标注 + §4.2基准同步v1.1.7 + §2残留口径; 8b2ecda22 docs(claude-work-mode): 二轮复审 FAIL 修复 — 残留 agent push main 口径 2 处改机制 D; 9a229de43 docs(claude-work-mode): reviewer FAIL 修复——skill §3/§4 对齐机制C/D+云上systemd timer,补 tester 简洁输出条款,修 README/PROJECT-SPECIFIC 过时引用; ed6ea762b docs(claude-work-mode): 包内 docs/ 指针占位符化(55 处,统一 <docs/...> 明示包不含 docs/); 2c7c6ec13 docs(claude-work-mode): 阶段3 引用重核——下沉节号标注「原 §N」溯源(agents §9/§15、README 边界章节+编号注+章节映射表、PROJECT-SPECIFIC 专项标题)+ §23 标题 23.1-23.9→23.1-23.15; 1c7d8d58b docs(claude-work-mode): 阶段2 根 CLAUDE.md 瘦身——513→274 行,节号全保留为对照行; 7f846985b docs(claude-work-mode): 阶段1 skill增厚——4 role skill 对齐 collab 基座逐节搬运; c5a0d63c0 docs(规范): 根 CLAUDE.md 加节号对照行 + #121 悬空引用施工图落档 |
 | 2026-09-29 | ? | 5488b35bc fix(hooks): agent_dispatch_cron_reminder 收敛为参数可机检两项; 15dbfdfa8 fix(scripts): check_doc_staleness 覆盖缺口补全 + 遍历层根治 worktrees 假命中; a100eb06c docs(sweep): 全仓 launchd 口径大扫除续修 — scripts/README + 4 功能 README + PARAMS/signal-finalize/staticdata/理财指南/标题×2 |
+| 2026-09-30 | ? | — |
 <!-- token-cache-changelog-end -->
 
 ### 配置快照日志（2026-09-19 新增：模型/端点/思考%/effort/来源）
@@ -407,5 +410,6 @@ cp -r .claude/agents .claude/skills <新项目根>/.claude/
 | 2026-09-26 | pro | 8899·商汤rotate | 95% | — | 时段表 |
 | 2026-09-27 | pro | 8899·商汤rotate | 92% | — | 时段表 |
 | 2026-09-28 | pro | 8899·商汤rotate | 90% | — | 时段表 |
-| 2026-09-29 | pro | 8899·商汤rotate | 92% | 主pro 子flash 按角色(impl low/rev·tst·res max) | 实时抓取 |
+| 2026-09-29 | pro | 8899·商汤rotate | 92% | — | 时段表 |
+| 2026-09-30 | pro | 8899·商汤rotate | 93% | 主pro 子flash 按角色(impl low/rev·tst·res max) | 实时抓取 |
 <!-- token-cache-cfglog-end -->
