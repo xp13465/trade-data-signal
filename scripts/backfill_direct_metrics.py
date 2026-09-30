@@ -10,21 +10,25 @@ akshare 等多源 fallback 兜底,间歇封禁后 backfill-evening 槽位补回�
 口径:
 - ok  = 补采成功(rows 非空),写 ok 并清同 run_date 该 metric 旧非 ok 记录
        (让 collect_health 反映最新状态)
-- gap = 数据源无数据(collect_direct 返回空且 msg 含「多源皆败无数据」)=
-       正常缺口非任务失败。仍 log_collect error 让 collect_health 通道反映,
-       但**不计 fail、不影响退出码**。2026-09-09 #84 reviewer P1-1: 02:00 槽
-       a_fund_main 每日必现该缺口,旧逻辑计 fail → backfill 每日 exit 1 →
-       schedule_monitor 每日假 SEVERE「backfill_evening 退出失败」+16:35 恢复
-       邮件,每日 2 封循环,违背降噪主旨。缺口由 collect_health(前端健康红点)
-       反映,不靠退出码。
-- fail = 真失败(采集异常崩溃:no direct.fetch_* 配置缺失 / direct:* error:
-       采集异常 / 抛异常),计入退出码 → backfill 总退出码非 0 → schedule_monitor
-       照常报,保留 C4(#84)修「主采集失败静默 exit 0」盲区的监控价值。
+- gap = 数据源无数据(collect_direct 返回空且 msg 含「多源皆败无数据」),归属按 BACKFILL_SLOT
+       槽位分(2026-09-30 资金面监控盲点修复, memory alert-denoise-keep-fault-discriminator):
+       **凌晨槽(02:00)** = 结构性预期缺口(新浪源 T+1、目标日=当日必败),仍计 gap 静默
+       (9/14-9/30 十七次 gap/五次 ok),仍 log_collect error 让 collect_health 通道反映,
+       但不计 fail、不影响退出码——2026-09-09 #84 reviewer P1-1 降噪保留此槽;
+       **非凌晨槽(16:35/21:00)** = 真正兜底槽每次都补回来,此刻六源全败=真故障
+       (前端 fetch_market_fund_flow 6 源串行兜底全败被静默=监控盲区根因),必须计 fail
+       → 退出码非 0 → schedule_monitor 照常报。
+- fail = 真失败(采集异常崩溃 / 非凌晨槽多源皆败 / no direct.fetch_* 配置缺失 / direct:* error:
+       采集异常 / 抛异常),计入退出码 → backfill 总退出码非 0 → schedule_monitor 照常报,
+       保留 C4(#84)修「主采集失败静默 exit 0」盲区的监控价值。
 
-退出码:0=无真失败(全成功或仅数据源缺口);1=存在至少一个真失败。
+退出码:0=无真失败(全成功或仅凌晨槽数据源缺口);1=存在至少一个真失败
+       (含非凌晨槽多源皆败)。
 
 输入依赖:REPO 环境变量指向主库目录(由 backfill_metrics.sh 设定,默认
 /Users/linhuichen/code/trade-data);cwd 须在 REPO(app.* import 依赖)。
+BACKFILL_SLOT 环境变量(backfill_metrics.sh L25 export,`date +%H%M`)用于槽位判定:
+02:00→"0200"(凌晨/min前充), 16:35→"1635", 21:00→"2100"。手动跑/无 env 视为非凌晨槽。
 
 输出:stdout 进度(追加进 backfill_{STAMP}.log),collect_log 状态。
 复现:bash scripts/backfill_metrics.sh(3 槽位 launchd 调用)。
@@ -47,9 +51,24 @@ from app.db import get_conn
 GAP_MARKER = "多源皆败无数据"  # collect_direct 空返回的固定 msg(数据源无数据=正常缺口)
 
 
+def _is_morning_slot() -> bool:
+    """槽位判定: 是否为凌晨预期缺口槽(02:00)。
+
+    由 backfill_metrics.sh L25 `BACKFILL_SLOT="$(date +%H%M)"` 注入(02:00→"0200",
+    16:35→"1635", 21:00→"2100")。02:00 是结构性预期缺口:新浪源 T+1、该槽目标日=当日,
+    必败(2026-09-30 实测 9/14-9/30 十七次 gap/五次 ok)。16:35/21:00 是真正兜底槽,
+    每次都能补回来——它们出现「多源皆败」=真故障(16:35/21:00 六源全败)。
+    返回 True = 凌晨槽(02:00 前缀), gap 属结构性预期应静默。
+    无 env(手动跑/update_all)= 非凌晨槽, gap 按真故障计 fail(保守不放过)。
+    """
+    slot = os.environ.get("BACKFILL_SLOT", "")
+    return slot.startswith("02") if slot else False
+
+
 def main() -> int:
     cfg = load_config()
     date = last_trading_day()
+    morning = _is_morning_slot()
     ok = gap = fail = 0
     for m in cfg.get("metrics", []):
         if not m.get("enabled"):
@@ -74,11 +93,22 @@ def main() -> int:
                 print(f"[ok] {mid} +{len(rows)} rows", flush=True)
                 log_collect(date, mid, "ok", f"{len(rows)} rows")
             elif GAP_MARKER in msg:
-                # 数据源无数据(多源皆败)=正常缺口,非任务失败:仍记 error 供
-                # collect_health 反映,但不计 fail、不进退出码。
-                gap += 1
-                print(f"[gap] {mid} {msg}", flush=True)
-                log_collect(date, mid, "error", msg)
+                # 数据源无数据(多源皆败)的归属按槽位区分(2026-09-30 资金面监控盲点修复,
+                # memory alert-denoise-keep-fault-discriminator):
+                # - 凌晨槽(02:00): 结构性预期缺口(新浪源 T+1、目标日=当日必败), 仍计 gap
+                #   静默(9/14-9/30 十七次 gap/五次 ok), 缺口由 collect_health + check_fund
+                #   freshness 检查器反映, 不计 fail、不进退出码。
+                # - 非凌晨槽(16:35/21:00): 真正兜底槽每次都补回来, 此刻六源全败=真故障
+                #   (六源全败被当正常缺口的盲区根因), 必须计 fail → 退出码非 0 →
+                #   schedule_monitor 照常告警。不再静默。
+                if morning:
+                    gap += 1
+                    print(f"[gap] {mid} {msg} (02:00 槽预期缺口, 静默)", flush=True)
+                    log_collect(date, mid, "error", msg)
+                else:
+                    fail += 1
+                    print(f"[fail] {mid} {msg} (非凌晨槽多源全败=真故障, 计入退出码)", flush=True)
+                    log_collect(date, mid, "error", msg)
             else:
                 # 真失败(配置缺失 no direct.fetch_* / 采集异常 direct:* error:)
                 fail += 1

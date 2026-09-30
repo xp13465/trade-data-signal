@@ -34,9 +34,12 @@ fi
 # 2) 补采 direct:类指标（主力净流入 a_fund_main 等；东财封禁时 direct.py 内置 akshare fallback）
 #    独立脚本 scripts/backfill_direct_metrics.py（2026-09-09 从内嵌 python 提取，逻辑逐行一致，
 #    唯一变更=缺口判定）。退出码语义：仅「真失败」（no direct.fetch_* 配置缺失 / direct:* error:
-#    采集异常 / 抛异常）计 fail → exit 1；「多源皆败无数据」= 数据源正常缺口(gap)，不计 fail、
-#    不进退出码，缺口由 collect_health 通道反映（#84 reviewer P1-1：02:00 槽 a_fund_main 每日
-#    必现该缺口，旧逻辑计 fail → 每日 exit 1 → schedule_monitor 假 SEVERE+恢复邮件循环）。
+#    采集异常 / 抛异常 / 非凌晨槽多源皆败）计 fail → exit 1。
+#    「多源皆败无数据」按 BACKFILL_SLOT 槽位区分（2026-09-30 资金面监控盲点修复）：
+#    02:00 凌晨槽=结构性预期缺口(gap)，不计 fail、不进退出码——该豁免现仅适用 02:00 凌晨槽
+#    （历史依据 #84 reviewer P1-1：02:00 槽 a_fund_main 每日必现该缺口，旧逻辑计 fail → 每日
+#    exit 1 → schedule_monitor 假 SEVERE+恢复邮件循环）；16:35/21:00 非凌晨槽六源全败=真故障
+#    →计 fail→exit 1；无 BACKFILL_SLOT(手动/update_all)保守按非凌晨处理。
 "$REPO/.venv/bin/python" "$REPO/scripts/backfill_direct_metrics.py" 2>&1 | tee -a "$LOG"
 drc=${PIPESTATUS[0]}
 if [ "$drc" -ne 0 ]; then
