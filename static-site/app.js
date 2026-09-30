@@ -1825,6 +1825,21 @@ function _renderOverfitAcc(data) {
     dataZoom: dates.length > 80,
     xLabels: dates, xFmt: (v) => v,
     forceLastLabel: true,   // 2026-09-30 #147: 末点必出标签(曲线画到末点, 刻度标签不能停在半途)
+    // 2026-09-30 #147 右锚定版配套: 刻度间隔按本图实际刻度串(8位日期, 实测 57.6px)量宽重算 step,
+    // 照抄 2026-09-05 净资产图先例(L5828 注释+公式): _etfXStep 只按 "MM-DD"(5字符)量宽, 对 8 位日期
+    // 真实宽度不足 → 常规间距 55.4px < 文本宽 57.6px 重叠 2.2px(_etfXStep 引擎全局口径)。本图自算:
+    //   step = floor(max(labelW*1.3, 7) / (_iwEst / n)) + 1, _iwEst = 容器实测宽 - pl - pr(640 空间
+    //   经 _lwBind 按容器实测宽拉伸, 屏幕间距 = step×584/n×(_W/640), 先例口径偏保守安全)。
+    xStep: (() => {
+      let _lw2 = 33;
+      try {
+        const _cx = document.createElement("canvas").getContext("2d");
+        if (_cx) { _cx.font = "12px sans-serif"; _lw2 = _cx.measureText("20260928").width || _lw2; }
+      } catch (_e) { /* 降级默认 33 */ }
+      const _cw = (_overfitAccEl && (_overfitAccEl.getBoundingClientRect().width || _overfitAccEl.offsetWidth)) || 640;
+      const _iwEst = Math.max(120, _cw - 40 - 16);   // 640=兜底; pl40·pr16(本图 cfg)
+      return Math.max(1, Math.floor(Math.max(_lw2 * 1.3, 7) / (_iwEst / Math.max(dates.length, 1))) + 1);
+    })(),
     ys: [{ splitLine: true, formatter: (v) => v + "%", splitNumber: 5, min: 0, max: 100 }],
     legend: accLegend,
     series: accSeries,
@@ -1932,6 +1947,18 @@ function _renderOverfitRisk(data) {
     dataZoom: dates.length > 80,
     xLabels: dates, xFmt: (v) => v,
     forceLastLabel: true,   // 2026-09-30 #147: 末点必出标签(与准确率图同口径)
+    // 2026-09-30 #147 右锚定版配套: 同准确率图——刻度间隔按实际刻度串(8位日期)量宽重算 step,
+    // 照 2026-09-05 净资产图先例公式(floor(labelW*1.3/unitW)+1), 防 8 位日期真实宽 > 常规间距的重叠。
+    xStep: (() => {
+      let _lw2 = 33;
+      try {
+        const _cx = document.createElement("canvas").getContext("2d");
+        if (_cx) { _cx.font = "12px sans-serif"; _lw2 = _cx.measureText("20260928").width || _lw2; }
+      } catch (_e) { /* 降级默认 33 */ }
+      const _cw = (_overfitRiskEl && (_overfitRiskEl.getBoundingClientRect().width || _overfitRiskEl.offsetWidth)) || 640;
+      const _iwEst = Math.max(120, _cw - 40 - 16);   // 640=兜底; pl40·pr16(本图 cfg)
+      return Math.max(1, Math.floor(Math.max(_lw2 * 1.3, 7) / (_iwEst / Math.max(dates.length, 1))) + 1);
+    })(),
     ys: [{ splitLine: true, splitNumber: 5, min: 0, max: 100 }],  // P2-3: 固定 0-100(对齐 echarts fallback yAxis min/max)
     legend: [{ name: "过拟合风险分", color: "#409eff" }],
     series: [{
