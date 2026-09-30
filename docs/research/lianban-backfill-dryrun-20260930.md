@@ -69,6 +69,29 @@
 
 **0 天**。全量 1230 交易日 FAPI 均取数成功(排除 ST 后均至少有 1 只非 ST 涨停股可取 max 连板)。
 
+### 4.4 只补缺口模式(dry-run,2026-09-30 用户拍板「现有 76 天一根汗毛不动」)
+
+运行:`--start 20210901 --end 20260929 --db <prod副本>`(默认只补缺口,非 overwrite)。输出 `fillgaps_dryrun.json`。
+
+| 项 | 值 |
+|---|---|
+| 交易日 | 1230 |
+| 计划写入(缺口) | **1154 天**(=用户预期,全部为增量段 20210901~20260611) |
+| 因已有值跳过 | 76 天(现有 20260612~20260929,全 source=akshare/intraday 非 manual) |
+| 因 manual 跳过 | 0(现库无 manual 行) |
+| gap | 0 |
+| 重叠段写入 | 0 天(overlap_written=0,76 天全部跳过) |
+| 重叠段对账 mismatch | 0(跳过日不计入,不再误报不等) |
+
+**两条防线证明**:
+1. 只补缺口跳过:现有 76 天于 fill-gaps-only 下全部 `skipped_existing`,不产生覆盖(手动打印/SQL 双层保护)。
+2. `--end 20260611` 天然避开:本地验证 `_existing_map(20210901..20260611)` 返回 0 条,现有 `a_width_max_lianban` 最小日期 = 20260612 > 20260611 → 该回补区间全部位于现有段之前,零重叠、零触碰。即便用默认 end 到昨日(20260929),现有 76 天也因防线 1 全跳过。
+
+**逐行零触碰证明**(key=metric+date,重放计划写到副本库后对比):
+- 副本写入 1154 条后对比原库:`added_rows=1154`(全部为 `a_width_max_lianban`),`removed_rows=0`,`changed_rows=0`。
+- **现有 a_width_max_lianban 77 天(20260612~20260930)逐位零变化(changed=0)**;全 230995 行中除新增 1154 行外,所有其它 metric 无任何新增/删/改。
+- 证明「只补缺口」写库 = 仅新增缺口行,现有数据一根汗毛不动。脚本:`docs/scripts/verify_lianban_fillgaps_zerotouch.py`,重放 SQL 与 `app.backfill_lianban._upsert` 一致(manual `WHERE source!='manual'` 兜底)。
+
 ## 5. a_sentiment 影响实测(回补前 vs 回补后各算一遍)
 
 > 方法:在临时副本上,`sent_before.db`(原样)vs `sent_after.db`(注入 1230 天回补值)各跑一次 `app.compute.sentiment.compute()+store()`(120 交易日滚动百分位,权重表 `sentiment.py:10-17`),对比 `score_daily.a_sentiment` 逐日 value / is_freeze。对比日期共 2602 天(库内 a_sentiment 全历史)。
@@ -164,12 +187,22 @@ md5 /tmp/lianban_dryrun/zero_write.db            # 记前
 /Users/linhuichen/code/trade/.venv/bin/python -m app.backfill_lianban \
   --dry-run --start 20210901 --end 20210910 --db /tmp/lianban_dryrun/zero_write.db
 md5 /tmp/lianban_dryrun/zero_write.db            # 应完全相同
+
+# 6) 只补缺口 dry-run + 逐行零触碰证明(§4.4)
+/Users/linhuichen/code/trade/.venv/bin/python -m app.backfill_lianban \
+  --start 20210901 --db /tmp/lianban_dryrun/prod_sentiment_copy.db \
+  --out /tmp/lianban_dryrun/fillgaps_dryrun.json        # 默认只补缺口
+/Users/linhuichen/code/trade/.venv/bin/python \
+  docs/scripts/verify_lianban_fillgaps_zerotouch.py \
+  /tmp/lianban_dryrun/fillgaps_dryrun.json \
+  /tmp/lianban_dryrun/prod_sentiment_copy.db \
+  /tmp/lianban_dryrun/fill_test.db                     # PASS:仅新增1154行,其余零变化
 ```
 
-复现所需文件:`app/backfill_lianban.py`(本次新增)+ `docs/scripts/sent_impact_lianban.py`(影响实测辅助脚本,本次新增)+ `/tmp/lianban_dryrun/full_dryrun.json`、`sent_impact.json`(对账/影响明细,跑出的中间产物,不入 git)。
+复现所需文件:`app/backfill_lianban.py`(本次新增)+ `docs/scripts/sent_impact_lianban.py`(影响实测辅助脚本,本次新增)+ `docs/scripts/verify_lianban_fillgaps_zerotouch.py`(逐行零触碰证明,本次新增)+ `/tmp/lianban_dryrun/full_dryrun.json`、`sent_impact.json`、`fillgaps_dryrun.json`(对账/影响/只补缺明细,跑出的中间产物,不入 git)。
 
 ## 11. 后续待办(用户拍板)
 
-1. **是否授权写生产库**:`python -m app.backfill_lianban --write --start 20210901 --end <昨天> --db <生产库>`(云上 `/home/ubuntu/code/trade-data/data/sentiment.db`)。写入会带 `WHERE source != 'manual'` 保护。
+1. **是否授权写生产库**:写库走**只补缺默认**(现有 76 天一根汗毛不动),云上执行完整步骤(备份/复核/执行/校验/回滚)见 `docs/ops/lianban-prod-write-checklist.md`——只写文档不执行,一带用户再授权才动。目标库为云上主库 `/home/ubuntu/code/trade-data/data/sentiment.db`(注意非 `trade-data-signal/data/sentiment.db` 旧镜像)。
 2. **是否用回补后 lianban 重算历史 a_sentiment**:会改变历史段数值与 34 天 is_freeze 标记(§23.7 冻结范畴),需用户单独决策。
 3. FAPI 分页 size=200 若需根治,后续调研 FAPI 是否支持翻页取全量涨停池(超出本轮 dry-run 范围)。
