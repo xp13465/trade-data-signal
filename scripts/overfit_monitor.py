@@ -70,12 +70,17 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))   # trade-data/scripts/
 sys.path.insert(0, SCRIPT_DIR)
 # 统一部署源树/上传 helper(防再犯机制 E, 2026-08-18): REPO = 部署源树(trade-data),
 # guard_deploy_source_tree 防误写 git 仓(trade); R2 上传 env 用 force_env 强制覆盖。
+# ⚠ 惰性求值(方案 A, 2026-09-30 用户拍板): 守卫绝不能在模块顶层调用——pick_repo() 无 env 时
+# 按各树 static-site/data/overview.json 的 date 最新挑树, 本机主仓 trade 的 overview(20260924)
+# 反而比 trade-data(20260917)新 → 必选 git 仓 → import 一进模块就 guard_deploy_source_tree 触发
+# SystemExit + 假告警(2026-09-30 14:07 真实误报)。故顶层只做 pick_repo()(纯解析, 读 overview
+# date, 零阻断零告警), 守卫调用移到 build_output(真正写/上传路径)开头, 写路径保护不弱化。
 from pick_repo import pick_repo, pick_git_repo, force_env, guard_deploy_source_tree  # noqa: E402
 # trade 行 schema 单一事实源(防列序漂移, 2026-08-23/09-15 两次同款病灶): 不再各自硬编码 FIELD。
 # signal_kelly_backtest 顶层仅常量/函数定义, 无 DB 连接/重计算副作用, import 安全。
 from signal_kelly_backtest import TRADE_FIELDS  # noqa: E402
 from util_atomic import atomic_write_json  # noqa: E402  (原子写公共模块, 2026-09-22 非 kelly 链路统一)
-REPO = str(guard_deploy_source_tree(pick_repo()))         # trade-data/(部署源树)
+REPO = str(pick_repo())         # trade-data/(部署源树); 惰性求值: guard 见 build_output 开头
 
 # ── 常量 ──────────────────────────────────────────────────────────────────────
 BUY_SIGNALS = ("buy", "buy_aux", "buy_special", "buy_backup")
@@ -1625,6 +1630,11 @@ def _compute_bank(by_date, close_map, trades_by_date, grade_map, latest_signal, 
 
 
 def build_output(rebuild=False, dry_run=False):
+    # 写/上传路径守卫(惰性求值, 方案 A 2026-09-30): import 不再触发(曾致 import 即 SystemExit
+    # + 假告警); 真正写盘/上传前先校验部署源树, 误写 git 仓仍拦截 + 告警(防再犯机制 E, §23.11
+    # 不静默)。REPO 已在模块顶层由 pick_repo() 惰性解析; 守卫只校验不动值(合法分支返回同一 repo,
+    # 非法分支 raise SystemExit, 无「改值后放行」路径), 返回值无需收。
+    guard_deploy_source_tree(REPO)
     conn_ok = True
     try:
         conn = sqlite3.connect(find_db())
