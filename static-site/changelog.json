@@ -214,5 +214,8 @@
   ],
   "20260930-a625": [
     "docs(relay): \u90e8\u7f72\u6e05\u5355\u8865 CSP \u767d\u540d\u5355\u540c\u6b65\u63d0\u9192(reviewer F1)"
+  ],
+  "20260930-a626": [
+    "Merge remote-tracking branch 'origin/main' into worktree-agent-a0566720878fdc0bf"
   ]
 }
