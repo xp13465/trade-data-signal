@@ -13,7 +13,7 @@
   (锚点「已越过硬顶」)并清掉分轮 state——监控零捕获。本检测器以 DB 状态推导为主信号
   (内部断档洞 >15 天), 日志扫描为辅证实锤, 不依赖日志轮转不丢信号。
 
-八个检查器(均只读生产库, 不写任何业务数据):
+九个检查器(均只读生产库, 不写任何业务数据):
   north_hole          a_fund_north 内部断档洞>15天。洞+无分轮state=SEVERE(不自愈,
                       需人工 fallback1 全量); 洞+有state=WARN(分轮累积推进中, 观察)。
                       附带扫 backfill_evening 日志尾部「已越过硬顶」实锤行。
@@ -58,6 +58,14 @@
                       C1 最近成功 deploy(deploy_*.log 含「退出码=0」)距今 >2 天 → WARN;
                       C2 最新 deploy_*.log 尾部 rc 行无「退出码=0」→ WARN(最近 deploy
                       未知/失败, kelly 产物可能未刷新)。无 DB 依赖。
+  fund_freshness      资金面主力净流入保鲜(2026-09-30 六源全败盲点根治#2):
+                      daily_metric 表 a_fund_main(主力净流入, direct:market_fund_flow 6源串行)
+                      与 a_fund_margin(两融,占同一表同样零监控)的 MAX(date) 落后最近交易日
+                      >=FUND_WARN_BACK(2) 交易日 → WARN, >=FUND_SEVERE_BACK(5) → SEVERE。
+                      非交易日不判(今天非交易日直接返回)。
+                      真实: 2026-09-30 库 a_fund_main 停 09-17 / a_fund_margin 停 09-16
+                      (落后 last_trading_day 09-30 约 8-9 交易日), 即本检查器要抓的形态——
+                      backfill 16:35/21:00 槽多源全败被静默成"正常缺口"的漏网。(纯新增, 不改现有检查器)
 
 输入依赖(新增 6/7/8 检查器):
   - {repo}/data/sentiment.db  signal_daily(候选信号源, 与 signal_kelly_backtest.py L1089 同源)
@@ -143,6 +151,13 @@ WIDTH_GROUP_NEW = [  # 20260612 起新增(起点演进中, 只查停更不查洞
     "a_width_daban_premium", "a_width_max_lianban", "a_width_zhaban_rate",
 ]
 WIDTH_NEW_START = "20260612"  # GROUP_NEW 预期起点(未到起点的行不算落后)
+
+# 资金面主力净流入保鲜检查器(checker 9, 2026-09-30 六源全败盲点根治#2)
+# a_fund_main=主力净流入(direct:market_fund_flow 6源串行兜底); a_fund_margin=两融(占同一表同样零监控)。
+# 落后最近交易日 >=FUND_WARN_BACK → WARN, >=FUND_SEVERE_BACK → SEVERE。
+FUND_IDS = ["a_fund_main", "a_fund_margin"]
+FUND_WARN_BACK = 2        # 落后 >=2 交易日 → WARN(16:35/21:00 兜底槽都没补回, 已达 2 个交易日的容忍)
+FUND_SEVERE_BACK = 5      # 落后 >=5 交易日(约一周) → SEVERE(真停更堆积)
 
 # ── 交易记录断档监控常量(2026-09-08, 设计 docs/kelly/analysis/monitor-trades-stall-rootfix-20260908.md §4) ──
 KELLY_COVERAGE_BACK = 5       # 覆盖检查回溯窗口: 最近 N 个已生成信号的交易日
@@ -665,6 +680,66 @@ def check_width(repo: Path, today: datetime) -> list[Finding]:
                 f"涨停源(mootdx)已有数据到 {src_max}, 宽度族止步 {ref}",
                 f"源已采集而宽度未重算(run_recent 未跑或写入失败), 查 update_all/scheduler step9。"
                 f"<br>日志: {repo}/data/logs/update_all_launchd.log"))
+    return out
+
+
+# ── checker 9: 资金面主力净流入保鲜(2026-09-30 六源全败盲点根治#2, 纯新增) ──
+# 背景: a_fund_main(主力净流入, direct:market_fund_flow 6源串行兜底)在非凌晨槽 16:35/21:00
+# 六源全败被 backfill_direct_metrics 静默成"正常缺口"(三层消音叠加), 前端 fetch 无监控,
+# 真实 2026-09-30 a_fund_main 停 09-17 / a_fund_margin 停 09-16(落后 last_trading_day 约 8-9 交易日)
+# 零告警。本检查器只读 daily_metric 表取 MAX(date), 落后最近交易日达阈值告警。
+# 与辅修 A(backfill 槽位区分)互补: A 在采集时区分真故障/预期缺口, 本检查器在盘后兜底查
+# 「数据到底有没有进来」。非交易日不判(今天非交易日直接返回, 防节假日误报)。
+FUND_KEY = "data_gap:fund_freshness"
+
+
+def check_fund_freshness(repo: Path, today: datetime) -> list[Finding]:
+    db = repo / "data" / "sentiment.db"
+    if not db.exists():
+        return [Finding(FUND_KEY, "warn", "资金面主力净流入检测跳过(主库缺失)",
+                        f"{db} 不存在, fund_freshness 未执行(环境异常)")]
+    t = today.strftime("%Y%m%d")
+    ds = _load_trade_dates(repo)
+    if t not in ds:
+        return []  # 非交易日不判
+    # 最近交易日 = 交易日历里 <= t 的最大日
+    lt = max((d for d in ds if d <= t), default="")
+    if not lt:
+        return []  # 交易日历异常/无该日, 跳过不误报
+    out: list[Finding] = []
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=30.0)
+    try:
+        for mid in FUND_IDS:
+            r = conn.execute(
+                "SELECT MAX(date) FROM daily_metric WHERE metric_id=?", (mid,)).fetchone()
+            mx = str(r[0] or "") if r else ""
+            if not mx:
+                out.append(Finding(
+                    FUND_KEY, "severe",
+                    f"{mid} 无任何数据(daily_metric 空)",
+                    f"{mid} 在 daily_metric 表无记录, 采集从未成功(或指标名变更)。<br>"
+                    f"建议查 backfill_evening 日志该指标段 + indicators.yaml 配置。"))
+                continue
+            lag = _trading_days_gap(repo, mx, lt)  # lt - mx 交易日数
+            if lag >= FUND_SEVERE_BACK:
+                out.append(Finding(
+                    FUND_KEY, "severe",
+                    f"{mid} 已 {lag} 个交易日未更新(最新 {mx}, 最近交易日 {lt})",
+                    f"daily_metric MAX(date)={mx}, 落后最近交易日 {lt} 达 {lag} 交易日(阈值 {FUND_SEVERE_BACK})。<br>"
+                    f"影响: 前端主力资金/两融展示读到旧值, 资金面监控失效。<br>"
+                    f"根因(2026-09-30): backfill 16:35/21:00 槽 6 源全败被静默成正常缺口, retry 17轮也不醒。<br>"
+                    f"日志: {repo}/data/logs/backfill_evening_launchd.log + backfill_*.log<br>"
+                    f"建议: 查 fetch_market_fund_flow 各源状态, 必要时手动补采当日资金数据。"))
+            elif lag >= FUND_WARN_BACK:
+                out.append(Finding(
+                    FUND_KEY, "warn",
+                    f"{mid} 已 {lag} 个交易日未更新(最新 {mx})",
+                    f"{mid} daily_metric MAX(date)={mx}, 落后最近交易日 {lt} 达 {lag} 交易日"
+                    f"(WARN 线 {FUND_WARN_BACK}, SEVERE 线 {FUND_SEVERE_BACK})。<br>"
+                    f"16:35/21:00 兜底槽连续未补回当日值, 已达容忍线。<br>"
+                    f"建议: 关注 backfill_evening 日志, 若持续升级为 SEVERE 再人工介入。"))
+    finally:
+        conn.close()
     return out
 
 
@@ -1399,6 +1474,7 @@ def run(repo: Path, dry_run: bool) -> int:
     findings += check_kelly_coverage(repo, today)
     findings += check_kelly_stale(repo, today)
     findings += check_kelly_backtest_fail(repo, today)
+    findings += check_fund_freshness(repo, today)
     print(f"[check_data_gap] 检测完成: {len(findings)} 条发现 "
           f"(severe={sum(1 for f in findings if f.level == 'severe')}, "
           f"warn={sum(1 for f in findings if f.level == 'warn')}, "
@@ -1597,6 +1673,47 @@ def self_test() -> int:
         qdii_info = [f for f in fa7c if f.key == ACC_NAV_GAP_KEY and f.level == "info"]
         if not qdii_info and not any("QDII" in f.title for f in fa7c):
             fails.append("case A7c QDII 新增缺价应有 info 观察条目")
+
+        # ── case F: 资金面保鲜 two-way 自测(checker 9, 2026-09-30) ──
+        def _write_fund(base_p, fund_dates, trade_dates):
+            """重写 base/data/daily_metric 的 fund 系列数据 + 写 trade_dates.txt(交易日历)。
+            fund_dates={mid: [自然日串列表]}; trade_dates 为升序交易日(须含 now 当日)。"""
+            p = base_p / "data"
+            conn = sqlite3.connect(p / "sentiment.db")
+            conn.execute("DELETE FROM daily_metric WHERE metric_id IN ('a_fund_main','a_fund_margin','a_fund_north')")
+            rows = []
+            for mid, ds in fund_dates.items():
+                rows += [("".join(d), mid, 1.0, "t", "t") for d in ds]
+            if rows:
+                conn.executemany("INSERT OR IGNORE INTO daily_metric VALUES (?,?,?,?,?)", rows)
+            conn.commit()
+            conn.close()
+            (p / "trade_dates.txt").write_text("\n".join(trade_dates), encoding="utf-8")
+        # now=08-27(交易日历含该日); 连续 4 个交易日 08-24/25/26/27(仅作有序判定用)
+        _td = ["20260824", "20260825", "20260826", "20260827"]
+        # F1: 正常(两指标最新都到 08-27, lag=0) → 不命中 warn/severe
+        _write_fund(base, {"a_fund_main": ["20260826", "20260827"],
+                           "a_fund_margin": ["20260826", "20260827"]}, _td)
+        fF1 = check_fund_freshness(base, datetime(2026, 8, 27, 22, 35))
+        badF1 = [f for f in fF1 if SEV_ORDER.get(f.level, 0) >= 1]
+        if badF1:
+            fails.append(f"case F1(正常态)资金面不应命中 warn/severe: {[(f.key, f.level) for f in badF1]}")
+        # F2: 落后 >=FUND_SEVERE_BACK(5) → SEVERE
+        _write_fund(base, {"a_fund_main": ["20260820"],
+                           "a_fund_margin": ["20260820"]}, _td)
+        fF2 = check_fund_freshness(base, datetime(2026, 8, 27, 22, 35))
+        if not any(f.level == "severe" for f in fF2 if f.key == FUND_KEY):
+            fails.append(f"case F2(落后超SEVERE线)应 severe, 实得 {[(f.key, f.level) for f in fF2]}")
+        # F3: 落后 FUND_WARN_BACK(2) 达 warn
+        _write_fund(base, {"a_fund_main": ["20260825"],
+                           "a_fund_margin": ["20260825"]}, _td)
+        fF3 = check_fund_freshness(base, datetime(2026, 8, 27, 22, 35))
+        if not any(f.level == "warn" for f in fF3 if f.key == FUND_KEY):
+            fails.append(f"case F3(落后warn线)应 warn, 实得 {[(f.key, f.level) for f in fF3]}")
+        # F4: 非交易日今天(08-30 周六)不判
+        fF4 = check_fund_freshness(base, datetime(2026, 8, 30, 22, 35))
+        if fF4:
+            fails.append(f"case F4(非交易日)不应判, 实得 {[(f.key, f.level) for f in fF4]}")
 
         # ── case K/K2/K4: 交易记录断档监控 two-way 自测(设计 §7 项 1/4) ──
         def _kelly_files(repo_p, sd_sigs, latest_trades, nav_ok, placeholder_98=False,

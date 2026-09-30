@@ -21,8 +21,18 @@ self_heal 重试或明日 update_all 兜底)。
 - collect_health level=error,线上小红点
 - 18:07 self_heal 调本脚本 -> retry a_width_dt_count -> collect_snapshot 交叉验证
   涨停池99只 -> 跌停池空=真0,写0+ok -> collect_health 变 ok,红点消失
+
+连续失败通知(2026-09-30 资金面 6 源全败被静默成正常缺口盲点根治#3):
+- 背景: 2026-09-30 02:37 起 a_fund_main(主力净流入, direct:market_fund_flow 6源串行)重采
+  连续失败 17 轮零告警(只 return False 打日志,不 notify, 三层消音叠加的其中一层)。
+- 本模块修复: 真实采集类失败(非 no config/disabled/TODO 配置类)连续 >=3 轮 → 调 notify.py
+  发邮件+飞书(复用既有通道)。计数跨轮持久化(独立 state 文件 data/retry_failed_metrics_count.json,
+  按 mid 计), 达阈值发一次后清零暂歇, 防每轮轰炸(memory alert-dedup-mechanism 同精神)。
+- 配置/disabled/no-func 类失败不累计(重试无意义, 告警无价值, 防噪音)。
 """
 import datetime as dt
+import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -40,6 +50,56 @@ from app.collector.base import log_collect
 from app.collector.fetchers import load_config, collect_snapshot, collect_direct
 from app.collector.runner import upsert_metric, upsert_metrics_many
 from app.db import get_conn
+
+# ── 连续失败通知(2026-09-30 资金面 6 源全败盲点根治#3) ──
+RETRY_NOTIFY_THRESHOLD = 3        # 重采失败连续 >=3 轮发 notify(防 17 轮静默)
+COUNT_FILE = _ROOT / "data" / "retry_failed_metrics_count.json"  # {mid: 当前连续失败轮数}
+_CONFIG_FAIL_PREFIX = ("no config", "disabled", "no func")  # 配置类失败不累计(重试也无意义)
+
+
+def _load_counts() -> dict:
+    """读连续失败计数文件(跨轮持久化)。读失败/缺失返回 {}。"""
+    try:
+        c = json.loads(COUNT_FILE.read_text(encoding="utf-8"))
+        return c if isinstance(c, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_counts(counts: dict) -> None:
+    """原子写计数文件(tmp+replace, 防半截被并发 self_heal 读走)。失败仅打日志不抛。"""
+    try:
+        COUNT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = COUNT_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(counts, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        tmp.replace(COUNT_FILE)
+    except Exception as e:  # noqa: BLE001
+        print(f"[retry] 失败计数原子写失败(不影响重采主流程): {e}", file=sys.stderr)
+
+
+def _is_collect_failure(msg: str) -> bool:
+    """是否真实采集类失败(值得累计告警)。配置类失败(no config/disabled/no func)不累计——重试无意义。"""
+    return not (msg or "").startswith(_CONFIG_FAIL_PREFIX)
+
+
+def _notify_repeat_failure(mid: str, count: int, date: str, msg: str) -> None:
+    """重采连续失败达阈值 → 调 notify.py 发邮件+飞书(复用既有通道, 不另起炉灶)。"""
+    subject = f"[告警][重采失败] {mid} 连续 {count} 轮重采失败"
+    body = (f"<b>{mid}</b> 在 <b>{date}</b> 自愈重采(每15min一轮)已连续 <b>{count}</b> 轮失败"
+            f"(阈值 {RETRY_NOTIFY_THRESHOLD})。<br>"
+            f"最近失败原因: <code>{msg}</code><br>"
+            f"这是 2026-09-30 资金面 6 源全败盲区根治#3: 前序 17 轮失败零告警(只 return False 打日志)。<br>"
+            f"建议: 查该数据源(fetch_market_fund_flow 等)是否封禁/停服, 必要时手动补采或人工介入。")
+    cmd = [sys.executable, str(_ROOT / "scripts" / "notify.py"),
+           subj, body, "--from-prefix", "[告警]"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if r.returncode != 0:
+            print(f"[notify] retry_failed 通知退出码 {r.returncode}: {(r.stderr or '')[-200:]}", file=sys.stderr)
+        else:
+            print(f"[notify] {mid} 连续 {count} 轮失败已发通知", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify] retry_fail 通知异常: {e}", file=sys.stderr)
 
 
 def get_failed_metrics(date: str) -> list[dict]:
@@ -144,15 +204,28 @@ def main() -> int:
     failed_ids = [f["metric_id"] for f in failed]
     print(f"[retry] {today} 发现 {len(failed)} 个 error 指标: {failed_ids}", flush=True)
     ok = fail = 0
+    counts = _load_counts()  # 本轮统一加载, 末尾一次性落盘(防并发 self_heal 踩踏计数文件)
     for f in failed:
         mid = f["metric_id"]
         success, msg = retry_metric(mid, today, cfg)
         if success:
             ok += 1
+            counts.pop(mid, None)  # 成功清零连续失败计数
             print(f"  [ok] {mid}: {msg}", flush=True)
         else:
             fail += 1
             print(f"  [fail] {mid}: {msg} (原 error: {f['message']})", flush=True)
+            if _is_collect_failure(msg):
+                n = counts.get(mid, 0) + 1
+                if n >= RETRY_NOTIFY_THRESHOLD:
+                    counts.pop(mid, None)  # 达标发一次后清零暂歇, 防每轮轰炸(去重)
+                    _save_counts(counts)
+                    _notify_repeat_failure(mid, n, today, msg)
+                else:
+                    counts[mid] = n  # 未达阈值, 累加后下次再判
+            else:
+                counts.pop(mid, None)  # 配置类失败不累计(重试无意义)
+    _save_counts(counts)
     print(f"=== retry 完成 ok={ok} fail={fail} ===", flush=True)
     return 0
 
