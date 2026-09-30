@@ -516,7 +516,7 @@ if [ "$REPO" != "$GIT_REPO" ]; then
   # (dedup 失效根因, 09-28 sigkelly_snapshot_stagnation 同 key 24h 内 2 次)。
   # 状态文件以 REPO(trade-data)侧为准, 不跨树同步; 排除后单源写, dedup 窗口可靠。
   rsync -a --exclude=logs/ --exclude=notify_dedup.json --exclude=alert_state.json \
-        --exclude=alerts/ --exclude=warning_* \
+        --exclude=alerts/ --exclude=warning_* --exclude=backups/ \
         "$REPO/data/" "$GIT_REPO/data/" 2>&1 | tee -a "$LOG"
   RSYNC_DB_RC=${PIPESTATUS[0]}
   if [ "$RSYNC_DB_RC" -ne 0 ]; then
